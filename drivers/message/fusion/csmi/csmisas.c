@@ -591,13 +591,11 @@ csmisas_sas_device_pg0(MPT_ADAPTER *ioc, struct mptsas_devinfo *device_info,
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_get_driver_info(unsigned long arg)
+csmisas_get_driver_info(MPT_ADAPTER *ioc, unsigned long arg)
 {
 
 	CSMI_SAS_DRIVER_INFO_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_DRIVER_INFO_BUFFER	karg;
-	MPT_ADAPTER	*ioc = NULL;
-	int		iocnum;
 
 	if (copy_from_user(&karg, uarg, sizeof(CSMI_SAS_DRIVER_INFO_BUFFER))) {
 		printk(KERN_ERR "%s@%d::%s - "
@@ -606,16 +604,9 @@ csmisas_get_driver_info(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg.IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		return -ENODEV;
 	}
 
@@ -662,13 +653,11 @@ csmisas_get_driver_info(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_get_cntlr_config(unsigned long arg)
+csmisas_get_cntlr_config(MPT_ADAPTER *ioc, unsigned long arg)
 {
 
 	CSMI_SAS_CNTLR_CONFIG_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_CNTLR_CONFIG_BUFFER	karg;
-	MPT_ADAPTER	*ioc = NULL;
-	int		iocnum;
 	u64		mem_phys;
 
 	if (copy_from_user(&karg, uarg, sizeof(CSMI_SAS_CNTLR_CONFIG_BUFFER))) {
@@ -678,17 +667,9 @@ csmisas_get_cntlr_config(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg.IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		karg.IoctlHeader.ReturnCode = CSMI_SAS_STATUS_INVALID_PARAMETER;
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		return -ENODEV;
 	}
 
@@ -774,13 +755,11 @@ csmisas_get_cntlr_config(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_get_cntlr_status(unsigned long arg)
+csmisas_get_cntlr_status(MPT_ADAPTER *ioc, unsigned long arg)
 {
 
 	CSMI_SAS_CNTLR_STATUS_BUFFER  __user *uarg = (void __user *) arg;
-	MPT_ADAPTER		*ioc = NULL;
 	CSMI_SAS_CNTLR_STATUS_BUFFER	karg;
-	int			iocnum;
 	int			rc;
 
 	if (copy_from_user(&karg, uarg, sizeof(CSMI_SAS_CNTLR_STATUS_BUFFER))) {
@@ -790,16 +769,9 @@ csmisas_get_cntlr_status(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg.IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		return -ENODEV;
 	}
 
@@ -857,11 +829,10 @@ csmisas_get_cntlr_status(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_get_phy_info(unsigned long arg)
+csmisas_get_phy_info(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_PHY_INFO_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_PHY_INFO_BUFFER  *karg;
-	MPT_ADAPTER		*ioc = NULL;
 	ConfigExtendedPageHeader_t  hdr;
 	CONFIGPARMS		cfg;
 	SasIOUnitPage0_t	*sasIoUnitPg0;
@@ -871,7 +842,6 @@ csmisas_get_phy_info(unsigned long arg)
 	dma_addr_t		sasPhyPg0_dma;
 	int			sasPhyPg0_data_sz;
 	u16			protocol;
-	int			iocnum;
 	int			rc;
 	int			ii;
 	u64			sas_address;
@@ -905,17 +875,9 @@ csmisas_get_phy_info(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg->IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		free_pages((unsigned long)karg, memory_pages);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		free_pages((unsigned long)karg, memory_pages);
 		return -ENODEV;
 	}
@@ -1407,12 +1369,10 @@ sas_get_phy_info_exit:
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_set_phy_info(unsigned long arg)
+csmisas_set_phy_info(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_SET_PHY_INFO_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_SET_PHY_INFO_BUFFER	 karg;
-	MPT_ADAPTER			*ioc = NULL;
-	int				iocnum;
 
 	if (copy_from_user(&karg, uarg, sizeof(CSMI_SAS_SET_PHY_INFO_BUFFER))) {
 		printk(KERN_ERR "%s@%d::%s() - "
@@ -1421,16 +1381,9 @@ csmisas_set_phy_info(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg.IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		return -ENODEV;
 	}
 
@@ -1466,12 +1419,10 @@ csmisas_set_phy_info(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_get_scsi_address(unsigned long arg)
+csmisas_get_scsi_address(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_GET_SCSI_ADDRESS_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_GET_SCSI_ADDRESS_BUFFER	 karg;
-	MPT_ADAPTER		*ioc = NULL;
-	int			iocnum;
 	u64			sas_address;
 	struct sas_device_info	*sas_info;
 
@@ -1483,16 +1434,9 @@ csmisas_get_scsi_address(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg.IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		return -ENODEV;
 	}
 
@@ -1541,12 +1485,10 @@ csmisas_get_scsi_address(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_get_sata_signature(unsigned long arg)
+csmisas_get_sata_signature(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_SATA_SIGNATURE_BUFFER  __user *uarg = (void __user *) arg;
 	CSMI_SAS_SATA_SIGNATURE_BUFFER	 karg;
-	MPT_ADAPTER			*ioc = NULL;
-	int				iocnum;
 	int				rc, jj;
 	ConfigExtendedPageHeader_t	hdr;
 	CONFIGPARMS			cfg;
@@ -1572,16 +1514,9 @@ csmisas_get_sata_signature(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg.IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		     __FILE__, __FUNCTION__, __LINE__, iocnum);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		return -ENODEV;
 	}
 
@@ -1780,12 +1715,10 @@ csmisas_get_sata_signature(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_get_device_address(unsigned long arg)
+csmisas_get_device_address(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_GET_DEVICE_ADDRESS_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_GET_DEVICE_ADDRESS_BUFFER	 karg;
-	MPT_ADAPTER		*ioc = NULL;
-	int			iocnum;
 	struct sas_device_info	*sas_info;
 	u64			sas_address;
 
@@ -1797,16 +1730,9 @@ csmisas_get_device_address(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg.IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		return -ENODEV;
 	}
 
@@ -1851,14 +1777,12 @@ csmisas_get_device_address(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_get_link_errors(unsigned long arg)
+csmisas_get_link_errors(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_LINK_ERRORS_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_LINK_ERRORS_BUFFER	 karg;
-	MPT_ADAPTER			*ioc = NULL;
 	MPT_FRAME_HDR			*mf = NULL;
 	MPIHeader_t			*mpi_hdr;
-	int				iocnum;
 	int				rc;
 	ConfigExtendedPageHeader_t	hdr;
 	CONFIGPARMS			cfg;
@@ -1882,16 +1806,9 @@ csmisas_get_link_errors(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg.IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		     __FILE__, __FUNCTION__, __LINE__, iocnum);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		return -ENODEV;
 	}
 
@@ -2072,17 +1989,16 @@ csmisas_get_link_errors(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_smp_passthru(unsigned long arg)
+csmisas_smp_passthru(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_SMP_PASSTHRU_BUFFER __user *uarg = (void __user *) arg;
-	MPT_ADAPTER			*ioc;
 	CSMI_SAS_SMP_PASSTHRU_BUFFER	 *karg;
 	pSmpPassthroughRequest_t	smpReq;
 	pSmpPassthroughReply_t		smpReply;
 	MPT_FRAME_HDR			*mf = NULL;
 	MPIHeader_t			*mpi_hdr;
 	char				*psge;
-	int				iocnum, flagsLength;
+	int				flagsLength;
 	void *				request_data;
 	dma_addr_t			request_data_dma;
 	u32				request_data_sz;
@@ -2121,14 +2037,6 @@ csmisas_smp_passthru(unsigned long arg)
 	response_data_sz = sizeof(CSMI_SAS_SMP_RESPONSE);
 	request_data_sz  = karg->Parameters.uRequestLength;
 
-	if (((iocnum = mpt_verify_adapter(karg->IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		free_pages((unsigned long)karg, memory_pages);
-		return -ENODEV;
-	}
-
 	if (ioc->ioc_reset_in_progress) {
 		printk(KERN_ERR "%s@%d::%s - "
 		    "Busy with IOC Reset \n",
@@ -2139,7 +2047,7 @@ csmisas_smp_passthru(unsigned long arg)
 
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		free_pages((unsigned long)karg, memory_pages);
 		return -ENODEV;
 	}
@@ -2311,16 +2219,15 @@ csmisas_smp_passthru(unsigned long arg)
  *		-EFAULT if data unavailable
  *		-ENODEV if no such device/adapter
  **/
-static int csmisas_ssp_passthru(unsigned long arg)
+static int csmisas_ssp_passthru(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_SSP_PASSTHRU_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_SSP_PASSTHRU_BUFFER	 karg_hdr, * karg;
-	MPT_ADAPTER			*ioc = NULL;
 	pSCSIIORequest_t		pScsiRequest;
 	pSCSIIOReply_t			pScsiReply;
 	MPT_FRAME_HDR			*mf = NULL;
 	MPIHeader_t			*mpi_hdr;
-	int				iocnum,ii;
+	int				ii;
 	u64				sas_address;
 	u16				req_idx;
 	char				*psge;
@@ -2394,14 +2301,6 @@ static int csmisas_ssp_passthru(unsigned long arg)
 		goto cim_ssp_passthru_exit;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg->IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		karg->IoctlHeader.ReturnCode = CSMI_SAS_STATUS_INVALID_PARAMETER;
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		goto cim_ssp_passthru_exit;
-	}
-
 	if (ioc->ioc_reset_in_progress) {
 		printk(KERN_ERR "%s@%d::%s - "
 		    "Busy with IOC Reset \n",
@@ -2412,7 +2311,7 @@ static int csmisas_ssp_passthru(unsigned long arg)
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		karg->IoctlHeader.ReturnCode = CSMI_SAS_STATUS_INVALID_PARAMETER;
 		printk(KERN_ERR "%s::%s()@%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		goto cim_ssp_passthru_exit;
 	}
 
@@ -2716,16 +2615,14 @@ static int csmisas_ssp_passthru(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_stp_passthru(unsigned long arg)
+csmisas_stp_passthru(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_STP_PASSTHRU_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_STP_PASSTHRU_BUFFER	karg_hdr, *karg;
-	MPT_ADAPTER			*ioc = NULL;
 	pSataPassthroughRequest_t	pSataRequest;
 	pSataPassthroughReply_t		pSataReply;
 	MPT_FRAME_HDR			*mf = NULL;
 	MPIHeader_t			*mpi_hdr;
-	int				iocnum;
 	u32				data_sz;
 	u64				sas_address;
 	u16				req_idx;
@@ -2782,14 +2679,6 @@ csmisas_stp_passthru(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg->IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		free_pages((unsigned long)karg, memory_pages);
-		return -ENODEV;
-	}
-
 	if (ioc->ioc_reset_in_progress) {
 		printk(KERN_ERR "%s@%d::%s - "
 		    "Busy with IOC Reset \n",
@@ -2800,7 +2689,7 @@ csmisas_stp_passthru(unsigned long arg)
 
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		free_pages((unsigned long)karg, memory_pages);
 		return -ENODEV;
 	}
@@ -3022,12 +2911,10 @@ csmisas_stp_passthru(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_firmware_download(unsigned long arg)
+csmisas_firmware_download(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_FIRMWARE_DOWNLOAD_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_FIRMWARE_DOWNLOAD_BUFFER	 karg;
-	MPT_ADAPTER			*ioc = NULL;
-	int				iocnum;
 	pMpiFwHeader_t			pFwHeader=NULL;
 
 	if (copy_from_user(&karg, uarg,
@@ -3038,16 +2925,9 @@ csmisas_firmware_download(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg.IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		return -ENODEV;
 	}
 
@@ -3106,7 +2986,7 @@ csmisas_firmware_download(unsigned long arg)
 		goto cim_firmware_download_exit;
 	}
 
-	if ( mptctl_do_fw_download(ioc,
+	if ( mptctl_do_fw_download(karg.IoctlHeader.IOControllerNumber,
 	    uarg->bDataBuffer, karg.Information.uBufferLength)
 	    != 0) {
 		karg.IoctlHeader.ReturnCode = CSMI_SAS_STATUS_FAILED;
@@ -3152,12 +3032,10 @@ csmisas_firmware_download(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_get_raid_info(unsigned long arg)
+csmisas_get_raid_info(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_RAID_INFO_BUFFER __user *uarg =  (void __user *) arg;
 	CSMI_SAS_RAID_INFO_BUFFER	 karg;
-	MPT_ADAPTER			*ioc = NULL;
-	int				iocnum;
 	u32				raidFlags;
 	u8				maxRaidTypes;
 	u8				maxDrivesPerSet;
@@ -3169,16 +3047,9 @@ csmisas_get_raid_info(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg.IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		return -ENODEV;
 	}
 
@@ -3407,14 +3278,12 @@ csmisas_raid_inq(MPT_ADAPTER *ioc, u8 opcode, u8 bus, u8 id, u8 inq_vpd_page,
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_get_raid_config(unsigned long arg)
+csmisas_get_raid_config(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_RAID_CONFIG_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_RAID_CONFIG_BUFFER	 karg,*pKarg=NULL;
 	CONFIGPARMS			cfg;
 	ConfigPageHeader_t		header;
-	MPT_ADAPTER			*ioc = NULL;
-	int				iocnum;
 	u8				volumeID, VolumeBus;
 	u8				physDiskNum, physDiskNumMax;
 	int				volumepage0sz = 0;
@@ -3462,17 +3331,9 @@ csmisas_get_raid_config(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(pKarg->IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		free_pages((unsigned long)pKarg, memory_pages);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		free_pages((unsigned long)pKarg, memory_pages);
 		return -ENODEV;
 	}
@@ -4054,13 +3915,12 @@ csmisas_get_raid_config(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_get_raid_features(unsigned long arg)
+csmisas_get_raid_features(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_RAID_FEATURES_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_RAID_FEATURES_BUFFER karg, *pKarg=NULL;
-	int csmi_sas_raid_features_buffer_sz, iocnum;
+	int csmi_sas_raid_features_buffer_sz;
 	int				memory_pages;
-	MPT_ADAPTER		*ioc = NULL;
 
 	if (copy_from_user(&karg, uarg, sizeof(IOCTL_HEADER))) {
 		printk(KERN_ERR "%s@%d::%s() - "
@@ -4091,17 +3951,9 @@ csmisas_get_raid_features(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(pKarg->IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		free_pages((unsigned long)pKarg, memory_pages);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		free_pages((unsigned long)pKarg, memory_pages);
 		return -ENODEV;
 	}
@@ -4175,13 +4027,12 @@ csmisas_get_raid_features(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_set_raid_control(unsigned long arg)
+csmisas_set_raid_control(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_RAID_CONTROL_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_RAID_CONTROL_BUFFER karg, *pKarg=NULL;
-	int csmi_sas_raid_control_buffer_sz, iocnum;
+	int csmi_sas_raid_control_buffer_sz;
 	int				memory_pages;
-	MPT_ADAPTER	*ioc = NULL;
 
 	if (copy_from_user(&karg, uarg, sizeof(IOCTL_HEADER))) {
 		printk(KERN_ERR "%s@%d::%s() - "
@@ -4212,17 +4063,9 @@ csmisas_set_raid_control(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(pKarg->IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		free_pages((unsigned long)pKarg, memory_pages);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		free_pages((unsigned long)pKarg, memory_pages);
 		return -ENODEV;
 	}
@@ -4306,12 +4149,10 @@ csmisas_set_raid_control(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_get_raid_element(unsigned long arg)
+csmisas_get_raid_element(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_RAID_ELEMENT_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_RAID_ELEMENT_BUFFER	 karg;
-	MPT_ADAPTER			*ioc = NULL;
-	int				iocnum;
 
 	if (copy_from_user(&karg, uarg, sizeof(CSMI_SAS_RAID_ELEMENT_BUFFER))) {
 		printk(KERN_ERR "%s@%d::%s() - "
@@ -4320,16 +4161,9 @@ csmisas_get_raid_element(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg.IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		return -ENODEV;
 	}
 
@@ -4365,12 +4199,10 @@ csmisas_get_raid_element(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_set_raid_operation(unsigned long arg)
+csmisas_set_raid_operation(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_RAID_SET_OPERATION_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_RAID_SET_OPERATION_BUFFER	 karg;
-	MPT_ADAPTER			*ioc = NULL;
-	int				iocnum;
 
 	if (copy_from_user(&karg, uarg, sizeof(CSMI_SAS_RAID_SET_OPERATION_BUFFER))) {
 		printk(KERN_ERR "%s@%d::%s() - "
@@ -4379,16 +4211,9 @@ csmisas_set_raid_operation(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg.IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		return -ENODEV;
 	}
 
@@ -4425,17 +4250,15 @@ csmisas_set_raid_operation(unsigned long arg)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_task_managment(unsigned long arg)
+csmisas_task_managment(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_SSP_TASK_IU_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_SSP_TASK_IU_BUFFER	 karg;
 	pSCSITaskMgmt_t			pScsiTm;
 	pSCSITaskMgmtReply_t		pScsiTmReply;
-	MPT_ADAPTER			*ioc = NULL;
 	MPT_SCSI_HOST			*hd;
 	MPT_FRAME_HDR			*mf = NULL;
 	MPIHeader_t			*mpi_hdr;
-	int				iocnum;
 	u8				taskType;
 	u8				channel;
 	u8				id;
@@ -4454,16 +4277,9 @@ csmisas_task_managment(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg.IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		return -ENODEV;
 	}
 
@@ -4791,7 +4607,7 @@ csmisas_phy_reset(MPT_ADAPTER *ioc, u8 PhyNum, u8 opcode)
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_phy_control(unsigned long arg)
+csmisas_phy_control(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_PHY_CONTROL_BUFFER __user *uarg = (void __user *) arg;
 	IOCTL_HEADER			ioctl_header;
@@ -4804,8 +4620,6 @@ csmisas_phy_control(unsigned long arg)
 	int				sasIoUnitPg1_data_sz=0;
 	ConfigExtendedPageHeader_t	hdr;
 	CONFIGPARMS			cfg;
-	MPT_ADAPTER			*ioc = NULL;
-	int				iocnum;
 	int				csmi_sas_phy_control_buffer_sz;
 	int				memory_pages;
 
@@ -4838,17 +4652,9 @@ csmisas_phy_control(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(ioctl_header.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		free_pages((unsigned long)karg, memory_pages);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		free_pages((unsigned long)karg, memory_pages);
 		return -ENODEV;
 	}
@@ -5184,14 +4990,12 @@ csmisas_get_manuf_pg_7(MPT_ADAPTER *ioc, ManufacturingPage7_t *mfgpage7_buffer, 
  *		-ENODEV if no such device/adapter
  **/
 static int
-csmisas_get_connector_info(unsigned long arg)
+csmisas_get_connector_info(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_CONNECTOR_INFO_BUFFER __user *uarg = (void __user *) arg;
 	CSMI_SAS_CONNECTOR_INFO_BUFFER	 karg;
-	MPT_ADAPTER			*ioc = NULL;
 	ManufacturingPage7_t		*mfgPg7 = NULL;
 	int				mfgPg7_sz;
-	int				iocnum;
 	int				i;
 
 	if (copy_from_user(&karg, uarg,
@@ -5203,16 +5007,9 @@ csmisas_get_connector_info(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg.IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		return -ENODEV;
 	}
 
@@ -5682,13 +5479,12 @@ csmisas_fill_location_data_raid(MPT_ADAPTER *ioc, PCSMI_SAS_GET_LOCATION_BUFFER 
  *		-ENODEV if no such device/adapter
  */
 static int
-csmisas_get_location(unsigned long arg)
+csmisas_get_location(MPT_ADAPTER *ioc, unsigned long arg)
 {
 	CSMI_SAS_GET_LOCATION_BUFFER __user *uarg = (void __user *) arg;
 	PCSMI_SAS_GET_LOCATION_BUFFER	karg;
 	IOCTL_HEADER			ioctl_header;
-	MPT_ADAPTER			*ioc = NULL;
-	int				iocnum,i;
+	int				i;
 	int				csmi_sas_get_location_sz;
 	int				memory_pages;
 	struct sas_device_info		*sas_info;
@@ -5722,17 +5518,9 @@ csmisas_get_location(unsigned long arg)
 		return -EFAULT;
 	}
 
-	if (((iocnum = mpt_verify_adapter(karg->IoctlHeader.IOControllerNumber,
-	    &ioc)) < 0) || (ioc == NULL)) {
-		printk(KERN_ERR "%s::%s() @%d - ioc%d not found!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
-		free_pages((unsigned long)karg, memory_pages);
-		return -ENODEV;
-	}
-
 	if (!csmisas_is_this_sas_cntr(ioc)) {
 		printk(KERN_ERR "%s::%s() @%d - ioc%d not SAS controller!\n",
-		    __FILE__, __FUNCTION__, __LINE__, iocnum);
+		    __FILE__, __FUNCTION__, __LINE__, ioc->id);
 		free_pages((unsigned long)karg, memory_pages);
 		return -ENODEV;
 	}
