@@ -3106,7 +3106,7 @@ csmisas_firmware_download(unsigned long arg)
 		goto cim_firmware_download_exit;
 	}
 
-	if ( mptctl_do_fw_download(ioc,
+	if ( mptctl_do_fw_download(karg.IoctlHeader.IOControllerNumber,
 	    uarg->bDataBuffer, karg.Information.uBufferLength)
 	    != 0) {
 		karg.IoctlHeader.ReturnCode = CSMI_SAS_STATUS_FAILED;
