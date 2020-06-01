@@ -2365,7 +2365,7 @@ static DEF_SCSI_QCMD(mptsas_qcmd)
 /**
  *	mptsas_mptsas_eh_timed_out - resets the scsi_cmnd timeout
  *		if the device under question is currently in the
- *		device removal delay. 
+ *		device removal delay.
  *	@sc: scsi command that the midlayer is about to time out
  *
  **/
@@ -2377,14 +2377,14 @@ static enum blk_eh_timer_return mptsas_eh_timed_out(struct scsi_cmnd *sc)
 	enum blk_eh_timer_return rc = BLK_EH_NOT_HANDLED;
 
 	if ((hd = shost_priv(sc->device->host)) == NULL) {
-		printk(KERN_ERR MYNAM ": %s: Can't locate host! (sc=%p)\n", 
+		printk(KERN_ERR MYNAM ": %s: Can't locate host! (sc=%p)\n",
 		    __func__, sc );
 		goto done;
 	}
 
 	ioc = hd->ioc;
 	if (ioc->bus_type != SAS) {
-		printk(KERN_ERR MYNAM ": %s: Wrong bus type (sc=%p)\n", 
+		printk(KERN_ERR MYNAM ": %s: Wrong bus type (sc=%p)\n",
 		    __func__, sc );
 		goto done;
 	}
@@ -2394,7 +2394,7 @@ static enum blk_eh_timer_return mptsas_eh_timed_out(struct scsi_cmnd *sc)
  	*/
 	if (ioc->ioc_reset_in_progress) {
 		dtmprintk(ioc, printk(MYIOC_s_WARN_FMT ": %s: ioc is in reset,"
-		    "SML need to reset the timer (sc=%p)\n", 
+		    "SML need to reset the timer (sc=%p)\n",
 		    ioc->name, __func__, sc ));
 		rc = BLK_EH_RESET_TIMER;
 	}
@@ -2402,11 +2402,11 @@ static enum blk_eh_timer_return mptsas_eh_timed_out(struct scsi_cmnd *sc)
 	if (vdevice && vdevice->vtarget && (vdevice->vtarget->inDMD
 		|| vdevice->vtarget->deleted)) {
 		dtmprintk(ioc, printk(MYIOC_s_WARN_FMT ": %s: target removed "
-		    "or in device removal delay (sc=%p)\n", 
+		    "or in device removal delay (sc=%p)\n",
 		    ioc->name, __func__, sc ));
 		rc = BLK_EH_RESET_TIMER;
 		goto done;
-	} 
+	}
 
 done:
 	return rc;

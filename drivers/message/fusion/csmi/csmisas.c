@@ -2784,7 +2784,7 @@ csmisas_stp_passthru(MPT_ADAPTER *ioc, unsigned long arg)
 	pSataRequest = (pSataPassthroughRequest_t) mf;
 	req_idx = le16_to_cpu(mf->u.frame.hwhdr.msgctxu.fld.req_idx);
 
-	memset(pSataRequest,0,sizeof(pSataPassthroughRequest_t));
+	memset(pSataRequest,0,sizeof(SataPassthroughRequest_t));
 
 	pSataRequest->TargetID = id;
 	pSataRequest->Bus = channel;

@@ -744,7 +744,7 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 						/* flag the device as being in device
 						removal delay so we can notify the midlayer
 						to hold off on timeout eh */
-						if (vdevice && vdevice->vtarget && 
+						if (vdevice && vdevice->vtarget &&
 						    vdevice->vtarget->raidVolume)
 							printk(KERN_INFO "Skipping Raid Volume for inDMD\n" );
 						else if (vdevice && vdevice->vtarget)
@@ -1875,13 +1875,13 @@ mptscsih_IssueTaskMgmt(MPT_SCSI_HOST *hd, u8 type, u8 channel, u8 id, int lun, i
 			    "FAILED!!\n", ioc->name);
 		return 0;
 	}
-	
+
 	/* DOORBELL ACTIVE check is not required if MPI_IOCFACTS_CAPABILITY_HIGH_PRI_Q
  	*  is supported.
  	*/
 
 	if (!((ioc->facts.IOCCapabilities & MPI_IOCFACTS_CAPABILITY_HIGH_PRI_Q) &&
-	    (ioc->facts.MsgVersion >= MPI_VERSION_01_05)) && 
+	    (ioc->facts.MsgVersion >= MPI_VERSION_01_05)) &&
 		(ioc_raw_state & MPI_DOORBELL_ACTIVE)) {
 		printk(MYIOC_s_WARN_FMT
 			"TaskMgmt type=%x: ioc_state: "
