@@ -2784,7 +2784,7 @@ csmisas_stp_passthru(MPT_ADAPTER *ioc, unsigned long arg)
 	pSataRequest = (pSataPassthroughRequest_t) mf;
 	req_idx = le16_to_cpu(mf->u.frame.hwhdr.msgctxu.fld.req_idx);
 
-	memset(pSataRequest,0,sizeof(pSataPassthroughRequest_t));
+	memset(pSataRequest,0,sizeof(SataPassthroughRequest_t));
 
 	pSataRequest->TargetID = id;
 	pSataRequest->Bus = channel;
@@ -2986,7 +2986,7 @@ csmisas_firmware_download(MPT_ADAPTER *ioc, unsigned long arg)
 		goto cim_firmware_download_exit;
 	}
 
-	if ( mptctl_do_fw_download(karg.IoctlHeader.IOControllerNumber,
+	if ( mptctl_do_fw_download(ioc,
 	    uarg->bDataBuffer, karg.Information.uBufferLength)
 	    != 0) {
 		karg.IoctlHeader.ReturnCode = CSMI_SAS_STATUS_FAILED;

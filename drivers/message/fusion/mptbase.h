@@ -421,7 +421,7 @@ typedef struct _VirtTarget {
 	u8			 raidVolume;	/* set, if RAID Volume */
 	u8			 type;		/* byte 0 of Inquiry data */
 	u8			 deleted;	/* target in process of being removed */
-	u8			 inDMD;		/* currently in the device 
+	u8			 inDMD;		/* currently in the device
 						   removal delay timer */
 	int			 num_luns;
 	u64     		 sas_address;
