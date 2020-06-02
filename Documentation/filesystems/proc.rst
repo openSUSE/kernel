@@ -543,6 +543,7 @@ encoded manner. The codes are the following:
     hg    huge page advise flag
     nh    no huge page advise flag
     mg    mergable advise flag
+    bt  - arm64 BTI guarded page
     ==    =======================================
 
 Note that there is no guarantee that every flag and associated mnemonic will
@@ -1870,7 +1871,7 @@ unbindable        mount is unbindable
 
 For more information on mount propagation see:
 
-  Documentation/filesystems/sharedsubtree.txt
+  Documentation/filesystems/sharedsubtree.rst
 
 
 3.6	/proc/<pid>/comm  & /proc/<pid>/task/<tid>/comm
