@@ -34,6 +34,7 @@
 #include "x86.h"
 
 #include <asm/io.h>
+#include <asm/cpu_device_id.h>
 #include <asm/desc.h>
 #include <asm/vmx.h>
 #include <asm/virtext.h>
