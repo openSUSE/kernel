@@ -199,6 +199,7 @@ static void x86_amd_ssbd_disable(void);
 static void __init l1tf_select_mitigation(void);
 static void __init mds_select_mitigation(void);
 static void __init taa_select_mitigation(void);
+static void __init srbds_select_mitigation(void);
 
 /* The base value of the SPEC_CTRL MSR that always has to be preserved. */
 u64 x86_spec_ctrl_base;
@@ -261,6 +262,7 @@ void __init check_bugs(void)
 
 	ssb_init_cmd_line();
 	ssb_select_mitigation();
+	srbds_select_mitigation();
 
 #ifdef CONFIG_X86_32
 	check_config();
@@ -483,6 +485,99 @@ static int __init tsx_async_abort_parse_cmdline(char *str)
 }
 early_param("tsx_async_abort", tsx_async_abort_parse_cmdline);
 
+static bool x86_bug_srbds;
+
+#undef pr_fmt
+#define pr_fmt(fmt)	"SRBDS: " fmt
+
+enum srbds_mitigations {
+	SRBDS_MITIGATION_OFF,
+	SRBDS_MITIGATION_UCODE_NEEDED,
+	SRBDS_MITIGATION_FULL,
+	SRBDS_MITIGATION_TSX_OFF,
+	SRBDS_MITIGATION_HYPERVISOR,
+};
+
+static enum srbds_mitigations srbds_mitigation = SRBDS_MITIGATION_FULL;
+
+static const char * const srbds_strings[] = {
+	[SRBDS_MITIGATION_OFF]		= "Vulnerable",
+	[SRBDS_MITIGATION_UCODE_NEEDED]	= "Vulnerable: No microcode",
+	[SRBDS_MITIGATION_FULL]		= "Mitigation: Microcode",
+	[SRBDS_MITIGATION_TSX_OFF]	= "Mitigation: TSX disabled",
+	[SRBDS_MITIGATION_HYPERVISOR]	= "Unknown: Dependent on hypervisor status",
+};
+
+static bool srbds_off;
+
+void update_srbds_msr(void)
+{
+	u64 mcu_ctrl;
+
+	if (!x86_bug_srbds)
+		return;
+
+	if (boot_cpu_has(X86_FEATURE_HYPERVISOR))
+		return;
+
+	if (srbds_mitigation == SRBDS_MITIGATION_UCODE_NEEDED)
+		return;
+
+	rdmsrl(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl);
+
+	switch (srbds_mitigation) {
+	case SRBDS_MITIGATION_OFF:
+	case SRBDS_MITIGATION_TSX_OFF:
+		mcu_ctrl |= RNGDS_MITG_DIS;
+		break;
+	case SRBDS_MITIGATION_FULL:
+		mcu_ctrl &= ~RNGDS_MITG_DIS;
+		break;
+	default:
+		break;
+	}
+
+	wrmsrl(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl);
+}
+
+static void __init srbds_select_mitigation(void)
+{
+	u64 ia32_cap;
+
+	if (!x86_bug_srbds)
+		return;
+
+	/*
+	 * Check to see if this is one of the MDS_NO systems supporting
+	 * TSX that are only exposed to SRBDS when TSX is enabled.
+	 */
+	ia32_cap = x86_read_arch_cap_msr();
+	if ((ia32_cap & ARCH_CAP_MDS_NO) && !boot_cpu_has(X86_FEATURE_RTM))
+		srbds_mitigation = SRBDS_MITIGATION_TSX_OFF;
+	else if (boot_cpu_has(X86_FEATURE_HYPERVISOR))
+		srbds_mitigation = SRBDS_MITIGATION_HYPERVISOR;
+	else if (!boot_cpu_has(X86_FEATURE_SRBDS_CTRL))
+		srbds_mitigation = SRBDS_MITIGATION_UCODE_NEEDED;
+	else if (cpu_mitigations_off() || srbds_off)
+		srbds_mitigation = SRBDS_MITIGATION_OFF;
+
+	update_srbds_msr();
+	pr_info("%s\n", srbds_strings[srbds_mitigation]);
+}
+
+static int __init srbds_parse_cmdline(char *str)
+{
+	if (!str)
+		return -EINVAL;
+
+	if (!x86_bug_srbds)
+		return 0;
+
+	srbds_off = !strcmp(str, "off");
+	return 0;
+}
+early_param("srbds", srbds_parse_cmdline);
+
 /* The kernel command line selection */
 enum spectre_v2_mitigation_cmd {
 	SPECTRE_V2_CMD_NONE,
@@ -642,8 +737,8 @@ static inline const char *spectre_v2_module_string(void) { return ""; }
 #define MSBDS_ONLY		BIT(5)
 #define NO_ITLB_MULTIHIT	BIT(7)
 
-#define VULNWL(_vendor, _family, _model, _whitelist)	\
-	{ X86_VENDOR_##_vendor, _family, _model, X86_FEATURE_ANY, _whitelist }
+#define VULNWL(vendor, family, model, whitelist)	\
+	X86_MATCH_VENDOR_FAM_MODEL(vendor, family, model, whitelist)
 
 #define VULNWL_INTEL(model, whitelist)		\
 	VULNWL(INTEL, 6, INTEL_FAM6_##model, whitelist)
@@ -691,9 +786,30 @@ static const __initconst struct x86_cpu_id cpu_vuln_whitelist[] = {
 	{}
 };
 
-static bool __init cpu_matches(unsigned long which)
+#define VULNBL_INTEL_STEPPINGS(model, steppings, issues)		   \
+	X86_MATCH_VENDOR_FAM_MODEL_STEPPINGS_FEATURE(INTEL, 6,		   \
+					    INTEL_FAM6_##model, steppings, \
+					    X86_FEATURE_ANY, issues)
+
+#define SRBDS		BIT(0)
+
+static const struct x86_cpu_id cpu_vuln_blacklist[] __initconst = {
+	VULNBL_INTEL_STEPPINGS(IVYBRIDGE,	X86_STEPPING_ANY,		SRBDS),
+	VULNBL_INTEL_STEPPINGS(HASWELL_CORE,	X86_STEPPING_ANY,		SRBDS),
+	VULNBL_INTEL_STEPPINGS(HASWELL_ULT,	X86_STEPPING_ANY,		SRBDS),
+	VULNBL_INTEL_STEPPINGS(HASWELL_GT3E,	X86_STEPPING_ANY,		SRBDS),
+	VULNBL_INTEL_STEPPINGS(BROADWELL_GT3E,	X86_STEPPING_ANY,		SRBDS),
+	VULNBL_INTEL_STEPPINGS(BROADWELL_CORE,	X86_STEPPING_ANY,		SRBDS),
+	VULNBL_INTEL_STEPPINGS(SKYLAKE_MOBILE,	X86_STEPPING_ANY,		SRBDS),
+	VULNBL_INTEL_STEPPINGS(SKYLAKE_DESKTOP,	X86_STEPPING_ANY,		SRBDS),
+	VULNBL_INTEL_STEPPINGS(KABYLAKE_MOBILE,	X86_STEPPINGS(0x0, 0xC),	SRBDS),
+	VULNBL_INTEL_STEPPINGS(KABYLAKE_DESKTOP, X86_STEPPINGS(0x0, 0xD),	SRBDS),
+	{}
+};
+
+static bool __init cpu_matches(const struct x86_cpu_id *table, unsigned long which)
 {
-	const struct x86_cpu_id *m = x86_match_cpu(cpu_vuln_whitelist);
+	const struct x86_cpu_id *m = x86_match_cpu_stp(table);
 
 	return m && !!(m->driver_data & which);
 }
@@ -723,15 +839,17 @@ void setup_force_cpu_bugs(unsigned long __unused)
 	x86_bug_l1tf = true;
 
 	/* Set ITLB_MULTIHIT bug if cpu is not in the whitelist and not mitigated */
-	if (!cpu_matches(NO_ITLB_MULTIHIT) && !(ia32_cap & ARCH_CAP_PSCHANGE_MC_NO))
+	if (!cpu_matches(cpu_vuln_whitelist, NO_ITLB_MULTIHIT) &&
+	    !(ia32_cap & ARCH_CAP_PSCHANGE_MC_NO))
 		x86_bug_itlb_multihit = true;
 
-	if (!cpu_matches(NO_SSB))
+	if (!cpu_matches(cpu_vuln_whitelist, NO_SSB))
 		x86_bug_spec_store_bypass = true;
 
-	if (!cpu_matches(NO_MDS) && !(ia32_cap & ARCH_CAP_MDS_NO)) {
+	if (!cpu_matches(cpu_vuln_whitelist, NO_MDS) &&
+	    !(ia32_cap & ARCH_CAP_MDS_NO)) {
 		x86_bug_mds = true;
-		if (cpu_matches(MSBDS_ONLY))
+		if (cpu_matches(cpu_vuln_whitelist, MSBDS_ONLY))
 			x86_bug_msbds_only = true;
 	}
 
@@ -740,7 +858,7 @@ void setup_force_cpu_bugs(unsigned long __unused)
 	else
 		x86_bug_meltdown = true;
 
-	if (cpu_matches(NO_L1TF))
+	if (cpu_matches(cpu_vuln_whitelist, NO_L1TF))
 		x86_bug_l1tf = false;
 
 	/*
@@ -757,6 +875,14 @@ void setup_force_cpu_bugs(unsigned long __unused)
 	    (boot_cpu_has(X86_FEATURE_RTM) ||
 	     (ia32_cap & ARCH_CAP_TSX_CTRL_MSR)))
 		x86_bug_taa = true;
+
+	/*
+	 * SRBDS affects CPUs which support RDRAND or RDSEED and are listed
+	 * in the vulnerability blacklist.
+	 */
+	if (boot_cpu_has(X86_FEATURE_RDRAND) &&
+	    cpu_matches(cpu_vuln_blacklist, SRBDS))
+		    x86_bug_srbds = true;
 }
 
 static void __init spec2_print_if_insecure(const char *reason)
@@ -1404,7 +1530,7 @@ ssize_t cpu_show_l1tf(struct device *dev,
 {
 	if (!x86_bug_l1tf)
 		return sprintf(buf, "Not affected\n");
-	return l1tf_show_state(buf);;
+	return l1tf_show_state(buf);
 }
 
 ssize_t itlb_multihit_show_state(char *buf)
@@ -1472,6 +1598,14 @@ ssize_t cpu_show_itlb_multihit(struct device *dev, struct device_attribute *attr
 		return sprintf(buf, "KVM: Mitigation: Split huge pages\n");
 	else
 		return sprintf(buf, "KVM: Vulnerable\n");
+}
+
+ssize_t cpu_show_srbds(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	if (!x86_bug_srbds)
+		return sprintf(buf, "Not affected\n");
+
+	return sprintf(buf, "%s\n", srbds_strings[srbds_mitigation]);
 }
 
 void x86_spec_ctrl_set(u64 val)

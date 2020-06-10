@@ -547,7 +547,7 @@ struct isapnp_device_id {
  * See documentation of "x86_match_cpu" for details.
  */
 
-struct x86_cpu_id {
+struct x86_cpu_id_legacy {
 	__u16 vendor;
 	__u16 family;
 	__u16 model;
@@ -555,12 +555,22 @@ struct x86_cpu_id {
 	kernel_ulong_t driver_data;
 };
 
-#define X86_FEATURE_MATCH(x) \
-	{ X86_VENDOR_ANY, X86_FAMILY_ANY, X86_MODEL_ANY, x }
+struct x86_cpu_id {
+	__u16 vendor;
+	__u16 family;
+	__u16 model;
+#ifndef __GENKSYMS__
+	__u16 steppings;
+#endif
+	__u16 feature;	/* bit index */
+	kernel_ulong_t driver_data;
+};
 
+/* Wild cards for x86_cpu_id::vendor, family, model and feature */
 #define X86_VENDOR_ANY 0xffff
 #define X86_FAMILY_ANY 0
 #define X86_MODEL_ANY  0
+#define X86_STEPPING_ANY 0
 #define X86_FEATURE_ANY 0	/* Same as FPU, you can't test for that */
 
 #endif /* LINUX_MOD_DEVICETABLE_H */
