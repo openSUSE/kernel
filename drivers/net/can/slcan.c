@@ -297,11 +297,13 @@ static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 static void slcan_write_wakeup(struct tty_struct *tty)
 {
 	int actual;
-	struct slcan *sl = (struct slcan *) tty->disc_data;
+	struct slcan *sl;
 
+	rcu_read_lock();
+	sl = rcu_dereference(tty->disc_data);
 	/* First make sure we're connected. */
 	if (!sl || sl->magic != SLCAN_MAGIC || !netif_running(sl->dev))
-		return;
+		goto out;
 
 	if (sl->xleft <= 0)  {
 		/* Now serial buffer is almost free & we can start
@@ -309,12 +311,14 @@ static void slcan_write_wakeup(struct tty_struct *tty)
 		sl->dev->stats.tx_packets++;
 		clear_bit(TTY_DO_WRITE_WAKEUP, &tty->flags);
 		netif_wake_queue(sl->dev);
-		return;
+		goto out;
 	}
 
 	actual = tty->ops->write(tty, sl->xhead, sl->xleft);
 	sl->xleft -= actual;
 	sl->xhead += actual;
+out:
+	rcu_read_unlock();
 }
 
 /* Send a can_frame to a TTY queue. */
@@ -615,10 +619,11 @@ static void slcan_close(struct tty_struct *tty)
 	if (!sl || sl->magic != SLCAN_MAGIC || sl->tty != tty)
 		return;
 
-	tty->disc_data = NULL;
+	rcu_assign_pointer(tty->disc_data, NULL);
 	sl->tty = NULL;
 	if (!sl->leased)
 		sl->line = 0;
+	synchronize_rcu();
 
 	/* Flush network side */
 	unregister_netdev(sl->dev);
