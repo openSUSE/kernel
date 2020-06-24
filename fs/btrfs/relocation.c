@@ -9,6 +9,7 @@
 #include <linux/blkdev.h>
 #include <linux/rbtree.h>
 #include <linux/slab.h>
+#include <linux/error-injection.h>
 #include "ctree.h"
 #include "disk-io.h"
 #include "transaction.h"
@@ -2523,12 +2524,10 @@ again:
 		reloc_root = list_entry(reloc_roots.next,
 					struct btrfs_root, root_list);
 
+		root = read_fs_root(fs_info, reloc_root->root_key.offset);
 		if (btrfs_root_refs(&reloc_root->root_item) > 0) {
-			root = read_fs_root(fs_info,
-					    reloc_root->root_key.offset);
 			BUG_ON(IS_ERR(root));
 			BUG_ON(root->reloc_root != reloc_root);
-
 			ret = merge_reloc_root(rc, root);
 			if (ret) {
 				if (list_empty(&reloc_root->root_list))
@@ -2537,6 +2536,14 @@ again:
 				goto out;
 			}
 		} else {
+			if (!IS_ERR(root)) {
+				if (root->reloc_root == reloc_root) {
+					root->reloc_root = NULL;
+				}
+				clear_bit(BTRFS_ROOT_DEAD_RELOC_TREE,
+					  &root->state);
+			}
+
 			list_del_init(&reloc_root->root_list);
 			/* Don't forget to queue this reloc root for cleanup */
 			list_add_tail(&reloc_root->reloc_dirty_list,
@@ -3267,6 +3274,15 @@ int setup_extent_mapping(struct inode *inode, u64 start, u64 end,
 	return ret;
 }
 
+/*
+ * Allow error injection to test balance cancellation
+ */
+int btrfs_should_cancel_balance(struct btrfs_fs_info *fs_info)
+{
+	return atomic_read(&fs_info->balance_cancel_req);
+}
+ALLOW_ERROR_INJECTION(btrfs_should_cancel_balance, TRUE);
+
 static int relocate_file_extent_cluster(struct inode *inode,
 					struct file_extent_cluster *cluster)
 {
@@ -3388,6 +3404,10 @@ static int relocate_file_extent_cluster(struct inode *inode,
 		btrfs_delalloc_release_extents(BTRFS_I(inode), PAGE_SIZE);
 		balance_dirty_pages_ratelimited(inode->i_mapping);
 		btrfs_throttle(fs_info);
+		if (btrfs_should_cancel_balance(fs_info)) {
+			ret = -ECANCELED;
+			goto out;
+		}
 	}
 	WARN_ON(nr != cluster->nr);
 out:
@@ -4169,6 +4189,10 @@ restart:
 				break;
 			}
 		}
+		if (btrfs_should_cancel_balance(fs_info)) {
+			err = -ECANCELED;
+			break;
+		}
 	}
 	if (trans && progress && err == -ENOSPC) {
 		ret = btrfs_force_chunk_alloc(trans, rc->block_group->flags);
@@ -4200,6 +4224,14 @@ restart:
 	backref_cache_cleanup(&rc->backref_cache);
 	btrfs_block_rsv_release(fs_info, rc->block_rsv, (u64)-1);
 
+	/*
+	 * Even in the case when the relocation is cancelled, we should all go
+	 * through prepare_to_merge() and merge_reloc_roots().
+	 *
+	 * For error (including cancelled balance), prepare_to_merge() will
+	 * mark all reloc trees orphan, then queue them for cleanup in
+	 * merge_reloc_roots()
+	 */
 	err = prepare_to_merge(rc, err);
 
 	merge_reloc_roots(rc);
@@ -4442,6 +4474,11 @@ int btrfs_relocate_block_group(struct btrfs_fs_info *fs_info, u64 group_start)
 
 		btrfs_info(fs_info, "found %llu extents", rc->extents_found);
 
+
+		if (btrfs_should_cancel_balance(fs_info)) {
+			err = -ECANCELED;
+			goto out;
+		}
 	}
 
 	WARN_ON(rc->block_group->pinned > 0);

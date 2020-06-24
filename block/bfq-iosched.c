@@ -123,6 +123,7 @@
 #include <linux/ioprio.h>
 #include <linux/sbitmap.h>
 #include <linux/delay.h>
+#include <linux/backing-dev.h>
 
 #include "blk.h"
 #include "blk-mq.h"
@@ -2713,8 +2714,6 @@ static void bfq_bfqq_save_state(struct bfq_queue *bfqq)
 	}
 }
 
-
-static
 void bfq_release_process_ref(struct bfq_data *bfqd, struct bfq_queue *bfqq)
 {
 	/*
@@ -2935,6 +2934,7 @@ static void __bfq_set_in_service_queue(struct bfq_data *bfqd,
 	}
 
 	bfqd->in_service_queue = bfqq;
+	bfqd->in_serv_last_pos = -1;
 }
 
 /*
@@ -4497,7 +4497,7 @@ check_queue:
 			bfqq = bfqq->bic->bfqq[0];
 		else if (bfq_bfqq_has_waker(bfqq) &&
 			   bfq_bfqq_busy(bfqq->waker_bfqq) &&
-			   bfqq->next_rq &&
+			   bfqq->waker_bfqq->next_rq &&
 			   bfq_serv_to_charge(bfqq->waker_bfqq->next_rq,
 					      bfqq->waker_bfqq) <=
 			   bfq_bfqq_budget_left(bfqq->waker_bfqq)
@@ -4979,8 +4979,9 @@ bfq_set_next_ioprio_data(struct bfq_queue *bfqq, struct bfq_io_cq *bic)
 	ioprio_class = IOPRIO_PRIO_CLASS(bic->ioprio);
 	switch (ioprio_class) {
 	default:
-		dev_err(bfqq->bfqd->queue->backing_dev_info->dev,
-			"bfq: bad prio class %d\n", ioprio_class);
+		pr_err("bdi %s: bfq: bad prio class %d\n",
+				bdi_dev_name(bfqq->bfqd->queue->backing_dev_info),
+				ioprio_class);
 		/* fall through */
 	case IOPRIO_CLASS_NONE:
 		/*
@@ -5192,11 +5193,19 @@ static void bfq_update_io_thinktime(struct bfq_data *bfqd,
 				    struct bfq_queue *bfqq)
 {
 	struct bfq_ttime *ttime = &bfqq->ttime;
-	u64 elapsed = ktime_get_ns() - bfqq->ttime.last_end_request;
-
+	u64 elapsed;
+	
+	/*
+	 * We are really interested in how long it takes for the queue to
+	 * become busy when there is no outstanding IO for this queue. So
+	 * ignore cases when the bfq queue has already IO queued.
+	 */
+	if (bfqq->dispatched || bfq_bfqq_busy(bfqq))
+		return;
+	elapsed = ktime_get_ns() - bfqq->ttime.last_end_request;
 	elapsed = min_t(u64, elapsed, 2ULL * bfqd->bfq_slice_idle);
 
-	ttime->ttime_samples = (7*bfqq->ttime.ttime_samples + 256) / 8;
+	ttime->ttime_samples = (7*ttime->ttime_samples + 256) / 8;
 	ttime->ttime_total = div_u64(7*ttime->ttime_total + 256*elapsed,  8);
 	ttime->ttime_mean = div64_ul(ttime->ttime_total + 128,
 				     ttime->ttime_samples);
