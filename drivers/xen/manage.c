@@ -113,10 +113,12 @@ static void do_suspend(void)
 		goto out_thaw;
 	}
 
+	printk_force_sync_mode();
+
 	err = dpm_suspend_start(PMSG_FREEZE);
 	if (err) {
 		pr_err("%s: dpm_suspend_start %d\n", __func__, err);
-		goto out_thaw;
+		goto out_resume_printk;
 	}
 
 	printk(KERN_DEBUG "suspending xenstore...\n");
@@ -158,6 +160,8 @@ out_resume:
 
 	dpm_resume_end(si.cancelled ? PMSG_THAW : PMSG_RESTORE);
 
+out_resume_printk:
+	printk_relax_sync_mode();
 out_thaw:
 	thaw_processes();
 out:
