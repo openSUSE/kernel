@@ -456,6 +456,11 @@ static struct task_struct *printk_kthread;
 /* When `true' printing thread has messages to print */
 static bool printk_kthread_need_flush_console;
 
+static inline bool can_printk_async(void)
+{
+	return printk_kthread;
+}
+
 /*
  * We cannot access per-CPU data (e.g. per-CPU flush irq_work) before
  * per_cpu_areas are initialised. This variable is set to true when
@@ -2038,7 +2043,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 		 * operate in sync mode once panic() occurred.
 		 */
 		if (console_loglevel != CONSOLE_LOGLEVEL_MOTORMOUTH &&
-				printk_kthread) {
+				can_printk_async()) {
 			/* Offload printing to a schedulable context. */
 			printk_kthread_need_flush_console = true;
 			wake_up_process(printk_kthread);
@@ -3096,7 +3101,7 @@ static void wake_up_klogd_work_func(struct irq_work *irq_work)
 	int pending = __this_cpu_xchg(printk_pending, 0);
 
 	if (pending & PRINTK_PENDING_OUTPUT) {
-		if (printk_kthread) {
+		if (can_printk_async()) {
 			/* Offload printing to a schedulable context. */
 			printk_kthread_need_flush_console = true;
 			wake_up_process(printk_kthread);
