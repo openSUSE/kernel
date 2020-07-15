@@ -2058,8 +2058,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 		if (console_loglevel != CONSOLE_LOGLEVEL_MOTORMOUTH &&
 				can_printk_async()) {
 			/* Offload printing to a schedulable context. */
-			printk_kthread_need_flush_console = true;
-			wake_up_process(printk_kthread);
+			defer_console_output();
 		} else {
 			/*
 			 * Disable preemption to avoid being preempted while
