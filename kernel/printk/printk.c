@@ -1994,6 +1994,14 @@ int vprintk_store(int facility, int level,
 	if (level == LOGLEVEL_DEFAULT)
 		level = default_message_loglevel;
 
+	/*
+	 * Emergency level indicates that the system is unstable and, thus,
+	 * we better stop relying on wake_up(printk_kthread) and try to do
+	 * a direct printing.
+	 */
+	if (level == LOGLEVEL_EMERG)
+		printk_force_sync_mode();
+
 	if (dict)
 		lflags |= LOG_NEWLINE;
 
