@@ -451,6 +451,11 @@ static char __log_buf[__LOG_BUF_LEN] __aligned(LOG_ALIGN);
 static char *log_buf = __log_buf;
 static u32 log_buf_len = __LOG_BUF_LEN;
 
+/*
+ * Force sync printk mode during suspend/kexec, regardless whether
+ * console_suspend_enabled permits console suspend.
+ */
+static bool __read_mostly force_printk_sync;
 /* Printing kthread for async printk */
 static struct task_struct *printk_kthread;
 /* When `true' printing thread has messages to print */
@@ -458,7 +463,7 @@ static bool printk_kthread_need_flush_console;
 
 static inline bool can_printk_async(void)
 {
-	return printk_kthread;
+	return printk_kthread && !force_printk_sync;
 }
 
 /*
@@ -2160,6 +2165,9 @@ static size_t msg_print_text(const struct printk_log *msg, bool syslog,
 			     bool time, char *buf, size_t size) { return 0; }
 static bool suppress_message_printing(int level) { return false; }
 
+/* Still needs to be defined for users */
+static bool __read_mostly force_printk_sync;
+
 #endif /* CONFIG_PRINTK */
 
 #ifdef CONFIG_EARLY_PRINTK
@@ -2306,6 +2314,8 @@ MODULE_PARM_DESC(console_suspend, "suspend console during suspend"
  */
 void suspend_console(void)
 {
+	force_printk_sync = true;
+
 	if (!console_suspend_enabled)
 		return;
 	pr_info("Suspending console(s) (use no_console_suspend to debug)\n");
@@ -2316,6 +2326,8 @@ void suspend_console(void)
 
 void resume_console(void)
 {
+	force_printk_sync = false;
+
 	if (!console_suspend_enabled)
 		return;
 	down_console_sem();
