@@ -1458,6 +1458,8 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 	u64 seq;
 	u32 idx;
 	bool time;
+	int attempts = 0;
+	int num_msg;
 
 	text = kmalloc(LOG_LINE_MAX + PREFIX_MAX, GFP_KERNEL);
 	if (!text)
@@ -1465,6 +1467,15 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 
 	time = printk_time;
 	logbuf_lock_irq();
+
+try_again:
+	attempts++;
+	if (attempts > 10) {
+		len = -EBUSY;
+		goto out;
+	}
+	num_msg = 0;
+
 	/*
 	 * Find first record that fits, including all following records,
 	 * into the user-provided buffer for this dump.
@@ -1477,6 +1488,14 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 		len += msg_print_text(msg, true, time, NULL, 0);
 		idx = log_next(idx);
 		seq++;
+		num_msg++;
+		if (num_msg > 5) {
+			num_msg = 0;
+			logbuf_unlock_irq();
+			logbuf_lock_irq();
+			if (clear_seq < log_first_seq)
+				goto try_again;
+		}
 	}
 
 	/* move first record forward until length fits into the buffer */
@@ -1488,6 +1507,14 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 		len -= msg_print_text(msg, true, time, NULL, 0);
 		idx = log_next(idx);
 		seq++;
+		num_msg++;
+		if (num_msg > 5) {
+			num_msg = 0;
+			logbuf_unlock_irq();
+			logbuf_lock_irq();
+			if (clear_seq < log_first_seq)
+				goto try_again;
+		}
 	}
 
 	/* last message fitting into this dump */
@@ -1520,6 +1547,7 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 		clear_seq = log_next_seq;
 		clear_idx = log_next_idx;
 	}
+out:
 	logbuf_unlock_irq();
 
 	kfree(text);
