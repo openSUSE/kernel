@@ -83,6 +83,6 @@ int vpu_dec_reset(struct vdec_vpu_inst *vpu);
  * @len : length of ipi message
  * @priv: callback private data which is passed by decoder when register.
  */
-void vpu_dec_ipi_handler(void *data, unsigned int len, void *priv);
+void vpu_dec_ipi_handler(const void *data, unsigned int len, void *priv);
 
 #endif
