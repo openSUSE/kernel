@@ -425,11 +425,13 @@ static void sl_encaps(struct slip *sl, unsigned char *icp, int len)
 static void slip_write_wakeup(struct tty_struct *tty)
 {
 	int actual;
-	struct slip *sl = tty->disc_data;
+	struct slip *sl;
 
+	rcu_read_lock();
+	sl = rcu_dereference(tty->disc_data);
 	/* First make sure we're connected. */
 	if (!sl || sl->magic != SLIP_MAGIC || !netif_running(sl->dev))
-		return;
+		goto out;
 
 	if (sl->xleft <= 0)  {
 		/* Now serial buffer is almost free & we can start
@@ -437,12 +439,14 @@ static void slip_write_wakeup(struct tty_struct *tty)
 		sl->dev->stats.tx_packets++;
 		clear_bit(TTY_DO_WRITE_WAKEUP, &tty->flags);
 		sl_unlock(sl);
-		return;
+		goto out;
 	}
 
 	actual = tty->ops->write(tty, sl->xhead, sl->xleft);
 	sl->xleft -= actual;
 	sl->xhead += actual;
+out:
+	rcu_read_unlock();
 }
 
 static void sl_tx_timeout(struct net_device *dev)
@@ -888,10 +892,11 @@ static void slip_close(struct tty_struct *tty)
 	if (!sl || sl->magic != SLIP_MAGIC || sl->tty != tty)
 		return;
 
-	tty->disc_data = NULL;
+	rcu_assign_pointer(tty->disc_data, NULL);
 	sl->tty = NULL;
 	if (!sl->leased)
 		sl->line = 0;
+	synchronize_rcu();
 
 	/* VSV = very important to remove timers */
 #ifdef CONFIG_SLIP_SMART
