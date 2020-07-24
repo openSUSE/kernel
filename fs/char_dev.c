@@ -348,7 +348,10 @@ static struct kobject *cdev_get(struct cdev *p)
 
 	if (owner && !try_module_get(owner))
 		return NULL;
-	kobj = kobject_get(&p->kobj);
+	/* XXX: below is the open-coded kobject_get_unless_zero() */
+	kobj = &p->kobj;
+	if (!atomic_add_unless(&kobj->kref.refcount, 1, 0))
+		kobj = NULL;
 	if (!kobj)
 		module_put(owner);
 	return kobj;
