@@ -1998,6 +1998,7 @@ void btrfs_put_root(struct btrfs_root *root)
 
 	if (refcount_dec_and_test(&root->refs)) {
 		WARN_ON(!RB_EMPTY_ROOT(&root->inode_tree));
+		WARN_ON(test_bit(BTRFS_ROOT_DEAD_RELOC_TREE, &root->state));
 		remove_anon_sbdev(&root->sbdev);
 		btrfs_drew_lock_destroy(&root->snapshot_lock);
 		free_extent_buffer(root->node);
