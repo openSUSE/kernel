@@ -520,6 +520,12 @@ static inline u32 int_sqrt64(u64 x)
 }
 #endif
 
+#ifdef CONFIG_SMP
+extern unsigned int sysctl_oops_all_cpu_backtrace;
+#else
+#define sysctl_oops_all_cpu_backtrace 0
+#endif /* CONFIG_SMP */
+
 extern void bust_spinlocks(int yes);
 extern int oops_in_progress;		/* If set, an oops, panic(), BUG() or die() is in progress */
 extern int panic_timeout;
@@ -528,6 +534,8 @@ extern int panic_on_oops;
 extern int panic_on_unrecovered_nmi;
 extern int panic_on_io_nmi;
 extern int panic_on_warn;
+extern unsigned long panic_on_taint;
+extern bool panic_on_taint_nousertaint;
 extern int sysctl_panic_on_rcu_stall;
 #ifdef CONFIG_SUSE_KERNEL_SUPPORTED
 extern int suse_unsupported;
@@ -599,6 +607,7 @@ extern enum system_states {
 #define TAINT_AUX			16
 #define TAINT_RANDSTRUCT		17
 #define TAINT_FLAGS_COUNT		18
+#define TAINT_FLAGS_MAX			((1UL << TAINT_FLAGS_COUNT) - 1)
 
 #ifdef CONFIG_SUSE_KERNEL_SUPPORTED
 /*
@@ -612,6 +621,9 @@ extern enum system_states {
 #  endif
 #  undef TAINT_FLAGS_COUNT
 #  define TAINT_FLAGS_COUNT		32
+#  undef TAINT_FLAGS_MAX
+#  define TAINT_FLAGS_MAX \
+	((1 << TAINT_NO_SUPPORT) | ((1 << TAINT_NO_SUPPORT) - 1))
 #endif
 
 struct taint_flag {

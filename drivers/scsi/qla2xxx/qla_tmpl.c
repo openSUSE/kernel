@@ -17,14 +17,14 @@ static void
 qla27xx_write_remote_reg(struct scsi_qla_host *vha,
 			 u32 addr, u32 data)
 {
-	char *reg = (char *)ISPREG(vha);
+	struct device_reg_24xx __iomem *reg = &vha->hw->iobase->isp24;
 
 	ql_dbg(ql_dbg_misc, vha, 0xd300,
 	       "%s: addr/data = %xh/%xh\n", __func__, addr, data);
 
-	WRT_REG_DWORD(reg + IOBASE(vha), 0x40);
-	WRT_REG_DWORD(reg + 0xc4, data);
-	WRT_REG_DWORD(reg + 0xc0, addr);
+	wrt_reg_dword(&reg->iobase_addr, 0x40);
+	wrt_reg_dword(&reg->iobase_c4, data);
+	wrt_reg_dword(&reg->iobase_window, addr);
 }
 
 void
@@ -75,7 +75,7 @@ qla27xx_read8(void __iomem *window, void *buf, ulong *len)
 	uint8_t value = ~0;
 
 	if (buf) {
-		value = RD_REG_BYTE(window);
+		value = rd_reg_byte(window);
 	}
 	qla27xx_insert32(value, buf, len);
 }
@@ -86,7 +86,7 @@ qla27xx_read16(void __iomem *window, void *buf, ulong *len)
 	uint16_t value = ~0;
 
 	if (buf) {
-		value = RD_REG_WORD(window);
+		value = rd_reg_word(window);
 	}
 	qla27xx_insert32(value, buf, len);
 }
@@ -97,7 +97,7 @@ qla27xx_read32(void __iomem *window, void *buf, ulong *len)
 	uint32_t value = ~0;
 
 	if (buf) {
-		value = RD_REG_DWORD(window);
+		value = rd_reg_dword(window);
 	}
 	qla27xx_insert32(value, buf, len);
 }
@@ -126,7 +126,7 @@ qla27xx_write_reg(__iomem struct device_reg_24xx *reg,
 	if (buf) {
 		void __iomem *window = (void __iomem *)reg + offset;
 
-		WRT_REG_DWORD(window, data);
+		wrt_reg_dword(window, data);
 	}
 }
 
@@ -919,9 +919,9 @@ static void
 qla27xx_firmware_info(struct scsi_qla_host *vha,
     struct qla27xx_fwdt_template *tmp)
 {
-	tmp->firmware_version[0] = vha->hw->fw_major_version;
-	tmp->firmware_version[1] = vha->hw->fw_minor_version;
-	tmp->firmware_version[2] = vha->hw->fw_subminor_version;
+	tmp->firmware_version[0] = cpu_to_le32(vha->hw->fw_major_version);
+	tmp->firmware_version[1] = cpu_to_le32(vha->hw->fw_minor_version);
+	tmp->firmware_version[2] = cpu_to_le32(vha->hw->fw_subminor_version);
 	tmp->firmware_version[3] = cpu_to_le32(
 		vha->hw->fw_attributes_h << 16 | vha->hw->fw_attributes);
 	tmp->firmware_version[4] = cpu_to_le32(
@@ -1028,7 +1028,7 @@ void
 qla27xx_mpi_fwdump(scsi_qla_host_t *vha, int hardware_locked)
 {
 	ulong flags = 0;
-	bool need_mpi_reset = 1;
+	bool need_mpi_reset = true;
 
 #ifndef __CHECKER__
 	if (!hardware_locked)
@@ -1059,7 +1059,7 @@ qla27xx_mpi_fwdump(scsi_qla_host_t *vha, int hardware_locked)
 			       "-> fwdt1 fwdump residual=%+ld\n",
 			       fwdt->dump_size - len);
 		} else {
-			need_mpi_reset = 0;
+			need_mpi_reset = false;
 		}
 
 		vha->hw->mpi_fw_dump_len = len;
@@ -1112,7 +1112,7 @@ qla27xx_fwdump(scsi_qla_host_t *vha)
 		}
 
 		vha->hw->fw_dump_len = len;
-		vha->hw->fw_dumped = 1;
+		vha->hw->fw_dumped = true;
 
 		ql_log(ql_log_warn, vha, 0xd015,
 		    "-> Firmware dump saved to buffer (%lu/%p) <%lx>\n",

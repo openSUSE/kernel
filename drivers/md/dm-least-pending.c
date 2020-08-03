@@ -208,7 +208,7 @@ static struct dm_path *lpp_select_path(struct path_selector *ps,
 }
 
 static int lpp_end_io(struct path_selector *ps, struct dm_path *path,
-		      size_t nr_bytes)
+		      size_t nr_bytes, u64 start_time)
 {
        struct path_info *pi = NULL;
 
