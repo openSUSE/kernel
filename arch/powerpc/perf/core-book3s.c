@@ -416,26 +416,20 @@ static void power_pmu_sched_task(struct perf_event_context *ctx, bool sched_in)
 static __u64 power_pmu_bhrb_to(u64 addr)
 {
 	unsigned int instr;
-	int ret;
 	__u64 target;
 
 	if (is_kernel_addr(addr)) {
 		if (probe_kernel_read(&instr, (void *)addr, sizeof(instr)))
 			return 0;
 
-		return branch_target(&instr);
+		return branch_target((struct ppc_inst *)&instr);
 	}
 
 	/* Userspace: need copy instruction here then translate it */
-	pagefault_disable();
-	ret = __get_user_inatomic(instr, (unsigned int __user *)addr);
-	if (ret) {
-		pagefault_enable();
+	if (probe_user_read(&instr, (unsigned int __user *)addr, sizeof(instr)))
 		return 0;
-	}
-	pagefault_enable();
 
-	target = branch_target(&instr);
+	target = branch_target((struct ppc_inst *)&instr);
 	if ((!target) || (instr & BRANCH_ABSOLUTE))
 		return target;
 
