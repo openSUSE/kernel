@@ -187,9 +187,9 @@ static void aa_free_data(void *ptr, void *arg)
 {
 	struct aa_data *data = ptr;
 
-	kzfree(data->data);
-	kzfree(data->key);
-	kzfree(data);
+	kfree_sensitive(data->data);
+	kfree_sensitive(data->key);
+	kfree_sensitive(data);
 }
 
 /**
@@ -217,7 +217,7 @@ void aa_free_profile(struct aa_profile *profile)
 	aa_put_profile(rcu_access_pointer(profile->parent));
 
 	aa_put_ns(profile->ns);
-	kzfree(profile->rename);
+	kfree_sensitive(profile->rename);
 
 	aa_free_file_rules(&profile->file);
 	aa_free_cap_rules(&profile->caps);
@@ -225,12 +225,12 @@ void aa_free_profile(struct aa_profile *profile)
 	kzfree(profile->net_compat);
 
 	for (i = 0; i < profile->xattr_count; i++)
-		kzfree(profile->xattrs[i]);
-	kzfree(profile->xattrs);
+		kfree_sensitive(profile->xattrs[i]);
+	kfree_sensitive(profile->xattrs);
 	for (i = 0; i < profile->secmark_count; i++)
-		kzfree(profile->secmark[i].label);
-	kzfree(profile->secmark);
-	kzfree(profile->dirname);
+		kfree_sensitive(profile->secmark[i].label);
+	kfree_sensitive(profile->secmark);
+	kfree_sensitive(profile->dirname);
 	aa_put_dfa(profile->xmatch);
 	aa_put_dfa(profile->policy.dfa);
 
@@ -238,14 +238,14 @@ void aa_free_profile(struct aa_profile *profile)
 		rht = profile->data;
 		profile->data = NULL;
 		rhashtable_free_and_destroy(rht, aa_free_data, NULL);
-		kzfree(rht);
+		kfree_sensitive(rht);
 	}
 
-	kzfree(profile->hash);
+	kfree_sensitive(profile->hash);
 	aa_put_loaddata(profile->rawdata);
 	aa_label_destroy(&profile->label);
 
-	kzfree(profile);
+	kfree_sensitive(profile);
 }
 
 /**
