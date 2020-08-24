@@ -1143,9 +1143,9 @@ static void __setup_root(struct btrfs_root *root, struct btrfs_fs_info *fs_info,
 	memset(&root->root_item, 0, sizeof(root->root_item));
 	memset(&root->defrag_progress, 0, sizeof(root->defrag_progress));
 	root->root_key.objectid = objectid;
-	root->anon_dev = 0;
 
 	spin_lock_init(&root->root_item_lock);
+	init_anon_sbdev(&root->sbdev);
 	btrfs_qgroup_init_swapped_blocks(&root->swapped_blocks);
 #ifdef CONFIG_BTRFS_DEBUG
 	INIT_LIST_HEAD(&root->leak_list);
@@ -1437,11 +1437,13 @@ static int btrfs_init_fs_root(struct btrfs_root *root, dev_t anon_dev)
 	if (is_fstree(root->root_key.objectid) &&
 	    btrfs_root_refs(&root->root_item) > 0) {
 		if (!anon_dev) {
-			ret = get_anon_bdev(&root->anon_dev);
+			ret = insert_anon_sbdev(root->fs_info->sb,
+						&root->sbdev);
 			if (ret)
 				goto fail;
 		} else {
-			root->anon_dev = anon_dev;
+			insert_prealloc_anon_sbdev(root->fs_info->sb,
+						   &root->sbdev, anon_dev);
 		}
 	}
 
@@ -2037,8 +2039,7 @@ void btrfs_put_root(struct btrfs_root *root)
 	if (refcount_dec_and_test(&root->refs)) {
 		WARN_ON(!RB_EMPTY_ROOT(&root->inode_tree));
 		WARN_ON(test_bit(BTRFS_ROOT_DEAD_RELOC_TREE, &root->state));
-		if (root->anon_dev)
-			free_anon_bdev(root->anon_dev);
+		remove_anon_sbdev(&root->sbdev);
 		btrfs_drew_lock_destroy(&root->snapshot_lock);
 		free_root_extent_buffers(root);
 		kfree(root->free_ino_ctl);
