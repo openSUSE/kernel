@@ -384,42 +384,62 @@ static void arm_smmu_tlb_inv_walk(unsigned long iova, size_t size,
 				  size_t granule, void *cookie)
 {
 	struct arm_smmu_domain *smmu_domain = cookie;
+	const struct arm_smmu_flush_ops *ops = smmu_domain->flush_ops;
 
-	smmu_domain->tlb_ops->tlb_add_flush(iova, size, granule, false, cookie);
-	smmu_domain->tlb_ops->tlb_sync(cookie);
+	ops->tlb_inv_range(iova, size, granule, false, cookie);
+	ops->tlb.tlb_sync(cookie);
 }
 
 static void arm_smmu_tlb_inv_leaf(unsigned long iova, size_t size,
 				  size_t granule, void *cookie)
 {
 	struct arm_smmu_domain *smmu_domain = cookie;
+	const struct arm_smmu_flush_ops *ops = smmu_domain->flush_ops;
 
-	smmu_domain->tlb_ops->tlb_add_flush(iova, size, granule, true, cookie);
-	smmu_domain->tlb_ops->tlb_sync(cookie);
+	ops->tlb_inv_range(iova, size, granule, true, cookie);
+	ops->tlb.tlb_sync(cookie);
 }
 
-static const struct iommu_flush_ops arm_smmu_s1_tlb_ops = {
-	.tlb_flush_all	= arm_smmu_tlb_inv_context_s1,
-	.tlb_flush_walk	= arm_smmu_tlb_inv_walk,
-	.tlb_flush_leaf	= arm_smmu_tlb_inv_leaf,
-	.tlb_add_flush	= arm_smmu_tlb_inv_range_s1,
-	.tlb_sync	= arm_smmu_tlb_sync_context,
+static void arm_smmu_tlb_add_page(unsigned long iova, size_t granule,
+				  void *cookie)
+{
+	struct arm_smmu_domain *smmu_domain = cookie;
+	const struct arm_smmu_flush_ops *ops = smmu_domain->flush_ops;
+
+	ops->tlb_inv_range(iova, granule, granule, true, cookie);
+}
+
+static const struct arm_smmu_flush_ops arm_smmu_s1_tlb_ops = {
+	.tlb = {
+		.tlb_flush_all	= arm_smmu_tlb_inv_context_s1,
+		.tlb_flush_walk	= arm_smmu_tlb_inv_walk,
+		.tlb_flush_leaf	= arm_smmu_tlb_inv_leaf,
+		.tlb_add_page	= arm_smmu_tlb_add_page,
+		.tlb_sync	= arm_smmu_tlb_sync_context,
+	},
+	.tlb_inv_range		= arm_smmu_tlb_inv_range_s1,
 };
 
-static const struct iommu_flush_ops arm_smmu_s2_tlb_ops_v2 = {
-	.tlb_flush_all	= arm_smmu_tlb_inv_context_s2,
-	.tlb_flush_walk	= arm_smmu_tlb_inv_walk,
-	.tlb_flush_leaf	= arm_smmu_tlb_inv_leaf,
-	.tlb_add_flush	= arm_smmu_tlb_inv_range_s2,
-	.tlb_sync	= arm_smmu_tlb_sync_context,
+static const struct arm_smmu_flush_ops arm_smmu_s2_tlb_ops_v2 = {
+	.tlb = {
+		.tlb_flush_all	= arm_smmu_tlb_inv_context_s2,
+		.tlb_flush_walk	= arm_smmu_tlb_inv_walk,
+		.tlb_flush_leaf	= arm_smmu_tlb_inv_leaf,
+		.tlb_add_page	= arm_smmu_tlb_add_page,
+		.tlb_sync	= arm_smmu_tlb_sync_context,
+	},
+	.tlb_inv_range		= arm_smmu_tlb_inv_range_s2,
 };
 
-static const struct iommu_flush_ops arm_smmu_s2_tlb_ops_v1 = {
-	.tlb_flush_all	= arm_smmu_tlb_inv_context_s2,
-	.tlb_flush_walk	= arm_smmu_tlb_inv_walk,
-	.tlb_flush_leaf	= arm_smmu_tlb_inv_leaf,
-	.tlb_add_flush	= arm_smmu_tlb_inv_vmid_nosync,
-	.tlb_sync	= arm_smmu_tlb_sync_vmid,
+static const struct arm_smmu_flush_ops arm_smmu_s2_tlb_ops_v1 = {
+	.tlb = {
+		.tlb_flush_all	= arm_smmu_tlb_inv_context_s2,
+		.tlb_flush_walk	= arm_smmu_tlb_inv_walk,
+		.tlb_flush_leaf	= arm_smmu_tlb_inv_leaf,
+		.tlb_add_page	= arm_smmu_tlb_add_page,
+		.tlb_sync	= arm_smmu_tlb_sync_vmid,
+	},
+	.tlb_inv_range		= arm_smmu_tlb_inv_vmid_nosync,
 };
 
 static irqreturn_t arm_smmu_context_fault(int irq, void *dev)
@@ -691,7 +711,7 @@ static int arm_smmu_init_domain_context(struct iommu_domain *domain,
 			ias = min(ias, 32UL);
 			oas = min(oas, 32UL);
 		}
-		smmu_domain->tlb_ops = &arm_smmu_s1_tlb_ops;
+		smmu_domain->flush_ops = &arm_smmu_s1_tlb_ops;
 		break;
 	case ARM_SMMU_DOMAIN_NESTED:
 		/*
@@ -711,9 +731,9 @@ static int arm_smmu_init_domain_context(struct iommu_domain *domain,
 			oas = min(oas, 40UL);
 		}
 		if (smmu->version == ARM_SMMU_V2)
-			smmu_domain->tlb_ops = &arm_smmu_s2_tlb_ops_v2;
+			smmu_domain->flush_ops = &arm_smmu_s2_tlb_ops_v2;
 		else
-			smmu_domain->tlb_ops = &arm_smmu_s2_tlb_ops_v1;
+			smmu_domain->flush_ops = &arm_smmu_s2_tlb_ops_v1;
 		break;
 	default:
 		ret = -EINVAL;
@@ -749,7 +769,7 @@ static int arm_smmu_init_domain_context(struct iommu_domain *domain,
 		.ias		= ias,
 		.oas		= oas,
 		.coherent_walk	= smmu->features & ARM_SMMU_FEAT_COHERENT_WALK,
-		.tlb		= smmu_domain->tlb_ops,
+		.tlb		= &smmu_domain->flush_ops->tlb,
 		.iommu_dev	= smmu->dev,
 	};
 
@@ -1176,9 +1196,9 @@ static void arm_smmu_flush_iotlb_all(struct iommu_domain *domain)
 	struct arm_smmu_domain *smmu_domain = to_smmu_domain(domain);
 	struct arm_smmu_device *smmu = smmu_domain->smmu;
 
-	if (smmu_domain->tlb_ops) {
+	if (smmu_domain->flush_ops) {
 		arm_smmu_rpm_get(smmu);
-		smmu_domain->tlb_ops->tlb_flush_all(smmu_domain);
+		smmu_domain->flush_ops->tlb.tlb_flush_all(smmu_domain);
 		arm_smmu_rpm_put(smmu);
 	}
 }
@@ -1189,9 +1209,9 @@ static void arm_smmu_iotlb_sync(struct iommu_domain *domain,
 	struct arm_smmu_domain *smmu_domain = to_smmu_domain(domain);
 	struct arm_smmu_device *smmu = smmu_domain->smmu;
 
-	if (smmu_domain->tlb_ops) {
+	if (smmu_domain->flush_ops) {
 		arm_smmu_rpm_get(smmu);
-		smmu_domain->tlb_ops->tlb_sync(smmu_domain);
+		smmu_domain->flush_ops->tlb.tlb_sync(smmu_domain);
 		arm_smmu_rpm_put(smmu);
 	}
 }
