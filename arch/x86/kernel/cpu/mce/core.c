@@ -42,6 +42,7 @@
 #include <linux/export.h>
 #include <linux/jump_label.h>
 #include <linux/set_memory.h>
+#include <linux/sync_core.h>
 
 #include <asm/intel-family.h>
 #include <asm/processor.h>
