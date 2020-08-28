@@ -292,6 +292,7 @@ static void __arm_lpae_set_pte(arm_lpae_iopte *ptep, arm_lpae_iopte pte,
 }
 
 static size_t __arm_lpae_unmap(struct arm_lpae_io_pgtable *data,
+			       struct iommu_iotlb_gather *gather,
 			       unsigned long iova, size_t size, int lvl,
 			       arm_lpae_iopte *ptep);
 
@@ -337,8 +338,10 @@ static int arm_lpae_init_pte(struct arm_lpae_io_pgtable *data,
 		size_t sz = ARM_LPAE_BLOCK_SIZE(lvl, data);
 
 		tblp = ptep - ARM_LPAE_LVL_IDX(iova, lvl, data);
-		if (WARN_ON(__arm_lpae_unmap(data, iova, sz, lvl, tblp) != sz))
+		if (__arm_lpae_unmap(data, NULL, iova, sz, lvl, tblp) != sz) {
+			WARN_ON(1);
 			return -EINVAL;
+		}
 	}
 
 	__arm_lpae_init_pte(data, paddr, prot, lvl, ptep);
@@ -539,6 +542,7 @@ static void arm_lpae_free_pgtable(struct io_pgtable *iop)
 }
 
 static size_t arm_lpae_split_blk_unmap(struct arm_lpae_io_pgtable *data,
+				       struct iommu_iotlb_gather *gather,
 				       unsigned long iova, size_t size,
 				       arm_lpae_iopte blk_pte, int lvl,
 				       arm_lpae_iopte *ptep)
@@ -584,14 +588,15 @@ static size_t arm_lpae_split_blk_unmap(struct arm_lpae_io_pgtable *data,
 
 		tablep = iopte_deref(pte, data);
 	} else if (unmap_idx >= 0) {
-		io_pgtable_tlb_add_page(&data->iop, iova, size);
+		io_pgtable_tlb_add_page(&data->iop, gather, iova, size);
 		return size;
 	}
 
-	return __arm_lpae_unmap(data, iova, size, lvl, tablep);
+	return __arm_lpae_unmap(data, gather, iova, size, lvl, tablep);
 }
 
 static size_t __arm_lpae_unmap(struct arm_lpae_io_pgtable *data,
+			       struct iommu_iotlb_gather *gather,
 			       unsigned long iova, size_t size, int lvl,
 			       arm_lpae_iopte *ptep)
 {
@@ -625,7 +630,7 @@ static size_t __arm_lpae_unmap(struct arm_lpae_io_pgtable *data,
 			 */
 			smp_wmb();
 		} else {
-			io_pgtable_tlb_add_page(iop, iova, size);
+			io_pgtable_tlb_add_page(iop, gather, iova, size);
 		}
 
 		return size;
@@ -634,13 +639,13 @@ static size_t __arm_lpae_unmap(struct arm_lpae_io_pgtable *data,
 		 * Insert a table at the next level to map the old region,
 		 * minus the part we want to unmap
 		 */
-		return arm_lpae_split_blk_unmap(data, iova, size, pte,
+		return arm_lpae_split_blk_unmap(data, gather, iova, size, pte,
 						lvl + 1, ptep);
 	}
 
 	/* Keep on walkin' */
 	ptep = iopte_deref(pte, data);
-	return __arm_lpae_unmap(data, iova, size, lvl + 1, ptep);
+	return __arm_lpae_unmap(data, gather, iova, size, lvl + 1, ptep);
 }
 
 static size_t arm_lpae_unmap(struct io_pgtable_ops *ops, unsigned long iova,
@@ -653,7 +658,7 @@ static size_t arm_lpae_unmap(struct io_pgtable_ops *ops, unsigned long iova,
 	if (WARN_ON(iova >= (1ULL << data->iop.cfg.ias)))
 		return 0;
 
-	return __arm_lpae_unmap(data, iova, size, lvl, ptep);
+	return __arm_lpae_unmap(data, gather, iova, size, lvl, ptep);
 }
 
 static phys_addr_t arm_lpae_iova_to_phys(struct io_pgtable_ops *ops,
@@ -1106,7 +1111,8 @@ static void dummy_tlb_flush(unsigned long iova, size_t size, size_t granule,
 	WARN_ON(!(size & cfg_cookie->pgsize_bitmap));
 }
 
-static void dummy_tlb_add_page(unsigned long iova, size_t granule, void *cookie)
+static void dummy_tlb_add_page(struct iommu_iotlb_gather *gather,
+			       unsigned long iova, size_t granule, void *cookie)
 {
 	dummy_tlb_flush(iova, granule, granule, cookie);
 }
