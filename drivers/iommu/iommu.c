@@ -1961,9 +1961,6 @@ static size_t __iommu_unmap(struct iommu_domain *domain,
 		if (!unmapped_page)
 			break;
 
-		if (sync && ops->iotlb_range_add)
-			ops->iotlb_range_add(domain, iova, pgsize);
-
 		pr_debug("unmapped: iova 0x%lx size 0x%zx\n",
 			 iova, unmapped_page);
 
