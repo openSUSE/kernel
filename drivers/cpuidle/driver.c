@@ -392,6 +392,13 @@ void cpuidle_driver_state_disabled(struct cpuidle_driver *drv, int idx,
 
 	mutex_lock(&cpuidle_lock);
 
+	spin_lock(&cpuidle_driver_lock);
+
+	if (!drv->cpumask) {
+		drv->states[idx].flags |= CPUIDLE_FLAG_UNUSABLE;
+		goto unlock;
+	}
+
 	for_each_cpu(cpu, drv->cpumask) {
 		struct cpuidle_device *dev = per_cpu(cpuidle_devices, cpu);
 
@@ -403,6 +410,9 @@ void cpuidle_driver_state_disabled(struct cpuidle_driver *drv, int idx,
 		else
 			dev->states_usage[idx].disable &= ~CPUIDLE_STATE_DISABLED_BY_DRIVER;
 	}
+
+unlock:
+	spin_unlock(&cpuidle_driver_lock);
 
 	mutex_unlock(&cpuidle_lock);
 }
