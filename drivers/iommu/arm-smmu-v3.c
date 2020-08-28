@@ -2736,6 +2736,7 @@ static struct iommu_ops arm_smmu_ops = {
 	.get_resv_regions	= arm_smmu_get_resv_regions,
 	.put_resv_regions	= arm_smmu_put_resv_regions,
 	.pgsize_bitmap		= -1UL, /* Restricted during device attach */
+	.owner			= THIS_MODULE,
 };
 
 /* Probing and initialisation functions */
@@ -3574,8 +3575,6 @@ static int arm_smmu_set_bus_ops(struct iommu_ops *ops)
 
 #ifdef CONFIG_PCI
 	if (pci_bus_type.iommu_ops != ops) {
-		if (ops)
-			pci_request_acs();
 		err = bus_set_iommu(&pci_bus_type, ops);
 		if (err)
 			return err;
