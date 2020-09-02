@@ -1318,6 +1318,7 @@ int acpi_dev_pm_attach(struct device *dev, bool power_on)
 	static const struct acpi_device_id special_pm_ids[] = {
 		{"PNP0C0B", }, /* Generic ACPI fan */
 		{"INT3404", }, /* Fan */
+		{"INTC1044", }, /* Fan for Tiger Lake generation */
 		{}
 	};
 	struct acpi_device *adev = ACPI_COMPANION(dev);

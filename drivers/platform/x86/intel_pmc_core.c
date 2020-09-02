@@ -20,6 +20,7 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/platform_device.h>
+#include <linux/slab.h>
 #include <linux/suspend.h>
 #include <linux/uaccess.h>
 
@@ -193,7 +194,7 @@ static const struct pmc_bit_map cnp_pfear_map[] = {
 	{"Fuse",                BIT(6)},
 	/*
 	 * Reserved for Cannon Lake but valid for Ice Lake, Comet Lake,
-	 * Tiger Lake and Elkhart Lake.
+	 * Tiger Lake, Elkhart Lake and Jasper Lake.
 	 */
 	{"SBR8",		BIT(7)},
 
@@ -240,7 +241,7 @@ static const struct pmc_bit_map cnp_pfear_map[] = {
 	{"HDA_PGD6",            BIT(4)},
 	/*
 	 * Reserved for Cannon Lake but valid for Ice Lake, Comet Lake,
-	 * Tiger Lake and ELkhart Lake.
+	 * Tiger Lake, ELkhart Lake and Jasper Lake.
 	 */
 	{"PSF6",		BIT(5)},
 	{"PSF7",		BIT(6)},
@@ -254,7 +255,7 @@ static const struct pmc_bit_map *ext_cnp_pfear_map[] = {
 };
 
 static const struct pmc_bit_map icl_pfear_map[] = {
-	/* Ice Lake generation onwards only */
+	/* Ice Lake and Jasper Lake generation onwards only */
 	{"RES_65",		BIT(0)},
 	{"RES_66",		BIT(1)},
 	{"RES_67",		BIT(2)},
@@ -414,7 +415,7 @@ static const struct pmc_bit_map tgl_lpm0_map[] = {
 	{"PCIe_Gen3PLL_OFF_STS",		BIT(20)},
 	{"OPIOPLL_OFF_STS",			BIT(21)},
 	{"OCPLL_OFF_STS",			BIT(22)},
-	{"AudioPLL_OFF_STS",			BIT(23)},
+	{"MainPLL_OFF_STS",			BIT(23)},
 	{"MIPIPLL_OFF_STS",			BIT(24)},
 	{"Fast_XTAL_Osc_OFF_STS",		BIT(25)},
 	{"AC_Ring_Osc_OFF_STS",			BIT(26)},
@@ -556,9 +557,9 @@ static const struct pmc_bit_map *tgl_lpm_maps[] = {
 
 static const struct pmc_reg_map tgl_reg_map = {
 	.pfear_sts = ext_tgl_pfear_map,
+	.slp_s0_offset = CNP_PMC_SLP_S0_RES_COUNTER_OFFSET,
 	.ltr_show_sts = cnp_ltr_show_map,
 	.msr_sts = msr_map,
-	.slps0_dbg_offset = CNP_PMC_SLPS0_DBG_OFFSET,
 	.ltr_ignore_offset = CNP_PMC_LTR_IGNORE_OFFSET,
 	.regmap_length = CNP_PMC_MMIO_REG_LEN,
 	.ppfear0_offset = CNP_PMC_HOST_PPFEAR0A,
@@ -566,22 +567,21 @@ static const struct pmc_reg_map tgl_reg_map = {
 	.pm_cfg_offset = CNP_PMC_PM_CFG_OFFSET,
 	.pm_read_disable_bit = CNP_PMC_READ_DISABLE_BIT,
 	.ltr_ignore_max = TGL_NUM_IP_IGN_ALLOWED,
+	.lpm_modes = tgl_lpm_modes,
+	.lpm_en_offset = TGL_LPM_EN_OFFSET,
+	.lpm_residency_offset = TGL_LPM_RESIDENCY_OFFSET,
 	.lpm_sts = tgl_lpm_maps,
 	.lpm_status_offset = TGL_LPM_STATUS_OFFSET,
+	.lpm_live_status_offset = TGL_LPM_LIVE_STATUS_OFFSET,
 };
-
-static inline u8 pmc_core_reg_read_byte(struct pmc_dev *pmcdev, int offset)
-{
-	return readb(pmcdev->regbase + offset);
-}
 
 static inline u32 pmc_core_reg_read(struct pmc_dev *pmcdev, int reg_offset)
 {
 	return readl(pmcdev->regbase + reg_offset);
 }
 
-static inline void pmc_core_reg_write(struct pmc_dev *pmcdev, int
-							reg_offset, u32 val)
+static inline void pmc_core_reg_write(struct pmc_dev *pmcdev, int reg_offset,
+				      u32 val)
 {
 	writel(val, pmcdev->regbase + reg_offset);
 }
@@ -614,8 +614,90 @@ static int pmc_core_check_read_lock_bit(void)
 	return value & BIT(pmcdev->map->pm_read_disable_bit);
 }
 
-#if IS_ENABLED(CONFIG_DEBUG_FS)
+static void pmc_core_slps0_display(struct pmc_dev *pmcdev, struct device *dev,
+				   struct seq_file *s)
+{
+	const struct pmc_bit_map **maps = pmcdev->map->slps0_dbg_maps;
+	const struct pmc_bit_map *map;
+	int offset = pmcdev->map->slps0_dbg_offset;
+	u32 data;
+
+	while (*maps) {
+		map = *maps;
+		data = pmc_core_reg_read(pmcdev, offset);
+		offset += 4;
+		while (map->name) {
+			if (dev)
+				dev_dbg(dev, "SLP_S0_DBG: %-32s\tState: %s\n",
+					map->name,
+					data & map->bit_mask ? "Yes" : "No");
+			if (s)
+				seq_printf(s, "SLP_S0_DBG: %-32s\tState: %s\n",
+					   map->name,
+					   data & map->bit_mask ? "Yes" : "No");
+			++map;
+		}
+		++maps;
+	}
+}
+
+static int pmc_core_lpm_get_arr_size(const struct pmc_bit_map **maps)
+{
+	int idx;
+
+	for (idx = 0; maps[idx]; idx++)
+		;/* Nothing */
+
+	return idx;
+}
+
+static void pmc_core_lpm_display(struct pmc_dev *pmcdev, struct device *dev,
+				 struct seq_file *s, u32 offset,
+				 const char *str,
+				 const struct pmc_bit_map **maps)
+{
+	int index, idx, len = 32, bit_mask, arr_size;
+	u32 *lpm_regs;
+
+	arr_size = pmc_core_lpm_get_arr_size(maps);
+	lpm_regs = kmalloc_array(arr_size, sizeof(*lpm_regs), GFP_KERNEL);
+	if (!lpm_regs)
+		return;
+
+	for (index = 0; index < arr_size; index++) {
+		lpm_regs[index] = pmc_core_reg_read(pmcdev, offset);
+		offset += 4;
+	}
+
+	for (idx = 0; idx < arr_size; idx++) {
+		if (dev)
+			dev_dbg(dev, "\nLPM_%s_%d:\t0x%x\n", str, idx,
+				lpm_regs[idx]);
+		if (s)
+			seq_printf(s, "\nLPM_%s_%d:\t0x%x\n", str, idx,
+				   lpm_regs[idx]);
+		for (index = 0; maps[idx][index].name && index < len; index++) {
+			bit_mask = maps[idx][index].bit_mask;
+			if (dev)
+				dev_dbg(dev, "%-30s %-30d\n",
+					maps[idx][index].name,
+					lpm_regs[idx] & bit_mask ? 1 : 0);
+			if (s)
+				seq_printf(s, "%-30s %-30d\n",
+					   maps[idx][index].name,
+					   lpm_regs[idx] & bit_mask ? 1 : 0);
+		}
+	}
+
+	kfree(lpm_regs);
+}
+
 static bool slps0_dbg_latch;
+
+static inline u8 pmc_core_reg_read_byte(struct pmc_dev *pmcdev, int offset)
+{
+	return readb(pmcdev->regbase + offset);
+}
 
 static void pmc_core_display_map(struct seq_file *s, int index, int idx, int ip,
 				 u8 pf_reg, const struct pmc_bit_map **pf_map)
@@ -713,7 +795,7 @@ static int pmc_core_mphy_pg_show(struct seq_file *s, void *unused)
 	msleep(10);
 	val_high = pmc_core_reg_read(pmcdev, SPT_PMC_MFPMC_OFFSET);
 
-	for (index = 0; map[index].name && index < 8; index++) {
+	for (index = 0; index < 8 && map[index].name; index++) {
 		seq_printf(s, "%-32s\tState: %s\n",
 			   map[index].name,
 			   map[index].bit_mask & val_low ? "Not power gated" :
@@ -769,21 +851,22 @@ out_unlock:
 }
 DEFINE_SHOW_ATTRIBUTE(pmc_core_pll);
 
-static ssize_t pmc_core_ltr_ignore_write(struct file *file, const char __user
-*userbuf, size_t count, loff_t *ppos)
+static ssize_t pmc_core_ltr_ignore_write(struct file *file,
+					 const char __user *userbuf,
+					 size_t count, loff_t *ppos)
 {
 	struct pmc_dev *pmcdev = &pmc;
 	const struct pmc_reg_map *map = pmcdev->map;
 	u32 val, buf_size, fd;
-	int err = 0;
+	int err;
 
 	buf_size = count < 64 ? count : 64;
-	mutex_lock(&pmcdev->lock);
 
-	if (kstrtou32_from_user(userbuf, buf_size, 10, &val)) {
-		err = -EFAULT;
-		goto out_unlock;
-	}
+	err = kstrtou32_from_user(userbuf, buf_size, 10, &val);
+	if (err)
+		return err;
+
+	mutex_lock(&pmcdev->lock);
 
 	if (val > map->ltr_ignore_max) {
 		err = -EINVAL;
@@ -838,33 +921,6 @@ static void pmc_core_slps0_dbg_latch(struct pmc_dev *pmcdev, bool reset)
 
 out_unlock:
 	mutex_unlock(&pmcdev->lock);
-}
-
-static void pmc_core_slps0_display(struct pmc_dev *pmcdev, struct device *dev,
-				   struct seq_file *s)
-{
-	const struct pmc_bit_map **maps = pmcdev->map->slps0_dbg_maps;
-	const struct pmc_bit_map *map;
-	int offset = pmcdev->map->slps0_dbg_offset;
-	u32 data;
-
-	while (*maps) {
-		map = *maps;
-		data = pmc_core_reg_read(pmcdev, offset);
-		offset += 4;
-		while (map->name) {
-			if (dev)
-				dev_dbg(dev, "SLP_S0_DBG: %-32s\tState: %s\n",
-					map->name,
-					data & map->bit_mask ? "Yes" : "No");
-			if (s)
-				seq_printf(s, "SLP_S0_DBG: %-32s\tState: %s\n",
-					   map->name,
-					   data & map->bit_mask ? "Yes" : "No");
-			++map;
-		}
-		++maps;
-	}
 }
 
 static int pmc_core_slps0_dbg_show(struct seq_file *s, void *unused)
@@ -950,39 +1006,26 @@ static int pmc_core_ltr_show(struct seq_file *s, void *unused)
 }
 DEFINE_SHOW_ATTRIBUTE(pmc_core_ltr);
 
-static void pmc_core_lpm_display(struct pmc_dev *pmcdev, struct device *dev,
-				 struct seq_file *s, u32 offset,
-				 const char *str,
-				 const struct pmc_bit_map **maps)
+static int pmc_core_substate_res_show(struct seq_file *s, void *unused)
 {
-	u32 lpm_regs[ARRAY_SIZE(tgl_lpm_maps)-1];
-	int index, idx, len = 32, bit_mask;
+	struct pmc_dev *pmcdev = s->private;
+	const char **lpm_modes = pmcdev->map->lpm_modes;
+	u32 offset = pmcdev->map->lpm_residency_offset;
+	u32 lpm_en;
+	int index;
 
-	for (index = 0; tgl_lpm_maps[index]; index++) {
-		lpm_regs[index] = pmc_core_reg_read(pmcdev, offset);
+	lpm_en = pmc_core_reg_read(pmcdev, pmcdev->map->lpm_en_offset);
+	seq_printf(s, "status substate residency\n");
+	for (index = 0; lpm_modes[index]; index++) {
+		seq_printf(s, "%7s %7s %-15u\n",
+			   BIT(index) & lpm_en ? "Enabled" : " ",
+			   lpm_modes[index], pmc_core_reg_read(pmcdev, offset));
 		offset += 4;
 	}
 
-	for (idx = 0; maps[idx]; idx++) {
-		if (dev)
-			dev_dbg(dev, "\nLPM_%s_%d:\t0x%x\n", str, idx,
-				lpm_regs[idx]);
-		if (s)
-			seq_printf(s, "\nLPM_%s_%d:\t0x%x\n", str, idx,
-				   lpm_regs[idx]);
-		for (index = 0; maps[idx][index].name && index < len; index++) {
-			bit_mask = maps[idx][index].bit_mask;
-			if (dev)
-				dev_dbg(dev, "%-30s %-30d\n",
-					maps[idx][index].name,
-					lpm_regs[idx] & bit_mask ? 1 : 0);
-			if (s)
-				seq_printf(s, "%-30s %-30d\n",
-					   maps[idx][index].name,
-					   lpm_regs[idx] & bit_mask ? 1 : 0);
-		}
-	}
+	return 0;
 }
+DEFINE_SHOW_ATTRIBUTE(pmc_core_substate_res);
 
 static int pmc_core_substate_sts_regs_show(struct seq_file *s, void *unused)
 {
@@ -995,6 +1038,18 @@ static int pmc_core_substate_sts_regs_show(struct seq_file *s, void *unused)
 	return 0;
 }
 DEFINE_SHOW_ATTRIBUTE(pmc_core_substate_sts_regs);
+
+static int pmc_core_substate_l_sts_regs_show(struct seq_file *s, void *unused)
+{
+	struct pmc_dev *pmcdev = s->private;
+	const struct pmc_bit_map **maps = pmcdev->map->lpm_sts;
+	u32 offset = pmcdev->map->lpm_live_status_offset;
+
+	pmc_core_lpm_display(pmcdev, NULL, s, offset, "LIVE_STATUS", maps);
+
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(pmc_core_substate_l_sts_regs);
 
 static int pmc_core_pkgc_show(struct seq_file *s, void *unused)
 {
@@ -1062,21 +1117,21 @@ static void pmc_core_dbgfs_register(struct pmc_dev *pmcdev)
 				    dir, &slps0_dbg_latch);
 	}
 
+	if (pmcdev->map->lpm_en_offset) {
+		debugfs_create_file("substate_residencies", 0444,
+				    pmcdev->dbgfs_dir, pmcdev,
+				    &pmc_core_substate_res_fops);
+	}
+
 	if (pmcdev->map->lpm_status_offset) {
 		debugfs_create_file("substate_status_registers", 0444,
 				    pmcdev->dbgfs_dir, pmcdev,
 				    &pmc_core_substate_sts_regs_fops);
+		debugfs_create_file("substate_live_status_registers", 0444,
+				    pmcdev->dbgfs_dir, pmcdev,
+				    &pmc_core_substate_l_sts_regs_fops);
 	}
 }
-#else
-static inline void pmc_core_dbgfs_register(struct pmc_dev *pmcdev)
-{
-}
-
-static inline void pmc_core_dbgfs_unregister(struct pmc_dev *pmcdev)
-{
-}
-#endif /* CONFIG_DEBUG_FS */
 
 static const struct x86_cpu_id intel_pmc_core_ids[] = {
 	X86_MATCH_INTEL_FAM6_MODEL(SKYLAKE_L,		&spt_reg_map),
@@ -1091,19 +1146,20 @@ static const struct x86_cpu_id intel_pmc_core_ids[] = {
 	X86_MATCH_INTEL_FAM6_MODEL(TIGERLAKE_L,		&tgl_reg_map),
 	X86_MATCH_INTEL_FAM6_MODEL(TIGERLAKE,		&tgl_reg_map),
 	X86_MATCH_INTEL_FAM6_MODEL(ATOM_TREMONT,	&tgl_reg_map),
+	X86_MATCH_INTEL_FAM6_MODEL(ATOM_TREMONT_L,	&icl_reg_map),
 	{}
 };
 
 MODULE_DEVICE_TABLE(x86cpu, intel_pmc_core_ids);
 
 static const struct pci_device_id pmc_pci_ids[] = {
-	{ PCI_VDEVICE(INTEL, SPT_PMC_PCI_DEVICE_ID), 0},
-	{ 0, }
+	{ PCI_VDEVICE(INTEL, SPT_PMC_PCI_DEVICE_ID) },
+	{ }
 };
 
 /*
  * This quirk can be used on those platforms where
- * the platform BIOS enforces 24Mhx Crystal to shutdown
+ * the platform BIOS enforces 24Mhz crystal to shutdown
  * before PMC can assert SLP_S0#.
  */
 static int quirk_xtal_ignore(const struct dmi_system_id *id)
@@ -1194,13 +1250,11 @@ static int pmc_core_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_PM_SLEEP
-
 static bool warn_on_s0ix_failures;
 module_param(warn_on_s0ix_failures, bool, 0644);
 MODULE_PARM_DESC(warn_on_s0ix_failures, "Check and warn for S0ix failures");
 
-static int pmc_core_suspend(struct device *dev)
+static __maybe_unused int pmc_core_suspend(struct device *dev)
 {
 	struct pmc_dev *pmcdev = dev_get_drvdata(dev);
 
@@ -1252,7 +1306,7 @@ static inline bool pmc_core_is_s0ix_failed(struct pmc_dev *pmcdev)
 	return false;
 }
 
-static int pmc_core_resume(struct device *dev)
+static __maybe_unused int pmc_core_resume(struct device *dev)
 {
 	struct pmc_dev *pmcdev = dev_get_drvdata(dev);
 	const struct pmc_bit_map **maps = pmcdev->map->lpm_sts;
@@ -1281,8 +1335,6 @@ static int pmc_core_resume(struct device *dev)
 
 	return 0;
 }
-
-#endif
 
 static const struct dev_pm_ops pmc_core_pm_ops = {
 	SET_LATE_SYSTEM_SLEEP_PM_OPS(pmc_core_suspend, pmc_core_resume)

@@ -72,6 +72,10 @@ static bool norandom;
 module_param(norandom, bool, 0644);
 MODULE_PARM_DESC(norandom, "Disable random offset setup (default: random)");
 
+static bool polled;
+module_param(polled, bool, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(polled, "Use polling for completion instead of interrupts");
+
 static bool verbose;
 module_param(verbose, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(verbose, "Enable \"success\" result messages (default: off)");
@@ -110,6 +114,7 @@ struct dmatest_params {
 	bool		norandom;
 	int		alignment;
 	unsigned int	transfer_size;
+	bool		polled;
 };
 
 /**
@@ -651,7 +656,10 @@ static int dmatest_func(void *data)
 	/*
 	 * src and dst buffers are freed by ourselves below
 	 */
-	flags = DMA_CTRL_ACK | DMA_PREP_INTERRUPT;
+	if (params->polled)
+		flags = DMA_CTRL_ACK;
+	else
+		flags = DMA_CTRL_ACK | DMA_PREP_INTERRUPT;
 
 	ktime = ktime_get();
 	while (!(kthread_should_stop() ||
@@ -780,8 +788,10 @@ static int dmatest_func(void *data)
 		}
 
 		done->done = false;
-		tx->callback = dmatest_callback;
-		tx->callback_param = done;
+		if (!params->polled) {
+			tx->callback = dmatest_callback;
+			tx->callback_param = done;
+		}
 		cookie = tx->tx_submit(tx);
 
 		if (dma_submit_error(cookie)) {
@@ -790,18 +800,31 @@ static int dmatest_func(void *data)
 			msleep(100);
 			goto error_unmap_continue;
 		}
-		dma_async_issue_pending(chan);
 
-		wait_event_freezable_timeout(thread->done_wait, done->done,
-					     msecs_to_jiffies(params->timeout));
+		if (params->polled) {
+			status = dma_sync_wait(chan, cookie);
+			dmaengine_terminate_sync(chan);
+			if (status == DMA_COMPLETE)
+				done->done = true;
+		} else {
+			dma_async_issue_pending(chan);
 
-		status = dma_async_is_tx_complete(chan, cookie, NULL, NULL);
+			wait_event_freezable_timeout(thread->done_wait,
+					done->done,
+					msecs_to_jiffies(params->timeout));
+
+			status = dma_async_is_tx_complete(chan, cookie, NULL,
+							  NULL);
+		}
 
 		if (!done->done) {
 			result("test timed out", total_tests, src->off, dst->off,
 			       len, 0);
 			goto error_unmap_continue;
-		} else if (status != DMA_COMPLETE) {
+		} else if (status != DMA_COMPLETE &&
+			   !(dma_has_cap(DMA_COMPLETION_NO_ORDER,
+					 dev->cap_mask) &&
+			     status == DMA_OUT_OF_ORDER)) {
 			result(status == DMA_ERROR ?
 			       "completion error status" :
 			       "completion busy status", total_tests, src->off,
@@ -979,6 +1002,12 @@ static int dmatest_add_channel(struct dmatest_info *info,
 	dtc->chan = chan;
 	INIT_LIST_HEAD(&dtc->threads);
 
+	if (dma_has_cap(DMA_COMPLETION_NO_ORDER, dma_dev->cap_mask) &&
+	    info->params.polled) {
+		info->params.polled = false;
+		pr_warn("DMA_COMPLETION_NO_ORDER, polled disabled\n");
+	}
+
 	if (dma_has_cap(DMA_MEMCPY, dma_dev->cap_mask)) {
 		if (dmatest == 0) {
 			cnt = dmatest_add_threads(info, dtc, DMA_MEMCPY);
@@ -1065,6 +1094,7 @@ static void add_threaded_test(struct dmatest_info *info)
 	params->norandom = norandom;
 	params->alignment = alignment;
 	params->transfer_size = transfer_size;
+	params->polled = polled;
 
 	request_channels(info, DMA_MEMCPY);
 	request_channels(info, DMA_MEMSET);

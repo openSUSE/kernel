@@ -39,6 +39,7 @@ enum dma_status {
 	DMA_IN_PROGRESS,
 	DMA_PAUSED,
 	DMA_ERROR,
+	DMA_OUT_OF_ORDER,
 };
 
 /**
@@ -61,6 +62,7 @@ enum dma_transaction_type {
 	DMA_SLAVE,
 	DMA_CYCLIC,
 	DMA_INTERLEAVE,
+	DMA_COMPLETION_NO_ORDER,
 /* last transaction type for creation of the capabilities mask */
 	DMA_TX_TYPE_END,
 };
@@ -276,13 +278,11 @@ struct dma_chan {
  * @chan: driver channel device
  * @device: sysfs device
  * @dev_id: parent dma_device dev_id
- * @idr_ref: reference count to gate release of dma_device dev_id
  */
 struct dma_chan_dev {
 	struct dma_chan *chan;
 	struct device device;
 	int dev_id;
-	atomic_t *idr_ref;
 };
 
 /**
@@ -719,9 +719,14 @@ struct dma_filter {
  *	will just return a simple status code
  * @device_issue_pending: push pending transactions to hardware
  * @descriptor_reuse: a submitted transfer can be resubmitted after completion
+ * @device_release: called sometime atfer dma_async_device_unregister() is
+ *     called and there are no further references to this structure. This
+ *     must be implemented to free resources however many existing drivers
+ *     do not and are therefore not safe to unbind while in use.
+ *
  */
 struct dma_device {
-
+	struct kref ref;
 	unsigned int chancnt;
 	unsigned int privatecnt;
 	struct list_head channels;
@@ -739,6 +744,8 @@ struct dma_device {
 	int dev_id;
 	struct device *dev;
 	struct module *owner;
+	struct ida chan_ida;
+	struct mutex chan_mutex;	/* to protect chan_ida */
 
 	u32 src_addr_widths;
 	u32 dst_addr_widths;
@@ -802,6 +809,7 @@ struct dma_device {
 					    dma_cookie_t cookie,
 					    struct dma_tx_state *txstate);
 	void (*device_issue_pending)(struct dma_chan *chan);
+	void (*device_release)(struct dma_device *dev);
 };
 
 static inline int dmaengine_slave_config(struct dma_chan *chan,
@@ -1404,6 +1412,10 @@ static inline int dmaengine_desc_free(struct dma_async_tx_descriptor *desc)
 int dma_async_device_register(struct dma_device *device);
 int dmaenginem_async_device_register(struct dma_device *device);
 void dma_async_device_unregister(struct dma_device *device);
+int dma_async_device_channel_register(struct dma_device *device,
+				      struct dma_chan *chan);
+void dma_async_device_channel_unregister(struct dma_device *device,
+					 struct dma_chan *chan);
 void dma_run_dependencies(struct dma_async_tx_descriptor *tx);
 struct dma_chan *dma_get_slave_channel(struct dma_chan *chan);
 struct dma_chan *dma_get_any_slave_channel(struct dma_device *device);

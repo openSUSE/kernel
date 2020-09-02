@@ -181,7 +181,7 @@ static int int3403_cdev_add(struct int3403_priv *priv)
 
 	p = buf.pointer;
 	if (!p || (p->type != ACPI_TYPE_PACKAGE)) {
-		printk(KERN_WARNING "Invalid PPSS data\n");
+		pr_warn("Invalid PPSS data\n");
 		kfree(buf.pointer);
 		return -EFAULT;
 	}
@@ -283,6 +283,7 @@ static int int3403_remove(struct platform_device *pdev)
 
 static const struct acpi_device_id int3403_device_ids[] = {
 	{"INT3403", 0},
+	{"INTC1043", 0},
 	{"", 0},
 };
 MODULE_DEVICE_TABLE(acpi, int3403_device_ids);
