@@ -230,3 +230,5 @@ $(obj)/sleep33xx.o $(obj)/sleep43xx.o: $(obj)/pm-asm-offsets.h
 
 targets += pm-asm-offsets.s
 clean-files += pm-asm-offsets.h
+
+obj-$(CONFIG_OMAP_IOMMU)		+= omap-iommu.o
