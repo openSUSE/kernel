@@ -36,7 +36,6 @@
 #include <asm/asm-offsets.h>
 #include <asm/ptrace.h>
 #include <asm/export.h>
-#include <asm/asm-405.h>
 
 #include "head_32.h"
 
@@ -634,7 +633,6 @@ _ENTRY(saved_ksp_limit)
 	lwz	r12,GPR12(r11)
 	lwz	r10,crit_r10@l(0)
 	lwz	r11,crit_r11@l(0)
-	PPC405_ERR77_SYNC
 	rfci
 	b	.
 
@@ -736,7 +734,6 @@ finish_tlb_load:
 #endif
 	mfspr	r11, SPRN_SPRG_SCRATCH1
 	mfspr	r10, SPRN_SPRG_SCRATCH0
-	PPC405_ERR77_SYNC
 	rfi			/* Should sync shadow TLBs */
 	b	.		/* prevent prefetch past rfi */
 
