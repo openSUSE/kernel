@@ -263,6 +263,10 @@ struct thread_struct {
 
 	unsigned 	used_ebb;
 	unsigned int	used_vas;
+	unsigned long   mmcr3;
+	unsigned long   sier2;
+	unsigned long   sier3;
+
 #endif
 };
 
