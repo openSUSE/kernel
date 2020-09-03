@@ -2843,11 +2843,10 @@ generic_inst_dump(unsigned long adr, long count, int praddr,
 	int nr, dotted;
 	unsigned long first_adr;
 	struct ppc_inst inst, last_inst = ppc_inst(0);
-	unsigned char val[4];
 
 	dotted = 0;
-	for (first_adr = adr; count > 0; --count, adr += 4) {
-		nr = mread(adr, val, 4);
+	for (first_adr = adr; count > 0; --count, adr += ppc_inst_len(inst)) {
+		nr = mread_instr(adr, &inst);
 		if (nr == 0) {
 			if (praddr) {
 				const char *x = fault_chars[fault_type];
@@ -2855,7 +2854,6 @@ generic_inst_dump(unsigned long adr, long count, int praddr,
 			}
 			break;
 		}
-		inst = ppc_inst(GETWORD(val));
 		if (adr > first_adr && ppc_inst_equal(inst, last_inst)) {
 			if (!dotted) {
 				printf(" ...\n");
@@ -2866,9 +2864,12 @@ generic_inst_dump(unsigned long adr, long count, int praddr,
 		dotted = 0;
 		last_inst = inst;
 		if (praddr)
-			printf(REG"  %.8x", adr, ppc_inst_val(inst));
+			printf(REG"  %s", adr, ppc_inst_as_str(inst));
 		printf("\t");
-		dump_func(ppc_inst_val(inst), adr);
+		if (!ppc_inst_prefixed(inst))
+			dump_func(ppc_inst_val(inst), adr);
+		else
+			dump_func(ppc_inst_as_u64(inst), adr);
 		printf("\n");
 	}
 	return adr - first_adr;

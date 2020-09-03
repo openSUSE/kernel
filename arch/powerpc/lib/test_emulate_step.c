@@ -8,6 +8,7 @@
 #define pr_fmt(fmt) "emulate_step_test: " fmt
 
 #include <linux/ptrace.h>
+#include <asm/cpu_has_feature.h>
 #include <asm/sstep.h>
 #include <asm/ppc-opcode.h>
 #include <asm/code-patching.h>
@@ -62,6 +63,39 @@
 #define IGNORE_XER	(0x1UL << 32)
 #define IGNORE_CCR	(0x1UL << 33)
 
+#define TEST_PLD(r, base, i, pr) \
+	ppc_inst_prefix(PPC_PREFIX_8LS | __PPC_PRFX_R(pr) | IMM_H(i), \
+			PPC_INST_PLD | ___PPC_RT(r) | ___PPC_RA(base) | IMM_L(i))
+
+#define TEST_PLWZ(r, base, i, pr) \
+	ppc_inst_prefix(PPC_PREFIX_MLS | __PPC_PRFX_R(pr) | IMM_H(i), \
+			PPC_RAW_LWZ(r, base, i))
+
+#define TEST_PSTD(r, base, i, pr) \
+	ppc_inst_prefix(PPC_PREFIX_8LS | __PPC_PRFX_R(pr) | IMM_H(i), \
+			PPC_INST_PSTD | ___PPC_RT(r) | ___PPC_RA(base) | IMM_L(i))
+
+#define TEST_PLFS(r, base, i, pr) \
+	ppc_inst_prefix(PPC_PREFIX_MLS | __PPC_PRFX_R(pr) | IMM_H(i), \
+			PPC_INST_LFS | ___PPC_RT(r) | ___PPC_RA(base) | IMM_L(i))
+
+#define TEST_PSTFS(r, base, i, pr) \
+	ppc_inst_prefix(PPC_PREFIX_MLS | __PPC_PRFX_R(pr) | IMM_H(i), \
+			PPC_INST_STFS | ___PPC_RT(r) | ___PPC_RA(base) | IMM_L(i))
+
+#define TEST_PLFD(r, base, i, pr) \
+	ppc_inst_prefix(PPC_PREFIX_MLS | __PPC_PRFX_R(pr) | IMM_H(i), \
+			PPC_INST_LFD | ___PPC_RT(r) | ___PPC_RA(base) | IMM_L(i))
+
+#define TEST_PSTFD(r, base, i, pr) \
+	ppc_inst_prefix(PPC_PREFIX_MLS | __PPC_PRFX_R(pr) | IMM_H(i), \
+			PPC_INST_STFD | ___PPC_RT(r) | ___PPC_RA(base) | IMM_L(i))
+
+#define TEST_PADDI(t, a, i, pr) \
+	ppc_inst_prefix(PPC_PREFIX_MLS | __PPC_PRFX_R(pr) | IMM_H(i), \
+			PPC_RAW_ADDI(t, a, i))
+
+
 static void __init init_pt_regs(struct pt_regs *regs)
 {
 	static unsigned long msr;
@@ -113,6 +147,29 @@ static void __init test_ld(void)
 		show_result("ld", "FAIL");
 }
 
+static void __init test_pld(void)
+{
+	struct pt_regs regs;
+	unsigned long a = 0x23;
+	int stepped = -1;
+
+	if (!cpu_has_feature(CPU_FTR_ARCH_31)) {
+		show_result("pld", "SKIP (!CPU_FTR_ARCH_31)");
+		return;
+	}
+
+	init_pt_regs(&regs);
+	regs.gpr[3] = (unsigned long)&a;
+
+	/* pld r5, 0(r3), 0 */
+	stepped = emulate_step(&regs, TEST_PLD(5, 3, 0, 0));
+
+	if (stepped == 1 && regs.gpr[5] == a)
+		show_result("pld", "PASS");
+	else
+		show_result("pld", "FAIL");
+}
+
 static void __init test_lwz(void)
 {
 	struct pt_regs regs;
@@ -129,6 +186,30 @@ static void __init test_lwz(void)
 		show_result("lwz", "PASS");
 	else
 		show_result("lwz", "FAIL");
+}
+
+static void __init test_plwz(void)
+{
+	struct pt_regs regs;
+	unsigned int a = 0x4545;
+	int stepped = -1;
+
+	if (!cpu_has_feature(CPU_FTR_ARCH_31)) {
+		show_result("plwz", "SKIP (!CPU_FTR_ARCH_31)");
+		return;
+	}
+
+	init_pt_regs(&regs);
+	regs.gpr[3] = (unsigned long)&a;
+
+	/* plwz r5, 0(r3), 0 */
+
+	stepped = emulate_step(&regs, TEST_PLWZ(5, 3, 0, 0));
+
+	if (stepped == 1 && regs.gpr[5] == a)
+		show_result("plwz", "PASS");
+	else
+		show_result("plwz", "FAIL");
 }
 
 static void __init test_lwzx(void)
@@ -166,6 +247,29 @@ static void __init test_std(void)
 		show_result("std", "PASS");
 	else
 		show_result("std", "FAIL");
+}
+
+static void __init test_pstd(void)
+{
+	struct pt_regs regs;
+	unsigned long a = 0x1234;
+	int stepped = -1;
+
+	if (!cpu_has_feature(CPU_FTR_ARCH_31)) {
+		show_result("pstd", "SKIP (!CPU_FTR_ARCH_31)");
+		return;
+	}
+
+	init_pt_regs(&regs);
+	regs.gpr[3] = (unsigned long)&a;
+	regs.gpr[5] = 0x5678;
+
+	/* pstd r5, 0(r3), 0 */
+	stepped = emulate_step(&regs, TEST_PSTD(5, 3, 0, 0));
+	if (stepped == 1 || regs.gpr[5] == a)
+		show_result("pstd", "PASS");
+	else
+		show_result("pstd", "FAIL");
 }
 
 static void __init test_ldarx_stdcx(void)
@@ -265,6 +369,53 @@ static void __init test_lfsx_stfsx(void)
 		show_result("stfsx", "FAIL");
 }
 
+static void __init test_plfs_pstfs(void)
+{
+	struct pt_regs regs;
+	union {
+		float a;
+		int b;
+	} c;
+	int cached_b;
+	int stepped = -1;
+
+	if (!cpu_has_feature(CPU_FTR_ARCH_31)) {
+		show_result("pld", "SKIP (!CPU_FTR_ARCH_31)");
+		return;
+	}
+
+	init_pt_regs(&regs);
+
+
+	/*** plfs ***/
+
+	c.a = 123.45;
+	cached_b = c.b;
+
+	regs.gpr[3] = (unsigned long)&c.a;
+
+	/* plfs frt10, 0(r3), 0  */
+	stepped = emulate_step(&regs, TEST_PLFS(10, 3, 0, 0));
+
+	if (stepped == 1)
+		show_result("plfs", "PASS");
+	else
+		show_result("plfs", "FAIL");
+
+
+	/*** pstfs ***/
+
+	c.a = 678.91;
+
+	/* pstfs frs10, 0(r3), 0 */
+	stepped = emulate_step(&regs, TEST_PSTFS(10, 3, 0, 0));
+
+	if (stepped == 1 && c.b == cached_b)
+		show_result("pstfs", "PASS");
+	else
+		show_result("pstfs", "FAIL");
+}
+
 static void __init test_lfdx_stfdx(void)
 {
 	struct pt_regs regs;
@@ -307,6 +458,53 @@ static void __init test_lfdx_stfdx(void)
 	else
 		show_result("stfdx", "FAIL");
 }
+
+static void __init test_plfd_pstfd(void)
+{
+	struct pt_regs regs;
+	union {
+		double a;
+		long b;
+	} c;
+	long cached_b;
+	int stepped = -1;
+
+	if (!cpu_has_feature(CPU_FTR_ARCH_31)) {
+		show_result("pld", "SKIP (!CPU_FTR_ARCH_31)");
+		return;
+	}
+
+	init_pt_regs(&regs);
+
+
+	/*** plfd ***/
+
+	c.a = 123456.78;
+	cached_b = c.b;
+
+	regs.gpr[3] = (unsigned long)&c.a;
+
+	/* plfd frt10, 0(r3), 0 */
+	stepped = emulate_step(&regs, TEST_PLFD(10, 3, 0, 0));
+
+	if (stepped == 1)
+		show_result("plfd", "PASS");
+	else
+		show_result("plfd", "FAIL");
+
+
+	/*** pstfd ***/
+
+	c.a = 987654.32;
+
+	/* pstfd frs10, 0(r3), 0 */
+	stepped = emulate_step(&regs, TEST_PSTFD(10, 3, 0, 0));
+
+	if (stepped == 1 && c.b == cached_b)
+		show_result("pstfd", "PASS");
+	else
+		show_result("pstfd", "FAIL");
+}
 #else
 static void __init test_lfsx_stfsx(void)
 {
@@ -314,10 +512,22 @@ static void __init test_lfsx_stfsx(void)
 	show_result("stfsx", "SKIP (CONFIG_PPC_FPU is not set)");
 }
 
+static void __init test_plfs_pstfs(void)
+{
+	show_result("plfs", "SKIP (CONFIG_PPC_FPU is not set)");
+	show_result("pstfs", "SKIP (CONFIG_PPC_FPU is not set)");
+}
+
 static void __init test_lfdx_stfdx(void)
 {
 	show_result("lfdx", "SKIP (CONFIG_PPC_FPU is not set)");
 	show_result("stfdx", "SKIP (CONFIG_PPC_FPU is not set)");
+}
+
+static void __init test_plfd_pstfd(void)
+{
+	show_result("plfd", "SKIP (CONFIG_PPC_FPU is not set)");
+	show_result("pstfd", "SKIP (CONFIG_PPC_FPU is not set)");
 }
 #endif /* CONFIG_PPC_FPU */
 
@@ -447,18 +657,24 @@ static void __init test_lxvd2x_stxvd2x(void)
 static void __init run_tests_load_store(void)
 {
 	test_ld();
+	test_pld();
 	test_lwz();
+	test_plwz();
 	test_lwzx();
 	test_std();
+	test_pstd();
 	test_ldarx_stdcx();
 	test_lfsx_stfsx();
+	test_plfs_pstfs();
 	test_lfdx_stfdx();
+	test_plfd_pstfd();
 	test_lvx_stvx();
 	test_lxvd2x_stxvd2x();
 }
 
 struct compute_test {
 	char *mnemonic;
+	unsigned long cpu_feature;
 	struct {
 		char *descr;
 		unsigned long flags;
@@ -466,6 +682,11 @@ struct compute_test {
 		struct pt_regs regs;
 	} subtests[MAX_SUBTESTS + 1];
 };
+
+/* Extreme values for si0||si1 (the MLS:D-form 34 bit immediate field) */
+#define SI_MIN BIT(33)
+#define SI_MAX (BIT(33) - 1)
+#define SI_UMAX (BIT(34) - 1)
 
 static struct compute_test compute_tests[] = {
 	{
@@ -839,20 +1060,138 @@ static struct compute_test compute_tests[] = {
 				}
 			}
 		}
+	},
+	{
+		.mnemonic = "paddi",
+		.cpu_feature = CPU_FTR_ARCH_31,
+		.subtests = {
+			{
+				.descr = "RA = LONG_MIN, SI = SI_MIN, R = 0",
+				.instr = TEST_PADDI(21, 22, SI_MIN, 0),
+				.regs = {
+					.gpr[21] = 0,
+					.gpr[22] = LONG_MIN,
+				}
+			},
+			{
+				.descr = "RA = LONG_MIN, SI = SI_MAX, R = 0",
+				.instr = TEST_PADDI(21, 22, SI_MAX, 0),
+				.regs = {
+					.gpr[21] = 0,
+					.gpr[22] = LONG_MIN,
+				}
+			},
+			{
+				.descr = "RA = LONG_MAX, SI = SI_MAX, R = 0",
+				.instr = TEST_PADDI(21, 22, SI_MAX, 0),
+				.regs = {
+					.gpr[21] = 0,
+					.gpr[22] = LONG_MAX,
+				}
+			},
+			{
+				.descr = "RA = ULONG_MAX, SI = SI_UMAX, R = 0",
+				.instr = TEST_PADDI(21, 22, SI_UMAX, 0),
+				.regs = {
+					.gpr[21] = 0,
+					.gpr[22] = ULONG_MAX,
+				}
+			},
+			{
+				.descr = "RA = ULONG_MAX, SI = 0x1, R = 0",
+				.instr = TEST_PADDI(21, 22, 0x1, 0),
+				.regs = {
+					.gpr[21] = 0,
+					.gpr[22] = ULONG_MAX,
+				}
+			},
+			{
+				.descr = "RA = INT_MIN, SI = SI_MIN, R = 0",
+				.instr = TEST_PADDI(21, 22, SI_MIN, 0),
+				.regs = {
+					.gpr[21] = 0,
+					.gpr[22] = INT_MIN,
+				}
+			},
+			{
+				.descr = "RA = INT_MIN, SI = SI_MAX, R = 0",
+				.instr = TEST_PADDI(21, 22, SI_MAX, 0),
+				.regs = {
+					.gpr[21] = 0,
+					.gpr[22] = INT_MIN,
+				}
+			},
+			{
+				.descr = "RA = INT_MAX, SI = SI_MAX, R = 0",
+				.instr = TEST_PADDI(21, 22, SI_MAX, 0),
+				.regs = {
+					.gpr[21] = 0,
+					.gpr[22] = INT_MAX,
+				}
+			},
+			{
+				.descr = "RA = UINT_MAX, SI = 0x1, R = 0",
+				.instr = TEST_PADDI(21, 22, 0x1, 0),
+				.regs = {
+					.gpr[21] = 0,
+					.gpr[22] = UINT_MAX,
+				}
+			},
+			{
+				.descr = "RA = UINT_MAX, SI = SI_MAX, R = 0",
+				.instr = TEST_PADDI(21, 22, SI_MAX, 0),
+				.regs = {
+					.gpr[21] = 0,
+					.gpr[22] = UINT_MAX,
+				}
+			},
+			{
+				.descr = "RA is r0, SI = SI_MIN, R = 0",
+				.instr = TEST_PADDI(21, 0, SI_MIN, 0),
+				.regs = {
+					.gpr[21] = 0x0,
+				}
+			},
+			{
+				.descr = "RA = 0, SI = SI_MIN, R = 0",
+				.instr = TEST_PADDI(21, 22, SI_MIN, 0),
+				.regs = {
+					.gpr[21] = 0x0,
+					.gpr[22] = 0x0,
+				}
+			},
+			{
+				.descr = "RA is r0, SI = 0, R = 1",
+				.instr = TEST_PADDI(21, 0, 0, 1),
+				.regs = {
+					.gpr[21] = 0,
+				}
+			},
+			{
+				.descr = "RA is r0, SI = SI_MIN, R = 1",
+				.instr = TEST_PADDI(21, 0, SI_MIN, 1),
+				.regs = {
+					.gpr[21] = 0,
+				}
+			}
+		}
 	}
 };
 
 static int __init emulate_compute_instr(struct pt_regs *regs,
 					struct ppc_inst instr)
 {
+	extern s32 patch__exec_instr;
 	struct instruction_op op;
 
 	if (!regs || !ppc_inst_val(instr))
 		return -EINVAL;
 
+	regs->nip = patch_site_addr(&patch__exec_instr);
+
 	if (analyse_instr(&op, regs, instr) != 1 ||
 	    GETTYPE(op.type) != COMPUTE) {
-		pr_info("emulation failed, instruction = 0x%08x\n", ppc_inst_val(instr));
+		pr_info("execution failed, instruction = %s\n", ppc_inst_as_str(instr));
 		return -EFAULT;
 	}
 
@@ -872,7 +1211,7 @@ static int __init execute_compute_instr(struct pt_regs *regs,
 	/* Patch the NOP with the actual instruction */
 	patch_instruction_site(&patch__exec_instr, instr);
 	if (exec_instr(regs)) {
-		pr_info("execution failed, instruction = 0x%08x\n", ppc_inst_val(instr));
+		pr_info("execution failed, instruction = %s\n", ppc_inst_as_str(instr));
 		return -EFAULT;
 	}
 
@@ -898,6 +1237,11 @@ static void __init run_tests_compute(void)
 
 	for (i = 0; i < ARRAY_SIZE(compute_tests); i++) {
 		test = &compute_tests[i];
+
+		if (test->cpu_feature && !early_cpu_has_feature(test->cpu_feature)) {
+			show_result(test->mnemonic, "SKIP (!CPU_FTR)");
+			continue;
+		}
 
 		for (j = 0; j < MAX_SUBTESTS && test->subtests[j].descr; j++) {
 			instr = test->subtests[j].instr;
