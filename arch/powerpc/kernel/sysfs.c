@@ -561,6 +561,7 @@ EXPORT_SYMBOL(ppc_enable_pmcs);
  * that are implemented on the current processor
  */
 
+#ifdef CONFIG_PMU_SYSFS
 #if defined(CONFIG_PPC64) || defined(CONFIG_PPC_BOOK3S_32)
 #define HAS_PPC_PMC_CLASSIC	1
 #define HAS_PPC_PMC_IBM		1
@@ -574,6 +575,7 @@ EXPORT_SYMBOL(ppc_enable_pmcs);
 #ifdef CONFIG_PPC_BOOK3S_32
 #define HAS_PPC_PMC_G4		1
 #endif
+#endif /* CONFIG_PMU_SYSFS */
 
 #if defined(CONFIG_PPC64) && defined(CONFIG_DEBUG_MISC)
 #define HAS_PPC_PA6T
@@ -794,8 +796,10 @@ static int register_cpu_online(unsigned int cpu)
 			device_create_file(s, &pmc_attrs[i]);
 
 #ifdef CONFIG_PPC64
+#ifdef	CONFIG_PMU_SYSFS
 	if (cpu_has_feature(CPU_FTR_MMCRA))
 		device_create_file(s, &dev_attr_mmcra);
+#endif /* CONFIG_PMU_SYSFS */
 
 	if (cpu_has_feature(CPU_FTR_PURR)) {
 		if (!firmware_has_feature(FW_FEATURE_LPAR))
@@ -883,8 +887,10 @@ static int unregister_cpu_online(unsigned int cpu)
 			device_remove_file(s, &pmc_attrs[i]);
 
 #ifdef CONFIG_PPC64
+#ifdef CONFIG_PMU_SYSFS
 	if (cpu_has_feature(CPU_FTR_MMCRA))
 		device_remove_file(s, &dev_attr_mmcra);
+#endif /* CONFIG_PMU_SYSFS */
 
 	if (cpu_has_feature(CPU_FTR_PURR))
 		device_remove_file(s, &dev_attr_purr);
