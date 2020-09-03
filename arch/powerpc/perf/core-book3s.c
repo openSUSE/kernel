@@ -469,9 +469,11 @@ static void power_pmu_bhrb_read(struct cpu_hw_events *cpuhw)
 			 * addresses at this point. Check the privileges before
 			 * exporting it to userspace (avoid exposure of regions
 			 * where we could have speculative execution)
+			 * Incase of ISA v3.1, BHRB will capture only user-space
+			 * addresses, hence include a check before filtering code
 			 */
-			if (perf_paranoid_kernel() && !capable(CAP_SYS_ADMIN) &&
-				is_kernel_addr(addr))
+			if (!(ppmu->flags & PPMU_ARCH_31) && perf_paranoid_kernel() &&
+				!capable(CAP_SYS_ADMIN) && is_kernel_addr(addr))
 				continue;
 
 			/* Branches are read most recent first (ie. mfbhrb 0 is
