@@ -178,7 +178,7 @@ static inline u64 *xskq_validate_addr(struct xsk_queue *q, u64 *addr,
 		struct xdp_umem_ring *ring = (struct xdp_umem_ring *)q->ring;
 		unsigned int idx = q->cons_tail & q->ring_mask;
 
-		*addr = READ_ONCE(ring->desc[idx]) & q->chunk_mask;
+		*addr = ring->desc[idx] & q->chunk_mask;
 
 		if (umem->flags & XDP_UMEM_UNALIGNED_CHUNK_FLAG) {
 			if (xskq_is_valid_addr_unaligned(q, *addr,
@@ -304,7 +304,7 @@ static inline struct xdp_desc *xskq_validate_desc(struct xsk_queue *q,
 		struct xdp_rxtx_ring *ring = (struct xdp_rxtx_ring *)q->ring;
 		unsigned int idx = q->cons_tail & q->ring_mask;
 
-		*desc = READ_ONCE(ring->desc[idx]);
+		*desc = ring->desc[idx];
 		if (xskq_is_valid_desc(q, desc, umem))
 			return desc;
 
