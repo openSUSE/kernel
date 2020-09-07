@@ -100,7 +100,7 @@ enum mei_cfg_idx {
 
 const struct mei_cfg *mei_me_get_cfg(kernel_ulong_t idx);
 
-struct mei_device *mei_me_dev_init(struct pci_dev *pdev,
+struct mei_device *mei_me_dev_init(struct device *parent,
 				   const struct mei_cfg *cfg);
 
 int mei_me_pg_enter_sync(struct mei_device *dev);
