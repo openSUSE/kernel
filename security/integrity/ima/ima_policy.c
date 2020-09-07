@@ -1184,9 +1184,17 @@ static int ima_parse_rule(char *rule, struct ima_rule_entry *entry)
 				result = -EINVAL;
 			break;
 		case Opt_appraise_flag:
+			if (entry->action != APPRAISE) {
+				result = -EINVAL;
+				break;
+			}
+
 			ima_log_string(ab, "appraise_flag", args[0].from);
-			if (strstr(args[0].from, "blacklist"))
+			if (IS_ENABLED(CONFIG_IMA_APPRAISE_MODSIG) &&
+			    strstr(args[0].from, "blacklist"))
 				entry->flags |= IMA_CHECK_BLACKLIST;
+			else
+				result = -EINVAL;
 			break;
 		case Opt_permit_directio:
 			entry->flags |= IMA_PERMIT_DIRECTIO;
@@ -1233,6 +1241,12 @@ static int ima_parse_rule(char *rule, struct ima_rule_entry *entry)
 			break;
 		}
 	}
+
+	/* Ensure that combinations of flags are compatible with each other */
+	if (entry->flags & IMA_CHECK_BLACKLIST &&
+	    !(entry->flags & IMA_MODSIG_ALLOWED))
+		result = -EINVAL;
+
 	if (!result && (entry->action == UNKNOWN))
 		result = -EINVAL;
 	else if (entry->action == APPRAISE)
