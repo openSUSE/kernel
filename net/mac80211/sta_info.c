@@ -1356,20 +1356,6 @@ void ieee80211_sta_ps_deliver_wakeup(struct sta_info *sta)
 
 	atomic_dec(&ps->num_sta_ps);
 
-	/* This station just woke up and isn't aware of our SMPS state */
-	if (!ieee80211_vif_is_mesh(&sdata->vif) &&
-	    !ieee80211_smps_is_restrictive(sta->known_smps_mode,
-					   sdata->smps_mode) &&
-	    sta->known_smps_mode != sdata->bss->req_smps &&
-	    sta_info_tx_streams(sta) != 1) {
-		ht_dbg(sdata,
-		       "%pM just woke up and MIMO capable - update SMPS\n",
-		       sta->sta.addr);
-		ieee80211_send_smps_action(sdata, sdata->bss->req_smps,
-					   sta->sta.addr,
-					   sdata->vif.bss_conf.bssid);
-	}
-
 	local->total_ps_buffered -= buffered;
 
 	sta_info_recalc_tim(sta);
