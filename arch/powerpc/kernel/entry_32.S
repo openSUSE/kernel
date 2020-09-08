@@ -311,6 +311,7 @@ stack_ovf:
 	mtspr	SPRN_SRR1,r10
 	SYNC
 	RFI
+_ASM_NOKPROBE_SYMBOL(stack_ovf)
 
 #ifdef CONFIG_TRACE_IRQFLAGS
 trace_syscall_entry_irq_off:
@@ -1298,6 +1299,7 @@ nonrecoverable:
 	bl	unrecoverable_exception
 	/* shouldn't return */
 	b	4b
+_ASM_NOKPROBE_SYMBOL(nonrecoverable)
 
 	.section .bss
 	.align	2
@@ -1347,6 +1349,7 @@ _GLOBAL(enter_rtas)
 	mtspr	SPRN_SRR0,r8
 	mtspr	SPRN_SRR1,r9
 	RFI			/* return to caller */
+_ASM_NOKPROBE_SYMBOL(enter_rtas)
 
 	.globl	machine_check_in_rtas
 machine_check_in_rtas:
