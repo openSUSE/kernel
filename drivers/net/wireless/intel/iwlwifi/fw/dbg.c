@@ -1847,7 +1847,7 @@ static u32 iwl_dump_ini_mem(struct iwl_fw_runtime *fwrt, struct list_head *list,
 	if (!size)
 		return 0;
 
-	entry = kmalloc(sizeof(*entry) + sizeof(*tlv) + size, GFP_KERNEL);
+	entry = vzalloc(sizeof(*entry) + sizeof(*tlv) + size);
 	if (!entry)
 		return 0;
 
@@ -1893,7 +1893,7 @@ static u32 iwl_dump_ini_mem(struct iwl_fw_runtime *fwrt, struct list_head *list,
 	return entry->size;
 
 out_err:
-	kfree(entry);
+	vfree(entry);
 
 	return 0;
 }
@@ -1915,7 +1915,7 @@ static u32 iwl_dump_ini_info(struct iwl_fw_runtime *fwrt,
 		num_of_cfg_names++;
 	}
 
-	entry = kmalloc(sizeof(*entry) + size, GFP_KERNEL);
+	entry = vzalloc(sizeof(*entry) + size);
 	if (!entry)
 		return 0;
 
@@ -2122,7 +2122,7 @@ static u32 iwl_dump_ini_file_gen(struct iwl_fw_runtime *fwrt,
 	    !le64_to_cpu(trigger->regions_mask))
 		return 0;
 
-	entry = kmalloc(sizeof(*entry) + sizeof(*hdr), GFP_KERNEL);
+	entry = vzalloc(sizeof(*entry) + sizeof(*hdr));
 	if (!entry)
 		return 0;
 
@@ -2130,7 +2130,7 @@ static u32 iwl_dump_ini_file_gen(struct iwl_fw_runtime *fwrt,
 
 	size = iwl_dump_ini_trigger(fwrt, dump_data, list);
 	if (!size) {
-		kfree(entry);
+		vfree(entry);
 		return 0;
 	}
 
@@ -2196,7 +2196,7 @@ static void iwl_dump_ini_list_free(struct list_head *list)
 			list_entry(list->next, typeof(*entry), list);
 
 		list_del(&entry->list);
-		kfree(entry);
+		vfree(entry);
 	}
 }
 
