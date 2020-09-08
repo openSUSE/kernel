@@ -2216,8 +2216,7 @@ static int mac80211_hwsim_roc(struct ieee80211_hw *hw,
 	return 0;
 }
 
-static int mac80211_hwsim_croc(struct ieee80211_hw *hw,
-			       struct ieee80211_vif *vif)
+static int mac80211_hwsim_croc(struct ieee80211_hw *hw)
 {
 	struct mac80211_hwsim_data *hwsim = hw->priv;
 

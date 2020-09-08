@@ -201,38 +201,6 @@ cfg80211_get_dev_from_info(struct net *netns, struct genl_info *info)
 	return __cfg80211_rdev_from_attrs(netns, info->attrs);
 }
 
-static int validate_beacon_head(const struct nlattr *attr,
-				struct netlink_ext_ack *extack)
-{
-	const u8 *data = nla_data(attr);
-	unsigned int len = nla_len(attr);
-	const struct element *elem;
-	const struct ieee80211_mgmt *mgmt = (void *)data;
-	unsigned int fixedlen = offsetof(struct ieee80211_mgmt,
-					 u.beacon.variable);
-
-	if (len < fixedlen)
-		goto err;
-
-	if (ieee80211_hdrlen(mgmt->frame_control) !=
-	    offsetof(struct ieee80211_mgmt, u.beacon))
-		goto err;
-
-	data += fixedlen;
-	len -= fixedlen;
-
-	for_each_element(elem, data, len) {
-		/* nothing */
-	}
-
-	if (for_each_element_completed(elem, data, len))
-		return 0;
-
-err:
-	NL_SET_ERR_MSG_ATTR(extack, attr, "malformed beacon head");
-	return -EINVAL;
-}
-
 static int validate_ie_attr(const struct nlattr *attr,
 			    struct netlink_ext_ack *extack)
 {
@@ -354,9 +322,8 @@ const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 
 	[NL80211_ATTR_BEACON_INTERVAL] = { .type = NLA_U32 },
 	[NL80211_ATTR_DTIM_PERIOD] = { .type = NLA_U32 },
-	[NL80211_ATTR_BEACON_HEAD] =
-		NLA_POLICY_VALIDATE_FN(NLA_BINARY, validate_beacon_head,
-				       IEEE80211_MAX_DATA_LEN),
+	[NL80211_ATTR_BEACON_HEAD] = { .type = NLA_BINARY,
+				       .len = IEEE80211_MAX_DATA_LEN },
 	[NL80211_ATTR_BEACON_TAIL] =
 		NLA_POLICY_VALIDATE_FN(NLA_BINARY, validate_ie_attr,
 				       IEEE80211_MAX_DATA_LEN),
@@ -377,7 +344,7 @@ const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_MNTR_FLAGS] = { /* NLA_NESTED can't be empty */ },
 	[NL80211_ATTR_MESH_ID] = { .type = NLA_BINARY,
 				   .len = IEEE80211_MAX_MESH_ID_LEN },
-	[NL80211_ATTR_MPATH_NEXT_HOP] = NLA_POLICY_ETH_ADDR_COMPAT,
+	[NL80211_ATTR_MPATH_NEXT_HOP] = { .type = NLA_U32 },
 
 	[NL80211_ATTR_REG_ALPHA2] = { .type = NLA_STRING, .len = 2 },
 	[NL80211_ATTR_REG_RULES] = { .type = NLA_NESTED },
@@ -421,7 +388,6 @@ const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_CONTROL_PORT_NO_ENCRYPT] = { .type = NLA_FLAG },
 	[NL80211_ATTR_CONTROL_PORT_OVER_NL80211] = { .type = NLA_FLAG },
 	[NL80211_ATTR_PRIVACY] = { .type = NLA_FLAG },
-	[NL80211_ATTR_STATUS_CODE] = { .type = NLA_U16 },
 	[NL80211_ATTR_CIPHER_SUITE_GROUP] = { .type = NLA_U32 },
 	[NL80211_ATTR_WPA_VERSIONS] = { .type = NLA_U32 },
 	[NL80211_ATTR_PID] = { .type = NLA_U32 },
@@ -453,8 +419,6 @@ const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_WOWLAN_TRIGGERS] = { .type = NLA_NESTED },
 	[NL80211_ATTR_STA_PLINK_STATE] =
 		NLA_POLICY_MAX(NLA_U8, NUM_NL80211_PLINK_STATES - 1),
-	[NL80211_ATTR_MEASUREMENT_DURATION] = { .type = NLA_U16 },
-	[NL80211_ATTR_MEASUREMENT_DURATION_MANDATORY] = { .type = NLA_FLAG },
 	[NL80211_ATTR_MESH_PEER_AID] =
 		NLA_POLICY_RANGE(NLA_U16, 1, IEEE80211_MAX_AID),
 	[NL80211_ATTR_SCHED_SCAN_INTERVAL] = { .type = NLA_U32 },
@@ -516,8 +480,6 @@ const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_MDID] = { .type = NLA_U16 },
 	[NL80211_ATTR_IE_RIC] = { .type = NLA_BINARY,
 				  .len = IEEE80211_MAX_DATA_LEN },
-	[NL80211_ATTR_CRIT_PROT_ID] = { .type = NLA_U16 },
-	[NL80211_ATTR_MAX_CRIT_PROT_DURATION] = { .type = NLA_U16 },
 	[NL80211_ATTR_PEER_AID] =
 		NLA_POLICY_RANGE(NLA_U16, 1, IEEE80211_MAX_AID),
 	[NL80211_ATTR_CH_SWITCH_COUNT] = { .type = NLA_U32 },
@@ -548,7 +510,6 @@ const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 		NLA_POLICY_MAX(NLA_U8, IEEE80211_NUM_UPS - 1),
 	[NL80211_ATTR_ADMITTED_TIME] = { .type = NLA_U16 },
 	[NL80211_ATTR_SMPS_MODE] = { .type = NLA_U8 },
-	[NL80211_ATTR_OPER_CLASS] = { .type = NLA_U8 },
 	[NL80211_ATTR_MAC_MASK] = {
 		.type = NLA_EXACT_LEN_WARN,
 		.len = ETH_ALEN
@@ -602,8 +563,10 @@ const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_HE_CAPABILITY] = { .type = NLA_BINARY,
 					 .len = NL80211_HE_MAX_CAPABILITY_LEN },
 
-	[NL80211_ATTR_FTM_RESPONDER] =
-		NLA_POLICY_NESTED(nl80211_ftm_responder_policy),
+	[NL80211_ATTR_FTM_RESPONDER] = {
+		.type = NLA_NESTED,
+		.validation_data = nl80211_ftm_responder_policy,
+	},
 	[NL80211_ATTR_TIMEOUT] = NLA_POLICY_MIN(NLA_U32, 1),
 	[NL80211_ATTR_PEER_MEASUREMENTS] =
 		NLA_POLICY_NESTED(nl80211_pmsr_attr_policy),
@@ -2601,8 +2564,6 @@ int nl80211_parse_chandef(struct cfg80211_registered_device *rdev,
 
 	control_freq = nla_get_u32(attrs[NL80211_ATTR_WIPHY_FREQ]);
 
-	memset(chandef, 0, sizeof(*chandef));
-
 	chandef->chan = ieee80211_get_channel(&rdev->wiphy, control_freq);
 	chandef->width = NL80211_CHAN_WIDTH_20_NOHT;
 	chandef->center_freq1 = control_freq;
@@ -3131,7 +3092,7 @@ static int nl80211_send_iface(struct sk_buff *msg, u32 portid, u32 seq, int flag
 
 	if (rdev->ops->get_channel) {
 		int ret;
-		struct cfg80211_chan_def chandef = {};
+		struct cfg80211_chan_def chandef;
 
 		ret = rdev_get_channel(rdev, wdev, &chandef);
 		if (ret == 0) {
@@ -6186,9 +6147,6 @@ static int nl80211_del_mpath(struct sk_buff *skb, struct genl_info *info)
 		dst = nla_data(info->attrs[NL80211_ATTR_MAC]);
 
 	if (!rdev->ops->del_mpath)
-		return -EOPNOTSUPP;
-
-	if (dev->ieee80211_ptr->iftype != NL80211_IFTYPE_MESH_POINT)
 		return -EOPNOTSUPP;
 
 	return rdev_del_mpath(rdev, dev, dst);
@@ -10692,7 +10650,6 @@ static int cfg80211_cqm_rssi_update(struct cfg80211_registered_device *rdev,
 		if (err)
 			return err;
 
-		cfg80211_sinfo_release_content(&sinfo);
 		if (sinfo.filled & BIT_ULL(NL80211_STA_INFO_BEACON_SIGNAL_AVG))
 			wdev->cqm_config->last_rssi_event_value =
 				(s8) sinfo.rx_beacon_signal_avg;
@@ -10702,11 +10659,9 @@ static int cfg80211_cqm_rssi_update(struct cfg80211_registered_device *rdev,
 	hyst = wdev->cqm_config->rssi_hyst;
 	n = wdev->cqm_config->n_rssi_thresholds;
 
-	for (i = 0; i < n; i++) {
-		i = array_index_nospec(i, n);
+	for (i = 0; i < n; i++)
 		if (last < wdev->cqm_config->rssi_thresholds[i])
 			break;
-	}
 
 	low_index = i - 1;
 	if (low_index >= 0) {
@@ -12801,12 +12756,12 @@ static int nl80211_vendor_cmd(struct sk_buff *skb, struct genl_info *info)
 				if (!wdev_running(wdev))
 					return -ENETDOWN;
 			}
+
+			if (!vcmd->doit)
+				return -EOPNOTSUPP;
 		} else {
 			wdev = NULL;
 		}
-
-		if (!vcmd->doit)
-			return -EOPNOTSUPP;
 
 		if (info->attrs[NL80211_ATTR_VENDOR_DATA]) {
 			data = nla_data(info->attrs[NL80211_ATTR_VENDOR_DATA]);
@@ -13525,7 +13480,7 @@ static int nl80211_get_ftm_responder_stats(struct sk_buff *skb,
 	hdr = nl80211hdr_put(msg, info->snd_portid, info->snd_seq, 0,
 			     NL80211_CMD_GET_FTM_RESPONDER_STATS);
 	if (!hdr)
-		goto nla_put_failure;
+		return -ENOBUFS;
 
 	if (nla_put_u32(msg, NL80211_ATTR_IFINDEX, dev->ifindex))
 		goto nla_put_failure;
@@ -13629,8 +13584,6 @@ static int nl80211_probe_mesh_link(struct sk_buff *skb, struct genl_info *info)
 	err = rdev_get_station(rdev, dev, dest, &sinfo);
 	if (err)
 		return err;
-
-	cfg80211_sinfo_release_content(&sinfo);
 
 	return rdev_probe_mesh_link(rdev, dev, dest, buf, len);
 }
@@ -16242,7 +16195,7 @@ void cfg80211_sta_opmode_change_notify(struct net_device *dev, const u8 *mac,
 		goto nla_put_failure;
 
 	if ((sta_opmode->changed & STA_OPMODE_MAX_BW_CHANGED) &&
-	    nla_put_u32(msg, NL80211_ATTR_CHANNEL_WIDTH, sta_opmode->bw))
+	    nla_put_u8(msg, NL80211_ATTR_CHANNEL_WIDTH, sta_opmode->bw))
 		goto nla_put_failure;
 
 	if ((sta_opmode->changed & STA_OPMODE_N_SS_CHANGED) &&

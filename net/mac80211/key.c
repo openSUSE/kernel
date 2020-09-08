@@ -6,7 +6,6 @@
  * Copyright 2007-2008	Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
  * Copyright 2015-2017	Intel Deutschland GmbH
- * Copyright 2018-2020  Intel Corporation
  */
 
 #include <linux/if_ether.h>
@@ -262,27 +261,20 @@ static void ieee80211_key_disable_hw_accel(struct ieee80211_key *key)
 			  sta ? sta->sta.addr : bcast_addr, ret);
 }
 
-static int _ieee80211_set_tx_key(struct ieee80211_key *key, bool force)
+int ieee80211_set_tx_key(struct ieee80211_key *key)
 {
 	struct sta_info *sta = key->sta;
 	struct ieee80211_local *local = key->local;
 
 	assert_key_lock(local);
 
-	set_sta_flag(sta, WLAN_STA_USES_ENCRYPTION);
-
 	sta->ptk_idx = key->conf.keyidx;
 
-	if (force || ieee80211_hw_check(&local->hw, NO_AMPDU_KEYBORDER_SUPPORT))
+	if (ieee80211_hw_check(&local->hw, NO_AMPDU_KEYBORDER_SUPPORT))
 		clear_sta_flag(sta, WLAN_STA_BLOCK_BA);
 	ieee80211_check_fast_xmit(sta);
 
 	return 0;
-}
-
-int ieee80211_set_tx_key(struct ieee80211_key *key)
-{
-	return _ieee80211_set_tx_key(key, false);
 }
 
 static void ieee80211_pairwise_rekey(struct ieee80211_key *old,
@@ -448,8 +440,11 @@ static int ieee80211_key_replace(struct ieee80211_sub_if_data *sdata,
 		if (pairwise) {
 			rcu_assign_pointer(sta->ptk[idx], new);
 			if (new &&
-			    !(new->conf.flags & IEEE80211_KEY_FLAG_NO_AUTO_TX))
-				_ieee80211_set_tx_key(new, true);
+			    !(new->conf.flags & IEEE80211_KEY_FLAG_NO_AUTO_TX)) {
+				sta->ptk_idx = idx;
+				clear_sta_flag(sta, WLAN_STA_BLOCK_BA);
+				ieee80211_check_fast_xmit(sta);
+			}
 		} else {
 			rcu_assign_pointer(sta->gtk[idx], new);
 		}
@@ -798,7 +793,7 @@ int ieee80211_key_link(struct ieee80211_key *key,
 
 	/* Non-pairwise keys must also not switch the cipher on rekey */
 	if (!pairwise) {
-		if (old_key && old_key->conf.cipher != key->conf.cipher)
+		if (key && old_key && old_key->conf.cipher != key->conf.cipher)
 			goto out;
 	}
 

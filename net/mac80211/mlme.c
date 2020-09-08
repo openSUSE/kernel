@@ -8,7 +8,7 @@
  * Copyright 2007, Michael Wu <flamingice@sourmilk.net>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
  * Copyright (C) 2015 - 2017 Intel Deutschland GmbH
- * Copyright (C) 2018 - 2020 Intel Corporation
+ * Copyright (C) 2018 - 2019 Intel Corporation
  */
 
 #include <linux/delay.h>
@@ -1311,7 +1311,7 @@ ieee80211_sta_process_chanswitch(struct ieee80211_sub_if_data *sdata,
 	if (!res) {
 		ch_switch.timestamp = timestamp;
 		ch_switch.device_timestamp = device_timestamp;
-		ch_switch.block_tx = csa_ie.mode;
+		ch_switch.block_tx =  beacon ? csa_ie.mode : 0;
 		ch_switch.chandef = csa_ie.chandef;
 		ch_switch.count = csa_ie.count;
 		ch_switch.delay = csa_ie.max_switch_time;
@@ -1404,7 +1404,7 @@ ieee80211_sta_process_chanswitch(struct ieee80211_sub_if_data *sdata,
 
 	sdata->vif.csa_active = true;
 	sdata->csa_chandef = csa_ie.chandef;
-	sdata->csa_block_tx = csa_ie.mode;
+	sdata->csa_block_tx = ch_switch.block_tx;
 	ifmgd->csa_ignored_same_chan = false;
 
 	if (sdata->csa_block_tx)
@@ -1438,7 +1438,7 @@ ieee80211_sta_process_chanswitch(struct ieee80211_sub_if_data *sdata,
 	 * reset when the disconnection worker runs.
 	 */
 	sdata->vif.csa_active = true;
-	sdata->csa_block_tx = csa_ie.mode;
+	sdata->csa_block_tx = ch_switch.block_tx;
 
 	ieee80211_queue_work(&local->hw, &ifmgd->csa_connection_drop_work);
 	mutex_unlock(&local->chanctx_mtx);
@@ -2459,7 +2459,7 @@ void ieee80211_sta_tx_notify(struct ieee80211_sub_if_data *sdata,
 	if (!ieee80211_is_data(hdr->frame_control))
 	    return;
 
-	if (ieee80211_is_any_nullfunc(hdr->frame_control) &&
+	if (ieee80211_is_nullfunc(hdr->frame_control) &&
 	    sdata->u.mgd.probe_send_count > 0) {
 		if (ack)
 			ieee80211_sta_reset_conn_monitor(sdata);
@@ -2629,8 +2629,7 @@ struct sk_buff *ieee80211_ap_probereq_get(struct ieee80211_hw *hw,
 
 	rcu_read_lock();
 	ssid = ieee80211_bss_get_ie(cbss, WLAN_EID_SSID);
-	if (WARN_ONCE(!ssid || ssid[1] > IEEE80211_MAX_SSID_LEN,
-		      "invalid SSID element (len=%d)", ssid ? ssid[1] : -1))
+	if (WARN_ON_ONCE(ssid == NULL))
 		ssid_len = 0;
 	else
 		ssid_len = ssid[1];
@@ -2955,7 +2954,7 @@ static void ieee80211_rx_mgmt_auth(struct ieee80211_sub_if_data *sdata,
 	    (auth_transaction == 2 &&
 	     ifmgd->auth_data->expected_transaction == 2)) {
 		if (!ieee80211_mark_sta_auth(sdata, bssid))
-			return; /* ignore frame -- wait for timeout */
+			goto out_err;
 	} else if (ifmgd->auth_data->algorithm == WLAN_AUTH_SAE &&
 		   auth_transaction == 2) {
 		sdata_info(sdata, "SAE peer confirmed\n");
@@ -2963,6 +2962,10 @@ static void ieee80211_rx_mgmt_auth(struct ieee80211_sub_if_data *sdata,
 	}
 
 	cfg80211_rx_mlme_mgmt(sdata->dev, (u8 *)mgmt, len);
+	return;
+ out_err:
+	mutex_unlock(&sdata->local->sta_mtx);
+	/* ignore frame -- wait for timeout */
 }
 
 #define case_WLAN(type) \
@@ -5224,7 +5227,7 @@ int ieee80211_mgd_assoc(struct ieee80211_sub_if_data *sdata,
 
 	rcu_read_lock();
 	ssidie = ieee80211_bss_get_ie(req->bss, WLAN_EID_SSID);
-	if (!ssidie || ssidie[1] > sizeof(assoc_data->ssid)) {
+	if (!ssidie) {
 		rcu_read_unlock();
 		kfree(assoc_data);
 		return -EINVAL;

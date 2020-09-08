@@ -721,7 +721,7 @@ static int iwl_mvm_sar_get_ewrd_table(struct iwl_mvm *mvm)
 {
 	union acpi_object *wifi_pkg, *data;
 	bool enabled;
-	int i, n_profiles, ret, tbl_rev, pos;
+	int i, n_profiles, ret, tbl_rev;
 
 	data = iwl_acpi_get_object(mvm->dev, ACPI_EWRD_METHOD);
 	if (IS_ERR(data))
@@ -753,8 +753,9 @@ static int iwl_mvm_sar_get_ewrd_table(struct iwl_mvm *mvm)
 		goto out_free;
 	}
 
-	pos = 3;
 	for (i = 0; i < n_profiles; i++) {
+		/* the tables start at element 3 */
+		int pos = 3;
 
 		/* The EWRD profiles officially go from 2 to 4, but we
 		 * save them in sar_profiles[1-3] (because we don't
@@ -886,17 +887,13 @@ static bool iwl_mvm_sar_geo_support(struct iwl_mvm *mvm)
 	 * firmware versions.  Unfortunately, we don't have a TLV API
 	 * flag to rely on, so rely on the major version which is in
 	 * the first byte of ucode_ver.  This was implemented
-	 * initially on version 38 and then backported to 17.  It was
-	 * also backported to 29, but only for 7265D devices.  The
-	 * intention was to have it in 36 as well, but not all 8000
-	 * family got this feature enabled.  The 8000 family is the
-	 * only one using version 36, so skip this version entirely.
+	 * initially on version 38 and then backported to 36, 29 and
+	 * 17.
 	 */
 	return IWL_UCODE_SERIAL(mvm->fw->ucode_ver) >= 38 ||
-	       IWL_UCODE_SERIAL(mvm->fw->ucode_ver) == 17 ||
-	       (IWL_UCODE_SERIAL(mvm->fw->ucode_ver) == 29 &&
-		((mvm->trans->hw_rev & CSR_HW_REV_TYPE_MSK) ==
-		 CSR_HW_REV_TYPE_7265D));
+	       IWL_UCODE_SERIAL(mvm->fw->ucode_ver) == 36 ||
+	       IWL_UCODE_SERIAL(mvm->fw->ucode_ver) == 29 ||
+	       IWL_UCODE_SERIAL(mvm->fw->ucode_ver) == 17;
 }
 
 int iwl_mvm_get_sar_geo_profile(struct iwl_mvm *mvm)
@@ -1008,7 +1005,7 @@ static int iwl_mvm_sar_geo_init(struct iwl_mvm *mvm)
 #else /* CONFIG_ACPI */
 static int iwl_mvm_sar_get_wrds_table(struct iwl_mvm *mvm)
 {
-	return 0;
+	return -ENOENT;
 }
 
 static int iwl_mvm_sar_get_ewrd_table(struct iwl_mvm *mvm)
@@ -1325,6 +1322,10 @@ int iwl_mvm_up(struct iwl_mvm *mvm)
 		if (ret)
 			goto error;
 	}
+
+	/* allow FW/transport low power modes if not during restart */
+	if (!test_bit(IWL_MVM_STATUS_IN_HW_RESTART, &mvm->status))
+		iwl_mvm_unref(mvm, IWL_MVM_REF_UCODE_DOWN);
 
 	if (test_bit(IWL_MVM_STATUS_IN_HW_RESTART, &mvm->status))
 		iwl_mvm_send_recovery_cmd(mvm, ERROR_RECOVERY_UPDATE_DB);

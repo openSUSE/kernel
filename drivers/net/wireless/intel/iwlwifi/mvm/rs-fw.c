@@ -147,11 +147,7 @@ static u16 rs_fw_get_config_flags(struct iwl_mvm *mvm,
 	     (vht_ena && (vht_cap->cap & IEEE80211_VHT_CAP_RXLDPC))))
 		flags |= IWL_TLC_MNG_CFG_FLAGS_LDPC_MSK;
 
-	/* consider LDPC support in case of HE */
-	if (he_cap->has_he && (he_cap->he_cap_elem.phy_cap_info[1] &
-	    IEEE80211_HE_PHY_CAP1_LDPC_CODING_IN_PAYLOAD))
-		flags |= IWL_TLC_MNG_CFG_FLAGS_LDPC_MSK;
-
+	/* consider our LDPC support in case of HE */
 	if (sband->iftype_data && sband->iftype_data->he_cap.has_he &&
 	    !(sband->iftype_data->he_cap.he_cap_elem.phy_cap_info[1] &
 	     IEEE80211_HE_PHY_CAP1_LDPC_CODING_IN_PAYLOAD))
@@ -351,15 +347,8 @@ void iwl_mvm_tlc_update_notif(struct iwl_mvm *mvm,
 		u16 size = le32_to_cpu(notif->amsdu_size);
 		int i;
 
-		if (sta->max_amsdu_len < size) {
-			/*
-			 * In debug sta->max_amsdu_len < size
-			 * so also check with orig_amsdu_len which holds the
-			 * original data before debugfs changed the value
-			 */
-			WARN_ON(mvmsta->orig_amsdu_len < size);
+		if (WARN_ON(sta->max_amsdu_len < size))
 			goto out;
-		}
 
 		mvmsta->amsdu_enabled = le32_to_cpu(notif->amsdu_enabled);
 		mvmsta->max_amsdu_len = size;
