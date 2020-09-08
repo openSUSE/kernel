@@ -302,8 +302,8 @@ static struct pci_driver megaraid_pci_driver = {
 // definitions for the device attributes for exporting logical drive number
 // for a scsi address (Host, Channel, Id, Lun)
 
-DEVICE_ATTR(megaraid_mbox_app_hndl, S_IRUSR, megaraid_sysfs_show_app_hndl,
-		NULL);
+static DEVICE_ATTR(megaraid_mbox_app_hndl, S_IRUSR, megaraid_sysfs_show_app_hndl,
+		   NULL);
 
 // Host template initializer for megaraid mbox sysfs device attributes
 static struct device_attribute *megaraid_shost_attrs[] = {
@@ -312,7 +312,7 @@ static struct device_attribute *megaraid_shost_attrs[] = {
 };
 
 
-DEVICE_ATTR(megaraid_mbox_ld, S_IRUSR, megaraid_sysfs_show_ldnum, NULL);
+static DEVICE_ATTR(megaraid_mbox_ld, S_IRUSR, megaraid_sysfs_show_ldnum, NULL);
 
 // Host template initializer for megaraid mbox sysfs device attributes
 static struct device_attribute *megaraid_sdev_attrs[] = {
@@ -1538,20 +1538,13 @@ megaraid_mbox_build_cmd(adapter_t *adapter, struct scsi_cmnd *scp, int *busy)
 		case MODE_SENSE:
 		{
 			struct scatterlist	*sgl;
-			struct page		*pg;
-			unsigned char		*vaddr;
-			unsigned long		flags;
+			caddr_t			vaddr;
 
 			sgl = scsi_sglist(scp);
-			pg = sg_page(sgl);
-			if (pg) {
-				local_irq_save(flags);
-				vaddr = kmap_atomic(pg) + sgl->offset;
+			if (sg_page(sgl)) {
+				vaddr = (caddr_t) sg_virt(&sgl[0]);
 
 				memset(vaddr, 0, scp->cmnd[4]);
-
-				kunmap_atomic(vaddr);
-				local_irq_restore(flags);
 			}
 			else {
 				con_log(CL_ANN, (KERN_WARNING
@@ -2264,20 +2257,9 @@ megaraid_mbox_dpc(unsigned long devp)
 		if (scp->cmnd[0] == INQUIRY && status == 0 && islogical == 0
 				&& IS_RAID_CH(raid_dev, scb->dev_channel)) {
 
-			struct page		*pg;
-			unsigned char		*vaddr;
-			unsigned long		flags;
-
 			sgl = scsi_sglist(scp);
-			pg = sg_page(sgl);
-			if (pg) {
-				local_irq_save(flags);
-				vaddr = kmap_atomic(pg) + sgl->offset;
-
-				c = *vaddr;
-
-				kunmap_atomic(vaddr);
-				local_irq_restore(flags);
+			if (sg_page(sgl)) {
+				c = *(unsigned char *) sg_virt(&sgl[0]);
 			} else {
 				con_log(CL_ANN, (KERN_WARNING
 						 "megaraid mailbox: invalid sg:%d\n",
@@ -3322,7 +3304,6 @@ blocked_mailbox:
  * megaraid_mbox_display_scb - display SCB information, mostly debug purposes
  * @adapter		: controller's soft state
  * @scb			: SCB to be displayed
- * @level		: debug level for console print
  *
  * Diplay information about the given SCB iff the current debug level is
  * verbose.
@@ -3990,7 +3971,8 @@ megaraid_sysfs_get_ldmap(adapter_t *adapter)
 
 /**
  * megaraid_sysfs_show_app_hndl - display application handle for this adapter
- * @cdev	: class device object representation for the host
+ * @dev		: class device object representation for the host
+ * @attr	: device attribute (unused)
  * @buf		: buffer to send data to
  *
  * Display the handle used by the applications while executing management
