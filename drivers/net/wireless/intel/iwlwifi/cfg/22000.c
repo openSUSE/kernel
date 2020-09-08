@@ -466,8 +466,8 @@ const struct iwl_cfg iwl9560_2ac_cfg_quz_a0_jf_b0_soc = {
 	 * HT size; mac80211 would otherwise pick the HE max (256) by default.
 	 */
 	.max_tx_agg_size = IEEE80211_MAX_AMPDU_BUF_HT,
-	.integrated = true,
-	.soc_latency = 5000,
+	.trans.integrated = true,
+	.trans.xtal_latency = 5000,
 	.num_rbds = IWL_NUM_RBDS_NON_HE,
 };
 
@@ -481,8 +481,8 @@ const struct iwl_cfg iwl9560_2ac_160_cfg_quz_a0_jf_b0_soc = {
 	 * HT size; mac80211 would otherwise pick the HE max (256) by default.
 	 */
 	.max_tx_agg_size = IEEE80211_MAX_AMPDU_BUF_HT,
-	.integrated = true,
-	.soc_latency = 5000,
+	.trans.integrated = true,
+	.trans.xtal_latency = 5000,
 	.num_rbds = IWL_NUM_RBDS_NON_HE,
 };
 
@@ -496,8 +496,8 @@ const struct iwl_cfg iwl9461_2ac_cfg_quz_a0_jf_b0_soc = {
 	 * HT size; mac80211 would otherwise pick the HE max (256) by default.
 	 */
 	.max_tx_agg_size = IEEE80211_MAX_AMPDU_BUF_HT,
-	.integrated = true,
-	.soc_latency = 5000,
+	.trans.integrated = true,
+	.trans.xtal_latency = 5000,
 	.num_rbds = IWL_NUM_RBDS_NON_HE,
 };
 
@@ -511,8 +511,8 @@ const struct iwl_cfg iwl9462_2ac_cfg_quz_a0_jf_b0_soc = {
 	 * HT size; mac80211 would otherwise pick the HE max (256) by default.
 	 */
 	.max_tx_agg_size = IEEE80211_MAX_AMPDU_BUF_HT,
-	.integrated = true,
-	.soc_latency = 5000,
+	.trans.integrated = true,
+	.trans.xtal_latency = 5000,
 	.num_rbds = IWL_NUM_RBDS_NON_HE,
 };
 
@@ -526,8 +526,8 @@ const struct iwl_cfg iwl9560_killer_s_2ac_cfg_quz_a0_jf_b0_soc = {
 	 * HT size; mac80211 would otherwise pick the HE max (256) by default.
 	 */
 	.max_tx_agg_size = IEEE80211_MAX_AMPDU_BUF_HT,
-	.integrated = true,
-	.soc_latency = 5000,
+	.trans.integrated = true,
+	.trans.xtal_latency = 5000,
 	.num_rbds = IWL_NUM_RBDS_NON_HE,
 };
 
@@ -541,8 +541,8 @@ const struct iwl_cfg iwl9560_killer_i_2ac_cfg_quz_a0_jf_b0_soc = {
 	 * HT size; mac80211 would otherwise pick the HE max (256) by default.
 	 */
 	.max_tx_agg_size = IEEE80211_MAX_AMPDU_BUF_HT,
-	.integrated = true,
-	.soc_latency = 5000,
+	.trans.integrated = true,
+	.trans.xtal_latency = 5000,
 	.num_rbds = IWL_NUM_RBDS_NON_HE,
 };
 
