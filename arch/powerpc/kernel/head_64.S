@@ -182,7 +182,8 @@ __secondary_hold:
 	isync
 	bctr
 #else
-	BUG_OPCODE
+0:	trap
+	EMIT_BUG_ENTRY 0b, __FILE__, __LINE__, 0
 #endif
 CLOSE_FIXED_SECTION(first_256B)
 
@@ -999,7 +1000,8 @@ start_here_common:
 	bl	start_kernel
 
 	/* Not reached */
-	BUG_OPCODE
+	trap
+	EMIT_BUG_ENTRY 0b, __FILE__, __LINE__, 0
 	.previous
 
 /*
