@@ -71,18 +71,12 @@ gss_mech_svc_setup(struct gss_api_mech *gm)
 		status = -ENOMEM;
 		if (pf->auth_domain_name == NULL)
 			goto out;
-		status = svcauth_gss_register_pseudoflavor(
+		dom = svcauth_gss_register_pseudoflavor(
 			pf->pseudoflavor, pf->auth_domain_name);
-		if (status)
-			goto out;
-		dom = auth_domain_lookup(pf->auth_domain_name, NULL);
-		if (!dom) {
-			/* Should be impossible */
-			status = -ENOMEM;
+		if (IS_ERR(dom)) {
+			status = PTR_ERR(dom);
 			goto out;
 		}
-		/* we got an extra reference - drop it */
-		auth_domain_put(dom);
 		pf->domain = dom;
 	}
 	return 0;

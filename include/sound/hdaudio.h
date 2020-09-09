@@ -385,11 +385,8 @@ struct hdac_bus {
 	struct list_head hlink_list;
 	bool cmd_dma_state;
 
-	/* kABI workaround; adding a byte in the last padding hole */
-#ifndef __GENKSYMS__
 	/* factor used to derive STRIPE control value */
-	unsigned char sdo_limit;
-#endif
+	unsigned int sdo_limit;
 };
 
 int snd_hdac_bus_init(struct hdac_bus *bus, struct device *dev,

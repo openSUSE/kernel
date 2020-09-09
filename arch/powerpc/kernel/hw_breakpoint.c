@@ -24,13 +24,14 @@
 #include <asm/debug.h>
 #include <asm/debugfs.h>
 #include <asm/hvcall.h>
+#include <asm/inst.h>
 #include <linux/uaccess.h>
 
 /*
  * Stores the breakpoints currently in use on each breakpoint address
  * register for every cpu
  */
-static DEFINE_PER_CPU(struct perf_event *, bp_per_reg);
+static DEFINE_PER_CPU(struct perf_event *, bp_per_reg[HBP_NUM_MAX]);
 
 /*
  * Returns total number of data or instruction breakpoints available.
@@ -38,8 +39,19 @@ static DEFINE_PER_CPU(struct perf_event *, bp_per_reg);
 int hw_breakpoint_slots(int type)
 {
 	if (type == TYPE_DATA)
-		return HBP_NUM;
+		return nr_wp_slots();
 	return 0;		/* no instruction breakpoints available */
+}
+
+static bool single_step_pending(void)
+{
+	int i;
+
+	for (i = 0; i < nr_wp_slots(); i++) {
+		if (current->thread.last_hit_ubp[i])
+			return true;
+	}
+	return false;
 }
 
 /*
@@ -54,16 +66,26 @@ int hw_breakpoint_slots(int type)
 int arch_install_hw_breakpoint(struct perf_event *bp)
 {
 	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
-	struct perf_event **slot = this_cpu_ptr(&bp_per_reg);
+	struct perf_event **slot;
+	int i;
 
-	*slot = bp;
+	for (i = 0; i < nr_wp_slots(); i++) {
+		slot = this_cpu_ptr(&bp_per_reg[i]);
+		if (!*slot) {
+			*slot = bp;
+			break;
+		}
+	}
+
+	if (WARN_ONCE(i == nr_wp_slots(), "Can't find any breakpoint slot"))
+		return -EBUSY;
 
 	/*
 	 * Do not install DABR values if the instruction must be single-stepped.
 	 * If so, DABR will be populated in single_step_dabr_instruction().
 	 */
-	if (current->thread.last_hit_ubp != bp)
-		__set_breakpoint(info);
+	if (!single_step_pending())
+		__set_breakpoint(i, info);
 
 	return 0;
 }
@@ -79,15 +101,27 @@ int arch_install_hw_breakpoint(struct perf_event *bp)
  */
 void arch_uninstall_hw_breakpoint(struct perf_event *bp)
 {
-	struct perf_event **slot = this_cpu_ptr(&bp_per_reg);
+	struct arch_hw_breakpoint null_brk = {0};
+	struct perf_event **slot;
+	int i;
 
-	if (*slot != bp) {
-		WARN_ONCE(1, "Can't find the breakpoint");
-		return;
+	for (i = 0; i < nr_wp_slots(); i++) {
+		slot = this_cpu_ptr(&bp_per_reg[i]);
+		if (*slot == bp) {
+			*slot = NULL;
+			break;
+		}
 	}
 
-	*slot = NULL;
-	hw_breakpoint_disable();
+	if (WARN_ONCE(i == nr_wp_slots(), "Can't find any breakpoint slot"))
+		return;
+
+	__set_breakpoint(i, &null_brk);
+}
+
+static bool is_ptrace_bp(struct perf_event *bp)
+{
+	return bp->overflow_handler == ptrace_triggered;
 }
 
 /*
@@ -102,8 +136,14 @@ void arch_unregister_hw_breakpoint(struct perf_event *bp)
 	 * restoration variables to prevent dangling pointers.
 	 * FIXME, this should not be using bp->ctx at all! Sayeth peterz.
 	 */
-	if (bp->ctx && bp->ctx->task && bp->ctx->task != ((void *)-1L))
-		bp->ctx->task->thread.last_hit_ubp = NULL;
+	if (bp->ctx && bp->ctx->task && bp->ctx->task != ((void *)-1L)) {
+		int i;
+
+		for (i = 0; i < nr_wp_slots(); i++) {
+			if (bp->ctx->task->thread.last_hit_ubp[i] == bp)
+				bp->ctx->task->thread.last_hit_ubp[i] = NULL;
+		}
+	}
 }
 
 /*
@@ -127,15 +167,62 @@ int arch_bp_generic_fields(int type, int *gen_bp_type)
 }
 
 /*
+ * Watchpoint match range is always doubleword(8 bytes) aligned on
+ * powerpc. If the given range is crossing doubleword boundary, we
+ * need to increase the length such that next doubleword also get
+ * covered. Ex,
+ *
+ *          address   len = 6 bytes
+ *                |=========.
+ *   |------------v--|------v--------|
+ *   | | | | | | | | | | | | | | | | |
+ *   |---------------|---------------|
+ *    <---8 bytes--->
+ *
+ * In this case, we should configure hw as:
+ *   start_addr = address & ~(HW_BREAKPOINT_SIZE - 1)
+ *   len = 16 bytes
+ *
+ * @start_addr is inclusive but @end_addr is exclusive.
+ */
+static int hw_breakpoint_validate_len(struct arch_hw_breakpoint *hw)
+{
+	u16 max_len = DABR_MAX_LEN;
+	u16 hw_len;
+	unsigned long start_addr, end_addr;
+
+	start_addr = ALIGN_DOWN(hw->address, HW_BREAKPOINT_SIZE);
+	end_addr = ALIGN(hw->address + hw->len, HW_BREAKPOINT_SIZE);
+	hw_len = end_addr - start_addr;
+
+	if (dawr_enabled()) {
+		max_len = DAWR_MAX_LEN;
+		/* DAWR region can't cross 512 bytes boundary on p10 predecessors */
+		if (!cpu_has_feature(CPU_FTR_ARCH_31) &&
+		    (ALIGN_DOWN(start_addr, SZ_512) != ALIGN_DOWN(end_addr - 1, SZ_512)))
+			return -EINVAL;
+	} else if (IS_ENABLED(CONFIG_PPC_8xx)) {
+		/* 8xx can setup a range without limitation */
+		max_len = U16_MAX;
+	}
+
+	if (hw_len > max_len)
+		return -EINVAL;
+
+	hw->hw_len = hw_len;
+	return 0;
+}
+
+/*
  * Validate the arch-specific HW Breakpoint register settings
  */
 int hw_breakpoint_arch_parse(struct perf_event *bp,
 			     const struct perf_event_attr *attr,
 			     struct arch_hw_breakpoint *hw)
 {
-	int ret = -EINVAL, length_max;
+	int ret = -EINVAL;
 
-	if (!bp)
+	if (!bp || !attr->bp_len)
 		return ret;
 
 	hw->type = HW_BRK_TYPE_TRANSLATE;
@@ -155,26 +242,10 @@ int hw_breakpoint_arch_parse(struct perf_event *bp,
 	hw->address = attr->bp_addr;
 	hw->len = attr->bp_len;
 
-	/*
-	 * Since breakpoint length can be a maximum of HW_BREAKPOINT_LEN(8)
-	 * and breakpoint addresses are aligned to nearest double-word
-	 * HW_BREAKPOINT_ALIGN by rounding off to the lower address, the
-	 * 'symbolsize' should satisfy the check below.
-	 */
 	if (!ppc_breakpoint_available())
 		return -ENODEV;
-	length_max = 8; /* DABR */
-	if (dawr_enabled()) {
-		length_max = 512 ; /* 64 doublewords */
-		/* DAWR region can't cross 512 boundary */
-		if ((attr->bp_addr >> 9) !=
-		    ((attr->bp_addr + attr->bp_len - 1) >> 9))
-			return -EINVAL;
-	}
-	if (hw->len >
-	    (length_max - (hw->address & HW_BREAKPOINT_ALIGN)))
-		return -EINVAL;
-	return 0;
+
+	return hw_breakpoint_validate_len(hw);
 }
 
 /*
@@ -185,30 +256,238 @@ int hw_breakpoint_arch_parse(struct perf_event *bp,
 void thread_change_pc(struct task_struct *tsk, struct pt_regs *regs)
 {
 	struct arch_hw_breakpoint *info;
+	int i;
 
-	if (likely(!tsk->thread.last_hit_ubp))
-		return;
+	for (i = 0; i < nr_wp_slots(); i++) {
+		if (unlikely(tsk->thread.last_hit_ubp[i]))
+			goto reset;
+	}
+	return;
 
-	info = counter_arch_bp(tsk->thread.last_hit_ubp);
+reset:
 	regs->msr &= ~MSR_SE;
-	__set_breakpoint(info);
-	tsk->thread.last_hit_ubp = NULL;
+	for (i = 0; i < nr_wp_slots(); i++) {
+		info = counter_arch_bp(__this_cpu_read(bp_per_reg[i]));
+		__set_breakpoint(i, info);
+		tsk->thread.last_hit_ubp[i] = NULL;
+	}
+}
+
+static bool dar_in_user_range(unsigned long dar, struct arch_hw_breakpoint *info)
+{
+	return ((info->address <= dar) && (dar - info->address < info->len));
+}
+
+static bool ea_user_range_overlaps(unsigned long ea, int size,
+				   struct arch_hw_breakpoint *info)
+{
+	return ((ea < info->address + info->len) &&
+		(ea + size > info->address));
+}
+
+static bool dar_in_hw_range(unsigned long dar, struct arch_hw_breakpoint *info)
+{
+	unsigned long hw_start_addr, hw_end_addr;
+
+	hw_start_addr = ALIGN_DOWN(info->address, HW_BREAKPOINT_SIZE);
+	hw_end_addr = ALIGN(info->address + info->len, HW_BREAKPOINT_SIZE);
+
+	return ((hw_start_addr <= dar) && (hw_end_addr > dar));
+}
+
+static bool ea_hw_range_overlaps(unsigned long ea, int size,
+				 struct arch_hw_breakpoint *info)
+{
+	unsigned long hw_start_addr, hw_end_addr;
+
+	hw_start_addr = ALIGN_DOWN(info->address, HW_BREAKPOINT_SIZE);
+	hw_end_addr = ALIGN(info->address + info->len, HW_BREAKPOINT_SIZE);
+
+	return ((ea < hw_end_addr) && (ea + size > hw_start_addr));
 }
 
 /*
- * Handle debug exception notifications.
+ * If hw has multiple DAWR registers, we also need to check all
+ * dawrx constraint bits to confirm this is _really_ a valid event.
+ * If type is UNKNOWN, but privilege level matches, consider it as
+ * a positive match.
  */
+static bool check_dawrx_constraints(struct pt_regs *regs, int type,
+				    struct arch_hw_breakpoint *info)
+{
+	if (OP_IS_LOAD(type) && !(info->type & HW_BRK_TYPE_READ))
+		return false;
+
+	/*
+	 * The Cache Management instructions other than dcbz never
+	 * cause a match. i.e. if type is CACHEOP, the instruction
+	 * is dcbz, and dcbz is treated as Store.
+	 */
+	if ((OP_IS_STORE(type) || type == CACHEOP) && !(info->type & HW_BRK_TYPE_WRITE))
+		return false;
+
+	if (is_kernel_addr(regs->nip) && !(info->type & HW_BRK_TYPE_KERNEL))
+		return false;
+
+	if (user_mode(regs) && !(info->type & HW_BRK_TYPE_USER))
+		return false;
+
+	return true;
+}
+
+/*
+ * Return true if the event is valid wrt dawr configuration,
+ * including extraneous exception. Otherwise return false.
+ */
+static bool check_constraints(struct pt_regs *regs, struct ppc_inst instr,
+			      unsigned long ea, int type, int size,
+			      struct arch_hw_breakpoint *info)
+{
+	bool in_user_range = dar_in_user_range(regs->dar, info);
+	bool dawrx_constraints;
+
+	/*
+	 * 8xx supports only one breakpoint and thus we can
+	 * unconditionally return true.
+	 */
+	if (IS_ENABLED(CONFIG_PPC_8xx)) {
+		if (!in_user_range)
+			info->type |= HW_BRK_TYPE_EXTRANEOUS_IRQ;
+		return true;
+	}
+
+	if (unlikely(ppc_inst_equal(instr, ppc_inst(0)))) {
+		if (cpu_has_feature(CPU_FTR_ARCH_31) &&
+		    !dar_in_hw_range(regs->dar, info))
+			return false;
+
+		return true;
+	}
+
+	dawrx_constraints = check_dawrx_constraints(regs, type, info);
+
+	if (type == UNKNOWN) {
+		if (cpu_has_feature(CPU_FTR_ARCH_31) &&
+		    !dar_in_hw_range(regs->dar, info))
+			return false;
+
+		return dawrx_constraints;
+	}
+
+	if (ea_user_range_overlaps(ea, size, info))
+		return dawrx_constraints;
+
+	if (ea_hw_range_overlaps(ea, size, info)) {
+		if (dawrx_constraints) {
+			info->type |= HW_BRK_TYPE_EXTRANEOUS_IRQ;
+			return true;
+		}
+	}
+	return false;
+}
+
+static int cache_op_size(void)
+{
+#ifdef __powerpc64__
+	return ppc64_caches.l1d.block_size;
+#else
+	return L1_CACHE_BYTES;
+#endif
+}
+
+static void get_instr_detail(struct pt_regs *regs, struct ppc_inst *instr,
+			     int *type, int *size, unsigned long *ea)
+{
+	struct instruction_op op;
+
+	if (__get_user_instr_inatomic(*instr, (void __user *)regs->nip))
+		return;
+
+	analyse_instr(&op, regs, *instr);
+	*type = GETTYPE(op.type);
+	*ea = op.ea;
+#ifdef __powerpc64__
+	if (!(regs->msr & MSR_64BIT))
+		*ea &= 0xffffffffUL;
+#endif
+
+	*size = GETSIZE(op.type);
+	if (*type == CACHEOP) {
+		*size = cache_op_size();
+		*ea &= ~(*size - 1);
+	}
+}
+
+static bool is_larx_stcx_instr(int type)
+{
+	return type == LARX || type == STCX;
+}
+
+/*
+ * We've failed in reliably handling the hw-breakpoint. Unregister
+ * it and throw a warning message to let the user know about it.
+ */
+static void handler_error(struct perf_event *bp, struct arch_hw_breakpoint *info)
+{
+	WARN(1, "Unable to handle hardware breakpoint. Breakpoint at 0x%lx will be disabled.",
+	     info->address);
+	perf_event_disable_inatomic(bp);
+}
+
+static void larx_stcx_err(struct perf_event *bp, struct arch_hw_breakpoint *info)
+{
+	printk_ratelimited("Breakpoint hit on instruction that can't be emulated. Breakpoint at 0x%lx will be disabled.\n",
+			   info->address);
+	perf_event_disable_inatomic(bp);
+}
+
+static bool stepping_handler(struct pt_regs *regs, struct perf_event **bp,
+			     struct arch_hw_breakpoint **info, int *hit,
+			     struct ppc_inst instr)
+{
+	int i;
+	int stepped;
+
+	/* Do not emulate user-space instructions, instead single-step them */
+	if (user_mode(regs)) {
+		for (i = 0; i < nr_wp_slots(); i++) {
+			if (!hit[i])
+				continue;
+			current->thread.last_hit_ubp[i] = bp[i];
+			info[i] = NULL;
+		}
+		regs->msr |= MSR_SE;
+		return false;
+	}
+
+	stepped = emulate_step(regs, instr);
+	if (!stepped) {
+		for (i = 0; i < nr_wp_slots(); i++) {
+			if (!hit[i])
+				continue;
+			handler_error(bp[i], info[i]);
+			info[i] = NULL;
+		}
+		return false;
+	}
+	return true;
+}
+
 int hw_breakpoint_handler(struct die_args *args)
 {
+	bool err = false;
 	int rc = NOTIFY_STOP;
-	struct perf_event *bp;
+	struct perf_event *bp[HBP_NUM_MAX] = { NULL };
 	struct pt_regs *regs = args->regs;
-#ifndef CONFIG_PPC_8xx
-	int stepped = 1;
-	unsigned int instr;
-#endif
-	struct arch_hw_breakpoint *info;
-	unsigned long dar = regs->dar;
+	struct arch_hw_breakpoint *info[HBP_NUM_MAX] = { NULL };
+	int i;
+	int hit[HBP_NUM_MAX] = {0};
+	int nr_hit = 0;
+	bool ptrace_bp = false;
+	struct ppc_inst instr = ppc_inst(0);
+	int type = 0;
+	int size = 0;
+	unsigned long ea;
 
 	/* Disable breakpoints during exception handling */
 	hw_breakpoint_disable();
@@ -221,12 +500,40 @@ int hw_breakpoint_handler(struct die_args *args)
 	 */
 	rcu_read_lock();
 
-	bp = __this_cpu_read(bp_per_reg);
-	if (!bp) {
+	if (!IS_ENABLED(CONFIG_PPC_8xx))
+		get_instr_detail(regs, &instr, &type, &size, &ea);
+
+	for (i = 0; i < nr_wp_slots(); i++) {
+		bp[i] = __this_cpu_read(bp_per_reg[i]);
+		if (!bp[i])
+			continue;
+
+		info[i] = counter_arch_bp(bp[i]);
+		info[i]->type &= ~HW_BRK_TYPE_EXTRANEOUS_IRQ;
+
+		if (check_constraints(regs, instr, ea, type, size, info[i])) {
+			if (!IS_ENABLED(CONFIG_PPC_8xx) &&
+			    ppc_inst_equal(instr, ppc_inst(0))) {
+				handler_error(bp[i], info[i]);
+				info[i] = NULL;
+				err = 1;
+				continue;
+			}
+
+			if (is_ptrace_bp(bp[i]))
+				ptrace_bp = true;
+			hit[i] = 1;
+			nr_hit++;
+		}
+	}
+
+	if (err)
+		goto reset;
+
+	if (!nr_hit) {
 		rc = NOTIFY_DONE;
 		goto out;
 	}
-	info = counter_arch_bp(bp);
 
 	/*
 	 * Return early after invoking user-callback function without restoring
@@ -234,56 +541,50 @@ int hw_breakpoint_handler(struct die_args *args)
 	 * one-shot mode. The ptrace-ed process will receive the SIGTRAP signal
 	 * generated in do_dabr().
 	 */
-	if (bp->overflow_handler == ptrace_triggered) {
-		perf_bp_event(bp, regs);
+	if (ptrace_bp) {
+		for (i = 0; i < nr_wp_slots(); i++) {
+			if (!hit[i])
+				continue;
+			perf_bp_event(bp[i], regs);
+			info[i] = NULL;
+		}
 		rc = NOTIFY_DONE;
-		goto out;
+		goto reset;
 	}
 
-	/*
-	 * Verify if dar lies within the address range occupied by the symbol
-	 * being watched to filter extraneous exceptions.  If it doesn't,
-	 * we still need to single-step the instruction, but we don't
-	 * generate an event.
-	 */
-	info->type &= ~HW_BRK_TYPE_EXTRANEOUS_IRQ;
-	if (!((bp->attr.bp_addr <= dar) &&
-	      (dar - bp->attr.bp_addr < bp->attr.bp_len)))
-		info->type |= HW_BRK_TYPE_EXTRANEOUS_IRQ;
+	if (!IS_ENABLED(CONFIG_PPC_8xx)) {
+		if (is_larx_stcx_instr(type)) {
+			for (i = 0; i < nr_wp_slots(); i++) {
+				if (!hit[i])
+					continue;
+				larx_stcx_err(bp[i], info[i]);
+				info[i] = NULL;
+			}
+			goto reset;
+		}
 
-#ifndef CONFIG_PPC_8xx
-	/* Do not emulate user-space instructions, instead single-step them */
-	if (user_mode(regs)) {
-		current->thread.last_hit_ubp = bp;
-		regs->msr |= MSR_SE;
-		goto out;
+		if (!stepping_handler(regs, bp, info, hit, instr))
+			goto reset;
 	}
 
-	stepped = 0;
-	instr = 0;
-	if (!__get_user_inatomic(instr, (unsigned int *) regs->nip))
-		stepped = emulate_step(regs, instr);
-
-	/*
-	 * emulate_step() could not execute it. We've failed in reliably
-	 * handling the hw-breakpoint. Unregister it and throw a warning
-	 * message to let the user know about it.
-	 */
-	if (!stepped) {
-		WARN(1, "Unable to handle hardware breakpoint. Breakpoint at "
-			"0x%lx will be disabled.", info->address);
-		perf_event_disable_inatomic(bp);
-		goto out;
-	}
-#endif
 	/*
 	 * As a policy, the callback is invoked in a 'trigger-after-execute'
 	 * fashion
 	 */
-	if (!(info->type & HW_BRK_TYPE_EXTRANEOUS_IRQ))
-		perf_bp_event(bp, regs);
+	for (i = 0; i < nr_wp_slots(); i++) {
+		if (!hit[i])
+			continue;
+		if (!(info[i]->type & HW_BRK_TYPE_EXTRANEOUS_IRQ))
+			perf_bp_event(bp[i], regs);
+	}
 
-	__set_breakpoint(info);
+reset:
+	for (i = 0; i < nr_wp_slots(); i++) {
+		if (!info[i])
+			continue;
+		__set_breakpoint(i, info[i]);
+	}
+
 out:
 	rcu_read_unlock();
 	return rc;
@@ -298,26 +599,43 @@ static int single_step_dabr_instruction(struct die_args *args)
 	struct pt_regs *regs = args->regs;
 	struct perf_event *bp = NULL;
 	struct arch_hw_breakpoint *info;
+	int i;
+	bool found = false;
 
-	bp = current->thread.last_hit_ubp;
 	/*
 	 * Check if we are single-stepping as a result of a
 	 * previous HW Breakpoint exception
 	 */
-	if (!bp)
+	for (i = 0; i < nr_wp_slots(); i++) {
+		bp = current->thread.last_hit_ubp[i];
+
+		if (!bp)
+			continue;
+
+		found = true;
+		info = counter_arch_bp(bp);
+
+		/*
+		 * We shall invoke the user-defined callback function in the
+		 * single stepping handler to confirm to 'trigger-after-execute'
+		 * semantics
+		 */
+		if (!(info->type & HW_BRK_TYPE_EXTRANEOUS_IRQ))
+			perf_bp_event(bp, regs);
+		current->thread.last_hit_ubp[i] = NULL;
+	}
+
+	if (!found)
 		return NOTIFY_DONE;
 
-	info = counter_arch_bp(bp);
+	for (i = 0; i < nr_wp_slots(); i++) {
+		bp = __this_cpu_read(bp_per_reg[i]);
+		if (!bp)
+			continue;
 
-	/*
-	 * We shall invoke the user-defined callback function in the single
-	 * stepping handler to confirm to 'trigger-after-execute' semantics
-	 */
-	if (!(info->type & HW_BRK_TYPE_EXTRANEOUS_IRQ))
-		perf_bp_event(bp, regs);
-
-	__set_breakpoint(info);
-	current->thread.last_hit_ubp = NULL;
+		info = counter_arch_bp(bp);
+		__set_breakpoint(i, info);
+	}
 
 	/*
 	 * If the process was being single-stepped by ptrace, let the
@@ -365,4 +683,20 @@ void flush_ptrace_hw_breakpoint(struct task_struct *tsk)
 void hw_breakpoint_pmu_read(struct perf_event *bp)
 {
 	/* TODO */
+}
+
+void ptrace_triggered(struct perf_event *bp,
+		      struct perf_sample_data *data, struct pt_regs *regs)
+{
+	struct perf_event_attr attr;
+
+	/*
+	 * Disable the breakpoint request here since ptrace has defined a
+	 * one-shot behaviour for breakpoint exceptions in PPC64.
+	 * The SIGTRAP signal is generated automatically for us in do_dabr().
+	 * We don't have to do anything about that here
+	 */
+	attr = bp->attr;
+	attr.disabled = true;
+	modify_user_hw_breakpoint(bp, &attr);
 }

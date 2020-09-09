@@ -4,6 +4,14 @@
 
 #include <linux/pci.h>
 
+#ifdef CONFIG_PCI_ATS
+/* Address Translation Service */
+bool pci_ats_supported(struct pci_dev *dev);
+#else /* CONFIG_PCI_ATS */
+static inline bool pci_ats_supported(struct pci_dev *d)
+{ return false; }
+#endif /* CONFIG_PCI_ATS */
+
 #ifdef CONFIG_PCI_PRI
 
 int pci_enable_pri(struct pci_dev *pdev, u32 reqs);
