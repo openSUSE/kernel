@@ -1512,10 +1512,7 @@ static void __blkdev_put(struct block_device *bdev, fmode_t mode, int for_part);
 static void bdev_disk_changed(struct block_device *bdev, bool invalidate)
 {
 	if (disk_part_scan_enabled(bdev->bd_disk)) {
-		if (invalidate)
-			invalidate_partitions(bdev->bd_disk, bdev);
-		else
-			rescan_partitions(bdev->bd_disk, bdev);
+		rescan_partitions(bdev->bd_disk, bdev, invalidate);
 	} else {
 		check_disk_size_change(bdev->bd_disk, bdev, !invalidate);
 		bdev->bd_invalidated = 0;
@@ -1671,12 +1668,8 @@ static int __blkdev_get(struct block_device *bdev, fmode_t mode, int for_part)
 			set_init_blocksize(bdev);
 		}
 		/* the same as first opener case, read comment there */
-		if (bdev->bd_invalidated) {
-			if (!ret)
-				rescan_partitions(disk, bdev);
-			else if (ret == -ENOMEDIUM)
-				invalidate_partitions(disk, bdev);
-		}
+		if (bdev->bd_invalidated)
+			rescan_partitions(disk, bdev, ret == -ENOMEDIUM);
 	}
 	if (ret) {
 		bdgrab(bdev);	/* workaround after commit 2d3a8e2dedde */
