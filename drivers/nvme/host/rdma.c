@@ -890,14 +890,19 @@ static int nvme_rdma_configure_io_queues(struct nvme_rdma_ctrl *ctrl, bool new)
 			ret = PTR_ERR(ctrl->ctrl.connect_q);
 			goto out_free_tag_set;
 		}
-	} else {
-		blk_mq_update_nr_hw_queues(&ctrl->tag_set,
-			ctrl->ctrl.queue_count - 1);
 	}
 
 	ret = nvme_rdma_start_io_queues(ctrl);
 	if (ret)
 		goto out_cleanup_connect_q;
+
+	if (!new) {
+		nvme_start_queues(&ctrl->ctrl);
+		nvme_wait_freeze(&ctrl->ctrl);
+		blk_mq_update_nr_hw_queues(ctrl->ctrl.tagset,
+			ctrl->ctrl.queue_count - 1);
+		nvme_unfreeze(&ctrl->ctrl);
+	}
 
 	return 0;
 
@@ -931,6 +936,7 @@ static void nvme_rdma_teardown_io_queues(struct nvme_rdma_ctrl *ctrl,
 		bool remove)
 {
 	if (ctrl->ctrl.queue_count > 1) {
+		nvme_start_freeze(&ctrl->ctrl);
 		nvme_stop_queues(&ctrl->ctrl);
 		nvme_rdma_stop_io_queues(ctrl);
 		if (ctrl->ctrl.tagset) {
@@ -1098,6 +1104,15 @@ static void nvme_rdma_error_recovery(struct nvme_rdma_ctrl *ctrl)
 	queue_work(nvme_reset_wq, &ctrl->err_work);
 }
 
+static void nvme_rdma_end_request(struct nvme_rdma_request *req)
+{
+	struct request *rq = blk_mq_rq_from_pdu(req);
+
+	if (!refcount_dec_and_test(&req->ref))
+		return;
+	nvme_end_request(rq, req->status, req->result);
+}
+
 static void nvme_rdma_wr_error(struct ib_cq *cq, struct ib_wc *wc,
 		const char *op)
 {
@@ -1122,16 +1137,11 @@ static void nvme_rdma_inv_rkey_done(struct ib_cq *cq, struct ib_wc *wc)
 {
 	struct nvme_rdma_request *req =
 		container_of(wc->wr_cqe, struct nvme_rdma_request, reg_cqe);
-	struct request *rq = blk_mq_rq_from_pdu(req);
 
-	if (unlikely(wc->status != IB_WC_SUCCESS)) {
+	if (unlikely(wc->status != IB_WC_SUCCESS))
 		nvme_rdma_wr_error(cq, wc, "LOCAL_INV");
-		return;
-	}
-
-	if (refcount_dec_and_test(&req->ref))
-		nvme_end_request(rq, req->status, req->result);
-
+	else
+		nvme_rdma_end_request(req);
 }
 
 static int nvme_rdma_inv_rkey(struct nvme_rdma_queue *queue,
@@ -1331,15 +1341,11 @@ static void nvme_rdma_send_done(struct ib_cq *cq, struct ib_wc *wc)
 		container_of(wc->wr_cqe, struct nvme_rdma_qe, cqe);
 	struct nvme_rdma_request *req =
 		container_of(qe, struct nvme_rdma_request, sqe);
-	struct request *rq = blk_mq_rq_from_pdu(req);
 
-	if (unlikely(wc->status != IB_WC_SUCCESS)) {
+	if (unlikely(wc->status != IB_WC_SUCCESS))
 		nvme_rdma_wr_error(cq, wc, "SEND");
-		return;
-	}
-
-	if (refcount_dec_and_test(&req->ref))
-		nvme_end_request(rq, req->status, req->result);
+	else
+		nvme_rdma_end_request(req);
 }
 
 static int nvme_rdma_post_send(struct nvme_rdma_queue *queue,
@@ -1478,11 +1484,9 @@ static void nvme_rdma_process_nvme_rsp(struct nvme_rdma_queue *queue,
 			nvme_rdma_error_recovery(queue->ctrl);
 		}
 		/* the local invalidation completion will end the request */
-		return;
+	} else {
+		nvme_rdma_end_request(req);
 	}
-
-	if (refcount_dec_and_test(&req->ref))
-		nvme_end_request(rq, req->status, req->result);
 }
 
 static void nvme_rdma_recv_done(struct ib_cq *cq, struct ib_wc *wc)

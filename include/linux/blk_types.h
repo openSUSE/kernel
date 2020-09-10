@@ -18,6 +18,7 @@ struct block_device;
 struct io_context;
 struct cgroup_subsys_state;
 typedef void (bio_end_io_t) (struct bio *);
+struct bio_crypt_ctx;
 
 /*
  * Block error status values.  See block/blk-core:blk_errors for the details.
@@ -62,6 +63,18 @@ typedef u8 __bitwise blk_status_t;
  * any other system wide resources.
  */
 #define BLK_STS_DEV_RESOURCE	((__force blk_status_t)13)
+
+/*
+ * BLK_STS_ZONE_RESOURCE is returned from the driver to the block layer if zone
+ * related resources are unavailable, but the driver can guarantee the queue
+ * will be rerun in the future once the resources become available again.
+ *
+ * This is different from BLK_STS_DEV_RESOURCE in that it explicitly references
+ * a zone specific resource and IO to a different zone on the same device could
+ * still be served. Examples of that are zones that are write-locked, but a read
+ * to the same zone could be served.
+ */
+#define BLK_STS_ZONE_RESOURCE	((__force blk_status_t)14)
 
 /**
  * blk_path_error - returns true if error may be path related
@@ -153,10 +166,10 @@ struct bio {
 	unsigned short		bi_write_hint;
 	blk_status_t		bi_status;
 	u8			bi_partno;
+	atomic_t		__bi_remaining;
 
 	struct bvec_iter	bi_iter;
 
-	atomic_t		__bi_remaining;
 	bio_end_io_t		*bi_end_io;
 
 	void			*bi_private;
@@ -173,6 +186,11 @@ struct bio {
 	u64			bi_iocost_cost;
 #endif
 #endif
+
+#ifdef CONFIG_BLK_INLINE_ENCRYPTION
+	struct bio_crypt_ctx	*bi_crypt_context;
+#endif
+
 	union {
 #if defined(CONFIG_BLK_DEV_INTEGRITY)
 		struct bio_integrity_payload *bi_integrity; /* data integrity */
@@ -220,7 +238,7 @@ enum {
 				 * throttling rules. Don't do it again. */
 	BIO_TRACE_COMPLETION,	/* bio_endio() should trace the final completion
 				 * of this bio. */
-	BIO_QUEUE_ENTERED,	/* can use blk_queue_enter_live() */
+	BIO_CGROUP_ACCT,	/* has been accounted to a cgroup */
 	BIO_TRACKED,		/* set if bio goes through the rq_qos path */
 	BIO_FLAG_LAST
 };
@@ -296,6 +314,8 @@ enum req_opf {
 	REQ_OP_ZONE_CLOSE	= 11,
 	/* Transition a zone to full */
 	REQ_OP_ZONE_FINISH	= 12,
+	/* write data at the current zone write pointer */
+	REQ_OP_ZONE_APPEND	= 13,
 
 	/* SCSI passthrough using struct scsi_request */
 	REQ_OP_SCSI_IN		= 32,
@@ -375,6 +395,7 @@ enum stat_group {
 	STAT_READ,
 	STAT_WRITE,
 	STAT_DISCARD,
+	STAT_FLUSH,
 
 	NR_STAT_GROUPS
 };

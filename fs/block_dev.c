@@ -76,7 +76,7 @@ static void bdev_write_inode(struct block_device *bdev)
 }
 
 /* Kill _all_ buffers and pagecache , dirty or not.. */
-void kill_bdev(struct block_device *bdev)
+static void kill_bdev(struct block_device *bdev)
 {
 	struct address_space *mapping = bdev->bd_inode->i_mapping;
 
@@ -85,8 +85,7 @@ void kill_bdev(struct block_device *bdev)
 
 	invalidate_bh_lrus();
 	truncate_inode_pages(mapping, 0);
-}	
-EXPORT_SYMBOL(kill_bdev);
+}
 
 /* Invalidate clean unused buffers and pagecache. */
 void invalidate_bdev(struct block_device *bdev)
@@ -256,7 +255,7 @@ __blkdev_direct_IO_simple(struct kiocb *iocb, struct iov_iter *iter,
 			break;
 		if (!(iocb->ki_flags & IOCB_HIPRI) ||
 		    !blk_poll(bdev_get_queue(bdev), qc, true))
-			io_schedule();
+			blk_io_schedule();
 	}
 	__set_current_state(TASK_RUNNING);
 
@@ -450,7 +449,7 @@ __blkdev_direct_IO(struct kiocb *iocb, struct iov_iter *iter, int nr_pages)
 
 		if (!(iocb->ki_flags & IOCB_HIPRI) ||
 		    !blk_poll(bdev_get_queue(bdev), qc, true))
-			io_schedule();
+			blk_io_schedule();
 	}
 	__set_current_state(TASK_RUNNING);
 
@@ -673,7 +672,7 @@ int blkdev_fsync(struct file *filp, loff_t start, loff_t end, int datasync)
 	 * i_mutex and doing so causes performance issues with concurrent
 	 * O_SYNC writers to a block device.
 	 */
-	error = blkdev_issue_flush(bdev, GFP_KERNEL, NULL);
+	error = blkdev_issue_flush(bdev, GFP_KERNEL);
 	if (error == -EOPNOTSUPP)
 		error = 0;
 
@@ -882,21 +881,6 @@ static int bdev_set(struct inode *inode, void *data)
 }
 
 static LIST_HEAD(all_bdevs);
-
-/*
- * If there is a bdev inode for this device, unhash it so that it gets evicted
- * as soon as last inode reference is dropped.
- */
-void bdev_unhash_inode(dev_t dev)
-{
-	struct inode *inode;
-
-	inode = ilookup5(blockdev_superblock, hash(dev), bdev_test, &dev);
-	if (inode) {
-		remove_inode_hash(inode);
-		iput(inode);
-	}
-}
 
 struct block_device *bdget(dev_t dev)
 {
@@ -1207,8 +1191,8 @@ static void bd_clear_claiming(struct block_device *whole, void *holder)
  * Finish exclusive open of a block device. Mark the device as exlusively
  * open by the holder and wake up all waiters for exclusive open to finish.
  */
-void bd_finish_claiming(struct block_device *bdev, struct block_device *whole,
-			void *holder)
+static void bd_finish_claiming(struct block_device *bdev,
+		struct block_device *whole, void *holder)
 {
 	spin_lock(&bdev_lock);
 	BUG_ON(!bd_may_claim(bdev, whole, holder));
@@ -1223,7 +1207,6 @@ void bd_finish_claiming(struct block_device *bdev, struct block_device *whole,
 	bd_clear_claiming(whole, holder);
 	spin_unlock(&bdev_lock);
 }
-EXPORT_SYMBOL(bd_finish_claiming);
 
 /**
  * bd_abort_claiming - abort claiming of a block device
@@ -1417,8 +1400,8 @@ static void flush_disk(struct block_device *bdev, bool kill_dirty)
  * and adjusts it if it differs. When shrinking the bdev size, its all caches
  * are freed.
  */
-void check_disk_size_change(struct gendisk *disk, struct block_device *bdev,
-		bool verbose)
+static void check_disk_size_change(struct gendisk *disk,
+		struct block_device *bdev, bool verbose)
 {
 	loff_t disk_size, bdev_size;
 
@@ -1434,6 +1417,7 @@ void check_disk_size_change(struct gendisk *disk, struct block_device *bdev,
 		if (bdev_size > disk_size)
 			flush_disk(bdev, false);
 	}
+	bdev->bd_invalidated = 0;
 }
 
 /**
@@ -1463,7 +1447,6 @@ int revalidate_disk(struct gendisk *disk)
 
 		mutex_lock(&bdev->bd_mutex);
 		check_disk_size_change(disk, bdev, ret == 0);
-		bdev->bd_invalidated = 0;
 		mutex_unlock(&bdev->bd_mutex);
 		bdput(bdev);
 	}
@@ -1509,18 +1492,56 @@ EXPORT_SYMBOL(bd_set_size);
 
 static void __blkdev_put(struct block_device *bdev, fmode_t mode, int for_part);
 
-static void bdev_disk_changed(struct block_device *bdev, bool invalidate)
+int bdev_disk_changed(struct block_device *bdev, bool invalidate)
 {
-	if (disk_part_scan_enabled(bdev->bd_disk)) {
-		if (invalidate)
-			invalidate_partitions(bdev->bd_disk, bdev);
-		else
-			rescan_partitions(bdev->bd_disk, bdev);
+	struct gendisk *disk = bdev->bd_disk;
+	int ret;
+
+	lockdep_assert_held(&bdev->bd_mutex);
+
+rescan:
+	ret = blk_drop_partitions(bdev);
+	if (ret)
+		return ret;
+
+	/*
+	 * Historically we only set the capacity to zero for devices that
+	 * support partitions (independ of actually having partitions created).
+	 * Doing that is rather inconsistent, but changing it broke legacy
+	 * udisks polling for legacy ide-cdrom devices.  Use the crude check
+	 * below to get the sane behavior for most device while not breaking
+	 * userspace for this particular setup.
+	 */
+	if (invalidate) {
+		if (disk_part_scan_enabled(disk) ||
+		    !(disk->flags & GENHD_FL_REMOVABLE))
+			set_capacity(disk, 0);
 	} else {
-		check_disk_size_change(bdev->bd_disk, bdev, !invalidate);
-		bdev->bd_invalidated = 0;
+		if (disk->fops->revalidate_disk)
+			disk->fops->revalidate_disk(disk);
 	}
+
+	check_disk_size_change(disk, bdev, !invalidate);
+
+	if (get_capacity(disk)) {
+		ret = blk_add_partitions(disk, bdev);
+		if (ret == -EAGAIN)
+			goto rescan;
+	} else if (invalidate) {
+		/*
+		 * Tell userspace that the media / partition table may have
+		 * changed.
+		 */
+		kobject_uevent(&disk_to_dev(disk)->kobj, KOBJ_CHANGE);
+	}
+
+	return ret;
 }
+/*
+ * Only exported for for loop and dasd for historic reasons.  Don't use in new
+ * code!
+ */
+EXPORT_SYMBOL_GPL(bdev_disk_changed);
 
 /*
  * bd_mutex locking:
@@ -1671,12 +1692,8 @@ static int __blkdev_get(struct block_device *bdev, fmode_t mode, int for_part)
 			set_init_blocksize(bdev);
 		}
 		/* the same as first opener case, read comment there */
-		if (bdev->bd_invalidated) {
-			if (!ret)
-				rescan_partitions(disk, bdev);
-			else if (ret == -ENOMEDIUM)
-				invalidate_partitions(disk, bdev);
-		}
+		if (bdev->bd_invalidated)
+			bdev_disk_changed(bdev, ret == -ENOMEDIUM);
 	}
 	if (ret) {
 		bdgrab(bdev);	/* workaround after commit 2d3a8e2dedde */
@@ -2166,18 +2183,6 @@ const struct file_operations def_blk_fops = {
 	.splice_write	= iter_file_splice_write,
 	.fallocate	= blkdev_fallocate,
 };
-
-int ioctl_by_bdev(struct block_device *bdev, unsigned cmd, unsigned long arg)
-{
-	int res;
-	mm_segment_t old_fs = get_fs();
-	set_fs(KERNEL_DS);
-	res = blkdev_ioctl(bdev, 0, cmd, arg);
-	set_fs(old_fs);
-	return res;
-}
-
-EXPORT_SYMBOL(ioctl_by_bdev);
 
 /**
  * lookup_bdev  - lookup a struct block_device by name

@@ -982,28 +982,12 @@ void scsi_io_completion(struct scsi_cmnd *cmd, unsigned int good_bytes)
 		scsi_io_completion_action(cmd, result);
 }
 
-static blk_status_t scsi_init_sgtable(struct request *req,
-		struct scsi_data_buffer *sdb)
+static inline bool scsi_cmd_needs_dma_drain(struct scsi_device *sdev,
+		struct request *rq)
 {
-	int count;
-
-	/*
-	 * If sg table allocation fails, requeue request later.
-	 */
-	if (unlikely(sg_alloc_table_chained(&sdb->table,
-			blk_rq_nr_phys_segments(req), sdb->table.sgl,
-			SCSI_INLINE_SG_CNT)))
-		return BLK_STS_RESOURCE;
-
-	/* 
-	 * Next, walk the list, and fill in the addresses and sizes of
-	 * each segment.
-	 */
-	count = blk_rq_map_sg(req->q, req, sdb->table.sgl);
-	BUG_ON(count > sdb->table.nents);
-	sdb->table.nents = count;
-	sdb->length = blk_rq_payload_bytes(req);
-	return BLK_STS_OK;
+	return sdev->dma_drain_len && blk_rq_is_passthrough(rq) &&
+	       !op_is_write(req_op(rq)) &&
+	       sdev->host->hostt->dma_need_drain(rq);
 }
 
 /*
@@ -1019,19 +1003,62 @@ static blk_status_t scsi_init_sgtable(struct request *req,
  */
 blk_status_t scsi_init_io(struct scsi_cmnd *cmd)
 {
+	struct scsi_device *sdev = cmd->device;
 	struct request *rq = cmd->request;
+	unsigned short nr_segs = blk_rq_nr_phys_segments(rq);
+	struct scatterlist *last_sg = NULL;
 	blk_status_t ret;
+	bool need_drain = scsi_cmd_needs_dma_drain(sdev, rq);
+	int count;
 
-	if (WARN_ON_ONCE(!blk_rq_nr_phys_segments(rq)))
+	if (WARN_ON_ONCE(!nr_segs))
 		return BLK_STS_IOERR;
 
-	ret = scsi_init_sgtable(rq, &cmd->sdb);
-	if (ret)
-		return ret;
+	/*
+	 * Make sure there is space for the drain.  The driver must adjust
+	 * max_hw_segments to be prepared for this.
+	 */
+	if (need_drain)
+		nr_segs++;
+
+	/*
+	 * If sg table allocation fails, requeue request later.
+	 */
+	if (unlikely(sg_alloc_table_chained(&cmd->sdb.table, nr_segs,
+			cmd->sdb.table.sgl, SCSI_INLINE_SG_CNT)))
+		return BLK_STS_RESOURCE;
+
+	/*
+	 * Next, walk the list, and fill in the addresses and sizes of
+	 * each segment.
+	 */
+	count = __blk_rq_map_sg(rq->q, rq, cmd->sdb.table.sgl, &last_sg);
+
+	if (blk_rq_bytes(rq) & rq->q->dma_pad_mask) {
+		unsigned int pad_len =
+			(rq->q->dma_pad_mask & ~blk_rq_bytes(rq)) + 1;
+
+		last_sg->length += pad_len;
+		cmd->extra_len += pad_len;
+	}
+
+	if (need_drain) {
+		sg_unmark_end(last_sg);
+		last_sg = sg_next(last_sg);
+		sg_set_buf(last_sg, sdev->dma_drain_buf, sdev->dma_drain_len);
+		sg_mark_end(last_sg);
+
+		cmd->extra_len += sdev->dma_drain_len;
+		count++;
+	}
+
+	BUG_ON(count > cmd->sdb.table.nents);
+	cmd->sdb.table.nents = count;
+	cmd->sdb.length = blk_rq_payload_bytes(rq);
 
 	if (blk_integrity_rq(rq)) {
 		struct scsi_data_buffer *prot_sdb = cmd->prot_sdb;
-		int ivecs, count;
+		int ivecs;
 
 		if (WARN_ON_ONCE(!prot_sdb)) {
 			/*
@@ -1609,39 +1636,26 @@ static blk_status_t scsi_mq_prep_fn(struct request *req)
 
 static void scsi_mq_done(struct scsi_cmnd *cmd)
 {
+	if (unlikely(blk_should_fake_timeout(cmd->request->q)))
+		return;
 	if (unlikely(test_and_set_bit(SCMD_STATE_COMPLETE, &cmd->state)))
 		return;
 	trace_scsi_dispatch_cmd_done(cmd);
-
-	/*
-	 * If the block layer didn't complete the request due to a timeout
-	 * injection, scsi must clear its internal completed state so that the
-	 * timeout handler will see it needs to escalate its own error
-	 * recovery.
-	 */
-	if (unlikely(!blk_mq_complete_request(cmd->request)))
-		clear_bit(SCMD_STATE_COMPLETE, &cmd->state);
+	blk_mq_complete_request(cmd->request);
 }
 
-static void scsi_mq_put_budget(struct blk_mq_hw_ctx *hctx)
+static void scsi_mq_put_budget(struct request_queue *q)
 {
-	struct request_queue *q = hctx->queue;
 	struct scsi_device *sdev = q->queuedata;
 
 	atomic_dec(&sdev->device_busy);
 }
 
-static bool scsi_mq_get_budget(struct blk_mq_hw_ctx *hctx)
+static bool scsi_mq_get_budget(struct request_queue *q)
 {
-	struct request_queue *q = hctx->queue;
 	struct scsi_device *sdev = q->queuedata;
 
-	if (scsi_dev_queue_ready(q, sdev))
-		return true;
-
-	if (atomic_read(&sdev->device_busy) == 0 && !scsi_device_blocked(sdev))
-		blk_mq_delay_run_hw_queue(hctx, SCSI_QUEUE_DELAY);
-	return false;
+	return scsi_dev_queue_ready(q, sdev);
 }
 
 static blk_status_t scsi_queue_rq(struct blk_mq_hw_ctx *hctx,
@@ -1705,11 +1719,12 @@ out_dec_target_busy:
 	if (scsi_target(sdev)->can_queue > 0)
 		atomic_dec(&scsi_target(sdev)->target_busy);
 out_put_budget:
-	scsi_mq_put_budget(hctx);
+	scsi_mq_put_budget(q);
 	switch (ret) {
 	case BLK_STS_OK:
 		break;
 	case BLK_STS_RESOURCE:
+	case BLK_STS_ZONE_RESOURCE:
 		if (atomic_read(&sdev->device_busy) ||
 		    scsi_device_blocked(sdev))
 			ret = BLK_STS_DEV_RESOURCE;

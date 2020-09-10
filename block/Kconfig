@@ -32,6 +32,9 @@ config BLK_RQ_ALLOC_TIME
 config BLK_SCSI_REQUEST
 	bool
 
+config BLK_CGROUP_RWSTAT
+	bool
+
 config BLK_DEV_BSG
 	bool "Block layer SG support v4"
 	default y
@@ -63,7 +66,6 @@ config BLK_DEV_BSGLIB
 
 config BLK_DEV_INTEGRITY
 	bool "Block layer data integrity support"
-	select CRC_T10DIF if BLK_DEV_INTEGRITY
 	---help---
 	Some storage devices allow extra information to be
 	stored/retrieved to help protect the data.  The block layer
@@ -73,6 +75,11 @@ config BLK_DEV_INTEGRITY
 	Say yes here if you have a storage device that provides the
 	T10/SCSI Data Integrity Field or the T13/ATA External Path
 	Protection.  If in doubt, say N.
+
+config BLK_DEV_INTEGRITY_T10
+	tristate
+	depends on BLK_DEV_INTEGRITY
+	select CRC_T10DIF
 
 config BLK_DEV_ZONED
 	bool "Zoned block device support"
@@ -86,6 +93,7 @@ config BLK_DEV_ZONED
 config BLK_DEV_THROTTLING
 	bool "Block layer bio throttling support"
 	depends on BLK_CGROUP=y
+	select BLK_CGROUP_RWSTAT
 	---help---
 	Block layer bio throttling support. It can be used to limit
 	the IO rate to a device. IO rate policies are per cgroup and
@@ -138,6 +146,7 @@ config BLK_CGROUP_IOLATENCY
 config BLK_CGROUP_IOCOST
 	bool "Enable support for cost model based cgroup IO controller"
 	depends on BLK_CGROUP=y
+	select BLK_RQ_IO_DATA_LEN
 	select BLK_RQ_ALLOC_TIME
 	---help---
 	Enabling this option enables the .weight interface for cost
@@ -176,6 +185,23 @@ config BLK_SED_OPAL
 	Builds Logic for interfacing with Opal enabled controllers.
 	Enabling this option enables users to setup/unlock/lock
 	Locking ranges for SED devices using the Opal protocol.
+
+config BLK_INLINE_ENCRYPTION
+	bool "Enable inline encryption support in block layer"
+	help
+	  Build the blk-crypto subsystem. Enabling this lets the
+	  block layer handle encryption, so users can take
+	  advantage of inline encryption hardware if present.
+
+config BLK_INLINE_ENCRYPTION_FALLBACK
+	bool "Enable crypto API fallback for blk-crypto"
+	depends on BLK_INLINE_ENCRYPTION
+	select CRYPTO
+	select CRYPTO_SKCIPHER
+	help
+	  Enabling this lets the block layer handle inline encryption
+	  by falling back to the kernel crypto API when inline
+	  encryption hardware is not present.
 
 menu "Partition Types"
 

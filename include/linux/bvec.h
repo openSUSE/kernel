@@ -12,8 +12,17 @@
 #include <linux/errno.h>
 #include <linux/mm.h>
 
-/*
- * was unsigned short, but we might as well be ready for > 64kB I/O pages
+/**
+ * struct bio_vec - a contiguous range of physical memory addresses
+ * @bv_page:   First page associated with the address range.
+ * @bv_len:    Number of bytes in the address range.
+ * @bv_offset: Start of the address range relative to the start of @bv_page.
+ *
+ * The following holds for a bvec if n * PAGE_SIZE < bv_offset + bv_len:
+ *
+ *   nth_page(@bv_page, n) == @bv_page + n
+ *
+ * This holds because page_is_mergeable() checks the above property.
  */
 struct bio_vec {
 	struct page	*bv_page;
@@ -152,28 +161,6 @@ static inline void bvec_advance(const struct bio_vec *bvec,
 	if (iter_all->done == bvec->bv_len) {
 		iter_all->idx++;
 		iter_all->done = 0;
-	}
-}
-
-/*
- * Get the last single-page segment from the multi-page bvec and store it
- * in @seg
- */
-static inline void mp_bvec_last_segment(const struct bio_vec *bvec,
-					struct bio_vec *seg)
-{
-	unsigned total = bvec->bv_offset + bvec->bv_len;
-	unsigned last_page = (total - 1) / PAGE_SIZE;
-
-	seg->bv_page = bvec->bv_page + last_page;
-
-	/* the whole segment is inside the last page */
-	if (bvec->bv_offset >= last_page * PAGE_SIZE) {
-		seg->bv_offset = bvec->bv_offset % PAGE_SIZE;
-		seg->bv_len = bvec->bv_len;
-	} else {
-		seg->bv_offset = 0;
-		seg->bv_len = total - last_page * PAGE_SIZE;
 	}
 }
 

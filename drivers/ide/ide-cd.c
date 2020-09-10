@@ -1033,8 +1033,8 @@ static int cdrom_read_capacity(ide_drive_t *drive, unsigned long *capacity,
 	return 0;
 }
 
-static int cdrom_read_tocentry(ide_drive_t *drive, int trackno, int msf_flag,
-				int format, char *buf, int buflen)
+static int ide_cdrom_read_tocentry(ide_drive_t *drive, int trackno,
+		int msf_flag, int format, char *buf, int buflen)
 {
 	unsigned char cmd[BLK_MAX_CDB];
 
@@ -1103,7 +1103,7 @@ int ide_cd_read_toc(ide_drive_t *drive)
 				     sectors_per_frame << SECTOR_SHIFT);
 
 	/* first read just the header, so we know how long the TOC is */
-	stat = cdrom_read_tocentry(drive, 0, 1, 0, (char *) &toc->hdr,
+	stat = ide_cdrom_read_tocentry(drive, 0, 1, 0, (char *) &toc->hdr,
 				    sizeof(struct atapi_toc_header));
 	if (stat)
 		return stat;
@@ -1120,7 +1120,7 @@ int ide_cd_read_toc(ide_drive_t *drive)
 		ntracks = MAX_TRACKS;
 
 	/* now read the whole schmeer */
-	stat = cdrom_read_tocentry(drive, toc->hdr.first_track, 1, 0,
+	stat = ide_cdrom_read_tocentry(drive, toc->hdr.first_track, 1, 0,
 				  (char *)&toc->hdr,
 				   sizeof(struct atapi_toc_header) +
 				   (ntracks + 1) *
@@ -1140,7 +1140,7 @@ int ide_cd_read_toc(ide_drive_t *drive)
 		 * Heiko Eißfeldt.
 		 */
 		ntracks = 0;
-		stat = cdrom_read_tocentry(drive, CDROM_LEADOUT, 1, 0,
+		stat = ide_cdrom_read_tocentry(drive, CDROM_LEADOUT, 1, 0,
 					   (char *)&toc->hdr,
 					   sizeof(struct atapi_toc_header) +
 					   (ntracks + 1) *
@@ -1180,7 +1180,7 @@ int ide_cd_read_toc(ide_drive_t *drive)
 
 	if (toc->hdr.first_track != CDROM_LEADOUT) {
 		/* read the multisession information */
-		stat = cdrom_read_tocentry(drive, 0, 0, 1, (char *)&ms_tmp,
+		stat = ide_cdrom_read_tocentry(drive, 0, 0, 1, (char *)&ms_tmp,
 					   sizeof(ms_tmp));
 		if (stat)
 			return stat;
@@ -1194,7 +1194,7 @@ int ide_cd_read_toc(ide_drive_t *drive)
 
 	if (drive->atapi_flags & IDE_AFLAG_TOCADDR_AS_BCD) {
 		/* re-read multisession information using MSF format */
-		stat = cdrom_read_tocentry(drive, 0, 1, 1, (char *)&ms_tmp,
+		stat = ide_cdrom_read_tocentry(drive, 0, 1, 1, (char *)&ms_tmp,
 					   sizeof(ms_tmp));
 		if (stat)
 			return stat;
@@ -1304,8 +1304,7 @@ static int ide_cdrom_register(ide_drive_t *drive, int nslots)
 	if (drive->atapi_flags & IDE_AFLAG_NO_SPEED_SELECT)
 		devinfo->mask |= CDC_SELECT_SPEED;
 
-	devinfo->disk = info->disk;
-	return register_cdrom(devinfo);
+	return register_cdrom(info->disk, devinfo);
 }
 
 static int ide_cdrom_probe_capabilities(ide_drive_t *drive)

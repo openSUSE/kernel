@@ -95,8 +95,8 @@ static inline bool elv_support_features(unsigned int elv_features,
  * @name: Elevator name to test
  * @required_features: Features that the elevator must provide
  *
- * Return true is the elevator @e name matches @name and if @e provides all the
- * the feratures spcified by @required_features.
+ * Return true if the elevator @e name matches @name and if @e provides all
+ * the features specified by @required_features.
  */
 static bool elevator_match(const struct elevator_type *e, const char *name,
 			   unsigned int required_features)
@@ -616,7 +616,8 @@ out:
 
 static inline bool elv_support_iosched(struct request_queue *q)
 {
-	if (q->tag_set && (q->tag_set->flags & BLK_MQ_F_NO_SCHED))
+	if (!q->mq_ops ||
+	    (q->tag_set && (q->tag_set->flags & BLK_MQ_F_NO_SCHED)))
 		return false;
 	return true;
 }
