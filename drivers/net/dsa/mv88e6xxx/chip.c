@@ -1336,9 +1336,7 @@ static int mv88e6xxx_vtu_loadpurge(struct mv88e6xxx_chip *chip,
 static int mv88e6xxx_atu_new(struct mv88e6xxx_chip *chip, u16 *fid)
 {
 	DECLARE_BITMAP(fid_bitmap, MV88E6XXX_N_FID);
-	struct mv88e6xxx_vtu_entry vlan = {
-		.vid = chip->info->max_vid,
-	};
+	struct mv88e6xxx_vtu_entry vlan;
 	int i, err;
 
 	bitmap_zero(fid_bitmap, MV88E6XXX_N_FID);
@@ -1353,6 +1351,9 @@ static int mv88e6xxx_atu_new(struct mv88e6xxx_chip *chip, u16 *fid)
 	}
 
 	/* Set every FID bit used by the VLAN entries */
+	vlan.vid = chip->info->max_vid;
+	vlan.valid = false;
+
 	do {
 		err = mv88e6xxx_vtu_getnext(chip, &vlan);
 		if (err)
@@ -1416,9 +1417,7 @@ static int mv88e6xxx_port_check_hw_vlan(struct dsa_switch *ds, int port,
 					u16 vid_begin, u16 vid_end)
 {
 	struct mv88e6xxx_chip *chip = ds->priv;
-	struct mv88e6xxx_vtu_entry vlan = {
-		.vid = vid_begin - 1,
-	};
+	struct mv88e6xxx_vtu_entry vlan;
 	int i, err;
 
 	/* DSA and CPU ports have to be members of multiple vlans */
@@ -1427,6 +1426,9 @@ static int mv88e6xxx_port_check_hw_vlan(struct dsa_switch *ds, int port,
 
 	if (!vid_begin)
 		return -EOPNOTSUPP;
+
+	vlan.vid = vid_begin - 1;
+	vlan.valid = false;
 
 	do {
 		err = mv88e6xxx_vtu_getnext(chip, &vlan);
@@ -1764,9 +1766,7 @@ static int mv88e6xxx_port_db_dump_fid(struct mv88e6xxx_chip *chip,
 static int mv88e6xxx_port_db_dump(struct mv88e6xxx_chip *chip, int port,
 				  dsa_fdb_dump_cb_t *cb, void *data)
 {
-	struct mv88e6xxx_vtu_entry vlan = {
-		.vid = chip->info->max_vid,
-	};
+	struct mv88e6xxx_vtu_entry vlan;
 	u16 fid;
 	int err;
 
@@ -1780,6 +1780,9 @@ static int mv88e6xxx_port_db_dump(struct mv88e6xxx_chip *chip, int port,
 		return err;
 
 	/* Dump VLANs' Filtering Information Databases */
+	vlan.vid = chip->info->max_vid;
+	vlan.valid = false;
+
 	do {
 		err = mv88e6xxx_vtu_getnext(chip, &vlan);
 		if (err)
