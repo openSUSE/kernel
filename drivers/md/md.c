@@ -483,7 +483,7 @@ void md_io_acct(struct mddev *mddev, int op, unsigned int sectors)
 }
 EXPORT_SYMBOL_GPL(md_io_acct);
 
-static blk_qc_t md_make_request(struct request_queue *q, struct bio *bio)
+static blk_qc_t md_submit_bio(struct bio *bio)
 {
 	const int rw = bio_data_dir(bio);
 	struct mddev *mddev = bio->bi_disk->private_data;
@@ -5730,7 +5730,7 @@ static int md_alloc(dev_t dev, char *name)
 		mddev->hold_active = UNTIL_STOP;
 
 	error = -ENOMEM;
-	mddev->queue = blk_alloc_queue(md_make_request, NUMA_NO_NODE);
+	mddev->queue = blk_alloc_queue(NUMA_NO_NODE);
 	if (!mddev->queue)
 		goto abort;
 
@@ -7917,6 +7917,7 @@ static unsigned int md_check_events(struct gendisk *disk, unsigned int clearing)
 static const struct block_device_operations md_fops =
 {
 	.owner		= THIS_MODULE,
+	.submit_bio	= md_submit_bio,
 	.open		= md_open,
 	.release	= md_release,
 	.ioctl		= md_ioctl,
