@@ -160,6 +160,7 @@ struct dm_writecache {
 	bool autocommit_time_set:1;
 	bool writeback_fua_set:1;
 	bool flush_on_suspend:1;
+	bool cleaner:1;
 
 	unsigned writeback_all;
 	struct workqueue_struct *writeback_wq;
@@ -1051,6 +1052,28 @@ static int process_flush_on_suspend_mesg(unsigned argc, char **argv, struct dm_w
 	return 0;
 }
 
+static void activate_cleaner(struct dm_writecache *wc)
+{
+	wc->flush_on_suspend = true;
+	wc->cleaner = true;
+	wc->freelist_high_watermark = wc->n_blocks;
+	wc->freelist_low_watermark = wc->n_blocks;
+}
+
+static int process_cleaner_mesg(unsigned argc, char **argv, struct dm_writecache *wc)
+{
+	if (argc != 1)
+		return -EINVAL;
+
+	wc_lock(wc);
+	activate_cleaner(wc);
+	if (!dm_suspended(wc->ti))
+		writecache_verify_watermark(wc);
+	wc_unlock(wc);
+
+	return 0;
+}
+
 static int writecache_message(struct dm_target *ti, unsigned argc, char **argv,
 			      char *result, unsigned maxlen)
 {
@@ -1061,6 +1084,8 @@ static int writecache_message(struct dm_target *ti, unsigned argc, char **argv,
 		r = process_flush_mesg(argc, argv, wc);
 	else if (!strcasecmp(argv[0], "flush_on_suspend"))
 		r = process_flush_on_suspend_mesg(argc, argv, wc);
+	else if (!strcasecmp(argv[0], "cleaner"))
+		r = process_cleaner_mesg(argc, argv, wc);
 	else
 		DMERR("unrecognised message received: %s", argv[0]);
 
@@ -1236,10 +1261,14 @@ read_next_block:
 					goto bio_copy;
 				}
 				found_entry = true;
+			} else {
+				if (unlikely(wc->cleaner))
+					goto direct_write;
 			}
 			e = writecache_pop_from_freelist(wc, (sector_t)-1);
 			if (unlikely(!e)) {
 				if (!found_entry) {
+direct_write:
 					e = writecache_find_entry(wc, bio->bi_iter.bi_sector, WFE_RETURN_FOLLOWING);
 					if (e) {
 						sector_t next_boundary = read_original_sector(wc, e) - bio->bi_iter.bi_sector;
@@ -2109,6 +2138,8 @@ static int writecache_ctr(struct dm_target *ti, unsigned argc, char **argv)
 				goto invalid_optional;
 			wc->autocommit_jiffies = msecs_to_jiffies(autocommit_msecs);
 			wc->autocommit_time_set = true;
+		} else if (!strcasecmp(string, "cleaner")) {
+			wc->cleaner = true;
 		} else if (!strcasecmp(string, "fua")) {
 			if (WC_MODE_PMEM(wc)) {
 				wc->writeback_fua = true;
@@ -2280,6 +2311,9 @@ overflow:
 	do_div(x, 100);
 	wc->freelist_low_watermark = x;
 
+	if (wc->cleaner)
+		activate_cleaner(wc);
+
 	r = writecache_alloc_entries(wc);
 	if (r) {
 		ti->error = "Cannot allocate memory";
@@ -2323,9 +2357,9 @@ static void writecache_status(struct dm_target *ti, status_type_t type,
 		extra_args = 0;
 		if (wc->start_sector)
 			extra_args += 2;
-		if (wc->high_wm_percent_set)
+		if (wc->high_wm_percent_set && !wc->cleaner)
 			extra_args += 2;
-		if (wc->low_wm_percent_set)
+		if (wc->low_wm_percent_set && !wc->cleaner)
 			extra_args += 2;
 		if (wc->max_writeback_jobs_set)
 			extra_args += 2;
@@ -2333,19 +2367,21 @@ static void writecache_status(struct dm_target *ti, status_type_t type,
 			extra_args += 2;
 		if (wc->autocommit_time_set)
 			extra_args += 2;
+		if (wc->cleaner)
+			extra_args++;
 		if (wc->writeback_fua_set)
 			extra_args++;
 
 		DMEMIT("%u", extra_args);
 		if (wc->start_sector)
 			DMEMIT(" start_sector %llu", (unsigned long long)wc->start_sector);
-		if (wc->high_wm_percent_set) {
+		if (wc->high_wm_percent_set && !wc->cleaner) {
 			x = (uint64_t)wc->freelist_high_watermark * 100;
 			x += wc->n_blocks / 2;
 			do_div(x, (size_t)wc->n_blocks);
 			DMEMIT(" high_watermark %u", 100 - (unsigned)x);
 		}
-		if (wc->low_wm_percent_set) {
+		if (wc->low_wm_percent_set && !wc->cleaner) {
 			x = (uint64_t)wc->freelist_low_watermark * 100;
 			x += wc->n_blocks / 2;
 			do_div(x, (size_t)wc->n_blocks);
@@ -2357,6 +2393,8 @@ static void writecache_status(struct dm_target *ti, status_type_t type,
 			DMEMIT(" autocommit_blocks %u", wc->autocommit_blocks);
 		if (wc->autocommit_time_set)
 			DMEMIT(" autocommit_time %u", jiffies_to_msecs(wc->autocommit_jiffies));
+		if (wc->cleaner)
+			DMEMIT(" cleaner");
 		if (wc->writeback_fua_set)
 			DMEMIT(" %sfua", wc->writeback_fua ? "" : "no");
 		break;
@@ -2365,7 +2403,7 @@ static void writecache_status(struct dm_target *ti, status_type_t type,
 
 static struct target_type writecache_target = {
 	.name			= "writecache",
-	.version		= {1, 2, 0},
+	.version		= {1, 3, 0},
 	.module			= THIS_MODULE,
 	.ctr			= writecache_ctr,
 	.dtr			= writecache_dtr,
