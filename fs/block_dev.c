@@ -1520,8 +1520,7 @@ static int __blkdev_get(struct block_device *bdev, fmode_t mode, int for_part)
 	int ret;
 	int partno;
 	int perm = 0;
-	bool first_open = false;
-	bool need_finish = false;
+	bool first_open = false, need_restart;
 
 	if (mode & FMODE_READ)
 		perm |= MAY_READ;
@@ -1537,9 +1536,8 @@ static int __blkdev_get(struct block_device *bdev, fmode_t mode, int for_part)
 	}
 
  restart:
-
+	need_restart = false;
 	ret = -ENXIO;
-	first_open = false;
 	disk = bdev_get_gendisk(bdev, &partno);
 	if (!disk)
 		goto out;
@@ -1561,22 +1559,12 @@ static int __blkdev_get(struct block_device *bdev, fmode_t mode, int for_part)
 			ret = 0;
 			if (disk->fops->open) {
 				ret = disk->fops->open(bdev, mode);
-				if (ret == -ERESTARTSYS) {
-					/* Lost a race with 'disk' being
-					 * deleted, try again.
-					 * See md.c
-					 */
-					disk_put_part(bdev->bd_part);
-					bdev->bd_part = NULL;
-					bdev->bd_disk = NULL;
-					mutex_unlock(&bdev->bd_mutex);
-					disk_unblock_events(disk);
-					put_disk_and_module(disk);
-					goto restart;
-				}
-				if ((ret != -ENXIO) &&
-				    bdev->bd_disk->fops->open_finish)
-					need_finish = true;
+				/*
+				 * If we lost a race with 'disk' being deleted,
+				 * try again.  See md.c
+				 */
+				if (ret == -ERESTARTSYS)
+					need_restart = true;
 			}
 
 			if (!ret) {
@@ -1594,7 +1582,7 @@ static int __blkdev_get(struct block_device *bdev, fmode_t mode, int for_part)
 			    (!ret || ret == -ENOMEDIUM))
 				bdev_disk_changed(bdev, ret == -ENOMEDIUM);
 
-			if (ret && !need_finish)
+			if (ret)
 				goto out_clear;
 		} else {
 			struct block_device *whole;
@@ -1622,19 +1610,15 @@ static int __blkdev_get(struct block_device *bdev, fmode_t mode, int for_part)
 		if (bdev->bd_bdi == &noop_backing_dev_info)
 			bdev->bd_bdi = bdi_get(disk->queue->backing_dev_info);
 	} else {
-		ret = 0;
 		if (bdev->bd_contains == bdev) {
-			if (bdev->bd_disk->fops->open) {
+			ret = 0;
+			if (bdev->bd_disk->fops->open)
 				ret = bdev->bd_disk->fops->open(bdev, mode);
-				if ((ret != -ERESTARTSYS) && (ret != -ENXIO) &&
-				    bdev->bd_disk->fops->open_finish)
-					need_finish = true;
-			}
 			/* the same as first opener case, read comment there */
 			if (bdev->bd_invalidated &&
 			    (!ret || ret == -ENOMEDIUM))
 				bdev_disk_changed(bdev, ret == -ENOMEDIUM);
-			if (ret && !need_finish)
+			if (ret)
 				goto out_unlock_bdev;
 		}
 	}
@@ -1646,22 +1630,6 @@ static int __blkdev_get(struct block_device *bdev, fmode_t mode, int for_part)
 	/* only one opener holds refs to the module and disk */
 	if (!first_open)
 		put_disk_and_module(disk);
-	if (ret && need_finish) {
-		ret = bdev->bd_disk->fops->open_finish(bdev, mode, ret);
-
-		if (!ret && first_open) {
-			bd_set_size(bdev,(loff_t)get_capacity(disk)<<9);
-			set_init_blocksize(bdev);
-		}
-		/* the same as first opener case, read comment there */
-		if (bdev->bd_invalidated)
-			bdev_disk_changed(bdev, ret == -ENOMEDIUM);
-	}
-	if (ret) {
-		bdgrab(bdev);	/* workaround after commit 2d3a8e2dedde */
-		__blkdev_put(bdev, mode, for_part);
-		return ret;
-	}
 	return 0;
 
  out_clear:
@@ -1675,6 +1643,8 @@ static int __blkdev_get(struct block_device *bdev, fmode_t mode, int for_part)
 	mutex_unlock(&bdev->bd_mutex);
 	disk_unblock_events(disk);
 	put_disk_and_module(disk);
+	if (need_restart)
+		goto restart;
  out:
 
 	return ret;
