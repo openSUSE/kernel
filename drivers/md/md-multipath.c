@@ -132,7 +132,7 @@ static bool multipath_make_request(struct mddev *mddev, struct bio * bio)
 	mddev_check_writesame(mddev, &mp_bh->bio);
 	mddev_check_write_zeroes(mddev, &mp_bh->bio);
 	md_io_acct(mddev, bio_op(bio), bio_sectors(bio));
-	generic_make_request(&mp_bh->bio);
+	submit_bio_noacct(&mp_bh->bio);
 	return true;
 }
 
@@ -349,7 +349,7 @@ static void multipathd(struct md_thread *thread)
 			bio->bi_opf |= REQ_FAILFAST_TRANSPORT;
 			bio->bi_end_io = multipath_end_request;
 			bio->bi_private = mp_bh;
-			generic_make_request(bio);
+			submit_bio_noacct(bio);
 		}
 	}
 	spin_unlock_irqrestore(&conf->device_lock, flags);
