@@ -2035,7 +2035,7 @@ static int cpsw_ndo_ioctl(struct net_device *dev, struct ifreq *req, int cmd)
 	return phy_mii_ioctl(cpsw->slaves[slave_no].phy, req, cmd);
 }
 
-static void cpsw_ndo_tx_timeout(struct net_device *ndev)
+static void cpsw_ndo_tx_timeout(struct net_device *ndev, unsigned int txqueue)
 {
 	struct cpsw_priv *priv = netdev_priv(ndev);
 	struct cpsw_common *cpsw = priv->cpsw;
