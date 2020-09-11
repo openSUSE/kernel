@@ -1030,8 +1030,8 @@ static bool bd_may_claim(struct block_device *bdev, struct block_device *whole,
  * RETURNS:
  * 0 if @bdev can be claimed, -EBUSY otherwise.
  */
-static int bd_prepare_to_claim(struct block_device *bdev,
-			       struct block_device *whole, void *holder)
+int bd_prepare_to_claim(struct block_device *bdev, struct block_device *whole,
+		void *holder)
 {
 retry:
 	spin_lock(&bdev_lock);
@@ -1058,6 +1058,7 @@ retry:
 	spin_unlock(&bdev_lock);
 	return 0;
 }
+EXPORT_SYMBOL_GPL(bd_prepare_to_claim); /* only for the loop driver */
 
 static struct gendisk *bdev_get_gendisk(struct block_device *bdev, int *partno)
 {
@@ -1103,7 +1104,8 @@ static struct gendisk *bdev_get_gendisk(struct block_device *bdev, int *partno)
  * Pointer to the block device containing @bdev on success, ERR_PTR()
  * value on failure.
  */
-struct block_device *bd_start_claiming(struct block_device *bdev, void *holder)
+static struct block_device *bd_start_claiming(struct block_device *bdev,
+		void *holder)
 {
 	struct gendisk *disk;
 	struct block_device *whole;
@@ -1144,7 +1146,6 @@ struct block_device *bd_start_claiming(struct block_device *bdev, void *holder)
 
 	return whole;
 }
-EXPORT_SYMBOL(bd_start_claiming);
 
 static void bd_clear_claiming(struct block_device *whole, void *holder)
 {
