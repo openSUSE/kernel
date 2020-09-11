@@ -694,12 +694,12 @@ int bdev_read_page(struct block_device *bdev, sector_t sector,
 	if (!ops->rw_page || bdev_get_integrity(bdev))
 		return result;
 
-	result = blk_queue_enter(bdev->bd_queue, 0);
+	result = blk_queue_enter(bdev->bd_disk->queue, 0);
 	if (result)
 		return result;
 	result = ops->rw_page(bdev, sector + get_start_sect(bdev), page,
 			      REQ_OP_READ);
-	blk_queue_exit(bdev->bd_queue);
+	blk_queue_exit(bdev->bd_disk->queue);
 	return result;
 }
 EXPORT_SYMBOL_GPL(bdev_read_page);
@@ -731,7 +731,7 @@ int bdev_write_page(struct block_device *bdev, sector_t sector,
 
 	if (!ops->rw_page || bdev_get_integrity(bdev))
 		return -EOPNOTSUPP;
-	result = blk_queue_enter(bdev->bd_queue, 0);
+	result = blk_queue_enter(bdev->bd_disk->queue, 0);
 	if (result)
 		return result;
 
@@ -744,7 +744,7 @@ int bdev_write_page(struct block_device *bdev, sector_t sector,
 		clean_page_buffers(page);
 		unlock_page(page);
 	}
-	blk_queue_exit(bdev->bd_queue);
+	blk_queue_exit(bdev->bd_disk->queue);
 	return result;
 }
 EXPORT_SYMBOL_GPL(bdev_write_page);
@@ -1573,7 +1573,6 @@ static int __blkdev_get(struct block_device *bdev, fmode_t mode, int for_part)
 	if (!bdev->bd_openers) {
 		first_open = true;
 		bdev->bd_disk = disk;
-		bdev->bd_queue = disk->queue;
 		bdev->bd_contains = bdev;
 		bdev->bd_partno = partno;
 
@@ -1594,7 +1593,6 @@ static int __blkdev_get(struct block_device *bdev, fmode_t mode, int for_part)
 					disk_put_part(bdev->bd_part);
 					bdev->bd_part = NULL;
 					bdev->bd_disk = NULL;
-					bdev->bd_queue = NULL;
 					mutex_unlock(&bdev->bd_mutex);
 					disk_unblock_events(disk);
 					put_disk_and_module(disk);
@@ -1694,7 +1692,6 @@ static int __blkdev_get(struct block_device *bdev, fmode_t mode, int for_part)
 	disk_put_part(bdev->bd_part);
 	bdev->bd_disk = NULL;
 	bdev->bd_part = NULL;
-	bdev->bd_queue = NULL;
 	if (bdev != bdev->bd_contains)
 		__blkdev_put(bdev->bd_contains, mode, 1);
 	bdev->bd_contains = NULL;
