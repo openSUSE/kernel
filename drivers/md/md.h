@@ -809,4 +809,7 @@ static inline void mddev_check_write_zeroes(struct mddev *mddev, struct bio *bio
 	    !bio->bi_disk->queue->limits.max_write_zeroes_sectors)
 		mddev->queue->limits.max_write_zeroes_sectors = 0;
 }
+
+extern int mdp_major;
+
 #endif /* _MD_MD_H */
