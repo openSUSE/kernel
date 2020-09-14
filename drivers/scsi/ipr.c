@@ -6728,6 +6728,7 @@ static struct scsi_host_template driver_template = {
 	.info = ipr_ioa_info,
 	.ioctl = ipr_ioctl,
 	.queuecommand = ipr_queuecommand,
+	.dma_need_drain = ata_scsi_dma_need_drain,
 	.eh_abort_handler = ipr_eh_abort,
 	.eh_device_reset_handler = ipr_eh_dev_reset,
 	.eh_host_reset_handler = ipr_eh_host_reset,

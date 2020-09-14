@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/capability.h>
+#include <linux/compat.h>
 #include <linux/blkdev.h>
 #include <linux/export.h>
 #include <linux/gfp.h>
@@ -10,17 +11,13 @@
 #include <linux/blktrace_api.h>
 #include <linux/pr.h>
 #include <linux/uaccess.h>
+#include "blk.h"
 
 static int blkpg_ioctl(struct block_device *bdev, struct blkpg_ioctl_arg __user *arg)
 {
-	struct block_device *bdevp;
-	struct gendisk *disk;
-	struct hd_struct *part, *lpart;
 	struct blkpg_ioctl_arg a;
 	struct blkpg_partition p;
-	struct disk_part_iter piter;
 	long long start, length;
-	int partno;
 
 	if (!capable(CAP_SYS_ADMIN))
 		return -EACCES;
@@ -28,175 +25,55 @@ static int blkpg_ioctl(struct block_device *bdev, struct blkpg_ioctl_arg __user 
 		return -EFAULT;
 	if (copy_from_user(&p, a.data, sizeof(struct blkpg_partition)))
 		return -EFAULT;
-	disk = bdev->bd_disk;
 	if (bdev != bdev->bd_contains)
 		return -EINVAL;
-	partno = p.pno;
-	if (partno <= 0)
+
+	if (p.pno <= 0)
 		return -EINVAL;
-	switch (a.op) {
-		case BLKPG_ADD_PARTITION:
-			start = p.start >> 9;
-			length = p.length >> 9;
-			/* check for fit in a hd_struct */
-			if (sizeof(sector_t) == sizeof(long) &&
-			    sizeof(long long) > sizeof(long)) {
-				long pstart = start, plength = length;
-				if (pstart != start || plength != length
-				    || pstart < 0 || plength < 0 || partno > 65535)
-					return -EINVAL;
-			}
-			/* check if partition is aligned to blocksize */
-			if (p.start & (bdev_logical_block_size(bdev) - 1))
-				return -EINVAL;
 
-			mutex_lock(&bdev->bd_mutex);
+	if (a.op == BLKPG_DEL_PARTITION)
+		return bdev_del_partition(bdev, p.pno);
 
-			/* overlap? */
-			disk_part_iter_init(&piter, disk,
-					    DISK_PITER_INCL_EMPTY);
-			while ((part = disk_part_iter_next(&piter))) {
-				if (!(start + length <= part->start_sect ||
-				      start >= part->start_sect + part->nr_sects)) {
-					disk_part_iter_exit(&piter);
-					mutex_unlock(&bdev->bd_mutex);
-					return -EBUSY;
-				}
-			}
-			disk_part_iter_exit(&piter);
+	start = p.start >> SECTOR_SHIFT;
+	length = p.length >> SECTOR_SHIFT;
 
-			/* all seems OK */
-			part = add_partition(disk, partno, start, length,
-					     ADDPART_FLAG_NONE, NULL);
-			mutex_unlock(&bdev->bd_mutex);
-			return PTR_ERR_OR_ZERO(part);
-		case BLKPG_DEL_PARTITION:
-			part = disk_get_part(disk, partno);
-			if (!part)
-				return -ENXIO;
+	/* check for fit in a hd_struct */
+	if (sizeof(sector_t) < sizeof(long long)) {
+		long pstart = start, plength = length;
 
-			bdevp = bdget(part_devt(part));
-			disk_put_part(part);
-			if (!bdevp)
-				return -ENOMEM;
-
-			mutex_lock(&bdevp->bd_mutex);
-			if (bdevp->bd_openers) {
-				mutex_unlock(&bdevp->bd_mutex);
-				bdput(bdevp);
-				return -EBUSY;
-			}
-			/* all seems OK */
-			fsync_bdev(bdevp);
-			invalidate_bdev(bdevp);
-
-			mutex_lock_nested(&bdev->bd_mutex, 1);
-			delete_partition(disk, partno);
-			mutex_unlock(&bdev->bd_mutex);
-			mutex_unlock(&bdevp->bd_mutex);
-			bdput(bdevp);
-
-			return 0;
-		case BLKPG_RESIZE_PARTITION:
-			start = p.start >> 9;
-			/* new length of partition in bytes */
-			length = p.length >> 9;
-			/* check for fit in a hd_struct */
-			if (sizeof(sector_t) == sizeof(long) &&
-			    sizeof(long long) > sizeof(long)) {
-				long pstart = start, plength = length;
-				if (pstart != start || plength != length
-				    || pstart < 0 || plength < 0)
-					return -EINVAL;
-			}
-			part = disk_get_part(disk, partno);
-			if (!part)
-				return -ENXIO;
-			bdevp = bdget(part_devt(part));
-			if (!bdevp) {
-				disk_put_part(part);
-				return -ENOMEM;
-			}
-			mutex_lock(&bdevp->bd_mutex);
-			mutex_lock_nested(&bdev->bd_mutex, 1);
-			if (start != part->start_sect) {
-				mutex_unlock(&bdevp->bd_mutex);
-				mutex_unlock(&bdev->bd_mutex);
-				bdput(bdevp);
-				disk_put_part(part);
-				return -EINVAL;
-			}
-			/* overlap? */
-			disk_part_iter_init(&piter, disk,
-					    DISK_PITER_INCL_EMPTY);
-			while ((lpart = disk_part_iter_next(&piter))) {
-				if (lpart->partno != partno &&
-				   !(start + length <= lpart->start_sect ||
-				   start >= lpart->start_sect + lpart->nr_sects)
-				   ) {
-					disk_part_iter_exit(&piter);
-					mutex_unlock(&bdevp->bd_mutex);
-					mutex_unlock(&bdev->bd_mutex);
-					bdput(bdevp);
-					disk_put_part(part);
-					return -EBUSY;
-				}
-			}
-			disk_part_iter_exit(&piter);
-			part_nr_sects_write(part, (sector_t)length);
-			i_size_write(bdevp->bd_inode, p.length);
-			mutex_unlock(&bdevp->bd_mutex);
-			mutex_unlock(&bdev->bd_mutex);
-			bdput(bdevp);
-			disk_put_part(part);
-			return 0;
-		default:
+		if (pstart != start || plength != length || pstart < 0 ||
+		    plength < 0 || p.pno > 65535)
 			return -EINVAL;
+	}
+
+	switch (a.op) {
+	case BLKPG_ADD_PARTITION:
+		/* check if partition is aligned to blocksize */
+		if (p.start & (bdev_logical_block_size(bdev) - 1))
+			return -EINVAL;
+		return bdev_add_partition(bdev, p.pno, start, length);
+	case BLKPG_RESIZE_PARTITION:
+		return bdev_resize_partition(bdev, p.pno, start, length);
+	default:
+		return -EINVAL;
 	}
 }
 
-/*
- * This is an exported API for the block driver, and will not
- * acquire bd_mutex. This API should be used in case that
- * caller has held bd_mutex already.
- */
-int __blkdev_reread_part(struct block_device *bdev)
+static int blkdev_reread_part(struct block_device *bdev)
 {
-	struct gendisk *disk = bdev->bd_disk;
+	int ret;
 
-	if (!disk_part_scan_enabled(disk) || bdev != bdev->bd_contains)
+	if (!disk_part_scan_enabled(bdev->bd_disk) || bdev != bdev->bd_contains)
 		return -EINVAL;
 	if (!capable(CAP_SYS_ADMIN))
 		return -EACCES;
 
-	lockdep_assert_held(&bdev->bd_mutex);
-
-	return rescan_partitions(disk, bdev);
-}
-EXPORT_SYMBOL(__blkdev_reread_part);
-
-/*
- * This is an exported API for the block driver, and will
- * try to acquire bd_mutex. If bd_mutex has been held already
- * in current context, please call __blkdev_reread_part().
- *
- * Make sure the held locks in current context aren't required
- * in open()/close() handler and I/O path for avoiding ABBA deadlock:
- * - bd_mutex is held before calling block driver's open/close
- *   handler
- * - reading partition table may submit I/O to the block device
- */
-int blkdev_reread_part(struct block_device *bdev)
-{
-	int res;
-
 	mutex_lock(&bdev->bd_mutex);
-	res = __blkdev_reread_part(bdev);
+	ret = bdev_disk_changed(bdev, false);
 	mutex_unlock(&bdev->bd_mutex);
 
-	return res;
+	return ret;
 }
-EXPORT_SYMBOL(blkdev_reread_part);
 
 static int blk_ioctl_discard(struct block_device *bdev, fmode_t mode,
 		unsigned long arg, unsigned long flags)
@@ -311,6 +188,26 @@ int __blkdev_driver_ioctl(struct block_device *bdev, fmode_t mode,
  * at all and could be open-coded without any exports by anybody who cares.
  */
 EXPORT_SYMBOL_GPL(__blkdev_driver_ioctl);
+
+#ifdef CONFIG_COMPAT
+/*
+ * This is the equivalent of compat_ptr_ioctl(), to be used by block
+ * drivers that implement only commands that are completely compatible
+ * between 32-bit and 64-bit user space
+ */
+int blkdev_compat_ptr_ioctl(struct block_device *bdev, fmode_t mode,
+			unsigned cmd, unsigned long arg)
+{
+	struct gendisk *disk = bdev->bd_disk;
+
+	if (disk->fops->ioctl)
+		return disk->fops->ioctl(bdev, mode, cmd,
+					 (unsigned long)compat_ptr(arg));
+
+	return -ENOIOCTLCMD;
+}
+EXPORT_SYMBOL(blkdev_compat_ptr_ioctl);
+#endif
 
 static int blkdev_pr_register(struct block_device *bdev,
 		struct pr_registration __user *arg)
@@ -532,11 +429,14 @@ int blkdev_ioctl(struct block_device *bdev, fmode_t mode, unsigned cmd,
 	case BLKREPORTZONE:
 		return blkdev_report_zones_ioctl(bdev, mode, cmd, arg);
 	case BLKRESETZONE:
-		return blkdev_reset_zones_ioctl(bdev, mode, cmd, arg);
+	case BLKOPENZONE:
+	case BLKCLOSEZONE:
+	case BLKFINISHZONE:
+		return blkdev_zone_mgmt_ioctl(bdev, mode, cmd, arg);
 	case BLKGETZONESZ:
 		return put_uint(arg, bdev_zone_sectors(bdev));
 	case BLKGETNRZONES:
-		return put_uint(arg, blkdev_nr_zones(bdev));
+		return put_uint(arg, blkdev_nr_zones(bdev->bd_disk));
 	case HDIO_GETGEO:
 		return blkdev_getgeo(bdev, argp);
 	case BLKRAGET:

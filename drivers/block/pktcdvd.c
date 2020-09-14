@@ -2434,7 +2434,7 @@ static blk_qc_t pkt_make_request(struct request_queue *q, struct bio *bio)
 	char b[BDEVNAME_SIZE];
 	struct bio *split;
 
-	blk_queue_split(q, &bio);
+	blk_queue_split(&bio);
 
 	pd = q->queuedata;
 	if (!pd) {
@@ -2493,7 +2493,6 @@ static void pkt_init_queue(struct pktcdvd_device *pd)
 {
 	struct request_queue *q = pd->disk->queue;
 
-	blk_queue_make_request(q, pkt_make_request);
 	blk_queue_logical_block_size(q, CD_FRAMESIZE);
 	blk_queue_max_hw_sectors(q, PACKET_MAX_SECTORS);
 	q->queuedata = pd;
@@ -2679,18 +2678,19 @@ static unsigned int pkt_check_events(struct gendisk *disk,
 	return attached_disk->fops->check_events(attached_disk, clearing);
 }
 
+static char *pkt_devnode(struct gendisk *disk, umode_t *mode)
+{
+	return kasprintf(GFP_KERNEL, "pktcdvd/%s", disk->disk_name);
+}
+
 static const struct block_device_operations pktcdvd_ops = {
 	.owner =		THIS_MODULE,
 	.open =			pkt_open,
 	.release =		pkt_close,
 	.ioctl =		pkt_ioctl,
 	.check_events =		pkt_check_events,
+	.devnode =		pkt_devnode,
 };
-
-static char *pktcdvd_devnode(struct gendisk *gd, umode_t *mode)
-{
-	return kasprintf(GFP_KERNEL, "pktcdvd/%s", gd->disk_name);
-}
 
 /*
  * Set up mapping from pktcdvd device to CD-ROM device.
@@ -2747,9 +2747,8 @@ static int pkt_setup_dev(dev_t dev, dev_t* pkt_dev)
 	disk->fops = &pktcdvd_ops;
 	disk->flags = GENHD_FL_REMOVABLE;
 	strcpy(disk->disk_name, pd->name);
-	disk->devnode = pktcdvd_devnode;
 	disk->private_data = pd;
-	disk->queue = blk_alloc_queue(GFP_KERNEL);
+	disk->queue = blk_alloc_queue(pkt_make_request, NUMA_NO_NODE);
 	if (!disk->queue)
 		goto out_mem2;
 

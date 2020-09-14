@@ -283,21 +283,21 @@ split:
 
 /**
  * __blk_queue_split - split a bio and submit the second half
- * @q:       [in] request queue pointer
  * @bio:     [in, out] bio to be split
  * @nr_segs: [out] number of segments in the first bio
  *
  * Split a bio into two bios, chain the two bios, submit the second half and
  * store a pointer to the first half in *@bio. If the second bio is still too
  * big it will be split by a recursive call to this function. Since this
- * function may allocate a new bio from @q->bio_split, it is the responsibility
- * of the caller to ensure that @q is only released after processing of the
+ * function may allocate a new bio from @bio->bi_disk->queue->bio_split, it is
+ * the responsibility of the caller to ensure that
+ * @bio->bi_disk->queue->bio_split is only released after processing of the
  * split bio has finished.
  */
-void __blk_queue_split(struct request_queue *q, struct bio **bio,
-		unsigned int *nr_segs)
+void __blk_queue_split(struct bio **bio, unsigned int *nr_segs)
 {
-	struct bio *split;
+	struct request_queue *q = (*bio)->bi_disk->queue;
+	struct bio *split = NULL;
 
 	switch (bio_op(*bio)) {
 	case REQ_OP_DISCARD:
@@ -313,6 +313,21 @@ void __blk_queue_split(struct request_queue *q, struct bio **bio,
 				nr_segs);
 		break;
 	default:
+		/*
+		 * All drivers must accept single-segments bios that are <=
+		 * PAGE_SIZE.  This is a quick and dirty check that relies on
+		 * the fact that bi_io_vec[0] is always valid if a bio has data.
+		 * The check might lead to occasional false negatives when bios
+		 * are cloned, but compared to the performance impact of cloned
+		 * bios themselves the loop below doesn't matter anyway.
+		 */
+		if (!q->limits.chunk_sectors &&
+		    (*bio)->bi_vcnt == 1 &&
+		    ((*bio)->bi_io_vec[0].bv_len +
+		     (*bio)->bi_io_vec[0].bv_offset) <= PAGE_SIZE) {
+			*nr_segs = 1;
+			break;
+		}
 		split = blk_bio_segment_split(q, *bio, &q->bio_split, nr_segs);
 		break;
 	}
@@ -320,16 +335,6 @@ void __blk_queue_split(struct request_queue *q, struct bio **bio,
 	if (split) {
 		/* there isn't chance to merge the splitted bio */
 		split->bi_opf |= REQ_NOMERGE;
-
-		/*
-		 * Since we're recursing into make_request here, ensure
-		 * that we mark this bio as already having entered the queue.
-		 * If not, and the queue is going away, we can get stuck
-		 * forever on waiting for the queue reference to drop. But
-		 * that will never happen, as we're already holding a
-		 * reference to it.
-		 */
-		bio_set_flag(*bio, BIO_QUEUE_ENTERED);
 
 		bio_chain(split, *bio);
 		trace_block_split(q, split, (*bio)->bi_iter.bi_sector);
@@ -340,20 +345,19 @@ void __blk_queue_split(struct request_queue *q, struct bio **bio,
 
 /**
  * blk_queue_split - split a bio and submit the second half
- * @q:   [in] request queue pointer
  * @bio: [in, out] bio to be split
  *
  * Split a bio into two bios, chains the two bios, submit the second half and
  * store a pointer to the first half in *@bio. Since this function may allocate
- * a new bio from @q->bio_split, it is the responsibility of the caller to
- * ensure that @q is only released after processing of the split bio has
- * finished.
+ * a new bio from @bio->bi_disk->queue->bio_split, it is the responsibility of
+ * the caller to ensure that @bio->bi_disk->queue->bio_split is only released
+ * after processing of the split bio has finished.
  */
-void blk_queue_split(struct request_queue *q, struct bio **bio)
+void blk_queue_split(struct bio **bio)
 {
 	unsigned int nr_segs;
 
-	__blk_queue_split(q, bio, &nr_segs);
+	__blk_queue_split(bio, &nr_segs);
 }
 EXPORT_SYMBOL(blk_queue_split);
 
@@ -504,44 +508,20 @@ static int __blk_bios_map_sg(struct request_queue *q, struct bio *bio,
  * map a request to scatterlist, return number of sg entries setup. Caller
  * must make sure sg can hold rq->nr_phys_segments entries
  */
-int blk_rq_map_sg(struct request_queue *q, struct request *rq,
-		  struct scatterlist *sglist)
+int __blk_rq_map_sg(struct request_queue *q, struct request *rq,
+		struct scatterlist *sglist, struct scatterlist **last_sg)
 {
-	struct scatterlist *sg = NULL;
 	int nsegs = 0;
 
 	if (rq->rq_flags & RQF_SPECIAL_PAYLOAD)
-		nsegs = __blk_bvec_map_sg(rq->special_vec, sglist, &sg);
+		nsegs = __blk_bvec_map_sg(rq->special_vec, sglist, last_sg);
 	else if (rq->bio && bio_op(rq->bio) == REQ_OP_WRITE_SAME)
-		nsegs = __blk_bvec_map_sg(bio_iovec(rq->bio), sglist, &sg);
+		nsegs = __blk_bvec_map_sg(bio_iovec(rq->bio), sglist, last_sg);
 	else if (rq->bio)
-		nsegs = __blk_bios_map_sg(q, rq->bio, sglist, &sg);
+		nsegs = __blk_bios_map_sg(q, rq->bio, sglist, last_sg);
 
-	if (unlikely(rq->rq_flags & RQF_COPY_USER) &&
-	    (blk_rq_bytes(rq) & q->dma_pad_mask)) {
-		unsigned int pad_len =
-			(q->dma_pad_mask & ~blk_rq_bytes(rq)) + 1;
-
-		sg->length += pad_len;
-		rq->extra_len += pad_len;
-	}
-
-	if (q->dma_drain_size && q->dma_drain_needed(rq)) {
-		if (op_is_write(req_op(rq)))
-			memset(q->dma_drain_buffer, 0, q->dma_drain_size);
-
-		sg_unmark_end(sg);
-		sg = sg_next(sg);
-		sg_set_page(sg, virt_to_page(q->dma_drain_buffer),
-			    q->dma_drain_size,
-			    ((unsigned long)q->dma_drain_buffer) &
-			    (PAGE_SIZE - 1));
-		nsegs++;
-		rq->extra_len += q->dma_drain_size;
-	}
-
-	if (sg)
-		sg_mark_end(sg);
+	if (*last_sg)
+		sg_mark_end(*last_sg);
 
 	/*
 	 * Something must have been wrong if the figured number of
@@ -551,7 +531,7 @@ int blk_rq_map_sg(struct request_queue *q, struct request *rq,
 
 	return nsegs;
 }
-EXPORT_SYMBOL(blk_rq_map_sg);
+EXPORT_SYMBOL(__blk_rq_map_sg);
 
 static inline int ll_new_hw_segment(struct request *req, struct bio *bio,
 		unsigned int nr_phys_segs)
@@ -581,6 +561,8 @@ int ll_back_merge_fn(struct request *req, struct bio *bio, unsigned int nr_segs)
 	if (blk_integrity_rq(req) &&
 	    integrity_req_gap_back_merge(req, bio))
 		return 0;
+	if (!bio_crypt_ctx_back_mergeable(req, bio))
+		return 0;
 	if (blk_rq_sectors(req) + bio_sectors(bio) >
 	    blk_rq_get_max_sectors(req, blk_rq_pos(req))) {
 		req_set_nomerge(req->q, req);
@@ -596,6 +578,8 @@ int ll_front_merge_fn(struct request *req, struct bio *bio, unsigned int nr_segs
 		return 0;
 	if (blk_integrity_rq(req) &&
 	    integrity_req_gap_front_merge(req, bio))
+		return 0;
+	if (!bio_crypt_ctx_front_mergeable(req, bio))
 		return 0;
 	if (blk_rq_sectors(req) + bio_sectors(bio) >
 	    blk_rq_get_max_sectors(req, bio->bi_iter.bi_sector)) {
@@ -646,6 +630,9 @@ static int ll_merge_requests_fn(struct request_queue *q, struct request *req,
 	if (blk_integrity_merge_rq(q, req, next) == false)
 		return 0;
 
+	if (!bio_crypt_ctx_merge_rq(req, next))
+		return 0;
+
 	/* Merge is OK... */
 	req->nr_phys_segments = total_phys_segments;
 	return 1;
@@ -681,20 +668,17 @@ void blk_rq_set_mixed_merge(struct request *rq)
 	rq->rq_flags |= RQF_MIXED_MERGE;
 }
 
-static void blk_account_io_merge(struct request *req)
+static void blk_account_io_merge_request(struct request *req)
 {
 	if (blk_do_io_stat(req)) {
-		struct hd_struct *part;
-
 		part_stat_lock();
-		part = req->part;
-
-		part_dec_in_flight(req->q, part, rq_data_dir(req));
-
-		hd_struct_put(part);
+		part_stat_inc(req->part, merges[op_stat_group(req_op(req))]);
 		part_stat_unlock();
+
+		hd_struct_put(req->part);
 	}
 }
+
 /*
  * Two cases of handling DISCARD merge:
  * If max_discard_segments > 1, the driver takes every bio
@@ -806,7 +790,7 @@ static struct request *attempt_merge(struct request_queue *q,
 	/*
 	 * 'next' is going away, so update stats accordingly
 	 */
-	blk_account_io_merge(next);
+	blk_account_io_merge_request(next);
 
 	/*
 	 * ownership of bio passed from next to req, return 'next' for
@@ -868,6 +852,10 @@ bool blk_rq_merge_ok(struct request *rq, struct bio *bio)
 
 	/* only merge integrity protected bio into ditto rq */
 	if (blk_integrity_merge_bio(rq->q, rq, bio) == false)
+		return false;
+
+	/* Only merge if the crypt contexts are compatible */
+	if (!bio_crypt_rq_ctx_compatible(rq, bio))
 		return false;
 
 	/* must be using the same buffer */

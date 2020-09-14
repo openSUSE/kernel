@@ -636,10 +636,10 @@ dcssblk_add_store(struct device *dev, struct device_attribute *attr, const char 
 	}
 	dev_info->gd->major = dcssblk_major;
 	dev_info->gd->fops = &dcssblk_devops;
-	dev_info->dcssblk_queue = blk_alloc_queue(GFP_KERNEL);
+	dev_info->dcssblk_queue =
+		blk_alloc_queue(dcssblk_make_request, NUMA_NO_NODE);
 	dev_info->gd->queue = dev_info->dcssblk_queue;
 	dev_info->gd->private_data = dev_info;
-	blk_queue_make_request(dev_info->dcssblk_queue, dcssblk_make_request);
 	blk_queue_logical_block_size(dev_info->dcssblk_queue, 4096);
 	blk_queue_flag_set(QUEUE_FLAG_DAX, dev_info->dcssblk_queue);
 
@@ -862,7 +862,7 @@ dcssblk_make_request(struct request_queue *q, struct bio *bio)
 	unsigned long source_addr;
 	unsigned long bytes_done;
 
-	blk_queue_split(q, &bio);
+	blk_queue_split(&bio);
 
 	bytes_done = 0;
 	dev_info = bio->bi_disk->private_data;
