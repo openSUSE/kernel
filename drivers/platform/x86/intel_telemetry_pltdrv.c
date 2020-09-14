@@ -1115,6 +1115,8 @@ static int telemetry_pltdrv_probe(struct platform_device *pdev)
 
 	telm_conf = (struct telemetry_plt_config *)id->driver_data;
 
+	telm_conf->pmc = dev_get_drvdata(pdev->dev.parent);
+
 	res0 = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res0) {
 		ret = -EINVAL;
