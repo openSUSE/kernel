@@ -1359,6 +1359,7 @@
 #define PVR_ARCH_206p	0x0f100003
 #define PVR_ARCH_207	0x0f000004
 #define PVR_ARCH_300	0x0f000005
+#define PVR_ARCH_31	0x0f000006
 
 /* Macros for setting and retrieving special purpose registers */
 #ifndef __ASSEMBLY__
@@ -1393,6 +1394,14 @@ static inline void mtmsr_isync(unsigned long val)
 #endif
 #define wrtspr(rn)	asm volatile("mtspr " __stringify(rn) ",0" : \
 				     : : "memory")
+
+static inline void wrtee(unsigned long val)
+{
+	if (__builtin_constant_p(val))
+		asm volatile("wrteei %0" : : "i" ((val & MSR_EE) ? 1 : 0) : "memory");
+	else
+		asm volatile("wrtee %0" : : "r" (val) : "memory");
+}
 
 extern unsigned long msr_check_and_set(unsigned long bits);
 extern bool strict_msr_control;

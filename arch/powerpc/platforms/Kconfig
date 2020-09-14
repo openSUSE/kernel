@@ -177,6 +177,10 @@ config PPC_970_NAP
 config PPC_P7_NAP
 	bool
 
+config PPC_BOOK3S_IDLE
+	def_bool y
+	depends on (PPC_970_NAP || PPC_P7_NAP)
+
 config PPC_INDIRECT_PIO
 	bool
 	select GENERIC_IOMAP
@@ -197,7 +201,8 @@ endmenu
 
 config PPC601_SYNC_FIX
 	bool "Workarounds for PPC601 bugs"
-	depends on PPC_BOOK3S_32 && PPC_PMAC
+	depends on PPC_BOOK3S_601 && PPC_PMAC
+	default y
 	help
 	  Some versions of the PPC601 (the first PowerPC chip) have bugs which
 	  mean that extra synchronization instructions are required near
