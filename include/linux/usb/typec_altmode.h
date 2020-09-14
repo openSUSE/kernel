@@ -57,7 +57,7 @@ static inline void *typec_altmode_get_drvdata(struct typec_altmode *altmode)
  * @activate: User callback for Enter/Exit Mode
  */
 struct typec_altmode_ops {
-	int (*enter)(struct typec_altmode *altmode);
+	int (*enter)(struct typec_altmode *altmode, u32 *vdo);
 	int (*exit)(struct typec_altmode *altmode);
 	void (*attention)(struct typec_altmode *altmode, u32 vdo);
 	int (*vdm)(struct typec_altmode *altmode, const u32 hdr,
@@ -69,7 +69,7 @@ struct typec_altmode_ops {
 	void *suse_kabi_padding;
 };
 
-int typec_altmode_enter(struct typec_altmode *altmode);
+int typec_altmode_enter(struct typec_altmode *altmode, u32 *vdo);
 int typec_altmode_exit(struct typec_altmode *altmode);
 void typec_altmode_attention(struct typec_altmode *altmode, u32 vdo);
 int typec_altmode_vdm(struct typec_altmode *altmode,
