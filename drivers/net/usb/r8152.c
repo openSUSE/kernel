@@ -2174,7 +2174,7 @@ static void rtl_drop_queued_tx(struct r8152 *tp)
 	}
 }
 
-static void rtl8152_tx_timeout(struct net_device *netdev)
+static void rtl8152_tx_timeout(struct net_device *netdev, unsigned int txqueue)
 {
 	struct r8152 *tp = netdev_priv(netdev);
 
