@@ -16,6 +16,7 @@ Contents:
    devlink-info-versions
    devlink-trap
    devlink-trap-netdevsim
+   ethtool-netlink
    ieee802154
    kapi
    z8530book
