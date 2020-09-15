@@ -6,7 +6,6 @@
 #endif
 
 #define BSS_FIRST_SECTIONS *(.bss.prominit)
-#define RO_EXCEPTION_TABLE_ALIGN	0
 
 #include <asm/page.h>
 #include <asm-generic/vmlinux.lds.h>
@@ -161,6 +160,7 @@ SECTIONS
 		__stop__btb_flush_fixup = .;
 	}
 #endif
+	EXCEPTION_TABLE(0)
 
 	NOTES :text :note
 	/* Restore program header away from PT_NOTE. */
