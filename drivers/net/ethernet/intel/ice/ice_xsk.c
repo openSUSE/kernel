@@ -556,7 +556,7 @@ ice_alloc_buf_fast_zc(struct ice_ring *rx_ring, struct ice_rx_buf *rx_buf)
 
 	rx_buf->handle = handle + umem->headroom;
 
-	xsk_umem_discard_addr(umem);
+	xsk_umem_release_addr(umem);
 	return true;
 }
 
@@ -592,7 +592,7 @@ ice_alloc_buf_slow_zc(struct ice_ring *rx_ring, struct ice_rx_buf *rx_buf)
 
 	rx_buf->handle = handle + umem->headroom;
 
-	xsk_umem_discard_addr_rq(umem);
+	xsk_umem_release_addr_rq(umem);
 	return true;
 }
 
