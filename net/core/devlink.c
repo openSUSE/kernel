@@ -354,7 +354,6 @@ struct devlink_region {
 struct devlink_snapshot {
 	struct list_head list;
 	struct devlink_region *region;
-	devlink_snapshot_data_dest_t *data_destructor;
 	u8 *data;
 	u32 id;
 };
@@ -3784,7 +3783,7 @@ static void devlink_region_snapshot_del(struct devlink_region *region,
 	devlink_nl_region_notify(region, snapshot, DEVLINK_CMD_REGION_DEL);
 	region->cur_snapshots--;
 	list_del(&snapshot->list);
-	(*snapshot->data_destructor)(snapshot->data);
+	region->ops->destructor(snapshot->data);
 	kfree(snapshot);
 }
 
@@ -7655,6 +7654,9 @@ devlink_region_create(struct devlink *devlink,
 	struct devlink_region *region;
 	int err = 0;
 
+	if (WARN_ON(!ops) || WARN_ON(!ops->destructor))
+		return ERR_PTR(-EINVAL);
+
 	mutex_lock(&devlink->lock);
 
 	if (devlink_region_get_by_name(devlink, ops->name)) {
@@ -7741,11 +7743,9 @@ EXPORT_SYMBOL_GPL(devlink_region_snapshot_id_get);
  *	@region: devlink region of the snapshot
  *	@data: snapshot data
  *	@snapshot_id: snapshot id to be created
- *	@data_destructor: pointer to destructor function to free data
  */
 int devlink_region_snapshot_create(struct devlink_region *region,
-				   u8 *data, u32 snapshot_id,
-				   devlink_snapshot_data_dest_t *data_destructor)
+				   u8 *data, u32 snapshot_id)
 {
 	struct devlink *devlink = region->devlink;
 	struct devlink_snapshot *snapshot;
@@ -7773,7 +7773,6 @@ int devlink_region_snapshot_create(struct devlink_region *region,
 	snapshot->id = snapshot_id;
 	snapshot->region = region;
 	snapshot->data = data;
-	snapshot->data_destructor = data_destructor;
 
 	list_add_tail(&snapshot->list, &region->snapshot_list);
 
