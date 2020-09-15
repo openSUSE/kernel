@@ -92,3 +92,14 @@ fw.psid
 -------
 
 Unique identifier of the firmware parameter set.
+
+fw.roce
+-------
+
+RoCE firmware version which is responsible for handling roce
+management.
+
+fw.bundle_id
+------------
+
+Unique identifier of the entire firmware bundle.
