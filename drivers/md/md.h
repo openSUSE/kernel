@@ -32,6 +32,16 @@
  * be retried.
  */
 #define	MD_FAILFAST	(REQ_FAILFAST_DEV | REQ_FAILFAST_TRANSPORT)
+
+/*
+ * The struct embedded in rdev is used to serialize IO.
+ */
+struct serial_in_rdev {
+	struct rb_root_cached serial_rb;
+	spinlock_t serial_lock;
+	wait_queue_head_t serial_io_wait;
+};
+
 /*
  * MD's 'extended' device
  */
@@ -110,18 +120,16 @@ struct md_rdev {
 					   * in superblock.
 					   */
 
-	/*
-	 * The members for check collision of write IOs.
-	 */
-	struct list_head serial_list;
-	spinlock_t serial_list_lock;
-	wait_queue_head_t serial_io_wait;
+	struct serial_in_rdev *serial;  /* used for raid1 io serialization */
 
 	struct work_struct del_work;	/* used for delayed sysfs removal */
 
 	struct kernfs_node *sysfs_state; /* handle for 'state'
 					   * sysfs entry */
-
+	/* handle for 'unacknowledged_bad_blocks' sysfs dentry */
+	struct kernfs_node *sysfs_unack_badblocks;
+	/* handle for 'bad_blocks' sysfs dentry */
+	struct kernfs_node *sysfs_badblocks;
 	struct badblocks badblocks;
 
 	struct {
@@ -269,9 +277,10 @@ enum mddev_sb_flags {
 #define NR_SERIAL_INFOS		8
 /* record current range of serialize IOs */
 struct serial_info {
-	sector_t lo;
-	sector_t hi;
-	struct list_head list;
+	struct rb_node node;
+	sector_t start;		/* start sector of rb node */
+	sector_t last;		/* end sector of rb node */
+	sector_t _subtree_last; /* highest sector in subtree of rb node */
 };
 
 struct mddev {
@@ -417,6 +426,9 @@ struct mddev {
 							 * file in sysfs.
 							 */
 	struct kernfs_node		*sysfs_action;  /* handle for 'sync_action' */
+	struct kernfs_node		*sysfs_completed;	/*handle for 'sync_completed' */
+	struct kernfs_node		*sysfs_degraded;	/*handle for 'degraded' */
+	struct kernfs_node		*sysfs_level;		/*handle for 'level' */
 
 	struct work_struct del_work;	/* used for delayed sysfs removal */
 
@@ -497,6 +509,7 @@ struct mddev {
 
 	bool	has_superblocks:1;
 	bool	fail_last_dev:1;
+	bool	serialize_policy:1;
 };
 
 enum recovery_flags {
@@ -742,7 +755,9 @@ extern void md_reload_sb(struct mddev *mddev, int raid_disk);
 extern void md_update_sb(struct mddev *mddev, int force);
 extern void md_kick_rdev_from_array(struct md_rdev * rdev);
 extern void mddev_create_serial_pool(struct mddev *mddev, struct md_rdev *rdev,
-				 bool is_suspend);
+				     bool is_suspend);
+extern void mddev_destroy_serial_pool(struct mddev *mddev, struct md_rdev *rdev,
+				      bool is_suspend);
 struct md_rdev *md_find_rdev_nr_rcu(struct mddev *mddev, int nr);
 struct md_rdev *md_find_rdev_rcu(struct mddev *mddev, dev_t dev);
 
@@ -794,4 +809,7 @@ static inline void mddev_check_write_zeroes(struct mddev *mddev, struct bio *bio
 	    !bio->bi_disk->queue->limits.max_write_zeroes_sectors)
 		mddev->queue->limits.max_write_zeroes_sectors = 0;
 }
+
+extern int mdp_major;
+
 #endif /* _MD_MD_H */

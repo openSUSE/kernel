@@ -236,23 +236,9 @@ void enable_kernel_fp(void)
 	}
 }
 EXPORT_SYMBOL(enable_kernel_fp);
-
-static int restore_fp(struct task_struct *tsk)
-{
-	if (tsk->thread.load_fp) {
-		load_fp_state(&current->thread.fp_state);
-		current->thread.load_fp++;
-		return 1;
-	}
-	return 0;
-}
-#else
-static int restore_fp(struct task_struct *tsk) { return 0; }
 #endif /* CONFIG_PPC_FPU */
 
 #ifdef CONFIG_ALTIVEC
-#define loadvec(thr) ((thr).load_vec)
-
 static void __giveup_altivec(struct task_struct *tsk)
 {
 	unsigned long msr;
@@ -318,21 +304,6 @@ void flush_altivec_to_thread(struct task_struct *tsk)
 	}
 }
 EXPORT_SYMBOL_GPL(flush_altivec_to_thread);
-
-static int restore_altivec(struct task_struct *tsk)
-{
-	if (cpu_has_feature(CPU_FTR_ALTIVEC) && (tsk->thread.load_vec)) {
-		load_vr_state(&tsk->thread.vr_state);
-		tsk->thread.used_vr = 1;
-		tsk->thread.load_vec++;
-
-		return 1;
-	}
-	return 0;
-}
-#else
-#define loadvec(thr) 0
-static inline int restore_altivec(struct task_struct *tsk) { return 0; }
 #endif /* CONFIG_ALTIVEC */
 
 #ifdef CONFIG_VSX
@@ -400,18 +371,6 @@ void flush_vsx_to_thread(struct task_struct *tsk)
 	}
 }
 EXPORT_SYMBOL_GPL(flush_vsx_to_thread);
-
-static int restore_vsx(struct task_struct *tsk)
-{
-	if (cpu_has_feature(CPU_FTR_VSX)) {
-		tsk->thread.used_vsr = 1;
-		return 1;
-	}
-
-	return 0;
-}
-#else
-static inline int restore_vsx(struct task_struct *tsk) { return 0; }
 #endif /* CONFIG_VSX */
 
 #ifdef CONFIG_SPE
@@ -511,6 +470,62 @@ void giveup_all(struct task_struct *tsk)
 }
 EXPORT_SYMBOL(giveup_all);
 
+#ifdef CONFIG_PPC_BOOK3S_64
+#ifdef CONFIG_PPC_FPU
+static bool should_restore_fp(void)
+{
+	if (current->thread.load_fp) {
+		current->thread.load_fp++;
+		return true;
+	}
+	return false;
+}
+
+static void do_restore_fp(void)
+{
+	load_fp_state(&current->thread.fp_state);
+}
+#else
+static bool should_restore_fp(void) { return false; }
+static void do_restore_fp(void) { }
+#endif /* CONFIG_PPC_FPU */
+
+#ifdef CONFIG_ALTIVEC
+static bool should_restore_altivec(void)
+{
+	if (cpu_has_feature(CPU_FTR_ALTIVEC) && (current->thread.load_vec)) {
+		current->thread.load_vec++;
+		return true;
+	}
+	return false;
+}
+
+static void do_restore_altivec(void)
+{
+	load_vr_state(&current->thread.vr_state);
+	current->thread.used_vr = 1;
+}
+#else
+static bool should_restore_altivec(void) { return false; }
+static void do_restore_altivec(void) { }
+#endif /* CONFIG_ALTIVEC */
+
+#ifdef CONFIG_VSX
+static bool should_restore_vsx(void)
+{
+	if (cpu_has_feature(CPU_FTR_VSX))
+		return true;
+	return false;
+}
+static void do_restore_vsx(void)
+{
+	current->thread.used_vsr = 1;
+}
+#else
+static bool should_restore_vsx(void) { return false; }
+static void do_restore_vsx(void) { }
+#endif /* CONFIG_VSX */
+
 /*
  * The exception exit path calls restore_math() with interrupts hard disabled
  * but the soft irq state not "reconciled". ftrace code that calls
@@ -524,33 +539,50 @@ EXPORT_SYMBOL(giveup_all);
 void notrace restore_math(struct pt_regs *regs)
 {
 	unsigned long msr;
-
-	if (!MSR_TM_ACTIVE(regs->msr) &&
-		!current->thread.load_fp && !loadvec(current->thread))
-		return;
+	unsigned long new_msr = 0;
 
 	msr = regs->msr;
-	msr_check_and_set(msr_all_available);
 
 	/*
-	 * Only reload if the bit is not set in the user MSR, the bit BEING set
-	 * indicates that the registers are hot
+	 * new_msr tracks the facilities that are to be restored. Only reload
+	 * if the bit is not set in the user MSR (if it is set, the registers
+	 * are live for the user thread).
 	 */
-	if ((!(msr & MSR_FP)) && restore_fp(current))
-		msr |= MSR_FP | current->thread.fpexc_mode;
+	if ((!(msr & MSR_FP)) && should_restore_fp())
+		new_msr |= MSR_FP;
 
-	if ((!(msr & MSR_VEC)) && restore_altivec(current))
-		msr |= MSR_VEC;
+	if ((!(msr & MSR_VEC)) && should_restore_altivec())
+		new_msr |= MSR_VEC;
 
-	if ((msr & (MSR_FP | MSR_VEC)) == (MSR_FP | MSR_VEC) &&
-			restore_vsx(current)) {
-		msr |= MSR_VSX;
+	if ((!(msr & MSR_VSX)) && should_restore_vsx()) {
+		if (((msr | new_msr) & (MSR_FP | MSR_VEC)) == (MSR_FP | MSR_VEC))
+			new_msr |= MSR_VSX;
 	}
 
-	msr_check_and_clear(msr_all_available);
+	if (new_msr) {
+		unsigned long fpexc_mode = 0;
 
-	regs->msr = msr;
+		msr_check_and_set(new_msr);
+
+		if (new_msr & MSR_FP) {
+			do_restore_fp();
+
+			// This also covers VSX, because VSX implies FP
+			fpexc_mode = current->thread.fpexc_mode;
+		}
+
+		if (new_msr & MSR_VEC)
+			do_restore_altivec();
+
+		if (new_msr & MSR_VSX)
+			do_restore_vsx();
+
+		msr_check_and_clear(new_msr);
+
+		regs->msr |= new_msr | fpexc_mode;
+	}
 }
+#endif
 
 static void save_all(struct task_struct *tsk)
 {
@@ -1416,7 +1448,7 @@ void show_regs(struct pt_regs * regs)
 	print_msr_bits(regs->msr);
 	pr_cont("  CR: %08lx  XER: %08lx\n", regs->ccr, regs->xer);
 	trap = TRAP(regs);
-	if ((TRAP(regs) != 0xc00) && cpu_has_feature(CPU_FTR_CFAR))
+	if (!trap_is_syscall(regs) && cpu_has_feature(CPU_FTR_CFAR))
 		pr_cont("CFAR: "REG" ", regs->orig_gpr3);
 	if (trap == 0x200 || trap == 0x300 || trap == 0x600)
 #if defined(CONFIG_4xx) || defined(CONFIG_BOOKE)
@@ -1614,6 +1646,9 @@ int copy_thread_tls(unsigned long clone_flags, unsigned long usp,
 	void (*f)(void);
 	unsigned long sp = (unsigned long)task_stack_page(p) + THREAD_SIZE;
 	struct thread_info *ti = task_thread_info(p);
+#ifdef CONFIG_HAVE_HW_BREAKPOINT
+	int i;
+#endif
 
 	klp_init_thread_info(p);
 
@@ -1675,7 +1710,8 @@ int copy_thread_tls(unsigned long clone_flags, unsigned long usp,
 	p->thread.ksp_limit = (unsigned long)end_of_stack(p);
 #endif
 #ifdef CONFIG_HAVE_HW_BREAKPOINT
-	p->thread.ptrace_bps[0] = NULL;
+	for (i = 0; i < nr_wp_slots(); i++)
+		p->thread.ptrace_bps[i] = NULL;
 #endif
 
 	p->thread.fp_save_area = NULL;
@@ -1746,7 +1782,7 @@ void start_thread(struct pt_regs *regs, unsigned long start, unsigned long sp)
 	 * FULL_REGS(regs) return true.  This is necessary to allow
 	 * ptrace to examine the thread immediately after exec.
 	 */
-	regs->trap &= ~1UL;
+	SET_FULL_REGS(regs);
 
 #ifdef CONFIG_PPC32
 	regs->mq = 0;

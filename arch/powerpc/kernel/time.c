@@ -232,7 +232,7 @@ static u64 scan_dispatch_log(u64 stop_tb)
  * Accumulate stolen time by scanning the dispatch trace log.
  * Called on entry from user mode.
  */
-void accumulate_stolen_time(void)
+void notrace accumulate_stolen_time(void)
 {
 	u64 sst, ust;
 	unsigned long save_irq_soft_mask = irq_soft_mask_return();
@@ -644,15 +644,6 @@ void timer_broadcast_interrupt(void)
 	__this_cpu_inc(irq_stat.broadcast_irqs_event);
 }
 #endif
-
-/*
- * Hypervisor decrementer interrupts shouldn't occur but are sometimes
- * left pending on exit from a KVM guest.  We don't need to do anything
- * to clear them, as they are edge-triggered.
- */
-void hdec_interrupt(struct pt_regs *regs)
-{
-}
 
 #ifdef CONFIG_SUSPEND
 static void generic_suspend_disable_irqs(void)

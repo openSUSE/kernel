@@ -248,6 +248,7 @@ _GLOBAL(real_readb)
 	sync
 	isync
 	blr
+_ASM_NOKPROBE_SYMBOL(real_readb)
 
 	/*
  * Do an IO access in real mode
@@ -265,6 +266,7 @@ _GLOBAL(real_writeb)
 	sync
 	isync
 	blr
+_ASM_NOKPROBE_SYMBOL(real_writeb)
 
 #endif /* CONFIG_40x */
 

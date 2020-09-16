@@ -2482,7 +2482,7 @@ out_napi_off:
 }
 
 /* Timeout function */
-static void sh_eth_tx_timeout(struct net_device *ndev)
+static void sh_eth_tx_timeout(struct net_device *ndev, unsigned int txqueue)
 {
 	struct sh_eth_private *mdp = netdev_priv(ndev);
 	struct sh_eth_rxdesc *rxdesc;

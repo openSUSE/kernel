@@ -36,6 +36,12 @@
 #include "head_32.h"
 
 /*
+ * powerpc relies on return from interrupt/syscall being context synchronising
+ * (which rfi is) to support ARCH_HAS_MEMBARRIER_SYNC_CORE without additional
+ * synchronisation instructions.
+ */
+
+/*
  * Align to 4k in order to ensure that all functions modyfing srr0/srr1
  * fit into one page in order to not encounter a TLB miss between the
  * modification of srr0/srr1 and the associated rfi.
@@ -311,6 +317,7 @@ stack_ovf:
 	mtspr	SPRN_SRR1,r10
 	SYNC
 	RFI
+_ASM_NOKPROBE_SYMBOL(stack_ovf)
 
 #ifdef CONFIG_TRACE_IRQFLAGS
 trace_syscall_entry_irq_off:
@@ -399,9 +406,7 @@ ret_from_syscall:
 	MTMSRD(r10)
 	lwz	r9,TI_FLAGS(r2)
 	li	r8,-MAX_ERRNO
-	lis	r0,(_TIF_SYSCALL_DOTRACE|_TIF_SINGLESTEP|_TIF_USER_WORK_MASK|_TIF_PERSYSCALL_MASK)@h
-	ori	r0,r0, (_TIF_SYSCALL_DOTRACE|_TIF_SINGLESTEP|_TIF_USER_WORK_MASK|_TIF_PERSYSCALL_MASK)@l
-	and.	r0,r9,r0
+	andi.	r0,r9,(_TIF_SYSCALL_DOTRACE|_TIF_SINGLESTEP|_TIF_USER_WORK_MASK|_TIF_PERSYSCALL_MASK)
 	bne-	syscall_exit_work
 	cmplw	0,r3,r8
 	blt+	syscall_exit_cont
@@ -516,13 +521,13 @@ syscall_dotrace:
 	b	syscall_dotrace_cont
 
 syscall_exit_work:
-	andis.	r0,r9,_TIF_RESTOREALL@h
+	andi.	r0,r9,_TIF_RESTOREALL
 	beq+	0f
 	REST_NVGPRS(r1)
 	b	2f
 0:	cmplw	0,r3,r8
 	blt+	1f
-	andis.	r0,r9,_TIF_NOERROR@h
+	andi.	r0,r9,_TIF_NOERROR
 	bne-	1f
 	lwz	r11,_CCR(r1)			/* Load CR */
 	neg	r3,r3
@@ -531,12 +536,12 @@ syscall_exit_work:
 
 1:	stw	r6,RESULT(r1)	/* Save result */
 	stw	r3,GPR3(r1)	/* Update return value */
-2:	andis.	r0,r9,(_TIF_PERSYSCALL_MASK)@h
+2:	andi.	r0,r9,(_TIF_PERSYSCALL_MASK)
 	beq	4f
 
 	/* Clear per-syscall TIF flags if any are set.  */
 
-	lis	r11,(_TIF_PERSYSCALL_MASK)@h
+	li	r11,_TIF_PERSYSCALL_MASK
 	addi	r12,r2,TI_FLAGS
 3:	lwarx	r8,0,r12
 	andc	r8,r8,r11
@@ -775,11 +780,19 @@ fast_exception_return:
 1:	lis	r3,exc_exit_restart_end@ha
 	addi	r3,r3,exc_exit_restart_end@l
 	cmplw	r12,r3
+#if CONFIG_PPC_BOOK3S_601
+	bge	2b
+#else
 	bge	3f
+#endif
 	lis	r4,exc_exit_restart@ha
 	addi	r4,r4,exc_exit_restart@l
 	cmplw	r12,r4
+#if CONFIG_PPC_BOOK3S_601
+	blt	2b
+#else
 	blt	3f
+#endif
 	lis	r3,fee_restarts@ha
 	tophys(r3,r3)
 	lwz	r5,fee_restarts@l(r3)
@@ -798,9 +811,6 @@ fee_restarts:
 /* aargh, we don't know which trap this is */
 /* but the 601 doesn't implement the RI bit, so assume it's OK */
 3:
-BEGIN_FTR_SECTION
-	b	2b
-END_FTR_SECTION_IFSET(CPU_FTR_601)
 	li	r10,-1
 	stw	r10,_TRAP(r11)
 	addi	r3,r1,STACK_FRAME_OVERHEAD
@@ -893,14 +903,7 @@ resume_kernel:
 	cmpwi	0,r0,0		/* if non-zero, just restore regs and return */
 	bne	restore_kuap
 	andi.	r8,r8,_TIF_NEED_RESCHED
-	bne+	1f
-	lwz	r0,TI_PREEMPT_LAZY(r2)
-	cmpwi	0,r0,0          /* if non-zero, just restore regs and return */
-	bne	restore_kuap
-	lwz	r0,TI_FLAGS(r2)
-	andi.	r0,r0,_TIF_NEED_RESCHED_LAZY
 	beq+	restore_kuap
-1:
 	lwz	r3,_MSR(r1)
 	andi.	r0,r3,MSR_EE	/* interrupts off? */
 	beq	restore_kuap	/* don't schedule if so */
@@ -1217,7 +1220,7 @@ global_dbcr0:
 #endif /* !(CONFIG_4xx || CONFIG_BOOKE) */
 
 do_work:			/* r10 contains MSR_KERNEL here */
-	andi.	r0,r9,_TIF_NEED_RESCHED_MASK
+	andi.	r0,r9,_TIF_NEED_RESCHED
 	beq	do_user_signal
 
 do_resched:			/* r10 contains MSR_KERNEL here */
@@ -1238,7 +1241,7 @@ recheck:
 	SYNC
 	MTMSRD(r10)		/* disable interrupts */
 	lwz	r9,TI_FLAGS(r2)
-	andi.	r0,r9,_TIF_NEED_RESCHED_MASK
+	andi.	r0,r9,_TIF_NEED_RESCHED
 	bne-	do_resched
 	andi.	r0,r9,_TIF_USER_WORK_MASK
 	beq	restore_user
@@ -1268,11 +1271,19 @@ nonrecoverable:
 	lis	r10,exc_exit_restart_end@ha
 	addi	r10,r10,exc_exit_restart_end@l
 	cmplw	r12,r10
+#ifdef CONFIG_PPC_BOOK3S_601
+	bgelr
+#else
 	bge	3f
+#endif
 	lis	r11,exc_exit_restart@ha
 	addi	r11,r11,exc_exit_restart@l
 	cmplw	r12,r11
+#ifdef CONFIG_PPC_BOOK3S_601
+	bltlr
+#else
 	blt	3f
+#endif
 	lis	r10,ee_restarts@ha
 	lwz	r12,ee_restarts@l(r10)
 	addi	r12,r12,1
@@ -1281,9 +1292,6 @@ nonrecoverable:
 	blr
 3:	/* OK, we can't recover, kill this process */
 	/* but the 601 doesn't implement the RI bit, so assume it's OK */
-BEGIN_FTR_SECTION
-	blr
-END_FTR_SECTION_IFSET(CPU_FTR_601)
 	lwz	r3,_TRAP(r1)
 	andi.	r0,r3,1
 	beq	5f
@@ -1297,6 +1305,7 @@ END_FTR_SECTION_IFSET(CPU_FTR_601)
 	bl	unrecoverable_exception
 	/* shouldn't return */
 	b	4b
+_ASM_NOKPROBE_SYMBOL(nonrecoverable)
 
 	.section .bss
 	.align	2
@@ -1346,6 +1355,7 @@ _GLOBAL(enter_rtas)
 	mtspr	SPRN_SRR0,r8
 	mtspr	SPRN_SRR1,r9
 	RFI			/* return to caller */
+_ASM_NOKPROBE_SYMBOL(enter_rtas)
 
 	.globl	machine_check_in_rtas
 machine_check_in_rtas:

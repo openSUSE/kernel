@@ -324,14 +324,6 @@ static void end_bitmap_write(struct buffer_head *bh, int uptodate)
 		wake_up(&bitmap->write_wait);
 }
 
-/* copied from buffer.c */
-static void
-__clear_page_buffers(struct page *page)
-{
-	ClearPagePrivate(page);
-	set_page_private(page, 0);
-	put_page(page);
-}
 static void free_buffers(struct page *page)
 {
 	struct buffer_head *bh;
@@ -345,7 +337,7 @@ static void free_buffers(struct page *page)
 		free_buffer_head(bh);
 		bh = next;
 	}
-	__clear_page_buffers(page);
+	detach_page_private(page);
 	put_page(page);
 }
 
@@ -364,7 +356,7 @@ static int read_page(struct file *file, unsigned long index,
 	int ret = 0;
 	struct inode *inode = file_inode(file);
 	struct buffer_head *bh;
-	sector_t block;
+	sector_t block, blk_cur;
 
 	pr_debug("read bitmap file (%dB @ %llu)\n", (int)PAGE_SIZE,
 		 (unsigned long long)index << PAGE_SHIFT);
@@ -374,18 +366,22 @@ static int read_page(struct file *file, unsigned long index,
 		ret = -ENOMEM;
 		goto out;
 	}
-	attach_page_buffers(page, bh);
-	block = index << (PAGE_SHIFT - inode->i_blkbits);
+	attach_page_private(page, bh);
+	blk_cur = index << (PAGE_SHIFT - inode->i_blkbits);
 	while (bh) {
+		block = blk_cur;
+
 		if (count == 0)
 			bh->b_blocknr = 0;
 		else {
-			bh->b_blocknr = bmap(inode, block);
-			if (bh->b_blocknr == 0) {
-				/* Cannot use this file! */
+			ret = bmap(inode, &block);
+			if (ret || !block) {
 				ret = -EINVAL;
+				bh->b_blocknr = 0;
 				goto out;
 			}
+
+			bh->b_blocknr = block;
 			bh->b_bdev = inode->i_sb->s_bdev;
 			if (count < (1<<inode->i_blkbits))
 				count = 0;
@@ -399,7 +395,7 @@ static int read_page(struct file *file, unsigned long index,
 			set_buffer_mapped(bh);
 			submit_bh(REQ_OP_READ, 0, bh);
 		}
-		block++;
+		blk_cur++;
 		bh = bh->b_this_page;
 	}
 	page->index = index;
@@ -1635,7 +1631,7 @@ void md_bitmap_cond_end_sync(struct bitmap *bitmap, sector_t sector, bool force)
 		s += blocks;
 	}
 	bitmap->last_end_sync = jiffies;
-	sysfs_notify(&bitmap->mddev->kobj, NULL, "sync_completed");
+	sysfs_notify_dirent_safe(bitmap->mddev->sysfs_completed);
 }
 EXPORT_SYMBOL(md_bitmap_cond_end_sync);
 
@@ -1789,8 +1785,8 @@ void md_bitmap_destroy(struct mddev *mddev)
 		return;
 
 	md_bitmap_wait_behind_writes(mddev);
-	mempool_destroy(mddev->serial_info_pool);
-	mddev->serial_info_pool = NULL;
+	if (!mddev->serialize_policy)
+		mddev_destroy_serial_pool(mddev, NULL, true);
 
 	mutex_lock(&mddev->bitmap_info.mutex);
 	spin_lock(&mddev->lock);
@@ -2476,8 +2472,8 @@ backlog_store(struct mddev *mddev, const char *buf, size_t len)
 	mddev->bitmap_info.max_write_behind = backlog;
 	if (!backlog && mddev->serial_info_pool) {
 		/* serial_info_pool is not needed if backlog is zero */
-		mempool_destroy(mddev->serial_info_pool);
-		mddev->serial_info_pool = NULL;
+		if (!mddev->serialize_policy)
+			mddev_destroy_serial_pool(mddev, NULL, false);
 	} else if (backlog && !mddev->serial_info_pool) {
 		/* serial_info_pool is needed since backlog is not zero */
 		struct md_rdev *rdev;
