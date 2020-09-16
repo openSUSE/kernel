@@ -223,6 +223,27 @@ be added to the following table:
    * - ``ipv6_lpm_miss``
      - ``exception``
      - Traps unicast IPv6 packets that did not match any route
+   * - ``non_routable_packet``
+     - ``drop``
+     - Traps packets that the device decided to drop because they are not
+       supposed to be routed. For example, IGMP queries can be flooded by the
+       device in layer 2 and reach the router. Such packets should not be
+       routed and instead dropped
+   * - ``decap_error``
+     - ``exception``
+     - Traps NVE and IPinIP packets that the device decided to drop because of
+       failure during decapsulation (e.g., packet being too short, reserved
+       bits set in VXLAN header)
+   * - ``overlay_smac_is_mc``
+     - ``drop``
+     - Traps NVE packets that the device decided to drop because their overlay
+       source MAC is multicast
+   * - ``ingress_flow_action_drop``
+     - ``drop``
+     - Traps packets dropped during processing of ingress flow action drop
+   * - ``egress_flow_action_drop``
+     - ``drop``
+     - Traps packets dropped during processing of egress flow action drop
 
 Driver-specific Packet Traps
 ============================
@@ -233,7 +254,7 @@ help debug packet drops caused by these exceptions. The following list includes
 links to the description of driver-specific traps registered by various device
 drivers:
 
-  * :doc:`devlink-trap-netdevsim`
+  * :doc:`netdevsim`
 
 Generic Packet Trap Groups
 ==========================
@@ -258,3 +279,19 @@ narrow. The description of these groups must be added to the following table:
    * - ``buffer_drops``
      - Contains packet traps for packets that were dropped by the device due to
        an enqueue decision
+   * - ``tunnel_drops``
+     - Contains packet traps for packets that were dropped by the device during
+       tunnel encapsulation / decapsulation
+   * - ``acl_drops``
+     - Contains packet traps for packets that were dropped by the device during
+       ACL processing
+
+Testing
+=======
+
+See ``tools/testing/selftests/drivers/net/netdevsim/devlink_trap.sh`` for a
+test covering the core infrastructure. Test cases should be added for any new
+functionality.
+
+Device drivers should focus their tests on device-specific functionality, such
+as the triggering of supported packet traps.
