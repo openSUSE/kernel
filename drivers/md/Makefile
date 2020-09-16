@@ -17,7 +17,9 @@ dm-thin-pool-y	+= dm-thin.o dm-thin-metadata.o
 dm-cache-y	+= dm-cache-target.o dm-cache-metadata.o dm-cache-policy.o \
 		    dm-cache-background-tracker.o
 dm-cache-smq-y   += dm-cache-policy-smq.o
+dm-ebs-y	+= dm-ebs-target.o
 dm-era-y	+= dm-era-target.o
+dm-clone-y	+= dm-clone-target.o dm-clone-metadata.o
 dm-verity-y	+= dm-verity-target.o
 md-mod-y	+= md.o md-bitmap.o
 raid456-y	+= raid5.o raid5-cache.o raid5-ppl.o
@@ -53,6 +55,7 @@ obj-$(CONFIG_DM_FLAKEY)		+= dm-flakey.o
 obj-$(CONFIG_DM_MULTIPATH)	+= dm-multipath.o dm-round-robin.o dm-least-pending.o
 obj-$(CONFIG_DM_MULTIPATH_QL)	+= dm-queue-length.o
 obj-$(CONFIG_DM_MULTIPATH_ST)	+= dm-service-time.o
+obj-$(CONFIG_DM_MULTIPATH_HST)	+= dm-historical-service-time.o
 obj-$(CONFIG_DM_SWITCH)		+= dm-switch.o
 obj-$(CONFIG_DM_SNAPSHOT)	+= dm-snapshot.o
 obj-$(CONFIG_DM_PERSISTENT_DATA)	+= persistent-data/
@@ -64,7 +67,9 @@ obj-$(CONFIG_DM_THIN_PROVISIONING)	+= dm-thin-pool.o
 obj-$(CONFIG_DM_VERITY)		+= dm-verity.o
 obj-$(CONFIG_DM_CACHE)		+= dm-cache.o
 obj-$(CONFIG_DM_CACHE_SMQ)	+= dm-cache-smq.o
+obj-$(CONFIG_DM_EBS)		+= dm-ebs.o
 obj-$(CONFIG_DM_ERA)		+= dm-era.o
+obj-$(CONFIG_DM_CLONE)		+= dm-clone.o
 obj-$(CONFIG_DM_LOG_WRITES)	+= dm-log-writes.o
 obj-$(CONFIG_DM_INTEGRITY)	+= dm-integrity.o
 obj-$(CONFIG_DM_ZONED)		+= dm-zoned.o
@@ -80,4 +85,8 @@ endif
 
 ifeq ($(CONFIG_DM_VERITY_FEC),y)
 dm-verity-objs			+= dm-verity-fec.o
+endif
+
+ifeq ($(CONFIG_DM_VERITY_VERIFY_ROOTHASH_SIG),y)
+dm-verity-objs			+= dm-verity-verify-sig.o
 endif

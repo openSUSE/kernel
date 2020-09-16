@@ -210,10 +210,28 @@ void wb_wait_for_completion(struct wb_completion *done)
 
 #ifdef CONFIG_CGROUP_WRITEBACK
 
-/* parameters for foreign inode detection, see wb_detach_inode() */
+/*
+ * Parameters for foreign inode detection, see wbc_detach_inode() to see
+ * how they're used.
+ *
+ * These paramters are inherently heuristical as the detection target
+ * itself is fuzzy.  All we want to do is detaching an inode from the
+ * current owner if it's being written to by some other cgroups too much.
+ *
+ * The current cgroup writeback is built on the assumption that multiple
+ * cgroups writing to the same inode concurrently is very rare and a mode
+ * of operation which isn't well supported.  As such, the goal is not
+ * taking too long when a different cgroup takes over an inode while
+ * avoiding too aggressive flip-flops from occasional foreign writes.
+ *
+ * We record, very roughly, 2s worth of IO time history and if more than
+ * half of that is foreign, trigger the switch.  The recording is quantized
+ * to 16 slots.  To avoid tiny writes from swinging the decision too much,
+ * writes smaller than 1/8 of avg size are ignored.
+ */
 #define WB_FRN_TIME_SHIFT	13	/* 1s = 2^13, upto 8 secs w/ 16bit */
 #define WB_FRN_TIME_AVG_SHIFT	3	/* avg = avg * 7/8 + new * 1/8 */
-#define WB_FRN_TIME_CUT_DIV	2	/* ignore rounds < avg / 2 */
+#define WB_FRN_TIME_CUT_DIV	8	/* ignore rounds < avg / 8 */
 #define WB_FRN_TIME_PERIOD	(2 * (1 << WB_FRN_TIME_SHIFT))	/* 2s */
 
 #define WB_FRN_HIST_SLOTS	16	/* inode->i_wb_frn_history is 16bit */
@@ -223,6 +241,7 @@ void wb_wait_for_completion(struct wb_completion *done)
 					/* if foreign slots >= 8, switch */
 #define WB_FRN_HIST_MAX_SLOTS	(WB_FRN_HIST_THR_SLOTS / 2 + 1)
 					/* one round can affect upto 5 slots */
+#define WB_FRN_MAX_IN_FLIGHT	1024	/* don't queue too many concurrently */
 
 static atomic_t isw_nr_in_flight = ATOMIC_INIT(0);
 static struct workqueue_struct *isw_wq;
@@ -375,6 +394,8 @@ static void inode_switch_wbs_work_fn(struct work_struct *work)
 	if (unlikely(inode->i_state & I_FREEING))
 		goto skip_switch;
 
+	trace_inode_switch_wbs(inode, old_wb, new_wb);
+
 	/*
 	 * Count and transfer stats.  Note that PAGECACHE_TAG_DIRTY points
 	 * to possibly dirty pages while PAGECACHE_TAG_WRITEBACK points to
@@ -475,18 +496,13 @@ static void inode_switch_wbs(struct inode *inode, int new_wb_id)
 	if (inode->i_state & I_WB_SWITCH)
 		return;
 
-	/*
-	 * Avoid starting new switches while sync_inodes_sb() is in
-	 * progress.  Otherwise, if the down_write protected issue path
-	 * blocks heavily, we might end up starting a large number of
-	 * switches which will block on the rwsem.
-	 */
-	if (!down_read_trylock(&bdi->wb_switch_rwsem))
+	/* avoid queueing a new switch if too many are already in flight */
+	if (atomic_read(&isw_nr_in_flight) > WB_FRN_MAX_IN_FLIGHT)
 		return;
 
 	isw = kzalloc(sizeof(*isw), GFP_ATOMIC);
 	if (!isw)
-		goto out_unlock;
+		return;
 
 	/* find and pin the new wb */
 	rcu_read_lock();
@@ -520,15 +536,12 @@ static void inode_switch_wbs(struct inode *inode, int new_wb_id)
 	call_rcu(&isw->rcu_head, inode_switch_wbs_rcu_fn);
 
 	atomic_inc(&isw_nr_in_flight);
-
-	goto out_unlock;
+	return;
 
 out_free:
 	if (isw->new_wb)
 		wb_put(isw->new_wb);
 	kfree(isw);
-out_unlock:
-	up_read(&bdi->wb_switch_rwsem);
 }
 
 /**
@@ -669,6 +682,9 @@ void wbc_detach_inode(struct writeback_control *wbc)
 		history <<= slots;
 		if (wbc->wb_id != max_id)
 			history |= (1U << slots) - 1;
+
+		if (history)
+			trace_inode_foreign_history(inode, wbc, history);
 
 		/*
 		 * Switch if the current wb isn't the consistent winner.

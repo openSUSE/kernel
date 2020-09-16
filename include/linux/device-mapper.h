@@ -319,15 +319,11 @@ struct dm_target {
 	bool discards_supported:1;
 };
 
-/* Each target can link one of these into the table */
-struct dm_target_callbacks {
-	struct list_head list;
-	int (*congested_fn) (struct dm_target_callbacks *, int);
-};
-
 void *dm_per_bio_data(struct bio *bio, size_t data_size);
 struct bio *dm_bio_from_per_bio_data(void *data, size_t data_size);
 unsigned dm_bio_get_target_bio_nr(const struct bio *bio);
+
+u64 dm_start_time_ns_from_clone(struct bio *bio);
 
 int dm_register_target(struct target_type *t);
 void dm_unregister_target(struct target_type *t);
@@ -473,11 +469,6 @@ int dm_table_add_target(struct dm_table *t, const char *type,
 			sector_t start, sector_t len, char *params);
 
 /*
- * Target_ctr should call this if it needs to add any callbacks.
- */
-void dm_table_add_target_callbacks(struct dm_table *t, struct dm_target_callbacks *cb);
-
-/*
  * Target can use this to set the table's type.
  * Can only ever be called from a target's ctr.
  * Useful for "hybrid" target (supports both bio-based
@@ -607,9 +598,6 @@ void *dm_vcalloc(unsigned long nmemb, unsigned long elem_size);
  * ceiling(n / size) * size
  */
 #define dm_round_up(n, sz) (dm_div_up((n), (sz)) * (sz))
-
-#define dm_array_too_big(fixed, obj, num) \
-	((num) > (UINT_MAX - (fixed)) / (obj))
 
 /*
  * Sector offset taken relative to the start of the target instead of

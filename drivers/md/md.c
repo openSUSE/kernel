@@ -201,7 +201,7 @@ static int rdevs_init_serial(struct mddev *mddev)
 static int rdev_need_serial(struct md_rdev *rdev)
 {
 	return (rdev && rdev->mddev->bitmap_info.max_write_behind > 0 &&
-		rdev->bdev->bd_queue->nr_hw_queues != 1 &&
+		rdev->bdev->bd_disk->queue->nr_hw_queues != 1 &&
 		test_bit(WriteMostly, &rdev->flags));
 }
 
@@ -483,7 +483,7 @@ void md_io_acct(struct mddev *mddev, int op, unsigned int sectors)
 }
 EXPORT_SYMBOL_GPL(md_io_acct);
 
-static blk_qc_t md_make_request(struct request_queue *q, struct bio *bio)
+static blk_qc_t md_submit_bio(struct bio *bio)
 {
 	const int rw = bio_data_dir(bio);
 	struct mddev *mddev = bio->bi_disk->private_data;
@@ -559,26 +559,6 @@ void mddev_resume(struct mddev *mddev)
 	md_wakeup_thread(mddev->sync_thread); /* possibly kick off a reshape */
 }
 EXPORT_SYMBOL_GPL(mddev_resume);
-
-int mddev_congested(struct mddev *mddev, int bits)
-{
-	struct md_personality *pers = mddev->pers;
-	int ret = 0;
-
-	rcu_read_lock();
-	if (mddev->suspended)
-		ret = 1;
-	else if (pers && pers->congested)
-		ret = pers->congested(mddev, bits);
-	rcu_read_unlock();
-	return ret;
-}
-EXPORT_SYMBOL_GPL(mddev_congested);
-static int md_congested(void *data, int bits)
-{
-	struct mddev *mddev = data;
-	return mddev_congested(mddev, bits);
-}
 
 /*
  * Generic flush handling for md
@@ -5730,7 +5710,7 @@ static int md_alloc(dev_t dev, char *name)
 		mddev->hold_active = UNTIL_STOP;
 
 	error = -ENOMEM;
-	mddev->queue = blk_alloc_queue(md_make_request, NUMA_NO_NODE);
+	mddev->queue = blk_alloc_queue(NUMA_NO_NODE);
 	if (!mddev->queue)
 		goto abort;
 
@@ -6055,8 +6035,6 @@ int md_run(struct mddev *mddev)
 			blk_queue_flag_set(QUEUE_FLAG_NONROT, mddev->queue);
 		else
 			blk_queue_flag_clear(QUEUE_FLAG_NONROT, mddev->queue);
-		mddev->queue->backing_dev_info->congested_data = mddev;
-		mddev->queue->backing_dev_info->congested_fn = md_congested;
 	}
 	if (pers->sync_request) {
 		if (mddev->kobj.sd &&
@@ -6443,7 +6421,6 @@ static int do_md_stop(struct mddev *mddev, int mode,
 
 		__md_stop_writes(mddev);
 		__md_stop(mddev);
-		mddev->queue->backing_dev_info->congested_fn = NULL;
 
 		/* tell userspace to handle 'inactive' */
 		sysfs_notify_dirent_safe(mddev->sysfs_state);
@@ -7917,6 +7894,7 @@ static unsigned int md_check_events(struct gendisk *disk, unsigned int clearing)
 static const struct block_device_operations md_fops =
 {
 	.owner		= THIS_MODULE,
+	.submit_bio	= md_submit_bio,
 	.open		= md_open,
 	.release	= md_release,
 	.ioctl		= md_ioctl,

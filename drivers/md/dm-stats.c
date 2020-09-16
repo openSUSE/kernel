@@ -56,7 +56,7 @@ struct dm_stat {
 	size_t percpu_alloc_size;
 	size_t histogram_alloc_size;
 	struct dm_stat_percpu *stat_percpu[NR_CPUS];
-	struct dm_stat_shared stat_shared[0];
+	struct dm_stat_shared stat_shared[];
 };
 
 #define STAT_PRECISE_TIMESTAMPS		1
@@ -262,7 +262,7 @@ static int dm_stats_create(struct dm_stats *stats, sector_t start, sector_t end,
 	if (n_entries != (size_t)n_entries || !(size_t)(n_entries + 1))
 		return -EOVERFLOW;
 
-	shared_alloc_size = sizeof(struct dm_stat) + (size_t)n_entries * sizeof(struct dm_stat_shared);
+	shared_alloc_size = struct_size(s, stat_shared, n_entries);
 	if ((shared_alloc_size - sizeof(struct dm_stat)) / sizeof(struct dm_stat_shared) != n_entries)
 		return -EOVERFLOW;
 
