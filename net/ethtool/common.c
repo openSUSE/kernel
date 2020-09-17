@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include <linux/net_tstamp.h>
+#include <linux/phy.h>
 
 #include "common.h"
 
@@ -338,4 +339,24 @@ int ethtool_get_max_rxfh_channel(struct net_device *dev, u32 *max)
 out:
 	kfree(indir);
 	return ret;
+}
+
+int __ethtool_get_ts_info(struct net_device *dev, struct ethtool_ts_info *info)
+{
+	const struct ethtool_ops *ops = dev->ethtool_ops;
+	struct phy_device *phydev = dev->phydev;
+
+	memset(info, 0, sizeof(*info));
+	info->cmd = ETHTOOL_GET_TS_INFO;
+
+	if (phy_has_tsinfo(phydev))
+		return phy_ts_info(phydev, info);
+	if (ops->get_ts_info)
+		return ops->get_ts_info(dev, info);
+
+	info->so_timestamping = SOF_TIMESTAMPING_RX_SOFTWARE |
+				SOF_TIMESTAMPING_SOFTWARE;
+	info->phc_index = -1;
+
+	return 0;
 }
