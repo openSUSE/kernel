@@ -33,7 +33,7 @@
 
 #include "i915_drv.h"
 #include "i915_reg.h"
-#include "intel_display_types.h"
+#include "intel_drv.h"
 #include "intel_frontbuffer.h"
 #include "intel_overlay.h"
 
@@ -175,7 +175,6 @@ struct overlay_registers {
 
 struct intel_overlay {
 	struct drm_i915_private *i915;
-	struct intel_context *context;
 	struct intel_crtc *crtc;
 	struct i915_vma *vma;
 	struct i915_vma *old_vma;
@@ -191,8 +190,7 @@ struct intel_overlay {
 	struct overlay_registers __iomem *regs;
 	u32 flip_addr;
 	/* flip handling */
-	struct i915_active last_flip;
-	void (*flip_complete)(struct intel_overlay *ovl);
+	struct i915_active_request last_flip;
 };
 
 static void i830_overlay_clock_gating(struct drm_i915_private *dev_priv,
@@ -218,25 +216,32 @@ static void i830_overlay_clock_gating(struct drm_i915_private *dev_priv,
 				  PCI_DEVFN(0, 0), I830_CLOCK_GATE, val);
 }
 
-static struct i915_request *
-alloc_request(struct intel_overlay *overlay, void (*fn)(struct intel_overlay *))
+static void intel_overlay_submit_request(struct intel_overlay *overlay,
+					 struct i915_request *rq,
+					 i915_active_retire_fn retire)
 {
-	struct i915_request *rq;
-	int err;
+	GEM_BUG_ON(i915_active_request_peek(&overlay->last_flip,
+					    &overlay->i915->drm.struct_mutex));
+	i915_active_request_set_retire_fn(&overlay->last_flip, retire,
+					  &overlay->i915->drm.struct_mutex);
+	__i915_active_request_set(&overlay->last_flip, rq);
+	i915_request_add(rq);
+}
 
-	overlay->flip_complete = fn;
+static int intel_overlay_do_wait_request(struct intel_overlay *overlay,
+					 struct i915_request *rq,
+					 i915_active_retire_fn retire)
+{
+	intel_overlay_submit_request(overlay, rq, retire);
+	return i915_active_request_retire(&overlay->last_flip,
+					  &overlay->i915->drm.struct_mutex);
+}
 
-	rq = i915_request_create(overlay->context);
-	if (IS_ERR(rq))
-		return rq;
+static struct i915_request *alloc_request(struct intel_overlay *overlay)
+{
+	struct intel_engine_cs *engine = overlay->i915->engine[RCS0];
 
-	err = i915_active_add_request(&overlay->last_flip, rq);
-	if (err) {
-		i915_request_add(rq);
-		return ERR_PTR(err);
-	}
-
-	return rq;
+	return i915_request_create(engine->kernel_context);
 }
 
 /* overlay needs to be disable in OCMD reg */
@@ -248,7 +253,7 @@ static int intel_overlay_on(struct intel_overlay *overlay)
 
 	WARN_ON(overlay->active);
 
-	rq = alloc_request(overlay, NULL);
+	rq = alloc_request(overlay);
 	if (IS_ERR(rq))
 		return PTR_ERR(rq);
 
@@ -269,30 +274,19 @@ static int intel_overlay_on(struct intel_overlay *overlay)
 	*cs++ = MI_NOOP;
 	intel_ring_advance(rq, cs);
 
-	i915_request_add(rq);
-
-	return i915_active_wait(&overlay->last_flip);
+	return intel_overlay_do_wait_request(overlay, rq, NULL);
 }
 
 static void intel_overlay_flip_prepare(struct intel_overlay *overlay,
 				       struct i915_vma *vma)
 {
 	enum pipe pipe = overlay->crtc->pipe;
-	struct intel_frontbuffer *from = NULL, *to = NULL;
 
 	WARN_ON(overlay->old_vma);
 
-	if (overlay->vma)
-		from = intel_frontbuffer_get(overlay->vma->obj);
-	if (vma)
-		to = intel_frontbuffer_get(vma->obj);
-
-	intel_frontbuffer_track(from, to, INTEL_FRONTBUFFER_OVERLAY(pipe));
-
-	if (to)
-		intel_frontbuffer_put(to);
-	if (from)
-		intel_frontbuffer_put(from);
+	i915_gem_track_fb(overlay->vma ? overlay->vma->obj : NULL,
+			  vma ? vma->obj : NULL,
+			  INTEL_FRONTBUFFER_OVERLAY(pipe));
 
 	intel_frontbuffer_flip_prepare(overlay->i915,
 				       INTEL_FRONTBUFFER_OVERLAY(pipe));
@@ -324,7 +318,7 @@ static int intel_overlay_continue(struct intel_overlay *overlay,
 	if (tmp & (1 << 17))
 		DRM_DEBUG("overlay underrun, DOVSTA: %x\n", tmp);
 
-	rq = alloc_request(overlay, NULL);
+	rq = alloc_request(overlay);
 	if (IS_ERR(rq))
 		return PTR_ERR(rq);
 
@@ -339,7 +333,8 @@ static int intel_overlay_continue(struct intel_overlay *overlay,
 	intel_ring_advance(rq, cs);
 
 	intel_overlay_flip_prepare(overlay, vma);
-	i915_request_add(rq);
+
+	intel_overlay_submit_request(overlay, rq, NULL);
 
 	return 0;
 }
@@ -360,13 +355,20 @@ static void intel_overlay_release_old_vma(struct intel_overlay *overlay)
 }
 
 static void
-intel_overlay_release_old_vid_tail(struct intel_overlay *overlay)
+intel_overlay_release_old_vid_tail(struct i915_active_request *active,
+				   struct i915_request *rq)
 {
+	struct intel_overlay *overlay =
+		container_of(active, typeof(*overlay), last_flip);
+
 	intel_overlay_release_old_vma(overlay);
 }
 
-static void intel_overlay_off_tail(struct intel_overlay *overlay)
+static void intel_overlay_off_tail(struct i915_active_request *active,
+				   struct i915_request *rq)
 {
+	struct intel_overlay *overlay =
+		container_of(active, typeof(*overlay), last_flip);
 	struct drm_i915_private *dev_priv = overlay->i915;
 
 	intel_overlay_release_old_vma(overlay);
@@ -377,16 +379,6 @@ static void intel_overlay_off_tail(struct intel_overlay *overlay)
 
 	if (IS_I830(dev_priv))
 		i830_overlay_clock_gating(dev_priv, true);
-}
-
-static void
-intel_overlay_last_flip_retire(struct i915_active *active)
-{
-	struct intel_overlay *overlay =
-		container_of(active, typeof(*overlay), last_flip);
-
-	if (overlay->flip_complete)
-		overlay->flip_complete(overlay);
 }
 
 /* overlay needs to be disabled in OCMD reg */
@@ -403,7 +395,7 @@ static int intel_overlay_off(struct intel_overlay *overlay)
 	 * of the hw. Do it in both cases */
 	flip_addr |= OFC_UPDATE;
 
-	rq = alloc_request(overlay, intel_overlay_off_tail);
+	rq = alloc_request(overlay);
 	if (IS_ERR(rq))
 		return PTR_ERR(rq);
 
@@ -426,16 +418,17 @@ static int intel_overlay_off(struct intel_overlay *overlay)
 	intel_ring_advance(rq, cs);
 
 	intel_overlay_flip_prepare(overlay, NULL);
-	i915_request_add(rq);
 
-	return i915_active_wait(&overlay->last_flip);
+	return intel_overlay_do_wait_request(overlay, rq,
+					     intel_overlay_off_tail);
 }
 
 /* recover from an interruption due to a signal
  * We have to be careful not to repeat work forever an make forward progess. */
 static int intel_overlay_recover_from_interrupt(struct intel_overlay *overlay)
 {
-	return i915_active_wait(&overlay->last_flip);
+	return i915_active_request_retire(&overlay->last_flip,
+					  &overlay->i915->drm.struct_mutex);
 }
 
 /* Wait for pending overlay flip and release old frame.
@@ -445,40 +438,43 @@ static int intel_overlay_recover_from_interrupt(struct intel_overlay *overlay)
 static int intel_overlay_release_old_vid(struct intel_overlay *overlay)
 {
 	struct drm_i915_private *dev_priv = overlay->i915;
-	struct i915_request *rq;
 	u32 *cs;
+	int ret;
 
 	lockdep_assert_held(&dev_priv->drm.struct_mutex);
 
-	/*
-	 * Only wait if there is actually an old frame to release to
+	/* Only wait if there is actually an old frame to release to
 	 * guarantee forward progress.
 	 */
 	if (!overlay->old_vma)
 		return 0;
 
-	if (!(I915_READ(GEN2_ISR) & I915_OVERLAY_PLANE_FLIP_PENDING_INTERRUPT)) {
-		intel_overlay_release_old_vid_tail(overlay);
-		return 0;
-	}
+	if (I915_READ(GEN2_ISR) & I915_OVERLAY_PLANE_FLIP_PENDING_INTERRUPT) {
+		/* synchronous slowpath */
+		struct i915_request *rq;
 
-	rq = alloc_request(overlay, intel_overlay_release_old_vid_tail);
-	if (IS_ERR(rq))
-		return PTR_ERR(rq);
+		rq = alloc_request(overlay);
+		if (IS_ERR(rq))
+			return PTR_ERR(rq);
 
-	cs = intel_ring_begin(rq, 2);
-	if (IS_ERR(cs)) {
-		i915_request_add(rq);
-		return PTR_ERR(cs);
-	}
+		cs = intel_ring_begin(rq, 2);
+		if (IS_ERR(cs)) {
+			i915_request_add(rq);
+			return PTR_ERR(cs);
+		}
 
-	*cs++ = MI_WAIT_FOR_EVENT | MI_WAIT_FOR_OVERLAY_FLIP;
-	*cs++ = MI_NOOP;
-	intel_ring_advance(rq, cs);
+		*cs++ = MI_WAIT_FOR_EVENT | MI_WAIT_FOR_OVERLAY_FLIP;
+		*cs++ = MI_NOOP;
+		intel_ring_advance(rq, cs);
 
-	i915_request_add(rq);
+		ret = intel_overlay_do_wait_request(overlay, rq,
+						    intel_overlay_release_old_vid_tail);
+		if (ret)
+			return ret;
+	} else
+		intel_overlay_release_old_vid_tail(&overlay->last_flip, NULL);
 
-	return i915_active_wait(&overlay->last_flip);
+	return 0;
 }
 
 void intel_overlay_reset(struct drm_i915_private *dev_priv)
@@ -777,7 +773,11 @@ static int intel_overlay_do_put_image(struct intel_overlay *overlay,
 		ret = PTR_ERR(vma);
 		goto out_pin_section;
 	}
-	i915_gem_object_flush_frontbuffer(new_bo, ORIGIN_DIRTYFB);
+	intel_fb_obj_flush(new_bo, ORIGIN_DIRTYFB);
+
+	ret = i915_vma_put_fence(vma);
+	if (ret)
+		goto out_unpin;
 
 	if (!overlay->active) {
 		u32 oconfig;
@@ -1359,16 +1359,11 @@ void intel_overlay_setup(struct drm_i915_private *dev_priv)
 	if (!HAS_OVERLAY(dev_priv))
 		return;
 
-	if (!HAS_ENGINE(dev_priv, RCS0))
-		return;
-
 	overlay = kzalloc(sizeof(*overlay), GFP_KERNEL);
 	if (!overlay)
 		return;
 
 	overlay->i915 = dev_priv;
-	overlay->context = dev_priv->engine[RCS0]->kernel_context;
-	GEM_BUG_ON(!overlay->context);
 
 	overlay->color_key = 0x0101fe;
 	overlay->color_key_enabled = true;
@@ -1376,9 +1371,7 @@ void intel_overlay_setup(struct drm_i915_private *dev_priv)
 	overlay->contrast = 75;
 	overlay->saturation = 146;
 
-	i915_active_init(dev_priv,
-			 &overlay->last_flip,
-			 NULL, intel_overlay_last_flip_retire);
+	INIT_ACTIVE_REQUEST(&overlay->last_flip);
 
 	ret = get_registers(overlay, OVERLAY_NEEDS_PHYSICAL(dev_priv));
 	if (ret)
@@ -1412,7 +1405,6 @@ void intel_overlay_cleanup(struct drm_i915_private *dev_priv)
 	WARN_ON(overlay->active);
 
 	i915_gem_object_put(overlay->reg_bo);
-	i915_active_fini(&overlay->last_flip);
 
 	kfree(overlay);
 }

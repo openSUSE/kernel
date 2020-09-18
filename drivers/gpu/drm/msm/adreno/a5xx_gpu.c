@@ -726,18 +726,11 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 		gpu->funcs->flush(gpu, gpu->rb[0]);
 		if (!a5xx_idle(gpu, gpu->rb[0]))
 			return -EINVAL;
-	} else if (ret == -ENODEV) {
-		/*
-		 * This device does not use zap shader (but print a warning
-		 * just in case someone got their dt wrong.. hopefully they
-		 * have a debug UART to realize the error of their ways...
-		 * if you mess this up you are about to crash horribly)
-		 */
+	} else {
+		/* Print a warning so if we die, we know why */
 		dev_warn_once(gpu->dev->dev,
 			"Zap shader not enabled - using SECVID_TRUST_CNTL instead\n");
 		gpu_write(gpu, REG_A5XX_RBBM_SECVID_TRUST_CNTL, 0x0);
-	} else {
-		return ret;
 	}
 
 	/* Last step - yield the ringbuffer */
@@ -1359,10 +1352,6 @@ static unsigned long a5xx_gpu_busy(struct msm_gpu *gpu)
 {
 	u64 busy_cycles, busy_time;
 
-	/* Only read the gpu busy if the hardware is already active */
-	if (pm_runtime_get_if_in_use(&gpu->pdev->dev) == 0)
-		return 0;
-
 	busy_cycles = gpu_read64(gpu, REG_A5XX_RBBM_PERFCTR_RBBM_0_LO,
 			REG_A5XX_RBBM_PERFCTR_RBBM_0_HI);
 
@@ -1370,8 +1359,6 @@ static unsigned long a5xx_gpu_busy(struct msm_gpu *gpu)
 	do_div(busy_time, clk_get_rate(gpu->core_clk) / 1000000);
 
 	gpu->devfreq.busy_cycles = busy_cycles;
-
-	pm_runtime_put(&gpu->pdev->dev);
 
 	if (WARN_ON(busy_time > ~0LU))
 		return ~0LU;

@@ -243,20 +243,30 @@ static uint64_t sdma_v5_0_ring_get_rptr(struct amdgpu_ring *ring)
 static uint64_t sdma_v5_0_ring_get_wptr(struct amdgpu_ring *ring)
 {
 	struct amdgpu_device *adev = ring->adev;
-	u64 wptr;
+	u64 *wptr = NULL;
+	uint64_t local_wptr = 0;
 
 	if (ring->use_doorbell) {
 		/* XXX check if swapping is necessary on BE */
-		wptr = READ_ONCE(*((u64 *)&adev->wb.wb[ring->wptr_offs]));
-		DRM_DEBUG("wptr/doorbell before shift == 0x%016llx\n", wptr);
+		wptr = ((u64 *)&adev->wb.wb[ring->wptr_offs]);
+		DRM_DEBUG("wptr/doorbell before shift == 0x%016llx\n", *wptr);
+		*wptr = (*wptr) >> 2;
+		DRM_DEBUG("wptr/doorbell after shift == 0x%016llx\n", *wptr);
 	} else {
-		wptr = RREG32(sdma_v5_0_get_reg_offset(adev, ring->me, mmSDMA0_GFX_RB_WPTR_HI));
-		wptr = wptr << 32;
-		wptr |= RREG32(sdma_v5_0_get_reg_offset(adev, ring->me, mmSDMA0_GFX_RB_WPTR));
-		DRM_DEBUG("wptr before shift [%i] wptr == 0x%016llx\n", ring->me, wptr);
+		u32 lowbit, highbit;
+
+		wptr = &local_wptr;
+		lowbit = RREG32(sdma_v5_0_get_reg_offset(adev, ring->me, mmSDMA0_GFX_RB_WPTR)) >> 2;
+		highbit = RREG32(sdma_v5_0_get_reg_offset(adev, ring->me, mmSDMA0_GFX_RB_WPTR_HI)) >> 2;
+
+		DRM_DEBUG("wptr [%i]high== 0x%08x low==0x%08x\n",
+				ring->me, highbit, lowbit);
+		*wptr = highbit;
+		*wptr = (*wptr) << 32;
+		*wptr |= lowbit;
 	}
 
-	return wptr >> 2;
+	return *wptr;
 }
 
 /**
@@ -329,27 +339,8 @@ static void sdma_v5_0_ring_emit_ib(struct amdgpu_ring *ring,
 	unsigned vmid = AMDGPU_JOB_GET_VMID(job);
 	uint64_t csa_mc_addr = amdgpu_sdma_get_csa_mc_addr(ring, vmid);
 
-	/* Invalidate L2, because if we don't do it, we might get stale cache
-	 * lines from previous IBs.
-	 */
-	amdgpu_ring_write(ring, SDMA_PKT_HEADER_OP(SDMA_OP_GCR_REQ));
-	amdgpu_ring_write(ring, 0);
-	amdgpu_ring_write(ring, (SDMA_GCR_GL2_INV |
-				 SDMA_GCR_GL2_WB |
-				 SDMA_GCR_GLM_INV |
-				 SDMA_GCR_GLM_WB) << 16);
-	amdgpu_ring_write(ring, 0xffffff80);
-	amdgpu_ring_write(ring, 0xffff);
-
-	/* An IB packet must end on a 8 DW boundary--the next dword
-	 * must be on a 8-dword boundary. Our IB packet below is 6
-	 * dwords long, thus add x number of NOPs, such that, in
-	 * modular arithmetic,
-	 * wptr + 6 + x = 8k, k >= 0, which in C is,
-	 * (wptr + 6 + x) % 8 = 0.
-	 * The expression below, is a solution of x.
-	 */
-	sdma_v5_0_ring_insert_nop(ring, (2 - lower_32_bits(ring->wptr)) & 7);
+	/* IB packet must end on a 8 DW boundary */
+	sdma_v5_0_ring_insert_nop(ring, (10 - (lower_32_bits(ring->wptr) & 7)) % 8);
 
 	amdgpu_ring_write(ring, SDMA_PKT_HEADER_OP(SDMA_OP_INDIRECT) |
 			  SDMA_PKT_INDIRECT_HEADER_VMID(vmid & 0xf));
@@ -1052,10 +1043,10 @@ static void sdma_v5_0_vm_set_pte_pde(struct amdgpu_ib *ib,
 }
 
 /**
- * sdma_v5_0_ring_pad_ib - pad the IB
+ * sdma_v5_0_ring_pad_ib - pad the IB to the required number of dw
+ *
  * @ib: indirect buffer to fill with padding
  *
- * Pad the IB with NOPs to a boundary multiple of 8.
  */
 static void sdma_v5_0_ring_pad_ib(struct amdgpu_ring *ring, struct amdgpu_ib *ib)
 {
@@ -1063,7 +1054,7 @@ static void sdma_v5_0_ring_pad_ib(struct amdgpu_ring *ring, struct amdgpu_ib *ib
 	u32 pad_count;
 	int i;
 
-	pad_count = (-ib->length_dw) & 0x7;
+	pad_count = (8 - (ib->length_dw & 0x7)) % 8;
 	for (i = 0; i < pad_count; i++)
 		if (sdma && sdma->burst_nop && (i == 0))
 			ib->ptr[ib->length_dw++] =
@@ -1095,7 +1086,7 @@ static void sdma_v5_0_ring_emit_pipeline_sync(struct amdgpu_ring *ring)
 	amdgpu_ring_write(ring, addr & 0xfffffffc);
 	amdgpu_ring_write(ring, upper_32_bits(addr) & 0xffffffff);
 	amdgpu_ring_write(ring, seq); /* reference */
-	amdgpu_ring_write(ring, 0xffffffff); /* mask */
+	amdgpu_ring_write(ring, 0xfffffff); /* mask */
 	amdgpu_ring_write(ring, SDMA_PKT_POLL_REGMEM_DW5_RETRY_COUNT(0xfff) |
 			  SDMA_PKT_POLL_REGMEM_DW5_INTERVAL(4)); /* retry count, poll interval */
 }
@@ -1210,12 +1201,8 @@ static int sdma_v5_0_sw_fini(void *handle)
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 	int i;
 
-	for (i = 0; i < adev->sdma.num_instances; i++) {
-		if (adev->sdma.instance[i].fw != NULL)
-			release_firmware(adev->sdma.instance[i].fw);
-
+	for (i = 0; i < adev->sdma.num_instances; i++)
 		amdgpu_ring_fini(&adev->sdma.instance[i].ring);
-	}
 
 	return 0;
 }
@@ -1558,7 +1545,7 @@ static const struct amdgpu_ring_funcs sdma_v5_0_ring_funcs = {
 		SOC15_FLUSH_GPU_TLB_NUM_WREG * 3 +
 		SOC15_FLUSH_GPU_TLB_NUM_REG_WAIT * 6 +
 		10 + 10 + 10, /* sdma_v5_0_ring_emit_fence x3 for user fence, vm fence */
-	.emit_ib_size = 5 + 7 + 6, /* sdma_v5_0_ring_emit_ib */
+	.emit_ib_size = 7 + 6, /* sdma_v5_0_ring_emit_ib */
 	.emit_ib = sdma_v5_0_ring_emit_ib,
 	.emit_fence = sdma_v5_0_ring_emit_fence,
 	.emit_pipeline_sync = sdma_v5_0_ring_emit_pipeline_sync,
@@ -1596,8 +1583,7 @@ static const struct amdgpu_irq_src_funcs sdma_v5_0_illegal_inst_irq_funcs = {
 
 static void sdma_v5_0_set_irq_funcs(struct amdgpu_device *adev)
 {
-	adev->sdma.trap_irq.num_types = AMDGPU_SDMA_IRQ_INSTANCE0 +
-					adev->sdma.num_instances;
+	adev->sdma.trap_irq.num_types = AMDGPU_SDMA_IRQ_LAST;
 	adev->sdma.trap_irq.funcs = &sdma_v5_0_trap_irq_funcs;
 	adev->sdma.illegal_inst_irq.funcs = &sdma_v5_0_illegal_inst_irq_funcs;
 }

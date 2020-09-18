@@ -752,7 +752,7 @@ static int radeon_connector_set_property(struct drm_connector *connector, struct
 
 		radeon_encoder->output_csc = val;
 
-		if (connector->encoder && connector->encoder->crtc) {
+		if (connector->encoder->crtc) {
 			struct drm_crtc *crtc  = connector->encoder->crtc;
 			struct radeon_crtc *radeon_crtc = to_radeon_crtc(crtc);
 
@@ -883,10 +883,8 @@ radeon_lvds_detect(struct drm_connector *connector, bool force)
 
 	if (!drm_kms_helper_is_poll_worker()) {
 		r = pm_runtime_get_sync(connector->dev->dev);
-		if (r < 0) {
-			pm_runtime_put_autosuspend(connector->dev->dev);
+		if (r < 0)
 			return connector_status_disconnected;
-		}
 	}
 
 	if (encoder) {
@@ -1031,10 +1029,8 @@ radeon_vga_detect(struct drm_connector *connector, bool force)
 
 	if (!drm_kms_helper_is_poll_worker()) {
 		r = pm_runtime_get_sync(connector->dev->dev);
-		if (r < 0) {
-			pm_runtime_put_autosuspend(connector->dev->dev);
+		if (r < 0)
 			return connector_status_disconnected;
-		}
 	}
 
 	encoder = radeon_best_single_encoder(connector);
@@ -1171,10 +1167,8 @@ radeon_tv_detect(struct drm_connector *connector, bool force)
 
 	if (!drm_kms_helper_is_poll_worker()) {
 		r = pm_runtime_get_sync(connector->dev->dev);
-		if (r < 0) {
-			pm_runtime_put_autosuspend(connector->dev->dev);
+		if (r < 0)
 			return connector_status_disconnected;
-		}
 	}
 
 	encoder = radeon_best_single_encoder(connector);
@@ -1257,10 +1251,8 @@ radeon_dvi_detect(struct drm_connector *connector, bool force)
 
 	if (!drm_kms_helper_is_poll_worker()) {
 		r = pm_runtime_get_sync(connector->dev->dev);
-		if (r < 0) {
-			pm_runtime_put_autosuspend(connector->dev->dev);
+		if (r < 0)
 			return connector_status_disconnected;
-		}
 	}
 
 	if (radeon_connector->detected_hpd_without_ddc) {
@@ -1674,10 +1666,8 @@ radeon_dp_detect(struct drm_connector *connector, bool force)
 
 	if (!drm_kms_helper_is_poll_worker()) {
 		r = pm_runtime_get_sync(connector->dev->dev);
-		if (r < 0) {
-			pm_runtime_put_autosuspend(connector->dev->dev);
+		if (r < 0)
 			return connector_status_disconnected;
-		}
 	}
 
 	if (!force && radeon_check_hpd_status_unchanged(connector)) {

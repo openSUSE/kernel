@@ -1825,7 +1825,6 @@ static bool amdgpu_device_check_vram_lost(struct amdgpu_device *adev)
  * amdgpu_device_set_cg_state - set clockgating for amdgpu device
  *
  * @adev: amdgpu_device pointer
- * @state: clockgating state (gate or ungate)
  *
  * The list of all the hardware IPs that make up the asic is walked and the
  * set_clockgating_state callbacks are run.
@@ -2789,13 +2788,6 @@ fence_driver_init:
 			DRM_INFO("amdgpu: acceleration disabled, skipping benchmarks\n");
 	}
 
-	/*
-	 * Register gpu instance before amdgpu_device_enable_mgpu_fan_boost.
-	 * Otherwise the mgpu fan boost feature will be skipped due to the
-	 * gpu instance is counted less.
-	 */
-	amdgpu_register_gpu_instance(adev);
-
 	/* enable clockgating, etc. after ib tests, etc. since some blocks require
 	 * explicit gating rather than handling it automatically.
 	 */
@@ -2974,11 +2966,11 @@ int amdgpu_device_suspend(struct drm_device *dev, bool suspend, bool fbcon)
 		}
 	}
 
+	amdgpu_amdkfd_suspend(adev);
+
 	amdgpu_ras_suspend(adev);
 
 	r = amdgpu_device_ip_suspend_phase1(adev);
-
-	amdgpu_amdkfd_suspend(adev);
 
 	/* evict vram memory */
 	amdgpu_bo_evict_vram(adev);
@@ -3369,6 +3361,8 @@ static int amdgpu_device_reset_sriov(struct amdgpu_device *adev,
 		r = amdgpu_virt_reset_gpu(adev);
 	if (r)
 		return r;
+
+	amdgpu_amdkfd_pre_reset(adev);
 
 	/* Resume IP prior to SMC */
 	r = amdgpu_device_ip_reinit_early_sriov(adev);

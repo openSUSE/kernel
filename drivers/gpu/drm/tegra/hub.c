@@ -140,9 +140,7 @@ int tegra_display_hub_prepare(struct tegra_display_hub *hub)
 	for (i = 0; i < hub->soc->num_wgrps; i++) {
 		struct tegra_windowgroup *wgrp = &hub->wgrps[i];
 
-		/* Skip orphaned window group whose parent DC is disabled */
-		if (wgrp->parent)
-			tegra_windowgroup_enable(wgrp);
+		tegra_windowgroup_enable(wgrp);
 	}
 
 	return 0;
@@ -159,9 +157,7 @@ void tegra_display_hub_cleanup(struct tegra_display_hub *hub)
 	for (i = 0; i < hub->soc->num_wgrps; i++) {
 		struct tegra_windowgroup *wgrp = &hub->wgrps[i];
 
-		/* Skip orphaned window group whose parent DC is disabled */
-		if (wgrp->parent)
-			tegra_windowgroup_disable(wgrp);
+		tegra_windowgroup_disable(wgrp);
 	}
 }
 

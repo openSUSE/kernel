@@ -10,7 +10,6 @@
 #include "i915_drv.h"
 #include "i915_gem_object.h"
 #include "i915_scatterlist.h"
-#include "i915_trace.h"
 
 /*
  * Move pages to appropriate lru and release the pagevec, decrementing the
@@ -36,6 +35,7 @@ static int shmem_get_pages(struct drm_i915_gem_object *obj)
 	unsigned long last_pfn = 0;	/* suppress gcc warning */
 	unsigned int max_segment = i915_sg_segment_size();
 	unsigned int sg_page_sizes;
+	struct pagevec pvec;
 	gfp_t noreclaim;
 	int ret;
 
@@ -187,17 +187,13 @@ err_sg:
 	sg_mark_end(sg);
 err_pages:
 	mapping_clear_unevictable(mapping);
-	if (sg != st->sgl) {
-		struct pagevec pvec;
-
-		pagevec_init(&pvec);
-		for_each_sgt_page(page, sgt_iter, st) {
-			if (!pagevec_add(&pvec, page))
-				check_release_pagevec(&pvec);
-		}
-		if (pagevec_count(&pvec))
+	pagevec_init(&pvec);
+	for_each_sgt_page(page, sgt_iter, st) {
+		if (!pagevec_add(&pvec, page))
 			check_release_pagevec(&pvec);
 	}
+	if (pagevec_count(&pvec))
+		check_release_pagevec(&pvec);
 	sg_free_table(st);
 	kfree(st);
 
@@ -418,11 +414,6 @@ shmem_pwrite(struct drm_i915_gem_object *obj,
 	return 0;
 }
 
-static void shmem_release(struct drm_i915_gem_object *obj)
-{
-	fput(obj->base.filp);
-}
-
 const struct drm_i915_gem_object_ops i915_gem_shmem_ops = {
 	.flags = I915_GEM_OBJECT_HAS_STRUCT_PAGE |
 		 I915_GEM_OBJECT_IS_SHRINKABLE,
@@ -433,8 +424,6 @@ const struct drm_i915_gem_object_ops i915_gem_shmem_ops = {
 	.writeback = shmem_writeback,
 
 	.pwrite = shmem_pwrite,
-
-	.release = shmem_release,
 };
 
 static int create_shmem(struct drm_i915_private *i915,

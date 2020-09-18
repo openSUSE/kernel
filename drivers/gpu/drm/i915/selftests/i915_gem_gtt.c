@@ -208,7 +208,9 @@ static int igt_ppgtt_alloc(void *arg)
 	}
 
 err_ppgtt_cleanup:
+	mutex_lock(&dev_priv->drm.struct_mutex);
 	i915_vm_put(&ppgtt->vm);
+	mutex_unlock(&dev_priv->drm.struct_mutex);
 	return err;
 }
 
@@ -1193,7 +1195,7 @@ static int igt_ggtt_page(void *arg)
 		iowrite32(n, vaddr + n);
 		io_mapping_unmap_atomic(vaddr);
 	}
-	intel_gt_flush_ggtt_writes(ggtt->vm.gt);
+	i915_gem_flush_ggtt_writes(i915);
 
 	i915_random_reorder(order, count, &prng);
 	for (n = 0; n < count; n++) {
