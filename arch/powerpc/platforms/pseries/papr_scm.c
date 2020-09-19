@@ -780,11 +780,6 @@ static const struct attribute_group *bus_attr_groups[] = {
 	NULL,
 };
 
-static const struct attribute_group *papr_scm_dimm_groups[] = {
-	&nvdimm_attribute_group,
-	NULL,
-};
-
 static inline int papr_scm_node(int node)
 {
 	int min_dist = INT_MAX, dist;
