@@ -338,11 +338,6 @@ int nvdimm_security_erase(struct nvdimm *nvdimm, unsigned int keyid,
 			|| !nvdimm->sec.flags)
 		return -EOPNOTSUPP;
 
-	if (atomic_read(&nvdimm->busy)) {
-		dev_dbg(dev, "Unable to secure erase while DIMM active.\n");
-		return -EBUSY;
-	}
-
 	rc = check_security_state(nvdimm);
 	if (rc)
 		return rc;
@@ -383,11 +378,6 @@ int nvdimm_security_overwrite(struct nvdimm *nvdimm, unsigned int keyid)
 	if (!nvdimm->sec.ops || !nvdimm->sec.ops->overwrite
 			|| !nvdimm->sec.flags)
 		return -EOPNOTSUPP;
-
-	if (atomic_read(&nvdimm->busy)) {
-		dev_dbg(dev, "Unable to overwrite while DIMM active.\n");
-		return -EBUSY;
-	}
 
 	if (dev->driver == NULL) {
 		dev_dbg(dev, "Unable to overwrite while DIMM active.\n");
