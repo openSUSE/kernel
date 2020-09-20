@@ -185,7 +185,7 @@ static void get_futex_key_refs(union futex_key *key)
 
 	switch (key->both.offset & (FUT_OFF_INODE|FUT_OFF_MMSHARED)) {
 	case FUT_OFF_INODE:
-		ihold(key->shared.inode);
+	        get_file(key->shared.filp);
 		break;
 	case FUT_OFF_MMSHARED:
 		atomic_inc(&key->private.mm->mm_count);
@@ -207,7 +207,7 @@ static void drop_futex_key_refs(union futex_key *key)
 
 	switch (key->both.offset & (FUT_OFF_INODE|FUT_OFF_MMSHARED)) {
 	case FUT_OFF_INODE:
-		iput(key->shared.inode);
+		fput(key->shared.filp);
 		break;
 	case FUT_OFF_MMSHARED:
 		mmdrop(key->private.mm);
@@ -362,9 +362,55 @@ again:
 		key->private.mm = mm;
 		key->private.address = address;
 	} else {
+		struct mm_struct *mm = current->mm;
+		struct vm_area_struct *vma;
+
+		unlock_page(page_head);
+		put_page(page_head);
+
+		down_read(&mm->mmap_sem);
+
+		err = get_user_pages(current, mm, address, 1, 1,
+				     0, &page, &vma);
+		/*
+		 * If write access is not required (eg. FUTEX_WAIT), try
+		 * and get read-only access.
+		 */
+		if (err == -EFAULT && rw == VERIFY_READ)
+			err = get_user_pages(current, mm, address, 1,
+					     0, 0, &page, &vma);
+
+		if (err < 0) {
+			up_read(&mm->mmap_sem);
+			return err;
+		}
+
+		/*
+		 * Virtual address could have been remapped.
+		 */
+		if (!vma->vm_file || PageAnon(page)) {
+			put_page(page);
+			up_read(&mm->mmap_sem);
+
+			goto again;
+		}
+
 		key->both.offset |= FUT_OFF_INODE; /* inode-based key */
-		key->shared.inode = page_head->mapping->host;
+		key->shared.inode = vma->vm_file->f_path.dentry->d_inode;
+		/*
+		 * For filesystem-backed pages, the tail is required
+		 * as the index of the page determines the key.
+		 */
 		key->shared.pgoff = basepage_index(page);
+		/* refcount on the file, not inode */
+		key->shared.filp = vma->vm_file;
+
+		get_futex_key_refs(key);
+
+		put_page(page);
+		up_read(&mm->mmap_sem);
+
+		return 0;
 	}
 
 	get_futex_key_refs(key);

@@ -158,6 +158,7 @@ union futex_key {
 		unsigned long pgoff;
 		struct inode *inode;
 		int offset;
+		struct file *filp;
 	} shared;
 	struct {
 		unsigned long address;
