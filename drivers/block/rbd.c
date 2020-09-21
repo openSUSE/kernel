@@ -1874,6 +1874,9 @@ static ssize_t rbd_image_refresh(struct device *dev,
 	int rc;
 	int ret = size;
 
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
 	mutex_lock_nested(&ctl_mutex, SINGLE_DEPTH_NESTING);
 
 	rc = __rbd_refresh_header(rbd_dev);
@@ -2351,6 +2354,9 @@ static ssize_t rbd_add(struct bus_type *bus,
 	struct ceph_osd_client *osdc;
 	int rc = -ENOMEM;
 
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
 	if (!try_module_get(THIS_MODULE))
 		return -ENODEV;
 
@@ -2498,6 +2504,9 @@ static ssize_t rbd_remove(struct bus_type *bus,
 	int target_id, rc;
 	unsigned long ul;
 	int ret = count;
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
 
 	rc = strict_strtoul(buf, 10, &ul);
 	if (rc)
