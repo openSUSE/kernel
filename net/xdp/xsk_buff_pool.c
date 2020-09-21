@@ -22,7 +22,7 @@ struct xsk_buff_pool {
 	u32 headroom;
 	u32 chunk_size;
 	u32 frame_len;
-	bool cheap_dma;
+	bool dma_need_sync;
 	bool unaligned;
 	void *addrs;
 	struct device *dev;
@@ -76,7 +76,6 @@ struct xsk_buff_pool *xp_create(struct page **pages, u32 nr_pages, u32 chunks,
 	pool->free_heads_cnt = chunks;
 	pool->headroom = headroom;
 	pool->chunk_size = chunk_size;
-	pool->cheap_dma = true;
 	pool->unaligned = unaligned;
 	pool->frame_len = chunk_size - headroom - XDP_PACKET_HEADROOM;
 	INIT_LIST_HEAD(&pool->free_list);
@@ -216,7 +215,7 @@ int xp_dma_map(struct xsk_buff_pool *pool, struct device *dev,
 		xp_check_dma_contiguity(pool);
 
 	pool->dev = dev;
-	pool->cheap_dma = xp_check_cheap_dma(pool);
+	pool->dma_need_sync = !xp_check_cheap_dma(pool);
 	return 0;
 }
 EXPORT_SYMBOL(xp_dma_map);
@@ -339,7 +338,7 @@ struct xdp_buff *xp_alloc(struct xsk_buff_pool *pool)
 	xskb->xdp.data = xskb->xdp.data_hard_start + XDP_PACKET_HEADROOM;
 	xskb->xdp.data_meta = xskb->xdp.data;
 
-	if (!pool->cheap_dma) {
+	if (pool->dma_need_sync) {
 		dma_sync_single_range_for_device(pool->dev, xskb->dma, 0,
 						 pool->frame_len,
 						 DMA_BIDIRECTIONAL);
@@ -447,7 +446,7 @@ EXPORT_SYMBOL(xp_get_frame_dma);
 
 void xp_dma_sync_for_cpu(struct xdp_buff_xsk *xskb)
 {
-	if (xskb->pool->cheap_dma)
+	if (!xskb->pool->dma_need_sync)
 		return;
 
 	dma_sync_single_range_for_cpu(xskb->pool->dev, xskb->dma, 0,
@@ -458,7 +457,7 @@ EXPORT_SYMBOL(xp_dma_sync_for_cpu);
 void xp_dma_sync_for_device(struct xsk_buff_pool *pool, dma_addr_t dma,
 			    size_t size)
 {
-	if (pool->cheap_dma)
+	if (!pool->dma_need_sync)
 		return;
 
 	dma_sync_single_range_for_device(pool->dev, dma, 0,
