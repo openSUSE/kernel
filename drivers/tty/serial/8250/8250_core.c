@@ -1031,7 +1031,7 @@ int serial8250_register_8250_port(struct uart_8250_port *up)
 			if (IS_ERR(gpios)) {
 				if (PTR_ERR(gpios) != -ENOSYS) {
 					ret = PTR_ERR(gpios);
-					goto out_unlock;
+					goto err;
 				}
 			} else {
 				uart->gpios = gpios;
@@ -1081,8 +1081,10 @@ int serial8250_register_8250_port(struct uart_8250_port *up)
 			serial8250_apply_quirks(uart);
 			ret = uart_add_one_port(&serial8250_reg,
 						&uart->port);
-			if (ret == 0)
-				ret = uart->port.line;
+			if (ret)
+				goto err;
+
+			ret = uart->port.line;
 		} else {
 			dev_info(uart->port.dev,
 				"skipping CIR port at 0x%lx / 0x%llx, IRQ %d\n",
@@ -1104,9 +1106,13 @@ int serial8250_register_8250_port(struct uart_8250_port *up)
 		}
 	}
 
-out_unlock:
 	mutex_unlock(&serial_mutex);
 
+	return ret;
+
+err:
+	uart->port.dev = NULL;
+	mutex_unlock(&serial_mutex);
 	return ret;
 }
 EXPORT_SYMBOL(serial8250_register_8250_port);
