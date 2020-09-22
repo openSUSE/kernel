@@ -320,7 +320,7 @@ split_retry:
 		split_bio = bio_split(bio, nr_secs * NR_PHY_IN_LOG, GFP_KERNEL,
 					&pblk_bio_set);
 		bio_chain(split_bio, bio);
-		generic_make_request(bio);
+		submit_bio_noacct(bio);
 
 		/* New bio contains first N sectors of the previous one, so
 		 * we can continue to use existing rqd, but we need to shrink
@@ -414,10 +414,7 @@ out:
 
 int pblk_submit_read_gc(struct pblk *pblk, struct pblk_gc_rq *gc_rq)
 {
-	struct nvm_tgt_dev *dev = pblk->dev;
-	struct nvm_geo *geo = &dev->geo;
 	struct nvm_rq rqd;
-	int data_len;
 	int ret = NVM_IO_OK;
 
 	memset(&rqd, 0, sizeof(struct nvm_rq));
@@ -442,7 +439,6 @@ int pblk_submit_read_gc(struct pblk *pblk, struct pblk_gc_rq *gc_rq)
 	if (!(gc_rq->secs_to_gc))
 		goto out;
 
-	data_len = (gc_rq->secs_to_gc) * geo->csecs;
 	rqd.opcode = NVM_OP_PREAD;
 	rqd.nr_ppas = gc_rq->secs_to_gc;
 

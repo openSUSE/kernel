@@ -25,6 +25,7 @@
 #include <linux/module.h>
 #include <linux/magic.h>
 #include <linux/xattr.h>
+#include <linux/blkdev.h>
 
 #include "squashfs_fs.h"
 #include "squashfs_fs_sb.h"

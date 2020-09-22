@@ -64,8 +64,6 @@ struct dm_table {
 	void *event_context;
 
 	struct dm_md_mempools *mempools;
-
-	struct list_head target_callbacks;
 };
 
 /*
@@ -190,7 +188,6 @@ int dm_table_create(struct dm_table **result, fmode_t mode,
 		return -ENOMEM;
 
 	INIT_LIST_HEAD(&t->devices);
-	INIT_LIST_HEAD(&t->target_callbacks);
 
 	if (!num_targets)
 		num_targets = KEYS_PER_NODE;
@@ -361,7 +358,7 @@ static int device_area_is_invalid(struct dm_target *ti, struct dm_dev *dev,
  * This upgrades the mode on an already open dm_dev, being
  * careful to leave things as they were if we fail to reopen the
  * device and not to touch the existing bdev field in case
- * it is accessed concurrently inside dm_table_any_congested().
+ * it is accessed concurrently.
  */
 static int upgrade_mode(struct dm_dev_internal *dd, fmode_t new_mode,
 			struct mapped_device *md)
@@ -904,21 +901,15 @@ bool dm_table_supports_dax(struct dm_table *t,
 
 static bool dm_table_does_not_support_partial_completion(struct dm_table *t);
 
-struct verify_rq_based_data {
-	unsigned sq_count;
-	unsigned mq_count;
-};
-
-static int device_is_rq_based(struct dm_target *ti, struct dm_dev *dev,
-			      sector_t start, sector_t len, void *data)
+static int device_is_rq_stackable(struct dm_target *ti, struct dm_dev *dev,
+				  sector_t start, sector_t len, void *data)
 {
-	struct request_queue *q = bdev_get_queue(dev->bdev);
-	struct verify_rq_based_data *v = data;
+	struct block_device *bdev = dev->bdev;
+	struct request_queue *q = bdev_get_queue(bdev);
 
-	if (queue_is_mq(q))
-		v->mq_count++;
-	else
-		v->sq_count++;
+	/* request-based cannot stack on partitions! */
+	if (bdev != bdev->bd_contains)
+		return false;
 
 	return queue_is_mq(q);
 }
@@ -927,7 +918,6 @@ static int dm_table_determine_type(struct dm_table *t)
 {
 	unsigned i;
 	unsigned bio_based = 0, request_based = 0, hybrid = 0;
-	struct verify_rq_based_data v = {.sq_count = 0, .mq_count = 0};
 	struct dm_target *tgt;
 	struct list_head *devices = dm_table_get_devices(t);
 	enum dm_queue_mode live_md_type = dm_get_md_type(t->md);
@@ -1031,12 +1021,8 @@ verify_rq_based:
 
 	/* Non-request-stackable devices can't be used for request-based dm */
 	if (!tgt->type->iterate_devices ||
-	    !tgt->type->iterate_devices(tgt, device_is_rq_based, &v)) {
+	    !tgt->type->iterate_devices(tgt, device_is_rq_stackable, NULL)) {
 		DMERR("table load rejected: including non-request-stackable devices");
-		return -EINVAL;
-	}
-	if (v.sq_count > 0) {
-		DMERR("table load rejected: not all devices are blk-mq request-stackable");
 		return -EINVAL;
 	}
 
@@ -2064,38 +2050,6 @@ int dm_table_resume_targets(struct dm_table *t)
 	}
 
 	return 0;
-}
-
-void dm_table_add_target_callbacks(struct dm_table *t, struct dm_target_callbacks *cb)
-{
-	list_add(&cb->list, &t->target_callbacks);
-}
-EXPORT_SYMBOL_GPL(dm_table_add_target_callbacks);
-
-int dm_table_any_congested(struct dm_table *t, int bdi_bits)
-{
-	struct dm_dev_internal *dd;
-	struct list_head *devices = dm_table_get_devices(t);
-	struct dm_target_callbacks *cb;
-	int r = 0;
-
-	list_for_each_entry(dd, devices, list) {
-		struct request_queue *q = bdev_get_queue(dd->dm_dev->bdev);
-		char b[BDEVNAME_SIZE];
-
-		if (likely(q))
-			r |= bdi_congested(q->backing_dev_info, bdi_bits);
-		else
-			DMWARN_LIMIT("%s: any_congested: nonexistent device %s",
-				     dm_device_name(t->md),
-				     bdevname(dd->dm_dev->bdev, b));
-	}
-
-	list_for_each_entry(cb, &t->target_callbacks, list)
-		if (cb->congested_fn)
-			r |= cb->congested_fn(cb, bdi_bits);
-
-	return r;
 }
 
 struct mapped_device *dm_table_get_md(struct dm_table *t)

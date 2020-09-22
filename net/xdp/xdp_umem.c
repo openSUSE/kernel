@@ -30,9 +30,9 @@ void xdp_add_sk_umem(struct xdp_umem *umem, struct xdp_sock *xs)
 	if (!xs->tx)
 		return;
 
-	spin_lock_irqsave(&umem->xsk_list_lock, flags);
-	list_add_rcu(&xs->list, &umem->xsk_list);
-	spin_unlock_irqrestore(&umem->xsk_list_lock, flags);
+	spin_lock_irqsave(&umem->xsk_tx_list_lock, flags);
+	list_add_rcu(&xs->list, &umem->xsk_tx_list);
+	spin_unlock_irqrestore(&umem->xsk_tx_list_lock, flags);
 }
 
 void xdp_del_sk_umem(struct xdp_umem *umem, struct xdp_sock *xs)
@@ -42,9 +42,9 @@ void xdp_del_sk_umem(struct xdp_umem *umem, struct xdp_sock *xs)
 	if (!xs->tx)
 		return;
 
-	spin_lock_irqsave(&umem->xsk_list_lock, flags);
+	spin_lock_irqsave(&umem->xsk_tx_list_lock, flags);
 	list_del_rcu(&xs->list);
-	spin_unlock_irqrestore(&umem->xsk_list_lock, flags);
+	spin_unlock_irqrestore(&umem->xsk_tx_list_lock, flags);
 }
 
 /* The umem is stored both in the _rx struct and the _tx struct as we do
@@ -252,7 +252,7 @@ static void xdp_umem_release(struct xdp_umem *umem)
 	}
 
 	xsk_reuseq_destroy(umem);
-
+	xp_destroy(umem->pool);
 	xdp_umem_unmap_pages(umem);
 	xdp_umem_unpin_pages(umem);
 
@@ -286,7 +286,7 @@ void xdp_put_umem(struct xdp_umem *umem)
 	}
 }
 
-static int xdp_umem_pin_pages(struct xdp_umem *umem)
+static int xdp_umem_pin_pages(struct xdp_umem *umem, unsigned long address)
 {
 	unsigned int gup_flags = FOLL_WRITE;
 	long npgs;
@@ -298,7 +298,7 @@ static int xdp_umem_pin_pages(struct xdp_umem *umem)
 		return -ENOMEM;
 
 	down_read(&current->mm->mmap_sem);
-	npgs = get_user_pages(umem->address, umem->npgs,
+	npgs = get_user_pages(address, umem->npgs,
 			      gup_flags | FOLL_LONGTERM, &umem->pgs[0], NULL);
 	up_read(&current->mm->mmap_sem);
 
@@ -392,18 +392,18 @@ static int xdp_umem_reg(struct xdp_umem *umem, struct xdp_umem_reg *mr)
 	if (headroom >= chunk_size - XDP_PACKET_HEADROOM)
 		return -EINVAL;
 
-	umem->address = (unsigned long)addr;
 	umem->chunk_mask = unaligned_chunks ? XSK_UNALIGNED_BUF_ADDR_MASK
 					    : ~((u64)chunk_size - 1);
 	umem->size = size;
 	umem->headroom = headroom;
 	umem->chunk_size_nohr = chunk_size - headroom;
+	umem->chunk_size = chunk_size;
 	umem->npgs = size / PAGE_SIZE;
 	umem->pgs = NULL;
 	umem->user = NULL;
 	umem->flags = mr->flags;
-	INIT_LIST_HEAD(&umem->xsk_list);
-	spin_lock_init(&umem->xsk_list_lock);
+	INIT_LIST_HEAD(&umem->xsk_tx_list);
+	spin_lock_init(&umem->xsk_tx_list_lock);
 
 	refcount_set(&umem->users, 1);
 
@@ -411,7 +411,7 @@ static int xdp_umem_reg(struct xdp_umem *umem, struct xdp_umem_reg *mr)
 	if (err)
 		return err;
 
-	err = xdp_umem_pin_pages(umem);
+	err = xdp_umem_pin_pages(umem, (unsigned long)addr);
 	if (err)
 		goto out_account;
 
@@ -422,11 +422,21 @@ static int xdp_umem_reg(struct xdp_umem *umem, struct xdp_umem_reg *mr)
 	}
 
 	err = xdp_umem_map_pages(umem);
-	if (!err)
-		return 0;
+	if (err)
+		goto out_pages;
 
-	kfree(umem->pages);
+	umem->pool = xp_create(umem->pgs, umem->npgs, chunks, chunk_size,
+			       headroom, size, unaligned_chunks);
+	if (!umem->pool) {
+		err = -ENOMEM;
+		goto out_unmap;
+	}
+	return 0;
 
+out_unmap:
+	xdp_umem_unmap_pages(umem);
+out_pages:
+	kvfree(umem->pages);
 out_pin:
 	xdp_umem_unpin_pages(umem);
 out_account:

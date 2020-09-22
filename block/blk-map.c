@@ -254,7 +254,7 @@ out_bmd:
  *	Map the user space address into a bio suitable for io to a block
  *	device. Returns an error pointer in case of error.
  */
-static struct bio *bio_map_user_iov(struct request_queue *q,
+struct bio *bio_map_user_iov(struct request_queue *q,
 		struct iov_iter *iter, gfp_t gfp_mask)
 {
 	unsigned int max_sectors = queue_max_hw_sectors(q);

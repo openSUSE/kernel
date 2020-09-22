@@ -41,7 +41,7 @@ struct stripe_c {
 	/* Work struct used for triggering events*/
 	struct work_struct trigger_event;
 
-	struct stripe stripe[0];
+	struct stripe stripe[];
 };
 
 /*
@@ -53,19 +53,6 @@ static void trigger_event(struct work_struct *work)
 	struct stripe_c *sc = container_of(work, struct stripe_c,
 					   trigger_event);
 	dm_table_event(sc->ti->table);
-}
-
-static inline struct stripe_c *alloc_context(unsigned int stripes)
-{
-	size_t len;
-
-	if (dm_array_too_big(sizeof(struct stripe_c), sizeof(struct stripe),
-			     stripes))
-		return NULL;
-
-	len = sizeof(struct stripe_c) + (sizeof(struct stripe) * stripes);
-
-	return kmalloc(len, GFP_KERNEL);
 }
 
 /*
@@ -142,7 +129,7 @@ static int stripe_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		return -EINVAL;
 	}
 
-	sc = alloc_context(stripes);
+	sc = kmalloc(struct_size(sc, stripe, stripes), GFP_KERNEL);
 	if (!sc) {
 		ti->error = "Memory allocation for striped context "
 		    "failed";

@@ -6,15 +6,16 @@
 #include <linux/log2.h>
 #include <linux/slab.h>
 #include <linux/overflow.h>
+#include <net/xdp_sock_drv.h>
 
 #include "xsk_queue.h"
 
-void xskq_set_umem(struct xsk_queue *q, u64 size, u64 chunk_mask)
+void xskq_set_umem(struct xsk_queue *q, u64 umem_size, u64 chunk_mask)
 {
 	if (!q)
 		return;
 
-	q->size = size;
+	q->umem_size = umem_size;
 	q->chunk_mask = chunk_mask;
 }
 

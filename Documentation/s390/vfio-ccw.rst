@@ -180,6 +180,21 @@ The process of how these work together.
    add it to an iommu_group and a vfio_group. Then we could pass through
    the mdev to a guest.
 
+vfio-ccw schib region
+---------------------
+
+The vfio-ccw schib region is used to return Subchannel-Information
+Block (SCHIB) data to userspace::
+
+  struct ccw_schib_region {
+  #define SCHIB_AREA_SIZE 52
+         __u8 schib_area[SCHIB_AREA_SIZE];
+  } __packed;
+
+This region is exposed via region type VFIO_REGION_SUBTYPE_CCW_SCHIB.
+
+Reading this region triggers a STORE SUBCHANNEL to be issued to the
+associated hardware.
 
 VFIO-CCW Regions
 ----------------
@@ -230,6 +245,26 @@ from userspace::
 This region is exposed via region type VFIO_REGION_SUBTYPE_CCW_ASYNC_CMD.
 
 Currently, CLEAR SUBCHANNEL and HALT SUBCHANNEL use this region.
+
+vfio-ccw crw region
+---------------------
+
+The vfio-ccw crw region is used to return Channel Report Word (CRW)
+data to userspace::
+
+  struct ccw_crw_region {
+         __u32 crw;
+         __u32 pad;
+  } __packed;
+
+This region is exposed via region type VFIO_REGION_SUBTYPE_CCW_CRW.
+
+Reading this region returns a CRW if one that is relevant for this
+subchannel (e.g. one reporting changes in channel path state) is
+pending, or all zeroes if not. If multiple CRWs are pending (including
+possibly chained CRWs), reading this region again will return the next
+one, until no more CRWs are pending and zeroes are returned. This is
+similar to how STORE CHANNEL REPORT WORD works.
 
 vfio-ccw operation details
 --------------------------
@@ -333,7 +368,14 @@ through DASD/ECKD device online in a guest now and use it as a block
 device.
 
 The current code allows the guest to start channel programs via
-START SUBCHANNEL, and to issue HALT SUBCHANNEL and CLEAR SUBCHANNEL.
+START SUBCHANNEL, and to issue HALT SUBCHANNEL, CLEAR SUBCHANNEL,
+and STORE SUBCHANNEL.
+
+Currently all channel programs are prefetched, regardless of the
+p-bit setting in the ORB.  As a result, self modifying channel
+programs are not supported.  For this reason, IPL has to be handled as
+a special case by a userspace/guest program; this has been implemented
+in QEMU's s390-ccw bios as of QEMU 4.1.
 
 vfio-ccw supports classic (command mode) channel I/O only. Transport
 mode (HPF) is not supported.

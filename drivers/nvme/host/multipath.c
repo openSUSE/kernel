@@ -304,10 +304,9 @@ static bool nvme_available_path(struct nvme_ns_head *head)
 	return false;
 }
 
-static blk_qc_t nvme_ns_head_make_request(struct request_queue *q,
-		struct bio *bio)
+blk_qc_t nvme_ns_head_submit_bio(struct bio *bio)
 {
-	struct nvme_ns_head *head = q->queuedata;
+	struct nvme_ns_head *head = bio->bi_disk->private_data;
 	struct device *dev = disk_to_dev(head->disk);
 	struct nvme_ns *ns;
 	blk_qc_t ret = BLK_QC_T_NONE;
@@ -328,7 +327,7 @@ static blk_qc_t nvme_ns_head_make_request(struct request_queue *q,
 		trace_block_bio_remap(bio->bi_disk->queue, bio,
 				      disk_devt(ns->head->disk),
 				      bio->bi_iter.bi_sector);
-		ret = direct_make_request(bio);
+		ret = submit_bio_noacct(bio);
 	} else if (nvme_available_path(head)) {
 		dev_warn_ratelimited(dev, "no usable path - requeuing I/O\n");
 
@@ -365,7 +364,7 @@ static void nvme_requeue_work(struct work_struct *work)
 		 * path.
 		 */
 		bio->bi_disk = head->disk;
-		generic_make_request(bio);
+		submit_bio_noacct(bio);
 	}
 }
 
@@ -384,13 +383,12 @@ int nvme_mpath_alloc_disk(struct nvme_ctrl *ctrl, struct nvme_ns_head *head)
 	 * We also do this for private namespaces as the namespace sharing data could
 	 * change after a rescan.
 	 */
-	if (!(ctrl->subsys->cmic & (1 << 1)) || !multipath)
+	if (!(ctrl->subsys->cmic & NVME_CTRL_CMIC_MULTI_CTRL) || !multipath)
 		return 0;
 
-	q = blk_alloc_queue(nvme_ns_head_make_request, ctrl->numa_node);
+	q = blk_alloc_queue(ctrl->numa_node);
 	if (!q)
 		goto out;
-	q->queuedata = head;
 	blk_queue_flag_set(QUEUE_FLAG_NONROT, q);
 	/* set to a default value for 512 until disk is validated */
 	blk_queue_logical_block_size(q, 512);
@@ -708,7 +706,8 @@ int nvme_mpath_init(struct nvme_ctrl *ctrl, struct nvme_id_ctrl *id)
 	int error;
 
 	/* check if multipath is enabled and we have the capability */
-	if (!multipath || !ctrl->subsys || !(ctrl->subsys->cmic & (1 << 3)))
+	if (!multipath || !ctrl->subsys ||
+	    !(ctrl->subsys->cmic & NVME_CTRL_CMIC_ANA))
 		return 0;
 
 	ctrl->anacap = id->anacap;
