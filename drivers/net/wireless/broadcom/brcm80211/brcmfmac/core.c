@@ -1314,8 +1314,6 @@ void brcmf_detach(struct device *dev)
 
 	brcmf_bus_change_state(bus_if, BRCMF_BUS_DOWN);
 
-	brcmf_proto_detach_pre_delif(drvr);
-
 	if (drvr->mon_if) {
 		brcmf_net_detach(drvr->mon_if->ndev, false);
 		drvr->mon_if = NULL;
@@ -1330,7 +1328,7 @@ void brcmf_detach(struct device *dev)
 
 	brcmf_bus_stop(drvr->bus_if);
 
-	brcmf_proto_detach_post_delif(drvr);
+	brcmf_proto_detach(drvr);
 
 	bus_if->drvr = NULL;
 	wiphy_free(drvr->wiphy);
