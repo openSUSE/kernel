@@ -357,6 +357,7 @@ config MACH_JAZZ
 	bool "Jazz family of machines"
 	select ARCH_MIGHT_HAVE_PC_PARPORT
 	select ARCH_MIGHT_HAVE_PC_SERIO
+	select DMA_OPS
 	select FW_ARC
 	select FW_ARC32
 	select ARCH_MAY_HAVE_PC_FDC
