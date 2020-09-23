@@ -118,9 +118,10 @@ static void rsa_pub_done(struct device *dev, u32 *desc, u32 err, void *context)
 {
 	struct akcipher_request *req = context;
 	struct rsa_edesc *edesc;
+	int ecode = 0;
 
 	if (err)
-		caam_jr_strstatus(dev, err);
+		ecode = caam_jr_strstatus(dev, err);
 
 	edesc = container_of(desc, struct rsa_edesc, hw_desc[0]);
 
@@ -128,7 +129,7 @@ static void rsa_pub_done(struct device *dev, u32 *desc, u32 err, void *context)
 	rsa_io_unmap(dev, edesc, req);
 	kfree(edesc);
 
-	akcipher_request_complete(req, err);
+	akcipher_request_complete(req, ecode);
 }
 
 static void rsa_priv_f1_done(struct device *dev, u32 *desc, u32 err,
@@ -136,9 +137,10 @@ static void rsa_priv_f1_done(struct device *dev, u32 *desc, u32 err,
 {
 	struct akcipher_request *req = context;
 	struct rsa_edesc *edesc;
+	int ecode = 0;
 
 	if (err)
-		caam_jr_strstatus(dev, err);
+		ecode = caam_jr_strstatus(dev, err);
 
 	edesc = container_of(desc, struct rsa_edesc, hw_desc[0]);
 
@@ -146,7 +148,7 @@ static void rsa_priv_f1_done(struct device *dev, u32 *desc, u32 err,
 	rsa_io_unmap(dev, edesc, req);
 	kfree(edesc);
 
-	akcipher_request_complete(req, err);
+	akcipher_request_complete(req, ecode);
 }
 
 static void rsa_priv_f2_done(struct device *dev, u32 *desc, u32 err,
@@ -154,9 +156,10 @@ static void rsa_priv_f2_done(struct device *dev, u32 *desc, u32 err,
 {
 	struct akcipher_request *req = context;
 	struct rsa_edesc *edesc;
+	int ecode = 0;
 
 	if (err)
-		caam_jr_strstatus(dev, err);
+		ecode = caam_jr_strstatus(dev, err);
 
 	edesc = container_of(desc, struct rsa_edesc, hw_desc[0]);
 
@@ -164,7 +167,7 @@ static void rsa_priv_f2_done(struct device *dev, u32 *desc, u32 err,
 	rsa_io_unmap(dev, edesc, req);
 	kfree(edesc);
 
-	akcipher_request_complete(req, err);
+	akcipher_request_complete(req, ecode);
 }
 
 static void rsa_priv_f3_done(struct device *dev, u32 *desc, u32 err,
@@ -172,9 +175,10 @@ static void rsa_priv_f3_done(struct device *dev, u32 *desc, u32 err,
 {
 	struct akcipher_request *req = context;
 	struct rsa_edesc *edesc;
+	int ecode = 0;
 
 	if (err)
-		caam_jr_strstatus(dev, err);
+		ecode = caam_jr_strstatus(dev, err);
 
 	edesc = container_of(desc, struct rsa_edesc, hw_desc[0]);
 
@@ -182,7 +186,7 @@ static void rsa_priv_f3_done(struct device *dev, u32 *desc, u32 err,
 	rsa_io_unmap(dev, edesc, req);
 	kfree(edesc);
 
-	akcipher_request_complete(req, err);
+	akcipher_request_complete(req, ecode);
 }
 
 /**
