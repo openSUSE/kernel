@@ -395,7 +395,7 @@ static int hash_digest_key(struct caam_hash_ctx *ctx, u32 *keylen, u8 *key,
 	init_completion(&result.completion);
 
 	ret = caam_jr_enqueue(jrdev, desc, split_key_done, &result);
-	if (!ret) {
+	if (ret == -EINPROGRESS) {
 		/* in progress */
 		wait_for_completion(&result.completion);
 		ret = result.err;
@@ -833,10 +833,8 @@ static int ahash_update_ctx(struct ahash_request *req)
 				     desc_bytes(desc), 1);
 
 		ret = caam_jr_enqueue(jrdev, desc, ahash_done_bi, req);
-		if (ret)
+		if (ret != -EINPROGRESS)
 			goto unmap_ctx;
-
-		ret = -EINPROGRESS;
 	} else if (*next_buflen) {
 		scatterwalk_map_and_copy(buf + *buflen, req->src, 0,
 					 req->nbytes, 0);
@@ -908,10 +906,9 @@ static int ahash_final_ctx(struct ahash_request *req)
 			     1);
 
 	ret = caam_jr_enqueue(jrdev, desc, ahash_done_ctx_src, req);
-	if (ret)
-		goto unmap_ctx;
+	if (ret == -EINPROGRESS)
+		return ret;
 
-	return -EINPROGRESS;
  unmap_ctx:
 	ahash_unmap_ctx(jrdev, edesc, req, digestsize, DMA_BIDIRECTIONAL);
 	kfree(edesc);
@@ -985,10 +982,9 @@ static int ahash_finup_ctx(struct ahash_request *req)
 			     1);
 
 	ret = caam_jr_enqueue(jrdev, desc, ahash_done_ctx_src, req);
-	if (ret)
-		goto unmap_ctx;
+	if (ret == -EINPROGRESS)
+		return ret;
 
-	return -EINPROGRESS;
  unmap_ctx:
 	ahash_unmap_ctx(jrdev, edesc, req, digestsize, DMA_BIDIRECTIONAL);
 	kfree(edesc);
@@ -1058,9 +1054,7 @@ static int ahash_digest(struct ahash_request *req)
 			     1);
 
 	ret = caam_jr_enqueue(jrdev, desc, ahash_done, req);
-	if (!ret) {
-		ret = -EINPROGRESS;
-	} else {
+	if (ret != -EINPROGRESS) {
 		ahash_unmap_ctx(jrdev, edesc, req, digestsize, DMA_FROM_DEVICE);
 		kfree(edesc);
 	}
@@ -1110,9 +1104,7 @@ static int ahash_final_no_ctx(struct ahash_request *req)
 			     1);
 
 	ret = caam_jr_enqueue(jrdev, desc, ahash_done, req);
-	if (!ret) {
-		ret = -EINPROGRESS;
-	} else {
+	if (ret != -EINPROGRESS) {
 		ahash_unmap_ctx(jrdev, edesc, req, digestsize, DMA_FROM_DEVICE);
 		kfree(edesc);
 	}
@@ -1223,10 +1215,9 @@ static int ahash_update_no_ctx(struct ahash_request *req)
 				     desc_bytes(desc), 1);
 
 		ret = caam_jr_enqueue(jrdev, desc, ahash_done_ctx_dst, req);
-		if (ret)
+		if (ret != -EINPROGRESS)
 			goto unmap_ctx;
 
-		ret = -EINPROGRESS;
 		state->update = ahash_update_ctx;
 		state->finup = ahash_finup_ctx;
 		state->final = ahash_final_ctx;
@@ -1315,9 +1306,7 @@ static int ahash_finup_no_ctx(struct ahash_request *req)
 			     1);
 
 	ret = caam_jr_enqueue(jrdev, desc, ahash_done, req);
-	if (!ret) {
-		ret = -EINPROGRESS;
-	} else {
+	if (ret != -EINPROGRESS) {
 		ahash_unmap_ctx(jrdev, edesc, req, digestsize, DMA_FROM_DEVICE);
 		kfree(edesc);
 	}
@@ -1411,10 +1400,9 @@ static int ahash_update_first(struct ahash_request *req)
 				     desc_bytes(desc), 1);
 
 		ret = caam_jr_enqueue(jrdev, desc, ahash_done_ctx_dst, req);
-		if (ret)
+		if (ret != -EINPROGRESS)
 			goto unmap_ctx;
 
-		ret = -EINPROGRESS;
 		state->update = ahash_update_ctx;
 		state->finup = ahash_finup_ctx;
 		state->final = ahash_final_ctx;

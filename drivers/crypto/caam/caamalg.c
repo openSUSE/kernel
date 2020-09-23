@@ -1417,9 +1417,7 @@ static inline int chachapoly_crypt(struct aead_request *req, bool encrypt)
 			     1);
 
 	ret = caam_jr_enqueue(jrdev, desc, aead_crypt_done, req);
-	if (!ret) {
-		ret = -EINPROGRESS;
-	} else {
+	if (ret != -EINPROGRESS) {
 		aead_unmap(jrdev, edesc, req);
 		kfree(edesc);
 	}
@@ -1462,9 +1460,7 @@ static inline int aead_crypt(struct aead_request *req, bool encrypt)
 
 	desc = edesc->hw_desc;
 	ret = caam_jr_enqueue(jrdev, desc, aead_crypt_done, req);
-	if (!ret) {
-		ret = -EINPROGRESS;
-	} else {
+	if (ret != -EINPROGRESS) {
 		aead_unmap(jrdev, edesc, req);
 		kfree(edesc);
 	}
@@ -1507,9 +1503,7 @@ static inline int gcm_crypt(struct aead_request *req, bool encrypt)
 
 	desc = edesc->hw_desc;
 	ret = caam_jr_enqueue(jrdev, desc, aead_crypt_done, req);
-	if (!ret) {
-		ret = -EINPROGRESS;
-	} else {
+	if (ret != -EINPROGRESS) {
 		aead_unmap(jrdev, edesc, req);
 		kfree(edesc);
 	}
@@ -1725,9 +1719,7 @@ static inline int skcipher_crypt(struct skcipher_request *req, bool encrypt)
 	desc = edesc->hw_desc;
 	ret = caam_jr_enqueue(jrdev, desc, skcipher_crypt_done, req);
 
-	if (!ret) {
-		ret = -EINPROGRESS;
-	} else {
+	if (ret != -EINPROGRESS) {
 		skcipher_unmap(jrdev, edesc, req);
 		kfree(edesc);
 	}
