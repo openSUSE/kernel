@@ -1064,7 +1064,8 @@ static void qtnf_cfg80211_reg_notifier(struct wiphy *wiphy,
 	}
 }
 
-struct wiphy *qtnf_wiphy_allocate(struct qtnf_bus *bus)
+struct wiphy *qtnf_wiphy_allocate(struct qtnf_bus *bus,
+				  struct platform_device *pdev)
 {
 	struct wiphy *wiphy;
 
@@ -1079,7 +1080,10 @@ struct wiphy *qtnf_wiphy_allocate(struct qtnf_bus *bus)
 	if (!wiphy)
 		return NULL;
 
-	set_wiphy_dev(wiphy, bus->dev);
+	if (pdev)
+		set_wiphy_dev(wiphy, &pdev->dev);
+	else
+		set_wiphy_dev(wiphy, bus->dev);
 
 	return wiphy;
 }
