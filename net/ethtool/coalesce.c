@@ -129,7 +129,8 @@ static int coalesce_reply_size(const struct ethnl_req_info *req_base,
 static bool coalesce_put_u32(struct sk_buff *skb, u16 attr_type, u32 val,
 			     u32 supported_params)
 {
-	if (!val && !(supported_params & attr_to_mask(attr_type)))
+	if (!val && likely(supported_params) &&
+	    !(supported_params & attr_to_mask(attr_type)))
 		return false;
 	return nla_put_u32(skb, attr_type, val);
 }
@@ -137,7 +138,8 @@ static bool coalesce_put_u32(struct sk_buff *skb, u16 attr_type, u32 val,
 static bool coalesce_put_bool(struct sk_buff *skb, u16 attr_type, u32 val,
 			      u32 supported_params)
 {
-	if (!val && !(supported_params & attr_to_mask(attr_type)))
+	if (!val && likely(supported_params) &&
+	    !(supported_params & attr_to_mask(attr_type)))
 		return false;
 	return nla_put_u8(skb, attr_type, !!val);
 }
