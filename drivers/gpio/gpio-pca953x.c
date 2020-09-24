@@ -502,7 +502,9 @@ static int pca953x_gpio_get_value(struct gpio_chip *gc, unsigned off)
 	ret = regmap_read(chip->regmap, inreg, &reg_val);
 	mutex_unlock(&chip->i2c_lock);
 	if (ret < 0) {
-		/* NOTE:  diagnostic already emitted; that's all we should
+		/*
+		 * NOTE:
+		 * diagnostic already emitted; that's all we should
 		 * do unless gpio_*_value_cansleep() calls become different
 		 * from their nonsleeping siblings (and report faults).
 		 */
@@ -817,8 +819,7 @@ static irqreturn_t pca953x_irq_handler(int irq, void *devid)
 	return IRQ_HANDLED;
 }
 
-static int pca953x_irq_setup(struct pca953x_chip *chip,
-			     int irq_base)
+static int pca953x_irq_setup(struct pca953x_chip *chip, int irq_base)
 {
 	struct i2c_client *client = chip->client;
 	struct irq_chip *irq_chip = &chip->irq_chip;
@@ -874,9 +875,9 @@ static int pca953x_irq_setup(struct pca953x_chip *chip,
 	irq_chip->irq_set_type = pca953x_irq_set_type;
 	irq_chip->irq_shutdown = pca953x_irq_shutdown;
 
-	ret =  gpiochip_irqchip_add_nested(&chip->gpio_chip, irq_chip,
-					   irq_base, handle_simple_irq,
-					   IRQ_TYPE_NONE);
+	ret = gpiochip_irqchip_add_nested(&chip->gpio_chip, irq_chip,
+					  irq_base, handle_simple_irq,
+					  IRQ_TYPE_NONE);
 	if (ret) {
 		dev_err(&client->dev,
 			"could not connect irqchip to gpiochip\n");
@@ -950,7 +951,7 @@ out:
 static const struct of_device_id pca953x_dt_ids[];
 
 static int pca953x_probe(struct i2c_client *client,
-				   const struct i2c_device_id *i2c_id)
+			 const struct i2c_device_id *i2c_id)
 {
 	struct pca953x_platform_data *pdata;
 	struct pca953x_chip *chip;
@@ -960,8 +961,7 @@ static int pca953x_probe(struct i2c_client *client,
 	struct regulator *reg;
 	const struct regmap_config *regmap_config;
 
-	chip = devm_kzalloc(&client->dev,
-			sizeof(struct pca953x_chip), GFP_KERNEL);
+	chip = devm_kzalloc(&client->dev, sizeof(*chip), GFP_KERNEL);
 	if (chip == NULL)
 		return -ENOMEM;
 
@@ -1084,7 +1084,7 @@ static int pca953x_probe(struct i2c_client *client,
 
 	if (pdata && pdata->setup) {
 		ret = pdata->setup(client, chip->gpio_chip.base,
-				chip->gpio_chip.ngpio, pdata->context);
+				   chip->gpio_chip.ngpio, pdata->context);
 		if (ret < 0)
 			dev_warn(&client->dev, "setup failed, %d\n", ret);
 	}
@@ -1104,7 +1104,7 @@ static int pca953x_remove(struct i2c_client *client)
 
 	if (pdata && pdata->teardown) {
 		ret = pdata->teardown(client, chip->gpio_chip.base,
-				chip->gpio_chip.ngpio, pdata->context);
+				      chip->gpio_chip.ngpio, pdata->context);
 		if (ret < 0)
 			dev_err(&client->dev, "teardown failed, %d\n", ret);
 	} else {
