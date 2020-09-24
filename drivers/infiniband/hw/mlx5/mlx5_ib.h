@@ -723,7 +723,6 @@ struct mlx5_cache_ent {
 	struct mlx5_ib_dev     *dev;
 	struct work_struct	work;
 	struct delayed_work	dwork;
-	struct completion	compl;
 };
 
 struct mlx5_mr_cache {
