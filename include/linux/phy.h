@@ -448,6 +448,11 @@ struct phy_device {
 	/* For use by PHYs to maintain extra state */
 	void *priv;
 
+	/* Reporting cable test results */
+	struct sk_buff *skb;
+	void *ehdr;
+	struct nlattr *nest;
+
 	/* Interrupt and Polling infrastructure */
 	struct delayed_work state_queue;
 
