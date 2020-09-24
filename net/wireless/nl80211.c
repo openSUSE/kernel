@@ -65,6 +65,36 @@ static int get_rdev_dev_by_info_ifindex(struct genl_info *info,
 	return 0;
 }
 
+static int validate_beacon_head(const struct nlattr *attr)
+{
+	const u8 *data = nla_data(attr);
+	unsigned int len = nla_len(attr);
+	const struct element *elem;
+	const struct ieee80211_mgmt *mgmt = (void *)data;
+	unsigned int fixedlen = offsetof(struct ieee80211_mgmt,
+					 u.beacon.variable);
+
+	if (len < fixedlen)
+		goto err;
+
+	if (ieee80211_hdrlen(mgmt->frame_control) !=
+	    offsetof(struct ieee80211_mgmt, u.beacon))
+		goto err;
+
+	data += fixedlen;
+	len -= fixedlen;
+
+	for_each_element(elem, data, len) {
+		/* nothing */
+	}
+
+	if (for_each_element_completed(elem, data, len))
+		return 0;
+
+err:
+	return -EINVAL;
+}
+
 /* policy for the attributes */
 static const struct nla_policy nl80211_policy[NL80211_ATTR_MAX+1] = {
 	[NL80211_ATTR_WIPHY] = { .type = NLA_U32 },
@@ -2001,6 +2031,11 @@ static int nl80211_addset_beacon(struct sk_buff *skb, struct genl_info *info)
 		return -EOPNOTSUPP;
 
 	if (info->attrs[NL80211_ATTR_BEACON_HEAD]) {
+		int ret = validate_beacon_head(info->attrs[NL80211_ATTR_BEACON_HEAD]);
+
+		if (ret)
+			return ret;
+
 		params.head = nla_data(info->attrs[NL80211_ATTR_BEACON_HEAD]);
 		params.head_len =
 		    nla_len(info->attrs[NL80211_ATTR_BEACON_HEAD]);
