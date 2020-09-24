@@ -1644,6 +1644,11 @@ static const struct file_operations topology_ops = {
 	.release = single_release
 };
 
+int cpu_to_coregroup_id(int cpu)
+{
+	return cpu_to_core_id(cpu);
+}
+
 static int topology_update_init(void)
 {
 	start_topology_update();
