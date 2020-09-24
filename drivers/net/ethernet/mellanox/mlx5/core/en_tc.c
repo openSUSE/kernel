@@ -2879,6 +2879,9 @@ static int parse_tc_nic_actions(struct mlx5e_priv *priv,
 	if (!flow_action_has_entries(flow_action))
 		return -EINVAL;
 
+	if (!flow_action_basic_hw_stats_types_check(flow_action, extack))
+		return -EOPNOTSUPP;
+
 	attr->flow_tag = MLX5_FS_DEFAULT_FLOW_TAG;
 
 	flow_action_for_each(i, act, flow_action) {
@@ -3331,6 +3334,9 @@ static int parse_tc_fdb_actions(struct mlx5e_priv *priv,
 
 	if (!flow_action_has_entries(flow_action))
 		return -EINVAL;
+
+	if (!flow_action_basic_hw_stats_types_check(flow_action, extack))
+		return -EOPNOTSUPP;
 
 	flow_action_for_each(i, act, flow_action) {
 		switch (act->id) {
@@ -4149,6 +4155,9 @@ static int scan_tc_matchall_fdb_actions(struct mlx5e_priv *priv,
 		NL_SET_ERR_MSG_MOD(extack, "matchall policing support only a single action");
 		return -EOPNOTSUPP;
 	}
+
+	if (!flow_action_basic_hw_stats_types_check(flow_action, extack))
+		return -EOPNOTSUPP;
 
 	flow_action_for_each(i, act, flow_action) {
 		switch (act->id) {
