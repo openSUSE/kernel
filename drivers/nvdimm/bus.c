@@ -300,9 +300,14 @@ static void nvdimm_bus_release(struct device *dev)
 	kfree(nvdimm_bus);
 }
 
+static const struct device_type nvdimm_bus_dev_type = {
+	.release = nvdimm_bus_release,
+	.groups = nvdimm_bus_attribute_groups,
+};
+
 bool is_nvdimm_bus(struct device *dev)
 {
-	return dev->release == nvdimm_bus_release;
+	return dev->type == &nvdimm_bus_dev_type;
 }
 
 struct nvdimm_bus *walk_to_nvdimm_bus(struct device *nd_dev)
@@ -355,7 +360,7 @@ struct nvdimm_bus *nvdimm_bus_register(struct device *parent,
 	badrange_init(&nvdimm_bus->badrange);
 	nvdimm_bus->nd_desc = nd_desc;
 	nvdimm_bus->dev.parent = parent;
-	nvdimm_bus->dev.release = nvdimm_bus_release;
+	nvdimm_bus->dev.type = &nvdimm_bus_dev_type;
 	nvdimm_bus->dev.groups = nd_desc->attr_groups;
 	nvdimm_bus->dev.bus = &nvdimm_bus_type;
 	nvdimm_bus->dev.of_node = nd_desc->of_node;
@@ -398,7 +403,7 @@ static int child_unregister(struct device *dev, void *data)
 
 		/* We are shutting down. Make state frozen artificially. */
 		nvdimm_bus_lock(dev);
-		nvdimm->sec.state = NVDIMM_SECURITY_FROZEN;
+		set_bit(NVDIMM_SECURITY_FROZEN, &nvdimm->sec.flags);
 		if (test_and_clear_bit(NDD_WORK_PENDING, &nvdimm->flags))
 			dev_put = true;
 		nvdimm_bus_unlock(dev);
@@ -669,10 +674,9 @@ static struct attribute *nd_device_attributes[] = {
 /*
  * nd_device_attribute_group - generic attributes for all devices on an nd bus
  */
-struct attribute_group nd_device_attribute_group = {
+const struct attribute_group nd_device_attribute_group = {
 	.attrs = nd_device_attributes,
 };
-EXPORT_SYMBOL_GPL(nd_device_attribute_group);
 
 static ssize_t numa_node_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -727,11 +731,10 @@ static umode_t nd_numa_attr_visible(struct kobject *kobj, struct attribute *a,
 /*
  * nd_numa_attribute_group - NUMA attributes for all devices on an nd bus
  */
-struct attribute_group nd_numa_attribute_group = {
+const struct attribute_group nd_numa_attribute_group = {
 	.attrs = nd_numa_attributes,
 	.is_visible = nd_numa_attr_visible,
 };
-EXPORT_SYMBOL_GPL(nd_numa_attribute_group);
 
 int nvdimm_bus_create_ndctl(struct nvdimm_bus *nvdimm_bus)
 {
@@ -1034,9 +1037,25 @@ static int __nd_ioctl(struct nvdimm_bus *nvdimm_bus, struct nvdimm *nvdimm,
 		dimm_name = "bus";
 	}
 
+	/* Validate command family support against bus declared support */
 	if (cmd == ND_CMD_CALL) {
+		unsigned long *mask;
+
 		if (copy_from_user(&pkg, p, sizeof(pkg)))
 			return -EFAULT;
+
+		if (nvdimm) {
+			if (pkg.nd_family > NVDIMM_FAMILY_MAX)
+				return -EINVAL;
+			mask = &nd_desc->dimm_family_mask;
+		} else {
+			if (pkg.nd_family > NVDIMM_BUS_FAMILY_MAX)
+				return -EINVAL;
+			mask = &nd_desc->bus_family_mask;
+		}
+
+		if (!test_bit(pkg.nd_family, mask))
+			return -EINVAL;
 	}
 
 	if (!desc ||

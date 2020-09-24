@@ -1288,7 +1288,6 @@ static void raid1_read_request(struct mddev *mddev, struct bio *bio,
 		r1_bio->sectors = max_sectors;
 	}
 
-	md_io_acct(mddev, bio_op(bio), bio_sectors(bio));
 	r1_bio->read_disk = rdisk;
 
 	read_bio = bio_clone_fast(bio, gfp, &mddev->bio_set);
@@ -1459,8 +1458,6 @@ static void raid1_write_request(struct mddev *mddev, struct bio *bio,
 		r1_bio->master_bio = bio;
 		r1_bio->sectors = max_sectors;
 	}
-
-	md_io_acct(mddev, bio_op(bio), bio_sectors(bio));
 
 	atomic_set(&r1_bio->remaining, 1);
 	atomic_set(&r1_bio->behind_remaining, 0);

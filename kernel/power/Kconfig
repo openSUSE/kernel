@@ -102,6 +102,18 @@ config HIBERNATE_VERIFICATION_FORCE
 config ARCH_SAVE_PAGE_KEYS
 	bool
 
+config HIBERNATION_SNAPSHOT_DEV
+	bool "Userspace snapshot device"
+	depends on HIBERNATION
+	default y
+	---help---
+	  Device used by the uswsusp tools.
+
+	  Say N if no snapshotting from userspace is needed, this also
+	  reduces the attack surface of the kernel.
+
+	  If in doubt, say Y.
+
 config PM_STD_PARTITION
 	string "Default resume partition"
 	depends on HIBERNATION

@@ -177,8 +177,8 @@ static inline void snapshot_set_enforce_verify(void) {}
 static inline int snapshot_is_enforce_verify(void) {return 0;}
 #endif
 
-/* If unset, the snapshot device cannot be open. */
-extern atomic_t snapshot_device_available;
+extern bool hibernate_acquire(void);
+extern void hibernate_release(void);
 
 extern sector_t alloc_swapdev_block(int swap);
 extern void free_all_swap_pages(int swap);
