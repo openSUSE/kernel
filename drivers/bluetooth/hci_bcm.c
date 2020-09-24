@@ -13,6 +13,7 @@
 #include <linux/module.h>
 #include <linux/acpi.h>
 #include <linux/of.h>
+#include <linux/of_irq.h>
 #include <linux/property.h>
 #include <linux/platform_data/x86/apple.h>
 #include <linux/platform_device.h>
@@ -125,6 +126,7 @@ struct bcm_device {
 #endif
 	bool			no_early_set_baudrate;
 	bool			drive_rts_on_open;
+	u8			pcm_int_params[5];
 };
 
 /* generic bcm uart resources */
@@ -551,8 +553,7 @@ static int bcm_flush(struct hci_uart *hu)
 static int bcm_setup(struct hci_uart *hu)
 {
 	struct bcm_data *bcm = hu->priv;
-	char fw_name[64];
-	const struct firmware *fw;
+	bool fw_load_done = false;
 	unsigned int speed;
 	int err;
 
@@ -561,21 +562,12 @@ static int bcm_setup(struct hci_uart *hu)
 	hu->hdev->set_diag = bcm_set_diag;
 	hu->hdev->set_bdaddr = btbcm_set_bdaddr;
 
-	err = btbcm_initialize(hu->hdev, fw_name, sizeof(fw_name), false);
+	err = btbcm_initialize(hu->hdev, &fw_load_done);
 	if (err)
 		return err;
 
-	err = request_firmware(&fw, fw_name, &hu->hdev->dev);
-	if (err < 0) {
-		bt_dev_info(hu->hdev, "BCM: Patch %s not found", fw_name);
+	if (!fw_load_done)
 		return 0;
-	}
-
-	err = btbcm_patchram(hu->hdev, fw);
-	if (err) {
-		bt_dev_info(hu->hdev, "BCM: Patch failed (%d)", err);
-		goto finalize;
-	}
 
 	/* Init speed if any */
 	if (hu->init_speed)
@@ -604,12 +596,25 @@ static int bcm_setup(struct hci_uart *hu)
 			host_set_baudrate(hu, speed);
 	}
 
-finalize:
-	release_firmware(fw);
+	/* PCM parameters if provided */
+	if (bcm->dev && bcm->dev->pcm_int_params[0] != 0xff) {
+		struct bcm_set_pcm_int_params params;
 
-	err = btbcm_finalize(hu->hdev);
+		btbcm_read_pcm_int_params(hu->hdev, &params);
+
+		memcpy(&params, bcm->dev->pcm_int_params, 5);
+		btbcm_write_pcm_int_params(hu->hdev, &params);
+	}
+
+	err = btbcm_finalize(hu->hdev, &fw_load_done);
 	if (err)
 		return err;
+
+	/* Some devices ship with the controller default address.
+	 * Allow the bootloader to set a valid address through the
+	 * device tree.
+	 */
+	set_bit(HCI_QUIRK_USE_BDADDR_PROPERTY, &hu->hdev->quirks);
 
 	if (!bcm_request_irq(bcm))
 		err = bcm_setup_sleep(hu);
@@ -1141,6 +1146,11 @@ static int bcm_acpi_probe(struct bcm_device *dev)
 static int bcm_of_probe(struct bcm_device *bdev)
 {
 	device_property_read_u32(bdev->dev, "max-speed", &bdev->oper_speed);
+	device_property_read_u8_array(bdev->dev, "brcm,bt-pcm-int-params",
+				      bdev->pcm_int_params, 5);
+	bdev->irq = of_irq_get_byname(bdev->dev->of_node, "host-wakeup");
+	bdev->irq_active_low = irq_get_trigger_type(bdev->irq)
+			     & (IRQ_TYPE_EDGE_FALLING | IRQ_TYPE_LEVEL_LOW);
 	return 0;
 }
 
@@ -1155,6 +1165,9 @@ static int bcm_probe(struct platform_device *pdev)
 
 	dev->dev = &pdev->dev;
 	dev->irq = platform_get_irq(pdev, 0);
+
+	/* Initialize routing field to an unused value */
+	dev->pcm_int_params[0] = 0xff;
 
 	if (has_acpi_companion(&pdev->dev)) {
 		ret = bcm_acpi_probe(dev);
@@ -1415,6 +1428,9 @@ static int bcm_serdev_probe(struct serdev_device *serdev)
 #endif
 	bcmdev->serdev_hu.serdev = serdev;
 	serdev_device_set_drvdata(serdev, bcmdev);
+
+	/* Initialize routing field to an unused value */
+	bcmdev->pcm_int_params[0] = 0xff;
 
 	if (has_acpi_companion(&serdev->dev))
 		err = bcm_acpi_probe(bcmdev);

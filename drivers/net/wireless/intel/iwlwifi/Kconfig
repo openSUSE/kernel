@@ -31,7 +31,7 @@ config IWLWIFI
 	  In order to use this driver, you will need a firmware
 	  image for it. You can obtain the microcode from:
 
-	          <http://wireless.kernel.org/en/users/Drivers/iwlwifi>.
+	          <https://wireless.wiki.kernel.org/en/users/Drivers/iwlwifi>.
 
 	  The firmware is typically installed in /lib/firmware. You can
 	  look in the hotplug script /etc/hotplug/firmware.agent to
@@ -91,20 +91,6 @@ config IWLWIFI_BCAST_FILTERING
 
 	  If unsure, don't enable this option, as some programs might
 	  expect incoming broadcasts for their normal operations.
-
-config IWLWIFI_PCIE_RTPM
-       bool "Enable runtime power management mode for PCIe devices"
-       depends on IWLMVM && PM && EXPERT
-       help
-         Say Y here to enable runtime power management for PCIe
-         devices.  If enabled, the device will go into low power mode
-         when idle for a short period of time, allowing for improved
-         power saving during runtime. Note that this feature requires
-         a tight integration with the platform. It is not recommended
-         to enable this feature without proper validation with the
-         specific target platform.
-
-	 If unsure, say N.
 
 menu "Debugging Options"
 

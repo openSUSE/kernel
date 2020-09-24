@@ -7,7 +7,7 @@
 #include "r8192U_dm.h"
 #include "r819xU_firmware_img.h"
 
-#include "dot11d.h"
+#include "ieee80211/dot11d.h"
 #include <linux/bitops.h>
 
 static u32 RF_CHANNEL_TABLE_ZEBRA[] = {
@@ -516,16 +516,6 @@ static void rtl8192_phyConfigBB(struct net_device *dev,
 {
 	u32 i;
 
-#ifdef TO_DO_LIST
-	u32 *rtl8192PhyRegArrayTable = NULL, *rtl8192AgcTabArrayTable = NULL;
-
-	if (Adapter->bInHctTest) {
-		PHY_REGArrayLen = PHY_REGArrayLengthDTM;
-		AGCTAB_ArrayLen = AGCTAB_ArrayLengthDTM;
-		Rtl8190PHY_REGArray_Table = Rtl819XPHY_REGArrayDTM;
-		Rtl8190AGCTAB_Array_Table = Rtl819XAGCTAB_ArrayDTM;
-	}
-#endif
 	if (ConfigType == BASEBAND_CONFIG_PHY_REG) {
 		for (i = 0; i < PHY_REG_1T2RArrayLength; i += 2) {
 			rtl8192_setBBreg(dev, Rtl8192UsbPHY_REG_1T2RArray[i],
@@ -1059,10 +1049,6 @@ static void rtl8192_SetTxPowerLevel(struct net_device *dev, u8 channel)
 
 	switch (priv->rf_chip) {
 	case RF_8225:
-#ifdef TO_DO_LIST
-		PHY_SetRF8225CckTxPower(Adapter, powerlevel);
-		PHY_SetRF8225OfdmTxPower(Adapter, powerlevelOFDM24G);
-#endif
 		break;
 
 	case RF_8256:
@@ -1160,48 +1146,6 @@ bool rtl8192_SetRFPowerState(struct net_device *dev,
 		RT_TRACE(COMP_ERR, "Not support rf_chip(%x)\n", priv->rf_chip);
 		break;
 	}
-#ifdef TO_DO_LIST
-	if (bResult) {
-		/* Update current RF state variable. */
-		pHalData->eRFPowerState = eRFPowerState;
-		switch (pHalData->RFChipID) {
-		case RF_8256:
-			switch (pHalData->eRFPowerState) {
-			case eRfOff:
-				/* If Rf off reason is from IPS,
-				 * LED should blink with no link
-				 */
-				if (pMgntInfo->RfOffReason == RF_CHANGE_BY_IPS)
-					Adapter->HalFunc.LedControlHandler(Adapter, LED_CTL_NO_LINK);
-				else
-					/* Turn off LED if RF is not ON. */
-					Adapter->HalFunc.LedControlHandler(Adapter, LED_CTL_POWER_OFF);
-				break;
-
-			case eRfOn:
-				/* Turn on RF we are still linked, which might
-				 * happen when we quickly turn off and on HW RF.
-				 */
-				if (pMgntInfo->bMediaConnect)
-					Adapter->HalFunc.LedControlHandler(Adapter, LED_CTL_LINK);
-				else
-					/* Turn off LED if RF is not ON. */
-					Adapter->HalFunc.LedControlHandler(Adapter, LED_CTL_NO_LINK);
-				break;
-
-			default:
-				break;
-			}
-			break;
-
-		default:
-			RT_TRACE(COMP_RF, DBG_LOUD, "%s(): Unknown RF type\n",
-				 __func__);
-			break;
-		}
-
-	}
-#endif
 	priv->SetRFPowerStateInProgress = false;
 
 	return bResult;
@@ -1587,7 +1531,7 @@ void rtl8192_SetBWModeWorkItem(struct net_device *dev)
 		rtl8192_setBBreg(dev, rFPGA0_RFMOD, bRFMOD, 0x1);
 		rtl8192_setBBreg(dev, rFPGA1_RFMOD, bRFMOD, 0x1);
 		rtl8192_setBBreg(dev, rCCK0_System, bCCKSideBand,
-				 priv->nCur40MhzPrimeSC>>1);
+				 priv->nCur40MhzPrimeSC >> 1);
 		rtl8192_setBBreg(dev, rFPGA0_AnalogParameter1, 0x00100000, 0);
 		rtl8192_setBBreg(dev, rOFDM1_LSTF, 0xC00,
 				 priv->nCur40MhzPrimeSC);
@@ -1628,9 +1572,6 @@ void rtl8192_SetBWModeWorkItem(struct net_device *dev)
 	/* <3> Set RF related register */
 	switch (priv->rf_chip) {
 	case RF_8225:
-#ifdef TO_DO_LIST
-		PHY_SetRF8225Bandwidth(Adapter, pHalData->CurrentChannelBW);
-#endif
 		break;
 
 	case RF_8256:

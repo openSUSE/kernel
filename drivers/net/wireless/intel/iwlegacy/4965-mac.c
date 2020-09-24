@@ -1415,7 +1415,7 @@ il4965_hdl_c_stats(struct il_priv *il, struct il_rx_buf *rxb)
 /*
  * mac80211 queues, ACs, hardware queues, FIFOs.
  *
- * Cf. http://wireless.kernel.org/en/developers/Documentation/mac80211/queues
+ * Cf. https://wireless.wiki.kernel.org/en/developers/Documentation/mac80211/queues
  *
  * Mac80211 uses the following numbers, which we get as from it
  * by way of skb_get_queue_mapping(skb):
@@ -2266,7 +2266,7 @@ il4965_tx_agg_start(struct il_priv *il, struct ieee80211_vif *vif,
 	if (tid_data->tfds_in_queue == 0) {
 		D_HT("HW queue is empty\n");
 		tid_data->agg.state = IL_AGG_ON;
-		ieee80211_start_tx_ba_cb_irqsafe(vif, sta->addr, tid);
+		ret = IEEE80211_AMPDU_TX_START_IMMEDIATE;
 	} else {
 		D_HT("HW queue is NOT empty: %d packets in HW queue\n",
 		     tid_data->tfds_in_queue);
@@ -3332,7 +3332,6 @@ il4965_set_tkip_dynamic_key_info(struct il_priv *il,
 				 struct ieee80211_key_conf *keyconf, u8 sta_id)
 {
 	unsigned long flags;
-	int ret = 0;
 	__le16 key_flags = 0;
 
 	key_flags |= (STA_KEY_FLG_TKIP | STA_KEY_FLG_MAP_KEY_MSK);
@@ -3369,7 +3368,7 @@ il4965_set_tkip_dynamic_key_info(struct il_priv *il,
 
 	spin_unlock_irqrestore(&il->sta_lock, flags);
 
-	return ret;
+	return 0;
 }
 
 void

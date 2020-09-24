@@ -6,7 +6,7 @@
  * GPL LICENSE SUMMARY
  *
  * Copyright(c) 2017        Intel Deutschland GmbH
- * Copyright(c) 2018 - 2019        Intel Corporation
+ * Copyright(c) 2018 - 2020        Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -27,7 +27,7 @@
  * BSD LICENSE
  *
  * Copyright(c) 2017        Intel Deutschland GmbH
- * Copyright(c) 2018 - 2019       Intel Corporation
+ * Copyright(c) 2018 - 2020       Intel Corporation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -61,6 +61,13 @@
 #define __iwl_fw_acpi__
 
 #include <linux/acpi.h>
+#include "fw/api/commands.h"
+#include "fw/api/power.h"
+#include "fw/api/phy.h"
+#include "fw/api/nvm-reg.h"
+#include "fw/img.h"
+#include "iwl-trans.h"
+
 
 #define ACPI_WRDS_METHOD	"WRDS"
 #define ACPI_EWRD_METHOD	"EWRD"
@@ -68,6 +75,8 @@
 #define ACPI_WRDD_METHOD	"WRDD"
 #define ACPI_SPLC_METHOD	"SPLC"
 #define ACPI_ECKV_METHOD	"ECKV"
+#define ACPI_PPAG_METHOD	"PPAG"
+#define ACPI_WTAS_METHOD	"WTAS"
 
 #define ACPI_WIFI_DOMAIN	(0x07)
 
@@ -89,12 +98,52 @@
 #define ACPI_SPLC_WIFI_DATA_SIZE	2
 #define ACPI_ECKV_WIFI_DATA_SIZE	2
 
+/*
+ * 1 type, 1 enabled, 1 black list size, 16 black list array
+ */
+#define APCI_WTAS_BLACK_LIST_MAX	16
+#define ACPI_WTAS_WIFI_DATA_SIZE	(3 + APCI_WTAS_BLACK_LIST_MAX)
+
 #define ACPI_WGDS_NUM_BANDS		2
 #define ACPI_WGDS_TABLE_SIZE		3
 
+#define ACPI_PPAG_NUM_CHAINS		2
+#define ACPI_PPAG_NUM_SUB_BANDS		5
+#define ACPI_PPAG_WIFI_DATA_SIZE	((ACPI_PPAG_NUM_CHAINS * \
+					ACPI_PPAG_NUM_SUB_BANDS) + 3)
+
+/* PPAG gain value bounds in 1/8 dBm */
+#define ACPI_PPAG_MIN_LB -16
+#define ACPI_PPAG_MAX_LB 24
+#define ACPI_PPAG_MIN_HB -16
+#define ACPI_PPAG_MAX_HB 40
+
+struct iwl_sar_profile {
+	bool enabled;
+	u8 table[ACPI_SAR_TABLE_SIZE];
+};
+
+struct iwl_geo_profile {
+	u8 values[ACPI_GEO_TABLE_SIZE];
+};
+
+enum iwl_dsm_funcs_rev_0 {
+	DSM_FUNC_QUERY = 0,
+	DSM_FUNC_DISABLE_SRD = 1,
+	DSM_FUNC_ENABLE_INDONESIA_5G2 = 2,
+};
+
 #ifdef CONFIG_ACPI
 
+struct iwl_fw_runtime;
+
 void *iwl_acpi_get_object(struct device *dev, acpi_string method);
+
+void *iwl_acpi_get_dsm_object(struct device *dev, int rev, int func,
+			      union acpi_object *args);
+
+int iwl_acpi_get_dsm_u8(struct device *dev, int rev, int func);
+
 union acpi_object *iwl_acpi_get_wifi_pkg(struct device *dev,
 					 union acpi_object *data,
 					 int data_size, int *tbl_rev);
@@ -122,11 +171,47 @@ u64 iwl_acpi_get_pwr_limit(struct device *dev);
  */
 int iwl_acpi_get_eckv(struct device *dev, u32 *extl_clk);
 
+int iwl_sar_set_profile(union acpi_object *table,
+			struct iwl_sar_profile *profile,
+			bool enabled);
+
+int iwl_sar_select_profile(struct iwl_fw_runtime *fwrt,
+			   __le16 per_chain_restriction[][IWL_NUM_SUB_BANDS],
+			   int prof_a, int prof_b);
+
+int iwl_sar_get_wrds_table(struct iwl_fw_runtime *fwrt);
+
+int iwl_sar_get_ewrd_table(struct iwl_fw_runtime *fwrt);
+
+int iwl_sar_get_wgds_table(struct iwl_fw_runtime *fwrt);
+
+bool iwl_sar_geo_support(struct iwl_fw_runtime *fwrt);
+
+int iwl_validate_sar_geo_profile(struct iwl_fw_runtime *fwrt,
+				 struct iwl_host_cmd *cmd);
+
+int iwl_sar_geo_init(struct iwl_fw_runtime *fwrt,
+		     struct iwl_per_chain_offset_group *table);
+
+int iwl_acpi_get_tas(struct iwl_fw_runtime *fwrt, __le32 *black_list_array,
+		     int *black_list_size);
+
 #else /* CONFIG_ACPI */
 
 static inline void *iwl_acpi_get_object(struct device *dev, acpi_string method)
 {
 	return ERR_PTR(-ENOENT);
+}
+
+static inline void *iwl_acpi_get_dsm_object(struct device *dev, int rev,
+					    int func, union acpi_object *args)
+{
+	return ERR_PTR(-ENOENT);
+}
+
+static inline int iwl_acpi_get_dsm_u8(struct device *dev, int rev, int func)
+{
+	return -ENOENT;
 }
 
 static inline union acpi_object *iwl_acpi_get_wifi_pkg(struct device *dev,
@@ -152,5 +237,57 @@ static inline int iwl_acpi_get_eckv(struct device *dev, u32 *extl_clk)
 	return -ENOENT;
 }
 
+static inline int iwl_sar_set_profile(union acpi_object *table,
+				      struct iwl_sar_profile *profile,
+				      bool enabled)
+{
+	return -ENOENT;
+}
+
+static inline int iwl_sar_select_profile(struct iwl_fw_runtime *fwrt,
+			   __le16 per_chain_restriction[][IWL_NUM_SUB_BANDS],
+			   int prof_a, int prof_b)
+{
+	return -ENOENT;
+}
+
+static inline int iwl_sar_get_wrds_table(struct iwl_fw_runtime *fwrt)
+{
+	return -ENOENT;
+}
+
+static inline int iwl_sar_get_ewrd_table(struct iwl_fw_runtime *fwrt)
+{
+	return -ENOENT;
+}
+
+static inline int iwl_sar_get_wgds_table(struct iwl_fw_runtime *fwrt)
+{
+	return -ENOENT;
+}
+
+static inline bool iwl_sar_geo_support(struct iwl_fw_runtime *fwrt)
+{
+	return false;
+}
+
+static inline int iwl_validate_sar_geo_profile(struct iwl_fw_runtime *fwrt,
+					       struct iwl_host_cmd *cmd)
+{
+	return -ENOENT;
+}
+
+static inline int iwl_sar_geo_init(struct iwl_fw_runtime *fwrt,
+				   struct iwl_per_chain_offset_group *table)
+{
+	return -ENOENT;
+}
+
+static inline int iwl_acpi_get_tas(struct iwl_fw_runtime *fwrt,
+				   __le32 *black_list_array,
+				   int *black_list_size)
+{
+	return -ENOENT;
+}
 #endif /* CONFIG_ACPI */
 #endif /* __iwl_fw_acpi__ */

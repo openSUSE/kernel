@@ -21,6 +21,7 @@
 #include <linux/if_ether.h>
 #include <linux/kmemleak.h>
 #include <linux/etherdevice.h>
+#include <net/cfg80211.h>
 
 #include "osdep_service.h"
 #include "drv_types.h"
@@ -35,12 +36,6 @@ static const u8 SNAP_ETH_TYPE_IPX[2] = {0x81, 0x37};
 /* Datagram Delivery Protocol */
 static const u8 SNAP_ETH_TYPE_APPLETALK_AARP[2] = {0x80, 0xf3};
 
-/* Bridge-Tunnel header (for EtherTypes ETH_P_AARP and ETH_P_IPX) */
-static const u8 bridge_tunnel_header[] = {0xaa, 0xaa, 0x03, 0x00, 0x00, 0xf8};
-
-/* Ethernet-II snap header (RFC1042 for most EtherTypes) */
-static const u8 rfc1042_header[] = {0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00};
-
 void _r8712_init_sta_recv_priv(struct sta_recv_priv *psta_recvpriv)
 {
 	memset((u8 *)psta_recvpriv, 0, sizeof(struct sta_recv_priv));
@@ -48,7 +43,7 @@ void _r8712_init_sta_recv_priv(struct sta_recv_priv *psta_recvpriv)
 	_init_queue(&psta_recvpriv->defrag_q);
 }
 
-sint _r8712_init_recv_priv(struct recv_priv *precvpriv,
+void _r8712_init_recv_priv(struct recv_priv *precvpriv,
 			   struct _adapter *padapter)
 {
 	sint i;
@@ -64,7 +59,7 @@ sint _r8712_init_recv_priv(struct recv_priv *precvpriv,
 				sizeof(union recv_frame) + RXFRAME_ALIGN_SZ,
 				GFP_ATOMIC);
 	if (precvpriv->pallocated_frame_buf == NULL)
-		return _FAIL;
+		return;
 	kmemleak_not_leak(precvpriv->pallocated_frame_buf);
 	precvpriv->precv_frame_buf = precvpriv->pallocated_frame_buf +
 				    RXFRAME_ALIGN_SZ -
@@ -80,7 +75,7 @@ sint _r8712_init_recv_priv(struct recv_priv *precvpriv,
 		precvframe++;
 	}
 	precvpriv->rx_pending_cnt = 1;
-	return r8712_init_recv_priv(precvpriv, padapter);
+	r8712_init_recv_priv(precvpriv, padapter);
 }
 
 void _r8712_free_recv_priv(struct recv_priv *precvpriv)
@@ -245,8 +240,7 @@ union recv_frame *r8712_portctrl(struct _adapter *adapter,
 	if (auth_alg == 2) {
 		/* get ether_type */
 		ptr = ptr + pfhdr->attrib.hdrlen + LLC_HEADER_SIZE;
-		memcpy(&ether_type, ptr, 2);
-		be16_to_cpus(&ether_type);
+		ether_type = get_unaligned_be16(ptr);
 
 		if ((psta != NULL) && (psta->ieee8021x_blocked)) {
 			/* blocked
@@ -586,7 +580,7 @@ sint r8712_validate_recv_frame(struct _adapter *adapter,
 	return retval;
 }
 
-sint r8712_wlanhdr_to_ethhdr(union recv_frame *precvframe)
+int r8712_wlanhdr_to_ethhdr(union recv_frame *precvframe)
 {
 	/*remove the wlanhdr and add the eth_hdr*/
 	sint	rmv_len;
@@ -629,14 +623,14 @@ sint r8712_wlanhdr_to_ethhdr(union recv_frame *precvframe)
 		ptr = recvframe_pull(precvframe, (rmv_len -
 		      sizeof(struct ethhdr) + 2) - 24);
 		if (!ptr)
-			return _FAIL;
+			return -ENOMEM;
 		memcpy(ptr, get_rxmem(precvframe), 24);
 		ptr += 24;
 	} else {
 		ptr = recvframe_pull(precvframe, (rmv_len -
 		      sizeof(struct ethhdr) + (bsnaphdr ? 2 : 0)));
 		if (!ptr)
-			return _FAIL;
+			return -ENOMEM;
 	}
 
 	memcpy(ptr, pattrib->dst, ETH_ALEN);
@@ -646,10 +640,10 @@ sint r8712_wlanhdr_to_ethhdr(union recv_frame *precvframe)
 
 		memcpy(ptr + 12, &be_tmp, 2);
 	}
-	return _SUCCESS;
+	return 0;
 }
 
-s32 r8712_recv_entry(union recv_frame *precvframe)
+void r8712_recv_entry(union recv_frame *precvframe)
 {
 	struct _adapter *padapter;
 	struct recv_priv *precvpriv;
@@ -667,9 +661,8 @@ s32 r8712_recv_entry(union recv_frame *precvframe)
 	precvpriv->rx_pkts++;
 	precvpriv->rx_bytes += (uint)(precvframe->u.hdr.rx_tail -
 				precvframe->u.hdr.rx_data);
-	return ret;
+	return;
 _recv_entry_drop:
 	precvpriv->rx_drop++;
 	padapter->mppriv.rx_pktloss = precvpriv->rx_drop;
-	return ret;
 }

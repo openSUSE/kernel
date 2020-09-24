@@ -376,13 +376,13 @@ struct ibt_cp_reg_access {
 	__le32  addr;
 	__u8    mode;
 	__u8    len;
-	__u8    data[0];
+	__u8    data[];
 } __packed;
 
 struct ibt_rp_reg_access {
 	__u8    status;
 	__le32  addr;
-	__u8    data[0];
+	__u8    data[];
 } __packed;
 
 static int regmap_ibt_read(void *context, const void *addr, size_t reg_size,
@@ -708,6 +708,110 @@ done:
 	return err;
 }
 EXPORT_SYMBOL_GPL(btintel_download_firmware);
+
+void btintel_reset_to_bootloader(struct hci_dev *hdev)
+{
+	struct intel_reset params;
+	struct sk_buff *skb;
+
+	/* Send Intel Reset command. This will result in
+	 * re-enumeration of BT controller.
+	 *
+	 * Intel Reset parameter description:
+	 * reset_type :   0x00 (Soft reset),
+	 *		  0x01 (Hard reset)
+	 * patch_enable : 0x00 (Do not enable),
+	 *		  0x01 (Enable)
+	 * ddc_reload :   0x00 (Do not reload),
+	 *		  0x01 (Reload)
+	 * boot_option:   0x00 (Current image),
+	 *                0x01 (Specified boot address)
+	 * boot_param:    Boot address
+	 *
+	 */
+	params.reset_type = 0x01;
+	params.patch_enable = 0x01;
+	params.ddc_reload = 0x01;
+	params.boot_option = 0x00;
+	params.boot_param = cpu_to_le32(0x00000000);
+
+	skb = __hci_cmd_sync(hdev, 0xfc01, sizeof(params),
+			     &params, HCI_INIT_TIMEOUT);
+	if (IS_ERR(skb)) {
+		bt_dev_err(hdev, "FW download error recovery failed (%ld)",
+			   PTR_ERR(skb));
+		return;
+	}
+	bt_dev_info(hdev, "Intel reset sent to retry FW download");
+	kfree_skb(skb);
+
+	/* Current Intel BT controllers(ThP/JfP) hold the USB reset
+	 * lines for 2ms when it receives Intel Reset in bootloader mode.
+	 * Whereas, the upcoming Intel BT controllers will hold USB reset
+	 * for 150ms. To keep the delay generic, 150ms is chosen here.
+	 */
+	msleep(150);
+}
+EXPORT_SYMBOL_GPL(btintel_reset_to_bootloader);
+
+int btintel_read_debug_features(struct hci_dev *hdev,
+				struct intel_debug_features *features)
+{
+	struct sk_buff *skb;
+	u8 page_no = 1;
+
+	/* Intel controller supports two pages, each page is of 128-bit
+	 * feature bit mask. And each bit defines specific feature support
+	 */
+	skb = __hci_cmd_sync(hdev, 0xfca6, sizeof(page_no), &page_no,
+			     HCI_INIT_TIMEOUT);
+	if (IS_ERR(skb)) {
+		bt_dev_err(hdev, "Reading supported features failed (%ld)",
+			   PTR_ERR(skb));
+		return PTR_ERR(skb);
+	}
+
+	if (skb->len != (sizeof(features->page1) + 3)) {
+		bt_dev_err(hdev, "Supported features event size mismatch");
+		kfree_skb(skb);
+		return -EILSEQ;
+	}
+
+	memcpy(features->page1, skb->data + 3, sizeof(features->page1));
+
+	/* Read the supported features page2 if required in future.
+	 */
+	kfree_skb(skb);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(btintel_read_debug_features);
+
+int btintel_set_debug_features(struct hci_dev *hdev,
+			       const struct intel_debug_features *features)
+{
+	u8 mask[11] = { 0x0a, 0x92, 0x02, 0x07, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00 };
+	struct sk_buff *skb;
+
+	if (!features)
+		return -EINVAL;
+
+	if (!(features->page1[0] & 0x3f)) {
+		bt_dev_info(hdev, "Telemetry exception format not supported");
+		return 0;
+	}
+
+	skb = __hci_cmd_sync(hdev, 0xfc8b, 11, mask, HCI_INIT_TIMEOUT);
+	if (IS_ERR(skb)) {
+		bt_dev_err(hdev, "Setting Intel telemetry ddc write event mask failed (%ld)",
+			   PTR_ERR(skb));
+		return PTR_ERR(skb);
+	}
+
+	kfree_skb(skb);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(btintel_set_debug_features);
 
 MODULE_AUTHOR("Marcel Holtmann <marcel@holtmann.org>");
 MODULE_DESCRIPTION("Bluetooth support for Intel devices ver " VERSION);

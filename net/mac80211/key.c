@@ -177,6 +177,13 @@ static int ieee80211_key_enable_hw_accel(struct ieee80211_key *key)
 		}
 	}
 
+	/* TKIP countermeasures don't work in encap offload mode */
+	if (key->conf.cipher == WLAN_CIPHER_SUITE_TKIP &&
+	    sdata->hw_80211_encap) {
+		sdata_dbg(sdata, "TKIP is not allowed in hw 80211 encap mode\n");
+		return -EINVAL;
+	}
+
 	ret = drv_set_key(key->local, SET_KEY, sdata,
 			  sta ? &sta->sta : NULL, &key->conf);
 
@@ -210,12 +217,20 @@ static int ieee80211_key_enable_hw_accel(struct ieee80211_key *key)
 	case WLAN_CIPHER_SUITE_TKIP:
 	case WLAN_CIPHER_SUITE_CCMP:
 	case WLAN_CIPHER_SUITE_CCMP_256:
+	case WLAN_CIPHER_SUITE_GCMP:
+	case WLAN_CIPHER_SUITE_GCMP_256:
+		/* We cannot do software crypto of data frames with
+		 * encapsulation offload enabled. However for 802.11w to
+		 * function properly we need cmac/gmac keys.
+		 */
+		if (sdata->hw_80211_encap)
+			return -EINVAL;
+		fallthrough;
+
 	case WLAN_CIPHER_SUITE_AES_CMAC:
 	case WLAN_CIPHER_SUITE_BIP_CMAC_256:
 	case WLAN_CIPHER_SUITE_BIP_GMAC_128:
 	case WLAN_CIPHER_SUITE_BIP_GMAC_256:
-	case WLAN_CIPHER_SUITE_GCMP:
-	case WLAN_CIPHER_SUITE_GCMP_256:
 		/* all of these we can do in software - if driver can */
 		if (ret == 1)
 			return 0;
@@ -273,7 +288,7 @@ static int _ieee80211_set_tx_key(struct ieee80211_key *key, bool force)
 
 	sta->ptk_idx = key->conf.keyidx;
 
-	if (force || ieee80211_hw_check(&local->hw, NO_AMPDU_KEYBORDER_SUPPORT))
+	if (force || !ieee80211_hw_check(&local->hw, AMPDU_KEYBORDER_SUPPORT))
 		clear_sta_flag(sta, WLAN_STA_BLOCK_BA);
 	ieee80211_check_fast_xmit(sta);
 
@@ -298,15 +313,15 @@ static void ieee80211_pairwise_rekey(struct ieee80211_key *old,
 		/* Extended Key ID key install, initial one or rekey */
 
 		if (sta->ptk_idx != INVALID_PTK_KEYIDX &&
-		    ieee80211_hw_check(&local->hw,
-				       NO_AMPDU_KEYBORDER_SUPPORT)) {
+		    !ieee80211_hw_check(&local->hw, AMPDU_KEYBORDER_SUPPORT)) {
 			/* Aggregation Sessions with Extended Key ID must not
 			 * mix MPDUs with different keyIDs within one A-MPDU.
-			 * Tear down any running Tx aggregation and all new
-			 * Rx/Tx aggregation request during rekey if the driver
-			 * asks us to do so. (Blocking Tx only would be
-			 * sufficient but WLAN_STA_BLOCK_BA gets the job done
-			 * for the few ms we need it.)
+			 * Tear down running Tx aggregation sessions and block
+			 * new Rx/Tx aggregation requests during rekey to
+			 * ensure there are no A-MPDUs when the driver is not
+			 * supporting A-MPDU key borders. (Blocking Tx only
+			 * would be sufficient but WLAN_STA_BLOCK_BA gets the
+			 * job done for the few ms we need it.)
 			 */
 			set_sta_flag(sta, WLAN_STA_BLOCK_BA);
 			mutex_lock(&sta->ampdu_mlme.mtx);
@@ -399,6 +414,31 @@ void ieee80211_set_default_mgmt_key(struct ieee80211_sub_if_data *sdata,
 	mutex_unlock(&sdata->local->key_mtx);
 }
 
+static void
+__ieee80211_set_default_beacon_key(struct ieee80211_sub_if_data *sdata, int idx)
+{
+	struct ieee80211_key *key = NULL;
+
+	assert_key_lock(sdata->local);
+
+	if (idx >= NUM_DEFAULT_KEYS + NUM_DEFAULT_MGMT_KEYS &&
+	    idx < NUM_DEFAULT_KEYS + NUM_DEFAULT_MGMT_KEYS +
+	    NUM_DEFAULT_BEACON_KEYS)
+		key = key_mtx_dereference(sdata->local, sdata->keys[idx]);
+
+	rcu_assign_pointer(sdata->default_beacon_key, key);
+
+	ieee80211_debugfs_key_update_default(sdata);
+}
+
+void ieee80211_set_default_beacon_key(struct ieee80211_sub_if_data *sdata,
+				      int idx)
+{
+	mutex_lock(&sdata->local->key_mtx);
+	__ieee80211_set_default_beacon_key(sdata, idx);
+	mutex_unlock(&sdata->local->key_mtx);
+}
+
 static int ieee80211_key_replace(struct ieee80211_sub_if_data *sdata,
 				  struct sta_info *sta,
 				  bool pairwise,
@@ -407,7 +447,7 @@ static int ieee80211_key_replace(struct ieee80211_sub_if_data *sdata,
 {
 	int idx;
 	int ret = 0;
-	bool defunikey, defmultikey, defmgmtkey;
+	bool defunikey, defmultikey, defmgmtkey, defbeaconkey;
 
 	/* caller must provide at least one old/new */
 	if (WARN_ON(!new && !old))
@@ -469,6 +509,9 @@ static int ieee80211_key_replace(struct ieee80211_sub_if_data *sdata,
 		defmgmtkey = old &&
 			old == key_mtx_dereference(sdata->local,
 						sdata->default_mgmt_key);
+		defbeaconkey = old &&
+			old == key_mtx_dereference(sdata->local,
+						   sdata->default_beacon_key);
 
 		if (defunikey && !new)
 			__ieee80211_set_default_key(sdata, -1, true, false);
@@ -476,6 +519,8 @@ static int ieee80211_key_replace(struct ieee80211_sub_if_data *sdata,
 			__ieee80211_set_default_key(sdata, -1, false, true);
 		if (defmgmtkey && !new)
 			__ieee80211_set_default_mgmt_key(sdata, -1);
+		if (defbeaconkey && !new)
+			__ieee80211_set_default_beacon_key(sdata, -1);
 
 		rcu_assign_pointer(sdata->keys[idx], new);
 		if (defunikey && new)
@@ -487,6 +532,9 @@ static int ieee80211_key_replace(struct ieee80211_sub_if_data *sdata,
 		if (defmgmtkey && new)
 			__ieee80211_set_default_mgmt_key(sdata,
 							 new->conf.keyidx);
+		if (defbeaconkey && new)
+			__ieee80211_set_default_beacon_key(sdata,
+							   new->conf.keyidx);
 	}
 
 	if (old)
@@ -504,7 +552,9 @@ ieee80211_key_alloc(u32 cipher, int idx, size_t key_len,
 	struct ieee80211_key *key;
 	int i, j, err;
 
-	if (WARN_ON(idx < 0 || idx >= NUM_DEFAULT_KEYS + NUM_DEFAULT_MGMT_KEYS))
+	if (WARN_ON(idx < 0 ||
+		    idx >= NUM_DEFAULT_KEYS + NUM_DEFAULT_MGMT_KEYS +
+		    NUM_DEFAULT_BEACON_KEYS))
 		return ERR_PTR(-EINVAL);
 
 	key = kzalloc(sizeof(struct ieee80211_key) + key_len, GFP_KERNEL);
@@ -786,9 +836,8 @@ int ieee80211_key_link(struct ieee80211_key *key,
 		/* The rekey code assumes that the old and new key are using
 		 * the same cipher. Enforce the assumption for pairwise keys.
 		 */
-		if (key &&
-		    ((alt_key && alt_key->conf.cipher != key->conf.cipher) ||
-		     (old_key && old_key->conf.cipher != key->conf.cipher)))
+		if ((alt_key && alt_key->conf.cipher != key->conf.cipher) ||
+		    (old_key && old_key->conf.cipher != key->conf.cipher))
 			goto out;
 	} else if (sta) {
 		old_key = key_mtx_dereference(sdata->local, sta->gtk[idx]);
@@ -848,46 +897,30 @@ void ieee80211_key_free(struct ieee80211_key *key, bool delay_tailroom)
 	ieee80211_key_destroy(key, delay_tailroom);
 }
 
-void ieee80211_enable_keys(struct ieee80211_sub_if_data *sdata)
+void ieee80211_reenable_keys(struct ieee80211_sub_if_data *sdata)
 {
 	struct ieee80211_key *key;
 	struct ieee80211_sub_if_data *vlan;
 
 	ASSERT_RTNL();
 
-	if (WARN_ON(!ieee80211_sdata_running(sdata)))
-		return;
-
-	mutex_lock(&sdata->local->key_mtx);
-
-	WARN_ON_ONCE(sdata->crypto_tx_tailroom_needed_cnt ||
-		     sdata->crypto_tx_tailroom_pending_dec);
-
-	if (sdata->vif.type == NL80211_IFTYPE_AP) {
-		list_for_each_entry(vlan, &sdata->u.ap.vlans, u.vlan.list)
-			WARN_ON_ONCE(vlan->crypto_tx_tailroom_needed_cnt ||
-				     vlan->crypto_tx_tailroom_pending_dec);
-	}
-
-	list_for_each_entry(key, &sdata->key_list, list) {
-		increment_tailroom_need_count(sdata);
-		ieee80211_key_enable_hw_accel(key);
-	}
-
-	mutex_unlock(&sdata->local->key_mtx);
-}
-
-void ieee80211_reset_crypto_tx_tailroom(struct ieee80211_sub_if_data *sdata)
-{
-	struct ieee80211_sub_if_data *vlan;
-
 	mutex_lock(&sdata->local->key_mtx);
 
 	sdata->crypto_tx_tailroom_needed_cnt = 0;
+	sdata->crypto_tx_tailroom_pending_dec = 0;
 
 	if (sdata->vif.type == NL80211_IFTYPE_AP) {
-		list_for_each_entry(vlan, &sdata->u.ap.vlans, u.vlan.list)
+		list_for_each_entry(vlan, &sdata->u.ap.vlans, u.vlan.list) {
 			vlan->crypto_tx_tailroom_needed_cnt = 0;
+			vlan->crypto_tx_tailroom_pending_dec = 0;
+		}
+	}
+
+	if (ieee80211_sdata_running(sdata)) {
+		list_for_each_entry(key, &sdata->key_list, list) {
+			increment_tailroom_need_count(sdata);
+			ieee80211_key_enable_hw_accel(key);
+		}
 	}
 
 	mutex_unlock(&sdata->local->key_mtx);
@@ -984,6 +1017,7 @@ static void ieee80211_free_keys_iface(struct ieee80211_sub_if_data *sdata,
 	sdata->crypto_tx_tailroom_pending_dec = 0;
 
 	ieee80211_debugfs_key_remove_mgmt_default(sdata);
+	ieee80211_debugfs_key_remove_beacon_default(sdata);
 
 	list_for_each_entry_safe(key, tmp, &sdata->key_list, list) {
 		ieee80211_key_replace(key->sdata, key->sta,

@@ -70,36 +70,6 @@
 #include "iwl-prph.h"
 #include "iwl-fh.h"
 
-const struct iwl_csr_params iwl_csr_v1 = {
-	.flag_mac_clock_ready = 0,
-	.flag_val_mac_access_en = 0,
-	.flag_init_done = 2,
-	.flag_mac_access_req = 3,
-	.flag_sw_reset = 7,
-	.flag_master_dis = 8,
-	.flag_stop_master = 9,
-	.addr_sw_reset = CSR_BASE + 0x020,
-	.mac_addr0_otp = 0x380,
-	.mac_addr1_otp = 0x384,
-	.mac_addr0_strap = 0x388,
-	.mac_addr1_strap = 0x38C
-};
-
-const struct iwl_csr_params iwl_csr_v2 = {
-	.flag_init_done = 6,
-	.flag_mac_clock_ready = 20,
-	.flag_val_mac_access_en = 20,
-	.flag_mac_access_req = 21,
-	.flag_master_dis = 28,
-	.flag_stop_master = 29,
-	.flag_sw_reset = 31,
-	.addr_sw_reset = CSR_BASE + 0x024,
-	.mac_addr0_otp = 0x30,
-	.mac_addr1_otp = 0x34,
-	.mac_addr0_strap = 0x38,
-	.mac_addr1_strap = 0x3C
-};
-
 void iwl_write8(struct iwl_trans *trans, u32 ofs, u8 val)
 {
 	trace_iwlwifi_dev_iowrite8(trans->dev, ofs, val);
@@ -304,10 +274,10 @@ IWL_EXPORT_SYMBOL(iwl_clear_bits_prph);
 
 void iwl_force_nmi(struct iwl_trans *trans)
 {
-	if (trans->cfg->device_family < IWL_DEVICE_FAMILY_9000)
+	if (trans->trans_cfg->device_family < IWL_DEVICE_FAMILY_9000)
 		iwl_write_prph(trans, DEVICE_SET_NMI_REG,
 			       DEVICE_SET_NMI_VAL_DRV);
-	else if (trans->cfg->device_family < IWL_DEVICE_FAMILY_AX210)
+	else if (trans->trans_cfg->device_family < IWL_DEVICE_FAMILY_AX210)
 		iwl_write_umac_prph(trans, UREG_NIC_SET_NMI_DRIVER,
 				UREG_NIC_SET_NMI_DRIVER_NMI_FROM_DRIVER_MSK);
 	else
@@ -458,7 +428,7 @@ int iwl_dump_fh(struct iwl_trans *trans, char **buf)
 		FH_TSSR_TX_ERROR_REG
 	};
 
-	if (trans->cfg->mq_rx_supported)
+	if (trans->trans_cfg->mq_rx_supported)
 		return iwl_dump_rfh(trans, buf);
 
 #ifdef CONFIG_IWLWIFI_DEBUGFS
@@ -492,11 +462,12 @@ int iwl_dump_fh(struct iwl_trans *trans, char **buf)
 	return 0;
 }
 
-int iwl_finish_nic_init(struct iwl_trans *trans)
+int iwl_finish_nic_init(struct iwl_trans *trans,
+			const struct iwl_cfg_trans_params *cfg_trans)
 {
 	int err;
 
-	if (trans->cfg->bisr_workaround) {
+	if (cfg_trans->bisr_workaround) {
 		/* ensure the TOP FSM isn't still in previous reset */
 		mdelay(2);
 	}
@@ -505,10 +476,9 @@ int iwl_finish_nic_init(struct iwl_trans *trans)
 	 * Set "initialization complete" bit to move adapter from
 	 * D0U* --> D0A* (powered-up active) state.
 	 */
-	iwl_set_bit(trans, CSR_GP_CNTRL,
-		    BIT(trans->cfg->csr->flag_init_done));
+	iwl_set_bit(trans, CSR_GP_CNTRL, CSR_GP_CNTRL_REG_FLAG_INIT_DONE);
 
-	if (trans->cfg->device_family == IWL_DEVICE_FAMILY_8000)
+	if (cfg_trans->device_family == IWL_DEVICE_FAMILY_8000)
 		udelay(2);
 
 	/*
@@ -517,13 +487,13 @@ int iwl_finish_nic_init(struct iwl_trans *trans)
 	 * and accesses to uCode SRAM.
 	 */
 	err = iwl_poll_bit(trans, CSR_GP_CNTRL,
-			   BIT(trans->cfg->csr->flag_mac_clock_ready),
-			   BIT(trans->cfg->csr->flag_mac_clock_ready),
+			   CSR_GP_CNTRL_REG_FLAG_MAC_CLOCK_READY,
+			   CSR_GP_CNTRL_REG_FLAG_MAC_CLOCK_READY,
 			   25000);
 	if (err < 0)
 		IWL_DEBUG_INFO(trans, "Failed to wake NIC\n");
 
-	if (trans->cfg->bisr_workaround) {
+	if (cfg_trans->bisr_workaround) {
 		/* ensure BISR shift has finished */
 		udelay(200);
 	}

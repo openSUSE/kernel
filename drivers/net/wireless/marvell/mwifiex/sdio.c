@@ -1,10 +1,10 @@
 /*
- * Marvell Wireless LAN device driver: SDIO specific handling
+ * NXP Wireless LAN device driver: SDIO specific handling
  *
- * Copyright (C) 2011-2014, Marvell International Ltd.
+ * Copyright 2011-2020 NXP
  *
- * This software file (the "File") is distributed by Marvell International
- * Ltd. under the terms of the GNU General Public License Version 2, June 1991
+ * This software file (the "File") is distributed by NXP
+ * under the terms of the GNU General Public License Version 2, June 1991
  * (the "License").  You may use, redistribute and/or modify this File in
  * accordance with the terms and conditions of the License, a copy of which
  * is available by writing to the Free Software Foundation, Inc.,
@@ -444,6 +444,9 @@ static int mwifiex_sdio_suspend(struct device *dev)
 		return 0;
 	}
 
+	if (!adapter->is_up)
+		return -EBUSY;
+
 	mwifiex_enable_wake(adapter);
 
 	/* Enable the Host Sleep */
@@ -477,45 +480,25 @@ static void mwifiex_sdio_coredump(struct device *dev)
 		schedule_work(&card->work);
 }
 
-/* Device ID for SD8786 */
-#define SDIO_DEVICE_ID_MARVELL_8786   (0x9116)
-/* Device ID for SD8787 */
-#define SDIO_DEVICE_ID_MARVELL_8787   (0x9119)
-/* Device ID for SD8797 */
-#define SDIO_DEVICE_ID_MARVELL_8797   (0x9129)
-/* Device ID for SD8897 */
-#define SDIO_DEVICE_ID_MARVELL_8897   (0x912d)
-/* Device ID for SD8887 */
-#define SDIO_DEVICE_ID_MARVELL_8887   (0x9135)
-/* Device ID for SD8801 */
-#define SDIO_DEVICE_ID_MARVELL_8801   (0x9139)
-/* Device ID for SD8977 */
-#define SDIO_DEVICE_ID_MARVELL_8977   (0x9145)
-/* Device ID for SD8987 */
-#define SDIO_DEVICE_ID_MARVELL_8987   (0x9149)
-/* Device ID for SD8997 */
-#define SDIO_DEVICE_ID_MARVELL_8997   (0x9141)
-
-
 /* WLAN IDs */
 static const struct sdio_device_id mwifiex_ids[] = {
-	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8786),
+	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8786_WLAN),
 		.driver_data = (unsigned long) &mwifiex_sdio_sd8786},
-	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8787),
+	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8787_WLAN),
 		.driver_data = (unsigned long) &mwifiex_sdio_sd8787},
-	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8797),
+	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8797_WLAN),
 		.driver_data = (unsigned long) &mwifiex_sdio_sd8797},
-	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8897),
+	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8897_WLAN),
 		.driver_data = (unsigned long) &mwifiex_sdio_sd8897},
-	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8887),
+	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8887_WLAN),
 		.driver_data = (unsigned long)&mwifiex_sdio_sd8887},
-	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8801),
+	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8801_WLAN),
 		.driver_data = (unsigned long)&mwifiex_sdio_sd8801},
-	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8977),
+	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8977_WLAN),
 		.driver_data = (unsigned long)&mwifiex_sdio_sd8977},
-	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8987),
+	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8987_WLAN),
 		.driver_data = (unsigned long)&mwifiex_sdio_sd8987},
-	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8997),
+	{SDIO_DEVICE(SDIO_VENDOR_ID_MARVELL, SDIO_DEVICE_ID_MARVELL_8997_WLAN),
 		.driver_data = (unsigned long)&mwifiex_sdio_sd8997},
 	{},
 };
@@ -2220,22 +2203,30 @@ static void mwifiex_sdio_card_reset_work(struct mwifiex_adapter *adapter)
 	struct sdio_func *func = card->func;
 	int ret;
 
+	/* Prepare the adapter for the reset. */
 	mwifiex_shutdown_sw(adapter);
-
-	/* power cycle the adapter */
-	sdio_claim_host(func);
-	mmc_hw_reset(func->card->host);
-	sdio_release_host(func);
-
-	/* Previous save_adapter won't be valid after this. We will cancel
-	 * pending work requests.
-	 */
 	clear_bit(MWIFIEX_IFACE_WORK_DEVICE_DUMP, &card->work_flags);
 	clear_bit(MWIFIEX_IFACE_WORK_CARD_RESET, &card->work_flags);
 
-	ret = mwifiex_reinit_sw(adapter);
-	if (ret)
-		dev_err(&func->dev, "reinit failed: %d\n", ret);
+	/* Run a HW reset of the SDIO interface. */
+	sdio_claim_host(func);
+	ret = mmc_hw_reset(func->card->host);
+	sdio_release_host(func);
+
+	switch (ret) {
+	case 1:
+		dev_dbg(&func->dev, "SDIO HW reset asynchronous\n");
+		complete_all(adapter->fw_done);
+		break;
+	case 0:
+		ret = mwifiex_reinit_sw(adapter);
+		if (ret)
+			dev_err(&func->dev, "reinit failed: %d\n", ret);
+		break;
+	default:
+		dev_err(&func->dev, "SDIO HW reset failed: %d\n", ret);
+		break;
+	}
 }
 
 /* This function read/write firmware */

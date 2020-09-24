@@ -838,9 +838,8 @@ brcms_c_dotxstatus(struct brcms_c_info *wlc, struct tx_status *txs)
 	struct dma_pub *dma = NULL;
 	struct d11txh *txh = NULL;
 	struct scb *scb = NULL;
-	bool free_pdu;
-	int tx_rts, tx_frame_count, tx_rts_count;
-	uint totlen, supr_status;
+	int tx_frame_count;
+	uint supr_status;
 	bool lastframe;
 	struct ieee80211_hdr *h;
 	u16 mcl;
@@ -917,11 +916,8 @@ brcms_c_dotxstatus(struct brcms_c_info *wlc, struct tx_status *txs)
 			     CHSPEC_CHANNEL(wlc->default_bss->chanspec));
 	}
 
-	tx_rts = le16_to_cpu(txh->MacTxControlLow) & TXC_SENDRTS;
 	tx_frame_count =
 	    (txs->status & TX_STATUS_FRM_RTX_MASK) >> TX_STATUS_FRM_RTX_SHIFT;
-	tx_rts_count =
-	    (txs->status & TX_STATUS_RTS_RTX_MASK) >> TX_STATUS_RTS_RTX_SHIFT;
 
 	lastframe = !ieee80211_has_morefrags(h->frame_control);
 
@@ -988,9 +984,6 @@ brcms_c_dotxstatus(struct brcms_c_info *wlc, struct tx_status *txs)
 		if (txs->status & TX_STATUS_ACK_RCV)
 			tx_info->flags |= IEEE80211_TX_STAT_ACK;
 	}
-
-	totlen = p->len;
-	free_pdu = true;
 
 	if (lastframe) {
 		/* remove PLCP & Broadcom tx descriptor header */
@@ -1064,7 +1057,7 @@ brcms_b_txstatus(struct brcms_hardware *wlc_hw, bool bound, bool *fatal)
 		txs->lasttxtime = 0;
 
 		*fatal = brcms_c_dotxstatus(wlc_hw->wlc, txs);
-		if (*fatal == true)
+		if (*fatal)
 			return false;
 		n++;
 	}
@@ -1816,8 +1809,7 @@ void brcms_b_phy_reset(struct brcms_hardware *wlc_hw)
 	udelay(2);
 	brcms_b_core_phy_clk(wlc_hw, ON);
 
-	if (pih)
-		wlc_phy_anacore(pih, ON);
+	wlc_phy_anacore(pih, ON);
 }
 
 /* switch to and initialize new band */
@@ -3776,17 +3768,14 @@ static void brcms_c_set_ps_ctrl(struct brcms_c_info *wlc)
  * Write this BSS config's MAC address to core.
  * Updates RXE match engine.
  */
-static int brcms_c_set_mac(struct brcms_bss_cfg *bsscfg)
+static void brcms_c_set_mac(struct brcms_bss_cfg *bsscfg)
 {
-	int err = 0;
 	struct brcms_c_info *wlc = bsscfg->wlc;
 
 	/* enter the MAC addr into the RXE match registers */
 	brcms_c_set_addrmatch(wlc, RCM_MAC_OFFSET, wlc->pub->cur_etheraddr);
 
 	brcms_c_ampdu_macaddr_upd(wlc);
-
-	return err;
 }
 
 /* Write the BSS config's BSSID address to core (set_bssid in d11procs.tcl).
@@ -5248,15 +5237,7 @@ int brcms_c_set_gmode(struct brcms_c_info *wlc, u8 gmode, bool config)
 	/* Default to 54g Auto */
 	/* Advertise and use shortslot (-1/0/1 Auto/Off/On) */
 	s8 shortslot = BRCMS_SHORTSLOT_AUTO;
-	bool shortslot_restrict = false; /* Restrict association to stations
-					  * that support shortslot
-					  */
 	bool ofdm_basic = false;	/* Make 6, 12, and 24 basic rates */
-	/* Advertise and use short preambles (-1/0/1 Auto/Off/On) */
-	int preamble = BRCMS_PLCP_LONG;
-	bool preamble_restrict = false;	/* Restrict association to stations
-					 * that support short preambles
-					 */
 	struct brcms_band *band;
 
 	/* if N-support is enabled, allow Gmode set as long as requested
@@ -5297,16 +5278,11 @@ int brcms_c_set_gmode(struct brcms_c_info *wlc, u8 gmode, bool config)
 
 	case GMODE_ONLY:
 		ofdm_basic = true;
-		preamble = BRCMS_PLCP_SHORT;
-		preamble_restrict = true;
 		break;
 
 	case GMODE_PERFORMANCE:
 		shortslot = BRCMS_SHORTSLOT_ON;
-		shortslot_restrict = true;
 		ofdm_basic = true;
-		preamble = BRCMS_PLCP_SHORT;
-		preamble_restrict = true;
 		break;
 
 	default:
@@ -5429,7 +5405,7 @@ int brcms_c_set_channel(struct brcms_c_info *wlc, u16 channel)
 {
 	u16 chspec = ch20mhz_chspec(channel);
 
-	if (channel < 0 || channel > MAXCHANNEL)
+	if (channel > MAXCHANNEL)
 		return -EINVAL;
 
 	if (!brcms_c_valid_chanspec_db(wlc->cmi, chspec))
@@ -7397,9 +7373,7 @@ static void brcms_c_update_beacon_hw(struct brcms_c_info *wlc,
 				     false, true);
 		/* mark beacon0 valid */
 		bcma_set32(core, D11REGOFFS(maccommand), MCMD_BCN1VLD);
-		return;
 	}
-	return;
 }
 
 /*

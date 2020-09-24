@@ -7,6 +7,7 @@
  * we directly assign the wireless handlers of wireless interfaces.
  *
  * Copyright 2008-2009	Johannes Berg <johannes@sipsolutions.net>
+ * Copyright (C) 2019 Intel Corporation
  */
 
 #include <linux/export.h>
@@ -219,7 +220,6 @@ EXPORT_WEXT_HANDLER(cfg80211_wext_giwrange);
 
 /**
  * cfg80211_wext_freq - get wext frequency for non-"auto"
- * @dev: the net device
  * @freq: the wext freq encoding
  *
  * Returns a frequency, or a negative error code, or 0 for auto.
@@ -864,8 +864,8 @@ static int cfg80211_wext_siwtxpower(struct net_device *dev,
 			}
 		}
 	} else {
-		rfkill_set_sw_state(rdev->rfkill, true);
-		schedule_work(&rdev->rfkill_sync);
+		if (rfkill_set_sw_state(rdev->rfkill, true))
+			schedule_work(&rdev->rfkill_block);
 		return 0;
 	}
 
