@@ -1503,11 +1503,14 @@ static noinline_for_stack int ethtool_get_coalesce(struct net_device *dev,
 						   void __user *useraddr)
 {
 	struct ethtool_coalesce coalesce = { .cmd = ETHTOOL_GCOALESCE };
+	int ret;
 
 	if (!dev->ethtool_ops->get_coalesce)
 		return -EOPNOTSUPP;
 
-	dev->ethtool_ops->get_coalesce(dev, &coalesce);
+	ret = dev->ethtool_ops->get_coalesce(dev, &coalesce);
+	if (ret)
+		return ret;
 
 	if (copy_to_user(useraddr, &coalesce, sizeof(coalesce)))
 		return -EFAULT;
@@ -1665,11 +1668,22 @@ static noinline_for_stack int ethtool_set_channels(struct net_device *dev,
 
 	dev->ethtool_ops->get_channels(dev, &curr);
 
+	if (channels.rx_count == curr.rx_count &&
+	    channels.tx_count == curr.tx_count &&
+	    channels.combined_count == curr.combined_count &&
+	    channels.other_count == curr.other_count)
+		return 0;
+
 	/* ensure new counts are within the maximums */
 	if (channels.rx_count > curr.max_rx ||
 	    channels.tx_count > curr.max_tx ||
 	    channels.combined_count > curr.max_combined ||
 	    channels.other_count > curr.max_other)
+		return -EINVAL;
+
+	/* ensure there is at least one RX and one TX channel */
+	if (!channels.combined_count &&
+	    (!channels.rx_count || !channels.tx_count))
 		return -EINVAL;
 
 	/* ensure the new Rx count fits within the configured Rx flow
@@ -2960,7 +2974,7 @@ ethtool_rx_flow_rule_create(const struct ethtool_rx_flow_spec_input *input)
 			       sizeof(match->mask.ipv6.dst));
 		}
 		if (memcmp(v6_m_spec->ip6src, &zero_addr, sizeof(zero_addr)) ||
-		    memcmp(v6_m_spec->ip6src, &zero_addr, sizeof(zero_addr))) {
+		    memcmp(v6_m_spec->ip6dst, &zero_addr, sizeof(zero_addr))) {
 			match->dissector.used_keys |=
 				BIT(FLOW_DISSECTOR_KEY_IPV6_ADDRS);
 			match->dissector.offset[FLOW_DISSECTOR_KEY_IPV6_ADDRS] =
