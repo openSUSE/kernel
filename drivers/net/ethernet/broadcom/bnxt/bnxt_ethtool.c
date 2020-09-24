@@ -1766,9 +1766,14 @@ static int bnxt_hwrm_firmware_reset(struct net_device *dev, u8 proc_type,
 	req.selfrst_status = self_reset;
 	req.flags = flags;
 
-	rc = hwrm_send_message(bp, &req, sizeof(req), HWRM_CMD_TIMEOUT);
-	if (rc == -EACCES)
-		bnxt_print_admin_err(bp);
+	if (proc_type == FW_RESET_REQ_EMBEDDED_PROC_TYPE_AP) {
+		rc = hwrm_send_message_silent(bp, &req, sizeof(req),
+					      HWRM_CMD_TIMEOUT);
+	} else {
+		rc = hwrm_send_message(bp, &req, sizeof(req), HWRM_CMD_TIMEOUT);
+		if (rc == -EACCES)
+			bnxt_print_admin_err(bp);
+	}
 	return rc;
 }
 
@@ -3007,6 +3012,7 @@ static void bnxt_self_test(struct net_device *dev, struct ethtool_test *etest,
 static int bnxt_reset(struct net_device *dev, u32 *flags)
 {
 	struct bnxt *bp = netdev_priv(dev);
+	bool reload = false;
 	u32 req = *flags;
 
 	if (!req)
@@ -3030,7 +3036,7 @@ static int bnxt_reset(struct net_device *dev, u32 *flags)
 			if (!bnxt_firmware_reset_chip(dev)) {
 				netdev_info(dev, "Firmware reset request successful.\n");
 				if (!(bp->fw_cap & BNXT_FW_CAP_HOT_RESET))
-					netdev_info(dev, "Reload driver to complete reset\n");
+					reload = true;
 				*flags &= ~BNXT_FW_RESET_CHIP;
 			}
 		} else if (req == BNXT_FW_RESET_CHIP) {
@@ -3043,12 +3049,16 @@ static int bnxt_reset(struct net_device *dev, u32 *flags)
 		if (bp->hwrm_spec_code >= 0x10803) {
 			if (!bnxt_firmware_reset_ap(dev)) {
 				netdev_info(dev, "Reset application processor successful.\n");
+				reload = true;
 				*flags &= ~BNXT_FW_RESET_AP;
 			}
 		} else if (req == BNXT_FW_RESET_AP) {
 			return -EOPNOTSUPP; /* only request, fail hard */
 		}
 	}
+
+	if (reload)
+		netdev_info(dev, "Reload driver to complete reset\n");
 
 	return 0;
 }
