@@ -85,6 +85,7 @@ static int gpiochip_add_irqchip(struct gpio_chip *gpiochip,
 				struct lock_class_key *lock_key,
 				struct lock_class_key *request_key);
 static void gpiochip_irqchip_remove(struct gpio_chip *gpiochip);
+static int gpiochip_irqchip_init_hw(struct gpio_chip *gpiochip);
 static int gpiochip_irqchip_init_valid_mask(struct gpio_chip *gpiochip);
 static void gpiochip_irqchip_free_valid_mask(struct gpio_chip *gpiochip);
 
@@ -1424,6 +1425,10 @@ int gpiochip_add_data_with_key(struct gpio_chip *chip, void *data,
 
 	machine_gpiochip_add(chip);
 
+	status = gpiochip_irqchip_init_hw(chip);
+	if (status)
+		goto err_remove_acpi_chip;
+
 	status = gpiochip_irqchip_init_valid_mask(chip);
 	if (status)
 		goto err_remove_acpi_chip;
@@ -1639,6 +1644,16 @@ static struct gpio_chip *find_chip_by_name(const char *name)
 /*
  * The following is irqchip helper code for gpiochips.
  */
+
+static int gpiochip_irqchip_init_hw(struct gpio_chip *gc)
+{
+	struct gpio_irq_chip *girq = &gc->irq;
+
+	if (!girq->init_hw)
+		return 0;
+
+	return girq->init_hw(gc);
+}
 
 static int gpiochip_irqchip_init_valid_mask(struct gpio_chip *gpiochip)
 {
@@ -2468,8 +2483,13 @@ static inline int gpiochip_add_irqchip(struct gpio_chip *gpiochip,
 {
 	return 0;
 }
-
 static void gpiochip_irqchip_remove(struct gpio_chip *gpiochip) {}
+
+static inline int gpiochip_irqchip_init_hw(struct gpio_chip *gpiochip)
+{
+	return 0;
+}
+
 static inline int gpiochip_irqchip_init_valid_mask(struct gpio_chip *gpiochip)
 {
 	return 0;

@@ -199,6 +199,14 @@ struct gpio_irq_chip {
 	unsigned int *map;
 
 	/**
+	 * @init_hw: optional routine to initialize hardware before
+	 * an IRQ chip will be added. This is quite useful when
+	 * a particular driver wants to clear IRQ related registers
+	 * in order to avoid undesired events.
+	 */
+	int (*init_hw)(struct gpio_chip *chip);
+
+	/**
 	 * @threaded:
 	 *
 	 * True if set the interrupt handling uses nested threads.
