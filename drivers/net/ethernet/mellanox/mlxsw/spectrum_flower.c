@@ -157,6 +157,10 @@ static int mlxsw_sp_flower_parse_actions(struct mlxsw_sp *mlxsw_sp,
 				return err;
 			break;
 			}
+		case FLOW_ACTION_PRIORITY:
+			return mlxsw_sp_acl_rulei_act_priority(mlxsw_sp, rulei,
+							       act->priority,
+							       extack);
 		default:
 			NL_SET_ERR_MSG_MOD(extack, "Unsupported action");
 			dev_err(mlxsw_sp->bus_info->dev, "Unsupported action\n");
