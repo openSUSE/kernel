@@ -510,7 +510,7 @@ int snd_sof_ipc_stream_posn(struct snd_sof_dev *sdev,
 
 	/* send IPC to the DSP */
 	err = sof_ipc_tx_message(sdev->ipc,
-				 stream.hdr.cmd, &stream, sizeof(stream), posn,
+				 stream.hdr.cmd, &stream, sizeof(stream), &posn,
 				 sizeof(*posn));
 	if (err < 0) {
 		dev_err(sdev->dev, "error: failed to get stream %d position\n",
@@ -578,10 +578,8 @@ static int sof_set_get_large_ctrl_data(struct snd_sof_dev *sdev,
 	else
 		err = sof_get_ctrl_copy_params(cdata->type, partdata, cdata,
 					       sparams);
-	if (err < 0) {
-		kfree(partdata);
+	if (err < 0)
 		return err;
-	}
 
 	msg_bytes = sparams->msg_bytes;
 	pl_size = sparams->pl_size;
@@ -839,9 +837,6 @@ EXPORT_SYMBOL(snd_sof_ipc_init);
 void snd_sof_ipc_free(struct snd_sof_dev *sdev)
 {
 	struct snd_sof_ipc *ipc = sdev->ipc;
-
-	if (!ipc)
-		return;
 
 	/* disable sending of ipc's */
 	mutex_lock(&ipc->tx_mutex);

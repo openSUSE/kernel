@@ -148,14 +148,14 @@ static struct hdac_hdmi_pcm *
 hdac_hdmi_get_pcm_from_cvt(struct hdac_hdmi_priv *hdmi,
 			   struct hdac_hdmi_cvt *cvt)
 {
-	struct hdac_hdmi_pcm *pcm;
+	struct hdac_hdmi_pcm *pcm = NULL;
 
 	list_for_each_entry(pcm, &hdmi->pcm_list, head) {
 		if (pcm->cvt == cvt)
-			return pcm;
+			break;
 	}
 
-	return NULL;
+	return pcm;
 }
 
 static void hdac_hdmi_jack_report(struct hdac_hdmi_pcm *pcm,

@@ -377,7 +377,7 @@ static int azx_get_sync_time(ktime_t *device,
 	u32 wallclk_ctr, wallclk_cycles;
 	bool direction;
 	u32 dma_select;
-	u32 timeout;
+	u32 timeout = 200;
 	u32 retry_count = 0;
 
 	runtime = substream->runtime;
@@ -552,7 +552,7 @@ static int azx_get_time_info(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-static const struct snd_pcm_hardware azx_pcm_hw = {
+static struct snd_pcm_hardware azx_pcm_hw = {
 	.info =			(SNDRV_PCM_INFO_MMAP |
 				 SNDRV_PCM_INFO_INTERLEAVED |
 				 SNDRV_PCM_INFO_BLOCK_TRANSFER |
@@ -791,15 +791,48 @@ static int azx_rirb_get_response(struct hdac_bus *bus, unsigned int addr,
 {
 	struct azx *chip = bus_to_azx(bus);
 	struct hda_bus *hbus = &chip->bus;
-	int err;
+	unsigned long timeout;
+	unsigned long loopcounter;
+	int do_poll = 0;
 
  again:
-	err = snd_hdac_bus_get_response(bus, addr, res);
-	if (!err)
-		return 0;
+	timeout = jiffies + msecs_to_jiffies(1000);
+
+	for (loopcounter = 0;; loopcounter++) {
+		spin_lock_irq(&bus->reg_lock);
+		if (bus->polling_mode || do_poll)
+			snd_hdac_bus_update_rirb(bus);
+		if (!bus->rirb.cmds[addr]) {
+			if (!do_poll)
+				bus->poll_count = 0;
+			if (res)
+				*res = bus->rirb.res[addr]; /* the last value */
+			spin_unlock_irq(&bus->reg_lock);
+			return 0;
+		}
+		spin_unlock_irq(&bus->reg_lock);
+		if (time_after(jiffies, timeout))
+			break;
+		if (hbus->needs_damn_long_delay || loopcounter > 3000)
+			msleep(2); /* temporary workaround */
+		else {
+			udelay(10);
+			cond_resched();
+		}
+	}
 
 	if (hbus->no_response_fallback)
 		return -EIO;
+
+	if (!bus->polling_mode && bus->poll_count < 2) {
+		dev_dbg(chip->card->dev,
+			"azx_get_response timeout, polling the codec once: last cmd=0x%08x\n",
+			bus->last_cmd[addr]);
+		do_poll = 1;
+		bus->poll_count++;
+		goto again;
+	}
+
 
 	if (!bus->polling_mode) {
 		dev_warn(chip->card->dev,
@@ -836,9 +869,6 @@ static int azx_rirb_get_response(struct hdac_bus *bus, unsigned int addr,
 	 */
 	if (hbus->allow_bus_reset && !hbus->response_reset && !hbus->in_reset) {
 		hbus->response_reset = 1;
-		dev_err(chip->card->dev,
-			"No response from codec, resetting bus: last cmd=0x%08x\n",
-			bus->last_cmd[addr]);
 		return -EAGAIN; /* give a chance to retry */
 	}
 
@@ -1117,23 +1147,16 @@ irqreturn_t azx_interrupt(int irq, void *dev_id)
 		if (snd_hdac_bus_handle_stream_irq(bus, status, stream_update))
 			active = true;
 
+		/* clear rirb int */
 		status = azx_readb(chip, RIRBSTS);
 		if (status & RIRB_INT_MASK) {
-			/*
-			 * Clearing the interrupt status here ensures that no
-			 * interrupt gets masked after the RIRB wp is read in
-			 * snd_hdac_bus_update_rirb. This avoids a possible
-			 * race condition where codec response in RIRB may
-			 * remain unserviced by IRQ, eventually falling back
-			 * to polling mode in azx_rirb_get_response.
-			 */
-			azx_writeb(chip, RIRBSTS, RIRB_INT_MASK);
 			active = true;
 			if (status & RIRB_INT_RESPONSE) {
 				if (chip->driver_caps & AZX_DCAPS_CTX_WORKAROUND)
 					udelay(80);
 				snd_hdac_bus_update_rirb(bus);
 			}
+			azx_writeb(chip, RIRBSTS, RIRB_INT_MASK);
 		}
 	} while (active && ++repeat < 10);
 
@@ -1211,8 +1234,15 @@ int azx_bus_init(struct azx *chip, const char *model,
 	if (chip->driver_caps & AZX_DCAPS_4K_BDLE_BOUNDARY)
 		bus->core.align_bdle_4k = true;
 
-	/* enable sync_write flag for stable communication as default */
-	bus->core.sync_write = 1;
+	/* AMD chipsets often cause the communication stalls upon certain
+	 * sequence like the pin-detection.  It seems that forcing the synced
+	 * access works around the stall.  Grrr...
+	 */
+	if (chip->driver_caps & AZX_DCAPS_SYNC_WRITE) {
+		dev_dbg(chip->card->dev, "Enable sync_write for stable communication\n");
+		bus->core.sync_write = 1;
+		bus->allow_bus_reset = 1;
+	}
 
 	return 0;
 }

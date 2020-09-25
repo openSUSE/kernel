@@ -47,7 +47,7 @@ struct rate_priv {
 	unsigned int pos;
 	rate_f func;
 	snd_pcm_sframes_t old_src_frames, old_dst_frames;
-	struct rate_channel channels[];
+	struct rate_channel channels[0];
 };
 
 static void rate_init(struct snd_pcm_plugin *plugin)

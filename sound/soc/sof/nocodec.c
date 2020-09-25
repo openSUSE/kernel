@@ -14,7 +14,6 @@
 
 static struct snd_soc_card sof_nocodec_card = {
 	.name = "nocodec", /* the sof- prefix is added by the core */
-	.owner = THIS_MODULE
 };
 
 static int sof_nocodec_bes_setup(struct device *dev,
@@ -53,10 +52,8 @@ static int sof_nocodec_bes_setup(struct device *dev,
 		links[i].platforms->name = dev_name(dev);
 		links[i].codecs->dai_name = "snd-soc-dummy-dai";
 		links[i].codecs->name = "snd-soc-dummy";
-		if (ops->drv[i].playback.channels_min)
-			links[i].dpcm_playback = 1;
-		if (ops->drv[i].capture.channels_min)
-			links[i].dpcm_capture = 1;
+		links[i].dpcm_playback = 1;
+		links[i].dpcm_capture = 1;
 	}
 
 	card->dai_link = links;

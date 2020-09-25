@@ -216,6 +216,8 @@ alc298-dell-aio
     ALC298 fixups on Dell AIO machines
 alc275-dell-xps
     ALC275 fixups on Dell XPS models
+alc256-dell-xps13
+    ALC256 fixups on Dell XPS13
 lenovo-spk-noise
     Workaround for speaker noise on Lenovo machines
 lenovo-hotkey
@@ -258,9 +260,6 @@ alc295-hp-x360
     HP Spectre X360 fixups
 alc-sense-combo
     Headset button support for Chrome platform
-huawei-mbx-stereo
-    Enable initialization verbs for Huawei MBX stereo speakers;
-    might be risky, try this at your own risk
 
 ALC66x/67x/892
 ==============

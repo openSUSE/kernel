@@ -226,7 +226,7 @@ static int axg_fifo_pcm_open(struct snd_pcm_substream *ss)
 	/* Enable pclk to access registers and clock the fifo ip */
 	ret = clk_prepare_enable(fifo->pclk);
 	if (ret)
-		goto free_irq;
+		return ret;
 
 	/* Setup status2 so it reports the memory pointer */
 	regmap_update_bits(fifo->map, FIFO_CTRL1,
@@ -246,14 +246,8 @@ static int axg_fifo_pcm_open(struct snd_pcm_substream *ss)
 	/* Take memory arbitror out of reset */
 	ret = reset_control_deassert(fifo->arb);
 	if (ret)
-		goto free_clk;
+		clk_disable_unprepare(fifo->pclk);
 
-	return 0;
-
-free_clk:
-	clk_disable_unprepare(fifo->pclk);
-free_irq:
-	free_irq(fifo->irq, ss);
 	return ret;
 }
 

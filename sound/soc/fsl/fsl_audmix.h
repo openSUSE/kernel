@@ -96,7 +96,6 @@ struct fsl_audmix {
 	struct platform_device *pdev;
 	struct regmap *regmap;
 	struct clk *ipg_clk;
-	spinlock_t lock; /* Protect tdms */
 	u8 tdms;
 };
 

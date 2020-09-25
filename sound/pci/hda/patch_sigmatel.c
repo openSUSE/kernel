@@ -795,7 +795,7 @@ static int find_mute_led_cfg(struct hda_codec *codec, int default_polarity)
 static bool has_builtin_speaker(struct hda_codec *codec)
 {
 	struct sigmatel_spec *spec = codec->spec;
-	const hda_nid_t *nid_pin;
+	hda_nid_t *nid_pin;
 	int nids, i;
 
 	if (spec->gen.autocfg.line_out_type == AUTO_PIN_SPEAKER_OUT) {
@@ -825,14 +825,14 @@ static int stac_auto_create_beep_ctls(struct hda_codec *codec,
 	struct sigmatel_spec *spec = codec->spec;
 	u32 caps = query_amp_caps(codec, nid, HDA_OUTPUT);
 	struct snd_kcontrol_new *knew;
-	static const struct snd_kcontrol_new abeep_mute_ctl =
+	static struct snd_kcontrol_new abeep_mute_ctl =
 		HDA_CODEC_MUTE(NULL, 0, 0, 0);
-	static const struct snd_kcontrol_new dbeep_mute_ctl =
+	static struct snd_kcontrol_new dbeep_mute_ctl =
 		HDA_CODEC_MUTE_BEEP(NULL, 0, 0, 0);
-	static const struct snd_kcontrol_new beep_vol_ctl =
+	static struct snd_kcontrol_new beep_vol_ctl =
 		HDA_CODEC_VOLUME(NULL, 0, 0, 0);
 
-	/* check for mute support for the amp */
+	/* check for mute support for the the amp */
 	if ((caps & AC_AMPCAP_MUTE) >> AC_AMPCAP_MUTE_SHIFT) {
 		const struct snd_kcontrol_new *temp;
 		if (spec->anabeep_nid == nid)
@@ -974,6 +974,15 @@ static int stac_create_spdif_mux_ctls(struct hda_codec *codec)
 
 	return 0;
 }
+
+/*
+ */
+
+static const struct hda_verb stac9200_core_init[] = {
+	/* set dac0mux for dac converter */
+	{ 0x07, AC_VERB_SET_CONNECT_SEL, 0x00},
+	{}
+};
 
 static const struct hda_verb stac9200_eapd_init[] = {
 	/* set dac0mux for dac converter */
@@ -2182,7 +2191,7 @@ static void hp_envy_ts_fixup_dac_bind(struct hda_codec *codec,
 					    int action)
 {
 	struct sigmatel_spec *spec = codec->spec;
-	static const hda_nid_t preferred_pairs[] = {
+	static hda_nid_t preferred_pairs[] = {
 		0xd, 0x13,
 		0
 	};
@@ -4908,7 +4917,7 @@ static int patch_stac927x(struct hda_codec *codec)
 	 * The below flag enables the longer delay (see get_response
 	 * in hda_intel.c).
 	 */
-	codec->bus->core.needs_damn_long_delay = 1;
+	codec->bus->needs_damn_long_delay = 1;
 
 	snd_hda_apply_fixup(codec, HDA_FIXUP_ACT_PROBE);
 

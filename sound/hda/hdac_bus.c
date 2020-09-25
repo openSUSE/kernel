@@ -41,20 +41,7 @@ int snd_hdac_bus_init(struct hdac_bus *bus, struct device *dev,
 	mutex_init(&bus->cmd_mutex);
 	mutex_init(&bus->lock);
 	INIT_LIST_HEAD(&bus->hlink_list);
-	init_waitqueue_head(&bus->rirb_wq);
 	bus->irq = -1;
-
-	/*
-	 * Default value of '8' is as per the HD audio specification (Rev 1.0a).
-	 * Following relation is used to derive STRIPE control value.
-	 *  For sample rate <= 48K:
-	 *   { ((num_channels * bits_per_sample) / number of SDOs) >= 8 }
-	 *  For sample rate > 48K:
-	 *   { ((num_channels * bits_per_sample * rate/48000) /
-	 *	number of SDOs) >= 8 }
-	 */
-	bus->sdo_limit = 8;
-
 	return 0;
 }
 EXPORT_SYMBOL_GPL(snd_hdac_bus_init);
@@ -169,7 +156,6 @@ void snd_hdac_bus_process_unsol_events(struct work_struct *work)
 	struct hdac_driver *drv;
 	unsigned int rp, caddr, res;
 
-	spin_lock_irq(&bus->reg_lock);
 	while (bus->unsol_rp != bus->unsol_wp) {
 		rp = (bus->unsol_rp + 1) % HDA_UNSOL_QUEUE_SIZE;
 		bus->unsol_rp = rp;
@@ -181,13 +167,10 @@ void snd_hdac_bus_process_unsol_events(struct work_struct *work)
 		codec = bus->caddr_tbl[caddr & 0x0f];
 		if (!codec || !codec->dev.driver)
 			continue;
-		spin_unlock_irq(&bus->reg_lock);
 		drv = drv_to_hdac_driver(codec->dev.driver);
 		if (drv->unsol_event)
 			drv->unsol_event(codec, res);
-		spin_lock_irq(&bus->reg_lock);
 	}
-	spin_unlock_irq(&bus->reg_lock);
 }
 EXPORT_SYMBOL_GPL(snd_hdac_bus_process_unsol_events);
 

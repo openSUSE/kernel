@@ -86,7 +86,6 @@ struct hdac_device {
 
 	/* regmap */
 	struct regmap *regmap;
-	struct mutex regmap_lock;
 	struct snd_array vendor_verbs;
 	bool lazy_cache:1;	/* don't wake up for writes */
 	bool caps_overwriting:1; /* caps overwrite being in process */
@@ -341,7 +340,6 @@ struct hdac_bus {
 	struct hdac_rb corb;
 	struct hdac_rb rirb;
 	unsigned int last_cmd[HDA_MAX_CODECS];	/* last sent command */
-	wait_queue_head_t rirb_wq;
 
 	/* CORB/RIRB and position buffers */
 	struct snd_dma_buffer rb;
@@ -361,7 +359,6 @@ struct hdac_bus {
 	bool reverse_assign:1;		/* assign devices in reverse order */
 	bool corbrp_self_clear:1;	/* CORBRP clears itself after reset */
 	bool polling_mode:1;
-	bool needs_damn_long_delay:1;
 
 	int poll_count;
 
@@ -384,9 +381,6 @@ struct hdac_bus {
 	/* link management */
 	struct list_head hlink_list;
 	bool cmd_dma_state;
-
-	/* factor used to derive STRIPE control value */
-	unsigned int sdo_limit;
 };
 
 int snd_hdac_bus_init(struct hdac_bus *bus, struct device *dev,
@@ -510,7 +504,6 @@ struct hdac_stream {
 	bool prepared:1;
 	bool no_period_wakeup:1;
 	bool locked:1;
-	bool stripe:1;			/* apply stripe control */
 
 	/* timestamp */
 	unsigned long start_wallclk;	/* start + minimum wallclk */

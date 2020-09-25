@@ -10,7 +10,6 @@
 #include <linux/mm.h>
 #include <linux/dma-mapping.h>
 #include <linux/genalloc.h>
-#include <linux/vmalloc.h>
 #ifdef CONFIG_X86
 #include <asm/set_memory.h>
 #endif
@@ -100,14 +99,6 @@ static void snd_free_dev_iram(struct snd_dma_buffer *dmab)
  *
  */
 
-static inline gfp_t snd_mem_get_gfp_flags(const struct device *dev,
-					  gfp_t default_gfp)
-{
-	if (!dev)
-		return default_gfp;
-	else
-		return (__force gfp_t)(unsigned long)dev;
-}
 
 /**
  * snd_dma_alloc_pages - allocate the buffer area according to the given type
@@ -125,25 +116,20 @@ static inline gfp_t snd_mem_get_gfp_flags(const struct device *dev,
 int snd_dma_alloc_pages(int type, struct device *device, size_t size,
 			struct snd_dma_buffer *dmab)
 {
-	gfp_t gfp;
-
 	if (WARN_ON(!size))
 		return -ENXIO;
 	if (WARN_ON(!dmab))
 		return -ENXIO;
+	if (WARN_ON(!device))
+		return -EINVAL;
 
 	dmab->dev.type = type;
 	dmab->dev.dev = device;
 	dmab->bytes = 0;
 	switch (type) {
 	case SNDRV_DMA_TYPE_CONTINUOUS:
-		gfp = snd_mem_get_gfp_flags(device, GFP_KERNEL);
-		dmab->area = alloc_pages_exact(size, gfp);
-		dmab->addr = 0;
-		break;
-	case SNDRV_DMA_TYPE_VMALLOC:
-		gfp = snd_mem_get_gfp_flags(device, GFP_KERNEL | __GFP_HIGHMEM);
-		dmab->area = __vmalloc(size, gfp, PAGE_KERNEL);
+		dmab->area = alloc_pages_exact(size,
+					       (__force gfp_t)(unsigned long)device);
 		dmab->addr = 0;
 		break;
 #ifdef CONFIG_HAS_DMA
@@ -228,9 +214,6 @@ void snd_dma_free_pages(struct snd_dma_buffer *dmab)
 	switch (dmab->dev.type) {
 	case SNDRV_DMA_TYPE_CONTINUOUS:
 		free_pages_exact(dmab->area, dmab->bytes);
-		break;
-	case SNDRV_DMA_TYPE_VMALLOC:
-		vfree(dmab->area);
 		break;
 #ifdef CONFIG_HAS_DMA
 #ifdef CONFIG_GENERIC_ALLOCATOR

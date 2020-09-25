@@ -252,7 +252,8 @@ end:
 	return err;
 }
 
-static int map_data_channels(struct snd_bebob *bebob, struct amdtp_stream *s)
+static unsigned int
+map_data_channels(struct snd_bebob *bebob, struct amdtp_stream *s)
 {
 	unsigned int sec, sections, ch, channels;
 	unsigned int pcm, midi, location;
@@ -415,16 +416,15 @@ static int make_both_connections(struct snd_bebob *bebob)
 	return 0;
 }
 
-static void break_both_connections(struct snd_bebob *bebob)
+static void
+break_both_connections(struct snd_bebob *bebob)
 {
 	cmp_connection_break(&bebob->in_conn);
 	cmp_connection_break(&bebob->out_conn);
 
-	// These models seem to be in transition state for a longer time. When
-	// accessing in the state, any transactions is corrupted. In the worst
-	// case, the device is going to reboot.
-	if (bebob->version < 2)
-		msleep(600);
+	/* These models seems to be in transition state for a longer time. */
+	if (bebob->maudio_special_quirk != NULL)
+		msleep(200);
 }
 
 static int

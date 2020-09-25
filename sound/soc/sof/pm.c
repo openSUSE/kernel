@@ -233,7 +233,7 @@ static int sof_set_hw_params_upon_resume(struct snd_sof_dev *sdev)
 
 			state = substream->runtime->status->state;
 			if (state == SNDRV_PCM_STATE_SUSPENDED)
-				spcm->prepared[dir] = false;
+				spcm->hw_params_upon_resume[dir] = 1;
 		}
 	}
 
@@ -266,10 +266,7 @@ static int sof_resume(struct device *dev, bool runtime_resume)
 	int ret;
 
 	/* do nothing if dsp resume callbacks are not set */
-	if (!runtime_resume && !sof_ops(sdev)->resume)
-		return 0;
-
-	if (runtime_resume && !sof_ops(sdev)->runtime_resume)
+	if (!sof_ops(sdev)->resume || !sof_ops(sdev)->runtime_resume)
 		return 0;
 
 	/*
@@ -338,10 +335,7 @@ static int sof_suspend(struct device *dev, bool runtime_suspend)
 	int ret;
 
 	/* do nothing if dsp suspend callback is not set */
-	if (!runtime_suspend && !sof_ops(sdev)->suspend)
-		return 0;
-
-	if (runtime_suspend && !sof_ops(sdev)->runtime_suspend)
+	if (!sof_ops(sdev)->suspend)
 		return 0;
 
 	/* release trace */

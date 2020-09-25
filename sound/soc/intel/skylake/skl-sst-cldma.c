@@ -8,7 +8,6 @@
  */
 
 #include <linux/device.h>
-#include <linux/io.h>
 #include <linux/mm.h>
 #include <linux/delay.h>
 #include "../common/sst-dsp.h"

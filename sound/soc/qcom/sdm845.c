@@ -412,8 +412,10 @@ static int sdm845_snd_platform_probe(struct platform_device *pdev)
 	card->dev = dev;
 	dev_set_drvdata(dev, card);
 	ret = qcom_snd_parse_of(card);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "Error parsing OF data\n");
 		goto parse_dt_fail;
+	}
 
 	data->card = card;
 	snd_soc_card_set_drvdata(card, data);

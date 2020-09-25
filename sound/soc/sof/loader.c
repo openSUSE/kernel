@@ -50,7 +50,8 @@ int snd_sof_fw_parse_ext_data(struct snd_sof_dev *sdev, u32 bar, u32 offset)
 
 	while (ext_hdr->hdr.cmd == SOF_IPC_FW_READY) {
 		/* read in ext structure */
-		snd_sof_dsp_block_read(sdev, bar, offset + sizeof(*ext_hdr),
+		offset += sizeof(*ext_hdr);
+		snd_sof_dsp_block_read(sdev, bar, offset,
 				   (void *)((u8 *)ext_data + sizeof(*ext_hdr)),
 				   ext_hdr->hdr.size - sizeof(*ext_hdr));
 
@@ -60,15 +61,11 @@ int snd_sof_fw_parse_ext_data(struct snd_sof_dev *sdev, u32 bar, u32 offset)
 		/* process structure data */
 		switch (ext_hdr->type) {
 		case SOF_IPC_EXT_DMA_BUFFER:
-			ret = 0;
 			break;
 		case SOF_IPC_EXT_WINDOW:
 			ret = get_ext_windows(sdev, ext_hdr);
 			break;
 		default:
-			dev_warn(sdev->dev, "warning: unknown ext header type %d size 0x%x\n",
-				 ext_hdr->type, ext_hdr->hdr.size);
-			ret = 0;
 			break;
 		}
 
@@ -373,10 +370,10 @@ int snd_sof_run_firmware(struct snd_sof_dev *sdev)
 				 msecs_to_jiffies(sdev->boot_timeout));
 	if (ret == 0) {
 		dev_err(sdev->dev, "error: firmware boot failure\n");
-		snd_sof_dsp_dbg_dump(sdev, SOF_DBG_REGS | SOF_DBG_MBOX |
-			SOF_DBG_TEXT | SOF_DBG_PCI);
 		/* after this point FW_READY msg should be ignored */
 		sdev->boot_complete = true;
+		snd_sof_dsp_dbg_dump(sdev, SOF_DBG_REGS | SOF_DBG_MBOX |
+			SOF_DBG_TEXT | SOF_DBG_PCI);
 		return -EIO;
 	}
 

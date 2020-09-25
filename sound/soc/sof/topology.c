@@ -437,22 +437,18 @@ static int sof_control_load_volume(struct snd_soc_component *scomp,
 	struct sof_ipc_ctrl_data *cdata;
 	int tlv[TLV_ITEMS];
 	unsigned int i;
-	int ret = 0;
+	int ret;
 
 	/* validate topology data */
-	if (le32_to_cpu(mc->num_channels) > SND_SOC_TPLG_MAX_CHAN) {
-		ret = -EINVAL;
-		goto out;
-	}
+	if (le32_to_cpu(mc->num_channels) > SND_SOC_TPLG_MAX_CHAN)
+		return -EINVAL;
 
 	/* init the volume get/put data */
 	scontrol->size = struct_size(scontrol->control_data, chanv,
 				     le32_to_cpu(mc->num_channels));
 	scontrol->control_data = kzalloc(scontrol->size, GFP_KERNEL);
-	if (!scontrol->control_data) {
-		ret = -ENOMEM;
-		goto out;
-	}
+	if (!scontrol->control_data)
+		return -ENOMEM;
 
 	scontrol->comp_id = sdev->next_comp_id;
 	scontrol->min_volume_step = le32_to_cpu(mc->min);
@@ -462,7 +458,7 @@ static int sof_control_load_volume(struct snd_soc_component *scomp,
 	/* set cmd for mixer control */
 	if (le32_to_cpu(mc->max) == 1) {
 		scontrol->cmd = SOF_CTRL_CMD_SWITCH;
-		goto skip;
+		goto out;
 	}
 
 	scontrol->cmd = SOF_CTRL_CMD_VOLUME;
@@ -470,15 +466,14 @@ static int sof_control_load_volume(struct snd_soc_component *scomp,
 	/* extract tlv data */
 	if (get_tlv_data(kc->tlv.p, tlv) < 0) {
 		dev_err(sdev->dev, "error: invalid TLV data\n");
-		ret = -EINVAL;
-		goto out_free;
+		return -EINVAL;
 	}
 
 	/* set up volume table */
 	ret = set_up_volume_table(scontrol, tlv, le32_to_cpu(mc->max) + 1);
 	if (ret < 0) {
 		dev_err(sdev->dev, "error: setting up volume table\n");
-		goto out_free;
+		return ret;
 	}
 
 	/* set default volume values to 0dB in control */
@@ -488,16 +483,11 @@ static int sof_control_load_volume(struct snd_soc_component *scomp,
 		cdata->chanv[i].value = VOL_ZERO_DB;
 	}
 
-skip:
+out:
 	dev_dbg(sdev->dev, "tplg: load kcontrol index %d chans %d\n",
 		scontrol->comp_id, scontrol->num_channels);
 
-	return ret;
-
-out_free:
-	kfree(scontrol->control_data);
-out:
-	return ret;
+	return 0;
 }
 
 static int sof_control_load_enum(struct snd_soc_component *scomp,
@@ -542,25 +532,20 @@ static int sof_control_load_bytes(struct snd_soc_component *scomp,
 		container_of(hdr, struct snd_soc_tplg_bytes_control, hdr);
 	struct soc_bytes_ext *sbe = (struct soc_bytes_ext *)kc->private_value;
 	int max_size = sbe->max;
-	int ret = 0;
+
+	if (le32_to_cpu(control->priv.size) > max_size) {
+		dev_err(sdev->dev, "err: bytes data size %d exceeds max %d.\n",
+			control->priv.size, max_size);
+		return -EINVAL;
+	}
 
 	/* init the get/put bytes data */
 	scontrol->size = sizeof(struct sof_ipc_ctrl_data) +
 		le32_to_cpu(control->priv.size);
-
-	if (scontrol->size > max_size) {
-		dev_err(sdev->dev, "err: bytes data size %d exceeds max %d.\n",
-			scontrol->size, max_size);
-		ret = -EINVAL;
-		goto out;
-	}
-
 	scontrol->control_data = kzalloc(max_size, GFP_KERNEL);
 	cdata = scontrol->control_data;
-	if (!scontrol->control_data) {
-		ret = -ENOMEM;
-		goto out;
-	}
+	if (!scontrol->control_data)
+		return -ENOMEM;
 
 	scontrol->comp_id = sdev->next_comp_id;
 	scontrol->cmd = SOF_CTRL_CMD_BINARY;
@@ -575,32 +560,23 @@ static int sof_control_load_bytes(struct snd_soc_component *scomp,
 		if (cdata->data->magic != SOF_ABI_MAGIC) {
 			dev_err(sdev->dev, "error: Wrong ABI magic 0x%08x.\n",
 				cdata->data->magic);
-			ret = -EINVAL;
-			goto out_free;
+			return -EINVAL;
 		}
 		if (SOF_ABI_VERSION_INCOMPATIBLE(SOF_ABI_VERSION,
 						 cdata->data->abi)) {
 			dev_err(sdev->dev,
 				"error: Incompatible ABI version 0x%08x.\n",
 				cdata->data->abi);
-			ret = -EINVAL;
-			goto out_free;
+			return -EINVAL;
 		}
 		if (cdata->data->size + sizeof(const struct sof_abi_hdr) !=
 		    le32_to_cpu(control->priv.size)) {
 			dev_err(sdev->dev,
 				"error: Conflict in bytes vs. priv size.\n");
-			ret = -EINVAL;
-			goto out_free;
+			return -EINVAL;
 		}
 	}
-
-	return ret;
-
-out_free:
-	kfree(scontrol->control_data);
-out:
-	return ret;
+	return 0;
 }
 
 /*
@@ -931,9 +907,7 @@ static void sof_parse_word_tokens(struct snd_soc_component *scomp,
 		for (j = 0; j < count; j++) {
 			/* match token type */
 			if (!(tokens[j].type == SND_SOC_TPLG_TUPLE_TYPE_WORD ||
-			      tokens[j].type == SND_SOC_TPLG_TUPLE_TYPE_SHORT ||
-			      tokens[j].type == SND_SOC_TPLG_TUPLE_TYPE_BYTE ||
-			      tokens[j].type == SND_SOC_TPLG_TUPLE_TYPE_BOOL))
+			      tokens[j].type == SND_SOC_TPLG_TUPLE_TYPE_SHORT))
 				continue;
 
 			/* match token id */
@@ -1103,11 +1077,6 @@ static int sof_control_load(struct snd_soc_component *scomp, int index,
 			 hdr->ops.get, hdr->ops.put, hdr->ops.info);
 		kfree(scontrol);
 		return 0;
-	}
-
-	if (ret < 0) {
-		kfree(scontrol);
-		return ret;
 	}
 
 	dobj->private = scontrol;
@@ -2741,10 +2710,6 @@ static int sof_link_load(struct snd_soc_component *scomp, int index,
 	 */
 	if (!link->no_pcm) {
 		link->nonatomic = true;
-
-		/* set trigger order */
-		link->trigger[0] = SND_SOC_DPCM_TRIGGER_POST;
-		link->trigger[1] = SND_SOC_DPCM_TRIGGER_POST;
 
 		/* nothing more to do for FE dai links */
 		return 0;

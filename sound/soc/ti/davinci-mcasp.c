@@ -1824,10 +1824,8 @@ static int davinci_mcasp_get_dma_type(struct davinci_mcasp *mcasp)
 				PTR_ERR(chan));
 		return PTR_ERR(chan);
 	}
-	if (WARN_ON(!chan->device || !chan->device->dev)) {
-		dma_release_channel(chan);
+	if (WARN_ON(!chan->device || !chan->device->dev))
 		return -EINVAL;
-	}
 
 	if (chan->device->dev->of_node)
 		ret = of_property_read_string(chan->device->dev->of_node,

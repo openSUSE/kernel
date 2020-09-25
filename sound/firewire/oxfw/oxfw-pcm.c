@@ -255,7 +255,7 @@ static int pcm_playback_hw_params(struct snd_pcm_substream *substream,
 		mutex_unlock(&oxfw->mutex);
 	}
 
-	return err;
+	return 0;
 }
 
 static int pcm_capture_hw_free(struct snd_pcm_substream *substream)

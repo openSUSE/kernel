@@ -681,8 +681,6 @@ static int usX2Y_rate_set(struct usX2Ydev *usX2Y, int rate)
 			us->submitted =	2*NOOF_SETRATE_URBS;
 			for (i = 0; i < NOOF_SETRATE_URBS; ++i) {
 				struct urb *urb = us->urb[i];
-				if (!urb)
-					continue;
 				if (urb->status) {
 					if (!err)
 						err = -ENODEV;
@@ -917,12 +915,11 @@ static const struct snd_pcm_ops snd_usX2Y_pcm_ops =
  */
 static void usX2Y_audio_stream_free(struct snd_usX2Y_substream **usX2Y_substream)
 {
-	int stream;
+	kfree(usX2Y_substream[SNDRV_PCM_STREAM_PLAYBACK]);
+	usX2Y_substream[SNDRV_PCM_STREAM_PLAYBACK] = NULL;
 
-	for_each_pcm_streams(stream) {
-		kfree(usX2Y_substream[stream]);
-		usX2Y_substream[stream] = NULL;
-	}
+	kfree(usX2Y_substream[SNDRV_PCM_STREAM_CAPTURE]);
+	usX2Y_substream[SNDRV_PCM_STREAM_CAPTURE] = NULL;
 }
 
 static void snd_usX2Y_pcm_private_free(struct snd_pcm *pcm)

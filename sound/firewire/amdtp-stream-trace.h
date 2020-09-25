@@ -66,7 +66,8 @@ TRACE_EVENT(amdtp_packet,
 		__entry->irq,
 		__entry->index,
 		__print_array(__get_dynamic_array(cip_header),
-			      __get_dynamic_array_len(cip_header), 1))
+			      __get_dynamic_array_len(cip_header),
+			      sizeof(u8)))
 );
 
 #endif

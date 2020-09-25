@@ -19,24 +19,21 @@
 struct media_device;
 struct media_intf_devnode;
 
-#define MAX_CARD_INTERFACES	16
-
 struct snd_usb_audio {
 	int index;
 	struct usb_device *dev;
 	struct snd_card *card;
-	struct usb_interface *intf[MAX_CARD_INTERFACES];
+	struct usb_interface *pm_intf;
 	u32 usb_id;
 	struct mutex mutex;
-	unsigned int system_suspend;
+	unsigned int autosuspended:1;	
 	atomic_t active;
 	atomic_t shutdown;
 	atomic_t usage_count;
 	wait_queue_head_t shutdown_wait;
 	unsigned int txfr_quirk:1; /* Subframe boundaries on transfers */
 	unsigned int tx_length_quirk:1; /* Put length specifier in transfers */
-	unsigned int setup_fmt_after_resume_quirk:1; /* setup the format to interface after resume */
-	unsigned int need_delayed_register:1; /* warn for delayed registration */
+	
 	int num_interfaces;
 	int num_suspended_intf;
 	int sample_rate_read_error;
@@ -101,8 +98,6 @@ enum quirk_type {
 	QUIRK_AUDIO_EDIROL_UAXX,
 	QUIRK_AUDIO_ALIGN_TRANSFER,
 	QUIRK_AUDIO_STANDARD_MIXER,
-	QUIRK_SETUP_FMT_AFTER_RESUME,
-	QUIRK_SETUP_DISABLE_AUTOSUSPEND,
 
 	QUIRK_TYPE_COUNT
 };
@@ -125,6 +120,5 @@ int snd_usb_lock_shutdown(struct snd_usb_audio *chip);
 void snd_usb_unlock_shutdown(struct snd_usb_audio *chip);
 
 extern bool snd_usb_use_vmalloc;
-extern bool snd_usb_skip_validation;
 
 #endif /* __USBAUDIO_H */

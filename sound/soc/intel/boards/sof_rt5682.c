@@ -34,10 +34,6 @@
 #define SOF_RT5682_SSP_AMP(quirk)	\
 	(((quirk) << SOF_RT5682_SSP_AMP_SHIFT) & SOF_RT5682_SSP_AMP_MASK)
 #define SOF_RT5682_MCLK_BYTCHT_EN		BIT(9)
-#define SOF_RT5682_NUM_HDMIDEV_SHIFT		10
-#define SOF_RT5682_NUM_HDMIDEV_MASK		(GENMASK(12, 10))
-#define SOF_RT5682_NUM_HDMIDEV(quirk)	\
-	((quirk << SOF_RT5682_NUM_HDMIDEV_SHIFT) & SOF_RT5682_NUM_HDMIDEV_MASK)
 
 /* Default: MCLK on, MCLK 19.2M, SSP0  */
 static unsigned long sof_rt5682_quirk = SOF_RT5682_MCLK_EN |
@@ -345,7 +341,7 @@ static int speaker_codec_init(struct snd_soc_pcm_runtime *rtd)
 
 /* sof audio machine driver for rt5682 codec */
 static struct snd_soc_card sof_audio_card_rt5682 = {
-	.name = "rt5682", /* the sof- prefix is added by the core */
+	.name = "sof_rt5682",
 	.owner = THIS_MODULE,
 	.controls = sof_controls,
 	.num_controls = ARRAY_SIZE(sof_controls),
@@ -559,19 +555,6 @@ static int sof_audio_probe(struct platform_device *pdev)
 	if (!ctx)
 		return -ENOMEM;
 
-	if (pdev->id_entry && pdev->id_entry->driver_data)
-		sof_rt5682_quirk = (unsigned long)pdev->id_entry->driver_data;
-
-	dmi_check_system(sof_rt5682_quirk_table);
-
-	mach = (&pdev->dev)->platform_data;
-
-	/* A speaker amp might not be present when the quirk claims one is.
-	 * Detect this via whether the machine driver match includes quirk_data.
-	 */
-	if ((sof_rt5682_quirk & SOF_SPEAKER_AMP_PRESENT) && !mach->quirk_data)
-		sof_rt5682_quirk &= ~SOF_SPEAKER_AMP_PRESENT;
-
 	if (soc_intel_is_byt() || soc_intel_is_cht()) {
 		is_legacy_cpu = 1;
 		dmic_be_num = 0;
@@ -582,25 +565,14 @@ static int sof_audio_probe(struct platform_device *pdev)
 						SOF_RT5682_SSP_CODEC(2);
 	} else {
 		dmic_be_num = 2;
-		hdmi_num = (sof_rt5682_quirk & SOF_RT5682_NUM_HDMIDEV_MASK) >>
-			 SOF_RT5682_NUM_HDMIDEV_SHIFT;
-		/* default number of HDMI DAI's */
-		if (!hdmi_num)
-			hdmi_num = 3;
+		hdmi_num = 3;
 	}
+
+	dmi_check_system(sof_rt5682_quirk_table);
 
 	/* need to get main clock from pmc */
 	if (sof_rt5682_quirk & SOF_RT5682_MCLK_BYTCHT_EN) {
 		ctx->mclk = devm_clk_get(&pdev->dev, "pmc_plt_clk_3");
-		if (IS_ERR(ctx->mclk)) {
-			ret = PTR_ERR(ctx->mclk);
-
-			dev_err(&pdev->dev,
-				"Failed to get MCLK from pmc_plt_clk_3: %d\n",
-				ret);
-			return ret;
-		}
-
 		ret = clk_prepare_enable(ctx->mclk);
 		if (ret < 0) {
 			dev_err(&pdev->dev,
@@ -632,6 +604,7 @@ static int sof_audio_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&ctx->hdmi_pcm_list);
 
 	sof_audio_card_rt5682.dev = &pdev->dev;
+	mach = (&pdev->dev)->platform_data;
 
 	/* set platform name for each dailink */
 	ret = snd_soc_fixup_dai_links_platform_name(&sof_audio_card_rt5682,
@@ -645,44 +618,12 @@ static int sof_audio_probe(struct platform_device *pdev)
 					  &sof_audio_card_rt5682);
 }
 
-static int sof_rt5682_remove(struct platform_device *pdev)
-{
-	struct snd_soc_card *card = platform_get_drvdata(pdev);
-	struct snd_soc_component *component = NULL;
-
-	for_each_card_components(card, component) {
-		if (!strcmp(component->name, rt5682_component[0].name)) {
-			snd_soc_component_set_jack(component, NULL, NULL);
-			break;
-		}
-	}
-
-	return 0;
-}
-
-static const struct platform_device_id board_ids[] = {
-	{
-		.name = "sof_rt5682",
-	},
-	{
-		.name = "tgl_max98357a_rt5682",
-		.driver_data = (kernel_ulong_t)(SOF_RT5682_MCLK_EN |
-					SOF_RT5682_SSP_CODEC(0) |
-					SOF_SPEAKER_AMP_PRESENT |
-					SOF_RT5682_SSP_AMP(1) |
-					SOF_RT5682_NUM_HDMIDEV(4)),
-	},
-	{ }
-};
-
 static struct platform_driver sof_audio = {
 	.probe = sof_audio_probe,
-	.remove = sof_rt5682_remove,
 	.driver = {
 		.name = "sof_rt5682",
 		.pm = &snd_soc_pm_ops,
 	},
-	.id_table = board_ids,
 };
 module_platform_driver(sof_audio)
 
@@ -692,4 +633,3 @@ MODULE_AUTHOR("Bard Liao <bard.liao@intel.com>");
 MODULE_AUTHOR("Sathya Prakash M R <sathya.prakash.m.r@intel.com>");
 MODULE_LICENSE("GPL v2");
 MODULE_ALIAS("platform:sof_rt5682");
-MODULE_ALIAS("platform:tgl_max98357a_rt5682");

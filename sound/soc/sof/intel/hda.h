@@ -39,6 +39,7 @@
 #define SOF_HDA_WAKESTS			0x0E
 #define SOF_HDA_WAKESTS_INT_MASK	((1 << 8) - 1)
 #define SOF_HDA_RIRBSTS			0x5d
+#define SOF_HDA_VS_EM2_L1SEN            BIT(13)
 
 /* SOF_HDA_GCTL register bist */
 #define SOF_HDA_GCTL_RESET		BIT(0)
@@ -227,10 +228,6 @@
 #define HDA_DSP_REG_HIPCIE		(HDA_DSP_IPC_BASE + 0x0C)
 #define HDA_DSP_REG_HIPCCTL		(HDA_DSP_IPC_BASE + 0x10)
 
-/* Intel Vendor Specific Registers */
-#define HDA_VS_INTEL_EM2		0x1030
-#define HDA_VS_INTEL_EM2_L1SEN		BIT(13)
-
 /*  HIPCI */
 #define HDA_DSP_REG_HIPCI_BUSY		BIT(31)
 #define HDA_DSP_REG_HIPCI_MSG_MASK	0x7FFFFFFF
@@ -336,7 +333,7 @@
 
 /* Number of DAIs */
 #if IS_ENABLED(CONFIG_SND_SOC_SOF_HDA)
-#define SOF_SKL_NUM_DAIS		15
+#define SOF_SKL_NUM_DAIS		14
 #else
 #define SOF_SKL_NUM_DAIS		8
 #endif
