@@ -26,6 +26,9 @@ enum gpio_lookup_flags;
 
 struct gpio_chip;
 
+#define GPIO_LINE_DIRECTION_IN	1
+#define GPIO_LINE_DIRECTION_OUT	0
+
 /**
  * struct gpio_irq_chip - GPIO interrupt controller
  */
@@ -197,6 +200,14 @@ struct gpio_irq_chip {
 	 * A list of interrupt parents for each line of a GPIO chip.
 	 */
 	unsigned int *map;
+
+	/**
+	 * @init_hw: optional routine to initialize hardware before
+	 * an IRQ chip will be added. This is quite useful when
+	 * a particular driver wants to clear IRQ related registers
+	 * in order to avoid undesired events.
+	 */
+	int (*init_hw)(struct gpio_chip *chip);
 
 	/**
 	 * @threaded:
