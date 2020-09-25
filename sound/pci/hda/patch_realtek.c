@@ -2841,7 +2841,8 @@ static int patch_alc268(struct hda_codec *codec)
 		return err;
 
 	spec = codec->spec;
-	spec->gen.beep_nid = 0x01;
+	if (has_cdefine_beep(codec))
+		spec->gen.beep_nid = 0x01;
 
 	spec->shutup = alc_eapd_shutup;
 
@@ -8110,7 +8111,8 @@ static int patch_alc861(struct hda_codec *codec)
 		return err;
 
 	spec = codec->spec;
-	spec->gen.beep_nid = 0x23;
+	if (has_cdefine_beep(codec))
+		spec->gen.beep_nid = 0x23;
 
 #ifdef CONFIG_PM
 	spec->power_hook = alc_power_eapd;
@@ -8211,7 +8213,8 @@ static int patch_alc861vd(struct hda_codec *codec)
 		return err;
 
 	spec = codec->spec;
-	spec->gen.beep_nid = 0x23;
+	if (has_cdefine_beep(codec))
+		spec->gen.beep_nid = 0x23;
 
 	spec->shutup = alc_eapd_shutup;
 
