@@ -18,7 +18,6 @@
 #include <net/netfilter/nf_conntrack_seqadj.h>
 
 #include <linux/netfilter/nf_tables.h>
-#include <net/netfilter/ipv6/nf_defrag_ipv6.h>
 #include <net/netfilter/nf_tables.h>
 
 #include "../br_private.h"
