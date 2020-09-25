@@ -25,6 +25,7 @@
 
 extern void ipt_init(void) __init;
 
+#if IS_ENABLED(CONFIG_NETFILTER)
 int ipt_register_table(struct net *net, const struct xt_table *table,
 		       const struct ipt_replace *repl,
 		       const struct nf_hook_ops *ops, struct xt_table **res);
@@ -36,6 +37,7 @@ void ipt_unregister_table_exit(struct net *net, struct xt_table *table);
 
 void ipt_unregister_table(struct net *net, struct xt_table *table,
 			  const struct nf_hook_ops *ops);
+#endif
 
 /* Standard entry. */
 struct ipt_standard {
@@ -71,9 +73,11 @@ struct ipt_error {
 }
 
 extern void *ipt_alloc_initial_table(const struct xt_table *);
+#if IS_ENABLED(CONFIG_NETFILTER)
 extern unsigned int ipt_do_table(struct sk_buff *skb,
 				 const struct nf_hook_state *state,
 				 struct xt_table *table);
+#endif
 
 #ifdef CONFIG_COMPAT
 #include <net/compat.h>
