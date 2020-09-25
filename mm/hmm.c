@@ -301,11 +301,16 @@ static int hmm_vma_do_fault(struct mm_walk *walk, unsigned long addr,
 	if (!vma)
 		goto err;
 
-	flags |= hmm_vma_walk->block ? 0 : FAULT_FLAG_ALLOW_RETRY;
-	flags |= write_fault ? FAULT_FLAG_WRITE : 0;
+	if (hmm_vma_walk->flags & HMM_FAULT_ALLOW_RETRY)
+		flags |= FAULT_FLAG_ALLOW_RETRY;
+	if (write_fault)
+		flags |= FAULT_FLAG_WRITE;
+
 	ret = handle_mm_fault(vma, addr, flags);
-	if (ret & VM_FAULT_RETRY)
+	if (ret & VM_FAULT_RETRY) {
+		/* Note, handle_mm_fault did up_read(&mm->mmap_sem)) */
 		return -EAGAIN;
+	}
 	if (ret & VM_FAULT_ERROR)
 		goto err;
 
