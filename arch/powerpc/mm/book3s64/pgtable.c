@@ -217,6 +217,11 @@ void mmu_partition_table_set_entry(unsigned int lpid, unsigned long dw0,
 	partition_tb[lpid].patb0 = cpu_to_be64(dw0);
 	partition_tb[lpid].patb1 = cpu_to_be64(dw1);
 
+	/*
+	 * Boot does not need to flush, because MMU is off and each
+	 * CPU does a tlbiel_all() before switching them on, which
+	 * flushes everything.
+	 */
 	if (!flush)
 		return;
 
