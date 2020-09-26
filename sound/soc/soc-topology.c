@@ -1940,7 +1940,7 @@ static int soc_tplg_fe_link_create(struct soc_tplg *tplg,
 		goto err;
 	}
 
-	ret = snd_soc_add_dai_link(tplg->comp->card, link);
+	ret = snd_soc_add_pcm_runtime(tplg->comp->card, link);
 	if (ret < 0) {
 		dev_err(tplg->comp->dev, "ASoC: adding FE link failed\n");
 		goto err;
