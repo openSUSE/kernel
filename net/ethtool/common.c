@@ -2,8 +2,11 @@
 
 #include <linux/net_tstamp.h>
 #include <linux/phy.h>
+#include <linux/rtnetlink.h>
 
 #include "common.h"
+
+EXPORT_SYMBOL_GPL(ethtool_set_ethtool_phy_ops);
 
 const char netdev_features_strings[NETDEV_FEATURE_COUNT][ETH_GSTRING_LEN] = {
 	[NETIF_F_SG_BIT] =               "tx-scatter-gather",
@@ -361,4 +364,13 @@ int __ethtool_get_ts_info(struct net_device *dev, struct ethtool_ts_info *info)
 	info->phc_index = -1;
 
 	return 0;
+}
+
+const struct ethtool_phy_ops *ethtool_phy_ops;
+
+void ethtool_set_ethtool_phy_ops(const struct ethtool_phy_ops *ops)
+{
+	rtnl_lock();
+	ethtool_phy_ops = ops;
+	rtnl_unlock();
 }
