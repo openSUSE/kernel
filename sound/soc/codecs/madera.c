@@ -3865,11 +3865,75 @@ static bool madera_set_fll_phase_integrator(struct madera_fll *fll,
 	return reg_change;
 }
 
+static int madera_set_fll_clks_reg(struct madera_fll *fll, bool ena,
+				   unsigned int reg, unsigned int mask,
+				   unsigned int shift)
+{
+	struct madera *madera = fll->madera;
+	unsigned int src;
+	struct clk *clk;
+	int ret;
+
+	ret = regmap_read(madera->regmap, reg, &src);
+	if (ret != 0) {
+		madera_fll_err(fll, "Failed to read current source: %d\n",
+			       ret);
+		return ret;
+	}
+
+	src = (src & mask) >> shift;
+
+	switch (src) {
+	case MADERA_FLL_SRC_MCLK1:
+		clk = madera->mclk[MADERA_MCLK1].clk;
+		break;
+	case MADERA_FLL_SRC_MCLK2:
+		clk = madera->mclk[MADERA_MCLK2].clk;
+		break;
+	case MADERA_FLL_SRC_MCLK3:
+		clk = madera->mclk[MADERA_MCLK3].clk;
+		break;
+	default:
+		return 0;
+	}
+
+	if (ena) {
+		return clk_prepare_enable(clk);
+	} else {
+		clk_disable_unprepare(clk);
+		return 0;
+	}
+}
+
+static inline int madera_set_fll_clks(struct madera_fll *fll, int base, bool ena)
+{
+	return madera_set_fll_clks_reg(fll, ena,
+				       base + MADERA_FLL_CONTROL_6_OFFS,
+				       MADERA_FLL1_REFCLK_SRC_MASK,
+				       MADERA_FLL1_REFCLK_DIV_SHIFT);
+}
+
+static inline int madera_set_fllao_clks(struct madera_fll *fll, int base, bool ena)
+{
+	return madera_set_fll_clks_reg(fll, ena,
+				       base + MADERA_FLLAO_CONTROL_6_OFFS,
+				       MADERA_FLL_AO_REFCLK_SRC_MASK,
+				       MADERA_FLL_AO_REFCLK_SRC_SHIFT);
+}
+
+static inline int madera_set_fllhj_clks(struct madera_fll *fll, int base, bool ena)
+{
+	return madera_set_fll_clks_reg(fll, ena,
+				       base + MADERA_FLL_CONTROL_1_OFFS,
+				       CS47L92_FLL1_REFCLK_SRC_MASK,
+				       CS47L92_FLL1_REFCLK_SRC_SHIFT);
+}
+
 static void madera_disable_fll(struct madera_fll *fll)
 {
 	struct madera *madera = fll->madera;
 	unsigned int sync_base;
-	bool change;
+	bool ref_change, sync_change;
 
 	switch (madera->type) {
 	case CS47L35:
@@ -3887,18 +3951,23 @@ static void madera_disable_fll(struct madera_fll *fll)
 			   MADERA_FLL1_FREERUN, MADERA_FLL1_FREERUN);
 	regmap_update_bits_check(madera->regmap,
 				 fll->base + MADERA_FLL_CONTROL_1_OFFS,
-				 MADERA_FLL1_ENA, 0, &change);
-	regmap_update_bits(madera->regmap,
-			   sync_base + MADERA_FLL_SYNCHRONISER_1_OFFS,
-			   MADERA_FLL1_SYNC_ENA, 0);
+				 MADERA_FLL1_ENA, 0, &ref_change);
+	regmap_update_bits_check(madera->regmap,
+				 sync_base + MADERA_FLL_SYNCHRONISER_1_OFFS,
+				 MADERA_FLL1_SYNC_ENA, 0, &sync_change);
 	regmap_update_bits(madera->regmap,
 			   fll->base + MADERA_FLL_CONTROL_1_OFFS,
 			   MADERA_FLL1_FREERUN, 0);
 
 	madera_wait_for_fll(fll, false);
 
-	if (change)
+	if (sync_change)
+		madera_set_fll_clks(fll, sync_base, false);
+
+	if (ref_change) {
+		madera_set_fll_clks(fll, fll->base, false);
 		pm_runtime_put_autosuspend(madera->dev);
+	}
 }
 
 static int madera_enable_fll(struct madera_fll *fll)
@@ -3954,6 +4023,10 @@ static int madera_enable_fll(struct madera_fll *fll)
 		regmap_update_bits(fll->madera->regmap,
 				   fll->base + MADERA_FLL_CONTROL_7_OFFS,
 				   MADERA_FLL1_GAIN_MASK, 0);
+
+		if (sync_enabled > 0)
+			madera_set_fll_clks(fll, sync_base, false);
+		madera_set_fll_clks(fll, fll->base, false);
 	}
 
 	/* Apply SYNCCLK setting */
@@ -4032,11 +4105,15 @@ static int madera_enable_fll(struct madera_fll *fll)
 	if (!already_enabled)
 		pm_runtime_get_sync(madera->dev);
 
-	if (have_sync)
+	if (have_sync) {
+		madera_set_fll_clks(fll, sync_base, true);
 		regmap_update_bits(madera->regmap,
 				   sync_base + MADERA_FLL_SYNCHRONISER_1_OFFS,
 				   MADERA_FLL1_SYNC_ENA,
 				   MADERA_FLL1_SYNC_ENA);
+	}
+
+	madera_set_fll_clks(fll, fll->base, true);
 	regmap_update_bits(madera->regmap,
 			   fll->base + MADERA_FLL_CONTROL_1_OFFS,
 			   MADERA_FLL1_ENA, MADERA_FLL1_ENA);
@@ -4208,6 +4285,9 @@ static int madera_enable_fll_ao(struct madera_fll *fll,
 			   fll->base + MADERA_FLLAO_CONTROL_1_OFFS,
 			   MADERA_FLL_AO_HOLD, MADERA_FLL_AO_HOLD);
 
+	if (already_enabled)
+		madera_set_fllao_clks(fll, fll->base, false);
+
 	for (i = 0; i < patch_size; i++) {
 		val = patch[i].def;
 
@@ -4220,6 +4300,8 @@ static int madera_enable_fll_ao(struct madera_fll *fll,
 
 		regmap_write(madera->regmap, patch[i].reg, val);
 	}
+
+	madera_set_fllao_clks(fll, fll->base, true);
 
 	regmap_update_bits(madera->regmap,
 			   fll->base + MADERA_FLLAO_CONTROL_1_OFFS,
@@ -4264,8 +4346,10 @@ static int madera_disable_fll_ao(struct madera_fll *fll)
 			   fll->base + MADERA_FLLAO_CONTROL_2_OFFS,
 			   MADERA_FLL_AO_CTRL_UPD_MASK, 0);
 
-	if (change)
+	if (change) {
+		madera_set_fllao_clks(fll, fll->base, false);
 		pm_runtime_put_autosuspend(madera->dev);
+	}
 
 	return 0;
 }
@@ -4351,8 +4435,10 @@ static int madera_fllhj_disable(struct madera_fll *fll)
 			   fll->base + MADERA_FLL_CONTROL_2_OFFS,
 			   MADERA_FLL1_CTRL_UPD_MASK, 0);
 
-	if (change)
+	if (change) {
+		madera_set_fllhj_clks(fll, fll->base, false);
 		pm_runtime_put_autosuspend(madera->dev);
+	}
 
 	return 0;
 }
@@ -4524,6 +4610,9 @@ static int madera_fllhj_enable(struct madera_fll *fll)
 			   MADERA_FLL1_HOLD_MASK,
 			   MADERA_FLL1_HOLD_MASK);
 
+	if (already_enabled)
+		madera_set_fllhj_clks(fll, fll->base, false);
+
 	/* Apply refclk */
 	ret = madera_fllhj_apply(fll, fll->ref_freq);
 	if (ret) {
@@ -4534,6 +4623,8 @@ static int madera_fllhj_enable(struct madera_fll *fll)
 			   fll->base + MADERA_FLL_CONTROL_1_OFFS,
 			   CS47L92_FLL1_REFCLK_SRC_MASK,
 			   fll->ref_src << CS47L92_FLL1_REFCLK_SRC_SHIFT);
+
+	madera_set_fllhj_clks(fll, fll->base, true);
 
 	regmap_update_bits(madera->regmap,
 			   fll->base + MADERA_FLL_CONTROL_1_OFFS,
