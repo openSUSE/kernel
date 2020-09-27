@@ -239,7 +239,7 @@ static void *eeh_dev_save_state(struct eeh_dev *edev, void *userdata)
 	return NULL;
 }
 
-static void eeh_set_channel_state(struct eeh_pe *root, enum pci_channel_state s)
+static void eeh_set_channel_state(struct eeh_pe *root, pci_channel_state_t s)
 {
 	struct eeh_pe *pe;
 	struct eeh_dev *edev, *tmp;
