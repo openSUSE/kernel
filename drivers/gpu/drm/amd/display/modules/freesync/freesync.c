@@ -435,12 +435,6 @@ static void apply_below_the_range(struct core_freesync *core_freesync,
 		/* Either we've calculated the number of frames to insert,
 		 * or we need to insert min duration frames
 		 */
-		if (last_render_time_in_us / frames_to_insert <
-				in_out_vrr->min_duration_in_us){
-			frames_to_insert -= (frames_to_insert > 1) ?
-					1 : 0;
-		}
-
 		if (frames_to_insert > 0)
 			inserted_frame_duration_in_us = last_render_time_in_us /
 							frames_to_insert;
@@ -893,8 +887,8 @@ void mod_freesync_build_vrr_params(struct mod_freesync *mod_freesync,
 	struct core_freesync *core_freesync = NULL;
 	unsigned long long nominal_field_rate_in_uhz = 0;
 	unsigned int refresh_range = 0;
-	unsigned long long min_refresh_in_uhz = 0;
-	unsigned long long max_refresh_in_uhz = 0;
+	unsigned int min_refresh_in_uhz = 0;
+	unsigned int max_refresh_in_uhz = 0;
 
 	if (mod_freesync == NULL)
 		return;
@@ -904,10 +898,6 @@ void mod_freesync_build_vrr_params(struct mod_freesync *mod_freesync,
 	/* Calculate nominal field rate for stream */
 	nominal_field_rate_in_uhz =
 			mod_freesync_calc_nominal_field_rate(stream);
-
-	/* Rounded to the nearest Hz */
-	nominal_field_rate_in_uhz = 1000000ULL *
-			div_u64(nominal_field_rate_in_uhz + 500000, 1000000);
 
 	min_refresh_in_uhz = in_config->min_refresh_in_uhz;
 	max_refresh_in_uhz = in_config->max_refresh_in_uhz;
@@ -925,7 +915,7 @@ void mod_freesync_build_vrr_params(struct mod_freesync *mod_freesync,
 		min_refresh_in_uhz = nominal_field_rate_in_uhz;
 
 	if (!vrr_settings_require_update(core_freesync,
-			in_config, (unsigned int)min_refresh_in_uhz, (unsigned int)max_refresh_in_uhz,
+			in_config, min_refresh_in_uhz, max_refresh_in_uhz,
 			in_out_vrr))
 		return;
 
@@ -941,15 +931,15 @@ void mod_freesync_build_vrr_params(struct mod_freesync *mod_freesync,
 		return;
 
 	} else {
-		in_out_vrr->min_refresh_in_uhz = (unsigned int)min_refresh_in_uhz;
+		in_out_vrr->min_refresh_in_uhz = min_refresh_in_uhz;
 		in_out_vrr->max_duration_in_us =
 				calc_duration_in_us_from_refresh_in_uhz(
-						(unsigned int)min_refresh_in_uhz);
+						min_refresh_in_uhz);
 
-		in_out_vrr->max_refresh_in_uhz = (unsigned int)max_refresh_in_uhz;
+		in_out_vrr->max_refresh_in_uhz = max_refresh_in_uhz;
 		in_out_vrr->min_duration_in_us =
 				calc_duration_in_us_from_refresh_in_uhz(
-						(unsigned int)max_refresh_in_uhz);
+						max_refresh_in_uhz);
 
 		refresh_range = in_out_vrr->max_refresh_in_uhz -
 				in_out_vrr->min_refresh_in_uhz;
@@ -960,19 +950,17 @@ void mod_freesync_build_vrr_params(struct mod_freesync *mod_freesync,
 	in_out_vrr->fixed.ramping_active = in_config->ramping;
 
 	in_out_vrr->btr.btr_enabled = in_config->btr;
-
 	if (in_out_vrr->max_refresh_in_uhz <
 			2 * in_out_vrr->min_refresh_in_uhz)
 		in_out_vrr->btr.btr_enabled = false;
-
-	in_out_vrr->fixed.fixed_active = false;
 	in_out_vrr->btr.btr_active = false;
 	in_out_vrr->btr.inserted_duration_in_us = 0;
 	in_out_vrr->btr.frames_to_insert = 0;
 	in_out_vrr->btr.frame_counter = 0;
 	in_out_vrr->btr.mid_point_in_us =
-				(in_out_vrr->min_duration_in_us +
-				 in_out_vrr->max_duration_in_us) / 2;
+			in_out_vrr->min_duration_in_us +
+				(in_out_vrr->max_duration_in_us -
+				in_out_vrr->min_duration_in_us) / 2;
 
 	if (in_out_vrr->state == VRR_STATE_UNSUPPORTED) {
 		in_out_vrr->adjust.v_total_min = stream->timing.v_total;
@@ -985,7 +973,6 @@ void mod_freesync_build_vrr_params(struct mod_freesync *mod_freesync,
 		in_out_vrr->adjust.v_total_max = stream->timing.v_total;
 	} else if (in_out_vrr->state == VRR_STATE_ACTIVE_VARIABLE &&
 			refresh_range >= MIN_REFRESH_RANGE_IN_US) {
-
 		in_out_vrr->adjust.v_total_min =
 			calc_v_total_from_refresh(stream,
 				in_out_vrr->max_refresh_in_uhz);
@@ -1164,13 +1151,14 @@ unsigned long long mod_freesync_calc_nominal_field_rate(
 			const struct dc_stream_state *stream)
 {
 	unsigned long long nominal_field_rate_in_uhz = 0;
-	unsigned int total = stream->timing.h_total * stream->timing.v_total;
 
-	/* Calculate nominal field rate for stream, rounded up to nearest integer */
+	/* Calculate nominal field rate for stream */
 	nominal_field_rate_in_uhz = stream->timing.pix_clk_100hz / 10;
 	nominal_field_rate_in_uhz *= 1000ULL * 1000ULL * 1000ULL;
-
-	nominal_field_rate_in_uhz =	div_u64(nominal_field_rate_in_uhz, total);
+	nominal_field_rate_in_uhz = div_u64(nominal_field_rate_in_uhz,
+						stream->timing.h_total);
+	nominal_field_rate_in_uhz = div_u64(nominal_field_rate_in_uhz,
+						stream->timing.v_total);
 
 	return nominal_field_rate_in_uhz;
 }

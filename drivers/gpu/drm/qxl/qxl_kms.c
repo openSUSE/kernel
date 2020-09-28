@@ -181,7 +181,7 @@ int qxl_device_init(struct qxl_device *qdev,
 
 	if (!qxl_check_device(qdev)) {
 		r = -ENODEV;
-		goto rom_unmap;
+		goto surface_mapping_free;
 	}
 
 	r = qxl_bo_init(qdev);
@@ -215,7 +215,7 @@ int qxl_device_init(struct qxl_device *qdev,
 				&(qdev->ram_header->cursor_ring_hdr),
 				sizeof(struct qxl_command),
 				QXL_CURSOR_RING_SIZE,
-				qdev->io_base + QXL_IO_NOTIFY_CURSOR,
+				qdev->io_base + QXL_IO_NOTIFY_CMD,
 				false,
 				&qdev->cursor_event);
 

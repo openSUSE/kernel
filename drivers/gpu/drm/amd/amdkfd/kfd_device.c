@@ -724,7 +724,7 @@ int kgd2kfd_pre_reset(struct kfd_dev *kfd)
 
 int kgd2kfd_post_reset(struct kfd_dev *kfd)
 {
-	int ret;
+	int ret, count;
 
 	if (!kfd->init_complete)
 		return 0;
@@ -734,7 +734,7 @@ int kgd2kfd_post_reset(struct kfd_dev *kfd)
 	ret = kfd_resume(kfd);
 	if (ret)
 		return ret;
-	atomic_dec(&kfd_locked);
+	count = atomic_dec_return(&kfd_locked);
 
 	atomic_set(&kfd->sram_ecc_flag, 0);
 
@@ -1070,9 +1070,9 @@ kfd_gtt_out:
 	return 0;
 
 kfd_gtt_no_free_chunk:
-	pr_debug("Allocation failed with mem_obj = %p\n", *mem_obj);
+	pr_debug("Allocation failed with mem_obj = %p\n", mem_obj);
 	mutex_unlock(&kfd->gtt_sa_lock);
-	kfree(*mem_obj);
+	kfree(mem_obj);
 	return -ENOMEM;
 }
 

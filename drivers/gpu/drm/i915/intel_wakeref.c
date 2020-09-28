@@ -4,25 +4,25 @@
  * Copyright © 2019 Intel Corporation
  */
 
-#include <linux/wait_bit.h>
-
 #include "intel_runtime_pm.h"
-#include "intel_wakeref.h"
+#include "i915_gem.h"
 
-static void rpm_get(struct intel_wakeref *wf)
+static void rpm_get(struct intel_runtime_pm *rpm, struct intel_wakeref *wf)
 {
-	wf->wakeref = intel_runtime_pm_get(wf->rpm);
+	wf->wakeref = intel_runtime_pm_get(rpm);
 }
 
-static void rpm_put(struct intel_wakeref *wf)
+static void rpm_put(struct intel_runtime_pm *rpm, struct intel_wakeref *wf)
 {
 	intel_wakeref_t wakeref = fetch_and_zero(&wf->wakeref);
 
-	intel_runtime_pm_put(wf->rpm, wakeref);
-	INTEL_WAKEREF_BUG_ON(!wakeref);
+	intel_runtime_pm_put(rpm, wakeref);
+	GEM_BUG_ON(!wakeref);
 }
 
-int __intel_wakeref_get_first(struct intel_wakeref *wf)
+int __intel_wakeref_get_first(struct intel_runtime_pm *rpm,
+			      struct intel_wakeref *wf,
+			      int (*fn)(struct intel_wakeref *wf))
 {
 	/*
 	 * Treat get/put as different subclasses, as we may need to run
@@ -34,11 +34,11 @@ int __intel_wakeref_get_first(struct intel_wakeref *wf)
 	if (!atomic_read(&wf->count)) {
 		int err;
 
-		rpm_get(wf);
+		rpm_get(rpm, wf);
 
-		err = wf->ops->get(wf);
+		err = fn(wf);
 		if (unlikely(err)) {
-			rpm_put(wf);
+			rpm_put(rpm, wf);
 			mutex_unlock(&wf->mutex);
 			return err;
 		}
@@ -48,69 +48,30 @@ int __intel_wakeref_get_first(struct intel_wakeref *wf)
 	atomic_inc(&wf->count);
 	mutex_unlock(&wf->mutex);
 
-	INTEL_WAKEREF_BUG_ON(atomic_read(&wf->count) <= 0);
 	return 0;
 }
 
-static void ____intel_wakeref_put_last(struct intel_wakeref *wf)
+int __intel_wakeref_put_last(struct intel_runtime_pm *rpm,
+			     struct intel_wakeref *wf,
+			     int (*fn)(struct intel_wakeref *wf))
 {
-	if (!atomic_dec_and_test(&wf->count))
-		goto unlock;
+	int err;
 
-	/* ops->put() must reschedule its own release on error/deferral */
-	if (likely(!wf->ops->put(wf))) {
-		rpm_put(wf);
-		wake_up_var(&wf->wakeref);
-	}
-
-unlock:
+	err = fn(wf);
+	if (likely(!err))
+		rpm_put(rpm, wf);
+	else
+		atomic_inc(&wf->count);
 	mutex_unlock(&wf->mutex);
+
+	return err;
 }
 
-void __intel_wakeref_put_last(struct intel_wakeref *wf)
+void __intel_wakeref_init(struct intel_wakeref *wf, struct lock_class_key *key)
 {
-	INTEL_WAKEREF_BUG_ON(work_pending(&wf->work));
-
-	/* Assume we are not in process context and so cannot sleep. */
-	if (wf->ops->flags & INTEL_WAKEREF_PUT_ASYNC ||
-	    !mutex_trylock(&wf->mutex)) {
-		schedule_work(&wf->work);
-		return;
-	}
-
-	____intel_wakeref_put_last(wf);
-}
-
-static void __intel_wakeref_put_work(struct work_struct *wrk)
-{
-	struct intel_wakeref *wf = container_of(wrk, typeof(*wf), work);
-
-	if (atomic_add_unless(&wf->count, -1, 1))
-		return;
-
-	mutex_lock(&wf->mutex);
-	____intel_wakeref_put_last(wf);
-}
-
-void __intel_wakeref_init(struct intel_wakeref *wf,
-			  struct intel_runtime_pm *rpm,
-			  const struct intel_wakeref_ops *ops,
-			  struct lock_class_key *key)
-{
-	wf->rpm = rpm;
-	wf->ops = ops;
-
 	__mutex_init(&wf->mutex, "wakeref", key);
 	atomic_set(&wf->count, 0);
 	wf->wakeref = 0;
-
-	INIT_WORK(&wf->work, __intel_wakeref_put_work);
-}
-
-int intel_wakeref_wait_for_idle(struct intel_wakeref *wf)
-{
-	return wait_var_event_killable(&wf->wakeref,
-				       !intel_wakeref_is_active(wf));
 }
 
 static void wakeref_auto_timeout(struct timer_list *t)
@@ -154,7 +115,7 @@ void intel_wakeref_auto(struct intel_wakeref_auto *wf, unsigned long timeout)
 	if (!refcount_inc_not_zero(&wf->count)) {
 		spin_lock_irqsave(&wf->lock, flags);
 		if (!refcount_inc_not_zero(&wf->count)) {
-			INTEL_WAKEREF_BUG_ON(wf->wakeref);
+			GEM_BUG_ON(wf->wakeref);
 			wf->wakeref = intel_runtime_pm_get_if_in_use(wf->rpm);
 			refcount_set(&wf->count, 1);
 		}
@@ -173,5 +134,5 @@ void intel_wakeref_auto(struct intel_wakeref_auto *wf, unsigned long timeout)
 void intel_wakeref_auto_fini(struct intel_wakeref_auto *wf)
 {
 	intel_wakeref_auto(wf, 0);
-	INTEL_WAKEREF_BUG_ON(wf->wakeref);
+	GEM_BUG_ON(wf->wakeref);
 }

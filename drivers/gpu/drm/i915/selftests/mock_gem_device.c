@@ -25,7 +25,6 @@
 #include <linux/pm_domain.h>
 #include <linux/pm_runtime.h>
 
-#include "gt/intel_gt.h"
 #include "gt/mock_engine.h"
 
 #include "mock_request.h"
@@ -68,7 +67,7 @@ static void mock_device_release(struct drm_device *dev)
 	i915_gem_contexts_fini(i915);
 	mutex_unlock(&i915->drm.struct_mutex);
 
-	intel_timelines_fini(i915);
+	i915_timelines_fini(i915);
 
 	drain_workqueue(i915->wq);
 	i915_gem_drain_freed_objects(i915);
@@ -180,8 +179,13 @@ struct drm_i915_private *mock_gem_device(void)
 
 	mock_uncore_init(&i915->uncore);
 	i915_gem_init__mm(i915);
-	intel_gt_init_early(&i915->gt, i915);
+	intel_gt_pm_init(i915);
 	atomic_inc(&i915->gt.wakeref.count); /* disable; no hw support */
+
+	init_waitqueue_head(&i915->gpu_error.wait_queue);
+	init_waitqueue_head(&i915->gpu_error.reset_queue);
+	init_srcu_struct(&i915->gpu_error.reset_backoff_srcu);
+	mutex_init(&i915->gpu_error.wedge_mutex);
 
 	i915->wq = alloc_ordered_workqueue("mock", 0);
 	if (!i915->wq)
@@ -194,7 +198,11 @@ struct drm_i915_private *mock_gem_device(void)
 
 	i915->gt.awake = true;
 
-	intel_timelines_init(i915);
+	i915_timelines_init(i915);
+
+	INIT_LIST_HEAD(&i915->gt.active_rings);
+	INIT_LIST_HEAD(&i915->gt.closed_vma);
+	spin_lock_init(&i915->gt.closed_lock);
 
 	mutex_lock(&i915->drm.struct_mutex);
 
@@ -213,7 +221,6 @@ struct drm_i915_private *mock_gem_device(void)
 	if (mock_engine_init(i915->engine[RCS0]))
 		goto err_context;
 
-	intel_engines_driver_register(i915);
 	mutex_unlock(&i915->drm.struct_mutex);
 
 	WARN_ON(i915_gemfs_init(i915));
@@ -226,7 +233,7 @@ err_engine:
 	mock_engine_free(i915->engine[RCS0]);
 err_unlock:
 	mutex_unlock(&i915->drm.struct_mutex);
-	intel_timelines_fini(i915);
+	i915_timelines_fini(i915);
 	destroy_workqueue(i915->wq);
 err_drv:
 	drm_mode_config_cleanup(&i915->drm);

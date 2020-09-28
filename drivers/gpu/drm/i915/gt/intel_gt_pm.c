@@ -5,9 +5,7 @@
  */
 
 #include "i915_drv.h"
-#include "i915_params.h"
 #include "intel_engine_pm.h"
-#include "intel_gt.h"
 #include "intel_gt_pm.h"
 #include "intel_pm.h"
 #include "intel_wakeref.h"
@@ -17,10 +15,10 @@ static void pm_notify(struct drm_i915_private *i915, int state)
 	blocking_notifier_call_chain(&i915->gt.pm_notifications, state, i915);
 }
 
-static int __gt_unpark(struct intel_wakeref *wf)
+static int intel_gt_unpark(struct intel_wakeref *wf)
 {
-	struct intel_gt *gt = container_of(wf, typeof(*gt), wakeref);
-	struct drm_i915_private *i915 = gt->i915;
+	struct drm_i915_private *i915 =
+		container_of(wf, typeof(*i915), gt.wakeref);
 
 	GEM_TRACE("\n");
 
@@ -35,11 +33,8 @@ static int __gt_unpark(struct intel_wakeref *wf)
 	 * Work around it by grabbing a GT IRQ power domain whilst there is any
 	 * GT activity, preventing any DC state transitions.
 	 */
-	gt->awake = intel_display_power_get(i915, POWER_DOMAIN_GT_IRQ);
-	GEM_BUG_ON(!gt->awake);
-
-	if (NEEDS_RC6_CTX_CORRUPTION_WA(i915))
-		intel_uncore_forcewake_get(&i915->uncore, FORCEWAKE_ALL);
+	i915->gt.awake = intel_display_power_get(i915, POWER_DOMAIN_GT_IRQ);
+	GEM_BUG_ON(!i915->gt.awake);
 
 	intel_enable_gt_powersave(i915);
 
@@ -49,14 +44,19 @@ static int __gt_unpark(struct intel_wakeref *wf)
 
 	i915_pmu_gt_unparked(i915);
 
-	intel_gt_queue_hangcheck(gt);
+	i915_queue_hangcheck(i915);
 
 	pm_notify(i915, INTEL_GT_UNPARK);
 
 	return 0;
 }
 
-static int __gt_park(struct intel_wakeref *wf)
+void intel_gt_pm_get(struct drm_i915_private *i915)
+{
+	intel_wakeref_get(&i915->runtime_pm, &i915->gt.wakeref, intel_gt_unpark);
+}
+
+static int intel_gt_park(struct intel_wakeref *wf)
 {
 	struct drm_i915_private *i915 =
 		container_of(wf, typeof(*i915), gt.wakeref);
@@ -70,44 +70,34 @@ static int __gt_park(struct intel_wakeref *wf)
 	if (INTEL_GEN(i915) >= 6)
 		gen6_rps_idle(i915);
 
-	/* Everything switched off, flush any residual interrupt just in case */
-	intel_synchronize_irq(i915);
-
-	if (NEEDS_RC6_CTX_CORRUPTION_WA(i915)) {
-		intel_rc6_ctx_wa_check(i915);
-		intel_uncore_forcewake_put(&i915->uncore, FORCEWAKE_ALL);
-	}
-
 	GEM_BUG_ON(!wakeref);
 	intel_display_power_put(i915, POWER_DOMAIN_GT_IRQ, wakeref);
 
 	return 0;
 }
 
-static const struct intel_wakeref_ops wf_ops = {
-	.get = __gt_unpark,
-	.put = __gt_park,
-	.flags = INTEL_WAKEREF_PUT_ASYNC,
-};
-
-void intel_gt_pm_init_early(struct intel_gt *gt)
+void intel_gt_pm_put(struct drm_i915_private *i915)
 {
-	intel_wakeref_init(&gt->wakeref, &gt->i915->runtime_pm, &wf_ops);
-
-	BLOCKING_INIT_NOTIFIER_HEAD(&gt->pm_notifications);
+	intel_wakeref_put(&i915->runtime_pm, &i915->gt.wakeref, intel_gt_park);
 }
 
-static bool reset_engines(struct intel_gt *gt)
+void intel_gt_pm_init(struct drm_i915_private *i915)
 {
-	if (INTEL_INFO(gt->i915)->gpu_reset_clobbers_display)
+	intel_wakeref_init(&i915->gt.wakeref);
+	BLOCKING_INIT_NOTIFIER_HEAD(&i915->gt.pm_notifications);
+}
+
+static bool reset_engines(struct drm_i915_private *i915)
+{
+	if (INTEL_INFO(i915)->gpu_reset_clobbers_display)
 		return false;
 
-	return __intel_gt_reset(gt, ALL_ENGINES) == 0;
+	return intel_gpu_reset(i915, ALL_ENGINES) == 0;
 }
 
 /**
  * intel_gt_sanitize: called after the GPU has lost power
- * @gt: the i915 GT container
+ * @i915: the i915 device
  * @force: ignore a failed reset and sanitize engine state anyway
  *
  * Anytime we reset the GPU, either with an explicit GPU reset or through a
@@ -115,23 +105,21 @@ static bool reset_engines(struct intel_gt *gt)
  * to match. Note that calling intel_gt_sanitize() if the GPU has not
  * been reset results in much confusion!
  */
-void intel_gt_sanitize(struct intel_gt *gt, bool force)
+void intel_gt_sanitize(struct drm_i915_private *i915, bool force)
 {
 	struct intel_engine_cs *engine;
 	enum intel_engine_id id;
 
 	GEM_TRACE("\n");
 
-	intel_uc_sanitize(&gt->uc);
-
-	if (!reset_engines(gt) && !force)
+	if (!reset_engines(i915) && !force)
 		return;
 
-	for_each_engine(engine, gt->i915, id)
-		__intel_engine_reset(engine, false);
+	for_each_engine(engine, i915, id)
+		intel_engine_reset(engine, false);
 }
 
-int intel_gt_resume(struct intel_gt *gt)
+int intel_gt_resume(struct drm_i915_private *i915)
 {
 	struct intel_engine_cs *engine;
 	enum intel_engine_id id;
@@ -143,8 +131,8 @@ int intel_gt_resume(struct intel_gt *gt)
 	 * Only the kernel contexts should remain pinned over suspend,
 	 * allowing us to fixup the user contexts on their first pin.
 	 */
-	intel_gt_pm_get(gt);
-	for_each_engine(engine, gt->i915, id) {
+	intel_gt_pm_get(i915);
+	for_each_engine(engine, i915, id) {
 		struct intel_context *ce;
 
 		intel_engine_pm_get(engine);
@@ -153,30 +141,22 @@ int intel_gt_resume(struct intel_gt *gt)
 		if (ce)
 			ce->ops->reset(ce);
 
+		ce = engine->preempt_context;
+		if (ce)
+			ce->ops->reset(ce);
+
 		engine->serial++; /* kernel context lost */
 		err = engine->resume(engine);
 
 		intel_engine_pm_put(engine);
 		if (err) {
-			dev_err(gt->i915->drm.dev,
+			dev_err(i915->drm.dev,
 				"Failed to restart %s (%d)\n",
 				engine->name, err);
 			break;
 		}
 	}
-	intel_gt_pm_put(gt);
+	intel_gt_pm_put(i915);
 
 	return err;
-}
-
-void intel_gt_runtime_suspend(struct intel_gt *gt)
-{
-	intel_uc_runtime_suspend(&gt->uc);
-}
-
-int intel_gt_runtime_resume(struct intel_gt *gt)
-{
-	intel_gt_init_swizzling(gt);
-
-	return intel_uc_runtime_resume(&gt->uc);
 }

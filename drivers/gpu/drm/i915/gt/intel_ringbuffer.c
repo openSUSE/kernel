@@ -34,11 +34,9 @@
 #include "gem/i915_gem_context.h"
 
 #include "i915_drv.h"
+#include "i915_gem_render_state.h"
 #include "i915_trace.h"
 #include "intel_context.h"
-#include "intel_gt.h"
-#include "intel_gt_irq.h"
-#include "intel_gt_pm_irq.h"
 #include "intel_reset.h"
 #include "intel_workarounds.h"
 
@@ -77,8 +75,7 @@ gen2_render_ring_flush(struct i915_request *rq, u32 mode)
 	*cs++ = cmd;
 	while (num_store_dw--) {
 		*cs++ = MI_STORE_DWORD_IMM | MI_MEM_VIRTUAL;
-		*cs++ = intel_gt_scratch_offset(rq->engine->gt,
-						INTEL_GT_SCRATCH_FIELD_DEFAULT);
+		*cs++ = i915_scratch_offset(rq->i915);
 		*cs++ = 0;
 	}
 	*cs++ = MI_FLUSH | MI_NO_WRITE_FLUSH;
@@ -151,9 +148,7 @@ gen4_render_ring_flush(struct i915_request *rq, u32 mode)
 	 */
 	if (mode & EMIT_INVALIDATE) {
 		*cs++ = GFX_OP_PIPE_CONTROL(4) | PIPE_CONTROL_QW_WRITE;
-		*cs++ = intel_gt_scratch_offset(rq->engine->gt,
-						INTEL_GT_SCRATCH_FIELD_DEFAULT) |
-			PIPE_CONTROL_GLOBAL_GTT;
+		*cs++ = i915_scratch_offset(rq->i915) | PIPE_CONTROL_GLOBAL_GTT;
 		*cs++ = 0;
 		*cs++ = 0;
 
@@ -161,9 +156,7 @@ gen4_render_ring_flush(struct i915_request *rq, u32 mode)
 			*cs++ = MI_FLUSH;
 
 		*cs++ = GFX_OP_PIPE_CONTROL(4) | PIPE_CONTROL_QW_WRITE;
-		*cs++ = intel_gt_scratch_offset(rq->engine->gt,
-						INTEL_GT_SCRATCH_FIELD_DEFAULT) |
-			PIPE_CONTROL_GLOBAL_GTT;
+		*cs++ = i915_scratch_offset(rq->i915) | PIPE_CONTROL_GLOBAL_GTT;
 		*cs++ = 0;
 		*cs++ = 0;
 	}
@@ -215,9 +208,7 @@ gen4_render_ring_flush(struct i915_request *rq, u32 mode)
 static int
 gen6_emit_post_sync_nonzero_flush(struct i915_request *rq)
 {
-	u32 scratch_addr =
-		intel_gt_scratch_offset(rq->engine->gt,
-					INTEL_GT_SCRATCH_FIELD_RENDER_FLUSH);
+	u32 scratch_addr = i915_scratch_offset(rq->i915) + 2 * CACHELINE_BYTES;
 	u32 *cs;
 
 	cs = intel_ring_begin(rq, 6);
@@ -250,9 +241,7 @@ gen6_emit_post_sync_nonzero_flush(struct i915_request *rq)
 static int
 gen6_render_ring_flush(struct i915_request *rq, u32 mode)
 {
-	u32 scratch_addr =
-		intel_gt_scratch_offset(rq->engine->gt,
-					INTEL_GT_SCRATCH_FIELD_RENDER_FLUSH);
+	u32 scratch_addr = i915_scratch_offset(rq->i915) + 2 * CACHELINE_BYTES;
 	u32 *cs, flags = 0;
 	int ret;
 
@@ -310,9 +299,7 @@ static u32 *gen6_rcs_emit_breadcrumb(struct i915_request *rq, u32 *cs)
 
 	*cs++ = GFX_OP_PIPE_CONTROL(4);
 	*cs++ = PIPE_CONTROL_QW_WRITE;
-	*cs++ = intel_gt_scratch_offset(rq->engine->gt,
-					INTEL_GT_SCRATCH_FIELD_DEFAULT) |
-		PIPE_CONTROL_GLOBAL_GTT;
+	*cs++ = i915_scratch_offset(rq->i915) | PIPE_CONTROL_GLOBAL_GTT;
 	*cs++ = 0;
 
 	/* Finally we can flush and with it emit the breadcrumb */
@@ -322,8 +309,7 @@ static u32 *gen6_rcs_emit_breadcrumb(struct i915_request *rq, u32 *cs)
 		 PIPE_CONTROL_DC_FLUSH_ENABLE |
 		 PIPE_CONTROL_QW_WRITE |
 		 PIPE_CONTROL_CS_STALL);
-	*cs++ = i915_request_active_timeline(rq)->hwsp_offset |
-		PIPE_CONTROL_GLOBAL_GTT;
+	*cs++ = rq->timeline->hwsp_offset | PIPE_CONTROL_GLOBAL_GTT;
 	*cs++ = rq->fence.seqno;
 
 	*cs++ = MI_USER_INTERRUPT;
@@ -356,9 +342,7 @@ gen7_render_ring_cs_stall_wa(struct i915_request *rq)
 static int
 gen7_render_ring_flush(struct i915_request *rq, u32 mode)
 {
-	u32 scratch_addr =
-		intel_gt_scratch_offset(rq->engine->gt,
-					INTEL_GT_SCRATCH_FIELD_RENDER_FLUSH);
+	u32 scratch_addr = i915_scratch_offset(rq->i915) + 2 * CACHELINE_BYTES;
 	u32 *cs, flags = 0;
 
 	/*
@@ -426,7 +410,7 @@ static u32 *gen7_rcs_emit_breadcrumb(struct i915_request *rq, u32 *cs)
 		 PIPE_CONTROL_QW_WRITE |
 		 PIPE_CONTROL_GLOBAL_GTT_IVB |
 		 PIPE_CONTROL_CS_STALL);
-	*cs++ = i915_request_active_timeline(rq)->hwsp_offset;
+	*cs++ = rq->timeline->hwsp_offset;
 	*cs++ = rq->fence.seqno;
 
 	*cs++ = MI_USER_INTERRUPT;
@@ -440,8 +424,8 @@ static u32 *gen7_rcs_emit_breadcrumb(struct i915_request *rq, u32 *cs)
 
 static u32 *gen6_xcs_emit_breadcrumb(struct i915_request *rq, u32 *cs)
 {
-	GEM_BUG_ON(i915_request_active_timeline(rq)->hwsp_ggtt != rq->engine->status_page.vma);
-	GEM_BUG_ON(offset_in_page(i915_request_active_timeline(rq)->hwsp_offset) != I915_GEM_HWS_SEQNO_ADDR);
+	GEM_BUG_ON(rq->timeline->hwsp_ggtt != rq->engine->status_page.vma);
+	GEM_BUG_ON(offset_in_page(rq->timeline->hwsp_offset) != I915_GEM_HWS_SEQNO_ADDR);
 
 	*cs++ = MI_FLUSH_DW | MI_FLUSH_DW_OP_STOREDW | MI_FLUSH_DW_STORE_INDEX;
 	*cs++ = I915_GEM_HWS_SEQNO_ADDR | MI_FLUSH_DW_USE_GTT;
@@ -460,8 +444,8 @@ static u32 *gen7_xcs_emit_breadcrumb(struct i915_request *rq, u32 *cs)
 {
 	int i;
 
-	GEM_BUG_ON(i915_request_active_timeline(rq)->hwsp_ggtt != rq->engine->status_page.vma);
-	GEM_BUG_ON(offset_in_page(i915_request_active_timeline(rq)->hwsp_offset) != I915_GEM_HWS_SEQNO_ADDR);
+	GEM_BUG_ON(rq->timeline->hwsp_ggtt != rq->engine->status_page.vma);
+	GEM_BUG_ON(offset_in_page(rq->timeline->hwsp_offset) != I915_GEM_HWS_SEQNO_ADDR);
 
 	*cs++ = MI_FLUSH_DW | MI_FLUSH_DW_OP_STOREDW | MI_FLUSH_DW_STORE_INDEX;
 	*cs++ = I915_GEM_HWS_SEQNO_ADDR | MI_FLUSH_DW_USE_GTT;
@@ -639,7 +623,7 @@ static bool stop_ring(struct intel_engine_cs *engine)
 static int xcs_resume(struct intel_engine_cs *engine)
 {
 	struct drm_i915_private *dev_priv = engine->i915;
-	struct intel_ring *ring = engine->legacy.ring;
+	struct intel_ring *ring = engine->buffer;
 	int ret = 0;
 
 	GEM_TRACE("%s: ring:{HEAD:%04x, TAIL:%04x}\n",
@@ -647,7 +631,6 @@ static int xcs_resume(struct intel_engine_cs *engine)
 
 	intel_uncore_forcewake_get(engine->uncore, FORCEWAKE_ALL);
 
-	/* WaClearRingBufHeadRegAtInit:ctg,elk */
 	if (!stop_ring(engine)) {
 		/* G45 ring initialization often fails to reset head to zero */
 		DRM_DEBUG_DRIVER("%s head not reset to zero "
@@ -679,15 +662,18 @@ static int xcs_resume(struct intel_engine_cs *engine)
 	intel_engine_reset_breadcrumbs(engine);
 
 	/* Enforce ordering by reading HEAD register back */
-	ENGINE_POSTING_READ(engine, RING_HEAD);
+	ENGINE_READ(engine, RING_HEAD);
 
-	/*
-	 * Initialize the ring. This must happen _after_ we've cleared the ring
+	/* Initialize the ring. This must happen _after_ we've cleared the ring
 	 * registers with the above sequence (the readback of the HEAD registers
 	 * also enforces ordering), otherwise the hw might lose the new ring
-	 * register values.
-	 */
+	 * register values. */
 	ENGINE_WRITE(engine, RING_START, i915_ggtt_offset(ring->vma));
+
+	/* WaClearRingBufHeadRegAtInit:ctg,elk */
+	if (ENGINE_READ(engine, RING_HEAD))
+		DRM_DEBUG_DRIVER("%s initialization failed [head=%08x], fudging\n",
+				 engine->name, ENGINE_READ(engine, RING_HEAD));
 
 	/* Check that the ring offsets point within the ring! */
 	GEM_BUG_ON(!intel_ring_offset_valid(ring, ring->head));
@@ -739,45 +725,7 @@ out:
 
 static void reset_prepare(struct intel_engine_cs *engine)
 {
-	struct intel_uncore *uncore = engine->uncore;
-	const u32 base = engine->mmio_base;
-
-	/*
-	 * We stop engines, otherwise we might get failed reset and a
-	 * dead gpu (on elk). Also as modern gpu as kbl can suffer
-	 * from system hang if batchbuffer is progressing when
-	 * the reset is issued, regardless of READY_TO_RESET ack.
-	 * Thus assume it is best to stop engines on all gens
-	 * where we have a gpu reset.
-	 *
-	 * WaKBLVECSSemaphoreWaitPoll:kbl (on ALL_ENGINES)
-	 *
-	 * WaMediaResetMainRingCleanup:ctg,elk (presumably)
-	 *
-	 * FIXME: Wa for more modern gens needs to be validated
-	 */
-	GEM_TRACE("%s\n", engine->name);
-
-	if (intel_engine_stop_cs(engine))
-		GEM_TRACE("%s: timed out on STOP_RING\n", engine->name);
-
-	intel_uncore_write_fw(uncore,
-			      RING_HEAD(base),
-			      intel_uncore_read_fw(uncore, RING_TAIL(base)));
-	intel_uncore_posting_read_fw(uncore, RING_HEAD(base)); /* paranoia */
-
-	intel_uncore_write_fw(uncore, RING_HEAD(base), 0);
-	intel_uncore_write_fw(uncore, RING_TAIL(base), 0);
-	intel_uncore_posting_read_fw(uncore, RING_TAIL(base));
-
-	/* The ring must be empty before it is disabled */
-	intel_uncore_write_fw(uncore, RING_CTL(base), 0);
-
-	/* Check acts as a post */
-	if (intel_uncore_read_fw(uncore, RING_HEAD(base)))
-		GEM_TRACE("%s: ring head [%x] not parked\n",
-			  engine->name,
-			  intel_uncore_read_fw(uncore, RING_HEAD(base)));
+	intel_engine_stop_cs(engine);
 }
 
 static void reset_ring(struct intel_engine_cs *engine, bool stalled)
@@ -833,20 +781,35 @@ static void reset_ring(struct intel_engine_cs *engine, bool stalled)
 		 * If the request was innocent, we try to replay the request
 		 * with the restored context.
 		 */
-		__i915_request_reset(rq, stalled);
+		i915_reset_request(rq, stalled);
 
-		GEM_BUG_ON(rq->ring != engine->legacy.ring);
+		GEM_BUG_ON(rq->ring != engine->buffer);
 		head = rq->head;
 	} else {
-		head = engine->legacy.ring->tail;
+		head = engine->buffer->tail;
 	}
-	engine->legacy.ring->head = intel_ring_wrap(engine->legacy.ring, head);
+	engine->buffer->head = intel_ring_wrap(engine->buffer, head);
 
 	spin_unlock_irqrestore(&engine->active.lock, flags);
 }
 
 static void reset_finish(struct intel_engine_cs *engine)
 {
+}
+
+static int intel_rcs_ctx_init(struct i915_request *rq)
+{
+	int ret;
+
+	ret = intel_engine_emit_ctx_wa(rq);
+	if (ret != 0)
+		return ret;
+
+	ret = i915_gem_render_state_emit(rq);
+	if (ret)
+		return ret;
+
+	return 0;
 }
 
 static int rcs_resume(struct intel_engine_cs *engine)
@@ -938,8 +901,8 @@ static void i9xx_submit_request(struct i915_request *request)
 
 static u32 *i9xx_emit_breadcrumb(struct i915_request *rq, u32 *cs)
 {
-	GEM_BUG_ON(i915_request_active_timeline(rq)->hwsp_ggtt != rq->engine->status_page.vma);
-	GEM_BUG_ON(offset_in_page(i915_request_active_timeline(rq)->hwsp_offset) != I915_GEM_HWS_SEQNO_ADDR);
+	GEM_BUG_ON(rq->timeline->hwsp_ggtt != rq->engine->status_page.vma);
+	GEM_BUG_ON(offset_in_page(rq->timeline->hwsp_offset) != I915_GEM_HWS_SEQNO_ADDR);
 
 	*cs++ = MI_FLUSH;
 
@@ -961,8 +924,8 @@ static u32 *gen5_emit_breadcrumb(struct i915_request *rq, u32 *cs)
 {
 	int i;
 
-	GEM_BUG_ON(i915_request_active_timeline(rq)->hwsp_ggtt != rq->engine->status_page.vma);
-	GEM_BUG_ON(offset_in_page(i915_request_active_timeline(rq)->hwsp_offset) != I915_GEM_HWS_SEQNO_ADDR);
+	GEM_BUG_ON(rq->timeline->hwsp_ggtt != rq->engine->status_page.vma);
+	GEM_BUG_ON(offset_in_page(rq->timeline->hwsp_offset) != I915_GEM_HWS_SEQNO_ADDR);
 
 	*cs++ = MI_FLUSH;
 
@@ -985,13 +948,13 @@ static u32 *gen5_emit_breadcrumb(struct i915_request *rq, u32 *cs)
 static void
 gen5_irq_enable(struct intel_engine_cs *engine)
 {
-	gen5_gt_enable_irq(engine->gt, engine->irq_enable_mask);
+	gen5_enable_gt_irq(engine->i915, engine->irq_enable_mask);
 }
 
 static void
 gen5_irq_disable(struct intel_engine_cs *engine)
 {
-	gen5_gt_disable_irq(engine->gt, engine->irq_enable_mask);
+	gen5_disable_gt_irq(engine->i915, engine->irq_enable_mask);
 }
 
 static void
@@ -1052,14 +1015,14 @@ gen6_irq_enable(struct intel_engine_cs *engine)
 	/* Flush/delay to ensure the RING_IMR is active before the GT IMR */
 	ENGINE_POSTING_READ(engine, RING_IMR);
 
-	gen5_gt_enable_irq(engine->gt, engine->irq_enable_mask);
+	gen5_enable_gt_irq(engine->i915, engine->irq_enable_mask);
 }
 
 static void
 gen6_irq_disable(struct intel_engine_cs *engine)
 {
 	ENGINE_WRITE(engine, RING_IMR, ~engine->irq_keep_mask);
-	gen5_gt_disable_irq(engine->gt, engine->irq_enable_mask);
+	gen5_disable_gt_irq(engine->i915, engine->irq_enable_mask);
 }
 
 static void
@@ -1070,14 +1033,14 @@ hsw_vebox_irq_enable(struct intel_engine_cs *engine)
 	/* Flush/delay to ensure the RING_IMR is active before the GT IMR */
 	ENGINE_POSTING_READ(engine, RING_IMR);
 
-	gen6_gt_pm_unmask_irq(engine->gt, engine->irq_enable_mask);
+	gen6_unmask_pm_irq(engine->i915, engine->irq_enable_mask);
 }
 
 static void
 hsw_vebox_irq_disable(struct intel_engine_cs *engine)
 {
 	ENGINE_WRITE(engine, RING_IMR, ~0);
-	gen6_gt_pm_mask_irq(engine->gt, engine->irq_enable_mask);
+	gen6_mask_pm_irq(engine->i915, engine->irq_enable_mask);
 }
 
 static int
@@ -1108,11 +1071,9 @@ i830_emit_bb_start(struct i915_request *rq,
 		   u64 offset, u32 len,
 		   unsigned int dispatch_flags)
 {
-	u32 *cs, cs_offset =
-		intel_gt_scratch_offset(rq->engine->gt,
-					INTEL_GT_SCRATCH_FIELD_DEFAULT);
+	u32 *cs, cs_offset = i915_scratch_offset(rq->i915);
 
-	GEM_BUG_ON(rq->engine->gt->scratch->size < I830_WA_SIZE);
+	GEM_BUG_ON(rq->i915->gt.scratch->size < I830_WA_SIZE);
 
 	cs = intel_ring_begin(rq, 6);
 	if (IS_ERR(cs))
@@ -1139,7 +1100,7 @@ i830_emit_bb_start(struct i915_request *rq,
 		 * stable batch scratch bo area (so that the CS never
 		 * stumbles over its tlb invalidation bug) ...
 		 */
-		*cs++ = SRC_COPY_BLT_CMD | BLT_WRITE_RGBA | (6 - 2);
+		*cs++ = SRC_COPY_BLT_CMD | BLT_WRITE_RGBA;
 		*cs++ = BLT_DEPTH_32 | BLT_ROP_SRC_COPY | 4096;
 		*cs++ = DIV_ROUND_UP(len, 4096) << 16 | 4096;
 		*cs++ = cs_offset;
@@ -1195,6 +1156,10 @@ int intel_ring_pin(struct intel_ring *ring)
 	if (atomic_fetch_inc(&ring->pin_count))
 		return 0;
 
+	ret = i915_timeline_pin(ring->timeline);
+	if (ret)
+		goto err_unpin;
+
 	flags = PIN_GLOBAL;
 
 	/* Ring wraparound at offset 0 sometimes hangs. No idea why. */
@@ -1207,7 +1172,7 @@ int intel_ring_pin(struct intel_ring *ring)
 
 	ret = i915_vma_pin(vma, 0, 0, flags);
 	if (unlikely(ret))
-		goto err_unpin;
+		goto err_timeline;
 
 	if (i915_vma_is_map_and_fenceable(vma))
 		addr = (void __force *)i915_vma_pin_iomap(vma);
@@ -1219,7 +1184,7 @@ int intel_ring_pin(struct intel_ring *ring)
 		goto err_ring;
 	}
 
-	i915_vma_make_unshrinkable(vma);
+	vma->obj->pin_global++;
 
 	GEM_BUG_ON(ring->vaddr);
 	ring->vaddr = addr;
@@ -1228,6 +1193,8 @@ int intel_ring_pin(struct intel_ring *ring)
 
 err_ring:
 	i915_vma_unpin(vma);
+err_timeline:
+	i915_timeline_unpin(ring->timeline);
 err_unpin:
 	atomic_dec(&ring->pin_count);
 	return ret;
@@ -1235,7 +1202,8 @@ err_unpin:
 
 void intel_ring_reset(struct intel_ring *ring, u32 tail)
 {
-	tail = intel_ring_wrap(ring, tail);
+	GEM_BUG_ON(!intel_ring_offset_valid(ring, tail));
+
 	ring->tail = tail;
 	ring->head = tail;
 	ring->emit = tail;
@@ -1244,37 +1212,37 @@ void intel_ring_reset(struct intel_ring *ring, u32 tail)
 
 void intel_ring_unpin(struct intel_ring *ring)
 {
-	struct i915_vma *vma = ring->vma;
-
 	if (!atomic_dec_and_test(&ring->pin_count))
 		return;
 
 	/* Discard any unused bytes beyond that submitted to hw. */
-	intel_ring_reset(ring, ring->emit);
+	intel_ring_reset(ring, ring->tail);
 
-	i915_vma_unset_ggtt_write(vma);
-	if (i915_vma_is_map_and_fenceable(vma))
-		i915_vma_unpin_iomap(vma);
+	GEM_BUG_ON(!ring->vma);
+	if (i915_vma_is_map_and_fenceable(ring->vma))
+		i915_vma_unpin_iomap(ring->vma);
 	else
-		i915_gem_object_unpin_map(vma->obj);
+		i915_gem_object_unpin_map(ring->vma->obj);
 
 	GEM_BUG_ON(!ring->vaddr);
 	ring->vaddr = NULL;
 
-	i915_vma_unpin(vma);
-	i915_vma_make_purgeable(vma);
+	ring->vma->obj->pin_global--;
+	i915_vma_unpin(ring->vma);
+
+	i915_timeline_unpin(ring->timeline);
 }
 
-static struct i915_vma *create_ring_vma(struct i915_ggtt *ggtt, int size)
+static struct i915_vma *
+intel_ring_create_vma(struct drm_i915_private *dev_priv, int size)
 {
-	struct i915_address_space *vm = &ggtt->vm;
-	struct drm_i915_private *i915 = vm->i915;
+	struct i915_address_space *vm = &dev_priv->ggtt.vm;
 	struct drm_i915_gem_object *obj;
 	struct i915_vma *vma;
 
-	obj = i915_gem_object_create_stolen(i915, size);
+	obj = i915_gem_object_create_stolen(dev_priv, size);
 	if (!obj)
-		obj = i915_gem_object_create_internal(i915, size);
+		obj = i915_gem_object_create_internal(dev_priv, size);
 	if (IS_ERR(obj))
 		return ERR_CAST(obj);
 
@@ -1297,9 +1265,10 @@ err:
 }
 
 struct intel_ring *
-intel_engine_create_ring(struct intel_engine_cs *engine, int size)
+intel_engine_create_ring(struct intel_engine_cs *engine,
+			 struct i915_timeline *timeline,
+			 int size)
 {
-	struct drm_i915_private *i915 = engine->i915;
 	struct intel_ring *ring;
 	struct i915_vma *vma;
 
@@ -1311,21 +1280,21 @@ intel_engine_create_ring(struct intel_engine_cs *engine, int size)
 		return ERR_PTR(-ENOMEM);
 
 	kref_init(&ring->ref);
+	INIT_LIST_HEAD(&ring->request_list);
+	ring->timeline = i915_timeline_get(timeline);
 
 	ring->size = size;
-	ring->wrap = BITS_PER_TYPE(ring->size) - ilog2(size);
-
 	/* Workaround an erratum on the i830 which causes a hang if
 	 * the TAIL pointer points to within the last 2 cachelines
 	 * of the buffer.
 	 */
 	ring->effective_size = size;
-	if (IS_I830(i915) || IS_I845G(i915))
+	if (IS_I830(engine->i915) || IS_I845G(engine->i915))
 		ring->effective_size -= 2 * CACHELINE_BYTES;
 
 	intel_ring_update_space(ring);
 
-	vma = create_ring_vma(engine->gt->ggtt, size);
+	vma = intel_ring_create_vma(engine->i915, size);
 	if (IS_ERR(vma)) {
 		kfree(ring);
 		return ERR_CAST(vma);
@@ -1342,11 +1311,13 @@ void intel_ring_free(struct kref *ref)
 	i915_vma_close(ring->vma);
 	i915_vma_put(ring->vma);
 
+	i915_timeline_put(ring->timeline);
 	kfree(ring);
 }
 
 static void __ring_context_fini(struct intel_context *ce)
 {
+	GEM_BUG_ON(i915_gem_object_is_active(ce->state->obj));
 	i915_gem_object_put(ce->state->obj);
 }
 
@@ -1359,45 +1330,33 @@ static void ring_context_destroy(struct kref *ref)
 	if (ce->state)
 		__ring_context_fini(ce);
 
-	intel_context_fini(ce);
 	intel_context_free(ce);
 }
 
-static struct i915_address_space *vm_alias(struct intel_context *ce)
-{
-	struct i915_address_space *vm;
-
-	vm = ce->vm;
-	if (i915_is_ggtt(vm))
-		vm = &i915_vm_to_ggtt(vm)->alias->vm;
-
-	return vm;
-}
-
-static int __context_pin_ppgtt(struct intel_context *ce)
+static int __context_pin_ppgtt(struct i915_gem_context *ctx)
 {
 	struct i915_address_space *vm;
 	int err = 0;
 
-	vm = vm_alias(ce);
+	vm = ctx->vm ?: &ctx->i915->mm.aliasing_ppgtt->vm;
 	if (vm)
 		err = gen6_ppgtt_pin(i915_vm_to_ppgtt((vm)));
 
 	return err;
 }
 
-static void __context_unpin_ppgtt(struct intel_context *ce)
+static void __context_unpin_ppgtt(struct i915_gem_context *ctx)
 {
 	struct i915_address_space *vm;
 
-	vm = vm_alias(ce);
+	vm = ctx->vm ?: &ctx->i915->mm.aliasing_ppgtt->vm;
 	if (vm)
 		gen6_ppgtt_unpin(i915_vm_to_ppgtt(vm));
 }
 
 static void ring_context_unpin(struct intel_context *ce)
 {
-	__context_unpin_ppgtt(ce);
+	__context_unpin_ppgtt(ce->gem_context);
 }
 
 static struct i915_vma *
@@ -1453,7 +1412,7 @@ alloc_context_vma(struct intel_engine_cs *engine)
 		i915_gem_object_unpin_map(obj);
 	}
 
-	vma = i915_vma_instance(obj, &engine->gt->ggtt->vm, NULL);
+	vma = i915_vma_instance(obj, &i915->ggtt.vm, NULL);
 	if (IS_ERR(vma)) {
 		err = PTR_ERR(vma);
 		goto err_obj;
@@ -1468,17 +1427,16 @@ err_obj:
 	return ERR_PTR(err);
 }
 
-static int ring_context_alloc(struct intel_context *ce)
+static int ring_context_pin(struct intel_context *ce)
 {
 	struct intel_engine_cs *engine = ce->engine;
+	int err;
 
 	/* One ringbuffer to rule them all */
-	GEM_BUG_ON(!engine->legacy.ring);
-	ce->ring = engine->legacy.ring;
-	ce->timeline = intel_timeline_get(engine->legacy.timeline);
+	GEM_BUG_ON(!engine->buffer);
+	ce->ring = engine->buffer;
 
-	GEM_BUG_ON(ce->state);
-	if (engine->context_size) {
+	if (!ce->state && engine->context_size) {
 		struct i915_vma *vma;
 
 		vma = alloc_context_vma(engine);
@@ -1488,18 +1446,11 @@ static int ring_context_alloc(struct intel_context *ce)
 		ce->state = vma;
 	}
 
-	return 0;
-}
-
-static int ring_context_pin(struct intel_context *ce)
-{
-	int err;
-
-	err = intel_context_active_acquire(ce);
+	err = intel_context_active_acquire(ce, PIN_HIGH);
 	if (err)
 		return err;
 
-	err = __context_pin_ppgtt(ce);
+	err = __context_pin_ppgtt(ce->gem_context);
 	if (err)
 		goto err_active;
 
@@ -1516,8 +1467,6 @@ static void ring_context_reset(struct intel_context *ce)
 }
 
 static const struct intel_context_ops ring_context_ops = {
-	.alloc = ring_context_alloc,
-
 	.pin = ring_context_pin,
 	.unpin = ring_context_unpin,
 
@@ -1543,7 +1492,7 @@ static int load_pd_dir(struct i915_request *rq, const struct i915_ppgtt *ppgtt)
 
 	*cs++ = MI_LOAD_REGISTER_IMM(1);
 	*cs++ = i915_mmio_reg_offset(RING_PP_DIR_BASE(engine->mmio_base));
-	*cs++ = px_base(ppgtt->pd)->ggtt_offset << 10;
+	*cs++ = ppgtt->pd->base.ggtt_offset << 10;
 
 	intel_ring_advance(rq, cs);
 
@@ -1562,8 +1511,7 @@ static int flush_pd_dir(struct i915_request *rq)
 	/* Stall until the page table load is complete */
 	*cs++ = MI_STORE_REGISTER_MEM | MI_SRM_LRM_GLOBAL_GTT;
 	*cs++ = i915_mmio_reg_offset(RING_PP_DIR_BASE(engine->mmio_base));
-	*cs++ = intel_gt_scratch_offset(rq->engine->gt,
-					INTEL_GT_SCRATCH_FIELD_DEFAULT);
+	*cs++ = i915_scratch_offset(rq->i915);
 	*cs++ = MI_NOOP;
 
 	intel_ring_advance(rq, cs);
@@ -1576,7 +1524,7 @@ static inline int mi_set_context(struct i915_request *rq, u32 flags)
 	struct intel_engine_cs *engine = rq->engine;
 	enum intel_engine_id id;
 	const int num_engines =
-		IS_HASWELL(i915) ? RUNTIME_INFO(i915)->num_engines - 1 : 0;
+		IS_HSW_GT1(i915) ? RUNTIME_INFO(i915)->num_engines - 1 : 0;
 	bool force_restore = false;
 	int len;
 	u32 *cs;
@@ -1679,8 +1627,7 @@ static inline int mi_set_context(struct i915_request *rq, u32 flags)
 			/* Insert a delay before the next switch! */
 			*cs++ = MI_STORE_REGISTER_MEM | MI_SRM_LRM_GLOBAL_GTT;
 			*cs++ = i915_mmio_reg_offset(last_reg);
-			*cs++ = intel_gt_scratch_offset(rq->engine->gt,
-							INTEL_GT_SCRATCH_FIELD_DEFAULT);
+			*cs++ = i915_scratch_offset(rq->i915);
 			*cs++ = MI_NOOP;
 		}
 		*cs++ = MI_ARB_ON_OFF | MI_ARB_ENABLE;
@@ -1693,7 +1640,7 @@ static inline int mi_set_context(struct i915_request *rq, u32 flags)
 	return 0;
 }
 
-static int remap_l3_slice(struct i915_request *rq, int slice)
+static int remap_l3(struct i915_request *rq, int slice)
 {
 	u32 *cs, *remap_info = rq->i915->l3_parity.remap_info[slice];
 	int i;
@@ -1721,34 +1668,15 @@ static int remap_l3_slice(struct i915_request *rq, int slice)
 	return 0;
 }
 
-static int remap_l3(struct i915_request *rq)
-{
-	struct i915_gem_context *ctx = rq->gem_context;
-	int i, err;
-
-	if (!ctx->remap_slice)
-		return 0;
-
-	for (i = 0; i < MAX_L3_SLICES; i++) {
-		if (!(ctx->remap_slice & BIT(i)))
-			continue;
-
-		err = remap_l3_slice(rq, i);
-		if (err)
-			return err;
-	}
-
-	ctx->remap_slice = 0;
-	return 0;
-}
-
 static int switch_context(struct i915_request *rq)
 {
 	struct intel_engine_cs *engine = rq->engine;
-	struct i915_address_space *vm = vm_alias(rq->hw_context);
+	struct i915_gem_context *ctx = rq->gem_context;
+	struct i915_address_space *vm =
+		ctx->vm ?: &rq->i915->mm.aliasing_ppgtt->vm;
 	unsigned int unwind_mm = 0;
 	u32 hw_flags = 0;
-	int ret;
+	int ret, i;
 
 	GEM_BUG_ON(HAS_EXECLISTS(rq->i915));
 
@@ -1792,7 +1720,7 @@ static int switch_context(struct i915_request *rq)
 		 * as nothing actually executes using the kernel context; it
 		 * is purely used for flushing user contexts.
 		 */
-		if (i915_gem_context_is_kernel(rq->gem_context))
+		if (i915_gem_context_is_kernel(ctx))
 			hw_flags = MI_RESTORE_INHIBIT;
 
 		ret = mi_set_context(rq, hw_flags);
@@ -1826,9 +1754,18 @@ static int switch_context(struct i915_request *rq)
 			goto err_mm;
 	}
 
-	ret = remap_l3(rq);
-	if (ret)
-		goto err_mm;
+	if (ctx->remap_slice) {
+		for (i = 0; i < MAX_L3_SLICES; i++) {
+			if (!(ctx->remap_slice & BIT(i)))
+				continue;
+
+			ret = remap_l3(rq, i);
+			if (ret)
+				goto err_mm;
+		}
+
+		ctx->remap_slice = 0;
+	}
 
 	return 0;
 
@@ -1844,7 +1781,7 @@ static int ring_request_alloc(struct i915_request *request)
 	int ret;
 
 	GEM_BUG_ON(!intel_context_is_pinned(request->hw_context));
-	GEM_BUG_ON(i915_request_timeline(request)->has_initial_breadcrumb);
+	GEM_BUG_ON(request->timeline->has_initial_breadcrumb);
 
 	/*
 	 * Flush enough space to reduce the likelihood of waiting after
@@ -1866,10 +1803,7 @@ static int ring_request_alloc(struct i915_request *request)
 	return 0;
 }
 
-static noinline int
-wait_for_space(struct intel_ring *ring,
-	       struct intel_timeline *tl,
-	       unsigned int bytes)
+static noinline int wait_for_space(struct intel_ring *ring, unsigned int bytes)
 {
 	struct i915_request *target;
 	long timeout;
@@ -1877,18 +1811,15 @@ wait_for_space(struct intel_ring *ring,
 	if (intel_ring_update_space(ring) >= bytes)
 		return 0;
 
-	GEM_BUG_ON(list_empty(&tl->requests));
-	list_for_each_entry(target, &tl->requests, link) {
-		if (target->ring != ring)
-			continue;
-
+	GEM_BUG_ON(list_empty(&ring->request_list));
+	list_for_each_entry(target, &ring->request_list, ring_link) {
 		/* Would completion of this request free enough space? */
 		if (bytes <= __intel_ring_space(target->postfix,
 						ring->emit, ring->size))
 			break;
 	}
 
-	if (GEM_WARN_ON(&target->link == &tl->requests))
+	if (WARN_ON(&target->ring_link == &ring->request_list))
 		return -ENOSPC;
 
 	timeout = i915_request_wait(target,
@@ -1955,9 +1886,7 @@ u32 *intel_ring_begin(struct i915_request *rq, unsigned int num_dwords)
 		 */
 		GEM_BUG_ON(!rq->reserved_space);
 
-		ret = wait_for_space(ring,
-				     i915_request_timeline(rq),
-				     total_bytes);
+		ret = wait_for_space(ring, total_bytes);
 		if (unlikely(ret))
 			return ERR_PTR(ret);
 	}
@@ -2162,11 +2091,8 @@ static void ring_destroy(struct intel_engine_cs *engine)
 
 	intel_engine_cleanup_common(engine);
 
-	intel_ring_unpin(engine->legacy.ring);
-	intel_ring_put(engine->legacy.ring);
-
-	intel_timeline_unpin(engine->legacy.timeline);
-	intel_timeline_put(engine->legacy.timeline);
+	intel_ring_unpin(engine->buffer);
+	intel_ring_put(engine->buffer);
 
 	kfree(engine);
 }
@@ -2240,9 +2166,11 @@ static void setup_rcs(struct intel_engine_cs *engine)
 	engine->irq_enable_mask = GT_RENDER_USER_INTERRUPT;
 
 	if (INTEL_GEN(i915) >= 7) {
+		engine->init_context = intel_rcs_ctx_init;
 		engine->emit_flush = gen7_render_ring_flush;
 		engine->emit_fini_breadcrumb = gen7_rcs_emit_breadcrumb;
 	} else if (IS_GEN(i915, 6)) {
+		engine->init_context = intel_rcs_ctx_init;
 		engine->emit_flush = gen6_render_ring_flush;
 		engine->emit_fini_breadcrumb = gen6_rcs_emit_breadcrumb;
 	} else if (IS_GEN(i915, 5)) {
@@ -2339,51 +2267,43 @@ int intel_ring_submission_setup(struct intel_engine_cs *engine)
 
 int intel_ring_submission_init(struct intel_engine_cs *engine)
 {
-	struct intel_timeline *timeline;
+	struct i915_timeline *timeline;
 	struct intel_ring *ring;
 	int err;
 
-	timeline = intel_timeline_create(engine->gt, engine->status_page.vma);
+	timeline = i915_timeline_create(engine->i915, engine->status_page.vma);
 	if (IS_ERR(timeline)) {
 		err = PTR_ERR(timeline);
 		goto err;
 	}
 	GEM_BUG_ON(timeline->has_initial_breadcrumb);
 
-	err = intel_timeline_pin(timeline);
-	if (err)
-		goto err_timeline;
-
-	ring = intel_engine_create_ring(engine, SZ_16K);
+	ring = intel_engine_create_ring(engine, timeline, 32 * PAGE_SIZE);
+	i915_timeline_put(timeline);
 	if (IS_ERR(ring)) {
 		err = PTR_ERR(ring);
-		goto err_timeline_unpin;
+		goto err;
 	}
 
 	err = intel_ring_pin(ring);
 	if (err)
 		goto err_ring;
 
-	GEM_BUG_ON(engine->legacy.ring);
-	engine->legacy.ring = ring;
-	engine->legacy.timeline = timeline;
+	GEM_BUG_ON(engine->buffer);
+	engine->buffer = ring;
 
 	err = intel_engine_init_common(engine);
 	if (err)
-		goto err_ring_unpin;
+		goto err_unpin;
 
-	GEM_BUG_ON(timeline->hwsp_ggtt != engine->status_page.vma);
+	GEM_BUG_ON(ring->timeline->hwsp_ggtt != engine->status_page.vma);
 
 	return 0;
 
-err_ring_unpin:
+err_unpin:
 	intel_ring_unpin(ring);
 err_ring:
 	intel_ring_put(ring);
-err_timeline_unpin:
-	intel_timeline_unpin(timeline);
-err_timeline:
-	intel_timeline_put(timeline);
 err:
 	intel_engine_cleanup_common(engine);
 	return err;

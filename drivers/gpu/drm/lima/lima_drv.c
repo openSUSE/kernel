@@ -307,8 +307,10 @@ static int lima_pdev_probe(struct platform_device *pdev)
 	ldev->ddev = ddev;
 
 	err = lima_device_init(ldev);
-	if (err)
+	if (err) {
+		dev_err(&pdev->dev, "Fatal error during GPU init\n");
 		goto err_out1;
+	}
 
 	/*
 	 * Register the DRM device with the core and the connectors with

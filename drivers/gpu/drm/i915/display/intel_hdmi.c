@@ -45,17 +45,17 @@
 #include "intel_audio.h"
 #include "intel_connector.h"
 #include "intel_ddi.h"
-#include "intel_display_types.h"
 #include "intel_dp.h"
 #include "intel_dpio_phy.h"
+#include "intel_drv.h"
 #include "intel_fifo_underrun.h"
 #include "intel_gmbus.h"
 #include "intel_hdcp.h"
 #include "intel_hdmi.h"
 #include "intel_hotplug.h"
 #include "intel_lspcon.h"
-#include "intel_panel.h"
 #include "intel_sdvo.h"
+#include "intel_panel.h"
 #include "intel_sideband.h"
 
 static struct drm_device *intel_hdmi_to_dev(struct intel_hdmi *intel_hdmi)
@@ -1505,8 +1505,7 @@ bool intel_hdmi_hdcp_check_link(struct intel_digital_port *intel_dig_port)
 	I915_WRITE(PORT_HDCP_RPRIME(port), ri.reg);
 
 	/* Wait for Ri prime match */
-	if (wait_for((I915_READ(PORT_HDCP_STATUS(port)) &
-		      (HDCP_STATUS_RI_MATCH | HDCP_STATUS_ENC)) ==
+	if (wait_for(I915_READ(PORT_HDCP_STATUS(port)) &
 		     (HDCP_STATUS_RI_MATCH | HDCP_STATUS_ENC), 1)) {
 		DRM_ERROR("Ri' mismatch detected, link check failed (%x)\n",
 			  I915_READ(PORT_HDCP_STATUS(port)));
@@ -1515,28 +1514,29 @@ bool intel_hdmi_hdcp_check_link(struct intel_digital_port *intel_dig_port)
 	return true;
 }
 
-struct hdcp2_hdmi_msg_data {
+static struct hdcp2_hdmi_msg_data {
 	u8 msg_id;
 	u32 timeout;
 	u32 timeout2;
-};
-
-static const struct hdcp2_hdmi_msg_data hdcp2_msg_data[] = {
-	{ HDCP_2_2_AKE_INIT, 0, 0 },
-	{ HDCP_2_2_AKE_SEND_CERT, HDCP_2_2_CERT_TIMEOUT_MS, 0 },
-	{ HDCP_2_2_AKE_NO_STORED_KM, 0, 0 },
-	{ HDCP_2_2_AKE_STORED_KM, 0, 0 },
-	{ HDCP_2_2_AKE_SEND_HPRIME, HDCP_2_2_HPRIME_PAIRED_TIMEOUT_MS,
-	  HDCP_2_2_HPRIME_NO_PAIRED_TIMEOUT_MS },
-	{ HDCP_2_2_AKE_SEND_PAIRING_INFO, HDCP_2_2_PAIRING_TIMEOUT_MS, 0 },
-	{ HDCP_2_2_LC_INIT, 0, 0 },
-	{ HDCP_2_2_LC_SEND_LPRIME, HDCP_2_2_HDMI_LPRIME_TIMEOUT_MS, 0 },
-	{ HDCP_2_2_SKE_SEND_EKS, 0, 0 },
-	{ HDCP_2_2_REP_SEND_RECVID_LIST, HDCP_2_2_RECVID_LIST_TIMEOUT_MS, 0 },
-	{ HDCP_2_2_REP_SEND_ACK, 0, 0 },
-	{ HDCP_2_2_REP_STREAM_MANAGE, 0, 0 },
-	{ HDCP_2_2_REP_STREAM_READY, HDCP_2_2_STREAM_READY_TIMEOUT_MS, 0 },
-};
+	} hdcp2_msg_data[] = {
+		{HDCP_2_2_AKE_INIT, 0, 0},
+		{HDCP_2_2_AKE_SEND_CERT, HDCP_2_2_CERT_TIMEOUT_MS, 0},
+		{HDCP_2_2_AKE_NO_STORED_KM, 0, 0},
+		{HDCP_2_2_AKE_STORED_KM, 0, 0},
+		{HDCP_2_2_AKE_SEND_HPRIME, HDCP_2_2_HPRIME_PAIRED_TIMEOUT_MS,
+				HDCP_2_2_HPRIME_NO_PAIRED_TIMEOUT_MS},
+		{HDCP_2_2_AKE_SEND_PAIRING_INFO, HDCP_2_2_PAIRING_TIMEOUT_MS,
+				0},
+		{HDCP_2_2_LC_INIT, 0, 0},
+		{HDCP_2_2_LC_SEND_LPRIME, HDCP_2_2_HDMI_LPRIME_TIMEOUT_MS, 0},
+		{HDCP_2_2_SKE_SEND_EKS, 0, 0},
+		{HDCP_2_2_REP_SEND_RECVID_LIST,
+				HDCP_2_2_RECVID_LIST_TIMEOUT_MS, 0},
+		{HDCP_2_2_REP_SEND_ACK, 0, 0},
+		{HDCP_2_2_REP_STREAM_MANAGE, 0, 0},
+		{HDCP_2_2_REP_STREAM_READY, HDCP_2_2_STREAM_READY_TIMEOUT_MS,
+				0},
+	};
 
 static
 int intel_hdmi_hdcp2_read_rx_status(struct intel_digital_port *intel_dig_port,
@@ -2566,12 +2566,6 @@ out:
 	if (status != connector_status_connected)
 		cec_notifier_phys_addr_invalidate(intel_hdmi->cec_notifier);
 
-	/*
-	 * Make sure the refs for power wells enabled during detect are
-	 * dropped to avoid a new detect cycle triggered by HPD polling.
-	 */
-	intel_display_power_flush_work(dev_priv);
-
 	return status;
 }
 
@@ -2756,11 +2750,16 @@ intel_hdmi_connector_register(struct drm_connector *connector)
 	return ret;
 }
 
-static void intel_hdmi_connector_unregister(struct drm_connector *connector)
+static void intel_hdmi_destroy(struct drm_connector *connector)
 {
 	if (intel_attached_hdmi(connector)->cec_notifier)
 		cec_notifier_put(intel_attached_hdmi(connector)->cec_notifier);
 
+	intel_connector_destroy(connector);
+}
+
+static void intel_hdmi_connector_unregister(struct drm_connector *connector)
+{
 	intel_hdmi_remove_i2c_symlink(connector);
 
 	intel_connector_unregister(connector);
@@ -2774,7 +2773,7 @@ static const struct drm_connector_funcs intel_hdmi_connector_funcs = {
 	.atomic_set_property = intel_digital_connector_atomic_set_property,
 	.late_register = intel_hdmi_connector_register,
 	.early_unregister = intel_hdmi_connector_unregister,
-	.destroy = intel_connector_destroy,
+	.destroy = intel_hdmi_destroy,
 	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
 	.atomic_duplicate_state = intel_digital_connector_duplicate_state,
 };
@@ -2931,34 +2930,51 @@ static u8 cnp_port_to_ddc_pin(struct drm_i915_private *dev_priv,
 
 static u8 icl_port_to_ddc_pin(struct drm_i915_private *dev_priv, enum port port)
 {
-	enum phy phy = intel_port_to_phy(dev_priv, port);
+	u8 ddc_pin;
 
-	if (intel_phy_is_combo(dev_priv, phy))
-		return GMBUS_PIN_1_BXT + port;
-	else if (intel_phy_is_tc(dev_priv, phy))
-		return GMBUS_PIN_9_TC1_ICP + intel_port_to_tc(dev_priv, port);
-
-	WARN(1, "Unknown port:%c\n", port_name(port));
-	return GMBUS_PIN_2_BXT;
+	switch (port) {
+	case PORT_A:
+		ddc_pin = GMBUS_PIN_1_BXT;
+		break;
+	case PORT_B:
+		ddc_pin = GMBUS_PIN_2_BXT;
+		break;
+	case PORT_C:
+		ddc_pin = GMBUS_PIN_9_TC1_ICP;
+		break;
+	case PORT_D:
+		ddc_pin = GMBUS_PIN_10_TC2_ICP;
+		break;
+	case PORT_E:
+		ddc_pin = GMBUS_PIN_11_TC3_ICP;
+		break;
+	case PORT_F:
+		ddc_pin = GMBUS_PIN_12_TC4_ICP;
+		break;
+	default:
+		MISSING_CASE(port);
+		ddc_pin = GMBUS_PIN_2_BXT;
+		break;
+	}
+	return ddc_pin;
 }
 
 static u8 mcc_port_to_ddc_pin(struct drm_i915_private *dev_priv, enum port port)
 {
-	enum phy phy = intel_port_to_phy(dev_priv, port);
 	u8 ddc_pin;
 
-	switch (phy) {
-	case PHY_A:
+	switch (port) {
+	case PORT_A:
 		ddc_pin = GMBUS_PIN_1_BXT;
 		break;
-	case PHY_B:
+	case PORT_B:
 		ddc_pin = GMBUS_PIN_2_BXT;
 		break;
-	case PHY_C:
+	case PORT_C:
 		ddc_pin = GMBUS_PIN_9_TC1_ICP;
 		break;
 	default:
-		MISSING_CASE(phy);
+		MISSING_CASE(port);
 		ddc_pin = GMBUS_PIN_1_BXT;
 		break;
 	}
@@ -3003,7 +3019,7 @@ static u8 intel_hdmi_ddc_pin(struct drm_i915_private *dev_priv,
 
 	if (HAS_PCH_MCC(dev_priv))
 		ddc_pin = mcc_port_to_ddc_pin(dev_priv, port);
-	else if (HAS_PCH_TGP(dev_priv) || HAS_PCH_ICP(dev_priv))
+	else if (HAS_PCH_ICP(dev_priv))
 		ddc_pin = icl_port_to_ddc_pin(dev_priv, port);
 	else if (HAS_PCH_CNP(dev_priv))
 		ddc_pin = cnp_port_to_ddc_pin(dev_priv, port);
@@ -3127,32 +3143,6 @@ void intel_hdmi_init_connector(struct intel_digital_port *intel_dig_port,
 		DRM_DEBUG_KMS("CEC notifier get failed\n");
 }
 
-static enum intel_hotplug_state
-intel_hdmi_hotplug(struct intel_encoder *encoder,
-		   struct intel_connector *connector, bool irq_received)
-{
-	enum intel_hotplug_state state;
-
-	state = intel_encoder_hotplug(encoder, connector, irq_received);
-
-	/*
-	 * On many platforms the HDMI live state signal is known to be
-	 * unreliable, so we can't use it to detect if a sink is connected or
-	 * not. Instead we detect if it's connected based on whether we can
-	 * read the EDID or not. That in turn has a problem during disconnect,
-	 * since the HPD interrupt may be raised before the DDC lines get
-	 * disconnected (due to how the required length of DDC vs. HPD
-	 * connector pins are specified) and so we'll still be able to get a
-	 * valid EDID. To solve this schedule another detection cycle if this
-	 * time around we didn't detect any change in the sink's connection
-	 * status.
-	 */
-	if (state == INTEL_HOTPLUG_UNCHANGED && irq_received)
-		state = INTEL_HOTPLUG_RETRY;
-
-	return state;
-}
-
 void intel_hdmi_init(struct drm_i915_private *dev_priv,
 		     i915_reg_t hdmi_reg, enum port port)
 {
@@ -3176,7 +3166,7 @@ void intel_hdmi_init(struct drm_i915_private *dev_priv,
 			 &intel_hdmi_enc_funcs, DRM_MODE_ENCODER_TMDS,
 			 "HDMI %c", port_name(port));
 
-	intel_encoder->hotplug = intel_hdmi_hotplug;
+	intel_encoder->hotplug = intel_encoder_hotplug;
 	intel_encoder->compute_config = intel_hdmi_compute_config;
 	if (HAS_PCH_SPLIT(dev_priv)) {
 		intel_encoder->disable = pch_disable_hdmi;
