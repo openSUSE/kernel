@@ -52,20 +52,9 @@
 #define HDA_IPFS_INTR_MASK        0x188
 #define HDA_IPFS_EN_INTR          (1 << 16)
 
-/* FPCI */
-#define FPCI_DBG_CFG_2		  0x10F4
-#define FPCI_GCAP_NSDO_SHIFT	  18
-#define FPCI_GCAP_NSDO_MASK	  (0x3 << FPCI_GCAP_NSDO_SHIFT)
-
 /* max number of SDs */
 #define NUM_CAPTURE_SD 1
 #define NUM_PLAYBACK_SD 1
-
-/*
- * Tegra194 does not reflect correct number of SDO lines. Below macro
- * is used to update the GCAP register to workaround the issue.
- */
-#define TEGRA194_NUM_SDO_LINES	  4
 
 struct hda_tegra {
 	struct azx chip;
@@ -85,88 +74,6 @@ MODULE_PARM_DESC(power_save,
 #else
 #define power_save	0
 #endif
-
-/*
- * DMA page allocation ops.
- */
-static int dma_alloc_pages(struct hdac_bus *bus, int type, size_t size,
-			   struct snd_dma_buffer *buf)
-{
-	return snd_dma_alloc_pages(type, bus->dev, size, buf);
-}
-
-static void dma_free_pages(struct hdac_bus *bus, struct snd_dma_buffer *buf)
-{
-	snd_dma_free_pages(buf);
-}
-
-/*
- * Register access ops. Tegra HDA register access is DWORD only.
- */
-static void hda_tegra_writel(u32 value, u32 __iomem *addr)
-{
-	writel(value, addr);
-}
-
-static u32 hda_tegra_readl(u32 __iomem *addr)
-{
-	return readl(addr);
-}
-
-static void hda_tegra_writew(u16 value, u16 __iomem  *addr)
-{
-	unsigned int shift = ((unsigned long)(addr) & 0x3) << 3;
-	void __iomem *dword_addr = (void __iomem *)((unsigned long)(addr) & ~0x3);
-	u32 v;
-
-	v = readl(dword_addr);
-	v &= ~(0xffff << shift);
-	v |= value << shift;
-	writel(v, dword_addr);
-}
-
-static u16 hda_tegra_readw(u16 __iomem *addr)
-{
-	unsigned int shift = ((unsigned long)(addr) & 0x3) << 3;
-	void __iomem *dword_addr = (void __iomem *)((unsigned long)(addr) & ~0x3);
-	u32 v;
-
-	v = readl(dword_addr);
-	return (v >> shift) & 0xffff;
-}
-
-static void hda_tegra_writeb(u8 value, u8 __iomem *addr)
-{
-	unsigned int shift = ((unsigned long)(addr) & 0x3) << 3;
-	void __iomem *dword_addr = (void __iomem *)((unsigned long)(addr) & ~0x3);
-	u32 v;
-
-	v = readl(dword_addr);
-	v &= ~(0xff << shift);
-	v |= value << shift;
-	writel(v, dword_addr);
-}
-
-static u8 hda_tegra_readb(u8 __iomem *addr)
-{
-	unsigned int shift = ((unsigned long)(addr) & 0x3) << 3;
-	void __iomem *dword_addr = (void __iomem *)((unsigned long)(addr) & ~0x3);
-	u32 v;
-
-	v = readl(dword_addr);
-	return (v >> shift) & 0xff;
-}
-
-static const struct hdac_io_ops hda_tegra_io_ops = {
-	.reg_writel = hda_tegra_writel,
-	.reg_readl = hda_tegra_readl,
-	.reg_writew = hda_tegra_writew,
-	.reg_readw = hda_tegra_readw,
-	.reg_writeb = hda_tegra_writeb,
-	.reg_readb = hda_tegra_readb,
-	.dma_alloc_pages = dma_alloc_pages,
-	.dma_free_pages = dma_free_pages,
-};
 
 static const struct hda_controller_ops hda_tegra_ops; /* nothing special */
 
@@ -259,15 +166,9 @@ static int __maybe_unused hda_tegra_runtime_suspend(struct device *dev)
 	struct snd_card *card = dev_get_drvdata(dev);
 	struct azx *chip = card->private_data;
 	struct hda_tegra *hda = container_of(chip, struct hda_tegra, chip);
-	struct hdac_bus *bus = azx_bus(chip);
 
 	if (chip && chip->running) {
-		/* enable controller wake up event */
-		azx_writew(chip, WAKEEN, azx_readw(chip, WAKEEN) |
-			   STATESTS_INT_MASK);
-
 		azx_stop_chip(chip);
-		synchronize_irq(bus->irq);
 		azx_enter_link_reset(chip);
 	}
 	hda_tegra_disable_clocks(hda);
@@ -288,9 +189,6 @@ static int __maybe_unused hda_tegra_runtime_resume(struct device *dev)
 	if (chip && chip->running) {
 		hda_tegra_init(hda);
 		azx_init_chip(chip, 1);
-		/* disable controller wake up event*/
-		azx_writew(chip, WAKEEN, azx_readw(chip, WAKEEN) &
-			   ~STATESTS_INT_MASK);
 	}
 
 	return 0;
@@ -377,7 +275,6 @@ static int hda_tegra_init_clk(struct hda_tegra *hda)
 
 static int hda_tegra_first_init(struct azx *chip, struct platform_device *pdev)
 {
-	struct hda_tegra *hda = container_of(chip, struct hda_tegra, chip);
 	struct hdac_bus *bus = azx_bus(chip);
 	struct snd_card *card = chip->card;
 	int err;
@@ -399,28 +296,7 @@ static int hda_tegra_first_init(struct azx *chip, struct platform_device *pdev)
 		return err;
 	}
 	bus->irq = irq_id;
-
-	synchronize_irq(bus->irq);
-
-	/*
-	 * Tegra194 has 4 SDO lines and the STRIPE can be used to
-	 * indicate how many of the SDO lines the stream should be
-	 * striped. But GCAP register does not reflect the true
-	 * capability of HW. Below workaround helps to fix this.
-	 *
-	 * GCAP_NSDO is bits 19:18 in T_AZA_DBG_CFG_2,
-	 * 0 for 1 SDO, 1 for 2 SDO, 2 for 4 SDO lines.
-	 */
-	if (of_device_is_compatible(np, "nvidia,tegra194-hda")) {
-		u32 val;
-
-		dev_info(card->dev, "Override SDO lines to %u\n",
-			 TEGRA194_NUM_SDO_LINES);
-
-		val = readl(hda->regs + FPCI_DBG_CFG_2) & ~FPCI_GCAP_NSDO_MASK;
-		val |= (TEGRA194_NUM_SDO_LINES >> 1) << FPCI_GCAP_NSDO_SHIFT;
-		writel(val, hda->regs + FPCI_DBG_CFG_2);
-	}
+	card->sync_irq = bus->irq;
 
 	gcap = azx_readw(chip, GCAP);
 	dev_dbg(card->dev, "chipset global capabilities = 0x%x\n", gcap);
@@ -456,23 +332,6 @@ static int hda_tegra_first_init(struct azx *chip, struct platform_device *pdev)
 	/* initialize chip */
 	azx_init_chip(chip, 1);
 
-	/*
-	 * Playback (for 44.1K/48K, 2-channel, 16-bps) fails with
-	 * 4 SDO lines due to legacy design limitation. Following
-	 * is, from HD Audio Specification (Revision 1.0a), used to
-	 * control striping of the stream across multiple SDO lines
-	 * for sample rates <= 48K.
-	 *
-	 * { ((num_channels * bits_per_sample) / number of SDOs) >= 8 }
-	 *
-	 * Due to legacy design issue it is recommended that above
-	 * ratio must be greater than 8. Since number of SDO lines is
-	 * in powers of 2, next available ratio is 16 which can be
-	 * used as a limiting factor here.
-	 */
-	if (of_device_is_compatible(np, "nvidia,tegra194-hda"))
-		chip->bus.core.sdo_limit = 16;
-
 	/* codec detection */
 	if (!bus->codec_mask) {
 		dev_err(card->dev, "no codecs found!\n");
@@ -507,7 +366,7 @@ static int hda_tegra_create(struct snd_card *card,
 			    unsigned int driver_caps,
 			    struct hda_tegra *hda)
 {
-	static struct snd_device_ops ops = {
+	static const struct snd_device_ops ops = {
 		.dev_disconnect = hda_tegra_dev_disconnect,
 		.dev_free = hda_tegra_dev_free,
 	};
@@ -531,12 +390,12 @@ static int hda_tegra_create(struct snd_card *card,
 
 	INIT_WORK(&hda->probe_work, hda_tegra_probe_work);
 
-	err = azx_bus_init(chip, NULL, &hda_tegra_io_ops);
+	err = azx_bus_init(chip, NULL);
 	if (err < 0)
 		return err;
 
-	chip->bus.core.sync_write = 0;
 	chip->bus.core.needs_damn_long_delay = 1;
+	chip->bus.core.aligned_mmio = 1;
 
 	err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, chip, &ops);
 	if (err < 0) {
@@ -549,7 +408,6 @@ static int hda_tegra_create(struct snd_card *card,
 
 static const struct of_device_id hda_tegra_match[] = {
 	{ .compatible = "nvidia,tegra30-hda" },
-	{ .compatible = "nvidia,tegra194-hda" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, hda_tegra_match);

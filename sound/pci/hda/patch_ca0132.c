@@ -1180,9 +1180,7 @@ static const struct snd_pci_quirk ca0132_quirks[] = {
 	SND_PCI_QUIRK(0x1458, 0xA016, "Recon3Di", QUIRK_R3DI),
 	SND_PCI_QUIRK(0x1458, 0xA026, "Gigabyte G1.Sniper Z97", QUIRK_R3DI),
 	SND_PCI_QUIRK(0x1458, 0xA036, "Gigabyte GA-Z170X-Gaming 7", QUIRK_R3DI),
-	SND_PCI_QUIRK(0x3842, 0x1038, "EVGA X99 Classified", QUIRK_R3DI),
 	SND_PCI_QUIRK(0x1102, 0x0013, "Recon3D", QUIRK_R3D),
-	SND_PCI_QUIRK(0x1102, 0x0018, "Recon3D", QUIRK_R3D),
 	SND_PCI_QUIRK(0x1102, 0x0051, "Sound Blaster AE-5", QUIRK_AE5),
 	{}
 };
@@ -2700,7 +2698,7 @@ struct dsp_image_seg {
 	u32 magic;
 	u32 chip_addr;
 	u32 count;
-	u32 data[];
+	u32 data[0];
 };
 
 static const u32 g_magic_value = 0x4c46584d;
@@ -4672,7 +4670,7 @@ static int ca0132_alt_select_in(struct hda_codec *codec)
 			tmp = FLOAT_ONE;
 			break;
 		case QUIRK_AE5:
-			ca0113_mmio_command_set(codec, 0x30, 0x28, 0x00);
+			ca0113_mmio_command_set(codec, 0x48, 0x28, 0x00);
 			tmp = FLOAT_THREE;
 			break;
 		default:
@@ -4718,7 +4716,7 @@ static int ca0132_alt_select_in(struct hda_codec *codec)
 			r3di_gpio_mic_set(codec, R3DI_REAR_MIC);
 			break;
 		case QUIRK_AE5:
-			ca0113_mmio_command_set(codec, 0x30, 0x28, 0x00);
+			ca0113_mmio_command_set(codec, 0x48, 0x28, 0x00);
 			break;
 		default:
 			break;
@@ -4757,7 +4755,7 @@ static int ca0132_alt_select_in(struct hda_codec *codec)
 			tmp = FLOAT_ONE;
 			break;
 		case QUIRK_AE5:
-			ca0113_mmio_command_set(codec, 0x30, 0x28, 0x3f);
+			ca0113_mmio_command_set(codec, 0x48, 0x28, 0x3f);
 			tmp = FLOAT_THREE;
 			break;
 		default:
@@ -5746,11 +5744,6 @@ static int ca0132_switch_get(struct snd_kcontrol *kcontrol,
 	/* mic boost */
 	if (nid == spec->input_pins[0]) {
 		*valp = spec->cur_mic_boost;
-		return 0;
-	}
-
-	if (nid == ZXR_HEADPHONE_GAIN) {
-		*valp = spec->zxr_gain_set;
 		return 0;
 	}
 

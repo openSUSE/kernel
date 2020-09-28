@@ -297,14 +297,13 @@ static struct snd_soc_dai_link neo1973_dai[] = {
 
 static struct snd_soc_aux_dev neo1973_aux_devs[] = {
 	{
-		.name = "dfbmcs320",
-		.codec_name = "dfbmcs320.0",
+		.dlc = COMP_AUX("dfbmcs320.0"),
 	},
 };
 
 static struct snd_soc_codec_conf neo1973_codec_conf[] = {
 	{
-		.dev_name = "lm4857.0-007c",
+		.dlc = COMP_CODEC_CONF("lm4857.0-007c"),
 		.name_prefix = "Amp",
 	},
 };

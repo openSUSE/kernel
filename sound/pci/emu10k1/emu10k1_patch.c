@@ -27,8 +27,7 @@ snd_emu10k1_sample_new(struct snd_emux *rec, struct snd_sf_sample *sp,
 		       const void __user *data, long count)
 {
 	int offset;
-	int truesize, size, blocksize;
-	__maybe_unused int loopsize;
+	int truesize, size, loopsize, blocksize;
 	int loopend, sampleend;
 	unsigned int start_addr;
 	struct snd_emu10k1 *emu;

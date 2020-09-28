@@ -533,8 +533,6 @@ static struct snd_soc_dai_driver mt8173_afe_pcm_dais[] = {
 	{
 		.name = "DL1", /* downlink 1 */
 		.id = MT8173_AFE_MEMIF_DL1,
-		.suspend = mtk_afe_dai_suspend,
-		.resume = mtk_afe_dai_resume,
 		.playback = {
 			.stream_name = "DL1",
 			.channels_min = 1,
@@ -546,8 +544,6 @@ static struct snd_soc_dai_driver mt8173_afe_pcm_dais[] = {
 	}, {
 		.name = "VUL", /* voice uplink */
 		.id = MT8173_AFE_MEMIF_VUL,
-		.suspend = mtk_afe_dai_suspend,
-		.resume = mtk_afe_dai_resume,
 		.capture = {
 			.stream_name = "VUL",
 			.channels_min = 1,
@@ -584,8 +580,6 @@ static struct snd_soc_dai_driver mt8173_afe_hdmi_dais[] = {
 	{
 		.name = "HDMI",
 		.id = MT8173_AFE_MEMIF_HDMI,
-		.suspend = mtk_afe_dai_suspend,
-		.resume = mtk_afe_dai_resume,
 		.playback = {
 			.stream_name = "HDMI",
 			.channels_min = 2,
@@ -681,12 +675,16 @@ static const struct snd_soc_component_driver mt8173_afe_pcm_dai_component = {
 	.num_dapm_widgets = ARRAY_SIZE(mt8173_afe_pcm_widgets),
 	.dapm_routes = mt8173_afe_pcm_routes,
 	.num_dapm_routes = ARRAY_SIZE(mt8173_afe_pcm_routes),
+	.suspend = mtk_afe_suspend,
+	.resume = mtk_afe_resume,
 };
 
 static const struct snd_soc_component_driver mt8173_afe_hdmi_dai_component = {
 	.name = "mt8173-afe-hdmi-dai",
 	.dapm_routes = mt8173_afe_hdmi_routes,
 	.num_dapm_routes = ARRAY_SIZE(mt8173_afe_hdmi_routes),
+	.suspend = mtk_afe_suspend,
+	.resume = mtk_afe_resume,
 };
 
 static const char *aud_clks[MT8173_CLK_NUM] = {
@@ -1056,7 +1054,6 @@ static int mt8173_afe_pcm_dev_probe(struct platform_device *pdev)
 	int irq_id;
 	struct mtk_base_afe *afe;
 	struct mt8173_afe_private *afe_priv;
-	struct resource *res;
 
 	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(33));
 	if (ret)
@@ -1075,10 +1072,8 @@ static int mt8173_afe_pcm_dev_probe(struct platform_device *pdev)
 	afe->dev = &pdev->dev;
 
 	irq_id = platform_get_irq(pdev, 0);
-	if (irq_id <= 0) {
-		dev_err(afe->dev, "np %pOFn no irq\n", afe->dev->of_node);
+	if (irq_id <= 0)
 		return irq_id < 0 ? irq_id : -ENXIO;
-	}
 	ret = devm_request_irq(afe->dev, irq_id, mt8173_afe_irq_handler,
 			       0, "Afe_ISR_Handle", (void *)afe);
 	if (ret) {
@@ -1086,8 +1081,7 @@ static int mt8173_afe_pcm_dev_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	afe->base_addr = devm_ioremap_resource(&pdev->dev, res);
+	afe->base_addr = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(afe->base_addr))
 		return PTR_ERR(afe->base_addr);
 

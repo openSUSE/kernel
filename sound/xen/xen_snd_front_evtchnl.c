@@ -46,9 +46,13 @@ again:
 			continue;
 		switch (resp->operation) {
 		case XENSND_OP_OPEN:
+			/* fall through */
 		case XENSND_OP_CLOSE:
+			/* fall through */
 		case XENSND_OP_READ:
+			/* fall through */
 		case XENSND_OP_WRITE:
+			/* fall through */
 		case XENSND_OP_TRIGGER:
 			channel->u.req.resp_status = resp->status;
 			complete(&channel->u.req.completion);

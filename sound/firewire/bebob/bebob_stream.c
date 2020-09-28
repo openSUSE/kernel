@@ -7,7 +7,7 @@
 
 #include "./bebob.h"
 
-#define CALLBACK_TIMEOUT	2000
+#define CALLBACK_TIMEOUT	2500
 #define FW_ISO_RESOURCE_DELAY	1000
 
 /*
@@ -398,23 +398,6 @@ check_connection_used_by_others(struct snd_bebob *bebob, struct amdtp_stream *s)
 	return err;
 }
 
-static int make_both_connections(struct snd_bebob *bebob)
-{
-	int err = 0;
-
-	err = cmp_connection_establish(&bebob->out_conn);
-	if (err < 0)
-		return err;
-
-	err = cmp_connection_establish(&bebob->in_conn);
-	if (err < 0) {
-		cmp_connection_break(&bebob->out_conn);
-		return err;
-	}
-
-	return 0;
-}
-
 static void break_both_connections(struct snd_bebob *bebob)
 {
 	cmp_connection_break(&bebob->in_conn);
@@ -427,8 +410,7 @@ static void break_both_connections(struct snd_bebob *bebob)
 		msleep(600);
 }
 
-static int
-start_stream(struct snd_bebob *bebob, struct amdtp_stream *stream)
+static int start_stream(struct snd_bebob *bebob, struct amdtp_stream *stream)
 {
 	struct cmp_connection *conn;
 	int err = 0;
@@ -438,19 +420,19 @@ start_stream(struct snd_bebob *bebob, struct amdtp_stream *stream)
 	else
 		conn = &bebob->out_conn;
 
-	/* channel mapping */
+	// channel mapping.
 	if (bebob->maudio_special_quirk == NULL) {
 		err = map_data_channels(bebob, stream);
 		if (err < 0)
-			goto end;
+			return err;
 	}
 
-	/* start amdtp stream */
-	err = amdtp_stream_start(stream,
-				 conn->resources.channel,
-				 conn->speed);
-end:
-	return err;
+	err = cmp_connection_establish(conn);
+	if (err < 0)
+		return err;
+
+	return amdtp_domain_add_stream(&bebob->domain, stream,
+				       conn->resources.channel, conn->speed);
 }
 
 static int init_stream(struct snd_bebob *bebob, struct amdtp_stream *stream)
@@ -523,7 +505,13 @@ int snd_bebob_stream_init_duplex(struct snd_bebob *bebob)
 		return err;
 	}
 
-	return 0;
+	err = amdtp_domain_init(&bebob->domain);
+	if (err < 0) {
+		destroy_stream(bebob, &bebob->tx_stream);
+		destroy_stream(bebob, &bebob->rx_stream);
+	}
+
+	return err;
 }
 
 static int keep_resources(struct snd_bebob *bebob, struct amdtp_stream *stream,
@@ -549,7 +537,9 @@ static int keep_resources(struct snd_bebob *bebob, struct amdtp_stream *stream,
 	return cmp_connection_reserve(conn, amdtp_stream_get_max_payload(stream));
 }
 
-int snd_bebob_stream_reserve_duplex(struct snd_bebob *bebob, unsigned int rate)
+int snd_bebob_stream_reserve_duplex(struct snd_bebob *bebob, unsigned int rate,
+				    unsigned int frames_per_period,
+				    unsigned int frames_per_buffer)
 {
 	unsigned int curr_rate;
 	int err;
@@ -566,9 +556,7 @@ int snd_bebob_stream_reserve_duplex(struct snd_bebob *bebob, unsigned int rate)
 	if (rate == 0)
 		rate = curr_rate;
 	if (curr_rate != rate) {
-		amdtp_stream_stop(&bebob->tx_stream);
-		amdtp_stream_stop(&bebob->rx_stream);
-
+		amdtp_domain_stop(&bebob->domain);
 		break_both_connections(bebob);
 
 		cmp_connection_release(&bebob->out_conn);
@@ -604,6 +592,14 @@ int snd_bebob_stream_reserve_duplex(struct snd_bebob *bebob, unsigned int rate)
 			cmp_connection_release(&bebob->out_conn);
 			return err;
 		}
+
+		err = amdtp_domain_set_events_per_period(&bebob->domain,
+					frames_per_period, frames_per_buffer);
+		if (err < 0) {
+			cmp_connection_release(&bebob->out_conn);
+			cmp_connection_release(&bebob->in_conn);
+			return err;
+		}
 	}
 
 	return 0;
@@ -620,14 +616,15 @@ int snd_bebob_stream_start_duplex(struct snd_bebob *bebob)
 	// packet queueing error or detecting discontinuity
 	if (amdtp_streaming_error(&bebob->rx_stream) ||
 	    amdtp_streaming_error(&bebob->tx_stream)) {
-		amdtp_stream_stop(&bebob->rx_stream);
-		amdtp_stream_stop(&bebob->tx_stream);
-
+		amdtp_domain_stop(&bebob->domain);
 		break_both_connections(bebob);
 	}
 
 	if (!amdtp_stream_running(&bebob->rx_stream)) {
+		enum snd_bebob_clock_type src;
+		struct amdtp_stream *master, *slave;
 		unsigned int curr_rate;
+		unsigned int ir_delay_cycle;
 
 		if (bebob->maudio_special_quirk) {
 			err = bebob->spec->rate->get(bebob, &curr_rate);
@@ -635,16 +632,42 @@ int snd_bebob_stream_start_duplex(struct snd_bebob *bebob)
 				return err;
 		}
 
-		err = make_both_connections(bebob);
+		err = snd_bebob_stream_get_clock_src(bebob, &src);
 		if (err < 0)
 			return err;
 
-		err = start_stream(bebob, &bebob->rx_stream);
-		if (err < 0) {
-			dev_err(&bebob->unit->device,
-				"fail to run AMDTP master stream:%d\n", err);
-			goto error;
+		if (src != SND_BEBOB_CLOCK_TYPE_SYT) {
+			master = &bebob->tx_stream;
+			slave = &bebob->rx_stream;
+		} else {
+			master = &bebob->rx_stream;
+			slave = &bebob->tx_stream;
 		}
+
+		err = start_stream(bebob, master);
+		if (err < 0)
+			goto error;
+
+		err = start_stream(bebob, slave);
+		if (err < 0)
+			goto error;
+
+		// The device postpones start of transmission mostly for 1 sec
+		// after receives packets firstly. For safe, IR context starts
+		// 0.4 sec (=3200 cycles) later to version 1 or 2 firmware,
+		// 2.0 sec (=16000 cycles) for version 3 firmware. This is
+		// within 2.5 sec (=CALLBACK_TIMEOUT).
+		// Furthermore, some devices transfer isoc packets with
+		// discontinuous counter in the beginning of packet streaming.
+		// The delay has an effect to avoid detection of this
+		// discontinuity.
+		if (bebob->version < 2)
+			ir_delay_cycle = 3200;
+		else
+			ir_delay_cycle = 16000;
+		err = amdtp_domain_start(&bebob->domain, ir_delay_cycle);
+		if (err < 0)
+			goto error;
 
 		// NOTE:
 		// The firmware customized by M-Audio uses these commands to
@@ -660,21 +683,8 @@ int snd_bebob_stream_start_duplex(struct snd_bebob *bebob)
 		}
 
 		if (!amdtp_stream_wait_callback(&bebob->rx_stream,
-						CALLBACK_TIMEOUT)) {
-			err = -ETIMEDOUT;
-			goto error;
-		}
-	}
-
-	if (!amdtp_stream_running(&bebob->tx_stream)) {
-		err = start_stream(bebob, &bebob->tx_stream);
-		if (err < 0) {
-			dev_err(&bebob->unit->device,
-				"fail to run AMDTP slave stream:%d\n", err);
-			goto error;
-		}
-
-		if (!amdtp_stream_wait_callback(&bebob->tx_stream,
+						CALLBACK_TIMEOUT) ||
+		    !amdtp_stream_wait_callback(&bebob->tx_stream,
 						CALLBACK_TIMEOUT)) {
 			err = -ETIMEDOUT;
 			goto error;
@@ -683,8 +693,7 @@ int snd_bebob_stream_start_duplex(struct snd_bebob *bebob)
 
 	return 0;
 error:
-	amdtp_stream_stop(&bebob->tx_stream);
-	amdtp_stream_stop(&bebob->rx_stream);
+	amdtp_domain_stop(&bebob->domain);
 	break_both_connections(bebob);
 	return err;
 }
@@ -692,9 +701,7 @@ error:
 void snd_bebob_stream_stop_duplex(struct snd_bebob *bebob)
 {
 	if (bebob->substreams_counter == 0) {
-		amdtp_stream_stop(&bebob->rx_stream);
-		amdtp_stream_stop(&bebob->tx_stream);
-
+		amdtp_domain_stop(&bebob->domain);
 		break_both_connections(bebob);
 
 		cmp_connection_release(&bebob->out_conn);
@@ -708,6 +715,8 @@ void snd_bebob_stream_stop_duplex(struct snd_bebob *bebob)
  */
 void snd_bebob_stream_destroy_duplex(struct snd_bebob *bebob)
 {
+	amdtp_domain_destroy(&bebob->domain);
+
 	destroy_stream(bebob, &bebob->tx_stream);
 	destroy_stream(bebob, &bebob->rx_stream);
 }

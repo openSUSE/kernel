@@ -38,7 +38,7 @@ int snd_hdac_get_stream_stripe_ctl(struct hdac_bus *bus,
 		else
 			value = (channels * bits_per_sample) / sdo_line;
 
-		if (value >= bus->sdo_limit)
+		if (value >= 8)
 			break;
 	}
 
@@ -590,7 +590,9 @@ EXPORT_SYMBOL_GPL(snd_hdac_stream_timecounter_init);
 /**
  * snd_hdac_stream_sync_trigger - turn on/off stream sync register
  * @azx_dev: HD-audio core stream (master stream)
+ * @set: true = set, false = clear
  * @streams: bit flags of streams to sync
+ * @reg: the stream sync register address
  */
 void snd_hdac_stream_sync_trigger(struct hdac_stream *azx_dev, bool set,
 				  unsigned int streams, unsigned int reg)
@@ -686,8 +688,8 @@ int snd_hdac_dsp_prepare(struct hdac_stream *azx_dev, unsigned int format,
 	azx_dev->locked = true;
 	spin_unlock_irq(&bus->reg_lock);
 
-	err = bus->io_ops->dma_alloc_pages(bus, SNDRV_DMA_TYPE_DEV_SG,
-					   byte_size, bufp);
+	err = snd_dma_alloc_pages(SNDRV_DMA_TYPE_DEV_SG, bus->dev,
+				  byte_size, bufp);
 	if (err < 0)
 		goto err_alloc;
 
@@ -713,7 +715,7 @@ int snd_hdac_dsp_prepare(struct hdac_stream *azx_dev, unsigned int format,
 	return azx_dev->stream_tag;
 
  error:
-	bus->io_ops->dma_free_pages(bus, bufp);
+	snd_dma_free_pages(bufp);
  err_alloc:
 	spin_lock_irq(&bus->reg_lock);
 	azx_dev->locked = false;
@@ -760,7 +762,7 @@ void snd_hdac_dsp_cleanup(struct hdac_stream *azx_dev,
 	azx_dev->period_bytes = 0;
 	azx_dev->format_val = 0;
 
-	bus->io_ops->dma_free_pages(bus, dmab);
+	snd_dma_free_pages(dmab);
 	dmab->area = NULL;
 
 	spin_lock_irq(&bus->reg_lock);

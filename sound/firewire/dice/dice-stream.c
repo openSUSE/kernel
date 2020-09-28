@@ -154,14 +154,10 @@ static void stop_streams(struct snd_dice *dice, enum amdtp_stream_direction dir,
 	for (i = 0; i < params->count; i++) {
 		reg = cpu_to_be32((u32)-1);
 		if (dir == AMDTP_IN_STREAM) {
-			amdtp_stream_stop(&dice->tx_stream[i]);
-
 			snd_dice_transaction_write_tx(dice,
 					params->size * i + TX_ISOCHRONOUS,
 					&reg, sizeof(reg));
 		} else {
-			amdtp_stream_stop(&dice->rx_stream[i]);
-
 			snd_dice_transaction_write_rx(dice,
 					params->size * i + RX_ISOCHRONOUS,
 					&reg, sizeof(reg));
@@ -228,7 +224,6 @@ static int keep_dual_resources(struct snd_dice *dice, unsigned int rate,
 		struct amdtp_stream *stream;
 		struct fw_iso_resources *resources;
 		unsigned int pcm_cache;
-		unsigned int midi_cache;
 		unsigned int pcm_chs;
 		unsigned int midi_ports;
 
@@ -237,7 +232,6 @@ static int keep_dual_resources(struct snd_dice *dice, unsigned int rate,
 			resources = &dice->tx_resources[i];
 
 			pcm_cache = dice->tx_pcm_chs[i][mode];
-			midi_cache = dice->tx_midi_ports[i];
 			err = snd_dice_transaction_read_tx(dice,
 					params->size * i + TX_NUMBER_AUDIO,
 					reg, sizeof(reg));
@@ -246,7 +240,6 @@ static int keep_dual_resources(struct snd_dice *dice, unsigned int rate,
 			resources = &dice->rx_resources[i];
 
 			pcm_cache = dice->rx_pcm_chs[i][mode];
-			midi_cache = dice->rx_midi_ports[i];
 			err = snd_dice_transaction_read_rx(dice,
 					params->size * i + RX_NUMBER_AUDIO,
 					reg, sizeof(reg));
@@ -257,10 +250,10 @@ static int keep_dual_resources(struct snd_dice *dice, unsigned int rate,
 		midi_ports = be32_to_cpu(reg[1]);
 
 		// These are important for developer of this driver.
-		if (pcm_chs != pcm_cache || midi_ports != midi_cache) {
+		if (pcm_chs != pcm_cache) {
 			dev_info(&dice->unit->device,
-				 "cache mismatch: pcm: %u:%u, midi: %u:%u\n",
-				 pcm_chs, pcm_cache, midi_ports, midi_cache);
+				 "cache mismatch: pcm: %u:%u, midi: %u\n",
+				 pcm_chs, pcm_cache, midi_ports);
 			return -EPROTO;
 		}
 
@@ -282,7 +275,9 @@ static void finish_session(struct snd_dice *dice, struct reg_params *tx_params,
 	snd_dice_transaction_clear_enable(dice);
 }
 
-int snd_dice_stream_reserve_duplex(struct snd_dice *dice, unsigned int rate)
+int snd_dice_stream_reserve_duplex(struct snd_dice *dice, unsigned int rate,
+				   unsigned int events_per_period,
+				   unsigned int events_per_buffer)
 {
 	unsigned int curr_rate;
 	int err;
@@ -297,10 +292,11 @@ int snd_dice_stream_reserve_duplex(struct snd_dice *dice, unsigned int rate)
 	if (dice->substreams_counter == 0 || curr_rate != rate) {
 		struct reg_params tx_params, rx_params;
 
+		amdtp_domain_stop(&dice->domain);
+
 		err = get_register_params(dice, &tx_params, &rx_params);
 		if (err < 0)
 			return err;
-
 		finish_session(dice, &tx_params, &rx_params);
 
 		release_resources(dice);
@@ -325,6 +321,11 @@ int snd_dice_stream_reserve_duplex(struct snd_dice *dice, unsigned int rate)
 
 		err = keep_dual_resources(dice, rate, AMDTP_OUT_STREAM,
 					  &rx_params);
+		if (err < 0)
+			goto error;
+
+		err = amdtp_domain_set_events_per_period(&dice->domain,
+					events_per_period, events_per_buffer);
 		if (err < 0)
 			goto error;
 	}
@@ -377,7 +378,8 @@ static int start_streams(struct snd_dice *dice, enum amdtp_stream_direction dir,
 				return err;
 		}
 
-		err = amdtp_stream_start(stream, resources->channel, max_speed);
+		err = amdtp_domain_add_stream(&dice->domain, stream,
+					      resources->channel, max_speed);
 		if (err < 0)
 			return err;
 	}
@@ -410,6 +412,7 @@ int snd_dice_stream_start_duplex(struct snd_dice *dice)
 	for (i = 0; i < MAX_STREAMS; ++i) {
 		if (amdtp_streaming_error(&dice->tx_stream[i]) ||
 		    amdtp_streaming_error(&dice->rx_stream[i])) {
+			amdtp_domain_stop(&dice->domain);
 			finish_session(dice, &tx_params, &rx_params);
 			break;
 		}
@@ -456,6 +459,10 @@ int snd_dice_stream_start_duplex(struct snd_dice *dice)
 			goto error;
 		}
 
+		err = amdtp_domain_start(&dice->domain, 0);
+		if (err < 0)
+			goto error;
+
 		for (i = 0; i < MAX_STREAMS; i++) {
 			if ((i < tx_params.count &&
 			    !amdtp_stream_wait_callback(&dice->tx_stream[i],
@@ -471,6 +478,7 @@ int snd_dice_stream_start_duplex(struct snd_dice *dice)
 
 	return 0;
 error:
+	amdtp_domain_stop(&dice->domain);
 	finish_session(dice, &tx_params, &rx_params);
 	return err;
 }
@@ -485,8 +493,10 @@ void snd_dice_stream_stop_duplex(struct snd_dice *dice)
 	struct reg_params tx_params, rx_params;
 
 	if (dice->substreams_counter == 0) {
-		if (get_register_params(dice, &tx_params, &rx_params) >= 0)
+		if (get_register_params(dice, &tx_params, &rx_params) >= 0) {
+			amdtp_domain_stop(&dice->domain);
 			finish_session(dice, &tx_params, &rx_params);
+		}
 
 		release_resources(dice);
 	}
@@ -564,7 +574,15 @@ int snd_dice_stream_init_duplex(struct snd_dice *dice)
 				destroy_stream(dice, AMDTP_OUT_STREAM, i);
 			for (i = 0; i < MAX_STREAMS; i++)
 				destroy_stream(dice, AMDTP_IN_STREAM, i);
-			break;
+			goto end;
+		}
+	}
+
+	err = amdtp_domain_init(&dice->domain);
+	if (err < 0) {
+		for (i = 0; i < MAX_STREAMS; ++i) {
+			destroy_stream(dice, AMDTP_OUT_STREAM, i);
+			destroy_stream(dice, AMDTP_IN_STREAM, i);
 		}
 	}
 end:
@@ -579,6 +597,8 @@ void snd_dice_stream_destroy_duplex(struct snd_dice *dice)
 		destroy_stream(dice, AMDTP_IN_STREAM, i);
 		destroy_stream(dice, AMDTP_OUT_STREAM, i);
 	}
+
+	amdtp_domain_destroy(&dice->domain);
 }
 
 void snd_dice_stream_update_duplex(struct snd_dice *dice)
@@ -596,6 +616,8 @@ void snd_dice_stream_update_duplex(struct snd_dice *dice)
 	dice->global_enabled = false;
 
 	if (get_register_params(dice, &tx_params, &rx_params) == 0) {
+		amdtp_domain_stop(&dice->domain);
+
 		stop_streams(dice, AMDTP_IN_STREAM, &tx_params);
 		stop_streams(dice, AMDTP_OUT_STREAM, &rx_params);
 	}

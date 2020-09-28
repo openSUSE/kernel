@@ -44,6 +44,7 @@ static const struct rt5682_platform_data i2s_default_platform_data = {
 	.dmic1_data_pin = RT5682_DMIC1_DATA_GPIO2,
 	.dmic1_clk_pin = RT5682_DMIC1_CLK_GPIO3,
 	.jd_src = RT5682_JD1,
+	.btndet_delay = 16,
 };
 
 struct rt5682_priv {
@@ -1003,6 +1004,7 @@ static int rt5682_set_jack_detect(struct snd_soc_component *component,
 				   RT5682_JD1_EN_MASK, RT5682_JD1_DIS);
 		regmap_update_bits(rt5682->regmap, RT5682_RC_CLK_CTRL,
 				   RT5682_POW_JDH | RT5682_POW_JDL, 0);
+		cancel_delayed_work_sync(&rt5682->jack_detect_work);
 		return 0;
 	}
 
@@ -1027,6 +1029,18 @@ static int rt5682_set_jack_detect(struct snd_soc_component *component,
 		regmap_update_bits(rt5682->regmap, RT5682_IRQ_CTRL_2,
 			RT5682_JD1_EN_MASK | RT5682_JD1_POL_MASK,
 			RT5682_JD1_EN | RT5682_JD1_POL_NOR);
+		regmap_update_bits(rt5682->regmap, RT5682_4BTN_IL_CMD_4,
+			0x7f7f, (rt5682->pdata.btndet_delay << 8 |
+			rt5682->pdata.btndet_delay));
+		regmap_update_bits(rt5682->regmap, RT5682_4BTN_IL_CMD_5,
+			0x7f7f, (rt5682->pdata.btndet_delay << 8 |
+			rt5682->pdata.btndet_delay));
+		regmap_update_bits(rt5682->regmap, RT5682_4BTN_IL_CMD_6,
+			0x7f7f, (rt5682->pdata.btndet_delay << 8 |
+			rt5682->pdata.btndet_delay));
+		regmap_update_bits(rt5682->regmap, RT5682_4BTN_IL_CMD_7,
+			0x7f7f, (rt5682->pdata.btndet_delay << 8 |
+			rt5682->pdata.btndet_delay));
 		mod_delayed_work(system_power_efficient_wq,
 			   &rt5682->jack_detect_work, msecs_to_jiffies(250));
 		break;
@@ -1068,8 +1082,7 @@ static void rt5682_jack_detect_handler(struct work_struct *work)
 			/* jack was out, report jack type */
 			rt5682->jack_type =
 				rt5682_headset_detect(rt5682->component, 1);
-		} else if ((rt5682->jack_type & SND_JACK_HEADSET) ==
-			SND_JACK_HEADSET) {
+		} else {
 			/* jack is already in, report button event */
 			rt5682->jack_type = SND_JACK_HEADSET;
 			btn_type = rt5682_button_detect(rt5682->component);
@@ -1452,28 +1465,6 @@ static const struct snd_kcontrol_new hpor_switch =
 	SOC_DAPM_SINGLE_AUTODISABLE("Switch", RT5682_HP_CTRL_1,
 					RT5682_R_MUTE_SFT, 1, 1);
 
-static int rt5682_charge_pump_event(struct snd_soc_dapm_widget *w,
-	struct snd_kcontrol *kcontrol, int event)
-{
-	struct snd_soc_component *component =
-		snd_soc_dapm_to_component(w->dapm);
-
-	switch (event) {
-	case SND_SOC_DAPM_PRE_PMU:
-		snd_soc_component_update_bits(component,
-			RT5682_HP_CHARGE_PUMP_1, RT5682_PM_HP_MASK, RT5682_PM_HP_HV);
-		break;
-	case SND_SOC_DAPM_POST_PMD:
-		snd_soc_component_update_bits(component,
-			RT5682_HP_CHARGE_PUMP_1, RT5682_PM_HP_MASK, RT5682_PM_HP_LV);
-		break;
-	default:
-		return 0;
-	}
-
-	return 0;
-}
-
 static int rt5682_hp_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
@@ -1757,8 +1748,7 @@ static const struct snd_soc_dapm_widget rt5682_dapm_widgets[] = {
 	SND_SOC_DAPM_SUPPLY("HP Amp R", RT5682_PWR_ANLG_1,
 		RT5682_PWR_HA_R_BIT, 0, NULL, 0),
 	SND_SOC_DAPM_SUPPLY_S("Charge Pump", 1, RT5682_DEPOP_1,
-		RT5682_PUMP_EN_SFT, 0, rt5682_charge_pump_event,
-		SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+		RT5682_PUMP_EN_SFT, 0, NULL, 0),
 	SND_SOC_DAPM_SUPPLY_S("Capless", 2, RT5682_DEPOP_1,
 		RT5682_CAPLESS_EN_SFT, 0, NULL, 0),
 
@@ -2469,6 +2459,8 @@ static int rt5682_parse_dt(struct rt5682_priv *rt5682, struct device *dev)
 		&rt5682->pdata.dmic1_clk_pin);
 	device_property_read_u32(dev, "realtek,jd-src",
 		&rt5682->pdata.jd_src);
+	device_property_read_u32(dev, "realtek,btndet-delay",
+		&rt5682->pdata.btndet_delay);
 
 	rt5682->pdata.ldo1_en = of_get_named_gpio(dev->of_node,
 		"realtek,ldo1-en-gpios", 0);
@@ -2657,6 +2649,8 @@ static int rt5682_i2c_probe(struct i2c_client *i2c,
 			RT5682_HPA_CP_BIAS_CTRL_MASK, RT5682_HPA_CP_BIAS_3UA);
 	regmap_update_bits(rt5682->regmap, RT5682_CHARGE_PUMP_1,
 			RT5682_CP_CLK_HP_MASK, RT5682_CP_CLK_HP_300KHZ);
+	regmap_update_bits(rt5682->regmap, RT5682_HP_CHARGE_PUMP_1,
+			RT5682_PM_HP_MASK, RT5682_PM_HP_HV);
 
 	INIT_DELAYED_WORK(&rt5682->jack_detect_work,
 				rt5682_jack_detect_handler);
@@ -2701,7 +2695,7 @@ static const struct acpi_device_id rt5682_acpi_match[] = {
 MODULE_DEVICE_TABLE(acpi, rt5682_acpi_match);
 #endif
 
-static struct i2c_driver __maybe_unused rt5682_i2c_driver = {
+static struct i2c_driver rt5682_i2c_driver = {
 	.driver = {
 		.name = "rt5682",
 		.of_match_table = of_match_ptr(rt5682_of_match),
@@ -2711,10 +2705,7 @@ static struct i2c_driver __maybe_unused rt5682_i2c_driver = {
 	.shutdown = rt5682_i2c_shutdown,
 	.id_table = rt5682_i2c_id,
 };
-
-#ifdef CONFIG_I2C
 module_i2c_driver(rt5682_i2c_driver);
-#endif
 
 MODULE_DESCRIPTION("ASoC RT5682 driver");
 MODULE_AUTHOR("Bard Liao <bardliao@realtek.com>");

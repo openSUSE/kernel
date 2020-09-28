@@ -80,12 +80,6 @@ struct soc_tplg {
 
 static int soc_tplg_process_headers(struct soc_tplg *tplg);
 static void soc_tplg_complete(struct soc_tplg *tplg);
-struct snd_soc_dapm_widget *
-snd_soc_dapm_new_control_unlocked(struct snd_soc_dapm_context *dapm,
-			 const struct snd_soc_dapm_widget *widget);
-struct snd_soc_dapm_widget *
-snd_soc_dapm_new_control(struct snd_soc_dapm_context *dapm,
-			 const struct snd_soc_dapm_widget *widget);
 static void soc_tplg_denum_remove_texts(struct soc_enum *se);
 static void soc_tplg_denum_remove_values(struct soc_enum *se);
 
@@ -368,7 +362,7 @@ static int soc_tplg_add_kcontrol(struct soc_tplg *tplg,
 	struct snd_soc_component *comp = tplg->comp;
 
 	return soc_tplg_add_dcontrol(comp->card->snd_card,
-				comp->dev, k, comp->name_prefix, comp, kcontrol);
+				comp->dev, k, NULL, comp, kcontrol);
 }
 
 /* remove a mixer kcontrol */
@@ -530,7 +524,7 @@ static void remove_dai(struct snd_soc_component *comp,
 	if (dobj->ops && dobj->ops->dai_unload)
 		dobj->ops->dai_unload(comp, dobj);
 
-	list_for_each_entry(dai, &comp->dai_list, list)
+	for_each_component_dais(comp, dai)
 		if (dai->driver == dai_drv)
 			dai->driver = NULL;
 
@@ -555,7 +549,8 @@ static void remove_link(struct snd_soc_component *comp,
 		dobj->ops->link_unload(comp, dobj);
 
 	list_del(&dobj->list);
-	snd_soc_remove_dai_link(comp->card, link);
+	snd_soc_remove_pcm_runtime(comp->card,
+			snd_soc_get_pcm_runtime(comp->card, link));
 
 	kfree(link->name);
 	kfree(link->stream_name);
@@ -899,13 +894,7 @@ static int soc_tplg_dmixer_create(struct soc_tplg *tplg, unsigned int count,
 		}
 
 		/* create any TLV data */
-		err = soc_tplg_create_tlv(tplg, &kc, &mc->hdr);
-		if (err < 0) {
-			dev_err(tplg->dev, "ASoC: failed to create TLV %s\n",
-				mc->hdr.name);
-			kfree(sm);
-			continue;
-		}
+		soc_tplg_create_tlv(tplg, &kc, &mc->hdr);
 
 		/* pass control to driver for optional further init */
 		err = soc_tplg_init_kcontrol(tplg, &kc,
@@ -1129,7 +1118,6 @@ static int soc_tplg_kcontrol_elems_load(struct soc_tplg *tplg,
 	struct snd_soc_tplg_hdr *hdr)
 {
 	struct snd_soc_tplg_ctl_hdr *control_hdr;
-	int ret;
 	int i;
 
 	if (tplg->pass != SOC_TPLG_PASS_MIXER) {
@@ -1158,30 +1146,25 @@ static int soc_tplg_kcontrol_elems_load(struct soc_tplg *tplg,
 		case SND_SOC_TPLG_CTL_RANGE:
 		case SND_SOC_TPLG_DAPM_CTL_VOLSW:
 		case SND_SOC_TPLG_DAPM_CTL_PIN:
-			ret = soc_tplg_dmixer_create(tplg, 1,
-					le32_to_cpu(hdr->payload_size));
+			soc_tplg_dmixer_create(tplg, 1,
+					       le32_to_cpu(hdr->payload_size));
 			break;
 		case SND_SOC_TPLG_CTL_ENUM:
 		case SND_SOC_TPLG_CTL_ENUM_VALUE:
 		case SND_SOC_TPLG_DAPM_CTL_ENUM_DOUBLE:
 		case SND_SOC_TPLG_DAPM_CTL_ENUM_VIRT:
 		case SND_SOC_TPLG_DAPM_CTL_ENUM_VALUE:
-			ret = soc_tplg_denum_create(tplg, 1,
-					le32_to_cpu(hdr->payload_size));
+			soc_tplg_denum_create(tplg, 1,
+					      le32_to_cpu(hdr->payload_size));
 			break;
 		case SND_SOC_TPLG_CTL_BYTES:
-			ret = soc_tplg_dbytes_create(tplg, 1,
-					le32_to_cpu(hdr->payload_size));
+			soc_tplg_dbytes_create(tplg, 1,
+					       le32_to_cpu(hdr->payload_size));
 			break;
 		default:
 			soc_bind_err(tplg, control_hdr, i);
 			return -EINVAL;
 		}
-		if (ret < 0) {
-			dev_err(tplg->dev, "ASoC: invalid control\n");
-			return ret;
-		}
-
 	}
 
 	return 0;
@@ -1289,30 +1272,16 @@ static int soc_tplg_dapm_graph_elems_load(struct soc_tplg *tplg,
 		routes[i]->dobj.index = tplg->index;
 		list_add(&routes[i]->dobj.list, &tplg->comp->dobj_list);
 
-		ret = soc_tplg_add_route(tplg, routes[i]);
-		if (ret < 0) {
-			/*
-			 * this route was added to the list, it will
-			 * be freed in remove_route() so increment the
-			 * counter to skip it in the error handling
-			 * below.
-			 */
-			i++;
-			break;
-		}
+		soc_tplg_add_route(tplg, routes[i]);
 
 		/* add route, but keep going if some fail */
 		snd_soc_dapm_add_routes(dapm, routes[i], 1);
 	}
 
-	/*
-	 * free memory allocated for all dapm routes not added to the
-	 * list in case of error
-	 */
-	if (ret < 0) {
-		while (i < count)
-			kfree(routes[i++]);
-	}
+	/* free memory allocated for all dapm routes in case of error */
+	if (ret < 0)
+		for (i = 0; i < count ; i++)
+			kfree(routes[i]);
 
 	/*
 	 * free pointer to array of dapm routes as this is no longer needed.
@@ -1386,13 +1355,7 @@ static struct snd_kcontrol_new *soc_tplg_dapm_widget_dmixer_create(
 		}
 
 		/* create any TLV data */
-		err = soc_tplg_create_tlv(tplg, &kc[i], &mc->hdr);
-		if (err < 0) {
-			dev_err(tplg->dev, "ASoC: failed to create TLV %s\n",
-				mc->hdr.name);
-			kfree(sm);
-			continue;
-		}
+		soc_tplg_create_tlv(tplg, &kc[i], &mc->hdr);
 
 		/* pass control to driver for optional further init */
 		err = soc_tplg_init_kcontrol(tplg, &kc[i],
@@ -1400,6 +1363,7 @@ static struct snd_kcontrol_new *soc_tplg_dapm_widget_dmixer_create(
 		if (err < 0) {
 			dev_err(tplg->dev, "ASoC: failed to init %s\n",
 				mc->hdr.name);
+			soc_tplg_free_tlv(tplg, &kc[i]);
 			goto err_sm;
 		}
 	}
@@ -1407,7 +1371,6 @@ static struct snd_kcontrol_new *soc_tplg_dapm_widget_dmixer_create(
 
 err_sm:
 	for (; i >= 0; i--) {
-		soc_tplg_free_tlv(tplg, &kc[i]);
 		sm = (struct soc_mixer_control *)kc[i].private_value;
 		kfree(sm);
 		kfree(kc[i].name);
@@ -1840,6 +1803,9 @@ static int soc_tplg_dai_create(struct soc_tplg *tplg,
 	struct snd_soc_dai_driver *dai_drv;
 	struct snd_soc_pcm_stream *stream;
 	struct snd_soc_tplg_stream_caps *caps;
+	struct snd_soc_dai *dai;
+	struct snd_soc_dapm_context *dapm =
+		snd_soc_component_get_dapm(tplg->comp);
 	int ret;
 
 	dai_drv = kzalloc(sizeof(struct snd_soc_dai_driver), GFP_KERNEL);
@@ -1882,7 +1848,19 @@ static int soc_tplg_dai_create(struct soc_tplg *tplg,
 	list_add(&dai_drv->dobj.list, &tplg->comp->dobj_list);
 
 	/* register the DAI to the component */
-	return snd_soc_register_dai(tplg->comp, dai_drv);
+	dai = snd_soc_register_dai(tplg->comp, dai_drv, false);
+	if (!dai)
+		return -ENOMEM;
+
+	/* Create the DAI widgets here */
+	ret = snd_soc_dapm_new_dai_widgets(dapm, dai);
+	if (ret != 0) {
+		dev_err(dai->dev, "Failed to create DAI widgets %d\n", ret);
+		snd_soc_unregister_dai(dai);
+		return ret;
+	}
+
+	return ret;
 }
 
 static void set_link_flags(struct snd_soc_dai_link *link,
@@ -1965,7 +1943,7 @@ static int soc_tplg_fe_link_create(struct soc_tplg *tplg,
 		goto err;
 	}
 
-	ret = snd_soc_add_dai_link(tplg->comp->card, link);
+	ret = snd_soc_add_pcm_runtime(tplg->comp->card, link);
 	if (ret < 0) {
 		dev_err(tplg->comp->dev, "ASoC: adding FE link failed\n");
 		goto err;
@@ -2110,9 +2088,7 @@ static int soc_tplg_pcm_elems_load(struct soc_tplg *tplg,
 			_pcm = pcm;
 		} else {
 			abi_match = false;
-			ret = pcm_new_ver(tplg, pcm, &_pcm);
-			if (ret < 0)
-				return ret;
+			pcm_new_ver(tplg, pcm, &_pcm);
 		}
 
 		/* create the FE DAIs and DAI links */
@@ -2246,6 +2222,47 @@ static int link_new_ver(struct soc_tplg *tplg,
 
 	*link = dest;
 	return 0;
+}
+
+/**
+ * snd_soc_find_dai_link - Find a DAI link
+ *
+ * @card: soc card
+ * @id: DAI link ID to match
+ * @name: DAI link name to match, optional
+ * @stream_name: DAI link stream name to match, optional
+ *
+ * This function will search all existing DAI links of the soc card to
+ * find the link of the same ID. Since DAI links may not have their
+ * unique ID, so name and stream name should also match if being
+ * specified.
+ *
+ * Return: pointer of DAI link, or NULL if not found.
+ */
+static struct snd_soc_dai_link *snd_soc_find_dai_link(struct snd_soc_card *card,
+						      int id, const char *name,
+						      const char *stream_name)
+{
+	struct snd_soc_pcm_runtime *rtd;
+	struct snd_soc_dai_link *link;
+
+	for_each_card_rtds(card, rtd) {
+		link = rtd->dai_link;
+
+		if (link->id != id)
+			continue;
+
+		if (name && (!link->name || strcmp(name, link->name)))
+			continue;
+
+		if (stream_name && (!link->stream_name
+				    || strcmp(stream_name, link->stream_name)))
+			continue;
+
+		return link;
+	}
+
+	return NULL;
 }
 
 /* Find and configure an existing physical DAI link */
@@ -2449,7 +2466,7 @@ static int soc_tplg_dai_elems_load(struct soc_tplg *tplg,
 {
 	struct snd_soc_tplg_dai *dai;
 	int count;
-	int i, ret;
+	int i;
 
 	count = le32_to_cpu(hdr->count);
 
@@ -2464,12 +2481,7 @@ static int soc_tplg_dai_elems_load(struct soc_tplg *tplg,
 			return -EINVAL;
 		}
 
-		ret = soc_tplg_dai_config(tplg, dai);
-		if (ret < 0) {
-			dev_err(tplg->dev, "ASoC: failed to configure DAI\n");
-			return ret;
-		}
-
+		soc_tplg_dai_config(tplg, dai);
 		tplg->pos += (sizeof(*dai) + le32_to_cpu(dai->priv.size));
 	}
 
@@ -2577,7 +2589,7 @@ static int soc_valid_header(struct soc_tplg *tplg,
 	}
 
 	/* big endian firmware objects not supported atm */
-	if (le32_to_cpu(hdr->magic) == SOC_TPLG_MAGIC_BIG_ENDIAN) {
+	if (hdr->magic == SOC_TPLG_MAGIC_BIG_ENDIAN) {
 		dev_err(tplg->dev,
 			"ASoC: pass %d big endian not supported header got %x at offset 0x%lx size 0x%zx.\n",
 			tplg->pass, hdr->magic,

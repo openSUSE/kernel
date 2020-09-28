@@ -196,78 +196,82 @@ int snd_pcm_plugin_free(struct snd_pcm_plugin *plugin)
 	return 0;
 }
 
-static snd_pcm_sframes_t calc_dst_frames(struct snd_pcm_substream *plug,
-					 snd_pcm_sframes_t frames,
-					 bool check_size)
-{
-	struct snd_pcm_plugin *plugin, *plugin_next;
-
-	plugin = snd_pcm_plug_first(plug);
-	while (plugin && frames > 0) {
-		plugin_next = plugin->next;
-		if (check_size && plugin->buf_frames &&
-		    frames > plugin->buf_frames)
-			frames = plugin->buf_frames;
-		if (plugin->dst_frames) {
-			frames = plugin->dst_frames(plugin, frames);
-			if (frames < 0)
-				return frames;
-		}
-		plugin = plugin_next;
-	}
-	return frames;
-}
-
-static snd_pcm_sframes_t calc_src_frames(struct snd_pcm_substream *plug,
-					 snd_pcm_sframes_t frames,
-					 bool check_size)
-{
-	struct snd_pcm_plugin *plugin, *plugin_prev;
-
-	plugin = snd_pcm_plug_last(plug);
-	while (plugin && frames > 0) {
-		plugin_prev = plugin->prev;
-		if (plugin->src_frames) {
-			frames = plugin->src_frames(plugin, frames);
-			if (frames < 0)
-				return frames;
-		}
-		if (check_size && plugin->buf_frames &&
-		    frames > plugin->buf_frames)
-			frames = plugin->buf_frames;
-		plugin = plugin_prev;
-	}
-	return frames;
-}
-
 snd_pcm_sframes_t snd_pcm_plug_client_size(struct snd_pcm_substream *plug, snd_pcm_uframes_t drv_frames)
 {
+	struct snd_pcm_plugin *plugin, *plugin_prev, *plugin_next;
+	int stream;
+
 	if (snd_BUG_ON(!plug))
 		return -ENXIO;
-	switch (snd_pcm_plug_stream(plug)) {
-	case SNDRV_PCM_STREAM_PLAYBACK:
-		return calc_src_frames(plug, drv_frames, false);
-	case SNDRV_PCM_STREAM_CAPTURE:
-		return calc_dst_frames(plug, drv_frames, false);
-	default:
+	if (drv_frames == 0)
+		return 0;
+	stream = snd_pcm_plug_stream(plug);
+	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
+		plugin = snd_pcm_plug_last(plug);
+		while (plugin && drv_frames > 0) {
+			if (drv_frames > plugin->buf_frames)
+				drv_frames = plugin->buf_frames;
+			plugin_prev = plugin->prev;
+			if (plugin->src_frames)
+				drv_frames = plugin->src_frames(plugin, drv_frames);
+			plugin = plugin_prev;
+		}
+	} else if (stream == SNDRV_PCM_STREAM_CAPTURE) {
+		plugin = snd_pcm_plug_first(plug);
+		while (plugin && drv_frames > 0) {
+			plugin_next = plugin->next;
+			if (plugin->dst_frames)
+				drv_frames = plugin->dst_frames(plugin, drv_frames);
+			if (drv_frames > plugin->buf_frames)
+				drv_frames = plugin->buf_frames;
+			plugin = plugin_next;
+		}
+	} else
 		snd_BUG();
-		return -EINVAL;
-	}
+	return drv_frames;
 }
 
 snd_pcm_sframes_t snd_pcm_plug_slave_size(struct snd_pcm_substream *plug, snd_pcm_uframes_t clt_frames)
 {
+	struct snd_pcm_plugin *plugin, *plugin_prev, *plugin_next;
+	snd_pcm_sframes_t frames;
+	int stream;
+	
 	if (snd_BUG_ON(!plug))
 		return -ENXIO;
-	switch (snd_pcm_plug_stream(plug)) {
-	case SNDRV_PCM_STREAM_PLAYBACK:
-		return calc_dst_frames(plug, clt_frames, false);
-	case SNDRV_PCM_STREAM_CAPTURE:
-		return calc_src_frames(plug, clt_frames, false);
-	default:
+	if (clt_frames == 0)
+		return 0;
+	frames = clt_frames;
+	stream = snd_pcm_plug_stream(plug);
+	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
+		plugin = snd_pcm_plug_first(plug);
+		while (plugin && frames > 0) {
+			plugin_next = plugin->next;
+			if (plugin->dst_frames) {
+				frames = plugin->dst_frames(plugin, frames);
+				if (frames < 0)
+					return frames;
+			}
+			if (frames > plugin->buf_frames)
+				frames = plugin->buf_frames;
+			plugin = plugin_next;
+		}
+	} else if (stream == SNDRV_PCM_STREAM_CAPTURE) {
+		plugin = snd_pcm_plug_last(plug);
+		while (plugin) {
+			if (frames > plugin->buf_frames)
+				frames = plugin->buf_frames;
+			plugin_prev = plugin->prev;
+			if (plugin->src_frames) {
+				frames = plugin->src_frames(plugin, frames);
+				if (frames < 0)
+					return frames;
+			}
+			plugin = plugin_prev;
+		}
+	} else
 		snd_BUG();
-		return -EINVAL;
-	}
+	return frames;
 }
 
 static int snd_pcm_plug_formats(const struct snd_mask *mask,
@@ -292,7 +296,7 @@ static int snd_pcm_plug_formats(const struct snd_mask *mask,
 	return snd_mask_test(&formats, (__force int)format);
 }
 
-static snd_pcm_format_t preferred_formats[] = {
+static const snd_pcm_format_t preferred_formats[] = {
 	SNDRV_PCM_FORMAT_S16_LE,
 	SNDRV_PCM_FORMAT_S16_BE,
 	SNDRV_PCM_FORMAT_U16_LE,
@@ -626,7 +630,7 @@ snd_pcm_sframes_t snd_pcm_plug_write_transfer(struct snd_pcm_substream *plug, st
 		src_channels = dst_channels;
 		plugin = next;
 	}
-	return calc_src_frames(plug, frames, true);
+	return snd_pcm_plug_client_size(plug, frames);
 }
 
 snd_pcm_sframes_t snd_pcm_plug_read_transfer(struct snd_pcm_substream *plug, struct snd_pcm_plugin_channel *dst_channels_final, snd_pcm_uframes_t size)
@@ -636,7 +640,7 @@ snd_pcm_sframes_t snd_pcm_plug_read_transfer(struct snd_pcm_substream *plug, str
 	snd_pcm_sframes_t frames = size;
 	int err;
 
-	frames = calc_src_frames(plug, frames, true);
+	frames = snd_pcm_plug_slave_size(plug, frames);
 	if (frames < 0)
 		return frames;
 

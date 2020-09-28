@@ -216,12 +216,12 @@ static int snd_hwdep_dsp_load(struct snd_hwdep *hw,
 	if (info.index >= 32)
 		return -EINVAL;
 	/* check whether the dsp was already loaded */
-	if (hw->dsp_loaded & (1u << info.index))
+	if (hw->dsp_loaded & (1 << info.index))
 		return -EBUSY;
 	err = hw->ops.dsp_load(hw, &info);
 	if (err < 0)
 		return err;
-	hw->dsp_loaded |= (1u << info.index);
+	hw->dsp_loaded |= (1 << info.index);
 	return 0;
 }
 
@@ -353,7 +353,7 @@ int snd_hwdep_new(struct snd_card *card, char *id, int device,
 {
 	struct snd_hwdep *hwdep;
 	int err;
-	static struct snd_device_ops ops = {
+	static const struct snd_device_ops ops = {
 		.dev_free = snd_hwdep_dev_free,
 		.dev_register = snd_hwdep_dev_register,
 		.dev_disconnect = snd_hwdep_dev_disconnect,

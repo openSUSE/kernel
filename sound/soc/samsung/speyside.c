@@ -24,7 +24,7 @@ static int speyside_set_bias_level(struct snd_soc_card *card,
 	struct snd_soc_dai *codec_dai;
 	int ret;
 
-	rtd = snd_soc_get_pcm_runtime(card, card->dai_link[1].name);
+	rtd = snd_soc_get_pcm_runtime(card, &card->dai_link[1]);
 	codec_dai = rtd->codec_dai;
 
 	if (dapm->dev != codec_dai->dev)
@@ -60,7 +60,7 @@ static int speyside_set_bias_level_post(struct snd_soc_card *card,
 	struct snd_soc_dai *codec_dai;
 	int ret;
 
-	rtd = snd_soc_get_pcm_runtime(card, card->dai_link[1].name);
+	rtd = snd_soc_get_pcm_runtime(card, &card->dai_link[1]);
 	codec_dai = rtd->codec_dai;
 
 	if (dapm->dev != codec_dai->dev)
@@ -240,15 +240,14 @@ static int speyside_wm9081_init(struct snd_soc_component *component)
 
 static struct snd_soc_aux_dev speyside_aux_dev[] = {
 	{
-		.name = "wm9081",
-		.codec_name = "wm9081.1-006c",
+		.dlc = COMP_AUX("wm9081.1-006c"),
 		.init = speyside_wm9081_init,
 	},
 };
 
 static struct snd_soc_codec_conf speyside_codec_conf[] = {
 	{
-		.dev_name = "wm9081.1-006c",
+		.dlc = COMP_CODEC_CONF("wm9081.1-006c"),
 		.name_prefix = "Sub",
 	},
 };

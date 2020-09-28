@@ -8,6 +8,7 @@
 
 #include <linux/delay.h>
 #include <linux/device.h>
+#include <linux/debugfs.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/module.h>
@@ -18,6 +19,10 @@
 #include <sound/soc.h>
 #include "bus.h"
 #include "cadence_master.h"
+
+static int interrupt_mask;
+module_param_named(cnds_mcp_int_mask, interrupt_mask, int, 0444);
+MODULE_PARM_DESC(cdns_mcp_int_mask, "Cadence MCP IntMask");
 
 #define CDNS_MCP_CONFIG				0x0
 
@@ -47,6 +52,8 @@
 #define CDNS_MCP_SSPSTAT			0xC
 #define CDNS_MCP_FRAME_SHAPE			0x10
 #define CDNS_MCP_FRAME_SHAPE_INIT		0x14
+#define CDNS_MCP_FRAME_SHAPE_COL_MASK		GENMASK(2, 0)
+#define CDNS_MCP_FRAME_SHAPE_ROW_OFFSET		3
 
 #define CDNS_MCP_CONFIG_UPDATE			0x18
 #define CDNS_MCP_CONFIG_UPDATE_BIT		BIT(0)
@@ -56,6 +63,7 @@
 #define CDNS_MCP_SSP_CTRL1			0x28
 #define CDNS_MCP_CLK_CTRL0			0x30
 #define CDNS_MCP_CLK_CTRL1			0x38
+#define CDNS_MCP_CLK_MCLKD_MASK		GENMASK(7, 0)
 
 #define CDNS_MCP_STAT				0x40
 
@@ -66,6 +74,7 @@
 #define CDNS_MCP_INTMASK			0x48
 
 #define CDNS_MCP_INT_IRQ			BIT(31)
+#define CDNS_MCP_INT_RESERVED1			GENMASK(30, 17)
 #define CDNS_MCP_INT_WAKEUP			BIT(16)
 #define CDNS_MCP_INT_SLAVE_RSVD			BIT(15)
 #define CDNS_MCP_INT_SLAVE_ALERT		BIT(14)
@@ -75,9 +84,14 @@
 #define CDNS_MCP_INT_DPINT			BIT(11)
 #define CDNS_MCP_INT_CTRL_CLASH			BIT(10)
 #define CDNS_MCP_INT_DATA_CLASH			BIT(9)
+#define CDNS_MCP_INT_PARITY			BIT(8)
 #define CDNS_MCP_INT_CMD_ERR			BIT(7)
+#define CDNS_MCP_INT_RESERVED2			GENMASK(6, 4)
+#define CDNS_MCP_INT_RX_NE			BIT(3)
 #define CDNS_MCP_INT_RX_WL			BIT(2)
 #define CDNS_MCP_INT_TXE			BIT(1)
+#define CDNS_MCP_INT_TXF			BIT(0)
+#define CDNS_MCP_INT_RESERVED (CDNS_MCP_INT_RESERVED1 | CDNS_MCP_INT_RESERVED2)
 
 #define CDNS_MCP_INTSET				0x4C
 
@@ -169,14 +183,8 @@
 #define CDNS_PDI_CONFIG_PORT			GENMASK(4, 0)
 
 /* Driver defaults */
-
-#define CDNS_DEFAULT_CLK_DIVIDER		0
-#define CDNS_DEFAULT_FRAME_SHAPE		0x30
 #define CDNS_DEFAULT_SSP_INTERVAL		0x18
 #define CDNS_TX_TIMEOUT				2000
-
-#define CDNS_PCM_PDI_OFFSET			0x2
-#define CDNS_PDM_PDI_OFFSET			0x6
 
 #define CDNS_SCP_RX_FIFOLEVEL			0x2
 
@@ -222,6 +230,147 @@ static int cdns_clear_bit(struct sdw_cdns *cdns, int offset, u32 value)
 
 	return -EAGAIN;
 }
+
+/*
+ * all changes to the MCP_CONFIG, MCP_CONTROL, MCP_CMDCTRL and MCP_PHYCTRL
+ * need to be confirmed with a write to MCP_CONFIG_UPDATE
+ */
+static int cdns_update_config(struct sdw_cdns *cdns)
+{
+	int ret;
+
+	ret = cdns_clear_bit(cdns, CDNS_MCP_CONFIG_UPDATE,
+			     CDNS_MCP_CONFIG_UPDATE_BIT);
+	if (ret < 0)
+		dev_err(cdns->dev, "Config update timedout\n");
+
+	return ret;
+}
+
+/*
+ * debugfs
+ */
+#ifdef CONFIG_DEBUG_FS
+
+#define RD_BUF (2 * PAGE_SIZE)
+
+static ssize_t cdns_sprintf(struct sdw_cdns *cdns,
+			    char *buf, size_t pos, unsigned int reg)
+{
+	return scnprintf(buf + pos, RD_BUF - pos,
+			 "%4x\t%8x\n", reg, cdns_readl(cdns, reg));
+}
+
+static int cdns_reg_show(struct seq_file *s, void *data)
+{
+	struct sdw_cdns *cdns = s->private;
+	char *buf;
+	ssize_t ret;
+	int num_ports;
+	int i, j;
+
+	buf = kzalloc(RD_BUF, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	ret = scnprintf(buf, RD_BUF, "Register  Value\n");
+	ret += scnprintf(buf + ret, RD_BUF - ret, "\nMCP Registers\n");
+	/* 8 MCP registers */
+	for (i = CDNS_MCP_CONFIG; i <= CDNS_MCP_PHYCTRL; i += sizeof(u32))
+		ret += cdns_sprintf(cdns, buf, ret, i);
+
+	ret += scnprintf(buf + ret, RD_BUF - ret,
+			 "\nStatus & Intr Registers\n");
+	/* 13 Status & Intr registers (offsets 0x70 and 0x74 not defined) */
+	for (i = CDNS_MCP_STAT; i <=  CDNS_MCP_FIFOSTAT; i += sizeof(u32))
+		ret += cdns_sprintf(cdns, buf, ret, i);
+
+	ret += scnprintf(buf + ret, RD_BUF - ret,
+			 "\nSSP & Clk ctrl Registers\n");
+	ret += cdns_sprintf(cdns, buf, ret, CDNS_MCP_SSP_CTRL0);
+	ret += cdns_sprintf(cdns, buf, ret, CDNS_MCP_SSP_CTRL1);
+	ret += cdns_sprintf(cdns, buf, ret, CDNS_MCP_CLK_CTRL0);
+	ret += cdns_sprintf(cdns, buf, ret, CDNS_MCP_CLK_CTRL1);
+
+	ret += scnprintf(buf + ret, RD_BUF - ret,
+			 "\nDPn B0 Registers\n");
+
+	num_ports = cdns->num_ports;
+
+	for (i = 0; i < num_ports; i++) {
+		ret += scnprintf(buf + ret, RD_BUF - ret,
+				 "\nDP-%d\n", i);
+		for (j = CDNS_DPN_B0_CONFIG(i);
+		     j < CDNS_DPN_B0_ASYNC_CTRL(i); j += sizeof(u32))
+			ret += cdns_sprintf(cdns, buf, ret, j);
+	}
+
+	ret += scnprintf(buf + ret, RD_BUF - ret,
+			 "\nDPn B1 Registers\n");
+	for (i = 0; i < num_ports; i++) {
+		ret += scnprintf(buf + ret, RD_BUF - ret,
+				 "\nDP-%d\n", i);
+
+		for (j = CDNS_DPN_B1_CONFIG(i);
+		     j < CDNS_DPN_B1_ASYNC_CTRL(i); j += sizeof(u32))
+			ret += cdns_sprintf(cdns, buf, ret, j);
+	}
+
+	ret += scnprintf(buf + ret, RD_BUF - ret,
+			 "\nDPn Control Registers\n");
+	for (i = 0; i < num_ports; i++)
+		ret += cdns_sprintf(cdns, buf, ret,
+				CDNS_PORTCTRL + i * CDNS_PORT_OFFSET);
+
+	ret += scnprintf(buf + ret, RD_BUF - ret,
+			 "\nPDIn Config Registers\n");
+
+	/* number of PDI and ports is interchangeable */
+	for (i = 0; i < num_ports; i++)
+		ret += cdns_sprintf(cdns, buf, ret, CDNS_PDI_CONFIG(i));
+
+	seq_printf(s, "%s", buf);
+	kfree(buf);
+
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(cdns_reg);
+
+static int cdns_hw_reset(void *data, u64 value)
+{
+	struct sdw_cdns *cdns = data;
+	int ret;
+
+	if (value != 1)
+		return -EINVAL;
+
+	/* Userspace changed the hardware state behind the kernel's back */
+	add_taint(TAINT_USER, LOCKDEP_STILL_OK);
+
+	ret = sdw_cdns_exit_reset(cdns);
+
+	dev_dbg(cdns->dev, "link hw_reset done: %d\n", ret);
+
+	return ret;
+}
+
+DEFINE_DEBUGFS_ATTRIBUTE(cdns_hw_reset_fops, NULL, cdns_hw_reset, "%llu\n");
+
+/**
+ * sdw_cdns_debugfs_init() - Cadence debugfs init
+ * @cdns: Cadence instance
+ * @root: debugfs root
+ */
+void sdw_cdns_debugfs_init(struct sdw_cdns *cdns, struct dentry *root)
+{
+	debugfs_create_file("cdns-registers", 0400, root, cdns, &cdns_reg_fops);
+
+	debugfs_create_file("cdns-hw-reset", 0200, root, cdns,
+			    &cdns_hw_reset_fops);
+}
+EXPORT_SYMBOL_GPL(sdw_cdns_debugfs_init);
+
+#endif /* CONFIG_DEBUG_FS */
 
 /*
  * IO Calls
@@ -298,7 +447,8 @@ _cdns_xfer_msg(struct sdw_cdns *cdns, struct sdw_msg *msg, int cmd,
 	time = wait_for_completion_timeout(&cdns->tx_complete,
 					   msecs_to_jiffies(CDNS_TX_TIMEOUT));
 	if (!time) {
-		dev_err(cdns->dev, "IO transfer timed out\n");
+		dev_err(cdns->dev, "IO transfer timed out, cmd %d device %d addr %x len %d\n",
+			cmd, msg->dev_num, msg->addr, msg->len);
 		msg->len = 0;
 		return SDW_CMD_TIMEOUT;
 	}
@@ -526,13 +676,36 @@ static int cdns_update_slave_status(struct sdw_cdns *cdns,
 
 		/* first check if Slave reported multiple status */
 		if (set_status > 1) {
+			u32 val;
+
 			dev_warn_ratelimited(cdns->dev,
-					     "Slave reported multiple Status: %d\n",
-					     mask);
-			/*
-			 * TODO: we need to reread the status here by
-			 * issuing a PING cmd
-			 */
+					     "Slave %d reported multiple Status: %d\n",
+					     i, mask);
+
+			/* check latest status extracted from PING commands */
+			val = cdns_readl(cdns, CDNS_MCP_SLAVE_STAT);
+			val >>= (i * 2);
+
+			switch (val & 0x3) {
+			case 0:
+				status[i] = SDW_SLAVE_UNATTACHED;
+				break;
+			case 1:
+				status[i] = SDW_SLAVE_ATTACHED;
+				break;
+			case 2:
+				status[i] = SDW_SLAVE_ALERT;
+				break;
+			case 3:
+			default:
+				status[i] = SDW_SLAVE_RESERVED;
+				break;
+			}
+
+			dev_warn_ratelimited(cdns->dev,
+					     "Slave %d status updated to %d\n",
+					     i, status[i]);
+
 		}
 	}
 
@@ -559,6 +732,10 @@ irqreturn_t sdw_cdns_irq(int irq, void *dev_id)
 
 	int_status = cdns_readl(cdns, CDNS_MCP_INTSTAT);
 
+	/* check for reserved values read as zero */
+	if (int_status & CDNS_MCP_INT_RESERVED)
+		return IRQ_NONE;
+
 	if (!(int_status & CDNS_MCP_INT_IRQ))
 		return IRQ_NONE;
 
@@ -575,10 +752,14 @@ irqreturn_t sdw_cdns_irq(int irq, void *dev_id)
 		}
 	}
 
+	if (int_status & CDNS_MCP_INT_PARITY) {
+		/* Parity error detected by Master */
+		dev_err_ratelimited(cdns->dev, "Parity error\n");
+	}
+
 	if (int_status & CDNS_MCP_INT_CTRL_CLASH) {
 		/* Slave is driving bit slot during control word */
 		dev_err_ratelimited(cdns->dev, "Bus clash for control word\n");
-		int_status |= CDNS_MCP_INT_CTRL_CLASH;
 	}
 
 	if (int_status & CDNS_MCP_INT_DATA_CLASH) {
@@ -587,7 +768,6 @@ irqreturn_t sdw_cdns_irq(int irq, void *dev_id)
 		 * ownership of data bits or Slave gone bonkers
 		 */
 		dev_err_ratelimited(cdns->dev, "Bus clash for data word\n");
-		int_status |= CDNS_MCP_INT_DATA_CLASH;
 	}
 
 	if (int_status & CDNS_MCP_INT_SLAVE_MASK) {
@@ -635,40 +815,87 @@ EXPORT_SYMBOL(sdw_cdns_thread);
 /*
  * init routines
  */
-static int _cdns_enable_interrupt(struct sdw_cdns *cdns)
+
+/**
+ * sdw_cdns_exit_reset() - Program reset parameters and start bus operations
+ * @cdns: Cadence instance
+ */
+int sdw_cdns_exit_reset(struct sdw_cdns *cdns)
 {
-	u32 mask;
+	/* program maximum length reset to be safe */
+	cdns_updatel(cdns, CDNS_MCP_CONTROL,
+		     CDNS_MCP_CONTROL_RST_DELAY,
+		     CDNS_MCP_CONTROL_RST_DELAY);
 
-	cdns_writel(cdns, CDNS_MCP_SLAVE_INTMASK0,
-		    CDNS_MCP_SLAVE_INTMASK0_MASK);
-	cdns_writel(cdns, CDNS_MCP_SLAVE_INTMASK1,
-		    CDNS_MCP_SLAVE_INTMASK1_MASK);
+	/* use hardware generated reset */
+	cdns_updatel(cdns, CDNS_MCP_CONTROL,
+		     CDNS_MCP_CONTROL_HW_RST,
+		     CDNS_MCP_CONTROL_HW_RST);
 
-	mask = CDNS_MCP_INT_SLAVE_RSVD | CDNS_MCP_INT_SLAVE_ALERT |
-		CDNS_MCP_INT_SLAVE_ATTACH | CDNS_MCP_INT_SLAVE_NATTACH |
-		CDNS_MCP_INT_CTRL_CLASH | CDNS_MCP_INT_DATA_CLASH |
-		CDNS_MCP_INT_RX_WL | CDNS_MCP_INT_IRQ | CDNS_MCP_INT_DPINT;
+	/* enable bus operations with clock and data */
+	cdns_updatel(cdns, CDNS_MCP_CONFIG,
+		     CDNS_MCP_CONFIG_OP,
+		     CDNS_MCP_CONFIG_OP_NORMAL);
 
+	/* commit changes */
+	return cdns_update_config(cdns);
+}
+EXPORT_SYMBOL(sdw_cdns_exit_reset);
+
+/**
+ * sdw_cdns_enable_interrupt() - Enable SDW interrupts
+ * @cdns: Cadence instance
+ * @state: True if we are trying to enable interrupt.
+ */
+int sdw_cdns_enable_interrupt(struct sdw_cdns *cdns, bool state)
+{
+	u32 slave_intmask0 = 0;
+	u32 slave_intmask1 = 0;
+	u32 mask = 0;
+
+	if (!state)
+		goto update_masks;
+
+	slave_intmask0 = CDNS_MCP_SLAVE_INTMASK0_MASK;
+	slave_intmask1 = CDNS_MCP_SLAVE_INTMASK1_MASK;
+
+	/* enable detection of all slave state changes */
+	mask = CDNS_MCP_INT_SLAVE_MASK;
+
+	/* enable detection of bus issues */
+	mask |= CDNS_MCP_INT_CTRL_CLASH | CDNS_MCP_INT_DATA_CLASH |
+		CDNS_MCP_INT_PARITY;
+
+	/* no detection of port interrupts for now */
+
+	/* enable detection of RX fifo level */
+	mask |= CDNS_MCP_INT_RX_WL;
+
+	/*
+	 * CDNS_MCP_INT_IRQ needs to be set otherwise all previous
+	 * settings are irrelevant
+	 */
+	mask |= CDNS_MCP_INT_IRQ;
+
+	if (interrupt_mask) /* parameter override */
+		mask = interrupt_mask;
+
+update_masks:
+	/* clear slave interrupt status before enabling interrupt */
+	if (state) {
+		u32 slave_state;
+
+		slave_state = cdns_readl(cdns, CDNS_MCP_SLAVE_INTSTAT0);
+		cdns_writel(cdns, CDNS_MCP_SLAVE_INTSTAT0, slave_state);
+		slave_state = cdns_readl(cdns, CDNS_MCP_SLAVE_INTSTAT1);
+		cdns_writel(cdns, CDNS_MCP_SLAVE_INTSTAT1, slave_state);
+	}
+
+	cdns_writel(cdns, CDNS_MCP_SLAVE_INTMASK0, slave_intmask0);
+	cdns_writel(cdns, CDNS_MCP_SLAVE_INTMASK1, slave_intmask1);
 	cdns_writel(cdns, CDNS_MCP_INTMASK, mask);
 
 	return 0;
-}
-
-/**
- * sdw_cdns_enable_interrupt() - Enable SDW interrupts and update config
- * @cdns: Cadence instance
- */
-int sdw_cdns_enable_interrupt(struct sdw_cdns *cdns)
-{
-	int ret;
-
-	_cdns_enable_interrupt(cdns);
-	ret = cdns_clear_bit(cdns, CDNS_MCP_CONFIG_UPDATE,
-			     CDNS_MCP_CONFIG_UPDATE_BIT);
-	if (ret < 0)
-		dev_err(cdns->dev, "Config update timedout\n");
-
-	return ret;
 }
 EXPORT_SYMBOL(sdw_cdns_enable_interrupt);
 
@@ -688,7 +915,6 @@ static int cdns_allocate_pdi(struct sdw_cdns *cdns,
 
 	for (i = 0; i < num; i++) {
 		pdi[i].num = i + pdi_offset;
-		pdi[i].assigned = false;
 	}
 
 	*stream = pdi;
@@ -705,7 +931,8 @@ int sdw_cdns_pdi_init(struct sdw_cdns *cdns,
 		      struct sdw_cdns_stream_config config)
 {
 	struct sdw_cdns_streams *stream;
-	int offset, i, ret;
+	int offset;
+	int ret;
 
 	cdns->pcm.num_bd = config.pcm_bd;
 	cdns->pcm.num_in = config.pcm_in;
@@ -717,11 +944,8 @@ int sdw_cdns_pdi_init(struct sdw_cdns *cdns,
 	/* Allocate PDIs for PCMs */
 	stream = &cdns->pcm;
 
-	/* First two PDIs are reserved for bulk transfers */
-	if (stream->num_bd < CDNS_PCM_PDI_OFFSET)
-		return -EINVAL;
-	stream->num_bd -= CDNS_PCM_PDI_OFFSET;
-	offset = CDNS_PCM_PDI_OFFSET;
+	/* we allocate PDI0 and PDI1 which are used for Bulk */
+	offset = 0;
 
 	ret = cdns_allocate_pdi(cdns, &stream->bd,
 				stream->num_bd, offset);
@@ -748,7 +972,6 @@ int sdw_cdns_pdi_init(struct sdw_cdns *cdns,
 
 	/* Allocate PDIs for PDMs */
 	stream = &cdns->pdm;
-	offset = CDNS_PDM_PDI_OFFSET;
 	ret = cdns_allocate_pdi(cdns, &stream->bd,
 				stream->num_bd, offset);
 	if (ret)
@@ -765,6 +988,7 @@ int sdw_cdns_pdi_init(struct sdw_cdns *cdns,
 
 	ret = cdns_allocate_pdi(cdns, &stream->out,
 				stream->num_out, offset);
+
 	if (ret)
 		return ret;
 
@@ -772,50 +996,68 @@ int sdw_cdns_pdi_init(struct sdw_cdns *cdns,
 	stream->num_pdi = stream->num_bd + stream->num_in + stream->num_out;
 	cdns->num_ports += stream->num_pdi;
 
-	cdns->ports = devm_kcalloc(cdns->dev, cdns->num_ports,
-				   sizeof(*cdns->ports), GFP_KERNEL);
-	if (!cdns->ports) {
-		ret = -ENOMEM;
-		return ret;
-	}
-
-	for (i = 0; i < cdns->num_ports; i++) {
-		cdns->ports[i].assigned = false;
-		cdns->ports[i].num = i + 1; /* Port 0 reserved for bulk */
-	}
-
 	return 0;
 }
 EXPORT_SYMBOL(sdw_cdns_pdi_init);
+
+static u32 cdns_set_initial_frame_shape(int n_rows, int n_cols)
+{
+	u32 val;
+	int c;
+	int r;
+
+	r = sdw_find_row_index(n_rows);
+	c = sdw_find_col_index(n_cols) & CDNS_MCP_FRAME_SHAPE_COL_MASK;
+
+	val = (r << CDNS_MCP_FRAME_SHAPE_ROW_OFFSET) | c;
+
+	return val;
+}
 
 /**
  * sdw_cdns_init() - Cadence initialization
  * @cdns: Cadence instance
  */
-int sdw_cdns_init(struct sdw_cdns *cdns)
+int sdw_cdns_init(struct sdw_cdns *cdns, bool clock_stop_exit)
 {
+	struct sdw_bus *bus = &cdns->bus;
+	struct sdw_master_prop *prop = &bus->prop;
 	u32 val;
+	int divider;
 	int ret;
 
-	/* Exit clock stop */
-	ret = cdns_clear_bit(cdns, CDNS_MCP_CONTROL,
-			     CDNS_MCP_CONTROL_CLK_STOP_CLR);
-	if (ret < 0) {
-		dev_err(cdns->dev, "Couldn't exit from clock stop\n");
-		return ret;
+	if (clock_stop_exit) {
+		ret = cdns_clear_bit(cdns, CDNS_MCP_CONTROL,
+				     CDNS_MCP_CONTROL_CLK_STOP_CLR);
+		if (ret < 0) {
+			dev_err(cdns->dev, "Couldn't exit from clock stop\n");
+			return ret;
+		}
 	}
 
 	/* Set clock divider */
-	val = cdns_readl(cdns, CDNS_MCP_CLK_CTRL0);
-	val |= CDNS_DEFAULT_CLK_DIVIDER;
-	cdns_writel(cdns, CDNS_MCP_CLK_CTRL0, val);
+	divider	= (prop->mclk_freq / prop->max_clk_freq) - 1;
 
-	/* Set the default frame shape */
-	cdns_writel(cdns, CDNS_MCP_FRAME_SHAPE_INIT, CDNS_DEFAULT_FRAME_SHAPE);
+	cdns_updatel(cdns, CDNS_MCP_CLK_CTRL0,
+		     CDNS_MCP_CLK_MCLKD_MASK, divider);
+	cdns_updatel(cdns, CDNS_MCP_CLK_CTRL1,
+		     CDNS_MCP_CLK_MCLKD_MASK, divider);
+
+	/*
+	 * Frame shape changes after initialization have to be done
+	 * with the bank switch mechanism
+	 */
+	val = cdns_set_initial_frame_shape(prop->default_row,
+					   prop->default_col);
+	cdns_writel(cdns, CDNS_MCP_FRAME_SHAPE_INIT, val);
 
 	/* Set SSP interval to default value */
 	cdns_writel(cdns, CDNS_MCP_SSP_CTRL0, CDNS_DEFAULT_SSP_INTERVAL);
 	cdns_writel(cdns, CDNS_MCP_SSP_CTRL1, CDNS_DEFAULT_SSP_INTERVAL);
+
+	/* flush command FIFOs */
+	cdns_updatel(cdns, CDNS_MCP_CONTROL, CDNS_MCP_CONTROL_CMD_RST,
+		     CDNS_MCP_CONTROL_CMD_RST);
 
 	/* Set cmd accept mode */
 	cdns_updatel(cdns, CDNS_MCP_CONTROL, CDNS_MCP_CONTROL_CMD_ACCEPT,
@@ -839,20 +1081,18 @@ int sdw_cdns_init(struct sdw_cdns *cdns)
 	/* Set cmd mode for Tx and Rx cmds */
 	val &= ~CDNS_MCP_CONFIG_CMD;
 
-	/* Set operation to normal */
-	val &= ~CDNS_MCP_CONFIG_OP;
-	val |= CDNS_MCP_CONFIG_OP_NORMAL;
-
 	cdns_writel(cdns, CDNS_MCP_CONFIG, val);
 
-	return 0;
+	/* commit changes */
+	return cdns_update_config(cdns);
 }
 EXPORT_SYMBOL(sdw_cdns_init);
 
 int cdns_bus_conf(struct sdw_bus *bus, struct sdw_bus_params *params)
 {
+	struct sdw_master_prop *prop = &bus->prop;
 	struct sdw_cdns *cdns = bus_to_cdns(bus);
-	int mcp_clkctrl_off, mcp_clkctrl;
+	int mcp_clkctrl_off;
 	int divider;
 
 	if (!params->curr_dr_freq) {
@@ -860,16 +1100,16 @@ int cdns_bus_conf(struct sdw_bus *bus, struct sdw_bus_params *params)
 		return -EINVAL;
 	}
 
-	divider	= (params->max_dr_freq / params->curr_dr_freq) - 1;
+	divider	= prop->mclk_freq * SDW_DOUBLE_RATE_FACTOR /
+		params->curr_dr_freq;
+	divider--; /* divider is 1/(N+1) */
 
 	if (params->next_bank)
 		mcp_clkctrl_off = CDNS_MCP_CLK_CTRL1;
 	else
 		mcp_clkctrl_off = CDNS_MCP_CLK_CTRL0;
 
-	mcp_clkctrl = cdns_readl(cdns, mcp_clkctrl_off);
-	mcp_clkctrl |= divider;
-	cdns_writel(cdns, mcp_clkctrl_off, mcp_clkctrl);
+	cdns_updatel(cdns, mcp_clkctrl_off, CDNS_MCP_CLK_MCLKD_MASK, divider);
 
 	return 0;
 }
@@ -1023,23 +1263,25 @@ EXPORT_SYMBOL(cdns_set_sdw_stream);
  * cdns_find_pdi() - Find a free PDI
  *
  * @cdns: Cadence instance
+ * @offset: Starting offset
  * @num: Number of PDIs
  * @pdi: PDI instances
+ * @dai_id: DAI id
  *
- * Find and return a free PDI for a given PDI array
+ * Find a PDI for a given PDI array. The PDI num and dai_id are
+ * expected to match, return NULL otherwise.
  */
 static struct sdw_cdns_pdi *cdns_find_pdi(struct sdw_cdns *cdns,
+					  unsigned int offset,
 					  unsigned int num,
-					  struct sdw_cdns_pdi *pdi)
+					  struct sdw_cdns_pdi *pdi,
+					  int dai_id)
 {
 	int i;
 
-	for (i = 0; i < num; i++) {
-		if (pdi[i].assigned)
-			continue;
-		pdi[i].assigned = true;
-		return &pdi[i];
-	}
+	for (i = offset; i < offset + num; i++)
+		if (pdi[i].num == dai_id)
+			return &pdi[i];
 
 	return NULL;
 }
@@ -1048,13 +1290,11 @@ static struct sdw_cdns_pdi *cdns_find_pdi(struct sdw_cdns *cdns,
  * sdw_cdns_config_stream: Configure a stream
  *
  * @cdns: Cadence instance
- * @port: Cadence data port
  * @ch: Channel count
  * @dir: Data direction
  * @pdi: PDI to be used
  */
 void sdw_cdns_config_stream(struct sdw_cdns *cdns,
-			    struct sdw_cdns_port *port,
 			    u32 ch, u32 dir, struct sdw_cdns_pdi *pdi)
 {
 	u32 offset, val = 0;
@@ -1062,127 +1302,52 @@ void sdw_cdns_config_stream(struct sdw_cdns *cdns,
 	if (dir == SDW_DATA_DIR_RX)
 		val = CDNS_PORTCTRL_DIRN;
 
-	offset = CDNS_PORTCTRL + port->num * CDNS_PORT_OFFSET;
+	offset = CDNS_PORTCTRL + pdi->num * CDNS_PORT_OFFSET;
 	cdns_updatel(cdns, offset, CDNS_PORTCTRL_DIRN, val);
 
-	val = port->num;
+	val = pdi->num;
 	val |= ((1 << ch) - 1) << SDW_REG_SHIFT(CDNS_PDI_CONFIG_CHANNEL);
 	cdns_writel(cdns, CDNS_PDI_CONFIG(pdi->num), val);
 }
 EXPORT_SYMBOL(sdw_cdns_config_stream);
 
 /**
- * cdns_get_num_pdi() - Get number of PDIs required
- *
- * @cdns: Cadence instance
- * @pdi: PDI to be used
- * @num: Number of PDIs
- * @ch_count: Channel count
- */
-static int cdns_get_num_pdi(struct sdw_cdns *cdns,
-			    struct sdw_cdns_pdi *pdi,
-			    unsigned int num, u32 ch_count)
-{
-	int i, pdis = 0;
-
-	for (i = 0; i < num; i++) {
-		if (pdi[i].assigned)
-			continue;
-
-		if (pdi[i].ch_count < ch_count)
-			ch_count -= pdi[i].ch_count;
-		else
-			ch_count = 0;
-
-		pdis++;
-
-		if (!ch_count)
-			break;
-	}
-
-	if (ch_count)
-		return 0;
-
-	return pdis;
-}
-
-/**
- * sdw_cdns_get_stream() - Get stream information
+ * sdw_cdns_alloc_pdi() - Allocate a PDI
  *
  * @cdns: Cadence instance
  * @stream: Stream to be allocated
  * @ch: Channel count
  * @dir: Data direction
+ * @dai_id: DAI id
  */
-int sdw_cdns_get_stream(struct sdw_cdns *cdns,
-			struct sdw_cdns_streams *stream,
-			u32 ch, u32 dir)
-{
-	int pdis = 0;
-
-	if (dir == SDW_DATA_DIR_RX)
-		pdis = cdns_get_num_pdi(cdns, stream->in, stream->num_in, ch);
-	else
-		pdis = cdns_get_num_pdi(cdns, stream->out, stream->num_out, ch);
-
-	/* check if we found PDI, else find in bi-directional */
-	if (!pdis)
-		pdis = cdns_get_num_pdi(cdns, stream->bd, stream->num_bd, ch);
-
-	return pdis;
-}
-EXPORT_SYMBOL(sdw_cdns_get_stream);
-
-/**
- * sdw_cdns_alloc_stream() - Allocate a stream
- *
- * @cdns: Cadence instance
- * @stream: Stream to be allocated
- * @port: Cadence data port
- * @ch: Channel count
- * @dir: Data direction
- */
-int sdw_cdns_alloc_stream(struct sdw_cdns *cdns,
-			  struct sdw_cdns_streams *stream,
-			  struct sdw_cdns_port *port, u32 ch, u32 dir)
+struct sdw_cdns_pdi *sdw_cdns_alloc_pdi(struct sdw_cdns *cdns,
+					struct sdw_cdns_streams *stream,
+					u32 ch, u32 dir, int dai_id)
 {
 	struct sdw_cdns_pdi *pdi = NULL;
 
 	if (dir == SDW_DATA_DIR_RX)
-		pdi = cdns_find_pdi(cdns, stream->num_in, stream->in);
+		pdi = cdns_find_pdi(cdns, 0, stream->num_in, stream->in,
+				    dai_id);
 	else
-		pdi = cdns_find_pdi(cdns, stream->num_out, stream->out);
+		pdi = cdns_find_pdi(cdns, 0, stream->num_out, stream->out,
+				    dai_id);
 
 	/* check if we found a PDI, else find in bi-directional */
 	if (!pdi)
-		pdi = cdns_find_pdi(cdns, stream->num_bd, stream->bd);
+		pdi = cdns_find_pdi(cdns, 2, stream->num_bd, stream->bd,
+				    dai_id);
 
-	if (!pdi)
-		return -EIO;
+	if (pdi) {
+		pdi->l_ch_num = 0;
+		pdi->h_ch_num = ch - 1;
+		pdi->dir = dir;
+		pdi->ch_count = ch;
+	}
 
-	port->pdi = pdi;
-	pdi->l_ch_num = 0;
-	pdi->h_ch_num = ch - 1;
-	pdi->dir = dir;
-	pdi->ch_count = ch;
-
-	return 0;
+	return pdi;
 }
-EXPORT_SYMBOL(sdw_cdns_alloc_stream);
-
-void sdw_cdns_shutdown(struct snd_pcm_substream *substream,
-		       struct snd_soc_dai *dai)
-{
-	struct sdw_cdns_dma_data *dma;
-
-	dma = snd_soc_dai_get_dma_data(dai, substream);
-	if (!dma)
-		return;
-
-	snd_soc_dai_set_dma_data(dai, substream, NULL);
-	kfree(dma);
-}
-EXPORT_SYMBOL(sdw_cdns_shutdown);
+EXPORT_SYMBOL(sdw_cdns_alloc_pdi);
 
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_DESCRIPTION("Cadence Soundwire Library");

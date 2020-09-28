@@ -127,8 +127,6 @@ EXPORT_SYMBOL_GPL(snd_hdac_device_init);
 void snd_hdac_device_exit(struct hdac_device *codec)
 {
 	pm_runtime_put_noidle(&codec->dev);
-	/* keep balance of runtime PM child_count in parent device */
-	pm_runtime_set_suspended(&codec->dev);
 	snd_hdac_bus_remove_device(codec->bus, codec);
 	kfree(codec->vendor_name);
 	kfree(codec->chip_name);
@@ -137,7 +135,7 @@ EXPORT_SYMBOL_GPL(snd_hdac_device_exit);
 
 /**
  * snd_hdac_device_register - register the hd-audio codec base device
- * codec: the device to register
+ * @codec: the device to register
  */
 int snd_hdac_device_register(struct hdac_device *codec)
 {
@@ -160,7 +158,7 @@ EXPORT_SYMBOL_GPL(snd_hdac_device_register);
 
 /**
  * snd_hdac_device_unregister - unregister the hd-audio codec base device
- * codec: the device to unregister
+ * @codec: the device to unregister
  */
 void snd_hdac_device_unregister(struct hdac_device *codec)
 {
@@ -206,7 +204,7 @@ EXPORT_SYMBOL_GPL(snd_hdac_device_set_chip_name);
  */
 int snd_hdac_codec_modalias(struct hdac_device *codec, char *buf, size_t size)
 {
-	return scnprintf(buf, size, "hdaudio:v%08Xr%08Xa%02X\n",
+	return snprintf(buf, size, "hdaudio:v%08Xr%08Xa%02X\n",
 			codec->vendor_id, codec->revision_id, codec->type);
 }
 EXPORT_SYMBOL_GPL(snd_hdac_codec_modalias);
@@ -221,8 +219,8 @@ EXPORT_SYMBOL_GPL(snd_hdac_codec_modalias);
  *
  * Return an encoded command verb or -1 for error.
  */
-unsigned int snd_hdac_make_cmd(struct hdac_device *codec, hda_nid_t nid,
-			       unsigned int verb, unsigned int parm)
+static unsigned int snd_hdac_make_cmd(struct hdac_device *codec, hda_nid_t nid,
+				      unsigned int verb, unsigned int parm)
 {
 	u32 val, addr;
 
@@ -240,7 +238,6 @@ unsigned int snd_hdac_make_cmd(struct hdac_device *codec, hda_nid_t nid,
 	val |= parm;
 	return val;
 }
-EXPORT_SYMBOL_GPL(snd_hdac_make_cmd);
 
 /**
  * snd_hdac_exec_verb - execute an encoded verb
@@ -261,7 +258,6 @@ int snd_hdac_exec_verb(struct hdac_device *codec, unsigned int cmd,
 		return codec->exec_verb(codec, cmd, flags, res);
 	return snd_hdac_bus_exec_verb(codec->bus, codec->addr, cmd, res);
 }
-EXPORT_SYMBOL_GPL(snd_hdac_exec_verb);
 
 
 /**
@@ -285,6 +281,10 @@ EXPORT_SYMBOL_GPL(snd_hdac_read);
 
 /**
  * _snd_hdac_read_parm - read a parmeter
+ * @codec: the codec object
+ * @nid: NID to read a parameter
+ * @parm: parameter to read
+ * @res: pointer to store the read value
  *
  * This function returns zero or an error unlike snd_hdac_read_parm().
  */
@@ -1066,9 +1066,9 @@ EXPORT_SYMBOL_GPL(snd_hdac_check_power_state);
  * snd_hdac_sync_power_state - wait until actual power state matches
  * with the target state
  *
- * @hdac: the HDAC device
+ * @codec: the HDAC device
  * @nid: NID to send the command
- * @target_state: target state to check for
+ * @power_state: target power state to wait for
  *
  * Return power state or PS_ERROR if codec rejects GET verb.
  */

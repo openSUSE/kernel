@@ -49,6 +49,8 @@ int sdw_add_bus_master(struct sdw_bus *bus)
 		}
 	}
 
+	sdw_bus_debugfs_init(bus);
+
 	/*
 	 * Device numbers in SoundWire are 0 through 15. Enumeration device
 	 * number (0), Broadcast device number (15), Group numbers (12 and
@@ -77,6 +79,8 @@ int sdw_add_bus_master(struct sdw_bus *bus)
 	 */
 	if (IS_ENABLED(CONFIG_ACPI) && ACPI_HANDLE(bus->dev))
 		ret = sdw_acpi_find_slaves(bus);
+	else if (IS_ENABLED(CONFIG_OF) && bus->dev->of_node)
+		ret = sdw_of_find_slaves(bus);
 	else
 		ret = -ENOTSUPP; /* No ACPI/DT so error out */
 
@@ -109,6 +113,8 @@ static int sdw_delete_slave(struct device *dev, void *data)
 	struct sdw_slave *slave = dev_to_sdw_dev(dev);
 	struct sdw_bus *bus = slave->bus;
 
+	sdw_slave_debugfs_exit(slave);
+
 	mutex_lock(&bus->bus_lock);
 
 	if (slave->dev_num) /* clear dev_num if assigned */
@@ -130,6 +136,8 @@ static int sdw_delete_slave(struct device *dev, void *data)
 void sdw_delete_bus_master(struct sdw_bus *bus)
 {
 	device_for_each_child(bus->dev, NULL, sdw_delete_slave);
+
+	sdw_bus_debugfs_exit(bus);
 }
 EXPORT_SYMBOL(sdw_delete_bus_master);
 
@@ -414,10 +422,11 @@ static struct sdw_slave *sdw_get_slave(struct sdw_bus *bus, int i)
 
 static int sdw_compare_devid(struct sdw_slave *slave, struct sdw_slave_id id)
 {
-	if (slave->id.unique_id != id.unique_id ||
-	    slave->id.mfg_id != id.mfg_id ||
+	if (slave->id.mfg_id != id.mfg_id ||
 	    slave->id.part_id != id.part_id ||
-	    slave->id.class_id != id.class_id)
+	    slave->id.class_id != id.class_id ||
+	    (slave->id.unique_id != SDW_IGNORED_UNIQUE_ID &&
+	     slave->id.unique_id != id.unique_id))
 		return -ENODEV;
 
 	return 0;
@@ -447,35 +456,45 @@ err:
 static int sdw_assign_device_num(struct sdw_slave *slave)
 {
 	int ret, dev_num;
+	bool new_device = false;
 
 	/* check first if device number is assigned, if so reuse that */
 	if (!slave->dev_num) {
-		mutex_lock(&slave->bus->bus_lock);
-		dev_num = sdw_get_device_num(slave);
-		mutex_unlock(&slave->bus->bus_lock);
-		if (dev_num < 0) {
-			dev_err(slave->bus->dev, "Get dev_num failed: %d\n",
-				dev_num);
-			return dev_num;
+		if (!slave->dev_num_sticky) {
+			mutex_lock(&slave->bus->bus_lock);
+			dev_num = sdw_get_device_num(slave);
+			mutex_unlock(&slave->bus->bus_lock);
+			if (dev_num < 0) {
+				dev_err(slave->bus->dev, "Get dev_num failed: %d\n",
+					dev_num);
+				return dev_num;
+			}
+			slave->dev_num = dev_num;
+			slave->dev_num_sticky = dev_num;
+			new_device = true;
+		} else {
+			slave->dev_num = slave->dev_num_sticky;
 		}
-	} else {
+	}
+
+	if (!new_device)
 		dev_info(slave->bus->dev,
-			 "Slave already registered dev_num:%d\n",
+			 "Slave already registered, reusing dev_num:%d\n",
 			 slave->dev_num);
 
-		/* Clear the slave->dev_num to transfer message on device 0 */
-		dev_num = slave->dev_num;
-		slave->dev_num = 0;
-	}
+	/* Clear the slave->dev_num to transfer message on device 0 */
+	dev_num = slave->dev_num;
+	slave->dev_num = 0;
 
 	ret = sdw_write(slave, SDW_SCP_DEVNUMBER, dev_num);
 	if (ret < 0) {
-		dev_err(&slave->dev, "Program device_num failed: %d\n", ret);
+		dev_err(&slave->dev, "Program device_num %d failed: %d\n",
+			dev_num, ret);
 		return ret;
 	}
 
 	/* After xfer of msg, restore dev_num */
-	slave->dev_num = dev_num;
+	slave->dev_num = slave->dev_num_sticky;
 
 	return 0;
 }
@@ -527,6 +546,7 @@ static int sdw_program_device_num(struct sdw_bus *bus)
 	do {
 		ret = sdw_transfer(bus, &msg);
 		if (ret == -ENODATA) { /* end of device id reads */
+			dev_dbg(bus->dev, "No more devices to enumerate\n");
 			ret = 0;
 			break;
 		}
@@ -968,10 +988,34 @@ int sdw_handle_slave_status(struct sdw_bus *bus,
 	struct sdw_slave *slave;
 	int i, ret = 0;
 
+	/* first check if any Slaves fell off the bus */
+	for (i = 1; i <= SDW_MAX_DEVICES; i++) {
+		mutex_lock(&bus->bus_lock);
+		if (test_bit(i, bus->assigned) == false) {
+			mutex_unlock(&bus->bus_lock);
+			continue;
+		}
+		mutex_unlock(&bus->bus_lock);
+
+		slave = sdw_get_slave(bus, i);
+		if (!slave)
+			continue;
+
+		if (status[i] == SDW_SLAVE_UNATTACHED &&
+		    slave->status != SDW_SLAVE_UNATTACHED)
+			sdw_modify_slave_status(slave, SDW_SLAVE_UNATTACHED);
+	}
+
 	if (status[0] == SDW_SLAVE_ATTACHED) {
+		dev_dbg(bus->dev, "Slave attached, programming device number\n");
 		ret = sdw_program_device_num(bus);
 		if (ret)
 			dev_err(bus->dev, "Slave attach failed: %d\n", ret);
+		/*
+		 * programming a device number will have side effects,
+		 * so we deal with other devices at a later time
+		 */
+		return ret;
 	}
 
 	/* Continue to check other slave statuses */

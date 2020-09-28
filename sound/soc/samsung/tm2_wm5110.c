@@ -282,7 +282,7 @@ static int tm2_set_bias_level(struct snd_soc_card *card,
 {
 	struct snd_soc_pcm_runtime *rtd;
 
-	rtd = snd_soc_get_pcm_runtime(card, card->dai_link[0].name);
+	rtd = snd_soc_get_pcm_runtime(card, &card->dai_link[0]);
 
 	if (dapm->dev != rtd->codec_dai->dev)
 		return 0;
@@ -307,7 +307,6 @@ static struct snd_soc_aux_dev tm2_speaker_amp_dev;
 static int tm2_late_probe(struct snd_soc_card *card)
 {
 	struct tm2_machine_priv *priv = snd_soc_card_get_drvdata(card);
-	struct snd_soc_dai_link_component dlc = { 0 };
 	unsigned int ch_map[] = { 0, 1 };
 	struct snd_soc_dai *amp_pdm_dai;
 	struct snd_soc_pcm_runtime *rtd;
@@ -315,7 +314,7 @@ static int tm2_late_probe(struct snd_soc_card *card)
 	struct snd_soc_dai *aif2_dai;
 	int ret;
 
-	rtd = snd_soc_get_pcm_runtime(card, card->dai_link[TM2_DAI_AIF1].name);
+	rtd = snd_soc_get_pcm_runtime(card, &card->dai_link[TM2_DAI_AIF1]);
 	aif1_dai = rtd->codec_dai;
 	priv->component = rtd->codec_dai->component;
 
@@ -325,7 +324,7 @@ static int tm2_late_probe(struct snd_soc_card *card)
 		return ret;
 	}
 
-	rtd = snd_soc_get_pcm_runtime(card, card->dai_link[TM2_DAI_AIF2].name);
+	rtd = snd_soc_get_pcm_runtime(card, &card->dai_link[TM2_DAI_AIF2]);
 	aif2_dai = rtd->codec_dai;
 
 	ret = snd_soc_dai_set_sysclk(aif2_dai, ARIZONA_CLK_ASYNCCLK, 0, 0);
@@ -334,8 +333,7 @@ static int tm2_late_probe(struct snd_soc_card *card)
 		return ret;
 	}
 
-	dlc.of_node = tm2_speaker_amp_dev.codec_of_node;
-	amp_pdm_dai = snd_soc_find_dai(&dlc);
+	amp_pdm_dai = snd_soc_find_dai(&tm2_speaker_amp_dev.dlc);
 	if (!amp_pdm_dai)
 		return -ENODEV;
 
@@ -532,9 +530,9 @@ static int tm2_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	card->aux_dev[0].codec_of_node = of_parse_phandle(dev->of_node,
+	card->aux_dev[0].dlc.of_node = of_parse_phandle(dev->of_node,
 							"audio-amplifier", 0);
-	if (!card->aux_dev[0].codec_of_node) {
+	if (!card->aux_dev[0].dlc.of_node) {
 		dev_err(dev, "audio-amplifier property invalid or missing\n");
 		return -EINVAL;
 	}
@@ -623,7 +621,7 @@ dai_node_put:
 		of_node_put(cpu_dai_node[i]);
 	}
 
-	of_node_put(card->aux_dev[0].codec_of_node);
+	of_node_put(card->aux_dev[0].dlc.of_node);
 
 	return ret;
 }

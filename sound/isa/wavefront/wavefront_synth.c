@@ -788,7 +788,6 @@ wavefront_send_patch (snd_wavefront_t *dev, wavefront_patch_info *header)
 
 	dev->patch_status[header->number] |= WF_SLOT_FILLED;
 
-	bptr = buf;
 	bptr = munge_int32 (header->number, buf, 2);
 	munge_buf ((unsigned char *)&header->hdr.p, bptr, WF_PATCH_BYTES);
     
@@ -1172,10 +1171,7 @@ wavefront_send_alias (snd_wavefront_t *dev, wavefront_patch_info *header)
 				      "alias for %d\n",
 				      header->number,
 				      header->hdr.a.OriginalSample);
-
-	if (header->number >= WF_MAX_SAMPLE)
-		return -EINVAL;
-
+    
 	munge_int32 (header->number, &alias_hdr[0], 2);
 	munge_int32 (header->hdr.a.OriginalSample, &alias_hdr[2], 2);
 	munge_int32 (*((unsigned int *)&header->hdr.a.sampleStartOffset),
@@ -1205,9 +1201,6 @@ wavefront_send_multisample (snd_wavefront_t *dev, wavefront_patch_info *header)
 	int i;
 	int num_samples;
 	unsigned char *msample_hdr;
-
-	if (header->number >= WF_MAX_SAMPLE)
-		return -EINVAL;
 
 	msample_hdr = kmalloc(WF_MSAMPLE_BYTES, GFP_KERNEL);
 	if (! msample_hdr)

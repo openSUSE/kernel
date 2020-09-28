@@ -12,6 +12,7 @@
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
 #include <linux/gpio.h>
+#include <linux/of.h>
 #include <linux/of_gpio.h>
 #include <sound/tlv.h>
 #include "max98373.h"
@@ -778,6 +779,13 @@ static int max98373_probe(struct snd_soc_component *component)
 	regmap_write(max98373->regmap,
 		MAX98373_R202A_PCM_TO_SPK_MONO_MIX_2,
 		0x1);
+	/* Set inital volume (0dB) */
+	regmap_write(max98373->regmap,
+		MAX98373_R203D_AMP_DIG_VOL_CTRL,
+		0x00);
+	regmap_write(max98373->regmap,
+		MAX98373_R203E_AMP_PATH_GAIN,
+		0x00);
 	/* Enable DC blocker */
 	regmap_write(max98373->regmap,
 		MAX98373_R203F_AMP_DSP_CFG,
@@ -842,8 +850,8 @@ static int max98373_resume(struct device *dev)
 {
 	struct max98373_priv *max98373 = dev_get_drvdata(dev);
 
-	regcache_cache_only(max98373->regmap, false);
 	max98373_reset(max98373, dev);
+	regcache_cache_only(max98373->regmap, false);
 	regcache_sync(max98373->regmap);
 	return 0;
 }
@@ -861,6 +869,7 @@ static const struct snd_soc_component_driver soc_codec_dev_max98373 = {
 	.num_dapm_widgets	= ARRAY_SIZE(max98373_dapm_widgets),
 	.dapm_routes		= max98373_audio_map,
 	.num_dapm_routes	= ARRAY_SIZE(max98373_audio_map),
+	.idle_bias_on		= 1,
 	.use_pmdown_time	= 1,
 	.endianness		= 1,
 	.non_legacy_dai_naming	= 1,
@@ -892,6 +901,21 @@ static void max98373_slot_config(struct i2c_client *i2c,
 		max98373->i_slot = value & 0xF;
 	else
 		max98373->i_slot = 1;
+	if (dev->of_node) {
+		max98373->reset_gpio = of_get_named_gpio(dev->of_node,
+						"maxim,reset-gpio", 0);
+		if (!gpio_is_valid(max98373->reset_gpio)) {
+			dev_err(dev, "Looking up %s property in node %s failed %d\n",
+				"maxim,reset-gpio", dev->of_node->full_name,
+				max98373->reset_gpio);
+		} else {
+			dev_dbg(dev, "maxim,reset-gpio=%d",
+				max98373->reset_gpio);
+		}
+	} else {
+		/* this makes reset_gpio as invalid */
+		max98373->reset_gpio = -1;
+	}
 
 	if (!device_property_read_u32(dev, "maxim,spkfb-slot-no", &value))
 		max98373->spkfb_slot = value & 0xF;
@@ -921,7 +945,6 @@ static int max98373_i2c_probe(struct i2c_client *i2c,
 	else
 		max98373->interleave_mode = false;
 
-
 	/* regmap initialization */
 	max98373->regmap
 		= devm_regmap_init_i2c(i2c, &max98373_regmap);
@@ -930,6 +953,24 @@ static int max98373_i2c_probe(struct i2c_client *i2c,
 		dev_err(&i2c->dev,
 			"Failed to allocate regmap: %d\n", ret);
 		return ret;
+	}
+
+	/* voltage/current slot & gpio configuration */
+	max98373_slot_config(i2c, max98373);
+
+	/* Power on device */
+	if (gpio_is_valid(max98373->reset_gpio)) {
+		ret = devm_gpio_request(&i2c->dev, max98373->reset_gpio,
+					"MAX98373_RESET");
+		if (ret) {
+			dev_err(&i2c->dev, "%s: Failed to request gpio %d\n",
+				__func__, max98373->reset_gpio);
+			return -EINVAL;
+		}
+		gpio_direction_output(max98373->reset_gpio, 0);
+		msleep(50);
+		gpio_direction_output(max98373->reset_gpio, 1);
+		msleep(20);
 	}
 
 	/* Check Revision ID */
@@ -941,9 +982,6 @@ static int max98373_i2c_probe(struct i2c_client *i2c,
 		return ret;
 	}
 	dev_info(&i2c->dev, "MAX98373 revisionID: 0x%02X\n", reg);
-
-	/* voltage/current slot configuration */
-	max98373_slot_config(i2c, max98373);
 
 	/* codec registeration */
 	ret = devm_snd_soc_register_component(&i2c->dev, &soc_codec_dev_max98373,

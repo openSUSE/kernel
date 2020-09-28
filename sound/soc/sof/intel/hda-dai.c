@@ -11,6 +11,7 @@
 #include <sound/pcm_params.h>
 #include <sound/hdaudio_ext.h>
 #include "../sof-priv.h"
+#include "../sof-audio.h"
 #include "hda.h"
 
 #if IS_ENABLED(CONFIG_SND_SOC_SOF_HDA)
@@ -210,9 +211,15 @@ static int hda_link_hw_params(struct snd_pcm_substream *substream,
 	int stream_tag;
 	int ret;
 
-	link_dev = hda_link_stream_assign(bus, substream);
-	if (!link_dev)
-		return -EBUSY;
+	/* get stored dma data if resuming from system suspend */
+	link_dev = snd_soc_dai_get_dma_data(dai, substream);
+	if (!link_dev) {
+		link_dev = hda_link_stream_assign(bus, substream);
+		if (!link_dev)
+			return -EBUSY;
+
+		snd_soc_dai_set_dma_data(dai, substream, (void *)link_dev);
+	}
 
 	stream_tag = hdac_stream(link_dev)->stream_tag;
 
@@ -223,10 +230,6 @@ static int hda_link_hw_params(struct snd_pcm_substream *substream,
 				  substream->stream);
 	if (ret < 0)
 		return ret;
-
-	snd_soc_dai_set_dma_data(dai, substream, (void *)link_dev);
-
-	hda_stream->hw_params_upon_resume = 0;
 
 	link = snd_hdac_ext_bus_get_link(bus, codec_dai->component->name);
 	if (!link)
@@ -259,16 +262,12 @@ static int hda_link_pcm_prepare(struct snd_pcm_substream *substream,
 {
 	struct hdac_ext_stream *link_dev =
 				snd_soc_dai_get_dma_data(dai, substream);
-	struct sof_intel_hda_stream *hda_stream;
 	struct snd_sof_dev *sdev =
 				snd_soc_component_get_drvdata(dai->component);
 	struct snd_soc_pcm_runtime *rtd = snd_pcm_substream_chip(substream);
 	int stream = substream->stream;
 
-	hda_stream = hstream_to_sof_hda_stream(link_dev);
-
-	/* setup hw_params again only if resuming from system suspend */
-	if (!hda_stream->hw_params_upon_resume)
+	if (link_dev->link_prepared)
 		return 0;
 
 	dev_dbg(sdev->dev, "hda: prepare stream dir %d\n", substream->stream);
@@ -317,22 +316,25 @@ static int hda_link_pcm_trigger(struct snd_pcm_substream *substream,
 		snd_hdac_ext_link_stream_start(link_dev);
 		break;
 	case SNDRV_PCM_TRIGGER_SUSPEND:
+	case SNDRV_PCM_TRIGGER_STOP:
 		/*
-		 * clear and release link DMA channel. It will be assigned when
+		 * clear link DMA channel. It will be assigned when
 		 * hw_params is set up again after resume.
 		 */
 		ret = hda_link_config_ipc(hda_stream, dai->name,
 					  DMA_CHAN_INVALID, substream->stream);
 		if (ret < 0)
 			return ret;
-		stream_tag = hdac_stream(link_dev)->stream_tag;
-		snd_hdac_ext_link_clear_stream_id(link, stream_tag);
-		snd_hdac_ext_stream_release(link_dev,
-					    HDAC_EXT_STREAM_TYPE_LINK);
+
+		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+			stream_tag = hdac_stream(link_dev)->stream_tag;
+			snd_hdac_ext_link_clear_stream_id(link, stream_tag);
+		}
+
+		link_dev->link_prepared = 0;
 
 		/* fallthrough */
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
-	case SNDRV_PCM_TRIGGER_STOP:
 		snd_hdac_ext_link_stream_clear(link_dev);
 		break;
 	default:
@@ -357,6 +359,13 @@ static int hda_link_hw_free(struct snd_pcm_substream *substream,
 	bus = hstream->bus;
 	rtd = snd_pcm_substream_chip(substream);
 	link_dev = snd_soc_dai_get_dma_data(dai, substream);
+
+	if (!link_dev) {
+		dev_dbg(dai->dev,
+			"%s: link_dev is not assigned\n", __func__);
+		return -EINVAL;
+	}
+
 	hda_stream = hstream_to_sof_hda_stream(link_dev);
 
 	/* free the link DMA channel in the FW */
@@ -369,8 +378,12 @@ static int hda_link_hw_free(struct snd_pcm_substream *substream,
 	if (!link)
 		return -EINVAL;
 
-	stream_tag = hdac_stream(link_dev)->stream_tag;
-	snd_hdac_ext_link_clear_stream_id(link, stream_tag);
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+		stream_tag = hdac_stream(link_dev)->stream_tag;
+		snd_hdac_ext_link_clear_stream_id(link, stream_tag);
+	}
+
+	snd_soc_dai_set_dma_data(dai, substream, NULL);
 	snd_hdac_ext_stream_release(link_dev, HDAC_EXT_STREAM_TYPE_LINK);
 	link_dev->link_prepared = 0;
 

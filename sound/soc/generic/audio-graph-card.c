@@ -129,6 +129,25 @@ static int asoc_simple_parse_dai(struct device_node *ep,
 	args.args[0]	= graph_get_dai_id(ep);
 	args.args_count	= (of_graph_get_endpoint_count(node) > 1);
 
+	/*
+	 * FIXME
+	 *
+	 * Here, dlc->dai_name is pointer to CPU/Codec DAI name.
+	 * If user unbinded CPU or Codec driver, but not for Sound Card,
+	 * dlc->dai_name is keeping unbinded CPU or Codec
+	 * driver's pointer.
+	 *
+	 * If user re-bind CPU or Codec driver again, ALSA SoC will try
+	 * to rebind Card via snd_soc_try_rebind_card(), but because of
+	 * above reason, it might can't bind Sound Card.
+	 * Because Sound Card is pointing to released dai_name pointer.
+	 *
+	 * To avoid this rebind Card issue,
+	 * 1) It needs to alloc memory to keep dai_name eventhough
+	 *    CPU or Codec driver was unbinded, or
+	 * 2) user need to rebind Sound Card everytime
+	 *    if he unbinded CPU or Codec.
+	 */
 	ret = snd_soc_get_dai_name(&args, &dlc->dai_name);
 	if (ret < 0)
 		return ret;
@@ -213,7 +232,7 @@ static int graph_dai_link_of_dpcm(struct asoc_simple_priv *priv,
 	if (li->cpu) {
 		int is_single_links = 0;
 
-		/* BE is dummy */
+		/* Codec is dummy */
 		codecs->of_node		= NULL;
 		codecs->dai_name	= "snd-soc-dummy-dai";
 		codecs->name		= "snd-soc-dummy";
@@ -244,7 +263,7 @@ static int graph_dai_link_of_dpcm(struct asoc_simple_priv *priv,
 	} else {
 		struct snd_soc_codec_conf *cconf;
 
-		/* FE is dummy */
+		/* CPU is dummy */
 		cpus->of_node		= NULL;
 		cpus->dai_name		= "snd-soc-dummy-dai";
 		cpus->name		= "snd-soc-dummy";
