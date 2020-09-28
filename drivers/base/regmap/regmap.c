@@ -2259,7 +2259,7 @@ static int _regmap_range_multi_paged_reg_write(struct regmap *map,
 					return ret;
 
 				if (regs[i].delay_us)
-					udelay(regs[i].delay_us);
+					fsleep(regs[i].delay_us);
 
 				base += n;
 				n = 0;
@@ -2296,7 +2296,7 @@ static int _regmap_multi_reg_write(struct regmap *map,
 				return ret;
 
 			if (regs[i].delay_us)
-				udelay(regs[i].delay_us);
+				fsleep(regs[i].delay_us);
 		}
 		return 0;
 	}
