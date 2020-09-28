@@ -36,3 +36,46 @@ parameters.
        immediately after the value is set.
 
 The ``mlxsw`` driver supports reloading via ``DEVLINK_CMD_RELOAD``
+
+Info versions
+=============
+
+The ``mlxsw`` driver reports the following versions
+
+.. list-table:: devlink info versions implemented
+   :widths: 5 5 90
+
+   * - Name
+     - Type
+     - Description
+   * - ``hw.revision``
+     - fixed
+     - The hardware revision for this board
+   * - ``fw.psid``
+     - fixed
+     - Firmware PSID
+   * - ``fw.version``
+     - running
+     - Three digit firmware version
+
+Driver-specific Traps
+=====================
+
+.. list-table:: List of Driver-specific Traps Registered by ``mlxsw``
+   :widths: 5 5 90
+
+   * - Name
+     - Type
+     - Description
+   * - ``irif_disabled``
+     - ``drop``
+     - Traps packets that the device decided to drop because they need to be
+       routed from a disabled router interface (RIF). This can happen during
+       RIF dismantle, when the RIF is first disabled before being removed
+       completely
+   * - ``erif_disabled``
+     - ``drop``
+     - Traps packets that the device decided to drop because they need to be
+       routed through a disabled router interface (RIF). This can happen during
+       RIF dismantle, when the RIF is first disabled before being removed
+       completely

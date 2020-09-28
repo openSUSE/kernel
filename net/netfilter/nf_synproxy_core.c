@@ -56,7 +56,7 @@ synproxy_parse_options(const struct sk_buff *skb, unsigned int doff,
 			switch (opcode) {
 			case TCPOPT_MSS:
 				if (opsize == TCPOLEN_MSS) {
-					opts->mss = get_unaligned_be16(ptr);
+					opts->mss_option = get_unaligned_be16(ptr);
 					opts->options |= NF_SYNPROXY_OPT_MSS;
 				}
 				break;
@@ -115,7 +115,7 @@ synproxy_build_options(struct tcphdr *th, const struct synproxy_options *opts)
 	if (options & NF_SYNPROXY_OPT_MSS)
 		*ptr++ = htonl((TCPOPT_MSS << 24) |
 			       (TCPOLEN_MSS << 16) |
-			       opts->mss);
+			       opts->mss_option);
 
 	if (options & NF_SYNPROXY_OPT_TIMESTAMP) {
 		if (options & NF_SYNPROXY_OPT_SACK_PERM)
@@ -267,7 +267,7 @@ static void *synproxy_cpu_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 		*pos = cpu + 1;
 		return per_cpu_ptr(snet->stats, cpu);
 	}
-
+	(*pos)++;
 	return NULL;
 }
 
@@ -642,7 +642,7 @@ synproxy_recv_client_ack(struct net *net,
 	}
 
 	this_cpu_inc(snet->stats->cookie_valid);
-	opts->mss = mss;
+	opts->mss_option = mss;
 	opts->options |= NF_SYNPROXY_OPT_MSS;
 
 	if (opts->options & NF_SYNPROXY_OPT_TIMESTAMP)
@@ -704,8 +704,7 @@ ipv4_synproxy_hook(void *priv, struct sk_buff *skb,
 		nf_ct_seqadj_init(ct, ctinfo, 0);
 		synproxy->tsoff = 0;
 		this_cpu_inc(snet->stats->conn_reopened);
-
-		/* fall through */
+		fallthrough;
 	case TCP_CONNTRACK_SYN_SENT:
 		if (!synproxy_parse_options(skb, thoff, th, &opts))
 			return NF_DROP;
@@ -1060,7 +1059,7 @@ synproxy_recv_client_ack_ipv6(struct net *net,
 	}
 
 	this_cpu_inc(snet->stats->cookie_valid);
-	opts->mss = mss;
+	opts->mss_option = mss;
 	opts->options |= NF_SYNPROXY_OPT_MSS;
 
 	if (opts->options & NF_SYNPROXY_OPT_TIMESTAMP)
@@ -1128,8 +1127,7 @@ ipv6_synproxy_hook(void *priv, struct sk_buff *skb,
 		nf_ct_seqadj_init(ct, ctinfo, 0);
 		synproxy->tsoff = 0;
 		this_cpu_inc(snet->stats->conn_reopened);
-
-		/* fall through */
+		fallthrough;
 	case TCP_CONNTRACK_SYN_SENT:
 		if (!synproxy_parse_options(skb, thoff, th, &opts))
 			return NF_DROP;
@@ -1237,3 +1235,4 @@ EXPORT_SYMBOL_GPL(nf_synproxy_ipv6_fini);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Patrick McHardy <kaber@trash.net>");
+MODULE_DESCRIPTION("nftables SYNPROXY expression support");

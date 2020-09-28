@@ -161,7 +161,7 @@ static inline const char *pci_power_name(pci_power_t state)
  */
 typedef unsigned int __bitwise pci_channel_state_t;
 
-enum pci_channel_state {
+enum {
 	/* I/O channel is in normal state */
 	pci_channel_io_normal = (__force pci_channel_state_t) 1,
 
@@ -778,7 +778,7 @@ enum pci_ers_result {
 struct pci_error_handlers {
 	/* PCI bus error detected on this device */
 	pci_ers_result_t (*error_detected)(struct pci_dev *dev,
-					   enum pci_channel_state error);
+					   pci_channel_state_t error);
 
 	/* MMIO has been re-enabled, but not DMA */
 	pci_ers_result_t (*mmio_enabled)(struct pci_dev *dev);
@@ -2245,6 +2245,7 @@ int pci_enable_atomic_ops_to_root(struct pci_dev *dev, u32 cap_mask);
 #define PCI_VPD_INFO_FLD_HDR_SIZE	3
 
 #define PCI_VPD_RO_KEYWORD_PARTNO	"PN"
+#define PCI_VPD_RO_KEYWORD_SERIALNO	"SN"
 #define PCI_VPD_RO_KEYWORD_MFR_ID	"MN"
 #define PCI_VPD_RO_KEYWORD_VENDOR0	"V0"
 #define PCI_VPD_RO_KEYWORD_CHKSUM	"RV"

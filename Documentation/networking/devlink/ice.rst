@@ -61,8 +61,8 @@ The ``ice`` driver reports the following versions
       - running
       - ICE OS Default Package
       - The name of the DDP package that is active in the device. The DDP
-        package is loaded by the driver during initialization. Each varation
-        of DDP package shall have a unique name.
+        package is loaded by the driver during initialization. Each
+        variation of the DDP package has a unique name.
     * - ``fw.app``
       - running
       - 1.3.1.0
@@ -113,8 +113,7 @@ Users can request an immediate capture of a snapshot via the
     0000000000000020 0016 0bb8 0016 1720 0000 0000 c00f 3ffc
     0000000000000030 bada cce5 bada cce5 bada cce5 bada cce5
 
-    $ devlink region read pci/0000:01:00.0/nvm-flash snapshot 1 address 0
-        length 16
+    $ devlink region read pci/0000:01:00.0/nvm-flash snapshot 1 address 0 length 16
     0000000000000000 0014 95dc 0014 9514 0035 1670 0034 db30
 
     $ devlink region delete pci/0000:01:00.0/nvm-flash snapshot 1

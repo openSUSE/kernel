@@ -15,8 +15,10 @@
 #include <linux/spinlock.h>
 #include <linux/ethtool.h>
 #include <linux/linkmode.h>
+#include <linux/netlink.h>
 #include <linux/mdio.h>
 #include <linux/mii.h>
+#include <linux/mii_timestamper.h>
 #include <linux/module.h>
 #include <linux/timer.h>
 #include <linux/workqueue.h>
@@ -73,6 +75,7 @@ extern const int phy_10gbit_features_array[1];
 
 #define PHY_IS_INTERNAL		0x00000001
 #define PHY_RST_AFTER_CLK_EN	0x00000002
+#define PHY_POLL_CABLE_TEST	0x00000004
 #define MDIO_DEVICE_IS_PHY	0x80000000
 
 /* Interface Mode definitions */
@@ -304,6 +307,12 @@ struct phy_device *mdiobus_scan(struct mii_bus *bus, int addr);
  * - irq or timer will set NOLINK if link goes down
  * - phy_stop moves to HALTED
  *
+ * CABLETEST: PHY is performing a cable test. Packet reception/sending
+ * is not expected to work, carrier will be indicated as down. PHY will be
+ * poll once per second, or on interrupt for it current state.
+ * Once complete, move to UP to restart the PHY.
+ * - phy_stop aborts the running test and moves to HALTED
+ *
  * HALTED: PHY is up, but no polling or interrupts are done. Or
  * PHY is in an error state.
  * - phy_start moves to UP
@@ -315,6 +324,7 @@ enum phy_state {
 	PHY_UP,
 	PHY_RUNNING,
 	PHY_NOLINK,
+	PHY_CABLETEST,
 };
 
 /**
@@ -341,6 +351,7 @@ struct phy_c45_device_ids {
  * suspended_by_mdio_bus: Set to true if this phy was suspended by MDIO bus.
  * sysfs_links: Internal boolean tracking sysfs symbolic links setup/removal.
  * loopback_enabled: Set true if this phy has been loopbacked successfully.
+ * downshifted_rate: Set true if link speed has been downshifted.
  * state: state of the PHY for management purposes
  * dev_flags: Device-specific flags used by the PHY driver.
  * irq: IRQ number of the PHY's interrupt (-1 if none)
@@ -380,6 +391,7 @@ struct phy_device {
 	unsigned suspended_by_mdio_bus:1;
 	unsigned sysfs_links:1;
 	unsigned loopback_enabled:1;
+	unsigned downshifted_rate:1;
 
 	unsigned autoneg:1;
 	/* The most recently read link state */
@@ -403,12 +415,17 @@ struct phy_device {
 	int duplex;
 	int pause;
 	int asym_pause;
+	u8 master_slave_get;
+	u8 master_slave_set;
+	u8 master_slave_state;
 
 	/* Union of PHY and Attached devices' supported link modes */
 	/* See ethtool.h for more info */
 	__ETHTOOL_DECLARE_LINK_MODE_MASK(supported);
 	__ETHTOOL_DECLARE_LINK_MODE_MASK(advertising);
 	__ETHTOOL_DECLARE_LINK_MODE_MASK(lp_advertising);
+	/* used with phy_speed_down */
+	__ETHTOOL_DECLARE_LINK_MODE_MASK(adv_old);
 
 	/* Energy efficient ethernet modes which should be prohibited */
 	u32 eee_broken_modes;
@@ -431,6 +448,11 @@ struct phy_device {
 	/* For use by PHYs to maintain extra state */
 	void *priv;
 
+	/* Reporting cable test results */
+	struct sk_buff *skb;
+	void *ehdr;
+	struct nlattr *nest;
+
 	/* Interrupt and Polling infrastructure */
 	struct delayed_work state_queue;
 
@@ -441,15 +463,28 @@ struct phy_device {
 	struct sfp_bus *sfp_bus;
 	struct phylink *phylink;
 	struct net_device *attached_dev;
+	struct mii_timestamper *mii_ts;
 
 	u8 mdix;
 	u8 mdix_ctrl;
 
-	void (*phy_link_change)(struct phy_device *, bool up, bool do_carrier);
+	void (*phy_link_change)(struct phy_device *phydev, bool up);
 	void (*adjust_link)(struct net_device *dev);
 };
 #define to_phy_device(d) container_of(to_mdio_device(d), \
 				      struct phy_device, mdio)
+
+/* A structure containing possible configuration parameters
+ * for a TDR cable test. The driver does not need to implement
+ * all the parameters, but should report what is actually used.
+ */
+struct phy_tdr_config {
+	u32 first;
+	u32 last;
+	u32 step;
+	s8 pair;
+};
+#define PHY_PAIR_ALL -1
 
 /* struct phy_driver: Driver structure for a particular PHY type
  *
@@ -547,29 +582,6 @@ struct phy_driver {
 	 */
 	int (*match_phy_device)(struct phy_device *phydev);
 
-	/* Handles ethtool queries for hardware time stamping. */
-	int (*ts_info)(struct phy_device *phydev, struct ethtool_ts_info *ti);
-
-	/* Handles SIOCSHWTSTAMP ioctl for hardware time stamping. */
-	int  (*hwtstamp)(struct phy_device *phydev, struct ifreq *ifr);
-
-	/*
-	 * Requests a Rx timestamp for 'skb'. If the skb is accepted,
-	 * the phy driver promises to deliver it using netif_rx() as
-	 * soon as a timestamp becomes available. One of the
-	 * PTP_CLASS_ values is passed in 'type'. The function must
-	 * return true if the skb is accepted for delivery.
-	 */
-	bool (*rxtstamp)(struct phy_device *dev, struct sk_buff *skb, int type);
-
-	/*
-	 * Requests a Tx timestamp for 'skb'. The phy driver promises
-	 * to deliver it using skb_complete_tx_timestamp() as soon as a
-	 * timestamp becomes available. One of the PTP_CLASS_ values
-	 * is passed in 'type'.
-	 */
-	void (*txtstamp)(struct phy_device *dev, struct sk_buff *skb, int type);
-
 	/* Some devices (e.g. qnap TS-119P II) require PHY register changes to
 	 * enable Wake on LAN, so set_wol is provided to be called in the
 	 * ethernet driver's set_wol function. */
@@ -623,6 +635,18 @@ struct phy_driver {
 	int (*module_eeprom)(struct phy_device *dev,
 			     struct ethtool_eeprom *ee, u8 *data);
 
+	/* Start a cable test */
+	int (*cable_test_start)(struct phy_device *dev);
+
+	/* Start a raw TDR cable test */
+	int (*cable_test_tdr_start)(struct phy_device *dev,
+				    const struct phy_tdr_config *config);
+
+	/* Once per second, or on interrupt, request the status of the
+	 * test.
+	 */
+	int (*cable_test_get_status)(struct phy_device *dev, bool *finished);
+
 	/* Get statistics from the phy using ethtool */
 	int (*get_sset_count)(struct phy_device *dev);
 	void (*get_strings)(struct phy_device *dev, u8 *data);
@@ -636,6 +660,8 @@ struct phy_driver {
 			    struct ethtool_tunable *tuna,
 			    const void *data);
 	int (*set_loopback)(struct phy_device *dev, bool enable);
+	int (*get_sqi)(struct phy_device *dev);
+	int (*get_sqi_max)(struct phy_device *dev);
 };
 #define to_phy_driver(d) container_of(to_mdio_common_driver(d),		\
 				      struct phy_driver, mdiodrv)
@@ -675,6 +701,7 @@ size_t phy_speeds(unsigned int *speeds, size_t size,
 		  unsigned long *mask);
 void of_set_phy_supported(struct phy_device *phydev);
 void of_set_phy_eee_broken(struct phy_device *phydev);
+int phy_speed_down_core(struct phy_device *phydev);
 
 /**
  * phy_is_started - Convenience function to check whether PHY is started
@@ -685,7 +712,9 @@ static inline bool phy_is_started(struct phy_device *phydev)
 	return phydev->state >= PHY_UP;
 }
 
+void phy_resolve_aneg_pause(struct phy_device *phydev);
 void phy_resolve_aneg_linkmode(struct phy_device *phydev);
+void phy_check_downshift(struct phy_device *phydev);
 
 /**
  * phy_read - Convenience function for reading a given PHY register
@@ -932,6 +961,10 @@ static inline bool phy_interrupt_is_valid(struct phy_device *phydev)
  */
 static inline bool phy_polling_mode(struct phy_device *phydev)
 {
+	if (phydev->state == PHY_CABLETEST)
+		if (phydev->drv->flags & PHY_POLL_CABLE_TEST)
+			return true;
+
 	return phydev->irq == PHY_POLL;
 }
 
@@ -941,7 +974,7 @@ static inline bool phy_polling_mode(struct phy_device *phydev)
  */
 static inline bool phy_has_hwtstamp(struct phy_device *phydev)
 {
-	return phydev && phydev->drv && phydev->drv->hwtstamp;
+	return phydev && phydev->mii_ts && phydev->mii_ts->hwtstamp;
 }
 
 /**
@@ -950,7 +983,7 @@ static inline bool phy_has_hwtstamp(struct phy_device *phydev)
  */
 static inline bool phy_has_rxtstamp(struct phy_device *phydev)
 {
-	return phydev && phydev->drv && phydev->drv->rxtstamp;
+	return phydev && phydev->mii_ts && phydev->mii_ts->rxtstamp;
 }
 
 /**
@@ -960,7 +993,7 @@ static inline bool phy_has_rxtstamp(struct phy_device *phydev)
  */
 static inline bool phy_has_tsinfo(struct phy_device *phydev)
 {
-	return phydev && phydev->drv && phydev->drv->ts_info;
+	return phydev && phydev->mii_ts && phydev->mii_ts->ts_info;
 }
 
 /**
@@ -969,30 +1002,30 @@ static inline bool phy_has_tsinfo(struct phy_device *phydev)
  */
 static inline bool phy_has_txtstamp(struct phy_device *phydev)
 {
-	return phydev && phydev->drv && phydev->drv->txtstamp;
+	return phydev && phydev->mii_ts && phydev->mii_ts->txtstamp;
 }
 
 static inline int phy_hwtstamp(struct phy_device *phydev, struct ifreq *ifr)
 {
-	return phydev->drv->hwtstamp(phydev, ifr);
+	return phydev->mii_ts->hwtstamp(phydev->mii_ts, ifr);
 }
 
 static inline bool phy_rxtstamp(struct phy_device *phydev, struct sk_buff *skb,
 				int type)
 {
-	return phydev->drv->rxtstamp(phydev, skb, type);
+	return phydev->mii_ts->rxtstamp(phydev->mii_ts, skb, type);
 }
 
 static inline int phy_ts_info(struct phy_device *phydev,
 			      struct ethtool_ts_info *tsinfo)
 {
-	return phydev->drv->ts_info(phydev, tsinfo);
+	return phydev->mii_ts->ts_info(phydev->mii_ts, tsinfo);
 }
 
 static inline void phy_txtstamp(struct phy_device *phydev, struct sk_buff *skb,
 				int type)
 {
-	phydev->drv->txtstamp(phydev, skb, type);
+	phydev->mii_ts->txtstamp(phydev->mii_ts, skb, type);
 }
 
 /**
@@ -1054,6 +1087,8 @@ int phy_select_page(struct phy_device *phydev, int page);
 int phy_restore_page(struct phy_device *phydev, int oldpage, int ret);
 int phy_read_paged(struct phy_device *phydev, int page, u32 regnum);
 int phy_write_paged(struct phy_device *phydev, int page, u32 regnum, u16 val);
+int phy_modify_paged_changed(struct phy_device *phydev, int page, u32 regnum,
+			     u16 mask, u16 set);
 int phy_modify_paged(struct phy_device *phydev, int page, u32 regnum,
 		     u16 mask, u16 set);
 
@@ -1111,6 +1146,34 @@ int phy_speed_up(struct phy_device *phydev);
 int phy_restart_aneg(struct phy_device *phydev);
 int phy_reset_after_clk_enable(struct phy_device *phydev);
 
+#if IS_ENABLED(CONFIG_PHYLIB)
+int phy_start_cable_test(struct phy_device *phydev,
+			 struct netlink_ext_ack *extack);
+int phy_start_cable_test_tdr(struct phy_device *phydev,
+			     struct netlink_ext_ack *extack,
+			     const struct phy_tdr_config *config);
+#else
+static inline
+int phy_start_cable_test(struct phy_device *phydev,
+			 struct netlink_ext_ack *extack)
+{
+	NL_SET_ERR_MSG(extack, "Kernel not compiled with PHYLIB support");
+	return -EOPNOTSUPP;
+}
+static inline
+int phy_start_cable_test_tdr(struct phy_device *phydev,
+			     struct netlink_ext_ack *extack,
+			     const struct phy_tdr_config *config)
+{
+	NL_SET_ERR_MSG(extack, "Kernel not compiled with PHYLIB support");
+	return -EOPNOTSUPP;
+}
+#endif
+
+int phy_cable_test_result(struct phy_device *phydev, u8 pair, u16 result);
+int phy_cable_test_fault_length(struct phy_device *phydev, u8 pair,
+				u16 cm);
+
 static inline void phy_device_reset(struct phy_device *phydev, int value)
 {
 	mdio_device_reset(&phydev->mdio, value);
@@ -1148,19 +1211,27 @@ void phy_attached_print(struct phy_device *phydev, const char *fmt, ...)
 void phy_attached_info(struct phy_device *phydev);
 
 /* Clause 22 PHY */
-int genphy_config_init(struct phy_device *phydev);
 int genphy_read_abilities(struct phy_device *phydev);
 int genphy_setup_forced(struct phy_device *phydev);
 int genphy_restart_aneg(struct phy_device *phydev);
+int genphy_check_and_restart_aneg(struct phy_device *phydev, bool restart);
 int genphy_config_eee_advert(struct phy_device *phydev);
-int genphy_config_aneg(struct phy_device *phydev);
+int __genphy_config_aneg(struct phy_device *phydev, bool changed);
 int genphy_aneg_done(struct phy_device *phydev);
 int genphy_update_link(struct phy_device *phydev);
+int genphy_read_lpa(struct phy_device *phydev);
+int genphy_read_status_fixed(struct phy_device *phydev);
 int genphy_read_status(struct phy_device *phydev);
 int genphy_suspend(struct phy_device *phydev);
 int genphy_resume(struct phy_device *phydev);
 int genphy_loopback(struct phy_device *phydev, bool enable);
 int genphy_soft_reset(struct phy_device *phydev);
+
+static inline int genphy_config_aneg(struct phy_device *phydev)
+{
+	return __genphy_config_aneg(phydev, false);
+}
+
 static inline int genphy_no_soft_reset(struct phy_device *phydev)
 {
 	return 0;
@@ -1226,6 +1297,8 @@ void phy_ethtool_ksettings_get(struct phy_device *phydev,
 int phy_ethtool_ksettings_set(struct phy_device *phydev,
 			      const struct ethtool_link_ksettings *cmd);
 int phy_mii_ioctl(struct phy_device *phydev, struct ifreq *ifr, int cmd);
+int phy_do_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd);
+int phy_do_ioctl_running(struct net_device *dev, struct ifreq *ifr, int cmd);
 void phy_request_interrupt(struct phy_device *phydev);
 void phy_free_interrupt(struct phy_device *phydev);
 void phy_print_status(struct phy_device *phydev);
@@ -1239,6 +1312,9 @@ void phy_set_sym_pause(struct phy_device *phydev, bool rx, bool tx,
 void phy_set_asym_pause(struct phy_device *phydev, bool rx, bool tx);
 bool phy_validate_pause(struct phy_device *phydev,
 			struct ethtool_pauseparam *pp);
+void phy_get_pause(struct phy_device *phydev, bool *tx_pause, bool *rx_pause);
+void phy_resolve_pause(unsigned long *local_adv, unsigned long *partner_adv,
+		       bool *tx_pause, bool *rx_pause);
 
 int phy_register_fixup(const char *bus_id, u32 phy_uid, u32 phy_uid_mask,
 		       int (*run)(struct phy_device *));
@@ -1269,51 +1345,10 @@ int __init mdio_bus_init(void);
 void mdio_bus_exit(void);
 #endif
 
-/* Inline function for use within net/core/ethtool.c (built-in) */
-static inline int phy_ethtool_get_strings(struct phy_device *phydev, u8 *data)
-{
-	if (!phydev->drv)
-		return -EIO;
-
-	mutex_lock(&phydev->lock);
-	phydev->drv->get_strings(phydev, data);
-	mutex_unlock(&phydev->lock);
-
-	return 0;
-}
-
-static inline int phy_ethtool_get_sset_count(struct phy_device *phydev)
-{
-	int ret;
-
-	if (!phydev->drv)
-		return -EIO;
-
-	if (phydev->drv->get_sset_count &&
-	    phydev->drv->get_strings &&
-	    phydev->drv->get_stats) {
-		mutex_lock(&phydev->lock);
-		ret = phydev->drv->get_sset_count(phydev);
-		mutex_unlock(&phydev->lock);
-
-		return ret;
-	}
-
-	return -EOPNOTSUPP;
-}
-
-static inline int phy_ethtool_get_stats(struct phy_device *phydev,
-					struct ethtool_stats *stats, u64 *data)
-{
-	if (!phydev->drv)
-		return -EIO;
-
-	mutex_lock(&phydev->lock);
-	phydev->drv->get_stats(phydev, stats, data);
-	mutex_unlock(&phydev->lock);
-
-	return 0;
-}
+int phy_ethtool_get_strings(struct phy_device *phydev, u8 *data);
+int phy_ethtool_get_sset_count(struct phy_device *phydev);
+int phy_ethtool_get_stats(struct phy_device *phydev,
+			  struct ethtool_stats *stats, u64 *data);
 
 extern struct bus_type mdio_bus_type;
 

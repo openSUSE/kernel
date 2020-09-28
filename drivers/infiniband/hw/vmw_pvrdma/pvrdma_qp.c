@@ -217,7 +217,7 @@ struct ib_qp *pvrdma_create_qp(struct ib_pd *pd,
 	    init_attr->qp_type != IB_QPT_GSI) {
 		dev_warn(&dev->pdev->dev, "queuepair type %d not supported\n",
 			 init_attr->qp_type);
-		return ERR_PTR(-EINVAL);
+		return ERR_PTR(-EOPNOTSUPP);
 	}
 
 	if (is_srq && !dev->dsr->caps.max_srq) {
@@ -276,8 +276,9 @@ struct ib_qp *pvrdma_create_qp(struct ib_pd *pd,
 
 			if (!is_srq) {
 				/* set qp->sq.wqe_cnt, shift, buf_size.. */
-				qp->rumem = ib_umem_get(udata, ucmd.rbuf_addr,
-							ucmd.rbuf_size, 0, 0);
+				qp->rumem =
+					ib_umem_get(pd->device, ucmd.rbuf_addr,
+						    ucmd.rbuf_size, 0);
 				if (IS_ERR(qp->rumem)) {
 					ret = PTR_ERR(qp->rumem);
 					goto err_qp;
@@ -288,8 +289,8 @@ struct ib_qp *pvrdma_create_qp(struct ib_pd *pd,
 				qp->srq = to_vsrq(init_attr->srq);
 			}
 
-			qp->sumem = ib_umem_get(udata, ucmd.sbuf_addr,
-						ucmd.sbuf_size, 0, 0);
+			qp->sumem = ib_umem_get(pd->device, ucmd.sbuf_addr,
+						ucmd.sbuf_size, 0);
 			if (IS_ERR(qp->sumem)) {
 				if (!is_srq)
 					ib_umem_release(qp->rumem);

@@ -37,6 +37,9 @@
 #include <linux/in6.h>
 #include <linux/if_packet.h>
 #include <net/flow.h>
+#if IS_ENABLED(CONFIG_NF_CONNTRACK)
+#include <linux/netfilter/nf_conntrack_common.h>
+#endif
 
 /* The interface for checksum offload between the stack and networking drivers
  * is as follows...
@@ -244,12 +247,6 @@ struct bpf_prog;
 union bpf_attr;
 struct skb_ext;
 
-#if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
-struct nf_conntrack {
-	atomic_t use;
-};
-#endif
-
 #if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
 struct nf_bridge_info {
 	enum {
@@ -276,6 +273,17 @@ struct nf_bridge_info {
 		 */
 		char neigh_header[8];
 	};
+};
+#endif
+
+#if IS_ENABLED(CONFIG_NET_TC_SKB_EXT)
+/* Chain in tc_skb_ext will be used to share the tc chain with
+ * ovs recirc_id. It will be set to the current chain by tc
+ * and read by ovs to recirc_id.
+ */
+struct tc_skb_ext {
+	__u32 chain;
+	__u16 mru;
 };
 #endif
 
@@ -629,8 +637,8 @@ typedef unsigned char *sk_buff_data_t;
  *	@offload_l3_fwd_mark: Packet was L3-forwarded in hardware
  *	@tc_skip_classify: do not classify packet. set by IFB device
  *	@tc_at_ingress: used within tc_classify to distinguish in/egress
- *	@tc_redirected: packet was redirected by a tc action
- *	@tc_from_ingress: if tc_redirected, tc_at_ingress at time of redirect
+ *	@redirected: packet was redirected by packet classifier
+ *	@from_ingress: packet was redirected from the ingress path
  *	@peeked: this packet has been seen already, so stats have been
  *		done for it, don't do them again
  *	@nf_trace: netfilter packet trace flag
@@ -811,8 +819,10 @@ struct sk_buff {
 #ifdef CONFIG_NET_CLS_ACT
 	__u8			tc_skip_classify:1;
 	__u8			tc_at_ingress:1;
-	__u8			tc_redirected:1;
-	__u8			tc_from_ingress:1;
+#endif
+#ifdef CONFIG_NET_REDIRECT
+	__u8			redirected:1;
+	__u8			from_ingress:1;
 #endif
 #ifdef CONFIG_TLS_DEVICE
 	__u8			decrypted:1;
@@ -906,7 +916,6 @@ static inline bool skb_pfmemalloc(const struct sk_buff *skb)
 #define SKB_DST_NOREF	1UL
 #define SKB_DST_PTRMASK	~(SKB_DST_NOREF)
 
-#define SKB_NFCT_PTRMASK	~(7UL)
 /**
  * skb_dst - returns skb dst_entry
  * @skb: buffer
@@ -1330,6 +1339,10 @@ skb_flow_dissect_tunnel_info(const struct sk_buff *skb,
 			     struct flow_dissector *flow_dissector,
 			     void *target_container);
 
+void skb_flow_dissect_hash(const struct sk_buff *skb,
+			   struct flow_dissector *flow_dissector,
+			   void *target_container);
+
 static inline __u32 skb_get_hash(struct sk_buff *skb)
 {
 	if (!skb->l4_hash && !skb->sw_hash)
@@ -1475,9 +1488,9 @@ static inline void skb_mark_not_on_list(struct sk_buff *skb)
 }
 
 /* Iterate through singly-linked GSO fragments of an skb. */
-#define skb_list_walk_safe(first, skb, next)                                   \
-	for ((skb) = (first), (next) = (skb) ? (skb)->next : NULL; (skb);      \
-	     (skb) = (next), (next) = (skb) ? (skb)->next : NULL)
+#define skb_list_walk_safe(first, skb, next_skb)                               \
+	for ((skb) = (first), (next_skb) = (skb) ? (skb)->next : NULL; (skb);  \
+	     (skb) = (next_skb), (next_skb) = (skb) ? (skb)->next : NULL)
 
 static inline void skb_list_del_init(struct sk_buff *skb)
 {
@@ -4069,25 +4082,27 @@ static inline void skb_remcsum_process(struct sk_buff *skb, void *ptr,
 static inline struct nf_conntrack *skb_nfct(const struct sk_buff *skb)
 {
 #if IS_ENABLED(CONFIG_NF_CONNTRACK)
-	return (void *)(skb->_nfct & SKB_NFCT_PTRMASK);
+	return (void *)(skb->_nfct & NFCT_PTRMASK);
 #else
 	return NULL;
 #endif
 }
 
-#if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
-void nf_conntrack_destroy(struct nf_conntrack *nfct);
-static inline void nf_conntrack_put(struct nf_conntrack *nfct)
+static inline unsigned long skb_get_nfct(const struct sk_buff *skb)
 {
-	if (nfct && atomic_dec_and_test(&nfct->use))
-		nf_conntrack_destroy(nfct);
-}
-static inline void nf_conntrack_get(struct nf_conntrack *nfct)
-{
-	if (nfct)
-		atomic_inc(&nfct->use);
-}
+#if IS_ENABLED(CONFIG_NF_CONNTRACK)
+	return skb->_nfct;
+#else
+	return 0UL;
 #endif
+}
+
+static inline void skb_set_nfct(struct sk_buff *skb, unsigned long nfct)
+{
+#if IS_ENABLED(CONFIG_NF_CONNTRACK)
+	skb->_nfct = nfct;
+#endif
+}
 
 #ifdef CONFIG_SKB_EXTENSIONS
 enum skb_ext_id {
@@ -4096,6 +4111,9 @@ enum skb_ext_id {
 #endif
 #ifdef CONFIG_XFRM
 	SKB_EXT_SEC_PATH,
+#endif
+#if IS_ENABLED(CONFIG_NET_TC_SKB_EXT)
+	TC_SKB_EXT,
 #endif
 	SKB_EXT_NUM, /* must be last */
 };
@@ -4180,22 +4198,25 @@ static inline void skb_ext_reset(struct sk_buff *skb)
 		skb->active_extensions = 0;
 	}
 }
+
+static inline bool skb_has_extensions(struct sk_buff *skb)
+{
+	return unlikely(skb->active_extensions);
+}
 #else
 static inline void skb_ext_put(struct sk_buff *skb) {}
 static inline void skb_ext_reset(struct sk_buff *skb) {}
 static inline void skb_ext_del(struct sk_buff *skb, int unused) {}
 static inline void __skb_ext_copy(struct sk_buff *d, const struct sk_buff *s) {}
 static inline void skb_ext_copy(struct sk_buff *dst, const struct sk_buff *s) {}
+static inline bool skb_has_extensions(struct sk_buff *skb) { return false; }
 #endif /* CONFIG_SKB_EXTENSIONS */
 
-static inline void nf_reset(struct sk_buff *skb)
+static inline void nf_reset_ct(struct sk_buff *skb)
 {
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 	nf_conntrack_put(skb_nfct(skb));
 	skb->_nfct = 0;
-#endif
-#if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
-	skb_ext_del(skb, SKB_EXT_BRIDGE_NF);
 #endif
 }
 
@@ -4517,6 +4538,32 @@ static inline __wsum lco_csum(struct sk_buff *skb)
 	 * adjustment filled in by caller) and return result.
 	 */
 	return csum_partial(l4_hdr, csum_start - l4_hdr, partial);
+}
+
+static inline bool skb_is_redirected(const struct sk_buff *skb)
+{
+#ifdef CONFIG_NET_REDIRECT
+	return skb->redirected;
+#else
+	return false;
+#endif
+}
+
+static inline void skb_set_redirected(struct sk_buff *skb, bool from_ingress)
+{
+#ifdef CONFIG_NET_REDIRECT
+	skb->redirected = 1;
+	skb->from_ingress = from_ingress;
+	if (skb->from_ingress)
+		skb->tstamp = 0;
+#endif
+}
+
+static inline void skb_reset_redirect(struct sk_buff *skb)
+{
+#ifdef CONFIG_NET_REDIRECT
+	skb->redirected = 0;
+#endif
 }
 
 #endif	/* __KERNEL__ */

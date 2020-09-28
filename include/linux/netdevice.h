@@ -53,6 +53,8 @@ struct netpoll_info;
 struct device;
 struct phy_device;
 struct dsa_port;
+struct macsec_context;
+struct macsec_ops;
 
 struct sfp_bus;
 /* 802.11 specific */
@@ -62,6 +64,8 @@ struct wpan_dev;
 struct mpls_dev;
 /* UDP Tunnel offloads */
 struct udp_tunnel_info;
+struct udp_tunnel_nic_info;
+struct udp_tunnel_nic;
 struct bpf_prog;
 struct xdp_buff;
 
@@ -851,6 +855,10 @@ enum tc_setup_type {
 	TC_SETUP_ROOT_QDISC,
 	TC_SETUP_QDISC_GRED,
 	TC_SETUP_QDISC_TAPRIO,
+	TC_SETUP_FT,
+	TC_SETUP_QDISC_ETS,
+	TC_SETUP_QDISC_TBF,
+	TC_SETUP_QDISC_FIFO,
 };
 
 /* These structures hold the attributes of bpf state that are being passed
@@ -938,6 +946,11 @@ struct netdev_name_node {
 
 int netdev_name_node_alt_create(struct net_device *dev, const char *name);
 int netdev_name_node_alt_destroy(struct net_device *dev, const char *name);
+
+struct netdev_net_notifier {
+	struct list_head list;
+	struct notifier_block *nb;
+};
 
 /*
  * This structure defines the management hooks for network devices.
@@ -1711,6 +1724,7 @@ enum netdev_priv_flags {
  *	@miniq_ingress:		ingress/clsact qdisc specific data for
  *				ingress processing
  *	@ingress_queue:		XXX: need comments on this one
+ *	@nf_hooks_ingress:	netfilter hooks executed for ingress packets
  *	@broadcast:		hw bcast address
  *
  *	@rx_cpu_rmap:	CPU reverse-mapping for RX completion interrupts,
@@ -1778,19 +1792,27 @@ enum netdev_priv_flags {
  *	@phydev:	Physical device may attach itself
  *			for hardware timestamping
  *	@sfp_bus:	attached &struct sfp_bus structure.
- *	@qdisc_tx_busylock_key: lockdep class annotating Qdisc->busylock
- *				spinlock
- *	@qdisc_running_key:	lockdep class annotating Qdisc->running seqcount
- *	@qdisc_xmit_lock_key:	lockdep class annotating
- *				netdev_queue->_xmit_lock spinlock
+ *
  *	@addr_list_lock_key:	lockdep class annotating
  *				net_device->addr_list_lock spinlock
+ *	@qdisc_tx_busylock: lockdep class annotating Qdisc->busylock spinlock
+ *	@qdisc_running_key: lockdep class annotating Qdisc->running seqcount
  *
  *	@proto_down:	protocol port state information can be sent to the
  *			switch driver and used to set the phys state of the
  *			switch port.
  *
  *	@wol_enabled:	Wake-on-LAN is enabled
+ *
+ *	@net_notifier_list:	List of per-net netdev notifier block
+ *				that follow this device when it is moved
+ *				to another network namespace.
+ *
+ *	@macsec_ops:    MACsec offloading ops
+ *
+ *	@udp_tunnel_nic_info:	static structure describing the UDP tunnel
+ *				offload capabilities of the device
+ *	@udp_tunnel_nic:	UDP tunnel offload state
  *
  *	FIXME: cleanup struct net_device such that network protocol info
  *	moves out.
@@ -2076,12 +2098,20 @@ struct net_device {
 #endif
 	struct phy_device	*phydev;
 	struct sfp_bus		*sfp_bus;
-	struct lock_class_key	qdisc_tx_busylock_key;
-	struct lock_class_key	qdisc_running_key;
-	struct lock_class_key	qdisc_xmit_lock_key;
 	struct lock_class_key	addr_list_lock_key;
+	struct lock_class_key	*qdisc_tx_busylock;
+	struct lock_class_key	*qdisc_running_key;
 	bool			proto_down;
 	unsigned		wol_enabled:1;
+
+	struct list_head	net_notifier_list;
+
+#if IS_ENABLED(CONFIG_MACSEC)
+	/* MACsec management functions */
+	const struct macsec_ops *macsec_ops;
+#endif
+	const struct udp_tunnel_nic_info	*udp_tunnel_nic_info;
+	struct udp_tunnel_nic	*udp_tunnel_nic;
 };
 #define to_net_dev(d) container_of(d, struct net_device, dev)
 
@@ -2155,6 +2185,20 @@ static inline void netdev_for_each_tx_queue(struct net_device *dev,
 
 	for (i = 0; i < dev->num_tx_queues; i++)
 		f(dev, &dev->_tx[i], arg);
+}
+
+#define netdev_lockdep_set_classes(dev)				\
+{								\
+	static struct lock_class_key qdisc_tx_busylock_key;	\
+	static struct lock_class_key qdisc_running_key;		\
+	static struct lock_class_key qdisc_xmit_lock_key;	\
+	unsigned int i;						\
+								\
+	(dev)->qdisc_tx_busylock = &qdisc_tx_busylock_key;	\
+	(dev)->qdisc_running_key = &qdisc_running_key;		\
+	for (i = 0; i < (dev)->num_tx_queues; i++)		\
+		lockdep_set_class(&(dev)->_tx[i]._xmit_lock,	\
+				  &qdisc_xmit_lock_key);	\
 }
 
 u16 netdev_pick_tx(struct net_device *dev, struct sk_buff *skb,
@@ -2525,6 +2569,12 @@ int unregister_netdevice_notifier(struct notifier_block *nb);
 int register_netdevice_notifier_net(struct net *net, struct notifier_block *nb);
 int unregister_netdevice_notifier_net(struct net *net,
 				      struct notifier_block *nb);
+int register_netdevice_notifier_dev_net(struct net_device *dev,
+					struct notifier_block *nb,
+					struct netdev_net_notifier *nn);
+int unregister_netdevice_notifier_dev_net(struct net_device *dev,
+					  struct notifier_block *nb,
+					  struct netdev_net_notifier *nn);
 
 struct netdev_notifier_info {
 	struct net_device	*dev;

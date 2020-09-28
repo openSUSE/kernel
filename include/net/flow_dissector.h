@@ -34,7 +34,6 @@ enum flow_dissect_ret {
 
 /**
  * struct flow_dissector_key_basic:
- * @thoff: Transport header offset
  * @n_proto: Network header protocol (eg. IPv4/IPv6)
  * @ip_proto: Transport header protocol (eg. TCP/UDP)
  */
@@ -49,18 +48,35 @@ struct flow_dissector_key_tags {
 };
 
 struct flow_dissector_key_vlan {
-	u16	vlan_id:12,
-		vlan_dei:1,
-		vlan_priority:3;
+	union {
+		struct {
+			u16	vlan_id:12,
+				vlan_dei:1,
+				vlan_priority:3;
+		};
+		__be16	vlan_tci;
+	};
 	__be16	vlan_tpid;
 };
 
-struct flow_dissector_key_mpls {
+struct flow_dissector_mpls_lse {
 	u32	mpls_ttl:8,
 		mpls_bos:1,
 		mpls_tc:3,
 		mpls_label:20;
 };
+
+#define FLOW_DIS_MPLS_MAX 7
+struct flow_dissector_key_mpls {
+	struct flow_dissector_mpls_lse ls[FLOW_DIS_MPLS_MAX]; /* Label Stack */
+	u8 used_lses; /* One bit set for each Label Stack Entry in use */
+};
+
+static inline void dissector_set_mpls_lse(struct flow_dissector_key_mpls *mpls,
+					  int lse_index)
+{
+	mpls->used_lses |= 1 << lse_index;
+}
 
 #define FLOW_DIS_TUN_OPTS_MAX 255
 /**
@@ -204,9 +220,11 @@ struct flow_dissector_key_ip {
 /**
  * struct flow_dissector_key_meta:
  * @ingress_ifindex: ingress ifindex
+ * @ingress_iftype: ingress interface type
  */
 struct flow_dissector_key_meta {
 	int ingress_ifindex;
+	u16 ingress_iftype;
 };
 
 /**
@@ -221,6 +239,14 @@ struct flow_dissector_key_ct {
 	u16	ct_zone;
 	u32	ct_mark;
 	u32	ct_labels[4];
+};
+
+/**
+ * struct flow_dissector_key_hash:
+ * @hash: hash value
+ */
+struct flow_dissector_key_hash {
+	u32 hash;
 };
 
 enum flow_dissector_key_id {
@@ -251,6 +277,7 @@ enum flow_dissector_key_id {
 	FLOW_DISSECTOR_KEY_ENC_OPTS, /* struct flow_dissector_key_enc_opts */
 	FLOW_DISSECTOR_KEY_META, /* struct flow_dissector_key_meta */
 	FLOW_DISSECTOR_KEY_CT, /* struct flow_dissector_key_ct */
+	FLOW_DISSECTOR_KEY_HASH, /* struct flow_dissector_key_hash */
 
 	FLOW_DISSECTOR_KEY_MAX,
 };

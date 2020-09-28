@@ -34,6 +34,15 @@ Parameters may be set in different configuration modes.
      - written to the device's non-volatile memory. A hard reset is required
        for it to take effect.
 
+Reloading
+---------
+
+In order for ``driverinit`` parameters to take effect, the driver must
+support reloading via the ``devlink-reload`` command. This command will
+request a reload of the device driver.
+
+.. _devlink_params_generic:
+
 Generic configuration parameters
 ================================
 The following is a list of generic configuration parameters that drivers may
@@ -88,3 +97,14 @@ own name.
    * - ``enable_roce``
      - Boolean
      - Enable handling of RoCE traffic in the device.
+   * - ``internal_err_reset``
+     - Boolean
+     - When enabled, the device driver will reset the device on internal
+       errors.
+   * - ``max_macs``
+     - u32
+     - Specifies the maximum number of MAC addresses per ethernet port of
+       this device.
+   * - ``region_snapshot_enable``
+     - Boolean
+     - Enable capture of ``devlink-region`` snapshots.

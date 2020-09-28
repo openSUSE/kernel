@@ -819,8 +819,10 @@ int amdgpu_ttm_tt_get_user_pages(struct amdgpu_bo *bo, struct page **pages)
 				0 : range->flags[HMM_PFN_WRITE];
 	range->pfn_flags_mask = 0;
 	range->pfns = pfns;
-	hmm_range_register(range, mirror, start,
-			   start + ttm->num_pages * PAGE_SIZE, PAGE_SHIFT);
+	range->start = start;
+	range->end = start + ttm->num_pages * PAGE_SIZE;
+
+	hmm_range_register(range, mirror);
 
 retry:
 	/*
@@ -832,7 +834,7 @@ retry:
 
 	down_read(&mm->mmap_sem);
 
-	r = hmm_range_fault(range, true);
+	r = hmm_range_fault(range, 0);
 	if (unlikely(r < 0)) {
 		if (likely(r == -EAGAIN)) {
 			/*
