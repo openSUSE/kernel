@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * ALSA SoC codec for HDMI encoder drivers
- * Copyright (C) 2015 Texas Instruments Incorporated - http://www.ti.com/
+ * Copyright (C) 2015 Texas Instruments Incorporated - https://www.ti.com/
  * Author: Jyri Sarha <jsarha@ti.com>
  */
 #include <linux/module.h>
@@ -566,7 +566,7 @@ static int hdmi_codec_digital_mute(struct snd_soc_dai *dai, int mute)
 		return hcp->hcd.ops->digital_mute(dai->dev->parent,
 						  hcp->hcd.data, mute);
 
-	return 0;
+	return -ENOTSUPP;
 }
 
 static const struct snd_soc_dai_ops hdmi_codec_i2s_dai_ops = {

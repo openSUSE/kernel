@@ -20,7 +20,7 @@ static int get_codec_vendor_name(struct hdac_device *codec);
 
 static void default_release(struct device *dev)
 {
-	snd_hdac_device_exit(container_of(dev, struct hdac_device, dev));
+	snd_hdac_device_exit(dev_to_hdac_dev(dev));
 }
 
 /**
@@ -127,6 +127,8 @@ EXPORT_SYMBOL_GPL(snd_hdac_device_init);
 void snd_hdac_device_exit(struct hdac_device *codec)
 {
 	pm_runtime_put_noidle(&codec->dev);
+	/* keep balance of runtime PM child_count in parent device */
+	pm_runtime_set_suspended(&codec->dev);
 	snd_hdac_bus_remove_device(codec->bus, codec);
 	kfree(codec->vendor_name);
 	kfree(codec->chip_name);
@@ -204,7 +206,7 @@ EXPORT_SYMBOL_GPL(snd_hdac_device_set_chip_name);
  */
 int snd_hdac_codec_modalias(struct hdac_device *codec, char *buf, size_t size)
 {
-	return snprintf(buf, size, "hdaudio:v%08Xr%08Xa%02X\n",
+	return scnprintf(buf, size, "hdaudio:v%08Xr%08Xa%02X\n",
 			codec->vendor_id, codec->revision_id, codec->type);
 }
 EXPORT_SYMBOL_GPL(snd_hdac_codec_modalias);
