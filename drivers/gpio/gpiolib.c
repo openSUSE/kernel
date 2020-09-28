@@ -1418,11 +1418,11 @@ int gpiochip_add_data_with_key(struct gpio_chip *chip, void *data,
 
 	machine_gpiochip_add(chip);
 
-	status = gpiochip_irqchip_init_hw(chip);
+	status = gpiochip_irqchip_init_valid_mask(chip);
 	if (status)
 		goto err_remove_acpi_chip;
 
-	status = gpiochip_irqchip_init_valid_mask(chip);
+	status = gpiochip_irqchip_init_hw(chip);
 	if (status)
 		goto err_remove_acpi_chip;
 
