@@ -551,7 +551,7 @@ int snd_soc_suspend(struct device *dev)
 		if (rtd->dai_link->ignore_suspend)
 			continue;
 
-		for_each_rtd_codec_dais(rtd, i, dai) {
+		for_each_rtd_dais(rtd, i, dai) {
 			if (snd_soc_dai_stream_active(dai, playback))
 				snd_soc_dai_digital_mute(dai, 1, playback);
 		}
@@ -690,7 +690,7 @@ static void soc_resume_deferred(struct work_struct *work)
 		if (rtd->dai_link->ignore_suspend)
 			continue;
 
-		for_each_rtd_codec_dais(rtd, i, dai) {
+		for_each_rtd_dais(rtd, i, dai) {
 			if (snd_soc_dai_stream_active(dai, playback))
 				snd_soc_dai_digital_mute(dai, 0, playback);
 		}
