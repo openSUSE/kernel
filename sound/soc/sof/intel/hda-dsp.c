@@ -487,7 +487,7 @@ int hda_dsp_resume(struct snd_sof_dev *sdev)
 	struct sof_intel_hda_dev *hda = sdev->pdata->hw_pdata;
 	struct pci_dev *pci = to_pci_dev(sdev->dev);
 
-	if (sdev->s0_suspend) {
+	if (sdev->system_suspend_target == SOF_SUSPEND_S0IX) {
 		hda_codec_i915_display_power(sdev, true);
 
 		/* restore L1SEN bit */
@@ -538,7 +538,7 @@ int hda_dsp_suspend(struct snd_sof_dev *sdev)
 	struct pci_dev *pci = to_pci_dev(sdev->dev);
 	int ret;
 
-	if (sdev->s0_suspend) {
+	if (sdev->system_suspend_target == SOF_SUSPEND_S0IX) {
 		/* we can't keep a wakeref to display driver at suspend */
 		hda_codec_i915_display_power(sdev, false);
 
