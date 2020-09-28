@@ -904,4 +904,7 @@ void tegra_clk_periph_resume(void);
 		udelay(delay);		\
 	} while (0)
 
+struct clk *tegra210_clk_register_emc(struct device_node *np,
+				      void __iomem *regs);
+
 #endif /* TEGRA_CLK_H */
