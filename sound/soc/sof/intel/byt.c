@@ -651,7 +651,7 @@ EXPORT_SYMBOL(sof_tng_ops);
 
 const struct sof_intel_dsp_desc tng_chip_info = {
 	.cores_num = 1,
-	.cores_mask = 1,
+	.host_managed_cores_mask = 1,
 };
 EXPORT_SYMBOL(tng_chip_info);
 
@@ -896,7 +896,7 @@ EXPORT_SYMBOL(sof_byt_ops);
 
 const struct sof_intel_dsp_desc byt_chip_info = {
 	.cores_num = 1,
-	.cores_mask = 1,
+	.host_managed_cores_mask = 1,
 };
 EXPORT_SYMBOL(byt_chip_info);
 
@@ -976,7 +976,7 @@ EXPORT_SYMBOL(sof_cht_ops);
 
 const struct sof_intel_dsp_desc cht_chip_info = {
 	.cores_num = 1,
-	.cores_mask = 1,
+	.host_managed_cores_mask = 1,
 };
 EXPORT_SYMBOL(cht_chip_info);
 
