@@ -817,7 +817,7 @@ struct snd_soc_dai_link {
 	const struct snd_soc_compr_ops *compr_ops;
 
 	/* Mark this pcm with non atomic ops */
-	bool nonatomic;
+	unsigned int nonatomic:1;
 
 	/* For unidirectional dai links */
 	unsigned int playback_only:1;
@@ -1013,9 +1013,6 @@ struct snd_soc_card {
 
 	spinlock_t dpcm_lock;
 
-	bool instantiated;
-	bool topology_shortname_created;
-
 	int (*probe)(struct snd_soc_card *card);
 	int (*late_probe)(struct snd_soc_card *card);
 	int (*remove)(struct snd_soc_card *card);
@@ -1076,8 +1073,6 @@ struct snd_soc_card {
 	int num_of_dapm_widgets;
 	const struct snd_soc_dapm_route *of_dapm_routes;
 	int num_of_dapm_routes;
-	bool fully_routed;
-	bool disable_route_checks;
 
 	/* lists of probed devices belonging to this card */
 	struct list_head component_dev_list;
@@ -1103,6 +1098,12 @@ struct snd_soc_card {
 	struct work_struct deferred_resume_work;
 #endif
 	u32 pop_time;
+
+	/* bit field */
+	unsigned int instantiated:1;
+	unsigned int topology_shortname_created:1;
+	unsigned int fully_routed:1;
+	unsigned int disable_route_checks:1;
 
 	void *drvdata;
 };
