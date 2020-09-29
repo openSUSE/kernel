@@ -153,6 +153,12 @@ static int komeda_parse_dt(struct device *dev, struct komeda_dev *mdev)
 		return ret;
 	ret = 0;
 
+	/* Get the optional framebuffer memory resource */
+	ret = of_reserved_mem_device_init(dev);
+	if (ret && ret != -ENODEV)
+		return ret;
+	ret = 0;
+
 	for_each_available_child_of_node(np, child) {
 		if (of_node_cmp(child->name, "pipeline") == 0) {
 			ret = komeda_parse_pipe_dt(mdev, child);
@@ -298,6 +304,8 @@ void komeda_dev_destroy(struct komeda_dev *mdev)
 	}
 
 	mdev->n_pipelines = 0;
+
+	of_reserved_mem_device_release(dev);
 
 	of_reserved_mem_device_release(dev);
 
