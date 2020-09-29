@@ -1244,7 +1244,7 @@ void amdgpu_bo_release_notify(struct ttm_buffer_object *bo)
 
 	dma_resv_lock(bo->base.resv, NULL);
 
-	r = amdgpu_fill_buffer(abo, AMDGPU_POISON, bo->resv, &fence);
+	r = amdgpu_fill_buffer(abo, AMDGPU_POISON, bo->base.resv, &fence);
 	if (!WARN_ON(r)) {
 		amdgpu_bo_fence(abo, fence, false);
 		dma_fence_put(fence);
