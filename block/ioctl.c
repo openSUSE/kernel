@@ -13,17 +13,15 @@
 #include <linux/uaccess.h>
 #include "blk.h"
 
-static int blkpg_ioctl(struct block_device *bdev, struct blkpg_ioctl_arg __user *arg)
+static int blkpg_do_ioctl(struct block_device *bdev,
+			  struct blkpg_partition __user *upart, int op)
 {
-	struct blkpg_ioctl_arg a;
 	struct blkpg_partition p;
 	long long start, length;
 
 	if (!capable(CAP_SYS_ADMIN))
 		return -EACCES;
-	if (copy_from_user(&a, arg, sizeof(struct blkpg_ioctl_arg)))
-		return -EFAULT;
-	if (copy_from_user(&p, a.data, sizeof(struct blkpg_partition)))
+	if (copy_from_user(&p, upart, sizeof(struct blkpg_partition)))
 		return -EFAULT;
 	if (bdev != bdev->bd_contains)
 		return -EINVAL;
@@ -31,7 +29,7 @@ static int blkpg_ioctl(struct block_device *bdev, struct blkpg_ioctl_arg __user 
 	if (p.pno <= 0)
 		return -EINVAL;
 
-	if (a.op == BLKPG_DEL_PARTITION)
+	if (op == BLKPG_DEL_PARTITION)
 		return bdev_del_partition(bdev, p.pno);
 
 	start = p.start >> SECTOR_SHIFT;
@@ -46,7 +44,7 @@ static int blkpg_ioctl(struct block_device *bdev, struct blkpg_ioctl_arg __user 
 			return -EINVAL;
 	}
 
-	switch (a.op) {
+	switch (op) {
 	case BLKPG_ADD_PARTITION:
 		/* check if partition is aligned to blocksize */
 		if (p.start & (bdev_logical_block_size(bdev) - 1))
@@ -58,6 +56,39 @@ static int blkpg_ioctl(struct block_device *bdev, struct blkpg_ioctl_arg __user 
 		return -EINVAL;
 	}
 }
+
+static int blkpg_ioctl(struct block_device *bdev,
+		       struct blkpg_ioctl_arg __user *arg)
+{
+	struct blkpg_partition __user *udata;
+	int op;
+
+	if (get_user(op, &arg->op) || get_user(udata, &arg->data))
+		return -EFAULT;
+
+	return blkpg_do_ioctl(bdev, udata, op);
+}
+
+#ifdef CONFIG_COMPAT
+struct compat_blkpg_ioctl_arg {
+	compat_int_t op;
+	compat_int_t flags;
+	compat_int_t datalen;
+	compat_caddr_t data;
+};
+
+static int compat_blkpg_ioctl(struct block_device *bdev,
+			      struct compat_blkpg_ioctl_arg __user *arg)
+{
+	compat_caddr_t udata;
+	int op;
+
+	if (get_user(op, &arg->op) || get_user(udata, &arg->data))
+		return -EFAULT;
+
+	return blkpg_do_ioctl(bdev, compat_ptr(udata), op);
+}
+#endif
 
 static int blkdev_reread_part(struct block_device *bdev)
 {
@@ -579,35 +610,6 @@ int blkdev_ioctl(struct block_device *bdev, fmode_t mode, unsigned cmd,
 EXPORT_SYMBOL_GPL(blkdev_ioctl);
 
 #ifdef CONFIG_COMPAT
-struct compat_blkpg_ioctl_arg {
-	compat_int_t op;
-	compat_int_t flags;
-	compat_int_t datalen;
-	compat_caddr_t data;
-};
-
-static int compat_blkpg_ioctl(struct block_device *bdev, fmode_t mode,
-		unsigned int cmd, struct compat_blkpg_ioctl_arg __user *ua32)
-{
-	struct blkpg_ioctl_arg __user *a = compat_alloc_user_space(sizeof(*a));
-	compat_caddr_t udata;
-	compat_int_t n;
-	int err;
-
-	err = get_user(n, &ua32->op);
-	err |= put_user(n, &a->op);
-	err |= get_user(n, &ua32->flags);
-	err |= put_user(n, &a->flags);
-	err |= get_user(n, &ua32->datalen);
-	err |= put_user(n, &a->datalen);
-	err |= get_user(udata, &ua32->data);
-	err |= put_user(compat_ptr(udata), &a->data);
-	if (err)
-		return err;
-
-	return blkdev_ioctl(bdev, mode, cmd, (unsigned long)a);
-}
-
 #define BLKBSZGET_32		_IOR(0x12, 112, int)
 #define BLKBSZSET_32		_IOW(0x12, 113, int)
 #define BLKGETSIZE64_32		_IOR(0x12, 114, int)
@@ -670,7 +672,7 @@ long compat_blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 		return blkdev_ioctl(bdev, mode, BLKBSZSET,
 				(unsigned long)compat_ptr(arg));
 	case BLKPG:
-		return compat_blkpg_ioctl(bdev, mode, cmd, compat_ptr(arg));
+		return compat_blkpg_ioctl(bdev, compat_ptr(arg));
 	case BLKRAGET:
 	case BLKFRAGET:
 		if (!arg)
