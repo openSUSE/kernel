@@ -1194,11 +1194,16 @@ static void init_unused_rings(struct intel_gt *gt)
 	}
 }
 
-static int init_hw(struct intel_gt *gt)
+int i915_gem_init_hw(struct drm_i915_private *i915)
 {
-	struct drm_i915_private *i915 = gt->i915;
-	struct intel_uncore *uncore = gt->uncore;
+	struct intel_uncore *uncore = &i915->uncore;
+	struct intel_gt *gt = &i915->gt;
 	int ret;
+
+	BUG_ON(!i915->kernel_context);
+	ret = intel_gt_terminally_wedged(gt);
+	if (ret)
+		return ret;
 
 	gt->last_init_time = ktime_get();
 
@@ -1244,51 +1249,9 @@ static int init_hw(struct intel_gt *gt)
 
 	intel_mocs_init(gt);
 
-	intel_uncore_forcewake_put(uncore, FORCEWAKE_ALL);
-
-	return 0;
-
 out:
 	intel_uncore_forcewake_put(uncore, FORCEWAKE_ALL);
 
-	return ret;
-}
-
-int i915_gem_init_hw(struct drm_i915_private *i915)
-{
-	struct intel_uncore *uncore = &i915->uncore;
-	struct intel_gt *gt = &i915->gt;
-	int ret;
-
-	BUG_ON(!i915->kernel_context);
-	ret = intel_gt_terminally_wedged(gt);
-	if (ret)
-		return ret;
-
-	/* Double layer security blanket, see i915_gem_init() */
-	intel_uncore_forcewake_get(uncore, FORCEWAKE_ALL);
-
-	ret = init_hw(&i915->gt);
-	if (ret)
-		goto err_init;
-
-	/* Only when the HW is re-initialised, can we replay the requests */
-	ret = intel_engines_resume(i915);
-	if (ret)
-		goto err_engines;
-
-	intel_uncore_forcewake_put(uncore, FORCEWAKE_ALL);
-
-	intel_engines_set_scheduler_caps(i915);
-
-	return 0;
-
-err_engines:
-	intel_uc_fini_hw(i915);
-err_init:
-	intel_uncore_forcewake_put(uncore, FORCEWAKE_ALL);
-
-	intel_engines_set_scheduler_caps(i915);
 	return ret;
 }
 
@@ -1530,7 +1493,7 @@ int i915_gem_init(struct drm_i915_private *dev_priv)
 		goto err_uc_init;
 
 	/* Only when the HW is re-initialised, can we replay the requests */
-	ret = intel_gt_resume(dev_priv);
+	ret = intel_gt_resume(&dev_priv->gt);
 	if (ret)
 		goto err_init_hw;
 
@@ -1633,6 +1596,17 @@ err_unlock:
 
 	i915_gem_drain_freed_objects(dev_priv);
 	return ret;
+}
+
+void i915_gem_driver_register(struct drm_i915_private *i915)
+{
+	i915_gem_driver_register__shrinker(i915);
+	intel_engines_set_scheduler_caps(i915);
+}
+
+void i915_gem_driver_unregister(struct drm_i915_private *i915)
+{
+	i915_gem_driver_unregister__shrinker(i915);
 }
 
 void i915_gem_driver_remove(struct drm_i915_private *dev_priv)
