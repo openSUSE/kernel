@@ -7,6 +7,7 @@
 #include <linux/dma-fence-array.h>
 #include <linux/dma-resv.h>
 #include <linux/file.h>
+#include <linux/pm_runtime.h>
 #include <linux/sync_file.h>
 #include <linux/uaccess.h>
 #include <linux/vmalloc.h>
