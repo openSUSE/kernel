@@ -203,6 +203,12 @@ struct bin_attribute {
 	.size	= _size,						\
 }
 
+#define __BIN_ATTR_WO(_name, _size) {					\
+	.attr	= { .name = __stringify(_name), .mode = 0200 },		\
+	.write	= _name##_write,					\
+	.size	= _size,						\
+}
+
 #define __BIN_ATTR_RW(_name, _size)					\
 	__BIN_ATTR(_name, 0644, _name##_read, _name##_write, _size)
 
@@ -214,6 +220,9 @@ struct bin_attribute bin_attr_##_name = __BIN_ATTR(_name, _mode, _read,	\
 
 #define BIN_ATTR_RO(_name, _size)					\
 struct bin_attribute bin_attr_##_name = __BIN_ATTR_RO(_name, _size)
+
+#define BIN_ATTR_WO(_name, _size)					\
+struct bin_attribute bin_attr_##_name = __BIN_ATTR_WO(_name, _size)
 
 #define BIN_ATTR_RW(_name, _size)					\
 struct bin_attribute bin_attr_##_name = __BIN_ATTR_RW(_name, _size)
