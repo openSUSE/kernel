@@ -3031,6 +3031,19 @@ static unsigned int chv_private_pat_match(u8 src, u8 dst)
 		INTEL_PPAT_PERFECT_MATCH : 0;
 }
 
+static void tgl_setup_private_ppat(struct drm_i915_private *dev_priv)
+{
+	/* TGL doesn't support LLC or AGE settings */
+	I915_WRITE(GEN12_PAT_INDEX(0), GEN8_PPAT_WB);
+	I915_WRITE(GEN12_PAT_INDEX(1), GEN8_PPAT_WC);
+	I915_WRITE(GEN12_PAT_INDEX(2), GEN8_PPAT_WT);
+	I915_WRITE(GEN12_PAT_INDEX(3), GEN8_PPAT_UC);
+	I915_WRITE(GEN12_PAT_INDEX(4), GEN8_PPAT_WB);
+	I915_WRITE(GEN12_PAT_INDEX(5), GEN8_PPAT_WB);
+	I915_WRITE(GEN12_PAT_INDEX(6), GEN8_PPAT_WB);
+	I915_WRITE(GEN12_PAT_INDEX(7), GEN8_PPAT_WB);
+}
+
 static void cnl_setup_private_ppat(struct intel_ppat *ppat)
 {
 	ppat->max_entries = 8;
@@ -3137,7 +3150,9 @@ static void setup_private_pat(struct drm_i915_private *dev_priv)
 
 	ppat->i915 = dev_priv;
 
-	if (INTEL_GEN(dev_priv) >= 10)
+	if (INTEL_GEN(dev_priv) >= 12)
+		tgl_setup_private_ppat(dev_priv);
+	else if (INTEL_GEN(dev_priv) >= 10)
 		cnl_setup_private_ppat(ppat);
 	else if (IS_CHERRYVIEW(dev_priv) || IS_GEN9_LP(dev_priv))
 		chv_setup_private_ppat(ppat);
