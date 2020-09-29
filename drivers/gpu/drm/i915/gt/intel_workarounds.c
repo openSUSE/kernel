@@ -50,9 +50,10 @@
  * - Public functions to init or apply the given workaround type.
  */
 
-static void wa_init_start(struct i915_wa_list *wal, const char *name)
+static void wa_init_start(struct i915_wa_list *wal, const char *name, const char *engine_name)
 {
 	wal->name = name;
+	wal->engine_name = engine_name;
 }
 
 #define WA_LIST_CHUNK (1 << 4)
@@ -74,8 +75,8 @@ static void wa_init_finish(struct i915_wa_list *wal)
 	if (!wal->count)
 		return;
 
-	DRM_DEBUG_DRIVER("Initialized %u %s workarounds\n",
-			 wal->wa_count, wal->name);
+	DRM_DEBUG_DRIVER("Initialized %u %s workarounds on %s\n",
+			 wal->wa_count, wal->name, wal->engine_name);
 }
 
 static void _wa_add(struct i915_wa_list *wal, const struct i915_wa *wa)
@@ -586,7 +587,7 @@ __intel_engine_init_ctx_wa(struct intel_engine_cs *engine,
 	if (engine->class != RENDER_CLASS)
 		return;
 
-	wa_init_start(wal, name);
+	wa_init_start(wal, name, engine->name);
 
 	if (IS_GEN(i915, 11))
 		icl_ctx_workarounds_init(engine, wal);
@@ -916,7 +917,7 @@ void intel_gt_init_workarounds(struct drm_i915_private *i915)
 {
 	struct i915_wa_list *wal = &i915->gt_wa_list;
 
-	wa_init_start(wal, "GT");
+	wa_init_start(wal, "GT", "global");
 	gt_init_workarounds(i915, wal);
 	wa_init_finish(wal);
 }
@@ -1187,7 +1188,7 @@ void intel_engine_init_whitelist(struct intel_engine_cs *engine)
 	struct drm_i915_private *i915 = engine->i915;
 	struct i915_wa_list *w = &engine->whitelist;
 
-	wa_init_start(w, "whitelist");
+	wa_init_start(w, "whitelist", engine->name);
 
 	if (IS_GEN(i915, 11))
 		icl_whitelist_build(engine);
@@ -1379,7 +1380,7 @@ void intel_engine_init_workarounds(struct intel_engine_cs *engine)
 	if (INTEL_GEN(engine->i915) < 8)
 		return;
 
-	wa_init_start(wal, engine->name);
+	wa_init_start(wal, "engine", engine->name);
 	engine_init_workarounds(engine, wal);
 	wa_init_finish(wal);
 }
