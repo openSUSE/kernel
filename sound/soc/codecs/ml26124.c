@@ -56,7 +56,6 @@ static const DECLARE_TLV_DB_SCALE(alclvl, -2250, 150, 0);
 static const DECLARE_TLV_DB_SCALE(mingain, -1200, 600, 0);
 static const DECLARE_TLV_DB_SCALE(maxgain, -675, 600, 0);
 static const DECLARE_TLV_DB_SCALE(boost_vol, -1200, 75, 0);
-static const DECLARE_TLV_DB_SCALE(ngth, -7650, 150, 0);
 
 static const char * const ml26124_companding[] = {"16bit PCM", "u-law",
 						  "A-law"};
@@ -373,7 +372,7 @@ static int ml26124_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-static int ml26124_mute(struct snd_soc_dai *dai, int mute)
+static int ml26124_mute(struct snd_soc_dai *dai, int mute, int direction)
 {
 	struct snd_soc_component *component = dai->component;
 	struct ml26124_priv *priv = snd_soc_component_get_drvdata(component);
@@ -493,9 +492,10 @@ static int ml26124_set_bias_level(struct snd_soc_component *component,
 
 static const struct snd_soc_dai_ops ml26124_dai_ops = {
 	.hw_params	= ml26124_hw_params,
-	.digital_mute	= ml26124_mute,
+	.mute_stream	= ml26124_mute,
 	.set_fmt	= ml26124_set_dai_fmt,
 	.set_sysclk	= ml26124_set_dai_sysclk,
+	.no_capture_mute = 1,
 };
 
 static struct snd_soc_dai_driver ml26124_dai = {

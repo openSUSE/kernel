@@ -55,7 +55,6 @@ static const char * const decon_clks_name[] = {
 struct decon_context {
 	struct device			*dev;
 	struct drm_device		*drm_dev;
-	void				*dma_priv;
 	struct exynos_drm_crtc		*crtc;
 	struct exynos_drm_plane		planes[WINDOWS_NR];
 	struct exynos_drm_plane_config	configs[WINDOWS_NR];
@@ -645,7 +644,7 @@ static int decon_bind(struct device *dev, struct device *master, void *data)
 
 	decon_clear_channels(ctx->crtc);
 
-	return exynos_drm_register_dma(drm_dev, dev, &ctx->dma_priv);
+	return exynos_drm_register_dma(drm_dev, dev);
 }
 
 static void decon_unbind(struct device *dev, struct device *master, void *data)
@@ -655,7 +654,7 @@ static void decon_unbind(struct device *dev, struct device *master, void *data)
 	decon_disable(ctx->crtc);
 
 	/* detach this sub driver from iommu mapping if supported. */
-	exynos_drm_unregister_dma(ctx->drm_dev, ctx->dev, &ctx->dma_priv);
+	exynos_drm_unregister_dma(ctx->drm_dev, ctx->dev);
 }
 
 static const struct component_ops decon_component_ops = {

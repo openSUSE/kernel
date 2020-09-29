@@ -116,13 +116,9 @@ static int fsl_audmix_put_mix_clk_src(struct snd_kcontrol *kcontrol,
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	unsigned int *item = ucontrol->value.enumerated.item;
 	unsigned int reg_val, val, mix_clk;
-	int ret = 0;
 
 	/* Get current state */
-	ret = snd_soc_component_read(comp, FSL_AUDMIX_CTR, &reg_val);
-	if (ret)
-		return ret;
-
+	reg_val = snd_soc_component_read(comp, FSL_AUDMIX_CTR);
 	mix_clk = ((reg_val & FSL_AUDMIX_CTR_MIXCLK_MASK)
 			>> FSL_AUDMIX_CTR_MIXCLK_SHIFT);
 	val = snd_soc_enum_item_to_val(e, item[0]);
@@ -159,12 +155,10 @@ static int fsl_audmix_put_out_src(struct snd_kcontrol *kcontrol,
 	unsigned int *item = ucontrol->value.enumerated.item;
 	u32 out_src, mix_clk;
 	unsigned int reg_val, val, mask = 0, ctr = 0;
-	int ret = 0;
+	int ret;
 
 	/* Get current state */
-	ret = snd_soc_component_read(comp, FSL_AUDMIX_CTR, &reg_val);
-	if (ret)
-		return ret;
+	reg_val = snd_soc_component_read(comp, FSL_AUDMIX_CTR);
 
 	/* "From" state */
 	out_src = ((reg_val & FSL_AUDMIX_CTR_OUTSRC_MASK)
@@ -463,7 +457,6 @@ static int fsl_audmix_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct fsl_audmix *priv;
-	struct resource *res;
 	const char *mdrv;
 	const struct of_device_id *of_id;
 	void __iomem *regs;
@@ -480,8 +473,7 @@ static int fsl_audmix_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	/* Get the addresses */
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	regs = devm_ioremap_resource(dev, res);
+	regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(regs))
 		return PTR_ERR(regs);
 

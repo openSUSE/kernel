@@ -654,6 +654,7 @@ static const struct ieee80211_ops rt2800usb_mac80211_ops = {
 	.get_survey		= rt2800_get_survey,
 	.get_ringparam		= rt2x00mac_get_ringparam,
 	.tx_frames_pending	= rt2x00mac_tx_frames_pending,
+	.reconfig_complete	= rt2x00mac_reconfig_complete,
 };
 
 static const struct rt2800_ops rt2800usb_rt2800_ops = {
@@ -1086,6 +1087,7 @@ static const struct usb_device_id rt2800usb_device_table[] = {
 	{ USB_DEVICE(0x0846, 0x9013) },
 	{ USB_DEVICE(0x0846, 0x9019) },
 	/* Planex */
+	{ USB_DEVICE(0x2019, 0xed14) },
 	{ USB_DEVICE(0x2019, 0xed19) },
 	/* Ralink */
 	{ USB_DEVICE(0x148f, 0x3573) },

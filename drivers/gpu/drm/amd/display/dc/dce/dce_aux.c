@@ -383,7 +383,7 @@ static bool acquire(
 {
 	enum gpio_result result;
 
-	if ((engine == NULL) || !is_engine_available(engine))
+	if (!is_engine_available(engine))
 		return false;
 
 	result = dal_ddc_open(ddc, GPIO_MODE_HARDWARE,

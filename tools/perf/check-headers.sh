@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: GPL-2.0
 
 HEADERS='
-include/uapi/linux/const.h
 include/uapi/drm/drm.h
 include/uapi/drm/i915_drm.h
 include/uapi/linux/fadvise.h
@@ -20,7 +19,6 @@ include/uapi/linux/usbdevice_fs.h
 include/uapi/linux/vhost.h
 include/uapi/sound/asound.h
 include/linux/bits.h
-include/linux/const.h
 include/linux/hash.h
 include/uapi/linux/hw_breakpoint.h
 arch/x86/include/asm/disabled-features.h

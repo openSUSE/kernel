@@ -734,7 +734,7 @@ static void b43_short_slot_timing_disable(struct b43_wldev *dev)
 }
 
 /* DummyTransmission function, as documented on
- * http://bcm-v4.sipsolutions.net/802.11/DummyTransmission
+ * https://bcm-v4.sipsolutions.net/802.11/DummyTransmission
  */
 void b43_dummy_transmission(struct b43_wldev *dev, bool ofdm, bool pa_on)
 {
@@ -1198,7 +1198,7 @@ void b43_power_saving_ctl_bits(struct b43_wldev *dev, unsigned int ps_flags)
 	}
 }
 
-/* http://bcm-v4.sipsolutions.net/802.11/PHY/BmacCorePllReset */
+/* https://bcm-v4.sipsolutions.net/802.11/PHY/BmacCorePllReset */
 void b43_wireless_core_phy_pll_reset(struct b43_wldev *dev)
 {
 	struct bcma_drv_cc *bcma_cc __maybe_unused;
@@ -2293,7 +2293,7 @@ err_format:
 	return -EPROTO;
 }
 
-/* http://bcm-v4.sipsolutions.net/802.11/Init/Firmware */
+/* https://bcm-v4.sipsolutions.net/802.11/Init/Firmware */
 static int b43_try_request_fw(struct b43_request_fw_context *ctx)
 {
 	struct b43_wldev *dev = ctx->dev;
@@ -2846,7 +2846,7 @@ static int b43_upload_initvals_band(struct b43_wldev *dev)
 }
 
 /* Initialize the GPIOs
- * http://bcm-specs.sipsolutions.net/GPIO
+ * https://bcm-specs.sipsolutions.net/GPIO
  */
 
 #ifdef CONFIG_B43_SSB
@@ -2974,7 +2974,7 @@ void b43_mac_enable(struct b43_wldev *dev)
 	}
 }
 
-/* http://bcm-specs.sipsolutions.net/SuspendMAC */
+/* https://bcm-specs.sipsolutions.net/SuspendMAC */
 void b43_mac_suspend(struct b43_wldev *dev)
 {
 	int i;
@@ -3007,7 +3007,7 @@ out:
 	dev->mac_suspended++;
 }
 
-/* http://bcm-v4.sipsolutions.net/802.11/PHY/N/MacPhyClkSet */
+/* https://bcm-v4.sipsolutions.net/802.11/PHY/N/MacPhyClkSet */
 void b43_mac_phy_clock_set(struct b43_wldev *dev, bool on)
 {
 	u32 tmp;
@@ -3234,7 +3234,7 @@ static void b43_chip_exit(struct b43_wldev *dev)
 }
 
 /* Initialize the chip
- * http://bcm-specs.sipsolutions.net/ChipInit
+ * https://bcm-specs.sipsolutions.net/ChipInit
  */
 static int b43_chip_init(struct b43_wldev *dev)
 {
@@ -3603,7 +3603,7 @@ static void b43_tx_work(struct work_struct *work)
 			else
 				err = b43_dma_tx(dev, skb);
 			if (err == -ENOSPC) {
-				wl->tx_queue_stopped[queue_num] = 1;
+				wl->tx_queue_stopped[queue_num] = true;
 				ieee80211_stop_queue(wl->hw, queue_num);
 				skb_queue_head(&wl->tx_queue[queue_num], skb);
 				break;
@@ -3614,7 +3614,7 @@ static void b43_tx_work(struct work_struct *work)
 		}
 
 		if (!err)
-			wl->tx_queue_stopped[queue_num] = 0;
+			wl->tx_queue_stopped[queue_num] = false;
 	}
 
 #if B43_DEBUG
@@ -5606,7 +5606,7 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
 	/* Initialize queues and flags. */
 	for (queue_num = 0; queue_num < B43_QOS_QUEUE_NUM; queue_num++) {
 		skb_queue_head_init(&wl->tx_queue[queue_num]);
-		wl->tx_queue_stopped[queue_num] = 0;
+		wl->tx_queue_stopped[queue_num] = false;
 	}
 
 	snprintf(chip_name, ARRAY_SIZE(chip_name),

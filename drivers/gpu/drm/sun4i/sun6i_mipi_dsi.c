@@ -10,8 +10,8 @@
 #include <linux/component.h>
 #include <linux/crc-ccitt.h>
 #include <linux/of_address.h>
+#include <linux/pm_runtime.h>
 #include <linux/regmap.h>
-#include <linux/regulator/consumer.h>
 #include <linux/reset.h>
 #include <linux/slab.h>
 
@@ -25,6 +25,7 @@
 #include <drm/drm_probe_helper.h>
 
 #include "sun4i_crtc.h"
+#include "sun4i_drv.h"
 #include "sun4i_tcon.h"
 #include "sun6i_mipi_dsi.h"
 
@@ -363,7 +364,8 @@ static void sun6i_dsi_inst_init(struct sun6i_dsi *dsi,
 static u16 sun6i_dsi_get_video_start_delay(struct sun6i_dsi *dsi,
 					   struct drm_display_mode *mode)
 {
-	u16 delay = mode->vtotal - (mode->vsync_end - mode->vdisplay) + 1;
+	u16 start = clamp(mode->vtotal - mode->vdisplay - 10, 8, 100);
+	u16 delay = mode->vtotal - (mode->vsync_end - mode->vdisplay) + start;
 
 	if (delay > mode->vtotal)
 		delay = delay % mode->vtotal;
@@ -434,9 +436,9 @@ static void sun6i_dsi_setup_burst(struct sun6i_dsi *dsi,
 			     SUN6I_DSI_BURST_LINE_SYNC_POINT(SUN6I_DSI_SYNC_POINT));
 
 		val = SUN6I_DSI_TCON_DRQ_ENABLE_MODE;
-	} else if ((mode->hsync_start - mode->hdisplay) > 20) {
+	} else if ((mode->hsync_end - mode->hdisplay) > 20) {
 		/* Maaaaaagic */
-		u16 drq = (mode->hsync_start - mode->hdisplay) - 20;
+		u16 drq = (mode->hsync_end - mode->hdisplay) - 20;
 
 		drq *= mipi_dsi_pixel_format_to_bpp(device->format);
 		drq /= 32;
@@ -715,34 +717,13 @@ static void sun6i_dsi_encoder_enable(struct drm_encoder *encoder)
 	struct drm_display_mode *mode = &encoder->crtc->state->adjusted_mode;
 	struct sun6i_dsi *dsi = encoder_to_sun6i_dsi(encoder);
 	struct mipi_dsi_device *device = dsi->device;
-	union phy_configure_opts opts = { };
+	union phy_configure_opts opts = { 0 };
 	struct phy_configure_opts_mipi_dphy *cfg = &opts.mipi_dphy;
 	u16 delay;
-	int err;
 
 	DRM_DEBUG_DRIVER("Enabling DSI output\n");
 
-	err = regulator_enable(dsi->regulator);
-	if (err)
-		dev_warn(dsi->dev, "failed to enable VCC-DSI supply: %d\n", err);
-
-	reset_control_deassert(dsi->reset);
-	clk_prepare_enable(dsi->mod_clk);
-
-	/*
-	 * Enable the DSI block.
-	 */
-	regmap_write(dsi->regs, SUN6I_DSI_CTL_REG, SUN6I_DSI_CTL_EN);
-
-	regmap_write(dsi->regs, SUN6I_DSI_BASIC_CTL0_REG,
-		     SUN6I_DSI_BASIC_CTL0_ECC_EN | SUN6I_DSI_BASIC_CTL0_CRC_EN);
-
-	regmap_write(dsi->regs, SUN6I_DSI_TRANS_START_REG, 10);
-	regmap_write(dsi->regs, SUN6I_DSI_TRANS_ZERO_REG, 0);
-
-	sun6i_dsi_inst_init(dsi, dsi->device);
-
-	regmap_write(dsi->regs, SUN6I_DSI_DEBUG_DATA_REG, 0xff);
+	pm_runtime_get_sync(dsi->dev);
 
 	delay = sun6i_dsi_get_video_start_delay(dsi, mode);
 	regmap_write(dsi->regs, SUN6I_DSI_BASIC_CTL1_REG,
@@ -766,7 +747,7 @@ static void sun6i_dsi_encoder_enable(struct drm_encoder *encoder)
 	phy_configure(dsi->dphy, &opts);
 	phy_power_on(dsi->dphy);
 
-	if (dsi->panel)
+	if (!IS_ERR(dsi->panel))
 		drm_panel_prepare(dsi->panel);
 
 	/*
@@ -781,7 +762,7 @@ static void sun6i_dsi_encoder_enable(struct drm_encoder *encoder)
 	 * ordering on the panels I've tested it with, so I guess this
 	 * will do for now, until that IP is better understood.
 	 */
-	if (dsi->panel)
+	if (!IS_ERR(dsi->panel))
 		drm_panel_enable(dsi->panel);
 
 	sun6i_dsi_start(dsi, DSI_START_HSC);
@@ -797,7 +778,7 @@ static void sun6i_dsi_encoder_disable(struct drm_encoder *encoder)
 
 	DRM_DEBUG_DRIVER("Disabling DSI output\n");
 
-	if (dsi->panel) {
+	if (!IS_ERR(dsi->panel)) {
 		drm_panel_disable(dsi->panel);
 		drm_panel_unprepare(dsi->panel);
 	}
@@ -805,9 +786,7 @@ static void sun6i_dsi_encoder_disable(struct drm_encoder *encoder)
 	phy_power_off(dsi->dphy);
 	phy_exit(dsi->dphy);
 
-	clk_disable_unprepare(dsi->mod_clk);
-	reset_control_assert(dsi->reset);
-	regulator_disable(dsi->regulator);
+	pm_runtime_put(dsi->dev);
 }
 
 static int sun6i_dsi_get_modes(struct drm_connector *connector)
@@ -824,10 +803,7 @@ static struct drm_connector_helper_funcs sun6i_dsi_connector_helper_funcs = {
 static enum drm_connector_status
 sun6i_dsi_connector_detect(struct drm_connector *connector, bool force)
 {
-	struct sun6i_dsi *dsi = connector_to_sun6i_dsi(connector);
-
-	return dsi->panel ? connector_status_connected :
-			    connector_status_disconnected;
+	return connector_status_connected;
 }
 
 static const struct drm_connector_funcs sun6i_dsi_connector_funcs = {
@@ -964,18 +940,11 @@ static int sun6i_dsi_attach(struct mipi_dsi_host *host,
 			    struct mipi_dsi_device *device)
 {
 	struct sun6i_dsi *dsi = host_to_sun6i_dsi(host);
-	struct drm_panel *panel = of_drm_find_panel(device->dev.of_node);
 
-	if (IS_ERR(panel))
-		return PTR_ERR(panel);
-	if (!dsi->drm || !dsi->drm->registered)
-		return -EPROBE_DEFER;
-
-	dsi->panel = panel;
 	dsi->device = device;
-
-	drm_panel_attach(dsi->panel, &dsi->connector);
-	drm_kms_helper_hotplug_event(dsi->drm);
+	dsi->panel = of_drm_find_panel(device->dev.of_node);
+	if (IS_ERR(dsi->panel))
+		return PTR_ERR(dsi->panel);
 
 	dev_info(host->dev, "Attached device %s\n", device->name);
 
@@ -986,13 +955,9 @@ static int sun6i_dsi_detach(struct mipi_dsi_host *host,
 			    struct mipi_dsi_device *device)
 {
 	struct sun6i_dsi *dsi = host_to_sun6i_dsi(host);
-	struct drm_panel *panel = dsi->panel;
 
 	dsi->panel = NULL;
 	dsi->device = NULL;
-
-	drm_panel_detach(panel);
-	drm_kms_helper_hotplug_event(dsi->drm);
 
 	return 0;
 }
@@ -1055,8 +1020,14 @@ static int sun6i_dsi_bind(struct device *dev, struct device *master,
 			 void *data)
 {
 	struct drm_device *drm = data;
+	struct sun4i_drv *drv = drm->dev_private;
 	struct sun6i_dsi *dsi = dev_get_drvdata(dev);
 	int ret;
+
+	if (!dsi->panel)
+		return -EPROBE_DEFER;
+
+	dsi->drv = drv;
 
 	drm_encoder_helper_add(&dsi->encoder,
 			       &sun6i_dsi_enc_helper_funcs);
@@ -1083,8 +1054,7 @@ static int sun6i_dsi_bind(struct device *dev, struct device *master,
 	}
 
 	drm_connector_attach_encoder(&dsi->connector, &dsi->encoder);
-
-	dsi->drm = drm;
+	drm_panel_attach(dsi->panel, &dsi->connector);
 
 	return 0;
 
@@ -1098,7 +1068,7 @@ static void sun6i_dsi_unbind(struct device *dev, struct device *master,
 {
 	struct sun6i_dsi *dsi = dev_get_drvdata(dev);
 
-	dsi->drm = NULL;
+	drm_panel_detach(dsi->panel);
 }
 
 static const struct component_ops sun6i_dsi_ops = {
@@ -1127,12 +1097,6 @@ static int sun6i_dsi_probe(struct platform_device *pdev)
 	if (IS_ERR(base)) {
 		dev_err(dev, "Couldn't map the DSI encoder registers\n");
 		return PTR_ERR(base);
-	}
-
-	dsi->regulator = devm_regulator_get(dev, "vcc-dsi");
-	if (IS_ERR(dsi->regulator)) {
-		dev_err(dev, "Couldn't get VCC-DSI supply\n");
-		return PTR_ERR(dsi->regulator);
 	}
 
 	dsi->regs = devm_regmap_init_mmio_clk(dev, "bus", base,
@@ -1167,10 +1131,12 @@ static int sun6i_dsi_probe(struct platform_device *pdev)
 		goto err_unprotect_clk;
 	}
 
+	pm_runtime_enable(dev);
+
 	ret = mipi_dsi_host_register(&dsi->host);
 	if (ret) {
 		dev_err(dev, "Couldn't register MIPI-DSI host\n");
-		goto err_unprotect_clk;
+		goto err_pm_disable;
 	}
 
 	ret = component_add(&pdev->dev, &sun6i_dsi_ops);
@@ -1183,6 +1149,8 @@ static int sun6i_dsi_probe(struct platform_device *pdev)
 
 err_remove_dsi_host:
 	mipi_dsi_host_unregister(&dsi->host);
+err_pm_disable:
+	pm_runtime_disable(dev);
 err_unprotect_clk:
 	clk_rate_exclusive_put(dsi->mod_clk);
 	return ret;
@@ -1195,10 +1163,56 @@ static int sun6i_dsi_remove(struct platform_device *pdev)
 
 	component_del(&pdev->dev, &sun6i_dsi_ops);
 	mipi_dsi_host_unregister(&dsi->host);
+	pm_runtime_disable(dev);
 	clk_rate_exclusive_put(dsi->mod_clk);
 
 	return 0;
 }
+
+static int __maybe_unused sun6i_dsi_runtime_resume(struct device *dev)
+{
+	struct sun6i_dsi *dsi = dev_get_drvdata(dev);
+
+	reset_control_deassert(dsi->reset);
+	clk_prepare_enable(dsi->mod_clk);
+
+	/*
+	 * Enable the DSI block.
+	 *
+	 * Some part of it can only be done once we get a number of
+	 * lanes, see sun6i_dsi_inst_init
+	 */
+	regmap_write(dsi->regs, SUN6I_DSI_CTL_REG, SUN6I_DSI_CTL_EN);
+
+	regmap_write(dsi->regs, SUN6I_DSI_BASIC_CTL0_REG,
+		     SUN6I_DSI_BASIC_CTL0_ECC_EN | SUN6I_DSI_BASIC_CTL0_CRC_EN);
+
+	regmap_write(dsi->regs, SUN6I_DSI_TRANS_START_REG, 10);
+	regmap_write(dsi->regs, SUN6I_DSI_TRANS_ZERO_REG, 0);
+
+	if (dsi->device)
+		sun6i_dsi_inst_init(dsi, dsi->device);
+
+	regmap_write(dsi->regs, SUN6I_DSI_DEBUG_DATA_REG, 0xff);
+
+	return 0;
+}
+
+static int __maybe_unused sun6i_dsi_runtime_suspend(struct device *dev)
+{
+	struct sun6i_dsi *dsi = dev_get_drvdata(dev);
+
+	clk_disable_unprepare(dsi->mod_clk);
+	reset_control_assert(dsi->reset);
+
+	return 0;
+}
+
+static const struct dev_pm_ops sun6i_dsi_pm_ops = {
+	SET_RUNTIME_PM_OPS(sun6i_dsi_runtime_suspend,
+			   sun6i_dsi_runtime_resume,
+			   NULL)
+};
 
 static const struct of_device_id sun6i_dsi_of_table[] = {
 	{ .compatible = "allwinner,sun6i-a31-mipi-dsi" },
@@ -1212,6 +1226,7 @@ static struct platform_driver sun6i_dsi_platform_driver = {
 	.driver		= {
 		.name		= "sun6i-mipi-dsi",
 		.of_match_table	= sun6i_dsi_of_table,
+		.pm		= &sun6i_dsi_pm_ops,
 	},
 };
 module_platform_driver(sun6i_dsi_platform_driver);

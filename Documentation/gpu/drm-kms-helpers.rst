@@ -77,6 +77,9 @@ Atomic State Reset and Initialization
 Atomic State Helper Reference
 -----------------------------
 
+.. kernel-doc:: include/drm/drm_atomic_state_helper.h
+   :internal:
+
 .. kernel-doc:: drivers/gpu/drm/drm_atomic_state_helper.c
    :export:
 

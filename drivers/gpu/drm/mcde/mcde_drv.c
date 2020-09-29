@@ -215,6 +215,7 @@ static int mcde_modeset_init(struct drm_device *drm)
 
 	drm_mode_config_reset(drm);
 	drm_kms_helper_poll_init(drm);
+	drm_fbdev_generic_setup(drm, 32);
 
 	return 0;
 
@@ -283,8 +284,6 @@ static int mcde_drm_bind(struct device *dev)
 	if (ret < 0)
 		goto unbind;
 
-	drm_fbdev_generic_setup(drm, 32);
-
 	return 0;
 
 unbind:
@@ -320,7 +319,7 @@ static int mcde_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct drm_device *drm;
 	struct mcde *mcde;
-	struct component_match *match = NULL;
+	struct component_match *match;
 	struct resource *res;
 	u32 pid;
 	u32 val;
@@ -485,11 +484,6 @@ static int mcde_probe(struct platform_device *pdev)
 			p = d;
 		}
 		put_device(p);
-	}
-	if (!match) {
-		dev_err(dev, "no matching components\n");
-		ret = -ENODEV;
-		goto clk_disable;
 	}
 	if (IS_ERR(match)) {
 		dev_err(dev, "could not create component match\n");

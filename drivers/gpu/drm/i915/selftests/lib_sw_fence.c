@@ -40,7 +40,6 @@ void __onstack_fence_init(struct i915_sw_fence *fence,
 
 	__init_waitqueue_head(&fence->wait, name, key);
 	atomic_set(&fence->pending, 1);
-	fence->error = 0;
 	fence->flags = (unsigned long)nop_fence_notify;
 }
 

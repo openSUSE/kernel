@@ -202,16 +202,6 @@ static void nvdimm_release(struct device *dev)
 	kfree(nvdimm);
 }
 
-static struct device_type nvdimm_device_type = {
-	.name = "nvdimm",
-	.release = nvdimm_release,
-};
-
-bool is_nvdimm(struct device *dev)
-{
-	return dev->type == &nvdimm_device_type;
-}
-
 struct nvdimm *to_nvdimm(struct device *dev)
 {
 	struct nvdimm *nvdimm = container_of(dev, struct nvdimm, dev);
@@ -373,106 +363,26 @@ __weak ssize_t security_show(struct device *dev,
 {
 	struct nvdimm *nvdimm = to_nvdimm(dev);
 
-	switch (nvdimm->sec.state) {
-	case NVDIMM_SECURITY_DISABLED:
+	if (test_bit(NVDIMM_SECURITY_DISABLED, &nvdimm->sec.flags))
 		return sprintf(buf, "disabled\n");
-	case NVDIMM_SECURITY_UNLOCKED:
+	if (test_bit(NVDIMM_SECURITY_UNLOCKED, &nvdimm->sec.flags))
 		return sprintf(buf, "unlocked\n");
-	case NVDIMM_SECURITY_LOCKED:
+	if (test_bit(NVDIMM_SECURITY_LOCKED, &nvdimm->sec.flags))
 		return sprintf(buf, "locked\n");
-	case NVDIMM_SECURITY_FROZEN:
-		return sprintf(buf, "frozen\n");
-	case NVDIMM_SECURITY_OVERWRITE:
+	if (test_bit(NVDIMM_SECURITY_OVERWRITE, &nvdimm->sec.flags))
 		return sprintf(buf, "overwrite\n");
-	default:
-		return -ENOTTY;
-	}
-
 	return -ENOTTY;
 }
 
-#define OPS							\
-	C( OP_FREEZE,		"freeze",		1),	\
-	C( OP_DISABLE,		"disable",		2),	\
-	C( OP_UPDATE,		"update",		3),	\
-	C( OP_ERASE,		"erase",		2),	\
-	C( OP_OVERWRITE,	"overwrite",		2),	\
-	C( OP_MASTER_UPDATE,	"master_update",	3),	\
-	C( OP_MASTER_ERASE,	"master_erase",		2)
-#undef C
-#define C(a, b, c) a
-enum nvdimmsec_op_ids { OPS };
-#undef C
-#define C(a, b, c) { b, c }
-static struct {
-	const char *name;
-	int args;
-} ops[] = { OPS };
-#undef C
-
-#define SEC_CMD_SIZE 32
-#define KEY_ID_SIZE 10
-
-static ssize_t __security_store(struct device *dev, const char *buf, size_t len)
+static ssize_t frozen_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
 {
 	struct nvdimm *nvdimm = to_nvdimm(dev);
-	ssize_t rc;
-	char cmd[SEC_CMD_SIZE+1], keystr[KEY_ID_SIZE+1],
-		nkeystr[KEY_ID_SIZE+1];
-	unsigned int key, newkey;
-	int i;
 
-	if (atomic_read(&nvdimm->busy))
-		return -EBUSY;
-
-	rc = sscanf(buf, "%"__stringify(SEC_CMD_SIZE)"s"
-			" %"__stringify(KEY_ID_SIZE)"s"
-			" %"__stringify(KEY_ID_SIZE)"s",
-			cmd, keystr, nkeystr);
-	if (rc < 1)
-		return -EINVAL;
-	for (i = 0; i < ARRAY_SIZE(ops); i++)
-		if (sysfs_streq(cmd, ops[i].name))
-			break;
-	if (i >= ARRAY_SIZE(ops))
-		return -EINVAL;
-	if (ops[i].args > 1)
-		rc = kstrtouint(keystr, 0, &key);
-	if (rc >= 0 && ops[i].args > 2)
-		rc = kstrtouint(nkeystr, 0, &newkey);
-	if (rc < 0)
-		return rc;
-
-	if (i == OP_FREEZE) {
-		dev_dbg(dev, "freeze\n");
-		rc = nvdimm_security_freeze(nvdimm);
-	} else if (i == OP_DISABLE) {
-		dev_dbg(dev, "disable %u\n", key);
-		rc = nvdimm_security_disable(nvdimm, key);
-	} else if (i == OP_UPDATE) {
-		dev_dbg(dev, "update %u %u\n", key, newkey);
-		rc = nvdimm_security_update(nvdimm, key, newkey, NVDIMM_USER);
-	} else if (i == OP_ERASE) {
-		dev_dbg(dev, "erase %u\n", key);
-		rc = nvdimm_security_erase(nvdimm, key, NVDIMM_USER);
-	} else if (i == OP_OVERWRITE) {
-		dev_dbg(dev, "overwrite %u\n", key);
-		rc = nvdimm_security_overwrite(nvdimm, key);
-	} else if (i == OP_MASTER_UPDATE) {
-		dev_dbg(dev, "master_update %u %u\n", key, newkey);
-		rc = nvdimm_security_update(nvdimm, key, newkey,
-				NVDIMM_MASTER);
-	} else if (i == OP_MASTER_ERASE) {
-		dev_dbg(dev, "master_erase %u\n", key);
-		rc = nvdimm_security_erase(nvdimm, key,
-				NVDIMM_MASTER);
-	} else
-		return -EINVAL;
-
-	if (rc == 0)
-		rc = len;
-	return rc;
+	return sprintf(buf, "%d\n", test_bit(NVDIMM_SECURITY_FROZEN,
+				&nvdimm->sec.flags));
 }
+static DEVICE_ATTR_RO(frozen);
 
 static ssize_t security_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t len)
@@ -488,7 +398,7 @@ static ssize_t security_store(struct device *dev,
 	nd_device_lock(dev);
 	nvdimm_bus_lock(dev);
 	wait_nvdimm_bus_probe_idle(dev);
-	rc = __security_store(dev, buf, len);
+	rc = nvdimm_security_store(dev, buf, len);
 	nvdimm_bus_unlock(dev);
 	nd_device_unlock(dev);
 
@@ -502,6 +412,7 @@ static struct attribute *nvdimm_attributes[] = {
 	&dev_attr_commands.attr,
 	&dev_attr_available_slots.attr,
 	&dev_attr_security.attr,
+	&dev_attr_frozen.attr,
 	NULL,
 };
 
@@ -510,30 +421,170 @@ static umode_t nvdimm_visible(struct kobject *kobj, struct attribute *a, int n)
 	struct device *dev = container_of(kobj, typeof(*dev), kobj);
 	struct nvdimm *nvdimm = to_nvdimm(dev);
 
-	if (a != &dev_attr_security.attr)
+	if (a != &dev_attr_security.attr && a != &dev_attr_frozen.attr)
 		return a->mode;
-	if (nvdimm->sec.state < 0)
+	if (!nvdimm->sec.flags)
 		return 0;
-	/* Are there any state mutation ops? */
-	if (nvdimm->sec.ops->freeze || nvdimm->sec.ops->disable
-			|| nvdimm->sec.ops->change_key
-			|| nvdimm->sec.ops->erase
-			|| nvdimm->sec.ops->overwrite)
+
+	if (a == &dev_attr_security.attr) {
+		/* Are there any state mutation ops (make writable)? */
+		if (nvdimm->sec.ops->freeze || nvdimm->sec.ops->disable
+				|| nvdimm->sec.ops->change_key
+				|| nvdimm->sec.ops->erase
+				|| nvdimm->sec.ops->overwrite)
+			return a->mode;
+		return 0444;
+	}
+
+	if (nvdimm->sec.ops->freeze)
 		return a->mode;
-	return 0444;
+	return 0;
 }
 
-struct attribute_group nvdimm_attribute_group = {
+static const struct attribute_group nvdimm_attribute_group = {
 	.attrs = nvdimm_attributes,
 	.is_visible = nvdimm_visible,
 };
-EXPORT_SYMBOL_GPL(nvdimm_attribute_group);
+
+static ssize_t result_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct nvdimm *nvdimm = to_nvdimm(dev);
+	enum nvdimm_fwa_result result;
+
+	if (!nvdimm->fw_ops)
+		return -EOPNOTSUPP;
+
+	nvdimm_bus_lock(dev);
+	result = nvdimm->fw_ops->activate_result(nvdimm);
+	nvdimm_bus_unlock(dev);
+
+	switch (result) {
+	case NVDIMM_FWA_RESULT_NONE:
+		return sprintf(buf, "none\n");
+	case NVDIMM_FWA_RESULT_SUCCESS:
+		return sprintf(buf, "success\n");
+	case NVDIMM_FWA_RESULT_FAIL:
+		return sprintf(buf, "fail\n");
+	case NVDIMM_FWA_RESULT_NOTSTAGED:
+		return sprintf(buf, "not_staged\n");
+	case NVDIMM_FWA_RESULT_NEEDRESET:
+		return sprintf(buf, "need_reset\n");
+	default:
+		return -ENXIO;
+	}
+}
+static DEVICE_ATTR_ADMIN_RO(result);
+
+static ssize_t activate_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct nvdimm *nvdimm = to_nvdimm(dev);
+	enum nvdimm_fwa_state state;
+
+	if (!nvdimm->fw_ops)
+		return -EOPNOTSUPP;
+
+	nvdimm_bus_lock(dev);
+	state = nvdimm->fw_ops->activate_state(nvdimm);
+	nvdimm_bus_unlock(dev);
+
+	switch (state) {
+	case NVDIMM_FWA_IDLE:
+		return sprintf(buf, "idle\n");
+	case NVDIMM_FWA_BUSY:
+		return sprintf(buf, "busy\n");
+	case NVDIMM_FWA_ARMED:
+		return sprintf(buf, "armed\n");
+	default:
+		return -ENXIO;
+	}
+}
+
+static ssize_t activate_store(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t len)
+{
+	struct nvdimm *nvdimm = to_nvdimm(dev);
+	enum nvdimm_fwa_trigger arg;
+	int rc;
+
+	if (!nvdimm->fw_ops)
+		return -EOPNOTSUPP;
+
+	if (sysfs_streq(buf, "arm"))
+		arg = NVDIMM_FWA_ARM;
+	else if (sysfs_streq(buf, "disarm"))
+		arg = NVDIMM_FWA_DISARM;
+	else
+		return -EINVAL;
+
+	nvdimm_bus_lock(dev);
+	rc = nvdimm->fw_ops->arm(nvdimm, arg);
+	nvdimm_bus_unlock(dev);
+
+	if (rc < 0)
+		return rc;
+	return len;
+}
+static DEVICE_ATTR_ADMIN_RW(activate);
+
+static struct attribute *nvdimm_firmware_attributes[] = {
+	&dev_attr_activate.attr,
+	&dev_attr_result.attr,
+	NULL,
+};
+
+static umode_t nvdimm_firmware_visible(struct kobject *kobj, struct attribute *a, int n)
+{
+	struct device *dev = container_of(kobj, typeof(*dev), kobj);
+	struct nvdimm_bus *nvdimm_bus = walk_to_nvdimm_bus(dev);
+	struct nvdimm_bus_descriptor *nd_desc = nvdimm_bus->nd_desc;
+	struct nvdimm *nvdimm = to_nvdimm(dev);
+	enum nvdimm_fwa_capability cap;
+
+	if (!nd_desc->fw_ops)
+		return 0;
+	if (!nvdimm->fw_ops)
+		return 0;
+
+	nvdimm_bus_lock(dev);
+	cap = nd_desc->fw_ops->capability(nd_desc);
+	nvdimm_bus_unlock(dev);
+
+	if (cap < NVDIMM_FWA_CAP_QUIESCE)
+		return 0;
+
+	return a->mode;
+}
+
+static const struct attribute_group nvdimm_firmware_attribute_group = {
+	.name = "firmware",
+	.attrs = nvdimm_firmware_attributes,
+	.is_visible = nvdimm_firmware_visible,
+};
+
+static const struct attribute_group *nvdimm_attribute_groups[] = {
+	&nd_device_attribute_group,
+	&nvdimm_attribute_group,
+	&nvdimm_firmware_attribute_group,
+	NULL,
+};
+
+static const struct device_type nvdimm_device_type = {
+	.name = "nvdimm",
+	.release = nvdimm_release,
+	.groups = nvdimm_attribute_groups,
+};
+
+bool is_nvdimm(struct device *dev)
+{
+	return dev->type == &nvdimm_device_type;
+}
 
 struct nvdimm *__nvdimm_create(struct nvdimm_bus *nvdimm_bus,
 		void *provider_data, const struct attribute_group **groups,
 		unsigned long flags, unsigned long cmd_mask, int num_flush,
 		struct resource *flush_wpq, const char *dimm_id,
-		const struct nvdimm_security_ops *sec_ops)
+		const struct nvdimm_security_ops *sec_ops,
+		const struct nvdimm_fw_ops *fw_ops)
 {
 	struct nvdimm *nvdimm = kzalloc(sizeof(*nvdimm), GFP_KERNEL);
 	struct device *dev;
@@ -563,6 +614,7 @@ struct nvdimm *__nvdimm_create(struct nvdimm_bus *nvdimm_bus,
 	dev->devt = MKDEV(nvdimm_major, nvdimm->id);
 	dev->groups = groups;
 	nvdimm->sec.ops = sec_ops;
+	nvdimm->fw_ops = fw_ops;
 	nvdimm->sec.overwrite_tmo = 0;
 	INIT_DELAYED_WORK(&nvdimm->dwork, nvdimm_security_overwrite_query);
 	/*
@@ -570,8 +622,8 @@ struct nvdimm *__nvdimm_create(struct nvdimm_bus *nvdimm_bus,
 	 * attribute visibility.
 	 */
 	/* get security state and extended (master) state */
-	nvdimm->sec.state = nvdimm_security_state(nvdimm, NVDIMM_USER);
-	nvdimm->sec.ext_state = nvdimm_security_state(nvdimm, NVDIMM_MASTER);
+	nvdimm->sec.flags = nvdimm_security_flags(nvdimm, NVDIMM_USER);
+	nvdimm->sec.ext_flags = nvdimm_security_flags(nvdimm, NVDIMM_MASTER);
 	nd_device_register(dev);
 
 	return nvdimm;
@@ -589,7 +641,7 @@ int nvdimm_security_setup_events(struct device *dev)
 {
 	struct nvdimm *nvdimm = to_nvdimm(dev);
 
-	if (nvdimm->sec.state < 0 || !nvdimm->sec.ops
+	if (!nvdimm->sec.flags || !nvdimm->sec.ops
 			|| !nvdimm->sec.ops->overwrite)
 		return 0;
 	nvdimm->sec.overwrite_state = sysfs_get_dirent(dev->kobj.sd, "security");
@@ -615,7 +667,7 @@ int nvdimm_security_freeze(struct nvdimm *nvdimm)
 	if (!nvdimm->sec.ops || !nvdimm->sec.ops->freeze)
 		return -EOPNOTSUPP;
 
-	if (nvdimm->sec.state < 0)
+	if (!nvdimm->sec.flags)
 		return -EIO;
 
 	if (test_bit(NDD_SECURITY_OVERWRITE, &nvdimm->flags)) {
@@ -624,7 +676,7 @@ int nvdimm_security_freeze(struct nvdimm *nvdimm)
 	}
 
 	rc = nvdimm->sec.ops->freeze(nvdimm);
-	nvdimm->sec.state = nvdimm_security_state(nvdimm, NVDIMM_USER);
+	nvdimm->sec.flags = nvdimm_security_flags(nvdimm, NVDIMM_USER);
 
 	return rc;
 }

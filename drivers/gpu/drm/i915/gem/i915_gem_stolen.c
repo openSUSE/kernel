@@ -11,7 +11,6 @@
 #include <drm/i915_drm.h>
 
 #include "i915_drv.h"
-#include "i915_gem_stolen.h"
 
 /*
  * The BIOS typically reserves some of the system's memory for the exclusive
@@ -363,16 +362,12 @@ int i915_gem_init_stolen(struct drm_i915_private *dev_priv)
 	mutex_init(&dev_priv->mm.stolen_lock);
 
 	if (intel_vgpu_active(dev_priv)) {
-		dev_notice(dev_priv->drm.dev,
-			   "%s, disabling use of stolen memory\n",
-			   "iGVT-g active");
+		DRM_INFO("iGVT-g active, disabling use of stolen memory\n");
 		return 0;
 	}
 
 	if (intel_vtd_active() && INTEL_GEN(dev_priv) < 8) {
-		dev_notice(dev_priv->drm.dev,
-			   "%s, disabling use of stolen memory\n",
-			   "DMAR active");
+		DRM_INFO("DMAR active, disabling use of stolen memory\n");
 		return 0;
 	}
 
@@ -533,6 +528,8 @@ i915_gem_object_release_stolen(struct drm_i915_gem_object *obj)
 	struct drm_mm_node *stolen = fetch_and_zero(&obj->stolen);
 
 	GEM_BUG_ON(!stolen);
+
+	__i915_gem_object_unpin_pages(obj);
 
 	i915_gem_stolen_remove_node(dev_priv, stolen);
 	kfree(stolen);

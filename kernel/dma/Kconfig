@@ -1,9 +1,23 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
+config NO_DMA
+	bool
+
 config HAS_DMA
 	bool
 	depends on !NO_DMA
 	default y
+
+config DMA_OPS
+	bool
+
+#
+# IOMMU drivers that can bypass the IOMMU code and optionally use the direct
+# mapping fast path should select this option and set the dma_ops_bypass
+# flag in struct device where applicable
+#
+config DMA_OPS_BYPASS
+	bool
 
 config NEED_SG_DMA_LENGTH
 	bool
@@ -18,6 +32,15 @@ config ARCH_HAS_DMA_COHERENCE_H
 	bool
 
 config ARCH_HAS_DMA_SET_MASK
+	bool
+
+#
+# Select this option if the architecture needs special handling for
+# DMA_ATTR_WRITE_COMBINE.  Normally the "uncached" mapping should be what
+# people thing of when saying write combine, so very few platforms should
+# need to enable this.
+#
+config ARCH_HAS_DMA_WRITE_COMBINE
 	bool
 
 config DMA_DECLARE_COHERENT
@@ -42,12 +65,6 @@ config ARCH_HAS_SYNC_DMA_FOR_CPU_ALL
 config ARCH_HAS_DMA_PREP_COHERENT
 	bool
 
-config ARCH_HAS_DMA_COHERENT_TO_PFN
-	bool
-
-config ARCH_HAS_DMA_MMAP_PGPROT
-	bool
-
 config ARCH_HAS_FORCE_DMA_UNENCRYPTED
 	bool
 
@@ -57,19 +74,34 @@ config DMA_NONCOHERENT_CACHE_SYNC
 config DMA_VIRT_OPS
 	bool
 	depends on HAS_DMA
+	select DMA_OPS
 
 config SWIOTLB
 	bool
 	select NEED_DMA_MAP_STATE
 
-config DMA_REMAP
-	depends on MMU
+#
+# Should be selected if we can mmap non-coherent mappings to userspace.
+# The only thing that is really required is a way to set an uncached bit
+# in the pagetables
+#
+config DMA_NONCOHERENT_MMAP
+	default y if !MMU
+	bool
+
+config DMA_COHERENT_POOL
 	select GENERIC_ALLOCATOR
 	bool
+
+config DMA_REMAP
+	bool
+	depends on MMU
+	select DMA_NONCOHERENT_MMAP
 
 config DMA_DIRECT_REMAP
 	bool
 	select DMA_REMAP
+	select DMA_COHERENT_POOL
 
 config DMA_CMA
 	bool "DMA Contiguous Memory Allocator"
@@ -156,11 +188,6 @@ config DMA_API_DEBUG
 	  With this option you will be able to detect common bugs in device
 	  drivers like double-freeing of DMA mappings or freeing mappings that
 	  were never allocated.
-
-	  This also attempts to catch cases where a page owned by DMA is
-	  accessed by the cpu in a way that could cause data corruption.  For
-	  example, this enables cow_user_page() to check that the source page is
-	  not undergoing DMA.
 
 	  This option causes a performance degradation.  Use only if you want to
 	  debug device drivers and dma interactions.

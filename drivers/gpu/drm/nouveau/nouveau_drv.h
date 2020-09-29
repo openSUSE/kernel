@@ -136,8 +136,6 @@ struct nouveau_drm {
 
 	struct list_head clients;
 
-	u8 old_pm_cap;
-
 	struct {
 		struct agp_bridge_data *bridge;
 		u32 base;

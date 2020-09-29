@@ -1,6 +1,5 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-2.0-only
 menu "ACP (Audio CoProcessor) Configuration"
-	depends on DRM_AMDGPU
 
 config DRM_AMD_ACP
        bool "Enable AMD Audio CoProcessor IP support"

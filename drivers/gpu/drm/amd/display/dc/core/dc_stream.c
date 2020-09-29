@@ -423,10 +423,10 @@ bool dc_stream_add_writeback(struct dc *dc,
 
 		if (dwb->funcs->is_enabled(dwb)) {
 			/* writeback pipe already enabled, only need to update */
-			dc->hwss.update_writeback(dc, stream_status, wb_info, dc->current_state);
+			dc->hwss.update_writeback(dc, stream_status, wb_info);
 		} else {
 			/* Enable writeback pipe from scratch*/
-			dc->hwss.enable_writeback(dc, stream_status, wb_info, dc->current_state);
+			dc->hwss.enable_writeback(dc, stream_status, wb_info);
 		}
 	}
 

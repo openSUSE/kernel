@@ -505,7 +505,7 @@ void rtl_init_rfkill(struct ieee80211_hw *hw)
 
 		rtlpriv->rfkill.rfkill_state = radio_state;
 
-		blocked = (rtlpriv->rfkill.rfkill_state == 1) ? 0 : 1;
+		blocked = rtlpriv->rfkill.rfkill_state != 1;
 		wiphy_rfkill_set_hw_state(hw->wiphy, blocked);
 	}
 
@@ -1776,8 +1776,7 @@ int rtl_tx_agg_start(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 
 	tid_data->agg.agg_state = RTL_AGG_START;
 
-	ieee80211_start_tx_ba_cb_irqsafe(vif, sta->addr, tid);
-	return 0;
+	return IEEE80211_AMPDU_TX_START_IMMEDIATE;
 }
 
 int rtl_tx_agg_stop(struct ieee80211_hw *hw, struct ieee80211_vif *vif,

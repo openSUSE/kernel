@@ -128,8 +128,8 @@ bool hubbub1_verify_allow_pstate_change_high(
 	 * pstate takes around ~100us on linux. Unknown currently as to
 	 * why it takes that long on linux
 	 */
-	const unsigned int pstate_wait_timeout_us = 200;
-	const unsigned int pstate_wait_expected_timeout_us = 40;
+	static unsigned int pstate_wait_timeout_us = 200;
+	static unsigned int pstate_wait_expected_timeout_us = 40;
 	static unsigned int max_sampled_pstate_wait_us; /* data collection */
 	static bool forced_pstate_allow; /* help with revert wa */
 
@@ -840,8 +840,8 @@ static void hubbub1_det_request_size(
 
 	hubbub1_get_blk256_size(&blk256_width, &blk256_height, bpe);
 
-	swath_bytes_horz_wc = width * blk256_height * bpe;
-	swath_bytes_vert_wc = height * blk256_width * bpe;
+	swath_bytes_horz_wc = height * blk256_height * bpe;
+	swath_bytes_vert_wc = width * blk256_width * bpe;
 
 	*req128_horz_wc = (2 * swath_bytes_horz_wc <= detile_buf_size) ?
 			false : /* full 256B request */

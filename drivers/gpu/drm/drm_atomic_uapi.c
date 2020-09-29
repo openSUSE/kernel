@@ -747,8 +747,6 @@ static int drm_atomic_connector_set_property(struct drm_connector *connector,
 			return -EINVAL;
 		}
 		state->content_protection = val;
-	} else if (property == config->hdcp_content_type_property) {
-		state->hdcp_content_type = val;
 	} else if (property == connector->colorspace_property) {
 		state->colorspace = val;
 	} else if (property == config->writeback_fb_id_property) {
@@ -833,8 +831,6 @@ drm_atomic_connector_get_property(struct drm_connector *connector,
 			state->hdr_output_metadata->base.id : 0;
 	} else if (property == config->content_protection_property) {
 		*val = state->content_protection;
-	} else if (property == config->hdcp_content_type_property) {
-		*val = state->hdcp_content_type;
 	} else if (property == config->writeback_fb_id_property) {
 		/* Writeback framebuffer is one-shot, write and forget */
 		*val = 0;
@@ -1305,7 +1301,8 @@ int drm_mode_atomic_ioctl(struct drm_device *dev,
 	if (arg->reserved)
 		return -EINVAL;
 
-	if (arg->flags & DRM_MODE_PAGE_FLIP_ASYNC)
+	if ((arg->flags & DRM_MODE_PAGE_FLIP_ASYNC) &&
+			!dev->mode_config.async_page_flip)
 		return -EINVAL;
 
 	/* can't test and expect an event at the same time. */

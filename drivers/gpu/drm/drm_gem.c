@@ -707,8 +707,6 @@ int drm_gem_objects_lookup(struct drm_file *filp, void __user *bo_handles,
 	if (!objs)
 		return -ENOMEM;
 
-	*objs_out = objs;
-
 	handles = kvmalloc_array(count, sizeof(u32), GFP_KERNEL);
 	if (!handles) {
 		ret = -ENOMEM;
@@ -722,6 +720,8 @@ int drm_gem_objects_lookup(struct drm_file *filp, void __user *bo_handles,
 	}
 
 	ret = objects_lookup(filp, handles, count, objs);
+	*objs_out = objs;
+
 out:
 	kvfree(handles);
 	return ret;
@@ -869,6 +869,9 @@ err:
  * @file_priv: drm file-private structure
  *
  * Open an object using the global name, returning a handle and the size.
+ *
+ * This handle (of course) holds a reference to the object, so the object
+ * will not go away until the handle is deleted.
  */
 int
 drm_gem_open_ioctl(struct drm_device *dev, void *data,
@@ -893,15 +896,14 @@ drm_gem_open_ioctl(struct drm_device *dev, void *data,
 
 	/* drm_gem_handle_create_tail unlocks dev->object_name_lock. */
 	ret = drm_gem_handle_create_tail(file_priv, obj, &handle);
+	drm_gem_object_put_unlocked(obj);
 	if (ret)
-		goto err;
+		return ret;
 
 	args->handle = handle;
 	args->size = obj->size;
 
-err:
-	drm_gem_object_put_unlocked(obj);
-	return ret;
+	return 0;
 }
 
 /**

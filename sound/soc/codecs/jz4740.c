@@ -318,7 +318,6 @@ static int jz4740_codec_probe(struct platform_device *pdev)
 {
 	int ret;
 	struct jz4740_codec *jz4740_codec;
-	struct resource *mem;
 	void __iomem *base;
 
 	jz4740_codec = devm_kzalloc(&pdev->dev, sizeof(*jz4740_codec),
@@ -326,8 +325,7 @@ static int jz4740_codec_probe(struct platform_device *pdev)
 	if (!jz4740_codec)
 		return -ENOMEM;
 
-	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	base = devm_ioremap_resource(&pdev->dev, mem);
+	base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(base))
 		return PTR_ERR(base);
 
@@ -346,19 +344,17 @@ static int jz4740_codec_probe(struct platform_device *pdev)
 	return ret;
 }
 
-#ifdef CONFIG_OF
 static const struct of_device_id jz4740_codec_of_matches[] = {
 	{ .compatible = "ingenic,jz4740-codec", },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, jz4740_codec_of_matches);
-#endif
 
 static struct platform_driver jz4740_codec_driver = {
 	.probe = jz4740_codec_probe,
 	.driver = {
 		.name = "jz4740-codec",
-		.of_match_table = of_match_ptr(jz4740_codec_of_matches),
+		.of_match_table = jz4740_codec_of_matches,
 	},
 };
 

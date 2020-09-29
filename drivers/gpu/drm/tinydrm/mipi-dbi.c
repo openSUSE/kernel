@@ -362,9 +362,9 @@ static void mipi_dbi_blank(struct mipi_dbi *mipi)
 	memset(mipi->tx_buf, 0, len);
 
 	mipi_dbi_command(mipi, MIPI_DCS_SET_COLUMN_ADDRESS, 0, 0,
-			 ((width - 1) >> 8) & 0xFF, (width - 1) & 0xFF);
+			 (width >> 8) & 0xFF, (width - 1) & 0xFF);
 	mipi_dbi_command(mipi, MIPI_DCS_SET_PAGE_ADDRESS, 0, 0,
-			 ((height - 1) >> 8) & 0xFF, (height - 1) & 0xFF);
+			 (height >> 8) & 0xFF, (height - 1) & 0xFF);
 	mipi_dbi_command_buf(mipi, MIPI_DCS_WRITE_MEMORY_START,
 			     (u8 *)mipi->tx_buf, len);
 
@@ -820,7 +820,7 @@ static int mipi_dbi_spi1_transfer(struct mipi_dbi *mipi, int dc,
 			}
 		}
 
-		tr.len = chunk * 2;
+		tr.len = chunk;
 		len -= chunk;
 
 		tinydrm_dbg_spi_message(spi, &m);
@@ -1033,7 +1033,8 @@ static ssize_t mipi_dbi_debugfs_command_write(struct file *file,
 	struct mipi_dbi *mipi = m->private;
 	u8 val, cmd = 0, parameters[64];
 	char *buf, *pos, *token;
-	int i, ret, idx;
+	unsigned int i;
+	int ret, idx;
 
 	if (!drm_dev_enter(&mipi->drm, &idx))
 		return -ENODEV;

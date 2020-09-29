@@ -212,14 +212,8 @@ retry:
 	drm_for_each_plane(plane, fb->dev) {
 		struct drm_plane_state *plane_state;
 
-		ret = drm_modeset_lock(&plane->mutex, state->acquire_ctx);
-		if (ret)
-			goto out;
-
-		if (plane->state->fb != fb) {
-			drm_modeset_unlock(&plane->mutex);
+		if (plane->state->fb != fb)
 			continue;
-		}
 
 		plane_state = drm_atomic_get_plane_state(state, plane);
 		if (IS_ERR(plane_state)) {

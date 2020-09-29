@@ -404,9 +404,7 @@ int amdgpu_fence_driver_start_ring(struct amdgpu_ring *ring,
 		ring->fence_drv.gpu_addr = adev->uvd.inst[ring->me].gpu_addr + index;
 	}
 	amdgpu_fence_write(ring, atomic_read(&ring->fence_drv.last_seq));
-
-	if (irq_src)
-		amdgpu_irq_get(adev, irq_src, irq_type);
+	amdgpu_irq_get(adev, irq_src, irq_type);
 
 	ring->fence_drv.irq_src = irq_src;
 	ring->fence_drv.irq_type = irq_type;
@@ -541,9 +539,8 @@ void amdgpu_fence_driver_fini(struct amdgpu_device *adev)
 			/* no need to trigger GPU reset as we are unloading */
 			amdgpu_fence_driver_force_completion(ring);
 		}
-		if (ring->fence_drv.irq_src)
-			amdgpu_irq_put(adev, ring->fence_drv.irq_src,
-				       ring->fence_drv.irq_type);
+		amdgpu_irq_put(adev, ring->fence_drv.irq_src,
+			       ring->fence_drv.irq_type);
 		drm_sched_fini(&ring->sched);
 		del_timer_sync(&ring->fence_drv.fallback_timer);
 		for (j = 0; j <= ring->fence_drv.num_fences_mask; ++j)
@@ -579,9 +576,8 @@ void amdgpu_fence_driver_suspend(struct amdgpu_device *adev)
 		}
 
 		/* disable the interrupt */
-		if (ring->fence_drv.irq_src)
-			amdgpu_irq_put(adev, ring->fence_drv.irq_src,
-				       ring->fence_drv.irq_type);
+		amdgpu_irq_put(adev, ring->fence_drv.irq_src,
+			       ring->fence_drv.irq_type);
 	}
 }
 
@@ -607,9 +603,8 @@ void amdgpu_fence_driver_resume(struct amdgpu_device *adev)
 			continue;
 
 		/* enable the interrupt */
-		if (ring->fence_drv.irq_src)
-			amdgpu_irq_get(adev, ring->fence_drv.irq_src,
-				       ring->fence_drv.irq_type);
+		amdgpu_irq_get(adev, ring->fence_drv.irq_src,
+			       ring->fence_drv.irq_type);
 	}
 }
 

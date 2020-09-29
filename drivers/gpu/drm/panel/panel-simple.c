@@ -724,9 +724,9 @@ static const struct panel_desc auo_g133han01 = {
 static const struct display_timing auo_g185han01_timings = {
 	.pixelclock = { 120000000, 144000000, 175000000 },
 	.hactive = { 1920, 1920, 1920 },
-	.hfront_porch = { 36, 120, 148 },
-	.hback_porch = { 24, 88, 108 },
-	.hsync_len = { 20, 48, 64 },
+	.hfront_porch = { 18, 60, 74 },
+	.hback_porch = { 12, 44, 54 },
+	.hsync_len = { 10, 24, 32 },
 	.vactive = { 1080, 1080, 1080 },
 	.vfront_porch = { 6, 10, 40 },
 	.vback_porch = { 2, 5, 20 },
@@ -1787,7 +1787,7 @@ static const struct drm_display_mode lg_lb070wv8_mode = {
 static const struct panel_desc lg_lb070wv8 = {
 	.modes = &lg_lb070wv8_mode,
 	.num_modes = 1,
-	.bpc = 8,
+	.bpc = 16,
 	.size = {
 		.width = 151,
 		.height = 91,
@@ -1898,40 +1898,6 @@ static const struct drm_display_mode mitsubishi_aa070mc01_mode = {
 	.vtotal = 480 + 48 + 1 + 0,
 	.vrefresh = 60,
 	.flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
-};
-
-static const struct drm_display_mode logicpd_type_28_mode = {
-	.clock = 9000,
-	.hdisplay = 480,
-	.hsync_start = 480 + 3,
-	.hsync_end = 480 + 3 + 42,
-	.htotal = 480 + 3 + 42 + 2,
-
-	.vdisplay = 272,
-	.vsync_start = 272 + 2,
-	.vsync_end = 272 + 2 + 11,
-	.vtotal = 272 + 2 + 11 + 3,
-	.vrefresh = 60,
-	.flags = DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC,
-};
-
-static const struct panel_desc logicpd_type_28 = {
-	.modes = &logicpd_type_28_mode,
-	.num_modes = 1,
-	.bpc = 8,
-	.size = {
-		.width = 105,
-		.height = 67,
-	},
-	.delay = {
-		.prepare = 200,
-		.enable = 200,
-		.unprepare = 200,
-		.disable = 200,
-	},
-	.bus_format = MEDIA_BUS_FMT_RGB888_1X24,
-	.bus_flags = DRM_BUS_FLAG_DE_HIGH | DRM_BUS_FLAG_PIXDATA_DRIVE_POSEDGE |
-		     DRM_BUS_FLAG_SYNC_DRIVE_NEGEDGE,
 };
 
 static const struct panel_desc mitsubishi_aa070mc01 = {
@@ -2464,6 +2430,30 @@ static const struct panel_desc sharp_lq123p1jx31 = {
 	},
 };
 
+static const struct drm_display_mode sharp_lq150x1lg11_mode = {
+	.clock = 71100,
+	.hdisplay = 1024,
+	.hsync_start = 1024 + 168,
+	.hsync_end = 1024 + 168 + 64,
+	.htotal = 1024 + 168 + 64 + 88,
+	.vdisplay = 768,
+	.vsync_start = 768 + 37,
+	.vsync_end = 768 + 37 + 2,
+	.vtotal = 768 + 37 + 2 + 8,
+	.vrefresh = 60,
+};
+
+static const struct panel_desc sharp_lq150x1lg11 = {
+	.modes = &sharp_lq150x1lg11_mode,
+	.num_modes = 1,
+	.bpc = 6,
+	.size = {
+		.width = 304,
+		.height = 228,
+	},
+	.bus_format = MEDIA_BUS_FMT_RGB565_1X16,
+};
+
 static const struct drm_display_mode shelly_sca07010_bfn_lnn_mode = {
 	.clock = 33300,
 	.hdisplay = 800,
@@ -2959,9 +2949,6 @@ static const struct of_device_id platform_of_match[] = {
 		.compatible = "lg,lp129qe",
 		.data = &lg_lp129qe,
 	}, {
-		.compatible = "logicpd,type28",
-		.data = &logicpd_type_28,
-	}, {
 		.compatible = "mitsubishi,aa070mc01-ca1",
 		.data = &mitsubishi_aa070mc01,
 	}, {
@@ -3024,6 +3011,9 @@ static const struct of_device_id platform_of_match[] = {
 	}, {
 		.compatible = "sharp,lq123p1jx31",
 		.data = &sharp_lq123p1jx31,
+	}, {
+		.compatible = "sharp,lq150x1lg11",
+		.data = &sharp_lq150x1lg11,
 	}, {
 		.compatible = "shelly,sca07010-bfn-lnn",
 		.data = &shelly_sca07010_bfn_lnn,

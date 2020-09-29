@@ -253,7 +253,7 @@ static int omap_mcpdm_dai_startup(struct snd_pcm_substream *substream,
 
 	mutex_lock(&mcpdm->mutex);
 
-	if (!dai->active)
+	if (!snd_soc_dai_active(dai))
 		omap_mcpdm_open_streams(mcpdm);
 
 	mutex_unlock(&mcpdm->mutex);
@@ -271,7 +271,7 @@ static void omap_mcpdm_dai_shutdown(struct snd_pcm_substream *substream,
 
 	mutex_lock(&mcpdm->mutex);
 
-	if (!dai->active) {
+	if (!snd_soc_dai_active(dai)) {
 		if (omap_mcpdm_active(mcpdm)) {
 			omap_mcpdm_stop(mcpdm);
 			omap_mcpdm_close_streams(mcpdm);
@@ -458,11 +458,11 @@ static int omap_mcpdm_remove(struct snd_soc_dai *dai)
 }
 
 #ifdef CONFIG_PM_SLEEP
-static int omap_mcpdm_suspend(struct snd_soc_dai *dai)
+static int omap_mcpdm_suspend(struct snd_soc_component *component)
 {
-	struct omap_mcpdm *mcpdm = snd_soc_dai_get_drvdata(dai);
+	struct omap_mcpdm *mcpdm = snd_soc_component_get_drvdata(component);
 
-	if (dai->active) {
+	if (snd_soc_component_active(component)) {
 		omap_mcpdm_stop(mcpdm);
 		omap_mcpdm_close_streams(mcpdm);
 	}
@@ -476,15 +476,15 @@ static int omap_mcpdm_suspend(struct snd_soc_dai *dai)
 	return 0;
 }
 
-static int omap_mcpdm_resume(struct snd_soc_dai *dai)
+static int omap_mcpdm_resume(struct snd_soc_component *component)
 {
-	struct omap_mcpdm *mcpdm = snd_soc_dai_get_drvdata(dai);
+	struct omap_mcpdm *mcpdm = snd_soc_component_get_drvdata(component);
 
 	if (mcpdm->pm_active_count) {
 		while (mcpdm->pm_active_count--)
 			pm_runtime_get_sync(mcpdm->dev);
 
-		if (dai->active) {
+		if (snd_soc_component_active(component)) {
 			omap_mcpdm_open_streams(mcpdm);
 			omap_mcpdm_start(mcpdm);
 		}
@@ -504,8 +504,6 @@ static int omap_mcpdm_resume(struct snd_soc_dai *dai)
 static struct snd_soc_dai_driver omap_mcpdm_dai = {
 	.probe = omap_mcpdm_probe,
 	.remove = omap_mcpdm_remove,
-	.suspend = omap_mcpdm_suspend,
-	.resume = omap_mcpdm_resume,
 	.probe_order = SND_SOC_COMP_ORDER_LATE,
 	.remove_order = SND_SOC_COMP_ORDER_EARLY,
 	.playback = {
@@ -527,12 +525,14 @@ static struct snd_soc_dai_driver omap_mcpdm_dai = {
 
 static const struct snd_soc_component_driver omap_mcpdm_component = {
 	.name		= "omap-mcpdm",
+	.suspend	= omap_mcpdm_suspend,
+	.resume		= omap_mcpdm_resume,
 };
 
 void omap_mcpdm_configure_dn_offsets(struct snd_soc_pcm_runtime *rtd,
 				    u8 rx1, u8 rx2)
 {
-	struct omap_mcpdm *mcpdm = snd_soc_dai_get_drvdata(rtd->cpu_dai);
+	struct omap_mcpdm *mcpdm = snd_soc_dai_get_drvdata(asoc_rtd_to_cpu(rtd, 0));
 
 	mcpdm->dn_rx_offset = MCPDM_DNOFST_RX1(rx1) | MCPDM_DNOFST_RX2(rx2);
 }

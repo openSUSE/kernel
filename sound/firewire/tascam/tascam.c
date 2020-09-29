@@ -242,7 +242,6 @@ static const struct ieee1394_device_id snd_tscm_id_table[] = {
 		.specifier_id = 0x00022e,
 		.version = 0x800004,
 	},
-	/* FE-08 requires reverse-engineering because it just has faders. */
 	{}
 };
 MODULE_DEVICE_TABLE(ieee1394, snd_tscm_id_table);
@@ -250,7 +249,7 @@ MODULE_DEVICE_TABLE(ieee1394, snd_tscm_id_table);
 static struct fw_driver tscm_driver = {
 	.driver = {
 		.owner = THIS_MODULE,
-		.name = "snd-firewire-tascam",
+		.name = KBUILD_MODNAME,
 		.bus = &fw_bus_type,
 	},
 	.probe    = snd_tscm_probe,

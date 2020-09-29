@@ -1,18 +1,7 @@
+// SPDX-License-Identifier: ISC
 /*
  * Copyright (C) 2016 Felix Fietkau <nbd@nbd.name>
  * Copyright (C) 2018 Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
- *
- * Permission to use, copy, modify, and/or distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
 #include <linux/kernel.h>
@@ -20,7 +9,7 @@
 
 #include "mt76x02.h"
 #include "mt76x02_mcu.h"
-#include "mt76x02_trace.h"
+#include "trace.h"
 
 static void mt76x02_pre_tbtt_tasklet(unsigned long arg)
 {
@@ -35,9 +24,16 @@ static void mt76x02_pre_tbtt_tasklet(unsigned long arg)
 
 	mt76x02_resync_beacon_timer(dev);
 
+	/* Prevent corrupt transmissions during update */
+	mt76_set(dev, MT_BCN_BYPASS_MASK, 0xffff);
+	dev->beacon_data_count = 0;
+
 	ieee80211_iterate_active_interfaces_atomic(mt76_hw(dev),
 		IEEE80211_IFACE_ITER_RESUME_ALL,
 		mt76x02_update_beacon_iter, dev);
+
+	mt76_wr(dev, MT_BCN_BYPASS_MASK,
+		0xff00 | ~(0xff00 >> dev->beacon_data_count));
 
 	mt76_csa_check(&dev->mt76);
 
@@ -97,7 +93,8 @@ void mt76x02e_init_beacon_config(struct mt76x02_dev *dev)
 	dev->beacon_ops = &beacon_ops;
 
 	/* Fire a pre-TBTT interrupt 8 ms before TBTT */
-	mt76_rmw_field(dev, MT_INT_TIMER_CFG, MT_INT_TIMER_CFG_PRE_TBTT, 8 << 4);
+	mt76_rmw_field(dev, MT_INT_TIMER_CFG, MT_INT_TIMER_CFG_PRE_TBTT,
+		       8 << 4);
 	mt76_rmw_field(dev, MT_INT_TIMER_CFG, MT_INT_TIMER_CFG_GP_TIMER,
 		       MT_DFS_GP_INTERVAL);
 	mt76_wr(dev, MT_INT_TIMER_EN, 0);
@@ -161,7 +158,7 @@ static void mt76x02_tx_tasklet(unsigned long data)
 	mt76x02_mac_poll_tx_status(dev, false);
 	mt76x02_process_tx_status_fifo(dev);
 
-	mt76_txq_schedule_all(&dev->mt76);
+	mt76_txq_schedule_all(&dev->mphy);
 }
 
 static int mt76x02_poll_tx(struct napi_struct *napi, int budget)
@@ -201,7 +198,7 @@ int mt76x02_dma_init(struct mt76x02_dev *dev)
 		return -ENOMEM;
 
 	tasklet_init(&dev->mt76.tx_tasklet, mt76x02_tx_tasklet,
-		     (unsigned long) dev);
+		     (unsigned long)dev);
 	tasklet_init(&dev->mt76.pre_tbtt_tasklet, mt76x02_pre_tbtt_tasklet,
 		     (unsigned long)dev);
 
@@ -271,10 +268,10 @@ irqreturn_t mt76x02_irq_handler(int irq, void *dev_instance)
 	intr = mt76_rr(dev, MT_INT_SOURCE_CSR);
 	mt76_wr(dev, MT_INT_SOURCE_CSR, intr);
 
-	if (!test_bit(MT76_STATE_INITIALIZED, &dev->mt76.state))
+	if (!test_bit(MT76_STATE_INITIALIZED, &dev->mphy.state))
 		return IRQ_NONE;
 
-	trace_dev_irq(dev, intr, dev->mt76.mmio.irqmask);
+	trace_dev_irq(&dev->mt76, intr, dev->mt76.mmio.irqmask);
 
 	intr &= dev->mt76.mmio.irqmask;
 
@@ -353,6 +350,7 @@ EXPORT_SYMBOL_GPL(mt76x02_dma_disable);
 
 void mt76x02_mac_start(struct mt76x02_dev *dev)
 {
+	mt76x02_mac_reset_counters(dev);
 	mt76x02_dma_enable(dev);
 	mt76_wr(dev, MT_RX_FILTR_CFG, dev->mt76.rxfilter);
 	mt76_wr(dev, MT_MAC_SYS_CTRL,
@@ -395,12 +393,12 @@ static void mt76x02_key_sync(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	struct mt76_wcid *wcid;
 
 	if (!sta)
-	    return;
+		return;
 
-	wcid = (struct mt76_wcid *) sta->drv_priv;
+	wcid = (struct mt76_wcid *)sta->drv_priv;
 
 	if (wcid->hw_key_idx != key->keyidx || wcid->sw_iv)
-	    return;
+		return;
 
 	mt76x02_mac_wcid_sync_pn(dev, wcid->idx, key);
 }
@@ -411,13 +409,13 @@ static void mt76x02_reset_state(struct mt76x02_dev *dev)
 
 	lockdep_assert_held(&dev->mt76.mutex);
 
-	clear_bit(MT76_STATE_RUNNING, &dev->mt76.state);
+	clear_bit(MT76_STATE_RUNNING, &dev->mphy.state);
 
 	rcu_read_lock();
 	ieee80211_iter_keys_rcu(dev->mt76.hw, NULL, mt76x02_key_sync, NULL);
 	rcu_read_unlock();
 
-	for (i = 0; i < ARRAY_SIZE(dev->mt76.wcid); i++) {
+	for (i = 0; i < MT76x02_N_WCIDS; i++) {
 		struct ieee80211_sta *sta;
 		struct ieee80211_vif *vif;
 		struct mt76x02_sta *msta;
@@ -429,6 +427,8 @@ static void mt76x02_reset_state(struct mt76x02_dev *dev)
 		if (!wcid)
 			continue;
 
+		rcu_assign_pointer(dev->mt76.wcid[i], NULL);
+
 		priv = msta = container_of(wcid, struct mt76x02_sta, wcid);
 		sta = container_of(priv, struct ieee80211_sta, drv_priv);
 
@@ -439,7 +439,7 @@ static void mt76x02_reset_state(struct mt76x02_dev *dev)
 		memset(msta, 0, sizeof(*msta));
 	}
 
-	dev->vif_mask = 0;
+	dev->mphy.vif_mask = 0;
 	dev->mt76.beacon_mask = 0;
 }
 
@@ -450,17 +450,19 @@ static void mt76x02_watchdog_reset(struct mt76x02_dev *dev)
 	int i;
 
 	ieee80211_stop_queues(dev->mt76.hw);
-	set_bit(MT76_RESET, &dev->mt76.state);
+	set_bit(MT76_RESET, &dev->mphy.state);
 
 	tasklet_disable(&dev->mt76.pre_tbtt_tasklet);
 	tasklet_disable(&dev->mt76.tx_tasklet);
 	napi_disable(&dev->mt76.tx_napi);
 
-	for (i = 0; i < ARRAY_SIZE(dev->mt76.napi); i++)
+	mt76_for_each_q_rx(&dev->mt76, i) {
 		napi_disable(&dev->mt76.napi[i]);
+	}
 
 	mutex_lock(&dev->mt76.mutex);
 
+	dev->mcu_timeout = 0;
 	if (restart)
 		mt76x02_reset_state(dev);
 
@@ -485,11 +487,12 @@ static void mt76x02_watchdog_reset(struct mt76x02_dev *dev)
 	if (restart)
 		mt76_mcu_restart(dev);
 
-	for (i = 0; i < ARRAY_SIZE(dev->mt76.q_tx); i++)
+	for (i = 0; i < __MT_TXQ_MAX; i++)
 		mt76_queue_tx_cleanup(dev, i, true);
 
-	for (i = 0; i < ARRAY_SIZE(dev->mt76.q_rx); i++)
+	mt76_for_each_q_rx(&dev->mt76, i) {
 		mt76_queue_rx_reset(dev, i);
+	}
 
 	mt76x02_mac_start(dev);
 
@@ -505,7 +508,7 @@ static void mt76x02_watchdog_reset(struct mt76x02_dev *dev)
 
 	mutex_unlock(&dev->mt76.mutex);
 
-	clear_bit(MT76_RESET, &dev->mt76.state);
+	clear_bit(MT76_RESET, &dev->mphy.state);
 
 	tasklet_enable(&dev->mt76.tx_tasklet);
 	napi_enable(&dev->mt76.tx_napi);
@@ -513,22 +516,38 @@ static void mt76x02_watchdog_reset(struct mt76x02_dev *dev)
 
 	tasklet_enable(&dev->mt76.pre_tbtt_tasklet);
 
-	for (i = 0; i < ARRAY_SIZE(dev->mt76.napi); i++) {
+	mt76_for_each_q_rx(&dev->mt76, i) {
 		napi_enable(&dev->mt76.napi[i]);
 		napi_schedule(&dev->mt76.napi[i]);
 	}
 
 	if (restart) {
+		set_bit(MT76_RESTART, &dev->mphy.state);
 		mt76x02_mcu_function_select(dev, Q_SELECT, 1);
 		ieee80211_restart_hw(dev->mt76.hw);
 	} else {
 		ieee80211_wake_queues(dev->mt76.hw);
-		mt76_txq_schedule_all(&dev->mt76);
+		mt76_txq_schedule_all(&dev->mphy);
 	}
 }
 
+void mt76x02_reconfig_complete(struct ieee80211_hw *hw,
+			       enum ieee80211_reconfig_type reconfig_type)
+{
+	struct mt76x02_dev *dev = hw->priv;
+
+	if (reconfig_type != IEEE80211_RECONFIG_TYPE_RESTART)
+		return;
+
+	clear_bit(MT76_RESTART, &dev->mphy.state);
+}
+EXPORT_SYMBOL_GPL(mt76x02_reconfig_complete);
+
 static void mt76x02_check_tx_hang(struct mt76x02_dev *dev)
 {
+	if (test_bit(MT76_RESTART, &dev->mphy.state))
+		return;
+
 	if (mt76x02_tx_hang(dev)) {
 		if (++dev->tx_hang_check >= MT_TX_HANG_TH)
 			goto restart;
@@ -543,10 +562,6 @@ static void mt76x02_check_tx_hang(struct mt76x02_dev *dev)
 
 restart:
 	mt76x02_watchdog_reset(dev);
-
-	mutex_lock(&dev->mt76.mmio.mcu.mutex);
-	dev->mcu_timeout = 0;
-	mutex_unlock(&dev->mt76.mmio.mcu.mutex);
 
 	dev->tx_hang_reset++;
 	dev->tx_hang_check = 0;

@@ -135,6 +135,7 @@ static int ethtool_set_features(struct net_device *dev, void __user *useraddr)
 
 static int __ethtool_get_sset_count(struct net_device *dev, int sset)
 {
+	const struct ethtool_phy_ops *phy_ops = ethtool_phy_ops;
 	const struct ethtool_ops *ops = dev->ethtool_ops;
 
 	if (sset == ETH_SS_FEATURES)
@@ -150,8 +151,9 @@ static int __ethtool_get_sset_count(struct net_device *dev, int sset)
 		return ARRAY_SIZE(phy_tunable_strings);
 
 	if (sset == ETH_SS_PHY_STATS && dev->phydev &&
-	    !ops->get_ethtool_phy_stats)
-		return phy_ethtool_get_sset_count(dev->phydev);
+	    !ops->get_ethtool_phy_stats &&
+	    phy_ops && phy_ops->get_sset_count)
+		return phy_ops->get_sset_count(dev->phydev);
 
 	if (sset == ETH_SS_LINK_MODES)
 		return __ETHTOOL_LINK_MODE_MASK_NBITS;
@@ -165,6 +167,7 @@ static int __ethtool_get_sset_count(struct net_device *dev, int sset)
 static void __ethtool_get_strings(struct net_device *dev,
 	u32 stringset, u8 *data)
 {
+	const struct ethtool_phy_ops *phy_ops = ethtool_phy_ops;
 	const struct ethtool_ops *ops = dev->ethtool_ops;
 
 	if (stringset == ETH_SS_FEATURES)
@@ -178,8 +181,9 @@ static void __ethtool_get_strings(struct net_device *dev,
 	else if (stringset == ETH_SS_PHY_TUNABLES)
 		memcpy(data, phy_tunable_strings, sizeof(phy_tunable_strings));
 	else if (stringset == ETH_SS_PHY_STATS && dev->phydev &&
-		 !ops->get_ethtool_phy_stats)
-		phy_ethtool_get_strings(dev->phydev, data);
+		 !ops->get_ethtool_phy_stats && phy_ops &&
+		 phy_ops->get_strings)
+		phy_ops->get_strings(dev->phydev, data);
 	else if (stringset == ETH_SS_LINK_MODES)
 		memcpy(data, link_mode_names,
 		       __ETHTOOL_LINK_MODE_MASK_NBITS * ETH_GSTRING_LEN);
@@ -552,6 +556,8 @@ static int ethtool_get_link_ksettings(struct net_device *dev,
 	link_ksettings.base.cmd = ETHTOOL_GLINKSETTINGS;
 	link_ksettings.base.link_mode_masks_nwords
 		= __ETHTOOL_LINK_MODE_MASK_NU32;
+	link_ksettings.base.master_slave_cfg = MASTER_SLAVE_CFG_UNSUPPORTED;
+	link_ksettings.base.master_slave_state = MASTER_SLAVE_STATE_UNSUPPORTED;
 
 	return store_link_ksettings_for_user(useraddr, &link_ksettings);
 }
@@ -587,6 +593,10 @@ static int ethtool_set_link_ksettings(struct net_device *dev,
 	/* re-check nwords field, just in case */
 	if (__ETHTOOL_LINK_MODE_MASK_NU32
 	    != link_ksettings.base.link_mode_masks_nwords)
+		return -EINVAL;
+
+	if (link_ksettings.base.master_slave_cfg ||
+	    link_ksettings.base.master_slave_state)
 		return -EINVAL;
 
 	err = dev->ethtool_ops->set_link_ksettings(dev, &link_ksettings);
@@ -1503,11 +1513,14 @@ static noinline_for_stack int ethtool_get_coalesce(struct net_device *dev,
 						   void __user *useraddr)
 {
 	struct ethtool_coalesce coalesce = { .cmd = ETHTOOL_GCOALESCE };
+	int ret;
 
 	if (!dev->ethtool_ops->get_coalesce)
 		return -EOPNOTSUPP;
 
-	dev->ethtool_ops->get_coalesce(dev, &coalesce);
+	ret = dev->ethtool_ops->get_coalesce(dev, &coalesce);
+	if (ret)
+		return ret;
 
 	if (copy_to_user(useraddr, &coalesce, sizeof(coalesce)))
 		return -EFAULT;
@@ -1665,11 +1678,22 @@ static noinline_for_stack int ethtool_set_channels(struct net_device *dev,
 
 	dev->ethtool_ops->get_channels(dev, &curr);
 
+	if (channels.rx_count == curr.rx_count &&
+	    channels.tx_count == curr.tx_count &&
+	    channels.combined_count == curr.combined_count &&
+	    channels.other_count == curr.other_count)
+		return 0;
+
 	/* ensure new counts are within the maximums */
 	if (channels.rx_count > curr.max_rx ||
 	    channels.tx_count > curr.max_tx ||
 	    channels.combined_count > curr.max_combined ||
 	    channels.other_count > curr.max_other)
+		return -EINVAL;
+
+	/* ensure there is at least one RX and one TX channel */
+	if (!channels.combined_count &&
+	    (!channels.rx_count || !channels.tx_count))
 		return -EINVAL;
 
 	/* ensure the new Rx count fits within the configured Rx flow
@@ -1900,7 +1924,7 @@ static int ethtool_get_stats(struct net_device *dev, void __user *useraddr)
 	if (copy_to_user(useraddr, &stats, sizeof(stats)))
 		goto out;
 	useraddr += sizeof(stats);
-	if (n_stats && copy_to_user(useraddr, data, n_stats * sizeof(u64)))
+	if (n_stats && copy_to_user(useraddr, data, array_size(n_stats, sizeof(u64))))
 		goto out;
 	ret = 0;
 
@@ -1911,6 +1935,7 @@ static int ethtool_get_stats(struct net_device *dev, void __user *useraddr)
 
 static int ethtool_get_phy_stats(struct net_device *dev, void __user *useraddr)
 {
+	const struct ethtool_phy_ops *phy_ops = ethtool_phy_ops;
 	const struct ethtool_ops *ops = dev->ethtool_ops;
 	struct phy_device *phydev = dev->phydev;
 	struct ethtool_stats stats;
@@ -1920,8 +1945,9 @@ static int ethtool_get_phy_stats(struct net_device *dev, void __user *useraddr)
 	if (!phydev && (!ops->get_ethtool_phy_stats || !ops->get_sset_count))
 		return -EOPNOTSUPP;
 
-	if (dev->phydev && !ops->get_ethtool_phy_stats)
-		n_stats = phy_ethtool_get_sset_count(dev->phydev);
+	if (dev->phydev && !ops->get_ethtool_phy_stats &&
+	    phy_ops && phy_ops->get_sset_count)
+		n_stats = phy_ops->get_sset_count(dev->phydev);
 	else
 		n_stats = ops->get_sset_count(dev, ETH_SS_PHY_STATS);
 	if (n_stats < 0)
@@ -1940,8 +1966,9 @@ static int ethtool_get_phy_stats(struct net_device *dev, void __user *useraddr)
 		if (!data)
 			return -ENOMEM;
 
-		if (dev->phydev && !ops->get_ethtool_phy_stats) {
-			ret = phy_ethtool_get_stats(dev->phydev, &stats, data);
+		if (dev->phydev && !ops->get_ethtool_phy_stats &&
+		    phy_ops && phy_ops->get_stats) {
+			ret = phy_ops->get_stats(dev->phydev, &stats, data);
 			if (ret < 0)
 				goto out;
 		} else {
@@ -1955,7 +1982,7 @@ static int ethtool_get_phy_stats(struct net_device *dev, void __user *useraddr)
 	if (copy_to_user(useraddr, &stats, sizeof(stats)))
 		goto out;
 	useraddr += sizeof(stats);
-	if (n_stats && copy_to_user(useraddr, data, n_stats * sizeof(u64)))
+	if (n_stats && copy_to_user(useraddr, data, array_size(n_stats, sizeof(u64))))
 		goto out;
 	ret = 0;
 
@@ -2960,7 +2987,7 @@ ethtool_rx_flow_rule_create(const struct ethtool_rx_flow_spec_input *input)
 			       sizeof(match->mask.ipv6.dst));
 		}
 		if (memcmp(v6_m_spec->ip6src, &zero_addr, sizeof(zero_addr)) ||
-		    memcmp(v6_m_spec->ip6src, &zero_addr, sizeof(zero_addr))) {
+		    memcmp(v6_m_spec->ip6dst, &zero_addr, sizeof(zero_addr))) {
 			match->dissector.used_keys |=
 				BIT(FLOW_DISSECTOR_KEY_IPV6_ADDRS);
 			match->dissector.offset[FLOW_DISSECTOR_KEY_IPV6_ADDRS] =

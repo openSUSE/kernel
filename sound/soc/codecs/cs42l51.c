@@ -61,7 +61,7 @@ static int cs42l51_get_chan_mix(struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
-	unsigned long value = snd_soc_component_read32(component, CS42L51_PCM_MIXER)&3;
+	unsigned long value = snd_soc_component_read(component, CS42L51_PCM_MIXER)&3;
 
 	switch (value) {
 	default:
@@ -214,12 +214,10 @@ static const struct snd_soc_dapm_widget cs42l51_dapm_widgets[] = {
 	SND_SOC_DAPM_ADC_E("Right ADC", "Right HiFi Capture",
 		CS42L51_POWER_CTL1, 2, 1,
 		cs42l51_pdn_event, SND_SOC_DAPM_PRE_POST_PMD),
-	SND_SOC_DAPM_DAC_E("Left DAC", "Left HiFi Playback",
-		CS42L51_POWER_CTL1, 5, 1,
-		cs42l51_pdn_event, SND_SOC_DAPM_PRE_POST_PMD),
-	SND_SOC_DAPM_DAC_E("Right DAC", "Right HiFi Playback",
-		CS42L51_POWER_CTL1, 6, 1,
-		cs42l51_pdn_event, SND_SOC_DAPM_PRE_POST_PMD),
+	SND_SOC_DAPM_DAC_E("Left DAC", NULL, CS42L51_POWER_CTL1, 5, 1,
+			   cs42l51_pdn_event, SND_SOC_DAPM_PRE_POST_PMD),
+	SND_SOC_DAPM_DAC_E("Right DAC", NULL, CS42L51_POWER_CTL1, 6, 1,
+			   cs42l51_pdn_event, SND_SOC_DAPM_PRE_POST_PMD),
 
 	/* analog/mic */
 	SND_SOC_DAPM_INPUT("AIN1L"),
@@ -254,6 +252,12 @@ static const struct snd_soc_dapm_widget cs42l51_dapm_mclk_widgets[] = {
 static const struct snd_soc_dapm_route cs42l51_routes[] = {
 	{"HPL", NULL, "Left DAC"},
 	{"HPR", NULL, "Right DAC"},
+
+	{"Right DAC", NULL, "DAC Mux"},
+	{"Left DAC", NULL, "DAC Mux"},
+
+	{"DAC Mux", "Direct PCM", "Playback"},
+	{"DAC Mux", "DSP PCM", "Playback"},
 
 	{"Left ADC", NULL, "Left PGA"},
 	{"Right ADC", NULL, "Right PGA"},
@@ -403,8 +407,8 @@ static int cs42l51_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	intf_ctl = snd_soc_component_read32(component, CS42L51_INTF_CTL);
-	power_ctl = snd_soc_component_read32(component, CS42L51_MIC_POWER_CTL);
+	intf_ctl = snd_soc_component_read(component, CS42L51_INTF_CTL);
+	power_ctl = snd_soc_component_read(component, CS42L51_MIC_POWER_CTL);
 
 	intf_ctl &= ~(CS42L51_INTF_CTL_MASTER | CS42L51_INTF_CTL_ADC_I2S
 			| CS42L51_INTF_CTL_DAC_FORMAT(7));
@@ -480,13 +484,13 @@ static int cs42l51_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-static int cs42l51_dai_mute(struct snd_soc_dai *dai, int mute)
+static int cs42l51_dai_mute(struct snd_soc_dai *dai, int mute, int direction)
 {
 	struct snd_soc_component *component = dai->component;
 	int reg;
 	int mask = CS42L51_DAC_OUT_CTL_DACA_MUTE|CS42L51_DAC_OUT_CTL_DACB_MUTE;
 
-	reg = snd_soc_component_read32(component, CS42L51_DAC_OUT_CTL);
+	reg = snd_soc_component_read(component, CS42L51_DAC_OUT_CTL);
 
 	if (mute)
 		reg |= mask;
@@ -507,7 +511,8 @@ static const struct snd_soc_dai_ops cs42l51_dai_ops = {
 	.hw_params      = cs42l51_hw_params,
 	.set_sysclk     = cs42l51_set_dai_sysclk,
 	.set_fmt        = cs42l51_set_dai_fmt,
-	.digital_mute   = cs42l51_dai_mute,
+	.mute_stream    = cs42l51_dai_mute,
+	.no_capture_mute = 1,
 };
 
 static struct snd_soc_dai_driver cs42l51_dai = {

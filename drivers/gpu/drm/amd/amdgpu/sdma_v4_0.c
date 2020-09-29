@@ -159,7 +159,6 @@ static const struct soc15_reg_golden golden_settings_sdma0_4_2[] =
 	SOC15_REG_GOLDEN_VALUE(SDMA0, 0, mmSDMA0_RLC7_RB_RPTR_ADDR_LO, 0xfffffffd, 0x00000001),
 	SOC15_REG_GOLDEN_VALUE(SDMA0, 0, mmSDMA0_RLC7_RB_WPTR_POLL_CNTL, 0xfffffff7, 0x00403000),
 	SOC15_REG_GOLDEN_VALUE(SDMA0, 0, mmSDMA0_UTCL1_PAGE, 0x000003ff, 0x000003c0),
-	SOC15_REG_GOLDEN_VALUE(SDMA0, 0, mmSDMA0_UTCL1_WATERMK, 0xfc000000, 0x00000000)
 };
 
 static const struct soc15_reg_golden golden_settings_sdma1_4_2[] = {
@@ -511,7 +510,7 @@ static void sdma_v4_0_ring_emit_ib(struct amdgpu_ring *ring,
 	unsigned vmid = AMDGPU_JOB_GET_VMID(job);
 
 	/* IB packet must end on a 8 DW boundary */
-	sdma_v4_0_ring_insert_nop(ring, (2 - lower_32_bits(ring->wptr)) & 7);
+	sdma_v4_0_ring_insert_nop(ring, (10 - (lower_32_bits(ring->wptr) & 7)) % 8);
 
 	amdgpu_ring_write(ring, SDMA_PKT_HEADER_OP(SDMA_OP_INDIRECT) |
 			  SDMA_PKT_INDIRECT_HEADER_VMID(vmid & 0xf));
@@ -1390,7 +1389,7 @@ static void sdma_v4_0_ring_pad_ib(struct amdgpu_ring *ring, struct amdgpu_ib *ib
 	u32 pad_count;
 	int i;
 
-	pad_count = (-ib->length_dw) & 7;
+	pad_count = (8 - (ib->length_dw & 0x7)) % 8;
 	for (i = 0; i < pad_count; i++)
 		if (sdma && sdma->burst_nop && (i == 0))
 			ib->ptr[ib->length_dw++] =
@@ -2294,8 +2293,8 @@ static const struct amdgpu_buffer_funcs sdma_v4_0_buffer_funcs = {
 static void sdma_v4_0_set_buffer_funcs(struct amdgpu_device *adev)
 {
 	adev->mman.buffer_funcs = &sdma_v4_0_buffer_funcs;
-	if (adev->sdma.has_page_queue)
-		adev->mman.buffer_funcs_ring = &adev->sdma.instance[0].page;
+	if (adev->sdma.has_page_queue && adev->sdma.num_instances > 1)
+		adev->mman.buffer_funcs_ring = &adev->sdma.instance[1].page;
 	else
 		adev->mman.buffer_funcs_ring = &adev->sdma.instance[0].ring;
 }
@@ -2314,15 +2313,22 @@ static void sdma_v4_0_set_vm_pte_funcs(struct amdgpu_device *adev)
 	unsigned i;
 
 	adev->vm_manager.vm_pte_funcs = &sdma_v4_0_vm_pte_funcs;
-	for (i = 0; i < adev->sdma.num_instances; i++) {
-		if (adev->sdma.has_page_queue)
+	if (adev->sdma.has_page_queue && adev->sdma.num_instances > 1) {
+		for (i = 1; i < adev->sdma.num_instances; i++) {
 			sched = &adev->sdma.instance[i].page.sched;
-		else
+			adev->vm_manager.vm_pte_rqs[i - 1] =
+				&sched->sched_rq[DRM_SCHED_PRIORITY_KERNEL];
+		}
+		adev->vm_manager.vm_pte_num_rqs = adev->sdma.num_instances - 1;
+		adev->vm_manager.page_fault = &adev->sdma.instance[0].page;
+	} else {
+		for (i = 0; i < adev->sdma.num_instances; i++) {
 			sched = &adev->sdma.instance[i].ring.sched;
-		adev->vm_manager.vm_pte_rqs[i] =
-			&sched->sched_rq[DRM_SCHED_PRIORITY_KERNEL];
+			adev->vm_manager.vm_pte_rqs[i] =
+				&sched->sched_rq[DRM_SCHED_PRIORITY_KERNEL];
+		}
+		adev->vm_manager.vm_pte_num_rqs = adev->sdma.num_instances;
 	}
-	adev->vm_manager.vm_pte_num_rqs = adev->sdma.num_instances;
 }
 
 const struct amdgpu_ip_block_version sdma_v4_0_ip_block = {

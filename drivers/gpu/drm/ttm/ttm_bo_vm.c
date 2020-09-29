@@ -278,13 +278,15 @@ static vm_fault_t ttm_bo_vm_fault(struct vm_fault *vmf)
 		else
 			ret = vmf_insert_pfn(&cvma, address, pfn);
 
-		/* Never error on prefaulted PTEs */
-		if (unlikely((ret & VM_FAULT_ERROR))) {
-			if (i == 0)
-				goto out_io_unlock;
-			else
-				break;
-		}
+		/*
+		 * Somebody beat us to this PTE or prefaulting to
+		 * an already populated PTE, or prefaulting error.
+		 */
+
+		if (unlikely((ret == VM_FAULT_NOPAGE && i > 0)))
+			break;
+		else if (unlikely(ret & VM_FAULT_ERROR))
+			goto out_io_unlock;
 
 		address += PAGE_SIZE;
 		if (unlikely(++page_offset >= page_last))
@@ -302,6 +304,8 @@ static void ttm_bo_vm_open(struct vm_area_struct *vma)
 {
 	struct ttm_buffer_object *bo =
 	    (struct ttm_buffer_object *)vma->vm_private_data;
+
+	WARN_ON(bo->bdev->dev_mapping != vma->vm_file->f_mapping);
 
 	ttm_bo_get(bo);
 }

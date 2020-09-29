@@ -221,7 +221,8 @@ static void initialize_distance_lookup_table(int nid,
 	}
 }
 
-/* Returns nid in the range [0..MAX_NUMNODES-1], or -1 if no useful numa
+/*
+ * Returns nid in the range [0..nr_node_ids], or -1 if no useful NUMA
  * info is found.
  */
 static int associativity_to_nid(const __be32 *associativity)
@@ -235,7 +236,7 @@ static int associativity_to_nid(const __be32 *associativity)
 		nid = of_read_number(&associativity[min_common_depth], 1);
 
 	/* POWER4 LPAR uses 0xffff as invalid node */
-	if (nid == 0xffff || nid >= MAX_NUMNODES)
+	if (nid == 0xffff || nid >= nr_node_ids)
 		nid = NUMA_NO_NODE;
 
 	if (nid > 0 &&
@@ -448,7 +449,7 @@ static int of_drconf_to_nid_single(struct drmem_lmb *lmb)
 		index = lmb->aa_index * aa.array_sz + min_common_depth - 1;
 		nid = of_read_number(&aa.arrays[index], 1);
 
-		if (nid == 0xffff || nid >= MAX_NUMNODES)
+		if (nid == 0xffff || nid >= nr_node_ids)
 			nid = default_nid;
 
 		if (nid > 0) {
@@ -461,24 +462,73 @@ static int of_drconf_to_nid_single(struct drmem_lmb *lmb)
 	return nid;
 }
 
+#ifdef CONFIG_PPC_SPLPAR
+static int vphn_get_nid(long lcpu)
+{
+	__be32 associativity[VPHN_ASSOC_BUFSIZE] = {0};
+	long rc, hwid;
+
+	/*
+	 * On a shared lpar, device tree will not have node associativity.
+	 * At this time lppaca, or its __old_status field may not be
+	 * updated. Hence kernel cannot detect if its on a shared lpar. So
+	 * request an explicit associativity irrespective of whether the
+	 * lpar is shared or dedicated. Use the device tree property as a
+	 * fallback. cpu_to_phys_id is only valid between
+	 * smp_setup_cpu_maps() and smp_setup_pacas().
+	 */
+	if (firmware_has_feature(FW_FEATURE_VPHN)) {
+		if (cpu_to_phys_id)
+			hwid = cpu_to_phys_id[lcpu];
+		else
+			hwid = get_hard_smp_processor_id(lcpu);
+
+		rc = hcall_vphn(hwid, VPHN_FLAG_VCPU, associativity);
+		if (rc == H_SUCCESS)
+			return associativity_to_nid(associativity);
+	}
+
+	return NUMA_NO_NODE;
+}
+#else
+static int vphn_get_nid(long unused)
+{
+	return NUMA_NO_NODE;
+}
+#endif  /* CONFIG_PPC_SPLPAR */
+
 /*
  * Figure out to which domain a cpu belongs and stick it there.
  * Return the id of the domain used.
  */
 static int numa_setup_cpu(unsigned long lcpu)
 {
-	int nid = NUMA_NO_NODE;
 	struct device_node *cpu;
+	int fcpu = cpu_first_thread_sibling(lcpu);
+	int nid = NUMA_NO_NODE;
+
+	if (!cpu_present(lcpu)) {
+		set_cpu_numa_node(lcpu, first_online_node);
+		return first_online_node;
+	}
 
 	/*
 	 * If a valid cpu-to-node mapping is already available, use it
 	 * directly instead of querying the firmware, since it represents
 	 * the most recent mapping notified to us by the platform (eg: VPHN).
+	 * Since cpu_to_node binding remains the same for all threads in the
+	 * core. If a valid cpu-to-node mapping is already available, for
+	 * the first thread in the core, use it.
 	 */
-	if ((nid = numa_cpu_lookup_table[lcpu]) >= 0) {
+	nid = numa_cpu_lookup_table[fcpu];
+	if (nid >= 0) {
 		map_cpu_to_node(lcpu, nid);
 		return nid;
 	}
+
+	nid = vphn_get_nid(lcpu);
+	if (nid != NUMA_NO_NODE)
+		goto out_present;
 
 	cpu = of_get_cpu_node(lcpu, NULL);
 
@@ -491,13 +541,26 @@ static int numa_setup_cpu(unsigned long lcpu)
 	}
 
 	nid = of_node_to_nid_single(cpu);
+	of_node_put(cpu);
 
 out_present:
 	if (nid < 0 || !node_possible(nid))
 		nid = first_online_node;
 
+	/*
+	 * Update for the first thread of the core. All threads of a core
+	 * have to be part of the same node. This not only avoids querying
+	 * for every other thread in the core, but always avoids a case
+	 * where virtual node associativity change causes subsequent threads
+	 * of a core to be associated with different nid. However if first
+	 * thread is already online, expect it to have a valid mapping.
+	 */
+	if (fcpu != lcpu) {
+		WARN_ON(cpu_online(fcpu));
+		map_cpu_to_node(fcpu, nid);
+	}
+
 	map_cpu_to_node(lcpu, nid);
-	of_node_put(cpu);
 out:
 	return nid;
 }
@@ -665,21 +728,22 @@ static int __init parse_numa_properties(void)
 	 */
 	for_each_present_cpu(i) {
 		struct device_node *cpu;
-		int nid;
-
-		cpu = of_get_cpu_node(i, NULL);
-		BUG_ON(!cpu);
-		nid = of_node_to_nid_single(cpu);
-		of_node_put(cpu);
+		int nid = vphn_get_nid(i);
 
 		/*
 		 * Don't fall back to default_nid yet -- we will plug
 		 * cpus into nodes once the memory scan has discovered
 		 * the topology.
 		 */
-		if (nid < 0)
-			continue;
-		node_set_online(nid);
+		if (nid == NUMA_NO_NODE) {
+			cpu = of_get_cpu_node(i, NULL);
+			BUG_ON(!cpu);
+			nid = of_node_to_nid_single(cpu);
+			of_node_put(cpu);
+		}
+
+		if (likely(nid > 0))
+			node_set_online(nid);
 	}
 
 	get_n_mem_cells(&n_mem_addr_cells, &n_mem_size_cells);
@@ -833,7 +897,9 @@ static void __init setup_node_data(int nid, u64 start_pfn, u64 end_pfn)
 static void __init find_possible_nodes(void)
 {
 	struct device_node *rtas;
-	u32 numnodes, i;
+	const __be32 *domains;
+	int prop_length, max_nodes;
+	u32 i;
 
 	if (!numa_enabled)
 		return;
@@ -842,15 +908,30 @@ static void __init find_possible_nodes(void)
 	if (!rtas)
 		return;
 
-	if (of_property_read_u32_index(rtas,
-				"ibm,max-associativity-domains",
-				min_common_depth, &numnodes))
-		goto out;
+	/*
+	 * ibm,current-associativity-domains is a fairly recent property. If
+	 * it doesn't exist, then fallback on ibm,max-associativity-domains.
+	 * Current denotes what the platform can support compared to max
+	 * which denotes what the Hypervisor can support.
+	 */
+	domains = of_get_property(rtas, "ibm,current-associativity-domains",
+					&prop_length);
+	if (!domains) {
+		domains = of_get_property(rtas, "ibm,max-associativity-domains",
+					&prop_length);
+		if (!domains)
+			goto out;
+	}
 
-	for (i = 0; i < numnodes; i++) {
+	max_nodes = of_read_number(&domains[min_common_depth], 1);
+	for (i = 0; i < max_nodes; i++) {
 		if (!node_possible(i))
 			node_set(i, node_possible_map);
 	}
+
+	prop_length /= sizeof(int);
+	if (prop_length > min_common_depth + 2)
+		coregroup_enabled = 1;
 
 out:
 	of_node_put(rtas);
@@ -859,6 +940,16 @@ out:
 void __init mem_topology_setup(void)
 {
 	int cpu;
+
+	/*
+	 * Linux/mm assumes node 0 to be online at boot. However this is not
+	 * true on PowerPC, where node 0 is similar to any other node, it
+	 * could be cpuless, memoryless node. So force node 0 to be offline
+	 * for now. This will prevent cpuless, memoryless node 0 showing up
+	 * unnecessarily as online. If a node has cpus or memory that need
+	 * to be online, then node will anyway be marked online.
+	 */
+	node_set_offline(0);
 
 	if (parse_numa_properties())
 		setup_nonnuma();
@@ -877,8 +968,17 @@ void __init mem_topology_setup(void)
 
 	reset_numa_cpu_lookup_table();
 
-	for_each_present_cpu(cpu)
+	for_each_possible_cpu(cpu) {
+		/*
+		 * Powerpc with CONFIG_NUMA always used to have a node 0,
+		 * even if it was memoryless or cpuless. For all cpus that
+		 * are possible but not present, cpu_to_node() would point
+		 * to node 0. To remove a cpuless, memoryless dummy node,
+		 * powerpc need to make sure all possible but not present
+		 * cpu_to_node are set to a proper node.
+		 */
 		numa_setup_cpu(cpu);
+	}
 }
 
 void __init initmem_init(void)
@@ -1625,6 +1725,31 @@ static const struct file_operations topology_ops = {
 	.open = topology_open,
 	.release = single_release
 };
+
+int cpu_to_coregroup_id(int cpu)
+{
+	__be32 associativity[VPHN_ASSOC_BUFSIZE] = {0};
+	int index;
+
+	if (cpu < 0 || cpu > nr_cpu_ids)
+		return -1;
+
+	if (!coregroup_enabled)
+		goto out;
+
+	if (!firmware_has_feature(FW_FEATURE_VPHN))
+		goto out;
+
+	if (vphn_get_associativity(cpu, associativity))
+		goto out;
+
+	index = of_read_number(associativity, 1);
+	if (index > min_common_depth + 1)
+		return of_read_number(&associativity[index - 1], 1);
+
+out:
+	return cpu_to_core_id(cpu);
+}
 
 static int topology_update_init(void)
 {

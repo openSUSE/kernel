@@ -17,7 +17,7 @@
  *
  * TODO list is at the wiki:
  *
- * http://wireless.kernel.org/en/users/Drivers/at76c50x-usb#TODO
+ * https://wireless.wiki.kernel.org/en/users/Drivers/at76c50x-usb#TODO
  */
 
 #include <linux/init.h>
@@ -2236,7 +2236,7 @@ static int at76_alloc_urbs(struct at76_priv *priv,
 	at76_dbg(DBG_PROC_ENTRY, "%s: ENTER", __func__);
 
 	at76_dbg(DBG_URB, "%s: NumEndpoints %d ", __func__,
-		 interface->altsetting[0].desc.bNumEndpoints);
+		 interface->cur_altsetting->desc.bNumEndpoints);
 
 	ep_in = NULL;
 	ep_out = NULL;

@@ -206,6 +206,14 @@ others should not be larger than the returned value.
 
 ::
 
+	bool
+	dma_need_sync(struct device *dev, dma_addr_t dma_addr);
+
+Returns %true if dma_sync_single_for_{device,cpu} calls are required to
+transfer memory ownership.  Returns %false if those calls can be skipped.
+
+::
+
 	unsigned long
 	dma_get_merge_boundary(struct device *dev);
 
@@ -602,17 +610,6 @@ memory may be declared per device.
 For reasons of efficiency, most platforms choose to track the declared
 region only at the granularity of a page.  For smaller allocations,
 you should use the dma_pool() API.
-
-::
-
-	void
-	dma_release_declared_memory(struct device *dev)
-
-Remove the memory region previously declared from the system.  This
-API performs *no* in-use checking for this region and will return
-unconditionally having removed all the required structures.  It is the
-driver's job to ensure that no parts of this memory region are
-currently in use.
 
 Part III - Debug drivers use of the DMA-API
 -------------------------------------------

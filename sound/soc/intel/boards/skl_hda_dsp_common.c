@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // Copyright(c) 2015-18 Intel Corporation.
 
 /*
@@ -13,6 +13,9 @@
 #include <sound/soc.h>
 #include "../../codecs/hdac_hdmi.h"
 #include "skl_hda_dsp_common.h"
+
+#include <sound/hda_codec.h>
+#include "../../codecs/hdac_hda.h"
 
 #define NAME_SIZE	32
 
@@ -139,6 +142,9 @@ int skl_hda_hdmi_jack_init(struct snd_soc_card *card)
 	char jack_name[NAME_SIZE];
 	int err;
 
+	if (ctx->common_hdmi_codec_drv)
+		return skl_hda_hdmi_build_controls(card);
+
 	list_for_each_entry(pcm, &ctx->hdmi_pcm_list, head) {
 		component = pcm->codec_dai->component;
 		snprintf(jack_name, sizeof(jack_name),
@@ -149,6 +155,11 @@ int skl_hda_hdmi_jack_init(struct snd_soc_card *card)
 
 		if (err)
 			return err;
+
+		err = snd_jack_add_new_kctl(pcm->hdmi_jack.jack,
+					    jack_name, SND_JACK_AVOUT);
+		if (err)
+			dev_warn(component->dev, "failed creating Jack kctl\n");
 
 		err = hdac_hdmi_jack_init(pcm->codec_dai, pcm->device,
 					  &pcm->hdmi_jack);

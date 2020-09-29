@@ -150,7 +150,6 @@ int amdgpu_atomfirmware_get_vram_width(struct amdgpu_device *adev)
 				(mode_info->atom_context->bios + data_offset);
 			switch (crev) {
 			case 11:
-			case 12:
 				mem_channel_number = igp_info->v11.umachannelnumber;
 				/* channel width is 64 */
 				return mem_channel_number * 64;

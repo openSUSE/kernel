@@ -210,12 +210,20 @@ void __init mmu_partition_table_init(void)
 }
 
 void mmu_partition_table_set_entry(unsigned int lpid, unsigned long dw0,
-				   unsigned long dw1)
+				   unsigned long dw1, bool flush)
 {
 	unsigned long old = be64_to_cpu(partition_tb[lpid].patb0);
 
 	partition_tb[lpid].patb0 = cpu_to_be64(dw0);
 	partition_tb[lpid].patb1 = cpu_to_be64(dw1);
+
+	/*
+	 * Boot does not need to flush, because MMU is off and each
+	 * CPU does a tlbiel_all() before switching them on, which
+	 * flushes everything.
+	 */
+	if (!flush)
+		return;
 
 	/*
 	 * Global flush of TLBs and partition table caches for this lpid.
@@ -314,6 +322,9 @@ void pmd_fragment_free(unsigned long *pmd)
 {
 	struct page *page = virt_to_page(pmd);
 
+	if (PageReserved(page))
+		return free_reserved_page(page);
+
 	BUG_ON(atomic_read(&page->pt_frag_refcount) <= 0);
 	if (atomic_dec_and_test(&page->pt_frag_refcount)) {
 		pgtable_pmd_page_dtor(page);
@@ -331,7 +342,7 @@ static inline void pgtable_free(void *table, int index)
 		pmd_fragment_free(table);
 		break;
 	case PUD_INDEX:
-		kmem_cache_free(PGT_CACHE(PUD_CACHE_INDEX), table);
+		__pud_free(table);
 		break;
 #if defined(CONFIG_PPC_4K_PAGES) && defined(CONFIG_HUGETLB_PAGE)
 		/* 16M hugepd directory at pud level */

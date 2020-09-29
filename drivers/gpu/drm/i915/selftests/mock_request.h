@@ -30,7 +30,9 @@
 #include "../i915_request.h"
 
 struct i915_request *
-mock_request(struct intel_context *ce, unsigned long delay);
+mock_request(struct intel_engine_cs *engine,
+	     struct i915_gem_context *context,
+	     unsigned long delay);
 
 bool mock_cancel_request(struct i915_request *request);
 

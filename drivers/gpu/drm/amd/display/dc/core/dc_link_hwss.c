@@ -160,10 +160,6 @@ bool edp_receiver_ready_T7(struct dc_link *link)
 			break;
 		udelay(25); //MAx T7 is 50ms
 	} while (++tries < 300);
-
-	if (link->local_sink->edid_caps.panel_patch.extra_t7_ms > 0)
-		udelay(link->local_sink->edid_caps.panel_patch.extra_t7_ms * 1000);
-
 	return result;
 }
 
@@ -312,8 +308,7 @@ void dp_retrain_link_dp_test(struct dc_link *link,
 		if (pipes[i].stream != NULL &&
 			!pipes[i].top_pipe &&
 			pipes[i].stream->link != NULL &&
-			pipes[i].stream_res.stream_enc != NULL &&
-			pipes[i].stream->link == link) {
+			pipes[i].stream_res.stream_enc != NULL) {
 			udelay(100);
 
 			pipes[i].stream_res.stream_enc->funcs->dp_blank(

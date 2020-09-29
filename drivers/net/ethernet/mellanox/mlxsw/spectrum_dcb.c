@@ -110,8 +110,8 @@ static int mlxsw_sp_port_pg_destroy(struct mlxsw_sp_port *mlxsw_sp_port,
 	return mlxsw_reg_write(mlxsw_sp->core, MLXSW_REG(pbmc), pbmc_pl);
 }
 
-static int mlxsw_sp_port_headroom_set(struct mlxsw_sp_port *mlxsw_sp_port,
-				      struct ieee_ets *ets)
+static int mlxsw_sp_port_headroom_ets_set(struct mlxsw_sp_port *mlxsw_sp_port,
+					  struct ieee_ets *ets)
 {
 	bool pause_en = mlxsw_sp_port_is_pause_en(mlxsw_sp_port);
 	struct ieee_ets *my_ets = mlxsw_sp_port->dcb.ets;
@@ -138,7 +138,7 @@ static int mlxsw_sp_port_headroom_set(struct mlxsw_sp_port *mlxsw_sp_port,
 	err = mlxsw_sp_port_pg_destroy(mlxsw_sp_port, my_ets->prio_tc,
 				       ets->prio_tc);
 	if (err)
-		netdev_warn(dev, "Failed to remove ununsed PGs\n");
+		netdev_warn(dev, "Failed to remove unused PGs\n");
 
 	return 0;
 
@@ -180,7 +180,7 @@ static int __mlxsw_sp_dcbnl_ieee_setets(struct mlxsw_sp_port *mlxsw_sp_port,
 	}
 
 	/* Ingress configuration. */
-	err = mlxsw_sp_port_headroom_set(mlxsw_sp_port, ets);
+	err = mlxsw_sp_port_headroom_ets_set(mlxsw_sp_port, ets);
 	if (err)
 		goto err_port_headroom_set;
 
@@ -526,7 +526,7 @@ static int mlxsw_sp_dcbnl_ieee_setmaxrate(struct net_device *dev,
 		err = mlxsw_sp_port_ets_maxrate_set(mlxsw_sp_port,
 						    MLXSW_REG_QEEC_HR_SUBGROUP,
 						    i, 0,
-						    maxrate->tc_maxrate[i]);
+						    maxrate->tc_maxrate[i], 0);
 		if (err) {
 			netdev_err(dev, "Failed to set maxrate for TC %d\n", i);
 			goto err_port_ets_maxrate_set;
@@ -541,7 +541,8 @@ err_port_ets_maxrate_set:
 	for (i--; i >= 0; i--)
 		mlxsw_sp_port_ets_maxrate_set(mlxsw_sp_port,
 					      MLXSW_REG_QEEC_HR_SUBGROUP,
-					      i, 0, my_maxrate->tc_maxrate[i]);
+					      i, 0,
+					      my_maxrate->tc_maxrate[i], 0);
 	return err;
 }
 

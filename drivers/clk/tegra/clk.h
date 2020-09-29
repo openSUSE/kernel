@@ -854,7 +854,6 @@ void tegra_periph_clk_init(void __iomem *clk_base, void __iomem *pmc_base,
 			struct tegra_clk *tegra_clks,
 			struct tegra_clk_pll_params *pll_params);
 
-void tegra_pmc_clk_init(void __iomem *pmc_base, struct tegra_clk *tegra_clks);
 void tegra_fixed_clk_init(struct tegra_clk *tegra_clks);
 int tegra_osc_clk_init(void __iomem *clk_base, struct tegra_clk *clks,
 		       unsigned long *input_freqs, unsigned int num,
@@ -867,7 +866,7 @@ void tegra_super_clk_gen5_init(void __iomem *clk_base,
 			void __iomem *pmc_base, struct tegra_clk *tegra_clks,
 			struct tegra_clk_pll_params *pll_params);
 
-#ifdef CONFIG_TEGRA_CLK_EMC
+#ifdef CONFIG_TEGRA124_EMC
 struct clk *tegra_clk_register_emc(void __iomem *base, struct device_node *np,
 				   spinlock_t *lock);
 #else
@@ -904,5 +903,8 @@ void tegra_clk_periph_resume(void);
 		readl(reg);		\
 		udelay(delay);		\
 	} while (0)
+
+struct clk *tegra210_clk_register_emc(struct device_node *np,
+				      void __iomem *regs);
 
 #endif /* TEGRA_CLK_H */

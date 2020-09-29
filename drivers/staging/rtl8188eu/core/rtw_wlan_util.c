@@ -270,14 +270,9 @@ void Switch_DM_Func(struct adapter *padapter, u32 mode, u8 enable)
 		rtw_hal_set_hwreg(padapter, HW_VAR_DM_FUNC_CLR, (u8 *)(&mode));
 }
 
-static void Set_NETYPE0_MSR(struct adapter *padapter, u8 type)
-{
-	rtw_hal_set_hwreg(padapter, HW_VAR_MEDIA_STATUS, (u8 *)(&type));
-}
-
 void Set_MSR(struct adapter *padapter, u8 type)
 {
-	Set_NETYPE0_MSR(padapter, type);
+	rtw_hal_set_hwreg(padapter, HW_VAR_MEDIA_STATUS, (u8 *)(&type));
 }
 
 inline u8 rtw_get_oper_ch(struct adapter *adapter)
@@ -672,7 +667,7 @@ static void bwmode_update_check(struct adapter *padapter, struct ndis_802_11_var
 void HT_caps_handler(struct adapter *padapter, struct ndis_802_11_var_ie *pIE)
 {
 	unsigned int i;
-	u8 max_AMPDU_len, min_MPDU_spacing;
+	u8 max_ampdu_len, min_mpdu_spacing;
 	struct mlme_ext_priv *pmlmeext = &padapter->mlmeextpriv;
 	struct mlme_ext_info *pmlmeinfo = &pmlmeext->mlmext_info;
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
@@ -694,16 +689,16 @@ void HT_caps_handler(struct adapter *padapter, struct ndis_802_11_var_ie *pIE)
 		} else {
 			/* modify from  fw by Thomas 2010/11/17 */
 			if ((pmlmeinfo->HT_caps.ampdu_params_info & 0x3) > (pIE->data[i] & 0x3))
-				max_AMPDU_len = pIE->data[i] & 0x3;
+				max_ampdu_len = pIE->data[i] & 0x3;
 			else
-				max_AMPDU_len = pmlmeinfo->HT_caps.ampdu_params_info & 0x3;
+				max_ampdu_len = pmlmeinfo->HT_caps.ampdu_params_info & 0x3;
 
 			if ((pmlmeinfo->HT_caps.ampdu_params_info & 0x1c) > (pIE->data[i] & 0x1c))
-				min_MPDU_spacing = pmlmeinfo->HT_caps.ampdu_params_info & 0x1c;
+				min_mpdu_spacing = pmlmeinfo->HT_caps.ampdu_params_info & 0x1c;
 			else
-				min_MPDU_spacing = pIE->data[i] & 0x1c;
+				min_mpdu_spacing = pIE->data[i] & 0x1c;
 
-			pmlmeinfo->HT_caps.ampdu_params_info = max_AMPDU_len | min_MPDU_spacing;
+			pmlmeinfo->HT_caps.ampdu_params_info = max_ampdu_len | min_mpdu_spacing;
 		}
 	}
 
@@ -734,8 +729,8 @@ void HT_info_handler(struct adapter *padapter, struct ndis_802_11_var_ie *pIE)
 
 void HTOnAssocRsp(struct adapter *padapter)
 {
-	unsigned char max_AMPDU_len;
-	unsigned char min_MPDU_spacing;
+	u8 max_ampdu_len;
+	u8 min_mpdu_spacing;
 	struct mlme_ext_priv *pmlmeext = &padapter->mlmeextpriv;
 	struct mlme_ext_info *pmlmeinfo = &pmlmeext->mlmext_info;
 
@@ -753,13 +748,11 @@ void HTOnAssocRsp(struct adapter *padapter)
 	 * AMPDU_para [1:0]:Max AMPDU Len => 0:8k , 1:16k, 2:32k, 3:64k
 	 * AMPDU_para [4:2]:Min MPDU Start Spacing
 	 */
-	max_AMPDU_len = pmlmeinfo->HT_caps.ampdu_params_info & 0x03;
+	max_ampdu_len = pmlmeinfo->HT_caps.ampdu_params_info & 0x03;
+	min_mpdu_spacing = (pmlmeinfo->HT_caps.ampdu_params_info & 0x1c) >> 2;
 
-	min_MPDU_spacing = (pmlmeinfo->HT_caps.ampdu_params_info & 0x1c) >> 2;
-
-	rtw_hal_set_hwreg(padapter, HW_VAR_AMPDU_MIN_SPACE, (u8 *)(&min_MPDU_spacing));
-
-	rtw_hal_set_hwreg(padapter, HW_VAR_AMPDU_FACTOR, (u8 *)(&max_AMPDU_len));
+	rtw_hal_set_hwreg(padapter, HW_VAR_AMPDU_MIN_SPACE, &min_mpdu_spacing);
+	rtw_hal_set_hwreg(padapter, HW_VAR_AMPDU_FACTOR, &max_ampdu_len);
 }
 
 void ERP_IE_handler(struct adapter *padapter, struct ndis_802_11_var_ie *pIE)
@@ -974,7 +967,7 @@ int rtw_check_bcn_info(struct adapter  *Adapter, u8 *pframe, u32 packet_len)
 		pbuf = rtw_get_wpa_ie(&bssid->ies[12], &wpa_ielen,
 				      bssid->ie_length - 12);
 		if (pbuf && (wpa_ielen > 0)) {
-			if (_SUCCESS == rtw_parse_wpa_ie(pbuf, wpa_ielen + 2, &group_cipher, &pairwise_cipher, &is_8021x)) {
+			if (rtw_parse_wpa_ie(pbuf, wpa_ielen + 2, &group_cipher, &pairwise_cipher, &is_8021x) == _SUCCESS) {
 				RT_TRACE(_module_rtl871x_mlme_c_, _drv_info_,
 					 ("%s pnetwork->pairwise_cipher: %d, group_cipher is %d, is_8021x is %d\n", __func__,
 					 pairwise_cipher, group_cipher, is_8021x));
@@ -984,7 +977,7 @@ int rtw_check_bcn_info(struct adapter  *Adapter, u8 *pframe, u32 packet_len)
 					       bssid->ie_length - 12);
 
 			if (pbuf && (wpa_ielen > 0)) {
-				if (_SUCCESS == rtw_parse_wpa2_ie(pbuf, wpa_ielen + 2, &group_cipher, &pairwise_cipher, &is_8021x)) {
+				if (rtw_parse_wpa2_ie(pbuf, wpa_ielen + 2, &group_cipher, &pairwise_cipher, &is_8021x) == _SUCCESS) {
 					RT_TRACE(_module_rtl871x_mlme_c_, _drv_info_,
 						 ("%s pnetwork->pairwise_cipher: %d, pnetwork->group_cipher is %d, is_802x is %d\n",
 						  __func__, pairwise_cipher, group_cipher, is_8021x));
@@ -1179,15 +1172,10 @@ void Update_RA_Entry(struct adapter *padapter, u32 mac_id)
 	rtw_hal_update_ra_mask(padapter, mac_id, 0);
 }
 
-static void enable_rate_adaptive(struct adapter *padapter, u32 mac_id)
-{
-	Update_RA_Entry(padapter, mac_id);
-}
-
 void set_sta_rate(struct adapter *padapter, struct sta_info *psta)
 {
 	/* rate adaptive */
-	enable_rate_adaptive(padapter, psta->mac_id);
+	Update_RA_Entry(padapter, psta->mac_id);
 }
 
 /*  Update RRSR and Rate for USERATE */
@@ -1259,9 +1247,8 @@ unsigned char check_assoc_AP(u8 *pframe, uint len)
 				if (ralink_vendor_flag) {
 					DBG_88E("link to Tenda W311R AP\n");
 					return HT_IOT_PEER_TENDA;
-				} else {
-					DBG_88E("Capture EPIGRAM_OUI\n");
 				}
+				DBG_88E("Capture EPIGRAM_OUI\n");
 			} else {
 				break;
 			}
@@ -1278,10 +1265,9 @@ unsigned char check_assoc_AP(u8 *pframe, uint len)
 	} else if (ralink_vendor_flag && epigram_vendor_flag) {
 		DBG_88E("link to Tenda W311R AP\n");
 		return HT_IOT_PEER_TENDA;
-	} else {
-		DBG_88E("link to new AP\n");
-		return HT_IOT_PEER_UNKNOWN;
 	}
+	DBG_88E("link to new AP\n");
+	return HT_IOT_PEER_UNKNOWN;
 }
 
 void update_IOT_info(struct adapter *padapter)
@@ -1475,9 +1461,4 @@ void update_TSF(struct mlme_ext_priv *pmlmeext, u8 *pframe, uint len)
 void correct_TSF(struct adapter *padapter, struct mlme_ext_priv *pmlmeext)
 {
 	rtw_hal_set_hwreg(padapter, HW_VAR_CORRECT_TSF, NULL);
-}
-
-void beacon_timing_control(struct adapter *padapter)
-{
-	rtw_hal_bcn_related_reg_setting(padapter);
 }

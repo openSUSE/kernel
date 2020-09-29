@@ -366,6 +366,19 @@ config NET_SCH_PIE
 
 	  If unsure, say N.
 
+config NET_SCH_FQ_PIE
+	depends on NET_SCH_PIE
+	tristate "Flow Queue Proportional Integral controller Enhanced (FQ-PIE)"
+	help
+	  Say Y here if you want to use the Flow Queue Proportional Integral
+	  controller Enhanced (FQ-PIE) packet scheduling algorithm.
+	  For more information, please see https://tools.ietf.org/html/rfc8033
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called sch_fq_pie.
+
+	  If unsure, say N.
+
 config NET_SCH_INGRESS
 	tristate "Ingress/classifier-action Qdisc"
 	depends on NET_CLS_ACT
@@ -409,6 +422,23 @@ config NET_SCH_PLUG
 	  To compile this code as a module, choose M here: the
 	  module will be called sch_plug.
 
+config NET_SCH_ETS
+	tristate "Enhanced transmission selection scheduler (ETS)"
+	help
+          The Enhanced Transmission Selection scheduler is a classful
+          queuing discipline that merges functionality of PRIO and DRR
+          qdiscs in one scheduler. ETS makes it easy to configure a set of
+          strict and bandwidth-sharing bands to implement the transmission
+          selection described in 802.1Qaz.
+
+	  Say Y here if you want to use the ETS packet scheduling
+	  algorithm.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called sch_ets.
+
+	  If unsure, say N.
+
 menuconfig NET_SCH_DEFAULT
 	bool "Allow override default queue discipline"
 	---help---
@@ -438,6 +468,9 @@ choice
 	config DEFAULT_FQ_CODEL
 		bool "Fair Queue Controlled Delay" if NET_SCH_FQ_CODEL
 
+	config DEFAULT_FQ_PIE
+		bool "Flow Queue Proportional Integral controller Enhanced" if NET_SCH_FQ_PIE
+
 	config DEFAULT_SFQ
 		bool "Stochastic Fair Queue" if NET_SCH_SFQ
 
@@ -450,6 +483,7 @@ config DEFAULT_NET_SCH
 	default "pfifo_fast" if DEFAULT_PFIFO_FAST
 	default "fq" if DEFAULT_FQ
 	default "fq_codel" if DEFAULT_FQ_CODEL
+	default "fq_pie" if DEFAULT_FQ_PIE
 	default "sfq" if DEFAULT_SFQ
 	default "pfifo_fast"
 endif
@@ -942,7 +976,7 @@ config NET_ACT_TUNNEL_KEY
 
 config NET_ACT_CT
         tristate "connection tracking tc action"
-        depends on NET_CLS_ACT && NF_CONNTRACK && NF_NAT
+	depends on NET_CLS_ACT && NF_CONNTRACK && NF_NAT && NF_FLOW_TABLE
         help
 	  Say Y here to allow sending the packets to conntrack module.
 
@@ -950,6 +984,18 @@ config NET_ACT_CT
 
 	  To compile this code as a module, choose M here: the
 	  module will be called act_ct.
+
+config NET_ACT_GATE
+	tristate "Frame gate entry list control tc action"
+	depends on NET_CLS_ACT
+	help
+	  Say Y here to allow to control the ingress flow to be passed at
+	  specific time slot and be dropped at other specific time slot by
+	  the gate entry list.
+
+	  If unsure, say N.
+	  To compile this code as a module, choose M here: the
+	  module will be called act_gate.
 
 config NET_IFE_SKBMARK
         tristate "Support to encoding decoding skb mark on IFE action"
@@ -962,6 +1008,18 @@ config NET_IFE_SKBPRIO
 config NET_IFE_SKBTCINDEX
         tristate "Support to encoding decoding skb tcindex on IFE action"
         depends on NET_ACT_IFE
+
+config NET_TC_SKB_EXT
+	bool "TC recirculation support"
+	depends on NET_CLS_ACT
+	select SKB_EXTENSIONS
+
+	help
+	  Say Y here to allow tc chain misses to continue in OvS datapath in
+	  the correct recirc_id, and hardware chain misses to continue in
+	  the correct chain in tc software datapath.
+
+	  Say N here if you won't be using tc<->ovs offload or tc chains offload.
 
 endif # NET_SCHED
 

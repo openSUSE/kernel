@@ -55,6 +55,7 @@ static void rx51_ext_control(struct snd_soc_dapm_context *dapm)
 		break;
 	case RX51_JACK_HS:
 		hs = 1;
+		/* fall through */
 	case RX51_JACK_HP:
 		hp = 1;
 		break;
@@ -89,7 +90,7 @@ static void rx51_ext_control(struct snd_soc_dapm_context *dapm)
 static int rx51_startup(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
 	struct snd_soc_card *card = rtd->card;
 
 	snd_pcm_hw_constraint_single(runtime, SNDRV_PCM_HW_PARAM_CHANNELS, 2);
@@ -101,8 +102,8 @@ static int rx51_startup(struct snd_pcm_substream *substream)
 static int rx51_hw_params(struct snd_pcm_substream *substream,
 	struct snd_pcm_hw_params *params)
 {
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_dai *codec_dai = rtd->codec_dai;
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
+	struct snd_soc_dai *codec_dai = asoc_rtd_to_codec(rtd, 0);
 
 	/* Set the codec system clock for DAC and ADC */
 	return snd_soc_dai_set_sysclk(codec_dai, 0, 19200000,
@@ -318,22 +319,20 @@ static struct snd_soc_dai_link rx51_dai[] = {
 
 static struct snd_soc_aux_dev rx51_aux_dev[] = {
 	{
-		.name = "TLV320AIC34b",
-		.codec_name = "tlv320aic3x-codec.2-0019",
+		.dlc = COMP_AUX("tlv320aic3x-codec.2-0019"),
 	},
 	{
-		.name = "TPA61320A2",
-		.codec_name = "tpa6130a2.2-0060",
+		.dlc = COMP_AUX("tpa6130a2.2-0060"),
 	},
 };
 
 static struct snd_soc_codec_conf rx51_codec_conf[] = {
 	{
-		.dev_name = "tlv320aic3x-codec.2-0019",
+		.dlc = COMP_CODEC_CONF("tlv320aic3x-codec.2-0019"),
 		.name_prefix = "b",
 	},
 	{
-		.dev_name = "tpa6130a2.2-0060",
+		.dlc = COMP_CODEC_CONF("tpa6130a2.2-0060"),
 		.name_prefix = "TPA6130A2",
 	},
 };
@@ -396,20 +395,20 @@ static int rx51_soc_probe(struct platform_device *pdev)
 			dev_err(&pdev->dev, "Auxiliary Codec node is not provided\n");
 			return -EINVAL;
 		}
-		rx51_aux_dev[0].codec_name = NULL;
-		rx51_aux_dev[0].codec_of_node = dai_node;
-		rx51_codec_conf[0].dev_name = NULL;
-		rx51_codec_conf[0].of_node = dai_node;
+		rx51_aux_dev[0].dlc.name = NULL;
+		rx51_aux_dev[0].dlc.of_node = dai_node;
+		rx51_codec_conf[0].dlc.name = NULL;
+		rx51_codec_conf[0].dlc.of_node = dai_node;
 
 		dai_node = of_parse_phandle(np, "nokia,headphone-amplifier", 0);
 		if (!dai_node) {
 			dev_err(&pdev->dev, "Headphone amplifier node is not provided\n");
 			return -EINVAL;
 		}
-		rx51_aux_dev[1].codec_name = NULL;
-		rx51_aux_dev[1].codec_of_node = dai_node;
-		rx51_codec_conf[1].dev_name = NULL;
-		rx51_codec_conf[1].of_node = dai_node;
+		rx51_aux_dev[1].dlc.name = NULL;
+		rx51_aux_dev[1].dlc.of_node = dai_node;
+		rx51_codec_conf[1].dlc.name = NULL;
+		rx51_codec_conf[1].dlc.of_node = dai_node;
 	}
 
 	pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);

@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: MIT
 #
 # Makefile for the 'dsc' sub-component of DAL.
 
@@ -9,10 +8,6 @@ else ifneq ($(call cc-option, -mstack-alignment=16),)
 endif
 
 dsc_ccflags := -mhard-float -msse $(cc_stack_align)
-
-ifdef CONFIG_CC_IS_CLANG
-dsc_ccflags += -msse2
-endif
 
 CFLAGS_rc_calc.o := $(dsc_ccflags)
 CFLAGS_rc_calc_dpi.o := $(dsc_ccflags)

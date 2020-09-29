@@ -186,7 +186,8 @@ static int create_user_srq(struct hns_roce_srq *srq, struct ib_udata *udata,
 	if (ib_copy_from_udata(&ucmd, udata, sizeof(ucmd)))
 		return -EFAULT;
 
-	srq->umem = ib_umem_get(udata, ucmd.buf_addr, srq_buf_size, 0, 0);
+	srq->umem =
+		ib_umem_get(srq->ibsrq.device, ucmd.buf_addr, srq_buf_size, 0);
 	if (IS_ERR(srq->umem))
 		return PTR_ERR(srq->umem);
 
@@ -205,8 +206,8 @@ static int create_user_srq(struct hns_roce_srq *srq, struct ib_udata *udata,
 		goto err_user_srq_mtt;
 
 	/* config index queue BA */
-	srq->idx_que.umem = ib_umem_get(udata, ucmd.que_addr,
-					srq->idx_que.buf_size, 0, 0);
+	srq->idx_que.umem = ib_umem_get(srq->ibsrq.device, ucmd.que_addr,
+					srq->idx_que.buf_size, 0);
 	if (IS_ERR(srq->idx_que.umem)) {
 		dev_err(hr_dev->dev, "ib_umem_get error for index queue\n");
 		ret = PTR_ERR(srq->idx_que.umem);
@@ -380,7 +381,8 @@ int hns_roce_create_srq(struct ib_srq *ib_srq,
 	srq->wqe_cnt = roundup_pow_of_two(init_attr->attr.max_wr + 1);
 	srq->max_gs = init_attr->attr.max_sge;
 
-	srq_desc_size = roundup_pow_of_two(max(16, 16 * srq->max_gs));
+	srq_desc_size = roundup_pow_of_two(max(HNS_ROCE_SGE_SIZE,
+					HNS_ROCE_SGE_SIZE * srq->max_gs));
 
 	srq->wqe_shift = ilog2(srq_desc_size);
 

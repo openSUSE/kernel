@@ -39,53 +39,41 @@ struct nvdimm {
 	const char *dimm_id;
 	struct {
 		const struct nvdimm_security_ops *ops;
-		enum nvdimm_security_state state;
-		enum nvdimm_security_state ext_state;
+		unsigned long flags;
+		unsigned long ext_flags;
 		unsigned int overwrite_tmo;
 		struct kernfs_node *overwrite_state;
 	} sec;
 	struct delayed_work dwork;
+	const struct nvdimm_fw_ops *fw_ops;
 };
 
-static inline enum nvdimm_security_state nvdimm_security_state(
+static inline unsigned long nvdimm_security_flags(
 		struct nvdimm *nvdimm, enum nvdimm_passphrase_type ptype)
 {
-	if (!nvdimm->sec.ops)
-		return -ENXIO;
+	u64 flags;
+	const u64 state_flags = 1UL << NVDIMM_SECURITY_DISABLED
+		| 1UL << NVDIMM_SECURITY_LOCKED
+		| 1UL << NVDIMM_SECURITY_UNLOCKED
+		| 1UL << NVDIMM_SECURITY_OVERWRITE;
 
-	return nvdimm->sec.ops->state(nvdimm, ptype);
+	if (!nvdimm->sec.ops)
+		return 0;
+
+	flags = nvdimm->sec.ops->get_flags(nvdimm, ptype);
+	/* disabled, locked, unlocked, and overwrite are mutually exclusive */
+	dev_WARN_ONCE(&nvdimm->dev, hweight64(flags & state_flags) > 1,
+			"reported invalid security state: %#llx\n",
+			(unsigned long long) flags);
+	return flags;
 }
 int nvdimm_security_freeze(struct nvdimm *nvdimm);
 #if IS_ENABLED(CONFIG_NVDIMM_KEYS)
-int nvdimm_security_disable(struct nvdimm *nvdimm, unsigned int keyid);
-int nvdimm_security_update(struct nvdimm *nvdimm, unsigned int keyid,
-		unsigned int new_keyid,
-		enum nvdimm_passphrase_type pass_type);
-int nvdimm_security_erase(struct nvdimm *nvdimm, unsigned int keyid,
-		enum nvdimm_passphrase_type pass_type);
-int nvdimm_security_overwrite(struct nvdimm *nvdimm, unsigned int keyid);
+ssize_t nvdimm_security_store(struct device *dev, const char *buf, size_t len);
 void nvdimm_security_overwrite_query(struct work_struct *work);
 #else
-static inline int nvdimm_security_disable(struct nvdimm *nvdimm,
-		unsigned int keyid)
-{
-	return -EOPNOTSUPP;
-}
-static inline int nvdimm_security_update(struct nvdimm *nvdimm,
-		unsigned int keyid,
-		unsigned int new_keyid,
-		enum nvdimm_passphrase_type pass_type)
-{
-	return -EOPNOTSUPP;
-}
-static inline int nvdimm_security_erase(struct nvdimm *nvdimm,
-		unsigned int keyid,
-		enum nvdimm_passphrase_type pass_type)
-{
-	return -EOPNOTSUPP;
-}
-static inline int nvdimm_security_overwrite(struct nvdimm *nvdimm,
-		unsigned int keyid)
+static inline ssize_t nvdimm_security_store(struct device *dev,
+		const char *buf, size_t len)
 {
 	return -EOPNOTSUPP;
 }

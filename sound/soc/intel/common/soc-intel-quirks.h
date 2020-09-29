@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * soc-intel-quirks.h - prototypes for quirk autodetection
  *
@@ -34,6 +34,7 @@ SOC_INTEL_IS_CPU(byt, ATOM_SILVERMONT);
 SOC_INTEL_IS_CPU(cht, ATOM_AIRMONT);
 SOC_INTEL_IS_CPU(apl, ATOM_GOLDMONT);
 SOC_INTEL_IS_CPU(glk, ATOM_GOLDMONT_PLUS);
+SOC_INTEL_IS_CPU(cml, KABYLAKE_L);
 
 static inline bool soc_intel_is_byt_cr(struct platform_device *pdev)
 {
@@ -108,6 +109,10 @@ static inline bool soc_intel_is_glk(void)
 	return false;
 }
 
+static inline bool soc_intel_is_cml(void)
+{
+	return false;
+}
 #endif
 
  #endif /* _SND_SOC_INTEL_QUIRKS_H */

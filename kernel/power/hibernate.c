@@ -9,7 +9,7 @@
  * Copyright (C) 2012 Bojan Smojver <bojan@rexursive.com>
  */
 
-#define pr_fmt(fmt) "PM: " fmt
+#define pr_fmt(fmt) "PM: hibernation: " fmt
 
 #include <linux/export.h>
 #include <linux/suspend.h>
@@ -68,6 +68,18 @@ bool freezer_test_done;
 
 static const struct platform_hibernation_ops *hibernation_ops;
 
+static atomic_t hibernate_atomic = ATOMIC_INIT(1);
+
+bool hibernate_acquire(void)
+{
+	return atomic_add_unless(&hibernate_atomic, -1, 0);
+}
+
+void hibernate_release(void)
+{
+	atomic_inc(&hibernate_atomic);
+}
+
 bool hibernation_available(void)
 {
 	if (nohibernate != 0)
@@ -119,7 +131,7 @@ EXPORT_SYMBOL(system_entering_hibernation);
 #ifdef CONFIG_PM_DEBUG
 static void hibernation_debug_sleep(void)
 {
-	pr_info("hibernation debug: Waiting for 5 seconds.\n");
+	pr_info("debug: Waiting for 5 seconds.\n");
 	mdelay(5000);
 }
 
@@ -294,7 +306,7 @@ static int create_image(int platform_mode)
 
 	error = dpm_suspend_end(PMSG_FREEZE);
 	if (error) {
-		pr_err("Some devices failed to power down, aborting hibernation\n");
+		pr_err("Some devices failed to power down, aborting\n");
 		goto finish_hash;
 	}
 
@@ -312,7 +324,7 @@ static int create_image(int platform_mode)
 
 	error = syscore_suspend();
 	if (error) {
-		pr_err("Some system devices failed to power down, aborting hibernation\n");
+		pr_err("Some system devices failed to power down, aborting\n");
 		goto Enable_irqs;
 	}
 
@@ -327,7 +339,7 @@ static int create_image(int platform_mode)
 	restore_processor_state();
 	trace_suspend_resume(TPS("machine_suspend"), PM_EVENT_HIBERNATE, false);
 	if (error)
-		pr_err("Error %d creating hibernation image\n", error);
+		pr_err("Error %d creating image\n", error);
 
 	if (!in_suspend) {
 		events_check_enabled = false;
@@ -700,7 +712,7 @@ static int load_image_and_restore(void)
 	if (!error)
 		hibernation_restore(flags & SF_PLATFORM_MODE);
 
-	pr_err("Failed to load hibernation image, recovering.\n");
+	pr_err("Failed to load image, recovering.\n");
 	swsusp_free();
 	free_basic_memory_bitmaps();
  Unlock:
@@ -741,7 +753,7 @@ int hibernate(void)
 
 	lock_system_sleep();
 	/* The snapshot device should not be opened while we're running */
-	if (!atomic_add_unless(&snapshot_device_available, -1, 0)) {
+	if (!hibernate_acquire()) {
 		error = -EBUSY;
 		goto Unlock;
 	}
@@ -780,7 +792,7 @@ int hibernate(void)
 		else
 		        flags |= SF_CRC32_MODE;
 
-		pm_pr_dbg("Writing image.\n");
+		pm_pr_dbg("Writing hibernation image.\n");
 		error = swsusp_write(flags);
 		swsusp_free();
 		if (!error) {
@@ -792,7 +804,7 @@ int hibernate(void)
 		in_suspend = 0;
 		pm_restore_gfp_mask();
 	} else {
-		pm_pr_dbg("Image restored successfully.\n");
+		pm_pr_dbg("Hibernation image restored successfully.\n");
 		snapshot_restore_trampoline();
 	}
 
@@ -813,7 +825,7 @@ int hibernate(void)
  Exit:
 	__pm_notifier_call_chain(PM_POST_HIBERNATION, nr_calls, NULL);
 	pm_restore_console();
-	atomic_inc(&snapshot_device_available);
+	hibernate_release();
  Unlock:
 	unlock_system_sleep();
 	pr_info("hibernation exit\n");
@@ -821,6 +833,103 @@ int hibernate(void)
 	return error;
 }
 
+/**
+ * hibernate_quiet_exec - Execute a function with all devices frozen.
+ * @func: Function to execute.
+ * @data: Data pointer to pass to @func.
+ *
+ * Return the @func return value or an error code if it cannot be executed.
+ */
+int hibernate_quiet_exec(int (*func)(void *data), void *data)
+{
+	int error, nr_calls = 0;
+
+	lock_system_sleep();
+
+	if (!hibernate_acquire()) {
+		error = -EBUSY;
+		goto unlock;
+	}
+
+	pm_prepare_console();
+
+	error = __pm_notifier_call_chain(PM_HIBERNATION_PREPARE, -1, &nr_calls);
+	if (error) {
+		nr_calls--;
+		goto exit;
+	}
+
+	error = freeze_processes();
+	if (error)
+		goto exit;
+
+	lock_device_hotplug();
+
+	pm_suspend_clear_flags();
+
+	error = platform_begin(true);
+	if (error)
+		goto thaw;
+
+	error = freeze_kernel_threads();
+	if (error)
+		goto thaw;
+
+	error = dpm_prepare(PMSG_FREEZE);
+	if (error)
+		goto dpm_complete;
+
+	suspend_console();
+
+	error = dpm_suspend(PMSG_FREEZE);
+	if (error)
+		goto dpm_resume;
+
+	error = dpm_suspend_end(PMSG_FREEZE);
+	if (error)
+		goto dpm_resume;
+
+	error = platform_pre_snapshot(true);
+	if (error)
+		goto skip;
+
+	error = func(data);
+
+skip:
+	platform_finish(true);
+
+	dpm_resume_start(PMSG_THAW);
+
+dpm_resume:
+	dpm_resume(PMSG_THAW);
+
+	resume_console();
+
+dpm_complete:
+	dpm_complete(PMSG_THAW);
+
+	thaw_kernel_threads();
+
+thaw:
+	platform_end(true);
+
+	unlock_device_hotplug();
+
+	thaw_processes();
+
+exit:
+	__pm_notifier_call_chain(PM_POST_HIBERNATION, nr_calls, NULL);
+
+	pm_restore_console();
+
+	hibernate_release();
+
+unlock:
+	unlock_system_sleep();
+
+	return error;
+}
+EXPORT_SYMBOL_GPL(hibernate_quiet_exec);
 
 /**
  * software_resume - Resume from a saved hibernation image.
@@ -918,7 +1027,7 @@ static int software_resume(void)
 		goto Unlock;
 
 	/* The snapshot device should not be opened while we're running */
-	if (!atomic_add_unless(&snapshot_device_available, -1, 0)) {
+	if (!hibernate_acquire()) {
 		error = -EBUSY;
 		swsusp_close(FMODE_READ);
 		goto Unlock;
@@ -932,7 +1041,7 @@ static int software_resume(void)
 		goto Close_Finish;
 	}
 
-	pm_pr_dbg("Preparing processes for restore.\n");
+	pm_pr_dbg("Preparing processes for hibernation restore.\n");
 	error = freeze_processes();
 	if (error)
 		goto Close_Finish;
@@ -948,8 +1057,8 @@ static int software_resume(void)
  Finish:
 	__pm_notifier_call_chain(PM_POST_RESTORE, nr_calls, NULL);
 	pm_restore_console();
-	pr_info("resume from hibernation failed (%d)\n", error);
-	atomic_inc(&snapshot_device_available);
+	pr_info("resume failed (%d)\n", error);
+	hibernate_release();
 	/* For success case, the suspend path will release the lock */
  Unlock:
 	mutex_unlock(&system_transition_mutex);
@@ -1113,7 +1222,8 @@ static ssize_t resume_store(struct kobject *kobj, struct kobj_attribute *attr,
 	lock_system_sleep();
 	swsusp_resume_device = res;
 	unlock_system_sleep();
-	pm_pr_dbg("Configured resume from disk to %u\n", swsusp_resume_device);
+	pm_pr_dbg("Configured hibernation resume from disk to %u\n",
+		  swsusp_resume_device);
 	noresume = 0;
 	software_resume();
 	return n;

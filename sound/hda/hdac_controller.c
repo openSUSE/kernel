@@ -9,6 +9,7 @@
 #include <sound/core.h>
 #include <sound/hdaudio.h>
 #include <sound/hda_register.h>
+#include "local.h"
 
 /* clear CORB read pointer properly */
 static void azx_clear_corbrp(struct hdac_bus *bus)
@@ -562,7 +563,7 @@ EXPORT_SYMBOL_GPL(snd_hdac_bus_stop_chip);
  * snd_hdac_bus_handle_stream_irq - interrupt handler for streams
  * @bus: HD-audio core bus
  * @status: INTSTS register value
- * @ask: callback to be called for woken streams
+ * @ack: callback to be called for woken streams
  *
  * Returns the bits of handled streams, or zero if no stream is handled.
  */
@@ -601,12 +602,13 @@ int snd_hdac_bus_alloc_stream_pages(struct hdac_bus *bus)
 {
 	struct hdac_stream *s;
 	int num_streams = 0;
+	int dma_type = bus->dma_type ? bus->dma_type : SNDRV_DMA_TYPE_DEV;
 	int err;
 
 	list_for_each_entry(s, &bus->stream_list, list) {
 		/* allocate memory for the BDL for each stream */
-		err = bus->io_ops->dma_alloc_pages(bus, SNDRV_DMA_TYPE_DEV,
-						   BDL_SIZE, &s->bdl);
+		err = snd_dma_alloc_pages(dma_type, bus->dev,
+					  BDL_SIZE, &s->bdl);
 		num_streams++;
 		if (err < 0)
 			return -ENOMEM;
@@ -615,16 +617,15 @@ int snd_hdac_bus_alloc_stream_pages(struct hdac_bus *bus)
 	if (WARN_ON(!num_streams))
 		return -EINVAL;
 	/* allocate memory for the position buffer */
-	err = bus->io_ops->dma_alloc_pages(bus, SNDRV_DMA_TYPE_DEV,
-					   num_streams * 8, &bus->posbuf);
+	err = snd_dma_alloc_pages(dma_type, bus->dev,
+				  num_streams * 8, &bus->posbuf);
 	if (err < 0)
 		return -ENOMEM;
 	list_for_each_entry(s, &bus->stream_list, list)
 		s->posbuf = (__le32 *)(bus->posbuf.area + s->index * 8);
 
 	/* single page (at least 4096 bytes) must suffice for both ringbuffes */
-	return bus->io_ops->dma_alloc_pages(bus, SNDRV_DMA_TYPE_DEV,
-					    PAGE_SIZE, &bus->rb);
+	return snd_dma_alloc_pages(dma_type, bus->dev, PAGE_SIZE, &bus->rb);
 }
 EXPORT_SYMBOL_GPL(snd_hdac_bus_alloc_stream_pages);
 
@@ -638,12 +639,12 @@ void snd_hdac_bus_free_stream_pages(struct hdac_bus *bus)
 
 	list_for_each_entry(s, &bus->stream_list, list) {
 		if (s->bdl.area)
-			bus->io_ops->dma_free_pages(bus, &s->bdl);
+			snd_dma_free_pages(&s->bdl);
 	}
 
 	if (bus->rb.area)
-		bus->io_ops->dma_free_pages(bus, &bus->rb);
+		snd_dma_free_pages(&bus->rb);
 	if (bus->posbuf.area)
-		bus->io_ops->dma_free_pages(bus, &bus->posbuf);
+		snd_dma_free_pages(&bus->posbuf);
 }
 EXPORT_SYMBOL_GPL(snd_hdac_bus_free_stream_pages);

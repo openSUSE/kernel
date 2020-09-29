@@ -24,8 +24,6 @@
 #ifndef _I915_PVINFO_H_
 #define _I915_PVINFO_H_
 
-#include <linux/types.h>
-
 /* The MMIO offset of the shared info between guest and host emulator */
 #define VGT_PVINFO_PAGE	0x78000
 #define VGT_PVINFO_SIZE	0x1000
@@ -112,9 +110,8 @@ struct vgt_if {
 	u32  rsv7[0x200 - 24];    /* pad to one page */
 } __packed;
 
-#define vgtif_offset(x) (offsetof(struct vgt_if, x))
-
-#define vgtif_reg(x) _MMIO(VGT_PVINFO_PAGE + vgtif_offset(x))
+#define vgtif_reg(x) \
+	_MMIO((VGT_PVINFO_PAGE + offsetof(struct vgt_if, x)))
 
 /* vGPU display status to be used by the host side */
 #define VGT_DRV_DISPLAY_NOT_READY 0

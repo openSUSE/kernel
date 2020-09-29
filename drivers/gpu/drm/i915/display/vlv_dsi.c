@@ -34,7 +34,7 @@
 #include "i915_drv.h"
 #include "intel_atomic.h"
 #include "intel_connector.h"
-#include "intel_display_types.h"
+#include "intel_drv.h"
 #include "intel_dsi.h"
 #include "intel_fifo_underrun.h"
 #include "intel_panel.h"
@@ -84,8 +84,9 @@ void vlv_dsi_wait_for_fifo_empty(struct intel_dsi *intel_dsi, enum port port)
 	mask = LP_CTRL_FIFO_EMPTY | HS_CTRL_FIFO_EMPTY |
 		LP_DATA_FIFO_EMPTY | HS_DATA_FIFO_EMPTY;
 
-	if (intel_de_wait_for_set(dev_priv, MIPI_GEN_FIFO_STAT(port),
-				  mask, 100))
+	if (intel_wait_for_register(&dev_priv->uncore,
+				    MIPI_GEN_FIFO_STAT(port), mask, mask,
+				    100))
 		DRM_ERROR("DPI FIFOs are not empty\n");
 }
 
@@ -153,8 +154,10 @@ static ssize_t intel_dsi_host_transfer(struct mipi_dsi_host *host,
 
 	/* note: this is never true for reads */
 	if (packet.payload_length) {
-		if (intel_de_wait_for_clear(dev_priv, MIPI_GEN_FIFO_STAT(port),
-					    data_mask, 50))
+		if (intel_wait_for_register(&dev_priv->uncore,
+					    MIPI_GEN_FIFO_STAT(port),
+					    data_mask, 0,
+					    50))
 			DRM_ERROR("Timeout waiting for HS/LP DATA FIFO !full\n");
 
 		write_data(dev_priv, data_reg, packet.payload,
@@ -165,8 +168,10 @@ static ssize_t intel_dsi_host_transfer(struct mipi_dsi_host *host,
 		I915_WRITE(MIPI_INTR_STAT(port), GEN_READ_DATA_AVAIL);
 	}
 
-	if (intel_de_wait_for_clear(dev_priv, MIPI_GEN_FIFO_STAT(port),
-				    ctrl_mask, 50)) {
+	if (intel_wait_for_register(&dev_priv->uncore,
+				    MIPI_GEN_FIFO_STAT(port),
+				    ctrl_mask, 0,
+				    50)) {
 		DRM_ERROR("Timeout waiting for HS/LP CTRL FIFO !full\n");
 	}
 
@@ -175,8 +180,10 @@ static ssize_t intel_dsi_host_transfer(struct mipi_dsi_host *host,
 	/* ->rx_len is set only for reads */
 	if (msg->rx_len) {
 		data_mask = GEN_READ_DATA_AVAIL;
-		if (intel_de_wait_for_set(dev_priv, MIPI_INTR_STAT(port),
-					  data_mask, 50))
+		if (intel_wait_for_register(&dev_priv->uncore,
+					    MIPI_INTR_STAT(port),
+					    data_mask, data_mask,
+					    50))
 			DRM_ERROR("Timeout waiting for read data.\n");
 
 		read_data(dev_priv, data_reg, msg->rx_buf, msg->rx_len);
@@ -233,7 +240,9 @@ static int dpi_send_cmd(struct intel_dsi *intel_dsi, u32 cmd, bool hs,
 	I915_WRITE(MIPI_DPI_CONTROL(port), cmd);
 
 	mask = SPL_PKT_SENT_INTERRUPT;
-	if (intel_de_wait_for_set(dev_priv, MIPI_INTR_STAT(port), mask, 100))
+	if (intel_wait_for_register(&dev_priv->uncore,
+				    MIPI_INTR_STAT(port), mask, mask,
+				    100))
 		DRM_ERROR("Video mode command 0x%08x send failed.\n", cmd);
 
 	return 0;
@@ -350,8 +359,11 @@ static bool glk_dsi_enable_io(struct intel_encoder *encoder)
 
 	/* Wait for Pwr ACK */
 	for_each_dsi_port(port, intel_dsi->ports) {
-		if (intel_de_wait_for_set(dev_priv, MIPI_CTRL(port),
-					  GLK_MIPIIO_PORT_POWERED, 20))
+		if (intel_wait_for_register(&dev_priv->uncore,
+					    MIPI_CTRL(port),
+					    GLK_MIPIIO_PORT_POWERED,
+					    GLK_MIPIIO_PORT_POWERED,
+					    20))
 			DRM_ERROR("MIPIO port is powergated\n");
 	}
 
@@ -373,8 +385,11 @@ static void glk_dsi_device_ready(struct intel_encoder *encoder)
 
 	/* Wait for MIPI PHY status bit to set */
 	for_each_dsi_port(port, intel_dsi->ports) {
-		if (intel_de_wait_for_set(dev_priv, MIPI_CTRL(port),
-					  GLK_PHY_STATUS_PORT_READY, 20))
+		if (intel_wait_for_register(&dev_priv->uncore,
+					    MIPI_CTRL(port),
+					    GLK_PHY_STATUS_PORT_READY,
+					    GLK_PHY_STATUS_PORT_READY,
+					    20))
 			DRM_ERROR("PHY is not ON\n");
 	}
 
@@ -398,8 +413,11 @@ static void glk_dsi_device_ready(struct intel_encoder *encoder)
 			I915_WRITE(MIPI_DEVICE_READY(port), val);
 
 			/* Wait for ULPS active */
-			if (intel_de_wait_for_clear(dev_priv, MIPI_CTRL(port),
-						    GLK_ULPS_NOT_ACTIVE, 20))
+			if (intel_wait_for_register(&dev_priv->uncore,
+						    MIPI_CTRL(port),
+						    GLK_ULPS_NOT_ACTIVE,
+						    0,
+						    20))
 				DRM_ERROR("ULPS not active\n");
 
 			/* Exit ULPS */
@@ -422,15 +440,21 @@ static void glk_dsi_device_ready(struct intel_encoder *encoder)
 
 	/* Wait for Stop state */
 	for_each_dsi_port(port, intel_dsi->ports) {
-		if (intel_de_wait_for_set(dev_priv, MIPI_CTRL(port),
-					  GLK_DATA_LANE_STOP_STATE, 20))
+		if (intel_wait_for_register(&dev_priv->uncore,
+					    MIPI_CTRL(port),
+					    GLK_DATA_LANE_STOP_STATE,
+					    GLK_DATA_LANE_STOP_STATE,
+					    20))
 			DRM_ERROR("Date lane not in STOP state\n");
 	}
 
 	/* Wait for AFE LATCH */
 	for_each_dsi_port(port, intel_dsi->ports) {
-		if (intel_de_wait_for_set(dev_priv, BXT_MIPI_PORT_CTRL(port),
-					  AFE_LATCHOUT, 20))
+		if (intel_wait_for_register(&dev_priv->uncore,
+					    BXT_MIPI_PORT_CTRL(port),
+					    AFE_LATCHOUT,
+					    AFE_LATCHOUT,
+					    20))
 			DRM_ERROR("D-PHY not entering LP-11 state\n");
 	}
 }
@@ -530,15 +554,17 @@ static void glk_dsi_enter_low_power_mode(struct intel_encoder *encoder)
 
 	/* Wait for MIPI PHY status bit to unset */
 	for_each_dsi_port(port, intel_dsi->ports) {
-		if (intel_de_wait_for_clear(dev_priv, MIPI_CTRL(port),
-					    GLK_PHY_STATUS_PORT_READY, 20))
+		if (intel_wait_for_register(&dev_priv->uncore,
+					    MIPI_CTRL(port),
+					    GLK_PHY_STATUS_PORT_READY, 0, 20))
 			DRM_ERROR("PHY is not turning OFF\n");
 	}
 
 	/* Wait for Pwr ACK bit to unset */
 	for_each_dsi_port(port, intel_dsi->ports) {
-		if (intel_de_wait_for_clear(dev_priv, MIPI_CTRL(port),
-					    GLK_MIPIIO_PORT_POWERED, 20))
+		if (intel_wait_for_register(&dev_priv->uncore,
+					    MIPI_CTRL(port),
+					    GLK_MIPIIO_PORT_POWERED, 0, 20))
 			DRM_ERROR("MIPI IO Port is not powergated\n");
 	}
 }
@@ -557,8 +583,9 @@ static void glk_dsi_disable_mipi_io(struct intel_encoder *encoder)
 
 	/* Wait for MIPI PHY status bit to unset */
 	for_each_dsi_port(port, intel_dsi->ports) {
-		if (intel_de_wait_for_clear(dev_priv, MIPI_CTRL(port),
-					    GLK_PHY_STATUS_PORT_READY, 20))
+		if (intel_wait_for_register(&dev_priv->uncore,
+					    MIPI_CTRL(port),
+					    GLK_PHY_STATUS_PORT_READY, 0, 20))
 			DRM_ERROR("PHY is not turning OFF\n");
 	}
 
@@ -606,8 +633,9 @@ static void vlv_dsi_clear_device_ready(struct intel_encoder *encoder)
 		 * Port A only. MIPI Port C has no similar bit for checking.
 		 */
 		if ((IS_GEN9_LP(dev_priv) || port == PORT_A) &&
-		    intel_de_wait_for_clear(dev_priv, port_ctrl,
-					    AFE_LATCHOUT, 30))
+		    intel_wait_for_register(&dev_priv->uncore,
+					    port_ctrl, AFE_LATCHOUT, 0,
+					    30))
 			DRM_ERROR("DSI LP not going Low\n");
 
 		/* Disable MIPI PHY transparent latch */
@@ -1616,7 +1644,7 @@ vlv_dsi_get_panel_orientation(struct intel_connector *connector)
 	return intel_dsi_get_panel_orientation(connector);
 }
 
-static void vlv_dsi_add_properties(struct intel_connector *connector)
+static void intel_dsi_add_properties(struct intel_connector *connector)
 {
 	struct drm_i915_private *dev_priv = to_i915(connector->base.dev);
 
@@ -1955,7 +1983,7 @@ void vlv_dsi_init(struct drm_i915_private *dev_priv)
 	intel_panel_init(&intel_connector->panel, fixed_mode, NULL);
 	intel_panel_setup_backlight(connector, INVALID_PIPE);
 
-	vlv_dsi_add_properties(intel_connector);
+	intel_dsi_add_properties(intel_connector);
 
 	return;
 

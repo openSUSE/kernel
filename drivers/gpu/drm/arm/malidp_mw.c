@@ -55,7 +55,7 @@ malidp_mw_connector_mode_valid(struct drm_connector *connector,
 	return MODE_OK;
 }
 
-static const struct drm_connector_helper_funcs malidp_mw_connector_helper_funcs = {
+const struct drm_connector_helper_funcs malidp_mw_connector_helper_funcs = {
 	.get_modes = malidp_mw_connector_get_modes,
 	.mode_valid = malidp_mw_connector_mode_valid,
 };
@@ -130,7 +130,7 @@ malidp_mw_encoder_atomic_check(struct drm_encoder *encoder,
 	struct drm_framebuffer *fb;
 	int i, n_planes;
 
-	if (!conn_state->writeback_job)
+	if (!conn_state->writeback_job || !conn_state->writeback_job->fb)
 		return 0;
 
 	fb = conn_state->writeback_job->fb;
@@ -247,7 +247,7 @@ void malidp_mw_atomic_commit(struct drm_device *drm,
 
 	mw_state = to_mw_state(conn_state);
 
-	if (conn_state->writeback_job) {
+	if (conn_state->writeback_job && conn_state->writeback_job->fb) {
 		struct drm_framebuffer *fb = conn_state->writeback_job->fb;
 
 		DRM_DEV_DEBUG_DRIVER(drm->dev,

@@ -69,17 +69,6 @@ static const s8 b43legacy_tssi2dbm_g_table[] = {
 
 static void b43legacy_phy_initg(struct b43legacy_wldev *dev);
 
-
-static inline
-void b43legacy_voluntary_preempt(void)
-{
-	B43legacy_BUG_ON(!(!in_atomic() && !in_irq() &&
-			  !in_interrupt() && !irqs_disabled()));
-#ifndef CONFIG_PREEMPT
-	cond_resched();
-#endif /* CONFIG_PREEMPT */
-}
-
 /* Lock the PHY registers against concurrent access from the microcode.
  * This lock is nonrecursive. */
 void b43legacy_phy_lock(struct b43legacy_wldev *dev)
@@ -140,7 +129,7 @@ void b43legacy_phy_calibrate(struct b43legacy_wldev *dev)
 }
 
 /* initialize B PHY power control
- * as described in http://bcm-specs.sipsolutions.net/InitPowerControl
+ * as described in https://bcm-specs.sipsolutions.net/InitPowerControl
  */
 static void b43legacy_phy_init_pctl(struct b43legacy_wldev *dev)
 {
@@ -1124,7 +1113,7 @@ static u16 b43legacy_phy_lo_b_r15_loop(struct b43legacy_wldev *dev)
 		ret += b43legacy_phy_read(dev, 0x002C);
 	}
 	local_irq_restore(flags);
-	b43legacy_voluntary_preempt();
+	cond_resched();
 
 	return ret;
 }
@@ -1253,7 +1242,7 @@ u16 b43legacy_phy_lo_g_deviation_subval(struct b43legacy_wldev *dev,
 	}
 	ret = b43legacy_phy_read(dev, 0x002D);
 	local_irq_restore(flags);
-	b43legacy_voluntary_preempt();
+	cond_resched();
 
 	return ret;
 }
@@ -1472,7 +1461,7 @@ void b43legacy_phy_set_baseband_attenuation(struct b43legacy_wldev *dev,
 	b43legacy_phy_write(dev, 0x0060, value);
 }
 
-/* http://bcm-specs.sipsolutions.net/LocalOscillator/Measure */
+/* https://bcm-specs.sipsolutions.net/LocalOscillator/Measure */
 void b43legacy_phy_lo_g_measure(struct b43legacy_wldev *dev)
 {
 	static const u8 pairorder[10] = { 3, 1, 5, 7, 9, 2, 0, 4, 6, 8 };
@@ -1591,7 +1580,7 @@ void b43legacy_phy_lo_g_measure(struct b43legacy_wldev *dev)
 			b43legacy_radio_write16(dev, 0x43, i);
 			b43legacy_radio_write16(dev, 0x52, phy->txctl2);
 			udelay(10);
-			b43legacy_voluntary_preempt();
+			cond_resched();
 
 			b43legacy_phy_set_baseband_attenuation(dev, j * 2);
 
@@ -1642,7 +1631,7 @@ void b43legacy_phy_lo_g_measure(struct b43legacy_wldev *dev)
 					      phy->txctl2
 					      | (3/*txctl1*/ << 4));
 			udelay(10);
-			b43legacy_voluntary_preempt();
+			cond_resched();
 
 			b43legacy_phy_set_baseband_attenuation(dev, j * 2);
 
@@ -1665,7 +1654,7 @@ void b43legacy_phy_lo_g_measure(struct b43legacy_wldev *dev)
 		b43legacy_phy_write(dev, 0x0812, (r27 << 8) | 0xA2);
 		udelay(2);
 		b43legacy_phy_write(dev, 0x0812, (r27 << 8) | 0xA3);
-		b43legacy_voluntary_preempt();
+		cond_resched();
 	} else
 		b43legacy_phy_write(dev, 0x0015, r27 | 0xEFA0);
 	b43legacy_phy_lo_adjust(dev, is_initializing);
@@ -1732,7 +1721,7 @@ void b43legacy_phy_lo_mark_all_unused(struct b43legacy_wldev *dev)
 	}
 }
 
-/* http://bcm-specs.sipsolutions.net/EstimatePowerOut
+/* https://bcm-specs.sipsolutions.net/EstimatePowerOut
  * This function converts a TSSI value to dBm in Q5.2
  */
 static s8 b43legacy_phy_estimate_power_out(struct b43legacy_wldev *dev, s8 tssi)
@@ -1758,7 +1747,7 @@ static s8 b43legacy_phy_estimate_power_out(struct b43legacy_wldev *dev, s8 tssi)
 	return dbm;
 }
 
-/* http://bcm-specs.sipsolutions.net/RecalculateTransmissionPower */
+/* https://bcm-specs.sipsolutions.net/RecalculateTransmissionPower */
 void b43legacy_phy_xmitpower(struct b43legacy_wldev *dev)
 {
 	struct b43legacy_phy *phy = &dev->phy;

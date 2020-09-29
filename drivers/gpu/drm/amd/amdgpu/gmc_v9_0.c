@@ -397,24 +397,6 @@ static uint32_t gmc_v9_0_get_invalidate_req(unsigned int vmid,
 	return req;
 }
 
-/**
- * gmc_v9_0_use_invalidate_semaphore - judge whether to use semaphore
- *
- * @adev: amdgpu_device pointer
- * @vmhub: vmhub type
- *
- */
-static bool gmc_v9_0_use_invalidate_semaphore(struct amdgpu_device *adev,
-				       uint32_t vmhub)
-{
-	return ((vmhub == AMDGPU_MMHUB_0 ||
-		 vmhub == AMDGPU_MMHUB_1) &&
-		(!amdgpu_sriov_vf(adev)) &&
-		(!(adev->asic_type == CHIP_RAVEN &&
-		   adev->rev_id < 0x8 &&
-		   adev->pdev->device == 0x15d8)));
-}
-
 /*
  * GART
  * VMID 0 is the physical GPU addresses as used by the kernel.
@@ -438,10 +420,8 @@ static void gmc_v9_0_flush_gpu_tlb(struct amdgpu_device *adev,
 	unsigned i, j;
 
 	for (i = 0; i < AMDGPU_MAX_VMHUBS; ++i) {
-		uint32_t vmhub = i;
 		struct amdgpu_vmhub *hub = &adev->vmhub[i];
 		u32 tmp = gmc_v9_0_get_invalidate_req(vmid, flush_type);
-		bool use_semaphore = gmc_v9_0_use_invalidate_semaphore(adev, vmhub);
 
 		/* This is necessary for a HW workaround under SRIOV as well
 		 * as GFXOFF under bare metal
@@ -458,28 +438,6 @@ static void gmc_v9_0_flush_gpu_tlb(struct amdgpu_device *adev,
 		}
 
 		spin_lock(&adev->gmc.invalidate_lock);
-
-		/*
-		 * It may lose gpuvm invalidate acknowldege state across power-gating
-		 * off cycle, add semaphore acquire before invalidation and semaphore
-		 * release after invalidation to avoid entering power gated state
-		 * to WA the Issue
-		 */
-
-		/* TODO: It needs to continue working on debugging with semaphore for GFXHUB as well. */
-		if (use_semaphore) {
-			for (j = 0; j < adev->usec_timeout; j++) {
-				/* a read return value of 1 means semaphore acuqire */
-				tmp = RREG32_NO_KIQ(hub->vm_inv_eng0_sem + eng);
-				if (tmp & 0x1)
-					break;
-				udelay(1);
-			}
-
-			if (j >= adev->usec_timeout)
-				DRM_ERROR("Timeout waiting for sem acquire in VM flush!\n");
-		}
-
 		WREG32_NO_KIQ(hub->vm_inv_eng0_req + eng, tmp);
 		for (j = 0; j < adev->usec_timeout; j++) {
 			tmp = RREG32_NO_KIQ(hub->vm_inv_eng0_ack + eng);
@@ -487,17 +445,7 @@ static void gmc_v9_0_flush_gpu_tlb(struct amdgpu_device *adev,
 				break;
 			udelay(1);
 		}
-
-		/* TODO: It needs to continue working on debugging with semaphore for GFXHUB as well. */
-		if (use_semaphore)
-			/*
-			 * add semaphore release after invalidation,
-			 * write with 0 means semaphore release
-			 */
-			WREG32_NO_KIQ(hub->vm_inv_eng0_sem + eng, 0);
-
 		spin_unlock(&adev->gmc.invalidate_lock);
-
 		if (j < adev->usec_timeout)
 			continue;
 
@@ -508,24 +456,10 @@ static void gmc_v9_0_flush_gpu_tlb(struct amdgpu_device *adev,
 static uint64_t gmc_v9_0_emit_flush_gpu_tlb(struct amdgpu_ring *ring,
 					    unsigned vmid, uint64_t pd_addr)
 {
-	bool use_semaphore = gmc_v9_0_use_invalidate_semaphore(ring->adev, ring->funcs->vmhub);
 	struct amdgpu_device *adev = ring->adev;
 	struct amdgpu_vmhub *hub = &adev->vmhub[ring->funcs->vmhub];
 	uint32_t req = gmc_v9_0_get_invalidate_req(vmid, 0);
 	unsigned eng = ring->vm_inv_eng;
-
-	/*
-	 * It may lose gpuvm invalidate acknowldege state across power-gating
-	 * off cycle, add semaphore acquire before invalidation and semaphore
-	 * release after invalidation to avoid entering power gated state
-	 * to WA the Issue
-	 */
-
-	/* TODO: It needs to continue working on debugging with semaphore for GFXHUB as well. */
-	if (use_semaphore)
-		/* a read return value of 1 means semaphore acuqire */
-		amdgpu_ring_emit_reg_wait(ring,
-					  hub->vm_inv_eng0_sem + eng, 0x1, 0x1);
 
 	amdgpu_ring_emit_wreg(ring, hub->ctx0_ptb_addr_lo32 + (2 * vmid),
 			      lower_32_bits(pd_addr));
@@ -536,14 +470,6 @@ static uint64_t gmc_v9_0_emit_flush_gpu_tlb(struct amdgpu_ring *ring,
 	amdgpu_ring_emit_reg_write_reg_wait(ring, hub->vm_inv_eng0_req + eng,
 					    hub->vm_inv_eng0_ack + eng,
 					    req, 1 << vmid);
-
-	/* TODO: It needs to continue working on debugging with semaphore for GFXHUB as well. */
-	if (use_semaphore)
-		/*
-		 * add semaphore release after invalidation,
-		 * write with 0 means semaphore release
-		 */
-		amdgpu_ring_emit_wreg(ring, hub->vm_inv_eng0_sem + eng, 0);
 
 	return pd_addr;
 }
@@ -1221,19 +1147,6 @@ static void gmc_v9_0_init_golden_registers(struct amdgpu_device *adev)
 }
 
 /**
- * gmc_v9_0_restore_registers - restores regs
- *
- * @adev: amdgpu_device pointer
- *
- * This restores register values, saved at suspend.
- */
-static void gmc_v9_0_restore_registers(struct amdgpu_device *adev)
-{
-	if (adev->asic_type == CHIP_RAVEN)
-		WREG32(mmDCHUBBUB_SDPIF_MMIO_CNTRL_0, adev->gmc.sdpif_register);
-}
-
-/**
  * gmc_v9_0_gart_enable - gart enable
  *
  * @adev: amdgpu_device pointer
@@ -1321,20 +1234,6 @@ static int gmc_v9_0_hw_init(void *handle)
 }
 
 /**
- * gmc_v9_0_save_registers - saves regs
- *
- * @adev: amdgpu_device pointer
- *
- * This saves potential register values that should be
- * restored upon resume
- */
-static void gmc_v9_0_save_registers(struct amdgpu_device *adev)
-{
-	if (adev->asic_type == CHIP_RAVEN)
-		adev->gmc.sdpif_register = RREG32(mmDCHUBBUB_SDPIF_MMIO_CNTRL_0);
-}
-
-/**
  * gmc_v9_0_gart_disable - gart disable
  *
  * @adev: amdgpu_device pointer
@@ -1367,16 +1266,9 @@ static int gmc_v9_0_hw_fini(void *handle)
 
 static int gmc_v9_0_suspend(void *handle)
 {
-	int r;
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 
-	r = gmc_v9_0_hw_fini(adev);
-	if (r)
-		return r;
-
-	gmc_v9_0_save_registers(adev);
-
-	return 0;
+	return gmc_v9_0_hw_fini(adev);
 }
 
 static int gmc_v9_0_resume(void *handle)
@@ -1384,7 +1276,6 @@ static int gmc_v9_0_resume(void *handle)
 	int r;
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 
-	gmc_v9_0_restore_registers(adev);
 	r = gmc_v9_0_hw_init(adev);
 	if (r)
 		return r;

@@ -5,7 +5,6 @@
  */
 
 #include "gem/i915_gem_context.h"
-#include "gt/intel_gt.h"
 
 #include "i915_drv.h"
 #include "i915_selftest.h"
@@ -14,7 +13,7 @@
 
 int igt_flush_test(struct drm_i915_private *i915, unsigned int flags)
 {
-	int ret = intel_gt_is_wedged(&i915->gt) ? -EIO : 0;
+	int ret = i915_terminally_wedged(i915) ? -EIO : 0;
 	int repeat = !!(flags & I915_WAIT_LOCKED);
 
 	cond_resched();
@@ -28,7 +27,7 @@ int igt_flush_test(struct drm_i915_private *i915, unsigned int flags)
 				  __builtin_return_address(0));
 			GEM_TRACE_DUMP();
 
-			intel_gt_set_wedged(&i915->gt);
+			i915_gem_set_wedged(i915);
 			repeat = 0;
 			ret = -EIO;
 		}

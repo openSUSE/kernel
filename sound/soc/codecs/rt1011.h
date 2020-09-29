@@ -227,6 +227,7 @@
 #define RT1011_STP_CALIB_RS_TEMP			0x152a
 #define RT1011_INIT_RECIPROCAL_REG_24_16				0x1538
 #define RT1011_INIT_RECIPROCAL_REG_15_0				0x1539
+#define RT1011_STP_INITIAL_RESISTANCE_TEMP				0x153c
 #define RT1011_STP_ALPHA_RECIPROCAL_MSB				0x153e
 #define RT1011_SPK_RESISTANCE_1				0x1544
 #define RT1011_SPK_RESISTANCE_2				0x1546
@@ -459,6 +460,23 @@
 #define RT1011_TDM_I2S_DOCK_EN_1_MASK			(0x1 << 3)
 #define RT1011_TDM_I2S_DOCK_EN_1_SFT			3
 #define RT1011_TDM_I2S_DOCK_EN_1		(0x1 << 3)
+#define RT1011_TDM_ADCDAT1_DATA_LOCATION			(0x7 << 0)
+
+/* TDM1 Setting-3 (0x0118) */
+#define RT1011_TDM_I2S_RX_ADC1_1_MASK			(0x3 << 6)
+#define RT1011_TDM_I2S_RX_ADC2_1_MASK			(0x3 << 4)
+#define RT1011_TDM_I2S_RX_ADC3_1_MASK			(0x3 << 2)
+#define RT1011_TDM_I2S_RX_ADC4_1_MASK			(0x3 << 0)
+#define RT1011_TDM_I2S_RX_ADC1_1_LL			(0x2 << 6)
+#define RT1011_TDM_I2S_RX_ADC2_1_LL			(0x2 << 4)
+#define RT1011_TDM_I2S_RX_ADC3_1_LL			(0x2 << 2)
+#define RT1011_TDM_I2S_RX_ADC4_1_LL			(0x2 << 0)
+
+/* TDM1 Setting-4 (0x011a) */
+#define RT1011_TDM_I2S_TX_L_DAC1_1_MASK			(0x7 << 12)
+#define RT1011_TDM_I2S_TX_R_DAC1_1_MASK			(0x7 << 8)
+#define RT1011_TDM_I2S_TX_L_DAC1_1_SFT 12
+#define RT1011_TDM_I2S_TX_R_DAC1_1_SFT 8
 
 /* TDM2 Setting-2 (0x0120) */
 #define RT1011_TDM_I2S_DOCK_ADCDAT_LEN_2_MASK			(0x7 << 13)
@@ -584,6 +602,12 @@
 #define RT1011_STP_T0_EN_BIT		6
 #define RT1011_STP_T0_EN		(0x1 << 6)
 
+/* Cross Biquad Setting-1 (0x0702) */
+#define RT1011_MONO_LR_SEL_MASK			(0x3 << 5)
+#define RT1011_MONO_L_CHANNEL			(0x0 << 5)
+#define RT1011_MONO_R_CHANNEL			(0x1 << 5)
+#define RT1011_MONO_LR_MIX_CHANNEL			(0x2 << 5)
+
 /* ClassD Internal Setting-1 (0x1300) */
 #define RT1011_DRIVER_READY_SPK			(0x1 << 12)
 #define RT1011_DRIVER_READY_SPK_BIT		12
@@ -665,8 +689,10 @@ struct rt1011_priv {
 	int pll_out;
 
 	int bq_drc_set;
-	unsigned int r0_reg;
+	unsigned int r0_reg, cali_done;
+	unsigned int r0_calib, temperature_calib;
 	int recv_spk_mode;
+	unsigned int pack_id; /* 0: WLCSP; 1: QFN */
 };
 
 #endif		/* end of _RT1011_H_ */

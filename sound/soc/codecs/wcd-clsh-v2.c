@@ -65,7 +65,7 @@ struct wcd_clsh_ctrl {
 #define WCD9XXX_FLYBACK_EN_PWDN_WITH_DELAY			0
 #define WCD9XXX_RX_BIAS_FLYB_BUFF			WCD9335_REG(0x6, 0xC7)
 #define WCD9XXX_RX_BIAS_FLYB_VNEG_5_UA_MASK		GENMASK(7, 4)
-#define WCD9XXX_RX_BIAS_FLYB_VPOS_5_UA_MASK		GENMASK(0, 3)
+#define WCD9XXX_RX_BIAS_FLYB_VPOS_5_UA_MASK		GENMASK(3, 0)
 #define WCD9XXX_HPH_L_EN				WCD9335_REG(0x6, 0xD3)
 #define WCD9XXX_HPH_CONST_SEL_L_MASK			GENMASK(7, 3)
 #define WCD9XXX_HPH_CONST_SEL_BYPASS			0
@@ -119,7 +119,7 @@ static inline void wcd_enable_clsh_block(struct wcd_clsh_ctrl *ctrl,
 
 static inline bool wcd_clsh_enable_status(struct snd_soc_component *comp)
 {
-	return snd_soc_component_read32(comp, WCD9XXX_A_CDC_CLSH_CRC) &
+	return snd_soc_component_read(comp, WCD9XXX_A_CDC_CLSH_CRC) &
 					WCD9XXX_A_CDC_CLSH_CRC_CLK_EN_MASK;
 }
 

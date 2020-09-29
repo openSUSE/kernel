@@ -271,8 +271,6 @@ bool dc_stream_adjust_vmin_vmax(struct dc *dc,
 	int i = 0;
 	bool ret = false;
 
-	stream->adjust = *adjust;
-
 	for (i = 0; i < MAX_PIPES; i++) {
 		struct pipe_ctx *pipe = &dc->current_state->res_ctx.pipe_ctx[i];
 
@@ -568,10 +566,6 @@ static bool construct(struct dc *dc,
 #ifdef CONFIG_DRM_AMD_DC_DCN2_0
 	// Allocate memory for the vm_helper
 	dc->vm_helper = kzalloc(sizeof(struct vm_helper), GFP_KERNEL);
-	if (!dc->vm_helper) {
-		dm_error("%s: failed to create dc->vm_helper\n", __func__);
-		goto fail;
-	}
 
 #endif
 	memcpy(&dc->bb_overrides, &init_params->bb_overrides, sizeof(dc->bb_overrides));
@@ -886,21 +880,11 @@ static void program_timing_sync(
 			}
 		}
 
-		/* set first unblanked pipe as master */
+		/* set first pipe with plane as master */
 		for (j = 0; j < group_size; j++) {
 			struct pipe_ctx *temp;
 
-			bool is_blanked;
-
-#if defined(CONFIG_DRM_AMD_DC_DCN2_0)
-			if (pipe_set[j]->stream_res.opp->funcs->dpg_is_blanked)
-				is_blanked =
-					pipe_set[j]->stream_res.opp->funcs->dpg_is_blanked(pipe_set[j]->stream_res.opp);
-			else
-#endif
-				is_blanked =
-					pipe_set[j]->stream_res.tg->funcs->is_blanked(pipe_set[j]->stream_res.tg);
-			if (!is_blanked) {
+			if (pipe_set[j]->plane_state) {
 				if (j == 0)
 					break;
 
@@ -923,19 +907,9 @@ static void program_timing_sync(
 				status->timing_sync_info.master = false;
 
 		}
-		/* remove any other unblanked pipes as they have already been synced */
+		/* remove any other pipes with plane as they have already been synced */
 		for (j = j + 1; j < group_size; j++) {
-			bool is_blanked;
-
-#if defined(CONFIG_DRM_AMD_DC_DCN2_0)
-			if (pipe_set[j]->stream_res.opp->funcs->dpg_is_blanked)
-				is_blanked =
-					pipe_set[j]->stream_res.opp->funcs->dpg_is_blanked(pipe_set[j]->stream_res.opp);
-			else
-#endif
-				is_blanked =
-					pipe_set[j]->stream_res.tg->funcs->is_blanked(pipe_set[j]->stream_res.tg);
-			if (!is_blanked) {
+			if (pipe_set[j]->plane_state) {
 				group_size--;
 				pipe_set[j] = pipe_set[group_size];
 				j--;
@@ -1173,26 +1147,6 @@ bool dc_commit_state(struct dc *dc, struct dc_state *context)
 	return (result == DC_OK);
 }
 
-static bool is_flip_pending_in_pipes(struct dc *dc, struct dc_state *context)
-{
-	int i;
-	struct pipe_ctx *pipe;
-
-	for (i = 0; i < MAX_PIPES; i++) {
-		pipe = &context->res_ctx.pipe_ctx[i];
-
-		if (!pipe->plane_state)
-			continue;
-
-		/* Must set to false to start with, due to OR in update function */
-		pipe->plane_state->status.is_flip_pending = false;
-		dc->hwss.update_pending_status(pipe);
-		if (pipe->plane_state->status.is_flip_pending)
-			return true;
-	}
-	return false;
-}
-
 bool dc_post_update_surfaces_to_stream(struct dc *dc)
 {
 	int i;
@@ -1202,9 +1156,6 @@ bool dc_post_update_surfaces_to_stream(struct dc *dc)
 		return true;
 
 	post_surface_trace(dc);
-
-	if (is_flip_pending_in_pipes(dc, context))
-		return true;
 
 	for (i = 0; i < dc->res_pool->pipe_count; i++)
 		if (context->res_ctx.pipe_ctx[i].stream == NULL ||
@@ -2139,8 +2090,7 @@ void dc_commit_updates_for_stream(struct dc *dc,
 
 		if (update_type >= UPDATE_TYPE_MED) {
 			for (j = 0; j < dc->res_pool->pipe_count; j++) {
-				struct pipe_ctx *pipe_ctx =
-					&context->res_ctx.pipe_ctx[j];
+				struct pipe_ctx *pipe_ctx = &context->res_ctx.pipe_ctx[j];
 
 				if (pipe_ctx->plane_state != surface)
 					continue;
@@ -2151,14 +2101,6 @@ void dc_commit_updates_for_stream(struct dc *dc,
 	}
 
 	copy_stream_update_to_stream(dc, context, stream, stream_update);
-
-	if (update_type > UPDATE_TYPE_FAST) {
-		if (!dc->res_pool->funcs->validate_bandwidth(dc, context, false)) {
-			DC_ERROR("Mode validation failed for stream update!\n");
-			dc_release_state(context);
-			return;
-		}
-	}
 
 	commit_planes_for_stream(
 				dc,
@@ -2233,21 +2175,18 @@ void dc_set_power_state(
 	enum dc_acpi_cm_power_state power_state)
 {
 	struct kref refcount;
-	struct display_mode_lib *dml;
+	struct display_mode_lib *dml = kzalloc(sizeof(struct display_mode_lib),
+						GFP_KERNEL);
+
+	ASSERT(dml);
+	if (!dml)
+		return;
 
 	switch (power_state) {
 	case DC_ACPI_CM_POWER_STATE_D0:
 		dc_resource_state_construct(dc, dc->current_state);
 
 		dc->hwss.init_hw(dc);
-
-#ifdef CONFIG_DRM_AMD_DC_DCN2_0
-		if (dc->hwss.init_sys_ctx != NULL &&
-			dc->vm_pa_config.valid) {
-			dc->hwss.init_sys_ctx(dc->hwseq, dc, &dc->vm_pa_config);
-		}
-#endif
-
 		break;
 	default:
 		ASSERT(dc->current_state->stream_count == 0);
@@ -2255,12 +2194,6 @@ void dc_set_power_state(
 		 * clean state, and dc hw programming optimizations will not
 		 * cause any trouble.
 		 */
-		dml = kzalloc(sizeof(struct display_mode_lib),
-				GFP_KERNEL);
-
-		ASSERT(dml);
-		if (!dml)
-			return;
 
 		/* Preserve refcount */
 		refcount = dc->current_state->refcount;
@@ -2274,10 +2207,10 @@ void dc_set_power_state(
 		dc->current_state->refcount = refcount;
 		dc->current_state->bw_ctx.dml = *dml;
 
-		kfree(dml);
-
 		break;
 	}
+
+	kfree(dml);
 }
 
 void dc_resume(struct dc *dc)
