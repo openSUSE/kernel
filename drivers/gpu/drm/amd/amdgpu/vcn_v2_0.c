@@ -2099,7 +2099,7 @@ static int vcn_v2_0_dec_ring_test_ring(struct amdgpu_ring *ring)
 	unsigned i;
 	int r;
 
-	WREG32(adev->vcn.external.scratch9, 0xCAFEDEAD);
+	WREG32(adev->vcn.inst[ring->me].external.scratch9, 0xCAFEDEAD);
 	r = amdgpu_ring_alloc(ring, 4);
 	if (r)
 		return r;
@@ -2109,7 +2109,7 @@ static int vcn_v2_0_dec_ring_test_ring(struct amdgpu_ring *ring)
 	amdgpu_ring_write(ring, 0xDEADBEEF);
 	amdgpu_ring_commit(ring);
 	for (i = 0; i < adev->usec_timeout; i++) {
-		tmp = RREG32(adev->vcn.external.scratch9);
+		tmp = RREG32(adev->vcn.inst[ring->me].external.scratch9);
 		if (tmp == 0xDEADBEEF)
 			break;
 		DRM_UDELAY(1);
