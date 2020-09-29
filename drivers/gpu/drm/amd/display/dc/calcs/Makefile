@@ -37,6 +37,8 @@ ifdef IS_OLD_GCC
 # GCC < 7.1 cannot compile code using `double` and -mpreferred-stack-boundary=3
 # (8B stack alignment).
 calcs_ccflags += -mpreferred-stack-boundary=4
+else
+calcs_ccflags += -msse2
 endif
 
 CFLAGS_$(AMDDALPATH)/dc/calcs/dcn_calcs.o := $(calcs_ccflags)
