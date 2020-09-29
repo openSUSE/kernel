@@ -56,8 +56,7 @@ static irqreturn_t komeda_kms_irq_handler(int irq, void *data)
 }
 
 static struct drm_driver komeda_kms_driver = {
-	.driver_features = DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC |
-			   DRIVER_HAVE_IRQ,
+	.driver_features = DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
 	.lastclose			= drm_fb_helper_lastclose,
 	.gem_free_object_unlocked	= drm_gem_cma_free_object,
 	.gem_vm_ops			= &drm_gem_cma_vm_ops,
