@@ -98,16 +98,15 @@ struct gpio_irq_chip {
 				     unsigned int *parent_type);
 
 	/**
-	 * @populate_parent_fwspec:
+	 * @populate_parent_alloc_arg :
 	 *
-	 * This optional callback populates the &struct irq_fwspec for the
-	 * parent's IRQ domain. If this is not specified, then
+	 * This optional callback allocates and populates the specific struct
+	 * for the parent's IRQ domain. If this is not specified, then
 	 * &gpiochip_populate_parent_fwspec_twocell will be used. A four-cell
 	 * variant named &gpiochip_populate_parent_fwspec_fourcell is also
 	 * available.
 	 */
-	void (*populate_parent_fwspec)(struct gpio_chip *chip,
-				       struct irq_fwspec *fwspec,
+	void *(*populate_parent_alloc_arg)(struct gpio_chip *chip,
 				       unsigned int parent_hwirq,
 				       unsigned int parent_type);
 
@@ -288,6 +287,9 @@ struct gpio_irq_chip {
  *	state (such as pullup/pulldown configuration).
  * @init_valid_mask: optional routine to initialize @valid_mask, to be used if
  *	not all GPIOs are valid.
+ * @add_pin_ranges: optional routine to initialize pin ranges, to be used when
+ *	requires special mapping of the pins that provides GPIO functionality.
+ *	It is called after adding GPIO chip and before adding IRQ chip.
  * @base: identifies the first GPIO number handled by this chip;
  *	or, if negative during registration, requests dynamic ID allocation.
  *	DEPRECATION: providing anything non-negative and nailing the base
@@ -375,6 +377,8 @@ struct gpio_chip {
 						struct gpio_chip *chip);
 
 	int			(*init_valid_mask)(struct gpio_chip *chip);
+
+	int			(*add_pin_ranges)(struct gpio_chip *chip);
 
 	int			base;
 	u16			ngpio;
@@ -540,26 +544,22 @@ struct bgpio_pdata {
 
 #ifdef CONFIG_IRQ_DOMAIN_HIERARCHY
 
-void gpiochip_populate_parent_fwspec_twocell(struct gpio_chip *chip,
-					     struct irq_fwspec *fwspec,
+void *gpiochip_populate_parent_fwspec_twocell(struct gpio_chip *chip,
 					     unsigned int parent_hwirq,
 					     unsigned int parent_type);
-void gpiochip_populate_parent_fwspec_fourcell(struct gpio_chip *chip,
-					      struct irq_fwspec *fwspec,
+void *gpiochip_populate_parent_fwspec_fourcell(struct gpio_chip *chip,
 					      unsigned int parent_hwirq,
 					      unsigned int parent_type);
 
 #else
 
-static inline void gpiochip_populate_parent_fwspec_twocell(struct gpio_chip *chip,
-						    struct irq_fwspec *fwspec,
+static inline void *gpiochip_populate_parent_fwspec_twocell(struct gpio_chip *chip,
 						    unsigned int parent_hwirq,
 						    unsigned int parent_type)
 {
 }
 
-static inline void gpiochip_populate_parent_fwspec_fourcell(struct gpio_chip *chip,
-						     struct irq_fwspec *fwspec,
+static inline void *gpiochip_populate_parent_fwspec_fourcell(struct gpio_chip *chip,
 						     unsigned int parent_hwirq,
 						     unsigned int parent_type)
 {
