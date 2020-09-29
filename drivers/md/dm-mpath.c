@@ -129,6 +129,20 @@ static void queue_if_no_path_timeout_work(struct timer_list *t);
 #define MPATHF_PG_INIT_DELAY_RETRY 6		/* Delay pg_init retry? */
 #define MPATHF_NO_PARTITIONS 31			/* Don't scan partition table */
 
+static bool mpath_double_check_test_bit(int MPATHF_bit, struct multipath *m)
+{
+	bool r = test_bit(MPATHF_bit, &m->flags);
+
+	if (r) {
+		unsigned long flags;
+		spin_lock_irqsave(&m->lock, flags);
+		r = test_bit(MPATHF_bit, &m->flags);
+		spin_unlock_irqrestore(&m->lock, flags);
+	}
+
+	return r;
+}
+
 /*-----------------------------------------------
  * Allocation routines
  *-----------------------------------------------*/
@@ -500,7 +514,7 @@ static int multipath_clone_and_map(struct dm_target *ti, struct request *rq,
 
 	/* Do we need to select a new pgpath? */
 	pgpath = READ_ONCE(m->current_pgpath);
-	if (!pgpath || !test_bit(MPATHF_QUEUE_IO, &m->flags))
+	if (!pgpath || !mpath_double_check_test_bit(MPATHF_QUEUE_IO, m))
 		pgpath = choose_pgpath(m, nr_bytes);
 
 	if (!pgpath) {
@@ -508,8 +522,8 @@ static int multipath_clone_and_map(struct dm_target *ti, struct request *rq,
 			return DM_MAPIO_DELAY_REQUEUE;
 		dm_report_EIO(m);	/* Failed */
 		return DM_MAPIO_KILL;
-	} else if (test_bit(MPATHF_QUEUE_IO, &m->flags) ||
-		   test_bit(MPATHF_PG_INIT_REQUIRED, &m->flags)) {
+	} else if (mpath_double_check_test_bit(MPATHF_QUEUE_IO, m) ||
+		   mpath_double_check_test_bit(MPATHF_PG_INIT_REQUIRED, m)) {
 		pg_init_all_paths(m);
 		return DM_MAPIO_DELAY_REQUEUE;
 	}
@@ -599,7 +613,7 @@ static struct pgpath *__map_bio(struct multipath *m, struct bio *bio)
 
 	/* Do we need to select a new pgpath? */
 	pgpath = READ_ONCE(m->current_pgpath);
-	if (!pgpath || !test_bit(MPATHF_QUEUE_IO, &m->flags))
+	if (!pgpath || !mpath_double_check_test_bit(MPATHF_QUEUE_IO, m))
 		pgpath = choose_pgpath(m, bio->bi_iter.bi_size);
 
 	if (!pgpath) {
@@ -610,8 +624,8 @@ static struct pgpath *__map_bio(struct multipath *m, struct bio *bio)
 		}
 		spin_unlock_irqrestore(&m->lock, flags);
 
-	} else if (test_bit(MPATHF_QUEUE_IO, &m->flags) ||
-		   test_bit(MPATHF_PG_INIT_REQUIRED, &m->flags)) {
+	} else if (mpath_double_check_test_bit(MPATHF_QUEUE_IO, m) ||
+		   mpath_double_check_test_bit(MPATHF_PG_INIT_REQUIRED, m)) {
 		multipath_queue_bio(m, bio);
 		pg_init_all_paths(m);
 		return ERR_PTR(-EAGAIN);
@@ -862,7 +876,7 @@ static int setup_scsi_dh(struct block_device *bdev, struct multipath *m,
 	struct request_queue *q = bdev_get_queue(bdev);
 	int r;
 
-	if (test_bit(MPATHF_RETAIN_ATTACHED_HW_HANDLER, &m->flags)) {
+	if (mpath_double_check_test_bit(MPATHF_RETAIN_ATTACHED_HW_HANDLER, m)) {
 retain:
 		if (*attached_handler_name) {
 			/*
@@ -1975,11 +1989,11 @@ static int multipath_prepare_ioctl(struct dm_target *ti,
 	int r;
 
 	pgpath = READ_ONCE(m->current_pgpath);
-	if (!pgpath || !test_bit(MPATHF_QUEUE_IO, &m->flags))
+	if (!pgpath || !mpath_double_check_test_bit(MPATHF_QUEUE_IO, m))
 		pgpath = choose_pgpath(m, 0);
 
 	if (pgpath) {
-		if (!test_bit(MPATHF_QUEUE_IO, &m->flags)) {
+		if (!mpath_double_check_test_bit(MPATHF_QUEUE_IO, m)) {
 			*bdev = pgpath->path.dev->bdev;
 			r = 0;
 		} else {
