@@ -5,6 +5,9 @@
  */
 
 #include <linux/dma-buf.h>
+#include <linux/highmem.h>
+
+#include <drm/drm_prime.h>
 
 #include "omap_drv.h"
 
