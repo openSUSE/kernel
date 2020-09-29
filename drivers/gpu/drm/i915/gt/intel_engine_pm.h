@@ -21,6 +21,12 @@ intel_engine_pm_get_if_awake(struct intel_engine_cs *engine)
 	return intel_wakeref_get_if_active(&engine->wakeref);
 }
 
+static inline bool
+intel_engine_pm_is_awake(const struct intel_engine_cs *engine)
+{
+	return intel_wakeref_is_active(&engine->wakeref);
+}
+
 void intel_engine_park(struct intel_engine_cs *engine);
 
 void intel_engine_init__pm(struct intel_engine_cs *engine);

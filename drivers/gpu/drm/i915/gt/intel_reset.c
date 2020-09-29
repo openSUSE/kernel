@@ -1101,7 +1101,7 @@ int i915_reset_engine(struct intel_engine_cs *engine, const char *msg)
 	GEM_TRACE("%s flags=%lx\n", engine->name, error->flags);
 	GEM_BUG_ON(!test_bit(I915_RESET_ENGINE + engine->id, &error->flags));
 
-	if (!intel_engine_pm_get_if_awake(engine))
+	if (!intel_engine_pm_is_awake(engine))
 		return 0;
 
 	reset_prepare_engine(engine);
