@@ -3959,6 +3959,7 @@ static int gfx_v9_0_early_init(void *handle)
 }
 
 static int gfx_v9_0_process_ras_data_cb(struct amdgpu_device *adev,
+		struct ras_err_data *err_data,
 		struct amdgpu_iv_entry *entry);
 
 static int gfx_v9_0_ecc_late_init(void *handle)
@@ -5273,6 +5274,7 @@ static int gfx_v9_0_priv_inst_irq(struct amdgpu_device *adev,
 }
 
 static int gfx_v9_0_process_ras_data_cb(struct amdgpu_device *adev,
+		struct ras_err_data *err_data,
 		struct amdgpu_iv_entry *entry)
 {
 	/* TODO ue will trigger an interrupt. */
