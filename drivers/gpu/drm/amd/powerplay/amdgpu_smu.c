@@ -769,10 +769,6 @@ static int smu_late_init(void *handle)
 	if (!smu->pm_enabled)
 		return 0;
 
-	/* To be removed after dpm is enabled */
-	if (adev->asic_type == CHIP_RENOIR)
-		return 0;
-
 	mutex_lock(&smu->mutex);
 	smu_handle_task(&adev->smu,
 			smu->smu_dpm.dpm_level,
@@ -1274,10 +1270,6 @@ static int smu_hw_init(void *handle)
 	}
 
 	if (!smu->pm_enabled)
-		return 0;
-
-	/* To be removed after dpm is enabled */
-	if (adev->asic_type == CHIP_RENOIR)
 		return 0;
 
 	ret = smu_feature_init_dpm(smu);
