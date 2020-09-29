@@ -1006,6 +1006,20 @@ bool intel_gt_verify_workarounds(struct intel_gt *gt, const char *from)
 	return wa_list_verify(gt->uncore, &gt->i915->gt_wa_list, from);
 }
 
+static inline bool is_nonpriv_flags_valid(u32 flags)
+{
+	/* Check only valid flag bits are set */
+	if (flags & ~RING_FORCE_TO_NONPRIV_MASK_VALID)
+		return false;
+
+	/* NB: Only 3 out of 4 enum values are valid for access field */
+	if ((flags & RING_FORCE_TO_NONPRIV_ACCESS_MASK) ==
+	    RING_FORCE_TO_NONPRIV_ACCESS_INVALID)
+		return false;
+
+	return true;
+}
+
 static void
 whitelist_reg_ext(struct i915_wa_list *wal, i915_reg_t reg, u32 flags)
 {
@@ -1016,6 +1030,9 @@ whitelist_reg_ext(struct i915_wa_list *wal, i915_reg_t reg, u32 flags)
 	if (GEM_DEBUG_WARN_ON(wal->count >= RING_MAX_NONPRIV_SLOTS))
 		return;
 
+	if (GEM_DEBUG_WARN_ON(!is_nonpriv_flags_valid(flags)))
+		return;
+
 	wa.reg.reg |= flags;
 	_wa_add(wal, &wa);
 }
@@ -1023,7 +1040,7 @@ whitelist_reg_ext(struct i915_wa_list *wal, i915_reg_t reg, u32 flags)
 static void
 whitelist_reg(struct i915_wa_list *wal, i915_reg_t reg)
 {
-	whitelist_reg_ext(wal, reg, RING_FORCE_TO_NONPRIV_RW);
+	whitelist_reg_ext(wal, reg, RING_FORCE_TO_NONPRIV_ACCESS_RW);
 }
 
 static void gen9_whitelist_build(struct i915_wa_list *w)
@@ -1104,7 +1121,7 @@ static void cfl_whitelist_build(struct intel_engine_cs *engine)
 	 *   - PS_DEPTH_COUNT_UDW
 	 */
 	whitelist_reg_ext(w, PS_INVOCATION_COUNT,
-			  RING_FORCE_TO_NONPRIV_RD |
+			  RING_FORCE_TO_NONPRIV_ACCESS_RD |
 			  RING_FORCE_TO_NONPRIV_RANGE_4);
 }
 
@@ -1144,20 +1161,20 @@ static void icl_whitelist_build(struct intel_engine_cs *engine)
 		 *   - PS_DEPTH_COUNT_UDW
 		 */
 		whitelist_reg_ext(w, PS_INVOCATION_COUNT,
-				  RING_FORCE_TO_NONPRIV_RD |
+				  RING_FORCE_TO_NONPRIV_ACCESS_RD |
 				  RING_FORCE_TO_NONPRIV_RANGE_4);
 		break;
 
 	case VIDEO_DECODE_CLASS:
 		/* hucStatusRegOffset */
 		whitelist_reg_ext(w, _MMIO(0x2000 + engine->mmio_base),
-				  RING_FORCE_TO_NONPRIV_RD);
+				  RING_FORCE_TO_NONPRIV_ACCESS_RD);
 		/* hucUKernelHdrInfoRegOffset */
 		whitelist_reg_ext(w, _MMIO(0x2014 + engine->mmio_base),
-				  RING_FORCE_TO_NONPRIV_RD);
+				  RING_FORCE_TO_NONPRIV_ACCESS_RD);
 		/* hucStatus2RegOffset */
 		whitelist_reg_ext(w, _MMIO(0x23B0 + engine->mmio_base),
-				  RING_FORCE_TO_NONPRIV_RD);
+				  RING_FORCE_TO_NONPRIV_ACCESS_RD);
 		break;
 
 	default:
