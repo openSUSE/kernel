@@ -1007,6 +1007,7 @@ static int soc15_common_early_init(void *handle)
 		}
 		break;
 	case CHIP_ARCTURUS:
+		adev->asic_funcs = &vega20_asic_funcs;
 		adev->cg_flags = 0;
 		adev->pg_flags = 0;
 		break;
