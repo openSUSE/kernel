@@ -6727,6 +6727,9 @@ static struct scsi_host_template driver_template = {
 	.name = "IPR",
 	.info = ipr_ioa_info,
 	.ioctl = ipr_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = ipr_ioctl,
+#endif
 	.queuecommand = ipr_queuecommand,
 	.dma_need_drain = ata_scsi_dma_need_drain,
 	.eh_abort_handler = ipr_eh_abort,
