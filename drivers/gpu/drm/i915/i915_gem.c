@@ -1242,6 +1242,7 @@ static int init_hw(struct intel_gt *gt)
 		goto out;
 	}
 
+	intel_mocs_init_global(gt);
 	intel_mocs_init_l3cc_table(gt);
 
 	intel_uncore_forcewake_put(uncore, FORCEWAKE_ALL);
