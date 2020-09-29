@@ -217,8 +217,10 @@ static int navi10_get_smu_msg_index(struct smu_context *smc, uint32_t index)
 		return -EINVAL;
 
 	mapping = navi10_message_map[index];
-	if (!(mapping.valid_mapping))
+	if (!(mapping.valid_mapping)) {
+		pr_warn("Unsupported SMU message: %d\n", index);
 		return -EINVAL;
+	}
 
 	return mapping.map_to;
 }
@@ -231,8 +233,10 @@ static int navi10_get_smu_clk_index(struct smu_context *smc, uint32_t index)
 		return -EINVAL;
 
 	mapping = navi10_clk_map[index];
-	if (!(mapping.valid_mapping))
+	if (!(mapping.valid_mapping)) {
+		pr_warn("Unsupported SMU clock: %d\n", index);
 		return -EINVAL;
+	}
 
 	return mapping.map_to;
 }
@@ -245,8 +249,10 @@ static int navi10_get_smu_feature_index(struct smu_context *smc, uint32_t index)
 		return -EINVAL;
 
 	mapping = navi10_feature_mask_map[index];
-	if (!(mapping.valid_mapping))
+	if (!(mapping.valid_mapping)) {
+		pr_warn("Unsupported SMU feature: %d\n", index);
 		return -EINVAL;
+	}
 
 	return mapping.map_to;
 }
@@ -259,8 +265,10 @@ static int navi10_get_smu_table_index(struct smu_context *smc, uint32_t index)
 		return -EINVAL;
 
 	mapping = navi10_table_map[index];
-	if (!(mapping.valid_mapping))
+	if (!(mapping.valid_mapping)) {
+		pr_warn("Unsupported SMU table: %d\n", index);
 		return -EINVAL;
+	}
 
 	return mapping.map_to;
 }
@@ -273,8 +281,10 @@ static int navi10_get_pwr_src_index(struct smu_context *smc, uint32_t index)
 		return -EINVAL;
 
 	mapping = navi10_pwr_src_map[index];
-	if (!(mapping.valid_mapping))
+	if (!(mapping.valid_mapping)) {
+		pr_warn("Unsupported power source: %d\n", index);
 		return -EINVAL;
+	}
 
 	return mapping.map_to;
 }
@@ -288,8 +298,10 @@ static int navi10_get_workload_type(struct smu_context *smu, enum PP_SMC_POWER_P
 		return -EINVAL;
 
 	mapping = navi10_workload_map[profile];
-	if (!(mapping.valid_mapping))
+	if (!(mapping.valid_mapping)) {
+		pr_warn("Unsupported workload: %d\n", (int)profile);
 		return -EINVAL;
+	}
 
 	return mapping.map_to;
 }
@@ -1025,7 +1037,7 @@ static int navi10_get_power_profile_mode(struct smu_context *smu, char *buf)
 {
 	DpmActivityMonitorCoeffInt_t activity_monitor;
 	uint32_t i, size = 0;
-	uint16_t workload_type = 0;
+	int16_t workload_type = 0;
 	static const char *profile_name[] = {
 					"BOOTUP_DEFAULT",
 					"3D_FULL_SCREEN",
@@ -1058,6 +1070,9 @@ static int navi10_get_power_profile_mode(struct smu_context *smu, char *buf)
 	for (i = 0; i <= PP_SMC_POWER_PROFILE_CUSTOM; i++) {
 		/* conv PP_SMC_POWER_PROFILE* to WORKLOAD_PPLIB_*_BIT */
 		workload_type = smu_workload_get_type(smu, i);
+		if (workload_type < 0)
+			return -EINVAL;
+
 		result = smu_update_table(smu,
 					  SMU_TABLE_ACTIVITY_MONITOR_COEFF, workload_type,
 					  (void *)(&activity_monitor), false);
@@ -1186,6 +1201,8 @@ static int navi10_set_power_profile_mode(struct smu_context *smu, long *input, u
 
 	/* conv PP_SMC_POWER_PROFILE* to WORKLOAD_PPLIB_*_BIT */
 	workload_type = smu_workload_get_type(smu, smu->power_profile_mode);
+	if (workload_type < 0)
+		return -EINVAL;
 	smu_send_smc_msg_with_param(smu, SMU_MSG_SetWorkloadMask,
 				    1 << workload_type);
 
