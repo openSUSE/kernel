@@ -370,7 +370,6 @@ static irqreturn_t regmap_irq_thread(int irq, void *d)
 		if (ret < 0) {
 			dev_err(map->dev, "IRQ thread failed to resume: %d\n",
 				ret);
-			pm_runtime_put(map->dev);
 			goto exit;
 		}
 	}
@@ -425,8 +424,6 @@ static irqreturn_t regmap_irq_thread(int irq, void *d)
 					dev_err(map->dev,
 						"Failed to read IRQ status %d\n",
 						ret);
-					if (chip->runtime_pm)
-						pm_runtime_put(map->dev);
 					goto exit;
 				}
 			}
@@ -478,8 +475,6 @@ static irqreturn_t regmap_irq_thread(int irq, void *d)
 				dev_err(map->dev,
 					"Failed to read IRQ status: %d\n",
 					ret);
-				if (chip->runtime_pm)
-					pm_runtime_put(map->dev);
 				goto exit;
 			}
 		}
@@ -513,10 +508,10 @@ static irqreturn_t regmap_irq_thread(int irq, void *d)
 		}
 	}
 
+exit:
 	if (chip->runtime_pm)
 		pm_runtime_put(map->dev);
 
-exit:
 	if (chip->handle_post_irq)
 		chip->handle_post_irq(chip->irq_drv_data);
 
@@ -546,8 +541,9 @@ static const struct irq_domain_ops regmap_domain_ops = {
 };
 
 /**
- * regmap_add_irq_chip() - Use standard regmap IRQ controller handling
+ * regmap_add_irq_chip_np() - Use standard regmap IRQ controller handling
  *
+ * @np: The device_node where the IRQ domain should be added to.
  * @map: The regmap for the device.
  * @irq: The IRQ the device uses to signal interrupts.
  * @irq_flags: The IRQF_ flags to use for the primary interrupt.
@@ -561,9 +557,10 @@ static const struct irq_domain_ops regmap_domain_ops = {
  * register cache.  The chip driver is responsible for restoring the
  * register values used by the IRQ controller over suspend and resume.
  */
-int regmap_add_irq_chip(struct regmap *map, int irq, int irq_flags,
-			int irq_base, const struct regmap_irq_chip *chip,
-			struct regmap_irq_chip_data **data)
+int regmap_add_irq_chip_np(struct device_node *np, struct regmap *map, int irq,
+			   int irq_flags, int irq_base,
+			   const struct regmap_irq_chip *chip,
+			   struct regmap_irq_chip_data **data)
 {
 	struct regmap_irq_chip_data *d;
 	int i;
@@ -774,12 +771,10 @@ int regmap_add_irq_chip(struct regmap *map, int irq, int irq_flags,
 	}
 
 	if (irq_base)
-		d->domain = irq_domain_add_legacy(map->dev->of_node,
-						  chip->num_irqs, irq_base, 0,
-						  &regmap_domain_ops, d);
+		d->domain = irq_domain_add_legacy(np, chip->num_irqs, irq_base,
+						  0, &regmap_domain_ops, d);
 	else
-		d->domain = irq_domain_add_linear(map->dev->of_node,
-						  chip->num_irqs,
+		d->domain = irq_domain_add_linear(np, chip->num_irqs,
 						  &regmap_domain_ops, d);
 	if (!d->domain) {
 		dev_err(map->dev, "Failed to create IRQ domain\n");
@@ -812,6 +807,30 @@ err_alloc:
 	kfree(d->status_reg_buf);
 	kfree(d);
 	return ret;
+}
+EXPORT_SYMBOL_GPL(regmap_add_irq_chip_np);
+
+/**
+ * regmap_add_irq_chip() - Use standard regmap IRQ controller handling
+ *
+ * @map: The regmap for the device.
+ * @irq: The IRQ the device uses to signal interrupts.
+ * @irq_flags: The IRQF_ flags to use for the primary interrupt.
+ * @irq_base: Allocate at specific IRQ number if irq_base > 0.
+ * @chip: Configuration for the interrupt controller.
+ * @data: Runtime data structure for the controller, allocated on success.
+ *
+ * Returns 0 on success or an errno on failure.
+ *
+ * This is the same as regmap_add_irq_chip_np, except that the device
+ * node of the regmap is used.
+ */
+int regmap_add_irq_chip(struct regmap *map, int irq, int irq_flags,
+			int irq_base, const struct regmap_irq_chip *chip,
+			struct regmap_irq_chip_data **data)
+{
+	return regmap_add_irq_chip_np(map->dev->of_node, map, irq, irq_flags,
+				      irq_base, chip, data);
 }
 EXPORT_SYMBOL_GPL(regmap_add_irq_chip);
 
@@ -880,6 +899,51 @@ static int devm_regmap_irq_chip_match(struct device *dev, void *res, void *data)
 }
 
 /**
+ * devm_regmap_add_irq_chip_np() - Resource manager regmap_add_irq_chip_np()
+ *
+ * @dev: The device pointer on which irq_chip belongs to.
+ * @np: The device_node where the IRQ domain should be added to.
+ * @map: The regmap for the device.
+ * @irq: The IRQ the device uses to signal interrupts
+ * @irq_flags: The IRQF_ flags to use for the primary interrupt.
+ * @irq_base: Allocate at specific IRQ number if irq_base > 0.
+ * @chip: Configuration for the interrupt controller.
+ * @data: Runtime data structure for the controller, allocated on success
+ *
+ * Returns 0 on success or an errno on failure.
+ *
+ * The &regmap_irq_chip_data will be automatically released when the device is
+ * unbound.
+ */
+int devm_regmap_add_irq_chip_np(struct device *dev, struct device_node *np,
+				struct regmap *map, int irq, int irq_flags,
+				int irq_base,
+				const struct regmap_irq_chip *chip,
+				struct regmap_irq_chip_data **data)
+{
+	struct regmap_irq_chip_data **ptr, *d;
+	int ret;
+
+	ptr = devres_alloc(devm_regmap_irq_chip_release, sizeof(*ptr),
+			   GFP_KERNEL);
+	if (!ptr)
+		return -ENOMEM;
+
+	ret = regmap_add_irq_chip_np(np, map, irq, irq_flags, irq_base,
+				     chip, &d);
+	if (ret < 0) {
+		devres_free(ptr);
+		return ret;
+	}
+
+	*ptr = d;
+	devres_add(dev, ptr);
+	*data = d;
+	return 0;
+}
+EXPORT_SYMBOL_GPL(devm_regmap_add_irq_chip_np);
+
+/**
  * devm_regmap_add_irq_chip() - Resource manager regmap_add_irq_chip()
  *
  * @dev: The device pointer on which irq_chip belongs to.
@@ -900,25 +964,8 @@ int devm_regmap_add_irq_chip(struct device *dev, struct regmap *map, int irq,
 			     const struct regmap_irq_chip *chip,
 			     struct regmap_irq_chip_data **data)
 {
-	struct regmap_irq_chip_data **ptr, *d;
-	int ret;
-
-	ptr = devres_alloc(devm_regmap_irq_chip_release, sizeof(*ptr),
-			   GFP_KERNEL);
-	if (!ptr)
-		return -ENOMEM;
-
-	ret = regmap_add_irq_chip(map, irq, irq_flags, irq_base,
-				  chip, &d);
-	if (ret < 0) {
-		devres_free(ptr);
-		return ret;
-	}
-
-	*ptr = d;
-	devres_add(dev, ptr);
-	*data = d;
-	return 0;
+	return devm_regmap_add_irq_chip_np(dev, map->dev->of_node, map, irq,
+					   irq_flags, irq_base, chip, data);
 }
 EXPORT_SYMBOL_GPL(devm_regmap_add_irq_chip);
 
