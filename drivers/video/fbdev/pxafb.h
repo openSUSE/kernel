@@ -162,6 +162,7 @@ struct pxafb_info {
 
 #ifdef CONFIG_CPU_FREQ
 	struct notifier_block	freq_transition;
+	struct notifier_block	freq_policy;
 #endif
 
 	struct regulator *lcd_supply;
