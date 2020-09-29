@@ -3538,10 +3538,8 @@ int i915_ggtt_enable_hw(struct drm_i915_private *dev_priv)
 	return 0;
 }
 
-void i915_ggtt_enable_guc(struct drm_i915_private *i915)
+void i915_ggtt_enable_guc(struct i915_ggtt *ggtt)
 {
-	struct i915_ggtt *ggtt = &i915->ggtt;
-
 	GEM_BUG_ON(ggtt->invalidate != gen6_ggtt_invalidate);
 
 	ggtt->invalidate = guc_ggtt_invalidate;
@@ -3549,10 +3547,8 @@ void i915_ggtt_enable_guc(struct drm_i915_private *i915)
 	ggtt->invalidate(ggtt);
 }
 
-void i915_ggtt_disable_guc(struct drm_i915_private *i915)
+void i915_ggtt_disable_guc(struct i915_ggtt *ggtt)
 {
-	struct i915_ggtt *ggtt = &i915->ggtt;
-
 	/* XXX Temporary pardon for error unload */
 	if (ggtt->invalidate == gen6_ggtt_invalidate)
 		return;
