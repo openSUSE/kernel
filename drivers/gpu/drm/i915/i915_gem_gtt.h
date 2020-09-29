@@ -251,8 +251,7 @@ struct i915_page_table {
 };
 
 struct i915_page_directory {
-	struct i915_page_dma base;
-	atomic_t used;
+	struct i915_page_table pt;
 	spinlock_t lock;
 	void *entry[512];
 };
@@ -267,9 +266,15 @@ struct i915_page_directory {
 #define px_base(px) \
 	__px_choose_expr(px, struct i915_page_dma *, __x, \
 	__px_choose_expr(px, struct i915_page_table *, &__x->base, \
-	__px_choose_expr(px, struct i915_page_directory *, &__x->base, \
+	__px_choose_expr(px, struct i915_page_directory *, &__x->pt.base, \
 	(void)0)))
 #define px_dma(px) (px_base(px)->daddr)
+
+#define px_pt(px) \
+	__px_choose_expr(px, struct i915_page_table *, __x, \
+	__px_choose_expr(px, struct i915_page_directory *, &__x->pt, \
+	(void)0))
+#define px_used(px) (&px_pt(px)->used)
 
 struct i915_vma_ops {
 	/* Map an object into an address space with the given cache flags. */
@@ -605,10 +610,9 @@ static inline u64 gen8_pte_count(u64 address, u64 length)
 static inline dma_addr_t
 i915_page_dir_dma_addr(const struct i915_ppgtt *ppgtt, const unsigned int n)
 {
-	struct i915_page_directory *pd;
+	struct i915_page_dma *pt = ppgtt->pd->entry[n];
 
-	pd = i915_pdp_entry(ppgtt->pd, n);
-	return px_dma(pd);
+	return px_dma(pt);
 }
 
 static inline struct i915_ggtt *
