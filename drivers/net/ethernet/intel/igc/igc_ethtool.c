@@ -1261,7 +1261,6 @@ int igc_add_filter(struct igc_adapter *adapter, struct igc_nfc_filter *input)
 		err = igc_add_mac_steering_filter(adapter,
 						  input->filter.dst_addr,
 						  input->action, 0);
-		err = min_t(int, err, 0);
 		if (err)
 			return err;
 	}
@@ -1271,7 +1270,6 @@ int igc_add_filter(struct igc_adapter *adapter, struct igc_nfc_filter *input)
 						  input->filter.src_addr,
 						  input->action,
 						  IGC_MAC_STATE_SRC_ADDR);
-		err = min_t(int, err, 0);
 		if (err)
 			return err;
 	}
