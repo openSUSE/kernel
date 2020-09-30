@@ -261,8 +261,7 @@ static int cxgb4vf_set_addr_hash(struct port_info *pi)
  *	@tcam_idx: TCAM index of existing filter for old value of MAC address,
  *		   or -1
  *	@addr: the new MAC address value
- *	@persist: whether a new MAC allocation should be persistent
- *	@add_smt: if true also add the address to the HW SMT
+ *	@persistent: whether a new MAC allocation should be persistent
  *
  *	Modifies an MPS filter and sets it to the new MAC address if
  *	@tcam_idx >= 0, or adds the MAC address to a new filter if
@@ -1921,6 +1920,8 @@ static void cxgb4vf_get_wol(struct net_device *dev,
 		   NETIF_F_GRO | NETIF_F_IPV6_CSUM | NETIF_F_HIGHDMA)
 
 static const struct ethtool_ops cxgb4vf_ethtool_ops = {
+	.supported_coalesce_params = ETHTOOL_COALESCE_RX_USECS |
+				     ETHTOOL_COALESCE_RX_MAX_FRAMES,
 	.get_link_ksettings	= cxgb4vf_get_link_ksettings,
 	.get_fecparam		= cxgb4vf_get_fecparam,
 	.get_drvinfo		= cxgb4vf_get_drvinfo,
@@ -2480,7 +2481,7 @@ static int setup_debugfs(struct adapter *adapter)
 	for (i = 0; i < ARRAY_SIZE(debugfs_files); i++)
 		debugfs_create_file(debugfs_files[i].name,
 				    debugfs_files[i].mode,
-				    adapter->debugfs_root, (void *)adapter,
+				    adapter->debugfs_root, adapter,
 				    debugfs_files[i].fops);
 
 	return 0;
@@ -2917,6 +2918,39 @@ static const struct net_device_ops cxgb4vf_netdev_ops	= {
 #endif
 };
 
+/**
+ *	cxgb4vf_get_port_mask - Get port mask for the VF based on mac
+ *				address stored on the adapter
+ *	@adapter: The adapter
+ *
+ *	Find the the port mask for the VF based on the index of mac
+ *	address stored in the adapter. If no mac address is stored on
+ *	the adapter for the VF, use the port mask received from the
+ *	firmware.
+ */
+static unsigned int cxgb4vf_get_port_mask(struct adapter *adapter)
+{
+	unsigned int naddr = 1, pidx = 0;
+	unsigned int pmask, rmask = 0;
+	u8 mac[ETH_ALEN];
+	int err;
+
+	pmask = adapter->params.vfres.pmask;
+	while (pmask) {
+		if (pmask & 1) {
+			err = t4vf_get_vf_mac_acl(adapter, pidx, &naddr, mac);
+			if (!err && !is_zero_ether_addr(mac))
+				rmask |= (1 << pidx);
+		}
+		pmask >>= 1;
+		pidx++;
+	}
+	if (!rmask)
+		rmask = adapter->params.vfres.pmask;
+
+	return rmask;
+}
+
 /*
  * "Probe" a device: initialize a device and construct all kernel and driver
  * state needed to manage the device.  This routine is called "init_one" in
@@ -2925,13 +2959,12 @@ static const struct net_device_ops cxgb4vf_netdev_ops	= {
 static int cxgb4vf_pci_probe(struct pci_dev *pdev,
 			     const struct pci_device_id *ent)
 {
+	struct adapter *adapter;
+	struct net_device *netdev;
+	struct port_info *pi;
+	unsigned int pmask;
 	int pci_using_dac;
 	int err, pidx;
-	unsigned int pmask;
-	struct adapter *adapter;
-	struct port_info *pi;
-	struct net_device *netdev;
-	unsigned int pf;
 
 	/*
 	 * Print our driver banner the first time we're called to initialize a
@@ -3080,8 +3113,7 @@ static int cxgb4vf_pci_probe(struct pci_dev *pdev,
 	/*
 	 * Allocate our "adapter ports" and stitch everything together.
 	 */
-	pmask = adapter->params.vfres.pmask;
-	pf = t4vf_get_pf_from_vf(adapter);
+	pmask = cxgb4vf_get_port_mask(adapter);
 	for_each_port(adapter, pidx) {
 		int port_id, viid;
 		u8 mac[ETH_ALEN];
@@ -3164,7 +3196,7 @@ static int cxgb4vf_pci_probe(struct pci_dev *pdev,
 			goto err_free_dev;
 		}
 
-		err = t4vf_get_vf_mac_acl(adapter, pf, &naddr, mac);
+		err = t4vf_get_vf_mac_acl(adapter, port_id, &naddr, mac);
 		if (err) {
 			dev_err(&pdev->dev,
 				"unable to determine MAC ACL address, "
