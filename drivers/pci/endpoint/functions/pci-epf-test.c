@@ -434,7 +434,7 @@ static int pci_epf_test_alloc_space(struct pci_epf *epf)
 	struct pci_epf_test *epf_test = epf_get_drvdata(epf);
 	struct device *dev = &epf->dev;
 	struct pci_epf_bar *epf_bar;
-	size_t msix_table_size = 0;
+	size_t msix_tablesize = 0;
 	size_t test_reg_bar_size;
 	size_t pba_size = 0;
 	bool msix_capable;
@@ -461,7 +461,6 @@ static int pci_epf_test_alloc_space(struct pci_epf *epf)
 		if (test_reg_size > bar_size[test_reg_bar])
 			return -ENOMEM;
 		test_reg_size = bar_size[test_reg_bar];
-	}
 
 	base = pci_epf_alloc_space(epf, test_reg_size, test_reg_bar,
 				   epc_features->align);
