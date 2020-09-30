@@ -35,7 +35,7 @@ i915_gem_object_wait_reservation(struct reservation_object *resv,
 				 unsigned int flags,
 				 long timeout)
 {
-	unsigned int seq = __read_seqcount_begin(&resv->seq);
+	unsigned int seq = read_seqbegin(&resv->seq);
 	struct dma_fence *excl;
 	bool prune_fences = false;
 
@@ -86,9 +86,9 @@ i915_gem_object_wait_reservation(struct reservation_object *resv,
 	 * signaled and that the reservation object has not been changed (i.e.
 	 * no new fences have been added).
 	 */
-	if (prune_fences && !__read_seqcount_retry(&resv->seq, seq)) {
+	if (prune_fences && !read_seqretry(&resv->seq, seq)) {
 		if (reservation_object_trylock(resv)) {
-			if (!__read_seqcount_retry(&resv->seq, seq))
+			if (!read_seqretry(&resv->seq, seq))
 				reservation_object_add_excl_fence(resv, NULL);
 			reservation_object_unlock(resv);
 		}
