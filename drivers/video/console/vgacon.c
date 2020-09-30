@@ -251,10 +251,6 @@ static void vgacon_scrollback_update(struct vc_data *c, int t, int count)
 	p = (void *) (c->vc_origin + t * c->vc_size_row);
 
 	while (count--) {
-		if ((vgacon_scrollback_cur->tail + c->vc_size_row) >
-		    vgacon_scrollback_cur->size)
-			vgacon_scrollback_cur->tail = 0;
-
 		scr_memcpyw(vgacon_scrollback_cur->data +
 			    vgacon_scrollback_cur->tail,
 			    p, c->vc_size_row);
@@ -1288,7 +1284,7 @@ static int vgacon_font_set(struct vc_data *c, struct console_font *font,
 	unsigned charcount = font->charcount;
 	int rc;
 
-	if (vga_video_type < VIDEO_TYPE_EGAM || vga_is_gfx)
+	if (vga_video_type < VIDEO_TYPE_EGAM)
 		return -EINVAL;
 
 	if (font->width != VGA_FONTWIDTH ||
@@ -1306,7 +1302,7 @@ static int vgacon_font_set(struct vc_data *c, struct console_font *font,
 
 static int vgacon_font_get(struct vc_data *c, struct console_font *font)
 {
-	if (vga_video_type < VIDEO_TYPE_EGAM || vga_is_gfx)
+	if (vga_video_type < VIDEO_TYPE_EGAM)
 		return -EINVAL;
 
 	font->width = VGA_FONTWIDTH;
@@ -1320,9 +1316,6 @@ static int vgacon_font_get(struct vc_data *c, struct console_font *font)
 static int vgacon_resize(struct vc_data *c, unsigned int width,
 			 unsigned int height, unsigned int user)
 {
-	if ((width << 1) * height > vga_vram_size)
-		return -EINVAL;
-
 	if (width % 2 || width > screen_info.orig_video_cols ||
 	    height > (screen_info.orig_video_lines * vga_default_font_height)/
 	    c->vc_font.height)
