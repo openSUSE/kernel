@@ -1082,14 +1082,6 @@ static int rtl_readphy(struct rtl8169_private *tp, int location)
 	}
 }
 
-static void rtl_w0w1_phy(struct rtl8169_private *tp, int reg_addr, int p, int m)
-{
-	int val;
-
-	val = rtl_readphy(tp, reg_addr);
-	rtl_writephy(tp, reg_addr, (val & ~m) | p);
-}
-
 static void r8168d_modify_extpage(struct phy_device *phydev, int extpage,
 				  int reg, u16 mask, u16 val)
 {
@@ -2705,8 +2697,8 @@ static void rtl8168d_1_hw_phy_config(struct rtl8169_private *tp,
 	 * Fine Tune Switching regulator parameter
 	 */
 	rtl_writephy(tp, 0x1f, 0x0002);
-	rtl_w0w1_phy(tp, 0x0b, 0x0010, 0x00ef);
-	rtl_w0w1_phy(tp, 0x0c, 0xa200, 0x5d00);
+	phy_modify(phydev, 0x0b, 0x00ef, 0x0010);
+	phy_modify(phydev, 0x0c, 0x5d00, 0xa200);
 
 	if (rtl8168d_efuse_read(tp, 0x01) == 0xb1) {
 		int val;
@@ -2740,8 +2732,8 @@ static void rtl8168d_1_hw_phy_config(struct rtl8169_private *tp,
 
 	/* Fine tune PLL performance */
 	rtl_writephy(tp, 0x1f, 0x0002);
-	rtl_w0w1_phy(tp, 0x02, 0x0100, 0x0600);
-	rtl_w0w1_phy(tp, 0x03, 0x0000, 0xe000);
+	phy_modify(phydev, 0x02, 0x0600, 0x0100);
+	phy_clear_bits(phydev, 0x03, 0xe000);
 	rtl_writephy(tp, 0x1f, 0x0000);
 
 	rtl8168d_apply_firmware_cond(tp, 0xbf00);
@@ -2778,8 +2770,8 @@ static void rtl8168d_2_hw_phy_config(struct rtl8169_private *tp,
 
 	/* Fine tune PLL performance */
 	rtl_writephy(tp, 0x1f, 0x0002);
-	rtl_w0w1_phy(tp, 0x02, 0x0100, 0x0600);
-	rtl_w0w1_phy(tp, 0x03, 0x0000, 0xe000);
+	phy_modify(phydev, 0x02, 0x0600, 0x0100);
+	phy_clear_bits(phydev, 0x03, 0xe000);
 	rtl_writephy(tp, 0x1f, 0x0000);
 
 	/* Switching regulator Slew rate */
@@ -2932,7 +2924,7 @@ static void rtl8168e_2_hw_phy_config(struct rtl8169_private *tp,
 	/* For 4-corner performance improve */
 	rtl_writephy(tp, 0x1f, 0x0005);
 	rtl_writephy(tp, 0x05, 0x8b80);
-	rtl_w0w1_phy(tp, 0x17, 0x0006, 0x0000);
+	phy_set_bits(phydev, 0x17, 0x0006);
 	rtl_writephy(tp, 0x1f, 0x0000);
 
 	/* PHY auto speed down */
@@ -2949,12 +2941,10 @@ static void rtl8168e_2_hw_phy_config(struct rtl8169_private *tp,
 
 	/* Green feature */
 	rtl_writephy(tp, 0x1f, 0x0003);
-	rtl_w0w1_phy(tp, 0x19, 0x0001, 0x0000);
-	rtl_w0w1_phy(tp, 0x10, 0x0400, 0x0000);
+	phy_set_bits(phydev, 0x19, BIT(0));
+	phy_set_bits(phydev, 0x10, BIT(10));
 	rtl_writephy(tp, 0x1f, 0x0000);
-	rtl_writephy(tp, 0x1f, 0x0005);
-	rtl_w0w1_phy(tp, 0x01, 0x0100, 0x0000);
-	rtl_writephy(tp, 0x1f, 0x0000);
+	phy_modify_paged(phydev, 0x0005, 0x01, 0, BIT(8));
 }
 
 static void rtl8168f_hw_phy_config(struct rtl8169_private *tp,
@@ -3050,8 +3040,8 @@ static void rtl8411_hw_phy_config(struct rtl8169_private *tp,
 
 	/* Green feature */
 	rtl_writephy(tp, 0x1f, 0x0003);
-	rtl_w0w1_phy(tp, 0x19, 0x0000, 0x0001);
-	rtl_w0w1_phy(tp, 0x10, 0x0000, 0x0400);
+	phy_clear_bits(phydev, 0x19, BIT(0));
+	phy_clear_bits(phydev, 0x10, BIT(10));
 	rtl_writephy(tp, 0x1f, 0x0000);
 }
 
