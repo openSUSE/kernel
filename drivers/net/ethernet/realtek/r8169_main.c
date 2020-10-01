@@ -3061,15 +3061,13 @@ static void rtl8411_hw_phy_config(struct rtl8169_private *tp,
 	rtl_writephy(tp, 0x1f, 0x0000);
 }
 
-static void rtl8168g_disable_aldps(struct rtl8169_private *tp)
+static void rtl8168g_disable_aldps(struct phy_device *phydev)
 {
-	phy_modify_paged(tp->phydev, 0x0a43, 0x10, BIT(2), 0);
+	phy_modify_paged(phydev, 0x0a43, 0x10, BIT(2), 0);
 }
 
-static void rtl8168g_phy_adjust_10m_aldps(struct rtl8169_private *tp)
+static void rtl8168g_phy_adjust_10m_aldps(struct phy_device *phydev)
 {
-	struct phy_device *phydev = tp->phydev;
-
 	phy_modify_paged(phydev, 0x0bcc, 0x14, BIT(8), 0);
 	phy_modify_paged(phydev, 0x0a44, 0x11, 0, BIT(7) | BIT(6));
 	r8168g_phy_param(phydev, 0x8084, 0x6000, 0x0000);
@@ -3098,7 +3096,7 @@ static void rtl8168g_1_hw_phy_config(struct rtl8169_private *tp,
 	/* Enable PHY auto speed down */
 	phy_modify_paged(phydev, 0x0a44, 0x11, 0, BIT(3) | BIT(2));
 
-	rtl8168g_phy_adjust_10m_aldps(tp);
+	rtl8168g_phy_adjust_10m_aldps(phydev);
 
 	/* EEE auto-fallback function */
 	phy_modify_paged(phydev, 0x0a4b, 0x11, 0, BIT(2));
@@ -3120,7 +3118,7 @@ static void rtl8168g_1_hw_phy_config(struct rtl8169_private *tp,
 	rtl_writephy(tp, 0x14, 0x1065);
 	rtl_writephy(tp, 0x1f, 0x0000);
 
-	rtl8168g_disable_aldps(tp);
+	rtl8168g_disable_aldps(phydev);
 	rtl8168g_config_eee_phy(phydev);
 }
 
@@ -3193,7 +3191,7 @@ static void rtl8168h_1_hw_phy_config(struct rtl8169_private *tp,
 	/* disable phy pfm mode */
 	phy_modify_paged(phydev, 0x0a44, 0x11, BIT(7), 0);
 
-	rtl8168g_disable_aldps(tp);
+	rtl8168g_disable_aldps(phydev);
 	rtl8168h_config_eee_phy(phydev);
 }
 
@@ -3247,7 +3245,7 @@ static void rtl8168h_2_hw_phy_config(struct rtl8169_private *tp,
 	/* disable phy pfm mode */
 	phy_modify_paged(phydev, 0x0a44, 0x11, BIT(7), 0);
 
-	rtl8168g_disable_aldps(tp);
+	rtl8168g_disable_aldps(phydev);
 	rtl8168g_config_eee_phy(phydev);
 }
 
@@ -3257,7 +3255,7 @@ static void rtl8168ep_1_hw_phy_config(struct rtl8169_private *tp,
 	/* Enable PHY auto speed down */
 	phy_modify_paged(phydev, 0x0a44, 0x11, 0, BIT(3) | BIT(2));
 
-	rtl8168g_phy_adjust_10m_aldps(tp);
+	rtl8168g_phy_adjust_10m_aldps(phydev);
 
 	/* Enable EEE auto-fallback function */
 	phy_modify_paged(phydev, 0x0a4b, 0x11, 0, BIT(2));
@@ -3268,14 +3266,14 @@ static void rtl8168ep_1_hw_phy_config(struct rtl8169_private *tp,
 	/* set rg_sel_sdm_rate */
 	phy_modify_paged(phydev, 0x0c42, 0x11, BIT(13), BIT(14));
 
-	rtl8168g_disable_aldps(tp);
+	rtl8168g_disable_aldps(phydev);
 	rtl8168g_config_eee_phy(phydev);
 }
 
 static void rtl8168ep_2_hw_phy_config(struct rtl8169_private *tp,
 				      struct phy_device *phydev)
 {
-	rtl8168g_phy_adjust_10m_aldps(tp);
+	rtl8168g_phy_adjust_10m_aldps(phydev);
 
 	/* Enable UC LPF tune function */
 	r8168g_phy_param(phydev, 0x8012, 0x0000, 0x8000);
@@ -3318,7 +3316,7 @@ static void rtl8168ep_2_hw_phy_config(struct rtl8169_private *tp,
 	rtl_writephy(tp, 0x14, 0x1065);
 	rtl_writephy(tp, 0x1f, 0x0000);
 
-	rtl8168g_disable_aldps(tp);
+	rtl8168g_disable_aldps(phydev);
 	rtl8168g_config_eee_phy(phydev);
 }
 
@@ -3356,7 +3354,7 @@ static void rtl8117_hw_phy_config(struct rtl8169_private *tp,
 
 	r8168g_phy_param(phydev, 0x8016, 0x0000, 0x0400);
 
-	rtl8168g_disable_aldps(tp);
+	rtl8168g_disable_aldps(phydev);
 	rtl8168h_config_eee_phy(phydev);
 }
 
