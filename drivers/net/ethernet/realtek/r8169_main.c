@@ -5024,18 +5024,16 @@ static void rtl_remove_one(struct pci_dev *pdev)
 	struct net_device *dev = pci_get_drvdata(pdev);
 	struct rtl8169_private *tp = netdev_priv(dev);
 
-	if (r8168_check_dash(tp))
-		rtl8168_driver_stop(tp);
-
-	netif_napi_del(&tp->napi);
+	if (pci_dev_run_wake(pdev))
+		pm_runtime_get_noresume(&pdev->dev);
 
 	unregister_netdev(dev);
 	mdiobus_unregister(tp->phydev->mdio.bus);
 
-	rtl_release_firmware(tp);
+	if (r8168_check_dash(tp))
+		rtl8168_driver_stop(tp);
 
-	if (pci_dev_run_wake(pdev))
-		pm_runtime_get_noresume(&pdev->dev);
+	rtl_release_firmware(tp);
 
 	/* restore original MAC address */
 	rtl_rar_set(tp, dev->perm_addr);
