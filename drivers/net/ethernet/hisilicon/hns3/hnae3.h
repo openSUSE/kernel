@@ -271,6 +271,8 @@ struct hnae3_ae_dev {
  *   Set loopback
  * set_promisc_mode
  *   Set promisc mode
+ * request_update_promisc_mode
+ *   request to hclge(vf) to update promisc mode
  * set_mtu()
  *   set mtu
  * get_pauseparam()
@@ -409,6 +411,7 @@ struct hnae3_ae_ops {
 
 	int (*set_promisc_mode)(struct hnae3_handle *handle, bool en_uc_pmc,
 				bool en_mc_pmc);
+	void (*request_update_promisc_mode)(struct hnae3_handle *handle);
 	int (*set_mtu)(struct hnae3_handle *handle, int new_mtu);
 
 	void (*get_pauseparam)(struct hnae3_handle *handle,
