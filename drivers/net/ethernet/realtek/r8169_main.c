@@ -1626,7 +1626,7 @@ DECLARE_RTL_COND(rtl_counters_cond)
 	return RTL_R32(tp, CounterAddrLow) & (CounterReset | CounterDump);
 }
 
-static bool rtl8169_do_counters(struct rtl8169_private *tp, u32 counter_cmd)
+static void rtl8169_do_counters(struct rtl8169_private *tp, u32 counter_cmd)
 {
 	dma_addr_t paddr = tp->counters_phys_addr;
 	u32 cmd;
@@ -1637,22 +1637,20 @@ static bool rtl8169_do_counters(struct rtl8169_private *tp, u32 counter_cmd)
 	RTL_W32(tp, CounterAddrLow, cmd);
 	RTL_W32(tp, CounterAddrLow, cmd | counter_cmd);
 
-	return rtl_udelay_loop_wait_low(tp, &rtl_counters_cond, 10, 1000);
+	rtl_udelay_loop_wait_low(tp, &rtl_counters_cond, 10, 1000);
 }
 
-static bool rtl8169_reset_counters(struct rtl8169_private *tp)
+static void rtl8169_reset_counters(struct rtl8169_private *tp)
 {
 	/*
 	 * Versions prior to RTL_GIGA_MAC_VER_19 don't support resetting the
 	 * tally counters.
 	 */
-	if (tp->mac_version < RTL_GIGA_MAC_VER_19)
-		return true;
-
-	return rtl8169_do_counters(tp, CounterReset);
+	if (tp->mac_version >= RTL_GIGA_MAC_VER_19)
+		rtl8169_do_counters(tp, CounterReset);
 }
 
-static bool rtl8169_update_counters(struct rtl8169_private *tp)
+static void rtl8169_update_counters(struct rtl8169_private *tp)
 {
 	u8 val = RTL_R8(tp, ChipCmd);
 
@@ -1660,16 +1658,13 @@ static bool rtl8169_update_counters(struct rtl8169_private *tp)
 	 * Some chips are unable to dump tally counters when the receiver
 	 * is disabled. If 0xff chip may be in a PCI power-save state.
 	 */
-	if (!(val & CmdRxEnb) || val == 0xff)
-		return true;
-
-	return rtl8169_do_counters(tp, CounterDump);
+	if (val & CmdRxEnb && val != 0xff)
+		rtl8169_do_counters(tp, CounterDump);
 }
 
-static bool rtl8169_init_counter_offsets(struct rtl8169_private *tp)
+static void rtl8169_init_counter_offsets(struct rtl8169_private *tp)
 {
 	struct rtl8169_counters *counters = tp->counters;
-	bool ret = false;
 
 	/*
 	 * rtl8169_init_counter_offsets is called from rtl_open.  On chip
@@ -1687,22 +1682,16 @@ static bool rtl8169_init_counter_offsets(struct rtl8169_private *tp)
 	 */
 
 	if (tp->tc_offset.inited)
-		return true;
+		return;
 
-	/* If both, reset and update fail, propagate to caller. */
-	if (rtl8169_reset_counters(tp))
-		ret = true;
-
-	if (rtl8169_update_counters(tp))
-		ret = true;
+	rtl8169_reset_counters(tp);
+	rtl8169_update_counters(tp);
 
 	tp->tc_offset.tx_errors = counters->tx_errors;
 	tp->tc_offset.tx_multi_collision = counters->tx_multi_collision;
 	tp->tc_offset.tx_aborted = counters->tx_aborted;
 	tp->tc_offset.rx_missed = counters->rx_missed;
 	tp->tc_offset.inited = true;
-
-	return ret;
 }
 
 static void rtl8169_get_ethtool_stats(struct net_device *dev,
@@ -4787,8 +4776,7 @@ static int rtl_open(struct net_device *dev)
 
 	rtl_hw_start(tp);
 
-	if (!rtl8169_init_counter_offsets(tp))
-		netif_warn(tp, hw, dev, "counter reset/update failed\n");
+	rtl8169_init_counter_offsets(tp);
 
 	phy_start(tp->phydev);
 	netif_start_queue(dev);
