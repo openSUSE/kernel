@@ -726,55 +726,35 @@ struct rtl_cond {
 	const char *msg;
 };
 
-static void rtl_udelay(unsigned int d)
-{
-	udelay(d);
-}
-
 static bool rtl_loop_wait(struct rtl8169_private *tp, const struct rtl_cond *c,
-			  void (*delay)(unsigned int), unsigned int d, int n,
-			  bool high)
+			  unsigned long usecs, int n, bool high)
 {
 	int i;
 
 	for (i = 0; i < n; i++) {
 		if (c->check(tp) == high)
 			return true;
-		delay(d);
+		fsleep(usecs);
 	}
 
 	if (net_ratelimit())
-		netdev_err(tp->dev, "%s == %d (loop: %d, delay: %d).\n",
-			   c->msg, !high, n, d);
+		netdev_err(tp->dev, "%s == %d (loop: %d, delay: %lu).\n",
+			   c->msg, !high, n, usecs);
 	return false;
 }
 
-static bool rtl_udelay_loop_wait_high(struct rtl8169_private *tp,
-				      const struct rtl_cond *c,
-				      unsigned int d, int n)
+static bool rtl_loop_wait_high(struct rtl8169_private *tp,
+			       const struct rtl_cond *c,
+			       unsigned long d, int n)
 {
-	return rtl_loop_wait(tp, c, rtl_udelay, d, n, true);
+	return rtl_loop_wait(tp, c, d, n, true);
 }
 
-static bool rtl_udelay_loop_wait_low(struct rtl8169_private *tp,
-				     const struct rtl_cond *c,
-				     unsigned int d, int n)
+static bool rtl_loop_wait_low(struct rtl8169_private *tp,
+			      const struct rtl_cond *c,
+			      unsigned long d, int n)
 {
-	return rtl_loop_wait(tp, c, rtl_udelay, d, n, false);
-}
-
-static bool rtl_msleep_loop_wait_high(struct rtl8169_private *tp,
-				      const struct rtl_cond *c,
-				      unsigned int d, int n)
-{
-	return rtl_loop_wait(tp, c, msleep, d, n, true);
-}
-
-static bool rtl_msleep_loop_wait_low(struct rtl8169_private *tp,
-				     const struct rtl_cond *c,
-				     unsigned int d, int n)
-{
-	return rtl_loop_wait(tp, c, msleep, d, n, false);
+	return rtl_loop_wait(tp, c, d, n, false);
 }
 
 #define DECLARE_RTL_COND(name)				\
@@ -809,7 +789,7 @@ static void r8168_phy_ocp_write(struct rtl8169_private *tp, u32 reg, u32 data)
 
 	RTL_W32(tp, GPHY_OCP, OCPAR_FLAG | (reg << 15) | data);
 
-	rtl_udelay_loop_wait_low(tp, &rtl_ocp_gphy_cond, 25, 10);
+	rtl_loop_wait_low(tp, &rtl_ocp_gphy_cond, 25, 10);
 }
 
 static int r8168_phy_ocp_read(struct rtl8169_private *tp, u32 reg)
@@ -819,7 +799,7 @@ static int r8168_phy_ocp_read(struct rtl8169_private *tp, u32 reg)
 
 	RTL_W32(tp, GPHY_OCP, reg << 15);
 
-	return rtl_udelay_loop_wait_high(tp, &rtl_ocp_gphy_cond, 25, 10) ?
+	return rtl_loop_wait_high(tp, &rtl_ocp_gphy_cond, 25, 10) ?
 		(RTL_R32(tp, GPHY_OCP) & 0xffff) : -ETIMEDOUT;
 }
 
@@ -897,7 +877,7 @@ static void r8169_mdio_write(struct rtl8169_private *tp, int reg, int value)
 {
 	RTL_W32(tp, PHYAR, 0x80000000 | (reg & 0x1f) << 16 | (value & 0xffff));
 
-	rtl_udelay_loop_wait_low(tp, &rtl_phyar_cond, 25, 20);
+	rtl_loop_wait_low(tp, &rtl_phyar_cond, 25, 20);
 	/*
 	 * According to hardware specs a 20us delay is required after write
 	 * complete indication, but before sending next command.
@@ -911,7 +891,7 @@ static int r8169_mdio_read(struct rtl8169_private *tp, int reg)
 
 	RTL_W32(tp, PHYAR, 0x0 | (reg & 0x1f) << 16);
 
-	value = rtl_udelay_loop_wait_high(tp, &rtl_phyar_cond, 25, 20) ?
+	value = rtl_loop_wait_high(tp, &rtl_phyar_cond, 25, 20) ?
 		RTL_R32(tp, PHYAR) & 0xffff : -ETIMEDOUT;
 
 	/*
@@ -934,7 +914,7 @@ static void r8168dp_1_mdio_access(struct rtl8169_private *tp, int reg, u32 data)
 	RTL_W32(tp, OCPAR, OCPAR_GPHY_WRITE_CMD);
 	RTL_W32(tp, EPHY_RXER_NUM, 0);
 
-	rtl_udelay_loop_wait_low(tp, &rtl_ocpar_cond, 1000, 100);
+	rtl_loop_wait_low(tp, &rtl_ocpar_cond, 1000, 100);
 }
 
 static void r8168dp_1_mdio_write(struct rtl8169_private *tp, int reg, int value)
@@ -951,7 +931,7 @@ static int r8168dp_1_mdio_read(struct rtl8169_private *tp, int reg)
 	RTL_W32(tp, OCPAR, OCPAR_GPHY_READ_CMD);
 	RTL_W32(tp, EPHY_RXER_NUM, 0);
 
-	return rtl_udelay_loop_wait_high(tp, &rtl_ocpar_cond, 1000, 100) ?
+	return rtl_loop_wait_high(tp, &rtl_ocpar_cond, 1000, 100) ?
 		RTL_R32(tp, OCPDR) & OCPDR_DATA_MASK : -ETIMEDOUT;
 }
 
@@ -1037,7 +1017,7 @@ static void rtl_ephy_write(struct rtl8169_private *tp, int reg_addr, int value)
 	RTL_W32(tp, EPHYAR, EPHYAR_WRITE_CMD | (value & EPHYAR_DATA_MASK) |
 		(reg_addr & EPHYAR_REG_MASK) << EPHYAR_REG_SHIFT);
 
-	rtl_udelay_loop_wait_low(tp, &rtl_ephyar_cond, 10, 100);
+	rtl_loop_wait_low(tp, &rtl_ephyar_cond, 10, 100);
 
 	udelay(10);
 }
@@ -1046,7 +1026,7 @@ static u16 rtl_ephy_read(struct rtl8169_private *tp, int reg_addr)
 {
 	RTL_W32(tp, EPHYAR, (reg_addr & EPHYAR_REG_MASK) << EPHYAR_REG_SHIFT);
 
-	return rtl_udelay_loop_wait_high(tp, &rtl_ephyar_cond, 10, 100) ?
+	return rtl_loop_wait_high(tp, &rtl_ephyar_cond, 10, 100) ?
 		RTL_R32(tp, EPHYAR) & EPHYAR_DATA_MASK : ~0;
 }
 
@@ -1062,7 +1042,7 @@ static void _rtl_eri_write(struct rtl8169_private *tp, int addr, u32 mask,
 	RTL_W32(tp, ERIDR, val);
 	RTL_W32(tp, ERIAR, ERIAR_WRITE_CMD | type | mask | addr);
 
-	rtl_udelay_loop_wait_low(tp, &rtl_eriar_cond, 100, 100);
+	rtl_loop_wait_low(tp, &rtl_eriar_cond, 100, 100);
 }
 
 static void rtl_eri_write(struct rtl8169_private *tp, int addr, u32 mask,
@@ -1075,7 +1055,7 @@ static u32 _rtl_eri_read(struct rtl8169_private *tp, int addr, int type)
 {
 	RTL_W32(tp, ERIAR, ERIAR_READ_CMD | type | ERIAR_MASK_1111 | addr);
 
-	return rtl_udelay_loop_wait_high(tp, &rtl_eriar_cond, 100, 100) ?
+	return rtl_loop_wait_high(tp, &rtl_eriar_cond, 100, 100) ?
 		RTL_R32(tp, ERIDR) : ~0;
 }
 
@@ -1108,7 +1088,7 @@ static void rtl_eri_clear_bits(struct rtl8169_private *tp, int addr, u32 mask,
 static u32 r8168dp_ocp_read(struct rtl8169_private *tp, u8 mask, u16 reg)
 {
 	RTL_W32(tp, OCPAR, ((u32)mask & 0x0f) << 12 | (reg & 0x0fff));
-	return rtl_udelay_loop_wait_high(tp, &rtl_ocpar_cond, 100, 20) ?
+	return rtl_loop_wait_high(tp, &rtl_ocpar_cond, 100, 20) ?
 		RTL_R32(tp, OCPDR) : ~0;
 }
 
@@ -1122,7 +1102,7 @@ static void r8168dp_ocp_write(struct rtl8169_private *tp, u8 mask, u16 reg,
 {
 	RTL_W32(tp, OCPDR, data);
 	RTL_W32(tp, OCPAR, OCPAR_FLAG | ((u32)mask & 0x0f) << 12 | (reg & 0x0fff));
-	rtl_udelay_loop_wait_low(tp, &rtl_ocpar_cond, 100, 20);
+	rtl_loop_wait_low(tp, &rtl_ocpar_cond, 100, 20);
 }
 
 static void r8168ep_ocp_write(struct rtl8169_private *tp, u8 mask, u16 reg,
@@ -1170,7 +1150,7 @@ DECLARE_RTL_COND(rtl_ocp_tx_cond)
 static void rtl8168ep_stop_cmac(struct rtl8169_private *tp)
 {
 	RTL_W8(tp, IBCR2, RTL_R8(tp, IBCR2) & ~0x01);
-	rtl_msleep_loop_wait_high(tp, &rtl_ocp_tx_cond, 50, 2000);
+	rtl_loop_wait_high(tp, &rtl_ocp_tx_cond, 50000, 2000);
 	RTL_W8(tp, IBISR0, RTL_R8(tp, IBISR0) | 0x20);
 	RTL_W8(tp, IBCR0, RTL_R8(tp, IBCR0) & ~0x01);
 }
@@ -1178,7 +1158,7 @@ static void rtl8168ep_stop_cmac(struct rtl8169_private *tp)
 static void rtl8168dp_driver_start(struct rtl8169_private *tp)
 {
 	r8168dp_oob_notify(tp, OOB_CMD_DRIVER_START);
-	rtl_msleep_loop_wait_high(tp, &rtl_dp_ocp_read_cond, 10, 10);
+	rtl_loop_wait_high(tp, &rtl_dp_ocp_read_cond, 10000, 10);
 }
 
 static void rtl8168ep_driver_start(struct rtl8169_private *tp)
@@ -1186,7 +1166,7 @@ static void rtl8168ep_driver_start(struct rtl8169_private *tp)
 	r8168ep_ocp_write(tp, 0x01, 0x180, OOB_CMD_DRIVER_START);
 	r8168ep_ocp_write(tp, 0x01, 0x30,
 			  r8168ep_ocp_read(tp, 0x01, 0x30) | 0x01);
-	rtl_msleep_loop_wait_high(tp, &rtl_ep_ocp_read_cond, 10, 10);
+	rtl_loop_wait_high(tp, &rtl_ep_ocp_read_cond, 10000, 10);
 }
 
 static void rtl8168_driver_start(struct rtl8169_private *tp)
@@ -1209,7 +1189,7 @@ static void rtl8168_driver_start(struct rtl8169_private *tp)
 static void rtl8168dp_driver_stop(struct rtl8169_private *tp)
 {
 	r8168dp_oob_notify(tp, OOB_CMD_DRIVER_STOP);
-	rtl_msleep_loop_wait_low(tp, &rtl_dp_ocp_read_cond, 10, 10);
+	rtl_loop_wait_low(tp, &rtl_dp_ocp_read_cond, 10000, 10);
 }
 
 static void rtl8168ep_driver_stop(struct rtl8169_private *tp)
@@ -1218,7 +1198,7 @@ static void rtl8168ep_driver_stop(struct rtl8169_private *tp)
 	r8168ep_ocp_write(tp, 0x01, 0x180, OOB_CMD_DRIVER_STOP);
 	r8168ep_ocp_write(tp, 0x01, 0x30,
 			  r8168ep_ocp_read(tp, 0x01, 0x30) | 0x01);
-	rtl_msleep_loop_wait_low(tp, &rtl_ep_ocp_read_cond, 10, 10);
+	rtl_loop_wait_low(tp, &rtl_ep_ocp_read_cond, 10000, 10);
 }
 
 static void rtl8168_driver_stop(struct rtl8169_private *tp)
@@ -1279,7 +1259,7 @@ u8 rtl8168d_efuse_read(struct rtl8169_private *tp, int reg_addr)
 {
 	RTL_W32(tp, EFUSEAR, (reg_addr & EFUSEAR_REG_MASK) << EFUSEAR_REG_SHIFT);
 
-	return rtl_udelay_loop_wait_high(tp, &rtl_efusear_cond, 100, 300) ?
+	return rtl_loop_wait_high(tp, &rtl_efusear_cond, 100, 300) ?
 		RTL_R32(tp, EFUSEAR) & EFUSEAR_DATA_MASK : ~0;
 }
 
@@ -1616,7 +1596,7 @@ static void rtl8169_do_counters(struct rtl8169_private *tp, u32 counter_cmd)
 	RTL_W32(tp, CounterAddrLow, cmd);
 	RTL_W32(tp, CounterAddrLow, cmd | counter_cmd);
 
-	rtl_udelay_loop_wait_low(tp, &rtl_counters_cond, 10, 1000);
+	rtl_loop_wait_low(tp, &rtl_counters_cond, 10, 1000);
 }
 
 static void rtl8169_reset_counters(struct rtl8169_private *tp)
@@ -2475,7 +2455,7 @@ static void rtl_hw_reset(struct rtl8169_private *tp)
 {
 	RTL_W8(tp, ChipCmd, CmdReset);
 
-	rtl_udelay_loop_wait_low(tp, &rtl_chipcmd_cond, 100, 100);
+	rtl_loop_wait_low(tp, &rtl_chipcmd_cond, 100, 100);
 }
 
 static void rtl_request_firmware(struct rtl8169_private *tp)
@@ -2529,12 +2509,12 @@ static void rtl8169_hw_reset(struct rtl8169_private *tp)
 	case RTL_GIGA_MAC_VER_27:
 	case RTL_GIGA_MAC_VER_28:
 	case RTL_GIGA_MAC_VER_31:
-		rtl_udelay_loop_wait_low(tp, &rtl_npq_cond, 20, 42*42);
+		rtl_loop_wait_low(tp, &rtl_npq_cond, 20, 2000);
 		break;
 	case RTL_GIGA_MAC_VER_34 ... RTL_GIGA_MAC_VER_38:
 	case RTL_GIGA_MAC_VER_40 ... RTL_GIGA_MAC_VER_52:
 		RTL_W8(tp, ChipCmd, RTL_R8(tp, ChipCmd) | StopReq);
-		rtl_udelay_loop_wait_high(tp, &rtl_txcfg_empty_cond, 100, 666);
+		rtl_loop_wait_high(tp, &rtl_txcfg_empty_cond, 100, 666);
 		break;
 	default:
 		RTL_W8(tp, ChipCmd, RTL_R8(tp, ChipCmd) | StopReq);
@@ -2644,7 +2624,7 @@ static void rtl_csi_write(struct rtl8169_private *tp, int addr, int value)
 	RTL_W32(tp, CSIAR, CSIAR_WRITE_CMD | (addr & CSIAR_ADDR_MASK) |
 		CSIAR_BYTE_ENABLE | func << 16);
 
-	rtl_udelay_loop_wait_low(tp, &rtl_csiar_cond, 10, 100);
+	rtl_loop_wait_low(tp, &rtl_csiar_cond, 10, 100);
 }
 
 static u32 rtl_csi_read(struct rtl8169_private *tp, int addr)
@@ -2654,7 +2634,7 @@ static u32 rtl_csi_read(struct rtl8169_private *tp, int addr)
 	RTL_W32(tp, CSIAR, (addr & CSIAR_ADDR_MASK) | func << 16 |
 		CSIAR_BYTE_ENABLE);
 
-	return rtl_udelay_loop_wait_high(tp, &rtl_csiar_cond, 10, 100) ?
+	return rtl_loop_wait_high(tp, &rtl_csiar_cond, 10, 100) ?
 		RTL_R32(tp, CSIDR) : ~0;
 }
 
@@ -3609,7 +3589,7 @@ static void rtl_hw_start_8125_common(struct rtl8169_private *tp)
 
 	r8168_mac_ocp_write(tp, 0xe098, 0xc302);
 
-	rtl_udelay_loop_wait_low(tp, &rtl_mac_ocp_e00e_cond, 1000, 10);
+	rtl_loop_wait_low(tp, &rtl_mac_ocp_e00e_cond, 1000, 10);
 
 	rtl8125_config_eee_mac(tp);
 
@@ -5178,10 +5158,10 @@ static void rtl_hw_init_8168g(struct rtl8169_private *tp)
 {
 	RTL_W32(tp, MISC, RTL_R32(tp, MISC) | RXDV_GATED_EN);
 
-	if (!rtl_udelay_loop_wait_high(tp, &rtl_txcfg_empty_cond, 100, 42))
+	if (!rtl_loop_wait_high(tp, &rtl_txcfg_empty_cond, 100, 42))
 		return;
 
-	if (!rtl_udelay_loop_wait_high(tp, &rtl_rxtx_empty_cond, 100, 42))
+	if (!rtl_loop_wait_high(tp, &rtl_rxtx_empty_cond, 100, 42))
 		return;
 
 	RTL_W8(tp, ChipCmd, RTL_R8(tp, ChipCmd) & ~(CmdTxEnb | CmdRxEnb));
@@ -5190,19 +5170,19 @@ static void rtl_hw_init_8168g(struct rtl8169_private *tp)
 
 	r8168_mac_ocp_modify(tp, 0xe8de, BIT(14), 0);
 
-	if (!rtl_udelay_loop_wait_high(tp, &rtl_link_list_ready_cond, 100, 42))
+	if (!rtl_loop_wait_high(tp, &rtl_link_list_ready_cond, 100, 42))
 		return;
 
 	r8168_mac_ocp_modify(tp, 0xe8de, 0, BIT(15));
 
-	rtl_udelay_loop_wait_high(tp, &rtl_link_list_ready_cond, 100, 42);
+	rtl_loop_wait_high(tp, &rtl_link_list_ready_cond, 100, 42);
 }
 
 static void rtl_hw_init_8125(struct rtl8169_private *tp)
 {
 	RTL_W32(tp, MISC, RTL_R32(tp, MISC) | RXDV_GATED_EN);
 
-	if (!rtl_udelay_loop_wait_high(tp, &rtl_rxtx_empty_cond, 100, 42))
+	if (!rtl_loop_wait_high(tp, &rtl_rxtx_empty_cond, 100, 42))
 		return;
 
 	RTL_W8(tp, ChipCmd, RTL_R8(tp, ChipCmd) & ~(CmdTxEnb | CmdRxEnb));
@@ -5211,14 +5191,14 @@ static void rtl_hw_init_8125(struct rtl8169_private *tp)
 
 	r8168_mac_ocp_modify(tp, 0xe8de, BIT(14), 0);
 
-	if (!rtl_udelay_loop_wait_high(tp, &rtl_link_list_ready_cond, 100, 42))
+	if (!rtl_loop_wait_high(tp, &rtl_link_list_ready_cond, 100, 42))
 		return;
 
 	r8168_mac_ocp_write(tp, 0xc0aa, 0x07d0);
 	r8168_mac_ocp_write(tp, 0xc0a6, 0x0150);
 	r8168_mac_ocp_write(tp, 0xc01e, 0x5555);
 
-	rtl_udelay_loop_wait_high(tp, &rtl_link_list_ready_cond, 100, 42);
+	rtl_loop_wait_high(tp, &rtl_link_list_ready_cond, 100, 42);
 }
 
 static void rtl_hw_initialize(struct rtl8169_private *tp)
