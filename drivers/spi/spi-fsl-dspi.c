@@ -741,8 +741,7 @@ static int dspi_transfer_one_message(struct spi_master *master,
 			reinit_completion(&dspi->xfer_done);
 		}
 
-		if (transfer->delay_usecs)
-			udelay(transfer->delay_usecs);
+		spi_transfer_delay_exec(transfer);
 	}
 
 out:
