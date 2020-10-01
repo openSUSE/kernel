@@ -4153,24 +4153,19 @@ static bool rtl8169_tso_csum_v2(struct rtl8169_private *tp,
 				struct sk_buff *skb, u32 *opts)
 {
 	u32 transport_offset = (u32)skb_transport_offset(skb);
-	u32 mss = skb_shinfo(skb)->gso_size;
+	struct skb_shared_info *shinfo = skb_shinfo(skb);
+	u32 mss = shinfo->gso_size;
 
 	if (mss) {
-		switch (vlan_get_protocol(skb)) {
-		case htons(ETH_P_IP):
+		if (shinfo->gso_type & SKB_GSO_TCPV4) {
 			opts[0] |= TD1_GTSENV4;
-			break;
-
-		case htons(ETH_P_IPV6):
+		} else if (shinfo->gso_type & SKB_GSO_TCPV6) {
 			if (msdn_giant_send_check(skb))
 				return false;
 
 			opts[0] |= TD1_GTSENV6;
-			break;
-
-		default:
+		} else {
 			WARN_ON_ONCE(1);
-			break;
 		}
 
 		opts[0] |= transport_offset << GTTCPHO_SHIFT;
