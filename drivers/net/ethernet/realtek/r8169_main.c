@@ -3930,7 +3930,7 @@ static void rtl8169_tx_clear(struct rtl8169_private *tp)
 	netdev_reset_queue(tp->dev);
 }
 
-static void rtl8169_hw_reset(struct rtl8169_private *tp)
+static void rtl8169_hw_reset(struct rtl8169_private *tp, bool going_down)
 {
 	/* Give a racing hard_start_xmit a few cycles to complete. */
 	synchronize_rcu();
@@ -3939,6 +3939,9 @@ static void rtl8169_hw_reset(struct rtl8169_private *tp)
 	rtl8169_irq_mask_and_ack(tp);
 
 	rtl_rx_close(tp);
+
+	if (going_down && tp->dev->wol_enabled)
+		goto no_reset;
 
 	switch (tp->mac_version) {
 	case RTL_GIGA_MAC_VER_27:
@@ -3961,7 +3964,7 @@ static void rtl8169_hw_reset(struct rtl8169_private *tp)
 	}
 
 	rtl_hw_reset(tp);
-
+no_reset:
 	rtl8169_tx_clear(tp);
 	rtl8169_init_ring_indexes(tp);
 }
@@ -3974,7 +3977,7 @@ static void rtl_reset_work(struct rtl8169_private *tp)
 	napi_disable(&tp->napi);
 	netif_stop_queue(dev);
 
-	rtl8169_hw_reset(tp);
+	rtl8169_hw_reset(tp, false);
 
 	for (i = 0; i < NUM_RX_DESC; i++)
 		rtl8169_mark_to_asic(tp->RxDescArray + i);
@@ -4665,7 +4668,7 @@ static void rtl8169_down(struct rtl8169_private *tp)
 	phy_stop(tp->phydev);
 	napi_disable(&tp->napi);
 
-	rtl8169_hw_reset(tp);
+	rtl8169_hw_reset(tp, true);
 
 	rtl_pll_power_down(tp);
 
@@ -4969,8 +4972,6 @@ static void rtl_shutdown(struct pci_dev *pdev)
 
 	/* Restore original MAC address */
 	rtl_rar_set(tp, tp->dev->perm_addr);
-
-	rtl8169_hw_reset(tp);
 
 	if (system_state == SYSTEM_POWER_OFF) {
 		if (tp->saved_wolopts) {
