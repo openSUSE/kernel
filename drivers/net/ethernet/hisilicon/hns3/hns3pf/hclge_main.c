@@ -10103,6 +10103,7 @@ err_pci_uninit:
 	pci_release_regions(pdev);
 	pci_disable_device(pdev);
 out:
+	mutex_destroy(&hdev->vport_lock);
 	return ret;
 }
 
