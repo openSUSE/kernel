@@ -3948,7 +3948,7 @@ static struct ib_flow *mlx5_ib_create_flow(struct ib_qp *qp,
 		dst->type = MLX5_FLOW_DESTINATION_TYPE_PORT;
 	} else {
 		dst->type = MLX5_FLOW_DESTINATION_TYPE_TIR;
-		if (mqp->flags & MLX5_IB_QP_RSS)
+		if (mqp->is_rss)
 			dst->tir_num = mqp->rss_qp.tirn;
 		else
 			dst->tir_num = mqp->raw_packet_qp.rq.tirn;
@@ -4424,7 +4424,7 @@ static int mlx5_ib_mcg_attach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 	uid = ibqp->pd ?
 		to_mpd(ibqp->pd)->uid : 0;
 
-	if (mqp->flags & MLX5_IB_QP_UNDERLAY) {
+	if (mqp->flags & IB_QP_CREATE_SOURCE_QPN) {
 		mlx5_ib_dbg(dev, "Attaching a multi cast group to underlay QP is not supported\n");
 		return -EOPNOTSUPP;
 	}
