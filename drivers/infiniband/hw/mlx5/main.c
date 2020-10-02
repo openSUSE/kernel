@@ -7138,6 +7138,8 @@ void *__mlx5_ib_add(struct mlx5_ib_dev *dev,
 	int err;
 	int i;
 
+	dev->profile = profile;
+
 	for (i = 0; i < MLX5_IB_STAGE_MAX; i++) {
 		if (profile->stage[i].init) {
 			err = profile->stage[i].init(dev);
@@ -7146,7 +7148,6 @@ void *__mlx5_ib_add(struct mlx5_ib_dev *dev,
 		}
 	}
 
-	dev->profile = profile;
 	dev->ib_active = true;
 
 	return dev;
