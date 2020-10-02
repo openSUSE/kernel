@@ -69,6 +69,7 @@
 #include "affinity.h"
 #include "vnic.h"
 #include "exp_rcv.h"
+#include "netdev.h"
 
 #undef pr_fmt
 #define pr_fmt(fmt) DRIVER_NAME ": " fmt
@@ -1683,9 +1684,6 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	/* do the generic initialization */
 	initfail = hfi1_init(dd, 0);
 
-	/* setup vnic */
-	hfi1_vnic_setup(dd);
-
 	ret = hfi1_register_ib_device(dd);
 
 	/*
@@ -1724,7 +1722,6 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 			hfi1_device_remove(dd);
 		if (!ret)
 			hfi1_unregister_ib_device(dd);
-		hfi1_vnic_cleanup(dd);
 		postinit_cleanup(dd);
 		if (initfail)
 			ret = initfail;
@@ -1769,8 +1766,8 @@ static void remove_one(struct pci_dev *pdev)
 	/* unregister from IB core */
 	hfi1_unregister_ib_device(dd);
 
-	/* cleanup vnic */
-	hfi1_vnic_cleanup(dd);
+	/* free netdev data */
+	hfi1_netdev_free(dd);
 
 	/*
 	 * Disable the IB link, disable interrupts on the device,
