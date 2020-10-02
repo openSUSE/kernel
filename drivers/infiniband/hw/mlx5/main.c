@@ -32,6 +32,7 @@
 #include "mlx5_ib.h"
 #include "ib_rep.h"
 #include "cmd.h"
+#include "devx.h"
 #include "fs.h"
 #include "srq.h"
 #include "qp.h"
@@ -4666,26 +4667,6 @@ static void mlx5_ib_stage_dev_notifier_cleanup(struct mlx5_ib_dev *dev)
 	mlx5_notifier_unregister(dev->mdev, &dev->mdev_events);
 }
 
-static int mlx5_ib_stage_devx_init(struct mlx5_ib_dev *dev)
-{
-	int uid;
-
-	uid = mlx5_ib_devx_create(dev, false);
-	if (uid > 0) {
-		dev->devx_whitelist_uid = uid;
-		mlx5_ib_devx_init_event_table(dev);
-	}
-
-	return 0;
-}
-static void mlx5_ib_stage_devx_cleanup(struct mlx5_ib_dev *dev)
-{
-	if (dev->devx_whitelist_uid) {
-		mlx5_ib_devx_cleanup_event_table(dev);
-		mlx5_ib_devx_destroy(dev, dev->devx_whitelist_uid);
-	}
-}
-
 void __mlx5_ib_remove(struct mlx5_ib_dev *dev,
 		      const struct mlx5_ib_profile *profile,
 		      int stage)
@@ -4776,8 +4757,8 @@ static const struct mlx5_ib_profile pf_profile = {
 		     NULL,
 		     mlx5_ib_stage_pre_ib_reg_umr_cleanup),
 	STAGE_CREATE(MLX5_IB_STAGE_WHITELIST_UID,
-		     mlx5_ib_stage_devx_init,
-		     mlx5_ib_stage_devx_cleanup),
+		     mlx5_ib_devx_init,
+		     mlx5_ib_devx_cleanup),
 	STAGE_CREATE(MLX5_IB_STAGE_IB_REG,
 		     mlx5_ib_stage_ib_reg_init,
 		     mlx5_ib_stage_ib_reg_cleanup),
@@ -4836,8 +4817,8 @@ const struct mlx5_ib_profile raw_eth_profile = {
 		     NULL,
 		     mlx5_ib_stage_pre_ib_reg_umr_cleanup),
 	STAGE_CREATE(MLX5_IB_STAGE_WHITELIST_UID,
-		     mlx5_ib_stage_devx_init,
-		     mlx5_ib_stage_devx_cleanup),
+		     mlx5_ib_devx_init,
+		     mlx5_ib_devx_cleanup),
 	STAGE_CREATE(MLX5_IB_STAGE_IB_REG,
 		     mlx5_ib_stage_ib_reg_init,
 		     mlx5_ib_stage_ib_reg_cleanup),
