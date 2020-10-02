@@ -1082,6 +1082,8 @@ static ssize_t ucma_connect(struct ucma_file *file, const char __user *inbuf,
 	size_t in_size;
 	int ret;
 
+	if (in_len < offsetofend(typeof(cmd), reserved))
+		return -EINVAL;
 	in_size = min_t(size_t, in_len, sizeof(cmd));
 	if (copy_from_user(&cmd, inbuf, in_size))
 		return -EFAULT;
@@ -1139,6 +1141,8 @@ static ssize_t ucma_accept(struct ucma_file *file, const char __user *inbuf,
 	size_t in_size;
 	int ret;
 
+	if (in_len < offsetofend(typeof(cmd), reserved))
+		return -EINVAL;
 	in_size = min_t(size_t, in_len, sizeof(cmd));
 	if (copy_from_user(&cmd, inbuf, in_size))
 		return -EFAULT;
