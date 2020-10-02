@@ -930,11 +930,6 @@ next_mr:
 		if (ret < 0)
 			goto srcu_unlock;
 
-		/*
-		 * When prefetching a page, page fault is generated
-		 * in order to bring the page to the main memory.
-		 * In the current flow, page faults are being counted.
-		 */
 		mlx5_update_odp_stats(mr, faults, ret);
 
 		npages += ret;
@@ -1774,6 +1769,7 @@ static void mlx5_ib_prefetch_mr_work(struct work_struct *w)
 	struct mlx5_ib_dev *dev;
 	u32 bytes_mapped = 0;
 	int srcu_key;
+	int ret;
 	u32 i;
 
 	/* We rely on IB/core that work is executed if we have num_sge != 0 only. */
@@ -1781,11 +1777,14 @@ static void mlx5_ib_prefetch_mr_work(struct work_struct *w)
 	dev = work->frags[0].mr->dev;
 	/* SRCU should be held when calling to mlx5_odp_populate_xlt() */
 	srcu_key = srcu_read_lock(&dev->odp_srcu);
-	for (i = 0; i < work->num_sge; ++i)
-		pagefault_mr(work->frags[i].mr, work->frags[i].io_virt,
-			     work->frags[i].length, &bytes_mapped,
-			     work->pf_flags);
-
+	for (i = 0; i < work->num_sge; ++i) {
+		ret = pagefault_mr(work->frags[i].mr, work->frags[i].io_virt,
+				   work->frags[i].length, &bytes_mapped,
+				   work->pf_flags);
+		if (ret <= 0)
+			continue;
+		mlx5_update_odp_stats(work->frags[i].mr, prefetch, ret);
+	}
 	srcu_read_unlock(&dev->odp_srcu, srcu_key);
 
 	destroy_prefetch_work(work);
@@ -1842,6 +1841,7 @@ static int mlx5_ib_prefetch_sg_list(struct ib_pd *pd,
 				   &bytes_mapped, pf_flags);
 		if (ret < 0)
 			goto out;
+		mlx5_update_odp_stats(mr, prefetch, ret);
 	}
 	ret = 0;
 
