@@ -814,7 +814,7 @@ static struct xfrm6_protocol xfrmi_ipcomp6_protocol __read_mostly = {
 	.priority	=	10,
 };
 
-#if IS_ENABLED(CONFIG_INET6_XFRM_TUNNEL)
+#if IS_REACHABLE(CONFIG_INET6_XFRM_TUNNEL)
 static int xfrmi6_rcv_tunnel(struct sk_buff *skb)
 {
 	const xfrm_address_t *saddr;
@@ -865,7 +865,7 @@ static struct xfrm4_protocol xfrmi_ipcomp4_protocol __read_mostly = {
 	.priority	=	10,
 };
 
-#if IS_ENABLED(CONFIG_INET_XFRM_TUNNEL)
+#if IS_REACHABLE(CONFIG_INET_XFRM_TUNNEL)
 static int xfrmi4_rcv_tunnel(struct sk_buff *skb)
 {
 	return xfrm4_rcv_spi(skb, IPPROTO_IPIP, ip_hdr(skb)->saddr);
@@ -899,7 +899,7 @@ static int __init xfrmi4_init(void)
 	err = xfrm4_protocol_register(&xfrmi_ipcomp4_protocol, IPPROTO_COMP);
 	if (err < 0)
 		goto xfrm_proto_comp_failed;
-#if IS_ENABLED(CONFIG_INET_XFRM_TUNNEL)
+#if IS_REACHABLE(CONFIG_INET_XFRM_TUNNEL)
 	err = xfrm4_tunnel_register(&xfrmi_ipip_handler, AF_INET);
 	if (err < 0)
 		goto xfrm_tunnel_ipip_failed;
@@ -910,7 +910,7 @@ static int __init xfrmi4_init(void)
 
 	return 0;
 
-#if IS_ENABLED(CONFIG_INET_XFRM_TUNNEL)
+#if IS_REACHABLE(CONFIG_INET_XFRM_TUNNEL)
 xfrm_tunnel_ipip6_failed:
 	xfrm4_tunnel_deregister(&xfrmi_ipip_handler, AF_INET);
 xfrm_tunnel_ipip_failed:
@@ -926,7 +926,7 @@ xfrm_proto_esp_failed:
 
 static void xfrmi4_fini(void)
 {
-#if IS_ENABLED(CONFIG_INET_XFRM_TUNNEL)
+#if IS_REACHABLE(CONFIG_INET_XFRM_TUNNEL)
 	xfrm4_tunnel_deregister(&xfrmi_ipip6_handler, AF_INET6);
 	xfrm4_tunnel_deregister(&xfrmi_ipip_handler, AF_INET);
 #endif
@@ -948,7 +948,7 @@ static int __init xfrmi6_init(void)
 	err = xfrm6_protocol_register(&xfrmi_ipcomp6_protocol, IPPROTO_COMP);
 	if (err < 0)
 		goto xfrm_proto_comp_failed;
-#if IS_ENABLED(CONFIG_INET6_XFRM_TUNNEL)
+#if IS_REACHABLE(CONFIG_INET6_XFRM_TUNNEL)
 	err = xfrm6_tunnel_register(&xfrmi_ipv6_handler, AF_INET6);
 	if (err < 0)
 		goto xfrm_tunnel_ipv6_failed;
@@ -959,7 +959,7 @@ static int __init xfrmi6_init(void)
 
 	return 0;
 
-#if IS_ENABLED(CONFIG_INET6_XFRM_TUNNEL)
+#if IS_REACHABLE(CONFIG_INET6_XFRM_TUNNEL)
 xfrm_tunnel_ip6ip_failed:
 	xfrm6_tunnel_deregister(&xfrmi_ipv6_handler, AF_INET6);
 xfrm_tunnel_ipv6_failed:
@@ -975,7 +975,7 @@ xfrm_proto_esp_failed:
 
 static void xfrmi6_fini(void)
 {
-#if IS_ENABLED(CONFIG_INET6_XFRM_TUNNEL)
+#if IS_REACHABLE(CONFIG_INET6_XFRM_TUNNEL)
 	xfrm6_tunnel_deregister(&xfrmi_ip6ip_handler, AF_INET);
 	xfrm6_tunnel_deregister(&xfrmi_ipv6_handler, AF_INET6);
 #endif
