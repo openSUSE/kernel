@@ -583,7 +583,7 @@ static int iwch_dealloc_mw(struct ib_mw *mw)
 }
 
 static struct ib_mr *iwch_alloc_mr(struct ib_pd *pd, enum ib_mr_type mr_type,
-				   u32 max_num_sg, struct ib_udata *udata)
+				   u32 max_num_sg)
 {
 	struct iwch_dev *rhp;
 	struct iwch_pd *php;
