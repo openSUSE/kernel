@@ -1346,7 +1346,6 @@ int generic_map_lookup_batch(struct bpf_map *map,
 	void *buf, *buf_prevkey, *prev_key, *key, *value;
 	int err, retry = MAP_LOOKUP_RETRIES;
 	u32 value_size, cp, max_count;
-	bool first_key = false;
 
 	if (attr->batch.elem_flags & ~BPF_F_LOCK)
 		return -EINVAL;
@@ -1375,7 +1374,6 @@ int generic_map_lookup_batch(struct bpf_map *map,
 	}
 
 	err = -EFAULT;
-	first_key = false;
 	prev_key = NULL;
 	if (ubatch && copy_from_user(buf_prevkey, ubatch, map->key_size))
 		goto free_buf;
