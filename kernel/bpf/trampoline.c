@@ -168,11 +168,12 @@ static int bpf_trampoline_update(struct bpf_trampoline *tr)
 	 */
 	synchronize_rcu_tasks();
 
-	err = arch_prepare_bpf_trampoline(new_image, &tr->func.model, flags,
+	err = arch_prepare_bpf_trampoline(new_image, new_image + PAGE_SIZE / 2,
+					  &tr->func.model, flags,
 					  fentry, fentry_cnt,
 					  fexit, fexit_cnt,
 					  tr->func.addr);
-	if (err)
+	if (err < 0)
 		goto out;
 
 	if (tr->selector)
@@ -306,7 +307,8 @@ void notrace __bpf_prog_exit(struct bpf_prog *prog, u64 start)
 }
 
 int __weak
-arch_prepare_bpf_trampoline(void *image, struct btf_func_model *m, u32 flags,
+arch_prepare_bpf_trampoline(void *image, void *image_end,
+			    const struct btf_func_model *m, u32 flags,
 			    struct bpf_prog **fentry_progs, int fentry_cnt,
 			    struct bpf_prog **fexit_progs, int fexit_cnt,
 			    void *orig_call)
