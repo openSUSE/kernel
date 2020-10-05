@@ -1137,7 +1137,7 @@ static void esw_set_flow_group_source_port(struct mlx5_eswitch *esw,
 	}
 }
 
-static int esw_create_offloads_fdb_tables(struct mlx5_eswitch *esw, int nvports)
+static int esw_create_offloads_fdb_tables(struct mlx5_eswitch *esw)
 {
 	int inlen = MLX5_ST_SZ_BYTES(create_flow_group_in);
 	struct mlx5_flow_table_attr ft_attr = {};
@@ -1170,7 +1170,7 @@ static int esw_create_offloads_fdb_tables(struct mlx5_eswitch *esw, int nvports)
 		goto ns_err;
 	}
 
-	table_size = nvports * MAX_SQ_NVPORTS + MAX_PF_SQ +
+	table_size = esw->total_vports * MAX_SQ_NVPORTS + MAX_PF_SQ +
 		MLX5_ESW_MISS_FLOWS + esw->total_vports;
 
 	/* create the slow path fdb with encap set, so further table instances
@@ -1207,7 +1207,7 @@ static int esw_create_offloads_fdb_tables(struct mlx5_eswitch *esw, int nvports)
 	MLX5_SET_TO_ONES(fte_match_param, match_criteria, misc_parameters.source_sqn);
 	MLX5_SET_TO_ONES(fte_match_param, match_criteria, misc_parameters.source_port);
 
-	ix = nvports * MAX_SQ_NVPORTS + MAX_PF_SQ;
+	ix = esw->total_vports * MAX_SQ_NVPORTS + MAX_PF_SQ;
 	MLX5_SET(create_flow_group_in, flow_group_in, start_flow_index, 0);
 	MLX5_SET(create_flow_group_in, flow_group_in, end_flow_index, ix - 1);
 
@@ -1275,7 +1275,6 @@ static int esw_create_offloads_fdb_tables(struct mlx5_eswitch *esw, int nvports)
 	if (err)
 		goto miss_rule_err;
 
-	esw->nvports = nvports;
 	kvfree(flow_group_in);
 	return 0;
 
@@ -2009,7 +2008,7 @@ static int esw_offloads_steering_init(struct mlx5_eswitch *esw)
 	if (err)
 		goto create_restore_err;
 
-	err = esw_create_offloads_fdb_tables(esw, total_vports);
+	err = esw_create_offloads_fdb_tables(esw);
 	if (err)
 		goto create_fdb_err;
 
@@ -2463,13 +2462,13 @@ int mlx5_devlink_eswitch_encap_mode_set(struct devlink *devlink,
 
 	esw->offloads.encap = encap;
 
-	err = esw_create_offloads_fdb_tables(esw, esw->nvports);
+	err = esw_create_offloads_fdb_tables(esw);
 
 	if (err) {
 		NL_SET_ERR_MSG_MOD(extack,
 				   "Failed re-creating fast FDB table");
 		esw->offloads.encap = !encap;
-		(void)esw_create_offloads_fdb_tables(esw, esw->nvports);
+		(void)esw_create_offloads_fdb_tables(esw);
 	}
 
 unlock:
