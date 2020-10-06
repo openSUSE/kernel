@@ -1379,7 +1379,7 @@ int generic_map_lookup_batch(struct bpf_map *map,
 
 	buf = kmalloc(map->key_size + value_size, GFP_USER | __GFP_NOWARN);
 	if (!buf) {
-		kvfree(buf_prevkey);
+		kfree(buf_prevkey);
 		return -ENOMEM;
 	}
 
