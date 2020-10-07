@@ -209,8 +209,8 @@ static const char * const libbpf_type_to_btf_name[] = {
 };
 
 struct bpf_map {
-	int fd;
 	char *name;
+	int fd;
 	int sec_idx;
 	size_t sec_offset;
 	int map_ifindex;
@@ -1385,7 +1385,7 @@ static int bpf_object__init_user_btf_maps(struct bpf_object *obj, bool strict,
 }
 
 static int bpf_object__init_maps(struct bpf_object *obj,
-				 struct bpf_object_open_opts *opts)
+				 const struct bpf_object_open_opts *opts)
 {
 	const char *pin_root_path = OPTS_GET(opts, pin_root_path, NULL);
 	bool strict = !OPTS_GET(opts, relaxed_maps, false);
@@ -1746,6 +1746,19 @@ bpf_object__find_program_by_title(const struct bpf_object *obj,
 	bpf_object__for_each_program(pos, obj) {
 		if (pos->section_name && !strcmp(pos->section_name, title))
 			return pos;
+	}
+	return NULL;
+}
+
+struct bpf_program *
+bpf_object__find_program_by_name(const struct bpf_object *obj,
+				 const char *name)
+{
+	struct bpf_program *prog;
+
+	bpf_object__for_each_program(prog, obj) {
+		if (!strcmp(prog->name, name))
+			return prog;
 	}
 	return NULL;
 }
@@ -3909,7 +3922,7 @@ static int libbpf_find_attach_btf_id(const char *name,
 				     __u32 attach_prog_fd);
 static struct bpf_object *
 __bpf_object__open(const char *path, const void *obj_buf, size_t obj_buf_sz,
-		   struct bpf_object_open_opts *opts)
+		   const struct bpf_object_open_opts *opts)
 {
 	struct bpf_program *prog;
 	struct bpf_object *obj;
@@ -4018,7 +4031,7 @@ struct bpf_object *bpf_object__open(const char *path)
 }
 
 struct bpf_object *
-bpf_object__open_file(const char *path, struct bpf_object_open_opts *opts)
+bpf_object__open_file(const char *path, const struct bpf_object_open_opts *opts)
 {
 	if (!path)
 		return ERR_PTR(-EINVAL);
@@ -4030,7 +4043,7 @@ bpf_object__open_file(const char *path, struct bpf_object_open_opts *opts)
 
 struct bpf_object *
 bpf_object__open_mem(const void *obj_buf, size_t obj_buf_sz,
-		     struct bpf_object_open_opts *opts)
+		     const struct bpf_object_open_opts *opts)
 {
 	if (!obj_buf || obj_buf_sz == 0)
 		return ERR_PTR(-EINVAL);
@@ -4833,6 +4846,11 @@ void *bpf_program__priv(const struct bpf_program *prog)
 void bpf_program__set_ifindex(struct bpf_program *prog, __u32 ifindex)
 {
 	prog->prog_ifindex = ifindex;
+}
+
+const char *bpf_program__name(const struct bpf_program *prog)
+{
+	return prog->name;
 }
 
 const char *bpf_program__title(const struct bpf_program *prog, bool needs_copy)
