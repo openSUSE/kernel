@@ -151,7 +151,6 @@ int xp_dma_map(struct xsk_buff_pool *pool, struct device *dev,
 	if (pool->unaligned)
 		xp_check_dma_contiguity(pool);
 
-	pool->dev = dev;
 	return 0;
 }
 EXPORT_SYMBOL(xp_dma_map);
