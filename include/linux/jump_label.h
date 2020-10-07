@@ -75,6 +75,7 @@
 
 #include <linux/types.h>
 #include <linux/compiler.h>
+#include <linux/jump_label_type.h>
 
 extern bool static_key_initialized;
 
@@ -82,35 +83,6 @@ extern bool static_key_initialized;
 				    "%s(): static key '%pS' used before call to jump_label_init()", \
 				    __func__, (key))
 
-#ifdef CONFIG_JUMP_LABEL
-
-struct static_key {
-	atomic_t enabled;
-/*
- * Note:
- *   To make anonymous unions work with old compilers, the static
- *   initialization of them requires brackets. This creates a dependency
- *   on the order of the struct with the initializers. If any fields
- *   are added, STATIC_KEY_INIT_TRUE and STATIC_KEY_INIT_FALSE may need
- *   to be modified.
- *
- * bit 0 => 1 if key is initially true
- *	    0 if initially false
- * bit 1 => 1 if points to struct static_key_mod
- *	    0 if points to struct jump_entry
- */
-	union {
-		unsigned long type;
-		struct jump_entry *entries;
-		struct static_key_mod *next;
-	};
-};
-
-#else
-struct static_key {
-	atomic_t enabled;
-};
-#endif	/* CONFIG_JUMP_LABEL */
 #endif /* __ASSEMBLY__ */
 
 #ifdef CONFIG_JUMP_LABEL
@@ -343,14 +315,6 @@ static inline void static_key_disable(struct static_key *key)
  * All the below code is macros in order to play type games.
  */
 
-struct static_key_true {
-	struct static_key key;
-};
-
-struct static_key_false {
-	struct static_key key;
-};
-
 #define STATIC_KEY_TRUE_INIT  (struct static_key_true) { .key = STATIC_KEY_INIT_TRUE,  }
 #define STATIC_KEY_FALSE_INIT (struct static_key_false){ .key = STATIC_KEY_INIT_FALSE, }
 
@@ -360,17 +324,11 @@ struct static_key_false {
 #define DEFINE_STATIC_KEY_TRUE_RO(name)	\
 	struct static_key_true name __ro_after_init = STATIC_KEY_TRUE_INIT
 
-#define DECLARE_STATIC_KEY_TRUE(name)	\
-	extern struct static_key_true name
-
 #define DEFINE_STATIC_KEY_FALSE(name)	\
 	struct static_key_false name = STATIC_KEY_FALSE_INIT
 
 #define DEFINE_STATIC_KEY_FALSE_RO(name)	\
 	struct static_key_false name __ro_after_init = STATIC_KEY_FALSE_INIT
-
-#define DECLARE_STATIC_KEY_FALSE(name)	\
-	extern struct static_key_false name
 
 #define DEFINE_STATIC_KEY_ARRAY_TRUE(name, count)		\
 	struct static_key_true name[count] = {			\

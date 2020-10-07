@@ -3696,6 +3696,11 @@
 			Format: {"on"}
 			Enable Hardware Transactional Memory
 
+	preempt={none,voluntary}
+			Set the preemption mode.
+			none - equivalent to CONFIG_PREEMPT_NONE
+			voluntary - equivalent to CONFIG_PREEMPT_VOLUNTARY
+
 	print-fatal-signals=
 			[KNL] debug: print fatal signals
 

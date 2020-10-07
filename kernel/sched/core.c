@@ -40,6 +40,14 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(sched_update_nr_running_tp);
 
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 
+#ifdef CONFIG_PREEMPT_VOLUNTARY
+DEFINE_STATIC_KEY_TRUE(preempt_voluntary_key);
+#else
+/* PREEMPT_NONE vs PREEMPT_VOLUNTARY */
+DEFINE_STATIC_KEY_FALSE(preempt_voluntary_key);
+#endif
+EXPORT_SYMBOL(preempt_voluntary_key);
+
 #if defined(CONFIG_SCHED_DEBUG) && defined(CONFIG_JUMP_LABEL)
 /*
  * Debugging: various feature bits
@@ -7870,3 +7878,25 @@ void call_trace_sched_update_nr_running(struct rq *rq, int count)
 {
         trace_sched_update_nr_running_tp(rq, count);
 }
+
+#ifndef CONFIG_PREEMPTION
+static int __init setup_non_preempt(char *str)
+{
+	if (!strcmp(str, "none")) {
+		if (IS_ENABLED(CONFIG_PREEMPT_VOLUNTARY)) {
+			static_branch_disable(&preempt_voluntary_key);
+			pr_info("Switching to PREEMPT_NONE mode.");
+		}
+	} else if (!strcmp(str, "voluntary")) {
+		if (!IS_ENABLED(CONFIG_PREEMPT_VOLUNTARY)) {
+			static_branch_enable(&preempt_voluntary_key);
+			pr_info("Switching to PREEMPT_VOLUNTARY mode.");
+		}
+	} else {
+		pr_warn("Unsupported preempt mode %s\n", str);
+		return 1;
+	}
+	return 0;
+}
+__setup("preempt=", setup_non_preempt);
+#endif
