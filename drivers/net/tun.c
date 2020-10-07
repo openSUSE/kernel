@@ -473,8 +473,6 @@ static void tun_flow_cleanup(struct timer_list *t)
 	unsigned long count = 0;
 	int i;
 
-	tun_debug(KERN_INFO, tun, "tun_flow_cleanup\n");
-
 	spin_lock(&tun->lock);
 	for (i = 0; i < TUN_NUM_FLOW_ENTRIES; i++) {
 		struct tun_flow_entry *e;
@@ -1420,8 +1418,6 @@ static __poll_t tun_chr_poll(struct file *file, poll_table *wait)
 
 	sk = tfile->socket.sk;
 
-	tun_debug(KERN_INFO, tun, "tun_chr_poll\n");
-
 	poll_wait(file, sk_sleep(sk), wait);
 
 	if (!ptr_ring_empty(&tfile->tx_ring))
@@ -2201,8 +2197,6 @@ static ssize_t tun_do_read(struct tun_struct *tun, struct tun_file *tfile,
 	ssize_t ret;
 	int err;
 
-	tun_debug(KERN_INFO, tun, "tun_do_read\n");
-
 	if (!iov_iter_count(to)) {
 		tun_ptr_free(ptr);
 		return 0;
@@ -2847,8 +2841,6 @@ static int tun_set_iff(struct net *net, struct file *file, struct ifreq *ifr)
 
 	netif_carrier_on(tun->dev);
 
-	tun_debug(KERN_INFO, tun, "tun_set_iff\n");
-
 	/* Make sure persistent devices do not get stuck in
 	 * xoff state.
 	 */
@@ -2879,8 +2871,6 @@ err_free_dev:
 
 static void tun_get_iff(struct tun_struct *tun, struct ifreq *ifr)
 {
-	tun_debug(KERN_INFO, tun, "tun_get_iff\n");
-
 	strcpy(ifr->ifr_name, tun->dev->name);
 
 	ifr->ifr_flags = tun_flags(tun);
@@ -3215,9 +3205,6 @@ static long __tun_chr_ioctl(struct file *file, unsigned int cmd,
 
 	case SIOCSIFHWADDR:
 		/* Set hw address */
-		tun_debug(KERN_DEBUG, tun, "set hw address: %pM\n",
-			  ifr.ifr_hwaddr.sa_data);
-
 		ret = dev_set_mac_address(tun->dev, &ifr.ifr_hwaddr, NULL);
 		break;
 
