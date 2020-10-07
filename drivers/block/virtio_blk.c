@@ -476,6 +476,9 @@ out:
 
 static const struct block_device_operations virtblk_fops = {
 	.ioctl  = virtblk_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = blkdev_compat_ptr_ioctl,
+#endif
 	.owner  = THIS_MODULE,
 	.open = virtblk_open,
 	.release = virtblk_release,

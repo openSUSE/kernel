@@ -405,12 +405,11 @@ static inline netdev_tx_t dsa_slave_netpoll_send_skb(struct net_device *dev,
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	struct dsa_slave_priv *p = netdev_priv(dev);
 
-	if (p->netpoll)
-		netpoll_send_skb(p->netpoll, skb);
+	return netpoll_send_skb(p->netpoll, skb);
 #else
 	BUG();
-#endif
 	return NETDEV_TX_OK;
+#endif
 }
 
 static void dsa_skb_tx_timestamp(struct dsa_slave_priv *p,
@@ -1402,15 +1401,27 @@ int dsa_slave_create(struct dsa_port *port)
 
 	dsa_slave_notify(slave_dev, DSA_PORT_REGISTER);
 
-	ret = register_netdev(slave_dev);
+	rtnl_lock();
+
+	ret = register_netdevice(slave_dev);
 	if (ret) {
 		netdev_err(master, "error %d registering interface %s\n",
 			   ret, slave_dev->name);
+		rtnl_unlock();
 		goto out_phy;
 	}
 
+	ret = netdev_upper_dev_link(master, slave_dev, NULL);
+
+	rtnl_unlock();
+
+	if (ret)
+		goto out_unregister;
+
 	return 0;
 
+out_unregister:
+	unregister_netdev(slave_dev);
 out_phy:
 	rtnl_lock();
 	phylink_disconnect_phy(p->dp->pl);
@@ -1425,16 +1436,18 @@ out_free:
 
 void dsa_slave_destroy(struct net_device *slave_dev)
 {
+	struct net_device *master = dsa_slave_to_master(slave_dev);
 	struct dsa_port *dp = dsa_slave_to_port(slave_dev);
 	struct dsa_slave_priv *p = netdev_priv(slave_dev);
 
 	netif_carrier_off(slave_dev);
 	rtnl_lock();
+	netdev_upper_dev_unlink(master, slave_dev);
+	unregister_netdevice(slave_dev);
 	phylink_disconnect_phy(dp->pl);
 	rtnl_unlock();
 
 	dsa_slave_notify(slave_dev, DSA_PORT_UNREGISTER);
-	unregister_netdev(slave_dev);
 	phylink_destroy(dp->pl);
 	free_percpu(p->stats64);
 	free_netdev(slave_dev);

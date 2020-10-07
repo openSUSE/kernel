@@ -65,6 +65,7 @@ struct fib6_config {
 	struct nl_info	fc_nlinfo;
 	struct nlattr	*fc_encap;
 	u16		fc_encap_type;
+	bool		fc_is_fdb;
 };
 
 struct fib6_node {
@@ -190,11 +191,10 @@ struct fib6_info {
 	u8				should_flush:1,
 					dst_nocount:1,
 					dst_nopolicy:1,
-					dst_host:1,
 					fib6_destroying:1,
 					offload:1,
 					trap:1,
-					unused:1;
+					unused:2;
 
 	struct rcu_head			rcu;
 	struct nexthop			*nh;

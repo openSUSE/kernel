@@ -4420,7 +4420,7 @@ void snd_soc_dapm_connect_dai_link_widgets(struct snd_soc_card *card)
 		} else if (rtd->num_codecs == rtd->num_cpus) {
 			for_each_rtd_codec_dais(rtd, i, codec_dai)
 				dapm_connect_dai_pair(card, rtd, codec_dai,
-						      asoc_rtd_to_cpu(rtd, 1));
+						      asoc_rtd_to_cpu(rtd, i));
 		} else {
 			dev_err(card->dev,
 				"N cpus to M codecs link is not supported yet\n");

@@ -88,12 +88,11 @@ static int vlan_dev_hard_header(struct sk_buff *skb, struct net_device *dev,
 static inline netdev_tx_t vlan_netpoll_send_skb(struct vlan_dev_priv *vlan, struct sk_buff *skb)
 {
 #ifdef CONFIG_NET_POLL_CONTROLLER
-	if (vlan->netpoll)
-		netpoll_send_skb(vlan->netpoll, skb);
+	return netpoll_send_skb(vlan->netpoll, skb);
 #else
 	BUG();
-#endif
 	return NETDEV_TX_OK;
+#endif
 }
 
 static netdev_tx_t vlan_dev_hard_start_xmit(struct sk_buff *skb,
@@ -495,6 +494,7 @@ static void vlan_dev_set_rx_mode(struct net_device *vlan_dev)
  * separate class since they always nest.
  */
 static struct lock_class_key vlan_netdev_xmit_lock_key;
+static struct lock_class_key vlan_netdev_addr_lock_key;
 
 static void vlan_dev_set_lockdep_one(struct net_device *dev,
 				     struct netdev_queue *txq,
@@ -505,6 +505,8 @@ static void vlan_dev_set_lockdep_one(struct net_device *dev,
 
 static void vlan_dev_set_lockdep_class(struct net_device *dev)
 {
+	lockdep_set_class(&dev->addr_list_lock,
+			  &vlan_netdev_addr_lock_key);
 	netdev_for_each_tx_queue(dev, vlan_dev_set_lockdep_one, NULL);
 }
 

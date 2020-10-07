@@ -447,8 +447,7 @@ static void mlx5_ib_page_fault_resume(struct mlx5_ib_dev *dev,
 {
 	int wq_num = pfault->event_subtype == MLX5_PFAULT_SUBTYPE_WQE ?
 		     pfault->wqe.wq_num : pfault->token;
-	u32 out[MLX5_ST_SZ_DW(page_fault_resume_out)] = { };
-	u32 in[MLX5_ST_SZ_DW(page_fault_resume_in)]   = { };
+	u32 in[MLX5_ST_SZ_DW(page_fault_resume_in)] = {};
 	int err;
 
 	MLX5_SET(page_fault_resume_in, in, opcode, MLX5_CMD_OP_PAGE_FAULT_RESUME);
@@ -457,7 +456,7 @@ static void mlx5_ib_page_fault_resume(struct mlx5_ib_dev *dev,
 	MLX5_SET(page_fault_resume_in, in, wq_number, wq_num);
 	MLX5_SET(page_fault_resume_in, in, error, !!error);
 
-	err = mlx5_cmd_exec(dev->mdev, in, sizeof(in), out, sizeof(out));
+	err = mlx5_cmd_exec_in(dev->mdev, page_fault_resume, in);
 	if (err)
 		mlx5_ib_err(dev, "Failed to resolve the page fault on WQ 0x%x err %d\n",
 			    wq_num, err);
@@ -931,11 +930,6 @@ next_mr:
 		if (ret < 0)
 			goto srcu_unlock;
 
-		/*
-		 * When prefetching a page, page fault is generated
-		 * in order to bring the page to the main memory.
-		 * In the current flow, page faults are being counted.
-		 */
 		mlx5_update_odp_stats(mr, faults, ret);
 
 		npages += ret;
@@ -1153,8 +1147,7 @@ static int mlx5_ib_mr_initiator_pfault_handler(
 	if (qp->ibqp.qp_type == IB_QPT_XRC_INI)
 		*wqe += sizeof(struct mlx5_wqe_xrc_seg);
 
-	if (qp->ibqp.qp_type == IB_QPT_UD ||
-	    qp->qp_sub_type == MLX5_IB_QPT_DCI) {
+	if (qp->type == IB_QPT_UD || qp->type == MLX5_IB_QPT_DCI) {
 		av = *wqe;
 		if (av->dqp_dct & cpu_to_be32(MLX5_EXTENDED_UD_AV))
 			*wqe += sizeof(struct mlx5_av);
@@ -1207,7 +1200,7 @@ static int mlx5_ib_mr_responder_pfault_handler_rq(struct mlx5_ib_dev *dev,
 	struct mlx5_ib_wq *wq = &qp->rq;
 	int wqe_size = 1 << wq->wqe_shift;
 
-	if (qp->wq_sig) {
+	if (qp->flags_en & MLX5_QP_FLAG_SIGNATURE) {
 		mlx5_ib_err(dev, "ODP fault with WQE signatures is not supported\n");
 		return -EFAULT;
 	}
@@ -1776,6 +1769,7 @@ static void mlx5_ib_prefetch_mr_work(struct work_struct *w)
 	struct mlx5_ib_dev *dev;
 	u32 bytes_mapped = 0;
 	int srcu_key;
+	int ret;
 	u32 i;
 
 	/* We rely on IB/core that work is executed if we have num_sge != 0 only. */
@@ -1783,11 +1777,14 @@ static void mlx5_ib_prefetch_mr_work(struct work_struct *w)
 	dev = work->frags[0].mr->dev;
 	/* SRCU should be held when calling to mlx5_odp_populate_xlt() */
 	srcu_key = srcu_read_lock(&dev->odp_srcu);
-	for (i = 0; i < work->num_sge; ++i)
-		pagefault_mr(work->frags[i].mr, work->frags[i].io_virt,
-			     work->frags[i].length, &bytes_mapped,
-			     work->pf_flags);
-
+	for (i = 0; i < work->num_sge; ++i) {
+		ret = pagefault_mr(work->frags[i].mr, work->frags[i].io_virt,
+				   work->frags[i].length, &bytes_mapped,
+				   work->pf_flags);
+		if (ret <= 0)
+			continue;
+		mlx5_update_odp_stats(work->frags[i].mr, prefetch, ret);
+	}
 	srcu_read_unlock(&dev->odp_srcu, srcu_key);
 
 	destroy_prefetch_work(work);
@@ -1844,6 +1841,7 @@ static int mlx5_ib_prefetch_sg_list(struct ib_pd *pd,
 				   &bytes_mapped, pf_flags);
 		if (ret < 0)
 			goto out;
+		mlx5_update_odp_stats(mr, prefetch, ret);
 	}
 	ret = 0;
 

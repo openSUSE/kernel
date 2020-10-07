@@ -1678,6 +1678,24 @@ pxafb_freq_transition(struct notifier_block *nb, unsigned long val, void *data)
 	}
 	return 0;
 }
+
+static int
+pxafb_freq_policy(struct notifier_block *nb, unsigned long val, void *data)
+{
+	struct pxafb_info *fbi = TO_INF(nb, freq_policy);
+	struct fb_var_screeninfo *var = &fbi->fb.var;
+	struct cpufreq_policy *policy = data;
+
+	switch (val) {
+	case CPUFREQ_ADJUST:
+		pr_debug("min dma period: %d ps, "
+			"new clock %d kHz\n", pxafb_display_dma_period(var),
+			policy->max);
+		/* TODO: fill in min/max values */
+		break;
+	}
+	return 0;
+}
 #endif
 
 #ifdef CONFIG_PM
@@ -2382,8 +2400,11 @@ static int pxafb_probe(struct platform_device *dev)
 
 #ifdef CONFIG_CPU_FREQ
 	fbi->freq_transition.notifier_call = pxafb_freq_transition;
+	fbi->freq_policy.notifier_call = pxafb_freq_policy;
 	cpufreq_register_notifier(&fbi->freq_transition,
 				CPUFREQ_TRANSITION_NOTIFIER);
+	cpufreq_register_notifier(&fbi->freq_policy,
+				CPUFREQ_POLICY_NOTIFIER);
 #endif
 
 	/*
@@ -2425,8 +2446,8 @@ static int pxafb_remove(struct platform_device *dev)
 
 	free_pages_exact(fbi->video_mem, fbi->video_mem_size);
 
-	dma_free_coherent(&dev->dev, fbi->dma_buff_size, fbi->dma_buff,
-			  fbi->dma_buff_phys);
+	dma_free_wc(&dev->dev, fbi->dma_buff_size, fbi->dma_buff,
+		    fbi->dma_buff_phys);
 
 	return 0;
 }

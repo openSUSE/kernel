@@ -987,7 +987,7 @@ int rt6_route_rcv(struct net_device *dev, u8 *opt, int len,
 					gwaddr, dev);
 
 	if (rt && !lifetime) {
-		ip6_del_rt(net, rt);
+		ip6_del_rt(net, rt, false);
 		rt = NULL;
 	}
 
@@ -1065,8 +1065,6 @@ static unsigned short fib6_info_dst_flags(struct fib6_info *rt)
 		flags |= DST_NOCOUNT;
 	if (rt->dst_nopolicy)
 		flags |= DST_NOPOLICY;
-	if (rt->dst_host)
-		flags |= DST_HOST;
 
 	return flags;
 }
@@ -1352,7 +1350,6 @@ static struct rt6_info *ip6_rt_cache_alloc(const struct fib6_result *res,
 
 	ip6_rt_copy_init(rt, res);
 	rt->rt6i_flags |= RTF_CACHE;
-	rt->dst.flags |= DST_HOST;
 	rt->rt6i_dst.addr = *daddr;
 	rt->rt6i_dst.plen = 128;
 
@@ -3149,7 +3146,6 @@ struct dst_entry *icmp6_dst_alloc(struct net_device *dev,
 		goto out;
 	}
 
-	rt->dst.flags |= DST_HOST;
 	rt->dst.input = ip6_input;
 	rt->dst.output  = ip6_output;
 	rt->rt6i_gateway  = fl6->daddr;
@@ -3402,6 +3398,11 @@ int fib6_nh_init(struct net *net, struct fib6_nh *fib6_nh,
 #ifdef CONFIG_IPV6_ROUTER_PREF
 	fib6_nh->last_probe = jiffies;
 #endif
+	if (cfg->fc_is_fdb) {
+		fib6_nh->fib_nh_gw6 = cfg->fc_gateway;
+		fib6_nh->fib_nh_gw_family = AF_INET6;
+		return 0;
+	}
 
 	err = -ENODEV;
 	if (cfg->fc_ifindex) {
@@ -3482,7 +3483,7 @@ int fib6_nh_init(struct net *net, struct fib6_nh *fib6_nh,
 	    !netif_carrier_ok(dev))
 		fib6_nh->fib_nh_flags |= RTNH_F_LINKDOWN;
 
-	err = fib_nh_common_init(&fib6_nh->nh_common, cfg->fc_encap,
+	err = fib_nh_common_init(net, &fib6_nh->nh_common, cfg->fc_encap,
 				 cfg->fc_encap_type, cfg, gfp_flags, extack);
 	if (err)
 		goto out;
@@ -3652,8 +3653,6 @@ static struct fib6_info *ip6_route_info_create(struct fib6_config *cfg,
 
 	ipv6_addr_prefix(&rt->fib6_dst.addr, &cfg->fc_dst, cfg->fc_dst_len);
 	rt->fib6_dst.plen = cfg->fc_dst_len;
-	if (rt->fib6_dst.plen == 128)
-		rt->dst_host = true;
 
 #ifdef CONFIG_IPV6_SUBTREES
 	ipv6_addr_prefix(&rt->fib6_src.addr, &cfg->fc_src, cfg->fc_src_len);
@@ -3742,9 +3741,12 @@ out:
 	return err;
 }
 
-int ip6_del_rt(struct net *net, struct fib6_info *rt)
+int ip6_del_rt(struct net *net, struct fib6_info *rt, bool skip_notify)
 {
-	struct nl_info info = { .nl_net = net };
+	struct nl_info info = {
+		.nl_net = net,
+		.skip_notify = skip_notify
+	};
 
 	return __ip6_del_rt(rt, &info);
 }
@@ -4265,7 +4267,7 @@ restart:
 		    (!idev || idev->cnf.accept_ra != 2) &&
 		    fib6_info_hold_safe(rt)) {
 			rcu_read_unlock();
-			ip6_del_rt(net, rt);
+			ip6_del_rt(net, rt, false);
 			goto restart;
 		}
 	}
@@ -5567,7 +5569,8 @@ static int rt6_fill_node(struct net *net, struct sk_buff *skb,
 		if (nexthop_is_blackhole(rt->nh))
 			rtm->rtm_type = RTN_BLACKHOLE;
 
-		if (rt6_fill_node_nexthop(skb, rt->nh, &nh_flags) < 0)
+		if (net->ipv4.sysctl_nexthop_compat_mode &&
+		    rt6_fill_node_nexthop(skb, rt->nh, &nh_flags) < 0)
 			goto nla_put_failure;
 
 		rtm->rtm_flags |= nh_flags;

@@ -113,14 +113,6 @@ struct btrfs_fs_info *btrfs_alloc_dummy_fs_info(u32 nodesize, u32 sectorsize)
 
 	fs_info->nodesize = nodesize;
 	fs_info->sectorsize = sectorsize;
-
-	if (init_srcu_struct(&fs_info->subvol_srcu)) {
-		kfree(fs_info->fs_devices);
-		kfree(fs_info->super_copy);
-		kfree(fs_info);
-		return NULL;
-	}
-
 	set_bit(BTRFS_FS_STATE_DUMMY_FS_INFO, &fs_info->fs_state);
 
 	test_mnt->mnt_sb->s_fs_info = fs_info;
@@ -164,9 +156,9 @@ void btrfs_free_dummy_fs_info(struct btrfs_fs_info *fs_info)
 
 	btrfs_free_qgroup_config(fs_info);
 	btrfs_free_fs_roots(fs_info);
-	cleanup_srcu_struct(&fs_info->subvol_srcu);
 	kfree(fs_info->super_copy);
 	btrfs_check_leaked_roots(fs_info);
+	btrfs_extent_buffer_leak_debug_check(fs_info);
 	kfree(fs_info->fs_devices);
 	kfree(fs_info);
 }
@@ -178,10 +170,6 @@ void btrfs_free_dummy_root(struct btrfs_root *root)
 	/* Will be freed by btrfs_free_fs_roots */
 	if (WARN_ON(test_bit(BTRFS_ROOT_IN_RADIX, &root->state)))
 		return;
-	if (root->node) {
-		/* One for allocate_extent_buffer */
-		free_extent_buffer(root->node);
-	}
 	btrfs_put_root(root);
 }
 

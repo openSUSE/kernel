@@ -76,7 +76,7 @@ struct aes_gcm_keymat {
 struct mlx5_accel_esp_xfrm_attrs {
 	enum mlx5_accel_esp_action action;
 	u32   esn;
-	u32   spi;
+	__be32 spi;
 	u32   seq;
 	u32   tfc_pad;
 	u32   flags;
@@ -126,7 +126,7 @@ enum mlx5_accel_ipsec_cap {
 	MLX5_ACCEL_IPSEC_CAP_TX_IV_IS_ESN	= 1 << 7,
 };
 
-#ifdef CONFIG_MLX5_FPGA_IPSEC
+#ifdef CONFIG_MLX5_ACCEL
 
 u32 mlx5_accel_ipsec_device_caps(struct mlx5_core_dev *mdev);
 
@@ -152,5 +152,5 @@ static inline int
 mlx5_accel_esp_modify_xfrm(struct mlx5_accel_esp_xfrm *xfrm,
 			   const struct mlx5_accel_esp_xfrm_attrs *attrs) { return -EOPNOTSUPP; }
 
-#endif
-#endif
+#endif /* CONFIG_MLX5_ACCEL */
+#endif /* __MLX5_ACCEL_H__ */

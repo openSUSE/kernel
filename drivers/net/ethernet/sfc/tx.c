@@ -269,38 +269,6 @@ static int efx_enqueue_skb_pio(struct efx_tx_queue *tx_queue,
 #endif /* EFX_USE_PIO */
 
 /*
- * Fallback to software TSO.
- *
- * This is used if we are unable to send a GSO packet through hardware TSO.
- * This should only ever happen due to per-queue restrictions - unsupported
- * packets should first be filtered by the feature flags.
- *
- * Returns 0 on success, error code otherwise.
- */
-static int efx_tx_tso_fallback(struct efx_tx_queue *tx_queue,
-			       struct sk_buff *skb)
-{
-	struct sk_buff *segments, *next;
-
-	segments = skb_gso_segment(skb, 0);
-	if (IS_ERR(segments))
-		return PTR_ERR(segments);
-
-	dev_consume_skb_any(skb);
-	skb = segments;
-
-	while (skb) {
-		next = skb->next;
-		skb->next = NULL;
-
-		efx_enqueue_skb(tx_queue, skb);
-		skb = next;
-	}
-
-	return 0;
-}
-
-/*
  * Add a socket buffer to a TX queue
  *
  * This maps all fragments of a socket buffer for DMA and adds them to
@@ -316,7 +284,7 @@ static int efx_tx_tso_fallback(struct efx_tx_queue *tx_queue,
  * Returns NETDEV_TX_OK.
  * You must hold netif_tx_lock() to call this function.
  */
-netdev_tx_t efx_enqueue_skb(struct efx_tx_queue *tx_queue, struct sk_buff *skb)
+netdev_tx_t __efx_enqueue_skb(struct efx_tx_queue *tx_queue, struct sk_buff *skb)
 {
 	unsigned int old_insert_count = tx_queue->insert_count;
 	bool xmit_more = netdev_xmit_more();
@@ -535,7 +503,45 @@ netdev_tx_t efx_hard_start_xmit(struct sk_buff *skb,
 	}
 	tx_queue = efx_get_tx_queue(efx, index, type);
 
-	return efx_enqueue_skb(tx_queue, skb);
+	return __efx_enqueue_skb(tx_queue, skb);
+}
+
+void efx_xmit_done_single(struct efx_tx_queue *tx_queue)
+{
+	unsigned int pkts_compl = 0, bytes_compl = 0;
+	unsigned int read_ptr;
+	bool finished = false;
+
+	read_ptr = tx_queue->read_count & tx_queue->ptr_mask;
+
+	while (!finished) {
+		struct efx_tx_buffer *buffer = &tx_queue->buffer[read_ptr];
+
+		if (!efx_tx_buffer_in_use(buffer)) {
+			struct efx_nic *efx = tx_queue->efx;
+
+			netif_err(efx, hw, efx->net_dev,
+				  "TX queue %d spurious single TX completion\n",
+				  tx_queue->queue);
+			efx_schedule_reset(efx, RESET_TYPE_TX_SKIP);
+			return;
+		}
+
+		/* Need to check the flag before dequeueing. */
+		if (buffer->flags & EFX_TX_BUF_SKB)
+			finished = true;
+		efx_dequeue_buffer(tx_queue, buffer, &pkts_compl, &bytes_compl);
+
+		++tx_queue->read_count;
+		read_ptr = tx_queue->read_count & tx_queue->ptr_mask;
+	}
+
+	tx_queue->pkts_compl += pkts_compl;
+	tx_queue->bytes_compl += bytes_compl;
+
+	EFX_WARN_ON_PARANOID(pkts_compl != 1);
+
+	efx_xmit_done_check_empty(tx_queue);
 }
 
 void efx_init_tx_queue_core_txq(struct efx_tx_queue *tx_queue)
@@ -545,8 +551,8 @@ void efx_init_tx_queue_core_txq(struct efx_tx_queue *tx_queue)
 	/* Must be inverse of queue lookup in efx_hard_start_xmit() */
 	tx_queue->core_txq =
 		netdev_get_tx_queue(efx->net_dev,
-				    tx_queue->queue / EFX_TXQ_TYPES +
-				    ((tx_queue->queue & EFX_TXQ_TYPE_HIGHPRI) ?
+				    tx_queue->channel->channel +
+				    ((tx_queue->label & EFX_TXQ_TYPE_HIGHPRI) ?
 				     efx->n_tx_channels : 0));
 }
 
@@ -555,12 +561,13 @@ int efx_setup_tc(struct net_device *net_dev, enum tc_setup_type type,
 {
 	struct efx_nic *efx = netdev_priv(net_dev);
 	struct tc_mqprio_qopt *mqprio = type_data;
-	struct efx_channel *channel;
-	struct efx_tx_queue *tx_queue;
 	unsigned tc, num_tc;
-	int rc;
 
 	if (type != TC_SETUP_QDISC_MQPRIO)
+		return -EOPNOTSUPP;
+
+	/* Only Siena supported highpri queues */
+	if (efx_nic_rev(efx) > EFX_REV_SIENA_A0)
 		return -EOPNOTSUPP;
 
 	num_tc = mqprio->num_tc;
@@ -578,40 +585,9 @@ int efx_setup_tc(struct net_device *net_dev, enum tc_setup_type type,
 		net_dev->tc_to_txq[tc].count = efx->n_tx_channels;
 	}
 
-	if (num_tc > net_dev->num_tc) {
-		/* Initialise high-priority queues as necessary */
-		efx_for_each_channel(channel, efx) {
-			efx_for_each_possible_channel_tx_queue(tx_queue,
-							       channel) {
-				if (!(tx_queue->queue & EFX_TXQ_TYPE_HIGHPRI))
-					continue;
-				if (!tx_queue->buffer) {
-					rc = efx_probe_tx_queue(tx_queue);
-					if (rc)
-						return rc;
-				}
-				if (!tx_queue->initialised)
-					efx_init_tx_queue(tx_queue);
-				efx_init_tx_queue_core_txq(tx_queue);
-			}
-		}
-	} else {
-		/* Reduce number of classes before number of queues */
-		net_dev->num_tc = num_tc;
-	}
-
-	rc = netif_set_real_num_tx_queues(net_dev,
-					  max_t(int, num_tc, 1) *
-					  efx->n_tx_channels);
-	if (rc)
-		return rc;
-
-	/* Do not destroy high-priority queues when they become
-	 * unused.  We would have to flush them first, and it is
-	 * fairly difficult to flush a subset of TX queues.  Leave
-	 * it to efx_fini_channels().
-	 */
-
 	net_dev->num_tc = num_tc;
-	return 0;
+
+	return netif_set_real_num_tx_queues(net_dev,
+					    max_t(int, num_tc, 1) *
+					    efx->n_tx_channels);
 }

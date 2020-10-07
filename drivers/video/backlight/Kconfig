@@ -10,6 +10,7 @@ menu "Backlight & LCD device support"
 #
 config LCD_CLASS_DEVICE
         tristate "Lowlevel LCD controls"
+	default m
 	help
 	  This framework adds support for low-level control of LCD.
 	  Some framebuffer devices connect to platform-specific LCD modules
@@ -99,7 +100,7 @@ config LCD_TOSA
 
 config LCD_HP700
 	tristate "HP Jornada 700 series LCD Driver"
-	depends on SA1100_JORNADA720_SSP && !PREEMPTION
+	depends on SA1100_JORNADA720_SSP && !PREEMPT
 	default y
 	help
 	  If you have an HP Jornada 700 series handheld (710/720/728)
@@ -142,6 +143,7 @@ endif # LCD_CLASS_DEVICE
 #
 config BACKLIGHT_CLASS_DEVICE
         tristate "Lowlevel Backlight controls"
+	default m
 	help
 	  This framework adds support for low-level control of the LCD
           backlight. This includes support for brightness and power.
@@ -228,7 +230,7 @@ config BACKLIGHT_HP680
 
 config BACKLIGHT_HP700
 	tristate "HP Jornada 700 series Backlight Driver"
-	depends on SA1100_JORNADA720_SSP && !PREEMPTION
+	depends on SA1100_JORNADA720_SSP && !PREEMPT
 	default y
 	help
 	  If you have an HP Jornada 700 series,

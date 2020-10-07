@@ -26,6 +26,13 @@ Description:
 		Read-only attribute common to all SoCs. Contains SoC family name
 		(e.g. DB8500).
 
+What:		/sys/devices/socX/serial_number
+Date:		January 2019
+contact:	Bjorn Andersson <bjorn.andersson@linaro.org>
+Description:
+		Read-only attribute supported by most SoCs. Contains the SoC's
+		serial number, if available.
+
 		On many of ARM based silicon with SMCCC v1.2+ compliant firmware
 		this will contain the JEDEC JEP106 manufacturer’s identification
 		code. The format is "jep106:XXYY" where XX is identity code and

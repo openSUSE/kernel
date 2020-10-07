@@ -121,7 +121,8 @@ static inline void cxgbi_device_destroy(struct cxgbi_device *cdev)
 		"cdev 0x%p, p# %u.\n", cdev, cdev->nports);
 	cxgbi_hbas_remove(cdev);
 	cxgbi_device_portmap_cleanup(cdev);
-	cxgbi_ppm_release(cdev->cdev2ppm(cdev));
+	if (cdev->cdev2ppm)
+		cxgbi_ppm_release(cdev->cdev2ppm(cdev));
 	if (cdev->pmap.max_connect)
 		cxgbi_free_big_mem(cdev->pmap.port_csk);
 	kfree(cdev);
@@ -1888,7 +1889,7 @@ int cxgbi_conn_alloc_pdu(struct iscsi_task *task, u8 op)
 	struct iscsi_tcp_conn *tcp_conn = conn->dd_data;
 	struct cxgbi_conn *cconn = tcp_conn->dd_data;
 	struct cxgbi_device *cdev = cconn->chba->cdev;
-	struct cxgbi_sock *csk = (cconn && cconn->cep) ? cconn->cep->csk : NULL;
+	struct cxgbi_sock *csk = cconn->cep ? cconn->cep->csk : NULL;
 	struct iscsi_tcp_task *tcp_task = task->dd_data;
 	struct cxgbi_task_data *tdata = iscsi_task_cxgbi_data(task);
 	struct scsi_cmnd *sc = task->sc;
@@ -1898,7 +1899,7 @@ int cxgbi_conn_alloc_pdu(struct iscsi_task *task, u8 op)
 	u32 last_tdata_offset, last_tdata_count;
 	int err = 0;
 
-	if (!tcp_task || !tdata) {
+	if (!tcp_task) {
 		pr_err("task 0x%p, tcp_task 0x%p, tdata 0x%p.\n",
 		       task, tcp_task, tdata);
 		return -ENOMEM;
@@ -2154,7 +2155,7 @@ int cxgbi_conn_init_pdu(struct iscsi_task *task, unsigned int offset,
 	struct page *pg;
 	int err;
 
-	if (!tcp_task || !tdata || tcp_task->dd_data != tdata) {
+	if (!tcp_task || (tcp_task->dd_data != tdata)) {
 		pr_err("task 0x%p,0x%p, tcp_task 0x%p, tdata 0x%p/0x%p.\n",
 		       task, task->sc, tcp_task,
 		       tcp_task ? tcp_task->dd_data : NULL, tdata);
@@ -2182,8 +2183,7 @@ int cxgbi_conn_init_pdu(struct iscsi_task *task, unsigned int offset,
 	}
 
 	log_debug(1 << CXGBI_DBG_ISCSI | 1 << CXGBI_DBG_PDU_TX,
-		  "cxgbi_conn_init_pdu: tdata->total_count %u, "
-		  "tdata->total_offset %u\n",
+		  "data->total_count %u, tdata->total_offset %u\n",
 		  tdata->total_count, tdata->total_offset);
 
 	expected_count = tdata->total_count;
@@ -2371,7 +2371,7 @@ int cxgbi_conn_xmit_pdu(struct iscsi_task *task)
 	u32 datalen;
 	int err;
 
-	if (!tcp_task || !tdata || (tcp_task->dd_data != tdata)) {
+	if (!tcp_task || (tcp_task->dd_data != tdata)) {
 		pr_err("task 0x%p,0x%p, tcp_task 0x%p, tdata 0x%p/0x%p.\n",
 		       task, task->sc, tcp_task,
 		       tcp_task ? tcp_task->dd_data : NULL, tdata);
@@ -2472,7 +2472,7 @@ void cxgbi_cleanup_task(struct iscsi_task *task)
 	struct iscsi_tcp_task *tcp_task = task->dd_data;
 	struct cxgbi_task_data *tdata = iscsi_task_cxgbi_data(task);
 
-	if (!tcp_task || !tdata || (tcp_task->dd_data != tdata)) {
+	if (!tcp_task || (tcp_task->dd_data != tdata)) {
 		pr_info("task 0x%p,0x%p, tcp_task 0x%p, tdata 0x%p/0x%p.\n",
 			task, task->sc, tcp_task,
 			tcp_task ? tcp_task->dd_data : NULL, tdata);
@@ -2611,34 +2611,6 @@ int cxgbi_set_conn_param(struct iscsi_cls_conn *cls_conn,
 	return err;
 }
 EXPORT_SYMBOL_GPL(cxgbi_set_conn_param);
-
-static inline int csk_print_port(struct cxgbi_sock *csk, char *buf)
-{
-	int len;
-
-	cxgbi_sock_get(csk);
-	len = sprintf(buf, "%hu\n", ntohs(csk->daddr.sin_port));
-	cxgbi_sock_put(csk);
-
-	return len;
-}
-
-static inline int csk_print_ip(struct cxgbi_sock *csk, char *buf)
-{
-	int len;
-
-	cxgbi_sock_get(csk);
-	if (csk->csk_family == AF_INET)
-		len = sprintf(buf, "%pI4",
-			      &csk->daddr.sin_addr.s_addr);
-	else
-		len = sprintf(buf, "%pI6",
-			      &csk->daddr6.sin6_addr);
-
-	cxgbi_sock_put(csk);
-
-	return len;
-}
 
 int cxgbi_get_ep_param(struct iscsi_endpoint *ep, enum iscsi_param param,
 		       char *buf)

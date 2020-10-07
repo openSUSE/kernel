@@ -29,7 +29,6 @@
 #include <linux/freezer.h>
 #include <linux/uaccess.h>
 #include <linux/fb.h>
-#include <linux/fbcon.h>
 #include <linux/init.h>
 
 #include <asm/cell-regs.h>
@@ -825,12 +824,12 @@ static int ps3fb_ioctl(struct fb_info *info, unsigned int cmd,
 				var = info->var;
 				fb_videomode_to_var(&var, vmode);
 				console_lock();
+				info->flags |= FBINFO_MISC_USEREVENT;
 				/* Force, in case only special bits changed */
 				var.activate |= FB_ACTIVATE_FORCE;
 				par->new_mode_id = val;
 				retval = fb_set_var(info, &var);
-				if (!retval)
-					fbcon_update_vcs(info, var.activate & FB_ACTIVATE_ALL);
+				info->flags &= ~FBINFO_MISC_USEREVENT;
 				console_unlock();
 			}
 			break;

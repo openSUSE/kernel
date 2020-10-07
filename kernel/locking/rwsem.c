@@ -660,6 +660,12 @@ static inline bool rwsem_can_spin_on_owner(struct rw_semaphore *sem,
 	unsigned long flags;
 	bool ret = true;
 
+	/*
+	 * Force readers down the slowpath.
+	 */
+	if (nonspinnable == RWSEM_RD_NONSPINNABLE)
+		return false;
+
 	if (need_resched()) {
 		lockevent_inc(rwsem_opt_fail);
 		return false;
