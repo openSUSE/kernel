@@ -1825,6 +1825,14 @@ union security_list_options {
 #endif /* CONFIG_BPF_SYSCALL */
 	int (*locked_down)(enum lockdown_reason what);
 	int (*lock_kernel_down)(const char *where, enum lockdown_reason level);
+#ifdef CONFIG_PERF_EVENTS
+	int (*perf_event_open)(struct perf_event_attr *attr, int type);
+	int (*perf_event_alloc)(struct perf_event *event);
+	void (*perf_event_free)(struct perf_event *event);
+	int (*perf_event_read)(struct perf_event *event);
+	int (*perf_event_write)(struct perf_event *event);
+
+#endif
 };
 
 struct security_hook_heads {
@@ -2068,6 +2076,13 @@ struct security_hook_heads {
 #endif /* CONFIG_BPF_SYSCALL */
 	struct hlist_head locked_down;
 	struct hlist_head lock_kernel_down;
+#ifdef CONFIG_PERF_EVENTS
+	struct hlist_head perf_event_open;
+	struct hlist_head perf_event_alloc;
+	struct hlist_head perf_event_free;
+	struct hlist_head perf_event_read;
+	struct hlist_head perf_event_write;
+#endif
 } __randomize_layout;
 
 /*
