@@ -14,6 +14,9 @@
 #include "libbpf.h"
 #include "nlattr.h"
 
+/* make sure libbpf doesn't use kernel-only integer typedefs */
+#pragma GCC poison u8 u16 u32 u64 s8 s16 s32 s64
+
 #ifndef SOL_NETLINK
 #define SOL_NETLINK 270
 #endif
