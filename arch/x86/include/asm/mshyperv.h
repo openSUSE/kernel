@@ -8,6 +8,7 @@
 #include <asm/io.h>
 #include <asm/hyperv-tlfs.h>
 #include <asm/nospec-branch.h>
+#include <asm/paravirt.h>
 
 typedef int (*hyperv_fill_flush_list_func)(
 		struct hv_guest_mapping_flush_list *flush,
@@ -51,6 +52,17 @@ typedef int (*hyperv_fill_flush_list_func)(
 #define hv_set_clocksource_vdso(val) \
 	((val).archdata.vclock_mode = VCLOCK_HVCLOCK)
 #define hv_get_raw_timer() rdtsc_ordered()
+
+/*
+ * Reference to pv_ops must be inline so objtool
+ * detection of noinstr violations can work correctly.
+ */
+static __always_inline void hv_setup_sched_clock(void *sched_clock)
+{
+#ifdef CONFIG_PARAVIRT
+	pv_ops.time.sched_clock = sched_clock;
+#endif
+}
 
 void hyperv_callback_vector(void);
 void hyperv_reenlightenment_vector(void);
