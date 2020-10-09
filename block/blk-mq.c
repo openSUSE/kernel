@@ -278,7 +278,7 @@ static struct request *blk_mq_rq_ctx_init(struct blk_mq_alloc_data *data,
 	struct blk_mq_tags *tags = blk_mq_tags_from_data(data);
 	struct request *rq = tags->static_rqs[tag];
 
-	if (data->flags & BLK_MQ_REQ_INTERNAL) {
+	if (data->q->elevator) {
 		rq->tag = BLK_MQ_NO_TAG;
 		rq->internal_tag = tag;
 	} else {
@@ -358,8 +358,6 @@ static struct request *__blk_mq_alloc_request(struct blk_mq_alloc_data *data)
 		data->flags |= BLK_MQ_REQ_NOWAIT;
 
 	if (e) {
-		data->flags |= BLK_MQ_REQ_INTERNAL;
-
 		/*
 		 * Flush requests are special and go directly to the
 		 * dispatch list. Don't include reserved tags in the
@@ -374,7 +372,7 @@ static struct request *__blk_mq_alloc_request(struct blk_mq_alloc_data *data)
 retry:
 	data->ctx = blk_mq_get_ctx(q);
 	data->hctx = blk_mq_map_queue(q, data->cmd_flags, data->ctx);
-	if (!(data->flags & BLK_MQ_REQ_INTERNAL))
+	if (!e)
 		blk_mq_tag_busy(data->hctx);
 
 	/*
@@ -470,9 +468,7 @@ struct request *blk_mq_alloc_request_hctx(struct request_queue *q,
 	cpu = cpumask_first_and(data.hctx->cpumask, cpu_online_mask);
 	data.ctx = __blk_mq_get_ctx(q, cpu);
 
-	if (q->elevator)
-		data.flags |= BLK_MQ_REQ_INTERNAL;
-	else
+	if (!q->elevator)
 		blk_mq_tag_busy(data.hctx);
 
 	ret = -EWOULDBLOCK;
