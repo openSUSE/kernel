@@ -278,7 +278,7 @@ static struct request *blk_mq_rq_ctx_init(struct blk_mq_alloc_data *data,
 	struct blk_mq_tags *tags = blk_mq_tags_from_data(data);
 	struct request *rq = tags->static_rqs[tag];
 
-	if (data->flags & BLK_MQ_REQ_INTERNAL) {
+	if (data->q->elevator) {
 		rq->tag = BLK_MQ_NO_TAG;
 		rq->internal_tag = tag;
 	} else {
@@ -358,8 +358,6 @@ static struct request *__blk_mq_alloc_request(struct blk_mq_alloc_data *data)
 		data->flags |= BLK_MQ_REQ_NOWAIT;
 
 	if (e) {
-		data->flags |= BLK_MQ_REQ_INTERNAL;
-
 		/*
 		 * Flush requests are special and go directly to the
 		 * dispatch list. Don't include reserved tags in the
@@ -374,7 +372,7 @@ static struct request *__blk_mq_alloc_request(struct blk_mq_alloc_data *data)
 retry:
 	data->ctx = blk_mq_get_ctx(q);
 	data->hctx = blk_mq_map_queue(q, data->cmd_flags, data->ctx);
-	if (!(data->flags & BLK_MQ_REQ_INTERNAL))
+	if (!e)
 		blk_mq_tag_busy(data->hctx);
 
 	/*
@@ -470,9 +468,7 @@ struct request *blk_mq_alloc_request_hctx(struct request_queue *q,
 	cpu = cpumask_first_and(data.hctx->cpumask, cpu_online_mask);
 	data.ctx = __blk_mq_get_ctx(q, cpu);
 
-	if (q->elevator)
-		data.flags |= BLK_MQ_REQ_INTERNAL;
-	else
+	if (!q->elevator)
 		blk_mq_tag_busy(data.hctx);
 
 	ret = -EWOULDBLOCK;
@@ -666,8 +662,6 @@ static inline bool blk_mq_complete_need_ipi(struct request *rq)
 bool blk_mq_complete_request_remote(struct request *rq)
 {
 	WRITE_ONCE(rq->state, MQ_RQ_COMPLETE);
-
-	blk_mq_put_driver_tag(rq);
 
 	/*
 	 * For a polled request, always complete locallly, it's pointless
@@ -1130,7 +1124,8 @@ static bool blk_mq_get_driver_tag(struct request *rq)
 	if (rq->tag == BLK_MQ_NO_TAG && !__blk_mq_get_driver_tag(rq))
 		return false;
 
-	if (hctx->flags & BLK_MQ_F_TAG_SHARED) {
+	if ((hctx->flags & BLK_MQ_F_TAG_SHARED) &&
+			!(rq->rq_flags & RQF_MQ_INFLIGHT)) {
 		rq->rq_flags |= RQF_MQ_INFLIGHT;
 		atomic_inc(&hctx->nr_active);
 	}
@@ -1441,6 +1436,15 @@ out:
 		spin_lock(&hctx->lock);
 		list_splice_tail_init(list, &hctx->dispatch);
 		spin_unlock(&hctx->lock);
+
+		/*
+		 * Order adding requests to hctx->dispatch and checking
+		 * SCHED_RESTART flag. The pair of this smp_mb() is the one
+		 * in blk_mq_sched_restart(). Avoid restart code path to
+		 * miss the new added requests to hctx->dispatch, meantime
+		 * SCHED_RESTART is observed here.
+		 */
+		smp_mb();
 
 		/*
 		 * If SCHED_RESTART was set by the caller of this function and
@@ -2022,7 +2026,8 @@ insert:
 	if (bypass_insert)
 		return BLK_STS_RESOURCE;
 
-	blk_mq_request_bypass_insert(rq, false, run_queue);
+	blk_mq_sched_insert_request(rq, false, run_queue, false);
+
 	return BLK_STS_OK;
 }
 
