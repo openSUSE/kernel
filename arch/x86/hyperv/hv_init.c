@@ -46,14 +46,6 @@ void *hv_alloc_hyperv_page(void)
 }
 EXPORT_SYMBOL_GPL(hv_alloc_hyperv_page);
 
-void *hv_alloc_hyperv_zeroed_page(void)
-{
-        BUILD_BUG_ON(PAGE_SIZE != HV_HYP_PAGE_SIZE);
-
-        return (void *)__get_free_page(GFP_KERNEL | __GFP_ZERO);
-}
-EXPORT_SYMBOL_GPL(hv_alloc_hyperv_zeroed_page);
-
 void hv_free_hyperv_page(unsigned long addr)
 {
 	free_page(addr);
@@ -445,9 +437,3 @@ bool hv_is_hyperv_initialized(void)
 	return hypercall_msr.enable;
 }
 EXPORT_SYMBOL_GPL(hv_is_hyperv_initialized);
-
-bool hv_is_hibernation_supported(void)
-{
-	return false;
-}
-EXPORT_SYMBOL_GPL(hv_is_hibernation_supported);

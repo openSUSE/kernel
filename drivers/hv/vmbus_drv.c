@@ -2342,7 +2342,7 @@ static void hv_crash_handler(struct pt_regs *regs)
 	 * for kdump.
 	 */
 	cpu = smp_processor_id();
-	hv_stimer_legacy_cleanup(cpu);
+	hv_stimer_cleanup(cpu);
 	hv_synic_disable_regs(cpu);
 	hyperv_cleanup();
 };
