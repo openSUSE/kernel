@@ -235,6 +235,16 @@ static void execlists_init_reg_state(u32 *reg_state,
 				     const struct intel_ring *ring,
 				     bool close);
 
+static void __context_pin_acquire(struct intel_context *ce)
+{
+	mutex_acquire(&ce->pin_mutex.dep_map, 2, 0, _RET_IP_);
+}
+
+static void __context_pin_release(struct intel_context *ce)
+{
+	mutex_release(&ce->pin_mutex.dep_map, 0, _RET_IP_);
+}
+
 static void mark_eio(struct i915_request *rq)
 {
 	if (!i915_request_signaled(rq))
@@ -2765,7 +2775,7 @@ static void __execlists_reset(struct intel_engine_cs *engine, bool stalled)
 	GEM_BUG_ON(!i915_vma_is_pinned(ce->state));
 
 	/* Proclaim we have exclusive access to the context image! */
-	mutex_acquire(&ce->pin_mutex.dep_map, 2, 0, _THIS_IP_);
+	__context_pin_acquire(ce);
 
 	rq = active_request(rq);
 	if (!rq) {
@@ -2829,7 +2839,7 @@ out_replay:
 	__execlists_reset_reg_state(ce, engine);
 	__execlists_update_reg_state(ce, engine);
 	ce->lrc_desc |= CTX_DESC_FORCE_RESTORE; /* paranoid: GPU was reset! */
-	mutex_release(&ce->pin_mutex.dep_map, 0, _THIS_IP_);
+	__context_pin_release(ce);
 
 unwind:
 	/* Push back any incomplete requests for replay after the reset. */
@@ -4443,7 +4453,7 @@ void intel_lr_context_reset(struct intel_engine_cs *engine,
 			    bool scrub)
 {
 	GEM_BUG_ON(!intel_context_is_pinned(ce));
-	mutex_acquire(&ce->pin_mutex.dep_map, 2, 0, _THIS_IP_);
+	__context_pin_acquire(ce);
 
 	/*
 	 * We want a simple context + ring to execute the breadcrumb update.
@@ -4469,7 +4479,7 @@ void intel_lr_context_reset(struct intel_engine_cs *engine,
 	intel_ring_update_space(ce->ring);
 
 	__execlists_update_reg_state(ce, engine);
-	mutex_release(&ce->pin_mutex.dep_map, 0, _THIS_IP_);
+	__context_pin_release(ce);
 }
 
 #if IS_ENABLED(CONFIG_DRM_I915_SELFTEST)
