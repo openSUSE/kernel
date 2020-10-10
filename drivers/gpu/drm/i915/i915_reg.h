@@ -9137,6 +9137,8 @@ enum {
 #define HSW_AUD_CHICKENBIT			_MMIO(0x65f10)
 #define   SKL_AUD_CODEC_WAKE_SIGNAL		(1 << 15)
 
+#define AUD_FREQ_CNTRL			_MMIO(0x65900)
+
 /*
  * HSW - ICL power wells
  *
