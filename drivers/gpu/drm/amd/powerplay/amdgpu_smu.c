@@ -715,6 +715,9 @@ static int smu_set_funcs(struct amdgpu_device *adev)
 {
 	struct smu_context *smu = &adev->smu;
 
+	if (adev->pm.pp_feature & PP_OVERDRIVE_MASK)
+		smu->od_enabled = true;
+
 	switch (adev->asic_type) {
 	case CHIP_VEGA20:
 		vega20_set_ppt_funcs(smu);
@@ -726,6 +729,8 @@ static int smu_set_funcs(struct amdgpu_device *adev)
 		break;
 	case CHIP_ARCTURUS:
 		arcturus_set_ppt_funcs(smu);
+		/* OD is not supported on Arcturus */
+		smu->od_enabled =false;
 		break;
 	case CHIP_RENOIR:
 		renoir_set_ppt_funcs(smu);
@@ -733,9 +738,6 @@ static int smu_set_funcs(struct amdgpu_device *adev)
 	default:
 		return -EINVAL;
 	}
-
-	if (adev->pm.pp_feature & PP_OVERDRIVE_MASK)
-		smu->od_enabled = true;
 
 	return 0;
 }
