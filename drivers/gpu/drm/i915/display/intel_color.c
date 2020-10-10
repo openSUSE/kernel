@@ -1674,6 +1674,9 @@ i9xx_read_lut_8(const struct intel_crtc_state *crtc_state)
 
 static void i9xx_read_luts(struct intel_crtc_state *crtc_state)
 {
+	if (!crtc_state->gamma_enable)
+		return;
+
 	crtc_state->base.gamma_lut = i9xx_read_lut_8(crtc_state);
 }
 
@@ -1720,6 +1723,9 @@ i965_read_lut_10p6(const struct intel_crtc_state *crtc_state)
 
 static void i965_read_luts(struct intel_crtc_state *crtc_state)
 {
+	if (!crtc_state->gamma_enable)
+		return;
+
 	if (crtc_state->gamma_mode == GAMMA_MODE_MODE_8BIT)
 		crtc_state->base.gamma_lut = i9xx_read_lut_8(crtc_state);
 	else
@@ -1762,10 +1768,10 @@ chv_read_cgm_lut(const struct intel_crtc_state *crtc_state)
 
 static void chv_read_luts(struct intel_crtc_state *crtc_state)
 {
-	if (crtc_state->gamma_mode == GAMMA_MODE_MODE_8BIT)
-		crtc_state->base.gamma_lut = i9xx_read_lut_8(crtc_state);
-	else
+	if (crtc_state->cgm_mode & CGM_PIPE_MODE_GAMMA)
 		crtc_state->base.gamma_lut = chv_read_cgm_lut(crtc_state);
+	else
+		i965_read_luts(crtc_state);
 }
 
 static struct drm_property_blob *
@@ -1803,6 +1809,12 @@ ilk_read_lut_10(const struct intel_crtc_state *crtc_state)
 
 static void ilk_read_luts(struct intel_crtc_state *crtc_state)
 {
+	if (!crtc_state->gamma_enable)
+		return;
+
+	if ((crtc_state->csc_mode & CSC_POSITION_BEFORE_GAMMA) == 0)
+		return;
+
 	if (crtc_state->gamma_mode == GAMMA_MODE_MODE_8BIT)
 		crtc_state->base.gamma_lut = i9xx_read_lut_8(crtc_state);
 	else
@@ -1849,6 +1861,9 @@ glk_read_lut_10(const struct intel_crtc_state *crtc_state, u32 prec_index)
 
 static void glk_read_luts(struct intel_crtc_state *crtc_state)
 {
+	if (!crtc_state->gamma_enable)
+		return;
+
 	if (crtc_state->gamma_mode == GAMMA_MODE_MODE_8BIT)
 		crtc_state->base.gamma_lut = i9xx_read_lut_8(crtc_state);
 	else
