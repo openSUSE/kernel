@@ -8786,7 +8786,9 @@ void intel_disable_gt_powersave(struct drm_i915_private *dev_priv)
 {
 	mutex_lock(&dev_priv->gt_pm.rps.lock);
 
-	__intel_disable_rc6(dev_priv);
+	if (HAS_RC6(dev_priv))
+		intel_disable_rc6(dev_priv);
+
 	intel_disable_rps(dev_priv);
 	if (HAS_LLC(dev_priv))
 		intel_disable_llc_pstate(dev_priv);
