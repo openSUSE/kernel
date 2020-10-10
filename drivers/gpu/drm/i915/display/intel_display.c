@@ -3479,9 +3479,8 @@ static int skl_check_main_surface(struct intel_plane_state *plane_state)
 	 * Put the final coordinates back so that the src
 	 * coordinate checks will see the right values.
 	 */
-	drm_rect_translate(&plane_state->base.src,
-			   (x << 16) - plane_state->base.src.x1,
-			   (y << 16) - plane_state->base.src.y1);
+	drm_rect_translate_to(&plane_state->base.src,
+			      x << 16, y << 16);
 
 	return 0;
 }
@@ -3703,9 +3702,8 @@ int i9xx_check_plane_surface(struct intel_plane_state *plane_state)
 	 * Put the final coordinates back so that the src
 	 * coordinate checks will see the right values.
 	 */
-	drm_rect_translate(&plane_state->base.src,
-			   (src_x << 16) - plane_state->base.src.x1,
-			   (src_y << 16) - plane_state->base.src.y1);
+	drm_rect_translate_to(&plane_state->base.src,
+			      src_x << 16, src_y << 16);
 
 	/* HSW/BDW do this automagically in hardware */
 	if (!IS_HASWELL(dev_priv) && !IS_BROADWELL(dev_priv)) {
