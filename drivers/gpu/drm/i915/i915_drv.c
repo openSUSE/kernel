@@ -1791,7 +1791,6 @@ static int i915_drm_resume(struct drm_device *dev)
 	int ret;
 
 	disable_rpm_wakeref_asserts(&dev_priv->runtime_pm);
-	intel_gt_pm_disable(&dev_priv->gt);
 
 	i915_gem_sanitize(dev_priv);
 
@@ -1921,8 +1920,6 @@ static int i915_drm_resume_early(struct drm_device *dev)
 	intel_gt_check_and_clear_faults(&dev_priv->gt);
 
 	intel_display_power_resume_early(dev_priv);
-
-	intel_gt_pm_disable(&dev_priv->gt);
 
 	intel_power_domains_resume(dev_priv);
 
