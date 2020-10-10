@@ -12821,7 +12821,7 @@ intel_pipe_config_compare(const struct intel_crtc_state *current_config,
 #define PIPE_CONF_CHECK_X(name) do { \
 	if (current_config->name != pipe_config->name) { \
 		pipe_config_mismatch(fastset, __stringify(name), \
-				     "(expected 0x%08x, found 0x%08x)\n", \
+				     "(expected 0x%08x, found 0x%08x)", \
 				     current_config->name, \
 				     pipe_config->name); \
 		ret = false; \
@@ -12831,7 +12831,7 @@ intel_pipe_config_compare(const struct intel_crtc_state *current_config,
 #define PIPE_CONF_CHECK_I(name) do { \
 	if (current_config->name != pipe_config->name) { \
 		pipe_config_mismatch(fastset, __stringify(name), \
-				     "(expected %i, found %i)\n", \
+				     "(expected %i, found %i)", \
 				     current_config->name, \
 				     pipe_config->name); \
 		ret = false; \
@@ -12841,7 +12841,7 @@ intel_pipe_config_compare(const struct intel_crtc_state *current_config,
 #define PIPE_CONF_CHECK_BOOL(name) do { \
 	if (current_config->name != pipe_config->name) { \
 		pipe_config_mismatch(fastset, __stringify(name), \
-				     "(expected %s, found %s)\n", \
+				     "(expected %s, found %s)", \
 				     yesno(current_config->name), \
 				     yesno(pipe_config->name)); \
 		ret = false; \
@@ -12858,7 +12858,7 @@ intel_pipe_config_compare(const struct intel_crtc_state *current_config,
 		PIPE_CONF_CHECK_BOOL(name); \
 	} else { \
 		pipe_config_mismatch(fastset, __stringify(name), \
-				     "unable to verify whether state matches exactly, forcing modeset (expected %s, found %s)\n", \
+				     "unable to verify whether state matches exactly, forcing modeset (expected %s, found %s)", \
 				     yesno(current_config->name), \
 				     yesno(pipe_config->name)); \
 		ret = false; \
@@ -12868,7 +12868,7 @@ intel_pipe_config_compare(const struct intel_crtc_state *current_config,
 #define PIPE_CONF_CHECK_P(name) do { \
 	if (current_config->name != pipe_config->name) { \
 		pipe_config_mismatch(fastset, __stringify(name), \
-				     "(expected %p, found %p)\n", \
+				     "(expected %p, found %p)", \
 				     current_config->name, \
 				     pipe_config->name); \
 		ret = false; \
@@ -12881,7 +12881,7 @@ intel_pipe_config_compare(const struct intel_crtc_state *current_config,
 				    !fastset)) { \
 		pipe_config_mismatch(fastset, __stringify(name), \
 				     "(expected tu %i gmch %i/%i link %i/%i, " \
-				     "found tu %i, gmch %i/%i link %i/%i)\n", \
+				     "found tu %i, gmch %i/%i link %i/%i)", \
 				     current_config->name.tu, \
 				     current_config->name.gmch_m, \
 				     current_config->name.gmch_n, \
@@ -12909,7 +12909,7 @@ intel_pipe_config_compare(const struct intel_crtc_state *current_config,
 		pipe_config_mismatch(fastset, __stringify(name), \
 				     "(expected tu %i gmch %i/%i link %i/%i, " \
 				     "or tu %i gmch %i/%i link %i/%i, " \
-				     "found tu %i, gmch %i/%i link %i/%i)\n", \
+				     "found tu %i, gmch %i/%i link %i/%i)", \
 				     current_config->name.tu, \
 				     current_config->name.gmch_m, \
 				     current_config->name.gmch_n, \
@@ -12932,7 +12932,7 @@ intel_pipe_config_compare(const struct intel_crtc_state *current_config,
 #define PIPE_CONF_CHECK_FLAGS(name, mask) do { \
 	if ((current_config->name ^ pipe_config->name) & (mask)) { \
 		pipe_config_mismatch(fastset, __stringify(name), \
-				     "(%x) (expected %i, found %i)\n", \
+				     "(%x) (expected %i, found %i)", \
 				     (mask), \
 				     current_config->name & (mask), \
 				     pipe_config->name & (mask)); \
@@ -12943,7 +12943,7 @@ intel_pipe_config_compare(const struct intel_crtc_state *current_config,
 #define PIPE_CONF_CHECK_CLOCK_FUZZY(name) do { \
 	if (!intel_fuzzy_clock_check(current_config->name, pipe_config->name)) { \
 		pipe_config_mismatch(fastset, __stringify(name), \
-				     "(expected %i, found %i)\n", \
+				     "(expected %i, found %i)", \
 				     current_config->name, \
 				     pipe_config->name); \
 		ret = false; \
@@ -12963,7 +12963,7 @@ intel_pipe_config_compare(const struct intel_crtc_state *current_config,
 #define PIPE_CONF_CHECK_COLOR_LUT(name1, name2, bit_precision) do { \
 	if (current_config->name1 != pipe_config->name1) { \
 		pipe_config_mismatch(fastset, __stringify(name1), \
-				"(expected %i, found %i, won't compare lut values)\n", \
+				"(expected %i, found %i, won't compare lut values)", \
 				current_config->name1, \
 				pipe_config->name1); \
 		ret = false;\
@@ -12972,7 +12972,7 @@ intel_pipe_config_compare(const struct intel_crtc_state *current_config,
 					pipe_config->name2, pipe_config->name1, \
 					bit_precision)) { \
 			pipe_config_mismatch(fastset, __stringify(name2), \
-					"hw_state doesn't match sw_state\n"); \
+					"hw_state doesn't match sw_state"); \
 			ret = false; \
 		} \
 	} \
