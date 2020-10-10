@@ -1243,6 +1243,7 @@ static int soc15_common_sw_fini(void *handle)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 
+	amdgpu_nbio_ras_fini(adev);
 	adev->df_funcs->sw_fini(adev);
 	return 0;
 }
