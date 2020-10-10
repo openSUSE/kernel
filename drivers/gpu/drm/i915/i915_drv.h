@@ -1440,6 +1440,8 @@ struct drm_i915_private {
 
 	/* ordered wq for modesets */
 	struct workqueue_struct *modeset_wq;
+	/* unbound hipri wq for page flips/plane updates */
+	struct workqueue_struct *flip_wq;
 
 	/* Display functions */
 	struct drm_i915_display_funcs display;
