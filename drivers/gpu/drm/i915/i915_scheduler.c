@@ -193,7 +193,8 @@ static void kick_submission(struct intel_engine_cs *engine,
 			    const struct i915_request *rq,
 			    int prio)
 {
-	const struct i915_request *inflight;
+	const struct i915_request *inflight =
+		execlists_active(&engine->execlists);
 
 	/*
 	 * We only need to kick the tasklet once for the high priority
@@ -205,7 +206,6 @@ static void kick_submission(struct intel_engine_cs *engine,
 	rcu_read_lock();
 
 	/* Nothing currently active? We're overdue for a submission! */
-	inflight = execlists_active(&engine->execlists);
 	if (!inflight)
 		goto unlock;
 
@@ -220,8 +220,10 @@ static void kick_submission(struct intel_engine_cs *engine,
 		goto unlock;
 
 	engine->execlists.queue_priority_hint = prio;
-	if (need_preempt(prio, rq_prio(inflight)))
-		tasklet_hi_schedule(&engine->execlists.tasklet);
+	if (inflight && need_preempt(prio, rq_prio(inflight)))
+		goto unlock;
+
+	tasklet_hi_schedule(&engine->execlists.tasklet);
 
 unlock:
 	rcu_read_unlock();
