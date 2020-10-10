@@ -1355,6 +1355,8 @@ static int smu_resume(void *handle)
 	if (smu->is_apu)
 		smu_set_gfx_cgpg(&adev->smu, true);
 
+	smu->disable_uclk_switch = 0;
+
 	mutex_unlock(&smu->mutex);
 
 	pr_info("SMU is resumed successfully!\n");
