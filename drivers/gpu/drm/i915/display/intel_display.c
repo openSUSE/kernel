@@ -3069,7 +3069,7 @@ intel_alloc_initial_plane_obj(struct intel_crtc *crtc,
 							     base_aligned,
 							     base_aligned,
 							     size_aligned);
-	if (!obj)
+	if (IS_ERR(obj))
 		return false;
 
 	switch (plane_config->tiling) {
