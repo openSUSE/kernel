@@ -110,6 +110,7 @@ struct vmw_buffer_object {
 	struct ttm_buffer_object base;
 	struct list_head res_list;
 	s32 pin_count;
+	atomic_t cpu_writers;
 	/* Not ref-counted.  Protected by binding_mutex */
 	struct vmw_resource *dx_query_ctx;
 	/* Protected by reservation */
