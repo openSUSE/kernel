@@ -641,7 +641,6 @@ amd_pm_state_type vega20_get_current_power_state(struct smu_context *smu)
 	    !smu_dpm_ctx->dpm_current_power_state)
 		return -EINVAL;
 
-	mutex_lock(&(smu->mutex));
 	switch (smu_dpm_ctx->dpm_current_power_state->classification.ui_label) {
 	case SMU_STATE_UI_LABEL_BATTERY:
 		pm_type = POWER_STATE_TYPE_BATTERY;
@@ -659,7 +658,6 @@ amd_pm_state_type vega20_get_current_power_state(struct smu_context *smu)
 			pm_type = POWER_STATE_TYPE_DEFAULT;
 		break;
 	}
-	mutex_unlock(&(smu->mutex));
 
 	return pm_type;
 }
@@ -1283,8 +1281,6 @@ static int vega20_force_clk_levels(struct smu_context *smu,
 	uint32_t soft_min_level, soft_max_level, hard_min_level;
 	int ret = 0;
 
-	mutex_lock(&(smu->mutex));
-
 	soft_min_level = mask ? (ffs(mask) - 1) : 0;
 	soft_max_level = mask ? (fls(mask) - 1) : 0;
 
@@ -1437,7 +1433,6 @@ static int vega20_force_clk_levels(struct smu_context *smu,
 		break;
 	}
 
-	mutex_unlock(&(smu->mutex));
 	return ret;
 }
 
@@ -1451,8 +1446,6 @@ static int vega20_get_clock_by_type_with_latency(struct smu_context *smu,
 	struct vega20_dpm_table *dpm_table = NULL;
 
 	dpm_table = smu_dpm->dpm_context;
-
-	mutex_lock(&smu->mutex);
 
 	switch (clk_type) {
 	case SMU_GFXCLK:
@@ -1475,7 +1468,6 @@ static int vega20_get_clock_by_type_with_latency(struct smu_context *smu,
 		ret = -EINVAL;
 	}
 
-	mutex_unlock(&smu->mutex);
 	return ret;
 }
 
@@ -2548,8 +2540,6 @@ static int vega20_set_od_percentage(struct smu_context *smu,
 	int feature_enabled;
 	PPCLK_e clk_id;
 
-	mutex_lock(&(smu->mutex));
-
 	dpm_table = smu_dpm->dpm_context;
 	golden_table = smu_dpm->golden_dpm_context;
 
@@ -2599,11 +2589,10 @@ static int vega20_set_od_percentage(struct smu_context *smu,
 	}
 
 	ret = smu_handle_task(smu, smu_dpm->dpm_level,
-			      AMD_PP_TASK_READJUST_POWER_STATE);
+			      AMD_PP_TASK_READJUST_POWER_STATE,
+			      false);
 
 set_od_failed:
-	mutex_unlock(&(smu->mutex));
-
 	return ret;
 }
 
@@ -2828,10 +2817,9 @@ static int vega20_odn_edit_dpm_table(struct smu_context *smu,
 	}
 
 	if (type == PP_OD_COMMIT_DPM_TABLE) {
-		mutex_lock(&(smu->mutex));
 		ret = smu_handle_task(smu, smu_dpm->dpm_level,
-				      AMD_PP_TASK_READJUST_POWER_STATE);
-		mutex_unlock(&(smu->mutex));
+				      AMD_PP_TASK_READJUST_POWER_STATE,
+				      false);
 	}
 
 	return ret;
