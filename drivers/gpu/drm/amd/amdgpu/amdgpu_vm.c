@@ -693,6 +693,7 @@ bool amdgpu_vm_ready(struct amdgpu_vm *vm)
  * @adev: amdgpu_device pointer
  * @vm: VM to clear BO from
  * @bo: BO to clear
+ * @direct: use a direct update
  *
  * Root PD needs to be reserved when calling this.
  *
@@ -701,7 +702,8 @@ bool amdgpu_vm_ready(struct amdgpu_vm *vm)
  */
 static int amdgpu_vm_clear_bo(struct amdgpu_device *adev,
 			      struct amdgpu_vm *vm,
-			      struct amdgpu_bo *bo)
+			      struct amdgpu_bo *bo,
+			      bool direct)
 {
 	struct ttm_operation_ctx ctx = { true, false };
 	unsigned level = adev->vm_manager.root_level;
@@ -760,6 +762,7 @@ static int amdgpu_vm_clear_bo(struct amdgpu_device *adev,
 	memset(&params, 0, sizeof(params));
 	params.adev = adev;
 	params.vm = vm;
+	params.direct = direct;
 
 	r = vm->update_funcs->prepare(&params, AMDGPU_FENCE_OWNER_KFD, NULL);
 	if (r)
@@ -850,7 +853,8 @@ static void amdgpu_vm_bo_param(struct amdgpu_device *adev, struct amdgpu_vm *vm,
  */
 static int amdgpu_vm_alloc_pts(struct amdgpu_device *adev,
 			       struct amdgpu_vm *vm,
-			       struct amdgpu_vm_pt_cursor *cursor)
+			       struct amdgpu_vm_pt_cursor *cursor,
+			       bool direct)
 {
 	struct amdgpu_vm_pt *entry = cursor->entry;
 	struct amdgpu_bo_param bp;
@@ -883,7 +887,7 @@ static int amdgpu_vm_alloc_pts(struct amdgpu_device *adev,
 	pt->parent = amdgpu_bo_ref(cursor->parent->base.bo);
 	amdgpu_vm_bo_base_init(&entry->base, vm, pt);
 
-	r = amdgpu_vm_clear_bo(adev, vm, pt);
+	r = amdgpu_vm_clear_bo(adev, vm, pt, direct);
 	if (r)
 		goto error_free_pt;
 
@@ -1399,7 +1403,8 @@ static int amdgpu_vm_update_ptes(struct amdgpu_vm_update_params *params,
 		uint64_t incr, entry_end, pe_start;
 		struct amdgpu_bo *pt;
 
-		r = amdgpu_vm_alloc_pts(params->adev, params->vm, &cursor);
+		r = amdgpu_vm_alloc_pts(params->adev, params->vm, &cursor,
+					params->direct);
 		if (r)
 			return r;
 
@@ -2724,7 +2729,7 @@ int amdgpu_vm_init(struct amdgpu_device *adev, struct amdgpu_vm *vm,
 
 	amdgpu_vm_bo_base_init(&vm->root.base, vm, root);
 
-	r = amdgpu_vm_clear_bo(adev, vm, root);
+	r = amdgpu_vm_clear_bo(adev, vm, root, false);
 	if (r)
 		goto error_unreserve;
 
@@ -2847,7 +2852,7 @@ int amdgpu_vm_make_compute(struct amdgpu_device *adev, struct amdgpu_vm *vm, u32
 	 */
 	if (pte_support_ats != vm->pte_support_ats) {
 		vm->pte_support_ats = pte_support_ats;
-		r = amdgpu_vm_clear_bo(adev, vm, vm->root.base.bo);
+		r = amdgpu_vm_clear_bo(adev, vm, vm->root.base.bo, false);
 		if (r)
 			goto free_idr;
 	}
