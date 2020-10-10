@@ -447,7 +447,7 @@ static void i915_driver_modeset_remove(struct drm_i915_private *i915)
 {
 	struct pci_dev *pdev = i915->drm.pdev;
 
-	intel_modeset_driver_remove(&i915->drm);
+	intel_modeset_driver_remove(i915);
 
 	intel_bios_driver_remove(i915);
 
