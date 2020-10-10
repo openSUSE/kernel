@@ -111,7 +111,7 @@ static int igt_atomic_engine_reset(void *arg)
 
 	/* Check that the resets are usable from atomic context */
 
-	if (!intel_has_reset_engine(gt->i915))
+	if (!intel_has_reset_engine(gt))
 		return 0;
 
 	if (USES_GUC_SUBMISSION(gt->i915))
@@ -169,7 +169,7 @@ int intel_reset_live_selftests(struct drm_i915_private *i915)
 	};
 	struct intel_gt *gt = &i915->gt;
 
-	if (!intel_has_gpu_reset(gt->i915))
+	if (!intel_has_gpu_reset(gt))
 		return 0;
 
 	if (intel_gt_is_wedged(gt))
