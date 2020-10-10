@@ -31,6 +31,10 @@
 #include "smu_v12_0.h"
 #include "atom.h"
 #include "amd_pcie.h"
+#include "vega20_ppt.h"
+#include "arcturus_ppt.h"
+#include "navi10_ppt.h"
+#include "renoir_ppt.h"
 
 #undef __SMU_DUMMY_MAP
 #define __SMU_DUMMY_MAP(type)	#type
@@ -704,22 +708,25 @@ static int smu_set_funcs(struct amdgpu_device *adev)
 
 	switch (adev->asic_type) {
 	case CHIP_VEGA20:
+		vega20_set_ppt_funcs(smu);
+		break;
 	case CHIP_NAVI10:
 	case CHIP_NAVI14:
 	case CHIP_NAVI12:
+		navi10_set_ppt_funcs(smu);
+		break;
 	case CHIP_ARCTURUS:
-		if (adev->pm.pp_feature & PP_OVERDRIVE_MASK)
-			smu->od_enabled = true;
-		smu_v11_0_set_smu_funcs(smu);
+		arcturus_set_ppt_funcs(smu);
 		break;
 	case CHIP_RENOIR:
-		if (adev->pm.pp_feature & PP_OVERDRIVE_MASK)
-			smu->od_enabled = true;
-		smu_v12_0_set_smu_funcs(smu);
+		renoir_set_ppt_funcs(smu);
 		break;
 	default:
 		return -EINVAL;
 	}
+
+	if (adev->pm.pp_feature & PP_OVERDRIVE_MASK)
+		smu->od_enabled = true;
 
 	return 0;
 }
@@ -1178,16 +1185,16 @@ static int smu_start_smc_engine(struct smu_context *smu)
 
 	if (adev->firmware.load_type != AMDGPU_FW_LOAD_PSP) {
 		if (adev->asic_type < CHIP_NAVI10) {
-			if (smu->funcs->load_microcode) {
-				ret = smu->funcs->load_microcode(smu);
+			if (smu->ppt_funcs->load_microcode) {
+				ret = smu->ppt_funcs->load_microcode(smu);
 				if (ret)
 					return ret;
 			}
 		}
 	}
 
-	if (smu->funcs->check_fw_status) {
-		ret = smu->funcs->check_fw_status(smu);
+	if (smu->ppt_funcs->check_fw_status) {
+		ret = smu->ppt_funcs->check_fw_status(smu);
 		if (ret)
 			pr_err("SMC is not ready\n");
 	}
@@ -1398,8 +1405,8 @@ int smu_display_configuration_change(struct smu_context *smu,
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->set_deep_sleep_dcefclk)
-		smu->funcs->set_deep_sleep_dcefclk(smu,
+	if (smu->ppt_funcs->set_deep_sleep_dcefclk)
+		smu->ppt_funcs->set_deep_sleep_dcefclk(smu,
 				display_config->min_dcef_deep_sleep_set_clk / 100);
 
 	for (index = 0; index < display_config->num_path_including_non_display; index++) {
@@ -1953,8 +1960,8 @@ int smu_load_microcode(struct smu_context *smu)
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->load_microcode)
-		ret = smu->funcs->load_microcode(smu);
+	if (smu->ppt_funcs->load_microcode)
+		ret = smu->ppt_funcs->load_microcode(smu);
 
 	mutex_unlock(&smu->mutex);
 
@@ -1967,8 +1974,8 @@ int smu_check_fw_status(struct smu_context *smu)
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->check_fw_status)
-		ret = smu->funcs->check_fw_status(smu);
+	if (smu->ppt_funcs->check_fw_status)
+		ret = smu->ppt_funcs->check_fw_status(smu);
 
 	mutex_unlock(&smu->mutex);
 
@@ -1981,8 +1988,8 @@ int smu_set_gfx_cgpg(struct smu_context *smu, bool enabled)
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->set_gfx_cgpg)
-		ret = smu->funcs->set_gfx_cgpg(smu, enabled);
+	if (smu->ppt_funcs->set_gfx_cgpg)
+		ret = smu->ppt_funcs->set_gfx_cgpg(smu, enabled);
 
 	mutex_unlock(&smu->mutex);
 
@@ -1995,8 +2002,8 @@ int smu_set_fan_speed_rpm(struct smu_context *smu, uint32_t speed)
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->set_fan_speed_rpm)
-		ret = smu->funcs->set_fan_speed_rpm(smu, speed);
+	if (smu->ppt_funcs->set_fan_speed_rpm)
+		ret = smu->ppt_funcs->set_fan_speed_rpm(smu, speed);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2028,8 +2035,8 @@ int smu_set_power_limit(struct smu_context *smu, uint32_t limit)
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->set_power_limit)
-		ret = smu->funcs->set_power_limit(smu, limit);
+	if (smu->ppt_funcs->set_power_limit)
+		ret = smu->ppt_funcs->set_power_limit(smu, limit);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2150,8 +2157,8 @@ int smu_get_fan_control_mode(struct smu_context *smu)
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->get_fan_control_mode)
-		ret = smu->funcs->get_fan_control_mode(smu);
+	if (smu->ppt_funcs->get_fan_control_mode)
+		ret = smu->ppt_funcs->get_fan_control_mode(smu);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2164,8 +2171,8 @@ int smu_set_fan_control_mode(struct smu_context *smu, int value)
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->set_fan_control_mode)
-		ret = smu->funcs->set_fan_control_mode(smu, value);
+	if (smu->ppt_funcs->set_fan_control_mode)
+		ret = smu->ppt_funcs->set_fan_control_mode(smu, value);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2192,8 +2199,8 @@ int smu_set_fan_speed_percent(struct smu_context *smu, uint32_t speed)
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->set_fan_speed_percent)
-		ret = smu->funcs->set_fan_speed_percent(smu, speed);
+	if (smu->ppt_funcs->set_fan_speed_percent)
+		ret = smu->ppt_funcs->set_fan_speed_percent(smu, speed);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2220,8 +2227,8 @@ int smu_set_deep_sleep_dcefclk(struct smu_context *smu, int clk)
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->set_deep_sleep_dcefclk)
-		ret = smu->funcs->set_deep_sleep_dcefclk(smu, clk);
+	if (smu->ppt_funcs->set_deep_sleep_dcefclk)
+		ret = smu->ppt_funcs->set_deep_sleep_dcefclk(smu, clk);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2234,8 +2241,8 @@ int smu_set_active_display_count(struct smu_context *smu, uint32_t count)
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->set_active_display_count)
-		ret = smu->funcs->set_active_display_count(smu, count);
+	if (smu->ppt_funcs->set_active_display_count)
+		ret = smu->ppt_funcs->set_active_display_count(smu, count);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2250,8 +2257,8 @@ int smu_get_clock_by_type(struct smu_context *smu,
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->get_clock_by_type)
-		ret = smu->funcs->get_clock_by_type(smu, type, clocks);
+	if (smu->ppt_funcs->get_clock_by_type)
+		ret = smu->ppt_funcs->get_clock_by_type(smu, type, clocks);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2265,8 +2272,8 @@ int smu_get_max_high_clocks(struct smu_context *smu,
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->get_max_high_clocks)
-		ret = smu->funcs->get_max_high_clocks(smu, clocks);
+	if (smu->ppt_funcs->get_max_high_clocks)
+		ret = smu->ppt_funcs->get_max_high_clocks(smu, clocks);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2313,8 +2320,8 @@ int smu_display_clock_voltage_request(struct smu_context *smu,
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->display_clock_voltage_request)
-		ret = smu->funcs->display_clock_voltage_request(smu, clock_req);
+	if (smu->ppt_funcs->display_clock_voltage_request)
+		ret = smu->ppt_funcs->display_clock_voltage_request(smu, clock_req);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2342,8 +2349,8 @@ int smu_notify_smu_enable_pwe(struct smu_context *smu)
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->notify_smu_enable_pwe)
-		ret = smu->funcs->notify_smu_enable_pwe(smu);
+	if (smu->ppt_funcs->notify_smu_enable_pwe)
+		ret = smu->ppt_funcs->notify_smu_enable_pwe(smu);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2357,8 +2364,8 @@ int smu_set_xgmi_pstate(struct smu_context *smu,
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->set_xgmi_pstate)
-		ret = smu->funcs->set_xgmi_pstate(smu, pstate);
+	if (smu->ppt_funcs->set_xgmi_pstate)
+		ret = smu->ppt_funcs->set_xgmi_pstate(smu, pstate);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2371,8 +2378,8 @@ int smu_set_azalia_d3_pme(struct smu_context *smu)
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->set_azalia_d3_pme)
-		ret = smu->funcs->set_azalia_d3_pme(smu);
+	if (smu->ppt_funcs->set_azalia_d3_pme)
+		ret = smu->ppt_funcs->set_azalia_d3_pme(smu);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2385,8 +2392,8 @@ bool smu_baco_is_support(struct smu_context *smu)
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->baco_is_support)
-		ret = smu->funcs->baco_is_support(smu);
+	if (smu->ppt_funcs->baco_is_support)
+		ret = smu->ppt_funcs->baco_is_support(smu);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2395,11 +2402,11 @@ bool smu_baco_is_support(struct smu_context *smu)
 
 int smu_baco_get_state(struct smu_context *smu, enum smu_baco_state *state)
 {
-	if (smu->funcs->baco_get_state)
+	if (smu->ppt_funcs->baco_get_state)
 		return -EINVAL;
 
 	mutex_lock(&smu->mutex);
-	*state = smu->funcs->baco_get_state(smu);
+	*state = smu->ppt_funcs->baco_get_state(smu);
 	mutex_unlock(&smu->mutex);
 
 	return 0;
@@ -2411,8 +2418,8 @@ int smu_baco_reset(struct smu_context *smu)
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->baco_reset)
-		ret = smu->funcs->baco_reset(smu);
+	if (smu->ppt_funcs->baco_reset)
+		ret = smu->ppt_funcs->baco_reset(smu);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2425,8 +2432,8 @@ int smu_mode2_reset(struct smu_context *smu)
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->mode2_reset)
-		ret = smu->funcs->mode2_reset(smu);
+	if (smu->ppt_funcs->mode2_reset)
+		ret = smu->ppt_funcs->mode2_reset(smu);
 
 	mutex_unlock(&smu->mutex);
 
@@ -2440,8 +2447,8 @@ int smu_get_max_sustainable_clocks_by_dc(struct smu_context *smu,
 
 	mutex_lock(&smu->mutex);
 
-	if (smu->funcs->get_max_sustainable_clocks_by_dc)
-		ret = smu->funcs->get_max_sustainable_clocks_by_dc(smu, max_clocks);
+	if (smu->ppt_funcs->get_max_sustainable_clocks_by_dc)
+		ret = smu->ppt_funcs->get_max_sustainable_clocks_by_dc(smu, max_clocks);
 
 	mutex_unlock(&smu->mutex);
 
