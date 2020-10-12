@@ -117,7 +117,7 @@ struct hv_ring_buffer {
 	 * Ring data starts here + RingDataStartOffset
 	 * !!! DO NOT place any fields below this !!!
 	 */
-	u8 buffer[0];
+	u8 buffer[];
 } __packed;
 
 struct hv_ring_buffer_info {
@@ -182,19 +182,21 @@ static inline u32 hv_get_avail_to_write_percent(
  * 2 . 4  (Windows 8)
  * 3 . 0  (Windows 8 R2)
  * 4 . 0  (Windows 10)
+ * 4 . 1  (Windows 10 RS3)
  * 5 . 0  (Newer Windows 10)
+ * 5 . 1  (Windows 10 RS4)
+ * 5 . 2  (Windows Server 2019, RS5)
  */
 
 #define VERSION_WS2008  ((0 << 16) | (13))
 #define VERSION_WIN7    ((1 << 16) | (1))
 #define VERSION_WIN8    ((2 << 16) | (4))
 #define VERSION_WIN8_1    ((3 << 16) | (0))
-#define VERSION_WIN10	((4 << 16) | (0))
+#define VERSION_WIN10 ((4 << 16) | (0))
+#define VERSION_WIN10_V4_1 ((4 << 16) | (1))
 #define VERSION_WIN10_V5 ((5 << 16) | (0))
-
-#define VERSION_INVAL -1
-
-#define VERSION_CURRENT VERSION_WIN10_V5
+#define VERSION_WIN10_V5_1 ((5 << 16) | (1))
+#define VERSION_WIN10_V5_2 ((5 << 16) | (2))
 
 /* Make maximum size of pipe payload of 16K */
 #define MAX_PIPE_DATA_PAYLOAD		(sizeof(u8) * 16384)
@@ -311,7 +313,7 @@ struct vmadd_remove_transfer_page_set {
 struct gpa_range {
 	u32 byte_count;
 	u32 byte_offset;
-	u64 pfn_array[0];
+	u64 pfn_array[];
 };
 
 /*
@@ -423,6 +425,8 @@ enum vmbus_channel_message_type {
 	CHANNELMSG_19				= 19,
 	CHANNELMSG_20				= 20,
 	CHANNELMSG_TL_CONNECT_REQUEST		= 21,
+	CHANNELMSG_MODIFYCHANNEL		= 22,
+	CHANNELMSG_TL_CONNECT_RESULT		= 23,
 	CHANNELMSG_COUNT
 };
 
@@ -559,7 +563,7 @@ struct vmbus_channel_gpadl_header {
 	u32 gpadl;
 	u16 range_buflen;
 	u16 rangecount;
-	struct gpa_range range[0];
+	struct gpa_range range[];
 } __packed;
 
 /* This is the followup packet that contains more PFNs. */
@@ -567,7 +571,7 @@ struct vmbus_channel_gpadl_body {
 	struct vmbus_channel_message_header header;
 	u32 msgnumber;
 	u32 gpadl;
-	u64 pfn[0];
+	u64 pfn[];
 } __packed;
 
 struct vmbus_channel_gpadl_created {
@@ -614,6 +618,13 @@ struct vmbus_channel_tl_connect_request {
 	struct vmbus_channel_message_header header;
 	guid_t guest_endpoint_id;
 	guid_t host_service_id;
+} __packed;
+
+/* Modify Channel parameters, cf. vmbus_send_modifychannel() */
+struct vmbus_channel_modifychannel {
+	struct vmbus_channel_message_header header;
+	u32 child_relid;
+	u32 target_vp;
 } __packed;
 
 struct vmbus_channel_version_response {
@@ -668,7 +679,7 @@ struct vmbus_channel_msginfo {
 	 * The channel message that goes out on the "wire".
 	 * It will contain at minimum the VMBUS_CHANNEL_MESSAGE_HEADER header
 	 */
-	unsigned char msg[0];
+	unsigned char msg[];
 };
 
 struct vmbus_close_msg {
@@ -683,11 +694,6 @@ union hv_connection_id {
 		u32 id:24;
 		u32 reserved:8;
 	} u;
-};
-
-enum hv_numa_policy {
-	HV_BALANCED = 0,
-	HV_LOCALIZED,
 };
 
 enum vmbus_device_type {
@@ -767,6 +773,15 @@ struct vmbus_channel {
 	void (*onchannel_callback)(void *context);
 	void *channel_callback_context;
 
+	void (*change_target_cpu_callback)(struct vmbus_channel *channel,
+			u32 old, u32 new);
+
+	/*
+	 * Synchronize channel scheduling and channel removal; see the inline
+	 * comments in vmbus_chan_sched() and vmbus_reset_channel_cb().
+	 */
+	spinlock_t sched_lock;
+
 	/*
 	 * A channel can be marked for one of three modes of reading:
 	 *   BATCHED - callback called from taslket and should read
@@ -788,21 +803,15 @@ struct vmbus_channel {
 	u64 sig_event;
 
 	/*
-	 * Starting with win8, this field will be used to specify
-	 * the target virtual processor on which to deliver the interrupt for
-	 * the host to guest communication.
-	 * Prior to win8, incoming channel interrupts would only
-	 * be delivered on cpu 0. Setting this value to 0 would
-	 * preserve the earlier behavior.
+	 * Starting with win8, this field will be used to specify the
+	 * target CPU on which to deliver the interrupt for the host
+	 * to guest communication.
+	 *
+	 * Prior to win8, incoming channel interrupts would only be
+	 * delivered on CPU 0. Setting this value to 0 would preserve
+	 * the earlier behavior.
 	 */
-	u32 target_vp;
-	/* The corresponding CPUID in the guest */
 	u32 target_cpu;
-	/*
-	 * State to manage the CPU affiliation of channels.
-	 */
-	struct cpumask alloced_cpus_in_node;
-	int numa_node;
 	/*
 	 * Support for sub-channels. For high performance devices,
 	 * it will be useful to have multiple sub-channels to support
@@ -832,12 +841,6 @@ struct vmbus_channel {
 	void (*chn_rescind_callback)(struct vmbus_channel *channel);
 
 	/*
-	 * The spinlock to protect the structure. It is being used to protect
-	 * test-and-set access to various attributes of the structure as well
-	 * as all sc_list operations.
-	 */
-	spinlock_t lock;
-	/*
 	 * All Sub-channels of a primary channel are linked here.
 	 */
 	struct list_head sc_list;
@@ -850,11 +853,6 @@ struct vmbus_channel {
 	 * Support per-channel state for use by vmbus drivers.
 	 */
 	void *per_channel_state;
-	/*
-	 * To support per-cpu lookup mapping of relid to channel,
-	 * link up channels based on their CPU affinity.
-	 */
-	struct list_head percpu_list;
 
 	/*
 	 * Defer freeing channel until after all cpu's have
@@ -893,19 +891,14 @@ struct vmbus_channel {
 	 */
 	bool low_latency;
 
-	/*
-	 * NUMA distribution policy:
-	 * We support two policies:
-	 * 1) Balanced: Here all performance critical channels are
-	 *    distributed evenly amongst all the NUMA nodes.
-	 *    This policy will be the default policy.
-	 * 2) Localized: All channels of a given instance of a
-	 *    performance critical service will be assigned CPUs
-	 *    within a selected NUMA node.
-	 */
-	enum hv_numa_policy affinity_policy;
-
 	bool probe_done;
+
+	/*
+	 * Cache the device ID here for easy access; this is useful, in
+	 * particular, in situations where the channel's device_obj has
+	 * not been allocated/initialized yet.
+	 */
+	u16 device_id;
 
 	/*
 	 * We must offload the handling of the primary/sub channels
@@ -933,9 +926,20 @@ struct vmbus_channel {
 	 */
 	u64 out_full_first;
 
+	/* enabling/disabling fuzz testing on the channel (default is false)*/
 	bool fuzz_testing_state;
+
+	/*
+	 * Interrupt delay will delay the guest from emptying the ring buffer
+	 * for a specific amount of time. The delay is in microseconds and will
+	 * be between 1 to a maximum of 1000, its default is 0 (no delay).
+	 * The  Message delay will delay guest reading on a per message basis
+	 * in microseconds between 1 to 1000 with the default being 0
+	 * (no delay).
+	 */
 	u32 fuzz_testing_interrupt_delay;
 	u32 fuzz_testing_message_delay;
+
 };
 
 static inline bool is_hvsock_channel(const struct vmbus_channel *c)
@@ -947,12 +951,6 @@ static inline bool is_hvsock_channel(const struct vmbus_channel *c)
 static inline bool is_sub_channel(const struct vmbus_channel *c)
 {
 	return c->offermsg.offer.sub_channel_index != 0;
-}
-
-static inline void set_channel_affinity_state(struct vmbus_channel *c,
-					      enum hv_numa_policy policy)
-{
-	c->affinity_policy = policy;
 }
 
 static inline void set_channel_read_mode(struct vmbus_channel *c,
@@ -1002,7 +1000,7 @@ static inline void clear_low_latency_mode(struct vmbus_channel *c)
 	c->low_latency = false;
 }
 
-void vmbus_onmessage(void *context);
+void vmbus_onmessage(struct vmbus_channel_message_header *hdr);
 
 int vmbus_request_offers(void);
 
@@ -1184,7 +1182,10 @@ struct hv_device {
 
 	struct vmbus_channel *channel;
 	struct kset	     *channels_kset;
+
+	/* place holder to keep track of the dir for hv device in debugfs */
 	struct dentry *debug_dir;
+
 };
 
 
@@ -1513,6 +1514,7 @@ extern __u32 vmbus_proto_version;
 
 int vmbus_send_tl_connect_request(const guid_t *shv_guest_servie_id,
 				  const guid_t *shv_host_servie_id);
+int vmbus_send_modifychannel(u32 child_relid, u32 target_vp);
 void vmbus_set_event(struct vmbus_channel *channel);
 
 /* Get the start of the ring buffer. */
