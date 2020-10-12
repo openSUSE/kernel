@@ -1283,7 +1283,8 @@ static void balloon_up(struct work_struct *dummy)
 
 	/* Refuse to balloon below the floor. */
 	if (avail_pages < num_pages || avail_pages - num_pages < floor) {
-		pr_warn("Balloon request will be partially fulfilled. %s\n",
+		pr_info("Balloon request will be partially fulfilled. (%ld %u %lu) %s\n",
+			avail_pages, num_pages, floor,
 			avail_pages < num_pages ? "Not enough memory." :
 			"Balloon floor reached.");
 
