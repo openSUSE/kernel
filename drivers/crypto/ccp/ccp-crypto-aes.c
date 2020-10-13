@@ -214,6 +214,7 @@ static void ccp_aes_rfc3686_cra_exit(struct crypto_tfm *tfm)
 static struct crypto_alg ccp_aes_defaults = {
 	.cra_flags	= CRYPTO_ALG_TYPE_ABLKCIPHER |
 			  CRYPTO_ALG_ASYNC |
+			  CRYPTO_ALG_ALLOCATES_MEMORY |
 			  CRYPTO_ALG_KERN_DRIVER_ONLY |
 			  CRYPTO_ALG_NEED_FALLBACK,
 	.cra_blocksize	= AES_BLOCK_SIZE,
@@ -235,6 +236,7 @@ static struct crypto_alg ccp_aes_defaults = {
 static struct crypto_alg ccp_aes_rfc3686_defaults = {
 	.cra_flags	= CRYPTO_ALG_TYPE_ABLKCIPHER |
 			   CRYPTO_ALG_ASYNC |
+			   CRYPTO_ALG_ALLOCATES_MEMORY |
 			   CRYPTO_ALG_KERN_DRIVER_ONLY |
 			   CRYPTO_ALG_NEED_FALLBACK,
 	.cra_blocksize	= CTR_RFC3686_BLOCK_SIZE,

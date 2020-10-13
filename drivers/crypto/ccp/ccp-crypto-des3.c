@@ -134,6 +134,7 @@ static void ccp_des3_cra_exit(struct crypto_tfm *tfm)
 static struct crypto_alg ccp_des3_defaults = {
 	.cra_flags	= CRYPTO_ALG_TYPE_ABLKCIPHER |
 		CRYPTO_ALG_ASYNC |
+		CRYPTO_ALG_ALLOCATES_MEMORY |
 		CRYPTO_ALG_KERN_DRIVER_ONLY |
 		CRYPTO_ALG_NEED_FALLBACK,
 	.cra_blocksize	= DES3_EDE_BLOCK_SIZE,
