@@ -110,7 +110,7 @@ i915_gem_busy_ioctl(struct drm_device *dev, void *data,
 	 *
 	 */
 retry:
-	seq = read_seqbegin(&obj->base.resv->seq);
+	seq = raw_read_seqcount(&obj->base.resv->seq);
 
 	/* Translate the exclusive fence to the READ *and* WRITE engine */
 	args->busy =
@@ -129,7 +129,7 @@ retry:
 		}
 	}
 
-	if (args->busy && read_seqretry(&obj->base.resv->seq, seq))
+	if (args->busy && read_seqcount_retry(&obj->base.resv->seq, seq))
 		goto retry;
 
 	err = 0;
