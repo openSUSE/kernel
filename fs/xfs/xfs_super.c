@@ -335,7 +335,7 @@ xfs_parseargs(
 			break;
 #ifdef CONFIG_FS_DAX
 		case Opt_dax:
-			mp->m_flags |= XFS_MOUNT_DAX;
+			mp->m_flags |= XFS_MOUNT_DAX_ALWAYS;
 			break;
 #endif
 		default:
@@ -449,7 +449,7 @@ xfs_showargs(
 		{ XFS_MOUNT_GRPID,		",grpid" },
 		{ XFS_MOUNT_DISCARD,		",discard" },
 		{ XFS_MOUNT_SMALL_INUMS,	",inode32" },
-		{ XFS_MOUNT_DAX,		",dax" },
+		{ XFS_MOUNT_DAX_ALWAYS,		",dax" },
 		{ 0, NULL }
 	};
 	static struct proc_xfs_info xfs_info_unset[] = {
@@ -1672,7 +1672,7 @@ xfs_fs_fill_super(
 	if (XFS_SB_VERSION_NUM(&mp->m_sb) == XFS_SB_VERSION_5)
 		sb->s_flags |= SB_I_VERSION;
 
-	if (mp->m_flags & XFS_MOUNT_DAX) {
+	if (mp->m_flags & XFS_MOUNT_DAX_ALWAYS) {
 		bool rtdev_is_dax = false, datadev_is_dax;
 
 		datadev_is_dax = bdev_dax_supported(mp->m_ddev_targp->bt_bdev,
@@ -1683,7 +1683,7 @@ xfs_fs_fill_super(
 		if (!rtdev_is_dax && !datadev_is_dax) {
 			xfs_alert(mp,
 			"DAX unsupported by block device. Turning off DAX.");
-			mp->m_flags &= ~XFS_MOUNT_DAX;
+			mp->m_flags &= ~XFS_MOUNT_DAX_ALWAYS;
 		}
 		if (xfs_sb_version_hasreflink(&mp->m_sb)) {
 			xfs_alert(mp,
