@@ -202,7 +202,7 @@ static inline unsigned raw_seqcount_begin(const seqcount_t *s)
  */
 static inline int __read_seqcount_retry(const seqcount_t *s, unsigned start)
 {
-	return unlikely(s->sequence != start);
+	return unlikely(READ_ONCE(s->sequence) != start);
 }
 
 /**
