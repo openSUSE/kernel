@@ -583,6 +583,13 @@ static inline void switch_fpu_finish(struct fpu *new_fpu)
 			pkru_val = pk->pkru;
 	}
 	__write_pkru(pkru_val);
+
+	/*
+	 * Expensive PASID MSR write will be avoided in update_pasid() because
+	 * TIF_NEED_FPU_LOAD was set. And the PASID state won't be updated
+	 * unless it's different from mm->pasid to reduce overhead.
+	 */
+	update_pasid();
 }
 
 /*
@@ -602,9 +609,7 @@ static inline u64 xgetbv(u32 index)
 {
 	u32 eax, edx;
 
-	asm volatile(".byte 0x0f,0x01,0xd0" /* xgetbv */
-		     : "=a" (eax), "=d" (edx)
-		     : "c" (index));
+	asm volatile("xgetbv" : "=a" (eax), "=d" (edx) : "c" (index));
 	return eax + ((u64)edx << 32);
 }
 
@@ -613,8 +618,7 @@ static inline void xsetbv(u32 index, u64 value)
 	u32 eax = value;
 	u32 edx = value >> 32;
 
-	asm volatile(".byte 0x0f,0x01,0xd1" /* xsetbv */
-		     : : "a" (eax), "d" (edx), "c" (index));
+	asm volatile("xsetbv" :: "a" (eax), "d" (edx), "c" (index));
 }
 
 #endif /* _ASM_X86_FPU_INTERNAL_H */
