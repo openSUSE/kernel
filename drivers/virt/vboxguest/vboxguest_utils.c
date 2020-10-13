@@ -16,6 +16,7 @@
 #include <linux/vmalloc.h>
 #include <linux/vbox_err.h>
 #include <linux/vbox_utils.h>
+#include <asm/io.h>
 #include "vboxguest_core.h"
 
 /* Get the pointer to the first parameter of a HGCM call request. */

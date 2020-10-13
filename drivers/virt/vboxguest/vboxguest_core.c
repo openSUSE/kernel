@@ -13,6 +13,7 @@
 #include <linux/vbox_err.h>
 #include <linux/vbox_utils.h>
 #include <linux/vmalloc.h>
+#include <asm/io.h>
 #include "vboxguest_core.h"
 #include "vboxguest_version.h"
 

@@ -5,6 +5,7 @@
 #ifndef __ASSEMBLY__
 
 #include <vdso/datapage.h>
+#include <asm/processor.h>
 
 static __always_inline u32 vdso_read_begin(const struct vdso_data *vd)
 {

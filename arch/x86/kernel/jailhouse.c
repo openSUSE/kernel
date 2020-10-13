@@ -12,6 +12,7 @@
 #include <linux/kernel.h>
 #include <linux/reboot.h>
 #include <asm/apic.h>
+#include <asm/acpi.h>
 #include <asm/cpu.h>
 #include <asm/hypervisor.h>
 #include <asm/i8259.h>
