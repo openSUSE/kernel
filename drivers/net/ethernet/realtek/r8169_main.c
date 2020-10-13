@@ -2060,11 +2060,18 @@ static void rtl_release_firmware(struct rtl8169_private *tp)
 
 void r8169_apply_firmware(struct rtl8169_private *tp)
 {
+	int val;
+
 	/* TODO: release firmware if rtl_fw_write_firmware signals failure. */
 	if (tp->rtl_fw) {
 		rtl_fw_write_firmware(tp, tp->rtl_fw);
 		/* At least one firmware doesn't reset tp->ocp_base. */
 		tp->ocp_base = OCP_STD_PHY_BASE;
+
+		/* PHY soft reset may still be in progress */
+		phy_read_poll_timeout(tp->phydev, MII_BMCR, val,
+				      !(val & BMCR_RESET),
+				      50000, 600000, true);
 	}
 }
 
@@ -4881,6 +4888,10 @@ static int __maybe_unused rtl8169_resume(struct device *device)
 
 	if (!device_may_wakeup(tp_to_dev(tp)))
 		clk_prepare_enable(tp->clk);
+
+	/* Reportedly at least Asus X453MA truncates packets otherwise */
+	if (tp->mac_version == RTL_GIGA_MAC_VER_37)
+		rtl_init_rxcfg(tp);
 
 	return rtl8169_net_resume(tp);
 }
