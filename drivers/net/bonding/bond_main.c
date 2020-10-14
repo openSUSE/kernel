@@ -4175,8 +4175,8 @@ static netdev_tx_t bond_xmit_roundrobin(struct sk_buff *skb,
 	struct slave *slave;
 
 	slave = bond_xmit_roundrobin_slave_get(bond, skb);
-	if (slave)
-		bond_dev_queue_xmit(bond, skb, slave->dev);
+	if (likely(slave))
+		return bond_dev_queue_xmit(bond, skb, slave->dev);
 
 	return bond_tx_drop(bond_dev, skb);
 }
@@ -4397,7 +4397,7 @@ static netdev_tx_t bond_3ad_xor_xmit(struct sk_buff *skb,
 	slaves = rcu_dereference(bond->usable_slaves);
 	slave = bond_xmit_3ad_xor_slave_get(bond, skb, slaves);
 	if (likely(slave))
-		bond_dev_queue_xmit(bond, skb, slave->dev);
+		return bond_dev_queue_xmit(bond, skb, slave->dev);
 
 	return bond_tx_drop(dev, skb);
 }
