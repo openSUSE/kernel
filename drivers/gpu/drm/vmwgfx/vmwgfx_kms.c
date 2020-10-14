@@ -25,12 +25,16 @@
  *
  **************************************************************************/
 
-#include "vmwgfx_kms.h"
-#include <drm/drm_plane_helper.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
-#include <drm/drm_rect.h>
 #include <drm/drm_damage_helper.h>
+#include <drm/drm_fourcc.h>
+#include <drm/drm_plane_helper.h>
+#include <drm/drm_rect.h>
+#include <drm/drm_sysfs.h>
+#include <drm/drm_vblank.h>
+
+#include "vmwgfx_kms.h"
 
 /* Might need a hrtimer here? */
 #define VMWGFX_PRESENT_RATE ((HZ / 60 > 0) ? HZ / 60 : 1)
@@ -1704,14 +1708,6 @@ vmw_kms_atomic_check_modeset(struct drm_device *dev,
 	if (ret)
 		return ret;
 
-	if (!state->allow_modeset)
-		return ret;
-
-	/*
-	 * Legacy path do not set allow_modeset properly like
-	 * @drm_atomic_helper_update_plane, This will result in unnecessary call
-	 * to vmw_kms_check_topology. So extra set of check.
-	 */
 	for_each_new_crtc_in_state(state, crtc, crtc_state, i) {
 		if (drm_atomic_crtc_needs_modeset(crtc_state))
 			need_modeset = true;

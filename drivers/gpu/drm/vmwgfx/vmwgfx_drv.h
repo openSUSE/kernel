@@ -28,20 +28,32 @@
 #ifndef _VMWGFX_DRV_H_
 #define _VMWGFX_DRV_H_
 
-#include "vmwgfx_validation.h"
-#include "vmwgfx_reg.h"
-#include <drm/drmP.h>
-#include <drm/vmwgfx_drm.h>
-#include <drm/drm_hashtab.h>
-#include <drm/drm_auth.h>
 #include <linux/suspend.h>
+#include <linux/sync_file.h>
+
+#include <drm/drm_auth.h>
+#include <drm/drm_device.h>
+#include <drm/drm_file.h>
+#include <drm/drm_hashtab.h>
+#include <drm/drm_rect.h>
+
 #include <drm/ttm/ttm_bo_driver.h>
 #include <drm/ttm/ttm_execbuf_util.h>
 #include <drm/ttm/ttm_module.h>
-#include "vmwgfx_fence.h"
-#include "ttm_object.h"
+
 #include "ttm_lock.h"
-#include <linux/sync_file.h>
+#include "ttm_object.h"
+
+#include "vmwgfx_fence.h"
+#include "vmwgfx_reg.h"
+#include "vmwgfx_validation.h"
+
+/*
+ * FIXME: vmwgfx_drm.h needs to be last due to dependencies.
+ * uapi headers should not depend on header files outside uapi/.
+ */
+#include <drm/vmwgfx_drm.h>
+
 
 #define VMWGFX_DRIVER_NAME "vmwgfx"
 #define VMWGFX_DRIVER_DATE "20180704"
@@ -484,11 +496,6 @@ struct vmw_private {
 
 	spinlock_t resource_lock;
 	struct idr res_idr[vmw_res_max];
-	/*
-	 * Block lastclose from racing with firstopen.
-	 */
-
-	struct mutex init_mutex;
 
 	/*
 	 * A resource manager for kernel-only surfaces and
@@ -915,8 +922,8 @@ static inline struct page *vmw_piter_page(struct vmw_piter *viter)
  * Command submission - vmwgfx_execbuf.c
  */
 
-extern int vmw_execbuf_ioctl(struct drm_device *dev, unsigned long data,
-			     struct drm_file *file_priv, size_t size);
+extern int vmw_execbuf_ioctl(struct drm_device *dev, void *data,
+			     struct drm_file *file_priv);
 extern int vmw_execbuf_process(struct drm_file *file_priv,
 			       struct vmw_private *dev_priv,
 			       void __user *user_commands,

@@ -439,7 +439,6 @@ endif
 
 # Check toolchain versions:
 # - gcc-4.6 is the minimum kernel-wide version so nothing required.
-# - gcc-5.4, 6.1, 6.2 don't copy the command_line around correctly
 checkbin:
 	@if test "x${CONFIG_CPU_LITTLE_ENDIAN}" = "xy" \
 	    && $(LD) --version | head -1 | grep ' 2\.24$$' >/dev/null ; then \
