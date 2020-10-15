@@ -144,9 +144,9 @@ out:
 
 /**
  * pci_walk_bridge - walk bridges potentially AER affected
- * @bridge:	bridge which may be a Port, an RCEC with associated RCiEPs,
- *		or an RCiEP associated with an RCEC
+ * @bridge:	bridge which may be a Port or an RCEC with associated RCiEPs
  * @cb:		callback to be called for each device found
+ * @dev:	an RCiEP lacking an associated RCEC
  * @userdata:	arbitrary pointer to be passed to callback
  *
  * If the device provided is a bridge, walk the subordinate bus, including
@@ -157,13 +157,20 @@ out:
  * device itself.
  */
 static void pci_walk_bridge(struct pci_dev *bridge,
+			    struct pci_dev *dev,
 			    int (*cb)(struct pci_dev *, void *),
 			    void *userdata)
 {
-	if (bridge->subordinate)
+	/*
+	 * In a non-native case where there is no OS-visible reporting
+	 * device the bridge will be NULL, i.e., no RCEC, no Downstream Port.
+	 */
+	if (bridge && bridge->subordinate)
 		pci_walk_bus(bridge->subordinate, cb, userdata);
-	else
+	else if (bridge)
 		cb(bridge, userdata);
+	else
+		cb(dev, userdata);
 }
 
 static pci_ers_result_t flr_on_rciep(struct pci_dev *dev)
@@ -192,16 +199,25 @@ pci_ers_result_t pcie_do_recovery(struct pci_dev *dev,
 	 */
 	if (type == PCI_EXP_TYPE_ROOT_PORT ||
 	    type == PCI_EXP_TYPE_DOWNSTREAM ||
-	    type == PCI_EXP_TYPE_RC_EC ||
-	    type == PCI_EXP_TYPE_RC_END)
+	    type == PCI_EXP_TYPE_RC_EC)
 		bridge = dev;
+	else if (type == PCI_EXP_TYPE_RC_END)
+		bridge = dev->rcec;
 	else
 		bridge = pci_upstream_bridge(dev);
 
 	pci_dbg(bridge, "broadcast error_detected message\n");
 	if (state == pci_channel_io_frozen) {
-		pci_walk_bridge(bridge, report_frozen_detected, &status);
+		pci_walk_bridge(bridge, dev, report_frozen_detected, &status);
 		if (type == PCI_EXP_TYPE_RC_END) {
+			/*
+			 * The callback only clears the Root Error Status
+			 * of the RCEC (see aer.c). Only perform this for the
+			 * native case, i.e., an RCEC is present.
+			 */
+			if (bridge)
+				reset_subordinates(bridge);
+
 			status = flr_on_rciep(dev);
 			if (status != PCI_ERS_RESULT_RECOVERED) {
 				pci_warn(dev, "Function Level Reset failed\n");
@@ -215,13 +231,13 @@ pci_ers_result_t pcie_do_recovery(struct pci_dev *dev,
 			}
 		}
 	} else {
-		pci_walk_bridge(bridge, report_normal_detected, &status);
+		pci_walk_bridge(bridge, dev, report_normal_detected, &status);
 	}
 
 	if (status == PCI_ERS_RESULT_CAN_RECOVER) {
 		status = PCI_ERS_RESULT_RECOVERED;
 		pci_dbg(bridge, "broadcast mmio_enabled message\n");
-		pci_walk_bridge(bridge, report_mmio_enabled, &status);
+		pci_walk_bridge(bridge, dev, report_mmio_enabled, &status);
 	}
 
 	if (status == PCI_ERS_RESULT_NEED_RESET) {
@@ -232,14 +248,14 @@ pci_ers_result_t pcie_do_recovery(struct pci_dev *dev,
 		 */
 		status = PCI_ERS_RESULT_RECOVERED;
 		pci_dbg(bridge, "broadcast slot_reset message\n");
-		pci_walk_bridge(bridge, report_slot_reset, &status);
+		pci_walk_bridge(bridge, dev, report_slot_reset, &status);
 	}
 
 	if (status != PCI_ERS_RESULT_RECOVERED)
 		goto failed;
 
 	pci_dbg(bridge, "broadcast resume message\n");
-	pci_walk_bridge(bridge, report_resume, &status);
+	pci_walk_bridge(bridge, dev, report_resume, &status);
 
 	if (type == PCI_EXP_TYPE_ROOT_PORT ||
 	    type == PCI_EXP_TYPE_DOWNSTREAM ||
