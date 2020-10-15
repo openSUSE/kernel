@@ -1852,6 +1852,7 @@ int soft_offline_page(unsigned long pfn, int flags)
 {
 	int ret;
 	struct page *page;
+	bool try_again = true;
 
 	if (!pfn_valid(pfn))
 		return -ENXIO;
@@ -1867,6 +1868,7 @@ int soft_offline_page(unsigned long pfn, int flags)
 		return 0;
 	}
 
+retry:
 	get_online_mems();
 	ret = get_any_page(page, pfn, flags);
 	put_online_mems();
@@ -1874,7 +1876,10 @@ int soft_offline_page(unsigned long pfn, int flags)
 	if (ret > 0)
 		ret = soft_offline_in_use_page(page);
 	else if (ret == 0)
-		ret = soft_offline_free_page(page);
+		if (soft_offline_free_page(page) && try_again) {
+			try_again = false;
+			goto retry;
+		}
 
 	return ret;
 }
