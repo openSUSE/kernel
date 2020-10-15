@@ -28,6 +28,16 @@
  * Individual features below.
  */
 
+/*
+ * Support for KUEP feature.
+ */
+#define MMU_FTR_KUEP			ASM_CONST(0x00000400)
+
+/*
+ * Support for memory protection keys.
+ */
+#define MMU_FTR_PKEY			ASM_CONST(0x00000800)
+
 /* Guest Translation Shootdown Enable */
 #define MMU_FTR_GTSE			ASM_CONST(0x00001000)
 
@@ -181,6 +191,13 @@ enum {
 		MMU_FTR_RADIX_KUAP |
 #endif /* CONFIG_PPC_KUAP */
 #endif /* CONFIG_PPC_RADIX_MMU */
+#ifdef CONFIG_PPC_MEM_KEYS
+	MMU_FTR_PKEY |
+#endif
+#ifdef CONFIG_PPC_KUEP
+	MMU_FTR_KUEP |
+#endif /* CONFIG_PPC_KUAP */
+
 		0,
 };
 
@@ -368,6 +385,8 @@ extern void early_init_mmu_secondary(void);
 extern void setup_initial_memory_limit(phys_addr_t first_memblock_base,
 				       phys_addr_t first_memblock_size);
 static inline void mmu_early_init_devtree(void) { }
+
+static inline void pkey_early_init_devtree(void) {}
 
 extern void *abatron_pteptrs[2];
 #endif /* __ASSEMBLY__ */
