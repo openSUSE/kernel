@@ -146,7 +146,7 @@ struct btf_dump_emit_type_decl_opts {
 	 */
 	int indent_level;
 };
-#define btf_dump_emit_type_decl_opts__last_field indent_level
+#define btf_dump_emit_type_decl_opts__last_field strip_mods
 
 LIBBPF_API int
 btf_dump__emit_type_decl(struct btf_dump *d, __u32 id,
