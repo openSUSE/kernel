@@ -91,6 +91,7 @@ enum obj_operation_type {
 	OBJ_OP_WRITE,
 	OBJ_OP_DISCARD,
 	OBJ_OP_ZEROOUT,
+	OBJ_OP_CMP_AND_WRITE,
 };
 
 enum rbd_img_state {
@@ -251,6 +252,9 @@ extern int rbd_img_fill_from_bvecs(struct rbd_img_request *img_req,
 				   struct ceph_file_extent *img_extents,
 				   u32 num_img_extents,
 				   struct bio_vec *bvecs);
+extern int rbd_img_fill_cmp_and_write_from_bvecs(struct rbd_img_request *img_req,
+						 struct ceph_file_extent *img_extent,
+						 struct bio_vec *bvecs);
 extern void rbd_img_handle_request(struct rbd_img_request *img_req, int result);
 extern void rbd_img_request_put(struct rbd_img_request *img_request);
 
