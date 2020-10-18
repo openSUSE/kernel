@@ -74,7 +74,7 @@ struct ima_rule_entry {
 	int pcr;
 	struct {
 		void *rule;	/* LSM file metadata specific */
-		void *args_p;	/* audit value */
+		char *args_p;	/* audit value */
 		int type;	/* audit type */
 	} lsm[MAX_LSM_RULES];
 	char *fsname;
@@ -258,7 +258,7 @@ static void ima_lsm_free_rule(struct ima_rule_entry *entry)
 	int i;
 
 	for (i = 0; i < MAX_LSM_RULES; i++) {
-		security_filter_rule_free(entry->lsm[i].rule);
+		ima_filter_rule_free(entry->lsm[i].rule);
 		kfree(entry->lsm[i].args_p);
 	}
 }
@@ -300,25 +300,22 @@ static struct ima_rule_entry *ima_lsm_copy_rule(struct ima_rule_entry *entry)
 			continue;
 
 		nentry->lsm[i].type = entry->lsm[i].type;
-		nentry->lsm[i].args_p = kstrdup(entry->lsm[i].args_p,
-						GFP_KERNEL);
-		if (!nentry->lsm[i].args_p)
-			goto out_err;
+		nentry->lsm[i].args_p = entry->lsm[i].args_p;
+		/*
+		 * Remove the reference from entry so that the associated
+		 * memory will not be freed during a later call to
+		 * ima_lsm_free_rule(entry).
+		 */
+		entry->lsm[i].args_p = NULL;
 
-		security_filter_rule_init(nentry->lsm[i].type,
-					  Audit_equal,
-					  nentry->lsm[i].args_p,
-					  &nentry->lsm[i].rule);
+		ima_filter_rule_init(nentry->lsm[i].type, Audit_equal,
+				     nentry->lsm[i].args_p,
+				     &nentry->lsm[i].rule);
 		if (!nentry->lsm[i].rule)
 			pr_warn("rule for LSM \'%s\' is undefined\n",
-				(char *)entry->lsm[i].args_p);
+				nentry->lsm[i].args_p);
 	}
 	return nentry;
-
-out_err:
-	ima_lsm_free_rule(nentry);
-	kfree(nentry);
-	return NULL;
 }
 
 static int ima_lsm_update_rule(struct ima_rule_entry *entry)
@@ -362,17 +359,10 @@ static bool ima_rule_contains_lsm_cond(struct ima_rule_entry *entry)
 static void ima_lsm_update_rules(void)
 {
 	struct ima_rule_entry *entry, *e;
-	int i, result, needs_update;
+	int result;
 
 	list_for_each_entry_safe(entry, e, &ima_policy_rules, list) {
-		needs_update = 0;
-		for (i = 0; i < MAX_LSM_RULES; i++) {
-			if (entry->lsm[i].args_p) {
-				needs_update = 1;
-				break;
-			}
-		}
-		if (!needs_update)
+		if (!ima_rule_contains_lsm_cond(entry))
 			continue;
 
 		result = ima_lsm_update_rule(entry);
@@ -452,13 +442,9 @@ static bool ima_match_rules(struct ima_rule_entry *rule, struct inode *inode,
 {
 	int i;
 
-	if ((func == KEXEC_CMDLINE) || (func == KEY_CHECK)) {
-		if ((rule->flags & IMA_FUNC) && (rule->func == func)) {
-			if (func == KEY_CHECK)
-				return ima_match_keyring(rule, keyring, cred);
-			return true;
-		}
-		return false;
+	if (func == KEY_CHECK) {
+		return (rule->flags & IMA_FUNC) && (rule->func == func) &&
+		       ima_match_keyring(rule, keyring, cred);
 	}
 	if ((rule->flags & IMA_FUNC) &&
 	    (rule->func != func && func != POST_SETATTR))
@@ -508,18 +494,16 @@ static bool ima_match_rules(struct ima_rule_entry *rule, struct inode *inode,
 		case LSM_OBJ_ROLE:
 		case LSM_OBJ_TYPE:
 			security_inode_getsecid(inode, &osid);
-			rc = security_filter_rule_match(osid,
-							rule->lsm[i].type,
-							Audit_equal,
-							rule->lsm[i].rule);
+			rc = ima_filter_rule_match(osid, rule->lsm[i].type,
+						   Audit_equal,
+						   rule->lsm[i].rule);
 			break;
 		case LSM_SUBJ_USER:
 		case LSM_SUBJ_ROLE:
 		case LSM_SUBJ_TYPE:
-			rc = security_filter_rule_match(secid,
-							rule->lsm[i].type,
-							Audit_equal,
-							rule->lsm[i].rule);
+			rc = ima_filter_rule_match(secid, rule->lsm[i].type,
+						   Audit_equal,
+						   rule->lsm[i].rule);
 		default:
 			break;
 		}
@@ -914,13 +898,12 @@ static int ima_lsm_rule_init(struct ima_rule_entry *entry,
 		return -ENOMEM;
 
 	entry->lsm[lsm_rule].type = audit_type;
-	result = security_filter_rule_init(entry->lsm[lsm_rule].type,
-					   Audit_equal,
-					   entry->lsm[lsm_rule].args_p,
-					   &entry->lsm[lsm_rule].rule);
+	result = ima_filter_rule_init(entry->lsm[lsm_rule].type, Audit_equal,
+				      entry->lsm[lsm_rule].args_p,
+				      &entry->lsm[lsm_rule].rule);
 	if (!entry->lsm[lsm_rule].rule) {
 		pr_warn("rule for LSM \'%s\' is undefined\n",
-			(char *)entry->lsm[lsm_rule].args_p);
+			entry->lsm[lsm_rule].args_p);
 
 		if (ima_rules == &ima_default_rules) {
 			kfree(entry->lsm[lsm_rule].args_p);
@@ -986,8 +969,25 @@ static void check_template_modsig(const struct ima_template_desc *template)
 
 static bool ima_validate_rule(struct ima_rule_entry *entry)
 {
-	/* Ensure that the action is set */
+	/* Ensure that the action is set and is compatible with the flags */
 	if (entry->action == UNKNOWN)
+		return false;
+
+	if (entry->action != MEASURE && entry->flags & IMA_PCR)
+		return false;
+
+	if (entry->action != APPRAISE &&
+	    entry->flags & (IMA_DIGSIG_REQUIRED | IMA_MODSIG_ALLOWED | IMA_CHECK_BLACKLIST))
+		return false;
+
+	/*
+	 * The IMA_FUNC bit must be set if and only if there's a valid hook
+	 * function specified, and vice versa. Enforcing this property allows
+	 * for the NONE case below to validate a rule without an explicit hook
+	 * function.
+	 */
+	if (((entry->flags & IMA_FUNC) && entry->func == NONE) ||
+	    (!(entry->flags & IMA_FUNC) && entry->func != NONE))
 		return false;
 
 	/*
@@ -1001,21 +1001,35 @@ static bool ima_validate_rule(struct ima_rule_entry *entry)
 	case BPRM_CHECK:
 	case CREDS_CHECK:
 	case POST_SETATTR:
-	case MODULE_CHECK:
 	case FIRMWARE_CHECK:
+	case POLICY_CHECK:
+		if (entry->flags & ~(IMA_FUNC | IMA_MASK | IMA_FSMAGIC |
+				     IMA_UID | IMA_FOWNER | IMA_FSUUID |
+				     IMA_INMASK | IMA_EUID | IMA_PCR |
+				     IMA_FSNAME | IMA_DIGSIG_REQUIRED |
+				     IMA_PERMIT_DIRECTIO))
+			return false;
+
+		break;
+	case MODULE_CHECK:
 	case KEXEC_KERNEL_CHECK:
 	case KEXEC_INITRAMFS_CHECK:
-	case POLICY_CHECK:
-		/* Validation of these hook functions is in ima_parse_rule() */
+		if (entry->flags & ~(IMA_FUNC | IMA_MASK | IMA_FSMAGIC |
+				     IMA_UID | IMA_FOWNER | IMA_FSUUID |
+				     IMA_INMASK | IMA_EUID | IMA_PCR |
+				     IMA_FSNAME | IMA_DIGSIG_REQUIRED |
+				     IMA_PERMIT_DIRECTIO | IMA_MODSIG_ALLOWED |
+				     IMA_CHECK_BLACKLIST))
+			return false;
+
 		break;
 	case KEXEC_CMDLINE:
 		if (entry->action & ~(MEASURE | DONT_MEASURE))
 			return false;
 
-		if (entry->flags & ~(IMA_FUNC | IMA_PCR))
-			return false;
-
-		if (ima_rule_contains_lsm_cond(entry))
+		if (entry->flags & ~(IMA_FUNC | IMA_FSMAGIC | IMA_UID |
+				     IMA_FOWNER | IMA_FSUUID | IMA_EUID |
+				     IMA_PCR | IMA_FSNAME))
 			return false;
 
 		break;
@@ -1220,7 +1234,6 @@ static int ima_parse_rule(char *rule, struct ima_rule_entry *entry)
 			keyrings_len = strlen(args[0].from) + 1;
 
 			if ((entry->keyrings) ||
-			    (entry->func != KEY_CHECK) ||
 			    (keyrings_len < 2)) {
 				result = -EINVAL;
 				break;
@@ -1266,12 +1279,12 @@ static int ima_parse_rule(char *rule, struct ima_rule_entry *entry)
 		case Opt_uid_gt:
 		case Opt_euid_gt:
 			entry->uid_op = &uid_gt;
-			/* fall through */
+			fallthrough;
 		case Opt_uid_lt:
 		case Opt_euid_lt:
 			if ((token == Opt_uid_lt) || (token == Opt_euid_lt))
 				entry->uid_op = &uid_lt;
-			/* fall through */
+			fallthrough;
 		case Opt_uid_eq:
 		case Opt_euid_eq:
 			uid_token = (token == Opt_uid_eq) ||
@@ -1300,11 +1313,11 @@ static int ima_parse_rule(char *rule, struct ima_rule_entry *entry)
 			break;
 		case Opt_fowner_gt:
 			entry->fowner_op = &uid_gt;
-			/* fall through */
+			fallthrough;
 		case Opt_fowner_lt:
 			if (token == Opt_fowner_lt)
 				entry->fowner_op = &uid_lt;
-			/* fall through */
+			fallthrough;
 		case Opt_fowner_eq:
 			ima_log_string_op(ab, "fowner", args[0].from,
 					  entry->fowner_op);
@@ -1360,15 +1373,10 @@ static int ima_parse_rule(char *rule, struct ima_rule_entry *entry)
 						   AUDIT_SUBJ_TYPE);
 			break;
 		case Opt_appraise_type:
-			if (entry->action != APPRAISE) {
-				result = -EINVAL;
-				break;
-			}
-
 			ima_log_string(ab, "appraise_type", args[0].from);
 			if ((strcmp(args[0].from, "imasig")) == 0)
 				entry->flags |= IMA_DIGSIG_REQUIRED;
-			else if (ima_hook_supports_modsig(entry->func) &&
+			else if (IS_ENABLED(CONFIG_IMA_APPRAISE_MODSIG) &&
 				 strcmp(args[0].from, "imasig|modsig") == 0)
 				entry->flags |= IMA_DIGSIG_REQUIRED |
 						IMA_MODSIG_ALLOWED;
@@ -1376,11 +1384,6 @@ static int ima_parse_rule(char *rule, struct ima_rule_entry *entry)
 				result = -EINVAL;
 			break;
 		case Opt_appraise_flag:
-			if (entry->action != APPRAISE) {
-				result = -EINVAL;
-				break;
-			}
-
 			ima_log_string(ab, "appraise_flag", args[0].from);
 			if (IS_ENABLED(CONFIG_IMA_APPRAISE_MODSIG) &&
 			    strstr(args[0].from, "blacklist"))
@@ -1392,10 +1395,6 @@ static int ima_parse_rule(char *rule, struct ima_rule_entry *entry)
 			entry->flags |= IMA_PERMIT_DIRECTIO;
 			break;
 		case Opt_pcr:
-			if (entry->action != MEASURE) {
-				result = -EINVAL;
-				break;
-			}
 			ima_log_string(ab, "pcr", args[0].from);
 
 			result = kstrtoint(args[0].from, 10, &entry->pcr);
@@ -1511,7 +1510,7 @@ void ima_delete_rules(void)
 	}
 }
 
-#define __ima_hook_stringify(str)	(#str),
+#define __ima_hook_stringify(func, str)	(#func),
 
 const char *const func_tokens[] = {
 	__ima_hooks(__ima_hook_stringify)
@@ -1686,27 +1685,27 @@ int ima_policy_show(struct seq_file *m, void *v)
 			switch (i) {
 			case LSM_OBJ_USER:
 				seq_printf(m, pt(Opt_obj_user),
-					   (char *)entry->lsm[i].args_p);
+					   entry->lsm[i].args_p);
 				break;
 			case LSM_OBJ_ROLE:
 				seq_printf(m, pt(Opt_obj_role),
-					   (char *)entry->lsm[i].args_p);
+					   entry->lsm[i].args_p);
 				break;
 			case LSM_OBJ_TYPE:
 				seq_printf(m, pt(Opt_obj_type),
-					   (char *)entry->lsm[i].args_p);
+					   entry->lsm[i].args_p);
 				break;
 			case LSM_SUBJ_USER:
 				seq_printf(m, pt(Opt_subj_user),
-					   (char *)entry->lsm[i].args_p);
+					   entry->lsm[i].args_p);
 				break;
 			case LSM_SUBJ_ROLE:
 				seq_printf(m, pt(Opt_subj_role),
-					   (char *)entry->lsm[i].args_p);
+					   entry->lsm[i].args_p);
 				break;
 			case LSM_SUBJ_TYPE:
 				seq_printf(m, pt(Opt_subj_type),
-					   (char *)entry->lsm[i].args_p);
+					   entry->lsm[i].args_p);
 				break;
 			}
 			seq_puts(m, " ");

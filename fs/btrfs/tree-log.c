@@ -3894,12 +3894,21 @@ static int log_inode_item(struct btrfs_trans_handle *trans,
 }
 
 static int log_csums(struct btrfs_trans_handle *trans,
+		     struct btrfs_inode *inode,
 		     struct btrfs_root *log_root,
 		     struct btrfs_ordered_sum *sums)
 {
 	const u64 lock_end = sums->bytenr + sums->len - 1;
 	struct extent_state *cached_state = NULL;
 	int ret;
+
+	/*
+	 * If this inode was not used for reflink operations in the current
+	 * transaction with new extents, then do the fast path, no need to
+	 * worry about logging checksum items with overlapping ranges.
+	 */
+	if (inode->last_reflink_trans < trans->transid)
+		return btrfs_csum_file_blocks(trans, log_root, sums);
 
 	/*
 	 * Serialize logging for checksums. This is to avoid racing with the
@@ -4048,7 +4057,7 @@ static noinline int copy_items(struct btrfs_trans_handle *trans,
 						   struct btrfs_ordered_sum,
 						   list);
 		if (!ret)
-			ret = log_csums(trans, log, sums);
+			ret = log_csums(trans, inode, log, sums);
 		list_del(&sums->list);
 		kfree(sums);
 	}
@@ -4107,7 +4116,7 @@ static int log_extent_csums(struct btrfs_trans_handle *trans,
 						   struct btrfs_ordered_sum,
 						   list);
 		if (!ret)
-			ret = log_csums(trans, log_root, sums);
+			ret = log_csums(trans, inode, log_root, sums);
 		list_del(&sums->list);
 		kfree(sums);
 	}
@@ -4135,7 +4144,7 @@ static int log_one_extent(struct btrfs_trans_handle *trans,
 	if (ret)
 		return ret;
 
-	ret = __btrfs_drop_extents(trans, log, &inode->vfs_inode, path, em->start,
+	ret = __btrfs_drop_extents(trans, log, inode, path, em->start,
 				   em->start + em->len, NULL, 0, 1,
 				   sizeof(*fi), &extent_inserted);
 	if (ret)

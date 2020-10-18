@@ -68,7 +68,7 @@ const char *btrfs_super_csum_driver(u16 csum_type)
 		btrfs_csums[csum_type].name;
 }
 
-size_t __const btrfs_get_num_csums(void)
+size_t __attribute_const__ btrfs_get_num_csums(void)
 {
 	return ARRAY_SIZE(btrfs_csums);
 }
@@ -1505,6 +1505,22 @@ static int close_blocks(u64 blocknr, u64 other, u32 blocksize)
 	return 0;
 }
 
+#ifdef __LITTLE_ENDIAN
+
+/*
+ * Compare two keys, on little-endian the disk order is same as CPU order and
+ * we can avoid the conversion.
+ */
+static int comp_keys(const struct btrfs_disk_key *disk_key,
+		     const struct btrfs_key *k2)
+{
+	const struct btrfs_key *k1 = (const struct btrfs_key *)disk_key;
+
+	return btrfs_comp_cpu_keys(k1, k2);
+}
+
+#else
+
 /*
  * compare two keys in a memcmp fashion
  */
@@ -1517,6 +1533,7 @@ static int comp_keys(const struct btrfs_disk_key *disk,
 
 	return btrfs_comp_cpu_keys(&k1, k2);
 }
+#endif
 
 /*
  * same as comp_keys only with two btrfs_key's
