@@ -1,21 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
-
-#include <errno.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-
-#include <linux/filter.h>
-#include <bpf/bpf.h>
-#include <bpf/libbpf.h>
-
-#include "bpf_rlimit.h"
-#include "bpf_util.h"
+#include <test_progs.h>
 #include "cgroup_helpers.h"
-
-#define CG_PATH				"/sockopt"
 
 #define SOL_CUSTOM			0xdeadbeef
 
@@ -25,6 +10,7 @@ static int getsetsockopt(void)
 	union {
 		char u8[4];
 		__u32 u32;
+		char cc[16]; /* TCP_CA_NAME_MAX */
 	} buf = {};
 	socklen_t optlen;
 
@@ -115,6 +101,29 @@ static int getsetsockopt(void)
 		goto err;
 	}
 
+	/* TCP_CONGESTION can extend the string */
+
+	strcpy(buf.cc, "nv");
+	err = setsockopt(fd, SOL_TCP, TCP_CONGESTION, &buf, strlen("nv"));
+	if (err) {
+		log_err("Failed to call setsockopt(TCP_CONGESTION)");
+		goto err;
+	}
+
+
+	optlen = sizeof(buf.cc);
+	err = getsockopt(fd, SOL_TCP, TCP_CONGESTION, &buf, &optlen);
+	if (err) {
+		log_err("Failed to call getsockopt(TCP_CONGESTION)");
+		goto err;
+	}
+
+	if (strcmp(buf.cc, "cubic") != 0) {
+		log_err("Unexpected getsockopt(TCP_CONGESTION) %s != %s",
+			buf.cc, "cubic");
+		goto err;
+	}
+
 	close(fd);
 	return 0;
 err:
@@ -151,7 +160,7 @@ static int prog_attach(struct bpf_object *obj, int cgroup_fd, const char *title)
 	return 0;
 }
 
-static int run_test(int cgroup_fd)
+static void run_test(int cgroup_fd)
 {
 	struct bpf_prog_load_attr attr = {
 		.file = "./sockopt_sk.o",
@@ -161,51 +170,31 @@ static int run_test(int cgroup_fd)
 	int err;
 
 	err = bpf_prog_load_xattr(&attr, &obj, &ignored);
-	if (err) {
-		log_err("Failed to load BPF object");
-		return -1;
-	}
+	if (CHECK_FAIL(err))
+		return;
 
 	err = prog_attach(obj, cgroup_fd, "cgroup/getsockopt");
-	if (err)
+	if (CHECK_FAIL(err))
 		goto close_bpf_object;
 
 	err = prog_attach(obj, cgroup_fd, "cgroup/setsockopt");
-	if (err)
+	if (CHECK_FAIL(err))
 		goto close_bpf_object;
 
-	err = getsetsockopt();
+	CHECK_FAIL(getsetsockopt());
 
 close_bpf_object:
 	bpf_object__close(obj);
-	return err;
 }
 
-int main(int args, char **argv)
+void test_sockopt_sk(void)
 {
 	int cgroup_fd;
-	int err = EXIT_SUCCESS;
 
-	if (setup_cgroup_environment())
-		goto cleanup_obj;
+	cgroup_fd = test__join_cgroup("/sockopt_sk");
+	if (CHECK_FAIL(cgroup_fd < 0))
+		return;
 
-	cgroup_fd = create_and_get_cgroup(CG_PATH);
-	if (cgroup_fd < 0)
-		goto cleanup_cgroup_env;
-
-	if (join_cgroup(CG_PATH))
-		goto cleanup_cgroup;
-
-	if (run_test(cgroup_fd))
-		err = EXIT_FAILURE;
-
-	printf("test_sockopt_sk: %s\n",
-	       err == EXIT_SUCCESS ? "PASSED" : "FAILED");
-
-cleanup_cgroup:
+	run_test(cgroup_fd);
 	close(cgroup_fd);
-cleanup_cgroup_env:
-	cleanup_cgroup_environment();
-cleanup_obj:
-	return err;
 }

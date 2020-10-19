@@ -310,7 +310,8 @@ int security_dentry_create_files_as(struct dentry *dentry, int mode,
 					struct qstr *name,
 					const struct cred *old,
 					struct cred *new);
-
+int security_path_notify(const struct path *path, u64 mask,
+					unsigned int obj_type);
 int security_inode_alloc(struct inode *inode);
 void security_inode_free(struct inode *inode);
 int security_inode_init_security(struct inode *inode, struct inode *dir,
@@ -438,7 +439,6 @@ int security_ismaclabel(const char *name);
 int security_secid_to_secctx(u32 secid, char **secdata, u32 *seclen);
 int security_secctx_to_secid(const char *secdata, u32 seclen, u32 *secid);
 void security_release_secctx(char *secdata, u32 seclen);
-
 void security_inode_invalidate_secctx(struct inode *inode);
 int security_inode_notifysecctx(struct inode *inode, void *ctx, u32 ctxlen);
 int security_inode_setsecctx(struct dentry *dentry, void *ctx, u32 ctxlen);
@@ -675,6 +675,12 @@ static inline int security_add_mnt_opt(const char *option, const char *val,
 
 static inline int security_move_mount(const struct path *from_path,
 				      const struct path *to_path)
+{
+	return 0;
+}
+
+static inline int security_path_notify(const struct path *path, u64 mask,
+				unsigned int obj_type)
 {
 	return 0;
 }
@@ -1895,6 +1901,44 @@ static inline void security_bpf_prog_free(struct bpf_prog_aux *aux)
 #endif /* CONFIG_SECURITY */
 #endif /* CONFIG_BPF_SYSCALL */
 
+#ifdef CONFIG_PERF_EVENTS
+struct perf_event_attr;
+struct perf_event;
+
+#ifdef CONFIG_SECURITY
+extern int security_perf_event_open(struct perf_event_attr *attr, int type);
+extern int security_perf_event_alloc(struct perf_event *event);
+extern void security_perf_event_free(struct perf_event *event);
+extern int security_perf_event_read(struct perf_event *event);
+extern int security_perf_event_write(struct perf_event *event);
+#else
+static inline int security_perf_event_open(struct perf_event_attr *attr,
+					   int type)
+{
+	return 0;
+}
+
+static inline int security_perf_event_alloc(struct perf_event *event)
+{
+	return 0;
+}
+
+static inline void security_perf_event_free(struct perf_event *event)
+{
+}
+
+static inline int security_perf_event_read(struct perf_event *event)
+{
+	return 0;
+}
+
+static inline int security_perf_event_write(struct perf_event *event)
+{
+	return 0;
+}
+#endif /* CONFIG_SECURITY */
+#endif /* CONFIG_PERF_EVENTS */
+
 #ifdef CONFIG_HIDDEN_AREA
 extern void __init hidden_area_init(void);
 extern void * memcpy_to_hidden_area(const void *source, unsigned long size);
@@ -1924,4 +1968,3 @@ static inline int decrypt_restore_hidden_area(void *key, unsigned long key_len)
 #endif
 
 #endif /* ! __LINUX_SECURITY_H */
-

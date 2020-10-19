@@ -16,9 +16,10 @@ typedef __u16 __sum16;
 #include <linux/if_packet.h>
 #include <linux/ip.h>
 #include <linux/ipv6.h>
-#include <linux/tcp.h>
+#include <netinet/tcp.h>
 #include <linux/filter.h>
 #include <linux/perf_event.h>
+#include <linux/socket.h>
 #include <linux/unistd.h>
 
 #include <sys/ioctl.h>
@@ -34,7 +35,7 @@ typedef __u16 __sum16;
 
 #include "test_iptunnel_common.h"
 #include "bpf_util.h"
-#include "bpf_endian.h"
+#include <bpf/bpf_endian.h>
 #include "trace_helpers.h"
 #include "flow_dissector_load.h"
 
@@ -77,6 +78,7 @@ extern void test__force_log();
 extern bool test__start_subtest(const char *name);
 extern void test__skip(void);
 extern void test__fail(void);
+extern int test__join_cgroup(const char *path);
 
 #define MAGIC_BYTES 123
 
