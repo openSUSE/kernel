@@ -47,6 +47,32 @@ static struct kset *xfs_kset;		/* top-level xfs sysfs dir */
 static struct xfs_kobj xfs_dbg_kobj;	/* global debug sysfs attrs */
 #endif
 
+enum xfs_dax_mode {
+	XFS_DAX_INODE = 0,
+	XFS_DAX_ALWAYS = 1,
+	XFS_DAX_NEVER = 2,
+};
+
+static void
+xfs_mount_set_dax_mode(
+	struct xfs_mount	*mp,
+	enum xfs_dax_mode	mode)
+{
+	switch (mode) {
+	case XFS_DAX_INODE:
+		mp->m_flags &= ~(XFS_MOUNT_DAX_ALWAYS | XFS_MOUNT_DAX_NEVER);
+		break;
+	case XFS_DAX_ALWAYS:
+		mp->m_flags |= XFS_MOUNT_DAX_ALWAYS;
+		mp->m_flags &= ~XFS_MOUNT_DAX_NEVER;
+		break;
+	case XFS_DAX_NEVER:
+		mp->m_flags |= XFS_MOUNT_DAX_NEVER;
+		mp->m_flags &= ~XFS_MOUNT_DAX_ALWAYS;
+		break;
+	}
+}
+
 /*
  * Table driven mount option parser.
  */
@@ -59,7 +85,8 @@ enum {
 	Opt_filestreams, Opt_quota, Opt_noquota, Opt_usrquota, Opt_grpquota,
 	Opt_prjquota, Opt_uquota, Opt_gquota, Opt_pquota,
 	Opt_uqnoenforce, Opt_gqnoenforce, Opt_pqnoenforce, Opt_qnoenforce,
-	Opt_discard, Opt_nodiscard, Opt_dax, Opt_err,
+	Opt_discard, Opt_nodiscard, Opt_dax, Opt_dax_always, Opt_dax_never,
+	Opt_dax_inode, Opt_err,
 };
 
 static const match_table_t tokens = {
@@ -106,6 +133,10 @@ static const match_table_t tokens = {
 	{Opt_discard,	"discard"},	/* Discard unused blocks */
 	{Opt_nodiscard,	"nodiscard"},	/* Do not discard unused blocks */
 	{Opt_dax,	"dax"},		/* Enable direct access to bdev pages */
+	{Opt_dax_always, "dax=always"},	/* Enable direct access to bdev pages */
+	{Opt_dax_never,	"dax=never"},	/* Disable direct access to bdev pages */
+	{Opt_dax_inode,	"dax=inode"},	/* Enable direct access to bdev pages
+					 * for marked inodes */
 	{Opt_err,	NULL},
 };
 
@@ -335,7 +366,14 @@ xfs_parseargs(
 			break;
 #ifdef CONFIG_FS_DAX
 		case Opt_dax:
-			mp->m_flags |= XFS_MOUNT_DAX;
+		case Opt_dax_always:
+			xfs_mount_set_dax_mode(mp, XFS_DAX_ALWAYS);
+			break;
+		case Opt_dax_never:
+			xfs_mount_set_dax_mode(mp, XFS_DAX_NEVER);
+			break;
+		case Opt_dax_inode:
+			xfs_mount_set_dax_mode(mp, XFS_DAX_INODE);
 			break;
 #endif
 		default:
@@ -449,7 +487,8 @@ xfs_showargs(
 		{ XFS_MOUNT_GRPID,		",grpid" },
 		{ XFS_MOUNT_DISCARD,		",discard" },
 		{ XFS_MOUNT_SMALL_INUMS,	",inode32" },
-		{ XFS_MOUNT_DAX,		",dax" },
+		{ XFS_MOUNT_DAX_ALWAYS,		",dax=always" },
+		{ XFS_MOUNT_DAX_NEVER,		",dax=never" },
 		{ 0, NULL }
 	};
 	static struct proc_xfs_info xfs_info_unset[] = {
@@ -1035,7 +1074,7 @@ xfs_fs_drop_inode(
 		return 0;
 	}
 
-	return generic_drop_inode(inode) || (ip->i_flags & XFS_IDONTCACHE);
+	return generic_drop_inode(inode);
 }
 
 STATIC void
@@ -1672,7 +1711,7 @@ xfs_fs_fill_super(
 	if (XFS_SB_VERSION_NUM(&mp->m_sb) == XFS_SB_VERSION_5)
 		sb->s_flags |= SB_I_VERSION;
 
-	if (mp->m_flags & XFS_MOUNT_DAX) {
+	if (mp->m_flags & XFS_MOUNT_DAX_ALWAYS) {
 		bool rtdev_is_dax = false, datadev_is_dax;
 
 		datadev_is_dax = bdev_dax_supported(mp->m_ddev_targp->bt_bdev,
@@ -1683,7 +1722,7 @@ xfs_fs_fill_super(
 		if (!rtdev_is_dax && !datadev_is_dax) {
 			xfs_alert(mp,
 			"DAX unsupported by block device. Turning off DAX.");
-			mp->m_flags &= ~XFS_MOUNT_DAX;
+			xfs_mount_set_dax_mode(mp, XFS_DAX_NEVER);
 		}
 		if (xfs_sb_version_hasreflink(&mp->m_sb)) {
 			xfs_alert(mp,
