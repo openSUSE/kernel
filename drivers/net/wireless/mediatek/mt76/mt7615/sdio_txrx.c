@@ -237,7 +237,7 @@ void mt7663s_sdio_irq(struct sdio_func *func)
 	struct mt76s_intr intr;
 
 	/* disable interrupt */
-	sdio_writel(func, WHLPCR_INT_EN_CLR, MCR_WHLPCR, 0);
+	sdio_writel(func, WHLPCR_INT_EN_CLR, MCR_WHLPCR, NULL);
 
 	do {
 		sdio_readsb(func, &intr, MCR_WHISR, sizeof(struct mt76s_intr));
@@ -264,5 +264,5 @@ void mt7663s_sdio_irq(struct sdio_func *func)
 	} while (intr.isr);
 out:
 	/* enable interrupt */
-	sdio_writel(func, WHLPCR_INT_EN_SET, MCR_WHLPCR, 0);
+	sdio_writel(func, WHLPCR_INT_EN_SET, MCR_WHLPCR, NULL);
 }
