@@ -4647,13 +4647,7 @@ bpf_program__reloc_text(struct bpf_program *prog, struct bpf_object *obj,
 	size_t new_cnt;
 	int err;
 
-	if (prog->idx == obj->efile.text_shndx) {
-		pr_warning("relo in .text insn %d into off %d (insn #%d)\n",
-			   relo->insn_idx, relo->sym_off, relo->sym_off / 8);
-		return -LIBBPF_ERRNO__RELOC;
-	}
-
-	if (prog->main_prog_cnt == 0) {
+	if (prog->idx != obj->efile.text_shndx && prog->main_prog_cnt == 0) {
 		text = bpf_object__find_prog_by_idx(obj, obj->efile.text_shndx);
 		if (!text) {
 			pr_warning("no .text section found yet relo into text exist\n");
@@ -4683,6 +4677,7 @@ bpf_program__reloc_text(struct bpf_program *prog, struct bpf_object *obj,
 			 text->insns_cnt, text->section_name,
 			 prog->section_name);
 	}
+
 	insn = &prog->insns[relo->insn_idx];
 	insn->imm += relo->sym_off / 8 + prog->main_prog_cnt - relo->insn_idx;
 	return 0;
@@ -4762,8 +4757,28 @@ bpf_object__relocate(struct bpf_object *obj, const char *targ_btf_path)
 			return err;
 		}
 	}
+	/* ensure .text is relocated first, as it's going to be copied as-is
+	 * later for sub-program calls
+	 */
 	for (i = 0; i < obj->nr_programs; i++) {
 		prog = &obj->programs[i];
+		if (prog->idx != obj->efile.text_shndx)
+			continue;
+
+		err = bpf_program__relocate(prog, obj);
+		if (err) {
+			pr_warning("failed to relocate '%s'\n", prog->section_name);
+			return err;
+		}
+		break;
+	}
+	/* now relocate everything but .text, which by now is relocated
+	 * properly, so we can copy raw sub-program instructions as is safely
+	 */
+	for (i = 0; i < obj->nr_programs; i++) {
+		prog = &obj->programs[i];
+		if (prog->idx == obj->efile.text_shndx)
+			continue;
 
 		err = bpf_program__relocate(prog, obj);
 		if (err) {
