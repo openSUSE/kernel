@@ -234,35 +234,35 @@ void mt7663s_sdio_irq(struct sdio_func *func)
 {
 	struct mt7615_dev *dev = sdio_get_drvdata(func);
 	struct mt76_sdio *sdio = &dev->mt76.sdio;
-	struct mt76s_intr intr;
+	struct mt76s_intr *intr = sdio->intr_data;
 
 	/* disable interrupt */
-	sdio_writel(func, WHLPCR_INT_EN_CLR, MCR_WHLPCR, 0);
+	sdio_writel(func, WHLPCR_INT_EN_CLR, MCR_WHLPCR, NULL);
 
 	do {
-		sdio_readsb(func, &intr, MCR_WHISR, sizeof(struct mt76s_intr));
-		trace_dev_irq(&dev->mt76, intr.isr, 0);
+		sdio_readsb(func, intr, MCR_WHISR, sizeof(struct mt76s_intr));
+		trace_dev_irq(&dev->mt76, intr->isr, 0);
 
 		if (!test_bit(MT76_STATE_INITIALIZED, &dev->mt76.phy.state))
 			goto out;
 
-		if (intr.isr & WHIER_RX0_DONE_INT_EN) {
-			mt7663s_rx_run_queue(dev, 0, &intr);
+		if (intr->isr & WHIER_RX0_DONE_INT_EN) {
+			mt7663s_rx_run_queue(dev, 0, intr);
 			wake_up_process(sdio->kthread);
 		}
 
-		if (intr.isr & WHIER_RX1_DONE_INT_EN) {
-			mt7663s_rx_run_queue(dev, 1, &intr);
+		if (intr->isr & WHIER_RX1_DONE_INT_EN) {
+			mt7663s_rx_run_queue(dev, 1, intr);
 			wake_up_process(sdio->kthread);
 		}
 
-		if (intr.isr & WHIER_TX_DONE_INT_EN) {
-			mt7663s_refill_sched_quota(dev, intr.tx.wtqcr);
+		if (intr->isr & WHIER_TX_DONE_INT_EN) {
+			mt7663s_refill_sched_quota(dev, intr->tx.wtqcr);
 			mt7663s_tx_run_queues(dev);
 			wake_up_process(sdio->kthread);
 		}
-	} while (intr.isr);
+	} while (intr->isr);
 out:
 	/* enable interrupt */
-	sdio_writel(func, WHLPCR_INT_EN_SET, MCR_WHLPCR, 0);
+	sdio_writel(func, WHLPCR_INT_EN_SET, MCR_WHLPCR, NULL);
 }

@@ -381,6 +381,14 @@ static int mt7663s_probe(struct sdio_func *func,
 		    (mt76_rr(dev, MT_HW_REV) & 0xff);
 	dev_dbg(mdev->dev, "ASIC revision: %04x\n", mdev->rev);
 
+	mdev->sdio.intr_data = devm_kmalloc(mdev->dev,
+					    sizeof(struct mt76s_intr),
+					    GFP_KERNEL);
+	if (!mdev->sdio.intr_data) {
+		ret = -ENOMEM;
+		goto err_deinit;
+	}
+
 	ret = mt76s_alloc_queues(&dev->mt76);
 	if (ret)
 		goto err_deinit;
@@ -425,6 +433,8 @@ static int mt7663s_suspend(struct device *dev)
 		if (err < 0)
 			return err;
 	}
+
+	sdio_set_host_pm_flags(func, MMC_PM_KEEP_POWER);
 
 	mt76s_stop_txrx(&mdev->mt76);
 

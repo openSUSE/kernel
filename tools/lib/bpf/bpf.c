@@ -32,6 +32,9 @@
 #include "libbpf.h"
 #include "libbpf_internal.h"
 
+/* make sure libbpf doesn't use kernel-only integer typedefs */
+#pragma GCC poison u8 u16 u32 u64 s8 s16 s32 s64
+
 /*
  * When building perf, unistd.h is overridden. __NR_bpf is
  * required to be defined explicitly.
@@ -95,7 +98,11 @@ int bpf_create_map_xattr(const struct bpf_create_map_attr *create_attr)
 	attr.btf_key_type_id = create_attr->btf_key_type_id;
 	attr.btf_value_type_id = create_attr->btf_value_type_id;
 	attr.map_ifindex = create_attr->map_ifindex;
-	attr.inner_map_fd = create_attr->inner_map_fd;
+	if (attr.map_type == BPF_MAP_TYPE_STRUCT_OPS)
+		attr.btf_vmlinux_value_type_id =
+			create_attr->btf_vmlinux_value_type_id;
+	else
+		attr.inner_map_fd = create_attr->inner_map_fd;
 
 	return sys_bpf(BPF_MAP_CREATE, &attr, sizeof(attr));
 }
@@ -228,7 +235,10 @@ int bpf_load_program_xattr(const struct bpf_load_program_attr *load_attr,
 	memset(&attr, 0, sizeof(attr));
 	attr.prog_type = load_attr->prog_type;
 	attr.expected_attach_type = load_attr->expected_attach_type;
-	if (attr.prog_type == BPF_PROG_TYPE_TRACING) {
+	if (attr.prog_type == BPF_PROG_TYPE_STRUCT_OPS) {
+		attr.attach_btf_id = load_attr->attach_btf_id;
+	} else if (attr.prog_type == BPF_PROG_TYPE_TRACING ||
+		   attr.prog_type == BPF_PROG_TYPE_EXT) {
 		attr.attach_btf_id = load_attr->attach_btf_id;
 		attr.attach_prog_fd = load_attr->attach_prog_fd;
 	} else {
@@ -467,13 +477,28 @@ int bpf_obj_get(const char *pathname)
 int bpf_prog_attach(int prog_fd, int target_fd, enum bpf_attach_type type,
 		    unsigned int flags)
 {
+	DECLARE_LIBBPF_OPTS(bpf_prog_attach_opts, opts,
+		.flags = flags,
+	);
+
+	return bpf_prog_attach_xattr(prog_fd, target_fd, type, &opts);
+}
+
+int bpf_prog_attach_xattr(int prog_fd, int target_fd,
+			  enum bpf_attach_type type,
+			  const struct bpf_prog_attach_opts *opts)
+{
 	union bpf_attr attr;
+
+	if (!OPTS_VALID(opts, bpf_prog_attach_opts))
+		return -EINVAL;
 
 	memset(&attr, 0, sizeof(attr));
 	attr.target_fd	   = target_fd;
 	attr.attach_bpf_fd = prog_fd;
 	attr.attach_type   = type;
-	attr.attach_flags  = flags;
+	attr.attach_flags  = OPTS_GET(opts, flags, 0);
+	attr.replace_bpf_fd = OPTS_GET(opts, replace_prog_fd, 0);
 
 	return sys_bpf(BPF_PROG_ATTACH, &attr, sizeof(attr));
 }

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0
+#include <string.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <linux/bpf.h>
-#include "bpf_helpers.h"
+#include <bpf/bpf_helpers.h>
 
 char _license[] SEC("license") = "GPL";
 __u32 _version SEC("version") = 1;
@@ -41,6 +43,14 @@ int _getsockopt(struct bpf_sockopt *ctx)
 
 	if (ctx->level == SOL_SOCKET && ctx->optname == SO_SNDBUF) {
 		/* Not interested in SOL_SOCKET:SO_SNDBUF;
+		 * let next BPF program in the cgroup chain or kernel
+		 * handle it.
+		 */
+		return 1;
+	}
+
+	if (ctx->level == SOL_TCP && ctx->optname == TCP_CONGESTION) {
+		/* Not interested in SOL_TCP:TCP_CONGESTION;
 		 * let next BPF program in the cgroup chain or kernel
 		 * handle it.
 		 */
@@ -114,6 +124,18 @@ int _setsockopt(struct bpf_sockopt *ctx)
 
 		*(__u32 *)optval = 0x55AA;
 		ctx->optlen = 4;
+
+		return 1;
+	}
+
+	if (ctx->level == SOL_TCP && ctx->optname == TCP_CONGESTION) {
+		/* Always use cubic */
+
+		if (optval + 5 > optval_end)
+			return 0; /* EPERM, bounds check */
+
+		memcpy(optval, "cubic", 5);
+		ctx->optlen = 5;
 
 		return 1;
 	}

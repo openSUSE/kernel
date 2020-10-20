@@ -91,7 +91,6 @@ void test_test_overhead(void)
 	if (CHECK(!fexit_prog, "find_probe",
 		  "prog '%s' not found\n", fexit_name))
 		goto cleanup;
-
 	err = bpf_object__load(obj);
 	if (CHECK(err, "obj_load", "err %d\n", err))
 		goto cleanup;
@@ -137,6 +136,7 @@ void test_test_overhead(void)
 		goto cleanup;
 	test_run("fexit");
 	bpf_link__destroy(link);
+
 cleanup:
 	bpf_object__close(obj);
 }

@@ -122,11 +122,14 @@ static int komeda_parse_pipe_dt(struct komeda_dev *mdev, struct device_node *np)
 	pipe->pxlclk = clk;
 
 	/* enum ports */
-	pipe->of_output_dev =
+	pipe->of_output_links[0] =
 		of_graph_get_remote_node(np, KOMEDA_OF_PORT_OUTPUT, 0);
+	pipe->of_output_links[1] =
+		of_graph_get_remote_node(np, KOMEDA_OF_PORT_OUTPUT, 1);
 	pipe->of_output_port =
 		of_graph_get_port_by_id(np, KOMEDA_OF_PORT_OUTPUT);
 
+	pipe->dual_link = pipe->of_output_links[0] && pipe->of_output_links[1];
 	pipe->of_node = of_node_get(np);
 
 	return 0;
@@ -143,6 +146,12 @@ static int komeda_parse_dt(struct device *dev, struct komeda_dev *mdev)
 		DRM_ERROR("could not get IRQ number.\n");
 		return mdev->irq;
 	}
+
+	/* Get the optional framebuffer memory resource */
+	ret = of_reserved_mem_device_init(dev);
+	if (ret && ret != -ENODEV)
+		return ret;
+	ret = 0;
 
 	/* Get the optional framebuffer memory resource */
 	ret = of_reserved_mem_device_init(dev);
@@ -295,6 +304,8 @@ void komeda_dev_destroy(struct komeda_dev *mdev)
 	}
 
 	mdev->n_pipelines = 0;
+
+	of_reserved_mem_device_release(dev);
 
 	of_reserved_mem_device_release(dev);
 

@@ -453,6 +453,7 @@ struct mt76_sdio {
 	unsigned long state;
 
 	struct sdio_func *func;
+	void *intr_data;
 
 	struct {
 		struct mutex lock;

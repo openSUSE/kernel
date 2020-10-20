@@ -118,7 +118,7 @@ struct htab_elem {
 		struct bpf_lru_node lru_node;
 	};
 	u32 hash;
-	char key[0] __aligned(8);
+	char key[] __aligned(8);
 };
 
 static inline bool htab_is_prealloc(const struct bpf_htab *htab)
@@ -1409,8 +1409,7 @@ alloc:
 	}
 
 again:
-	preempt_disable();
-	this_cpu_inc(bpf_prog_active);
+	bpf_disable_instrumentation();
 	rcu_read_lock();
 again_nocopy:
 	dst_key = keys;
@@ -1438,8 +1437,7 @@ again_nocopy:
 		 */
 		htab_unlock_bucket(htab, b, flags);
 		rcu_read_unlock();
-		this_cpu_dec(bpf_prog_active);
-		preempt_enable();
+		bpf_enable_instrumentation();
 		goto after_loop;
 	}
 
@@ -1450,8 +1448,7 @@ again_nocopy:
 		 */
 		htab_unlock_bucket(htab, b, flags);
 		rcu_read_unlock();
-		this_cpu_dec(bpf_prog_active);
-		preempt_enable();
+		bpf_enable_instrumentation();
 		kvfree(keys);
 		kvfree(values);
 		goto alloc;
@@ -1521,8 +1518,7 @@ next_batch:
 	}
 
 	rcu_read_unlock();
-	this_cpu_dec(bpf_prog_active);
-	preempt_enable();
+	bpf_enable_instrumentation();
 	if (bucket_cnt && (copy_to_user(ukeys + total * key_size, keys,
 	    key_size * bucket_cnt) ||
 	    copy_to_user(uvalues + total * value_size, values,
