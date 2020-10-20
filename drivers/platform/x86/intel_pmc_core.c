@@ -636,7 +636,7 @@ static void pmc_core_slps0_display(struct pmc_dev *pmcdev, struct device *dev,
 		offset += 4;
 		while (map->name) {
 			if (dev)
-				dev_dbg(dev, "SLP_S0_DBG: %-32s\tState: %s\n",
+				dev_info(dev, "SLP_S0_DBG: %-32s\tState: %s\n",
 					map->name,
 					data & map->bit_mask ? "Yes" : "No");
 			if (s)
@@ -679,7 +679,7 @@ static void pmc_core_lpm_display(struct pmc_dev *pmcdev, struct device *dev,
 
 	for (idx = 0; idx < arr_size; idx++) {
 		if (dev)
-			dev_dbg(dev, "\nLPM_%s_%d:\t0x%x\n", str, idx,
+			dev_info(dev, "\nLPM_%s_%d:\t0x%x\n", str, idx,
 				lpm_regs[idx]);
 		if (s)
 			seq_printf(s, "\nLPM_%s_%d:\t0x%x\n", str, idx,
@@ -687,7 +687,7 @@ static void pmc_core_lpm_display(struct pmc_dev *pmcdev, struct device *dev,
 		for (index = 0; maps[idx][index].name && index < len; index++) {
 			bit_mask = maps[idx][index].bit_mask;
 			if (dev)
-				dev_dbg(dev, "%-30s %-30d\n",
+				dev_info(dev, "%-30s %-30d\n",
 					maps[idx][index].name,
 					lpm_regs[idx] & bit_mask ? 1 : 0);
 			if (s)
