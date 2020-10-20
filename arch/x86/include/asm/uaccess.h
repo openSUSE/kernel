@@ -677,6 +677,15 @@ extern void __cmpxchg_wrong_size(void)
 		-EFAULT;						\
 })
 
+#ifdef CONFIG_ARCH_HAS_COPY_MC
+unsigned long __must_check
+copy_mc_to_kernel(void *to, const void *from, unsigned len);
+#define copy_mc_to_kernel copy_mc_to_kernel
+
+unsigned long __must_check
+copy_mc_to_user(void *to, const void *from, unsigned len);
+#endif
+
 /*
  * movsl can be slow when source and dest are not both 8-byte aligned
  */
