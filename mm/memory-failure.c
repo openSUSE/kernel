@@ -1807,7 +1807,6 @@ static int __soft_offline_page(struct page *page)
 
 static int soft_offline_in_use_page(struct page *page)
 {
-	int ret;
 	struct page *hpage = compound_head(page);
 
 	if (!PageHuge(page) && PageTransHuge(hpage))
