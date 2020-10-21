@@ -342,33 +342,55 @@ static int xsk_load_xdp_prog(struct xsk_socket *xsk)
 	/* This is the C-program:
 	 * SEC("xdp_sock") int xdp_sock_prog(struct xdp_md *ctx)
 	 * {
-	 *     int index = ctx->rx_queue_index;
+	 *     int ret, index = ctx->rx_queue_index;
 	 *
 	 *     // A set entry here means that the correspnding queue_id
 	 *     // has an active AF_XDP socket bound to it.
+	 *     ret = bpf_redirect_map(&xsks_map, index, XDP_PASS);
+	 *     if (ret > 0)
+	 *         return ret;
+	 *
+	 *     // Fallback for pre-5.3 kernels, not supporting default
+	 *     // action in the flags parameter.
 	 *     if (bpf_map_lookup_elem(&xsks_map, &index))
 	 *         return bpf_redirect_map(&xsks_map, index, 0);
-	 *
 	 *     return XDP_PASS;
 	 * }
 	 */
 	struct bpf_insn prog[] = {
-		/* r1 = *(u32 *)(r1 + 16) */
-		BPF_LDX_MEM(BPF_W, BPF_REG_1, BPF_REG_1, 16),
-		/* *(u32 *)(r10 - 4) = r1 */
-		BPF_STX_MEM(BPF_W, BPF_REG_10, BPF_REG_1, -4),
-		BPF_MOV64_REG(BPF_REG_2, BPF_REG_10),
-		BPF_ALU64_IMM(BPF_ADD, BPF_REG_2, -4),
+		/* r2 = *(u32 *)(r1 + 16) */
+		BPF_LDX_MEM(BPF_W, BPF_REG_2, BPF_REG_1, 16),
+		/* *(u32 *)(r10 - 4) = r2 */
+		BPF_STX_MEM(BPF_W, BPF_REG_10, BPF_REG_2, -4),
+		/* r1 = xskmap[] */
 		BPF_LD_MAP_FD(BPF_REG_1, xsk->xsks_map_fd),
+		/* r3 = XDP_PASS */
+		BPF_MOV64_IMM(BPF_REG_3, 2),
+		/* call bpf_redirect_map */
+		BPF_EMIT_CALL(BPF_FUNC_redirect_map),
+		/* if w0 != 0 goto pc+13 */
+		BPF_JMP32_IMM(BPF_JSGT, BPF_REG_0, 0, 13),
+		/* r2 = r10 */
+		BPF_MOV64_REG(BPF_REG_2, BPF_REG_10),
+		/* r2 += -4 */
+		BPF_ALU64_IMM(BPF_ADD, BPF_REG_2, -4),
+		/* r1 = xskmap[] */
+		BPF_LD_MAP_FD(BPF_REG_1, xsk->xsks_map_fd),
+		/* call bpf_map_lookup_elem */
 		BPF_EMIT_CALL(BPF_FUNC_map_lookup_elem),
+		/* r1 = r0 */
 		BPF_MOV64_REG(BPF_REG_1, BPF_REG_0),
-		BPF_MOV32_IMM(BPF_REG_0, 2),
-		/* if r1 == 0 goto +5 */
+		/* r0 = XDP_PASS */
+		BPF_MOV64_IMM(BPF_REG_0, 2),
+		/* if r1 == 0 goto pc+5 */
 		BPF_JMP_IMM(BPF_JEQ, BPF_REG_1, 0, 5),
 		/* r2 = *(u32 *)(r10 - 4) */
-		BPF_LD_MAP_FD(BPF_REG_1, xsk->xsks_map_fd),
 		BPF_LDX_MEM(BPF_W, BPF_REG_2, BPF_REG_10, -4),
-		BPF_MOV32_IMM(BPF_REG_3, 0),
+		/* r1 = xskmap[] */
+		BPF_LD_MAP_FD(BPF_REG_1, xsk->xsks_map_fd),
+		/* r3 = 0 */
+		BPF_MOV64_IMM(BPF_REG_3, 0),
+		/* call bpf_redirect_map */
 		BPF_EMIT_CALL(BPF_FUNC_redirect_map),
 		/* The jumps are to this instruction */
 		BPF_EXIT_INSN(),
@@ -412,13 +434,18 @@ static int xsk_get_max_queues(struct xsk_socket *xsk)
 		goto out;
 	}
 
-	if (err || channels.max_combined == 0)
+	if (err) {
 		/* If the device says it has no channels, then all traffic
 		 * is sent to a single stream, so max queues = 1.
 		 */
 		ret = 1;
-	else
-		ret = channels.max_combined;
+	} else {
+		/* Take the max of rx, tx, combined. Drivers return
+		 * the number of channels in different ways.
+		 */
+		ret = max(channels.max_rx, channels.max_tx);
+		ret = max(ret, (int)channels.max_combined);
+	}
 
 out:
 	close(fd);
@@ -543,7 +570,8 @@ static int xsk_setup_xdp_prog(struct xsk_socket *xsk)
 		}
 	}
 
-	err = xsk_set_bpf_maps(xsk);
+	if (xsk->rx)
+		err = xsk_set_bpf_maps(xsk);
 	if (err) {
 		xsk_delete_bpf_maps(xsk);
 		close(xsk->prog_fd);
@@ -564,17 +592,23 @@ int xsk_socket__create(struct xsk_socket **xsk_ptr, const char *ifname,
 	struct xsk_socket *xsk;
 	int err;
 
-	if (!umem || !xsk_ptr || !rx || !tx)
+	if (!umem || !xsk_ptr || !(rx || tx))
 		return -EFAULT;
-
-	if (umem->refcount) {
-		pr_warning("Error: shared umems not supported by libbpf.\n");
-		return -EBUSY;
-	}
 
 	xsk = calloc(1, sizeof(*xsk));
 	if (!xsk)
 		return -ENOMEM;
+
+	err = xsk_set_xdp_socket_config(&xsk->config, usr_config);
+	if (err)
+		goto out_xsk_alloc;
+
+	if (umem->refcount &&
+	    !(xsk->config.libbpf_flags & XSK_LIBBPF_FLAGS__INHIBIT_PROG_LOAD)) {
+		pr_warning("Error: shared umems not supported by libbpf supplied XDP program.\n");
+		err = -EBUSY;
+		goto out_xsk_alloc;
+	}
 
 	if (umem->refcount++ > 0) {
 		xsk->fd = socket(AF_XDP, SOCK_RAW, 0);
@@ -596,10 +630,6 @@ int xsk_socket__create(struct xsk_socket **xsk_ptr, const char *ifname,
 	}
 	memcpy(xsk->ifname, ifname, IFNAMSIZ - 1);
 	xsk->ifname[IFNAMSIZ - 1] = '\0';
-
-	err = xsk_set_xdp_socket_config(&xsk->config, usr_config);
-	if (err)
-		goto out_socket;
 
 	if (rx) {
 		err = setsockopt(xsk->fd, SOL_XDP, XDP_RX_RING,
@@ -668,7 +698,12 @@ int xsk_socket__create(struct xsk_socket **xsk_ptr, const char *ifname,
 	sxdp.sxdp_family = PF_XDP;
 	sxdp.sxdp_ifindex = xsk->ifindex;
 	sxdp.sxdp_queue_id = xsk->queue_id;
-	sxdp.sxdp_flags = xsk->config.bind_flags;
+	if (umem->refcount > 1) {
+		sxdp.sxdp_flags = XDP_SHARED_UMEM;
+		sxdp.sxdp_shared_umem_fd = umem->fd;
+	} else {
+		sxdp.sxdp_flags = xsk->config.bind_flags;
+	}
 
 	err = bind(xsk->fd, (struct sockaddr *)&sxdp, sizeof(sxdp));
 	if (err) {

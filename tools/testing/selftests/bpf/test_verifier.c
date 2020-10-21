@@ -61,6 +61,7 @@
 #define UNPRIV_SYSCTL "kernel/unprivileged_bpf_disabled"
 static bool unpriv_disabled = false;
 static int skips;
+static bool verbose = false;
 
 struct bpf_test {
 	const char *descr;
@@ -92,7 +93,8 @@ struct bpf_test {
 	enum {
 		UNDEF,
 		ACCEPT,
-		REJECT
+		REJECT,
+		VERBOSE_ACCEPT,
 	} result, result_unpriv;
 	enum bpf_prog_type prog_type;
 	uint8_t flags;
@@ -406,10 +408,10 @@ static void update_map(int fd, int index)
 	assert(!bpf_map_update_elem(fd, &index, &value, 0));
 }
 
-static int create_prog_dummy1(enum bpf_prog_type prog_type)
+static int create_prog_dummy_simple(enum bpf_prog_type prog_type, int ret)
 {
 	struct bpf_insn prog[] = {
-		BPF_MOV64_IMM(BPF_REG_0, 42),
+		BPF_MOV64_IMM(BPF_REG_0, ret),
 		BPF_EXIT_INSN(),
 	};
 
@@ -417,14 +419,15 @@ static int create_prog_dummy1(enum bpf_prog_type prog_type)
 				ARRAY_SIZE(prog), "GPL", 0, NULL, 0);
 }
 
-static int create_prog_dummy2(enum bpf_prog_type prog_type, int mfd, int idx)
+static int create_prog_dummy_loop(enum bpf_prog_type prog_type, int mfd,
+				  int idx, int ret)
 {
 	struct bpf_insn prog[] = {
 		BPF_MOV64_IMM(BPF_REG_3, idx),
 		BPF_LD_MAP_FD(BPF_REG_2, mfd),
 		BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, 0, 0,
 			     BPF_FUNC_tail_call),
-		BPF_MOV64_IMM(BPF_REG_0, 41),
+		BPF_MOV64_IMM(BPF_REG_0, ret),
 		BPF_EXIT_INSN(),
 	};
 
@@ -433,10 +436,9 @@ static int create_prog_dummy2(enum bpf_prog_type prog_type, int mfd, int idx)
 }
 
 static int create_prog_array(enum bpf_prog_type prog_type, uint32_t max_elem,
-			     int p1key)
+			     int p1key, int p2key, int p3key)
 {
-	int p2key = 1;
-	int mfd, p1fd, p2fd;
+	int mfd, p1fd, p2fd, p3fd;
 
 	mfd = bpf_create_map(BPF_MAP_TYPE_PROG_ARRAY, sizeof(int),
 			     sizeof(int), max_elem, 0);
@@ -447,23 +449,24 @@ static int create_prog_array(enum bpf_prog_type prog_type, uint32_t max_elem,
 		return -1;
 	}
 
-	p1fd = create_prog_dummy1(prog_type);
-	p2fd = create_prog_dummy2(prog_type, mfd, p2key);
-	if (p1fd < 0 || p2fd < 0)
-		goto out;
+	p1fd = create_prog_dummy_simple(prog_type, 42);
+	p2fd = create_prog_dummy_loop(prog_type, mfd, p2key, 41);
+	p3fd = create_prog_dummy_simple(prog_type, 24);
+	if (p1fd < 0 || p2fd < 0 || p3fd < 0)
+		goto err;
 	if (bpf_map_update_elem(mfd, &p1key, &p1fd, BPF_ANY) < 0)
-		goto out;
+		goto err;
 	if (bpf_map_update_elem(mfd, &p2key, &p2fd, BPF_ANY) < 0)
-		goto out;
+		goto err;
+	if (bpf_map_update_elem(mfd, &p3key, &p3fd, BPF_ANY) < 0) {
+err:
+		close(mfd);
+		mfd = -1;
+	}
+	close(p3fd);
 	close(p2fd);
 	close(p1fd);
-
 	return mfd;
-out:
-	close(p2fd);
-	close(p1fd);
-	close(mfd);
-	return -1;
 }
 
 static int create_map_in_map(void)
@@ -682,7 +685,7 @@ static void do_test_fixup(struct bpf_test *test, enum bpf_prog_type prog_type,
 	}
 
 	if (*fixup_prog1) {
-		map_fds[4] = create_prog_array(prog_type, 4, 0);
+		map_fds[4] = create_prog_array(prog_type, 4, 0, 1, 2);
 		do {
 			prog[*fixup_prog1].imm = map_fds[4];
 			fixup_prog1++;
@@ -690,7 +693,7 @@ static void do_test_fixup(struct bpf_test *test, enum bpf_prog_type prog_type,
 	}
 
 	if (*fixup_prog2) {
-		map_fds[5] = create_prog_array(prog_type, 8, 7);
+		map_fds[5] = create_prog_array(prog_type, 8, 7, 1, 2);
 		do {
 			prog[*fixup_prog2].imm = map_fds[5];
 			fixup_prog2++;
@@ -859,6 +862,36 @@ static int do_prog_test_run(int fd_prog, bool unpriv, uint32_t expected_val,
 	return 0;
 }
 
+static bool cmp_str_seq(const char *log, const char *exp)
+{
+	char needle[80];
+	const char *p, *q;
+	int len;
+
+	do {
+		p = strchr(exp, '\t');
+		if (!p)
+			p = exp + strlen(exp);
+
+		len = p - exp;
+		if (len >= sizeof(needle) || !len) {
+			printf("FAIL\nTestcase bug\n");
+			return false;
+		}
+		strncpy(needle, exp, len);
+		needle[len] = 0;
+		q = strstr(log, needle);
+		if (!q) {
+			printf("FAIL\nUnexpected verifier log in successful load!\n"
+			       "EXP: %s\nRES:\n", needle);
+			return false;
+		}
+		log = q + len;
+		exp = p + 1;
+	} while (*p);
+	return true;
+}
+
 static void do_test_single(struct bpf_test *test, bool unpriv,
 			   int *passes, int *errors)
 {
@@ -897,14 +930,20 @@ static void do_test_single(struct bpf_test *test, bool unpriv,
 		pflags |= BPF_F_STRICT_ALIGNMENT;
 	if (test->flags & F_NEEDS_EFFICIENT_UNALIGNED_ACCESS)
 		pflags |= BPF_F_ANY_ALIGNMENT;
+	if (test->flags & ~3)
+		pflags |= test->flags;
 
+	expected_ret = unpriv && test->result_unpriv != UNDEF ?
+		       test->result_unpriv : test->result;
+	expected_err = unpriv && test->errstr_unpriv ?
+		       test->errstr_unpriv : test->errstr;
 	memset(&attr, 0, sizeof(attr));
 	attr.prog_type = prog_type;
 	attr.expected_attach_type = test->expected_attach_type;
 	attr.insns = prog;
 	attr.insns_cnt = prog_len;
 	attr.license = "GPL";
-	attr.log_level = 4;
+	attr.log_level = verbose || expected_ret == VERBOSE_ACCEPT ? 1 : 4;
 	attr.prog_flags = pflags;
 
 	fd_prog = bpf_load_program_xattr(&attr, bpf_vlog, sizeof(bpf_vlog));
@@ -914,14 +953,9 @@ static void do_test_single(struct bpf_test *test, bool unpriv,
 		goto close_fds;
 	}
 
-	expected_ret = unpriv && test->result_unpriv != UNDEF ?
-		       test->result_unpriv : test->result;
-	expected_err = unpriv && test->errstr_unpriv ?
-		       test->errstr_unpriv : test->errstr;
-
 	alignment_prevented_execution = 0;
 
-	if (expected_ret == ACCEPT) {
+	if (expected_ret == ACCEPT || expected_ret == VERBOSE_ACCEPT) {
 		if (fd_prog < 0) {
 			printf("FAIL\nFailed to load prog '%s'!\n",
 			       strerror(errno));
@@ -932,6 +966,9 @@ static void do_test_single(struct bpf_test *test, bool unpriv,
 		    (test->flags & F_NEEDS_EFFICIENT_UNALIGNED_ACCESS))
 			alignment_prevented_execution = 1;
 #endif
+		if (expected_ret == VERBOSE_ACCEPT && !cmp_str_seq(bpf_vlog, expected_err)) {
+			goto fail_log;
+		}
 	} else {
 		if (fd_prog >= 0) {
 			printf("FAIL\nUnexpected success to load!\n");
@@ -956,6 +993,9 @@ static void do_test_single(struct bpf_test *test, bool unpriv,
 			goto fail_log;
 		}
 	}
+
+	if (verbose)
+		printf(", verifier log:\n%s", bpf_vlog);
 
 	run_errs = 0;
 	run_successes = 0;
@@ -1097,17 +1137,24 @@ int main(int argc, char **argv)
 {
 	unsigned int from = 0, to = ARRAY_SIZE(tests);
 	bool unpriv = !is_admin();
+	int arg = 1;
+
+	if (argc > 1 && strcmp(argv[1], "-v") == 0) {
+		arg++;
+		verbose = true;
+		argc--;
+	}
 
 	if (argc == 3) {
-		unsigned int l = atoi(argv[argc - 2]);
-		unsigned int u = atoi(argv[argc - 1]);
+		unsigned int l = atoi(argv[arg]);
+		unsigned int u = atoi(argv[arg + 1]);
 
 		if (l < to && u < to) {
 			from = l;
 			to   = u + 1;
 		}
 	} else if (argc == 2) {
-		unsigned int t = atoi(argv[argc - 1]);
+		unsigned int t = atoi(argv[arg]);
 
 		if (t < to) {
 			from = t;
