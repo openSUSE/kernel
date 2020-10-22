@@ -2,3 +2,7 @@ gpiogpio-event-mon
 gpiogpio-hammer
 gpioinclude/
 gpiolsgpio
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
