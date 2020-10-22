@@ -211,6 +211,8 @@ DECLARE_STATIC_KEY_FALSE(preempt_voluntary_key);
 extern int _cond_resched(void);
 # define might_resched() \
 	do { if (static_branch_likely(&preempt_voluntary_key)) _cond_resched(); } while (0)
+#else
+# define might_resched() do { } while (0)
 #endif
 
 #ifdef CONFIG_DEBUG_ATOMIC_SLEEP
