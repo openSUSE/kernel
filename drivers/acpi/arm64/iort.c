@@ -963,19 +963,54 @@ static int iort_pci_iommu_init(struct pci_dev *pdev, u16 alias, void *data)
 	return iort_iommu_xlate(info->dev, parent, streamid);
 }
 
+static int iort_nc_iommu_map(struct device *dev, struct acpi_iort_node *node)
+{
+	struct acpi_iort_node *parent;
+	int err = -ENODEV, i = 0;
+	u32 streamid = 0;
+
+	do {
+
+		parent = iort_node_map_platform_id(node, &streamid,
+						   IORT_IOMMU_TYPE,
+						   i++);
+
+		if (parent)
+			err = iort_iommu_xlate(dev, parent, streamid);
+	} while (parent && !err);
+
+	return err;
+}
+
+static int iort_nc_iommu_map_id(struct device *dev,
+				struct acpi_iort_node *node,
+				const u32 *in_id)
+{
+	struct acpi_iort_node *parent;
+	u32 streamid;
+
+	parent = iort_node_map_id(node, *in_id, &streamid, IORT_IOMMU_TYPE);
+	if (parent)
+		return iort_iommu_xlate(dev, parent, streamid);
+
+	return -ENODEV;
+}
+
+
 /**
- * iort_iommu_configure - Set-up IOMMU configuration for a device.
+ * iort_iommu_configure_id - Set-up IOMMU configuration for a device.
  *
  * @dev: device to configure
+ * @id_in: optional input id const value pointer
  *
  * Returns: iommu_ops pointer on configuration success
  *          NULL on configuration failure
  */
-const struct iommu_ops *iort_iommu_configure(struct device *dev)
+const struct iommu_ops *iort_iommu_configure_id(struct device *dev,
+						const u32 *id_in)
 {
-	struct acpi_iort_node *node, *parent;
+	struct acpi_iort_node *node;
 	const struct iommu_ops *ops;
-	u32 streamid = 0;
 	int err = -ENODEV;
 
 	/*
@@ -1004,21 +1039,13 @@ const struct iommu_ops *iort_iommu_configure(struct device *dev)
 		if (fwspec && iort_pci_rc_supports_ats(node))
 			fwspec->flags |= IOMMU_FWSPEC_PCI_RC_ATS;
 	} else {
-		int i = 0;
-
 		node = iort_scan_node(ACPI_IORT_NODE_NAMED_COMPONENT,
 				      iort_match_node_callback, dev);
 		if (!node)
 			return NULL;
 
-		do {
-			parent = iort_node_map_platform_id(node, &streamid,
-							   IORT_IOMMU_TYPE,
-							   i++);
-
-			if (parent)
-				err = iort_iommu_xlate(dev, parent, streamid);
-		} while (parent && !err);
+		err = id_in ? iort_nc_iommu_map_id(dev, node, id_in) :
+			      iort_nc_iommu_map(dev, node);
 	}
 
 	/*
@@ -1040,6 +1067,7 @@ const struct iommu_ops *iort_iommu_configure(struct device *dev)
 
 	return ops;
 }
+
 #else
 static inline const struct iommu_ops *iort_fwspec_iommu_ops(struct device *dev)
 { return NULL; }
@@ -1048,7 +1076,8 @@ static inline int iort_add_device_replay(const struct iommu_ops *ops,
 { return 0; }
 int iort_iommu_msi_get_resv_regions(struct device *dev, struct list_head *head)
 { return 0; }
-const struct iommu_ops *iort_iommu_configure(struct device *dev)
+const struct iommu_ops *iort_iommu_configure_id(struct device *dev,
+						const u32 *input_id)
 { return NULL; }
 #endif
 
