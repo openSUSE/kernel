@@ -21,6 +21,9 @@ GLOBAL(real_mode_header)
 	.long	pa_trampoline_start
 	.long	pa_trampoline_status
 	.long	pa_trampoline_header
+#ifdef CONFIG_AMD_MEM_ENCRYPT
+	.long	pa_sev_es_trampoline_start
+#endif
 #ifdef CONFIG_X86_64
 	.long	pa_trampoline_pgd;
 #endif

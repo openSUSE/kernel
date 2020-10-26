@@ -22,6 +22,9 @@ struct real_mode_header {
 	u32	trampoline_start;
 	u32	trampoline_status;
 	u32	trampoline_header;
+#ifdef CONFIG_AMD_MEM_ENCRYPT
+	u32	sev_es_trampoline_start;
+#endif
 #ifdef CONFIG_X86_64
 	u32	trampoline_pgd;
 #endif
