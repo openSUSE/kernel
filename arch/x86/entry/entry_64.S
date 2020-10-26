@@ -1300,6 +1300,10 @@ idtentry async_page_fault	do_async_page_fault	has_error_code=1	read_cr2=1
 idtentry machine_check		do_mce			has_error_code=0	paranoid=1
 #endif
 
+#ifdef CONFIG_AMD_MEM_ENCRYPT
+idtentry_vc	X86_TRAP_VC	asm_vmm_communication	vmm_communication
+#endif
+
 /*
  * Save all registers in pt_regs. Return GSBASE related information
  * in EBX depending on the availability of the FSGSBASE instructions:
