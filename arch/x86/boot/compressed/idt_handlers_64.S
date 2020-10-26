@@ -13,7 +13,8 @@
 #include "../../entry/calling.h"
 
 .macro EXCEPTION_HANDLER name function error_code=0
-SYM_FUNC_START(\name)
+	.globl	\name
+\name:
 
 	/* Build pt_regs */
 	.if \error_code == 0
@@ -63,8 +64,9 @@ SYM_FUNC_START(\name)
 	addq    $8, %rsp
 
 	iretq
-SYM_FUNC_END(\name)
 	.endm
 
 	.text
 	.code64
+
+EXCEPTION_HANDLER	boot_page_fault do_boot_page_fault error_code=1
