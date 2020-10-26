@@ -354,6 +354,14 @@ ENTRY(startup_64)
 	movq	%rax, gdt64+2(%rip)
 	lgdt	gdt64(%rip)
 
+	/* Reload CS so IRET returns to a CS actually in the GDT */
+	pushq	$__KERNEL_CS
+	leaq	.Lon_kernel_cs(%rip), %rax
+	pushq	%rax
+	lretq
+
+.Lon_kernel_cs:
+
 	/*
 	 * paging_prepare() sets up the trampoline and checks if we need to
 	 * enable 5-level paging.
