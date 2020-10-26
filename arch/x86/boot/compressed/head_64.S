@@ -523,6 +523,15 @@ relocated:
 	shrq	$3, %rcx
 	rep	stosq
 
+	/*
+	 * The GDT may get overwritten either during the copy we just did or
+	 * during extract_kernel below. To avoid any issues, repoint the GDTR
+	 * to the new copy of the GDT.
+	 */
+	leaq	gdt(%rip), %rax
+	movq	%rax, gdt64+2(%rip)
+	lgdt	gdt64(%rip)
+
 /*
  * Do the extraction, and jump to the new kernel..
  */
