@@ -7068,11 +7068,16 @@ static int check_return_code(struct bpf_verifier_env *env)
 			range = tnum_const(0);
 			break;
 		case BPF_TRACE_RAW_TP:
+		case BPF_MODIFY_RETURN:
 			return 0;
 		default:
 			return -ENOTSUPP;
 		}
 		break;
+	case BPF_PROG_TYPE_EXT:
+		/* freplace program can return anything as its return value
+		 * depends on the to-be-replaced kernel func or bpf program.
+		 */
 	default:
 		return 0;
 	}
