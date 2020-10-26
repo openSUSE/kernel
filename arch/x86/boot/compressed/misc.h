@@ -124,6 +124,12 @@ static inline void console_init(void)
 
 void set_sev_encryption_mask(void);
 
+#ifdef CONFIG_AMD_MEM_ENCRYPT
+void sev_es_shutdown_ghcb(void);
+#else
+static inline void sev_es_shutdown_ghcb(void) { }
+#endif
+
 /* acpi.c */
 #ifdef CONFIG_ACPI
 acpi_physical_address get_rsdp_addr(void);
@@ -153,5 +159,6 @@ extern struct desc_ptr boot_idt_desc;
 /* IDT Entry Points */
 void boot_page_fault(void);
 void boot_stage1_vc(void);
+void boot_stage2_vc(void);
 
 #endif /* BOOT_COMPRESSED_MISC_H */
