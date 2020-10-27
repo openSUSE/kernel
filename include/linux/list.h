@@ -6,6 +6,7 @@
 #include <linux/stddef.h>
 #include <linux/poison.h>
 #include <linux/const.h>
+#include <linux/jump_label.h>
 #include <linux/kernel.h>
 
 /*
