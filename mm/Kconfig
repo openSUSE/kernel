@@ -680,7 +680,6 @@ config DEV_PAGEMAP_OPS
 config HMM_MIRROR
 	bool
 	depends on MMU
-	depends on MMU_NOTIFIER
 
 config DEVICE_PRIVATE
 	bool "Unaddressable device memory (GPU memory, ...)"
@@ -730,5 +729,8 @@ config ARCH_HAS_PTE_SPECIAL
 #
 config ARCH_HAS_HUGEPD
 	bool
+
+config MAPPING_DIRTY_HELPERS
+        bool
 
 endmenu

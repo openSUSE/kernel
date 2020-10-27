@@ -617,7 +617,6 @@ ifeq ($(KBUILD_EXTMOD),)
 init-y		:= init/
 drivers-y	:= drivers/ sound/
 drivers-$(CONFIG_SAMPLES) += samples/
-drivers-$(CONFIG_KERNEL_HEADER_TEST) += include/
 net-y		:= net/
 libs-y		:= lib/
 core-y		:= usr/
