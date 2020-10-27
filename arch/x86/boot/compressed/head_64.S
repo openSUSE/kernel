@@ -33,6 +33,7 @@
 #include <asm/processor-flags.h>
 #include <asm/asm-offsets.h>
 #include <asm/bootparam.h>
+#include <asm/desc_defs.h>
 #include "pgtable.h"
 
 /*
@@ -354,6 +355,18 @@ ENTRY(startup_64)
 	movq	%rax, gdt64+2(%rip)
 	lgdt	gdt64(%rip)
 
+	/* Reload CS so IRET returns to a CS actually in the GDT */
+	pushq	$__KERNEL_CS
+	leaq	.Lon_kernel_cs(%rip), %rax
+	pushq	%rax
+	lretq
+
+.Lon_kernel_cs:
+
+	pushq	%rsi
+	call	load_stage1_idt
+	popq	%rsi
+
 	/*
 	 * paging_prepare() sets up the trampoline and checks if we need to
 	 * enable 5-level paging.
@@ -523,6 +536,30 @@ relocated:
 	shrq	$3, %rcx
 	rep	stosq
 
+	/*
+	 * The GDT may get overwritten either during the copy we just did or
+	 * during extract_kernel below. To avoid any issues, repoint the GDTR
+	 * to the new copy of the GDT.
+	 */
+	leaq	gdt(%rip), %rax
+	movq	%rax, gdt64+2(%rip)
+	lgdt	gdt64(%rip)
+
+/*
+ * If running as an SEV guest, the encryption mask is required in the
+ * page-table setup code below. When the guest also has SEV-ES enabled
+ * set_sev_encryption_mask() will cause #VC exceptions, but the stage2
+ * handler can't map its GHCB because the page-table is not set up yet.
+ * So set up the encryption mask here while still on the stage1 #VC
+ * handler. Then load stage2 IDT and switch to the kernel's own
+ * page-table.
+ */
+	pushq	%rsi
+	call	set_sev_encryption_mask
+	call	load_stage2_idt
+	call	initialize_identity_maps
+	popq	%rsi
+
 /*
  * Do the extraction, and jump to the new kernel..
  */
@@ -670,6 +707,19 @@ gdt:
 	.quad	0x0080890000000000	/* TS descriptor */
 	.quad   0x0000000000000000	/* TS continued */
 gdt_end:
+
+	.globl boot_idt_desc
+boot_idt_desc:
+	.word	boot_idt_end - boot_idt - 1
+	.quad	0
+	.balign 8
+	.globl boot_idt
+boot_idt:
+	.rept	BOOT_IDT_ENTRIES
+	.quad	0
+	.quad	0
+	.endr
+boot_idt_end:
 
 #ifdef CONFIG_EFI_STUB
 efi_config:
