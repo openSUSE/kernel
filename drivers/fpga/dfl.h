@@ -17,6 +17,7 @@
 #include <linux/bitfield.h>
 #include <linux/cdev.h>
 #include <linux/delay.h>
+#include <linux/eventfd.h>
 #include <linux/fs.h>
 #include <linux/interrupt.h>
 #include <linux/iopoll.h>
@@ -211,14 +212,19 @@ struct dfl_feature_driver {
  * struct dfl_feature_irq_ctx - dfl private feature interrupt context
  *
  * @irq: Linux IRQ number of this interrupt.
+ * @trigger: eventfd context to signal when interrupt happens.
+ * @name: irq name needed when requesting irq.
  */
 struct dfl_feature_irq_ctx {
 	int irq;
+	struct eventfd_ctx *trigger;
+	char *name;
 };
 
 /**
  * struct dfl_feature - sub feature of the feature devices
  *
+ * @dev: ptr to pdev of the feature device which has the sub feature.
  * @id: sub feature id.
  * @resource_index: each sub feature has one mmio resource for its registers.
  *		    this index is used to find its mmio resource from the
@@ -230,6 +236,7 @@ struct dfl_feature_irq_ctx {
  * @priv: priv data of this feature.
  */
 struct dfl_feature {
+	struct platform_device *dev;
 	u64 id;
 	int resource_index;
 	void __iomem *ioaddr;
@@ -473,6 +480,14 @@ struct dfl_fpga_cdev {
 struct dfl_fpga_cdev *
 dfl_fpga_feature_devs_enumerate(struct dfl_fpga_enum_info *info);
 void dfl_fpga_feature_devs_remove(struct dfl_fpga_cdev *cdev);
+int dfl_fpga_set_irq_triggers(struct dfl_feature *feature, unsigned int start,
+				unsigned int count, int32_t *fds);
+long dfl_feature_ioctl_get_num_irqs(struct platform_device *pdev,
+				struct dfl_feature *feature,
+				unsigned long arg);
+long dfl_feature_ioctl_set_irq(struct platform_device *pdev,
+				struct dfl_feature *feature,
+				unsigned long arg);
 
 /*
  * need to drop the device reference with put_device() after use port platform
