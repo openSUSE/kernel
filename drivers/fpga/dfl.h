@@ -234,6 +234,7 @@ struct dfl_feature {
 	struct dfl_feature_irq_ctx *irq_ctx;
 	unsigned int nr_irqs;
 	const struct dfl_feature_ops *ops;
+	void *priv;
 };
 
 #define FEATURE_DEV_ID_UNUSED	(-1)
