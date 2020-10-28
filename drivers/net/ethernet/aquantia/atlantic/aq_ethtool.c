@@ -704,6 +704,7 @@ static int aq_ethtool_set_priv_flags(struct net_device *ndev, u32 flags)
 	struct aq_nic_s *aq_nic = netdev_priv(ndev);
 	struct aq_nic_cfg_s *cfg;
 	u32 priv_flags;
+	int ret = 0;
 
 	cfg = aq_nic_get_cfg(aq_nic);
 	priv_flags = cfg->priv_flags;
@@ -725,10 +726,10 @@ static int aq_ethtool_set_priv_flags(struct net_device *ndev, u32 flags)
 			dev_open(ndev, NULL);
 		}
 	} else if ((priv_flags ^ flags) & AQ_HW_LOOPBACK_MASK) {
-		aq_nic_set_loopback(aq_nic);
+		ret = aq_nic_set_loopback(aq_nic);
 	}
 
-	return 0;
+	return ret;
 }
 
 const struct ethtool_ops aq_ethtool_ops = {

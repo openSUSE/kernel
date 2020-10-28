@@ -61,6 +61,7 @@ int hw_atl_b0_hw_ring_rx_stop(struct aq_hw_s *self, struct aq_ring_s *ring);
 int hw_atl_b0_hw_mac_addr_set(struct aq_hw_s *self, u8 *mac_addr);
 
 int hw_atl_b0_set_fc(struct aq_hw_s *self, u32 fc, u32 tc);
+int hw_atl_b0_set_loopback(struct aq_hw_s *self, u32 mode, bool enable);
 
 int hw_atl_b0_hw_start(struct aq_hw_s *self);
 
