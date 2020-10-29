@@ -94,7 +94,7 @@ static ssize_t fabric_version_show(struct device *dev,
 	void __iomem *base;
 	u64 v;
 
-	base = dfl_get_feature_ioaddr_by_id(dev, FME_FEATURE_ID_HEADER);
+    base = dfl_get_feature_ioaddr_by_id(dev, FME_FEATURE_ID_HEADER);
 
 	v = readq(base + FME_HDR_CAP);
 
@@ -118,7 +118,7 @@ static ssize_t socket_id_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(socket_id);
 
-static const struct attribute *fme_hdr_attrs[] = {
+static struct attribute *fme_hdr_attrs[] = {
 	&dev_attr_ports_num.attr,
 	&dev_attr_bitstream_id.attr,
 	&dev_attr_bitstream_metadata.attr,
@@ -127,6 +127,7 @@ static const struct attribute *fme_hdr_attrs[] = {
 	&dev_attr_socket_id.attr,
 	NULL,
 };
+ATTRIBUTE_GROUPS(fme_hdr);
 
 static int fme_hdr_init(struct platform_device *pdev,
 			struct dfl_feature *feature)
@@ -138,7 +139,7 @@ static int fme_hdr_init(struct platform_device *pdev,
 	dev_dbg(&pdev->dev, "FME cap %llx.\n",
 		(unsigned long long)readq(base + FME_HDR_CAP));
 
-	ret = sysfs_create_files(&pdev->dev.kobj, fme_hdr_attrs);
+	ret = device_add_groups(&pdev->dev, fme_hdr_groups);
 	if (ret)
 		return ret;
 
@@ -149,7 +150,7 @@ static void fme_hdr_uinit(struct platform_device *pdev,
 			  struct dfl_feature *feature)
 {
 	dev_dbg(&pdev->dev, "FME HDR UInit.\n");
-	sysfs_remove_files(&pdev->dev.kobj, fme_hdr_attrs);
+	device_remove_groups(&pdev->dev, fme_hdr_groups);
 }
 
 static long fme_hdr_ioctl_release_port(struct dfl_feature_platform_data *pdata,
