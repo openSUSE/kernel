@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2017 Facebook
  */
+#define _GNU_SOURCE
 #include "test_progs.h"
 #include "cgroup_helpers.h"
 #include "bpf_rlimit.h"
 #include <argp.h>
+#include <pthread.h>
+#include <sched.h>
+#include <signal.h>
 #include <string.h>
+#include <execinfo.h> /* backtrace */
 
 /* defined in test_progs.h */
-struct test_env env;
+struct test_env env = {};
 
 struct prog_test_def {
 	const char *test_name;
@@ -27,12 +32,35 @@ struct prog_test_def {
 	int old_error_cnt;
 };
 
+/* Override C runtime library's usleep() implementation to ensure nanosleep()
+ * is always called. Usleep is frequently used in selftests as a way to
+ * trigger kprobe and tracepoints.
+ */
+int usleep(useconds_t usec)
+{
+	struct timespec ts = {
+		.tv_sec = usec / 1000000,
+		.tv_nsec = (usec % 1000000) * 1000,
+	};
+
+	return syscall(__NR_nanosleep, &ts, NULL);
+}
+
 static bool should_run(struct test_selector *sel, int num, const char *name)
 {
-	if (sel->name && sel->name[0] && !strstr(name, sel->name))
-		return false;
+	int i;
 
-	if (!sel->num_set)
+	for (i = 0; i < sel->blacklist.cnt; i++) {
+		if (strstr(name, sel->blacklist.strs[i]))
+			return false;
+	}
+
+	for (i = 0; i < sel->whitelist.cnt; i++) {
+		if (strstr(name, sel->whitelist.strs[i]))
+			return true;
+	}
+
+	if (!sel->whitelist.cnt && !sel->num_set)
 		return true;
 
 	return num < sel->num_set_len && sel->num_set[num];
@@ -65,6 +93,34 @@ static void skip_account(void)
 	}
 }
 
+static void stdio_restore(void);
+
+/* A bunch of tests set custom affinity per-thread and/or per-process. Reset
+ * it after each test/sub-test.
+ */
+static void reset_affinity() {
+
+	cpu_set_t cpuset;
+	int i, err;
+
+	CPU_ZERO(&cpuset);
+	for (i = 0; i < env.nr_cpus; i++)
+		CPU_SET(i, &cpuset);
+
+	err = sched_setaffinity(0, sizeof(cpuset), &cpuset);
+	if (err < 0) {
+		stdio_restore();
+		fprintf(stderr, "Failed to reset process affinity: %d!\n", err);
+		exit(-1);
+	}
+	err = pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset);
+	if (err < 0) {
+		stdio_restore();
+		fprintf(stderr, "Failed to reset thread affinity: %d!\n", err);
+		exit(-1);
+	}
+}
+
 void test__end_subtest()
 {
 	struct prog_test_def *test = env.test;
@@ -81,6 +137,8 @@ void test__end_subtest()
 	fprintf(env.stdout, "#%d/%d %s:%s\n",
 	       test->test_num, test->subtest_num,
 	       test->subtest_name, sub_error_cnt ? "FAIL" : "OK");
+
+	reset_affinity();
 
 	free(test->subtest_name);
 	test->subtest_name = NULL;
@@ -187,7 +245,7 @@ int bpf_find_map(const char *test, struct bpf_object *obj, const char *name)
 
 	map = bpf_object__find_map_by_name(obj, name);
 	if (!map) {
-		printf("%s:FAIL:map '%s' not found\n", test, name);
+		fprintf(stdout, "%s:FAIL:map '%s' not found\n", test, name);
 		test__fail();
 		return -1;
 	}
@@ -314,7 +372,7 @@ void *spin_lock_thread(void *arg)
 }
 
 /* extern declarations for test funcs */
-#define DEFINE_TEST(name) extern void test_##name();
+#define DEFINE_TEST(name) extern void test_##name(void);
 #include <prog_tests/tests.h>
 #undef DEFINE_TEST
 
@@ -335,6 +393,7 @@ const char argp_program_doc[] = "BPF selftests test runner";
 enum ARG_KEYS {
 	ARG_TEST_NUM = 'n',
 	ARG_TEST_NAME = 't',
+	ARG_TEST_NAME_BLACKLIST = 'b',
 	ARG_VERIFIER_STATS = 's',
 	ARG_VERBOSE = 'v',
 };
@@ -342,8 +401,10 @@ enum ARG_KEYS {
 static const struct argp_option opts[] = {
 	{ "num", ARG_TEST_NUM, "NUM", 0,
 	  "Run test number NUM only " },
-	{ "name", ARG_TEST_NAME, "NAME", 0,
-	  "Run tests with names containing NAME" },
+	{ "name", ARG_TEST_NAME, "NAMES", 0,
+	  "Run tests with names containing any string from NAMES list" },
+	{ "name-blacklist", ARG_TEST_NAME_BLACKLIST, "NAMES", 0,
+	  "Don't run tests with names containing any string from NAMES list" },
 	{ "verifier-stats", ARG_VERIFIER_STATS, NULL, 0,
 	  "Output verifier statistics", },
 	{ "verbose", ARG_VERBOSE, "LEVEL", OPTION_ARG_OPTIONAL,
@@ -356,8 +417,55 @@ static int libbpf_print_fn(enum libbpf_print_level level,
 {
 	if (env.verbosity < VERBOSE_VERY && level == LIBBPF_DEBUG)
 		return 0;
-	vprintf(format, args);
+	vfprintf(stdout, format, args);
 	return 0;
+}
+
+static void free_str_set(const struct str_set *set)
+{
+	int i;
+
+	if (!set)
+		return;
+
+	for (i = 0; i < set->cnt; i++)
+		free((void *)set->strs[i]);
+	free(set->strs);
+}
+
+static int parse_str_list(const char *s, struct str_set *set)
+{
+	char *input, *state = NULL, *next, **tmp, **strs = NULL;
+	int cnt = 0;
+
+	input = strdup(s);
+	if (!input)
+		return -ENOMEM;
+
+	set->cnt = 0;
+	set->strs = NULL;
+
+	while ((next = strtok_r(state ? NULL : input, ",", &state))) {
+		tmp = realloc(strs, sizeof(*strs) * (cnt + 1));
+		if (!tmp)
+			goto err;
+		strs = tmp;
+
+		strs[cnt] = strdup(next);
+		if (!strs[cnt])
+			goto err;
+
+		cnt++;
+	}
+
+	set->cnt = cnt;
+	set->strs = (const char **)strs;
+	free(input);
+	return 0;
+err:
+	free(strs);
+	free(input);
+	return -ENOMEM;
 }
 
 int parse_num_list(const char *s, struct test_selector *sel)
@@ -451,12 +559,24 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
 
 		if (subtest_str) {
 			*subtest_str = '\0';
-			env->subtest_selector.name = strdup(subtest_str + 1);
-			if (!env->subtest_selector.name)
+			if (parse_str_list(subtest_str + 1,
+					   &env->subtest_selector.whitelist))
 				return -ENOMEM;
 		}
-		env->test_selector.name = strdup(arg);
-		if (!env->test_selector.name)
+		if (parse_str_list(arg, &env->test_selector.whitelist))
+			return -ENOMEM;
+		break;
+	}
+	case ARG_TEST_NAME_BLACKLIST: {
+		char *subtest_str = strchr(arg, '/');
+
+		if (subtest_str) {
+			*subtest_str = '\0';
+			if (parse_str_list(subtest_str + 1,
+					   &env->subtest_selector.blacklist))
+				return -ENOMEM;
+		}
+		if (parse_str_list(arg, &env->test_selector.blacklist))
 			return -ENOMEM;
 		break;
 	}
@@ -533,6 +653,50 @@ static void stdio_restore(void)
 #endif
 }
 
+/*
+ * Determine if test_progs is running as a "flavored" test runner and switch
+ * into corresponding sub-directory to load correct BPF objects.
+ *
+ * This is done by looking at executable name. If it contains "-flavor"
+ * suffix, then we are running as a flavored test runner.
+ */
+int cd_flavor_subdir(const char *exec_name)
+{
+	/* General form of argv[0] passed here is:
+	 * some/path/to/test_progs[-flavor], where -flavor part is optional.
+	 * First cut out "test_progs[-flavor]" part, then extract "flavor"
+	 * part, if it's there.
+	 */
+	const char *flavor = strrchr(exec_name, '/');
+
+	if (!flavor)
+		return 0;
+	flavor++;
+	flavor = strrchr(flavor, '-');
+	if (!flavor)
+		return 0;
+	flavor++;
+	fprintf(stdout, "Switching to flavor '%s' subdirectory...\n", flavor);
+	return chdir(flavor);
+}
+
+#define MAX_BACKTRACE_SZ 128
+void crash_handler(int signum)
+{
+	void *bt[MAX_BACKTRACE_SZ];
+	size_t sz;
+
+	sz = backtrace(bt, ARRAY_SIZE(bt));
+
+	if (env.test)
+		dump_test_log(env.test, true);
+	if (env.stdout)
+		stdio_restore();
+
+	fprintf(stderr, "Caught signal #%d!\nStack trace:\n", signum);
+	backtrace_symbols_fd(bt, sz, STDERR_FILENO);
+}
+
 int main(int argc, char **argv)
 {
 	static const struct argp argp = {
@@ -540,9 +704,19 @@ int main(int argc, char **argv)
 		.parser = parse_arg,
 		.doc = argp_program_doc,
 	};
+	struct sigaction sigact = {
+		.sa_handler = crash_handler,
+		.sa_flags = SA_RESETHAND,
+	};
 	int err, i;
 
+	sigaction(SIGSEGV, &sigact, NULL);
+
 	err = argp_parse(&argp, argc, argv, 0, NULL, &env);
+	if (err)
+		return err;
+
+	err = cd_flavor_subdir(argv[0]);
 	if (err)
 		return err;
 
@@ -551,6 +725,12 @@ int main(int argc, char **argv)
 	srand(time(NULL));
 
 	env.jit_enabled = is_jit_enabled();
+	env.nr_cpus = libbpf_num_possible_cpus();
+	if (env.nr_cpus < 0) {
+		fprintf(stderr, "Failed to get number of CPUs: %d!\n",
+			env.nr_cpus);
+		return -1;
+	}
 
 	stdio_hijack();
 	for (i = 0; i < prog_test_cnt; i++) {
@@ -581,14 +761,19 @@ int main(int argc, char **argv)
 			test->test_num, test->test_name,
 			test->error_cnt ? "FAIL" : "OK");
 
+		reset_affinity();
 		if (test->need_cgroup_cleanup)
 			cleanup_cgroup_environment();
 	}
 	stdio_restore();
-	printf("Summary: %d/%d PASSED, %d SKIPPED, %d FAILED\n",
-	       env.succ_cnt, env.sub_succ_cnt, env.skip_cnt, env.fail_cnt);
+	fprintf(stdout, "Summary: %d/%d PASSED, %d SKIPPED, %d FAILED\n",
+		env.succ_cnt, env.sub_succ_cnt, env.skip_cnt, env.fail_cnt);
 
+	free_str_set(&env.test_selector.blacklist);
+	free_str_set(&env.test_selector.whitelist);
 	free(env.test_selector.num_set);
+	free_str_set(&env.subtest_selector.blacklist);
+	free_str_set(&env.subtest_selector.whitelist);
 	free(env.subtest_selector.num_set);
 
 	return env.fail_cnt ? EXIT_FAILURE : EXIT_SUCCESS;

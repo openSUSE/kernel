@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/*
- * aQuantia Corporation Network Driver
- * Copyright (C) 2014-2017 aQuantia Corporation. All rights reserved
+/* Atlantic Network Driver
+ *
+ * Copyright (C) 2014-2019 aQuantia Corporation
+ * Copyright (C) 2019-2020 Marvell International Ltd.
  */
 
 /* File aq_ring.c: Definition of functions for Rx/Tx rings. */
@@ -10,6 +11,7 @@
 #include "aq_nic.h"
 #include "aq_hw.h"
 #include "aq_hw_utils.h"
+#include "aq_ptp.h"
 
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
@@ -29,8 +31,8 @@ static int aq_get_rxpage(struct aq_rxpage *rxpage, unsigned int order,
 			 struct device *dev)
 {
 	struct page *page;
-	dma_addr_t daddr;
 	int ret = -ENOMEM;
+	dma_addr_t daddr;
 
 	page = dev_alloc_pages(order);
 	if (unlikely(!page))
@@ -117,6 +119,7 @@ err_exit:
 		aq_ring_free(self);
 		self = NULL;
 	}
+
 	return self;
 }
 
@@ -143,6 +146,7 @@ err_exit:
 		aq_ring_free(self);
 		self = NULL;
 	}
+
 	return self;
 }
 
@@ -174,6 +178,31 @@ err_exit:
 		aq_ring_free(self);
 		self = NULL;
 	}
+
+	return self;
+}
+
+struct aq_ring_s *
+aq_ring_hwts_rx_alloc(struct aq_ring_s *self, struct aq_nic_s *aq_nic,
+		      unsigned int idx, unsigned int size, unsigned int dx_size)
+{
+	struct device *dev = aq_nic_get_dev(aq_nic);
+	size_t sz = size * dx_size + AQ_CFG_RXDS_DEF;
+
+	memset(self, 0, sizeof(*self));
+
+	self->aq_nic = aq_nic;
+	self->idx = idx;
+	self->size = size;
+	self->dx_size = dx_size;
+
+	self->dx_ring = dma_alloc_coherent(dev, sz, &self->dx_ring_pa,
+					   GFP_KERNEL);
+	if (!self->dx_ring) {
+		aq_ring_free(self);
+		return NULL;
+	}
+
 	return self;
 }
 
@@ -182,6 +211,7 @@ int aq_ring_init(struct aq_ring_s *self)
 	self->hw_head = 0;
 	self->sw_head = 0;
 	self->sw_tail = 0;
+
 	return 0;
 }
 
@@ -203,8 +233,11 @@ void aq_ring_queue_wake(struct aq_ring_s *ring)
 {
 	struct net_device *ndev = aq_nic_get_ndev(ring->aq_nic);
 
-	if (__netif_subqueue_stopped(ndev, ring->idx)) {
-		netif_wake_subqueue(ndev, ring->idx);
+	if (__netif_subqueue_stopped(ndev,
+				     AQ_NIC_RING2QMAP(ring->aq_nic,
+						      ring->idx))) {
+		netif_wake_subqueue(ndev,
+				    AQ_NIC_RING2QMAP(ring->aq_nic, ring->idx));
 		ring->stats.tx.queue_restarts++;
 	}
 }
@@ -213,8 +246,11 @@ void aq_ring_queue_stop(struct aq_ring_s *ring)
 {
 	struct net_device *ndev = aq_nic_get_ndev(ring->aq_nic);
 
-	if (!__netif_subqueue_stopped(ndev, ring->idx))
-		netif_stop_subqueue(ndev, ring->idx);
+	if (!__netif_subqueue_stopped(ndev,
+				      AQ_NIC_RING2QMAP(ring->aq_nic,
+						       ring->idx)))
+		netif_stop_subqueue(ndev,
+				    AQ_NIC_RING2QMAP(ring->aq_nic, ring->idx));
 }
 
 bool aq_ring_tx_clean(struct aq_ring_s *self)
@@ -243,9 +279,12 @@ bool aq_ring_tx_clean(struct aq_ring_s *self)
 			}
 		}
 
-		if (unlikely(buff->is_eop))
-			dev_kfree_skb_any(buff->skb);
+		if (unlikely(buff->is_eop)) {
+			++self->stats.tx.packets;
+			self->stats.tx.bytes += buff->skb->len;
 
+			dev_kfree_skb_any(buff->skb);
+		}
 		buff->pa = 0U;
 		buff->eop_index = 0xffffU;
 		self->sw_head = aq_ring_next_dx(self, self->sw_head);
@@ -290,6 +329,7 @@ int aq_ring_rx_clean(struct aq_ring_s *self,
 		self->sw_head = aq_ring_next_dx(self, self->sw_head),
 		--budget, ++(*work_done)) {
 		struct aq_ring_buff_s *buff = &self->buff_ring[self->sw_head];
+		bool is_ptp_ring = aq_ptp_ring(self->aq_nic, self);
 		struct aq_ring_buff_s *buff_ = NULL;
 		struct sk_buff *skb = NULL;
 		unsigned int next_ = 0U;
@@ -321,7 +361,8 @@ int aq_ring_rx_clean(struct aq_ring_s *self,
 				err = 0;
 				goto err_exit;
 			}
-			if (buff->is_error || buff->is_cso_err) {
+			if (buff->is_error ||
+			    (buff->is_lro && buff->is_cso_err)) {
 				buff_ = buff;
 				do {
 					next_ = buff_->next,
@@ -354,6 +395,11 @@ int aq_ring_rx_clean(struct aq_ring_s *self,
 				err = -ENOMEM;
 				goto err_exit;
 			}
+			if (is_ptp_ring)
+				buff->len -=
+					aq_ptp_extract_ts(self->aq_nic, skb,
+						aq_buf_vaddr(&buff->rxdata),
+						buff->len);
 			skb_put(skb, buff->len);
 			page_ref_inc(buff->rxdata.page);
 		} else {
@@ -362,6 +408,11 @@ int aq_ring_rx_clean(struct aq_ring_s *self,
 				err = -ENOMEM;
 				goto err_exit;
 			}
+			if (is_ptp_ring)
+				buff->len -=
+					aq_ptp_extract_ts(self->aq_nic, skb,
+						aq_buf_vaddr(&buff->rxdata),
+						buff->len);
 
 			hdr_len = buff->len;
 			if (hdr_len > AQ_CFG_RX_HDR_SIZE)
@@ -421,8 +472,11 @@ int aq_ring_rx_clean(struct aq_ring_s *self,
 		skb_set_hash(skb, buff->rss_hash,
 			     buff->is_hash_l4 ? PKT_HASH_TYPE_L4 :
 			     PKT_HASH_TYPE_NONE);
-
-		skb_record_rx_queue(skb, self->idx);
+		/* Send all PTP traffic to 0 queue */
+		skb_record_rx_queue(skb,
+				    is_ptp_ring ? 0
+						: AQ_NIC_RING2QMAP(self->aq_nic,
+								   self->idx));
 
 		++self->stats.rx.packets;
 		self->stats.rx.bytes += skb->len;
@@ -432,6 +486,23 @@ int aq_ring_rx_clean(struct aq_ring_s *self,
 
 err_exit:
 	return err;
+}
+
+void aq_ring_hwts_rx_clean(struct aq_ring_s *self, struct aq_nic_s *aq_nic)
+{
+#if IS_REACHABLE(CONFIG_PTP_1588_CLOCK)
+	while (self->sw_head != self->hw_head) {
+		u64 ns;
+
+		aq_nic->aq_hw_ops->extract_hwts(aq_nic->aq_hw,
+						self->dx_ring +
+						(self->sw_head * self->dx_size),
+						self->dx_size, &ns);
+		aq_ptp_tx_hwtstamp(aq_nic, ns);
+
+		self->sw_head = aq_ring_next_dx(self, self->sw_head);
+	}
+#endif
 }
 
 int aq_ring_rx_fill(struct aq_ring_s *self)

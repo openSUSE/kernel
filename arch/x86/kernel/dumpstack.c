@@ -46,6 +46,7 @@ bool in_task_stack(unsigned long *stack, struct task_struct *task,
 	return true;
 }
 
+/* Called from get_stack_info_noinstr - so must be noinstr too */
 bool in_entry_stack(unsigned long *stack, struct stack_info *info)
 {
 	struct entry_stack *ss = cpu_entry_stack(smp_processor_id());

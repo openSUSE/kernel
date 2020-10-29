@@ -208,6 +208,7 @@ struct output_pixel_processor {
 	struct mpc_tree mpc_tree_params;
 	bool mpcc_disconnect_pending[MAX_PIPES];
 	const struct opp_funcs *funcs;
+	uint32_t dyn_expansion;
 };
 
 enum fmt_stereo_action {
@@ -315,11 +316,6 @@ struct opp_funcs {
 
 	bool (*dpg_is_blanked)(
 			struct output_pixel_processor *opp);
-
-	void (*opp_convert_pti)(
-		struct output_pixel_processor *opp,
-		bool enable,
-		bool polarity);
 
 	void (*opp_dpg_set_blank_color)(
 			struct output_pixel_processor *opp,

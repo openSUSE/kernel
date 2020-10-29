@@ -59,6 +59,7 @@ u64 aq_hw_read_reg64(struct aq_hw_s *hw, u32 reg)
 	u64 value = aq_hw_read_reg(hw, reg);
 
 	value |= (u64)aq_hw_read_reg(hw, reg + 4) << 32;
+
 	return value;
 }
 
@@ -77,4 +78,30 @@ int aq_hw_err_from_flags(struct aq_hw_s *hw)
 
 err_exit:
 	return err;
+}
+
+int aq_hw_num_tcs(struct aq_hw_s *hw)
+{
+	switch (hw->aq_nic_cfg->tc_mode) {
+	case AQ_TC_MODE_8TCS:
+		return 8;
+	case AQ_TC_MODE_4TCS:
+		return 4;
+	default:
+		break;
+	}
+
+	return 1;
+}
+
+int aq_hw_q_per_tc(struct aq_hw_s *hw)
+{
+	switch (hw->aq_nic_cfg->tc_mode) {
+	case AQ_TC_MODE_8TCS:
+		return 4;
+	case AQ_TC_MODE_4TCS:
+		return 8;
+	default:
+		return 4;
+	}
 }

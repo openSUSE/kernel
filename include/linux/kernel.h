@@ -14,6 +14,7 @@
 #include <linux/typecheck.h>
 #include <linux/printk.h>
 #include <linux/build_bug.h>
+#include <linux/jump_label_type.h>
 #include <asm/byteorder.h>
 #include <asm/div64.h>
 #include <uapi/linux/kernel.h>
@@ -200,9 +201,16 @@ struct completion;
 struct pt_regs;
 struct user;
 
+#ifndef CONFIG_PREEMPTION
 #ifdef CONFIG_PREEMPT_VOLUNTARY
+DECLARE_STATIC_KEY_TRUE(preempt_voluntary_key);
+#else
+DECLARE_STATIC_KEY_FALSE(preempt_voluntary_key);
+#endif
+
 extern int _cond_resched(void);
-# define might_resched() _cond_resched()
+# define might_resched() \
+	do { if (static_branch_likely(&preempt_voluntary_key)) _cond_resched(); } while (0)
 #else
 # define might_resched() do { } while (0)
 #endif
