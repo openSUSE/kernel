@@ -204,6 +204,7 @@ struct dfl_feature_id {
 struct dfl_feature_driver {
 	const struct dfl_feature_id *id_table;
 	const struct dfl_feature_ops *ops;
+	void *priv;
 };
 
 /**
@@ -226,6 +227,7 @@ struct dfl_feature_irq_ctx {
  * @irq_ctx: interrupt context list.
  * @nr_irqs: number of interrupt contexts.
  * @ops: ops of this sub feature.
+ * @priv: priv data of this feature.
  */
 struct dfl_feature {
 	u64 id;
