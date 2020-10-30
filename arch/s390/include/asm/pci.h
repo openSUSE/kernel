@@ -130,7 +130,8 @@ struct zpci_dev {
 	u8		pft;		/* pci function type */
 	u8		rid_available	: 1;
 	u8		has_hp_slot	: 1;
-	u8		reserved	: 6;
+	u8		is_physfn	: 1;
+	u8		reserved	: 5;
 	unsigned int	devfn;		/* DEVFN part of the RID*/
 
 	struct mutex lock;
