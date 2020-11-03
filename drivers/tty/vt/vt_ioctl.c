@@ -37,7 +37,7 @@
 
 char vt_dont_switch;
 extern struct tty_driver *console_driver;
-static DEFINE_SPINLOCK(func_buf_lock); /* guard 'func_buf'  and friends */
+DEFINE_SPINLOCK(func_buf_lock); /* guard 'func_buf'  and friends */
 
 #define VT_IS_IN_USE(i)	(console_driver->ttys[i] && console_driver->ttys[i]->count)
 #define VT_BUSY(i)	(VT_IS_IN_USE(i) || i == fg_console || vc_cons[i].d == sel_cons)
@@ -342,10 +342,14 @@ do_kdgkb_ioctl(int cmd, struct kbsentry __user *user_kdgkb, int perm)
 	switch (cmd) {
 	case KDGKBSENT: {
 		/* size should have been a struct member */
-		unsigned char *from = func_table[i] ? : "";
+		ssize_t len = sizeof(user_kdgkb->kb_string);
 
-		ret = copy_to_user(user_kdgkb->kb_string, from,
-				strlen(from) + 1) ? -EFAULT : 0;
+		spin_lock_irqsave(&func_buf_lock, flags);
+		len = strlcpy(kbs->kb_string, func_table[i] ? : "", len);
+		spin_unlock_irqrestore(&func_buf_lock, flags);
+
+		ret = copy_to_user(user_kdgkb->kb_string, kbs->kb_string,
+				len + 1) ? -EFAULT : 0;
 
 		goto reterr;
 	}
