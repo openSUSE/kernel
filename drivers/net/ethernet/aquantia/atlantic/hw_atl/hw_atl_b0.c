@@ -20,6 +20,7 @@
 
 #define DEFAULT_B0_BOARD_BASIC_CAPABILITIES \
 	.is_64_dma = true,		  \
+	.op64bit = false,		  \
 	.msix_irqs = 8U,		  \
 	.irq_mask = ~0U,		  \
 	.vecs = HW_ATL_B0_RSS_MAX,	  \
@@ -40,6 +41,7 @@
 			NETIF_F_RXHASH |  \
 			NETIF_F_SG |      \
 			NETIF_F_TSO |     \
+			NETIF_F_TSO6 |    \
 			NETIF_F_LRO |     \
 			NETIF_F_NTUPLE |  \
 			NETIF_F_HW_VLAN_CTAG_FILTER | \
@@ -53,8 +55,6 @@
 	.mtu = HW_ATL_B0_MTU_JUMBO,	  \
 	.mac_regs_count = 88,		  \
 	.hw_alive_check_addr = 0x10U
-
-#define FRAC_PER_NS 0x100000000LL
 
 const struct aq_hw_caps_s hw_atl_b0_caps_aqc100 = {
 	DEFAULT_B0_BOARD_BASIC_CAPABILITIES,
@@ -169,20 +169,10 @@ static int hw_atl_b0_hw_qos_set(struct aq_hw_s *self)
 	/* TPS VM init */
 	hw_atl_tps_tx_pkt_shed_desc_vm_arb_mode_set(self, 0U);
 
-	/* TPS TC credits init */
-	hw_atl_tps_tx_pkt_shed_desc_tc_arb_mode_set(self, 0U);
-	hw_atl_tps_tx_pkt_shed_data_arb_mode_set(self, 0U);
-
 	tx_buff_size /= cfg->tcs;
 	rx_buff_size /= cfg->tcs;
 	for (tc = 0; tc < cfg->tcs; tc++) {
 		u32 threshold = 0U;
-
-		/* TX Packet Scheduler Data TC0 */
-		hw_atl_tps_tx_pkt_shed_tc_data_max_credit_set(self, 0xFFF, tc);
-		hw_atl_tps_tx_pkt_shed_tc_data_weight_set(self, 0x64, tc);
-		hw_atl_tps_tx_pkt_shed_desc_tc_max_credit_set(self, 0x50, tc);
-		hw_atl_tps_tx_pkt_shed_desc_tc_weight_set(self, 0x1E, tc);
 
 		/* Tx buf size TC0 */
 		hw_atl_tpb_tx_pkt_buff_size_per_tc_set(self, tx_buff_size, tc);
@@ -339,10 +329,129 @@ int hw_atl_b0_hw_offload_set(struct aq_hw_s *self,
 	return aq_hw_err_from_flags(self);
 }
 
+static int hw_atl_b0_hw_init_tx_tc_rate_limit(struct aq_hw_s *self)
+{
+	static const u32 max_weight = BIT(HW_ATL_TPS_DATA_TCTWEIGHT_WIDTH) - 1;
+	/* Scale factor is based on the number of bits in fractional portion */
+	static const u32 scale = BIT(HW_ATL_TPS_DESC_RATE_Y_WIDTH);
+	static const u32 frac_msk = HW_ATL_TPS_DESC_RATE_Y_MSK >>
+				    HW_ATL_TPS_DESC_RATE_Y_SHIFT;
+	const u32 link_speed = self->aq_link_status.mbps;
+	struct aq_nic_cfg_s *nic_cfg = self->aq_nic_cfg;
+	unsigned long num_min_rated_tcs = 0;
+	u32 tc_weight[AQ_CFG_TCS_MAX];
+	u32 fixed_max_credit;
+	u8 min_rate_msk = 0;
+	u32 sum_weight = 0;
+	int tc;
+
+	/* By default max_credit is based upon MTU (in unit of 64b) */
+	fixed_max_credit = nic_cfg->aq_hw_caps->mtu / 64;
+
+	if (link_speed) {
+		min_rate_msk = nic_cfg->tc_min_rate_msk &
+			       (BIT(nic_cfg->tcs) - 1);
+		num_min_rated_tcs = hweight8(min_rate_msk);
+	}
+
+	/* First, calculate weights where min_rate is specified */
+	if (num_min_rated_tcs) {
+		for (tc = 0; tc != nic_cfg->tcs; tc++) {
+			if (!nic_cfg->tc_min_rate[tc]) {
+				tc_weight[tc] = 0;
+				continue;
+			}
+
+			tc_weight[tc] = (-1L + link_speed +
+					 nic_cfg->tc_min_rate[tc] *
+					 max_weight) /
+					link_speed;
+			tc_weight[tc] = min(tc_weight[tc], max_weight);
+			sum_weight += tc_weight[tc];
+		}
+	}
+
+	/* WSP, if min_rate is set for at least one TC.
+	 * RR otherwise.
+	 *
+	 * NB! MAC FW sets arb mode itself if PTP is enabled. We shouldn't
+	 * overwrite it here in that case.
+	 */
+	if (!nic_cfg->is_ptp)
+		hw_atl_tps_tx_pkt_shed_data_arb_mode_set(self, min_rate_msk ? 1U : 0U);
+
+	/* Data TC Arbiter takes precedence over Descriptor TC Arbiter,
+	 * leave Descriptor TC Arbiter as RR.
+	 */
+	hw_atl_tps_tx_pkt_shed_desc_tc_arb_mode_set(self, 0U);
+
+	hw_atl_tps_tx_desc_rate_mode_set(self, nic_cfg->is_qos ? 1U : 0U);
+
+	for (tc = 0; tc != nic_cfg->tcs; tc++) {
+		const u32 en = (nic_cfg->tc_max_rate[tc] != 0) ? 1U : 0U;
+		const u32 desc = AQ_NIC_CFG_TCVEC2RING(nic_cfg, tc, 0);
+		u32 weight, max_credit;
+
+		hw_atl_tps_tx_pkt_shed_desc_tc_max_credit_set(self, tc,
+							      fixed_max_credit);
+		hw_atl_tps_tx_pkt_shed_desc_tc_weight_set(self, tc, 0x1E);
+
+		if (num_min_rated_tcs) {
+			weight = tc_weight[tc];
+
+			if (!weight && sum_weight < max_weight)
+				weight = (max_weight - sum_weight) /
+					 (nic_cfg->tcs - num_min_rated_tcs);
+			else if (!weight)
+				weight = 0x64;
+
+			max_credit = max(8 * weight, fixed_max_credit);
+		} else {
+			weight = 0x64;
+			max_credit = 0xFFF;
+		}
+
+		hw_atl_tps_tx_pkt_shed_tc_data_weight_set(self, tc, weight);
+		hw_atl_tps_tx_pkt_shed_tc_data_max_credit_set(self, tc,
+							      max_credit);
+
+		hw_atl_tps_tx_desc_rate_en_set(self, desc, en);
+
+		if (en) {
+			/* Nominal rate is always 10G */
+			const u32 rate = 10000U * scale /
+					 nic_cfg->tc_max_rate[tc];
+			const u32 rate_int = rate >>
+					     HW_ATL_TPS_DESC_RATE_Y_WIDTH;
+			const u32 rate_frac = rate & frac_msk;
+
+			hw_atl_tps_tx_desc_rate_x_set(self, desc, rate_int);
+			hw_atl_tps_tx_desc_rate_y_set(self, desc, rate_frac);
+		} else {
+			/* A value of 1 indicates the queue is not
+			 * rate controlled.
+			 */
+			hw_atl_tps_tx_desc_rate_x_set(self, desc, 1U);
+			hw_atl_tps_tx_desc_rate_y_set(self, desc, 0U);
+		}
+	}
+	for (tc = nic_cfg->tcs; tc != AQ_CFG_TCS_MAX; tc++) {
+		const u32 desc = AQ_NIC_CFG_TCVEC2RING(nic_cfg, tc, 0);
+
+		hw_atl_tps_tx_desc_rate_en_set(self, desc, 0U);
+		hw_atl_tps_tx_desc_rate_x_set(self, desc, 1U);
+		hw_atl_tps_tx_desc_rate_y_set(self, desc, 0U);
+	}
+
+	return aq_hw_err_from_flags(self);
+}
+
 static int hw_atl_b0_hw_init_tx_path(struct aq_hw_s *self)
 {
+	struct aq_nic_cfg_s *nic_cfg = self->aq_nic_cfg;
+
 	/* Tx TC/Queue number config */
-	hw_atl_tpb_tps_tx_tc_mode_set(self, self->aq_nic_cfg->tc_mode);
+	hw_atl_tpb_tps_tx_tc_mode_set(self, nic_cfg->tc_mode);
 
 	hw_atl_thm_lso_tcp_flag_of_first_pkt_set(self, 0x0FF6U);
 	hw_atl_thm_lso_tcp_flag_of_middle_pkt_set(self, 0x0FF6U);
@@ -362,6 +471,19 @@ static int hw_atl_b0_hw_init_tx_path(struct aq_hw_s *self)
 	return aq_hw_err_from_flags(self);
 }
 
+void hw_atl_b0_hw_init_rx_rss_ctrl1(struct aq_hw_s *self)
+{
+	struct aq_nic_cfg_s *cfg = self->aq_nic_cfg;
+	u32 rss_ctrl1 = HW_ATL_RSS_DISABLED;
+
+	if (cfg->is_rss)
+		rss_ctrl1 = (cfg->tc_mode == AQ_TC_MODE_8TCS) ?
+			    HW_ATL_RSS_ENABLED_8TCS_2INDEX_BITS :
+			    HW_ATL_RSS_ENABLED_4TCS_3INDEX_BITS;
+
+	hw_atl_reg_rx_flr_rss_control1set(self, rss_ctrl1);
+}
+
 static int hw_atl_b0_hw_init_rx_path(struct aq_hw_s *self)
 {
 	struct aq_nic_cfg_s *cfg = self->aq_nic_cfg;
@@ -374,8 +496,7 @@ static int hw_atl_b0_hw_init_rx_path(struct aq_hw_s *self)
 	hw_atl_rpb_rx_flow_ctl_mode_set(self, 1U);
 
 	/* RSS Ring selection */
-	hw_atl_reg_rx_flr_rss_control1set(self, cfg->is_rss ?
-					0xB3333333U : 0x00000000U);
+	hw_atl_b0_hw_init_rx_rss_ctrl1(self);
 
 	/* Multicast filters */
 	for (i = HW_ATL_B0_MAC_MAX; i--;) {
@@ -1136,7 +1257,7 @@ static void hw_atl_b0_adj_params_get(u64 freq, s64 adj, u32 *ns, u32 *fns)
 	if (base_ns != nsi * NSEC_PER_SEC) {
 		s64 divisor = div64_s64((s64)NSEC_PER_SEC * NSEC_PER_SEC,
 					base_ns - nsi * NSEC_PER_SEC);
-		nsi_frac = div64_s64(FRAC_PER_NS * NSEC_PER_SEC, divisor);
+		nsi_frac = div64_s64(AQ_FRAC_PER_NS * NSEC_PER_SEC, divisor);
 	}
 
 	*ns = (u32)nsi;
@@ -1149,23 +1270,23 @@ hw_atl_b0_mac_adj_param_calc(struct hw_fw_request_ptp_adj_freq *ptp_adj_freq,
 {
 	s64 adj_fns_val;
 	s64 fns_in_sec_phy = phyfreq * (ptp_adj_freq->fns_phy +
-					FRAC_PER_NS * ptp_adj_freq->ns_phy);
+					AQ_FRAC_PER_NS * ptp_adj_freq->ns_phy);
 	s64 fns_in_sec_mac = macfreq * (ptp_adj_freq->fns_mac +
-					FRAC_PER_NS * ptp_adj_freq->ns_mac);
-	s64 fault_in_sec_phy = FRAC_PER_NS * NSEC_PER_SEC - fns_in_sec_phy;
-	s64 fault_in_sec_mac = FRAC_PER_NS * NSEC_PER_SEC - fns_in_sec_mac;
+					AQ_FRAC_PER_NS * ptp_adj_freq->ns_mac);
+	s64 fault_in_sec_phy = AQ_FRAC_PER_NS * NSEC_PER_SEC - fns_in_sec_phy;
+	s64 fault_in_sec_mac = AQ_FRAC_PER_NS * NSEC_PER_SEC - fns_in_sec_mac;
 	/* MAC MCP counter freq is macfreq / 4 */
 	s64 diff_in_mcp_overflow = (fault_in_sec_mac - fault_in_sec_phy) *
-				   4 * FRAC_PER_NS;
+				   4 * AQ_FRAC_PER_NS;
 
 	diff_in_mcp_overflow = div64_s64(diff_in_mcp_overflow,
 					 AQ_HW_MAC_COUNTER_HZ);
-	adj_fns_val = (ptp_adj_freq->fns_mac + FRAC_PER_NS *
+	adj_fns_val = (ptp_adj_freq->fns_mac + AQ_FRAC_PER_NS *
 		       ptp_adj_freq->ns_mac) + diff_in_mcp_overflow;
 
-	ptp_adj_freq->mac_ns_adj = div64_s64(adj_fns_val, FRAC_PER_NS);
+	ptp_adj_freq->mac_ns_adj = div64_s64(adj_fns_val, AQ_FRAC_PER_NS);
 	ptp_adj_freq->mac_fns_adj = adj_fns_val - ptp_adj_freq->mac_ns_adj *
-				    FRAC_PER_NS;
+				    AQ_FRAC_PER_NS;
 }
 
 static int hw_atl_b0_adj_sys_clock(struct aq_hw_s *self, s64 delta)
@@ -1484,6 +1605,48 @@ int hw_atl_b0_set_loopback(struct aq_hw_s *self, u32 mode, bool enable)
 	return 0;
 }
 
+static u32 hw_atl_b0_ts_ready_and_latch_high_get(struct aq_hw_s *self)
+{
+	if (hw_atl_ts_ready_get(self) && hw_atl_ts_ready_latch_high_get(self))
+		return 1;
+
+	return 0;
+}
+
+static int hw_atl_b0_get_mac_temp(struct aq_hw_s *self, u32 *temp)
+{
+	bool ts_disabled;
+	int err;
+	u32 val;
+	u32 ts;
+
+	ts_disabled = (hw_atl_ts_power_down_get(self) == 1U);
+
+	if (ts_disabled) {
+		// Set AFE Temperature Sensor to on (off by default)
+		hw_atl_ts_power_down_set(self, 0U);
+
+		// Reset internal capacitors, biasing, and counters
+		hw_atl_ts_reset_set(self, 1);
+		hw_atl_ts_reset_set(self, 0);
+	}
+
+	err = readx_poll_timeout(hw_atl_b0_ts_ready_and_latch_high_get, self,
+				 val, val == 1, 10000U, 500000U);
+	if (err)
+		return err;
+
+	ts = hw_atl_ts_data_get(self);
+	*temp = ts * ts * 16 / 100000 + 60 * ts - 83410;
+
+	if (ts_disabled) {
+		// Set AFE Temperature Sensor back to off
+		hw_atl_ts_power_down_set(self, 1U);
+	}
+
+	return 0;
+}
+
 const struct aq_hw_ops hw_atl_ops_b0 = {
 	.hw_soft_reset        = hw_atl_utils_soft_reset,
 	.hw_prepare           = hw_atl_utils_initfw,
@@ -1519,6 +1682,7 @@ const struct aq_hw_ops hw_atl_ops_b0 = {
 	.hw_interrupt_moderation_set = hw_atl_b0_hw_interrupt_moderation_set,
 	.hw_rss_set                  = hw_atl_b0_hw_rss_set,
 	.hw_rss_hash_set             = hw_atl_b0_hw_rss_hash_set,
+	.hw_tc_rate_limit_set        = hw_atl_b0_hw_init_tx_tc_rate_limit,
 	.hw_get_regs                 = hw_atl_utils_hw_get_regs,
 	.hw_get_hw_stats             = hw_atl_utils_get_hw_stats,
 	.hw_get_fw_version           = hw_atl_utils_get_fw_version,
@@ -1539,4 +1703,6 @@ const struct aq_hw_ops hw_atl_ops_b0 = {
 	.hw_set_offload          = hw_atl_b0_hw_offload_set,
 	.hw_set_loopback         = hw_atl_b0_set_loopback,
 	.hw_set_fc               = hw_atl_b0_set_fc,
+
+	.hw_get_mac_temp         = hw_atl_b0_get_mac_temp,
 };

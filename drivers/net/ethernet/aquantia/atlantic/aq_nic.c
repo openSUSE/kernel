@@ -64,6 +64,33 @@ static void aq_nic_rss_init(struct aq_nic_s *self, unsigned int num_rss_queues)
 		rss_params->indirection_table[i] = i & (num_rss_queues - 1);
 }
 
+/* Recalculate the number of vectors */
+static void aq_nic_cfg_update_num_vecs(struct aq_nic_s *self)
+{
+	struct aq_nic_cfg_s *cfg = &self->aq_nic_cfg;
+
+	cfg->vecs = min(cfg->aq_hw_caps->vecs, AQ_CFG_VECS_DEF);
+	cfg->vecs = min(cfg->vecs, num_online_cpus());
+	if (self->irqvecs > AQ_HW_SERVICE_IRQS)
+		cfg->vecs = min(cfg->vecs, self->irqvecs - AQ_HW_SERVICE_IRQS);
+	/* cfg->vecs should be power of 2 for RSS */
+	cfg->vecs = rounddown_pow_of_two(cfg->vecs);
+
+	if (ATL_HW_IS_CHIP_FEATURE(self->aq_hw, ANTIGUA)) {
+		if (cfg->tcs > 2)
+			cfg->vecs = min(cfg->vecs, 4U);
+	}
+
+	if (cfg->vecs <= 4)
+		cfg->tc_mode = AQ_TC_MODE_8TCS;
+	else
+		cfg->tc_mode = AQ_TC_MODE_4TCS;
+
+	/*rss rings */
+	cfg->num_rss_queues = min(cfg->vecs, AQ_CFG_NUM_RSS_QUEUES_DEF);
+	aq_nic_rss_init(self, cfg->num_rss_queues);
+}
+
 /* Checks hw_caps and 'corrects' aq_nic_cfg in runtime */
 void aq_nic_cfg_start(struct aq_nic_s *self)
 {
@@ -80,7 +107,6 @@ void aq_nic_cfg_start(struct aq_nic_s *self)
 
 	cfg->rxpageorder = AQ_CFG_RX_PAGEORDER;
 	cfg->is_rss = AQ_CFG_IS_RSS_DEF;
-	cfg->num_rss_queues = AQ_CFG_NUM_RSS_QUEUES_DEF;
 	cfg->aq_rss.base_cpu_number = AQ_CFG_RSS_BASE_CPU_NUM_DEF;
 	cfg->fc.req = AQ_CFG_FC_MODE;
 	cfg->wol = AQ_CFG_WOL_MODES;
@@ -96,24 +122,7 @@ void aq_nic_cfg_start(struct aq_nic_s *self)
 	cfg->rxds = min(cfg->aq_hw_caps->rxds_max, AQ_CFG_RXDS_DEF);
 	cfg->txds = min(cfg->aq_hw_caps->txds_max, AQ_CFG_TXDS_DEF);
 
-	/*rss rings */
-	cfg->vecs = min(cfg->aq_hw_caps->vecs, AQ_CFG_VECS_DEF);
-	cfg->vecs = min(cfg->vecs, num_online_cpus());
-	if (self->irqvecs > AQ_HW_SERVICE_IRQS)
-		cfg->vecs = min(cfg->vecs, self->irqvecs - AQ_HW_SERVICE_IRQS);
-	/* cfg->vecs should be power of 2 for RSS */
-	if (cfg->vecs >= 8U)
-		cfg->vecs = 8U;
-	else if (cfg->vecs >= 4U)
-		cfg->vecs = 4U;
-	else if (cfg->vecs >= 2U)
-		cfg->vecs = 2U;
-	else
-		cfg->vecs = 1U;
-
-	cfg->num_rss_queues = min(cfg->vecs, AQ_CFG_NUM_RSS_QUEUES_DEF);
-
-	aq_nic_rss_init(self, cfg->num_rss_queues);
+	aq_nic_cfg_update_num_vecs(self);
 
 	cfg->irq_type = aq_pci_func_get_irq_type(self);
 
@@ -123,11 +132,6 @@ void aq_nic_cfg_start(struct aq_nic_s *self)
 		cfg->is_rss = 0U;
 		cfg->vecs = 1U;
 	}
-
-	if (cfg->vecs <= 4)
-		cfg->tc_mode = AQ_TC_MODE_8TCS;
-	else
-		cfg->tc_mode = AQ_TC_MODE_4TCS;
 
 	/* Check if we have enough vectors allocated for
 	 * link status IRQ. If no - we'll know link state from
@@ -188,6 +192,9 @@ static int aq_nic_update_link_status(struct aq_nic_s *self)
 		aq_utils_obj_clear(&self->flags,
 				   AQ_NIC_LINK_DOWN);
 		netif_carrier_on(self->ndev);
+		if (self->aq_hw_ops->hw_tc_rate_limit_set)
+			self->aq_hw_ops->hw_tc_rate_limit_set(self->aq_hw);
+
 		netif_tx_wake_all_queues(self->ndev);
 	}
 	if (netif_carrier_ok(self->ndev) && !self->link_status.mbps) {
@@ -348,7 +355,7 @@ void aq_nic_ndev_init(struct aq_nic_s *self)
 	self->ndev->features = aq_hw_caps->hw_features;
 	self->ndev->vlan_features |= NETIF_F_HW_CSUM | NETIF_F_RXCSUM |
 				     NETIF_F_RXHASH | NETIF_F_SG |
-				     NETIF_F_LRO | NETIF_F_TSO;
+				     NETIF_F_LRO | NETIF_F_TSO | NETIF_F_TSO6;
 	self->ndev->gso_partial_features = NETIF_F_GSO_UDP_L4;
 	self->ndev->priv_flags = aq_hw_caps->hw_priv_flags;
 	self->ndev->priv_flags |= IFF_LIVE_ADDR_CHANGE;
@@ -694,15 +701,16 @@ exit:
 
 int aq_nic_xmit(struct aq_nic_s *self, struct sk_buff *skb)
 {
-	unsigned int vec = skb->queue_mapping % self->aq_nic_cfg.vecs;
-	unsigned int tc = skb->queue_mapping / self->aq_nic_cfg.vecs;
+	struct aq_nic_cfg_s *cfg = aq_nic_get_cfg(self);
+	unsigned int vec = skb->queue_mapping % cfg->vecs;
+	unsigned int tc = skb->queue_mapping / cfg->vecs;
 	struct aq_ring_s *ring = NULL;
 	unsigned int frags = 0U;
 	int err = NETDEV_TX_OK;
 
 	frags = skb_shinfo(skb)->nr_frags + 1;
 
-	ring = self->aq_ring_tx[AQ_NIC_TCVEC2RING(self, tc, vec)];
+	ring = self->aq_ring_tx[AQ_NIC_CFG_TCVEC2RING(cfg, tc, vec)];
 
 	if (frags > AQ_CFG_SKB_FRAGS_MAX) {
 		dev_kfree_skb_any(skb);
@@ -711,7 +719,7 @@ int aq_nic_xmit(struct aq_nic_s *self, struct sk_buff *skb)
 
 	aq_ring_update_queue_state(ring);
 
-	if (self->aq_nic_cfg.priv_flags & BIT(AQ_HW_LOOPBACK_DMA_NET)) {
+	if (cfg->priv_flags & BIT(AQ_HW_LOOPBACK_DMA_NET)) {
 		err = NETDEV_TX_BUSY;
 		goto err_exit;
 	}
@@ -848,6 +856,7 @@ void aq_nic_get_stats(struct aq_nic_s *self, u64 *data)
 	struct aq_stats_s *stats;
 	unsigned int count = 0U;
 	unsigned int i = 0U;
+	unsigned int tc;
 
 	if (self->aq_fw_ops->update_stats) {
 		mutex_lock(&self->fwreq_mutex);
@@ -886,10 +895,13 @@ void aq_nic_get_stats(struct aq_nic_s *self, u64 *data)
 
 	data += i;
 
-	for (i = 0U, aq_vec = self->aq_vec[0];
-		aq_vec && self->aq_vecs > i; ++i, aq_vec = self->aq_vec[i]) {
-		data += count;
-		aq_vec_get_sw_stats(aq_vec, data, &count);
+	for (tc = 0U; tc < self->aq_nic_cfg.tcs; tc++) {
+		for (i = 0U, aq_vec = self->aq_vec[0];
+		     aq_vec && self->aq_vecs > i;
+		     ++i, aq_vec = self->aq_vec[i]) {
+			data += count;
+			aq_vec_get_sw_stats(aq_vec, tc, data, &count);
+		}
 	}
 
 err_exit:;
@@ -1285,6 +1297,22 @@ void aq_nic_free_vectors(struct aq_nic_s *self)
 err_exit:;
 }
 
+int aq_nic_realloc_vectors(struct aq_nic_s *self)
+{
+	struct aq_nic_cfg_s *cfg = aq_nic_get_cfg(self);
+
+	aq_nic_free_vectors(self);
+
+	for (self->aq_vecs = 0; self->aq_vecs < cfg->vecs; self->aq_vecs++) {
+		self->aq_vec[self->aq_vecs] = aq_vec_alloc(self, self->aq_vecs,
+							   cfg);
+		if (unlikely(!self->aq_vec[self->aq_vecs]))
+			return -ENOMEM;
+	}
+
+	return 0;
+}
+
 void aq_nic_shutdown(struct aq_nic_s *self)
 {
 	int err = 0;
@@ -1354,6 +1382,7 @@ void aq_nic_release_filter(struct aq_nic_s *self, enum aq_rx_filter_type type,
 int aq_nic_setup_tc_mqprio(struct aq_nic_s *self, u32 tcs, u8 *prio_tc_map)
 {
 	struct aq_nic_cfg_s *cfg = &self->aq_nic_cfg;
+	const unsigned int prev_vecs = cfg->vecs;
 	bool ndev_running;
 	int err = 0;
 	int i;
@@ -1385,8 +1414,62 @@ int aq_nic_setup_tc_mqprio(struct aq_nic_s *self, u32 tcs, u8 *prio_tc_map)
 
 	netdev_set_num_tc(self->ndev, cfg->tcs);
 
+	/* Changing the number of TCs might change the number of vectors */
+	aq_nic_cfg_update_num_vecs(self);
+	if (prev_vecs != cfg->vecs) {
+		err = aq_nic_realloc_vectors(self);
+		if (err)
+			goto err_exit;
+	}
+
 	if (ndev_running)
 		err = dev_open(self->ndev, NULL);
 
+err_exit:
 	return err;
+}
+
+int aq_nic_setup_tc_max_rate(struct aq_nic_s *self, const unsigned int tc,
+			     const u32 max_rate)
+{
+	struct aq_nic_cfg_s *cfg = &self->aq_nic_cfg;
+
+	if (tc >= AQ_CFG_TCS_MAX)
+		return -EINVAL;
+
+	if (max_rate && max_rate < 10) {
+		netdev_warn(self->ndev,
+			"Setting %s to the minimum usable value of %dMbps.\n",
+			"max rate", 10);
+		cfg->tc_max_rate[tc] = 10;
+	} else {
+		cfg->tc_max_rate[tc] = max_rate;
+	}
+
+	return 0;
+}
+
+int aq_nic_setup_tc_min_rate(struct aq_nic_s *self, const unsigned int tc,
+			     const u32 min_rate)
+{
+	struct aq_nic_cfg_s *cfg = &self->aq_nic_cfg;
+
+	if (tc >= AQ_CFG_TCS_MAX)
+		return -EINVAL;
+
+	if (min_rate)
+		set_bit(tc, &cfg->tc_min_rate_msk);
+	else
+		clear_bit(tc, &cfg->tc_min_rate_msk);
+
+	if (min_rate && min_rate < 20) {
+		netdev_warn(self->ndev,
+			"Setting %s to the minimum usable value of %dMbps.\n",
+			"min rate", 20);
+		cfg->tc_min_rate[tc] = 20;
+	} else {
+		cfg->tc_min_rate[tc] = min_rate;
+	}
+
+	return 0;
 }

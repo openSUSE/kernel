@@ -88,13 +88,13 @@ static const char aq_ethtool_stat_names[][ETH_GSTRING_LEN] = {
 	"InDroppedDma",
 };
 
-static const char aq_ethtool_queue_stat_names[][ETH_GSTRING_LEN] = {
-	"Queue[%d] InPackets",
-	"Queue[%d] OutPackets",
-	"Queue[%d] Restarts",
-	"Queue[%d] InJumboPackets",
-	"Queue[%d] InLroPackets",
-	"Queue[%d] InErrors",
+static const char * const aq_ethtool_queue_stat_names[] = {
+	"%sQueue[%d] InPackets",
+	"%sQueue[%d] OutPackets",
+	"%sQueue[%d] Restarts",
+	"%sQueue[%d] InJumboPackets",
+	"%sQueue[%d] InLroPackets",
+	"%sQueue[%d] InErrors",
 };
 
 static const char aq_ethtool_priv_flag_names[][ETH_GSTRING_LEN] = {
@@ -150,28 +150,40 @@ static void aq_ethtool_get_drvinfo(struct net_device *ndev,
 static void aq_ethtool_get_strings(struct net_device *ndev,
 				   u32 stringset, u8 *data)
 {
-	struct aq_nic_s *aq_nic = netdev_priv(ndev);
+	struct aq_nic_s *nic = netdev_priv(ndev);
 	struct aq_nic_cfg_s *cfg;
 	u8 *p = data;
 	int i, si;
 
-	cfg = aq_nic_get_cfg(aq_nic);
+	cfg = aq_nic_get_cfg(nic);
 
 	switch (stringset) {
-	case ETH_SS_STATS:
+	case ETH_SS_STATS: {
+		const int stat_cnt = ARRAY_SIZE(aq_ethtool_queue_stat_names);
+		char tc_string[8];
+		int tc;
+
+		memset(tc_string, 0, sizeof(tc_string));
 		memcpy(p, aq_ethtool_stat_names,
 		       sizeof(aq_ethtool_stat_names));
 		p = p + sizeof(aq_ethtool_stat_names);
-		for (i = 0; i < cfg->vecs; i++) {
-			for (si = 0;
-				si < ARRAY_SIZE(aq_ethtool_queue_stat_names);
-				si++) {
-				snprintf(p, ETH_GSTRING_LEN,
-					 aq_ethtool_queue_stat_names[si], i);
-				p += ETH_GSTRING_LEN;
+
+		for (tc = 0; tc < cfg->tcs; tc++) {
+			if (cfg->is_qos)
+				snprintf(tc_string, 8, "TC%d ", tc);
+
+			for (i = 0; i < cfg->vecs; i++) {
+				for (si = 0; si < stat_cnt; si++) {
+					snprintf(p, ETH_GSTRING_LEN,
+					     aq_ethtool_queue_stat_names[si],
+					     tc_string,
+					     AQ_NIC_CFG_TCVEC2RING(cfg, tc, i));
+					p += ETH_GSTRING_LEN;
+				}
 			}
 		}
 		break;
+	}
 	case ETH_SS_PRIV_FLAGS:
 		memcpy(p, aq_ethtool_priv_flag_names,
 		       sizeof(aq_ethtool_priv_flag_names));
@@ -653,8 +665,6 @@ static int aq_set_ringparam(struct net_device *ndev,
 		dev_close(ndev);
 	}
 
-	aq_nic_free_vectors(aq_nic);
-
 	cfg->rxds = max(ring->rx_pending, hw_caps->rxds_min);
 	cfg->rxds = min(cfg->rxds, hw_caps->rxds_max);
 	cfg->rxds = ALIGN(cfg->rxds, AQ_HW_RXD_MULTIPLE);
@@ -663,15 +673,10 @@ static int aq_set_ringparam(struct net_device *ndev,
 	cfg->txds = min(cfg->txds, hw_caps->txds_max);
 	cfg->txds = ALIGN(cfg->txds, AQ_HW_TXD_MULTIPLE);
 
-	for (aq_nic->aq_vecs = 0; aq_nic->aq_vecs < cfg->vecs;
-	     aq_nic->aq_vecs++) {
-		aq_nic->aq_vec[aq_nic->aq_vecs] =
-		    aq_vec_alloc(aq_nic, aq_nic->aq_vecs, cfg);
-		if (unlikely(!aq_nic->aq_vec[aq_nic->aq_vecs])) {
-			err = -ENOMEM;
-			goto err_exit;
-		}
-	}
+	err = aq_nic_realloc_vectors(aq_nic);
+	if (err)
+		goto err_exit;
+
 	if (ndev_running)
 		err = dev_open(ndev, NULL);
 

@@ -833,18 +833,56 @@ static void bpf_cgroup_link_dealloc(struct bpf_link *link)
 	kfree(cg_link);
 }
 
-const struct bpf_link_ops bpf_cgroup_link_lops = {
+static void bpf_cgroup_link_show_fdinfo(const struct bpf_link *link,
+					struct seq_file *seq)
+{
+	struct bpf_cgroup_link *cg_link =
+		container_of(link, struct bpf_cgroup_link, link);
+	u64 cg_id = 0;
+
+	mutex_lock(&cgroup_mutex);
+	if (cg_link->cgroup)
+		cg_id = cgroup_id(cg_link->cgroup);
+	mutex_unlock(&cgroup_mutex);
+
+	seq_printf(seq,
+		   "cgroup_id:\t%llu\n"
+		   "attach_type:\t%d\n",
+		   cg_id,
+		   cg_link->type);
+}
+
+static int bpf_cgroup_link_fill_link_info(const struct bpf_link *link,
+					  struct bpf_link_info *info)
+{
+	struct bpf_cgroup_link *cg_link =
+		container_of(link, struct bpf_cgroup_link, link);
+	u64 cg_id = 0;
+
+	mutex_lock(&cgroup_mutex);
+	if (cg_link->cgroup)
+		cg_id = cgroup_id(cg_link->cgroup);
+	mutex_unlock(&cgroup_mutex);
+
+	info->cgroup.cgroup_id = cg_id;
+	info->cgroup.attach_type = cg_link->type;
+	return 0;
+}
+
+static const struct bpf_link_ops bpf_cgroup_link_lops = {
 	.release = bpf_cgroup_link_release,
 	.dealloc = bpf_cgroup_link_dealloc,
 	.update_prog = cgroup_bpf_replace,
+	.show_fdinfo = bpf_cgroup_link_show_fdinfo,
+	.fill_link_info = bpf_cgroup_link_fill_link_info,
 };
 
 int cgroup_bpf_link_attach(const union bpf_attr *attr, struct bpf_prog *prog)
 {
+	struct bpf_link_primer link_primer;
 	struct bpf_cgroup_link *link;
-	struct file *link_file;
 	struct cgroup *cgrp;
-	int err, link_fd;
+	int err;
 
 	if (attr->link_create.flags)
 		return -EINVAL;
@@ -858,26 +896,25 @@ int cgroup_bpf_link_attach(const union bpf_attr *attr, struct bpf_prog *prog)
 		err = -ENOMEM;
 		goto out_put_cgroup;
 	}
-	bpf_link_init(&link->link, &bpf_cgroup_link_lops, prog);
+	bpf_link_init(&link->link, BPF_LINK_TYPE_CGROUP, &bpf_cgroup_link_lops,
+		      prog);
 	link->cgroup = cgrp;
 	link->type = attr->link_create.attach_type;
 
-	link_file = bpf_link_new_file(&link->link, &link_fd);
-	if (IS_ERR(link_file)) {
+	err  = bpf_link_prime(&link->link, &link_primer);
+	if (err) {
 		kfree(link);
-		err = PTR_ERR(link_file);
 		goto out_put_cgroup;
 	}
 
 	err = cgroup_bpf_attach(cgrp, NULL, NULL, link, link->type,
 				BPF_F_ALLOW_MULTI);
 	if (err) {
-		bpf_link_cleanup(&link->link, link_file, link_fd);
+		bpf_link_cleanup(&link_primer);
 		goto out_put_cgroup;
 	}
 
-	fd_install(link_fd, link_file);
-	return link_fd;
+	return bpf_link_settle(&link_primer);
 
 out_put_cgroup:
 	cgroup_put(cgrp);
@@ -1080,36 +1117,21 @@ int __cgroup_bpf_check_dev_permission(short dev_type, u32 major, u32 minor,
 
 	return !allow;
 }
-EXPORT_SYMBOL(__cgroup_bpf_check_dev_permission);
 
 static const struct bpf_func_proto *
 cgroup_base_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 {
 	switch (func_id) {
-	case BPF_FUNC_map_lookup_elem:
-		return &bpf_map_lookup_elem_proto;
-	case BPF_FUNC_map_update_elem:
-		return &bpf_map_update_elem_proto;
-	case BPF_FUNC_map_delete_elem:
-		return &bpf_map_delete_elem_proto;
-	case BPF_FUNC_map_push_elem:
-		return &bpf_map_push_elem_proto;
-	case BPF_FUNC_map_pop_elem:
-		return &bpf_map_pop_elem_proto;
-	case BPF_FUNC_map_peek_elem:
-		return &bpf_map_peek_elem_proto;
 	case BPF_FUNC_get_current_uid_gid:
 		return &bpf_get_current_uid_gid_proto;
 	case BPF_FUNC_get_local_storage:
 		return &bpf_get_local_storage_proto;
 	case BPF_FUNC_get_current_cgroup_id:
 		return &bpf_get_current_cgroup_id_proto;
-	case BPF_FUNC_trace_printk:
-		if (capable(CAP_SYS_ADMIN))
-			return bpf_get_trace_printk_proto();
-		/* fall through */
+	case BPF_FUNC_perf_event_output:
+		return &bpf_event_output_data_proto;
 	default:
-		return NULL;
+		return bpf_base_func_proto(func_id);
 	}
 }
 
@@ -1247,7 +1269,6 @@ int __cgroup_bpf_run_filter_sysctl(struct ctl_table_header *head,
 
 	return ret == 1 ? 0 : -EPERM;
 }
-EXPORT_SYMBOL(__cgroup_bpf_run_filter_sysctl);
 
 #ifdef CONFIG_NET
 static bool __cgroup_bpf_prog_array_is_empty(struct cgroup *cgrp,
@@ -1365,7 +1386,6 @@ out:
 		sockopt_free_buf(&ctx);
 	return ret;
 }
-EXPORT_SYMBOL(__cgroup_bpf_run_filter_setsockopt);
 
 int __cgroup_bpf_run_filter_getsockopt(struct sock *sk, int level,
 				       int optname, char __user *optval,
@@ -1452,7 +1472,6 @@ out:
 	sockopt_free_buf(&ctx);
 	return ret;
 }
-EXPORT_SYMBOL(__cgroup_bpf_run_filter_getsockopt);
 #endif
 
 static ssize_t sysctl_cpy_dir(const struct ctl_dir *dir, char **bufp,

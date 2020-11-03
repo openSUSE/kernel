@@ -38,18 +38,25 @@ void hw_atl2_new_rpf_rss_redir_set(struct aq_hw_s *aq_hw, u32 tc, u32 index,
 /* Set VLAN filter tag */
 void hw_atl2_rpf_vlan_flr_tag_set(struct aq_hw_s *aq_hw, u32 tag, u32 filter);
 
+/* set tx random TC-queue mapping enable bit */
+void hw_atl2_tpb_tx_tc_q_rand_map_en_set(struct aq_hw_s *aq_hw,
+					 const u32 tc_q_rand_map_en);
+
 /* set tx buffer clock gate enable */
 void hw_atl2_tpb_tx_buf_clk_gate_en_set(struct aq_hw_s *aq_hw, u32 clk_gate_en);
 
+void hw_atl2_tps_tx_pkt_shed_data_arb_mode_set(struct aq_hw_s *aq_hw,
+					       const u32 data_arb_mode);
+
 /* set tx packet scheduler tc data max credit */
 void hw_atl2_tps_tx_pkt_shed_tc_data_max_credit_set(struct aq_hw_s *aq_hw,
-						    u32 max_credit,
-						    u32 tc);
+						    const u32 tc,
+						    const u32 max_credit);
 
 /* set tx packet scheduler tc data weight */
 void hw_atl2_tps_tx_pkt_shed_tc_data_weight_set(struct aq_hw_s *aq_hw,
-						u32 tx_pkt_shed_tc_data_weight,
-						u32 tc);
+						const u32 tc,
+						const u32 weight);
 
 u32 hw_atl2_get_hw_version(struct aq_hw_s *aq_hw);
 

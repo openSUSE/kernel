@@ -36,6 +36,11 @@ enum aq_tc_mode {
 			(AQ_RX_LAST_LOC_FVLANID - AQ_RX_FIRST_LOC_FVLANID + 1U)
 #define AQ_RX_QUEUE_NOT_ASSIGNED   0xFFU
 
+#define AQ_FRAC_PER_NS 0x100000000LL
+
+/* Used for rate to Mbps conversion */
+#define AQ_MBPS_DIVISOR         125000 /* 1000000 / 8 */
+
 /* NIC H/W capabilities */
 struct aq_hw_caps_s {
 	u64 hw_features;
@@ -63,6 +68,7 @@ struct aq_hw_caps_s {
 	bool flow_control;
 	bool is_64_dma;
 	u32 quirks;
+	bool op64bit;
 	u32 priv_data_len;
 };
 
@@ -282,6 +288,8 @@ struct aq_hw_ops {
 	int (*hw_rss_hash_set)(struct aq_hw_s *self,
 			       struct aq_rss_parameters *rss_params);
 
+	int (*hw_tc_rate_limit_set)(struct aq_hw_s *self);
+
 	int (*hw_get_regs)(struct aq_hw_s *self,
 			   const struct aq_hw_caps_s *aq_hw_caps,
 			   u32 *regs_buff);
@@ -326,6 +334,8 @@ struct aq_hw_ops {
 	int (*hw_set_fc)(struct aq_hw_s *self, u32 fc, u32 tc);
 
 	int (*hw_set_loopback)(struct aq_hw_s *self, u32 mode, bool enable);
+
+	int (*hw_get_mac_temp)(struct aq_hw_s *self, u32 *temp);
 };
 
 struct aq_fw_ops {
@@ -347,6 +357,8 @@ struct aq_fw_ops {
 	int (*update_link_status)(struct aq_hw_s *self);
 
 	int (*update_stats)(struct aq_hw_s *self);
+
+	int (*get_mac_temp)(struct aq_hw_s *self, int *temp);
 
 	int (*get_phy_temp)(struct aq_hw_s *self, int *temp);
 

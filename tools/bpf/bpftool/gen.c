@@ -17,7 +17,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
-#include <unistd.h>
 #include <bpf/btf.h>
 
 #include "bpf/libbpf_internal.h"
@@ -198,7 +197,7 @@ out:
 	return err;
 }
 
-static int codegen(const char *template, ...)
+static void codegen(const char *template, ...)
 {
 	const char *src, *end;
 	int skip_tabs = 0, n;
@@ -209,7 +208,7 @@ static int codegen(const char *template, ...)
 	n = strlen(template);
 	s = malloc(n + 1);
 	if (!s)
-		return -ENOMEM;
+		exit(-1);
 	src = template;
 	dst = s;
 
@@ -222,7 +221,8 @@ static int codegen(const char *template, ...)
 		} else {
 			p_err("unrecognized character at pos %td in template '%s'",
 			      src - template - 1, template);
-			return -EINVAL;
+			free(s);
+			exit(-1);
 		}
 	}
 
@@ -232,7 +232,8 @@ static int codegen(const char *template, ...)
 			if (*src != '\t') {
 				p_err("not enough tabs at pos %td in template '%s'",
 				      src - template - 1, template);
-				return -EINVAL;
+				free(s);
+				exit(-1);
 			}
 		}
 		/* trim trailing whitespace */
@@ -253,7 +254,6 @@ static int codegen(const char *template, ...)
 	va_end(args);
 
 	free(s);
-	return n;
 }
 
 static int do_skeleton(int argc, char **argv)
@@ -587,12 +587,12 @@ static int do_help(int argc, char **argv)
 	}
 
 	fprintf(stderr,
-		"Usage: %1$s gen skeleton FILE\n"
-		"       %1$s gen help\n"
+		"Usage: %1$s %2$s skeleton FILE\n"
+		"       %1$s %2$s help\n"
 		"\n"
 		"       " HELP_SPEC_OPTIONS "\n"
 		"",
-		bin_name);
+		bin_name, "gen");
 
 	return 0;
 }

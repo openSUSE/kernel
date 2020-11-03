@@ -345,9 +345,15 @@ static int aq_ndo_vlan_rx_kill_vid(struct net_device *ndev, __be16 proto,
 }
 
 static int aq_validate_mqprio_opt(struct aq_nic_s *self,
+				  struct tc_mqprio_qopt_offload *mqprio,
 				  const unsigned int num_tc)
 {
-	if (num_tc > aq_hw_num_tcs(self->aq_hw)) {
+	const bool has_min_rate = !!(mqprio->flags & TC_MQPRIO_F_MIN_RATE);
+	struct aq_nic_cfg_s *aq_nic_cfg = aq_nic_get_cfg(self);
+	const unsigned int tcs_max = min_t(u8, aq_nic_cfg->aq_hw_caps->tcs_max,
+					   AQ_CFG_TCS_MAX);
+
+	if (num_tc > tcs_max) {
 		netdev_err(self->ndev, "Too many TCs requested\n");
 		return -EOPNOTSUPP;
 	}
@@ -357,25 +363,52 @@ static int aq_validate_mqprio_opt(struct aq_nic_s *self,
 		return -EOPNOTSUPP;
 	}
 
+	if (has_min_rate && !ATL_HW_IS_CHIP_FEATURE(self->aq_hw, ANTIGUA)) {
+		netdev_err(self->ndev, "Min tx rate is not supported\n");
+		return -EOPNOTSUPP;
+	}
+
 	return 0;
 }
 
 static int aq_ndo_setup_tc(struct net_device *dev, enum tc_setup_type type,
 			   void *type_data)
 {
+	struct tc_mqprio_qopt_offload *mqprio = type_data;
 	struct aq_nic_s *aq_nic = netdev_priv(dev);
-	struct tc_mqprio_qopt *mqprio = type_data;
+	bool has_min_rate;
+	bool has_max_rate;
 	int err;
+	int i;
 
 	if (type != TC_SETUP_QDISC_MQPRIO)
 		return -EOPNOTSUPP;
 
-	err = aq_validate_mqprio_opt(aq_nic, mqprio->num_tc);
+	has_min_rate = !!(mqprio->flags & TC_MQPRIO_F_MIN_RATE);
+	has_max_rate = !!(mqprio->flags & TC_MQPRIO_F_MAX_RATE);
+
+	err = aq_validate_mqprio_opt(aq_nic, mqprio, mqprio->qopt.num_tc);
 	if (err)
 		return err;
 
-	return aq_nic_setup_tc_mqprio(aq_nic, mqprio->num_tc,
-				      mqprio->prio_tc_map);
+	for (i = 0; i < mqprio->qopt.num_tc; i++) {
+		if (has_max_rate) {
+			u64 max_rate = mqprio->max_rate[i];
+
+			do_div(max_rate, AQ_MBPS_DIVISOR);
+			aq_nic_setup_tc_max_rate(aq_nic, i, (u32)max_rate);
+		}
+
+		if (has_min_rate) {
+			u64 min_rate = mqprio->min_rate[i];
+
+			do_div(min_rate, AQ_MBPS_DIVISOR);
+			aq_nic_setup_tc_min_rate(aq_nic, i, (u32)min_rate);
+		}
+	}
+
+	return aq_nic_setup_tc_mqprio(aq_nic, mqprio->qopt.num_tc,
+				      mqprio->qopt.prio_tc_map);
 }
 
 static const struct net_device_ops aq_ndev_ops = {
