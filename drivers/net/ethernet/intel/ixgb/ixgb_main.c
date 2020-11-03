@@ -1113,7 +1113,7 @@ alloc_failed:
 
 /**
  * ixgb_watchdog - Timer Call-back
- * @data: pointer to netdev cast into an unsigned long
+ * @t: pointer to timer_list containing our private info pointer
  **/
 
 static void
@@ -1535,10 +1535,11 @@ ixgb_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 /**
  * ixgb_tx_timeout - Respond to a Tx Hang
  * @netdev: network interface device structure
+ * @txqueue: queue hanging (unused)
  **/
 
 static void
-ixgb_tx_timeout(struct net_device *netdev, unsigned int txqueue)
+ixgb_tx_timeout(struct net_device *netdev, unsigned int __always_unused txqueue)
 {
 	struct ixgb_adapter *adapter = netdev_priv(netdev);
 
@@ -1750,7 +1751,8 @@ ixgb_intr(int irq, void *data)
 
 /**
  * ixgb_clean - NAPI Rx polling callback
- * @adapter: board private structure
+ * @napi: napi struct pointer
+ * @budget: max number of receives to clean
  **/
 
 static int
@@ -1869,7 +1871,7 @@ ixgb_clean_tx_irq(struct ixgb_adapter *adapter)
  * ixgb_rx_checksum - Receive Checksum Offload for 82597.
  * @adapter: board private structure
  * @rx_desc: receive descriptor
- * @sk_buff: socket buffer with received data
+ * @skb: socket buffer with received data
  **/
 
 static void
@@ -1927,6 +1929,8 @@ static void ixgb_check_copybreak(struct napi_struct *napi,
 /**
  * ixgb_clean_rx_irq - Send received data up the network stack,
  * @adapter: board private structure
+ * @work_done: output pointer to amount of packets cleaned
+ * @work_to_do: how much work we can complete
  **/
 
 static bool
@@ -2046,6 +2050,7 @@ rxdesc_done:
 /**
  * ixgb_alloc_rx_buffers - Replace used receive buffers
  * @adapter: address of board private structure
+ * @cleaned_count: how many buffers to allocate
  **/
 
 static void
@@ -2215,7 +2220,7 @@ static pci_ers_result_t ixgb_io_error_detected(struct pci_dev *pdev,
 
 /**
  * ixgb_io_slot_reset - called after the pci bus has been reset.
- * @pdev    pointer to pci device with error
+ * @pdev: pointer to pci device with error
  *
  * This callback is called after the PCI bus has been reset.
  * Basically, this tries to restart the card from scratch.
@@ -2263,7 +2268,7 @@ static pci_ers_result_t ixgb_io_slot_reset(struct pci_dev *pdev)
 
 /**
  * ixgb_io_resume - called when its OK to resume normal operations
- * @pdev    pointer to pci device with error
+ * @pdev: pointer to pci device with error
  *
  * The error recovery driver tells us that its OK to resume
  * normal operation. Implementation resembles the second-half
