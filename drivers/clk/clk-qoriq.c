@@ -244,6 +244,14 @@ static const struct clockgen_muxinfo clockgen2_cmux_cgb = {
 	},
 };
 
+static const struct clockgen_muxinfo ls1021a_cmux = {
+	{
+		{ CLKSEL_VALID, CGA_PLL1, PLL_DIV1 },
+		{ CLKSEL_VALID, CGA_PLL1, PLL_DIV2 },
+		{ CLKSEL_VALID, CGA_PLL1, PLL_DIV4 },
+	}
+};
+
 static const struct clockgen_muxinfo ls1028a_hwa1 = {
 	{
 		{ CLKSEL_VALID, PLATFORM_PLL, PLL_DIV1 },
@@ -340,6 +348,32 @@ static const struct clockgen_muxinfo ls1046a_hwa2 = {
 		{},
 		{},
 		{ CLKSEL_VALID, CGA_PLL1, PLL_DIV2 },
+	},
+};
+
+static const struct clockgen_muxinfo ls1088a_hwa1 = {
+	{
+		{},
+		{ CLKSEL_VALID, CGA_PLL1, PLL_DIV1 },
+		{ CLKSEL_VALID, CGA_PLL1, PLL_DIV2 },
+		{ CLKSEL_VALID, CGA_PLL1, PLL_DIV3 },
+		{ CLKSEL_VALID, CGA_PLL1, PLL_DIV4 },
+		{},
+		{ CLKSEL_VALID, CGA_PLL2, PLL_DIV2 },
+		{ CLKSEL_VALID, CGA_PLL2, PLL_DIV3 },
+	},
+};
+
+static const struct clockgen_muxinfo ls1088a_hwa2 = {
+	{
+		{},
+		{ CLKSEL_VALID, CGA_PLL2, PLL_DIV1 },
+		{ CLKSEL_VALID, CGA_PLL2, PLL_DIV2 },
+		{ CLKSEL_VALID, CGA_PLL2, PLL_DIV3 },
+		{ CLKSEL_VALID, CGA_PLL2, PLL_DIV4 },
+		{},
+		{ CLKSEL_VALID, CGA_PLL1, PLL_DIV2 },
+		{ CLKSEL_VALID, CGA_PLL1, PLL_DIV3 },
 	},
 };
 
@@ -551,7 +585,7 @@ static const struct clockgen_chipinfo chipinfo[] = {
 	{
 		.compat = "fsl,ls1021a-clockgen",
 		.cmux_groups = {
-			&t1023_cmux
+			&ls1021a_cmux
 		},
 		.cmux_to_group = {
 			0, -1
@@ -607,6 +641,9 @@ static const struct clockgen_chipinfo chipinfo[] = {
 		.compat = "fsl,ls1088a-clockgen",
 		.cmux_groups = {
 			&clockgen2_cmux_cga12
+		},
+		.hwaccel = {
+			&ls1088a_hwa1, &ls1088a_hwa2
 		},
 		.cmux_to_group = {
 			0, 0, -1
