@@ -74,7 +74,42 @@ int sock_map_get_from_fd(const union bpf_attr *attr, struct bpf_prog *prog)
 	map = __bpf_map_get(f);
 	if (IS_ERR(map))
 		return PTR_ERR(map);
-	ret = sock_map_prog_update(map, prog, attr->attach_type);
+	ret = sock_map_prog_update(map, prog, NULL, attr->attach_type);
+	fdput(f);
+	return ret;
+}
+
+int sock_map_prog_detach(const union bpf_attr *attr, enum bpf_prog_type ptype)
+{
+	u32 ufd = attr->target_fd;
+	struct bpf_prog *prog;
+	struct bpf_map *map;
+	struct fd f;
+	int ret;
+
+	if (attr->attach_flags || attr->replace_bpf_fd)
+		return -EINVAL;
+
+	f = fdget(ufd);
+	map = __bpf_map_get(f);
+	if (IS_ERR(map))
+		return PTR_ERR(map);
+
+	prog = bpf_prog_get(attr->attach_bpf_fd);
+	if (IS_ERR(prog)) {
+		ret = PTR_ERR(prog);
+		goto put_map;
+	}
+
+	if (prog->type != ptype) {
+		ret = -EINVAL;
+		goto put_prog;
+	}
+
+	ret = sock_map_prog_update(map, NULL, prog, attr->attach_type);
+put_prog:
+	bpf_prog_put(prog);
+put_map:
 	fdput(f);
 	return ret;
 }
@@ -343,7 +378,14 @@ static struct sock *__sock_map_lookup_elem(struct bpf_map *map, u32 key)
 
 static void *sock_map_lookup(struct bpf_map *map, void *key)
 {
-	return __sock_map_lookup_elem(map, *(u32 *)key);
+	struct sock *sk;
+
+	sk = __sock_map_lookup_elem(map, *(u32 *)key);
+	if (!sk || !sk_fullsock(sk))
+		return NULL;
+	if (sk_is_refcounted(sk) && !refcount_inc_not_zero(&sk->sk_refcnt))
+		return NULL;
+	return sk;
 }
 
 static void *sock_map_lookup_sys(struct bpf_map *map, void *key)
@@ -1073,7 +1115,14 @@ static void *sock_hash_lookup_sys(struct bpf_map *map, void *key)
 
 static void *sock_hash_lookup(struct bpf_map *map, void *key)
 {
-	return __sock_hash_lookup_elem(map, key);
+	struct sock *sk;
+
+	sk = __sock_hash_lookup_elem(map, key);
+	if (!sk || !sk_fullsock(sk))
+		return NULL;
+	if (sk_is_refcounted(sk) && !refcount_inc_not_zero(&sk->sk_refcnt))
+		return NULL;
+	return sk;
 }
 
 static void sock_hash_release_progs(struct bpf_map *map)
@@ -1185,27 +1234,32 @@ static struct sk_psock_progs *sock_map_progs(struct bpf_map *map)
 }
 
 int sock_map_prog_update(struct bpf_map *map, struct bpf_prog *prog,
-			 u32 which)
+			 struct bpf_prog *old, u32 which)
 {
 	struct sk_psock_progs *progs = sock_map_progs(map);
+	struct bpf_prog **pprog;
 
 	if (!progs)
 		return -EOPNOTSUPP;
 
 	switch (which) {
 	case BPF_SK_MSG_VERDICT:
-		psock_set_prog(&progs->msg_parser, prog);
+		pprog = &progs->msg_parser;
 		break;
 	case BPF_SK_SKB_STREAM_PARSER:
-		psock_set_prog(&progs->skb_parser, prog);
+		pprog = &progs->skb_parser;
 		break;
 	case BPF_SK_SKB_STREAM_VERDICT:
-		psock_set_prog(&progs->skb_verdict, prog);
+		pprog = &progs->skb_verdict;
 		break;
 	default:
 		return -EOPNOTSUPP;
 	}
 
+	if (old)
+		return psock_replace_prog(pprog, prog, old);
+
+	psock_set_prog(pprog, prog);
 	return 0;
 }
 

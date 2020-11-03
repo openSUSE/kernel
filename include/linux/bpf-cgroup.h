@@ -57,8 +57,6 @@ struct bpf_cgroup_link {
 	enum bpf_attach_type type;
 };
 
-extern const struct bpf_link_ops bpf_cgroup_link_lops;
-
 struct bpf_prog_list {
 	struct list_head node;
 	struct bpf_prog *prog;
@@ -399,6 +397,7 @@ static inline int bpf_percpu_cgroup_storage_update(struct bpf_map *map,
 }
 
 #define cgroup_bpf_enabled (0)
+#define BPF_CGROUP_RUN_SA_PROG_LOCK(sk, uaddr, type, t_ctx) ({ 0; })
 #define BPF_CGROUP_PRE_CONNECT_ENABLED(sk) (0)
 #define BPF_CGROUP_RUN_PROG_INET_INGRESS(sk,skb) ({ 0; })
 #define BPF_CGROUP_RUN_PROG_INET_EGRESS(sk,skb) ({ 0; })

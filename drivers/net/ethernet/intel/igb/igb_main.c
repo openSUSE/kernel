@@ -2907,7 +2907,7 @@ static struct igb_ring *igb_xdp_tx_queue_mapping(struct igb_adapter *adapter)
 
 static int igb_xdp_xmit_back(struct igb_adapter *adapter, struct xdp_buff *xdp)
 {
-	struct xdp_frame *xdpf = convert_to_xdp_frame(xdp);
+	struct xdp_frame *xdpf = xdp_convert_buff_to_frame(xdp);
 	int cpu = smp_processor_id();
 	struct igb_ring *tx_ring;
 	struct netdev_queue *nq;
