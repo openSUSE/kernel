@@ -10,6 +10,7 @@
  * General Purpose functions for the global management of the
  * QUICC Engine (QE).
  */
+#include <linux/bitmap.h>
 #include <linux/errno.h>
 #include <linux/sched.h>
 #include <linux/kernel.h>
@@ -39,25 +40,14 @@ static DEFINE_SPINLOCK(qe_lock);
 DEFINE_SPINLOCK(cmxgcr_lock);
 EXPORT_SYMBOL(cmxgcr_lock);
 
-/* QE snum state */
-enum qe_snum_state {
-	QE_SNUM_STATE_USED,
-	QE_SNUM_STATE_FREE
-};
-
-/* QE snum */
-struct qe_snum {
-	u8 num;
-	enum qe_snum_state state;
-};
-
 /* We allocate this here because it is used almost exclusively for
  * the communication processor devices.
  */
 struct qe_immap __iomem *qe_immr;
 EXPORT_SYMBOL(qe_immr);
 
-static struct qe_snum snums[QE_NUM_OF_SNUM];	/* Dynamically allocated SNUMs */
+static u8 snums[QE_NUM_OF_SNUM];	/* Dynamically allocated SNUMs */
+static DECLARE_BITMAP(snum_state, QE_NUM_OF_SNUM);
 static unsigned int qe_num_of_snum;
 
 static phys_addr_t qebase = -1;
@@ -311,10 +301,8 @@ static void qe_snums_init(void)
 	else
 		snum_init = snum_init_46;
 
-	for (i = 0; i < qe_num_of_snum; i++) {
-		snums[i].num = snum_init[i];
-		snums[i].state = QE_SNUM_STATE_FREE;
-	}
+	bitmap_zero(snum_state, QE_NUM_OF_SNUM);
+	memcpy(snums, snum_init, qe_num_of_snum);
 }
 
 int qe_get_snum(void)
@@ -324,12 +312,10 @@ int qe_get_snum(void)
 	int i;
 
 	spin_lock_irqsave(&qe_lock, flags);
-	for (i = 0; i < qe_num_of_snum; i++) {
-		if (snums[i].state == QE_SNUM_STATE_FREE) {
-			snums[i].state = QE_SNUM_STATE_USED;
-			snum = snums[i].num;
-			break;
-		}
+	i = find_first_zero_bit(snum_state, qe_num_of_snum);
+	if (i < qe_num_of_snum) {
+		set_bit(i, snum_state);
+		snum = snums[i];
 	}
 	spin_unlock_irqrestore(&qe_lock, flags);
 
@@ -339,14 +325,10 @@ EXPORT_SYMBOL(qe_get_snum);
 
 void qe_put_snum(u8 snum)
 {
-	int i;
+	const u8 *p = memchr(snums, snum, qe_num_of_snum);
 
-	for (i = 0; i < qe_num_of_snum; i++) {
-		if (snums[i].num == snum) {
-			snums[i].state = QE_SNUM_STATE_FREE;
-			break;
-		}
-	}
+	if (p)
+		clear_bit(p - snums, snum_state);
 }
 EXPORT_SYMBOL(qe_put_snum);
 
