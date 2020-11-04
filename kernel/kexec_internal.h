@@ -13,7 +13,10 @@ void kimage_terminate(struct kimage *image);
 int kimage_is_destination_range(struct kimage *image,
 				unsigned long start, unsigned long end);
 
-extern struct mutex kexec_mutex;
+void kexec_lock(void);
+int kexec_trylock(void);
+void kexec_unlock(void);
+int kexec_is_locked(void);
 
 #ifdef CONFIG_KEXEC_FILE
 #include <linux/purgatory.h>

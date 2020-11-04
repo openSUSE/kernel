@@ -45,7 +45,7 @@
 #include <crypto/sha.h>
 #include "kexec_internal.h"
 
-DEFINE_MUTEX(kexec_mutex);
+static DEFINE_MUTEX(kexec_mutex);
 
 /* Per cpu memory for storing cpu states in case of system crash. */
 note_buf_t __percpu *crash_notes;
@@ -69,6 +69,43 @@ struct resource crashk_low_res = {
 	.flags = IORESOURCE_BUSY | IORESOURCE_SYSTEM_RAM,
 	.desc  = IORES_DESC_CRASH_KERNEL
 };
+
+void kexec_lock(void)
+{
+	/*
+	 * LOCK kexec_mutex cmpxchg(&panic_cpu, INVALID, cpu)
+	 * MB                          MB
+	 * panic_cpu == INVALID        kexec_mutex == LOCKED
+	 *
+	 * Ensures either we observe the cmpxchg, or crash_kernel() observes
+	 * our lock acquisition.
+	 */
+	mutex_lock(&kexec_mutex);
+	smp_mb();
+	atomic_cond_read_acquire(&panic_cpu, VAL == PANIC_CPU_INVALID);
+}
+
+int kexec_trylock(void) {
+	if (!mutex_trylock(&kexec_mutex)) {
+		return 0;
+	}
+	smp_mb();
+	if (atomic_read(&panic_cpu) != PANIC_CPU_INVALID) {
+		mutex_unlock(&kexec_mutex);
+		return 0;
+	}
+	return 1;
+}
+
+void kexec_unlock(void)
+{
+	mutex_unlock(&kexec_mutex);
+}
+
+int kexec_is_locked(void)
+{
+	return mutex_is_locked(&kexec_mutex);
+}
 
 int kexec_should_crash(struct task_struct *p)
 {
@@ -937,24 +974,13 @@ int kexec_load_disabled;
  */
 void __noclone __crash_kexec(struct pt_regs *regs)
 {
-	/* Take the kexec_mutex here to prevent sys_kexec_load
-	 * running on one cpu from replacing the crash kernel
-	 * we are using after a panic on a different cpu.
-	 *
-	 * If the crash kernel was not located in a fixed area
-	 * of memory the xchg(&kexec_crash_image) would be
-	 * sufficient.  But since I reuse the memory...
-	 */
-	if (mutex_trylock(&kexec_mutex)) {
-		if (kexec_crash_image) {
-			struct pt_regs fixed_regs;
+	if (!kexec_is_locked() && kexec_crash_image) {
+		struct pt_regs fixed_regs;
 
-			crash_setup_regs(&fixed_regs, regs);
-			crash_save_vmcoreinfo();
-			machine_crash_shutdown(&fixed_regs);
-			machine_kexec(kexec_crash_image);
-		}
-		mutex_unlock(&kexec_mutex);
+		crash_setup_regs(&fixed_regs, regs);
+		crash_save_vmcoreinfo();
+		machine_crash_shutdown(&fixed_regs);
+		machine_kexec(kexec_crash_image);
 	}
 }
 STACK_FRAME_NON_STANDARD(__crash_kexec);
@@ -971,9 +997,11 @@ void crash_kexec(struct pt_regs *regs)
 	this_cpu = raw_smp_processor_id();
 	old_cpu = atomic_cmpxchg(&panic_cpu, PANIC_CPU_INVALID, this_cpu);
 	if (old_cpu == PANIC_CPU_INVALID) {
-		/* This is the 1st CPU which comes here, so go ahead. */
-		printk_safe_flush_on_panic();
-		__crash_kexec(regs);
+		if (!kexec_is_locked()) {
+			/* This is the 1st CPU which comes here, so go ahead. */
+			printk_safe_flush_on_panic();
+			__crash_kexec(regs);
+		}
 
 		/*
 		 * Reset panic_cpu to allow another panic()/crash_kexec()
@@ -987,10 +1015,10 @@ size_t crash_get_memory_size(void)
 {
 	size_t size = 0;
 
-	mutex_lock(&kexec_mutex);
+	kexec_lock();
 	if (crashk_res.end != crashk_res.start)
 		size = resource_size(&crashk_res);
-	mutex_unlock(&kexec_mutex);
+	kexec_unlock();
 	return size;
 }
 
@@ -1010,7 +1038,7 @@ int crash_shrink_memory(unsigned long new_size)
 	unsigned long old_size;
 	struct resource *ram_res;
 
-	mutex_lock(&kexec_mutex);
+	kexec_lock();
 
 	if (kexec_crash_image) {
 		ret = -ENOENT;
@@ -1048,7 +1076,7 @@ int crash_shrink_memory(unsigned long new_size)
 	insert_resource(&iomem_resource, ram_res);
 
 unlock:
-	mutex_unlock(&kexec_mutex);
+	kexec_unlock();
 	return ret;
 }
 
@@ -1120,7 +1148,7 @@ int kernel_kexec(void)
 {
 	int error = 0;
 
-	if (!mutex_trylock(&kexec_mutex))
+	if (!kexec_trylock())
 		return -EBUSY;
 	if (!kexec_image) {
 		error = -EINVAL;
@@ -1197,7 +1225,7 @@ int kernel_kexec(void)
 #endif
 
  Unlock:
-	mutex_unlock(&kexec_mutex);
+	kexec_unlock();
 	return error;
 }
 
