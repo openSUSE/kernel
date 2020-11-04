@@ -877,11 +877,9 @@ static irqreturn_t dspi_interrupt(int irq, void *dev_id)
 					trans_mode);
 			}
 		}
-
-		return IRQ_HANDLED;
 	}
 
-	return IRQ_NONE;
+	return IRQ_HANDLED;
 }
 
 static const struct of_device_id fsl_dspi_dt_ids[] = {
