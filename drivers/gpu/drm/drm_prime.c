@@ -959,40 +959,27 @@ int drm_prime_sg_to_page_addr_arrays(struct sg_table *sgt, struct page **pages,
 	unsigned count;
 	struct scatterlist *sg;
 	struct page *page;
-	u32 page_len, page_index;
+	u32 len, index;
 	dma_addr_t addr;
-	u32 dma_len, dma_index;
 
-	/*
-	 * Scatterlist elements contains both pages and DMA addresses, but
-	 * one shoud not assume 1:1 relation between them. The sg->length is
-	 * the size of the physical memory chunk described by the sg->page,
-	 * while sg_dma_len(sg) is the size of the DMA (IO virtual) chunk
-	 * described by the sg_dma_address(sg).
-	 */
-	page_index = 0;
-	dma_index = 0;
+	index = 0;
 	for_each_sg(sgt->sgl, sg, sgt->nents, count) {
-		page_len = sg->length;
+		len = sg->length;
 		page = sg_page(sg);
-		dma_len = sg_dma_len(sg);
 		addr = sg_dma_address(sg);
 
-		while (pages && page_len > 0) {
-			if (WARN_ON(page_index >= max_entries))
+		while (len > 0) {
+			if (WARN_ON(index >= max_entries))
 				return -1;
-			pages[page_index] = page;
+			if (pages)
+				pages[index] = page;
+			if (addrs)
+				addrs[index] = addr;
+
 			page++;
-			page_len -= PAGE_SIZE;
-			page_index++;
-		}
-		while (addrs && dma_len > 0) {
-			if (WARN_ON(dma_index >= max_entries))
-				return -1;
-			addrs[dma_index] = addr;
 			addr += PAGE_SIZE;
-			dma_len -= PAGE_SIZE;
-			dma_index++;
+			len -= PAGE_SIZE;
+			index++;
 		}
 	}
 	return 0;
