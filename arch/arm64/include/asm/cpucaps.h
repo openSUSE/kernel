@@ -55,8 +55,10 @@
 #define ARM64_WORKAROUND_CAVIUM_TX2_219_TVM	45
 #define ARM64_WORKAROUND_CAVIUM_TX2_219_PRFM	46
 #define ARM64_WORKAROUND_1542419		47
+#define ARM64_HAS_ARMv8_4_TTL			48
+#define ARM64_HAS_TLB_RANGE			48
 
-/* kabi: reserve 48 - 62 for future cpu capabilities */
-#define ARM64_NCAPS				62
+/* kabi: reserve 49 - 64 for future cpu capabilities */
+#define ARM64_NCAPS				64
 
 #endif /* __ASM_CPUCAPS_H */
