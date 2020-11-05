@@ -31,7 +31,7 @@
 #include <linux/init.h>
 #include <linux/device.h>
 #include <linux/mm.h>
-#include <linux/mmu_context.h>
+#include <linux/kthread.h>
 #include <linux/sched/mm.h>
 #include <linux/types.h>
 #include <linux/list.h>
@@ -1981,7 +1981,7 @@ static int kvmgt_rw_gpa(unsigned long handle, unsigned long gpa,
 	if (kthread) {
 		if (!mmget_not_zero(kvm->mm))
 			return -EFAULT;
-		use_mm(kvm->mm);
+		kthread_use_mm(kvm->mm);
 	}
 
 	idx = srcu_read_lock(&kvm->srcu);
@@ -1990,7 +1990,7 @@ static int kvmgt_rw_gpa(unsigned long handle, unsigned long gpa,
 	srcu_read_unlock(&kvm->srcu, idx);
 
 	if (kthread) {
-		unuse_mm(kvm->mm);
+		kthread_unuse_mm(kvm->mm);
 		mmput(kvm->mm);
 	}
 
