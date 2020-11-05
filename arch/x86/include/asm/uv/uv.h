@@ -22,10 +22,12 @@ static inline int uv(int uvtype)
 	return 1;
 }
 
+extern unsigned long uv_systab_phys;
+
 extern enum uv_system_type get_uv_system_type(void);
 static inline bool is_early_uv_system(void)
 {
-	return !((efi.uv_systab == EFI_INVALID_TABLE_ADDR) || !efi.uv_systab);
+	return uv_systab_phys && uv_systab_phys != EFI_INVALID_TABLE_ADDR;
 }
 extern int is_uv_system(void);
 extern int is_uv_hubbed(int uvtype);
