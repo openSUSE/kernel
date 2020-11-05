@@ -321,7 +321,8 @@ static int omap1_spi100k_transfer_one_message(struct spi_master *master,
 			}
 		}
 
-		spi_transfer_delay_exec(t);
+		if (t->delay_usecs)
+			udelay(t->delay_usecs);
 
 		/* ignore the "leave it on after last xfer" hint */
 

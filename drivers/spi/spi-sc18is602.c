@@ -211,7 +211,8 @@ static int sc18is602_transfer_one(struct spi_master *master,
 		}
 		status = 0;
 
-		spi_transfer_delay_exec(t);
+		if (t->delay_usecs)
+			udelay(t->delay_usecs);
 	}
 	m->status = status;
 	spi_finalize_current_message(master);

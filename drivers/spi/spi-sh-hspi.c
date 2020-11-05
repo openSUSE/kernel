@@ -190,7 +190,8 @@ static int hspi_transfer_one_message(struct spi_controller *ctlr,
 
 		msg->actual_length += t->len;
 
-		spi_transfer_delay_exec(t);
+		if (t->delay_usecs)
+			udelay(t->delay_usecs);
 
 		if (cs_change) {
 			ndelay(nsecs);

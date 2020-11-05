@@ -1229,7 +1229,12 @@ static void pch_spi_process_messages(struct work_struct *pwork)
 			"%s:data->current_msg->actual_length=%d\n",
 			__func__, data->current_msg->actual_length);
 
-		spi_transfer_delay_exec(data->cur_trans);
+		/* check for delay */
+		if (data->cur_trans->delay_usecs) {
+			dev_dbg(&data->master->dev, "%s:delay in usec=%d\n",
+				__func__, data->cur_trans->delay_usecs);
+			udelay(data->cur_trans->delay_usecs);
+		}
 
 		spin_lock(&data->lock);
 

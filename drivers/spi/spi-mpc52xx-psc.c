@@ -234,7 +234,8 @@ static void mpc52xx_psc_spi_work(struct work_struct *work)
 				break;
 			m->actual_length += t->len;
 
-			spi_transfer_delay_exec(t);
+			if (t->delay_usecs)
+				udelay(t->delay_usecs);
 
 			if (cs_change)
 				mpc52xx_psc_spi_deactivate_cs(spi);
