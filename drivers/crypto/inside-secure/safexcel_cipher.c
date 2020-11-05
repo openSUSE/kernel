@@ -231,9 +231,7 @@ static int safexcel_aead_setkey(struct crypto_aead *ctfm, const u8 *key,
 
 	/* Encryption key */
 	if (ctx->alg == SAFEXCEL_3DES) {
-		flags = crypto_aead_get_flags(ctfm);
-		err = __des3_verify_key(&flags, keys.enckey);
-		crypto_aead_set_flags(ctfm, flags);
+		err = verify_aead_des3_key(ctfm, keys.enckey, keys.enckeylen);
 
 		if (unlikely(err))
 			return err;
@@ -1172,11 +1170,6 @@ static int safexcel_des_setkey(struct crypto_skcipher *ctfm, const u8 *key,
 {
 	struct safexcel_cipher_ctx *ctx = crypto_skcipher_ctx(ctfm);
 	int ret;
-
-	if (len != DES_KEY_SIZE) {
-		crypto_skcipher_set_flags(ctfm, CRYPTO_TFM_RES_BAD_KEY_LEN);
-		return -EINVAL;
-	}
 
 	ret = verify_skcipher_des_key(ctfm, key);
 	if (ret)
