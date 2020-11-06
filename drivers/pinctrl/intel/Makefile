@@ -5,6 +5,7 @@ obj-$(CONFIG_PINCTRL_BAYTRAIL)		+= pinctrl-baytrail.o
 obj-$(CONFIG_PINCTRL_CHERRYVIEW)	+= pinctrl-cherryview.o
 obj-$(CONFIG_PINCTRL_MERRIFIELD)	+= pinctrl-merrifield.o
 obj-$(CONFIG_PINCTRL_INTEL)		+= pinctrl-intel.o
+obj-$(CONFIG_PINCTRL_ALDERLAKE)		+= pinctrl-alderlake.o
 obj-$(CONFIG_PINCTRL_BROXTON)		+= pinctrl-broxton.o
 obj-$(CONFIG_PINCTRL_CANNONLAKE)	+= pinctrl-cannonlake.o
 obj-$(CONFIG_PINCTRL_CEDARFORK)		+= pinctrl-cedarfork.o
