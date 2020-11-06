@@ -290,9 +290,6 @@ int qeth_resize_buffer_pool(struct qeth_card *card, unsigned int count)
 
 	QETH_CARD_TEXT(card, 2, "realcbp");
 
-	if (card->state != CARD_STATE_DOWN)
-		return -EPERM;
-
 	/* Defer until queue is allocated: */
 	if (!card->qdio.in_q)
 		goto out;
