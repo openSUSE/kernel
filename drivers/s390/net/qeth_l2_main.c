@@ -1053,8 +1053,7 @@ static void qeth_bridge_state_change_worker(struct work_struct *work)
 static void qeth_bridge_state_change(struct qeth_card *card,
 					struct qeth_ipa_cmd *cmd)
 {
-	struct qeth_sbp_state_change *qports =
-		 &cmd->data.sbp.data.state_change;
+	struct qeth_sbp_port_data *qports = &cmd->data.sbp.data.port_data;
 	struct qeth_bridge_state_data *data;
 
 	QETH_CARD_TEXT(card, 2, "brstchng");
@@ -1335,8 +1334,8 @@ static int qeth_bridgeport_query_ports_cb(struct qeth_card *card,
 	struct qeth_reply *reply, unsigned long data)
 {
 	struct qeth_ipa_cmd *cmd = (struct qeth_ipa_cmd *) data;
-	struct qeth_sbp_query_ports *qports = &cmd->data.sbp.data.query_ports;
 	struct _qeth_sbp_cbctl *cbctl = (struct _qeth_sbp_cbctl *)reply->param;
+	struct qeth_sbp_port_data *qports;
 	int rc;
 
 	QETH_CARD_TEXT(card, 2, "brqprtcb");
@@ -1344,6 +1343,7 @@ static int qeth_bridgeport_query_ports_cb(struct qeth_card *card,
 	if (rc)
 		return rc;
 
+	qports = &cmd->data.sbp.data.port_data;
 	if (qports->entry_length != sizeof(struct qeth_sbp_port_entry)) {
 		QETH_CARD_TEXT_(card, 2, "SBPs%04x", qports->entry_length);
 		return -EINVAL;
