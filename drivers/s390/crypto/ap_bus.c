@@ -221,7 +221,7 @@ static inline int ap_fetch_qci_info(struct ap_config_info *info)
 static void __init ap_init_qci_info(void)
 {
 	if (!ap_qci_available()) {
-		AP_DBF(DBF_INFO, "%s QCI not supported\n", __func__);
+		AP_DBF_INFO("%s QCI not supported\n", __func__);
 		return;
 	}
 
@@ -233,18 +233,18 @@ static void __init ap_init_qci_info(void)
 		ap_qci_info = NULL;
 		return;
 	}
-	AP_DBF(DBF_INFO, "%s successful fetched initial qci info\n", __func__);
+	AP_DBF_INFO("%s successful fetched initial qci info\n", __func__);
 
 	if (ap_qci_info->apxa) {
 		if (ap_qci_info->Na) {
 			ap_max_adapter_id = ap_qci_info->Na;
-			AP_DBF(DBF_INFO, "%s new ap_max_adapter_id is %d\n",
-			       __func__, ap_max_adapter_id);
+			AP_DBF_INFO("%s new ap_max_adapter_id is %d\n",
+				    __func__, ap_max_adapter_id);
 		}
 		if (ap_qci_info->Nd) {
 			ap_max_domain_id = ap_qci_info->Nd;
-			AP_DBF(DBF_INFO, "%s new ap_max_domain_id is %d\n",
-			       __func__, ap_max_domain_id);
+			AP_DBF_INFO("%s new ap_max_domain_id is %d\n",
+				    __func__, ap_max_domain_id);
 		}
 	}
 }
@@ -731,8 +731,8 @@ static int __ap_revise_reserved(struct device *dev, void *dummy)
 		drvres = to_ap_drv(dev->driver)->flags
 			& AP_DRIVER_FLAG_DEFAULT;
 		if (!!devres != !!drvres) {
-			AP_DBF(DBF_DEBUG, "reprobing queue=%02x.%04x\n",
-			       card, queue);
+			AP_DBF_DBG("reprobing queue=%02x.%04x\n",
+				   card, queue);
 			rc = device_reprobe(dev);
 		}
 	}
@@ -911,7 +911,7 @@ EXPORT_SYMBOL(ap_bus_force_rescan);
 */
 void ap_bus_cfg_chg(void)
 {
-	AP_DBF(DBF_INFO, "%s config change, forcing bus rescan\n", __func__);
+	AP_DBF_DBG("%s config change, forcing bus rescan\n", __func__);
 
 	ap_bus_force_rescan();
 }
@@ -1062,7 +1062,7 @@ static ssize_t ap_domain_store(struct bus_type *bus,
 	ap_domain_index = domain;
 	spin_unlock_bh(&ap_domain_lock);
 
-	AP_DBF(DBF_INFO, "stored new default domain=%d\n", domain);
+	AP_DBF_INFO("stored new default domain=%d\n", domain);
 
 	return count;
 }
@@ -1323,8 +1323,8 @@ static void ap_select_domain(void)
 	}
 	if (dom <= ap_max_domain_id) {
 		ap_domain_index = dom;
-		AP_DBF(DBF_DEBUG, "%s new default domain is %d\n",
-		       __func__, ap_domain_index);
+		AP_DBF_INFO("%s new default domain is %d\n",
+			    __func__, ap_domain_index);
 	}
 out:
 	spin_unlock_bh(&ap_domain_lock);
@@ -1340,8 +1340,11 @@ static int ap_get_compatible_type(ap_qid_t qid, int rawtype, unsigned int func)
 	int comp_type = 0;
 
 	/* < CEX2A is not supported */
-	if (rawtype < AP_DEVICE_TYPE_CEX2A)
+	if (rawtype < AP_DEVICE_TYPE_CEX2A) {
+		AP_DBF_WARN("get_comp_type queue=%02x.%04x unsupported type %d\n",
+			    AP_QID_CARD(qid), AP_QID_QUEUE(qid), rawtype);
 		return 0;
+	}
 	/* up to CEX7 known and fully supported */
 	if (rawtype <= AP_DEVICE_TYPE_CEX7)
 		return rawtype;
@@ -1363,11 +1366,12 @@ static int ap_get_compatible_type(ap_qid_t qid, int rawtype, unsigned int func)
 			comp_type = apinfo.cat;
 	}
 	if (!comp_type)
-		AP_DBF(DBF_WARN, "queue=%02x.%04x unable to map type %d\n",
-		       AP_QID_CARD(qid), AP_QID_QUEUE(qid), rawtype);
+		AP_DBF_WARN("get_comp_type queue=%02x.%04x unable to map type %d\n",
+			    AP_QID_CARD(qid), AP_QID_QUEUE(qid), rawtype);
 	else if (comp_type != rawtype)
-		AP_DBF(DBF_INFO, "queue=%02x.%04x map type %d to %d\n",
-		       AP_QID_CARD(qid), AP_QID_QUEUE(qid), rawtype, comp_type);
+		AP_DBF_INFO("get_comp_type queue=%02x.%04x map type %d to %d\n",
+			    AP_QID_CARD(qid), AP_QID_QUEUE(qid),
+			    rawtype, comp_type);
 	return comp_type;
 }
 
@@ -1448,11 +1452,11 @@ static void _ap_scan_bus_adapter(int id)
 			broken = true;
 		} else if (ac->raw_hwtype != type) {
 			/* card type has changed */
-			AP_DBF(DBF_INFO, "card=%02x type changed.\n", id);
+			AP_DBF_INFO("card=%02x type changed.\n", id);
 			broken = true;
 		} else if (ac->functions != func) {
 			/* card functions have changed */
-			AP_DBF(DBF_INFO, "card=%02x functions changed.\n", id);
+			AP_DBF_INFO("card=%02x functions changed.\n", id);
 			broken = true;
 		}
 		if (broken) {
@@ -1500,9 +1504,8 @@ static void _ap_scan_bus_adapter(int id)
 			}
 			if (broken) {
 				/* Remove broken device */
-				AP_DBF(DBF_DEBUG,
-				       "removing broken queue=%02x.%04x\n",
-				       id, dom);
+				AP_DBF_DBG("removing broken queue=%02x.%04x\n",
+					   id, dom);
 				device_unregister(dev);
 			}
 			put_device(dev);
@@ -1563,7 +1566,7 @@ static void ap_scan_bus(struct work_struct *unused)
 	ap_fetch_qci_info(ap_qci_info);
 	ap_select_domain();
 
-	AP_DBF(DBF_DEBUG, "%s running\n", __func__);
+	AP_DBF_DBG("%s running\n", __func__);
 
 	/* loop over all possible adapters */
 	for (id = 0; id < AP_DEVICES; id++)
@@ -1578,9 +1581,8 @@ static void ap_scan_bus(struct work_struct *unused)
 		if (dev)
 			put_device(dev);
 		else
-			AP_DBF(DBF_INFO,
-			       "no queue device with default domain %d available\n",
-			       ap_domain_index);
+			AP_DBF_INFO("no queue device with default domain %d available\n",
+				    ap_domain_index);
 	}
 
 	mod_timer(&ap_config_timer, jiffies + ap_config_time * HZ);
