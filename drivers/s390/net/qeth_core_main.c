@@ -5335,14 +5335,13 @@ static inline int qeth_is_last_sbale(struct qdio_buffer_element *sbale)
 }
 
 static int qeth_extract_skb(struct qeth_card *card,
-			    struct qeth_qdio_buffer *qethbuffer,
-			    struct qdio_buffer_element **__element,
+			    struct qeth_qdio_buffer *qethbuffer, u8 *element_no,
 			    int *__offset)
 {
-	struct qdio_buffer_element *element = *__element;
 	struct qeth_priv *priv = netdev_priv(card->dev);
 	struct qdio_buffer *buffer = qethbuffer->buffer;
 	struct napi_struct *napi = &card->napi;
+	struct qdio_buffer_element *element;
 	unsigned int linear_len = 0;
 	bool uses_frags = false;
 	int offset = *__offset;
@@ -5351,6 +5350,8 @@ static int qeth_extract_skb(struct qeth_card *card,
 	struct qeth_hdr *hdr;
 	struct sk_buff *skb;
 	int skb_len = 0;
+
+	element = &buffer->element[*element_no];
 
 next_packet:
 	/* qeth_hdr must not cross element boundaries */
@@ -5507,7 +5508,7 @@ walk_packet:
 	if (!skb)
 		goto next_packet;
 
-	*__element = element;
+	*element_no = element - &buffer->element[0];
 	*__offset = offset;
 
 	qeth_receive_skb(card, skb, hdr, uses_frags);
@@ -5522,7 +5523,7 @@ static int qeth_extract_skbs(struct qeth_card *card, int budget,
 	*done = false;
 
 	while (budget) {
-		if (qeth_extract_skb(card, buf, &card->rx.b_element,
+		if (qeth_extract_skb(card, buf, &card->rx.buf_element,
 				     &card->rx.e_offset)) {
 			*done = true;
 			break;
@@ -5554,10 +5555,6 @@ int qeth_poll(struct napi_struct *napi, int budget)
 				card->rx.b_count = 0;
 				break;
 			}
-			card->rx.b_element =
-				&card->qdio.in_q->bufs[card->rx.b_index]
-				.buffer->element[0];
-			card->rx.e_offset = 0;
 		}
 
 		while (card->rx.b_count) {
@@ -5580,20 +5577,17 @@ int qeth_poll(struct napi_struct *napi, int budget)
 				ctx->bufs_refill -=
 					qeth_rx_refill_queue(card,
 							     ctx->bufs_refill);
-				if (card->rx.b_count) {
-					card->rx.b_index =
-						QDIO_BUFNR(card->rx.b_index + 1);
-					card->rx.b_element =
-						&card->qdio.in_q
-						->bufs[card->rx.b_index]
-						.buffer->element[0];
-					card->rx.e_offset = 0;
-				}
+
+				/* Step forward to next buffer: */
+				card->rx.b_index =
+					QDIO_BUFNR(card->rx.b_index + 1);
+				card->rx.buf_element = 0;
+				card->rx.e_offset = 0;
 			}
 
-				if (budget)
-					/* Process any substantial refill backlog: */
-					ctx->bufs_refill -= qeth_rx_refill_queue(card, ctx->bufs_refill);
+			if (budget)
+				/* Process any substantial refill backlog: */
+				ctx->bufs_refill -= qeth_rx_refill_queue(card, ctx->bufs_refill);
 
 			if (work_done >= budget)
 				goto out;
