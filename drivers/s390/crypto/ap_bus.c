@@ -349,13 +349,13 @@ static int ap_query_queue(ap_qid_t qid, int *queue_depth, int *device_type,
 	}
 }
 
-void ap_wait(enum ap_wait wait)
+void ap_wait(enum ap_sm_wait wait)
 {
 	ktime_t hr_time;
 
 	switch (wait) {
-	case AP_WAIT_AGAIN:
-	case AP_WAIT_INTERRUPT:
+	case AP_SM_WAIT_AGAIN:
+	case AP_SM_WAIT_INTERRUPT:
 		if (ap_using_interrupts())
 			break;
 		if (ap_poll_kthread) {
@@ -363,7 +363,7 @@ void ap_wait(enum ap_wait wait)
 			break;
 		}
 		/* Fall through */
-	case AP_WAIT_TIMEOUT:
+	case AP_SM_WAIT_TIMEOUT:
 		spin_lock_bh(&ap_poll_timer_lock);
 		if (!hrtimer_is_queued(&ap_poll_timer)) {
 			hr_time = poll_timeout;
@@ -372,7 +372,7 @@ void ap_wait(enum ap_wait wait)
 		}
 		spin_unlock_bh(&ap_poll_timer_lock);
 		break;
-	case AP_WAIT_NONE:
+	case AP_SM_WAIT_NONE:
 	default:
 		break;
 	}
@@ -391,7 +391,7 @@ void ap_request_timeout(struct timer_list *t)
 	if (ap_suspend_flag)
 		return;
 	spin_lock_bh(&aq->lock);
-	ap_wait(ap_sm_event(aq, AP_EVENT_TIMEOUT));
+	ap_wait(ap_sm_event(aq, AP_SM_EVENT_TIMEOUT));
 	spin_unlock_bh(&aq->lock);
 }
 
@@ -429,7 +429,7 @@ static void ap_tasklet_fn(unsigned long dummy)
 {
 	int bkt;
 	struct ap_queue *aq;
-	enum ap_wait wait = AP_WAIT_NONE;
+	enum ap_sm_wait wait = AP_SM_WAIT_NONE;
 
 	/* Reset the indicator if interrupts are used. Thus new interrupts can
 	 * be received. Doing it in the beginning of the tasklet is therefor
@@ -441,7 +441,7 @@ static void ap_tasklet_fn(unsigned long dummy)
 	spin_lock_bh(&ap_queues_lock);
 	hash_for_each(ap_queues, bkt, aq, hnode) {
 		spin_lock_bh(&aq->lock);
-		wait = min(wait, ap_sm_event_loop(aq, AP_EVENT_POLL));
+		wait = min(wait, ap_sm_event_loop(aq, AP_SM_EVENT_POLL));
 		spin_unlock_bh(&aq->lock);
 	}
 	spin_unlock_bh(&ap_queues_lock);
@@ -1485,7 +1485,7 @@ static void _ap_scan_bus_adapter(int id)
 				borked = 1;
 			else {
 				spin_lock_bh(&aq->lock);
-				borked = aq->state == AP_STATE_BORKED;
+				borked = aq->sm_state == AP_SM_STATE_BORKED;
 				spin_unlock_bh(&aq->lock);
 			}
 			if (borked) {
