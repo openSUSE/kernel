@@ -372,6 +372,7 @@ struct gen_pool *cio_gp_dma_create(struct device *dma_dev, int nr_pages);
 /* Function from drivers/s390/cio/chsc.c */
 int chsc_sstpc(void *page, unsigned int op, u16 ctrl, u64 *clock_delta);
 int chsc_sstpi(void *page, void *result, size_t size);
+int chsc_stzi(void *page, void *result, size_t size);
 int chsc_sgib(u32 origin);
 int chsc_scud(u16 cu, u64 *esm, u8 *esm_valid);
 
