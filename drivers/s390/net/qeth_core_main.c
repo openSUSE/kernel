@@ -2409,6 +2409,8 @@ static int qeth_alloc_qdio_queues(struct qeth_card *card)
 		queue->card = card;
 		queue->queue_no = i;
 		timer_setup(&queue->timer, qeth_tx_completion_timer, 0);
+		queue->coalesce_usecs = QETH_TX_COALESCE_USECS;
+		queue->max_coalesced_frames = QETH_TX_MAX_COALESCED_FRAMES;
 
 		/* give outbound qeth_qdio_buffers their qdio_buffers */
 		for (j = 0; j < QDIO_MAX_BUFFERS_PER_Q; ++j) {
@@ -2769,6 +2771,7 @@ static int qeth_init_qdio_queues(struct qeth_card *card)
 		queue->next_buf_to_fill = 0;
 		queue->do_pack = 0;
 		queue->prev_hdr = NULL;
+		queue->coalesced_frames = 0;
 		queue->bulk_start = 0;
 		queue->bulk_count = 0;
 		queue->bulk_max = qeth_tx_select_bulk_max(card, queue);
@@ -3363,6 +3366,7 @@ static void qeth_flush_buffers(struct qeth_qdio_out_q *queue, int index,
 		buf = queue->bufs[bidx];
 		buf->buffer->element[buf->next_element_to_fill - 1].eflags |=
 				SBAL_EFLAGS_LAST_ENTRY;
+		queue->coalesced_frames += buf->frames;
 
 		if (queue->bufstates)
 			queue->bufstates[bidx].user = buf;
@@ -3407,8 +3411,18 @@ static void qeth_flush_buffers(struct qeth_qdio_out_q *queue, int index,
 		     queue->queue_no, index, count);
 
 	/* Fake the TX completion interrupt: */
-	if (IS_IQD(card))
-		napi_schedule(&queue->napi);
+	if (IS_IQD(card)) {
+		unsigned int frames = READ_ONCE(queue->max_coalesced_frames);
+		unsigned int usecs = READ_ONCE(queue->coalesce_usecs);
+
+		if (frames && queue->coalesced_frames >= frames) {
+			napi_schedule(&queue->napi);
+			queue->coalesced_frames = 0;
+			QETH_TXQ_STAT_INC(queue, coal_frames);
+		} else if (usecs) {
+			qeth_tx_arm_timer(queue, usecs);
+		}
+	}
 
 	if (rc) {
 		/* ignore temporary SIGA errors without busy condition */
@@ -5681,7 +5695,7 @@ static int qeth_tx_poll(struct napi_struct *napi, int budget)
 		if (completed <= 0) {
 			/* Ensure we see TX completion for pending work: */
 			if (napi_complete_done(napi, 0))
-				qeth_tx_arm_timer(queue);
+				qeth_tx_arm_timer(queue, QETH_TX_TIMER_USECS);
 			return 0;
 		}
 
