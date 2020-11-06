@@ -25,7 +25,37 @@ struct imx_sc_msg_misc_get_soc_id {
 			u32 id;
 		} resp;
 	} data;
+} __packed __aligned(4);
+
+struct imx_sc_msg_misc_get_soc_uid {
+	struct imx_sc_rpc_msg hdr;
+	u32 uid_low;
+	u32 uid_high;
 } __packed;
+
+static int imx_scu_soc_uid(u64 *soc_uid)
+{
+	struct imx_sc_msg_misc_get_soc_uid msg;
+	struct imx_sc_rpc_msg *hdr = &msg.hdr;
+	int ret;
+
+	hdr->ver = IMX_SC_RPC_VERSION;
+	hdr->svc = IMX_SC_RPC_SVC_MISC;
+	hdr->func = IMX_SC_MISC_FUNC_UNIQUE_ID;
+	hdr->size = 1;
+
+	ret = imx_scu_call_rpc(soc_ipc_handle, &msg, true);
+	if (ret) {
+		pr_err("%s: get soc uid failed, ret %d\n", __func__, ret);
+		return ret;
+	}
+
+	*soc_uid = msg.uid_high;
+	*soc_uid <<= 32;
+	*soc_uid |= msg.uid_low;
+
+	return 0;
+}
 
 static int imx_scu_soc_id(void)
 {
@@ -55,6 +85,7 @@ static int imx_scu_soc_probe(struct platform_device *pdev)
 	struct soc_device_attribute *soc_dev_attr;
 	struct soc_device *soc_dev;
 	int id, ret;
+	u64 uid = 0;
 	u32 val;
 
 	ret = imx_scu_get_handle(&soc_ipc_handle);
@@ -78,6 +109,10 @@ static int imx_scu_soc_probe(struct platform_device *pdev)
 	if (id < 0)
 		return -EINVAL;
 
+	ret = imx_scu_soc_uid(&uid);
+	if (ret < 0)
+		return -EINVAL;
+
 	/* format soc_id value passed from SCU firmware */
 	val = id & 0x1f;
 	soc_dev_attr->soc_id = kasprintf(GFP_KERNEL, "0x%x", val);
@@ -96,14 +131,22 @@ static int imx_scu_soc_probe(struct platform_device *pdev)
 		goto free_soc_id;
 	}
 
+	soc_dev_attr->serial_number = kasprintf(GFP_KERNEL, "%016llX", uid);
+	if (!soc_dev_attr->serial_number) {
+		ret = -ENOMEM;
+		goto free_revision;
+	}
+
 	soc_dev = soc_device_register(soc_dev_attr);
 	if (IS_ERR(soc_dev)) {
 		ret = PTR_ERR(soc_dev);
-		goto free_revision;
+		goto free_serial_number;
 	}
 
 	return 0;
 
+free_serial_number:
+	kfree(soc_dev_attr->serial_number);
 free_revision:
 	kfree(soc_dev_attr->revision);
 free_soc_id:
