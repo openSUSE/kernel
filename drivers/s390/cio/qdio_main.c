@@ -1636,8 +1636,6 @@ int qdio_start_irq(struct ccw_device *cdev)
 	if (!irq_ptr)
 		return -ENODEV;
 
-	clear_nonshared_ind(irq_ptr);
-
 	for_each_input_queue(irq_ptr, q, i)
 		qdio_stop_polling(q);
 
