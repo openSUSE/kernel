@@ -3264,9 +3264,9 @@ static void execlists_reset_finish(struct intel_engine_cs *engine)
 		     atomic_read(&execlists->tasklet.count));
 }
 
-static int gen8_emit_bb_start(struct i915_request *rq,
-			      u64 offset, u32 len,
-			      const unsigned int flags)
+static int gen8_emit_bb_start_noarb(struct i915_request *rq,
+				    u64 offset, u32 len,
+				    const unsigned int flags)
 {
 	u32 *cs;
 
@@ -3300,7 +3300,7 @@ static int gen8_emit_bb_start(struct i915_request *rq,
 	return 0;
 }
 
-static int gen9_emit_bb_start(struct i915_request *rq,
+static int gen8_emit_bb_start(struct i915_request *rq,
 			      u64 offset, u32 len,
 			      const unsigned int flags)
 {
@@ -3775,6 +3775,11 @@ void intel_execlists_set_default_submission(struct intel_engine_cs *engine)
 
 	if (INTEL_GEN(engine->i915) >= 12)
 		engine->flags |= I915_ENGINE_HAS_RELATIVE_MMIO;
+
+	if (intel_engine_has_preemption(engine))
+		engine->emit_bb_start = gen8_emit_bb_start;
+	else
+		engine->emit_bb_start = gen8_emit_bb_start_noarb;
 }
 
 static void execlists_shutdown(struct intel_engine_cs *engine)
@@ -3828,10 +3833,6 @@ logical_ring_default_vfuncs(struct intel_engine_cs *engine)
 		 * until a more refined solution exists.
 		 */
 	}
-	if (IS_GEN(engine->i915, 8))
-		engine->emit_bb_start = gen8_emit_bb_start;
-	else
-		engine->emit_bb_start = gen9_emit_bb_start;
 }
 
 static inline void
