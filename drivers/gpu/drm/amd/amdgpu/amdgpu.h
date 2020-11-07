@@ -989,6 +989,8 @@ struct amdgpu_device {
 
 	/* device pstate */
 	int				pstate;
+	/* enable runtime pm on the device */
+	bool                            runpm;
 };
 
 static inline struct amdgpu_device *amdgpu_ttm_adev(struct ttm_bo_device *bdev)
