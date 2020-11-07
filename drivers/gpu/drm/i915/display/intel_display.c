@@ -10422,6 +10422,9 @@ static bool hsw_get_transcoder_state(struct intel_crtc *crtc,
 		case TRANS_DDI_EDP_INPUT_C_ONOFF:
 			trans_pipe = PIPE_C;
 			break;
+		case TRANS_DDI_EDP_INPUT_D_ONOFF:
+			trans_pipe = PIPE_D;
+			break;
 		}
 
 		if (trans_pipe == crtc->pipe) {
