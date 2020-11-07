@@ -666,7 +666,8 @@ static void reset_prepare_engine(struct intel_engine_cs *engine)
 	 * GPU state upon resume, i.e. fail to restart after a reset.
 	 */
 	intel_uncore_forcewake_get(engine->uncore, FORCEWAKE_ALL);
-	engine->reset.prepare(engine);
+	if (engine->reset.prepare)
+		engine->reset.prepare(engine);
 }
 
 static void revoke_mmaps(struct intel_gt *gt)
@@ -747,7 +748,8 @@ static int gt_reset(struct intel_gt *gt, intel_engine_mask_t stalled_mask)
 
 static void reset_finish_engine(struct intel_engine_cs *engine)
 {
-	engine->reset.finish(engine);
+	if (engine->reset.finish)
+		engine->reset.finish(engine);
 	intel_uncore_forcewake_put(engine->uncore, FORCEWAKE_ALL);
 
 	intel_engine_signal_breadcrumbs(engine);
@@ -825,7 +827,8 @@ static void __intel_gt_set_wedged(struct intel_gt *gt)
 
 	/* Mark all executing requests as skipped */
 	for_each_engine(engine, gt, id)
-		engine->cancel_requests(engine);
+		if (engine->reset.cancel)
+			engine->reset.cancel(engine);
 
 	reset_finish(gt, awake);
 
