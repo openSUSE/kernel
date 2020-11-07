@@ -2784,7 +2784,3 @@ static struct drm_driver driver = {
 	.minor = DRIVER_MINOR,
 	.patchlevel = DRIVER_PATCHLEVEL,
 };
-
-#if IS_ENABLED(CONFIG_DRM_I915_SELFTEST)
-#include "selftests/mock_drm.c"
-#endif
