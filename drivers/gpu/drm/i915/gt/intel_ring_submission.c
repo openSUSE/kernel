@@ -1366,13 +1366,19 @@ static int load_pd_dir(struct i915_request *rq, const struct i915_ppgtt *ppgtt)
 	const struct intel_engine_cs * const engine = rq->engine;
 	u32 *cs;
 
-	cs = intel_ring_begin(rq, 6);
+	cs = intel_ring_begin(rq, 10);
 	if (IS_ERR(cs))
 		return PTR_ERR(cs);
 
 	*cs++ = MI_LOAD_REGISTER_IMM(1);
 	*cs++ = i915_mmio_reg_offset(RING_PP_DIR_DCLV(engine->mmio_base));
 	*cs++ = PP_DIR_DCLV_2G;
+
+	*cs++ = MI_STORE_REGISTER_MEM | MI_SRM_LRM_GLOBAL_GTT;
+	*cs++ = i915_mmio_reg_offset(RING_PP_DIR_DCLV(engine->mmio_base));
+	*cs++ = intel_gt_scratch_offset(rq->engine->gt,
+					INTEL_GT_SCRATCH_FIELD_DEFAULT);
+	*cs++ = MI_NOOP;
 
 	*cs++ = MI_LOAD_REGISTER_IMM(1);
 	*cs++ = i915_mmio_reg_offset(RING_PP_DIR_BASE(engine->mmio_base));
@@ -1571,6 +1577,7 @@ static int switch_context(struct i915_request *rq)
 {
 	struct intel_context *ce = rq->hw_context;
 	struct i915_address_space *vm = vm_alias(ce);
+	u32 hw_flags = 0;
 	int ret;
 
 	GEM_BUG_ON(HAS_EXECLISTS(rq->i915));
@@ -1591,7 +1598,7 @@ static int switch_context(struct i915_request *rq)
 		BUILD_BUG_ON(HSW_MI_RS_RESTORE_STATE_EN != MI_RESTORE_EXT_STATE_EN);
 
 		flags = MI_SAVE_EXT_STATE_EN | MI_MM_SPACE_GTT;
-		if (!i915_gem_context_is_kernel(rq->gem_context))
+		if (!rq->engine->default_state)
 			flags |= MI_RESTORE_EXT_STATE_EN;
 		else
 			flags |= MI_RESTORE_INHIBIT;
