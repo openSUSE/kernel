@@ -983,6 +983,58 @@ static void intel_engine_context_out(struct intel_engine_cs *engine)
 	write_sequnlock_irqrestore(&engine->stats.lock, flags);
 }
 
+static int lrc_ring_mi_mode(const struct intel_engine_cs *engine)
+{
+	if (INTEL_GEN(engine->i915) >= 12)
+		return 0x60;
+	else if (INTEL_GEN(engine->i915) >= 9)
+		return 0x54;
+	else if (engine->class == RENDER_CLASS)
+		return 0x58;
+	else
+		return -1;
+}
+
+static void
+execlists_check_context(const struct intel_context *ce,
+			const struct intel_engine_cs *engine)
+{
+	const struct intel_ring *ring = ce->ring;
+	u32 *regs = ce->lrc_reg_state;
+	bool valid = true;
+	int x;
+
+	if (regs[CTX_RING_START] != i915_ggtt_offset(ring->vma)) {
+		pr_err("%s: context submitted with incorrect RING_START [%08x], expected %08x\n",
+		       engine->name,
+		       regs[CTX_RING_START],
+		       i915_ggtt_offset(ring->vma));
+		regs[CTX_RING_START] = i915_ggtt_offset(ring->vma);
+		valid = false;
+	}
+
+	if ((regs[CTX_RING_CTL] & ~(RING_WAIT | RING_WAIT_SEMAPHORE)) !=
+	    (RING_CTL_SIZE(ring->size) | RING_VALID)) {
+		pr_err("%s: context submitted with incorrect RING_CTL [%08x], expected %08x\n",
+		       engine->name,
+		       regs[CTX_RING_CTL],
+		       (u32)(RING_CTL_SIZE(ring->size) | RING_VALID));
+		regs[CTX_RING_CTL] = RING_CTL_SIZE(ring->size) | RING_VALID;
+		valid = false;
+	}
+
+	x = lrc_ring_mi_mode(engine);
+	if (x != -1 && regs[x + 1] & (regs[x + 1] >> 16) & STOP_RING) {
+		pr_err("%s: context submitted with STOP_RING [%08x] in RING_MI_MODE\n",
+		       engine->name, regs[x + 1]);
+		regs[x + 1] &= ~STOP_RING;
+		regs[x + 1] |= STOP_RING << 16;
+		valid = false;
+	}
+
+	WARN_ONCE(!valid, "Invalid lrc state found before submission\n");
+}
+
 static void restore_default_state(struct intel_context *ce,
 				  struct intel_engine_cs *engine)
 {
@@ -1046,6 +1098,9 @@ __execlists_schedule_in(struct i915_request *rq)
 
 	if (unlikely(i915_gem_context_is_banned(ce->gem_context)))
 		reset_active(rq, engine);
+
+	if (IS_ENABLED(CONFIG_DRM_I915_DEBUG_GEM))
+		execlists_check_context(ce, engine);
 
 	if (ce->tag) {
 		/* Use a fixed tag for OA and friends */
@@ -2369,7 +2424,7 @@ __execlists_update_reg_state(const struct intel_context *ce,
 	GEM_BUG_ON(!intel_ring_offset_valid(ring, ring->head));
 	GEM_BUG_ON(!intel_ring_offset_valid(ring, ring->tail));
 
-	regs[CTX_RING_BUFFER_START] = i915_ggtt_offset(ring->vma);
+	regs[CTX_RING_START] = i915_ggtt_offset(ring->vma);
 	regs[CTX_RING_HEAD] = ring->head;
 	regs[CTX_RING_TAIL] = ring->tail;
 
@@ -2962,18 +3017,6 @@ static void reset_csb_pointers(struct intel_engine_cs *engine)
 
 	invalidate_csb_entries(&execlists->csb_status[0],
 			       &execlists->csb_status[reset_value]);
-}
-
-static int lrc_ring_mi_mode(const struct intel_engine_cs *engine)
-{
-	if (INTEL_GEN(engine->i915) >= 12)
-		return 0x60;
-	else if (INTEL_GEN(engine->i915) >= 9)
-		return 0x54;
-	else if (engine->class == RENDER_CLASS)
-		return 0x58;
-	else
-		return -1;
 }
 
 static void __execlists_reset_reg_state(const struct intel_context *ce,
@@ -3909,7 +3952,7 @@ static void init_common_reg_state(u32 * const regs,
 			_MASKED_BIT_DISABLE(CTX_CTRL_ENGINE_CTX_SAVE_INHIBIT |
 					    CTX_CTRL_RS_CTX_ENABLE);
 
-	regs[CTX_RING_BUFFER_CONTROL] = RING_CTL_SIZE(ring->size) | RING_VALID;
+	regs[CTX_RING_CTL] = RING_CTL_SIZE(ring->size) | RING_VALID;
 	regs[CTX_BB_STATE] = RING_BB_PPGTT;
 }
 
