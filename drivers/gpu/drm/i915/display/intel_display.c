@@ -6184,9 +6184,8 @@ static void intel_pre_plane_update(struct intel_crtc_state *old_crtc_state,
 	 * we'll continue to update watermarks the old way, if flags tell
 	 * us to.
 	 */
-	if (dev_priv->display.initial_watermarks != NULL)
-		dev_priv->display.initial_watermarks(intel_state,
-						     pipe_config);
+	if (dev_priv->display.initial_watermarks)
+		dev_priv->display.initial_watermarks(intel_state, crtc);
 	else if (pipe_config->update_wm_pre)
 		intel_update_watermarks(crtc);
 }
@@ -6534,8 +6533,8 @@ static void ironlake_crtc_enable(struct intel_crtc_state *pipe_config,
 	/* update DSPCNTR to configure gamma for pipe bottom color */
 	intel_disable_primary_plane(pipe_config);
 
-	if (dev_priv->display.initial_watermarks != NULL)
-		dev_priv->display.initial_watermarks(state, pipe_config);
+	if (dev_priv->display.initial_watermarks)
+		dev_priv->display.initial_watermarks(state, intel_crtc);
 	intel_enable_pipe(pipe_config);
 
 	if (pipe_config->has_pch_encoder)
@@ -6693,8 +6692,8 @@ static void haswell_crtc_enable(struct intel_crtc_state *pipe_config,
 	if (!transcoder_is_dsi(cpu_transcoder))
 		intel_ddi_enable_transcoder_func(pipe_config);
 
-	if (dev_priv->display.initial_watermarks != NULL)
-		dev_priv->display.initial_watermarks(state, pipe_config);
+	if (dev_priv->display.initial_watermarks)
+		dev_priv->display.initial_watermarks(state, intel_crtc);
 
 	if (INTEL_GEN(dev_priv) >= 11)
 		icl_pipe_mbus_enable(intel_crtc);
@@ -7078,7 +7077,7 @@ static void valleyview_crtc_enable(struct intel_crtc_state *pipe_config,
 	/* update DSPCNTR to configure gamma for pipe bottom color */
 	intel_disable_primary_plane(pipe_config);
 
-	dev_priv->display.initial_watermarks(state, pipe_config);
+	dev_priv->display.initial_watermarks(state, intel_crtc);
 	intel_enable_pipe(pipe_config);
 
 	intel_crtc_vblank_on(pipe_config);
@@ -7133,9 +7132,8 @@ static void i9xx_crtc_enable(struct intel_crtc_state *pipe_config,
 	/* update DSPCNTR to configure gamma for pipe bottom color */
 	intel_disable_primary_plane(pipe_config);
 
-	if (dev_priv->display.initial_watermarks != NULL)
-		dev_priv->display.initial_watermarks(state,
-						     pipe_config);
+	if (dev_priv->display.initial_watermarks)
+		dev_priv->display.initial_watermarks(state, intel_crtc);
 	else
 		intel_update_watermarks(intel_crtc);
 	intel_enable_pipe(pipe_config);
@@ -14316,6 +14314,7 @@ static void commit_pipe_config(struct intel_atomic_state *state,
 			       struct intel_crtc_state *old_crtc_state,
 			       struct intel_crtc_state *new_crtc_state)
 {
+	struct intel_crtc *crtc = to_intel_crtc(new_crtc_state->uapi.crtc);
 	struct drm_i915_private *dev_priv = to_i915(state->base.dev);
 	bool modeset = needs_modeset(new_crtc_state);
 
@@ -14339,8 +14338,7 @@ static void commit_pipe_config(struct intel_atomic_state *state,
 	}
 
 	if (dev_priv->display.atomic_update_watermarks)
-		dev_priv->display.atomic_update_watermarks(state,
-							   new_crtc_state);
+		dev_priv->display.atomic_update_watermarks(state, crtc);
 }
 
 static void intel_update_crtc(struct intel_crtc *crtc,
@@ -14444,8 +14442,7 @@ static void intel_old_crtc_state_disables(struct intel_atomic_state *state,
 	if (!new_crtc_state->hw.active &&
 	    !HAS_GMCH(dev_priv) &&
 	    dev_priv->display.initial_watermarks)
-		dev_priv->display.initial_watermarks(state,
-						     new_crtc_state);
+		dev_priv->display.initial_watermarks(state, crtc);
 }
 
 static void intel_trans_port_sync_modeset_disables(struct intel_atomic_state *state,
@@ -14895,8 +14892,7 @@ static void intel_atomic_commit_tail(struct intel_atomic_state *state)
 	 */
 	for_each_new_intel_crtc_in_state(state, crtc, new_crtc_state, i) {
 		if (dev_priv->display.optimize_watermarks)
-			dev_priv->display.optimize_watermarks(state,
-							      new_crtc_state);
+			dev_priv->display.optimize_watermarks(state, crtc);
 	}
 
 	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
@@ -16851,7 +16847,7 @@ retry:
 	/* Write calculated watermark values back */
 	for_each_new_intel_crtc_in_state(intel_state, crtc, crtc_state, i) {
 		crtc_state->wm.need_postvbl_update = true;
-		dev_priv->display.optimize_watermarks(intel_state, crtc_state);
+		dev_priv->display.optimize_watermarks(intel_state, crtc);
 
 		to_intel_crtc_state(crtc->base.state)->wm = crtc_state->wm;
 	}
