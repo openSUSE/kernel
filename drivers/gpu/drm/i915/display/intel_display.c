@@ -6470,13 +6470,11 @@ static void intel_disable_primary_plane(const struct intel_crtc_state *crtc_stat
 static void ironlake_crtc_enable(struct intel_crtc_state *pipe_config,
 				 struct intel_atomic_state *state)
 {
-	struct drm_crtc *crtc = pipe_config->uapi.crtc;
-	struct drm_device *dev = crtc->dev;
-	struct drm_i915_private *dev_priv = to_i915(dev);
-	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
-	enum pipe pipe = intel_crtc->pipe;
+	struct intel_crtc *crtc = to_intel_crtc(pipe_config->uapi.crtc);
+	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
+	enum pipe pipe = crtc->pipe;
 
-	if (WARN_ON(intel_crtc->active))
+	if (WARN_ON(crtc->active))
 		return;
 
 	/*
@@ -6508,9 +6506,9 @@ static void ironlake_crtc_enable(struct intel_crtc_state *pipe_config,
 
 	ironlake_set_pipeconf(pipe_config);
 
-	intel_crtc->active = true;
+	crtc->active = true;
 
-	intel_encoders_pre_enable(state, intel_crtc);
+	intel_encoders_pre_enable(state, crtc);
 
 	if (pipe_config->has_pch_encoder) {
 		/* Note: FDI PLL enabling _must_ be done before we enable the
@@ -6534,7 +6532,7 @@ static void ironlake_crtc_enable(struct intel_crtc_state *pipe_config,
 	intel_disable_primary_plane(pipe_config);
 
 	if (dev_priv->display.initial_watermarks)
-		dev_priv->display.initial_watermarks(state, intel_crtc);
+		dev_priv->display.initial_watermarks(state, crtc);
 	intel_enable_pipe(pipe_config);
 
 	if (pipe_config->has_pch_encoder)
@@ -6542,7 +6540,7 @@ static void ironlake_crtc_enable(struct intel_crtc_state *pipe_config,
 
 	intel_crtc_vblank_on(pipe_config);
 
-	intel_encoders_enable(state, intel_crtc);
+	intel_encoders_enable(state, crtc);
 
 	if (HAS_PCH_CPT(dev_priv))
 		cpt_verify_modeset(dev_priv, pipe);
@@ -6616,22 +6614,21 @@ static void hsw_set_frame_start_delay(const struct intel_crtc_state *crtc_state)
 static void haswell_crtc_enable(struct intel_crtc_state *pipe_config,
 				struct intel_atomic_state *state)
 {
-	struct drm_crtc *crtc = pipe_config->uapi.crtc;
-	struct drm_i915_private *dev_priv = to_i915(crtc->dev);
-	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
-	enum pipe pipe = intel_crtc->pipe, hsw_workaround_pipe;
+	struct intel_crtc *crtc = to_intel_crtc(pipe_config->uapi.crtc);
+	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
+	enum pipe pipe = crtc->pipe, hsw_workaround_pipe;
 	enum transcoder cpu_transcoder = pipe_config->cpu_transcoder;
 	bool psl_clkgate_wa;
 
-	if (WARN_ON(intel_crtc->active))
+	if (WARN_ON(crtc->active))
 		return;
 
-	intel_encoders_pre_pll_enable(state, intel_crtc);
+	intel_encoders_pre_pll_enable(state, crtc);
 
 	if (pipe_config->shared_dpll)
 		intel_enable_shared_dpll(pipe_config);
 
-	intel_encoders_pre_enable(state, intel_crtc);
+	intel_encoders_pre_enable(state, crtc);
 
 	if (intel_crtc_has_dp_encoder(pipe_config))
 		intel_dp_set_m_n(pipe_config, M1_N1);
@@ -6663,7 +6660,7 @@ static void haswell_crtc_enable(struct intel_crtc_state *pipe_config,
 	if (INTEL_GEN(dev_priv) >= 9 || IS_BROADWELL(dev_priv))
 		bdw_set_pipemisc(pipe_config);
 
-	intel_crtc->active = true;
+	crtc->active = true;
 
 	/* Display WA #1180: WaDisableScalarClockGating: glk, cnl */
 	psl_clkgate_wa = (IS_GEMINILAKE(dev_priv) || IS_CANNONLAKE(dev_priv)) &&
@@ -6687,16 +6684,16 @@ static void haswell_crtc_enable(struct intel_crtc_state *pipe_config,
 		intel_disable_primary_plane(pipe_config);
 
 	if (INTEL_GEN(dev_priv) >= 11)
-		icl_set_pipe_chicken(intel_crtc);
+		icl_set_pipe_chicken(crtc);
 
 	if (!transcoder_is_dsi(cpu_transcoder))
 		intel_ddi_enable_transcoder_func(pipe_config);
 
 	if (dev_priv->display.initial_watermarks)
-		dev_priv->display.initial_watermarks(state, intel_crtc);
+		dev_priv->display.initial_watermarks(state, crtc);
 
 	if (INTEL_GEN(dev_priv) >= 11)
-		icl_pipe_mbus_enable(intel_crtc);
+		icl_pipe_mbus_enable(crtc);
 
 	/* XXX: Do the pipe assertions at the right place for BXT DSI. */
 	if (!transcoder_is_dsi(cpu_transcoder))
@@ -6707,7 +6704,7 @@ static void haswell_crtc_enable(struct intel_crtc_state *pipe_config,
 
 	intel_crtc_vblank_on(pipe_config);
 
-	intel_encoders_enable(state, intel_crtc);
+	intel_encoders_enable(state, crtc);
 
 	if (psl_clkgate_wa) {
 		intel_wait_for_vblank(dev_priv, pipe);
@@ -6741,11 +6738,9 @@ static void ironlake_pfit_disable(const struct intel_crtc_state *old_crtc_state)
 static void ironlake_crtc_disable(struct intel_crtc_state *old_crtc_state,
 				  struct intel_atomic_state *state)
 {
-	struct drm_crtc *crtc = old_crtc_state->uapi.crtc;
-	struct drm_device *dev = crtc->dev;
-	struct drm_i915_private *dev_priv = to_i915(dev);
-	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
-	enum pipe pipe = intel_crtc->pipe;
+	struct intel_crtc *crtc = to_intel_crtc(old_crtc_state->uapi.crtc);
+	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
+	enum pipe pipe = crtc->pipe;
 
 	/*
 	 * Sometimes spurious CPU pipe underruns happen when the
@@ -6755,18 +6750,18 @@ static void ironlake_crtc_disable(struct intel_crtc_state *old_crtc_state,
 	intel_set_cpu_fifo_underrun_reporting(dev_priv, pipe, false);
 	intel_set_pch_fifo_underrun_reporting(dev_priv, pipe, false);
 
-	intel_encoders_disable(state, intel_crtc);
+	intel_encoders_disable(state, crtc);
 
-	intel_crtc_vblank_off(intel_crtc);
+	intel_crtc_vblank_off(crtc);
 
 	intel_disable_pipe(old_crtc_state);
 
 	ironlake_pfit_disable(old_crtc_state);
 
 	if (old_crtc_state->has_pch_encoder)
-		ironlake_fdi_disable(intel_crtc);
+		ironlake_fdi_disable(crtc);
 
-	intel_encoders_post_disable(state, intel_crtc);
+	intel_encoders_post_disable(state, crtc);
 
 	if (old_crtc_state->has_pch_encoder) {
 		ironlake_disable_pch_transcoder(dev_priv, pipe);
@@ -6789,7 +6784,7 @@ static void ironlake_crtc_disable(struct intel_crtc_state *old_crtc_state,
 			I915_WRITE(PCH_DPLL_SEL, temp);
 		}
 
-		ironlake_fdi_pll_disable(intel_crtc);
+		ironlake_fdi_pll_disable(crtc);
 	}
 
 	intel_set_cpu_fifo_underrun_reporting(dev_priv, pipe, true);
@@ -6799,14 +6794,13 @@ static void ironlake_crtc_disable(struct intel_crtc_state *old_crtc_state,
 static void haswell_crtc_disable(struct intel_crtc_state *old_crtc_state,
 				 struct intel_atomic_state *state)
 {
-	struct drm_crtc *crtc = old_crtc_state->uapi.crtc;
-	struct drm_i915_private *dev_priv = to_i915(crtc->dev);
-	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
+	struct intel_crtc *crtc = to_intel_crtc(old_crtc_state->uapi.crtc);
+	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
 	enum transcoder cpu_transcoder = old_crtc_state->cpu_transcoder;
 
-	intel_encoders_disable(state, intel_crtc);
+	intel_encoders_disable(state, crtc);
 
-	intel_crtc_vblank_off(intel_crtc);
+	intel_crtc_vblank_off(crtc);
 
 	/* XXX: Do the pipe assertions at the right place for BXT DSI. */
 	if (!transcoder_is_dsi(cpu_transcoder))
@@ -6821,13 +6815,13 @@ static void haswell_crtc_disable(struct intel_crtc_state *old_crtc_state,
 	intel_dsc_disable(old_crtc_state);
 
 	if (INTEL_GEN(dev_priv) >= 9)
-		skylake_scaler_disable(intel_crtc);
+		skylake_scaler_disable(crtc);
 	else
 		ironlake_pfit_disable(old_crtc_state);
 
-	intel_encoders_post_disable(state, intel_crtc);
+	intel_encoders_post_disable(state, crtc);
 
-	intel_encoders_post_pll_disable(state, intel_crtc);
+	intel_encoders_post_pll_disable(state, crtc);
 }
 
 static void i9xx_pfit_enable(const struct intel_crtc_state *crtc_state)
@@ -7032,13 +7026,11 @@ static void modeset_put_power_domains(struct drm_i915_private *dev_priv,
 static void valleyview_crtc_enable(struct intel_crtc_state *pipe_config,
 				   struct intel_atomic_state *state)
 {
-	struct drm_crtc *crtc = pipe_config->uapi.crtc;
-	struct drm_device *dev = crtc->dev;
-	struct drm_i915_private *dev_priv = to_i915(dev);
-	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
-	enum pipe pipe = intel_crtc->pipe;
+	struct intel_crtc *crtc = to_intel_crtc(pipe_config->uapi.crtc);
+	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
+	enum pipe pipe = crtc->pipe;
 
-	if (WARN_ON(intel_crtc->active))
+	if (WARN_ON(crtc->active))
 		return;
 
 	if (intel_crtc_has_dp_encoder(pipe_config))
@@ -7054,21 +7046,21 @@ static void valleyview_crtc_enable(struct intel_crtc_state *pipe_config,
 
 	i9xx_set_pipeconf(pipe_config);
 
-	intel_crtc->active = true;
+	crtc->active = true;
 
 	intel_set_cpu_fifo_underrun_reporting(dev_priv, pipe, true);
 
-	intel_encoders_pre_pll_enable(state, intel_crtc);
+	intel_encoders_pre_pll_enable(state, crtc);
 
 	if (IS_CHERRYVIEW(dev_priv)) {
-		chv_prepare_pll(intel_crtc, pipe_config);
-		chv_enable_pll(intel_crtc, pipe_config);
+		chv_prepare_pll(crtc, pipe_config);
+		chv_enable_pll(crtc, pipe_config);
 	} else {
-		vlv_prepare_pll(intel_crtc, pipe_config);
-		vlv_enable_pll(intel_crtc, pipe_config);
+		vlv_prepare_pll(crtc, pipe_config);
+		vlv_enable_pll(crtc, pipe_config);
 	}
 
-	intel_encoders_pre_enable(state, intel_crtc);
+	intel_encoders_pre_enable(state, crtc);
 
 	i9xx_pfit_enable(pipe_config);
 
@@ -7077,12 +7069,12 @@ static void valleyview_crtc_enable(struct intel_crtc_state *pipe_config,
 	/* update DSPCNTR to configure gamma for pipe bottom color */
 	intel_disable_primary_plane(pipe_config);
 
-	dev_priv->display.initial_watermarks(state, intel_crtc);
+	dev_priv->display.initial_watermarks(state, crtc);
 	intel_enable_pipe(pipe_config);
 
 	intel_crtc_vblank_on(pipe_config);
 
-	intel_encoders_enable(state, intel_crtc);
+	intel_encoders_enable(state, crtc);
 }
 
 static void i9xx_set_pll_dividers(const struct intel_crtc_state *crtc_state)
@@ -7097,13 +7089,11 @@ static void i9xx_set_pll_dividers(const struct intel_crtc_state *crtc_state)
 static void i9xx_crtc_enable(struct intel_crtc_state *pipe_config,
 			     struct intel_atomic_state *state)
 {
-	struct drm_crtc *crtc = pipe_config->uapi.crtc;
-	struct drm_device *dev = crtc->dev;
-	struct drm_i915_private *dev_priv = to_i915(dev);
-	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
-	enum pipe pipe = intel_crtc->pipe;
+	struct intel_crtc *crtc = to_intel_crtc(pipe_config->uapi.crtc);
+	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
+	enum pipe pipe = crtc->pipe;
 
-	if (WARN_ON(intel_crtc->active))
+	if (WARN_ON(crtc->active))
 		return;
 
 	i9xx_set_pll_dividers(pipe_config);
@@ -7116,14 +7106,14 @@ static void i9xx_crtc_enable(struct intel_crtc_state *pipe_config,
 
 	i9xx_set_pipeconf(pipe_config);
 
-	intel_crtc->active = true;
+	crtc->active = true;
 
 	if (!IS_GEN(dev_priv, 2))
 		intel_set_cpu_fifo_underrun_reporting(dev_priv, pipe, true);
 
-	intel_encoders_pre_enable(state, intel_crtc);
+	intel_encoders_pre_enable(state, crtc);
 
-	i9xx_enable_pll(intel_crtc, pipe_config);
+	i9xx_enable_pll(crtc, pipe_config);
 
 	i9xx_pfit_enable(pipe_config);
 
@@ -7133,14 +7123,14 @@ static void i9xx_crtc_enable(struct intel_crtc_state *pipe_config,
 	intel_disable_primary_plane(pipe_config);
 
 	if (dev_priv->display.initial_watermarks)
-		dev_priv->display.initial_watermarks(state, intel_crtc);
+		dev_priv->display.initial_watermarks(state, crtc);
 	else
-		intel_update_watermarks(intel_crtc);
+		intel_update_watermarks(crtc);
 	intel_enable_pipe(pipe_config);
 
 	intel_crtc_vblank_on(pipe_config);
 
-	intel_encoders_enable(state, intel_crtc);
+	intel_encoders_enable(state, crtc);
 }
 
 static void i9xx_pfit_disable(const struct intel_crtc_state *old_crtc_state)
@@ -7161,11 +7151,9 @@ static void i9xx_pfit_disable(const struct intel_crtc_state *old_crtc_state)
 static void i9xx_crtc_disable(struct intel_crtc_state *old_crtc_state,
 			      struct intel_atomic_state *state)
 {
-	struct drm_crtc *crtc = old_crtc_state->uapi.crtc;
-	struct drm_device *dev = crtc->dev;
-	struct drm_i915_private *dev_priv = to_i915(dev);
-	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
-	enum pipe pipe = intel_crtc->pipe;
+	struct intel_crtc *crtc = to_intel_crtc(old_crtc_state->uapi.crtc);
+	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
+	enum pipe pipe = crtc->pipe;
 
 	/*
 	 * On gen2 planes are double buffered but the pipe isn't, so we must
@@ -7174,15 +7162,15 @@ static void i9xx_crtc_disable(struct intel_crtc_state *old_crtc_state,
 	if (IS_GEN(dev_priv, 2))
 		intel_wait_for_vblank(dev_priv, pipe);
 
-	intel_encoders_disable(state, intel_crtc);
+	intel_encoders_disable(state, crtc);
 
-	intel_crtc_vblank_off(intel_crtc);
+	intel_crtc_vblank_off(crtc);
 
 	intel_disable_pipe(old_crtc_state);
 
 	i9xx_pfit_disable(old_crtc_state);
 
-	intel_encoders_post_disable(state, intel_crtc);
+	intel_encoders_post_disable(state, crtc);
 
 	if (!intel_crtc_has_type(old_crtc_state, INTEL_OUTPUT_DSI)) {
 		if (IS_CHERRYVIEW(dev_priv))
@@ -7193,13 +7181,13 @@ static void i9xx_crtc_disable(struct intel_crtc_state *old_crtc_state,
 			i9xx_disable_pll(old_crtc_state);
 	}
 
-	intel_encoders_post_pll_disable(state, intel_crtc);
+	intel_encoders_post_pll_disable(state, crtc);
 
 	if (!IS_GEN(dev_priv, 2))
 		intel_set_cpu_fifo_underrun_reporting(dev_priv, pipe, false);
 
 	if (!dev_priv->display.initial_watermarks)
-		intel_update_watermarks(intel_crtc);
+		intel_update_watermarks(crtc);
 
 	/* clock the pipe down to 640x480@60 to potentially save power */
 	if (IS_I830(dev_priv))
