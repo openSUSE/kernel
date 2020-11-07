@@ -3926,13 +3926,13 @@ static int tegra_sor_probe(struct platform_device *pdev)
 				      sor->index);
 		if (!name) {
 			err = -ENOMEM;
-			goto remove;
+			goto rpm_disable;
 		}
 
 		err = host1x_client_resume(&sor->client);
 		if (err < 0) {
 			dev_err(sor->dev, "failed to resume: %d\n", err);
-			goto remove;
+			goto rpm_disable;
 		}
 
 		sor->clk_pad = tegra_clk_sor_pad_register(sor, name);
@@ -3943,7 +3943,7 @@ static int tegra_sor_probe(struct platform_device *pdev)
 		err = PTR_ERR(sor->clk_pad);
 		dev_err(&pdev->dev, "failed to register SOR pad clock: %d\n",
 			err);
-		goto remove;
+		goto rpm_disable;
 	}
 
 	INIT_LIST_HEAD(&sor->client.list);
@@ -3954,11 +3954,13 @@ static int tegra_sor_probe(struct platform_device *pdev)
 	if (err < 0) {
 		dev_err(&pdev->dev, "failed to register host1x client: %d\n",
 			err);
-		goto remove;
+		goto rpm_disable;
 	}
 
 	return 0;
 
+rpm_disable:
+	pm_runtime_disable(&pdev->dev);
 remove:
 	if (sor->ops && sor->ops->remove)
 		sor->ops->remove(sor);
@@ -3972,14 +3974,14 @@ static int tegra_sor_remove(struct platform_device *pdev)
 	struct tegra_sor *sor = platform_get_drvdata(pdev);
 	int err;
 
-	pm_runtime_disable(&pdev->dev);
-
 	err = host1x_client_unregister(&sor->client);
 	if (err < 0) {
 		dev_err(&pdev->dev, "failed to unregister host1x client: %d\n",
 			err);
 		return err;
 	}
+
+	pm_runtime_disable(&pdev->dev);
 
 	if (sor->ops && sor->ops->remove) {
 		err = sor->ops->remove(sor);
