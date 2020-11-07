@@ -547,7 +547,8 @@ struct pptable_funcs {
 	bool (*baco_is_support)(struct smu_context *smu);
 	enum smu_baco_state (*baco_get_state)(struct smu_context *smu);
 	int (*baco_set_state)(struct smu_context *smu, enum smu_baco_state state);
-	int (*baco_reset)(struct smu_context *smu);
+	int (*baco_enter)(struct smu_context *smu);
+	int (*baco_exit)(struct smu_context *smu);
 	int (*mode2_reset)(struct smu_context *smu);
 	int (*get_dpm_ultimate_freq)(struct smu_context *smu, enum smu_clk_type clk_type, uint32_t *min, uint32_t *max);
 	int (*set_soft_freq_limited_range)(struct smu_context *smu, enum smu_clk_type clk_type, uint32_t min, uint32_t max);
@@ -629,7 +630,8 @@ bool smu_baco_is_support(struct smu_context *smu);
 
 int smu_baco_get_state(struct smu_context *smu, enum smu_baco_state *state);
 
-int smu_baco_reset(struct smu_context *smu);
+int smu_baco_enter(struct smu_context *smu);
+int smu_baco_exit(struct smu_context *smu);
 
 int smu_mode2_reset(struct smu_context *smu);
 
