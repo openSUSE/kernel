@@ -1604,12 +1604,10 @@ static int switch_context(struct i915_request *rq)
 			flags |= MI_RESTORE_INHIBIT;
 
 		ret = mi_set_context(rq, flags);
+
+		ret = load_pd_dir(rq, i915_vm_to_ppgtt(vm));
 		if (ret)
 			return ret;
-	}
-
-	if (vm) {
-		struct intel_engine_cs *engine = rq->engine;
 
 		ret = engine->emit_flush(rq, EMIT_INVALIDATE);
 		if (ret)
@@ -1632,6 +1630,17 @@ static int switch_context(struct i915_request *rq)
 			return ret;
 
 		ret = engine->emit_flush(rq, EMIT_FLUSH);
+		if (ret)
+			return ret;
+	}
+
+	if (ce->state) {
+		GEM_BUG_ON(rq->engine->id != RCS0);
+
+		if (!rq->engine->default_state)
+			hw_flags = MI_RESTORE_INHIBIT;
+
+		ret = mi_set_context(rq, hw_flags);
 		if (ret)
 			return ret;
 	}
