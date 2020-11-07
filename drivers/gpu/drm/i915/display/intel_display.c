@@ -5762,8 +5762,9 @@ static int skl_update_scaler_plane(struct intel_crtc_state *crtc_state,
 	return 0;
 }
 
-static void skylake_scaler_disable(struct intel_crtc *crtc)
+static void skylake_scaler_disable(const struct intel_crtc_state *old_crtc_state)
 {
+	struct intel_crtc *crtc = to_intel_crtc(old_crtc_state->uapi.crtc);
 	int i;
 
 	for (i = 0; i < crtc->num_scalers; i++)
@@ -6755,7 +6756,7 @@ static void haswell_crtc_disable(struct intel_atomic_state *state,
 	intel_dsc_disable(old_crtc_state);
 
 	if (INTEL_GEN(dev_priv) >= 9)
-		skylake_scaler_disable(crtc);
+		skylake_scaler_disable(old_crtc_state);
 	else
 		ironlake_pfit_disable(old_crtc_state);
 
