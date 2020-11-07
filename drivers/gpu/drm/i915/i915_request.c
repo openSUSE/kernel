@@ -972,8 +972,10 @@ i915_request_await_dma_fence(struct i915_request *rq, struct dma_fence *fence)
 
 	do {
 		fence = *child++;
-		if (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->flags))
+		if (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->flags)) {
+			i915_sw_fence_set_error_once(&rq->submit, fence->error);
 			continue;
+		}
 
 		/*
 		 * Requests on the same timeline are explicitly ordered, along
@@ -1080,8 +1082,10 @@ i915_request_await_execution(struct i915_request *rq,
 
 	do {
 		fence = *child++;
-		if (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->flags))
+		if (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->flags)) {
+			i915_sw_fence_set_error_once(&rq->submit, fence->error);
 			continue;
+		}
 
 		/*
 		 * We don't squash repeated fence dependencies here as we
