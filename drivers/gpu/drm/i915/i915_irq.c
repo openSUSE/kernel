@@ -1624,7 +1624,6 @@ static irqreturn_t cherryview_irq_handler(int irq, void *arg)
 		u32 master_ctl, iir;
 		u32 pipe_stats[I915_MAX_PIPES] = {};
 		u32 hotplug_status = 0;
-		u32 gt_iir[4];
 		u32 ier = 0;
 
 		master_ctl = I915_READ(GEN8_MASTER_IRQ) & ~GEN8_MASTER_IRQ_CONTROL;
@@ -1652,7 +1651,7 @@ static irqreturn_t cherryview_irq_handler(int irq, void *arg)
 		ier = I915_READ(VLV_IER);
 		I915_WRITE(VLV_IER, 0);
 
-		gen8_gt_irq_ack(&dev_priv->gt, master_ctl, gt_iir);
+		gen8_gt_irq_handler(&dev_priv->gt, master_ctl);
 
 		if (iir & I915_DISPLAY_PORT_INTERRUPT)
 			hotplug_status = i9xx_hpd_irq_ack(dev_priv);
@@ -1675,8 +1674,6 @@ static irqreturn_t cherryview_irq_handler(int irq, void *arg)
 
 		I915_WRITE(VLV_IER, ier);
 		I915_WRITE(GEN8_MASTER_IRQ, GEN8_MASTER_IRQ_CONTROL);
-
-		gen8_gt_irq_handler(&dev_priv->gt, master_ctl, gt_iir);
 
 		if (hotplug_status)
 			i9xx_hpd_irq_handler(dev_priv, hotplug_status);
@@ -2406,7 +2403,6 @@ static irqreturn_t gen8_irq_handler(int irq, void *arg)
 	struct drm_i915_private *dev_priv = arg;
 	void __iomem * const regs = dev_priv->uncore.regs;
 	u32 master_ctl;
-	u32 gt_iir[4];
 
 	if (!intel_irqs_enabled(dev_priv))
 		return IRQ_NONE;
@@ -2417,8 +2413,8 @@ static irqreturn_t gen8_irq_handler(int irq, void *arg)
 		return IRQ_NONE;
 	}
 
-	/* Find, clear, then process each source of interrupt */
-	gen8_gt_irq_ack(&dev_priv->gt, master_ctl, gt_iir);
+	/* Find, queue (onto bottom-halves), then clear each source */
+	gen8_gt_irq_handler(&dev_priv->gt, master_ctl);
 
 	/* IRQs are synced during runtime_suspend, we don't require a wakeref */
 	if (master_ctl & ~GEN8_GT_IRQS) {
@@ -2428,8 +2424,6 @@ static irqreturn_t gen8_irq_handler(int irq, void *arg)
 	}
 
 	gen8_master_intr_enable(regs);
-
-	gen8_gt_irq_handler(&dev_priv->gt, master_ctl, gt_iir);
 
 	return IRQ_HANDLED;
 }
@@ -2513,7 +2507,7 @@ __gen11_irq_handler(struct drm_i915_private * const i915,
 		return IRQ_NONE;
 	}
 
-	/* Find, clear, then process each source of interrupt. */
+	/* Find, queue (onto bottom-halves), then clear each source */
 	gen11_gt_irq_handler(gt, master_ctl);
 
 	/* IRQs are synced during runtime_suspend, we don't require a wakeref */
