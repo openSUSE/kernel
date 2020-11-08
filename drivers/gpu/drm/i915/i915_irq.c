@@ -790,8 +790,9 @@ static bool i915_get_crtc_scanoutpos(struct drm_crtc *_crtc,
 		mode->private_flags & I915_MODE_FLAG_USE_SCANLINE_COUNTER;
 
 	if (drm_WARN_ON(&dev_priv->drm, !mode->crtc_clock)) {
-		DRM_DEBUG_DRIVER("trying to get scanoutpos for disabled "
-				 "pipe %c\n", pipe_name(pipe));
+		drm_dbg(&dev_priv->drm,
+			"trying to get scanoutpos for disabled "
+			"pipe %c\n", pipe_name(pipe));
 		return false;
 	}
 
@@ -1186,8 +1187,9 @@ static void intel_get_hpd_pins(struct drm_i915_private *dev_priv,
 			*long_mask |= BIT(pin);
 	}
 
-	DRM_DEBUG_DRIVER("hotplug event received, stat 0x%08x, dig 0x%08x, pins 0x%08x, long 0x%08x\n",
-			 hotplug_trigger, dig_hotplug_reg, *pin_mask, *long_mask);
+	drm_dbg(&dev_priv->drm,
+		"hotplug event received, stat 0x%08x, dig 0x%08x, pins 0x%08x, long 0x%08x\n",
+		hotplug_trigger, dig_hotplug_reg, *pin_mask, *long_mask);
 
 }
 
@@ -1728,8 +1730,8 @@ static void ibx_irq_handler(struct drm_i915_private *dev_priv, u32 pch_iir)
 	if (pch_iir & SDE_AUDIO_POWER_MASK) {
 		int port = ffs((pch_iir & SDE_AUDIO_POWER_MASK) >>
 			       SDE_AUDIO_POWER_SHIFT);
-		DRM_DEBUG_DRIVER("PCH audio power change on port %d\n",
-				 port_name(port));
+		drm_dbg(&dev_priv->drm, "PCH audio power change on port %d\n",
+			port_name(port));
 	}
 
 	if (pch_iir & SDE_AUX_MASK)
@@ -1739,25 +1741,26 @@ static void ibx_irq_handler(struct drm_i915_private *dev_priv, u32 pch_iir)
 		gmbus_irq_handler(dev_priv);
 
 	if (pch_iir & SDE_AUDIO_HDCP_MASK)
-		DRM_DEBUG_DRIVER("PCH HDCP audio interrupt\n");
+		drm_dbg(&dev_priv->drm, "PCH HDCP audio interrupt\n");
 
 	if (pch_iir & SDE_AUDIO_TRANS_MASK)
-		DRM_DEBUG_DRIVER("PCH transcoder audio interrupt\n");
+		drm_dbg(&dev_priv->drm, "PCH transcoder audio interrupt\n");
 
 	if (pch_iir & SDE_POISON)
-		DRM_ERROR("PCH poison interrupt\n");
+		drm_err(&dev_priv->drm, "PCH poison interrupt\n");
 
 	if (pch_iir & SDE_FDI_MASK)
 		for_each_pipe(dev_priv, pipe)
-			DRM_DEBUG_DRIVER("  pipe %c FDI IIR: 0x%08x\n",
-					 pipe_name(pipe),
-					 I915_READ(FDI_RX_IIR(pipe)));
+			drm_dbg(&dev_priv->drm, "  pipe %c FDI IIR: 0x%08x\n",
+				pipe_name(pipe),
+				I915_READ(FDI_RX_IIR(pipe)));
 
 	if (pch_iir & (SDE_TRANSB_CRC_DONE | SDE_TRANSA_CRC_DONE))
-		DRM_DEBUG_DRIVER("PCH transcoder CRC done interrupt\n");
+		drm_dbg(&dev_priv->drm, "PCH transcoder CRC done interrupt\n");
 
 	if (pch_iir & (SDE_TRANSB_CRC_ERR | SDE_TRANSA_CRC_ERR))
-		DRM_DEBUG_DRIVER("PCH transcoder CRC error interrupt\n");
+		drm_dbg(&dev_priv->drm,
+			"PCH transcoder CRC error interrupt\n");
 
 	if (pch_iir & SDE_TRANSA_FIFO_UNDER)
 		intel_pch_fifo_underrun_irq_handler(dev_priv, PIPE_A);
@@ -1772,7 +1775,7 @@ static void ivb_err_int_handler(struct drm_i915_private *dev_priv)
 	enum pipe pipe;
 
 	if (err_int & ERR_INT_POISON)
-		DRM_ERROR("Poison interrupt\n");
+		drm_err(&dev_priv->drm, "Poison interrupt\n");
 
 	for_each_pipe(dev_priv, pipe) {
 		if (err_int & ERR_INT_FIFO_UNDERRUN(pipe))
@@ -1795,7 +1798,7 @@ static void cpt_serr_int_handler(struct drm_i915_private *dev_priv)
 	enum pipe pipe;
 
 	if (serr_int & SERR_INT_POISON)
-		DRM_ERROR("PCH poison interrupt\n");
+		drm_err(&dev_priv->drm, "PCH poison interrupt\n");
 
 	for_each_pipe(dev_priv, pipe)
 		if (serr_int & SERR_INT_TRANS_FIFO_UNDERRUN(pipe))
@@ -1814,8 +1817,8 @@ static void cpt_irq_handler(struct drm_i915_private *dev_priv, u32 pch_iir)
 	if (pch_iir & SDE_AUDIO_POWER_MASK_CPT) {
 		int port = ffs((pch_iir & SDE_AUDIO_POWER_MASK_CPT) >>
 			       SDE_AUDIO_POWER_SHIFT_CPT);
-		DRM_DEBUG_DRIVER("PCH audio power change on port %c\n",
-				 port_name(port));
+		drm_dbg(&dev_priv->drm, "PCH audio power change on port %c\n",
+			port_name(port));
 	}
 
 	if (pch_iir & SDE_AUX_MASK_CPT)
@@ -1825,16 +1828,16 @@ static void cpt_irq_handler(struct drm_i915_private *dev_priv, u32 pch_iir)
 		gmbus_irq_handler(dev_priv);
 
 	if (pch_iir & SDE_AUDIO_CP_REQ_CPT)
-		DRM_DEBUG_DRIVER("Audio CP request interrupt\n");
+		drm_dbg(&dev_priv->drm, "Audio CP request interrupt\n");
 
 	if (pch_iir & SDE_AUDIO_CP_CHG_CPT)
-		DRM_DEBUG_DRIVER("Audio CP change interrupt\n");
+		drm_dbg(&dev_priv->drm, "Audio CP change interrupt\n");
 
 	if (pch_iir & SDE_FDI_MASK_CPT)
 		for_each_pipe(dev_priv, pipe)
-			DRM_DEBUG_DRIVER("  pipe %c FDI IIR: 0x%08x\n",
-					 pipe_name(pipe),
-					 I915_READ(FDI_RX_IIR(pipe)));
+			drm_dbg(&dev_priv->drm, "  pipe %c FDI IIR: 0x%08x\n",
+				pipe_name(pipe),
+				I915_READ(FDI_RX_IIR(pipe)));
 
 	if (pch_iir & SDE_ERROR_CPT)
 		cpt_serr_int_handler(dev_priv);
@@ -1971,7 +1974,7 @@ static void ilk_display_irq_handler(struct drm_i915_private *dev_priv,
 		intel_opregion_asle_intr(dev_priv);
 
 	if (de_iir & DE_POISON)
-		DRM_ERROR("Poison interrupt\n");
+		drm_err(&dev_priv->drm, "Poison interrupt\n");
 
 	for_each_pipe(dev_priv, pipe) {
 		if (de_iir & DE_PIPE_VBLANK(pipe))
@@ -2172,7 +2175,8 @@ static void gen11_hpd_irq_handler(struct drm_i915_private *dev_priv, u32 iir)
 	if (pin_mask)
 		intel_hpd_irq_handler(dev_priv, pin_mask, long_mask);
 	else
-		DRM_ERROR("Unexpected DE HPD interrupt 0x%08x\n", iir);
+		drm_err(&dev_priv->drm,
+			"Unexpected DE HPD interrupt 0x%08x\n", iir);
 }
 
 static u32 gen8_de_port_aux_mask(struct drm_i915_private *dev_priv)
@@ -2245,7 +2249,7 @@ gen8_de_misc_irq_handler(struct drm_i915_private *dev_priv, u32 iir)
 	}
 
 	if (!found)
-		DRM_ERROR("Unexpected DE Misc interrupt\n");
+		drm_err(&dev_priv->drm, "Unexpected DE Misc interrupt\n");
 }
 
 static irqreturn_t
@@ -2262,7 +2266,8 @@ gen8_de_irq_handler(struct drm_i915_private *dev_priv, u32 master_ctl)
 			ret = IRQ_HANDLED;
 			gen8_de_misc_irq_handler(dev_priv, iir);
 		} else {
-			DRM_ERROR("The master control interrupt lied (DE MISC)!\n");
+			drm_err(&dev_priv->drm,
+				"The master control interrupt lied (DE MISC)!\n");
 		}
 	}
 
@@ -2273,7 +2278,8 @@ gen8_de_irq_handler(struct drm_i915_private *dev_priv, u32 master_ctl)
 			ret = IRQ_HANDLED;
 			gen11_hpd_irq_handler(dev_priv, iir);
 		} else {
-			DRM_ERROR("The master control interrupt lied, (DE HPD)!\n");
+			drm_err(&dev_priv->drm,
+				"The master control interrupt lied, (DE HPD)!\n");
 		}
 	}
 
@@ -2313,10 +2319,12 @@ gen8_de_irq_handler(struct drm_i915_private *dev_priv, u32 master_ctl)
 			}
 
 			if (!found)
-				DRM_ERROR("Unexpected DE Port interrupt\n");
+				drm_err(&dev_priv->drm,
+					"Unexpected DE Port interrupt\n");
 		}
 		else
-			DRM_ERROR("The master control interrupt lied (DE PORT)!\n");
+			drm_err(&dev_priv->drm,
+				"The master control interrupt lied (DE PORT)!\n");
 	}
 
 	for_each_pipe(dev_priv, pipe) {
@@ -2327,7 +2335,8 @@ gen8_de_irq_handler(struct drm_i915_private *dev_priv, u32 master_ctl)
 
 		iir = I915_READ(GEN8_DE_PIPE_IIR(pipe));
 		if (!iir) {
-			DRM_ERROR("The master control interrupt lied (DE PIPE)!\n");
+			drm_err(&dev_priv->drm,
+				"The master control interrupt lied (DE PIPE)!\n");
 			continue;
 		}
 
@@ -2345,9 +2354,10 @@ gen8_de_irq_handler(struct drm_i915_private *dev_priv, u32 master_ctl)
 
 		fault_errors = iir & gen8_de_pipe_fault_mask(dev_priv);
 		if (fault_errors)
-			DRM_ERROR("Fault errors on pipe %c: 0x%08x\n",
-				  pipe_name(pipe),
-				  fault_errors);
+			drm_err(&dev_priv->drm,
+				"Fault errors on pipe %c: 0x%08x\n",
+				pipe_name(pipe),
+				fault_errors);
 	}
 
 	if (HAS_PCH_SPLIT(dev_priv) && !HAS_PCH_NOP(dev_priv) &&
@@ -2373,7 +2383,8 @@ gen8_de_irq_handler(struct drm_i915_private *dev_priv, u32 master_ctl)
 			 * Like on previous PCH there seems to be something
 			 * fishy going on with forwarding PCH interrupts.
 			 */
-			DRM_DEBUG_DRIVER("The master control interrupt lied (SDE)!\n");
+			drm_dbg(&dev_priv->drm,
+				"The master control interrupt lied (SDE)!\n");
 		}
 	}
 
@@ -3179,8 +3190,9 @@ static void __bxt_hpd_detection_setup(struct drm_i915_private *dev_priv,
 		   PORTB_HOTPLUG_ENABLE |
 		   PORTC_HOTPLUG_ENABLE;
 
-	DRM_DEBUG_KMS("Invert bit setting: hp_ctl:%x hp_port:%x\n",
-		      hotplug, enabled_irqs);
+	drm_dbg_kms(&dev_priv->drm,
+		    "Invert bit setting: hp_ctl:%x hp_port:%x\n",
+		    hotplug, enabled_irqs);
 	hotplug &= ~BXT_DDI_HPD_INVERT_MASK;
 
 	/*
@@ -3563,7 +3575,8 @@ static void i8xx_error_irq_handler(struct drm_i915_private *dev_priv,
 	DRM_DEBUG("Master Error: EIR 0x%04x\n", eir);
 
 	if (eir_stuck)
-		DRM_DEBUG_DRIVER("EIR stuck: 0x%04x, masked\n", eir_stuck);
+		drm_dbg(&dev_priv->drm, "EIR stuck: 0x%04x, masked\n",
+			eir_stuck);
 }
 
 static void i9xx_error_irq_ack(struct drm_i915_private *dev_priv,
@@ -3600,7 +3613,8 @@ static void i9xx_error_irq_handler(struct drm_i915_private *dev_priv,
 	DRM_DEBUG("Master Error, EIR 0x%08x\n", eir);
 
 	if (eir_stuck)
-		DRM_DEBUG_DRIVER("EIR stuck: 0x%08x, masked\n", eir_stuck);
+		drm_dbg(&dev_priv->drm, "EIR stuck: 0x%08x, masked\n",
+			eir_stuck);
 }
 
 static irqreturn_t i8xx_irq_handler(int irq, void *arg)
