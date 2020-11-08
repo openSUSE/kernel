@@ -6053,8 +6053,6 @@ static int amdgpu_dm_connector_init(struct amdgpu_display_manager *dm,
 
 #if defined(CONFIG_DEBUG_FS)
 	connector_debugfs_init(aconnector);
-	aconnector->debugfs_dpcd_address = 0;
-	aconnector->debugfs_dpcd_size = 0;
 #endif
 
 	if (connector_type == DRM_MODE_CONNECTOR_DisplayPort
