@@ -593,7 +593,7 @@ static int vega20_check_powerplay_table(struct smu_context *smu)
 
 static int vega20_run_btc_afll(struct smu_context *smu)
 {
-	return smu_send_smc_msg(smu, SMU_MSG_RunAfllBtc);
+	return smu_send_smc_msg(smu, SMU_MSG_RunAfllBtc, NULL);
 }
 
 #define FEATURE_MASK(feature) (1ULL << feature)
@@ -676,13 +676,13 @@ vega20_set_single_dpm_table(struct smu_context *smu,
 
 	ret = smu_send_smc_msg_with_param(smu,
 			SMU_MSG_GetDpmFreqByIndex,
-			(clk_id << 16 | 0xFF));
+			(clk_id << 16 | 0xFF),
+			&num_of_levels);
 	if (ret) {
 		pr_err("[GetNumOfDpmLevel] failed to get dpm levels!");
 		return ret;
 	}
 
-	smu_read_smc_arg(smu, &num_of_levels);
 	if (!num_of_levels) {
 		pr_err("[GetNumOfDpmLevel] number of clk levels is invalid!");
 		return -EINVAL;
@@ -693,12 +693,12 @@ vega20_set_single_dpm_table(struct smu_context *smu,
 	for (i = 0; i < num_of_levels; i++) {
 		ret = smu_send_smc_msg_with_param(smu,
 				SMU_MSG_GetDpmFreqByIndex,
-				(clk_id << 16 | i));
+				(clk_id << 16 | i),
+				&clk);
 		if (ret) {
 			pr_err("[GetDpmFreqByIndex] failed to get dpm freq by index!");
 			return ret;
 		}
-		smu_read_smc_arg(smu, &clk);
 		if (!clk) {
 			pr_err("[GetDpmFreqByIndex] clk value is invalid!");
 			return -EINVAL;
@@ -1206,7 +1206,8 @@ static int vega20_upload_dpm_level(struct smu_context *smu, bool max,
 			single_dpm_table->dpm_state.soft_min_level;
 		ret = smu_send_smc_msg_with_param(smu,
 			(max ? SMU_MSG_SetSoftMaxByFreq : SMU_MSG_SetSoftMinByFreq),
-			(PPCLK_GFXCLK << 16) | (freq & 0xffff));
+			(PPCLK_GFXCLK << 16) | (freq & 0xffff),
+			NULL);
 		if (ret) {
 			pr_err("Failed to set soft %s gfxclk !\n",
 						max ? "max" : "min");
@@ -1221,7 +1222,8 @@ static int vega20_upload_dpm_level(struct smu_context *smu, bool max,
 			single_dpm_table->dpm_state.soft_min_level;
 		ret = smu_send_smc_msg_with_param(smu,
 			(max ? SMU_MSG_SetSoftMaxByFreq : SMU_MSG_SetSoftMinByFreq),
-			(PPCLK_UCLK << 16) | (freq & 0xffff));
+			(PPCLK_UCLK << 16) | (freq & 0xffff),
+			NULL);
 		if (ret) {
 			pr_err("Failed to set soft %s memclk !\n",
 						max ? "max" : "min");
@@ -1236,7 +1238,8 @@ static int vega20_upload_dpm_level(struct smu_context *smu, bool max,
 			single_dpm_table->dpm_state.soft_min_level;
 		ret = smu_send_smc_msg_with_param(smu,
 			(max ? SMU_MSG_SetSoftMaxByFreq : SMU_MSG_SetSoftMinByFreq),
-			(PPCLK_SOCCLK << 16) | (freq & 0xffff));
+			(PPCLK_SOCCLK << 16) | (freq & 0xffff),
+			NULL);
 		if (ret) {
 			pr_err("Failed to set soft %s socclk !\n",
 						max ? "max" : "min");
@@ -1251,7 +1254,8 @@ static int vega20_upload_dpm_level(struct smu_context *smu, bool max,
 			single_dpm_table->dpm_state.soft_min_level;
 		ret = smu_send_smc_msg_with_param(smu,
 			(max ? SMU_MSG_SetSoftMaxByFreq : SMU_MSG_SetSoftMinByFreq),
-			(PPCLK_FCLK << 16) | (freq & 0xffff));
+			(PPCLK_FCLK << 16) | (freq & 0xffff),
+			NULL);
 		if (ret) {
 			pr_err("Failed to set soft %s fclk !\n",
 						max ? "max" : "min");
@@ -1266,7 +1270,8 @@ static int vega20_upload_dpm_level(struct smu_context *smu, bool max,
 		if (!max) {
 			ret = smu_send_smc_msg_with_param(smu,
 				SMU_MSG_SetHardMinByFreq,
-				(PPCLK_DCEFCLK << 16) | (freq & 0xffff));
+				(PPCLK_DCEFCLK << 16) | (freq & 0xffff),
+				NULL);
 			if (ret) {
 				pr_err("Failed to set hard min dcefclk !\n");
 				return ret;
@@ -1427,7 +1432,9 @@ static int vega20_force_clk_levels(struct smu_context *smu,
 		}
 
 		ret = smu_send_smc_msg_with_param(smu,
-				SMU_MSG_SetMinLinkDpmByIndex, soft_min_level);
+				SMU_MSG_SetMinLinkDpmByIndex,
+				soft_min_level,
+				NULL);
 		if (ret)
 			pr_err("Failed to set min link dpm level!\n");
 
@@ -1483,13 +1490,13 @@ static int vega20_overdrive_get_gfx_clk_base_voltage(struct smu_context *smu,
 
 	ret = smu_send_smc_msg_with_param(smu,
 			SMU_MSG_GetAVFSVoltageByDpm,
-			((AVFS_CURVE << 24) | (OD8_HOTCURVE_TEMPERATURE << 16) | freq));
+			((AVFS_CURVE << 24) | (OD8_HOTCURVE_TEMPERATURE << 16) | freq),
+			voltage);
 	if (ret) {
 		pr_err("[GetBaseVoltage] failed to get GFXCLK AVFS voltage from SMU!");
 		return ret;
 	}
 
-	smu_read_smc_arg(smu, voltage);
 	*voltage = *voltage / VOLTAGE_SCALE;
 
 	return 0;
@@ -1962,8 +1969,10 @@ static int vega20_set_power_profile_mode(struct smu_context *smu, long *input, u
 	workload_type = smu_workload_get_type(smu, smu->power_profile_mode);
 	if (workload_type < 0)
 		return -EINVAL;
-	smu_send_smc_msg_with_param(smu, SMU_MSG_SetWorkloadMask,
-				    1 << workload_type);
+	smu_send_smc_msg_with_param(smu,
+			SMU_MSG_SetWorkloadMask,
+			1 << workload_type,
+			NULL);
 
 	return ret;
 }
@@ -2035,7 +2044,8 @@ vega20_set_uclk_to_highest_dpm_level(struct smu_context *smu,
 		dpm_table->dpm_state.hard_min_level = dpm_table->dpm_levels[dpm_table->count - 1].value;
 		ret = smu_send_smc_msg_with_param(smu,
 				SMU_MSG_SetHardMinByFreq,
-				(PPCLK_UCLK << 16) | dpm_table->dpm_state.hard_min_level);
+				(PPCLK_UCLK << 16) | dpm_table->dpm_state.hard_min_level,
+				NULL);
 		if (ret) {
 			pr_err("[%s] Set hard min uclk failed!", __func__);
 				return ret;
@@ -2053,7 +2063,7 @@ static int vega20_pre_display_config_changed(struct smu_context *smu)
 	if (!smu->smu_dpm.dpm_context)
 		return -EINVAL;
 
-	smu_send_smc_msg_with_param(smu, SMU_MSG_NumOfDisplays, 0);
+	smu_send_smc_msg_with_param(smu, SMU_MSG_NumOfDisplays, 0, NULL);
 	ret = vega20_set_uclk_to_highest_dpm_level(smu,
 						   &dpm_table->mem_table);
 	if (ret)
@@ -2080,7 +2090,8 @@ static int vega20_display_config_changed(struct smu_context *smu)
 	    smu_feature_is_supported(smu, SMU_FEATURE_DPM_SOCCLK_BIT)) {
 		smu_send_smc_msg_with_param(smu,
 					    SMU_MSG_NumOfDisplays,
-					    smu->display_config->num_display);
+					    smu->display_config->num_display,
+					    NULL);
 	}
 
 	return ret;
@@ -2253,7 +2264,8 @@ vega20_notify_smc_display_config(struct smu_context *smu)
 			if (smu_feature_is_supported(smu, SMU_FEATURE_DS_DCEFCLK_BIT)) {
 				ret = smu_send_smc_msg_with_param(smu,
 								  SMU_MSG_SetMinDeepSleepDcefclk,
-								  min_clocks.dcef_clock_in_sr/100);
+								  min_clocks.dcef_clock_in_sr/100,
+								  NULL);
 				if (ret) {
 					pr_err("Attempt to set divider for DCEFCLK Failed!");
 					return ret;
@@ -2268,7 +2280,8 @@ vega20_notify_smc_display_config(struct smu_context *smu)
 		memtable->dpm_state.hard_min_level = min_clocks.memory_clock/100;
 		ret = smu_send_smc_msg_with_param(smu,
 						  SMU_MSG_SetHardMinByFreq,
-						  (PPCLK_UCLK << 16) | memtable->dpm_state.hard_min_level);
+						  (PPCLK_UCLK << 16) | memtable->dpm_state.hard_min_level,
+						  NULL);
 		if (ret) {
 			pr_err("[%s] Set hard min uclk failed!", __func__);
 			return ret;
@@ -2859,8 +2872,10 @@ static int vega20_set_thermal_fan_table(struct smu_context *smu)
 	struct smu_table_context *table_context = &smu->smu_table;
 	PPTable_t *pptable = table_context->driver_pptable;
 
-	ret = smu_send_smc_msg_with_param(smu, SMU_MSG_SetFanTemperatureTarget,
-			(uint32_t)pptable->FanTargetTemperature);
+	ret = smu_send_smc_msg_with_param(smu,
+			SMU_MSG_SetFanTemperatureTarget,
+			(uint32_t)pptable->FanTargetTemperature,
+			NULL);
 
 	return ret;
 }
@@ -2870,14 +2885,12 @@ static int vega20_get_fan_speed_rpm(struct smu_context *smu,
 {
 	int ret;
 
-	ret = smu_send_smc_msg(smu, SMU_MSG_GetCurrentRpm);
+	ret = smu_send_smc_msg(smu, SMU_MSG_GetCurrentRpm, speed);
 
 	if (ret) {
 		pr_err("Attempt to get current RPM from SMC Failed!\n");
 		return ret;
 	}
-
-	smu_read_smc_arg(smu, speed);
 
 	return 0;
 }
@@ -3143,7 +3156,7 @@ static int vega20_set_df_cstate(struct smu_context *smu,
 		return -EINVAL;
 	}
 
-	return smu_send_smc_msg_with_param(smu, SMU_MSG_DFCstateControl, state);
+	return smu_send_smc_msg_with_param(smu, SMU_MSG_DFCstateControl, state, NULL);
 }
 
 static int vega20_update_pcie_parameters(struct smu_context *smu,
@@ -3161,7 +3174,8 @@ static int vega20_update_pcie_parameters(struct smu_context *smu,
 					pptable->PcieLaneCount[i] : pcie_width_cap);
 		ret = smu_send_smc_msg_with_param(smu,
 					  SMU_MSG_OverridePcieParameters,
-					  smu_pcie_arg);
+					  smu_pcie_arg,
+					  NULL);
 	}
 
 	return ret;
