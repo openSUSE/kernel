@@ -76,7 +76,6 @@ struct pcf8563 {
 	 * 1970...2069.
 	 */
 	int c_polarity;	/* 0: MO_C=1 means 19xx, otherwise MO_C=1 means 20xx */
-	int voltage_low; /* incicates if a low_voltage was detected */
 
 	struct i2c_client *client;
 #ifdef CONFIG_COMMON_CLK
@@ -207,7 +206,6 @@ static int pcf8563_get_datetime(struct i2c_client *client, struct rtc_time *tm)
 		return err;
 
 	if (buf[PCF8563_REG_SC] & PCF8563_SC_LV) {
-		pcf8563->voltage_low = 1;
 		dev_err(&client->dev,
 			"low voltage detected, date/time is not reliable.\n");
 		return -EINVAL;
@@ -276,43 +274,23 @@ static int pcf8563_set_datetime(struct i2c_client *client, struct rtc_time *tm)
 				9 - PCF8563_REG_SC, buf + PCF8563_REG_SC);
 }
 
-#ifdef CONFIG_RTC_INTF_DEV
 static int pcf8563_rtc_ioctl(struct device *dev, unsigned int cmd, unsigned long arg)
 {
-	struct pcf8563 *pcf8563 = i2c_get_clientdata(to_i2c_client(dev));
-	struct rtc_time tm;
+	struct i2c_client *client = to_i2c_client(dev);
+	int ret;
 
 	switch (cmd) {
 	case RTC_VL_READ:
-		if (pcf8563->voltage_low)
-			dev_info(dev, "low voltage detected, date/time is not reliable.\n");
+		ret = i2c_smbus_read_byte_data(client, PCF8563_REG_SC);
+		if (ret < 0)
+			return ret;
 
-		if (copy_to_user((void __user *)arg, &pcf8563->voltage_low,
-					sizeof(int)))
-			return -EFAULT;
-		return 0;
-	case RTC_VL_CLR:
-		/*
-		 * Clear the VL bit in the seconds register in case
-		 * the time has not been set already (which would
-		 * have cleared it). This does not really matter
-		 * because of the cached voltage_low value but do it
-		 * anyway for consistency.
-		 */
-		if (pcf8563_get_datetime(to_i2c_client(dev), &tm))
-			pcf8563_set_datetime(to_i2c_client(dev), &tm);
-
-		/* Clear the cached value. */
-		pcf8563->voltage_low = 0;
-
-		return 0;
+		return put_user(ret & PCF8563_SC_LV ? RTC_VL_DATA_INVALID : 0,
+				(unsigned int __user *)arg);
 	default:
 		return -ENOIOCTLCMD;
 	}
 }
-#else
-#define pcf8563_rtc_ioctl NULL
-#endif
 
 static int pcf8563_rtc_read_time(struct device *dev, struct rtc_time *tm)
 {
