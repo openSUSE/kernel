@@ -550,6 +550,20 @@ static void lpuart_flush_buffer(struct uart_port *port)
 	}
 }
 
+static void lpuart_wait_bit_set(struct uart_port *port, unsigned int offset,
+				u8 bit)
+{
+	while (!(readb(port->membase + offset) & bit))
+		barrier();
+}
+
+static void lpuart32_wait_bit_set(struct uart_port *port, unsigned int offset,
+				  u32 bit)
+{
+	while (!(lpuart32_read(port, offset) & bit))
+		barrier();
+}
+
 #if defined(CONFIG_CONSOLE_POLL)
 
 static int lpuart_poll_init(struct uart_port *port)
@@ -593,9 +607,7 @@ static int lpuart_poll_init(struct uart_port *port)
 static void lpuart_poll_put_char(struct uart_port *port, unsigned char c)
 {
 	/* drain */
-	while (!(readb(port->membase + UARTSR1) & UARTSR1_TDRE))
-		barrier();
-
+	lpuart_wait_bit_set(port, UARTSR1, UARTSR1_TDRE);
 	writeb(c, port->membase + UARTDR);
 }
 
@@ -645,9 +657,7 @@ static int lpuart32_poll_init(struct uart_port *port)
 
 static void lpuart32_poll_put_char(struct uart_port *port, unsigned char c)
 {
-	while (!(lpuart32_read(port, UARTSTAT) & UARTSTAT_TDRE))
-		barrier();
-
+	lpuart32_wait_bit_set(port, UARTSTAT, UARTSTAT_TDRE);
 	lpuart32_write(port, UARTDATA, c);
 }
 
@@ -1723,8 +1733,7 @@ lpuart_set_termios(struct uart_port *port, struct ktermios *termios,
 	uart_update_timeout(port, termios->c_cflag, baud);
 
 	/* wait transmit engin complete */
-	while (!(readb(sport->port.membase + UARTSR1) & UARTSR1_TC))
-		barrier();
+	lpuart_wait_bit_set(&sport->port, UARTSR1, UARTSR1_TC);
 
 	/* disable transmit and receive */
 	writeb(old_cr2 & ~(UARTCR2_TE | UARTCR2_RE),
@@ -1939,8 +1948,7 @@ lpuart32_set_termios(struct uart_port *port, struct ktermios *termios,
 	uart_update_timeout(port, termios->c_cflag, baud);
 
 	/* wait transmit engin complete */
-	while (!(lpuart32_read(&sport->port, UARTSTAT) & UARTSTAT_TC))
-		barrier();
+	lpuart32_wait_bit_set(&sport->port, UARTSTAT, UARTSTAT_TC);
 
 	/* disable transmit and receive */
 	lpuart32_write(&sport->port, old_ctrl & ~(UARTCTRL_TE | UARTCTRL_RE),
@@ -2055,17 +2063,13 @@ static struct lpuart_port *lpuart_ports[UART_NR];
 #ifdef CONFIG_SERIAL_FSL_LPUART_CONSOLE
 static void lpuart_console_putchar(struct uart_port *port, int ch)
 {
-	while (!(readb(port->membase + UARTSR1) & UARTSR1_TDRE))
-		barrier();
-
+	lpuart_wait_bit_set(port, UARTSR1, UARTSR1_TDRE);
 	writeb(ch, port->membase + UARTDR);
 }
 
 static void lpuart32_console_putchar(struct uart_port *port, int ch)
 {
-	while (!(lpuart32_read(port, UARTSTAT) & UARTSTAT_TDRE))
-		barrier();
-
+	lpuart32_wait_bit_set(port, UARTSTAT, UARTSTAT_TDRE);
 	lpuart32_write(port, ch, UARTDATA);
 }
 
@@ -2091,8 +2095,7 @@ lpuart_console_write(struct console *co, const char *s, unsigned int count)
 	uart_console_write(&sport->port, s, count, lpuart_console_putchar);
 
 	/* wait for transmitter finish complete and restore CR2 */
-	while (!(readb(sport->port.membase + UARTSR1) & UARTSR1_TC))
-		barrier();
+	lpuart_wait_bit_set(&sport->port, UARTSR1, UARTSR1_TC);
 
 	writeb(old_cr2, sport->port.membase + UARTCR2);
 
@@ -2122,8 +2125,7 @@ lpuart32_console_write(struct console *co, const char *s, unsigned int count)
 	uart_console_write(&sport->port, s, count, lpuart32_console_putchar);
 
 	/* wait for transmitter finish complete and restore CR2 */
-	while (!(lpuart32_read(&sport->port, UARTSTAT) & UARTSTAT_TC))
-		barrier();
+	lpuart32_wait_bit_set(&sport->port, UARTSTAT, UARTSTAT_TC);
 
 	lpuart32_write(&sport->port, old_cr, UARTCTRL);
 
