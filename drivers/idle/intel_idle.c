@@ -1089,7 +1089,7 @@ static const struct idle_cpu idle_cpu_hsw __initconst = {
 static const struct idle_cpu idle_cpu_hsx __initconst = {
 	.state_table = hsw_cstates,
 	.disable_promotion_to_c1e = true,
-	.use_acpi = false,
+	.use_acpi = true,
 };
 
 static const struct idle_cpu idle_cpu_bdw __initconst = {
@@ -1253,14 +1253,13 @@ static bool intel_idle_acpi_cst_extract(void)
 		if (!intel_idle_cst_usable())
 			continue;
 
-		if (!acpi_processor_claim_cst_control()) {
-			acpi_state_table.count = 0;
-			return false;
-		}
+		if (!acpi_processor_claim_cst_control())
+			break;
 
 		return true;
 	}
 
+	acpi_state_table.count = 0;
 	pr_debug("ACPI _CST not found or not usable\n");
 	return false;
 }
@@ -1277,7 +1276,7 @@ static void intel_idle_init_cstates_acpi(struct cpuidle_driver *drv)
 		struct acpi_processor_cx *cx;
 		struct cpuidle_state *state;
 
-		if (intel_idle_max_cstate_reached(cstate))
+		if (intel_idle_max_cstate_reached(cstate - 1))
 			break;
 
 		cx = &acpi_state_table.states[cstate];
