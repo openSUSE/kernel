@@ -793,7 +793,10 @@ static int ap_device_probe(struct device *dev)
 {
 	struct ap_device *ap_dev = to_ap_dev(dev);
 	struct ap_driver *ap_drv = to_ap_drv(dev->driver);
-	int card, queue, devres, drvres, rc;
+	int card, queue, devres, drvres, rc = -ENODEV;
+
+	if (!get_device(dev))
+		return rc;
 
 	if (is_queue_dev(dev)) {
 		/*
@@ -810,7 +813,7 @@ static int ap_device_probe(struct device *dev)
 		mutex_unlock(&ap_perms_mutex);
 		drvres = ap_drv->flags & AP_DRIVER_FLAG_DEFAULT;
 		if (!!devres != !!drvres)
-			return -ENODEV;
+			goto out;
 	}
 
 	/* Add queue/card to list of active queues/cards */
@@ -831,6 +834,9 @@ static int ap_device_probe(struct device *dev)
 		ap_dev->drv = NULL;
 	}
 
+out:
+	if (rc)
+		put_device(dev);
 	return rc;
 }
 
@@ -856,6 +862,8 @@ static int ap_device_remove(struct device *dev)
 	if (is_queue_dev(dev))
 		hash_del(&to_ap_queue(dev)->hnode);
 	spin_unlock_bh(&ap_queues_lock);
+
+	put_device(dev);
 
 	return 0;
 }
@@ -1486,6 +1494,8 @@ static inline void ap_scan_domains(struct ap_card *ac)
 					    __func__, ac->id, dom);
 				goto put_dev_and_continue;
 			}
+			/* get it and thus adjust reference counter */
+			get_device(dev);
 			if (decfg)
 				AP_DBF_INFO("%s(%d,%d) new (decfg) queue device created\n",
 					    __func__, ac->id, dom);
