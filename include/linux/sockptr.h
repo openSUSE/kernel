@@ -36,7 +36,9 @@ static inline sockptr_t USER_SOCKPTR(void __user *p)
 
 static inline bool sockptr_is_null(sockptr_t sockptr)
 {
-	return !sockptr.user && !sockptr.kernel;
+	if (sockptr_is_kernel(sockptr))
+		return !sockptr.kernel;
+	return !sockptr.user;
 }
 
 static inline int copy_from_sockptr(void *dst, sockptr_t src, size_t size)
