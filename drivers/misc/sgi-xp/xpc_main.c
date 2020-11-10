@@ -3,6 +3,7 @@
  * License.  See the file "COPYING" in the main directory of this archive
  * for more details.
  *
+ * (C) Copyright 2020 Hewlett Packard Enterprise Development LP
  * Copyright (c) 2004-2009 Silicon Graphics, Inc.  All Rights Reserved.
  */
 
@@ -1052,7 +1053,7 @@ xpc_do_exit(enum xp_retval reason)
 
 	if (is_shub())
 		xpc_exit_sn2();
-	else if (is_uv())
+	else if (is_uv_system())
 		xpc_exit_uv();
 }
 
@@ -1249,7 +1250,7 @@ xpc_init(void)
 			ret = xpc_init_sn2();
 		}
 
-	} else if (is_uv()) {
+	} else if (is_uv_system()) {
 		ret = xpc_init_uv();
 
 	} else {
@@ -1337,7 +1338,7 @@ out_2:
 out_1:
 	if (is_shub())
 		xpc_exit_sn2();
-	else if (is_uv())
+	else if (is_uv_system())
 		xpc_exit_uv();
 	return ret;
 }
