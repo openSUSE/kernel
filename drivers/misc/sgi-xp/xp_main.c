@@ -235,7 +235,7 @@ xp_init(void)
 
 	if (is_shub())
 		ret = xp_init_sn2();
-	else if (is_uv())
+	else if (is_uv_system())
 		ret = xp_init_uv();
 	else
 		ret = 0;
@@ -253,7 +253,7 @@ xp_exit(void)
 {
 	if (is_shub())
 		xp_exit_sn2();
-	else if (is_uv())
+	else if (is_uv_system())
 		xp_exit_uv();
 }
 
