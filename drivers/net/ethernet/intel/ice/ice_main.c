@@ -2280,7 +2280,7 @@ static int ice_xdp_alloc_setup_rings(struct ice_vsi *vsi)
 		if (ice_setup_tx_ring(xdp_ring))
 			goto free_xdp_rings;
 		ice_set_ring_xdp(xdp_ring);
-		xdp_ring->xsk_umem = ice_xsk_umem(xdp_ring);
+		xdp_ring->xsk_pool = ice_xsk_pool(xdp_ring);
 	}
 
 	return 0;
@@ -2524,13 +2524,13 @@ ice_xdp_setup_prog(struct ice_vsi *vsi, struct bpf_prog *prog,
 	if (if_running)
 		ret = ice_up(vsi);
 
-	if (!ret && prog && vsi->xsk_umems) {
+	if (!ret && prog && vsi->xsk_pools) {
 		int i;
 
 		ice_for_each_rxq(vsi, i) {
 			struct ice_ring *rx_ring = vsi->rx_rings[i];
 
-			if (rx_ring->xsk_umem)
+			if (rx_ring->xsk_pool)
 				napi_schedule(&rx_ring->q_vector->napi);
 		}
 	}
@@ -2559,8 +2559,8 @@ static int ice_xdp(struct net_device *dev, struct netdev_bpf *xdp)
 	case XDP_QUERY_PROG:
 		xdp->prog_id = vsi->xdp_prog ? vsi->xdp_prog->aux->id : 0;
 		return 0;
-	case XDP_SETUP_XSK_UMEM:
-		return ice_xsk_umem_setup(vsi, xdp->xsk.umem,
+	case XDP_SETUP_XSK_POOL:
+		return ice_xsk_pool_setup(vsi, xdp->xsk.pool,
 					  xdp->xsk.queue_id);
 	default:
 		return -EINVAL;
