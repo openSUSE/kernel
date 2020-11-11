@@ -1326,6 +1326,14 @@ static int nic_dev_init(struct pci_dev *pdev)
 
 	hinic_dbg_init(nic_dev);
 
+	hinic_func_tbl_dbgfs_init(nic_dev);
+
+	err = hinic_func_table_debug_add(nic_dev);
+	if (err) {
+		dev_err(&pdev->dev, "Failed to add func_table debug\n");
+		goto err_add_func_table_dbg;
+	}
+
 	err = register_netdev(netdev);
 	if (err) {
 		dev_err(&pdev->dev, "Failed to register netdev\n");
@@ -1335,6 +1343,9 @@ static int nic_dev_init(struct pci_dev *pdev)
 	return 0;
 
 err_reg_netdev:
+	hinic_func_table_debug_rem(nic_dev);
+err_add_func_table_dbg:
+	hinic_func_tbl_dbgfs_uninit(nic_dev);
 	hinic_dbg_uninit(nic_dev);
 	hinic_free_intr_coalesce(nic_dev);
 err_init_intr:
@@ -1457,6 +1468,10 @@ static void hinic_remove(struct pci_dev *pdev)
 	}
 
 	unregister_netdev(netdev);
+
+	hinic_func_table_debug_rem(nic_dev);
+
+	hinic_func_tbl_dbgfs_uninit(nic_dev);
 
 	hinic_dbg_uninit(nic_dev);
 
