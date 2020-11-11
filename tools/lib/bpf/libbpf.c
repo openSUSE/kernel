@@ -5764,7 +5764,7 @@ static int bpf_object__read_kallsyms_file(struct bpf_object *obj)
 		if (ret == EOF && feof(f))
 			break;
 		if (ret != 3) {
-			pr_warning("failed to read kallasyms entry: %d\n", ret);
+			pr_warning("failed to read kallsyms entry: %d\n", ret);
 			err = -EINVAL;
 			goto out;
 		}
