@@ -25,22 +25,18 @@
 #ifndef __DISPLAY_MODE_LIB_H__
 #define __DISPLAY_MODE_LIB_H__
 
-
-#include "dml_common_defs.h"
-#ifdef CONFIG_DRM_AMD_DC_DCN2_0
+#include "dm_services.h"
+#include "dc_features.h"
+#include "display_mode_structs.h"
+#include "display_mode_enums.h"
 #include "display_mode_vba.h"
-#endif
 
 enum dml_project {
 	DML_PROJECT_UNDEFINED,
 	DML_PROJECT_RAVEN1,
-#ifdef CONFIG_DRM_AMD_DC_DCN2_0
 	DML_PROJECT_NAVI10,
 	DML_PROJECT_NAVI10v2,
-#endif
-#ifdef CONFIG_DRM_AMD_DC_DCN2_1
 	DML_PROJECT_DCN21,
-#endif
 };
 
 struct display_mode_lib;
@@ -70,9 +66,7 @@ struct display_mode_lib {
 	struct _vcs_dpi_ip_params_st ip;
 	struct _vcs_dpi_soc_bounding_box_st soc;
 	enum dml_project project;
-#ifdef CONFIG_DRM_AMD_DC_DCN2_0
 	struct vba_vars_st vba;
-#endif
 	struct dal_logger *logger;
 	struct dml_funcs funcs;
 };
