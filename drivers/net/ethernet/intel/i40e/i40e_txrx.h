@@ -110,7 +110,7 @@ enum i40e_dyn_idx_t {
  */
 #define I40E_RX_HDR_SIZE I40E_RXBUFFER_256
 #define I40E_PACKET_HDR_PAD (ETH_HLEN + ETH_FCS_LEN + (VLAN_HLEN * 2))
-#define i40e_rx_desc i40e_32byte_rx_desc
+#define i40e_rx_desc i40e_16byte_rx_desc
 
 #define I40E_RX_DMA_ATTR \
 	(DMA_ATTR_SKIP_CPU_SYNC | DMA_ATTR_WEAK_ORDERING)
@@ -388,7 +388,7 @@ struct i40e_ring {
 
 	struct i40e_channel *ch;
 	struct xdp_rxq_info xdp_rxq;
-	struct xdp_umem *xsk_umem;
+	struct xsk_buff_pool *xsk_pool;
 } ____cacheline_internodealigned_in_smp;
 
 static inline bool ring_uses_build_skb(struct i40e_ring *ring)

@@ -13,6 +13,7 @@ struct xsk_buff_pool;
 struct xdp_rxq_info;
 struct xsk_queue;
 struct xdp_desc;
+struct xdp_umem;
 struct device;
 struct page;
 
@@ -42,13 +43,14 @@ struct xsk_buff_pool {
 	u32 frame_len;
 	bool dma_need_sync;
 	bool unaligned;
+	struct xdp_umem *umem;
 	void *addrs;
 	struct device *dev;
 	struct xdp_buff_xsk *free_heads[];
 };
 
 /* AF_XDP core. */
-struct xsk_buff_pool *xp_create(struct page **pages, u32 nr_pages, u32 chunks,
+struct xsk_buff_pool *xp_create(struct xdp_umem *umem, u32 chunks,
 				u32 chunk_size, u32 headroom, u64 size,
 				bool unaligned);
 void xp_set_fq(struct xsk_buff_pool *pool, struct xsk_queue *fq);
@@ -80,9 +82,6 @@ static inline dma_addr_t xp_get_frame_dma(struct xdp_buff_xsk *xskb)
 void xp_dma_sync_for_cpu_slow(struct xdp_buff_xsk *xskb);
 static inline void xp_dma_sync_for_cpu(struct xdp_buff_xsk *xskb)
 {
-	if (xskb->pool->dma_need_sync)
-		return;
-
 	xp_dma_sync_for_cpu_slow(xskb);
 }
 
@@ -91,7 +90,7 @@ void xp_dma_sync_for_device_slow(struct xsk_buff_pool *pool, dma_addr_t dma,
 static inline void xp_dma_sync_for_device(struct xsk_buff_pool *pool,
 					  dma_addr_t dma, size_t size)
 {
-	if (pool->dma_need_sync)
+	if (!pool->dma_need_sync)
 		return;
 
 	xp_dma_sync_for_device_slow(pool, dma, size);
