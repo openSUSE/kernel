@@ -136,10 +136,6 @@
 /* configuration load timeout in microseconds */
 #define I2C_CONFIG_LOAD_TIMEOUT			1000000
 
-#define I2C_STANDARD_MODE			100000
-#define I2C_FAST_MODE				400000
-#define I2C_FAST_PLUS_MODE			1000000
-
 /* Packet header size in bytes */
 #define I2C_PACKET_HEADER_SIZE			12
 
@@ -809,8 +805,8 @@ static int tegra_i2c_init(struct tegra_i2c_dev *i2c_dev, bool clk_reinit)
 				 i2c_dev->clk_divisor_non_hs_mode);
 	i2c_writel(i2c_dev, clk_divisor, I2C_CLK_DIVISOR);
 
-	if (i2c_dev->bus_clk_rate > I2C_STANDARD_MODE &&
-	    i2c_dev->bus_clk_rate <= I2C_FAST_PLUS_MODE) {
+	if (i2c_dev->bus_clk_rate > I2C_MAX_STANDARD_MODE_FREQ &&
+	    i2c_dev->bus_clk_rate <= I2C_MAX_FAST_MODE_PLUS_FREQ) {
 		tlow = i2c_dev->hw->tlow_fast_fastplus_mode;
 		thigh = i2c_dev->hw->thigh_fast_fastplus_mode;
 		tsu_thd = i2c_dev->hw->setup_hold_time_fast_fast_plus_mode;
@@ -1427,7 +1423,7 @@ static void tegra_i2c_parse_dt(struct tegra_i2c_dev *i2c_dev)
 	ret = of_property_read_u32(np, "clock-frequency",
 				   &i2c_dev->bus_clk_rate);
 	if (ret)
-		i2c_dev->bus_clk_rate = 100000; /* default clock rate */
+		i2c_dev->bus_clk_rate = I2C_MAX_STANDARD_MODE_FREQ; /* default clock rate */
 
 	multi_mode = of_property_read_bool(np, "multi-master");
 	i2c_dev->is_multimaster_mode = multi_mode;
@@ -1745,12 +1741,12 @@ static int tegra_i2c_probe(struct platform_device *pdev)
 		goto unprepare_fast_clk;
 	}
 
-	if (i2c_dev->bus_clk_rate > I2C_FAST_MODE &&
-	    i2c_dev->bus_clk_rate <= I2C_FAST_PLUS_MODE)
+	if (i2c_dev->bus_clk_rate > I2C_MAX_FAST_MODE_FREQ &&
+	    i2c_dev->bus_clk_rate <= I2C_MAX_FAST_MODE_PLUS_FREQ)
 		i2c_dev->clk_divisor_non_hs_mode =
 				i2c_dev->hw->clk_divisor_fast_plus_mode;
-	else if (i2c_dev->bus_clk_rate > I2C_STANDARD_MODE &&
-		 i2c_dev->bus_clk_rate <= I2C_FAST_MODE)
+	else if (i2c_dev->bus_clk_rate > I2C_MAX_STANDARD_MODE_FREQ &&
+		 i2c_dev->bus_clk_rate <= I2C_MAX_FAST_MODE_FREQ)
 		i2c_dev->clk_divisor_non_hs_mode =
 				i2c_dev->hw->clk_divisor_fast_mode;
 	else

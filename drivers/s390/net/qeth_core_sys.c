@@ -24,8 +24,6 @@ static ssize_t qeth_dev_state_show(struct device *dev,
 	switch (card->state) {
 	case CARD_STATE_DOWN:
 		return sprintf(buf, "DOWN\n");
-	case CARD_STATE_HARDSETUP:
-		return sprintf(buf, "HARDSETUP\n");
 	case CARD_STATE_SOFTSETUP:
 		if (card->dev->flags & IFF_UP)
 			return sprintf(buf, "UP (LAN %s)\n",
@@ -54,7 +52,7 @@ static ssize_t qeth_dev_if_name_show(struct device *dev,
 {
 	struct qeth_card *card = dev_get_drvdata(dev);
 
-	return sprintf(buf, "%s\n", QETH_CARD_IFNAME(card));
+	return sprintf(buf, "%s\n", netdev_name(card->dev));
 }
 
 static DEVICE_ATTR(if_name, 0444, qeth_dev_if_name_show, NULL);
@@ -105,9 +103,14 @@ static ssize_t qeth_dev_portno_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
 	struct qeth_card *card = dev_get_drvdata(dev);
-	char *tmp;
 	unsigned int portno, limit;
 	int rc = 0;
+
+	rc = kstrtouint(buf, 16, &portno);
+	if (rc)
+		return rc;
+	if (portno > QETH_MAX_PORTNO)
+		return -EINVAL;
 
 	mutex_lock(&card->conf_mutex);
 	if (card->state != CARD_STATE_DOWN) {
@@ -115,11 +118,6 @@ static ssize_t qeth_dev_portno_store(struct device *dev,
 		goto out;
 	}
 
-	portno = simple_strtoul(buf, &tmp, 16);
-	if (portno > QETH_MAX_PORTNO) {
-		rc = -EINVAL;
-		goto out;
-	}
 	limit = (card->ssqd.pcnt ? card->ssqd.pcnt - 1 : card->ssqd.pcnt);
 	if (portno > limit) {
 		rc = -EINVAL;
@@ -166,9 +164,11 @@ static ssize_t qeth_dev_prioqing_show(struct device *dev,
 		return sprintf(buf, "%s\n", "by skb-priority");
 	case QETH_PRIO_Q_ING_VLAN:
 		return sprintf(buf, "%s\n", "by VLAN headers");
-	default:
+	case QETH_PRIO_Q_ING_FIXED:
 		return sprintf(buf, "always queue %i\n",
 			       card->qdio.default_out_queue);
+	default:
+		return sprintf(buf, "disabled\n");
 	}
 }
 
@@ -178,7 +178,7 @@ static ssize_t qeth_dev_prioqing_store(struct device *dev,
 	struct qeth_card *card = dev_get_drvdata(dev);
 	int rc = 0;
 
-	if (IS_IQD(card))
+	if (IS_IQD(card) || IS_VM_NIC(card))
 		return -EOPNOTSUPP;
 
 	mutex_lock(&card->conf_mutex);
@@ -213,16 +213,16 @@ static ssize_t qeth_dev_prioqing_store(struct device *dev,
 		card->qdio.do_prio_queueing = QETH_PRIO_Q_ING_VLAN;
 		card->qdio.default_out_queue = QETH_DEFAULT_QUEUE;
 	} else if (sysfs_streq(buf, "no_prio_queueing:0")) {
-		card->qdio.do_prio_queueing = QETH_NO_PRIO_QUEUEING;
+		card->qdio.do_prio_queueing = QETH_PRIO_Q_ING_FIXED;
 		card->qdio.default_out_queue = 0;
 	} else if (sysfs_streq(buf, "no_prio_queueing:1")) {
-		card->qdio.do_prio_queueing = QETH_NO_PRIO_QUEUEING;
+		card->qdio.do_prio_queueing = QETH_PRIO_Q_ING_FIXED;
 		card->qdio.default_out_queue = 1;
 	} else if (sysfs_streq(buf, "no_prio_queueing:2")) {
-		card->qdio.do_prio_queueing = QETH_NO_PRIO_QUEUEING;
+		card->qdio.do_prio_queueing = QETH_PRIO_Q_ING_FIXED;
 		card->qdio.default_out_queue = 2;
 	} else if (sysfs_streq(buf, "no_prio_queueing:3")) {
-		card->qdio.do_prio_queueing = QETH_NO_PRIO_QUEUEING;
+		card->qdio.do_prio_queueing = QETH_PRIO_Q_ING_FIXED;
 		card->qdio.default_out_queue = 3;
 	} else if (sysfs_streq(buf, "no_prio_queueing")) {
 		card->qdio.do_prio_queueing = QETH_NO_PRIO_QUEUEING;
@@ -250,8 +250,11 @@ static ssize_t qeth_dev_bufcnt_store(struct device *dev,
 {
 	struct qeth_card *card = dev_get_drvdata(dev);
 	unsigned int cnt;
-	char *tmp;
 	int rc = 0;
+
+	rc = kstrtouint(buf, 10, &cnt);
+	if (rc)
+		return rc;
 
 	mutex_lock(&card->conf_mutex);
 	if (card->state != CARD_STATE_DOWN) {
@@ -259,10 +262,7 @@ static ssize_t qeth_dev_bufcnt_store(struct device *dev,
 		goto out;
 	}
 
-	cnt = simple_strtoul(buf, &tmp, 10);
-	cnt = (cnt < QETH_IN_BUF_COUNT_MIN) ? QETH_IN_BUF_COUNT_MIN :
-		((cnt > QETH_IN_BUF_COUNT_MAX) ? QETH_IN_BUF_COUNT_MAX : cnt);
-
+	cnt = clamp(cnt, QETH_IN_BUF_COUNT_MIN, QETH_IN_BUF_COUNT_MAX);
 	rc = qeth_resize_buffer_pool(card, cnt);
 
 out:
@@ -277,17 +277,20 @@ static ssize_t qeth_dev_recover_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
 	struct qeth_card *card = dev_get_drvdata(dev);
-	char *tmp;
-	int i;
+	bool reset;
+	int rc;
+
+	rc = kstrtobool(buf, &reset);
+	if (rc)
+		return rc;
 
 	if (!qeth_card_hw_is_reachable(card))
 		return -EPERM;
 
-	i = simple_strtoul(buf, &tmp, 16);
-	if (i == 1)
-		qeth_schedule_recovery(card);
+	if (reset)
+		rc = qeth_schedule_recovery(card);
 
-	return count;
+	return rc ? rc : count;
 }
 
 static DEVICE_ATTR(recover, 0200, NULL, qeth_dev_recover_store);
@@ -340,18 +343,15 @@ static ssize_t qeth_dev_layer2_store(struct device *dev,
 {
 	struct qeth_card *card = dev_get_drvdata(dev);
 	struct net_device *ndev;
-	char *tmp;
-	int i, rc = 0;
 	enum qeth_discipline_id newdis;
+	unsigned int input;
+	int rc;
 
-	mutex_lock(&card->discipline_mutex);
-	if (card->state != CARD_STATE_DOWN) {
-		rc = -EPERM;
-		goto out;
-	}
+	rc = kstrtouint(buf, 16, &input);
+	if (rc)
+		return rc;
 
-	i = simple_strtoul(buf, &tmp, 16);
-	switch (i) {
+	switch (input) {
 	case 0:
 		newdis = QETH_DISCIPLINE_LAYER3;
 		break;
@@ -359,7 +359,12 @@ static ssize_t qeth_dev_layer2_store(struct device *dev,
 		newdis = QETH_DISCIPLINE_LAYER2;
 		break;
 	default:
-		rc = -EINVAL;
+		return -EINVAL;
+	}
+
+	mutex_lock(&card->discipline_mutex);
+	if (card->state != CARD_STATE_DOWN) {
+		rc = -EPERM;
 		goto out;
 	}
 
@@ -447,19 +452,17 @@ static ssize_t qeth_dev_isolation_store(struct device *dev,
 		rc = -EINVAL;
 		goto out;
 	}
-	rc = count;
 
-	/* defer IP assist if device is offline (until discipline->set_online)*/
-	card->options.prev_isolation = card->options.isolation;
-	card->options.isolation = isolation;
-	if (qeth_card_hw_is_reachable(card)) {
-		int ipa_rc = qeth_set_access_ctrl_online(card, 1);
-		if (ipa_rc != 0)
-			rc = ipa_rc;
-	}
+	if (qeth_card_hw_is_reachable(card))
+		rc = qeth_setadpparms_set_access_ctrl(card, isolation);
+
+	if (!rc)
+		WRITE_ONCE(card->options.isolation, isolation);
+
 out:
 	mutex_unlock(&card->conf_mutex);
-	return rc;
+
+	return rc ? rc : count;
 }
 
 static DEVICE_ATTR(isolation, 0644, qeth_dev_isolation_show,
@@ -552,20 +555,21 @@ static DEVICE_ATTR(hw_trap, 0644, qeth_hw_trap_show,
 static ssize_t qeth_dev_blkt_store(struct qeth_card *card,
 		const char *buf, size_t count, int *value, int max_value)
 {
-	char *tmp;
-	int i, rc = 0;
+	unsigned int input;
+	int rc;
+
+	rc = kstrtouint(buf, 10, &input);
+	if (rc)
+		return rc;
+
+	if (input > max_value)
+		return -EINVAL;
 
 	mutex_lock(&card->conf_mutex);
-	if (card->state != CARD_STATE_DOWN) {
+	if (card->state != CARD_STATE_DOWN)
 		rc = -EPERM;
-		goto out;
-	}
-	i = simple_strtoul(buf, &tmp, 10);
-	if (i <= max_value)
-		*value = i;
 	else
-		rc = -EINVAL;
-out:
+		*value = input;
 	mutex_unlock(&card->conf_mutex);
 	return rc ? rc : count;
 }

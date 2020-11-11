@@ -76,7 +76,6 @@ available subsections can be seen below.
    dell_rbu
    edid
    eisa
-   ipmb
    isa
    isapnp
    generic-counter

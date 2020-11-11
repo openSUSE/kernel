@@ -654,6 +654,7 @@ struct sdhci_ops {
 	void	(*voltage_switch)(struct sdhci_host *host);
 	void	(*adma_write_desc)(struct sdhci_host *host, void **desc,
 				   dma_addr_t addr, int len, unsigned int cmd);
+	void    (*dump_vendor_regs)(struct sdhci_host *host);
 };
 
 #ifdef CONFIG_MMC_SDHCI_IO_ACCESSORS
@@ -761,11 +762,6 @@ void sdhci_send_command(struct sdhci_host *host, struct mmc_command *cmd);
 static inline void sdhci_read_caps(struct sdhci_host *host)
 {
 	__sdhci_read_caps(host, NULL, NULL, NULL);
-}
-
-static inline bool sdhci_sdio_irq_enabled(struct sdhci_host *host)
-{
-	return !!(host->flags & SDHCI_SDIO_IRQ_ENABLED);
 }
 
 u16 sdhci_calc_clk(struct sdhci_host *host, unsigned int clock,

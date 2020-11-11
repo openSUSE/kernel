@@ -14,6 +14,7 @@
 #include <linux/pm_domain.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
+#include <linux/sizes.h>
 #include <dt-bindings/power/imx7-power.h>
 #include <dt-bindings/power/imx8mq-power.h>
 
@@ -198,7 +199,7 @@ static int imx_gpc_pu_pgc_sw_pxx_req(struct generic_pm_domain *genpd,
 		err = regulator_disable(domain->regulator);
 		if (err)
 			dev_err(domain->dev,
-				"failed to disable regulator: %d\n", ret);
+				"failed to disable regulator: %d\n", err);
 		/* Preserve earlier error code */
 		ret = ret ?: err;
 	}

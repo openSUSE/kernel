@@ -32,30 +32,14 @@
  *  "But they come in a choice of three flavours!"
  */
 #include <linux/compat.h>
-#include <linux/slab.h>
-#include <linux/poll.h>
-#include <linux/fs.h>
-#include <linux/file.h>
 #include <linux/jhash.h>
-#include <linux/init.h>
-#include <linux/futex.h>
-#include <linux/mount.h>
 #include <linux/pagemap.h>
 #include <linux/syscalls.h>
-#include <linux/signal.h>
-#include <linux/export.h>
-#include <linux/magic.h>
-#include <linux/pid.h>
-#include <linux/nsproxy.h>
-#include <linux/ptrace.h>
-#include <linux/sched/rt.h>
-#include <linux/sched/wake_q.h>
-#include <linux/sched/mm.h>
 #include <linux/hugetlb.h>
 #include <linux/freezer.h>
 #include <linux/memblock.h>
 #include <linux/fault-inject.h>
-#include <linux/refcount.h>
+#include <linux/time_namespace.h>
 
 #include <asm/futex.h>
 
@@ -476,7 +460,7 @@ static u64 get_inode_sequence_number(struct inode *inode)
 /**
  * get_futex_key() - Get parameters which are the keys for a futex
  * @uaddr:	virtual address of the futex
- * @fshared:	0 for a PROCESS_PRIVATE futex, 1 for PROCESS_SHARED
+ * @fshared:	false for a PROCESS_PRIVATE futex, true for PROCESS_SHARED
  * @key:	address where result is stored.
  * @rw:		mapping needs to be read/write (values: FUTEX_READ,
  *              FUTEX_WRITE)
@@ -497,8 +481,8 @@ static u64 get_inode_sequence_number(struct inode *inode)
  *
  * lock_page() might sleep, the caller should not hold a spinlock.
  */
-static int
-get_futex_key(u32 __user *uaddr, int fshared, union futex_key *key, enum futex_access rw)
+static int get_futex_key(u32 __user *uaddr, bool fshared, union futex_key *key,
+			 enum futex_access rw)
 {
 	unsigned long address = (unsigned long)uaddr;
 	struct mm_struct *mm = current->mm;
@@ -535,7 +519,7 @@ get_futex_key(u32 __user *uaddr, int fshared, union futex_key *key, enum futex_a
 
 again:
 	/* Ignore any VERIFY_READ mapping (futex common case) */
-	if (unlikely(should_fail_futex(fshared)))
+	if (unlikely(should_fail_futex(true)))
 		return -EFAULT;
 
 	err = get_user_pages_fast(address, 1, FOLL_WRITE, &page);
@@ -623,7 +607,7 @@ again:
 		 * A RO anonymous page will never change and thus doesn't make
 		 * sense for futex operations.
 		 */
-		if (unlikely(should_fail_futex(fshared)) || ro) {
+		if (unlikely(should_fail_futex(true)) || ro) {
 			err = -EFAULT;
 			goto out;
 		}
@@ -672,10 +656,6 @@ again:
 out:
 	put_page(page);
 	return err;
-}
-
-static inline void put_futex_key(union futex_key *key)
-{
 }
 
 /**
@@ -1523,8 +1503,10 @@ static int wake_futex_pi(u32 __user *uaddr, u32 uval, struct futex_pi_state *pi_
 	 */
 	newval = FUTEX_WAITERS | task_pid_vnr(new_owner);
 
-	if (unlikely(should_fail_futex(true)))
+	if (unlikely(should_fail_futex(true))) {
 		ret = -EFAULT;
+		goto out_unlock;
+	}
 
 	ret = cmpxchg_futex_value_locked(&curval, uaddr, uval, newval);
 	if (!ret && (curval != uval)) {
@@ -1617,7 +1599,7 @@ futex_wake(u32 __user *uaddr, unsigned int flags, int nr_wake, u32 bitset)
 
 	/* Make sure we really have tasks to wakeup */
 	if (!hb_waiters_pending(hb))
-		goto out_put_key;
+		goto out;
 
 	spin_lock(&hb->lock);
 
@@ -1640,8 +1622,6 @@ futex_wake(u32 __user *uaddr, unsigned int flags, int nr_wake, u32 bitset)
 
 	spin_unlock(&hb->lock);
 	wake_up_q(&wake_q);
-out_put_key:
-	put_futex_key(&key);
 out:
 	return ret;
 }
@@ -1713,7 +1693,7 @@ retry:
 		goto out;
 	ret = get_futex_key(uaddr2, flags & FLAGS_SHARED, &key2, FUTEX_WRITE);
 	if (unlikely(ret != 0))
-		goto out_put_key1;
+		goto out;
 
 	hb1 = hash_futex(&key1);
 	hb2 = hash_futex(&key2);
@@ -1731,13 +1711,13 @@ retry_private:
 			 * an MMU, but we might get them from range checking
 			 */
 			ret = op_ret;
-			goto out_put_keys;
+			goto out;
 		}
 
 		if (op_ret == -EFAULT) {
 			ret = fault_in_user_writeable(uaddr2);
 			if (ret)
-				goto out_put_keys;
+				goto out;
 		}
 
 		if (!(flags & FLAGS_SHARED)) {
@@ -1745,8 +1725,6 @@ retry_private:
 			goto retry_private;
 		}
 
-		put_futex_key(&key2);
-		put_futex_key(&key1);
 		cond_resched();
 		goto retry;
 	}
@@ -1782,10 +1760,6 @@ retry_private:
 out_unlock:
 	double_unlock_hb(hb1, hb2);
 	wake_up_q(&wake_q);
-out_put_keys:
-	put_futex_key(&key2);
-out_put_key1:
-	put_futex_key(&key1);
 out:
 	return ret;
 }
@@ -1997,7 +1971,7 @@ retry:
 	ret = get_futex_key(uaddr2, flags & FLAGS_SHARED, &key2,
 			    requeue_pi ? FUTEX_WRITE : FUTEX_READ);
 	if (unlikely(ret != 0))
-		goto out_put_key1;
+		goto out;
 
 	/*
 	 * The check above which compares uaddrs is not sufficient for
@@ -2005,7 +1979,7 @@ retry:
 	 */
 	if (requeue_pi && match_futex(&key1, &key2)) {
 		ret = -EINVAL;
-		goto out_put_keys;
+		goto out;
 	}
 
 	hb1 = hash_futex(&key1);
@@ -2026,13 +2000,11 @@ retry_private:
 
 			ret = get_user(curval, uaddr1);
 			if (ret)
-				goto out_put_keys;
+				goto out;
 
 			if (!(flags & FLAGS_SHARED))
 				goto retry_private;
 
-			put_futex_key(&key2);
-			put_futex_key(&key1);
 			goto retry;
 		}
 		if (curval != *cmpval) {
@@ -2091,8 +2063,6 @@ retry_private:
 		case -EFAULT:
 			double_unlock_hb(hb1, hb2);
 			hb_waiters_dec(hb2);
-			put_futex_key(&key2);
-			put_futex_key(&key1);
 			ret = fault_in_user_writeable(uaddr2);
 			if (!ret)
 				goto retry;
@@ -2107,8 +2077,6 @@ retry_private:
 			 */
 			double_unlock_hb(hb1, hb2);
 			hb_waiters_dec(hb2);
-			put_futex_key(&key2);
-			put_futex_key(&key1);
 			/*
 			 * Handle the case where the owner is in the middle of
 			 * exiting. Wait for the exit to complete otherwise
@@ -2228,10 +2196,6 @@ out_unlock:
 	wake_up_q(&wake_q);
 	hb_waiters_dec(hb2);
 
-out_put_keys:
-	put_futex_key(&key2);
-out_put_key1:
-	put_futex_key(&key1);
 out:
 	return ret ? ret : task_count;
 }
@@ -2708,7 +2672,6 @@ retry_private:
 		if (!(flags & FLAGS_SHARED))
 			goto retry_private;
 
-		put_futex_key(&q->key);
 		goto retry;
 	}
 
@@ -2718,8 +2681,6 @@ retry_private:
 	}
 
 out:
-	if (ret)
-		put_futex_key(&q->key);
 	return ret;
 }
 
@@ -2864,7 +2825,6 @@ retry_private:
 			 * - EAGAIN: The user space value changed.
 			 */
 			queue_unlock(hb);
-			put_futex_key(&q.key);
 			/*
 			 * Handle the case where the owner is in the middle of
 			 * exiting. Wait for the exit to complete otherwise
@@ -2981,13 +2941,11 @@ no_block:
 		put_pi_state(pi_state);
 	}
 
-	goto out_put_key;
+	goto out;
 
 out_unlock_put_key:
 	queue_unlock(hb);
 
-out_put_key:
-	put_futex_key(&q.key);
 out:
 	if (to) {
 		hrtimer_cancel(&to->timer);
@@ -3000,12 +2958,11 @@ uaddr_faulted:
 
 	ret = fault_in_user_writeable(uaddr);
 	if (ret)
-		goto out_put_key;
+		goto out;
 
 	if (!(flags & FLAGS_SHARED))
 		goto retry_private;
 
-	put_futex_key(&q.key);
 	goto retry;
 }
 
@@ -3143,16 +3100,13 @@ retry:
 out_unlock:
 	spin_unlock(&hb->lock);
 out_putkey:
-	put_futex_key(&key);
 	return ret;
 
 pi_retry:
-	put_futex_key(&key);
 	cond_resched();
 	goto retry;
 
 pi_faulted:
-	put_futex_key(&key);
 
 	ret = fault_in_user_writeable(uaddr);
 	if (!ret)
@@ -3294,7 +3248,7 @@ static int futex_wait_requeue_pi(u32 __user *uaddr, unsigned int flags,
 	 */
 	ret = futex_wait_setup(uaddr, val, flags, &q, &hb);
 	if (ret)
-		goto out_key2;
+		goto out;
 
 	/*
 	 * The check above which compares uaddrs is not sufficient for
@@ -3303,7 +3257,7 @@ static int futex_wait_requeue_pi(u32 __user *uaddr, unsigned int flags,
 	if (match_futex(&q.key, &key2)) {
 		queue_unlock(hb);
 		ret = -EINVAL;
-		goto out_put_keys;
+		goto out;
 	}
 
 	/* Queue the futex_q, drop the hb lock, wait for wakeup. */
@@ -3345,7 +3299,7 @@ static int futex_wait_requeue_pi(u32 __user *uaddr, unsigned int flags,
 		ret = handle_early_requeue_pi_wakeup(hb, &q, &key2, to);
 		spin_unlock(&hb->lock);
 		if (ret)
-			goto out_put_keys;
+			goto out;
 	}
 
 	/*
@@ -3439,11 +3393,6 @@ static int futex_wait_requeue_pi(u32 __user *uaddr, unsigned int flags,
 		 */
 		ret = -EWOULDBLOCK;
 	}
-
-out_put_keys:
-	put_futex_key(&q.key);
-out_key2:
-	put_futex_key(&key2);
 
 out:
 	if (to) {
@@ -3925,6 +3874,8 @@ SYSCALL_DEFINE6(futex, u32 __user *, uaddr, int, op, u32, val,
 		t = timespec64_to_ktime(ts);
 		if (cmd == FUTEX_WAIT)
 			t = ktime_add_safe(ktime_get(), t);
+		else if (!(op & FUTEX_CLOCK_REALTIME))
+			t = timens_ktime_to_host(CLOCK_MONOTONIC, t);
 		tp = &t;
 	}
 	/*
@@ -4117,6 +4068,8 @@ SYSCALL_DEFINE6(futex_time32, u32 __user *, uaddr, int, op, u32, val,
 		t = timespec64_to_ktime(ts);
 		if (cmd == FUTEX_WAIT)
 			t = ktime_add_safe(ktime_get(), t);
+		else if (!(op & FUTEX_CLOCK_REALTIME))
+			t = timens_ktime_to_host(CLOCK_MONOTONIC, t);
 		tp = &t;
 	}
 	if (cmd == FUTEX_REQUEUE || cmd == FUTEX_CMP_REQUEUE ||

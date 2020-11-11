@@ -1618,6 +1618,20 @@ config DMI
 	  However, even with this option, the resultant kernel should
 	  continue to boot on existing non-UEFI platforms.
 
+config AS_HAS_ARMV8_4
+	def_bool $(cc-option,-Wa$(comma)-march=armv8.4-a)
+
+config ARM64_TLB_RANGE
+	bool "Enable support for tlbi range feature"
+	default y
+	depends on AS_HAS_ARMV8_4
+	help
+	  ARMv8.4-TLBI provides TLBI invalidation instruction that apply to a
+	  range of input addresses.
+
+	  The feature introduces new assembly instructions, and they were
+	  support when binutils >= 2.30.
+
 endmenu
 
 config SYSVIPC_COMPAT
