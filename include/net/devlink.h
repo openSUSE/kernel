@@ -57,13 +57,30 @@ struct devlink_port_phys_attrs {
 	u32 split_subport_number; /* If the port is split, this is the number of subport. */
 };
 
+/**
+ * struct devlink_port_pci_pf_attrs - devlink port's PCI PF attributes
+ * @controller: Associated controller number
+ * @pf: Associated PCI PF number for this port.
+ * @external: when set, indicates if a port is for an external controller
+ */
 struct devlink_port_pci_pf_attrs {
-	u16 pf;	/* Associated PCI PF for this port. */
+	u32 controller;
+	u16 pf;
+	u8 external:1;
 };
 
+/**
+ * struct devlink_port_pci_vf_attrs - devlink port's PCI VF attributes
+ * @controller: Associated controller number
+ * @pf: Associated PCI PF number for this port.
+ * @vf: Associated PCI VF for of the PCI PF for this port.
+ * @external: when set, indicates if a port is for an external controller
+ */
 struct devlink_port_pci_vf_attrs {
-	u16 pf;	/* Associated PCI PF for this port. */
-	u16 vf;	/* Associated PCI VF for of the PCI PF for this port. */
+	u32 controller;
+	u16 pf;
+	u16 vf;
+	u8 external:1;
 };
 
 /**
@@ -73,6 +90,9 @@ struct devlink_port_pci_vf_attrs {
  * @splittable: indicates if the port can be split.
  * @lanes: maximum number of lanes the port supports. 0 value is not passed to netlink.
  * @switch_id: if the port is part of switch, this is buffer with ID, otherwise this is NULL
+ * @phys: physical port attributes
+ * @pci_pf: PCI PF port attributes
+ * @pci_vf: PCI VF port attributes
  */
 struct devlink_port_attrs {
 	u8 split:1,
@@ -372,6 +392,25 @@ struct devlink_param_gset_ctx {
 };
 
 /**
+ * struct devlink_flash_notify - devlink dev flash notify data
+ * @status_msg: current status string
+ * @component: firmware component being updated
+ * @done: amount of work completed of total amount
+ * @total: amount of work expected to be done
+ * @timeout: expected max timeout in seconds
+ *
+ * These are values to be given to userland to be displayed in order
+ * to show current activity in a firmware update process.
+ */
+struct devlink_flash_notify {
+	const char *status_msg;
+	const char *component;
+	unsigned long done;
+	unsigned long total;
+	unsigned long timeout;
+};
+
+/**
  * struct devlink_param - devlink configuration parameter data
  * @name: name of the parameter
  * @generic: indicates if the parameter is generic or driver specific
@@ -511,6 +550,24 @@ enum devlink_param_generic_id {
 /* Firmware bundle identifier */
 #define DEVLINK_INFO_VERSION_GENERIC_FW_BUNDLE_ID	"fw.bundle_id"
 
+/**
+ * struct devlink_flash_update_params - Flash Update parameters
+ * @file_name: the name of the flash firmware file to update from
+ * @component: the flash component to update
+ *
+ * With the exception of file_name, drivers must opt-in to parameters by
+ * setting the appropriate bit in the supported_flash_update_params field in
+ * their devlink_ops structure.
+ */
+struct devlink_flash_update_params {
+	const char *file_name;
+	const char *component;
+	u32 overwrite_mask;
+};
+
+#define DEVLINK_SUPPORT_FLASH_UPDATE_COMPONENT		BIT(0)
+#define DEVLINK_SUPPORT_FLASH_UPDATE_OVERWRITE_MASK	BIT(1)
+
 struct devlink_region;
 struct devlink_info_req;
 
@@ -522,12 +579,16 @@ struct devlink_info_req;
  *            the data variable must be updated to point to the snapshot data.
  *            The function will be called while the devlink instance lock is
  *            held.
+ * @priv: Pointer to driver private data for the region operation
  */
 struct devlink_region_ops {
 	const char *name;
 	void (*destructor)(const void *data);
-	int (*snapshot)(struct devlink *devlink, struct netlink_ext_ack *extack,
+	int (*snapshot)(struct devlink *devlink,
+			const struct devlink_region_ops *ops,
+			struct netlink_ext_ack *extack,
 			u8 **data);
+	void *priv;
 };
 
 struct devlink_fmsg;
@@ -546,6 +607,7 @@ enum devlink_health_reporter_state {
  * @dump: callback to dump an object
  *        if priv_ctx is NULL, run a full dump
  * @diagnose: callback to diagnose the current status
+ * @test: callback to trigger a test event
  */
 
 struct devlink_health_reporter_ops {
@@ -558,6 +620,8 @@ struct devlink_health_reporter_ops {
 	int (*diagnose)(struct devlink_health_reporter *reporter,
 			struct devlink_fmsg *fmsg,
 			struct netlink_ext_ack *extack);
+	int (*test)(struct devlink_health_reporter *reporter,
+		    struct netlink_ext_ack *extack);
 };
 
 /**
@@ -991,6 +1055,12 @@ enum devlink_trap_group_generic_id {
 	}
 
 struct devlink_ops {
+	/**
+	 * @supported_flash_update_params:
+	 * mask of parameters supported by the driver's .flash_update
+	 * implemementation.
+	 */
+	u32 supported_flash_update_params;
 	int (*reload_down)(struct devlink *devlink, bool netns_change,
 			   struct netlink_ext_ack *extack);
 	int (*reload_up)(struct devlink *devlink,
@@ -1051,8 +1121,15 @@ struct devlink_ops {
 				      struct netlink_ext_ack *extack);
 	int (*info_get)(struct devlink *devlink, struct devlink_info_req *req,
 			struct netlink_ext_ack *extack);
-	int (*flash_update)(struct devlink *devlink, const char *file_name,
-			    const char *component,
+	/**
+	 * @flash_update: Device flash update function
+	 *
+	 * Used to perform a flash update for the device. The set of
+	 * parameters supported by the driver should be set in
+	 * supported_flash_update_params.
+	 */
+	int (*flash_update)(struct devlink *devlink,
+			    struct devlink_flash_update_params *params,
 			    struct netlink_ext_ack *extack);
 	/**
 	 * @trap_init: Trap initialization function.
@@ -1203,9 +1280,10 @@ void devlink_port_type_ib_set(struct devlink_port *devlink_port,
 void devlink_port_type_clear(struct devlink_port *devlink_port);
 void devlink_port_attrs_set(struct devlink_port *devlink_port,
 			    struct devlink_port_attrs *devlink_port_attrs);
-void devlink_port_attrs_pci_pf_set(struct devlink_port *devlink_port, u16 pf);
-void devlink_port_attrs_pci_vf_set(struct devlink_port *devlink_port,
-				   u16 pf, u16 vf);
+void devlink_port_attrs_pci_pf_set(struct devlink_port *devlink_port, u32 controller,
+				   u16 pf, bool external);
+void devlink_port_attrs_pci_vf_set(struct devlink_port *devlink_port, u32 controller,
+				   u16 pf, u16 vf, bool external);
 int devlink_sb_register(struct devlink *devlink, unsigned int sb_index,
 			u32 size, u16 ingress_pools_count,
 			u16 egress_pools_count, u16 ingress_tc_count,
@@ -1379,6 +1457,10 @@ void devlink_flash_update_status_notify(struct devlink *devlink,
 					const char *component,
 					unsigned long done,
 					unsigned long total);
+void devlink_flash_update_timeout_notify(struct devlink *devlink,
+					 const char *status_msg,
+					 const char *component,
+					 unsigned long timeout);
 
 int devlink_traps_register(struct devlink *devlink,
 			   const struct devlink_trap *traps,
