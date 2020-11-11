@@ -2290,7 +2290,7 @@ static int _ext4_show_options(struct seq_file *seq, struct super_block *sb,
 		if (IS_EXT2_SB(sb))
 			SEQ_OPTS_PUTS("dax");
 		else
-			SEQ_OPTS_PUTS("dax=always");
+			SEQ_OPTS_PUTS("dax,dax=always");
 	} else if (test_opt2(sb, DAX_NEVER)) {
 		SEQ_OPTS_PUTS("dax=never");
 	} else if (test_opt2(sb, DAX_INODE)) {
