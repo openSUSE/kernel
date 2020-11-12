@@ -1224,9 +1224,8 @@ static int link_state_update(struct dpaa2_eth_priv *priv)
 
 	/* Chech link state; speed / duplex changes are not treated yet */
 	if (priv->link_state.up == state.up)
-		return 0;
+		goto out;
 
-	priv->link_state = state;
 	if (state.up) {
 		update_tx_fqids(priv);
 		netif_carrier_on(priv->net_dev);
@@ -1238,6 +1237,9 @@ static int link_state_update(struct dpaa2_eth_priv *priv)
 
 	netdev_info(priv->net_dev, "Link Event: state %s\n",
 		    state.up ? "up" : "down");
+
+out:
+	priv->link_state = state;
 
 	return 0;
 }
