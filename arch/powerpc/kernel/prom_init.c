@@ -9,7 +9,7 @@
  *    {engebret|bergner}@us.ibm.com 
  */
 
-#undef DEBUG_PROM
+#define DEBUG_PROM
 
 /* we cannot use FORTIFY as it brings in new symbols */
 #define __NO_FORTIFY
