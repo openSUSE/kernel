@@ -1405,6 +1405,7 @@ static struct spacc_aead ipsec_engine_aeads[] = {
 						   "cbc-aes-picoxcell",
 				.cra_priority = SPACC_CRYPTO_ALG_PRIORITY,
 				.cra_flags = CRYPTO_ALG_ASYNC |
+					     CRYPTO_ALG_ALLOCATES_MEMORY |
 					     CRYPTO_ALG_NEED_FALLBACK |
 					     CRYPTO_ALG_KERN_DRIVER_ONLY,
 				.cra_blocksize = AES_BLOCK_SIZE,
@@ -1435,6 +1436,7 @@ static struct spacc_aead ipsec_engine_aeads[] = {
 						   "cbc-aes-picoxcell",
 				.cra_priority = SPACC_CRYPTO_ALG_PRIORITY,
 				.cra_flags = CRYPTO_ALG_ASYNC |
+					     CRYPTO_ALG_ALLOCATES_MEMORY |
 					     CRYPTO_ALG_NEED_FALLBACK |
 					     CRYPTO_ALG_KERN_DRIVER_ONLY,
 				.cra_blocksize = AES_BLOCK_SIZE,
@@ -1465,6 +1467,7 @@ static struct spacc_aead ipsec_engine_aeads[] = {
 						   "cbc-aes-picoxcell",
 				.cra_priority = SPACC_CRYPTO_ALG_PRIORITY,
 				.cra_flags = CRYPTO_ALG_ASYNC |
+					     CRYPTO_ALG_ALLOCATES_MEMORY |
 					     CRYPTO_ALG_NEED_FALLBACK |
 					     CRYPTO_ALG_KERN_DRIVER_ONLY,
 				.cra_blocksize = AES_BLOCK_SIZE,
@@ -1495,6 +1498,7 @@ static struct spacc_aead ipsec_engine_aeads[] = {
 						   "cbc-3des-picoxcell",
 				.cra_priority = SPACC_CRYPTO_ALG_PRIORITY,
 				.cra_flags = CRYPTO_ALG_ASYNC |
+					     CRYPTO_ALG_ALLOCATES_MEMORY |
 					     CRYPTO_ALG_NEED_FALLBACK |
 					     CRYPTO_ALG_KERN_DRIVER_ONLY,
 				.cra_blocksize = DES3_EDE_BLOCK_SIZE,
@@ -1526,6 +1530,7 @@ static struct spacc_aead ipsec_engine_aeads[] = {
 						   "cbc-3des-picoxcell",
 				.cra_priority = SPACC_CRYPTO_ALG_PRIORITY,
 				.cra_flags = CRYPTO_ALG_ASYNC |
+					     CRYPTO_ALG_ALLOCATES_MEMORY |
 					     CRYPTO_ALG_NEED_FALLBACK |
 					     CRYPTO_ALG_KERN_DRIVER_ONLY,
 				.cra_blocksize = DES3_EDE_BLOCK_SIZE,
@@ -1556,6 +1561,7 @@ static struct spacc_aead ipsec_engine_aeads[] = {
 						   "cbc-3des-picoxcell",
 				.cra_priority = SPACC_CRYPTO_ALG_PRIORITY,
 				.cra_flags = CRYPTO_ALG_ASYNC |
+					     CRYPTO_ALG_ALLOCATES_MEMORY |
 					     CRYPTO_ALG_NEED_FALLBACK |
 					     CRYPTO_ALG_KERN_DRIVER_ONLY,
 				.cra_blocksize = DES3_EDE_BLOCK_SIZE,
