@@ -2721,7 +2721,8 @@ static int spi_nor_check(struct spi_nor *nor)
 	return 0;
 }
 
-static int s3an_nor_scan(struct spi_nor *nor)
+static int s3an_nor_setup(struct spi_nor *nor,
+			  const struct spi_nor_hwcaps *hwcaps)
 {
 	int ret;
 
@@ -2756,6 +2757,7 @@ static int s3an_nor_scan(struct spi_nor *nor)
 	} else {
 		/* Flash in Default addressing mode */
 		nor->params.convert_addr = s3an_convert_addr;
+		nor->mtd.erasesize = nor->info->sector_size;
 	}
 
 	return 0;
@@ -4533,6 +4535,11 @@ static void spansion_post_sfdp_fixups(struct spi_nor *nor)
 	nor->mtd.erasesize = nor->info->sector_size;
 }
 
+static void s3an_post_sfdp_fixups(struct spi_nor *nor)
+{
+	nor->params.setup = s3an_nor_setup;
+}
+
 /**
  * spi_nor_post_sfdp_fixups() - Updates the flash's parameters and settings
  * after SFDP has been parsed (is also called for SPI NORs that do not
@@ -4553,6 +4560,9 @@ static void spi_nor_post_sfdp_fixups(struct spi_nor *nor)
 	default:
 		break;
 	}
+
+	if (nor->info->flags & SPI_S3AN)
+		s3an_post_sfdp_fixups(nor);
 
 	if (nor->info->fixups && nor->info->fixups->post_sfdp)
 		nor->info->fixups->post_sfdp(nor);
@@ -4900,12 +4910,6 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 		dev_err(dev, "address width is too large: %u\n",
 			nor->addr_width);
 		return -EINVAL;
-	}
-
-	if (info->flags & SPI_S3AN) {
-		ret = s3an_nor_scan(nor);
-		if (ret)
-			return ret;
 	}
 
 	/* Send all the required SPI flash commands to initialize device */
