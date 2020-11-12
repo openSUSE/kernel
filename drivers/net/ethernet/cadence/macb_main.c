@@ -4192,6 +4192,7 @@ static int macb_probe(struct platform_device *pdev)
 	unsigned int queue_mask, num_queues;
 	bool native_io;
 	struct phy_device *phydev;
+	phy_interface_t interface;
 	struct net_device *dev;
 	struct resource *regs;
 	void __iomem *mem;
@@ -4318,12 +4319,12 @@ static int macb_probe(struct platform_device *pdev)
 		macb_get_hwaddr(bp);
 	}
 
-	err = of_get_phy_mode(np);
-	if (err < 0)
+	err = of_get_phy_mode(np, &interface);
+	if (err)
 		/* not found in DT, MII by default */
 		bp->phy_interface = PHY_INTERFACE_MODE_MII;
 	else
-		bp->phy_interface = err;
+		bp->phy_interface = interface;
 
 	/* IP specific init */
 	err = init(pdev);
