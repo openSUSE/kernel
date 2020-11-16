@@ -4644,8 +4644,7 @@ static u32 *emit_preempt_busywait(struct i915_request *request, u32 *cs)
 }
 
 static __always_inline u32*
-gen8_emit_fini_breadcrumb_footer(struct i915_request *request,
-				 u32 *cs)
+gen8_emit_fini_breadcrumb_tail(struct i915_request *request, u32 *cs)
 {
 	*cs++ = MI_USER_INTERRUPT;
 
@@ -4659,14 +4658,16 @@ gen8_emit_fini_breadcrumb_footer(struct i915_request *request,
 	return gen8_emit_wa_tail(request, cs);
 }
 
-static u32 *gen8_emit_fini_breadcrumb(struct i915_request *request, u32 *cs)
+static u32 *emit_xcs_breadcrumb(struct i915_request *request, u32 *cs)
 {
-	cs = gen8_emit_ggtt_write(cs,
-				  request->fence.seqno,
-				  i915_request_active_timeline(request)->hwsp_offset,
-				  0);
+	u32 addr = i915_request_active_timeline(request)->hwsp_offset;
 
-	return gen8_emit_fini_breadcrumb_footer(request, cs);
+	return gen8_emit_ggtt_write(cs, request->fence.seqno, addr, 0);
+}
+
+static u32 *gen8_emit_fini_breadcrumb(struct i915_request *rq, u32 *cs)
+{
+	return gen8_emit_fini_breadcrumb_tail(rq, emit_xcs_breadcrumb(rq, cs));
 }
 
 static u32 *gen8_emit_fini_breadcrumb_rcs(struct i915_request *request, u32 *cs)
@@ -4684,7 +4685,7 @@ static u32 *gen8_emit_fini_breadcrumb_rcs(struct i915_request *request, u32 *cs)
 				      PIPE_CONTROL_FLUSH_ENABLE |
 				      PIPE_CONTROL_CS_STALL);
 
-	return gen8_emit_fini_breadcrumb_footer(request, cs);
+	return gen8_emit_fini_breadcrumb_tail(request, cs);
 }
 
 static u32 *
@@ -4700,7 +4701,7 @@ gen11_emit_fini_breadcrumb_rcs(struct i915_request *request, u32 *cs)
 				      PIPE_CONTROL_DC_FLUSH_ENABLE |
 				      PIPE_CONTROL_FLUSH_ENABLE);
 
-	return gen8_emit_fini_breadcrumb_footer(request, cs);
+	return gen8_emit_fini_breadcrumb_tail(request, cs);
 }
 
 /*
@@ -4738,7 +4739,7 @@ static u32 *gen12_emit_preempt_busywait(struct i915_request *request, u32 *cs)
 }
 
 static __always_inline u32*
-gen12_emit_fini_breadcrumb_footer(struct i915_request *request, u32 *cs)
+gen12_emit_fini_breadcrumb_tail(struct i915_request *request, u32 *cs)
 {
 	*cs++ = MI_USER_INTERRUPT;
 
@@ -4752,14 +4753,9 @@ gen12_emit_fini_breadcrumb_footer(struct i915_request *request, u32 *cs)
 	return gen8_emit_wa_tail(request, cs);
 }
 
-static u32 *gen12_emit_fini_breadcrumb(struct i915_request *request, u32 *cs)
+static u32 *gen12_emit_fini_breadcrumb(struct i915_request *rq, u32 *cs)
 {
-	cs = gen8_emit_ggtt_write(cs,
-				  request->fence.seqno,
-				  i915_request_active_timeline(request)->hwsp_offset,
-				  0);
-
-	return gen12_emit_fini_breadcrumb_footer(request, cs);
+	return gen12_emit_fini_breadcrumb_tail(rq, emit_xcs_breadcrumb(rq, cs));
 }
 
 static u32 *
@@ -4778,7 +4774,7 @@ gen12_emit_fini_breadcrumb_rcs(struct i915_request *request, u32 *cs)
 				      PIPE_CONTROL_FLUSH_ENABLE |
 				      PIPE_CONTROL_HDC_PIPELINE_FLUSH);
 
-	return gen12_emit_fini_breadcrumb_footer(request, cs);
+	return gen12_emit_fini_breadcrumb_tail(request, cs);
 }
 
 static void execlists_park(struct intel_engine_cs *engine)
