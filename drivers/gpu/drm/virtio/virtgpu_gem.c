@@ -117,7 +117,7 @@ int virtio_gpu_gem_object_open(struct drm_gem_object *obj,
 	struct virtio_gpu_object_array *objs;
 
 	if (!vgdev->has_virgl_3d)
-		return 0;
+		goto out_notify;
 
 	objs = virtio_gpu_array_alloc(1);
 	if (!objs)
@@ -126,6 +126,7 @@ int virtio_gpu_gem_object_open(struct drm_gem_object *obj,
 
 	virtio_gpu_cmd_context_attach_resource(vgdev, vfpriv->ctx_id,
 					       objs);
+out_notify:
 	virtio_gpu_notify(vgdev);
 	return 0;
 }
