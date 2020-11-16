@@ -1416,8 +1416,6 @@ static void gen7_init_oa_buffer(struct i915_perf_stream *stream)
 	 * memory...
 	 */
 	memset(stream->oa_buffer.vaddr, 0, OA_BUFFER_SIZE);
-
-	stream->pollin = false;
 }
 
 static void gen8_init_oa_buffer(struct i915_perf_stream *stream)
@@ -1472,8 +1470,6 @@ static void gen8_init_oa_buffer(struct i915_perf_stream *stream)
 	 * memory...
 	 */
 	memset(stream->oa_buffer.vaddr, 0, OA_BUFFER_SIZE);
-
-	stream->pollin = false;
 }
 
 static void gen12_init_oa_buffer(struct i915_perf_stream *stream)
@@ -1529,8 +1525,6 @@ static void gen12_init_oa_buffer(struct i915_perf_stream *stream)
 	 */
 	memset(stream->oa_buffer.vaddr, 0,
 	       stream->oa_buffer.vma->size);
-
-	stream->pollin = false;
 }
 
 static int alloc_oa_buffer(struct i915_perf_stream *stream)
@@ -2598,6 +2592,8 @@ static void gen12_oa_enable(struct i915_perf_stream *stream)
  */
 static void i915_oa_stream_enable(struct i915_perf_stream *stream)
 {
+	stream->pollin = false;
+
 	stream->perf->ops.oa_enable(stream);
 
 	if (stream->periodic)
