@@ -3217,6 +3217,7 @@ static u8 *drm_find_displayid_extension(const struct edid *edid,
 					int *length, int *idx)
 {
 	u8 *displayid = drm_find_edid_extension(edid, DISPLAYID_EXT);
+	int ret;
 
 	if (!displayid)
 		return NULL;
@@ -3224,12 +3225,15 @@ static u8 *drm_find_displayid_extension(const struct edid *edid,
 	*length = EDID_LENGTH;
 	*idx = 1;
 
+	ret = validate_displayid(displayid, *length, *idx);
+	if (ret)
+		return NULL;
+
 	return displayid;
 }
 
 static u8 *drm_find_cea_extension(const struct edid *edid)
 {
-	int ret;
 	int length, idx;
 	struct displayid_block *block;
 	u8 *cea;
@@ -3243,10 +3247,6 @@ static u8 *drm_find_cea_extension(const struct edid *edid)
 	/* CEA blocks can also be found embedded in a DisplayID block */
 	displayid = drm_find_displayid_extension(edid, &length, &idx);
 	if (!displayid)
-		return NULL;
-
-	ret = validate_displayid(displayid, length, idx);
-	if (ret)
 		return NULL;
 
 	idx += sizeof(struct displayid_hdr);
@@ -5189,17 +5189,12 @@ static int add_displayid_detailed_modes(struct drm_connector *connector,
 					struct edid *edid)
 {
 	u8 *displayid;
-	int ret;
 	int length, idx;
 	struct displayid_block *block;
 	int num_modes = 0;
 
 	displayid = drm_find_displayid_extension(edid, &length, &idx);
 	if (!displayid)
-		return 0;
-
-	ret = validate_displayid(displayid, length, idx);
-	if (ret)
 		return 0;
 
 	idx += sizeof(struct displayid_hdr);
@@ -5848,10 +5843,6 @@ static int drm_parse_display_id(struct drm_connector *connector,
 {
 	struct displayid_block *block;
 	int ret;
-
-	ret = validate_displayid(displayid, length, idx);
-	if (ret)
-		return ret;
 
 	idx += sizeof(struct displayid_hdr);
 	for_each_displayid_db(displayid, block, idx, length) {
