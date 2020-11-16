@@ -3135,7 +3135,7 @@ check_redzone(const void *vaddr, const struct intel_engine_cs *engine)
 	vaddr += engine->context_size;
 
 	if (memchr_inv(vaddr, CONTEXT_REDZONE, I915_GTT_PAGE_SIZE))
-		dev_err_once(engine->i915->drm.dev,
+		drm_err_once(&engine->i915->drm,
 			     "%s context redzone overwritten!\n",
 			     engine->name);
 }
@@ -3631,7 +3631,7 @@ static void enable_error_interrupt(struct intel_engine_cs *engine)
 
 	status = ENGINE_READ(engine, RING_ESR);
 	if (unlikely(status)) {
-		dev_err(engine->i915->drm.dev,
+		drm_err(&engine->i915->drm,
 			"engine '%s' resumed still in error: %08x\n",
 			engine->name, status);
 		__intel_gt_reset(engine->gt, engine->mask);
