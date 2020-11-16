@@ -1212,6 +1212,8 @@ void i915_ggtt_resume(struct i915_ggtt *ggtt)
 
 	if (INTEL_GEN(ggtt->vm.i915) >= 8)
 		setup_private_pat(ggtt->vm.gt->uncore);
+
+	intel_ggtt_restore_fences(ggtt);
 }
 
 static struct scatterlist *
