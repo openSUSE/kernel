@@ -1404,6 +1404,9 @@ failed:
 
 static int smu_stop_dpms(struct smu_context *smu)
 {
+	if (amdgpu_sriov_vf(smu->adev))
+		return 0;
+
 	return smu_system_features_control(smu, false);
 }
 
