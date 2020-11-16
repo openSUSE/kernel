@@ -933,13 +933,6 @@ static int smu_sw_init(void *handle)
 		return ret;
 	}
 
-	if (adev->smu.ppt_funcs->i2c_eeprom_init) {
-		ret = smu_i2c_eeprom_init(smu, &adev->pm.smu_i2c);
-
-		if (ret)
-			return ret;
-	}
-
 	return 0;
 }
 
@@ -948,9 +941,6 @@ static int smu_sw_fini(void *handle)
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 	struct smu_context *smu = &adev->smu;
 	int ret;
-
-	if (adev->smu.ppt_funcs->i2c_eeprom_fini)
-		smu_i2c_eeprom_fini(smu, &adev->pm.smu_i2c);
 
 	kfree(smu->irq_source);
 	smu->irq_source = NULL;
@@ -1367,6 +1357,10 @@ static int smu_hw_init(void *handle)
 	if (ret)
 		goto failed;
 
+	ret = smu_i2c_eeprom_init(smu, &adev->pm.smu_i2c);
+	if (ret)
+		goto failed;
+
 	if (!smu->pm_enabled)
 		adev->pm.dpm_enabled = false;
 	else
@@ -1403,6 +1397,8 @@ static int smu_hw_fini(void *handle)
 
 	if (!smu->pm_enabled)
 		return 0;
+
+	smu_i2c_eeprom_fini(smu, &adev->pm.smu_i2c);
 
 	if (!amdgpu_sriov_vf(adev)){
 		ret = smu_stop_thermal_control(smu);
@@ -1543,6 +1539,8 @@ static int smu_suspend(void *handle)
 	if (!smu->pm_enabled)
 		return 0;
 
+	smu_i2c_eeprom_fini(smu, &adev->pm.smu_i2c);
+
 	if(!amdgpu_sriov_vf(adev)) {
 		ret = smu_disable_dpm(smu);
 		if (ret)
@@ -1585,6 +1583,10 @@ static int smu_resume(void *handle)
 		goto failed;
 
 	ret = smu_start_thermal_control(smu);
+	if (ret)
+		goto failed;
+
+	ret = smu_i2c_eeprom_init(smu, &adev->pm.smu_i2c);
 	if (ret)
 		goto failed;
 
