@@ -1281,7 +1281,7 @@ static int sti_hdmi_bind(struct device *dev, struct device *master, void *data)
 
 	bridge->driver_private = hdmi;
 	bridge->funcs = &sti_hdmi_bridge_funcs;
-	drm_bridge_attach(encoder, bridge, NULL);
+	drm_bridge_attach(encoder, bridge, NULL, 0);
 
 	connector->encoder = encoder;
 
@@ -1393,7 +1393,7 @@ static int sti_hdmi_probe(struct platform_device *pdev)
 		ret = -ENOMEM;
 		goto release_adapter;
 	}
-	hdmi->regs = devm_ioremap_nocache(dev, res->start, resource_size(res));
+	hdmi->regs = devm_ioremap(dev, res->start, resource_size(res));
 	if (!hdmi->regs) {
 		ret = -ENOMEM;
 		goto release_adapter;

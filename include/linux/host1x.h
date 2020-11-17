@@ -17,23 +17,30 @@ enum host1x_class {
 	HOST1X_CLASS_GR3D = 0x60,
 };
 
+struct host1x;
 struct host1x_client;
 struct iommu_group;
+
+u64 host1x_get_dma_mask(struct host1x *host1x);
 
 /**
  * struct host1x_client_ops - host1x client operations
  * @init: host1x client initialization code
  * @exit: host1x client tear down code
+ * @suspend: host1x client suspend code
+ * @resume: host1x client resume code
  */
 struct host1x_client_ops {
 	int (*init)(struct host1x_client *client);
 	int (*exit)(struct host1x_client *client);
+	int (*suspend)(struct host1x_client *client);
+	int (*resume)(struct host1x_client *client);
 };
 
 /**
  * struct host1x_client - host1x client structure
  * @list: list node for the host1x client
- * @parent: pointer to struct device representing the host1x controller
+ * @host: pointer to struct device representing the host1x controller
  * @dev: pointer to struct device backing this host1x client
  * @group: IOMMU group that this client is a member of
  * @ops: host1x client operations
@@ -44,7 +51,7 @@ struct host1x_client_ops {
  */
 struct host1x_client {
 	struct list_head list;
-	struct device *parent;
+	struct device *host;
 	struct device *dev;
 	struct iommu_group *group;
 
@@ -55,6 +62,10 @@ struct host1x_client {
 
 	struct host1x_syncpt **syncpts;
 	unsigned int num_syncpts;
+
+	struct host1x_client *parent;
+	unsigned int usecount;
+	struct mutex lock;
 };
 
 /*
@@ -72,8 +83,6 @@ struct host1x_bo_ops {
 	void (*unpin)(struct device *dev, struct sg_table *sgt);
 	void *(*mmap)(struct host1x_bo *bo);
 	void (*munmap)(struct host1x_bo *bo, void *addr);
-	void *(*kmap)(struct host1x_bo *bo, unsigned int pagenum);
-	void (*kunmap)(struct host1x_bo *bo, unsigned int pagenum, void *addr);
 };
 
 struct host1x_bo {
@@ -117,17 +126,6 @@ static inline void *host1x_bo_mmap(struct host1x_bo *bo)
 static inline void host1x_bo_munmap(struct host1x_bo *bo, void *addr)
 {
 	bo->ops->munmap(bo, addr);
-}
-
-static inline void *host1x_bo_kmap(struct host1x_bo *bo, unsigned int pagenum)
-{
-	return bo->ops->kmap(bo, pagenum);
-}
-
-static inline void host1x_bo_kunmap(struct host1x_bo *bo,
-				    unsigned int pagenum, void *addr)
-{
-	bo->ops->kunmap(bo, pagenum, addr);
 }
 
 /*
@@ -321,6 +319,9 @@ int host1x_device_exit(struct host1x_device *device);
 
 int host1x_client_register(struct host1x_client *client);
 int host1x_client_unregister(struct host1x_client *client);
+
+int host1x_client_suspend(struct host1x_client *client);
+int host1x_client_resume(struct host1x_client *client);
 
 struct tegra_mipi_device;
 

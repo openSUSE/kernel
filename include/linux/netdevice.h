@@ -70,6 +70,7 @@ struct udp_tunnel_nic;
 struct bpf_prog;
 struct xdp_buff;
 
+void synchronize_net(void);
 void netdev_set_default_ethtool_ops(struct net_device *dev,
 				    const struct ethtool_ops *ops);
 
@@ -489,20 +490,6 @@ static inline bool napi_complete(struct napi_struct *n)
 }
 
 /**
- *	napi_hash_del - remove a NAPI from global table
- *	@napi: NAPI context
- *
- * Warning: caller must observe RCU grace period
- * before freeing memory containing @napi, if
- * this function returns true.
- * Note: core networking stack automatically calls it
- * from netif_napi_del().
- * Drivers might want to call this helper to combine all
- * the needed RCU grace periods into a single one.
- */
-bool napi_hash_del(struct napi_struct *napi);
-
-/**
  *	napi_disable - prevent NAPI from scheduling
  *	@n: NAPI context
  *
@@ -618,7 +605,7 @@ struct netdev_queue {
 	/* Subordinate device that the queue has been assigned to */
 	struct net_device	*sb_dev;
 #ifdef CONFIG_XDP_SOCKETS
-	struct xdp_umem         *umem;
+	struct xsk_buff_pool    *pool;
 #endif
 /*
  * write-mostly part
@@ -751,7 +738,7 @@ struct netdev_rx_queue {
 	struct net_device		*dev;
 	struct xdp_rxq_info		xdp_rxq;
 #ifdef CONFIG_XDP_SOCKETS
-	struct xdp_umem                 *umem;
+	struct xsk_buff_pool            *pool;
 #endif
 } ____cacheline_aligned_in_smp;
 
@@ -881,7 +868,7 @@ enum bpf_netdev_command {
 	/* BPF program for offload callbacks, invoked at program load time. */
 	BPF_OFFLOAD_MAP_ALLOC,
 	BPF_OFFLOAD_MAP_FREE,
-	XDP_SETUP_XSK_UMEM,
+	XDP_SETUP_XSK_POOL,
 };
 
 struct bpf_prog_offload_ops;
@@ -908,9 +895,9 @@ struct netdev_bpf {
 		struct {
 			struct bpf_offloaded_map *offmap;
 		};
-		/* XDP_SETUP_XSK_UMEM */
+		/* XDP_SETUP_XSK_POOL */
 		struct {
-			struct xdp_umem *umem;
+			struct xsk_buff_pool *pool;
 			u16 queue_id;
 		} xsk;
 	};
@@ -2372,12 +2359,26 @@ static inline void netif_tx_napi_add(struct net_device *dev,
 }
 
 /**
+ *  __netif_napi_del - remove a NAPI context
+ *  @napi: NAPI context
+ *
+ * Warning: caller must observe RCU grace period before freeing memory
+ * containing @napi. Drivers might want to call this helper to combine
+ * all the needed RCU grace periods into a single one.
+ */
+void __netif_napi_del(struct napi_struct *napi);
+
+/**
  *  netif_napi_del - remove a NAPI context
  *  @napi: NAPI context
  *
  *  netif_napi_del() removes a NAPI context from the network device NAPI list
  */
-void netif_napi_del(struct napi_struct *napi);
+static inline void netif_napi_del(struct napi_struct *napi)
+{
+	__netif_napi_del(napi);
+	synchronize_net();
+}
 
 struct napi_gro_cb {
 	/* Virtual address of skb_shinfo(skb)->frags[0].page + offset. */
@@ -2801,7 +2802,6 @@ static inline void unregister_netdevice(struct net_device *dev)
 int netdev_refcnt_read(const struct net_device *dev);
 void free_netdev(struct net_device *dev);
 void netdev_freemem(struct net_device *dev);
-void synchronize_net(void);
 int init_dummy_netdev(struct net_device *dev);
 
 struct net_device *netdev_get_xmit_slave(struct net_device *dev,
