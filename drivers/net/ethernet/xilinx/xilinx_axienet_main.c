@@ -1488,9 +1488,10 @@ static void axienet_mac_link_down(struct phylink_config *config,
 }
 
 static void axienet_mac_link_up(struct phylink_config *config,
-				unsigned int mode,
-				phy_interface_t interface,
-				struct phy_device *phy)
+				struct phy_device *phy,
+				unsigned int mode, phy_interface_t interface,
+				int speed, int duplex,
+				bool tx_pause, bool rx_pause)
 {
 	/* nothing meaningful to do */
 }
@@ -1761,11 +1762,9 @@ static int axienet_probe(struct platform_device *pdev)
 			goto free_netdev;
 		}
 	} else {
-		lp->phy_mode = of_get_phy_mode(pdev->dev.of_node);
-		if ((int)lp->phy_mode < 0) {
-			ret = -EINVAL;
+		ret = of_get_phy_mode(pdev->dev.of_node, &lp->phy_mode);
+		if (ret)
 			goto free_netdev;
-		}
 	}
 
 	/* Find the DMA node, map the DMA registers, and decode the DMA IRQs */

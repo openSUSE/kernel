@@ -263,7 +263,9 @@ static void felix_phylink_mac_link_down(struct dsa_switch *ds, int port,
 static void felix_phylink_mac_link_up(struct dsa_switch *ds, int port,
 				      unsigned int link_an_mode,
 				      phy_interface_t interface,
-				      struct phy_device *phydev)
+				      struct phy_device *phydev,
+				      int speed, int duplex,
+				      bool tx_pause, bool rx_pause)
 {
 	struct ocelot *ocelot = ds->priv;
 	struct ocelot_port *ocelot_port = ocelot->ports[port];
@@ -326,7 +328,7 @@ static int felix_parse_ports_node(struct felix *felix,
 	struct device_node *child;
 
 	for_each_available_child_of_node(ports_node, child) {
-		int phy_mode;
+		phy_interface_t phy_mode;
 		u32 port;
 		int err;
 
@@ -339,8 +341,8 @@ static int felix_parse_ports_node(struct felix *felix,
 		}
 
 		/* Get PHY mode from DT */
-		phy_mode = of_get_phy_mode(child);
-		if (phy_mode < 0) {
+		err = of_get_phy_mode(child, &phy_mode);
+		if (err) {
 			dev_err(dev, "Failed to read phy-mode or "
 				"phy-interface-type property for port %d\n",
 				port);

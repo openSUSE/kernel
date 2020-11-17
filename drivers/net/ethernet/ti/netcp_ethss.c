@@ -2291,6 +2291,7 @@ static int gbe_slave_open(struct gbe_intf *gbe_intf)
 	struct gbe_slave *slave = gbe_intf->slave;
 	phy_interface_t phy_mode;
 	bool has_phy = false;
+	int err;
 
 	void (*hndlr)(struct net_device *) = gbe_adjust_link;
 
@@ -2320,11 +2321,11 @@ static int gbe_slave_open(struct gbe_intf *gbe_intf)
 		slave->phy_port_t = PORT_MII;
 	} else if (slave->link_interface == RGMII_LINK_MAC_PHY) {
 		has_phy = true;
-		phy_mode = of_get_phy_mode(slave->node);
+		err = of_get_phy_mode(slave->node, &phy_mode);
 		/* if phy-mode is not present, default to
 		 * PHY_INTERFACE_MODE_RGMII
 		 */
-		if (phy_mode < 0)
+		if (err)
 			phy_mode = PHY_INTERFACE_MODE_RGMII;
 
 		if (!phy_interface_mode_is_rgmii(phy_mode)) {
@@ -3705,9 +3706,9 @@ static int gbe_probe(struct netcp_device *netcp_device, struct device *dev,
 		ale_params.nu_switch_ale = true;
 	}
 	gbe_dev->ale = cpsw_ale_create(&ale_params);
-	if (!gbe_dev->ale) {
+	if (IS_ERR(gbe_dev->ale)) {
 		dev_err(gbe_dev->dev, "error initializing ale engine\n");
-		ret = -ENODEV;
+		ret = PTR_ERR(gbe_dev->ale);
 		goto free_sec_ports;
 	} else {
 		dev_dbg(gbe_dev->dev, "Created a gbe ale engine\n");

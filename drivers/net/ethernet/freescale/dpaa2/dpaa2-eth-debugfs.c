@@ -21,7 +21,7 @@ static int dpaa2_dbg_cpu_show(struct seq_file *file, void *offset)
 	seq_printf(file, "Per-CPU stats for %s\n", priv->net_dev->name);
 	seq_printf(file, "%s%16s%16s%16s%16s%16s%16s%16s%16s%16s\n",
 		   "CPU", "Rx", "Rx Err", "Rx SG", "Tx", "Tx Err", "Tx conf",
-		   "Tx SG", "Tx realloc", "Enq busy");
+		   "Tx SG", "Tx converted to SG", "Enq busy");
 
 	for_each_online_cpu(i) {
 		stats = per_cpu_ptr(priv->percpu_stats, i);
@@ -35,7 +35,7 @@ static int dpaa2_dbg_cpu_show(struct seq_file *file, void *offset)
 			   stats->tx_errors,
 			   extras->tx_conf_frames,
 			   extras->tx_sg_frames,
-			   extras->tx_reallocs,
+			   extras->tx_converted_sg_frames,
 			   extras->tx_portal_busy);
 	}
 
@@ -81,8 +81,8 @@ static int dpaa2_dbg_fqs_show(struct seq_file *file, void *offset)
 	int i, err;
 
 	seq_printf(file, "FQ stats for %s:\n", priv->net_dev->name);
-	seq_printf(file, "%s%16s%16s%16s%16s\n",
-		   "VFQID", "CPU", "Type", "Frames", "Pending frames");
+	seq_printf(file, "%s%16s%16s%16s%16s%16s\n",
+		   "VFQID", "CPU", "TC", "Type", "Frames", "Pending frames");
 
 	for (i = 0; i <  priv->num_fqs; i++) {
 		fq = &priv->fq[i];
@@ -90,9 +90,14 @@ static int dpaa2_dbg_fqs_show(struct seq_file *file, void *offset)
 		if (err)
 			fcnt = 0;
 
-		seq_printf(file, "%5d%16d%16s%16llu%16u\n",
+		/* Skip FQs with no traffic */
+		if (!fq->stats.frames && !fcnt)
+			continue;
+
+		seq_printf(file, "%5d%16d%16d%16s%16llu%16u\n",
 			   fq->fqid,
 			   fq->target_cpu,
+			   fq->tc,
 			   fq_type_to_str(fq),
 			   fq->stats.frames,
 			   fcnt);
@@ -127,16 +132,19 @@ static int dpaa2_dbg_ch_show(struct seq_file *file, void *offset)
 	int i;
 
 	seq_printf(file, "Channel stats for %s:\n", priv->net_dev->name);
-	seq_printf(file, "%s%16s%16s%16s%16s\n",
-		   "CHID", "CPU", "Deq busy", "CDANs", "Buf count");
+	seq_printf(file, "%s%16s%16s%16s%16s%16s%16s\n",
+		   "CHID", "CPU", "Deq busy", "Frames", "CDANs",
+		   "Avg Frm/CDAN", "Buf count");
 
 	for (i = 0; i < priv->num_channels; i++) {
 		ch = priv->channel[i];
-		seq_printf(file, "%4d%16d%16llu%16llu%16d\n",
+		seq_printf(file, "%4d%16d%16llu%16llu%16llu%16llu%16d\n",
 			   ch->ch_id,
 			   ch->nctx.desired_cpu,
 			   ch->stats.dequeue_portal_busy,
+			   ch->stats.frames,
 			   ch->stats.cdan,
+			   div64_u64(ch->stats.frames, ch->stats.cdan),
 			   ch->buf_count);
 	}
 
@@ -164,70 +172,30 @@ static const struct file_operations dpaa2_dbg_ch_ops = {
 
 void dpaa2_dbg_add(struct dpaa2_eth_priv *priv)
 {
-	if (!dpaa2_dbg_root)
-		return;
+	struct dentry *dir;
 
 	/* Create a directory for the interface */
-	priv->dbg.dir = debugfs_create_dir(priv->net_dev->name,
-					   dpaa2_dbg_root);
-	if (!priv->dbg.dir) {
-		netdev_err(priv->net_dev, "debugfs_create_dir() failed\n");
-		return;
-	}
+	dir = debugfs_create_dir(priv->net_dev->name, dpaa2_dbg_root);
+	priv->dbg.dir = dir;
 
 	/* per-cpu stats file */
-	priv->dbg.cpu_stats = debugfs_create_file("cpu_stats", 0444,
-						  priv->dbg.dir, priv,
-						  &dpaa2_dbg_cpu_ops);
-	if (!priv->dbg.cpu_stats) {
-		netdev_err(priv->net_dev, "debugfs_create_file() failed\n");
-		goto err_cpu_stats;
-	}
+	debugfs_create_file("cpu_stats", 0444, dir, priv, &dpaa2_dbg_cpu_ops);
 
 	/* per-fq stats file */
-	priv->dbg.fq_stats = debugfs_create_file("fq_stats", 0444,
-						 priv->dbg.dir, priv,
-						 &dpaa2_dbg_fq_ops);
-	if (!priv->dbg.fq_stats) {
-		netdev_err(priv->net_dev, "debugfs_create_file() failed\n");
-		goto err_fq_stats;
-	}
+	debugfs_create_file("fq_stats", 0444, dir, priv, &dpaa2_dbg_fq_ops);
 
 	/* per-fq stats file */
-	priv->dbg.ch_stats = debugfs_create_file("ch_stats", 0444,
-						 priv->dbg.dir, priv,
-						 &dpaa2_dbg_ch_ops);
-	if (!priv->dbg.fq_stats) {
-		netdev_err(priv->net_dev, "debugfs_create_file() failed\n");
-		goto err_ch_stats;
-	}
-
-	return;
-
-err_ch_stats:
-	debugfs_remove(priv->dbg.fq_stats);
-err_fq_stats:
-	debugfs_remove(priv->dbg.cpu_stats);
-err_cpu_stats:
-	debugfs_remove(priv->dbg.dir);
+	debugfs_create_file("ch_stats", 0444, dir, priv, &dpaa2_dbg_ch_ops);
 }
 
 void dpaa2_dbg_remove(struct dpaa2_eth_priv *priv)
 {
-	debugfs_remove(priv->dbg.fq_stats);
-	debugfs_remove(priv->dbg.ch_stats);
-	debugfs_remove(priv->dbg.cpu_stats);
-	debugfs_remove(priv->dbg.dir);
+	debugfs_remove_recursive(priv->dbg.dir);
 }
 
 void dpaa2_eth_dbg_init(void)
 {
 	dpaa2_dbg_root = debugfs_create_dir(DPAA2_ETH_DBG_ROOT, NULL);
-	if (!dpaa2_dbg_root) {
-		pr_err("DPAA2-ETH: debugfs create failed\n");
-		return;
-	}
-
 	pr_debug("DPAA2-ETH: debugfs created\n");
 }
 

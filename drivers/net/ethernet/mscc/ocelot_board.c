@@ -370,12 +370,12 @@ static int mscc_ocelot_probe(struct platform_device *pdev)
 		struct ocelot_port_private *priv;
 		struct ocelot_port *ocelot_port;
 		struct device_node *phy_node;
+		phy_interface_t phy_mode;
 		struct phy_device *phy;
 		struct resource *res;
 		struct phy *serdes;
 		void __iomem *regs;
 		char res_name[8];
-		int phy_mode;
 		u32 port;
 
 		if (of_property_read_u32(portnp, "reg", &port))
@@ -408,12 +408,12 @@ static int mscc_ocelot_probe(struct platform_device *pdev)
 		priv = container_of(ocelot_port, struct ocelot_port_private,
 				    port);
 
-		phy_mode = of_get_phy_mode(portnp);
-		if (phy_mode < 0)
-			ocelot_port->phy_mode = PHY_INTERFACE_MODE_NA;
-		else
-			ocelot_port->phy_mode = phy_mode;
+		err = of_get_phy_mode(portnp, &phy_mode);
+		if (err && err != -ENODEV)
+			goto out_put_ports;
 
+		ocelot_port->phy_mode = phy_mode;
+ 
 		switch (ocelot_port->phy_mode) {
 		case PHY_INTERFACE_MODE_NA:
 			continue;

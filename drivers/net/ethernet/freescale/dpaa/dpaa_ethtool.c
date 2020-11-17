@@ -110,8 +110,6 @@ static void dpaa_get_drvinfo(struct net_device *net_dev,
 
 	strlcpy(drvinfo->driver, KBUILD_MODNAME,
 		sizeof(drvinfo->driver));
-	len = snprintf(drvinfo->version, sizeof(drvinfo->version),
-		       "%X", 0);
 	len = snprintf(drvinfo->fw_version, sizeof(drvinfo->fw_version),
 		       "%X", 0);
 
@@ -536,7 +534,6 @@ static int dpaa_get_coalesce(struct net_device *dev,
 
 	c->rx_coalesce_usecs = period;
 	c->rx_max_coalesced_frames = thresh;
-	c->use_adaptive_rx_coalesce = false;
 
 	return 0;
 }
@@ -550,9 +547,6 @@ static int dpaa_set_coalesce(struct net_device *dev,
 	u32 period, prev_period;
 	u8 thresh, prev_thresh;
 	int cpu, res;
-
-	if (c->use_adaptive_rx_coalesce)
-		return -EINVAL;
 
 	period = c->rx_coalesce_usecs;
 	thresh = c->rx_max_coalesced_frames;
@@ -593,6 +587,8 @@ revert_values:
 }
 
 const struct ethtool_ops dpaa_ethtool_ops = {
+	.supported_coalesce_params = ETHTOOL_COALESCE_RX_USECS |
+				     ETHTOOL_COALESCE_RX_MAX_FRAMES,
 	.get_drvinfo = dpaa_get_drvinfo,
 	.get_msglevel = dpaa_get_msglevel,
 	.set_msglevel = dpaa_set_msglevel,
