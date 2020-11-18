@@ -3526,12 +3526,13 @@ static int try_flush_qgroup(struct btrfs_root *root)
 
 	/*
 	 * If current process holds a transaction, we shouldn't flush, as we
-	 * assume all space reservation happens before a trans handler is hold.
+	 * assume all space reservation happens before a transaction handle is
+	 * held.
 	 *
 	 * But there are cases like btrfs_delayed_item_reserve_metadata() where
-	 * we try to reserve space with one trans handler already hold.
-	 * In that case we can't commit transaction. but at most end
-	 * transaction, and hope the started data writes can free some space.
+	 * we try to reserve space with one transction handle already held.
+	 * In that case we can't commit transaction, but at least try to end it
+	 * and hope the started data writes can free some space.
 	 */
 	if (current->journal_info &&
 	    current->journal_info != BTRFS_SEND_TRANS_STUB)
