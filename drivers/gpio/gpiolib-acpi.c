@@ -19,6 +19,7 @@
 #include <linux/pinctrl/pinctrl.h>
 
 #include "gpiolib.h"
+#include "gpiolib-acpi.h"
 
 static int run_edge_events_on_boot = -1;
 module_param(run_edge_events_on_boot, int, 0444);
