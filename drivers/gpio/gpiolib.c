@@ -1662,14 +1662,18 @@ static int gpiochip_irqchip_init_hw(struct gpio_chip *gc)
 	return girq->init_hw(gc);
 }
 
-static int gpiochip_irqchip_init_valid_mask(struct gpio_chip *gpiochip)
+static int gpiochip_irqchip_init_valid_mask(struct gpio_chip *gc)
 {
-	if (!gpiochip->irq.need_valid_mask)
+	struct gpio_irq_chip *girq = &gc->irq;
+
+	if (!girq->init_valid_mask)
 		return 0;
 
-	gpiochip->irq.valid_mask = gpiochip_allocate_mask(gpiochip);
-	if (!gpiochip->irq.valid_mask)
+	girq->valid_mask = gpiochip_allocate_mask(gc);
+	if (!girq->valid_mask)
 		return -ENOMEM;
+
+	girq->init_valid_mask(gc, girq->valid_mask, gc->ngpio);
 
 	return 0;
 }
