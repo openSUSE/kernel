@@ -365,8 +365,9 @@ static void mrfld_irq_handler(struct irq_desc *desc)
 	chained_irq_exit(irqchip, desc);
 }
 
-static void mrfld_irq_init_hw(struct mrfld_gpio *priv)
+static int mrfld_irq_init_hw(struct gpio_chip *chip)
 {
+	struct mrfld_gpio *priv = gpiochip_get_data(chip);
 	void __iomem *reg;
 	unsigned int base;
 
@@ -378,6 +379,8 @@ static void mrfld_irq_init_hw(struct mrfld_gpio *priv)
 		reg = gpio_reg(&priv->chip, base, GFER);
 		writel(0, reg);
 	}
+
+	return 0;
 }
 
 static const char *mrfld_gpio_get_pinctrl_dev_name(struct mrfld_gpio *priv)
@@ -450,6 +453,7 @@ static int mrfld_gpio_probe(struct pci_dev *pdev, const struct pci_device_id *id
 
 	girq = &priv->chip.irq;
 	girq->chip = &mrfld_irqchip;
+	girq->init_hw = mrfld_irq_init_hw;
 	girq->parent_handler = mrfld_irq_handler;
 	girq->num_parents = 1;
 	girq->parents = devm_kcalloc(&pdev->dev, girq->num_parents,
@@ -461,8 +465,6 @@ static int mrfld_gpio_probe(struct pci_dev *pdev, const struct pci_device_id *id
 	girq->first = irq_base;
 	girq->default_type = IRQ_TYPE_NONE;
 	girq->handler = handle_bad_irq;
-
-	mrfld_irq_init_hw(priv);
 
 	pci_set_drvdata(pdev, priv);
 	retval = devm_gpiochip_add_data(&pdev->dev, &priv->chip, priv);
