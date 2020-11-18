@@ -85,9 +85,7 @@ static int start_umh(void)
 	int err;
 
 	/* fork usermode process */
-	err = fork_usermode_blob(&bpfilter_umh_start,
-				 &bpfilter_umh_end - &bpfilter_umh_start,
-				 &bpfilter_ops.info);
+	err = fork_usermode_driver(&bpfilter_ops.info);
 	if (err)
 		return err;
 	bpfilter_ops.stop = false;
@@ -106,6 +104,12 @@ static int __init load_umh(void)
 {
 	int err;
 
+	err = umd_load_blob(&bpfilter_ops.info,
+			    &bpfilter_umh_start,
+			    &bpfilter_umh_end - &bpfilter_umh_start);
+	if (err)
+		return err;
+
 	mutex_lock(&bpfilter_ops.lock);
 	if (!bpfilter_ops.stop) {
 		err = -EFAULT;
@@ -118,6 +122,8 @@ static int __init load_umh(void)
 	}
 out:
 	mutex_unlock(&bpfilter_ops.lock);
+	if (err)
+		umd_unload_blob(&bpfilter_ops.info);
 	return err;
 }
 
@@ -130,6 +136,8 @@ static void __exit fini_umh(void)
 		bpfilter_ops.sockopt = NULL;
 	}
 	mutex_unlock(&bpfilter_ops.lock);
+
+	umd_unload_blob(&bpfilter_ops.info);
 }
 module_init(load_umh);
 module_exit(fini_umh);
