@@ -46,7 +46,7 @@
 
 	__HEAD
 	.code32
-ENTRY(startup_32)
+SYM_FUNC_START(startup_32)
 	/*
 	 * 32bit entry is 0 and it is ABI so immutable!
 	 * If we come here directly from a bootloader,
@@ -223,11 +223,11 @@ ENTRY(startup_32)
 
 	/* Jump from 32bit compatibility mode into 64bit mode. */
 	lret
-ENDPROC(startup_32)
+SYM_FUNC_END(startup_32)
 
 #ifdef CONFIG_EFI_MIXED
 	.org 0x190
-ENTRY(efi32_stub_entry)
+SYM_FUNC_START(efi32_stub_entry)
 	add	$0x4, %esp		/* Discard return address */
 	popl	%ecx
 	popl	%edx
@@ -246,7 +246,7 @@ ENTRY(efi32_stub_entry)
 	movl	%eax, efi_config(%ebp)
 
 	jmp	startup_32
-ENDPROC(efi32_stub_entry)
+SYM_FUNC_END(efi32_stub_entry)
 #endif
 
 	.code64
@@ -459,7 +459,7 @@ trampoline_return:
 #ifdef CONFIG_EFI_STUB
 
 /* The entry point for the PE/COFF executable is efi_pe_entry. */
-ENTRY(efi_pe_entry)
+SYM_FUNC_START(efi_pe_entry)
 	movq	%rcx, efi64_config(%rip)	/* Handle */
 	movq	%rdx, efi64_config+8(%rip) /* EFI System table pointer */
 
@@ -508,10 +508,10 @@ fail:
 	movl	BP_code32_start(%esi), %eax
 	leaq	startup_64(%rax), %rax
 	jmp	*%rax
-ENDPROC(efi_pe_entry)
+SYM_FUNC_END(efi_pe_entry)
 
 	.org 0x390
-ENTRY(efi64_stub_entry)
+SYM_FUNC_START(efi64_stub_entry)
 	movq	%rdi, efi64_config(%rip)	/* Handle */
 	movq	%rsi, efi64_config+8(%rip) /* EFI System table pointer */
 
@@ -520,7 +520,7 @@ ENTRY(efi64_stub_entry)
 
 	movq	%rdx, %rsi
 	jmp	handover_entry
-ENDPROC(efi64_stub_entry)
+SYM_FUNC_END(efi64_stub_entry)
 #endif
 
 	.text
