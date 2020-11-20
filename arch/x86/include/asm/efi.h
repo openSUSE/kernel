@@ -276,6 +276,8 @@ static inline bool efi_is_native(void)
 			__efi_early()->runtime_services)->mixed_mode.f,	\
 			__VA_ARGS__))
 
+__pure efi_system_table_t *efi_system_table(void);
+
 extern bool efi_reboot_required(void);
 extern bool efi_is_table_address(unsigned long phys_addr);
 
