@@ -122,22 +122,30 @@ struct cppc_perf_fb_ctrs {
 	u64 wraparound_time;
 };
 
+/* Container of performance state domain data */
+struct psd_data {
+	struct list_head node;
+	unsigned int shared_type;
+	struct list_head cpu_list;
+	cpumask_var_t shared_cpu_map;
+};
+
 /* Per CPU container for runtime CPPC management. */
 struct cppc_cpudata {
 	int cpu;
+	struct list_head node;
+	struct psd_data *domain;
 	struct cppc_perf_caps perf_caps;
 	struct cppc_perf_ctrls perf_ctrls;
 	struct cppc_perf_fb_ctrs perf_fb_ctrs;
 	struct cpufreq_policy *cur_policy;
-	unsigned int shared_type;
-	cpumask_var_t shared_cpu_map;
 };
 
 extern int cppc_get_desired_perf(int cpunum, u64 *desired_perf);
 extern int cppc_get_perf_ctrs(int cpu, struct cppc_perf_fb_ctrs *perf_fb_ctrs);
 extern int cppc_set_perf(int cpu, struct cppc_perf_ctrls *perf_ctrls);
 extern int cppc_get_perf_caps(int cpu, struct cppc_perf_caps *caps);
-extern int acpi_get_psd_map(struct cppc_cpudata **);
+extern int acpi_get_psd_map(unsigned int cpu, struct psd_data *domain);
 extern unsigned int cppc_get_transition_latency(int cpu);
 extern bool cpc_ffh_supported(void);
 extern int cpc_read_ffh(int cpunum, struct cpc_reg *reg, u64 *val);
