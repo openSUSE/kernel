@@ -443,6 +443,19 @@ static struct gpio_desc *of_find_regulator_gpio(struct device *dev, const char *
 	return desc;
 }
 
+static struct gpio_desc *of_find_arizona_gpio(struct device *dev,
+					      const char *con_id,
+					      enum of_gpio_flags *of_flags)
+{
+	if (!IS_ENABLED(CONFIG_MFD_ARIZONA))
+		return ERR_PTR(-ENOENT);
+
+	if (!con_id || strcmp(con_id, "wlf,reset"))
+		return ERR_PTR(-ENOENT);
+
+	return of_get_named_gpiod_flags(dev->of_node, con_id, 0, of_flags);
+}
+
 static struct gpio_desc *of_find_usb_gpio(struct device *dev,
 					  const char *con_id,
 					  enum of_gpio_flags *of_flags)
@@ -501,6 +514,9 @@ struct gpio_desc *of_find_gpio(struct device *dev, const char *con_id,
 		/* Special handling for regulator GPIOs if used */
 		desc = of_find_regulator_gpio(dev, con_id, &of_flags);
 	}
+
+	if (IS_ERR(desc) && PTR_ERR(desc) == -ENOENT)
+		desc = of_find_arizona_gpio(dev, con_id, &of_flags);
 
 	if (PTR_ERR(desc) == -ENOENT)
 		desc = of_find_usb_gpio(dev, con_id, &of_flags);
@@ -869,7 +885,7 @@ static int of_gpiochip_add_pin_range(struct gpio_chip *chip) { return 0; }
 
 int of_gpiochip_add(struct gpio_chip *chip)
 {
-	int status;
+	int ret;
 
 	if (!chip->of_node)
 		return 0;
@@ -884,9 +900,9 @@ int of_gpiochip_add(struct gpio_chip *chip)
 
 	of_gpiochip_init_valid_mask(chip);
 
-	status = of_gpiochip_add_pin_range(chip);
-	if (status)
-		return status;
+	ret = of_gpiochip_add_pin_range(chip);
+	if (ret)
+		return ret;
 
 	/* If the chip defines names itself, these take precedence */
 	if (!chip->names)
@@ -895,11 +911,11 @@ int of_gpiochip_add(struct gpio_chip *chip)
 
 	of_node_get(chip->of_node);
 
-	status = of_gpiochip_scan_gpios(chip);
-	if (status)
+	ret = of_gpiochip_scan_gpios(chip);
+	if (ret)
 		of_node_put(chip->of_node);
 
-	return status;
+	return ret;
 }
 
 void of_gpiochip_remove(struct gpio_chip *chip)

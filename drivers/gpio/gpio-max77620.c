@@ -293,10 +293,8 @@ static int max77620_gpio_probe(struct platform_device *pdev)
 	int ret;
 
 	ret = platform_get_irq(pdev, 0);
-	if (ret < 0) {
-		dev_err(&pdev->dev, "GPIO irq not available %d\n", ret);
+	if (ret < 0)
 		return ret;
-	}
 
 	gpio_irq = ret;
 
