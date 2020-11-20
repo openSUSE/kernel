@@ -477,7 +477,7 @@ err_fault:
 	/* Assume no coordination on any error parsing domain info */
 	cpumask_clear(domain->shared_cpu_map);
 	cpumask_set_cpu(cpu, domain->shared_cpu_map);
-	domain->shared_type = CPUFREQ_SHARED_TYPE_ALL;
+	domain->shared_type = CPUFREQ_SHARED_TYPE_NONE;
 
 	return -EFAULT;
 }
