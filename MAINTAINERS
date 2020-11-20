@@ -7375,6 +7375,8 @@ S:	Maintained
 F:	mm/hmm*
 F:	include/linux/hmm*
 F:	Documentation/vm/hmm.rst
+F:	lib/test_hmm*
+F:	tools/testing/selftests/vm/*hmm*
 
 HOST AP DRIVER
 M:	Jouni Malinen <j@w1.fi>
