@@ -319,7 +319,9 @@ typedef union {
 		void *stall;
 		void *set_watchdog_timer;
 		void *connect_controller;
-		void *disconnect_controller;
+		efi_status_t (__efiapi *disconnect_controller)(efi_handle_t,
+							       efi_handle_t,
+							       efi_handle_t);
 		void *open_protocol;
 		void *close_protocol;
 		void *open_protocol_information;
@@ -1769,6 +1771,8 @@ struct linux_efi_memreserve {
 
 #define EFI_MEMRESERVE_COUNT(size) (((size) - sizeof(struct linux_efi_memreserve)) \
 	/ sizeof(((struct linux_efi_memreserve *)0)->entry[0]))
+
+void efi_pci_disable_bridge_busmaster(void);
 
 #ifdef CONFIG_EFI_SECRET_KEY
 #define EFI_SECRET_GUID \
