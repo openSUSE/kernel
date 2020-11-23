@@ -84,9 +84,7 @@ u32 tmc_get_memwidth_mask(struct tmc_drvdata *drvdata)
 	 */
 	switch (drvdata->memwidth) {
 	case TMC_MEM_INTF_WIDTH_32BITS:
-	/* fallthrough */
 	case TMC_MEM_INTF_WIDTH_64BITS:
-	/* fallthrough */
 	case TMC_MEM_INTF_WIDTH_128BITS:
 		mask = GENMASK(31, 4);
 		break;
@@ -561,6 +559,21 @@ out:
 	spin_unlock_irqrestore(&drvdata->spinlock, flags);
 }
 
+static int __exit tmc_remove(struct amba_device *adev)
+{
+	struct tmc_drvdata *drvdata = dev_get_drvdata(&adev->dev);
+
+	/*
+	 * Since misc_open() holds a refcount on the f_ops, which is
+	 * etb fops in this case, device is there until last file
+	 * handler to this device is closed.
+	 */
+	misc_deregister(&drvdata->miscdev);
+	coresight_unregister(drvdata->csdev);
+
+	return 0;
+}
+
 static const struct amba_id tmc_ids[] = {
 	CS_AMBA_ID(0x000bb961),
 	/* Coresight SoC 600 TMC-ETR/ETS */
@@ -572,6 +585,8 @@ static const struct amba_id tmc_ids[] = {
 	{ 0, 0},
 };
 
+MODULE_DEVICE_TABLE(amba, tmc_ids);
+
 static struct amba_driver tmc_driver = {
 	.drv = {
 		.name   = "coresight-tmc",
@@ -580,6 +595,12 @@ static struct amba_driver tmc_driver = {
 	},
 	.probe		= tmc_probe,
 	.shutdown	= tmc_shutdown,
+	.remove		= tmc_remove,
 	.id_table	= tmc_ids,
 };
-builtin_amba_driver(tmc_driver);
+
+module_amba_driver(tmc_driver);
+
+MODULE_AUTHOR("Pratik Patel <pratikp@codeaurora.org>");
+MODULE_DESCRIPTION("Arm CoreSight Trace Memory Controller driver");
+MODULE_LICENSE("GPL v2");
