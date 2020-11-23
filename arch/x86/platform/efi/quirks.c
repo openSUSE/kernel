@@ -382,10 +382,10 @@ static void __init efi_unmap_pages(efi_memory_desc_t *md)
 
 	/*
 	 * To Do: Remove this check after adding functionality to unmap EFI boot
-	 * services code/data regions from direct mapping area because
-	 * "efi=old_map" maps EFI regions in swapper_pg_dir.
+	 * services code/data regions from direct mapping area because the UV1
+	 * memory map maps EFI regions in swapper_pg_dir.
 	 */
-	if (efi_enabled(EFI_OLD_MEMMAP))
+	if (efi_have_uv1_memmap())
 		return;
 
 	/*
