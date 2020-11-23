@@ -212,10 +212,9 @@ SYM_FUNC_START(startup_32)
 	movl	efi32_boot_args(%ebp), %edi
 	cmp	$0, %edi
 	jz	1f
-	leal	handover_entry(%ebp), %eax
+	leal	efi64_stub_entry(%ebp), %eax
 	movl	%esi, %edx
 	movl	efi32_boot_args+4(%ebp), %esi
-	movl	$0x0, %ecx
 1:
 #endif
 	pushl	%eax
@@ -243,6 +242,7 @@ SYM_FUNC_START(efi32_stub_entry)
 	movl	%ecx, efi32_boot_args(%ebp)
 	movl	%edx, efi32_boot_args+4(%ebp)
 	sgdtl	efi32_boot_gdt(%ebp)
+	movb	$0, efi_is64(%ebp)
 
 	/* Disable paging */
 	movl	%cr0, %eax
@@ -464,8 +464,6 @@ trampoline_return:
 	.org 0x390
 SYM_FUNC_START(efi64_stub_entry)
 SYM_FUNC_START_ALIAS(efi_stub_entry)
-	movq	$1, %rcx
-SYM_INNER_LABEL(handover_entry, SYM_L_LOCAL)
 	and	$~0xf, %rsp			/* realign the stack */
 	call	efi_main
 	movq	%rax,%rsi
@@ -677,6 +675,7 @@ boot_idt_end:
 
 #ifdef CONFIG_EFI_MIXED
 SYM_DATA_LOCAL(efi32_boot_args, .long 0, 0)
+SYM_DATA(efi_is64, .byte 1)
 #endif
 
 /*
