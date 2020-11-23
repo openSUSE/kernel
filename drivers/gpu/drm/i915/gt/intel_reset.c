@@ -109,7 +109,7 @@ static bool mark_guilty(struct i915_request *rq)
 		goto out;
 	}
 
-	dev_notice(ctx->i915->drm.dev,
+	drm_notice(&ctx->i915->drm,
 		   "%s context reset due to GPU hang\n",
 		   ctx->name);
 
@@ -756,7 +756,7 @@ static int gt_reset(struct intel_gt *gt, intel_engine_mask_t stalled_mask)
 	for_each_engine(engine, gt, id)
 		__intel_engine_reset(engine, stalled_mask & engine->mask);
 
-	i915_gem_restore_fences(gt->ggtt);
+	intel_ggtt_restore_fences(gt->ggtt);
 
 	return err;
 }
@@ -1033,7 +1033,7 @@ void intel_gt_reset(struct intel_gt *gt,
 		goto unlock;
 
 	if (reason)
-		dev_notice(gt->i915->drm.dev,
+		drm_notice(&gt->i915->drm,
 			   "Resetting chip for %s\n", reason);
 	atomic_inc(&gt->i915->gpu_error.reset_count);
 
@@ -1041,7 +1041,7 @@ void intel_gt_reset(struct intel_gt *gt,
 
 	if (!intel_has_gpu_reset(gt)) {
 		if (i915_modparams.reset)
-			dev_err(gt->i915->drm.dev, "GPU reset not supported\n");
+			drm_err(&gt->i915->drm, "GPU reset not supported\n");
 		else
 			drm_dbg(&gt->i915->drm, "GPU reset disabled\n");
 		goto error;
@@ -1051,7 +1051,7 @@ void intel_gt_reset(struct intel_gt *gt,
 		intel_runtime_pm_disable_interrupts(gt->i915);
 
 	if (do_reset(gt, stalled_mask)) {
-		dev_err(gt->i915->drm.dev, "Failed to reset chip\n");
+		drm_err(&gt->i915->drm, "Failed to reset chip\n");
 		goto taint;
 	}
 
@@ -1113,7 +1113,7 @@ static inline int intel_gt_reset_engine(struct intel_engine_cs *engine)
 /**
  * intel_engine_reset - reset GPU engine to recover from a hang
  * @engine: engine to reset
- * @msg: reason for GPU reset; or NULL for no dev_notice()
+ * @msg: reason for GPU reset; or NULL for no drm_notice()
  *
  * Reset a specific GPU engine. Useful if a hang is detected.
  * Returns zero on successful reset or otherwise an error code.
@@ -1138,7 +1138,7 @@ int intel_engine_reset(struct intel_engine_cs *engine, const char *msg)
 	reset_prepare_engine(engine);
 
 	if (msg)
-		dev_notice(engine->i915->drm.dev,
+		drm_notice(&engine->i915->drm,
 			   "Resetting %s for %s\n", engine->name, msg);
 	atomic_inc(&engine->i915->gpu_error.reset_engine_count[engine->uabi_class]);
 
@@ -1383,7 +1383,7 @@ static void intel_wedge_me(struct work_struct *work)
 {
 	struct intel_wedge_me *w = container_of(work, typeof(*w), work.work);
 
-	dev_err(w->gt->i915->drm.dev,
+	drm_err(&w->gt->i915->drm,
 		"%s timed out, cancelling all in-flight rendering.\n",
 		w->name);
 	intel_gt_set_wedged(w->gt);
