@@ -2161,6 +2161,10 @@ int device_add(struct device *dev)
 					     BUS_NOTIFY_ADD_DEVICE, dev);
 
 	kobject_uevent(&dev->kobj, KOBJ_ADD);
+
+	if (dev->fwnode && !dev->fwnode->dev)
+		dev->fwnode->dev = dev;
+
 	bus_probe_device(dev);
 	if (parent)
 		klist_add_tail(&dev->p->knode_parent,
@@ -2304,6 +2308,9 @@ void device_del(struct device *dev)
 	device_lock(dev);
 	kill_device(dev);
 	device_unlock(dev);
+
+	if (dev->fwnode && dev->fwnode->dev == dev)
+		dev->fwnode->dev = NULL;
 
 	/* Notify clients of device removal.  This call must come
 	 * before dpm_sysfs_remove().
