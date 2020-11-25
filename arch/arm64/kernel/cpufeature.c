@@ -51,13 +51,14 @@ DECLARE_BITMAP(boot_capabilities, ARM64_NPATCHABLE);
  * will be used to determine if a new booting CPU should
  * go through the verification process to make sure that it
  * supports the system capabilities, without using a hotplug
- * notifier.
+ * notifier. This is also used to decide if we could use
+ * the fast path for checking constant CPU caps.
  */
-static bool sys_caps_initialised;
-
-static inline void set_sys_caps_initialised(void)
+DEFINE_STATIC_KEY_FALSE(arm64_const_caps_ready);
+EXPORT_SYMBOL(arm64_const_caps_ready);
+static inline void finalize_system_capabilities(void)
 {
-	sys_caps_initialised = true;
+	static_branch_enable(&arm64_const_caps_ready);
 }
 
 static int dump_cpu_hwcaps(struct notifier_block *self, unsigned long v, void *p)
@@ -812,7 +813,7 @@ void update_cpu_features(int cpu,
 
 		/* Probe vector lengths, unless we already gave up on SVE */
 		if (id_aa64pfr0_sve(read_sanitised_ftr_reg(SYS_ID_AA64PFR0_EL1)) &&
-		    !sys_caps_initialised)
+		    !system_capabilities_finalized())
 			sve_update_vq_map();
 	}
 
@@ -2063,7 +2064,7 @@ void check_local_cpu_capabilities(void)
 	 * Otherwise, this CPU should verify that it has all the system
 	 * advertised capabilities.
 	 */
-	if (!sys_caps_initialised)
+	if (!system_capabilities_finalized())
 		update_cpu_capabilities(SCOPE_LOCAL_CPU);
 	else
 		verify_local_cpu_capabilities();
@@ -2075,14 +2076,6 @@ static void __init setup_boot_cpu_capabilities(void)
 	update_cpu_capabilities(SCOPE_BOOT_CPU | SCOPE_LOCAL_CPU);
 	/* Enable the SCOPE_BOOT_CPU capabilities alone right away */
 	enable_cpu_capabilities(SCOPE_BOOT_CPU);
-}
-
-DEFINE_STATIC_KEY_FALSE(arm64_const_caps_ready);
-EXPORT_SYMBOL(arm64_const_caps_ready);
-
-static void __init mark_const_caps_ready(void)
-{
-	static_branch_enable(&arm64_const_caps_ready);
 }
 
 bool this_cpu_has_cap(unsigned int n)
@@ -2143,7 +2136,6 @@ void __init setup_cpu_features(void)
 	u32 cwg;
 
 	setup_system_capabilities();
-	mark_const_caps_ready();
 	setup_elf_hwcaps(arm64_elf_hwcaps);
 
 	if (system_supports_32bit_el0())
@@ -2156,7 +2148,7 @@ void __init setup_cpu_features(void)
 	minsigstksz_setup();
 
 	/* Advertise that we have computed the system capabilities */
-	set_sys_caps_initialised();
+	finalize_system_capabilities();
 
 	/*
 	 * Check for sane CTR_EL0.CWG value.
