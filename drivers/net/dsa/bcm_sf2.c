@@ -379,8 +379,9 @@ static void bcm_sf2_identify_ports(struct bcm_sf2_priv *priv,
 				   struct device_node *dn)
 {
 	struct device_node *port;
-	int mode;
 	unsigned int port_num;
+	phy_interface_t mode;
+	int err;
 
 	priv->moca_port = -1;
 
@@ -393,8 +394,8 @@ static void bcm_sf2_identify_ports(struct bcm_sf2_priv *priv,
 		 * has completed, since they might be turned off at that
 		 * time
 		 */
-		mode = of_get_phy_mode(port);
-		if (mode < 0)
+		err = of_get_phy_mode(port, &mode);
+		if (err)
 			continue;
 
 		if (mode == PHY_INTERFACE_MODE_INTERNAL)
@@ -632,7 +633,9 @@ static void bcm_sf2_sw_mac_link_down(struct dsa_switch *ds, int port,
 static void bcm_sf2_sw_mac_link_up(struct dsa_switch *ds, int port,
 				   unsigned int mode,
 				   phy_interface_t interface,
-				   struct phy_device *phydev)
+				   struct phy_device *phydev,
+				   int speed, int duplex,
+				   bool tx_pause, bool rx_pause)
 {
 	struct bcm_sf2_priv *priv = bcm_sf2_to_priv(ds);
 	struct ethtool_eee *p = &priv->dev->ports[port].eee;

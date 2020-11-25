@@ -18,6 +18,8 @@ struct qat_crypto_instance {
 	unsigned long state;
 	int id;
 	atomic_t refctr;
+
+	void *suse_kabi_padding;
 };
 
 struct qat_crypto_request_buffs {
@@ -46,6 +48,8 @@ struct qat_crypto_request {
 		   struct qat_crypto_request *req);
 	void *iv;
 	dma_addr_t iv_paddr;
+
+	void *suse_kabi_padding;
 };
 
 #endif

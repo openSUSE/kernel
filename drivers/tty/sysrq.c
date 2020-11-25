@@ -159,6 +159,8 @@ static struct sysrq_key_op sysrq_reboot_op = {
 	.enable_mask	= SYSRQ_ENABLE_BOOT,
 };
 
+struct sysrq_key_op *__sysrq_reboot_op = &sysrq_reboot_op;
+
 static void sysrq_handle_sync(int key)
 {
 	emergency_sync();
@@ -501,9 +503,9 @@ static int sysrq_key_table_key2index(int key)
 /*
  * get and put functions for the table, exposed to modules.
  */
-struct sysrq_key_op *__sysrq_get_key_op(int key)
+static const struct sysrq_key_op *__sysrq_get_key_op(int key)
 {
-        struct sysrq_key_op *op_p = NULL;
+        const struct sysrq_key_op *op_p = NULL;
         int i;
 
 	i = sysrq_key_table_key2index(key);
@@ -513,7 +515,7 @@ struct sysrq_key_op *__sysrq_get_key_op(int key)
         return op_p;
 }
 
-static void __sysrq_put_key_op(int key, struct sysrq_key_op *op_p)
+static void __sysrq_put_key_op(int key, const struct sysrq_key_op *op_p)
 {
         int i = sysrq_key_table_key2index(key);
 
@@ -523,7 +525,7 @@ static void __sysrq_put_key_op(int key, struct sysrq_key_op *op_p)
 
 void __handle_sysrq(int key, bool check_mask)
 {
-	struct sysrq_key_op *op_p;
+	const struct sysrq_key_op *op_p;
 	int orig_log_level;
 	int orig_suppress_printk;
 	int i;
@@ -1052,8 +1054,8 @@ int sysrq_toggle_support(int enable_mask)
 	return 0;
 }
 
-static int __sysrq_swap_key_ops(int key, struct sysrq_key_op *insert_op_p,
-                                struct sysrq_key_op *remove_op_p)
+static int __sysrq_swap_key_ops(int key, const struct sysrq_key_op *insert_op_p,
+                                const struct sysrq_key_op *remove_op_p)
 {
 	int retval;
 
@@ -1076,13 +1078,13 @@ static int __sysrq_swap_key_ops(int key, struct sysrq_key_op *insert_op_p,
 	return retval;
 }
 
-int register_sysrq_key(int key, struct sysrq_key_op *op_p)
+int register_sysrq_key(int key, const struct sysrq_key_op *op_p)
 {
 	return __sysrq_swap_key_ops(key, op_p, NULL);
 }
 EXPORT_SYMBOL(register_sysrq_key);
 
-int unregister_sysrq_key(int key, struct sysrq_key_op *op_p)
+int unregister_sysrq_key(int key, const struct sysrq_key_op *op_p)
 {
 	return __sysrq_swap_key_ops(key, NULL, op_p);
 }

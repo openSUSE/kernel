@@ -103,8 +103,6 @@
 
 #define TX_TIMEOUT      (5*HZ)
 
-const char gfar_driver_version[] = "2.0";
-
 MODULE_AUTHOR("Freescale Semiconductor, Inc");
 MODULE_DESCRIPTION("Gianfar Ethernet Driver");
 MODULE_LICENSE("GPL");
@@ -275,7 +273,7 @@ static void gfar_configure_coalescing(struct gfar_private *priv,
 	}
 }
 
-void gfar_configure_coalescing_all(struct gfar_private *priv)
+static void gfar_configure_coalescing_all(struct gfar_private *priv)
 {
 	gfar_configure_coalescing(priv, 0xFF, 0xFF);
 }
@@ -639,9 +637,9 @@ static phy_interface_t gfar_get_interface(struct net_device *dev)
 static int gfar_of_init(struct platform_device *ofdev, struct net_device **pdev)
 {
 	const char *model;
-	const char *ctype;
 	const void *mac_addr;
 	int err = 0, i;
+	phy_interface_t interface;
 	struct net_device *dev = NULL;
 	struct gfar_private *priv = NULL;
 	struct device_node *np = ofdev->dev.of_node;
@@ -752,8 +750,10 @@ static int gfar_of_init(struct platform_device *ofdev, struct net_device **pdev)
 				continue;
 
 			err = gfar_parse_group(child, priv, model);
-			if (err)
+			if (err) {
+				of_node_put(child);
 				goto err_grp_init;
+			}
 		}
 	} else { /* SQ_SG_MODE */
 		err = gfar_parse_group(np, priv, model);
@@ -781,8 +781,12 @@ static int gfar_of_init(struct platform_device *ofdev, struct net_device **pdev)
 
 	mac_addr = of_get_mac_address(np);
 
-	if (!IS_ERR(mac_addr))
+	if (!IS_ERR(mac_addr)) {
 		ether_addr_copy(dev->dev_addr, mac_addr);
+	} else {
+		eth_hw_addr_random(dev);
+		dev_info(&ofdev->dev, "Using random MAC address: %pM\n", dev->dev_addr);
+	}
 
 	if (model && !strcasecmp(model, "TSEC"))
 		priv->device_flags |= FSL_GIANFAR_DEV_HAS_GIGABIT |
@@ -802,13 +806,15 @@ static int gfar_of_init(struct platform_device *ofdev, struct net_device **pdev)
 				     FSL_GIANFAR_DEV_HAS_TIMER |
 				     FSL_GIANFAR_DEV_HAS_RX_FILER;
 
-	err = of_property_read_string(np, "phy-connection-type", &ctype);
-
-	/* We only care about rgmii-id.  The rest are autodetected */
-	if (err == 0 && !strcmp(ctype, "rgmii-id"))
-		priv->interface = PHY_INTERFACE_MODE_RGMII_ID;
+	/* Use PHY connection type from the DT node if one is specified there.
+	 * rgmii-id really needs to be specified. Other types can be
+	 * detected by hardware
+	 */
+	err = of_get_phy_mode(np, &interface);
+	if (!err)
+		priv->interface = interface;
 	else
-		priv->interface = PHY_INTERFACE_MODE_MII;
+		priv->interface = gfar_get_interface(dev);
 
 	if (of_find_property(np, "fsl,magic-packet", NULL))
 		priv->device_flags |= FSL_GIANFAR_DEV_HAS_MAGIC_PACKET;
@@ -1063,7 +1069,7 @@ retry:
 }
 
 /* Halt the receive and transmit queues */
-void gfar_halt(struct gfar_private *priv)
+static void gfar_halt(struct gfar_private *priv)
 {
 	struct gfar __iomem *regs = priv->gfargrp[0].regs;
 	u32 tempval;
@@ -1194,7 +1200,7 @@ void stop_gfar(struct net_device *dev)
 	free_skb_resources(priv);
 }
 
-void gfar_start(struct gfar_private *priv)
+static void gfar_start(struct gfar_private *priv)
 {
 	struct gfar __iomem *regs = priv->gfargrp[0].regs;
 	u32 tempval;
@@ -1670,7 +1676,7 @@ static int init_phy(struct net_device *dev)
 {
 	__ETHTOOL_DECLARE_LINK_MODE_MASK(mask) = { 0, };
 	struct gfar_private *priv = netdev_priv(dev);
-	phy_interface_t interface;
+	phy_interface_t interface = priv->interface;
 	struct phy_device *phydev;
 	struct ethtool_eee edata;
 
@@ -1685,8 +1691,6 @@ static int init_phy(struct net_device *dev)
 	priv->oldlink = 0;
 	priv->oldspeed = 0;
 	priv->oldduplex = -1;
-
-	interface = gfar_get_interface(dev);
 
 	phydev = of_phy_connect(dev, priv->phy_node, &adjust_link, 0,
 				interface);
@@ -2068,7 +2072,7 @@ static int gfar_change_mtu(struct net_device *dev, int new_mtu)
 	return 0;
 }
 
-void reset_gfar(struct net_device *ndev)
+static void reset_gfar(struct net_device *ndev)
 {
 	struct gfar_private *priv = netdev_priv(ndev);
 
@@ -2324,7 +2328,7 @@ static void count_errors(u32 lstatus, struct net_device *ndev)
 	}
 }
 
-irqreturn_t gfar_receive(int irq, void *grp_id)
+static irqreturn_t gfar_receive(int irq, void *grp_id)
 {
 	struct gfar_priv_grp *grp = (struct gfar_priv_grp *)grp_id;
 	unsigned long flags;
@@ -2526,7 +2530,8 @@ static void gfar_process_frame(struct net_device *ndev, struct sk_buff *skb)
  * until the budget/quota has been reached. Returns the number
  * of frames handled
  */
-int gfar_clean_rx_ring(struct gfar_priv_rx_q *rx_queue, int rx_work_limit)
+static int gfar_clean_rx_ring(struct gfar_priv_rx_q *rx_queue,
+			      int rx_work_limit)
 {
 	struct net_device *ndev = rx_queue->ndev;
 	struct gfar_private *priv = netdev_priv(ndev);

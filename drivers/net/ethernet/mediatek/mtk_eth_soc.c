@@ -254,12 +254,13 @@ static int mtk_phy_connect_node(struct mtk_eth *eth, struct mtk_mac *mac,
 				struct device_node *phy_node)
 {
 	struct phy_device *phydev;
-	int phy_mode;
+	phy_interface_t phy_mode;
+	int err;
 
-	phy_mode = of_get_phy_mode(phy_node);
-	if (phy_mode < 0) {
+	err = of_get_phy_mode(phy_node, &phy_mode);
+	if (err) {
 		dev_err(eth->dev, "incorrect phy-mode %d\n", phy_mode);
-		return -EINVAL;
+		return err;
 	}
 
 	phydev = of_phy_connect(eth->netdev[mac->id], phy_node,
@@ -284,6 +285,7 @@ static int mtk_phy_connect(struct net_device *dev)
 	struct device_node *np;
 	u32 val;
 	int err;
+	phy_interface_t phy_mode;
 
 	eth = mac->hw;
 	np = of_parse_phandle(mac->of_node, "phy-handle", 0);
@@ -293,12 +295,16 @@ static int mtk_phy_connect(struct net_device *dev)
 	if (!np)
 		return -ENODEV;
 
-	err = mtk_setup_hw_path(eth, mac->id, of_get_phy_mode(np));
+	err = of_get_phy_mode(np, &phy_mode);
+	if (err)
+		goto err_phy;
+
+	err = mtk_setup_hw_path(eth, mac->id, phy_mode);
 	if (err)
 		goto err_phy;
 
 	mac->ge_mode = 0;
-	switch (of_get_phy_mode(np)) {
+	switch (phy_mode) {
 	case PHY_INTERFACE_MODE_TRGMII:
 		mac->trgmii = true;
 	case PHY_INTERFACE_MODE_RGMII_TXID:

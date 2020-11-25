@@ -216,11 +216,17 @@ struct gpio_irq_chip {
 	bool threaded;
 
 	/**
-	 * @need_valid_mask:
-	 *
-	 * If set core allocates @valid_mask with all bits set to one.
+	 * @init_valid_mask: optional routine to initialize @valid_mask, to be
+	 * used if not all GPIO lines are valid interrupts. Sometimes some
+	 * lines just cannot fire interrupts, and this routine, when defined,
+	 * is passed a bitmap in "valid_mask" and it will have ngpios
+	 * bits from 0..(ngpios-1) set to "1" as in valid. The callback can
+	 * then directly set some bits to "0" if they cannot be used for
+	 * interrupts.
 	 */
-	bool need_valid_mask;
+	void (*init_valid_mask)(struct gpio_chip *chip,
+				unsigned long *valid_mask,
+				unsigned int ngpios);
 
 	/**
 	 * @valid_mask:
@@ -376,7 +382,9 @@ struct gpio_chip {
 	void			(*dbg_show)(struct seq_file *s,
 						struct gpio_chip *chip);
 
-	int			(*init_valid_mask)(struct gpio_chip *chip);
+	int			(*init_valid_mask)(struct gpio_chip *chip,
+						   unsigned long *valid_mask,
+						   unsigned int ngpios);
 
 	int			(*add_pin_ranges)(struct gpio_chip *chip);
 
@@ -415,15 +423,6 @@ struct gpio_chip {
 	 */
 	struct gpio_irq_chip irq;
 #endif /* CONFIG_GPIOLIB_IRQCHIP */
-
-	/**
-	 * @need_valid_mask:
-	 *
-	 * If set core allocates @valid_mask with all its values initialized
-	 * with init_valid_mask() or set to one if init_valid_mask() is not
-	 * defined
-	 */
-	bool need_valid_mask;
 
 	/**
 	 * @valid_mask:
@@ -466,6 +465,22 @@ struct gpio_chip {
 
 extern const char *gpiochip_is_requested(struct gpio_chip *chip,
 			unsigned offset);
+
+/**
+ * for_each_requested_gpio_in_range - iterates over requested GPIOs in a given range
+ * @chip:	the chip to query
+ * @i:		loop variable
+ * @base:	first GPIO in the range
+ * @size:	amount of GPIOs to check starting from @base
+ * @label:	label of current GPIO
+ */
+#define for_each_requested_gpio_in_range(chip, i, base, size, label)			\
+	for (i = 0; i < size; i++)							\
+		if ((label = gpiochip_is_requested(chip, base + i)) == NULL) {} else
+
+/* Iterates over all requested GPIO of the given @chip */
+#define for_each_requested_gpio(chip, i, label)						\
+	for_each_requested_gpio_in_range(chip, i, 0, chip->ngpio, label)
 
 /* add/remove chips */
 extern int gpiochip_add_data_with_key(struct gpio_chip *chip, void *data,

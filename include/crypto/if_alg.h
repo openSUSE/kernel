@@ -34,12 +34,16 @@ struct alg_sock {
 
 	const struct af_alg_type *type;
 	void *private;
+
+	void *suse_kabi_padding;
 };
 
 struct af_alg_control {
 	struct af_alg_iv *iv;
 	int op;
 	unsigned int aead_assoclen;
+
+	void *suse_kabi_padding;
 };
 
 struct af_alg_type {
@@ -54,6 +58,8 @@ struct af_alg_type {
 	struct proto_ops *ops_nokey;
 	struct module *owner;
 	char name[14];
+
+	 void *suse_kabi_padding;
 };
 
 struct af_alg_sgl {
@@ -155,6 +161,9 @@ struct af_alg_ctx {
 	bool init;
 
 	unsigned int len;
+
+	void *suse_kabi_padding;
+
 };
 
 int af_alg_register_type(const struct af_alg_type *type);
