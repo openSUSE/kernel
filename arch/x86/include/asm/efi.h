@@ -269,4 +269,7 @@ static inline  bool efi_is_table_address(unsigned long phys_addr)
 }
 #endif /* CONFIG_EFI */
 
+#define arch_ima_efi_boot_mode	\
+	({ extern struct boot_params boot_params; boot_params.secure_boot; })
+
 #endif /* _ASM_X86_EFI_H */
