@@ -78,6 +78,4 @@ void *get_efi_config_table(efi_system_table_t *sys_table, efi_guid_t guid);
 	fdt_setprop((fdt), (node_offset), (name), &(var), sizeof(var))
 #endif
 
-enum efi_secureboot_mode efi_get_secureboot(efi_system_table_t *sys_table_arg);
-
 #endif
