@@ -5138,12 +5138,6 @@ static int ibmvnic_reset_init(struct ibmvnic_adapter *adapter)
 		return adapter->init_done_rc;
 	}
 
-	if (adapter->from_passive_init) {
-		adapter->state = VNIC_OPEN;
-		adapter->from_passive_init = false;
-		return -1;
-	}
-
 	if (test_bit(0, &adapter->resetting) && !adapter->wait_for_reset &&
 	    adapter->reset_reason != VNIC_RESET_MOBILITY) {
 		if (adapter->req_rx_queues != old_num_rx_queues ||
@@ -5195,12 +5189,6 @@ static int ibmvnic_init(struct ibmvnic_adapter *adapter)
 	if (adapter->init_done_rc) {
 		release_crq_queue(adapter);
 		return adapter->init_done_rc;
-	}
-
-	if (adapter->from_passive_init) {
-		adapter->state = VNIC_OPEN;
-		adapter->from_passive_init = false;
-		return -1;
 	}
 
 	rc = init_sub_crqs(adapter);
