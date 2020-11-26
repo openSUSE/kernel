@@ -7681,7 +7681,6 @@ F:	drivers/scsi/ipr.*
 
 IBM Power SRIOV Virtual NIC Device Driver
 M:	Thomas Falcon <tlfalcon@linux.ibm.com>
-M:	John Allen <jallen@linux.ibm.com>
 L:	netdev@vger.kernel.org
 S:	Supported
 F:	drivers/net/ethernet/ibm/ibmvnic.*
