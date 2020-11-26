@@ -103,6 +103,8 @@ struct fpga_image_info {
 #ifdef CONFIG_OF
 	struct device_node *overlay;
 #endif
+
+	void *suse_kabi_padding;
 };
 
 /**
@@ -134,6 +136,8 @@ struct fpga_manager_ops {
 			      struct fpga_image_info *info);
 	void (*fpga_remove)(struct fpga_manager *mgr);
 	const struct attribute_group **groups;
+
+	void *suse_kabi_padding;
 };
 
 /* FPGA manager status: Partial/Full Reconfiguration errors */
@@ -172,6 +176,8 @@ struct fpga_manager {
 	struct fpga_compat_id *compat_id;
 	const struct fpga_manager_ops *mops;
 	void *priv;
+
+	void *suse_kabi_padding;
 };
 
 #define to_fpga_manager(d) container_of(d, struct fpga_manager, dev)
