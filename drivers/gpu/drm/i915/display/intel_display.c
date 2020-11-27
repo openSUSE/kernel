@@ -12592,12 +12592,15 @@ static u16 hsw_linetime_wm(const struct intel_crtc_state *crtc_state)
 {
 	const struct drm_display_mode *adjusted_mode =
 		&crtc_state->hw.adjusted_mode;
+	int linetime_wm;
 
 	if (!crtc_state->hw.enable)
 		return 0;
 
-	return DIV_ROUND_CLOSEST(adjusted_mode->crtc_htotal * 1000 * 8,
-				 adjusted_mode->crtc_clock);
+	linetime_wm = DIV_ROUND_CLOSEST(adjusted_mode->crtc_htotal * 1000 * 8,
+					adjusted_mode->crtc_clock);
+
+	return min(linetime_wm, 0x1ff);
 }
 
 static u16 hsw_ips_linetime_wm(const struct intel_crtc_state *crtc_state,
@@ -12605,12 +12608,15 @@ static u16 hsw_ips_linetime_wm(const struct intel_crtc_state *crtc_state,
 {
 	const struct drm_display_mode *adjusted_mode =
 		&crtc_state->hw.adjusted_mode;
+	int linetime_wm;
 
 	if (!crtc_state->hw.enable)
 		return 0;
 
-	return DIV_ROUND_CLOSEST(adjusted_mode->crtc_htotal * 1000 * 8,
-				 cdclk_state->logical.cdclk);
+	linetime_wm = DIV_ROUND_CLOSEST(adjusted_mode->crtc_htotal * 1000 * 8,
+					cdclk_state->logical.cdclk);
+
+	return min(linetime_wm, 0x1ff);
 }
 
 static u16 skl_linetime_wm(const struct intel_crtc_state *crtc_state)
@@ -12619,7 +12625,7 @@ static u16 skl_linetime_wm(const struct intel_crtc_state *crtc_state)
 	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
 	const struct drm_display_mode *adjusted_mode =
 		&crtc_state->hw.adjusted_mode;
-	u16 linetime_wm;
+	int linetime_wm;
 
 	if (!crtc_state->hw.enable)
 		return 0;
@@ -12631,7 +12637,7 @@ static u16 skl_linetime_wm(const struct intel_crtc_state *crtc_state)
 	if (IS_GEN9_LP(dev_priv) && dev_priv->ipc_enabled)
 		linetime_wm /= 2;
 
-	return linetime_wm;
+	return min(linetime_wm, 0x1ff);
 }
 
 static int hsw_compute_linetime_wm(struct intel_atomic_state *state,
