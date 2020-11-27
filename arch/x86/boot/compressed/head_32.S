@@ -71,12 +71,6 @@ SYM_FUNC_START(startup_32)
 	jnz	1f
 
 	cli
-	movl	$__BOOT_DS, %eax
-	movl	%eax, %ds
-	movl	%eax, %es
-	movl	%eax, %fs
-	movl	%eax, %gs
-	movl	%eax, %ss
 1:
 
 /*
@@ -91,6 +85,19 @@ SYM_FUNC_START(startup_32)
 	call	1f
 1:	popl	%ebp
 	subl	$1b, %ebp
+
+	/* Load new GDT */
+	leal	gdt(%ebp), %eax
+	movl	%eax, 2(%eax)
+	lgdt	(%eax)
+
+	/* Load segment registers with our descriptors */
+	movl	$__BOOT_DS, %eax
+	movl	%eax, %ds
+	movl	%eax, %es
+	movl	%eax, %fs
+	movl	%eax, %gs
+	movl	%eax, %ss
 
 /*
  * %ebp contains the address we are loaded at by the boot loader and %ebx
@@ -136,6 +143,16 @@ SYM_FUNC_START(startup_32)
 	rep	movsl
 	cld
 	popl	%esi
+
+	/*
+	 * The GDT may get overwritten either during the copy we just did or
+	 * during extract_kernel below. To avoid any issues, repoint the GDTR
+	 * to the new copy of the GDT. EAX still contains the previously
+	 * calculated relocation offset of init_size - _end.
+	 */
+	leal	gdt(%ebx), %edx
+	addl	%eax, 2(%edx)
+	lgdt	(%edx)
 
 /*
  * Jump to the relocated address.
@@ -209,6 +226,17 @@ relocated:
  */
 	xorl	%ebx, %ebx
 	jmp	*%eax
+
+	.data
+	.balign	8
+SYM_DATA_START_LOCAL(gdt)
+	.word	gdt_end - gdt - 1
+	.long	0
+	.word	0
+	.quad	0x0000000000000000	/* Reserved */
+	.quad	0x00cf9a000000ffff	/* __KERNEL_CS */
+	.quad	0x00cf92000000ffff	/* __KERNEL_DS */
+SYM_DATA_END_LABEL(gdt, SYM_L_LOCAL, gdt_end)
 
 /*
  * Stack and heap for uncompression
