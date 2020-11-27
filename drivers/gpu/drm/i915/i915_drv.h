@@ -422,6 +422,7 @@ struct intel_fbc {
 
 		unsigned int fence_y_offset;
 		u16 gen9_wa_cfb_stride;
+		u16 interval;
 		s8 fence_id;
 	} state_cache;
 
@@ -447,6 +448,7 @@ struct intel_fbc {
 		int cfb_size;
 		unsigned int fence_y_offset;
 		u16 gen9_wa_cfb_stride;
+		u16 interval;
 		s8 fence_id;
 		bool plane_visible;
 	} params;
