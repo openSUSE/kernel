@@ -1696,7 +1696,7 @@ static int smu_enable_umd_pstate(void *handle,
 	return 0;
 }
 
-int smu_adjust_power_state_dynamic(struct smu_context *smu,
+static int smu_adjust_power_state_dynamic(struct smu_context *smu,
 				   enum amd_dpm_forced_level level,
 				   bool skip_display_settings)
 {
