@@ -323,20 +323,13 @@ static void __init fdt_enforce_memory_region(void)
 
 void __init arm64_memblock_init(void)
 {
-	const s64 linear_region_size = -(s64)PAGE_OFFSET;
+	const s64 linear_region_size = BIT(vabits_actual - 1);
 
 	/* Handle linux,usable-memory-range property */
 	fdt_enforce_memory_region();
 
 	/* Remove memory above our supported physical address size */
 	memblock_remove(1ULL << PHYS_MASK_SHIFT, ULLONG_MAX);
-
-	/*
-	 * Ensure that the linear region takes up exactly half of the kernel
-	 * virtual address space. This way, we can distinguish a linear address
-	 * from a kernel/module/vmalloc address by testing a single bit.
-	 */
-	BUILD_BUG_ON(linear_region_size != BIT(VA_BITS - 1));
 
 	/*
 	 * Select a suitable value for the base of physical memory.
@@ -357,6 +350,16 @@ void __init arm64_memblock_init(void)
 					 ARM64_MEMSTART_ALIGN);
 		memblock_remove(0, memstart_addr);
 	}
+
+	/*
+	 * If we are running with a 52-bit kernel VA config on a system that
+	 * does not support it, we have to place the available physical
+	 * memory in the 48-bit addressable part of the linear region, i.e.,
+	 * we have to move it upward. Since memstart_addr represents the
+	 * physical address of PAGE_OFFSET, we have to *subtract* from it.
+	 */
+	if (IS_ENABLED(CONFIG_ARM64_VA_BITS_52) && (vabits_actual != 52))
+		memstart_addr -= _PAGE_OFFSET(48) - _PAGE_OFFSET(52);
 
 	/*
 	 * Apply the memory limit if it was set. Since the kernel may be loaded

@@ -79,7 +79,7 @@ static inline unsigned long efi_get_max_fdt_addr(unsigned long dram_base)
 
 /*
  * On arm64, we have to ensure that the initrd ends up in the linear region,
- * which is a 1 GB aligned region of size '1UL << (VA_BITS - 1)' that is
+ * which is a 1 GB aligned region of size '1UL << (VA_BITS_MIN - 1)' that is
  * guaranteed to cover the kernel Image.
  *
  * Since the EFI stub is part of the kernel Image, we can relax the
@@ -90,24 +90,20 @@ static inline unsigned long efi_get_max_fdt_addr(unsigned long dram_base)
 static inline unsigned long efi_get_max_initrd_addr(unsigned long dram_base,
 						    unsigned long image_addr)
 {
-	return (image_addr & ~(SZ_1G - 1UL)) + (1UL << (VA_BITS - 1));
+	return (image_addr & ~(SZ_1G - 1UL)) + (1UL << (VA_BITS_MIN - 1));
 }
 
-#define efi_call_early(f, ...)		sys_table_arg->boottime->f(__VA_ARGS__)
-#define __efi_call_early(f, ...)	f(__VA_ARGS__)
-#define efi_call_runtime(f, ...)	sys_table_arg->runtime->f(__VA_ARGS__)
-#define efi_is_64bit()			(true)
+#define efi_bs_call(func, ...)	efi_system_table()->boottime->func(__VA_ARGS__)
+#define efi_rt_call(func, ...)	efi_system_table()->runtime->func(__VA_ARGS__)
+#define efi_is_native()		(true)
 
-#define efi_table_attr(table, attr, instance)				\
-	((table##_t *)instance)->attr
+#define efi_table_attr(inst, attr)	(inst->attr)
 
-#define efi_call_proto(protocol, f, instance, ...)			\
-	((protocol##_t *)instance)->f(instance, ##__VA_ARGS__)
+#define efi_call_proto(inst, func, ...) inst->func(inst, ##__VA_ARGS__)
 
 #define alloc_screen_info(x...)		&screen_info
 
-static inline void free_screen_info(efi_system_table_t *sys_table_arg,
-				    struct screen_info *si)
+static inline void free_screen_info(struct screen_info *si)
 {
 }
 

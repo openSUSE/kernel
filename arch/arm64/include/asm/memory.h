@@ -26,37 +26,50 @@
 /*
  * VMEMMAP_SIZE - allows the whole linear region to be covered by
  *                a struct page array
+ *
+ * If we are configured with a 52-bit kernel VA then our VMEMMAP_SIZE
+ * needs to cover the memory region from the beginning of the 52-bit
+ * PAGE_OFFSET all the way to PAGE_END for 48-bit. This allows us to
+ * keep a constant PAGE_OFFSET and "fallback" to using the higher end
+ * of the VMEMMAP where 52-bit support is not available in hardware.
  */
-#define VMEMMAP_SIZE (UL(1) << (VA_BITS - PAGE_SHIFT - 1 + STRUCT_PAGE_MAX_SHIFT))
+#define VMEMMAP_SIZE ((_PAGE_END(VA_BITS_MIN) - PAGE_OFFSET) \
+			>> (PAGE_SHIFT - STRUCT_PAGE_MAX_SHIFT))
 
 /*
- * PAGE_OFFSET - the virtual address of the start of the linear map (top
- *		 (VA_BITS - 1))
- * KIMAGE_VADDR - the virtual address of the start of the kernel image
+ * PAGE_OFFSET - the virtual address of the start of the linear map, at the
+ *               start of the TTBR1 address space.
+ * PAGE_END - the end of the linear map, where all other kernel mappings begin.
+ * KIMAGE_VADDR - the virtual address of the start of the kernel image.
  * VA_BITS - the maximum number of bits for virtual addresses.
- * VA_START - the first kernel virtual address.
  */
 #define VA_BITS			(CONFIG_ARM64_VA_BITS)
-#define VA_START		(UL(0xffffffffffffffff) - \
-	(UL(1) << VA_BITS) + 1)
-#define PAGE_OFFSET		(UL(0xffffffffffffffff) - \
-	(UL(1) << (VA_BITS - 1)) + 1)
+#define _PAGE_OFFSET(va)	(-(UL(1) << (va)))
+#define PAGE_OFFSET		(_PAGE_OFFSET(VA_BITS))
 #define KIMAGE_VADDR		(MODULES_END)
-#define BPF_JIT_REGION_START	(VA_START + KASAN_SHADOW_SIZE)
+#define BPF_JIT_REGION_START	(KASAN_SHADOW_END)
 #define BPF_JIT_REGION_SIZE	(SZ_128M)
 #define BPF_JIT_REGION_END	(BPF_JIT_REGION_START + BPF_JIT_REGION_SIZE)
 #define MODULES_END		(MODULES_VADDR + MODULES_VSIZE)
 #define MODULES_VADDR		(BPF_JIT_REGION_END)
 #define MODULES_VSIZE		(SZ_128M)
-#define VMEMMAP_START		(PAGE_OFFSET - VMEMMAP_SIZE)
+#define VMEMMAP_START		(-VMEMMAP_SIZE - SZ_2M)
 #define PCI_IO_END		(VMEMMAP_START - SZ_2M)
 #define PCI_IO_START		(PCI_IO_END - PCI_IO_SIZE)
 #define FIXADDR_TOP		(PCI_IO_START - SZ_2M)
 
+#if VA_BITS > 48
+#define VA_BITS_MIN		(48)
+#else
+#define VA_BITS_MIN		(VA_BITS)
+#endif
+
+#define _PAGE_END(va)		(-(UL(1) << ((va) - 1)))
+
 #define KERNEL_START      _text
 #define KERNEL_END        _end
 
-#ifdef CONFIG_ARM64_USER_VA_BITS_52
+#ifdef CONFIG_ARM64_VA_BITS_52
 #define MAX_USER_VA_BITS	52
 #else
 #define MAX_USER_VA_BITS	VA_BITS
@@ -68,12 +81,14 @@
  * significantly, so double the (minimum) stack size when they are in use.
  */
 #ifdef CONFIG_KASAN
-#define KASAN_SHADOW_SIZE	(UL(1) << (VA_BITS - KASAN_SHADOW_SCALE_SHIFT))
+#define KASAN_SHADOW_OFFSET	_AC(CONFIG_KASAN_SHADOW_OFFSET, UL)
+#define KASAN_SHADOW_END	((UL(1) << (64 - KASAN_SHADOW_SCALE_SHIFT)) \
+					+ KASAN_SHADOW_OFFSET)
 #define KASAN_THREAD_SHIFT	1
 #else
-#define KASAN_SHADOW_SIZE	(0)
 #define KASAN_THREAD_SHIFT	0
-#endif
+#define KASAN_SHADOW_END	(_PAGE_END(VA_BITS_MIN))
+#endif /* CONFIG_KASAN */
 
 #define MIN_THREAD_SHIFT	(14 + KASAN_THREAD_SHIFT)
 
@@ -157,6 +172,8 @@
 #endif
 
 #ifndef __ASSEMBLY__
+extern u64			vabits_actual;
+#define PAGE_END		(_PAGE_END(vabits_actual))
 
 #include <linux/bitops.h>
 #include <linux/mmdebug.h>
@@ -175,9 +192,6 @@ static inline unsigned long kaslr_offset(void)
 {
 	return kimage_vaddr - KIMAGE_VADDR;
 }
-
-/* the actual size of a user virtual address */
-extern u64			vabits_user;
 
 /*
  * Allow all memory at the discovery stage. We will clip it later.
@@ -217,7 +231,7 @@ static inline const void *__tag_set(const void *addr, u8 tag)
 
 #define __tag_reset(addr)	(addr)
 #define __tag_get(addr)		0
-#endif
+#endif /* CONFIG_KASAN_SW_TAGS */
 
 /*
  * Physical vs virtual RAM address space conversion.  These are
@@ -227,17 +241,17 @@ static inline const void *__tag_set(const void *addr, u8 tag)
 
 
 /*
- * The linear kernel range starts in the middle of the virtual adddress
+ * The linear kernel range starts at the bottom of the virtual address
  * space. Testing the top bit for the start of the region is a
- * sufficient check.
+ * sufficient check and avoids having to worry about the tag.
  */
-#define __is_lm_address(addr)	(!!((addr) & BIT(VA_BITS - 1)))
+#define __is_lm_address(addr)	(!(((u64)addr) & BIT(vabits_actual - 1)))
 
 #define __lm_to_phys(addr)	(((addr) & ~PAGE_OFFSET) + PHYS_OFFSET)
 #define __kimg_to_phys(addr)	((addr) - kimage_voffset)
 
 #define __virt_to_phys_nodebug(x) ({					\
-	phys_addr_t __x = (phys_addr_t)(x);				\
+	phys_addr_t __x = (phys_addr_t)(__tag_reset(x));		\
 	__is_lm_address(__x) ? __lm_to_phys(__x) :			\
 			       __kimg_to_phys(__x);			\
 })
@@ -250,7 +264,7 @@ extern phys_addr_t __phys_addr_symbol(unsigned long x);
 #else
 #define __virt_to_phys(x)	__virt_to_phys_nodebug(x)
 #define __phys_addr_symbol(x)	__pa_symbol_nodebug(x)
-#endif
+#endif /* CONFIG_DEBUG_VIRTUAL */
 
 #define __phys_to_virt(x)	((unsigned long)((x) - PHYS_OFFSET) | PAGE_OFFSET)
 #define __phys_to_kimg(x)	((unsigned long)((x) + kimage_voffset))
@@ -297,30 +311,27 @@ static inline void *phys_to_virt(phys_addr_t x)
 
 #if !defined(CONFIG_SPARSEMEM_VMEMMAP) || defined(CONFIG_DEBUG_VIRTUAL)
 #define virt_to_page(kaddr)	pfn_to_page(__pa(kaddr) >> PAGE_SHIFT)
-#define _virt_addr_valid(kaddr)	pfn_valid(__pa(kaddr) >> PAGE_SHIFT)
 #else
-#define __virt_to_pgoff(kaddr)	(((u64)(kaddr) & ~PAGE_OFFSET) / PAGE_SIZE * sizeof(struct page))
-#define __page_to_voff(kaddr)	(((u64)(kaddr) & ~VMEMMAP_START) * PAGE_SIZE / sizeof(struct page))
-
-#define page_to_virt(page)	({					\
-	unsigned long __addr =						\
-		((__page_to_voff(page)) | PAGE_OFFSET);			\
-	const void *__addr_tag =					\
-		__tag_set((void *)__addr, page_kasan_tag(page));	\
-	((void *)__addr_tag);						\
+#define page_to_virt(x)	({						\
+	__typeof__(x) __page = x;					\
+	u64 __idx = ((u64)__page - VMEMMAP_START) / sizeof(struct page);\
+	u64 __addr = PAGE_OFFSET + (__idx * PAGE_SIZE);			\
+	(void *)__tag_set((const void *)__addr, page_kasan_tag(__page));\
 })
 
-#define virt_to_page(vaddr)	((struct page *)((__virt_to_pgoff(vaddr)) | VMEMMAP_START))
+#define virt_to_page(x)	({						\
+	u64 __idx = (__tag_reset((u64)x) - PAGE_OFFSET) / PAGE_SIZE;	\
+	u64 __addr = VMEMMAP_START + (__idx * sizeof(struct page));	\
+	(struct page *)__addr;						\
+})
+#endif /* !CONFIG_SPARSEMEM_VMEMMAP || CONFIG_DEBUG_VIRTUAL */
 
-#define _virt_addr_valid(kaddr)	pfn_valid((((u64)(kaddr) & ~PAGE_OFFSET) \
-					   + PHYS_OFFSET) >> PAGE_SHIFT)
-#endif
-#endif
+#define virt_addr_valid(addr)	({					\
+	__typeof__(addr) __addr = addr;					\
+	__is_lm_address(__addr) && pfn_valid(virt_to_pfn(__addr));	\
+})
 
-#define _virt_addr_is_linear(kaddr)	\
-	(__tag_reset((u64)(kaddr)) >= PAGE_OFFSET)
-#define virt_addr_valid(kaddr)		\
-	(_virt_addr_is_linear(kaddr) && _virt_addr_valid(kaddr))
+#endif /* !ASSEMBLY */
 
 /*
  * Given that the GIC architecture permits ITS implementations that can only be
@@ -335,4 +346,4 @@ static inline void *phys_to_virt(phys_addr_t x)
 
 #include <asm-generic/memory_model.h>
 
-#endif
+#endif /* __ASM_MEMORY_H */
