@@ -3706,13 +3706,30 @@ out:
 	return err;
 }
 
+static unsigned int select_siblings(struct intel_gt *gt,
+				    unsigned int class,
+				    struct intel_engine_cs **siblings)
+{
+	unsigned int n = 0;
+	unsigned int inst;
+
+	for (inst = 0; inst <= MAX_ENGINE_INSTANCE; inst++) {
+		if (!gt->engine_class[class][inst])
+			continue;
+
+		siblings[n++] = gt->engine_class[class][inst];
+	}
+
+	return n;
+}
+
 static int live_virtual_engine(void *arg)
 {
 	struct intel_gt *gt = arg;
 	struct intel_engine_cs *siblings[MAX_ENGINE_INSTANCE + 1];
 	struct intel_engine_cs *engine;
 	enum intel_engine_id id;
-	unsigned int class, inst;
+	unsigned int class;
 	int err;
 
 	if (intel_uc_uses_guc_submission(&gt->uc))
@@ -3730,13 +3747,7 @@ static int live_virtual_engine(void *arg)
 	for (class = 0; class <= MAX_ENGINE_CLASS; class++) {
 		int nsibling, n;
 
-		nsibling = 0;
-		for (inst = 0; inst <= MAX_ENGINE_INSTANCE; inst++) {
-			if (!gt->engine_class[class][inst])
-				continue;
-
-			siblings[nsibling++] = gt->engine_class[class][inst];
-		}
+		nsibling = select_siblings(gt, class, siblings);
 		if (nsibling < 2)
 			continue;
 
@@ -3845,7 +3856,7 @@ static int live_virtual_mask(void *arg)
 {
 	struct intel_gt *gt = arg;
 	struct intel_engine_cs *siblings[MAX_ENGINE_INSTANCE + 1];
-	unsigned int class, inst;
+	unsigned int class;
 	int err;
 
 	if (intel_uc_uses_guc_submission(&gt->uc))
@@ -3854,13 +3865,7 @@ static int live_virtual_mask(void *arg)
 	for (class = 0; class <= MAX_ENGINE_CLASS; class++) {
 		unsigned int nsibling;
 
-		nsibling = 0;
-		for (inst = 0; inst <= MAX_ENGINE_INSTANCE; inst++) {
-			if (!gt->engine_class[class][inst])
-				break;
-
-			siblings[nsibling++] = gt->engine_class[class][inst];
-		}
+		nsibling = select_siblings(gt, class, siblings);
 		if (nsibling < 2)
 			continue;
 
@@ -3982,7 +3987,7 @@ static int live_virtual_preserved(void *arg)
 {
 	struct intel_gt *gt = arg;
 	struct intel_engine_cs *siblings[MAX_ENGINE_INSTANCE + 1];
-	unsigned int class, inst;
+	unsigned int class;
 
 	/*
 	 * Check that the context image retains non-privileged (user) registers
@@ -4000,13 +4005,7 @@ static int live_virtual_preserved(void *arg)
 	for (class = 0; class <= MAX_ENGINE_CLASS; class++) {
 		int nsibling, err;
 
-		nsibling = 0;
-		for (inst = 0; inst <= MAX_ENGINE_INSTANCE; inst++) {
-			if (!gt->engine_class[class][inst])
-				continue;
-
-			siblings[nsibling++] = gt->engine_class[class][inst];
-		}
+		nsibling = select_siblings(gt, class, siblings);
 		if (nsibling < 2)
 			continue;
 
@@ -4217,7 +4216,7 @@ static int live_virtual_bond(void *arg)
 	};
 	struct intel_gt *gt = arg;
 	struct intel_engine_cs *siblings[MAX_ENGINE_INSTANCE + 1];
-	unsigned int class, inst;
+	unsigned int class;
 	int err;
 
 	if (intel_uc_uses_guc_submission(&gt->uc))
@@ -4227,14 +4226,7 @@ static int live_virtual_bond(void *arg)
 		const struct phase *p;
 		int nsibling;
 
-		nsibling = 0;
-		for (inst = 0; inst <= MAX_ENGINE_INSTANCE; inst++) {
-			if (!gt->engine_class[class][inst])
-				break;
-
-			GEM_BUG_ON(nsibling == ARRAY_SIZE(siblings));
-			siblings[nsibling++] = gt->engine_class[class][inst];
-		}
+		nsibling = select_siblings(gt, class, siblings);
 		if (nsibling < 2)
 			continue;
 
@@ -4363,7 +4355,7 @@ static int live_virtual_reset(void *arg)
 {
 	struct intel_gt *gt = arg;
 	struct intel_engine_cs *siblings[MAX_ENGINE_INSTANCE + 1];
-	unsigned int class, inst;
+	unsigned int class;
 
 	/*
 	 * Check that we handle a reset event within a virtual engine.
@@ -4381,13 +4373,7 @@ static int live_virtual_reset(void *arg)
 	for (class = 0; class <= MAX_ENGINE_CLASS; class++) {
 		int nsibling, err;
 
-		nsibling = 0;
-		for (inst = 0; inst <= MAX_ENGINE_INSTANCE; inst++) {
-			if (!gt->engine_class[class][inst])
-				continue;
-
-			siblings[nsibling++] = gt->engine_class[class][inst];
-		}
+		nsibling = select_siblings(gt, class, siblings);
 		if (nsibling < 2)
 			continue;
 
