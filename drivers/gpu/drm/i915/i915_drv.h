@@ -693,6 +693,7 @@ struct intel_vbt_data {
 		bool initialized;
 		int bpp;
 		struct edp_power_seq pps;
+		bool hobl;
 	} edp;
 
 	struct {
