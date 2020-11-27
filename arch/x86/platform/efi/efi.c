@@ -947,6 +947,7 @@ static void __init __efi_enter_virtual_mode(void)
 		goto err;
 	}
 
+	efi_check_for_embedded_firmwares();
 	efi_free_boot_services();
 
 	/*
