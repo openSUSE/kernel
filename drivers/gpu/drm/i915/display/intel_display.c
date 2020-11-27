@@ -15222,9 +15222,8 @@ static void icl_dbuf_slice_pre_update(struct intel_atomic_state *state)
 	u8 required_slices = state->enabled_dbuf_slices_mask;
 	u8 slices_union = hw_enabled_slices | required_slices;
 
-	/* If 2nd DBuf slice required, enable it here */
 	if (INTEL_GEN(dev_priv) >= 11 && slices_union != hw_enabled_slices)
-		icl_dbuf_slices_update(dev_priv, slices_union);
+		gen9_dbuf_slices_update(dev_priv, slices_union);
 }
 
 static void icl_dbuf_slice_post_update(struct intel_atomic_state *state)
@@ -15233,9 +15232,8 @@ static void icl_dbuf_slice_post_update(struct intel_atomic_state *state)
 	u8 hw_enabled_slices = dev_priv->enabled_dbuf_slices_mask;
 	u8 required_slices = state->enabled_dbuf_slices_mask;
 
-	/* If 2nd DBuf slice is no more required disable it */
 	if (INTEL_GEN(dev_priv) >= 11 && required_slices != hw_enabled_slices)
-		icl_dbuf_slices_update(dev_priv, required_slices);
+		gen9_dbuf_slices_update(dev_priv, required_slices);
 }
 
 static void skl_commit_modeset_enables(struct intel_atomic_state *state)
