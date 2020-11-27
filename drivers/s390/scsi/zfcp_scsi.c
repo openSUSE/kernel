@@ -926,7 +926,7 @@ void zfcp_scsi_shost_update_config_data(
 		break;
 	case FSF_TOPO_AL:
 		fc_host_port_type(shost) = FC_PORTTYPE_NLPORT;
-		/* fallthrough */
+		fallthrough;
 	default:
 		fc_host_fabric_name(shost) = 0;
 		break;
