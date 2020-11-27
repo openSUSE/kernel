@@ -17,7 +17,7 @@ static efi_system_table_t *s_table;
 static struct boot_params *b_params;
 
 #ifdef DEBUG
-#define debug_putstr(__x)  efi_printk(s_table, (char *)__x)
+#define debug_putstr(__x)  efi_printk((char *)__x)
 #else
 #define debug_putstr(__x)
 #endif
@@ -53,9 +53,9 @@ const char *efi_status_to_str(efi_status_t status)
 
 static void efi_printk_status(char *reason, efi_status_t status)
 {
-	efi_printk(s_table, reason);
-	efi_printk(s_table, (char *)efi_status_to_str(status));
-	efi_printk(s_table, "\n");
+	efi_printk(reason);
+	efi_printk((char *)efi_status_to_str(status));
+	efi_printk("\n");
 }
 
 static unsigned long get_boot_seed(void)
@@ -139,7 +139,7 @@ static efi_status_t remove_secret_key(unsigned long attributes)
 	status = set_efi_var(secret_key_name,
 			     &EFI_SECRET_GUID, attributes, 0, NULL);
 	if (status == EFI_SUCCESS)
-		efi_printk(s_table, "Removed secret key\n");
+		efi_printk("Removed secret key\n");
 	else
 		efi_printk_status("Failed to remove secret key: ", status);
 
@@ -150,7 +150,7 @@ static efi_status_t create_secret_key(struct efi_skey_setup_data *skey_setup)
 {
 	efi_status_t status;
 
-	efi_printk(s_table, "Create new secret key\n");
+	efi_printk("Create new secret key\n");
 	generate_secret_key(skey_setup->secret_key, SECRET_KEY_SIZE);
 	status = set_efi_var(secret_key_name, &EFI_SECRET_GUID,
 			     SECRET_KEY_ATTRIBUTE, SECRET_KEY_SIZE,
@@ -223,7 +223,7 @@ void efi_setup_secret_key(efi_system_table_t *sys_table, struct boot_params *par
 	status = efi_call_early(allocate_pool, EFI_LOADER_DATA,
 				setup_size, &skey_setup_data);
 	if (status != EFI_SUCCESS) {
-		efi_printk(s_table, "Failed to allocate mem for secret key\n");
+		efi_printk("Failed to allocate mem for secret key\n");
 		return;
 	}
 	memset(skey_setup_data, 0, setup_size);
@@ -239,10 +239,10 @@ void efi_setup_secret_key(efi_system_table_t *sys_table, struct boot_params *par
 		if (status != EFI_SUCCESS)
 			break;
 		if (attributes != SECRET_KEY_ATTRIBUTE) {
-			efi_printk(sys_table, "Found a unqualified secret key\n");
+			efi_printk("Found a unqualified secret key\n");
 			status = regen_secret_key(skey_setup);
 		} else if (found_regen_flag()) {
-			efi_printk(sys_table, "Regenerate secret key\n");
+			efi_printk("Regenerate secret key\n");
 			status = regen_secret_key(skey_setup);
 		}
 		break;
