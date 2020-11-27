@@ -6,8 +6,6 @@
  *
  * ----------------------------------------------------------------------- */
 
-#pragma GCC visibility push(hidden)
-
 #include <linux/efi.h>
 #include <linux/pci.h>
 
@@ -17,8 +15,7 @@
 #include <asm/desc.h>
 #include <asm/boot.h>
 
-#include "../string.h"
-#include "eboot.h"
+#include "efistub.h"
 
 static efi_system_table_t *sys_table;
 extern const bool efi_is64;
@@ -759,9 +756,6 @@ struct boot_params *efi_main(efi_handle_t handle,
 	setup_graphics(boot_params);
 
 	setup_efi_pci(boot_params);
-
-	if (boot_params->secure_boot == efi_secureboot_mode_enabled)
-		efi_setup_secret_key(sys_table, boot_params);
 
 	setup_quirks(boot_params);
 
