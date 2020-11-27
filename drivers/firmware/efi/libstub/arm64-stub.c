@@ -43,7 +43,6 @@ efi_status_t handle_kernel_image(unsigned long *image_addr,
 {
 	efi_status_t status;
 	unsigned long kernel_size, kernel_memsize = 0;
-	void *old_image_addr = (void *)*image_addr;
 	unsigned long preferred_offset;
 	u64 phys_seed = 0;
 
@@ -141,7 +140,7 @@ efi_status_t handle_kernel_image(unsigned long *image_addr,
 		}
 		*image_addr = *reserve_addr + TEXT_OFFSET;
 	}
-	memcpy((void *)*image_addr, old_image_addr, kernel_size);
+	memcpy((void *)*image_addr, image->image_base, kernel_size);
 
 	return EFI_SUCCESS;
 }
