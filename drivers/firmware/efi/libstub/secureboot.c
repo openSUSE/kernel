@@ -15,7 +15,6 @@
 /* SHIM variables */
 static const efi_guid_t shim_guid = EFI_SHIM_LOCK_GUID;
 static const efi_char16_t shim_MokSBState_name[] = L"MokSBState";
-static efi_system_table_t *efi_sys_table;
 
 #define get_efi_var(name, vendor, ...) \
 	efi_call_runtime(get_variable, \
@@ -25,8 +24,6 @@ static efi_system_table_t *efi_sys_table;
 static efi_status_t get_var(efi_char16_t *name, efi_guid_t *vendor, u32 *attr,
 			    unsigned long *data_size, void *data)
 {
-	efi_system_table_t *sys_table_arg = efi_sys_table;
-
 	return get_efi_var(name, vendor, attr, data_size, data);
 }
 
@@ -36,7 +33,7 @@ static efi_status_t get_var(efi_char16_t *name, efi_guid_t *vendor, u32 *attr,
  * Please keep the logic in sync with
  * arch/x86/xen/efi.c:xen_efi_get_secureboot().
  */
-enum efi_secureboot_mode efi_get_secureboot(efi_system_table_t *sys_table_arg)
+enum efi_secureboot_mode efi_get_secureboot(void)
 {
 	u32 attr;
 	unsigned long size;
@@ -44,7 +41,6 @@ enum efi_secureboot_mode efi_get_secureboot(efi_system_table_t *sys_table_arg)
 	efi_status_t status;
 	u8 moksbstate;
 
-	efi_sys_table = sys_table_arg;
 	mode = efi_get_secureboot_mode(get_var);
 	if (mode == efi_secureboot_mode_unknown) {
 		pr_efi_err("Could not determine UEFI Secure Boot status.\n");
