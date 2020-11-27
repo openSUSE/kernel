@@ -517,10 +517,7 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 			goto err_msm_uninit;
 		}
 
-		ret = sched_set_fifo(priv->event_thread[i].worker->task);
-		if (ret)
-			dev_warn(dev, "event_thread set priority failed:%d\n",
-				 ret);
+		sched_set_fifo(priv->event_thread[i].worker->task);
 	}
 
 	ret = drm_vblank_init(ddev, priv->num_crtcs);
