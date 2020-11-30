@@ -1194,7 +1194,6 @@ static int __init emulate_compute_instr(struct pt_regs *regs,
 					bool negative)
 {
 	int analysed;
-	extern s32 patch__exec_instr;
 	struct instruction_op op;
 
 	if (!regs || !ppc_inst_val(instr))
@@ -1220,7 +1219,6 @@ static int __init execute_compute_instr(struct pt_regs *regs,
 					struct ppc_inst instr)
 {
 	extern int exec_instr(struct pt_regs *regs);
-	extern s32 patch__exec_instr;
 
 	if (!regs || !ppc_inst_val(instr))
 		return -EINVAL;
