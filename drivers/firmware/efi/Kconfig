@@ -255,6 +255,11 @@ config EFI_SECRET_KEY
 
 endmenu
 
+config EFI_EMBEDDED_FIRMWARE
+	bool
+	depends on EFI
+	select CRYPTO_LIB_SHA256
+
 config UEFI_CPER
 	bool
 
