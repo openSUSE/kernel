@@ -62,6 +62,7 @@
 #define IGNORE_GPR(n)	(0x1UL << (n))
 #define IGNORE_XER	(0x1UL << 32)
 #define IGNORE_CCR	(0x1UL << 33)
+#define NEGATIVE_TEST	(0x1UL << 63)
 
 #define TEST_PLD(r, base, i, pr) \
 	ppc_inst_prefix(PPC_PREFIX_8LS | __PPC_PRFX_R(pr) | IMM_H(i), \
@@ -1173,15 +1174,26 @@ static struct compute_test compute_tests[] = {
 				.regs = {
 					.gpr[21] = 0,
 				}
+			},
+			/* Invalid instruction form with R = 1 and RA != 0 */
+			{
+				.descr = "RA = R22(0), SI = 0, R = 1",
+				.instr = TEST_PADDI(21, 22, 0, 1),
+				.flags = NEGATIVE_TEST,
+				.regs = {
+					.gpr[21] = 0,
+					.gpr[22] = 0,
+				}
 			}
 		}
 	}
 };
 
 static int __init emulate_compute_instr(struct pt_regs *regs,
-					struct ppc_inst instr)
+					struct ppc_inst instr,
+					bool negative)
 {
-	extern s32 patch__exec_instr;
+	int analysed;
 	struct instruction_op op;
 
 	if (!regs || !ppc_inst_val(instr))
@@ -1189,13 +1201,17 @@ static int __init emulate_compute_instr(struct pt_regs *regs,
 
 	regs->nip = patch_site_addr(&patch__exec_instr);
 
-	if (analyse_instr(&op, regs, instr) != 1 ||
-	    GETTYPE(op.type) != COMPUTE) {
-		pr_info("execution failed, instruction = %s\n", ppc_inst_as_str(instr));
+	analysed = analyse_instr(&op, regs, instr);
+	if (analysed != 1 || GETTYPE(op.type) != COMPUTE) {
+		if (negative)
+			return -EFAULT;
+		pr_info("emulation failed, instruction = %s\n", ppc_inst_as_str(instr));
 		return -EFAULT;
 	}
-
-	emulate_update_regs(regs, &op);
+	if (analysed == 1 && negative)
+		pr_info("negative test failed, instruction = %s\n", ppc_inst_as_str(instr));
+	if (!negative)
+		emulate_update_regs(regs, &op);
 	return 0;
 }
 
@@ -1203,7 +1219,6 @@ static int __init execute_compute_instr(struct pt_regs *regs,
 					struct ppc_inst instr)
 {
 	extern int exec_instr(struct pt_regs *regs);
-	extern s32 patch__exec_instr;
 
 	if (!regs || !ppc_inst_val(instr))
 		return -EINVAL;
@@ -1233,7 +1248,7 @@ static void __init run_tests_compute(void)
 	struct pt_regs *regs, exp, got;
 	unsigned int i, j, k;
 	struct ppc_inst instr;
-	bool ignore_gpr, ignore_xer, ignore_ccr, passed;
+	bool ignore_gpr, ignore_xer, ignore_ccr, passed, rc, negative;
 
 	for (i = 0; i < ARRAY_SIZE(compute_tests); i++) {
 		test = &compute_tests[i];
@@ -1247,6 +1262,7 @@ static void __init run_tests_compute(void)
 			instr = test->subtests[j].instr;
 			flags = test->subtests[j].flags;
 			regs = &test->subtests[j].regs;
+			negative = flags & NEGATIVE_TEST;
 			ignore_xer = flags & IGNORE_XER;
 			ignore_ccr = flags & IGNORE_CCR;
 			passed = true;
@@ -1261,8 +1277,12 @@ static void __init run_tests_compute(void)
 			exp.msr = MSR_KERNEL;
 			got.msr = MSR_KERNEL;
 
-			if (emulate_compute_instr(&got, instr) ||
-			    execute_compute_instr(&exp, instr)) {
+			rc = emulate_compute_instr(&got, instr, negative) != 0;
+			if (negative) {
+				/* skip executing instruction */
+				passed = rc;
+				goto print;
+			} else if (rc || execute_compute_instr(&exp, instr)) {
 				passed = false;
 				goto print;
 			}
