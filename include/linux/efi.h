@@ -538,6 +538,7 @@ typedef struct {
  * All runtime access to EFI goes through this structure:
  */
 extern struct efi {
+	const efi_runtime_services_t	*runtime;		/* EFI runtime services table */
 	efi_system_table_t *systab;	/* EFI system table */
 	unsigned int runtime_version;	/* Runtime services version */
 	unsigned int  runtime_supported_mask;
