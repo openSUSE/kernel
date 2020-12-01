@@ -213,7 +213,7 @@ void *memremap_pages(struct dev_pagemap *pgmap, int nid)
 			return ERR_PTR(-EINVAL);
 		}
 		break;
-	case MEMORY_DEVICE_DEVDAX:
+	case MEMORY_DEVICE_GENERIC:
 	case MEMORY_DEVICE_PCI_P2PDMA:
 		need_devmap_managed = false;
 		break;
