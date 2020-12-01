@@ -206,11 +206,9 @@ relocated:
 				/* push arguments for extract_kernel: */
 	pushl	$z_output_len	/* decompressed length, end of relocs */
 
-	movl    BP_init_size(%esi), %eax
-	subl    $_end, %eax
-	movl    %ebx, %ebp
-	subl    %eax, %ebp
-	pushl	%ebp		/* output address */
+	leal	_end(%ebx), %eax
+	subl    BP_init_size(%esi), %eax
+	pushl	%eax		/* output address */
 
 	pushl	$z_input_len	/* input_len */
 	leal	input_data(%ebx), %eax
