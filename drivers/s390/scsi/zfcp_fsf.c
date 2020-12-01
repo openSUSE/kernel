@@ -426,9 +426,14 @@ static void zfcp_fsf_protstatus_eval(struct zfcp_fsf_req *req)
  * or it has been dismissed due to a queue shutdown, this function
  * is called to process the completion status and trigger further
  * events related to the FSF request.
+ * Caller must ensure that the request has been removed from
+ * adapter->req_list, to protect against concurrent modification
+ * by zfcp_erp_strategy_check_fsfreq().
  */
 static void zfcp_fsf_req_complete(struct zfcp_fsf_req *req)
 {
+	struct zfcp_erp_action *erp_action;
+
 	if (unlikely(zfcp_fsf_req_is_status_read_buffer(req))) {
 		zfcp_fsf_status_read_handler(req);
 		return;
@@ -439,8 +444,9 @@ static void zfcp_fsf_req_complete(struct zfcp_fsf_req *req)
 	zfcp_fsf_fsfstatus_eval(req);
 	req->handler(req);
 
-	if (req->erp_action)
-		zfcp_erp_notify(req->erp_action, 0);
+	erp_action = req->erp_action;
+	if (erp_action)
+		zfcp_erp_notify(erp_action, 0);
 
 	if (likely(req->status & ZFCP_STATUS_FSFREQ_CLEANUP))
 		zfcp_fsf_req_free(req);
@@ -542,7 +548,6 @@ static int zfcp_fsf_exchange_config_evaluate(struct zfcp_fsf_req *req)
 	case FSF_TOPO_FABRIC:
 		break;
 	case FSF_TOPO_AL:
-		/* fall through */
 	default:
 		dev_err(&adapter->ccw_device->dev,
 			"Unknown or unsupported arbitrated loop "
@@ -995,7 +1000,7 @@ static void zfcp_fsf_abort_fcp_command_handler(struct zfcp_fsf_req *req)
 		switch (fsq->word[0]) {
 		case FSF_SQ_INVOKE_LINK_TEST_PROCEDURE:
 			zfcp_fc_test_link(zfcp_sdev->port);
-			/* fall through */
+			fallthrough;
 		case FSF_SQ_ULP_DEPENDENT_ERP_REQUIRED:
 			req->status |= ZFCP_STATUS_FSFREQ_ERROR;
 			break;
@@ -1090,7 +1095,7 @@ static void zfcp_fsf_send_ct_handler(struct zfcp_fsf_req *req)
 		break;
 	case FSF_PORT_HANDLE_NOT_VALID:
 		zfcp_erp_adapter_reopen(adapter, 0, "fsscth1");
-		/* fall through */
+		fallthrough;
 	case FSF_GENERIC_COMMAND_REJECTED:
 	case FSF_PAYLOAD_SIZE_MISMATCH:
 	case FSF_REQUEST_SIZE_TOO_LARGE:
@@ -1276,7 +1281,7 @@ static void zfcp_fsf_send_els_handler(struct zfcp_fsf_req *req)
 		break;
 	case FSF_SBAL_MISMATCH:
 		/* should never occur, avoided in zfcp_fsf_send_els */
-		/* fall through */
+		fallthrough;
 	default:
 		req->status |= ZFCP_STATUS_FSFREQ_ERROR;
 		break;
@@ -1699,7 +1704,7 @@ static void zfcp_fsf_open_port_handler(struct zfcp_fsf_req *req)
 		switch (header->fsf_status_qual.word[0]) {
 		case FSF_SQ_INVOKE_LINK_TEST_PROCEDURE:
 			/* no zfcp_fc_test_link() with failed open port */
-			/* fall through */
+			fallthrough;
 		case FSF_SQ_ULP_DEPENDENT_ERP_REQUIRED:
 		case FSF_SQ_NO_RETRY_POSSIBLE:
 			req->status |= ZFCP_STATUS_FSFREQ_ERROR;
@@ -1872,14 +1877,14 @@ static void zfcp_fsf_open_wka_port_handler(struct zfcp_fsf_req *req)
 	case FSF_MAXIMUM_NUMBER_OF_PORTS_EXCEEDED:
 		dev_warn(&req->adapter->ccw_device->dev,
 			 "Opening WKA port 0x%x failed\n", wka_port->d_id);
-		/* fall through */
+		fallthrough;
 	case FSF_ADAPTER_STATUS_AVAILABLE:
 		req->status |= ZFCP_STATUS_FSFREQ_ERROR;
 		wka_port->status = ZFCP_FC_WKA_PORT_OFFLINE;
 		break;
 	case FSF_GOOD:
 		wka_port->handle = header->port_handle;
-		/* fall through */
+		fallthrough;
 	case FSF_PORT_ALREADY_OPEN:
 		wka_port->status = ZFCP_FC_WKA_PORT_ONLINE;
 	}
@@ -2022,7 +2027,6 @@ static void zfcp_fsf_close_physical_port_handler(struct zfcp_fsf_req *req)
 	case FSF_ADAPTER_STATUS_AVAILABLE:
 		switch (header->fsf_status_qual.word[0]) {
 		case FSF_SQ_INVOKE_LINK_TEST_PROCEDURE:
-			/* fall through */
 		case FSF_SQ_ULP_DEPENDENT_ERP_REQUIRED:
 			req->status |= ZFCP_STATUS_FSFREQ_ERROR;
 			break;
@@ -2107,7 +2111,7 @@ static void zfcp_fsf_open_lun_handler(struct zfcp_fsf_req *req)
 
 	case FSF_PORT_HANDLE_NOT_VALID:
 		zfcp_erp_adapter_reopen(adapter, 0, "fsouh_1");
-		/* fall through */
+		fallthrough;
 	case FSF_LUN_ALREADY_OPEN:
 		break;
 	case FSF_PORT_BOXED:
@@ -2138,7 +2142,7 @@ static void zfcp_fsf_open_lun_handler(struct zfcp_fsf_req *req)
 			 (unsigned long long)zfcp_scsi_dev_lun(sdev),
 			 (unsigned long long)zfcp_sdev->port->wwpn);
 		zfcp_erp_set_lun_status(sdev, ZFCP_STATUS_COMMON_ERP_FAILED);
-		/* fall through */
+		fallthrough;
 	case FSF_INVALID_COMMAND_OPTION:
 		req->status |= ZFCP_STATUS_FSFREQ_ERROR;
 		break;
@@ -2146,7 +2150,7 @@ static void zfcp_fsf_open_lun_handler(struct zfcp_fsf_req *req)
 		switch (header->fsf_status_qual.word[0]) {
 		case FSF_SQ_INVOKE_LINK_TEST_PROCEDURE:
 			zfcp_fc_test_link(zfcp_sdev->port);
-			/* fall through */
+			fallthrough;
 		case FSF_SQ_ULP_DEPENDENT_ERP_REQUIRED:
 			req->status |= ZFCP_STATUS_FSFREQ_ERROR;
 			break;
@@ -2240,7 +2244,7 @@ static void zfcp_fsf_close_lun_handler(struct zfcp_fsf_req *req)
 		switch (req->qtcb->header.fsf_status_qual.word[0]) {
 		case FSF_SQ_INVOKE_LINK_TEST_PROCEDURE:
 			zfcp_fc_test_link(zfcp_sdev->port);
-			/* fall through */
+			fallthrough;
 		case FSF_SQ_ULP_DEPENDENT_ERP_REQUIRED:
 			req->status |= ZFCP_STATUS_FSFREQ_ERROR;
 			break;

@@ -563,7 +563,7 @@ static int xenbus_map_ring_valloc_hvm(struct xenbus_device *dev,
 	if (!node)
 		return -ENOMEM;
 
-	err = alloc_xenballooned_pages(nr_pages, node->hvm.pages);
+	err = xen_alloc_unpopulated_pages(nr_pages, node->hvm.pages);
 	if (err)
 		goto out_err;
 
@@ -602,7 +602,7 @@ static int xenbus_map_ring_valloc_hvm(struct xenbus_device *dev,
 			 addr, nr_pages);
  out_free_ballooned_pages:
 	if (!leaked)
-		free_xenballooned_pages(nr_pages, node->hvm.pages);
+		xen_free_unpopulated_pages(nr_pages, node->hvm.pages);
  out_err:
 	kfree(node);
 	return err;
@@ -849,7 +849,7 @@ static int xenbus_unmap_ring_vfree_hvm(struct xenbus_device *dev, void *vaddr)
 			       info.addrs);
 	if (!rv) {
 		vunmap(vaddr);
-		free_xenballooned_pages(nr_pages, node->hvm.pages);
+		xen_free_unpopulated_pages(nr_pages, node->hvm.pages);
 	}
 	else
 		WARN(1, "Leaking %p, size %u page(s)\n", vaddr, nr_pages);

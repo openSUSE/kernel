@@ -104,6 +104,12 @@ enum instruction_type {
 
 #define MKOP(t, f, s)	((t) | (f) | SIZE(s))
 
+/* Prefix instruction operands */
+#define GET_PREFIX_RA(i)	(((i) >> 16) & 0x1f)
+#define GET_PREFIX_R(i)		((i) & (1ul << 20))
+
+extern s32 patch__exec_instr;
+
 struct instruction_op {
 	int type;
 	int reg;

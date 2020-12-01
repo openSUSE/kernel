@@ -14,6 +14,8 @@
 #include <linux/efi.h>
 #include <linux/kernel.h>
 #include <linux/printk.h>
+#include <linux/init.h>
+#include <linux/ima.h>
 
 /*
  * Decide what to do when UEFI secure boot mode is enabled.
@@ -36,3 +38,19 @@ void __init efi_set_secure_boot(enum efi_secureboot_mode mode)
 		}
 	}
 }
+
+#if defined(CONFIG_ARM64) && defined(CONFIG_LOCK_DOWN_IN_EFI_SECURE_BOOT)
+/*
+ * The arm64_kernel_lockdown() must run after efisubsys_init() because the
+ * the secure boot mode query relies on efi_rts_wq to call EFI_GET_VARIABLE.
+ */
+static int __init arm64_kernel_lockdown(void)
+{
+	if (arch_ima_get_secureboot())
+		security_lock_kernel_down("EFI Secure Boot mode",
+					LOCKDOWN_INTEGRITY_MAX);
+	return 0;
+}
+
+subsys_initcall(arm64_kernel_lockdown);
+#endif

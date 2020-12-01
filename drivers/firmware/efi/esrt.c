@@ -181,7 +181,7 @@ static int esre_create_sysfs_entry(void *esre, int entry_num)
 		rc = kobject_init_and_add(&entry->kobj, &esre1_ktype, NULL,
 					  "entry%d", entry_num);
 		if (rc) {
-			kfree(entry);
+			kobject_put(&entry->kobj);
 			return rc;
 		}
 	}
@@ -245,6 +245,9 @@ void __init efi_esrt_init(void)
 	efi_memory_desc_t md;
 	int rc;
 	phys_addr_t end;
+
+	if (!efi_enabled(EFI_MEMMAP))
+		return;
 
 	pr_debug("esrt-init: loading.\n");
 	if (!esrt_table_exists())

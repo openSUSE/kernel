@@ -621,6 +621,11 @@ static inline bool system_has_prio_mask_debugging(void)
 	       system_uses_irq_prio_masking();
 }
 
+static inline bool system_capabilities_finalized(void)
+{
+	return static_branch_likely(&arm64_const_caps_ready);
+}
+
 static inline bool system_supports_tlb_range(void)
 {
 	return IS_ENABLED(CONFIG_ARM64_TLB_RANGE) &&

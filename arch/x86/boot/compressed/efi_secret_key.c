@@ -17,7 +17,7 @@ static efi_system_table_t *s_table;
 static struct boot_params *b_params;
 
 #ifdef DEBUG
-#define debug_putstr(__x)  efi_printk(s_table, (char *)__x)
+#define debug_putstr(__x)  efi_printk((char *)__x)
 #else
 #define debug_putstr(__x)
 #endif
@@ -53,9 +53,9 @@ const char *efi_status_to_str(efi_status_t status)
 
 static void efi_printk_status(char *reason, efi_status_t status)
 {
-	efi_printk(s_table, reason);
-	efi_printk(s_table, (char *)efi_status_to_str(status));
-	efi_printk(s_table, "\n");
+	efi_printk(reason);
+	efi_printk((char *)efi_status_to_str(status));
+	efi_printk("\n");
 }
 
 static unsigned long get_boot_seed(void)
@@ -89,13 +89,12 @@ static void generate_secret_key(u8 key[], unsigned int size)
 }
 
 #define get_efi_var(name, vendor, ...) \
-	efi_call_runtime(get_variable, \
-			(efi_char16_t *)(name), (efi_guid_t *)(vendor), \
-			__VA_ARGS__);
+	efi_rt_call(get_variable, (efi_char16_t *)(name), \
+		    (efi_guid_t *)(vendor), __VA_ARGS__)
+
 #define set_efi_var(name, vendor, ...) \
-	efi_call_runtime(set_variable, \
-			(efi_char16_t *)(name), (efi_guid_t *)(vendor), \
-			__VA_ARGS__);
+	efi_rt_call(set_variable, (efi_char16_t *)(name), \
+		    (efi_guid_t *)(vendor), __VA_ARGS__)
 
 static efi_char16_t const secret_key_name[] = {
 	'S', 'e', 'c', 'r', 'e', 't', 'K', 'e', 'y', 0
@@ -103,14 +102,14 @@ static efi_char16_t const secret_key_name[] = {
 #define SECRET_KEY_ATTRIBUTE	(EFI_VARIABLE_NON_VOLATILE | \
 				EFI_VARIABLE_BOOTSERVICE_ACCESS)
 
-static efi_status_t get_secret_key(unsigned long *attributes,
+static efi_status_t get_secret_key(u32 *attributes,
 			unsigned long *key_size,
 			struct efi_skey_setup_data *skey_setup)
 {
 	void *key_data;
 	efi_status_t status;
 
-	status = efi_call_early(allocate_pool, EFI_LOADER_DATA,
+	status = efi_bs_call(allocate_pool, EFI_LOADER_DATA,
 				*key_size, &key_data);
 	if (status != EFI_SUCCESS) {
 		efi_printk_status("Failed to allocate mem: \n", status);
@@ -128,18 +127,18 @@ static efi_status_t get_secret_key(unsigned long *attributes,
 	memcpy(skey_setup->secret_key, key_data,
 	       (*key_size >= SECRET_KEY_SIZE) ? SECRET_KEY_SIZE : *key_size);
 err:
-	efi_call_early(free_pool, key_data);
+	efi_bs_call(free_pool, key_data);
 	return status;
 }
 
-static efi_status_t remove_secret_key(unsigned long attributes)
+static efi_status_t remove_secret_key(u32 attributes)
 {
 	efi_status_t status;
 
 	status = set_efi_var(secret_key_name,
 			     &EFI_SECRET_GUID, attributes, 0, NULL);
 	if (status == EFI_SUCCESS)
-		efi_printk(s_table, "Removed secret key\n");
+		efi_printk("Removed secret key\n");
 	else
 		efi_printk_status("Failed to remove secret key: ", status);
 
@@ -150,7 +149,7 @@ static efi_status_t create_secret_key(struct efi_skey_setup_data *skey_setup)
 {
 	efi_status_t status;
 
-	efi_printk(s_table, "Create new secret key\n");
+	efi_printk("Create new secret key\n");
 	generate_secret_key(skey_setup->secret_key, SECRET_KEY_SIZE);
 	status = set_efi_var(secret_key_name, &EFI_SECRET_GUID,
 			     SECRET_KEY_ATTRIBUTE, SECRET_KEY_SIZE,
@@ -163,7 +162,7 @@ static efi_status_t create_secret_key(struct efi_skey_setup_data *skey_setup)
 
 static bool found_regen_flag(void)
 {
-	unsigned long attributes = 0;
+	u32 attributes = 0;
 	unsigned long size = 0;
 	void *flag;
 	bool regen;
@@ -175,7 +174,7 @@ static bool found_regen_flag(void)
 	if (status != EFI_BUFFER_TOO_SMALL)
 		return false;
 
-	status = efi_call_early(allocate_pool, EFI_LOADER_DATA,
+	status = efi_bs_call(allocate_pool, EFI_LOADER_DATA,
 				size, &flag);
 	if (status != EFI_SUCCESS)
 		return false;
@@ -190,13 +189,13 @@ static bool found_regen_flag(void)
 	set_efi_var(EFI_SECRET_KEY_REGEN, &EFI_SECRET_GUID,
 		    attributes, 0, NULL);
 err:
-	efi_call_early(free_pool, flag);
+	efi_bs_call(free_pool, flag);
 	return regen;
 }
 
 static efi_status_t regen_secret_key(struct efi_skey_setup_data *skey_setup)
 {
-	unsigned long attributes = 0;
+	u32 attributes = 0;
 	unsigned long key_size = SECRET_KEY_SIZE;
 	efi_status_t status;
 
@@ -211,7 +210,7 @@ void efi_setup_secret_key(efi_system_table_t *sys_table, struct boot_params *par
 {
 	struct setup_data *setup_data, *skey_setup_data;
 	unsigned long setup_size = 0;
-	unsigned long attributes = 0;
+	u32 attributes = 0;
 	unsigned long key_size = 0;
 	struct efi_skey_setup_data *skey_setup;
 	efi_status_t status;
@@ -220,10 +219,10 @@ void efi_setup_secret_key(efi_system_table_t *sys_table, struct boot_params *par
 	b_params = params;
 
 	setup_size = sizeof(struct setup_data) + sizeof(struct efi_skey_setup_data);
-	status = efi_call_early(allocate_pool, EFI_LOADER_DATA,
-				setup_size, &skey_setup_data);
+	status = efi_bs_call(allocate_pool, EFI_LOADER_DATA,
+				setup_size, (void **)&skey_setup_data);
 	if (status != EFI_SUCCESS) {
-		efi_printk(s_table, "Failed to allocate mem for secret key\n");
+		efi_printk("Failed to allocate mem for secret key\n");
 		return;
 	}
 	memset(skey_setup_data, 0, setup_size);
@@ -239,10 +238,10 @@ void efi_setup_secret_key(efi_system_table_t *sys_table, struct boot_params *par
 		if (status != EFI_SUCCESS)
 			break;
 		if (attributes != SECRET_KEY_ATTRIBUTE) {
-			efi_printk(sys_table, "Found a unqualified secret key\n");
+			efi_printk("Found a unqualified secret key\n");
 			status = regen_secret_key(skey_setup);
 		} else if (found_regen_flag()) {
-			efi_printk(sys_table, "Regenerate secret key\n");
+			efi_printk("Regenerate secret key\n");
 			status = regen_secret_key(skey_setup);
 		}
 		break;

@@ -34,6 +34,7 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_color_mgmt.h>
 #include <drm/drm_crtc.h>
+#include <drm/drm_damage_helper.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_plane_helper.h>
 #include <drm/drm_rect.h>
@@ -334,6 +335,21 @@ int intel_plane_check_src_coordinates(struct intel_plane_state *plane_state)
 	}
 
 	return 0;
+}
+
+static u8 icl_nv12_y_plane_mask(struct drm_i915_private *i915)
+{
+	if (IS_ROCKETLAKE(i915))
+		return BIT(PLANE_SPRITE2) | BIT(PLANE_SPRITE3);
+	else
+		return BIT(PLANE_SPRITE4) | BIT(PLANE_SPRITE5);
+}
+
+bool icl_is_nv12_y_plane(struct drm_i915_private *dev_priv,
+			 enum plane_id plane_id)
+{
+	return INTEL_GEN(dev_priv) >= 11 &&
+		icl_nv12_y_plane_mask(dev_priv) & BIT(plane_id);
 }
 
 bool icl_is_hdr_plane(struct drm_i915_private *dev_priv, enum plane_id plane_id)
@@ -2134,7 +2150,7 @@ static int skl_plane_check_fb(const struct intel_crtc_state *crtc_state,
 		case DRM_FORMAT_RGB565:
 			if (INTEL_GEN(dev_priv) >= 11)
 				break;
-			/* fall through */
+			fallthrough;
 		case DRM_FORMAT_C8:
 		case DRM_FORMAT_XRGB16161616F:
 		case DRM_FORMAT_XBGR16161616F:
@@ -2689,7 +2705,7 @@ static bool g4x_sprite_format_mod_supported(struct drm_plane *_plane,
 		if (modifier == DRM_FORMAT_MOD_LINEAR ||
 		    modifier == I915_FORMAT_MOD_X_TILED)
 			return true;
-		/* fall through */
+		fallthrough;
 	default:
 		return false;
 	}
@@ -2720,7 +2736,7 @@ static bool snb_sprite_format_mod_supported(struct drm_plane *_plane,
 		if (modifier == DRM_FORMAT_MOD_LINEAR ||
 		    modifier == I915_FORMAT_MOD_X_TILED)
 			return true;
-		/* fall through */
+		fallthrough;
 	default:
 		return false;
 	}
@@ -2755,7 +2771,7 @@ static bool vlv_sprite_format_mod_supported(struct drm_plane *_plane,
 		if (modifier == DRM_FORMAT_MOD_LINEAR ||
 		    modifier == I915_FORMAT_MOD_X_TILED)
 			return true;
-		/* fall through */
+		fallthrough;
 	default:
 		return false;
 	}
@@ -2788,7 +2804,7 @@ static bool skl_plane_format_mod_supported(struct drm_plane *_plane,
 	case DRM_FORMAT_ABGR8888:
 		if (is_ccs_modifier(modifier))
 			return true;
-		/* fall through */
+		fallthrough;
 	case DRM_FORMAT_RGB565:
 	case DRM_FORMAT_XRGB2101010:
 	case DRM_FORMAT_XBGR2101010:
@@ -2806,7 +2822,7 @@ static bool skl_plane_format_mod_supported(struct drm_plane *_plane,
 	case DRM_FORMAT_XVYU2101010:
 		if (modifier == I915_FORMAT_MOD_Yf_TILED)
 			return true;
-		/* fall through */
+		fallthrough;
 	case DRM_FORMAT_C8:
 	case DRM_FORMAT_XBGR16161616F:
 	case DRM_FORMAT_ABGR16161616F:
@@ -2821,7 +2837,7 @@ static bool skl_plane_format_mod_supported(struct drm_plane *_plane,
 		    modifier == I915_FORMAT_MOD_X_TILED ||
 		    modifier == I915_FORMAT_MOD_Y_TILED)
 			return true;
-		/* fall through */
+		fallthrough;
 	default:
 		return false;
 	}
@@ -2847,7 +2863,7 @@ static bool gen12_plane_format_mod_supported(struct drm_plane *_plane,
 	case I915_FORMAT_MOD_Y_TILED_GEN12_MC_CCS:
 		if (!gen12_plane_supports_mc_ccs(dev_priv, plane->id))
 			return false;
-		/* fall through */
+		fallthrough;
 	case DRM_FORMAT_MOD_LINEAR:
 	case I915_FORMAT_MOD_X_TILED:
 	case I915_FORMAT_MOD_Y_TILED:
@@ -2864,7 +2880,7 @@ static bool gen12_plane_format_mod_supported(struct drm_plane *_plane,
 	case DRM_FORMAT_ABGR8888:
 		if (is_ccs_modifier(modifier))
 			return true;
-		/* fall through */
+		fallthrough;
 	case DRM_FORMAT_YUYV:
 	case DRM_FORMAT_YVYU:
 	case DRM_FORMAT_UYVY:
@@ -2876,7 +2892,7 @@ static bool gen12_plane_format_mod_supported(struct drm_plane *_plane,
 	case DRM_FORMAT_P016:
 		if (modifier == I915_FORMAT_MOD_Y_TILED_GEN12_MC_CCS)
 			return true;
-		/* fall through */
+		fallthrough;
 	case DRM_FORMAT_RGB565:
 	case DRM_FORMAT_XRGB2101010:
 	case DRM_FORMAT_XBGR2101010:
@@ -2897,7 +2913,7 @@ static bool gen12_plane_format_mod_supported(struct drm_plane *_plane,
 		    modifier == I915_FORMAT_MOD_X_TILED ||
 		    modifier == I915_FORMAT_MOD_Y_TILED)
 			return true;
-		/* fall through */
+		fallthrough;
 	default:
 		return false;
 	}
@@ -3006,7 +3022,7 @@ static const u32 *icl_get_plane_formats(struct drm_i915_private *dev_priv,
 	if (icl_is_hdr_plane(dev_priv, plane_id)) {
 		*num_formats = ARRAY_SIZE(icl_hdr_plane_formats);
 		return icl_hdr_plane_formats;
-	} else if (icl_is_nv12_y_plane(plane_id)) {
+	} else if (icl_is_nv12_y_plane(dev_priv, plane_id)) {
 		*num_formats = ARRAY_SIZE(icl_sdr_y_plane_formats);
 		return icl_sdr_y_plane_formats;
 	} else {
@@ -3049,6 +3065,7 @@ skl_universal_plane_create(struct drm_i915_private *dev_priv,
 	struct intel_plane *plane;
 	enum drm_plane_type plane_type;
 	unsigned int supported_rotations;
+	unsigned int supported_csc;
 	const u64 *modifiers;
 	const u32 *formats;
 	int num_formats;
@@ -3123,9 +3140,13 @@ skl_universal_plane_create(struct drm_i915_private *dev_priv,
 					   DRM_MODE_ROTATE_0,
 					   supported_rotations);
 
+	supported_csc = BIT(DRM_COLOR_YCBCR_BT601) | BIT(DRM_COLOR_YCBCR_BT709);
+
+	if (INTEL_GEN(dev_priv) >= 10 || IS_GEMINILAKE(dev_priv))
+		supported_csc |= BIT(DRM_COLOR_YCBCR_BT2020);
+
 	drm_plane_create_color_properties(&plane->base,
-					  BIT(DRM_COLOR_YCBCR_BT601) |
-					  BIT(DRM_COLOR_YCBCR_BT709),
+					  supported_csc,
 					  BIT(DRM_COLOR_YCBCR_LIMITED_RANGE) |
 					  BIT(DRM_COLOR_YCBCR_FULL_RANGE),
 					  DRM_COLOR_YCBCR_BT709,
@@ -3138,6 +3159,9 @@ skl_universal_plane_create(struct drm_i915_private *dev_priv,
 					     BIT(DRM_MODE_BLEND_COVERAGE));
 
 	drm_plane_create_zpos_immutable_property(&plane->base, plane_id);
+
+	if (INTEL_GEN(dev_priv) >= 12)
+		drm_plane_enable_fb_damage_clips(&plane->base);
 
 	drm_plane_helper_add(&plane->base, &intel_plane_helper_funcs);
 
