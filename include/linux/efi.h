@@ -1278,6 +1278,8 @@ struct linux_efi_memreserve {
 
 void __init efi_arch_mem_reserve(phys_addr_t addr, u64 size);
 
+char *efi_systab_show_arch(char *str);
+
 #ifdef CONFIG_EFI_SECRET_KEY
 #define EFI_SECRET_GUID \
 	EFI_GUID(0x8c136d32, 0x039a, 0x4016, 0x8b, 0xb4, 0x9e, 0x98, 0x5e, 0x62, 0x78, 0x6f)
