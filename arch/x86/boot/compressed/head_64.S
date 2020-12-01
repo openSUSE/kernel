@@ -478,9 +478,9 @@ trampoline_return:
 SYM_FUNC_START(efi64_stub_entry)
 SYM_FUNC_START_ALIAS(efi_stub_entry)
 	and	$~0xf, %rsp			/* realign the stack */
+	movq	%rdx, %rbx			/* save boot_params pointer */
 	call	efi_main
-	movq	%rax,%rsi
-	movl	BP_code32_start(%esi), %eax
+	movq	%rbx,%rsi
 	leaq	startup_64(%rax), %rax
 	jmp	*%rax
 SYM_FUNC_END(efi64_stub_entry)
