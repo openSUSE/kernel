@@ -235,13 +235,15 @@ efi_status_t efi_set_virtual_address_map(unsigned long memory_map_size,
 
 /* arch specific definitions used by the stub code */
 
-extern const bool efi_is64;
+#ifdef CONFIG_EFI_MIXED
+
+#define ARCH_HAS_EFISTUB_WRAPPERS
 
 static inline bool efi_is_64bit(void)
 {
-	if (IS_ENABLED(CONFIG_EFI_MIXED))
-		return efi_is64;
-	return IS_ENABLED(CONFIG_X86_64);
+	extern const bool efi_is64;
+
+	return efi_is64;
 }
 
 static inline bool efi_is_native(void)
@@ -365,6 +367,15 @@ static inline u32 efi64_convert_status(efi_status_t status)
 		: __efi64_thunk_map(efi_table_attr(efi_system_table,	\
 						   runtime),		\
 				    func, __VA_ARGS__))
+
+#else /* CONFIG_EFI_MIXED */
+
+static inline bool efi_is_64bit(void)
+{
+	return IS_ENABLED(CONFIG_X86_64);
+}
+
+#endif /* CONFIG_EFI_MIXED */
 
 // __pure efi_system_table_t *efi_system_table(void); Be moved by ccc27ae774 efi/libstub: Drop __pure getter for efi_system_table
 
