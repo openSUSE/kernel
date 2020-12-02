@@ -199,7 +199,6 @@ struct advk_pcie {
 	DECLARE_BITMAP(msi_used, MSI_IRQ_NUM);
 	struct mutex msi_used_lock;
 	u16 msi_msg;
-	int root_bus_nr;
 	struct pci_bridge_emul bridge;
 };
 
@@ -533,7 +532,7 @@ static int advk_sw_pci_bridge_init(struct advk_pcie *pcie)
 static bool advk_pcie_valid_device(struct advk_pcie *pcie, struct pci_bus *bus,
 				  int devfn)
 {
-	if ((bus->number == pcie->root_bus_nr) && PCI_SLOT(devfn) != 0)
+	if (pci_is_root_bus(bus) && PCI_SLOT(devfn) != 0)
 		return false;
 
 	return true;
@@ -551,7 +550,7 @@ static int advk_pcie_rd_conf(struct pci_bus *bus, u32 devfn,
 		return PCIBIOS_DEVICE_NOT_FOUND;
 	}
 
-	if (bus->number == pcie->root_bus_nr)
+	if (pci_is_root_bus(bus))
 		return pci_bridge_emul_conf_read(&pcie->bridge, where,
 						 size, val);
 
@@ -562,7 +561,7 @@ static int advk_pcie_rd_conf(struct pci_bus *bus, u32 devfn,
 	/* Program the control register */
 	reg = advk_readl(pcie, PIO_CTRL);
 	reg &= ~PIO_CTRL_TYPE_MASK;
-	if (bus->primary ==  pcie->root_bus_nr)
+	if (pci_is_root_bus(bus->parent))
 		reg |= PCIE_CONFIG_RD_TYPE0;
 	else
 		reg |= PCIE_CONFIG_RD_TYPE1;
@@ -607,7 +606,7 @@ static int advk_pcie_wr_conf(struct pci_bus *bus, u32 devfn,
 	if (!advk_pcie_valid_device(pcie, bus, devfn))
 		return PCIBIOS_DEVICE_NOT_FOUND;
 
-	if (bus->number == pcie->root_bus_nr)
+	if (pci_is_root_bus(bus))
 		return pci_bridge_emul_conf_write(&pcie->bridge, where,
 						  size, val);
 
@@ -621,7 +620,7 @@ static int advk_pcie_wr_conf(struct pci_bus *bus, u32 devfn,
 	/* Program the control register */
 	reg = advk_readl(pcie, PIO_CTRL);
 	reg &= ~PIO_CTRL_TYPE_MASK;
-	if (bus->primary == pcie->root_bus_nr)
+	if (pci_is_root_bus(bus->parent))
 		reg |= PCIE_CONFIG_WR_TYPE0;
 	else
 		reg |= PCIE_CONFIG_WR_TYPE1;
@@ -974,7 +973,7 @@ static int advk_pcie_probe(struct platform_device *pdev)
 		dev_err(dev, "Failed to parse resources\n");
 		return ret;
 	}
-	pcie->root_bus_nr = bus->start;
+	bridge->busnr = bus->start;
 
 	advk_pcie_setup_hw(pcie);
 
