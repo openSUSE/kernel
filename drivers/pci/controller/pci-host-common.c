@@ -8,6 +8,7 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/of_address.h>
 #include <linux/of_pci.h>
 #include <linux/pci-ecam.h>
@@ -96,6 +97,7 @@ int pci_host_common_probe(struct platform_device *pdev,
 	platform_set_drvdata(pdev, bridge->bus);
 	return 0;
 }
+EXPORT_SYMBOL_GPL(pci_host_common_probe);
 
 int pci_host_common_remove(struct platform_device *pdev)
 {
@@ -108,3 +110,6 @@ int pci_host_common_remove(struct platform_device *pdev)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(pci_host_common_remove);
+
+MODULE_LICENSE("GPL v2");
