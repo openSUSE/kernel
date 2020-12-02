@@ -38,7 +38,7 @@ enum efi_secureboot_mode efi_get_secureboot(void)
 
 	mode = efi_get_secureboot_mode(get_var);
 	if (mode == efi_secureboot_mode_unknown) {
-		pr_efi_err("Could not determine UEFI Secure Boot status.\n");
+		efi_err("Could not determine UEFI Secure Boot status.\n");
 		return efi_secureboot_mode_unknown;
 	}
 	if (mode != efi_secureboot_mode_enabled)
@@ -60,6 +60,6 @@ enum efi_secureboot_mode efi_get_secureboot(void)
 		return efi_secureboot_mode_disabled;
 
 secure_boot_enabled:
-	pr_efi("UEFI Secure Boot is enabled.\n");
+	efi_info("UEFI Secure Boot is enabled.\n");
 	return efi_secureboot_mode_enabled;
 }
