@@ -1091,7 +1091,6 @@ static int mtk_pcie_probe(struct platform_device *pdev)
 		return err;
 
 	host->busnr = pcie->busnr;
-	host->dev.parent = pcie->dev;
 	host->ops = pcie->soc->ops;
 	host->map_irq = of_irq_parse_and_map_pci;
 	host->swizzle_irq = pci_common_swizzle;
