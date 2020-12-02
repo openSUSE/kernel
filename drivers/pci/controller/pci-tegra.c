@@ -2632,7 +2632,6 @@ static int tegra_pcie_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct pci_host_bridge *host;
 	struct tegra_pcie *pcie;
-	struct resource *bus;
 	int err;
 
 	host = devm_pci_alloc_host_bridge(dev, sizeof(*pcie));
@@ -2647,7 +2646,7 @@ static int tegra_pcie_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&pcie->ports);
 	pcie->dev = dev;
 
-	err = pci_parse_request_of_pci_ranges(dev, &host->windows, NULL, &bus);
+	err = pci_parse_request_of_pci_ranges(dev, &host->windows, NULL, NULL);
 	if (err) {
 		dev_err(dev, "Getting bridge resources failed\n");
 		return err;
@@ -2676,7 +2675,6 @@ static int tegra_pcie_probe(struct platform_device *pdev)
 		goto pm_runtime_put;
 	}
 
-	host->busnr = bus->start;
 	host->ops = &tegra_pcie_ops;
 	host->map_irq = tegra_pcie_map_irq;
 	host->swizzle_irq = pci_common_swizzle;
