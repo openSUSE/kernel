@@ -45,10 +45,23 @@
 
 #define EFI_DEBUG	0
 
+#define ESI_TABLE_GUID					\
+    EFI_GUID(0x43EA58DC, 0xCF28, 0x4b06, 0xB3,		\
+	     0x91, 0xB7, 0x50, 0x59, 0x34, 0x2B, 0xD4)
+
+static unsigned long mps_phys = EFI_INVALID_TABLE_ADDR;
 static __initdata unsigned long palo_phys;
 
-static __initdata efi_config_table_type_t arch_tables[] = {
+unsigned long __initdata esi_phys = EFI_INVALID_TABLE_ADDR;
+unsigned long hcdp_phys = EFI_INVALID_TABLE_ADDR;
+unsigned long sal_systab_phys = EFI_INVALID_TABLE_ADDR;
+
+static const efi_config_table_type_t arch_tables[] __initconst = {
+	{ESI_TABLE_GUID, "ESI", &esi_phys},
+	{HCDP_TABLE_GUID, "HCDP", &hcdp_phys},
+	{MPS_TABLE_GUID, "MPS", &mps_phys},
 	{PROCESSOR_ABSTRACTION_LAYER_OVERWRITE_GUID, "PALO", &palo_phys},
+	{SAL_SYSTEM_TABLE_GUID, "SALsystab", &sal_systab_phys},
 	{NULL_GUID, NULL, 0},
 };
 
@@ -472,10 +485,8 @@ void __init
 efi_init (void)
 {
 	void *efi_map_start, *efi_map_end;
-	efi_char16_t *c16;
 	u64 efi_desc_size;
-	char *cp, vendor[100] = "unknown";
-	int i;
+	char *cp;
 
 	set_bit(EFI_BOOT, &efi.flags);
 	set_bit(EFI_64BIT, &efi.flags);
@@ -512,29 +523,16 @@ efi_init (void)
 	 */
 	if (efi.systab == NULL)
 		panic("Whoa! Can't find EFI system table.\n");
-	if (efi.systab->hdr.signature != EFI_SYSTEM_TABLE_SIGNATURE)
+	if (efi_systab_check_header(&efi.systab->hdr, 1))
 		panic("Whoa! EFI system table signature incorrect\n");
-	if ((efi.systab->hdr.revision >> 16) == 0)
-		printk(KERN_WARNING "Warning: EFI system table version "
-		       "%d.%02d, expected 1.00 or greater\n",
-		       efi.systab->hdr.revision >> 16,
-		       efi.systab->hdr.revision & 0xffff);
 
-	/* Show what we know for posterity */
-	c16 = __va(efi.systab->fw_vendor);
-	if (c16) {
-		for (i = 0;i < (int) sizeof(vendor) - 1 && *c16; ++i)
-			vendor[i] = *c16++;
-		vendor[i] = '\0';
-	}
-
-	printk(KERN_INFO "EFI v%u.%.02u by %s:",
-	       efi.systab->hdr.revision >> 16,
-	       efi.systab->hdr.revision & 0xffff, vendor);
+	efi_systab_report_header(&efi.systab->hdr, efi.systab->fw_vendor);
 
 	palo_phys      = EFI_INVALID_TABLE_ADDR;
 
-	if (efi_config_init(arch_tables) != 0)
+	if (efi_config_parse_tables(__va(efi_systab->tables),
+				    efi_systab->nr_tables,
+				    arch_tables) != 0)
 		return;
 
 	if (palo_phys != EFI_INVALID_TABLE_ADDR)
@@ -1348,3 +1346,12 @@ vmcore_find_descriptor_size (unsigned long address)
 	return ret;
 }
 #endif
+
+char *efi_systab_show_arch(char *str)
+{
+	if (mps_phys != EFI_INVALID_TABLE_ADDR)
+		str += sprintf(str, "MPS=0x%lx\n", mps_phys);
+	if (hcdp_phys != EFI_INVALID_TABLE_ADDR)
+		str += sprintf(str, "HCDP=0x%lx\n", hcdp_phys);
+	return str;
+}

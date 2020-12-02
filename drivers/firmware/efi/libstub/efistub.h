@@ -25,7 +25,7 @@
 #define EFI_ALLOC_ALIGN		EFI_PAGE_SIZE
 #endif
 
-#ifdef CONFIG_ARM
+#if defined(CONFIG_ARM) || defined(CONFIG_X86)
 #define __efistub_global	__section(.data)
 #else
 #define __efistub_global
@@ -33,6 +33,7 @@
 
 extern bool __pure nochunk(void);
 extern bool __pure nokaslr(void);
+extern bool __pure noinitrd(void);
 extern bool __pure is_quiet(void);
 extern bool __pure novamap(void);
 
@@ -91,6 +92,19 @@ extern __pure efi_system_table_t  *efi_system_table(void);
 #define EFI_LOCATE_BY_REGISTER_NOTIFY		1
 #define EFI_LOCATE_BY_PROTOCOL			2
 
+/*
+ * An efi_boot_memmap is used by efi_get_memory_map() to return the
+ * EFI memory map in a dynamically allocated buffer.
+ *
+ * The buffer allocated for the EFI memory map includes extra room for
+ * a minimum of EFI_MMAP_NR_SLACK_SLOTS additional EFI memory descriptors.
+ * This facilitates the reuse of the EFI memory map buffer when a second
+ * call to ExitBootServices() is needed because of intervening changes to
+ * the EFI memory map. Other related structures, e.g. x86 e820ext, need
+ * to factor in this headroom requirement as well.
+ */
+#define EFI_MMAP_NR_SLACK_SLOTS	8
+
 struct efi_boot_memmap {
 	efi_memory_desc_t	**map;
 	unsigned long		*map_size;
@@ -99,6 +113,8 @@ struct efi_boot_memmap {
 	unsigned long		*key_ptr;
 	unsigned long		*buff_size;
 };
+
+typedef struct efi_generic_dev_path efi_device_path_protocol_t;
 
 /*
  * EFI Boot Services table
@@ -134,12 +150,17 @@ union efi_boot_services {
 		efi_status_t (__efiapi *locate_handle)(int, efi_guid_t *,
 						       void *, unsigned long *,
 						       efi_handle_t *);
-		void *locate_device_path;
+		efi_status_t (__efiapi *locate_device_path)(efi_guid_t *,
+							    efi_device_path_protocol_t **,
+							    efi_handle_t *);
 		efi_status_t (__efiapi *install_configuration_table)(efi_guid_t *,
 								     void *);
 		void *load_image;
 		void *start_image;
-		void *exit;
+		efi_status_t __noreturn (__efiapi *exit)(efi_handle_t,
+							 efi_status_t,
+							 unsigned long,
+							 efi_char16_t *);
 		void *unload_image;
 		efi_status_t (__efiapi *exit_boot_services)(efi_handle_t,
 							    unsigned long);
@@ -303,20 +324,37 @@ union efi_graphics_output_protocol {
 	} mixed_mode;
 };
 
-typedef struct {
-	u32			revision;
-	efi_handle_t		parent_handle;
-	efi_system_table_t	*system_table;
-	efi_handle_t		device_handle;
-	void			*file_path;
-	void			*reserved;
-	u32			load_options_size;
-	void			*load_options;
-	void			*image_base;
-	__aligned_u64		image_size;
-	unsigned int		image_code_type;
-	unsigned int		image_data_type;
-	efi_status_t		(__efiapi *unload)(efi_handle_t image_handle);
+typedef union {
+	struct {
+		u32			revision;
+		efi_handle_t		parent_handle;
+		efi_system_table_t	*system_table;
+		efi_handle_t		device_handle;
+		void			*file_path;
+		void			*reserved;
+		u32			load_options_size;
+		void			*load_options;
+		void			*image_base;
+		__aligned_u64		image_size;
+		unsigned int		image_code_type;
+		unsigned int		image_data_type;
+		efi_status_t		(__efiapi *unload)(efi_handle_t image_handle);
+	};
+	struct {
+		u32		revision;
+		u32		parent_handle;
+		u32		system_table;
+		u32		device_handle;
+		u32		file_path;
+		u32		reserved;
+		u32		load_options_size;
+		u32		load_options;
+		u32		image_base;
+		__aligned_u64	image_size;
+		u32		image_code_type;
+		u32		image_data_type;
+		u32		unload;
+	} mixed_mode;
 } efi_loaded_image_t;
 
 typedef struct {
@@ -537,6 +575,20 @@ union efi_tcg2_protocol {
 	} mixed_mode;
 };
 
+typedef union efi_load_file_protocol efi_load_file_protocol_t;
+typedef union efi_load_file_protocol efi_load_file2_protocol_t;
+
+union efi_load_file_protocol {
+	struct {
+		efi_status_t (__efiapi *load_file)(efi_load_file_protocol_t *,
+						   efi_device_path_protocol_t *,
+						   bool, unsigned long *, void *);
+	};
+	struct {
+		u32 load_file;
+	} mixed_mode;
+};
+
 void efi_pci_disable_bridge_busmaster(void);
 
 typedef efi_status_t (*efi_exit_boot_map_processing)(
@@ -619,6 +671,11 @@ efi_status_t efi_load_dtb(efi_loaded_image_t *image,
 efi_status_t efi_load_initrd(efi_loaded_image_t *image,
 			     unsigned long *load_addr,
 			     unsigned long *load_size,
-			     unsigned long max_addr);
+			     unsigned long soft_limit,
+			     unsigned long hard_limit);
+
+efi_status_t efi_load_initrd_dev_path(unsigned long *load_addr,
+				      unsigned long *load_size,
+				      unsigned long max);
 
 #endif

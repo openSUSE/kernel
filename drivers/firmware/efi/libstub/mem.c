@@ -5,8 +5,6 @@
 
 #include "efistub.h"
 
-#define EFI_MMAP_NR_SLACK_SLOTS	8
-
 static inline bool mmap_has_headroom(unsigned long buff_size,
 				     unsigned long map_size,
 				     unsigned long desc_size)
@@ -16,6 +14,15 @@ static inline bool mmap_has_headroom(unsigned long buff_size,
 	return slack / desc_size >= EFI_MMAP_NR_SLACK_SLOTS;
 }
 
+/**
+ * efi_get_memory_map() - get memory map
+ * @map:	on return pointer to memory map
+ *
+ * Retrieve the UEFI memory map. The allocated memory leaves room for
+ * up to EFI_MMAP_NR_SLACK_SLOTS additional memory map entries.
+ *
+ * Return:	status code
+ */
 efi_status_t efi_get_memory_map(struct efi_boot_memmap *map)
 {
 	efi_memory_desc_t *m = NULL;
@@ -52,21 +59,34 @@ again:
 		goto again;
 	}
 
-	if (status != EFI_SUCCESS)
+	if (status == EFI_SUCCESS) {
+		if (map->key_ptr)
+			*map->key_ptr = key;
+		if (map->desc_ver)
+			*map->desc_ver = desc_version;
+	} else {
 		efi_bs_call(free_pool, m);
-
-	if (map->key_ptr && status == EFI_SUCCESS)
-		*map->key_ptr = key;
-	if (map->desc_ver && status == EFI_SUCCESS)
-		*map->desc_ver = desc_version;
+	}
 
 fail:
 	*map->map = m;
 	return status;
 }
 
-/*
- * Allocate at the highest possible address that is not above 'max'.
+/**
+ * efi_allocate_pages() - Allocate memory pages
+ * @size:	minimum number of bytes to allocate
+ * @addr:	On return the address of the first allocated page. The first
+ *		allocated page has alignment EFI_ALLOC_ALIGN which is an
+ *		architecture dependent multiple of the page size.
+ * @max:	the address that the last allocated memory page shall not
+ *		exceed
+ *
+ * Allocate pages as EFI_LOADER_DATA. The allocated pages are aligned according
+ * to EFI_ALLOC_ALIGN. The last allocated page will not exceed the address
+ * given by @max.
+ *
+ * Return:	status code
  */
 efi_status_t efi_allocate_pages(unsigned long size, unsigned long *addr,
 				unsigned long max)
@@ -96,8 +116,20 @@ efi_status_t efi_allocate_pages(unsigned long size, unsigned long *addr,
 	}
 	return EFI_SUCCESS;
 }
-/*
- * Allocate at the lowest possible address that is not below 'min'.
+/**
+ * efi_low_alloc_above() - allocate pages at or above given address
+ * @size:	size of the memory area to allocate
+ * @align:	minimum alignment of the allocated memory area. It should
+ *		a power of two.
+ * @addr:	on exit the address of the allocated memory
+ * @min:	minimum address to used for the memory allocation
+ *
+ * Allocate at the lowest possible address that is not below @min as
+ * EFI_LOADER_DATA. The allocated pages are aligned according to @align but at
+ * least EFI_ALLOC_ALIGN. The first allocated page will not below the address
+ * given by @min.
+ *
+ * Return:	status code
  */
 efi_status_t efi_low_alloc_above(unsigned long size, unsigned long align,
 				 unsigned long *addr, unsigned long min)
@@ -174,6 +206,17 @@ fail:
 	return status;
 }
 
+/**
+ * efi_free() - free memory pages
+ * @size:	size of the memory area to free in bytes
+ * @addr:	start of the memory area to free (must be EFI_PAGE_SIZE
+ *		aligned)
+ *
+ * @size is rounded up to a multiple of EFI_ALLOC_ALIGN which is an
+ * architecture specific multiple of EFI_PAGE_SIZE. So this function should
+ * only be used to return pages allocated with efi_allocate_pages() or
+ * efi_low_alloc_above().
+ */
 void efi_free(unsigned long size, unsigned long addr)
 {
 	unsigned long nr_pages;
@@ -185,15 +228,26 @@ void efi_free(unsigned long size, unsigned long addr)
 	efi_bs_call(free_pages, addr, nr_pages);
 }
 
-/*
- * Relocate a kernel image, either compressed or uncompressed.
- * In the ARM64 case, all kernel images are currently
- * uncompressed, and as such when we relocate it we need to
- * allocate additional space for the BSS segment. Any low
- * memory that this function should avoid needs to be
- * unavailable in the EFI memory map, as if the preferred
- * address is not available the lowest available address will
- * be used.
+/**
+ * efi_relocate_kernel() - copy memory area
+ * @image_addr:		pointer to address of memory area to copy
+ * @image_size:		size of memory area to copy
+ * @alloc_size:		minimum size of memory to allocate, must be greater or
+ *			equal to image_size
+ * @preferred_addr:	preferred target address
+ * @alignment:		minimum alignment of the allocated memory area. It
+ *			should be a power of two.
+ * @min_addr:		minimum target address
+ *
+ * Copy a memory area to a newly allocated memory area aligned according
+ * to @alignment but at least EFI_ALLOC_ALIGN. If the preferred address
+ * is not available, the allocated address will not be below @min_addr.
+ * On exit, @image_addr is updated to the target copy address that was used.
+ *
+ * This function is used to copy the Linux kernel verbatim. It does not apply
+ * any relocation changes.
+ *
+ * Return:		status code
  */
 efi_status_t efi_relocate_kernel(unsigned long *image_addr,
 				 unsigned long image_size,

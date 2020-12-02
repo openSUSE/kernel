@@ -75,14 +75,12 @@ efi_status_t handle_kernel_image(unsigned long *image_addr,
 
 	if (IS_ENABLED(CONFIG_RANDOMIZE_BASE) && phys_seed != 0) {
 		/*
-		 * If CONFIG_DEBUG_ALIGN_RODATA is not set, produce a
-		 * displacement in the interval [0, MIN_KIMG_ALIGN) that
-		 * doesn't violate this kernel's de-facto alignment
+		 * Produce a displacement in the interval [0, MIN_KIMG_ALIGN)
+		 * that doesn't violate this kernel's de-facto alignment
 		 * constraints.
 		 */
 		u32 mask = (MIN_KIMG_ALIGN - 1) & ~(EFI_KIMG_ALIGN - 1);
-		u32 offset = !IS_ENABLED(CONFIG_DEBUG_ALIGN_RODATA) ?
-			     (phys_seed >> 32) & mask : TEXT_OFFSET;
+		u32 offset = (phys_seed >> 32) & mask;
 
 		/*
 		 * With CONFIG_RANDOMIZE_TEXT_OFFSET=y, TEXT_OFFSET may not
@@ -116,6 +114,7 @@ efi_status_t handle_kernel_image(unsigned long *image_addr,
 		 * Mustang), we can still place the kernel at the address
 		 * 'dram_base + TEXT_OFFSET'.
 		 */
+		*image_addr = (unsigned long)_text;
 		if (*image_addr == preferred_offset)
 			return EFI_SUCCESS;
 
@@ -140,7 +139,11 @@ efi_status_t handle_kernel_image(unsigned long *image_addr,
 		}
 		*image_addr = *reserve_addr + TEXT_OFFSET;
 	}
-	memcpy((void *)*image_addr, image->image_base, kernel_size);
+
+	if (image->image_base != _text)
+		pr_efi_err("FIRMWARE BUG: efi_loaded_image_t::image_base has bogus value\n");
+
+	memcpy((void *)*image_addr, _text, kernel_size);
 
 	return EFI_SUCCESS;
 }

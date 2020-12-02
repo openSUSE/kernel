@@ -332,6 +332,8 @@ void efi_native_runtime_setup(void);
 #define EFI_CONSOLE_OUT_DEVICE_GUID		EFI_GUID(0xd3b36f2c, 0xd551, 0x11d4,  0x9a, 0x46, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d)
 #define APPLE_PROPERTIES_PROTOCOL_GUID		EFI_GUID(0x91bd12fe, 0xf6c3, 0x44fb,  0xa5, 0xb7, 0x51, 0x22, 0xab, 0x30, 0x3a, 0xe0)
 #define EFI_TCG2_PROTOCOL_GUID			EFI_GUID(0x607f766c, 0x7455, 0x42be,  0x93, 0x0b, 0xe4, 0xd7, 0x6d, 0xb2, 0x72, 0x0f)
+#define EFI_LOAD_FILE_PROTOCOL_GUID		EFI_GUID(0x56ec3091, 0x954c, 0x11d2,  0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b)
+#define EFI_LOAD_FILE2_PROTOCOL_GUID		EFI_GUID(0x4006c0c1, 0xfcb3, 0x403e,  0x99, 0x6d, 0x4a, 0x6c, 0x87, 0x24, 0xe0, 0x6d)
 #define EFI_RT_PROPERTIES_TABLE_GUID		EFI_GUID(0xeb66918a, 0x7eef, 0x402a,  0x84, 0x2e, 0x93, 0x1d, 0x21, 0xc3, 0x8a, 0xe9)
 
 #define EFI_IMAGE_SECURITY_DATABASE_GUID	EFI_GUID(0xd719b2cb, 0x3d3a, 0x4596,  0xa3, 0xbc, 0xda, 0xd0, 0x0e, 0x67, 0x65, 0x6f)
@@ -352,6 +354,7 @@ void efi_native_runtime_setup(void);
 #define LINUX_EFI_TPM_EVENT_LOG_GUID		EFI_GUID(0xb7799cb0, 0xeca2, 0x4943,  0x96, 0x67, 0x1f, 0xae, 0x07, 0xb7, 0x47, 0xfa)
 #define LINUX_EFI_TPM_FINAL_LOG_GUID		EFI_GUID(0x1e2ed096, 0x30e2, 0x4254,  0xbd, 0x89, 0x86, 0x3b, 0xbe, 0xf8, 0x23, 0x25)
 #define LINUX_EFI_MEMRESERVE_TABLE_GUID		EFI_GUID(0x888eb0c6, 0x8ede, 0x4ff5,  0xa8, 0xf0, 0x9a, 0xee, 0x5c, 0xb9, 0x77, 0xc2)
+#define LINUX_EFI_INITRD_MEDIA_GUID		EFI_GUID(0x5568e427, 0x68fc, 0x4f3d,  0xac, 0x74, 0xca, 0x55, 0x52, 0x31, 0xcc, 0x68)
 
 /* OEM GUIDs */
 #define DELLEMC_EFI_RCI2_TABLE_GUID		EFI_GUID(0x2d9f28a2, 0xa886, 0x456a,  0x97, 0xa8, 0xf1, 0x1e, 0xf2, 0x4f, 0xf4, 0x55)
@@ -475,14 +478,6 @@ struct efi_mem_range {
 	u64 attribute;
 };
 
-struct efi_fdt_params {
-	u64 system_table;
-	u64 mmap;
-	u32 mmap_size;
-	u32 desc_size;
-	u32 desc_ver;
-};
-
 typedef struct {
 	u32 version;
 	u32 length;
@@ -531,48 +526,40 @@ typedef struct {
 	efi_time_t time_of_revocation;
 } efi_cert_x509_sha256_t;
 
+extern unsigned long __ro_after_init efi_rng_seed;		/* RNG Seed table */
+
 /*
  * All runtime access to EFI goes through this structure:
  */
 extern struct efi {
-	efi_system_table_t *systab;	/* EFI system table */
-	unsigned int runtime_version;	/* Runtime services version */
-	unsigned long mps;		/* MPS table */
-	unsigned int  runtime_supported_mask;
-	unsigned long acpi;		/* ACPI table  (IA64 ext 0.71) */
-	unsigned long acpi20;		/* ACPI table  (ACPI 2.0) */
-	unsigned long smbios;		/* SMBIOS table (32 bit entry point) */
-	unsigned long smbios3;		/* SMBIOS table (64 bit entry point) */
-	unsigned long sal_systab;	/* SAL system table */
-	unsigned long boot_info;	/* boot info table */
-	unsigned long hcdp;		/* HCDP table */
-	unsigned long uga;		/* UGA table */
-	unsigned long fw_vendor;	/* fw_vendor */
-	unsigned long runtime;		/* runtime table */
-	unsigned long config_table;	/* config tables */
-	unsigned long esrt;		/* ESRT table */
-	unsigned long properties_table;	/* properties table */
-	unsigned long mem_attr_table;	/* memory attributes table */
-	unsigned long rng_seed;		/* UEFI firmware random seed */
-	unsigned long tpm_log;		/* TPM2 Event Log table */
-	unsigned long tpm_final_log;	/* TPM2 Final Events Log table */
-	unsigned long mem_reserve;	/* Linux EFI memreserve table */
-	efi_get_time_t *get_time;
-	efi_set_time_t *set_time;
-	efi_get_wakeup_time_t *get_wakeup_time;
-	efi_set_wakeup_time_t *set_wakeup_time;
-	efi_get_variable_t *get_variable;
-	efi_get_next_variable_t *get_next_variable;
-	efi_set_variable_t *set_variable;
-	efi_set_variable_t *set_variable_nonblocking;
-	efi_query_variable_info_t *query_variable_info;
-	efi_query_variable_info_t *query_variable_info_nonblocking;
-	efi_update_capsule_t *update_capsule;
-	efi_query_capsule_caps_t *query_capsule_caps;
-	efi_get_next_high_mono_count_t *get_next_high_mono_count;
-	efi_reset_system_t *reset_system;
-	struct efi_memory_map memmap;
-	unsigned long flags;
+	const efi_runtime_services_t	*runtime;		/* EFI runtime services table */
+	unsigned int			runtime_version;	/* Runtime services version */
+	unsigned int			runtime_supported_mask;
+	unsigned long			acpi;			/* ACPI table  (IA64 ext 0.71) */
+	unsigned long			acpi20;			/* ACPI table  (ACPI 2.0) */
+	unsigned long			smbios;			/* SMBIOS table (32 bit entry point) */
+	unsigned long			smbios3;		/* SMBIOS table (64 bit entry point) */
+	unsigned long			esrt;			/* ESRT table */
+	unsigned long			tpm_log;		/* TPM2 Event Log table */
+	unsigned long			tpm_final_log;		/* TPM2 Final Events Log table */
+
+	efi_get_time_t			*get_time;
+	efi_set_time_t			*set_time;
+	efi_get_wakeup_time_t		*get_wakeup_time;
+	efi_set_wakeup_time_t		*set_wakeup_time;
+	efi_get_variable_t		*get_variable;
+	efi_get_next_variable_t		*get_next_variable;
+	efi_set_variable_t		*set_variable;
+	efi_set_variable_t		*set_variable_nonblocking;
+	efi_query_variable_info_t	*query_variable_info;
+	efi_query_variable_info_t	*query_variable_info_nonblocking;
+	efi_update_capsule_t		*update_capsule;
+	efi_query_capsule_caps_t	*query_capsule_caps;
+	efi_get_next_high_mono_count_t	*get_next_high_mono_count;
+	efi_reset_system_t		*reset_system;
+
+	struct efi_memory_map		memmap;
+	unsigned long			flags;
 } efi;
 
 #define EFI_RT_SUPPORTED_GET_TIME 				0x0001
@@ -648,14 +635,18 @@ extern int __init efi_memmap_split_count(efi_memory_desc_t *md,
 extern void __init efi_memmap_insert(struct efi_memory_map *old_memmap,
 				     void *buf, struct efi_mem_range *mem);
 
-extern int efi_config_init(efi_config_table_type_t *arch_tables);
 #ifdef CONFIG_EFI_ESRT
 extern void __init efi_esrt_init(void);
 #else
 static inline void efi_esrt_init(void) { }
 #endif
-extern int efi_config_parse_tables(void *config_tables, int count, int sz,
-				   efi_config_table_type_t *arch_tables);
+extern int efi_config_parse_tables(const efi_config_table_t *config_tables,
+				   int count,
+				   const efi_config_table_type_t *arch_tables);
+extern int efi_systab_check_header(const efi_table_hdr_t *systab_hdr,
+				   int min_major_version);
+extern void efi_systab_report_header(const efi_table_hdr_t *systab_hdr,
+				     unsigned long fw_vendor);
 extern u64 efi_get_iobase (void);
 extern int efi_mem_type(unsigned long phys_addr);
 extern u64 efi_mem_attributes (unsigned long phys_addr);
@@ -667,7 +658,7 @@ extern void efi_mem_reserve(phys_addr_t addr, u64 size);
 extern int efi_mem_reserve_persistent(phys_addr_t addr, u64 size);
 extern void efi_initialize_iomem_resources(struct resource *code_resource,
 		struct resource *data_resource, struct resource *bss_resource);
-extern int efi_get_fdt_params(struct efi_fdt_params *params);
+extern u64 efi_get_fdt_params(struct efi_memory_map_data *data);
 extern struct kobject *efi_kobj;
 
 extern int efi_reboot_quirk_mode;
@@ -678,6 +669,8 @@ extern void __init efi_fake_memmap(void);
 #else
 static inline void efi_fake_memmap(void) { }
 #endif
+
+extern unsigned long efi_mem_attr_table;
 
 /*
  * efi_memattr_perm_setter - arch specific callback function passed into
@@ -912,30 +905,40 @@ extern const char *efi_status_to_str(efi_status_t status);
 #define   EFI_DEV_END_ENTIRE			0xFF
 
 struct efi_generic_dev_path {
-	u8 type;
-	u8 sub_type;
-	u16 length;
-} __attribute ((packed));
+	u8				type;
+	u8				sub_type;
+	u16				length;
+} __packed;
+
+struct efi_acpi_dev_path {
+	struct efi_generic_dev_path	header;
+	u32				hid;
+	u32				uid;
+} __packed;
+
+struct efi_pci_dev_path {
+	struct efi_generic_dev_path	header;
+	u8				fn;
+	u8				dev;
+} __packed;
+
+struct efi_vendor_dev_path {
+	struct efi_generic_dev_path	header;
+	efi_guid_t			vendorguid;
+	u8				vendordata[];
+} __packed;
 
 struct efi_dev_path {
-	u8 type;	/* can be replaced with unnamed */
-	u8 sub_type;	/* struct efi_generic_dev_path; */
-	u16 length;	/* once we've moved to -std=c11 */
 	union {
-		struct {
-			u32 hid;
-			u32 uid;
-		} acpi;
-		struct {
-			u8 fn;
-			u8 dev;
-		} pci;
+		struct efi_generic_dev_path	header;
+		struct efi_acpi_dev_path	acpi;
+		struct efi_pci_dev_path		pci;
+		struct efi_vendor_dev_path	vendor;
 	};
-} __attribute ((packed));
+} __packed;
 
-#if IS_ENABLED(CONFIG_EFI_DEV_PATH_PARSER)
-struct device *efi_get_device_by_path(struct efi_dev_path **node, size_t *len);
-#endif
+struct device *efi_get_device_by_path(const struct efi_dev_path **node,
+				      size_t *len);
 
 static inline void memrange_efi_to_native(u64 *addr, u64 *npages)
 {
@@ -1272,6 +1275,10 @@ struct linux_efi_memreserve {
 
 #define EFI_MEMRESERVE_COUNT(size) (((size) - sizeof(struct linux_efi_memreserve)) \
 	/ sizeof(((struct linux_efi_memreserve *)0)->entry[0]))
+
+void __init efi_arch_mem_reserve(phys_addr_t addr, u64 size);
+
+char *efi_systab_show_arch(char *str);
 
 #ifdef CONFIG_EFI_SECRET_KEY
 #define EFI_SECRET_GUID \

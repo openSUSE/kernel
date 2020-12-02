@@ -14,6 +14,7 @@
 
 static bool __efistub_global efi_nochunk;
 static bool __efistub_global efi_nokaslr;
+static bool __efistub_global efi_noinitrd;
 static bool __efistub_global efi_quiet;
 static bool __efistub_global efi_novamap;
 static bool __efistub_global efi_nosoftreserve;
@@ -27,6 +28,10 @@ bool __pure nochunk(void)
 bool __pure nokaslr(void)
 {
 	return efi_nokaslr;
+}
+bool __pure noinitrd(void)
+{
+	return efi_noinitrd;
 }
 bool __pure is_quiet(void)
 {
@@ -68,66 +73,41 @@ void efi_printk(char *str)
  */
 efi_status_t efi_parse_options(char const *cmdline)
 {
-	char *str;
+	size_t len = strlen(cmdline) + 1;
+	efi_status_t status;
+	char *str, *buf;
 
-	str = strstr(cmdline, "nokaslr");
-	if (str == cmdline || (str && str > cmdline && *(str - 1) == ' '))
-		efi_nokaslr = true;
+	status = efi_bs_call(allocate_pool, EFI_LOADER_DATA, len, (void **)&buf);
+	if (status != EFI_SUCCESS)
+		return status;
 
-	str = strstr(cmdline, "quiet");
-	if (str == cmdline || (str && str > cmdline && *(str - 1) == ' '))
-		efi_quiet = true;
+	str = skip_spaces(memcpy(buf, cmdline, len));
 
-	/*
-	 * If no EFI parameters were specified on the cmdline we've got
-	 * nothing to do.
-	 */
-	str = strstr(cmdline, "efi=");
-	if (!str)
-		return EFI_SUCCESS;
+	while (*str) {
+		char *param, *val;
 
-	/* Skip ahead to first argument */
-	str += strlen("efi=");
+		str = next_arg(str, &param, &val);
 
-	/*
-	 * Remember, because efi= is also used by the kernel we need to
-	 * skip over arguments we don't understand.
-	 */
-	while (*str && *str != ' ') {
-		if (!strncmp(str, "nochunk", 7)) {
-			str += strlen("nochunk");
-			efi_nochunk = true;
+		if (!strcmp(param, "nokaslr")) {
+			efi_nokaslr = true;
+		} else if (!strcmp(param, "quiet")) {
+			efi_quiet = true;
+		} else if (!strcmp(param, "noinitrd")) {
+			efi_noinitrd = true;
+		} else if (!strcmp(param, "efi") && val) {
+			efi_nochunk = parse_option_str(val, "nochunk");
+			efi_novamap = parse_option_str(val, "novamap");
+
+			efi_nosoftreserve = IS_ENABLED(CONFIG_EFI_SOFT_RESERVE) &&
+					    parse_option_str(val, "nosoftreserve");
+
+			if (parse_option_str(val, "disable_early_pci_dma"))
+				efi_disable_pci_dma = true;
+			if (parse_option_str(val, "no_disable_early_pci_dma"))
+				efi_disable_pci_dma = false;
 		}
-
-		if (!strncmp(str, "novamap", 7)) {
-			str += strlen("novamap");
-			efi_novamap = true;
-		}
-
-		if (IS_ENABLED(CONFIG_EFI_SOFT_RESERVE) &&
-		    !strncmp(str, "nosoftreserve", 7)) {
-			str += strlen("nosoftreserve");
-			efi_nosoftreserve = true;
-		}
-
-		if (!strncmp(str, "disable_early_pci_dma", 21)) {
-			str += strlen("disable_early_pci_dma");
-			efi_disable_pci_dma = true;
-		}
-
-		if (!strncmp(str, "no_disable_early_pci_dma", 24)) {
-			str += strlen("no_disable_early_pci_dma");
-			efi_disable_pci_dma = false;
-		}
-
-		/* Group words together, delimited by "," */
-		while (*str && *str != ' ' && *str != ',')
-			str++;
-
-		if (*str == ',')
-			str++;
 	}
-
+	efi_bs_call(free_pool, buf);
 	return EFI_SUCCESS;
 }
 
@@ -191,8 +171,8 @@ char *efi_convert_cmdline(efi_loaded_image_t *image,
 	const u16 *s2;
 	u8 *s1 = NULL;
 	unsigned long cmdline_addr = 0;
-	int load_options_chars = image->load_options_size / 2; /* UTF-16 */
-	const u16 *options = image->load_options;
+	int load_options_chars = efi_table_attr(image, load_options_size) / 2;
+	const u16 *options = efi_table_attr(image, load_options);
 	int options_bytes = 0;  /* UTF-8 bytes */
 	int options_chars = 0;  /* UTF-16 chars */
 	efi_status_t status;
@@ -325,4 +305,90 @@ void efi_char16_printk(efi_char16_t *str)
 {
 	efi_call_proto(efi_table_attr(efi_system_table(), con_out),
 		       output_string, str);
+}
+
+/*
+ * The LINUX_EFI_INITRD_MEDIA_GUID vendor media device path below provides a way
+ * for the firmware or bootloader to expose the initrd data directly to the stub
+ * via the trivial LoadFile2 protocol, which is defined in the UEFI spec, and is
+ * very easy to implement. It is a simple Linux initrd specific conduit between
+ * kernel and firmware, allowing us to put the EFI stub (being part of the
+ * kernel) in charge of where and when to load the initrd, while leaving it up
+ * to the firmware to decide whether it needs to expose its filesystem hierarchy
+ * via EFI protocols.
+ */
+static const struct {
+	struct efi_vendor_dev_path	vendor;
+	struct efi_generic_dev_path	end;
+} __packed initrd_dev_path = {
+	{
+		{
+			EFI_DEV_MEDIA,
+			EFI_DEV_MEDIA_VENDOR,
+			sizeof(struct efi_vendor_dev_path),
+		},
+		LINUX_EFI_INITRD_MEDIA_GUID
+	}, {
+		EFI_DEV_END_PATH,
+		EFI_DEV_END_ENTIRE,
+		sizeof(struct efi_generic_dev_path)
+	}
+};
+
+/**
+ * efi_load_initrd_dev_path - load the initrd from the Linux initrd device path
+ * @load_addr:	pointer to store the address where the initrd was loaded
+ * @load_size:	pointer to store the size of the loaded initrd
+ * @max:	upper limit for the initrd memory allocation
+ * @return:	%EFI_SUCCESS if the initrd was loaded successfully, in which
+ *		case @load_addr and @load_size are assigned accordingly
+ *		%EFI_NOT_FOUND if no LoadFile2 protocol exists on the initrd
+ *		device path
+ *		%EFI_INVALID_PARAMETER if load_addr == NULL or load_size == NULL
+ *		%EFI_OUT_OF_RESOURCES if memory allocation failed
+ *		%EFI_LOAD_ERROR in all other cases
+ */
+efi_status_t efi_load_initrd_dev_path(unsigned long *load_addr,
+				      unsigned long *load_size,
+				      unsigned long max)
+{
+	efi_guid_t lf2_proto_guid = EFI_LOAD_FILE2_PROTOCOL_GUID;
+	efi_device_path_protocol_t *dp;
+	efi_load_file2_protocol_t *lf2;
+	unsigned long initrd_addr;
+	unsigned long initrd_size;
+	efi_handle_t handle;
+	efi_status_t status;
+
+	if (!load_addr || !load_size)
+		return EFI_INVALID_PARAMETER;
+
+	dp = (efi_device_path_protocol_t *)&initrd_dev_path;
+	status = efi_bs_call(locate_device_path, &lf2_proto_guid, &dp, &handle);
+	if (status != EFI_SUCCESS)
+		return status;
+
+	status = efi_bs_call(handle_protocol, handle, &lf2_proto_guid,
+			     (void **)&lf2);
+	if (status != EFI_SUCCESS)
+		return status;
+
+	status = efi_call_proto(lf2, load_file, dp, false, &initrd_size, NULL);
+	if (status != EFI_BUFFER_TOO_SMALL)
+		return EFI_LOAD_ERROR;
+
+	status = efi_allocate_pages(initrd_size, &initrd_addr, max);
+	if (status != EFI_SUCCESS)
+		return status;
+
+	status = efi_call_proto(lf2, load_file, dp, false, &initrd_size,
+				(void *)initrd_addr);
+	if (status != EFI_SUCCESS) {
+		efi_free(initrd_size, initrd_addr);
+		return EFI_LOAD_ERROR;
+	}
+
+	*load_addr = initrd_addr;
+	*load_size = initrd_size;
+	return EFI_SUCCESS;
 }
