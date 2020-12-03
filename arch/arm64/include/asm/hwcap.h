@@ -86,6 +86,7 @@
 #define KERNEL_HWCAP_SVESM4		__khwcap2_feature(SVESM4)
 #define KERNEL_HWCAP_FLAGM2		__khwcap2_feature(FLAGM2)
 #define KERNEL_HWCAP_FRINT		__khwcap2_feature(FRINT)
+#define KERNEL_HWCAP_RNG		__khwcap2_feature(RNG)
 #define KERNEL_HWCAP_SVEI8MM		__khwcap2_feature(SVEI8MM)
 #define KERNEL_HWCAP_SVEF32MM		__khwcap2_feature(SVEF32MM)
 #define KERNEL_HWCAP_SVEF64MM		__khwcap2_feature(SVEF64MM)
