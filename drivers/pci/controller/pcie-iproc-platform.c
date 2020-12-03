@@ -98,13 +98,6 @@ static int iproc_pcie_pltfm_probe(struct platform_device *pdev)
 		pcie->phy = NULL;
 	}
 
-	ret = pci_parse_request_of_pci_ranges(dev, &bridge->windows,
-					      &bridge->dma_ranges, NULL);
-	if (ret) {
-		dev_err(dev, "unable to get PCI host bridge resources\n");
-		return ret;
-	}
-
 	/* PAXC doesn't support legacy IRQs, skip mapping */
 	switch (pcie->type) {
 	case IPROC_PCIE_PAXC:
