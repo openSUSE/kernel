@@ -4,14 +4,17 @@
 #ifndef __CHCR_KTLS_H__
 #define __CHCR_KTLS_H__
 
-#ifdef CONFIG_CHELSIO_TLS_DEVICE
-#include <net/tls.h>
 #include "cxgb4.h"
 #include "t4_msg.h"
 #include "t4_tcb.h"
 #include "l2t.h"
 #include "chcr_common.h"
 #include "cxgb4_uld.h"
+#include "clip_tbl.h"
+
+#define CHCR_KTLS_DRV_MODULE_NAME "ch_ktls"
+#define CHCR_KTLS_DRV_VERSION "1.0.0.0-ko"
+#define CHCR_KTLS_DRV_DESC "Chelsio NIC TLS ULD Driver"
 
 #define CHCR_TCB_STATE_CLOSED	0
 #define CHCR_KTLS_KEY_CTX_LEN	16
@@ -23,23 +26,22 @@
 
 #define CHCR_KTLS_WR_SIZE	(CHCR_PLAIN_TX_DATA_LEN +\
 				 sizeof(struct cpl_tx_sec_pdu))
+#define FALLBACK		35
 
-enum chcr_ktls_conn_state {
-	KTLS_CONN_CLOSED,
-	KTLS_CONN_ACT_OPEN_REQ,
-	KTLS_CONN_ACT_OPEN_RPL,
-	KTLS_CONN_SET_TCB_REQ,
-	KTLS_CONN_SET_TCB_RPL,
-	KTLS_CONN_TX_READY,
+enum ch_ktls_open_state {
+	CH_KTLS_OPEN_SUCCESS = 0,
+	CH_KTLS_OPEN_PENDING = 1,
+	CH_KTLS_OPEN_FAILURE = 2,
 };
 
 struct chcr_ktls_info {
 	struct sock *sk;
-	spinlock_t lock; /* state machine lock */
+	spinlock_t lock; /* lock for pending_close */
 	struct ktls_key_ctx key_ctx;
 	struct adapter *adap;
 	struct l2t_entry *l2te;
 	struct net_device *netdev;
+	struct completion completion;
 	u64 iv;
 	u64 record_no;
 	int tid;
@@ -55,18 +57,24 @@ struct chcr_ktls_info {
 	u32 tcp_start_seq_number;
 	u32 scmd0_short_seqno_numivs;
 	u32 scmd0_short_ivgen_hdrlen;
-	enum chcr_ktls_conn_state connection_state;
 	u16 prev_win;
 	u8 tx_chan;
 	u8 smt_idx;
 	u8 port_id;
 	u8 ip_family;
 	u8 first_qset;
+	enum ch_ktls_open_state open_state;
+	bool pending_close;
 };
 
 struct chcr_ktls_ofld_ctx_tx {
 	struct tls_offload_context_tx base;
 	struct chcr_ktls_info *chcr_info;
+};
+
+struct chcr_ktls_uld_ctx {
+	struct list_head entry;
+	struct cxgb4_lld_info lldi;
 };
 
 static inline struct chcr_ktls_ofld_ctx_tx *
@@ -82,22 +90,12 @@ chcr_get_ktls_tx_context(struct tls_context *tls_ctx)
 static inline int chcr_get_first_rx_qid(struct adapter *adap)
 {
 	/* u_ctx is saved in adap, fetch it */
-	struct uld_ctx *u_ctx = adap->uld[CXGB4_ULD_CRYPTO].handle;
+	struct chcr_ktls_uld_ctx *u_ctx = adap->uld[CXGB4_ULD_KTLS].handle;
 
 	if (!u_ctx)
 		return -1;
 	return u_ctx->lldi.rxq_ids[0];
 }
 
-int chcr_ktls_cpl_act_open_rpl(struct adapter *adap, unsigned char *input);
-int chcr_ktls_cpl_set_tcb_rpl(struct adapter *adap, unsigned char *input);
-int chcr_ktls_xmit(struct sk_buff *skb, struct net_device *dev);
-int chcr_ktls_dev_add(struct net_device *netdev, struct sock *sk,
-		      enum tls_offload_ctx_dir direction,
-		      struct tls_crypto_info *crypto_info,
-		      u32 start_offload_tcp_sn);
-void chcr_ktls_dev_del(struct net_device *netdev,
-		       struct tls_context *tls_ctx,
-		       enum tls_offload_ctx_dir direction);
-#endif /* CONFIG_CHELSIO_TLS_DEVICE */
+typedef int (*chcr_handler_func)(struct adapter *adap, unsigned char *input);
 #endif /* __CHCR_KTLS_H__ */
