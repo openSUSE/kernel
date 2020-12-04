@@ -65,6 +65,7 @@
 #define HWCAP2_SVESM4		(1 << 6)
 #define HWCAP2_FLAGM2		(1 << 7)
 #define HWCAP2_FRINT		(1 << 8)
+#define HWCAP2_RNG		(1 << 9)
 #define HWCAP2_SVEI8MM		(1 << 9)
 #define HWCAP2_SVEF32MM		(1 << 10)
 #define HWCAP2_SVEF64MM		(1 << 11)

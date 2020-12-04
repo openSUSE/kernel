@@ -60,6 +60,10 @@ Other hwcaps may indicate the presence of features which cannot be
 described by ID registers alone. These may be described without
 reference to ID registers, and may refer to other documentation.
 
+HWCAP2_RNG
+
+    Functionality implied by ID_AA64ISAR0_EL1.RNDR == 0b0001.
+
 
 3. The hwcaps exposed in AT_HWCAP
 ---------------------------------
