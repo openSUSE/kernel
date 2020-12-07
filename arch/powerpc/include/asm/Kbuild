@@ -11,5 +11,4 @@ generic-y += mcs_spinlock.h
 generic-y += preempt.h
 generic-y += qrwlock.h
 generic-y += vtime.h
-generic-y += msi.h
 generic-y += simd.h
