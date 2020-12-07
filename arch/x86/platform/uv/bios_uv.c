@@ -46,7 +46,8 @@ static s64 __uv_bios_call(enum uv_bios_cmd which, u64 a1, u64 a2, u64 a3,
 	return ret;
 }
 
-s64 uv_bios_call(enum uv_bios_cmd which, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5)
+static s64 uv_bios_call(enum uv_bios_cmd which, u64 a1, u64 a2, u64 a3, u64 a4,
+		u64 a5)
 {
 	s64 ret;
 
@@ -58,10 +59,9 @@ s64 uv_bios_call(enum uv_bios_cmd which, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5)
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(uv_bios_call);
 
-s64 uv_bios_call_irqsave(enum uv_bios_cmd which, u64 a1, u64 a2, u64 a3,
-					u64 a4, u64 a5)
+static s64 uv_bios_call_irqsave(enum uv_bios_cmd which, u64 a1, u64 a2, u64 a3,
+		u64 a4, u64 a5)
 {
 	unsigned long bios_flags;
 	s64 ret;
@@ -77,7 +77,6 @@ s64 uv_bios_call_irqsave(enum uv_bios_cmd which, u64 a1, u64 a2, u64 a3,
 
 	return ret;
 }
-
 
 long sn_partition_id;
 EXPORT_SYMBOL_GPL(sn_partition_id);
