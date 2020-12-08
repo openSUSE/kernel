@@ -70,9 +70,9 @@ _head:
 	 * its opcode forms the magic "MZ" signature required by UEFI.
 	 */
 	add	x13, x18, #0x16
-	b	stext
+	b	primary_entry
 #else
-	b	stext				// branch to kernel start, magic
+	b	primary_entry			// branch to kernel start, magic
 	.long	0				// reserved
 #endif
 	le64sym	_kernel_offset_le		// Image load offset from start of RAM, little-endian
@@ -98,12 +98,13 @@ pe_header:
 	 * primary lowlevel boot path:
 	 *
 	 *  Register   Scope                      Purpose
-	 *  x21        stext() .. start_kernel()  FDT pointer passed at boot in x0
-	 *  x23        stext() .. start_kernel()  physical misalignment/KASLR offset
-	 *  x28        __create_page_tables()     callee preserved temp register
-	 *  x19/x20    __primary_switch()         callee preserved temp registers
+	 *  x21        primary_entry() .. start_kernel()        FDT pointer passed at boot in x0
+	 *  x23        primary_entry() .. start_kernel()        physical misalignment/KASLR offset
+	 *  x28        __create_page_tables()                   callee preserved temp register
+	 *  x19/x20    __primary_switch()                       callee preserved temp registers
+	 *  x24        __primary_switch() .. relocate_kernel()  current RELR displacement
 	 */
-ENTRY(stext)
+SYM_CODE_START(primary_entry)
 	bl	preserve_boot_args
 	bl	el2_setup			// Drop to EL1, w0=cpu_boot_mode
 	adrp	x23, __PHYS_OFFSET
@@ -118,12 +119,12 @@ ENTRY(stext)
 	 */
 	bl	__cpu_setup			// initialise processor
 	b	__primary_switch
-ENDPROC(stext)
+SYM_CODE_END(primary_entry)
 
 /*
  * Preserve the arguments passed by the bootloader in x0 .. x3
  */
-preserve_boot_args:
+SYM_CODE_START_LOCAL(preserve_boot_args)
 	mov	x21, x0				// x21=FDT
 
 	adr_l	x0, boot_args			// record the contents of
@@ -135,7 +136,7 @@ preserve_boot_args:
 
 	mov	x1, #0x20			// 4 x 8 bytes
 	b	__inval_dcache_area		// tail call
-ENDPROC(preserve_boot_args)
+SYM_CODE_END(preserve_boot_args)
 
 /*
  * Macro to create a table entry to the next page.
