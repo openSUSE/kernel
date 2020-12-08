@@ -71,7 +71,6 @@ struct mvebu_pcie {
 	struct platform_device *pdev;
 	struct mvebu_pcie_port *ports;
 	struct msi_controller *msi;
-	struct list_head resources;
 	struct resource io;
 	struct resource realio;
 	struct resource mem;
@@ -953,25 +952,15 @@ static void mvebu_pcie_powerdown(struct mvebu_pcie_port *port)
 }
 
 /*
- * We can't use devm_of_pci_get_host_bridge_resources() because we
- * need to parse our special DT properties encoding the MEM and IO
- * apertures.
+ * devm_of_pci_get_host_bridge_resources() only sets up translateable resources,
+ * so we need extra resource setup parsing our special DT properties encoding
+ * the MEM and IO apertures.
  */
 static int mvebu_pcie_parse_request_resources(struct mvebu_pcie *pcie)
 {
 	struct device *dev = &pcie->pdev->dev;
-	struct device_node *np = dev->of_node;
+	struct pci_host_bridge *bridge = pci_host_bridge_from_priv(pcie);
 	int ret;
-
-	INIT_LIST_HEAD(&pcie->resources);
-
-	/* Get the bus range */
-	ret = of_pci_parse_bus_range(np, &pcie->busn);
-	if (ret) {
-		dev_err(dev, "failed to parse bus-range property: %d\n", ret);
-		return ret;
-	}
-	pci_add_resource(&pcie->resources, &pcie->busn);
 
 	/* Get the PCIe memory aperture */
 	mvebu_mbus_get_pcie_mem_aperture(&pcie->mem);
@@ -981,7 +970,10 @@ static int mvebu_pcie_parse_request_resources(struct mvebu_pcie *pcie)
 	}
 
 	pcie->mem.name = "PCI MEM";
-	pci_add_resource(&pcie->resources, &pcie->mem);
+	pci_add_resource(&bridge->windows, &pcie->mem);
+	ret = devm_request_resource(dev, &iomem_resource, &pcie->mem);
+	if (ret)
+		return ret;
 
 	/* Get the PCIe IO aperture */
 	mvebu_mbus_get_pcie_io_aperture(&pcie->io);
@@ -994,10 +986,13 @@ static int mvebu_pcie_parse_request_resources(struct mvebu_pcie *pcie)
 					 resource_size(&pcie->io) - 1);
 		pcie->realio.name = "PCI I/O";
 
-		pci_add_resource(&pcie->resources, &pcie->realio);
+		pci_add_resource(&bridge->windows, &pcie->realio);
+		ret = devm_request_resource(dev, &ioport_resource, &pcie->realio);
+		if (ret)
+			return ret;
 	}
 
-	return devm_request_pci_bus_resources(dev, &pcie->resources);
+	return 0;
 }
 
 /*
@@ -1118,13 +1113,8 @@ static int mvebu_pcie_probe(struct platform_device *pdev)
 
 	pcie->nports = i;
 
-	list_splice_init(&pcie->resources, &bridge->windows);
-	bridge->dev.parent = dev;
 	bridge->sysdata = pcie;
-	bridge->busnr = 0;
 	bridge->ops = &mvebu_pcie_ops;
-	bridge->map_irq = of_irq_parse_and_map_pci;
-	bridge->swizzle_irq = pci_common_swizzle;
 	bridge->align_resource = mvebu_pcie_align_resource;
 	bridge->msi = pcie->msi;
 

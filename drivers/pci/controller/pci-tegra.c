@@ -1495,10 +1495,8 @@ static int tegra_pcie_get_resources(struct tegra_pcie *pcie)
 
 	/* request interrupt */
 	err = platform_get_irq_byname(pdev, "intr");
-	if (err < 0) {
-		dev_err(dev, "failed to get IRQ: %d\n", err);
+	if (err < 0)
 		goto phys_put;
-	}
 
 	pcie->irq = err;
 
@@ -1713,10 +1711,8 @@ static int tegra_pcie_msi_setup(struct tegra_pcie *pcie)
 	}
 
 	err = platform_get_irq_byname(pdev, "msi");
-	if (err < 0) {
-		dev_err(dev, "failed to get IRQ: %d\n", err);
+	if (err < 0)
 		goto free_irq_domain;
-	}
 
 	msi->irq = err;
 
@@ -2607,24 +2603,12 @@ static void tegra_pcie_debugfs_exit(struct tegra_pcie *pcie)
 	pcie->debugfs = NULL;
 }
 
-static int tegra_pcie_debugfs_init(struct tegra_pcie *pcie)
+static void tegra_pcie_debugfs_init(struct tegra_pcie *pcie)
 {
-	struct dentry *file;
-
 	pcie->debugfs = debugfs_create_dir("pcie", NULL);
-	if (!pcie->debugfs)
-		return -ENOMEM;
 
-	file = debugfs_create_file("ports", S_IFREG | S_IRUGO, pcie->debugfs,
-				   pcie, &tegra_pcie_ports_ops);
-	if (!file)
-		goto remove;
-
-	return 0;
-
-remove:
-	tegra_pcie_debugfs_exit(pcie);
-	return -ENOMEM;
+	debugfs_create_file("ports", S_IFREG | S_IRUGO, pcie->debugfs, pcie,
+			    &tegra_pcie_ports_ops);
 }
 
 static int tegra_pcie_probe(struct platform_device *pdev)
@@ -2632,7 +2616,6 @@ static int tegra_pcie_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct pci_host_bridge *host;
 	struct tegra_pcie *pcie;
-	struct resource *bus;
 	int err;
 
 	host = devm_pci_alloc_host_bridge(dev, sizeof(*pcie));
@@ -2646,12 +2629,6 @@ static int tegra_pcie_probe(struct platform_device *pdev)
 	pcie->soc = of_device_get_match_data(dev);
 	INIT_LIST_HEAD(&pcie->ports);
 	pcie->dev = dev;
-
-	err = pci_parse_request_of_pci_ranges(dev, &host->windows, NULL, &bus);
-	if (err) {
-		dev_err(dev, "Getting bridge resources failed\n");
-		return err;
-	}
 
 	err = tegra_pcie_parse_dt(pcie);
 	if (err < 0)
@@ -2676,11 +2653,8 @@ static int tegra_pcie_probe(struct platform_device *pdev)
 		goto pm_runtime_put;
 	}
 
-	host->busnr = bus->start;
-	host->dev.parent = &pdev->dev;
 	host->ops = &tegra_pcie_ops;
 	host->map_irq = tegra_pcie_map_irq;
-	host->swizzle_irq = pci_common_swizzle;
 
 	err = pci_host_probe(host);
 	if (err < 0) {
@@ -2688,11 +2662,8 @@ static int tegra_pcie_probe(struct platform_device *pdev)
 		goto pm_runtime_put;
 	}
 
-	if (IS_ENABLED(CONFIG_DEBUG_FS)) {
-		err = tegra_pcie_debugfs_init(pcie);
-		if (err < 0)
-			dev_err(dev, "failed to setup debugfs: %d\n", err);
-	}
+	if (IS_ENABLED(CONFIG_DEBUG_FS))
+		tegra_pcie_debugfs_init(pcie);
 
 	return 0;
 
