@@ -430,6 +430,13 @@ label##_hv:								\
 	EXCEPTION_PROLOG_1(PACA_EXGEN, SOFTEN_TEST_HV, vec);		\
 	EXCEPTION_PROLOG_PSERIES_1(label##_common, EXC_HV);
 
+#define MASKABLE_EXCEPTION_OOL(vec, label)				\
+	.globl label##_ool;						\
+label##_ool:								\
+	EXCEPTION_PROLOG_1(PACA_EXGEN, SOFTEN_TEST, vec);		\
+	EXCEPTION_PROLOG_PSERIES_1(label##_common, EXC_STD);
+
+
 #ifdef CONFIG_PPC_ISERIES
 #define DISABLE_INTS				\
 	li	r11,0;				\
