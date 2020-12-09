@@ -381,14 +381,6 @@ static void __init efi_unmap_pages(efi_memory_desc_t *md)
 	u64 va = md->virt_addr;
 
 	/*
-	 * To Do: Remove this check after adding functionality to unmap EFI boot
-	 * services code/data regions from direct mapping area because the UV1
-	 * memory map maps EFI regions in swapper_pg_dir.
-	 */
-	if (efi_have_uv1_memmap())
-		return;
-
-	/*
 	 * EFI mixed mode has all RAM mapped to access arguments while making
 	 * EFI runtime calls, hence don't unmap EFI boot services code/data
 	 * regions.
@@ -541,7 +533,7 @@ int __init efi_reuse_config(u64 tables, int nr_tables)
 		goto out_memremap;
 	}
 
-	for (i = 0; i < efi.systab->nr_tables; i++) {
+	for (i = 0; i < nr_tables; i++) {
 		efi_guid_t guid;
 
 		guid = ((efi_config_table_64_t *)p)->guid;

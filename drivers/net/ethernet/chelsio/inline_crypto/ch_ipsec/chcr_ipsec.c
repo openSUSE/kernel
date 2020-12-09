@@ -35,7 +35,7 @@
  *	Atul Gupta (atul.gupta@chelsio.com)
  */
 
-#define pr_fmt(fmt) "chcr:" fmt
+#define pr_fmt(fmt) "ch_ipsec: " fmt
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -61,9 +61,7 @@
 #include <crypto/scatterwalk.h>
 #include <crypto/internal/hash.h>
 
-#include "chcr_core.h"
-#include "chcr_algo.h"
-#include "chcr_crypto.h"
+#include "chcr_ipsec.h"
 
 /*
  * Max Tx descriptor space we allow for an Ethernet packet to be inlined
@@ -72,39 +70,80 @@
 #define MAX_IMM_TX_PKT_LEN 256
 #define GCM_ESP_IV_SIZE     8
 
-static int chcr_xfrm_add_state(struct xfrm_state *x);
-static void chcr_xfrm_del_state(struct xfrm_state *x);
-static void chcr_xfrm_free_state(struct xfrm_state *x);
-static bool chcr_ipsec_offload_ok(struct sk_buff *skb, struct xfrm_state *x);
-static void chcr_advance_esn_state(struct xfrm_state *x);
+static LIST_HEAD(uld_ctx_list);
+static DEFINE_MUTEX(dev_mutex);
 
-static const struct xfrmdev_ops chcr_xfrmdev_ops = {
-	.xdo_dev_state_add      = chcr_xfrm_add_state,
-	.xdo_dev_state_delete   = chcr_xfrm_del_state,
-	.xdo_dev_state_free     = chcr_xfrm_free_state,
-	.xdo_dev_offload_ok     = chcr_ipsec_offload_ok,
-	.xdo_dev_state_advance_esn = chcr_advance_esn_state,
+static bool ch_ipsec_offload_ok(struct sk_buff *skb, struct xfrm_state *x);
+static int ch_ipsec_uld_state_change(void *handle, enum cxgb4_state new_state);
+static int ch_ipsec_xmit(struct sk_buff *skb, struct net_device *dev);
+static void *ch_ipsec_uld_add(const struct cxgb4_lld_info *infop);
+static void ch_ipsec_advance_esn_state(struct xfrm_state *x);
+static void ch_ipsec_xfrm_free_state(struct xfrm_state *x);
+static void ch_ipsec_xfrm_del_state(struct xfrm_state *x);
+static int ch_ipsec_xfrm_add_state(struct xfrm_state *x);
+
+static const struct xfrmdev_ops ch_ipsec_xfrmdev_ops = {
+	.xdo_dev_state_add      = ch_ipsec_xfrm_add_state,
+	.xdo_dev_state_delete   = ch_ipsec_xfrm_del_state,
+	.xdo_dev_state_free     = ch_ipsec_xfrm_free_state,
+	.xdo_dev_offload_ok     = ch_ipsec_offload_ok,
+	.xdo_dev_state_advance_esn = ch_ipsec_advance_esn_state,
 };
 
-/* Add offload xfrms to Chelsio Interface */
-void chcr_add_xfrmops(const struct cxgb4_lld_info *lld)
-{
-	struct net_device *netdev = NULL;
-	int i;
+static struct cxgb4_uld_info ch_ipsec_uld_info = {
+	.name = CHIPSEC_DRV_MODULE_NAME,
+	.nrxq = MAX_ULD_QSETS,
+	/* Max ntxq will be derived from fw config file*/
+	.rxq_size = 1024,
+	.add = ch_ipsec_uld_add,
+	.state_change = ch_ipsec_uld_state_change,
+	.tx_handler = ch_ipsec_xmit,
+	.xfrmdev_ops = &ch_ipsec_xfrmdev_ops,
+};
 
-	for (i = 0; i < lld->nports; i++) {
-		netdev = lld->ports[i];
-		if (!netdev)
-			continue;
-		netdev->xfrmdev_ops = &chcr_xfrmdev_ops;
-		netdev->hw_enc_features |= NETIF_F_HW_ESP;
-		netdev->features |= NETIF_F_HW_ESP;
-		netdev_change_features(netdev);
+static void *ch_ipsec_uld_add(const struct cxgb4_lld_info *infop)
+{
+	struct ipsec_uld_ctx *u_ctx;
+
+	pr_info_once("%s - version %s\n", CHIPSEC_DRV_DESC,
+		     CHIPSEC_DRV_VERSION);
+	u_ctx = kzalloc(sizeof(*u_ctx), GFP_KERNEL);
+	if (!u_ctx) {
+		u_ctx = ERR_PTR(-ENOMEM);
+		goto out;
 	}
+	u_ctx->lldi = *infop;
+out:
+	return u_ctx;
 }
 
-static inline int chcr_ipsec_setauthsize(struct xfrm_state *x,
-					 struct ipsec_sa_entry *sa_entry)
+static int ch_ipsec_uld_state_change(void *handle, enum cxgb4_state new_state)
+{
+	struct ipsec_uld_ctx *u_ctx = handle;
+
+	pr_debug("new_state %u\n", new_state);
+	switch (new_state) {
+	case CXGB4_STATE_UP:
+		pr_info("%s: Up\n", pci_name(u_ctx->lldi.pdev));
+		mutex_lock(&dev_mutex);
+		list_add_tail(&u_ctx->entry, &uld_ctx_list);
+		mutex_unlock(&dev_mutex);
+		break;
+	case CXGB4_STATE_START_RECOVERY:
+	case CXGB4_STATE_DOWN:
+	case CXGB4_STATE_DETACH:
+		pr_info("%s: Down\n", pci_name(u_ctx->lldi.pdev));
+		list_del(&u_ctx->entry);
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+static int ch_ipsec_setauthsize(struct xfrm_state *x,
+				struct ipsec_sa_entry *sa_entry)
 {
 	int hmac_ctrl;
 	int authsize = x->aead->alg_icv_len / 8;
@@ -127,8 +166,8 @@ static inline int chcr_ipsec_setauthsize(struct xfrm_state *x,
 	return hmac_ctrl;
 }
 
-static inline int chcr_ipsec_setkey(struct xfrm_state *x,
-				    struct ipsec_sa_entry *sa_entry)
+static int ch_ipsec_setkey(struct xfrm_state *x,
+			   struct ipsec_sa_entry *sa_entry)
 {
 	int keylen = (x->aead->alg_key_len + 7) / 8;
 	unsigned char *key = x->aead->alg_key;
@@ -186,65 +225,65 @@ out:
 }
 
 /*
- * chcr_xfrm_add_state
+ * ch_ipsec_xfrm_add_state
  * returns 0 on success, negative error if failed to send message to FPGA
  * positive error if FPGA returned a bad response
  */
-static int chcr_xfrm_add_state(struct xfrm_state *x)
+static int ch_ipsec_xfrm_add_state(struct xfrm_state *x)
 {
 	struct ipsec_sa_entry *sa_entry;
 	int res = 0;
 
 	if (x->props.aalgo != SADB_AALG_NONE) {
-		pr_debug("CHCR: Cannot offload authenticated xfrm states\n");
+		pr_debug("Cannot offload authenticated xfrm states\n");
 		return -EINVAL;
 	}
 	if (x->props.calgo != SADB_X_CALG_NONE) {
-		pr_debug("CHCR: Cannot offload compressed xfrm states\n");
+		pr_debug("Cannot offload compressed xfrm states\n");
 		return -EINVAL;
 	}
 	if (x->props.family != AF_INET &&
 	    x->props.family != AF_INET6) {
-		pr_debug("CHCR: Only IPv4/6 xfrm state offloaded\n");
+		pr_debug("Only IPv4/6 xfrm state offloaded\n");
 		return -EINVAL;
 	}
 	if (x->props.mode != XFRM_MODE_TRANSPORT &&
 	    x->props.mode != XFRM_MODE_TUNNEL) {
-		pr_debug("CHCR: Only transport and tunnel xfrm offload\n");
+		pr_debug("Only transport and tunnel xfrm offload\n");
 		return -EINVAL;
 	}
 	if (x->id.proto != IPPROTO_ESP) {
-		pr_debug("CHCR: Only ESP xfrm state offloaded\n");
+		pr_debug("Only ESP xfrm state offloaded\n");
 		return -EINVAL;
 	}
 	if (x->encap) {
-		pr_debug("CHCR: Encapsulated xfrm state not offloaded\n");
+		pr_debug("Encapsulated xfrm state not offloaded\n");
 		return -EINVAL;
 	}
 	if (!x->aead) {
-		pr_debug("CHCR: Cannot offload xfrm states without aead\n");
+		pr_debug("Cannot offload xfrm states without aead\n");
 		return -EINVAL;
 	}
 	if (x->aead->alg_icv_len != 128 &&
 	    x->aead->alg_icv_len != 96) {
-		pr_debug("CHCR: Cannot offload xfrm states with AEAD ICV length other than 96b & 128b\n");
+		pr_debug("Cannot offload xfrm states with AEAD ICV length other than 96b & 128b\n");
 	return -EINVAL;
 	}
 	if ((x->aead->alg_key_len != 128 + 32) &&
 	    (x->aead->alg_key_len != 256 + 32)) {
-		pr_debug("CHCR: Cannot offload xfrm states with AEAD key length other than 128/256 bit\n");
+		pr_debug("cannot offload xfrm states with AEAD key length other than 128/256 bit\n");
 		return -EINVAL;
 	}
 	if (x->tfcpad) {
-		pr_debug("CHCR: Cannot offload xfrm states with tfc padding\n");
+		pr_debug("Cannot offload xfrm states with tfc padding\n");
 		return -EINVAL;
 	}
 	if (!x->geniv) {
-		pr_debug("CHCR: Cannot offload xfrm states without geniv\n");
+		pr_debug("Cannot offload xfrm states without geniv\n");
 		return -EINVAL;
 	}
 	if (strcmp(x->geniv, "seqiv")) {
-		pr_debug("CHCR: Cannot offload xfrm states with geniv other than seqiv\n");
+		pr_debug("Cannot offload xfrm states with geniv other than seqiv\n");
 		return -EINVAL;
 	}
 
@@ -254,24 +293,24 @@ static int chcr_xfrm_add_state(struct xfrm_state *x)
 		goto out;
 	}
 
-	sa_entry->hmac_ctrl = chcr_ipsec_setauthsize(x, sa_entry);
+	sa_entry->hmac_ctrl = ch_ipsec_setauthsize(x, sa_entry);
 	if (x->props.flags & XFRM_STATE_ESN)
 		sa_entry->esn = 1;
-	chcr_ipsec_setkey(x, sa_entry);
+	ch_ipsec_setkey(x, sa_entry);
 	x->xso.offload_handle = (unsigned long)sa_entry;
 	try_module_get(THIS_MODULE);
 out:
 	return res;
 }
 
-static void chcr_xfrm_del_state(struct xfrm_state *x)
+static void ch_ipsec_xfrm_del_state(struct xfrm_state *x)
 {
 	/* do nothing */
 	if (!x->xso.offload_handle)
 		return;
 }
 
-static void chcr_xfrm_free_state(struct xfrm_state *x)
+static void ch_ipsec_xfrm_free_state(struct xfrm_state *x)
 {
 	struct ipsec_sa_entry *sa_entry;
 
@@ -283,7 +322,7 @@ static void chcr_xfrm_free_state(struct xfrm_state *x)
 	module_put(THIS_MODULE);
 }
 
-static bool chcr_ipsec_offload_ok(struct sk_buff *skb, struct xfrm_state *x)
+static bool ch_ipsec_offload_ok(struct sk_buff *skb, struct xfrm_state *x)
 {
 	if (x->props.family == AF_INET) {
 		/* Offload with IP options is not supported yet */
@@ -297,15 +336,15 @@ static bool chcr_ipsec_offload_ok(struct sk_buff *skb, struct xfrm_state *x)
 	return true;
 }
 
-static void chcr_advance_esn_state(struct xfrm_state *x)
+static void ch_ipsec_advance_esn_state(struct xfrm_state *x)
 {
 	/* do nothing */
 	if (!x->xso.offload_handle)
 		return;
 }
 
-static inline int is_eth_imm(const struct sk_buff *skb,
-			     struct ipsec_sa_entry *sa_entry)
+static int is_eth_imm(const struct sk_buff *skb,
+		      struct ipsec_sa_entry *sa_entry)
 {
 	unsigned int kctx_len;
 	int hdrlen;
@@ -323,9 +362,9 @@ static inline int is_eth_imm(const struct sk_buff *skb,
 	return 0;
 }
 
-static inline unsigned int calc_tx_sec_flits(const struct sk_buff *skb,
-					     struct ipsec_sa_entry *sa_entry,
-					     bool *immediate)
+static unsigned int calc_tx_sec_flits(const struct sk_buff *skb,
+				      struct ipsec_sa_entry *sa_entry,
+				      bool *immediate)
 {
 	unsigned int kctx_len;
 	unsigned int flits;
@@ -366,7 +405,7 @@ static inline unsigned int calc_tx_sec_flits(const struct sk_buff *skb,
 	return flits;
 }
 
-inline void *copy_esn_pktxt(struct sk_buff *skb,
+static void *copy_esn_pktxt(struct sk_buff *skb,
 			    struct net_device *dev,
 			    void *pos,
 			    struct ipsec_sa_entry *sa_entry)
@@ -420,7 +459,7 @@ inline void *copy_esn_pktxt(struct sk_buff *skb,
 	return pos;
 }
 
-inline void *copy_cpltx_pktxt(struct sk_buff *skb,
+static void *copy_cpltx_pktxt(struct sk_buff *skb,
 			      struct net_device *dev,
 			      void *pos,
 			      struct ipsec_sa_entry *sa_entry)
@@ -464,10 +503,10 @@ inline void *copy_cpltx_pktxt(struct sk_buff *skb,
 	return pos;
 }
 
-inline void *copy_key_cpltx_pktxt(struct sk_buff *skb,
-				struct net_device *dev,
-				void *pos,
-				struct ipsec_sa_entry *sa_entry)
+static void *copy_key_cpltx_pktxt(struct sk_buff *skb,
+				  struct net_device *dev,
+				  void *pos,
+				  struct ipsec_sa_entry *sa_entry)
 {
 	struct _key_ctx *key_ctx;
 	int left, eoq, key_len;
@@ -512,11 +551,11 @@ inline void *copy_key_cpltx_pktxt(struct sk_buff *skb,
 	return pos;
 }
 
-inline void *chcr_crypto_wreq(struct sk_buff *skb,
-			       struct net_device *dev,
-			       void *pos,
-			       int credits,
-			       struct ipsec_sa_entry *sa_entry)
+static void *ch_ipsec_crypto_wreq(struct sk_buff *skb,
+				  struct net_device *dev,
+				  void *pos,
+				  int credits,
+				  struct ipsec_sa_entry *sa_entry)
 {
 	struct port_info *pi = netdev_priv(dev);
 	struct adapter *adap = pi->adapter;
@@ -539,7 +578,7 @@ inline void *chcr_crypto_wreq(struct sk_buff *skb,
 	unsigned int kctx_len = sa_entry->kctx_len;
 	int qid = q->q.cntxt_id;
 
-	atomic_inc(&adap->chcr_stats.ipsec_cnt);
+	atomic_inc(&adap->ch_ipsec_stats.ipsec_cnt);
 
 	flits = calc_tx_sec_flits(skb, sa_entry, &immediate);
 	ndesc = DIV_ROUND_UP(flits, 2);
@@ -637,13 +676,13 @@ inline void *chcr_crypto_wreq(struct sk_buff *skb,
  *      Returns the number of Tx descriptors needed for the supplied number
  *      of flits.
  */
-static inline unsigned int flits_to_desc(unsigned int n)
+static unsigned int flits_to_desc(unsigned int n)
 {
 	WARN_ON(n > SGE_MAX_WR_LEN / 8);
 	return DIV_ROUND_UP(n, 8);
 }
 
-static inline unsigned int txq_avail(const struct sge_txq *q)
+static unsigned int txq_avail(const struct sge_txq *q)
 {
 	return q->size - 1 - q->in_use;
 }
@@ -654,7 +693,7 @@ static void eth_txq_stop(struct sge_eth_txq *q)
 	q->q.stops++;
 }
 
-static inline void txq_advance(struct sge_txq *q, unsigned int n)
+static void txq_advance(struct sge_txq *q, unsigned int n)
 {
 	q->in_use += n;
 	q->pidx += n;
@@ -663,9 +702,9 @@ static inline void txq_advance(struct sge_txq *q, unsigned int n)
 }
 
 /*
- *      chcr_ipsec_xmit called from ULD Tx handler
+ *      ch_ipsec_xmit called from ULD Tx handler
  */
-int chcr_ipsec_xmit(struct sk_buff *skb, struct net_device *dev)
+int ch_ipsec_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct xfrm_state *x = xfrm_input_state(skb);
 	unsigned int last_desc, ndesc, flits = 0;
@@ -726,8 +765,8 @@ out_free:       dev_kfree_skb_any(skb);
 	before = (u64 *)pos;
 	end = (u64 *)pos + flits;
 	/* Setup IPSec CPL */
-	pos = (void *)chcr_crypto_wreq(skb, dev, (void *)pos,
-				       credits, sa_entry);
+	pos = (void *)ch_ipsec_crypto_wreq(skb, dev, (void *)pos,
+					   credits, sa_entry);
 	if (before > (u64 *)pos) {
 		left = (u8 *)end - (u8 *)q->q.stat;
 		end = (void *)q->q.desc + left;
@@ -753,3 +792,35 @@ out_free:       dev_kfree_skb_any(skb);
 	cxgb4_ring_tx_db(adap, &q->q, ndesc);
 	return NETDEV_TX_OK;
 }
+
+static int __init ch_ipsec_init(void)
+{
+	cxgb4_register_uld(CXGB4_ULD_IPSEC, &ch_ipsec_uld_info);
+
+	return 0;
+}
+
+static void __exit ch_ipsec_exit(void)
+{
+	struct ipsec_uld_ctx *u_ctx, *tmp;
+	struct adapter *adap;
+
+	mutex_lock(&dev_mutex);
+	list_for_each_entry_safe(u_ctx, tmp, &uld_ctx_list, entry) {
+		adap = pci_get_drvdata(u_ctx->lldi.pdev);
+		atomic_set(&adap->ch_ipsec_stats.ipsec_cnt, 0);
+		list_del(&u_ctx->entry);
+		kfree(u_ctx);
+	}
+	mutex_unlock(&dev_mutex);
+	cxgb4_unregister_uld(CXGB4_ULD_IPSEC);
+}
+
+module_init(ch_ipsec_init);
+module_exit(ch_ipsec_exit);
+
+MODULE_DESCRIPTION("Crypto IPSEC for Chelsio Terminator cards.");
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Chelsio Communications");
+MODULE_VERSION(CHIPSEC_DRV_VERSION);
+

@@ -29,38 +29,37 @@
  */
 #define EFI_READ_CHUNK_SIZE	SZ_1M
 
+struct finfo {
+	efi_file_info_t info;
+	efi_char16_t	filename[MAX_FILENAME_SIZE];
+};
+
 static efi_status_t efi_open_file(efi_file_protocol_t *volume,
-				  efi_char16_t *filename_16,
+				  struct finfo *fi,
 				  efi_file_protocol_t **handle,
 				  unsigned long *file_size)
 {
-	struct {
-		efi_file_info_t info;
-		efi_char16_t	filename[MAX_FILENAME_SIZE];
-	} finfo;
 	efi_guid_t info_guid = EFI_FILE_INFO_ID;
 	efi_file_protocol_t *fh;
 	unsigned long info_sz;
 	efi_status_t status;
 
-	status = volume->open(volume, &fh, filename_16, EFI_FILE_MODE_READ, 0);
+	status = volume->open(volume, &fh, fi->filename, EFI_FILE_MODE_READ, 0);
 	if (status != EFI_SUCCESS) {
-		pr_efi_err("Failed to open file: ");
-		efi_char16_printk(filename_16);
-		efi_printk("\n");
+		efi_err("Failed to open file: %ls\n", fi->filename);
 		return status;
 	}
 
-	info_sz = sizeof(finfo);
-	status = fh->get_info(fh, &info_guid, &info_sz, &finfo);
+	info_sz = sizeof(struct finfo);
+	status = fh->get_info(fh, &info_guid, &info_sz, fi);
 	if (status != EFI_SUCCESS) {
-		pr_efi_err("Failed to get file info\n");
+		efi_err("Failed to get file info\n");
 		fh->close(fh);
 		return status;
 	}
 
 	*handle = fh;
-	*file_size = finfo.info.file_size;
+	*file_size = fi->info.file_size;
 	return EFI_SUCCESS;
 }
 
@@ -74,13 +73,13 @@ static efi_status_t efi_open_volume(efi_loaded_image_t *image,
 	status = efi_bs_call(handle_protocol, image->device_handle, &fs_proto,
 			     (void **)&io);
 	if (status != EFI_SUCCESS) {
-		pr_efi_err("Failed to handle fs_proto\n");
+		efi_err("Failed to handle fs_proto\n");
 		return status;
 	}
 
 	status = io->open_volume(io, fh);
 	if (status != EFI_SUCCESS)
-		pr_efi_err("Failed to open volume\n");
+		efi_err("Failed to open volume\n");
 
 	return status;
 }
@@ -128,12 +127,13 @@ static int find_file_option(const efi_char16_t *cmdline, int cmdline_len,
  * We only support loading a file from the same filesystem as
  * the kernel image.
  */
-static efi_status_t handle_cmdline_files(efi_loaded_image_t *image,
-					 const efi_char16_t *optstr,
-					 int optstr_size,
-					 unsigned long max_addr,
-					 unsigned long *load_addr,
-					 unsigned long *load_size)
+efi_status_t handle_cmdline_files(efi_loaded_image_t *image,
+				  const efi_char16_t *optstr,
+				  int optstr_size,
+				  unsigned long soft_limit,
+				  unsigned long hard_limit,
+				  unsigned long *load_addr,
+				  unsigned long *load_size)
 {
 	const efi_char16_t *cmdline = image->load_options;
 	int cmdline_len = image->load_options_size / 2;
@@ -148,18 +148,18 @@ static efi_status_t handle_cmdline_files(efi_loaded_image_t *image,
 	if (!load_addr || !load_size)
 		return EFI_INVALID_PARAMETER;
 
-	if (IS_ENABLED(CONFIG_X86) && !nochunk())
+	if (IS_ENABLED(CONFIG_X86) && !efi_nochunk)
 		efi_chunk_size = EFI_READ_CHUNK_SIZE;
 
 	alloc_addr = alloc_size = 0;
 	do {
-		efi_char16_t filename[MAX_FILENAME_SIZE];
+		struct finfo fi;
 		unsigned long size;
 		void *addr;
 
 		offset = find_file_option(cmdline, cmdline_len,
 					  optstr, optstr_size,
-					  filename, ARRAY_SIZE(filename));
+					  fi.filename, ARRAY_SIZE(fi.filename));
 
 		if (!offset)
 			break;
@@ -173,7 +173,7 @@ static efi_status_t handle_cmdline_files(efi_loaded_image_t *image,
 				return status;
 		}
 
-		status = efi_open_file(volume, filename, &file, &size);
+		status = efi_open_file(volume, &fi, &file, &size);
 		if (status != EFI_SUCCESS)
 			goto err_close_volume;
 
@@ -187,10 +187,17 @@ static efi_status_t handle_cmdline_files(efi_loaded_image_t *image,
 		    round_up(alloc_size, EFI_ALLOC_ALIGN)) {
 			unsigned long old_addr = alloc_addr;
 
-			status = efi_allocate_pages(alloc_size + size, &alloc_addr,
-						    max_addr);
+			status = EFI_OUT_OF_RESOURCES;
+			if (soft_limit < hard_limit)
+				status = efi_allocate_pages(alloc_size + size,
+							    &alloc_addr,
+							    soft_limit);
+			if (status == EFI_OUT_OF_RESOURCES)
+				status = efi_allocate_pages(alloc_size + size,
+							    &alloc_addr,
+							    hard_limit);
 			if (status != EFI_SUCCESS) {
-				pr_efi_err("Failed to reallocate memory for files\n");
+				efi_err("Failed to allocate memory for files\n");
 				goto err_close_file;
 			}
 
@@ -214,7 +221,7 @@ static efi_status_t handle_cmdline_files(efi_loaded_image_t *image,
 
 			status = file->read(file, &chunksize, addr);
 			if (status != EFI_SUCCESS) {
-				pr_efi_err("Failed to read file\n");
+				efi_err("Failed to read file\n");
 				goto err_close_file;
 			}
 			addr += chunksize;
@@ -237,21 +244,4 @@ err_close_volume:
 	volume->close(volume);
 	efi_free(alloc_size, alloc_addr);
 	return status;
-}
-
-efi_status_t efi_load_dtb(efi_loaded_image_t *image,
-			  unsigned long *load_addr,
-			  unsigned long *load_size)
-{
-	return handle_cmdline_files(image, L"dtb=", sizeof(L"dtb=") - 2,
-				    ULONG_MAX, load_addr, load_size);
-}
-
-efi_status_t efi_load_initrd(efi_loaded_image_t *image,
-			     unsigned long *load_addr,
-			     unsigned long *load_size,
-			     unsigned long max_addr)
-{
-	return handle_cmdline_files(image, L"initrd=", sizeof(L"initrd=") - 2,
-				    max_addr, load_addr, load_size);
 }

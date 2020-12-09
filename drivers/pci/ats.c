@@ -188,7 +188,8 @@ EXPORT_SYMBOL_GPL(pci_ats_page_aligned);
 #ifdef CONFIG_PCI_PRI
 /**
  * pci_enable_pri - Enable PRI capability
- * @ pdev: PCI device structure
+ * @pdev: PCI device structure
+ * @reqs: outstanding requests
  *
  * Returns 0 on success, negative value on error
  */

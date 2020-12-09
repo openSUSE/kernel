@@ -592,6 +592,8 @@ int of_pci_parse_bus_range(struct device_node *node, struct resource *res);
 int of_get_pci_domain_nr(struct device_node *node);
 int of_pci_get_max_link_speed(struct device_node *node);
 
+int devm_of_pci_bridge_init(struct device *dev, struct pci_host_bridge *bridge);
+
 #else
 static inline int
 of_pci_parse_bus_range(struct device_node *node, struct resource *res)
@@ -610,24 +612,13 @@ of_pci_get_max_link_speed(struct device_node *node)
 {
 	return -EINVAL;
 }
-#endif /* CONFIG_OF */
 
-#if defined(CONFIG_OF_ADDRESS)
-int devm_of_pci_get_host_bridge_resources(struct device *dev,
-			unsigned char busno, unsigned char bus_max,
-			struct list_head *resources,
-			struct list_head *ib_resources,
-			resource_size_t *io_base);
-#else
-static inline int devm_of_pci_get_host_bridge_resources(struct device *dev,
-			unsigned char busno, unsigned char bus_max,
-			struct list_head *resources,
-			struct list_head *ib_resources,
-			resource_size_t *io_base)
+static inline int devm_of_pci_bridge_init(struct device *dev, struct pci_host_bridge *bridge)
 {
-	return -EINVAL;
+	return 0;
 }
-#endif
+
+#endif /* CONFIG_OF */
 
 #ifdef CONFIG_PCIEAER
 void pci_no_aer(void);

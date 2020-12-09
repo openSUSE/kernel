@@ -36,6 +36,12 @@ Two sets of Questions and Answers (Q&A) are maintained.
    bpf_devel_QA
 
 
+Helper functions
+================
+
+* `bpf-helpers(7)`_ maintains a list of helpers available to eBPF programs.
+
+
 Program types
 =============
 
@@ -45,10 +51,39 @@ Program types
    prog_cgroup_sockopt
    prog_cgroup_sysctl
    prog_flow_dissector
+   bpf_lsm
 
+
+Map types
+=========
+
+.. toctree::
+   :maxdepth: 1
+
+   map_cgroup_storage
+
+
+Testing and debugging BPF
+=========================
+
+.. toctree::
+   :maxdepth: 1
+
+   drgn
+   s390
+
+
+Other
+=====
+
+.. toctree::
+   :maxdepth: 1
+
+   ringbuf
 
 .. Links:
 .. _Documentation/networking/filter.txt: ../networking/filter.txt
 .. _man-pages: https://www.kernel.org/doc/man-pages/
 .. _bpf(2): http://man7.org/linux/man-pages/man2/bpf.2.html
+.. _bpf-helpers(7): https://man7.org/linux/man-pages/man7/bpf-helpers.7.html
 .. _BPF and XDP Reference Guide: http://cilium.readthedocs.io/en/latest/bpf/

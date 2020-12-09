@@ -416,11 +416,11 @@ end:
 /**
  * acpi_get_psd_map - Map the CPUs in the freq domain of a given cpu
  * @cpu: Find all CPUs that share a domain with cpu.
- * @domain: Pointer to given domain data storage
+ * @cpu_data: Pointer to CPU specific CPPC data including PSD info.
  *
  *	Return: 0 for success or negative value for err.
  */
-int acpi_get_psd_map(unsigned int cpu, struct psd_data *domain)
+int acpi_get_psd_map(unsigned int cpu, struct cppc_cpudata *cpu_data)
 {
 	struct cpc_desc *cpc_ptr, *match_cpc_ptr;
 	struct acpi_psd_package *match_pdomain;
@@ -436,18 +436,18 @@ int acpi_get_psd_map(unsigned int cpu, struct psd_data *domain)
 		return -EFAULT;
 
 	pdomain = &(cpc_ptr->domain_info);
-	cpumask_set_cpu(cpu, domain->shared_cpu_map);
+	cpumask_set_cpu(cpu, cpu_data->shared_cpu_map);
 	if (pdomain->num_processors <= 1)
 		return 0;
 
 	/* Validate the Domain info */
 	count_target = pdomain->num_processors;
 	if (pdomain->coord_type == DOMAIN_COORD_TYPE_SW_ALL)
-		domain->shared_type = CPUFREQ_SHARED_TYPE_ALL;
+		cpu_data->shared_type = CPUFREQ_SHARED_TYPE_ALL;
 	else if (pdomain->coord_type == DOMAIN_COORD_TYPE_HW_ALL)
-		domain->shared_type = CPUFREQ_SHARED_TYPE_HW;
+		cpu_data->shared_type = CPUFREQ_SHARED_TYPE_HW;
 	else if (pdomain->coord_type == DOMAIN_COORD_TYPE_SW_ANY)
-		domain->shared_type = CPUFREQ_SHARED_TYPE_ANY;
+		cpu_data->shared_type = CPUFREQ_SHARED_TYPE_ANY;
 
 	for_each_possible_cpu(i) {
 		if (i == cpu)
@@ -468,16 +468,16 @@ int acpi_get_psd_map(unsigned int cpu, struct psd_data *domain)
 		if (pdomain->coord_type != match_pdomain->coord_type)
 			goto err_fault;
 
-		cpumask_set_cpu(i, domain->shared_cpu_map);
+		cpumask_set_cpu(i, cpu_data->shared_cpu_map);
 	}
 
 	return 0;
 
 err_fault:
 	/* Assume no coordination on any error parsing domain info */
-	cpumask_clear(domain->shared_cpu_map);
-	cpumask_set_cpu(cpu, domain->shared_cpu_map);
-	domain->shared_type = CPUFREQ_SHARED_TYPE_NONE;
+	cpumask_clear(cpu_data->shared_cpu_map);
+	cpumask_set_cpu(cpu, cpu_data->shared_cpu_map);
+	cpu_data->shared_type = CPUFREQ_SHARED_TYPE_NONE;
 
 	return -EFAULT;
 }
