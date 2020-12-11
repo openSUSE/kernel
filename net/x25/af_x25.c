@@ -681,9 +681,9 @@ static int x25_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	struct sockaddr_x25 *addr = (struct sockaddr_x25 *)uaddr;
 	int len, i, rc = 0;
 
-	if (!sock_flag(sk, SOCK_ZAPPED) ||
-	    addr_len != sizeof(struct sockaddr_x25) ||
-	    addr->sx25_family != AF_X25) {
+	if (addr_len != sizeof(struct sockaddr_x25) ||
+	    addr->sx25_family != AF_X25 ||
+	    strnlen(addr->sx25_addr.x25_addr, X25_ADDR_LEN) == X25_ADDR_LEN) {
 		rc = -EINVAL;
 		goto out;
 	}
@@ -697,9 +697,13 @@ static int x25_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	}
 
 	lock_sock(sk);
-	x25_sk(sk)->source_addr = addr->sx25_addr;
-	x25_insert_socket(sk);
-	sock_reset_flag(sk, SOCK_ZAPPED);
+	if (sock_flag(sk, SOCK_ZAPPED)) {
+		x25_sk(sk)->source_addr = addr->sx25_addr;
+		x25_insert_socket(sk);
+		sock_reset_flag(sk, SOCK_ZAPPED);
+	} else {
+		rc = -EINVAL;
+	}
 	release_sock(sk);
 	SOCK_DEBUG(sk, "x25_bind: socket is bound\n");
 out:
@@ -765,7 +769,8 @@ static int x25_connect(struct socket *sock, struct sockaddr *uaddr,
 
 	rc = -EINVAL;
 	if (addr_len != sizeof(struct sockaddr_x25) ||
-	    addr->sx25_family != AF_X25)
+	    addr->sx25_family != AF_X25 ||
+	    strnlen(addr->sx25_addr.x25_addr, X25_ADDR_LEN) == X25_ADDR_LEN)
 		goto out;
 
 	rc = -ENETUNREACH;
