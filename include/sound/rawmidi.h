@@ -65,6 +65,9 @@ struct snd_rawmidi_global_ops {
 struct snd_rawmidi_runtime {
 	unsigned int drain: 1,	/* drain stage */
 		     oss: 1;	/* OSS compatible mode */
+#ifndef __GENKSYMS__
+	unsigned int buffer_ref:8;	/* buffer reference count */
+#endif
 	/* midi stream buffer */
 	unsigned char *buffer;	/* buffer for MIDI data */
 	size_t buffer_size;	/* size of buffer */
