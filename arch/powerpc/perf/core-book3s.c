@@ -2157,6 +2157,17 @@ static void record_and_restart(struct perf_event *event, unsigned long val,
 	perf_event_update_userpage(event);
 
 	/*
+	 * Due to hardware limitation, sometimes SIAR could
+	 * lock on to kernel address even with freeze on
+	 * supervisor state (kernel) is set in MMCR2.
+	 * Check attr.exclude_kernel and address
+	 * to drop the sample in these cases.
+	 */
+	if (event->attr.exclude_kernel && record)
+		if (is_kernel_addr(mfspr(SPRN_SIAR)))
+			record = 0;
+
+	/*
 	 * Finally record data if requested.
 	 */
 	if (record) {
