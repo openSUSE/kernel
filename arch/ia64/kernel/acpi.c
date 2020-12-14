@@ -43,8 +43,6 @@ int acpi_lapic;
 unsigned int acpi_cpei_override;
 unsigned int acpi_cpei_phys_cpuid;
 
-unsigned long acpi_wakeup_address = 0;
-
 #ifdef CONFIG_IA64_GENERIC
 static unsigned long __init acpi_find_rsdp(void)
 {
