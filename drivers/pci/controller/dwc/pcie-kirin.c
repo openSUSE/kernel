@@ -405,6 +405,8 @@ static int kirin_pcie_host_init(struct pcie_port *pp)
 {
 	pp->bridge->ops = &kirin_pci_ops;
 
+	dw_pcie_setup_rc(pp);
+
 	return 0;
 }
 
