@@ -342,7 +342,7 @@ static int ioapic_service(struct kvm_ioapic *ioapic, int irq, bool line_status)
 
 	irqe.dest_id = entry->fields.dest_id;
 	irqe.vector = entry->fields.vector;
-	irqe.dest_mode = entry->fields.dest_mode;
+	irqe.dest_mode = kvm_lapic_irq_dest_mode(!!entry->fields.dest_mode);
 	irqe.trig_mode = entry->fields.trig_mode;
 	irqe.delivery_mode = entry->fields.delivery_mode << 8;
 	irqe.level = 1;
