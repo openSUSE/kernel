@@ -3,7 +3,7 @@
  *
  * Name: acpixf.h - External interfaces to the ACPI subsystem
  *
- * Copyright (C) 2000 - 2019, Intel Corp.
+ * Copyright (C) 2000 - 2020, Intel Corp.
  *
  *****************************************************************************/
 
@@ -297,6 +297,9 @@ ACPI_GLOBAL(u8, acpi_gbl_system_awake_and_running);
 #define ACPI_HW_DEPENDENT_RETURN_OK(prototype) \
 	ACPI_EXTERNAL_RETURN_OK(prototype)
 
+#define ACPI_HW_DEPENDENT_RETURN_UINT32(prototype) \
+	ACPI_EXTERNAL_RETURN_UINT32(prototype)
+
 #define ACPI_HW_DEPENDENT_RETURN_VOID(prototype) \
 	ACPI_EXTERNAL_RETURN_VOID(prototype)
 
@@ -306,6 +309,9 @@ ACPI_GLOBAL(u8, acpi_gbl_system_awake_and_running);
 
 #define ACPI_HW_DEPENDENT_RETURN_OK(prototype) \
 	static ACPI_INLINE prototype {return(AE_OK);}
+
+#define ACPI_HW_DEPENDENT_RETURN_UINT32(prototype) \
+	static ACPI_INLINE prototype {return(0);}
 
 #define ACPI_HW_DEPENDENT_RETURN_VOID(prototype) \
 	static ACPI_INLINE prototype {return;}
@@ -742,10 +748,12 @@ ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status
 						     u32 gpe_number,
 						     acpi_event_status
 						     *event_status))
-ACPI_HW_DEPENDENT_RETURN_VOID(void acpi_dispatch_gpe(acpi_handle gpe_device, u32 gpe_number))
+ACPI_HW_DEPENDENT_RETURN_UINT32(u32 acpi_dispatch_gpe(acpi_handle gpe_device, u32 gpe_number))
 ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status acpi_disable_all_gpes(void))
 ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status acpi_enable_all_runtime_gpes(void))
 ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status acpi_enable_all_wakeup_gpes(void))
+ACPI_HW_DEPENDENT_RETURN_UINT32(u32 acpi_any_gpe_status_set(u32 gpe_skip_number))
+ACPI_HW_DEPENDENT_RETURN_UINT32(u32 acpi_any_fixed_event_status_set(void))
 
 ACPI_HW_DEPENDENT_RETURN_STATUS(acpi_status
 				acpi_get_gpe_device(u32 gpe_index,
