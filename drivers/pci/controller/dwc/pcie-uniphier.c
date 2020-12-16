@@ -314,6 +314,8 @@ static int uniphier_pcie_host_init(struct pcie_port *pp)
 
 	uniphier_pcie_irq_enable(priv);
 
+	dw_pcie_setup_rc(pp);
+
 	return 0;
 }
 
