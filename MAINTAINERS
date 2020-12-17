@@ -956,6 +956,14 @@ S:	Supported
 F:	arch/arm64/boot/dts/amd/amd-seattle-xgbe*.dtsi
 F:	drivers/net/ethernet/amd/xgbe/
 
+AMD SENSOR FUSION HUB DRIVER
+M:	Nehal Shah <nehal-bakulchandra.shah@amd.com>
+M:	Sandeep Singh <sandeep.singh@amd.com>
+L:	linux-input@vger.kernel.org
+S:	Maintained
+F:	Documentation/hid/amd-sfh*
+F:	drivers/hid/amd-sfh-hid/
+
 AMS AS73211 DRIVER
 M:	Christian Eggers <ceggers@arri.de>
 L:	linux-iio@vger.kernel.org
@@ -2018,7 +2026,7 @@ M:	Sebastian Hesselbarth <sebastian.hesselbarth@gmail.com>
 M:	Gregory Clement <gregory.clement@bootlin.com>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
-T:	git git://git.infradead.org/linux-mvebu.git
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu.git
 F:	Documentation/devicetree/bindings/soc/dove/
 F:	arch/arm/boot/dts/dove*
 F:	arch/arm/boot/dts/orion5x*
@@ -2034,7 +2042,7 @@ M:	Gregory Clement <gregory.clement@bootlin.com>
 M:	Sebastian Hesselbarth <sebastian.hesselbarth@gmail.com>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
-T:	git git://git.infradead.org/linux-mvebu.git
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/gclement/mvebu.git
 F:	arch/arm/boot/dts/armada*
 F:	arch/arm/boot/dts/kirkwood*
 F:	arch/arm/configs/mvebu_*_defconfig
@@ -2066,7 +2074,7 @@ M:	Matthias Brugger <matthias.bgg@gmail.com>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 L:	linux-mediatek@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
-W:	https://mtk.bcnfs.org/
+W:	https://mtk.wiki.kernel.org/
 C:	irc://chat.freenode.net/linux-mediatek
 F:	arch/arm/boot/dts/mt6*
 F:	arch/arm/boot/dts/mt7*
@@ -2116,6 +2124,7 @@ L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Supported
 T:	git git://github.com/microchip-ung/linux-upstream.git
 F:	arch/arm64/boot/dts/microchip/
+F:	drivers/pinctrl/pinctrl-microchip-sgpio.c
 N:	sparx5
 
 Microchip Timer Counter Block (TCB) Capture Driver
@@ -2139,6 +2148,7 @@ W:	http://linux-chenxing.org/
 F:	Documentation/devicetree/bindings/arm/mstar/*
 F:	arch/arm/boot/dts/mstar-*
 F:	arch/arm/mach-mstar/
+F:	include/dt-bindings/gpio/msc313-gpio.h
 
 ARM/NEC MOBILEPRO 900/c MACHINE SUPPORT
 M:	Michael Petchkovsky <mkpetch@internode.on.net>
@@ -3385,7 +3395,7 @@ M:	Florian Fainelli <f.fainelli@gmail.com>
 L:	netdev@vger.kernel.org
 L:	openwrt-devel@lists.openwrt.org (subscribers-only)
 S:	Supported
-F:	Documentation/devicetree/bindings/net/dsa/b53.txt
+F:	Documentation/devicetree/bindings/net/dsa/brcm,b53.yaml
 F:	drivers/net/dsa/b53/*
 F:	include/linux/platform_data/b53.h
 
@@ -7339,7 +7349,6 @@ F:	drivers/staging/gasket/
 
 GCC PLUGINS
 M:	Kees Cook <keescook@chromium.org>
-R:	Emese Revfy <re.emese@gmail.com>
 L:	linux-hardening@vger.kernel.org
 S:	Maintained
 F:	Documentation/kbuild/gcc-plugins.rst
@@ -8737,19 +8746,16 @@ F:	include/uapi/rdma/
 F:	samples/bpf/ibumad_kern.c
 F:	samples/bpf/ibumad_user.c
 
-INGENIC JZ4780 DMA Driver
-M:	Zubair Lutfullah Kakakhel <Zubair.Kakakhel@imgtec.com>
-S:	Maintained
-F:	drivers/dma/dma-jz4780.c
-
 INGENIC JZ4780 NAND DRIVER
 M:	Harvey Hunt <harveyhuntnexus@gmail.com>
 L:	linux-mtd@lists.infradead.org
+L:	linux-mips@vger.kernel.org
 S:	Maintained
 F:	drivers/mtd/nand/raw/ingenic/
 
 INGENIC JZ47xx SoCs
 M:	Paul Cercueil <paul@crapouillou.net>
+L:	linux-mips@vger.kernel.org
 S:	Maintained
 F:	arch/mips/boot/dts/ingenic/
 F:	arch/mips/generic/board-ingenic.c
@@ -9711,7 +9717,7 @@ F:	arch/arm64/kvm/
 F:	include/kvm/arm_*
 
 KERNEL VIRTUAL MACHINE FOR MIPS (KVM/mips)
-M:	Huacai Chen <chenhc@lemote.com>
+M:	Huacai Chen <chenhuacai@kernel.org>
 M:	Aleksandar Markovic <aleksandar.qemu.devel@gmail.com>
 L:	linux-mips@vger.kernel.org
 L:	kvm@vger.kernel.org
@@ -11423,6 +11429,7 @@ S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/krzk/linux-mem-ctrl.git
 F:	Documentation/devicetree/bindings/memory-controllers/
 F:	drivers/memory/
+F:	include/dt-bindings/memory/
 
 MEMORY FREQUENCY SCALING DRIVERS FOR NVIDIA TEGRA
 M:	Dmitry Osipenko <digetx@gmail.com>
@@ -11775,6 +11782,17 @@ M:	Oliver Neukum <oliver@neukum.org>
 S:	Maintained
 F:	drivers/usb/image/microtek.*
 
+MIKROTIK CRS3XX 98DX3236 BOARD SUPPORT
+M:	Luka Kovacic <luka.kovacic@sartura.hr>
+M:	Luka Perkov <luka.perkov@sartura.hr>
+S:	Maintained
+F:	arch/arm/boot/dts/armada-xp-crs305-1g-4s-bit.dts
+F:	arch/arm/boot/dts/armada-xp-crs305-1g-4s.dts
+F:	arch/arm/boot/dts/armada-xp-crs326-24g-2s-bit.dts
+F:	arch/arm/boot/dts/armada-xp-crs326-24g-2s.dts
+F:	arch/arm/boot/dts/armada-xp-crs328-4c-20s-4s-bit.dts
+F:	arch/arm/boot/dts/armada-xp-crs328-4c-20s-4s.dts
+
 MIPI CCS, SMIA AND SMIA++ IMAGE SENSOR DRIVER
 M:	Sakari Ailus <sakari.ailus@linux.intel.com>
 L:	linux-media@vger.kernel.org
@@ -11853,7 +11871,7 @@ F:	drivers/*/*/*loongson2*
 F:	drivers/*/*loongson2*
 
 MIPS/LOONGSON64 ARCHITECTURE
-M:	Huacai Chen <chenhc@lemote.com>
+M:	Huacai Chen <chenhuacai@kernel.org>
 M:	Jiaxun Yang <jiaxun.yang@flygoat.com>
 L:	linux-mips@vger.kernel.org
 S:	Maintained
@@ -15784,6 +15802,15 @@ F:	Documentation/scsi/st.rst
 F:	drivers/scsi/st.*
 F:	drivers/scsi/st_*.h
 
+SCSI TARGET CORE USER DRIVER
+M:	Bodo Stroesser <bostroesser@gmail.com>
+L:	linux-scsi@vger.kernel.org
+L:	target-devel@vger.kernel.org
+S:	Supported
+F:	Documentation/target/tcmu-design.rst
+F:	drivers/target/target_core_user.c
+F:	include/uapi/linux/target_core_user.h
+
 SCSI TARGET SUBSYSTEM
 M:	"Martin K. Petersen" <martin.petersen@oracle.com>
 L:	linux-scsi@vger.kernel.org
@@ -16394,7 +16421,7 @@ F:	drivers/infiniband/sw/siw/
 F:	include/uapi/rdma/siw-abi.h
 
 SOFT-ROCE DRIVER (rxe)
-M:	Zhu Yanjun <yanjunz@nvidia.com>
+M:	Zhu Yanjun <zyjzyj2000@gmail.com>
 L:	linux-rdma@vger.kernel.org
 S:	Supported
 F:	drivers/infiniband/sw/rxe/

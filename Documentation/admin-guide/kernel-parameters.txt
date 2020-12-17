@@ -1883,11 +1883,6 @@
 			Note that using this option lowers the security
 			provided by tboot because it makes the system
 			vulnerable to DMA attacks.
-		nobounce [Default off]
-			Disable bounce buffer for untrusted devices such as
-			the Thunderbolt devices. This will treat the untrusted
-			devices as the trusted ones, hence might expose security
-			risks of DMA attacks.
 
 	intel_idle.max_cstate=	[KNL,HW,ACPI,X86]
 			0	disables intel_idle and fall back on acpi_idle.
@@ -2953,7 +2948,7 @@
 	mtdset=		[ARM]
 			ARM/S3C2412 JIVE boot control
 
-			See arch/arm/mach-s3c2412/mach-jive.c
+			See arch/arm/mach-s3c/mach-jive.c
 
 	mtouchusb.raw_coordinates=
 			[HW] Make the MicroTouch USB driver use raw coordinates
