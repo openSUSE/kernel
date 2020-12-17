@@ -9,7 +9,7 @@
 #include <linux/cryptohash.h>
 #include <linux/types.h>
 #include <linux/string.h>
-#include <crypto/sha.h>
+#include <crypto/sha2.h>
 #include <crypto/sha512_base.h>
 #include <asm/neon.h>
 

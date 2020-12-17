@@ -11,7 +11,8 @@
 #include <crypto/aead.h>
 #include <crypto/algapi.h>
 #include <crypto/internal/hash.h>
-#include <crypto/sha.h>
+#include <crypto/sha1.h>
+#include <crypto/sha2.h>
 #include <crypto/skcipher.h>
 
 #define EIP197_HIA_VERSION_LE			0xca35

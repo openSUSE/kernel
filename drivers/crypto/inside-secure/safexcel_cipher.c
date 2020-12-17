@@ -13,7 +13,8 @@
 #include <crypto/aes.h>
 #include <crypto/authenc.h>
 #include <crypto/internal/des.h>
-#include <crypto/sha.h>
+#include <crypto/sha1.h>
+#include <crypto/sha2.h>
 #include <crypto/skcipher.h>
 #include <crypto/internal/aead.h>
 #include <crypto/internal/skcipher.h>

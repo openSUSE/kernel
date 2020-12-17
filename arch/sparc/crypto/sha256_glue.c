@@ -17,7 +17,7 @@
 #include <linux/mm.h>
 #include <linux/cryptohash.h>
 #include <linux/types.h>
-#include <crypto/sha.h>
+#include <crypto/sha2.h>
 
 #include <asm/pstate.h>
 #include <asm/elf.h>
