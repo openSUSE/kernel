@@ -6475,7 +6475,7 @@ _scsih_alloc_vphy(struct MPT3SAS_ADAPTER *ioc, u8 port_id, u8 phy_num)
 			return NULL;
 
 		/*
-		 * Enable bit corresponding to HBA phy number on it's
+		 * Enable bit corresponding to HBA phy number on its
 		 * parent hba_port object's vphys_mask field.
 		 */
 		port->vphys_mask |= (1 << phy_num);
