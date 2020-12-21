@@ -290,8 +290,6 @@ acpi_parse_x2apic_affinity(union acpi_subtable_headers *header,
 	struct acpi_srat_x2apic_cpu_affinity *processor_affinity;
 
 	processor_affinity = (struct acpi_srat_x2apic_cpu_affinity *)header;
-	if (!processor_affinity)
-		return -EINVAL;
 
 	acpi_table_print_srat_entry(&header->common);
 
@@ -308,8 +306,6 @@ acpi_parse_processor_affinity(union acpi_subtable_headers *header,
 	struct acpi_srat_cpu_affinity *processor_affinity;
 
 	processor_affinity = (struct acpi_srat_cpu_affinity *)header;
-	if (!processor_affinity)
-		return -EINVAL;
 
 	acpi_table_print_srat_entry(&header->common);
 
@@ -326,8 +322,6 @@ acpi_parse_gicc_affinity(union acpi_subtable_headers *header,
 	struct acpi_srat_gicc_affinity *processor_affinity;
 
 	processor_affinity = (struct acpi_srat_gicc_affinity *)header;
-	if (!processor_affinity)
-		return -EINVAL;
 
 	acpi_table_print_srat_entry(&header->common);
 
@@ -346,8 +340,6 @@ acpi_parse_memory_affinity(union acpi_subtable_headers * header,
 	struct acpi_srat_mem_affinity *memory_affinity;
 
 	memory_affinity = (struct acpi_srat_mem_affinity *)header;
-	if (!memory_affinity)
-		return -EINVAL;
 
 	acpi_table_print_srat_entry(&header->common);
 
