@@ -48,7 +48,6 @@ struct int3400_thermal_priv {
 	struct acpi_device *adev;
 	struct platform_device *pdev;
 	struct thermal_zone_device *thermal;
-	enum thermal_device_mode mode;
 	int art_count;
 	struct art *arts;
 	int trt_count;
@@ -386,12 +385,7 @@ static int int3400_thermal_get_temp(struct thermal_zone_device *thermal,
 static int int3400_thermal_get_mode(struct thermal_zone_device *thermal,
 				enum thermal_device_mode *mode)
 {
-	struct int3400_thermal_priv *priv = thermal->devdata;
-
-	if (!priv)
-		return -EINVAL;
-
-	*mode = priv->mode;
+	*mode = thermal->mode;
 
 	return 0;
 }
@@ -409,8 +403,8 @@ static int int3400_thermal_set_mode(struct thermal_zone_device *thermal,
 	    mode != THERMAL_DEVICE_DISABLED)
 		return -EINVAL;
 
-	if (mode != priv->mode) {
-		priv->mode = mode;
+	if (mode != thermal->mode) {
+		thermal->mode = mode;
 		result = int3400_thermal_run_osc(priv->adev->handle,
 						priv->current_uuid_index,
 						mode == THERMAL_DEVICE_ENABLED);
