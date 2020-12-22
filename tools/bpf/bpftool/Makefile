@@ -25,7 +25,9 @@ endif
 
 LIBBPF = $(LIBBPF_PATH)libbpf.a
 
-BPFTOOL_VERSION ?= $(shell make -rR --no-print-directory -sC ../../.. kernelversion)
+ifeq ($(BPFTOOL_VERSION),)
+BPFTOOL_VERSION := $(shell make -rR --no-print-directory -sC ../../.. kernelversion)
+endif
 
 $(LIBBPF): FORCE
 	$(if $(LIBBPF_OUTPUT),@mkdir -p $(LIBBPF_OUTPUT))
