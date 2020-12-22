@@ -208,6 +208,7 @@ extern struct kobject *cpufreq_global_kobject;
 unsigned int cpufreq_get(unsigned int cpu);
 unsigned int cpufreq_quick_get(unsigned int cpu);
 unsigned int cpufreq_quick_get_max(unsigned int cpu);
+unsigned int cpufreq_get_hw_max_freq(unsigned int cpu);
 void disable_cpufreq(void);
 
 u64 get_cpu_idle_time(unsigned int cpu, u64 *wall, int io_busy);
@@ -232,6 +233,10 @@ static inline unsigned int cpufreq_quick_get(unsigned int cpu)
 	return 0;
 }
 static inline unsigned int cpufreq_quick_get_max(unsigned int cpu)
+{
+	return 0;
+}
+static inline unsigned int cpufreq_get_hw_max_freq(unsigned int cpu)
 {
 	return 0;
 }

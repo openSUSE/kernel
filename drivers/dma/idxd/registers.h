@@ -5,6 +5,7 @@
 
 /* PCI Config */
 #define PCI_DEVICE_ID_INTEL_DSA_SPR0	0x0b25
+#define PCI_DEVICE_ID_INTEL_IAX_SPR0	0x0cfe
 
 #define IDXD_MMIO_BAR		0
 #define IDXD_WQ_BAR		2
@@ -47,7 +48,7 @@ union wq_cap_reg {
 		u64 rsvd:20;
 		u64 shared_mode:1;
 		u64 dedicated_mode:1;
-		u64 rsvd2:1;
+		u64 wq_ats_support:1;
 		u64 priority:1;
 		u64 occupancy:1;
 		u64 occupancy_int:1;
@@ -303,7 +304,8 @@ union wqcfg {
 		/* bytes 8-11 */
 		u32 mode:1;	/* shared or dedicated */
 		u32 bof:1;	/* block on fault */
-		u32 rsvd2:2;
+		u32 wq_ats_disable:1;
+		u32 rsvd2:1;
 		u32 priority:4;
 		u32 pasid:20;
 		u32 pasid_en:1;

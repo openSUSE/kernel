@@ -10,7 +10,8 @@
 #include <crypto/internal/hash.h>
 
 #include <crypto/md5.h>
-#include <crypto/sha.h>
+#include <crypto/sha1.h>
+#include <crypto/sha2.h>
 
 #define _SBF(v, f)			((v) << (f))
 

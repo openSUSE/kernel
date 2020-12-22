@@ -36,7 +36,8 @@
 #include <linux/cryptohash.h>
 #include <crypto/scatterwalk.h>
 #include <crypto/algapi.h>
-#include <crypto/sha.h>
+#include <crypto/sha1.h>
+#include <crypto/sha2.h>
 #include <crypto/hash.h>
 #include <crypto/hmac.h>
 #include <crypto/internal/hash.h>

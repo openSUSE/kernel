@@ -50,3 +50,6 @@ xdp_sample_pkts
 xdp_tx_iptunnel
 xdpsock
 testfile.img
+hbm_out.log
+iperf.*
+*.out
