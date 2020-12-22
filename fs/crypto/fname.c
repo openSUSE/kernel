@@ -12,6 +12,7 @@
  */
 
 #include <linux/scatterlist.h>
+#include <crypto/sha2.h>
 #include <crypto/skcipher.h>
 #include "fscrypt_private.h"
 

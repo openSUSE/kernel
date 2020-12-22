@@ -6,7 +6,7 @@
  */
 
 #include <crypto/internal/hash.h>
-#include <crypto/sha.h>
+#include <crypto/sha2.h>
 #include <linux/crypto.h>
 #include <linux/module.h>
 

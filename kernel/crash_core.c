@@ -9,6 +9,8 @@
 #include <linux/vmalloc.h>
 #include <linux/suse_version.h>
 
+#include <crypto/sha1.h>
+
 #include <asm/page.h>
 #include <asm/sections.h>
 
