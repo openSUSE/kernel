@@ -547,7 +547,7 @@ struct pm_subsys_data {
  * NO_DIRECT_COMPLETE: Do not apply direct-complete optimization to the device.
  * SMART_PREPARE: Check the return value of the driver's ->prepare callback.
  * SMART_SUSPEND: No need to resume the device from runtime suspend.
- * LEAVE_SUSPENDED: Avoid resuming the device during system resume if possible.
+ * MAY_SKIP_RESUME: Avoid resuming the device during system resume if possible.
  *
  * Setting SMART_PREPARE instructs bus types and PM domains which may want
  * system suspend/resume callbacks to be skipped for the device to return 0 from
@@ -562,13 +562,13 @@ struct pm_subsys_data {
  * invocations of the ->suspend_late and ->suspend_noirq callbacks provided by
  * the driver if they decide to leave the device in runtime suspend.
  *
- * Setting LEAVE_SUSPENDED informs the PM core and middle-layer code that the
+ * Setting MAY_SKIP_RESUME informs the PM core and middle-layer code that the
  * driver prefers the device to be left in suspend after system resume.
  */
 #define DPM_FLAG_NO_DIRECT_COMPLETE	BIT(0)
 #define DPM_FLAG_SMART_PREPARE		BIT(1)
 #define DPM_FLAG_SMART_SUSPEND		BIT(2)
-#define DPM_FLAG_LEAVE_SUSPENDED	BIT(3)
+#define DPM_FLAG_MAY_SKIP_RESUME	BIT(3)
 
 struct dev_pm_info {
 	pm_message_t		power_state;
@@ -712,8 +712,6 @@ struct dev_pm_domain {
 extern void device_pm_lock(void);
 extern void dpm_resume_start(pm_message_t state);
 extern void dpm_resume_end(pm_message_t state);
-extern void dpm_noirq_resume_devices(pm_message_t state);
-extern void dpm_noirq_end(void);
 extern void dpm_resume_noirq(pm_message_t state);
 extern void dpm_resume_early(pm_message_t state);
 extern void dpm_resume(pm_message_t state);
@@ -722,8 +720,6 @@ extern void dpm_complete(pm_message_t state);
 extern void device_pm_unlock(void);
 extern int dpm_suspend_end(pm_message_t state);
 extern int dpm_suspend_start(pm_message_t state);
-extern void dpm_noirq_begin(void);
-extern int dpm_noirq_suspend_devices(pm_message_t state);
 extern int dpm_suspend_noirq(pm_message_t state);
 extern int dpm_suspend_late(pm_message_t state);
 extern int dpm_suspend(pm_message_t state);
@@ -760,8 +756,8 @@ extern int pm_generic_poweroff_late(struct device *dev);
 extern int pm_generic_poweroff(struct device *dev);
 extern void pm_generic_complete(struct device *dev);
 
-extern bool dev_pm_may_skip_resume(struct device *dev);
-extern bool dev_pm_smart_suspend_and_suspended(struct device *dev);
+extern bool dev_pm_skip_resume(struct device *dev);
+extern bool dev_pm_skip_suspend(struct device *dev);
 
 #else /* !CONFIG_PM_SLEEP */
 

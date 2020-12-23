@@ -16,7 +16,7 @@
 /* ACPI 6.1 */
 #define UUID_NFIT_BUS "2f10e7a4-9e91-11e4-89d3-123b93f75cba"
 
-/* http://pmem.io/documents/NVDIMM_DSM_Interface-V1.6.pdf */
+/* https://pmem.io/documents/NVDIMM_DSM_Interface-V1.6.pdf */
 #define UUID_NFIT_DIMM "4309ac30-0d11-11e4-9191-0800200c9a66"
 #define UUID_INTEL_BUS "c7d8acd4-2df8-4b82-9f65-a325335af149"
 
@@ -166,32 +166,32 @@ struct nfit_spa {
 	unsigned long ars_state;
 	u32 clear_err_unit;
 	u32 max_ars;
-	struct acpi_nfit_system_address spa[0];
+	struct acpi_nfit_system_address spa[];
 };
 
 struct nfit_dcr {
 	struct list_head list;
-	struct acpi_nfit_control_region dcr[0];
+	struct acpi_nfit_control_region dcr[];
 };
 
 struct nfit_bdw {
 	struct list_head list;
-	struct acpi_nfit_data_region bdw[0];
+	struct acpi_nfit_data_region bdw[];
 };
 
 struct nfit_idt {
 	struct list_head list;
-	struct acpi_nfit_interleave idt[0];
+	struct acpi_nfit_interleave idt[];
 };
 
 struct nfit_flush {
 	struct list_head list;
-	struct acpi_nfit_flush_address flush[0];
+	struct acpi_nfit_flush_address flush[];
 };
 
 struct nfit_memdev {
 	struct list_head list;
-	struct acpi_nfit_memory_map memdev[0];
+	struct acpi_nfit_memory_map memdev[];
 };
 
 enum nfit_mem_flags {
