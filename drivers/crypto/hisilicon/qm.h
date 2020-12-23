@@ -226,7 +226,6 @@ struct hisi_qm {
 	struct workqueue_struct *wq;
 	struct work_struct work;
 
-	bool use_dma_api;
 };
 
 struct hisi_qp_status {
