@@ -8,10 +8,13 @@
 #include <linux/device.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/pci.h>
 #include <linux/platform_device.h>
 #include <linux/reset-controller.h>
 #include <soc/bcm2835/raspberrypi-firmware.h>
 #include <dt-bindings/reset/raspberrypi,firmware-reset.h>
+
+#define VL805_PCI_CONFIG_VERSION_OFFSET		0x50
 
 struct rpi_reset {
 	struct reset_controller_dev rcdev;
@@ -26,11 +29,34 @@ static inline struct rpi_reset *to_rpi(struct reset_controller_dev *rcdev)
 static int rpi_reset_reset(struct reset_controller_dev *rcdev, unsigned long id)
 {
 	struct rpi_reset *priv = to_rpi(rcdev);
-	u32 dev_addr;
+	u32 dev_addr, version;
 	int ret;
 
 	switch (id) {
-	case RASPBERRYPI_FIRMWARE_RESET_ID_USB:
+	case RASPBERRYPI_FIRMWARE_RESET_ID_USB: {
+		struct pci_dev *pdev;
+
+		pdev = pci_get_device(0x1106, 0x3483, NULL);
+		if (!pdev) {
+			dev_err(rcdev->dev, "Failed to get pci device\n");
+			break;
+		}
+
+		/*
+		 * Make sure we don't trigger a firmware load unnecessarily.
+		 *
+		 * If something went wrong with PCI, this whole exercise would
+		 * be futile as VideoCore expects from us a configured PCI bus.
+		 * Just take the faulty version (likely ~0) and let xHCI's
+		 * registration fail further down the line.
+		 */
+		pci_read_config_dword(pdev, VL805_PCI_CONFIG_VERSION_OFFSET,
+				      &version);
+		if (version) {
+			pci_info(pdev, "VL805 firmware version %08x\n", version);
+			break;
+		}
+
 		/*
 		 * The Raspberry Pi 4 gets its USB functionality from VL805, a
 		 * PCIe chip that implements xHCI. After a PCI reset, VL805's
@@ -56,7 +82,12 @@ static int rpi_reset_reset(struct reset_controller_dev *rcdev, unsigned long id)
 
 		/* Wait for vl805 to startup */
 		usleep_range(200, 1000);
-		break;
+
+		pci_read_config_dword(pdev, VL805_PCI_CONFIG_VERSION_OFFSET,
+				      &version);
+
+		pci_info(pdev, "VL805 firmware version %08x\n", version);
+		break; }
 
 	default:
 		return -EINVAL;
