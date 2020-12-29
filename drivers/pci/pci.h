@@ -639,4 +639,13 @@ static inline int pci_aer_clear_status(struct pci_dev *dev) { return -EINVAL; }
 static inline int pci_aer_raw_clear_status(struct pci_dev *dev) { return -EINVAL; }
 #endif
 
+#ifdef CONFIG_ACPI
+int pci_acpi_program_hp_params(struct pci_dev *dev);
+#else
+static inline int pci_acpi_program_hp_params(struct pci_dev *dev)
+{
+	return -ENODEV;
+}
+#endif
+
 #endif /* DRIVERS_PCI_H */
