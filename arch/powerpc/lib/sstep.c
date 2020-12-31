@@ -1339,6 +1339,9 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 	switch (opcode) {
 #ifdef __powerpc64__
 	case 1:
+		if (!cpu_has_feature(CPU_FTR_ARCH_31))
+			return -1;
+
 		prefix_r = GET_PREFIX_R(word);
 		ra = GET_PREFIX_RA(suffix);
 		rd = (suffix >> 21) & 0x1f;
@@ -2715,6 +2718,9 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 		}
 		break;
 	case 1: /* Prefixed instructions */
+		if (!cpu_has_feature(CPU_FTR_ARCH_31))
+			return -1;
+
 		prefix_r = GET_PREFIX_R(word);
 		ra = GET_PREFIX_RA(suffix);
 		op->update_reg = ra;
@@ -2733,6 +2739,7 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			case 41:	/* plwa */
 				op->type = MKOP(LOAD, PREFIXED | SIGNEXT, 4);
 				break;
+#ifdef CONFIG_VSX
 			case 42:        /* plxsd */
 				op->reg = rd + 32;
 				op->type = MKOP(LOAD_VSX, PREFIXED, 8);
@@ -2773,13 +2780,14 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 				op->element_size = 16;
 				op->vsx_flags = VSX_CHECK_VEC;
 				break;
+#endif /* CONFIG_VSX */
 			case 56:        /* plq */
 				op->type = MKOP(LOAD, PREFIXED, 16);
 				break;
 			case 57:	/* pld */
 				op->type = MKOP(LOAD, PREFIXED, 8);
 				break;
-			case 60:        /* stq */
+			case 60:        /* pstq */
 				op->type = MKOP(STORE, PREFIXED, 16);
 				break;
 			case 61:	/* pstd */
