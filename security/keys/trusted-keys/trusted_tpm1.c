@@ -23,12 +23,11 @@
 #include <linux/crypto.h>
 #include <crypto/hash.h>
 #include <crypto/sha1.h>
-#include <crypto/sha2.h>
 #include <linux/capability.h>
 #include <linux/tpm.h>
 #include <linux/tpm_command.h>
 
-#include <keys/trusted.h>
+#include <keys/trusted_tpm.h>
 
 static const char hmac_alg[] = "hmac(sha1)";
 static const char hash_alg[] = "sha1";
