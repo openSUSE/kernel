@@ -760,9 +760,9 @@ mwifiex_cmd_802_11_ad_hoc_start(struct mwifiex_private *priv,
 	u16 tmp_cap;
 	uint16_t ht_cap_info;
 	struct mwifiex_ie_types_chan_list_param_set *chan_tlv;
-
 	struct mwifiex_ie_types_htcap *ht_cap;
 	struct mwifiex_ie_types_htinfo *ht_info;
+	struct mwifiex_802_11_ssid *req_ssid;
 	u8 *pos = (u8 *) adhoc_start +
 			sizeof(struct host_cmd_ds_802_11_ad_hoc_start);
 
@@ -785,10 +785,10 @@ mwifiex_cmd_802_11_ad_hoc_start(struct mwifiex_private *priv,
 	 */
 
 	memset(adhoc_start->ssid, 0, IEEE80211_MAX_SSID_LEN);
-
-	memcpy(adhoc_start->ssid,
-	       ((struct mwifiex_802_11_ssid *) data_buf)->ssid,
-	       ((struct mwifiex_802_11_ssid *) data_buf)->ssid_len);
+	req_ssid = (struct mwifiex_802_11_ssid *)data_buf;
+	if (req_ssid->ssid_len > IEEE80211_MAX_SSID_LEN)
+		req_ssid->ssid_len = IEEE80211_MAX_SSID_LEN;
+	memcpy(adhoc_start->ssid, req_ssid->ssid, req_ssid->ssid_len);
 
 	dev_dbg(adapter->dev, "info: ADHOC_S_CMD: SSID = %s\n",
 				adhoc_start->ssid);
