@@ -311,9 +311,15 @@ config IMA_APPRAISE_SIGNED_INIT
 	help
 	   This option requires user-space init to be signed.
 
+config IMA_MEASURE_ASYMMETRIC_KEYS
+	bool
+	depends on IMA
+	depends on ASYMMETRIC_PUBLIC_KEY_SUBTYPE=y
+	default y
+
 config IMA_SECURE_AND_OR_TRUSTED_BOOT
-       bool
-       depends on IMA_ARCH_POLICY
-       help
-          This option is selected by architectures to enable secure and/or
-          trusted boot based on IMA runtime policies.
+        bool
+        depends on IMA_ARCH_POLICY
+        help
+           This option is selected by architectures to enable secure and/or
+           trusted boot based on IMA runtime policies.
