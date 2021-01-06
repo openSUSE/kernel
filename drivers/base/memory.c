@@ -20,9 +20,9 @@
 #include <linux/memory_hotplug.h>
 #include <linux/mm.h>
 #include <linux/mutex.h>
-#include <linux/radix-tree.h>
 #include <linux/stat.h>
 #include <linux/slab.h>
+#include <linux/xarray.h>
 
 #include <linux/atomic.h>
 #include <linux/uaccess.h>
@@ -65,7 +65,7 @@ static struct bus_type memory_subsys = {
  * a costly linear search for the corresponding device on
  * the subsystem bus.
  */
-static RADIX_TREE(memory_blocks, GFP_KERNEL);
+static DEFINE_XARRAY(memory_blocks);
 
 static BLOCKING_NOTIFIER_HEAD(memory_chain);
 
@@ -594,17 +594,24 @@ int __weak arch_get_memory_phys_device(unsigned long start_pfn)
 	return 0;
 }
 
-/* A reference for the returned memory block device is acquired. */
+/*
+ * A reference for the returned memory block device is acquired.
+ *
+ * Called under device_hotplug_lock.
+ */
 static struct memory_block *find_memory_block_by_id(unsigned long block_id)
 {
 	struct memory_block *mem;
 
-	mem = radix_tree_lookup(&memory_blocks, block_id);
+	mem = xa_load(&memory_blocks, block_id);
 	if (mem)
 		get_device(&mem->dev);
 	return mem;
 }
 
+/*
+ * Called under device_hotplug_lock.
+ */
 struct memory_block *find_memory_block(struct mem_section *section)
 {
 	unsigned long block_id = base_memory_block_id(__section_nr(section));
@@ -651,7 +658,8 @@ int register_memory(struct memory_block *memory)
 		put_device(&memory->dev);
 		return ret;
 	}
-	ret = radix_tree_insert(&memory_blocks, memory->dev.id, memory);
+	ret = xa_err(xa_store(&memory_blocks, memory->dev.id, memory,
+			      GFP_KERNEL));
 	if (ret) {
 		put_device(&memory->dev);
 		device_unregister(&memory->dev);
@@ -713,7 +721,7 @@ static void unregister_memory(struct memory_block *memory)
 	if (WARN_ON_ONCE(memory->dev.bus != &memory_subsys))
 		return;
 
-	WARN_ON(radix_tree_delete(&memory_blocks, memory->dev.id) == NULL);
+	WARN_ON(xa_erase(&memory_blocks, memory->dev.id) == NULL);
 
 	/* drop the ref. we got via find_memory_block() */
 	put_device(&memory->dev);
@@ -864,6 +872,8 @@ out:
  *
  * In case func() returns an error, walking is aborted and the error is
  * returned.
+ *
+ * Called under device_hotplug_lock.
  */
 int walk_memory_blocks(unsigned long start, unsigned long size,
 		       void *arg, walk_memory_blocks_func_t func)
