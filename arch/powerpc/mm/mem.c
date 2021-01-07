@@ -49,6 +49,7 @@
 #include <asm/fixmap.h>
 #include <asm/swiotlb.h>
 #include <asm/rtas.h>
+#include <asm/mmzone.h>
 
 #include <mm/mmu_decl.h>
 
