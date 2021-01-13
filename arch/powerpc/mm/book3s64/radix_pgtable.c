@@ -260,7 +260,7 @@ static unsigned long next_boundary(unsigned long addr, unsigned long end)
 static int __meminit create_physical_mapping(unsigned long start,
 					     unsigned long end,
 					     unsigned long max_mapping_size,
-					     int nid)
+					     int nid, pgprot_t _prot)
 {
 	unsigned long vaddr, addr, mapping_size = 0;
 	bool prev_exec, exec = false;
@@ -298,7 +298,7 @@ static int __meminit create_physical_mapping(unsigned long start,
 			prot = PAGE_KERNEL_X;
 			exec = true;
 		} else {
-			prot = PAGE_KERNEL;
+			prot = _prot;
 			exec = false;
 		}
 
@@ -344,7 +344,7 @@ static void __init radix_init_pgtable(void)
 		WARN_ON(create_physical_mapping(reg->base,
 						reg->base + reg->size,
 						radix_mem_block_size,
-						-1));
+						-1, PAGE_KERNEL));
 	}
 
 	/* Find out how many PID bits are supported */
@@ -897,7 +897,9 @@ static void __meminit remove_pagetable(unsigned long start, unsigned long end)
 	radix__flush_tlb_kernel_range(start, end);
 }
 
-int __meminit radix__create_section_mapping(unsigned long start, unsigned long end, int nid)
+int __meminit radix__create_section_mapping(unsigned long start,
+					    unsigned long end, int nid,
+					    pgprot_t prot)
 {
 	if (end >= RADIX_VMALLOC_START) {
 		pr_warn("Outside the supported range\n");
@@ -905,7 +907,7 @@ int __meminit radix__create_section_mapping(unsigned long start, unsigned long e
 	}
 
 	return create_physical_mapping(__pa(start), __pa(end),
-				       radix_mem_block_size, nid);
+				       radix_mem_block_size, nid, prot);
 }
 
 int __meminit radix__remove_section_mapping(unsigned long start, unsigned long end)
