@@ -134,6 +134,28 @@ int xenbus_watch_path(struct xenbus_device *dev, const char *path,
 }
 EXPORT_SYMBOL_GPL(xenbus_watch_path);
 
+int xenbus_watch_path_exact(struct xenbus_device *dev, const char *path,
+		      struct xenbus_watch *watch,
+		      void (*callback)(struct xenbus_watch *,
+				       const char *, const char *))
+{
+	int err;
+
+	watch->node = path;
+	watch->callback = callback;
+
+	err = register_xenbus_watch_exact(watch);
+
+	if (err) {
+		watch->node = NULL;
+		watch->callback = NULL;
+		xenbus_dev_fatal(dev, err, "adding watch on %s", path);
+	}
+
+	return err;
+}
+EXPORT_SYMBOL_GPL(xenbus_watch_path_exact);
+
 
 /**
  * xenbus_watch_pathfmt - register a watch on a sprintf-formatted path
@@ -175,6 +197,32 @@ int xenbus_watch_pathfmt(struct xenbus_device *dev,
 	return err;
 }
 EXPORT_SYMBOL_GPL(xenbus_watch_pathfmt);
+
+int xenbus_watch_pathfmt_exact(struct xenbus_device *dev,
+			 struct xenbus_watch *watch,
+			 void (*callback)(struct xenbus_watch *,
+					  const char *, const char *),
+			 const char *pathfmt, ...)
+{
+	int err;
+	va_list ap;
+	char *path;
+
+	va_start(ap, pathfmt);
+	path = kvasprintf(GFP_NOIO | __GFP_HIGH, pathfmt, ap);
+	va_end(ap);
+
+	if (!path) {
+		xenbus_dev_fatal(dev, -ENOMEM, "allocating path for watch");
+		return -ENOMEM;
+	}
+	err = xenbus_watch_path_exact(dev, path, watch, callback);
+
+	if (err)
+		kfree(path);
+	return err;
+}
+EXPORT_SYMBOL_GPL(xenbus_watch_pathfmt_exact);
 
 static void xenbus_switch_fatal(struct xenbus_device *, int, int,
 				const char *, ...);

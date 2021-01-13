@@ -76,6 +76,7 @@ static DECLARE_WAIT_QUEUE_HEAD(xs_state_exit_wq);
 
 /* List of registered watches, and a lock to protect it. */
 static LIST_HEAD(watches);
+static LIST_HEAD(watches_exact);
 static DEFINE_SPINLOCK(watches_lock);
 
 /* List of pending watch callback events, and a lock to protect it. */
@@ -678,21 +679,32 @@ static int xs_unwatch(const char *path, const char *token)
 				 ARRAY_SIZE(iov), NULL));
 }
 
-static struct xenbus_watch *find_watch(const char *token)
+static struct xenbus_watch *find_watch(const char *token, bool *exact)
 {
 	struct xenbus_watch *i, *cmp;
 
 	cmp = (void *)simple_strtoul(token, NULL, 16);
 
 	list_for_each_entry(i, &watches, list)
-		if (i == cmp)
+		if (i == cmp) {
+			if (exact)
+				*exact = false;
 			return i;
+		}
+	list_for_each_entry(i, &watches_exact, list)
+		if (i == cmp) {
+			if (exact)
+				*exact = true;
+			return i;
+		}
 
 	return NULL;
 }
 
 int xs_watch_msg(struct xs_watch_event *event)
 {
+	bool exact;
+
 	if (count_strings(event->body, event->len) != 2) {
 		kfree(event);
 		return -EINVAL;
@@ -701,11 +713,21 @@ int xs_watch_msg(struct xs_watch_event *event)
 	event->token = (const char *)strchr(event->body, '\0') + 1;
 
 	spin_lock(&watches_lock);
-	event->handle = find_watch(event->token);
+	event->handle = find_watch(event->token, &exact);
 	if (event->handle != NULL) {
 		spin_lock(&watch_events_lock);
+		if (exact) {
+			struct xs_watch_event *evlist;
+
+			list_for_each_entry(evlist, &watch_events, list)
+				if (evlist->handle == event->handle) {
+					kfree(event);
+					goto drop;
+				}
+		}
 		list_add_tail(&event->list, &watch_events);
 		wake_up(&watch_events_waitq);
+ drop:
 		spin_unlock(&watch_events_lock);
 	} else
 		kfree(event);
@@ -754,7 +776,8 @@ static void xs_reset_watches(void)
 }
 
 /* Register callback to watch this node. */
-int register_xenbus_watch(struct xenbus_watch *watch)
+static int register_xenbus_watch_list(struct xenbus_watch *watch,
+				      struct list_head *list)
 {
 	/* Pointer in ascii is the token. */
 	char token[sizeof(watch) * 2 + 1];
@@ -765,8 +788,8 @@ int register_xenbus_watch(struct xenbus_watch *watch)
 	down_read(&xs_watch_rwsem);
 
 	spin_lock(&watches_lock);
-	BUG_ON(find_watch(token));
-	list_add(&watch->list, &watches);
+	BUG_ON(find_watch(token, NULL));
+	list_add(&watch->list, list);
 	spin_unlock(&watches_lock);
 
 	err = xs_watch(watch->node, token);
@@ -781,7 +804,18 @@ int register_xenbus_watch(struct xenbus_watch *watch)
 
 	return err;
 }
+
+int register_xenbus_watch(struct xenbus_watch *watch)
+{
+	return register_xenbus_watch_list(watch, &watches);
+}
 EXPORT_SYMBOL_GPL(register_xenbus_watch);
+
+int register_xenbus_watch_exact(struct xenbus_watch *watch)
+{
+	return register_xenbus_watch_list(watch, &watches_exact);
+}
+EXPORT_SYMBOL_GPL(register_xenbus_watch_exact);
 
 void unregister_xenbus_watch(struct xenbus_watch *watch)
 {
@@ -794,7 +828,7 @@ void unregister_xenbus_watch(struct xenbus_watch *watch)
 	down_read(&xs_watch_rwsem);
 
 	spin_lock(&watches_lock);
-	BUG_ON(!find_watch(token));
+	BUG_ON(!find_watch(token, NULL));
 	list_del(&watch->list);
 	spin_unlock(&watches_lock);
 
@@ -845,6 +879,10 @@ void xs_resume(void)
 
 	/* No need for watches_lock: the xs_watch_rwsem is sufficient. */
 	list_for_each_entry(watch, &watches, list) {
+		sprintf(token, "%lX", (long)watch);
+		xs_watch(watch->node, token);
+	}
+	list_for_each_entry(watch, &watches_exact, list) {
 		sprintf(token, "%lX", (long)watch);
 		xs_watch(watch->node, token);
 	}
