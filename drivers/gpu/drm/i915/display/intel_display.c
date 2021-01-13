@@ -3432,6 +3432,14 @@ initial_plane_vma(struct drm_i915_private *i915,
 	if (IS_ERR(obj))
 		return NULL;
 
+	/*
+	 * Mark it WT ahead of time to avoid changing the
+	 * cache_level during fbdev initialization. The
+	 * unbind there would get stuck waiting for rcu.
+	 */
+	i915_gem_object_set_cache_coherency(obj, HAS_WT(i915) ?
+					    I915_CACHE_WT : I915_CACHE_NONE);
+
 	switch (plane_config->tiling) {
 	case I915_TILING_NONE:
 		break;
@@ -4051,8 +4059,7 @@ static int skl_check_ccs_aux_surface(struct intel_plane_state *plane_state)
 int skl_check_plane_surface(struct intel_plane_state *plane_state)
 {
 	const struct drm_framebuffer *fb = plane_state->hw.fb;
-	int ret;
-	bool needs_aux = false;
+	int ret, i;
 
 	ret = intel_plane_compute_gtt(plane_state);
 	if (ret)
@@ -4066,7 +4073,6 @@ int skl_check_plane_surface(struct intel_plane_state *plane_state)
 	 * it.
 	 */
 	if (is_ccs_modifier(fb->modifier)) {
-		needs_aux = true;
 		ret = skl_check_ccs_aux_surface(plane_state);
 		if (ret)
 			return ret;
@@ -4074,20 +4080,15 @@ int skl_check_plane_surface(struct intel_plane_state *plane_state)
 
 	if (intel_format_info_is_yuv_semiplanar(fb->format,
 						fb->modifier)) {
-		needs_aux = true;
 		ret = skl_check_nv12_aux_surface(plane_state);
 		if (ret)
 			return ret;
 	}
 
-	if (!needs_aux) {
-		int i;
-
-		for (i = 1; i < fb->format->num_planes; i++) {
-			plane_state->color_plane[i].offset = ~0xfff;
-			plane_state->color_plane[i].x = 0;
-			plane_state->color_plane[i].y = 0;
-		}
+	for (i = fb->format->num_planes; i < ARRAY_SIZE(plane_state->color_plane); i++) {
+		plane_state->color_plane[i].offset = ~0xfff;
+		plane_state->color_plane[i].x = 0;
+		plane_state->color_plane[i].y = 0;
 	}
 
 	ret = skl_check_main_surface(plane_state);
@@ -10581,6 +10582,10 @@ skl_get_initial_plane_config(struct intel_crtc *crtc,
 	    val & PLANE_CTL_FLIP_HORIZONTAL)
 		plane_config->rotation |= DRM_MODE_REFLECT_X;
 
+	/* 90/270 degree rotation would require extra work */
+	if (drm_rotation_90_or_270(plane_config->rotation))
+		goto error;
+
 	base = intel_de_read(dev_priv, PLANE_SURF(pipe, plane_id)) & 0xfffff000;
 	plane_config->base = base;
 
@@ -12807,10 +12812,11 @@ compute_sink_pipe_bpp(const struct drm_connector_state *conn_state,
 	case 10 ... 11:
 		bpp = 10 * 3;
 		break;
-	case 12:
+	case 12 ... 16:
 		bpp = 12 * 3;
 		break;
 	default:
+		MISSING_CASE(conn_state->max_bpc);
 		return -EINVAL;
 	}
 
@@ -14244,7 +14250,6 @@ verify_crtc_state(struct intel_crtc *crtc,
 	struct intel_encoder *encoder;
 	struct intel_crtc_state *pipe_config = old_crtc_state;
 	struct drm_atomic_state *state = old_crtc_state->uapi.state;
-	bool active;
 
 	__drm_atomic_helper_crtc_destroy_state(&old_crtc_state->uapi);
 	intel_crtc_free_hw_state(old_crtc_state);
@@ -14254,16 +14259,19 @@ verify_crtc_state(struct intel_crtc *crtc,
 	drm_dbg_kms(&dev_priv->drm, "[CRTC:%d:%s]\n", crtc->base.base.id,
 		    crtc->base.name);
 
-	active = dev_priv->display.get_pipe_config(crtc, pipe_config);
+	pipe_config->hw.enable = new_crtc_state->hw.enable;
+
+	pipe_config->hw.active =
+		dev_priv->display.get_pipe_config(crtc, pipe_config);
 
 	/* we keep both pipes enabled on 830 */
-	if (IS_I830(dev_priv))
-		active = new_crtc_state->hw.active;
+	if (IS_I830(dev_priv) && pipe_config->hw.active)
+		pipe_config->hw.active = new_crtc_state->hw.active;
 
-	I915_STATE_WARN(new_crtc_state->hw.active != active,
+	I915_STATE_WARN(new_crtc_state->hw.active != pipe_config->hw.active,
 			"crtc active state doesn't match with hw state "
 			"(expected %i, found %i)\n",
-			new_crtc_state->hw.active, active);
+			new_crtc_state->hw.active, pipe_config->hw.active);
 
 	I915_STATE_WARN(crtc->active != new_crtc_state->hw.active,
 			"transitional active state does not match atomic hw state "
@@ -14272,6 +14280,7 @@ verify_crtc_state(struct intel_crtc *crtc,
 
 	for_each_encoder_on_crtc(dev, &crtc->base, encoder) {
 		enum pipe pipe;
+		bool active;
 
 		active = encoder->get_hw_state(encoder, &pipe);
 		I915_STATE_WARN(active != new_crtc_state->hw.active,
