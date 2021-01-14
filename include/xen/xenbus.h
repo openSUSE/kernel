@@ -171,6 +171,7 @@ int register_xenstore_notifier(struct notifier_block *nb);
 void unregister_xenstore_notifier(struct notifier_block *nb);
 
 int register_xenbus_watch(struct xenbus_watch *watch);
+int register_xenbus_watch_exact(struct xenbus_watch *watch);
 void unregister_xenbus_watch(struct xenbus_watch *watch);
 void xs_suspend(void);
 void xs_resume(void);
@@ -196,6 +197,15 @@ int xenbus_watch_path(struct xenbus_device *dev, const char *path,
 				       const char *, const char *));
 __printf(4, 5)
 int xenbus_watch_pathfmt(struct xenbus_device *dev, struct xenbus_watch *watch,
+			 void (*callback)(struct xenbus_watch *,
+					  const char *, const char *),
+			 const char *pathfmt, ...);
+int xenbus_watch_path_exact(struct xenbus_device *dev, const char *path,
+		      struct xenbus_watch *watch,
+		      void (*callback)(struct xenbus_watch *,
+				       const char *, const char *));
+__printf(4, 5)
+int xenbus_watch_pathfmt_exact(struct xenbus_device *dev, struct xenbus_watch *watch,
 			 void (*callback)(struct xenbus_watch *,
 					  const char *, const char *),
 			 const char *pathfmt, ...);
