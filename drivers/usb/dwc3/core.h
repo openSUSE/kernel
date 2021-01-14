@@ -1107,7 +1107,6 @@ struct dwc3 {
 	u32			u1u2;
 	u32			maximum_speed;
 
-	u32			ip;
 
 #define DWC3_IP			0x5533
 #define DWC31_IP		0x3331
@@ -1149,6 +1148,15 @@ struct dwc3 {
 #define DWC31_REVISION_190A	0x3139302a
 
 	u32			version_type;
+
+/* kABI fixup */
+#define DWC3_REVISION_IS_DWC31		0x80000000
+#define DWC3_USB31_REVISION_110A	(0x3131302a | DWC3_REVISION_IS_DWC31)
+#define DWC3_USB31_REVISION_120A	(0x3132302a | DWC3_REVISION_IS_DWC31)
+#define DWC3_USB31_REVISION_160A	(0x3136302a | DWC3_REVISION_IS_DWC31)
+#define DWC3_USB31_REVISION_170A	(0x3137302a | DWC3_REVISION_IS_DWC31)
+#define DWC3_USB31_REVISION_180A	(0x3138302a | DWC3_REVISION_IS_DWC31)
+#define DWC3_USB31_REVISION_190A	(0x3139302a | DWC3_REVISION_IS_DWC31)
 
 #define DWC31_VERSIONTYPE_ANY		0x0
 #define DWC31_VERSIONTYPE_EA01		0x65613031
@@ -1230,6 +1238,9 @@ struct dwc3 {
 	unsigned		dis_metastability_quirk:1;
 
 	u16			imod_interval;
+#ifndef __GENKSYMS__
+	u32			ip;
+#endif
 };
 
 #define INCRX_BURST_MODE 0
@@ -1394,8 +1405,20 @@ void dwc3_set_prtcap(struct dwc3 *dwc, u32 mode);
 void dwc3_set_mode(struct dwc3 *dwc, u32 mode);
 u32 dwc3_core_fifo_space(struct dwc3_ep *dep, u8 type);
 
+/* check whether we are on the DWC_usb3 core */
+static inline bool dwc3_is_usb3(struct dwc3 *dwc)
+{
+	return !(dwc->revision & DWC3_REVISION_IS_DWC31);
+}
+
 #define DWC3_IP_IS(_ip)							\
 	(dwc->ip == _ip##_IP)
+
+/* check whether we are on the DWC_usb31 core */
+static inline bool dwc3_is_usb31(struct dwc3 *dwc)
+{
+	return !!(dwc->revision & DWC3_REVISION_IS_DWC31);
+}
 
 #define DWC3_VER_IS(_ip, _ver)						\
 	(DWC3_IP_IS(_ip) && dwc->revision == _ip##_REVISION_##_ver)
