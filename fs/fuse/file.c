@@ -2005,7 +2005,7 @@ static int fuse_writepages_fill(struct page *page,
 
 	if (!data->ff) {
 		err = -EIO;
-		data->ff = fuse_write_file_get(fc, get_fuse_inode(inode));
+		data->ff = fuse_write_file_get(fc, fi);
 		if (!data->ff)
 			goto out_unlock;
 	}
@@ -2050,8 +2050,6 @@ static int fuse_writepages_fill(struct page *page,
 	 * under writeback, so we can release the page lock.
 	 */
 	if (data->wpa == NULL) {
-		struct fuse_inode *fi = get_fuse_inode(inode);
-
 		err = -ENOMEM;
 		wpa = fuse_writepage_args_alloc();
 		if (!wpa) {
