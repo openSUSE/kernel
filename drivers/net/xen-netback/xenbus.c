@@ -738,7 +738,7 @@ static int xen_register_credit_watch(struct xenbus_device *dev,
 	snprintf(node, maxlen, "%s/rate", dev->nodename);
 	vif->credit_watch.node = node;
 	vif->credit_watch.callback = xen_net_rate_changed;
-	err = register_xenbus_watch(&vif->credit_watch);
+	err = register_xenbus_watch_exact(&vif->credit_watch);
 	if (err) {
 		pr_err("Failed to set watcher %s\n", vif->credit_watch.node);
 		kfree(node);
@@ -790,7 +790,7 @@ static int xen_register_mcast_ctrl_watch(struct xenbus_device *dev,
 		 dev->otherend);
 	vif->mcast_ctrl_watch.node = node;
 	vif->mcast_ctrl_watch.callback = xen_mcast_ctrl_changed;
-	err = register_xenbus_watch(&vif->mcast_ctrl_watch);
+	err = register_xenbus_watch_exact(&vif->mcast_ctrl_watch);
 	if (err) {
 		pr_err("Failed to set watcher %s\n",
 		       vif->mcast_ctrl_watch.node);
@@ -999,7 +999,7 @@ static void connect(struct backend_info *be)
 	xenvif_carrier_on(be->vif);
 
 	unregister_hotplug_status_watch(be);
-	err = xenbus_watch_pathfmt(dev, &be->hotplug_status_watch,
+	err = xenbus_watch_pathfmt_exact(dev, &be->hotplug_status_watch,
 				   hotplug_status_changed,
 				   "%s/%s", dev->nodename, "hotplug-status");
 	if (!err)

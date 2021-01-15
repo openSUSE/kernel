@@ -1,5 +1,6 @@
 /*
- * Copyright(c) 2015-2017 Intel Corporation.
+ * Copyright(c) 2020 Cornelis Networks, Inc.
+ * Copyright(c) 2015-2020 Intel Corporation.
  *
  * This file is provided under a dual BSD/GPLv2 license.  When using or
  * redistributing this file, you may do so under either license.
@@ -206,10 +207,7 @@ static int hfi1_file_open(struct inode *inode, struct file *fp)
 	spin_lock_init(&fd->tid_lock);
 	spin_lock_init(&fd->invalid_lock);
 	fd->rec_cpu_num = -1; /* no cpu affinity by default */
-	fd->mm = current->mm;
-	mmgrab(fd->mm);
 	fd->dd = dd;
-	kobject_get(&fd->dd->kobj);
 	fp->private_data = fd;
 	return 0;
 nomem:
@@ -712,8 +710,6 @@ static int hfi1_file_close(struct inode *inode, struct file *fp)
 
 	deallocate_ctxt(uctxt);
 done:
-	mmdrop(fdata->mm);
-	kobject_put(&dd->kobj);
 
 	if (atomic_dec_and_test(&dd->user_refcount))
 		complete(&dd->user_comp);
@@ -1266,7 +1262,7 @@ static int get_base_info(struct hfi1_filedata *fd, unsigned long arg, u32 len)
 	memset(&binfo, 0, sizeof(binfo));
 	binfo.hw_version = dd->revision;
 	binfo.sw_version = HFI1_KERN_SWVERSION;
-	binfo.bthqp = kdeth_qp;
+	binfo.bthqp = RVT_KDETH_QP_PREFIX;
 	binfo.jkey = uctxt->jkey;
 	/*
 	 * If more than 64 contexts are enabled the allocated credit
@@ -1696,7 +1692,7 @@ static int user_add(struct hfi1_devdata *dd)
 	snprintf(name, sizeof(name), "%s_%d", class_name(), dd->unit);
 	ret = hfi1_cdev_init(dd->unit, name, &hfi1_file_ops,
 			     &dd->user_cdev, &dd->user_device,
-			     true, &dd->kobj);
+			     true, &dd->verbs_dev.rdi.ibdev.dev.kobj);
 	if (ret)
 		user_remove(dd);
 

@@ -1,7 +1,8 @@
 #ifndef _HFI1_KERNEL_H
 #define _HFI1_KERNEL_H
 /*
- * Copyright(c) 2015-2018 Intel Corporation.
+ * Copyright(c) 2020 Cornelis Networks, Inc.
+ * Copyright(c) 2015-2020 Intel Corporation.
  *
  * This file is provided under a dual BSD/GPLv2 license.  When using or
  * redistributing this file, you may do so under either license.
@@ -1413,8 +1414,6 @@ struct hfi1_devdata {
 	bool aspm_enabled;	/* ASPM state: enabled/disabled */
 	struct rhashtable *sdma_rht;
 
-	struct kobject kobj;
-
 	/* vnic data */
 	struct hfi1_vnic_data vnic;
 	/* Lock to protect IRQ SRC register access */
@@ -1464,7 +1463,6 @@ struct hfi1_filedata {
 	u32 invalid_tid_idx;
 	/* protect invalid_tids array and invalid_tid_idx */
 	spinlock_t invalid_lock;
-	struct mm_struct *mm;
 };
 
 extern struct xarray hfi1_dev_table;
@@ -2252,7 +2250,6 @@ extern int num_user_contexts;
 extern unsigned long n_krcvqs;
 extern uint krcvqs[];
 extern int krcvqsset;
-extern uint kdeth_qp;
 extern uint loopback;
 extern uint quick_linkup;
 extern uint rcv_intr_timeout;
