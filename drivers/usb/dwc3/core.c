@@ -85,7 +85,7 @@ static int dwc3_get_dr_mode(struct dwc3 *dwc)
 		 * specified or set to OTG, then set the mode to peripheral.
 		 */
 		if (mode == USB_DR_MODE_OTG &&
-		    !DWC3_VER_IS_PRIOR(DWC3, 330A))
+		    dwc->revision >= DWC3_REVISION_330A)
 			mode = USB_DR_MODE_PERIPHERAL;
 	}
 
@@ -252,24 +252,12 @@ static int dwc3_core_soft_reset(struct dwc3 *dwc)
 	reg |= DWC3_DCTL_CSFTRST;
 	dwc3_writel(dwc->regs, DWC3_DCTL, reg);
 
-	/*
-	 * For DWC_usb31 controller 1.90a and later, the DCTL.CSFRST bit
-	 * is cleared only after all the clocks are synchronized. This can
-	 * take a little more than 50ms. Set the polling rate at 20ms
-	 * for 10 times instead.
-	 */
-	if (DWC3_VER_IS_WITHIN(DWC31, 190A, ANY) || DWC3_IP_IS(DWC32))
-		retries = 10;
-
 	do {
 		reg = dwc3_readl(dwc->regs, DWC3_DCTL);
 		if (!(reg & DWC3_DCTL_CSFTRST))
 			goto done;
 
-		if (DWC3_VER_IS_WITHIN(DWC31, 190A, ANY) || DWC3_IP_IS(DWC32))
-			msleep(20);
-		else
-			udelay(1);
+		udelay(1);
 	} while (--retries);
 
 	phy_exit(dwc->usb3_generic_phy);
@@ -279,11 +267,11 @@ static int dwc3_core_soft_reset(struct dwc3 *dwc)
 
 done:
 	/*
-	 * For DWC_usb31 controller 1.80a and prior, once DCTL.CSFRST bit
-	 * is cleared, we must wait at least 50ms before accessing the PHY
-	 * domain (synchronization delay).
+	 * For DWC_usb31 controller, once DWC3_DCTL_CSFTRST bit is cleared,
+	 * we must wait at least 50ms before accessing the PHY domain
+	 * (synchronization delay). DWC_usb31 programming guide section 1.3.2.
 	 */
-	if (DWC3_VER_IS_WITHIN(DWC31, ANY, 180A))
+	if (dwc3_is_usb31(dwc))
 		msleep(50);
 
 	return 0;
@@ -304,7 +292,7 @@ static void dwc3_frame_length_adjustment(struct dwc3 *dwc)
 	u32 reg;
 	u32 dft;
 
-	if (DWC3_VER_IS_PRIOR(DWC3, 250A))
+	if (dwc->revision < DWC3_REVISION_250A)
 		return;
 
 	if (dwc->fladj == 0)
@@ -582,7 +570,7 @@ static int dwc3_phy_setup(struct dwc3 *dwc)
 	 * will be '0' when the core is reset. Application needs to set it
 	 * to '1' after the core initialization is completed.
 	 */
-	if (!DWC3_VER_IS_WITHIN(DWC3, ANY, 194A))
+	if (dwc->revision > DWC3_REVISION_194A)
 		reg |= DWC3_GUSB3PIPECTL_SUSPHY;
 
 	if (dwc->u2ss_inp3_quirk)
@@ -665,7 +653,7 @@ static int dwc3_phy_setup(struct dwc3 *dwc)
 	 * be '0' when the core is reset. Application needs to set it to
 	 * '1' after the core initialization is completed.
 	 */
-	if (!DWC3_VER_IS_WITHIN(DWC3, ANY, 194A))
+	if (dwc->revision > DWC3_REVISION_194A)
 		reg |= DWC3_GUSB2PHYCFG_SUSPHY;
 
 	if (dwc->dis_u2_susphy_quirk)
@@ -707,13 +695,15 @@ static bool dwc3_core_is_valid(struct dwc3 *dwc)
 	u32 reg;
 
 	reg = dwc3_readl(dwc->regs, DWC3_GSNPSID);
-	dwc->ip = DWC3_GSNPS_ID(reg);
 
 	/* This should read as U3 followed by revision number */
-	if (DWC3_IP_IS(DWC3)) {
+	if ((reg & DWC3_GSNPSID_MASK) == 0x55330000) {
+		/* Detected DWC_usb3 IP */
 		dwc->revision = reg;
-	} else if (DWC3_IP_IS(DWC31) || DWC3_IP_IS(DWC32)) {
+	} else if ((reg & DWC3_GSNPSID_MASK) == 0x33310000) {
+		/* Detected DWC_usb31 IP */
 		dwc->revision = dwc3_readl(dwc->regs, DWC3_VER_NUMBER);
+		dwc->revision |= DWC3_REVISION_IS_DWC31;
 		dwc->version_type = dwc3_readl(dwc->regs, DWC3_VER_TYPE);
 	} else {
 		return false;
@@ -746,7 +736,8 @@ static void dwc3_core_setup_global_control(struct dwc3 *dwc)
 		 */
 		if ((dwc->dr_mode == USB_DR_MODE_HOST ||
 				dwc->dr_mode == USB_DR_MODE_OTG) &&
-				DWC3_VER_IS_WITHIN(DWC3, 210A, 250A))
+				(dwc->revision >= DWC3_REVISION_210A &&
+				dwc->revision <= DWC3_REVISION_250A))
 			reg |= DWC3_GCTL_DSBLCLKGTNG | DWC3_GCTL_SOFITPSYNC;
 		else
 			reg &= ~DWC3_GCTL_DSBLCLKGTNG;
@@ -789,7 +780,7 @@ static void dwc3_core_setup_global_control(struct dwc3 *dwc)
 	 * and falls back to high-speed mode which causes
 	 * the device to enter a Connect/Disconnect loop
 	 */
-	if (DWC3_VER_IS_PRIOR(DWC3, 190A))
+	if (dwc->revision < DWC3_REVISION_190A)
 		reg |= DWC3_GCTL_U2RSTECN;
 
 	dwc3_writel(dwc->regs, DWC3_GCTL, reg);
@@ -910,6 +901,13 @@ static int dwc3_core_init(struct dwc3 *dwc)
 	 */
 	dwc3_writel(dwc->regs, DWC3_GUID, LINUX_VERSION_CODE);
 
+	/* Handle USB2.0-only core configuration */
+	if (DWC3_GHWPARAMS3_SSPHY_IFC(dwc->hwparams.hwparams3) ==
+			DWC3_GHWPARAMS3_SSPHY_IFC_DIS) {
+		if (dwc->maximum_speed == USB_SPEED_SUPER)
+			dwc->maximum_speed = USB_SPEED_HIGH;
+	}
+
 	ret = dwc3_phy_setup(dwc);
 	if (ret)
 		goto err0;
@@ -965,20 +963,20 @@ static int dwc3_core_init(struct dwc3 *dwc)
 	 * the DWC_usb3 controller. It is NOT available in the
 	 * DWC_usb31 controller.
 	 */
-	if (DWC3_VER_IS_WITHIN(DWC3, 310A, ANY)) {
+	if (!dwc3_is_usb31(dwc) && dwc->revision >= DWC3_REVISION_310A) {
 		reg = dwc3_readl(dwc->regs, DWC3_GUCTL2);
 		reg |= DWC3_GUCTL2_RST_ACTBITLATER;
 		dwc3_writel(dwc->regs, DWC3_GUCTL2, reg);
 	}
 
-	if (!DWC3_VER_IS_PRIOR(DWC3, 250A)) {
+	if (dwc->revision >= DWC3_REVISION_250A) {
 		reg = dwc3_readl(dwc->regs, DWC3_GUCTL1);
 
 		/*
 		 * Enable hardware control of sending remote wakeup
 		 * in HS when the device is in the L1 state.
 		 */
-		if (!DWC3_VER_IS_PRIOR(DWC3, 290A))
+		if (dwc->revision >= DWC3_REVISION_290A)
 			reg |= DWC3_GUCTL1_DEV_L1_EXIT_BY_HW;
 
 		if (dwc->dis_tx_ipgap_linecheck_quirk)
@@ -1010,7 +1008,7 @@ static int dwc3_core_init(struct dwc3 *dwc)
 	 * Must config both number of packets and max burst settings to enable
 	 * RX and/or TX threshold.
 	 */
-	if (!DWC3_IP_IS(DWC3) && dwc->dr_mode == USB_DR_MODE_HOST) {
+	if (dwc3_is_usb31(dwc) && dwc->dr_mode == USB_DR_MODE_HOST) {
 		u8 rx_thr_num = dwc->rx_thr_num_pkt_prd;
 		u8 rx_maxburst = dwc->rx_max_burst_prd;
 		u8 tx_thr_num = dwc->tx_thr_num_pkt_prd;
@@ -1334,16 +1332,15 @@ static void dwc3_get_properties(struct dwc3 *dwc)
 /* check whether the core supports IMOD */
 bool dwc3_has_imod(struct dwc3 *dwc)
 {
-	return DWC3_VER_IS_WITHIN(DWC3, 300A, ANY) ||
-		DWC3_VER_IS_WITHIN(DWC31, 120A, ANY) ||
-		DWC3_IP_IS(DWC32);
+	return ((dwc3_is_usb3(dwc) &&
+		 dwc->revision >= DWC3_REVISION_300A) ||
+		(dwc3_is_usb31(dwc) &&
+		 dwc->revision >= DWC3_USB31_REVISION_120A));
 }
 
 static void dwc3_check_params(struct dwc3 *dwc)
 {
 	struct device *dev = dwc->dev;
-	unsigned int hwparam_gen =
-		DWC3_GHWPARAMS3_SSPHY_IFC(dwc->hwparams.hwparams3);
 
 	/* Check for proper value of imod_interval */
 	if (dwc->imod_interval && !dwc3_has_imod(dwc)) {
@@ -1359,7 +1356,7 @@ static void dwc3_check_params(struct dwc3 *dwc)
 	 * affected version.
 	 */
 	if (!dwc->imod_interval &&
-	    DWC3_VER_IS(DWC3, 300A))
+	    (dwc->revision == DWC3_REVISION_300A))
 		dwc->imod_interval = 1;
 
 	/* Check the maximum_speed parameter */
@@ -1375,24 +1372,17 @@ static void dwc3_check_params(struct dwc3 *dwc)
 			dwc->maximum_speed);
 		/* fall through */
 	case USB_SPEED_UNKNOWN:
-		switch (hwparam_gen) {
-		case DWC3_GHWPARAMS3_SSPHY_IFC_GEN2:
+		/* default to superspeed */
+		dwc->maximum_speed = USB_SPEED_SUPER;
+
+		/*
+		 * default to superspeed plus if we are capable.
+		 */
+		if (dwc3_is_usb31(dwc) &&
+		    (DWC3_GHWPARAMS3_SSPHY_IFC(dwc->hwparams.hwparams3) ==
+		     DWC3_GHWPARAMS3_SSPHY_IFC_GEN2))
 			dwc->maximum_speed = USB_SPEED_SUPER_PLUS;
 
-			break;
-		case DWC3_GHWPARAMS3_SSPHY_IFC_GEN1:
-			if (DWC3_IP_IS(DWC32))
-				dwc->maximum_speed = USB_SPEED_SUPER_PLUS;
-			else
-				dwc->maximum_speed = USB_SPEED_SUPER;
-			break;
-		case DWC3_GHWPARAMS3_SSPHY_IFC_DIS:
-			dwc->maximum_speed = USB_SPEED_HIGH;
-			break;
-		default:
-			dwc->maximum_speed = USB_SPEED_SUPER;
-			break;
-		}
 		break;
 	}
 }
