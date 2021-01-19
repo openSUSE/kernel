@@ -31,6 +31,10 @@ extern char system_call_common[];
 #define XER_OV32	0x00080000U
 #define XER_CA32	0x00040000U
 
+#ifdef CONFIG_VSX
+#define VSX_REGISTER_XTP(rd)   ((((rd) & 1) << 5) | ((rd) & 0xfe))
+#endif
+
 #ifdef CONFIG_PPC_FPU
 /*
  * Functions in ldstfp.S
@@ -275,6 +279,19 @@ static nokprobe_inline void do_byte_reverse(void *ptr, int nb)
 		up[1] = tmp;
 		break;
 	}
+	case 32: {
+		unsigned long *up = (unsigned long *)ptr;
+		unsigned long tmp;
+
+		tmp = byterev_8(up[0]);
+		up[0] = byterev_8(up[3]);
+		up[3] = tmp;
+		tmp = byterev_8(up[2]);
+		up[2] = byterev_8(up[1]);
+		up[1] = tmp;
+		break;
+	}
+
 #endif
 	default:
 		WARN_ON_ONCE(1);
@@ -702,9 +719,12 @@ void emulate_vsx_load(struct instruction_op *op, union vsx_reg *reg,
 	const unsigned char *bp;
 
 	size = GETSIZE(op->type);
-	reg->d[0] = reg->d[1] = 0;
+	reg[0].d[0] = reg[0].d[1] = 0;
+	reg[1].d[0] = reg[1].d[1] = 0;
 
 	switch (op->element_size) {
+	case 32:
+		/* [p]lxvp[x] */
 	case 16:
 		/* whole vector; lxv[x] or lxvl[l] */
 		if (size == 0)
@@ -713,31 +733,31 @@ void emulate_vsx_load(struct instruction_op *op, union vsx_reg *reg,
 		if (IS_LE && (op->vsx_flags & VSX_LDLEFT))
 			rev = !rev;
 		if (rev)
-			do_byte_reverse(reg, 16);
+			do_byte_reverse(reg, size);
 		break;
 	case 8:
 		/* scalar loads, lxvd2x, lxvdsx */
 		read_size = (size >= 8) ? 8 : size;
 		i = IS_LE ? 8 : 8 - read_size;
-		memcpy(&reg->b[i], mem, read_size);
+		memcpy(&reg[0].b[i], mem, read_size);
 		if (rev)
-			do_byte_reverse(&reg->b[i], 8);
+			do_byte_reverse(&reg[0].b[i], 8);
 		if (size < 8) {
 			if (op->type & SIGNEXT) {
 				/* size == 4 is the only case here */
-				reg->d[IS_LE] = (signed int) reg->d[IS_LE];
+				reg[0].d[IS_LE] = (signed int)reg[0].d[IS_LE];
 			} else if (op->vsx_flags & VSX_FPCONV) {
 				preempt_disable();
-				conv_sp_to_dp(&reg->fp[1 + IS_LE],
-					      &reg->dp[IS_LE]);
+				conv_sp_to_dp(&reg[0].fp[1 + IS_LE],
+					      &reg[0].dp[IS_LE]);
 				preempt_enable();
 			}
 		} else {
 			if (size == 16) {
 				unsigned long v = *(unsigned long *)(mem + 8);
-				reg->d[IS_BE] = !rev ? v : byterev_8(v);
+				reg[0].d[IS_BE] = !rev ? v : byterev_8(v);
 			} else if (op->vsx_flags & VSX_SPLAT)
-				reg->d[IS_BE] = reg->d[IS_LE];
+				reg[0].d[IS_BE] = reg[0].d[IS_LE];
 		}
 		break;
 	case 4:
@@ -745,13 +765,13 @@ void emulate_vsx_load(struct instruction_op *op, union vsx_reg *reg,
 		wp = mem;
 		for (j = 0; j < size / 4; ++j) {
 			i = IS_LE ? 3 - j : j;
-			reg->w[i] = !rev ? *wp++ : byterev_4(*wp++);
+			reg[0].w[i] = !rev ? *wp++ : byterev_4(*wp++);
 		}
 		if (op->vsx_flags & VSX_SPLAT) {
-			u32 val = reg->w[IS_LE ? 3 : 0];
+			u32 val = reg[0].w[IS_LE ? 3 : 0];
 			for (; j < 4; ++j) {
 				i = IS_LE ? 3 - j : j;
-				reg->w[i] = val;
+				reg[0].w[i] = val;
 			}
 		}
 		break;
@@ -760,7 +780,7 @@ void emulate_vsx_load(struct instruction_op *op, union vsx_reg *reg,
 		hp = mem;
 		for (j = 0; j < size / 2; ++j) {
 			i = IS_LE ? 7 - j : j;
-			reg->h[i] = !rev ? *hp++ : byterev_2(*hp++);
+			reg[0].h[i] = !rev ? *hp++ : byterev_2(*hp++);
 		}
 		break;
 	case 1:
@@ -768,7 +788,7 @@ void emulate_vsx_load(struct instruction_op *op, union vsx_reg *reg,
 		bp = mem;
 		for (j = 0; j < size; ++j) {
 			i = IS_LE ? 15 - j : j;
-			reg->b[i] = *bp++;
+			reg[0].b[i] = *bp++;
 		}
 		break;
 	}
@@ -781,7 +801,7 @@ void emulate_vsx_store(struct instruction_op *op, const union vsx_reg *reg,
 {
 	int size, write_size;
 	int i, j;
-	union vsx_reg buf;
+	union vsx_reg buf[2];
 	unsigned int *wp;
 	unsigned short *hp;
 	unsigned char *bp;
@@ -789,6 +809,20 @@ void emulate_vsx_store(struct instruction_op *op, const union vsx_reg *reg,
 	size = GETSIZE(op->type);
 
 	switch (op->element_size) {
+	case 32:
+		/* [p]stxvp[x] */
+		if (size == 0)
+			break;
+		if (rev) {
+			/* reverse 32 bytes */
+			buf[0].d[0] = byterev_8(reg[1].d[1]);
+			buf[0].d[1] = byterev_8(reg[1].d[0]);
+			buf[1].d[0] = byterev_8(reg[0].d[1]);
+			buf[1].d[1] = byterev_8(reg[0].d[0]);
+			reg = buf;
+		}
+		memcpy(mem, reg, size);
+		break;
 	case 16:
 		/* stxv, stxvx, stxvl, stxvll */
 		if (size == 0)
@@ -797,9 +831,9 @@ void emulate_vsx_store(struct instruction_op *op, const union vsx_reg *reg,
 			rev = !rev;
 		if (rev) {
 			/* reverse 16 bytes */
-			buf.d[0] = byterev_8(reg->d[1]);
-			buf.d[1] = byterev_8(reg->d[0]);
-			reg = &buf;
+			buf[0].d[0] = byterev_8(reg[0].d[1]);
+			buf[0].d[1] = byterev_8(reg[0].d[0]);
+			reg = buf;
 		}
 		memcpy(mem, reg, size);
 		break;
@@ -808,15 +842,15 @@ void emulate_vsx_store(struct instruction_op *op, const union vsx_reg *reg,
 		write_size = (size >= 8) ? 8 : size;
 		i = IS_LE ? 8 : 8 - write_size;
 		if (size < 8 && op->vsx_flags & VSX_FPCONV) {
-			buf.d[0] = buf.d[1] = 0;
+			buf[0].d[0] = buf[0].d[1] = 0;
 			preempt_disable();
-			conv_dp_to_sp(&reg->dp[IS_LE], &buf.fp[1 + IS_LE]);
+			conv_dp_to_sp(&reg[0].dp[IS_LE], &buf[0].fp[1 + IS_LE]);
 			preempt_enable();
-			reg = &buf;
+			reg = buf;
 		}
-		memcpy(mem, &reg->b[i], write_size);
+		memcpy(mem, &reg[0].b[i], write_size);
 		if (size == 16)
-			memcpy(mem + 8, &reg->d[IS_BE], 8);
+			memcpy(mem + 8, &reg[0].d[IS_BE], 8);
 		if (unlikely(rev)) {
 			do_byte_reverse(mem, write_size);
 			if (size == 16)
@@ -828,7 +862,7 @@ void emulate_vsx_store(struct instruction_op *op, const union vsx_reg *reg,
 		wp = mem;
 		for (j = 0; j < size / 4; ++j) {
 			i = IS_LE ? 3 - j : j;
-			*wp++ = !rev ? reg->w[i] : byterev_4(reg->w[i]);
+			*wp++ = !rev ? reg[0].w[i] : byterev_4(reg[0].w[i]);
 		}
 		break;
 	case 2:
@@ -836,7 +870,7 @@ void emulate_vsx_store(struct instruction_op *op, const union vsx_reg *reg,
 		hp = mem;
 		for (j = 0; j < size / 2; ++j) {
 			i = IS_LE ? 7 - j : j;
-			*hp++ = !rev ? reg->h[i] : byterev_2(reg->h[i]);
+			*hp++ = !rev ? reg[0].h[i] : byterev_2(reg[0].h[i]);
 		}
 		break;
 	case 1:
@@ -844,7 +878,7 @@ void emulate_vsx_store(struct instruction_op *op, const union vsx_reg *reg,
 		bp = mem;
 		for (j = 0; j < size; ++j) {
 			i = IS_LE ? 15 - j : j;
-			*bp++ = reg->b[i];
+			*bp++ = reg[0].b[i];
 		}
 		break;
 	}
@@ -857,28 +891,43 @@ static nokprobe_inline int do_vsx_load(struct instruction_op *op,
 				       bool cross_endian)
 {
 	int reg = op->reg;
-	u8 mem[16];
-	union vsx_reg buf;
+	int i, j, nr_vsx_regs;
+	u8 mem[32];
+	union vsx_reg buf[2];
 	int size = GETSIZE(op->type);
 
 	if (!address_ok(regs, ea, size) || copy_mem_in(mem, ea, size, regs))
 		return -EFAULT;
 
-	emulate_vsx_load(op, &buf, mem, cross_endian);
+	nr_vsx_regs = size / sizeof(__vector128);
+	emulate_vsx_load(op, buf, mem, cross_endian);
 	preempt_disable();
 	if (reg < 32) {
 		/* FP regs + extensions */
 		if (regs->msr & MSR_FP) {
-			load_vsrn(reg, &buf);
+			for (i = 0; i < nr_vsx_regs; i++) {
+				j = IS_LE ? nr_vsx_regs - i - 1 : i;
+				load_vsrn(reg + i, &buf[j].v);
+			}
 		} else {
-			current->thread.fp_state.fpr[reg][0] = buf.d[0];
-			current->thread.fp_state.fpr[reg][1] = buf.d[1];
+			for (i = 0; i < nr_vsx_regs; i++) {
+				j = IS_LE ? nr_vsx_regs - i - 1 : i;
+				current->thread.fp_state.fpr[reg + i][0] = buf[j].d[0];
+				current->thread.fp_state.fpr[reg + i][1] = buf[j].d[1];
+			}
 		}
 	} else {
-		if (regs->msr & MSR_VEC)
-			load_vsrn(reg, &buf);
-		else
-			current->thread.vr_state.vr[reg - 32] = buf.v;
+		if (regs->msr & MSR_VEC) {
+			for (i = 0; i < nr_vsx_regs; i++) {
+				j = IS_LE ? nr_vsx_regs - i - 1 : i;
+				load_vsrn(reg + i, &buf[j].v);
+			}
+		} else {
+			for (i = 0; i < nr_vsx_regs; i++) {
+				j = IS_LE ? nr_vsx_regs - i - 1 : i;
+				current->thread.vr_state.vr[reg - 32 + i] = buf[j].v;
+			}
+		}
 	}
 	preempt_enable();
 	return 0;
@@ -889,30 +938,45 @@ static nokprobe_inline int do_vsx_store(struct instruction_op *op,
 					bool cross_endian)
 {
 	int reg = op->reg;
-	u8 mem[16];
-	union vsx_reg buf;
+	int i, j, nr_vsx_regs;
+	u8 mem[32];
+	union vsx_reg buf[2];
 	int size = GETSIZE(op->type);
 
 	if (!address_ok(regs, ea, size))
 		return -EFAULT;
 
+	nr_vsx_regs = size / sizeof(__vector128);
 	preempt_disable();
 	if (reg < 32) {
 		/* FP regs + extensions */
 		if (regs->msr & MSR_FP) {
-			store_vsrn(reg, &buf);
+			for (i = 0; i < nr_vsx_regs; i++) {
+				j = IS_LE ? nr_vsx_regs - i - 1 : i;
+				store_vsrn(reg + i, &buf[j].v);
+			}
 		} else {
-			buf.d[0] = current->thread.fp_state.fpr[reg][0];
-			buf.d[1] = current->thread.fp_state.fpr[reg][1];
+			for (i = 0; i < nr_vsx_regs; i++) {
+				j = IS_LE ? nr_vsx_regs - i - 1 : i;
+				buf[j].d[0] = current->thread.fp_state.fpr[reg + i][0];
+				buf[j].d[1] = current->thread.fp_state.fpr[reg + i][1];
+			}
 		}
 	} else {
-		if (regs->msr & MSR_VEC)
-			store_vsrn(reg, &buf);
-		else
-			buf.v = current->thread.vr_state.vr[reg - 32];
+		if (regs->msr & MSR_VEC) {
+			for (i = 0; i < nr_vsx_regs; i++) {
+				j = IS_LE ? nr_vsx_regs - i - 1 : i;
+				store_vsrn(reg + i, &buf[j].v);
+			}
+		} else {
+			for (i = 0; i < nr_vsx_regs; i++) {
+				j = IS_LE ? nr_vsx_regs - i - 1 : i;
+				buf[j].v = current->thread.vr_state.vr[reg - 32 + i];
+			}
+		}
 	}
 	preempt_enable();
-	emulate_vsx_store(op, &buf, mem, cross_endian);
+	emulate_vsx_store(op, buf, mem, cross_endian);
 	return  copy_mem_out(mem, ea, size, regs);
 }
 #endif /* CONFIG_VSX */
@@ -2396,6 +2460,14 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			op->vsx_flags = VSX_SPLAT;
 			break;
 
+		case 333:       /* lxvpx */
+			if (!cpu_has_feature(CPU_FTR_ARCH_31))
+				return -1;
+			op->reg = VSX_REGISTER_XTP(rd);
+			op->type = MKOP(LOAD_VSX, 0, 32);
+			op->element_size = 32;
+			break;
+
 		case 364:	/* lxvwsx */
 			op->reg = rd | ((word & 1) << 5);
 			op->type = MKOP(LOAD_VSX, 0, 4);
@@ -2424,6 +2496,13 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 				VSX_CHECK_VEC;
 			break;
 		}
+		case 461:       /* stxvpx */
+			if (!cpu_has_feature(CPU_FTR_ARCH_31))
+				return -1;
+			op->reg = VSX_REGISTER_XTP(rd);
+			op->type = MKOP(STORE_VSX, 0, 32);
+			op->element_size = 32;
+			break;
 		case 524:	/* lxsspx */
 			op->reg = rd | ((word & 1) << 5);
 			op->type = MKOP(LOAD_VSX, 0, 4);
@@ -2665,6 +2744,22 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 #endif
 
 #ifdef CONFIG_VSX
+	case 6:
+		if (!cpu_has_feature(CPU_FTR_ARCH_31))
+			return -1;
+		op->ea = dqform_ea(word, regs);
+		op->reg = VSX_REGISTER_XTP(rd);
+		op->element_size = 32;
+		switch (word & 0xf) {
+		case 0:         /* lxvp */
+			op->type = MKOP(LOAD_VSX, 0, 32);
+			break;
+		case 1:         /* stxvp */
+			op->type = MKOP(STORE_VSX, 0, 32);
+			break;
+		}
+		break;
+
 	case 61:	/* stfdp, lxv, stxsd, stxssp, stxv */
 		switch (word & 7) {
 		case 0:		/* stfdp with LSB of DS field = 0 */
@@ -2798,12 +2893,26 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			case 57:	/* pld */
 				op->type = MKOP(LOAD, PREFIXED, 8);
 				break;
+#ifdef CONFIG_VSX
+			case 58:        /* plxvp */
+				op->reg = VSX_REGISTER_XTP(rd);
+				op->type = MKOP(LOAD_VSX, PREFIXED, 32);
+				op->element_size = 32;
+				break;
+#endif /* CONFIG_VSX */
 			case 60:        /* pstq */
 				op->type = MKOP(STORE, PREFIXED, 16);
 				break;
 			case 61:	/* pstd */
 				op->type = MKOP(STORE, PREFIXED, 8);
 				break;
+#ifdef CONFIG_VSX
+			case 62:        /* pstxvp */
+				op->reg = VSX_REGISTER_XTP(rd);
+				op->type = MKOP(STORE_VSX, PREFIXED, 32);
+				op->element_size = 32;
+				break;
+#endif /* CONFIG_VSX */
 			}
 			break;
 		case 1: /* Type 01 Eight-Byte Register-to-Register */
