@@ -10343,7 +10343,7 @@ F:	drivers/input/touchscreen/melfas_mip4.c
 F:	Documentation/devicetree/bindings/input/touchscreen/melfas_mip4.txt
 
 MELLANOX BLUEFIELD I2C DRIVER
-M:	Khalil Blaiech <kblaiech@mellanox.com>
+M:	Khalil Blaiech <kblaiech@nvidia.com>
 L:	linux-i2c@vger.kernel.org
 S:	Supported
 F:	drivers/i2c/busses/i2c-mlxbf.c
