@@ -3391,6 +3391,9 @@ static dma_addr_t __intel_map_single(struct device *dev, phys_addr_t paddr,
 
 	BUG_ON(dir == DMA_NONE);
 
+	if (unlikely(!dev || !dev->iommu))
+		return NULL;
+
 	if (unlikely(attach_deferred(dev)))
 		do_deferred_attach(dev);
 
