@@ -2677,6 +2677,9 @@ static int __s390_reset_acc(pte_t *ptep, unsigned long addr,
 void s390_reset_acc(struct mm_struct *mm)
 {
 	struct mm_walk walk = { .pte_entry = __s390_reset_acc };
+
+	if (!mm_is_protected(mm))
+		return;
 	/*
 	 * we might be called during
 	 * reset:                             we walk the pages and clear
