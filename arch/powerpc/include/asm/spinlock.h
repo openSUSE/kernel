@@ -37,6 +37,10 @@
 #endif
 
 #ifdef CONFIG_PPC_PSERIES
+#include <linux/smp.h>
+#include <asm/kvm_guest.h>
+#include <asm/cputhreads.h>
+
 DECLARE_STATIC_KEY_FALSE(shared_processor);
 
 #define vcpu_is_preempted vcpu_is_preempted
@@ -44,6 +48,21 @@ static inline bool vcpu_is_preempted(int cpu)
 {
 	if (!static_branch_unlikely(&shared_processor))
 		return false;
+
+#ifdef CONFIG_PPC_SPLPAR
+	if (!is_kvm_guest()) {
+		int first_cpu = cpu_first_thread_sibling(smp_processor_id());
+
+		/*
+		 * Preemption can only happen at core granularity. This CPU
+		 * is not preempted if one of the CPU of this core is not
+		 * preempted.
+		 */
+		if (cpu_first_thread_sibling(cpu) == first_cpu)
+			return false;
+	}
+#endif
+
 	return !!(be32_to_cpu(lppaca_of(cpu).yield_count) & 1);
 }
 #endif
