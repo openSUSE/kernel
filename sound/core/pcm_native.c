@@ -381,20 +381,19 @@ retry:
 			continue;
 
 		/*
-		 * The 'deps' array includes maximum three dependencies
-		 * to SNDRV_PCM_HW_PARAM_XXXs for this rule. The fourth
-		 * member of this array is a sentinel and should be
-		 * negative value.
+		 * The 'deps' array includes maximum four dependencies
+		 * to SNDRV_PCM_HW_PARAM_XXXs for this rule. It's terminated
+		 * by a sentinel (-1) or fully filled to four items.
 		 *
 		 * This rule should be processed in this time when dependent
 		 * parameters were changed at former applications of the other
 		 * rules.
 		 */
-		for (d = 0; r->deps[d] >= 0; d++) {
+		for (d = 0; d < ARRAY_SIZE(r->deps) && r->deps[d] >= 0; d++) {
 			if (vstamps[r->deps[d]] > rstamps[k])
 				break;
 		}
-		if (r->deps[d] < 0)
+		if (d >= ARRAY_SIZE(r->deps) || r->deps[d] < 0)
 			continue;
 
 		if (trace_hw_mask_param_enabled()) {
