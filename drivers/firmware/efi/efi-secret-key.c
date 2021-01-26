@@ -35,6 +35,8 @@ void __init parse_efi_secret_key_setup(u64 phys_addr, u32 data_len)
 static void __init
 print_efi_skey_setup_data(struct efi_skey_setup_data *skey_setup)
 {
+	int i;
+
 	pr_debug("EFI secret key detection status: %s 0x%lx\n",
 		efi_status_to_str(skey_setup->detect_status),
 		skey_setup->detect_status);
