@@ -230,4 +230,12 @@ config NVMEM_ZYNQMP
 
 	  If sure, say yes. If unsure, say no.
 
+config NVMEM_RMEM
+	tristate "Reserved Memory Based Driver Support"
+	help
+	  This drivers maps reserved memory into an nvmem device. It might be
+	  useful to expose information left by firmware in memory.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called nvmem-rmem.
 endif

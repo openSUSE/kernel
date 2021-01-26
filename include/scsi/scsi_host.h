@@ -446,6 +446,9 @@ struct scsi_host_template {
 	/* True if the controller does not support WRITE SAME */
 	unsigned no_write_same:1;
 
+	/* True if the host uses host-wide tagspace */
+	unsigned host_tagset:1;
+
 	/* True if the low-level driver supports blk-mq only */
 	unsigned force_blk_mq:1;
 
@@ -614,7 +617,8 @@ struct Scsi_Host {
 	 *
 	 * Note: it is assumed that each hardware queue has a queue depth of
 	 * can_queue. In other words, the total queue depth per host
-	 * is nr_hw_queues * can_queue.
+	 * is nr_hw_queues * can_queue. However, for when host_tagset is set,
+	 * the total queue depth is can_queue.
 	 */
 	unsigned nr_hw_queues;
 	unsigned active_mode:2;
@@ -644,6 +648,9 @@ struct Scsi_Host {
 
 	/* The controller does not support WRITE SAME */
 	unsigned no_write_same:1;
+
+	/* True if the host uses host-wide tagspace */
+	unsigned host_tagset:1;
 
 	/* Host responded with short (<36 bytes) INQUIRY result */
 	unsigned short_inquiry:1;

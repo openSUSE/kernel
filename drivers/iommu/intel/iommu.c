@@ -1746,7 +1746,7 @@ static void free_dmar_iommu(struct intel_iommu *iommu)
 		if (ecap_prs(iommu->ecap))
 			intel_svm_finish_prq(iommu);
 	}
-	if (ecap_vcs(iommu->ecap) && vccap_pasid(iommu->vccap))
+	if (vccap_pasid(iommu->vccap))
 		ioasid_unregister_allocator(&iommu->pasid_allocator);
 
 #endif
@@ -3122,7 +3122,7 @@ static void register_pasid_allocator(struct intel_iommu *iommu)
 	 * is active. All vIOMMU allocators will eventually be calling the same
 	 * host allocator.
 	 */
-	if (!ecap_vcs(iommu->ecap) || !vccap_pasid(iommu->vccap))
+	if (!vccap_pasid(iommu->vccap))
 		return;
 
 	pr_info("Register custom PASID allocator\n");
@@ -3390,6 +3390,9 @@ static dma_addr_t __intel_map_single(struct device *dev, phys_addr_t paddr,
 	unsigned long paddr_pfn = paddr >> PAGE_SHIFT;
 
 	BUG_ON(dir == DMA_NONE);
+
+	if (unlikely(!dev || !dev->iommu))
+		return NULL;
 
 	if (unlikely(attach_deferred(dev)))
 		do_deferred_attach(dev);
@@ -5329,6 +5332,7 @@ static void intel_iommu_aux_detach_device(struct iommu_domain *domain,
 	aux_domain_remove_dev(to_dmar_domain(domain), dev);
 }
 
+#ifdef CONFIG_INTEL_IOMMU_SVM
 /*
  * 2D array for converting and sanitizing IOMMU generic TLB granularity to
  * VT-d granularity. Invalidation is typically included in the unmap operation
@@ -5375,7 +5379,6 @@ static inline u64 to_vtd_size(u64 granu_size, u64 nr_granules)
 	return order_base_2(nr_pages);
 }
 
-#ifdef CONFIG_INTEL_IOMMU_SVM
 static int
 intel_iommu_sva_invalidate(struct iommu_domain *domain, struct device *dev,
 			   struct iommu_cache_invalidate_info *inv_info)

@@ -34,7 +34,7 @@ int pick_online_cpu(void);
 
 int read_debugfs_file(char *debugfs_file, int *result);
 int write_debugfs_file(char *debugfs_file, int result);
-void set_dscr(unsigned long val);
+int read_sysfs_file(char *debugfs_file, char *result, size_t result_size);
 int perf_event_open_counter(unsigned int type,
 			    unsigned long config, int group_fd);
 int perf_event_enable(int fd);
@@ -59,6 +59,7 @@ static inline bool have_hwcap2(unsigned long ftr2)
 #endif
 
 bool is_ppc64le(void);
+int using_hash_mmu(bool *using_hash);
 
 /* Yes, this is evil */
 #define FAIL_IF(x)						\

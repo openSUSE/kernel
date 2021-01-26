@@ -30,11 +30,13 @@
 #include "error.h"
 #include "../string.h"
 
+#include <generated/compile.h>
 #include <linux/module.h>
 #include <linux/uts.h>
 #include <linux/utsname.h>
 #include <linux/ctype.h>
 #include <linux/efi.h>
+#include <generated/utsrelease.h>
 #include <asm/efi.h>
 
 /* Macros used by the included decompressor code below. */
@@ -42,6 +44,25 @@
 #include <linux/decompress/mm.h>
 
 extern unsigned long get_cmd_line_ptr(void);
+
+/* Simplified build-specific string for starting entropy. */
+static const char build_str[] = UTS_RELEASE " (" LINUX_COMPILE_BY "@"
+		LINUX_COMPILE_HOST ") (" LINUX_COMPILER ") " UTS_VERSION;
+
+static unsigned long rotate_xor(unsigned long hash, const void *area,
+				size_t size)
+{
+	size_t i;
+	unsigned long *ptr = (unsigned long *)area;
+
+	for (i = 0; i < size / sizeof(hash); i++) {
+		/* Rotate by odd number of bits and XOR. */
+		hash = (hash << ((sizeof(hash) * 8) - 7)) | (hash >> 7);
+		hash ^= ptr[i];
+	}
+
+	return hash;
+}
 
 /* Attempt to create a simple but unpredictable starting entropy. */
 static unsigned long get_boot_seed(void)
