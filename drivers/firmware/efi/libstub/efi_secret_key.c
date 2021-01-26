@@ -1,6 +1,6 @@
 /* EFI secret key generator
  *
- * Copyright (C) 2017 Lee, Chun-Yi <jlee@suse.com>
+ * Copyright (C) 2021 Lee, Chun-Yi <jlee@suse.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public Licence
@@ -11,16 +11,9 @@
 #include <linux/efi.h>
 #include <asm/efi.h>
 
-#include "misc.h"
+#include "efistub.h"
 
-static efi_system_table_t *s_table;
 static struct boot_params *b_params;
-
-#ifdef DEBUG
-#define debug_putstr(__x)  efi_printk((char *)__x)
-#else
-#define debug_putstr(__x)
-#endif
 
 #define EFI_STATUS_STR(_status) \
 	EFI_##_status : return "EFI_" __stringify(_status)
@@ -56,36 +49,6 @@ static void efi_printk_status(char *reason, efi_status_t status)
 	efi_printk(reason);
 	efi_printk((char *)efi_status_to_str(status));
 	efi_printk("\n");
-}
-
-static unsigned long get_boot_seed(void)
-{
-	unsigned long hash = 0;
-
-	hash = rotate_xor(hash, build_str, sizeof(build_str));
-	hash = rotate_xor(hash, b_params, sizeof(*b_params));
-
-	return hash;
-}
-
-#include "../../lib/random.c"
-
-static void generate_secret_key(u8 key[], unsigned int size)
-{
-	unsigned int bfill = size;
-
-	if (key == NULL || !size)
-		return;
-
-	memset(key, 0, size);
-	while (bfill > 0) {
-		unsigned long entropy = 0;
-		unsigned int copy_len = 0;
-		entropy = get_random_long("EFI secret key");
-		copy_len = (bfill < sizeof(entropy)) ? bfill : sizeof(entropy);
-		memcpy((void *)(key + size - bfill), &entropy, copy_len);
-		bfill -= copy_len;
-	}
 }
 
 #define get_efi_var(name, vendor, ...) \
@@ -150,13 +113,21 @@ static efi_status_t create_secret_key(struct efi_skey_setup_data *skey_setup)
 	efi_status_t status;
 
 	efi_printk("Create new secret key\n");
-	generate_secret_key(skey_setup->secret_key, SECRET_KEY_SIZE);
+	memset(skey_setup->secret_key, 0, SECRET_KEY_SIZE);
+	status = efi_get_random_bytes(SECRET_KEY_SIZE,
+				      (u8 *)skey_setup->secret_key);
+	if (status != EFI_SUCCESS) {
+		efi_printk_status("Failed to generate secret key: ", status);
+		goto err;
+	}
+
 	status = set_efi_var(secret_key_name, &EFI_SECRET_GUID,
 			     SECRET_KEY_ATTRIBUTE, SECRET_KEY_SIZE,
 			     skey_setup->secret_key);
 	if (status != EFI_SUCCESS)
 		efi_printk_status("Failed to write secret key: ", status);
 
+err:
 	return status;
 }
 
@@ -206,7 +177,7 @@ static efi_status_t regen_secret_key(struct efi_skey_setup_data *skey_setup)
 		status = get_secret_key(&attributes, &key_size, skey_setup);
 }
 
-void efi_setup_secret_key(efi_system_table_t *sys_table, struct boot_params *params)
+void efi_setup_secret_key(struct boot_params *params)
 {
 	struct setup_data *setup_data, *skey_setup_data;
 	unsigned long setup_size = 0;
@@ -215,7 +186,6 @@ void efi_setup_secret_key(efi_system_table_t *sys_table, struct boot_params *par
 	struct efi_skey_setup_data *skey_setup;
 	efi_status_t status;
 
-	s_table = sys_table;
 	b_params = params;
 
 	setup_size = sizeof(struct setup_data) + sizeof(struct efi_skey_setup_data);

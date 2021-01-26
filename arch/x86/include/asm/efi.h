@@ -190,12 +190,10 @@ static inline bool efi_runtime_supported(void)
 extern void parse_efi_setup(u64 phys_addr, u32 data_len);
 
 #ifdef CONFIG_EFI_SECRET_KEY
-extern void efi_setup_secret_key(efi_system_table_t *table,
-				struct boot_params *params);
+extern void efi_setup_secret_key(struct boot_params *params);
 extern void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len);
 #else
-static inline void efi_setup_secret_key(efi_system_table_t *table,
-					struct boot_params *params) {}
+static inline void efi_setup_secret_key(struct boot_params *params) {}
 static inline void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len) {}
 #endif /* CONFIG_EFI_SECRET_KEY */
 
@@ -360,8 +358,6 @@ static inline bool efi_is_64bit(void)
 }
 
 #endif /* CONFIG_EFI_MIXED */
-
-// __pure efi_system_table_t *efi_system_table(void); Be moved by ccc27ae774 efi/libstub: Drop __pure getter for efi_system_table
 
 extern bool efi_reboot_required(void);
 extern bool efi_is_table_address(unsigned long phys_addr);
