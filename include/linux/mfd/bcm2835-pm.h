@@ -9,6 +9,7 @@ struct bcm2835_pm {
 	struct device *dev;
 	void __iomem *base;
 	void __iomem *asb;
+	bool is_bcm2711;
 };
 
 #endif /* BCM2835_MFD_PM_H */
