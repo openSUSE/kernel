@@ -59,6 +59,7 @@ asmlinkage void xen_alignment_check(void);
 asmlinkage void xen_machine_check(void);
 #endif /* CONFIG_X86_MCE */
 asmlinkage void xen_simd_coprocessor_error(void);
+asmlinkage void xen_xenpv_unknown_trap(void);
 #endif
 
 dotraplinkage void do_divide_error(struct pt_regs *regs, long error_code);
