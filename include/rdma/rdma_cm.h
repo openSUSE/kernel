@@ -224,19 +224,9 @@ void rdma_destroy_qp(struct rdma_cm_id *id);
 int rdma_init_qp_attr(struct rdma_cm_id *id, struct ib_qp_attr *qp_attr,
 		       int *qp_attr_mask);
 
-/**
- * rdma_connect - Initiate an active connection request.
- * @id: Connection identifier to connect.
- * @conn_param: Connection information used for connected QPs.
- *
- * Users must have resolved a route for the rdma_cm_id to connect with
- * by having called rdma_resolve_route before calling this routine.
- *
- * This call will either connect to a remote QP or obtain remote QP
- * information for unconnected rdma_cm_id's.  The actual operation is
- * based on the rdma_cm_id's port space.
- */
 int rdma_connect(struct rdma_cm_id *id, struct rdma_conn_param *conn_param);
+int rdma_connect_locked(struct rdma_cm_id *id,
+			struct rdma_conn_param *conn_param);
 
 int rdma_connect_ece(struct rdma_cm_id *id, struct rdma_conn_param *conn_param,
 		     struct rdma_ucm_ece *ece);
@@ -253,6 +243,8 @@ int rdma_listen(struct rdma_cm_id *id, int backlog);
 int __rdma_accept(struct rdma_cm_id *id, struct rdma_conn_param *conn_param,
 		  const char *caller);
 
+void rdma_lock_handler(struct rdma_cm_id *id);
+void rdma_unlock_handler(struct rdma_cm_id *id);
 int __rdma_accept_ece(struct rdma_cm_id *id, struct rdma_conn_param *conn_param,
 		      const char *caller, struct rdma_ucm_ece *ece);
 
@@ -270,6 +262,9 @@ int __rdma_accept_ece(struct rdma_cm_id *id, struct rdma_conn_param *conn_param,
  * In the case of error, a reject message is sent to the remote side and the
  * state of the qp associated with the id is modified to error, such that any
  * previously posted receive buffers would be flushed.
+ *
+ * This function is for use by kernel ULPs and must be called from under the
+ * handler callback.
  */
 #define rdma_accept(id, conn_param) \
 	__rdma_accept((id), (conn_param),  KBUILD_MODNAME)
