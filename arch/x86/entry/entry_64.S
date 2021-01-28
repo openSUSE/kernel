@@ -1087,6 +1087,7 @@ ENDPROC(do_softirq_own_stack)
 
 #ifdef CONFIG_XEN_PV
 idtentry hypervisor_callback xen_do_hypervisor_callback has_error_code=0
+idtentry xenpv_unknown_trap xen_do_unknown_trap has_error_code=0
 
 /*
  * A note on the "critical region" in our callback handler.
