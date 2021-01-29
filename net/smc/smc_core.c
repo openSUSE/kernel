@@ -1274,11 +1274,11 @@ static void smc_core_going_away(void)
 	}
 	mutex_unlock(&smc_ib_devices.mutex);
 
-	spin_lock(&smcd_dev_list.lock);
+	mutex_lock(&smcd_dev_list.mutex);
 	list_for_each_entry(smcd, &smcd_dev_list.list, list) {
 		smcd->going_away = 1;
 	}
-	spin_unlock(&smcd_dev_list.lock);
+	mutex_unlock(&smcd_dev_list.mutex);
 }
 
 /* Clean up all SMC link groups */
@@ -1290,10 +1290,10 @@ static void smc_lgrs_shutdown(void)
 
 	smc_smcr_terminate_all(NULL);
 
-	spin_lock(&smcd_dev_list.lock);
+	mutex_lock(&smcd_dev_list.mutex);
 	list_for_each_entry(smcd, &smcd_dev_list.list, list)
 		smc_smcd_terminate_all(smcd);
-	spin_unlock(&smcd_dev_list.lock);
+	mutex_unlock(&smcd_dev_list.mutex);
 }
 
 static int smc_core_reboot_event(struct notifier_block *this,
