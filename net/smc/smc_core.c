@@ -1198,6 +1198,7 @@ int smc_buf_create(struct smc_sock *smc, bool is_smcd)
 		list_del(&smc->conn.sndbuf_desc->list);
 		write_unlock_bh(&smc->conn.lgr->sndbufs_lock);
 		smc_buf_free(smc->conn.lgr, false, smc->conn.sndbuf_desc);
+		smc->conn.sndbuf_desc = NULL;
 	}
 	return rc;
 }
