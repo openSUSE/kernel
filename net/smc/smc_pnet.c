@@ -12,6 +12,7 @@
 #include <linux/module.h>
 #include <linux/list.h>
 #include <linux/ctype.h>
+#include <linux/mutex.h>
 #include <net/netlink.h>
 #include <net/genetlink.h>
 
@@ -125,7 +126,7 @@ static int smc_pnet_remove_by_pnetid(struct net *net, char *pnet_name)
 		return rc;
 
 	/* remove ib devices */
-	spin_lock(&smc_ib_devices.lock);
+	mutex_lock(&smc_ib_devices.mutex);
 	list_for_each_entry(ibdev, &smc_ib_devices.list, list) {
 		for (ibport = 0; ibport < SMC_MAX_PORTS; ibport++) {
 			if (ibdev->pnetid_by_user[ibport] &&
@@ -139,7 +140,7 @@ static int smc_pnet_remove_by_pnetid(struct net *net, char *pnet_name)
 			}
 		}
 	}
-	spin_unlock(&smc_ib_devices.lock);
+	mutex_unlock(&smc_ib_devices.mutex);
 	/* remove smcd devices */
 	spin_lock(&smcd_dev_list.lock);
 	list_for_each_entry(smcd_dev, &smcd_dev_list.list, list) {
@@ -201,14 +202,14 @@ static int smc_pnet_enter(struct smc_pnettable *pnettable,
 		struct smc_ib_device *ib_dev = new_pnetelem->smcibdev;
 		int ib_port = new_pnetelem->ib_port;
 
-		spin_lock(&smc_ib_devices.lock);
+		mutex_lock(&smc_ib_devices.mutex);
 		if (smc_pnet_match(ib_dev->pnetid[ib_port - 1], pnet_null)) {
 			memcpy(ib_dev->pnetid[ib_port - 1],
 			       new_pnetelem->pnet_name, SMC_MAX_PNETID_LEN);
 			ib_dev->pnetid_by_user[ib_port - 1] = true;
 			new_ibdev = true;
 		}
-		spin_unlock(&smc_ib_devices.lock);
+		mutex_unlock(&smc_ib_devices.mutex);
 	}
 	if (new_pnetelem->smcd_dev) {
 		struct smcd_dev *smcd_dev = new_pnetelem->smcd_dev;
@@ -291,7 +292,7 @@ static struct smc_ib_device *smc_pnet_find_ib(char *ib_name)
 {
 	struct smc_ib_device *ibdev;
 
-	spin_lock(&smc_ib_devices.lock);
+	mutex_lock(&smc_ib_devices.mutex);
 	list_for_each_entry(ibdev, &smc_ib_devices.list, list) {
 		if (!strncmp(ibdev->ibdev->name, ib_name,
 			     sizeof(ibdev->ibdev->name)) ||
@@ -302,7 +303,7 @@ static struct smc_ib_device *smc_pnet_find_ib(char *ib_name)
 	}
 	ibdev = NULL;
 out:
-	spin_unlock(&smc_ib_devices.lock);
+	mutex_unlock(&smc_ib_devices.mutex);
 	return ibdev;
 }
 
@@ -506,7 +507,7 @@ static int _smc_pnet_dump(struct net *net, struct sk_buff *skb, u32 portid,
 		return idx;
 
 	/* dump ib devices */
-	spin_lock(&smc_ib_devices.lock);
+	mutex_lock(&smc_ib_devices.mutex);
 	list_for_each_entry(ibdev, &smc_ib_devices.list, list) {
 		for (ibport = 0; ibport < SMC_MAX_PORTS; ibport++) {
 			if (ibdev->pnetid_by_user[ibport]) {
@@ -531,7 +532,7 @@ static int _smc_pnet_dump(struct net *net, struct sk_buff *skb, u32 portid,
 			}
 		}
 	}
-	spin_unlock(&smc_ib_devices.lock);
+	mutex_unlock(&smc_ib_devices.mutex);
 
 	/* dump smcd devices */
 	spin_lock(&smcd_dev_list.lock);
@@ -763,7 +764,7 @@ static void smc_pnet_find_rdma_dev(struct net_device *netdev,
 {
 	struct smc_ib_device *ibdev;
 
-	spin_lock(&smc_ib_devices.lock);
+	mutex_lock(&smc_ib_devices.mutex);
 	list_for_each_entry(ibdev, &smc_ib_devices.list, list) {
 		struct net_device *ndev;
 		int i;
@@ -788,7 +789,7 @@ static void smc_pnet_find_rdma_dev(struct net_device *netdev,
 			}
 		}
 	}
-	spin_unlock(&smc_ib_devices.lock);
+	mutex_unlock(&smc_ib_devices.mutex);
 }
 
 /* Determine the corresponding IB device port based on the hardware PNETID.
@@ -812,7 +813,7 @@ static void smc_pnet_find_roce_by_pnetid(struct net_device *ndev,
 		return; /* pnetid could not be determined */
 	}
 
-	spin_lock(&smc_ib_devices.lock);
+	mutex_lock(&smc_ib_devices.mutex);
 	list_for_each_entry(ibdev, &smc_ib_devices.list, list) {
 		for (i = 1; i <= SMC_MAX_PORTS; i++) {
 			if (!rdma_is_port_valid(ibdev->ibdev, i))
@@ -829,7 +830,7 @@ static void smc_pnet_find_roce_by_pnetid(struct net_device *ndev,
 		}
 	}
 out:
-	spin_unlock(&smc_ib_devices.lock);
+	mutex_unlock(&smc_ib_devices.mutex);
 }
 
 static void smc_pnet_find_ism_by_pnetid(struct net_device *ndev,
