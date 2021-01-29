@@ -2529,6 +2529,20 @@ static int vfio_iommu_migration_build_caps(struct vfio_iommu *iommu,
 	return vfio_info_add_capability(caps, &cap_mig.header, sizeof(cap_mig));
 }
 
+static int vfio_iommu_dma_avail_build_caps(struct vfio_iommu *iommu,
+					   struct vfio_info_cap *caps)
+{
+	struct vfio_iommu_type1_info_dma_avail cap_dma_avail;
+
+	cap_dma_avail.header.id = VFIO_IOMMU_TYPE1_INFO_DMA_AVAIL;
+	cap_dma_avail.header.version = 1;
+
+	cap_dma_avail.avail = iommu->dma_avail;
+
+	return vfio_info_add_capability(caps, &cap_dma_avail.header,
+					sizeof(cap_dma_avail));
+}
+
 static long vfio_iommu_type1_ioctl(void *iommu_data,
 				   unsigned int cmd, unsigned long arg)
 {
@@ -2576,6 +2590,9 @@ static long vfio_iommu_type1_ioctl(void *iommu_data,
 		info.iova_pgsizes = iommu->pgsize_bitmap;
 
 		ret = vfio_iommu_migration_build_caps(iommu, &caps);
+
+		if (!ret)
+			ret = vfio_iommu_dma_avail_build_caps(iommu, &caps);
 
 		if (!ret)
 			ret = vfio_iommu_iova_build_caps(iommu, &caps);
