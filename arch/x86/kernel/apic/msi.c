@@ -23,6 +23,8 @@
 
 static struct irq_domain *msi_default_domain;
 
+int msi_ext_dest_id __ro_after_init;
+
 static void __irq_msi_compose_msg(struct irq_data *data, struct msi_msg *msg,
 				  bool dmar)
 {
@@ -48,10 +50,15 @@ static void __irq_msi_compose_msg(struct irq_data *data, struct msi_msg *msg,
 	 * Only the IOMMU itself can use the trick of putting destination
 	 * APIC ID into the high bits of the address. Anything else would
 	 * just be writing to memory if it tried that, and needs IR to
-	 * address higher APIC IDs.
+	 * address APICs which can't be addressed in the normal 32-bit
+	 * address range at 0xFFExxxxx. That is typically just 8 bits, but
+	 * some hypervisors allow the extended destination ID field in bits
+	 * 11-5 to be used, giving support for 15 bits of APIC IDs in total.
 	 */
 	if (dmar)
 		msg->address_hi |= MSI_ADDR_EXT_DEST_ID(cfg->dest_apicid);
+	else if (msi_ext_dest_id && cfg->dest_apicid < 0x8000)
+		msg->address_lo |= MSI_ADDR_EXT_DEST_ID(cfg->dest_apicid) >> 3;
 	else
 		WARN_ON_ONCE(MSI_ADDR_EXT_DEST_ID(cfg->dest_apicid));
 }

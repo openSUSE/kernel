@@ -42,6 +42,7 @@ extern DECLARE_BITMAP(mp_bus_not_pci, MAX_MP_BUSSES);
 extern unsigned int boot_cpu_physical_apicid;
 extern u8 boot_cpu_apic_version;
 extern unsigned long mp_lapic_addr;
+extern int msi_ext_dest_id;
 
 #ifdef CONFIG_X86_LOCAL_APIC
 extern int smp_found_config;
