@@ -78,7 +78,8 @@ struct IO_APIC_route_entry {
 		mask		:  1,	/* 0: enabled, 1: disabled */
 		__reserved_2	: 15;
 
-	__u32	__reserved_3	: 24,
+	__u32	__reserved_3	: 17,
+		ext_dest	:  7,
 		dest		:  8;
 } __attribute__ ((packed));
 
