@@ -15,6 +15,7 @@
 #include <linux/workqueue.h>
 #include <linux/wait.h>
 #include <linux/reboot.h>
+#include <linux/mutex.h>
 #include <net/tcp.h>
 #include <net/sock.h>
 #include <rdma/ib_verbs.h>
@@ -160,6 +161,18 @@ static void smc_lgr_unregister_conn(struct smc_connection *conn)
 	}
 	write_unlock_bh(&lgr->conns_lock);
 	conn->lgr = NULL;
+}
+
+void smc_lgr_cleanup_early(struct smc_connection *conn)
+{
+	struct smc_link_group *lgr = conn->lgr;
+
+	if (!lgr)
+		return;
+
+	smc_conn_free(conn);
+	smc_lgr_forget(lgr);
+	smc_lgr_schedule_free_work_fast(lgr);
 }
 
 /* Send delete link, either as client to request the initiation
@@ -329,7 +342,7 @@ static int smc_lgr_create(struct smc_sock *smc, struct smc_init_info *ini)
 	}
 	smc->conn.lgr = lgr;
 	spin_lock_bh(lgr_lock);
-	list_add(&lgr->list, lgr_list);
+	list_add_tail(&lgr->list, lgr_list);
 	spin_unlock_bh(lgr_lock);
 	return 0;
 
@@ -846,7 +859,7 @@ int smc_conn_create(struct smc_sock *smc, struct smc_init_info *ini)
 		     smcr_lgr_match(lgr, ini->ib_lcl, role, ini->ib_clcqpn)) &&
 		    !lgr->sync_err &&
 		    lgr->vlan_id == ini->vlan_id &&
-		    (role == SMC_CLNT ||
+		    (role == SMC_CLNT || ini->is_smcd ||
 		     lgr->conns_num < SMC_RMBS_PER_LGR_MAX)) {
 			/* link group found */
 			ini->cln_first_contact = SMC_REUSE_CONTACT;
@@ -886,6 +899,8 @@ create:
 	if (ini->is_smcd) {
 		conn->rx_off = sizeof(struct smcd_cdc_msg);
 		smcd_cdc_rx_init(conn); /* init tasklet for this conn */
+	} else {
+		conn->rx_off = 0;
 	}
 #ifndef KERNEL_HAS_ATOMIC64
 	spin_lock_init(&conn->acurs_lock);
@@ -1010,7 +1025,7 @@ static struct smc_buf_desc *smcr_new_buf_create(struct smc_link_group *lgr,
 	return buf_desc;
 }
 
-#define SMCD_DMBE_SIZES		7 /* 0 -> 16KB, 1 -> 32KB, .. 6 -> 1MB */
+#define SMCD_DMBE_SIZES		6 /* 0 -> 16KB, 1 -> 32KB, .. 6 -> 1MB */
 
 static struct smc_buf_desc *smcd_new_buf_create(struct smc_link_group *lgr,
 						bool is_dmb, int bufsize)
@@ -1178,8 +1193,13 @@ int smc_buf_create(struct smc_sock *smc, bool is_smcd)
 		return rc;
 	/* create rmb */
 	rc = __smc_buf_create(smc, is_smcd, true);
-	if (rc)
+	if (rc) {
+		write_lock_bh(&smc->conn.lgr->sndbufs_lock);
+		list_del(&smc->conn.sndbuf_desc->list);
+		write_unlock_bh(&smc->conn.lgr->sndbufs_lock);
 		smc_buf_free(smc->conn.lgr, false, smc->conn.sndbuf_desc);
+		smc->conn.sndbuf_desc = NULL;
+	}
 	return rc;
 }
 
@@ -1252,20 +1272,20 @@ static void smc_core_going_away(void)
 	struct smc_ib_device *smcibdev;
 	struct smcd_dev *smcd;
 
-	spin_lock(&smc_ib_devices.lock);
+	mutex_lock(&smc_ib_devices.mutex);
 	list_for_each_entry(smcibdev, &smc_ib_devices.list, list) {
 		int i;
 
 		for (i = 0; i < SMC_MAX_PORTS; i++)
 			set_bit(i, smcibdev->ports_going_away);
 	}
-	spin_unlock(&smc_ib_devices.lock);
+	mutex_unlock(&smc_ib_devices.mutex);
 
-	spin_lock(&smcd_dev_list.lock);
+	mutex_lock(&smcd_dev_list.mutex);
 	list_for_each_entry(smcd, &smcd_dev_list.list, list) {
 		smcd->going_away = 1;
 	}
-	spin_unlock(&smcd_dev_list.lock);
+	mutex_unlock(&smcd_dev_list.mutex);
 }
 
 /* Clean up all SMC link groups */
@@ -1277,10 +1297,10 @@ static void smc_lgrs_shutdown(void)
 
 	smc_smcr_terminate_all(NULL);
 
-	spin_lock(&smcd_dev_list.lock);
+	mutex_lock(&smcd_dev_list.mutex);
 	list_for_each_entry(smcd, &smcd_dev_list.list, list)
 		smc_smcd_terminate_all(smcd);
-	spin_unlock(&smcd_dev_list.lock);
+	mutex_unlock(&smcd_dev_list.mutex);
 }
 
 static int smc_core_reboot_event(struct notifier_block *this,
