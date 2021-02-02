@@ -1164,13 +1164,11 @@ static long vphn_get_associativity(unsigned long cpu,
 	case H_FUNCTION:
 		printk_once(KERN_INFO
 			"VPHN is not supported. Disabling polling...\n");
-		stop_topology_update();
 		break;
 	case H_HARDWARE:
 		printk(KERN_ERR
 			"hcall_vphn() experienced a hardware fault "
 			"preventing VPHN. Disabling polling...\n");
-		stop_topology_update();
 		break;
 	case H_SUCCESS:
 		dbg("VPHN hcall succeeded. Reset polling...\n");
@@ -1229,22 +1227,6 @@ int arch_update_cpu_topology(void)
 	return numa_update_cpu_topology(true);
 }
 
-/*
- * Start polling for associativity changes.
- */
-int start_topology_update(void)
-{
-	return 0;
-}
-
-/*
- * Disable polling for VPHN associativity changes.
- */
-int stop_topology_update(void)
-{
-	return 0;
-}
-
 int prrn_is_enabled(void)
 {
 	return 0;
@@ -1252,8 +1234,6 @@ int prrn_is_enabled(void)
 
 static int topology_update_init(void)
 {
-	start_topology_update();
-
 	topology_inited = 1;
 	return 0;
 }
