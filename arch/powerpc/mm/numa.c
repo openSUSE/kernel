@@ -1149,14 +1149,6 @@ u64 memory_hotplug_max(void)
 static int topology_inited;
 
 /*
- * Change polling interval for associativity changes.
- */
-int timed_topology_update(int nsecs)
-{
-	return 0;
-}
-
-/*
  * Retrieve the new associativity information for a virtual processor's
  * home node.
  */
@@ -1182,7 +1174,6 @@ static long vphn_get_associativity(unsigned long cpu,
 		break;
 	case H_SUCCESS:
 		dbg("VPHN hcall succeeded. Reset polling...\n");
-		timed_topology_update(0);
 		break;
 	}
 
