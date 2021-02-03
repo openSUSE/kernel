@@ -3556,7 +3556,14 @@ static int mlx5e_setup_tc_mqprio(struct mlx5e_priv *priv,
 	new_channels.params.num_tc = tc ? tc : 1;
 
 	if (!test_bit(MLX5E_STATE_OPENED, &priv->state)) {
+		struct mlx5e_params old_params;
+
+		old_params = priv->channels.params;
 		priv->channels.params = new_channels.params;
+		err = mlx5e_num_channels_changed(priv);
+		if (err)
+			priv->channels.params = old_params;
+
 		goto out;
 	}
 
@@ -4982,7 +4989,7 @@ static void mlx5e_build_nic_netdev(struct net_device *netdev)
 	    FT_CAP(modify_root) &&
 	    FT_CAP(identified_miss_table_mode) &&
 	    FT_CAP(flow_table_modify)) {
-#ifdef CONFIG_MLX5_ESWITCH
+#if IS_ENABLED(CONFIG_MLX5_CLS_ACT)
 		netdev->hw_features      |= NETIF_F_HW_TC;
 #endif
 #ifdef CONFIG_MLX5_EN_ARFS
