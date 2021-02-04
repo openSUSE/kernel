@@ -4348,7 +4348,7 @@ static void free_event_rcu(struct rcu_head *head)
 }
 
 static void ring_buffer_attach(struct perf_event *event,
-			       struct ring_buffer *rb);
+			       struct perf_buffer *rb);
 
 static void detach_sb_event(struct perf_event *event)
 {
@@ -5029,7 +5029,7 @@ perf_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 static __poll_t perf_poll(struct file *file, poll_table *wait)
 {
 	struct perf_event *event = file->private_data;
-	struct ring_buffer *rb;
+	struct perf_buffer *rb;
 	__poll_t events = EPOLLHUP;
 
 	poll_wait(file, &event->waitq, wait);
@@ -5239,7 +5239,7 @@ static long _perf_ioctl(struct perf_event *event, unsigned int cmd, unsigned lon
 		return perf_event_set_bpf_prog(event, arg);
 
 	case PERF_EVENT_IOC_PAUSE_OUTPUT: {
-		struct ring_buffer *rb;
+		struct perf_buffer *rb;
 
 		rcu_read_lock();
 		rb = rcu_dereference(event->rb);
@@ -5375,7 +5375,7 @@ static void calc_timer_values(struct perf_event *event,
 static void perf_event_init_userpage(struct perf_event *event)
 {
 	struct perf_event_mmap_page *userpg;
-	struct ring_buffer *rb;
+	struct perf_buffer *rb;
 
 	rcu_read_lock();
 	rb = rcu_dereference(event->rb);
@@ -5407,7 +5407,7 @@ void __weak arch_perf_update_userpage(
 void perf_event_update_userpage(struct perf_event *event)
 {
 	struct perf_event_mmap_page *userpg;
-	struct ring_buffer *rb;
+	struct perf_buffer *rb;
 	u64 enabled, running, now;
 
 	rcu_read_lock();
@@ -5458,7 +5458,7 @@ EXPORT_SYMBOL_GPL(perf_event_update_userpage);
 static vm_fault_t perf_mmap_fault(struct vm_fault *vmf)
 {
 	struct perf_event *event = vmf->vma->vm_file->private_data;
-	struct ring_buffer *rb;
+	struct perf_buffer *rb;
 	vm_fault_t ret = VM_FAULT_SIGBUS;
 
 	if (vmf->flags & FAULT_FLAG_MKWRITE) {
@@ -5491,9 +5491,9 @@ unlock:
 }
 
 static void ring_buffer_attach(struct perf_event *event,
-			       struct ring_buffer *rb)
+			       struct perf_buffer *rb)
 {
-	struct ring_buffer *old_rb = NULL;
+	struct perf_buffer *old_rb = NULL;
 	unsigned long flags;
 
 	if (event->rb) {
@@ -5551,7 +5551,7 @@ static void ring_buffer_attach(struct perf_event *event,
 
 static void ring_buffer_wakeup(struct perf_event *event)
 {
-	struct ring_buffer *rb;
+	struct perf_buffer *rb;
 
 	rcu_read_lock();
 	rb = rcu_dereference(event->rb);
@@ -5562,9 +5562,9 @@ static void ring_buffer_wakeup(struct perf_event *event)
 	rcu_read_unlock();
 }
 
-struct ring_buffer *ring_buffer_get(struct perf_event *event)
+struct perf_buffer *ring_buffer_get(struct perf_event *event)
 {
-	struct ring_buffer *rb;
+	struct perf_buffer *rb;
 
 	rcu_read_lock();
 	rb = rcu_dereference(event->rb);
@@ -5577,7 +5577,7 @@ struct ring_buffer *ring_buffer_get(struct perf_event *event)
 	return rb;
 }
 
-void ring_buffer_put(struct ring_buffer *rb)
+void ring_buffer_put(struct perf_buffer *rb)
 {
 	if (!refcount_dec_and_test(&rb->refcount))
 		return;
@@ -5614,7 +5614,7 @@ static void perf_pmu_output_stop(struct perf_event *event);
 static void perf_mmap_close(struct vm_area_struct *vma)
 {
 	struct perf_event *event = vma->vm_file->private_data;
-	struct ring_buffer *rb = ring_buffer_get(event);
+	struct perf_buffer *rb = ring_buffer_get(event);
 	struct user_struct *mmap_user = rb->mmap_user;
 	int mmap_locked = rb->mmap_locked;
 	unsigned long size = perf_data_size(rb);
@@ -5736,8 +5736,8 @@ static int perf_mmap(struct file *file, struct vm_area_struct *vma)
 	struct perf_event *event = file->private_data;
 	unsigned long user_locked, user_lock_limit;
 	struct user_struct *user = current_user();
+	struct perf_buffer *rb = NULL;
 	unsigned long locked, lock_limit;
-	struct ring_buffer *rb = NULL;
 	unsigned long vma_size;
 	unsigned long nr_pages;
 	long user_extra = 0, extra = 0;
@@ -6543,7 +6543,7 @@ void perf_output_sample(struct perf_output_handle *handle,
 		int wakeup_events = event->attr.wakeup_events;
 
 		if (wakeup_events) {
-			struct ring_buffer *rb = handle->rb;
+			struct perf_buffer *rb = handle->rb;
 			int events = local_inc_return(&rb->events);
 
 			if (events >= wakeup_events) {
@@ -6960,7 +6960,7 @@ void perf_event_exec(void)
 }
 
 struct remote_output {
-	struct ring_buffer	*rb;
+	struct perf_buffer	*rb;
 	int			err;
 };
 
@@ -6968,7 +6968,7 @@ static void __perf_event_output_stop(struct perf_event *event, void *data)
 {
 	struct perf_event *parent = event->parent;
 	struct remote_output *ro = data;
-	struct ring_buffer *rb = ro->rb;
+	struct perf_buffer *rb = ro->rb;
 	struct stop_event_data sd = {
 		.event	= event,
 	};
@@ -10820,7 +10820,7 @@ err_size:
 static int
 perf_event_set_output(struct perf_event *event, struct perf_event *output_event)
 {
-	struct ring_buffer *rb = NULL;
+	struct perf_buffer *rb = NULL;
 	int ret = -EINVAL;
 
 	if (!output_event)
