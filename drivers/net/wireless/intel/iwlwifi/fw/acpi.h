@@ -99,7 +99,7 @@
 #define ACPI_ECKV_WIFI_DATA_SIZE	2
 
 /*
- * 1 type, 1 enabled, 1 black list size, 16 black list array
+ * 1 type, 1 enabled, 1 block list size, 16 block list array
  */
 #define APCI_WTAS_BLACK_LIST_MAX	16
 #define ACPI_WTAS_WIFI_DATA_SIZE	(3 + APCI_WTAS_BLACK_LIST_MAX)
@@ -193,8 +193,8 @@ int iwl_validate_sar_geo_profile(struct iwl_fw_runtime *fwrt,
 int iwl_sar_geo_init(struct iwl_fw_runtime *fwrt,
 		     struct iwl_per_chain_offset_group *table);
 
-int iwl_acpi_get_tas(struct iwl_fw_runtime *fwrt, __le32 *black_list_array,
-		     int *black_list_size);
+int iwl_acpi_get_tas(struct iwl_fw_runtime *fwrt, __le32 *block_list_array,
+		     int *block_list_size);
 
 #else /* CONFIG_ACPI */
 
@@ -284,8 +284,8 @@ static inline int iwl_sar_geo_init(struct iwl_fw_runtime *fwrt,
 }
 
 static inline int iwl_acpi_get_tas(struct iwl_fw_runtime *fwrt,
-				   __le32 *black_list_array,
-				   int *black_list_size)
+				   __le32 *block_list_array,
+				   int *block_list_size)
 {
 	return -ENOENT;
 }
