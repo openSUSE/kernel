@@ -3376,7 +3376,7 @@ int gpiod_get_array_value_complex(bool raw, bool can_sleep,
 		struct gpio_chip *chip = desc_array[i]->gdev->chip;
 		unsigned long fastpath[2 * BITS_TO_LONGS(FASTPATH_NGPIO)];
 		unsigned long *mask, *bits;
-		int first, j, ret;
+		int first, j;
 
 		if (likely(chip->ngpio <= FASTPATH_NGPIO)) {
 			mask = fastpath;
