@@ -5969,7 +5969,7 @@ static void svm_cpuid_update(struct kvm_vcpu *vcpu)
 	if (sev_guest(vcpu->kvm)) {
 		best = kvm_find_cpuid_entry(vcpu, 0x8000001F, 0);
 		if (best)
-			vcpu->arch.cr3_lm_rsvd_bits &= ~(1UL << (best->ebx & 0x3f));
+			vcpu->cr3_lm_rsvd_bits &= ~(1UL << (best->ebx & 0x3f));
 	}
 
 	if (!kvm_vcpu_apicv_active(vcpu))
