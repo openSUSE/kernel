@@ -5957,12 +5957,20 @@ static u64 svm_get_mt_mask(struct kvm_vcpu *vcpu, gfn_t gfn, bool is_mmio)
 static void svm_cpuid_update(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
+	struct kvm_cpuid_entry2 *best;
 
 	vcpu->arch.xsaves_enabled = guest_cpuid_has(vcpu, X86_FEATURE_XSAVE) &&
 				    boot_cpu_has(X86_FEATURE_XSAVES);
 
 	/* Update nrips enabled cache */
 	svm->nrips_enabled = !!guest_cpuid_has(&svm->vcpu, X86_FEATURE_NRIPS);
+
+	/* For sev guests, the memory encryption bit is not reserved in CR3.  */
+	if (sev_guest(vcpu->kvm)) {
+		best = kvm_find_cpuid_entry(vcpu, 0x8000001F, 0);
+		if (best)
+			vcpu->arch.cr3_lm_rsvd_bits &= ~(1UL << (best->ebx & 0x3f));
+	}
 
 	if (!kvm_vcpu_apicv_active(vcpu))
 		return;
