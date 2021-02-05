@@ -2990,6 +2990,7 @@ static int gpio_set_config(struct gpio_chip *gc, unsigned int offset,
 
 	default:
 		arg = 0;
+		break;
 	}
 
 	config = PIN_CONF_PACKED(mode, arg);
