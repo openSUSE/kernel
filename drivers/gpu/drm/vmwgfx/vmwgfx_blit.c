@@ -27,7 +27,6 @@
  **************************************************************************/
 
 #include "vmwgfx_drv.h"
-#include <linux/highmem.h>
 
 /*
  * Template that implements find_first_diff() for a generic
@@ -375,12 +374,12 @@ static int vmw_bo_cpu_blit_line(struct vmw_bo_blit_line_data *d,
 		copy_size = min_t(u32, copy_size, PAGE_SIZE - src_page_offset);
 
 		if (unmap_src) {
-			kunmap_atomic(d->src_addr);
+			ttm_kunmap_atomic_prot(d->src_addr, d->src_prot);
 			d->src_addr = NULL;
 		}
 
 		if (unmap_dst) {
-			kunmap_atomic(d->dst_addr);
+			ttm_kunmap_atomic_prot(d->dst_addr, d->dst_prot);
 			d->dst_addr = NULL;
 		}
 
@@ -389,8 +388,8 @@ static int vmw_bo_cpu_blit_line(struct vmw_bo_blit_line_data *d,
 				return -EINVAL;
 
 			d->dst_addr =
-				kmap_atomic_prot(d->dst_pages[dst_page],
-						 d->dst_prot);
+				ttm_kmap_atomic_prot(d->dst_pages[dst_page],
+						     d->dst_prot);
 			if (!d->dst_addr)
 				return -ENOMEM;
 
@@ -402,8 +401,8 @@ static int vmw_bo_cpu_blit_line(struct vmw_bo_blit_line_data *d,
 				return -EINVAL;
 
 			d->src_addr =
-				kmap_atomic_prot(d->src_pages[src_page],
-						 d->src_prot);
+				ttm_kmap_atomic_prot(d->src_pages[src_page],
+						     d->src_prot);
 			if (!d->src_addr)
 				return -ENOMEM;
 
@@ -500,9 +499,9 @@ int vmw_bo_cpu_blit(struct ttm_buffer_object *dst,
 	}
 out:
 	if (d.src_addr)
-		kunmap_atomic(d.src_addr);
+		ttm_kunmap_atomic_prot(d.src_addr, d.src_prot);
 	if (d.dst_addr)
-		kunmap_atomic(d.dst_addr);
+		ttm_kunmap_atomic_prot(d.dst_addr, d.dst_prot);
 
 	return ret;
 }

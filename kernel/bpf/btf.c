@@ -4064,13 +4064,7 @@ error:
 				return -EACCES;
 			}
 
-			id = mtype->type;
-			stype = btf_type_by_id(btf_vmlinux, mtype->type);
-			/* skip modifiers */
-			while (btf_type_is_modifier(stype)) {
-				id = stype->type;
-				stype = btf_type_by_id(btf_vmlinux, stype->type);
-			}
+			stype = btf_type_skip_modifiers(btf_vmlinux, mtype->type, &id);
 			if (btf_type_is_struct(stype)) {
 				*next_btf_id = id;
 				return PTR_TO_BTF_ID;

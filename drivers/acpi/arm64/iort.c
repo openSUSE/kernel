@@ -43,7 +43,7 @@ static DEFINE_SPINLOCK(iort_fwnode_lock);
  * iort_set_fwnode() - Create iort_fwnode and use it to register
  *		       iommu data in the iort_fwnode_list
  *
- * @node: IORT table node associated with the IOMMU
+ * @iort_node: IORT table node associated with the IOMMU
  * @fwnode: fwnode associated with the IORT node
  *
  * Returns: 0 on success
@@ -672,7 +672,8 @@ static int iort_dev_find_its_id(struct device *dev, u32 id,
 /**
  * iort_get_device_domain() - Find MSI domain related to a device
  * @dev: The device.
- * @req_id: Requester ID for the device.
+ * @id: Requester ID for the device.
+ * @bus_token: irq domain bus token.
  *
  * Returns: the MSI domain for this device, NULL otherwise
  */
@@ -811,8 +812,7 @@ static inline const struct iommu_ops *iort_fwspec_iommu_ops(struct device *dev)
 	return (fwspec && fwspec->ops) ? fwspec->ops : NULL;
 }
 
-static inline int iort_add_device_replay(const struct iommu_ops *ops,
-					 struct device *dev)
+static inline int iort_add_device_replay(struct device *dev)
 {
 	int err = 0;
 
@@ -1072,7 +1072,7 @@ const struct iommu_ops *iort_iommu_configure_id(struct device *dev,
 	 */
 	if (!err) {
 		ops = iort_fwspec_iommu_ops(dev);
-		err = iort_add_device_replay(ops, dev);
+		err = iort_add_device_replay(dev);
 	}
 
 	/* Ignore all other errors apart from EPROBE_DEFER */
@@ -1087,11 +1087,6 @@ const struct iommu_ops *iort_iommu_configure_id(struct device *dev,
 }
 
 #else
-static inline const struct iommu_ops *iort_fwspec_iommu_ops(struct device *dev)
-{ return NULL; }
-static inline int iort_add_device_replay(const struct iommu_ops *ops,
-					 struct device *dev)
-{ return 0; }
 int iort_iommu_msi_get_resv_regions(struct device *dev, struct list_head *head)
 { return 0; }
 const struct iommu_ops *iort_iommu_configure_id(struct device *dev,
@@ -1110,6 +1105,11 @@ static int nc_dma_get_range(struct device *dev, u64 *size)
 		return -ENODEV;
 
 	ncomp = (struct acpi_iort_named_component *)node->node_data;
+
+	if (!ncomp->memory_address_limit) {
+		pr_warn(FW_BUG "Named component missing memory address limit\n");
+		return -EINVAL;
+	}
 
 	*size = ncomp->memory_address_limit >= 64 ? U64_MAX :
 			1ULL<<ncomp->memory_address_limit;
@@ -1130,6 +1130,11 @@ static int rc_dma_get_range(struct device *dev, u64 *size)
 
 	rc = (struct acpi_iort_root_complex *)node->node_data;
 
+	if (!rc->memory_address_limit) {
+		pr_warn(FW_BUG "Root complex missing memory address limit\n");
+		return -EINVAL;
+	}
+
 	*size = rc->memory_address_limit >= 64 ? U64_MAX :
 			1ULL<<rc->memory_address_limit;
 
@@ -1141,7 +1146,7 @@ static int rc_dma_get_range(struct device *dev, u64 *size)
  *
  * @dev: device to configure
  * @dma_addr: device DMA address result pointer
- * @size: DMA range size result pointer
+ * @dma_size: DMA range size result pointer
  */
 void iort_dma_setup(struct device *dev, u64 *dma_addr, u64 *dma_size)
 {
@@ -1177,8 +1182,8 @@ void iort_dma_setup(struct device *dev, u64 *dma_addr, u64 *dma_size)
 		end = dmaaddr + size - 1;
 		mask = DMA_BIT_MASK(ilog2(end) + 1);
 		dev->bus_dma_limit = end;
-		dev->coherent_dma_mask = mask;
-		*dev->dma_mask = mask;
+		dev->coherent_dma_mask = min(dev->coherent_dma_mask, mask);
+		*dev->dma_mask = min(*dev->dma_mask, mask);
 	}
 
 	*dma_addr = dmaaddr;
@@ -1530,6 +1535,7 @@ static __init const struct iort_dev_config *iort_get_dev_cfg(
 /**
  * iort_add_platform_device() - Allocate a platform device for IORT node
  * @node: Pointer to device ACPI IORT node
+ * @ops: Pointer to IORT device config struct
  *
  * Returns: 0 on success, <0 failure
  */

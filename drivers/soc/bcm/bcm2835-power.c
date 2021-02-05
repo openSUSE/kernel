@@ -143,6 +143,8 @@ struct bcm2835_power {
 	/* AXI Async bridge registers. */
 	void __iomem		*asb;
 
+	bool is_bcm2711;
+
 	struct genpd_onecell_data pd_xlate;
 	struct bcm2835_power_domain domains[BCM2835_POWER_DOMAIN_COUNT];
 	struct reset_controller_dev reset;
@@ -192,6 +194,9 @@ static int bcm2835_power_power_off(struct bcm2835_power_domain *pd, u32 pm_reg)
 {
 	struct bcm2835_power *power = pd->power;
 
+	if (power->is_bcm2711)
+		return 0;
+
 	/* Enable functional isolation */
 	PM_WRITE(pm_reg, PM_READ(pm_reg) & ~PM_ISFUNC);
 
@@ -212,6 +217,9 @@ static int bcm2835_power_power_on(struct bcm2835_power_domain *pd, u32 pm_reg)
 	int ret;
 	int inrush;
 	bool powok;
+
+	if (power->is_bcm2711)
+		return 0;
 
 	/* If it was already powered on by the fw, leave it that way. */
 	if (PM_READ(pm_reg) & PM_POWUP)
@@ -626,6 +634,7 @@ static int bcm2835_power_probe(struct platform_device *pdev)
 	power->dev = dev;
 	power->base = pm->base;
 	power->asb = pm->asb;
+	power->is_bcm2711 = pm->is_bcm2711;
 
 	id = ASB_READ(ASB_AXI_BRDG_ID);
 	if (id != 0x62726467 /* "BRDG" */) {

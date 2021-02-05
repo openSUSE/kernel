@@ -355,6 +355,12 @@
 #define RADIO_RSP_ADDR_POS		(6)
 #define RADIO_RSP_RD_CMD		(3)
 
+/* LTR control (Qu only) */
+#define HPM_MAC_LTR_CSR			0xa0348c
+#define HPM_MAC_LRT_ENABLE_ALL		0xf
+/* also uses CSR_LTR_* for values */
+#define HPM_UMAC_LTR			0xa03480
+
 /* FW monitor */
 #define MON_BUFF_SAMPLE_CTL		(0xa03c00)
 #define MON_BUFF_BASE_ADDR		(0xa03c1c)
@@ -405,10 +411,6 @@ enum {
 #define CNVR_AUX_MISC_CHIP				0xA2B800
 #define CNVR_SCU_SD_REGS_SD_REG_DIG_DCDC_VTRIM		0xA29890
 #define CNVR_SCU_SD_REGS_SD_REG_ACTIVE_VDIG_MIRROR	0xA29938
-
-enum {
-	HW_STEP_LOCATION_BITS = 24,
-};
 
 #define PREG_AUX_BUS_WPROT_0		0xA04CC0
 

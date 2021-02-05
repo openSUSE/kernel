@@ -487,6 +487,7 @@ static void acpi_device_del(struct acpi_device *device)
 				acpi_device_bus_id->instance_no--;
 			else {
 				list_del(&acpi_device_bus_id->node);
+				kfree_const(acpi_device_bus_id->bus_id);
 				kfree(acpi_device_bus_id);
 			}
 			break;
@@ -586,6 +587,8 @@ static int acpi_get_device_data(acpi_handle handle, struct acpi_device **device,
 	if (!device)
 		return -EINVAL;
 
+	*device = NULL;
+
 	status = acpi_get_data_full(handle, acpi_scan_drop_device,
 				    (void **)device, callback);
 	if (ACPI_FAILURE(status) || !*device) {
@@ -675,7 +678,14 @@ int acpi_device_add(struct acpi_device *device,
 	}
 	if (!found) {
 		acpi_device_bus_id = new_bus_id;
-		strcpy(acpi_device_bus_id->bus_id, acpi_device_hid(device));
+		acpi_device_bus_id->bus_id =
+			kstrdup_const(acpi_device_hid(device), GFP_KERNEL);
+		if (!acpi_device_bus_id->bus_id) {
+			pr_err(PREFIX "Memory allocation error for bus id\n");
+			result = -ENOMEM;
+			goto err_free_new_bus_id;
+		}
+
 		acpi_device_bus_id->instance_no = 0;
 		list_add_tail(&acpi_device_bus_id->node, &acpi_bus_id_list);
 	}
@@ -710,6 +720,11 @@ int acpi_device_add(struct acpi_device *device,
 	if (device->parent)
 		list_del(&device->node);
 	list_del(&device->wakeup_list);
+
+ err_free_new_bus_id:
+	if (!found)
+		kfree(new_bus_id);
+
 	mutex_unlock(&acpi_device_lock);
 
  err_detach:
@@ -899,8 +914,7 @@ static void acpi_bus_get_wakeup_device_flags(struct acpi_device *device)
 	 */
 	err = acpi_device_sleep_wake(device, 0, 0, 0);
 	if (err)
-		ACPI_DEBUG_PRINT((ACPI_DB_INFO,
-				"error in _DSW or _PSW evaluation\n"));
+		pr_debug("error in _DSW or _PSW evaluation\n");
 }
 
 static void acpi_bus_init_power_state(struct acpi_device *device, int state)
@@ -1455,7 +1469,7 @@ int acpi_dma_get_range(struct device *dev, u64 *dma_addr, u64 *offset,
 }
 
 /**
- * acpi_dma_configure - Set-up DMA configuration for the device.
+ * acpi_dma_configure_id - Set-up DMA configuration for the device.
  * @dev: The pointer to the device
  * @attr: device dma attributes
  * @input_id: input device id const value pointer

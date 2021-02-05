@@ -904,6 +904,8 @@ void tegra_clk_periph_resume(void);
 		udelay(delay);		\
 	} while (0)
 
+bool tegra20_clk_emc_driver_available(struct clk_hw *emc_hw);
+struct clk *tegra20_clk_register_emc(void __iomem *ioaddr, bool low_jitter);
 struct clk *tegra210_clk_register_emc(struct device_node *np,
 				      void __iomem *regs);
 
