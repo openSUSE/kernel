@@ -2993,7 +2993,7 @@ static int gpio_set_config(struct gpio_chip *gc, unsigned int offset,
 		break;
 	}
 
-	config = PIN_CONF_PACKED(mode, arg);
+	config = pinconf_to_config_packed(mode, arg);
 	return gpio_do_set_config(gc, offset, mode);
 }
 
