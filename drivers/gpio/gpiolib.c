@@ -3031,6 +3031,13 @@ static int gpio_set_config(struct gpio_chip *gc, unsigned int offset,
 	return gpio_do_set_config(gc, offset, mode);
 }
 
+int gpio_set_debounce_timeout(struct gpio_desc *desc, unsigned int debounce)
+{
+	return gpio_set_config_with_argument_optional(desc,
+						      PIN_CONFIG_INPUT_DEBOUNCE,
+						      debounce);
+}
+
 /**
  * gpiod_direction_input - set the GPIO direction to input
  * @desc:	GPIO to set to input
