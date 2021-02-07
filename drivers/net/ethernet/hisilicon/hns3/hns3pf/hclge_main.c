@@ -5735,9 +5735,9 @@ static int hclge_add_fd_entry(struct hnae3_handle *handle,
 	/* to avoid rule conflict, when user configure rule by ethtool,
 	 * we need to clear all arfs rules
 	 */
+	spin_lock_bh(&hdev->fd_rule_lock);
 	hclge_clear_arfs_rules(handle);
 
-	spin_lock_bh(&hdev->fd_rule_lock);
 	ret = hclge_fd_config_rule(hdev, rule);
 
 	spin_unlock_bh(&hdev->fd_rule_lock);
@@ -5780,6 +5780,7 @@ static int hclge_del_fd_entry(struct hnae3_handle *handle,
 	return ret;
 }
 
+/* make sure being called after lock up with fd_rule_lock */
 static void hclge_del_all_fd_entries(struct hnae3_handle *handle,
 				     bool clear_list)
 {
@@ -5792,7 +5793,6 @@ static void hclge_del_all_fd_entries(struct hnae3_handle *handle,
 	if (!hnae3_dev_fd_supported(hdev))
 		return;
 
-	spin_lock_bh(&hdev->fd_rule_lock);
 	for_each_set_bit(location, hdev->fd_bmap,
 			 hdev->fd_cfg.rule_num[HCLGE_FD_STAGE_1])
 		hclge_fd_tcam_config(hdev, HCLGE_FD_STAGE_1, true, location,
@@ -5809,8 +5809,6 @@ static void hclge_del_all_fd_entries(struct hnae3_handle *handle,
 		bitmap_zero(hdev->fd_bmap,
 			    hdev->fd_cfg.rule_num[HCLGE_FD_STAGE_1]);
 	}
-
-	spin_unlock_bh(&hdev->fd_rule_lock);
 }
 
 static int hclge_restore_fd_entries(struct hnae3_handle *handle)
@@ -6177,7 +6175,7 @@ static int hclge_add_fd_entry_by_arfs(struct hnae3_handle *handle, u16 queue_id,
 				      u16 flow_id, struct flow_keys *fkeys)
 {
 	struct hclge_vport *vport = hclge_get_vport(handle);
-	struct hclge_fd_rule_tuples new_tuples;
+	struct hclge_fd_rule_tuples new_tuples = {};
 	struct hclge_dev *hdev = vport->back;
 	struct hclge_fd_rule *rule;
 	u16 tmp_queue_id;
@@ -6187,19 +6185,17 @@ static int hclge_add_fd_entry_by_arfs(struct hnae3_handle *handle, u16 queue_id,
 	if (!hnae3_dev_fd_supported(hdev))
 		return -EOPNOTSUPP;
 
-	memset(&new_tuples, 0, sizeof(new_tuples));
-	hclge_fd_get_flow_tuples(fkeys, &new_tuples);
-
-	spin_lock_bh(&hdev->fd_rule_lock);
-
 	/* when there is already fd rule existed add by user,
 	 * arfs should not work
 	 */
+	spin_lock_bh(&hdev->fd_rule_lock);
 	if (hdev->fd_active_type == HCLGE_FD_EP_ACTIVE) {
 		spin_unlock_bh(&hdev->fd_rule_lock);
 
 		return -EOPNOTSUPP;
 	}
+
+	hclge_fd_get_flow_tuples(fkeys, &new_tuples);
 
 	/* check is there flow director filter existed for this flow,
 	 * if not, create a new filter for it;
@@ -6285,6 +6281,7 @@ static void hclge_rfs_filter_expire(struct hclge_dev *hdev)
 #endif
 }
 
+/* make sure being called after lock up with fd_rule_lock */
 static void hclge_clear_arfs_rules(struct hnae3_handle *handle)
 {
 #ifdef CONFIG_RFS_ACCEL
@@ -6329,10 +6326,14 @@ static void hclge_enable_fd(struct hnae3_handle *handle, bool enable)
 
 	hdev->fd_en = enable;
 	clear = hdev->fd_active_type == HCLGE_FD_ARFS_ACTIVE;
-	if (!enable)
+
+	if (!enable) {
+		spin_lock_bh(&hdev->fd_rule_lock);
 		hclge_del_all_fd_entries(handle, clear);
-	else
+		spin_unlock_bh(&hdev->fd_rule_lock);
+	} else {
 		hclge_restore_fd_entries(handle);
+	}
 }
 
 static void hclge_cfg_mac_mode(struct hclge_dev *hdev, bool enable)
@@ -6761,7 +6762,7 @@ static void hclge_set_timer_task(struct hnae3_handle *handle, bool enable)
 	struct hclge_dev *hdev = vport->back;
 
 	if (enable) {
-		hclge_task_schedule(hdev, round_jiffies_relative(HZ));
+		hclge_task_schedule(hdev, 0);
 	} else {
 		/* Set the DOWN flag here to disable link updating */
 		set_bit(HCLGE_STATE_DOWN, &hdev->state);
@@ -6797,8 +6798,9 @@ static void hclge_ae_stop(struct hnae3_handle *handle)
 	int i;
 
 	set_bit(HCLGE_STATE_DOWN, &hdev->state);
-
+	spin_lock_bh(&hdev->fd_rule_lock);
 	hclge_clear_arfs_rules(handle);
+	spin_unlock_bh(&hdev->fd_rule_lock);
 
 	/* If it is not PF reset, the firmware will disable the MAC,
 	 * so it only need to stop phy here.
@@ -8279,6 +8281,7 @@ void hclge_rm_vport_all_vlan_table(struct hclge_vport *vport, bool is_del_list)
 			kfree(vlan);
 		}
 	}
+	clear_bit(vport->vport_id, hdev->vf_vlan_full);
 }
 
 void hclge_uninit_vport_vlan_table(struct hclge_dev *hdev)
@@ -8492,6 +8495,28 @@ static int hclge_set_vf_vlan_filter(struct hnae3_handle *handle, int vfid,
 							vlan, qos,
 							ntohs(proto));
 		return ret;
+	}
+}
+
+static void hclge_clear_vf_vlan(struct hclge_dev *hdev)
+{
+	struct hclge_vlan_info *vlan_info;
+	struct hclge_vport *vport;
+	int ret;
+	int vf;
+
+	/* clear port base vlan for all vf */
+	for (vf = HCLGE_VF_VPORT_START_NUM; vf < hdev->num_alloc_vport; vf++) {
+		vport = &hdev->vport[vf];
+		vlan_info = &vport->port_base_vlan_cfg.vlan_info;
+
+		ret = hclge_set_vlan_filter_hw(hdev, htons(ETH_P_8021Q),
+					       vport->vport_id,
+					       vlan_info->vlan_tag, true);
+		if (ret)
+			dev_err(&hdev->pdev->dev,
+				"failed to clear vf vlan for vf%d, ret = %d\n",
+				vf - HCLGE_VF_VPORT_START_NUM, ret);
 	}
 }
 
@@ -8951,6 +8976,12 @@ static void hclge_get_media_type(struct hnae3_handle *handle, u8 *media_type,
 {
 	struct hclge_vport *vport = hclge_get_vport(handle);
 	struct hclge_dev *hdev = vport->back;
+
+	/* When nic is down, the service task is not running, doesn't update
+	 * the port information per second. Query the port information before
+	 * return the media type, ensure getting the correct media information.
+	 */
+	hclge_update_port_info(hdev);
 
 	if (media_type)
 		*media_type = hdev->hw.mac.media_type;
@@ -9904,6 +9935,7 @@ static void hclge_uninit_ae_dev(struct hnae3_ae_dev *ae_dev)
 	struct hclge_mac *mac = &hdev->hw.mac;
 
 	hclge_reset_vf_rate(hdev);
+	hclge_clear_vf_vlan(hdev);
 	hclge_misc_affinity_teardown(hdev);
 	hclge_state_uninit(hdev);
 

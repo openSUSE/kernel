@@ -451,7 +451,7 @@ static int set_rxmode(struct net_device *dev, int mtu, bool sleep_ok)
  *		   or -1
  *	@addr: the new MAC address value
  *	@persist: whether a new MAC allocation should be persistent
- *	@add_smt: if true also add the address to the HW SMT
+ *	@smt_idx: the destination to store the new SMT index.
  *
  *	Modifies an MPS filter and sets it to the new MAC address if
  *	@tcam_idx >= 0, or adds the MAC address to a new filter if
@@ -1616,6 +1616,7 @@ static int tid_init(struct tid_info *t)
  *	@stid: the server TID
  *	@sip: local IP address to bind server to
  *	@sport: the server's TCP port
+ *	@vlan: the VLAN header information
  *	@queue: queue to direct messages from this server to
  *
  *	Create an IP server for the given port and address.
@@ -2610,7 +2611,7 @@ int cxgb4_create_server_filter(const struct net_device *dev, unsigned int stid,
 
 	/* Clear out filter specifications */
 	memset(&f->fs, 0, sizeof(struct ch_filter_specification));
-	f->fs.val.lport = cpu_to_be16(sport);
+	f->fs.val.lport = be16_to_cpu(sport);
 	f->fs.mask.lport  = ~0;
 	val = (u8 *)&sip;
 	if ((val[0] | val[1] | val[2] | val[3]) != 0) {
@@ -5380,12 +5381,11 @@ static inline bool is_x_10g_port(const struct link_config *lc)
 static int cfg_queues(struct adapter *adap)
 {
 	u32 avail_qsets, avail_eth_qsets, avail_uld_qsets;
+	u32 ncpus = num_online_cpus();
 	u32 niqflint, neq, num_ulds;
 	struct sge *s = &adap->sge;
 	u32 i, n10g = 0, qidx = 0;
-#ifndef CONFIG_CHELSIO_T4_DCB
-	int q10g = 0;
-#endif
+	u32 q10g = 0, q1g;
 
 	/* Reduce memory usage in kdump environment, disable all offload. */
 	if (is_kdump_kernel() || (is_uld(adap) && t4_uld_mem_alloc(adap))) {
@@ -5423,44 +5423,50 @@ static int cfg_queues(struct adapter *adap)
 		n10g += is_x_10g_port(&adap2pinfo(adap, i)->link_cfg);
 
 	avail_eth_qsets = min_t(u32, avail_qsets, MAX_ETH_QSETS);
+
+	/* We default to 1 queue per non-10G port and up to # of cores queues
+	 * per 10G port.
+	 */
+	if (n10g)
+		q10g = (avail_eth_qsets - (adap->params.nports - n10g)) / n10g;
+
 #ifdef CONFIG_CHELSIO_T4_DCB
 	/* For Data Center Bridging support we need to be able to support up
 	 * to 8 Traffic Priorities; each of which will be assigned to its
 	 * own TX Queue in order to prevent Head-Of-Line Blocking.
 	 */
+	q1g = 8;
 	if (adap->params.nports * 8 > avail_eth_qsets) {
 		dev_err(adap->pdev_dev, "DCB avail_eth_qsets=%d < %d!\n",
 			avail_eth_qsets, adap->params.nports * 8);
 		return -ENOMEM;
 	}
 
-	for_each_port(adap, i) {
-		struct port_info *pi = adap2pinfo(adap, i);
+	if (adap->params.nports * ncpus < avail_eth_qsets)
+		q10g = max(8U, ncpus);
+	else
+		q10g = max(8U, q10g);
 
-		pi->first_qset = qidx;
-		pi->nqsets = is_kdump_kernel() ? 1 : 8;
-		qidx += pi->nqsets;
-	}
+	while ((q10g * n10g) >
+	       (avail_eth_qsets - (adap->params.nports - n10g) * q1g))
+		q10g--;
+
 #else /* !CONFIG_CHELSIO_T4_DCB */
-	/* We default to 1 queue per non-10G port and up to # of cores queues
-	 * per 10G port.
-	 */
-	if (n10g)
-		q10g = (avail_eth_qsets - (adap->params.nports - n10g)) / n10g;
-	if (q10g > netif_get_num_default_rss_queues())
-		q10g = netif_get_num_default_rss_queues();
-
-	if (is_kdump_kernel())
+	q1g = 1;
+	q10g = min(q10g, ncpus);
+#endif /* !CONFIG_CHELSIO_T4_DCB */
+	if (is_kdump_kernel()) {
 		q10g = 1;
+		q1g = 1;
+	}
 
 	for_each_port(adap, i) {
 		struct port_info *pi = adap2pinfo(adap, i);
 
 		pi->first_qset = qidx;
-		pi->nqsets = is_x_10g_port(&pi->link_cfg) ? q10g : 1;
+		pi->nqsets = is_x_10g_port(&pi->link_cfg) ? q10g : q1g;
 		qidx += pi->nqsets;
 	}
-#endif /* !CONFIG_CHELSIO_T4_DCB */
 
 	s->ethqsets = qidx;
 	s->max_ethqsets = qidx;   /* MSI-X may lower it later */
@@ -5472,7 +5478,7 @@ static int cfg_queues(struct adapter *adap)
 		 * capped by the number of available cores.
 		 */
 		num_ulds = adap->num_uld + adap->num_ofld_uld;
-		i = min_t(u32, MAX_OFLD_QSETS, num_online_cpus());
+		i = min_t(u32, MAX_OFLD_QSETS, ncpus);
 		avail_uld_qsets = roundup(i, adap->params.nports);
 		if (avail_qsets < num_ulds * adap->params.nports) {
 			adap->params.offload = 0;
