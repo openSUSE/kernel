@@ -1091,6 +1091,17 @@ config INTEL_PMT_CLASS
 	  To compile this driver as a module, choose M here: the module
 	  will be called intel_pmt_class.
 
+config INTEL_PMT_TELEMETRY
+	tristate "Intel Platform Monitoring Technology (PMT) Telemetry driver"
+	select INTEL_PMT_CLASS
+	help
+	  The Intel Platform Monitory Technology (PMT) Telemetry driver provides
+	  access to hardware telemetry metrics on devices that support the
+	  feature.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called intel_pmt_telemetry.
+
 config IBM_RTL
 	tristate "Device driver to enable PRTL support"
 	depends on PCI
