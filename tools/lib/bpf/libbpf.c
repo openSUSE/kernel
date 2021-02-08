@@ -3430,6 +3430,13 @@ bpf_object__probe_loading(struct bpf_object *obj)
 	return 0;
 }
 
+static int probe_fd(int fd)
+{
+	if (fd >= 0)
+		close(fd);
+	return fd >= 0;
+}
+
 static int probe_kern_prog_name(void)
 {
 	struct bpf_load_program_attr attr;
@@ -3448,12 +3455,7 @@ static int probe_kern_prog_name(void)
 	attr.license = "GPL";
 	attr.name = "test";
 	ret = bpf_load_program_xattr(&attr, NULL, 0);
-	if (ret >= 0) {
-		close(ret);
-		return 1;
-	}
-
-	return 0;
+	return probe_fd(ret);
 }
 
 static int probe_kern_global_data(void)
@@ -3494,12 +3496,7 @@ static int probe_kern_global_data(void)
 
 	ret = bpf_load_program_xattr(&prg_attr, NULL, 0);
 	close(map);
-	if (ret >= 0) {
-		close(ret);
-		return 1;
-	}
-
-	return 0;
+	return probe_fd(ret);
 }
 
 static int probe_kern_btf_func(void)
@@ -3515,16 +3512,9 @@ static int probe_kern_btf_func(void)
 		/* FUNC x */                                    /* [3] */
 		BTF_TYPE_ENC(5, BTF_INFO_ENC(BTF_KIND_FUNC, 0, 0), 2),
 	};
-	int btf_fd;
 
-	btf_fd = libbpf__load_raw_btf((char *)types, sizeof(types),
-				      strs, sizeof(strs));
-	if (btf_fd >= 0) {
-		close(btf_fd);
-		return 1;
-	}
-
-	return 0;
+	return probe_fd(libbpf__load_raw_btf((char *)types, sizeof(types),
+					     strs, sizeof(strs)));
 }
 
 static int probe_kern_btf_func_global(void)
@@ -3540,16 +3530,9 @@ static int probe_kern_btf_func_global(void)
 		/* FUNC x BTF_FUNC_GLOBAL */                    /* [3] */
 		BTF_TYPE_ENC(5, BTF_INFO_ENC(BTF_KIND_FUNC, 0, BTF_FUNC_GLOBAL), 2),
 	};
-	int btf_fd;
 
-	btf_fd = libbpf__load_raw_btf((char *)types, sizeof(types),
-				      strs, sizeof(strs));
-	if (btf_fd >= 0) {
-		close(btf_fd);
-		return 1;
-	}
-
-	return 0;
+	return probe_fd(libbpf__load_raw_btf((char *)types, sizeof(types),
+					     strs, sizeof(strs)));
 }
 
 static int probe_kern_btf_datasec(void)
@@ -3566,16 +3549,9 @@ static int probe_kern_btf_datasec(void)
 		BTF_TYPE_ENC(3, BTF_INFO_ENC(BTF_KIND_DATASEC, 0, 1), 4),
 		BTF_VAR_SECINFO_ENC(2, 0, 4),
 	};
-	int btf_fd;
 
-	btf_fd = libbpf__load_raw_btf((char *)types, sizeof(types),
-				      strs, sizeof(strs));
-	if (btf_fd >= 0) {
-		close(btf_fd);
-		return 1;
-	}
-
-	return 0;
+	return probe_fd(libbpf__load_raw_btf((char *)types, sizeof(types),
+					     strs, sizeof(strs)));
 }
 
 static int probe_kern_array_mmap(void)
@@ -3587,14 +3563,8 @@ static int probe_kern_array_mmap(void)
 		.value_size = sizeof(int),
 		.max_entries = 1,
 	};
-	int fd;
 
-	fd = bpf_create_map_xattr(&attr);
-	if (fd >= 0) {
-		close(fd);
-		return 1;
-	}
-	return 0;
+	return probe_fd(bpf_create_map_xattr(&attr));
 }
 
 static int probe_kern_exp_attach_type(void)
@@ -3604,7 +3574,6 @@ static int probe_kern_exp_attach_type(void)
 		BPF_MOV64_IMM(BPF_REG_0, 0),
 		BPF_EXIT_INSN(),
 	};
-	int fd;
 
 	memset(&attr, 0, sizeof(attr));
 	/* use any valid combination of program type and (optional)
@@ -3618,12 +3587,7 @@ static int probe_kern_exp_attach_type(void)
 	attr.insns_cnt = ARRAY_SIZE(insns);
 	attr.license = "GPL";
 
-	fd = bpf_load_program_xattr(&attr, NULL, 0);
-	if (fd >= 0) {
-		close(fd);
-		return 1;
-	}
-	return 0;
+	return probe_fd(bpf_load_program_xattr(&attr, NULL, 0));
 }
 
 enum kern_feature_result {
