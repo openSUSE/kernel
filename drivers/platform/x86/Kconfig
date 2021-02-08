@@ -1102,6 +1102,17 @@ config INTEL_PMT_TELEMETRY
 	  To compile this driver as a module, choose M here: the module
 	  will be called intel_pmt_telemetry.
 
+config INTEL_PMT_CRASHLOG
+	tristate "Intel Platform Monitoring Technology (PMT) Crashlog driver"
+	select INTEL_PMT_CLASS
+	help
+	  The Intel Platform Monitoring Technology (PMT) crashlog driver provides
+	  access to hardware crashlog capabilities on devices that support the
+	  feature.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called intel_pmt_crashlog.
+
 config IBM_RTL
 	tristate "Device driver to enable PRTL support"
 	depends on PCI
