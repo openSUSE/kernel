@@ -402,6 +402,7 @@ struct bpf_object {
 		Elf_Data *rodata;
 		Elf_Data *bss;
 		Elf_Data *st_ops_data;
+		size_t shstrndx; /* section index for section name strings */
 		size_t strtabidx;
 		struct {
 			GElf_Shdr shdr;
@@ -438,6 +439,14 @@ struct bpf_object {
 	char path[];
 };
 #define obj_elf_valid(o)	((o)->efile.elf)
+
+static const char *elf_sym_str(const struct bpf_object *obj, size_t off);
+static const char *elf_sec_str(const struct bpf_object *obj, size_t off);
+static Elf_Scn *elf_sec_by_idx(const struct bpf_object *obj, size_t idx);
+static Elf_Scn *elf_sec_by_name(const struct bpf_object *obj, const char *name);
+static int elf_sec_hdr(const struct bpf_object *obj, Elf_Scn *scn, GElf_Shdr *hdr);
+static const char *elf_sec_name(const struct bpf_object *obj, Elf_Scn *scn);
+static Elf_Data *elf_sec_data(const struct bpf_object *obj, Elf_Scn *scn);
 
 void bpf_program__unload(struct bpf_program *prog)
 {
@@ -500,7 +509,7 @@ static char *__bpf_program__pin_name(struct bpf_program *prog)
 }
 
 static int
-bpf_program__init(void *data, size_t size, char *section_name, int idx,
+bpf_program__init(void *data, size_t size, const char *section_name, int idx,
 		  struct bpf_program *prog)
 {
 	const size_t bpf_insn_sz = sizeof(struct bpf_insn);
@@ -549,7 +558,7 @@ errout:
 
 static int
 bpf_object__add_program(struct bpf_object *obj, void *data, size_t size,
-			char *section_name, int idx)
+			const char *section_name, int idx)
 {
 	struct bpf_program prog, *progs;
 	int nr_progs, err;
@@ -574,7 +583,7 @@ bpf_object__add_program(struct bpf_object *obj, void *data, size_t size,
 		return -ENOMEM;
 	}
 
-	pr_debug("found program %s\n", prog.section_name);
+	pr_debug("elf: found program '%s'\n", prog.section_name);
 	obj->programs = progs;
 	obj->nr_programs = nr_progs + 1;
 	prog.obj = obj;
@@ -594,8 +603,7 @@ bpf_object__init_prog_names(struct bpf_object *obj)
 
 		prog = &obj->programs[pi];
 
-		for (si = 0; si < symbols->d_size / sizeof(GElf_Sym) && !name;
-		     si++) {
+		for (si = 0; si < symbols->d_size / sizeof(GElf_Sym) && !name; si++) {
 			GElf_Sym sym;
 
 			if (!gelf_getsym(symbols, si, &sym))
@@ -605,11 +613,9 @@ bpf_object__init_prog_names(struct bpf_object *obj)
 			if (GELF_ST_BIND(sym.st_info) != STB_GLOBAL)
 				continue;
 
-			name = elf_strptr(obj->efile.elf,
-					  obj->efile.strtabidx,
-					  sym.st_name);
+			name = elf_sym_str(obj, sym.st_name);
 			if (!name) {
-				pr_warning("failed to get sym name string for prog %s\n",
+				pr_warning("prog '%s': failed to get symbol name\n",
 					   prog->section_name);
 				return -LIBBPF_ERRNO__LIBELF;
 			}
@@ -619,17 +625,14 @@ bpf_object__init_prog_names(struct bpf_object *obj)
 			name = ".text";
 
 		if (!name) {
-			pr_warning("failed to find sym for prog %s\n",
+			pr_warning("prog '%s': failed to find program symbol\n",
 				   prog->section_name);
 			return -EINVAL;
 		}
 
 		prog->name = strdup(name);
-		if (!prog->name) {
-			pr_warning("failed to allocate memory for prog sym %s\n",
-				   name);
+		if (!prog->name)
 			return -ENOMEM;
-		}
 	}
 
 	return 0;
@@ -1068,7 +1071,7 @@ static int bpf_object__elf_init(struct bpf_object *obj)
 	GElf_Ehdr *ep;
 
 	if (obj_elf_valid(obj)) {
-		pr_warning("elf init: internal error\n");
+		pr_warning("elf: init internal error\n");
 		return -LIBBPF_ERRNO__LIBELF;
 	}
 
@@ -1086,7 +1089,7 @@ static int bpf_object__elf_init(struct bpf_object *obj)
 
 			err = -errno;
 			cp = libbpf_strerror_r(err, errmsg, sizeof(errmsg));
-			pr_warning("failed to open %s: %s\n", obj->path, cp);
+			pr_warning("elf: failed to open %s: %s\n", obj->path, cp);
 			return err;
 		}
 
@@ -1095,22 +1098,36 @@ static int bpf_object__elf_init(struct bpf_object *obj)
 	}
 
 	if (!obj->efile.elf) {
-		pr_warning("failed to open %s as ELF file\n", obj->path);
+		pr_warning("elf: failed to open %s as ELF file: %s\n", obj->path, elf_errmsg(-1));
 		err = -LIBBPF_ERRNO__LIBELF;
 		goto errout;
 	}
 
 	if (!gelf_getehdr(obj->efile.elf, &obj->efile.ehdr)) {
-		pr_warning("failed to get EHDR from %s\n", obj->path);
+		pr_warning("elf: failed to get ELF header from %s: %s\n", obj->path, elf_errmsg(-1));
 		err = -LIBBPF_ERRNO__FORMAT;
 		goto errout;
 	}
 	ep = &obj->efile.ehdr;
 
+	if (elf_getshdrstrndx(obj->efile.elf, &obj->efile.shstrndx)) {
+		pr_warning("elf: failed to get section names section index for %s: %s\n",
+			   obj->path, elf_errmsg(-1));
+		err = -LIBBPF_ERRNO__FORMAT;
+		goto errout;
+	}
+
+	/* Elf is corrupted/truncated, avoid calling elf_strptr. */
+	if (!elf_rawdata(elf_getscn(obj->efile.elf, obj->efile.shstrndx), NULL)) {
+		pr_warning("elf: failed to get section names strings from %s: %s\n",
+			   obj->path, elf_errmsg(-1));
+		return -LIBBPF_ERRNO__FORMAT;
+	}
+
 	/* Old LLVM set e_machine to EM_NONE */
 	if (ep->e_type != ET_REL ||
 	    (ep->e_machine && ep->e_machine != EM_BPF)) {
-		pr_warning("%s is not an eBPF object file\n", obj->path);
+		pr_warning("elf: %s is not a valid eBPF object file\n", obj->path);
 		err = -LIBBPF_ERRNO__FORMAT;
 		goto errout;
 	}
@@ -1132,7 +1149,7 @@ static int bpf_object__check_endianness(struct bpf_object *obj)
 #else
 # error "Unrecognized __BYTE_ORDER__"
 #endif
-	pr_warning("endianness mismatch.\n");
+	pr_warning("elf: endianness mismatch in %s.\n", obj->path);
 	return -LIBBPF_ERRNO__ENDIAN;
 }
 
@@ -1167,55 +1184,10 @@ static bool bpf_map_type__is_map_in_map(enum bpf_map_type type)
 	return false;
 }
 
-static int bpf_object_search_section_size(const struct bpf_object *obj,
-					  const char *name, size_t *d_size)
-{
-	const GElf_Ehdr *ep = &obj->efile.ehdr;
-	Elf *elf = obj->efile.elf;
-	Elf_Scn *scn = NULL;
-	int idx = 0;
-
-	while ((scn = elf_nextscn(elf, scn)) != NULL) {
-		const char *sec_name;
-		Elf_Data *data;
-		GElf_Shdr sh;
-
-		idx++;
-		if (gelf_getshdr(scn, &sh) != &sh) {
-			pr_warning("failed to get section(%d) header from %s\n",
-				   idx, obj->path);
-			return -EIO;
-		}
-
-		sec_name = elf_strptr(elf, ep->e_shstrndx, sh.sh_name);
-		if (!sec_name) {
-			pr_warning("failed to get section(%d) name from %s\n",
-				   idx, obj->path);
-			return -EIO;
-		}
-
-		if (strcmp(name, sec_name))
-			continue;
-
-		data = elf_getdata(scn, 0);
-		if (!data) {
-			pr_warning("failed to get section(%d) data from %s(%s)\n",
-				   idx, name, obj->path);
-			return -EIO;
-		}
-
-		*d_size = data->d_size;
-		return 0;
-	}
-
-	return -ENOENT;
-}
-
 int bpf_object__section_size(const struct bpf_object *obj, const char *name,
 			     __u32 *size)
 {
 	int ret = -ENOENT;
-	size_t d_size;
 
 	*size = 0;
 	if (!name) {
@@ -1233,9 +1205,13 @@ int bpf_object__section_size(const struct bpf_object *obj, const char *name,
 		if (obj->efile.st_ops_data)
 			*size = obj->efile.st_ops_data->d_size;
 	} else {
-		ret = bpf_object_search_section_size(obj, name, &d_size);
-		if (!ret)
-			*size = d_size;
+		Elf_Scn *scn = elf_sec_by_name(obj, name);
+		Elf_Data *data = elf_sec_data(obj, scn);
+
+		if (data) {
+			ret = 0; /* found it */
+			*size = data->d_size;
+		}
 	}
 
 	return *size ? 0 : ret;
@@ -1260,8 +1236,7 @@ int bpf_object__variable_offset(const struct bpf_object *obj, const char *name,
 		    GELF_ST_TYPE(sym.st_info) != STT_OBJECT)
 			continue;
 
-		sname = elf_strptr(obj->efile.elf, obj->efile.strtabidx,
-				   sym.st_name);
+		sname = elf_sym_str(obj, sym.st_name);
 		if (!sname) {
 			pr_warning("failed to get sym name string for var %s\n",
 				   name);
@@ -1738,12 +1713,12 @@ static int bpf_object__init_user_maps(struct bpf_object *obj, bool strict)
 	if (!symbols)
 		return -EINVAL;
 
-	scn = elf_getscn(obj->efile.elf, obj->efile.maps_shndx);
-	if (scn)
-		data = elf_getdata(scn, NULL);
+
+	scn = elf_sec_by_idx(obj, obj->efile.maps_shndx);
+	data = elf_sec_data(obj, scn);
 	if (!scn || !data) {
-		pr_warning("failed to get Elf_Data from map section %d\n",
-			   obj->efile.maps_shndx);
+		pr_warning("elf: failed to get legacy map definitions for %s\n",
+			   obj->path);
 		return -EINVAL;
 	}
 
@@ -1765,12 +1740,12 @@ static int bpf_object__init_user_maps(struct bpf_object *obj, bool strict)
 		nr_maps++;
 	}
 	/* Assume equally sized map definitions */
-	pr_debug("maps in %s: %d maps in %zd bytes\n",
-		 obj->path, nr_maps, data->d_size);
+	pr_debug("elf: found %d legacy map definitions (%zd bytes) in %s\n",
+		 nr_maps, data->d_size, obj->path);
 
 	if (!data->d_size || nr_maps == 0 || (data->d_size % nr_maps) != 0) {
-		pr_warning("unable to determine map definition size section %s, %d maps in %zd bytes\n",
-			   obj->path, nr_maps, data->d_size);
+		pr_warning("elf: unable to determine legacy map definition size in %s\n",
+			   obj->path);
 		return -EINVAL;
 	}
 	map_def_sz = data->d_size / nr_maps;
@@ -1791,8 +1766,7 @@ static int bpf_object__init_user_maps(struct bpf_object *obj, bool strict)
 		if (IS_ERR(map))
 			return PTR_ERR(map);
 
-		map_name = elf_strptr(obj->efile.elf, obj->efile.strtabidx,
-				      sym.st_name);
+		map_name = elf_sym_str(obj, sym.st_name);
 		if (!map_name) {
 			pr_warning("failed to get map #%d name sym string for obj %s\n",
 				   i, obj->path);
@@ -2278,12 +2252,11 @@ static int bpf_object__init_user_btf_maps(struct bpf_object *obj, bool strict,
 	if (obj->efile.btf_maps_shndx < 0)
 		return 0;
 
-	scn = elf_getscn(obj->efile.elf, obj->efile.btf_maps_shndx);
-	if (scn)
-		data = elf_getdata(scn, NULL);
+	scn = elf_sec_by_idx(obj, obj->efile.btf_maps_shndx);
+	data = elf_sec_data(obj, scn);
 	if (!scn || !data) {
-		pr_warning("failed to get Elf_Data from map section %d (%s)\n",
-			   obj->efile.btf_maps_shndx, MAPS_ELF_SEC);
+		pr_warning("elf: failed to get %s map definitions for %s\n",
+			   MAPS_ELF_SEC, obj->path);
 		return -EINVAL;
 	}
 
@@ -2341,20 +2314,12 @@ static int bpf_object__init_maps(struct bpf_object *obj,
 
 static bool section_have_execinstr(struct bpf_object *obj, int idx)
 {
-	Elf_Scn *scn;
 	GElf_Shdr sh;
 
-	scn = elf_getscn(obj->efile.elf, idx);
-	if (!scn)
+	if (elf_sec_hdr(obj, elf_sec_by_idx(obj, idx), &sh))
 		return false;
 
-	if (gelf_getshdr(scn, &sh) != &sh)
-		return false;
-
-	if (sh.sh_flags & SHF_EXECINSTR)
-		return true;
-
-	return false;
+	return sh.sh_flags & SHF_EXECINSTR;
 }
 
 static bool btf_needs_sanitization(struct bpf_object *obj)
@@ -2598,61 +2563,156 @@ report:
 	return err;
 }
 
+static const char *elf_sym_str(const struct bpf_object *obj, size_t off)
+{
+	const char *name;
+
+	name = elf_strptr(obj->efile.elf, obj->efile.strtabidx, off);
+	if (!name) {
+		pr_warning("elf: failed to get section name string at offset %zu from %s: %s\n",
+			   off, obj->path, elf_errmsg(-1));
+		return NULL;
+	}
+
+	return name;
+}
+
+static const char *elf_sec_str(const struct bpf_object *obj, size_t off)
+{
+	const char *name;
+
+	name = elf_strptr(obj->efile.elf, obj->efile.shstrndx, off);
+	if (!name) {
+		pr_warning("elf: failed to get section name string at offset %zu from %s: %s\n",
+			   off, obj->path, elf_errmsg(-1));
+		return NULL;
+	}
+
+	return name;
+}
+
+static Elf_Scn *elf_sec_by_idx(const struct bpf_object *obj, size_t idx)
+{
+	Elf_Scn *scn;
+
+	scn = elf_getscn(obj->efile.elf, idx);
+	if (!scn) {
+		pr_warning("elf: failed to get section(%zu) from %s: %s\n",
+			   idx, obj->path, elf_errmsg(-1));
+		return NULL;
+	}
+	return scn;
+}
+
+static Elf_Scn *elf_sec_by_name(const struct bpf_object *obj, const char *name)
+{
+	Elf_Scn *scn = NULL;
+	Elf *elf = obj->efile.elf;
+	const char *sec_name;
+
+	while ((scn = elf_nextscn(elf, scn)) != NULL) {
+		sec_name = elf_sec_name(obj, scn);
+		if (!sec_name)
+			return NULL;
+
+		if (strcmp(sec_name, name) != 0)
+			continue;
+
+		return scn;
+	}
+	return NULL;
+}
+
+static int elf_sec_hdr(const struct bpf_object *obj, Elf_Scn *scn, GElf_Shdr *hdr)
+{
+	if (!scn)
+		return -EINVAL;
+
+	if (gelf_getshdr(scn, hdr) != hdr) {
+		pr_warning("elf: failed to get section(%zu) header from %s: %s\n",
+			   elf_ndxscn(scn), obj->path, elf_errmsg(-1));
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static const char *elf_sec_name(const struct bpf_object *obj, Elf_Scn *scn)
+{
+	const char *name;
+	GElf_Shdr sh;
+
+	if (!scn)
+		return NULL;
+
+	if (elf_sec_hdr(obj, scn, &sh))
+		return NULL;
+
+	name = elf_sec_str(obj, sh.sh_name);
+	if (!name) {
+		pr_warning("elf: failed to get section(%zu) name from %s: %s\n",
+			   elf_ndxscn(scn), obj->path, elf_errmsg(-1));
+		return NULL;
+	}
+
+	return name;
+}
+
+static Elf_Data *elf_sec_data(const struct bpf_object *obj, Elf_Scn *scn)
+{
+	Elf_Data *data;
+
+	if (!scn)
+		return NULL;
+
+	data = elf_getdata(scn, 0);
+	if (!data) {
+		pr_warning("elf: failed to get section(%zu) %s data from %s: %s\n",
+			   elf_ndxscn(scn), elf_sec_name(obj, scn) ?: "<?>",
+			   obj->path, elf_errmsg(-1));
+		return NULL;
+	}
+
+	return data;
+}
+
 static int bpf_object__elf_collect(struct bpf_object *obj)
 {
 	Elf *elf = obj->efile.elf;
-	GElf_Ehdr *ep = &obj->efile.ehdr;
 	Elf_Data *btf_ext_data = NULL;
 	Elf_Data *btf_data = NULL;
 	Elf_Scn *scn = NULL;
 	int idx = 0, err = 0;
 
-	/* Elf is corrupted/truncated, avoid calling elf_strptr. */
-	if (!elf_rawdata(elf_getscn(elf, ep->e_shstrndx), NULL)) {
-		pr_warning("failed to get e_shstrndx from %s\n", obj->path);
-		return -LIBBPF_ERRNO__FORMAT;
-	}
-
 	while ((scn = elf_nextscn(elf, scn)) != NULL) {
-		char *name;
+		const char *name;
 		GElf_Shdr sh;
 		Elf_Data *data;
 
 		idx++;
-		if (gelf_getshdr(scn, &sh) != &sh) {
-			pr_warning("failed to get section(%d) header from %s\n",
-				   idx, obj->path);
-			return -LIBBPF_ERRNO__FORMAT;
-		}
 
-		name = elf_strptr(elf, ep->e_shstrndx, sh.sh_name);
-		if (!name) {
-			pr_warning("failed to get section(%d) name from %s\n",
-				   idx, obj->path);
+		if (elf_sec_hdr(obj, scn, &sh))
 			return -LIBBPF_ERRNO__FORMAT;
-		}
 
-		data = elf_getdata(scn, 0);
-		if (!data) {
-			pr_warning("failed to get section(%d) data from %s(%s)\n",
-				   idx, name, obj->path);
+		name = elf_sec_str(obj, sh.sh_name);
+		if (!name)
 			return -LIBBPF_ERRNO__FORMAT;
-		}
-		pr_debug("section(%d) %s, size %ld, link %d, flags %lx, type=%d\n",
+
+		data = elf_sec_data(obj, scn);
+		if (!data)
+			return -LIBBPF_ERRNO__FORMAT;
+
+		pr_debug("elf: section(%d) %s, size %ld, link %d, flags %lx, type=%d\n",
 			 idx, name, (unsigned long)data->d_size,
 			 (int)sh.sh_link, (unsigned long)sh.sh_flags,
 			 (int)sh.sh_type);
 
 		if (strcmp(name, "license") == 0) {
-			err = bpf_object__init_license(obj,
-						       data->d_buf,
-						       data->d_size);
+			err = bpf_object__init_license(obj, data->d_buf, data->d_size);
 			if (err)
 				return err;
 		} else if (strcmp(name, "version") == 0) {
-			err = bpf_object__init_kversion(obj,
-							data->d_buf,
-							data->d_size);
+			err = bpf_object__init_kversion(obj, data->d_buf, data->d_size);
 			if (err)
 				return err;
 		} else if (strcmp(name, "maps") == 0) {
@@ -2665,8 +2725,7 @@ static int bpf_object__elf_collect(struct bpf_object *obj)
 			btf_ext_data = data;
 		} else if (sh.sh_type == SHT_SYMTAB) {
 			if (obj->efile.symbols) {
-				pr_warning("bpf: multiple SYMTAB in %s\n",
-					   obj->path);
+				pr_warning("elf: multiple symbol tables in %s\n", obj->path);
 				return -LIBBPF_ERRNO__FORMAT;
 			}
 			obj->efile.symbols = data;
@@ -2679,16 +2738,8 @@ static int bpf_object__elf_collect(struct bpf_object *obj)
 				err = bpf_object__add_program(obj, data->d_buf,
 							      data->d_size,
 							      name, idx);
-				if (err) {
-					char errmsg[STRERR_BUFSIZE];
-					char *cp;
-
-					cp = libbpf_strerror_r(-err, errmsg,
-							       sizeof(errmsg));
-					pr_warning("failed to alloc program %s (%s): %s",
-						   name, obj->path, cp);
+				if (err)
 					return err;
-				}
 			} else if (strcmp(name, DATA_SEC) == 0) {
 				obj->efile.data = data;
 				obj->efile.data_shndx = idx;
@@ -2699,7 +2750,8 @@ static int bpf_object__elf_collect(struct bpf_object *obj)
 				obj->efile.st_ops_data = data;
 				obj->efile.st_ops_shndx = idx;
 			} else {
-				pr_debug("skip section(%d) %s\n", idx, name);
+				pr_debug("elf: skipping unrecognized data section(%d) %s\n",
+					 idx, name);
 			}
 		} else if (sh.sh_type == SHT_REL) {
 			int nr_sects = obj->efile.nr_reloc_sects;
@@ -2710,34 +2762,32 @@ static int bpf_object__elf_collect(struct bpf_object *obj)
 			if (!section_have_execinstr(obj, sec) &&
 			    strcmp(name, ".rel" STRUCT_OPS_SEC) &&
 			    strcmp(name, ".rel" MAPS_ELF_SEC)) {
-				pr_debug("skip relo %s(%d) for section(%d)\n",
-					 name, idx, sec);
+				pr_debug("elf: skipping relo section(%d) %s for section(%d) %s\n",
+					 idx, name, sec,
+					 elf_sec_name(obj, elf_sec_by_idx(obj, sec)) ?: "<?>");
 				continue;
 			}
 
 			sects = libbpf_reallocarray(sects, nr_sects + 1,
 						    sizeof(*obj->efile.reloc_sects));
-			if (!sects) {
-				pr_warning("reloc_sects realloc failed\n");
+			if (!sects)
 				return -ENOMEM;
-			}
 
 			obj->efile.reloc_sects = sects;
 			obj->efile.nr_reloc_sects++;
 
 			obj->efile.reloc_sects[nr_sects].shdr = sh;
 			obj->efile.reloc_sects[nr_sects].data = data;
-		} else if (sh.sh_type == SHT_NOBITS &&
-			   strcmp(name, BSS_SEC) == 0) {
+		} else if (sh.sh_type == SHT_NOBITS && strcmp(name, BSS_SEC) == 0) {
 			obj->efile.bss = data;
 			obj->efile.bss_shndx = idx;
 		} else {
-			pr_debug("skip section(%d) %s\n", idx, name);
+			pr_debug("elf: skipping section(%d) %s\n", idx, name);
 		}
 	}
 
 	if (!obj->efile.strtabidx || obj->efile.strtabidx > idx) {
-		pr_warning("Corrupted ELF file: index of strtab invalid\n");
+		pr_warning("elf: symbol strings section missing or invalid in %s\n", obj->path);
 		return -LIBBPF_ERRNO__FORMAT;
 	}
 	return bpf_object__init_btf(obj, btf_data, btf_ext_data);
@@ -2898,14 +2948,13 @@ static int bpf_object__collect_externs(struct bpf_object *obj)
 	if (!obj->efile.symbols)
 		return 0;
 
-	scn = elf_getscn(obj->efile.elf, obj->efile.symbols_shndx);
-	if (!scn)
+	scn = elf_sec_by_idx(obj, obj->efile.symbols_shndx);
+	if (elf_sec_hdr(obj, scn, &sh))
 		return -LIBBPF_ERRNO__FORMAT;
-	if (gelf_getshdr(scn, &sh) != &sh)
-		return -LIBBPF_ERRNO__FORMAT;
-	n = sh.sh_size / sh.sh_entsize;
 
+	n = sh.sh_size / sh.sh_entsize;
 	pr_debug("looking for externs among %d symbols...\n", n);
+
 	for (i = 0; i < n; i++) {
 		GElf_Sym sym;
 
@@ -2913,8 +2962,7 @@ static int bpf_object__collect_externs(struct bpf_object *obj)
 			return -LIBBPF_ERRNO__FORMAT;
 		if (!sym_is_extern(&sym))
 			continue;
-		ext_name = elf_strptr(obj->efile.elf, obj->efile.strtabidx,
-				      sym.st_name);
+		ext_name = elf_sym_str(obj, sym.st_name);
 		if (!ext_name || !ext_name[0])
 			continue;
 
@@ -3293,16 +3341,15 @@ bpf_program__collect_reloc(struct bpf_program *prog, GElf_Shdr *shdr,
 			return -LIBBPF_ERRNO__FORMAT;
 		}
 		if (!gelf_getsym(symbols, GELF_R_SYM(rel.r_info), &sym)) {
-			pr_warning("relocation: symbol %"PRIx64" not found\n",
-				   GELF_R_SYM(rel.r_info));
+			pr_warning("relocation: symbol %zx not found\n",
+				   (size_t)GELF_R_SYM(rel.r_info));
 			return -LIBBPF_ERRNO__FORMAT;
 		}
 		if (rel.r_offset % sizeof(struct bpf_insn))
 			return -LIBBPF_ERRNO__FORMAT;
  
 		insn_idx = rel.r_offset / sizeof(struct bpf_insn);
-		name = elf_strptr(obj->efile.elf, obj->efile.strtabidx,
-				  sym.st_name) ? : "<?>";
+		name = elf_sym_str(obj, sym.st_name) ?: "<?>";
 		pr_debug("relo for shdr %u, symb %zu, value %zu, type %d, bind %d, name %d (\'%s\'), insn %u\n",
 			 (__u32)sym.st_shndx, (size_t)GELF_R_SYM(rel.r_info),
 			 (size_t)sym.st_value, GELF_ST_TYPE(sym.st_info),
@@ -5566,8 +5613,7 @@ static int bpf_object__collect_map_relos(struct bpf_object *obj,
 				   i, (size_t)GELF_R_SYM(rel.r_info));
 			return -LIBBPF_ERRNO__FORMAT;
 		}
-		name = elf_strptr(obj->efile.elf, obj->efile.strtabidx,
-				  sym.st_name) ? : "<?>";
+		name = elf_sym_str(obj, sym.st_name) ?: "<?>";
 		if (sym.st_shndx != obj->efile.btf_maps_shndx) {
 			pr_warning(".maps relo #%d: '%s' isn't a BTF-defined map\n",
 				   i, name);
@@ -7470,8 +7516,7 @@ static int bpf_object__collect_st_ops_relos(struct bpf_object *obj,
 			return -LIBBPF_ERRNO__FORMAT;
 		}
 
-		name = elf_strptr(obj->efile.elf, obj->efile.strtabidx,
-				  sym.st_name) ? : "<?>";
+		name = elf_sym_str(obj, sym.st_name) ?: "<?>";
 		map = find_struct_ops_map_by_offset(obj, rel.r_offset);
 		if (!map) {
 			pr_warning("struct_ops reloc: cannot find map at rel.r_offset %zu\n",
