@@ -250,6 +250,8 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 			} else {
 				hid_map_usage(hi, usage, bit, max,
 					EV_ABS, ABS_MT_POSITION_X);
+				if (!*bit)
+					return -1;
 				set_abs(hi->input, ABS_MT_POSITION_X, field,
 					cls->sn_move);
 				/* touchscreen emulation */
@@ -269,6 +271,8 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 			} else {
 				hid_map_usage(hi, usage, bit, max,
 					EV_ABS, ABS_MT_POSITION_Y);
+			if (!*bit)
+				return -1;
 				set_abs(hi->input, ABS_MT_POSITION_Y, field,
 					cls->sn_move);
 				/* touchscreen emulation */
@@ -299,6 +303,8 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 			return 1;
 		case HID_DG_TIPSWITCH:
 			hid_map_usage(hi, usage, bit, max, EV_KEY, BTN_TOUCH);
+			if (!*bit)
+				return -1;
 			input_set_capability(hi->input, EV_KEY, BTN_TOUCH);
 			if (td->last_mt_collection == usage->collection_index) {
 				td->last_slot_field = usage->hid;
@@ -316,6 +322,8 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 		case HID_DG_WIDTH:
 			hid_map_usage(hi, usage, bit, max,
 					EV_ABS, ABS_MT_TOUCH_MAJOR);
+			if (!*bit)
+				return -1;
 			set_abs(hi->input, ABS_MT_TOUCH_MAJOR, field,
 				cls->sn_width);
 			if (td->last_mt_collection == usage->collection_index) {
@@ -326,6 +334,8 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 		case HID_DG_HEIGHT:
 			hid_map_usage(hi, usage, bit, max,
 					EV_ABS, ABS_MT_TOUCH_MINOR);
+			if (!*bit)
+				return -1;
 			set_abs(hi->input, ABS_MT_TOUCH_MINOR, field,
 				cls->sn_height);
 			input_set_abs_params(hi->input,
@@ -340,6 +350,8 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 				field->logical_minimum = 0;
 			hid_map_usage(hi, usage, bit, max,
 					EV_ABS, ABS_MT_PRESSURE);
+			if (!*bit)
+				return -1;
 			set_abs(hi->input, ABS_MT_PRESSURE, field,
 				cls->sn_pressure);
 			/* touchscreen emulation */
@@ -463,8 +475,6 @@ static void mt_emit_event(struct mt_device *td, struct input_dev *input)
 	input_sync(input);
 	td->num_received = 0;
 }
-
-
 
 static int mt_event(struct hid_device *hid, struct hid_field *field,
 				struct hid_usage *usage, __s32 value)

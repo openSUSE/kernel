@@ -330,6 +330,21 @@ static void get_futex_key_refs(union futex_key *key)
 	}
 }
 
+static inline bool key_is_file(union futex_key *key)
+{
+	return (key->both.offset & FUT_OFF_INODE) == FUT_OFF_INODE;
+}
+
+/*
+ * Drop a reference to the file backed addressed by a key.
+ * Can be called with hb->lock held.
+ */
+static void drop_futex_key_refs_atomic(union futex_key *key)
+{
+	if (key_is_file(key))
+		fput(key->shared.filp);
+}
+
 /*
  * Drop a reference to the resource addressed by a key.
  * The hash bucket spinlock must not be held.
@@ -1338,6 +1353,8 @@ void requeue_futex(struct futex_q *q, struct futex_hash_bucket *hb1,
 		plist_add(&q->list, &hb2->chain);
 		q->lock_ptr = &hb2->lock;
 	}
+
+	drop_futex_key_refs_atomic(&q->key);
 	get_futex_key_refs(key2);
 	q->key = *key2;
 }
@@ -1360,6 +1377,7 @@ static inline
 void requeue_pi_wake_futex(struct futex_q *q, union futex_key *key,
 			   struct futex_hash_bucket *hb)
 {
+	drop_futex_key_refs_atomic(&q->key);
 	get_futex_key_refs(key);
 	q->key = *key;
 
@@ -1465,6 +1483,7 @@ static int futex_requeue(u32 __user *uaddr1, unsigned int flags,
 	struct futex_hash_bucket *hb1, *hb2;
 	struct futex_q *this, *next;
 	u32 curval2;
+	bool drop_atomic;
 
 	if (nr_wake < 0 || nr_requeue < 0)
 		return -EINVAL;
@@ -1518,6 +1537,8 @@ retry:
 	hb1 = hash_futex(&key1);
 	hb2 = hash_futex(&key2);
 
+	drop_atomic = key_is_file(&key1);
+
 retry_private:
 	hb_waiters_inc(hb2);
 	double_lock_hb(hb1, hb2);
@@ -1566,7 +1587,8 @@ retry_private:
 		 */
 		if (ret == 1) {
 			WARN_ON(pi_state);
-			drop_count++;
+			if (!drop_atomic)
+				drop_count++;
 			task_count++;
 			ret = get_futex_value_locked(&curval2, uaddr2);
 			if (!ret)
@@ -1654,7 +1676,8 @@ retry_private:
 			if (ret == 1) {
 				/* We got the lock. */
 				requeue_pi_wake_futex(this, &key2, hb2);
-				drop_count++;
+				if (!drop_atomic)
+					drop_count++;
 				continue;
 			} else if (ret) {
 				/* -EDEADLK */
@@ -1664,7 +1687,8 @@ retry_private:
 			}
 		}
 		requeue_futex(this, hb1, hb2, &key2);
-		drop_count++;
+		if (!drop_atomic)
+			drop_count++;
 	}
 
 out_unlock:
@@ -1673,13 +1697,14 @@ out_unlock:
 	hb_waiters_dec(hb2);
 
 	/*
-	 * drop_futex_key_refs() must be called outside the spinlocks. During
-	 * the requeue we moved futex_q's from the hash bucket at key1 to the
-	 * one at key2 and updated their key pointer.  We no longer need to
+	 * drop_futex_key_refs() for anon mem must be called outside the spinlocks.
+	 * During the requeue we moved futex_q's from the hash bucket at key1 to
+	 * the one at key2 and updated their key pointer.  We no longer need to
 	 * hold the references to key1.
 	 */
-	while (--drop_count >= 0)
-		drop_futex_key_refs(&key1);
+	if (!drop_atomic)
+		while (--drop_count >= 0)
+			drop_futex_key_refs(&key1);
 
 out_put_keys:
 	put_futex_key(&key2);
