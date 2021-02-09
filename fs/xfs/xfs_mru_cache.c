@@ -309,7 +309,8 @@ xfs_mru_cache_init(void)
 	if (!xfs_mru_elem_zone)
 		goto out;
 
-	xfs_mru_reap_wq = alloc_workqueue("xfs_mru_cache", WQ_MEM_RECLAIM, 1);
+	xfs_mru_reap_wq = alloc_workqueue("xfs_mru_cache",
+				WQ_MEM_RECLAIM|WQ_FREEZABLE, 1);
 	if (!xfs_mru_reap_wq)
 		goto out_destroy_mru_elem_zone;
 

@@ -833,7 +833,8 @@ xfs_init_mount_workqueues(
 		return -ENOMEM;
 
 	mp->m_data_workqueue_name = wqname;
-	mp->m_data_workqueue = alloc_workqueue(wqname, WQ_MEM_RECLAIM, 0);
+	mp->m_data_workqueue = alloc_workqueue(wqname,
+			WQ_MEM_RECLAIM|WQ_FREEZABLE, 0);
 	if (!mp->m_data_workqueue)
 		goto out;
 
@@ -853,7 +854,8 @@ xfs_init_mount_workqueues(
 		goto out_destroy_buf_queue;
 
 	mp->m_unwritten_workqueue_name = wqname;
-	mp->m_unwritten_workqueue = alloc_workqueue(wqname, WQ_MEM_RECLAIM, 0);
+	mp->m_unwritten_workqueue = alloc_workqueue(wqname,
+			WQ_MEM_RECLAIM|WQ_FREEZABLE, 0);
 	if (!mp->m_unwritten_workqueue)
 		goto out_free_data_conv_queue_name;
 
@@ -862,7 +864,8 @@ xfs_init_mount_workqueues(
 		goto out_destroy_data_conv_queue;
 
 	mp->m_eofblocks_workqueue_name = wqname;
-	mp->m_eofblocks_workqueue = alloc_workqueue(wqname, WQ_NON_REENTRANT, 0);
+	mp->m_eofblocks_workqueue = alloc_workqueue(wqname,
+			WQ_NON_REENTRANT|WQ_FREEZABLE, 0);
 	if (!mp->m_eofblocks_workqueue)
 		goto out_free_eofblocks_name;
 
@@ -1812,7 +1815,8 @@ xfs_init_workqueues(void)
 	 * filesystems to be running sync work concurrently, and scales with
 	 * the number of CPUs in the system.
 	 */
-	xfs_syncd_wq = alloc_workqueue("xfssyncd", WQ_CPU_INTENSIVE, 8);
+	xfs_syncd_wq = alloc_workqueue("xfssyncd",
+			WQ_CPU_INTENSIVE|WQ_FREEZABLE, 8);
 	if (!xfs_syncd_wq)
 		return -ENOMEM;
 
@@ -1822,7 +1826,8 @@ xfs_init_workqueues(void)
 	 * AGs in all the filesystems mounted. Hence use the default large
 	 * max_active value for this workqueue.
 	 */
-	xfs_alloc_wq = alloc_workqueue("xfsalloc", WQ_MEM_RECLAIM, 0);
+	xfs_alloc_wq = alloc_workqueue("xfsalloc",
+			WQ_MEM_RECLAIM|WQ_FREEZABLE, 0);
 	if (!xfs_alloc_wq)
 		goto out_destroy_syncd;
 
