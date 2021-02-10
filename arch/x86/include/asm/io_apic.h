@@ -77,8 +77,12 @@ struct IO_APIC_route_entry {
 		trigger		:  1,	/* 0: edge, 1: level */
 		mask		:  1,	/* 0: enabled, 1: disabled */
 		__reserved_2	: 15;
-
-	__u32	__reserved_3	: 24,
+#ifndef __GENKSYMS__
+	__u32	__reserved_3	: 17,
+		ext_dest	:  7,
+#else
+	__u32   __reserved_3    : 24,
+#endif
 		dest		:  8;
 } __attribute__ ((packed));
 
