@@ -35,6 +35,13 @@
 #ifndef __T4_TCB_H
 #define __T4_TCB_H
 
+#define TCB_T_FLAGS_W           1
+#define TCB_T_FLAGS_S           0
+#define TCB_T_FLAGS_M           0xffffffffffffffffULL
+#define TCB_T_FLAGS_V(x)        ((__u64)(x) << TCB_T_FLAGS_S)
+
+#define TCB_FIELD_COOKIE_TFLAG	1
+
 #define TCB_SMAC_SEL_W		0
 #define TCB_SMAC_SEL_S		24
 #define TCB_SMAC_SEL_M		0xffULL
