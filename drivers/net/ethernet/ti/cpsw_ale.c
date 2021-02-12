@@ -122,6 +122,8 @@ DEFINE_ALE_FIELD(mcast,			40,	1)
 DEFINE_ALE_FIELD(vlan_unreg_mcast_idx,	20,	3)
 DEFINE_ALE_FIELD(vlan_reg_mcast_idx,	44,	3)
 
+#define NU_VLAN_UNREG_MCAST_IDX	1
+
 /* The MAC address field in the ALE entry cannot be macroized as above */
 static inline void cpsw_ale_get_addr(u32 *ale_entry, u8 *addr)
 {
@@ -455,6 +457,8 @@ int cpsw_ale_add_vlan(struct cpsw_ale *ale, u16 vid, int port_mask, int untag,
 		cpsw_ale_set_vlan_unreg_mcast(ale_entry, unreg_mcast,
 					      ale->vlan_field_bits);
 	} else {
+		cpsw_ale_set_vlan_unreg_mcast_idx(ale_entry,
+						  NU_VLAN_UNREG_MCAST_IDX);
 		cpsw_ale_set_vlan_mcast(ale, ale_entry, reg_mcast, unreg_mcast);
 	}
 	cpsw_ale_set_vlan_member_list(ale_entry, port_mask,
@@ -598,10 +602,44 @@ void cpsw_ale_set_unreg_mcast(struct cpsw_ale *ale, int unreg_mcast_mask,
 	}
 }
 
+static void cpsw_ale_vlan_set_unreg_mcast(struct cpsw_ale *ale, u32 *ale_entry,
+					  int allmulti)
+{
+	int unreg_mcast;
+
+	unreg_mcast =
+		cpsw_ale_get_vlan_unreg_mcast(ale_entry,
+					      ale->vlan_field_bits);
+	if (allmulti)
+		unreg_mcast |= ALE_PORT_HOST;
+	else
+		unreg_mcast &= ~ALE_PORT_HOST;
+	cpsw_ale_set_vlan_unreg_mcast(ale_entry, unreg_mcast,
+				      ale->vlan_field_bits);
+}
+
+static void
+cpsw_ale_vlan_set_unreg_mcast_idx(struct cpsw_ale *ale, u32 *ale_entry,
+				  int allmulti)
+{
+	int unreg_mcast;
+	int idx;
+
+	idx = cpsw_ale_get_vlan_unreg_mcast_idx(ale_entry);
+
+	unreg_mcast = readl(ale->params.ale_regs + ALE_VLAN_MASK_MUX(idx));
+
+	if (allmulti)
+		unreg_mcast |= ALE_PORT_HOST;
+	else
+		unreg_mcast &= ~ALE_PORT_HOST;
+
+	writel(unreg_mcast, ale->params.ale_regs + ALE_VLAN_MASK_MUX(idx));
+}
+
 void cpsw_ale_set_allmulti(struct cpsw_ale *ale, int allmulti, int port)
 {
 	u32 ale_entry[ALE_ENTRY_WORDS];
-	int unreg_mcast = 0;
 	int type, idx;
 
 	for (idx = 0; idx < ale->params.ale_entries; idx++) {
@@ -618,15 +656,12 @@ void cpsw_ale_set_allmulti(struct cpsw_ale *ale, int allmulti, int port)
 		if (port != -1 && !(vlan_members & BIT(port)))
 			continue;
 
-		unreg_mcast =
-			cpsw_ale_get_vlan_unreg_mcast(ale_entry,
-						      ale->vlan_field_bits);
-		if (allmulti)
-			unreg_mcast |= ALE_PORT_HOST;
+		if (!ale->params.nu_switch_ale)
+			cpsw_ale_vlan_set_unreg_mcast(ale, ale_entry, allmulti);
 		else
-			unreg_mcast &= ~ALE_PORT_HOST;
-		cpsw_ale_set_vlan_unreg_mcast(ale_entry, unreg_mcast,
-					      ale->vlan_field_bits);
+			cpsw_ale_vlan_set_unreg_mcast_idx(ale, ale_entry,
+							  allmulti);
+
 		cpsw_ale_write(ale, idx, ale_entry);
 	}
 }
