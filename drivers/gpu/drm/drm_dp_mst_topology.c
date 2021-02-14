@@ -4050,6 +4050,7 @@ drm_dp_mst_detect_port(struct drm_connector *connector,
 
 	switch (port->pdt) {
 	case DP_PEER_DEVICE_NONE:
+		break;
 	case DP_PEER_DEVICE_MST_BRANCHING:
 		if (!port->mcs)
 			ret = connector_status_connected;
