@@ -398,6 +398,24 @@ out_free:
 	return err;
 }
 
+static u32 fwp_fill_manage_pages_out(struct fw_page *fwp, u32 *out, u32 index,
+				     u32 npages)
+{
+	u32 pages_set = 0;
+	unsigned int n;
+
+	for_each_clear_bit(n, &fwp->bitmask, MLX5_NUM_4K_IN_PAGE) {
+		MLX5_ARRAY_SET64(manage_pages_out, out, pas, index + pages_set,
+				 fwp->addr + (n * MLX5_ADAPTER_PAGE_SIZE));
+		pages_set++;
+
+		if (!--npages)
+			break;
+	}
+
+       return pages_set;
+}
+
 static void release_all_pages(struct mlx5_core_dev *dev, u16 func_id,
 			      bool ec_function)
 {
@@ -457,8 +475,7 @@ static int reclaim_pages_cmd(struct mlx5_core_dev *dev,
 		fwp = rb_entry(p, struct fw_page, rb_node);
 		p = rb_next(p);
 
-		MLX5_ARRAY_SET64(manage_pages_out, out, pas, i, fwp->addr);
-		i++;
+		i += fwp_fill_manage_pages_out(fwp, out, i, npages - i);
 	}
 
 	MLX5_SET(manage_pages_out, out, output_num_entries, i);
