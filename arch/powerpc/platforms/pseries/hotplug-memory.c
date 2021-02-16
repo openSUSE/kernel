@@ -22,8 +22,6 @@
 #include <asm/drmem.h>
 #include "pseries.h"
 
-static bool rtas_hp_event;
-
 unsigned long pseries_memory_block_size(void)
 {
 	struct device_node *np;
@@ -394,9 +392,7 @@ static int dlpar_remove_lmb(struct drmem_lmb *lmb)
 	invalidate_lmb_associativity_index(lmb);
 	lmb_clear_nid(lmb);
 	lmb->flags &= ~DRCONF_MEM_ASSIGNED;
-	rtas_hp_event = true;
 	drmem_update_dt();
-	rtas_hp_event = false;
 
 	__remove_memory(nid, base_addr, block_sz);
 
@@ -513,40 +509,6 @@ static int dlpar_memory_remove_by_index(u32 drc_index)
 	return rc;
 }
 
-static int dlpar_memory_readd_by_index(u32 drc_index)
-{
-	struct drmem_lmb *lmb;
-	int lmb_found;
-	int rc;
-
-	pr_info("Attempting to update LMB, drc index %x\n", drc_index);
-
-	lmb_found = 0;
-	for_each_drmem_lmb(lmb) {
-		if (lmb->drc_index == drc_index) {
-			lmb_found = 1;
-			rc = dlpar_remove_lmb(lmb);
-			if (!rc) {
-				rc = dlpar_add_lmb(lmb);
-				if (rc)
-					dlpar_release_drc(lmb->drc_index);
-			}
-			break;
-		}
-	}
-
-	if (!lmb_found)
-		rc = -EINVAL;
-
-	if (rc)
-		pr_info("Failed to update memory at %llx\n",
-			lmb->base_addr);
-	else
-		pr_info("Memory at %llx was updated\n", lmb->base_addr);
-
-	return rc;
-}
-
 static int dlpar_memory_remove_by_ic(u32 lmbs_to_remove, u32 drc_index)
 {
 	struct drmem_lmb *lmb, *start_lmb, *end_lmb;
@@ -643,10 +605,6 @@ static int dlpar_memory_remove_by_index(u32 drc_index)
 {
 	return -EOPNOTSUPP;
 }
-static int dlpar_memory_readd_by_index(u32 drc_index)
-{
-	return -EOPNOTSUPP;
-}
 
 static int dlpar_memory_remove_by_ic(u32 lmbs_to_remove, u32 drc_index)
 {
@@ -670,9 +628,7 @@ static int dlpar_add_lmb(struct drmem_lmb *lmb)
 
 	lmb_set_nid(lmb);
 	lmb->flags |= DRCONF_MEM_ASSIGNED;
-	rtas_hp_event = true;
 	drmem_update_dt();
-	rtas_hp_event = false;
 
 	block_sz = memory_block_size_bytes();
 
@@ -691,9 +647,7 @@ static int dlpar_add_lmb(struct drmem_lmb *lmb)
 		invalidate_lmb_associativity_index(lmb);
 		lmb_clear_nid(lmb);
 		lmb->flags &= ~DRCONF_MEM_ASSIGNED;
-		rtas_hp_event = true;
 		drmem_update_dt();
-		rtas_hp_event = false;
 
 		__remove_memory(nid, base_addr, block_sz);
 	}
@@ -930,10 +884,6 @@ int dlpar_memory(struct pseries_hp_errorlog *hp_elog)
 		}
 
 		break;
-	case PSERIES_HP_ELOG_ACTION_READD:
-		drc_index = hp_elog->_drc_u.drc_index;
-		rc = dlpar_memory_readd_by_index(drc_index);
-		break;
 	default:
 		pr_err("Invalid action (%d) specified\n", hp_elog->action);
 		rc = -EINVAL;
@@ -974,60 +924,6 @@ static int pseries_add_mem_node(struct device_node *np)
 	return (ret < 0) ? -EINVAL : 0;
 }
 
-static int pseries_update_drconf_memory(struct of_reconfig_data *pr)
-{
-	struct of_drconf_cell_v1 *new_drmem, *old_drmem;
-	unsigned long memblock_size;
-	u32 entries;
-	__be32 *p;
-	int i, rc = -EINVAL;
-
-	if (rtas_hp_event)
-		return 0;
-
-	memblock_size = pseries_memory_block_size();
-	if (!memblock_size)
-		return -EINVAL;
-
-	if (!pr->old_prop)
-		return 0;
-
-	p = (__be32 *) pr->old_prop->value;
-	if (!p)
-		return -EINVAL;
-
-	/* The first int of the property is the number of lmb's described
-	 * by the property. This is followed by an array of of_drconf_cell
-	 * entries. Get the number of entries and skip to the array of
-	 * of_drconf_cell's.
-	 */
-	entries = be32_to_cpu(*p++);
-	old_drmem = (struct of_drconf_cell_v1 *)p;
-
-	p = (__be32 *)pr->prop->value;
-	p++;
-	new_drmem = (struct of_drconf_cell_v1 *)p;
-
-	for (i = 0; i < entries; i++) {
-		if ((be32_to_cpu(old_drmem[i].flags) & DRCONF_MEM_ASSIGNED) &&
-		    (!(be32_to_cpu(new_drmem[i].flags) & DRCONF_MEM_ASSIGNED))) {
-			rc = pseries_remove_memblock(
-				be64_to_cpu(old_drmem[i].base_addr),
-						     memblock_size);
-			break;
-		} else if ((!(be32_to_cpu(old_drmem[i].flags) &
-			    DRCONF_MEM_ASSIGNED)) &&
-			    (be32_to_cpu(new_drmem[i].flags) &
-			    DRCONF_MEM_ASSIGNED)) {
-			rc = memblock_add(be64_to_cpu(old_drmem[i].base_addr),
-					  memblock_size);
-			rc = (rc < 0) ? -EINVAL : 0;
-			break;
-		}
-	}
-	return rc;
-}
-
 static int pseries_memory_notifier(struct notifier_block *nb,
 				   unsigned long action, void *data)
 {
@@ -1040,10 +936,6 @@ static int pseries_memory_notifier(struct notifier_block *nb,
 		break;
 	case OF_RECONFIG_DETACH_NODE:
 		err = pseries_remove_mem_node(rd->dn);
-		break;
-	case OF_RECONFIG_UPDATE_PROPERTY:
-		if (!strcmp(rd->prop->name, "ibm,dynamic-memory"))
-			err = pseries_update_drconf_memory(rd);
 		break;
 	}
 	return notifier_from_errno(err);
