@@ -475,7 +475,7 @@ static int rt1308_set_sdw_stream(struct snd_soc_dai *dai, void *sdw_stream,
 	if (!stream)
 		return -ENOMEM;
 
-	stream->sdw_stream = (struct sdw_stream_runtime *)sdw_stream;
+	stream->sdw_stream = sdw_stream;
 
 	/* Use tx_mask or rx_mask to configure stream tag and set dma_data */
 	if (direction == SNDRV_PCM_STREAM_PLAYBACK)
@@ -684,7 +684,7 @@ static int rt1308_sdw_probe(struct sdw_slave *slave,
 }
 
 static const struct sdw_device_id rt1308_id[] = {
-	SDW_SLAVE_ENTRY(0x025d, 0x1308, 0),
+	SDW_SLAVE_ENTRY_EXT(0x025d, 0x1308, 0x2, 0, 0),
 	{},
 };
 MODULE_DEVICE_TABLE(sdw, rt1308_id);
