@@ -762,11 +762,6 @@ int btrfs_parse_options(struct btrfs_fs_info *info, char *options,
 			btrfs_clear_opt(info->mount_opt, ENOSPC_DEBUG);
 			break;
 		case Opt_defrag:
-			if (!btrfs_allow_unsupported) {
-				printk(KERN_WARNING "btrfs: autodefrag is not supported, load module with allow_unsupported=1\n");
-				ret = -EOPNOTSUPP;
-				break;
-			}
 			btrfs_set_and_info(info, AUTO_DEFRAG,
 					   "enabling auto defrag");
 			break;

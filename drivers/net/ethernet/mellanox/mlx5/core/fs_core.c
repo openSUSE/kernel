@@ -519,6 +519,13 @@ static void del_sw_hw_rule(struct fs_node *node)
 		goto out;
 	}
 
+	if (rule->dest_attr.type == MLX5_FLOW_DESTINATION_TYPE_PORT &&
+	    --fte->dests_size) {
+		fte->modify_mask |= BIT(MLX5_SET_FTE_MODIFY_ENABLE_MASK_ACTION);
+		fte->action.action &= ~MLX5_FLOW_CONTEXT_ACTION_ALLOW;
+		goto out;
+	}
+
 	if ((fte->action.action & MLX5_FLOW_CONTEXT_ACTION_FWD_DEST) &&
 	    --fte->dests_size) {
 		fte->modify_mask |=
@@ -1119,6 +1126,7 @@ static struct mlx5_flow_table *__mlx5_create_flow_table(struct mlx5_flow_namespa
 destroy_ft:
 	root->cmds->destroy_flow_table(root, ft);
 free_ft:
+	rhltable_destroy(&ft->fgs_hash);
 	kfree(ft);
 unlock_root:
 	mutex_unlock(&root->chain_lock);
@@ -1740,6 +1748,7 @@ search_again_locked:
 		if (!fte_tmp)
 			continue;
 		rule = add_rule_fg(g, spec, flow_act, dest, dest_num, fte_tmp);
+		/* No error check needed here, because insert_fte() is not called */
 		up_write_ref_node(&fte_tmp->node, false);
 		tree_put_node(&fte_tmp->node, false);
 		kmem_cache_free(steering->ftes_cache, fte);
@@ -1792,6 +1801,8 @@ skip_search:
 		up_write_ref_node(&g->node, false);
 		rule = add_rule_fg(g, spec, flow_act, dest, dest_num, fte);
 		up_write_ref_node(&fte->node, false);
+		if (IS_ERR(rule))
+			tree_put_node(&fte->node, false);
 		return rule;
 	}
 	rule = ERR_PTR(-ENOENT);
@@ -1890,6 +1901,8 @@ search_again_locked:
 	up_write_ref_node(&g->node, false);
 	rule = add_rule_fg(g, spec, flow_act, dest, dest_num, fte);
 	up_write_ref_node(&fte->node, false);
+	if (IS_ERR(rule))
+		tree_put_node(&fte->node, false);
 	tree_put_node(&g->node, false);
 	return rule;
 
@@ -1994,10 +2007,11 @@ void mlx5_del_flow_rules(struct mlx5_flow_handle *handle)
 	down_write_ref_node(&fte->node, false);
 	for (i = handle->num_rules - 1; i >= 0; i--)
 		tree_remove_node(&handle->rule[i]->node, true);
-	if (fte->modify_mask && fte->dests_size) {
-		modify_fte(fte);
+	if (fte->dests_size) {
+		if (fte->modify_mask)
+			modify_fte(fte);
 		up_write_ref_node(&fte->node, false);
-	} else {
+	} else if (list_empty(&fte->node.children)) {
 		del_hw_fte(&fte->node);
 		/* Avoid double call to del_hw_fte */
 		fte->node.del_hw_func = NULL;

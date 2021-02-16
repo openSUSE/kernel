@@ -251,6 +251,9 @@ struct nvme_ctrl {
 	struct rw_semaphore namespaces_rwsem;
 	struct device ctrl_device;
 	struct device *device;	/* char device */
+#ifdef CONFIG_NVME_HWMON
+	struct device *hwmon_device;
+#endif
 	struct cdev cdev;
 	struct work_struct reset_work;
 	struct work_struct delete_work;
@@ -632,6 +635,7 @@ int nvme_reset_ctrl(struct nvme_ctrl *ctrl);
 int nvme_reset_ctrl_sync(struct nvme_ctrl *ctrl);
 int nvme_try_sched_reset(struct nvme_ctrl *ctrl);
 int nvme_delete_ctrl(struct nvme_ctrl *ctrl);
+void nvme_queue_scan(struct nvme_ctrl *ctrl);
 
 int nvme_get_log(struct nvme_ctrl *ctrl, u32 nsid, u8 log_page, u8 lsp, u8 csi,
 		void *log, size_t size, u64 offset);
@@ -816,11 +820,13 @@ static inline struct nvme_ns *nvme_get_ns_from_dev(struct device *dev)
 
 #ifdef CONFIG_NVME_HWMON
 int nvme_hwmon_init(struct nvme_ctrl *ctrl);
+void nvme_hwmon_exit(struct nvme_ctrl *ctrl);
 #else
 static inline int nvme_hwmon_init(struct nvme_ctrl *ctrl)
 {
 	return 0;
 }
+static inline void nvme_hwmon_exit(struct nvme_ctrl *ctrl) { }
 #endif
 
 u32 nvme_command_effects(struct nvme_ctrl *ctrl, struct nvme_ns *ns,

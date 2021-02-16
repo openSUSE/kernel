@@ -217,6 +217,11 @@ static const char * const smca_if_mce_desc[] = {
 	"L2 BTB Multi-Match Error",
 	"L2 Cache Response Poison Error",
 	"System Read Data Error",
+	"Hardware Assertion Error",
+	"L1-TLB Multi-Hit",
+	"L2-TLB Multi-Hit",
+	"BSR Parity Error",
+	"CT MCE",
 };
 
 static const char * const smca_l2_mce_desc[] = {
@@ -235,7 +240,8 @@ static const char * const smca_de_mce_desc[] = {
 	"Fetch address FIFO parity error",
 	"Patch RAM data parity error",
 	"Patch RAM sequencer parity error",
-	"Micro-op buffer parity error"
+	"Micro-op buffer parity error",
+	"Hardware Assertion MCA Error",
 };
 
 static const char * const smca_ex_mce_desc[] = {
@@ -251,6 +257,8 @@ static const char * const smca_ex_mce_desc[] = {
 	"Scheduling queue parity error",
 	"Branch buffer queue parity error",
 	"Hardware Assertion error",
+	"Spec Map parity error",
+	"Retire Map parity error",
 };
 
 static const char * const smca_fp_mce_desc[] = {
@@ -367,6 +375,7 @@ static const char * const smca_smu2_mce_desc[] = {
 	"Instruction Tag Cache Bank A ECC or parity error",
 	"Instruction Tag Cache Bank B ECC or parity error",
 	"System Hub Read Buffer ECC or parity error",
+	"PHY RAM ECC error",
 };
 
 static const char * const smca_mp5_mce_desc[] = {
@@ -997,10 +1006,8 @@ static void decode_smca_error(struct mce *m)
 	pr_emerg(HW_ERR "%s Ext. Error Code: %d", ip_name, xec);
 
 	/* Only print the decode of valid error codes */
-	if (xec < smca_mce_descs[bank_type].num_descs &&
-			(hwid->xec_bitmap & BIT_ULL(xec))) {
+	if (xec < smca_mce_descs[bank_type].num_descs)
 		pr_cont(", %s.\n", smca_mce_descs[bank_type].descs[xec]);
-	}
 
 	if (bank_type == SMCA_UMC && xec == 0 && decode_dram_ecc)
 		decode_dram_ecc(topology_die_id(m->extcpu), m);
@@ -1114,6 +1121,9 @@ amd_decode_mce(struct notifier_block *nb, unsigned long val, void *data)
 
 	if (m->status & MCI_STATUS_ADDRV)
 		pr_emerg(HW_ERR "Error Addr: 0x%016llx\n", m->addr);
+
+	if (m->ppin)
+		pr_emerg(HW_ERR "PPIN: 0x%016llx\n", m->ppin);
 
 	if (boot_cpu_has(X86_FEATURE_SMCA)) {
 		pr_emerg(HW_ERR "IPID: 0x%016llx", m->ipid);
@@ -1239,7 +1249,7 @@ static int __init mce_amd_init(void)
 
 	case 0x17:
 	case 0x18:
-		pr_warn("Decoding supported only on Scalable MCA processors.\n");
+		pr_warn_once("Decoding supported only on Scalable MCA processors.\n");
 		return -EINVAL;
 
 	default:
