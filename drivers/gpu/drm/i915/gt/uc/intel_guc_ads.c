@@ -10,11 +10,52 @@
 
 /*
  * The Additional Data Struct (ADS) has pointers for different buffers used by
- * the GuC. One single gem object contains the ADS struct itself (guc_ads), the
- * scheduling policies (guc_policies), a structure describing a collection of
- * register sets (guc_mmio_reg_state) and some extra pages for the GuC to save
- * its internal state for sleep.
+ * the GuC. One single gem object contains the ADS struct itself (guc_ads) and
+ * all the extra buffers indirectly linked via the ADS struct's entries.
+ *
+ * Layout of the ADS blob allocated for the GuC:
+ *
+ *      +---------------------------------------+ <== base
+ *      | guc_ads                               |
+ *      +---------------------------------------+
+ *      | guc_policies                          |
+ *      +---------------------------------------+
+ *      | guc_gt_system_info                    |
+ *      +---------------------------------------+
+ *      | guc_clients_info                      |
+ *      +---------------------------------------+
+ *      | guc_ct_pool_entry[size]               |
+ *      +---------------------------------------+
+ *      | padding                               |
+ *      +---------------------------------------+ <== 4K aligned
+ *      | private data                          |
+ *      +---------------------------------------+
+ *      | padding                               |
+ *      +---------------------------------------+ <== 4K aligned
  */
+struct __guc_ads_blob {
+	struct guc_ads ads;
+	struct guc_policies policies;
+	struct guc_gt_system_info system_info;
+	struct guc_clients_info clients_info;
+	struct guc_ct_pool_entry ct_pool[GUC_CT_POOL_SIZE];
+} __packed;
+
+static u32 guc_ads_private_data_size(struct intel_guc *guc)
+{
+	return PAGE_ALIGN(guc->fw.private_data_size);
+}
+
+static u32 guc_ads_private_data_offset(struct intel_guc *guc)
+{
+	return PAGE_ALIGN(sizeof(struct __guc_ads_blob));
+}
+
+static u32 guc_ads_blob_size(struct intel_guc *guc)
+{
+	return guc_ads_private_data_offset(guc) +
+	       guc_ads_private_data_size(guc);
+}
 
 static void guc_policy_init(struct guc_policy *policy)
 {
@@ -48,22 +89,32 @@ static void guc_ct_pool_entries_init(struct guc_ct_pool_entry *pool, u32 num)
 	memset(pool, 0, num * sizeof(*pool));
 }
 
+static void guc_mapping_table_init(struct intel_gt *gt,
+				   struct guc_gt_system_info *system_info)
+{
+	unsigned int i, j;
+	struct intel_engine_cs *engine;
+	enum intel_engine_id id;
+
+	/* Table must be set to invalid values for entries not used */
+	for (i = 0; i < GUC_MAX_ENGINE_CLASSES; ++i)
+		for (j = 0; j < GUC_MAX_INSTANCES_PER_CLASS; ++j)
+			system_info->mapping_table[i][j] =
+				GUC_MAX_INSTANCES_PER_CLASS;
+
+	for_each_engine(engine, gt, id) {
+		u8 guc_class = engine->class;
+
+		system_info->mapping_table[guc_class][engine->instance] =
+			engine->instance;
+	}
+}
+
 /*
  * The first 80 dwords of the register state context, containing the
  * execlists and ppgtt registers.
  */
 #define LR_HW_CONTEXT_SIZE	(80 * sizeof(u32))
-
-/* The ads obj includes the struct itself and buffers passed to GuC */
-struct __guc_ads_blob {
-	struct guc_ads ads;
-	struct guc_policies policies;
-	struct guc_mmio_reg_state reg_state;
-	struct guc_gt_system_info system_info;
-	struct guc_clients_info clients_info;
-	struct guc_ct_pool_entry ct_pool[GUC_CT_POOL_SIZE];
-	u8 reg_state_buffer[GUC_S3_SAVE_SPACE_PAGES * PAGE_SIZE];
-} __packed;
 
 static void __guc_ads_init(struct intel_guc *guc)
 {
@@ -98,13 +149,17 @@ static void __guc_ads_init(struct intel_guc *guc)
 	}
 
 	/* System info */
-	blob->system_info.slice_enabled = hweight8(RUNTIME_INFO(dev_priv)->sseu.slice_mask);
-	blob->system_info.rcs_enabled = 1;
-	blob->system_info.bcs_enabled = 1;
+	blob->system_info.engine_enabled_masks[RENDER_CLASS] = 1;
+	blob->system_info.engine_enabled_masks[COPY_ENGINE_CLASS] = 1;
+	blob->system_info.engine_enabled_masks[VIDEO_DECODE_CLASS] = VDBOX_MASK(dev_priv);
+	blob->system_info.engine_enabled_masks[VIDEO_ENHANCEMENT_CLASS] = VEBOX_MASK(dev_priv);
 
-	blob->system_info.vdbox_enable_mask = VDBOX_MASK(dev_priv);
-	blob->system_info.vebox_enable_mask = VEBOX_MASK(dev_priv);
-	blob->system_info.vdbox_sfc_support_mask = RUNTIME_INFO(dev_priv)->vdbox_sfc_access;
+	blob->system_info.generic_gt_sysinfo[GUC_GENERIC_GT_SYSINFO_SLICE_ENABLED] =
+		hweight8(RUNTIME_INFO(dev_priv)->sseu.slice_mask);
+	blob->system_info.generic_gt_sysinfo[GUC_GENERIC_GT_SYSINFO_VDBOX_SFC_SUPPORT_MASK] =
+		RUNTIME_INFO(dev_priv)->vdbox_sfc_access;
+
+	guc_mapping_table_init(guc_to_gt(guc), &blob->system_info);
 
 	base = intel_guc_ggtt_offset(guc, guc->ads_vma);
 
@@ -117,10 +172,11 @@ static void __guc_ads_init(struct intel_guc *guc)
 
 	/* ADS */
 	blob->ads.scheduler_policies = base + ptr_offset(blob, policies);
-	blob->ads.reg_state_buffer = base + ptr_offset(blob, reg_state_buffer);
-	blob->ads.reg_state_addr = base + ptr_offset(blob, reg_state);
 	blob->ads.gt_system_info = base + ptr_offset(blob, system_info);
 	blob->ads.clients_info = base + ptr_offset(blob, clients_info);
+
+	/* Private Data */
+	blob->ads.private_data = base + guc_ads_private_data_offset(guc);
 
 	i915_gem_object_flush_map(guc->ads_vma->obj);
 }
@@ -134,12 +190,14 @@ static void __guc_ads_init(struct intel_guc *guc)
  */
 int intel_guc_ads_create(struct intel_guc *guc)
 {
-	const u32 size = PAGE_ALIGN(sizeof(struct __guc_ads_blob));
+	u32 size;
 	struct i915_vma *vma;
 	void *blob;
 	int ret;
 
 	GEM_BUG_ON(guc->ads_vma);
+
+	size = guc_ads_blob_size(guc);
 
 	vma = intel_guc_allocate_vma(guc, size);
 	if (IS_ERR(vma))
@@ -168,6 +226,18 @@ void intel_guc_ads_destroy(struct intel_guc *guc)
 	i915_vma_unpin_and_release(&guc->ads_vma, I915_VMA_RELEASE_MAP);
 }
 
+static void guc_ads_private_data_reset(struct intel_guc *guc)
+{
+	u32 size;
+
+	size = guc_ads_private_data_size(guc);
+	if (!size)
+		return;
+
+	memset((void *)guc->ads_blob + guc_ads_private_data_offset(guc), 0,
+	       size);
+}
+
 /**
  * intel_guc_ads_reset() - prepares GuC Additional Data Struct for reuse
  * @guc: intel_guc struct
@@ -180,5 +250,8 @@ void intel_guc_ads_reset(struct intel_guc *guc)
 {
 	if (!guc->ads_vma)
 		return;
+
 	__guc_ads_init(guc);
+
+	guc_ads_private_data_reset(guc);
 }
