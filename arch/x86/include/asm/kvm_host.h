@@ -1083,7 +1083,6 @@ struct kvm_x86_ops {
 	void (*run)(struct kvm_vcpu *vcpu);
 	int (*handle_exit)(struct kvm_vcpu *vcpu);
 	void (*skip_emulated_instruction)(struct kvm_vcpu *vcpu);
-	void (*update_emulated_instruction)(struct kvm_vcpu *vcpu);
 	void (*set_interrupt_shadow)(struct kvm_vcpu *vcpu, int mask);
 	u32 (*get_interrupt_shadow)(struct kvm_vcpu *vcpu);
 	void (*patch_hypercall)(struct kvm_vcpu *vcpu,
@@ -1224,6 +1223,10 @@ struct kvm_x86_ops {
 
 	bool (*need_emulation_on_page_fault)(struct kvm_vcpu *vcpu);
 	int (*enable_direct_tlbflush)(struct kvm_vcpu *vcpu);
+
+#ifndef __GENKSYMS__
+	void (*update_emulated_instruction)(struct kvm_vcpu *vcpu);
+#endif
 };
 
 struct kvm_arch_async_pf {
