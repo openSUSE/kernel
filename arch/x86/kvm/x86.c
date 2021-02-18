@@ -6716,6 +6716,8 @@ restart:
 			kvm_rip_write(vcpu, ctxt->eip);
 			if (r == EMULATE_DONE && ctxt->tf)
 				kvm_vcpu_do_singlestep(vcpu, &r);
+			if (kvm_x86_ops->update_emulated_instruction)
+				kvm_x86_ops->update_emulated_instruction(vcpu);
 			__kvm_set_rflags(vcpu, ctxt->eflags);
 		}
 
