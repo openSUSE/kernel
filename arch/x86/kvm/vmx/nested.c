@@ -3449,7 +3449,8 @@ static int vmx_check_nested_events(struct kvm_vcpu *vcpu, bool external_intr)
 	 * Clear the MTF state. If a higher priority VM-exit is delivered first,
 	 * this state is discarded.
 	 */
-	vmx->nested.mtf_pending = false;
+	if (!block_nested_events)
+		vmx->nested.mtf_pending = false;
 
 	/*
 	 * Process any exceptions that are not debug traps before MTF.
