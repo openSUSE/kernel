@@ -807,8 +807,8 @@ int efa_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr,
 	if (qp_attr_mask & IB_QP_STATE) {
 		params.modify_mask |= BIT(EFA_ADMIN_QP_STATE_BIT) |
 				      BIT(EFA_ADMIN_CUR_QP_STATE_BIT);
-		params.cur_qp_state = qp_attr->cur_qp_state;
-		params.qp_state = qp_attr->qp_state;
+		params.cur_qp_state = cur_state;
+		params.qp_state = new_state;
 	}
 
 	if (qp_attr_mask & IB_QP_EN_SQD_ASYNC_NOTIFY) {
