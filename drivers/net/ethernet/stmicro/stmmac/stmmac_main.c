@@ -45,7 +45,7 @@
 #include "dwxgmac2.h"
 #include "hwif.h"
 
-#define	STMMAC_ALIGN(x)		__ALIGN_KERNEL(x, SMP_CACHE_BYTES)
+#define	STMMAC_ALIGN(x)		ALIGN(ALIGN(x, SMP_CACHE_BYTES), 16)
 #define	TSO_MAX_BUFF_SIZE	(SZ_16K - 1)
 
 /* Module parameters */
@@ -1101,7 +1101,9 @@ static int stmmac_set_bfsize(int mtu, int bufsize)
 {
 	int ret = bufsize;
 
-	if (mtu >= BUF_SIZE_4KiB)
+	if (mtu >= BUF_SIZE_8KiB)
+		ret = BUF_SIZE_16KiB;
+	else if (mtu >= BUF_SIZE_4KiB)
 		ret = BUF_SIZE_8KiB;
 	else if (mtu >= BUF_SIZE_2KiB)
 		ret = BUF_SIZE_4KiB;
@@ -2936,6 +2938,19 @@ static netdev_tx_t stmmac_tso_xmit(struct sk_buff *skb, struct net_device *dev)
 	/* Only the last descriptor gets to point to the skb. */
 	tx_q->tx_skbuff[tx_q->cur_tx] = skb;
 
+	/* Manage tx mitigation */
+	tx_q->tx_count_frames += nfrags + 1;
+	if (likely(priv->tx_coal_frames > tx_q->tx_count_frames) &&
+	    !((skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP) &&
+	      priv->hwts_tx_en)) {
+		stmmac_tx_timer_arm(priv, queue);
+	} else {
+		desc = &tx_q->dma_tx[tx_q->cur_tx];
+		tx_q->tx_count_frames = 0;
+		stmmac_set_tx_ic(priv, desc);
+		priv->xstats.tx_set_ic_bit++;
+	}
+
 	/* We've used all descriptors we need for this skb, however,
 	 * advance cur_tx so that it references a fresh descriptor.
 	 * ndo_start_xmit will fill this descriptor the next time it's
@@ -3014,6 +3029,7 @@ static netdev_tx_t stmmac_tso_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	tx_q->tx_tail_addr = tx_q->dma_tx_phy + (tx_q->cur_tx * sizeof(*desc));
 	stmmac_set_tx_tail_ptr(priv, priv->ioaddr, tx_q->tx_tail_addr, queue);
+	stmmac_tx_timer_arm(priv, queue);
 
 	return NETDEV_TX_OK;
 
@@ -3127,6 +3143,27 @@ static netdev_tx_t stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 	/* Only the last descriptor gets to point to the skb. */
 	tx_q->tx_skbuff[entry] = skb;
 
+	/* According to the coalesce parameter the IC bit for the latest
+	 * segment is reset and the timer re-started to clean the tx status.
+	 * This approach takes care about the fragments: desc is the first
+	 * element in case of no SG.
+	 */
+	tx_q->tx_count_frames += nfrags + 1;
+	if (likely(priv->tx_coal_frames > tx_q->tx_count_frames) &&
+	    !((skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP) &&
+	      priv->hwts_tx_en)) {
+		stmmac_tx_timer_arm(priv, queue);
+	} else {
+		if (likely(priv->extend_desc))
+			desc = &tx_q->dma_etx[entry].basic;
+		else
+			desc = &tx_q->dma_tx[entry];
+
+		tx_q->tx_count_frames = 0;
+		stmmac_set_tx_ic(priv, desc);
+		priv->xstats.tx_set_ic_bit++;
+	}
+
 	/* We've used all descriptors we need for this skb, however,
 	 * advance cur_tx so that it references a fresh descriptor.
 	 * ndo_start_xmit will fill this descriptor the next time it's
@@ -3227,6 +3264,7 @@ static netdev_tx_t stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	tx_q->tx_tail_addr = tx_q->dma_tx_phy + (tx_q->cur_tx * sizeof(*desc));
 	stmmac_set_tx_tail_ptr(priv, priv->ioaddr, tx_q->tx_tail_addr, queue);
+	stmmac_tx_timer_arm(priv, queue);
 
 	return NETDEV_TX_OK;
 
@@ -3565,11 +3603,23 @@ static void stmmac_set_rx_mode(struct net_device *dev)
 static int stmmac_change_mtu(struct net_device *dev, int new_mtu)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
+	int txfifosz = priv->plat->tx_fifo_size;
+
+	if (txfifosz == 0)
+		txfifosz = priv->dma_cap.tx_fifo_size;
+
+	txfifosz /= priv->plat->tx_queues_to_use;
 
 	if (netif_running(dev)) {
 		netdev_err(priv->dev, "must be stopped to change its MTU\n");
 		return -EBUSY;
 	}
+
+	new_mtu = STMMAC_ALIGN(new_mtu);
+
+	/* If condition true, FIFO is too small or MTU too large */
+	if ((txfifosz < new_mtu) || (new_mtu > BUF_SIZE_16KiB))
+		return -EINVAL;
 
 	dev->mtu = new_mtu;
 
