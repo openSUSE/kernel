@@ -1871,10 +1871,6 @@ static const struct hid_device_id logi_dj_receivers[] = {
 	  HID_USB_DEVICE(USB_VENDOR_ID_LOGITECH,
 		USB_DEVICE_ID_LOGITECH_27MHZ_MOUSE_RECEIVER),
 	 .driver_data = recvr_type_27mhz},
-	{ /* Logitech G602 receiver (0xc537) */
-	  HID_USB_DEVICE(USB_VENDOR_ID_LOGITECH,
-		0xc537),
-	 .driver_data = recvr_type_gaming_hidpp},
 	{ /* Logitech MX5000 HID++ / bluetooth receiver keyboard intf. */
 	  HID_USB_DEVICE(USB_VENDOR_ID_LOGITECH,
 		0xc70e),

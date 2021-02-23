@@ -5665,10 +5665,11 @@ static void gro_normal_list(struct napi_struct *napi)
 /* Queue one GRO_NORMAL SKB up for list processing. If batch size exceeded,
  * pass the whole batch up to the stack.
  */
-static void gro_normal_one(struct napi_struct *napi, struct sk_buff *skb)
+static void gro_normal_one(struct napi_struct *napi, struct sk_buff *skb, int segs)
 {
 	list_add_tail(&skb->list, &napi->rx_list);
-	if (++napi->rx_count >= gro_normal_batch)
+	napi->rx_count += segs;
+	if (napi->rx_count >= gro_normal_batch)
 		gro_normal_list(napi);
 }
 
@@ -5707,7 +5708,7 @@ static int napi_gro_complete(struct napi_struct *napi, struct sk_buff *skb)
 	}
 
 out:
-	gro_normal_one(napi, skb);
+	gro_normal_one(napi, skb, NAPI_GRO_CB(skb)->count);
 	return NET_RX_SUCCESS;
 }
 
@@ -5997,7 +5998,7 @@ static gro_result_t napi_skb_finish(struct napi_struct *napi,
 {
 	switch (ret) {
 	case GRO_NORMAL:
-		gro_normal_one(napi, skb);
+		gro_normal_one(napi, skb, 1);
 		break;
 
 	case GRO_DROP:
@@ -6085,7 +6086,7 @@ static gro_result_t napi_frags_finish(struct napi_struct *napi,
 		__skb_push(skb, ETH_HLEN);
 		skb->protocol = eth_type_trans(skb, skb->dev);
 		if (ret == GRO_NORMAL)
-			gro_normal_one(napi, skb);
+			gro_normal_one(napi, skb, 1);
 		break;
 
 	case GRO_DROP:
@@ -8007,6 +8008,39 @@ struct net_device *netdev_get_xmit_slave(struct net_device *dev,
 	return ops->ndo_get_xmit_slave(dev, skb, all_slaves);
 }
 EXPORT_SYMBOL(netdev_get_xmit_slave);
+
+static struct net_device *netdev_sk_get_lower_dev(struct net_device *dev,
+						  struct sock *sk)
+{
+	const struct net_device_ops *ops = dev->netdev_ops;
+
+	if (!ops->ndo_sk_get_lower_dev)
+		return NULL;
+	return ops->ndo_sk_get_lower_dev(dev, sk);
+}
+
+/**
+ * netdev_sk_get_lowest_dev - Get the lowest device in chain given device and socket
+ * @dev: device
+ * @sk: the socket
+ *
+ * %NULL is returned if no lower device is found.
+ */
+
+struct net_device *netdev_sk_get_lowest_dev(struct net_device *dev,
+					    struct sock *sk)
+{
+	struct net_device *lower;
+
+	lower = netdev_sk_get_lower_dev(dev, sk);
+	while (lower) {
+		dev = lower;
+		lower = netdev_sk_get_lower_dev(dev, sk);
+	}
+
+	return dev;
+}
+EXPORT_SYMBOL(netdev_sk_get_lowest_dev);
 
 static void netdev_adjacent_add_links(struct net_device *dev)
 {
