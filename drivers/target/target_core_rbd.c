@@ -132,6 +132,19 @@ static int tcm_rbd_configure_device(struct se_device *dev)
 		/* blkdev_put() called in destroy_device */
 		return -EINVAL;
 	}
+	if (tcm_rbd_dev->emulate_legacy_capacity
+	    /* (1ULL<<3) = RBD_FEATURE_OBJECT_MAP */
+	 && tcm_rbd_dev->rbd_dev->header.features & (1ULL<<3)) {
+		/*
+		 * bsc#1177109 and bsc#1181366: we permit image overrun for
+		 * legacy (non object-map) images when emulate_legacy_capacity
+		 * is enabled. Image overrun musn't be permitted alongside
+		 * RBD_FEATURE_OBJECT_MAP.
+		 */
+		pr_err("RBD: emulate_legacy_capacity must be disabled for "
+		       "RBD_FEATURE_OBJECT_MAP images\n");
+		return -EINVAL;
+	}
 
 	/* disable standalone reservation handling */
 	dev->dev_attrib.emulate_pr = 0;
