@@ -807,8 +807,8 @@ int efa_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr,
 	if (qp_attr_mask & IB_QP_STATE) {
 		params.modify_mask |= BIT(EFA_ADMIN_QP_STATE_BIT) |
 				      BIT(EFA_ADMIN_CUR_QP_STATE_BIT);
-		params.cur_qp_state = qp_attr->cur_qp_state;
-		params.qp_state = qp_attr->qp_state;
+		params.cur_qp_state = cur_state;
+		params.qp_state = new_state;
 	}
 
 	if (qp_attr_mask & IB_QP_EN_SQD_ASYNC_NOTIFY) {
@@ -1025,7 +1025,7 @@ static struct scatterlist *efa_vmalloc_buf_to_sg(u64 *buf, int page_cnt)
 	struct page *pg;
 	int i;
 
-	sglist = kcalloc(page_cnt, sizeof(*sglist), GFP_KERNEL);
+	sglist = kmalloc_array(page_cnt, sizeof(*sglist), GFP_KERNEL);
 	if (!sglist)
 		return NULL;
 	sg_init_table(sglist, page_cnt);
@@ -1568,12 +1568,10 @@ int efa_alloc_ucontext(struct ib_ucontext *ibucontext, struct ib_udata *udata)
 	resp.max_tx_batch = dev->dev_attr.max_tx_batch;
 	resp.min_sq_wr = dev->dev_attr.min_sq_depth;
 
-	if (udata && udata->outlen) {
-		err = ib_copy_to_udata(udata, &resp,
-				       min(sizeof(resp), udata->outlen));
-		if (err)
-			goto err_dealloc_uar;
-	}
+	err = ib_copy_to_udata(udata, &resp,
+			       min(sizeof(resp), udata->outlen));
+	if (err)
+		goto err_dealloc_uar;
 
 	return 0;
 
