@@ -3083,7 +3083,7 @@ rdev_attr_show(struct kobject *kobj, struct attribute *attr, char *page)
 		return -EIO;
 
 	if (rdev->mddev == NULL)
-		return -EBUSY;
+		return -ENODEV;
 
 	return entry->show(rdev, page);
 }
