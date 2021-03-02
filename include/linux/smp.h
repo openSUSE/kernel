@@ -21,7 +21,9 @@ struct __call_single_data {
 	void *info;
 	unsigned int flags;
 #ifdef CONFIG_64BIT
+#ifndef __GENKSYMS__
 	u16 src, dst;
+#endif
 #endif
 };
 
