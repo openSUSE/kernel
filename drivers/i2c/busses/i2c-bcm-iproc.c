@@ -213,7 +213,8 @@ struct bcm_iproc_i2c_dev {
 
 #define ISR_MASK_SLAVE (BIT(IS_S_START_BUSY_SHIFT)\
 		| BIT(IS_S_RX_EVENT_SHIFT) | BIT(IS_S_RD_EVENT_SHIFT)\
-		| BIT(IS_S_TX_UNDERRUN_SHIFT))
+		| BIT(IS_S_TX_UNDERRUN_SHIFT) | BIT(IS_S_RX_FIFO_FULL_SHIFT)\
+		| BIT(IS_S_RX_THLD_SHIFT))
 
 static int bcm_iproc_i2c_reg_slave(struct i2c_client *slave);
 static int bcm_iproc_i2c_unreg_slave(struct i2c_client *slave);
@@ -503,12 +504,17 @@ static void bcm_iproc_i2c_process_m_event(struct bcm_iproc_i2c_dev *iproc_i2c,
 static irqreturn_t bcm_iproc_i2c_isr(int irq, void *data)
 {
 	struct bcm_iproc_i2c_dev *iproc_i2c = data;
-	u32 status = iproc_i2c_rd_reg(iproc_i2c, IS_OFFSET);
+	u32 slave_status;
+	u32 status;
 	bool ret;
-	u32 sl_status = status & ISR_MASK_SLAVE;
 
-	if (sl_status) {
-		ret = bcm_iproc_i2c_slave_isr(iproc_i2c, sl_status);
+	status = iproc_i2c_rd_reg(iproc_i2c, IS_OFFSET);
+	/* process only slave interrupt which are enabled */
+	slave_status = status & iproc_i2c_rd_reg(iproc_i2c, IE_OFFSET) &
+		       ISR_MASK_SLAVE;
+
+	if (slave_status) {
+		ret = bcm_iproc_i2c_slave_isr(iproc_i2c, slave_status);
 		if (ret)
 			return IRQ_HANDLED;
 		else
