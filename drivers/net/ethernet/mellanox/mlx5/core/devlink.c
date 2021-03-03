@@ -101,6 +101,10 @@ static int mlx5_devlink_reload_up(struct devlink *devlink,
 {
 	struct mlx5_core_dev *dev = devlink_priv(devlink);
 
+	if (mlx5_lag_is_active(dev)) {
+		NL_SET_ERR_MSG_MOD(extack, "reload is unsupported in Lag mode\n");
+		return -EOPNOTSUPP;
+	}
 	return mlx5_load_one(dev, false);
 }
 
