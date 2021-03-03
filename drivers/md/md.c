@@ -3083,7 +3083,7 @@ rdev_attr_show(struct kobject *kobj, struct attribute *attr, char *page)
 		return -EIO;
 
 	if (rdev->mddev == NULL)
-		return -EBUSY;
+		return -ENODEV;
 
 	return entry->show(rdev, page);
 }
@@ -3101,10 +3101,10 @@ rdev_attr_store(struct kobject *kobj, struct attribute *attr,
 		return -EIO;
 	if (!capable(CAP_SYS_ADMIN))
 		return -EACCES;
-	rv = mddev ? mddev_lock(mddev): -EBUSY;
+	rv = mddev ? mddev_lock(mddev) : -ENODEV;
 	if (!rv) {
 		if (rdev->mddev == NULL)
-			rv = -EBUSY;
+			rv = -ENODEV;
 		else
 			rv = entry->store(rdev, page, length);
 		mddev_unlock(mddev);
