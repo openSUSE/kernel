@@ -177,7 +177,7 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 	vdso_base = VDSO32_MBASE;
 #endif
 
-	current->mm->context.vdso_base = 0;
+	current->mm->context.vdso = (void __user *)0;
 
 	/* vDSO has a problem and was disabled, just don't "enable" it for the
 	 * process
@@ -212,7 +212,7 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 	 * install_special_mapping or the perf counter mmap tracking code
 	 * will fail to recognise it as a vDSO (since arch_vma_name fails).
 	 */
-	current->mm->context.vdso_base = vdso_base;
+	mm->context.vdso = (void __user *)vdso_base;
 
 	/*
 	 * our vma flags don't have VM_WRITE so by default, the process isn't
@@ -229,7 +229,7 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 				     VM_MAYREAD|VM_MAYWRITE|VM_MAYEXEC,
 				     vdso_pagelist);
 	if (rc) {
-		current->mm->context.vdso_base = 0;
+		current->mm->context.vdso = 0;
 		goto fail_mmapsem;
 	}
 
@@ -243,7 +243,7 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 
 const char *arch_vma_name(struct vm_area_struct *vma)
 {
-	if (vma->vm_mm && vma->vm_start == vma->vm_mm->context.vdso_base)
+	if (vma->vm_mm && vma->vm_start == vma->vm_mm->context.vdso)
 		return "[vdso]";
 	return NULL;
 }
