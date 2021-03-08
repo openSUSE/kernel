@@ -374,6 +374,7 @@ static int dlpar_add_lmb(struct drmem_lmb *);
 
 static int dlpar_remove_lmb(struct drmem_lmb *lmb)
 {
+	struct memory_block *mem_block;
 	unsigned long block_sz;
 	phys_addr_t base_addr;
 	int rc, nid;
@@ -381,16 +382,23 @@ static int dlpar_remove_lmb(struct drmem_lmb *lmb)
 	if (!lmb_is_removable(lmb))
 		return -EINVAL;
 
+	mem_block = lmb_to_memblock(lmb);
+	if (mem_block == NULL)
+		return -EINVAL;
+
 	rc = dlpar_offline_lmb(lmb);
-	if (rc)
+	if (rc) {
+		put_device(&mem_block->dev);
 		return rc;
+	}
 
 	base_addr = lmb->base_addr;
-	nid = lmb->nid;
+	nid = mem_block->nid;
 	block_sz = pseries_memory_block_size();
 
+	put_device(&mem_block->dev);
+
 	invalidate_lmb_associativity_index(lmb);
-	lmb_clear_nid(lmb);
 	lmb->flags &= ~DRCONF_MEM_ASSIGNED;
 	drmem_update_dt();
 
@@ -615,7 +623,7 @@ static int dlpar_memory_remove_by_ic(u32 lmbs_to_remove, u32 drc_index)
 static int dlpar_add_lmb(struct drmem_lmb *lmb)
 {
 	unsigned long block_sz;
-	int rc;
+	int nid, rc;
 
 	if (lmb->flags & DRCONF_MEM_ASSIGNED)
 		return -EINVAL;
@@ -626,14 +634,18 @@ static int dlpar_add_lmb(struct drmem_lmb *lmb)
 		return rc;
 	}
 
-	lmb_set_nid(lmb);
 	lmb->flags |= DRCONF_MEM_ASSIGNED;
 	drmem_update_dt();
 
 	block_sz = memory_block_size_bytes();
 
+	/* Find the node id for this LMB.  Fake one if necessary. */
+	nid = of_drconf_to_nid_single(lmb);
+	if (nid < 0 || !node_possible(nid))
+		nid = first_online_node;
+
 	/* Add the memory */
-	rc = __add_memory(lmb->nid, lmb->base_addr, block_sz);
+	rc = __add_memory(nid, lmb->base_addr, block_sz);
 	if (rc) {
 		invalidate_lmb_associativity_index(lmb);
 		return rc;
@@ -641,11 +653,9 @@ static int dlpar_add_lmb(struct drmem_lmb *lmb)
 
 	rc = dlpar_online_lmb(lmb);
 	if (rc) {
-		int nid = lmb->nid;
 		phys_addr_t base_addr = lmb->base_addr;
 
 		invalidate_lmb_associativity_index(lmb);
-		lmb_clear_nid(lmb);
 		lmb->flags &= ~DRCONF_MEM_ASSIGNED;
 		drmem_update_dt();
 

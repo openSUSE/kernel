@@ -4680,75 +4680,75 @@ static void put_root_ses(struct cifs_ses *ses)
 		cifs_put_smb_ses(ses);
 }
 
-/* Check if a path component is remote and then update @dfs_path accordingly */
-static int check_dfs_prepath(struct cifs_sb_info *cifs_sb, struct smb_vol *vol,
-			     const unsigned int xid, struct TCP_Server_Info *server,
-			     struct cifs_tcon *tcon, char **dfs_path)
+/* Set up next dfs prefix path in @dfs_path */
+static int next_dfs_prepath(struct cifs_sb_info *cifs_sb, struct smb_vol *vol,
+			    const unsigned int xid, struct TCP_Server_Info *server,
+			    struct cifs_tcon *tcon, char **dfs_path)
 {
-	char *path, *s;
-	char sep = CIFS_DIR_SEP(cifs_sb), tmp;
-	char *npath;
-	int rc = 0;
-	int added_treename = tcon->Flags & SMB_SHARE_IS_IN_DFS;
-	int skip = added_treename;
+	char *path, *npath;
+	int added_treename = is_tcon_dfs(tcon);
+	int rc;
 
 	path = cifs_build_path_to_root(vol, cifs_sb, tcon, added_treename);
 	if (!path)
 		return -ENOMEM;
 
-	/*
-	 * Walk through the path components in @path and check if they're accessible. In case any of
-	 * the components is -EREMOTE, then update @dfs_path with the next DFS referral request path
-	 * (NOT including the remaining components).
-	 */
-	s = path;
-	do {
-		/* skip separators */
-		while (*s && *s == sep)
-			s++;
-		if (!*s)
-			break;
-		/* next separator */
-		while (*s && *s != sep)
-			s++;
-		/*
-		 * if the treename is added, we then have to skip the first
-		 * part within the separators
-		 */
-		if (skip) {
-			skip = 0;
-			continue;
+	rc = is_path_remote(cifs_sb, vol, xid, server, tcon);
+	if (rc == -EREMOTE) {
+		struct smb_vol v = {NULL};
+		/* if @path contains a tree name, skip it in the prefix path */
+		if (added_treename) {
+			rc = cifs_parse_devname(path, &v);
+			if (rc)
+				goto out;
+			npath = build_unc_path_to_root(&v, cifs_sb, true);
+			cifs_cleanup_volume_info_contents(&v);
+		} else {
+			v.UNC = vol->UNC;
+			v.prepath = path + 1;
+			npath = build_unc_path_to_root(&v, cifs_sb, true);
 		}
-		tmp = *s;
-		*s = 0;
-		rc = server->ops->is_path_accessible(xid, tcon, cifs_sb, path);
-		if (rc && rc == -EREMOTE) {
-			struct smb_vol v = {NULL};
-			/* if @path contains a tree name, skip it in the prefix path */
-			if (added_treename) {
-				rc = cifs_parse_devname(path, &v);
-				if (rc)
-					break;
-				rc = -EREMOTE;
-				npath = build_unc_path_to_root(&v, cifs_sb, true);
-				cifs_cleanup_volume_info_contents(&v);
-			} else {
-				v.UNC = vol->UNC;
-				v.prepath = path + 1;
-				npath = build_unc_path_to_root(&v, cifs_sb, true);
-			}
-			if (IS_ERR(npath)) {
-				rc = PTR_ERR(npath);
-				break;
-			}
-			kfree(*dfs_path);
-			*dfs_path = npath;
-		}
-		*s = tmp;
-	} while (rc == 0);
 
+		if (IS_ERR(npath)) {
+			rc = PTR_ERR(npath);
+			goto out;
+		}
+
+		kfree(*dfs_path);
+		*dfs_path = npath;
+		rc = -EREMOTE;
+	}
+
+out:
 	kfree(path);
 	return rc;
+}
+
+/* Check if resolved targets can handle any DFS referrals */
+static int is_referral_server(const char *ref_path, struct cifs_tcon *tcon, bool *ref_server)
+{
+	int rc;
+	struct dfs_info3_param ref = {0};
+
+	if (is_tcon_dfs(tcon)) {
+		*ref_server = true;
+	} else {
+		cifs_dbg(FYI, "%s: ref_path=%s\n", __func__, ref_path);
+
+		rc = dfs_cache_noreq_find(ref_path, &ref, NULL);
+		if (rc) {
+			cifs_dbg(VFS, "%s: dfs_cache_noreq_find: failed (rc=%d)\n", __func__, rc);
+			return rc;
+		}
+		cifs_dbg(FYI, "%s: ref.flags=0x%x\n", __func__, ref.flags);
+		/*
+		 * Check if all targets are capable of handling DFS referrals as per
+		 * MS-DFSC 2.2.4 RESP_GET_DFS_REFERRAL.
+		 */
+		*ref_server = !!(ref.flags & DFSREF_REFERRAL_SERVER);
+		free_dfs_info_param(&ref);
+	}
+	return 0;
 }
 
 int cifs_mount(struct cifs_sb_info *cifs_sb, struct smb_vol *vol)
@@ -4762,18 +4762,19 @@ int cifs_mount(struct cifs_sb_info *cifs_sb, struct smb_vol *vol)
 	char *ref_path = NULL, *full_path = NULL;
 	char *oldmnt = NULL;
 	char *mntdata = NULL;
+	bool ref_server = false;
 
 	rc = mount_get_conns(vol, cifs_sb, &xid, &server, &ses, &tcon);
 	/*
-	 * Unconditionally try to get an DFS referral (even cached) to determine whether it is an
-	 * DFS mount.
+	 * If called with 'nodfs' mount option, then skip DFS resolving.  Otherwise unconditionally
+	 * try to get an DFS referral (even cached) to determine whether it is an DFS mount.
 	 *
 	 * Skip prefix path to provide support for DFS referrals from w2k8 servers which don't seem
 	 * to respond with PATH_NOT_COVERED to requests that include the prefix.
 	 */
-	if (dfs_cache_find(xid, ses, cifs_sb->local_nls, cifs_remap(cifs_sb), vol->UNC + 1, NULL,
+	if ((cifs_sb->mnt_cifs_flags & CIFS_MOUNT_NO_DFS) ||
+	    dfs_cache_find(xid, ses, cifs_sb->local_nls, cifs_remap(cifs_sb), vol->UNC + 1, NULL,
 			   NULL)) {
-		/* No DFS referral was returned.  Looks like a regular share. */
 		if (rc)
 			goto error;
 		/* Check if it is fully accessible and then mount it */
@@ -4826,13 +4827,18 @@ int cifs_mount(struct cifs_sb_info *cifs_sb, struct smb_vol *vol)
 			break;
 		if (!tcon)
 			continue;
+
 		/* Make sure that requests go through new root servers */
-		if (is_tcon_dfs(tcon)) {
+		rc = is_referral_server(ref_path + 1, tcon, &ref_server);
+		if (rc)
+			break;
+		if (ref_server) {
 			put_root_ses(root_ses);
 			set_root_ses(cifs_sb, ses, &root_ses);
 		}
-		/* Check for remaining path components and then continue chasing them (-EREMOTE) */
-		rc = check_dfs_prepath(cifs_sb, vol, xid, server, tcon, &ref_path);
+
+		/* Get next dfs path and then continue chasing them if -EREMOTE */
+		rc = next_dfs_prepath(cifs_sb, vol, xid, server, tcon, &ref_path);
 		/* Prevent recursion on broken link referrals */
 		if (rc == -EREMOTE && ++count > MAX_NESTED_LINKS)
 			rc = -ELOOP;

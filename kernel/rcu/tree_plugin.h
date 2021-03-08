@@ -1543,7 +1543,7 @@ bool rcu_is_nocb_cpu(int cpu)
  * Kick the leader kthread for this NOCB group.  Caller holds ->nocb_lock
  * and this function releases it.
  */
-static void __wake_nocb_leader(struct rcu_data *rdp, bool force,
+static bool __wake_nocb_leader(struct rcu_data *rdp, bool force,
 			       unsigned long flags)
 	__releases(rdp->nocb_lock)
 {
@@ -1552,7 +1552,7 @@ static void __wake_nocb_leader(struct rcu_data *rdp, bool force,
 	lockdep_assert_held(&rdp->nocb_lock);
 	if (!READ_ONCE(rdp_leader->nocb_kthread)) {
 		raw_spin_unlock_irqrestore(&rdp->nocb_lock, flags);
-		return;
+		return false;
 	}
 	if (rdp_leader->nocb_leader_sleep || force) {
 		/* Prior smp_mb__after_atomic() orders against prior enqueue. */
@@ -1561,8 +1561,10 @@ static void __wake_nocb_leader(struct rcu_data *rdp, bool force,
 		raw_spin_unlock_irqrestore(&rdp->nocb_lock, flags);
 		smp_mb(); /* ->nocb_leader_sleep before swake_up_one(). */
 		swake_up_one(&rdp_leader->nocb_wq);
+		return true;
 	} else {
 		raw_spin_unlock_irqrestore(&rdp->nocb_lock, flags);
+		return false;
 	}
 }
 
@@ -1985,20 +1987,23 @@ static int rcu_nocb_need_deferred_wakeup(struct rcu_data *rdp)
 }
 
 /* Do a deferred wakeup of rcu_nocb_kthread(). */
-static void do_nocb_deferred_wakeup_common(struct rcu_data *rdp)
+static bool do_nocb_deferred_wakeup_common(struct rcu_data *rdp)
 {
 	unsigned long flags;
 	int ndw;
+	int ret;
 
 	raw_spin_lock_irqsave(&rdp->nocb_lock, flags);
 	if (!rcu_nocb_need_deferred_wakeup(rdp)) {
 		raw_spin_unlock_irqrestore(&rdp->nocb_lock, flags);
-		return;
+		return false;
 	}
 	ndw = READ_ONCE(rdp->nocb_defer_wakeup);
 	WRITE_ONCE(rdp->nocb_defer_wakeup, RCU_NOCB_WAKE_NOT);
-	__wake_nocb_leader(rdp, ndw == RCU_NOCB_WAKE_FORCE, flags);
+	ret = __wake_nocb_leader(rdp, ndw == RCU_NOCB_WAKE_FORCE, flags);
 	trace_rcu_nocb_wake(rcu_state.name, rdp->cpu, TPS("DeferredWake"));
+
+	return ret;
 }
 
 /* Do a deferred wakeup of rcu_nocb_kthread() from a timer handler. */
@@ -2014,10 +2019,16 @@ static void do_nocb_deferred_wakeup_timer(struct timer_list *t)
  * This means we do an inexact common-case check.  Note that if
  * we miss, ->nocb_timer will eventually clean things up.
  */
-static void do_nocb_deferred_wakeup(struct rcu_data *rdp)
+static bool do_nocb_deferred_wakeup(struct rcu_data *rdp)
 {
 	if (rcu_nocb_need_deferred_wakeup(rdp))
-		do_nocb_deferred_wakeup_common(rdp);
+		return do_nocb_deferred_wakeup_common(rdp);
+	return false;
+}
+
+void rcu_nocb_flush_deferred_wakeup(void)
+{
+	do_nocb_deferred_wakeup(this_cpu_ptr(&rcu_data));
 }
 
 void __init rcu_init_nohz(void)
@@ -2271,8 +2282,9 @@ static int rcu_nocb_need_deferred_wakeup(struct rcu_data *rdp)
 	return false;
 }
 
-static void do_nocb_deferred_wakeup(struct rcu_data *rdp)
+static bool do_nocb_deferred_wakeup(struct rcu_data *rdp)
 {
+	return false;
 }
 
 static void rcu_spawn_cpu_nocb_kthread(int cpu)
