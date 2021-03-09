@@ -209,7 +209,7 @@ struct slice_mask {
 typedef struct {
 	unsigned int id;
 	unsigned int active;
-	unsigned long vdso_base;
+	void __user *vdso;
 #ifdef CONFIG_PPC_MM_SLICES
 	u16 user_psize;		/* page size index */
 	unsigned char low_slices_psize[SLICE_ARRAY_SIZE];

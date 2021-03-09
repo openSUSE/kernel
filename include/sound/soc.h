@@ -1125,6 +1125,8 @@ struct snd_soc_pcm_runtime {
 	struct snd_soc_dai_link *dai_link;
 	struct snd_pcm_ops ops;
 
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
+
 	unsigned int params_select; /* currently selected param for dai link */
 
 	/* Dynamic PCM BE runtime data */

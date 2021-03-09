@@ -20,6 +20,7 @@ typedef struct {
 	atomic64_t	id;
 	void		*vdso;
 	unsigned long	flags;
+	atomic_t        nr_active_mm; /* just a kABI placeholder for now */
 } mm_context_t;
 
 /*

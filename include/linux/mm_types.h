@@ -534,6 +534,7 @@ struct mm_struct {
 #ifdef CONFIG_IOMMU_SUPPORT
 		u32 pasid;
 #endif
+		void *suse_kabi_padding;
 	} __randomize_layout;
 
 	/*
