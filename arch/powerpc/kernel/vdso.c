@@ -243,7 +243,7 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 
 const char *arch_vma_name(struct vm_area_struct *vma)
 {
-	if (vma->vm_mm && vma->vm_start == vma->vm_mm->context.vdso)
+	if (vma->vm_mm && vma->vm_start == (unsigned long)vma->vm_mm->context.vdso)
 		return "[vdso]";
 	return NULL;
 }
