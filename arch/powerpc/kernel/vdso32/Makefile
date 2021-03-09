@@ -50,6 +50,14 @@ $(obj)/%.so: $(obj)/%.so.dbg FORCE
 $(obj-vdso32): %.o: %.S FORCE
 	$(call if_changed_dep,vdso32as)
 
+# Generate VDSO offsets using helper script
+gen-vdsosym := $(srctree)/$(src)/gen_vdso_offsets.sh
+quiet_cmd_vdsosym = VDSOSYM $@
+      cmd_vdsosym = $(NM) $< | $(gen-vdsosym) | LC_ALL=C sort > $@
+
+include/generated/vdso32-offsets.h: $(obj)/vdso32.so.dbg FORCE
+	$(call if_changed,vdsosym)
+
 # actual build commands
 quiet_cmd_vdso32ld = VDSO32L $@
       cmd_vdso32ld = $(VDSOCC) $(c_flags) $(CC32FLAGS) -o $@ -Wl,-T$(filter %.lds,$^) $(filter %.o,$^)

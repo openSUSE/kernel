@@ -127,6 +127,7 @@ struct pci_controller {
 
 	void *private_data;
 	struct npu *npu;
+	void* suse_kabi_padding;
 };
 
 /* These are used for config access before all the PCI probing
