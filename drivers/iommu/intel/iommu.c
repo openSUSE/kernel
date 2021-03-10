@@ -334,6 +334,7 @@ static int intel_iommu_attach_device(struct iommu_domain *domain,
 				     struct device *dev);
 static phys_addr_t intel_iommu_iova_to_phys(struct iommu_domain *domain,
 					    dma_addr_t iova);
+static bool domain_use_flush_queue(void);
 
 #ifdef CONFIG_INTEL_IOMMU_DEFAULT_ON
 int dmar_disabled = 0;
@@ -3506,7 +3507,7 @@ static void intel_unmap(struct device *dev, dma_addr_t dev_addr, size_t size)
 		pdev = to_pci_dev(dev);
 
 	freelist = domain_unmap(domain, start_pfn, last_pfn);
-	if (intel_iommu_strict || (pdev && pdev->untrusted) ||
+	if (!domain_use_flush_queue() || (pdev && pdev->untrusted) ||
 			!has_iova_flush_queue(&domain->iovad)) {
 		iommu_flush_iotlb_psi(iommu, domain, start_pfn,
 				      nrpages, !freelist, 0);
@@ -5072,7 +5073,7 @@ static void intel_init_iova_domain(struct dmar_domain *dmar_domain)
 	init_iova_domain(&dmar_domain->iovad, VTD_PAGE_SIZE, IOVA_START_PFN);
 	copy_reserved_iova(&reserved_iova_list, &dmar_domain->iovad);
 
-	if (!intel_iommu_strict &&
+	if (domain_use_flush_queue() &&
 	    init_iova_flush_queue(&dmar_domain->iovad,
 				  iommu_flush_iova, iova_entry_free))
 		pr_info("iova flush queue initialization failed\n");
@@ -5446,6 +5447,36 @@ static inline u64 to_vtd_size(u64 granu_size, u64 nr_granules)
 	 * granu size in contiguous memory.
 	 */
 	return order_base_2(nr_pages);
+}
+
+static bool domain_use_flush_queue(void)
+{
+	struct dmar_drhd_unit *drhd;
+	struct intel_iommu *iommu;
+	bool r = true;
+
+	if (intel_iommu_strict)
+		return false;
+
+	/*
+	 * The flush queue implementation does not perform page-selective
+	 * invalidations that are required for efficient TLB flushes in virtual
+	 * environments. The benefit of batching is likely to be much lower than
+	 * the overhead of synchronizing the virtual and physical IOMMU
+	 * page-tables.
+	 */
+	rcu_read_lock();
+	for_each_active_iommu(iommu, drhd) {
+		if (!cap_caching_mode(iommu->cap))
+			continue;
+
+		pr_warn_once("IOMMU batching is disabled due to virtualization");
+		r = false;
+		break;
+	}
+	rcu_read_unlock();
+
+	return r;
 }
 
 static int
