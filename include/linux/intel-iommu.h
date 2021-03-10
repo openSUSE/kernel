@@ -681,6 +681,7 @@ struct intel_svm_dev {
 	struct list_head list;
 	struct rcu_head rcu;
 	struct device *dev;
+	struct intel_iommu *iommu;
 	struct svm_dev_ops *ops;
 	int users;
 	u16 did;
@@ -691,7 +692,6 @@ struct intel_svm_dev {
 struct intel_svm {
 	struct mmu_notifier notifier;
 	struct mm_struct *mm;
-	struct intel_iommu *iommu;
 	int flags;
 	int pasid;
 	struct list_head devs;
