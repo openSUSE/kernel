@@ -25,7 +25,7 @@ config CLANG_VERSION
 	default $(shell,$(srctree)/scripts/clang-version.sh $(CC))
 
 config CC_CAN_LINK
-	def_bool y
+	def_bool $(success,$(srctree)/scripts/cc-can-link.sh $(CC))
 
 config CC_CAN_LINK_STATIC
 	bool
