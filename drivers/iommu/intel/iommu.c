@@ -2461,6 +2461,9 @@ struct dmar_domain *find_domain(struct device *dev)
 {
 	struct device_domain_info *info;
 
+	if (unlikely(!dev || !dev->iommu))
+		return NULL;
+
 	if (unlikely(attach_deferred(dev) || iommu_dummy(dev)))
 		return NULL;
 
@@ -3413,9 +3416,6 @@ static dma_addr_t __intel_map_single(struct device *dev, phys_addr_t paddr,
 	unsigned long paddr_pfn = paddr >> PAGE_SHIFT;
 
 	BUG_ON(dir == DMA_NONE);
-
-	if (unlikely(!dev || !dev->iommu))
-		return NULL;
 
 	if (unlikely(attach_deferred(dev)))
 		do_deferred_attach(dev);
