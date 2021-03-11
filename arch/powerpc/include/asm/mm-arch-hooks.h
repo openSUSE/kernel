@@ -17,8 +17,8 @@ static inline void arch_remap(struct mm_struct *mm,
 	 * mremap() doesn't allow moving multiple vmas so we can limit the
 	 * check to old_start == vdso_base.
 	 */
-	if (old_start == mm->context.vdso)
-		mm->context.vdso = new_start;
+	if (old_start == (unsigned long)mm->context.vdso)
+		mm->context.vdso = (void *)new_start;
 }
 #define arch_remap arch_remap
 
