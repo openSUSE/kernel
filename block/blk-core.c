@@ -581,6 +581,8 @@ EXPORT_SYMBOL(blk_alloc_queue_node);
  * @q: the request_queue structure to increment the refcount for
  *
  * Increment the refcount of the request_queue kobject.
+ *
+ * Context: Any context.
  */
 bool blk_get_queue(struct request_queue *q)
 {
