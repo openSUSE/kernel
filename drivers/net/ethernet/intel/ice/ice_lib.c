@@ -949,6 +949,18 @@ static void ice_vsi_clear_rings(struct ice_vsi *vsi)
 {
 	int i;
 
+	/* Avoid stale references by clearing map from vector to ring */
+	if (vsi->q_vectors) {
+		ice_for_each_q_vector(vsi, i) {
+			struct ice_q_vector *q_vector = vsi->q_vectors[i];
+
+			if (q_vector) {
+				q_vector->tx.ring = NULL;
+				q_vector->rx.ring = NULL;
+			}
+		}
+	}
+
 	if (vsi->tx_rings) {
 		for (i = 0; i < vsi->alloc_txq; i++) {
 			if (vsi->tx_rings[i]) {
