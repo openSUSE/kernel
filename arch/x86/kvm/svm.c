@@ -2154,7 +2154,6 @@ static void svm_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	u32 dummy;
 	u32 eax = 1;
 
-	vcpu->arch.microcode_version = 0x01000065;
 	svm->spec_ctrl = 0;
 	svm->virt_spec_ctrl = 0;
 
@@ -2267,6 +2266,7 @@ static struct kvm_vcpu *svm_create_vcpu(struct kvm *kvm, unsigned int id)
 	init_vmcb(svm);
 
 	svm_init_osvw(&svm->vcpu);
+	svm->vcpu.arch.microcode_version = 0x01000065;
 
 	return &svm->vcpu;
 
