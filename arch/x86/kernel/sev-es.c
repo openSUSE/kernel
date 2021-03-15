@@ -1256,8 +1256,6 @@ void safe_stack_vmm_communication(struct pt_regs *regs, unsigned long error_code
 	enum es_result result;
 	struct ghcb *ghcb;
 
-	lockdep_assert_irqs_disabled();
-
 	/*
 	 * Handle #DB before calling into !noinstr code to avoid recursive #DB.
 	 */
