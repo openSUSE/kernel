@@ -821,10 +821,8 @@ static int soc_pcm_prepare(struct snd_pcm_substream *substream)
 		goto out;
 
 	ret = snd_soc_pcm_dai_prepare(substream);
-	if (ret < 0) {
-		dev_err(rtd->dev, "ASoC: DAI prepare error: %d\n", ret);
+	if (ret < 0)
 		goto out;
-	}
 
 	/* cancel any delayed stream shutdown that is pending */
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK &&
@@ -2414,8 +2412,6 @@ static int dpcm_run_update_shutdown(struct snd_soc_pcm_runtime *fe, int stream)
 				fe->dai_link->name);
 
 		err = snd_soc_pcm_dai_bespoke_trigger(substream, SNDRV_PCM_TRIGGER_STOP);
-		if (err < 0)
-			dev_err(fe->dev,"ASoC: trigger FE failed %d\n", err);
 	} else {
 		dev_dbg(fe->dev, "ASoC: trigger FE %s cmd stop\n",
 			fe->dai_link->name);
@@ -2492,10 +2488,8 @@ static int dpcm_run_update_startup(struct snd_soc_pcm_runtime *fe, int stream)
 				fe->dai_link->name);
 
 		ret = snd_soc_pcm_dai_bespoke_trigger(substream, SNDRV_PCM_TRIGGER_START);
-		if (ret < 0) {
-			dev_err(fe->dev,"ASoC: bespoke trigger FE failed %d\n", ret);
+		if (ret < 0)
 			goto hw_free;
-		}
 	} else {
 		dev_dbg(fe->dev, "ASoC: trigger FE %s cmd start\n",
 			fe->dai_link->name);
