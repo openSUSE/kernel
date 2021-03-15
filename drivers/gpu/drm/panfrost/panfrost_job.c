@@ -531,6 +531,8 @@ int panfrost_job_init(struct panfrost_device *pfdev)
 	}
 
 	for (j = 0; j < NUM_JOB_SLOTS; j++) {
+		mutex_init(&js->queue[j].lock);
+
 		js->queue[j].fence_context = dma_fence_context_alloc(1);
 
 		ret = drm_sched_init(&js->queue[j].sched,
@@ -561,8 +563,10 @@ void panfrost_job_fini(struct panfrost_device *pfdev)
 
 	job_write(pfdev, JOB_INT_MASK, 0);
 
-	for (j = 0; j < NUM_JOB_SLOTS; j++)
+	for (j = 0; j < NUM_JOB_SLOTS; j++) {
 		drm_sched_fini(&js->queue[j].sched);
+		mutex_destroy(&js->queue[j].lock);
+	}
 
 }
 
@@ -574,7 +578,6 @@ int panfrost_job_open(struct panfrost_file_priv *panfrost_priv)
 	int ret, i;
 
 	for (i = 0; i < NUM_JOB_SLOTS; i++) {
-		mutex_init(&js->queue[i].lock);
 		rq = &js->queue[i].sched.sched_rq[DRM_SCHED_PRIORITY_NORMAL];
 		ret = drm_sched_entity_init(&panfrost_priv->sched_entity[i], &rq, 1, NULL);
 		if (WARN_ON(ret))
@@ -589,10 +592,8 @@ void panfrost_job_close(struct panfrost_file_priv *panfrost_priv)
 	struct panfrost_job_slot *js = pfdev->js;
 	int i;
 
-	for (i = 0; i < NUM_JOB_SLOTS; i++) {
+	for (i = 0; i < NUM_JOB_SLOTS; i++)
 		drm_sched_entity_destroy(&panfrost_priv->sched_entity[i]);
-		mutex_destroy(&js->queue[i].lock);
-	}
 }
 
 int panfrost_job_is_idle(struct panfrost_device *pfdev)
