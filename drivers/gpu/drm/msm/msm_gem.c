@@ -368,7 +368,24 @@ static void del_vma(struct msm_gem_vma *vma)
 
 /* Called with msm_obj locked */
 static void
-put_iova(struct drm_gem_object *obj)
+put_iova_spaces(struct drm_gem_object *obj)
+{
+	struct msm_gem_object *msm_obj = to_msm_bo(obj);
+	struct msm_gem_vma *vma;
+
+	WARN_ON(!msm_gem_is_locked(obj));
+
+	list_for_each_entry(vma, &msm_obj->vmas, list) {
+		if (vma->aspace) {
+			msm_gem_purge_vma(vma->aspace, vma);
+			msm_gem_close_vma(vma->aspace, vma);
+		}
+	}
+}
+
+/* Called with msm_obj locked */
+static void
+put_iova_vmas(struct drm_gem_object *obj)
 {
 	struct msm_gem_object *msm_obj = to_msm_bo(obj);
 	struct msm_gem_vma *vma, *tmp;
@@ -376,10 +393,6 @@ put_iova(struct drm_gem_object *obj)
 	WARN_ON(!msm_gem_is_locked(obj));
 
 	list_for_each_entry_safe(vma, tmp, &msm_obj->vmas, list) {
-		if (vma->aspace) {
-			msm_gem_purge_vma(vma->aspace, vma);
-			msm_gem_close_vma(vma->aspace, vma);
-		}
 		del_vma(vma);
 	}
 }
@@ -643,11 +656,13 @@ void msm_gem_purge(struct drm_gem_object *obj, enum msm_gem_lock subclass)
 
 	mutex_lock_nested(&msm_obj->lock, subclass);
 
-	put_iova(obj);
+	put_iova_spaces(obj);
 
 	msm_gem_vunmap_locked(obj);
 
 	put_pages(obj);
+
+	put_iova_vmas(obj);
 
 	msm_obj->madv = __MSM_MADV_PURGED;
 
@@ -895,7 +910,7 @@ static void free_object(struct msm_gem_object *msm_obj)
 
 	msm_gem_lock(obj);
 
-	put_iova(obj);
+	put_iova_spaces(obj);
 
 	if (obj->import_attach) {
 		if (msm_obj->vaddr)
@@ -912,6 +927,8 @@ static void free_object(struct msm_gem_object *msm_obj)
 		msm_gem_vunmap_locked(obj);
 		put_pages(obj);
 	}
+
+	put_iova_vmas(obj);
 
 	drm_gem_object_release(obj);
 
