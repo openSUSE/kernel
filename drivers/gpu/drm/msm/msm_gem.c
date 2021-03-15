@@ -922,13 +922,14 @@ static void free_object(struct msm_gem_object *msm_obj)
 		if (msm_obj->pages)
 			kvfree(msm_obj->pages);
 
+		put_iova_vmas(obj);
+
 		drm_prime_gem_destroy(obj, msm_obj->sgt);
 	} else {
 		msm_gem_vunmap_locked(obj);
 		put_pages(obj);
+		put_iova_vmas(obj);
 	}
-
-	put_iova_vmas(obj);
 
 	drm_gem_object_release(obj);
 
