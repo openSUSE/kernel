@@ -1037,6 +1037,8 @@ static size_t fuse_send_write_pages(struct fuse_req *req, struct kiocb *iocb,
 		fuse_wait_on_page_writeback(inode, req->pages[i]->index);
 
 	res = fuse_send_write(req, &io, pos, count, NULL);
+	if (!res && req->misc.write.out.size > count)
+		res = -EIO;
 
 	offset = req->page_descs[0].offset;
 	count = res;
