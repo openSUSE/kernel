@@ -134,9 +134,17 @@ intel_dp_set_lttpr_transparent_mode(struct intel_dp *intel_dp, bool enable)
  */
 int intel_dp_lttpr_init(struct intel_dp *intel_dp)
 {
+	struct drm_i915_private *i915 = dp_to_i915(intel_dp);
 	int lttpr_count;
 	bool ret;
 	int i;
+
+	/*
+	 * Detecting LTTPRs must be avoided on platforms with an AUX timeout
+	 * period < 3.2ms. (see DP Standard v2.0, 2.11.2, 3.6.6.1).
+	 */
+	if (INTEL_GEN(i915) < 10)
+		return 0;
 
 	if (intel_dp_is_edp(intel_dp))
 		return 0;
