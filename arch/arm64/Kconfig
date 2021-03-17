@@ -1609,9 +1609,20 @@ config RANDOMIZE_MODULE_REGION_FULL
 config CC_HAVE_STACKPROTECTOR_SYSREG
 	def_bool $(cc-option,-mstack-protector-guard=sysreg -mstack-protector-guard-reg=sp_el0 -mstack-protector-guard-offset=0)
 
+
 config STACKPROTECTOR_PER_TASK
-	def_bool y
+	bool "Use a unique stack canary value for each task"
 	depends on STACKPROTECTOR && CC_HAVE_STACKPROTECTOR_SYSREG
+	default y
+	help
+	  Due to the fact that GCC uses an ordinary symbol reference from
+	  which to load the value of the stack canary, this value can only
+	  change at reboot time on SMP systems, and all tasks running in the
+	  kernel's address space are forced to use the same canary value for
+	  the entire duration that the system is up.
+
+	  Enable this option to switch to a different method that uses a
+	  different canary value for each task.
 
 endmenu
 
