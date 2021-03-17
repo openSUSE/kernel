@@ -6,6 +6,7 @@
 
 struct device;
 struct device_node;
+struct drmem_lmb;
 
 #ifdef CONFIG_NUMA
 
@@ -61,6 +62,9 @@ static inline int early_cpu_to_node(int cpu)
 	 */
 	return (nid < 0) ? 0 : nid;
 }
+
+int of_drconf_to_nid_single(struct drmem_lmb *lmb);
+
 #else
 
 static inline int early_cpu_to_node(int cpu) { return 0; }
@@ -82,6 +86,11 @@ static inline void update_numa_cpu_lookup_table(unsigned int cpu, int node) {}
 static inline int cpu_distance(__be32 *cpu1_assoc, __be32 *cpu2_assoc)
 {
 	return 0;
+}
+
+static inline int of_drconf_to_nid_single(struct drmem_lmb *lmb)
+{
+	return first_online_node;
 }
 
 #endif /* CONFIG_NUMA */

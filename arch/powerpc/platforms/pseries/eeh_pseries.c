@@ -44,7 +44,7 @@ static int ibm_get_config_addr_info2;
 static int ibm_configure_pe;
 
 #ifdef CONFIG_PCI_IOV
-void pseries_pcibios_bus_add_device(struct pci_dev *pdev)
+static void pseries_pcibios_bus_add_device(struct pci_dev *pdev)
 {
 	struct pci_dn *pdn = pci_get_pdn(pdev);
 	struct pci_dn *physfn_pdn;

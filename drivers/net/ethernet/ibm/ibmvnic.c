@@ -258,40 +258,12 @@ static void free_long_term_buff(struct ibmvnic_adapter *adapter,
 	dma_free_coherent(dev, ltb->size, ltb->buff, ltb->addr);
 }
 
-static int reset_long_term_buff(struct ibmvnic_adapter *adapter,
-				struct ibmvnic_long_term_buff *ltb)
+static int reset_long_term_buff(struct ibmvnic_long_term_buff *ltb)
 {
-	struct device *dev = &adapter->vdev->dev;
-	int rc;
+	if (!ltb->buff)
+		return -EINVAL;
 
 	memset(ltb->buff, 0, ltb->size);
-
-	mutex_lock(&adapter->fw_lock);
-	adapter->fw_done_rc = 0;
-
-	reinit_completion(&adapter->fw_done);
-	rc = send_request_map(adapter, ltb->addr, ltb->size, ltb->map_id);
-	if (rc) {
-		mutex_unlock(&adapter->fw_lock);
-		return rc;
-	}
-
-	rc = ibmvnic_wait_for_completion(adapter, &adapter->fw_done, 10000);
-	if (rc) {
-		dev_info(dev,
-			 "Reset failed, long term map request timed out or aborted\n");
-		mutex_unlock(&adapter->fw_lock);
-		return rc;
-	}
-
-	if (adapter->fw_done_rc) {
-		dev_info(dev,
-			 "Reset failed, attempting to free and reallocate buffer\n");
-		free_long_term_buff(adapter, ltb);
-		mutex_unlock(&adapter->fw_lock);
-		return alloc_long_term_buff(adapter, ltb, ltb->size);
-	}
-	mutex_unlock(&adapter->fw_lock);
 	return 0;
 }
 
@@ -513,8 +485,7 @@ static int reset_rx_pools(struct ibmvnic_adapter *adapter)
 						  rx_pool->size *
 						  rx_pool->buff_size);
 		} else {
-			rc = reset_long_term_buff(adapter,
-						  &rx_pool->long_term_buff);
+			rc = reset_long_term_buff(&rx_pool->long_term_buff);
 		}
 
 		if (rc)
@@ -637,12 +608,11 @@ static int init_rx_pools(struct net_device *netdev)
 	return 0;
 }
 
-static int reset_one_tx_pool(struct ibmvnic_adapter *adapter,
-			     struct ibmvnic_tx_pool *tx_pool)
+static int reset_one_tx_pool(struct ibmvnic_tx_pool *tx_pool)
 {
 	int rc, i;
 
-	rc = reset_long_term_buff(adapter, &tx_pool->long_term_buff);
+	rc = reset_long_term_buff(&tx_pool->long_term_buff);
 	if (rc)
 		return rc;
 
@@ -669,10 +639,10 @@ static int reset_tx_pools(struct ibmvnic_adapter *adapter)
 
 	tx_scrqs = adapter->num_active_tx_pools;
 	for (i = 0; i < tx_scrqs; i++) {
-		rc = reset_one_tx_pool(adapter, &adapter->tso_pool[i]);
+		rc = reset_one_tx_pool(&adapter->tso_pool[i]);
 		if (rc)
 			return rc;
-		rc = reset_one_tx_pool(adapter, &adapter->tx_pool[i]);
+		rc = reset_one_tx_pool(&adapter->tx_pool[i]);
 		if (rc)
 			return rc;
 	}
@@ -1202,12 +1172,25 @@ static int ibmvnic_open(struct net_device *netdev)
 	struct ibmvnic_adapter *adapter = netdev_priv(netdev);
 	int rc;
 
-	/* If device failover is pending, just set device state and return.
-	 * Device operation will be handled by reset routine.
+	ASSERT_RTNL();
+
+	/* If device failover is pending or we are about to reset, just set
+	 * device state and return. Device operation will be handled by reset
+	 * routine.
+	 *
+	 * It should be safe to overwrite the adapter->state here. Since
+	 * we hold the rtnl, either the reset has not actually started or
+	 * the rtnl got dropped during the set_link_state() in do_reset().
+	 * In the former case, no one else is changing the state (again we
+	 * have the rtnl) and in the latter case, do_reset() will detect and
+	 * honor our setting below.
 	 */
-	if (adapter->failover_pending) {
+	if (adapter->failover_pending || (test_bit(0, &adapter->resetting))) {
+		netdev_dbg(netdev, "[S:%d FOP:%d] Resetting, deferring open\n",
+			   adapter->state, adapter->failover_pending);
 		adapter->state = VNIC_OPEN;
-		return 0;
+		rc = 0;
+		goto out;
 	}
 
 	if (adapter->state != VNIC_CLOSED) {
@@ -1227,10 +1210,12 @@ static int ibmvnic_open(struct net_device *netdev)
 
 out:
 	/*
-	 * If open fails due to a pending failover, set device state and
-	 * return. Device operation will be handled by reset routine.
+	 * If open failed and there is a pending failover or in-progress reset,
+	 * set device state and return. Device operation will be handled by
+	 * reset routine. See also comments above regarding rtnl.
 	 */
-	if (rc && adapter->failover_pending) {
+	if (rc &&
+	    (adapter->failover_pending || (test_bit(0, &adapter->resetting)))) {
 		adapter->state = VNIC_OPEN;
 		rc = 0;
 	}
@@ -1923,10 +1908,9 @@ static int ibmvnic_set_mac(struct net_device *netdev, void *p)
 	if (!is_valid_ether_addr(addr->sa_data))
 		return -EADDRNOTAVAIL;
 
-	if (adapter->state != VNIC_PROBED) {
-		ether_addr_copy(adapter->mac_addr, addr->sa_data);
+	ether_addr_copy(adapter->mac_addr, addr->sa_data);
+	if (adapter->state != VNIC_PROBED)
 		rc = __ibmvnic_set_mac(netdev, addr->sa_data);
-	}
 
 	return rc;
 }
@@ -2043,6 +2027,14 @@ static int do_reset(struct ibmvnic_adapter *adapter,
 	if (rwi->reset_reason == VNIC_RESET_FAILOVER)
 		adapter->failover_pending = false;
 
+	/* read the state and check (again) after getting rtnl */
+	reset_state = adapter->state;
+
+	if (reset_state == VNIC_REMOVING || reset_state == VNIC_REMOVED) {
+		rc = -EBUSY;
+		goto out;
+	}
+
 	netif_carrier_off(netdev);
 	adapter->reset_reason = rwi->reset_reason;
 
@@ -2069,7 +2061,24 @@ static int do_reset(struct ibmvnic_adapter *adapter,
 		if (rc)
 			goto out;
 
+		if (adapter->state == VNIC_OPEN) {
+			/* When we dropped rtnl, ibmvnic_open() got
+			 * it and noticed that we are resetting and
+			 * set the adapter state to OPEN. Update our
+			 * new "target" state, and resume the reset
+			 * from VNIC_CLOSING state.
+			 */
+			netdev_dbg(netdev,
+				   "Open changed state from %d, updating.\n",
+				   reset_state);
+			reset_state = VNIC_OPEN;
+			adapter->state = VNIC_CLOSING;
+		}
+
 		if (adapter->state != VNIC_CLOSING) {
+			/* If someone else changed the adapter state
+			 * when we dropped the rtnl, fail the reset
+			 */
 			rc = -1;
 			goto out;
 		}
@@ -2204,6 +2213,14 @@ static int do_hard_reset(struct ibmvnic_adapter *adapter,
 
 	netdev_dbg(adapter->netdev, "Hard resetting driver (%d)\n",
 		   rwi->reset_reason);
+
+	/* read the state and check (again) after getting rtnl */
+	reset_state = adapter->state;
+
+	if (reset_state == VNIC_REMOVING || reset_state == VNIC_REMOVED) {
+		rc = -EBUSY;
+		goto out;
+	}
 
 	netif_carrier_off(netdev);
 	adapter->reset_reason = rwi->reset_reason;
@@ -2400,8 +2417,7 @@ static int ibmvnic_reset(struct ibmvnic_adapter *adapter,
 
 	spin_lock_irqsave(&adapter->rwi_lock, flags);
 
-	/*
-	 * If failover is pending don't schedule any other reset.
+	/* If failover is pending don't schedule any other reset.
 	 * Instead let the failover complete. If there is already a
 	 * a failover reset scheduled, we will detect and drop the
 	 * duplicate reset when walking the ->rwi_list below.
@@ -3722,7 +3738,7 @@ static int send_subcrq_indirect(struct ibmvnic_adapter *adapter,
 	int rc;
 
 	/* Make sure the hypervisor sees the complete request */
-	mb();
+	dma_wmb();
 	rc = plpar_hcall_norets(H_SEND_SUB_CRQ_INDIRECT, ua,
 				cpu_to_be64(remote_handle),
 				ioba, num_entries);
@@ -3752,7 +3768,7 @@ static int ibmvnic_send_crq(struct ibmvnic_adapter *adapter,
 	}
 
 	/* Make sure the hypervisor sees the complete request */
-	mb();
+	dma_wmb();
 
 	rc = plpar_hcall_norets(H_SEND_CRQ, ua,
 				cpu_to_be64(u64_crq[0]),
@@ -5286,16 +5302,14 @@ static int ibmvnic_reset_init(struct ibmvnic_adapter *adapter, bool reset)
 {
 	struct device *dev = &adapter->vdev->dev;
 	unsigned long timeout = msecs_to_jiffies(20000);
-	u64 old_num_rx_queues, old_num_tx_queues;
+	u64 old_num_rx_queues = adapter->req_rx_queues;
+	u64 old_num_tx_queues = adapter->req_tx_queues;
 	int rc;
 
 	adapter->from_passive_init = false;
 
-	if (reset) {
-		old_num_rx_queues = adapter->req_rx_queues;
-		old_num_tx_queues = adapter->req_tx_queues;
+	if (reset)
 		reinit_completion(&adapter->init_done);
-	}
 
 	adapter->init_done_rc = 0;
 	rc = ibmvnic_send_crq_init(adapter);
@@ -5480,9 +5494,9 @@ static int ibmvnic_remove(struct vio_dev *dev)
 	 * after setting state, so __ibmvnic_reset() which is called
 	 * from the flush_work() below, can make progress.
 	 */
-	spin_lock_irqsave(&adapter->rwi_lock, flags);
+	spin_lock(&adapter->rwi_lock);
 	adapter->state = VNIC_REMOVING;
-	spin_unlock_irqrestore(&adapter->rwi_lock, flags);
+	spin_unlock(&adapter->rwi_lock);
 
 	spin_unlock_irqrestore(&adapter->state_lock, flags);
 

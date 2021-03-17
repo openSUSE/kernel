@@ -905,6 +905,7 @@ config NUMA
 	bool "Numa Memory Allocation and Scheduler Support"
 	select ACPI_NUMA if ACPI
 	select OF_NUMA
+	select CPUMASK_OFFSTACK
 	help
 	  Enable NUMA (Non Uniform Memory Access) support.
 
