@@ -448,6 +448,7 @@ struct smu_context
 	bool dc_controlled_by_gpio;
 
 	struct work_struct throttling_logging_work;
+	struct work_struct interrupt_work;
 };
 
 struct i2c_adapter;
@@ -590,6 +591,7 @@ struct pptable_funcs {
 	void (*log_thermal_throttling_event)(struct smu_context *smu);
 	size_t (*get_pp_feature_mask)(struct smu_context *smu, char *buf);
 	int (*set_pp_feature_mask)(struct smu_context *smu, uint64_t new_mask);
+	void (*interrupt_work)(struct smu_context *smu);
 };
 
 typedef enum {
