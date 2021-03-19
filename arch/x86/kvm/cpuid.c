@@ -893,9 +893,14 @@ int kvm_dev_ioctl_get_cpuid(struct kvm_cpuid2 *cpuid,
 			goto out_free;
 
 		limit = cpuid_entries[nent - 1].eax;
-		for (func = ent->func + 1; func <= limit && nent < cpuid->nent && r == 0; ++func)
+		for (func = ent->func + 1; func <= limit && r == 0; ++func) {
+			if (nent >= cpuid->nent) {
+				r = -E2BIG;
+				goto out_free;
+			}
 			r = do_cpuid_func(&cpuid_entries[nent], func,
 				          &nent, cpuid->nent, type);
+		}
 
 		if (r)
 			goto out_free;
@@ -1031,7 +1036,7 @@ bool kvm_cpuid(struct kvm_vcpu *vcpu, u32 *eax, u32 *ebx,
 	 * requested. AMD CPUID semantics returns all zeroes for any
 	 * undefined leaf, whether or not the leaf is in range.
 	 */
-	if (!entry && check_limit && !guest_cpuid_is_amd(vcpu) &&
+	if (!entry && check_limit && !guest_cpuid_is_amd_or_hygon(vcpu) &&
 	    !cpuid_function_in_range(vcpu, function)) {
 		max = kvm_find_cpuid_entry(vcpu, 0, 0);
 		if (max) {

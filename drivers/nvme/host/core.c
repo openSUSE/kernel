@@ -1162,28 +1162,12 @@ static void nvme_keep_alive_end_io(struct request *rq, blk_status_t status)
 		queue_delayed_work(nvme_wq, &ctrl->ka_work, ctrl->kato * HZ);
 }
 
-static int nvme_keep_alive(struct nvme_ctrl *ctrl)
-{
-	struct request *rq;
-
-	rq = nvme_alloc_request(ctrl->admin_q, &ctrl->ka_cmd, BLK_MQ_REQ_RESERVED,
-			NVME_QID_ANY);
-	if (IS_ERR(rq))
-		return PTR_ERR(rq);
-
-	rq->timeout = ctrl->kato * HZ;
-	rq->end_io_data = ctrl;
-
-	blk_execute_rq_nowait(rq->q, NULL, rq, 0, nvme_keep_alive_end_io);
-
-	return 0;
-}
-
 static void nvme_keep_alive_work(struct work_struct *work)
 {
 	struct nvme_ctrl *ctrl = container_of(to_delayed_work(work),
 			struct nvme_ctrl, ka_work);
 	bool comp_seen = ctrl->comp_seen;
+	struct request *rq;
 
 	if ((ctrl->ctratt & NVME_CTRL_ATTR_TBKAS) && comp_seen) {
 		dev_dbg(ctrl->device,
@@ -1193,12 +1177,19 @@ static void nvme_keep_alive_work(struct work_struct *work)
 		return;
 	}
 
-	if (nvme_keep_alive(ctrl)) {
+	rq = nvme_alloc_request(ctrl->admin_q, &ctrl->ka_cmd,
+				BLK_MQ_REQ_RESERVED | BLK_MQ_REQ_NOWAIT,
+				NVME_QID_ANY);
+	if (IS_ERR(rq)) {
 		/* allocation failure, reset the controller */
-		dev_err(ctrl->device, "keep-alive failed\n");
+		dev_err(ctrl->device, "keep-alive failed: %ld\n", PTR_ERR(rq));
 		nvme_reset_ctrl(ctrl);
 		return;
 	}
+
+	rq->timeout = ctrl->kato * HZ;
+	rq->end_io_data = ctrl;
+	blk_execute_rq_nowait(rq->q, NULL, rq, 0, nvme_keep_alive_end_io);
 }
 
 static void nvme_start_keep_alive(struct nvme_ctrl *ctrl)
@@ -1449,7 +1440,7 @@ int nvme_set_queue_count(struct nvme_ctrl *ctrl, int *count)
 		*count = min(*count, nr_io_queues);
 	}
 
-	return 0;
+	return status;
 }
 EXPORT_SYMBOL_GPL(nvme_set_queue_count);
 
