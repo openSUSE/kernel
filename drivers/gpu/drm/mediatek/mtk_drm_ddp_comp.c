@@ -110,7 +110,7 @@ static void mtk_aal_config(struct mtk_ddp_comp *comp, unsigned int w,
 			   unsigned int h, unsigned int vrefresh,
 			   unsigned int bpc)
 {
-	writel(h << 16 | w, comp->regs + DISP_AAL_SIZE);
+	writel(w << 16 | h, comp->regs + DISP_AAL_SIZE);
 }
 
 static void mtk_aal_start(struct mtk_ddp_comp *comp)
