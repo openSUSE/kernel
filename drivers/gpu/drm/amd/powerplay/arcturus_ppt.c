@@ -2319,6 +2319,7 @@ static const struct pptable_funcs arcturus_ppt_funcs = {
 	.log_thermal_throttling_event = arcturus_log_thermal_throttling_event,
 	.get_pp_feature_mask = smu_cmn_get_pp_feature_mask,
 	.set_pp_feature_mask = smu_cmn_set_pp_feature_mask,
+	.interrupt_work = smu_v11_0_interrupt_work,
 };
 
 void arcturus_set_ppt_funcs(struct smu_context *smu)
