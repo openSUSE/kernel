@@ -260,7 +260,7 @@ static int get_relative_value(struct usb_mixer_elem_info *cval, int val)
 	if (val < cval->min)
 		return 0;
 	else if (val >= cval->max)
-		return (cval->max - cval->min + cval->res - 1) / cval->res;
+		return DIV_ROUND_UP(cval->max - cval->min, cval->res);
 	else
 		return (val - cval->min) / cval->res;
 }
@@ -1238,7 +1238,7 @@ static int get_min_max_with_quirks(struct usb_mixer_elem_info *cval,
 				  (cval->control << 8) | minchn,
 				  &cval->res) < 0) {
 			cval->res = 1;
-		} else {
+		} else if (cval->head.mixer->protocol == UAC_VERSION_1) {
 			int last_valid_res = cval->res;
 
 			while (cval->res > 1) {
@@ -1355,7 +1355,7 @@ static int mixer_ctl_feature_info(struct snd_kcontrol *kcontrol,
 		}
 		uinfo->value.integer.min = 0;
 		uinfo->value.integer.max =
-			(cval->max - cval->min + cval->res - 1) / cval->res;
+			DIV_ROUND_UP(cval->max - cval->min, cval->res);
 	}
 	return 0;
 }
