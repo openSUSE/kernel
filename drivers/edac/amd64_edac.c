@@ -2872,8 +2872,6 @@ skip:
 	edac_dbg(1, "  DIMM type: %s\n", edac_mem_types[pvt->dram_type]);
 
 	determine_ecc_sym_sz(pvt);
-
-	dump_misc_regs(pvt);
 }
 
 /*
@@ -3528,6 +3526,19 @@ static int init_one_instance(struct amd64_pvt *pvt)
 	return 0;
 }
 
+static bool instance_has_memory(struct amd64_pvt *pvt)
+{
+	bool cs_enabled = false;
+	int cs = 0, dct = 0;
+
+	for (dct = 0; dct < fam_type->max_mcs; dct++) {
+		for_each_chip_select(cs, dct, pvt)
+			cs_enabled |= csrow_enabled(cs, dct, pvt);
+	}
+
+	return cs_enabled;
+}
+
 static int probe_one_instance(unsigned int nid)
 {
 	struct pci_dev *F3 = node_to_amd_nb(nid)->misc;
@@ -3558,8 +3569,14 @@ static int probe_one_instance(unsigned int nid)
 	if (ret < 0)
 		goto err_enable;
 
+	ret = 0;
+	if (!instance_has_memory(pvt)) {
+		amd64_info("Node %d: No DIMMs detected.\n", nid);
+		goto err_enable;
+	}
+
 	if (!ecc_enabled(pvt)) {
-		ret = 0;
+		ret = -ENODEV;
 
 		if (!ecc_enable_override)
 			goto err_enable;
@@ -3583,6 +3600,8 @@ static int probe_one_instance(unsigned int nid)
 
 		goto err_enable;
 	}
+
+	dump_misc_regs(pvt);
 
 	return ret;
 
