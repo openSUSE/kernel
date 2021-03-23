@@ -1440,7 +1440,7 @@ int nvme_set_queue_count(struct nvme_ctrl *ctrl, int *count)
 		*count = min(*count, nr_io_queues);
 	}
 
-	return status;
+	return 0;
 }
 EXPORT_SYMBOL_GPL(nvme_set_queue_count);
 
