@@ -845,6 +845,7 @@ struct ibmvnic_crq_queue {
 	union ibmvnic_crq *msgs;
 	int size, cur;
 	dma_addr_t msg_token;
+	/* Used for serialization of msgs, cur */
 	spinlock_t lock;
 	bool active;
 	char name[32];
@@ -876,6 +877,7 @@ struct ibmvnic_sub_crq_queue {
 	unsigned int irq;
 	unsigned int pool_index;
 	int scrq_num;
+	/* Used for serialization of msgs, cur */
 	spinlock_t lock;
 	struct sk_buff *rx_skb_top;
 	struct ibmvnic_adapter *adapter;
@@ -985,7 +987,6 @@ struct ibmvnic_adapter {
 	struct ibmvnic_statistics stats;
 	dma_addr_t stats_token;
 	struct completion stats_done;
-	spinlock_t stats_lock;
 	int replenish_no_mem;
 	int replenish_add_buff_success;
 	int replenish_add_buff_failure;
@@ -1084,10 +1085,10 @@ struct ibmvnic_adapter {
 	 * and rwi locks, take state lock first.
 	 */
 	spinlock_t state_lock;
-	struct list_head rwi_list;
 	enum ibmvnic_reset_reason reset_reason;
-	/* Used for serialization of state field. When taking both state
-	 * and rwi locks, take state lock first.
+	struct list_head rwi_list;
+	/* Used for serialization of rwi_list. When taking both state
+	 * and rwi locks, take state lock first
 	 */
 	spinlock_t rwi_lock;
 	struct work_struct ibmvnic_reset;
