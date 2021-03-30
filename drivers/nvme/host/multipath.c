@@ -555,16 +555,10 @@ static int nvme_read_ana_log(struct nvme_ctrl *ctrl)
 		goto out_unlock;
 	}
 
-	/*
-	 * Don't update ANA groups if triggered by an NS CHANGED
-	 * AEN; we'll be rescanning all namespaces anyway afterwards.
-	 */
-	if (!test_bit(NVME_AER_NOTICE_NS_CHANGED, &ctrl->events)) {
-		error = nvme_parse_ana_log(ctrl, &nr_change_groups,
-					   nvme_update_ana_state);
-		if (error)
-			goto out_unlock;
-	}
+	error = nvme_parse_ana_log(ctrl, &nr_change_groups,
+			nvme_update_ana_state);
+	if (error)
+		goto out_unlock;
 
 	/*
 	 * In theory we should have an ANATT timer per group as they might enter
@@ -583,10 +577,6 @@ static int nvme_read_ana_log(struct nvme_ctrl *ctrl)
 		del_timer_sync(&ctrl->anatt_timer);
 out_unlock:
 	mutex_unlock(&ctrl->ana_lock);
-
-	if (test_bit(NVME_AER_NOTICE_NS_CHANGED, &ctrl->events))
-		nvme_queue_scan(ctrl);
-
 	return error;
 }
 
@@ -694,6 +684,10 @@ void nvme_mpath_add_disk(struct nvme_ns *ns, struct nvme_id_ns *id)
 		if (desc.state) {
 			/* found the group desc: update */
 			nvme_update_ns_ana_state(&desc, ns);
+		} else {
+			/* group desc not found: trigger a re-read */
+			set_bit(NVME_NS_ANA_PENDING, &ns->flags);
+			queue_work(nvme_wq, &ns->ctrl->ana_work);
 		}
 	} else {
 		ns->ana_state = NVME_ANA_OPTIMIZED; 
