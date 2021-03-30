@@ -1822,7 +1822,6 @@ static int mlx5e_open_queues(struct mlx5e_channel *c,
 	struct dim_cq_moder icocq_moder = {0, 0};
 	int err;
 
-	err = mlx5e_open_cq(c, icocq_moder, &cparam->icosq.cqp, &c->async_icosq.cq);
 	err = mlx5e_open_cq(c, icocq_moder, &cparam->async_icosq.cqp,
 			    &c->async_icosq.cq);
 	if (err)
