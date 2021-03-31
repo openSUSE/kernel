@@ -57,7 +57,13 @@
 #include "iwl-prph.h"
 
 /* Highest firmware API version supported */
-#define IWL_22000_UCODE_API_MAX	56
+/* FIXME: corrected from 56 to 55 here for SLE15-SP3, as the kernel-firmware
+ * package on SLE15-SP3 never provides *-56 ucode (bsc#1183860)
+ * Once when the package provides the right firmware, we may restore the
+ * original value again.
+ */
+/* #define IWL_22000_UCODE_API_MAX	56 */
+#define IWL_22000_UCODE_API_MAX	55
 
 /* Lowest firmware API version supported */
 #define IWL_22000_UCODE_API_MIN	39
