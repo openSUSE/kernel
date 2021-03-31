@@ -142,6 +142,7 @@ static inline int extwriter_counter_read(struct btrfs_transaction *trans)
 void btrfs_trans_release_chunk_metadata(struct btrfs_trans_handle *trans)
 {
 	struct btrfs_fs_info *fs_info = trans->fs_info;
+	struct btrfs_transaction *cur_trans = trans->transaction;
 
 	if (!trans->chunk_bytes_reserved)
 		return;
@@ -150,6 +151,8 @@ void btrfs_trans_release_chunk_metadata(struct btrfs_trans_handle *trans)
 
 	btrfs_block_rsv_release(fs_info, &fs_info->chunk_block_rsv,
 				trans->chunk_bytes_reserved);
+	atomic64_sub(trans->chunk_bytes_reserved, &cur_trans->chunk_bytes_reserved);
+	cond_wake_up(&cur_trans->chunk_reserve_wait);
 	trans->chunk_bytes_reserved = 0;
 }
 
@@ -261,6 +264,8 @@ loop:
 	spin_lock_init(&cur_trans->dirty_bgs_lock);
 	INIT_LIST_HEAD(&cur_trans->deleted_bgs);
 	spin_lock_init(&cur_trans->dropped_roots_lock);
+	atomic64_set(&cur_trans->chunk_bytes_reserved, 0);
+	init_waitqueue_head(&cur_trans->chunk_reserve_wait);
 	list_add_tail(&cur_trans->list, &fs_info->trans_list);
 	extent_io_tree_init(fs_info, &cur_trans->dirty_pages,
 			IO_TREE_TRANS_DIRTY_PAGES, fs_info->btree_inode);
