@@ -535,16 +535,10 @@ static int nvme_read_ana_log(struct nvme_ctrl *ctrl)
 		goto out_unlock;
 	}
 
-	/*
-	 * Don't update ANA groups if triggered by an NS CHANGED
-	 * AEN; we'll be rescanning all namespaces anyway afterwards.
-	 */
-	if (!test_bit(NVME_AER_NOTICE_NS_CHANGED, &ctrl->events)) {
-		error = nvme_parse_ana_log(ctrl, &nr_change_groups,
-					   nvme_update_ana_state);
-		if (error)
-			goto out_unlock;
-	}
+	error = nvme_parse_ana_log(ctrl, &nr_change_groups,
+			nvme_update_ana_state);
+	if (error)
+		goto out_unlock;
 
 	/*
 	 * In theory we should have an ANATT timer per group as they might enter
@@ -563,10 +557,6 @@ static int nvme_read_ana_log(struct nvme_ctrl *ctrl)
 		del_timer_sync(&ctrl->anatt_timer);
 out_unlock:
 	mutex_unlock(&ctrl->ana_lock);
-
-	if (test_bit(NVME_AER_NOTICE_NS_CHANGED, &ctrl->events))
-		nvme_queue_scan(ctrl);
-
 	return error;
 }
 
