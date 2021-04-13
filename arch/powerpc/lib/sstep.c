@@ -1304,8 +1304,13 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 
 #ifdef __powerpc64__
 	case 4:
+		/*
+		 * There are very many instructions with this primary opcode
+		 * introduced in the ISA as early as v2.03. However, the ones
+		 * we currently emulate were all introduced with ISA 3.0
+		 */
 		if (!cpu_has_feature(CPU_FTR_ARCH_300))
-			return -1;
+			goto unknown_opcode;
 
 		switch (instr & 0x3f) {
 		case 48:	/* maddhd */
@@ -1331,7 +1336,7 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 		 * There are other instructions from ISA 3.0 with the same
 		 * primary opcode which do not have emulation support yet.
 		 */
-		return -1;
+		goto unknown_opcode;
 #endif
 
 	case 7:		/* mulli */
@@ -1391,6 +1396,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 	case 19:
 		if (((instr >> 1) & 0x1f) == 2) {
 			/* addpcis */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			imm = (short) (instr & 0xffc1);	/* d0 + d2 fields */
 			imm |= (instr >> 15) & 0x3e;	/* d1 field */
 			op->val = regs->nip + (imm << 16) + 4;
@@ -1703,7 +1710,7 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 #ifdef __powerpc64__
 		case 265:	/* modud */
 			if (!cpu_has_feature(CPU_FTR_ARCH_300))
-				return -1;
+				goto unknown_opcode;
 			op->val = regs->gpr[ra] % regs->gpr[rb];
 			goto compute_done;
 #endif
@@ -1713,7 +1720,7 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 
 		case 267:	/* moduw */
 			if (!cpu_has_feature(CPU_FTR_ARCH_300))
-				return -1;
+				goto unknown_opcode;
 			op->val = (unsigned int) regs->gpr[ra] %
 				(unsigned int) regs->gpr[rb];
 			goto compute_done;
@@ -1739,7 +1746,7 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 
 		case 755:	/* darn */
 			if (!cpu_has_feature(CPU_FTR_ARCH_300))
-				return -1;
+				goto unknown_opcode;
 			switch (ra & 0x3) {
 			case 0:
 				/* 32-bit conditioned */
@@ -1757,18 +1764,18 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 				goto compute_done;
 			}
 
-			return -1;
+			goto unknown_opcode;
 #ifdef __powerpc64__
 		case 777:	/* modsd */
 			if (!cpu_has_feature(CPU_FTR_ARCH_300))
-				return -1;
+				goto unknown_opcode;
 			op->val = (long int) regs->gpr[ra] %
 				(long int) regs->gpr[rb];
 			goto compute_done;
 #endif
 		case 779:	/* modsw */
 			if (!cpu_has_feature(CPU_FTR_ARCH_300))
-				return -1;
+				goto unknown_opcode;
 			op->val = (int) regs->gpr[ra] %
 				(int) regs->gpr[rb];
 			goto compute_done;
@@ -1845,14 +1852,14 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 #endif
 		case 538:	/* cnttzw */
 			if (!cpu_has_feature(CPU_FTR_ARCH_300))
-				return -1;
+				goto unknown_opcode;
 			val = (unsigned int) regs->gpr[rd];
 			op->val = (val ? __builtin_ctz(val) : 32);
 			goto logical_done;
 #ifdef __powerpc64__
 		case 570:	/* cnttzd */
 			if (!cpu_has_feature(CPU_FTR_ARCH_300))
-				return -1;
+				goto unknown_opcode;
 			val = regs->gpr[rd];
 			op->val = (val ? __builtin_ctzl(val) : 64);
 			goto logical_done;
@@ -1962,7 +1969,7 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 		case 890:	/* extswsli with sh_5 = 0 */
 		case 891:	/* extswsli with sh_5 = 1 */
 			if (!cpu_has_feature(CPU_FTR_ARCH_300))
-				return -1;
+				goto unknown_opcode;
 			op->type = COMPUTE + SETREG;
 			sh = rb | ((instr & 2) << 4);
 			val = (signed int) regs->gpr[rd];
@@ -2289,6 +2296,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			break;
 
 		case 268:	/* lxvx */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->reg = rd | ((instr & 1) << 5);
 			op->type = MKOP(LOAD_VSX, 0, 16);
 			op->element_size = 16;
@@ -2298,6 +2307,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 		case 269:	/* lxvl */
 		case 301: {	/* lxvll */
 			int nb;
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->reg = rd | ((instr & 1) << 5);
 			op->ea = ra ? regs->gpr[ra] : 0;
 			nb = regs->gpr[rb] & 0xff;
@@ -2317,6 +2328,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			break;
 
 		case 364:	/* lxvwsx */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->reg = rd | ((instr & 1) << 5);
 			op->type = MKOP(LOAD_VSX, 0, 4);
 			op->element_size = 4;
@@ -2324,6 +2337,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			break;
 
 		case 396:	/* stxvx */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->reg = rd | ((instr & 1) << 5);
 			op->type = MKOP(STORE_VSX, 0, 16);
 			op->element_size = 16;
@@ -2333,6 +2348,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 		case 397:	/* stxvl */
 		case 429: {	/* stxvll */
 			int nb;
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->reg = rd | ((instr & 1) << 5);
 			op->ea = ra ? regs->gpr[ra] : 0;
 			nb = regs->gpr[rb] & 0xff;
@@ -2377,6 +2394,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			break;
 
 		case 781:	/* lxsibzx */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->reg = rd | ((instr & 1) << 5);
 			op->type = MKOP(LOAD_VSX, 0, 1);
 			op->element_size = 8;
@@ -2384,6 +2403,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			break;
 
 		case 812:	/* lxvh8x */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->reg = rd | ((instr & 1) << 5);
 			op->type = MKOP(LOAD_VSX, 0, 16);
 			op->element_size = 2;
@@ -2391,6 +2412,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			break;
 
 		case 813:	/* lxsihzx */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->reg = rd | ((instr & 1) << 5);
 			op->type = MKOP(LOAD_VSX, 0, 2);
 			op->element_size = 8;
@@ -2404,6 +2427,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			break;
 
 		case 876:	/* lxvb16x */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->reg = rd | ((instr & 1) << 5);
 			op->type = MKOP(LOAD_VSX, 0, 16);
 			op->element_size = 1;
@@ -2417,6 +2442,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			break;
 
 		case 909:	/* stxsibx */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->reg = rd | ((instr & 1) << 5);
 			op->type = MKOP(STORE_VSX, 0, 1);
 			op->element_size = 8;
@@ -2424,6 +2451,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			break;
 
 		case 940:	/* stxvh8x */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->reg = rd | ((instr & 1) << 5);
 			op->type = MKOP(STORE_VSX, 0, 16);
 			op->element_size = 2;
@@ -2431,6 +2460,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			break;
 
 		case 941:	/* stxsihx */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->reg = rd | ((instr & 1) << 5);
 			op->type = MKOP(STORE_VSX, 0, 2);
 			op->element_size = 8;
@@ -2444,6 +2475,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			break;
 
 		case 1004:	/* stxvb16x */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->reg = rd | ((instr & 1) << 5);
 			op->type = MKOP(STORE_VSX, 0, 16);
 			op->element_size = 1;
@@ -2552,12 +2585,16 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			op->type = MKOP(LOAD_FP, 0, 16);
 			break;
 		case 2:		/* lxsd */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->reg = rd + 32;
 			op->type = MKOP(LOAD_VSX, 0, 8);
 			op->element_size = 8;
 			op->vsx_flags = VSX_CHECK_VEC;
 			break;
 		case 3:		/* lxssp */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->reg = rd + 32;
 			op->type = MKOP(LOAD_VSX, 0, 4);
 			op->element_size = 8;
@@ -2594,6 +2631,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			break;
 
 		case 1:		/* lxv */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->ea = dqform_ea(instr, regs);
 			if (instr & 8)
 				op->reg = rd + 32;
@@ -2604,6 +2643,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 
 		case 2:		/* stxsd with LSB of DS field = 0 */
 		case 6:		/* stxsd with LSB of DS field = 1 */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->ea = dsform_ea(instr, regs);
 			op->reg = rd + 32;
 			op->type = MKOP(STORE_VSX, 0, 8);
@@ -2613,6 +2654,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 
 		case 3:		/* stxssp with LSB of DS field = 0 */
 		case 7:		/* stxssp with LSB of DS field = 1 */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->ea = dsform_ea(instr, regs);
 			op->reg = rd + 32;
 			op->type = MKOP(STORE_VSX, 0, 4);
@@ -2621,6 +2664,8 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 			break;
 
 		case 5:		/* stxv */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
 			op->ea = dqform_ea(instr, regs);
 			if (instr & 8)
 				op->reg = rd + 32;
@@ -2652,6 +2697,20 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 
 	}
 
+	if (OP_IS_LOAD_STORE(op->type) && (op->type & UPDATE)) {
+		switch (GETTYPE(op->type)) {
+		case LOAD:
+			if (ra == rd)
+				goto unknown_opcode;
+			fallthrough;
+		case STORE:
+		case LOAD_FP:
+		case STORE_FP:
+			if (ra == 0)
+				goto unknown_opcode;
+		}
+	}
+
 #ifdef CONFIG_VSX
 	if ((GETTYPE(op->type) == LOAD_VSX ||
 	     GETTYPE(op->type) == STORE_VSX) &&
@@ -2660,6 +2719,10 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 	}
 #endif /* CONFIG_VSX */
 
+	return 0;
+
+ unknown_opcode:
+	op->type = UNKNOWN;
 	return 0;
 
  logical_done:
