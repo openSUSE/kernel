@@ -819,6 +819,9 @@ enum {
 enum {
 	VFIO_CCW_IO_IRQ_INDEX,
 	VFIO_CCW_CRW_IRQ_INDEX,
+#ifndef __GENKSYMS__
+	VFIO_CCW_REQ_IRQ_INDEX,
+#endif
 	VFIO_CCW_NUM_IRQS
 };
 
