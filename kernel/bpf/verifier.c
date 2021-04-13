@@ -5508,7 +5508,7 @@ static int is_branch_taken(struct bpf_reg_state *reg, u64 val, u8 opcode,
 	case BPF_JSGT:
 		if (reg->smin_value > sval)
 			return 1;
-		else if (reg->smax_value < sval)
+		else if (reg->smax_value <= sval)
 			return 0;
 		break;
 	case BPF_JLT:
