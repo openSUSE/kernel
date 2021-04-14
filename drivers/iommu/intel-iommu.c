@@ -696,6 +696,34 @@ static int domain_update_iommu_superpage(struct intel_iommu *skip)
 	return fls(mask);
 }
 
+static int domain_update_device_node(struct dmar_domain *domain)
+{
+	struct device_domain_info *info;
+	int nid = NUMA_NO_NODE;
+
+	assert_spin_locked(&device_domain_lock);
+
+	if (list_empty(&domain->devices))
+		return NUMA_NO_NODE;
+
+	list_for_each_entry(info, &domain->devices, link) {
+		if (!info->dev)
+			continue;
+
+		/*
+		 * There could possibly be multiple device numa nodes as devices
+		 * within the same domain may sit behind different IOMMUs. There
+		 * isn't perfect answer in such situation, so we select first
+		 * come first served policy.
+		 */
+		nid = dev_to_node(info->dev);
+		if (nid != NUMA_NO_NODE)
+			break;
+	}
+
+	return nid;
+}
+
 static void domain_update_iotlb(struct dmar_domain *domain);
 
 /* Some capabilities may be different across iommus */
@@ -704,6 +732,13 @@ static void domain_update_iommu_cap(struct dmar_domain *domain)
 	domain_update_iommu_coherency(domain);
 	domain->iommu_snooping = domain_update_iommu_snooping(NULL);
 	domain->iommu_superpage = domain_update_iommu_superpage(NULL);
+
+	/*
+	 * If RHSA is missing, we should default to the device numa domain
+	 * as fall back.
+	 */
+	if (domain->nid == NUMA_NO_NODE)
+		domain->nid = domain_update_device_node(domain);
 
 	domain_update_iotlb(domain);
 }
@@ -4968,8 +5003,6 @@ static struct iommu_domain *intel_iommu_domain_alloc(unsigned type)
 			pr_warn("iova flush queue initialization failed\n");
 			intel_iommu_strict = 1;
 		}
-
-		domain_update_iommu_cap(dmar_domain);
 
 		domain = &dmar_domain->domain;
 		domain->geometry.aperture_start = 0;

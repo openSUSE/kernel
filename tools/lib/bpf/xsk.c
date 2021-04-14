@@ -51,6 +51,8 @@ struct xsk_umem {
 	struct xsk_umem_config config;
 	int fd;
 	int refcount;
+	bool rx_ring_setup_done;
+	bool tx_ring_setup_done;
 };
 
 struct xsk_socket {
@@ -561,6 +563,7 @@ int xsk_socket__create(struct xsk_socket **xsk_ptr, const char *ifname,
 	struct xdp_mmap_offsets off;
 	struct xsk_socket *xsk;
 	int err;
+	bool rx_setup_done = false, tx_setup_done = false;
 
 	if (!umem || !xsk_ptr || !rx || !tx)
 		return -EFAULT;
@@ -582,6 +585,8 @@ int xsk_socket__create(struct xsk_socket **xsk_ptr, const char *ifname,
 		}
 	} else {
 		xsk->fd = umem->fd;
+		rx_setup_done = umem->rx_ring_setup_done;
+		tx_setup_done = umem->tx_ring_setup_done;
 	}
 
 	xsk->outstanding_tx = 0;
@@ -599,7 +604,7 @@ int xsk_socket__create(struct xsk_socket **xsk_ptr, const char *ifname,
 	if (err)
 		goto out_socket;
 
-	if (rx) {
+	if (rx && !rx_setup_done) {
 		err = setsockopt(xsk->fd, SOL_XDP, XDP_RX_RING,
 				 &xsk->config.rx_size,
 				 sizeof(xsk->config.rx_size));
@@ -607,8 +612,10 @@ int xsk_socket__create(struct xsk_socket **xsk_ptr, const char *ifname,
 			err = -errno;
 			goto out_socket;
 		}
+		if (xsk->fd == umem->fd)
+			umem->rx_ring_setup_done = true;
 	}
-	if (tx) {
+	if (tx && !tx_setup_done) {
 		err = setsockopt(xsk->fd, SOL_XDP, XDP_TX_RING,
 				 &xsk->config.tx_size,
 				 sizeof(xsk->config.tx_size));
@@ -616,6 +623,8 @@ int xsk_socket__create(struct xsk_socket **xsk_ptr, const char *ifname,
 			err = -errno;
 			goto out_socket;
 		}
+		if (xsk->fd == umem->fd)
+			umem->rx_ring_setup_done = true;
 	}
 
 	err = xsk_get_mmap_offsets(xsk->fd, &off);
