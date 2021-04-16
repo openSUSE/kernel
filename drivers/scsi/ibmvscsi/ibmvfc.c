@@ -57,7 +57,7 @@ MODULE_LICENSE("GPL");
 MODULE_VERSION(IBMVFC_DRIVER_VERSION);
 
 module_param_named(mq, mq_enabled, uint, S_IRUGO);
-MODULE_PARM_DESC(mq, "Enable multiqueue support. "
+MODULE_PARM_DESC(mq, "Enable (EXPERIMENTAL) multiqueue support. "
 		 "[Default=" __stringify(IBMVFC_MQ) "]");
 module_param_named(scsi_host_queues, nr_scsi_hw_queues, uint, S_IRUGO);
 MODULE_PARM_DESC(scsi_host_queues, "Number of SCSI Host submission queues. "
