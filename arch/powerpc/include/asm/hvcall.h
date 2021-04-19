@@ -314,7 +314,8 @@
 #define H_SCM_UNBIND_ALL        0x3FC
 #define H_SCM_HEALTH            0x400
 #define H_SCM_PERFORMANCE_STATS 0x418
-#define MAX_HCALL_OPCODE	H_SCM_PERFORMANCE_STATS
+#define H_SCM_FLUSH		0x44C
+#define MAX_HCALL_OPCODE	H_SCM_FLUSH
 
 /* Scope args for H_SCM_UNBIND_ALL */
 #define H_UNBIND_SCOPE_ALL (0x1)
