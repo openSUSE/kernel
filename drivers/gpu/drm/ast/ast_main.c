@@ -384,6 +384,7 @@ static int ast_get_dram_info(struct drm_device *dev)
 int ast_driver_load(struct drm_device *dev, unsigned long flags)
 {
 	struct ast_private *ast;
+	unsigned int vram_size;
 	bool need_post;
 	int ret = 0;
 
@@ -434,6 +435,20 @@ int ast_driver_load(struct drm_device *dev, unsigned long flags)
 	if (ret)
 		goto out_free;
 
+	/* map reserved buffer */
+	vram_size = ast->dev->vram_mm->vram_size;
+	if (vram_size < pci_resource_len(dev->pdev, 0)) {
+		ast->reservedbuffer =
+			ioremap_nocache(pci_resource_start(ast->dev->pdev, 0) +
+					vram_size,
+					pci_resource_len(dev->pdev, 0) - vram_size);
+		if (!ast->reservedbuffer) {
+			DRM_INFO("failed to map reserved buffer\n");
+			ret = -EIO;
+			goto out_free;
+		}
+	}
+
 	ret = ast_mode_config_init(ast);
 	if (ret)
 		goto out_free;
@@ -452,6 +467,8 @@ void ast_driver_unload(struct drm_device *dev)
 	/* enable standard VGA decode */
 	ast_set_index_reg(ast, AST_IO_CRTC_PORT, 0xa1, 0x04);
 
+	if (ast->reservedbuffer)
+		iounmap(ast->reservedbuffer);
 	ast_release_firmware(dev);
 	kfree(ast->dp501_fw_addr);
 
