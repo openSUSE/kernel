@@ -52,6 +52,7 @@
 
 #define PCI_CHIP_AST2000 0x2000
 #define PCI_CHIP_AST2100 0x2010
+#define PCI_CHIP_AIP200  0xA200
 
 
 enum ast_chip {
@@ -63,6 +64,7 @@ enum ast_chip {
 	AST2300,
 	AST2400,
 	AST2500,
+	AIP200,
 };
 
 enum ast_tx_chip {

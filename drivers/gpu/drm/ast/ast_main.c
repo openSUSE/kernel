@@ -157,7 +157,10 @@ static int ast_detect_chip(struct drm_device *dev, bool *need_post)
 	ast_detect_config_mode(dev, &scu_rev);
 
 	/* Identify chipset */
-	if (dev->pdev->revision >= 0x40) {
+	if (dev->pdev->device == PCI_CHIP_AIP200) {
+		ast->chip = AIP200;
+		drm_info(dev, "AIP 200 detected\n");
+	} else if (dev->pdev->revision >= 0x40) {
 		ast->chip = AST2500;
 		drm_info(dev, "AST 2500 detected\n");
 	} else if (dev->pdev->revision >= 0x30) {
@@ -193,6 +196,7 @@ static int ast_detect_chip(struct drm_device *dev, bool *need_post)
 
 	/* Check if we support wide screen */
 	switch (ast->chip) {
+	case AIP200:
 	case AST2000:
 		ast->support_wide_screen = false;
 		break;
