@@ -157,6 +157,9 @@ static int ast_detect_chip(struct drm_device *dev, bool *need_post)
 	if (dev->pdev->device == PCI_CHIP_AST1180) {
 		ast->chip = AST1100;
 		DRM_INFO("AST 1180 detected\n");
+	} else if (dev->pdev->device == PCI_CHIP_AIP200) {
+		ast->chip = AIP200;
+		DRM_INFO("AIP 200 detected\n");
 	} else {
 		if (dev->pdev->revision >= 0x40) {
 			ast->chip = AST2500;
@@ -195,6 +198,7 @@ static int ast_detect_chip(struct drm_device *dev, bool *need_post)
 
 	/* Check if we support wide screen */
 	switch (ast->chip) {
+	case AIP200:
 	case AST1180:
 		ast->support_wide_screen = true;
 		break;
@@ -579,6 +583,7 @@ int ast_driver_load(struct drm_device *dev, unsigned long flags)
 	    ast->chip == AST2300 ||
 	    ast->chip == AST2400 ||
 	    ast->chip == AST2500 ||
+	    ast->chip == AIP200  ||
 	    ast->chip == AST1180) {
 		dev->mode_config.max_width = 1920;
 		dev->mode_config.max_height = 2048;
