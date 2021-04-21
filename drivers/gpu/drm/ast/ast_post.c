@@ -40,9 +40,11 @@ static void ast_post_chip_2500(struct drm_device *dev);
 void ast_enable_vga(struct drm_device *dev)
 {
 	struct ast_private *ast = to_ast_private(dev);
+	u8 ch;
 
 	ast_io_write8(ast, AST_IO_VGA_ENABLE_PORT, 0x01);
-	ast_io_write8(ast, AST_IO_MISC_PORT_WRITE, 0x01);
+	ch = ast_io_read8(ast, AST_IO_MISC_PORT_READ);
+	ast_io_write8(ast, AST_IO_MISC_PORT_WRITE, ch | 0x01);
 }
 
 void ast_enable_mmio(struct drm_device *dev)
