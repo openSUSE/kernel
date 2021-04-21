@@ -127,6 +127,7 @@ struct ast_private {
 	struct drm_plane cursor_plane;
 
 	bool support_newvga_mode;
+	bool refclk_25mhz;
 	enum {
 		ast_use_p2a,
 		ast_use_dt,

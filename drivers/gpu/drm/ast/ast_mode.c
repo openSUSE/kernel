@@ -432,10 +432,17 @@ static void ast_set_dclk_reg(struct ast_private *ast,
 {
 	const struct ast_vbios_dclk_info *clk_info;
 
-	if (ast->chip == AST2500)
-		clk_info = &dclk_table_ast2500[vbios_mode->enh_table->dclk_index];
-	else
-		clk_info = &dclk_table[vbios_mode->enh_table->dclk_index];
+	if (ast->chip == AST2500) {
+		if (ast->refclk_25mhz)
+			clk_info = &dclk_table_ast2500_25mhz[vbios_mode->enh_table->dclk_index];
+		else
+			clk_info = &dclk_table_ast2500[vbios_mode->enh_table->dclk_index];
+	} else {
+		if (ast->refclk_25mhz)
+			clk_info = &dclk_table_25mhz[vbios_mode->enh_table->dclk_index];
+		else
+			clk_info = &dclk_table[vbios_mode->enh_table->dclk_index];
+	}
 
 	ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xc0, 0x00, clk_info->param1);
 	ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xc1, 0x00, clk_info->param2);
