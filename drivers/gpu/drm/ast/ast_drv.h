@@ -88,6 +88,7 @@ struct ast_private {
 
 	void __iomem *regs;
 	void __iomem *ioregs;
+	void __iomem *reservedbuffer;
 
 	enum ast_chip chip;
 	bool vga2_clone;

@@ -541,6 +541,17 @@ int ast_driver_load(struct drm_device *dev, unsigned long flags)
 	if (ret)
 		goto out_free;
 
+	/* map reserved buffer */
+	if (ast->vram_size < pci_resource_len(dev->pdev, 0)) {
+		ast->reservedbuffer =
+			ioremap_nocache(pci_resource_start(ast->dev->pdev, 0) +
+					ast->vram_size,
+					pci_resource_len(dev->pdev, 0) -
+					ast->vram_size);
+		if (!ast->reservedbuffer)
+			DRM_INFO("failed to map reserved buffer\n");
+	}
+
 	drm_mode_config_init(dev);
 
 	dev->mode_config.funcs = (void *)&ast_mode_funcs;
@@ -592,6 +603,8 @@ void ast_driver_unload(struct drm_device *dev)
 	drm_mode_config_cleanup(dev);
 
 	ast_mm_fini(ast);
+	if (ast->reservedbuffer)
+		iounmap(ast->reservedbuffer);
 	if (ast->ioregs != ast->regs + AST_IO_MM_OFFSET)
 		pci_iounmap(dev->pdev, ast->ioregs);
 	pci_iounmap(dev->pdev, ast->regs);
