@@ -92,7 +92,16 @@ static void ast_detect_config_mode(struct drm_device *dev, u32 *scu_rev)
 	jregd1 = ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xd1, 0xff);
 	if (!(jregd0 & 0x80) || !(jregd1 & 0x10)) {
 		/* Double check it's actually working */
-		data = ast_read32(ast, 0xf004);
+		if ((dev->pdev->revision & 0xF0) >= 0x30) {
+			/* AST2400 and newer */
+			data = ast_read32(ast, 0xf004);
+		} else {
+			/* AST2300 and older */
+			ast_write32(ast, 0xf004, 0x1e6e0000);
+			ast_write32(ast, 0xf000, 0x1);
+			data = ast_read32(ast, 0x1207c);
+		}
+
 		if (data != 0xFFFFFFFF) {
 			/* P2A works, grab silicon revision */
 			ast->config_mode = ast_use_p2a;
