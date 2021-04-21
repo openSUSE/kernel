@@ -94,6 +94,10 @@ static void ast_detect_config_mode(struct drm_device *dev, u32 *scu_rev)
 	jregd0 = ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xd0, 0xff);
 	jregd1 = ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xd1, 0xff);
 	if (!(jregd0 & 0x80) || !(jregd1 & 0x10)) {
+		/* Patch AST2500 */
+		if ((dev->pdev->revision & 0xF0) == 0x40 && (jregd0 & 0xC0) == 0)
+			patch_ahb_ast2500(ast);
+
 		/* Double check it's actually working */
 		if ((dev->pdev->revision & 0xF0) >= 0x30) {
 			/* AST2400 and newer */
