@@ -126,7 +126,7 @@ struct ast_private {
 	struct drm_plane primary_plane;
 	struct drm_plane cursor_plane;
 
-	bool support_wide_screen;
+	bool support_newvga_mode;
 	enum {
 		ast_use_p2a,
 		ast_use_dt,

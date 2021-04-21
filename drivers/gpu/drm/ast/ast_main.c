@@ -194,29 +194,29 @@ static int ast_detect_chip(struct drm_device *dev, bool *need_post)
 		drm_info(dev, "AST 2000 detected\n");
 	}
 
-	/* Check if we support wide screen */
+	/* Check if we newvga mode & support wide screen */
 	switch (ast->chip) {
 	case AIP200:
 	case AST2000:
-		ast->support_wide_screen = false;
+		ast->support_newvga_mode = false;
 		break;
 	default:
 		jreg = ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xd0, 0xff);
 		if (!(jreg & 0x80))
-			ast->support_wide_screen = true;
+			ast->support_newvga_mode = true;
 		else if (jreg & 0x01)
-			ast->support_wide_screen = true;
+			ast->support_newvga_mode = true;
 		else {
-			ast->support_wide_screen = false;
+			ast->support_newvga_mode = false;
 			if (ast->chip == AST2300 &&
 			    (scu_rev & 0x300) == 0x0) /* ast1300 */
-				ast->support_wide_screen = true;
+				ast->support_newvga_mode = true;
 			if (ast->chip == AST2400 &&
 			    (scu_rev & 0x300) == 0x100) /* ast1400 */
-				ast->support_wide_screen = true;
+				ast->support_newvga_mode = true;
 			if (ast->chip == AST2500 &&
 			    scu_rev == 0x100)           /* ast2510 */
-				ast->support_wide_screen = true;
+				ast->support_newvga_mode = true;
 		}
 		break;
 	}
