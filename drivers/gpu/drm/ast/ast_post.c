@@ -110,6 +110,10 @@ ast_set_def_ext_reg(struct drm_device *dev)
 	    ast->chip == AST2500)
 		reg |= 0x20;
 	ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xb6, 0xff, reg);
+
+	/* Screen off */
+	ast_set_index_reg_mask(ast, AST_IO_SEQ_PORT, 0x01, 0xff, 0x20);
+	udelay(10);
 }
 
 u32 ast_mindwm(struct ast_private *ast, u32 r)
