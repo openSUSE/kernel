@@ -137,6 +137,9 @@ static int ast_detect_chip(struct drm_device *dev, bool *need_post)
 	ast_open_key(ast);
 	ast_enable_mmio(dev);
 
+	/* disable standard VGA decode */
+	ast_set_index_reg(ast, AST_IO_CRTC_PORT, 0xa1, 0x06);
+
 	/* Find out whether P2A works or whether to use device-tree */
 	ast_detect_config_mode(dev, &scu_rev);
 
