@@ -8058,9 +8058,10 @@ static struct sk_buff *igb_construct_skb(struct igb_ring *rx_ring,
 		return NULL;
 
 	if (unlikely(igb_test_staterr(rx_desc, E1000_RXDADV_STAT_TSIP))) {
-		igb_ptp_rx_pktstamp(rx_ring->q_vector, va, skb);
-		va += IGB_TS_HDR_LEN;
-		size -= IGB_TS_HDR_LEN;
+		if (!igb_ptp_rx_pktstamp(rx_ring->q_vector, va, skb)) {
+			va += IGB_TS_HDR_LEN;
+			size -= IGB_TS_HDR_LEN;
+		}
 	}
 
 	/* Determine available headroom for copy */
@@ -8120,8 +8121,8 @@ static struct sk_buff *igb_build_skb(struct igb_ring *rx_ring,
 
 	/* pull timestamp out of packet data */
 	if (igb_test_staterr(rx_desc, E1000_RXDADV_STAT_TSIP)) {
-		igb_ptp_rx_pktstamp(rx_ring->q_vector, skb->data, skb);
-		__skb_pull(skb, IGB_TS_HDR_LEN);
+		if (!igb_ptp_rx_pktstamp(rx_ring->q_vector, skb->data, skb))
+			__skb_pull(skb, IGB_TS_HDR_LEN);
 	}
 
 	/* update buffer offset */
