@@ -330,10 +330,11 @@ static int cpufreq_set_cur_state(struct thermal_cooling_device *cdev,
 	if (cpufreq_cdev->cpufreq_state == state)
 		return 0;
 
-	cpufreq_cdev->cpufreq_state = state;
-
 	ret = freq_qos_update_request(&cpufreq_cdev->qos_req,
 				cpufreq_cdev->freq_table[state].frequency);
+	if (ret > 0)
+		cpufreq_cdev->cpufreq_state = state;
+
 	return ret < 0 ? ret : 0;
 }
 

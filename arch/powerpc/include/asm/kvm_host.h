@@ -299,7 +299,11 @@ struct kvm_arch {
 	struct list_head spapr_tce_tables;
 	struct list_head rtas_tokens;
 	struct mutex rtas_token_lock;
+#ifndef __GENKSYMS__
 	DECLARE_BITMAP(enabled_hcalls, MAX_HCALL_OPCODE/4 + 1);
+#else
+	DECLARE_BITMAP(enabled_hcalls, H_SCM_PERFORMANCE_STATS/4 + 1);
+#endif
 #endif
 #ifdef CONFIG_KVM_MPIC
 	struct openpic *mpic;

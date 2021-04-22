@@ -290,6 +290,7 @@ struct pci_vpd;
 struct pci_sriov;
 struct pci_ats;
 struct pci_p2pdma;
+struct rcec_ea;
 
 /* The pci_dev structure describes PCI devices */
 struct pci_dev {
@@ -484,6 +485,10 @@ struct pci_dev {
 	u16		dpc_cap;
 	unsigned int	dpc_rp_extensions:1;
 	u8		dpc_rp_log_size;
+#ifdef CONFIG_PCIEPORTBUS
+	struct rcec_ea	*rcec_ea;	/* RCEC cached endpoint association */
+	struct pci_dev  *rcec;          /* Associated RCEC device */
+#endif
 #endif /* __GENKSYMS__ */
 #endif
 };
