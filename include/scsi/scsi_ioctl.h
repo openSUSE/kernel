@@ -51,5 +51,7 @@ int get_sg_io_hdr(struct sg_io_hdr *hdr, const void __user *argp);
 int put_sg_io_hdr(const struct sg_io_hdr *hdr, void __user *argp);
 bool scsi_cmd_allowed(unsigned char *cmd, bool open_for_write);
 
+int sg_io(struct scsi_device *sdev, struct sg_io_hdr *hdr, bool open_for_write);
+
 #endif /* __KERNEL__ */
 #endif /* _SCSI_IOCTL_H */

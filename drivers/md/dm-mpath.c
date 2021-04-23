@@ -24,7 +24,13 @@
 #include <linux/timer.h>
 #include <linux/workqueue.h>
 #include <linux/delay.h>
+#include <scsi/scsi_proto.h>
+#include <scsi/scsi_status.h>
 #include <scsi/scsi_dh.h>
+#include <scsi/scsi_eh.h>
+#include <scsi/scsi_ioctl.h>
+#include <scsi/scsi_common.h>
+#include <scsi/sg.h>
 #include <linux/atomic.h>
 #include <linux/blk-mq.h>
 
@@ -2186,6 +2192,222 @@ static int multipath_busy(struct dm_target *ti)
 }
 
 /*
+ * For regular block I/O, SCSI results are processed by scsi_io_completion(),
+ * setting the blk_status_t. Only ACTION_FAIL cases from
+ * scsi_io_completion_action() are relevant. The sg driver drops the
+ * blk_status_t and the midlayer status byte.
+ *
+ * blk_status_t is used in blk_path_error() to determine if it makes sens to
+ * retry the command on a different path.  The relevant blk status codes that
+ * are not retried are BLK_STS_TARGET, BLK_STS_RESV_CONFLICT, BLK_STS_MEDIUM,
+ * and BLK_STS_PROTECTION.
+ */
+static blk_status_t sg_status_to_blkstat(const struct block_device *path_dev,
+					 const struct sg_io_hdr *hdr)
+{
+	struct scsi_sense_hdr sshdr = { .sense_key = 0 };
+	bool sense_current = false;
+
+	if (!hdr->info & SG_INFO_CHECK)
+		return BLK_STS_OK;
+
+	dev_dbg_ratelimited(&path_dev->bd_disk->part0->bd_device,
+			    "D=%02x H=%02x M=%02x S=%02x\n",
+			    hdr->driver_status, hdr->host_status,
+			    hdr->msg_status, hdr->status);
+
+	sense_current = scsi_normalize_sense(hdr->sbp, hdr->sb_len_wr, &sshdr)
+		&& !scsi_sense_is_deferred(&sshdr);
+
+	if (sense_current)
+		dev_dbg_ratelimited(&path_dev->bd_disk->part0->bd_device,
+				    "sense data: %02x %02x/%02x\n",
+				    sshdr.sense_key, sshdr.asc, sshdr.ascq);
+	else
+		/* Ignore deferred sense below */
+		sshdr.sense_key = NO_SENSE;
+
+	/*
+	 * scsi_result_to_blk_status() looks at SCSIML flags first.
+	 * (e.g. SCSIML_STAT_TGT_FAILURE)
+	 * They are set from status and sense data in the mid layer.
+	 */
+	if (hdr->status == SAM_STAT_RESERVATION_CONFLICT)
+		return BLK_STS_RESV_CONFLICT;
+
+	switch (sshdr.sense_key) {
+	case DATA_PROTECT:
+		if (sshdr.asc == 0x27 && sshdr.ascq == 0x07)
+			return BLK_STS_NOSPC;
+		break;
+
+	case HARDWARE_ERROR:
+	case COPY_ABORTED:
+	case VOLUME_OVERFLOW:
+	case MISCOMPARE:
+	case BLANK_CHECK:
+		return BLK_STS_TARGET;
+
+	case MEDIUM_ERROR:
+		if (sshdr.asc == 0x11 || sshdr.asc == 0x13 || sshdr.asc == 0x14)
+			return BLK_STS_MEDIUM;
+		break;
+
+	case ILLEGAL_REQUEST:
+		if (sshdr.asc == 0x20 || sshdr.asc == 0x21 || sshdr.asc == 0x22 ||
+		    sshdr.asc == 0x24 || sshdr.asc == 0x26 || sshdr.asc == 0x27)
+			return BLK_STS_TARGET;
+		break;
+	}
+
+	/* Host byte handling in scsi_result_to_blk_status() */
+	switch (hdr->host_status) {
+	case DID_OK:
+		/* scsi_status_is_good() */
+		switch (hdr->status) {
+		case SAM_STAT_GOOD:
+		case SAM_STAT_CONDITION_MET:
+		case SAM_STAT_INTERMEDIATE:
+		case SAM_STAT_INTERMEDIATE_CONDITION_MET:
+		case SAM_STAT_COMMAND_TERMINATED:
+			return BLK_STS_OK;
+		default:
+			return BLK_STS_IOERR;
+		}
+	case DID_TRANSPORT_FAILFAST:
+	case DID_TRANSPORT_MARGINAL:
+		return BLK_STS_TRANSPORT;
+	default:
+		break;
+	}
+
+	/* Sense keys from scsi_io_completion_action() in addition to the above */
+	switch (sshdr.sense_key) {
+	case ILLEGAL_REQUEST:
+	case ABORTED_COMMAND:
+		if (sshdr.asc == 0x10)
+			return BLK_STS_PROTECTION;
+		break;
+	}
+
+	return BLK_STS_IOERR;
+}
+
+enum {
+	SG_IO_SUCCESS = 0,
+	SG_IO_SWITCH_PATH,
+};
+
+static int path_sg_io(const struct block_device *path_dev, struct sg_io_hdr *hdr,
+		      bool open_for_write)
+{
+	struct scsi_device *sdev;
+	blk_status_t blkstat;
+	int rc;
+
+	sdev = path_dev->bd_disk->queue->queuedata;
+	rc = sg_io(sdev, hdr, open_for_write);
+
+	if (rc != 0) {
+		dev_dbg_ratelimited(&path_dev->bd_disk->part0->bd_device,
+				    "sg_io() -> %d\n", rc);
+		return rc;
+	}
+
+	blkstat = sg_status_to_blkstat(path_dev, hdr);
+	if (blkstat == BLK_STS_OK)
+		return SG_IO_SUCCESS;
+	dev_dbg_ratelimited(&path_dev->bd_disk->part0->bd_device,
+			    "blkstat = %d\n", blkstat);
+	if (blk_path_error(blkstat))
+		return SG_IO_SWITCH_PATH;
+	else
+		return blk_status_to_errno(blkstat);
+}
+
+static int multipath_fail_bdev(struct dm_target *ti, const struct block_device *bdev)
+{
+	struct multipath *m = ti->private;
+	struct pgpath *pgpath;
+	struct priority_group *pg;
+
+	list_for_each_entry(pg, &m->priority_groups, list) {
+		list_for_each_entry(pgpath, &pg->pgpaths, list) {
+			if (pgpath->path.dev->bdev == bdev) {
+				dev_dbg_ratelimited(&bdev->bd_disk->part0->bd_device,
+						    "failing path\n");
+				return fail_path(pgpath);
+			}
+		}
+	}
+	return -ENODEV;
+}
+
+static int multipath_sg_io_ioctl(struct block_device *bdev, fmode_t mode,
+				 void __user *arg)
+{
+	struct mapped_device *md = bdev->bd_disk->private_data;
+	struct device *dev = &bdev->bd_disk->part0->bd_device;
+	struct sg_io_hdr hdr;
+	int rc, srcu_idx;
+
+	if (copy_from_user(&hdr, arg, sizeof(hdr)))
+		return -EFAULT;
+
+	if (hdr.interface_id != 'S')
+		return -EINVAL;
+
+	if (hdr.dxfer_len > (queue_max_hw_sectors(bdev->bd_disk->queue) << 9))
+		return -EIO;
+
+	for (;;) {
+		struct dm_target *tgt;
+		struct sg_io_hdr path_hdr;
+		struct block_device *path_dev;
+
+	suspended:
+		rc = _dm_prepare_ioctl(md, &srcu_idx, &path_dev, &tgt);
+		if (rc == -EAGAIN) {
+			dm_unprepare_ioctl(md, srcu_idx);
+			dev_dbg_ratelimited(dev,"device is suspended, retrying\n");
+			fsleep(10000);
+			goto suspended;
+		} else if (rc < 0) {
+			dev_warn_ratelimited(dev, "failed to get path: %d\n", rc);
+			goto out;
+		} else if (rc > 0 && !capable(CAP_SYS_RAWIO)) {
+			dev_warn_ratelimited(dev, "%s: sending SG_IO ioctl to DM device without required privilege\n",
+					     current->comm);
+			goto out;
+		}
+
+		path_hdr = hdr;
+		rc = path_sg_io(path_dev, &path_hdr, mode & FMODE_WRITE);
+
+		switch (rc) {
+		case SG_IO_SWITCH_PATH:
+			rc = multipath_fail_bdev(tgt, path_dev);
+			if (rc < 0) {
+				dev_warn_ratelimited(&path_dev->bd_disk->part0->bd_device,
+						     "error trying to fail path: %d", rc);
+				goto out;
+			}
+			break;
+		case SG_IO_SUCCESS:
+			if (copy_to_user(arg, &path_hdr, sizeof(path_hdr)))
+				rc = -EFAULT;
+			fallthrough;
+		default: /* negative error code */
+			goto out;
+		}
+		dm_unprepare_ioctl(md, srcu_idx);
+	}
+out:
+	dm_unprepare_ioctl(md, srcu_idx);
+	return rc;
+}
+
+/*
  *---------------------------------------------------------------
  * Module setup
  *---------------------------------------------------------------
@@ -2211,6 +2433,7 @@ static struct target_type multipath_target = {
 	.prepare_ioctl = multipath_prepare_ioctl,
 	.iterate_devices = multipath_iterate_devices,
 	.busy = multipath_busy,
+	.sg_io = multipath_sg_io_ioctl,
 };
 
 static int __init dm_multipath_init(void)
