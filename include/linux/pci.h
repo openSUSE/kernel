@@ -533,6 +533,10 @@ struct pci_host_bridge {
 	unsigned int	native_pme:1;		/* OS may use PCIe PME */
 	unsigned int	native_ltr:1;		/* OS may use PCIe LTR */
 	unsigned int	preserve_config:1;	/* Preserve FW resource setup */
+#ifndef __GENKSYMS__
+	/* Safe to leave this bit here - it is bit 8 of a 32 bit field */
+	unsigned int	native_dpc:1;		/* OS may use PCIe DPC */
+#endif
 
 	void* suse_kabi_padding;
 
@@ -543,10 +547,6 @@ struct pci_host_bridge {
 			resource_size_t size,
 			resource_size_t align);
 	unsigned long	private[0] ____cacheline_aligned;
-
-#ifndef __GENKSYMS__
-	unsigned int	native_dpc:1;		/* OS may use PCIe DPC */
-#endif
 };
 
 #define	to_pci_host_bridge(n) container_of(n, struct pci_host_bridge, dev)
