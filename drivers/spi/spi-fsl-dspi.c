@@ -39,7 +39,7 @@
 
 #define SPI_MCR		0x00
 #define SPI_MCR_MASTER		(1 << 31)
-#define SPI_MCR_PCSIS(x)		((x) << 16)
+#define SPI_MCR_PCSIS		(0x3F << 16)
 #define SPI_MCR_CLR_TXF	(1 << 11)
 #define SPI_MCR_CLR_RXF	(1 << 10)
 #define SPI_MCR_XSPI		(1 << 3)
@@ -49,9 +49,9 @@
 
 #define SPI_CTAR(x)		(0x0c + (((x) & 0x3) * 4))
 #define SPI_CTAR_FMSZ(x)	(((x) & 0x0000000f) << 27)
-#define SPI_CTAR_CPOL			BIT(26)
-#define SPI_CTAR_CPHA			BIT(25)
-#define SPI_CTAR_LSBFE			BIT(24)
+#define SPI_CTAR_CPOL(x)	((x) << 26)
+#define SPI_CTAR_CPHA(x)	((x) << 25)
+#define SPI_CTAR_LSBFE(x)	((x) << 24)
 #define SPI_CTAR_PCSSCK(x)	(((x) & 0x00000003) << 22)
 #define SPI_CTAR_PASC(x)	(((x) & 0x00000003) << 20)
 #define SPI_CTAR_PDT(x)	(((x) & 0x00000003) << 18)
@@ -206,7 +206,8 @@ struct fsl_dspi {
 	u8			bytes_per_word;
 	const struct fsl_dspi_devtype_data *devtype_data;
 
-	struct completion	xfer_done;
+	wait_queue_head_t	waitq;
+	u32			waitflags;
 
 	struct fsl_dspi_dma	*dma;
 };
@@ -595,14 +596,21 @@ static void dspi_tcfq_write(struct fsl_dspi *dspi)
 	dspi->tx_cmd |= SPI_PUSHR_CMD_CTCNT;
 
 	if (dspi->devtype_data->xspi_mode && dspi->bits_per_word > 16) {
-		/* Write the CMD FIFO entry first, and then the two
-		 * corresponding TX FIFO entries.
+		/* Write two TX FIFO entries first, and then the corresponding
+		 * CMD FIFO entry.
 		 */
 		u32 data = dspi_pop_tx(dspi);
 
+		if (dspi->cur_chip->ctar_val & SPI_CTAR_LSBFE(1)) {
+			/* LSB */
+			tx_fifo_write(dspi, data & 0xFFFF);
+			tx_fifo_write(dspi, data >> 16);
+		} else {
+			/* MSB */
+			tx_fifo_write(dspi, data >> 16);
+			tx_fifo_write(dspi, data & 0xFFFF);
+		}
 		cmd_fifo_write(dspi);
-		tx_fifo_write(dspi, data & 0xFFFF);
-		tx_fifo_write(dspi, data >> 16);
 	} else {
 		/* Write one entry to both TX FIFO and CMD FIFO
 		 * simultaneously.
@@ -737,8 +745,11 @@ static int dspi_transfer_one_message(struct spi_master *master,
 		}
 
 		if (trans_mode != DSPI_DMA_MODE) {
-			wait_for_completion(&dspi->xfer_done);
-			reinit_completion(&dspi->xfer_done);
+			if (wait_event_interruptible(dspi->waitq,
+						dspi->waitflags))
+				dev_err(&dspi->pdev->dev,
+					"wait transfer complete fail!\n");
+			dspi->waitflags = 0;
 		}
 
 		if (transfer->delay_usecs)
@@ -794,22 +805,18 @@ static int dspi_setup(struct spi_device *spi)
 	/* Set After SCK delay scale values */
 	ns_delay_scale(&pasc, &asc, sck_cs_delay, clkrate);
 
-	chip->ctar_val = 0;
-	if (spi->mode & SPI_CPOL)
-		chip->ctar_val |= SPI_CTAR_CPOL;
-	if (spi->mode & SPI_CPHA)
-		chip->ctar_val |= SPI_CTAR_CPHA;
+	chip->ctar_val = SPI_CTAR_CPOL(spi->mode & SPI_CPOL ? 1 : 0)
+		| SPI_CTAR_CPHA(spi->mode & SPI_CPHA ? 1 : 0);
 
 	if (!spi_controller_is_slave(dspi->master)) {
-		chip->ctar_val |= SPI_CTAR_PCSSCK(pcssck) |
-				  SPI_CTAR_CSSCK(cssck) |
-				  SPI_CTAR_PASC(pasc) |
-				  SPI_CTAR_ASC(asc) |
-				  SPI_CTAR_PBR(pbr) |
-				  SPI_CTAR_BR(br);
-
-		if (spi->mode & SPI_LSB_FIRST)
-			chip->ctar_val |= SPI_CTAR_LSBFE;
+		chip->ctar_val |= SPI_CTAR_LSBFE(spi->mode &
+						 SPI_LSB_FIRST ? 1 : 0)
+			| SPI_CTAR_PCSSCK(pcssck)
+			| SPI_CTAR_CSSCK(cssck)
+			| SPI_CTAR_PASC(pasc)
+			| SPI_CTAR_ASC(asc)
+			| SPI_CTAR_PBR(pbr)
+			| SPI_CTAR_BR(br);
 	}
 
 	spi_set_ctldata(spi, chip);
@@ -863,7 +870,8 @@ static irqreturn_t dspi_interrupt(int irq, void *dev_id)
 		}
 
 		if (!dspi->len) {
-			complete(&dspi->xfer_done);
+			dspi->waitflags = 1;
+			wake_up_interruptible(&dspi->waitq);
 		} else {
 			switch (trans_mode) {
 			case DSPI_EOQ_MODE:
@@ -878,11 +886,9 @@ static irqreturn_t dspi_interrupt(int irq, void *dev_id)
 					trans_mode);
 			}
 		}
-
-		return IRQ_HANDLED;
 	}
 
-	return IRQ_NONE;
+	return IRQ_HANDLED;
 }
 
 static const struct of_device_id fsl_dspi_dt_ids[] = {
@@ -976,13 +982,9 @@ static const struct regmap_config dspi_xspi_regmap_config[] = {
 
 static void dspi_init(struct fsl_dspi *dspi)
 {
-	unsigned int mcr;
+	unsigned int mcr = SPI_MCR_PCSIS |
+		(dspi->devtype_data->xspi_mode ? SPI_MCR_XSPI : 0);
 
-	/* Set idle states for all chip select signals to high */
-	mcr = SPI_MCR_PCSIS(GENMASK(dspi->master->num_chipselect - 1, 0));
-
-	if (dspi->devtype_data->xspi_mode)
-		mcr |= SPI_MCR_XSPI;
 	if (!spi_controller_is_slave(dspi->master))
 		mcr |= SPI_MCR_MASTER;
 
@@ -1126,7 +1128,7 @@ static int dspi_probe(struct platform_device *pdev)
 	master->max_speed_hz =
 		clk_get_rate(dspi->clk) / dspi->devtype_data->max_clock_factor;
 
-	init_completion(&dspi->xfer_done);
+	init_waitqueue_head(&dspi->waitq);
 	platform_set_drvdata(pdev, master);
 
 	ret = spi_register_master(master);
