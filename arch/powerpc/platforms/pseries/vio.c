@@ -22,6 +22,9 @@
 #include <linux/mm.h>
 #include <linux/dma-mapping.h>
 #include <linux/kobject.h>
+#ifndef __GENKSYMS__
+#include <linux/kexec.h>
+#endif
 
 #include <asm/iommu.h>
 #include <asm/dma.h>
@@ -1276,6 +1279,14 @@ static int vio_bus_remove(struct device *dev)
 	return ret;
 }
 
+static void vio_bus_shutdown(struct device *dev)
+{
+	if (dev->driver) {
+		if (kexec_in_progress)
+			vio_bus_remove(dev);
+	}
+}
+
 /**
  * vio_register_driver: - Register a new vio driver
  * @viodrv:	The vio_driver structure to be registered.
@@ -1611,6 +1622,7 @@ struct bus_type vio_bus_type = {
 	.match = vio_bus_match,
 	.probe = vio_bus_probe,
 	.remove = vio_bus_remove,
+	.shutdown = vio_bus_shutdown,
 };
 
 /**

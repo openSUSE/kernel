@@ -839,6 +839,9 @@ static void igb_ptp_tx_hwtstamp(struct igb_adapter *adapter)
 	dev_kfree_skb_any(skb);
 }
 
+#define IGB_RET_PTP_DISABLED 1
+#define IGB_RET_PTP_INVALID 2
+
 /**
  * igb_ptp_rx_pktstamp - retrieve Rx per packet timestamp
  * @q_vector: Pointer to interrupt specific structure
@@ -847,19 +850,29 @@ static void igb_ptp_tx_hwtstamp(struct igb_adapter *adapter)
  *
  * This function is meant to retrieve a timestamp from the first buffer of an
  * incoming frame.  The value is stored in little endian format starting on
- * byte 8.
+ * byte 8
+ *
+ * Returns: 0 if success, nonzero if failure
  **/
-void igb_ptp_rx_pktstamp(struct igb_q_vector *q_vector, void *va,
-			 struct sk_buff *skb)
+int igb_ptp_rx_pktstamp(struct igb_q_vector *q_vector, void *va,
+			struct sk_buff *skb)
 {
-	__le64 *regval = (__le64 *)va;
 	struct igb_adapter *adapter = q_vector->adapter;
+	__le64 *regval = (__le64 *)va;
 	int adjust = 0;
+
+	if (!(adapter->ptp_flags & IGB_PTP_ENABLED))
+		return IGB_RET_PTP_DISABLED;
 
 	/* The timestamp is recorded in little endian format.
 	 * DWORD: 0        1        2        3
 	 * Field: Reserved Reserved SYSTIML  SYSTIMH
 	 */
+
+	/* check reserved dwords are zero, be/le doesn't matter for zero */
+	if (regval[0])
+		return IGB_RET_PTP_INVALID;
+
 	igb_ptp_systim_to_hwtstamp(adapter, skb_hwtstamps(skb),
 				   le64_to_cpu(regval[1]));
 
@@ -879,6 +892,8 @@ void igb_ptp_rx_pktstamp(struct igb_q_vector *q_vector, void *va,
 	}
 	skb_hwtstamps(skb)->hwtstamp =
 		ktime_sub_ns(skb_hwtstamps(skb)->hwtstamp, adjust);
+
+	return 0;
 }
 
 /**
@@ -889,13 +904,15 @@ void igb_ptp_rx_pktstamp(struct igb_q_vector *q_vector, void *va,
  * This function is meant to retrieve a timestamp from the internal registers
  * of the adapter and store it in the skb.
  **/
-void igb_ptp_rx_rgtstamp(struct igb_q_vector *q_vector,
-			 struct sk_buff *skb)
+void igb_ptp_rx_rgtstamp(struct igb_q_vector *q_vector, struct sk_buff *skb)
 {
 	struct igb_adapter *adapter = q_vector->adapter;
 	struct e1000_hw *hw = &adapter->hw;
-	u64 regval;
 	int adjust = 0;
+	u64 regval;
+
+	if (!(adapter->ptp_flags & IGB_PTP_ENABLED))
+		return;
 
 	/* If this bit is set, then the RX registers contain the time stamp. No
 	 * other packet will be time stamped until we read these registers, so
