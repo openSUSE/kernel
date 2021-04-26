@@ -13,6 +13,8 @@
  *          concepts of 'multiple limiters', upper/lower limits, etc.
  */
 
+#define pr_fmt(fmt) "ACPI: thermal: " fmt
+
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/dmi.h>
@@ -30,8 +32,6 @@
 #include <linux/uaccess.h>
 #include <linux/units.h>
 
-#define PREFIX "ACPI: "
-
 #define ACPI_THERMAL_CLASS		"thermal_zone"
 #define ACPI_THERMAL_DEVICE_NAME	"Thermal Zone"
 #define ACPI_THERMAL_NOTIFY_TEMPERATURE	0x80
@@ -43,9 +43,6 @@
 
 #define ACPI_THERMAL_MAX_ACTIVE	10
 #define ACPI_THERMAL_MAX_LIMIT_STR_LEN 65
-
-#define _COMPONENT		ACPI_THERMAL_COMPONENT
-ACPI_MODULE_NAME("thermal");
 
 MODULE_AUTHOR("Paul Diefenbaugh");
 MODULE_DESCRIPTION("ACPI Thermal Zone Driver");
@@ -198,8 +195,9 @@ static int acpi_thermal_get_temperature(struct acpi_thermal *tz)
 		return -ENODEV;
 
 	tz->temperature = tmp;
-	ACPI_DEBUG_PRINT((ACPI_DB_INFO, "Temperature is %lu dK\n",
-			  tz->temperature));
+
+	acpi_handle_debug(tz->device->handle, "Temperature is %lu dK\n",
+			  tz->temperature);
 
 	return 0;
 }
@@ -217,8 +215,8 @@ static int acpi_thermal_get_polling_frequency(struct acpi_thermal *tz)
 		return -ENODEV;
 
 	tz->polling_frequency = tmp;
-	ACPI_DEBUG_PRINT((ACPI_DB_INFO, "Polling frequency is %lu dS\n",
-			  tz->polling_frequency));
+	acpi_handle_debug(tz->device->handle, "Polling frequency is %lu dS\n",
+			  tz->polling_frequency);
 
 	return 0;
 }
@@ -255,12 +253,12 @@ static int acpi_thermal_set_cooling_mode(struct acpi_thermal *tz, int mode)
  * 2.TODO: Devices listed in _PSL, _ALx, _TZD may change.
  *   We need to re-bind the cooling devices of a thermal zone when this occurs.
  */
-#define ACPI_THERMAL_TRIPS_EXCEPTION(flags, str)	\
+#define ACPI_THERMAL_TRIPS_EXCEPTION(flags, tz, str)	\
 do {	\
 	if (flags != ACPI_TRIPS_INIT)	\
-		ACPI_EXCEPTION((AE_INFO, AE_ERROR,	\
+		acpi_handle_info(tz->device->handle,	\
 		"ACPI thermal trip point %s changed\n"	\
-		"Please send acpidump to linux-acpi@vger.kernel.org", str)); \
+		"Please report to linux-acpi@vger.kernel.org\n", str); \
 } while (0)
 
 static int acpi_thermal_trips_update(struct acpi_thermal *tz, int flag)
@@ -284,17 +282,17 @@ static int acpi_thermal_trips_update(struct acpi_thermal *tz, int flag)
 		 */
 		if (ACPI_FAILURE(status)) {
 			tz->trips.critical.flags.valid = 0;
-			ACPI_DEBUG_PRINT((ACPI_DB_INFO,
-					  "No critical threshold\n"));
+			acpi_handle_debug(tz->device->handle,
+					  "No critical threshold\n");
 		} else if (tmp <= 2732) {
-			pr_warn(FW_BUG "Invalid critical threshold (%llu)\n",
+			pr_info(FW_BUG "Invalid critical threshold (%llu)\n",
 				tmp);
 			tz->trips.critical.flags.valid = 0;
 		} else {
 			tz->trips.critical.flags.valid = 1;
-			ACPI_DEBUG_PRINT((ACPI_DB_INFO,
+			acpi_handle_debug(tz->device->handle,
 					  "Found critical threshold [%lu]\n",
-					  tz->trips.critical.temperature));
+					  tz->trips.critical.temperature);
 		}
 		if (tz->trips.critical.flags.valid == 1) {
 			if (crt == -1) {
@@ -306,8 +304,8 @@ static int acpi_thermal_trips_update(struct acpi_thermal *tz, int flag)
 				 * Allow override critical threshold
 				 */
 				if (crt_k > tz->trips.critical.temperature)
-					pr_warn(PREFIX "Critical threshold %d C\n",
-						crt);
+					pr_info("Critical threshold %d C\n", crt);
+
 				tz->trips.critical.temperature = crt_k;
 			}
 		}
@@ -319,14 +317,14 @@ static int acpi_thermal_trips_update(struct acpi_thermal *tz, int flag)
 				"_HOT", NULL, &tmp);
 		if (ACPI_FAILURE(status)) {
 			tz->trips.hot.flags.valid = 0;
-			ACPI_DEBUG_PRINT((ACPI_DB_INFO,
-					"No hot threshold\n"));
+			acpi_handle_debug(tz->device->handle,
+					  "No hot threshold\n");
 		} else {
 			tz->trips.hot.temperature = tmp;
 			tz->trips.hot.flags.valid = 1;
-			ACPI_DEBUG_PRINT((ACPI_DB_INFO,
-					"Found hot threshold [%lu]\n",
-					tz->trips.hot.temperature));
+			acpi_handle_debug(tz->device->handle,
+					  "Found hot threshold [%lu]\n",
+					  tz->trips.hot.temperature);
 		}
 	}
 
@@ -379,7 +377,8 @@ static int acpi_thermal_trips_update(struct acpi_thermal *tz, int flag)
 		status = acpi_evaluate_reference(tz->device->handle, "_PSL",
 							NULL, &devices);
 		if (ACPI_FAILURE(status)) {
-			pr_warn(PREFIX "Invalid passive threshold\n");
+			acpi_handle_info(tz->device->handle,
+					 "Invalid passive threshold\n");
 			tz->trips.passive.flags.valid = 0;
 		}
 		else
@@ -389,12 +388,12 @@ static int acpi_thermal_trips_update(struct acpi_thermal *tz, int flag)
 				sizeof(struct acpi_handle_list))) {
 			memcpy(&tz->trips.passive.devices, &devices,
 				sizeof(struct acpi_handle_list));
-			ACPI_THERMAL_TRIPS_EXCEPTION(flag, "device");
+			ACPI_THERMAL_TRIPS_EXCEPTION(flag, tz, "device");
 		}
 	}
 	if ((flag & ACPI_TRIPS_PASSIVE) || (flag & ACPI_TRIPS_DEVICES)) {
 		if (valid != tz->trips.passive.flags.valid)
-				ACPI_THERMAL_TRIPS_EXCEPTION(flag, "state");
+				ACPI_THERMAL_TRIPS_EXCEPTION(flag, tz, "state");
 	}
 
 	/* Active (optional) */
@@ -441,8 +440,8 @@ static int acpi_thermal_trips_update(struct acpi_thermal *tz, int flag)
 			status = acpi_evaluate_reference(tz->device->handle,
 						name, NULL, &devices);
 			if (ACPI_FAILURE(status)) {
-				pr_warn(PREFIX "Invalid active%d threshold\n",
-					i);
+				acpi_handle_info(tz->device->handle,
+						 "Invalid active%d threshold\n", i);
 				tz->trips.active[i].flags.valid = 0;
 			}
 			else
@@ -452,12 +451,12 @@ static int acpi_thermal_trips_update(struct acpi_thermal *tz, int flag)
 					sizeof(struct acpi_handle_list))) {
 				memcpy(&tz->trips.active[i].devices, &devices,
 					sizeof(struct acpi_handle_list));
-				ACPI_THERMAL_TRIPS_EXCEPTION(flag, "device");
+				ACPI_THERMAL_TRIPS_EXCEPTION(flag, tz, "device");
 			}
 		}
 		if ((flag & ACPI_TRIPS_ACTIVE) || (flag & ACPI_TRIPS_DEVICES))
 			if (valid != tz->trips.active[i].flags.valid)
-				ACPI_THERMAL_TRIPS_EXCEPTION(flag, "state");
+				ACPI_THERMAL_TRIPS_EXCEPTION(flag, tz, "state");
 
 		if (!tz->trips.active[i].flags.valid)
 			break;
@@ -470,7 +469,7 @@ static int acpi_thermal_trips_update(struct acpi_thermal *tz, int flag)
 		if (ACPI_SUCCESS(status)
 		    && memcmp(&tz->devices, &devices, sizeof(devices))) {
 			tz->devices = devices;
-			ACPI_THERMAL_TRIPS_EXCEPTION(flag, "device");
+			ACPI_THERMAL_TRIPS_EXCEPTION(flag, tz, "device");
 		}
 	}
 
@@ -672,27 +671,24 @@ static int thermal_get_trend(struct thermal_zone_device *thermal,
 	return 0;
 }
 
-
-static int thermal_notify(struct thermal_zone_device *thermal, int trip,
-			   enum thermal_trip_type trip_type)
+static void acpi_thermal_zone_device_hot(struct thermal_zone_device *thermal)
 {
-	u8 type = 0;
 	struct acpi_thermal *tz = thermal->devdata;
 
-	if (trip_type == THERMAL_TRIP_CRITICAL)
-		type = ACPI_THERMAL_NOTIFY_CRITICAL;
-	else if (trip_type == THERMAL_TRIP_HOT)
-		type = ACPI_THERMAL_NOTIFY_HOT;
-	else
-		return 0;
+	acpi_bus_generate_netlink_event(tz->device->pnp.device_class,
+					dev_name(&tz->device->dev),
+					ACPI_THERMAL_NOTIFY_HOT, 1);
+}
+
+static void acpi_thermal_zone_device_critical(struct thermal_zone_device *thermal)
+{
+	struct acpi_thermal *tz = thermal->devdata;
 
 	acpi_bus_generate_netlink_event(tz->device->pnp.device_class,
-					dev_name(&tz->device->dev), type, 1);
+					dev_name(&tz->device->dev),
+					ACPI_THERMAL_NOTIFY_CRITICAL, 1);
 
-	if (trip_type == THERMAL_TRIP_CRITICAL && nocrt)
-		return 1;
-
-	return 0;
+	thermal_zone_device_critical(thermal);
 }
 
 static int acpi_thermal_cooling_device_cb(struct thermal_zone_device *thermal,
@@ -762,25 +758,6 @@ static int acpi_thermal_cooling_device_cb(struct thermal_zone_device *thermal,
 		}
 	}
 
-	for (i = 0; i < tz->devices.count; i++) {
-		handle = tz->devices.handles[i];
-		status = acpi_bus_get_device(handle, &dev);
-		if (ACPI_SUCCESS(status) && (dev == device)) {
-			if (bind)
-				result = thermal_zone_bind_cooling_device
-						(thermal, THERMAL_TRIPS_NONE,
-						 cdev, THERMAL_NO_LIMIT,
-						 THERMAL_NO_LIMIT,
-						 THERMAL_WEIGHT_DEFAULT);
-			else
-				result = thermal_zone_unbind_cooling_device
-						(thermal, THERMAL_TRIPS_NONE,
-						 cdev);
-			if (result)
-				goto failed;
-		}
-	}
-
 failed:
 	return result;
 }
@@ -807,7 +784,8 @@ static struct thermal_zone_device_ops acpi_thermal_zone_ops = {
 	.get_trip_temp = thermal_get_trip_temp,
 	.get_crit_temp = thermal_get_crit_temp,
 	.get_trend = thermal_get_trend,
-	.notify = thermal_notify,
+	.hot = acpi_thermal_zone_device_hot,
+	.critical = acpi_thermal_zone_device_critical,
 };
 
 static int acpi_thermal_register_thermal_zone(struct acpi_thermal *tz)
@@ -926,8 +904,8 @@ static void acpi_thermal_notify(struct acpi_device *device, u32 event)
 						  dev_name(&device->dev), event, 0);
 		break;
 	default:
-		ACPI_DEBUG_PRINT((ACPI_DB_INFO,
-				  "Unsupported event [0x%x]\n", event));
+		acpi_handle_debug(device->handle, "Unsupported event [0x%x]\n",
+				  event);
 		break;
 	}
 }
@@ -1110,13 +1088,14 @@ static int acpi_thermal_set_polling(struct acpi_thermal *tz, int seconds)
 	/* Convert value to deci-seconds */
 	tz->polling_frequency = seconds * 10;
 
-	tz->thermal_zone->polling_delay = seconds * 1000;
+	tz->thermal_zone->polling_delay_jiffies =
+		round_jiffies(msecs_to_jiffies(seconds * 1000));
 
 	thermal_zone_device_update(tz->thermal_zone, THERMAL_EVENT_UNSPECIFIED);
 
-	ACPI_DEBUG_PRINT((ACPI_DB_INFO,
+	acpi_handle_debug(tz->device->handle,
 			  "Polling frequency set to %lu seconds\n",
-			  tz->polling_frequency/10));
+			  tz->polling_frequency / 10);
 
 	return 0;
 }
@@ -1166,7 +1145,7 @@ static int acpi_thermal_add(struct acpi_device *device)
 	mutex_init(&tz->thermal_check_lock);
 	INIT_WORK(&tz->thermal_check_work, acpi_thermal_check_fn);
 
-	pr_info(PREFIX "%s [%s] (%ld C)\n", acpi_device_name(device),
+	pr_info("%s [%s] (%ld C)\n", acpi_device_name(device),
 		acpi_device_bid(device), deci_kelvin_to_celsius(tz->temperature));
 	goto end;
 
@@ -1238,24 +1217,24 @@ static int acpi_thermal_resume(struct device *dev)
 static int thermal_act(const struct dmi_system_id *d) {
 
 	if (act == 0) {
-		pr_notice(PREFIX "%s detected: "
-			  "disabling all active thermal trip points\n", d->ident);
+		pr_notice("%s detected: disabling all active thermal trip points\n",
+			  d->ident);
 		act = -1;
 	}
 	return 0;
 }
 static int thermal_nocrt(const struct dmi_system_id *d) {
 
-	pr_notice(PREFIX "%s detected: "
-		  "disabling all critical thermal trip point actions.\n", d->ident);
+	pr_notice("%s detected: disabling all critical thermal trip point actions.\n",
+		  d->ident);
 	nocrt = 1;
 	return 0;
 }
 static int thermal_tzp(const struct dmi_system_id *d) {
 
 	if (tzp == 0) {
-		pr_notice(PREFIX "%s detected: "
-			  "enabling thermal zone polling\n", d->ident);
+		pr_notice("%s detected: enabling thermal zone polling\n",
+			  d->ident);
 		tzp = 300;	/* 300 dS = 30 Seconds */
 	}
 	return 0;
@@ -1263,8 +1242,8 @@ static int thermal_tzp(const struct dmi_system_id *d) {
 static int thermal_psv(const struct dmi_system_id *d) {
 
 	if (psv == 0) {
-		pr_notice(PREFIX "%s detected: "
-			  "disabling all passive thermal trip points\n", d->ident);
+		pr_notice("%s detected: disabling all passive thermal trip points\n",
+			  d->ident);
 		psv = -1;
 	}
 	return 0;
@@ -1317,7 +1296,7 @@ static int __init acpi_thermal_init(void)
 	dmi_check_system(thermal_dmi_table);
 
 	if (off) {
-		pr_notice(PREFIX "thermal control disabled\n");
+		pr_notice("thermal control disabled\n");
 		return -ENODEV;
 	}
 
