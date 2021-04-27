@@ -893,7 +893,6 @@ static int dspi_transfer_one_message(struct spi_controller *ctlr,
 {
 	struct fsl_dspi *dspi = spi_controller_get_devdata(ctlr);
 	struct spi_device *spi = message->spi;
-	enum dspi_trans_mode trans_mode;
 	struct spi_transfer *transfer;
 	int status = 0;
 
@@ -931,30 +930,11 @@ static int dspi_transfer_one_message(struct spi_controller *ctlr,
 				   SPI_MCR_CLR_TXF | SPI_MCR_CLR_RXF,
 				   SPI_MCR_CLR_TXF | SPI_MCR_CLR_RXF);
 
-		trans_mode = dspi->devtype_data->trans_mode;
-		switch (trans_mode) {
-		case DSPI_EOQ_MODE:
-			regmap_write(dspi->regmap, SPI_RSER, SPI_RSER_EOQFE);
-			dspi_fifo_write(dspi);
-			break;
-		case DSPI_XSPI_MODE:
-			regmap_write(dspi->regmap, SPI_RSER, SPI_RSER_CMDTCFE);
-			dspi_fifo_write(dspi);
-			break;
-		case DSPI_DMA_MODE:
-			regmap_write(dspi->regmap, SPI_RSER,
-				     SPI_RSER_TFFFE | SPI_RSER_TFFFD |
-				     SPI_RSER_RFDFE | SPI_RSER_RFDFD);
+		if (dspi->devtype_data->trans_mode == DSPI_DMA_MODE) {
 			status = dspi_dma_xfer(dspi);
-			break;
-		default:
-			dev_err(&dspi->pdev->dev, "unsupported trans_mode %u\n",
-				trans_mode);
-			status = -EINVAL;
-			goto out;
-		}
+		} else {
+			dspi_fifo_write(dspi);
 
-		if (trans_mode != DSPI_DMA_MODE) {
 			if (dspi->irq) {
 				wait_for_completion(&dspi->xfer_done);
 				reinit_completion(&dspi->xfer_done);
@@ -964,12 +944,13 @@ static int dspi_transfer_one_message(struct spi_controller *ctlr,
 				} while (status == -EINPROGRESS);
 			}
 		}
+		if (status)
+			break;
 
 		if (transfer->delay_usecs)
 			udelay(transfer->delay_usecs);
 	}
 
-out:
 	message->status = status;
 	spi_finalize_current_message(ctlr);
 
@@ -1160,7 +1141,7 @@ static const struct regmap_config dspi_xspi_regmap_config[] = {
 	},
 };
 
-static void dspi_init(struct fsl_dspi *dspi)
+static int dspi_init(struct fsl_dspi *dspi)
 {
 	unsigned int mcr;
 
@@ -1174,6 +1155,26 @@ static void dspi_init(struct fsl_dspi *dspi)
 
 	regmap_write(dspi->regmap, SPI_MCR, mcr);
 	regmap_write(dspi->regmap, SPI_SR, SPI_SR_CLEAR);
+
+	switch (dspi->devtype_data->trans_mode) {
+	case DSPI_EOQ_MODE:
+		regmap_write(dspi->regmap, SPI_RSER, SPI_RSER_EOQFE);
+		break;
+	case DSPI_XSPI_MODE:
+		regmap_write(dspi->regmap, SPI_RSER, SPI_RSER_CMDTCFE);
+		break;
+	case DSPI_DMA_MODE:
+		regmap_write(dspi->regmap, SPI_RSER,
+			     SPI_RSER_TFFFE | SPI_RSER_TFFFD |
+			     SPI_RSER_RFDFE | SPI_RSER_RFDFD);
+		break;
+	default:
+		dev_err(&dspi->pdev->dev, "unsupported trans_mode %u\n",
+			dspi->devtype_data->trans_mode);
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 static int dspi_slave_abort(struct spi_master *master)
@@ -1329,7 +1330,9 @@ static int dspi_probe(struct platform_device *pdev)
 	if (ret)
 		goto out_ctlr_put;
 
-	dspi_init(dspi);
+	ret = dspi_init(dspi);
+	if (ret)
+		goto out_clk_put;
 
 	dspi->irq = platform_get_irq(pdev, 0);
 	if (dspi->irq <= 0) {
