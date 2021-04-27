@@ -1271,6 +1271,9 @@ static int dspi_probe(struct platform_device *pdev)
 	if (!ctlr)
 		return -ENOMEM;
 
+	spi_controller_set_devdata(ctlr, dspi);
+	platform_set_drvdata(pdev, dspi);
+
 	dspi->pdev = pdev;
 	dspi->ctlr = ctlr;
 
@@ -1402,8 +1405,6 @@ poll_mode:
 
 	ctlr->max_speed_hz =
 		clk_get_rate(dspi->clk) / dspi->devtype_data->max_clock_factor;
-
-	platform_set_drvdata(pdev, dspi);
 
 	ret = spi_register_controller(ctlr);
 	if (ret != 0) {
