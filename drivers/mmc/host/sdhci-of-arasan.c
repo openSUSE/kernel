@@ -643,6 +643,8 @@ static int sdhci_arasan_register_sdclk(struct sdhci_arasan_data *sdhci_arasan,
 	sdhci_arasan->sdcardclk_hw.init = &sdcardclk_init;
 	sdhci_arasan->sdcardclk =
 		devm_clk_register(dev, &sdhci_arasan->sdcardclk_hw);
+	if (IS_ERR(sdhci_arasan->sdcardclk))
+		return PTR_ERR(sdhci_arasan->sdcardclk);
 	sdhci_arasan->sdcardclk_hw.init = NULL;
 
 	ret = of_clk_add_provider(np, of_clk_src_simple_get,
