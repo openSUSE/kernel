@@ -1068,8 +1068,16 @@ xt_replace_table(struct xt_table *table,
 		return NULL;
 	}
 
+        /*
+         * Ensure contents of newinfo are visible before assigning to
+         * private.
+         */
+        smp_wmb();
 	table->private = newinfo;
 	newinfo->initial_entries = private->initial_entries;
+
+	/* make sure all cpus see new ->private value */
+	smp_mb();
 
 	/*
 	 * Even though table entries have now been swapped, other CPU's

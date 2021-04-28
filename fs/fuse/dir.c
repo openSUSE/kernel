@@ -169,7 +169,7 @@ static int fuse_dentry_revalidate(struct dentry *entry, struct nameidata *nd)
 	struct inode *inode;
 
 	inode = ACCESS_ONCE(entry->d_inode);
-	if (inode && is_bad_inode(inode))
+	if (inode && fuse_is_bad(inode))
 		return 0;
 	else if (fuse_dentry_time(entry) < get_jiffies_64()) {
 		int err;
@@ -335,6 +335,9 @@ static struct dentry *fuse_lookup(struct inode *dir, struct dentry *entry,
 	struct fuse_conn *fc = get_fuse_conn(dir);
 	bool outarg_valid = true;
 
+	if (fuse_is_bad(dir))
+		return ERR_PTR(-EIO);
+
 	err = fuse_lookup_name(dir->i_sb, get_node_id(dir), &entry->d_name,
 			       &outarg, &inode);
 	if (err == -ENOENT) {
@@ -494,6 +497,9 @@ static int create_new_entry(struct fuse_conn *fc, struct fuse_req *req,
 	int err;
 	struct fuse_forget_link *forget;
 
+	if (fuse_is_bad(dir))
+		return -EIO;
+
 	forget = fuse_alloc_forget();
 	if (!forget) {
 		fuse_put_request(fc, req);
@@ -649,6 +655,9 @@ static int fuse_unlink(struct inode *dir, struct dentry *entry)
 	if (IS_ERR(req))
 		return PTR_ERR(req);
 
+	if (fuse_is_bad(dir))
+		return -EIO;
+
 	req->in.h.opcode = FUSE_UNLINK;
 	req->in.h.nodeid = get_node_id(dir);
 	req->in.numargs = 1;
@@ -682,6 +691,9 @@ static int fuse_rmdir(struct inode *dir, struct dentry *entry)
 	if (IS_ERR(req))
 		return PTR_ERR(req);
 
+	if (fuse_is_bad(dir))
+		return -EIO;
+
 	req->in.h.opcode = FUSE_RMDIR;
 	req->in.h.nodeid = get_node_id(dir);
 	req->in.numargs = 1;
@@ -709,6 +721,9 @@ static int fuse_rename(struct inode *olddir, struct dentry *oldent,
 
 	if (IS_ERR(req))
 		return PTR_ERR(req);
+
+	if (fuse_is_bad(olddir))
+		return -EIO;
 
 	memset(&inarg, 0, sizeof(inarg));
 	inarg.newdir = get_node_id(newdir);
@@ -874,7 +889,7 @@ static int fuse_do_getattr(struct inode *inode, struct kstat *stat,
 	fuse_put_request(fc, req);
 	if (!err) {
 		if ((inode->i_mode ^ outarg.attr.mode) & S_IFMT) {
-			make_bad_inode(inode);
+			fuse_make_bad(inode);
 			err = -EIO;
 		} else {
 			fuse_change_attributes(inode, &outarg.attr,
@@ -1044,6 +1059,9 @@ static int fuse_permission(struct inode *inode, int mask, unsigned int flags)
 	bool refreshed = false;
 	int err = 0;
 
+	if (fuse_is_bad(inode))
+		return -EIO;
+
 	if (!fuse_allow_task(fc, current))
 		return -EACCES;
 
@@ -1132,7 +1150,7 @@ static int fuse_readdir(struct file *file, void *dstbuf, filldir_t filldir)
 	struct fuse_conn *fc = get_fuse_conn(inode);
 	struct fuse_req *req;
 
-	if (is_bad_inode(inode))
+	if (fuse_is_bad(inode))
 		return -EIO;
 
 	req = fuse_get_req(fc, 1);
@@ -1203,6 +1221,9 @@ static void free_link(char *link)
 
 static void *fuse_follow_link(struct dentry *dentry, struct nameidata *nd)
 {
+	if (fuse_is_bad(dentry->d_inode))
+		return ERR_PTR(-EIO);
+
 	nd_set_link(nd, read_link(dentry));
 	return NULL;
 }
@@ -1456,7 +1477,7 @@ int fuse_do_setattr(struct dentry *dentry, struct iattr *attr,
 	}
 
 	if ((inode->i_mode ^ outarg.attr.mode) & S_IFMT) {
-		make_bad_inode(inode);
+		fuse_make_bad(inode);
 		err = -EIO;
 		goto error;
 	}
@@ -1512,6 +1533,9 @@ static int fuse_setattr(struct dentry *entry, struct iattr *attr)
 	if (!fuse_allow_task(get_fuse_conn(inode), current))
 		return -EACCES;
 
+	if (fuse_is_bad(entry->d_inode))
+		return -EIO;
+
 	if (attr->ia_valid & ATTR_FILE)
 		return fuse_do_setattr(entry, attr, attr->ia_file);
 	else
@@ -1523,6 +1547,9 @@ static int fuse_getattr(struct vfsmount *mnt, struct dentry *entry,
 {
 	struct inode *inode = entry->d_inode;
 	struct fuse_conn *fc = get_fuse_conn(inode);
+
+	if (fuse_is_bad(inode))
+		return -EIO;
 
 	if (!fuse_allow_task(fc, current))
 		return -EACCES;
@@ -1538,6 +1565,9 @@ static int fuse_setxattr(struct dentry *entry, const char *name,
 	struct fuse_req *req;
 	struct fuse_setxattr_in inarg;
 	int err;
+
+	if (fuse_is_bad(inode))
+		return -EIO;
 
 	if (fc->no_setxattr)
 		return -EOPNOTSUPP;
@@ -1581,6 +1611,9 @@ static ssize_t fuse_getxattr(struct dentry *entry, const char *name,
 	struct fuse_getxattr_in inarg;
 	struct fuse_getxattr_out outarg;
 	ssize_t ret;
+
+	if (fuse_is_bad(inode))
+		return -EIO;
 
 	if (fc->no_getxattr)
 		return -EOPNOTSUPP;
@@ -1630,6 +1663,9 @@ static ssize_t fuse_listxattr(struct dentry *entry, char *list, size_t size)
 	struct fuse_getxattr_in inarg;
 	struct fuse_getxattr_out outarg;
 	ssize_t ret;
+
+	if (fuse_is_bad(inode))
+		return -EIO;
 
 	if (!fuse_allow_task(fc, current))
 		return -EACCES;
