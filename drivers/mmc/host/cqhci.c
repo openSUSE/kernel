@@ -1148,6 +1148,13 @@ out_err:
 }
 EXPORT_SYMBOL(cqhci_init);
 
+int cqhci_suspend(struct mmc_host *mmc)
+{
+	return cqhci_deactivate(mmc);
+}
+
+EXPORT_SYMBOL(cqhci_suspend);
+
 MODULE_AUTHOR("Venkat Gopalakrishnan <venkatg@codeaurora.org>");
 MODULE_DESCRIPTION("Command Queue Host Controller Interface driver");
 MODULE_LICENSE("GPL v2");
