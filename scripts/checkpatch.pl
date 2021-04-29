@@ -3245,7 +3245,7 @@ sub process {
 		    ($line =~ /^new file mode\s*\d+\s*$/) &&
 		    ($realfile =~ m@^Documentation/devicetree/bindings/.*\.txt$@)) {
 			WARN("DT_SCHEMA_BINDING_PATCH",
-			     "DT bindings should be in DT schema format. See: Documentation/devicetree/writing-schema.rst\n");
+			     "DT bindings should be in DT schema format. See: Documentation/devicetree/bindings/writing-schema.rst\n");
 		}
 
 # Check for wrappage within a valid hunk of the file
@@ -6699,9 +6699,11 @@ sub process {
 					$specifier = $1;
 					$extension = $2;
 					$qualifier = $3;
-					if ($extension !~ /[SsBKRraEehMmIiUDdgVCbGNOxtf]/ ||
+					if ($extension !~ /[4SsBKRraEehMmIiUDdgVCbGNOxtf]/ ||
 					    ($extension eq "f" &&
-					     defined $qualifier && $qualifier !~ /^w/)) {
+					     defined $qualifier && $qualifier !~ /^w/) ||
+					    ($extension eq "4" &&
+					     defined $qualifier && $qualifier !~ /^cc/)) {
 						$bad_specifier = $specifier;
 						last;
 					}
