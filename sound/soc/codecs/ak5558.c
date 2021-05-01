@@ -52,8 +52,8 @@ static const struct soc_enum ak5558_mono_enum[] = {
 };
 
 static const char * const digfil_texts[] = {
-	"Sharp Roll-Off", "Show Roll-Off",
-	"Short Delay Sharp Roll-Off", "Short Delay Show Roll-Off",
+	"Sharp Roll-Off", "Slow Roll-Off",
+	"Short Delay Sharp Roll-Off", "Short Delay Slow Roll-Off",
 };
 
 static const struct soc_enum ak5558_adcset_enum[] = {
