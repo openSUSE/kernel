@@ -160,6 +160,7 @@ config PPC
 	select ARCH_WEAK_RELEASE_ACQUIRE
 	select BINFMT_ELF
 	select BUILDTIME_TABLE_SORT
+	select BUILD_ELF_V2			if PPC64 && CPU_LITTLE_ENDIAN
 	select CLONE_BACKWARDS
 	select DCACHE_WORD_ACCESS		if PPC64 && CPU_LITTLE_ENDIAN
 	select DMA_OPS				if PPC64
@@ -567,6 +568,24 @@ config KEXEC_FILE
 
 config ARCH_HAS_KEXEC_PURGATORY
 	def_bool KEXEC_FILE
+
+config BUILD_ELF_V2
+	bool
+
+config BUILD_BIG_ENDIAN_ELF_V2
+	bool "Build big-endian kernel using ELFv2 ABI (EXPERIMENTAL)"
+	depends on PPC64 && CPU_BIG_ENDIAN && EXPERT
+	default n
+	select BUILD_ELF_V2
+	help
+	  This builds the kernel image using the ELFv2 ABI, which has a
+	  reduced stack overhead and faster function calls. This does not
+	  affect the userspace ABIs.
+
+	  ELFv2 is the standard ABI for little-endian, but for big-endian
+	  this is an experimental option that is less tested (kernel and
+	  toolchain). This requires gcc 4.9 or newer and binutils 2.24 or
+	  newer.
 
 config RELOCATABLE
 	bool "Build a relocatable kernel"
