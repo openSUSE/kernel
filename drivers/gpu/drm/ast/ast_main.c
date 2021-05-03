@@ -91,8 +91,21 @@ static void ast_detect_config_mode(struct drm_device *dev, u32 *scu_rev)
 	jregd0 = ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xd0, 0xff);
 	jregd1 = ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xd1, 0xff);
 	if (!(jregd0 & 0x80) || !(jregd1 & 0x10)) {
+		/* Patch AST2500 */
+		if ((dev->pdev->revision & 0xF0) == 0x40 && (jregd0 & 0xC0) == 0)
+			patch_ahb_ast2500(ast);
+
 		/* Double check it's actually working */
-		data = ast_read32(ast, 0xf004);
+		if ((dev->pdev->revision & 0xF0) >= 0x30) {
+			/* AST2400 and newer */
+			data = ast_read32(ast, 0xf004);
+		} else {
+			/* AST2300 and older */
+			ast_write32(ast, 0xf004, 0x1e6e0000);
+			ast_write32(ast, 0xf000, 0x1);
+			data = ast_read32(ast, 0x1207c);
+		}
+
 		if (data != 0xFFFFFFFF) {
 			/* P2A works, grab silicon revision */
 			ast->config_mode = ast_use_p2a;
@@ -134,6 +147,9 @@ static int ast_detect_chip(struct drm_device *dev, bool *need_post)
 	ast_open_key(ast);
 	ast_enable_mmio(dev);
 
+	/* disable standard VGA decode */
+	ast_set_index_reg(ast, AST_IO_CRTC_PORT, 0xa1, 0x06);
+
 	/* Find out whether P2A works or whether to use device-tree */
 	ast_detect_config_mode(dev, &scu_rev);
 
@@ -141,6 +157,9 @@ static int ast_detect_chip(struct drm_device *dev, bool *need_post)
 	if (dev->pdev->device == PCI_CHIP_AST1180) {
 		ast->chip = AST1100;
 		DRM_INFO("AST 1180 detected\n");
+	} else if (dev->pdev->device == PCI_CHIP_AIP200) {
+		ast->chip = AIP200;
+		DRM_INFO("AIP 200 detected\n");
 	} else {
 		if (dev->pdev->revision >= 0x40) {
 			ast->chip = AST2500;
@@ -177,31 +196,32 @@ static int ast_detect_chip(struct drm_device *dev, bool *need_post)
 		}
 	}
 
-	/* Check if we support wide screen */
+	/* Check if we newvga mode & support wide screen */
 	switch (ast->chip) {
+	case AIP200:
 	case AST1180:
-		ast->support_wide_screen = true;
+		ast->support_newvga_mode = true;
 		break;
 	case AST2000:
-		ast->support_wide_screen = false;
+		ast->support_newvga_mode = false;
 		break;
 	default:
 		jreg = ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xd0, 0xff);
 		if (!(jreg & 0x80))
-			ast->support_wide_screen = true;
+			ast->support_newvga_mode = true;
 		else if (jreg & 0x01)
-			ast->support_wide_screen = true;
+			ast->support_newvga_mode = true;
 		else {
-			ast->support_wide_screen = false;
+			ast->support_newvga_mode = false;
 			if (ast->chip == AST2300 &&
 			    (scu_rev & 0x300) == 0x0) /* ast1300 */
-				ast->support_wide_screen = true;
+				ast->support_newvga_mode = true;
 			if (ast->chip == AST2400 &&
 			    (scu_rev & 0x300) == 0x100) /* ast1400 */
-				ast->support_wide_screen = true;
+				ast->support_newvga_mode = true;
 			if (ast->chip == AST2500 &&
 			    scu_rev == 0x100)           /* ast2510 */
-				ast->support_wide_screen = true;
+				ast->support_newvga_mode = true;
 		}
 		break;
 	}
@@ -538,6 +558,17 @@ int ast_driver_load(struct drm_device *dev, unsigned long flags)
 	if (ret)
 		goto out_free;
 
+	/* map reserved buffer */
+	if (ast->vram_size < pci_resource_len(dev->pdev, 0)) {
+		ast->reservedbuffer =
+			ioremap_nocache(pci_resource_start(ast->dev->pdev, 0) +
+					ast->vram_size,
+					pci_resource_len(dev->pdev, 0) -
+					ast->vram_size);
+		if (!ast->reservedbuffer)
+			DRM_INFO("failed to map reserved buffer\n");
+	}
+
 	drm_mode_config_init(dev);
 
 	dev->mode_config.funcs = (void *)&ast_mode_funcs;
@@ -552,6 +583,7 @@ int ast_driver_load(struct drm_device *dev, unsigned long flags)
 	    ast->chip == AST2300 ||
 	    ast->chip == AST2400 ||
 	    ast->chip == AST2500 ||
+	    ast->chip == AIP200  ||
 	    ast->chip == AST1180) {
 		dev->mode_config.max_width = 1920;
 		dev->mode_config.max_height = 2048;
@@ -589,6 +621,8 @@ void ast_driver_unload(struct drm_device *dev)
 	drm_mode_config_cleanup(dev);
 
 	ast_mm_fini(ast);
+	if (ast->reservedbuffer)
+		iounmap(ast->reservedbuffer);
 	if (ast->ioregs != ast->regs + AST_IO_MM_OFFSET)
 		pci_iounmap(dev->pdev, ast->ioregs);
 	pci_iounmap(dev->pdev, ast->regs);

@@ -52,8 +52,8 @@ static const struct soc_enum ak5558_mono_enum[] = {
 };
 
 static const char * const digfil_texts[] = {
-	"Sharp Roll-Off", "Show Roll-Off",
-	"Short Delay Sharp Roll-Off", "Short Delay Show Roll-Off",
+	"Sharp Roll-Off", "Slow Roll-Off",
+	"Short Delay Sharp Roll-Off", "Short Delay Slow Roll-Off",
 };
 
 static const struct soc_enum ak5558_adcset_enum[] = {
@@ -264,7 +264,7 @@ static void ak5558_power_off(struct ak5558_priv *ak5558)
 	if (!ak5558->reset_gpiod)
 		return;
 
-	gpiod_set_value_cansleep(ak5558->reset_gpiod, 0);
+	gpiod_set_value_cansleep(ak5558->reset_gpiod, 1);
 	usleep_range(1000, 2000);
 }
 
@@ -273,7 +273,7 @@ static void ak5558_power_on(struct ak5558_priv *ak5558)
 	if (!ak5558->reset_gpiod)
 		return;
 
-	gpiod_set_value_cansleep(ak5558->reset_gpiod, 1);
+	gpiod_set_value_cansleep(ak5558->reset_gpiod, 0);
 	usleep_range(1000, 2000);
 }
 
