@@ -3179,6 +3179,7 @@ nvme_show_int_function(cntlid);
 nvme_show_int_function(numa_node);
 nvme_show_int_function(queue_count);
 nvme_show_int_function(sqsize);
+nvme_show_int_function(kato);
 
 static ssize_t nvme_sysfs_delete(struct device *dev,
 				struct device_attribute *attr, const char *buf,
@@ -3282,6 +3283,7 @@ static struct attribute *nvme_dev_attrs[] = {
 	&dev_attr_sqsize.attr,
 	&dev_attr_hostnqn.attr,
 	&dev_attr_hostid.attr,
+	&dev_attr_kato.attr,
 	NULL
 };
 
