@@ -985,6 +985,17 @@ static int nvme_submit_user_cmd(struct request_queue *q,
 	return ret;
 }
 
+/*
+ * Recommended frequency for KATO commands per NVMe 1.4 section 7.12.1:
+ * 
+ *   The host should send Keep Alive commands at half of the Keep Alive Timeout
+ *   accounting for transport roundtrip times [..].
+ */
+static void nvme_queue_keep_alive_work(struct nvme_ctrl *ctrl)
+{
+	queue_delayed_work(nvme_wq, &ctrl->ka_work, ctrl->kato * HZ / 2);
+}
+
 static void nvme_keep_alive_end_io(struct request *rq, blk_status_t status)
 {
 	struct nvme_ctrl *ctrl = rq->end_io_data;
@@ -1007,7 +1018,7 @@ static void nvme_keep_alive_end_io(struct request *rq, blk_status_t status)
 		startka = true;
 	spin_unlock_irqrestore(&ctrl->lock, flags);
 	if (startka)
-		queue_delayed_work(nvme_wq, &ctrl->ka_work, ctrl->kato * HZ);
+		nvme_queue_keep_alive_work(ctrl);
 }
 
 static void nvme_keep_alive_work(struct work_struct *work)
@@ -1021,7 +1032,7 @@ static void nvme_keep_alive_work(struct work_struct *work)
 		dev_dbg(ctrl->device,
 			"reschedule traffic based keep-alive timer\n");
 		ctrl->comp_seen = false;
-		queue_delayed_work(nvme_wq, &ctrl->ka_work, ctrl->kato * HZ);
+		nvme_queue_keep_alive_work(ctrl);
 		return;
 	}
 
@@ -1045,7 +1056,7 @@ static void nvme_start_keep_alive(struct nvme_ctrl *ctrl)
 	if (unlikely(ctrl->kato == 0))
 		return;
 
-	queue_delayed_work(nvme_wq, &ctrl->ka_work, ctrl->kato * HZ);
+	nvme_queue_keep_alive_work(ctrl);
 }
 
 void nvme_stop_keep_alive(struct nvme_ctrl *ctrl)
