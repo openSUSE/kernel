@@ -349,6 +349,15 @@ static void __init fixup_cede0_latency(void)
 	u64 min_latency_us;
 	int i;
 
+	/*
+	 * Use firmware provided latency values on POWER10 onwards and
+	 * also on POWER10 running in POWER9-compat mode. On platforms
+	 * prior to POWER10, we cannot rely on the firmware provided
+	 * values, so we go with the conservative default value.
+	 */
+	if (!cpu_has_feature(CPU_FTR_ARCH_31) && !pvr_version_is(PVR_POWER10))
+		return;
+
 	min_latency_us = dedicated_states[1].exit_latency; // CEDE latency
 
 	if (parse_cede_parameters())
