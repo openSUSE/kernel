@@ -114,6 +114,9 @@ static bool ast_get_vbios_mode_info(const struct drm_format_info *format,
 	case 1024:
 		vbios_mode->enh_table = &res_1024x768[refresh_rate_index];
 		break;
+	case 1152:
+		vbios_mode->enh_table = &res_1152x864[refresh_rate_index];
+		break;
 	case 1280:
 		if (mode->crtc_vdisplay == 800)
 			vbios_mode->enh_table = &res_1280x800[refresh_rate_index];
@@ -429,10 +432,17 @@ static void ast_set_dclk_reg(struct ast_private *ast,
 {
 	const struct ast_vbios_dclk_info *clk_info;
 
-	if (ast->chip == AST2500)
-		clk_info = &dclk_table_ast2500[vbios_mode->enh_table->dclk_index];
-	else
-		clk_info = &dclk_table[vbios_mode->enh_table->dclk_index];
+	if (ast->chip == AST2500) {
+		if (ast->refclk_25mhz)
+			clk_info = &dclk_table_ast2500_25mhz[vbios_mode->enh_table->dclk_index];
+		else
+			clk_info = &dclk_table_ast2500[vbios_mode->enh_table->dclk_index];
+	} else {
+		if (ast->refclk_25mhz)
+			clk_info = &dclk_table_25mhz[vbios_mode->enh_table->dclk_index];
+		else
+			clk_info = &dclk_table[vbios_mode->enh_table->dclk_index];
+	}
 
 	ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xc0, 0x00, clk_info->param1);
 	ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xc1, 0x00, clk_info->param2);
@@ -474,7 +484,7 @@ static void ast_set_crtthd_reg(struct ast_private *ast)
 {
 	/* Set Threshold */
 	if (ast->chip == AST2300 || ast->chip == AST2400 ||
-	    ast->chip == AST2500) {
+	    ast->chip == AST2500 || ast->chip == AIP200) {
 		ast_set_index_reg(ast, AST_IO_CRTC_PORT, 0xa7, 0x78);
 		ast_set_index_reg(ast, AST_IO_CRTC_PORT, 0xa6, 0x60);
 	} else if (ast->chip == AST2100 ||
@@ -966,7 +976,9 @@ static enum drm_mode_status ast_mode_valid(struct drm_connector *connector,
 	int flags = MODE_NOMODE;
 	uint32_t jtemp;
 
-	if (ast->support_wide_screen) {
+	if (ast->support_newvga_mode) {
+		if ((mode->hdisplay == 1152) && (mode->vdisplay == 864))
+			return MODE_OK;
 		if ((mode->hdisplay == 1680) && (mode->vdisplay == 1050))
 			return MODE_OK;
 		if ((mode->hdisplay == 1280) && (mode->vdisplay == 800))
@@ -980,7 +992,7 @@ static enum drm_mode_status ast_mode_valid(struct drm_connector *connector,
 
 		if ((ast->chip == AST2100) || (ast->chip == AST2200) ||
 		    (ast->chip == AST2300) || (ast->chip == AST2400) ||
-		    (ast->chip == AST2500)) {
+		    (ast->chip == AST2500) || (ast->chip == AIP200)) {
 			if ((mode->hdisplay == 1920) && (mode->vdisplay == 1080))
 				return MODE_OK;
 
@@ -1105,7 +1117,8 @@ int ast_mode_config_init(struct ast_private *ast)
 	    ast->chip == AST2200 ||
 	    ast->chip == AST2300 ||
 	    ast->chip == AST2400 ||
-	    ast->chip == AST2500) {
+	    ast->chip == AST2500 ||
+	    ast->chip == AIP200) {
 		dev->mode_config.max_width = 1920;
 		dev->mode_config.max_height = 2048;
 	} else {
