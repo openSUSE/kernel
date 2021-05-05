@@ -40,9 +40,11 @@ static void ast_post_chip_2500(struct drm_device *dev);
 void ast_enable_vga(struct drm_device *dev)
 {
 	struct ast_private *ast = to_ast_private(dev);
+	u8 ch;
 
 	ast_io_write8(ast, AST_IO_VGA_ENABLE_PORT, 0x01);
-	ast_io_write8(ast, AST_IO_MISC_PORT_WRITE, 0x01);
+	ch = ast_io_read8(ast, AST_IO_MISC_PORT_READ);
+	ast_io_write8(ast, AST_IO_MISC_PORT_WRITE, ch | 0x01);
 }
 
 void ast_enable_mmio(struct drm_device *dev)
@@ -79,7 +81,7 @@ ast_set_def_ext_reg(struct drm_device *dev)
 		ast_set_index_reg(ast, AST_IO_CRTC_PORT, i, 0x00);
 
 	if (ast->chip == AST2300 || ast->chip == AST2400 ||
-	    ast->chip == AST2500) {
+	    ast->chip == AST2500 || ast->chip == AIP200) {
 		if (dev->pdev->revision >= 0x20)
 			ext_reg_info = extreginfo_ast2300;
 		else
@@ -104,9 +106,13 @@ ast_set_def_ext_reg(struct drm_device *dev)
 	/* Enable RAMDAC for A1 */
 	reg = 0x04;
 	if (ast->chip == AST2300 || ast->chip == AST2400 ||
-	    ast->chip == AST2500)
+	    ast->chip == AST2500 || ast->chip == AIP200)
 		reg |= 0x20;
 	ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xb6, 0xff, reg);
+
+	/* Screen off */
+	ast_set_index_reg_mask(ast, AST_IO_SEQ_PORT, 0x01, 0xff, 0x20);
+	udelay(10);
 }
 
 u32 ast_mindwm(struct ast_private *ast, u32 r)
@@ -1835,13 +1841,20 @@ static void set_mpll_2500(struct ast_private *ast)
 
 static void reset_mmc_2500(struct ast_private *ast)
 {
+	u32 data;
+
 	ast_moutdwm(ast, 0x1E78505C, 0x00000004);
 	ast_moutdwm(ast, 0x1E785044, 0x00000001);
 	ast_moutdwm(ast, 0x1E785048, 0x00004755);
 	ast_moutdwm(ast, 0x1E78504C, 0x00000013);
 	mdelay(100);
+	ast_moutdwm(ast, 0x1E78505c, 0x023FFFF3);
 	ast_moutdwm(ast, 0x1E785054, 0x00000077);
-	ast_moutdwm(ast, 0x1E6E0000, 0xFC600309);
+	do {
+		ast_moutdwm(ast, 0x1E6E0000, 0xFC600309);
+		data = ast_mindwm(ast, 0x1E6E0000);
+	} while (data == 0);
+	ast_moutdwm(ast, 0x1E6E0034, 0x00020000);
 }
 
 static void ddr3_init_2500(struct ast_private *ast, const u32 *ddr_table)
@@ -1906,7 +1919,7 @@ static void ddr4_init_2500(struct ast_private *ast, const u32 *ddr_table)
 
 	/* DDR PHY Setting */
 	ast_moutdwm(ast, 0x1E6E0200, 0x42492AAE);
-	ast_moutdwm(ast, 0x1E6E0204, 0x09002000);
+	ast_moutdwm(ast, 0x1E6E0204, 0x09002800);		/* modify at V1.3 */
 	ast_moutdwm(ast, 0x1E6E020C, 0x55E00B0B);
 	ast_moutdwm(ast, 0x1E6E0210, 0x20000000);
 	ast_moutdwm(ast, 0x1E6E0214, ddr_table[REGIDX_214]);
@@ -2022,8 +2035,35 @@ static bool ast_dram_init_2500(struct ast_private *ast)
 	/* Patch code */
 	data = ast_mindwm(ast, 0x1E6E200C) & 0xF9FFFFFF;
 	ast_moutdwm(ast, 0x1E6E200C, data | 0x10000000);
+	/* Version Number */
+	data = ast_mindwm(ast, 0x1E6E0004);			/* add at V1.3 */
+	ast_moutdwm(ast, 0x1E6E0004, data | 0x08300000);	/* add at V1.3 */
+	ast_moutdwm(ast, 0x1E6E0088, 0x20161229);		/* add at V1.3 */
 
 	return true;
+}
+
+void patch_ahb_ast2500(struct ast_private *ast)
+{
+	u32	data;
+
+	/* Clear bus lock condition */
+	ast_moutdwm(ast, 0x1e600000, 0xAEED1A03);
+	ast_moutdwm(ast, 0x1e600084, 0x00010000);
+	ast_moutdwm(ast, 0x1e600088, 0x00000000);
+	ast_moutdwm(ast, 0x1e6e2000, 0x1688A8A8);
+	data = ast_mindwm(ast, 0x1e6e2070);
+	if (data & 0x08000000) {			/* check fast reset */
+		ast_moutdwm(ast, 0x1E785004, 0x00000010);
+		ast_moutdwm(ast, 0x1E785008, 0x00004755);
+		ast_moutdwm(ast, 0x1E78500c, 0x00000033);
+		udelay(1000);
+	}
+	do {
+		ast_moutdwm(ast, 0x1e6e2000, 0x1688A8A8);
+		data = ast_mindwm(ast, 0x1e6e2000);
+	}	while (data != 1);
+	ast_moutdwm(ast, 0x1e6e207c, 0x08000000);	/* clear fast reset */
 }
 
 void ast_post_chip_2500(struct drm_device *dev)
@@ -2033,38 +2073,32 @@ void ast_post_chip_2500(struct drm_device *dev)
 	u8 reg;
 
 	reg = ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xd0, 0xff);
-	if ((reg & 0x80) == 0) {/* vga only */
+	if ((reg & 0xC0) == 0) {/* vga only */
 		/* Clear bus lock condition */
-		ast_moutdwm(ast, 0x1e600000, 0xAEED1A03);
-		ast_moutdwm(ast, 0x1e600084, 0x00010000);
-		ast_moutdwm(ast, 0x1e600088, 0x00000000);
-		ast_moutdwm(ast, 0x1e6e2000, 0x1688A8A8);
-		ast_write32(ast, 0xf004, 0x1e6e0000);
-		ast_write32(ast, 0xf000, 0x1);
-		ast_write32(ast, 0x12000, 0x1688a8a8);
-		while (ast_read32(ast, 0x12000) != 0x1)
-			;
+		patch_ahb_ast2500(ast);
 
-		ast_write32(ast, 0x10000, 0xfc600309);
-		while (ast_read32(ast, 0x10000) != 0x1)
-			;
+		/* Disable watchdog */
+		ast_moutdwm(ast, 0x1E78502C, 0x00000000);
+		ast_moutdwm(ast, 0x1E78504C, 0x00000000);
+
+		/* Reset USB port */
+		ast_moutdwm(ast, 0x1E6E2090, 0x20000000);
+		ast_moutdwm(ast, 0x1E6E2094, 0x00004000);
+		if (ast_mindwm(ast, 0x1E6E2070) & 0x00800000) {
+			ast_moutdwm(ast, 0x1E6E207C, 0x00800000);
+			mdelay(100);
+			ast_moutdwm(ast, 0x1E6E2070, 0x00800000);
+		}
+
+		/* Modify eSPI reset pin */
+		temp = ast_mindwm(ast, 0x1E6E2070);
+		if (temp & 0x02000000)
+			ast_moutdwm(ast, 0x1E6E207C, 0x00004000);
 
 		/* Slow down CPU/AHB CLK in VGA only mode */
 		temp = ast_read32(ast, 0x12008);
 		temp |= 0x73;
 		ast_write32(ast, 0x12008, temp);
-
-		/* Reset USB port to patch USB unknown device issue */
-		ast_moutdwm(ast, 0x1e6e2090, 0x20000000);
-		temp  = ast_mindwm(ast, 0x1e6e2094);
-		temp |= 0x00004000;
-		ast_moutdwm(ast, 0x1e6e2094, temp);
-		temp  = ast_mindwm(ast, 0x1e6e2070);
-		if (temp & 0x00800000) {
-			ast_moutdwm(ast, 0x1e6e207c, 0x00800000);
-			mdelay(100);
-			ast_moutdwm(ast, 0x1e6e2070, 0x00800000);
-		}
 
 		if (!ast_dram_init_2500(ast))
 			drm_err(dev, "DRAM init failed !\n");

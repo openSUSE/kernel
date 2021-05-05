@@ -167,7 +167,10 @@ void ast_set_dp501_video_output(struct drm_device *dev, u8 mode)
 
 static u32 get_fw_base(struct ast_private *ast)
 {
-	return ast_mindwm(ast, 0x1e6e2104) & 0x7fffffff;
+	if (ast->chip == AST2500)
+		return ast_mindwm(ast, 0x1e6e2104) & 0xfffffffe;
+	else
+		return ast_mindwm(ast, 0x1e6e2104) & 0x7fffffff;
 }
 
 bool ast_backup_fw(struct drm_device *dev, u8 *addr, u32 size)
@@ -175,6 +178,9 @@ bool ast_backup_fw(struct drm_device *dev, u8 *addr, u32 size)
 	struct ast_private *ast = to_ast_private(dev);
 	u32 i, data;
 	u32 boot_address;
+
+	if (ast->config_mode != ast_use_p2a)
+		return false;
 
 	data = ast_mindwm(ast, 0x1e6e2100) & 0x01;
 	if (data) {
@@ -194,6 +200,9 @@ static bool ast_launch_m68k(struct drm_device *dev)
 	u8 *fw_addr = NULL;
 	u8 jreg;
 
+	if (ast->config_mode != ast_use_p2a)
+		return false;
+
 	data = ast_mindwm(ast, 0x1e6e2100) & 0x01;
 	if (!data) {
 
@@ -211,21 +220,15 @@ static bool ast_launch_m68k(struct drm_device *dev)
 		/* Get BootAddress */
 		ast_moutdwm(ast, 0x1e6e2000, 0x1688a8a8);
 		data = ast_mindwm(ast, 0x1e6e0004);
-		switch (data & 0x03) {
-		case 0:
-			boot_address = 0x44000000;
-			break;
-		default:
-		case 1:
-			boot_address = 0x48000000;
-			break;
-		case 2:
-			boot_address = 0x50000000;
-			break;
-		case 3:
-			boot_address = 0x60000000;
-			break;
-		}
+		if (ast->chip == AST2500)
+			boot_address = 0x8000000;               /* 128MB */
+		else
+			boot_address = 0x4000000;               /* 64MB */
+		boot_address <<= (data & 0x03);
+		if (ast->chip == AST2500)
+			boot_address |= 0x80000000;             /* Base = 0x80000000 */
+		else
+			boot_address |= 0x40000000;             /* Base = 0x40000000 */
 		boot_address -= 0x200000; /* -2MB */
 
 		/* copy image to buffer */
@@ -238,7 +241,10 @@ static bool ast_launch_m68k(struct drm_device *dev)
 		ast_moutdwm(ast, 0x1e6e2000, 0x1688a8a8);
 
 		/* Launch FW */
-		ast_moutdwm(ast, 0x1e6e2104, 0x80000000 + boot_address);
+		if (ast->chip == AST2500)
+			ast_moutdwm(ast, 0x1e6e2104, boot_address | 0x00000001);
+		else
+			ast_moutdwm(ast, 0x1e6e2104, boot_address | 0x80000000);
 		ast_moutdwm(ast, 0x1e6e2100, 1);
 
 		/* Update Scratch */
@@ -253,23 +259,36 @@ static bool ast_launch_m68k(struct drm_device *dev)
 	return true;
 }
 
+static u32 ast_peek(struct ast_private *ast, u32 address, u32 offset)
+{
+	if (ast->config_mode == ast_use_p2a)
+		return ast_mindwm(ast, address + offset);
+	else
+		return *(u32 *) (ast->reservedbuffer + offset);
+}
+
 u8 ast_get_dp501_max_clk(struct drm_device *dev)
 {
 	struct ast_private *ast = to_ast_private(dev);
-	u32 boot_address, offset, data;
+	u32 boot_address, data;
 	u8 linkcap[4], linkrate, linklanes, maxclk = 0xff;
 
-	boot_address = get_fw_base(ast);
+	if (ast->config_mode == ast_use_p2a) {
+		boot_address = get_fw_base(ast);
+	} else {
+		boot_address = 0;
+		if (!ast->reservedbuffer)
+			return 65;	/* 1024x768 as default */
+		ast_peek(ast, boot_address, 0x0000); /* dummy read */
+	}
 
 	/* validate FW version */
-	offset = 0xf000;
-	data = ast_mindwm(ast, boot_address + offset);
+	data = ast_peek(ast, boot_address, 0xf000);
 	if ((data & 0xf0) != 0x10) /* version: 1x */
 		return maxclk;
 
 	/* Read Link Capability */
-	offset  = 0xf014;
-	*(u32 *)linkcap = ast_mindwm(ast, boot_address + offset);
+	*(u32 *)linkcap = ast_peek(ast, boot_address, 0xf014);
 	if (linkcap[2] == 0) {
 		linkrate = linkcap[0];
 		linklanes = linkcap[1];
@@ -284,26 +303,30 @@ u8 ast_get_dp501_max_clk(struct drm_device *dev)
 bool ast_dp501_read_edid(struct drm_device *dev, u8 *ediddata)
 {
 	struct ast_private *ast = to_ast_private(dev);
-	u32 i, boot_address, offset, data;
+	u32 i, boot_address, data;
 
-	boot_address = get_fw_base(ast);
+	if (ast->config_mode == ast_use_p2a) {
+		boot_address = get_fw_base(ast);
+	} else {
+		boot_address = 0;
+		if (!ast->reservedbuffer)
+			return false;
+		ast_peek(ast, boot_address, 0x0000); /* dummy read */
+	}
 
 	/* validate FW version */
-	offset = 0xf000;
-	data = ast_mindwm(ast, boot_address + offset);
+	data = ast_peek(ast, boot_address, 0xf000);
 	if ((data & 0xf0) != 0x10)
 		return false;
 
 	/* validate PnP Monitor */
-	offset = 0xf010;
-	data = ast_mindwm(ast, boot_address + offset);
+	data = ast_peek(ast, boot_address, 0xf010);
 	if (!(data & 0x01))
 		return false;
 
 	/* Read EDID */
-	offset = 0xf020;
 	for (i = 0; i < 128; i += 4) {
-		data = ast_mindwm(ast, boot_address + offset + i);
+		data = ast_peek(ast, boot_address, 0xf020 + i);
 		*(u32 *)(ediddata + i) = data;
 	}
 
