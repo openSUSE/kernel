@@ -46,6 +46,10 @@ endif
 
 BOOTCFLAGS	+= -isystem $(shell $(BOOTCC) -print-file-name=include)
 
+ifdef CONFIG_BUILD_ELF_V2
+BOOTCFLAGS	+= $(call cc-option,-mabi=elfv2)
+endif
+
 ifdef CONFIG_CPU_BIG_ENDIAN
 BOOTCFLAGS	+= -mbig-endian
 else
