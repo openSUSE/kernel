@@ -623,7 +623,7 @@ EXPORT_SYMBOL_GPL(mddev_init);
 
 static struct mddev *mddev_find_locked(dev_t unit)
 {
-	struct mddev *mddev;
+	mddev_t *mddev;
 
 	list_for_each_entry(mddev, &all_mddevs, all_mddevs)
 		if (mddev->unit == unit)
@@ -633,6 +633,22 @@ static struct mddev *mddev_find_locked(dev_t unit)
 }
 
 static mddev_t * mddev_find(dev_t unit)
+{
+	mddev_t *mddev;
+
+	if (MAJOR(unit) != MD_MAJOR)
+		unit &= ~((1 << MdpMinorShift) - 1);
+
+	spin_lock(&all_mddevs_lock);
+	mddev = mddev_find_locked(unit);
+	if (mddev)
+		mddev_get(mddev);
+	spin_unlock(&all_mddevs_lock);
+
+	return mddev;
+}
+
+static struct mddev *mddev_find_or_alloc(dev_t unit)
 {
 	mddev_t *mddev, *new = NULL;
 
@@ -4726,7 +4742,7 @@ static void mddev_delayed_delete(struct work_struct *ws)
 static int md_alloc(dev_t dev, char *name)
 {
 	static DEFINE_MUTEX(disks_mutex);
-	mddev_t *mddev = mddev_find(dev);
+	mddev_t *mddev = mddev_find_or_alloc(dev);
 	struct gendisk *disk;
 	int partitioned;
 	int shift;
@@ -5424,13 +5440,9 @@ static void autorun_devices(int part)
 
 		md_probe(dev, NULL, NULL);
 		mddev = mddev_find(dev);
-		if (!mddev || !mddev->gendisk) {
-			if (mddev)
-				mddev_put(mddev);
-			printk(KERN_ERR
-				"md: cannot allocate memory for md drive.\n");
+		if (!mddev)
 			break;
-		}
+
 		if (mddev_lock(mddev)) 
 			printk(KERN_WARNING "md: %s locked, cannot run\n",
 			       mdname(mddev));
