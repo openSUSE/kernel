@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright 2020 Nicolas Saenz Julienne <nsaenzjulienne@suse.de>
+ * Copyright 2021 Nicolas Saenz Julienne <nsaenzjulienne@suse.de>
  * For more information on Raspberry Pi's PoE hat see:
  * https://www.raspberrypi.org/products/poe-hat/
  *
@@ -24,7 +24,6 @@
 #define RPI_PWM_PERIOD_NS		80000 /* 12.5 kHz */
 
 #define RPI_PWM_CUR_DUTY_REG		0x0
-#define RPI_PWM_DEF_DUTY_REG		0x1
 
 struct raspberrypi_pwm {
 	struct rpi_firmware *firmware;
@@ -38,7 +37,8 @@ struct raspberrypi_pwm_prop {
 	__le32 ret;
 } __packed;
 
-static inline struct raspberrypi_pwm *to_raspberrypi_pwm(struct pwm_chip *chip)
+static inline
+struct raspberrypi_pwm *raspberrypi_pwm_from_chip(struct pwm_chip *chip)
 {
 	return container_of(chip, struct raspberrypi_pwm, chip);
 }
@@ -86,33 +86,33 @@ static void raspberrypi_pwm_get_state(struct pwm_chip *chip,
 				      struct pwm_device *pwm,
 				      struct pwm_state *state)
 {
-	struct raspberrypi_pwm *rpipwm = to_raspberrypi_pwm(chip);
+	struct raspberrypi_pwm *rpipwm = raspberrypi_pwm_from_chip(chip);
 
 	state->period = RPI_PWM_PERIOD_NS;
-	state->duty_cycle = DIV_ROUND_CLOSEST(rpipwm->duty_cycle * RPI_PWM_PERIOD_NS,
-					      RPI_PWM_MAX_DUTY);
+	state->duty_cycle = DIV_ROUND_UP(rpipwm->duty_cycle * RPI_PWM_PERIOD_NS,
+					 RPI_PWM_MAX_DUTY);
 	state->enabled = !!(rpipwm->duty_cycle);
 	state->polarity = PWM_POLARITY_NORMAL;
 }
 
 static int raspberrypi_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
-			         const struct pwm_state *state)
+				 const struct pwm_state *state)
 {
-	struct raspberrypi_pwm *rpipwm = to_raspberrypi_pwm(chip);
+	struct raspberrypi_pwm *rpipwm = raspberrypi_pwm_from_chip(chip);
 	unsigned int duty_cycle;
 	int ret;
 
-        if (state->period < RPI_PWM_PERIOD_NS ||
-            state->polarity != PWM_POLARITY_NORMAL)
-                return -EINVAL;
+	if (state->period < RPI_PWM_PERIOD_NS ||
+	    state->polarity != PWM_POLARITY_NORMAL)
+		return -EINVAL;
 
-        if (!state->enabled)
-                duty_cycle = 0;
-        else if (state->duty_cycle < RPI_PWM_PERIOD_NS)
-                duty_cycle = DIV_ROUND_CLOSEST_ULL(state->duty_cycle * RPI_PWM_MAX_DUTY,
-					           RPI_PWM_PERIOD_NS);
-        else
-                duty_cycle = RPI_PWM_MAX_DUTY;
+	if (!state->enabled)
+		duty_cycle = 0;
+	else if (state->duty_cycle < RPI_PWM_PERIOD_NS)
+		duty_cycle = DIV_ROUND_DOWN_ULL(state->duty_cycle * RPI_PWM_MAX_DUTY,
+						RPI_PWM_PERIOD_NS);
+	else
+		duty_cycle = RPI_PWM_MAX_DUTY;
 
 	if (duty_cycle == rpipwm->duty_cycle)
 		return 0;
@@ -120,23 +120,12 @@ static int raspberrypi_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 	ret = raspberrypi_pwm_set_property(rpipwm->firmware, RPI_PWM_CUR_DUTY_REG,
 					   duty_cycle);
 	if (ret) {
-		dev_err(chip->dev, "Failed to set duty cycle: %d\n", ret);
+		dev_err(chip->dev, "Failed to set duty cycle: %pe\n",
+			ERR_PTR(ret));
 		return ret;
 	}
 
-	/*
-	 * This sets the default duty cycle after resetting the board, we
-	 * updated it every time to mimic Raspberry Pi's downstream's driver
-	 * behaviour.
-	 */
-	ret = raspberrypi_pwm_set_property(rpipwm->firmware, RPI_PWM_DEF_DUTY_REG,
-					   duty_cycle);
-	if (ret) {
-		dev_err(chip->dev, "Failed to set default duty cycle: %d\n", ret);
-		return ret;
-	}
-
-        rpipwm->duty_cycle = duty_cycle;
+	rpipwm->duty_cycle = duty_cycle;
 
 	return 0;
 }
@@ -164,7 +153,8 @@ static int raspberrypi_pwm_probe(struct platform_device *pdev)
 	firmware = devm_rpi_firmware_get(&pdev->dev, firmware_node);
 	of_node_put(firmware_node);
 	if (!firmware)
-		return -EPROBE_DEFER;
+		return dev_err_probe(dev, -EPROBE_DEFER,
+				     "Failed to get firmware handle\n");
 
 	rpipwm = devm_kzalloc(&pdev->dev, sizeof(*rpipwm), GFP_KERNEL);
 	if (!rpipwm)
@@ -181,7 +171,7 @@ static int raspberrypi_pwm_probe(struct platform_device *pdev)
 	ret = raspberrypi_pwm_get_property(rpipwm->firmware, RPI_PWM_CUR_DUTY_REG,
 					   &rpipwm->duty_cycle);
 	if (ret) {
-		dev_err(dev, "Failed to get duty cycle: %d\n", ret);
+		dev_err(dev, "Failed to get duty cycle: %pe\n", ERR_PTR(ret));
 		return ret;
 	}
 
@@ -212,5 +202,5 @@ static struct platform_driver raspberrypi_pwm_driver = {
 module_platform_driver(raspberrypi_pwm_driver);
 
 MODULE_AUTHOR("Nicolas Saenz Julienne <nsaenzjulienne@suse.de>");
-MODULE_DESCRIPTION("Raspberry Pi Firwmare Based PWM Bus Driver");
+MODULE_DESCRIPTION("Raspberry Pi Firmware Based PWM Bus Driver");
 MODULE_LICENSE("GPL v2");
