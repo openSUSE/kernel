@@ -360,8 +360,6 @@ static int radeon_ttm_tt_pin_userptr(struct ttm_bo_device *bdev, struct ttm_tt *
 
 	if (current->mm != gtt->usermm)
 		return -EPERM;
-	if (!ttm->pages)
-		return -EPERM;
 
 	if (gtt->userflags & RADEON_GEM_USERPTR_ANONONLY) {
 		/* check that we only pin down anonymous memory
