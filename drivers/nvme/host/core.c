@@ -2897,11 +2897,9 @@ int nvme_init_identify(struct nvme_ctrl *ctrl)
 		ctrl->hmmaxd = le16_to_cpu(id->hmmaxd);
 	}
 
-	ret = nvme_mpath_init(ctrl, id);
-	kfree(id);
-
+	ret = nvme_mpath_init_identify(ctrl, id);
 	if (ret < 0)
-		return ret;
+		goto out_free;
 
 	if (ctrl->apst_enabled && !prev_apst_enabled)
 		dev_pm_qos_expose_latency_tolerance(ctrl->device);
@@ -2910,26 +2908,25 @@ int nvme_init_identify(struct nvme_ctrl *ctrl)
 
 	ret = nvme_configure_apst(ctrl);
 	if (ret < 0)
-		return ret;
-	
+		goto out_free;
+
 	ret = nvme_configure_timestamp(ctrl);
 	if (ret < 0)
-		return ret;
+		goto out_free;
 
 	ret = nvme_configure_directives(ctrl);
 	if (ret < 0)
-		return ret;
+		goto out_free;
 
 	ret = nvme_configure_acre(ctrl);
 	if (ret < 0)
-		return ret;
+		goto out_free;
 
 	if (!ctrl->identified && !nvme_discovery_ctrl(ctrl))
 		nvme_hwmon_init(ctrl);
 
 	ctrl->identified = true;
-
-	return 0;
+	ret = 0;
 
 out_free:
 	kfree(id);
@@ -4186,6 +4183,7 @@ int nvme_init_ctrl(struct nvme_ctrl *ctrl, struct device *dev,
 		min(default_ps_max_latency_us, (unsigned long)S32_MAX));
 
 	nvme_fault_inject_init(&ctrl->fault_inject, dev_name(ctrl->device));
+	nvme_mpath_init_ctrl(ctrl);
 
 	return 0;
 out_free_name:
