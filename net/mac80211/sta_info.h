@@ -651,11 +651,18 @@ struct sta_info {
 
 	struct cfg80211_chan_def tdls_chandef;
 
-	struct ieee80211_fragment_cache frags;
-
 	/* keep last! */
 	struct ieee80211_sta sta;
 };
+
+/* XXX frags is factoroed out for SLE kABI compatibility */
+struct __sta_info {
+	struct ieee80211_fragment_cache frags;
+	void *reserved;
+	struct sta_info sta;
+};
+
+#define sta_frags(s) container_of(s, struct __sta_info, sta)->frags
 
 static inline enum nl80211_plink_state sta_plink_state(struct sta_info *sta)
 {
