@@ -257,6 +257,8 @@ struct sta_info *sta_info_get_by_idx(struct ieee80211_sub_if_data *sdata,
  */
 void sta_info_free(struct ieee80211_local *local, struct sta_info *sta)
 {
+	struct __sta_info *__sta = container_of(sta, struct __sta_info, sta);
+
 	/*
 	 * If we had used sta_info_pre_move_state() then we might not
 	 * have gone through the state transitions down again, so do
@@ -287,7 +289,7 @@ void sta_info_free(struct ieee80211_local *local, struct sta_info *sta)
 	kfree(sta->mesh);
 #endif
 	free_percpu(sta->pcpu_rx_stats);
-	kfree(sta);
+	kfree(__sta);
 }
 
 /* Caller must hold local->sta_mtx */
@@ -338,11 +340,13 @@ struct sta_info *sta_info_alloc(struct ieee80211_sub_if_data *sdata,
 	struct ieee80211_local *local = sdata->local;
 	struct ieee80211_hw *hw = &local->hw;
 	struct sta_info *sta;
+	struct __sta_info *__sta;
 	int i;
 
-	sta = kzalloc(sizeof(*sta) + hw->sta_data_size, gfp);
-	if (!sta)
+	__sta = kzalloc(sizeof(*__sta) + hw->sta_data_size, gfp);
+	if (!__sta)
 		return NULL;
+	sta = &__sta->sta;
 
 	if (ieee80211_hw_check(hw, USES_RSS)) {
 		sta->pcpu_rx_stats =
@@ -391,7 +395,7 @@ struct sta_info *sta_info_alloc(struct ieee80211_sub_if_data *sdata,
 
 	u64_stats_init(&sta->rx_stats.syncp);
 
-	ieee80211_init_frag_cache(&sta->frags);
+	ieee80211_init_frag_cache(&__sta->frags);
 
 	sta->sta_state = IEEE80211_STA_NONE;
 
@@ -1103,7 +1107,7 @@ static void __sta_info_destroy_part2(struct sta_info *sta)
 
 	ieee80211_sta_debugfs_remove(sta);
 
-	ieee80211_destroy_frag_cache(&sta->frags);
+	ieee80211_destroy_frag_cache(&sta_frags(sta));
 
 	cleanup_single_sta(sta);
 }
