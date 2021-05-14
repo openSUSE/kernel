@@ -2213,6 +2213,8 @@ unsigned int __attribute_const__ ieee80211_hdrlen(__le16 fc);
  */
 int ieee80211_data_to_8023(struct sk_buff *skb, const u8 *addr,
 			   enum nl80211_iftype iftype);
+int ieee80211_data_to_8023_amsdu(struct sk_buff *skb, const u8 *addr,
+				 enum nl80211_iftype iftype);
 
 /**
  * ieee80211_data_from_8023 - convert an 802.3 frame to 802.11
@@ -2244,6 +2246,10 @@ void ieee80211_amsdu_to_8023s(struct sk_buff *skb, struct sk_buff_head *list,
 			      const u8 *addr, enum nl80211_iftype iftype,
 			      const unsigned int extra_headroom,
 			      bool has_80211_header);
+int __ieee80211_amsdu_to_8023s(struct sk_buff *skb, struct sk_buff_head *list,
+			       const u8 *addr, enum nl80211_iftype iftype,
+			       const unsigned int extra_headroom,
+			       bool has_80211_header);
 
 /**
  * cfg80211_classify8021d - determine the 802.1p/1d tag for a data frame
