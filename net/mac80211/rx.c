@@ -1370,7 +1370,7 @@ ieee80211_rx_h_defragment(struct ieee80211_rx_data *rx)
 	frag = sc & IEEE80211_SCTL_FRAG;
 
 	if (rx->sta)
-		cache = &rx->sta->frags;
+		cache = &sta_frags(rx->sta);
 
 	if (likely((!ieee80211_has_morefrags(fc) && frag == 0) ||
 		   is_multicast_ether_addr(hdr->addr1))) {
