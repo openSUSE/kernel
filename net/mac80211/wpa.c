@@ -1,6 +1,7 @@
 /*
  * Copyright 2002-2004, Instant802 Networks, Inc.
  * Copyright 2008, Jouni Malinen <j@w1.fi>
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -154,8 +155,8 @@ ieee80211_rx_h_michael_mic_verify(struct ieee80211_rx_data *rx)
 
 update_iv:
 	/* update IV in key information to be able to detect replays */
-	rx->key->u.tkip.rx[queue].iv32 = rx->tkip_iv32;
-	rx->key->u.tkip.rx[queue].iv16 = rx->tkip_iv16;
+	rx->key->u.tkip.rx[queue].iv32 = rx->tkip.iv32;
+	rx->key->u.tkip.rx[queue].iv16 = rx->tkip.iv16;
 
 	return RX_CONTINUE;
 
@@ -273,8 +274,8 @@ ieee80211_crypto_tkip_decrypt(struct ieee80211_rx_data *rx)
 					  key, skb->data + hdrlen,
 					  skb->len - hdrlen, rx->sta->sta.addr,
 					  hdr->addr1, hwaccel, queue,
-					  &rx->tkip_iv32,
-					  &rx->tkip_iv16);
+					  &rx->tkip.iv32,
+					  &rx->tkip.iv16);
 	if (res != TKIP_DECRYPT_OK)
 		return RX_DROP_UNUSABLE;
 
@@ -458,6 +459,11 @@ ieee80211_crypto_ccmp_encrypt(struct ieee80211_tx_data *tx)
 	return TX_CONTINUE;
 }
 
+static inline bool ieee80211_is_frag(struct ieee80211_hdr *hdr)
+{
+	return ieee80211_has_morefrags(hdr->frame_control) ||
+	       hdr->seq_ctrl & cpu_to_le16(IEEE80211_SCTL_FRAG);
+}
 
 ieee80211_rx_result
 ieee80211_crypto_ccmp_decrypt(struct ieee80211_rx_data *rx)
@@ -504,6 +510,8 @@ ieee80211_crypto_ccmp_decrypt(struct ieee80211_rx_data *rx)
 	}
 
 	memcpy(key->u.ccmp.rx_pn[queue], pn, CCMP_PN_LEN);
+	if (unlikely(ieee80211_is_frag(hdr)))
+		memcpy(rx->ccm_gcm.pn, pn, CCMP_PN_LEN);
 
 	/* Remove CCMP header and MIC */
 	skb_trim(skb, skb->len - CCMP_MIC_LEN);
