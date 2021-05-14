@@ -1375,7 +1375,6 @@ static bool fnic_cleanup_io_iter(struct scsi_cmnd *sc, void *data,
 	io_req = (struct fnic_io_req *)CMD_SP(sc);
 	if ((CMD_FLAGS(sc) & FNIC_DEVICE_RESET) &&
 	    !(CMD_FLAGS(sc) & FNIC_DEV_RST_DONE)) {
-
 		/*
 		 * We will be here only when FW completes reset
 		 * without sending completions for outstanding ios.
@@ -1436,10 +1435,9 @@ cleanup_scsi_cmd:
 			   (((u64)CMD_FLAGS(sc) << 32) | CMD_STATE(sc)));
 
 		sc->scsi_done(sc);
- 	}
+	}
 	return true;
 }
-
 
 static void fnic_cleanup_io(struct fnic *fnic)
 {
@@ -1561,7 +1559,8 @@ struct fnic_rport_abort_io_iter_data {
 	int term_cnt;
 };
 
-static bool fnic_rport_abort_io(struct scsi_cmnd *sc, void *data, bool reserved)
+static bool fnic_rport_abort_io_iter(struct scsi_cmnd *sc, void *data,
+				     bool reserved)
 {
 	struct fnic_rport_abort_io_iter_data *iter_data = data;
 	struct fnic *fnic = iter_data->fnic;
@@ -1677,7 +1676,7 @@ static void fnic_rport_exch_reset(struct fnic *fnic, u32 port_id)
 	if (fnic->in_remove)
 		return;
 
-	scsi_host_busy_iter(fnic->lport->host, fnic_rport_abort_io,
+	scsi_host_busy_iter(fnic->lport->host, fnic_rport_abort_io_iter,
 			    &iter_data);
 	if (iter_data.term_cnt > atomic64_read(&term_stats->max_terminates))
 		atomic64_set(&term_stats->max_terminates, iter_data.term_cnt);
@@ -2013,13 +2012,13 @@ lr_io_req_end:
 
 struct fnic_pending_aborts_iter_data {
 	struct fnic *fnic;
+	struct scsi_cmnd *lr_sc;
 	struct scsi_device *lun_dev;
 	int ret;
 };
 
 static bool fnic_pending_aborts_iter(struct scsi_cmnd *sc,
 				     void *data, bool reserved)
-
 {
 	struct fnic_pending_aborts_iter_data *iter_data = data;
 	struct fnic *fnic = iter_data->fnic;
@@ -2032,7 +2031,7 @@ static bool fnic_pending_aborts_iter(struct scsi_cmnd *sc,
 	DECLARE_COMPLETION_ONSTACK(tm_done);
 	enum fnic_ioreq_state old_ioreq_state;
 
-	if (sc->device != lun_dev)
+	if (sc == iter_data->lr_sc || sc->device != lun_dev)
 		return true;
 	if (reserved)
 		return true;
@@ -2079,7 +2078,7 @@ static bool fnic_pending_aborts_iter(struct scsi_cmnd *sc,
 	 * handled in this function.
 	 */
 	CMD_STATE(sc) = FNIC_IOREQ_ABTS_PENDING;
- 
+
 	BUG_ON(io_req->abts_done);
 
 	if (CMD_FLAGS(sc) & FNIC_DEVICE_RESET) {
@@ -2098,7 +2097,6 @@ static bool fnic_pending_aborts_iter(struct scsi_cmnd *sc,
 	if (fnic_queue_abort_io_req(fnic, abt_tag,
 				    FCPIO_ITMF_ABT_TASK_TERM,
 				    fc_lun.scsi_lun, io_req)) {
-
 		spin_lock_irqsave(io_lock, flags);
 		io_req = (struct fnic_io_req *)CMD_SP(sc);
 		if (io_req)
@@ -2106,6 +2104,7 @@ static bool fnic_pending_aborts_iter(struct scsi_cmnd *sc,
 		if (CMD_STATE(sc) == FNIC_IOREQ_ABTS_PENDING)
 			CMD_STATE(sc) = old_ioreq_state;
 		spin_unlock_irqrestore(io_lock, flags);
+		iter_data->ret = FAILED;
 		return false;
 	} else {
 		spin_lock_irqsave(io_lock, flags);
@@ -2117,7 +2116,6 @@ static bool fnic_pending_aborts_iter(struct scsi_cmnd *sc,
 
 	wait_for_completion_timeout(&tm_done, msecs_to_jiffies
 				    (fnic->config.ed_tov));
-
 
 	/* Recheck cmd state to check if it is now aborted */
 	spin_lock_irqsave(io_lock, flags);
@@ -2132,7 +2130,7 @@ static bool fnic_pending_aborts_iter(struct scsi_cmnd *sc,
 
 	/* if abort is still pending with fw, fail */
 	if (CMD_ABTS_STATUS(sc) == FCPIO_INVALID_CODE) {
- 		spin_unlock_irqrestore(io_lock, flags);
+		spin_unlock_irqrestore(io_lock, flags);
 		CMD_FLAGS(sc) |= FNIC_IO_ABT_TERM_DONE;
 		iter_data->ret = FAILED;
 		return false;
@@ -2140,12 +2138,15 @@ static bool fnic_pending_aborts_iter(struct scsi_cmnd *sc,
 	CMD_STATE(sc) = FNIC_IOREQ_ABTS_COMPLETE;
 
 	/* original sc used for lr is handled by dev reset code */
-	CMD_SP(sc) = NULL;
+	if (sc != iter_data->lr_sc)
+		CMD_SP(sc) = NULL;
 	spin_unlock_irqrestore(io_lock, flags);
 
 	/* original sc used for lr is handled by dev reset code */
-	fnic_release_ioreq_buf(fnic, io_req, sc);
-	mempool_free(io_req, fnic->io_req_pool);
+	if (sc != iter_data->lr_sc) {
+		fnic_release_ioreq_buf(fnic, io_req, sc);
+		mempool_free(io_req, fnic->io_req_pool);
+	}
 
 	/*
 	 * Any IO is returned during reset, it needs to call scsi_done
@@ -2166,7 +2167,9 @@ static bool fnic_pending_aborts_iter(struct scsi_cmnd *sc,
  * successfully aborted, 1 otherwise
  */
 static int fnic_clean_pending_aborts(struct fnic *fnic,
-				     struct scsi_cmnd *lr_sc)
+				     struct scsi_cmnd *lr_sc,
+				     bool new_sc)
+
 {
 	int ret = SUCCESS;
 	struct fnic_pending_aborts_iter_data iter_data = {
@@ -2174,6 +2177,9 @@ static int fnic_clean_pending_aborts(struct fnic *fnic,
 		.lun_dev = lr_sc->device,
 		.ret = SUCCESS,
 	};
+
+	if (new_sc)
+		iter_data.lr_sc = lr_sc;
 
 	scsi_host_busy_iter(fnic->lport->host,
 			    fnic_pending_aborts_iter, &iter_data);
@@ -2421,7 +2427,7 @@ int fnic_device_reset(struct scsi_cmnd *sc)
 	 * the lun reset cmd. If all cmds get cleaned, the lun reset
 	 * succeeds
 	 */
-	if (fnic_clean_pending_aborts(fnic, sc)) {
+	if (fnic_clean_pending_aborts(fnic, sc, new_sc)) {
 		spin_lock_irqsave(io_lock, flags);
 		io_req = (struct fnic_io_req *)CMD_SP(sc);
 		FNIC_SCSI_DBG(KERN_DEBUG, fnic->lport->host,
@@ -2689,6 +2695,12 @@ static bool fnic_abts_pending_iter(struct scsi_cmnd *sc, void *data,
 	spinlock_t *io_lock;
 	unsigned long flags;
 
+	/*
+	 * ignore this lun reset cmd or cmds that do not belong to
+	 * this lun
+	 */
+	if (iter_data->lr_sc && sc == iter_data->lr_sc)
+		return true;
 	if (iter_data->lun_dev && sc->device != iter_data->lun_dev)
 		return true;
 
@@ -2731,8 +2743,10 @@ int fnic_is_abts_pending(struct fnic *fnic, struct scsi_cmnd *lr_sc)
 		.ret = 0,
 	};
 
-	if (lr_sc)
+	if (lr_sc) {
 		iter_data.lun_dev = lr_sc->device;
+		iter_data.lr_sc = lr_sc;
+	}
 
 	/* walk again to check, if IOs are still pending in fw */
 	scsi_host_busy_iter(fnic->lport->host,
