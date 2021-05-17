@@ -2864,6 +2864,11 @@ static const struct attribute_group *nvme_subsys_attrs_groups[] = {
 	NULL,
 };
 
+static inline bool nvme_discovery_ctrl(struct nvme_ctrl *ctrl)
+{
+	return ctrl->opts && ctrl->opts->discovery_nqn;
+}
+
 static bool nvme_validate_cntlid(struct nvme_subsystem *subsys,
 		struct nvme_ctrl *ctrl, struct nvme_id_ctrl *id)
 {
@@ -2883,7 +2888,7 @@ static bool nvme_validate_cntlid(struct nvme_subsystem *subsys,
 		}
 
 		if ((id->cmic & NVME_CTRL_CMIC_MULTI_CTRL) ||
-		    (ctrl->opts && ctrl->opts->discovery_nqn))
+		    nvme_discovery_ctrl(ctrl))
 			continue;
 
 		dev_err(ctrl->device,
@@ -3172,7 +3177,7 @@ int nvme_init_identify(struct nvme_ctrl *ctrl)
 			goto out_free;
 		}
 
-		if (!ctrl->opts->discovery_nqn && !ctrl->kas) {
+		if (!nvme_discovery_ctrl(ctrl) && !ctrl->kas) {
 			dev_err(ctrl->device,
 				"keep-alive support is mandatory for fabrics\n");
 			ret = -EINVAL;
@@ -3212,7 +3217,7 @@ int nvme_init_identify(struct nvme_ctrl *ctrl)
 	if (ret < 0)
 		return ret;
 
-	if (!ctrl->identified) {
+	if (!ctrl->identified && !nvme_discovery_ctrl(ctrl)) {
 		ret = nvme_hwmon_init(ctrl);
 		if (ret < 0)
 			return ret;
