@@ -264,5 +264,7 @@ int smu_v11_0_get_dpm_level_range(struct smu_context *smu,
 				  uint32_t *min_value,
 				  uint32_t *max_value);
 
+void smu_v11_0_interrupt_work(struct smu_context *smu);
+
 #endif
 #endif

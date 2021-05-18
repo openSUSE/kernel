@@ -52,6 +52,7 @@
 
 #define PCI_CHIP_AST2000 0x2000
 #define PCI_CHIP_AST2100 0x2010
+#define PCI_CHIP_AIP200  0xA200
 
 
 enum ast_chip {
@@ -63,6 +64,7 @@ enum ast_chip {
 	AST2300,
 	AST2400,
 	AST2500,
+	AIP200,
 };
 
 enum ast_tx_chip {
@@ -104,6 +106,7 @@ struct ast_private {
 
 	void __iomem *regs;
 	void __iomem *ioregs;
+	void __iomem *reservedbuffer;
 
 	enum ast_chip chip;
 	bool vga2_clone;
@@ -123,7 +126,8 @@ struct ast_private {
 	struct drm_plane primary_plane;
 	struct drm_plane cursor_plane;
 
-	bool support_wide_screen;
+	bool support_newvga_mode;
+	bool refclk_25mhz;
 	enum {
 		ast_use_p2a,
 		ast_use_dt,
@@ -299,6 +303,7 @@ bool ast_is_vga_enabled(struct drm_device *dev);
 void ast_post_gpu(struct drm_device *dev);
 u32 ast_mindwm(struct ast_private *ast, u32 r);
 void ast_moutdwm(struct ast_private *ast, u32 r, u32 v);
+void patch_ahb_ast2500(struct ast_private *ast);
 /* ast dp501 */
 void ast_set_dp501_video_output(struct drm_device *dev, u8 mode);
 bool ast_backup_fw(struct drm_device *dev, u8 *addr, u32 size);

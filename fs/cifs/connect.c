@@ -962,7 +962,7 @@ static void clean_demultiplex_info(struct TCP_Server_Info *server)
 		spin_lock(&GlobalMid_Lock);
 		list_for_each_safe(tmp, tmp2, &server->pending_mid_q) {
 			mid_entry = list_entry(tmp, struct mid_q_entry, qhead);
-			cifs_dbg(FYI, "Clearing mid 0x%llx\n", mid_entry->mid);
+			cifs_dbg(FYI, "Clearing mid %llu\n", mid_entry->mid);
 			kref_get(&mid_entry->refcount);
 			mid_entry->mid_state = MID_SHUTDOWN;
 			list_move(&mid_entry->qhead, &dispose_list);
@@ -973,7 +973,7 @@ static void clean_demultiplex_info(struct TCP_Server_Info *server)
 		/* now walk dispose list and issue callbacks */
 		list_for_each_safe(tmp, tmp2, &dispose_list) {
 			mid_entry = list_entry(tmp, struct mid_q_entry, qhead);
-			cifs_dbg(FYI, "Callback mid 0x%llx\n", mid_entry->mid);
+			cifs_dbg(FYI, "Callback mid %llu\n", mid_entry->mid);
 			list_del_init(&mid_entry->qhead);
 			mid_entry->callback(mid_entry);
 			cifs_mid_q_entry_release(mid_entry);
@@ -1084,6 +1084,7 @@ static void
 smb2_add_credits_from_hdr(char *buffer, struct TCP_Server_Info *server)
 {
 	struct smb2_sync_hdr *shdr = (struct smb2_sync_hdr *)buffer;
+	int scredits = server->credits;
 
 	/*
 	 * SMB1 does not use credits.
@@ -1096,6 +1097,13 @@ smb2_add_credits_from_hdr(char *buffer, struct TCP_Server_Info *server)
 		server->credits += le16_to_cpu(shdr->CreditRequest);
 		spin_unlock(&server->req_lock);
 		wake_up(&server->request_q);
+
+		trace_smb3_add_credits(server->CurrentMid,
+				server->hostname, scredits,
+				le16_to_cpu(shdr->CreditRequest));
+		cifs_server_dbg(FYI, "%s: added %u credits total=%d\n",
+				__func__, le16_to_cpu(shdr->CreditRequest),
+				scredits);
 	}
 }
 

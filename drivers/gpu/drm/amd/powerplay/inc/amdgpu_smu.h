@@ -98,7 +98,7 @@ struct smu_state_display_block {
 	bool              enable_vari_bright;
 };
 
-struct smu_state_memroy_block {
+struct smu_state_memory_block {
 	bool              dll_off;
 	uint8_t                 m3arb;
 	uint8_t                 unused[3];
@@ -145,7 +145,7 @@ struct smu_power_state {
 	struct smu_state_validation_block             validation;
 	struct smu_state_pcie_block                   pcie;
 	struct smu_state_display_block                display;
-	struct smu_state_memroy_block                 memory;
+	struct smu_state_memory_block                 memory;
 	struct smu_state_software_algorithm_block     software;
 	struct smu_uvd_clocks                         uvd_clocks;
 	struct smu_hw_power_state                     hardware;
@@ -448,6 +448,7 @@ struct smu_context
 	bool dc_controlled_by_gpio;
 
 	struct work_struct throttling_logging_work;
+	struct work_struct interrupt_work;
 };
 
 struct i2c_adapter;
@@ -590,6 +591,7 @@ struct pptable_funcs {
 	void (*log_thermal_throttling_event)(struct smu_context *smu);
 	size_t (*get_pp_feature_mask)(struct smu_context *smu, char *buf);
 	int (*set_pp_feature_mask)(struct smu_context *smu, uint64_t new_mask);
+	void (*interrupt_work)(struct smu_context *smu);
 };
 
 typedef enum {

@@ -471,7 +471,7 @@ static void print_rq(struct seq_file *m, struct rq *rq, int rq_cpu)
 
 	rcu_read_lock();
 	for_each_process_thread(g, p) {
-		if (!p->on_rq || task_cpu(p) != rq_cpu)
+		if (task_cpu(p) != rq_cpu)
 			continue;
 
 		print_task(m, rq, p);

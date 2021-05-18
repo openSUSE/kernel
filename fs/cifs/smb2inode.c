@@ -308,6 +308,7 @@ smb2_compound_op(const unsigned int xid, struct cifs_tcon *tcon,
 	if (cfile)
 		goto after_close;
 	/* Close */
+	flags |= CIFS_CP_CREATE_CLOSE_OP;
 	memset(&close_iov, 0, sizeof(close_iov));
 	rqst[num_rqst].rq_iov = close_iov;
 	rqst[num_rqst].rq_nvec = 1;

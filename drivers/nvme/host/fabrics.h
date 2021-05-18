@@ -17,6 +17,13 @@
 #define NVMF_DEF_CTRL_LOSS_TMO		600
 
 /*
+ * Reserved one command for internal usage.  This command is used for sending
+ * the connect command, as well as for the keep alive command on the admin
+ * queue once live.
+ */
+#define NVMF_RESERVED_TAGS	1
+
+/*
  * Define a host as seen by the target.  We allocate one at boot, but also
  * allow the override it when creating controllers.  This is both to provide
  * persistence of the Host NQN over multiple boots, and to allow using
