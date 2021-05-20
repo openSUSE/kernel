@@ -3804,6 +3804,12 @@ static int hclge_reset_rebuild(struct hclge_dev *hdev)
 	ae_dev->reset_type = HNAE3_NONE_RESET;
 	clear_bit(HCLGE_STATE_RST_FAIL, &hdev->state);
 
+	/* reset request will not be set during reset, so clear
+	 * pending reset request to avoid unnecessary reset
+	 * caused by the same reason.
+	 */
+	hclge_get_reset_level(ae_dev, &hdev->reset_request);
+
 	/* if default_reset_request has a higher level reset request,
 	 * it should be handled as soon as possible. since some errors
 	 * need this kind of reset to fix.
