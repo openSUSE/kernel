@@ -1877,11 +1877,11 @@ static int nvme_revalidate_disk(struct gendisk *disk)
 	struct nvme_ctrl *ctrl = ns->ctrl;
 	struct nvme_id_ns *id;
 	struct nvme_ns_ids ids;
-	int ret = 0;
+	int ret = NVME_SC_INVALID_NS | NVME_SC_DNR;
 
 	if (test_bit(NVME_NS_DEAD, &ns->flags)) {
 		set_capacity(disk, 0);
-		return -ENODEV;
+		goto out;
 	}
 
 	ret = nvme_identify_ns(ctrl, ns->head->ns_id, &id);
@@ -1889,7 +1889,7 @@ static int nvme_revalidate_disk(struct gendisk *disk)
 		goto out;
 
 	if (id->ncap == 0) {
-		ret = -ENODEV;
+		ret = NVME_SC_INVALID_NS | NVME_SC_DNR;
 		goto free_id;
 	}
 
@@ -1900,7 +1900,7 @@ static int nvme_revalidate_disk(struct gendisk *disk)
 	if (!nvme_ns_ids_equal(&ns->head->ids, &ids)) {
 		dev_err(ctrl->device,
 			"identifiers changed for nsid %d\n", ns->head->ns_id);
-		ret = -ENODEV;
+		ret = NVME_SC_INVALID_NS | NVME_SC_DNR;
 		goto free_id;
 	}
 
@@ -1909,13 +1909,17 @@ free_id:
 	kfree(id);
 out:
 	/*
-	 * Only fail the function if we got a fatal error back from the
+	 * Only remove the namespace if we got a fatal error back from the
 	 * device, otherwise ignore the error and just move on.
+	 *
+	 * TODO: we should probably schedule a delayed retry here.
 	 */
-	if (ret == -ENOMEM || (ret > 0 && !(ret & NVME_SC_DNR)))
-		ret = 0;
-	else if (ret > 0)
-		ret = blk_status_to_errno(nvme_error_status(ret));
+	if (ret > 0) {
+		if (ret & NVME_SC_DNR)
+			ret = blk_status_to_errno(nvme_error_status(ret));
+		else
+			ret = 0;
+	}
 	return ret;
 }
 
