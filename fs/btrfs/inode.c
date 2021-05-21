@@ -10476,6 +10476,7 @@ static struct btrfs_trans_handle *insert_prealloc_file_extent(
 	struct btrfs_path *path;
 	u64 start = ins->objectid;
 	u64 len = ins->offset;
+	int qgroup_released;
 	int ret;
 
 	memset(&stack_fi, 0, sizeof(stack_fi));
@@ -10488,15 +10489,16 @@ static struct btrfs_trans_handle *insert_prealloc_file_extent(
 	btrfs_set_stack_file_extent_compression(&stack_fi, BTRFS_COMPRESS_NONE);
 	/* Encryption and other encoding is reserved and all 0 */
 
-	ret = btrfs_qgroup_release_data(inode, file_offset, len);
-	if (ret < 0)
-		return ERR_PTR(ret);
+	qgroup_released = btrfs_qgroup_release_data(inode, file_offset, len);
+	if (qgroup_released < 0)
+		return ERR_PTR(qgroup_released);
 
 	if (trans) {
 		ret = insert_reserved_file_extent(trans, inode,
-						  file_offset, &stack_fi, ret);
+						  file_offset, &stack_fi,
+						  qgroup_released);
 		if (ret)
-			return ERR_PTR(ret);
+			goto free_qgroup;
 		return trans;
 	}
 
@@ -10507,21 +10509,35 @@ static struct btrfs_trans_handle *insert_prealloc_file_extent(
 	extent_info.file_offset = file_offset;
 	extent_info.extent_buf = (char *)&stack_fi;
 	extent_info.is_new_extent = true;
-	extent_info.qgroup_reserved = ret;
+	extent_info.qgroup_reserved = qgroup_released;
 	extent_info.insertions = 0;
 
 	path = btrfs_alloc_path();
-	if (!path)
-		return ERR_PTR(-ENOMEM);
+	if (!path) {
+		ret = -ENOMEM;
+		goto free_qgroup;
+	}
 
 	ret = btrfs_replace_file_extents(inode, path, file_offset,
 				     file_offset + len - 1, &extent_info,
 				     &trans);
 	btrfs_free_path(path);
 	if (ret)
-		return ERR_PTR(ret);
-
+		goto free_qgroup;
 	return trans;
+
+free_qgroup:
+	/*
+	 * We have released qgroup data range at the beginning of the function,
+	 * and normally qgroup_released bytes will be freed when committing
+	 * transaction.
+	 * But if we error out early, we have to free what we have released
+	 * or we leak qgroup data reservation.
+	 */
+	btrfs_qgroup_free_refroot(BTRFS_I(inode)->root->fs_info,
+			BTRFS_I(inode)->root->root_key.objectid, qgroup_released,
+			BTRFS_QGROUP_RSV_DATA);
+	return ERR_PTR(ret);
 }
 
 static int __btrfs_prealloc_file_range(struct inode *inode, int mode,

@@ -34,7 +34,10 @@ netdev_tx_t enetc_xmit(struct sk_buff *skb, struct net_device *ndev)
 		return NETDEV_TX_BUSY;
 	}
 
+	enetc_lock_mdio();
 	count = enetc_map_tx_buffs(tx_ring, skb, priv->active_offloads);
+	enetc_unlock_mdio();
+
 	if (unlikely(!count))
 		goto drop_packet_err;
 
@@ -240,7 +243,7 @@ static int enetc_map_tx_buffs(struct enetc_bdr *tx_ring, struct sk_buff *skb,
 	skb_tx_timestamp(skb);
 
 	/* let H/W know BD ring has been updated */
-	enetc_wr_reg(tx_ring->tpir, i); /* includes wmb() */
+	enetc_wr_reg_hot(tx_ring->tpir, i); /* includes wmb() */
 
 	return count;
 
@@ -263,12 +266,16 @@ static irqreturn_t enetc_msix(int irq, void *data)
 	struct enetc_int_vector	*v = data;
 	int i;
 
+	enetc_lock_mdio();
+
 	/* disable interrupts */
-	enetc_wr_reg(v->rbier, 0);
+	enetc_wr_reg_hot(v->rbier, 0);
 	enetc_wr_reg(v->ricr1, v->rx_ictt);
 
 	for_each_set_bit(i, &v->tx_rings_map, ENETC_MAX_NUM_TXQS)
-		enetc_wr_reg(v->tbier_base + ENETC_BDR_OFF(i), 0);
+		enetc_wr_reg_hot(v->tbier_base + ENETC_BDR_OFF(i), 0);
+
+	enetc_unlock_mdio();
 
 	napi_schedule(&v->napi);
 
@@ -315,6 +322,8 @@ static int enetc_poll(struct napi_struct *napi, int budget)
 	int work_done;
 	int i;
 
+	enetc_lock_mdio();
+
 	for (i = 0; i < v->count_tx_rings; i++)
 		if (!enetc_clean_tx_ring(&v->tx_ring[i], budget))
 			complete = false;
@@ -325,8 +334,10 @@ static int enetc_poll(struct napi_struct *napi, int budget)
 	if (work_done)
 		v->rx_napi_work = true;
 
-	if (!complete)
+	if (!complete) {
+		enetc_unlock_mdio();
 		return budget;
+	}
 
 	napi_complete_done(napi, work_done);
 
@@ -336,18 +347,20 @@ static int enetc_poll(struct napi_struct *napi, int budget)
 	v->rx_napi_work = false;
 
 	/* enable interrupts */
-	enetc_wr_reg(v->rbier, ENETC_RBIER_RXTIE);
+	enetc_wr_reg_hot(v->rbier, ENETC_RBIER_RXTIE);
 
 	for_each_set_bit(i, &v->tx_rings_map, ENETC_MAX_NUM_TXQS)
-		enetc_wr_reg(v->tbier_base + ENETC_BDR_OFF(i),
+		enetc_wr_reg_hot(v->tbier_base + ENETC_BDR_OFF(i),
 			     ENETC_TBIER_TXTIE);
+
+	enetc_unlock_mdio();
 
 	return work_done;
 }
 
 static int enetc_bd_ready_count(struct enetc_bdr *tx_ring, int ci)
 {
-	int pi = enetc_rd_reg(tx_ring->tcir) & ENETC_TBCIR_IDX_MASK;
+	int pi = enetc_rd_reg_hot(tx_ring->tcir) & ENETC_TBCIR_IDX_MASK;
 
 	return pi >= ci ? pi - ci : tx_ring->bd_count - ci + pi;
 }
@@ -357,8 +370,8 @@ static void enetc_get_tx_tstamp(struct enetc_hw *hw, union enetc_tx_bd *txbd,
 {
 	u32 lo, hi, tstamp_lo;
 
-	lo = enetc_rd(hw, ENETC_SICTR0);
-	hi = enetc_rd(hw, ENETC_SICTR1);
+	lo = enetc_rd_hot(hw, ENETC_SICTR0);
+	hi = enetc_rd_hot(hw, ENETC_SICTR1);
 	tstamp_lo = le32_to_cpu(txbd->wb.tstamp);
 	if (lo <= tstamp_lo)
 		hi -= 1;
@@ -393,6 +406,7 @@ static bool enetc_clean_tx_ring(struct enetc_bdr *tx_ring, int napi_budget)
 
 	i = tx_ring->next_to_clean;
 	tx_swbd = &tx_ring->tx_swbd[i];
+
 	bds_to_clean = enetc_bd_ready_count(tx_ring, i);
 
 	do_tstamp = false;
@@ -440,8 +454,8 @@ static bool enetc_clean_tx_ring(struct enetc_bdr *tx_ring, int napi_budget)
 		if (is_eof) {
 			tx_frm_cnt++;
 			/* re-arm interrupt source */
-			enetc_wr_reg(tx_ring->idr, BIT(tx_ring->index) |
-				     BIT(16 + tx_ring->index));
+			enetc_wr_reg_hot(tx_ring->idr, BIT(tx_ring->index) |
+					 BIT(16 + tx_ring->index));
 		}
 
 		if (unlikely(!bds_to_clean))
@@ -522,8 +536,6 @@ static int enetc_refill_rx_ring(struct enetc_bdr *rx_ring, const int buff_cnt)
 	if (likely(j)) {
 		rx_ring->next_to_alloc = i; /* keep track from page reuse */
 		rx_ring->next_to_use = i;
-		/* update ENETC's consumer index */
-		enetc_wr_reg(rx_ring->rcir, i);
 	}
 
 	return j;
@@ -541,8 +553,8 @@ static void enetc_get_rx_tstamp(struct net_device *ndev,
 	u64 tstamp;
 
 	if (le16_to_cpu(rxbd->r.flags) & ENETC_RXBD_FLAG_TSTMP) {
-		lo = enetc_rd(hw, ENETC_SICTR0);
-		hi = enetc_rd(hw, ENETC_SICTR1);
+		lo = enetc_rd_reg_hot(hw->reg + ENETC_SICTR0);
+		hi = enetc_rd_reg_hot(hw->reg + ENETC_SICTR1);
 		rxbd = enetc_rxbd_ext(rxbd);
 		tstamp_lo = le32_to_cpu(rxbd->ext.tstamp);
 		if (lo <= tstamp_lo)
@@ -694,6 +706,8 @@ static int enetc_clean_rx_ring(struct enetc_bdr *rx_ring,
 		if (cleaned_cnt >= ENETC_RXBD_BUNDLE) {
 			int count = enetc_refill_rx_ring(rx_ring, cleaned_cnt);
 
+			/* update ENETC's consumer index */
+			enetc_wr_reg_hot(rx_ring->rcir, rx_ring->next_to_use);
 			cleaned_cnt -= count;
 		}
 
@@ -702,7 +716,7 @@ static int enetc_clean_rx_ring(struct enetc_bdr *rx_ring,
 		if (!bd_status)
 			break;
 
-		enetc_wr_reg(rx_ring->idr, BIT(rx_ring->index));
+		enetc_wr_reg_hot(rx_ring->idr, BIT(rx_ring->index));
 		dma_rmb(); /* for reading other rxbd fields */
 		size = le16_to_cpu(rxbd->r.buf_len);
 		skb = enetc_map_rx_buff_to_skb(rx_ring, i, size);

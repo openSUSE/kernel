@@ -24,6 +24,7 @@
 #include <linux/nmi.h>
 #include <linux/sched/debug.h>
 #include <linux/jump_label.h>
+#include <linux/moduleparam.h>
 
 #include "smpboot.h"
 
@@ -178,12 +179,14 @@ static int __init csdlock_debug(char *str)
 }
 early_param("csdlock_debug", csdlock_debug);
 
+static int csdlock_timeout = 5000;
+core_param(csdlock_timeout, csdlock_timeout, int, 0644);
+
 static DEFINE_PER_CPU(call_single_data_t *, cur_csd);
 static DEFINE_PER_CPU(smp_call_func_t, cur_csd_func);
 static DEFINE_PER_CPU(void *, cur_csd_info);
 static DEFINE_PER_CPU(struct cfd_seq_local, cfd_seq_local);
 
-#define CSD_LOCK_TIMEOUT (5ULL * NSEC_PER_SEC)
 atomic_t csd_bug_count = ATOMIC_INIT(0);
 static u64 cfd_seq;
 
@@ -336,7 +339,7 @@ static bool csd_lock_wait_toolong(call_single_data_t *csd, u64 ts0, u64 *ts1, in
 
 	ts2 = sched_clock();
 	ts_delta = ts2 - *ts1;
-	if (likely(ts_delta <= CSD_LOCK_TIMEOUT))
+	if (likely(ts_delta <= (u64)csdlock_timeout * NSEC_PER_MSEC))
 		return false;
 
 	firsttime = !*bug_id;

@@ -178,6 +178,7 @@ extern int ql2xexlogins;
 extern int ql2xdifbundlinginternalbuffers;
 extern int ql2xfulldump_on_mpifail;
 extern int ql2xenforce_iocb_limit;
+extern int ql2xabts_wait_nvme;
 
 extern int qla2x00_loop_reset(scsi_qla_host_t *);
 extern void qla2x00_abort_all_cmds(scsi_qla_host_t *, int);
@@ -224,6 +225,7 @@ extern int qla2x00_post_uevent_work(struct scsi_qla_host *, u32);
 
 extern int qla2x00_post_uevent_work(struct scsi_qla_host *, u32);
 extern void qla2x00_disable_board_on_pci_error(struct work_struct *);
+extern void qla_eeh_work(struct work_struct *);
 extern void qla2x00_sp_compl(srb_t *sp, int);
 extern void qla2xxx_qpair_sp_free_dma(srb_t *sp);
 extern void qla2xxx_qpair_sp_compl(srb_t *sp, int);
@@ -235,6 +237,8 @@ int qla24xx_post_relogin_work(struct scsi_qla_host *vha);
 void qla2x00_wait_for_sess_deletion(scsi_qla_host_t *);
 void qla24xx_process_purex_rdp(struct scsi_qla_host *vha,
 			       struct purex_item *pkt);
+void qla_pci_set_eeh_busy(struct scsi_qla_host *);
+void qla_schedule_eeh_work(struct scsi_qla_host *);
 
 /*
  * Global Functions in qla_mid.c source file.
@@ -942,8 +946,36 @@ int qla2x00_set_data_rate(scsi_qla_host_t *vha, uint16_t mode);
 extern void qla24xx_process_purex_list(struct purex_list *);
 extern void qla2x00_dfs_create_rport(scsi_qla_host_t *vha, struct fc_port *fp);
 extern void qla2x00_dfs_remove_rport(scsi_qla_host_t *vha, struct fc_port *fp);
+extern void qla_wait_nvme_release_cmd_kref(srb_t *sp);
+extern void qla_nvme_abort_set_option
+		(struct abort_entry_24xx *abt, srb_t *sp);
+extern void qla_nvme_abort_process_comp_status
+		(struct abort_entry_24xx *abt, srb_t *sp);
 
 /* nvme.c */
 void qla_nvme_unregister_remote_port(struct fc_port *fcport);
 void qla_handle_els_plogi_done(scsi_qla_host_t *vha, struct event_arg *ea);
+
+#define QLA2XX_HW_ERROR			BIT_0
+#define QLA2XX_SHT_LNK_DWN		BIT_1
+#define QLA2XX_INT_ERR			BIT_2
+#define QLA2XX_CMD_TIMEOUT		BIT_3
+#define QLA2XX_RESET_CMD_ERR		BIT_4
+#define QLA2XX_TGT_SHT_LNK_DOWN		BIT_17
+
+#define QLA2XX_MAX_LINK_DOWN_TIME	100
+
+int qla2xxx_start_stats(struct Scsi_Host *shost, u32 flags);
+int qla2xxx_stop_stats(struct Scsi_Host *shost, u32 flags);
+int qla2xxx_reset_stats(struct Scsi_Host *shost, u32 flags);
+
+int qla2xxx_get_ini_stats(struct Scsi_Host *shost, u32 flags, void *data, u64 size);
+int qla2xxx_get_tgt_stats(struct Scsi_Host *shost, u32 flags,
+			  struct fc_rport *rport, void *data, u64 size);
+int qla2xxx_disable_port(struct Scsi_Host *shost);
+int qla2xxx_enable_port(struct Scsi_Host *shost);
+
+uint64_t qla2x00_get_num_tgts(scsi_qla_host_t *vha);
+uint64_t qla2x00_count_set_bits(u32 num);
+
 #endif /* _QLA_GBL_H */
