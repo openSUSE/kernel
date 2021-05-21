@@ -5585,58 +5585,34 @@ static irqreturn_t hns_roce_v2_msix_interrupt_abn(int irq, void *dev_id)
 		roce_write(hr_dev, ROCEE_VF_ABN_INT_EN_REG, int_en);
 
 		int_work = 1;
-	} else if (int_st & BIT(HNS_ROCE_V2_VF_INT_ST_BUS_ERR_S)) {
-		dev_err(dev, "BUS ERR!\n");
+	} else if (int_st & BIT(HNS_ROCE_V2_VF_INT_ST_RAS_INT_S)) {
+		dev_err(dev, "RAS interrupt!\n");
 
-		int_st |= 1 << HNS_ROCE_V2_VF_INT_ST_BUS_ERR_S;
+		int_st |= 1 << HNS_ROCE_V2_VF_INT_ST_RAS_INT_S;
 		roce_write(hr_dev, ROCEE_VF_ABN_INT_ST_REG, int_st);
 
 		int_en |= 1 << HNS_ROCE_V2_VF_ABN_INT_EN_S;
 		roce_write(hr_dev, ROCEE_VF_ABN_INT_EN_REG, int_en);
 
 		int_work = 1;
-	} else if (int_st & BIT(HNS_ROCE_V2_VF_INT_ST_OTHER_ERR_S)) {
-		dev_err(dev, "OTHER ERR!\n");
-
-		int_st |= 1 << HNS_ROCE_V2_VF_INT_ST_OTHER_ERR_S;
-		roce_write(hr_dev, ROCEE_VF_ABN_INT_ST_REG, int_st);
-
-		int_en |= 1 << HNS_ROCE_V2_VF_ABN_INT_EN_S;
-		roce_write(hr_dev, ROCEE_VF_ABN_INT_EN_REG, int_en);
-
-		int_work = 1;
-	} else
+	} else {
 		dev_err(dev, "There is no abnormal irq found!\n");
+	}
 
 	return IRQ_RETVAL(int_work);
 }
 
 static void hns_roce_v2_int_mask_enable(struct hns_roce_dev *hr_dev,
-					int eq_num, int enable_flag)
+					int eq_num, u32 enable_flag)
 {
 	int i;
 
-	if (enable_flag == EQ_ENABLE) {
-		for (i = 0; i < eq_num; i++)
-			roce_write(hr_dev, ROCEE_VF_EVENT_INT_EN_REG +
-				   i * EQ_REG_OFFSET,
-				   HNS_ROCE_V2_VF_EVENT_INT_EN_M);
+	for (i = 0; i < eq_num; i++)
+		roce_write(hr_dev, ROCEE_VF_EVENT_INT_EN_REG +
+			   i * EQ_REG_OFFSET, enable_flag);
 
-		roce_write(hr_dev, ROCEE_VF_ABN_INT_EN_REG,
-			   HNS_ROCE_V2_VF_ABN_INT_EN_M);
-		roce_write(hr_dev, ROCEE_VF_ABN_INT_CFG_REG,
-			   HNS_ROCE_V2_VF_ABN_INT_CFG_M);
-	} else {
-		for (i = 0; i < eq_num; i++)
-			roce_write(hr_dev, ROCEE_VF_EVENT_INT_EN_REG +
-				   i * EQ_REG_OFFSET,
-				   HNS_ROCE_V2_VF_EVENT_INT_EN_M & 0x0);
-
-		roce_write(hr_dev, ROCEE_VF_ABN_INT_EN_REG,
-			   HNS_ROCE_V2_VF_ABN_INT_EN_M & 0x0);
-		roce_write(hr_dev, ROCEE_VF_ABN_INT_CFG_REG,
-			   HNS_ROCE_V2_VF_ABN_INT_CFG_M & 0x0);
-	}
+	roce_write(hr_dev, ROCEE_VF_ABN_INT_EN_REG, enable_flag);
+	roce_write(hr_dev, ROCEE_VF_ABN_INT_CFG_REG, enable_flag);
 }
 
 static void hns_roce_v2_destroy_eqc(struct hns_roce_dev *hr_dev, int eqn)

@@ -1789,13 +1789,13 @@ static void nvme_update_disk_info(struct gendisk *disk,
 		 * and whether it should be used instead of AWUPF. If NAWUPF ==
 		 * 0 then AWUPF must be used instead.
 		 */
-		if (id->nsfeat & (1 << 1) && id->nawupf)
+		if (id->nsfeat & NVME_NS_FEAT_ATOMICS && id->nawupf)
 			atomic_bs = (1 + le16_to_cpu(id->nawupf)) * bs;
 		else
 			atomic_bs = (1 + ns->ctrl->subsys->awupf) * bs;
 	}
 
-	if (id->nsfeat & (1 << 4)) {
+	if (id->nsfeat & NVME_NS_FEAT_IO_OPT) {
 		/* NPWG = Namespace Preferred Write Granularity */
 		phys_bs = bs * (1 + le16_to_cpu(id->npwg));
 		/* NOWS = Namespace Optimal Write Size */
@@ -1824,7 +1824,7 @@ static void nvme_update_disk_info(struct gendisk *disk,
 	nvme_config_discard(disk, ns);
 	nvme_config_write_zeroes(disk, ns);
 
-	if (id->nsattr & (1 << 0))
+	if (id->nsattr & NVME_NS_ATTR_RO)
 		set_disk_ro(disk, true);
 	else
 		set_disk_ro(disk, false);
@@ -1832,8 +1832,7 @@ static void nvme_update_disk_info(struct gendisk *disk,
 	blk_mq_unfreeze_queue(disk->queue);
 }
 
-static void __nvme_revalidate_disk(struct gendisk *disk, struct nvme_id_ns *id,
-				   bool first_scan)
+static void __nvme_revalidate_disk(struct gendisk *disk, struct nvme_id_ns *id)
 {
 	struct nvme_ns *ns = disk->private_data;
 	u32 iob;
@@ -1864,10 +1863,10 @@ static void __nvme_revalidate_disk(struct gendisk *disk, struct nvme_id_ns *id,
 		blk_queue_chunk_sectors(ns->queue, rounddown_pow_of_two(iob));
 	nvme_update_disk_info(disk, ns, id);
 #ifdef CONFIG_NVME_MULTIPATH
-	if (ns->head->disk && first_scan) {
+	if (ns->head->disk) {
 		nvme_update_disk_info(ns->head->disk, ns, id);
 		blk_queue_stack_limits(ns->head->disk->queue, ns->queue);
-		revalidate_disk(ns->head->disk);
+		nvme_mpath_update_disk_size(ns->head->disk);
 	}
 #endif
 }
@@ -1905,7 +1904,7 @@ static int nvme_revalidate_disk(struct gendisk *disk)
 		goto free_id;
 	}
 
-	__nvme_revalidate_disk(disk, id, false);
+	__nvme_revalidate_disk(disk, id);
 free_id:
 	kfree(id);
 out:
@@ -2598,6 +2597,11 @@ static const struct attribute_group *nvme_subsys_attrs_groups[] = {
 	NULL,
 };
 
+static inline bool nvme_discovery_ctrl(struct nvme_ctrl *ctrl)
+{
+	return ctrl->opts && ctrl->opts->discovery_nqn;
+}
+
 static bool nvme_validate_cntlid(struct nvme_subsystem *subsys,
 		struct nvme_ctrl *ctrl, struct nvme_id_ctrl *id)
 {
@@ -2617,8 +2621,8 @@ static bool nvme_validate_cntlid(struct nvme_subsystem *subsys,
 			return false;
 		}
 
-		if ((id->cmic & (1 << 1)) ||
-		    (ctrl->opts && ctrl->opts->discovery_nqn))
+		if ((id->cmic & NVME_CTRL_CMIC_MULTI_CTRL) ||
+		    nvme_discovery_ctrl(ctrl))
 			continue;
 
 		dev_err(ctrl->device,
@@ -2879,7 +2883,7 @@ int nvme_init_identify(struct nvme_ctrl *ctrl)
 			goto out_free;
 		}
 
-		if (!ctrl->opts->discovery_nqn && !ctrl->kas) {
+		if (!nvme_discovery_ctrl(ctrl) && !ctrl->kas) {
 			dev_err(ctrl->device,
 				"keep-alive support is mandatory for fabrics\n");
 			ret = -EINVAL;
@@ -2892,11 +2896,9 @@ int nvme_init_identify(struct nvme_ctrl *ctrl)
 		ctrl->hmmaxd = le16_to_cpu(id->hmmaxd);
 	}
 
-	ret = nvme_mpath_init(ctrl, id);
-	kfree(id);
-
+	ret = nvme_mpath_init_identify(ctrl, id);
 	if (ret < 0)
-		return ret;
+		goto out_free;
 
 	if (ctrl->apst_enabled && !prev_apst_enabled)
 		dev_pm_qos_expose_latency_tolerance(ctrl->device);
@@ -2905,26 +2907,25 @@ int nvme_init_identify(struct nvme_ctrl *ctrl)
 
 	ret = nvme_configure_apst(ctrl);
 	if (ret < 0)
-		return ret;
-	
+		goto out_free;
+
 	ret = nvme_configure_timestamp(ctrl);
 	if (ret < 0)
-		return ret;
+		goto out_free;
 
 	ret = nvme_configure_directives(ctrl);
 	if (ret < 0)
-		return ret;
+		goto out_free;
 
 	ret = nvme_configure_acre(ctrl);
 	if (ret < 0)
-		return ret;
+		goto out_free;
 
-	if (!ctrl->identified)
+	if (!ctrl->identified && !nvme_discovery_ctrl(ctrl))
 		nvme_hwmon_init(ctrl);
 
 	ctrl->identified = true;
-
-	return 0;
+	ret = 0;
 
 out_free:
 	kfree(id);
@@ -3491,7 +3492,7 @@ static int nvme_init_ns_head(struct nvme_ns *ns, unsigned nsid,
 		struct nvme_id_ns *id)
 {
 	struct nvme_ctrl *ctrl = ns->ctrl;
-	bool is_shared = id->nmic & (1 << 0);
+	bool is_shared = id->nmic & NVME_NS_NMIC_SHARED;
 	struct nvme_ns_head *head = NULL;
 	struct nvme_ns_ids ids;
 	int ret = 0;
@@ -3622,7 +3623,7 @@ static void nvme_alloc_ns(struct nvme_ctrl *ctrl, unsigned nsid)
 	memcpy(disk->disk_name, disk_name, DISK_NAME_LEN);
 	ns->disk = disk;
 
-	__nvme_revalidate_disk(disk, id, true);
+	__nvme_revalidate_disk(disk, id);
 
 	if ((ctrl->quirks & NVME_QUIRK_LIGHTNVM) && id->vs[0] == 0x1) {
 		ret = nvme_nvm_register(ns, disk_name, node);
@@ -4090,7 +4091,7 @@ static void nvme_free_ctrl(struct device *dev)
 		container_of(dev, struct nvme_ctrl, ctrl_device);
 	struct nvme_subsystem *subsys = ctrl->subsys;
 
-	if (subsys && ctrl->instance != subsys->instance)
+	if (!subsys || ctrl->instance != subsys->instance)
 		ida_simple_remove(&nvme_instance_ida, ctrl->instance);
 
 	kfree(ctrl->effects);
@@ -4181,6 +4182,7 @@ int nvme_init_ctrl(struct nvme_ctrl *ctrl, struct device *dev,
 		min(default_ps_max_latency_us, (unsigned long)S32_MAX));
 
 	nvme_fault_inject_init(&ctrl->fault_inject, dev_name(ctrl->device));
+	nvme_mpath_init_ctrl(ctrl);
 
 	return 0;
 out_free_name:
