@@ -502,7 +502,7 @@ static int serial_tiocmget(struct tty_struct *tty)
 
 	if (port->serial->type->tiocmget)
 		return port->serial->type->tiocmget(tty);
-	return -EINVAL;
+	return -ENOTTY;
 }
 
 static int serial_tiocmset(struct tty_struct *tty,
@@ -514,7 +514,7 @@ static int serial_tiocmset(struct tty_struct *tty,
 
 	if (port->serial->type->tiocmset)
 		return port->serial->type->tiocmset(tty, set, clear);
-	return -EINVAL;
+	return -ENOTTY;
 }
 
 static int serial_get_icount(struct tty_struct *tty,
@@ -526,7 +526,7 @@ static int serial_get_icount(struct tty_struct *tty,
 
 	if (port->serial->type->get_icount)
 		return port->serial->type->get_icount(tty, icount);
-	return -EINVAL;
+	return -ENOTTY;
 }
 
 /*

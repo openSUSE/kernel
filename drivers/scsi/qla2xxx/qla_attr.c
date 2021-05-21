@@ -711,6 +711,12 @@ qla2x00_sysfs_write_reset(struct file *filp, struct kobject *kobj,
 		ql_log(ql_log_info, vha, 0x706e,
 		    "Issuing ISP reset.\n");
 
+		if (vha->hw->flags.port_isolated) {
+			ql_log(ql_log_info, vha, 0x706e,
+			       "Port is isolated, returning.\n");
+			return -EINVAL;
+		}
+
 		scsi_block_requests(vha->host);
 		if (IS_QLA82XX(ha)) {
 			ha->flags.isp82xx_no_md_cap = 1;
@@ -2718,6 +2724,9 @@ qla2x00_issue_lip(struct Scsi_Host *shost)
 	if (IS_QLAFX00(vha->hw))
 		return 0;
 
+	if (vha->hw->flags.port_isolated)
+		return 0;
+
 	qla2x00_loop_reset(vha);
 	return 0;
 }
@@ -2856,6 +2865,8 @@ qla2x00_reset_host_stats(struct Scsi_Host *shost)
 	vha->qla_stats.jiffies_at_last_reset = get_jiffies_64();
 
 	if (IS_FWI2_CAPABLE(ha)) {
+		int rval;
+
 		stats = dma_alloc_coherent(&ha->pdev->dev,
 		    sizeof(*stats), &stats_dma, GFP_KERNEL);
 		if (!stats) {
@@ -2865,7 +2876,11 @@ qla2x00_reset_host_stats(struct Scsi_Host *shost)
 		}
 
 		/* reset firmware statistics */
-		qla24xx_get_isp_stats(base_vha, stats, stats_dma, BIT_0);
+		rval = qla24xx_get_isp_stats(base_vha, stats, stats_dma, BIT_0);
+		if (rval != QLA_SUCCESS)
+			ql_log(ql_log_warn, vha, 0x70de,
+			       "Resetting ISP statistics failed: rval = %d\n",
+			       rval);
 
 		dma_free_coherent(&ha->pdev->dev, sizeof(*stats),
 		    stats, stats_dma);

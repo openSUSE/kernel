@@ -144,44 +144,44 @@ out:
 
 /**
  * pci_walk_bridge - walk bridges potentially AER affected
- * @bridge:	bridge which may be a Port or an RCEC with associated RCiEPs
- * @cb:		callback to be called for each device found
- * @dev:	an RCiEP lacking an associated RCEC
- * @userdata:	arbitrary pointer to be passed to callback
+ * @bridge:    bridge which may be a Port, an RCEC, or an RCiEP
+ * @cb:                callback to be called for each device found
+ * @dev:       an RCiEP lacking an associated RCEC
+ * @userdata:  arbitrary pointer to be passed to callback
  *
  * If the device provided is a bridge, walk the subordinate bus, including
  * any bridged devices on buses under this bus.  Call the provided callback
  * on each device found.
  *
- * If the device provided has no subordinate bus, call the callback on the
- * device itself.
+ * If the device provided has no subordinate bus, e.g., an RCEC or RCiEP,
+ * call the callback on the device itself.
  */
 static void pci_walk_bridge(struct pci_dev *bridge,
-			    struct pci_dev *dev,
-			    int (*cb)(struct pci_dev *, void *),
-			    void *userdata)
+			   struct pci_dev *dev,
+                           int (*cb)(struct pci_dev *, void *),
+                           void *userdata)
 {
 	/*
 	 * In a non-native case where there is no OS-visible reporting
 	 * device the bridge will be NULL, i.e., no RCEC, no Downstream Port.
 	 */
 	if (bridge && bridge->subordinate)
-		pci_walk_bus(bridge->subordinate, cb, userdata);
+               pci_walk_bus(bridge->subordinate, cb, userdata);
 	else if (bridge)
-		cb(bridge, userdata);
+	       cb(bridge, userdata);
 	else
 		cb(dev, userdata);
 }
 
 static pci_ers_result_t flr_on_rciep(struct pci_dev *dev)
 {
-	if (!pcie_has_flr(dev))
-		return PCI_ERS_RESULT_DISCONNECT;
+       if (!pcie_has_flr(dev))
+               return PCI_ERS_RESULT_DISCONNECT;
 
-	if (pcie_flr(dev))
-		return PCI_ERS_RESULT_DISCONNECT;
+       if (pcie_flr(dev))
+               return PCI_ERS_RESULT_DISCONNECT;
 
-	return PCI_ERS_RESULT_RECOVERED;
+       return PCI_ERS_RESULT_RECOVERED;
 }
 
 pci_ers_result_t pcie_do_recovery(struct pci_dev *dev,
@@ -191,15 +191,20 @@ pci_ers_result_t pcie_do_recovery(struct pci_dev *dev,
 	int type = pci_pcie_type(dev);
 	struct pci_dev *bridge;
 	pci_ers_result_t status = PCI_ERS_RESULT_CAN_RECOVER;
+	struct pci_host_bridge *host = pci_find_host_bridge(dev->bus);
 
 	/*
-	 * Error recovery runs on all subordinates of the bridge.  If the
-	 * bridge detected the error, it is cleared at the end.  For RCiEPs
-	 * we should reset just the RCiEP itself.
+	 * If the error was detected by a Root Port, Downstream Port, RCEC,
+	 * or RCiEP, recovery runs on the device itself.  For Ports, that
+	 * also includes any subordinate devices.
+	 *
+	 * If it was detected by another device (Endpoint, etc), recovery
+	 * runs on the device and anything else under the same Port, i.e.,
+	 * everything under "bridge".
 	 */
 	if (type == PCI_EXP_TYPE_ROOT_PORT ||
-	    type == PCI_EXP_TYPE_DOWNSTREAM ||
-	    type == PCI_EXP_TYPE_RC_EC)
+	      type == PCI_EXP_TYPE_DOWNSTREAM ||
+	      type == PCI_EXP_TYPE_RC_EC)
 		bridge = dev;
 	else if (type == PCI_EXP_TYPE_RC_END)
 		bridge = dev->rcec;
@@ -217,8 +222,6 @@ pci_ers_result_t pcie_do_recovery(struct pci_dev *dev,
 			 */
 			if (bridge)
 				reset_subordinates(bridge);
-
-			status = flr_on_rciep(dev);
 			if (status != PCI_ERS_RESULT_RECOVERED) {
 				pci_warn(dev, "Function Level Reset failed\n");
 				goto failed;
@@ -257,20 +260,27 @@ pci_ers_result_t pcie_do_recovery(struct pci_dev *dev,
 	pci_dbg(bridge, "broadcast resume message\n");
 	pci_walk_bridge(bridge, dev, report_resume, &status);
 
+	/*
+	 * If we have native control of AER, clear error status in the device
+	 * that detected the error.  If the platform retained control of AER,
+	 * it is responsible for clearing this status.  In that case, the
+	 * signaling device may not even be visible to the OS.
+	 */
+
 	if (type == PCI_EXP_TYPE_ROOT_PORT ||
 	    type == PCI_EXP_TYPE_DOWNSTREAM ||
 	    type == PCI_EXP_TYPE_RC_EC) {
 		pci_aer_clear_device_status(bridge);
 		pci_aer_clear_nonfatal_status(bridge);
 	}
-	pci_info(bridge, "AER: Device recovery successful\n");
+	pci_info(bridge, "device recovery successful\n");
 	return status;
 
 failed:
 	pci_uevent_ers(bridge, PCI_ERS_RESULT_DISCONNECT);
 
 	/* TODO: Should kernel panic here? */
-	pci_info(bridge, "AER: Device recovery failed\n");
+	pci_info(bridge, "AER: device recovery failed\n");
 
 	return status;
 }

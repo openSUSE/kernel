@@ -15,13 +15,15 @@
 #define NVMF_DEF_RECONNECT_DELAY	10
 /* default to 600 seconds of reconnect attempts before giving up */
 #define NVMF_DEF_CTRL_LOSS_TMO		600
+/* default is -1: the fail fast mechanism is disabled  */
+#define NVMF_DEF_FAIL_FAST_TMO		-1
 
 /*
  * Reserved one command for internal usage.  This command is used for sending
  * the connect command, as well as for the keep alive command on the admin
  * queue once live.
  */
-#define NVMF_RESERVED_TAGS	1
+#define NVMF_RESERVED_TAGS     1
 
 /*
  * Define a host as seen by the target.  We allocate one at boot, but also
@@ -63,6 +65,7 @@ enum {
 	NVMF_OPT_NR_WRITE_QUEUES = 1 << 17,
 	NVMF_OPT_NR_POLL_QUEUES = 1 << 18,
 	NVMF_OPT_TOS		= 1 << 19,
+	NVMF_OPT_FAIL_FAST_TMO	= 1 << 20,
 };
 
 /**
@@ -96,6 +99,7 @@ enum {
  * @nr_write_queues: number of queues for write I/O
  * @nr_poll_queues: number of queues for polling I/O
  * @tos: type of service
+ * @fast_io_fail_tmo: Fast I/O fail timeout in seconds
  */
 struct nvmf_ctrl_options {
 	unsigned		mask;
@@ -118,6 +122,7 @@ struct nvmf_ctrl_options {
 	unsigned int		nr_write_queues;
 	unsigned int		nr_poll_queues;
 	int			tos;
+	int			fast_io_fail_tmo;
 };
 
 /*

@@ -325,11 +325,12 @@ static int pcie_pme_probe(struct pcie_device *srv)
 {
 	struct pci_dev *port = srv->port;
 	struct pcie_pme_service_data *data;
+	int type = pci_pcie_type(port);
 	int ret;
 
 	/* Limit to Root Ports or Root Complex Event Collectors */
-	if ((pci_pcie_type(port) != PCI_EXP_TYPE_RC_EC) &&
-	    (pci_pcie_type(port) != PCI_EXP_TYPE_ROOT_PORT))
+	if (type != PCI_EXP_TYPE_RC_EC &&
+	    type != PCI_EXP_TYPE_ROOT_PORT)
 		return -ENODEV;
 
 	data = kzalloc(sizeof(*data), GFP_KERNEL);

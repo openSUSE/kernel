@@ -16,6 +16,11 @@
 
 #include "sdhci-pltfm.h"
 
+#define SDHCI_DWCMSHC_ARG2_STUFF	GENMASK(31, 16)
+
+/* DWCMSHC specific Mode Select value */
+#define DWCMSHC_CTRL_HS400		0x7
+
 #define BOUNDARY_OK(addr, len) \
 	((addr | (SZ_128M - 1)) == ((addr + len - 1) | (SZ_128M - 1)))
 
@@ -46,10 +51,59 @@ static void dwcmshc_adma_write_desc(struct sdhci_host *host, void **desc,
 	sdhci_adma_write_desc(host, desc, addr, len, cmd);
 }
 
+static void dwcmshc_check_auto_cmd23(struct mmc_host *mmc,
+				     struct mmc_request *mrq)
+{
+	struct sdhci_host *host = mmc_priv(mmc);
+
+	/*
+	 * No matter V4 is enabled or not, ARGUMENT2 register is 32-bit
+	 * block count register which doesn't support stuff bits of
+	 * CMD23 argument on dwcmsch host controller.
+	 */
+	if (mrq->sbc && (mrq->sbc->arg & SDHCI_DWCMSHC_ARG2_STUFF))
+		host->flags &= ~SDHCI_AUTO_CMD23;
+	else
+		host->flags |= SDHCI_AUTO_CMD23;
+}
+
+static void dwcmshc_request(struct mmc_host *mmc, struct mmc_request *mrq)
+{
+	dwcmshc_check_auto_cmd23(mmc, mrq);
+
+	sdhci_request(mmc, mrq);
+}
+
+static void dwcmshc_set_uhs_signaling(struct sdhci_host *host,
+				      unsigned int timing)
+{
+	u16 ctrl_2;
+
+	ctrl_2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);
+	/* Select Bus Speed Mode for host */
+	ctrl_2 &= ~SDHCI_CTRL_UHS_MASK;
+	if ((timing == MMC_TIMING_MMC_HS200) ||
+	    (timing == MMC_TIMING_UHS_SDR104))
+		ctrl_2 |= SDHCI_CTRL_UHS_SDR104;
+	else if (timing == MMC_TIMING_UHS_SDR12)
+		ctrl_2 |= SDHCI_CTRL_UHS_SDR12;
+	else if ((timing == MMC_TIMING_UHS_SDR25) ||
+		 (timing == MMC_TIMING_MMC_HS))
+		ctrl_2 |= SDHCI_CTRL_UHS_SDR25;
+	else if (timing == MMC_TIMING_UHS_SDR50)
+		ctrl_2 |= SDHCI_CTRL_UHS_SDR50;
+	else if ((timing == MMC_TIMING_UHS_DDR50) ||
+		 (timing == MMC_TIMING_MMC_DDR52))
+		ctrl_2 |= SDHCI_CTRL_UHS_DDR50;
+	else if (timing == MMC_TIMING_MMC_HS400)
+		ctrl_2 |= DWCMSHC_CTRL_HS400;
+	sdhci_writew(host, ctrl_2, SDHCI_HOST_CONTROL2);
+}
+
 static const struct sdhci_ops sdhci_dwcmshc_ops = {
 	.set_clock		= sdhci_set_clock,
 	.set_bus_width		= sdhci_set_bus_width,
-	.set_uhs_signaling	= sdhci_set_uhs_signaling,
+	.set_uhs_signaling	= dwcmshc_set_uhs_signaling,
 	.get_max_clock		= sdhci_pltfm_clk_get_max_clock,
 	.reset			= sdhci_reset,
 	.adma_write_desc	= dwcmshc_adma_write_desc,
@@ -104,6 +158,8 @@ static int dwcmshc_probe(struct platform_device *pdev)
 		goto err_clk;
 
 	sdhci_get_of_property(pdev);
+
+	host->mmc_host_ops.request = dwcmshc_request;
 
 	err = sdhci_add_host(host);
 	if (err)
