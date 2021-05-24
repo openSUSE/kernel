@@ -4335,7 +4335,7 @@ lpfc_create_port(struct lpfc_hba *phba, int instance, struct device *dev)
 {
 	struct lpfc_vport *vport;
 	struct Scsi_Host  *shost = NULL;
-	struct scsi_host_template *template;
+	struct scsi_host_template *template, *vport_template;
 	int error = 0;
 	int i;
 	uint64_t wwn;
@@ -4367,42 +4367,34 @@ lpfc_create_port(struct lpfc_hba *phba, int instance, struct device *dev)
 
 	/* Seed template for SCSI host registration */
 	if (dev == &phba->pcidev->dev) {
-		template = &phba->port_template;
-
 		if (phba->cfg_enable_fc4_type & LPFC_ENABLE_FCP) {
 			/* Seed physical port template */
-			memcpy(template, &lpfc_template, sizeof(*template));
+			template = &lpfc_template;
 
 			if (use_no_reset_hba)
 				/* template is for a no reset SCSI Host */
 				template->eh_host_reset_handler = NULL;
 
 			/* Template for all vports this physical port creates */
-			memcpy(&phba->vport_template, &lpfc_template,
-			       sizeof(*template));
-			phba->vport_template.shost_attrs = lpfc_vport_attrs;
-			phba->vport_template.eh_bus_reset_handler = NULL;
-			phba->vport_template.eh_host_reset_handler = NULL;
-			phba->vport_template.vendor_id = 0;
+			vport_template = &lpfc_vport_template;
 
 			/* Initialize the host templates with updated value */
 			if (phba->sli_rev == LPFC_SLI_REV4) {
 				template->sg_tablesize = phba->cfg_scsi_seg_cnt;
-				phba->vport_template.sg_tablesize =
+				vport_template->sg_tablesize =
 					phba->cfg_scsi_seg_cnt;
 			} else {
 				template->sg_tablesize = phba->cfg_sg_seg_cnt;
-				phba->vport_template.sg_tablesize =
+				vport_template->sg_tablesize =
 					phba->cfg_sg_seg_cnt;
 			}
 
 		} else {
 			/* NVMET is for physical port only */
-			memcpy(template, &lpfc_template_nvme,
-			       sizeof(*template));
+			template = &lpfc_template_nvme;
 		}
 	} else {
-		template = &phba->vport_template;
+		template = &lpfc_vport_template;
 	}
 
 	shost = scsi_host_alloc(template, sizeof(struct lpfc_vport));
