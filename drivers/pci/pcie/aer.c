@@ -1179,6 +1179,7 @@ static void set_downstream_devices_error_reporting(struct pci_dev *dev,
 	else if (dev->subordinate)
 		pci_walk_bus(dev->subordinate, set_device_error_reporting,
 			     &enable);
+
 }
 
 /**
