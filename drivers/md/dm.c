@@ -500,8 +500,10 @@ static int dm_blk_report_zones(struct gendisk *disk, sector_t sector,
 		return -EAGAIN;
 
 	map = dm_get_live_table(md, &srcu_idx);
-	if (!map)
-		return -EIO;
+	if (!map) {
+		ret = -EIO;
+		goto out;
+	}
 
 	do {
 		struct dm_target *tgt;
@@ -531,7 +533,6 @@ out:
 
 static int dm_prepare_ioctl(struct mapped_device *md, int *srcu_idx,
 			    struct block_device **bdev)
-	__acquires(md->io_barrier)
 {
 	struct dm_target *tgt;
 	struct dm_table *map;
@@ -565,7 +566,6 @@ retry:
 }
 
 static void dm_unprepare_ioctl(struct mapped_device *md, int srcu_idx)
-	__releases(md->io_barrier)
 {
 	dm_put_live_table(md, srcu_idx);
 }
@@ -586,7 +586,7 @@ static int dm_blk_ioctl(struct block_device *bdev, fmode_t mode,
 		 * subset of the parent bdev; require extra privileges.
 		 */
 		if (!capable(CAP_SYS_RAWIO)) {
-			DMWARN_LIMIT(
+			DMDEBUG_LIMIT(
 	"%s: sending ioctl %x to DM device without required privilege.",
 				current->comm, cmd);
 			r = -ENOIOCTLCMD;

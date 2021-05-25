@@ -249,7 +249,7 @@ struct workqueue_struct {
 	struct list_head	flusher_overflow; /* WQ: flush overflow list */
 
 	struct list_head	maydays;	/* MD: pwqs requesting rescue */
-	struct worker		*rescuer;	/* I: rescue worker */
+	struct worker		*rescuer;	/* MD: rescue worker */
 
 	int			nr_drainers;	/* WQ: drain in progress */
 	int			saved_max_active; /* WQ: saved pwq max_active */
@@ -1407,7 +1407,6 @@ static void __queue_work(int cpu, struct workqueue_struct *wq,
 	 */
 	lockdep_assert_irqs_disabled();
 
-	debug_work_activate(work);
 
 	/* if draining, only works from the same workqueue are allowed */
 	if (unlikely(wq->flags & __WQ_DRAINING) &&
@@ -1489,6 +1488,7 @@ retry:
 		worklist = &pwq->delayed_works;
 	}
 
+	debug_work_activate(work);
 	insert_work(pwq, work, worklist, work_flags);
 
 out:
@@ -4718,7 +4718,7 @@ static void show_pwq(struct pool_workqueue *pwq)
 
 			pr_cont("%s %d%s:%ps", comma ? "," : "",
 				task_pid_nr(worker->task),
-				worker == pwq->wq->rescuer ? "(RESCUER)" : "",
+				worker->rescue_wq ? "(RESCUER)" : "",
 				worker->current_func);
 			list_for_each_entry(work, &worker->scheduled, entry)
 				pr_cont_work(false, work);

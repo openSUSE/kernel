@@ -53,6 +53,7 @@
 #include <linux/clk-provider.h>
 #include <linux/suspend.h>
 #include <linux/sched/cputime.h>
+#include <linux/sched/clock.h>
 #include <linux/processor.h>
 #include <asm/trace.h>
 
@@ -1130,6 +1131,7 @@ void __init time_init(void)
 #ifdef CONFIG_COMMON_CLK
 	of_clk_init(NULL);
 #endif
+	enable_sched_clock_irqtime();
 }
 
 /*

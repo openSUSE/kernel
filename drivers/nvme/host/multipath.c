@@ -69,7 +69,9 @@ void nvme_failover_req(struct request *req)
 {
 	struct nvme_ns *ns = req->q->queuedata;
 	u16 status = nvme_req(req)->status & 0x7ff;
+	struct block_device *bdev;
 	unsigned long flags;
+	struct bio *bio;
 
 	nvme_mpath_clear_current_path(ns);
 
@@ -83,11 +85,17 @@ void nvme_failover_req(struct request *req)
 		queue_work(nvme_wq, &ns->ctrl->ana_work);
 	}
 
+
+	bdev = bdget_disk(ns->head->disk, 0);
+	WARN_ON(!bdev);
 	spin_lock_irqsave(&ns->head->requeue_lock, flags);
+	for (bio = req->bio; bio; bio = bio->bi_next)
+		bio_set_dev(bio, bdev);
 	blk_steal_bios(&ns->head->requeue_list, req);
 	spin_unlock_irqrestore(&ns->head->requeue_lock, flags);
 
 	blk_mq_end_request(req, 0);
+	bdput(bdev);
 	kblockd_schedule_work(&ns->head->requeue_work);
 }
 
@@ -279,6 +287,8 @@ static bool nvme_available_path(struct nvme_ns_head *head)
 	struct nvme_ns *ns;
 
 	list_for_each_entry_rcu(ns, &head->list, siblings) {
+		if (test_bit(NVME_CTRL_FAILFAST_EXPIRED, &ns->ctrl->flags))
+			continue;
 		switch (ns->ctrl->state) {
 		case NVME_CTRL_LIVE:
 		case NVME_CTRL_RESETTING:
