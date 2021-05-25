@@ -1,0 +1,3 @@
+#!/bin/sh
+
+exec "$(basename $0)/ld" "$@"

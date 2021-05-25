@@ -6,6 +6,9 @@
 #include <linux/string.h>
 #include <linux/export.h>
 #include <linux/uaccess.h>
+#ifndef __GENKSYMS__
+#include <linux/libnvdimm.h>
+#endif
 
 #include <asm/cacheflush.h>
 

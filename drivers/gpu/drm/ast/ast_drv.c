@@ -59,6 +59,7 @@ static struct drm_driver driver;
 static const struct pci_device_id pciidlist[] = {
 	AST_VGA_DEVICE(PCI_CHIP_AST2000, NULL),
 	AST_VGA_DEVICE(PCI_CHIP_AST2100, NULL),
+	AST_VGA_DEVICE(PCI_CHIP_AIP200, NULL),
 	{0, 0, 0},
 };
 

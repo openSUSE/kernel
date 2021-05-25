@@ -829,16 +829,16 @@ static inline void atl1c_clean_buffer(struct pci_dev *pdev,
 		return;
 	if (buffer_info->dma) {
 		if (buffer_info->flags & ATL1C_PCIMAP_FROMDEVICE)
-			pci_driection = PCI_DMA_FROMDEVICE;
+			pci_driection = DMA_FROM_DEVICE;
 		else
-			pci_driection = PCI_DMA_TODEVICE;
+			pci_driection = DMA_TO_DEVICE;
 
 		if (buffer_info->flags & ATL1C_PCIMAP_SINGLE)
-			pci_unmap_single(pdev, buffer_info->dma,
-					buffer_info->length, pci_driection);
+			dma_unmap_single(&pdev->dev, buffer_info->dma,
+					 buffer_info->length, pci_driection);
 		else if (buffer_info->flags & ATL1C_PCIMAP_PAGE)
-			pci_unmap_page(pdev, buffer_info->dma,
-					buffer_info->length, pci_driection);
+			dma_unmap_page(&pdev->dev, buffer_info->dma,
+				       buffer_info->length, pci_driection);
 	}
 	if (buffer_info->skb)
 		dev_consume_skb_any(buffer_info->skb);
@@ -936,9 +936,8 @@ static void atl1c_free_ring_resources(struct atl1c_adapter *adapter)
 {
 	struct pci_dev *pdev = adapter->pdev;
 
-	pci_free_consistent(pdev, adapter->ring_header.size,
-					adapter->ring_header.desc,
-					adapter->ring_header.dma);
+	dma_free_coherent(&pdev->dev, adapter->ring_header.size,
+			  adapter->ring_header.desc, adapter->ring_header.dma);
 	adapter->ring_header.desc = NULL;
 
 	/* Note: just free tdp_ring.buffer_info,
@@ -1720,10 +1719,9 @@ static int atl1c_alloc_rx_buffer(struct atl1c_adapter *adapter)
 		ATL1C_SET_BUFFER_STATE(buffer_info, ATL1C_BUFFER_BUSY);
 		buffer_info->skb = skb;
 		buffer_info->length = adapter->rx_buffer_len;
-		mapping = pci_map_single(pdev, vir_addr,
-						buffer_info->length,
-						PCI_DMA_FROMDEVICE);
-		if (unlikely(pci_dma_mapping_error(pdev, mapping))) {
+		mapping = dma_map_single(&pdev->dev, vir_addr,
+					 buffer_info->length, DMA_FROM_DEVICE);
+		if (unlikely(dma_mapping_error(&pdev->dev, mapping))) {
 			dev_kfree_skb(skb);
 			buffer_info->skb = NULL;
 			buffer_info->length = 0;
@@ -1834,8 +1832,8 @@ rrs_checked:
 			rfd_index = (rrs->word0 >> RRS_RX_RFD_INDEX_SHIFT) &
 					RRS_RX_RFD_INDEX_MASK;
 			buffer_info = &rfd_ring->buffer_info[rfd_index];
-			pci_unmap_single(pdev, buffer_info->dma,
-				buffer_info->length, PCI_DMA_FROMDEVICE);
+			dma_unmap_single(&pdev->dev, buffer_info->dma,
+					 buffer_info->length, DMA_FROM_DEVICE);
 			skb = buffer_info->skb;
 		} else {
 			/* TODO */
@@ -2111,10 +2109,10 @@ static int atl1c_tx_map(struct atl1c_adapter *adapter,
 
 		buffer_info = atl1c_get_tx_buffer(adapter, use_tpd);
 		buffer_info->length = map_len;
-		buffer_info->dma = pci_map_single(adapter->pdev,
-					skb->data, hdr_len, PCI_DMA_TODEVICE);
-		if (unlikely(pci_dma_mapping_error(adapter->pdev,
-						   buffer_info->dma)))
+		buffer_info->dma = dma_map_single(&adapter->pdev->dev,
+						  skb->data, hdr_len,
+						  DMA_TO_DEVICE);
+		if (unlikely(dma_mapping_error(&adapter->pdev->dev, buffer_info->dma)))
 			goto err_dma;
 		ATL1C_SET_BUFFER_STATE(buffer_info, ATL1C_BUFFER_BUSY);
 		ATL1C_SET_PCIMAP_TYPE(buffer_info, ATL1C_PCIMAP_SINGLE,
@@ -2136,10 +2134,10 @@ static int atl1c_tx_map(struct atl1c_adapter *adapter,
 		buffer_info = atl1c_get_tx_buffer(adapter, use_tpd);
 		buffer_info->length = buf_len - mapped_len;
 		buffer_info->dma =
-			pci_map_single(adapter->pdev, skb->data + mapped_len,
-					buffer_info->length, PCI_DMA_TODEVICE);
-		if (unlikely(pci_dma_mapping_error(adapter->pdev,
-						   buffer_info->dma)))
+			dma_map_single(&adapter->pdev->dev,
+				       skb->data + mapped_len,
+				       buffer_info->length, DMA_TO_DEVICE);
+		if (unlikely(dma_mapping_error(&adapter->pdev->dev, buffer_info->dma)))
 			goto err_dma;
 
 		ATL1C_SET_BUFFER_STATE(buffer_info, ATL1C_BUFFER_BUSY);
@@ -2555,8 +2553,8 @@ static int atl1c_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	 * various kernel subsystems to support the mechanics required by a
 	 * fixed-high-32-bit system.
 	 */
-	if ((pci_set_dma_mask(pdev, DMA_BIT_MASK(32)) != 0) ||
-	    (pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(32)) != 0)) {
+	err = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
+	if (err) {
 		dev_err(&pdev->dev, "No usable DMA configuration,aborting\n");
 		goto err_dma;
 	}

@@ -2554,6 +2554,11 @@ EXPORT_SYMBOL_GPL(gpiochip_generic_request);
  */
 void gpiochip_generic_free(struct gpio_chip *chip, unsigned offset)
 {
+#ifdef CONFIG_PINCTRL
+	if (list_empty(&chip->gpiodev->pin_ranges))
+		return;
+#endif
+
 	pinctrl_gpio_free(chip->gpiodev->base + offset);
 }
 EXPORT_SYMBOL_GPL(gpiochip_generic_free);

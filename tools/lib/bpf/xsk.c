@@ -51,6 +51,8 @@ struct xsk_umem {
 	struct xsk_umem_config config;
 	int fd;
 	int refcount;
+	bool rx_ring_setup_done;
+	bool tx_ring_setup_done;
 };
 
 struct xsk_socket {
@@ -513,15 +515,16 @@ static int xsk_lookup_bpf_maps(struct xsk_socket *xsk)
 		if (fd < 0)
 			continue;
 
+		memset(&map_info, 0, map_len);
 		err = bpf_obj_get_info_by_fd(fd, &map_info, &map_len);
 		if (err) {
 			close(fd);
 			continue;
 		}
 
-		if (!strcmp(map_info.name, "xsks_map")) {
+		if (!strncmp(map_info.name, "xsks_map", sizeof(map_info.name))) {
 			xsk->xsks_map_fd = fd;
-			continue;
+			break;
 		}
 
 		close(fd);
@@ -594,6 +597,7 @@ int xsk_socket__create(struct xsk_socket **xsk_ptr, const char *ifname,
 	struct xdp_mmap_offsets off;
 	struct xsk_socket *xsk;
 	int err;
+	bool rx_setup_done = false, tx_setup_done = false;
 
 	if (!umem || !xsk_ptr || !(rx || tx))
 		return -EFAULT;
@@ -621,6 +625,8 @@ int xsk_socket__create(struct xsk_socket **xsk_ptr, const char *ifname,
 		}
 	} else {
 		xsk->fd = umem->fd;
+		rx_setup_done = umem->rx_ring_setup_done;
+		tx_setup_done = umem->tx_ring_setup_done;
 	}
 
 	xsk->outstanding_tx = 0;
@@ -634,7 +640,7 @@ int xsk_socket__create(struct xsk_socket **xsk_ptr, const char *ifname,
 	memcpy(xsk->ifname, ifname, IFNAMSIZ - 1);
 	xsk->ifname[IFNAMSIZ - 1] = '\0';
 
-	if (rx) {
+	if (rx && !rx_setup_done) {
 		err = setsockopt(xsk->fd, SOL_XDP, XDP_RX_RING,
 				 &xsk->config.rx_size,
 				 sizeof(xsk->config.rx_size));
@@ -642,8 +648,10 @@ int xsk_socket__create(struct xsk_socket **xsk_ptr, const char *ifname,
 			err = -errno;
 			goto out_socket;
 		}
+		if (xsk->fd == umem->fd)
+			umem->rx_ring_setup_done = true;
 	}
-	if (tx) {
+	if (tx && !tx_setup_done) {
 		err = setsockopt(xsk->fd, SOL_XDP, XDP_TX_RING,
 				 &xsk->config.tx_size,
 				 sizeof(xsk->config.tx_size));
@@ -651,6 +659,8 @@ int xsk_socket__create(struct xsk_socket **xsk_ptr, const char *ifname,
 			err = -errno;
 			goto out_socket;
 		}
+		if (xsk->fd == umem->fd)
+			umem->rx_ring_setup_done = true;
 	}
 
 	err = xsk_get_mmap_offsets(xsk->fd, &off);

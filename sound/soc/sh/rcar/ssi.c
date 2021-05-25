@@ -792,7 +792,6 @@ static void __rsnd_ssi_interrupt(struct rsnd_mod *mod,
 						       SSI_SYS_STATUS(i * 2),
 						       0xf << (id * 4));
 					stop = true;
-					break;
 				}
 			}
 			break;
@@ -810,7 +809,6 @@ static void __rsnd_ssi_interrupt(struct rsnd_mod *mod,
 						SSI_SYS_STATUS((i * 2) + 1),
 						0xf << 4);
 					stop = true;
-					break;
 				}
 			}
 			break;
