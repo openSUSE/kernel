@@ -1314,7 +1314,7 @@ static pci_ers_result_t aer_root_reset(struct pci_dev *dev)
 	int aer;
 	struct pci_host_bridge *host = pci_find_host_bridge(dev->bus);
 	u32 reg32;
-	int rc = 0;
+	int rc;
 
 	/*
 	 * Only Root Ports and RCECs have AER Root Command and Root Status
@@ -1349,10 +1349,9 @@ static pci_ers_result_t aer_root_reset(struct pci_dev *dev)
 			rc = -ENOTTY;
 		}
 	} else {
-		if (pci_pcie_type(dev) != PCI_EXP_TYPE_RC_EC) {
-			rc = pci_bus_error_reset(dev);
-			pci_info(dev, "Root Port link has been reset\n");
-		}
+		rc = pci_bus_error_reset(dev);
+		pci_info(dev, "%s Port link has been reset (%d)\n",
+			pci_is_root_bus(dev->bus) ? "Root" : "Downstream", rc);
 	}
 
 	if ((host->native_aer || pcie_ports_native) && aer) {
