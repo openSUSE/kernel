@@ -144,10 +144,10 @@ out:
 
 /**
  * pci_walk_bridge - walk bridges potentially AER affected
- * @bridge:    bridge which may be a Port, an RCEC, or an RCiEP
- * @cb:                callback to be called for each device found
- * @dev:       an RCiEP lacking an associated RCEC
- * @userdata:  arbitrary pointer to be passed to callback
+ * @bridge:	bridge which may be a Port, an RCEC, or an RCiEP
+ * @cb:		callback to be called for each device found
+ * @dev:	an RCiEP lacking an associated RCEC
+ * @userdata:	arbitrary pointer to be passed to callback
  *
  * If the device provided is a bridge, walk the subordinate bus, including
  * any bridged devices on buses under this bus.  Call the provided callback
@@ -157,18 +157,18 @@ out:
  * call the callback on the device itself.
  */
 static void pci_walk_bridge(struct pci_dev *bridge,
-			   struct pci_dev *dev,
-                           int (*cb)(struct pci_dev *, void *),
-                           void *userdata)
+			    struct pci_dev *dev,
+			    int (*cb)(struct pci_dev *, void *),
+			    void *userdata)
 {
 	/*
 	 * In a non-native case where there is no OS-visible reporting
 	 * device the bridge will be NULL, i.e., no RCEC, no Downstream Port.
 	 */
 	if (bridge && bridge->subordinate)
-               pci_walk_bus(bridge->subordinate, cb, userdata);
+		pci_walk_bus(bridge->subordinate, cb, userdata);
 	else if (bridge)
-	       cb(bridge, userdata);
+		cb(bridge, userdata);
 	else
 		cb(dev, userdata);
 }
@@ -203,8 +203,8 @@ pci_ers_result_t pcie_do_recovery(struct pci_dev *dev,
 	 * everything under "bridge".
 	 */
 	if (type == PCI_EXP_TYPE_ROOT_PORT ||
-	      type == PCI_EXP_TYPE_DOWNSTREAM ||
-	      type == PCI_EXP_TYPE_RC_EC)
+	    type == PCI_EXP_TYPE_DOWNSTREAM ||
+	    type == PCI_EXP_TYPE_RC_EC)
 		bridge = dev;
 	else if (type == PCI_EXP_TYPE_RC_END)
 		bridge = dev->rcec;
