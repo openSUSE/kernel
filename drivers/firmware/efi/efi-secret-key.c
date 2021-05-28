@@ -68,11 +68,17 @@ static int __init init_efi_secret_key(void)
 	skey_setup = early_memremap(efi_skey_setup,
 				    sizeof(struct efi_skey_setup_data));
 	print_efi_skey_setup_data(skey_setup);
+	if ((skey_setup->final_status != EFI_SUCCESS) ||
+	    (skey_setup->key_size < SECRET_KEY_SIZE)) {
+		ret = -ENODEV;
+		goto out;
+	}
 	secret_key = memcpy_to_hidden_area(skey_setup->secret_key,
 					   SECRET_KEY_SIZE);
 	if (!secret_key)
 		pr_info("copy secret key to hidden area failed\n");
 
+out:
 	/* earse key in setup data */
 	memset(skey_setup->secret_key, 0, SECRET_KEY_SIZE);
 	early_iounmap(skey_setup, sizeof(struct efi_skey_setup_data));
