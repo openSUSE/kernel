@@ -27,6 +27,9 @@ struct nf_tcp_net {
 	int tcp_loose;
 	int tcp_be_liberal;
 	int tcp_max_retrans;
+#ifndef __GENKSYMS__
+	int tcp_ignore_invalid_rst;
+#endif
 };
 
 enum udp_conntrack {

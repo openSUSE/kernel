@@ -36,6 +36,8 @@
     If it's non-zero, we mark only out of window RST segments as INVALID. */
 static int nf_ct_tcp_be_liberal __read_mostly = 0;
 
+static int nf_ct_tcp_ignore_invalid_rst __read_mostly = 0;
+
 /* If it is set to zero, we disable picking up already established
    connections. */
 static int nf_ct_tcp_loose __read_mostly = 1;
@@ -1078,7 +1080,8 @@ int nf_conntrack_tcp_packet(struct nf_conn *ct,
 			if (seq == 0 && !nf_conntrack_tcp_established(ct))
 				break;
 
-			if (before(seq, ct->proto.tcp.seen[!dir].td_maxack)) {
+			if (before(seq, ct->proto.tcp.seen[!dir].td_maxack) &&
+			    !tn->tcp_ignore_invalid_rst) {
 				/* Invalid RST  */
 				spin_unlock_bh(&ct->lock);
 				nf_ct_l4proto_log_invalid(skb, ct, "invalid rst");
@@ -1452,6 +1455,7 @@ void nf_conntrack_tcp_init_net(struct net *net)
 	tn->tcp_loose = nf_ct_tcp_loose;
 	tn->tcp_be_liberal = nf_ct_tcp_be_liberal;
 	tn->tcp_max_retrans = nf_ct_tcp_max_retrans;
+	tn->tcp_ignore_invalid_rst = nf_ct_tcp_ignore_invalid_rst;
 }
 
 const struct nf_conntrack_l4proto nf_conntrack_l4proto_tcp =
