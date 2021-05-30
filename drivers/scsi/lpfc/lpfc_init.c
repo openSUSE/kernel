@@ -254,13 +254,13 @@ lpfc_config_port_prep(struct lpfc_hba *phba)
 		if (mb->un.varDmp.word_cnt == 0)
 			break;
 
-		i =  mb->un.varDmp.word_cnt * sizeof(uint32_t);
-		if (offset + i >  DMP_VPD_SIZE)
-			i =  DMP_VPD_SIZE - offset;
+		if (mb->un.varDmp.word_cnt > DMP_VPD_SIZE - offset)
+			mb->un.varDmp.word_cnt = DMP_VPD_SIZE - offset;
 		lpfc_sli_pcimem_bcopy(((uint8_t *)mb) + DMP_RSP_OFFSET,
-				      lpfc_vpd_data  + offset, i);
-		offset += i;
-	} while (offset < DMP_VPD_SIZE);
+				      lpfc_vpd_data + offset,
+				      mb->un.varDmp.word_cnt);
+		offset += mb->un.varDmp.word_cnt;
+	} while (mb->un.varDmp.word_cnt && offset < DMP_VPD_SIZE);
 
 	lpfc_parse_vpd(phba, lpfc_vpd_data, offset);
 
@@ -3532,13 +3532,6 @@ lpfc_offline_prep(struct lpfc_hba *phba, int mbx_action)
 			list_for_each_entry_safe(ndlp, next_ndlp,
 						 &vports[i]->fc_nodes,
 						 nlp_listp) {
-				if (ndlp->nlp_state == NLP_STE_UNUSED_NODE) {
-					/* Driver must assume RPI is invalid for
-					 * any unused or inactive node.
-					 */
-					ndlp->nlp_rpi = LPFC_RPI_ALLOC_ERROR;
-					continue;
-				}
 
 				spin_lock_irq(&ndlp->lock);
 				ndlp->nlp_flag &= ~NLP_NPR_ADISC;

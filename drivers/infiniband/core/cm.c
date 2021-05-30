@@ -4532,7 +4532,7 @@ static int __init ib_cm_init(void)
 		goto error1;
 	}
 
-	cm.wq = alloc_workqueue("ib_cm", 0, 1);
+	cm.wq = alloc_workqueue("ib_cm", WQ_MEM_RECLAIM, 1);
 	if (!cm.wq) {
 		ret = -ENOMEM;
 		goto error2;

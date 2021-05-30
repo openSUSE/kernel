@@ -1954,7 +1954,7 @@ nvme_fc_fcpio_done(struct nvmefc_fcp_req *req)
 				sizeof(op->rsp_iu), DMA_FROM_DEVICE);
 
 	if (opstate == FCPOP_STATE_ABORTED)
-		status = cpu_to_le16(NVME_SC_HOST_PATH_ERROR << 1);
+		status = cpu_to_le16(NVME_SC_HOST_ABORTED_CMD << 1);
 	else if (freq->status) {
 		status = cpu_to_le16(NVME_SC_HOST_PATH_ERROR << 1);
 		dev_info(ctrl->ctrl.device,
@@ -2440,6 +2440,7 @@ nvme_fc_terminate_exchange(struct request *req, void *data, bool reserved)
 	struct nvme_fc_ctrl *ctrl = to_fc_ctrl(nctrl);
 	struct nvme_fc_fcp_op *op = blk_mq_rq_to_pdu(req);
 
+	op->nreq.flags |= NVME_REQ_CANCELLED;
 	__nvme_fc_abort_op(ctrl, op);
 	return true;
 }
@@ -2456,6 +2457,18 @@ nvme_fc_terminate_exchange(struct request *req, void *data, bool reserved)
 static void
 __nvme_fc_abort_outstanding_ios(struct nvme_fc_ctrl *ctrl, bool start_queues)
 {
+	int q;
+
+	/*
+	 * if aborting io, the queues are no longer good, mark them
+	 * all as not live.
+	 */
+	if (ctrl->ctrl.queue_count > 1) {
+		for (q = 1; q < ctrl->ctrl.queue_count; q++)
+			clear_bit(NVME_FC_Q_LIVE, &ctrl->queues[q].flags);
+	}
+	clear_bit(NVME_FC_Q_LIVE, &ctrl->queues[0].flags);
+
 	/*
 	 * If io queues are present, stop them and terminate all outstanding
 	 * ios on them. As FC allocates FC exchange for each io, the
@@ -3092,10 +3105,17 @@ nvme_fc_create_association(struct nvme_fc_ctrl *ctrl)
 	if (ctrl->ctrl.icdoff) {
 		dev_err(ctrl->ctrl.device, "icdoff %d is not supported!\n",
 				ctrl->ctrl.icdoff);
+		ret = NVME_SC_INVALID_FIELD | NVME_SC_DNR;
 		goto out_disconnect_admin_queue;
 	}
 
 	/* FC-NVME supports normal SGL Data Block Descriptors */
+	if (!(ctrl->ctrl.sgls & ((1 << 0) | (1 << 1)))) {
+		dev_err(ctrl->ctrl.device,
+			"Mandatory sgls are not supported!\n");
+		ret = NVME_SC_INVALID_FIELD | NVME_SC_DNR;
+		goto out_disconnect_admin_queue;
+	}
 
 	if (opts->queue_size > ctrl->ctrl.maxcmd) {
 		/* warn if maxcmd is lower than queue_size */
@@ -3260,11 +3280,13 @@ nvme_fc_reconnect_or_delete(struct nvme_fc_ctrl *ctrl, int status)
 	if (ctrl->ctrl.state != NVME_CTRL_CONNECTING)
 		return;
 
-	if (portptr->port_state == FC_OBJSTATE_ONLINE)
+	if (portptr->port_state == FC_OBJSTATE_ONLINE) {
 		dev_info(ctrl->ctrl.device,
 			"NVME-FC{%d}: reset: Reconnect attempt failed (%d)\n",
 			ctrl->cnum, status);
-	else if (time_after_eq(jiffies, rport->dev_loss_end))
+		if (status > 0 && (status & NVME_SC_DNR))
+			recon = false;
+	} else if (time_after_eq(jiffies, rport->dev_loss_end))
 		recon = false;
 
 	if (recon && nvmf_should_reconnect(&ctrl->ctrl)) {
@@ -3278,12 +3300,17 @@ nvme_fc_reconnect_or_delete(struct nvme_fc_ctrl *ctrl, int status)
 
 		queue_delayed_work(nvme_wq, &ctrl->connect_work, recon_delay);
 	} else {
-		if (portptr->port_state == FC_OBJSTATE_ONLINE)
-			dev_warn(ctrl->ctrl.device,
-				"NVME-FC{%d}: Max reconnect attempts (%d) "
-				"reached.\n",
-				ctrl->cnum, ctrl->ctrl.nr_reconnects);
-		else
+		if (portptr->port_state == FC_OBJSTATE_ONLINE) {
+			if (status > 0 && (status & NVME_SC_DNR))
+				dev_warn(ctrl->ctrl.device,
+					 "NVME-FC{%d}: reconnect failure\n",
+					 ctrl->cnum);
+			else
+				dev_warn(ctrl->ctrl.device,
+					 "NVME-FC{%d}: Max reconnect attempts "
+					 "(%d) reached.\n",
+					 ctrl->cnum, ctrl->ctrl.nr_reconnects);
+		} else
 			dev_warn(ctrl->ctrl.device,
 				"NVME-FC{%d}: dev_loss_tmo (%d) expired "
 				"while waiting for remoteport connectivity.\n",
