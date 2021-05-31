@@ -2679,6 +2679,12 @@ lpfc_sli_def_mbox_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmb)
 		}
 	}
 
+	/* This nlp_put pairs with lpfc_sli4_resume_rpi */
+	if (pmb->u.mb.mbxCommand == MBX_RESUME_RPI) {
+		ndlp = (struct lpfc_nodelist *)pmb->ctx_ndlp;
+		lpfc_nlp_put(ndlp);
+	}
+
 	/* Check security permission status on INIT_LINK mailbox command */
 	if ((pmb->u.mb.mbxCommand == MBX_INIT_LINK) &&
 	    (pmb->u.mb.mbxStatus == MBXERR_SEC_NO_PERMISSION))
@@ -2749,7 +2755,6 @@ lpfc_sli4_unreg_rpi_cmpl_clr(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmb)
 				} else {
 					__lpfc_sli_rpi_release(vport, ndlp);
 				}
-
 				lpfc_nlp_put(ndlp);
 			}
 		}
@@ -7959,7 +7964,7 @@ lpfc_sli4_hba_setup(struct lpfc_hba *phba)
 				"0393 Error %d during rpi post operation\n",
 				rc);
 		rc = -ENODEV;
-		goto out_destroy_queue;
+		goto out_free_iocblist;
 	}
 	lpfc_sli4_node_prep(phba);
 
@@ -8125,8 +8130,9 @@ out_io_buff_free:
 out_unset_queue:
 	/* Unset all the queues set up in this routine when error out */
 	lpfc_sli4_queue_unset(phba);
-out_destroy_queue:
+out_free_iocblist:
 	lpfc_free_iocb_list(phba);
+out_destroy_queue:
 	lpfc_sli4_queue_destroy(phba);
 out_stop_timers:
 	lpfc_stop_hba_timers(phba);
@@ -13625,9 +13631,15 @@ lpfc_sli4_sp_handle_mbox_event(struct lpfc_hba *phba, struct lpfc_mcqe *mcqe)
 		if (mcqe_status == MB_CQE_STATUS_SUCCESS) {
 			mp = (struct lpfc_dmabuf *)(pmb->ctx_buf);
 			ndlp = (struct lpfc_nodelist *)pmb->ctx_ndlp;
-			/* Reg_LOGIN of dflt RPI was successful. Now lets get
-			 * RID of the PPI using the same mbox buffer.
+
+			/* Reg_LOGIN of dflt RPI was successful. Mark the
+			 * node as having an UNREG_LOGIN in progress to stop
+			 * an unsolicited PLOGI from the same NPortId from
+			 * starting another mailbox transaction.
 			 */
+			spin_lock_irqsave(&ndlp->lock, iflags);
+			ndlp->nlp_flag |= NLP_UNREG_INP;
+			spin_unlock_irqrestore(&ndlp->lock, iflags);
 			lpfc_unreg_login(phba, vport->vpi,
 					 pmbox->un.varWords[0], pmb);
 			pmb->mbox_cmpl = lpfc_mbx_cmpl_dflt_rpi;
@@ -19032,14 +19044,28 @@ lpfc_sli4_resume_rpi(struct lpfc_nodelist *ndlp,
 	if (!mboxq)
 		return -ENOMEM;
 
+	/* If cmpl assigned, then this nlp_get pairs with
+	 * lpfc_mbx_cmpl_resume_rpi.
+	 *
+	 * Else cmpl is NULL, then this nlp_get pairs with
+	 * lpfc_sli_def_mbox_cmpl.
+	 */
+	if (!lpfc_nlp_get(ndlp)) {
+		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
+				"2122 %s: Failed to get nlp ref\n",
+				__func__);
+		mempool_free(mboxq, phba->mbox_mem_pool);
+		return -EIO;
+	}
+
 	/* Post all rpi memory regions to the port. */
 	lpfc_resume_rpi(mboxq, ndlp);
 	if (cmpl) {
 		mboxq->mbox_cmpl = cmpl;
 		mboxq->ctx_buf = arg;
-		mboxq->ctx_ndlp = ndlp;
 	} else
 		mboxq->mbox_cmpl = lpfc_sli_def_mbox_cmpl;
+	mboxq->ctx_ndlp = ndlp;
 	mboxq->vport = ndlp->vport;
 	rc = lpfc_sli_issue_mbox(phba, mboxq, MBX_NOWAIT);
 	if (rc == MBX_NOT_FINISHED) {
@@ -19047,6 +19073,7 @@ lpfc_sli4_resume_rpi(struct lpfc_nodelist *ndlp,
 				"2010 Resume RPI Mailbox failed "
 				"status %d, mbxStatus x%x\n", rc,
 				bf_get(lpfc_mqe_status, &mboxq->u.mqe));
+		lpfc_nlp_put(ndlp);
 		mempool_free(mboxq, phba->mbox_mem_pool);
 		return -EIO;
 	}
@@ -19777,7 +19804,7 @@ lpfc_sli_get_config_region23(struct lpfc_hba *phba, char *rgn23_data)
 	LPFC_MBOXQ_t *pmb = NULL;
 	MAILBOX_t *mb;
 	uint32_t offset = 0;
-	int i, rc;
+	int rc;
 
 	if (!rgn23_data)
 		return 0;
@@ -19808,13 +19835,14 @@ lpfc_sli_get_config_region23(struct lpfc_hba *phba, char *rgn23_data)
 		if (mb->un.varDmp.word_cnt == 0)
 			break;
 
-		i =  mb->un.varDmp.word_cnt * sizeof(uint32_t);
-		if (offset + i >  DMP_RGN23_SIZE)
-			i =  DMP_RGN23_SIZE - offset;
+		if (mb->un.varDmp.word_cnt > DMP_RGN23_SIZE - offset)
+			mb->un.varDmp.word_cnt = DMP_RGN23_SIZE - offset;
+
 		lpfc_sli_pcimem_bcopy(((uint8_t *)mb) + DMP_RSP_OFFSET,
-				      rgn23_data  + offset, i);
-		offset += i;
-	} while (offset < DMP_RGN23_SIZE);
+				       rgn23_data + offset,
+				       mb->un.varDmp.word_cnt);
+		offset += mb->un.varDmp.word_cnt;
+	} while (mb->un.varDmp.word_cnt && offset < DMP_RGN23_SIZE);
 
 	mempool_free(pmb, phba->mbox_mem_pool);
 	return offset;
