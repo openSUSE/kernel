@@ -23,7 +23,6 @@
 #include <linux/gpio/consumer.h>
 #include <linux/of_gpio.h>
 #include <linux/of_irq.h>
-#include <linux/platform_data/nxp-nci.h>
 #include <asm/unaligned.h>
 
 #include <net/nfc/nfc.h>
@@ -38,8 +37,8 @@ struct nxp_nci_i2c_phy {
 	struct i2c_client *i2c_dev;
 	struct nci_dev *ndev;
 
-	unsigned int gpio_en;
-	unsigned int gpio_fw;
+	struct gpio_desc *gpiod_en;
+	struct gpio_desc *gpiod_fw;
 
 	int hard_fault; /*
 			 * < 0 if hardware error occurred (e.g. i2c err)
@@ -52,8 +51,8 @@ static int nxp_nci_i2c_set_mode(void *phy_id,
 {
 	struct nxp_nci_i2c_phy *phy = (struct nxp_nci_i2c_phy *) phy_id;
 
-	gpio_set_value(phy->gpio_fw, (mode == NXP_NCI_MODE_FW) ? 1 : 0);
-	gpio_set_value(phy->gpio_en, (mode != NXP_NCI_MODE_COLD) ? 1 : 0);
+	gpiod_set_value(phy->gpiod_fw, (mode == NXP_NCI_MODE_FW) ? 1 : 0);
+	gpiod_set_value(phy->gpiod_en, (mode != NXP_NCI_MODE_COLD) ? 1 : 0);
 	usleep_range(10000, 15000);
 
 	if (mode == NXP_NCI_MODE_COLD)
@@ -252,33 +251,30 @@ exit_irq_none:
 	return IRQ_NONE;
 }
 
+static const struct acpi_gpio_params firmware_gpios = { 1, 0, false };
+static const struct acpi_gpio_params enable_gpios = { 2, 0, false };
+
+static const struct acpi_gpio_mapping acpi_nxp_nci_gpios[] = {
+	{ "enable-gpios", &enable_gpios, 1 },
+	{ "firmware-gpios", &firmware_gpios, 1 },
+	{ }
+};
+
 static int nxp_nci_i2c_parse_devtree(struct i2c_client *client)
 {
 	struct nxp_nci_i2c_phy *phy = i2c_get_clientdata(client);
-	struct device_node *pp;
-	int r;
 
-	pp = client->dev.of_node;
-	if (!pp)
-		return -ENODEV;
-
-	r = of_get_named_gpio(pp, "enable-gpios", 0);
-	if (r == -EPROBE_DEFER)
-		r = of_get_named_gpio(pp, "enable-gpios", 0);
-	if (r < 0) {
-		nfc_err(&client->dev, "Failed to get EN gpio, error: %d\n", r);
-		return r;
+	phy->gpiod_en = devm_gpiod_get(&client->dev, "enable", GPIOD_OUT_LOW);
+	if (IS_ERR(phy->gpiod_en)) {
+		nfc_err(&client->dev, "Failed to get EN gpio\n");
+		return PTR_ERR(phy->gpiod_en);
 	}
-	phy->gpio_en = r;
 
-	r = of_get_named_gpio(pp, "firmware-gpios", 0);
-	if (r == -EPROBE_DEFER)
-		r = of_get_named_gpio(pp, "firmware-gpios", 0);
-	if (r < 0) {
-		nfc_err(&client->dev, "Failed to get FW gpio, error: %d\n", r);
-		return r;
+	phy->gpiod_fw = devm_gpiod_get(&client->dev, "firmware", GPIOD_OUT_LOW);
+	if (IS_ERR(phy->gpiod_fw)) {
+		nfc_err(&client->dev, "Failed to get FW gpio\n");
+		return PTR_ERR(phy->gpiod_fw);
 	}
-	phy->gpio_fw = r;
 
 	return 0;
 }
@@ -286,18 +282,19 @@ static int nxp_nci_i2c_parse_devtree(struct i2c_client *client)
 static int nxp_nci_i2c_acpi_config(struct nxp_nci_i2c_phy *phy)
 {
 	struct i2c_client *client = phy->i2c_dev;
-	struct gpio_desc *gpiod_en, *gpiod_fw;
+	int r;
 
-	gpiod_en = devm_gpiod_get_index(&client->dev, NULL, 2, GPIOD_OUT_LOW);
-	gpiod_fw = devm_gpiod_get_index(&client->dev, NULL, 1, GPIOD_OUT_LOW);
+	r = devm_acpi_dev_add_driver_gpios(&client->dev, acpi_nxp_nci_gpios);
+	if (r)
+		return r;
 
-	if (IS_ERR(gpiod_en) || IS_ERR(gpiod_fw)) {
+	phy->gpiod_en = devm_gpiod_get(&client->dev, "enable", GPIOD_OUT_LOW);
+	phy->gpiod_fw = devm_gpiod_get(&client->dev, "firmware", GPIOD_OUT_LOW);
+
+	if (IS_ERR(phy->gpiod_en) || IS_ERR(phy->gpiod_fw)) {
 		nfc_err(&client->dev, "No GPIOs\n");
 		return -EINVAL;
 	}
-
-	phy->gpio_en = desc_to_gpio(gpiod_en);
-	phy->gpio_fw = desc_to_gpio(gpiod_fw);
 
 	return 0;
 }
@@ -306,7 +303,6 @@ static int nxp_nci_i2c_probe(struct i2c_client *client,
 			    const struct i2c_device_id *id)
 {
 	struct nxp_nci_i2c_phy *phy;
-	struct nxp_nci_nfc_platform_data *pdata;
 	int r;
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
@@ -325,39 +321,22 @@ static int nxp_nci_i2c_probe(struct i2c_client *client,
 	phy->i2c_dev = client;
 	i2c_set_clientdata(client, phy);
 
-	pdata = client->dev.platform_data;
-
-	if (!pdata && client->dev.of_node) {
+	if (client->dev.of_node) {
 		r = nxp_nci_i2c_parse_devtree(client);
 		if (r < 0) {
 			nfc_err(&client->dev, "Failed to get DT data\n");
 			goto probe_exit;
 		}
-	} else if (pdata) {
-		phy->gpio_en = pdata->gpio_en;
-		phy->gpio_fw = pdata->gpio_fw;
 	} else if (ACPI_HANDLE(&client->dev)) {
 		r = nxp_nci_i2c_acpi_config(phy);
 		if (r < 0)
 			goto probe_exit;
-		goto nci_probe;
 	} else {
 		nfc_err(&client->dev, "No platform data\n");
 		r = -EINVAL;
 		goto probe_exit;
 	}
 
-	r = devm_gpio_request_one(&phy->i2c_dev->dev, phy->gpio_en,
-				  GPIOF_OUT_INIT_LOW, "nxp_nci_en");
-	if (r < 0)
-		goto probe_exit;
-
-	r = devm_gpio_request_one(&phy->i2c_dev->dev, phy->gpio_fw,
-				  GPIOF_OUT_INIT_LOW, "nxp_nci_fw");
-	if (r < 0)
-		goto probe_exit;
-
-nci_probe:
 	r = nxp_nci_probe(phy, &client->dev, &i2c_phy_ops,
 			  NXP_NCI_I2C_MAX_PAYLOAD, &phy->ndev);
 	if (r < 0)
@@ -398,6 +377,8 @@ MODULE_DEVICE_TABLE(of, of_nxp_nci_i2c_match);
 
 #ifdef CONFIG_ACPI
 static struct acpi_device_id acpi_id[] = {
+	{ "NXP1001" },
+	{ "NXP1002" },
 	{ "NXP7471" },
 	{ },
 };
