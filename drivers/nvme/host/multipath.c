@@ -69,7 +69,6 @@ bool nvme_failover_req(struct request *req)
 {
 	struct nvme_ns *ns = req->q->queuedata;
 	u16 status = nvme_req(req)->status;
-	struct block_device *bdev;
 	unsigned long flags;
 	struct bio *bio;
 
@@ -109,15 +108,12 @@ bool nvme_failover_req(struct request *req)
 			return false;
 	}
 
-	bdev = bdget_disk(ns->head->disk, 0);
-	WARN_ON(!bdev);
 	spin_lock_irqsave(&ns->head->requeue_lock, flags);
 	for (bio = req->bio; bio; bio = bio->bi_next)
-		bio_set_dev(bio, bdev);
+		bio->bi_disk = ns->head->disk;
 	blk_steal_bios(&ns->head->requeue_list, req);
 	spin_unlock_irqrestore(&ns->head->requeue_lock, flags);
 	blk_mq_end_request(req, 0);
-	bdput(bdev);
 
 	kblockd_schedule_work(&ns->head->requeue_work);
 	return true;
