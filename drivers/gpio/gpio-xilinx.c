@@ -257,7 +257,7 @@ static void xgpio_save_regs(struct xgpio_instance *chip)
 }
 
 /**
- * xgpio_of_probe - Probe method for the GPIO device.
+ * xgpio_probe - Probe method for the GPIO device.
  * @pdev: pointer to the platform device
  *
  * Return:
