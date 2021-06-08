@@ -3561,12 +3561,13 @@ static int ufshcd_dme_link_startup(struct ufs_hba *hba)
 			"dme-link-startup: error code %d\n", ret);
 	return ret;
 }
+
 /**
  * ufshcd_dme_reset - UIC command for DME_RESET
  * @hba: per adapter instance
  *
  * DME_RESET command is issued in order to reset UniPro stack.
- * This function now deal with cold reset.
+ * This function now deals with cold reset.
  *
  * Returns 0 on success, non-zero value on failure
  */
