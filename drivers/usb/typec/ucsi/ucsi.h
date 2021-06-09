@@ -303,6 +303,7 @@ struct ucsi {
 
 #define UCSI_MAX_SVID		5
 #define UCSI_MAX_ALTMODES	(UCSI_MAX_SVID * 6)
+#define UCSI_MAX_PDOS		(4)
 
 #define UCSI_TYPEC_VSAFE5V	5000
 #define UCSI_TYPEC_1_5_CURRENT	1500
@@ -329,8 +330,15 @@ struct ucsi_connector {
 	struct power_supply *psy;
 	struct power_supply_desc psy_desc;
 	u32 rdo;
-	u32 src_pdos[PDO_MAX_OBJECTS];
+#ifdef __GENKSYMS__
+	u32 src_pdos[UCSI_MAX_PDOS];
+#else
+	u32 src_pdos_old[UCSI_MAX_PDOS];
+#endif
 	int num_pdos;
+#ifndef __GENKSYMS__
+	u32 src_pdos[PDO_MAX_OBJECTS];
+#endif
 };
 
 int ucsi_send_command(struct ucsi *ucsi, u64 command,
