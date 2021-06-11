@@ -1652,6 +1652,13 @@ static ssize_t ucma_migrate_id(struct ucma_file *new_file,
 	ucma_lock_files(cur_file, new_file);
 	xa_lock(&ctx_table);
 
+	if (_ucma_find_context(cmd.id, cur_file) != ctx) {
+		xa_unlock(&ctx_table);
+		ucma_unlock_files(cur_file, new_file);
+		ret = -ENOENT;
+		goto err_unlock;
+	}
+
 	list_move_tail(&ctx->list, &new_file->ctx_list);
 	ucma_move_events(ctx, new_file);
 	ctx->file = new_file;
@@ -1664,7 +1671,7 @@ response:
 	if (copy_to_user(u64_to_user_ptr(cmd.response),
 			 &resp, sizeof(resp)))
 		ret = -EFAULT;
-
+err_unlock:
 	ucma_put_ctx(ctx);
 file_put:
 	fdput(f);
