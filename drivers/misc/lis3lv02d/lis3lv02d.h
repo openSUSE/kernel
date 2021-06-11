@@ -273,6 +273,9 @@ struct lis3lv02d {
 	bool			regs_stored;
 	u8                      odr_mask;  /* ODR bit mask */
 	u8			whoami;    /* indicates measurement precision */
+#ifndef __GENKSYMS__
+	bool			init_required;
+#endif
 	s16 (*read_data) (struct lis3lv02d *lis3, int reg);
 	int			mdps_max_val;
 	int			pwron_delay;
