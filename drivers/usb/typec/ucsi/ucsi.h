@@ -7,6 +7,7 @@
 #include <linux/device.h>
 #include <linux/power_supply.h>
 #include <linux/types.h>
+#include <linux/usb/pd.h>
 #include <linux/usb/typec.h>
 
 /* -------------------------------------------------------------------------- */
@@ -133,7 +134,9 @@ void ucsi_connector_change(struct ucsi *ucsi, u8 num);
 
 /* GET_PDOS command bits */
 #define UCSI_GET_PDOS_PARTNER_PDO(_r_)		((u64)(_r_) << 23)
+#define UCSI_GET_PDOS_PDO_OFFSET(_r_)		((u64)(_r_) << 24)
 #define UCSI_GET_PDOS_NUM_PDOS(_r_)		((u64)(_r_) << 32)
+#define UCSI_MAX_PDOS				(4)
 #define UCSI_GET_PDOS_SRC_PDOS			((u64)1 << 34)
 
 /* -------------------------------------------------------------------------- */
@@ -327,8 +330,15 @@ struct ucsi_connector {
 	struct power_supply *psy;
 	struct power_supply_desc psy_desc;
 	u32 rdo;
+#ifdef __GENKSYMS__
 	u32 src_pdos[UCSI_MAX_PDOS];
+#else
+	u32 src_pdos_old[UCSI_MAX_PDOS];
+#endif
 	int num_pdos;
+#ifndef __GENKSYMS__
+	u32 src_pdos[PDO_MAX_OBJECTS];
+#endif
 };
 
 int ucsi_send_command(struct ucsi *ucsi, u64 command,
