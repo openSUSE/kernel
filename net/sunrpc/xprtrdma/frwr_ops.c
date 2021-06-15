@@ -248,6 +248,7 @@ int frwr_open(struct rpcrdma_ia *ia, struct rpcrdma_ep *ep)
 	ep->rep_attr.cap.max_send_wr += 1; /* for ib_drain_sq */
 	ep->rep_attr.cap.max_recv_wr = ep->rep_max_requests;
 	ep->rep_attr.cap.max_recv_wr += RPCRDMA_BACKWARD_WRS;
+	ep->rep_attr.cap.max_recv_wr += RPCRDMA_MAX_RECV_BATCH;
 	ep->rep_attr.cap.max_recv_wr += 1; /* for ib_drain_rq */
 
 	ia->ri_max_segs =
@@ -559,7 +560,6 @@ void frwr_unmap_sync(struct rpcrdma_xprt *r_xprt, struct rpcrdma_req *req)
 		mr = container_of(frwr, struct rpcrdma_mr, frwr);
 		bad_wr = bad_wr->next;
 
-		list_del_init(&mr->mr_list);
 		frwr_mr_recycle(mr);
 	}
 }

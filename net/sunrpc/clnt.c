@@ -1801,7 +1801,6 @@ call_allocate(struct rpc_task *task)
 	req->rq_rcvsize <<= 2;
 
 	status = xprt->ops->buf_alloc(task);
-	xprt_inject_disconnect(xprt);
 	if (status == 0)
 		return;
 	if (status != -ENOMEM) {
