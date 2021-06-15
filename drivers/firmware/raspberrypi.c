@@ -217,13 +217,6 @@ static void rpi_register_clk_driver(struct device *dev)
 						-1, NULL, 0);
 }
 
-static void devm_rpi_firmware_put(void *data)
-{
-	struct rpi_firmware *fw = data;
-
-	rpi_firmware_put(fw);
-}
-
 static void rpi_firmware_delete(struct kref *kref)
 {
 	struct rpi_firmware *fw = container_of(kref, struct rpi_firmware,
@@ -238,6 +231,13 @@ void rpi_firmware_put(struct rpi_firmware *fw)
 	kref_put(&fw->consumers, rpi_firmware_delete);
 }
 EXPORT_SYMBOL_GPL(rpi_firmware_put);
+
+static void devm_rpi_firmware_put(void *data)
+{
+	struct rpi_firmware *fw = data;
+
+	rpi_firmware_put(fw);
+}
 
 static int rpi_firmware_probe(struct platform_device *pdev)
 {
