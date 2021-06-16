@@ -59,7 +59,7 @@
 #define PCI_DEVICE_ID_INTEL_MAPLE_RIDGE_XHCI		0x1138
 #define PCI_DEVICE_ID_INTEL_ALDER_LAKE_XHCI		0x461e
 
-#define PCI_DEVICE_ID_AMD_RENOIRE_XHCI			0x1639
+#define PCI_DEVICE_ID_AMD_RENOIR_XHCI			0x1639
 #define PCI_DEVICE_ID_AMD_PROMONTORYA_4			0x43b9
 #define PCI_DEVICE_ID_AMD_PROMONTORYA_3			0x43ba
 #define PCI_DEVICE_ID_AMD_PROMONTORYA_2			0x43bb
@@ -184,7 +184,7 @@ static void xhci_pci_quirks(struct device *dev, struct xhci_hcd *xhci)
 		xhci->quirks |= XHCI_U2_DISABLE_WAKE;
 
 	if (pdev->vendor == PCI_VENDOR_ID_AMD &&
-		pdev->device == PCI_DEVICE_ID_AMD_RENOIRE_XHCI)
+		pdev->device == PCI_DEVICE_ID_AMD_RENOIR_XHCI)
 		xhci->quirks |= XHCI_BROKEN_D3COLD;
 
 	if (pdev->vendor == PCI_VENDOR_ID_INTEL) {
