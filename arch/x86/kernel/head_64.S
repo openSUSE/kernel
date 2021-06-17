@@ -158,6 +158,21 @@ ENTRY(secondary_startup_64_no_verify)
 
 	/* Setup early boot stage 4-/5-level pagetables. */
 	addq	phys_base(%rip), %rax
+
+	/*
+	 * For SEV guests: Verify that the C-bit is correct. A malicious
+	 * hypervisor could lie about the C-bit position to perform a ROP
+	 * attack on the guest by writing to the unencrypted stack and wait for
+	 * the next RET instruction.
+	 * %rsi carries pointer to realmode data and is callee-clobbered. Save
+	 * and restore it.
+	 */
+	pushq	%rsi
+	movq	%rax, %rdi
+	call	sev_verify_cbit
+	popq	%rsi
+
+	/* Switch to new page-table */
 	movq	%rax, %cr3
 
 	/* Ensure I am executing from virtual addresses */
@@ -276,6 +291,7 @@ ENTRY(secondary_startup_64_no_verify)
 END(secondary_startup_64)
 
 #include "verify_cpu.S"
+#include "sev_verify_cbit.S"
 
 #ifdef CONFIG_HOTPLUG_CPU
 /*
