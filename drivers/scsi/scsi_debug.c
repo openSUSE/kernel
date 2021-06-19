@@ -5325,6 +5325,11 @@ static int __init scsi_debug_init(void)
 		return -EINVAL;
 	}
 
+	if ((sdebug_max_queue > SDEBUG_CANQUEUE) || (sdebug_max_queue < 1)) {
+		pr_err("max_queue must be in range [1, %d]\n", SDEBUG_CANQUEUE);
+		return -EINVAL;
+	}
+
 	if ((sdebug_host_max_queue > SDEBUG_CANQUEUE) ||
 	    (sdebug_host_max_queue < 0)) {
 		pr_err("host_max_queue must be in range [0 %d]\n",
@@ -5333,7 +5338,7 @@ static int __init scsi_debug_init(void)
 	}
 
 	if (sdebug_host_max_queue &&
-	    (sdebug_max_queue != sdebug_host_max_queue)) {
+	   (sdebug_max_queue != sdebug_host_max_queue)) {
 		sdebug_max_queue = sdebug_host_max_queue;
 		pr_warn("fixing max submit queue depth to host max queue depth, %d\n",
 			sdebug_max_queue);
