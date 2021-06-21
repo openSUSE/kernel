@@ -1141,6 +1141,9 @@ struct rtw_chip_info {
 	bool en_dis_dpd;
 	u16 dpd_ratemask;
 	u8 iqk_threshold;
+#ifndef __GENKSYMS__
+	u8 lck_threshold;
+#endif
 	const struct rtw_pwr_track_tbl *pwr_track_tbl;
 
 	u8 bfer_su_max_num;
@@ -1475,6 +1478,9 @@ struct rtw_dm_info {
 	u8 default_ofdm_index;
 	bool pwr_trk_triggered;
 	bool pwr_trk_init_trigger;
+#ifndef __GENKSYMS__
+	u8 thermal_meter_lck;
+#endif
 	struct ewma_thermal avg_thermal[RTW_RF_PATH_MAX];
 	s8 txagc_remnant_cck;
 	s8 txagc_remnant_ofdm;

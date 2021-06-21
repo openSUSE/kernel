@@ -602,7 +602,7 @@ static int hisi_sas_task_exec(struct sas_task *task, gfp_t gfp_flags,
 	dev = hisi_hba->dev;
 
 	if (unlikely(test_bit(HISI_SAS_REJECT_CMD_BIT, &hisi_hba->flags))) {
-		if (in_softirq())
+		if (!gfpflags_allow_blocking(gfp_flags))
 			return -EINVAL;
 
 		down(&hisi_hba->sem);
