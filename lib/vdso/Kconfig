@@ -30,13 +30,4 @@ config GENERIC_VDSO_TIME_NS
 	  Selected by architectures which support time namespaces in the
 	  VDSO
 
-config CROSS_COMPILE_COMPAT_VDSO
-	string "32 bit Toolchain prefix for compat vDSO"
-	default ""
-	depends on GENERIC_COMPAT_VDSO
-	help
-	  Defines the cross-compiler prefix for compiling compat vDSO.
-	  If a 64 bit compiler (i.e. x86_64) can compile the VDSO for
-	  32 bit, it does not need to define this parameter.
-
 endif
