@@ -3,6 +3,7 @@
  * Copyright 2005-2006, Devicescape Software, Inc.
  * Copyright 2006-2007	Jiri Benc <jbenc@suse.cz>
  * Copyright 2007-2010	Johannes Berg <johannes@sipsolutions.net>
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -1263,32 +1264,34 @@ ieee80211_rx_h_sta_process(struct ieee80211_rx_data *rx)
 	return RX_CONTINUE;
 } /* ieee80211_rx_h_sta_process */
 
+void ieee80211_init_frag_cache(struct ieee80211_fragment_cache *cache)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(cache->entries); i++)
+		skb_queue_head_init(&cache->entries[i].skb_list);
+}
+
+void ieee80211_destroy_frag_cache(struct ieee80211_fragment_cache *cache)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(cache->entries); i++)
+		__skb_queue_purge(&cache->entries[i].skb_list);
+}
+
 static inline struct ieee80211_fragment_entry *
-ieee80211_reassemble_add(struct ieee80211_sub_if_data *sdata,
+ieee80211_reassemble_add(struct ieee80211_fragment_cache *cache,
 			 unsigned int frag, unsigned int seq, int rx_queue,
 			 struct sk_buff **skb)
 {
 	struct ieee80211_fragment_entry *entry;
-	int idx;
 
-	idx = sdata->fragment_next;
-	entry = &sdata->fragments[sdata->fragment_next++];
-	if (sdata->fragment_next >= IEEE80211_FRAGMENT_MAX)
-		sdata->fragment_next = 0;
+	entry = &cache->entries[cache->next++];
+	if (cache->next >= IEEE80211_FRAGMENT_MAX)
+		cache->next = 0;
 
-	if (!skb_queue_empty(&entry->skb_list)) {
-#ifdef CONFIG_MAC80211_VERBOSE_DEBUG
-		struct ieee80211_hdr *hdr =
-			(struct ieee80211_hdr *) entry->skb_list.next->data;
-		printk(KERN_DEBUG "%s: RX reassembly removed oldest "
-		       "fragment entry (idx=%d age=%lu seq=%d last_frag=%d "
-		       "addr1=%pM addr2=%pM\n",
-		       sdata->name, idx,
-		       jiffies - entry->first_frag_time, entry->seq,
-		       entry->last_frag, hdr->addr1, hdr->addr2);
-#endif
-		__skb_queue_purge(&entry->skb_list);
-	}
+	__skb_queue_purge(&entry->skb_list);
 
 	__skb_queue_tail(&entry->skb_list, *skb); /* no need for locking */
 	*skb = NULL;
@@ -1303,14 +1306,14 @@ ieee80211_reassemble_add(struct ieee80211_sub_if_data *sdata,
 }
 
 static inline struct ieee80211_fragment_entry *
-ieee80211_reassemble_find(struct ieee80211_sub_if_data *sdata,
+ieee80211_reassemble_find(struct ieee80211_fragment_cache *cache,
 			  unsigned int frag, unsigned int seq,
 			  int rx_queue, struct ieee80211_hdr *hdr)
 {
 	struct ieee80211_fragment_entry *entry;
 	int i, idx;
 
-	idx = sdata->fragment_next;
+	idx = cache->next;
 	for (i = 0; i < IEEE80211_FRAGMENT_MAX; i++) {
 		struct ieee80211_hdr *f_hdr;
 
@@ -1318,7 +1321,7 @@ ieee80211_reassemble_find(struct ieee80211_sub_if_data *sdata,
 		if (idx < 0)
 			idx = IEEE80211_FRAGMENT_MAX - 1;
 
-		entry = &sdata->fragments[idx];
+		entry = &cache->entries[idx];
 		if (skb_queue_empty(&entry->skb_list) || entry->seq != seq ||
 		    entry->rx_queue != rx_queue ||
 		    entry->last_frag + 1 != frag)
@@ -1348,13 +1351,14 @@ ieee80211_reassemble_find(struct ieee80211_sub_if_data *sdata,
 static ieee80211_rx_result debug_noinline
 ieee80211_rx_h_defragment(struct ieee80211_rx_data *rx)
 {
+	struct ieee80211_fragment_cache *cache = &rx->sdata->frags;
 	struct ieee80211_hdr *hdr;
 	u16 sc;
 	__le16 fc;
 	unsigned int frag, seq;
 	struct ieee80211_fragment_entry *entry;
 	struct sk_buff *skb;
-	struct ieee80211_rx_status *status;
+	struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(rx->skb);
 
 	hdr = (struct ieee80211_hdr *)rx->skb->data;
 	fc = hdr->frame_control;
@@ -1364,6 +1368,9 @@ ieee80211_rx_h_defragment(struct ieee80211_rx_data *rx)
 
 	sc = le16_to_cpu(hdr->seq_ctrl);
 	frag = sc & IEEE80211_SCTL_FRAG;
+
+	if (rx->sta)
+		cache = &sta_frags(rx->sta);
 
 	if (likely((!ieee80211_has_morefrags(fc) && frag == 0) ||
 		   is_multicast_ether_addr(hdr->addr1))) {
@@ -1385,7 +1392,7 @@ ieee80211_rx_h_defragment(struct ieee80211_rx_data *rx)
 
 	if (frag == 0) {
 		/* This is the first fragment of a new frame. */
-		entry = ieee80211_reassemble_add(rx->sdata, frag, seq,
+		entry = ieee80211_reassemble_add(cache, frag, seq,
 						 rx->queue, &(rx->skb));
 		if (rx->key && rx->key->conf.cipher == WLAN_CIPHER_SUITE_CCMP &&
 		    ieee80211_has_protected(fc)) {
@@ -1394,9 +1401,16 @@ ieee80211_rx_h_defragment(struct ieee80211_rx_data *rx)
 			/* Store CCMP PN so that we can verify that the next
 			 * fragment has a sequential PN value. */
 			entry->ccmp = 1;
+			entry->is_protected = true;
+			entry->key_color = rx->key->color;
 			memcpy(entry->last_pn,
 			       rx->key->u.ccmp.rx_pn[queue],
 			       CCMP_PN_LEN);
+		} else if (rx->key &&
+			   (ieee80211_has_protected(fc) ||
+			    (status->flag & RX_FLAG_DECRYPTED))) {
+			entry->is_protected = true;
+			entry->key_color = rx->key->color;
 		}
 		return RX_QUEUED;
 	}
@@ -1404,7 +1418,7 @@ ieee80211_rx_h_defragment(struct ieee80211_rx_data *rx)
 	/* This is a fragment for a frame that should already be pending in
 	 * fragment cache. Add this fragment to the end of the pending entry.
 	 */
-	entry = ieee80211_reassemble_find(rx->sdata, frag, seq, rx->queue, hdr);
+	entry = ieee80211_reassemble_find(cache, frag, seq, rx->queue, hdr);
 	if (!entry) {
 		I802_DEBUG_INC(rx->local->rx_handlers_drop_defrag);
 		return RX_DROP_MONITOR;
@@ -1415,21 +1429,38 @@ ieee80211_rx_h_defragment(struct ieee80211_rx_data *rx)
 	if (entry->ccmp) {
 		int i;
 		u8 pn[CCMP_PN_LEN], *rpn;
-		int queue;
 		if (!rx->key || rx->key->conf.cipher != WLAN_CIPHER_SUITE_CCMP)
 			return RX_DROP_UNUSABLE;
+
+		/* Prevent mixed key and fragment cache attacks */
+		if (entry->key_color != rx->key->color)
+			return RX_DROP_UNUSABLE;
+
 		memcpy(pn, entry->last_pn, CCMP_PN_LEN);
 		for (i = CCMP_PN_LEN - 1; i >= 0; i--) {
 			pn[i]++;
 			if (pn[i])
 				break;
 		}
-		queue = ieee80211_is_mgmt(fc) ?
-			NUM_RX_DATA_QUEUES : rx->queue;
-		rpn = rx->key->u.ccmp.rx_pn[queue];
+
+		rpn = rx->ccm_gcm.pn;
 		if (memcmp(pn, rpn, CCMP_PN_LEN))
 			return RX_DROP_UNUSABLE;
 		memcpy(entry->last_pn, pn, CCMP_PN_LEN);
+	} else if (entry->is_protected &&
+		   (!rx->key ||
+		    (!ieee80211_has_protected(fc) &&
+		     !(status->flag & RX_FLAG_DECRYPTED)) ||
+		    rx->key->color != entry->key_color)) {
+		/* Drop this as a mixed key or fragment cache attack, even
+		 * if for TKIP Michael MIC should protect us, and WEP is a
+		 * lost cause anyway.
+		 */
+		return RX_DROP_UNUSABLE;
+	} else if (entry->is_protected && rx->key &&
+		   entry->key_color != rx->key->color &&
+		   (status->flag & RX_FLAG_DECRYPTED)) {
+		return RX_DROP_UNUSABLE;
 	}
 
 	skb_pull(rx->skb, ieee80211_hdrlen(fc));
@@ -1455,10 +1486,6 @@ ieee80211_rx_h_defragment(struct ieee80211_rx_data *rx)
 		memcpy(skb_put(rx->skb, skb->len), skb->data, skb->len);
 		dev_kfree_skb(skb);
 	}
-
-	/* Complete frame has been reassembled - process it now */
-	status = IEEE80211_SKB_RXCB(rx->skb);
-	status->rx_flags |= IEEE80211_RX_FRAGMENTED;
 
  out:
 	if (rx->sta)
@@ -1653,13 +1680,13 @@ static bool ieee80211_frame_allowed(struct ieee80211_rx_data *rx, __le16 fc)
 	struct ethhdr *ehdr = (struct ethhdr *) rx->skb->data;
 
 	/*
-	 * Allow EAPOL frames to us/the PAE group address regardless
-	 * of whether the frame was encrypted or not.
+	 * Allow EAPOL frames to us/the PAE group address regardless of
+	 * whether the frame was encrypted or not, and always disallow
+	 * all other destination addresses for them.
 	 */
-	if (ehdr->h_proto == rx->sdata->control_port_protocol &&
-	    (compare_ether_addr(ehdr->h_dest, rx->sdata->vif.addr) == 0 ||
-	     compare_ether_addr(ehdr->h_dest, pae_group_addr) == 0))
-		return true;
+	if (unlikely(ehdr->h_proto == rx->sdata->control_port_protocol))
+		return compare_ether_addr(ehdr->h_dest, rx->sdata->vif.addr) == 0 ||
+			compare_ether_addr(ehdr->h_dest, pae_group_addr) == 0;
 
 	if (ieee80211_802_1x_port_control(rx) ||
 	    ieee80211_drop_unencrypted(rx, fc))
@@ -1688,6 +1715,7 @@ ieee80211_deliver_skb(struct ieee80211_rx_data *rx)
 	     sdata->vif.type == NL80211_IFTYPE_AP_VLAN) &&
 	    !(sdata->flags & IEEE80211_SDATA_DONT_BRIDGE_PACKETS) &&
 	    (status->rx_flags & IEEE80211_RX_RA_MATCH) &&
+	    ehdr->h_proto != rx->sdata->control_port_protocol &&
 	    (sdata->vif.type != NL80211_IFTYPE_AP_VLAN || !sdata->u.vlan.sta)) {
 		if (is_multicast_ether_addr(ehdr->h_dest)) {
 			/*
@@ -1741,8 +1769,29 @@ ieee80211_deliver_skb(struct ieee80211_rx_data *rx)
 
 		if (skb) {
 			/* deliver to local stack */
+			struct ethhdr *ehdr = (void *)skb_mac_header(skb);
+
 			skb->protocol = eth_type_trans(skb, dev);
 			memset(skb->cb, 0, sizeof(skb->cb));
+
+			/*
+			 * 802.1X over 802.11 requires that the authenticator address
+			 * be used for EAPOL frames. However, 802.1X allows the use of
+			 * the PAE group address instead. If the interface is part of
+			 * a bridge and we pass the frame with the PAE group address,
+			 * then the bridge will forward it to the network (even if the
+			 * client was not associated yet), which isn't supposed to
+			 * happen.
+			 * To avoid that, rewrite the destination address to our own
+			 * address, so that the authenticator (e.g. hostapd) will see
+			 * the frame, but bridge won't forward it anywhere else. Note
+			 * that due to earlier filtering, the only other address can
+			 * be the PAE group address.
+			 */
+			if (unlikely(skb->protocol == sdata->control_port_protocol &&
+				     compare_ether_addr(ehdr->h_dest, sdata->vif.addr) != 0))
+				memcpy(ehdr->h_dest, sdata->vif.addr, ETH_ALEN);
+
 			netif_receive_skb(skb);
 		}
 	}
@@ -1787,15 +1836,33 @@ ieee80211_rx_h_amsdu(struct ieee80211_rx_data *rx)
 	      rx->sdata->u.mgd.use_4addr)))
 		return RX_DROP_UNUSABLE;
 
+	if (rx->key) {
+		/*
+		 * We should not receive A-MSDUs on pre-HT connections,
+		 * and HT connections cannot use old ciphers. Thus drop
+		 * them, as in those cases we couldn't even have SPP
+		 * A-MSDUs or such.
+		 */
+		switch (rx->key->conf.cipher) {
+		case WLAN_CIPHER_SUITE_WEP40:
+		case WLAN_CIPHER_SUITE_WEP104:
+		case WLAN_CIPHER_SUITE_TKIP:
+			return RX_DROP_UNUSABLE;
+		default:
+			break;
+		}
+	}
+
 	skb->dev = dev;
 	__skb_queue_head_init(&frame_list);
 
 	if (skb_linearize(skb))
 		return RX_DROP_UNUSABLE;
 
-	ieee80211_amsdu_to_8023s(skb, &frame_list, dev->dev_addr,
-				 rx->sdata->vif.type,
-				 rx->local->hw.extra_tx_headroom, true);
+	if (__ieee80211_amsdu_to_8023s(skb, &frame_list, dev->dev_addr,
+				       rx->sdata->vif.type,
+				       rx->local->hw.extra_tx_headroom, true))
+		return RX_DROP_UNUSABLE;
 
 	while (!skb_queue_empty(&frame_list)) {
 		rx->skb = __skb_dequeue(&frame_list);

@@ -1,6 +1,7 @@
 /*
  * Copyright 2002-2005, Instant802 Networks, Inc.
  * Copyright 2006-2007	Jiri Benc <jbenc@suse.cz>
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -171,6 +172,8 @@ struct sta_info *sta_info_get_by_idx(struct ieee80211_sub_if_data *sdata,
 static void __sta_info_free(struct ieee80211_local *local,
 			    struct sta_info *sta)
 {
+	struct __sta_info *__sta = container_of(sta, struct __sta_info, sta);
+
 	if (sta->rate_ctrl) {
 		rate_control_free_sta(sta);
 		rate_control_put(sta->rate_ctrl);
@@ -180,7 +183,7 @@ static void __sta_info_free(struct ieee80211_local *local,
 	wiphy_debug(local->hw.wiphy, "Destroyed STA %pM\n", sta->sta.addr);
 #endif /* CONFIG_MAC80211_VERBOSE_DEBUG */
 
-	kfree(sta);
+	kfree(__sta);
 }
 
 /* Caller must hold local->sta_lock */
@@ -232,11 +235,13 @@ struct sta_info *sta_info_alloc(struct ieee80211_sub_if_data *sdata,
 	struct ieee80211_local *local = sdata->local;
 	struct sta_info *sta;
 	struct timespec uptime;
+	struct __sta_info *__sta;
 	int i;
 
-	sta = kzalloc(sizeof(*sta) + local->hw.sta_data_size, gfp);
-	if (!sta)
+	__sta = kzalloc(sizeof(*__sta) + local->hw.sta_data_size, gfp);
+	if (!__sta)
 		return NULL;
+	sta = &__sta->sta;
 
 	spin_lock_init(&sta->lock);
 	spin_lock_init(&sta->flaglock);
@@ -248,6 +253,8 @@ struct sta_info *sta_info_alloc(struct ieee80211_sub_if_data *sdata,
 	sta->local = local;
 	sta->sdata = sdata;
 	sta->last_rx = jiffies;
+
+	ieee80211_init_frag_cache(&__sta->frags);
 
 	do_posix_clock_monotonic_gettime(&uptime);
 	sta->last_connected = uptime.tv_sec;
@@ -709,6 +716,8 @@ static int __must_check __sta_info_destroy(struct sta_info *sta)
 
 	rate_control_remove_sta_debugfs(sta);
 	ieee80211_sta_debugfs_remove(sta);
+
+	ieee80211_destroy_frag_cache(&sta_frags(sta));
 
 #ifdef CONFIG_MAC80211_MESH
 	if (ieee80211_vif_is_mesh(&sta->sdata->vif)) {
