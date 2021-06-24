@@ -1,5 +1,6 @@
 /*
  * Copyright 2002-2005, Devicescape Software, Inc.
+ * Copyright(c) 2020-2021 Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -175,6 +176,34 @@ struct sta_ampdu_mlme {
 };
 
 
+/*
+ * IEEE 802.11-2016 (10.6 "Defragmentation") recommends support for "concurrent
+ * reception of at least one MSDU per access category per associated STA"
+ * on APs, or "at least one MSDU per access category" on other interface types.
+ *
+ * This limit can be increased by changing this define, at the cost of slower
+ * frame reassembly and increased memory use while fragments are pending.
+ */
+#define IEEE80211_FRAGMENT_MAX 4
+
+struct ieee80211_fragment_entry {
+	struct sk_buff_head skb_list;
+	unsigned long first_frag_time;
+	u16 seq;
+	u16 extra_len;
+	u16 last_frag;
+	u8 rx_queue;
+	bool ccmp:1;
+	bool is_protected:1;
+	u8 last_pn[6]; /* PN of the last fragment if CCMP was used */
+	unsigned int key_color;
+};
+
+struct ieee80211_fragment_cache {
+	struct ieee80211_fragment_entry	entries[IEEE80211_FRAGMENT_MAX];
+	unsigned int next;
+};
+
 /**
  * struct sta_info - STA information
  *
@@ -239,6 +268,7 @@ struct sta_ampdu_mlme {
  * @dead: set to true when sta is unlinked
  * @uploaded: set to true when sta is uploaded to the driver
  * @lost_packets: number of consecutive lost packets
+ * @frags: fragment cache
  */
 struct sta_info {
 	/* General information, mostly static */
@@ -335,6 +365,15 @@ struct sta_info {
 	/* keep last! */
 	struct ieee80211_sta sta;
 };
+
+/* XXX frags is factoroed out for SLE kABI compatibility */
+struct __sta_info {
+	struct ieee80211_fragment_cache frags;
+	void *reserved;
+	struct sta_info sta;
+};
+
+#define sta_frags(s) container_of(s, struct __sta_info, sta)->frags
 
 static inline enum nl80211_plink_state sta_plink_state(struct sta_info *sta)
 {
