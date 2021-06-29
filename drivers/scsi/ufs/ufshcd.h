@@ -394,7 +394,11 @@ struct ufs_saved_pwr_info {
 struct ufs_clk_scaling {
 	int active_reqs;
 	unsigned long tot_busy_t;
+#ifdef __GENKSYMS__
+	unsigned long window_start_t;
+#else
 	ktime_t window_start_t;
+#endif
 	ktime_t busy_start_t;
 	struct device_attribute enable_attr;
 	struct ufs_saved_pwr_info saved_pwr_info;
