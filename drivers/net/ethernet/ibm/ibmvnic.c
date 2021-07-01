@@ -917,6 +917,8 @@ static const char *adapter_state_to_string(enum vnic_state state)
 		return "REMOVING";
 	case VNIC_REMOVED:
 		return "REMOVED";
+	case VNIC_DOWN:
+		return "DOWN";
 	}
 	return "UNKNOWN";
 }
@@ -2021,6 +2023,8 @@ static const char *reset_reason_to_string(enum ibmvnic_reset_reason reason)
 		return "TIMEOUT";
 	case VNIC_RESET_CHANGE_PARAM:
 		return "CHANGE_PARAM";
+	case VNIC_RESET_PASSIVE_INIT:
+		return "PASSIVE_INIT";
 	}
 	return "UNKNOWN";
 }
