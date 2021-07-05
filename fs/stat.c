@@ -74,8 +74,14 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 	/* allow the fs to override these if it really wants to */
 	if (IS_NOATIME(inode))
 		stat->result_mask &= ~STATX_ATIME;
+
+	/* Note: If you add another clause to set an attribute flag, please
+	 * update attributes_mask below.
+	 */
 	if (IS_AUTOMOUNT(inode))
 		stat->attributes |= STATX_ATTR_AUTOMOUNT;
+
+	stat->attributes_mask |= STATX_ATTR_AUTOMOUNT;
 
 	if (IS_DAX(inode))
 		stat->attributes |= STATX_ATTR_DAX;
