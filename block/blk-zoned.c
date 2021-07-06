@@ -273,6 +273,23 @@ static int blkdev_copy_zone_to_user(struct blk_zone *zone, unsigned int idx,
 	return 0;
 }
 
+static int blkdev_truncate_zone_range(struct block_device *bdev, fmode_t mode,
+                                     const struct blk_zone_range *zrange)
+{
+       loff_t start, end;
+
+       if (zrange->sector + zrange->nr_sectors <= zrange->sector ||
+           zrange->sector + zrange->nr_sectors > get_capacity(bdev->bd_disk))
+               /* Out of range */
+               return -EINVAL;
+
+       start = zrange->sector << SECTOR_SHIFT;
+       end = ((zrange->sector + zrange->nr_sectors) << SECTOR_SHIFT) - 1;
+
+       truncate_inode_pages_range(bdev->bd_inode->i_mapping, start, end);
+       return 0;
+}
+
 /*
  * BLKREPORTZONE ioctl processing.
  * Called from blkdev_ioctl.
@@ -329,6 +346,7 @@ int blkdev_zone_mgmt_ioctl(struct block_device *bdev, fmode_t mode,
 	struct request_queue *q;
 	struct blk_zone_range zrange;
 	enum req_opf op;
+	int ret;
 
 	if (!argp)
 		return -EINVAL;
@@ -352,6 +370,11 @@ int blkdev_zone_mgmt_ioctl(struct block_device *bdev, fmode_t mode,
 	switch (cmd) {
 	case BLKRESETZONE:
 		op = REQ_OP_ZONE_RESET;
+
+		/* Invalidate the page cache, including dirty pages. */
+		ret = blkdev_truncate_zone_range(bdev, mode, &zrange);
+		if (ret)
+			return ret;
 		break;
 	case BLKOPENZONE:
 		op = REQ_OP_ZONE_OPEN;
@@ -366,8 +389,19 @@ int blkdev_zone_mgmt_ioctl(struct block_device *bdev, fmode_t mode,
 		return -ENOTTY;
 	}
 
-	return blkdev_zone_mgmt(bdev, op, zrange.sector, zrange.nr_sectors,
-				GFP_KERNEL);
+	ret = blkdev_zone_mgmt(bdev, op, zrange.sector, zrange.nr_sectors,
+			       GFP_KERNEL);
+
+	/* Invalidate the page cache again for zone reset: writes can only be
+	 * direct for zoned devices so concurrent writes would not add any page
+	 * to the page cache after/during reset. The page cache may be filled
+	 * again due to concurrent reads though and dropping the pages for
+	 * these is fine.
+	 */
+	if (!ret && cmd == BLKRESETZONE)
+		ret = blkdev_truncate_zone_range(bdev, mode, &zrange);
+
+	return ret;
 }
 
 static inline unsigned long *blk_alloc_zone_bitmap(int node,
