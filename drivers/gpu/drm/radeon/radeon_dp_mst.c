@@ -245,6 +245,9 @@ radeon_dp_mst_detect(struct drm_connector *connector, bool force)
 	struct radeon_connector *radeon_connector = to_radeon_connector(connector);
 	struct radeon_connector *master = radeon_connector->mst_port;
 
+	if (drm_connector_is_unregistered(connector))
+		return connector_status_disconnected;
+
 	return drm_dp_mst_detect_port(connector, &master->mst_mgr, radeon_connector->port);
 }
 
