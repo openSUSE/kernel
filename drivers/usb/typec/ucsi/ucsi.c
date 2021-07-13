@@ -798,6 +798,7 @@ out_unlock:
 	return ret;
 }
 
+/* Caller must call fwnode_handle_put() after use */
 static struct fwnode_handle *ucsi_find_fwnode(struct ucsi_connector *con)
 {
 	struct fwnode_handle *fwnode;
@@ -823,11 +824,14 @@ static int ucsi_register_port(struct ucsi *ucsi, int index)
 	con->num = index + 1;
 	con->ucsi = ucsi;
 
+	/* Delay other interactions with the con until registration is complete */
+	mutex_lock(&con->lock);
+
 	/* Get connector capability */
 	UCSI_CMD_GET_CONNECTOR_CAPABILITY(ctrl, con->num);
 	ret = ucsi_run_command(ucsi, &ctrl, &con->cap, sizeof(con->cap));
 	if (ret < 0)
-		return ret;
+		goto out_unlock;
 
 	if (con->cap.op_mode & UCSI_CONCAP_OPMODE_DRP)
 		cap->data = TYPEC_PORT_DRD;
@@ -858,22 +862,28 @@ static int ucsi_register_port(struct ucsi *ucsi, int index)
 
 	/* Register the connector */
 	con->port = typec_register_port(ucsi->dev, cap);
-	if (IS_ERR(con->port))
-		return PTR_ERR(con->port);
+	if (IS_ERR(con->port)) {
+		ret = PTR_ERR(con->port);
+		goto out;
+	}
 
 	/* Alternate modes */
 	ret = ucsi_register_altmodes(con, UCSI_RECIPIENT_CON);
-	if (ret)
+	if (ret) {
 		dev_err(ucsi->dev, "con%d: failed to register alt modes\n",
 			con->num);
+		goto out;
+	}
 
 	/* Get the status */
 	UCSI_CMD_GET_CONNECTOR_STATUS(ctrl, con->num);
 	ret = ucsi_run_command(ucsi, &ctrl, &con->status, sizeof(con->status));
 	if (ret < 0) {
 		dev_err(ucsi->dev, "con%d: failed to get status\n", con->num);
-		return 0;
+		ret = 0;
+		goto out;
 	}
+	ret = 0; /* ucsi_send_command() returns length on success */
 
 	ucsi_pwr_opmode_change(con);
 	typec_set_pwr_role(con->port, con->status.pwr_dir);
@@ -895,17 +905,23 @@ static int ucsi_register_port(struct ucsi *ucsi, int index)
 
 	if (con->partner) {
 		ret = ucsi_register_altmodes(con, UCSI_RECIPIENT_SOP);
-		if (ret)
+		if (ret) {
 			dev_err(ucsi->dev,
 				"con%d: failed to register alternate modes\n",
 				con->num);
-		else
+			ret = 0;
+		} else {
 			ucsi_altmode_update_active(con);
+		}
 	}
 
 	trace_ucsi_register_port(con->num, &con->status);
 
-	return 0;
+out:
+	fwnode_handle_put(cap->fwnode);
+out_unlock:
+	mutex_unlock(&con->lock);
+	return ret;
 }
 
 static void ucsi_init(struct work_struct *work)

@@ -52,14 +52,14 @@ enum tcpm_transmit_type {
  *		PD_CTRL_GET_SOURCE_CAP message
  * @nr_src_pdo:	Number of entries in @src_pdo
  * @snk_pdo:	PDO parameters sent to partner as response to
- *		PD_CTRL_GET_SINK_CAP message
+ * 		PD_CTRL_GET_SINK_CAP message
  * @nr_snk_pdo:	Number of entries in @snk_pdo
  * @operating_snk_mw:
- *		Required operating sink power in mW
+ * 		Required operating sink power in mW
  * @type:	Port type (TYPEC_PORT_DFP, TYPEC_PORT_UFP, or
- *		TYPEC_PORT_DRP)
+ * 		TYPEC_PORT_DRP)
  * @default_role:
- *		Default port role (TYPEC_SINK or TYPEC_SOURCE).
+ * 		Default port role (TYPEC_SINK or TYPEC_SOURCE).
  *		Set to TYPEC_NO_PREFERRED_ROLE if no default role.
  * @try_role_hw:True if try.{Src,Snk} is implemented in hardware
  * @alt_modes:	List of supported alternate modes
@@ -79,8 +79,8 @@ struct tcpc_config {
 	enum typec_port_type type;
 	enum typec_port_data data;
 	enum typec_role default_role;
-	bool try_role_hw;	/* try.{src,snk} implemented in hardware */
-	bool self_powered;	/* port belongs to a self powered device */
+	bool try_role_hw;       /* try.{src,snk} implemented in hardware */
+	bool self_powered;      /* port belongs to a self powered device */
 
 	const struct typec_altmode_desc *alt_modes;
 };
@@ -92,7 +92,6 @@ struct tcpc_config {
 
 /**
  * struct tcpc_dev - Port configuration and callback functions
- * @config:	Pointer to port configuration
  * @fwnode:	Pointer to port fwnode
  * @get_vbus:	Called to read current VBUS state
  * @get_current_limit:
