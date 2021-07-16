@@ -624,7 +624,7 @@ int xsk_socket__create(struct xsk_socket **xsk_ptr, const char *ifname,
 			goto out_socket;
 		}
 		if (xsk->fd == umem->fd)
-			umem->rx_ring_setup_done = true;
+			umem->tx_ring_setup_done = true;
 	}
 
 	err = xsk_get_mmap_offsets(xsk->fd, &off);
