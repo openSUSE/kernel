@@ -965,13 +965,11 @@ fb_set_var(struct fb_info *info, struct fb_var_screeninfo *var)
 		fb_var_to_videomode(&mode2, &info->var);
 		/* make sure we don't delete the videomode of current var */
 		ret = fb_mode_is_equal(&mode1, &mode2);
-
-		if (!ret)
-			fbcon_mode_deleted(info, &mode1);
-
-		if (!ret)
-			fb_delete_videomode(&mode1, &info->modelist);
-
+		if (!ret) {
+			ret = fbcon_mode_deleted(info, &mode1);
+			if (!ret)
+				fb_delete_videomode(&mode1, &info->modelist);
+		}
 
 		return ret ? -EINVAL : 0;
 	}
@@ -1000,6 +998,10 @@ fb_set_var(struct fb_info *info, struct fb_var_screeninfo *var)
 		*var = info->var;
 		return 0;
 	}
+
+	/* bitfill_aligned() assumes that it's at least 8x8 */
+	if (var->xres < 8 || var->yres < 8)
+		return -EINVAL;
 
 	ret = info->fbops->fb_check_var(var, info);
 
