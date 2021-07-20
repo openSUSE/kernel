@@ -381,11 +381,13 @@ static int machxo2_spi_remove(struct spi_device *spi)
 	return 0;
 }
 
+#ifdef CONFIG_OF
 static const struct of_device_id of_match[] = {
 	{ .compatible = "lattice,machxo2-slave-spi", },
 	{}
 };
 MODULE_DEVICE_TABLE(of, of_match);
+#endif
 
 static const struct spi_device_id lattice_ids[] = {
 	{ "machxo2-slave-spi", 0 },
