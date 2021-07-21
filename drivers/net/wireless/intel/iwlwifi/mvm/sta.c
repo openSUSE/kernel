@@ -1874,7 +1874,7 @@ int iwl_mvm_rm_sta(struct iwl_mvm *mvm,
 		return ret;
 
 	/* flush its queues here since we are freeing mvm_sta */
-	ret = iwl_mvm_flush_sta(mvm, mvm_sta, false, 0);
+	ret = iwl_mvm_flush_sta(mvm, mvm_sta, false);
 	if (ret)
 		return ret;
 	if (iwl_mvm_has_new_tx_api(mvm)) {
@@ -2212,7 +2212,7 @@ static void iwl_mvm_free_bcast_sta_queues(struct iwl_mvm *mvm,
 
 	lockdep_assert_held(&mvm->mutex);
 
-	iwl_mvm_flush_sta(mvm, &mvmvif->bcast_sta, true, 0);
+	iwl_mvm_flush_sta(mvm, &mvmvif->bcast_sta, true);
 
 	switch (vif->type) {
 	case NL80211_IFTYPE_AP:
@@ -2461,7 +2461,7 @@ int iwl_mvm_rm_mcast_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif)
 
 	lockdep_assert_held(&mvm->mutex);
 
-	iwl_mvm_flush_sta(mvm, &mvmvif->mcast_sta, true, 0);
+	iwl_mvm_flush_sta(mvm, &mvmvif->mcast_sta, true);
 
 	iwl_mvm_disable_txq(mvm, NULL, mvmvif->cab_queue, 0, 0);
 
