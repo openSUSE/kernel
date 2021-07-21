@@ -165,8 +165,6 @@ struct intel_th_driver {
 					  struct intel_th_device *othdev);
 	void			(*unassign)(struct intel_th_device *thdev,
 					    struct intel_th_device *othdev);
-	void			(*prepare)(struct intel_th_device *thdev,
-					   struct intel_th_output *output);
 	void			(*enable)(struct intel_th_device *thdev,
 					  struct intel_th_output *output);
 	void			(*trig_switch)(struct intel_th_device *thdev,
@@ -186,6 +184,10 @@ struct intel_th_driver {
 	/* source ops */
 	int			(*set_output)(struct intel_th_device *thdev,
 					      unsigned int master);
+#ifndef __GENKSYMS__
+	void			(*prepare)(struct intel_th_device *thdev,
+					   struct intel_th_output *output);
+#endif
 };
 
 #define to_intel_th_driver(_d)					\
