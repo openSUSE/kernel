@@ -147,7 +147,6 @@ static void rtrs_srv_free_ops_ids(struct rtrs_srv_sess *sess)
 	struct rtrs_srv *srv = sess->srv;
 	int i;
 
-	WARN_ON(atomic_read(&sess->ids_inflight));
 	if (sess->ops_ids) {
 		for (i = 0; i < srv->queue_depth; i++)
 			free_id(sess->ops_ids[i]);
@@ -162,11 +161,19 @@ static struct ib_cqe io_comp_cqe = {
 	.done = rtrs_srv_rdma_done
 };
 
+static inline void rtrs_srv_inflight_ref_release(struct percpu_ref *ref)
+{
+	struct rtrs_srv_sess *sess = container_of(ref, struct rtrs_srv_sess, ids_inflight_ref);
+
+	percpu_ref_exit(&sess->ids_inflight_ref);
+	complete(&sess->complete_done);
+}
+
 static int rtrs_srv_alloc_ops_ids(struct rtrs_srv_sess *sess)
 {
 	struct rtrs_srv *srv = sess->srv;
 	struct rtrs_srv_op *id;
-	int i;
+	int i, ret;
 
 	sess->ops_ids = kcalloc(srv->queue_depth, sizeof(*sess->ops_ids),
 				GFP_KERNEL);
@@ -180,8 +187,14 @@ static int rtrs_srv_alloc_ops_ids(struct rtrs_srv_sess *sess)
 
 		sess->ops_ids[i] = id;
 	}
-	init_waitqueue_head(&sess->ids_waitq);
-	atomic_set(&sess->ids_inflight, 0);
+
+	ret = percpu_ref_init(&sess->ids_inflight_ref,
+			      rtrs_srv_inflight_ref_release, 0, GFP_KERNEL);
+	if (ret) {
+		pr_err("Percpu reference init failed\n");
+		goto err;
+	}
+	init_completion(&sess->complete_done);
 
 	return 0;
 
@@ -192,20 +205,13 @@ err:
 
 static inline void rtrs_srv_get_ops_ids(struct rtrs_srv_sess *sess)
 {
-	atomic_inc(&sess->ids_inflight);
+	percpu_ref_get(&sess->ids_inflight_ref);
 }
 
 static inline void rtrs_srv_put_ops_ids(struct rtrs_srv_sess *sess)
 {
-	if (atomic_dec_and_test(&sess->ids_inflight))
-		wake_up(&sess->ids_waitq);
+	percpu_ref_put(&sess->ids_inflight_ref);
 }
-
-static void rtrs_srv_wait_ops_ids(struct rtrs_srv_sess *sess)
-{
-	wait_event(sess->ids_waitq, !atomic_read(&sess->ids_inflight));
-}
-
 
 static void rtrs_srv_reg_mr_done(struct ib_cq *cq, struct ib_wc *wc)
 {
@@ -1490,6 +1496,7 @@ static void free_sess(struct rtrs_srv_sess *sess)
 		kobject_del(&sess->kobj);
 		kobject_put(&sess->kobj);
 	} else {
+		kfree(sess->stats);
 		kfree(sess);
 	}
 }
@@ -1512,8 +1519,15 @@ static void rtrs_srv_close_work(struct work_struct *work)
 		rdma_disconnect(con->c.cm_id);
 		ib_drain_qp(con->c.qp);
 	}
-	/* Wait for all inflights */
-	rtrs_srv_wait_ops_ids(sess);
+
+	/*
+	 * Degrade ref count to the usual model with a single shared
+	 * atomic_t counter
+	 */
+	percpu_ref_kill(&sess->ids_inflight_ref);
+
+	/* Wait for all completion */
+	wait_for_completion(&sess->complete_done);
 
 	/* Notify upper layer if we are the last path */
 	rtrs_srv_sess_down(sess);
@@ -1613,7 +1627,7 @@ static int create_con(struct rtrs_srv_sess *sess,
 	struct rtrs_sess *s = &sess->s;
 	struct rtrs_srv_con *con;
 
-	u32 cq_size, wr_queue_size;
+	u32 cq_size, max_send_wr, max_recv_wr, wr_limit;
 	int err, cq_vector;
 
 	con = kzalloc(sizeof(*con), GFP_KERNEL);
@@ -1634,30 +1648,42 @@ static int create_con(struct rtrs_srv_sess *sess,
 		 * All receive and all send (each requiring invalidate)
 		 * + 2 for drain and heartbeat
 		 */
-		wr_queue_size = SERVICE_CON_QUEUE_DEPTH * 3 + 2;
-		cq_size = wr_queue_size;
+		max_send_wr = SERVICE_CON_QUEUE_DEPTH * 2 + 2;
+		max_recv_wr = SERVICE_CON_QUEUE_DEPTH + 2;
+		cq_size = max_send_wr + max_recv_wr;
 	} else {
-		/*
-		 * If we have all receive requests posted and
-		 * all write requests posted and each read request
-		 * requires an invalidate request + drain
-		 * and qp gets into error state.
-		 */
-		cq_size = srv->queue_depth * 3 + 1;
 		/*
 		 * In theory we might have queue_depth * 32
 		 * outstanding requests if an unsafe global key is used
 		 * and we have queue_depth read requests each consisting
 		 * of 32 different addresses. div 3 for mlx5.
 		 */
-		wr_queue_size = sess->s.dev->ib_dev->attrs.max_qp_wr / 3;
+		wr_limit = sess->s.dev->ib_dev->attrs.max_qp_wr / 3;
+		/* when always_invlaidate enalbed, we need linv+rinv+mr+imm */
+		if (always_invalidate)
+			max_send_wr =
+				min_t(int, wr_limit,
+				      srv->queue_depth * (1 + 4) + 1);
+		else
+			max_send_wr =
+				min_t(int, wr_limit,
+				      srv->queue_depth * (1 + 2) + 1);
+
+		max_recv_wr = srv->queue_depth + 1;
+		/*
+		 * If we have all receive requests posted and
+		 * all write requests posted and each read request
+		 * requires an invalidate request + drain
+		 * and qp gets into error state.
+		 */
+		cq_size = max_send_wr + max_recv_wr;
 	}
-	atomic_set(&con->sq_wr_avail, wr_queue_size);
+	atomic_set(&con->sq_wr_avail, max_send_wr);
 	cq_vector = rtrs_srv_get_next_cq_vector(sess);
 
 	/* TODO: SOFTIRQ can be faster, but be careful with softirq context */
 	err = rtrs_cq_qp_create(&sess->s, &con->c, 1, cq_vector, cq_size,
-				 wr_queue_size, wr_queue_size,
+				 max_send_wr, max_recv_wr,
 				 IB_POLL_WORKQUEUE);
 	if (err) {
 		rtrs_err(s, "rtrs_cq_qp_create(), err: %d\n", err);
