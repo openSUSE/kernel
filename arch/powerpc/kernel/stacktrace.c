@@ -12,6 +12,7 @@
 #include <linux/kallsyms.h>
 #include <linux/module.h>
 #include <linux/nmi.h>
+#include <linux/delay.h>
 #include <linux/sched.h>
 #include <linux/sched/debug.h>
 #include <linux/sched/task_stack.h>
