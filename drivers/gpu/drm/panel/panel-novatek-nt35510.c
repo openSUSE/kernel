@@ -698,9 +698,7 @@ static int nt35510_power_on(struct nt35510 *nt)
 		usleep_range(120000, 140000);
 	}
 
-	ret = nt35510_read_id(nt);
-	if (ret)
-		return ret;
+	nt35510_read_id(nt);
 
 	/* Set up stuff in  manufacturer control, page 1 */
 	ret = nt35510_send_long(nt, dsi, MCS_CMD_MAUCCTR,
