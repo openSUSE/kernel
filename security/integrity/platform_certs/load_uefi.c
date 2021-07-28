@@ -7,6 +7,7 @@
 #include <linux/err.h>
 #include <linux/efi.h>
 #include <linux/slab.h>
+#include <linux/ima.h>
 #include <keys/asymmetric-type.h>
 #include <keys/system_keyring.h>
 #include "../integrity.h"
@@ -113,7 +114,7 @@ static int __init load_uefi_certs(void)
 	}
 
 	/* the MOK and MOKx can not be trusted when secure boot is disabled */
-	if (!efi_enabled(EFI_SECURE_BOOT))
+	if (!arch_ima_get_secureboot())
 		return 0;
 
 	mok = get_cert_list(L"MokListRT", &mok_var, &moksize, "UEFI:MokListRT");
