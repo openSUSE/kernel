@@ -529,8 +529,7 @@ _GLOBAL(ret_from_kernel_thread)
 
 #define FLUSH_COUNT_CACHE	\
 1:	nop;			\
-	patch_site 1b, patch__call_flush_count_cache
-
+	patch_site 1b, patch__call_flush_branch_caches
 
 #define BCCTR_FLUSH	.long 0x4c400420
 
@@ -541,8 +540,8 @@ _GLOBAL(ret_from_kernel_thread)
 .endm
 
 .balign 32
-.global flush_count_cache
-flush_count_cache:
+.global flush_branch_caches
+flush_branch_caches:
 	/* Save LR into r9 */
 	mflr	r9
 
