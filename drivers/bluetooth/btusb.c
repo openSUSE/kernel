@@ -2463,7 +2463,8 @@ static int btusb_intel_download_firmware_newgen(struct hci_dev *hdev,
 	btusb_setup_intel_newgen_get_fw_name(ver, fwname, sizeof(fwname), "sfi");
 	err = request_firmware(&fw, fwname, &hdev->dev);
 	if (err < 0) {
-		bt_dev_err(hdev, "Failed to load Intel firmware file (%d)", err);
+		bt_dev_err(hdev, "Failed to load Intel firmware file %s (%d)",
+			   fwname, err);
 		return err;
 	}
 
@@ -2657,7 +2658,8 @@ static int btusb_intel_download_firmware(struct hci_dev *hdev,
 
 	err = request_firmware(&fw, fwname, &hdev->dev);
 	if (err < 0) {
-		bt_dev_err(hdev, "Failed to load Intel firmware file (%d)", err);
+		bt_dev_err(hdev, "Failed to load Intel firmware file %s (%d)",
+			   fwname, err);
 		return err;
 	}
 
