@@ -216,7 +216,7 @@ void btintel_hw_error(struct hci_dev *hdev, u8 code)
 }
 EXPORT_SYMBOL_GPL(btintel_hw_error);
 
-int btintel_version_info(struct hci_dev *hdev, struct intel_version *ver)
+int __btintel_version_info(struct hci_dev *hdev, struct intel_version *ver)
 {
 	const char *variant;
 
@@ -268,7 +268,7 @@ int btintel_version_info(struct hci_dev *hdev, struct intel_version *ver)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(btintel_version_info);
+EXPORT_SYMBOL_GPL(__btintel_version_info);
 
 int btintel_secure_send(struct hci_dev *hdev, u8 fragment_type, u32 plen,
 			const void *param)
@@ -1015,7 +1015,7 @@ static bool btintel_firmware_version(struct hci_dev *hdev,
 	return false;
 }
 
-int btintel_download_firmware(struct hci_dev *hdev,
+int __btintel_download_firmware(struct hci_dev *hdev,
 			      struct intel_version *ver,
 			      const struct firmware *fw,
 			      u32 *boot_param)
@@ -1064,7 +1064,7 @@ int btintel_download_firmware(struct hci_dev *hdev,
 
 	return btintel_download_firmware_payload(hdev, fw, RSA_HEADER_LEN);
 }
-EXPORT_SYMBOL_GPL(btintel_download_firmware);
+EXPORT_SYMBOL_GPL(__btintel_download_firmware);
 
 int btintel_download_firmware_newgen(struct hci_dev *hdev,
 				     struct intel_version_tlv *ver,
@@ -1271,6 +1271,25 @@ int btintel_set_debug_features(struct hci_dev *hdev,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(btintel_set_debug_features);
+
+/* XXX SLE15-SP3 kABI-compatible symbols */
+#undef btintel_version_info
+#undef btintel_download_firmware
+
+void btintel_version_info(struct hci_dev *hdev, struct intel_version *ver)
+{
+	__btintel_version_info(hdev, ver);
+}
+EXPORT_SYMBOL_GPL(btintel_version_info);
+
+int btintel_download_firmware(struct hci_dev *hdev,
+			      const struct firmware *fw,
+			      u32 *boot_param)
+{
+	struct intel_version ver = {};
+	return  __btintel_download_firmware(hdev, &ver, fw, boot_param);
+}
+EXPORT_SYMBOL_GPL(btintel_download_firmware);
 
 MODULE_AUTHOR("Marcel Holtmann <marcel@holtmann.org>");
 MODULE_DESCRIPTION("Bluetooth support for Intel devices ver " VERSION);
