@@ -390,7 +390,7 @@ device_initcall(stf_barrier_debugfs_init);
 static void no_count_cache_flush(void)
 {
 	count_cache_flush_type = BRANCH_CACHE_FLUSH_NONE;
-	pr_info("count-cache-flush: software flush disabled.\n");
+	pr_info("count-cache-flush: flush disabled.\n");
 }
 
 static void toggle_branch_cache_flush(bool enable)
@@ -404,7 +404,7 @@ static void toggle_branch_cache_flush(bool enable)
 #ifdef CONFIG_KVM_BOOK3S_HV_POSSIBLE
 		patch_instruction_site(&patch__call_kvm_flush_link_stack, PPC_INST_NOP);
 #endif
-		pr_info("link-stack-flush: software flush disabled.\n");
+		pr_info("link-stack-flush: flush disabled.\n");
 		link_stack_flush_type = BRANCH_CACHE_FLUSH_NONE;
 		no_count_cache_flush();
 		return;
@@ -432,13 +432,13 @@ static void toggle_branch_cache_flush(bool enable)
 
 	if (!security_ftr_enabled(SEC_FTR_BCCTR_FLUSH_ASSIST)) {
 		count_cache_flush_type = BRANCH_CACHE_FLUSH_SW;
-		pr_info("count-cache-flush: full software flush sequence enabled.\n");
+		pr_info("count-cache-flush: software flush enabled.\n");
 		return;
 	}
 
 	patch_instruction_site(&patch__flush_count_cache_return, PPC_INST_BLR);
 	count_cache_flush_type = BRANCH_CACHE_FLUSH_HW;
-	pr_info("count-cache-flush: hardware assisted flush sequence enabled\n");
+	pr_info("count-cache-flush: hardware flush enabled.\n");
 }
 
 void setup_count_cache_flush(void)
