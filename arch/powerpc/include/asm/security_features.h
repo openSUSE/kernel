@@ -63,6 +63,8 @@ static inline bool security_ftr_enabled(u64 feature)
 // bcctr 2,0,0 triggers a hardware assisted count cache flush
 #define SEC_FTR_BCCTR_FLUSH_ASSIST	0x0000000000000800ull
 
+// bcctr 2,0,0 triggers a hardware assisted link stack flush
+#define SEC_FTR_BCCTR_LINK_FLUSH_ASSIST	0x0000000000002000ull
 
 // Features indicating need for Spectre/Meltdown mitigations
 
@@ -90,6 +92,9 @@ static inline bool security_ftr_enabled(u64 feature)
 // The L1-D cache should be flushed after user accesses from the kernel
 #define SEC_FTR_L1D_FLUSH_UACCESS	0x0000000000008000ull
 
+// The STF flush should be executed on privilege state switch
+#define SEC_FTR_STF_BARRIER		0x0000000000010000ull
+
 // Features enabled by default
 #define SEC_FTR_DEFAULT \
 	(SEC_FTR_L1D_FLUSH_HV | \
@@ -97,6 +102,7 @@ static inline bool security_ftr_enabled(u64 feature)
 	 SEC_FTR_BNDS_CHK_SPEC_BAR | \
 	 SEC_FTR_L1D_FLUSH_ENTRY | \
 	 SEC_FTR_L1D_FLUSH_UACCESS | \
+	 SEC_FTR_STF_BARRIER | \
 	 SEC_FTR_FAVOUR_SECURITY)
 
 #endif /* _ASM_POWERPC_SECURITY_FEATURES_H */
