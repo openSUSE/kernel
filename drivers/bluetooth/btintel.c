@@ -18,7 +18,19 @@
 
 #define VERSION "0.1"
 
-#define BDADDR_INTEL (&(bdaddr_t) {{0x00, 0x8b, 0x9e, 0x19, 0x03, 0x00}})
+#define BDADDR_INTEL		(&(bdaddr_t){{0x00, 0x8b, 0x9e, 0x19, 0x03, 0x00}})
+#define RSA_HEADER_LEN		644
+#define CSS_HEADER_OFFSET	8
+#define ECDSA_OFFSET		644
+#define ECDSA_HEADER_LEN	320
+
+#define CMD_WRITE_BOOT_PARAMS	0xfc0e
+struct cmd_write_boot_params {
+	u32 boot_addr;
+	u8  fw_build_num;
+	u8  fw_build_ww;
+	u8  fw_build_yy;
+} __packed;
 
 int btintel_check_bdaddr(struct hci_dev *hdev)
 {
@@ -204,9 +216,38 @@ void btintel_hw_error(struct hci_dev *hdev, u8 code)
 }
 EXPORT_SYMBOL_GPL(btintel_hw_error);
 
-void btintel_version_info(struct hci_dev *hdev, struct intel_version *ver)
+int __btintel_version_info(struct hci_dev *hdev, struct intel_version *ver)
 {
 	const char *variant;
+
+	/* The hardware platform number has a fixed value of 0x37 and
+	 * for now only accept this single value.
+	 */
+	if (ver->hw_platform != 0x37) {
+		bt_dev_err(hdev, "Unsupported Intel hardware platform (%u)",
+			   ver->hw_platform);
+		return -EINVAL;
+	}
+
+	/* Check for supported iBT hardware variants of this firmware
+	 * loading method.
+	 *
+	 * This check has been put in place to ensure correct forward
+	 * compatibility options when newer hardware variants come along.
+	 */
+	switch (ver->hw_variant) {
+	case 0x0b:      /* SfP */
+	case 0x0c:      /* WsP */
+	case 0x11:      /* JfP */
+	case 0x12:      /* ThP */
+	case 0x13:      /* HrP */
+	case 0x14:      /* CcP */
+		break;
+	default:
+		bt_dev_err(hdev, "Unsupported Intel hardware variant (%u)",
+			   ver->hw_variant);
+		return -EINVAL;
+	}
 
 	switch (ver->fw_variant) {
 	case 0x06:
@@ -216,15 +257,18 @@ void btintel_version_info(struct hci_dev *hdev, struct intel_version *ver)
 		variant = "Firmware";
 		break;
 	default:
-		return;
+		bt_dev_err(hdev, "Unsupported firmware variant(%02x)", ver->fw_variant);
+		return -EINVAL;
 	}
 
 	bt_dev_info(hdev, "%s revision %u.%u build %u week %u %u",
 		    variant, ver->fw_revision >> 4, ver->fw_revision & 0x0f,
 		    ver->fw_build_num, ver->fw_build_ww,
 		    2000 + ver->fw_build_yy);
+
+	return 0;
 }
-EXPORT_SYMBOL_GPL(btintel_version_info);
+EXPORT_SYMBOL_GPL(__btintel_version_info);
 
 int btintel_secure_send(struct hci_dev *hdev, u8 fragment_type, u32 plen,
 			const void *param)
@@ -359,6 +403,197 @@ int btintel_read_version(struct hci_dev *hdev, struct intel_version *ver)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(btintel_read_version);
+
+int btintel_version_info_tlv(struct hci_dev *hdev, struct intel_version_tlv *version)
+{
+	const char *variant;
+
+	/* The hardware platform number has a fixed value of 0x37 and
+	 * for now only accept this single value.
+	 */
+	if (INTEL_HW_PLATFORM(version->cnvi_bt) != 0x37) {
+		bt_dev_err(hdev, "Unsupported Intel hardware platform (0x%2x)",
+			   INTEL_HW_PLATFORM(version->cnvi_bt));
+		return -EINVAL;
+	}
+
+	/* Check for supported iBT hardware variants of this firmware
+	 * loading method.
+	 *
+	 * This check has been put in place to ensure correct forward
+	 * compatibility options when newer hardware variants come along.
+	 */
+	switch (INTEL_HW_VARIANT(version->cnvi_bt)) {
+	case 0x17:	/* TyP */
+	case 0x18:	/* Slr */
+	case 0x19:	/* Slr-F */
+		break;
+	default:
+		bt_dev_err(hdev, "Unsupported Intel hardware variant (0x%x)",
+			   INTEL_HW_VARIANT(version->cnvi_bt));
+		return -EINVAL;
+	}
+
+	switch (version->img_type) {
+	case 0x01:
+		variant = "Bootloader";
+		/* It is required that every single firmware fragment is acknowledged
+		 * with a command complete event. If the boot parameters indicate
+		 * that this bootloader does not send them, then abort the setup.
+		 */
+		if (version->limited_cce != 0x00) {
+			bt_dev_err(hdev, "Unsupported Intel firmware loading method (0x%x)",
+				   version->limited_cce);
+			return -EINVAL;
+		}
+
+		/* Secure boot engine type should be either 1 (ECDSA) or 0 (RSA) */
+		if (version->sbe_type > 0x01) {
+			bt_dev_err(hdev, "Unsupported Intel secure boot engine type (0x%x)",
+				   version->sbe_type);
+			return -EINVAL;
+		}
+
+		bt_dev_info(hdev, "Device revision is %u", version->dev_rev_id);
+		bt_dev_info(hdev, "Secure boot is %s",
+			    version->secure_boot ? "enabled" : "disabled");
+		bt_dev_info(hdev, "OTP lock is %s",
+			    version->otp_lock ? "enabled" : "disabled");
+		bt_dev_info(hdev, "API lock is %s",
+			    version->api_lock ? "enabled" : "disabled");
+		bt_dev_info(hdev, "Debug lock is %s",
+			    version->debug_lock ? "enabled" : "disabled");
+		bt_dev_info(hdev, "Minimum firmware build %u week %u %u",
+			    version->min_fw_build_nn, version->min_fw_build_cw,
+			    2000 + version->min_fw_build_yy);
+		break;
+	case 0x03:
+		variant = "Firmware";
+		break;
+	default:
+		bt_dev_err(hdev, "Unsupported image type(%02x)", version->img_type);
+		return -EINVAL;
+	}
+
+	bt_dev_info(hdev, "%s timestamp %u.%u buildtype %u build %u", variant,
+		    2000 + (version->timestamp >> 8), version->timestamp & 0xff,
+		    version->build_type, version->build_num);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(btintel_version_info_tlv);
+
+int btintel_read_version_tlv(struct hci_dev *hdev, struct intel_version_tlv *version)
+{
+	struct sk_buff *skb;
+	const u8 param[1] = { 0xFF };
+
+	if (!version)
+		return -EINVAL;
+
+	skb = __hci_cmd_sync(hdev, 0xfc05, 1, param, HCI_CMD_TIMEOUT);
+	if (IS_ERR(skb)) {
+		bt_dev_err(hdev, "Reading Intel version information failed (%ld)",
+			   PTR_ERR(skb));
+		return PTR_ERR(skb);
+	}
+
+	if (skb->data[0]) {
+		bt_dev_err(hdev, "Intel Read Version command failed (%02x)",
+			   skb->data[0]);
+		kfree_skb(skb);
+		return -EIO;
+	}
+
+	/* Consume Command Complete Status field */
+	skb_pull(skb, 1);
+
+	/* Event parameters contatin multiple TLVs. Read each of them
+	 * and only keep the required data. Also, it use existing legacy
+	 * version field like hw_platform, hw_variant, and fw_variant
+	 * to keep the existing setup flow
+	 */
+	while (skb->len) {
+		struct intel_tlv *tlv;
+
+		tlv = (struct intel_tlv *)skb->data;
+		switch (tlv->type) {
+		case INTEL_TLV_CNVI_TOP:
+			version->cnvi_top = get_unaligned_le32(tlv->val);
+			break;
+		case INTEL_TLV_CNVR_TOP:
+			version->cnvr_top = get_unaligned_le32(tlv->val);
+			break;
+		case INTEL_TLV_CNVI_BT:
+			version->cnvi_bt = get_unaligned_le32(tlv->val);
+			break;
+		case INTEL_TLV_CNVR_BT:
+			version->cnvr_bt = get_unaligned_le32(tlv->val);
+			break;
+		case INTEL_TLV_DEV_REV_ID:
+			version->dev_rev_id = get_unaligned_le16(tlv->val);
+			break;
+		case INTEL_TLV_IMAGE_TYPE:
+			version->img_type = tlv->val[0];
+			break;
+		case INTEL_TLV_TIME_STAMP:
+			/* If image type is Operational firmware (0x03), then
+			 * running FW Calendar Week and Year information can
+			 * be extracted from Timestamp information
+			 */
+			version->min_fw_build_cw = tlv->val[0];
+			version->min_fw_build_yy = tlv->val[1];
+			version->timestamp = get_unaligned_le16(tlv->val);
+			break;
+		case INTEL_TLV_BUILD_TYPE:
+			version->build_type = tlv->val[0];
+			break;
+		case INTEL_TLV_BUILD_NUM:
+			/* If image type is Operational firmware (0x03), then
+			 * running FW build number can be extracted from the
+			 * Build information
+			 */
+			version->min_fw_build_nn = tlv->val[0];
+			version->build_num = get_unaligned_le32(tlv->val);
+			break;
+		case INTEL_TLV_SECURE_BOOT:
+			version->secure_boot = tlv->val[0];
+			break;
+		case INTEL_TLV_OTP_LOCK:
+			version->otp_lock = tlv->val[0];
+			break;
+		case INTEL_TLV_API_LOCK:
+			version->api_lock = tlv->val[0];
+			break;
+		case INTEL_TLV_DEBUG_LOCK:
+			version->debug_lock = tlv->val[0];
+			break;
+		case INTEL_TLV_MIN_FW:
+			version->min_fw_build_nn = tlv->val[0];
+			version->min_fw_build_cw = tlv->val[1];
+			version->min_fw_build_yy = tlv->val[2];
+			break;
+		case INTEL_TLV_LIMITED_CCE:
+			version->limited_cce = tlv->val[0];
+			break;
+		case INTEL_TLV_SBE_TYPE:
+			version->sbe_type = tlv->val[0];
+			break;
+		case INTEL_TLV_OTP_BDADDR:
+			memcpy(&version->otp_bd_addr, tlv->val, tlv->len);
+			break;
+		default:
+			/* Ignore rest of information */
+			break;
+		}
+		/* consume the current tlv and move to next*/
+		skb_pull(skb, tlv->len + sizeof(*tlv));
+	}
+
+	kfree_skb(skb);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(btintel_read_version_tlv);
 
 /* ------- REGMAP IBT SUPPORT ------- */
 
@@ -626,12 +861,10 @@ int btintel_read_boot_params(struct hci_dev *hdev,
 }
 EXPORT_SYMBOL_GPL(btintel_read_boot_params);
 
-int btintel_download_firmware(struct hci_dev *hdev, const struct firmware *fw,
-			      u32 *boot_param)
+static int btintel_sfi_rsa_header_secure_send(struct hci_dev *hdev,
+					      const struct firmware *fw)
 {
 	int err;
-	const u8 *fw_ptr;
-	u32 frag_len;
 
 	/* Start the firmware download transaction with the Init fragment
 	 * represented by the 128 bytes of CSS header.
@@ -660,25 +893,59 @@ int btintel_download_firmware(struct hci_dev *hdev, const struct firmware *fw,
 		goto done;
 	}
 
-	fw_ptr = fw->data + 644;
+done:
+	return err;
+}
+
+static int btintel_sfi_ecdsa_header_secure_send(struct hci_dev *hdev,
+						const struct firmware *fw)
+{
+	int err;
+
+	/* Start the firmware download transaction with the Init fragment
+	 * represented by the 128 bytes of CSS header.
+	 */
+	err = btintel_secure_send(hdev, 0x00, 128, fw->data + 644);
+	if (err < 0) {
+		bt_dev_err(hdev, "Failed to send firmware header (%d)", err);
+		return err;
+	}
+
+	/* Send the 96 bytes of public key information from the firmware
+	 * as the PKey fragment.
+	 */
+	err = btintel_secure_send(hdev, 0x03, 96, fw->data + 644 + 128);
+	if (err < 0) {
+		bt_dev_err(hdev, "Failed to send firmware pkey (%d)", err);
+		return err;
+	}
+
+	/* Send the 96 bytes of signature information from the firmware
+	 * as the Sign fragment
+	 */
+	err = btintel_secure_send(hdev, 0x02, 96, fw->data + 644 + 224);
+	if (err < 0) {
+		bt_dev_err(hdev, "Failed to send firmware signature (%d)",
+			   err);
+		return err;
+	}
+	return 0;
+}
+
+static int btintel_download_firmware_payload(struct hci_dev *hdev,
+					     const struct firmware *fw,
+					     size_t offset)
+{
+	int err;
+	const u8 *fw_ptr;
+	u32 frag_len;
+
+	fw_ptr = fw->data + offset;
 	frag_len = 0;
+	err = -EINVAL;
 
 	while (fw_ptr - fw->data < fw->size) {
 		struct hci_command_hdr *cmd = (void *)(fw_ptr + frag_len);
-
-		/* Each SKU has a different reset parameter to use in the
-		 * HCI_Intel_Reset command and it is embedded in the firmware
-		 * data. So, instead of using static value per SKU, check
-		 * the firmware data and save it for later use.
-		 */
-		if (le16_to_cpu(cmd->opcode) == 0xfc0e) {
-			/* The boot parameter is the first 32-bit value
-			 * and rest of 3 octets are reserved.
-			 */
-			*boot_param = get_unaligned_le32(fw_ptr + sizeof(*cmd));
-
-			bt_dev_dbg(hdev, "boot_param=0x%x", *boot_param);
-		}
 
 		frag_len += sizeof(*cmd) + cmd->plen;
 
@@ -707,7 +974,199 @@ int btintel_download_firmware(struct hci_dev *hdev, const struct firmware *fw,
 done:
 	return err;
 }
-EXPORT_SYMBOL_GPL(btintel_download_firmware);
+
+static bool btintel_firmware_version(struct hci_dev *hdev,
+				     u8 num, u8 ww, u8 yy,
+				     const struct firmware *fw,
+				     u32 *boot_addr)
+{
+	const u8 *fw_ptr;
+
+	fw_ptr = fw->data;
+
+	while (fw_ptr - fw->data < fw->size) {
+		struct hci_command_hdr *cmd = (void *)(fw_ptr);
+
+		/* Each SKU has a different reset parameter to use in the
+		 * HCI_Intel_Reset command and it is embedded in the firmware
+		 * data. So, instead of using static value per SKU, check
+		 * the firmware data and save it for later use.
+		 */
+		if (le16_to_cpu(cmd->opcode) == CMD_WRITE_BOOT_PARAMS) {
+			struct cmd_write_boot_params *params;
+
+			params = (void *)(fw_ptr + sizeof(*cmd));
+
+			bt_dev_info(hdev, "Boot Address: 0x%x",
+				    le32_to_cpu(params->boot_addr));
+
+			bt_dev_info(hdev, "Firmware Version: %u-%u.%u",
+				    params->fw_build_num, params->fw_build_ww,
+				    params->fw_build_yy);
+
+			return (num == params->fw_build_num &&
+				ww == params->fw_build_ww &&
+				yy == params->fw_build_yy);
+		}
+
+		fw_ptr += sizeof(*cmd) + cmd->plen;
+	}
+
+	return false;
+}
+
+int __btintel_download_firmware(struct hci_dev *hdev,
+			      struct intel_version *ver,
+			      const struct firmware *fw,
+			      u32 *boot_param)
+{
+	int err;
+
+	/* SfP and WsP don't seem to update the firmware version on file
+	 * so version checking is currently not possible.
+	 */
+	switch (ver->hw_variant) {
+	case 0x0b:	/* SfP */
+	case 0x0c:	/* WsP */
+		/* Skip version checking */
+		break;
+	default:
+		/* Skip reading firmware file version in bootloader mode */
+		if (ver->fw_variant == 0x06)
+			break;
+
+		/* Skip download if firmware has the same version */
+		if (btintel_firmware_version(hdev, ver->fw_build_num,
+					     ver->fw_build_ww, ver->fw_build_yy,
+					     fw, boot_param)) {
+			bt_dev_info(hdev, "Firmware already loaded");
+			/* Return -EALREADY to indicate that the firmware has
+			 * already been loaded.
+			 */
+			return -EALREADY;
+		}
+	}
+
+	/* The firmware variant determines if the device is in bootloader
+	 * mode or is running operational firmware. The value 0x06 identifies
+	 * the bootloader and the value 0x23 identifies the operational
+	 * firmware.
+	 *
+	 * If the firmware version has changed that means it needs to be reset
+	 * to bootloader when operational so the new firmware can be loaded.
+	 */
+	if (ver->fw_variant == 0x23)
+		return -EINVAL;
+
+	err = btintel_sfi_rsa_header_secure_send(hdev, fw);
+	if (err)
+		return err;
+
+	return btintel_download_firmware_payload(hdev, fw, RSA_HEADER_LEN);
+}
+EXPORT_SYMBOL_GPL(__btintel_download_firmware);
+
+int btintel_download_firmware_newgen(struct hci_dev *hdev,
+				     struct intel_version_tlv *ver,
+				     const struct firmware *fw, u32 *boot_param,
+				     u8 hw_variant, u8 sbe_type)
+{
+	int err;
+	u32 css_header_ver;
+
+	/* Skip reading firmware file version in bootloader mode */
+	if (ver->img_type != 0x01) {
+		/* Skip download if firmware has the same version */
+		if (btintel_firmware_version(hdev, ver->min_fw_build_nn,
+					     ver->min_fw_build_cw,
+					     ver->min_fw_build_yy,
+					     fw, boot_param)) {
+			bt_dev_info(hdev, "Firmware already loaded");
+			/* Return -EALREADY to indicate that firmware has
+			 * already been loaded.
+			 */
+			return -EALREADY;
+		}
+	}
+
+	/* The firmware variant determines if the device is in bootloader
+	 * mode or is running operational firmware. The value 0x01 identifies
+	 * the bootloader and the value 0x03 identifies the operational
+	 * firmware.
+	 *
+	 * If the firmware version has changed that means it needs to be reset
+	 * to bootloader when operational so the new firmware can be loaded.
+	 */
+	if (ver->img_type == 0x03)
+		return -EINVAL;
+
+	/* iBT hardware variants 0x0b, 0x0c, 0x11, 0x12, 0x13, 0x14 support
+	 * only RSA secure boot engine. Hence, the corresponding sfi file will
+	 * have RSA header of 644 bytes followed by Command Buffer.
+	 *
+	 * iBT hardware variants 0x17, 0x18 onwards support both RSA and ECDSA
+	 * secure boot engine. As a result, the corresponding sfi file will
+	 * have RSA header of 644, ECDSA header of 320 bytes followed by
+	 * Command Buffer.
+	 *
+	 * CSS Header byte positions 0x08 to 0x0B represent the CSS Header
+	 * version: RSA(0x00010000) , ECDSA (0x00020000)
+	 */
+	css_header_ver = get_unaligned_le32(fw->data + CSS_HEADER_OFFSET);
+	if (css_header_ver != 0x00010000) {
+		bt_dev_err(hdev, "Invalid CSS Header version");
+		return -EINVAL;
+	}
+
+	if (hw_variant <= 0x14) {
+		if (sbe_type != 0x00) {
+			bt_dev_err(hdev, "Invalid SBE type for hardware variant (%d)",
+				   hw_variant);
+			return -EINVAL;
+		}
+
+		err = btintel_sfi_rsa_header_secure_send(hdev, fw);
+		if (err)
+			return err;
+
+		err = btintel_download_firmware_payload(hdev, fw, RSA_HEADER_LEN);
+		if (err)
+			return err;
+	} else if (hw_variant >= 0x17) {
+		/* Check if CSS header for ECDSA follows the RSA header */
+		if (fw->data[ECDSA_OFFSET] != 0x06)
+			return -EINVAL;
+
+		/* Check if the CSS Header version is ECDSA(0x00020000) */
+		css_header_ver = get_unaligned_le32(fw->data + ECDSA_OFFSET + CSS_HEADER_OFFSET);
+		if (css_header_ver != 0x00020000) {
+			bt_dev_err(hdev, "Invalid CSS Header version");
+			return -EINVAL;
+		}
+
+		if (sbe_type == 0x00) {
+			err = btintel_sfi_rsa_header_secure_send(hdev, fw);
+			if (err)
+				return err;
+
+			err = btintel_download_firmware_payload(hdev, fw,
+								RSA_HEADER_LEN + ECDSA_HEADER_LEN);
+			if (err)
+				return err;
+		} else if (sbe_type == 0x01) {
+			err = btintel_sfi_ecdsa_header_secure_send(hdev, fw);
+			if (err)
+				return err;
+
+			err = btintel_download_firmware_payload(hdev, fw,
+								RSA_HEADER_LEN + ECDSA_HEADER_LEN);
+			if (err)
+				return err;
+		}
+	}
+	return 0;
+}
+EXPORT_SYMBOL_GPL(btintel_download_firmware_newgen);
 
 void btintel_reset_to_bootloader(struct hci_dev *hdev)
 {
@@ -812,6 +1271,25 @@ int btintel_set_debug_features(struct hci_dev *hdev,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(btintel_set_debug_features);
+
+/* XXX SLE15-SP3 kABI-compatible symbols */
+#undef btintel_version_info
+#undef btintel_download_firmware
+
+void btintel_version_info(struct hci_dev *hdev, struct intel_version *ver)
+{
+	__btintel_version_info(hdev, ver);
+}
+EXPORT_SYMBOL_GPL(btintel_version_info);
+
+int btintel_download_firmware(struct hci_dev *hdev,
+			      const struct firmware *fw,
+			      u32 *boot_param)
+{
+	struct intel_version ver = {};
+	return  __btintel_download_firmware(hdev, &ver, fw, boot_param);
+}
+EXPORT_SYMBOL_GPL(btintel_download_firmware);
 
 MODULE_AUTHOR("Marcel Holtmann <marcel@holtmann.org>");
 MODULE_DESCRIPTION("Bluetooth support for Intel devices ver " VERSION);
