@@ -3306,10 +3306,7 @@ cifs_find_tcon(struct cifs_ses *ses, struct smb_vol *volume_info)
 	spin_lock(&cifs_tcp_ses_lock);
 	list_for_each(tmp, &ses->tcon_list) {
 		tcon = list_entry(tmp, struct cifs_tcon, tcon_list);
-#ifdef CONFIG_CIFS_DFS_UPCALL
-		if (tcon->dfs_path)
-			continue;
-#endif
+
 		if (!match_tcon(tcon, volume_info))
 			continue;
 		++tcon->tc_count;
@@ -4799,6 +4796,8 @@ int cifs_mount(struct cifs_sb_info *cifs_sb, struct smb_vol *vol)
 		if (rc != -EREMOTE)
 			goto error;
 	}
+
+	vol->nosharesock = true;
 
 	/* Get path of DFS root */
 	ref_path = build_unc_path_to_root(vol, cifs_sb, false);
