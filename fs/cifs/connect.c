@@ -4852,7 +4852,7 @@ int cifs_mount(struct cifs_sb_info *cifs_sb, struct smb_vol *vol)
 			rc = -ELOOP;
 	} while (rc == -EREMOTE);
 
-	if (rc)
+	if (rc || !tcon)
 		goto error;
 
 	kfree(ref_path);
