@@ -4616,8 +4616,8 @@ unsigned int intel_model_duplicates(unsigned int model)
 	case INTEL_FAM6_ICELAKE_NNPI:
 		return INTEL_FAM6_CANNONLAKE_L;
 
-	case INTEL_FAM6_ATOM_TREMONT_X:
-		return INTEL_FAM6_ATOM_GOLDMONT_X;
+	case INTEL_FAM6_ATOM_TREMONT_D:
+		return INTEL_FAM6_ATOM_GOLDMONT_D;
 	}
 	return model;
 }
