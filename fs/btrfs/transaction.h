@@ -85,13 +85,6 @@ struct btrfs_transaction {
 	spinlock_t dropped_roots_lock;
 	struct btrfs_delayed_ref_root delayed_refs;
 	struct btrfs_fs_info *fs_info;
-
-	/*
-	 * The number of bytes currently reserved, by all transaction handles
-	 * attached to this transaction, for metadata extents of the chunk tree.
-	 */
-	atomic64_t chunk_bytes_reserved;
-	wait_queue_head_t chunk_reserve_wait;
 };
 
 #define __TRANS_FREEZABLE	(1U << 0)
@@ -126,7 +119,7 @@ struct btrfs_trans_handle {
 	short aborted;
 	bool adding_csums;
 	bool allocating_chunk;
-	bool can_flush_pending_bgs;
+	bool removing_chunk;
 	bool reloc_reserved;
 	bool dirty;
 	struct btrfs_root *root;
