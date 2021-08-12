@@ -367,6 +367,7 @@ enum {
 /* PASID cache invalidation granu */
 #define QI_PC_ALL_PASIDS	0
 #define QI_PC_PASID_SEL		1
+#define QI_PC_GLOBAL		3
 
 #define QI_EIOTLB_ADDR(addr)	((u64)(addr) & VTD_PAGE_MASK)
 #define QI_EIOTLB_IH(ih)	(((u64)ih) << 6)
@@ -525,7 +526,7 @@ struct context_entry {
 struct dmar_domain {
 	int	nid;			/* node id */
 
-	unsigned	iommu_refcnt[DMAR_UNITS_SUPPORTED];
+	unsigned int iommu_refcnt[DMAR_UNITS_SUPPORTED];
 					/* Refcount of devices per iommu */
 
 
