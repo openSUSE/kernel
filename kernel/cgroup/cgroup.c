@@ -587,6 +587,7 @@ out_unlock:
 	rcu_read_unlock();
 	return css;
 }
+EXPORT_SYMBOL_GPL(cgroup_get_e_css);
 
 static void cgroup_get_live(struct cgroup *cgrp)
 {
@@ -5884,6 +5885,32 @@ void cgroup_path_from_kernfs_id(const union kernfs_node_id *id,
 	kernfs_path(kn, buf, buflen);
 	kernfs_put(kn);
 }
+
+/*
+ * cgroup_get_from_id : get the cgroup associated with cgroup id
+ * @id: cgroup id
+ * On success return the cgrp, on failure return NULL
+ */
+struct cgroup *cgroup_get_from_id(u64 id)
+{
+	struct kernfs_node *kn;
+	struct cgroup *cgrp = NULL;
+	const union kernfs_node_id nid = { .id = id };
+
+	mutex_lock(&cgroup_mutex);
+	kn = kernfs_get_node_by_id(cgrp_dfl_root.kf_root, &nid);
+	if (!kn)
+		goto out_unlock;
+
+	cgrp = kn->priv;
+	if (cgroup_is_dead(cgrp) || !cgroup_tryget(cgrp))
+		cgrp = NULL;
+	kernfs_put(kn);
+out_unlock:
+	mutex_unlock(&cgroup_mutex);
+	return cgrp;
+}
+EXPORT_SYMBOL_GPL(cgroup_get_from_id);
 
 /*
  * proc_cgroup_show()
