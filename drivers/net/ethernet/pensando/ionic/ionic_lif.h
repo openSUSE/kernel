@@ -13,6 +13,12 @@
 
 #define IONIC_MAX_NUM_NAPI_CNTR		(NAPI_POLL_WEIGHT + 1)
 #define IONIC_MAX_NUM_SG_CNTR		(IONIC_TX_MAX_SG_ELEMS + 1)
+
+#define ADD_ADDR	true
+#define DEL_ADDR	false
+#define CAN_SLEEP	true
+#define CAN_NOT_SLEEP	false
+
 #define IONIC_RX_COPYBREAK_DEFAULT	256
 #define IONIC_TX_BUDGET_DEFAULT		256
 
@@ -95,7 +101,6 @@ struct ionic_deferred_work {
 	struct list_head list;
 	enum ionic_deferred_work_type type;
 	union {
-		unsigned int rx_mode;
 		u8 addr[ETH_ALEN];
 		u8 fw_status;
 	};
@@ -133,6 +138,7 @@ enum ionic_lif_state_flags {
 	IONIC_LIF_F_LINK_CHECK_REQUESTED,
 	IONIC_LIF_F_FW_RESET,
 	IONIC_LIF_F_SPLIT_INTR,
+	IONIC_LIF_F_BROKEN,
 	IONIC_LIF_F_TX_DIM_INTR,
 	IONIC_LIF_F_RX_DIM_INTR,
 
@@ -153,17 +159,13 @@ struct ionic_qtype_info {
 
 #define IONIC_LIF_NAME_MAX_SZ		32
 struct ionic_lif {
-	char name[IONIC_LIF_NAME_MAX_SZ];
-	struct list_head list;
 	struct net_device *netdev;
 	DECLARE_BITMAP(state, IONIC_LIF_F_STATE_SIZE);
 	struct ionic *ionic;
-	bool registered;
 	unsigned int index;
 	unsigned int hw_index;
-	unsigned int kern_pid;
-	u64 __iomem *kern_dbpage;
 	struct mutex queue_lock;	/* lock for queue structures */
+	struct mutex config_lock;	/* lock for config actions */
 	spinlock_t adminq_lock;		/* lock for AdminQ operations */
 	struct ionic_qcq *adminqcq;
 	struct ionic_qcq *notifyqcq;
@@ -171,20 +173,26 @@ struct ionic_lif {
 	struct ionic_tx_stats *txqstats;
 	struct ionic_qcq **rxqcqs;
 	struct ionic_rx_stats *rxqstats;
+	struct ionic_deferred deferred;
+	struct work_struct tx_timeout_work;
 	u64 last_eid;
+	unsigned int kern_pid;
+	u64 __iomem *kern_dbpage;
 	unsigned int neqs;
 	unsigned int nxqs;
 	unsigned int ntxq_descs;
 	unsigned int nrxq_descs;
 	u32 rx_copybreak;
-	u32 tx_budget;
-	unsigned int rx_mode;
+	u64 rxq_features;
+	u16 rx_mode;
 	u64 hw_features;
+	bool registered;
 	bool mc_overflow;
-	unsigned int nmcast;
 	bool uc_overflow;
 	u16 lif_type;
+	unsigned int nmcast;
 	unsigned int nucast;
+	char name[IONIC_LIF_NAME_MAX_SZ];
 
 	union ionic_lif_identity *identity;
 	struct ionic_lif_info *info;
@@ -199,16 +207,14 @@ struct ionic_lif {
 	u32 rss_ind_tbl_sz;
 
 	struct ionic_rx_filters rx_filters;
-	struct ionic_deferred deferred;
-	unsigned long *dbid_inuse;
-	unsigned int dbid_count;
-	struct dentry *dentry;
 	u32 rx_coalesce_usecs;		/* what the user asked for */
 	u32 rx_coalesce_hw;		/* what the hw is using */
 	u32 tx_coalesce_usecs;		/* what the user asked for */
 	u32 tx_coalesce_hw;		/* what the hw is using */
+	unsigned long *dbid_inuse;
+	unsigned int dbid_count;
 
-	struct work_struct tx_timeout_work;
+	struct dentry *dentry;
 };
 
 struct ionic_queue_params {
@@ -216,6 +222,7 @@ struct ionic_queue_params {
 	unsigned int ntxq_descs;
 	unsigned int nrxq_descs;
 	unsigned int intr_split;
+	u64 rxq_features;
 };
 
 static inline void ionic_init_queue_params(struct ionic_lif *lif,
@@ -225,6 +232,7 @@ static inline void ionic_init_queue_params(struct ionic_lif *lif,
 	qparam->ntxq_descs = lif->ntxq_descs;
 	qparam->nrxq_descs = lif->nrxq_descs;
 	qparam->intr_split = test_bit(IONIC_LIF_F_SPLIT_INTR, lif->state);
+	qparam->rxq_features = lif->rxq_features;
 }
 
 static inline u32 ionic_coal_usec_to_hw(struct ionic *ionic, u32 usecs)

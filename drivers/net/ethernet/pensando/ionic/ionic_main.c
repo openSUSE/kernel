@@ -187,10 +187,17 @@ static const char *ionic_opcode_to_str(enum ionic_cmd_opcode opcode)
 
 static void ionic_adminq_flush(struct ionic_lif *lif)
 {
-	struct ionic_queue *q = &lif->adminqcq->q;
 	struct ionic_desc_info *desc_info;
+	unsigned long irqflags;
+	struct ionic_queue *q;
 
-	spin_lock(&lif->adminq_lock);
+	spin_lock_irqsave(&lif->adminq_lock, irqflags);
+	if (!lif->adminqcq) {
+		spin_unlock_irqrestore(&lif->adminq_lock, irqflags);
+		return;
+	}
+
+	q = &lif->adminqcq->q;
 
 	while (q->tail_idx != q->head_idx) {
 		desc_info = &q->info[q->tail_idx];
@@ -199,7 +206,7 @@ static void ionic_adminq_flush(struct ionic_lif *lif)
 		desc_info->cb_arg = NULL;
 		q->tail_idx = (q->tail_idx + 1) & (q->num_descs - 1);
 	}
-	spin_unlock(&lif->adminq_lock);
+	spin_unlock_irqrestore(&lif->adminq_lock, irqflags);
 }
 
 static int ionic_adminq_check_err(struct ionic_lif *lif,
@@ -234,17 +241,15 @@ static void ionic_adminq_cb(struct ionic_queue *q,
 {
 	struct ionic_admin_ctx *ctx = cb_arg;
 	struct ionic_admin_comp *comp;
-	struct device *dev;
 
 	if (!ctx)
 		return;
 
 	comp = cq_info->cq_desc;
-	dev = &q->lif->netdev->dev;
 
 	memcpy(&ctx->comp, comp, sizeof(*comp));
 
-	dev_dbg(dev, "comp admin queue command:\n");
+	dev_dbg(q->dev, "comp admin queue command:\n");
 	dynamic_hex_dump("comp ", DUMP_PREFIX_OFFSET, 16, 1,
 			 &ctx->comp, sizeof(ctx->comp), true);
 
@@ -254,15 +259,18 @@ static void ionic_adminq_cb(struct ionic_queue *q,
 static int ionic_adminq_post(struct ionic_lif *lif, struct ionic_admin_ctx *ctx)
 {
 	struct ionic_desc_info *desc_info;
+	unsigned long irqflags;
 	struct ionic_queue *q;
 	int err = 0;
 
-	if (!lif->adminqcq)
+	spin_lock_irqsave(&lif->adminq_lock, irqflags);
+	if (!lif->adminqcq) {
+		spin_unlock_irqrestore(&lif->adminq_lock, irqflags);
 		return -EIO;
+	}
 
 	q = &lif->adminqcq->q;
 
-	spin_lock(&lif->adminq_lock);
 	if (!ionic_q_has_space(q, 1)) {
 		err = -ENOSPC;
 		goto err_out;
@@ -282,7 +290,7 @@ static int ionic_adminq_post(struct ionic_lif *lif, struct ionic_admin_ctx *ctx)
 	ionic_q_post(q, true, ionic_adminq_cb, ctx);
 
 err_out:
-	spin_unlock(&lif->adminq_lock);
+	spin_unlock_irqrestore(&lif->adminq_lock, irqflags);
 
 	return err;
 }
@@ -511,10 +519,8 @@ int ionic_port_init(struct ionic *ionic)
 						     idev->port_info_sz,
 						     &idev->port_info_pa,
 						     GFP_KERNEL);
-		if (!idev->port_info) {
-			dev_err(ionic->dev, "Failed to allocate port info\n");
+		if (!idev->port_info)
 			return -ENOMEM;
-		}
 	}
 
 	sz = min(sizeof(ident->port.config), sizeof(idev->dev_cmd_regs->data));
