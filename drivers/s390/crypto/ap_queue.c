@@ -135,12 +135,13 @@ static struct ap_queue_status ap_sm_recv(struct ap_queue *aq)
 {
 	struct ap_queue_status status;
 	struct ap_message *ap_msg;
+	bool found = false;
 
 	status = ap_dqap(aq->qid, &aq->reply->psmid,
 			 aq->reply->message, aq->reply->length);
 	switch (status.response_code) {
 	case AP_RESPONSE_NORMAL:
-		aq->queue_count--;
+		aq->queue_count = max_t(int, 0, aq->queue_count - 1);
 		if (aq->queue_count > 0)
 			mod_timer(&aq->timeout,
 				  jiffies + aq->request_timeout);
@@ -150,7 +151,13 @@ static struct ap_queue_status ap_sm_recv(struct ap_queue *aq)
 			list_del_init(&ap_msg->list);
 			aq->pendingq_count--;
 			ap_msg->receive(aq, ap_msg, aq->reply);
+			found = true;
 			break;
+		}
+		if (!found) {
+			AP_DBF(DBF_WARN, "%s unassociated reply psmid=0x%016llx on 0x%02x.%04x\n",
+				    __func__, aq->reply->psmid,
+				    AP_QID_CARD(aq->qid), AP_QID_QUEUE(aq->qid));
 		}
 		/* fall through */
 	case AP_RESPONSE_NO_PENDING_REPLY:
@@ -244,7 +251,7 @@ static enum ap_wait ap_sm_write(struct ap_queue *aq)
 			   ap_msg->message, ap_msg->length, ap_msg->special);
 	switch (status.response_code) {
 	case AP_RESPONSE_NORMAL:
-		aq->queue_count++;
+		aq->queue_count = max_t(int, 1, aq->queue_count + 1);
 		if (aq->queue_count == 1)
 			mod_timer(&aq->timeout, jiffies + aq->request_timeout);
 		list_move_tail(&ap_msg->list, &aq->pendingq);
