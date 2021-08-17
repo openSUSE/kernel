@@ -467,6 +467,10 @@ static inline int qla2x00_start_nvme_mq(srb_t *sp)
 	} else if (fd->io_dir == 0) {
 		cmd_pkt->control_flags = 0;
 	}
+
+	if (sp->fcport->edif.enable && fd->io_dir != 0)
+		cmd_pkt->control_flags |= cpu_to_le16(CF_EN_EDIF);
+
 	/* Set BIT_13 of control flags for Async event */
 	if (vha->flags.nvme2_enabled &&
 	    cmd->sqe.common.opcode == nvme_admin_async_event) {
@@ -539,6 +543,10 @@ static inline int qla2x00_start_nvme_mq(srb_t *sp)
 	} else {
 		req->ring_ptr++;
 	}
+
+	/* ignore nvme async cmd due to long timeout */
+	if (!nvme->u.nvme.aen_op)
+		sp->qpair->cmd_cnt++;
 
 	/* Set chip new ring index. */
 	wrt_reg_dword(req->req_q_in, req->ring_index);
@@ -675,7 +683,7 @@ void qla_nvme_unregister_remote_port(struct fc_port *fcport)
 	if (!IS_ENABLED(CONFIG_NVME_FC))
 		return;
 
-	ql_log(ql_log_warn, NULL, 0x2112,
+	ql_log(ql_log_warn, fcport->vha, 0x2112,
 	    "%s: unregister remoteport on %p %8phN\n",
 	    __func__, fcport, fcport->port_name);
 

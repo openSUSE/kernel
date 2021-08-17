@@ -320,7 +320,7 @@ struct ionic_lif_identify_comp {
 /**
  * enum ionic_lif_capability - LIF capabilities
  * @IONIC_LIF_CAP_ETH:     LIF supports Ethernet
- * @IONIC_LIF_CAP_RDMA:    LIF support RDMA
+ * @IONIC_LIF_CAP_RDMA:    LIF supports RDMA
  */
 enum ionic_lif_capability {
 	IONIC_LIF_CAP_ETH        = BIT(0),
@@ -343,6 +343,35 @@ enum ionic_logical_qtype {
 	IONIC_QTYPE_TXQ     = 3,
 	IONIC_QTYPE_EQ      = 4,
 	IONIC_QTYPE_MAX     = 16,
+};
+
+/**
+ * enum ionic_q_feature - Common Features for most queue types
+ *
+ * Common features use bits 0-15. Per-queue-type features use higher bits.
+ *
+ * @IONIC_QIDENT_F_CQ:      Queue has completion ring
+ * @IONIC_QIDENT_F_SG:      Queue has scatter/gather ring
+ * @IONIC_QIDENT_F_EQ:      Queue can use event queue
+ * @IONIC_QIDENT_F_CMB:     Queue is in cmb bar
+ * @IONIC_Q_F_2X_DESC:      Double main descriptor size
+ * @IONIC_Q_F_2X_CQ_DESC:   Double cq descriptor size
+ * @IONIC_Q_F_2X_SG_DESC:   Double sg descriptor size
+ * @IONIC_Q_F_4X_DESC:      Quadruple main descriptor size
+ * @IONIC_Q_F_4X_CQ_DESC:   Quadruple cq descriptor size
+ * @IONIC_Q_F_4X_SG_DESC:   Quadruple sg descriptor size
+ */
+enum ionic_q_feature {
+	IONIC_QIDENT_F_CQ		= BIT_ULL(0),
+	IONIC_QIDENT_F_SG		= BIT_ULL(1),
+	IONIC_QIDENT_F_EQ		= BIT_ULL(2),
+	IONIC_QIDENT_F_CMB		= BIT_ULL(3),
+	IONIC_Q_F_2X_DESC		= BIT_ULL(4),
+	IONIC_Q_F_2X_CQ_DESC		= BIT_ULL(5),
+	IONIC_Q_F_2X_SG_DESC		= BIT_ULL(6),
+	IONIC_Q_F_4X_DESC		= BIT_ULL(7),
+	IONIC_Q_F_4X_CQ_DESC		= BIT_ULL(8),
+	IONIC_Q_F_4X_SG_DESC		= BIT_ULL(9),
 };
 
 /**
@@ -404,7 +433,7 @@ union ionic_lif_config {
  *     @max_ucast_filters:  Number of perfect unicast addresses supported
  *     @max_mcast_filters:  Number of perfect multicast addresses supported
  *     @min_frame_size:     Minimum size of frames to be sent
- *     @max_frame_size:     Maximim size of frames to be sent
+ *     @max_frame_size:     Maximum size of frames to be sent
  *     @config:             LIF config struct with features, mtu, mac, q counts
  *
  * @rdma:                RDMA identify structure
@@ -529,7 +558,7 @@ struct ionic_q_identify_comp {
  * union ionic_q_identity - queue identity information
  *     @version:        Queue type version that can be used with FW
  *     @supported:      Bitfield of queue versions, first bit = ver 0
- *     @features:       Queue features
+ *     @features:       Queue features (enum ionic_q_feature, etc)
  *     @desc_sz:        Descriptor size
  *     @comp_sz:        Completion descriptor size
  *     @sg_desc_sz:     Scatter/Gather descriptor size
@@ -541,10 +570,6 @@ union ionic_q_identity {
 		u8      version;
 		u8      supported;
 		u8      rsvd[6];
-#define IONIC_QIDENT_F_CQ	0x01	/* queue has completion ring */
-#define IONIC_QIDENT_F_SG	0x02	/* queue has scatter/gather ring */
-#define IONIC_QIDENT_F_EQ	0x04	/* queue can use event queue */
-#define IONIC_QIDENT_F_CMB	0x08	/* queue is in cmb bar */
 		__le64  features;
 		__le16  desc_sz;
 		__le16  comp_sz;
@@ -585,6 +610,7 @@ union ionic_q_identity {
  * @ring_base:    Queue ring base address
  * @cq_ring_base: Completion queue ring base address
  * @sg_ring_base: Scatter/Gather ring base address
+ * @features:     Mask of queue features to enable, if not in the flags above.
  */
 struct ionic_q_init_cmd {
 	u8     opcode;
@@ -608,7 +634,8 @@ struct ionic_q_init_cmd {
 	__le64 ring_base;
 	__le64 cq_ring_base;
 	__le64 sg_ring_base;
-	u8     rsvd2[20];
+	u8     rsvd2[12];
+	__le64 features;
 } __packed;
 
 /**
@@ -692,7 +719,7 @@ enum ionic_txq_desc_opcode {
  *                      checksums are also updated.
  *
  *                   IONIC_TXQ_DESC_OPCODE_TSO:
- *                      Device preforms TCP segmentation offload
+ *                      Device performs TCP segmentation offload
  *                      (TSO).  @hdr_len is the number of bytes
  *                      to the end of TCP header (the offset to
  *                      the TCP payload).  @mss is the desired
@@ -982,13 +1009,13 @@ struct ionic_rxq_comp {
 };
 
 enum ionic_pkt_type {
-	IONIC_PKT_TYPE_NON_IP     = 0x000,
-	IONIC_PKT_TYPE_IPV4       = 0x001,
-	IONIC_PKT_TYPE_IPV4_TCP   = 0x003,
-	IONIC_PKT_TYPE_IPV4_UDP   = 0x005,
-	IONIC_PKT_TYPE_IPV6       = 0x008,
-	IONIC_PKT_TYPE_IPV6_TCP   = 0x018,
-	IONIC_PKT_TYPE_IPV6_UDP   = 0x028,
+	IONIC_PKT_TYPE_NON_IP		= 0x00,
+	IONIC_PKT_TYPE_IPV4		= 0x01,
+	IONIC_PKT_TYPE_IPV4_TCP		= 0x03,
+	IONIC_PKT_TYPE_IPV4_UDP		= 0x05,
+	IONIC_PKT_TYPE_IPV6		= 0x08,
+	IONIC_PKT_TYPE_IPV6_TCP		= 0x18,
+	IONIC_PKT_TYPE_IPV6_UDP		= 0x28,
 	/* below types are only used if encap offloads are enabled on lif */
 	IONIC_PKT_TYPE_ENCAP_NON_IP	= 0x40,
 	IONIC_PKT_TYPE_ENCAP_IPV4	= 0x41,
@@ -1331,7 +1358,7 @@ enum ionic_stats_ctl_cmd {
  * @IONIC_PORT_ATTR_STATE:      Port state attribute
  * @IONIC_PORT_ATTR_SPEED:      Port speed attribute
  * @IONIC_PORT_ATTR_MTU:        Port MTU attribute
- * @IONIC_PORT_ATTR_AUTONEG:    Port autonegotation attribute
+ * @IONIC_PORT_ATTR_AUTONEG:    Port autonegotiation attribute
  * @IONIC_PORT_ATTR_FEC:        Port FEC attribute
  * @IONIC_PORT_ATTR_PAUSE:      Port pause attribute
  * @IONIC_PORT_ATTR_LOOPBACK:   Port loopback attribute
@@ -1951,8 +1978,8 @@ enum ionic_qos_sched_type {
  * @pfc_cos:		Priority-Flow Control class of service
  * @dwrr_weight:	QoS class scheduling weight
  * @strict_rlmt:	Rate limit for strict priority scheduling
- * @rw_dot1q_pcp:	Rewrite dot1q pcp to this value	(valid iff F_RW_DOT1Q_PCP)
- * @rw_ip_dscp:		Rewrite ip dscp to this value	(valid iff F_RW_IP_DSCP)
+ * @rw_dot1q_pcp:	Rewrite dot1q pcp to value (valid iff F_RW_DOT1Q_PCP)
+ * @rw_ip_dscp:		Rewrite ip dscp to value (valid iff F_RW_IP_DSCP)
  * @dot1q_pcp:		Dot1q pcp value
  * @ndscp:		Number of valid dscp values in the ip_dscp field
  * @ip_dscp:		IP dscp values

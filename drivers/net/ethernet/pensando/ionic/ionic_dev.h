@@ -168,10 +168,19 @@ typedef void (*ionic_desc_cb)(struct ionic_queue *q,
 			      struct ionic_desc_info *desc_info,
 			      struct ionic_cq_info *cq_info, void *cb_arg);
 
-struct ionic_page_info {
+#define IONIC_PAGE_SIZE				PAGE_SIZE
+#define IONIC_PAGE_SPLIT_SZ			(PAGE_SIZE / 2)
+#define IONIC_PAGE_GFP_MASK			(GFP_ATOMIC | __GFP_NOWARN |\
+						 __GFP_COMP | __GFP_MEMALLOC)
+
+struct ionic_buf_info {
 	struct page *page;
 	dma_addr_t dma_addr;
+	u32 page_offset;
+	u32 len;
 };
+
+#define IONIC_MAX_FRAGS			(1 + IONIC_TX_MAX_SG_ELEMS_V1)
 
 struct ionic_desc_info {
 	union {
@@ -185,8 +194,9 @@ struct ionic_desc_info {
 		struct ionic_txq_sg_desc *txq_sg_desc;
 		struct ionic_rxq_sg_desc *rxq_sgl_desc;
 	};
-	unsigned int npages;
-	struct ionic_page_info pages[IONIC_RX_MAX_SG_ELEMS + 1];
+	unsigned int bytes;
+	unsigned int nbufs;
+	struct ionic_buf_info bufs[IONIC_MAX_FRAGS];
 	ionic_desc_cb cb;
 	void *cb_arg;
 };
@@ -197,19 +207,21 @@ struct ionic_queue {
 	struct device *dev;
 	struct ionic_lif *lif;
 	struct ionic_desc_info *info;
+	u64 dbval;
 	u16 head_idx;
 	u16 tail_idx;
 	unsigned int index;
 	unsigned int num_descs;
+	unsigned int max_sg_elems;
 	u64 dbell_count;
 	u64 stop;
 	u64 wake;
 	u64 drop;
+	u64 features;
 	struct ionic_dev *idev;
 	unsigned int type;
 	unsigned int hw_index;
 	unsigned int hw_type;
-	u64 dbval;
 	union {
 		void *base;
 		struct ionic_txq_desc *txq;
@@ -227,7 +239,7 @@ struct ionic_queue {
 	unsigned int sg_desc_size;
 	unsigned int pid;
 	char name[IONIC_QUEUE_NAME_MAX_SZ];
-};
+} ____cacheline_aligned_in_smp;
 
 #define IONIC_INTR_INDEX_NOT_ASSIGNED	-1
 #define IONIC_INTR_NAME_MAX_SZ		32
@@ -254,7 +266,7 @@ struct ionic_cq {
 	u64 compl_count;
 	void *base;
 	dma_addr_t base_pa;
-};
+} ____cacheline_aligned_in_smp;
 
 struct ionic;
 
