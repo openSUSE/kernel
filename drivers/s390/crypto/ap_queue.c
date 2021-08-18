@@ -155,7 +155,7 @@ static struct ap_queue_status ap_sm_recv(struct ap_queue *aq)
 			break;
 		}
 		if (!found) {
-			AP_DBF(DBF_WARN, "%s unassociated reply psmid=0x%016llx on 0x%02x.%04x\n",
+			AP_DBF_WARN("%s unassociated reply psmid=0x%016llx on 0x%02x.%04x\n",
 				    __func__, aq->reply->psmid,
 				    AP_QID_CARD(aq->qid), AP_QID_QUEUE(aq->qid));
 		}
