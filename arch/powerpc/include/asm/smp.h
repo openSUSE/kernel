@@ -33,6 +33,9 @@ extern bool coregroup_enabled;
 extern void cpu_die(void);
 extern int cpu_to_chip_id(int cpu);
 
+DECLARE_PER_CPU(cpumask_var_t, thread_group_l1_cache_map);
+DECLARE_PER_CPU(cpumask_var_t, thread_group_l2_cache_map);
+
 #ifdef CONFIG_SMP
 
 struct smp_ops_t {
