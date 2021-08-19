@@ -444,7 +444,8 @@ static void __init print_xstate_offset_size(void)
 	 XFEATURE_MASK_Hi16_ZMM	 |		\
 	 XFEATURE_MASK_PKRU |			\
 	 XFEATURE_MASK_BNDREGS |		\
-	 XFEATURE_MASK_BNDCSR)
+	 XFEATURE_MASK_BNDCSR |			\
+	 XFEATURE_MASK_PASID)
 
 /*
  * setup the xstate image representing the init state
@@ -453,7 +454,9 @@ static void __init setup_init_fpu_buf(void)
 {
 	static int on_boot_cpu __initdata = 1;
 
-	BUILD_BUG_ON(((XFEATURE_MASK_USER_SUPPORTED |XFEATURE_MASK_SUPERVISOR_SUPPORTED) != XFEATURES_INIT_FPSTATE_HANDLED);
+	BUILD_BUG_ON((XFEATURE_MASK_USER_SUPPORTED |
+		      XFEATURE_MASK_SUPERVISOR_SUPPORTED) !=
+		     XFEATURES_INIT_FPSTATE_HANDLED);
 
 	WARN_ON_FPU(!on_boot_cpu);
 	on_boot_cpu = 0;
