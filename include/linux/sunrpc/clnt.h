@@ -71,6 +71,9 @@ struct rpc_clnt {
 #if IS_ENABLED(CONFIG_SUNRPC_DEBUG)
 	struct dentry		*cl_debugfs;	/* debugfs directory */
 #endif
+#ifdef __GENKSYMS__
+	struct rpc_xprt_iter	cl_xpi;
+#else
 	/* cl_work is only needed after cl_xpi is no longer used,
 	 * and that are of similar size
 	 */
@@ -78,6 +81,7 @@ struct rpc_clnt {
 		struct rpc_xprt_iter	cl_xpi;
 		struct work_struct	cl_work;
 	};
+#endif
 	const struct cred	*cl_cred;
 };
 
