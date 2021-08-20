@@ -917,9 +917,23 @@ static unsigned int azx_get_pos_skl(struct azx *chip, struct azx_dev *azx_dev)
 	return azx_get_pos_posbuf(chip, azx_dev);
 }
 
+static void __azx_shutdown_chip(struct azx *chip, bool skip_link_reset)
+{
+	azx_stop_chip(chip);
+	if (!skip_link_reset)
+		azx_enter_link_reset(chip);
+	azx_clear_irq_pending(chip);
+	display_power(chip, false);
+}
+
 #ifdef CONFIG_PM
 static DEFINE_MUTEX(card_list_lock);
 static LIST_HEAD(card_list);
+
+static void azx_shutdown_chip(struct azx *chip)
+{
+	__azx_shutdown_chip(chip, false);
+}
 
 static void azx_add_card_list(struct azx *chip)
 {
@@ -974,14 +988,6 @@ static bool azx_is_pm_ready(struct snd_card *card)
 	if (chip->disabled || hda->init_failed || !chip->running)
 		return false;
 	return true;
-}
-
-static void __azx_runtime_suspend(struct azx *chip)
-{
-	azx_stop_chip(chip);
-	azx_enter_link_reset(chip);
-	azx_clear_irq_pending(chip);
-	display_power(chip, false);
 }
 
 static void __azx_runtime_resume(struct azx *chip)
@@ -1062,7 +1068,7 @@ static int azx_suspend(struct device *dev)
 
 	chip = card->private_data;
 	bus = azx_bus(chip);
-	__azx_runtime_suspend(chip);
+	azx_shutdown_chip(chip);
 	if (bus->irq >= 0) {
 		free_irq(bus->irq, chip);
 		bus->irq = -1;
@@ -1141,7 +1147,7 @@ static int azx_runtime_suspend(struct device *dev)
 	/* enable controller wake up event */
 	azx_writew(chip, WAKEEN, azx_readw(chip, WAKEEN) | STATESTS_INT_MASK);
 
-	__azx_runtime_suspend(chip);
+	azx_shutdown_chip(chip);
 	trace_azx_runtime_suspend(chip);
 	return 0;
 }
@@ -2425,7 +2431,7 @@ static void azx_shutdown(struct pci_dev *pci)
 		return;
 	chip = card->private_data;
 	if (chip && chip->running)
-		azx_stop_chip(chip);
+		__azx_shutdown_chip(chip, true);
 }
 
 /* PCI IDs */
