@@ -557,7 +557,7 @@ ENTRY(\asmsym)
 
 	movq	%rsp, %rdi		/* pt_regs pointer */
 
-	call	\cfunc
+	call	kernel_\cfunc
 
 	/*
 	 * No need to switch back to the IST stack. The current stack is either
@@ -576,7 +576,7 @@ ENTRY(\asmsym)
 	movq    ORIG_RAX(%rsp), %rsi	/* get error code into 2nd argument*/
 	movq    $-1, ORIG_RAX(%rsp)	/* no syscall to restart */
 
-	call	safe_stack_\cfunc
+	call	user_\cfunc
 
 	jmp	error_exit
 
