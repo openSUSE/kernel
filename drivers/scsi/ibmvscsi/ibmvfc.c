@@ -2883,14 +2883,18 @@ static int ibmvfc_scan_finished(struct Scsi_Host *shost, unsigned long time)
 	int done = 0;
 
 	spin_lock_irqsave(shost->host_lock, flags);
-	if (time >= (init_timeout * HZ)) {
+	if (!vhost->scan_timeout)
+		done = 1;
+	else if (time >= (vhost->scan_timeout * HZ)) {
 		dev_info(vhost->dev, "Scan taking longer than %d seconds, "
-			 "continuing initialization\n", init_timeout);
+			 "continuing initialization\n", vhost->scan_timeout);
 		done = 1;
 	}
 
-	if (vhost->scan_complete)
+	if (vhost->scan_complete) {
+		vhost->scan_timeout = init_timeout;
 		done = 1;
+	}
 	spin_unlock_irqrestore(shost->host_lock, flags);
 	return done;
 }
@@ -5156,6 +5160,7 @@ static int ibmvfc_probe(struct vio_dev *vdev, const struct vio_device_id *id)
 	vhost->partition_number = -1;
 	vhost->log_level = log_level;
 	vhost->task_set = 1;
+	vhost->scan_timeout = 0;
 	strcpy(vhost->partition_name, "UNKNOWN");
 	init_waitqueue_head(&vhost->work_wait_q);
 	init_waitqueue_head(&vhost->init_wait_q);
