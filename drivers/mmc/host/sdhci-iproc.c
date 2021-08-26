@@ -180,10 +180,10 @@ static unsigned int sdhci_iproc_get_max_clock(struct sdhci_host *host)
  * conditions:
  *
  *  - No SD card plugged in, polling thread is running, probing cards at
- *    100KHz.
+ *    100 kHz.
  *  - BCM2711's core clock configured at 500MHz or more
  *
- * So we set 200MHz as the minimum clock frequency available for that SoC.
+ * So we set 200kHz as the minimum clock frequency available for that SoC.
  */
 static unsigned int sdhci_iproc_bcm2711_get_min_clock(struct sdhci_host *host)
 {
