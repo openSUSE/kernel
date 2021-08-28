@@ -1089,7 +1089,7 @@ static const struct idle_cpu idle_cpu_hsw __initconst = {
 static const struct idle_cpu idle_cpu_hsx __initconst = {
 	.state_table = hsw_cstates,
 	.disable_promotion_to_c1e = true,
-	.use_acpi = true,
+	.use_acpi = false,
 };
 
 static const struct idle_cpu idle_cpu_bdw __initconst = {
