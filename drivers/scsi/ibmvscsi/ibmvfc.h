@@ -742,6 +742,7 @@ struct ibmvfc_host {
 	int reinit;
 	int delay_init;
 	int scan_complete;
+	int scan_timeout;
 	int logged_in;
 	int aborting_passthru;
 	int events_to_log;
