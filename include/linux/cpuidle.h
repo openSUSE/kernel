@@ -52,6 +52,11 @@ struct cpuidle_state {
 	unsigned int	exit_latency; /* in US */
 	int		power_usage; /* in mW */
 	unsigned int	target_residency; /* in US */
+#ifdef __GENKSYMS__
+	bool		disabled; /* disabled on all CPUs */
+#else
+	bool		__unused_disabled; /* exists to preserve kABI */
+#endif
 
 	int (*enter)	(struct cpuidle_device *dev,
 			struct cpuidle_driver *drv,
