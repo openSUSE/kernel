@@ -682,7 +682,7 @@ static struct cpuidle_state skx_cstates[] __initdata = {
 		.enter = NULL }
 };
 
-static struct cpuidle_state icx_cstates[] = {
+static struct cpuidle_state icx_cstates[] __initdata = {
 	{
 		.name = "C1",
 		.desc = "MWAIT 0x00",
@@ -694,7 +694,7 @@ static struct cpuidle_state icx_cstates[] = {
 	{
 		.name = "C1E",
 		.desc = "MWAIT 0x01",
-		.flags = MWAIT2flg(0x01),
+		.flags = MWAIT2flg(0x01) | CPUIDLE_FLAG_ALWAYS_ENABLE,
 		.exit_latency = 4,
 		.target_residency = 4,
 		.enter = &intel_idle,
@@ -1114,9 +1114,10 @@ static const struct idle_cpu idle_cpu_skx __initconst = {
 	.use_acpi = true,
 };
 
-static const struct idle_cpu idle_cpu_icx = {
+static const struct idle_cpu idle_cpu_icx __initconst = {
 	.state_table = icx_cstates,
 	.disable_promotion_to_c1e = true,
+	.use_acpi = true,
 };
 
 static const struct idle_cpu idle_cpu_avn __initconst = {
