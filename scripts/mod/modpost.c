@@ -16,9 +16,11 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
+#include <fnmatch.h>
 #include <limits.h>
 #include <errno.h>
 #include "modpost.h"
+#include "../../include/generated/autoconf.h"
 #include "../../include/linux/license.h"
 
 /* Are we using CONFIG_MODVERSIONS? */
@@ -455,6 +457,40 @@ failed:
 	if (map == MAP_FAILED)
 		return NULL;
 	return map;
+}
+
+/**
+  * Return a copy of the next line in a mmap'ed file.
+  * spaces in the beginning of the line is trimmed away.
+  * Return a pointer to a static buffer.
+  **/
+static char *get_next_line(unsigned long *pos, void *file, unsigned long size)
+{
+	static char line[4096];
+	int skip = 1;
+	size_t len = 0;
+	signed char *p = (signed char *)file + *pos;
+	char *s = line;
+
+	for (; *pos < size ; (*pos)++) {
+		if (skip && isspace(*p)) {
+			p++;
+			continue;
+		}
+		skip = 0;
+		if (*p != '\n' && (*pos < size)) {
+			len++;
+			*s++ = *p++;
+			if (len > 4095)
+				break; /* Too long, stop */
+		} else {
+			/* End of string */
+			*s = '\0';
+			return line;
+		}
+	}
+	/* End of buffer */
+	return NULL;
 }
 
 static void release_file(void *file, size_t size)
@@ -1972,6 +2008,99 @@ static char *remove_dot(char *s)
 	return s;
 }
 
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+/*
+ * Replace dashes with underscores.
+ * Dashes inside character range patterns (e.g. [0-9]) are left unchanged.
+ * (copied from module-init-tools/util.c)
+ */
+static char *underscores(char *string)
+{
+	unsigned int i;
+
+	if (!string)
+		return NULL;
+
+	for (i = 0; string[i]; i++) {
+		switch (string[i]) {
+		case '-':
+			string[i] = '_';
+			break;
+
+		case ']':
+			warn("Unmatched bracket in %s\n", string);
+			break;
+
+		case '[':
+			i += strcspn(&string[i], "]");
+			if (!string[i])
+				warn("Unmatched bracket in %s\n", string);
+			break;
+		}
+	}
+	return string;
+}
+
+char *supported_file;
+unsigned long supported_size;
+
+static const char *supported(const char *modname)
+{
+	unsigned long pos = 0;
+	char *line;
+
+	/* In a first shot, do a simple linear scan. */
+	while ((line = get_next_line(&pos, supported_file,
+				     supported_size))) {
+		const char *how = "yes";
+		char *l = line;
+		char *pat_basename, *mod, *orig_mod, *mod_basename;
+
+		/* optional type-of-support flag */
+		for (l = line; *l != '\0'; l++) {
+			if (*l == ' ' || *l == '\t') {
+				*l = '\0';
+				how = l + 1;
+				break;
+			}
+		}
+		/* strip .ko extension */
+		l = line + strlen(line);
+		if (l - line > 3 && !strcmp(l-3, ".ko"))
+			*(l-3) = '\0';
+
+		/*
+		 * convert dashes to underscores in the last path component
+		 * of line and mod
+		 */
+		if ((pat_basename = strrchr(line, '/')))
+			pat_basename++;
+		else
+			pat_basename = line;
+		underscores(pat_basename);
+
+		orig_mod = mod = strdup(modname);
+		if ((mod_basename = strrchr(mod, '/')))
+			mod_basename++;
+		else
+			mod_basename = mod;
+		underscores(mod_basename);
+
+		/* only compare the last component if no wildcards are used */
+		if (strcspn(line, "[]*?") == strlen(line)) {
+			line = pat_basename;
+			mod = mod_basename;
+		}
+		if (!fnmatch(line, mod, 0)) {
+			free(orig_mod);
+			return how;
+		}
+		free(orig_mod);
+	}
+	return NULL;
+}
+#endif
+
 static void read_symbols(const char *modname)
 {
 	const char *symname;
@@ -2244,6 +2373,15 @@ static void add_staging_flag(struct buffer *b, const char *name)
 		buf_printf(b, "\nMODULE_INFO(staging, \"Y\");\n");
 }
 
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+static void add_supported_flag(struct buffer *b, struct module *mod)
+{
+	const char *how = supported(mod->name);
+	if (how)
+		buf_printf(b, "\nMODULE_INFO(supported, \"%s\");\n", how);
+}
+#endif
+
 /**
  * Record CRCs for unresolved symbols
  **/
@@ -2382,6 +2520,17 @@ static void write_if_changed(struct buffer *b, const char *fname)
 	write_buf(b, fname);
 }
 
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+static void read_supported(const char *fname)
+{
+	if (fname) {
+		supported_file = grab_file(fname, &supported_size);
+		if (!supported_file)
+			; /* ignore error */
+	}
+}
+#endif
+
 /* parse Module.symvers file. line format:
  * 0x12345678<tab>symbol<tab>module<tab>export<tab>namespace
  **/
@@ -2494,12 +2643,15 @@ int main(int argc, char **argv)
 	struct buffer buf = { };
 	char *missing_namespace_deps = NULL;
 	char *dump_write = NULL, *files_source = NULL;
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+	const char *supported = NULL;
+#endif
 	int opt;
 	int n;
 	struct dump_list *dump_read_start = NULL;
 	struct dump_list **dump_read_iter = &dump_read_start;
 
-	while ((opt = getopt(argc, argv, "ei:mnT:o:awENd:")) != -1) {
+	while ((opt = getopt(argc, argv, "ei:mnT:o:awENd:S:")) != -1) {
 		switch (opt) {
 		case 'e':
 			external_module = 1;
@@ -2537,10 +2689,19 @@ int main(int argc, char **argv)
 		case 'd':
 			missing_namespace_deps = optarg;
 			break;
+		case 'S':
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+			supported = optarg;
+#endif
+			break;
 		default:
 			exit(1);
 		}
 	}
+
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+	read_supported(supported);
+#endif
 
 	while (dump_read_start) {
 		struct dump_list *tmp;
@@ -2572,6 +2733,9 @@ int main(int argc, char **argv)
 		add_intree_flag(&buf, !external_module);
 		add_retpoline(&buf);
 		add_staging_flag(&buf, mod->name);
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+		add_supported_flag(&buf, mod);
+#endif
 		add_versions(&buf, mod);
 		add_depends(&buf, mod);
 		add_moddevtable(&buf, mod);

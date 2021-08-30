@@ -141,6 +141,12 @@ ifneq ($(KBUILD_MODPOST_WARN)$(filter-out $(existing-input-symdump), $(input-sym
 MODPOST += -w
 endif
 
+MODVERDIR := $(if $(KBUILD_EXTMOD),$(firstword $(KBUILD_EXTMOD))/).tmp_versions
+
+MODPOST += $(if $(CONFIG_SUSE_KERNEL_SUPPORTED),				\
+		-S $(firstword $(wildcard $(dir $(MODVERDIR))/Module.supported \
+		$(if $(KBUILD_EXTMOD),,$(srctree)/Module.supported) /dev/null)))
+
 # Read out modules.order to pass in modpost.
 # Otherwise, allmodconfig would fail with "Argument list too long".
 quiet_cmd_modpost = MODPOST $@
