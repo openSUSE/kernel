@@ -12,9 +12,8 @@
 #include <crypto/internal/skcipher.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/sizes.h>
 #include <asm/simd.h>
-
-#define CHACHA_STATE_ALIGN 16
 
 asmlinkage void chacha_block_xor_ssse3(u32 *state, u8 *dst, const u8 *src,
 				       unsigned int len, int nrounds);
@@ -79,8 +78,7 @@ static void chacha_dosimd(u32 *state, u8 *dst, const u8 *src,
 		}
 	}
 
-	if (IS_ENABLED(CONFIG_AS_AVX2) &&
-	    static_branch_likely(&chacha_use_avx2)) {
+	if (static_branch_likely(&chacha_use_avx2)) {
 		while (bytes >= CHACHA_BLOCK_SIZE * 8) {
 			chacha_8block_xor_avx2(state, dst, src, bytes, nrounds);
 			bytes -= CHACHA_BLOCK_SIZE * 8;
@@ -125,8 +123,6 @@ static void chacha_dosimd(u32 *state, u8 *dst, const u8 *src,
 
 void hchacha_block_arch(const u32 *state, u32 *stream, int nrounds)
 {
-	state = PTR_ALIGN(state, CHACHA_STATE_ALIGN);
-
 	if (!static_branch_likely(&chacha_use_simd) || !crypto_simd_usable()) {
 		hchacha_block_generic(state, stream, nrounds);
 	} else {
@@ -139,8 +135,6 @@ EXPORT_SYMBOL(hchacha_block_arch);
 
 void chacha_init_arch(u32 *state, const u32 *key, const u8 *iv)
 {
-	state = PTR_ALIGN(state, CHACHA_STATE_ALIGN);
-
 	chacha_init_generic(state, key, iv);
 }
 EXPORT_SYMBOL(chacha_init_arch);
@@ -148,8 +142,6 @@ EXPORT_SYMBOL(chacha_init_arch);
 void chacha_crypt_arch(u32 *state, u8 *dst, const u8 *src, unsigned int bytes,
 		       int nrounds)
 {
-	state = PTR_ALIGN(state, CHACHA_STATE_ALIGN);
-
 	if (!static_branch_likely(&chacha_use_simd) || !crypto_simd_usable() ||
 	    bytes <= CHACHA_BLOCK_SIZE)
 		return chacha_crypt_generic(state, dst, src, bytes, nrounds);
@@ -171,14 +163,11 @@ EXPORT_SYMBOL(chacha_crypt_arch);
 static int chacha_simd_stream_xor(struct skcipher_request *req,
 				  const struct chacha_ctx *ctx, const u8 *iv)
 {
-	u32 *state, state_buf[16 + 2] __aligned(8);
+	u32 state[CHACHA_STATE_WORDS] __aligned(8);
 	struct skcipher_walk walk;
 	int err;
 
 	err = skcipher_walk_virt(&walk, req, false);
-
-	BUILD_BUG_ON(CHACHA_STATE_ALIGN != 16);
-	state = PTR_ALIGN(state_buf + 0, CHACHA_STATE_ALIGN);
 
 	chacha_init_generic(state, ctx->key, iv);
 
@@ -218,12 +207,10 @@ static int xchacha_simd(struct skcipher_request *req)
 {
 	struct crypto_skcipher *tfm = crypto_skcipher_reqtfm(req);
 	struct chacha_ctx *ctx = crypto_skcipher_ctx(tfm);
-	u32 *state, state_buf[16 + 2] __aligned(8);
+	u32 state[CHACHA_STATE_WORDS] __aligned(8);
 	struct chacha_ctx subctx;
 	u8 real_iv[16];
 
-	BUILD_BUG_ON(CHACHA_STATE_ALIGN != 16);
-	state = PTR_ALIGN(state_buf + 0, CHACHA_STATE_ALIGN);
 	chacha_init_generic(state, ctx->key, req->iv);
 
 	if (req->cryptlen > CHACHA_BLOCK_SIZE && crypto_simd_usable()) {
@@ -296,8 +283,7 @@ static int __init chacha_simd_mod_init(void)
 
 	static_branch_enable(&chacha_use_simd);
 
-	if (IS_ENABLED(CONFIG_AS_AVX2) &&
-	    boot_cpu_has(X86_FEATURE_AVX) &&
+	if (boot_cpu_has(X86_FEATURE_AVX) &&
 	    boot_cpu_has(X86_FEATURE_AVX2) &&
 	    cpu_has_xfeatures(XFEATURE_MASK_SSE | XFEATURE_MASK_YMM, NULL)) {
 		static_branch_enable(&chacha_use_avx2);
@@ -307,13 +293,13 @@ static int __init chacha_simd_mod_init(void)
 		    boot_cpu_has(X86_FEATURE_AVX512BW)) /* kmovq */
 			static_branch_enable(&chacha_use_avx512vl);
 	}
-	return IS_REACHABLE(CONFIG_CRYPTO_BLKCIPHER2) ?
+	return IS_REACHABLE(CONFIG_CRYPTO_SKCIPHER) ?
 		crypto_register_skciphers(algs, ARRAY_SIZE(algs)) : 0;
 }
 
 static void __exit chacha_simd_mod_fini(void)
 {
-	if (IS_REACHABLE(CONFIG_CRYPTO_BLKCIPHER2) && boot_cpu_has(X86_FEATURE_SSSE3))
+	if (IS_REACHABLE(CONFIG_CRYPTO_SKCIPHER) && boot_cpu_has(X86_FEATURE_SSSE3))
 		crypto_unregister_skciphers(algs, ARRAY_SIZE(algs));
 }
 

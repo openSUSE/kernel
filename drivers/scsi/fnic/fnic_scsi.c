@@ -23,6 +23,7 @@
 #include <linux/scatterlist.h>
 #include <linux/skbuff.h>
 #include <linux/spinlock.h>
+#include <linux/etherdevice.h>
 #include <linux/if_ether.h>
 #include <linux/if_vlan.h>
 #include <linux/delay.h>
@@ -172,7 +173,7 @@ static int free_wq_copy_descs(struct fnic *fnic, struct vnic_wq_copy *wq)
 }
 
 
-/**
+/*
  * __fnic_set_state_flags
  * Sets/Clears bits in fnic's state_flags
  **/
@@ -275,7 +276,7 @@ int fnic_flogi_reg_handler(struct fnic *fnic, u32 fc_id)
 	}
 
 	if (fnic->ctlr.map_dest) {
-		memset(gw_mac, 0xff, ETH_ALEN);
+		eth_broadcast_addr(gw_mac);
 		format = FCPIO_FLOGI_REG_DEF_DEST;
 	} else {
 		memcpy(gw_mac, fnic->ctlr.dest_addr, ETH_ALEN);
@@ -1028,7 +1029,8 @@ static void fnic_fcpio_icmnd_cmpl_handler(struct fnic *fnic,
 		atomic64_inc(&fnic_stats->io_stats.io_completions);
 
 
-	io_duration_time = jiffies_to_msecs(jiffies) - jiffies_to_msecs(io_req->start_time);
+	io_duration_time = jiffies_to_msecs(jiffies) -
+						jiffies_to_msecs(start_time);
 
 	if(io_duration_time <= 10)
 		atomic64_inc(&fnic_stats->io_stats.io_btw_0_to_10_msec);
@@ -2197,7 +2199,7 @@ clean_pending_aborts_end:
 	return ret;
 }
 
-/**
+/*
  * fnic_scsi_host_start_tag
  * Allocates tagid from host's tag list
  **/
@@ -2217,7 +2219,7 @@ fnic_scsi_host_start_tag(struct fnic *fnic, struct scsi_cmnd *sc)
 	return dummy->tag;
 }
 
-/**
+/*
  * fnic_scsi_host_end_tag
  * frees tag allocated by fnic_scsi_host_start_tag.
  **/
@@ -2534,8 +2536,8 @@ int fnic_host_reset(struct scsi_cmnd *sc)
 	unsigned long flags;
 
 	spin_lock_irqsave(&fnic->fnic_lock, flags);
-	if (fnic->internal_reset_inprogress == 0) {
-		fnic->internal_reset_inprogress = 1;
+	if (!fnic->internal_reset_inprogress) {
+		fnic->internal_reset_inprogress = true;
 	} else {
 		spin_unlock_irqrestore(&fnic->fnic_lock, flags);
 		FNIC_SCSI_DBG(KERN_DEBUG, fnic->lport->host,
@@ -2564,7 +2566,7 @@ int fnic_host_reset(struct scsi_cmnd *sc)
 	}
 
 	spin_lock_irqsave(&fnic->fnic_lock, flags);
-	fnic->internal_reset_inprogress = 0;
+	fnic->internal_reset_inprogress = false;
 	spin_unlock_irqrestore(&fnic->fnic_lock, flags);
 	return ret;
 }

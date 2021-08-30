@@ -232,7 +232,7 @@ static irqreturn_t tegra_rtc_irq_handler(int irq, void *data)
 {
 	struct device *dev = data;
 	struct tegra_rtc_info *info = dev_get_drvdata(dev);
-	unsigned long events = 0, flags;
+	unsigned long events = 0;
 	u32 status;
 
 	status = readl(info->base + TEGRA_RTC_REG_INTR_STATUS);
@@ -240,10 +240,10 @@ static irqreturn_t tegra_rtc_irq_handler(int irq, void *data)
 		/* clear the interrupt masks and status on any IRQ */
 		tegra_rtc_wait_while_busy(dev);
 
-		spin_lock_irqsave(&info->lock, flags);
+		spin_lock(&info->lock);
 		writel(0, info->base + TEGRA_RTC_REG_INTR_MASK);
 		writel(status, info->base + TEGRA_RTC_REG_INTR_STATUS);
-		spin_unlock_irqrestore(&info->lock, flags);
+		spin_unlock(&info->lock);
 	}
 
 	/* check if alarm */
@@ -277,23 +277,19 @@ MODULE_DEVICE_TABLE(of, tegra_rtc_dt_match);
 static int tegra_rtc_probe(struct platform_device *pdev)
 {
 	struct tegra_rtc_info *info;
-	struct resource *res;
 	int ret;
 
 	info = devm_kzalloc(&pdev->dev, sizeof(*info), GFP_KERNEL);
 	if (!info)
 		return -ENOMEM;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	info->base = devm_ioremap_resource(&pdev->dev, res);
+	info->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(info->base))
 		return PTR_ERR(info->base);
 
 	ret = platform_get_irq(pdev, 0);
-	if (ret <= 0) {
-		dev_err(&pdev->dev, "failed to get platform IRQ: %d\n", ret);
+	if (ret <= 0)
 		return ret;
-	}
 
 	info->irq = ret;
 
@@ -333,11 +329,9 @@ static int tegra_rtc_probe(struct platform_device *pdev)
 		goto disable_clk;
 	}
 
-	ret = rtc_register_device(info->rtc);
-	if (ret) {
-		dev_err(&pdev->dev, "failed to register device: %d\n", ret);
+	ret = devm_rtc_register_device(info->rtc);
+	if (ret)
 		goto disable_clk;
-	}
 
 	dev_notice(&pdev->dev, "Tegra internal Real Time Clock\n");
 

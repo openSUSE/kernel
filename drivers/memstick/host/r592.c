@@ -359,13 +359,15 @@ static void r592_write_fifo_pio(struct r592_device *dev,
 /* Flushes the temporary FIFO used to make aligned DWORD writes */
 static void r592_flush_fifo_write(struct r592_device *dev)
 {
+	int ret;
 	u8 buffer[4] = { 0 };
-	int len;
 
 	if (kfifo_is_empty(&dev->pio_fifo))
 		return;
 
-	len = kfifo_out(&dev->pio_fifo, buffer, 4);
+	ret = kfifo_out(&dev->pio_fifo, buffer, 4);
+	/* intentionally ignore __must_check return code */
+	(void)ret;
 	r592_write_reg_raw_be(dev, R592_FIFO_PIO, *(u32 *)buffer);
 }
 
@@ -851,8 +853,7 @@ static void r592_remove(struct pci_dev *pdev)
 #ifdef CONFIG_PM_SLEEP
 static int r592_suspend(struct device *core_dev)
 {
-	struct pci_dev *pdev = to_pci_dev(core_dev);
-	struct r592_device *dev = pci_get_drvdata(pdev);
+	struct r592_device *dev = dev_get_drvdata(core_dev);
 
 	r592_clear_interrupts(dev);
 	memstick_suspend_host(dev->host);
@@ -862,8 +863,7 @@ static int r592_suspend(struct device *core_dev)
 
 static int r592_resume(struct device *core_dev)
 {
-	struct pci_dev *pdev = to_pci_dev(core_dev);
-	struct r592_device *dev = pci_get_drvdata(pdev);
+	struct r592_device *dev = dev_get_drvdata(core_dev);
 
 	r592_clear_interrupts(dev);
 	r592_enable_device(dev, false);

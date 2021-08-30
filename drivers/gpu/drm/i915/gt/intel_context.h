@@ -1,6 +1,5 @@
+/* SPDX-License-Identifier: MIT */
 /*
- * SPDX-License-Identifier: MIT
- *
  * Copyright © 2019 Intel Corporation
  */
 
@@ -24,6 +23,8 @@
 		     ce__->timeline->fence_context,			\
 		     ##__VA_ARGS__);					\
 } while (0)
+
+struct i915_gem_ww_ctx;
 
 void intel_context_init(struct intel_context *ce,
 			struct intel_engine_cs *engine);
@@ -81,6 +82,8 @@ static inline void intel_context_unlock_pinned(struct intel_context *ce)
 }
 
 int __intel_context_do_pin(struct intel_context *ce);
+int __intel_context_do_pin_ww(struct intel_context *ce,
+			      struct i915_gem_ww_ctx *ww);
 
 static inline bool intel_context_pin_if_active(struct intel_context *ce)
 {
@@ -93,6 +96,15 @@ static inline int intel_context_pin(struct intel_context *ce)
 		return 0;
 
 	return __intel_context_do_pin(ce);
+}
+
+static inline int intel_context_pin_ww(struct intel_context *ce,
+				       struct i915_gem_ww_ctx *ww)
+{
+	if (likely(intel_context_pin_if_active(ce)))
+		return 0;
+
+	return __intel_context_do_pin_ww(ce, ww);
 }
 
 static inline void __intel_context_pin(struct intel_context *ce)
@@ -178,6 +190,11 @@ static inline bool intel_context_is_closed(const struct intel_context *ce)
 	return test_bit(CONTEXT_CLOSED_BIT, &ce->flags);
 }
 
+static inline bool intel_context_has_inflight(const struct intel_context *ce)
+{
+	return test_bit(COPS_HAS_INFLIGHT_BIT, &ce->ops->flags);
+}
+
 static inline bool intel_context_use_semaphores(const struct intel_context *ce)
 {
 	return test_bit(CONTEXT_USE_SEMAPHORES, &ce->flags);
@@ -235,16 +252,14 @@ intel_context_clear_nopreempt(struct intel_context *ce)
 
 static inline u64 intel_context_get_total_runtime_ns(struct intel_context *ce)
 {
-	const u32 period =
-		RUNTIME_INFO(ce->engine->i915)->cs_timestamp_period_ns;
+	const u32 period = ce->engine->gt->clock_period_ns;
 
 	return READ_ONCE(ce->runtime.total) * period;
 }
 
 static inline u64 intel_context_get_avg_runtime_ns(struct intel_context *ce)
 {
-	const u32 period =
-		RUNTIME_INFO(ce->engine->i915)->cs_timestamp_period_ns;
+	const u32 period = ce->engine->gt->clock_period_ns;
 
 	return mul_u32_u32(ewma_runtime_read(&ce->runtime.avg), period);
 }

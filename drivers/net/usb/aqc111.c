@@ -333,13 +333,13 @@ static void aqc111_set_phy_speed(struct usbnet *dev, u8 autoneg, u16 speed)
 		switch (speed) {
 		case SPEED_5000:
 			aqc111_data->phy_cfg |= AQ_ADV_5G;
-			/* fall-through */
+			fallthrough;
 		case SPEED_2500:
 			aqc111_data->phy_cfg |= AQ_ADV_2G5;
-			/* fall-through */
+			fallthrough;
 		case SPEED_1000:
 			aqc111_data->phy_cfg |= AQ_ADV_1G;
-			/* fall-through */
+			fallthrough;
 		case SPEED_100:
 			aqc111_data->phy_cfg |= AQ_ADV_100M;
 			/* fall-through */
@@ -641,7 +641,7 @@ static const struct net_device_ops aqc111_netdev_ops = {
 	.ndo_stop		= usbnet_stop,
 	.ndo_start_xmit		= usbnet_start_xmit,
 	.ndo_tx_timeout		= usbnet_tx_timeout,
-	.ndo_get_stats64	= usbnet_get_stats64,
+	.ndo_get_stats64	= dev_get_tstats64,
 	.ndo_change_mtu		= aqc111_change_mtu,
 	.ndo_set_mac_address	= aqc111_set_mac_addr,
 	.ndo_validate_addr	= eth_validate_addr,

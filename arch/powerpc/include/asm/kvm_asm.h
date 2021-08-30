@@ -147,7 +147,11 @@
 #define KVM_GUEST_MODE_SKIP	2
 #define KVM_GUEST_MODE_GUEST_HV	3
 #define KVM_GUEST_MODE_HOST_HV	4
+#define KVM_GUEST_MODE_HV_P9	5 /* ISA >= v3.0 path */
 
 #define KVM_INST_FETCH_FAILED	-1
+
+/* Extract PO and XOP opcode fields */
+#define PO_XOP_OPCODE_MASK 0xfc0007fe
 
 #endif /* __POWERPC_KVM_ASM_H__ */

@@ -12,6 +12,7 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/module.h>
+#include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 
@@ -390,8 +391,8 @@ static const struct i2c_algorithm bcm2835_i2c_algo = {
 };
 
 /*
- * This HW was reported to have problems with clock stretching:
- * http://www.advamation.com/knowhow/raspberrypi/rpi-i2c-bug.html
+ * The BCM2835 was reported to have problems with clock stretching:
+ * https://www.advamation.com/knowhow/raspberrypi/rpi-i2c-bug.html
  * https://www.raspberrypi.org/forums/viewtopic.php?p=146272
  */
 static const struct i2c_adapter_quirks bcm2835_i2c_quirks = {
@@ -420,11 +421,9 @@ static int bcm2835_i2c_probe(struct platform_device *pdev)
 		return PTR_ERR(i2c_dev->regs);
 
 	mclk = devm_clk_get(&pdev->dev, NULL);
-	if (IS_ERR(mclk)) {
-		if (PTR_ERR(mclk) != -EPROBE_DEFER)
-			dev_err(&pdev->dev, "Could not get clock\n");
-		return PTR_ERR(mclk);
-	}
+	if (IS_ERR(mclk))
+		return dev_err_probe(&pdev->dev, PTR_ERR(mclk),
+				     "Could not get clock\n");
 
 	i2c_dev->bus_clk = bcm2835_i2c_register_div(&pdev->dev, mclk, i2c_dev);
 
@@ -471,11 +470,12 @@ static int bcm2835_i2c_probe(struct platform_device *pdev)
 	i2c_set_adapdata(adap, i2c_dev);
 	adap->owner = THIS_MODULE;
 	adap->class = I2C_CLASS_DEPRECATED;
-	strlcpy(adap->name, "bcm2835 I2C adapter", sizeof(adap->name));
+	snprintf(adap->name, sizeof(adap->name), "bcm2835 (%s)",
+		 of_node_full_name(pdev->dev.of_node));
 	adap->algo = &bcm2835_i2c_algo;
 	adap->dev.parent = &pdev->dev;
 	adap->dev.of_node = pdev->dev.of_node;
-	adap->quirks = &bcm2835_i2c_quirks;
+	adap->quirks = of_device_get_match_data(&pdev->dev);
 
 	bcm2835_i2c_writel(i2c_dev, BCM2835_I2C_C, 0);
 
@@ -500,7 +500,8 @@ static int bcm2835_i2c_remove(struct platform_device *pdev)
 }
 
 static const struct of_device_id bcm2835_i2c_of_match[] = {
-	{ .compatible = "brcm,bcm2835-i2c" },
+	{ .compatible = "brcm,bcm2711-i2c" },
+	{ .compatible = "brcm,bcm2835-i2c", .data = &bcm2835_i2c_quirks },
 	{},
 };
 MODULE_DEVICE_TABLE(of, bcm2835_i2c_of_match);

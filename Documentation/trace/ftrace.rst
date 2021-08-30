@@ -34,13 +34,13 @@ Throughout the kernel is hundreds of static event points that
 can be enabled via the tracefs file system to see what is
 going on in certain parts of the kernel.
 
-See events.txt for more information.
+See events.rst for more information.
 
 
 Implementation Details
 ----------------------
 
-See :doc:`ftrace-design` for details for arch porters and such.
+See Documentation/trace/ftrace-design.rst for details for arch porters and such.
 
 
 The File System
@@ -95,7 +95,8 @@ of ftrace. Here is a list of some of the key files:
   current_tracer:
 
 	This is used to set or display the current tracer
-	that is configured.
+	that is configured. Changing the current tracer clears
+	the ring buffer content as well as the "snapshot" buffer.
 
   available_tracers:
 
@@ -124,8 +125,13 @@ of ftrace. Here is a list of some of the key files:
   trace:
 
 	This file holds the output of the trace in a human
-	readable format (described below). Note, tracing is temporarily
-	disabled while this file is being read (opened).
+	readable format (described below). Opening this file for
+	writing with the O_TRUNC flag clears the ring buffer content.
+        Note, this file is not a consumer. If tracing is off
+        (no tracer running, or tracing_on is zero), it will produce
+        the same output each time it is read. When tracing is on,
+        it may produce inconsistent results as it tries to read
+        the entire buffer without consuming it.
 
   trace_pipe:
 
@@ -139,8 +145,7 @@ of ftrace. Here is a list of some of the key files:
 	will not be read again with a sequential read. The
 	"trace" file is static, and if the tracer is not
 	adding more data, it will display the same
-	information every time it is read. This file will not
-	disable tracing while being read.
+	information every time it is read.
 
   trace_options:
 
@@ -183,7 +188,8 @@ of ftrace. Here is a list of some of the key files:
 	CPU buffer and not total size of all buffers. The
 	trace buffers are allocated in pages (blocks of memory
 	that the kernel uses for allocation, usually 4 KB in size).
-	If the last page allocated has room for more bytes
+	A few extra pages may be allocated to accommodate buffer management
+	meta-data. If the last page allocated has room for more bytes
 	than requested, the rest of the page will be used,
 	making the actual allocation bigger than requested or shown.
 	( Note, the size may not be a multiple of the page size
@@ -233,7 +239,7 @@ of ftrace. Here is a list of some of the key files:
 	This interface also allows for commands to be used. See the
 	"Filter commands" section for more details.
 
-	As a speed up, since processing strings can't be quite expensive
+	As a speed up, since processing strings can be quite expensive
 	and requires a check of all functions registered to tracing, instead
 	an index can be written into this file. A number (starting with "1")
 	written will instead select the same corresponding at the line position
@@ -257,11 +263,38 @@ of ftrace. Here is a list of some of the key files:
 	traced by the function tracer as well. This option will also
 	cause PIDs of tasks that exit to be removed from the file.
 
+  set_ftrace_notrace_pid:
+
+        Have the function tracer ignore threads whose PID are listed in
+        this file.
+
+        If the "function-fork" option is set, then when a task whose
+	PID is listed in this file forks, the child's PID will
+	automatically be added to this file, and the child will not be
+	traced by the function tracer as well. This option will also
+	cause PIDs of tasks that exit to be removed from the file.
+
+        If a PID is in both this file and "set_ftrace_pid", then this
+        file takes precedence, and the thread will not be traced.
+
   set_event_pid:
 
 	Have the events only trace a task with a PID listed in this file.
 	Note, sched_switch and sched_wake_up will also trace events
 	listed in this file.
+
+	To have the PIDs of children of tasks with their PID in this file
+	added on fork, enable the "event-fork" option. That option will also
+	cause the PIDs of tasks to be removed from this file when the task
+	exits.
+
+  set_event_notrace_pid:
+
+	Have the events not trace a task with a PID listed in this file.
+	Note, sched_switch and sched_wakeup will trace threads not listed
+	in this file, even if a thread's PID is in the file if the
+        sched_switch or sched_wakeup events also trace a thread that should
+        be traced.
 
 	To have the PIDs of children of tasks with their PID in this file
 	added on fork, enable the "event-fork" option. That option will also
@@ -321,8 +354,8 @@ of ftrace. Here is a list of some of the key files:
 	is being directly called by the function. If the count is greater
 	than 1 it most likely will be ftrace_ops_list_func().
 
-	If the callback of the function jumps to a trampoline that is
-	specific to a the callback and not the standard trampoline,
+	If the callback of a function jumps to a trampoline that is
+	specific to the callback and which is not the standard trampoline,
 	its address will be printed as well as the function that the
 	trampoline calls.
 
@@ -343,11 +376,11 @@ of ftrace. Here is a list of some of the key files:
 
   kprobe_events:
 
-	Enable dynamic trace points. See kprobetrace.txt.
+	Enable dynamic trace points. See kprobetrace.rst.
 
   kprobe_profile:
 
-	Dynamic trace points stats. See kprobetrace.txt.
+	Dynamic trace points stats. See kprobetrace.rst.
 
   max_graph_depth:
 
@@ -380,7 +413,7 @@ of ftrace. Here is a list of some of the key files:
 
 	By default, 128 comms are saved (see "saved_cmdlines" above). To
 	increase or decrease the amount of comms that are cached, echo
-	in a the number of comms to cache, into this file.
+	the number of comms to cache into this file.
 
   saved_tgids:
 
@@ -488,6 +521,9 @@ of ftrace. Here is a list of some of the key files:
 
 	  # echo global > trace_clock
 
+	Setting a clock clears the ring buffer content as well as the
+	"snapshot" buffer.
+
   trace_marker:
 
 	This is a very useful file for synchronizing user space
@@ -525,14 +561,14 @@ of ftrace. Here is a list of some of the key files:
 
   trace_marker_raw:
 
-	This is similar to trace_marker above, but is meant for for binary data
+	This is similar to trace_marker above, but is meant for binary data
 	to be written to it, where a tool can be used to parse the data
 	from trace_pipe_raw.
 
   uprobe_events:
 
 	Add dynamic tracepoints in programs.
-	See uprobetracer.txt
+	See uprobetracer.rst
 
   uprobe_profile:
 
@@ -553,19 +589,19 @@ of ftrace. Here is a list of some of the key files:
 	files at various levels that can enable the tracepoints
 	when a "1" is written to them.
 
-	See events.txt for more information.
+	See events.rst for more information.
 
   set_event:
 
 	By echoing in the event into this file, will enable that event.
 
-	See events.txt for more information.
+	See events.rst for more information.
 
   available_events:
 
 	A list of events that can be enabled in tracing.
 
-	See events.txt for more information.
+	See events.rst for more information.
 
   timestamp_mode:
 
@@ -1117,6 +1153,18 @@ Here are the available options:
 	the trace displays additional information about the
 	latency, as described in "Latency trace format".
 
+  pause-on-trace
+	When set, opening the trace file for read, will pause
+	writing to the ring buffer (as if tracing_on was set to zero).
+	This simulates the original behavior of the trace file.
+	When the file is closed, tracing will be enabled again.
+
+  hash-ptr
+        When set, "%p" in the event printk format displays the
+        hashed pointer value instead of real address.
+        This will be useful if you want to find out which hashed
+        value is corresponding to the real value in trace log.
+
   record-cmd
 	When any event or tracer is enabled, a hook is enabled
 	in the sched_switch trace point to fill comm cache
@@ -1168,6 +1216,8 @@ Here are the available options:
 	tasks fork. Also, when tasks with PIDs in set_event_pid exit,
 	their PIDs will be removed from the file.
 
+        This affects PIDs listed in set_event_notrace_pid as well.
+
   function-trace
 	The latency tracers will enable function tracing
 	if this option is enabled (default it is). When
@@ -1181,6 +1231,8 @@ Here are the available options:
 	when those tasks fork. Also, when tasks with PIDs in
 	set_ftrace_pid exit, their PIDs will be removed from the
 	file.
+
+        This affects PIDs in set_ftrace_notrace_pid as well.
 
   display-graph
 	When set, the latency tracers (irqsoff, wakeup, etc) will
@@ -1348,7 +1400,7 @@ an example::
    => x86_64_start_reservations
    => x86_64_start_kernel
 
-Here we see that that we had a latency of 16 microseconds (which is
+Here we see that we had a latency of 16 microseconds (which is
 very good). The _raw_spin_lock_irq in run_timer_softirq disabled
 interrupts. The difference between the 16 and the displayed
 timestamp 25us occurred because the clock was incremented
@@ -1478,7 +1530,7 @@ display-graph option::
    => remove_vma
    => exit_mmap
    => mmput
-   => flush_old_exec
+   => begin_new_exec
    => load_elf_binary
    => search_binary_handler
    => __do_execve_file.isra.32
@@ -2118,6 +2170,8 @@ periodically make a CPU constantly busy with interrupts disabled.
   # cat trace
   # tracer: hwlat
   #
+  # entries-in-buffer/entries-written: 13/13   #P:8
+  #
   #                              _-----=> irqs-off
   #                             / _----=> need-resched
   #                            | / _---=> hardirq/softirq
@@ -2125,12 +2179,18 @@ periodically make a CPU constantly busy with interrupts disabled.
   #                            ||| /     delay
   #           TASK-PID   CPU#  ||||    TIMESTAMP  FUNCTION
   #              | |       |   ||||       |         |
-             <...>-3638  [001] d... 19452.055471: #1     inner/outer(us):   12/14    ts:1499801089.066141940
-             <...>-3638  [003] d... 19454.071354: #2     inner/outer(us):   11/9     ts:1499801091.082164365
-             <...>-3638  [002] dn.. 19461.126852: #3     inner/outer(us):   12/9     ts:1499801098.138150062
-             <...>-3638  [001] d... 19488.340960: #4     inner/outer(us):    8/12    ts:1499801125.354139633
-             <...>-3638  [003] d... 19494.388553: #5     inner/outer(us):    8/12    ts:1499801131.402150961
-             <...>-3638  [003] d... 19501.283419: #6     inner/outer(us):    0/12    ts:1499801138.297435289 nmi-total:4 nmi-count:1
+             <...>-1729  [001] d...   678.473449: #1     inner/outer(us):   11/12    ts:1581527483.343962693 count:6
+             <...>-1729  [004] d...   689.556542: #2     inner/outer(us):   16/9     ts:1581527494.889008092 count:1
+             <...>-1729  [005] d...   714.756290: #3     inner/outer(us):   16/16    ts:1581527519.678961629 count:5
+             <...>-1729  [001] d...   718.788247: #4     inner/outer(us):    9/17    ts:1581527523.889012713 count:1
+             <...>-1729  [002] d...   719.796341: #5     inner/outer(us):   13/9     ts:1581527524.912872606 count:1
+             <...>-1729  [006] d...   844.787091: #6     inner/outer(us):    9/12    ts:1581527649.889048502 count:2
+             <...>-1729  [003] d...   849.827033: #7     inner/outer(us):   18/9     ts:1581527654.889013793 count:1
+             <...>-1729  [007] d...   853.859002: #8     inner/outer(us):    9/12    ts:1581527658.889065736 count:1
+             <...>-1729  [001] d...   855.874978: #9     inner/outer(us):    9/11    ts:1581527660.861991877 count:1
+             <...>-1729  [001] d...   863.938932: #10    inner/outer(us):    9/11    ts:1581527668.970010500 count:1 nmi-total:7 nmi-count:1
+             <...>-1729  [007] d...   878.050780: #11    inner/outer(us):    9/12    ts:1581527683.385002600 count:1 nmi-total:5 nmi-count:1
+             <...>-1729  [007] d...   886.114702: #12    inner/outer(us):    9/12    ts:1581527691.385001600 count:1
 
 
 The above output is somewhat the same in the header. All events will have
@@ -2140,7 +2200,7 @@ interrupts disabled 'd'. Under the FUNCTION title there is:
 	This is the count of events recorded that were greater than the
 	tracing_threshold (See below).
 
- inner/outer(us):   12/14
+ inner/outer(us):   11/11
 
       This shows two numbers as "inner latency" and "outer latency". The test
       runs in a loop checking a timestamp twice. The latency detected within
@@ -2148,11 +2208,15 @@ interrupts disabled 'd'. Under the FUNCTION title there is:
       after the previous timestamp and the next timestamp in the loop is
       the "outer latency".
 
- ts:1499801089.066141940
+ ts:1581527483.343962693
 
-      The absolute timestamp that the event happened.
+      The absolute timestamp that the first latency was recorded in the window.
 
- nmi-total:4 nmi-count:1
+ count:6
+
+      The number of times a latency was detected during the window.
+
+ nmi-total:7 nmi-count:1
 
       On architectures that support it, if an NMI comes in during the
       test, the time spent in NMI is reported in "nmi-total" (in
@@ -3155,7 +3219,10 @@ different. The trace is live.
 
 
 Note, reading the trace_pipe file will block until more input is
-added.
+added. This is contrary to the trace file. If any process opened
+the trace file for reading, it will actually disable tracing and
+prevent new entries from being added. The trace_pipe file does
+not have this limitation.
 
 trace entries
 -------------
@@ -3319,7 +3386,7 @@ directories after it is created.
 
 As you can see, the new directory looks similar to the tracing directory
 itself. In fact, it is very similar, except that the buffer and
-events are agnostic from the main director, or from any other
+events are agnostic from the main directory, or from any other
 instances that are created.
 
 The files in the new directory work just like the files with the

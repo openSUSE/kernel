@@ -45,13 +45,13 @@ static int prog_load_cnt(int verdict, int val)
 		BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, 0, 0, BPF_FUNC_map_lookup_elem),
 		BPF_JMP_IMM(BPF_JEQ, BPF_REG_0, 0, 2),
 		BPF_MOV64_IMM(BPF_REG_1, val), /* r1 = 1 */
-		BPF_RAW_INSN(BPF_STX | BPF_XADD | BPF_DW, BPF_REG_0, BPF_REG_1, 0, 0), /* xadd r0 += r1 */
+		BPF_ATOMIC_OP(BPF_DW, BPF_ADD, BPF_REG_0, BPF_REG_1, 0),
 
 		BPF_LD_MAP_FD(BPF_REG_1, cgroup_storage_fd),
 		BPF_MOV64_IMM(BPF_REG_2, 0),
 		BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, 0, 0, BPF_FUNC_get_local_storage),
 		BPF_MOV64_IMM(BPF_REG_1, val),
-		BPF_RAW_INSN(BPF_STX | BPF_XADD | BPF_W, BPF_REG_0, BPF_REG_1, 0, 0),
+		BPF_ATOMIC_OP(BPF_W, BPF_ADD, BPF_REG_0, BPF_REG_1, 0),
 
 		BPF_LD_MAP_FD(BPF_REG_1, percpu_cgroup_storage_fd),
 		BPF_MOV64_IMM(BPF_REG_2, 0),
@@ -167,7 +167,7 @@ void test_cgroup_attach_multi(void)
 	prog_cnt = 2;
 	CHECK_FAIL(bpf_prog_query(cg5, BPF_CGROUP_INET_EGRESS,
 				  BPF_F_QUERY_EFFECTIVE, &attach_flags,
-				  prog_ids, &prog_cnt) != -1);
+				  prog_ids, &prog_cnt) >= 0);
 	CHECK_FAIL(errno != ENOSPC);
 	CHECK_FAIL(prog_cnt != 4);
 	/* check that prog_ids are returned even when buffer is too small */
@@ -230,6 +230,13 @@ void test_cgroup_attach_multi(void)
 		  "prog_replace", "errno=%d\n", errno))
 		goto err;
 
+	/* replace program with itself */
+	attach_opts.replace_prog_fd = allow_prog[6];
+	if (CHECK(bpf_prog_attach_xattr(allow_prog[6], cg1,
+					BPF_CGROUP_INET_EGRESS, &attach_opts),
+		  "prog_replace", "errno=%d\n", errno))
+		goto err;
+
 	value = 0;
 	CHECK_FAIL(bpf_map_update_elem(map_fd, &key, &value, 0));
 	CHECK_FAIL(system(PING_CMD));
@@ -254,13 +261,6 @@ void test_cgroup_attach_multi(void)
 	/* detach 2nd from bottom program and ping again */
 	if (CHECK(bpf_prog_detach2(-1, cg4, BPF_CGROUP_INET_EGRESS),
 		  "prog_detach_from_cg4", "errno=%d\n", errno))
-		goto err;
-
-	/* replace program with itself */
-	attach_opts.replace_prog_fd = allow_prog[6];
-	if (CHECK(bpf_prog_attach_xattr(allow_prog[6], cg1,
-					BPF_CGROUP_INET_EGRESS, &attach_opts),
-		  "prog_replace", "errno=%d\n", errno))
 		goto err;
 
 	value = 0;

@@ -28,6 +28,7 @@
 #include <linux/kernel.h>
 
 #include "i915_drv.h"
+#include "intel_de.h"
 #include "intel_display_types.h"
 #include "intel_dsi.h"
 #include "intel_sideband.h"
@@ -483,7 +484,7 @@ int bxt_dsi_pll_compute(struct intel_encoder *encoder,
 
 	if (dsi_ratio < dsi_ratio_min || dsi_ratio > dsi_ratio_max) {
 		drm_err(&dev_priv->drm,
-			"Cant get a suitable ratio from DSI PLL ratios\n");
+			"Can't get a suitable ratio from DSI PLL ratios\n");
 		return -ECHRNG;
 	} else
 		drm_dbg_kms(&dev_priv->drm, "DSI PLL calculation is Done!!\n");

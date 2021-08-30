@@ -36,6 +36,7 @@ DEFINE_MUTEX(ps3_gpu_mutex);
 EXPORT_SYMBOL_GPL(ps3_gpu_mutex);
 
 static union ps3_firmware_version ps3_firmware_version;
+static char ps3_firmware_version_str[16];
 
 void ps3_get_firmware_version(union ps3_firmware_version *v)
 {
@@ -138,7 +139,7 @@ static int __init early_parse_ps3fb(char *p)
 	if (!p)
 		return 1;
 
-	ps3fb_videomemory.size = _ALIGN_UP(memparse(p, &p),
+	ps3fb_videomemory.size = ALIGN(memparse(p, &p),
 					   ps3fb_videomemory.align);
 	return 0;
 }
@@ -182,6 +183,40 @@ static int ps3_set_dabr(unsigned long dabr, unsigned long dabrx)
 	return lv1_set_dabr(dabr, dabrx) ? -1 : 0;
 }
 
+static ssize_t ps3_fw_version_show(struct kobject *kobj,
+	struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%s", ps3_firmware_version_str);
+}
+
+static int __init ps3_setup_sysfs(void)
+{
+	static struct kobj_attribute attr = __ATTR(fw-version, S_IRUGO,
+		ps3_fw_version_show, NULL);
+	static struct kobject *kobj;
+	int result;
+
+	kobj = kobject_create_and_add("ps3", firmware_kobj);
+
+	if (!kobj) {
+		pr_warn("%s:%d: kobject_create_and_add failed.\n", __func__,
+			__LINE__);
+		return -ENOMEM;
+	}
+
+	result = sysfs_create_file(kobj, &attr.attr);
+
+	if (result) {
+		pr_warn("%s:%d: sysfs_create_file failed.\n", __func__,
+			__LINE__);
+		kobject_put(kobj);
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+core_initcall(ps3_setup_sysfs);
+
 static void __init ps3_setup_arch(void)
 {
 	u64 tmp;
@@ -190,18 +225,16 @@ static void __init ps3_setup_arch(void)
 
 	lv1_get_version_info(&ps3_firmware_version.raw, &tmp);
 
-	printk(KERN_INFO "PS3 firmware version %u.%u.%u\n",
-	       ps3_firmware_version.major, ps3_firmware_version.minor,
-	       ps3_firmware_version.rev);
+	snprintf(ps3_firmware_version_str, sizeof(ps3_firmware_version_str),
+		"%u.%u.%u", ps3_firmware_version.major,
+		ps3_firmware_version.minor, ps3_firmware_version.rev);
+
+	printk(KERN_INFO "PS3 firmware version %s\n", ps3_firmware_version_str);
 
 	ps3_spu_set_platform();
 
 #ifdef CONFIG_SMP
 	smp_init_ps3();
-#endif
-
-#ifdef CONFIG_DUMMY_CONSOLE
-	conswitchp = &dummy_con;
 #endif
 
 	prealloc_ps3fb_videomemory();

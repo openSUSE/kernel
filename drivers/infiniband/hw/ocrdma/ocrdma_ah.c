@@ -215,12 +215,13 @@ av_err:
 	return status;
 }
 
-void ocrdma_destroy_ah(struct ib_ah *ibah, u32 flags)
+int ocrdma_destroy_ah(struct ib_ah *ibah, u32 flags)
 {
 	struct ocrdma_ah *ah = get_ocrdma_ah(ibah);
 	struct ocrdma_dev *dev = get_ocrdma_dev(ibah->device);
 
 	ocrdma_free_av(dev, ah);
+	return 0;
 }
 
 int ocrdma_query_ah(struct ib_ah *ibah, struct rdma_ah_attr *attr)
@@ -249,7 +250,7 @@ int ocrdma_query_ah(struct ib_ah *ibah, struct rdma_ah_attr *attr)
 }
 
 int ocrdma_process_mad(struct ib_device *ibdev, int process_mad_flags,
-		       u8 port_num, const struct ib_wc *in_wc,
+		       u32 port_num, const struct ib_wc *in_wc,
 		       const struct ib_grh *in_grh, const struct ib_mad *in,
 		       struct ib_mad *out, size_t *out_mad_size,
 		       u16 *out_mad_pkey_index)

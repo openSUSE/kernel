@@ -363,10 +363,10 @@ static int __init com90io_setup(char *s)
 	switch (ints[0]) {
 	default:		/* ERROR */
 		pr_err("Too many arguments\n");
-		/* Fall through */
+		fallthrough;
 	case 2:		/* IRQ */
 		irq = ints[2];
-		/* Fall through */
+		fallthrough;
 	case 1:		/* IO address */
 		io = ints[1];
 	}
@@ -396,7 +396,7 @@ static int __init com90io_init(void)
 	err = com90io_probe(dev);
 
 	if (err) {
-		free_netdev(dev);
+		free_arcdev(dev);
 		return err;
 	}
 
@@ -419,7 +419,7 @@ static void __exit com90io_exit(void)
 
 	free_irq(dev->irq, dev);
 	release_region(dev->base_addr, ARCNET_TOTAL_SIZE);
-	free_netdev(dev);
+	free_arcdev(dev);
 }
 
 module_init(com90io_init)

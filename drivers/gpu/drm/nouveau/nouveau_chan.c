@@ -86,12 +86,6 @@ nouveau_channel_del(struct nouveau_channel **pchan)
 	struct nouveau_channel *chan = *pchan;
 	if (chan) {
 		struct nouveau_cli *cli = (void *)chan->user.client;
-		bool super;
-
-		if (cli) {
-			super = cli->base.super;
-			cli->base.super = true;
-		}
 
 		if (chan->fence)
 			nouveau_fence(chan->drm)->context_del(chan);
@@ -107,13 +101,10 @@ nouveau_channel_del(struct nouveau_channel **pchan)
 		nvif_object_dtor(&chan->push.ctxdma);
 		nouveau_vma_del(&chan->push.vma);
 		nouveau_bo_unmap(chan->push.buffer);
-		if (chan->push.buffer && chan->push.buffer->pin_refcnt)
+		if (chan->push.buffer && chan->push.buffer->bo.pin_count)
 			nouveau_bo_unpin(chan->push.buffer);
 		nouveau_bo_ref(NULL, &chan->push.buffer);
 		kfree(chan);
-
-		if (cli)
-			cli->base.super = super;
 	}
 	*pchan = NULL;
 }
@@ -163,9 +154,9 @@ nouveau_channel_prep(struct nouveau_drm *drm, struct nvif_device *device,
 	atomic_set(&chan->killed, 0);
 
 	/* allocate memory for dma push buffer */
-	target = TTM_PL_FLAG_TT | TTM_PL_FLAG_UNCACHED;
+	target = NOUVEAU_GEM_DOMAIN_GART | NOUVEAU_GEM_DOMAIN_COHERENT;
 	if (nouveau_vram_pushbuf)
-		target = TTM_PL_FLAG_VRAM;
+		target = NOUVEAU_GEM_DOMAIN_VRAM;
 
 	ret = nouveau_bo_new(cli, size, 0, target, 0, 0, NULL, NULL,
 			    &chan->push.buffer);
@@ -212,7 +203,7 @@ nouveau_channel_prep(struct nouveau_drm *drm, struct nvif_device *device,
 		args.start = 0;
 		args.limit = chan->vmm->vmm.limit - 1;
 	} else
-	if (chan->push.buffer->bo.mem.mem_type == TTM_PL_VRAM) {
+	if (chan->push.buffer->bo.resource->mem_type == TTM_PL_VRAM) {
 		if (device->info.family == NV_DEVICE_INFO_V0_TNT) {
 			/* nv04 vram pushbuf hack, retarget to its location in
 			 * the framebuffer bar rather than direct vram access..
@@ -512,20 +503,16 @@ nouveau_channel_new(struct nouveau_drm *drm, struct nvif_device *device,
 		    struct nouveau_channel **pchan)
 {
 	struct nouveau_cli *cli = (void *)device->object.client;
-	bool super;
 	int ret;
 
 	/* hack until fencenv50 is fixed, and agp access relaxed */
-	super = cli->base.super;
-	cli->base.super = true;
-
 	ret = nouveau_channel_ind(drm, device, arg0, priv, pchan);
 	if (ret) {
 		NV_PRINTK(dbg, cli, "ib channel create, %d\n", ret);
 		ret = nouveau_channel_dma(drm, device, pchan);
 		if (ret) {
 			NV_PRINTK(dbg, cli, "dma channel create, %d\n", ret);
-			goto done;
+			return ret;
 		}
 	}
 
@@ -533,15 +520,13 @@ nouveau_channel_new(struct nouveau_drm *drm, struct nvif_device *device,
 	if (ret) {
 		NV_PRINTK(err, cli, "channel failed to initialise, %d\n", ret);
 		nouveau_channel_del(pchan);
-		goto done;
+		return ret;
 	}
 
 	ret = nouveau_svmm_join((*pchan)->vmm->svmm, (*pchan)->inst);
 	if (ret)
 		nouveau_channel_del(pchan);
 
-done:
-	cli->base.super = super;
 	return ret;
 }
 
@@ -556,7 +541,7 @@ nouveau_channels_init(struct nouveau_drm *drm)
 	} args = {
 		.m.version = 1,
 		.m.count = sizeof(args.v) / sizeof(args.v.channels),
-		.v.channels.mthd = NV_DEVICE_FIFO_CHANNELS,
+		.v.channels.mthd = NV_DEVICE_HOST_CHANNELS,
 	};
 	struct nvif_object *device = &drm->client.device.object;
 	int ret;

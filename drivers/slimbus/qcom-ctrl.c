@@ -472,15 +472,10 @@ static void qcom_slim_rxwq(struct work_struct *work)
 static void qcom_slim_prg_slew(struct platform_device *pdev,
 				struct qcom_slim_ctrl *ctrl)
 {
-	struct resource	*slew_mem;
-
 	if (!ctrl->slew_reg) {
 		/* SLEW RATE register for this SLIMbus */
-		slew_mem = platform_get_resource_byname(pdev, IORESOURCE_MEM,
-				"slew");
-		ctrl->slew_reg = devm_ioremap(&pdev->dev, slew_mem->start,
-				resource_size(slew_mem));
-		if (!ctrl->slew_reg)
+		ctrl->slew_reg = devm_platform_ioremap_resource_byname(pdev, "slew");
+		if (IS_ERR(ctrl->slew_reg))
 			return;
 	}
 
@@ -641,6 +636,8 @@ static int qcom_slim_remove(struct platform_device *pdev)
 
 	pm_runtime_disable(&pdev->dev);
 	slim_unregister_controller(&ctrl->ctrl);
+	clk_disable_unprepare(ctrl->rclk);
+	clk_disable_unprepare(ctrl->hclk);
 	destroy_workqueue(ctrl->rxwq);
 	return 0;
 }

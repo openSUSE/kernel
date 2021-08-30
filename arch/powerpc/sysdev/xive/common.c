@@ -63,8 +63,20 @@ static const struct xive_ops *xive_ops;
 static struct irq_domain *xive_irq_domain;
 
 #ifdef CONFIG_SMP
-/* The IPIs all use the same logical irq number */
-static u32 xive_ipi_irq;
+/* The IPIs use the same logical irq number when on the same chip */
+static struct xive_ipi_desc {
+	unsigned int irq;
+	char name[16];
+	atomic_t started;
+} *xive_ipis;
+
+/*
+ * Use early_cpu_to_node() for hot-plugged CPUs
+ */
+static unsigned int xive_ipi_cpu_to_irq(unsigned int cpu)
+{
+	return xive_ipis[early_cpu_to_node(cpu)].irq;
+}
 #endif
 
 /* Xive state for each CPU */
@@ -191,7 +203,7 @@ static u32 xive_scan_interrupts(struct xive_cpu *xc, bool just_peek)
 
 /*
  * This is used to perform the magic loads from an ESB
- * described in xive.h
+ * described in xive-regs.h
  */
 static notrace u8 xive_esb_read(struct xive_irq_data *xd, u32 offset)
 {
@@ -199,10 +211,6 @@ static notrace u8 xive_esb_read(struct xive_irq_data *xd, u32 offset)
 
 	if (offset == XIVE_ESB_SET_PQ_10 && xd->flags & XIVE_IRQ_FLAG_STORE_EOI)
 		offset |= XIVE_ESB_LD_ST_MO;
-
-	/* Handle HW errata */
-	if (xd->flags & XIVE_IRQ_FLAG_SHIFT_BUG)
-		offset |= offset << 4;
 
 	if ((xd->flags & XIVE_IRQ_FLAG_H_INT_ESB) && xive_ops->esb_rw)
 		val = xive_ops->esb_rw(xd->hw_irq, offset, 0, 0);
@@ -214,10 +222,6 @@ static notrace u8 xive_esb_read(struct xive_irq_data *xd, u32 offset)
 
 static void xive_esb_write(struct xive_irq_data *xd, u32 offset, u64 data)
 {
-	/* Handle HW errata */
-	if (xd->flags & XIVE_IRQ_FLAG_SHIFT_BUG)
-		offset |= offset << 4;
-
 	if ((xd->flags & XIVE_IRQ_FLAG_H_INT_ESB) && xive_ops->esb_rw)
 		xive_ops->esb_rw(xd->hw_irq, offset, data, 1);
 	else
@@ -235,31 +239,86 @@ static notrace void xive_dump_eq(const char *name, struct xive_q *q)
 	i0 = be32_to_cpup(q->qpage + idx);
 	idx = (idx + 1) & q->msk;
 	i1 = be32_to_cpup(q->qpage + idx);
-	xmon_printf("  %s Q T=%d %08x %08x ...\n", name,
-		    q->toggle, i0, i1);
+	xmon_printf("%s idx=%d T=%d %08x %08x ...", name,
+		     q->idx, q->toggle, i0, i1);
 }
 
 notrace void xmon_xive_do_dump(int cpu)
 {
 	struct xive_cpu *xc = per_cpu(xive_cpu, cpu);
 
-	xmon_printf("XIVE state for CPU %d:\n", cpu);
-	xmon_printf("  pp=%02x cppr=%02x\n", xc->pending_prio, xc->cppr);
-	xive_dump_eq("IRQ", &xc->queue[xive_irq_priority]);
+	xmon_printf("CPU %d:", cpu);
+	if (xc) {
+		xmon_printf("pp=%02x CPPR=%02x ", xc->pending_prio, xc->cppr);
+
 #ifdef CONFIG_SMP
-	{
-		u64 val = xive_esb_read(&xc->ipi_data, XIVE_ESB_GET);
-		xmon_printf("  IPI state: %x:%c%c\n", xc->hw_ipi,
-			val & XIVE_ESB_VAL_P ? 'P' : 'p',
-			val & XIVE_ESB_VAL_Q ? 'Q' : 'q');
-	}
+		{
+			u64 val = xive_esb_read(&xc->ipi_data, XIVE_ESB_GET);
+
+			xmon_printf("IPI=0x%08x PQ=%c%c ", xc->hw_ipi,
+				    val & XIVE_ESB_VAL_P ? 'P' : '-',
+				    val & XIVE_ESB_VAL_Q ? 'Q' : '-');
+		}
 #endif
+		xive_dump_eq("EQ", &xc->queue[xive_irq_priority]);
+	}
+	xmon_printf("\n");
 }
 
-int xmon_xive_get_irq_config(u32 irq, u32 *target, u8 *prio,
-			     u32 *sw_irq)
+static struct irq_data *xive_get_irq_data(u32 hw_irq)
 {
-	return xive_ops->get_irq_config(irq, target, prio, sw_irq);
+	unsigned int irq = irq_find_mapping(xive_irq_domain, hw_irq);
+
+	return irq ? irq_get_irq_data(irq) : NULL;
+}
+
+int xmon_xive_get_irq_config(u32 hw_irq, struct irq_data *d)
+{
+	int rc;
+	u32 target;
+	u8 prio;
+	u32 lirq;
+
+	rc = xive_ops->get_irq_config(hw_irq, &target, &prio, &lirq);
+	if (rc) {
+		xmon_printf("IRQ 0x%08x : no config rc=%d\n", hw_irq, rc);
+		return rc;
+	}
+
+	xmon_printf("IRQ 0x%08x : target=0x%x prio=%02x lirq=0x%x ",
+		    hw_irq, target, prio, lirq);
+
+	if (!d)
+		d = xive_get_irq_data(hw_irq);
+
+	if (d) {
+		struct xive_irq_data *xd = irq_data_get_irq_handler_data(d);
+		u64 val = xive_esb_read(xd, XIVE_ESB_GET);
+
+		xmon_printf("flags=%c%c%c PQ=%c%c",
+			    xd->flags & XIVE_IRQ_FLAG_STORE_EOI ? 'S' : ' ',
+			    xd->flags & XIVE_IRQ_FLAG_LSI ? 'L' : ' ',
+			    xd->flags & XIVE_IRQ_FLAG_H_INT_ESB ? 'H' : ' ',
+			    val & XIVE_ESB_VAL_P ? 'P' : '-',
+			    val & XIVE_ESB_VAL_Q ? 'Q' : '-');
+	}
+
+	xmon_printf("\n");
+	return 0;
+}
+
+void xmon_xive_get_irq_all(void)
+{
+	unsigned int i;
+	struct irq_desc *desc;
+
+	for_each_irq_desc(i, desc) {
+		struct irq_data *d = irq_desc_get_irq_data(desc);
+		unsigned int hwirq = (unsigned int)irqd_to_hwirq(d);
+
+		if (d->domain == xive_irq_domain)
+			xmon_xive_get_irq_config(hwirq, d);
+	}
 }
 
 #endif /* CONFIG_XMON */
@@ -321,50 +380,40 @@ static void xive_do_queue_eoi(struct xive_cpu *xc)
  * EOI an interrupt at the source. There are several methods
  * to do this depending on the HW version and source type
  */
-static void xive_do_source_eoi(u32 hw_irq, struct xive_irq_data *xd)
+static void xive_do_source_eoi(struct xive_irq_data *xd)
 {
+	u8 eoi_val;
+
 	xd->stale_p = false;
+
 	/* If the XIVE supports the new "store EOI facility, use it */
-	if (xd->flags & XIVE_IRQ_FLAG_STORE_EOI)
+	if (xd->flags & XIVE_IRQ_FLAG_STORE_EOI) {
 		xive_esb_write(xd, XIVE_ESB_STORE_EOI, 0);
-	else if (hw_irq && xd->flags & XIVE_IRQ_FLAG_EOI_FW) {
-		/*
-		 * The FW told us to call it. This happens for some
-		 * interrupt sources that need additional HW whacking
-		 * beyond the ESB manipulation. For example LPC interrupts
-		 * on P9 DD1.0 needed a latch to be clared in the LPC bridge
-		 * itself. The Firmware will take care of it.
-		 */
-		if (WARN_ON_ONCE(!xive_ops->eoi))
-			return;
-		xive_ops->eoi(hw_irq);
-	} else {
-		u8 eoi_val;
-
-		/*
-		 * Otherwise for EOI, we use the special MMIO that does
-		 * a clear of both P and Q and returns the old Q,
-		 * except for LSIs where we use the "EOI cycle" special
-		 * load.
-		 *
-		 * This allows us to then do a re-trigger if Q was set
-		 * rather than synthesizing an interrupt in software
-		 *
-		 * For LSIs the HW EOI cycle is used rather than PQ bits,
-		 * as they are automatically re-triggred in HW when still
-		 * pending.
-		 */
-		if (xd->flags & XIVE_IRQ_FLAG_LSI)
-			xive_esb_read(xd, XIVE_ESB_LOAD_EOI);
-		else {
-			eoi_val = xive_esb_read(xd, XIVE_ESB_SET_PQ_00);
-			DBG_VERBOSE("eoi_val=%x\n", eoi_val);
-
-			/* Re-trigger if needed */
-			if ((eoi_val & XIVE_ESB_VAL_Q) && xd->trig_mmio)
-				out_be64(xd->trig_mmio, 0);
-		}
+		return;
 	}
+
+	/*
+	 * For LSIs, we use the "EOI cycle" special load rather than
+	 * PQ bits, as they are automatically re-triggered in HW when
+	 * still pending.
+	 */
+	if (xd->flags & XIVE_IRQ_FLAG_LSI) {
+		xive_esb_read(xd, XIVE_ESB_LOAD_EOI);
+		return;
+	}
+
+	/*
+	 * Otherwise, we use the special MMIO that does a clear of
+	 * both P and Q and returns the old Q. This allows us to then
+	 * do a re-trigger if Q was set rather than synthesizing an
+	 * interrupt in software
+	 */
+	eoi_val = xive_esb_read(xd, XIVE_ESB_SET_PQ_00);
+	DBG_VERBOSE("eoi_val=%x\n", eoi_val);
+
+	/* Re-trigger if needed */
+	if ((eoi_val & XIVE_ESB_VAL_Q) && xd->trig_mmio)
+		out_be64(xd->trig_mmio, 0);
 }
 
 /* irq_chip eoi callback, called with irq descriptor lock held */
@@ -381,8 +430,8 @@ static void xive_irq_eoi(struct irq_data *d)
 	 * been passed-through to a KVM guest
 	 */
 	if (!irqd_irq_disabled(d) && !irqd_is_forwarded_to_vcpu(d) &&
-	    !(xd->flags & XIVE_IRQ_NO_EOI))
-		xive_do_source_eoi(irqd_to_hwirq(d), xd);
+	    !(xd->flags & XIVE_IRQ_FLAG_NO_EOI))
+		xive_do_source_eoi(xd);
 	else
 		xd->stale_p = true;
 
@@ -397,9 +446,7 @@ static void xive_irq_eoi(struct irq_data *d)
 }
 
 /*
- * Helper used to mask and unmask an interrupt source. This
- * is only called for normal interrupts that do not require
- * masking/unmasking via firmware.
+ * Helper used to mask and unmask an interrupt source.
  */
 static void xive_do_source_set_mask(struct xive_irq_data *xd,
 				    bool mask)
@@ -646,20 +693,6 @@ static void xive_irq_unmask(struct irq_data *d)
 
 	pr_devel("xive_irq_unmask: irq %d data @%p\n", d->irq, xd);
 
-	/*
-	 * This is a workaround for PCI LSI problems on P9, for
-	 * these, we call FW to set the mask. The problems might
-	 * be fixed by P9 DD2.0, if that is the case, firmware
-	 * will no longer set that flag.
-	 */
-	if (xd->flags & XIVE_IRQ_FLAG_MASK_FW) {
-		unsigned int hw_irq = (unsigned int)irqd_to_hwirq(d);
-		xive_ops->configure_irq(hw_irq,
-					get_hard_smp_processor_id(xd->target),
-					xive_irq_priority, d->irq);
-		return;
-	}
-
 	xive_do_source_set_mask(xd, false);
 }
 
@@ -668,20 +701,6 @@ static void xive_irq_mask(struct irq_data *d)
 	struct xive_irq_data *xd = irq_data_get_irq_handler_data(d);
 
 	pr_devel("xive_irq_mask: irq %d data @%p\n", d->irq, xd);
-
-	/*
-	 * This is a workaround for PCI LSI problems on P9, for
-	 * these, we call OPAL to set the mask. The problems might
-	 * be fixed by P9 DD2.0, if that is the case, firmware
-	 * will no longer set that flag.
-	 */
-	if (xd->flags & XIVE_IRQ_FLAG_MASK_FW) {
-		unsigned int hw_irq = (unsigned int)irqd_to_hwirq(d);
-		xive_ops->configure_irq(hw_irq,
-					get_hard_smp_processor_id(xd->target),
-					0xff, d->irq);
-		return;
-	}
 
 	xive_do_source_set_mask(xd, true);
 }
@@ -802,14 +821,7 @@ static int xive_irq_retrigger(struct irq_data *d)
 	 * 11, then perform an EOI.
 	 */
 	xive_esb_read(xd, XIVE_ESB_SET_PQ_11);
-
-	/*
-	 * Note: We pass "0" to the hw_irq argument in order to
-	 * avoid calling into the backend EOI code which we don't
-	 * want to do in the case of a re-trigger. Backends typically
-	 * only do EOI for LSIs anyway.
-	 */
-	xive_do_source_eoi(0, xd);
+	xive_do_source_eoi(xd);
 
 	return 1;
 }
@@ -824,13 +836,6 @@ static int xive_irq_set_vcpu_affinity(struct irq_data *d, void *state)
 	unsigned int hw_irq = (unsigned int)irqd_to_hwirq(d);
 	int rc;
 	u8 pq;
-
-	/*
-	 * We only support this on interrupts that do not require
-	 * firmware calls for masking and unmasking
-	 */
-	if (xd->flags & XIVE_IRQ_FLAG_MASK_FW)
-		return -EIO;
 
 	/*
 	 * This is called by KVM with state non-NULL for enabling
@@ -931,7 +936,7 @@ static int xive_irq_set_vcpu_affinity(struct irq_data *d, void *state)
 		 * while masked, the generic code will re-mask it anyway.
 		 */
 		if (!xd->saved_p)
-			xive_do_source_eoi(hw_irq, xd);
+			xive_do_source_eoi(xd);
 
 	}
 	return 0;
@@ -986,16 +991,12 @@ EXPORT_SYMBOL_GPL(is_xive_irq);
 void xive_cleanup_irq_data(struct xive_irq_data *xd)
 {
 	if (xd->eoi_mmio) {
-		unmap_kernel_range((unsigned long)xd->eoi_mmio,
-				   1u << xd->esb_shift);
 		iounmap(xd->eoi_mmio);
 		if (xd->eoi_mmio == xd->trig_mmio)
 			xd->trig_mmio = NULL;
 		xd->eoi_mmio = NULL;
 	}
 	if (xd->trig_mmio) {
-		unmap_kernel_range((unsigned long)xd->trig_mmio,
-				   1u << xd->esb_shift);
 		iounmap(xd->trig_mmio);
 		xd->trig_mmio = NULL;
 	}
@@ -1075,7 +1076,7 @@ static void xive_ipi_eoi(struct irq_data *d)
 	DBG_VERBOSE("IPI eoi: irq=%d [0x%lx] (HW IRQ 0x%x) pending=%02x\n",
 		    d->irq, irqd_to_hwirq(d), xc->hw_ipi, xc->pending_prio);
 
-	xive_do_source_eoi(xc->hw_ipi, &xc->ipi_data);
+	xive_do_source_eoi(&xc->ipi_data);
 	xive_do_queue_eoi(xc);
 }
 
@@ -1094,28 +1095,100 @@ static struct irq_chip xive_ipi_chip = {
 	.irq_unmask = xive_ipi_do_nothing,
 };
 
-static void __init xive_request_ipi(void)
+/*
+ * IPIs are marked per-cpu. We use separate HW interrupts under the
+ * hood but associated with the same "linux" interrupt
+ */
+struct xive_ipi_alloc_info {
+	irq_hw_number_t hwirq;
+};
+
+static int xive_ipi_irq_domain_alloc(struct irq_domain *domain, unsigned int virq,
+				     unsigned int nr_irqs, void *arg)
 {
-	unsigned int virq;
+	struct xive_ipi_alloc_info *info = arg;
+	int i;
 
-	/*
-	 * Initialization failed, move on, we might manage to
-	 * reach the point where we display our errors before
-	 * the system falls appart
-	 */
-	if (!xive_irq_domain)
-		return;
+	for (i = 0; i < nr_irqs; i++) {
+		irq_domain_set_info(domain, virq + i, info->hwirq + i, &xive_ipi_chip,
+				    domain->host_data, handle_percpu_irq,
+				    NULL, NULL);
+	}
+	return 0;
+}
 
-	/* Initialize it */
-	virq = irq_create_mapping(xive_irq_domain, 0);
-	xive_ipi_irq = virq;
+static const struct irq_domain_ops xive_ipi_irq_domain_ops = {
+	.alloc  = xive_ipi_irq_domain_alloc,
+};
 
-	WARN_ON(request_irq(virq, xive_muxed_ipi_action,
-			    IRQF_PERCPU | IRQF_NO_THREAD, "IPI", NULL));
+static int __init xive_init_ipis(void)
+{
+	struct fwnode_handle *fwnode;
+	struct irq_domain *ipi_domain;
+	unsigned int node;
+	int ret = -ENOMEM;
+
+	fwnode = irq_domain_alloc_named_fwnode("XIVE-IPI");
+	if (!fwnode)
+		goto out;
+
+	ipi_domain = irq_domain_create_linear(fwnode, nr_node_ids,
+					      &xive_ipi_irq_domain_ops, NULL);
+	if (!ipi_domain)
+		goto out_free_fwnode;
+
+	xive_ipis = kcalloc(nr_node_ids, sizeof(*xive_ipis), GFP_KERNEL | __GFP_NOFAIL);
+	if (!xive_ipis)
+		goto out_free_domain;
+
+	for_each_node(node) {
+		struct xive_ipi_desc *xid = &xive_ipis[node];
+		struct xive_ipi_alloc_info info = { node };
+
+		/*
+		 * Map one IPI interrupt per node for all cpus of that node.
+		 * Since the HW interrupt number doesn't have any meaning,
+		 * simply use the node number.
+		 */
+		ret = irq_domain_alloc_irqs(ipi_domain, 1, node, &info);
+		if (ret < 0)
+			goto out_free_xive_ipis;
+		xid->irq = ret;
+
+		snprintf(xid->name, sizeof(xid->name), "IPI-%d", node);
+	}
+
+	return ret;
+
+out_free_xive_ipis:
+	kfree(xive_ipis);
+out_free_domain:
+	irq_domain_remove(ipi_domain);
+out_free_fwnode:
+	irq_domain_free_fwnode(fwnode);
+out:
+	return ret;
+}
+
+static int xive_request_ipi(unsigned int cpu)
+{
+	struct xive_ipi_desc *xid = &xive_ipis[early_cpu_to_node(cpu)];
+	int ret;
+
+	if (atomic_inc_return(&xid->started) > 1)
+		return 0;
+
+	ret = request_irq(xid->irq, xive_muxed_ipi_action,
+			  IRQF_PERCPU | IRQF_NO_THREAD,
+			  xid->name, NULL);
+
+	WARN(ret < 0, "Failed to request IPI %d: %d\n", xid->irq, ret);
+	return ret;
 }
 
 static int xive_setup_cpu_ipi(unsigned int cpu)
 {
+	unsigned int xive_ipi_irq = xive_ipi_cpu_to_irq(cpu);
 	struct xive_cpu *xc;
 	int rc;
 
@@ -1126,6 +1199,9 @@ static int xive_setup_cpu_ipi(unsigned int cpu)
 	/* Check if we are already setup */
 	if (xc->hw_ipi != XIVE_BAD_IRQ)
 		return 0;
+
+	/* Register the IPI */
+	xive_request_ipi(cpu);
 
 	/* Grab an IPI from the backend, this will populate xc->hw_ipi */
 	if (xive_ops->get_ipi(cpu, xc))
@@ -1158,11 +1234,15 @@ static int xive_setup_cpu_ipi(unsigned int cpu)
 
 static void xive_cleanup_cpu_ipi(unsigned int cpu, struct xive_cpu *xc)
 {
+	unsigned int xive_ipi_irq = xive_ipi_cpu_to_irq(cpu);
+
 	/* Disable the IPI and free the IRQ data */
 
 	/* Already cleaned up ? */
 	if (xc->hw_ipi == XIVE_BAD_IRQ)
 		return;
+
+	/* TODO: clear IPI mapping */
 
 	/* Mask the IPI */
 	xive_do_source_set_mask(&xc->ipi_data, true);
@@ -1186,7 +1266,7 @@ void __init xive_smp_probe(void)
 	smp_ops->cause_ipi = xive_cause_ipi;
 
 	/* Register the IPI */
-	xive_request_ipi();
+	xive_init_ipis();
 
 	/* Allocate and setup IPI for the boot CPU */
 	xive_setup_cpu_ipi(smp_processor_id());
@@ -1205,19 +1285,6 @@ static int xive_irq_domain_map(struct irq_domain *h, unsigned int virq,
 	 */
 	irq_clear_status_flags(virq, IRQ_LEVEL);
 
-#ifdef CONFIG_SMP
-	/* IPIs are special and come up with HW number 0 */
-	if (hw == 0) {
-		/*
-		 * IPIs are marked per-cpu. We use separate HW interrupts under
-		 * the hood but associated with the same "linux" interrupt
-		 */
-		irq_set_chip_and_handler(virq, &xive_ipi_chip,
-					 handle_percpu_irq);
-		return 0;
-	}
-#endif
-
 	rc = xive_irq_alloc_data(virq, hw);
 	if (rc)
 		return rc;
@@ -1229,15 +1296,7 @@ static int xive_irq_domain_map(struct irq_domain *h, unsigned int virq,
 
 static void xive_irq_domain_unmap(struct irq_domain *d, unsigned int virq)
 {
-	struct irq_data *data = irq_get_irq_data(virq);
-	unsigned int hw_irq;
-
-	/* XXX Assign BAD number */
-	if (!data)
-		return;
-	hw_irq = (unsigned int)irqd_to_hwirq(data);
-	if (hw_irq)
-		xive_irq_free_data(virq);
+	xive_irq_free_data(virq);
 }
 
 static int xive_irq_domain_xlate(struct irq_domain *h, struct device_node *ct,
@@ -1268,16 +1327,71 @@ static int xive_irq_domain_match(struct irq_domain *h, struct device_node *node,
 	return xive_ops->match(node);
 }
 
+#ifdef CONFIG_GENERIC_IRQ_DEBUGFS
+static const char * const esb_names[] = { "RESET", "OFF", "PENDING", "QUEUED" };
+
+static const struct {
+	u64  mask;
+	char *name;
+} xive_irq_flags[] = {
+	{ XIVE_IRQ_FLAG_STORE_EOI, "STORE_EOI" },
+	{ XIVE_IRQ_FLAG_LSI,       "LSI"       },
+	{ XIVE_IRQ_FLAG_H_INT_ESB, "H_INT_ESB" },
+	{ XIVE_IRQ_FLAG_NO_EOI,    "NO_EOI"    },
+};
+
+static void xive_irq_domain_debug_show(struct seq_file *m, struct irq_domain *d,
+				       struct irq_data *irqd, int ind)
+{
+	struct xive_irq_data *xd;
+	u64 val;
+	int i;
+
+	/* No IRQ domain level information. To be done */
+	if (!irqd)
+		return;
+
+	if (!is_xive_irq(irq_data_get_irq_chip(irqd)))
+		return;
+
+	seq_printf(m, "%*sXIVE:\n", ind, "");
+	ind++;
+
+	xd = irq_data_get_irq_handler_data(irqd);
+	if (!xd) {
+		seq_printf(m, "%*snot assigned\n", ind, "");
+		return;
+	}
+
+	val = xive_esb_read(xd, XIVE_ESB_GET);
+	seq_printf(m, "%*sESB:      %s\n", ind, "", esb_names[val & 0x3]);
+	seq_printf(m, "%*sPstate:   %s %s\n", ind, "", xd->stale_p ? "stale" : "",
+		   xd->saved_p ? "saved" : "");
+	seq_printf(m, "%*sTarget:   %d\n", ind, "", xd->target);
+	seq_printf(m, "%*sChip:     %d\n", ind, "", xd->src_chip);
+	seq_printf(m, "%*sTrigger:  0x%016llx\n", ind, "", xd->trig_page);
+	seq_printf(m, "%*sEOI:      0x%016llx\n", ind, "", xd->eoi_page);
+	seq_printf(m, "%*sFlags:    0x%llx\n", ind, "", xd->flags);
+	for (i = 0; i < ARRAY_SIZE(xive_irq_flags); i++) {
+		if (xd->flags & xive_irq_flags[i].mask)
+			seq_printf(m, "%*s%s\n", ind + 12, "", xive_irq_flags[i].name);
+	}
+}
+#endif
+
 static const struct irq_domain_ops xive_irq_domain_ops = {
 	.match = xive_irq_domain_match,
 	.map = xive_irq_domain_map,
 	.unmap = xive_irq_domain_unmap,
 	.xlate = xive_irq_domain_xlate,
+#ifdef CONFIG_GENERIC_IRQ_DEBUGFS
+	.debug_show = xive_irq_domain_debug_show,
+#endif
 };
 
-static void __init xive_init_host(void)
+static void __init xive_init_host(struct device_node *np)
 {
-	xive_irq_domain = irq_domain_add_nomap(NULL, XIVE_MAX_IRQ,
+	xive_irq_domain = irq_domain_add_nomap(np, XIVE_MAX_IRQ,
 					       &xive_irq_domain_ops, NULL);
 	if (WARN_ON(xive_irq_domain == NULL))
 		return;
@@ -1307,17 +1421,14 @@ static int xive_prepare_cpu(unsigned int cpu)
 
 	xc = per_cpu(xive_cpu, cpu);
 	if (!xc) {
-		struct device_node *np;
-
 		xc = kzalloc_node(sizeof(struct xive_cpu),
 				  GFP_KERNEL, cpu_to_node(cpu));
 		if (!xc)
 			return -ENOMEM;
-		np = of_get_cpu_node(cpu, NULL);
-		if (np)
-			xc->chip_id = of_get_ibm_chip_id(np);
-		of_node_put(np);
 		xc->hw_ipi = XIVE_BAD_IRQ;
+		xc->chip_id = XIVE_INVALID_CHIP_ID;
+		if (xive_ops->prepare_cpu)
+			xive_ops->prepare_cpu(cpu, xc);
 
 		per_cpu(xive_cpu, cpu) = xc;
 	}
@@ -1380,13 +1491,12 @@ static void xive_flush_cpu_queue(unsigned int cpu, struct xive_cpu *xc)
 		struct irq_desc *desc = irq_to_desc(irq);
 		struct irq_data *d = irq_desc_get_irq_data(desc);
 		struct xive_irq_data *xd;
-		unsigned int hw_irq = (unsigned int)irqd_to_hwirq(d);
 
 		/*
 		 * Ignore anything that isn't a XIVE irq and ignore
 		 * IPIs, so can just be dropped.
 		 */
-		if (d->domain != xive_irq_domain || hw_irq == 0)
+		if (d->domain != xive_irq_domain)
 			continue;
 
 		/*
@@ -1411,7 +1521,7 @@ static void xive_flush_cpu_queue(unsigned int cpu, struct xive_cpu *xc)
 		 * still asserted. Otherwise do an MSI retrigger.
 		 */
 		if (xd->flags & XIVE_IRQ_FLAG_LSI)
-			xive_do_source_eoi(irqd_to_hwirq(d), xd);
+			xive_do_source_eoi(xd);
 		else
 			xive_irq_retrigger(d);
 
@@ -1478,8 +1588,8 @@ void xive_shutdown(void)
 	xive_ops->shutdown();
 }
 
-bool __init xive_core_init(const struct xive_ops *ops, void __iomem *area, u32 offset,
-			   u8 max_prio)
+bool __init xive_core_init(struct device_node *np, const struct xive_ops *ops,
+			   void __iomem *area, u32 offset, u8 max_prio)
 {
 	xive_tima = area;
 	xive_tima_offset = offset;
@@ -1490,7 +1600,7 @@ bool __init xive_core_init(const struct xive_ops *ops, void __iomem *area, u32 o
 	__xive_enabled = true;
 
 	pr_devel("Initializing host..\n");
-	xive_init_host();
+	xive_init_host(np);
 
 	pr_devel("Initializing boot CPU..\n");
 
@@ -1564,18 +1674,15 @@ static void xive_debug_show_cpu(struct seq_file *m, int cpu)
 	seq_puts(m, "\n");
 }
 
-static void xive_debug_show_irq(struct seq_file *m, u32 hw_irq, struct irq_data *d)
+static void xive_debug_show_irq(struct seq_file *m, struct irq_data *d)
 {
-	struct irq_chip *chip = irq_data_get_irq_chip(d);
+	unsigned int hw_irq = (unsigned int)irqd_to_hwirq(d);
 	int rc;
 	u32 target;
 	u8 prio;
 	u32 lirq;
 	struct xive_irq_data *xd;
 	u64 val;
-
-	if (!is_xive_irq(chip))
-		return;
 
 	rc = xive_ops->get_irq_config(hw_irq, &target, &prio, &lirq);
 	if (rc) {
@@ -1611,16 +1718,9 @@ static int xive_core_debug_show(struct seq_file *m, void *private)
 
 	for_each_irq_desc(i, desc) {
 		struct irq_data *d = irq_desc_get_irq_data(desc);
-		unsigned int hw_irq;
 
-		if (!d)
-			continue;
-
-		hw_irq = (unsigned int)irqd_to_hwirq(d);
-
-		/* IPIs are special (HW number 0) */
-		if (hw_irq)
-			xive_debug_show_irq(m, hw_irq, d);
+		if (d->domain == xive_irq_domain)
+			xive_debug_show_irq(m, d);
 	}
 	return 0;
 }

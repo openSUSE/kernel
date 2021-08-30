@@ -21,13 +21,6 @@
 MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_DESCRIPTION("Cirrus Logic Sound Fusion CS46XX");
 MODULE_LICENSE("GPL");
-MODULE_SUPPORTED_DEVICE("{{Cirrus Logic,Sound Fusion (CS4280)},"
-		"{Cirrus Logic,Sound Fusion (CS4610)},"
-		"{Cirrus Logic,Sound Fusion (CS4612)},"
-		"{Cirrus Logic,Sound Fusion (CS4615)},"
-		"{Cirrus Logic,Sound Fusion (CS4622)},"
-		"{Cirrus Logic,Sound Fusion (CS4624)},"
-		"{Cirrus Logic,Sound Fusion (CS4630)}}");
 
 static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
 static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
@@ -77,45 +70,53 @@ static int snd_card_cs46xx_probe(struct pci_dev *pci,
 			   0, &card);
 	if (err < 0)
 		return err;
-	if ((err = snd_cs46xx_create(card, pci,
-				     external_amp[dev], thinkpad[dev],
-				     &chip)) < 0) {
+	err = snd_cs46xx_create(card, pci,
+				external_amp[dev], thinkpad[dev],
+				&chip);
+	if (err < 0) {
 		snd_card_free(card);
 		return err;
 	}
 	card->private_data = chip;
 	chip->accept_valid = mmap_valid[dev];
-	if ((err = snd_cs46xx_pcm(chip, 0)) < 0) {
+	err = snd_cs46xx_pcm(chip, 0);
+	if (err < 0) {
 		snd_card_free(card);
 		return err;
 	}
 #ifdef CONFIG_SND_CS46XX_NEW_DSP
-	if ((err = snd_cs46xx_pcm_rear(chip, 1)) < 0) {
+	err = snd_cs46xx_pcm_rear(chip, 1);
+	if (err < 0) {
 		snd_card_free(card);
 		return err;
 	}
-	if ((err = snd_cs46xx_pcm_iec958(chip, 2)) < 0) {
+	err = snd_cs46xx_pcm_iec958(chip, 2);
+	if (err < 0) {
 		snd_card_free(card);
 		return err;
 	}
 #endif
-	if ((err = snd_cs46xx_mixer(chip, 2)) < 0) {
+	err = snd_cs46xx_mixer(chip, 2);
+	if (err < 0) {
 		snd_card_free(card);
 		return err;
 	}
 #ifdef CONFIG_SND_CS46XX_NEW_DSP
 	if (chip->nr_ac97_codecs ==2) {
-		if ((err = snd_cs46xx_pcm_center_lfe(chip, 3)) < 0) {
+		err = snd_cs46xx_pcm_center_lfe(chip, 3);
+		if (err < 0) {
 			snd_card_free(card);
 			return err;
 		}
 	}
 #endif
-	if ((err = snd_cs46xx_midi(chip, 0)) < 0) {
+	err = snd_cs46xx_midi(chip, 0);
+	if (err < 0) {
 		snd_card_free(card);
 		return err;
 	}
-	if ((err = snd_cs46xx_start_dsp(chip)) < 0) {
+	err = snd_cs46xx_start_dsp(chip);
+	if (err < 0) {
 		snd_card_free(card);
 		return err;
 	}
@@ -131,7 +132,8 @@ static int snd_card_cs46xx_probe(struct pci_dev *pci,
 		chip->ba1_addr,
 		chip->irq);
 
-	if ((err = snd_card_register(card)) < 0) {
+	err = snd_card_register(card);
+	if (err < 0) {
 		snd_card_free(card);
 		return err;
 	}

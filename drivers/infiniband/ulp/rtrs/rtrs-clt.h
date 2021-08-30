@@ -29,6 +29,7 @@ enum rtrs_clt_state {
 enum rtrs_mp_policy {
 	MP_POLICY_RR,
 	MP_POLICY_MIN_INFLIGHT,
+	MP_POLICY_MIN_LATENCY,
 };
 
 /* see Documentation/ABI/testing/sysfs-class-rtrs-client for details */
@@ -70,7 +71,7 @@ struct rtrs_clt_stats {
 struct rtrs_clt_con {
 	struct rtrs_con	c;
 	struct rtrs_iu		*rsp_ius;
-	u32			queue_size;
+	u32			queue_num;
 	unsigned int		cpu;
 	struct mutex		con_mutex;
 	atomic_t		io_cnt;
@@ -115,6 +116,7 @@ struct rtrs_clt_io_req {
 	int			inv_errno;
 	bool			need_inv_comp;
 	bool			need_inv;
+	refcount_t		ref;
 };
 
 struct rtrs_rbuf {
@@ -140,7 +142,6 @@ struct rtrs_clt_sess {
 	u32			chunk_size;
 	size_t			queue_depth;
 	u32			max_pages_per_mr;
-	int			max_send_sge;
 	u32			flags;
 	struct kobject		kobj;
 	u8			for_new_clt;
@@ -166,7 +167,6 @@ struct rtrs_clt {
 	unsigned int		max_reconnect_attempts;
 	unsigned int		reconnect_delay_sec;
 	unsigned int		max_segments;
-	size_t			max_segment_size;
 	void			*permits;
 	unsigned long		*permits_map;
 	size_t			queue_depth;
@@ -202,7 +202,7 @@ static inline struct rtrs_permit *get_permit(struct rtrs_clt *clt, int idx)
 }
 
 int rtrs_clt_reconnect_from_sysfs(struct rtrs_clt_sess *sess);
-int rtrs_clt_disconnect_from_sysfs(struct rtrs_clt_sess *sess);
+void rtrs_clt_close_conns(struct rtrs_clt_sess *sess, bool wait);
 int rtrs_clt_create_path_from_sysfs(struct rtrs_clt *clt,
 				     struct rtrs_addr *addr);
 int rtrs_clt_remove_path_from_sysfs(struct rtrs_clt_sess *sess,
@@ -244,8 +244,7 @@ ssize_t rtrs_clt_reset_all_help(struct rtrs_clt_stats *stats,
 /* rtrs-clt-sysfs.c */
 
 int rtrs_clt_create_sysfs_root_files(struct rtrs_clt *clt);
-void rtrs_clt_destroy_sysfs_root_folders(struct rtrs_clt *clt);
-void rtrs_clt_destroy_sysfs_root_files(struct rtrs_clt *clt);
+void rtrs_clt_destroy_sysfs_root(struct rtrs_clt *clt);
 
 int rtrs_clt_create_sess_files(struct rtrs_clt_sess *sess);
 void rtrs_clt_destroy_sess_files(struct rtrs_clt_sess *sess,

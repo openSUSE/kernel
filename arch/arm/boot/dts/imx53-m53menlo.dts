@@ -54,7 +54,8 @@
 	};
 
 	panel {
-		compatible = "edt,etm070080dh6";
+		compatible = "edt,etm0700g0dh6";
+		pinctrl-0 = <&pinctrl_display_gpio>;
 		enable-gpios = <&gpio6 0 GPIO_ACTIVE_HIGH>;
 
 		port {
@@ -103,7 +104,7 @@
 &ecspi2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_ecspi2>;
-	cs-gpios = <&gpio2 26 GPIO_ACTIVE_HIGH>, <&gpio2 27 GPIO_ACTIVE_HIGH>;
+	cs-gpios = <&gpio2 26 GPIO_ACTIVE_LOW>, <&gpio2 27 GPIO_ACTIVE_LOW>;
 	status = "okay";
 
 	spidev@0 {
@@ -387,13 +388,13 @@
 
 		pinctrl_power_button: powerbutgrp {
 			fsl,pins = <
-				MX53_PAD_SD2_DATA2__GPIO1_13		0x1e4
+				MX53_PAD_SD2_DATA0__GPIO1_15		0x1e4
 			>;
 		};
 
 		pinctrl_power_out: poweroutgrp {
 			fsl,pins = <
-				MX53_PAD_SD2_DATA0__GPIO1_15		0x1e4
+				MX53_PAD_SD2_DATA2__GPIO1_13		0x1e4
 			>;
 		};
 

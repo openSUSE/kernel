@@ -281,10 +281,10 @@ static void omap_mcpdm_dai_shutdown(struct snd_pcm_substream *substream,
 	}
 
 	if (mcpdm->latency[stream2])
-		pm_qos_update_request(&mcpdm->pm_qos_req,
-				      mcpdm->latency[stream2]);
+		cpu_latency_qos_update_request(&mcpdm->pm_qos_req,
+					       mcpdm->latency[stream2]);
 	else if (mcpdm->latency[stream1])
-		pm_qos_remove_request(&mcpdm->pm_qos_req);
+		cpu_latency_qos_remove_request(&mcpdm->pm_qos_req);
 
 	mcpdm->latency[stream1] = 0;
 
@@ -309,19 +309,19 @@ static int omap_mcpdm_dai_hw_params(struct snd_pcm_substream *substream,
 			/* up to 3 channels for capture */
 			return -EINVAL;
 		link_mask |= 1 << 4;
-		/* fall through */
+		fallthrough;
 	case 4:
 		if (stream == SNDRV_PCM_STREAM_CAPTURE)
 			/* up to 3 channels for capture */
 			return -EINVAL;
 		link_mask |= 1 << 3;
-		/* fall through */
+		fallthrough;
 	case 3:
 		link_mask |= 1 << 2;
-		/* fall through */
+		fallthrough;
 	case 2:
 		link_mask |= 1 << 1;
-		/* fall through */
+		fallthrough;
 	case 1:
 		link_mask |= 1 << 0;
 		break;
@@ -386,10 +386,10 @@ static int omap_mcpdm_prepare(struct snd_pcm_substream *substream,
 	if (!latency || mcpdm->latency[stream1] < latency)
 		latency = mcpdm->latency[stream1];
 
-	if (pm_qos_request_active(pm_qos_req))
-		pm_qos_update_request(pm_qos_req, latency);
+	if (cpu_latency_qos_request_active(pm_qos_req))
+		cpu_latency_qos_update_request(pm_qos_req, latency);
 	else if (latency)
-		pm_qos_add_request(pm_qos_req, PM_QOS_CPU_DMA_LATENCY, latency);
+		cpu_latency_qos_add_request(pm_qos_req, latency);
 
 	if (!omap_mcpdm_active(mcpdm)) {
 		omap_mcpdm_start(mcpdm);
@@ -451,8 +451,8 @@ static int omap_mcpdm_remove(struct snd_soc_dai *dai)
 	free_irq(mcpdm->irq, (void *)mcpdm);
 	pm_runtime_disable(mcpdm->dev);
 
-	if (pm_qos_request_active(&mcpdm->pm_qos_req))
-		pm_qos_remove_request(&mcpdm->pm_qos_req);
+	if (cpu_latency_qos_request_active(&mcpdm->pm_qos_req))
+		cpu_latency_qos_remove_request(&mcpdm->pm_qos_req);
 
 	return 0;
 }

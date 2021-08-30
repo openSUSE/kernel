@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 menuconfig STAGING
 	bool "Staging drivers"
-	---help---
+	help
 	  This option allows you to select a number of drivers that are
 	  not of the "normal" Linux kernel quality level.  These drivers
 	  are placed here in order to get a wider audience to make use of
@@ -25,8 +25,6 @@ menuconfig STAGING
 if STAGING
 
 source "drivers/staging/wlan-ng/Kconfig"
-
-source "drivers/staging/comedi/Kconfig"
 
 source "drivers/staging/olpc_dcon/Kconfig"
 
@@ -56,8 +54,6 @@ source "drivers/staging/sm750fb/Kconfig"
 
 source "drivers/staging/emxx_udc/Kconfig"
 
-source "drivers/staging/speakup/Kconfig"
-
 source "drivers/staging/nvec/Kconfig"
 
 source "drivers/staging/media/Kconfig"
@@ -70,8 +66,6 @@ source "drivers/staging/gdm724x/Kconfig"
 
 source "drivers/staging/fwserial/Kconfig"
 
-source "drivers/staging/goldfish/Kconfig"
-
 source "drivers/staging/netlogic/Kconfig"
 
 source "drivers/staging/gs_fpgaboot/Kconfig"
@@ -81,10 +75,6 @@ source "drivers/staging/unisys/Kconfig"
 source "drivers/staging/clocking-wizard/Kconfig"
 
 source "drivers/staging/fbtft/Kconfig"
-
-source "drivers/staging/fsl-dpaa2/Kconfig"
-
-source "drivers/staging/wilc1000/Kconfig"
 
 source "drivers/staging/most/Kconfig"
 
@@ -98,28 +88,20 @@ source "drivers/staging/pi433/Kconfig"
 
 source "drivers/staging/mt7621-pci/Kconfig"
 
-source "drivers/staging/mt7621-pci-phy/Kconfig"
-
-source "drivers/staging/mt7621-pinctrl/Kconfig"
-
 source "drivers/staging/mt7621-dma/Kconfig"
 
 source "drivers/staging/ralink-gdma/Kconfig"
 
 source "drivers/staging/mt7621-dts/Kconfig"
 
-source "drivers/staging/gasket/Kconfig"
-
 source "drivers/staging/axis-fifo/Kconfig"
-
-source "drivers/staging/erofs/Kconfig"
 
 source "drivers/staging/fieldbus/Kconfig"
 
-source "drivers/staging/kpc2000/Kconfig"
-
-source "drivers/staging/isdn/Kconfig"
-
 source "drivers/staging/qlge/Kconfig"
+
+source "drivers/staging/wfx/Kconfig"
+
+source "drivers/staging/hikey9xx/Kconfig"
 
 endif # STAGING

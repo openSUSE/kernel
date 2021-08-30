@@ -6,6 +6,8 @@
 #ifndef __XFS_RMAP_H__
 #define __XFS_RMAP_H__
 
+struct xfs_perag;
+
 static inline void
 xfs_rmap_ino_bmbt_owner(
 	struct xfs_owner_info	*oi,
@@ -68,6 +70,7 @@ xfs_rmap_irec_offset_unpack(
 	if (offset & ~(XFS_RMAP_OFF_MASK | XFS_RMAP_OFF_FLAGS))
 		return -EFSCORRUPTED;
 	irec->rm_offset = XFS_RMAP_OFF(offset);
+	irec->rm_flags = 0;
 	if (offset & XFS_RMAP_OFF_ATTR_FORK)
 		irec->rm_flags |= XFS_RMAP_ATTR_FORK;
 	if (offset & XFS_RMAP_OFF_BMBT_BLOCK)
@@ -112,10 +115,10 @@ xfs_owner_info_pack(
 }
 
 int xfs_rmap_alloc(struct xfs_trans *tp, struct xfs_buf *agbp,
-		   xfs_agnumber_t agno, xfs_agblock_t bno, xfs_extlen_t len,
+		   struct xfs_perag *pag, xfs_agblock_t bno, xfs_extlen_t len,
 		   const struct xfs_owner_info *oinfo);
 int xfs_rmap_free(struct xfs_trans *tp, struct xfs_buf *agbp,
-		  xfs_agnumber_t agno, xfs_agblock_t bno, xfs_extlen_t len,
+		  struct xfs_perag *pag, xfs_agblock_t bno, xfs_extlen_t len,
 		  const struct xfs_owner_info *oinfo);
 
 int xfs_rmap_lookup_le(struct xfs_btree_cur *cur, xfs_agblock_t bno,
@@ -161,16 +164,16 @@ struct xfs_rmap_intent {
 };
 
 /* functions for updating the rmapbt based on bmbt map/unmap operations */
-int xfs_rmap_map_extent(struct xfs_trans *tp, struct xfs_inode *ip,
+void xfs_rmap_map_extent(struct xfs_trans *tp, struct xfs_inode *ip,
 		int whichfork, struct xfs_bmbt_irec *imap);
-int xfs_rmap_unmap_extent(struct xfs_trans *tp, struct xfs_inode *ip,
+void xfs_rmap_unmap_extent(struct xfs_trans *tp, struct xfs_inode *ip,
 		int whichfork, struct xfs_bmbt_irec *imap);
-int xfs_rmap_convert_extent(struct xfs_mount *mp, struct xfs_trans *tp,
+void xfs_rmap_convert_extent(struct xfs_mount *mp, struct xfs_trans *tp,
 		struct xfs_inode *ip, int whichfork,
 		struct xfs_bmbt_irec *imap);
-int xfs_rmap_alloc_extent(struct xfs_trans *tp, xfs_agnumber_t agno,
+void xfs_rmap_alloc_extent(struct xfs_trans *tp, xfs_agnumber_t agno,
 		xfs_agblock_t bno, xfs_extlen_t len, uint64_t owner);
-int xfs_rmap_free_extent(struct xfs_trans *tp, xfs_agnumber_t agno,
+void xfs_rmap_free_extent(struct xfs_trans *tp, xfs_agnumber_t agno,
 		xfs_agblock_t bno, xfs_extlen_t len, uint64_t owner);
 
 void xfs_rmap_finish_one_cleanup(struct xfs_trans *tp,

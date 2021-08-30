@@ -76,7 +76,7 @@ static ssize_t bitstream_metadata_show(struct device *dev,
 static DEVICE_ATTR_RO(bitstream_metadata);
 
 static ssize_t cache_size_show(struct device *dev,
-				struct device_attribute *attr, char *buf)
+			       struct device_attribute *attr, char *buf)
 {
 	void __iomem *base;
 	u64 v;
@@ -86,27 +86,12 @@ static ssize_t cache_size_show(struct device *dev,
 	v = readq(base + FME_HDR_CAP);
 
 	return sprintf(buf, "%u\n",
-			(unsigned int)FIELD_GET(FME_CAP_CACHE_SIZE, v));
+		       (unsigned int)FIELD_GET(FME_CAP_CACHE_SIZE, v));
 }
 static DEVICE_ATTR_RO(cache_size);
 
 static ssize_t fabric_version_show(struct device *dev,
-				struct device_attribute *attr, char *buf)
-{
-	void __iomem *base;
-	u64 v;
-
-    base = dfl_get_feature_ioaddr_by_id(dev, FME_FEATURE_ID_HEADER);
-
-	v = readq(base + FME_HDR_CAP);
-
-	return sprintf(buf, "%u\n",
-			(unsigned int)FIELD_GET(FME_CAP_FABRIC_VERID, v));
-}
-static DEVICE_ATTR_RO(fabric_version);
-
-static ssize_t socket_id_show(struct device *dev,
-			struct device_attribute *attr, char *buf)
+				   struct device_attribute *attr, char *buf)
 {
 	void __iomem *base;
 	u64 v;
@@ -116,7 +101,22 @@ static ssize_t socket_id_show(struct device *dev,
 	v = readq(base + FME_HDR_CAP);
 
 	return sprintf(buf, "%u\n",
-			(unsigned int)FIELD_GET(FME_CAP_SOCKET_ID, v));
+		       (unsigned int)FIELD_GET(FME_CAP_FABRIC_VERID, v));
+}
+static DEVICE_ATTR_RO(fabric_version);
+
+static ssize_t socket_id_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
+{
+	void __iomem *base;
+	u64 v;
+
+	base = dfl_get_feature_ioaddr_by_id(dev, FME_FEATURE_ID_HEADER);
+
+	v = readq(base + FME_HDR_CAP);
+
+	return sprintf(buf, "%u\n",
+		       (unsigned int)FIELD_GET(FME_CAP_SOCKET_ID, v));
 }
 static DEVICE_ATTR_RO(socket_id);
 
@@ -620,11 +620,17 @@ static int fme_release(struct inode *inode, struct file *filp)
 {
 	struct dfl_feature_platform_data *pdata = filp->private_data;
 	struct platform_device *pdev = pdata->dev;
+	struct dfl_feature *feature;
 
 	dev_dbg(&pdev->dev, "Device File Release\n");
 
 	mutex_lock(&pdata->lock);
 	dfl_feature_dev_use_end(pdata);
+
+	if (!dfl_feature_dev_use_count(pdata))
+		dfl_fpga_dev_for_each_feature(pdata, feature)
+			dfl_fpga_set_irq_triggers(feature, 0,
+						  feature->nr_irqs, NULL);
 	mutex_unlock(&pdata->lock);
 
 	return 0;

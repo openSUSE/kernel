@@ -1150,7 +1150,7 @@ static struct sock *chtls_recv_sock(struct sock *lsk,
 		fl6.daddr = ip6h->saddr;
 		fl6.fl6_dport = inet_rsk(oreq)->ir_rmt_port;
 		fl6.fl6_sport = htons(inet_rsk(oreq)->ir_num);
-		security_req_classify_flow(oreq, flowi6_to_flowi(&fl6));
+		security_req_classify_flow(oreq, flowi6_to_flowi_common(&fl6));
 		dst = ip6_dst_lookup_flow(sock_net(lsk), lsk, &fl6, NULL);
 		if (IS_ERR(dst))
 			goto free_sk;
@@ -1158,11 +1158,9 @@ static struct sock *chtls_recv_sock(struct sock *lsk,
 #endif
 	}
 	if (!n || !n->dev)
-		goto free_sk;
+		goto free_dst;
 
 	ndev = n->dev;
-	if (!ndev)
-		goto free_dst;
 	if (is_vlan_dev(ndev))
 		ndev = vlan_dev_real_dev(ndev);
 
@@ -1230,8 +1228,9 @@ static struct sock *chtls_recv_sock(struct sock *lsk,
 	csk->sndbuf = csk->snd_win;
 	csk->ulp_mode = ULP_MODE_TLS;
 	step = cdev->lldi->nrxq / cdev->lldi->nchan;
-	csk->rss_qid = cdev->lldi->rxq_ids[port_id * step];
 	rxq_idx = port_id * step;
+	rxq_idx += cdev->round_robin_cnt++ % step;
+	csk->rss_qid = cdev->lldi->rxq_ids[rxq_idx];
 	csk->txq_idx = (rxq_idx < cdev->lldi->ntxq) ? rxq_idx :
 			port_id * step;
 	csk->sndbuf = newsk->sk_sndbuf;
@@ -1249,7 +1248,8 @@ static struct sock *chtls_recv_sock(struct sock *lsk,
 free_csk:
 	chtls_sock_release(&csk->kref);
 free_dst:
-	neigh_release(n);
+	if (n)
+		neigh_release(n);
 	dst_release(dst);
 free_sk:
 	inet_csk_prepare_forced_close(newsk);
@@ -1366,7 +1366,7 @@ static void chtls_pass_accept_request(struct sock *sk,
 
 	oreq->rsk_rcv_wnd = 0;
 	oreq->rsk_window_clamp = 0;
-	oreq->cookie_ts = 0;
+	oreq->syncookie = 0;
 	oreq->mss = 0;
 	oreq->ts_recent = 0;
 
@@ -2134,7 +2134,7 @@ static void chtls_abort_req_rss(struct sock *sk, struct sk_buff *skb)
 		sk->sk_err = ETIMEDOUT;
 
 		if (!sock_flag(sk, SOCK_DEAD))
-			sk->sk_error_report(sk);
+			sk_error_report(sk);
 
 		if (sk->sk_state == TCP_SYN_RECV && !abort_syn_rcv(sk, skb))
 			return;

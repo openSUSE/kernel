@@ -5,6 +5,7 @@
 #include <linux/blkdev.h>
 #include <linux/sbitmap.h>
 #include <linux/srcu.h>
+#include <linux/lockdep.h>
 
 struct blk_mq_tags;
 struct blk_flush_queue;
@@ -175,7 +176,7 @@ struct blk_mq_hw_ctx {
 	 * blocking (BLK_MQ_F_BLOCKING). Must be the last member - see also
 	 * blk_mq_hw_ctx_size().
 	 */
-	struct srcu_struct	srcu[0];
+	struct srcu_struct	srcu[];
 };
 
 /**
@@ -231,6 +232,8 @@ enum hctx_type {
  * @flags:	   Zero or more BLK_MQ_F_* flags.
  * @driver_data:   Pointer to data owned by the block driver that created this
  *		   tag set.
+ * @active_queues_shared_sbitmap:
+ * 		   number of active request queues per tag set.
  * @__bitmap_tags: A shared tags sbitmap, used over all hctx's
  * @__breserved_tags:
  *		   A shared reserved tags sbitmap, used over all hctx's
@@ -252,6 +255,7 @@ struct blk_mq_tag_set {
 	unsigned int		timeout;
 	unsigned int		flags;
 	void			*driver_data;
+	atomic_t		active_queues_shared_sbitmap;
 
 	struct sbitmap_queue	__bitmap_tags;
 	struct sbitmap_queue	__breserved_tags;
@@ -272,27 +276,9 @@ struct blk_mq_queue_data {
 	bool last;
 };
 
-typedef blk_status_t (queue_rq_fn)(struct blk_mq_hw_ctx *,
-		const struct blk_mq_queue_data *);
-typedef void (commit_rqs_fn)(struct blk_mq_hw_ctx *);
-typedef bool (get_budget_fn)(struct request_queue *);
-typedef void (put_budget_fn)(struct request_queue *);
-typedef enum blk_eh_timer_return (timeout_fn)(struct request *, bool);
-typedef int (init_hctx_fn)(struct blk_mq_hw_ctx *, void *, unsigned int);
-typedef void (exit_hctx_fn)(struct blk_mq_hw_ctx *, unsigned int);
-typedef int (init_request_fn)(struct blk_mq_tag_set *set, struct request *,
-		unsigned int, unsigned int);
-typedef void (exit_request_fn)(struct blk_mq_tag_set *set, struct request *,
-		unsigned int);
-
 typedef bool (busy_iter_fn)(struct blk_mq_hw_ctx *, struct request *, void *,
 		bool);
 typedef bool (busy_tag_iter_fn)(struct request *, void *, bool);
-typedef int (poll_fn)(struct blk_mq_hw_ctx *);
-typedef int (map_queues_fn)(struct blk_mq_tag_set *set);
-typedef bool (busy_fn)(struct request_queue *);
-typedef void (complete_fn)(struct request *);
-typedef void (cleanup_rq_fn)(struct request *);
 
 /**
  * struct blk_mq_ops - Callback functions that implements block driver
@@ -302,7 +288,8 @@ struct blk_mq_ops {
 	/**
 	 * @queue_rq: Queue a new request from block IO.
 	 */
-	queue_rq_fn		*queue_rq;
+	blk_status_t (*queue_rq)(struct blk_mq_hw_ctx *,
+				 const struct blk_mq_queue_data *);
 
 	/**
 	 * @commit_rqs: If a driver uses bd->last to judge when to submit
@@ -311,7 +298,7 @@ struct blk_mq_ops {
 	 * purpose of kicking the hardware (which the last request otherwise
 	 * would have done).
 	 */
-	commit_rqs_fn		*commit_rqs;
+	void (*commit_rqs)(struct blk_mq_hw_ctx *);
 
 	/**
 	 * @get_budget: Reserve budget before queue request, once .queue_rq is
@@ -319,37 +306,47 @@ struct blk_mq_ops {
 	 * reserved budget. Also we have to handle failure case
 	 * of .get_budget for avoiding I/O deadlock.
 	 */
-	get_budget_fn		*get_budget;
+	int (*get_budget)(struct request_queue *);
+
 	/**
 	 * @put_budget: Release the reserved budget.
 	 */
-	put_budget_fn		*put_budget;
+	void (*put_budget)(struct request_queue *, int);
+
+	/**
+	 * @set_rq_budget_token: store rq's budget token
+	 */
+	void (*set_rq_budget_token)(struct request *, int);
+	/**
+	 * @get_rq_budget_token: retrieve rq's budget token
+	 */
+	int (*get_rq_budget_token)(struct request *);
 
 	/**
 	 * @timeout: Called on request timeout.
 	 */
-	timeout_fn		*timeout;
+	enum blk_eh_timer_return (*timeout)(struct request *, bool);
 
 	/**
 	 * @poll: Called to poll for completion of a specific tag.
 	 */
-	poll_fn			*poll;
+	int (*poll)(struct blk_mq_hw_ctx *);
 
 	/**
 	 * @complete: Mark the request as complete.
 	 */
-	complete_fn		*complete;
+	void (*complete)(struct request *);
 
 	/**
 	 * @init_hctx: Called when the block layer side of a hardware queue has
 	 * been set up, allowing the driver to allocate/init matching
 	 * structures.
 	 */
-	init_hctx_fn		*init_hctx;
+	int (*init_hctx)(struct blk_mq_hw_ctx *, void *, unsigned int);
 	/**
 	 * @exit_hctx: Ditto for exit/teardown.
 	 */
-	exit_hctx_fn		*exit_hctx;
+	void (*exit_hctx)(struct blk_mq_hw_ctx *, unsigned int);
 
 	/**
 	 * @init_request: Called for every command allocated by the block layer
@@ -358,11 +355,13 @@ struct blk_mq_ops {
 	 * Tag greater than or equal to queue_depth is for setting up
 	 * flush request.
 	 */
-	init_request_fn		*init_request;
+	int (*init_request)(struct blk_mq_tag_set *set, struct request *,
+			    unsigned int, unsigned int);
 	/**
 	 * @exit_request: Ditto for exit/teardown.
 	 */
-	exit_request_fn		*exit_request;
+	void (*exit_request)(struct blk_mq_tag_set *set, struct request *,
+			     unsigned int);
 
 	/**
 	 * @initialize_rq_fn: Called from inside blk_get_request().
@@ -373,18 +372,18 @@ struct blk_mq_ops {
 	 * @cleanup_rq: Called before freeing one request which isn't completed
 	 * yet, and usually for freeing the driver private data.
 	 */
-	cleanup_rq_fn		*cleanup_rq;
+	void (*cleanup_rq)(struct request *);
 
 	/**
 	 * @busy: If set, returns whether or not this queue currently is busy.
 	 */
-	busy_fn			*busy;
+	bool (*busy)(struct request_queue *);
 
 	/**
 	 * @map_queues: This allows drivers specify their own queue mapping by
 	 * overriding the setup-time function that builds the mq_map.
 	 */
-	map_queues_fn		*map_queues;
+	int (*map_queues)(struct blk_mq_tag_set *set);
 
 #ifdef CONFIG_BLK_DEBUG_FS
 	/**
@@ -397,7 +396,7 @@ struct blk_mq_ops {
 
 enum {
 	BLK_MQ_F_SHOULD_MERGE	= 1 << 0,
-	BLK_MQ_F_TAG_SHARED	= 1 << 1,
+	BLK_MQ_F_TAG_QUEUE_SHARED = 1 << 1,
 	/*
 	 * Set when this device requires underlying blk-mq device for
 	 * completing IO:
@@ -427,19 +426,27 @@ enum {
 	((policy & ((1 << BLK_MQ_F_ALLOC_POLICY_BITS) - 1)) \
 		<< BLK_MQ_F_ALLOC_POLICY_START_BIT)
 
-struct request_queue *blk_mq_init_queue(struct blk_mq_tag_set *);
-struct request_queue *blk_mq_init_queue_data(struct blk_mq_tag_set *set,
+#define blk_mq_alloc_disk(set, queuedata)				\
+({									\
+	static struct lock_class_key __key;				\
+	struct gendisk *__disk = __blk_mq_alloc_disk(set, queuedata);	\
+									\
+	if (!IS_ERR(__disk))						\
+		lockdep_init_map(&__disk->lockdep_map,			\
+			"(bio completion)", &__key, 0);			\
+	__disk;								\
+})
+struct gendisk *__blk_mq_alloc_disk(struct blk_mq_tag_set *set,
 		void *queuedata);
-struct request_queue *blk_mq_init_allocated_queue(struct blk_mq_tag_set *set,
-						  struct request_queue *q,
-						  bool elevator_init);
-struct request_queue *blk_mq_init_sq_queue(struct blk_mq_tag_set *set,
-						const struct blk_mq_ops *ops,
-						unsigned int queue_depth,
-						unsigned int set_flags);
+struct request_queue *blk_mq_init_queue(struct blk_mq_tag_set *);
+int blk_mq_init_allocated_queue(struct blk_mq_tag_set *set,
+		struct request_queue *q);
 void blk_mq_unregister_dev(struct device *, struct request_queue *);
 
 int blk_mq_alloc_tag_set(struct blk_mq_tag_set *set);
+int blk_mq_alloc_sq_tag_set(struct blk_mq_tag_set *set,
+		const struct blk_mq_ops *ops, unsigned int queue_depth,
+		unsigned int set_flags);
 void blk_mq_free_tag_set(struct blk_mq_tag_set *set);
 
 void blk_mq_flush_plug_list(struct blk_plug *plug, bool from_schedule);
@@ -453,8 +460,8 @@ enum {
 	BLK_MQ_REQ_NOWAIT	= (__force blk_mq_req_flags_t)(1 << 0),
 	/* allocate from reserved pool */
 	BLK_MQ_REQ_RESERVED	= (__force blk_mq_req_flags_t)(1 << 1),
-	/* set RQF_PREEMPT */
-	BLK_MQ_REQ_PREEMPT	= (__force blk_mq_req_flags_t)(1 << 3),
+	/* set RQF_PM */
+	BLK_MQ_REQ_PM		= (__force blk_mq_req_flags_t)(1 << 2),
 };
 
 struct request *blk_mq_alloc_request(struct request_queue *q, unsigned int op,
@@ -500,6 +507,18 @@ static inline int blk_mq_request_completed(struct request *rq)
 	return blk_mq_rq_state(rq) == MQ_RQ_COMPLETE;
 }
 
+/*
+ * 
+ * Set the state to complete when completing a request from inside ->queue_rq.
+ * This is used by drivers that want to ensure special complete actions that
+ * need access to the request are called on failure, e.g. by nvme for
+ * multipathing.
+ */
+static inline void blk_mq_set_request_complete(struct request *rq)
+{
+	WRITE_ONCE(rq->state, MQ_RQ_COMPLETE);
+}
+
 void blk_mq_start_request(struct request *rq);
 void blk_mq_end_request(struct request *rq, blk_status_t error);
 void __blk_mq_end_request(struct request *rq, blk_status_t error);
@@ -509,8 +528,6 @@ void blk_mq_kick_requeue_list(struct request_queue *q);
 void blk_mq_delay_kick_requeue_list(struct request_queue *q, unsigned long msecs);
 void blk_mq_complete_request(struct request *rq);
 bool blk_mq_complete_request_remote(struct request *rq);
-bool blk_mq_bio_list_merge(struct request_queue *q, struct list_head *list,
-			   struct bio *bio, unsigned int nr_segs);
 bool blk_mq_queue_stopped(struct request_queue *q);
 void blk_mq_stop_hw_queue(struct blk_mq_hw_ctx *hctx);
 void blk_mq_start_hw_queue(struct blk_mq_hw_ctx *hctx);
@@ -602,6 +619,20 @@ static inline void blk_mq_cleanup_rq(struct request *rq)
 		rq->q->mq_ops->cleanup_rq(rq);
 }
 
+static inline void blk_rq_bio_prep(struct request *rq, struct bio *bio,
+		unsigned int nr_segs)
+{
+	rq->nr_phys_segments = nr_segs;
+	rq->__data_len = bio->bi_iter.bi_size;
+	rq->bio = rq->biotail = bio;
+	rq->ioprio = bio_prio(bio);
+
+	if (bio->bi_bdev)
+		rq->rq_disk = bio->bi_bdev->bd_disk;
+}
+
 blk_qc_t blk_mq_submit_bio(struct bio *bio);
+void blk_mq_hctx_set_fq_lock_class(struct blk_mq_hw_ctx *hctx,
+		struct lock_class_key *key);
 
 #endif

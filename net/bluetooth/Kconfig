@@ -5,12 +5,13 @@
 
 menuconfig BT
 	tristate "Bluetooth subsystem support"
-	depends on NET && !S390
+	depends on !S390
 	depends on RFKILL || !RFKILL
 	select CRC16
 	select CRYPTO
-	select CRYPTO_BLKCIPHER
-	select CRYPTO_AES
+	select CRYPTO_SKCIPHER
+	select CRYPTO_LIB_AES
+	imply CRYPTO_AES
 	select CRYPTO_CMAC
 	select CRYPTO_ECB
 	select CRYPTO_SHA256
@@ -63,7 +64,6 @@ source "net/bluetooth/hidp/Kconfig"
 config BT_HS
 	bool "Bluetooth High Speed (HS) features"
 	depends on BT_BREDR
-	default y
 	help
 	  Bluetooth High Speed includes support for off-loading
 	  Bluetooth connections via 802.11 (wifi) physical layer
@@ -98,6 +98,13 @@ config BT_MSFTEXT
 	help
 	  This options enables support for the Microsoft defined HCI
 	  vendor extensions.
+
+config BT_AOSPEXT
+	bool "Enable Android Open Source Project extensions"
+	depends on BT
+	help
+	  This options enables support for the Android Open Source
+	  Project defined HCI vendor extensions.
 
 config BT_DEBUGFS
 	bool "Export Bluetooth internals in debugfs"

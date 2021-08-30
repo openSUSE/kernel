@@ -273,7 +273,6 @@ static inline struct s2255_dev *to_s2255_dev(struct v4l2_device *v4l2_dev)
 }
 
 struct s2255_fmt {
-	char *name;
 	u32 fourcc;
 	int depth;
 };
@@ -385,29 +384,23 @@ MODULE_DEVICE_TABLE(usb, s2255_table);
 /* JPEG formats must be defined last to support jpeg_enable parameter */
 static const struct s2255_fmt formats[] = {
 	{
-		.name = "4:2:2, packed, YUYV",
 		.fourcc = V4L2_PIX_FMT_YUYV,
 		.depth = 16
 
 	}, {
-		.name = "4:2:2, packed, UYVY",
 		.fourcc = V4L2_PIX_FMT_UYVY,
 		.depth = 16
 	}, {
-		.name = "4:2:2, planar, YUV422P",
 		.fourcc = V4L2_PIX_FMT_YUV422P,
 		.depth = 16
 
 	}, {
-		.name = "8bpp GREY",
 		.fourcc = V4L2_PIX_FMT_GREY,
 		.depth = 8
 	}, {
-		.name = "JPG",
 		.fourcc = V4L2_PIX_FMT_JPEG,
 		.depth = 24
 	}, {
-		.name = "MJPG",
 		.fourcc = V4L2_PIX_FMT_MJPEG,
 		.depth = 24
 	}
@@ -737,7 +730,6 @@ static int vidioc_enum_fmt_vid_cap(struct file *file, void *priv,
 	if (!jpeg_enable && ((formats[index].fourcc == V4L2_PIX_FMT_JPEG) ||
 			(formats[index].fourcc == V4L2_PIX_FMT_MJPEG)))
 		return -EINVAL;
-	strscpy(f->description, formats[index].name, sizeof(f->description));
 	f->pixelformat = formats[index].fourcc;
 	return 0;
 }
@@ -759,7 +751,6 @@ static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 	f->fmt.pix.bytesperline = f->fmt.pix.width * (vc->fmt->depth >> 3);
 	f->fmt.pix.sizeimage = f->fmt.pix.height * f->fmt.pix.bytesperline;
 	f->fmt.pix.colorspace = V4L2_COLORSPACE_SMPTE170M;
-	f->fmt.pix.priv = 0;
 	return 0;
 }
 
@@ -775,8 +766,6 @@ static int vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 
 	if (fmt == NULL)
 		return -EINVAL;
-
-	field = f->fmt.pix.field;
 
 	dprintk(vc->dev, 50, "%s NTSC: %d suggested width: %d, height: %d\n",
 		__func__, is_ntsc, f->fmt.pix.width, f->fmt.pix.height);
@@ -811,7 +800,6 @@ static int vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 	f->fmt.pix.bytesperline = (f->fmt.pix.width * fmt->depth) >> 3;
 	f->fmt.pix.sizeimage = f->fmt.pix.height * f->fmt.pix.bytesperline;
 	f->fmt.pix.colorspace = V4L2_COLORSPACE_SMPTE170M;
-	f->fmt.pix.priv = 0;
 	dprintk(vc->dev, 50, "%s: set width %d height %d field %d\n", __func__,
 		f->fmt.pix.width, f->fmt.pix.height, f->fmt.pix.field);
 	return 0;
@@ -1659,11 +1647,11 @@ static int s2255_probe_v4l(struct s2255_dev *dev)
 		video_set_drvdata(&vc->vdev, vc);
 		if (video_nr == -1)
 			ret = video_register_device(&vc->vdev,
-						    VFL_TYPE_GRABBER,
+						    VFL_TYPE_VIDEO,
 						    video_nr);
 		else
 			ret = video_register_device(&vc->vdev,
-						    VFL_TYPE_GRABBER,
+						    VFL_TYPE_VIDEO,
 						    cur_nr + i);
 
 		if (ret) {

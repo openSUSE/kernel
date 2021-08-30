@@ -54,8 +54,6 @@ dasd_ioctl_enable(struct block_device *bdev)
 		return -ENODEV;
 
 	dasd_enable_device(base);
-	/* Formatting the dasd device can change the capacity. */
-	bd_set_nr_sectors(bdev, get_capacity(base->block->gdp));
 	dasd_put_device(base);
 	return 0;
 }
@@ -88,7 +86,7 @@ dasd_ioctl_disable(struct block_device *bdev)
 	 * Set i_size to zero, since read, write, etc. check against this
 	 * value.
 	 */
-	bd_set_nr_sectors(bdev, 0);
+	set_capacity(bdev->bd_disk, 0);
 	dasd_put_device(base);
 	return 0;
 }
@@ -222,9 +220,8 @@ dasd_format(struct dasd_block *block, struct format_data_t *fdata)
 	 * enabling the device later.
 	 */
 	if (fdata->start_unit == 0) {
-		struct block_device *bdev = bdget_disk(block->gdp, 0);
-		bdev->bd_inode->i_blkbits = blksize_bits(fdata->blksize);
-		bdput(bdev);
+		block->gdp->part0->bd_inode->i_blkbits =
+			blksize_bits(fdata->blksize);
 	}
 
 	rc = base->discipline->format_device(base, fdata, 1);
@@ -277,7 +274,7 @@ dasd_ioctl_format(struct block_device *bdev, void __user *argp)
 		dasd_put_device(base);
 		return -EFAULT;
 	}
-	if (bdev != bdev->bd_contains) {
+	if (bdev_is_partition(bdev)) {
 		pr_warn("%s: The specified DASD is a partition and cannot be formatted\n",
 			dev_name(&base->cdev->dev));
 		dasd_put_device(base);
@@ -304,7 +301,7 @@ static int dasd_ioctl_check_format(struct block_device *bdev, void __user *argp)
 	base = dasd_device_from_gendisk(bdev->bd_disk);
 	if (!base)
 		return -ENODEV;
-	if (bdev != bdev->bd_contains) {
+	if (bdev_is_partition(bdev)) {
 		pr_warn("%s: The specified DASD is a partition and cannot be checked\n",
 			dev_name(&base->cdev->dev));
 		rc = -EINVAL;
@@ -362,7 +359,7 @@ static int dasd_ioctl_release_space(struct block_device *bdev, void __user *argp
 		rc = -EROFS;
 		goto out_err;
 	}
-	if (bdev != bdev->bd_contains) {
+	if (bdev_is_partition(bdev)) {
 		pr_warn("%s: The specified DASD is a partition and tracks cannot be released\n",
 			dev_name(&base->cdev->dev));
 		rc = -EINVAL;
@@ -532,28 +529,22 @@ static int dasd_ioctl_information(struct dasd_block *block, void __user *argp,
 /*
  * Set read only
  */
-static int
-dasd_ioctl_set_ro(struct block_device *bdev, void __user *argp)
+int dasd_set_read_only(struct block_device *bdev, bool ro)
 {
 	struct dasd_device *base;
-	int intval, rc;
+	int rc;
 
-	if (!capable(CAP_SYS_ADMIN))
-		return -EACCES;
-	if (bdev != bdev->bd_contains)
-		// ro setting is not allowed for partitions
-		return -EINVAL;
-	if (get_user(intval, (int __user *)argp))
-		return -EFAULT;
+	/* do not manipulate hardware state for partitions */
+	if (bdev_is_partition(bdev))
+		return 0;
+
 	base = dasd_device_from_gendisk(bdev->bd_disk);
 	if (!base)
 		return -ENODEV;
-	if (!intval && test_bit(DASD_FLAG_DEVICE_RO, &base->flags)) {
-		dasd_put_device(base);
-		return -EROFS;
-	}
-	set_disk_ro(bdev->bd_disk, intval);
-	rc = dasd_set_feature(base->cdev, DASD_FEATURE_READONLY, intval);
+	if (!ro && test_bit(DASD_FLAG_DEVICE_RO, &base->flags))
+		rc = -EROFS;
+	else
+		rc = dasd_set_feature(base->cdev, DASD_FEATURE_READONLY, ro);
 	dasd_put_device(base);
 	return rc;
 }
@@ -632,9 +623,6 @@ int dasd_ioctl(struct block_device *bdev, fmode_t mode,
 		break;
 	case BIODASDPRRST:
 		rc = dasd_ioctl_reset_profile(block);
-		break;
-	case BLKROSET:
-		rc = dasd_ioctl_set_ro(bdev, argp);
 		break;
 	case DASDAPIVER:
 		rc = dasd_ioctl_api_version(argp);

@@ -19,9 +19,8 @@
  * just a collection of helper routines that implement the
  * generic USB things that the real drivers can use..
  *
- * Think of this as a "USB library" rather than anything else.
- * It should be considered a slave, with no callbacks. Callbacks
- * are evil.
+ * Think of this as a "USB library" rather than anything else,
+ * with no callbacks.  Callbacks are evil.
  */
 
 #include <linux/module.h>
@@ -29,7 +28,6 @@
 #include <linux/string.h>
 #include <linux/bitops.h>
 #include <linux/slab.h>
-#include <linux/interrupt.h>  /* for in_interrupt() */
 #include <linux/kmod.h>
 #include <linux/init.h>
 #include <linux/spinlock.h>
@@ -400,6 +398,52 @@ int usb_for_each_dev(void *data, int (*fn)(struct usb_device *, void *))
 }
 EXPORT_SYMBOL_GPL(usb_for_each_dev);
 
+struct each_hub_arg {
+	void *data;
+	int (*fn)(struct device *, void *);
+};
+
+static int __each_hub(struct usb_device *hdev, void *data)
+{
+	struct each_hub_arg *arg = (struct each_hub_arg *)data;
+	struct usb_hub *hub;
+	int ret = 0;
+	int i;
+
+	hub = usb_hub_to_struct_hub(hdev);
+	if (!hub)
+		return 0;
+
+	mutex_lock(&usb_port_peer_mutex);
+
+	for (i = 0; i < hdev->maxchild; i++) {
+		ret = arg->fn(&hub->ports[i]->dev, arg->data);
+		if (ret)
+			break;
+	}
+
+	mutex_unlock(&usb_port_peer_mutex);
+
+	return ret;
+}
+
+/**
+ * usb_for_each_port - interate over all USB ports in the system
+ * @data: data pointer that will be handed to the callback function
+ * @fn: callback function to be called for each USB port
+ *
+ * Iterate over all USB ports and call @fn for each, passing it @data. If it
+ * returns anything other than 0, we break the iteration prematurely and return
+ * that value.
+ */
+int usb_for_each_port(void *data, int (*fn)(struct device *, void *))
+{
+	struct each_hub_arg arg = {data, fn};
+
+	return usb_for_each_dev(&arg, __each_hub);
+}
+EXPORT_SYMBOL_GPL(usb_for_each_port);
+
 /**
  * usb_release_dev - free a usb device structure when all users of it are finished.
  * @dev: device that's been disconnected
@@ -562,7 +606,8 @@ static bool usb_dev_authorized(struct usb_device *dev, struct usb_hcd *hcd)
  * @parent: hub to which device is connected; null to allocate a root hub
  * @bus: bus used to access the device
  * @port1: one-based index of port; ignored for root hubs
- * Context: !in_interrupt()
+ *
+ * Context: task context, might sleep.
  *
  * Only hub drivers (including virtual root hub drivers for host
  * controllers) should ever call this.
@@ -600,18 +645,6 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 	dev->dev.bus = &usb_bus_type;
 	dev->dev.type = &usb_device_type;
 	dev->dev.groups = usb_device_groups;
-	/*
-	 * Fake a dma_mask/offset for the USB device:
-	 * We cannot really use the dma-mapping API (dma_alloc_* and
-	 * dma_map_*) for USB devices but instead need to use
-	 * usb_alloc_coherent and pass data in 'urb's, but some subsystems
-	 * manually look into the mask/offset pair to determine whether
-	 * they need bounce buffers.
-	 * Note: calling dma_set_mask() on a USB device would set the
-	 * mask for the entire HCD, so don't do that.
-	 */
-	dev->dev.dma_mask = bus->sysdev->dma_mask;
-	dev->dev.dma_pfn_offset = bus->sysdev->dma_pfn_offset;
 	set_dev_node(&dev->dev, dev_to_node(bus->sysdev));
 	dev->state = USB_STATE_ATTACHED;
 	dev->lpm_disable_count = 1;
@@ -760,6 +793,38 @@ void usb_put_intf(struct usb_interface *intf)
 		put_device(&intf->dev);
 }
 EXPORT_SYMBOL_GPL(usb_put_intf);
+
+/**
+ * usb_intf_get_dma_device - acquire a reference on the usb interface's DMA endpoint
+ * @intf: the usb interface
+ *
+ * While a USB device cannot perform DMA operations by itself, many USB
+ * controllers can. A call to usb_intf_get_dma_device() returns the DMA endpoint
+ * for the given USB interface, if any. The returned device structure must be
+ * released with put_device().
+ *
+ * See also usb_get_dma_device().
+ *
+ * Returns: A reference to the usb interface's DMA endpoint; or NULL if none
+ *          exists.
+ */
+struct device *usb_intf_get_dma_device(struct usb_interface *intf)
+{
+	struct usb_device *udev = interface_to_usbdev(intf);
+	struct device *dmadev;
+
+	if (!udev->bus)
+		return NULL;
+
+	dmadev = get_device(udev->bus->sysdev);
+	if (!dmadev || !dmadev->dma_mask) {
+		put_device(dmadev);
+		return NULL;
+	}
+
+	return dmadev;
+}
+EXPORT_SYMBOL_GPL(usb_intf_get_dma_device);
 
 /*			USB device locking
  *
@@ -933,228 +998,6 @@ void usb_free_coherent(struct usb_device *dev, size_t size, void *addr,
 }
 EXPORT_SYMBOL_GPL(usb_free_coherent);
 
-/**
- * usb_buffer_map - create DMA mapping(s) for an urb
- * @urb: urb whose transfer_buffer/setup_packet will be mapped
- *
- * URB_NO_TRANSFER_DMA_MAP is added to urb->transfer_flags if the operation
- * succeeds. If the device is connected to this system through a non-DMA
- * controller, this operation always succeeds.
- *
- * This call would normally be used for an urb which is reused, perhaps
- * as the target of a large periodic transfer, with usb_buffer_dmasync()
- * calls to synchronize memory and dma state.
- *
- * Reverse the effect of this call with usb_buffer_unmap().
- *
- * Return: Either %NULL (indicating no buffer could be mapped), or @urb.
- *
- */
-#if 0
-struct urb *usb_buffer_map(struct urb *urb)
-{
-	struct usb_bus		*bus;
-	struct device		*controller;
-
-	if (!urb
-			|| !urb->dev
-			|| !(bus = urb->dev->bus)
-			|| !(controller = bus->sysdev))
-		return NULL;
-
-	if (controller->dma_mask) {
-		urb->transfer_dma = dma_map_single(controller,
-			urb->transfer_buffer, urb->transfer_buffer_length,
-			usb_pipein(urb->pipe)
-				? DMA_FROM_DEVICE : DMA_TO_DEVICE);
-	/* FIXME generic api broken like pci, can't report errors */
-	/* if (urb->transfer_dma == DMA_ADDR_INVALID) return 0; */
-	} else
-		urb->transfer_dma = ~0;
-	urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
-	return urb;
-}
-EXPORT_SYMBOL_GPL(usb_buffer_map);
-#endif  /*  0  */
-
-/* XXX DISABLED, no users currently.  If you wish to re-enable this
- * XXX please determine whether the sync is to transfer ownership of
- * XXX the buffer from device to cpu or vice verse, and thusly use the
- * XXX appropriate _for_{cpu,device}() method.  -DaveM
- */
-#if 0
-
-/**
- * usb_buffer_dmasync - synchronize DMA and CPU view of buffer(s)
- * @urb: urb whose transfer_buffer/setup_packet will be synchronized
- */
-void usb_buffer_dmasync(struct urb *urb)
-{
-	struct usb_bus		*bus;
-	struct device		*controller;
-
-	if (!urb
-			|| !(urb->transfer_flags & URB_NO_TRANSFER_DMA_MAP)
-			|| !urb->dev
-			|| !(bus = urb->dev->bus)
-			|| !(controller = bus->sysdev))
-		return;
-
-	if (controller->dma_mask) {
-		dma_sync_single_for_cpu(controller,
-			urb->transfer_dma, urb->transfer_buffer_length,
-			usb_pipein(urb->pipe)
-				? DMA_FROM_DEVICE : DMA_TO_DEVICE);
-		if (usb_pipecontrol(urb->pipe))
-			dma_sync_single_for_cpu(controller,
-					urb->setup_dma,
-					sizeof(struct usb_ctrlrequest),
-					DMA_TO_DEVICE);
-	}
-}
-EXPORT_SYMBOL_GPL(usb_buffer_dmasync);
-#endif
-
-/**
- * usb_buffer_unmap - free DMA mapping(s) for an urb
- * @urb: urb whose transfer_buffer will be unmapped
- *
- * Reverses the effect of usb_buffer_map().
- */
-#if 0
-void usb_buffer_unmap(struct urb *urb)
-{
-	struct usb_bus		*bus;
-	struct device		*controller;
-
-	if (!urb
-			|| !(urb->transfer_flags & URB_NO_TRANSFER_DMA_MAP)
-			|| !urb->dev
-			|| !(bus = urb->dev->bus)
-			|| !(controller = bus->sysdev))
-		return;
-
-	if (controller->dma_mask) {
-		dma_unmap_single(controller,
-			urb->transfer_dma, urb->transfer_buffer_length,
-			usb_pipein(urb->pipe)
-				? DMA_FROM_DEVICE : DMA_TO_DEVICE);
-	}
-	urb->transfer_flags &= ~URB_NO_TRANSFER_DMA_MAP;
-}
-EXPORT_SYMBOL_GPL(usb_buffer_unmap);
-#endif  /*  0  */
-
-#if 0
-/**
- * usb_buffer_map_sg - create scatterlist DMA mapping(s) for an endpoint
- * @dev: device to which the scatterlist will be mapped
- * @is_in: mapping transfer direction
- * @sg: the scatterlist to map
- * @nents: the number of entries in the scatterlist
- *
- * Return: Either < 0 (indicating no buffers could be mapped), or the
- * number of DMA mapping array entries in the scatterlist.
- *
- * Note:
- * The caller is responsible for placing the resulting DMA addresses from
- * the scatterlist into URB transfer buffer pointers, and for setting the
- * URB_NO_TRANSFER_DMA_MAP transfer flag in each of those URBs.
- *
- * Top I/O rates come from queuing URBs, instead of waiting for each one
- * to complete before starting the next I/O.   This is particularly easy
- * to do with scatterlists.  Just allocate and submit one URB for each DMA
- * mapping entry returned, stopping on the first error or when all succeed.
- * Better yet, use the usb_sg_*() calls, which do that (and more) for you.
- *
- * This call would normally be used when translating scatterlist requests,
- * rather than usb_buffer_map(), since on some hardware (with IOMMUs) it
- * may be able to coalesce mappings for improved I/O efficiency.
- *
- * Reverse the effect of this call with usb_buffer_unmap_sg().
- */
-int usb_buffer_map_sg(const struct usb_device *dev, int is_in,
-		      struct scatterlist *sg, int nents)
-{
-	struct usb_bus		*bus;
-	struct device		*controller;
-
-	if (!dev
-			|| !(bus = dev->bus)
-			|| !(controller = bus->sysdev)
-			|| !controller->dma_mask)
-		return -EINVAL;
-
-	/* FIXME generic api broken like pci, can't report errors */
-	return dma_map_sg(controller, sg, nents,
-			is_in ? DMA_FROM_DEVICE : DMA_TO_DEVICE) ? : -ENOMEM;
-}
-EXPORT_SYMBOL_GPL(usb_buffer_map_sg);
-#endif
-
-/* XXX DISABLED, no users currently.  If you wish to re-enable this
- * XXX please determine whether the sync is to transfer ownership of
- * XXX the buffer from device to cpu or vice verse, and thusly use the
- * XXX appropriate _for_{cpu,device}() method.  -DaveM
- */
-#if 0
-
-/**
- * usb_buffer_dmasync_sg - synchronize DMA and CPU view of scatterlist buffer(s)
- * @dev: device to which the scatterlist will be mapped
- * @is_in: mapping transfer direction
- * @sg: the scatterlist to synchronize
- * @n_hw_ents: the positive return value from usb_buffer_map_sg
- *
- * Use this when you are re-using a scatterlist's data buffers for
- * another USB request.
- */
-void usb_buffer_dmasync_sg(const struct usb_device *dev, int is_in,
-			   struct scatterlist *sg, int n_hw_ents)
-{
-	struct usb_bus		*bus;
-	struct device		*controller;
-
-	if (!dev
-			|| !(bus = dev->bus)
-			|| !(controller = bus->sysdev)
-			|| !controller->dma_mask)
-		return;
-
-	dma_sync_sg_for_cpu(controller, sg, n_hw_ents,
-			    is_in ? DMA_FROM_DEVICE : DMA_TO_DEVICE);
-}
-EXPORT_SYMBOL_GPL(usb_buffer_dmasync_sg);
-#endif
-
-#if 0
-/**
- * usb_buffer_unmap_sg - free DMA mapping(s) for a scatterlist
- * @dev: device to which the scatterlist will be mapped
- * @is_in: mapping transfer direction
- * @sg: the scatterlist to unmap
- * @n_hw_ents: the positive return value from usb_buffer_map_sg
- *
- * Reverses the effect of usb_buffer_map_sg().
- */
-void usb_buffer_unmap_sg(const struct usb_device *dev, int is_in,
-			 struct scatterlist *sg, int n_hw_ents)
-{
-	struct usb_bus		*bus;
-	struct device		*controller;
-
-	if (!dev
-			|| !(bus = dev->bus)
-			|| !(controller = bus->sysdev)
-			|| !controller->dma_mask)
-		return;
-
-	dma_unmap_sg(controller, sg, n_hw_ents,
-			is_in ? DMA_FROM_DEVICE : DMA_TO_DEVICE);
-}
-EXPORT_SYMBOL_GPL(usb_buffer_unmap_sg);
-#endif
-
 /*
  * Notifications of device and interface registration
  */
@@ -1185,17 +1028,15 @@ static struct notifier_block usb_bus_nb = {
 	.notifier_call = usb_bus_notify,
 };
 
-static struct dentry *usb_devices_root;
-
 static void usb_debugfs_init(void)
 {
-	usb_devices_root = debugfs_create_file("devices", 0444, usb_debug_root,
-					       NULL, &usbfs_devices_fops);
+	debugfs_create_file("devices", 0444, usb_debug_root, NULL,
+			    &usbfs_devices_fops);
 }
 
 static void usb_debugfs_cleanup(void)
 {
-	debugfs_remove(usb_devices_root);
+	debugfs_remove(debugfs_lookup("devices", usb_debug_root));
 }
 
 /*

@@ -19,6 +19,7 @@
 #include <linux/kernel.h>
 #include <linux/bitops.h>
 #include <linux/dma-mapping.h>
+#include <linux/virtio_config.h>
 
 #include <asm/tlbflush.h>
 #include <asm/fixmap.h>
@@ -37,14 +38,12 @@
  * reside in the .data section so as not to be zeroed out when the .bss
  * section is later cleared.
  */
-u64 sme_me_mask __section(.data) = 0;
-u64 sev_status __section(.data) = 0;
+u64 sme_me_mask __section(".data") = 0;
+u64 sev_status __section(".data") = 0;
 u64 sev_check_data __section(".data") = 0;
 EXPORT_SYMBOL(sme_me_mask);
 DEFINE_STATIC_KEY_FALSE(sev_enable_key);
 EXPORT_SYMBOL_GPL(sev_enable_key);
-
-bool sev_enabled __section(.data);
 
 /* Buffer used for early in-place encryption by BSP, no locking needed */
 static char sme_early_buffer[PAGE_SIZE] __initdata __aligned(PAGE_SIZE);
@@ -136,7 +135,7 @@ static void __init __sme_early_map_unmap_mem(void *vaddr, unsigned long size,
 		size = (size <= PMD_SIZE) ? 0 : size - PMD_SIZE;
 	} while (size);
 
-	__native_flush_tlb();
+	flush_tlb_local();
 }
 
 void __init sme_unmap_bootdata(char *real_mode_data)
@@ -373,23 +372,22 @@ int __init early_set_memory_encrypted(unsigned long vaddr, unsigned long size)
  * up under SME the trampoline area cannot be encrypted, whereas under SEV
  * the trampoline area must be encrypted.
  */
-bool sme_active(void)
-{
-	return sme_me_mask && !sev_enabled;
-}
-EXPORT_SYMBOL(sme_active);
-
 bool sev_active(void)
 {
 	return sev_status & MSR_AMD64_SEV_ENABLED;
 }
 
+bool sme_active(void)
+{
+	return sme_me_mask && !sev_active();
+}
+EXPORT_SYMBOL_GPL(sev_active);
+
 /* Needs to be called from non-instrumentable code */
-bool sev_es_active(void)
+bool noinstr sev_es_active(void)
 {
 	return sev_status & MSR_AMD64_SEV_ES_ENABLED;
 }
-EXPORT_SYMBOL(sev_active);
 
 /* Override for DMA direct allocation check - ARCH_HAS_FORCE_DMA_UNENCRYPTED */
 bool force_dma_unencrypted(struct device *dev)
@@ -415,6 +413,30 @@ bool force_dma_unencrypted(struct device *dev)
 	}
 
 	return false;
+}
+
+void __init mem_encrypt_free_decrypted_mem(void)
+{
+	unsigned long vaddr, vaddr_end, npages;
+	int r;
+
+	vaddr = (unsigned long)__start_bss_decrypted_unused;
+	vaddr_end = (unsigned long)__end_bss_decrypted;
+	npages = (vaddr_end - vaddr) >> PAGE_SHIFT;
+
+	/*
+	 * The unused memory range was mapped decrypted, change the encryption
+	 * attribute from decrypted to encrypted before freeing it.
+	 */
+	if (mem_encrypt_active()) {
+		r = set_memory_encrypted(vaddr, npages);
+		if (r) {
+			pr_warn("failed to free unused decrypted pages\n");
+			return;
+		}
+	}
+
+	free_init_pages("unused decrypted", vaddr, vaddr_end);
 }
 
 static void print_mem_encrypt_feature_info(void)
@@ -443,30 +465,6 @@ static void print_mem_encrypt_feature_info(void)
 }
 
 /* Architecture __weak replacement functions */
-void __init mem_encrypt_free_decrypted_mem(void)
-{
-	unsigned long vaddr, vaddr_end, npages;
-	int r;
-
-	vaddr = (unsigned long)__start_bss_decrypted_unused;
-	vaddr_end = (unsigned long)__end_bss_decrypted;
-	npages = (vaddr_end - vaddr) >> PAGE_SHIFT;
-
-	/*
-	 * The unused memory range was mapped decrypted, change the encryption
-	 * attribute from decrypted to encrypted before freeing it.
-	 */
-	if (mem_encrypt_active()) {
-		r = set_memory_encrypted(vaddr, npages);
-		if (r) {
-			pr_warn("failed to free unused decrypted pages\n");
-			return;
-		}
-	}
-
-	free_init_pages("unused decrypted", vaddr, vaddr_end);
-}
-
 void __init mem_encrypt_init(void)
 {
 	if (!sme_me_mask)
@@ -476,11 +474,17 @@ void __init mem_encrypt_init(void)
 	swiotlb_update_mem_attributes();
 
 	/*
-	 * With SEV, we need to unroll the rep string I/O instructions.
+	 * With SEV, we need to unroll the rep string I/O instructions,
+	 * but SEV-ES supports them through the #VC handler.
 	 */
-	if (sev_active())
+	if (sev_active() && !sev_es_active())
 		static_branch_enable(&sev_enable_key);
 
 	print_mem_encrypt_feature_info();
 }
 
+int arch_has_restricted_virtio_memory_access(void)
+{
+	return sev_active();
+}
+EXPORT_SYMBOL_GPL(arch_has_restricted_virtio_memory_access);

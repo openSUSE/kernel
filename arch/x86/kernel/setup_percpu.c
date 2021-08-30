@@ -66,7 +66,7 @@ EXPORT_SYMBOL(__per_cpu_offset);
  */
 static bool __init pcpu_need_numa(void)
 {
-#ifdef CONFIG_NEED_MULTIPLE_NODES
+#ifdef CONFIG_NUMA
 	pg_data_t *last = NULL;
 	unsigned int cpu;
 
@@ -101,7 +101,7 @@ static void * __init pcpu_alloc_bootmem(unsigned int cpu, unsigned long size,
 					unsigned long align)
 {
 	const unsigned long goal = __pa(MAX_DMA_ADDRESS);
-#ifdef CONFIG_NEED_MULTIPLE_NODES
+#ifdef CONFIG_NUMA
 	int node = early_cpu_to_node(cpu);
 	void *ptr;
 
@@ -140,7 +140,7 @@ static void __init pcpu_fc_free(void *ptr, size_t size)
 
 static int __init pcpu_cpu_distance(unsigned int from, unsigned int to)
 {
-#ifdef CONFIG_NEED_MULTIPLE_NODES
+#ifdef CONFIG_NUMA
 	if (early_cpu_to_node(from) == early_cpu_to_node(to))
 		return LOCAL_DISTANCE;
 	else
@@ -207,8 +207,8 @@ void __init setup_per_cpu_areas(void)
 					    pcpu_cpu_distance,
 					    pcpu_fc_alloc, pcpu_fc_free);
 		if (rc < 0)
-			pr_warning("%s allocator failed (%d), falling back to page size\n",
-				   pcpu_fc_names[pcpu_chosen_fc], rc);
+			pr_warn("%s allocator failed (%d), falling back to page size\n",
+				pcpu_fc_names[pcpu_chosen_fc], rc);
 	}
 	if (rc < 0)
 		rc = pcpu_page_first_chunk(PERCPU_FIRST_CHUNK_RESERVE,
@@ -224,7 +224,6 @@ void __init setup_per_cpu_areas(void)
 		per_cpu(this_cpu_off, cpu) = per_cpu_offset(cpu);
 		per_cpu(cpu_number, cpu) = cpu;
 		setup_percpu_segment(cpu);
-		setup_stack_canary_segment(cpu);
 		/*
 		 * Copy data used in early init routines from the
 		 * initial arrays to the per cpu data areas.  These
@@ -287,9 +286,9 @@ void __init setup_per_cpu_areas(void)
 	/*
 	 * Sync back kernel address range again.  We already did this in
 	 * setup_arch(), but percpu data also needs to be available in
-	 * the smpboot asm.  We can't reliably pick up percpu mappings
-	 * using vmalloc_fault(), because exception dispatch needs
-	 * percpu data.
+	 * the smpboot asm and arch_sync_kernel_mappings() doesn't sync to
+	 * swapper_pg_dir on 32-bit. The per-cpu mappings need to be available
+	 * there too.
 	 *
 	 * FIXME: Can the later sync in setup_cpu_entry_areas() replace
 	 * this call?

@@ -8,6 +8,7 @@
 #include <linux/export.h>
 #include <linux/mm.h>
 #include <linux/dma-direct.h>
+#include <linux/dma-map-ops.h>
 #include <linux/scatterlist.h>
 
 #include <asm/cachetype.h>
@@ -68,8 +69,9 @@ static int arm_nommu_dma_mmap(struct device *dev, struct vm_area_struct *vma,
 
 	if (dma_mmap_from_global_coherent(vma, cpu_addr, size, &ret))
 		return ret;
-
-	return dma_common_mmap(dev, vma, cpu_addr, dma_addr, size, attrs);
+	if (dma_mmap_from_dev_coherent(dev, vma, cpu_addr, size, &ret))
+		return ret;
+	return -ENXIO;
 }
 
 
@@ -175,6 +177,8 @@ static void arm_nommu_dma_sync_sg_for_cpu(struct device *dev, struct scatterlist
 const struct dma_map_ops arm_nommu_dma_ops = {
 	.alloc			= arm_nommu_dma_alloc,
 	.free			= arm_nommu_dma_free,
+	.alloc_pages		= dma_direct_alloc_pages,
+	.free_pages		= dma_direct_free_pages,
 	.mmap			= arm_nommu_dma_mmap,
 	.map_page		= arm_nommu_dma_map_page,
 	.unmap_page		= arm_nommu_dma_unmap_page,

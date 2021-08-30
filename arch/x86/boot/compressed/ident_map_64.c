@@ -23,11 +23,11 @@
 #include "misc.h"
 
 /* These actually do the work of building the kernel identity maps. */
-#include <asm/init.h>
-#include <asm/pgtable.h>
+#include <linux/pgtable.h>
 #include <asm/cmpxchg.h>
 #include <asm/trap_pf.h>
 #include <asm/trapnr.h>
+#include <asm/init.h>
 /* Use the static base for this part of the boot process */
 #undef __PAGE_OFFSET
 #define __PAGE_OFFSET __PAGE_OFFSET_BASE
@@ -41,9 +41,6 @@ extern unsigned long get_cmd_line_ptr(void);
 
 /* Used by PAGE_KERN* macros: */
 pteval_t __default_kernel_pte_mask __read_mostly = ~0;
-
-/* Used by pgtable.h asm code to force instruction serialization. */
-unsigned long __force_order;
 
 /* Used to track our page table allocation area. */
 struct alloc_pgt_data {
@@ -168,16 +165,6 @@ void initialize_identity_maps(void *rmode)
 
 	/* Load the new page-table. */
 	sev_verify_cbit(top_level_pgt);
-	write_cr3(top_level_pgt);
-}
-
-/*
- * This switches the page tables to the new level4 that has been built
- * via calls to add_identity_map() above. If booted via startup_32(),
- * this is effectively a no-op.
- */
-void finalize_identity_maps(void)
-{
 	write_cr3(top_level_pgt);
 }
 

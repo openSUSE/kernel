@@ -8,7 +8,7 @@
  */
 #include <linux/linkage.h>
 #include <asm/cpufeatures.h>
-#include <asm/alternative-asm.h>
+#include <asm/alternative.h>
 #include <asm/export.h>
 
 #undef memmove
@@ -24,10 +24,8 @@
  * Output:
  * rax: dest
  */
-.weak memmove
-
-SYM_FUNC_START_ALIAS(memmove)
-ENTRY(__memmove)
+SYM_FUNC_START_WEAK(memmove)
+SYM_FUNC_START(__memmove)
 
 	mov %rdi, %rax
 
@@ -208,7 +206,7 @@ ENTRY(__memmove)
 	movb %r11b, (%rdi)
 13:
 	retq
-ENDPROC(__memmove)
+SYM_FUNC_END(__memmove)
 SYM_FUNC_END_ALIAS(memmove)
 EXPORT_SYMBOL(__memmove)
 EXPORT_SYMBOL(memmove)

@@ -172,6 +172,8 @@ char *mod_hdcp_status_to_str(int32_t status)
 		return "MOD_HDCP_STATUS_HDCP2_REAUTH_LINK_INTEGRITY_FAILURE";
 	case MOD_HDCP_STATUS_HDCP2_DEVICE_COUNT_MISMATCH_FAILURE:
 		return "MOD_HDCP_STATUS_HDCP2_DEVICE_COUNT_MISMATCH_FAILURE";
+	case MOD_HDCP_STATUS_UNSUPPORTED_PSP_VER_FAILURE:
+		return "MOD_HDCP_STATUS_UNSUPPORTED_PSP_VER_FAILURE";
 	default:
 		return "MOD_HDCP_STATUS_UNKNOWN";
 	}
@@ -280,6 +282,6 @@ char *mod_hdcp_state_id_to_str(int32_t id)
 		return "D2_A9_VALIDATE_STREAM_READY";
 	default:
 		return "UNKNOWN_STATE_ID";
-	};
+	}
 }
 

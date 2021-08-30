@@ -105,7 +105,8 @@ static inline enum phase_diversity_modes_idx
 si476x_phase_diversity_mode_to_idx(enum si476x_phase_diversity_mode mode)
 {
 	switch (mode) {
-	default:		/* FALLTHROUGH */
+	default:
+		fallthrough;
 	case SI476X_PHDIV_DISABLED:
 		return SI476X_IDX_PHDIV_DISABLED;
 	case SI476X_PHDIV_PRIMARY_COMBINING:
@@ -151,7 +152,7 @@ static struct v4l2_ctrl_config si476x_ctrls[] = {
 
 	/*
 	 * SI476X during its station seeking(or tuning) process uses several
-	 * parameters to detrmine if "the station" is valid:
+	 * parameters to determine if "the station" is valid:
 	 *
 	 *	- Signal's SNR(in dBuV) must be lower than
 	 *	#V4L2_CID_SI476X_SNR_THRESHOLD
@@ -254,7 +255,7 @@ struct si476x_radio;
  *
  * This table holds pointers to functions implementing particular
  * operations depending on the mode in which the tuner chip was
- * configured to start in. If the function is not supported
+ * configured to start. If the function is not supported
  * corresponding element is set to #NULL.
  *
  * @tune_freq: Tune chip to a specific frequency
@@ -916,7 +917,7 @@ static int si476x_radio_s_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_RDS_RECEPTION:
 		/*
 		 * It looks like RDS related properties are
-		 * inaccesable when tuner is in AM mode, so cache the
+		 * inaccessible when tuner is in AM mode, so cache the
 		 * changes
 		 */
 		if (si476x_core_is_in_am_receiver_mode(radio->core))
@@ -1344,60 +1345,24 @@ static const struct file_operations radio_rsq_primary_fops = {
 };
 
 
-static int si476x_radio_init_debugfs(struct si476x_radio *radio)
+static void si476x_radio_init_debugfs(struct si476x_radio *radio)
 {
-	struct dentry	*dentry;
-	int		ret;
+	radio->debugfs = debugfs_create_dir(dev_name(radio->v4l2dev.dev), NULL);
 
-	dentry = debugfs_create_dir(dev_name(radio->v4l2dev.dev), NULL);
-	if (IS_ERR(dentry)) {
-		ret = PTR_ERR(dentry);
-		goto exit;
-	}
-	radio->debugfs = dentry;
+	debugfs_create_file("acf", S_IRUGO, radio->debugfs, radio,
+			    &radio_acf_fops);
 
-	dentry = debugfs_create_file("acf", S_IRUGO,
-				     radio->debugfs, radio, &radio_acf_fops);
-	if (IS_ERR(dentry)) {
-		ret = PTR_ERR(dentry);
-		goto cleanup;
-	}
+	debugfs_create_file("rds_blckcnt", S_IRUGO, radio->debugfs, radio,
+			    &radio_rds_blckcnt_fops);
 
-	dentry = debugfs_create_file("rds_blckcnt", S_IRUGO,
-				     radio->debugfs, radio,
-				     &radio_rds_blckcnt_fops);
-	if (IS_ERR(dentry)) {
-		ret = PTR_ERR(dentry);
-		goto cleanup;
-	}
+	debugfs_create_file("agc", S_IRUGO, radio->debugfs, radio,
+			    &radio_agc_fops);
 
-	dentry = debugfs_create_file("agc", S_IRUGO,
-				     radio->debugfs, radio, &radio_agc_fops);
-	if (IS_ERR(dentry)) {
-		ret = PTR_ERR(dentry);
-		goto cleanup;
-	}
+	debugfs_create_file("rsq", S_IRUGO, radio->debugfs, radio,
+			    &radio_rsq_fops);
 
-	dentry = debugfs_create_file("rsq", S_IRUGO,
-				     radio->debugfs, radio, &radio_rsq_fops);
-	if (IS_ERR(dentry)) {
-		ret = PTR_ERR(dentry);
-		goto cleanup;
-	}
-
-	dentry = debugfs_create_file("rsq_primary", S_IRUGO,
-				     radio->debugfs, radio,
-				     &radio_rsq_primary_fops);
-	if (IS_ERR(dentry)) {
-		ret = PTR_ERR(dentry);
-		goto cleanup;
-	}
-
-	return 0;
-cleanup:
-	debugfs_remove_recursive(radio->debugfs);
-exit:
-	return ret;
+	debugfs_create_file("rsq_primary", S_IRUGO, radio->debugfs, radio,
+			    &radio_rsq_primary_fops);
 }
 
 
@@ -1534,11 +1499,7 @@ static int si476x_radio_probe(struct platform_device *pdev)
 		goto exit;
 	}
 
-	rval = si476x_radio_init_debugfs(radio);
-	if (rval < 0) {
-		dev_err(&pdev->dev, "Could not create debugfs interface\n");
-		goto exit;
-	}
+	si476x_radio_init_debugfs(radio);
 
 	return 0;
 exit:

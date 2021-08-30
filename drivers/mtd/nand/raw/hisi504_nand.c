@@ -186,7 +186,7 @@ static void hisi_nfc_dma_transfer(struct hinfc_host *host, int todev)
 	hinfc_write(host, host->dma_buffer, HINFC504_DMA_ADDR_DATA);
 	hinfc_write(host, host->dma_oob, HINFC504_DMA_ADDR_OOB);
 
-	if (chip->ecc.mode == NAND_ECC_NONE) {
+	if (chip->ecc.engine_type == NAND_ECC_ENGINE_TYPE_NONE) {
 		hinfc_write(host, ((mtd->oobsize & HINFC504_DMA_LEN_OOB_MASK)
 			<< HINFC504_DMA_LEN_OOB_SHIFT), HINFC504_DMA_LEN);
 
@@ -468,7 +468,7 @@ static void hisi_nfc_cmdfunc(struct nand_chip *chip, unsigned command,
 
 	case NAND_CMD_STATUS:
 		flag = hinfc_read(host, HINFC504_CON);
-		if (chip->ecc.mode == NAND_ECC_HW)
+		if (chip->ecc.engine_type == NAND_ECC_ENGINE_TYPE_ON_HOST)
 			hinfc_write(host,
 				    flag & ~(HINFC504_CON_ECCTYPE_MASK <<
 				    HINFC504_CON_ECCTYPE_SHIFT), HINFC504_CON);
@@ -721,7 +721,7 @@ static int hisi_nfc_attach_chip(struct nand_chip *chip)
 	}
 	hinfc_write(host, flag, HINFC504_CON);
 
-	if (chip->ecc.mode == NAND_ECC_HW)
+	if (chip->ecc.engine_type == NAND_ECC_ENGINE_TYPE_ON_HOST)
 		hisi_nfc_ecc_probe(host);
 
 	return 0;
@@ -761,10 +761,8 @@ static int hisi_nfc_probe(struct platform_device *pdev)
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	host->mmio = devm_ioremap_resource(dev, res);
-	if (IS_ERR(host->mmio)) {
-		dev_err(dev, "devm_ioremap_resource[1] fail\n");
+	if (IS_ERR(host->mmio))
 		return PTR_ERR(host->mmio);
-	}
 
 	mtd->name		= "hisi_nand";
 	mtd->dev.parent         = &pdev->dev;
@@ -806,8 +804,12 @@ static int hisi_nfc_probe(struct platform_device *pdev)
 static int hisi_nfc_remove(struct platform_device *pdev)
 {
 	struct hinfc_host *host = platform_get_drvdata(pdev);
+	struct nand_chip *chip = &host->chip;
+	int ret;
 
-	nand_release(&host->chip);
+	ret = mtd_device_unregister(nand_to_mtd(chip));
+	WARN_ON(ret);
+	nand_cleanup(chip);
 
 	return 0;
 }

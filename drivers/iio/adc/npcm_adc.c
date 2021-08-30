@@ -14,6 +14,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/spinlock.h>
 #include <linux/uaccess.h>
+#include <linux/reset.h>
 
 struct npcm_adc {
 	bool int_status;
@@ -23,12 +24,17 @@ struct npcm_adc {
 	struct clk *adc_clk;
 	wait_queue_head_t wq;
 	struct regulator *vref;
-	struct regmap *rst_regmap;
+	struct reset_control *reset;
+	/*
+	 * Lock to protect the device state during a potential concurrent
+	 * read access from userspace. Reading a raw value requires a sequence
+	 * of register writes, then a wait for a event and finally a register
+	 * read, during which userspace could issue another read request.
+	 * This lock protects a read access from ocurring before another one
+	 * has finished.
+	 */
+	struct mutex lock;
 };
-
-/* NPCM7xx reset module */
-#define NPCM7XX_IPSRST1_OFFSET		0x020
-#define NPCM7XX_IPSRST1_ADC_RST		BIT(27)
 
 /* ADC registers */
 #define NPCM_ADCCON	 0x00
@@ -106,13 +112,11 @@ static int npcm_adc_read(struct npcm_adc *info, int *val, u8 channel)
 					       msecs_to_jiffies(10));
 	if (ret == 0) {
 		regtemp = ioread32(info->regs + NPCM_ADCCON);
-		if ((regtemp & NPCM_ADCCON_ADC_CONV) && info->rst_regmap) {
+		if (regtemp & NPCM_ADCCON_ADC_CONV) {
 			/* if conversion failed - reset ADC module */
-			regmap_write(info->rst_regmap, NPCM7XX_IPSRST1_OFFSET,
-				     NPCM7XX_IPSRST1_ADC_RST);
+			reset_control_assert(info->reset);
 			msleep(100);
-			regmap_write(info->rst_regmap, NPCM7XX_IPSRST1_OFFSET,
-				     0x0);
+			reset_control_deassert(info->reset);
 			msleep(100);
 
 			/* Enable ADC and start conversion module */
@@ -140,9 +144,9 @@ static int npcm_adc_read_raw(struct iio_dev *indio_dev,
 
 	switch (mask) {
 	case IIO_CHAN_INFO_RAW:
-		mutex_lock(&indio_dev->mlock);
+		mutex_lock(&info->lock);
 		ret = npcm_adc_read(info, val, chan->channel);
-		mutex_unlock(&indio_dev->mlock);
+		mutex_unlock(&info->lock);
 		if (ret) {
 			dev_err(info->dev, "NPCM ADC read failed\n");
 			return ret;
@@ -183,23 +187,26 @@ static int npcm_adc_probe(struct platform_device *pdev)
 	int irq;
 	u32 div;
 	u32 reg_con;
-	struct resource *res;
 	struct npcm_adc *info;
 	struct iio_dev *indio_dev;
 	struct device *dev = &pdev->dev;
-	struct device_node *np = pdev->dev.of_node;
 
 	indio_dev = devm_iio_device_alloc(&pdev->dev, sizeof(*info));
 	if (!indio_dev)
 		return -ENOMEM;
 	info = iio_priv(indio_dev);
 
+	mutex_init(&info->lock);
+
 	info->dev = &pdev->dev;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	info->regs = devm_ioremap_resource(&pdev->dev, res);
+	info->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(info->regs))
 		return PTR_ERR(info->regs);
+
+	info->reset = devm_reset_control_get(&pdev->dev, NULL);
+	if (IS_ERR(info->reset))
+		return PTR_ERR(info->reset);
 
 	info->adc_clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(info->adc_clk)) {
@@ -213,19 +220,8 @@ static int npcm_adc_probe(struct platform_device *pdev)
 	div = div >> NPCM_ADCCON_DIV_SHIFT;
 	info->adc_sample_hz = clk_get_rate(info->adc_clk) / ((div + 1) * 2);
 
-	if (of_device_is_compatible(np, "nuvoton,npcm750-adc")) {
-		info->rst_regmap = syscon_regmap_lookup_by_compatible
-			("nuvoton,npcm750-rst");
-		if (IS_ERR(info->rst_regmap)) {
-			dev_err(&pdev->dev, "Failed to find nuvoton,npcm750-rst\n");
-			ret = PTR_ERR(info->rst_regmap);
-			goto err_disable_clk;
-		}
-	}
-
 	irq = platform_get_irq(pdev, 0);
 	if (irq <= 0) {
-		dev_err(dev, "failed getting interrupt resource\n");
 		ret = -EINVAL;
 		goto err_disable_clk;
 	}
@@ -276,7 +272,6 @@ static int npcm_adc_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, indio_dev);
 	indio_dev->name = dev_name(&pdev->dev);
-	indio_dev->dev.parent = &pdev->dev;
 	indio_dev->info = &npcm_adc_iio_info;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->channels = npcm_adc_iio_channels;

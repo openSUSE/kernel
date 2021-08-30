@@ -44,7 +44,7 @@ struct i2c_client *hdpvr_register_ir_i2c(struct hdpvr_device *dev)
 	init_data->polling_interval = 405; /* ms, duplicated from Windows */
 	info.platform_data = init_data;
 
-	return i2c_new_device(&dev->i2c_adapter, &info);
+	return i2c_new_client_device(&dev->i2c_adapter, &info);
 }
 
 static int hdpvr_i2c_read(struct hdpvr_device *dev, int bus,
@@ -193,8 +193,6 @@ static int hdpvr_activate_ir(struct hdpvr_device *dev)
 
 int hdpvr_register_i2c_adapter(struct hdpvr_device *dev)
 {
-	int retval = -ENOMEM;
-
 	hdpvr_activate_ir(dev);
 
 	dev->i2c_adapter = hdpvr_i2c_adapter_template;
@@ -202,9 +200,7 @@ int hdpvr_register_i2c_adapter(struct hdpvr_device *dev)
 
 	i2c_set_adapdata(&dev->i2c_adapter, dev);
 
-	retval = i2c_add_adapter(&dev->i2c_adapter);
-
-	return retval;
+	return i2c_add_adapter(&dev->i2c_adapter);
 }
 
 #endif

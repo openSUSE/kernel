@@ -13,9 +13,11 @@
 #include <linux/platform_device.h>
 #include <linux/delay.h>
 #include <linux/seq_buf.h>
+#include <linux/nd.h>
 
 #include <asm/plpar_wrappers.h>
 #include <asm/papr_pdsm.h>
+#include <asm/mce.h>
 #include <asm/unaligned.h>
 
 #define BIND_ANY_ADDR (~0ul)
@@ -102,6 +104,7 @@ struct papr_scm_priv {
 	struct resource res;
 	struct nd_region *region;
 	struct nd_interleave_set nd_set;
+	struct list_head region_list;
 
 	/* Protect dimm health data from concurrent read/writes */
 	struct mutex health_mutex;
@@ -111,6 +114,9 @@ struct papr_scm_priv {
 
 	/* Health information for the dimm */
 	u64 health_bitmap;
+
+	/* Holds the last known dirty shutdown counter value */
+	u64 dirty_shutdown_counter;
 
 	/* length of the stat buffer as expected by phyp */
 	size_t stat_buffer_len;
@@ -148,6 +154,9 @@ static int papr_scm_pmem_flush(struct nd_region *nd_region,
 	return rc;
 }
 
+static LIST_HEAD(papr_nd_regions);
+static DEFINE_MUTEX(papr_ndr_lock);
+
 static int drc_pmem_bind(struct papr_scm_priv *p)
 {
 	unsigned long ret[PLPAR_HCALL_BUFSIZE];
@@ -176,7 +185,8 @@ static int drc_pmem_bind(struct papr_scm_priv *p)
 		return rc;
 
 	p->bound_addr = saved;
-	dev_dbg(&p->pdev->dev, "bound drc 0x%x to %pR\n", p->drc_index, &p->res);
+	dev_dbg(&p->pdev->dev, "bound drc 0x%x to 0x%lx\n",
+		p->drc_index, (unsigned long)saved);
 	return rc;
 }
 
@@ -240,7 +250,7 @@ static int drc_pmem_query_n_bind(struct papr_scm_priv *p)
 		goto err_out;
 
 	p->bound_addr = start_addr;
-	dev_dbg(&p->pdev->dev, "bound drc 0x%x to %pR\n", p->drc_index, &p->res);
+	dev_dbg(&p->pdev->dev, "bound drc 0x%x to 0x%lx\n", p->drc_index, start_addr);
 	return rc;
 
 err_out:
@@ -254,7 +264,7 @@ err_out:
  * Query the Dimm performance stats from PHYP and copy them (if returned) to
  * provided struct papr_scm_perf_stats instance 'stats' that can hold atleast
  * (num_stats + header) bytes.
- * - If buff_stats == NULL the return value is the size in byes of the buffer
+ * - If buff_stats == NULL the return value is the size in bytes of the buffer
  * needed to hold all supported performance-statistics.
  * - If buff_stats != NULL and num_stats == 0 then we copy all known
  * performance-statistics to 'buff_stat' and expect to be large enough to
@@ -597,6 +607,16 @@ free_stats:
 	return rc;
 }
 
+/* Add the dirty-shutdown-counter value to the pdsm */
+static int papr_pdsm_dsc(struct papr_scm_priv *p,
+			 union nd_pdsm_payload *payload)
+{
+	payload->health.extension_flags |= PDSM_DIMM_DSC_VALID;
+	payload->health.dimm_dsc = p->dirty_shutdown_counter;
+
+	return sizeof(struct nd_papr_pdsm_health);
+}
+
 /* Fetch the DIMM health info and populate it in provided package. */
 static int papr_pdsm_health(struct papr_scm_priv *p,
 			    union nd_pdsm_payload *payload)
@@ -640,6 +660,8 @@ static int papr_pdsm_health(struct papr_scm_priv *p,
 
 	/* Populate the fuel gauge meter in the payload */
 	papr_pdsm_fuel_gauge(p, payload);
+	/* Populate the dirty-shutdown-counter field */
+	papr_pdsm_dsc(p, payload);
 
 	rc = sizeof(struct nd_papr_pdsm_health);
 
@@ -857,7 +879,7 @@ free_stats:
 	kfree(stats);
 	return rc ? rc : (ssize_t)seq_buf_used(&s);
 }
-DEVICE_ATTR_ADMIN_RO(perf_stats);
+static DEVICE_ATTR_ADMIN_RO(perf_stats);
 
 static ssize_t flags_show(struct device *dev,
 			  struct device_attribute *attr, char *buf)
@@ -901,6 +923,16 @@ static ssize_t flags_show(struct device *dev,
 }
 DEVICE_ATTR_RO(flags);
 
+static ssize_t dirty_shutdown_show(struct device *dev,
+			  struct device_attribute *attr, char *buf)
+{
+	struct nvdimm *dimm = to_nvdimm(dev);
+	struct papr_scm_priv *p = nvdimm_provider_data(dimm);
+
+	return sysfs_emit(buf, "%llu\n", p->dirty_shutdown_counter);
+}
+DEVICE_ATTR_RO(dirty_shutdown);
+
 static umode_t papr_nd_attribute_visible(struct kobject *kobj,
 					 struct attribute *attr, int n)
 {
@@ -919,6 +951,7 @@ static umode_t papr_nd_attribute_visible(struct kobject *kobj,
 static struct attribute *papr_nd_attributes[] = {
 	&dev_attr_flags.attr,
 	&dev_attr_perf_stats.attr,
+	&dev_attr_dirty_shutdown.attr,
 	NULL,
 };
 
@@ -962,6 +995,15 @@ static int papr_scm_nvdimm_init(struct papr_scm_priv *p)
 	dimm_flags = 0;
 	set_bit(NDD_LABELING, &dimm_flags);
 
+	/*
+	 * Check if the nvdimm is unarmed. No locking needed as we are still
+	 * initializing. Ignore error encountered if any.
+	 */
+	__drc_pmem_query_health(p);
+
+	if (p->health_bitmap & PAPR_PMEM_UNARMED_MASK)
+		set_bit(NDD_UNARMED, &dimm_flags);
+
 	p->nvdimm = nvdimm_create(p->bus, p, papr_nd_attr_groups,
 				  dimm_flags, PAPR_SCM_DIMM_CMD_MASK, 0, NULL);
 	if (!p->nvdimm) {
@@ -998,8 +1040,10 @@ static int papr_scm_nvdimm_init(struct papr_scm_priv *p)
 
 	if (p->is_volatile)
 		p->region = nvdimm_volatile_region_create(p->bus, &ndr_desc);
-	else
+	else {
+		set_bit(ND_REGION_PERSIST_MEMCTRL, &ndr_desc.flags);
 		p->region = nvdimm_pmem_region_create(p->bus, &ndr_desc);
+	}
 	if (!p->region) {
 		dev_err(dev, "Error registering region %pR from %pOF\n",
 				ndr_desc.res, p->dn);
@@ -1009,12 +1053,78 @@ static int papr_scm_nvdimm_init(struct papr_scm_priv *p)
 		dev_info(dev, "Region registered with target node %d and online node %d",
 			 target_nid, online_nid);
 
+	mutex_lock(&papr_ndr_lock);
+	list_add_tail(&p->region_list, &papr_nd_regions);
+	mutex_unlock(&papr_ndr_lock);
+
 	return 0;
 
 err:	nvdimm_bus_unregister(p->bus);
 	kfree(p->bus_desc.provider_name);
 	return -ENXIO;
 }
+
+static void papr_scm_add_badblock(struct nd_region *region,
+				  struct nvdimm_bus *bus, u64 phys_addr)
+{
+	u64 aligned_addr = ALIGN_DOWN(phys_addr, L1_CACHE_BYTES);
+
+	if (nvdimm_bus_add_badrange(bus, aligned_addr, L1_CACHE_BYTES)) {
+		pr_err("Bad block registration for 0x%llx failed\n", phys_addr);
+		return;
+	}
+
+	pr_debug("Add memory range (0x%llx - 0x%llx) as bad range\n",
+		 aligned_addr, aligned_addr + L1_CACHE_BYTES);
+
+	nvdimm_region_notify(region, NVDIMM_REVALIDATE_POISON);
+}
+
+static int handle_mce_ue(struct notifier_block *nb, unsigned long val,
+			 void *data)
+{
+	struct machine_check_event *evt = data;
+	struct papr_scm_priv *p;
+	u64 phys_addr;
+	bool found = false;
+
+	if (evt->error_type != MCE_ERROR_TYPE_UE)
+		return NOTIFY_DONE;
+
+	if (list_empty(&papr_nd_regions))
+		return NOTIFY_DONE;
+
+	/*
+	 * The physical address obtained here is PAGE_SIZE aligned, so get the
+	 * exact address from the effective address
+	 */
+	phys_addr = evt->u.ue_error.physical_address +
+			(evt->u.ue_error.effective_address & ~PAGE_MASK);
+
+	if (!evt->u.ue_error.physical_address_provided ||
+	    !is_zone_device_page(pfn_to_page(phys_addr >> PAGE_SHIFT)))
+		return NOTIFY_DONE;
+
+	/* mce notifier is called from a process context, so mutex is safe */
+	mutex_lock(&papr_ndr_lock);
+	list_for_each_entry(p, &papr_nd_regions, region_list) {
+		if (phys_addr >= p->res.start && phys_addr <= p->res.end) {
+			found = true;
+			break;
+		}
+	}
+
+	if (found)
+		papr_scm_add_badblock(p->region, p->bus, phys_addr);
+
+	mutex_unlock(&papr_ndr_lock);
+
+	return found ? NOTIFY_OK : NOTIFY_DONE;
+}
+
+static struct notifier_block mce_ue_nb = {
+	.notifier_call = handle_mce_ue
+};
 
 static int papr_scm_probe(struct platform_device *pdev)
 {
@@ -1066,6 +1176,10 @@ static int papr_scm_probe(struct platform_device *pdev)
 	p->blocks = blocks;
 	p->is_volatile = !of_property_read_bool(dn, "ibm,cache-flush-required");
 	p->hcall_flush_required = of_property_read_bool(dn, "ibm,hcall-flush-required");
+
+	if (of_property_read_u64(dn, "ibm,persistence-failed-count",
+				 &p->dirty_shutdown_counter))
+		p->dirty_shutdown_counter = 0;
 
 	/* We just need to ensure that set cookies are unique across */
 	uuid_parse(uuid_str, &uuid);
@@ -1134,6 +1248,10 @@ static int papr_scm_remove(struct platform_device *pdev)
 {
 	struct papr_scm_priv *p = platform_get_drvdata(pdev);
 
+	mutex_lock(&papr_ndr_lock);
+	list_del(&p->region_list);
+	mutex_unlock(&papr_ndr_lock);
+
 	nvdimm_bus_unregister(p->bus);
 	drc_pmem_unbind(p);
 	kfree(p->bus_desc.provider_name);
@@ -1153,12 +1271,29 @@ static struct platform_driver papr_scm_driver = {
 	.remove = papr_scm_remove,
 	.driver = {
 		.name = "papr_scm",
-		.owner = THIS_MODULE,
 		.of_match_table = papr_scm_match,
 	},
 };
 
-module_platform_driver(papr_scm_driver);
+static int __init papr_scm_init(void)
+{
+	int ret;
+
+	ret = platform_driver_register(&papr_scm_driver);
+	if (!ret)
+		mce_register_notifier(&mce_ue_nb);
+
+	return ret;
+}
+module_init(papr_scm_init);
+
+static void __exit papr_scm_exit(void)
+{
+	mce_unregister_notifier(&mce_ue_nb);
+	platform_driver_unregister(&papr_scm_driver);
+}
+module_exit(papr_scm_exit);
+
 MODULE_DEVICE_TABLE(of, papr_scm_match);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("IBM Corporation");

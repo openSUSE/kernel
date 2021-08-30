@@ -4,8 +4,8 @@
  *           of the aspire one netbook, turns on/off the fan
  *           as soon as the upper/lower threshold is reached.
  *
- * (C) 2009 - Peter Feuerer     peter (a) piie.net
- *                              http://piie.net
+ * (C) 2009 - Peter Kaestle     peter (a) piie.net
+ *                              https://piie.net
  *     2009 Borislav Petkov	bp (a) alien8.de
  *
  * Inspired by and many thanks to:
@@ -84,8 +84,6 @@ static struct platform_device *acerhdf_dev;
 
 module_param(kernelmode, uint, 0);
 MODULE_PARM_DESC(kernelmode, "Kernel mode fan control on / off");
-module_param(interval, uint, 0600);
-MODULE_PARM_DESC(interval, "Polling interval of temperature check");
 module_param(fanon, uint, 0600);
 MODULE_PARM_DESC(fanon, "Turn the fan on above this temperature");
 module_param(fanoff, uint, 0600);
@@ -224,6 +222,8 @@ static const struct bios_settings bios_tbl[] __initconst = {
 	{"Acer", "Aspire 5739G", "V1.3311", 0x55, 0x58, {0x20, 0x00}, 0},
 	/* Acer TravelMate 7730 */
 	{"Acer", "TravelMate 7730G", "v0.3509", 0x55, 0x58, {0xaf, 0x00}, 0},
+	/* Acer Aspire 7551 */
+	{"Acer", "Aspire 7551", "V1.18", 0x93, 0xa8, {0x14, 0x04}, 1},
 	/* Acer TravelMate TM8573T */
 	{"Acer", "TM8573T", "V1.13", 0x93, 0xa8, {0x14, 0x04}, 1},
 	/* Gateway */
@@ -334,7 +334,11 @@ static void acerhdf_check_param(struct thermal_zone_device *thermal)
 		}
 		if (verbose)
 			pr_notice("interval changed to: %d\n", interval);
-		thermal->polling_delay = interval*1000;
+
+		if (thermal)
+			thermal->polling_delay_jiffies =
+				round_jiffies(msecs_to_jiffies(interval * 1000));
+
 		prev_interval = interval;
 	}
 }
@@ -348,8 +352,6 @@ static void acerhdf_check_param(struct thermal_zone_device *thermal)
 static int acerhdf_get_ec_temp(struct thermal_zone_device *thermal, int *t)
 {
 	int temp, err = 0;
-
-	acerhdf_check_param(thermal);
 
 	err = acerhdf_get_temp(&temp);
 	if (err)
@@ -411,8 +413,8 @@ static inline void acerhdf_enable_kernelmode(void)
  *          the temperature and the fan.
  * disabled: the BIOS takes control of the fan.
  */
-static int acerhdf_set_mode(struct thermal_zone_device *thermal,
-			    enum thermal_device_mode mode)
+static int acerhdf_change_mode(struct thermal_zone_device *thermal,
+			       enum thermal_device_mode mode)
 {
 	if (mode == THERMAL_DEVICE_DISABLED && kernelmode)
 		acerhdf_revert_to_bios_mode();
@@ -471,7 +473,7 @@ static struct thermal_zone_device_ops acerhdf_dev_ops = {
 	.bind = acerhdf_bind,
 	.unbind = acerhdf_unbind,
 	.get_temp = acerhdf_get_ec_temp,
-	.set_mode = acerhdf_set_mode,
+	.change_mode = acerhdf_change_mode,
 	.get_trip_type = acerhdf_get_trip_type,
 	.get_trip_hyst = acerhdf_get_trip_hyst,
 	.get_trip_temp = acerhdf_get_trip_temp,
@@ -794,7 +796,7 @@ static void __exit acerhdf_exit(void)
 }
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Peter Feuerer");
+MODULE_AUTHOR("Peter Kaestle");
 MODULE_DESCRIPTION("Aspire One temperature and fan driver");
 MODULE_ALIAS("dmi:*:*Acer*:pnAOA*:");
 MODULE_ALIAS("dmi:*:*Acer*:pnAO751h*:");
@@ -808,6 +810,7 @@ MODULE_ALIAS("dmi:*:*Acer*:pnAspire*5739G:");
 MODULE_ALIAS("dmi:*:*Acer*:pnAspire*One*753:");
 MODULE_ALIAS("dmi:*:*Acer*:pnAspire*5315:");
 MODULE_ALIAS("dmi:*:*Acer*:TravelMate*7730G:");
+MODULE_ALIAS("dmi:*:*Acer*:pnAspire*7551:");
 MODULE_ALIAS("dmi:*:*Acer*:TM8573T:");
 MODULE_ALIAS("dmi:*:*Gateway*:pnAOA*:");
 MODULE_ALIAS("dmi:*:*Gateway*:pnLT31*:");
@@ -817,7 +820,28 @@ MODULE_ALIAS("dmi:*:*Packard*Bell*:pnDOTMU*:");
 MODULE_ALIAS("dmi:*:*Packard*Bell*:pnENBFT*:");
 MODULE_ALIAS("dmi:*:*Packard*Bell*:pnDOTMA*:");
 MODULE_ALIAS("dmi:*:*Packard*Bell*:pnDOTVR46*:");
-MODULE_ALIAS("dmi:*:*Acer*:pnExtensa 5420*:");
+MODULE_ALIAS("dmi:*:*Acer*:pnExtensa*5420*:");
 
 module_init(acerhdf_init);
 module_exit(acerhdf_exit);
+
+static int interval_set_uint(const char *val, const struct kernel_param *kp)
+{
+	int ret;
+
+	ret = param_set_uint(val, kp);
+	if (ret)
+		return ret;
+
+	acerhdf_check_param(thz_dev);
+
+	return 0;
+}
+
+static const struct kernel_param_ops interval_ops = {
+	.set = interval_set_uint,
+	.get = param_get_uint,
+};
+
+module_param_cb(interval, &interval_ops, &interval, 0600);
+MODULE_PARM_DESC(interval, "Polling interval of temperature check");

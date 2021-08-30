@@ -331,14 +331,15 @@ static irqreturn_t moxart_mac_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static int moxart_mac_start_xmit(struct sk_buff *skb, struct net_device *ndev)
+static netdev_tx_t moxart_mac_start_xmit(struct sk_buff *skb,
+					 struct net_device *ndev)
 {
 	struct moxart_mac_priv_t *priv = netdev_priv(ndev);
 	void *desc;
 	unsigned int len;
 	unsigned int tx_head;
 	u32 txdes1;
-	int ret = NETDEV_TX_BUSY;
+	netdev_tx_t ret = NETDEV_TX_BUSY;
 
 	spin_lock_irq(&priv->txlock);
 
@@ -480,14 +481,12 @@ static int moxart_mac_probe(struct platform_device *pdev)
 	priv->ndev = ndev;
 	priv->pdev = pdev;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	ndev->base_addr = res->start;
-	priv->base = devm_ioremap_resource(p_dev, res);
+	priv->base = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
 	if (IS_ERR(priv->base)) {
-		dev_err(p_dev, "devm_ioremap_resource failed\n");
 		ret = PTR_ERR(priv->base);
 		goto init_fail;
 	}
+	ndev->base_addr = res->start;
 
 	spin_lock_init(&priv->txlock);
 
@@ -541,10 +540,8 @@ static int moxart_mac_probe(struct platform_device *pdev)
 	SET_NETDEV_DEV(ndev, &pdev->dev);
 
 	ret = register_netdev(ndev);
-	if (ret) {
-		free_netdev(ndev);
+	if (ret)
 		goto init_fail;
-	}
 
 	netdev_dbg(ndev, "%s: IRQ=%d address=%pM\n",
 		   __func__, ndev->irq, ndev->dev_addr);

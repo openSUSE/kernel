@@ -76,14 +76,14 @@ struct mgmt_rp_read_version {
 struct mgmt_rp_read_commands {
 	__le16	num_commands;
 	__le16	num_events;
-	__le16	opcodes[0];
+	__le16	opcodes[];
 } __packed;
 
 #define MGMT_OP_READ_INDEX_LIST		0x0003
 #define MGMT_READ_INDEX_LIST_SIZE	0
 struct mgmt_rp_read_index_list {
 	__le16	num_controllers;
-	__le16	index[0];
+	__le16	index[];
 } __packed;
 
 /* Reserve one extra byte for names in management messages so that they
@@ -189,7 +189,7 @@ struct mgmt_link_key_info {
 struct mgmt_cp_load_link_keys {
 	__u8	debug_keys;
 	__le16	key_count;
-	struct	mgmt_link_key_info keys[0];
+	struct	mgmt_link_key_info keys[];
 } __packed;
 #define MGMT_LOAD_LINK_KEYS_SIZE	3
 
@@ -202,7 +202,7 @@ struct mgmt_cp_load_link_keys {
 struct mgmt_ltk_info {
 	struct mgmt_addr_info addr;
 	__u8	type;
-	__u8	master;
+	__u8	initiator;
 	__u8	enc_size;
 	__le16	ediv;
 	__le64	rand;
@@ -212,7 +212,7 @@ struct mgmt_ltk_info {
 #define MGMT_OP_LOAD_LONG_TERM_KEYS	0x0013
 struct mgmt_cp_load_long_term_keys {
 	__le16	key_count;
-	struct	mgmt_ltk_info keys[0];
+	struct	mgmt_ltk_info keys[];
 } __packed;
 #define MGMT_LOAD_LONG_TERM_KEYS_SIZE	2
 
@@ -229,7 +229,7 @@ struct mgmt_rp_disconnect {
 #define MGMT_GET_CONNECTIONS_SIZE	0
 struct mgmt_rp_get_connections {
 	__le16 conn_count;
-	struct mgmt_addr_info addr[0];
+	struct mgmt_addr_info addr[];
 } __packed;
 
 #define MGMT_OP_PIN_CODE_REPLY		0x0016
@@ -419,7 +419,7 @@ struct mgmt_irk_info {
 #define MGMT_OP_LOAD_IRKS		0x0030
 struct mgmt_cp_load_irks {
 	__le16 irk_count;
-	struct mgmt_irk_info irks[0];
+	struct mgmt_irk_info irks[];
 } __packed;
 #define MGMT_LOAD_IRKS_SIZE		2
 
@@ -471,7 +471,7 @@ struct mgmt_conn_param {
 #define MGMT_OP_LOAD_CONN_PARAM		0x0035
 struct mgmt_cp_load_conn_param {
 	__le16 param_count;
-	struct mgmt_conn_param params[0];
+	struct mgmt_conn_param params[];
 } __packed;
 #define MGMT_LOAD_CONN_PARAM_SIZE	2
 
@@ -479,7 +479,7 @@ struct mgmt_cp_load_conn_param {
 #define MGMT_READ_UNCONF_INDEX_LIST_SIZE 0
 struct mgmt_rp_read_unconf_index_list {
 	__le16	num_controllers;
-	__le16	index[0];
+	__le16	index[];
 } __packed;
 
 #define MGMT_OPTION_EXTERNAL_CONFIG	0x00000001
@@ -510,7 +510,7 @@ struct mgmt_cp_start_service_discovery {
 	__u8 type;
 	__s8 rssi;
 	__le16 uuid_count;
-	__u8 uuids[0][16];
+	__u8 uuids[][16];
 } __packed;
 #define MGMT_START_SERVICE_DISCOVERY_SIZE 4
 
@@ -522,7 +522,7 @@ struct mgmt_cp_read_local_oob_ext_data {
 struct mgmt_rp_read_local_oob_ext_data {
 	__u8    type;
 	__le16	eir_len;
-	__u8	eir[0];
+	__u8	eir[];
 } __packed;
 
 #define MGMT_OP_READ_EXT_INDEX_LIST	0x003C
@@ -533,7 +533,7 @@ struct mgmt_rp_read_ext_index_list {
 		__le16 index;
 		__u8   type;
 		__u8   bus;
-	} entry[0];
+	} entry[];
 } __packed;
 
 #define MGMT_OP_READ_ADV_FEATURES	0x0003D
@@ -544,7 +544,7 @@ struct mgmt_rp_read_adv_features {
 	__u8   max_scan_rsp_len;
 	__u8   max_instances;
 	__u8   num_instances;
-	__u8   instance[0];
+	__u8   instance[];
 } __packed;
 
 #define MGMT_OP_ADD_ADVERTISING		0x003E
@@ -555,7 +555,7 @@ struct mgmt_cp_add_advertising {
 	__le16	timeout;
 	__u8	adv_data_len;
 	__u8	scan_rsp_len;
-	__u8	data[0];
+	__u8	data[];
 } __packed;
 #define MGMT_ADD_ADVERTISING_SIZE	11
 struct mgmt_rp_add_advertising {
@@ -572,6 +572,13 @@ struct mgmt_rp_add_advertising {
 #define MGMT_ADV_FLAG_SEC_1M 		BIT(7)
 #define MGMT_ADV_FLAG_SEC_2M 		BIT(8)
 #define MGMT_ADV_FLAG_SEC_CODED 	BIT(9)
+#define MGMT_ADV_FLAG_CAN_SET_TX_POWER	BIT(10)
+#define MGMT_ADV_FLAG_HW_OFFLOAD	BIT(11)
+#define MGMT_ADV_PARAM_DURATION		BIT(12)
+#define MGMT_ADV_PARAM_TIMEOUT		BIT(13)
+#define MGMT_ADV_PARAM_INTERVALS	BIT(14)
+#define MGMT_ADV_PARAM_TX_POWER		BIT(15)
+#define MGMT_ADV_PARAM_SCAN_RSP		BIT(16)
 
 #define MGMT_ADV_FLAG_SEC_MASK	(MGMT_ADV_FLAG_SEC_1M | MGMT_ADV_FLAG_SEC_2M | \
 				 MGMT_ADV_FLAG_SEC_CODED)
@@ -609,7 +616,7 @@ struct mgmt_rp_read_ext_info {
 	__le32   supported_settings;
 	__le32   current_settings;
 	__le16   eir_len;
-	__u8     eir[0];
+	__u8     eir[];
 } __packed;
 
 #define MGMT_OP_SET_APPEARANCE		0x0043
@@ -619,7 +626,7 @@ struct mgmt_cp_set_appearance {
 #define MGMT_SET_APPEARANCE_SIZE	2
 
 #define MGMT_OP_GET_PHY_CONFIGURATION	0x0044
-struct mgmt_rp_get_phy_confguration {
+struct mgmt_rp_get_phy_configuration {
 	__le32	supported_phys;
 	__le32	configurable_phys;
 	__le32	selected_phys;
@@ -656,7 +663,7 @@ struct mgmt_rp_get_phy_confguration {
 			     MGMT_PHY_LE_CODED_RX)
 
 #define MGMT_OP_SET_PHY_CONFIGURATION	0x0045
-struct mgmt_cp_set_phy_confguration {
+struct mgmt_cp_set_phy_configuration {
 	__le32	selected_phys;
 } __packed;
 #define MGMT_SET_PHY_CONFIGURATION_SIZE	4
@@ -674,17 +681,22 @@ struct mgmt_blocked_key_info {
 
 struct mgmt_cp_set_blocked_keys {
 	__le16 key_count;
-	struct mgmt_blocked_key_info keys[0];
+	struct mgmt_blocked_key_info keys[];
 } __packed;
 #define MGMT_OP_SET_BLOCKED_KEYS_SIZE 2
 
 #define MGMT_OP_SET_WIDEBAND_SPEECH	0x0047
 
-#define MGMT_OP_READ_SECURITY_INFO	0x0048
-#define MGMT_READ_SECURITY_INFO_SIZE	0
-struct mgmt_rp_read_security_info {
-	__le16   sec_len;
-	__u8     sec[0];
+#define MGMT_CAP_SEC_FLAGS		0x01
+#define MGMT_CAP_MAX_ENC_KEY_SIZE	0x02
+#define MGMT_CAP_SMP_MAX_ENC_KEY_SIZE	0x03
+#define MGMT_CAP_LE_TX_PWR		0x04
+
+#define MGMT_OP_READ_CONTROLLER_CAP	0x0048
+#define MGMT_READ_CONTROLLER_CAP_SIZE	0
+struct mgmt_rp_read_controller_cap {
+	__le16   cap_len;
+	__u8     cap[0];
 } __packed;
 
 #define MGMT_OP_READ_EXP_FEATURES_INFO	0x0049
@@ -780,11 +792,57 @@ struct mgmt_rp_remove_adv_monitor {
 	__le16 monitor_handle;
 } __packed;
 
+#define MGMT_OP_ADD_EXT_ADV_PARAMS		0x0054
+struct mgmt_cp_add_ext_adv_params {
+	__u8	instance;
+	__le32	flags;
+	__le16	duration;
+	__le16	timeout;
+	__le32	min_interval;
+	__le32	max_interval;
+	__s8	tx_power;
+} __packed;
+#define MGMT_ADD_EXT_ADV_PARAMS_MIN_SIZE	18
+struct mgmt_rp_add_ext_adv_params {
+	__u8	instance;
+	__s8	tx_power;
+	__u8	max_adv_data_len;
+	__u8	max_scan_rsp_len;
+} __packed;
+
+#define MGMT_OP_ADD_EXT_ADV_DATA		0x0055
+struct mgmt_cp_add_ext_adv_data {
+	__u8	instance;
+	__u8	adv_data_len;
+	__u8	scan_rsp_len;
+	__u8	data[];
+} __packed;
+#define MGMT_ADD_EXT_ADV_DATA_SIZE	3
+struct mgmt_rp_add_ext_adv_data {
+	__u8	instance;
+} __packed;
+
+struct mgmt_adv_rssi_thresholds {
+	__s8	high_threshold;
+	__le16	high_threshold_timeout;
+	__s8	low_threshold;
+	__le16	low_threshold_timeout;
+	__u8	sampling_period;
+} __packed;
+
+#define MGMT_OP_ADD_ADV_PATTERNS_MONITOR_RSSI	0x0056
+struct mgmt_cp_add_adv_patterns_monitor_rssi {
+	struct mgmt_adv_rssi_thresholds rssi;
+	__u8	pattern_count;
+	struct mgmt_adv_pattern patterns[];
+} __packed;
+#define MGMT_ADD_ADV_PATTERNS_MONITOR_RSSI_SIZE	8
+
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
 	__le16	opcode;
 	__u8	status;
-	__u8	data[0];
+	__u8	data[];
 } __packed;
 
 #define MGMT_EV_CMD_STATUS		0x0002
@@ -832,7 +890,7 @@ struct mgmt_ev_device_connected {
 	struct mgmt_addr_info addr;
 	__le32	flags;
 	__le16	eir_len;
-	__u8	eir[0];
+	__u8	eir[];
 } __packed;
 
 #define MGMT_DEV_DISCONN_UNKNOWN	0x00
@@ -840,6 +898,7 @@ struct mgmt_ev_device_connected {
 #define MGMT_DEV_DISCONN_LOCAL_HOST	0x02
 #define MGMT_DEV_DISCONN_REMOTE		0x03
 #define MGMT_DEV_DISCONN_AUTH_FAILURE	0x04
+#define MGMT_DEV_DISCONN_LOCAL_HOST_SUSPEND	0x05
 
 #define MGMT_EV_DEVICE_DISCONNECTED	0x000C
 struct mgmt_ev_device_disconnected {
@@ -880,6 +939,7 @@ struct mgmt_ev_auth_failed {
 #define MGMT_DEV_FOUND_CONFIRM_NAME    0x01
 #define MGMT_DEV_FOUND_LEGACY_PAIRING  0x02
 #define MGMT_DEV_FOUND_NOT_CONNECTABLE 0x04
+#define MGMT_DEV_FOUND_INITIATED_CONN  0x08
 
 #define MGMT_EV_DEVICE_FOUND		0x0012
 struct mgmt_ev_device_found {
@@ -887,7 +947,7 @@ struct mgmt_ev_device_found {
 	__s8	rssi;
 	__le32	flags;
 	__le16	eir_len;
-	__u8	eir[0];
+	__u8	eir[];
 } __packed;
 
 #define MGMT_EV_DISCOVERING		0x0013
@@ -982,7 +1042,7 @@ struct mgmt_ev_ext_index {
 struct mgmt_ev_local_oob_data_updated {
 	__u8    type;
 	__le16	eir_len;
-	__u8	eir[0];
+	__u8	eir[];
 } __packed;
 
 #define MGMT_EV_ADVERTISING_ADDED	0x0023
@@ -998,7 +1058,7 @@ struct mgmt_ev_advertising_removed {
 #define MGMT_EV_EXT_INFO_CHANGED	0x0025
 struct mgmt_ev_ext_info_changed {
 	__le16	eir_len;
-	__u8	eir[0];
+	__u8	eir[];
 } __packed;
 
 #define MGMT_EV_PHY_CONFIGURATION_CHANGED	0x0026
@@ -1028,3 +1088,18 @@ struct mgmt_ev_adv_monitor_added {
 struct mgmt_ev_adv_monitor_removed {
 	__le16 monitor_handle;
 }  __packed;
+
+#define MGMT_EV_CONTROLLER_SUSPEND		0x002d
+struct mgmt_ev_controller_suspend {
+	__u8	suspend_state;
+} __packed;
+
+#define MGMT_EV_CONTROLLER_RESUME		0x002e
+struct mgmt_ev_controller_resume {
+	__u8	wake_reason;
+	struct mgmt_addr_info addr;
+} __packed;
+
+#define MGMT_WAKE_REASON_NON_BT_WAKE		0x0
+#define MGMT_WAKE_REASON_UNEXPECTED		0x1
+#define MGMT_WAKE_REASON_REMOTE_WAKE		0x2

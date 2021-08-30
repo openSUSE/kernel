@@ -86,7 +86,7 @@ MODULE_VERSION("0.0.1");
 #define check_command_failed(status)	(!(status & SI4713_CTS) || \
 					(status & SI4713_ERR))
 /* mute definition */
-#define set_mute(p)	((p & 1) | ((p & 1) << 1));
+#define set_mute(p)	(((p) & 1) | (((p) & 1) << 1))
 
 #ifdef DEBUG
 #define DBG_BUFFER(device, message, buffer, size)			\
@@ -1157,7 +1157,7 @@ static int si4713_s_ctrl(struct v4l2_ctrl *ctrl)
 			 * V4L2_CID_TUNE_POWER_LEVEL. */
 			if (force)
 				break;
-			/* fall through */
+			fallthrough;
 		case V4L2_CID_TUNE_POWER_LEVEL:
 			ret = si4713_tx_tune_power(sdev,
 				sdev->tune_pwr_level->val, sdev->tune_ant_cap->val);
@@ -1427,8 +1427,7 @@ static const struct v4l2_ctrl_config si4713_alt_freqs_ctrl = {
  * I2C driver interface
  */
 /* si4713_probe - probe for the device */
-static int si4713_probe(struct i2c_client *client,
-					const struct i2c_device_id *id)
+static int si4713_probe(struct i2c_client *client)
 {
 	struct si4713_device *sdev;
 	struct v4l2_ctrl_handler *hdl;
@@ -1660,7 +1659,7 @@ static struct i2c_driver si4713_i2c_driver = {
 		.name	= "si4713",
 		.of_match_table = of_match_ptr(si4713_of_match),
 	},
-	.probe		= si4713_probe,
+	.probe_new	= si4713_probe,
 	.remove         = si4713_remove,
 	.id_table       = si4713_id,
 };

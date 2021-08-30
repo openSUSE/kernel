@@ -5,16 +5,6 @@
 #include <linux/cpumask.h>
 #include <asm/percpu.h>
 
-/*
- * We need the APIC definitions automatically as part of 'smp.h'
- */
-#ifdef CONFIG_X86_LOCAL_APIC
-# include <asm/mpspec.h>
-# include <asm/apic.h>
-# ifdef CONFIG_X86_IO_APIC
-#  include <asm/io_apic.h>
-# endif
-#endif
 #include <asm/thread_info.h>
 #include <asm/cpumask.h>
 
@@ -59,7 +49,6 @@ struct smp_ops {
 
 	void (*send_call_func_ipi)(const struct cpumask *mask);
 	void (*send_call_func_single_ipi)(int cpu);
-	void *suse_kabi_padding;
 };
 
 /* Globals due to paravirt */

@@ -253,8 +253,9 @@ static void serverworks_set_dmamode(struct ata_port *ap, struct ata_device *adev
 }
 
 static struct scsi_host_template serverworks_osb4_sht = {
-	ATA_BMDMA_SHT(DRV_NAME),
+	ATA_BASE_SHT(DRV_NAME),
 	.sg_tablesize	= LIBATA_DUMB_MAX_PRD,
+	.dma_boundary	= ATA_DMA_BOUNDARY,
 };
 
 static struct scsi_host_template serverworks_csb_sht = {
@@ -369,7 +370,7 @@ static int serverworks_fixup(struct pci_dev *pdev)
 		break;
 	case PCI_DEVICE_ID_SERVERWORKS_CSB5IDE:
 		ata_pci_bmdma_clear_simplex(pdev);
-		/* fall through */
+		fallthrough;
 	case PCI_DEVICE_ID_SERVERWORKS_CSB6IDE:
 	case PCI_DEVICE_ID_SERVERWORKS_CSB6IDE2:
 		rc = serverworks_fixup_csb(pdev);

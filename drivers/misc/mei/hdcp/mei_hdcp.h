@@ -184,8 +184,11 @@ struct hdcp_cmd_no_data {
 /* Uniquely identifies the hdcp port being addressed for a given command. */
 struct hdcp_port_id {
 	u8	integrated_port_type;
+	/* physical_port is used until Gen11.5. Must be zero for Gen11.5+ */
 	u8	physical_port;
-	u16	reserved;
+	/* attached_transcoder is for Gen11.5+. Set to zero for <Gen11.5 */
+	u8	attached_transcoder;
+	u8	reserved;
 } __packed;
 
 /*
@@ -355,7 +358,7 @@ struct wired_cmd_repeater_auth_stream_req_in {
 	u8				seq_num_m[HDCP_2_2_SEQ_NUM_LEN];
 	u8				m_prime[HDCP_2_2_MPRIME_LEN];
 	__be16				k;
-	struct hdcp2_streamid_type	streams[1];
+	struct hdcp2_streamid_type	streams[];
 } __packed;
 
 struct wired_cmd_repeater_auth_stream_req_out {

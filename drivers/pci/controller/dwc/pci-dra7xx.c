@@ -2,7 +2,7 @@
 /*
  * pcie-dra7xx - PCIe controller driver for TI DRA7xx SoCs
  *
- * Copyright (C) 2013-2014 Texas Instruments Incorporated - http://www.ti.com
+ * Copyright (C) 2013-2014 Texas Instruments Incorporated - https://www.ti.com
  *
  * Authors: Kishon Vijay Abraham I <kishon@ti.com>
  */
@@ -181,7 +181,6 @@ static int dra7xx_pcie_host_init(struct pcie_port *pp)
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 	struct dra7xx_pcie *dra7xx = to_dra7xx_pcie(pci);
 
-	dw_pcie_setup_rc(pp);
 	dra7xx_pcie_enable_interrupts(dra7xx);
 
 	return 0;
@@ -444,8 +443,8 @@ static const struct dw_pcie_ep_ops pcie_ep_ops = {
 	.get_features = dra7xx_pcie_get_features,
 };
 
-static int __init dra7xx_add_pcie_ep(struct dra7xx_pcie *dra7xx,
-				     struct platform_device *pdev)
+static int dra7xx_add_pcie_ep(struct dra7xx_pcie *dra7xx,
+			      struct platform_device *pdev)
 {
 	int ret;
 	struct dw_pcie_ep *ep;
@@ -473,8 +472,8 @@ static int __init dra7xx_add_pcie_ep(struct dra7xx_pcie *dra7xx,
 	return 0;
 }
 
-static int __init dra7xx_add_pcie_port(struct dra7xx_pcie *dra7xx,
-				       struct platform_device *pdev)
+static int dra7xx_add_pcie_port(struct dra7xx_pcie *dra7xx,
+				struct platform_device *pdev)
 {
 	int ret;
 	struct dw_pcie *pci = dra7xx->pci;
@@ -683,7 +682,7 @@ static int dra7xx_pcie_configure_two_lane(struct device *dev,
 	return 0;
 }
 
-static int __init dra7xx_pcie_probe(struct platform_device *pdev)
+static int dra7xx_pcie_probe(struct platform_device *pdev)
 {
 	u32 reg;
 	int ret;
@@ -939,6 +938,7 @@ static const struct dev_pm_ops dra7xx_pcie_pm_ops = {
 };
 
 static struct platform_driver dra7xx_pcie_driver = {
+	.probe = dra7xx_pcie_probe,
 	.driver = {
 		.name	= "dra7-pcie",
 		.of_match_table = of_dra7xx_pcie_match,
@@ -947,4 +947,4 @@ static struct platform_driver dra7xx_pcie_driver = {
 	},
 	.shutdown = dra7xx_pcie_shutdown,
 };
-builtin_platform_driver_probe(dra7xx_pcie_driver, dra7xx_pcie_probe);
+builtin_platform_driver(dra7xx_pcie_driver);

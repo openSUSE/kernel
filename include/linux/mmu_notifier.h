@@ -5,6 +5,7 @@
 #include <linux/list.h>
 #include <linux/spinlock.h>
 #include <linux/mm_types.h>
+#include <linux/mmap_lock.h>
 #include <linux/srcu.h>
 #include <linux/interval_tree.h>
 
@@ -32,7 +33,7 @@ struct mmu_interval_notifier;
  *
  * @MMU_NOTIFY_SOFT_DIRTY: soft dirty accounting (still same page and same
  * access flags). User should soft dirty the page in the end callback to make
- * sure that anyone relying on soft dirtyness catch pages that might be written
+ * sure that anyone relying on soft dirtiness catch pages that might be written
  * through non CPU mappings.
  *
  * @MMU_NOTIFY_RELEASE: used during mmu_interval_notifier invalidate to signal
@@ -40,7 +41,12 @@ struct mmu_interval_notifier;
  *
  * @MMU_NOTIFY_MIGRATE: used during migrate_vma_collect() invalidate to signal
  * a device driver to possibly ignore the invalidation if the
- * migrate_pgmap_owner field matches the driver's device private pgmap owner.
+ * owner field matches the driver's device private pgmap owner.
+ *
+ * @MMU_NOTIFY_EXCLUSIVE: to signal a device driver that the device will no
+ * longer have exclusive access to the page. When sent during creation of an
+ * exclusive range the owner will be initialised to the value provided by the
+ * caller of make_device_exclusive_range(), otherwise the owner will be NULL.
  */
 enum mmu_notifier_event {
 	MMU_NOTIFY_UNMAP = 0,
@@ -50,6 +56,7 @@ enum mmu_notifier_event {
 	MMU_NOTIFY_SOFT_DIRTY,
 	MMU_NOTIFY_RELEASE,
 	MMU_NOTIFY_MIGRATE,
+	MMU_NOTIFY_EXCLUSIVE,
 };
 
 #define MMU_NOTIFIER_RANGE_BLOCKABLE (1 << 0)
@@ -126,7 +133,7 @@ struct mmu_notifier_ops {
 
 	/*
 	 * invalidate_range_start() and invalidate_range_end() must be
-	 * paired and are called only when the mmap_sem and/or the
+	 * paired and are called only when the mmap_lock and/or the
 	 * locks protecting the reverse maps are held. If the subsystem
 	 * can't guarantee that no additional references are taken to
 	 * the pages in the range, it has to implement the
@@ -160,7 +167,7 @@ struct mmu_notifier_ops {
 	 * decrease the refcount. If the refcount is decreased on
 	 * invalidate_range_start() then the VM can free pages as page
 	 * table entries are removed.  If the refcount is only
-	 * droppped on invalidate_range_end() then the driver itself
+	 * dropped on invalidate_range_end() then the driver itself
 	 * will drop the last refcount but it must take care to flush
 	 * any secondary tlb before doing the final free on the
 	 * page. Pages will no longer be referenced by the linux
@@ -168,11 +175,11 @@ struct mmu_notifier_ops {
 	 * the last refcount is dropped.
 	 *
 	 * If blockable argument is set to false then the callback cannot
-	 * sleep and has to return with -EAGAIN. 0 should be returned
-	 * otherwise. Please note that if invalidate_range_start approves
-	 * a non-blocking behavior then the same applies to
-	 * invalidate_range_end.
-	 *
+	 * sleep and has to return with -EAGAIN if sleeping would be required.
+	 * 0 should be returned otherwise. Please note that notifiers that can
+	 * fail invalidate_range_start are not allowed to implement
+	 * invalidate_range_end, as there is no mechanism for informing the
+	 * notifier that its start failed.
 	 */
 	int (*invalidate_range_start)(struct mmu_notifier *subscription,
 				      const struct mmu_notifier_range *range);
@@ -189,7 +196,7 @@ struct mmu_notifier_ops {
 	 * If invalidate_range() is used to manage a non-CPU TLB with
 	 * shared page-tables, it not necessary to implement the
 	 * invalidate_range_start()/end() notifiers, as
-	 * invalidate_range() alread catches the points in time when an
+	 * invalidate_range() already catches the points in time when an
 	 * external TLB range needs to be flushed. For more in depth
 	 * discussion on this see Documentation/vm/mmu_notifier.rst
 	 *
@@ -217,13 +224,13 @@ struct mmu_notifier_ops {
 };
 
 /*
- * The notifier chains are protected by mmap_sem and/or the reverse map
+ * The notifier chains are protected by mmap_lock and/or the reverse map
  * semaphores. Notifier chains are only changed when all reverse maps and
- * the mmap_sem locks are taken.
+ * the mmap_lock locks are taken.
  *
  * Therefore notifier chains can only be traversed when either
  *
- * 1. mmap_sem is held.
+ * 1. mmap_lock is held.
  * 2. One of the reverse map locks is held (i_mmap_rwsem or anon_vma->rwsem).
  * 3. No other concurrent thread can access the list (release)
  */
@@ -268,7 +275,7 @@ struct mmu_notifier_range {
 	unsigned long end;
 	unsigned flags;
 	enum mmu_notifier_event event;
-	void *migrate_pgmap_owner;
+	void *owner;
 };
 
 static inline int mm_has_notifiers(struct mm_struct *mm)
@@ -283,9 +290,9 @@ mmu_notifier_get(const struct mmu_notifier_ops *ops, struct mm_struct *mm)
 {
 	struct mmu_notifier *ret;
 
-	down_write(&mm->mmap_sem);
+	mmap_write_lock(mm);
 	ret = mmu_notifier_get_locked(ops, mm);
-	up_write(&mm->mmap_sem);
+	mmap_write_unlock(mm);
 	return ret;
 }
 void mmu_notifier_put(struct mmu_notifier *subscription);
@@ -362,7 +369,7 @@ mmu_interval_read_retry(struct mmu_interval_notifier *interval_sub,
  * mmu_interval_read_retry() will return true.
  *
  * False is not reliable and only suggests a collision may not have
- * occured. It can be called many times and does not have to hold the user
+ * occurred. It can be called many times and does not have to hold the user
  * provided lock.
  *
  * This call can be used as part of loops and other expensive operations to
@@ -520,14 +527,14 @@ static inline void mmu_notifier_range_init(struct mmu_notifier_range *range,
 	range->flags = flags;
 }
 
-static inline void mmu_notifier_range_init_migrate(
-			struct mmu_notifier_range *range, unsigned int flags,
+static inline void mmu_notifier_range_init_owner(
+			struct mmu_notifier_range *range,
+			enum mmu_notifier_event event, unsigned int flags,
 			struct vm_area_struct *vma, struct mm_struct *mm,
-			unsigned long start, unsigned long end, void *pgmap)
+			unsigned long start, unsigned long end, void *owner)
 {
-	mmu_notifier_range_init(range, MMU_NOTIFY_MIGRATE, flags, vma, mm,
-				start, end);
-	range->migrate_pgmap_owner = pgmap;
+	mmu_notifier_range_init(range, event, flags, vma, mm, start, end);
+	range->owner = owner;
 }
 
 #define ptep_clear_flush_young_notify(__vma, __address, __ptep)		\
@@ -654,8 +661,8 @@ static inline void _mmu_notifier_range_init(struct mmu_notifier_range *range,
 
 #define mmu_notifier_range_init(range,event,flags,vma,mm,start,end)  \
 	_mmu_notifier_range_init(range, start, end)
-#define mmu_notifier_range_init_migrate(range, flags, vma, mm, start, end, \
-					pgmap) \
+#define mmu_notifier_range_init_owner(range, event, flags, vma, mm, start, \
+					end, owner) \
 	_mmu_notifier_range_init(range, start, end)
 
 static inline bool

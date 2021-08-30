@@ -17,20 +17,19 @@
  * Include the stateless codec compound control definitions.
  * This will move to the public headers once this API is fully stable.
  */
-#include <media/mpeg2-ctrls.h>
-#include <media/fwht-ctrls.h>
-#include <media/h264-ctrls.h>
+#include <media/hevc-ctrls.h>
 
 /* forward references */
 struct file;
+struct poll_table_struct;
+struct v4l2_ctrl;
 struct v4l2_ctrl_handler;
 struct v4l2_ctrl_helper;
-struct v4l2_ctrl;
-struct video_device;
+struct v4l2_fh;
+struct v4l2_fwnode_device_properties;
 struct v4l2_subdev;
 struct v4l2_subscribed_event;
-struct v4l2_fh;
-struct poll_table_struct;
+struct video_device;
 
 /**
  * union v4l2_ctrl_ptr - A pointer to a control value.
@@ -40,15 +39,25 @@ struct poll_table_struct;
  * @p_u16:			Pointer to a 16-bit unsigned value.
  * @p_u32:			Pointer to a 32-bit unsigned value.
  * @p_char:			Pointer to a string.
- * @p_mpeg2_slice_params:	Pointer to a MPEG2 slice parameters structure.
- * @p_mpeg2_quantization:	Pointer to a MPEG2 quantization data structure.
+ * @p_mpeg2_sequence:		Pointer to a MPEG2 sequence structure.
+ * @p_mpeg2_picture:		Pointer to a MPEG2 picture structure.
+ * @p_mpeg2_quantisation:	Pointer to a MPEG2 quantisation data structure.
  * @p_fwht_params:		Pointer to a FWHT stateless parameters structure.
  * @p_h264_sps:			Pointer to a struct v4l2_ctrl_h264_sps.
  * @p_h264_pps:			Pointer to a struct v4l2_ctrl_h264_pps.
  * @p_h264_scaling_matrix:	Pointer to a struct v4l2_ctrl_h264_scaling_matrix.
  * @p_h264_slice_params:	Pointer to a struct v4l2_ctrl_h264_slice_params.
  * @p_h264_decode_params:	Pointer to a struct v4l2_ctrl_h264_decode_params.
+ * @p_h264_pred_weights:	Pointer to a struct v4l2_ctrl_h264_pred_weights.
+ * @p_vp8_frame:		Pointer to a VP8 frame params structure.
+ * @p_hevc_sps:			Pointer to an HEVC sequence parameter set structure.
+ * @p_hevc_pps:			Pointer to an HEVC picture parameter set structure.
+ * @p_hevc_slice_params:	Pointer to an HEVC slice parameters structure.
+ * @p_hdr10_cll:		Pointer to an HDR10 Content Light Level structure.
+ * @p_hdr10_mastering:		Pointer to an HDR10 Mastering Display structure.
+ * @p_area:			Pointer to an area.
  * @p:				Pointer to a compound value.
+ * @p_const:			Pointer to a constant compound value.
  */
 union v4l2_ctrl_ptr {
 	s32 *p_s32;
@@ -57,16 +66,38 @@ union v4l2_ctrl_ptr {
 	u16 *p_u16;
 	u32 *p_u32;
 	char *p_char;
-	struct v4l2_ctrl_mpeg2_slice_params *p_mpeg2_slice_params;
-	struct v4l2_ctrl_mpeg2_quantization *p_mpeg2_quantization;
+	struct v4l2_ctrl_mpeg2_sequence *p_mpeg2_sequence;
+	struct v4l2_ctrl_mpeg2_picture *p_mpeg2_picture;
+	struct v4l2_ctrl_mpeg2_quantisation *p_mpeg2_quantisation;
 	struct v4l2_ctrl_fwht_params *p_fwht_params;
 	struct v4l2_ctrl_h264_sps *p_h264_sps;
 	struct v4l2_ctrl_h264_pps *p_h264_pps;
 	struct v4l2_ctrl_h264_scaling_matrix *p_h264_scaling_matrix;
 	struct v4l2_ctrl_h264_slice_params *p_h264_slice_params;
 	struct v4l2_ctrl_h264_decode_params *p_h264_decode_params;
+	struct v4l2_ctrl_h264_pred_weights *p_h264_pred_weights;
+	struct v4l2_ctrl_vp8_frame *p_vp8_frame;
+	struct v4l2_ctrl_hevc_sps *p_hevc_sps;
+	struct v4l2_ctrl_hevc_pps *p_hevc_pps;
+	struct v4l2_ctrl_hevc_slice_params *p_hevc_slice_params;
+	struct v4l2_ctrl_hdr10_cll_info *p_hdr10_cll;
+	struct v4l2_ctrl_hdr10_mastering_display *p_hdr10_mastering;
+	struct v4l2_area *p_area;
 	void *p;
+	const void *p_const;
 };
+
+/**
+ * v4l2_ctrl_ptr_create() - Helper function to return a v4l2_ctrl_ptr from a
+ * void pointer
+ * @ptr:	The void pointer
+ */
+static inline union v4l2_ctrl_ptr v4l2_ctrl_ptr_create(void *ptr)
+{
+	union v4l2_ctrl_ptr p = { .p = ptr };
+
+	return p;
+}
 
 /**
  * struct v4l2_ctrl_ops - The control operations that the driver has to provide.
@@ -197,6 +228,9 @@ typedef void (*v4l2_ctrl_notify_fnc)(struct v4l2_ctrl *ctrl, void *priv);
  *		not freed when the control is deleted. Should this be needed
  *		then a new internal bitfield can be added to tell the framework
  *		to free this pointer.
+ * @p_def:	The control's default value represented via a union which
+ *		provides a standard way of accessing control types
+ *		through a pointer (for compound controls only).
  * @p_cur:	The control's current value represented via a union which
  *		provides a standard way of accessing control types
  *		through a pointer.
@@ -251,6 +285,7 @@ struct v4l2_ctrl {
 		s32 val;
 	} cur;
 
+	union v4l2_ctrl_ptr p_def;
 	union v4l2_ctrl_ptr p_new;
 	union v4l2_ctrl_ptr p_cur;
 };
@@ -270,12 +305,14 @@ struct v4l2_ctrl {
  *		the control has been applied. This prevents applying controls
  *		from a cluster with multiple controls twice (when the first
  *		control of a cluster is applied, they all are).
- * @req:	If set, this refers to another request that sets this control.
+ * @valid_p_req: If set, then p_req contains the control value for the request.
  * @p_req:	If the control handler containing this control reference
  *		is bound to a media request, then this points to the
- *		value of the control that should be applied when the request
+ *		value of the control that must be applied when the request
  *		is executed, or to the value of the control at the time
- *		that the request was completed.
+ *		that the request was completed. If @valid_p_req is false,
+ *		then this control was never set for this request and the
+ *		control will not be updated when this request is applied.
  *
  * Each control handler has a list of these refs. The list_head is used to
  * keep a sorted-by-control-ID list of all controls, while the next pointer
@@ -288,7 +325,7 @@ struct v4l2_ctrl_ref {
 	struct v4l2_ctrl_helper *helper;
 	bool from_other_dev;
 	bool req_done;
-	struct v4l2_ctrl_ref *req;
+	bool valid_p_req;
 	union v4l2_ctrl_ptr p_req;
 };
 
@@ -315,7 +352,7 @@ struct v4l2_ctrl_ref {
  * @error:	The error code of the first failed control addition.
  * @request_is_queued: True if the request was queued.
  * @requests:	List to keep track of open control handler request objects.
- *		For the parent control handler (@req_obj.req == NULL) this
+ *		For the parent control handler (@req_obj.ops == NULL) this
  *		is the list header. When the parent control handler is
  *		removed, it has to unbind and put all these requests since
  *		they refer to the parent.
@@ -354,6 +391,7 @@ struct v4l2_ctrl_handler {
  * @max:	The control's maximum value.
  * @step:	The control's step value for non-menu controls.
  * @def:	The control's default value.
+ * @p_def:	The control's default value for compound controls.
  * @dims:	The size of each dimension.
  * @elem_size:	The size in bytes of the control.
  * @flags:	The control's flags.
@@ -382,6 +420,7 @@ struct v4l2_ctrl_config {
 	s64 max;
 	u64 step;
 	s64 def;
+	union v4l2_ctrl_ptr p_def;
 	u32 dims[V4L2_CTRL_MAX_DIMS];
 	u32 elem_size;
 	u32 flags;
@@ -642,6 +681,26 @@ struct v4l2_ctrl *v4l2_ctrl_new_std_menu_items(struct v4l2_ctrl_handler *hdl,
 					       u32 id, u8 max,
 					       u64 mask, u8 def,
 					       const char * const *qmenu);
+
+/**
+ * v4l2_ctrl_new_std_compound() - Allocate and initialize a new standard V4L2
+ *      compound control.
+ *
+ * @hdl:       The control handler.
+ * @ops:       The control ops.
+ * @id:        The control ID.
+ * @p_def:     The control's default value.
+ *
+ * Sames as v4l2_ctrl_new_std(), but with support to compound controls, thanks
+ * to the @p_def field. Use v4l2_ctrl_ptr_create() to create @p_def from a
+ * pointer. Use v4l2_ctrl_ptr_create(NULL) if the default value of the
+ * compound control should be all zeroes.
+ *
+ */
+struct v4l2_ctrl *v4l2_ctrl_new_std_compound(struct v4l2_ctrl_handler *hdl,
+					     const struct v4l2_ctrl_ops *ops,
+					     u32 id,
+					     const union v4l2_ctrl_ptr p_def);
 
 /**
  * v4l2_ctrl_new_int_menu() - Create a new standard V4L2 integer menu control.
@@ -1062,6 +1121,55 @@ static inline int v4l2_ctrl_s_ctrl_string(struct v4l2_ctrl *ctrl, const char *s)
 	return rval;
 }
 
+/**
+ * __v4l2_ctrl_s_ctrl_compound() - Unlocked variant to set a compound control
+ *
+ * @ctrl: The control.
+ * @type: The type of the data.
+ * @p:    The new compound payload.
+ *
+ * This sets the control's new compound payload safely by going through the
+ * control framework. This function assumes the control's handler is already
+ * locked, allowing it to be used from within the &v4l2_ctrl_ops functions.
+ *
+ * This function is for compound type controls only.
+ */
+int __v4l2_ctrl_s_ctrl_compound(struct v4l2_ctrl *ctrl,
+				enum v4l2_ctrl_type type, const void *p);
+
+/**
+ * v4l2_ctrl_s_ctrl_compound() - Helper function to set a compound control
+ *	from within a driver.
+ *
+ * @ctrl: The control.
+ * @type: The type of the data.
+ * @p:    The new compound payload.
+ *
+ * This sets the control's new compound payload safely by going through the
+ * control framework. This function will lock the control's handler, so it
+ * cannot be used from within the &v4l2_ctrl_ops functions.
+ *
+ * This function is for compound type controls only.
+ */
+static inline int v4l2_ctrl_s_ctrl_compound(struct v4l2_ctrl *ctrl,
+					    enum v4l2_ctrl_type type,
+					    const void *p)
+{
+	int rval;
+
+	v4l2_ctrl_lock(ctrl);
+	rval = __v4l2_ctrl_s_ctrl_compound(ctrl, type, p);
+	v4l2_ctrl_unlock(ctrl);
+
+	return rval;
+}
+
+/* Helper defines for area type controls */
+#define __v4l2_ctrl_s_ctrl_area(ctrl, area) \
+	__v4l2_ctrl_s_ctrl_compound((ctrl), V4L2_CTRL_TYPE_AREA, (area))
+#define v4l2_ctrl_s_ctrl_area(ctrl, area) \
+	v4l2_ctrl_s_ctrl_compound((ctrl), V4L2_CTRL_TYPE_AREA, (area))
+
 /* Internal helper functions that deal with control events. */
 extern const struct v4l2_subscribed_event_ops v4l2_ctrl_sub_ev_ops;
 
@@ -1188,7 +1296,7 @@ static inline void v4l2_ctrl_request_hdl_put(struct v4l2_ctrl_handler *hdl)
 }
 
 /**
- * v4l2_ctrl_request_ctrl_find() - Find a control with the given ID.
+ * v4l2_ctrl_request_hdl_ctrl_find() - Find a control with the given ID.
  *
  * @hdl: The control handler from the request.
  * @id: The ID of the control to find.
@@ -1265,25 +1373,28 @@ int v4l2_s_ctrl(struct v4l2_fh *fh, struct v4l2_ctrl_handler *hdl,
  *	:ref:`VIDIOC_G_EXT_CTRLS <vidioc_g_ext_ctrls>` ioctl
  *
  * @hdl: pointer to &struct v4l2_ctrl_handler
+ * @vdev: pointer to &struct video_device
  * @mdev: pointer to &struct media_device
  * @c: pointer to &struct v4l2_ext_controls
  *
  * If hdl == NULL then they will all return -EINVAL.
  */
-int v4l2_g_ext_ctrls(struct v4l2_ctrl_handler *hdl, struct media_device *mdev,
-		     struct v4l2_ext_controls *c);
+int v4l2_g_ext_ctrls(struct v4l2_ctrl_handler *hdl, struct video_device *vdev,
+		     struct media_device *mdev, struct v4l2_ext_controls *c);
 
 /**
  * v4l2_try_ext_ctrls - Helper function to implement
  *	:ref:`VIDIOC_TRY_EXT_CTRLS <vidioc_g_ext_ctrls>` ioctl
  *
  * @hdl: pointer to &struct v4l2_ctrl_handler
+ * @vdev: pointer to &struct video_device
  * @mdev: pointer to &struct media_device
  * @c: pointer to &struct v4l2_ext_controls
  *
  * If hdl == NULL then they will all return -EINVAL.
  */
 int v4l2_try_ext_ctrls(struct v4l2_ctrl_handler *hdl,
+		       struct video_device *vdev,
 		       struct media_device *mdev,
 		       struct v4l2_ext_controls *c);
 
@@ -1293,12 +1404,14 @@ int v4l2_try_ext_ctrls(struct v4l2_ctrl_handler *hdl,
  *
  * @fh: pointer to &struct v4l2_fh
  * @hdl: pointer to &struct v4l2_ctrl_handler
+ * @vdev: pointer to &struct video_device
  * @mdev: pointer to &struct media_device
  * @c: pointer to &struct v4l2_ext_controls
  *
  * If hdl == NULL then they will all return -EINVAL.
  */
 int v4l2_s_ext_ctrls(struct v4l2_fh *fh, struct v4l2_ctrl_handler *hdl,
+		     struct video_device *vdev,
 		     struct media_device *mdev,
 		     struct v4l2_ext_controls *c);
 
@@ -1322,4 +1435,29 @@ int v4l2_ctrl_subdev_subscribe_event(struct v4l2_subdev *sd, struct v4l2_fh *fh,
  */
 int v4l2_ctrl_subdev_log_status(struct v4l2_subdev *sd);
 
+/**
+ * v4l2_ctrl_new_fwnode_properties() - Register controls for the device
+ *				       properties
+ *
+ * @hdl: pointer to &struct v4l2_ctrl_handler to register controls on
+ * @ctrl_ops: pointer to &struct v4l2_ctrl_ops to register controls with
+ * @p: pointer to &struct v4l2_fwnode_device_properties
+ *
+ * This function registers controls associated to device properties, using the
+ * property values contained in @p parameter, if the property has been set to
+ * a value.
+ *
+ * Currently the following v4l2 controls are parsed and registered:
+ * - V4L2_CID_CAMERA_ORIENTATION
+ * - V4L2_CID_CAMERA_SENSOR_ROTATION;
+ *
+ * Controls already registered by the caller with the @hdl control handler are
+ * not overwritten. Callers should register the controls they want to handle
+ * themselves before calling this function.
+ *
+ * Return: 0 on success, a negative error code on failure.
+ */
+int v4l2_ctrl_new_fwnode_properties(struct v4l2_ctrl_handler *hdl,
+				    const struct v4l2_ctrl_ops *ctrl_ops,
+				    const struct v4l2_fwnode_device_properties *p);
 #endif

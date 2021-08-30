@@ -24,11 +24,11 @@
  * address region. We use them mapping kernel 1GB direct-map address area and
  * for more than 1GB of memory we use highmem.
  */
-#define PAGE_OFFSET	0x80000000
+#define PAGE_OFFSET	CONFIG_PAGE_OFFSET
 #define SSEG_SIZE	0x20000000
 #define LOWMEM_LIMIT	(SSEG_SIZE * 2)
 
-#define PHYS_OFFSET_OFFSET (CONFIG_RAM_BASE & (SSEG_SIZE - 1))
+#define PHYS_OFFSET_OFFSET (CONFIG_DRAM_BASE & (SSEG_SIZE - 1))
 
 #ifndef __ASSEMBLY__
 
@@ -84,9 +84,6 @@ extern unsigned long va_pa_offset;
 #define MAP_NR(x)	PFN_DOWN((unsigned long)(x) - PAGE_OFFSET - \
 				 PHYS_OFFSET_OFFSET)
 #define virt_to_page(x)	(mem_map + MAP_NR(x))
-
-#define VM_DATA_DEFAULT_FLAGS	(VM_READ | VM_WRITE | VM_EXEC | \
-				VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
 
 #define pfn_to_kaddr(x)	__va(PFN_PHYS(x))
 

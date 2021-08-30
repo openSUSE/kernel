@@ -1,10 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0
 # description: Kprobe event parser error log check
-
-[ -f kprobe_events ] || exit_unsupported # this is configurable
-
-[ -f error_log ] || exit_unsupported
+# requires: kprobe_events error_log
 
 check_error() { # command-with-error-pos-by-^
     ftrace_errlog_check 'trace_kprobe' "$1" 'kprobe_events'
@@ -40,6 +37,11 @@ check_error 'p vfs_read ^$none_var'	# BAD_VAR
 check_error 'p vfs_read ^%none_reg'	# BAD_REG_NAME
 check_error 'p vfs_read ^@12345678abcde'	# BAD_MEM_ADDR
 check_error 'p vfs_read ^@+10'		# FILE_ON_KPROBE
+
+grep -q "imm-value" README && \
+check_error 'p vfs_read arg1=\^x'	# BAD_IMM
+grep -q "imm-string" README && \
+check_error 'p vfs_read arg1=\"abcd^'	# IMMSTR_NO_CLOSE
 
 check_error 'p vfs_read ^+0@0)'		# DEREF_NEED_BRACE
 check_error 'p vfs_read ^+0ab1(@0)'	# BAD_DEREF_OFFS
@@ -81,5 +83,24 @@ case $(uname -m) in
     fi
     ;;
 esac
+
+# multiprobe errors
+if grep -q "Create/append/" README && grep -q "imm-value" README; then
+echo "p:kprobes/testevent $FUNCTION_FORK" > kprobe_events
+check_error '^r:kprobes/testevent do_exit'	# DIFF_PROBE_TYPE
+
+# Explicitly use printf "%s" to not interpret \1
+printf "%s" "p:kprobes/testevent $FUNCTION_FORK abcd=\\1" > kprobe_events
+check_error "p:kprobes/testevent $FUNCTION_FORK ^bcd=\\1"	# DIFF_ARG_TYPE
+check_error "p:kprobes/testevent $FUNCTION_FORK ^abcd=\\1:u8"	# DIFF_ARG_TYPE
+check_error "p:kprobes/testevent $FUNCTION_FORK ^abcd=\\\"foo\"" # DIFF_ARG_TYPE
+check_error "^p:kprobes/testevent $FUNCTION_FORK abcd=\\1"	# SAME_PROBE
+fi
+
+# %return suffix errors
+if grep -q "place (kretprobe): .*%return.*" README; then
+check_error 'p vfs_read^%hoge'		# BAD_ADDR_SUFFIX
+check_error 'p ^vfs_read+10%return'	# BAD_RETPROBE
+fi
 
 exit 0

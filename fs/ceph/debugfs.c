@@ -7,6 +7,8 @@
 #include <linux/ctype.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
+#include <linux/math64.h>
+#include <linux/ktime.h>
 
 #include <linux/ceph/libceph.h>
 #include <linux/ceph/mon_client.h>
@@ -18,6 +20,7 @@
 #ifdef CONFIG_DEBUG_FS
 
 #include "mds_client.h"
+#include "metric.h"
 
 static int mdsmap_show(struct seq_file *s, void *p)
 {
@@ -124,11 +127,123 @@ static int mdsc_show(struct seq_file *s, void *p)
 	return 0;
 }
 
+#define CEPH_LAT_METRIC_SHOW(name, total, avg, min, max, sq) {		\
+	s64 _total, _avg, _min, _max, _sq, _st;				\
+	_avg = ktime_to_us(avg);					\
+	_min = ktime_to_us(min == KTIME_MAX ? 0 : min);			\
+	_max = ktime_to_us(max);					\
+	_total = total - 1;						\
+	_sq = _total > 0 ? DIV64_U64_ROUND_CLOSEST(sq, _total) : 0;	\
+	_st = int_sqrt64(_sq);						\
+	_st = ktime_to_us(_st);						\
+	seq_printf(s, "%-14s%-12lld%-16lld%-16lld%-16lld%lld\n",	\
+		   name, total, _avg, _min, _max, _st);			\
+}
+
+#define CEPH_SZ_METRIC_SHOW(name, total, avg, min, max, sum) {		\
+	u64 _min = min == U64_MAX ? 0 : min;				\
+	seq_printf(s, "%-14s%-12lld%-16llu%-16llu%-16llu%llu\n",	\
+		   name, total, avg, _min, max, sum);			\
+}
+
+static int metric_show(struct seq_file *s, void *p)
+{
+	struct ceph_fs_client *fsc = s->private;
+	struct ceph_mds_client *mdsc = fsc->mdsc;
+	struct ceph_client_metric *m = &mdsc->metric;
+	int nr_caps = 0;
+	s64 total, sum, avg, min, max, sq;
+	u64 sum_sz, avg_sz, min_sz, max_sz;
+
+	sum = percpu_counter_sum(&m->total_inodes);
+	seq_printf(s, "item                               total\n");
+	seq_printf(s, "------------------------------------------\n");
+	seq_printf(s, "%-35s%lld / %lld\n", "opened files  / total inodes",
+		   atomic64_read(&m->opened_files), sum);
+	seq_printf(s, "%-35s%lld / %lld\n", "pinned i_caps / total inodes",
+		   atomic64_read(&m->total_caps), sum);
+	seq_printf(s, "%-35s%lld / %lld\n", "opened inodes / total inodes",
+		   percpu_counter_sum(&m->opened_inodes), sum);
+
+	seq_printf(s, "\n");
+	seq_printf(s, "item          total       avg_lat(us)     min_lat(us)     max_lat(us)     stdev(us)\n");
+	seq_printf(s, "-----------------------------------------------------------------------------------\n");
+
+	spin_lock(&m->read_metric_lock);
+	total = m->total_reads;
+	sum = m->read_latency_sum;
+	avg = total > 0 ? DIV64_U64_ROUND_CLOSEST(sum, total) : 0;
+	min = m->read_latency_min;
+	max = m->read_latency_max;
+	sq = m->read_latency_sq_sum;
+	spin_unlock(&m->read_metric_lock);
+	CEPH_LAT_METRIC_SHOW("read", total, avg, min, max, sq);
+
+	spin_lock(&m->write_metric_lock);
+	total = m->total_writes;
+	sum = m->write_latency_sum;
+	avg = total > 0 ? DIV64_U64_ROUND_CLOSEST(sum, total) : 0;
+	min = m->write_latency_min;
+	max = m->write_latency_max;
+	sq = m->write_latency_sq_sum;
+	spin_unlock(&m->write_metric_lock);
+	CEPH_LAT_METRIC_SHOW("write", total, avg, min, max, sq);
+
+	spin_lock(&m->metadata_metric_lock);
+	total = m->total_metadatas;
+	sum = m->metadata_latency_sum;
+	avg = total > 0 ? DIV64_U64_ROUND_CLOSEST(sum, total) : 0;
+	min = m->metadata_latency_min;
+	max = m->metadata_latency_max;
+	sq = m->metadata_latency_sq_sum;
+	spin_unlock(&m->metadata_metric_lock);
+	CEPH_LAT_METRIC_SHOW("metadata", total, avg, min, max, sq);
+
+	seq_printf(s, "\n");
+	seq_printf(s, "item          total       avg_sz(bytes)   min_sz(bytes)   max_sz(bytes)  total_sz(bytes)\n");
+	seq_printf(s, "----------------------------------------------------------------------------------------\n");
+
+	spin_lock(&m->read_metric_lock);
+	total = m->total_reads;
+	sum_sz = m->read_size_sum;
+	avg_sz = total > 0 ? DIV64_U64_ROUND_CLOSEST(sum_sz, total) : 0;
+	min_sz = m->read_size_min;
+	max_sz = m->read_size_max;
+	spin_unlock(&m->read_metric_lock);
+	CEPH_SZ_METRIC_SHOW("read", total, avg_sz, min_sz, max_sz, sum_sz);
+
+	spin_lock(&m->write_metric_lock);
+	total = m->total_writes;
+	sum_sz = m->write_size_sum;
+	avg_sz = total > 0 ? DIV64_U64_ROUND_CLOSEST(sum_sz, total) : 0;
+	min_sz = m->write_size_min;
+	max_sz = m->write_size_max;
+	spin_unlock(&m->write_metric_lock);
+	CEPH_SZ_METRIC_SHOW("write", total, avg_sz, min_sz, max_sz, sum_sz);
+
+	seq_printf(s, "\n");
+	seq_printf(s, "item          total           miss            hit\n");
+	seq_printf(s, "-------------------------------------------------\n");
+
+	seq_printf(s, "%-14s%-16lld%-16lld%lld\n", "d_lease",
+		   atomic64_read(&m->total_dentries),
+		   percpu_counter_sum(&m->d_lease_mis),
+		   percpu_counter_sum(&m->d_lease_hit));
+
+	nr_caps = atomic64_read(&m->total_caps);
+	seq_printf(s, "%-14s%-16d%-16lld%lld\n", "caps", nr_caps,
+		   percpu_counter_sum(&m->i_caps_mis),
+		   percpu_counter_sum(&m->i_caps_hit));
+
+	return 0;
+}
+
 static int caps_show_cb(struct inode *inode, struct ceph_cap *cap, void *p)
 {
 	struct seq_file *s = p;
 
-	seq_printf(s, "0x%-17lx%-17s%-17s\n", inode->i_ino,
+	seq_printf(s, "0x%-17llx%-3d%-17s%-17s\n", ceph_ino(inode),
+		   cap->session->s_mds,
 		   ceph_cap_string(cap->issued),
 		   ceph_cap_string(cap->implemented));
 	return 0;
@@ -148,8 +263,8 @@ static int caps_show(struct seq_file *s, void *p)
 		   "reserved\t%d\n"
 		   "min\t\t%d\n\n",
 		   total, avail, used, reserved, min);
-	seq_printf(s, "ino                issued           implemented\n");
-	seq_printf(s, "-----------------------------------------------\n");
+	seq_printf(s, "ino              mds  issued           implemented\n");
+	seq_printf(s, "--------------------------------------------------\n");
 
 	mutex_lock(&mdsc->mutex);
 	for (i = 0; i < mdsc->max_sessions; i++) {
@@ -173,7 +288,7 @@ static int caps_show(struct seq_file *s, void *p)
 
 	spin_lock(&mdsc->caps_list_lock);
 	list_for_each_entry(cw, &mdsc->cap_wait_list, list) {
-		seq_printf(s, "%-13d0x%-17lx%-17s%-17s\n", cw->tgid, cw->ino,
+		seq_printf(s, "%-13d0x%-17llx%-17s%-17s\n", cw->tgid, cw->ino,
 				ceph_cap_string(cw->need),
 				ceph_cap_string(cw->want));
 	}
@@ -188,7 +303,7 @@ static int mds_sessions_show(struct seq_file *s, void *ptr)
 	struct ceph_mds_client *mdsc = fsc->mdsc;
 	struct ceph_auth_client *ac = fsc->client->monc.auth;
 	struct ceph_options *opt = fsc->client->options;
-	int mds = -1;
+	int mds;
 
 	mutex_lock(&mdsc->mutex);
 
@@ -218,10 +333,25 @@ static int mds_sessions_show(struct seq_file *s, void *ptr)
 	return 0;
 }
 
+static int status_show(struct seq_file *s, void *p)
+{
+	struct ceph_fs_client *fsc = s->private;
+	struct ceph_entity_inst *inst = &fsc->client->msgr.inst;
+	struct ceph_entity_addr *client_addr = ceph_client_addr(fsc->client);
+
+	seq_printf(s, "instance: %s.%lld %s/%u\n", ENTITY_NAME(inst->name),
+		   ceph_pr_addr(client_addr), le32_to_cpu(client_addr->nonce));
+	seq_printf(s, "blocklisted: %s\n", fsc->blocklisted ? "true" : "false");
+
+	return 0;
+}
+
 DEFINE_SHOW_ATTRIBUTE(mdsmap);
 DEFINE_SHOW_ATTRIBUTE(mdsc);
 DEFINE_SHOW_ATTRIBUTE(caps);
 DEFINE_SHOW_ATTRIBUTE(mds_sessions);
+DEFINE_SHOW_ATTRIBUTE(metric);
+DEFINE_SHOW_ATTRIBUTE(status);
 
 
 /*
@@ -255,6 +385,7 @@ void ceph_fs_debugfs_cleanup(struct ceph_fs_client *fsc)
 	debugfs_remove(fsc->debugfs_mdsmap);
 	debugfs_remove(fsc->debugfs_mds_sessions);
 	debugfs_remove(fsc->debugfs_caps);
+	debugfs_remove(fsc->debugfs_metric);
 	debugfs_remove(fsc->debugfs_mdsc);
 }
 
@@ -295,11 +426,23 @@ void ceph_fs_debugfs_init(struct ceph_fs_client *fsc)
 						fsc,
 						&mdsc_fops);
 
+	fsc->debugfs_metric = debugfs_create_file("metrics",
+						  0400,
+						  fsc->client->debugfs_dir,
+						  fsc,
+						  &metric_fops);
+
 	fsc->debugfs_caps = debugfs_create_file("caps",
-						   0400,
-						   fsc->client->debugfs_dir,
-						   fsc,
-						   &caps_fops);
+						0400,
+						fsc->client->debugfs_dir,
+						fsc,
+						&caps_fops);
+
+	fsc->debugfs_status = debugfs_create_file("status",
+						  0400,
+						  fsc->client->debugfs_dir,
+						  fsc,
+						  &status_fops);
 }
 
 

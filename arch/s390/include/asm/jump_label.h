@@ -10,7 +10,9 @@
 #define JUMP_LABEL_NOP_SIZE 6
 #define JUMP_LABEL_NOP_OFFSET 2
 
-#if __GNUC__ < 9
+#ifdef CONFIG_CC_IS_CLANG
+#define JUMP_LABEL_STATIC_KEY_CONSTRAINT "i"
+#elif __GNUC__ < 9
 #define JUMP_LABEL_STATIC_KEY_CONSTRAINT "X"
 #else
 #define JUMP_LABEL_STATIC_KEY_CONSTRAINT "jdd"
@@ -20,7 +22,7 @@
  * We use a brcl 0,2 instruction for jump labels at compile time so it
  * can be easily distinguished from a hotpatch generated instruction.
  */
-static inline bool arch_static_branch(struct static_key *key, bool branch)
+static __always_inline bool arch_static_branch(struct static_key *key, bool branch)
 {
 	asm_volatile_goto("0:	brcl	0,"__stringify(JUMP_LABEL_NOP_OFFSET)"\n"
 			  ".pushsection __jump_table,\"aw\"\n"
@@ -34,7 +36,7 @@ label:
 	return true;
 }
 
-static inline bool arch_static_branch_jump(struct static_key *key, bool branch)
+static __always_inline bool arch_static_branch_jump(struct static_key *key, bool branch)
 {
 	asm_volatile_goto("0:	brcl 15,%l[label]\n"
 			  ".pushsection __jump_table,\"aw\"\n"

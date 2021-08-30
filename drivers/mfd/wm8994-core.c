@@ -40,7 +40,7 @@ static const struct mfd_cell wm8994_regulator_devs[] = {
 	},
 };
 
-static struct resource wm8994_codec_resources[] = {
+static const struct resource wm8994_codec_resources[] = {
 	{
 		.start = WM8994_IRQ_TEMP_SHUT,
 		.end   = WM8994_IRQ_TEMP_WARN,
@@ -48,7 +48,7 @@ static struct resource wm8994_codec_resources[] = {
 	},
 };
 
-static struct resource wm8994_gpio_resources[] = {
+static const struct resource wm8994_gpio_resources[] = {
 	{
 		.start = WM8994_IRQ_GPIO(1),
 		.end   = WM8994_IRQ_GPIO(11),
@@ -393,7 +393,9 @@ static int wm8994_device_init(struct wm8994 *wm8994, int irq)
 	ret = regulator_bulk_get(wm8994->dev, wm8994->num_supplies,
 				 wm8994->supplies);
 	if (ret != 0) {
-		dev_err(wm8994->dev, "Failed to get supplies: %d\n", ret);
+		if (ret != -EPROBE_DEFER)
+			dev_err(wm8994->dev, "Failed to get supplies: %d\n",
+				ret);
 		goto err;
 	}
 
@@ -584,6 +586,7 @@ static int wm8994_device_init(struct wm8994 *wm8994, int irq)
 		goto err_irq;
 	}
 
+	pm_runtime_set_active(wm8994->dev);
 	pm_runtime_enable(wm8994->dev);
 	pm_runtime_idle(wm8994->dev);
 
@@ -603,7 +606,9 @@ err:
 
 static void wm8994_device_exit(struct wm8994 *wm8994)
 {
+	pm_runtime_get_sync(wm8994->dev);
 	pm_runtime_disable(wm8994->dev);
+	pm_runtime_put_noidle(wm8994->dev);
 	wm8994_irq_exit(wm8994);
 	regulator_bulk_disable(wm8994->num_supplies, wm8994->supplies);
 	regulator_bulk_free(wm8994->num_supplies, wm8994->supplies);
@@ -678,7 +683,7 @@ static struct i2c_driver wm8994_i2c_driver = {
 	.driver = {
 		.name = "wm8994",
 		.pm = &wm8994_pm_ops,
-		.of_match_table = of_match_ptr(wm8994_of_match),
+		.of_match_table = wm8994_of_match,
 	},
 	.probe = wm8994_i2c_probe,
 	.remove = wm8994_i2c_remove,

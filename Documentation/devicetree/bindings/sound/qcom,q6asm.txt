@@ -52,13 +52,16 @@ configuration of each dai. Must contain the following properties.
 = EXAMPLE
 #include <dt-bindings/sound/qcom,q6asm.h>
 
-q6asm@7 {
+apr-service@7 {
 	compatible = "qcom,q6asm";
 	reg = <APR_SVC_ASM>;
 	q6asmdai: dais {
 		compatible = "qcom,q6asm-dais";
+		#address-cells = <1>;
+		#size-cells = <0>;
 		#sound-dai-cells = <1>;
-		mm@0 {
+
+		dai@0 {
 			reg = <0>;
 			direction = <Q6ASM_DAI_RX>;
 			is-compress-dai;

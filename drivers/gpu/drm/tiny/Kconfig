@@ -1,5 +1,15 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
+config DRM_ARCPGU
+	tristate "ARC PGU"
+	depends on DRM && OF
+	select DRM_KMS_CMA_HELPER
+	select DRM_KMS_HELPER
+	help
+	  Choose this option if you have an ARC PGU controller.
+
+	  If M is selected the module will be called arcpgu.
+
 config DRM_CIRRUS_QEMU
 	tristate "Cirrus driver for QEMU emulated device"
 	depends on DRM && PCI && MMU
@@ -27,6 +37,22 @@ config DRM_GM12U320
 	help
 	 This is a KMS driver for projectors which use the GM12U320 chipset
 	 for video transfer over USB2/3, such as the Acer C120 mini projector.
+
+config DRM_SIMPLEDRM
+	tristate "Simple framebuffer driver"
+	depends on DRM
+	select DRM_GEM_SHMEM_HELPER
+	select DRM_KMS_HELPER
+	help
+	  DRM driver for simple platform-provided framebuffers.
+
+	  This driver assumes that the display hardware has been initialized
+	  by the firmware or bootloader before the kernel boots. Scanout
+	  buffer, size, and display format must be provided via device tree,
+	  UEFI, VESA, etc.
+
+	  On x86 and compatible, you should also select CONFIG_X86_SYSFB to
+	  use UEFI and VESA framebuffers.
 
 config TINYDRM_HX8357D
 	tristate "DRM support for HX8357D display panels"

@@ -31,7 +31,7 @@ static ulong module_parm_debug_mask;
 __u64 orangefs_gossip_debug_mask;
 int op_timeout_secs = ORANGEFS_DEFAULT_OP_TIMEOUT_SECS;
 int slot_timeout_secs = ORANGEFS_DEFAULT_SLOT_TIMEOUT_SECS;
-int orangefs_cache_timeout_msecs = 50;
+int orangefs_cache_timeout_msecs = 500;
 int orangefs_dcache_timeout_msecs = 50;
 int orangefs_getattr_timeout_msecs = 50;
 
@@ -79,7 +79,7 @@ DECLARE_WAIT_QUEUE_HEAD(orangefs_request_list_waitq);
 
 static int __init orangefs_init(void)
 {
-	int ret = -1;
+	int ret;
 	__u32 i = 0;
 
 	if (op_timeout_secs < 0)
@@ -149,7 +149,6 @@ static int __init orangefs_init(void)
 		pr_info("%s: module version %s loaded\n",
 			__func__,
 			ORANGEFS_VERSION);
-		ret = 0;
 		goto out;
 	}
 

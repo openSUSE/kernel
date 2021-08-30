@@ -8,10 +8,7 @@
 
 #include "atl1e.h"
 
-#define DRV_VERSION "1.0.0.7-NAPI"
-
 char atl1e_driver_name[] = "ATL1E";
-char atl1e_driver_version[] = DRV_VERSION;
 #define PCI_DEVICE_ID_ATTANSIC_L1E      0x1026
 /*
  * atl1e_pci_tbl - PCI Device ID Table
@@ -33,7 +30,6 @@ MODULE_DEVICE_TABLE(pci, atl1e_pci_tbl);
 MODULE_AUTHOR("Atheros Corporation, <xiong.huang@atheros.com>, Jie Yang <jie.yang@atheros.com>");
 MODULE_DESCRIPTION("Atheros 1000M Ethernet Network Driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION(DRV_VERSION);
 
 static void atl1e_setup_mac_ctrl(struct atl1e_adapter *adapter);
 
@@ -115,7 +111,7 @@ static inline void atl1e_irq_reset(struct atl1e_adapter *adapter)
 
 /**
  * atl1e_phy_config - Timer Call-back
- * @data: pointer to netdev cast into an unsigned long
+ * @t: timer list containing pointer to netdev cast into an unsigned long
  */
 static void atl1e_phy_config(struct timer_list *t)
 {
@@ -131,8 +127,6 @@ static void atl1e_phy_config(struct timer_list *t)
 
 void atl1e_reinit_locked(struct atl1e_adapter *adapter)
 {
-
-	WARN_ON(in_interrupt());
 	while (test_and_set_bit(__AT_RESETTING, &adapter->flags))
 		msleep(1);
 	atl1e_down(adapter);
@@ -200,7 +194,7 @@ static int atl1e_check_link(struct atl1e_adapter *adapter)
 
 /**
  * atl1e_link_chg_task - deal with link change event Out of interrupt context
- * @netdev: network interface device structure
+ * @work: work struct with driver info
  */
 static void atl1e_link_chg_task(struct work_struct *work)
 {
@@ -250,6 +244,7 @@ static void atl1e_cancel_work(struct atl1e_adapter *adapter)
 /**
  * atl1e_tx_timeout - Respond to a Tx Hang
  * @netdev: network interface device structure
+ * @txqueue: the index of the hanging queue
  */
 static void atl1e_tx_timeout(struct net_device *netdev, unsigned int txqueue)
 {
@@ -362,7 +357,7 @@ static void atl1e_restore_vlan(struct atl1e_adapter *adapter)
 }
 
 /**
- * atl1e_set_mac - Change the Ethernet Address of the NIC
+ * atl1e_set_mac_addr - Change the Ethernet Address of the NIC
  * @netdev: network interface device structure
  * @p: pointer to an address structure
  *
@@ -792,7 +787,7 @@ static void atl1e_free_ring_resources(struct atl1e_adapter *adapter)
 }
 
 /**
- * atl1e_setup_mem_resources - allocate Tx / RX descriptor resources
+ * atl1e_setup_ring_resources - allocate Tx / RX descriptor resources
  * @adapter: board private structure
  *
  * Return 0 on success, negative on failure
@@ -1506,6 +1501,8 @@ fatal_err:
 
 /**
  * atl1e_clean - NAPI Rx polling callback
+ * @napi: napi info
+ * @budget: number of packets to clean
  */
 static int atl1e_clean(struct napi_struct *napi, int budget)
 {

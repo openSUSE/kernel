@@ -26,6 +26,8 @@
 #define TEE_SHM_REGISTER	BIT(3)  /* Memory registered in secure world */
 #define TEE_SHM_USER_MAPPED	BIT(4)  /* Memory mapped in user space */
 #define TEE_SHM_POOL		BIT(5)  /* Memory allocated from pool */
+#define TEE_SHM_KERNEL_MAPPED	BIT(6)  /* Memory mapped in kernel space */
+#define TEE_SHM_PRIV		BIT(7)  /* Memory private to TEE driver */
 
 struct device;
 struct tee_device;
@@ -46,14 +48,16 @@ struct tee_shm_pool;
  *              and just return with an error code. It is needed for requests
  *              that arises from TEE based kernel drivers that should be
  *              non-blocking in nature.
+ * @cap_memref_null: flag indicating if the TEE Client support shared
+ *                   memory buffer with a NULL pointer.
  */
 struct tee_context {
 	struct tee_device *teedev;
-	struct list_head list_shm;
 	void *data;
 	struct kref refcount;
 	bool releasing;
 	bool supp_nowait;
+	bool cap_memref_null;
 };
 
 struct tee_param_memref {
@@ -85,7 +89,7 @@ struct tee_param {
  * @close_session:	close a session
  * @invoke_func:	invoke a trusted function
  * @cancel_req:		request cancel of an ongoing invoke or open
- * @supp_revc:		called for supplicant to get a command
+ * @supp_recv:		called for supplicant to get a command
  * @supp_send:		called for supplicant to send a response
  * @shm_register:	register shared memory buffer in TEE
  * @shm_unregister:	unregister shared memory buffer in TEE
@@ -167,10 +171,24 @@ int tee_device_register(struct tee_device *teedev);
 void tee_device_unregister(struct tee_device *teedev);
 
 /**
+ * tee_session_calc_client_uuid() - Calculates client UUID for session
+ * @uuid:		Resulting UUID
+ * @connection_method:	Connection method for session (TEE_IOCTL_LOGIN_*)
+ * @connectuon_data:	Connection data for opening session
+ *
+ * Based on connection method calculates UUIDv5 based client UUID.
+ *
+ * For group based logins verifies that calling process has specified
+ * credentials.
+ *
+ * @return < 0 on failure
+ */
+int tee_session_calc_client_uuid(uuid_t *uuid, u32 connection_method,
+				 const u8 connection_data[TEE_IOCTL_UUID_LEN]);
+
+/**
  * struct tee_shm - shared memory object
- * @teedev:	device used to allocate the object
- * @ctx:	context using the object, if NULL the context is gone
- * @link	link element
+ * @ctx:	context using the object
  * @paddr:	physical address of the shared memory
  * @kaddr:	virtual address of the shared memory
  * @size:	size of shared memory
@@ -185,9 +203,7 @@ void tee_device_unregister(struct tee_device *teedev);
  * subsystem and from drivers that implements their own shm pool manager.
  */
 struct tee_shm {
-	struct tee_device *teedev;
 	struct tee_context *ctx;
-	struct list_head link;
 	phys_addr_t paddr;
 	void *kaddr;
 	size_t size;
@@ -317,18 +333,7 @@ void *tee_get_drvdata(struct tee_device *teedev);
  * @returns a pointer to 'struct tee_shm'
  */
 struct tee_shm *tee_shm_alloc(struct tee_context *ctx, size_t size, u32 flags);
-
-/**
- * tee_shm_priv_alloc() - Allocate shared memory privately
- * @dev:	Device that allocates the shared memory
- * @size:	Requested size of shared memory
- *
- * Allocates shared memory buffer that is not associated with any client
- * context. Such buffers are owned by TEE driver and used for internal calls.
- *
- * @returns a pointer to 'struct tee_shm'
- */
-struct tee_shm *tee_shm_priv_alloc(struct tee_device *teedev, size_t size);
+struct tee_shm *tee_shm_alloc_kernel_buf(struct tee_context *ctx, size_t size);
 
 /**
  * tee_shm_register() - Register shared memory buffer

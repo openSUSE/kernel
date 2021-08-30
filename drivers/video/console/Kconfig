@@ -9,7 +9,7 @@ config VGA_CONSOLE
 	bool "VGA text console" if EXPERT || !X86
 	depends on !4xx && !PPC_8xx && !SPARC && !M68K && !PARISC &&  !SUPERH && \
 		(!ARM || ARCH_FOOTBRIDGE || ARCH_INTEGRATOR || ARCH_NETWINDER) && \
-		!ARM64 && !ARC && !MICROBLAZE && !OPENRISC && !NDS32 && !S390
+		!ARM64 && !ARC && !MICROBLAZE && !OPENRISC && !NDS32 && !S390 && !UML
 	default y
 	help
 	  Saying Y here will allow you to use Linux in text mode through a
@@ -25,7 +25,7 @@ config VGA_CONSOLE
 config MDA_CONSOLE
 	depends on !M68K && !PARISC && ISA
 	tristate "MDA text console (dual-headed)"
-	---help---
+	help
 	  Say Y here if you have an old MDA or monochrome Hercules graphics
 	  adapter in your system acting as a second head ( = video card). You
 	  will then be able to use two monitors with your Linux system. Do not
@@ -82,7 +82,7 @@ config FRAMEBUFFER_CONSOLE_DETECT_PRIMARY
        bool "Map the console to the primary display device"
        depends on FRAMEBUFFER_CONSOLE
        default n
-       ---help---
+	help
 	 If this option is selected, the framebuffer console will
 	 automatically select the primary display device (if the architecture
 	 supports this feature).  Otherwise, the framebuffer console will
@@ -119,6 +119,7 @@ config STI_CONSOLE
 	bool "STI text console"
 	depends on PARISC && HAS_IOMEM
 	select FONT_SUPPORT
+	select CRC32
 	default y
 	help
 	  The STI console is the builtin display/keyboard on HP-PARISC

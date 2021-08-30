@@ -188,12 +188,21 @@ static struct clk_hw_onecell_data sun50i_a64_de2_hw_clks = {
 static struct ccu_reset_map sun8i_a83t_de2_resets[] = {
 	[RST_MIXER0]	= { 0x08, BIT(0) },
 	/*
-	 * For A83T, H3 and R40, mixer1 reset line is shared with wb, so
-	 * only RST_WB is exported here.
-	 * For V3s there's just no mixer1, so it also shares this struct.
+	 * Mixer1 reset line is shared with wb, so only RST_WB is
+	 * exported here.
 	 */
 	[RST_WB]	= { 0x08, BIT(2) },
 	[RST_ROT]	= { 0x08, BIT(3) },
+};
+
+static struct ccu_reset_map sun8i_h3_de2_resets[] = {
+	[RST_MIXER0]	= { 0x08, BIT(0) },
+	/*
+	 * Mixer1 reset line is shared with wb, so only RST_WB is
+	 * exported here.
+	 * V3s doesn't have mixer1, so it also shares this struct.
+	 */
+	[RST_WB]	= { 0x08, BIT(2) },
 };
 
 static struct ccu_reset_map sun50i_a64_de2_resets[] = {
@@ -225,6 +234,26 @@ static const struct sunxi_ccu_desc sun8i_h3_de2_clk_desc = {
 
 	.hw_clks	= &sun8i_h3_de2_hw_clks,
 
+	.resets		= sun8i_h3_de2_resets,
+	.num_resets	= ARRAY_SIZE(sun8i_h3_de2_resets),
+};
+
+static const struct sunxi_ccu_desc sun8i_r40_de2_clk_desc = {
+	.ccu_clks	= sun50i_a64_de2_clks,
+	.num_ccu_clks	= ARRAY_SIZE(sun50i_a64_de2_clks),
+
+	.hw_clks	= &sun50i_a64_de2_hw_clks,
+
+	.resets		= sun8i_a83t_de2_resets,
+	.num_resets	= ARRAY_SIZE(sun8i_a83t_de2_resets),
+};
+
+static const struct sunxi_ccu_desc sun8i_v3s_de2_clk_desc = {
+	.ccu_clks	= sun8i_v3s_de2_clks,
+	.num_ccu_clks	= ARRAY_SIZE(sun8i_v3s_de2_clks),
+
+	.hw_clks	= &sun8i_v3s_de2_hw_clks,
+
 	.resets		= sun8i_a83t_de2_resets,
 	.num_resets	= ARRAY_SIZE(sun8i_a83t_de2_resets),
 };
@@ -247,16 +276,6 @@ static const struct sunxi_ccu_desc sun50i_h5_de2_clk_desc = {
 
 	.resets		= sun50i_h5_de2_resets,
 	.num_resets	= ARRAY_SIZE(sun50i_h5_de2_resets),
-};
-
-static const struct sunxi_ccu_desc sun8i_v3s_de2_clk_desc = {
-	.ccu_clks	= sun8i_v3s_de2_clks,
-	.num_ccu_clks	= ARRAY_SIZE(sun8i_v3s_de2_clks),
-
-	.hw_clks	= &sun8i_v3s_de2_hw_clks,
-
-	.resets		= sun8i_a83t_de2_resets,
-	.num_resets	= ARRAY_SIZE(sun8i_a83t_de2_resets),
 };
 
 static int sunxi_de2_clk_probe(struct platform_device *pdev)
@@ -346,6 +365,10 @@ static const struct of_device_id sunxi_de2_clk_ids[] = {
 	{
 		.compatible = "allwinner,sun8i-h3-de2-clk",
 		.data = &sun8i_h3_de2_clk_desc,
+	},
+	{
+		.compatible = "allwinner,sun8i-r40-de2-clk",
+		.data = &sun8i_r40_de2_clk_desc,
 	},
 	{
 		.compatible = "allwinner,sun8i-v3s-de2-clk",

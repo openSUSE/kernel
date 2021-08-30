@@ -376,15 +376,11 @@ static int falcon_get_lock(struct Scsi_Host *instance)
 	if (IS_A_TT())
 		return 1;
 
-	if (stdma_is_locked_by(scsi_falcon_intr) &&
-	    instance->hostt->can_queue > 1)
+	if (stdma_is_locked_by(scsi_falcon_intr))
 		return 1;
 
-	if (in_interrupt())
-		return stdma_try_lock(scsi_falcon_intr, instance);
-
-	stdma_lock(scsi_falcon_intr, instance);
-	return 1;
+	/* stdma_lock() may sleep which means it can't be used here */
+	return stdma_try_lock(scsi_falcon_intr, instance);
 }
 
 #ifndef MODULE
@@ -742,7 +738,7 @@ static int __init atari_scsi_probe(struct platform_device *pdev)
 		atari_scsi_template.sg_tablesize = SG_ALL;
 	} else {
 		atari_scsi_template.can_queue    = 1;
-		atari_scsi_template.sg_tablesize = SG_NONE;
+		atari_scsi_template.sg_tablesize = 1;
 	}
 
 	if (setup_can_queue > 0)
@@ -751,8 +747,8 @@ static int __init atari_scsi_probe(struct platform_device *pdev)
 	if (setup_cmd_per_lun > 0)
 		atari_scsi_template.cmd_per_lun = setup_cmd_per_lun;
 
-	/* Leave sg_tablesize at 0 on a Falcon! */
-	if (ATARIHW_PRESENT(TT_SCSI) && setup_sg_tablesize >= 0)
+	/* Don't increase sg_tablesize on Falcon! */
+	if (ATARIHW_PRESENT(TT_SCSI) && setup_sg_tablesize > 0)
 		atari_scsi_template.sg_tablesize = setup_sg_tablesize;
 
 	if (setup_hostid >= 0) {

@@ -163,6 +163,10 @@ int bnxt_re_query_device(struct ib_device *ibdev,
 	ib_attr->max_qp_init_rd_atom = dev_attr->max_qp_init_rd_atom;
 	ib_attr->atomic_cap = IB_ATOMIC_NONE;
 	ib_attr->masked_atomic_cap = IB_ATOMIC_NONE;
+	if (dev_attr->is_atomic) {
+		ib_attr->atomic_cap = IB_ATOMIC_GLOB;
+		ib_attr->masked_atomic_cap = IB_ATOMIC_GLOB;
+	}
 
 	ib_attr->max_ee_rd_atom = 0;
 	ib_attr->max_res_rd_atom = 0;
@@ -189,7 +193,7 @@ int bnxt_re_query_device(struct ib_device *ibdev,
 }
 
 /* Port */
-int bnxt_re_query_port(struct ib_device *ibdev, u8 port_num,
+int bnxt_re_query_port(struct ib_device *ibdev, u32 port_num,
 		       struct ib_port_attr *port_attr)
 {
 	struct bnxt_re_dev *rdev = to_bnxt_re_dev(ibdev, ibdev);
@@ -229,7 +233,7 @@ int bnxt_re_query_port(struct ib_device *ibdev, u8 port_num,
 	return 0;
 }
 
-int bnxt_re_get_port_immutable(struct ib_device *ibdev, u8 port_num,
+int bnxt_re_get_port_immutable(struct ib_device *ibdev, u32 port_num,
 			       struct ib_port_immutable *immutable)
 {
 	struct ib_port_attr port_attr;
@@ -254,7 +258,7 @@ void bnxt_re_query_fw_str(struct ib_device *ibdev, char *str)
 		 rdev->dev_attr.fw_ver[2], rdev->dev_attr.fw_ver[3]);
 }
 
-int bnxt_re_query_pkey(struct ib_device *ibdev, u8 port_num,
+int bnxt_re_query_pkey(struct ib_device *ibdev, u32 port_num,
 		       u16 index, u16 *pkey)
 {
 	struct bnxt_re_dev *rdev = to_bnxt_re_dev(ibdev, ibdev);
@@ -266,7 +270,7 @@ int bnxt_re_query_pkey(struct ib_device *ibdev, u8 port_num,
 				   &rdev->qplib_res.pkey_tbl, index, pkey);
 }
 
-int bnxt_re_query_gid(struct ib_device *ibdev, u8 port_num,
+int bnxt_re_query_gid(struct ib_device *ibdev, u32 port_num,
 		      int index, union ib_gid *gid)
 {
 	struct bnxt_re_dev *rdev = to_bnxt_re_dev(ibdev, ibdev);
@@ -374,7 +378,7 @@ int bnxt_re_add_gid(const struct ib_gid_attr *attr, void **context)
 }
 
 enum rdma_link_layer bnxt_re_get_link_layer(struct ib_device *ibdev,
-					    u8 port_num)
+					    u32 port_num)
 {
 	return IB_LINK_LAYER_ETHERNET;
 }
@@ -530,7 +534,7 @@ fail:
 }
 
 /* Protection Domains */
-void bnxt_re_dealloc_pd(struct ib_pd *ib_pd, struct ib_udata *udata)
+int bnxt_re_dealloc_pd(struct ib_pd *ib_pd, struct ib_udata *udata)
 {
 	struct bnxt_re_pd *pd = container_of(ib_pd, struct bnxt_re_pd, ib_pd);
 	struct bnxt_re_dev *rdev = pd->rdev;
@@ -540,6 +544,7 @@ void bnxt_re_dealloc_pd(struct ib_pd *ib_pd, struct ib_udata *udata)
 	if (pd->qplib_pd.id)
 		bnxt_qplib_dealloc_pd(&rdev->qplib_res, &rdev->qplib_res.pd_tbl,
 				      &pd->qplib_pd);
+	return 0;
 }
 
 int bnxt_re_alloc_pd(struct ib_pd *ibpd, struct ib_udata *udata)
@@ -599,13 +604,14 @@ fail:
 }
 
 /* Address Handles */
-void bnxt_re_destroy_ah(struct ib_ah *ib_ah, u32 flags)
+int bnxt_re_destroy_ah(struct ib_ah *ib_ah, u32 flags)
 {
 	struct bnxt_re_ah *ah = container_of(ib_ah, struct bnxt_re_ah, ib_ah);
 	struct bnxt_re_dev *rdev = ah->rdev;
 
 	bnxt_qplib_destroy_ah(&rdev->qplib_res, &ah->qplib_ah,
 			      !(flags & RDMA_DESTROY_AH_SLEEPABLE));
+	return 0;
 }
 
 static u8 bnxt_re_stack_to_dev_nw_type(enum rdma_network_type ntype)
@@ -1096,10 +1102,6 @@ static int bnxt_re_init_rq_attr(struct bnxt_re_qp *qp,
 		struct bnxt_re_srq *srq;
 
 		srq = container_of(init_attr->srq, struct bnxt_re_srq, ib_srq);
-		if (!srq) {
-			ibdev_err(&rdev->ibdev, "SRQ not found");
-			return -EINVAL;
-		}
 		qplqp->srq = &srq->qplib_srq;
 		rq->max_wqe = 0;
 	} else {
@@ -1267,30 +1269,22 @@ static int bnxt_re_init_qp_attr(struct bnxt_re_qp *qp, struct bnxt_re_pd *pd,
 	}
 	qplqp->mtu = ib_mtu_enum_to_int(iboe_get_mtu(rdev->netdev->mtu));
 	qplqp->dpi = &rdev->dpi_privileged; /* Doorbell page */
-	if (init_attr->create_flags)
+	if (init_attr->create_flags) {
 		ibdev_dbg(&rdev->ibdev,
 			  "QP create flags 0x%x not supported",
 			  init_attr->create_flags);
+		return -EOPNOTSUPP;
+	}
 
 	/* Setup CQs */
 	if (init_attr->send_cq) {
 		cq = container_of(init_attr->send_cq, struct bnxt_re_cq, ib_cq);
-		if (!cq) {
-			ibdev_err(&rdev->ibdev, "Send CQ not found");
-			rc = -EINVAL;
-			goto out;
-		}
 		qplqp->scq = &cq->qplib_cq;
 		qp->scq = cq;
 	}
 
 	if (init_attr->recv_cq) {
 		cq = container_of(init_attr->recv_cq, struct bnxt_re_cq, ib_cq);
-		if (!cq) {
-			ibdev_err(&rdev->ibdev, "Receive CQ not found");
-			rc = -EINVAL;
-			goto out;
-		}
 		qplqp->rcq = &cq->qplib_cq;
 		qp->rcq = cq;
 	}
@@ -1562,7 +1556,7 @@ static enum ib_mtu __to_ib_mtu(u32 mtu)
 }
 
 /* Shared Receive Queues */
-void bnxt_re_destroy_srq(struct ib_srq *ib_srq, struct ib_udata *udata)
+int bnxt_re_destroy_srq(struct ib_srq *ib_srq, struct ib_udata *udata)
 {
 	struct bnxt_re_srq *srq = container_of(ib_srq, struct bnxt_re_srq,
 					       ib_srq);
@@ -1577,6 +1571,7 @@ void bnxt_re_destroy_srq(struct ib_srq *ib_srq, struct ib_udata *udata)
 	atomic_dec(&rdev->srq_count);
 	if (nq)
 		nq->budget--;
+	return 0;
 }
 
 static int bnxt_re_init_user_srq(struct bnxt_re_dev *rdev,
@@ -1686,6 +1681,7 @@ int bnxt_re_create_srq(struct ib_srq *ib_srq,
 	if (nq)
 		nq->budget++;
 	atomic_inc(&rdev->srq_count);
+	spin_lock_init(&srq->lock);
 
 	return 0;
 
@@ -1823,6 +1819,9 @@ int bnxt_re_modify_qp(struct ib_qp *ib_qp, struct ib_qp_attr *qp_attr,
 	int rc, entries;
 	unsigned int flags;
 	u8 nw_type;
+
+	if (qp_attr_mask & ~IB_QP_ATTR_STANDARD_BITS)
+		return -EOPNOTSUPP;
 
 	qp->qplib_qp.modify_flags = 0;
 	if (qp_attr_mask & IB_QP_STATE) {
@@ -2073,6 +2072,7 @@ int bnxt_re_query_qp(struct ib_qp *ib_qp, struct ib_qp_attr *qp_attr,
 		goto out;
 	}
 	qp_attr->qp_state = __to_ib_qp_state(qplib_qp->state);
+	qp_attr->cur_qp_state = __to_ib_qp_state(qplib_qp->cur_qp_state);
 	qp_attr->en_sqd_async_notify = qplib_qp->en_sqd_async_notify ? 1 : 0;
 	qp_attr->qp_access_flags = __to_ib_access_flags(qplib_qp->access);
 	qp_attr->pkey_index = qplib_qp->pkey_index;
@@ -2649,7 +2649,7 @@ int bnxt_re_post_send(struct ib_qp *ib_qp, const struct ib_send_wr *wr,
 			default:
 				break;
 			}
-			/* fall through */
+			fallthrough;
 		case IB_WR_SEND_WITH_INV:
 			rc = bnxt_re_build_send_wqe(qp, wr, &wqe);
 			break;
@@ -2792,7 +2792,7 @@ int bnxt_re_post_recv(struct ib_qp *ib_qp, const struct ib_recv_wr *wr,
 }
 
 /* Completion Queues */
-void bnxt_re_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata)
+int bnxt_re_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata)
 {
 	struct bnxt_re_cq *cq;
 	struct bnxt_qplib_nq *nq;
@@ -2808,6 +2808,7 @@ void bnxt_re_destroy_cq(struct ib_cq *ib_cq, struct ib_udata *udata)
 	atomic_dec(&rdev->cq_count);
 	nq->budget--;
 	kfree(cq->cql);
+	return 0;
 }
 
 int bnxt_re_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
@@ -2820,6 +2821,9 @@ int bnxt_re_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	int cqe = attr->cqe;
 	struct bnxt_qplib_nq *nq = NULL;
 	unsigned int nq_alloc_cnt;
+
+	if (attr->flags)
+		return -EOPNOTSUPP;
 
 	/* Validate CQ fields */
 	if (cqe < 1 || cqe > dev_attr->max_cq_wqes) {
@@ -3460,10 +3464,6 @@ int bnxt_re_poll_cq(struct ib_cq *ib_cq, int num_entries, struct ib_wc *wc)
 				((struct bnxt_qplib_qp *)
 				 (unsigned long)(cqe->qp_handle),
 				 struct bnxt_re_qp, qplib_qp);
-			if (!qp) {
-				ibdev_err(&cq->rdev->ibdev, "POLL CQ : bad QP handle");
-				continue;
-			}
 			wc->qp = &qp->ib_qp;
 			wc->ex.imm_data = cqe->immdata;
 			wc->src_qp = cqe->src_qp;
@@ -3845,7 +3845,7 @@ int bnxt_re_alloc_ucontext(struct ib_ucontext *ctx, struct ib_udata *udata)
 		container_of(ctx, struct bnxt_re_ucontext, ib_uctx);
 	struct bnxt_re_dev *rdev = to_bnxt_re_dev(ibdev, ibdev);
 	struct bnxt_qplib_dev_attr *dev_attr = &rdev->dev_attr;
-	struct bnxt_re_uctx_resp resp;
+	struct bnxt_re_uctx_resp resp = {};
 	u32 chip_met_rev_num = 0;
 	int rc;
 
@@ -3873,15 +3873,15 @@ int bnxt_re_alloc_ucontext(struct ib_ucontext *ctx, struct ib_udata *udata)
 	chip_met_rev_num |= ((u32)rdev->chip_ctx->chip_metal & 0xFF) <<
 			     BNXT_RE_CHIP_ID0_CHIP_MET_SFT;
 	resp.chip_id0 = chip_met_rev_num;
-	/* Future extension of chip info */
-	resp.chip_id1 = 0;
 	/*Temp, Use xa_alloc instead */
 	resp.dev_id = rdev->en_dev->pdev->devfn;
 	resp.max_qp = rdev->qplib_ctx.qpc_count;
 	resp.pg_size = PAGE_SIZE;
 	resp.cqe_sz = sizeof(struct cq_base);
 	resp.max_cqd = dev_attr->max_cq_wqes;
-	resp.rsvd    = 0;
+
+	resp.comp_mask |= BNXT_RE_UCNTX_CMASK_HAVE_MODE;
+	resp.mode = rdev->chip_ctx->modes.wqe_mode;
 
 	rc = ib_copy_to_udata(udata, &resp, min(udata->outlen, sizeof(resp)));
 	if (rc) {

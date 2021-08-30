@@ -8,6 +8,7 @@
 #include <drm/drm.h>
 #include <drm/drm_gem.h>
 #include <drm/drm_encoder.h>
+#include <drm/drm_writeback.h>
 
 #define XRES_MIN    20
 #define YRES_MIN    20
@@ -17,8 +18,6 @@
 
 #define XRES_MAX  8192
 #define YRES_MAX  8192
-
-extern bool enable_cursor;
 
 struct vkms_composer {
 	struct drm_framebuffer fb;
@@ -38,6 +37,10 @@ struct vkms_plane_state {
 	struct vkms_composer *composer;
 };
 
+struct vkms_plane {
+	struct drm_plane base;
+};
+
 /**
  * vkms_crtc_state - Driver specific CRTC state
  * @base: base CRTC state
@@ -52,9 +55,11 @@ struct vkms_crtc_state {
 	int num_active_planes;
 	/* stack of active planes for crc computation, should be in z order */
 	struct vkms_plane_state **active_planes;
+	void *active_writeback;
 
-	/* below three are protected by vkms_output.composer_lock */
+	/* below four are protected by vkms_output.composer_lock */
 	bool crc_pending;
+	bool wb_pending;
 	u64 frame_start;
 	u64 frame_end;
 };
@@ -63,6 +68,7 @@ struct vkms_output {
 	struct drm_crtc crtc;
 	struct drm_encoder encoder;
 	struct drm_connector connector;
+	struct drm_writeback_connector wb_connector;
 	struct hrtimer vblank_hrtimer;
 	ktime_t period_ns;
 	struct drm_pending_vblank_event *event;
@@ -78,18 +84,21 @@ struct vkms_output {
 	spinlock_t composer_lock;
 };
 
+struct vkms_device;
+
+struct vkms_config {
+	bool writeback;
+	bool cursor;
+	bool overlay;
+	/* only set when instantiated */
+	struct vkms_device *dev;
+};
+
 struct vkms_device {
 	struct drm_device drm;
 	struct platform_device *platform;
 	struct vkms_output output;
-};
-
-struct vkms_gem_object {
-	struct drm_gem_object gem;
-	struct mutex pages_lock; /* Page lock used in page fault handler */
-	struct page **pages;
-	unsigned int vmap_count;
-	void *vaddr;
+	const struct vkms_config *config;
 };
 
 #define drm_crtc_to_vkms_output(target) \
@@ -97,9 +106,6 @@ struct vkms_gem_object {
 
 #define drm_device_to_vkms_device(target) \
 	container_of(target, struct vkms_device, drm)
-
-#define drm_gem_to_vkms_gem(target)\
-	container_of(target, struct vkms_gem_object, gem)
 
 #define to_vkms_crtc_state(target)\
 	container_of(target, struct vkms_crtc_state, base)
@@ -113,26 +119,8 @@ int vkms_crtc_init(struct drm_device *dev, struct drm_crtc *crtc,
 
 int vkms_output_init(struct vkms_device *vkmsdev, int index);
 
-struct drm_plane *vkms_plane_init(struct vkms_device *vkmsdev,
-				  enum drm_plane_type type, int index);
-
-/* Gem stuff */
-vm_fault_t vkms_gem_fault(struct vm_fault *vmf);
-
-int vkms_dumb_create(struct drm_file *file, struct drm_device *dev,
-		     struct drm_mode_create_dumb *args);
-
-void vkms_gem_free_object(struct drm_gem_object *obj);
-
-int vkms_gem_vmap(struct drm_gem_object *obj);
-
-void vkms_gem_vunmap(struct drm_gem_object *obj);
-
-/* Prime */
-struct drm_gem_object *
-vkms_prime_import_sg_table(struct drm_device *dev,
-			   struct dma_buf_attachment *attach,
-			   struct sg_table *sg);
+struct vkms_plane *vkms_plane_init(struct vkms_device *vkmsdev,
+				   enum drm_plane_type type, int index);
 
 /* CRC Support */
 const char *const *vkms_get_crc_sources(struct drm_crtc *crtc,
@@ -143,5 +131,9 @@ int vkms_verify_crc_source(struct drm_crtc *crtc, const char *source_name,
 
 /* Composer Support */
 void vkms_composer_worker(struct work_struct *work);
+void vkms_set_composer(struct vkms_output *out, bool enabled);
+
+/* Writeback */
+int vkms_enable_writeback_connector(struct vkms_device *vkmsdev);
 
 #endif /* _VKMS_DRV_H_ */

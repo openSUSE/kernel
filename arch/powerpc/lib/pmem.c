@@ -6,9 +6,7 @@
 #include <linux/string.h>
 #include <linux/export.h>
 #include <linux/uaccess.h>
-#ifndef __GENKSYMS__
 #include <linux/libnvdimm.h>
-#endif
 
 #include <asm/cacheflush.h>
 
@@ -56,14 +54,14 @@ void arch_wb_cache_pmem(void *addr, size_t size)
 	unsigned long start = (unsigned long) addr;
 	clean_pmem_range(start, start + size);
 }
-EXPORT_SYMBOL(arch_wb_cache_pmem);
+EXPORT_SYMBOL_GPL(arch_wb_cache_pmem);
 
 void arch_invalidate_pmem(void *addr, size_t size)
 {
 	unsigned long start = (unsigned long) addr;
 	flush_pmem_range(start, start + size);
 }
-EXPORT_SYMBOL(arch_invalidate_pmem);
+EXPORT_SYMBOL_GPL(arch_invalidate_pmem);
 
 /*
  * CONFIG_ARCH_HAS_UACCESS_FLUSHCACHE symbols
@@ -79,14 +77,12 @@ long __copy_from_user_flushcache(void *dest, const void __user *src,
 	return copied;
 }
 
-void *memcpy_flushcache(void *dest, const void *src, size_t size)
+void memcpy_flushcache(void *dest, const void *src, size_t size)
 {
 	unsigned long start = (unsigned long) dest;
 
 	memcpy(dest, src, size);
 	clean_pmem_range(start, start + size);
-
-	return dest;
 }
 EXPORT_SYMBOL(memcpy_flushcache);
 

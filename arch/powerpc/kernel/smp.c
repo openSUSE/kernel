@@ -33,6 +33,8 @@
 #include <linux/processor.h>
 #include <linux/random.h>
 #include <linux/stackprotector.h>
+#include <linux/pgtable.h>
+#include <linux/clockchips.h>
 
 #include <asm/ptrace.h>
 #include <linux/atomic.h>
@@ -41,7 +43,6 @@
 #include <asm/kvm_ppc.h>
 #include <asm/dbell.h>
 #include <asm/page.h>
-#include <asm/pgtable.h>
 #include <asm/prom.h>
 #include <asm/smp.h>
 #include <asm/time.h>
@@ -583,7 +584,7 @@ void tick_broadcast(const struct cpumask *mask)
 #endif
 
 #ifdef CONFIG_DEBUGGER
-void debugger_ipi_callback(struct pt_regs *regs)
+static void debugger_ipi_callback(struct pt_regs *regs)
 {
 	debugger_ipi(regs);
 }
@@ -1081,7 +1082,7 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 			zalloc_cpumask_var_node(&per_cpu(cpu_coregroup_map, cpu),
 						GFP_KERNEL, cpu_to_node(cpu));
 
-#ifdef CONFIG_NEED_MULTIPLE_NODES
+#ifdef CONFIG_NUMA
 		/*
 		 * numa_node_id() works after this.
 		 */
@@ -1105,6 +1106,20 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 	if (has_big_cores) {
 		cpumask_set_cpu(boot_cpuid,
 				cpu_smallcore_mask(boot_cpuid));
+	}
+
+	if (cpu_to_chip_id(boot_cpuid) != -1) {
+		int idx = num_possible_cpus() / threads_per_core;
+
+		/*
+		 * All threads of a core will all belong to the same core,
+		 * chip_id_lookup_table will have one entry per core.
+		 * Assumption: if boot_cpuid doesn't have a chip-id, then no
+		 * other CPUs, will also not have chip-id.
+		 */
+		chip_id_lookup_table = kcalloc(idx, sizeof(int), GFP_KERNEL);
+		if (chip_id_lookup_table)
+			memset(chip_id_lookup_table, -1, sizeof(int) * idx);
 	}
 
 	if (smp_ops && smp_ops->probe)
@@ -1502,8 +1517,8 @@ static void add_cpu_to_masks(int cpu)
 {
 	struct cpumask *(*submask_fn)(int) = cpu_sibling_mask;
 	int first_thread = cpu_first_thread_sibling(cpu);
-	int chip_id = cpu_to_chip_id(cpu);
 	cpumask_var_t mask;
+	int chip_id = -1;
 	bool ret;
 	int i;
 
@@ -1526,7 +1541,10 @@ static void add_cpu_to_masks(int cpu)
 	if (has_coregroup_support())
 		update_coregroup_mask(cpu, &mask);
 
-	if (chip_id == -1 || !ret) {
+	if (chip_id_lookup_table && ret)
+		chip_id = cpu_to_chip_id(cpu);
+
+	if (chip_id == -1) {
 		cpumask_copy(per_cpu(cpu_core_map, cpu), cpu_cpu_mask(cpu));
 		goto out;
 	}
@@ -1556,14 +1574,18 @@ out:
 /* Activate a secondary processor. */
 void start_secondary(void *unused)
 {
-	unsigned int cpu = smp_processor_id();
+	unsigned int cpu = raw_smp_processor_id();
+
+	/* PPC64 calls setup_kup() in early_setup_secondary() */
+	if (IS_ENABLED(CONFIG_PPC32))
+		setup_kup();
 
 	mmgrab(&init_mm);
 	current->active_mm = &init_mm;
 
 	smp_store_cpu_info(cpu);
 	set_dec(tb_ticks_per_jiffy);
-	preempt_disable();
+	rcu_cpu_starting(cpu);
 	cpu_callin_map[cpu] = 1;
 
 	if (smp_ops->setup_cpu)
@@ -1579,6 +1601,9 @@ void start_secondary(void *unused)
 
 	vdso_getcpu_init();
 #endif
+	set_numa_node(numa_cpu_lookup_table[cpu]);
+	set_numa_mem(local_memory_node(numa_cpu_lookup_table[cpu]));
+
 	/* Update topology CPU masks */
 	add_cpu_to_masks(cpu);
 
@@ -1596,9 +1621,6 @@ void start_secondary(void *unused)
 		if (cpumask_weight(mask) > cpumask_weight(sibling_mask(cpu)))
 			shared_caches = true;
 	}
-
-	set_numa_node(numa_cpu_lookup_table[cpu]);
-	set_numa_mem(local_memory_node(numa_cpu_lookup_table[cpu]));
 
 	smp_wmb();
 	notify_cpu_starting(cpu);
@@ -1704,16 +1726,18 @@ void __cpu_die(unsigned int cpu)
 		smp_ops->cpu_die(cpu);
 }
 
-void cpu_die(void)
+void arch_cpu_idle_dead(void)
 {
+	sched_preempt_enable_no_resched();
+
 	/*
 	 * Disable on the down path. This will be re-enabled by
 	 * start_secondary() via start_secondary_resume() below
 	 */
 	this_cpu_disable_ftrace();
 
-	if (ppc_md.cpu_die)
-		ppc_md.cpu_die();
+	if (smp_ops->cpu_offline_self)
+		smp_ops->cpu_offline_self();
 
 	/* If we return, we re-enter start_secondary */
 	start_secondary_resume();

@@ -109,16 +109,16 @@ static void braille_write(u16 *buf)
 /* Follow the VC cursor*/
 static void vc_follow_cursor(struct vc_data *vc)
 {
-	vc_x = vc->vc_x - (vc->vc_x % WIDTH);
-	vc_y = vc->vc_y;
-	lastvc_x = vc->vc_x;
-	lastvc_y = vc->vc_y;
+	vc_x = vc->state.x - (vc->state.x % WIDTH);
+	vc_y = vc->state.y;
+	lastvc_x = vc->state.x;
+	lastvc_y = vc->state.y;
 }
 
 /* Maybe the VC cursor moved, if so follow it */
 static void vc_maybe_cursor_moved(struct vc_data *vc)
 {
-	if (vc->vc_x != lastvc_x || vc->vc_y != lastvc_y)
+	if (vc->state.x != lastvc_x || vc->state.y != lastvc_y)
 		vc_follow_cursor(vc);
 }
 
@@ -225,6 +225,7 @@ static int keyboard_notifier_call(struct notifier_block *blk,
 	case KBD_POST_KEYSYM:
 	{
 		unsigned char type = KTYP(param->value) - 0xf0;
+
 		if (type == KT_SPEC) {
 			unsigned char val = KVAL(param->value);
 			int on_off = -1;
@@ -246,6 +247,7 @@ static int keyboard_notifier_call(struct notifier_block *blk,
 				beep(440);
 		}
 	}
+		break;
 	case KBD_UNBOUND_KEYCODE:
 	case KBD_UNICODE:
 	case KBD_KEYSYM:
@@ -264,6 +266,7 @@ static int vt_notifier_call(struct notifier_block *blk,
 {
 	struct vt_notifier_param *param = _param;
 	struct vc_data *vc = param->vc;
+
 	switch (code) {
 	case VT_ALLOCATE:
 		break;
@@ -272,6 +275,7 @@ static int vt_notifier_call(struct notifier_block *blk,
 	case VT_WRITE:
 	{
 		unsigned char c = param->c;
+
 		if (vc->vc_num != fg_console)
 			break;
 		switch (c) {
@@ -290,7 +294,7 @@ static int vt_notifier_call(struct notifier_block *blk,
 			break;
 		case '\t':
 			c = ' ';
-			/* Fallthrough */
+			fallthrough;
 		default:
 			if (c < 32)
 				/* Ignore other control sequences */
@@ -347,8 +351,6 @@ int braille_register_console(struct console *console, int index,
 {
 	int ret;
 
-	if (!(console->flags & CON_BRL))
-		return 0;
 	if (!console_options)
 		/* Only support VisioBraille for now */
 		console_options = "57600o8";
@@ -371,8 +373,6 @@ int braille_unregister_console(struct console *console)
 {
 	if (braille_co != console)
 		return -EINVAL;
-	if (!(console->flags & CON_BRL))
-		return 0;
 	unregister_keyboard_notifier(&keyboard_notifier_block);
 	unregister_vt_notifier(&vt_notifier_block);
 	braille_co = NULL;

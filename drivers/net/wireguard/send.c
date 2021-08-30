@@ -129,7 +129,7 @@ static void keep_key_fresh(struct wg_peer *peer)
 	rcu_read_lock_bh();
 	keypair = rcu_dereference_bh(peer->keypairs.current_keypair);
 	send = keypair && READ_ONCE(keypair->sending.is_valid) &&
-		(atomic64_read(&keypair->sending_counter) > REKEY_AFTER_MESSAGES ||
+	       (atomic64_read(&keypair->sending_counter) > REKEY_AFTER_MESSAGES ||
 		(keypair->i_am_the_initiator &&
 		 wg_birthdate_has_expired(keypair->sending.birthdate, REKEY_AFTER_TIME)));
 	rcu_read_unlock_bh();

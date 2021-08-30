@@ -24,17 +24,6 @@
 #define LSM330_GYRO_DEV_NAME		"lsm330_gyro"
 #define LSM9DS0_GYRO_DEV_NAME		"lsm9ds0_gyro"
 
-/**
- * struct st_sensors_platform_data - gyro platform data
- * @drdy_int_pin: DRDY on gyros is available only on INT2 pin.
- */
-static const struct st_sensors_platform_data gyro_pdata = {
-	.drdy_int_pin = 2,
-};
-
-int st_gyro_common_probe(struct iio_dev *indio_dev);
-void st_gyro_common_remove(struct iio_dev *indio_dev);
-
 #ifdef CONFIG_IIO_BUFFER
 int st_gyro_allocate_ring(struct iio_dev *indio_dev);
 void st_gyro_deallocate_ring(struct iio_dev *indio_dev);

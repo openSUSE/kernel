@@ -89,14 +89,6 @@ static int preallocate_pcm_pages(struct snd_pcm_substream *substream, size_t siz
 	return 0;
 }
 
-/*
- * release the preallocated buffer if not yet done.
- */
-static void snd_pcm_lib_preallocate_dma_free(struct snd_pcm_substream *substream)
-{
-	do_free_pages(substream->pcm->card, &substream->dma_buffer);
-}
-
 /**
  * snd_pcm_lib_preallocate_free - release the preallocated buffer of the specified substream.
  * @substream: the pcm substream instance
@@ -105,7 +97,7 @@ static void snd_pcm_lib_preallocate_dma_free(struct snd_pcm_substream *substream
  */
 void snd_pcm_lib_preallocate_free(struct snd_pcm_substream *substream)
 {
-	snd_pcm_lib_preallocate_dma_free(substream);
+	do_free_pages(substream->pcm->card, &substream->dma_buffer);
 }
 
 /**
@@ -119,9 +111,8 @@ void snd_pcm_lib_preallocate_free_for_all(struct snd_pcm *pcm)
 	struct snd_pcm_substream *substream;
 	int stream;
 
-	for (stream = 0; stream < 2; stream++)
-		for (substream = pcm->streams[stream].substream; substream; substream = substream->next)
-			snd_pcm_lib_preallocate_free(substream);
+	for_each_pcm_substream(pcm, stream, substream)
+		snd_pcm_lib_preallocate_free(substream);
 }
 EXPORT_SYMBOL(snd_pcm_lib_preallocate_free_for_all);
 
@@ -185,6 +176,10 @@ static void snd_pcm_lib_preallocate_proc_write(struct snd_info_entry *entry,
 					   substream->dma_buffer.dev.dev,
 					   size, &new_dmab) < 0) {
 				buffer->error = -ENOMEM;
+				pr_debug("ALSA pcmC%dD%d%c,%d:%s: cannot preallocate for size %zu\n",
+					 substream->pcm->card->number, substream->pcm->device,
+					 substream->stream ? 'c' : 'p', substream->number,
+					 substream->pcm->name, size);
 				return;
 			}
 			substream->buffer_bytes_max = size;
@@ -219,7 +214,9 @@ static inline void preallocate_info_init(struct snd_pcm_substream *substream)
 }
 
 #else /* !CONFIG_SND_VERBOSE_PROCFS */
-#define preallocate_info_init(s)
+static inline void preallocate_info_init(struct snd_pcm_substream *substream)
+{
+}
 #endif /* CONFIG_SND_VERBOSE_PROCFS */
 
 /*
@@ -254,11 +251,8 @@ static void preallocate_pages_for_all(struct snd_pcm *pcm, int type,
 	struct snd_pcm_substream *substream;
 	int stream;
 
-	for (stream = 0; stream < 2; stream++)
-		for (substream = pcm->streams[stream].substream; substream;
-		     substream = substream->next)
-			preallocate_pages(substream, type, data, size, max,
-					  managed);
+	for_each_pcm_substream(pcm, stream, substream)
+		preallocate_pages(substream, type, data, size, max, managed);
 }
 
 /**
@@ -343,27 +337,6 @@ void snd_pcm_set_managed_buffer_all(struct snd_pcm *pcm, int type,
 }
 EXPORT_SYMBOL(snd_pcm_set_managed_buffer_all);
 
-#ifdef CONFIG_SND_DMA_SGBUF
-/*
- * snd_pcm_sgbuf_ops_page - get the page struct at the given offset
- * @substream: the pcm substream instance
- * @offset: the buffer offset
- *
- * Used as the page callback of PCM ops.
- *
- * Return: The page struct at the given buffer offset. %NULL on failure.
- */
-struct page *snd_pcm_sgbuf_ops_page(struct snd_pcm_substream *substream, unsigned long offset)
-{
-	struct snd_sg_buf *sgbuf = snd_pcm_substream_sgbuf(substream);
-
-	unsigned int idx = offset >> PAGE_SHIFT;
-	if (idx >= (unsigned int)sgbuf->pages)
-		return NULL;
-	return sgbuf->page_table[idx];
-}
-#endif /* CONFIG_SND_DMA_SGBUF */
-
 /**
  * snd_pcm_lib_malloc_pages - allocate the DMA buffer
  * @substream: the substream to allocate the DMA buffer to
@@ -412,6 +385,10 @@ int snd_pcm_lib_malloc_pages(struct snd_pcm_substream *substream, size_t size)
 				   substream->dma_buffer.dev.dev,
 				   size, dmab) < 0) {
 			kfree(dmab);
+			pr_debug("ALSA pcmC%dD%d%c,%d:%s: cannot preallocate for size %zu\n",
+				 substream->pcm->card->number, substream->pcm->device,
+				 substream->stream ? 'c' : 'p', substream->number,
+				 substream->pcm->name, size);
 			return -ENOMEM;
 		}
 	}
@@ -462,7 +439,7 @@ int _snd_pcm_lib_alloc_vmalloc_buffer(struct snd_pcm_substream *substream,
 			return 0; /* already large enough */
 		vfree(runtime->dma_area);
 	}
-	runtime->dma_area = __vmalloc(size, gfp_flags, PAGE_KERNEL);
+	runtime->dma_area = __vmalloc(size, gfp_flags);
 	if (!runtime->dma_area)
 		return -ENOMEM;
 	runtime->dma_bytes = size;

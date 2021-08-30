@@ -509,7 +509,7 @@ error:
 /* SysFS structs							     */
 /*****************************************************************************/
 
-/* Temprature sensors */
+/* Temperature sensors */
 static SENSOR_DEVICE_ATTR_RO(temp1_input, temp_value, 0);
 static SENSOR_DEVICE_ATTR_RO(temp2_input, temp_value, 1);
 static SENSOR_DEVICE_ATTR_RO(temp3_input, temp_value, 2);
@@ -713,7 +713,7 @@ static int fts_detect(struct i2c_client *client,
 {
 	int val;
 
-	/* detection works with revsion greater or equal to 0x2b */
+	/* detection works with revision greater or equal to 0x2b */
 	val = i2c_smbus_read_byte_data(client, FTS_DEVICE_REVISION_REG);
 	if (val < 0x2b)
 		return -ENODEV;
@@ -752,7 +752,7 @@ static int fts_remove(struct i2c_client *client)
 	return 0;
 }
 
-static int fts_probe(struct i2c_client *client, const struct i2c_device_id *id)
+static int fts_probe(struct i2c_client *client)
 {
 	u8 revision;
 	struct fts_data *data;
@@ -819,7 +819,7 @@ static struct i2c_driver fts_driver = {
 		.name = "ftsteutates",
 	},
 	.id_table = fts_id,
-	.probe = fts_probe,
+	.probe_new = fts_probe,
 	.remove = fts_remove,
 	.detect = fts_detect,
 	.address_list = normal_i2c,

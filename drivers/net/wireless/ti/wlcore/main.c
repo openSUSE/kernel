@@ -30,7 +30,6 @@
 #include "sysfs.h"
 
 #define WL1271_BOOT_RETRIES 3
-#define WL1271_SUSPEND_SLEEP 100
 #define WL1271_WAKEUP_TIMEOUT 500
 
 static char *fwlog_param;
@@ -2228,7 +2227,7 @@ static int wl12xx_init_vif_data(struct wl1271 *wl, struct ieee80211_vif *vif)
 	switch (ieee80211_vif_type_p2p(vif)) {
 	case NL80211_IFTYPE_P2P_CLIENT:
 		wlvif->p2p = 1;
-		/* fall-through */
+		fallthrough;
 	case NL80211_IFTYPE_STATION:
 	case NL80211_IFTYPE_P2P_DEVICE:
 		wlvif->bss_type = BSS_TYPE_STA_BSS;
@@ -2238,7 +2237,7 @@ static int wl12xx_init_vif_data(struct wl1271 *wl, struct ieee80211_vif *vif)
 		break;
 	case NL80211_IFTYPE_P2P_GO:
 		wlvif->p2p = 1;
-		/* fall-through */
+		fallthrough;
 	case NL80211_IFTYPE_AP:
 	case NL80211_IFTYPE_MESH_POINT:
 		wlvif->bss_type = BSS_TYPE_AP_BSS;
@@ -3243,8 +3242,8 @@ static void wl1271_op_configure_filter(struct ieee80211_hw *hw,
 		 * the firmware filters so that all multicast packets are passed
 		 * This is mandatory for MDNS based discovery protocols 
 		 */
- 		if (wlvif->bss_type == BSS_TYPE_AP_BSS) {
- 			if (*total & FIF_ALLMULTI) {
+		if (wlvif->bss_type == BSS_TYPE_AP_BSS) {
+			if (*total & FIF_ALLMULTI) {
 				ret = wl1271_acx_group_address_tbl(wl, wlvif,
 							false,
 							NULL, 0);
@@ -5382,7 +5381,7 @@ static int wl1271_op_ampdu_action(struct ieee80211_hw *hw,
 
 		if (wl->ba_rx_session_count >= wl->ba_rx_session_count_max) {
 			ret = -EBUSY;
-			wl1271_error("exceeded max RX BA sessions");
+			wl1271_debug(DEBUG_RX, "exceeded max RX BA sessions");
 			break;
 		}
 
@@ -6785,7 +6784,7 @@ int wlcore_probe(struct wl1271 *wl, struct platform_device *pdev)
 
 	if (pdev_data->family && pdev_data->family->nvs_name) {
 		nvs_name = pdev_data->family->nvs_name;
-		ret = request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
+		ret = request_firmware_nowait(THIS_MODULE, FW_ACTION_UEVENT,
 					      nvs_name, &pdev->dev, GFP_KERNEL,
 					      wl, wlcore_nvs_cb);
 		if (ret < 0) {

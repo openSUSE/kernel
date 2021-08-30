@@ -37,7 +37,6 @@
 #include <linux/slab.h>
 #include <linux/rcupdate.h>
 
-#include <asm/pgtable.h>
 #include <linux/uaccess.h>
 #include <asm/io.h>
 #include <asm/processor.h>
@@ -203,7 +202,8 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
  */
 
 int copy_thread(unsigned long clone_flags, unsigned long usp_thread_fn,
-		unsigned long thread_fn_arg, struct task_struct *p)
+		unsigned long thread_fn_arg, struct task_struct *p,
+		unsigned long tls)
 {
 	struct pt_regs *childregs = task_pt_regs(p);
 
@@ -217,7 +217,7 @@ int copy_thread(unsigned long clone_flags, unsigned long usp_thread_fn,
 
 	p->thread.sp = (unsigned long)childregs;
 
-	if (!(p->flags & PF_KTHREAD)) {
+	if (!(p->flags & (PF_KTHREAD | PF_IO_WORKER))) {
 		struct pt_regs *regs = current_pt_regs();
 		unsigned long usp = usp_thread_fn ?
 			usp_thread_fn : regs->areg[1];
@@ -264,9 +264,10 @@ int copy_thread(unsigned long clone_flags, unsigned long usp_thread_fn,
 			       &regs->areg[XCHAL_NUM_AREGS - len/4], len);
 		}
 
-		/* The thread pointer is passed in the '4th argument' (= a5) */
+		childregs->syscall = regs->syscall;
+
 		if (clone_flags & CLONE_SETTLS)
-			childregs->threadptr = childregs->areg[5];
+			childregs->threadptr = tls;
 	} else {
 		p->thread.ra = MAKE_RA_FOR_CALL(
 				(unsigned long)ret_from_kernel_thread, 1);
@@ -303,7 +304,7 @@ unsigned long get_wchan(struct task_struct *p)
 	unsigned long stack_page = (unsigned long) task_stack_page(p);
 	int count = 0;
 
-	if (!p || p == current || p->state == TASK_RUNNING)
+	if (!p || p == current || task_is_running(p))
 		return 0;
 
 	sp = p->thread.sp;

@@ -173,7 +173,10 @@ Before jumping into the kernel, the following conditions must be met:
 - Caches, MMUs
 
   The MMU must be off.
-  Instruction cache may be on or off.
+
+  The instruction cache may be on or off, and must not hold any stale
+  entries corresponding to the loaded kernel image.
+
   The address range corresponding to the loaded kernel image must be
   cleaned to the PoC. In the presence of a system cache or other
   coherent masters with caches enabled, this will typically require
@@ -199,9 +202,10 @@ Before jumping into the kernel, the following conditions must be met:
 
 - System registers
 
-  All writable architected system registers at the exception level where
-  the kernel image will be entered must be initialised by software at a
-  higher exception level to prevent execution in an UNKNOWN state.
+  All writable architected system registers at or below the exception
+  level where the kernel image will be entered must be initialised by
+  software at a higher exception level to prevent execution in an UNKNOWN
+  state.
 
   - SCR_EL3.FIQ must have the same value across all CPUs the kernel is
     executing on.
@@ -213,6 +217,9 @@ Before jumping into the kernel, the following conditions must be met:
 
       - ICC_SRE_EL3.Enable (bit 3) must be initialiased to 0b1.
       - ICC_SRE_EL3.SRE (bit 0) must be initialised to 0b1.
+      - ICC_CTLR_EL3.PMHE (bit 6) must be set to the same value across
+        all CPUs the kernel is executing on, and must stay constant
+        for the lifetime of the kernel.
 
   - If the kernel is entered at EL1:
 
@@ -235,6 +242,7 @@ Before jumping into the kernel, the following conditions must be met:
   - The DT or ACPI tables must describe a GICv2 interrupt controller.
 
   For CPUs with pointer authentication functionality:
+
   - If EL3 is present:
 
     - SCR_EL3.APK (bit 16) must be initialised to 0b1
@@ -246,22 +254,69 @@ Before jumping into the kernel, the following conditions must be met:
     - HCR_EL2.API (bit 41) must be initialised to 0b1
 
   For CPUs with Activity Monitors Unit v1 (AMUv1) extension present:
+
   - If EL3 is present:
-    CPTR_EL3.TAM (bit 30) must be initialised to 0b0
-    CPTR_EL2.TAM (bit 30) must be initialised to 0b0
-    AMCNTENSET0_EL0 must be initialised to 0b1111
-    AMCNTENSET1_EL0 must be initialised to a platform specific value
-    having 0b1 set for the corresponding bit for each of the auxiliary
-    counters present.
+
+    - CPTR_EL3.TAM (bit 30) must be initialised to 0b0
+    - CPTR_EL2.TAM (bit 30) must be initialised to 0b0
+    - AMCNTENSET0_EL0 must be initialised to 0b1111
+    - AMCNTENSET1_EL0 must be initialised to a platform specific value
+      having 0b1 set for the corresponding bit for each of the auxiliary
+      counters present.
+
   - If the kernel is entered at EL1:
-    AMCNTENSET0_EL0 must be initialised to 0b1111
-    AMCNTENSET1_EL0 must be initialised to a platform specific value
-    having 0b1 set for the corresponding bit for each of the auxiliary
-    counters present.
+
+    - AMCNTENSET0_EL0 must be initialised to 0b1111
+    - AMCNTENSET1_EL0 must be initialised to a platform specific value
+      having 0b1 set for the corresponding bit for each of the auxiliary
+      counters present.
+
+  For CPUs with the Fine Grained Traps (FEAT_FGT) extension present:
+
+  - If EL3 is present and the kernel is entered at EL2:
+
+    - SCR_EL3.FGTEn (bit 27) must be initialised to 0b1.
+
+  For CPUs with support for HCRX_EL2 (FEAT_HCX) present:
+
+  - If EL3 is present and the kernel is entered at EL2:
+
+    - SCR_EL3.HXEn (bit 38) must be initialised to 0b1.
+
+  For CPUs with Advanced SIMD and floating point support:
+
+  - If EL3 is present:
+
+    - CPTR_EL3.TFP (bit 10) must be initialised to 0b0.
+
+  - If EL2 is present and the kernel is entered at EL1:
+
+    - CPTR_EL2.TFP (bit 10) must be initialised to 0b0.
+
+  For CPUs with the Scalable Vector Extension (FEAT_SVE) present:
+
+  - if EL3 is present:
+
+    - CPTR_EL3.EZ (bit 8) must be initialised to 0b1.
+
+    - ZCR_EL3.LEN must be initialised to the same value for all CPUs the
+      kernel is executed on.
+
+  - If the kernel is entered at EL1 and EL2 is present:
+
+    - CPTR_EL2.TZ (bit 8) must be initialised to 0b0.
+
+    - CPTR_EL2.ZEN (bits 17:16) must be initialised to 0b11.
+
+    - ZCR_EL2.LEN must be initialised to the same value for all CPUs the
+      kernel will execute on.
 
 The requirements described above for CPU mode, caches, MMUs, architected
 timers, coherency and system registers apply to all CPUs.  All CPUs must
-enter the kernel in the same exception level.
+enter the kernel in the same exception level.  Where the values documented
+disable traps it is permissible for these traps to be enabled so long as
+those traps are handled transparently by higher exception levels as though
+the values documented were set.
 
 The boot loader is expected to enter the kernel on each CPU in the
 following manner:
@@ -301,7 +356,8 @@ following manner:
   Documentation/devicetree/bindings/arm/psci.yaml.
 
 - Secondary CPU general-purpose register settings
-  x0 = 0 (reserved for future use)
-  x1 = 0 (reserved for future use)
-  x2 = 0 (reserved for future use)
-  x3 = 0 (reserved for future use)
+
+  - x0 = 0 (reserved for future use)
+  - x1 = 0 (reserved for future use)
+  - x2 = 0 (reserved for future use)
+  - x3 = 0 (reserved for future use)

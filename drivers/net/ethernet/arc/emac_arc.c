@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /**
- * emac_arc.c - ARC EMAC specific glue layer
+ * DOC: emac_arc.c - ARC EMAC specific glue layer
  *
  * Copyright (C) 2014 Romain Perier
  *
@@ -15,7 +15,6 @@
 #include "emac.h"
 
 #define DRV_NAME    "emac_arc"
-#define DRV_VERSION "1.0"
 
 static int emac_arc_probe(struct platform_device *pdev)
 {
@@ -36,7 +35,6 @@ static int emac_arc_probe(struct platform_device *pdev)
 
 	priv = netdev_priv(ndev);
 	priv->drv_name = DRV_NAME;
-	priv->drv_version = DRV_VERSION;
 
 	err = of_get_phy_mode(dev->of_node, &interface);
 	if (err) {

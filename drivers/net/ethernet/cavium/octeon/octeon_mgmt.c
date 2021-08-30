@@ -28,7 +28,6 @@
 #include <asm/octeon/cvmx-agl-defs.h>
 
 #define DRV_NAME "octeon_mgmt"
-#define DRV_VERSION "2.0"
 #define DRV_DESCRIPTION \
 	"Cavium Networks Octeon MII (management) port Network Driver"
 
@@ -316,9 +315,9 @@ static void octeon_mgmt_clean_tx_buffers(struct octeon_mgmt *p)
 		netif_wake_queue(p->netdev);
 }
 
-static void octeon_mgmt_clean_tx_tasklet(unsigned long arg)
+static void octeon_mgmt_clean_tx_tasklet(struct tasklet_struct *t)
 {
-	struct octeon_mgmt *p = (struct octeon_mgmt *)arg;
+	struct octeon_mgmt *p = from_tasklet(p, t, tx_clean_tasklet);
 	octeon_mgmt_clean_tx_buffers(p);
 	octeon_mgmt_enable_tx_irq(p);
 }
@@ -795,9 +794,7 @@ static int octeon_mgmt_ioctl(struct net_device *netdev,
 	case SIOCSHWTSTAMP:
 		return octeon_mgmt_ioctl_hwtstamp(netdev, rq, cmd);
 	default:
-		if (netdev->phydev)
-			return phy_mii_ioctl(netdev->phydev, rq, cmd);
-		return -EINVAL;
+		return phy_do_ioctl(netdev, rq, cmd);
 	}
 }
 
@@ -964,7 +961,7 @@ static int octeon_mgmt_init_phy(struct net_device *netdev)
 				PHY_INTERFACE_MODE_MII);
 
 	if (!phydev)
-		return -ENODEV;
+		return -EPROBE_DEFER;
 
 	return 0;
 }
@@ -1349,9 +1346,6 @@ static void octeon_mgmt_get_drvinfo(struct net_device *netdev,
 				    struct ethtool_drvinfo *info)
 {
 	strlcpy(info->driver, DRV_NAME, sizeof(info->driver));
-	strlcpy(info->version, DRV_VERSION, sizeof(info->version));
-	strlcpy(info->fw_version, "N/A", sizeof(info->fw_version));
-	strlcpy(info->bus_info, "N/A", sizeof(info->bus_info));
 }
 
 static int octeon_mgmt_nway_reset(struct net_device *dev)
@@ -1391,7 +1385,6 @@ static int octeon_mgmt_probe(struct platform_device *pdev)
 	struct net_device *netdev;
 	struct octeon_mgmt *p;
 	const __be32 *data;
-	const u8 *mac;
 	struct resource *res_mix;
 	struct resource *res_agl;
 	struct resource *res_agl_prt_ctl;
@@ -1497,8 +1490,8 @@ static int octeon_mgmt_probe(struct platform_device *pdev)
 
 	skb_queue_head_init(&p->tx_list);
 	skb_queue_head_init(&p->rx_list);
-	tasklet_init(&p->tx_clean_tasklet,
-		     octeon_mgmt_clean_tx_tasklet, (unsigned long)p);
+	tasklet_setup(&p->tx_clean_tasklet,
+		      octeon_mgmt_clean_tx_tasklet);
 
 	netdev->priv_flags |= IFF_UNICAST_FLT;
 
@@ -1508,11 +1501,8 @@ static int octeon_mgmt_probe(struct platform_device *pdev)
 	netdev->min_mtu = 64 - OCTEON_MGMT_RX_HEADROOM;
 	netdev->max_mtu = 16383 - OCTEON_MGMT_RX_HEADROOM - VLAN_HLEN;
 
-	mac = of_get_mac_address(pdev->dev.of_node);
-
-	if (!IS_ERR(mac))
-		ether_addr_copy(netdev->dev_addr, mac);
-	else
+	result = of_get_mac_address(pdev->dev.of_node, netdev->dev_addr);
+	if (result)
 		eth_hw_addr_random(netdev);
 
 	p->phy_np = of_parse_phandle(pdev->dev.of_node, "phy-handle", 0);
@@ -1526,7 +1516,6 @@ static int octeon_mgmt_probe(struct platform_device *pdev)
 	if (result)
 		goto err;
 
-	dev_info(&pdev->dev, "Version " DRV_VERSION "\n");
 	return 0;
 
 err:
@@ -1563,24 +1552,9 @@ static struct platform_driver octeon_mgmt_driver = {
 	.remove		= octeon_mgmt_remove,
 };
 
-extern void octeon_mdiobus_force_mod_depencency(void);
+module_platform_driver(octeon_mgmt_driver);
 
-static int __init octeon_mgmt_mod_init(void)
-{
-	/* Force our mdiobus driver module to be loaded first. */
-	octeon_mdiobus_force_mod_depencency();
-	return platform_driver_register(&octeon_mgmt_driver);
-}
-
-static void __exit octeon_mgmt_mod_exit(void)
-{
-	platform_driver_unregister(&octeon_mgmt_driver);
-}
-
-module_init(octeon_mgmt_mod_init);
-module_exit(octeon_mgmt_mod_exit);
-
+MODULE_SOFTDEP("pre: mdio-cavium");
 MODULE_DESCRIPTION(DRV_DESCRIPTION);
 MODULE_AUTHOR("David Daney");
 MODULE_LICENSE("GPL");
-MODULE_VERSION(DRV_VERSION);

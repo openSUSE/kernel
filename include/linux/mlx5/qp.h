@@ -245,6 +245,10 @@ enum {
 	MLX5_ETH_WQE_SWP_OUTER_L4_UDP   = 1 << 5,
 };
 
+enum {
+	MLX5_ETH_WQE_FT_META_IPSEC = BIT(0),
+};
+
 struct mlx5_wqe_eth_seg {
 	u8              swp_outer_l4_offset;
 	u8              swp_outer_l3_offset;
@@ -253,7 +257,7 @@ struct mlx5_wqe_eth_seg {
 	u8              cs_flags;
 	u8              swp_flags;
 	__be16          mss;
-	__be32          rsvd2;
+	__be32          flow_table_metadata;
 	union {
 		struct {
 			__be16 sz;
@@ -541,6 +545,13 @@ static inline const char *mlx5_qp_state_str(int state)
 	return "SUSPENDED";
 	default: return "Invalid QP state";
 	}
+}
+
+static inline int mlx5_get_qp_default_ts(struct mlx5_core_dev *dev)
+{
+	return !MLX5_CAP_ROCE(dev, qp_ts_format) ?
+		       MLX5_TIMESTAMP_FORMAT_FREE_RUNNING :
+		       MLX5_TIMESTAMP_FORMAT_DEFAULT;
 }
 
 #endif /* MLX5_QP_H */

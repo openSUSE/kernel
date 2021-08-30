@@ -20,6 +20,7 @@
  */
 
 #include <crypto/algapi.h>
+#include <crypto/internal/cipher.h>
 #include <crypto/internal/skcipher.h>
 #include <linux/err.h>
 #include <linux/init.h>
@@ -203,9 +204,11 @@ static int crypto_cfb_create(struct crypto_template *tmpl, struct rtattr **tb)
 	struct crypto_alg *alg;
 	int err;
 
-	inst = skcipher_alloc_instance_simple(tmpl, tb, &alg);
+	inst = skcipher_alloc_instance_simple(tmpl, tb);
 	if (IS_ERR(inst))
 		return PTR_ERR(inst);
+
+	alg = skcipher_ialg_simple(inst);
 
 	/* CFB mode is a stream cipher. */
 	inst->alg.base.cra_blocksize = 1;
@@ -223,7 +226,6 @@ static int crypto_cfb_create(struct crypto_template *tmpl, struct rtattr **tb)
 	if (err)
 		inst->free(inst);
 
-	crypto_mod_put(alg);
 	return err;
 }
 
@@ -249,3 +251,4 @@ module_exit(crypto_cfb_module_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("CFB block cipher mode of operation");
 MODULE_ALIAS_CRYPTO("cfb");
+MODULE_IMPORT_NS(CRYPTO_INTERNAL);

@@ -1,32 +1,12 @@
+// SPDX-License-Identifier: MIT
 /*
  * Copyright © 2014 Intel Corporation
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice (including the next
- * paragraph) shall be included in all copies or substantial portions of the
- * Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
- * IN THE SOFTWARE.
- *
- * Authors:
- *    Mika Kuoppala <mika.kuoppala@intel.com>
- *
  */
 
 #include "i915_drv.h"
 #include "intel_renderstate.h"
+#include "intel_context.h"
+#include "intel_gpu_commands.h"
 #include "intel_ring.h"
 
 static const struct intel_renderstate_rodata *
@@ -35,7 +15,7 @@ render_state_get_rodata(const struct intel_engine_cs *engine)
 	if (engine->class != RENDER_CLASS)
 		return NULL;
 
-	switch (INTEL_GEN(engine->i915)) {
+	switch (GRAPHICS_VER(engine->i915)) {
 	case 6:
 		return &gen6_null_state;
 	case 7:
@@ -63,7 +43,7 @@ render_state_get_rodata(const struct intel_engine_cs *engine)
 		if ((i) >= PAGE_SIZE / sizeof(u32))		\
 			goto out;				\
 		(batch)[(i)++] = (val);				\
-	} while(0)
+	} while (0)
 
 static int render_state_setup(struct intel_renderstate *so,
 			      struct drm_i915_private *i915)
@@ -82,6 +62,7 @@ static int render_state_setup(struct intel_renderstate *so,
 
 		if (i * 4  == rodata->reloc[reloc_index]) {
 			u64 r = s + so->vma->node.start;
+
 			s = lower_32_bits(r);
 			if (HAS_64BIT_RELOC(i915)) {
 				if (i + 1 >= rodata->batch_items ||
@@ -157,33 +138,47 @@ out:
 #undef OUT_BATCH
 
 int intel_renderstate_init(struct intel_renderstate *so,
-			   struct intel_engine_cs *engine)
+			   struct intel_context *ce)
 {
-	struct drm_i915_gem_object *obj;
+	struct intel_engine_cs *engine = ce->engine;
+	struct drm_i915_gem_object *obj = NULL;
 	int err;
 
 	memset(so, 0, sizeof(*so));
 
 	so->rodata = render_state_get_rodata(engine);
-	if (!so->rodata)
-		return 0;
+	if (so->rodata) {
+		if (so->rodata->batch_items * 4 > PAGE_SIZE)
+			return -EINVAL;
 
-	if (so->rodata->batch_items * 4 > PAGE_SIZE)
-		return -EINVAL;
+		obj = i915_gem_object_create_internal(engine->i915, PAGE_SIZE);
+		if (IS_ERR(obj))
+			return PTR_ERR(obj);
 
-	obj = i915_gem_object_create_internal(engine->i915, PAGE_SIZE);
-	if (IS_ERR(obj))
-		return PTR_ERR(obj);
-
-	so->vma = i915_vma_instance(obj, &engine->gt->ggtt->vm, NULL);
-	if (IS_ERR(so->vma)) {
-		err = PTR_ERR(so->vma);
-		goto err_obj;
+		so->vma = i915_vma_instance(obj, &engine->gt->ggtt->vm, NULL);
+		if (IS_ERR(so->vma)) {
+			err = PTR_ERR(so->vma);
+			goto err_obj;
+		}
 	}
 
-	err = i915_vma_pin(so->vma, 0, 0, PIN_GLOBAL | PIN_HIGH);
+	i915_gem_ww_ctx_init(&so->ww, true);
+retry:
+	err = intel_context_pin_ww(ce, &so->ww);
 	if (err)
-		goto err_obj;
+		goto err_fini;
+
+	/* return early if there's nothing to setup */
+	if (!err && !so->rodata)
+		return 0;
+
+	err = i915_gem_object_lock(so->vma->obj, &so->ww);
+	if (err)
+		goto err_context;
+
+	err = i915_vma_pin_ww(so->vma, &so->ww, 0, 0, PIN_GLOBAL | PIN_HIGH);
+	if (err)
+		goto err_context;
 
 	err = render_state_setup(so, engine->i915);
 	if (err)
@@ -193,8 +188,18 @@ int intel_renderstate_init(struct intel_renderstate *so,
 
 err_unpin:
 	i915_vma_unpin(so->vma);
+err_context:
+	intel_context_unpin(ce);
+err_fini:
+	if (err == -EDEADLK) {
+		err = i915_gem_ww_ctx_backoff(&so->ww);
+		if (!err)
+			goto retry;
+	}
+	i915_gem_ww_ctx_fini(&so->ww);
 err_obj:
-	i915_gem_object_put(obj);
+	if (obj)
+		i915_gem_object_put(obj);
 	so->vma = NULL;
 	return err;
 }
@@ -208,11 +213,9 @@ int intel_renderstate_emit(struct intel_renderstate *so,
 	if (!so->vma)
 		return 0;
 
-	i915_vma_lock(so->vma);
 	err = i915_request_await_object(rq, so->vma->obj, false);
 	if (err == 0)
 		err = i915_vma_move_to_active(so->vma, rq, 0);
-	i915_vma_unlock(so->vma);
 	if (err)
 		return err;
 
@@ -233,7 +236,17 @@ int intel_renderstate_emit(struct intel_renderstate *so,
 	return 0;
 }
 
-void intel_renderstate_fini(struct intel_renderstate *so)
+void intel_renderstate_fini(struct intel_renderstate *so,
+			    struct intel_context *ce)
 {
-	i915_vma_unpin_and_release(&so->vma, 0);
+	if (so->vma) {
+		i915_vma_unpin(so->vma);
+		i915_vma_close(so->vma);
+	}
+
+	intel_context_unpin(ce);
+	i915_gem_ww_ctx_fini(&so->ww);
+
+	if (so->vma)
+		i915_gem_object_put(so->vma->obj);
 }

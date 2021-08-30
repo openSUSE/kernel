@@ -9,12 +9,12 @@
 #define GOYAP_H_
 
 #include <uapi/misc/habanalabs.h>
-#include "habanalabs.h"
-#include "include/hl_boot_if.h"
-#include "include/goya/goya_packets.h"
-#include "include/goya/goya.h"
-#include "include/goya/goya_async_events.h"
-#include "include/goya/goya_fw_if.h"
+#include "../common/habanalabs.h"
+#include "../include/common/hl_boot_if.h"
+#include "../include/goya/goya_packets.h"
+#include "../include/goya/goya.h"
+#include "../include/goya/goya_async_events.h"
+#include "../include/goya/goya_fw_if.h"
 
 #define NUMBER_OF_CMPLT_QUEUES		5
 #define NUMBER_OF_EXT_HW_QUEUES		5
@@ -31,10 +31,6 @@
  */
 #define NUMBER_OF_INTERRUPTS		(NUMBER_OF_CMPLT_QUEUES + 1)
 
-#if (NUMBER_OF_HW_QUEUES >= HL_MAX_QUEUES)
-#error "Number of H/W queues must be smaller than HL_MAX_QUEUES"
-#endif
-
 #if (NUMBER_OF_INTERRUPTS > GOYA_MSIX_ENTRIES)
 #error "Number of MSIX interrupts must be smaller or equal to GOYA_MSIX_ENTRIES"
 #endif
@@ -45,7 +41,7 @@
 
 #define CORESIGHT_TIMEOUT_USEC		100000		/* 100 ms */
 
-#define GOYA_CPU_TIMEOUT_USEC		10000000	/* 10s */
+#define GOYA_CPU_TIMEOUT_USEC		15000000	/* 15s */
 
 #define TPC_ENABLED_MASK		0xFF
 
@@ -53,7 +49,17 @@
 
 #define MAX_POWER_DEFAULT		200000		/* 200W */
 
+#define DC_POWER_DEFAULT		20000		/* 20W */
+
 #define DRAM_PHYS_DEFAULT_SIZE		0x100000000ull	/* 4GB */
+
+#define GOYA_DEFAULT_CARD_NAME		"HL1000"
+
+#define GOYA_MAX_PENDING_CS		64
+
+#if !IS_MAX_PENDING_CS_VALID(GOYA_MAX_PENDING_CS)
+#error "GOYA_MAX_PENDING_CS must be power of 2 and greater than 1"
+#endif
 
 /* DRAM Memory Map */
 
@@ -68,19 +74,19 @@
 						MMU_PAGE_TABLES_SIZE)
 #define MMU_CACHE_MNG_ADDR		(MMU_DRAM_DEFAULT_PAGE_ADDR + \
 					MMU_DRAM_DEFAULT_PAGE_SIZE)
-#define DRAM_KMD_END_ADDR		(MMU_CACHE_MNG_ADDR + \
+#define DRAM_DRIVER_END_ADDR		(MMU_CACHE_MNG_ADDR + \
 						MMU_CACHE_MNG_SIZE)
 
 #define DRAM_BASE_ADDR_USER		0x20000000
 
-#if (DRAM_KMD_END_ADDR > DRAM_BASE_ADDR_USER)
-#error "KMD must reserve no more than 512MB"
+#if (DRAM_DRIVER_END_ADDR > DRAM_BASE_ADDR_USER)
+#error "Driver must reserve no more than 512MB"
 #endif
 
 /*
- * SRAM Memory Map for KMD
+ * SRAM Memory Map for Driver
  *
- * KMD occupies KMD_SRAM_SIZE bytes from the start of SRAM. It is used for
+ * Driver occupies DRIVER_SRAM_SIZE bytes from the start of SRAM. It is used for
  * MME/TPC QMANs
  *
  */
@@ -106,10 +112,10 @@
 #define TPC7_QMAN_BASE_OFFSET	(TPC6_QMAN_BASE_OFFSET + \
 				(TPC_QMAN_LENGTH * QMAN_PQ_ENTRY_SIZE))
 
-#define SRAM_KMD_RES_OFFSET	(TPC7_QMAN_BASE_OFFSET + \
+#define SRAM_DRIVER_RES_OFFSET	(TPC7_QMAN_BASE_OFFSET + \
 				(TPC_QMAN_LENGTH * QMAN_PQ_ENTRY_SIZE))
 
-#if (SRAM_KMD_RES_OFFSET >= GOYA_KMD_SRAM_RESERVED_SIZE_FROM_START)
+#if (SRAM_DRIVER_RES_OFFSET >= GOYA_KMD_SRAM_RESERVED_SIZE_FROM_START)
 #error "MME/TPC QMANs SRAM space exceeds limit"
 #endif
 
@@ -147,11 +153,6 @@
 #define HW_CAP_GOLDEN		0x00000400
 #define HW_CAP_TPC		0x00000800
 
-enum goya_fw_component {
-	FW_COMP_UBOOT,
-	FW_COMP_PREBOOT
-};
-
 struct goya_device {
 	/* TODO: remove hw_queues_lock after moving to scheduler code */
 	spinlock_t	hw_queues_lock;
@@ -162,17 +163,19 @@ struct goya_device {
 
 	u64		ddr_bar_cur_addr;
 	u32		events_stat[GOYA_ASYNC_EVENT_ID_SIZE];
+	u32		events_stat_aggregate[GOYA_ASYNC_EVENT_ID_SIZE];
 	u32		hw_cap_initialized;
 	u8		device_cpu_mmu_mappings_done;
 };
 
-void goya_get_fixed_properties(struct hl_device *hdev);
+int goya_set_fixed_properties(struct hl_device *hdev);
 int goya_mmu_init(struct hl_device *hdev);
 void goya_init_dma_qmans(struct hl_device *hdev);
 void goya_init_mme_qmans(struct hl_device *hdev);
 void goya_init_tpc_qmans(struct hl_device *hdev);
 int goya_init_cpu_queues(struct hl_device *hdev);
 void goya_init_security(struct hl_device *hdev);
+void goya_ack_protection_bits_errors(struct hl_device *hdev);
 int goya_late_init(struct hl_device *hdev);
 void goya_late_fini(struct hl_device *hdev);
 
@@ -192,7 +195,7 @@ int goya_test_queue(struct hl_device *hdev, u32 hw_queue_id);
 int goya_test_queues(struct hl_device *hdev);
 int goya_test_cpu_queue(struct hl_device *hdev);
 int goya_send_cpu_message(struct hl_device *hdev, u32 *msg, u16 len,
-				u32 timeout, long *result);
+				u32 timeout, u64 *result);
 
 long goya_get_temperature(struct hl_device *hdev, int sensor_index, u32 attr);
 long goya_get_voltage(struct hl_device *hdev, int sensor_index, u32 attr);
@@ -207,7 +210,7 @@ void goya_set_max_power(struct hl_device *hdev, u64 value);
 void goya_set_pll_profile(struct hl_device *hdev, enum hl_pll_frequency freq);
 void goya_add_device_attr(struct hl_device *hdev,
 			struct attribute_group *dev_attr_grp);
-int goya_armcp_info_get(struct hl_device *hdev);
+int goya_cpucp_info_get(struct hl_device *hdev);
 int goya_debug_coresight(struct hl_device *hdev, void *data);
 void goya_halt_coresight(struct hl_device *hdev);
 
@@ -215,11 +218,13 @@ int goya_suspend(struct hl_device *hdev);
 int goya_resume(struct hl_device *hdev);
 
 void goya_handle_eqe(struct hl_device *hdev, struct hl_eq_entry *eq_entry);
-void *goya_get_events_stat(struct hl_device *hdev, u32 *size);
+void *goya_get_events_stat(struct hl_device *hdev, bool aggregate, u32 *size);
 
-void goya_add_end_of_cb_packets(struct hl_device *hdev, u64 kernel_address,
-				u32 len, u64 cq_addr, u32 cq_val, u32 msix_vec);
+void goya_add_end_of_cb_packets(struct hl_device *hdev, void *kernel_address,
+				u32 len, u64 cq_addr, u32 cq_val, u32 msix_vec,
+				bool eb);
 int goya_cs_parser(struct hl_device *hdev, struct hl_cs_parser *parser);
+int goya_scrub_device_mem(struct hl_device *hdev, u64 addr, u64 size);
 void *goya_get_int_queue_base(struct hl_device *hdev, u32 queue_id,
 				dma_addr_t *dma_handle,	u16 *queue_len);
 u32 goya_get_dma_desc_list_size(struct hl_device *hdev, struct sg_table *sgt);
@@ -229,5 +234,9 @@ void *goya_cpu_accessible_dma_pool_alloc(struct hl_device *hdev, size_t size,
 void goya_cpu_accessible_dma_pool_free(struct hl_device *hdev, size_t size,
 					void *vaddr);
 void goya_mmu_remove_device_cpu_mappings(struct hl_device *hdev);
+
+int goya_get_clk_rate(struct hl_device *hdev, u32 *cur_clk, u32 *max_clk);
+u32 goya_get_queue_id_for_cq(struct hl_device *hdev, u32 cq_idx);
+u64 goya_get_device_time(struct hl_device *hdev);
 
 #endif /* GOYAP_H_ */

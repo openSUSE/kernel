@@ -798,8 +798,6 @@ xirc2ps_config(struct pcmcia_device * link)
 	    goto config_error;
     }
   port_found:
-    if (err)
-	 goto config_error;
 
     /****************
      * Now allocate an interrupt line.	Note that this does not
@@ -1234,7 +1232,7 @@ do_start_xmit(struct sk_buff *skb, struct net_device *dev)
     if (pktlen < ETH_ZLEN)
     {
         if (skb_padto(skb, ETH_ZLEN))
-        	return NETDEV_TX_OK;
+		return NETDEV_TX_OK;
 	pktlen = ETH_ZLEN;
     }
 
@@ -1434,7 +1432,7 @@ do_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
     switch(cmd) {
       case SIOCGMIIPHY:		/* Get the address of the PHY in use. */
 	data->phy_id = 0;	/* we have only this address */
-	/* fall through */
+	fallthrough;
       case SIOCGMIIREG:		/* Read the specified MII register. */
 	data->val_out = mii_rd(ioaddr, data->phy_id & 0x1f,
 			       data->reg_num & 0x1f);
@@ -1473,7 +1471,7 @@ do_reset(struct net_device *dev, int full)
     unsigned int ioaddr = dev->base_addr;
     unsigned value;
 
-    pr_debug("%s: do_reset(%p,%d)\n", dev? dev->name:"eth?", dev, full);
+    pr_debug("%s: do_reset(%p,%d)\n", dev->name, dev, full);
 
     hardreset(dev);
     PutByte(XIRCREG_CR, SoftReset); /* set */

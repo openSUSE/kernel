@@ -1028,33 +1028,6 @@ static struct spi_imx_devtype_data imx53_ecspi_devtype_data = {
 	.devtype = IMX53_ECSPI,
 };
 
-static const struct platform_device_id spi_imx_devtype[] = {
-	{
-		.name = "imx1-cspi",
-		.driver_data = (kernel_ulong_t) &imx1_cspi_devtype_data,
-	}, {
-		.name = "imx21-cspi",
-		.driver_data = (kernel_ulong_t) &imx21_cspi_devtype_data,
-	}, {
-		.name = "imx27-cspi",
-		.driver_data = (kernel_ulong_t) &imx27_cspi_devtype_data,
-	}, {
-		.name = "imx31-cspi",
-		.driver_data = (kernel_ulong_t) &imx31_cspi_devtype_data,
-	}, {
-		.name = "imx35-cspi",
-		.driver_data = (kernel_ulong_t) &imx35_cspi_devtype_data,
-	}, {
-		.name = "imx51-ecspi",
-		.driver_data = (kernel_ulong_t) &imx51_ecspi_devtype_data,
-	}, {
-		.name = "imx53-ecspi",
-		.driver_data = (kernel_ulong_t) &imx53_ecspi_devtype_data,
-	}, {
-		/* sentinel */
-	}
-};
-
 static const struct of_device_id spi_imx_dt_ids[] = {
 	{ .compatible = "fsl,imx1-cspi", .data = &imx1_cspi_devtype_data, },
 	{ .compatible = "fsl,imx21-cspi", .data = &imx21_cspi_devtype_data, },
@@ -1522,6 +1495,8 @@ static int spi_imx_transfer(struct spi_device *spi,
 {
 	struct spi_imx_data *spi_imx = spi_master_get_devdata(spi->master);
 
+	transfer->effective_speed_hz = spi_imx->spi_bus_clk;
+
 	/* flush rxfifo before transfer */
 	while (spi_imx->devtype_data->rx_available(spi_imx))
 		readl(spi_imx->base + MXC_CSPIRXDATA);
@@ -1592,14 +1567,12 @@ static int spi_imx_slave_abort(struct spi_master *master)
 static int spi_imx_probe(struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;
-	const struct of_device_id *of_id =
-			of_match_device(spi_imx_dt_ids, &pdev->dev);
 	struct spi_master *master;
 	struct spi_imx_data *spi_imx;
 	struct resource *res;
 	int ret, irq, spi_drctl;
-	const struct spi_imx_devtype_data *devtype_data = of_id ? of_id->data :
-		(struct spi_imx_devtype_data *)pdev->id_entry->driver_data;
+	const struct spi_imx_devtype_data *devtype_data =
+			of_device_get_match_data(&pdev->dev);
 	bool slave_mode;
 	u32 val;
 
@@ -1719,7 +1692,7 @@ static int spi_imx_probe(struct platform_device *pdev)
 			goto out_runtime_pm_put;
 
 		if (ret < 0)
-			dev_err(&pdev->dev, "dma setup error %d, use pio\n",
+			dev_dbg(&pdev->dev, "dma setup error %d, use pio\n",
 				ret);
 	}
 
@@ -1733,8 +1706,6 @@ static int spi_imx_probe(struct platform_device *pdev)
 		dev_err_probe(&pdev->dev, ret, "bitbang start failed\n");
 		goto out_bitbang_start;
 	}
-
-	dev_info(&pdev->dev, "probed\n");
 
 	pm_runtime_mark_last_busy(spi_imx->dev);
 	pm_runtime_put_autosuspend(spi_imx->dev);
@@ -1843,13 +1814,12 @@ static struct platform_driver spi_imx_driver = {
 		   .of_match_table = spi_imx_dt_ids,
 		   .pm = &imx_spi_pm,
 	},
-	.id_table = spi_imx_devtype,
 	.probe = spi_imx_probe,
 	.remove = spi_imx_remove,
 };
 module_platform_driver(spi_imx_driver);
 
-MODULE_DESCRIPTION("SPI Controller driver");
+MODULE_DESCRIPTION("i.MX SPI Controller driver");
 MODULE_AUTHOR("Sascha Hauer, Pengutronix");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:" DRIVER_NAME);

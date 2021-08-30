@@ -11,11 +11,14 @@ allOf:
 
 maintainers:
   - Chen-Yu Tsai <wens@csie.org>
-  - Maxime Ripard <maxime.ripard@bootlin.com>
+  - Maxime Ripard <mripard@kernel.org>
 
 properties:
   compatible:
     const: allwinner,sun7i-a20-gmac
+
+  reg:
+    maxItems: 1
 
   interrupts:
     maxItems: 1
@@ -46,6 +49,8 @@ required:
   - clock-names
   - phy-mode
 
+unevaluatedProperties: false
+
 examples:
   - |
     gmac: ethernet@1c50000 {
@@ -57,9 +62,5 @@ examples:
         clock-names = "stmmaceth", "allwinner_gmac_tx";
         phy-mode = "mii";
     };
-
-# FIXME: We should set it, but it would report all the generic
-# properties as additional properties.
-# additionalProperties: false
 
 ...

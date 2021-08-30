@@ -461,11 +461,11 @@
 		};
 
 		gsbi@19800000 {
-			status = "ok";
+			status = "okay";
 			qcom,mode = <GSBI_PROT_I2C>;
 
 			i2c@19880000 {
-				status = "ok";
+				status = "okay";
 				pinctrl-names = "default";
 				pinctrl-0 = <&dragon_gsbi8_i2c_pins>;
 
@@ -497,17 +497,17 @@
 		};
 
 		gsbi@19c00000 {
-			status = "ok";
+			status = "okay";
 			qcom,mode = <GSBI_PROT_I2C_UART>;
 
 			serial@19c40000 {
-				status = "ok";
+				status = "okay";
 				pinctrl-names = "default";
 				pinctrl-0 = <&dragon_gsbi12_serial_pins>;
 			};
 
 			i2c@19c80000 {
-				status = "ok";
+				status = "okay";
 				pinctrl-names = "default";
 				pinctrl-0 = <&dragon_gsbi12_i2c_pins>;
 
@@ -571,7 +571,7 @@
 
 		external-bus@1a100000 {
 			/* The EBI2 will instantiate first, then populate its children */
-			status = "ok";
+			status = "okay";
 			pinctrl-names = "default";
 			pinctrl-0 = <&dragon_ebi2_pins>;
 
@@ -581,7 +581,7 @@
 			 * EBI2. This has a 25MHz chrystal next to it, so no
 			 * clocking is needed.
 			 */
-			ethernet-ebi2@2,0 {
+			ethernet@2,0 {
 				compatible = "smsc,lan9221", "smsc,lan9115";
 				reg = <2 0x0 0x100>;
 				/*
@@ -598,8 +598,6 @@
 				phy-mode = "mii";
 				reg-io-width = <2>;
 				smsc,force-external-phy;
-				/* IRQ on edge falling = active low */
-				smsc,irq-active-low;
 				smsc,irq-push-pull;
 
 				/*

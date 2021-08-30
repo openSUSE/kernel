@@ -266,7 +266,7 @@ static struct mtd_partition da830_evm_nand_partitions[] = {
 	}
 };
 
-/* flash bbt decriptors */
+/* flash bbt descriptors */
 static uint8_t da830_evm_nand_bbt_pattern[] = { 'B', 'b', 't', '0' };
 static uint8_t da830_evm_nand_mirror_pattern[] = { '1', 't', 'b', 'B' };
 
@@ -306,7 +306,7 @@ static struct davinci_nand_pdata da830_evm_nand_pdata = {
 	.core_chipsel	= 1,
 	.parts		= da830_evm_nand_partitions,
 	.nr_parts	= ARRAY_SIZE(da830_evm_nand_partitions),
-	.ecc_mode	= NAND_ECC_HW,
+	.engine_type	= NAND_ECC_ENGINE_TYPE_ON_HOST,
 	.ecc_bits	= 4,
 	.bbt_options	= NAND_BBT_USE_FLASH,
 	.bbt_td		= &da830_evm_nand_bbt_main_descr,
@@ -454,6 +454,10 @@ static const struct property_entry da830_evm_i2c_eeprom_properties[] = {
 	{ }
 };
 
+static const struct software_node da830_evm_i2c_eeprom_node = {
+	.properties = da830_evm_i2c_eeprom_properties,
+};
+
 static int __init da830_evm_ui_expander_setup(struct i2c_client *client,
 		int gpio, unsigned ngpio, void *context)
 {
@@ -485,7 +489,7 @@ static struct pcf857x_platform_data __initdata da830_evm_ui_expander_info = {
 static struct i2c_board_info __initdata da830_evm_i2c_devices[] = {
 	{
 		I2C_BOARD_INFO("24c256", 0x50),
-		.properties = da830_evm_i2c_eeprom_properties,
+		.swnode = &da830_evm_i2c_eeprom_node,
 	},
 	{
 		I2C_BOARD_INFO("tlv320aic3x", 0x18),

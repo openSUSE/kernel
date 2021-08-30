@@ -1,3 +1,5 @@
+.. _elf_hwcaps_index:
+
 ================
 ARM64 ELF hwcaps
 ================
@@ -60,10 +62,6 @@ Other hwcaps may indicate the presence of features which cannot be
 described by ID registers alone. These may be described without
 reference to ID registers, and may refer to other documentation.
 
-HWCAP2_RNG
-
-    Functionality implied by ID_AA64ISAR0_EL1.RNDR == 0b0001.
-
 
 3. The hwcaps exposed in AT_HWCAP
 ---------------------------------
@@ -76,7 +74,7 @@ HWCAP_ASIMD
 
 HWCAP_EVTSTRM
     The generic timer is configured to generate events at a frequency of
-    approximately 100KHz.
+    approximately 10KHz.
 
 HWCAP_AES
     Functionality implied by ID_AA64ISAR0_EL1.AES == 0b0001.
@@ -123,10 +121,6 @@ HWCAP_LRCPC
 HWCAP_DCPOP
     Functionality implied by ID_AA64ISAR1_EL1.DPB == 0b0001.
 
-HWCAP2_DCPODP
-
-    Functionality implied by ID_AA64ISAR1_EL1.DPB == 0b0010.
-
 HWCAP_SHA3
     Functionality implied by ID_AA64ISAR0_EL1.SHA3 == 0b0001.
 
@@ -144,6 +138,41 @@ HWCAP_SHA512
 
 HWCAP_SVE
     Functionality implied by ID_AA64PFR0_EL1.SVE == 0b0001.
+
+HWCAP_ASIMDFHM
+   Functionality implied by ID_AA64ISAR0_EL1.FHM == 0b0001.
+
+HWCAP_DIT
+    Functionality implied by ID_AA64PFR0_EL1.DIT == 0b0001.
+
+HWCAP_USCAT
+    Functionality implied by ID_AA64MMFR2_EL1.AT == 0b0001.
+
+HWCAP_ILRCPC
+    Functionality implied by ID_AA64ISAR1_EL1.LRCPC == 0b0010.
+
+HWCAP_FLAGM
+    Functionality implied by ID_AA64ISAR0_EL1.TS == 0b0001.
+
+HWCAP_SSBS
+    Functionality implied by ID_AA64PFR1_EL1.SSBS == 0b0010.
+
+HWCAP_SB
+    Functionality implied by ID_AA64ISAR1_EL1.SB == 0b0001.
+
+HWCAP_PACA
+    Functionality implied by ID_AA64ISAR1_EL1.APA == 0b0001 or
+    ID_AA64ISAR1_EL1.API == 0b0001, as described by
+    Documentation/arm64/pointer-authentication.rst.
+
+HWCAP_PACG
+    Functionality implied by ID_AA64ISAR1_EL1.GPA == 0b0001 or
+    ID_AA64ISAR1_EL1.GPI == 0b0001, as described by
+    Documentation/arm64/pointer-authentication.rst.
+
+HWCAP2_DCPODP
+
+    Functionality implied by ID_AA64ISAR1_EL1.DPB == 0b0010.
 
 HWCAP2_SVE2
 
@@ -169,37 +198,9 @@ HWCAP2_SVESM4
 
     Functionality implied by ID_AA64ZFR0_EL1.SM4 == 0b0001.
 
-HWCAP_ASIMDFHM
-   Functionality implied by ID_AA64ISAR0_EL1.FHM == 0b0001.
-
-HWCAP_DIT
-    Functionality implied by ID_AA64PFR0_EL1.DIT == 0b0001.
-
-HWCAP_USCAT
-    Functionality implied by ID_AA64MMFR2_EL1.AT == 0b0001.
-
-HWCAP_ILRCPC
-    Functionality implied by ID_AA64ISAR1_EL1.LRCPC == 0b0010.
-
-HWCAP_FLAGM
-    Functionality implied by ID_AA64ISAR0_EL1.TS == 0b0001.
-
 HWCAP2_FLAGM2
 
     Functionality implied by ID_AA64ISAR0_EL1.TS == 0b0010.
-
-HWCAP_SSBS
-    Functionality implied by ID_AA64PFR1_EL1.SSBS == 0b0010.
-
-HWCAP_PACA
-    Functionality implied by ID_AA64ISAR1_EL1.APA == 0b0001 or
-    ID_AA64ISAR1_EL1.API == 0b0001, as described by
-    Documentation/arm64/pointer-authentication.rst.
-
-HWCAP_PACG
-    Functionality implied by ID_AA64ISAR1_EL1.GPA == 0b0001 or
-    ID_AA64ISAR1_EL1.GPI == 0b0001, as described by
-    Documentation/arm64/pointer-authentication.rst.
 
 HWCAP2_FRINT
 
@@ -232,6 +233,19 @@ HWCAP2_BF16
 HWCAP2_DGH
 
     Functionality implied by ID_AA64ISAR1_EL1.DGH == 0b0001.
+
+HWCAP2_RNG
+
+    Functionality implied by ID_AA64ISAR0_EL1.RNDR == 0b0001.
+
+HWCAP2_BTI
+
+    Functionality implied by ID_AA64PFR0_EL1.BT == 0b0001.
+
+HWCAP2_MTE
+
+    Functionality implied by ID_AA64PFR1_EL1.MTE == 0b0010, as described
+    by Documentation/arm64/memory-tagging-extension.rst.
 
 4. Unused AT_HWCAP bits
 -----------------------

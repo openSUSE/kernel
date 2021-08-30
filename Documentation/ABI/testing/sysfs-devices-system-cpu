@@ -50,7 +50,7 @@ Description:	Dynamic addition and removal of CPU's.  This is not hotplug
 		architecture specific.
 
 		release: writes to this file dynamically remove a CPU from
-		the system.  Information writtento the file to remove CPU's
+		the system.  Information written to the file to remove CPU's
 		is architecture specific.
 
 What:		/sys/devices/system/cpu/cpu#/node
@@ -97,7 +97,7 @@ Description:	CPU topology files that describe a logical CPU's relationship
 		corresponds to a physical socket number, but the actual value
 		is architecture and platform dependent.
 
-		thread_siblings: internel kernel map of cpu#'s hardware
+		thread_siblings: internal kernel map of cpu#'s hardware
 		threads within the same core as cpu#
 
 		thread_siblings_list: human-readable list of cpu#'s hardware
@@ -106,10 +106,10 @@ Description:	CPU topology files that describe a logical CPU's relationship
 		See Documentation/admin-guide/cputopology.rst for more information.
 
 
-What:		/sys/devices/system/cpu/cpuidle/current_driver
-		/sys/devices/system/cpu/cpuidle/current_governer_ro
-		/sys/devices/system/cpu/cpuidle/available_governors
+What:		/sys/devices/system/cpu/cpuidle/available_governors
+		/sys/devices/system/cpu/cpuidle/current_driver
 		/sys/devices/system/cpu/cpuidle/current_governor
+		/sys/devices/system/cpu/cpuidle/current_governer_ro
 Date:		September 2007
 Contact:	Linux kernel mailing list <linux-kernel@vger.kernel.org>
 Description:	Discover cpuidle policy and mechanism
@@ -119,23 +119,17 @@ Description:	Discover cpuidle policy and mechanism
 		consumption during idle.
 
 		Idle policy (governor) is differentiated from idle mechanism
-		(driver)
-
-		current_driver: (RO) displays current idle mechanism
-
-		current_governor_ro: (RO) displays current idle policy
-
-		With the cpuidle_sysfs_switch boot option enabled (meant for
-		developer testing), the following three attributes are visible
-		instead:
-
-		current_driver: same as described above
+		(driver).
 
 		available_governors: (RO) displays a space separated list of
-		available governors
+		available governors.
+
+		current_driver: (RO) displays current idle mechanism.
 
 		current_governor: (RW) displays current idle policy. Users can
 		switch the governor at runtime by writing to this file.
+
+		current_governor_ro: (RO) displays current idle policy.
 
 		See Documentation/admin-guide/pm/cpuidle.rst and
 		Documentation/driver-api/pm/cpuidle.rst for more information.
@@ -157,23 +151,28 @@ Description:
 		The processor idle states which are available for use have the
 		following attributes:
 
-		name: (RO) Name of the idle state (string).
+		======== ==== =================================================
+		name:	 (RO) Name of the idle state (string).
 
 		latency: (RO) The latency to exit out of this idle state (in
-		microseconds).
+			      microseconds).
 
-		power: (RO) The power consumed while in this idle state (in
-		milliwatts).
+		power:   (RO) The power consumed while in this idle state (in
+			      milliwatts).
 
-		time: (RO) The total time spent in this idle state (in microseconds).
+		time:    (RO) The total time spent in this idle state
+			      (in microseconds).
 
-		usage: (RO) Number of times this state was entered (a count).
+		usage:	 (RO) Number of times this state was entered (a count).
 
-		above: (RO) Number of times this state was entered, but the
-		       observed CPU idle duration was too short for it (a count).
+		above:	 (RO) Number of times this state was entered, but the
+			      observed CPU idle duration was too short for it
+			      (a count).
 
-		below: (RO) Number of times this state was entered, but the
-		       observed CPU idle duration was too long for it (a count).
+		below:	 (RO) Number of times this state was entered, but the
+			      observed CPU idle duration was too long for it
+			      (a count).
+		======== ==== =================================================
 
 What:		/sys/devices/system/cpu/cpuX/cpuidle/stateN/desc
 Date:		February 2008
@@ -265,7 +264,8 @@ Description:	Discover CPUs in the same CPU frequency coordination domain
 		attribute is useful for user space DVFS controllers to get better
 		power/performance results for platforms using acpi-cpufreq.
 
-		This file is only present if the acpi-cpufreq driver is in use.
+		This file is only present if the acpi-cpufreq or the cppc-cpufreq
+		drivers are in use.
 
 
 What:		/sys/devices/system/cpu/cpu*/cache/index3/cache_disable_{0,1}
@@ -280,12 +280,12 @@ Description:	Disable L3 cache indices
 		on a processor with this functionality will return the currently
 		disabled index for that node. There is one L3 structure per
 		node, or per internal node on MCM machines. Writing a valid
-		index to one of these files will cause the specificed cache
+		index to one of these files will cause the specified cache
 		index to be disabled.
 
 		All AMD processors with L3 caches provide this functionality.
 		For details, see BKDGs at
-		http://developer.amd.com/documentation/guides/Pages/default.aspx
+                https://www.amd.com/en/support/tech-docs?keyword=bios+kernel
 
 
 What:		/sys/devices/system/cpu/cpufreq/boost
@@ -295,7 +295,8 @@ Description:	Processor frequency boosting control
 
 		This switch controls the boost setting for the whole system.
 		Boosting allows the CPU and the firmware to run at a frequency
-		beyound it's nominal limit.
+		beyond it's nominal limit.
+
 		More details can be found in
 		Documentation/admin-guide/pm/cpufreq.rst
 
@@ -343,43 +344,57 @@ Contact:	Sudeep Holla <sudeep.holla@arm.com>
 Description:	Parameters for the CPU cache attributes
 
 		allocation_policy:
-			- WriteAllocate: allocate a memory location to a cache line
-					 on a cache miss because of a write
-			- ReadAllocate: allocate a memory location to a cache line
+			- WriteAllocate:
+					allocate a memory location to a cache line
+					on a cache miss because of a write
+			- ReadAllocate:
+					allocate a memory location to a cache line
 					on a cache miss because of a read
-			- ReadWriteAllocate: both writeallocate and readallocate
+			- ReadWriteAllocate:
+					both writeallocate and readallocate
 
-		attributes: LEGACY used only on IA64 and is same as write_policy
+		attributes:
+			    LEGACY used only on IA64 and is same as write_policy
 
-		coherency_line_size: the minimum amount of data in bytes that gets
+		coherency_line_size:
+				     the minimum amount of data in bytes that gets
 				     transferred from memory to cache
 
-		level: the cache hierarchy in the multi-level cache configuration
+		level:
+			the cache hierarchy in the multi-level cache configuration
 
-		number_of_sets: total number of sets in the cache, a set is a
+		number_of_sets:
+				total number of sets in the cache, a set is a
 				collection of cache lines with the same cache index
 
-		physical_line_partition: number of physical cache line per cache tag
+		physical_line_partition:
+				number of physical cache line per cache tag
 
-		shared_cpu_list: the list of logical cpus sharing the cache
+		shared_cpu_list:
+				the list of logical cpus sharing the cache
 
-		shared_cpu_map: logical cpu mask containing the list of cpus sharing
+		shared_cpu_map:
+				logical cpu mask containing the list of cpus sharing
 				the cache
 
-		size: the total cache size in kB
+		size:
+			the total cache size in kB
 
 		type:
 			- Instruction: cache that only holds instructions
 			- Data: cache that only caches data
 			- Unified: cache that holds both data and instructions
 
-		ways_of_associativity: degree of freedom in placing a particular block
-					of memory in the cache
+		ways_of_associativity:
+			degree of freedom in placing a particular block
+			of memory in the cache
 
 		write_policy:
-			- WriteThrough: data is written to both the cache line
+			- WriteThrough:
+					data is written to both the cache line
 					and to the block in the lower-level memory
-			- WriteBack: data is written only to the cache line and
+			- WriteBack:
+				     data is written only to the cache line and
 				     the modified cache line is written to main
 				     memory only when it is replaced
 
@@ -420,30 +435,30 @@ Description:	POWERNV CPUFreq driver's frequency throttle stats directory and
 		throttle attributes exported in the 'throttle_stats' directory:
 
 		- turbo_stat : This file gives the total number of times the max
-		frequency is throttled to lower frequency in turbo (at and above
-		nominal frequency) range of frequencies.
+		  frequency is throttled to lower frequency in turbo (at and above
+		  nominal frequency) range of frequencies.
 
 		- sub_turbo_stat : This file gives the total number of times the
-		max frequency is throttled to lower frequency in sub-turbo(below
-		nominal frequency) range of frequencies.
+		  max frequency is throttled to lower frequency in sub-turbo(below
+		  nominal frequency) range of frequencies.
 
 		- unthrottle : This file gives the total number of times the max
-		frequency is unthrottled after being throttled.
+		  frequency is unthrottled after being throttled.
 
 		- powercap : This file gives the total number of times the max
-		frequency is throttled due to 'Power Capping'.
+		  frequency is throttled due to 'Power Capping'.
 
 		- overtemp : This file gives the total number of times the max
-		frequency is throttled due to 'CPU Over Temperature'.
+		  frequency is throttled due to 'CPU Over Temperature'.
 
 		- supply_fault : This file gives the total number of times the
-		max frequency is throttled due to 'Power Supply Failure'.
+		  max frequency is throttled due to 'Power Supply Failure'.
 
 		- overcurrent : This file gives the total number of times the
-		max frequency is throttled due to 'Overcurrent'.
+		  max frequency is throttled due to 'Overcurrent'.
 
 		- occ_reset : This file gives the total number of times the max
-		frequency is throttled due to 'OCC Reset'.
+		  frequency is throttled due to 'OCC Reset'.
 
 		The sysfs attributes representing different throttle reasons like
 		powercap, overtemp, supply_fault, overcurrent and occ_reset map to
@@ -475,8 +490,9 @@ What:		/sys/devices/system/cpu/cpuX/regs/
 Date:		June 2016
 Contact:	Linux ARM Kernel Mailing list <linux-arm-kernel@lists.infradead.org>
 Description:	AArch64 CPU registers
+
 		'identification' directory exposes the CPU ID registers for
-		 identifying model and revision of the CPU.
+		identifying model and revision of the CPU.
 
 What:		/sys/devices/system/cpu/cpu#/cpu_capacity
 Date:		December 2016
@@ -503,9 +519,11 @@ Description:	Information about CPU vulnerabilities
 		vulnerabilities. The output of those files reflects the
 		state of the CPUs in the system. Possible output values:
 
+		================  ==============================================
 		"Not affected"	  CPU is not affected by the vulnerability
 		"Vulnerable"	  CPU is affected and no mitigation in effect
 		"Mitigation: $M"  CPU is affected and mitigation $M is in effect
+		================  ==============================================
 
 		See also: Documentation/admin-guide/hw-vuln/index.rst
 
@@ -514,19 +532,21 @@ What:		/sys/devices/system/cpu/smt
 		/sys/devices/system/cpu/smt/control
 Date:		June 2018
 Contact:	Linux kernel mailing list <linux-kernel@vger.kernel.org>
-Description:	Control Symetric Multi Threading (SMT)
+Description:	Control Symmetric Multi Threading (SMT)
 
 		active:  Tells whether SMT is active (enabled and siblings online)
 
 		control: Read/write interface to control SMT. Possible
 			 values:
 
+			 ================ =========================================
 			 "on"		  SMT is enabled
 			 "off"		  SMT is disabled
 			 "forceoff"	  SMT is force disabled. Cannot be changed.
 			 "notsupported"   SMT is not supported by the CPU
 			 "notimplemented" SMT runtime toggling is not
 					  implemented for the architecture
+			 ================ =========================================
 
 			 If control status is "forceoff" or "notsupported" writes
 			 are rejected.
@@ -572,7 +592,17 @@ Description:	Umwait control
 			  Note that a value of zero means there is no limit.
 			  Low order two bits must be zero.
 
-What: 		/sys/devices/system/cpu/cpuX/purr
+What:		/sys/devices/system/cpu/svm
+Date:		August 2019
+Contact:	Linux kernel mailing list <linux-kernel@vger.kernel.org>
+		Linux for PowerPC mailing list <linuxppc-dev@ozlabs.org>
+Description:	Secure Virtual Machine
+
+		If 1, it means the system is using the Protected Execution
+		Facility in POWER9 and newer processors. i.e., it is a Secure
+		Virtual Machine.
+
+What:		/sys/devices/system/cpu/cpuX/purr
 Date:		Apr 2005
 Contact:	Linux for PowerPC mailing list <linuxppc-dev@ozlabs.org>
 Description:	PURR ticks for this CPU since the system boot.

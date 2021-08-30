@@ -401,7 +401,7 @@ Error handling
 ==============
 
 This chapter describes how errors are handled under libata. Readers are
-advised to read SCSI EH (Documentation/scsi/scsi_eh.txt) and ATA
+advised to read SCSI EH (Documentation/scsi/scsi_eh.rst) and ATA
 exceptions doc first.
 
 Origins of commands
@@ -508,7 +508,7 @@ also complete commands.
 
 2. ATA_QCFLAG_ACTIVE is cleared from qc->flags.
 
-3. :c:func:`qc->complete_fn` callback is invoked. If the return value of the
+3. :c:expr:`qc->complete_fn` callback is invoked. If the return value of the
    callback is not zero. Completion is short circuited and
    :c:func:`ata_qc_complete` returns.
 

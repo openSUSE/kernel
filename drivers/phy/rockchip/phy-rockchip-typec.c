@@ -347,7 +347,7 @@ struct usb3phy_reg {
 };
 
 /**
- * struct rockchip_usb3phy_port_cfg: usb3-phy port configuration.
+ * struct rockchip_usb3phy_port_cfg - usb3-phy port configuration.
  * @reg: the base address for usb3-phy config.
  * @typec_conn_dir: the register of type-c connector direction.
  * @usb3tousb2_en: the register of type-c force usb2 to usb2 enable.
@@ -1180,6 +1180,7 @@ static int rockchip_typec_phy_probe(struct platform_device *pdev)
 			dev_err(dev, "failed to create phy: %pOFn\n",
 				child_np);
 			pm_runtime_disable(dev);
+			of_node_put(child_np);
 			return PTR_ERR(phy);
 		}
 

@@ -149,6 +149,28 @@ static void pnv_setup_security_mitigations(void)
 	setup_stf_barrier();
 }
 
+static void __init pnv_check_guarded_cores(void)
+{
+	struct device_node *dn;
+	int bad_count = 0;
+
+	for_each_node_by_type(dn, "cpu") {
+		if (of_property_match_string(dn, "status", "bad") >= 0)
+			bad_count++;
+	}
+
+	if (bad_count) {
+		printk("  _     _______________\n");
+		pr_cont(" | |   /               \\\n");
+		pr_cont(" | |   |    WARNING!   |\n");
+		pr_cont(" | |   |               |\n");
+		pr_cont(" | |   | It looks like |\n");
+		pr_cont(" |_|   |  you have %*d |\n", 3, bad_count);
+		pr_cont("  _    | guarded cores |\n");
+		pr_cont(" (_)   \\_______________/\n");
+	}
+}
+
 static void __init pnv_setup_arch(void)
 {
 	set_arch_panic_timeout(10, ARCH_PANIC_TIMEOUT);
@@ -158,15 +180,14 @@ static void __init pnv_setup_arch(void)
 	/* Initialize SMP */
 	pnv_smp_init();
 
-	/* Setup PCI */
-	pnv_pci_init();
-
 	/* Setup RTC and NVRAM callbacks */
 	if (firmware_has_feature(FW_FEATURE_OPAL))
 		opal_nvram_init();
 
 	/* Enable NAP mode */
 	powersave_nap = 1;
+
+	pnv_check_guarded_cores();
 
 	/* XXX PMCS */
 }
@@ -252,10 +273,16 @@ static void  __noreturn pnv_restart(char *cmd)
 	pnv_prepare_going_down();
 
 	do {
-		if (!cmd)
+		if (!cmd || !strlen(cmd))
 			rc = opal_cec_reboot();
 		else if (strcmp(cmd, "full") == 0)
 			rc = opal_cec_reboot2(OPAL_REBOOT_FULL_IPL, NULL);
+		else if (strcmp(cmd, "mpipl") == 0)
+			rc = opal_cec_reboot2(OPAL_REBOOT_MPIPL, NULL);
+		else if (strcmp(cmd, "error") == 0)
+			rc = opal_cec_reboot2(OPAL_REBOOT_PLATFORM_ERROR, NULL);
+		else if (strcmp(cmd, "fast") == 0)
+			rc = opal_cec_reboot2(OPAL_REBOOT_FAST, NULL);
 		else
 			rc = OPAL_UNSUPPORTED;
 
@@ -517,6 +544,7 @@ define_machine(powernv) {
 	.init_IRQ		= pnv_init_IRQ,
 	.show_cpuinfo		= pnv_show_cpuinfo,
 	.get_proc_freq          = pnv_get_proc_freq,
+	.discover_phbs		= pnv_pci_init,
 	.progress		= pnv_progress,
 	.machine_shutdown	= pnv_shutdown,
 	.power_save             = NULL,

@@ -1,12 +1,12 @@
 PCI bus bridges have standardized Device Tree bindings:
 
 PCI Bus Binding to: IEEE Std 1275-1994
-http://www.devicetree.org/open-firmware/bindings/pci/pci2_1.pdf
+https://www.devicetree.org/open-firmware/bindings/pci/pci2_1.pdf
 
 And for the interrupt mapping part:
 
 Open Firmware Recommended Practice: Interrupt Mapping
-http://www.devicetree.org/open-firmware/practice/imap/imap0_9d.pdf
+https://www.devicetree.org/open-firmware/practice/imap/imap0_9d.pdf
 
 Additionally to the properties specified in the above standards a host bridge
 driver implementation may support the following properties:
@@ -27,6 +27,11 @@ driver implementation may support the following properties:
 - reset-gpios:
    If present this property specifies PERST# GPIO. Host drivers can parse the
    GPIO and apply fundamental reset to endpoints.
+- supports-clkreq:
+   If present this property specifies that CLKREQ signal routing exists from
+   root port to downstream device and host bridge drivers can do programming
+   which depends on CLKREQ signal existence. For example, programming root port
+   not to advertise ASPM L1 Sub-States support if there is no CLKREQ signal.
 
 PCI-PCI Bridge properties
 -------------------------

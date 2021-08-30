@@ -19,9 +19,29 @@ description:
 allOf:
   - $ref: "regulator.yaml#"
 
+if:
+  properties:
+    compatible:
+      contains:
+        const: regulator-fixed-clock
+  required:
+    - clocks
+else:
+  if:
+    properties:
+      compatible:
+        contains:
+          const: regulator-fixed-domain
+    required:
+      - power-domains
+      - required-opps
+
 properties:
   compatible:
-    const: regulator-fixed
+    enum:
+      - regulator-fixed
+      - regulator-fixed-clock
+      - regulator-fixed-domain
 
   regulator-name: true
 
@@ -29,9 +49,34 @@ properties:
     description: gpio to use for enable control
     maxItems: 1
 
+  clocks:
+    description:
+      clock to use for enable control. This binding is only available if
+      the compatible is chosen to regulator-fixed-clock. The clock binding
+      is mandatory if compatible is chosen to regulator-fixed-clock.
+    maxItems: 1
+
+  power-domains:
+    deprecated: true
+    description:
+      Power domain to use for enable control. This binding is only
+      available if the compatible is chosen to regulator-fixed-domain.
+    maxItems: 1
+
+  required-opps:
+    deprecated: true
+    description:
+      Performance state to use for enable control. This binding is only
+      available if the compatible is chosen to regulator-fixed-domain. The
+      power-domain binding is mandatory if compatible is chosen to
+      regulator-fixed-domain.
+    maxItems: 1
+
   startup-delay-us:
     description: startup time in microseconds
-    $ref: /schemas/types.yaml#/definitions/uint32
+
+  off-on-delay-us:
+    description: off delay time in microseconds
 
   enable-active-high:
     description:
@@ -47,11 +92,12 @@ properties:
 
   vin-supply:
     description: Input supply phandle.
-    $ref: /schemas/types.yaml#/definitions/phandle
 
 required:
   - compatible
   - regulator-name
+
+unevaluatedProperties: false
 
 examples:
   - |
@@ -65,6 +111,29 @@ examples:
       enable-active-high;
       regulator-boot-on;
       gpio-open-drain;
+      vin-supply = <&parent_reg>;
+    };
+    reg_1v8_clk: regulator-1v8-clk {
+      compatible = "regulator-fixed-clock";
+      regulator-name = "1v8";
+      regulator-min-microvolt = <1800000>;
+      regulator-max-microvolt = <1800000>;
+      clocks = <&clock1>;
+      startup-delay-us = <70000>;
+      enable-active-high;
+      regulator-boot-on;
+      vin-supply = <&parent_reg>;
+    };
+    reg_1v8_domain: regulator-1v8-domain {
+      compatible = "regulator-fixed-domain";
+      regulator-name = "1v8";
+      regulator-min-microvolt = <1800000>;
+      regulator-max-microvolt = <1800000>;
+      power-domains = <&domain1>;
+      required-opps = <&domain1_state1>;
+      startup-delay-us = <70000>;
+      enable-active-high;
+      regulator-boot-on;
       vin-supply = <&parent_reg>;
     };
 ...

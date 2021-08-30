@@ -235,7 +235,7 @@ static int ufs_hisi_link_startup_pre_change(struct ufs_hba *hba)
 	ufshcd_writel(hba, reg, REG_AUTO_HIBERNATE_IDLE_TIMER);
 
 	/* Unipro PA_Local_TX_LCC_Enable */
-	ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(0x155E, 0x0), 0x0);
+	ufshcd_disable_host_tx_lcc(hba);
 	/* close Unipro VS_Mk2ExtnSupport */
 	ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(0xD0AB, 0x0), 0x0);
 	ufshcd_dme_get(hba, UIC_ARG_MIB_SEL(0xD0AB, 0x0), &value);
@@ -293,18 +293,7 @@ static int ufs_hisi_link_startup_notify(struct ufs_hba *hba,
 
 static void ufs_hisi_set_dev_cap(struct ufs_dev_params *hisi_param)
 {
-	hisi_param->rx_lanes = UFS_HISI_LIMIT_NUM_LANES_RX;
-	hisi_param->tx_lanes = UFS_HISI_LIMIT_NUM_LANES_TX;
-	hisi_param->hs_rx_gear = UFS_HISI_LIMIT_HSGEAR_RX;
-	hisi_param->hs_tx_gear = UFS_HISI_LIMIT_HSGEAR_TX;
-	hisi_param->pwm_rx_gear = UFS_HISI_LIMIT_PWMGEAR_RX;
-	hisi_param->pwm_tx_gear = UFS_HISI_LIMIT_PWMGEAR_TX;
-	hisi_param->rx_pwr_pwm = UFS_HISI_LIMIT_RX_PWR_PWM;
-	hisi_param->tx_pwr_pwm = UFS_HISI_LIMIT_TX_PWR_PWM;
-	hisi_param->rx_pwr_hs = UFS_HISI_LIMIT_RX_PWR_HS;
-	hisi_param->tx_pwr_hs = UFS_HISI_LIMIT_TX_PWR_HS;
-	hisi_param->hs_rate = UFS_HISI_LIMIT_HS_RATE;
-	hisi_param->desired_working_mode = UFS_HISI_LIMIT_DESIRED_MODE;
+	ufshcd_init_pwr_dev_param(hisi_param);
 }
 
 static void ufs_hisi_pwr_change_pre_change(struct ufs_hba *hba)
@@ -411,7 +400,7 @@ static int ufs_hisi_suspend(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 {
 	struct ufs_hisi_host *host = ufshcd_get_variant(hba);
 
-	if (ufshcd_is_runtime_pm(pm_op))
+	if (pm_op == UFS_RUNTIME_PM)
 		return 0;
 
 	if (host->in_suspend) {
@@ -452,10 +441,7 @@ static int ufs_hisi_get_resource(struct ufs_hisi_host *host)
 
 	/* get resource of ufs sys ctrl */
 	host->ufs_sys_ctrl = devm_platform_ioremap_resource(pdev, 1);
-	if (IS_ERR(host->ufs_sys_ctrl))
-		return PTR_ERR(host->ufs_sys_ctrl);
-
-	return 0;
+	return PTR_ERR_OR_ZERO(host->ufs_sys_ctrl);
 }
 
 static void ufs_hisi_set_pm_lvl(struct ufs_hba *hba)
@@ -481,21 +467,24 @@ static int ufs_hisi_init_common(struct ufs_hba *hba)
 	host->hba = hba;
 	ufshcd_set_variant(hba, host);
 
-	host->rst  = devm_reset_control_get(dev, "rst");
+	host->rst = devm_reset_control_get(dev, "rst");
 	if (IS_ERR(host->rst)) {
 		dev_err(dev, "%s: failed to get reset control\n", __func__);
-		return PTR_ERR(host->rst);
+		err = PTR_ERR(host->rst);
+		goto error;
 	}
 
 	ufs_hisi_set_pm_lvl(hba);
 
 	err = ufs_hisi_get_resource(host);
-	if (err) {
-		ufshcd_set_variant(hba, NULL);
-		return err;
-	}
+	if (err)
+		goto error;
 
 	return 0;
+
+error:
+	ufshcd_set_variant(hba, NULL);
+	return err;
 }
 
 static int ufs_hi3660_init(struct ufs_hba *hba)
@@ -588,6 +577,8 @@ static const struct dev_pm_ops ufs_hisi_pm_ops = {
 	.runtime_suspend = ufshcd_pltfrm_runtime_suspend,
 	.runtime_resume  = ufshcd_pltfrm_runtime_resume,
 	.runtime_idle    = ufshcd_pltfrm_runtime_idle,
+	.prepare	 = ufshcd_suspend_prepare,
+	.complete	 = ufshcd_resume_complete,
 };
 
 static struct platform_driver ufs_hisi_pltform = {

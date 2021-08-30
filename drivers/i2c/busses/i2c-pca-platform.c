@@ -33,8 +33,6 @@ struct i2c_pca_pf_data {
 	wait_queue_head_t		wait;
 	struct i2c_adapter		adap;
 	struct i2c_algo_pca_data	algo_data;
-	unsigned long			io_base;
-	unsigned long			io_size;
 };
 
 /* Read/Write functions for different register alignments */
@@ -149,16 +147,13 @@ static int i2c_pca_pf_probe(struct platform_device *pdev)
 	if (!i2c)
 		return -ENOMEM;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	i2c->reg_base = devm_ioremap_resource(&pdev->dev, res);
+	i2c->reg_base = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
 	if (IS_ERR(i2c->reg_base))
 		return PTR_ERR(i2c->reg_base);
 
 
 	init_waitqueue_head(&i2c->wait);
 
-	i2c->io_base = res->start;
-	i2c->io_size = resource_size(res);
 	i2c->irq = irq;
 
 	i2c->adap.nr = pdev->id;

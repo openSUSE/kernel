@@ -33,19 +33,9 @@ struct workspace {
 
 static struct workspace_manager wsm;
 
-static void zlib_init_workspace_manager(void)
+struct list_head *zlib_get_workspace(unsigned int level)
 {
-	btrfs_init_workspace_manager(&wsm, &btrfs_zlib_compress);
-}
-
-static void zlib_cleanup_workspace_manager(void)
-{
-	btrfs_cleanup_workspace_manager(&wsm);
-}
-
-static struct list_head *zlib_get_workspace(unsigned int level)
-{
-	struct list_head *ws = btrfs_get_workspace(&wsm, level);
+	struct list_head *ws = btrfs_get_workspace(BTRFS_COMPRESS_ZLIB, level);
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
 
 	workspace->level = level;
@@ -53,12 +43,7 @@ static struct list_head *zlib_get_workspace(unsigned int level)
 	return ws;
 }
 
-static void zlib_put_workspace(struct list_head *ws)
-{
-	btrfs_put_workspace(&wsm, ws);
-}
-
-static void zlib_free_workspace(struct list_head *ws)
+void zlib_free_workspace(struct list_head *ws)
 {
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
 
@@ -67,7 +52,7 @@ static void zlib_free_workspace(struct list_head *ws)
 	kfree(workspace);
 }
 
-static struct list_head *zlib_alloc_workspace(unsigned int level)
+struct list_head *zlib_alloc_workspace(unsigned int level)
 {
 	struct workspace *workspace;
 	int workspacesize;
@@ -106,13 +91,9 @@ fail:
 	return ERR_PTR(-ENOMEM);
 }
 
-static int zlib_compress_pages(struct list_head *ws,
-			       struct address_space *mapping,
-			       u64 start,
-			       struct page **pages,
-			       unsigned long *out_pages,
-			       unsigned long *total_in,
-			       unsigned long *total_out)
+int zlib_compress_pages(struct list_head *ws, struct address_space *mapping,
+		u64 start, struct page **pages, unsigned long *out_pages,
+		unsigned long *total_in, unsigned long *total_out)
 {
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
 	int ret;
@@ -293,7 +274,7 @@ out:
 	return ret;
 }
 
-static int zlib_decompress_bio(struct list_head *ws, struct compressed_bio *cb)
+int zlib_decompress_bio(struct list_head *ws, struct compressed_bio *cb)
 {
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
 	int ret = 0, ret2;
@@ -384,10 +365,9 @@ done:
 	return ret;
 }
 
-static int zlib_decompress(struct list_head *ws, unsigned char *data_in,
-			   struct page *dest_page,
-			   unsigned long start_byte,
-			   size_t srclen, size_t destlen)
+int zlib_decompress(struct list_head *ws, unsigned char *data_in,
+		struct page *dest_page, unsigned long start_byte, size_t srclen,
+		size_t destlen)
 {
 	struct workspace *workspace = list_entry(ws, struct workspace, list);
 	int ret = 0;
@@ -395,7 +375,6 @@ static int zlib_decompress(struct list_head *ws, unsigned char *data_in,
 	unsigned long bytes_left;
 	unsigned long total_out = 0;
 	unsigned long pg_offset = 0;
-	char *kaddr;
 
 	destlen = min_t(unsigned long, destlen, PAGE_SIZE);
 	bytes_left = destlen;
@@ -452,9 +431,8 @@ static int zlib_decompress(struct list_head *ws, unsigned char *data_in,
 			    PAGE_SIZE - (buf_offset % PAGE_SIZE));
 		bytes = min(bytes, bytes_left);
 
-		kaddr = kmap_atomic(dest_page);
-		memcpy(kaddr + pg_offset, workspace->buf + buf_offset, bytes);
-		kunmap_atomic(kaddr);
+		memcpy_to_page(dest_page, pg_offset,
+			       workspace->buf + buf_offset, bytes);
 
 		pg_offset += bytes;
 		bytes_left -= bytes;
@@ -476,30 +454,13 @@ next:
 	 * end of the inline extent (destlen) to the end of the page
 	 */
 	if (pg_offset < destlen) {
-		kaddr = kmap_atomic(dest_page);
-		memset(kaddr + pg_offset, 0, destlen - pg_offset);
-		kunmap_atomic(kaddr);
+		memzero_page(dest_page, pg_offset, destlen - pg_offset);
 	}
 	return ret;
 }
 
-static unsigned int zlib_set_level(unsigned int level)
-{
-	if (!level)
-		return BTRFS_ZLIB_DEFAULT_LEVEL;
-
-	return min_t(unsigned int, level, 9);
-}
-
 const struct btrfs_compress_op btrfs_zlib_compress = {
-	.init_workspace_manager	= zlib_init_workspace_manager,
-	.cleanup_workspace_manager = zlib_cleanup_workspace_manager,
-	.get_workspace		= zlib_get_workspace,
-	.put_workspace		= zlib_put_workspace,
-	.alloc_workspace	= zlib_alloc_workspace,
-	.free_workspace		= zlib_free_workspace,
-	.compress_pages		= zlib_compress_pages,
-	.decompress_bio		= zlib_decompress_bio,
-	.decompress		= zlib_decompress,
-	.set_level              = zlib_set_level,
+	.workspace_manager	= &wsm,
+	.max_level		= 9,
+	.default_level		= BTRFS_ZLIB_DEFAULT_LEVEL,
 };

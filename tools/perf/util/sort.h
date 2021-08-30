@@ -1,29 +1,19 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __PERF_SORT_H
 #define __PERF_SORT_H
-#include "../builtin.h"
-
 #include <regex.h>
-
-#include "color.h"
+#include <stdbool.h>
 #include <linux/list.h>
-#include "cache.h"
 #include <linux/rbtree.h>
 #include "map_symbol.h"
 #include "symbol_conf.h"
-#include "string.h"
 #include "callchain.h"
 #include "values.h"
-
-#include "../perf.h"
-#include "debug.h"
-#include "header.h"
-
-#include <subcmd/parse-options.h>
-#include "parse-events.h"
 #include "hist.h"
-#include "srcline.h"
+#include "stat.h"
+#include "spark.h"
 
+struct option;
 struct thread;
 
 extern regex_t parent_regex;
@@ -60,6 +50,8 @@ struct he_stat {
 	u64			period_guest_sys;
 	u64			period_guest_us;
 	u64			weight;
+	u64			ins_lat;
+	u64			p_stage_cyc;
 	u32			nr_events;
 };
 
@@ -83,6 +75,8 @@ struct hist_entry_diff {
 		/* PERF_HPP_DIFF__CYCLES */
 		s64	cycles;
 	};
+	struct stats	stats;
+	unsigned long	svals[NUM_SPARKS];
 };
 
 struct hist_entry_ops {
@@ -109,10 +103,12 @@ struct hist_entry {
 	struct thread		*thread;
 	struct comm		*comm;
 	struct namespace_id	cgroup_id;
+	u64			cgroup;
 	u64			ip;
 	u64			transaction;
 	s32			socket;
 	s32			cpu;
+	u64			code_page_size;
 	u8			cpumode;
 	u8			depth;
 
@@ -172,6 +168,8 @@ static __pure inline bool hist_entry__has_callchains(struct hist_entry *he)
 	return he->callchain_size != 0;
 }
 
+int hist_entry__sym_snprintf(struct hist_entry *he, char *bf, size_t size, unsigned int width);
+
 static inline bool hist_entry__has_pairs(struct hist_entry *he)
 {
 	return !list_empty(&he->pairs.node);
@@ -204,18 +202,6 @@ static inline float hist_entry__get_percent_limit(struct hist_entry *he)
 	return period * 100.0 / total_period;
 }
 
-static inline u64 cl_address(u64 address)
-{
-	/* return the cacheline of the address */
-	return (address & ~(cacheline_size() - 1));
-}
-
-static inline u64 cl_offset(u64 address)
-{
-	/* return the cacheline of the address */
-	return (address & (cacheline_size() - 1));
-}
-
 enum sort_mode {
 	SORT_MODE__NORMAL,
 	SORT_MODE__BRANCH,
@@ -242,9 +228,14 @@ enum sort_type {
 	SORT_TRACE,
 	SORT_SYM_SIZE,
 	SORT_DSO_SIZE,
+	SORT_CGROUP,
 	SORT_CGROUP_ID,
 	SORT_SYM_IPC_NULL,
 	SORT_TIME,
+	SORT_CODE_PAGE_SIZE,
+	SORT_LOCAL_INS_LAT,
+	SORT_GLOBAL_INS_LAT,
+	SORT_PIPELINE_STAGE_CYC,
 
 	/* branch stack specific sort keys */
 	__SORT_BRANCH_STACK,
@@ -271,6 +262,8 @@ enum sort_type {
 	SORT_MEM_DCACHELINE,
 	SORT_MEM_IADDR_SYMBOL,
 	SORT_MEM_PHYS_DADDR,
+	SORT_MEM_DATA_PAGE_SIZE,
+	SORT_MEM_BLOCKED,
 };
 
 /*
@@ -301,15 +294,15 @@ struct block_hist {
 extern struct sort_entry sort_thread;
 extern struct list_head hist_entry__sort_list;
 
-struct perf_evlist;
+struct evlist;
 struct tep_handle;
-int setup_sorting(struct perf_evlist *evlist);
+int setup_sorting(struct evlist *evlist);
 int setup_output_field(void);
 void reset_output_field(void);
 void sort__setup_elide(FILE *fp);
 void perf_hpp__set_elide(int idx, bool elide);
 
-const char *sort_help(const char *prefix);
+char *sort_help(const char *prefix);
 
 int report_parse_ignore_callees_opt(const struct option *opt, const char *arg, int unset);
 
@@ -318,7 +311,7 @@ bool is_strict_order(const char *order);
 int hpp_dimension__add_output(unsigned col);
 void reset_dimensions(void);
 int sort_dimension__add(struct perf_hpp_list *list, const char *tok,
-			struct perf_evlist *evlist,
+			struct evlist *evlist,
 			int level);
 int output_field_add(struct perf_hpp_list *list, char *tok);
 int64_t
@@ -327,5 +320,7 @@ int64_t
 sort__daddr_cmp(struct hist_entry *left, struct hist_entry *right);
 int64_t
 sort__dcacheline_cmp(struct hist_entry *left, struct hist_entry *right);
+int64_t
+_sort__sym_cmp(struct symbol *sym_l, struct symbol *sym_r);
 char *hist_entry__srcline(struct hist_entry *he);
 #endif	/* __PERF_SORT_H */

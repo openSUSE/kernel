@@ -82,6 +82,7 @@ static int oxnas_nand_probe(struct platform_device *pdev)
 	struct resource *res;
 	int count = 0;
 	int err = 0;
+	int i;
 
 	/* Allocate memory for the device structure (and zero it) */
 	oxnas = devm_kzalloc(&pdev->dev, sizeof(*oxnas),
@@ -116,7 +117,7 @@ static int oxnas_nand_probe(struct platform_device *pdev)
 				    GFP_KERNEL);
 		if (!chip) {
 			err = -ENOMEM;
-			goto err_clk_unprepare;
+			goto err_release_child;
 		}
 
 		chip->controller = &oxnas->base;
@@ -137,16 +138,13 @@ static int oxnas_nand_probe(struct platform_device *pdev)
 		/* Scan to find existence of the device */
 		err = nand_scan(chip, 1);
 		if (err)
-			goto err_clk_unprepare;
+			goto err_release_child;
 
 		err = mtd_device_register(mtd, NULL, 0);
-		if (err) {
-			nand_release(chip);
-			goto err_clk_unprepare;
-		}
+		if (err)
+			goto err_cleanup_nand;
 
-		oxnas->chips[oxnas->nchips] = chip;
-		++oxnas->nchips;
+		oxnas->chips[oxnas->nchips++] = chip;
 	}
 
 	/* Exit if no chips found */
@@ -158,6 +156,17 @@ static int oxnas_nand_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, oxnas);
 
 	return 0;
+
+err_cleanup_nand:
+	nand_cleanup(chip);
+err_release_child:
+	of_node_put(nand_np);
+
+	for (i = 0; i < oxnas->nchips; i++) {
+		chip = oxnas->chips[i];
+		WARN_ON(mtd_device_unregister(nand_to_mtd(chip)));
+		nand_cleanup(chip);
+	}
 
 err_clk_unprepare:
 	clk_disable_unprepare(oxnas->clk);
@@ -172,7 +181,8 @@ static int oxnas_nand_remove(struct platform_device *pdev)
 
 	for (i = 0; i < oxnas->nchips; i++) {
 		chip = oxnas->chips[i];
-		nand_release(chip);
+		WARN_ON(mtd_device_unregister(nand_to_mtd(chip)));
+		nand_cleanup(chip);
 	}
 
 	clk_disable_unprepare(oxnas->clk);

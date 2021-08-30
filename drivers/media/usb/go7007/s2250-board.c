@@ -398,7 +398,7 @@ static int s2250_s_ctrl(struct v4l2_ctrl *ctrl)
 }
 
 static int s2250_set_fmt(struct v4l2_subdev *sd,
-		struct v4l2_subdev_pad_config *cfg,
+		struct v4l2_subdev_state *sd_state,
 		struct v4l2_subdev_format *format)
 {
 	struct v4l2_mbus_framefmt *fmt = &format->format;
@@ -505,9 +505,9 @@ static int s2250_probe(struct i2c_client *client,
 	struct go7007 *go = i2c_get_adapdata(adapter);
 	struct go7007_usb *usb = go->hpi_context;
 
-	audio = i2c_new_dummy(adapter, TLV320_ADDRESS >> 1);
-	if (audio == NULL)
-		return -ENOMEM;
+	audio = i2c_new_dummy_device(adapter, TLV320_ADDRESS >> 1);
+	if (IS_ERR(audio))
+		return PTR_ERR(audio);
 
 	state = kzalloc(sizeof(struct s2250), GFP_KERNEL);
 	if (state == NULL) {
@@ -607,6 +607,7 @@ static int s2250_remove(struct i2c_client *client)
 {
 	struct s2250 *state = to_state(i2c_get_clientdata(client));
 
+	i2c_unregister_device(state->audio);
 	v4l2_device_unregister_subdev(&state->sd);
 	v4l2_ctrl_handler_free(&state->hdl);
 	kfree(state);

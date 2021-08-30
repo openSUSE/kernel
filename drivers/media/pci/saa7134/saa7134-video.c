@@ -90,70 +90,58 @@ static int video_out[][9] = {
 
 static struct saa7134_format formats[] = {
 	{
-		.name     = "8 bpp gray",
 		.fourcc   = V4L2_PIX_FMT_GREY,
 		.depth    = 8,
 		.pm       = 0x06,
 	},{
-		.name     = "15 bpp RGB, le",
 		.fourcc   = V4L2_PIX_FMT_RGB555,
 		.depth    = 16,
 		.pm       = 0x13 | 0x80,
 	},{
-		.name     = "15 bpp RGB, be",
 		.fourcc   = V4L2_PIX_FMT_RGB555X,
 		.depth    = 16,
 		.pm       = 0x13 | 0x80,
 		.bswap    = 1,
 	},{
-		.name     = "16 bpp RGB, le",
 		.fourcc   = V4L2_PIX_FMT_RGB565,
 		.depth    = 16,
 		.pm       = 0x10 | 0x80,
 	},{
-		.name     = "16 bpp RGB, be",
 		.fourcc   = V4L2_PIX_FMT_RGB565X,
 		.depth    = 16,
 		.pm       = 0x10 | 0x80,
 		.bswap    = 1,
 	},{
-		.name     = "24 bpp RGB, le",
 		.fourcc   = V4L2_PIX_FMT_BGR24,
 		.depth    = 24,
 		.pm       = 0x11,
 	},{
-		.name     = "24 bpp RGB, be",
 		.fourcc   = V4L2_PIX_FMT_RGB24,
 		.depth    = 24,
 		.pm       = 0x11,
 		.bswap    = 1,
 	},{
-		.name     = "32 bpp RGB, le",
 		.fourcc   = V4L2_PIX_FMT_BGR32,
 		.depth    = 32,
 		.pm       = 0x12,
 	},{
-		.name     = "32 bpp RGB, be",
 		.fourcc   = V4L2_PIX_FMT_RGB32,
 		.depth    = 32,
 		.pm       = 0x12,
 		.bswap    = 1,
 		.wswap    = 1,
 	},{
-		.name     = "4:2:2 packed, YUYV",
 		.fourcc   = V4L2_PIX_FMT_YUYV,
 		.depth    = 16,
 		.pm       = 0x00,
 		.bswap    = 1,
 		.yuv      = 1,
 	},{
-		.name     = "4:2:2 packed, UYVY",
 		.fourcc   = V4L2_PIX_FMT_UYVY,
 		.depth    = 16,
 		.pm       = 0x00,
 		.yuv      = 1,
 	},{
-		.name     = "4:2:2 planar, Y-Cb-Cr",
 		.fourcc   = V4L2_PIX_FMT_YUV422P,
 		.depth    = 16,
 		.pm       = 0x09,
@@ -162,7 +150,6 @@ static struct saa7134_format formats[] = {
 		.hshift   = 1,
 		.vshift   = 0,
 	},{
-		.name     = "4:2:0 planar, Y-Cb-Cr",
 		.fourcc   = V4L2_PIX_FMT_YUV420,
 		.depth    = 12,
 		.pm       = 0x0a,
@@ -171,7 +158,6 @@ static struct saa7134_format formats[] = {
 		.hshift   = 1,
 		.vshift   = 1,
 	},{
-		.name     = "4:2:0 planar, Y-Cb-Cr",
 		.fourcc   = V4L2_PIX_FMT_YVU420,
 		.depth    = 12,
 		.pm       = 0x0a,
@@ -720,10 +706,10 @@ static int start_preview(struct saa7134_dev *dev)
 		return err;
 
 	dev->ovfield = dev->win.field;
-	video_dbg("start_preview %dx%d+%d+%d %s field=%s\n",
-		dev->win.w.width, dev->win.w.height,
-		dev->win.w.left, dev->win.w.top,
-		dev->ovfmt->name, v4l2_field_names[dev->ovfield]);
+	video_dbg("%s %dx%d+%d+%d 0x%08x field=%s\n", __func__,
+		  dev->win.w.width, dev->win.w.height,
+		  dev->win.w.left, dev->win.w.top,
+		  dev->ovfmt->fourcc, v4l2_field_names[dev->ovfield]);
 
 	/* setup window + clipping */
 	set_size(dev, TASK_B, dev->win.w.width, dev->win.w.height,
@@ -882,8 +868,11 @@ static int buffer_activate(struct saa7134_dev *dev,
 		lines_uv = dev->height >> dev->fmt->vshift;
 		base2    = base + bpl * dev->height;
 		base3    = base2 + bpl_uv * lines_uv;
-		if (dev->fmt->uvswap)
-			tmp = base2, base2 = base3, base3 = tmp;
+		if (dev->fmt->uvswap) {
+			tmp = base2;
+			base2 = base3;
+			base3 = tmp;
+		}
 		video_dbg("uv: bpl=%ld lines=%ld base2/3=%ld/%ld\n",
 			bpl_uv,lines_uv,base2,base3);
 		if (V4L2_FIELD_HAS_BOTH(dev->field)) {
@@ -1022,8 +1011,7 @@ int saa7134_vb2_start_streaming(struct vb2_queue *vq, unsigned int count)
 	 */
 	if ((dmaq == &dev->video_q && !vb2_is_streaming(&dev->vbi_vbq)) ||
 	    (dmaq == &dev->vbi_q && !vb2_is_streaming(&dev->video_vbq)))
-		pm_qos_add_request(&dev->qos_request,
-			PM_QOS_CPU_DMA_LATENCY, 20);
+		cpu_latency_qos_add_request(&dev->qos_request, 20);
 	dmaq->seq_nr = 0;
 
 	return 0;
@@ -1038,7 +1026,7 @@ void saa7134_vb2_stop_streaming(struct vb2_queue *vq)
 
 	if ((dmaq == &dev->video_q && !vb2_is_streaming(&dev->vbi_vbq)) ||
 	    (dmaq == &dev->vbi_q && !vb2_is_streaming(&dev->video_vbq)))
-		pm_qos_remove_request(&dev->qos_request);
+		cpu_latency_qos_remove_request(&dev->qos_request);
 }
 
 static const struct vb2_ops vb2_qops = {
@@ -1193,7 +1181,7 @@ static int video_release(struct file *file)
 
 	saa_call_all(dev, tuner, standby);
 	if (vdev->vfl_type == VFL_TYPE_RADIO)
-		saa_call_all(dev, core, ioctl, SAA6588_CMD_CLOSE, &cmd);
+		saa_call_all(dev, core, command, SAA6588_CMD_CLOSE, &cmd);
 	mutex_unlock(&dev->lock);
 
 	return 0;
@@ -1212,7 +1200,7 @@ static ssize_t radio_read(struct file *file, char __user *data,
 	cmd.result = -ENODEV;
 
 	mutex_lock(&dev->lock);
-	saa_call_all(dev, core, ioctl, SAA6588_CMD_READ, &cmd);
+	saa_call_all(dev, core, command, SAA6588_CMD_READ, &cmd);
 	mutex_unlock(&dev->lock);
 
 	return cmd.result;
@@ -1228,7 +1216,7 @@ static __poll_t radio_poll(struct file *file, poll_table *wait)
 	cmd.event_list = wait;
 	cmd.poll_mask = 0;
 	mutex_lock(&dev->lock);
-	saa_call_all(dev, core, ioctl, SAA6588_CMD_POLL, &cmd);
+	saa_call_all(dev, core, command, SAA6588_CMD_POLL, &cmd);
 	mutex_unlock(&dev->lock);
 
 	return rc | cmd.poll_mask;
@@ -1280,9 +1268,7 @@ static int saa7134_g_fmt_vid_overlay(struct file *file, void *priv,
 				struct v4l2_format *f)
 {
 	struct saa7134_dev *dev = video_drvdata(file);
-	struct v4l2_clip __user *clips = f->fmt.win.clips;
 	u32 clipcount = f->fmt.win.clipcount;
-	int err = 0;
 	int i;
 
 	if (saa7134_no_overlay > 0) {
@@ -1290,20 +1276,20 @@ static int saa7134_g_fmt_vid_overlay(struct file *file, void *priv,
 		return -EINVAL;
 	}
 	f->fmt.win = dev->win;
-	f->fmt.win.clips = clips;
-	if (clips == NULL)
-		clipcount = 0;
+	if (!f->fmt.win.clips) {
+		f->fmt.win.clipcount = 0;
+		return 0;
+	}
 	if (dev->nclips < clipcount)
 		clipcount = dev->nclips;
 	f->fmt.win.clipcount = clipcount;
 
-	for (i = 0; !err && i < clipcount; i++) {
-		if (copy_to_user(&f->fmt.win.clips[i].c, &dev->clips[i].c,
-					sizeof(struct v4l2_rect)))
-			err = -EFAULT;
+	for (i = 0; i < clipcount; i++) {
+		memcpy(&f->fmt.win.clips[i].c, &dev->clips[i].c,
+		       sizeof(struct v4l2_rect));
 	}
 
-	return err;
+	return 0;
 }
 
 static int saa7134_try_fmt_vid_cap(struct file *file, void *priv,
@@ -1411,9 +1397,8 @@ static int saa7134_s_fmt_vid_overlay(struct file *file, void *priv,
 	dev->win    = f->fmt.win;
 	dev->nclips = f->fmt.win.clipcount;
 
-	if (copy_from_user(dev->clips, f->fmt.win.clips,
-			   sizeof(struct v4l2_clip) * dev->nclips))
-		return -EFAULT;
+	memcpy(dev->clips, f->fmt.win.clips,
+	       sizeof(struct v4l2_clip) * dev->nclips);
 
 	if (priv == dev->overlay_owner) {
 		spin_lock_irqsave(&dev->slock, flags);
@@ -1780,9 +1765,6 @@ static int saa7134_enum_fmt_vid_cap(struct file *file, void  *priv,
 	if (f->index >= FORMATS)
 		return -EINVAL;
 
-	strscpy(f->description, formats[f->index].name,
-		sizeof(f->description));
-
 	f->pixelformat = formats[f->index].fourcc;
 
 	return 0;
@@ -1798,9 +1780,6 @@ static int saa7134_enum_fmt_vid_overlay(struct file *file, void  *priv,
 
 	if ((f->index >= FORMATS) || formats[f->index].planar)
 		return -EINVAL;
-
-	strscpy(f->description, formats[f->index].name,
-		sizeof(f->description));
 
 	f->pixelformat = formats[f->index].fourcc;
 
@@ -2175,9 +2154,7 @@ int saa7134_video_init1(struct saa7134_dev *dev)
 void saa7134_video_fini(struct saa7134_dev *dev)
 {
 	/* free stuff */
-	vb2_queue_release(&dev->video_vbq);
 	saa7134_pgtable_free(dev->pci, &dev->video_q.pt);
-	vb2_queue_release(&dev->vbi_vbq);
 	saa7134_pgtable_free(dev->pci, &dev->vbi_q.pt);
 	v4l2_ctrl_handler_free(&dev->ctrl_handler);
 	if (card_has_radio(dev))

@@ -107,14 +107,17 @@ struct rdma_cm_id {
 	struct rdma_route	 route;
 	enum rdma_ucm_port_space ps;
 	enum ib_qp_type		 qp_type;
-	u8			 port_num;
+	u32			 port_num;
 };
 
-struct rdma_cm_id *__rdma_create_id(struct net *net,
-				    rdma_cm_event_handler event_handler,
-				    void *context, enum rdma_ucm_port_space ps,
-				    enum ib_qp_type qp_type,
-				    const char *caller);
+struct rdma_cm_id *
+__rdma_create_kernel_id(struct net *net, rdma_cm_event_handler event_handler,
+			void *context, enum rdma_ucm_port_space ps,
+			enum ib_qp_type qp_type, const char *caller);
+struct rdma_cm_id *rdma_create_user_id(rdma_cm_event_handler event_handler,
+				       void *context,
+				       enum rdma_ucm_port_space ps,
+				       enum ib_qp_type qp_type);
 
 /**
  * rdma_create_id - Create an RDMA identifier.
@@ -132,9 +135,9 @@ struct rdma_cm_id *__rdma_create_id(struct net *net,
  * The event handler callback serializes on the id's mutex and is
  * allowed to sleep.
  */
-#define rdma_create_id(net, event_handler, context, ps, qp_type) \
-	__rdma_create_id((net), (event_handler), (context), (ps), (qp_type), \
-			 KBUILD_MODNAME)
+#define rdma_create_id(net, event_handler, context, ps, qp_type)               \
+	__rdma_create_kernel_id(net, event_handler, context, ps, qp_type,      \
+				KBUILD_MODNAME)
 
 /**
   * rdma_destroy_id - Destroys an RDMA identifier.
@@ -240,34 +243,12 @@ int rdma_connect_ece(struct rdma_cm_id *id, struct rdma_conn_param *conn_param,
  */
 int rdma_listen(struct rdma_cm_id *id, int backlog);
 
-int __rdma_accept(struct rdma_cm_id *id, struct rdma_conn_param *conn_param,
-		  const char *caller);
+int rdma_accept(struct rdma_cm_id *id, struct rdma_conn_param *conn_param);
 
 void rdma_lock_handler(struct rdma_cm_id *id);
 void rdma_unlock_handler(struct rdma_cm_id *id);
-int __rdma_accept_ece(struct rdma_cm_id *id, struct rdma_conn_param *conn_param,
-		      const char *caller, struct rdma_ucm_ece *ece);
-
-/**
- * rdma_accept - Called to accept a connection request or response.
- * @id: Connection identifier associated with the request.
- * @conn_param: Information needed to establish the connection.  This must be
- *   provided if accepting a connection request.  If accepting a connection
- *   response, this parameter must be NULL.
- *
- * Typically, this routine is only called by the listener to accept a connection
- * request.  It must also be called on the active side of a connection if the
- * user is performing their own QP transitions.
- *
- * In the case of error, a reject message is sent to the remote side and the
- * state of the qp associated with the id is modified to error, such that any
- * previously posted receive buffers would be flushed.
- *
- * This function is for use by kernel ULPs and must be called from under the
- * handler callback.
- */
-#define rdma_accept(id, conn_param) \
-	__rdma_accept((id), (conn_param),  KBUILD_MODNAME)
+int rdma_accept_ece(struct rdma_cm_id *id, struct rdma_conn_param *conn_param,
+		    struct rdma_ucm_ece *ece);
 
 /**
  * rdma_notify - Notifies the RDMA CM of an asynchronous event that has
@@ -350,6 +331,8 @@ int rdma_set_reuseaddr(struct rdma_cm_id *id, int reuse);
 int rdma_set_afonly(struct rdma_cm_id *id, int afonly);
 
 int rdma_set_ack_timeout(struct rdma_cm_id *id, u8 timeout);
+
+int rdma_set_min_rnr_timer(struct rdma_cm_id *id, u8 min_rnr_timer);
  /**
  * rdma_get_service_id - Return the IB service ID for a specified address.
  * @id: Communication identifier associated with the address.

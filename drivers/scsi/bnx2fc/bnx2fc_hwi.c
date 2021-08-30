@@ -1331,7 +1331,7 @@ static void bnx2fc_init_failure(struct bnx2fc_hba *hba, u32 err_code)
 }
 
 /**
- * bnx2fc_indicae_kcqe - process KCQE
+ * bnx2fc_indicate_kcqe() - process KCQE
  *
  * @context:	adapter structure pointer
  * @kcq:	kcqe pointer
@@ -1403,7 +1403,6 @@ void bnx2fc_indicate_kcqe(void *context, struct kcqe *kcq[],
 			break;
 
 		case FCOE_KCQE_OPCODE_FCOE_ERROR:
-			/* fall thru */
 		default:
 			printk(KERN_ERR PFX "unknown opcode 0x%x\n",
 								kcqe->op_code);
@@ -1453,7 +1452,7 @@ int bnx2fc_map_doorbell(struct bnx2fc_rport *tgt)
 	reg_base = pci_resource_start(hba->pcidev,
 					BNX2X_DOORBELL_PCI_BAR);
 	reg_off = (1 << BNX2X_DB_SHIFT) * (context_id & 0x1FFFF);
-	tgt->ctx_base = ioremap_nocache(reg_base + reg_off, 4);
+	tgt->ctx_base = ioremap(reg_base + reg_off, 4);
 	if (!tgt->ctx_base)
 		return -ENOMEM;
 	return 0;

@@ -14,8 +14,7 @@
 #include <usb_ops_linux.h>
 
 /* alloc os related resource in struct recv_buf */
-int rtw_os_recvbuf_resource_alloc(struct adapter *padapter,
-				  struct recv_buf *precvbuf)
+int rtw_os_recvbuf_resource_alloc(struct recv_buf *precvbuf)
 {
 	precvbuf->pskb = NULL;
 	precvbuf->reuse = false;
@@ -73,11 +72,8 @@ int rtw_recv_indicatepkt(struct adapter *padapter,
 	pfree_recv_queue = &precvpriv->free_recv_queue;
 
 	skb = precv_frame->pkt;
-	if (!skb) {
-		RT_TRACE(_module_recv_osdep_c_, _drv_err_,
-			 ("%s():skb == NULL something wrong!!!!\n", __func__));
+	if (!skb)
 		goto _recv_indicatepkt_drop;
-	}
 
 	if (check_fwstate(pmlmepriv, WIFI_AP_STATE)) {
 		struct sk_buff *pskb2 = NULL;
@@ -124,9 +120,6 @@ _recv_indicatepkt_end:
 	precv_frame->pkt = NULL;
 
 	rtw_free_recvframe(precv_frame, pfree_recv_queue);
-
-	RT_TRACE(_module_recv_osdep_c_, _drv_info_,
-		 ("\n %s :after netif_rx!!!!\n", __func__));
 
 	return _SUCCESS;
 

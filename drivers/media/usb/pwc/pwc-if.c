@@ -71,37 +71,45 @@
 
 /* hotplug device table support */
 static const struct usb_device_id pwc_device_table [] = {
-	{ USB_DEVICE(0x0471, 0x0302) }, /* Philips models */
-	{ USB_DEVICE(0x0471, 0x0303) },
-	{ USB_DEVICE(0x0471, 0x0304) },
-	{ USB_DEVICE(0x0471, 0x0307) },
-	{ USB_DEVICE(0x0471, 0x0308) },
-	{ USB_DEVICE(0x0471, 0x030C) },
-	{ USB_DEVICE(0x0471, 0x0310) },
-	{ USB_DEVICE(0x0471, 0x0311) }, /* Philips ToUcam PRO II */
-	{ USB_DEVICE(0x0471, 0x0312) },
-	{ USB_DEVICE(0x0471, 0x0313) }, /* the 'new' 720K */
-	{ USB_DEVICE(0x0471, 0x0329) }, /* Philips SPC 900NC PC Camera */
-	{ USB_DEVICE(0x0471, 0x032C) }, /* Philips SPC 880NC PC Camera */
-	{ USB_DEVICE(0x069A, 0x0001) }, /* Askey */
-	{ USB_DEVICE(0x046D, 0x08B0) }, /* Logitech QuickCam Pro 3000 */
+	{ USB_DEVICE(0x041E, 0x400C) }, /* Creative Webcam 5 */
+	{ USB_DEVICE(0x041E, 0x4011) }, /* Creative Webcam Pro Ex */
+
+	{ USB_DEVICE(0x046D, 0x08B0) }, /* Logitech QuickCam 3000 Pro */
 	{ USB_DEVICE(0x046D, 0x08B1) }, /* Logitech QuickCam Notebook Pro */
-	{ USB_DEVICE(0x046D, 0x08B2) }, /* Logitech QuickCam Pro 4000 */
+	{ USB_DEVICE(0x046D, 0x08B2) }, /* Logitech QuickCam 4000 Pro */
 	{ USB_DEVICE(0x046D, 0x08B3) }, /* Logitech QuickCam Zoom (old model) */
 	{ USB_DEVICE(0x046D, 0x08B4) }, /* Logitech QuickCam Zoom (new model) */
 	{ USB_DEVICE(0x046D, 0x08B5) }, /* Logitech QuickCam Orbit/Sphere */
-	{ USB_DEVICE(0x046D, 0x08B6) }, /* Cisco VT Camera */
+	{ USB_DEVICE(0x046D, 0x08B6) }, /* Logitech/Cisco VT Camera */
 	{ USB_DEVICE(0x046D, 0x08B7) }, /* Logitech ViewPort AV 100 */
-	{ USB_DEVICE(0x046D, 0x08B8) }, /* Logitech (reserved) */
+	{ USB_DEVICE(0x046D, 0x08B8) }, /* Logitech QuickCam */
+
+	{ USB_DEVICE(0x0471, 0x0302) }, /* Philips PCA645VC */
+	{ USB_DEVICE(0x0471, 0x0303) }, /* Philips PCA646VC */
+	{ USB_DEVICE(0x0471, 0x0304) }, /* Askey VC010 type 2 */
+	{ USB_DEVICE(0x0471, 0x0307) }, /* Philips PCVC675K (Vesta) */
+	{ USB_DEVICE(0x0471, 0x0308) }, /* Philips PCVC680K (Vesta Pro) */
+	{ USB_DEVICE(0x0471, 0x030C) }, /* Philips PCVC690K (Vesta Pro Scan) */
+	{ USB_DEVICE(0x0471, 0x0310) }, /* Philips PCVC730K (ToUCam Fun)/PCVC830 (ToUCam II) */
+	{ USB_DEVICE(0x0471, 0x0311) }, /* Philips PCVC740K (ToUCam Pro)/PCVC840 (ToUCam II) */
+	{ USB_DEVICE(0x0471, 0x0312) }, /* Philips PCVC750K (ToUCam Pro Scan) */
+	{ USB_DEVICE(0x0471, 0x0313) }, /* Philips PCVC720K/40 (ToUCam XS) */
+	{ USB_DEVICE(0x0471, 0x0329) }, /* Philips SPC 900NC webcam */
+	{ USB_DEVICE(0x0471, 0x032C) }, /* Philips SPC 880NC webcam */
+
+	{ USB_DEVICE(0x04CC, 0x8116) }, /* Sotec Afina Eye */
+
 	{ USB_DEVICE(0x055D, 0x9000) }, /* Samsung MPC-C10 */
 	{ USB_DEVICE(0x055D, 0x9001) }, /* Samsung MPC-C30 */
 	{ USB_DEVICE(0x055D, 0x9002) },	/* Samsung SNC-35E (Ver3.0) */
-	{ USB_DEVICE(0x041E, 0x400C) }, /* Creative Webcam 5 */
-	{ USB_DEVICE(0x041E, 0x4011) }, /* Creative Webcam Pro Ex */
-	{ USB_DEVICE(0x04CC, 0x8116) }, /* Afina Eye */
-	{ USB_DEVICE(0x06BE, 0x8116) }, /* new Afina Eye */
-	{ USB_DEVICE(0x0d81, 0x1910) }, /* Visionite */
-	{ USB_DEVICE(0x0d81, 0x1900) },
+
+	{ USB_DEVICE(0x069A, 0x0001) }, /* Askey VC010 type 1 */
+
+	{ USB_DEVICE(0x06BE, 0x8116) }, /* AME Co. Afina Eye */
+
+	{ USB_DEVICE(0x0d81, 0x1900) }, /* Visionite VCS-UC300 */
+	{ USB_DEVICE(0x0d81, 0x1910) }, /* Visionite VCS-UM100 */
+
 	{ }
 };
 MODULE_DEVICE_TABLE(usb, pwc_device_table);
@@ -853,7 +861,6 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 			break;
 		default:
 			return -ENODEV;
-			break;
 		}
 	}
 	else if (vendor_id == 0x069A) {
@@ -865,7 +872,6 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 			break;
 		default:
 			return -ENODEV;
-			break;
 		}
 	}
 	else if (vendor_id == 0x046d) {
@@ -924,7 +930,6 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 			break;
 		default:
 			return -ENODEV;
-			break;
 		}
 	}
 	else if (vendor_id == 0x055d) {
@@ -950,7 +955,6 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 			break;
 		default:
 			return -ENODEV;
-			break;
 		}
 	}
 	else if (vendor_id == 0x041e) {
@@ -969,7 +973,6 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 			break;
 		default:
 			return -ENODEV;
-			break;
 		}
 	}
 	else if (vendor_id == 0x04cc) {
@@ -981,7 +984,6 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 			break;
 		default:
 			return -ENODEV;
-			break;
 		}
 	}
 	else if (vendor_id == 0x06be) {
@@ -994,7 +996,6 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 			break;
 		default:
 			return -ENODEV;
-			break;
 		}
 
 	}
@@ -1012,7 +1013,6 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 			break;
 		default:
 			return -ENODEV;
-			break;
 		}
 	}
 	else
@@ -1120,7 +1120,7 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 	pdev->vdev.device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING |
 				 V4L2_CAP_READWRITE;
 
-	rc = video_register_device(&pdev->vdev, VFL_TYPE_GRABBER, -1);
+	rc = video_register_device(&pdev->vdev, VFL_TYPE_VIDEO, -1);
 	if (rc < 0) {
 		PWC_ERROR("Failed to register as video device (%d).\n", rc);
 		goto err_unregister_v4l2_dev;

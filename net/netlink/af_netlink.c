@@ -67,12 +67,14 @@
 #include <net/sock.h>
 #include <net/scm.h>
 #include <net/netlink.h>
+#define CREATE_TRACE_POINTS
+#include <trace/events/netlink.h>
 
 #include "af_netlink.h"
 
 struct listeners {
 	struct rcu_head		rcu;
-	unsigned long		masks[0];
+	unsigned long		masks[];
 };
 
 /* state bits */
@@ -146,6 +148,12 @@ static BLOCKING_NOTIFIER_HEAD(netlink_chain);
 
 
 static const struct rhashtable_params netlink_rhashtable_params;
+
+void do_trace_netlink_extack(const char *msg)
+{
+	trace_netlink_extack(msg);
+}
+EXPORT_SYMBOL(do_trace_netlink_extack);
 
 static inline u32 netlink_group_mask(u32 group)
 {
@@ -343,7 +351,7 @@ static void netlink_overrun(struct sock *sk)
 		if (!test_and_set_bit(NETLINK_S_CONGESTED,
 				      &nlk_sk(sk)->state)) {
 			sk->sk_err = ENOBUFS;
-			sk->sk_error_report(sk);
+			sk_error_report(sk);
 		}
 	}
 	atomic_inc(&sk->sk_drops);
@@ -353,7 +361,7 @@ static void netlink_rcv_wake(struct sock *sk)
 {
 	struct netlink_sock *nlk = nlk_sk(sk);
 
-	if (skb_queue_empty(&sk->sk_receive_queue))
+	if (skb_queue_empty_lockless(&sk->sk_receive_queue))
 		clear_bit(NETLINK_S_CONGESTED, &nlk->state);
 	if (!test_bit(NETLINK_S_CONGESTED, &nlk->state))
 		wake_up_interruptible(&nlk->wait);
@@ -453,11 +461,13 @@ void netlink_table_ungrab(void)
 static inline void
 netlink_lock_table(void)
 {
+	unsigned long flags;
+
 	/* read_lock() synchronizes us to netlink_table_grab */
 
-	read_lock(&nl_table_lock);
+	read_lock_irqsave(&nl_table_lock, flags);
 	atomic_inc(&nl_table_users);
-	read_unlock(&nl_table_lock);
+	read_unlock_irqrestore(&nl_table_lock, flags);
 }
 
 static inline void
@@ -848,7 +858,7 @@ retry:
  *
  * Test to see if the opener of the socket we received the message
  * from had when the netlink socket was created and the sender of the
- * message has has the capability @cap in the user namespace @user_ns.
+ * message has the capability @cap in the user namespace @user_ns.
  */
 bool __netlink_ns_capable(const struct netlink_skb_parms *nsp,
 			struct user_namespace *user_ns, int cap)
@@ -867,7 +877,7 @@ EXPORT_SYMBOL(__netlink_ns_capable);
  *
  * Test to see if the opener of the socket we received the message
  * from had when the netlink socket was created and the sender of the
- * message has has the capability @cap in the user namespace @user_ns.
+ * message has the capability @cap in the user namespace @user_ns.
  */
 bool netlink_ns_capable(const struct sk_buff *skb,
 			struct user_namespace *user_ns, int cap)
@@ -883,7 +893,7 @@ EXPORT_SYMBOL(netlink_ns_capable);
  *
  * Test to see if the opener of the socket we received the message
  * from had when the netlink socket was created and the sender of the
- * message has has the capability @cap in all user namespaces.
+ * message has the capability @cap in all user namespaces.
  */
 bool netlink_capable(const struct sk_buff *skb, int cap)
 {
@@ -898,7 +908,7 @@ EXPORT_SYMBOL(netlink_capable);
  *
  * Test to see if the opener of the socket we received the message
  * from had when the netlink socket was created and the sender of the
- * message has has the capability @cap over the network namespace of
+ * message has the capability @cap over the network namespace of
  * the socket we received the message from.
  */
 bool netlink_net_capable(const struct sk_buff *skb, int cap)
@@ -1011,30 +1021,31 @@ static int netlink_bind(struct socket *sock, struct sockaddr *addr,
 			return -EINVAL;
 	}
 
-	netlink_lock_table();
 	if (nlk->netlink_bind && groups) {
 		int group;
 
-		for (group = 0; group < nlk->ngroups; group++) {
+		/* nl_groups is a u32, so cap the maximum groups we can bind */
+		for (group = 0; group < BITS_PER_TYPE(u32); group++) {
 			if (!test_bit(group, &groups))
 				continue;
 			err = nlk->netlink_bind(net, group + 1);
 			if (!err)
 				continue;
 			netlink_undo_bind(group, groups, sk);
-			goto unlock;
+			return err;
 		}
 	}
 
 	/* No need for barriers here as we return to user-space without
 	 * using any of the bound attributes.
 	 */
+	netlink_lock_table();
 	if (!bound) {
 		err = nladdr->nl_pid ?
 			netlink_insert(sk, nladdr->nl_pid) :
 			netlink_autobind(sock);
 		if (err) {
-			netlink_undo_bind(nlk->ngroups, groups, sk);
+			netlink_undo_bind(BITS_PER_TYPE(u32), groups, sk);
 			goto unlock;
 		}
 	}
@@ -1565,7 +1576,7 @@ static int do_one_set_err(struct sock *sk, struct netlink_set_err_data *p)
 	}
 
 	sk->sk_err = p->code;
-	sk->sk_error_report(sk);
+	sk_error_report(sk);
 out:
 	return ret;
 }
@@ -1620,7 +1631,7 @@ static void netlink_update_socket_mc(struct netlink_sock *nlk,
 }
 
 static int netlink_setsockopt(struct socket *sock, int level, int optname,
-			      char __user *optval, unsigned int optlen)
+			      sockptr_t optval, unsigned int optlen)
 {
 	struct sock *sk = sock->sk;
 	struct netlink_sock *nlk = nlk_sk(sk);
@@ -1631,7 +1642,7 @@ static int netlink_setsockopt(struct socket *sock, int level, int optname,
 		return -ENOPROTOOPT;
 
 	if (optlen >= sizeof(int) &&
-	    get_user(val, (unsigned int __user *)optval))
+	    copy_from_sockptr(&val, optval, sizeof(val)))
 		return -EFAULT;
 
 	switch (optname) {
@@ -1852,7 +1863,7 @@ static int netlink_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 	struct scm_cookie scm;
 	u32 netlink_skb_flags = 0;
 
-	if (msg->msg_flags&MSG_OOB)
+	if (msg->msg_flags & MSG_OOB)
 		return -EOPNOTSUPP;
 
 	err = scm_send(sock, msg, &scm, true);
@@ -1915,7 +1926,7 @@ static int netlink_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 		refcount_inc(&skb->users);
 		netlink_broadcast(sk, skb, dst_portid, dst_group, GFP_KERNEL);
 	}
-	err = netlink_unicast(sk, skb, dst_portid, msg->msg_flags&MSG_DONTWAIT);
+	err = netlink_unicast(sk, skb, dst_portid, msg->msg_flags & MSG_DONTWAIT);
 
 out:
 	scm_destroy(&scm);
@@ -1928,12 +1939,12 @@ static int netlink_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
 	struct scm_cookie scm;
 	struct sock *sk = sock->sk;
 	struct netlink_sock *nlk = nlk_sk(sk);
-	int noblock = flags&MSG_DONTWAIT;
+	int noblock = flags & MSG_DONTWAIT;
 	size_t copied;
 	struct sk_buff *skb, *data_skb;
 	int err, ret;
 
-	if (flags&MSG_OOB)
+	if (flags & MSG_OOB)
 		return -EOPNOTSUPP;
 
 	copied = 0;
@@ -2001,7 +2012,7 @@ static int netlink_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
 		ret = netlink_dump(sk);
 		if (ret) {
 			sk->sk_err = -ret;
-			sk->sk_error_report(sk);
+			sk_error_report(sk);
 		}
 	}
 
@@ -2185,13 +2196,35 @@ EXPORT_SYMBOL(__nlmsg_put);
  * It would be better to create kernel thread.
  */
 
+static int netlink_dump_done(struct netlink_sock *nlk, struct sk_buff *skb,
+			     struct netlink_callback *cb,
+			     struct netlink_ext_ack *extack)
+{
+	struct nlmsghdr *nlh;
+
+	nlh = nlmsg_put_answer(skb, cb, NLMSG_DONE, sizeof(nlk->dump_done_errno),
+			       NLM_F_MULTI | cb->answer_flags);
+	if (WARN_ON(!nlh))
+		return -ENOBUFS;
+
+	nl_dump_check_consistent(cb, nlh);
+	memcpy(nlmsg_data(nlh), &nlk->dump_done_errno, sizeof(nlk->dump_done_errno));
+
+	if (extack->_msg && nlk->flags & NETLINK_F_EXT_ACK) {
+		nlh->nlmsg_flags |= NLM_F_ACK_TLVS;
+		if (!nla_put_string(skb, NLMSGERR_ATTR_MSG, extack->_msg))
+			nlmsg_end(skb, nlh);
+	}
+
+	return 0;
+}
+
 static int netlink_dump(struct sock *sk)
 {
 	struct netlink_sock *nlk = nlk_sk(sk);
 	struct netlink_ext_ack extack = {};
 	struct netlink_callback *cb;
 	struct sk_buff *skb = NULL;
-	struct nlmsghdr *nlh;
 	struct module *module;
 	int err = -ENOBUFS;
 	int alloc_min_size;
@@ -2257,22 +2290,19 @@ static int netlink_dump(struct sock *sk)
 		return 0;
 	}
 
-	nlh = nlmsg_put_answer(skb, cb, NLMSG_DONE,
-			       sizeof(nlk->dump_done_errno),
-			       NLM_F_MULTI | cb->answer_flags);
-	if (WARN_ON(!nlh))
+	if (netlink_dump_done(nlk, skb, cb, &extack))
 		goto errout_skb;
 
-	nl_dump_check_consistent(cb, nlh);
-
-	memcpy(nlmsg_data(nlh), &nlk->dump_done_errno,
-	       sizeof(nlk->dump_done_errno));
-
-	if (extack._msg && nlk->flags & NETLINK_F_EXT_ACK) {
-		nlh->nlmsg_flags |= NLM_F_ACK_TLVS;
-		if (!nla_put_string(skb, NLMSGERR_ATTR_MSG, extack._msg))
-			nlmsg_end(skb, nlh);
+#ifdef CONFIG_COMPAT_NETLINK_MESSAGES
+	/* frag_list skb's data is used for compat tasks
+	 * and the regular skb's data for normal (non-compat) tasks.
+	 * See netlink_recvmsg().
+	 */
+	if (unlikely(skb_shinfo(skb)->frag_list)) {
+		if (netlink_dump_done(nlk, skb_shinfo(skb)->frag_list, cb, &extack))
+			goto errout_skb;
 	}
+#endif
 
 	if (sk_filter(sk, skb))
 		kfree_skb(skb);
@@ -2400,6 +2430,8 @@ void netlink_ack(struct sk_buff *in_skb, struct nlmsghdr *nlh, int err,
 		tlvlen += nla_total_size(sizeof(u32));
 	if (nlk_has_extack && extack && extack->cookie_len)
 		tlvlen += nla_total_size(extack->cookie_len);
+	if (err && nlk_has_extack && extack && extack->policy)
+		tlvlen += netlink_policy_dump_attr_size_estimate(extack->policy);
 
 	if (tlvlen)
 		flags |= NLM_F_ACK_TLVS;
@@ -2407,7 +2439,7 @@ void netlink_ack(struct sk_buff *in_skb, struct nlmsghdr *nlh, int err,
 	skb = nlmsg_new(payload + tlvlen, GFP_KERNEL);
 	if (!skb) {
 		NETLINK_CB(in_skb).sk->sk_err = ENOBUFS;
-		NETLINK_CB(in_skb).sk->sk_error_report(NETLINK_CB(in_skb).sk);
+		sk_error_report(NETLINK_CB(in_skb).sk);
 		return;
 	}
 
@@ -2432,11 +2464,14 @@ void netlink_ack(struct sk_buff *in_skb, struct nlmsghdr *nlh, int err,
 		if (extack->cookie_len)
 			WARN_ON(nla_put(skb, NLMSGERR_ATTR_COOKIE,
 					extack->cookie_len, extack->cookie));
+		if (extack->policy)
+			netlink_policy_dump_write_attr(skb, extack->policy,
+						       NLMSGERR_ATTR_POLICY);
 	}
 
 	nlmsg_end(skb, rep);
 
-	netlink_unicast(in_skb->sk, skb, NETLINK_CB(in_skb).portid, MSG_DONTWAIT);
+	nlmsg_unicast(in_skb->sk, skb, NETLINK_CB(in_skb).portid);
 }
 EXPORT_SYMBOL(netlink_ack);
 
@@ -2574,6 +2609,7 @@ static void *__netlink_seq_next(struct seq_file *seq)
 }
 
 static void *netlink_seq_start(struct seq_file *seq, loff_t *posp)
+	__acquires(RCU)
 {
 	struct nl_seq_iter *iter = seq->private;
 	void *obj = SEQ_START_TOKEN;
@@ -2843,7 +2879,7 @@ static int __init netlink_proto_init(void)
 		goto out;
 #endif
 
-	BUILD_BUG_ON(sizeof(struct netlink_skb_parms) > FIELD_SIZEOF(struct sk_buff, cb));
+	BUILD_BUG_ON(sizeof(struct netlink_skb_parms) > sizeof_field(struct sk_buff, cb));
 
 	nl_table = kcalloc(MAX_LINKS, sizeof(*nl_table), GFP_KERNEL);
 	if (!nl_table)

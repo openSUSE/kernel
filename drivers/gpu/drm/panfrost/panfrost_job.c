@@ -155,7 +155,7 @@ static void panfrost_job_hw_submit(struct panfrost_job *job, int js)
 	u64 jc_head = job->jc;
 	int ret;
 
-	panfrost_devfreq_record_busy(pfdev);
+	panfrost_devfreq_record_busy(&pfdev->pfdevfreq);
 
 	ret = pm_runtime_get_sync(pfdev->dev);
 	if (ret < 0)
@@ -203,7 +203,7 @@ static void panfrost_acquire_object_fences(struct drm_gem_object **bos,
 	int i;
 
 	for (i = 0; i < bo_count; i++)
-		implicit_fences[i] = dma_resv_get_excl_rcu(bos[i]->resv);
+		implicit_fences[i] = dma_resv_get_excl_unlocked(bos[i]->resv);
 }
 
 static void panfrost_attach_object_fences(struct drm_gem_object **bos,
@@ -432,7 +432,8 @@ static void panfrost_scheduler_start(struct panfrost_queue_state *queue)
 	mutex_unlock(&queue->lock);
 }
 
-static void panfrost_job_timedout(struct drm_sched_job *sched_job)
+static enum drm_gpu_sched_stat panfrost_job_timedout(struct drm_sched_job
+						     *sched_job)
 {
 	struct panfrost_job *job = to_panfrost_job(sched_job);
 	struct panfrost_device *pfdev = job->pfdev;
@@ -443,7 +444,7 @@ static void panfrost_job_timedout(struct drm_sched_job *sched_job)
 	 * spurious. Bail out.
 	 */
 	if (dma_fence_is_signaled(job->done_fence))
-		return;
+		return DRM_GPU_SCHED_STAT_NOMINAL;
 
 	dev_err(pfdev->dev, "gpu sched timeout, js=%d, config=0x%x, status=0x%x, head=0x%x, tail=0x%x, sched_job=%p",
 		js,
@@ -455,11 +456,13 @@ static void panfrost_job_timedout(struct drm_sched_job *sched_job)
 
 	/* Scheduler is already stopped, nothing to do. */
 	if (!panfrost_scheduler_stop(&pfdev->js->queue[js], sched_job))
-		return;
+		return DRM_GPU_SCHED_STAT_NOMINAL;
 
 	/* Schedule a reset if there's no reset in progress. */
 	if (!atomic_xchg(&pfdev->reset.pending, 1))
 		schedule_work(&pfdev->reset.work);
+
+	return DRM_GPU_SCHED_STAT_NOMINAL;
 }
 
 static const struct drm_sched_backend_ops panfrost_sched_ops = {
@@ -525,7 +528,7 @@ static irqreturn_t panfrost_job_irq_handler(int irq, void *data)
 				pfdev->jobs[j] = NULL;
 
 				panfrost_mmu_as_put(pfdev, &job->file_priv->mmu);
-				panfrost_devfreq_record_idle(pfdev);
+				panfrost_devfreq_record_idle(&pfdev->pfdevfreq);
 
 				dma_fence_signal_locked(job->done_fence);
 				pm_runtime_put_autosuspend(pfdev->dev);
@@ -578,7 +581,7 @@ static void panfrost_reset(struct work_struct *work)
 	for (i = 0; i < NUM_JOB_SLOTS; i++) {
 		if (pfdev->jobs[i]) {
 			pm_runtime_put_noidle(pfdev->dev);
-			panfrost_devfreq_record_idle(pfdev);
+			panfrost_devfreq_record_idle(&pfdev->pfdevfreq);
 			pfdev->jobs[i] = NULL;
 		}
 	}
@@ -624,7 +627,7 @@ int panfrost_job_init(struct panfrost_device *pfdev)
 		ret = drm_sched_init(&js->queue[j].sched,
 				     &panfrost_sched_ops,
 				     1, 0, msecs_to_jiffies(JOB_TIMEOUT_MS),
-				     "pan_js");
+				     NULL, "pan_js");
 		if (ret) {
 			dev_err(pfdev->dev, "Failed to create scheduler: %d.", ret);
 			goto err_sched;

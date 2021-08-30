@@ -3,6 +3,9 @@
  * R-Car PWM Timer driver
  *
  * Copyright (C) 2015 Renesas Electronics Corporation
+ *
+ * Limitations:
+ * - The hardware cannot generate a 0% duty cycle.
  */
 
 #include <linux/clk.h>
@@ -158,16 +161,14 @@ static void rcar_pwm_disable(struct rcar_pwm_chip *rp)
 }
 
 static int rcar_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
-			  struct pwm_state *state)
+			  const struct pwm_state *state)
 {
 	struct rcar_pwm_chip *rp = to_rcar_pwm_chip(chip);
-	struct pwm_state cur_state;
 	int div, ret;
 
 	/* This HW/driver only supports normal polarity */
-	pwm_get_state(pwm, &cur_state);
 	if (state->polarity != PWM_POLARITY_NORMAL)
-		return -ENOTSUPP;
+		return -EINVAL;
 
 	if (!state->enabled) {
 		rcar_pwm_disable(rp);
@@ -187,7 +188,7 @@ static int rcar_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 	/* The SYNC should be set to 0 even if rcar_pwm_set_counter failed */
 	rcar_pwm_update(rp, RCAR_PWMCR_SYNC, 0, RCAR_PWMCR);
 
-	if (!ret && state->enabled)
+	if (!ret)
 		ret = rcar_pwm_enable(rp);
 
 	return ret;
@@ -203,15 +204,13 @@ static const struct pwm_ops rcar_pwm_ops = {
 static int rcar_pwm_probe(struct platform_device *pdev)
 {
 	struct rcar_pwm_chip *rcar_pwm;
-	struct resource *res;
 	int ret;
 
 	rcar_pwm = devm_kzalloc(&pdev->dev, sizeof(*rcar_pwm), GFP_KERNEL);
 	if (rcar_pwm == NULL)
 		return -ENOMEM;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	rcar_pwm->base = devm_ioremap_resource(&pdev->dev, res);
+	rcar_pwm->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(rcar_pwm->base))
 		return PTR_ERR(rcar_pwm->base);
 
@@ -225,7 +224,6 @@ static int rcar_pwm_probe(struct platform_device *pdev)
 
 	rcar_pwm->chip.dev = &pdev->dev;
 	rcar_pwm->chip.ops = &rcar_pwm_ops;
-	rcar_pwm->chip.base = -1;
 	rcar_pwm->chip.npwm = 1;
 
 	pm_runtime_enable(&pdev->dev);

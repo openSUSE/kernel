@@ -52,7 +52,7 @@ EXPORT_SYMBOL(elf_hwcap);
 
 /*
  * The following string table, must sync with HWCAP_xx bitmask,
- * which is defined in <asm/procinfo.h>
+ * which is defined above
  */
 static const char *hwcap_str[] = {
 	"mfusr_pc",
@@ -249,12 +249,8 @@ static void __init setup_memory(void)
 	memory_end = memory_start = 0;
 
 	/* Find main memory where is the kernel */
-	for_each_memblock(memory, region) {
-		memory_start = region->base;
-		memory_end = region->base + region->size;
-		pr_info("%s: Memory: 0x%x-0x%x\n", __func__,
-			memory_start, memory_end);
-	}
+	memory_start = memblock_start_of_DRAM();
+	memory_end = memblock_end_of_DRAM();
 
 	if (!memory_end) {
 		panic("No memory!");
@@ -298,10 +294,7 @@ void __init setup_arch(char **cmdline_p)
 
 	setup_cpuinfo();
 
-	init_mm.start_code = (unsigned long)&_stext;
-	init_mm.end_code = (unsigned long)&_etext;
-	init_mm.end_data = (unsigned long)&_edata;
-	init_mm.brk = (unsigned long)&_end;
+	setup_initial_init_mm(_stext, _etext, _edata, _end);
 
 	/* setup bootmem allocator */
 	setup_memory();
@@ -316,11 +309,6 @@ void __init setup_arch(char **cmdline_p)
 	parse_early_param();
 
 	unflatten_and_copy_device_tree();
-
-	if(IS_ENABLED(CONFIG_VT)) {
-		if(IS_ENABLED(CONFIG_DUMMY_CONSOLE))
-			conswitchp = &dummy_con;
-	}
 
 	*cmdline_p = boot_command_line;
 	early_trap_init();

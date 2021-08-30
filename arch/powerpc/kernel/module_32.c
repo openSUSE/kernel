@@ -67,21 +67,6 @@ static int relacmp(const void *_x, const void *_y)
 		return 0;
 }
 
-static void relaswap(void *_x, void *_y, int size)
-{
-	uint32_t *x, *y, tmp;
-	int i;
-
-	y = (uint32_t *)_x;
-	x = (uint32_t *)_y;
-
-	for (i = 0; i < sizeof(Elf32_Rela) / sizeof(uint32_t); i++) {
-		tmp = x[i];
-		x[i] = y[i];
-		y[i] = tmp;
-	}
-}
-
 /* Get the potential trampolines size required of the init and
    non-init sections */
 static unsigned long get_plt_size(const Elf32_Ehdr *hdr,
@@ -118,7 +103,7 @@ static unsigned long get_plt_size(const Elf32_Ehdr *hdr,
 			 */
 			sort((void *)hdr + sechdrs[i].sh_offset,
 			     sechdrs[i].sh_size / sizeof(Elf32_Rela),
-			     sizeof(Elf32_Rela), relacmp, relaswap);
+			     sizeof(Elf32_Rela), relacmp, NULL);
 
 			ret += count_relocs((void *)hdr
 					     + sechdrs[i].sh_offset,
@@ -160,10 +145,9 @@ int module_frob_arch_sections(Elf32_Ehdr *hdr,
 
 static inline int entry_matches(struct ppc_plt_entry *entry, Elf32_Addr val)
 {
-	if (entry->jump[0] != (PPC_INST_ADDIS | __PPC_RT(R12) | PPC_HA(val)))
+	if (entry->jump[0] != PPC_RAW_LIS(_R12, PPC_HA(val)))
 		return 0;
-	if (entry->jump[1] != (PPC_INST_ADDI | __PPC_RT(R12) | __PPC_RA(R12) |
-			       PPC_LO(val)))
+	if (entry->jump[1] != PPC_RAW_ADDI(_R12, _R12, PPC_LO(val)))
 		return 0;
 	return 1;
 }
@@ -190,16 +174,10 @@ static uint32_t do_plt_call(void *location,
 		entry++;
 	}
 
-	/*
-	 * lis r12, sym@ha
-	 * addi r12, r12, sym@l
-	 * mtctr r12
-	 * bctr
-	 */
-	entry->jump[0] = PPC_INST_ADDIS | __PPC_RT(R12) | PPC_HA(val);
-	entry->jump[1] = PPC_INST_ADDI | __PPC_RT(R12) | __PPC_RA(R12) | PPC_LO(val);
-	entry->jump[2] = PPC_INST_MTCTR | __PPC_RS(R12);
-	entry->jump[3] = PPC_INST_BCTR;
+	entry->jump[0] = PPC_RAW_LIS(_R12, PPC_HA(val));
+	entry->jump[1] = PPC_RAW_ADDI(_R12, _R12, PPC_LO(val));
+	entry->jump[2] = PPC_RAW_MTCTR(_R12);
+	entry->jump[3] = PPC_RAW_BCTR();
 
 	pr_debug("Initialized plt for 0x%x at %p\n", val, entry);
 	return (uint32_t)entry;

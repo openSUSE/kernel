@@ -519,7 +519,7 @@ static void __wbt_wait(struct rq_wb *rwb, enum wbt_flags wb_acct,
 	rq_qos_wait(rqw, &data, wbt_inflight_cb, wbt_cleanup_cb);
 }
 
-static inline bool wbt_should_throttle(struct rq_wb *rwb, struct bio *bio)
+static inline bool wbt_should_throttle(struct bio *bio)
 {
 	switch (bio_op(bio)) {
 	case REQ_OP_WRITE:
@@ -529,7 +529,7 @@ static inline bool wbt_should_throttle(struct rq_wb *rwb, struct bio *bio)
 		if ((bio->bi_opf & (REQ_SYNC | REQ_IDLE)) ==
 		    (REQ_SYNC | REQ_IDLE))
 			return false;
-		/* fallthrough */
+		fallthrough;
 	case REQ_OP_DISCARD:
 		return true;
 	default:
@@ -546,7 +546,7 @@ static enum wbt_flags bio_to_wbt_flags(struct rq_wb *rwb, struct bio *bio)
 
 	if (bio_op(bio) == REQ_OP_READ) {
 		flags = WBT_READ;
-	} else if (wbt_should_throttle(rwb, bio)) {
+	} else if (wbt_should_throttle(bio)) {
 		if (current_is_kswapd())
 			flags |= WBT_KSWAPD;
 		if (bio_op(bio) == REQ_OP_DISCARD)
@@ -564,7 +564,6 @@ static void wbt_cleanup(struct rq_qos *rqos, struct bio *bio)
 }
 
 /*
- * Returns true if the IO request should be accounted, false if not.
  * May sleep, if we have exceeded the writeback limits. Caller can pass
  * in an irq held spinlock, if it holds one when calling this function.
  * If we do sleep, we'll release and re-grab it.
@@ -840,7 +839,6 @@ int wbt_init(struct request_queue *q)
 	rwb->enable_state = WBT_STATE_ON_DEFAULT;
 	rwb->wc = 1;
 	rwb->rq_depth.default_depth = RWB_DEF_DEPTH;
-	wbt_update_limits(rwb);
 
 	/*
 	 * Assign rwb and add the stats callback.

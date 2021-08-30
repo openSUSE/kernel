@@ -44,19 +44,12 @@
 #define QM_AXI_M_CFG			0x1000ac
 #define AXI_M_CFG			0xffff
 #define QM_AXI_M_CFG_ENABLE		0x1000b0
+#define AM_CFG_SINGLE_PORT_MAX_TRANS	0x300014
 #define AXI_M_CFG_ENABLE		0xffffffff
 #define QM_PEH_AXUSER_CFG		0x1000cc
 #define QM_PEH_AXUSER_CFG_ENABLE	0x1000d0
 #define PEH_AXUSER_CFG			0x401001
 #define PEH_AXUSER_CFG_ENABLE		0xffffffff
-
-#define QM_DFX_MB_CNT_VF		0x104010
-#define QM_DFX_DB_CNT_VF		0x104020
-#define QM_DFX_SQE_CNT_VF_SQN		0x104030
-#define QM_DFX_CQE_CNT_VF_CQN		0x104040
-#define QM_DFX_QN_SHIFT			16
-#define CURRENT_FUN_MASK		GENMASK(5, 0)
-#define CURRENT_Q_MASK			GENMASK(31, 16)
 
 #define QM_AXI_RRESP			BIT(0)
 #define QM_AXI_BRESP			BIT(1)
@@ -71,15 +64,29 @@
 #define QM_DB_TIMEOUT			BIT(10)
 #define QM_OF_FIFO_OF			BIT(11)
 #define QM_DB_RANDOM_INVALID		BIT(12)
+#define QM_MAILBOX_TIMEOUT		BIT(13)
+#define QM_FLR_TIMEOUT			BIT(14)
 
 #define QM_BASE_NFE	(QM_AXI_RRESP | QM_AXI_BRESP | QM_ECC_MBIT | \
 			 QM_ACC_GET_TASK_TIMEOUT | QM_DB_TIMEOUT | \
-			 QM_OF_FIFO_OF | QM_DB_RANDOM_INVALID)
+			 QM_OF_FIFO_OF | QM_DB_RANDOM_INVALID | \
+			 QM_MAILBOX_TIMEOUT | QM_FLR_TIMEOUT)
 #define QM_BASE_CE			QM_ECC_1BIT
 
 #define QM_Q_DEPTH			1024
-
+#define QM_MIN_QNUM                     2
 #define HISI_ACC_SGL_SGE_NR_MAX		255
+#define QM_SHAPER_CFG			0x100164
+#define QM_SHAPER_ENABLE		BIT(30)
+#define QM_SHAPER_TYPE1_OFFSET		10
+
+/* page number for queue file region */
+#define QM_DOORBELL_PAGE_NR		1
+
+/* uacce mode of the driver */
+#define UACCE_MODE_NOUACCE		0 /* don't use uacce */
+#define UACCE_MODE_SVA			1 /* use uacce sva mode */
+#define UACCE_MODE_DESC	"0(default) means only register to crypto, 1 means both register to crypto and uacce"
 
 enum qm_stop_reason {
 	QM_NORMAL,
@@ -114,6 +121,7 @@ enum qm_fun_type {
 };
 
 enum qm_debug_file {
+	CURRENT_QM,
 	CURRENT_Q,
 	CLEAR_ENABLE,
 	DEBUG_FILE_NUM,
@@ -143,6 +151,14 @@ struct qm_debug {
 	struct debugfs_file files[DEBUG_FILE_NUM];
 };
 
+struct qm_shaper_factor {
+	u32 func_qos;
+	u64 cir_b;
+	u64 cir_u;
+	u64 cir_s;
+	u64 cbs_s;
+};
+
 struct qm_dma {
 	void *va;
 	dma_addr_t dma;
@@ -164,6 +180,7 @@ struct hisi_qm_err_info {
 	char *acpi_rst;
 	u32 msi_wr_port;
 	u32 ecc_2bits_mask;
+	u32 dev_ce_mask;
 	u32 ce;
 	u32 nfe;
 	u32 fe;
@@ -182,13 +199,17 @@ struct hisi_qm_err_ini {
 	void (*clear_dev_hw_err_status)(struct hisi_qm *qm, u32 err_sts);
 	void (*open_axi_master_ooo)(struct hisi_qm *qm);
 	void (*close_axi_master_ooo)(struct hisi_qm *qm);
+	void (*open_sva_prefetch)(struct hisi_qm *qm);
+	void (*close_sva_prefetch)(struct hisi_qm *qm);
 	void (*log_dev_hw_err)(struct hisi_qm *qm, u32 err_sts);
-	struct hisi_qm_err_info err_info;
+	void (*err_info_init)(struct hisi_qm *qm);
 };
 
 struct hisi_qm_list {
 	struct mutex lock;
 	struct list_head list;
+	int (*register_to_crypto)(struct hisi_qm *qm);
+	void (*unregister_from_crypto)(struct hisi_qm *qm);
 };
 
 struct hisi_qm {
@@ -197,12 +218,15 @@ struct hisi_qm {
 	const char *dev_name;
 	struct pci_dev *pdev;
 	void __iomem *io_base;
+	void __iomem *db_io_base;
 	u32 sqe_size;
 	u32 qp_base;
 	u32 qp_num;
 	u32 qp_in_used;
 	u32 ctrl_qp_num;
+	u32 max_qp_num;
 	u32 vfs_num;
+	u32 db_interval;
 	struct list_head list;
 	struct hisi_qm_list *qm_list;
 
@@ -218,8 +242,9 @@ struct hisi_qm {
 
 	struct hisi_qm_status status;
 	const struct hisi_qm_err_ini *err_ini;
+	struct hisi_qm_err_info err_info;
 	struct hisi_qm_err_status err_status;
-	unsigned long reset_flag;
+	unsigned long misc_ctl; /* driver removing and reset sched */
 
 	struct rw_semaphore qps_lock;
 	struct idr qp_idr;
@@ -236,7 +261,21 @@ struct hisi_qm {
 	struct workqueue_struct *wq;
 	struct work_struct work;
 	struct work_struct rst_work;
+	struct work_struct cmd_process;
 
+	const char *algs;
+	bool use_sva;
+	bool is_frozen;
+
+	/* doorbell isolation enable */
+	bool use_db_isolation;
+	resource_size_t phys_base;
+	resource_size_t db_phys_base;
+	struct uacce_device *uacce;
+	int mode;
+	struct qm_shaper_factor *factor;
+	u32 mb_qos;
+	u32 type_rate;
 };
 
 struct hisi_qp_status {
@@ -266,9 +305,13 @@ struct hisi_qp {
 	struct hisi_qp_ops *hw_ops;
 	void *qp_ctx;
 	void (*req_cb)(struct hisi_qp *qp, void *data);
+	void (*event_cb)(struct hisi_qp *qp);
 
 	struct hisi_qm *qm;
 	bool is_resetting;
+	bool is_in_kernel;
+	u16 pasid;
+	struct uacce_queue *uacce_q;
 };
 
 static inline int q_num_set(const char *val, const struct kernel_param *kp,
@@ -284,7 +327,7 @@ static inline int q_num_set(const char *val, const struct kernel_param *kp,
 
 	if (!pdev) {
 		q_num = min_t(u32, QM_QNUM_V1, QM_QNUM_V2);
-		pr_info("No device found currently, suppose queue number is %d\n",
+		pr_info("No device found currently, suppose queue number is %u\n",
 			q_num);
 	} else {
 		if (pdev->revision == QM_HW_V1)
@@ -294,7 +337,7 @@ static inline int q_num_set(const char *val, const struct kernel_param *kp,
 	}
 
 	ret = kstrtou32(val, 10, &n);
-	if (ret || !n || n > q_num)
+	if (ret || n < QM_MIN_QNUM || n > q_num)
 		return -EINVAL;
 
 	return param_set_int(val, kp);
@@ -318,32 +361,37 @@ static inline int vfs_num_set(const char *val, const struct kernel_param *kp)
 	return param_set_int(val, kp);
 }
 
+static inline int mode_set(const char *val, const struct kernel_param *kp)
+{
+	u32 n;
+	int ret;
+
+	if (!val)
+		return -EINVAL;
+
+	ret = kstrtou32(val, 10, &n);
+	if (ret != 0 || (n != UACCE_MODE_SVA &&
+			 n != UACCE_MODE_NOUACCE))
+		return -EINVAL;
+
+	return param_set_int(val, kp);
+}
+
+static inline int uacce_mode_set(const char *val, const struct kernel_param *kp)
+{
+	return mode_set(val, kp);
+}
+
 static inline void hisi_qm_init_list(struct hisi_qm_list *qm_list)
 {
 	INIT_LIST_HEAD(&qm_list->list);
 	mutex_init(&qm_list->lock);
 }
 
-static inline void hisi_qm_add_to_list(struct hisi_qm *qm,
-				       struct hisi_qm_list *qm_list)
-{
-	mutex_lock(&qm_list->lock);
-	list_add_tail(&qm->list, &qm_list->list);
-	mutex_unlock(&qm_list->lock);
-}
-
-static inline void hisi_qm_del_from_list(struct hisi_qm *qm,
-					 struct hisi_qm_list *qm_list)
-{
-	mutex_lock(&qm_list->lock);
-	list_del(&qm->list);
-	mutex_unlock(&qm_list->lock);
-}
-
 int hisi_qm_init(struct hisi_qm *qm);
 void hisi_qm_uninit(struct hisi_qm *qm);
 int hisi_qm_start(struct hisi_qm *qm);
-int hisi_qm_stop(struct hisi_qm *qm);
+int hisi_qm_stop(struct hisi_qm *qm, enum qm_stop_reason r);
 struct hisi_qp *hisi_qm_create_qp(struct hisi_qm *qm, u8 alg_type);
 int hisi_qm_start_qp(struct hisi_qp *qp, unsigned long arg);
 int hisi_qm_stop_qp(struct hisi_qp *qp);
@@ -351,11 +399,11 @@ void hisi_qm_release_qp(struct hisi_qp *qp);
 int hisi_qp_send(struct hisi_qp *qp, const void *msg);
 int hisi_qm_get_free_qp_num(struct hisi_qm *qm);
 int hisi_qm_get_vft(struct hisi_qm *qm, u32 *base, u32 *number);
-int hisi_qm_debug_init(struct hisi_qm *qm);
+void hisi_qm_debug_init(struct hisi_qm *qm);
 enum qm_hw_ver hisi_qm_get_hw_version(struct pci_dev *pdev);
 void hisi_qm_debug_regs_clear(struct hisi_qm *qm);
 int hisi_qm_sriov_enable(struct pci_dev *pdev, int max_vfs);
-int hisi_qm_sriov_disable(struct pci_dev *pdev);
+int hisi_qm_sriov_disable(struct pci_dev *pdev, bool is_frozen);
 int hisi_qm_sriov_configure(struct pci_dev *pdev, int num_vfs);
 void hisi_qm_dev_err_init(struct hisi_qm *qm);
 void hisi_qm_dev_err_uninit(struct hisi_qm *qm);
@@ -378,4 +426,8 @@ void hisi_acc_free_sgl_pool(struct device *dev,
 int hisi_qm_alloc_qps_node(struct hisi_qm_list *qm_list, int qp_num,
 			   u8 alg_type, int node, struct hisi_qp **qps);
 void hisi_qm_free_qps(struct hisi_qp **qps, int qp_num);
+void hisi_qm_dev_shutdown(struct pci_dev *pdev);
+void hisi_qm_wait_task_finish(struct hisi_qm *qm, struct hisi_qm_list *qm_list);
+int hisi_qm_alg_register(struct hisi_qm *qm, struct hisi_qm_list *qm_list);
+void hisi_qm_alg_unregister(struct hisi_qm *qm, struct hisi_qm_list *qm_list);
 #endif

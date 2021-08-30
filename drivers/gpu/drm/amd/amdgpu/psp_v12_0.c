@@ -38,6 +38,10 @@
 #include "oss/osssys_4_0_sh_mask.h"
 
 MODULE_FIRMWARE("amdgpu/renoir_asd.bin");
+MODULE_FIRMWARE("amdgpu/renoir_ta.bin");
+MODULE_FIRMWARE("amdgpu/green_sardine_asd.bin");
+MODULE_FIRMWARE("amdgpu/green_sardine_ta.bin");
+
 /* address block */
 #define smnMP1_FIRMWARE_FLAGS		0x3010024
 
@@ -45,17 +49,71 @@ static int psp_v12_0_init_microcode(struct psp_context *psp)
 {
 	struct amdgpu_device *adev = psp->adev;
 	const char *chip_name;
+	char fw_name[30];
 	int err = 0;
+	const struct ta_firmware_header_v1_0 *ta_hdr;
+	DRM_DEBUG("\n");
 
 	switch (adev->asic_type) {
 	case CHIP_RENOIR:
-		chip_name = "renoir";
+		if (adev->apu_flags & AMD_APU_IS_RENOIR)
+			chip_name = "renoir";
+		else
+			chip_name = "green_sardine";
 		break;
 	default:
 		BUG();
 	}
 
 	err = psp_init_asd_microcode(psp, chip_name);
+	if (err)
+		return err;
+
+	snprintf(fw_name, sizeof(fw_name), "amdgpu/%s_ta.bin", chip_name);
+	err = request_firmware(&adev->psp.ta_fw, fw_name, adev->dev);
+	if (err) {
+		release_firmware(adev->psp.ta_fw);
+		adev->psp.ta_fw = NULL;
+		dev_info(adev->dev,
+			 "psp v12.0: Failed to load firmware \"%s\"\n",
+			 fw_name);
+	} else {
+		err = amdgpu_ucode_validate(adev->psp.ta_fw);
+		if (err)
+			goto out;
+
+		ta_hdr = (const struct ta_firmware_header_v1_0 *)
+				 adev->psp.ta_fw->data;
+		adev->psp.ta_hdcp_ucode_version =
+			le32_to_cpu(ta_hdr->ta_hdcp_ucode_version);
+		adev->psp.ta_hdcp_ucode_size =
+			le32_to_cpu(ta_hdr->ta_hdcp_size_bytes);
+		adev->psp.ta_hdcp_start_addr =
+			(uint8_t *)ta_hdr +
+			le32_to_cpu(ta_hdr->header.ucode_array_offset_bytes);
+
+		adev->psp.ta_fw_version = le32_to_cpu(ta_hdr->header.ucode_version);
+
+		adev->psp.ta_dtm_ucode_version =
+			le32_to_cpu(ta_hdr->ta_dtm_ucode_version);
+		adev->psp.ta_dtm_ucode_size =
+			le32_to_cpu(ta_hdr->ta_dtm_size_bytes);
+		adev->psp.ta_dtm_start_addr =
+			(uint8_t *)adev->psp.ta_hdcp_start_addr +
+			le32_to_cpu(ta_hdr->ta_dtm_offset_bytes);
+	}
+
+	return 0;
+
+out:
+	release_firmware(adev->psp.ta_fw);
+	adev->psp.ta_fw = NULL;
+	if (err) {
+		dev_err(adev->dev,
+			"psp v12.0: Failed to load firmware \"%s\"\n",
+			fw_name);
+	}
+
 	return err;
 }
 
@@ -79,10 +137,8 @@ static int psp_v12_0_bootloader_load_sysdrv(struct psp_context *psp)
 	if (ret)
 		return ret;
 
-	memset(psp->fw_pri_buf, 0, PSP_1_MEG);
-
 	/* Copy PSP System Driver binary to memory */
-	memcpy(psp->fw_pri_buf, psp->sys_start_addr, psp->sys_bin_size);
+	psp_copy_fw(psp, psp->sys_start_addr, psp->sys_bin_size);
 
 	/* Provide the sys driver to bootloader */
 	WREG32_SOC15(MP0, 0, mmMP0_SMN_C2PMSG_36,
@@ -120,10 +176,8 @@ static int psp_v12_0_bootloader_load_sos(struct psp_context *psp)
 	if (ret)
 		return ret;
 
-	memset(psp->fw_pri_buf, 0, PSP_1_MEG);
-
 	/* Copy Secure OS binary to PSP memory */
-	memcpy(psp->fw_pri_buf, psp->sos_start_addr, psp->sos_bin_size);
+	psp_copy_fw(psp, psp->sos_start_addr, psp->sos_bin_size);
 
 	/* Provide the PSP secure OS to bootloader */
 	WREG32_SOC15(MP0, 0, mmMP0_SMN_C2PMSG_36,

@@ -1,12 +1,13 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2015 Anton Ivanov (aivanov@{brocade.com,kot-begemot.co.uk})
  * Copyright (C) 2015 Thomas Meyer (thomas@m3y3r.de)
  * Copyright (C) 2012-2014 Cisco Systems
  * Copyright (C) 2000 - 2007 Jeff Dike (jdike{addtoit,linux.intel}.com)
- * Licensed under the GPL
  */
 
 #include <stddef.h>
+#include <unistd.h>
 #include <errno.h>
 #include <signal.h>
 #include <time.h>
@@ -14,7 +15,6 @@
 #include <kern_util.h>
 #include <os.h>
 #include <string.h>
-#include <timer-internal.h>
 
 static timer_t event_high_res_timer = 0;
 
@@ -100,19 +100,22 @@ long long os_nsecs(void)
 }
 
 /**
- * os_idle_sleep() - sleep for a given time of nsecs
- * @nsecs: nanoseconds to sleep
+ * os_idle_sleep() - sleep until interrupted
  */
-void os_idle_sleep(unsigned long long nsecs)
+void os_idle_sleep(void)
 {
-	struct timespec ts = {
-		.tv_sec  = nsecs / UM_NSEC_PER_SEC,
-		.tv_nsec = nsecs % UM_NSEC_PER_SEC
-	};
+	struct itimerspec its;
+	sigset_t set, old;
 
-	/*
-	 * Relay the signal if clock_nanosleep is interrupted.
-	 */
-	if (clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, NULL))
-		deliver_alarm();
+	/* block SIGALRM while we analyze the timer state */
+	sigemptyset(&set);
+	sigaddset(&set, SIGALRM);
+	sigprocmask(SIG_BLOCK, &set, &old);
+
+	/* check the timer, and if it'll fire then wait for it */
+	timer_gettime(event_high_res_timer, &its);
+	if (its.it_value.tv_sec || its.it_value.tv_nsec)
+		sigsuspend(&old);
+	/* either way, restore the signal mask */
+	sigprocmask(SIG_UNBLOCK, &set, NULL);
 }

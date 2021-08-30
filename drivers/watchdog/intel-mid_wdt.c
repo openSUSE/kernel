@@ -151,6 +151,7 @@ static int mid_wdt_probe(struct platform_device *pdev)
 	wdt_dev->timeout = MID_WDT_DEFAULT_TIMEOUT;
 	wdt_dev->parent = dev;
 
+	watchdog_set_nowayout(wdt_dev, WATCHDOG_NOWAYOUT);
 	watchdog_set_drvdata(wdt_dev, mid);
 
 	mid->scu = devm_intel_scu_ipc_dev_get(dev);

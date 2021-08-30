@@ -106,7 +106,7 @@ config EFI_GENERIC_STUB
 
 config EFI_ARMSTUB_DTB_LOADER
 	bool "Enable the DTB loader"
-	depends on EFI_GENERIC_STUB
+	depends on EFI_GENERIC_STUB && !RISCV
 	default y
 	help
 	  Select this config option to add support for the dtb= command
@@ -122,7 +122,8 @@ config EFI_ARMSTUB_DTB_LOADER
 config EFI_GENERIC_STUB_INITRD_CMDLINE_LOADER
 	bool "Enable the command line initrd loader" if !X86
 	depends on EFI_STUB && (EFI_GENERIC_STUB || X86)
-	default y
+	default y if X86
+	depends on !RISCV
 	help
 	  Select this config option to add support for the initrd= command
 	  line parameter, allowing an initrd that resides on the same volume
@@ -133,7 +134,7 @@ config EFI_GENERIC_STUB_INITRD_CMDLINE_LOADER
 config EFI_BOOTLOADER_CONTROL
 	tristate "EFI Bootloader Control"
 	default n
-	---help---
+	help
 	  This module installs a reboot hook, such that if reboot() is
 	  invoked with a string argument NNN, "NNN" is copied to the
 	  "LoaderEntryOneShot" EFI variable, to be read by the
@@ -146,7 +147,7 @@ config EFI_BOOTLOADER_CONTROL
 
 config EFI_CAPSULE_LOADER
 	tristate "EFI capsule loader"
-	depends on EFI
+	depends on EFI && !IA64
 	help
 	  This option exposes a loader interface "/dev/efi_capsule_loader" for
 	  users to load EFI capsules. This driver requires working runtime
@@ -241,22 +242,6 @@ config EFI_DISABLE_PCI_DMA
 	  and should not be enabled without testing. The kernel commandline
 	  options "efi=disable_early_pci_dma" or "efi=no_disable_early_pci_dma"
 	  may be used to override this option.
-
-config EFI_SECRET_KEY
-	bool "EFI secret key"
-	default n
-	depends on EFI_STUB && X86
-	select HIDDEN_AREA
-	help
-	  This option enables the EFI secret key function in EFI stub. EFI
-	  stub wll generate a 512-bit random number that it can be used as
-	  a secret key by HMAC or AES. The secret key will be kept in EFI
-	  oot service variable which is secure when secre boot is enabled.
-	  At runtime, the secret key will be kept in hidden area to prevent
-	  leak from accessing by user space. Hibernation uses EFI secret key
-	  to encrypt hidden area and sign the snapshot image.
-
-	  If unsure, say N.
 
 endmenu
 

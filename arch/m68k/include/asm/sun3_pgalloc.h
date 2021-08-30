@@ -13,15 +13,13 @@
 
 #include <asm/tlb.h>
 
-#include <asm-generic/pgalloc.h>	/* for pte_{alloc,free}_one */
+#include <asm-generic/pgalloc.h>
 
 extern const char bad_pmd_string[];
 
-#define pmd_alloc_one(mm,address)       ({ BUG(); ((pmd_t *)2); })
-
 #define __pte_free_tlb(tlb,pte,addr)			\
 do {							\
-	pgtable_page_dtor(pte);				\
+	pgtable_pte_page_dtor(pte);			\
 	tlb_remove_page((tlb), pte);			\
 } while (0)
 
@@ -34,19 +32,12 @@ static inline void pmd_populate(struct mm_struct *mm, pmd_t *pmd, pgtable_t page
 {
 	pmd_val(*pmd) = __pa((unsigned long)page_address(page));
 }
-#define pmd_pgtable(pmd) pmd_page(pmd)
 
 /*
  * allocating and freeing a pmd is trivial: the 1-entry pmd is
  * inside the pgd, so has no extra memory associated with it.
  */
 #define pmd_free(mm, x)			do { } while (0)
-#define __pmd_free_tlb(tlb, x, addr)	do { } while (0)
-
-static inline void pgd_free(struct mm_struct *mm, pgd_t *pgd)
-{
-        free_page((unsigned long) pgd);
-}
 
 static inline pgd_t * pgd_alloc(struct mm_struct *mm)
 {
@@ -57,7 +48,5 @@ static inline pgd_t * pgd_alloc(struct mm_struct *mm)
      memset(new_pgd, 0, (PAGE_OFFSET >> PGDIR_SHIFT));
      return new_pgd;
 }
-
-#define pgd_populate(mm, pmd, pte) BUG()
 
 #endif /* SUN3_PGALLOC_H */

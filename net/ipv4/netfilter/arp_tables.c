@@ -713,7 +713,7 @@ static int copy_entries_to_user(unsigned int total_size,
 	return ret;
 }
 
-#ifdef CONFIG_COMPAT
+#ifdef CONFIG_NETFILTER_XTABLES_COMPAT
 static void compat_standard_from_user(void *dst, const void *src)
 {
 	int v = *(compat_int_t *)src;
@@ -787,8 +787,7 @@ static int compat_table_info(const struct xt_table_info *info,
 }
 #endif
 
-static int get_info(struct net *net, void __user *user,
-		    const int *len, int compat)
+static int get_info(struct net *net, void __user *user, const int *len)
 {
 	char name[XT_TABLE_MAXNAMELEN];
 	struct xt_table *t;
@@ -801,18 +800,18 @@ static int get_info(struct net *net, void __user *user,
 		return -EFAULT;
 
 	name[XT_TABLE_MAXNAMELEN-1] = '\0';
-#ifdef CONFIG_COMPAT
-	if (compat)
+#ifdef CONFIG_NETFILTER_XTABLES_COMPAT
+	if (in_compat_syscall())
 		xt_compat_lock(NFPROTO_ARP);
 #endif
 	t = xt_request_find_table_lock(net, NFPROTO_ARP, name);
 	if (!IS_ERR(t)) {
 		struct arpt_getinfo info;
 		const struct xt_table_info *private = t->private;
-#ifdef CONFIG_COMPAT
+#ifdef CONFIG_NETFILTER_XTABLES_COMPAT
 		struct xt_table_info tmp;
 
-		if (compat) {
+		if (in_compat_syscall()) {
 			ret = compat_table_info(private, &tmp);
 			xt_compat_flush_offsets(NFPROTO_ARP);
 			private = &tmp;
@@ -836,8 +835,8 @@ static int get_info(struct net *net, void __user *user,
 		module_put(t->me);
 	} else
 		ret = PTR_ERR(t);
-#ifdef CONFIG_COMPAT
-	if (compat)
+#ifdef CONFIG_NETFILTER_XTABLES_COMPAT
+	if (in_compat_syscall())
 		xt_compat_unlock(NFPROTO_ARP);
 #endif
 	return ret;
@@ -948,8 +947,7 @@ static int __do_replace(struct net *net, const char *name,
 	return ret;
 }
 
-static int do_replace(struct net *net, const void __user *user,
-		      unsigned int len)
+static int do_replace(struct net *net, sockptr_t arg, unsigned int len)
 {
 	int ret;
 	struct arpt_replace tmp;
@@ -957,7 +955,7 @@ static int do_replace(struct net *net, const void __user *user,
 	void *loc_cpu_entry;
 	struct arpt_entry *iter;
 
-	if (copy_from_user(&tmp, user, sizeof(tmp)) != 0)
+	if (copy_from_sockptr(&tmp, arg, sizeof(tmp)) != 0)
 		return -EFAULT;
 
 	/* overflow check */
@@ -973,8 +971,8 @@ static int do_replace(struct net *net, const void __user *user,
 		return -ENOMEM;
 
 	loc_cpu_entry = newinfo->entries;
-	if (copy_from_user(loc_cpu_entry, user + sizeof(tmp),
-			   tmp.size) != 0) {
+	if (copy_from_sockptr_offset(loc_cpu_entry, arg, sizeof(tmp),
+			tmp.size) != 0) {
 		ret = -EFAULT;
 		goto free_newinfo;
 	}
@@ -997,8 +995,7 @@ static int do_replace(struct net *net, const void __user *user,
 	return ret;
 }
 
-static int do_add_counters(struct net *net, const void __user *user,
-			   unsigned int len, int compat)
+static int do_add_counters(struct net *net, sockptr_t arg, unsigned int len)
 {
 	unsigned int i;
 	struct xt_counters_info tmp;
@@ -1009,7 +1006,7 @@ static int do_add_counters(struct net *net, const void __user *user,
 	struct arpt_entry *iter;
 	unsigned int addend;
 
-	paddc = xt_copy_counters_from_user(user, len, &tmp, compat);
+	paddc = xt_copy_counters(arg, len, &tmp);
 	if (IS_ERR(paddc))
 		return PTR_ERR(paddc);
 
@@ -1047,7 +1044,7 @@ static int do_add_counters(struct net *net, const void __user *user,
 	return ret;
 }
 
-#ifdef CONFIG_COMPAT
+#ifdef CONFIG_NETFILTER_XTABLES_COMPAT
 struct compat_arpt_replace {
 	char				name[XT_TABLE_MAXNAMELEN];
 	u32				valid_hooks;
@@ -1248,8 +1245,7 @@ out_unlock:
 	return ret;
 }
 
-static int compat_do_replace(struct net *net, void __user *user,
-			     unsigned int len)
+static int compat_do_replace(struct net *net, sockptr_t arg, unsigned int len)
 {
 	int ret;
 	struct compat_arpt_replace tmp;
@@ -1257,7 +1253,7 @@ static int compat_do_replace(struct net *net, void __user *user,
 	void *loc_cpu_entry;
 	struct arpt_entry *iter;
 
-	if (copy_from_user(&tmp, user, sizeof(tmp)) != 0)
+	if (copy_from_sockptr(&tmp, arg, sizeof(tmp)) != 0)
 		return -EFAULT;
 
 	/* overflow check */
@@ -1273,7 +1269,8 @@ static int compat_do_replace(struct net *net, void __user *user,
 		return -ENOMEM;
 
 	loc_cpu_entry = newinfo->entries;
-	if (copy_from_user(loc_cpu_entry, user + sizeof(tmp), tmp.size) != 0) {
+	if (copy_from_sockptr_offset(loc_cpu_entry, arg, sizeof(tmp),
+			tmp.size) != 0) {
 		ret = -EFAULT;
 		goto free_newinfo;
 	}
@@ -1293,30 +1290,6 @@ static int compat_do_replace(struct net *net, void __user *user,
 		cleanup_entry(iter, net);
  free_newinfo:
 	xt_free_table_info(newinfo);
-	return ret;
-}
-
-static int compat_do_arpt_set_ctl(struct sock *sk, int cmd, void __user *user,
-				  unsigned int len)
-{
-	int ret;
-
-	if (!ns_capable(sock_net(sk)->user_ns, CAP_NET_ADMIN))
-		return -EPERM;
-
-	switch (cmd) {
-	case ARPT_SO_SET_REPLACE:
-		ret = compat_do_replace(sock_net(sk), user, len);
-		break;
-
-	case ARPT_SO_SET_ADD_COUNTERS:
-		ret = do_add_counters(sock_net(sk), user, len, 1);
-		break;
-
-	default:
-		ret = -EINVAL;
-	}
-
 	return ret;
 }
 
@@ -1427,32 +1400,10 @@ static int compat_get_entries(struct net *net,
 	xt_compat_unlock(NFPROTO_ARP);
 	return ret;
 }
-
-static int do_arpt_get_ctl(struct sock *, int, void __user *, int *);
-
-static int compat_do_arpt_get_ctl(struct sock *sk, int cmd, void __user *user,
-				  int *len)
-{
-	int ret;
-
-	if (!ns_capable(sock_net(sk)->user_ns, CAP_NET_ADMIN))
-		return -EPERM;
-
-	switch (cmd) {
-	case ARPT_SO_GET_INFO:
-		ret = get_info(sock_net(sk), user, len, 1);
-		break;
-	case ARPT_SO_GET_ENTRIES:
-		ret = compat_get_entries(sock_net(sk), user, len);
-		break;
-	default:
-		ret = do_arpt_get_ctl(sk, cmd, user, len);
-	}
-	return ret;
-}
 #endif
 
-static int do_arpt_set_ctl(struct sock *sk, int cmd, void __user *user, unsigned int len)
+static int do_arpt_set_ctl(struct sock *sk, int cmd, sockptr_t arg,
+		unsigned int len)
 {
 	int ret;
 
@@ -1461,11 +1412,16 @@ static int do_arpt_set_ctl(struct sock *sk, int cmd, void __user *user, unsigned
 
 	switch (cmd) {
 	case ARPT_SO_SET_REPLACE:
-		ret = do_replace(sock_net(sk), user, len);
+#ifdef CONFIG_NETFILTER_XTABLES_COMPAT
+		if (in_compat_syscall())
+			ret = compat_do_replace(sock_net(sk), arg, len);
+		else
+#endif
+			ret = do_replace(sock_net(sk), arg, len);
 		break;
 
 	case ARPT_SO_SET_ADD_COUNTERS:
-		ret = do_add_counters(sock_net(sk), user, len, 0);
+		ret = do_add_counters(sock_net(sk), arg, len);
 		break;
 
 	default:
@@ -1484,11 +1440,16 @@ static int do_arpt_get_ctl(struct sock *sk, int cmd, void __user *user, int *len
 
 	switch (cmd) {
 	case ARPT_SO_GET_INFO:
-		ret = get_info(sock_net(sk), user, len, 0);
+		ret = get_info(sock_net(sk), user, len);
 		break;
 
 	case ARPT_SO_GET_ENTRIES:
-		ret = get_entries(sock_net(sk), user, len);
+#ifdef CONFIG_NETFILTER_XTABLES_COMPAT
+		if (in_compat_syscall())
+			ret = compat_get_entries(sock_net(sk), user, len);
+		else
+#endif
+			ret = get_entries(sock_net(sk), user, len);
 		break;
 
 	case ARPT_SO_GET_REVISION_TARGET: {
@@ -1538,10 +1499,11 @@ static void __arpt_unregister_table(struct net *net, struct xt_table *table)
 int arpt_register_table(struct net *net,
 			const struct xt_table *table,
 			const struct arpt_replace *repl,
-			const struct nf_hook_ops *ops,
-			struct xt_table **res)
+			const struct nf_hook_ops *template_ops)
 {
-	int ret;
+	struct nf_hook_ops *ops;
+	unsigned int num_ops;
+	int ret, i;
 	struct xt_table_info *newinfo;
 	struct xt_table_info bootstrap = {0};
 	void *loc_cpu_entry;
@@ -1555,36 +1517,60 @@ int arpt_register_table(struct net *net,
 	memcpy(loc_cpu_entry, repl->entries, repl->size);
 
 	ret = translate_table(net, newinfo, loc_cpu_entry, repl);
-	if (ret != 0)
-		goto out_free;
+	if (ret != 0) {
+		xt_free_table_info(newinfo);
+		return ret;
+	}
 
 	new_table = xt_register_table(net, table, &bootstrap, newinfo);
 	if (IS_ERR(new_table)) {
-		ret = PTR_ERR(new_table);
+		xt_free_table_info(newinfo);
+		return PTR_ERR(new_table);
+	}
+
+	num_ops = hweight32(table->valid_hooks);
+	if (num_ops == 0) {
+		ret = -EINVAL;
 		goto out_free;
 	}
 
-	/* set res now, will see skbs right after nf_register_net_hooks */
-	WRITE_ONCE(*res, new_table);
-
-	ret = nf_register_net_hooks(net, ops, hweight32(table->valid_hooks));
-	if (ret != 0) {
-		__arpt_unregister_table(net, new_table);
-		*res = NULL;
+	ops = kmemdup(template_ops, sizeof(*ops) * num_ops, GFP_KERNEL);
+	if (!ops) {
+		ret = -ENOMEM;
+		goto out_free;
 	}
+
+	for (i = 0; i < num_ops; i++)
+		ops[i].priv = new_table;
+
+	new_table->ops = ops;
+
+	ret = nf_register_net_hooks(net, ops, num_ops);
+	if (ret != 0)
+		goto out_free;
 
 	return ret;
 
 out_free:
-	xt_free_table_info(newinfo);
+	__arpt_unregister_table(net, new_table);
 	return ret;
 }
 
-void arpt_unregister_table(struct net *net, struct xt_table *table,
-			   const struct nf_hook_ops *ops)
+void arpt_unregister_table_pre_exit(struct net *net, const char *name)
 {
-	nf_unregister_net_hooks(net, ops, hweight32(table->valid_hooks));
-	__arpt_unregister_table(net, table);
+	struct xt_table *table = xt_find_table(net, NFPROTO_ARP, name);
+
+	if (table)
+		nf_unregister_net_hooks(net, table->ops, hweight32(table->valid_hooks));
+}
+EXPORT_SYMBOL(arpt_unregister_table_pre_exit);
+
+void arpt_unregister_table(struct net *net, const char *name)
+{
+	struct xt_table *table = xt_find_table(net, NFPROTO_ARP, name);
+
+	if (table)
+		__arpt_unregister_table(net, table);
 }
 
 /* The built-in targets: standard (NULL) and error. */
@@ -1593,7 +1579,7 @@ static struct xt_target arpt_builtin_tg[] __read_mostly = {
 		.name             = XT_STANDARD_TARGET,
 		.targetsize       = sizeof(int),
 		.family           = NFPROTO_ARP,
-#ifdef CONFIG_COMPAT
+#ifdef CONFIG_NETFILTER_XTABLES_COMPAT
 		.compatsize       = sizeof(compat_int_t),
 		.compat_from_user = compat_standard_from_user,
 		.compat_to_user   = compat_standard_to_user,
@@ -1612,15 +1598,9 @@ static struct nf_sockopt_ops arpt_sockopts = {
 	.set_optmin	= ARPT_BASE_CTL,
 	.set_optmax	= ARPT_SO_SET_MAX+1,
 	.set		= do_arpt_set_ctl,
-#ifdef CONFIG_COMPAT
-	.compat_set	= compat_do_arpt_set_ctl,
-#endif
 	.get_optmin	= ARPT_BASE_CTL,
 	.get_optmax	= ARPT_SO_GET_MAX+1,
 	.get		= do_arpt_get_ctl,
-#ifdef CONFIG_COMPAT
-	.compat_get	= compat_do_arpt_get_ctl,
-#endif
 	.owner		= THIS_MODULE,
 };
 

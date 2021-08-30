@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
-/* Copyright (C) 2014-2019  B.A.T.M.A.N. contributors:
+/* Copyright (C) B.A.T.M.A.N. contributors:
  *
  * Linus Lüssing
  */
@@ -33,7 +33,6 @@
 #include <linux/printk.h>
 #include <linux/rculist.h>
 #include <linux/rcupdate.h>
-#include <linux/seq_file.h>
 #include <linux/skbuff.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
@@ -194,53 +193,22 @@ static u8 batadv_mcast_mla_rtr_flags_softif_get(struct batadv_priv *bat_priv,
  *	BATADV_MCAST_WANT_NO_RTR6: No IPv6 multicast router is present
  *	The former two OR'd: no multicast router is present
  */
-#if IS_ENABLED(CONFIG_IPV6)
 static u8 batadv_mcast_mla_rtr_flags_bridge_get(struct batadv_priv *bat_priv,
 						struct net_device *bridge)
 {
-	struct list_head bridge_mcast_list = LIST_HEAD_INIT(bridge_mcast_list);
 	struct net_device *dev = bat_priv->soft_iface;
-	struct br_ip_list *br_ip_entry, *tmp;
-	u8 flags = BATADV_MCAST_WANT_NO_RTR6;
-	int ret;
+	u8 flags = BATADV_NO_FLAGS;
 
 	if (!bridge)
 		return BATADV_MCAST_WANT_NO_RTR4 | BATADV_MCAST_WANT_NO_RTR6;
 
-	/* TODO: ask the bridge if a multicast router is present (the bridge
-	 * is capable of performing proper RFC4286 multicast multicast router
-	 * discovery) instead of searching for a ff02::2 listener here
-	 */
-	ret = br_multicast_list_adjacent(dev, &bridge_mcast_list);
-	if (ret < 0)
-		return BATADV_NO_FLAGS;
-
-	list_for_each_entry_safe(br_ip_entry, tmp, &bridge_mcast_list, list) {
-		/* the bridge snooping does not maintain IPv4 link-local
-		 * addresses - therefore we won't find any IPv4 multicast router
-		 * address here, only IPv6 ones
-		 */
-		if (br_ip_entry->addr.proto == htons(ETH_P_IPV6) &&
-		    ipv6_addr_is_ll_all_routers(&br_ip_entry->addr.u.ip6))
-			flags &= ~BATADV_MCAST_WANT_NO_RTR6;
-
-		list_del(&br_ip_entry->list);
-		kfree(br_ip_entry);
-	}
+	if (!br_multicast_has_router_adjacent(dev, ETH_P_IP))
+		flags |= BATADV_MCAST_WANT_NO_RTR4;
+	if (!br_multicast_has_router_adjacent(dev, ETH_P_IPV6))
+		flags |= BATADV_MCAST_WANT_NO_RTR6;
 
 	return flags;
 }
-#else
-static inline u8
-batadv_mcast_mla_rtr_flags_bridge_get(struct batadv_priv *bat_priv,
-				      struct net_device *bridge)
-{
-	if (bridge)
-		return BATADV_NO_FLAGS;
-	else
-		return BATADV_MCAST_WANT_NO_RTR4 | BATADV_MCAST_WANT_NO_RTR6;
-}
-#endif
 
 /**
  * batadv_mcast_mla_rtr_flags_get() - get multicast router flags
@@ -455,8 +423,9 @@ batadv_mcast_mla_softif_get_ipv6(struct net_device *dev,
 		return 0;
 	}
 
-	read_lock_bh(&in6_dev->lock);
-	for (pmc6 = in6_dev->mc_list; pmc6; pmc6 = pmc6->next) {
+	for (pmc6 = rcu_dereference(in6_dev->mc_list);
+	     pmc6;
+	     pmc6 = rcu_dereference(pmc6->next)) {
 		if (IPV6_ADDR_MC_SCOPE(&pmc6->mca_addr) <
 		    IPV6_ADDR_SCOPE_LINKLOCAL)
 			continue;
@@ -485,7 +454,6 @@ batadv_mcast_mla_softif_get_ipv6(struct net_device *dev,
 		hlist_add_head(&new->list, mcast_list);
 		ret++;
 	}
-	read_unlock_bh(&in6_dev->lock);
 	rcu_read_unlock();
 
 	return ret;
@@ -511,7 +479,7 @@ batadv_mcast_mla_softif_get_ipv6(struct net_device *dev,
  * the given mcast_list. In general, multicast listeners provided by
  * your multicast receiving applications run directly on this node.
  *
- * If there is a bridge interface on top of dev, collects from that one
+ * If there is a bridge interface on top of dev, collect from that one
  * instead. Just like with IP addresses and routes, multicast listeners
  * will(/should) register to the bridge interface instead of an
  * enslaved bat0.
@@ -562,10 +530,10 @@ out:
 static void batadv_mcast_mla_br_addr_cpy(char *dst, const struct br_ip *src)
 {
 	if (src->proto == htons(ETH_P_IP))
-		ip_eth_mc_map(src->u.ip4, dst);
+		ip_eth_mc_map(src->dst.ip4, dst);
 #if IS_ENABLED(CONFIG_IPV6)
 	else if (src->proto == htons(ETH_P_IPV6))
-		ipv6_eth_mc_map(&src->u.ip6, dst);
+		ipv6_eth_mc_map(&src->dst.ip6, dst);
 #endif
 	else
 		eth_zero_addr(dst);
@@ -609,11 +577,11 @@ static int batadv_mcast_mla_bridge_get(struct net_device *dev,
 				continue;
 
 			if (tvlv_flags & BATADV_MCAST_WANT_ALL_UNSNOOPABLES &&
-			    ipv4_is_local_multicast(br_ip_entry->addr.u.ip4))
+			    ipv4_is_local_multicast(br_ip_entry->addr.dst.ip4))
 				continue;
 
 			if (!(tvlv_flags & BATADV_MCAST_WANT_NO_RTR4) &&
-			    !ipv4_is_local_multicast(br_ip_entry->addr.u.ip4))
+			    !ipv4_is_local_multicast(br_ip_entry->addr.dst.ip4))
 				continue;
 		}
 
@@ -623,11 +591,11 @@ static int batadv_mcast_mla_bridge_get(struct net_device *dev,
 				continue;
 
 			if (tvlv_flags & BATADV_MCAST_WANT_ALL_UNSNOOPABLES &&
-			    ipv6_addr_is_ll_all_nodes(&br_ip_entry->addr.u.ip6))
+			    ipv6_addr_is_ll_all_nodes(&br_ip_entry->addr.dst.ip6))
 				continue;
 
 			if (!(tvlv_flags & BATADV_MCAST_WANT_NO_RTR6) &&
-			    IPV6_ADDR_MC_SCOPE(&br_ip_entry->addr.u.ip6) >
+			    IPV6_ADDR_MC_SCOPE(&br_ip_entry->addr.dst.ip6) >
 			    IPV6_ADDR_SCOPE_LINKLOCAL)
 				continue;
 		}
@@ -829,12 +797,12 @@ batadv_mcast_bridge_log(struct batadv_priv *bat_priv,
 }
 
 /**
- * batadv_mcast_flags_logs() - output debug information about mcast flag changes
+ * batadv_mcast_flags_log() - output debug information about mcast flag changes
  * @bat_priv: the bat priv with all the soft interface information
  * @flags: TVLV flags indicating the new multicast state
  *
- * Whenever the multicast TVLV flags this nodes announces change this notifies
- * userspace via the 'mcast' log level.
+ * Whenever the multicast TVLV flags this node announces change, this function
+ * should be used to notify userspace about the change.
  */
 static void batadv_mcast_flags_log(struct batadv_priv *bat_priv, u8 flags)
 {
@@ -1245,7 +1213,7 @@ batadv_mcast_forw_ipv6_node_get(struct batadv_priv *bat_priv)
  * @ethhdr: an ethernet header to determine the protocol family from
  *
  * Return: an orig_node which has the BATADV_MCAST_WANT_ALL_IPV4 or
- * BATADV_MCAST_WANT_ALL_IPV6 flag, depending on the provided ethhdr, set and
+ * BATADV_MCAST_WANT_ALL_IPV6 flag, depending on the provided ethhdr, sets and
  * increases its refcount.
  */
 static struct batadv_orig_node *
@@ -1422,7 +1390,7 @@ batadv_mcast_forw_mode(struct batadv_priv *bat_priv, struct sk_buff *skb,
 		if (*orig)
 			return BATADV_FORW_SINGLE;
 
-		/* fall through */
+		fallthrough;
 	case 0:
 		return BATADV_FORW_NONE;
 	default:
@@ -1719,7 +1687,7 @@ batadv_mcast_forw_want_rtr(struct batadv_priv *bat_priv,
 }
 
 /**
- * batadv_mcast_forw_send() - send packet to any detected multicast recpient
+ * batadv_mcast_forw_send() - send packet to any detected multicast recipient
  * @bat_priv: the bat priv with all the soft interface information
  * @skb: the multicast packet to transmit
  * @vid: the vlan identifier
@@ -1768,7 +1736,8 @@ int batadv_mcast_forw_send(struct batadv_priv *bat_priv, struct sk_buff *skb,
  * @mcast_flags: flags indicating the new multicast state
  *
  * If the BATADV_MCAST_WANT_ALL_UNSNOOPABLES flag of this originator,
- * orig, has toggled then this method updates counter and list accordingly.
+ * orig, has toggled then this method updates the counter and the list
+ * accordingly.
  *
  * Caller needs to hold orig->mcast_handler_lock.
  */
@@ -1813,7 +1782,7 @@ static void batadv_mcast_want_unsnoop_update(struct batadv_priv *bat_priv,
  * @mcast_flags: flags indicating the new multicast state
  *
  * If the BATADV_MCAST_WANT_ALL_IPV4 flag of this originator, orig, has
- * toggled then this method updates counter and list accordingly.
+ * toggled then this method updates the counter and the list accordingly.
  *
  * Caller needs to hold orig->mcast_handler_lock.
  */
@@ -1858,7 +1827,7 @@ static void batadv_mcast_want_ipv4_update(struct batadv_priv *bat_priv,
  * @mcast_flags: flags indicating the new multicast state
  *
  * If the BATADV_MCAST_WANT_ALL_IPV6 flag of this originator, orig, has
- * toggled then this method updates counter and list accordingly.
+ * toggled then this method updates the counter and the list accordingly.
  *
  * Caller needs to hold orig->mcast_handler_lock.
  */
@@ -1903,7 +1872,7 @@ static void batadv_mcast_want_ipv6_update(struct batadv_priv *bat_priv,
  * @mcast_flags: flags indicating the new multicast state
  *
  * If the BATADV_MCAST_WANT_NO_RTR4 flag of this originator, orig, has
- * toggled then this method updates counter and list accordingly.
+ * toggled then this method updates the counter and the list accordingly.
  *
  * Caller needs to hold orig->mcast_handler_lock.
  */
@@ -1948,7 +1917,7 @@ static void batadv_mcast_want_rtr4_update(struct batadv_priv *bat_priv,
  * @mcast_flags: flags indicating the new multicast state
  *
  * If the BATADV_MCAST_WANT_NO_RTR6 flag of this originator, orig, has
- * toggled then this method updates counter and list accordingly.
+ * toggled then this method updates the counter and the list accordingly.
  *
  * Caller needs to hold orig->mcast_handler_lock.
  */
@@ -2072,116 +2041,6 @@ void batadv_mcast_init(struct batadv_priv *bat_priv)
 	INIT_DELAYED_WORK(&bat_priv->mcast.work, batadv_mcast_mla_update);
 	batadv_mcast_start_timer(bat_priv);
 }
-
-#ifdef CONFIG_BATMAN_ADV_DEBUGFS
-/**
- * batadv_mcast_flags_print_header() - print own mcast flags to debugfs table
- * @bat_priv: the bat priv with all the soft interface information
- * @seq: debugfs table seq_file struct
- *
- * Prints our own multicast flags including a more specific reason why
- * they are set, that is prints the bridge and querier state too, to
- * the debugfs table specified via @seq.
- */
-static void batadv_mcast_flags_print_header(struct batadv_priv *bat_priv,
-					    struct seq_file *seq)
-{
-	struct batadv_mcast_mla_flags *mla_flags = &bat_priv->mcast.mla_flags;
-	char querier4, querier6, shadowing4, shadowing6;
-	bool bridged = mla_flags->bridged;
-	u8 flags = mla_flags->tvlv_flags;
-
-	if (bridged) {
-		querier4 = mla_flags->querier_ipv4.exists ? '.' : '4';
-		querier6 = mla_flags->querier_ipv6.exists ? '.' : '6';
-		shadowing4 = mla_flags->querier_ipv4.shadowing ? '4' : '.';
-		shadowing6 = mla_flags->querier_ipv6.shadowing ? '6' : '.';
-	} else {
-		querier4 = '?';
-		querier6 = '?';
-		shadowing4 = '?';
-		shadowing6 = '?';
-	}
-
-	seq_printf(seq, "Multicast flags (own flags: [%c%c%c%s%s])\n",
-		   (flags & BATADV_MCAST_WANT_ALL_UNSNOOPABLES) ? 'U' : '.',
-		   (flags & BATADV_MCAST_WANT_ALL_IPV4) ? '4' : '.',
-		   (flags & BATADV_MCAST_WANT_ALL_IPV6) ? '6' : '.',
-		   !(flags & BATADV_MCAST_WANT_NO_RTR4) ? "R4" : ". ",
-		   !(flags & BATADV_MCAST_WANT_NO_RTR6) ? "R6" : ". ");
-	seq_printf(seq, "* Bridged [U]\t\t\t\t%c\n", bridged ? 'U' : '.');
-	seq_printf(seq, "* No IGMP/MLD Querier [4/6]:\t\t%c/%c\n",
-		   querier4, querier6);
-	seq_printf(seq, "* Shadowing IGMP/MLD Querier [4/6]:\t%c/%c\n",
-		   shadowing4, shadowing6);
-	seq_puts(seq, "-------------------------------------------\n");
-	seq_printf(seq, "       %-10s %s\n", "Originator", "Flags");
-}
-
-/**
- * batadv_mcast_flags_seq_print_text() - print the mcast flags of other nodes
- * @seq: seq file to print on
- * @offset: not used
- *
- * This prints a table of (primary) originators and their according
- * multicast flags, including (in the header) our own.
- *
- * Return: always 0
- */
-int batadv_mcast_flags_seq_print_text(struct seq_file *seq, void *offset)
-{
-	struct net_device *net_dev = (struct net_device *)seq->private;
-	struct batadv_priv *bat_priv = netdev_priv(net_dev);
-	struct batadv_hard_iface *primary_if;
-	struct batadv_hashtable *hash = bat_priv->orig_hash;
-	struct batadv_orig_node *orig_node;
-	struct hlist_head *head;
-	u8 flags;
-	u32 i;
-
-	primary_if = batadv_seq_print_text_primary_if_get(seq);
-	if (!primary_if)
-		return 0;
-
-	batadv_mcast_flags_print_header(bat_priv, seq);
-
-	for (i = 0; i < hash->size; i++) {
-		head = &hash->table[i];
-
-		rcu_read_lock();
-		hlist_for_each_entry_rcu(orig_node, head, hash_entry) {
-			if (!test_bit(BATADV_ORIG_CAPA_HAS_MCAST,
-				      &orig_node->capa_initialized))
-				continue;
-
-			if (!test_bit(BATADV_ORIG_CAPA_HAS_MCAST,
-				      &orig_node->capabilities)) {
-				seq_printf(seq, "%pM -\n", orig_node->orig);
-				continue;
-			}
-
-			flags = orig_node->mcast_flags;
-
-			seq_printf(seq, "%pM [%c%c%c%s%s]\n", orig_node->orig,
-				   (flags & BATADV_MCAST_WANT_ALL_UNSNOOPABLES)
-				   ? 'U' : '.',
-				   (flags & BATADV_MCAST_WANT_ALL_IPV4)
-				   ? '4' : '.',
-				   (flags & BATADV_MCAST_WANT_ALL_IPV6)
-				   ? '6' : '.',
-				   !(flags & BATADV_MCAST_WANT_NO_RTR4)
-				   ? "R4" : ". ",
-				   !(flags & BATADV_MCAST_WANT_NO_RTR6)
-				   ? "R6" : ". ");
-		}
-		rcu_read_unlock();
-	}
-
-	batadv_hardif_put(primary_if);
-
-	return 0;
-}
-#endif
 
 /**
  * batadv_mcast_mesh_info_put() - put multicast info into a netlink message

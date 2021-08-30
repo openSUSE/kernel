@@ -346,6 +346,7 @@ static int htcpld_register_chip_i2c(
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_READ_BYTE_DATA)) {
 		dev_warn(dev, "i2c adapter %d non-functional\n",
 			 pdata->i2c_adapter_id);
+		i2c_put_adapter(adapter);
 		return -EINVAL;
 	}
 
@@ -355,12 +356,13 @@ static int htcpld_register_chip_i2c(
 	info.platform_data = chip;
 
 	/* Add the I2C device.  This calls the probe() function. */
-	client = i2c_new_device(adapter, &info);
-	if (!client) {
+	client = i2c_new_client_device(adapter, &info);
+	if (IS_ERR(client)) {
 		/* I2C device registration failed, contineu with the next */
 		dev_warn(dev, "Unable to add I2C device for 0x%x\n",
 			 plat_chip_data->addr);
-		return -ENODEV;
+		i2c_put_adapter(adapter);
+		return PTR_ERR(client);
 	}
 
 	i2c_set_clientdata(client, chip);
@@ -385,8 +387,7 @@ static void htcpld_unregister_chip_i2c(
 	htcpld = platform_get_drvdata(pdev);
 	chip = &htcpld->chip[chip_index];
 
-	if (chip->client)
-		i2c_unregister_device(chip->client);
+	i2c_unregister_device(chip->client);
 }
 
 static int htcpld_register_chip_gpio(

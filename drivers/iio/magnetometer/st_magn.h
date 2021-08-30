@@ -21,9 +21,7 @@
 #define LSM303AGR_MAGN_DEV_NAME		"lsm303agr_magn"
 #define LIS2MDL_MAGN_DEV_NAME		"lis2mdl"
 #define LSM9DS1_MAGN_DEV_NAME		"lsm9ds1_magn"
-
-int st_magn_common_probe(struct iio_dev *indio_dev);
-void st_magn_common_remove(struct iio_dev *indio_dev);
+#define IIS2MDC_MAGN_DEV_NAME		"iis2mdc"
 
 #ifdef CONFIG_IIO_BUFFER
 int st_magn_allocate_ring(struct iio_dev *indio_dev);

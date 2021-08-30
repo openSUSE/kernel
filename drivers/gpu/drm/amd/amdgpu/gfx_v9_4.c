@@ -57,10 +57,10 @@ static const struct soc15_reg_entry gfx_v9_4_edc_counter_regs[] = {
 	/* SPI */
 	{ SOC15_REG_ENTRY(GC, 0, mmSPI_EDC_CNT), 0, 4, 1 },
 	/* SQ */
-	{ SOC15_REG_ENTRY(GC, 0, mmSQ_EDC_CNT), 0, 4, 16 },
-	{ SOC15_REG_ENTRY(GC, 0, mmSQ_EDC_DED_CNT), 0, 4, 16 },
-	{ SOC15_REG_ENTRY(GC, 0, mmSQ_EDC_INFO), 0, 4, 16 },
-	{ SOC15_REG_ENTRY(GC, 0, mmSQ_EDC_SEC_CNT), 0, 4, 16 },
+	{ SOC15_REG_ENTRY(GC, 0, mmSQ_EDC_CNT), 0, 8, 16 },
+	{ SOC15_REG_ENTRY(GC, 0, mmSQ_EDC_DED_CNT), 0, 8, 16 },
+	{ SOC15_REG_ENTRY(GC, 0, mmSQ_EDC_INFO), 0, 8, 16 },
+	{ SOC15_REG_ENTRY(GC, 0, mmSQ_EDC_SEC_CNT), 0, 8, 16 },
 	/* SQC */
 	{ SOC15_REG_ENTRY(GC, 0, mmSQC_EDC_CNT), 0, 4, 6 },
 	{ SOC15_REG_ENTRY(GC, 0, mmSQC_EDC_CNT2), 0, 4, 6 },
@@ -863,8 +863,8 @@ static int gfx_v9_4_ras_error_count(struct amdgpu_device *adev,
 	return 0;
 }
 
-int gfx_v9_4_query_ras_error_count(struct amdgpu_device *adev,
-				   void *ras_error_status)
+static int gfx_v9_4_query_ras_error_count(struct amdgpu_device *adev,
+					  void *ras_error_status)
 {
 	struct ras_err_data *err_data = (struct ras_err_data *)ras_error_status;
 	uint32_t sec_count = 0, ded_count = 0;
@@ -906,7 +906,7 @@ int gfx_v9_4_query_ras_error_count(struct amdgpu_device *adev,
 	return 0;
 }
 
-void gfx_v9_4_reset_ras_error_count(struct amdgpu_device *adev)
+static void gfx_v9_4_reset_ras_error_count(struct amdgpu_device *adev)
 {
 	int i, j, k;
 
@@ -971,7 +971,8 @@ void gfx_v9_4_reset_ras_error_count(struct amdgpu_device *adev)
 	WREG32_SOC15(GC, 0, mmATC_L2_CACHE_4K_DSM_INDEX, 255);
 }
 
-int gfx_v9_4_ras_error_inject(struct amdgpu_device *adev, void *inject_if)
+static int gfx_v9_4_ras_error_inject(struct amdgpu_device *adev,
+				     void *inject_if)
 {
 	struct ras_inject_if *info = (struct ras_inject_if *)inject_if;
 	int ret;
@@ -992,3 +993,47 @@ int gfx_v9_4_ras_error_inject(struct amdgpu_device *adev, void *inject_if)
 
 	return ret;
 }
+
+static const struct soc15_reg_entry gfx_v9_4_ea_err_status_regs =
+	{ SOC15_REG_ENTRY(GC, 0, mmGCEA_ERR_STATUS), 0, 1, 32 };
+
+static void gfx_v9_4_query_ras_error_status(struct amdgpu_device *adev)
+{
+	uint32_t i, j;
+	uint32_t reg_value;
+
+	if (!amdgpu_ras_is_supported(adev, AMDGPU_RAS_BLOCK__GFX))
+		return;
+
+	mutex_lock(&adev->grbm_idx_mutex);
+
+	for (i = 0; i < gfx_v9_4_ea_err_status_regs.se_num; i++) {
+		for (j = 0; j < gfx_v9_4_ea_err_status_regs.instance;
+		     j++) {
+			gfx_v9_4_select_se_sh(adev, i, 0, j);
+			reg_value = RREG32(SOC15_REG_ENTRY_OFFSET(
+				gfx_v9_4_ea_err_status_regs));
+			if (REG_GET_FIELD(reg_value, GCEA_ERR_STATUS, SDP_RDRSP_STATUS) ||
+			    REG_GET_FIELD(reg_value, GCEA_ERR_STATUS, SDP_WRRSP_STATUS) ||
+			    REG_GET_FIELD(reg_value, GCEA_ERR_STATUS, SDP_RDRSP_DATAPARITY_ERROR)) {
+				/* SDP read/write error/parity error in FUE_IS_FATAL mode
+				 * can cause system fatal error in arcturas. Harvest the error
+				 * status before GPU reset */
+				dev_warn(adev->dev, "GCEA err detected at instance: %d, status: 0x%x!\n",
+						j, reg_value);
+			}
+		}
+	}
+
+	gfx_v9_4_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff);
+	mutex_unlock(&adev->grbm_idx_mutex);
+}
+
+const struct amdgpu_gfx_ras_funcs gfx_v9_4_ras_funcs = {
+        .ras_late_init = amdgpu_gfx_ras_late_init,
+        .ras_fini = amdgpu_gfx_ras_fini,
+        .ras_error_inject = &gfx_v9_4_ras_error_inject,
+        .query_ras_error_count = &gfx_v9_4_query_ras_error_count,
+        .reset_ras_error_count = &gfx_v9_4_reset_ras_error_count,
+        .query_ras_error_status = &gfx_v9_4_query_ras_error_status,
+};

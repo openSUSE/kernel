@@ -42,6 +42,8 @@
 /**
  * enum rmi_f54_report_type - RMI4 F54 report types
  *
+ * @F54_REPORT_NONE:	No Image Report.
+ *
  * @F54_8BIT_IMAGE:	Normalized 8-Bit Image Report. The capacitance variance
  *			from baseline for each pixel.
  *
@@ -64,6 +66,10 @@
  *			Report. Set Low reference to its minimum value and high
  *			references to its maximum value, then report the raw
  *			capacitance for each pixel.
+ *
+ * @F54_MAX_REPORT_TYPE:
+ *			Maximum number of Report Types.  Used for sanity
+ *			checking.
  */
 enum rmi_f54_report_type {
 	F54_REPORT_NONE = 0,
@@ -116,6 +122,7 @@ struct f54_data {
 	struct video_device vdev;
 	struct vb2_queue queue;
 	struct mutex lock;
+	u32 sequence;
 	int input;
 	enum rmi_f54_report_type inputs[F54_MAX_REPORT_TYPE];
 };
@@ -290,6 +297,7 @@ static int rmi_f54_queue_setup(struct vb2_queue *q, unsigned int *nbuffers,
 
 static void rmi_f54_buffer_queue(struct vb2_buffer *vb)
 {
+	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct f54_data *f54 = vb2_get_drv_priv(vb->vb2_queue);
 	u16 *ptr;
 	enum vb2_buffer_state state;
@@ -298,6 +306,7 @@ static void rmi_f54_buffer_queue(struct vb2_buffer *vb)
 
 	mutex_lock(&f54->status_mutex);
 
+	vb2_set_plane_payload(vb, 0, 0);
 	reptype = rmi_f54_get_reptype(f54, f54->input);
 	if (reptype == F54_REPORT_NONE) {
 		state = VB2_BUF_STATE_ERROR;
@@ -344,14 +353,25 @@ static void rmi_f54_buffer_queue(struct vb2_buffer *vb)
 data_done:
 	mutex_unlock(&f54->data_mutex);
 done:
+	vb->timestamp = ktime_get_ns();
+	vbuf->field = V4L2_FIELD_NONE;
+	vbuf->sequence = f54->sequence++;
 	vb2_buffer_done(vb, state);
 	mutex_unlock(&f54->status_mutex);
+}
+
+static void rmi_f54_stop_streaming(struct vb2_queue *q)
+{
+	struct f54_data *f54 = vb2_get_drv_priv(q);
+
+	f54->sequence = 0;
 }
 
 /* V4L2 structures */
 static const struct vb2_ops rmi_f54_queue_ops = {
 	.queue_setup            = rmi_f54_queue_setup,
 	.buf_queue              = rmi_f54_buffer_queue,
+	.stop_streaming		= rmi_f54_stop_streaming,
 	.wait_prepare           = vb2_ops_wait_prepare,
 	.wait_finish            = vb2_ops_wait_finish,
 };
@@ -363,7 +383,6 @@ static const struct vb2_queue rmi_f54_queue = {
 	.ops = &rmi_f54_queue_ops,
 	.mem_ops = &vb2_vmalloc_memops,
 	.timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC,
-	.min_buffers_needed = 1,
 };
 
 static int rmi_f54_vidioc_querycap(struct file *file, void *priv,

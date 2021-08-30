@@ -60,11 +60,13 @@
 /*
  * increase ref count for the realm
  *
- * caller must hold snap_rwsem for write.
+ * caller must hold snap_rwsem.
  */
 void ceph_get_snap_realm(struct ceph_mds_client *mdsc,
 			 struct ceph_snap_realm *realm)
 {
+	lockdep_assert_held(&mdsc->snap_rwsem);
+
 	/*
 	 * The 0->1 and 1->0 transitions must take the snap_empty_lock
 	 * atomically with the refcount change. Go ahead and bump the
@@ -113,6 +115,8 @@ static struct ceph_snap_realm *ceph_create_snap_realm(
 {
 	struct ceph_snap_realm *realm;
 
+	lockdep_assert_held_write(&mdsc->snap_rwsem);
+
 	realm = kzalloc(sizeof(*realm), GFP_NOFS);
 	if (!realm)
 		return ERR_PTR(-ENOMEM);
@@ -135,13 +139,15 @@ static struct ceph_snap_realm *ceph_create_snap_realm(
 /*
  * lookup the realm rooted at @ino.
  *
- * caller must hold snap_rwsem for write.
+ * caller must hold snap_rwsem.
  */
 static struct ceph_snap_realm *__lookup_snap_realm(struct ceph_mds_client *mdsc,
 						   u64 ino)
 {
 	struct rb_node *n = mdsc->snap_realms.rb_node;
 	struct ceph_snap_realm *r;
+
+	lockdep_assert_held(&mdsc->snap_rwsem);
 
 	while (n) {
 		r = rb_entry(n, struct ceph_snap_realm, node);
@@ -176,6 +182,8 @@ static void __put_snap_realm(struct ceph_mds_client *mdsc,
 static void __destroy_snap_realm(struct ceph_mds_client *mdsc,
 				 struct ceph_snap_realm *realm)
 {
+	lockdep_assert_held_write(&mdsc->snap_rwsem);
+
 	dout("__destroy_snap_realm %p %llx\n", realm, realm->ino);
 
 	rb_erase(&realm->node, &mdsc->snap_realms);
@@ -198,6 +206,8 @@ static void __destroy_snap_realm(struct ceph_mds_client *mdsc,
 static void __put_snap_realm(struct ceph_mds_client *mdsc,
 			     struct ceph_snap_realm *realm)
 {
+	lockdep_assert_held_write(&mdsc->snap_rwsem);
+
 	/*
 	 * We do not require the snap_empty_lock here, as any caller that
 	 * increments the value must hold the snap_rwsem.
@@ -236,6 +246,8 @@ static void __cleanup_empty_realms(struct ceph_mds_client *mdsc)
 {
 	struct ceph_snap_realm *realm;
 
+	lockdep_assert_held_write(&mdsc->snap_rwsem);
+
 	spin_lock(&mdsc->snap_empty_lock);
 	while (!list_empty(&mdsc->snap_empty)) {
 		realm = list_first_entry(&mdsc->snap_empty,
@@ -268,6 +280,8 @@ static int adjust_snap_realm_parent(struct ceph_mds_client *mdsc,
 				    u64 parentino)
 {
 	struct ceph_snap_realm *parent;
+
+	lockdep_assert_held_write(&mdsc->snap_rwsem);
 
 	if (realm->parent_ino == parentino)
 		return 0;
@@ -460,7 +474,7 @@ static bool has_new_snaps(struct ceph_snap_context *o,
  * Caller must hold snap_rwsem for read (i.e., the realm topology won't
  * change).
  */
-void ceph_queue_cap_snap(struct ceph_inode_info *ci)
+static void ceph_queue_cap_snap(struct ceph_inode_info *ci)
 {
 	struct inode *inode = &ci->vfs_inode;
 	struct ceph_cap_snap *capsnap;
@@ -473,6 +487,9 @@ void ceph_queue_cap_snap(struct ceph_inode_info *ci)
 		pr_err("ENOMEM allocating ceph_cap_snap on %p\n", inode);
 		return;
 	}
+	capsnap->cap_flush.is_capsnap = true;
+	INIT_LIST_HEAD(&capsnap->cap_flush.i_list);
+	INIT_LIST_HEAD(&capsnap->cap_flush.g_list);
 
 	spin_lock(&ci->i_ceph_lock);
 	used = __ceph_caps_used(ci);
@@ -602,10 +619,10 @@ int __ceph_finish_cap_snap(struct ceph_inode_info *ci,
 			    struct ceph_cap_snap *capsnap)
 {
 	struct inode *inode = &ci->vfs_inode;
-	struct ceph_mds_client *mdsc = ceph_sb_to_client(inode->i_sb)->mdsc;
+	struct ceph_mds_client *mdsc = ceph_sb_to_mdsc(inode->i_sb);
 
 	BUG_ON(capsnap->writing);
-	capsnap->size = inode->i_size;
+	capsnap->size = i_size_read(inode);
 	capsnap->mtime = inode->i_mtime;
 	capsnap->atime = inode->i_atime;
 	capsnap->ctime = inode->i_ctime;
@@ -620,6 +637,16 @@ int __ceph_finish_cap_snap(struct ceph_inode_info *ci,
 		     capsnap->context, capsnap->context->seq,
 		     ceph_cap_string(capsnap->dirty), capsnap->size,
 		     capsnap->dirty_pages);
+		return 0;
+	}
+
+	/* Fb cap still in use, delay it */
+	if (ci->i_wb_ref) {
+		dout("finish_cap_snap %p cap_snap %p snapc %p %llu %s s=%llu "
+		     "used WRBUFFER, delaying\n", inode, capsnap,
+		     capsnap->context, capsnap->context->seq,
+		     ceph_cap_string(capsnap->dirty), capsnap->size);
+		capsnap->writing = 1;
 		return 0;
 	}
 
@@ -653,15 +680,13 @@ static void queue_realm_cap_snaps(struct ceph_snap_realm *realm)
 		if (!inode)
 			continue;
 		spin_unlock(&realm->inodes_with_caps_lock);
-		/* avoid calling iput_final() while holding
-		 * mdsc->snap_rwsem or in mds dispatch threads */
-		ceph_async_iput(lastinode);
+		iput(lastinode);
 		lastinode = inode;
 		ceph_queue_cap_snap(ci);
 		spin_lock(&realm->inodes_with_caps_lock);
 	}
 	spin_unlock(&realm->inodes_with_caps_lock);
-	ceph_async_iput(lastinode);
+	iput(lastinode);
 
 	dout("queue_realm_cap_snaps %p %llx done\n", realm, realm->ino);
 }
@@ -685,6 +710,8 @@ int ceph_update_snap_trace(struct ceph_mds_client *mdsc,
 	int invalidate = 0;
 	int err = -ENOMEM;
 	LIST_HEAD(dirty_realms);
+
+	lockdep_assert_held_write(&mdsc->snap_rwsem);
 
 	dout("update_snap_trace deletion=%d\n", deletion);
 more:
@@ -781,7 +808,7 @@ more:
 	return 0;
 
 bad:
-	err = -EINVAL;
+	err = -EIO;
 fail:
 	if (realm && !IS_ERR(realm))
 		ceph_put_snap_realm(mdsc, realm);
@@ -813,17 +840,12 @@ static void flush_snaps(struct ceph_mds_client *mdsc)
 		ihold(inode);
 		spin_unlock(&mdsc->snap_flush_lock);
 		ceph_flush_snaps(ci, &session);
-		/* avoid calling iput_final() while holding
-		 * session->s_mutex or in mds dispatch threads */
-		ceph_async_iput(inode);
+		iput(inode);
 		spin_lock(&mdsc->snap_flush_lock);
 	}
 	spin_unlock(&mdsc->snap_flush_lock);
 
-	if (session) {
-		mutex_unlock(&session->s_mutex);
-		ceph_put_mds_session(session);
-	}
+	ceph_put_mds_session(session);
 	dout("flush_snaps done\n");
 }
 
@@ -959,14 +981,12 @@ void ceph_handle_snap(struct ceph_mds_client *mdsc,
 			ceph_get_snap_realm(mdsc, realm);
 			ceph_put_snap_realm(mdsc, oldrealm);
 
-			/* avoid calling iput_final() while holding
-			 * mdsc->snap_rwsem or mds in dispatch threads */
-			ceph_async_iput(inode);
+			iput(inode);
 			continue;
 
 skip_inode:
 			spin_unlock(&ci->i_ceph_lock);
-			ceph_async_iput(inode);
+			iput(inode);
 		}
 
 		/* we may have taken some of the old realm's children. */

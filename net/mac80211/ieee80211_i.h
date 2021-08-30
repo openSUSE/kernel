@@ -5,7 +5,7 @@
  * Copyright 2006-2007	Jiri Benc <jbenc@suse.cz>
  * Copyright 2007-2010	Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2013-2015  Intel Mobile Communications GmbH
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  */
 
 #ifndef IEEE80211_I_H
@@ -248,15 +248,27 @@ struct beacon_data {
 	u8 *head, *tail;
 	int head_len, tail_len;
 	struct ieee80211_meshconf_ie *meshconf;
-	u16 csa_counter_offsets[IEEE80211_MAX_CSA_COUNTERS_NUM];
-	u8 csa_current_counter;
+	u16 cntdwn_counter_offsets[IEEE80211_MAX_CNTDWN_COUNTERS_NUM];
+	u8 cntdwn_current_counter;
 	struct rcu_head rcu_head;
 };
 
 struct probe_resp {
 	struct rcu_head rcu_head;
 	int len;
-	u16 csa_counter_offsets[IEEE80211_MAX_CSA_COUNTERS_NUM];
+	u16 cntdwn_counter_offsets[IEEE80211_MAX_CNTDWN_COUNTERS_NUM];
+	u8 data[];
+};
+
+struct fils_discovery_data {
+	struct rcu_head rcu_head;
+	int len;
+	u8 data[];
+};
+
+struct unsol_bcast_probe_resp_data {
+	struct rcu_head rcu_head;
+	int len;
 	u8 data[];
 };
 
@@ -275,6 +287,8 @@ struct ps_data {
 struct ieee80211_if_ap {
 	struct beacon_data __rcu *beacon;
 	struct probe_resp __rcu *probe_resp;
+	struct fils_discovery_data __rcu *fils_discovery;
+	struct unsol_bcast_probe_resp_data __rcu *unsol_bcast_probe_resp;
 
 	/* to be used after channel switch. */
 	struct cfg80211_beacon_data *next_beacon;
@@ -284,11 +298,6 @@ struct ieee80211_if_ap {
 	atomic_t num_mcast_sta; /* number of stations receiving multicast */
 
 	bool multicast_to_unicast;
-};
-
-struct ieee80211_if_wds {
-	struct sta_info *sta;
-	u8 remote_addr[ETH_ALEN];
 };
 
 struct ieee80211_if_vlan {
@@ -432,7 +441,9 @@ struct ieee80211_if_managed {
 	unsigned long probe_timeout;
 	int probe_send_count;
 	bool nullfunc_failed;
-	bool connection_loss;
+	u8 connection_loss:1,
+	   driver_disconnect:1,
+	   reconnect:1;
 
 	struct cfg80211_bss *associated;
 	struct ieee80211_mgd_auth_data *auth_data;
@@ -519,6 +530,8 @@ struct ieee80211_if_managed {
 	struct ieee80211_ht_cap ht_capa_mask; /* Valid parts of ht_capa */
 	struct ieee80211_vht_cap vht_capa; /* configured VHT overrides */
 	struct ieee80211_vht_cap vht_capa_mask; /* Valid parts of vht_capa */
+	struct ieee80211_s1g_cap s1g_capa; /* configured S1G overrides */
+	struct ieee80211_s1g_cap s1g_capa_mask; /* valid s1g_capa bits */
 
 	/* TDLS support */
 	u8 tdls_peer[ETH_ALEN] __aligned(2);
@@ -818,18 +831,16 @@ enum txq_info_flags {
  * @def_flow: used as a fallback flow when a packet destined to @tin hashes to
  *	a fq_flow which is already owned by a different tin
  * @def_cvars: codel vars for @def_flow
- * @frags: used to keep fragments created after dequeue
  * @schedule_order: used with ieee80211_local->active_txqs
- * @schedule_round: counter to prevent infinite loops on TXQ scheduling
+ * @frags: used to keep fragments created after dequeue
  */
 struct txq_info {
 	struct fq_tin tin;
-	struct fq_flow def_flow;
 	struct codel_vars def_cvars;
 	struct codel_stats cstats;
+	struct rb_node schedule_order;
+
 	struct sk_buff_head frags;
-	struct list_head schedule_order;
-	u16 schedule_round;
 	unsigned long flags;
 
 	/* keep last! */
@@ -906,6 +917,8 @@ struct ieee80211_sub_if_data {
 	struct ieee80211_tx_queue_params tx_conf[IEEE80211_NUM_ACS];
 	struct mac80211_qos_map __rcu *qos_map;
 
+	struct airtime_info airtime[IEEE80211_NUM_ACS];
+
 	struct work_struct csa_finalize_work;
 	bool csa_block_tx; /* write-protected by sdata_lock and local->mtx */
 	struct cfg80211_chan_def csa_chandef;
@@ -956,7 +969,6 @@ struct ieee80211_sub_if_data {
 
 	union {
 		struct ieee80211_if_ap ap;
-		struct ieee80211_if_wds wds;
 		struct ieee80211_if_vlan vlan;
 		struct ieee80211_if_managed mgd;
 		struct ieee80211_if_ibss ibss;
@@ -975,8 +987,6 @@ struct ieee80211_sub_if_data {
 		struct dentry *default_beacon_key;
 	} debugfs;
 #endif
-
-	bool hw_80211_encap;
 
 	/* must be last, dynamically sized area in this! */
 	struct ieee80211_vif vif;
@@ -1121,6 +1131,46 @@ enum mac80211_scan_state {
 	SCAN_ABORT,
 };
 
+/**
+ * struct airtime_sched_info - state used for airtime scheduling and AQL
+ *
+ * @lock: spinlock that protects all the fields in this struct
+ * @active_txqs: rbtree of currently backlogged queues, sorted by virtual time
+ * @schedule_pos: the current position maintained while a driver walks the tree
+ *                with ieee80211_next_txq()
+ * @active_list: list of struct airtime_info structs that were active within
+ *               the last AIRTIME_ACTIVE_DURATION (100 ms), used to compute
+ *               weight_sum
+ * @last_weight_update: used for rate limiting walking active_list
+ * @last_schedule_time: tracks the last time a transmission was scheduled; used
+ *                      for catching up v_t if no stations are eligible for
+ *                      transmission.
+ * @v_t: global virtual time; queues with v_t < this are eligible for
+ *       transmission
+ * @weight_sum: total sum of all active stations used for dividing airtime
+ * @weight_sum_reciprocal: reciprocal of weight_sum (to avoid divisions in fast
+ *                         path - see comment above
+ *                         IEEE80211_RECIPROCAL_DIVISOR_64)
+ * @aql_txq_limit_low: AQL limit when total outstanding airtime
+ *                     is < IEEE80211_AQL_THRESHOLD
+ * @aql_txq_limit_high: AQL limit when total outstanding airtime
+ *                      is > IEEE80211_AQL_THRESHOLD
+ */
+struct airtime_sched_info {
+	spinlock_t lock;
+	struct rb_root_cached active_txqs;
+	struct rb_node *schedule_pos;
+	struct list_head active_list;
+	u64 last_weight_update;
+	u64 last_schedule_activity;
+	u64 v_t;
+	u64 weight_sum;
+	u64 weight_sum_reciprocal;
+	u32 aql_txq_limit_low;
+	u32 aql_txq_limit_high;
+};
+DECLARE_STATIC_KEY_FALSE(aql_disable);
+
 struct ieee80211_local {
 	/* embed the driver visible part.
 	 * don't cast (use the static inlines below), but we keep
@@ -1132,13 +1182,8 @@ struct ieee80211_local {
 	struct codel_params cparams;
 
 	/* protects active_txqs and txqi->schedule_order */
-	spinlock_t active_txq_lock[IEEE80211_NUM_ACS];
-	struct list_head active_txqs[IEEE80211_NUM_ACS];
-	u16 schedule_round[IEEE80211_NUM_ACS];
-
+	struct airtime_sched_info airtime[IEEE80211_NUM_ACS];
 	u16 airtime_flags;
-	u32 aql_txq_limit_low[IEEE80211_NUM_ACS];
-	u32 aql_txq_limit_high[IEEE80211_NUM_ACS];
 	u32 aql_threshold;
 	atomic_t aql_total_pending_airtime;
 
@@ -1352,7 +1397,6 @@ struct ieee80211_local {
 				*/
 
 	bool pspolling;
-	bool offchannel_ps_enabled;
 	/*
 	 * PS can only be enabled when we have exactly one managed
 	 * interface (and monitors) in PS, this then points there.
@@ -1404,10 +1448,6 @@ struct ieee80211_local {
 
 	/* extended capabilities provided by mac80211 */
 	u8 ext_capa[8];
-
-	/* TDLS channel switch */
-	struct work_struct tdls_chsw_work;
-	struct sk_buff_head skb_queue_tdls_chsw;
 };
 
 static inline struct ieee80211_sub_if_data *
@@ -1510,6 +1550,10 @@ struct ieee802_11_elems {
 	u8 dtim_count;
 	u8 dtim_period;
 	const struct ieee80211_addba_ext_ie *addba_ext_ie;
+	const struct ieee80211_s1g_cap *s1g_capab;
+	const struct ieee80211_s1g_oper_ie *s1g_oper;
+	const struct ieee80211_s1g_bcn_compat_ie *s1g_bcn_compat;
+	const struct ieee80211_aid_response_ie *aid_resp;
 
 	/* length of them, respectively */
 	u8 ext_capab_len;
@@ -1553,6 +1597,125 @@ static inline bool txq_has_queue(struct ieee80211_txq *txq)
 	return !(skb_queue_empty(&txqi->frags) && !txqi->tin.backlog_packets);
 }
 
+static inline struct airtime_info *to_airtime_info(struct ieee80211_txq *txq)
+{
+	struct ieee80211_sub_if_data *sdata;
+	struct sta_info *sta;
+
+	if (txq->sta) {
+		sta = container_of(txq->sta, struct sta_info, sta);
+		return &sta->airtime[txq->ac];
+	}
+
+	sdata = vif_to_sdata(txq->vif);
+	return &sdata->airtime[txq->ac];
+}
+
+/* To avoid divisions in the fast path, we keep pre-computed reciprocals for
+ * airtime weight calculations. There are two different weights to keep track
+ * of: The per-station weight and the sum of weights per phy.
+ *
+ * For the per-station weights (kept in airtime_info below), we use 32-bit
+ * reciprocals with a devisor of 2^19. This lets us keep the multiplications and
+ * divisions for the station weights as 32-bit operations at the cost of a bit
+ * of rounding error for high weights; but the choice of divisor keeps rounding
+ * errors <10% for weights <2^15, assuming no more than 8ms of airtime is
+ * reported at a time.
+ *
+ * For the per-phy sum of weights the values can get higher, so we use 64-bit
+ * operations for those with a 32-bit divisor, which should avoid any
+ * significant rounding errors.
+ */
+#define IEEE80211_RECIPROCAL_DIVISOR_64 0x100000000ULL
+#define IEEE80211_RECIPROCAL_SHIFT_64 32
+#define IEEE80211_RECIPROCAL_DIVISOR_32 0x80000U
+#define IEEE80211_RECIPROCAL_SHIFT_32 19
+
+static inline void airtime_weight_set(struct airtime_info *air_info, u16 weight)
+{
+	if (air_info->weight == weight)
+		return;
+
+	air_info->weight = weight;
+	if (weight) {
+		air_info->weight_reciprocal =
+			IEEE80211_RECIPROCAL_DIVISOR_32 / weight;
+	} else {
+		air_info->weight_reciprocal = 0;
+	}
+}
+
+static inline void airtime_weight_sum_set(struct airtime_sched_info *air_sched,
+					  int weight_sum)
+{
+	if (air_sched->weight_sum == weight_sum)
+		return;
+
+	air_sched->weight_sum = weight_sum;
+	if (air_sched->weight_sum) {
+		air_sched->weight_sum_reciprocal = IEEE80211_RECIPROCAL_DIVISOR_64;
+		do_div(air_sched->weight_sum_reciprocal, air_sched->weight_sum);
+	} else {
+		air_sched->weight_sum_reciprocal = 0;
+	}
+}
+
+/* A problem when trying to enforce airtime fairness is that we want to divide
+ * the airtime between the currently *active* stations. However, basing this on
+ * the instantaneous queue state of stations doesn't work, as queues tend to
+ * oscillate very quickly between empty and occupied, leading to the scheduler
+ * thinking only a single station is active when deciding whether to allow
+ * transmission (and thus not throttling correctly).
+ *
+ * To fix this we use a timer-based notion of activity: a station is considered
+ * active if it has been scheduled within the last 100 ms; we keep a separate
+ * list of all the stations considered active in this manner, and lazily update
+ * the total weight of active stations from this list (filtering the stations in
+ * the list by their 'last active' time).
+ *
+ * We add one additional safeguard to guard against stations that manage to get
+ * scheduled every 100 ms but don't transmit a lot of data, and thus don't use
+ * up any airtime. Such stations would be able to get priority for an extended
+ * period of time if they do start transmitting at full capacity again, and so
+ * we add an explicit maximum for how far behind a station is allowed to fall in
+ * the virtual airtime domain. This limit is set to a relatively high value of
+ * 20 ms because the main mechanism for catching up idle stations is the active
+ * state as described above; i.e., the hard limit should only be hit in
+ * pathological cases.
+ */
+#define AIRTIME_ACTIVE_DURATION (100 * NSEC_PER_MSEC)
+#define AIRTIME_MAX_BEHIND 20000 /* 20 ms */
+
+static inline bool airtime_is_active(struct airtime_info *air_info, u64 now)
+{
+	return air_info->last_scheduled >= now - AIRTIME_ACTIVE_DURATION;
+}
+
+static inline void airtime_set_active(struct airtime_sched_info *air_sched,
+				      struct airtime_info *air_info, u64 now)
+{
+	air_info->last_scheduled = now;
+	air_sched->last_schedule_activity = now;
+	list_move_tail(&air_info->list, &air_sched->active_list);
+}
+
+static inline bool airtime_catchup_v_t(struct airtime_sched_info *air_sched,
+				       u64 v_t, u64 now)
+{
+	air_sched->v_t = v_t;
+	return true;
+}
+
+static inline void init_airtime_info(struct airtime_info *air_info,
+				     struct airtime_sched_info *air_sched)
+{
+	atomic_set(&air_info->aql_tx_pending, 0);
+	air_info->aql_limit_low = air_sched->aql_txq_limit_low;
+	air_info->aql_limit_high = air_sched->aql_txq_limit_high;
+	airtime_weight_set(air_info, IEEE80211_DEFAULT_AIRTIME_WEIGHT);
+	INIT_LIST_HEAD(&air_info->list);
+}
+
 static inline int ieee80211_bssid_match(const u8 *raddr, const u8 *addr)
 {
 	return ether_addr_equal(raddr, addr) ||
@@ -1564,13 +1727,8 @@ ieee80211_have_rx_timestamp(struct ieee80211_rx_status *status)
 {
 	WARN_ON_ONCE(status->flag & RX_FLAG_MACTIME_START &&
 		     status->flag & RX_FLAG_MACTIME_END);
-	if (status->flag & (RX_FLAG_MACTIME_START | RX_FLAG_MACTIME_END))
-		return true;
-	/* can't handle non-legacy preamble yet */
-	if (status->flag & RX_FLAG_MACTIME_PLCP_START &&
-	    status->encoding == RX_ENC_LEGACY)
-		return true;
-	return false;
+	return !!(status->flag & (RX_FLAG_MACTIME_START | RX_FLAG_MACTIME_END |
+				  RX_FLAG_MACTIME_PLCP_START));
 }
 
 void ieee80211_vif_inc_num_mcast(struct ieee80211_sub_if_data *sdata);
@@ -1628,6 +1786,8 @@ int ieee80211_set_arp_filter(struct ieee80211_sub_if_data *sdata);
 void ieee80211_sta_work(struct ieee80211_sub_if_data *sdata);
 void ieee80211_sta_rx_queued_mgmt(struct ieee80211_sub_if_data *sdata,
 				  struct sk_buff *skb);
+void ieee80211_sta_rx_queued_ext(struct ieee80211_sub_if_data *sdata,
+				 struct sk_buff *skb);
 void ieee80211_sta_reset_beacon_monitor(struct ieee80211_sub_if_data *sdata);
 void ieee80211_sta_reset_conn_monitor(struct ieee80211_sub_if_data *sdata);
 void ieee80211_mgd_stop(struct ieee80211_sub_if_data *sdata);
@@ -1636,6 +1796,8 @@ void ieee80211_mgd_conn_tx_status(struct ieee80211_sub_if_data *sdata,
 void ieee80211_mgd_quiesce(struct ieee80211_sub_if_data *sdata);
 void ieee80211_sta_restart(struct ieee80211_sub_if_data *sdata);
 void ieee80211_sta_handle_tspec_ac_params(struct ieee80211_sub_if_data *sdata);
+void ieee80211_sta_connection_lost(struct ieee80211_sub_if_data *sdata,
+				   u8 *bssid, u8 reason, bool tx);
 
 /* IBSS code */
 void ieee80211_ibss_notify_scan_completed(struct ieee80211_local *local);
@@ -1755,6 +1917,7 @@ void ieee80211_del_virtual_monitor(struct ieee80211_local *local);
 bool __ieee80211_recalc_txpower(struct ieee80211_sub_if_data *sdata);
 void ieee80211_recalc_txpower(struct ieee80211_sub_if_data *sdata,
 			      bool update_bss);
+void ieee80211_recalc_offload(struct ieee80211_local *local);
 
 static inline bool ieee80211_sdata_running(struct ieee80211_sub_if_data *sdata)
 {
@@ -1763,7 +1926,7 @@ static inline bool ieee80211_sdata_running(struct ieee80211_sub_if_data *sdata)
 
 /* tx handling */
 void ieee80211_clear_tx_pending(struct ieee80211_local *local);
-void ieee80211_tx_pending(unsigned long data);
+void ieee80211_tx_pending(struct tasklet_struct *t);
 netdev_tx_t ieee80211_monitor_start_xmit(struct sk_buff *skb,
 					 struct net_device *dev);
 netdev_tx_t ieee80211_subif_start_xmit(struct sk_buff *skb,
@@ -1795,6 +1958,14 @@ int ieee80211_tx_control_port(struct wiphy *wiphy, struct net_device *dev,
 			      u64 *cookie);
 int ieee80211_probe_mesh_link(struct wiphy *wiphy, struct net_device *dev,
 			      const u8 *buf, size_t len);
+void ieee80211_resort_txq(struct ieee80211_hw *hw,
+			  struct ieee80211_txq *txq);
+void ieee80211_unschedule_txq(struct ieee80211_hw *hw,
+			      struct ieee80211_txq *txq,
+			      bool purge);
+void ieee80211_update_airtime_weight(struct ieee80211_local *local,
+				     struct airtime_sched_info *air_sched,
+				     u64 now, bool force);
 
 /* HT */
 void ieee80211_apply_htcap_overrides(struct ieee80211_sub_if_data *sdata,
@@ -1865,7 +2036,6 @@ void ieee80211_sta_set_rx_nss(struct sta_info *sta);
 enum ieee80211_sta_rx_bandwidth
 ieee80211_chan_width_to_rx_bw(enum nl80211_chan_width width);
 enum nl80211_chan_width ieee80211_sta_cap_chan_bw(struct sta_info *sta);
-void ieee80211_sta_set_rx_nss(struct sta_info *sta);
 void ieee80211_process_mu_groups(struct ieee80211_sub_if_data *sdata,
 				 struct ieee80211_mgmt *mgmt);
 u32 __ieee80211_vht_handle_opmode(struct ieee80211_sub_if_data *sdata,
@@ -1895,6 +2065,9 @@ ieee80211_he_spr_ie_to_bss_conf(struct ieee80211_vif *vif,
 void
 ieee80211_he_op_ie_to_bss_conf(struct ieee80211_vif *vif,
 			const struct ieee80211_he_operation *he_op_ie_elem);
+
+/* S1G */
+void ieee80211_s1g_sta_rate_init(struct sta_info *sta);
 
 /* Spectrum management */
 void ieee80211_process_measurement_req(struct ieee80211_sub_if_data *sdata,
@@ -2028,8 +2201,8 @@ void ieee80211_dynamic_ps_timer(struct timer_list *t);
 void ieee80211_send_nullfunc(struct ieee80211_local *local,
 			     struct ieee80211_sub_if_data *sdata,
 			     bool powersave);
-void ieee80211_sta_rx_notify(struct ieee80211_sub_if_data *sdata,
-			     struct ieee80211_hdr *hdr);
+void ieee80211_send_4addr_nullfunc(struct ieee80211_local *local,
+				   struct ieee80211_sub_if_data *sdata);
 void ieee80211_sta_tx_notify(struct ieee80211_sub_if_data *sdata,
 			     struct ieee80211_hdr *hdr, bool ack, u16 tx_time);
 
@@ -2113,7 +2286,7 @@ void ieee80211_txq_remove_vlan(struct ieee80211_local *local,
 			       struct ieee80211_sub_if_data *sdata);
 void ieee80211_fill_txq_stats(struct cfg80211_txq_stats *txqstats,
 			      struct txq_info *txqi);
-void ieee80211_wake_txqs(unsigned long data);
+void ieee80211_wake_txqs(struct tasklet_struct *t);
 void ieee80211_send_auth(struct ieee80211_sub_if_data *sdata,
 			 u16 transaction, u16 auth_alg, u16 status,
 			 const u8 *extra, size_t extra_len, const u8 *bssid,
@@ -2181,6 +2354,11 @@ int ieee80211_add_ext_srates_ie(struct ieee80211_sub_if_data *sdata,
 				struct sk_buff *skb, bool need_basic,
 				enum nl80211_band band);
 u8 *ieee80211_add_wmm_info_ie(u8 *buf, u8 qosinfo);
+void ieee80211_add_s1g_capab_ie(struct ieee80211_sub_if_data *sdata,
+				struct ieee80211_sta_s1g_cap *caps,
+				struct sk_buff *skb);
+void ieee80211_add_aid_request_ie(struct ieee80211_sub_if_data *sdata,
+				  struct sk_buff *skb);
 
 /* channel management */
 bool ieee80211_chandef_ht_oper(const struct ieee80211_ht_operation *ht_oper,
@@ -2192,6 +2370,8 @@ bool ieee80211_chandef_vht_oper(struct ieee80211_hw *hw, u32 vht_cap_info,
 bool ieee80211_chandef_he_6ghz_oper(struct ieee80211_sub_if_data *sdata,
 				    const struct ieee80211_he_operation *he_oper,
 				    struct cfg80211_chan_def *chandef);
+bool ieee80211_chandef_s1g_oper(const struct ieee80211_s1g_oper_ie *oper,
+				struct cfg80211_chan_def *chandef);
 u32 ieee80211_chandef_downgrade(struct cfg80211_chan_def *c);
 
 int __must_check
@@ -2246,7 +2426,6 @@ int ieee80211_check_combinations(struct ieee80211_sub_if_data *sdata,
 				 enum ieee80211_chanctx_mode chanmode,
 				 u8 radar_detect);
 int ieee80211_max_num_channels(struct ieee80211_local *local);
-enum nl80211_chan_width ieee80211_get_sta_bw(struct ieee80211_sta *sta);
 void ieee80211_recalc_chanctx_chantype(struct ieee80211_local *local,
 				       struct ieee80211_chanctx *ctx);
 
@@ -2266,10 +2445,17 @@ void ieee80211_tdls_cancel_channel_switch(struct wiphy *wiphy,
 					  struct net_device *dev,
 					  const u8 *addr);
 void ieee80211_teardown_tdls_peers(struct ieee80211_sub_if_data *sdata);
-void ieee80211_tdls_chsw_work(struct work_struct *wk);
 void ieee80211_tdls_handle_disconnect(struct ieee80211_sub_if_data *sdata,
 				      const u8 *peer, u16 reason);
+void
+ieee80211_process_tdls_channel_switch(struct ieee80211_sub_if_data *sdata,
+				      struct sk_buff *skb);
+
+
 const char *ieee80211_get_reason_code_string(u16 reason_code);
+u16 ieee80211_encode_usf(int val);
+u8 *ieee80211_get_bssid(struct ieee80211_hdr *hdr, size_t len,
+			enum nl80211_iftype type);
 
 extern const struct ethtool_ops ieee80211_ethtool_ops;
 

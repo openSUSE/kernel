@@ -304,34 +304,6 @@ mt7603_init_hardware(struct mt7603_dev *dev)
 	return 0;
 }
 
-#define CCK_RATE(_idx, _rate) {					\
-	.bitrate = _rate,					\
-	.flags = IEEE80211_RATE_SHORT_PREAMBLE,			\
-	.hw_value = (MT_PHY_TYPE_CCK << 8) | (_idx),		\
-	.hw_value_short = (MT_PHY_TYPE_CCK << 8) | (4 + _idx),	\
-}
-
-#define OFDM_RATE(_idx, _rate) {				\
-	.bitrate = _rate,					\
-	.hw_value = (MT_PHY_TYPE_OFDM << 8) | (_idx),		\
-	.hw_value_short = (MT_PHY_TYPE_OFDM << 8) | (_idx),	\
-}
-
-static struct ieee80211_rate mt7603_rates[] = {
-	CCK_RATE(0, 10),
-	CCK_RATE(1, 20),
-	CCK_RATE(2, 55),
-	CCK_RATE(3, 110),
-	OFDM_RATE(11, 60),
-	OFDM_RATE(15, 90),
-	OFDM_RATE(10, 120),
-	OFDM_RATE(14, 180),
-	OFDM_RATE(9,  240),
-	OFDM_RATE(13, 360),
-	OFDM_RATE(8,  480),
-	OFDM_RATE(12, 540),
-};
-
 static const struct ieee80211_iface_limit if_limits[] = {
 	{
 		.max = 1,
@@ -532,14 +504,8 @@ int mt7603_register_device(struct mt7603_dev *dev)
 	spin_lock_init(&dev->sta_poll_lock);
 	spin_lock_init(&dev->ps_lock);
 
-	INIT_DELAYED_WORK(&dev->mt76.mac_work, mt7603_mac_work);
-	tasklet_init(&dev->mt76.pre_tbtt_tasklet, mt7603_pre_tbtt_tasklet,
-		     (unsigned long)dev);
-
-	/* Check for 7688, which only has 1SS */
-	dev->mphy.antenna_mask = 3;
-	if (mt76_rr(dev, MT_EFUSE_BASE + 0x64) & BIT(4))
-		dev->mphy.antenna_mask = 1;
+	INIT_DELAYED_WORK(&dev->mphy.mac_work, mt7603_mac_work);
+	tasklet_setup(&dev->mt76.pre_tbtt_tasklet, mt7603_pre_tbtt_tasklet);
 
 	dev->slottime = 9;
 	dev->sensitivity_limit = 28;
@@ -554,6 +520,9 @@ int mt7603_register_device(struct mt7603_dev *dev)
 	hw->max_report_rates = 7;
 	hw->max_rate_tries = 11;
 
+	hw->radiotap_timestamp.units_pos =
+		IEEE80211_RADIOTAP_TIMESTAMP_UNIT_US;
+
 	hw->sta_data_size = sizeof(struct mt7603_sta);
 	hw->vif_data_size = sizeof(struct mt7603_vif);
 
@@ -562,6 +531,7 @@ int mt7603_register_device(struct mt7603_dev *dev)
 
 	ieee80211_hw_set(hw, TX_STATUS_NO_AMPDU_LEN);
 	ieee80211_hw_set(hw, HOST_BROADCAST_PS_BUFFERING);
+	ieee80211_hw_set(hw, NEEDS_UNIQUE_STA_ADDR);
 
 	/* init led callbacks */
 	if (IS_ENABLED(CONFIG_MT76_LEDS)) {
@@ -571,8 +541,8 @@ int mt7603_register_device(struct mt7603_dev *dev)
 
 	wiphy->reg_notifier = mt7603_regd_notifier;
 
-	ret = mt76_register_device(&dev->mt76, true, mt7603_rates,
-				   ARRAY_SIZE(mt7603_rates));
+	ret = mt76_register_device(&dev->mt76, true, mt76_rates,
+				   ARRAY_SIZE(mt76_rates));
 	if (ret)
 		return ret;
 

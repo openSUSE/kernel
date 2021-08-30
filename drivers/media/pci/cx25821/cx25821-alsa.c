@@ -53,8 +53,8 @@ struct cx25821_audio_buffer {
 	struct cx25821_riscmem risc;
 	void			*vaddr;
 	struct scatterlist	*sglist;
-	int                     sglen;
-	int                     nr_pages;
+	int			sglen;
+	unsigned long		nr_pages;
 };
 
 struct cx25821_audio_dev {
@@ -104,7 +104,6 @@ MODULE_PARM_DESC(index, "Index value for cx25821 capture interface(s).");
 MODULE_DESCRIPTION("ALSA driver module for cx25821 based capture cards");
 MODULE_AUTHOR("Hiep Huynh");
 MODULE_LICENSE("GPL");
-MODULE_SUPPORTED_DEVICE("{{Conexant,25821}");	/* "{{Conexant,23881}," */
 
 static unsigned int debug;
 module_param(debug, int, 0644);
@@ -131,7 +130,8 @@ MODULE_PARM_DESC(debug, "enable debug messages");
 #define PCI_MSK_AUD_EXT   (1 <<  4)
 #define PCI_MSK_AUD_INT   (1 <<  3)
 
-static int cx25821_alsa_dma_init(struct cx25821_audio_dev *chip, int nr_pages)
+static int cx25821_alsa_dma_init(struct cx25821_audio_dev *chip,
+				 unsigned long nr_pages)
 {
 	struct cx25821_audio_buffer *buf = chip->buf;
 	struct page *pg;
@@ -139,11 +139,11 @@ static int cx25821_alsa_dma_init(struct cx25821_audio_dev *chip, int nr_pages)
 
 	buf->vaddr = vmalloc_32(nr_pages << PAGE_SHIFT);
 	if (NULL == buf->vaddr) {
-		dprintk(1, "vmalloc_32(%d pages) failed\n", nr_pages);
+		dprintk(1, "vmalloc_32(%lu pages) failed\n", nr_pages);
 		return -ENOMEM;
 	}
 
-	dprintk(1, "vmalloc is at addr 0x%p, size=%d\n",
+	dprintk(1, "vmalloc is at addr 0x%p, size=%lu\n",
 				buf->vaddr,
 				nr_pages << PAGE_SHIFT);
 
@@ -177,7 +177,7 @@ static int cx25821_alsa_dma_map(struct cx25821_audio_dev *dev)
 	struct cx25821_audio_buffer *buf = dev->buf;
 
 	buf->sglen = dma_map_sg(&dev->pci->dev, buf->sglist,
-			buf->nr_pages, PCI_DMA_FROMDEVICE);
+			buf->nr_pages, DMA_FROM_DEVICE);
 
 	if (0 == buf->sglen) {
 		pr_warn("%s: cx25821_alsa_map_sg failed\n", __func__);
@@ -193,7 +193,7 @@ static int cx25821_alsa_dma_unmap(struct cx25821_audio_dev *dev)
 	if (!buf->sglen)
 		return 0;
 
-	dma_unmap_sg(&dev->pci->dev, buf->sglist, buf->sglen, PCI_DMA_FROMDEVICE);
+	dma_unmap_sg(&dev->pci->dev, buf->sglist, buf->nr_pages, DMA_FROM_DEVICE);
 	buf->sglen = 0;
 	return 0;
 }
@@ -402,7 +402,7 @@ static int dsp_buffer_free(struct cx25821_audio_dev *chip)
 	dprintk(2, "Freeing buffer\n");
 	cx25821_alsa_dma_unmap(chip);
 	cx25821_alsa_dma_free(chip->buf);
-	pci_free_consistent(chip->pci, risc->size, risc->cpu, risc->dma);
+	dma_free_coherent(&chip->pci->dev, risc->size, risc->cpu, risc->dma);
 	kfree(chip->buf);
 
 	chip->buf = NULL;

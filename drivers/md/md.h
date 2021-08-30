@@ -213,9 +213,6 @@ enum flag_bits {
 				 * check if there is collision between raid1
 				 * serial bios.
 				 */
-	Timeout,		/* Device fault due to timeout.
-				 * 'Faulty' is required to be set.
-				 */
 };
 
 static inline int is_badblock(struct md_rdev *rdev, sector_t s, int sectors,
@@ -398,10 +395,10 @@ struct mddev {
 	 * that we are never stopping an array while it is open.
 	 * 'reconfig_mutex' protects all other reconfiguration.
 	 * These locks are separate due to conflicting interactions
-	 * with bdev->bd_mutex.
+	 * with disk->open_mutex.
 	 * Lock ordering is:
-	 *  reconfig_mutex -> bd_mutex : e.g. do_md_run -> revalidate_disk
-	 *  bd_mutex -> open_mutex:  e.g. __blkdev_get -> md_open
+	 *  reconfig_mutex -> disk->open_mutex
+	 *  disk->open_mutex -> open_mutex:  e.g. __blkdev_get -> md_open
 	 */
 	struct mutex			open_mutex;
 	struct mutex			reconfig_mutex;
@@ -484,13 +481,13 @@ struct mddev {
 	atomic_t			max_corr_read_errors; /* max read retries */
 	struct list_head		all_mddevs;
 
-	struct attribute_group		*to_remove;
+	const struct attribute_group	*to_remove;
 
 	struct bio_set			bio_set;
 	struct bio_set			sync_set; /* for sync operations like
 						   * metadata and bitmap writes
 						   */
-	mempool_t			md_io_pool;
+	struct bio_set			io_acct_set; /* for raid0 and raid5 io accounting */
 
 	/* Generic flush handling.
 	 * The last to finish preflush schedules a worker to submit
@@ -498,15 +495,16 @@ struct mddev {
 	 */
 	struct bio *flush_bio;
 	atomic_t flush_pending;
-	ktime_t start_flush, last_flush; /* last_flush is when the last completed
-					  * flush was started.
-					  */
+	ktime_t start_flush, prev_flush_start; /* prev_flush_start is when the previous completed
+						* flush was started.
+						*/
 	struct work_struct flush_work;
 	struct work_struct event_work;	/* used by dm to report failure event */
 	mempool_t *serial_info_pool;
 	void (*sync_super)(struct mddev *mddev, struct md_rdev *rdev);
 	struct md_cluster_info		*cluster_info;
 	unsigned int			good_device_nr;	/* good device num within cluster raid */
+	unsigned int			noio_flag; /* for memalloc scope API */
 
 	bool	has_superblocks:1;
 	bool	fail_last_dev:1;
@@ -553,12 +551,12 @@ extern void mddev_unlock(struct mddev *mddev);
 
 static inline void md_sync_acct(struct block_device *bdev, unsigned long nr_sectors)
 {
-	atomic_add(nr_sectors, &bdev->bd_contains->bd_disk->sync_io);
+	atomic_add(nr_sectors, &bdev->bd_disk->sync_io);
 }
 
 static inline void md_sync_acct_bio(struct bio *bio, unsigned long nr_sectors)
 {
-	atomic_add(nr_sectors, &bio->bi_disk->sync_io);
+	md_sync_acct(bio->bi_bdev, nr_sectors);
 }
 
 struct md_personality
@@ -615,7 +613,7 @@ struct md_sysfs_entry {
 	ssize_t (*show)(struct mddev *, char *);
 	ssize_t (*store)(struct mddev *, const char *, size_t);
 };
-extern struct attribute_group md_bitmap_group;
+extern const struct attribute_group md_bitmap_group;
 
 static inline struct kernfs_node *sysfs_get_dirent_safe(struct kernfs_node *sd, char *name)
 {
@@ -686,6 +684,12 @@ struct md_thread {
 	void			*private;
 };
 
+struct md_io_acct {
+	struct bio *orig_bio;
+	unsigned long start_time;
+	struct bio bio_clone;
+};
+
 #define THREAD_WAKEUP  0
 
 static inline void safe_put_page(struct page *p)
@@ -715,6 +719,9 @@ extern void md_write_end(struct mddev *mddev);
 extern void md_done_sync(struct mddev *mddev, int blocks, int ok);
 extern void md_error(struct mddev *mddev, struct md_rdev *rdev);
 extern void md_finish_reshape(struct mddev *mddev);
+void md_submit_discard_bio(struct mddev *mddev, struct md_rdev *rdev,
+			struct bio *bio, sector_t start, sector_t size);
+void md_account_bio(struct mddev *mddev, struct bio **bio);
 
 extern bool __must_check md_flush_request(struct mddev *mddev, struct bio *bio);
 extern void md_super_write(struct mddev *mddev, struct md_rdev *rdev,
@@ -744,8 +751,6 @@ extern void md_rdev_clear(struct md_rdev *rdev);
 extern void md_handle_request(struct mddev *mddev, struct bio *bio);
 extern void mddev_suspend(struct mddev *mddev);
 extern void mddev_resume(struct mddev *mddev);
-extern struct bio *bio_alloc_mddev(gfp_t gfp_mask, int nr_iovecs,
-				   struct mddev *mddev);
 
 extern void md_reload_sb(struct mddev *mddev, int raid_disk);
 extern void md_update_sb(struct mddev *mddev, int force);
@@ -795,17 +800,26 @@ static inline void mddev_clear_unsupported_flags(struct mddev *mddev,
 static inline void mddev_check_writesame(struct mddev *mddev, struct bio *bio)
 {
 	if (bio_op(bio) == REQ_OP_WRITE_SAME &&
-	    !bio->bi_disk->queue->limits.max_write_same_sectors)
+	    !bio->bi_bdev->bd_disk->queue->limits.max_write_same_sectors)
 		mddev->queue->limits.max_write_same_sectors = 0;
 }
 
 static inline void mddev_check_write_zeroes(struct mddev *mddev, struct bio *bio)
 {
 	if (bio_op(bio) == REQ_OP_WRITE_ZEROES &&
-	    !bio->bi_disk->queue->limits.max_write_zeroes_sectors)
+	    !bio->bi_bdev->bd_disk->queue->limits.max_write_zeroes_sectors)
 		mddev->queue->limits.max_write_zeroes_sectors = 0;
 }
 
+struct mdu_array_info_s;
+struct mdu_disk_info_s;
+
 extern int mdp_major;
+void md_autostart_arrays(int part);
+int md_set_array_info(struct mddev *mddev, struct mdu_array_info_s *info);
+int md_add_new_disk(struct mddev *mddev, struct mdu_disk_info_s *info);
+int do_md_run(struct mddev *mddev);
+
+extern const struct block_device_operations md_fops;
 
 #endif /* _MD_MD_H */

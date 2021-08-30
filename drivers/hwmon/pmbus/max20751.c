@@ -16,7 +16,7 @@ static struct pmbus_driver_info max20751_info = {
 	.pages = 1,
 	.format[PSC_VOLTAGE_IN] = linear,
 	.format[PSC_VOLTAGE_OUT] = vid,
-	.vrm_version = vr12,
+	.vrm_version[0] = vr12,
 	.format[PSC_TEMPERATURE] = linear,
 	.format[PSC_CURRENT_OUT] = linear,
 	.format[PSC_POWER] = linear,
@@ -26,10 +26,9 @@ static struct pmbus_driver_info max20751_info = {
 		PMBUS_HAVE_POUT,
 };
 
-static int max20751_probe(struct i2c_client *client,
-			  const struct i2c_device_id *id)
+static int max20751_probe(struct i2c_client *client)
 {
-	return pmbus_do_probe(client, id, &max20751_info);
+	return pmbus_do_probe(client, &max20751_info);
 }
 
 static const struct i2c_device_id max20751_id[] = {
@@ -43,8 +42,7 @@ static struct i2c_driver max20751_driver = {
 	.driver = {
 		   .name = "max20751",
 		   },
-	.probe = max20751_probe,
-	.remove = pmbus_do_remove,
+	.probe_new = max20751_probe,
 	.id_table = max20751_id,
 };
 
@@ -53,3 +51,4 @@ module_i2c_driver(max20751_driver);
 MODULE_AUTHOR("Guenter Roeck <linux@roeck-us.net>");
 MODULE_DESCRIPTION("PMBus driver for Maxim MAX20751");
 MODULE_LICENSE("GPL");
+MODULE_IMPORT_NS(PMBUS);

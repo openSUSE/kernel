@@ -8,6 +8,7 @@
 #include <linux/kvm_host.h>
 #include <linux/err.h>
 #include <linux/kernel_stat.h>
+#include <linux/pgtable.h>
 
 #include <asm/kvm_book3s.h>
 #include <asm/kvm_ppc.h>
@@ -15,7 +16,6 @@
 #include <asm/xics.h>
 #include <asm/synch.h>
 #include <asm/cputhreads.h>
-#include <asm/pgtable.h>
 #include <asm/ppc-opcode.h>
 #include <asm/pnv-pci.h>
 #include <asm/opal.h>
@@ -138,13 +138,6 @@ static void icp_rm_set_vcpu_irq(struct kvm_vcpu *vcpu,
 	/* Kick self ? Just set MER and return */
 	if (vcpu == this_vcpu) {
 		mtspr(SPRN_LPCR, mfspr(SPRN_LPCR) | LPCR_MER);
-		return;
-	}
-
-	if (xive_enabled() && kvmhv_on_pseries()) {
-		/* No XICS access or hypercalls available, too hard */
-		this_icp->rm_action |= XICS_RM_KICK_VCPU;
-		this_icp->rm_kick_target = vcpu;
 		return;
 	}
 
@@ -764,20 +757,12 @@ int xics_rm_h_eoi(struct kvm_vcpu *vcpu, unsigned long xirr)
 	return ics_rm_eoi(vcpu, irq);
 }
 
-unsigned long eoi_rc;
+static unsigned long eoi_rc;
 
 static void icp_eoi(struct irq_chip *c, u32 hwirq, __be32 xirr, bool *again)
 {
 	void __iomem *xics_phys;
 	int64_t rc;
-
-	if (kvmhv_on_pseries()) {
-		unsigned long retbuf[PLPAR_HCALL_BUFSIZE];
-
-		iosync();
-		plpar_hcall_raw(H_EOI, retbuf, hwirq);
-		return;
-	}
 
 	rc = pnv_opal_pci_msi_eoi(c, hwirq);
 

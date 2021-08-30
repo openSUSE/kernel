@@ -23,7 +23,7 @@
  * unmapping a portion of the virtual address space, these hooks are called according to
  * the following template:
  *
- *	tlb <- tlb_gather_mmu(mm, start, end);		// start unmap for address space MM
+ *	tlb <- tlb_gather_mmu(mm);			// start unmap for address space MM
  *	{
  *	  for each vma that needs a shootdown do {
  *	    tlb_start_vma(tlb, vma);
@@ -36,16 +36,14 @@
  *	    tlb_end_vma(tlb, vma);
  *	  }
  *	}
- *	tlb_finish_mmu(tlb, start, end);	// finish unmap for address space MM
+ *	tlb_finish_mmu(tlb);				// finish unmap for address space MM
  */
 #include <linux/mm.h>
 #include <linux/pagemap.h>
 #include <linux/swap.h>
 
-#include <asm/pgalloc.h>
 #include <asm/processor.h>
 #include <asm/tlbflush.h>
-#include <asm/machvec.h>
 
 #include <asm-generic/tlb.h>
 

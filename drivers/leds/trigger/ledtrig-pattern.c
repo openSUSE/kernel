@@ -227,10 +227,12 @@ static int pattern_trig_store_patterns_string(struct pattern_trig_data *data,
 
 	while (offset < count - 1 && data->npatterns < MAX_PATTERNS) {
 		cr = 0;
-		ccount = sscanf(buf + offset, "%d %u %n",
+		ccount = sscanf(buf + offset, "%u %u %n",
 				&data->patterns[data->npatterns].brightness,
 				&data->patterns[data->npatterns].delta_t, &cr);
-		if (ccount != 2) {
+
+		if (ccount != 2 ||
+		    data->patterns[data->npatterns].brightness > data->led_cdev->max_brightness) {
 			data->npatterns = 0;
 			return -EINVAL;
 		}
@@ -331,7 +333,7 @@ static DEVICE_ATTR_RW(hw_pattern);
 static umode_t pattern_trig_attrs_mode(struct kobject *kobj,
 				       struct attribute *attr, int index)
 {
-	struct device *dev = container_of(kobj, struct device, kobj);
+	struct device *dev = kobj_to_dev(kobj);
 	struct led_classdev *led_cdev = dev_get_drvdata(dev);
 
 	if (attr == &dev_attr_repeat.attr || attr == &dev_attr_pattern.attr)
@@ -455,7 +457,7 @@ static void __exit pattern_trig_exit(void)
 module_init(pattern_trig_init);
 module_exit(pattern_trig_exit);
 
-MODULE_AUTHOR("Raphael Teysseyre <rteysseyre@gmail.com");
-MODULE_AUTHOR("Baolin Wang <baolin.wang@linaro.org");
+MODULE_AUTHOR("Raphael Teysseyre <rteysseyre@gmail.com>");
+MODULE_AUTHOR("Baolin Wang <baolin.wang@linaro.org>");
 MODULE_DESCRIPTION("LED Pattern trigger");
 MODULE_LICENSE("GPL v2");

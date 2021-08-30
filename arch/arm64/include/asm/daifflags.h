@@ -10,10 +10,11 @@
 #include <asm/arch_gicv3.h>
 #include <asm/barrier.h>
 #include <asm/cpufeature.h>
+#include <asm/ptrace.h>
 
 #define DAIF_PROCCTX		0
-#define DAIF_PROCCTX_NOIRQ	PSR_I_BIT
-#define DAIF_ERRCTX		(PSR_I_BIT | PSR_A_BIT)
+#define DAIF_PROCCTX_NOIRQ	(PSR_I_BIT | PSR_F_BIT)
+#define DAIF_ERRCTX		(PSR_A_BIT | PSR_I_BIT | PSR_F_BIT)
 #define DAIF_MASK		(PSR_D_BIT | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT)
 
 
@@ -46,7 +47,7 @@ static inline unsigned long local_daif_save_flags(void)
 	if (system_uses_irq_prio_masking()) {
 		/* If IRQs are masked with PMR, reflect it in the flags */
 		if (read_sysreg_s(SYS_ICC_PMR_EL1) != GIC_PRIO_IRQON)
-			flags |= PSR_I_BIT;
+			flags |= PSR_I_BIT | PSR_F_BIT;
 	}
 
 	return flags;
@@ -68,7 +69,7 @@ static inline void local_daif_restore(unsigned long flags)
 	bool irq_disabled = flags & PSR_I_BIT;
 
 	WARN_ON(system_has_prio_mask_debugging() &&
-		!(read_sysreg(daif) & PSR_I_BIT));
+		(read_sysreg(daif) & (PSR_I_BIT | PSR_F_BIT)) != (PSR_I_BIT | PSR_F_BIT));
 
 	if (!irq_disabled) {
 		trace_hardirqs_on();
@@ -85,7 +86,7 @@ static inline void local_daif_restore(unsigned long flags)
 			 * If interrupts are disabled but we can take
 			 * asynchronous errors, we can take NMIs
 			 */
-			flags &= ~PSR_I_BIT;
+			flags &= ~(PSR_I_BIT | PSR_F_BIT);
 			pmr = GIC_PRIO_IRQOFF;
 		} else {
 			pmr = GIC_PRIO_IRQON | GIC_PRIO_PSR_I_SET;
@@ -119,4 +120,25 @@ static inline void local_daif_restore(unsigned long flags)
 		trace_hardirqs_off();
 }
 
+/*
+ * Called by synchronous exception handlers to restore the DAIF bits that were
+ * modified by taking an exception.
+ */
+static inline void local_daif_inherit(struct pt_regs *regs)
+{
+	unsigned long flags = regs->pstate & DAIF_MASK;
+
+	if (interrupts_enabled(regs))
+		trace_hardirqs_on();
+
+	if (system_uses_irq_prio_masking())
+		gic_write_pmr(regs->pmr_save);
+
+	/*
+	 * We can't use local_daif_restore(regs->pstate) here as
+	 * system_has_prio_mask_debugging() won't restore the I bit if it can
+	 * use the pmr instead.
+	 */
+	write_sysreg(flags, daif);
+}
 #endif

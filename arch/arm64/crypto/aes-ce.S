@@ -9,8 +9,8 @@
 #include <linux/linkage.h>
 #include <asm/assembler.h>
 
-#define AES_ENTRY(func)		ENTRY(ce_ ## func)
-#define AES_ENDPROC(func)	ENDPROC(ce_ ## func)
+#define AES_FUNC_START(func)		SYM_FUNC_START(ce_ ## func)
+#define AES_FUNC_END(func)		SYM_FUNC_END(ce_ ## func)
 
 	.arch		armv8-a+crypto
 
@@ -19,6 +19,9 @@
 	vctr		.req	v16
 
 	.macro		xts_reload_mask, tmp
+	.endm
+
+	.macro		xts_cts_skip_tw, reg, lbl
 	.endm
 
 	/* preload all round keys */

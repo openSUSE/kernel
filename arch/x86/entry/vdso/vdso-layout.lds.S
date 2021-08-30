@@ -57,6 +57,13 @@ SECTIONS
 		*(.gnu.linkonce.b.*)
 	}						:text
 
+	/*
+	 * Discard .note.gnu.property sections which are unused and have
+	 * different alignment requirement from vDSO note sections.
+	 */
+	/DISCARD/ : {
+		*(.note.gnu.property)
+	}
 	.note		: { *(.note.*) }		:text	:note
 
 	.eh_frame_hdr	: { *(.eh_frame_hdr) }		:text	:eh_frame_hdr
@@ -68,10 +75,17 @@ SECTIONS
 	 * stuff that isn't used at runtime in between.
 	 */
 
-	.text		: { *(.text*) }			:text	=0x90909090,
+	.text		: {
+		*(.text*)
+		*(.fixup)
+	}						:text	=0x90909090,
+
+
 
 	.altinstructions	: { *(.altinstructions) }	:text
 	.altinstr_replacement	: { *(.altinstr_replacement) }	:text
+
+	__ex_table		: { *(__ex_table) }		:text
 
 	/DISCARD/ : {
 		*(.discard)

@@ -23,6 +23,8 @@
 #include <linux/netlink.h>
 #include <linux/jhash.h>
 #include <linux/log2.h>
+#include <linux/refcount.h>
+#include <linux/rhashtable.h>
 #include <net/switchdev.h>
 #include <net/pkt_cls.h>
 #include <net/netevent.h>
@@ -44,8 +46,8 @@
 #include "spectrum_trap.h"
 
 #define MLXSW_SP1_FWREV_MAJOR 13
-#define MLXSW_SP1_FWREV_MINOR 2007
-#define MLXSW_SP1_FWREV_SUBMINOR 1168
+#define MLXSW_SP1_FWREV_MINOR 2008
+#define MLXSW_SP1_FWREV_SUBMINOR 2406
 #define MLXSW_SP1_FWREV_CAN_RESET_MINOR 1702
 
 static const struct mlxsw_fw_rev mlxsw_sp1_fw_rev = {
@@ -61,8 +63,8 @@ static const struct mlxsw_fw_rev mlxsw_sp1_fw_rev = {
 	"." __stringify(MLXSW_SP1_FWREV_SUBMINOR) ".mfa2"
 
 #define MLXSW_SP2_FWREV_MAJOR 29
-#define MLXSW_SP2_FWREV_MINOR 2007
-#define MLXSW_SP2_FWREV_SUBMINOR 1168
+#define MLXSW_SP2_FWREV_MINOR 2008
+#define MLXSW_SP2_FWREV_SUBMINOR 2406
 
 static const struct mlxsw_fw_rev mlxsw_sp2_fw_rev = {
 	.major = MLXSW_SP2_FWREV_MAJOR,
@@ -76,8 +78,8 @@ static const struct mlxsw_fw_rev mlxsw_sp2_fw_rev = {
 	"." __stringify(MLXSW_SP2_FWREV_SUBMINOR) ".mfa2"
 
 #define MLXSW_SP3_FWREV_MAJOR 30
-#define MLXSW_SP3_FWREV_MINOR 2007
-#define MLXSW_SP3_FWREV_SUBMINOR 1168
+#define MLXSW_SP3_FWREV_MINOR 2008
+#define MLXSW_SP3_FWREV_SUBMINOR 2406
 
 static const struct mlxsw_fw_rev mlxsw_sp3_fw_rev = {
 	.major = MLXSW_SP3_FWREV_MAJOR,
@@ -248,8 +250,8 @@ enum mlxsw_reg_spms_state mlxsw_sp_stp_spms_state(u8 state)
 		return MLXSW_REG_SPMS_STATE_FORWARDING;
 	case BR_STATE_LEARNING:
 		return MLXSW_REG_SPMS_STATE_LEARNING;
-	case BR_STATE_LISTENING: /* fall-through */
-	case BR_STATE_DISABLED: /* fall-through */
+	case BR_STATE_LISTENING:
+	case BR_STATE_DISABLED:
 	case BR_STATE_BLOCKING:
 		return MLXSW_REG_SPMS_STATE_DISCARDING;
 	default:
@@ -321,21 +323,28 @@ static int mlxsw_sp_port_dev_addr_init(struct mlxsw_sp_port *mlxsw_sp_port)
 	return mlxsw_sp_port_dev_addr_set(mlxsw_sp_port, addr);
 }
 
-static int mlxsw_sp_port_mtu_set(struct mlxsw_sp_port *mlxsw_sp_port, u16 mtu)
+static int mlxsw_sp_port_max_mtu_get(struct mlxsw_sp_port *mlxsw_sp_port, int *p_max_mtu)
 {
 	struct mlxsw_sp *mlxsw_sp = mlxsw_sp_port->mlxsw_sp;
 	char pmtu_pl[MLXSW_REG_PMTU_LEN];
-	int max_mtu;
 	int err;
 
-	mtu += MLXSW_TXHDR_LEN + ETH_HLEN;
 	mlxsw_reg_pmtu_pack(pmtu_pl, mlxsw_sp_port->local_port, 0);
 	err = mlxsw_reg_query(mlxsw_sp->core, MLXSW_REG(pmtu), pmtu_pl);
 	if (err)
 		return err;
-	max_mtu = mlxsw_reg_pmtu_max_mtu_get(pmtu_pl);
 
-	if (mtu > max_mtu)
+	*p_max_mtu = mlxsw_reg_pmtu_max_mtu_get(pmtu_pl);
+	return 0;
+}
+
+static int mlxsw_sp_port_mtu_set(struct mlxsw_sp_port *mlxsw_sp_port, u16 mtu)
+{
+	struct mlxsw_sp *mlxsw_sp = mlxsw_sp_port->mlxsw_sp;
+	char pmtu_pl[MLXSW_REG_PMTU_LEN];
+
+	mtu += MLXSW_TXHDR_LEN + ETH_HLEN;
+	if (mtu > mlxsw_sp_port->max_mtu)
 		return -EINVAL;
 
 	mlxsw_reg_pmtu_pack(pmtu_pl, mlxsw_sp_port->local_port, mtu);
@@ -377,13 +386,53 @@ int mlxsw_sp_port_vid_learning_set(struct mlxsw_sp_port *mlxsw_sp_port, u16 vid,
 	return err;
 }
 
+int mlxsw_sp_ethtype_to_sver_type(u16 ethtype, u8 *p_sver_type)
+{
+	switch (ethtype) {
+	case ETH_P_8021Q:
+		*p_sver_type = 0;
+		break;
+	case ETH_P_8021AD:
+		*p_sver_type = 1;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int mlxsw_sp_port_egress_ethtype_set(struct mlxsw_sp_port *mlxsw_sp_port,
+				     u16 ethtype)
+{
+	struct mlxsw_sp *mlxsw_sp = mlxsw_sp_port->mlxsw_sp;
+	char spevet_pl[MLXSW_REG_SPEVET_LEN];
+	u8 sver_type;
+	int err;
+
+	err = mlxsw_sp_ethtype_to_sver_type(ethtype, &sver_type);
+	if (err)
+		return err;
+
+	mlxsw_reg_spevet_pack(spevet_pl, mlxsw_sp_port->local_port, sver_type);
+	return mlxsw_reg_write(mlxsw_sp->core, MLXSW_REG(spevet), spevet_pl);
+}
+
 static int __mlxsw_sp_port_pvid_set(struct mlxsw_sp_port *mlxsw_sp_port,
-				    u16 vid)
+				    u16 vid, u16 ethtype)
 {
 	struct mlxsw_sp *mlxsw_sp = mlxsw_sp_port->mlxsw_sp;
 	char spvid_pl[MLXSW_REG_SPVID_LEN];
+	u8 sver_type;
+	int err;
 
-	mlxsw_reg_spvid_pack(spvid_pl, mlxsw_sp_port->local_port, vid);
+	err = mlxsw_sp_ethtype_to_sver_type(ethtype, &sver_type);
+	if (err)
+		return err;
+
+	mlxsw_reg_spvid_pack(spvid_pl, mlxsw_sp_port->local_port, vid,
+			     sver_type);
+
 	return mlxsw_reg_write(mlxsw_sp->core, MLXSW_REG(spvid), spvid_pl);
 }
 
@@ -397,7 +446,8 @@ static int mlxsw_sp_port_allow_untagged_set(struct mlxsw_sp_port *mlxsw_sp_port,
 	return mlxsw_reg_write(mlxsw_sp->core, MLXSW_REG(spaft), spaft_pl);
 }
 
-int mlxsw_sp_port_pvid_set(struct mlxsw_sp_port *mlxsw_sp_port, u16 vid)
+int mlxsw_sp_port_pvid_set(struct mlxsw_sp_port *mlxsw_sp_port, u16 vid,
+			   u16 ethtype)
 {
 	int err;
 
@@ -406,7 +456,7 @@ int mlxsw_sp_port_pvid_set(struct mlxsw_sp_port *mlxsw_sp_port, u16 vid)
 		if (err)
 			return err;
 	} else {
-		err = __mlxsw_sp_port_pvid_set(mlxsw_sp_port, vid);
+		err = __mlxsw_sp_port_pvid_set(mlxsw_sp_port, vid, ethtype);
 		if (err)
 			return err;
 		err = mlxsw_sp_port_allow_untagged_set(mlxsw_sp_port, true);
@@ -418,7 +468,7 @@ int mlxsw_sp_port_pvid_set(struct mlxsw_sp_port *mlxsw_sp_port, u16 vid)
 	return 0;
 
 err_port_allow_untagged_set:
-	__mlxsw_sp_port_pvid_set(mlxsw_sp_port, mlxsw_sp_port->pvid);
+	__mlxsw_sp_port_pvid_set(mlxsw_sp_port, mlxsw_sp_port->pvid, ethtype);
 	return err;
 }
 
@@ -603,133 +653,25 @@ static int mlxsw_sp_port_set_mac_address(struct net_device *dev, void *p)
 	return 0;
 }
 
-static u16 mlxsw_sp_pg_buf_threshold_get(const struct mlxsw_sp *mlxsw_sp,
-					 int mtu)
-{
-	return 2 * mlxsw_sp_bytes_cells(mlxsw_sp, mtu);
-}
-
-#define MLXSW_SP_CELL_FACTOR 2	/* 2 * cell_size / (IPG + cell_size + 1) */
-
-static u16 mlxsw_sp_pfc_delay_get(const struct mlxsw_sp *mlxsw_sp, int mtu,
-				  u16 delay)
-{
-	delay = mlxsw_sp_bytes_cells(mlxsw_sp, DIV_ROUND_UP(delay,
-							    BITS_PER_BYTE));
-	return MLXSW_SP_CELL_FACTOR * delay + mlxsw_sp_bytes_cells(mlxsw_sp,
-								   mtu);
-}
-
-/* Maximum delay buffer needed in case of PAUSE frames, in bytes.
- * Assumes 100m cable and maximum MTU.
- */
-#define MLXSW_SP_PAUSE_DELAY 58752
-
-static u16 mlxsw_sp_pg_buf_delay_get(const struct mlxsw_sp *mlxsw_sp, int mtu,
-				     u16 delay, bool pfc, bool pause)
-{
-	if (pfc)
-		return mlxsw_sp_pfc_delay_get(mlxsw_sp, mtu, delay);
-	else if (pause)
-		return mlxsw_sp_bytes_cells(mlxsw_sp, MLXSW_SP_PAUSE_DELAY);
-	else
-		return 0;
-}
-
-static void mlxsw_sp_pg_buf_pack(char *pbmc_pl, int index, u16 size, u16 thres,
-				 bool lossy)
-{
-	if (lossy)
-		mlxsw_reg_pbmc_lossy_buffer_pack(pbmc_pl, index, size);
-	else
-		mlxsw_reg_pbmc_lossless_buffer_pack(pbmc_pl, index, size,
-						    thres);
-}
-
-int __mlxsw_sp_port_headroom_set(struct mlxsw_sp_port *mlxsw_sp_port, int mtu,
-				 u8 *prio_tc, bool pause_en,
-				 struct ieee_pfc *my_pfc)
-{
-	struct mlxsw_sp *mlxsw_sp = mlxsw_sp_port->mlxsw_sp;
-	u8 pfc_en = !!my_pfc ? my_pfc->pfc_en : 0;
-	u16 delay = !!my_pfc ? my_pfc->delay : 0;
-	char pbmc_pl[MLXSW_REG_PBMC_LEN];
-	u32 taken_headroom_cells = 0;
-	u32 max_headroom_cells;
-	int i, j, err;
-
-	max_headroom_cells = mlxsw_sp_sb_max_headroom_cells(mlxsw_sp);
-
-	mlxsw_reg_pbmc_pack(pbmc_pl, mlxsw_sp_port->local_port, 0, 0);
-	err = mlxsw_reg_query(mlxsw_sp->core, MLXSW_REG(pbmc), pbmc_pl);
-	if (err)
-		return err;
-
-	for (i = 0; i < IEEE_8021QAZ_MAX_TCS; i++) {
-		bool configure = false;
-		bool pfc = false;
-		u16 thres_cells;
-		u16 delay_cells;
-		u16 total_cells;
-		bool lossy;
-
-		for (j = 0; j < IEEE_8021QAZ_MAX_TCS; j++) {
-			if (prio_tc[j] == i) {
-				pfc = pfc_en & BIT(j);
-				configure = true;
-				break;
-			}
-		}
-
-		if (!configure)
-			continue;
-
-		lossy = !(pfc || pause_en);
-		thres_cells = mlxsw_sp_pg_buf_threshold_get(mlxsw_sp, mtu);
-		thres_cells = mlxsw_sp_port_headroom_8x_adjust(mlxsw_sp_port, thres_cells);
-		delay_cells = mlxsw_sp_pg_buf_delay_get(mlxsw_sp, mtu, delay,
-							pfc, pause_en);
-		delay_cells = mlxsw_sp_port_headroom_8x_adjust(mlxsw_sp_port, delay_cells);
-		total_cells = thres_cells + delay_cells;
-
-		taken_headroom_cells += total_cells;
-		if (taken_headroom_cells > max_headroom_cells)
-			return -ENOBUFS;
-
-		mlxsw_sp_pg_buf_pack(pbmc_pl, i, total_cells,
-				     thres_cells, lossy);
-	}
-
-	return mlxsw_reg_write(mlxsw_sp->core, MLXSW_REG(pbmc), pbmc_pl);
-}
-
-int mlxsw_sp_port_headroom_set(struct mlxsw_sp_port *mlxsw_sp_port,
-			       int mtu, bool pause_en)
-{
-	u8 def_prio_tc[IEEE_8021QAZ_MAX_TCS] = {0};
-	bool dcb_en = !!mlxsw_sp_port->dcb.ets;
-	struct ieee_pfc *my_pfc;
-	u8 *prio_tc;
-
-	prio_tc = dcb_en ? mlxsw_sp_port->dcb.ets->prio_tc : def_prio_tc;
-	my_pfc = dcb_en ? mlxsw_sp_port->dcb.pfc : NULL;
-
-	return __mlxsw_sp_port_headroom_set(mlxsw_sp_port, mtu, prio_tc,
-					    pause_en, my_pfc);
-}
-
 static int mlxsw_sp_port_change_mtu(struct net_device *dev, int mtu)
 {
 	struct mlxsw_sp_port *mlxsw_sp_port = netdev_priv(dev);
-	bool pause_en = mlxsw_sp_port_is_pause_en(mlxsw_sp_port);
+	struct mlxsw_sp_hdroom orig_hdroom;
+	struct mlxsw_sp_hdroom hdroom;
 	int err;
 
-	err = mlxsw_sp_port_headroom_set(mlxsw_sp_port, mtu, pause_en);
-	if (err)
+	orig_hdroom = *mlxsw_sp_port->hdroom;
+
+	hdroom = orig_hdroom;
+	hdroom.mtu = mtu;
+	mlxsw_sp_hdroom_bufs_reset_sizes(mlxsw_sp_port, &hdroom);
+
+	err = mlxsw_sp_hdroom_configure(mlxsw_sp_port, &hdroom);
+	if (err) {
+		netdev_err(dev, "Failed to configure port's headroom\n");
 		return err;
-	err = mlxsw_sp_span_port_mtu_update(mlxsw_sp_port, mtu);
-	if (err)
-		goto err_span_port_mtu_update;
+	}
+
 	err = mlxsw_sp_port_mtu_set(mlxsw_sp_port, mtu);
 	if (err)
 		goto err_port_mtu_set;
@@ -737,9 +679,7 @@ static int mlxsw_sp_port_change_mtu(struct net_device *dev, int mtu)
 	return 0;
 
 err_port_mtu_set:
-	mlxsw_sp_span_port_mtu_update(mlxsw_sp_port, dev->mtu);
-err_span_port_mtu_update:
-	mlxsw_sp_port_headroom_set(mlxsw_sp_port, dev->mtu, pause_en);
+	mlxsw_sp_hdroom_configure(mlxsw_sp_port, &orig_hdroom);
 	return err;
 }
 
@@ -1277,11 +1217,14 @@ mlxsw_sp_port_speed_by_width_set(struct mlxsw_sp_port *mlxsw_sp_port)
 	u32 eth_proto_cap, eth_proto_admin, eth_proto_oper;
 	const struct mlxsw_sp_port_type_speed_ops *ops;
 	char ptys_pl[MLXSW_REG_PTYS_LEN];
+	u32 eth_proto_cap_masked;
 	int err;
 
 	ops = mlxsw_sp->port_type_speed_ops;
 
-	/* Set advertised speeds to supported speeds. */
+	/* Set advertised speeds to speeds supported by both the driver
+	 * and the device.
+	 */
 	ops->reg_ptys_eth_pack(mlxsw_sp, ptys_pl, mlxsw_sp_port->local_port,
 			       0, false);
 	err = mlxsw_reg_query(mlxsw_sp->core, MLXSW_REG(ptys), ptys_pl);
@@ -1290,8 +1233,10 @@ mlxsw_sp_port_speed_by_width_set(struct mlxsw_sp_port *mlxsw_sp_port)
 
 	ops->reg_ptys_eth_unpack(mlxsw_sp, ptys_pl, &eth_proto_cap,
 				 &eth_proto_admin, &eth_proto_oper);
+	eth_proto_cap_masked = ops->ptys_proto_cap_masked_get(eth_proto_cap);
 	ops->reg_ptys_eth_pack(mlxsw_sp, ptys_pl, mlxsw_sp_port->local_port,
-			       eth_proto_cap, mlxsw_sp_port->link.autoneg);
+			       eth_proto_cap_masked,
+			       mlxsw_sp_port->link.autoneg);
 	return mlxsw_reg_write(mlxsw_sp->core, MLXSW_REG(ptys), ptys_pl);
 }
 
@@ -1468,6 +1413,35 @@ static int mlxsw_sp_port_tc_mc_mode_set(struct mlxsw_sp_port *mlxsw_sp_port,
 	return mlxsw_reg_write(mlxsw_sp->core, MLXSW_REG(qtctm), qtctm_pl);
 }
 
+static int mlxsw_sp_port_overheat_init_val_set(struct mlxsw_sp_port *mlxsw_sp_port)
+{
+	struct mlxsw_sp *mlxsw_sp = mlxsw_sp_port->mlxsw_sp;
+	u8 module = mlxsw_sp_port->mapping.module;
+	u64 overheat_counter;
+	int err;
+
+	err = mlxsw_env_module_overheat_counter_get(mlxsw_sp->core, module,
+						    &overheat_counter);
+	if (err)
+		return err;
+
+	mlxsw_sp_port->module_overheat_initial_val = overheat_counter;
+	return 0;
+}
+
+int
+mlxsw_sp_port_vlan_classification_set(struct mlxsw_sp_port *mlxsw_sp_port,
+				      bool is_8021ad_tagged,
+				      bool is_8021q_tagged)
+{
+	struct mlxsw_sp *mlxsw_sp = mlxsw_sp_port->mlxsw_sp;
+	char spvc_pl[MLXSW_REG_SPVC_LEN];
+
+	mlxsw_reg_spvc_pack(spvc_pl, mlxsw_sp_port->local_port,
+			    is_8021ad_tagged, is_8021q_tagged);
+	return mlxsw_reg_write(mlxsw_sp->core, MLXSW_REG(spvc), spvc_pl);
+}
+
 static int mlxsw_sp_port_create(struct mlxsw_sp *mlxsw_sp, u8 local_port,
 				u8 split_base_local_port,
 				struct mlxsw_sp_port_mapping *port_mapping)
@@ -1573,6 +1547,21 @@ static int mlxsw_sp_port_create(struct mlxsw_sp *mlxsw_sp, u8 local_port,
 		goto err_port_speed_by_width_set;
 	}
 
+	err = mlxsw_sp->port_type_speed_ops->ptys_max_speed(mlxsw_sp_port,
+							    &mlxsw_sp_port->max_speed);
+	if (err) {
+		dev_err(mlxsw_sp->bus_info->dev, "Port %d: Failed to get maximum speed\n",
+			mlxsw_sp_port->local_port);
+		goto err_max_speed_get;
+	}
+
+	err = mlxsw_sp_port_max_mtu_get(mlxsw_sp_port, &mlxsw_sp_port->max_mtu);
+	if (err) {
+		dev_err(mlxsw_sp->bus_info->dev, "Port %d: Failed to get maximum MTU\n",
+			mlxsw_sp_port->local_port);
+		goto err_port_max_mtu_get;
+	}
+
 	err = mlxsw_sp_port_mtu_set(mlxsw_sp_port, ETH_DATA_LEN);
 	if (err) {
 		dev_err(mlxsw_sp->bus_info->dev, "Port %d: Failed to set MTU\n",
@@ -1642,7 +1631,8 @@ static int mlxsw_sp_port_create(struct mlxsw_sp *mlxsw_sp, u8 local_port,
 		goto err_port_nve_init;
 	}
 
-	err = mlxsw_sp_port_pvid_set(mlxsw_sp_port, MLXSW_SP_DEFAULT_VID);
+	err = mlxsw_sp_port_pvid_set(mlxsw_sp_port, MLXSW_SP_DEFAULT_VID,
+				     ETH_P_8021Q);
 	if (err) {
 		dev_err(mlxsw_sp->bus_info->dev, "Port %d: Failed to set PVID\n",
 			mlxsw_sp_port->local_port);
@@ -1659,12 +1649,28 @@ static int mlxsw_sp_port_create(struct mlxsw_sp *mlxsw_sp, u8 local_port,
 	}
 	mlxsw_sp_port->default_vlan = mlxsw_sp_port_vlan;
 
+	/* Set SPVC.et0=true and SPVC.et1=false to make the local port to treat
+	 * only packets with 802.1q header as tagged packets.
+	 */
+	err = mlxsw_sp_port_vlan_classification_set(mlxsw_sp_port, false, true);
+	if (err) {
+		dev_err(mlxsw_sp->bus_info->dev, "Port %d: Failed to set default VLAN classification\n",
+			local_port);
+		goto err_port_vlan_classification_set;
+	}
+
 	INIT_DELAYED_WORK(&mlxsw_sp_port->ptp.shaper_dw,
 			  mlxsw_sp->ptp_ops->shaper_work);
-	INIT_DELAYED_WORK(&mlxsw_sp_port->span.speed_update_dw,
-			  mlxsw_sp_span_speed_update_work);
 
 	mlxsw_sp->ports[local_port] = mlxsw_sp_port;
+
+	err = mlxsw_sp_port_overheat_init_val_set(mlxsw_sp_port);
+	if (err) {
+		dev_err(mlxsw_sp->bus_info->dev, "Port %d: Failed to set overheat initial value\n",
+			mlxsw_sp_port->local_port);
+		goto err_port_overheat_init_val_set;
+	}
+
 	err = register_netdev(dev);
 	if (err) {
 		dev_err(mlxsw_sp->bus_info->dev, "Port %d: Failed to register netdev\n",
@@ -1678,6 +1684,9 @@ static int mlxsw_sp_port_create(struct mlxsw_sp *mlxsw_sp, u8 local_port,
 	return 0;
 
 err_register_netdev:
+err_port_overheat_init_val_set:
+	mlxsw_sp_port_vlan_classification_set(mlxsw_sp_port, true, true);
+err_port_vlan_classification_set:
 	mlxsw_sp->ports[local_port] = NULL;
 	mlxsw_sp_port_vlan_destroy(mlxsw_sp_port_vlan);
 err_port_vlan_create:
@@ -1694,9 +1703,12 @@ err_port_dcb_init:
 	mlxsw_sp_port_tc_mc_mode_set(mlxsw_sp_port, false);
 err_port_tc_mc_mode:
 err_port_ets_init:
+	mlxsw_sp_port_buffers_fini(mlxsw_sp_port);
 err_port_buffers_init:
 err_port_admin_status_set:
 err_port_mtu_set:
+err_port_max_mtu_get:
+err_max_speed_get:
 err_port_speed_by_width_set:
 err_port_system_port_mapping_set:
 err_dev_addr_init:
@@ -1717,11 +1729,11 @@ static void mlxsw_sp_port_remove(struct mlxsw_sp *mlxsw_sp, u8 local_port)
 	struct mlxsw_sp_port *mlxsw_sp_port = mlxsw_sp->ports[local_port];
 
 	cancel_delayed_work_sync(&mlxsw_sp_port->periodic_hw_stats.update_dw);
-	cancel_delayed_work_sync(&mlxsw_sp_port->span.speed_update_dw);
 	cancel_delayed_work_sync(&mlxsw_sp_port->ptp.shaper_dw);
 	mlxsw_sp_port_ptp_clear(mlxsw_sp_port);
 	mlxsw_core_port_clear(mlxsw_sp->core, local_port, mlxsw_sp);
 	unregister_netdev(mlxsw_sp_port->dev); /* This calls ndo_stop */
+	mlxsw_sp_port_vlan_classification_set(mlxsw_sp_port, true, true);
 	mlxsw_sp->ports[local_port] = NULL;
 	mlxsw_sp_port_vlan_flush(mlxsw_sp_port, true);
 	mlxsw_sp_port_nve_fini(mlxsw_sp_port);
@@ -1729,6 +1741,7 @@ static void mlxsw_sp_port_remove(struct mlxsw_sp *mlxsw_sp, u8 local_port)
 	mlxsw_sp_port_fids_fini(mlxsw_sp_port);
 	mlxsw_sp_port_dcb_fini(mlxsw_sp_port);
 	mlxsw_sp_port_tc_mc_mode_set(mlxsw_sp_port, false);
+	mlxsw_sp_port_buffers_fini(mlxsw_sp_port);
 	mlxsw_sp_port_swid_set(mlxsw_sp_port, MLXSW_PORT_SWID_DISABLED_PORT);
 	mlxsw_sp_port_module_unmap(mlxsw_sp_port);
 	free_percpu(mlxsw_sp_port->pcpu_stats);
@@ -1845,6 +1858,9 @@ static int mlxsw_sp_port_module_info_init(struct mlxsw_sp *mlxsw_sp)
 		return -ENOMEM;
 
 	for (i = 1; i < max_ports; i++) {
+		if (mlxsw_core_port_is_xm(mlxsw_sp->core, i))
+			continue;
+
 		err = mlxsw_sp_port_module_info_get(mlxsw_sp, i, &port_mapping);
 		if (err)
 			goto err_port_module_info_get;
@@ -2109,9 +2125,14 @@ static void mlxsw_sp_pude_event_func(const struct mlxsw_reg_info *reg,
 	struct mlxsw_sp *mlxsw_sp = priv;
 	struct mlxsw_sp_port *mlxsw_sp_port;
 	enum mlxsw_reg_pude_oper_status status;
+	unsigned int max_ports;
 	u8 local_port;
 
+	max_ports = mlxsw_core_max_ports(mlxsw_sp->core);
 	local_port = mlxsw_reg_pude_local_port_get(pude_pl);
+
+	if (WARN_ON_ONCE(local_port >= max_ports))
+		return;
 	mlxsw_sp_port = mlxsw_sp->ports[local_port];
 	if (!mlxsw_sp_port)
 		return;
@@ -2121,7 +2142,6 @@ static void mlxsw_sp_pude_event_func(const struct mlxsw_reg_info *reg,
 		netdev_info(mlxsw_sp_port->dev, "link up\n");
 		netif_carrier_on(mlxsw_sp_port->dev);
 		mlxsw_core_schedule_dw(&mlxsw_sp_port->ptp.shaper_dw, 0);
-		mlxsw_core_schedule_dw(&mlxsw_sp_port->span.speed_update_dw, 0);
 	} else {
 		netdev_info(mlxsw_sp_port->dev, "link down\n");
 		netif_carrier_off(mlxsw_sp_port->dev);
@@ -2213,32 +2233,6 @@ void mlxsw_sp_ptp_receive(struct mlxsw_sp *mlxsw_sp, struct sk_buff *skb,
 			  u8 local_port)
 {
 	mlxsw_sp->ptp_ops->receive(mlxsw_sp, skb, local_port);
-}
-
-void mlxsw_sp_sample_receive(struct mlxsw_sp *mlxsw_sp, struct sk_buff *skb,
-			     u8 local_port)
-{
-	struct mlxsw_sp_port *mlxsw_sp_port = mlxsw_sp->ports[local_port];
-	struct mlxsw_sp_port_sample *sample;
-	u32 size;
-
-	if (unlikely(!mlxsw_sp_port)) {
-		dev_warn_ratelimited(mlxsw_sp->bus_info->dev, "Port %d: sample skb received for non-existent port\n",
-				     local_port);
-		goto out;
-	}
-
-	rcu_read_lock();
-	sample = rcu_dereference(mlxsw_sp_port->sample);
-	if (!sample)
-		goto out_unlock;
-	size = sample->truncate ? sample->trunc_size : skb->len;
-	psample_sample_packet(sample->psample_group, skb, size,
-			      mlxsw_sp_port->dev->ifindex, 0, sample->rate);
-out_unlock:
-	rcu_read_unlock();
-out:
-	consume_skb(skb);
 }
 
 #define MLXSW_SP_RXL_NO_MARK(_trap_id, _action, _trap_group, _is_ctrl)	\
@@ -2514,8 +2508,33 @@ static void mlxsw_sp_lag_fini(struct mlxsw_sp *mlxsw_sp)
 static int mlxsw_sp_basic_trap_groups_set(struct mlxsw_core *mlxsw_core)
 {
 	char htgt_pl[MLXSW_REG_HTGT_LEN];
+	int err;
 
 	mlxsw_reg_htgt_pack(htgt_pl, MLXSW_REG_HTGT_TRAP_GROUP_EMAD,
+			    MLXSW_REG_HTGT_INVALID_POLICER,
+			    MLXSW_REG_HTGT_DEFAULT_PRIORITY,
+			    MLXSW_REG_HTGT_DEFAULT_TC);
+	err =  mlxsw_reg_write(mlxsw_core, MLXSW_REG(htgt), htgt_pl);
+	if (err)
+		return err;
+
+	mlxsw_reg_htgt_pack(htgt_pl, MLXSW_REG_HTGT_TRAP_GROUP_MFDE,
+			    MLXSW_REG_HTGT_INVALID_POLICER,
+			    MLXSW_REG_HTGT_DEFAULT_PRIORITY,
+			    MLXSW_REG_HTGT_DEFAULT_TC);
+	err = mlxsw_reg_write(mlxsw_core, MLXSW_REG(htgt), htgt_pl);
+	if (err)
+		return err;
+
+	mlxsw_reg_htgt_pack(htgt_pl, MLXSW_REG_HTGT_TRAP_GROUP_MTWE,
+			    MLXSW_REG_HTGT_INVALID_POLICER,
+			    MLXSW_REG_HTGT_DEFAULT_PRIORITY,
+			    MLXSW_REG_HTGT_DEFAULT_TC);
+	err = mlxsw_reg_write(mlxsw_core, MLXSW_REG(htgt), htgt_pl);
+	if (err)
+		return err;
+
+	mlxsw_reg_htgt_pack(htgt_pl, MLXSW_REG_HTGT_TRAP_GROUP_PMPE,
 			    MLXSW_REG_HTGT_INVALID_POLICER,
 			    MLXSW_REG_HTGT_DEFAULT_PRIORITY,
 			    MLXSW_REG_HTGT_DEFAULT_TC);
@@ -2553,6 +2572,147 @@ static const struct mlxsw_sp_ptp_ops mlxsw_sp2_ptp_ops = {
 	.get_stats_strings = mlxsw_sp2_get_stats_strings,
 	.get_stats	= mlxsw_sp2_get_stats,
 };
+
+struct mlxsw_sp_sample_trigger_node {
+	struct mlxsw_sp_sample_trigger trigger;
+	struct mlxsw_sp_sample_params params;
+	struct rhash_head ht_node;
+	struct rcu_head rcu;
+	refcount_t refcount;
+};
+
+static const struct rhashtable_params mlxsw_sp_sample_trigger_ht_params = {
+	.key_offset = offsetof(struct mlxsw_sp_sample_trigger_node, trigger),
+	.head_offset = offsetof(struct mlxsw_sp_sample_trigger_node, ht_node),
+	.key_len = sizeof(struct mlxsw_sp_sample_trigger),
+	.automatic_shrinking = true,
+};
+
+static void
+mlxsw_sp_sample_trigger_key_init(struct mlxsw_sp_sample_trigger *key,
+				 const struct mlxsw_sp_sample_trigger *trigger)
+{
+	memset(key, 0, sizeof(*key));
+	key->type = trigger->type;
+	key->local_port = trigger->local_port;
+}
+
+/* RCU read lock must be held */
+struct mlxsw_sp_sample_params *
+mlxsw_sp_sample_trigger_params_lookup(struct mlxsw_sp *mlxsw_sp,
+				      const struct mlxsw_sp_sample_trigger *trigger)
+{
+	struct mlxsw_sp_sample_trigger_node *trigger_node;
+	struct mlxsw_sp_sample_trigger key;
+
+	mlxsw_sp_sample_trigger_key_init(&key, trigger);
+	trigger_node = rhashtable_lookup(&mlxsw_sp->sample_trigger_ht, &key,
+					 mlxsw_sp_sample_trigger_ht_params);
+	if (!trigger_node)
+		return NULL;
+
+	return &trigger_node->params;
+}
+
+static int
+mlxsw_sp_sample_trigger_node_init(struct mlxsw_sp *mlxsw_sp,
+				  const struct mlxsw_sp_sample_trigger *trigger,
+				  const struct mlxsw_sp_sample_params *params)
+{
+	struct mlxsw_sp_sample_trigger_node *trigger_node;
+	int err;
+
+	trigger_node = kzalloc(sizeof(*trigger_node), GFP_KERNEL);
+	if (!trigger_node)
+		return -ENOMEM;
+
+	trigger_node->trigger = *trigger;
+	trigger_node->params = *params;
+	refcount_set(&trigger_node->refcount, 1);
+
+	err = rhashtable_insert_fast(&mlxsw_sp->sample_trigger_ht,
+				     &trigger_node->ht_node,
+				     mlxsw_sp_sample_trigger_ht_params);
+	if (err)
+		goto err_rhashtable_insert;
+
+	return 0;
+
+err_rhashtable_insert:
+	kfree(trigger_node);
+	return err;
+}
+
+static void
+mlxsw_sp_sample_trigger_node_fini(struct mlxsw_sp *mlxsw_sp,
+				  struct mlxsw_sp_sample_trigger_node *trigger_node)
+{
+	rhashtable_remove_fast(&mlxsw_sp->sample_trigger_ht,
+			       &trigger_node->ht_node,
+			       mlxsw_sp_sample_trigger_ht_params);
+	kfree_rcu(trigger_node, rcu);
+}
+
+int
+mlxsw_sp_sample_trigger_params_set(struct mlxsw_sp *mlxsw_sp,
+				   const struct mlxsw_sp_sample_trigger *trigger,
+				   const struct mlxsw_sp_sample_params *params,
+				   struct netlink_ext_ack *extack)
+{
+	struct mlxsw_sp_sample_trigger_node *trigger_node;
+	struct mlxsw_sp_sample_trigger key;
+
+	ASSERT_RTNL();
+
+	mlxsw_sp_sample_trigger_key_init(&key, trigger);
+
+	trigger_node = rhashtable_lookup_fast(&mlxsw_sp->sample_trigger_ht,
+					      &key,
+					      mlxsw_sp_sample_trigger_ht_params);
+	if (!trigger_node)
+		return mlxsw_sp_sample_trigger_node_init(mlxsw_sp, &key,
+							 params);
+
+	if (trigger_node->trigger.local_port) {
+		NL_SET_ERR_MSG_MOD(extack, "Sampling already enabled on port");
+		return -EINVAL;
+	}
+
+	if (trigger_node->params.psample_group != params->psample_group ||
+	    trigger_node->params.truncate != params->truncate ||
+	    trigger_node->params.rate != params->rate ||
+	    trigger_node->params.trunc_size != params->trunc_size) {
+		NL_SET_ERR_MSG_MOD(extack, "Sampling parameters do not match for an existing sampling trigger");
+		return -EINVAL;
+	}
+
+	refcount_inc(&trigger_node->refcount);
+
+	return 0;
+}
+
+void
+mlxsw_sp_sample_trigger_params_unset(struct mlxsw_sp *mlxsw_sp,
+				     const struct mlxsw_sp_sample_trigger *trigger)
+{
+	struct mlxsw_sp_sample_trigger_node *trigger_node;
+	struct mlxsw_sp_sample_trigger key;
+
+	ASSERT_RTNL();
+
+	mlxsw_sp_sample_trigger_key_init(&key, trigger);
+
+	trigger_node = rhashtable_lookup_fast(&mlxsw_sp->sample_trigger_ht,
+					      &key,
+					      mlxsw_sp_sample_trigger_ht_params);
+	if (!trigger_node)
+		return;
+
+	if (!refcount_dec_and_test(&trigger_node->refcount))
+		return;
+
+	mlxsw_sp_sample_trigger_node_fini(mlxsw_sp, trigger_node);
+}
 
 static int mlxsw_sp_netdevice_event(struct notifier_block *unused,
 				    unsigned long event, void *ptr);
@@ -2708,6 +2868,13 @@ static int mlxsw_sp_init(struct mlxsw_core *mlxsw_core,
 		goto err_port_module_info_init;
 	}
 
+	err = rhashtable_init(&mlxsw_sp->sample_trigger_ht,
+			      &mlxsw_sp_sample_trigger_ht_params);
+	if (err) {
+		dev_err(mlxsw_sp->bus_info->dev, "Failed to init sampling trigger hashtable\n");
+		goto err_sample_trigger_init;
+	}
+
 	err = mlxsw_sp_ports_create(mlxsw_sp);
 	if (err) {
 		dev_err(mlxsw_sp->bus_info->dev, "Failed to create ports\n");
@@ -2717,6 +2884,8 @@ static int mlxsw_sp_init(struct mlxsw_core *mlxsw_core,
 	return 0;
 
 err_ports_create:
+	rhashtable_destroy(&mlxsw_sp->sample_trigger_ht);
+err_sample_trigger_init:
 	mlxsw_sp_port_module_info_fini(mlxsw_sp);
 err_port_module_info_init:
 	mlxsw_sp_dpipe_fini(mlxsw_sp);
@@ -2766,6 +2935,7 @@ static int mlxsw_sp1_init(struct mlxsw_core *mlxsw_core,
 {
 	struct mlxsw_sp *mlxsw_sp = mlxsw_core_driver_priv(mlxsw_core);
 
+	mlxsw_sp->switchdev_ops = &mlxsw_sp1_switchdev_ops;
 	mlxsw_sp->kvdl_ops = &mlxsw_sp1_kvdl_ops;
 	mlxsw_sp->afa_ops = &mlxsw_sp1_act_afa_ops;
 	mlxsw_sp->afk_ops = &mlxsw_sp1_afk_ops;
@@ -2774,13 +2944,15 @@ static int mlxsw_sp1_init(struct mlxsw_core *mlxsw_core,
 	mlxsw_sp->acl_tcam_ops = &mlxsw_sp1_acl_tcam_ops;
 	mlxsw_sp->nve_ops_arr = mlxsw_sp1_nve_ops_arr;
 	mlxsw_sp->mac_mask = mlxsw_sp1_mac_mask;
-	mlxsw_sp->rif_ops_arr = mlxsw_sp1_rif_ops_arr;
 	mlxsw_sp->sb_vals = &mlxsw_sp1_sb_vals;
+	mlxsw_sp->sb_ops = &mlxsw_sp1_sb_ops;
 	mlxsw_sp->port_type_speed_ops = &mlxsw_sp1_port_type_speed_ops;
 	mlxsw_sp->ptp_ops = &mlxsw_sp1_ptp_ops;
 	mlxsw_sp->span_ops = &mlxsw_sp1_span_ops;
 	mlxsw_sp->policer_core_ops = &mlxsw_sp1_policer_core_ops;
 	mlxsw_sp->trap_ops = &mlxsw_sp1_trap_ops;
+	mlxsw_sp->mall_ops = &mlxsw_sp1_mall_ops;
+	mlxsw_sp->router_ops = &mlxsw_sp1_router_ops;
 	mlxsw_sp->listeners = mlxsw_sp1_listener;
 	mlxsw_sp->listeners_count = ARRAY_SIZE(mlxsw_sp1_listener);
 	mlxsw_sp->lowest_shaper_bs = MLXSW_REG_QEEC_LOWEST_SHAPER_BS_SP1;
@@ -2794,6 +2966,7 @@ static int mlxsw_sp2_init(struct mlxsw_core *mlxsw_core,
 {
 	struct mlxsw_sp *mlxsw_sp = mlxsw_core_driver_priv(mlxsw_core);
 
+	mlxsw_sp->switchdev_ops = &mlxsw_sp2_switchdev_ops;
 	mlxsw_sp->kvdl_ops = &mlxsw_sp2_kvdl_ops;
 	mlxsw_sp->afa_ops = &mlxsw_sp2_act_afa_ops;
 	mlxsw_sp->afk_ops = &mlxsw_sp2_afk_ops;
@@ -2802,13 +2975,15 @@ static int mlxsw_sp2_init(struct mlxsw_core *mlxsw_core,
 	mlxsw_sp->acl_tcam_ops = &mlxsw_sp2_acl_tcam_ops;
 	mlxsw_sp->nve_ops_arr = mlxsw_sp2_nve_ops_arr;
 	mlxsw_sp->mac_mask = mlxsw_sp2_mac_mask;
-	mlxsw_sp->rif_ops_arr = mlxsw_sp2_rif_ops_arr;
 	mlxsw_sp->sb_vals = &mlxsw_sp2_sb_vals;
+	mlxsw_sp->sb_ops = &mlxsw_sp2_sb_ops;
 	mlxsw_sp->port_type_speed_ops = &mlxsw_sp2_port_type_speed_ops;
 	mlxsw_sp->ptp_ops = &mlxsw_sp2_ptp_ops;
 	mlxsw_sp->span_ops = &mlxsw_sp2_span_ops;
 	mlxsw_sp->policer_core_ops = &mlxsw_sp2_policer_core_ops;
 	mlxsw_sp->trap_ops = &mlxsw_sp2_trap_ops;
+	mlxsw_sp->mall_ops = &mlxsw_sp2_mall_ops;
+	mlxsw_sp->router_ops = &mlxsw_sp2_router_ops;
 	mlxsw_sp->lowest_shaper_bs = MLXSW_REG_QEEC_LOWEST_SHAPER_BS_SP2;
 
 	return mlxsw_sp_init(mlxsw_core, mlxsw_bus_info, extack);
@@ -2820,6 +2995,7 @@ static int mlxsw_sp3_init(struct mlxsw_core *mlxsw_core,
 {
 	struct mlxsw_sp *mlxsw_sp = mlxsw_core_driver_priv(mlxsw_core);
 
+	mlxsw_sp->switchdev_ops = &mlxsw_sp2_switchdev_ops;
 	mlxsw_sp->kvdl_ops = &mlxsw_sp2_kvdl_ops;
 	mlxsw_sp->afa_ops = &mlxsw_sp2_act_afa_ops;
 	mlxsw_sp->afk_ops = &mlxsw_sp2_afk_ops;
@@ -2828,13 +3004,15 @@ static int mlxsw_sp3_init(struct mlxsw_core *mlxsw_core,
 	mlxsw_sp->acl_tcam_ops = &mlxsw_sp2_acl_tcam_ops;
 	mlxsw_sp->nve_ops_arr = mlxsw_sp2_nve_ops_arr;
 	mlxsw_sp->mac_mask = mlxsw_sp2_mac_mask;
-	mlxsw_sp->rif_ops_arr = mlxsw_sp2_rif_ops_arr;
 	mlxsw_sp->sb_vals = &mlxsw_sp2_sb_vals;
+	mlxsw_sp->sb_ops = &mlxsw_sp3_sb_ops;
 	mlxsw_sp->port_type_speed_ops = &mlxsw_sp2_port_type_speed_ops;
 	mlxsw_sp->ptp_ops = &mlxsw_sp2_ptp_ops;
 	mlxsw_sp->span_ops = &mlxsw_sp3_span_ops;
 	mlxsw_sp->policer_core_ops = &mlxsw_sp2_policer_core_ops;
 	mlxsw_sp->trap_ops = &mlxsw_sp2_trap_ops;
+	mlxsw_sp->mall_ops = &mlxsw_sp2_mall_ops;
+	mlxsw_sp->router_ops = &mlxsw_sp2_router_ops;
 	mlxsw_sp->lowest_shaper_bs = MLXSW_REG_QEEC_LOWEST_SHAPER_BS_SP3;
 
 	return mlxsw_sp_init(mlxsw_core, mlxsw_bus_info, extack);
@@ -2845,6 +3023,7 @@ static void mlxsw_sp_fini(struct mlxsw_core *mlxsw_core)
 	struct mlxsw_sp *mlxsw_sp = mlxsw_core_driver_priv(mlxsw_core);
 
 	mlxsw_sp_ports_remove(mlxsw_sp);
+	rhashtable_destroy(&mlxsw_sp->sample_trigger_ht);
 	mlxsw_sp_port_module_info_fini(mlxsw_sp);
 	mlxsw_sp_dpipe_fini(mlxsw_sp);
 	unregister_netdevice_notifier_net(mlxsw_sp_net(mlxsw_sp),
@@ -2911,6 +3090,8 @@ static const struct mlxsw_config_profile mlxsw_sp2_config_profile = {
 	.max_ib_mc			= 0,
 	.used_max_pkey			= 1,
 	.max_pkey			= 0,
+	.used_kvh_xlt_cache_mode	= 1,
+	.kvh_xlt_cache_mode		= 1,
 	.swid_config			= {
 		{
 			.used_type	= 1,
@@ -3172,52 +3353,6 @@ static int mlxsw_sp_kvd_sizes_get(struct mlxsw_core *mlxsw_core,
 }
 
 static int
-mlxsw_sp_devlink_param_fw_load_policy_validate(struct devlink *devlink, u32 id,
-					       union devlink_param_value val,
-					       struct netlink_ext_ack *extack)
-{
-	if ((val.vu8 != DEVLINK_PARAM_FW_LOAD_POLICY_VALUE_DRIVER) &&
-	    (val.vu8 != DEVLINK_PARAM_FW_LOAD_POLICY_VALUE_FLASH)) {
-		NL_SET_ERR_MSG_MOD(extack, "'fw_load_policy' must be 'driver' or 'flash'");
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-static const struct devlink_param mlxsw_sp_devlink_params[] = {
-	DEVLINK_PARAM_GENERIC(FW_LOAD_POLICY,
-			      BIT(DEVLINK_PARAM_CMODE_DRIVERINIT),
-			      NULL, NULL,
-			      mlxsw_sp_devlink_param_fw_load_policy_validate),
-};
-
-static int mlxsw_sp_params_register(struct mlxsw_core *mlxsw_core)
-{
-	struct devlink *devlink = priv_to_devlink(mlxsw_core);
-	union devlink_param_value value;
-	int err;
-
-	err = devlink_params_register(devlink, mlxsw_sp_devlink_params,
-				      ARRAY_SIZE(mlxsw_sp_devlink_params));
-	if (err)
-		return err;
-
-	value.vu8 = DEVLINK_PARAM_FW_LOAD_POLICY_VALUE_DRIVER;
-	devlink_param_driverinit_value_set(devlink,
-					   DEVLINK_PARAM_GENERIC_ID_FW_LOAD_POLICY,
-					   value);
-	return 0;
-}
-
-static void mlxsw_sp_params_unregister(struct mlxsw_core *mlxsw_core)
-{
-	devlink_params_unregister(priv_to_devlink(mlxsw_core),
-				  mlxsw_sp_devlink_params,
-				  ARRAY_SIZE(mlxsw_sp_devlink_params));
-}
-
-static int
 mlxsw_sp_params_acl_region_rehash_intrvl_get(struct devlink *devlink, u32 id,
 					     struct devlink_param_gset_ctx *ctx)
 {
@@ -3254,24 +3389,16 @@ static int mlxsw_sp2_params_register(struct mlxsw_core *mlxsw_core)
 	union devlink_param_value value;
 	int err;
 
-	err = mlxsw_sp_params_register(mlxsw_core);
-	if (err)
-		return err;
-
 	err = devlink_params_register(devlink, mlxsw_sp2_devlink_params,
 				      ARRAY_SIZE(mlxsw_sp2_devlink_params));
 	if (err)
-		goto err_devlink_params_register;
+		return err;
 
 	value.vu32 = 0;
 	devlink_param_driverinit_value_set(devlink,
 					   MLXSW_DEVLINK_PARAM_ID_ACL_REGION_REHASH_INTERVAL,
 					   value);
 	return 0;
-
-err_devlink_params_register:
-	mlxsw_sp_params_unregister(mlxsw_core);
-	return err;
 }
 
 static void mlxsw_sp2_params_unregister(struct mlxsw_core *mlxsw_core)
@@ -3279,7 +3406,6 @@ static void mlxsw_sp2_params_unregister(struct mlxsw_core *mlxsw_core)
 	devlink_params_unregister(priv_to_devlink(mlxsw_core),
 				  mlxsw_sp2_devlink_params,
 				  ARRAY_SIZE(mlxsw_sp2_devlink_params));
-	mlxsw_sp_params_unregister(mlxsw_core);
 }
 
 static void mlxsw_sp_ptp_transmitted(struct mlxsw_core *mlxsw_core,
@@ -3323,12 +3449,12 @@ static struct mlxsw_driver mlxsw_sp1_driver = {
 	.txhdr_construct		= mlxsw_sp_txhdr_construct,
 	.resources_register		= mlxsw_sp1_resources_register,
 	.kvd_sizes_get			= mlxsw_sp_kvd_sizes_get,
-	.params_register		= mlxsw_sp_params_register,
-	.params_unregister		= mlxsw_sp_params_unregister,
 	.ptp_transmitted		= mlxsw_sp_ptp_transmitted,
 	.txhdr_len			= MLXSW_TXHDR_LEN,
 	.profile			= &mlxsw_sp1_config_profile,
 	.res_query_enabled		= true,
+	.fw_fatal_enabled		= true,
+	.temp_warn_enabled		= true,
 };
 
 static struct mlxsw_driver mlxsw_sp2_driver = {
@@ -3368,6 +3494,8 @@ static struct mlxsw_driver mlxsw_sp2_driver = {
 	.txhdr_len			= MLXSW_TXHDR_LEN,
 	.profile			= &mlxsw_sp2_config_profile,
 	.res_query_enabled		= true,
+	.fw_fatal_enabled		= true,
+	.temp_warn_enabled		= true,
 };
 
 static struct mlxsw_driver mlxsw_sp3_driver = {
@@ -3407,6 +3535,8 @@ static struct mlxsw_driver mlxsw_sp3_driver = {
 	.txhdr_len			= MLXSW_TXHDR_LEN,
 	.profile			= &mlxsw_sp2_config_profile,
 	.res_query_enabled		= true,
+	.fw_fatal_enabled		= true,
+	.temp_warn_enabled		= true,
 };
 
 bool mlxsw_sp_port_dev_check(const struct net_device *dev)
@@ -3624,7 +3754,8 @@ static int mlxsw_sp_port_lag_index_get(struct mlxsw_sp *mlxsw_sp,
 }
 
 static int mlxsw_sp_port_lag_join(struct mlxsw_sp_port *mlxsw_sp_port,
-				  struct net_device *lag_dev)
+				  struct net_device *lag_dev,
+				  struct netlink_ext_ack *extack)
 {
 	struct mlxsw_sp *mlxsw_sp = mlxsw_sp_port->mlxsw_sp;
 	struct mlxsw_sp_upper *lag;
@@ -3660,8 +3791,20 @@ static int mlxsw_sp_port_lag_join(struct mlxsw_sp_port *mlxsw_sp_port,
 	if (mlxsw_sp_port->default_vlan->fid)
 		mlxsw_sp_port_vlan_router_leave(mlxsw_sp_port->default_vlan);
 
+	/* Join a router interface configured on the LAG, if exists */
+	err = mlxsw_sp_port_vlan_router_join(mlxsw_sp_port->default_vlan,
+					     lag_dev, extack);
+	if (err)
+		goto err_router_join;
+
 	return 0;
 
+err_router_join:
+	lag->ref_count--;
+	mlxsw_sp_port->lagged = 0;
+	mlxsw_core_lag_mapping_clear(mlxsw_sp->core, lag_id,
+				     mlxsw_sp_port->local_port);
+	mlxsw_sp_lag_col_port_remove(mlxsw_sp_port, lag_id);
 err_col_port_add:
 	if (!lag->ref_count)
 		mlxsw_sp_lag_destroy(mlxsw_sp, lag_id);
@@ -3699,7 +3842,8 @@ static void mlxsw_sp_port_lag_leave(struct mlxsw_sp_port *mlxsw_sp_port,
 	lag->ref_count--;
 
 	/* Make sure untagged frames are allowed to ingress */
-	mlxsw_sp_port_pvid_set(mlxsw_sp_port, MLXSW_SP_DEFAULT_VID);
+	mlxsw_sp_port_pvid_set(mlxsw_sp_port, MLXSW_SP_DEFAULT_VID,
+			       ETH_P_8021Q);
 }
 
 static int mlxsw_sp_lag_dist_port_add(struct mlxsw_sp_port *mlxsw_sp_port,
@@ -3921,6 +4065,7 @@ static int mlxsw_sp_netdevice_port_upper_event(struct net_device *lower_dev,
 	struct net_device *upper_dev;
 	struct mlxsw_sp *mlxsw_sp;
 	int err = 0;
+	u16 proto;
 
 	mlxsw_sp_port = netdev_priv(dev);
 	mlxsw_sp = mlxsw_sp_port->mlxsw_sp;
@@ -3978,6 +4123,36 @@ static int mlxsw_sp_netdevice_port_upper_event(struct net_device *lower_dev,
 			NL_SET_ERR_MSG_MOD(extack, "Can not put a VLAN on an OVS port");
 			return -EINVAL;
 		}
+		if (netif_is_bridge_master(upper_dev)) {
+			br_vlan_get_proto(upper_dev, &proto);
+			if (br_vlan_enabled(upper_dev) &&
+			    proto != ETH_P_8021Q && proto != ETH_P_8021AD) {
+				NL_SET_ERR_MSG_MOD(extack, "Enslaving a port to a bridge with unknown VLAN protocol is not supported");
+				return -EOPNOTSUPP;
+			}
+			if (vlan_uses_dev(lower_dev) &&
+			    br_vlan_enabled(upper_dev) &&
+			    proto == ETH_P_8021AD) {
+				NL_SET_ERR_MSG_MOD(extack, "Enslaving a port that already has a VLAN upper to an 802.1ad bridge is not supported");
+				return -EOPNOTSUPP;
+			}
+		}
+		if (netif_is_bridge_port(lower_dev) && is_vlan_dev(upper_dev)) {
+			struct net_device *br_dev = netdev_master_upper_dev_get(lower_dev);
+
+			if (br_vlan_enabled(br_dev)) {
+				br_vlan_get_proto(br_dev, &proto);
+				if (proto == ETH_P_8021AD) {
+					NL_SET_ERR_MSG_MOD(extack, "VLAN uppers are not supported on a port enslaved to an 802.1ad bridge");
+					return -EOPNOTSUPP;
+				}
+			}
+		}
+		if (is_vlan_dev(upper_dev) &&
+		    ntohs(vlan_dev_vlan_proto(upper_dev)) != ETH_P_8021Q) {
+			NL_SET_ERR_MSG_MOD(extack, "VLAN uppers are only supported with 802.1q VLAN protocol");
+			return -EOPNOTSUPP;
+		}
 		break;
 	case NETDEV_CHANGEUPPER:
 		upper_dev = info->upper_dev;
@@ -3994,7 +4169,7 @@ static int mlxsw_sp_netdevice_port_upper_event(struct net_device *lower_dev,
 		} else if (netif_is_lag_master(upper_dev)) {
 			if (info->linking) {
 				err = mlxsw_sp_port_lag_join(mlxsw_sp_port,
-							     upper_dev);
+							     upper_dev, extack);
 			} else {
 				mlxsw_sp_port_lag_col_dist_disable(mlxsw_sp_port);
 				mlxsw_sp_port_lag_leave(mlxsw_sp_port,
@@ -4243,6 +4418,7 @@ static int mlxsw_sp_netdevice_bridge_event(struct net_device *br_dev,
 	struct netdev_notifier_changeupper_info *info = ptr;
 	struct netlink_ext_ack *extack;
 	struct net_device *upper_dev;
+	u16 proto;
 
 	if (!mlxsw_sp)
 		return 0;
@@ -4258,6 +4434,18 @@ static int mlxsw_sp_netdevice_bridge_event(struct net_device *br_dev,
 		}
 		if (!info->linking)
 			break;
+		if (br_vlan_enabled(br_dev)) {
+			br_vlan_get_proto(br_dev, &proto);
+			if (proto == ETH_P_8021AD) {
+				NL_SET_ERR_MSG_MOD(extack, "Upper devices are not supported on top of an 802.1ad bridge");
+				return -EOPNOTSUPP;
+			}
+		}
+		if (is_vlan_dev(upper_dev) &&
+		    ntohs(vlan_dev_vlan_proto(upper_dev)) != ETH_P_8021Q) {
+			NL_SET_ERR_MSG_MOD(extack, "VLAN uppers are only supported with 802.1q VLAN protocol");
+			return -EOPNOTSUPP;
+		}
 		if (netif_is_macvlan(upper_dev) &&
 		    !mlxsw_sp_rif_exists(mlxsw_sp, br_dev)) {
 			NL_SET_ERR_MSG_MOD(extack, "macvlan is only supported on top of router interfaces");

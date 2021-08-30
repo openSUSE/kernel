@@ -9,7 +9,6 @@
 #define pr_fmt(fmt)	"power10-pmu: " fmt
 
 #include "isa207-common.h"
-#include "internal.h"
 
 /*
  * Raw event encoding for Power10:
@@ -105,6 +104,18 @@ static int power10_get_alternatives(u64 event, unsigned int flags, u64 alt[])
 					  power10_event_alternatives);
 
 	return num_alt;
+}
+
+static int power10_check_attr_config(struct perf_event *ev)
+{
+	u64 val;
+	u64 event = ev->attr.config;
+
+	val = (event >> EVENT_SAMPLE_SHIFT) & EVENT_SAMPLE_MASK;
+	if (val == 0x10 || isa3XX_check_attr_config(ev))
+		return -EINVAL;
+
+	return 0;
 }
 
 GENERIC_EVENT_ATTR(cpu-cycles,			PM_RUN_CYC);
@@ -217,6 +228,7 @@ PMU_FORMAT_ATTR(invert_bit,     "config:47");
 PMU_FORMAT_ATTR(src_mask,       "config:48-53");
 PMU_FORMAT_ATTR(src_match,      "config:54-59");
 PMU_FORMAT_ATTR(radix_scope,	"config:9");
+PMU_FORMAT_ATTR(thresh_cmp,     "config1:0-17");
 
 static struct attribute *power10_pmu_format_attr[] = {
 	&format_attr_event.attr,
@@ -237,6 +249,7 @@ static struct attribute *power10_pmu_format_attr[] = {
 	&format_attr_src_mask.attr,
 	&format_attr_src_match.attr,
 	&format_attr_radix_scope.attr,
+	&format_attr_thresh_cmp.attr,
 	NULL,
 };
 
@@ -551,13 +564,14 @@ static struct power_pmu power10_pmu = {
 	.get_mem_weight		= isa207_get_mem_weight,
 	.disable_pmc		= isa207_disable_pmc,
 	.flags			= PPMU_HAS_SIER | PPMU_ARCH_207S |
-				  PPMU_ARCH_31,
+				  PPMU_ARCH_31 | PPMU_HAS_ATTR_CONFIG1,
 	.n_generic		= ARRAY_SIZE(power10_generic_events),
 	.generic_events		= power10_generic_events,
 	.cache_events		= &power10_cache_events,
 	.attr_groups		= power10_pmu_attr_groups,
 	.bhrb_nr		= 32,
 	.capabilities           = PERF_PMU_CAP_EXTENDED_REGS,
+	.check_attr_config	= power10_check_attr_config,
 };
 
 int init_power10_pmu(void)

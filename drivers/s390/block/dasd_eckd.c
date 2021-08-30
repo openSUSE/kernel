@@ -746,7 +746,7 @@ static void create_uid(struct dasd_eckd_private *private)
 	memcpy(uid->vendor, private->ned->HDA_manufacturer,
 	       sizeof(uid->vendor) - 1);
 	EBCASC(uid->vendor, sizeof(uid->vendor) - 1);
-	memcpy(uid->serial, private->ned->HDA_location,
+	memcpy(uid->serial, &private->ned->serial,
 	       sizeof(uid->serial) - 1);
 	EBCASC(uid->serial, sizeof(uid->serial) - 1);
 	uid->ssid = private->gneq->subsystemID;
@@ -1004,15 +1004,23 @@ static unsigned char dasd_eckd_path_access(void *conf_data, int conf_len)
 static void dasd_eckd_store_conf_data(struct dasd_device *device,
 				      struct dasd_conf_data *conf_data, int chp)
 {
+	struct dasd_eckd_private *private = device->private;
 	struct channel_path_desc_fmt0 *chp_desc;
 	struct subchannel_id sch_id;
+	void *cdp;
 
-	ccw_device_get_schid(device->cdev, &sch_id);
 	/*
 	 * path handling and read_conf allocate data
 	 * free it before replacing the pointer
+	 * also replace the old private->conf_data pointer
+	 * with the new one if this points to the same data
 	 */
-	kfree(device->path[chp].conf_data);
+	cdp = device->path[chp].conf_data;
+	if (private->conf_data == cdp) {
+		private->conf_data = (void *)conf_data;
+		dasd_eckd_identify_conf_parts(private);
+	}
+	ccw_device_get_schid(device->cdev, &sch_id);
 	device->path[chp].conf_data = conf_data;
 	device->path[chp].cssid = sch_id.cssid;
 	device->path[chp].ssid = sch_id.ssid;
@@ -1020,6 +1028,7 @@ static void dasd_eckd_store_conf_data(struct dasd_device *device,
 	if (chp_desc)
 		device->path[chp].chpid = chp_desc->chpid;
 	kfree(chp_desc);
+	kfree(cdp);
 }
 
 static void dasd_eckd_clear_conf_data(struct dasd_device *device)
@@ -5776,95 +5785,6 @@ static void dasd_eckd_dump_sense(struct dasd_device *device,
 	}
 }
 
-static int dasd_eckd_pm_freeze(struct dasd_device *device)
-{
-	/*
-	 * the device should be disconnected from our LCU structure
-	 * on restore we will reconnect it and reread LCU specific
-	 * information like PAV support that might have changed
-	 */
-	dasd_alias_remove_device(device);
-	dasd_alias_disconnect_device_from_lcu(device);
-
-	return 0;
-}
-
-static int dasd_eckd_restore_device(struct dasd_device *device)
-{
-	struct dasd_eckd_private *private = device->private;
-	struct dasd_eckd_characteristics temp_rdc_data;
-	int rc;
-	struct dasd_uid temp_uid;
-	unsigned long flags;
-	unsigned long cqr_flags = 0;
-
-	/* Read Configuration Data */
-	rc = dasd_eckd_read_conf(device);
-	if (rc) {
-		DBF_EVENT_DEVID(DBF_WARNING, device->cdev,
-				"Read configuration data failed, rc=%d", rc);
-		goto out_err;
-	}
-
-	dasd_eckd_get_uid(device, &temp_uid);
-	/* Generate device unique id */
-	rc = dasd_eckd_generate_uid(device);
-	spin_lock_irqsave(get_ccwdev_lock(device->cdev), flags);
-	if (memcmp(&private->uid, &temp_uid, sizeof(struct dasd_uid)) != 0)
-		dev_err(&device->cdev->dev, "The UID of the DASD has "
-			"changed\n");
-	spin_unlock_irqrestore(get_ccwdev_lock(device->cdev), flags);
-	if (rc)
-		goto out_err;
-
-	/* register lcu with alias handling, enable PAV if this is a new lcu */
-	rc = dasd_alias_make_device_known_to_lcu(device);
-	if (rc)
-		goto out_err;
-
-	set_bit(DASD_CQR_FLAGS_FAILFAST, &cqr_flags);
-	dasd_eckd_validate_server(device, cqr_flags);
-
-	/* RE-Read Configuration Data */
-	rc = dasd_eckd_read_conf(device);
-	if (rc) {
-		DBF_EVENT_DEVID(DBF_WARNING, device->cdev,
-			"Read configuration data failed, rc=%d", rc);
-		goto out_err2;
-	}
-
-	/* Read Feature Codes */
-	dasd_eckd_read_features(device);
-
-	/* Read Volume Information */
-	dasd_eckd_read_vol_info(device);
-
-	/* Read Extent Pool Information */
-	dasd_eckd_read_ext_pool_info(device);
-
-	/* Read Device Characteristics */
-	rc = dasd_generic_read_dev_chars(device, DASD_ECKD_MAGIC,
-					 &temp_rdc_data, 64);
-	if (rc) {
-		DBF_EVENT_DEVID(DBF_WARNING, device->cdev,
-				"Read device characteristic failed, rc=%d", rc);
-		goto out_err2;
-	}
-	spin_lock_irqsave(get_ccwdev_lock(device->cdev), flags);
-	memcpy(&private->rdc_data, &temp_rdc_data, sizeof(temp_rdc_data));
-	spin_unlock_irqrestore(get_ccwdev_lock(device->cdev), flags);
-
-	/* add device to alias management */
-	dasd_alias_add_device(device);
-
-	return 0;
-
-out_err2:
-	dasd_alias_disconnect_device_from_lcu(device);
-out_err:
-	return -1;
-}
-
 static int dasd_eckd_reload_device(struct dasd_device *device)
 {
 	struct dasd_eckd_private *private = device->private;
@@ -6719,6 +6639,7 @@ static struct ccw_driver dasd_eckd_driver = {
 	.driver = {
 		.name	= "dasd-eckd",
 		.owner	= THIS_MODULE,
+		.dev_groups = dasd_dev_groups,
 	},
 	.ids	     = dasd_eckd_ids,
 	.probe	     = dasd_eckd_probe,
@@ -6728,9 +6649,6 @@ static struct ccw_driver dasd_eckd_driver = {
 	.notify      = dasd_generic_notify,
 	.path_event  = dasd_generic_path_event,
 	.shutdown    = dasd_generic_shutdown,
-	.freeze      = dasd_generic_pm_freeze,
-	.thaw	     = dasd_generic_restore_device,
-	.restore     = dasd_generic_restore_device,
 	.uc_handler  = dasd_generic_uc_handler,
 	.int_class   = IRQIO_DAS,
 };
@@ -6762,8 +6680,6 @@ static struct dasd_discipline dasd_eckd_discipline = {
 	.dump_sense_dbf = dasd_eckd_dump_sense_dbf,
 	.fill_info = dasd_eckd_fill_info,
 	.ioctl = dasd_eckd_ioctl,
-	.freeze = dasd_eckd_pm_freeze,
-	.restore = dasd_eckd_restore_device,
 	.reload = dasd_eckd_reload_device,
 	.get_uid = dasd_eckd_get_uid,
 	.kick_validate = dasd_eckd_kick_validate_server,

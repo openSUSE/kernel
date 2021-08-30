@@ -53,11 +53,14 @@ struct tas2562_data {
 	int v_sense_slot;
 	int i_sense_slot;
 	int volume_lvl;
+	int model_id;
 };
 
 enum tas256x_model {
 	TAS2562,
 	TAS2563,
+	TAS2564,
+	TAS2110,
 };
 
 static int tas2562_set_bias_level(struct snd_soc_component *component,
@@ -197,7 +200,6 @@ static int tas2562_set_dai_tdm_slot(struct snd_soc_dai *dai,
 			right_slot = left_slot;
 		} else {
 			right_slot = __ffs(tx_mask);
-			tx_mask &= ~(1 << right_slot);
 		}
 	}
 
@@ -524,7 +526,7 @@ static int tas2562_volume_control_put(struct snd_kcontrol *kcontrol,
 
 	tas2562->volume_lvl = ucontrol->value.integer.value[0];
 
-	return ret;
+	return 0;
 }
 
 /* Digital Volume Control. From 0 dB to -110 dB in 1 dB steps */
@@ -554,6 +556,40 @@ static const struct snd_kcontrol_new tas2562_snd_controls[] = {
 		.put = tas2562_volume_control_put,
 		.private_value = SOC_SINGLE_VALUE(TAS2562_DVC_CFG1, 0, 110, 0, 0),
 	},
+};
+
+static const struct snd_soc_dapm_widget tas2110_dapm_widgets[] = {
+	SND_SOC_DAPM_AIF_IN("ASI1", "ASI1 Playback", 0, SND_SOC_NOPM, 0, 0),
+	SND_SOC_DAPM_MUX("ASI1 Sel", SND_SOC_NOPM, 0, 0, &tas2562_asi1_mux),
+	SND_SOC_DAPM_DAC_E("DAC", NULL, SND_SOC_NOPM, 0, 0, tas2562_dac_event,
+			   SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD),
+	SND_SOC_DAPM_OUTPUT("OUT"),
+};
+
+static const struct snd_soc_dapm_route tas2110_audio_map[] = {
+	{"ASI1 Sel", "I2C offset", "ASI1"},
+	{"ASI1 Sel", "Left", "ASI1"},
+	{"ASI1 Sel", "Right", "ASI1"},
+	{"ASI1 Sel", "LeftRightDiv2", "ASI1"},
+	{ "DAC", NULL, "ASI1 Sel" },
+	{ "OUT", NULL, "DAC" },
+};
+
+static const struct snd_soc_component_driver soc_component_dev_tas2110 = {
+	.probe			= tas2562_codec_probe,
+	.suspend		= tas2562_suspend,
+	.resume			= tas2562_resume,
+	.set_bias_level		= tas2562_set_bias_level,
+	.controls		= tas2562_snd_controls,
+	.num_controls		= ARRAY_SIZE(tas2562_snd_controls),
+	.dapm_widgets		= tas2110_dapm_widgets,
+	.num_dapm_widgets	= ARRAY_SIZE(tas2110_dapm_widgets),
+	.dapm_routes		= tas2110_audio_map,
+	.num_dapm_routes	= ARRAY_SIZE(tas2110_audio_map),
+	.idle_bias_on		= 1,
+	.use_pmdown_time	= 1,
+	.endianness		= 1,
+	.non_legacy_dai_naming	= 1,
 };
 
 static const struct snd_soc_dapm_widget tas2562_dapm_widgets[] = {
@@ -690,6 +726,9 @@ static int tas2562_parse_dt(struct tas2562_data *tas2562)
 		tas2562->sdz_gpio = NULL;
 	}
 
+	if (tas2562->model_id == TAS2110)
+		return ret;
+
 	ret = fwnode_property_read_u32(dev->fwnode, "ti,imon-slot-no",
 			&tas2562->i_sense_slot);
 	if (ret) {
@@ -728,6 +767,7 @@ static int tas2562_probe(struct i2c_client *client,
 
 	data->client = client;
 	data->dev = &client->dev;
+	data->model_id = id->driver_data;
 
 	tas2562_parse_dt(data);
 
@@ -740,6 +780,12 @@ static int tas2562_probe(struct i2c_client *client,
 
 	dev_set_drvdata(&client->dev, data);
 
+	if (data->model_id == TAS2110)
+		return devm_snd_soc_register_component(dev,
+						       &soc_component_dev_tas2110,
+						       tas2562_dai,
+						       ARRAY_SIZE(tas2562_dai));
+
 	return devm_snd_soc_register_component(dev, &soc_component_dev_tas2562,
 					       tas2562_dai,
 					       ARRAY_SIZE(tas2562_dai));
@@ -749,16 +795,22 @@ static int tas2562_probe(struct i2c_client *client,
 static const struct i2c_device_id tas2562_id[] = {
 	{ "tas2562", TAS2562 },
 	{ "tas2563", TAS2563 },
+	{ "tas2564", TAS2564 },
+	{ "tas2110", TAS2110 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tas2562_id);
 
+#ifdef CONFIG_OF
 static const struct of_device_id tas2562_of_match[] = {
 	{ .compatible = "ti,tas2562", },
 	{ .compatible = "ti,tas2563", },
+	{ .compatible = "ti,tas2564", },
+	{ .compatible = "ti,tas2110", },
 	{ },
 };
 MODULE_DEVICE_TABLE(of, tas2562_of_match);
+#endif
 
 static struct i2c_driver tas2562_i2c_driver = {
 	.driver = {

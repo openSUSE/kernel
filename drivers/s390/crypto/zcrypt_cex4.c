@@ -28,9 +28,6 @@
 #define CEX4C_MIN_MOD_SIZE	 16	/*  256 bits	*/
 #define CEX4C_MAX_MOD_SIZE	512	/* 4096 bits	*/
 
-#define CEX4A_MAX_MESSAGE_SIZE	MSGTYPE50_CRB3_MAX_MSG_SIZE
-#define CEX4C_MAX_MESSAGE_SIZE	MSGTYPE06_MAX_MSG_SIZE
-
 /* Waiting time for requests to be processed.
  * Currently there are some types of request which are not deterministic.
  * But the maximum time limit managed by the stomper code is set to 60sec.
@@ -121,25 +118,52 @@ static ssize_t cca_mkvps_show(struct device *dev,
 		     AP_QID_QUEUE(zq->queue->qid),
 		     &ci, zq->online);
 
-	if (ci.new_mk_state >= '1' && ci.new_mk_state <= '3')
+	if (ci.new_aes_mk_state >= '1' && ci.new_aes_mk_state <= '3')
 		n = scnprintf(buf, PAGE_SIZE, "AES NEW: %s 0x%016llx\n",
-			      new_state[ci.new_mk_state - '1'], ci.new_mkvp);
+			      new_state[ci.new_aes_mk_state - '1'],
+			      ci.new_aes_mkvp);
 	else
 		n = scnprintf(buf, PAGE_SIZE, "AES NEW: - -\n");
 
-	if (ci.cur_mk_state >= '1' && ci.cur_mk_state <= '2')
+	if (ci.cur_aes_mk_state >= '1' && ci.cur_aes_mk_state <= '2')
 		n += scnprintf(buf + n, PAGE_SIZE - n,
 			       "AES CUR: %s 0x%016llx\n",
-			       cao_state[ci.cur_mk_state - '1'], ci.cur_mkvp);
+			       cao_state[ci.cur_aes_mk_state - '1'],
+			       ci.cur_aes_mkvp);
 	else
 		n += scnprintf(buf + n, PAGE_SIZE - n, "AES CUR: - -\n");
 
-	if (ci.old_mk_state >= '1' && ci.old_mk_state <= '2')
+	if (ci.old_aes_mk_state >= '1' && ci.old_aes_mk_state <= '2')
 		n += scnprintf(buf + n, PAGE_SIZE - n,
 			       "AES OLD: %s 0x%016llx\n",
-			       cao_state[ci.old_mk_state - '1'], ci.old_mkvp);
+			       cao_state[ci.old_aes_mk_state - '1'],
+			       ci.old_aes_mkvp);
 	else
 		n += scnprintf(buf + n, PAGE_SIZE - n, "AES OLD: - -\n");
+
+	if (ci.new_apka_mk_state >= '1' && ci.new_apka_mk_state <= '3')
+		n += scnprintf(buf + n, PAGE_SIZE - n,
+			       "APKA NEW: %s 0x%016llx\n",
+			       new_state[ci.new_apka_mk_state - '1'],
+			       ci.new_apka_mkvp);
+	else
+		n += scnprintf(buf + n, PAGE_SIZE - n, "APKA NEW: - -\n");
+
+	if (ci.cur_apka_mk_state >= '1' && ci.cur_apka_mk_state <= '2')
+		n += scnprintf(buf + n, PAGE_SIZE - n,
+			       "APKA CUR: %s 0x%016llx\n",
+			       cao_state[ci.cur_apka_mk_state - '1'],
+			       ci.cur_apka_mkvp);
+	else
+		n += scnprintf(buf + n, PAGE_SIZE - n, "APKA CUR: - -\n");
+
+	if (ci.old_apka_mk_state >= '1' && ci.old_apka_mk_state <= '2')
+		n += scnprintf(buf + n, PAGE_SIZE - n,
+			       "APKA OLD: %s 0x%016llx\n",
+			       cao_state[ci.old_apka_mk_state - '1'],
+			       ci.old_apka_mkvp);
+	else
+		n += scnprintf(buf + n, PAGE_SIZE - n, "APKA OLD: - -\n");
 
 	return n;
 }
@@ -578,19 +602,19 @@ static int zcrypt_cex4_queue_probe(struct ap_device *ap_dev)
 	int rc;
 
 	if (ap_test_bit(&aq->card->functions, AP_FUNC_ACCEL)) {
-		zq = zcrypt_queue_alloc(CEX4A_MAX_MESSAGE_SIZE);
+		zq = zcrypt_queue_alloc(aq->card->maxmsgsize);
 		if (!zq)
 			return -ENOMEM;
 		zq->ops = zcrypt_msgtype(MSGTYPE50_NAME,
 					 MSGTYPE50_VARIANT_DEFAULT);
 	} else if (ap_test_bit(&aq->card->functions, AP_FUNC_COPRO)) {
-		zq = zcrypt_queue_alloc(CEX4C_MAX_MESSAGE_SIZE);
+		zq = zcrypt_queue_alloc(aq->card->maxmsgsize);
 		if (!zq)
 			return -ENOMEM;
 		zq->ops = zcrypt_msgtype(MSGTYPE06_NAME,
 					 MSGTYPE06_VARIANT_DEFAULT);
 	} else if (ap_test_bit(&aq->card->functions, AP_FUNC_EP11)) {
-		zq = zcrypt_queue_alloc(CEX4C_MAX_MESSAGE_SIZE);
+		zq = zcrypt_queue_alloc(aq->card->maxmsgsize);
 		if (!zq)
 			return -ENOMEM;
 		zq->ops = zcrypt_msgtype(MSGTYPE06_NAME,
@@ -604,7 +628,7 @@ static int zcrypt_cex4_queue_probe(struct ap_device *ap_dev)
 	atomic_set(&zq->load, 0);
 	ap_queue_init_state(aq);
 	ap_queue_init_reply(aq, &zq->reply);
-	aq->request_timeout = CEX4_CLEANUP_TIME,
+	aq->request_timeout = CEX4_CLEANUP_TIME;
 	aq->private = zq;
 	rc = zcrypt_queue_register(zq);
 	if (rc) {
@@ -654,8 +678,6 @@ static void zcrypt_cex4_queue_remove(struct ap_device *ap_dev)
 static struct ap_driver zcrypt_cex4_queue_driver = {
 	.probe = zcrypt_cex4_queue_probe,
 	.remove = zcrypt_cex4_queue_remove,
-	.suspend = ap_queue_suspend,
-	.resume = ap_queue_resume,
 	.ids = zcrypt_cex4_queue_ids,
 	.flags = AP_DRIVER_FLAG_DEFAULT,
 };

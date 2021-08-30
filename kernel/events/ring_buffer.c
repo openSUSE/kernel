@@ -147,6 +147,7 @@ ring_buffer_has_space(unsigned long head, unsigned long tail,
 
 static __always_inline int
 __perf_output_begin(struct perf_output_handle *handle,
+		    struct perf_sample_data *data,
 		    struct perf_event *event, unsigned int size,
 		    bool backward)
 {
@@ -237,18 +238,16 @@ __perf_output_begin(struct perf_output_handle *handle,
 	handle->size = (1UL << page_shift) - offset;
 
 	if (unlikely(have_lost)) {
-		struct perf_sample_data sample_data;
-
 		lost_event.header.size = sizeof(lost_event);
 		lost_event.header.type = PERF_RECORD_LOST;
 		lost_event.header.misc = 0;
 		lost_event.id          = event->id;
 		lost_event.lost        = local_xchg(&rb->lost, 0);
 
-		perf_event_header__init_id(&lost_event.header,
-					   &sample_data, event);
+		/* XXX mostly redundant; @data is already fully initializes */
+		perf_event_header__init_id(&lost_event.header, data, event);
 		perf_output_put(handle, lost_event);
-		perf_event__output_id_sample(event, handle, &sample_data);
+		perf_event__output_id_sample(event, handle, data);
 	}
 
 	return 0;
@@ -263,22 +262,25 @@ out:
 }
 
 int perf_output_begin_forward(struct perf_output_handle *handle,
-			     struct perf_event *event, unsigned int size)
+			      struct perf_sample_data *data,
+			      struct perf_event *event, unsigned int size)
 {
-	return __perf_output_begin(handle, event, size, false);
+	return __perf_output_begin(handle, data, event, size, false);
 }
 
 int perf_output_begin_backward(struct perf_output_handle *handle,
+			       struct perf_sample_data *data,
 			       struct perf_event *event, unsigned int size)
 {
-	return __perf_output_begin(handle, event, size, true);
+	return __perf_output_begin(handle, data, event, size, true);
 }
 
 int perf_output_begin(struct perf_output_handle *handle,
+		      struct perf_sample_data *data,
 		      struct perf_event *event, unsigned int size)
 {
 
-	return __perf_output_begin(handle, event, size,
+	return __perf_output_begin(handle, data, event, size,
 				   unlikely(is_write_backward(event)));
 }
 
@@ -562,6 +564,42 @@ void *perf_get_aux(struct perf_output_handle *handle)
 }
 EXPORT_SYMBOL_GPL(perf_get_aux);
 
+/*
+ * Copy out AUX data from an AUX handle.
+ */
+long perf_output_copy_aux(struct perf_output_handle *aux_handle,
+			  struct perf_output_handle *handle,
+			  unsigned long from, unsigned long to)
+{
+	struct perf_buffer *rb = aux_handle->rb;
+	unsigned long tocopy, remainder, len = 0;
+	void *addr;
+
+	from &= (rb->aux_nr_pages << PAGE_SHIFT) - 1;
+	to &= (rb->aux_nr_pages << PAGE_SHIFT) - 1;
+
+	do {
+		tocopy = PAGE_SIZE - offset_in_page(from);
+		if (to > from)
+			tocopy = min(tocopy, to - from);
+		if (!tocopy)
+			break;
+
+		addr = rb->aux_pages[from >> PAGE_SHIFT];
+		addr += offset_in_page(from);
+
+		remainder = perf_output_copy(handle, addr, tocopy);
+		if (remainder)
+			return -EFAULT;
+
+		len += tocopy;
+		from += tocopy;
+		from &= (rb->aux_nr_pages << PAGE_SHIFT) - 1;
+	} while (to != from);
+
+	return len;
+}
+
 #define PERF_AUX_GFP	(GFP_KERNEL | __GFP_ZERO | __GFP_NOWARN | __GFP_NORETRY)
 
 static struct page *rb_alloc_aux_page(int node, int order)
@@ -636,21 +674,26 @@ int rb_alloc_aux(struct perf_buffer *rb, struct perf_event *event,
 	if (!has_aux(event))
 		return -EOPNOTSUPP;
 
-	/*
-	 * We need to start with the max_order that fits in nr_pages,
-	 * not the other way around, hence ilog2() and not get_order.
-	 */
-	max_order = ilog2(nr_pages);
-
-	/*
-	 * PMU requests more than one contiguous chunks of memory
-	 * for SW double buffering
-	 */
 	if (!overwrite) {
-		if (!max_order)
-			return -EINVAL;
+		/*
+		 * Watermark defaults to half the buffer, and so does the
+		 * max_order, to aid PMU drivers in double buffering.
+		 */
+		if (!watermark)
+			watermark = nr_pages << (PAGE_SHIFT - 1);
 
-		max_order--;
+		/*
+		 * Use aux_watermark as the basis for chunking to
+		 * help PMU drivers honor the watermark.
+		 */
+		max_order = get_order(watermark);
+	} else {
+		/*
+		 * We need to start with the max_order that fits in nr_pages,
+		 * not the other way around, hence ilog2() and not get_order.
+		 */
+		max_order = ilog2(nr_pages);
+		watermark = 0;
 	}
 
 	rb->aux_pages = kcalloc_node(nr_pages, sizeof(void *), GFP_KERNEL,
@@ -705,9 +748,6 @@ int rb_alloc_aux(struct perf_buffer *rb, struct perf_event *event,
 	rb->aux_overwrite = overwrite;
 	rb->aux_watermark = watermark;
 
-	if (!rb->aux_watermark && !rb->aux_overwrite)
-		rb->aux_watermark = nr_pages << (PAGE_SHIFT - 1);
-
 out:
 	if (!ret)
 		rb->aux_pgoff = pgoff;
@@ -754,11 +794,19 @@ static void *perf_mmap_alloc_page(int cpu)
 	return page_address(page);
 }
 
+static void perf_mmap_free_page(void *addr)
+{
+	struct page *page = virt_to_page(addr);
+
+	page->mapping = NULL;
+	__free_page(page);
+}
+
 struct perf_buffer *rb_alloc(int nr_pages, long watermark, int cpu, int flags)
 {
 	struct perf_buffer *rb;
 	unsigned long size;
-	int i;
+	int i, node;
 
 	size = sizeof(struct perf_buffer);
 	size += nr_pages * sizeof(void *);
@@ -766,7 +814,8 @@ struct perf_buffer *rb_alloc(int nr_pages, long watermark, int cpu, int flags)
 	if (order_base_2(size) >= PAGE_SHIFT+MAX_ORDER)
 		goto fail;
 
-	rb = kzalloc(size, GFP_KERNEL);
+	node = (cpu == -1) ? cpu : cpu_to_node(cpu);
+	rb = kzalloc_node(size, GFP_KERNEL, node);
 	if (!rb)
 		goto fail;
 
@@ -788,9 +837,9 @@ struct perf_buffer *rb_alloc(int nr_pages, long watermark, int cpu, int flags)
 
 fail_data_pages:
 	for (i--; i >= 0; i--)
-		free_page((unsigned long)rb->data_pages[i]);
+		perf_mmap_free_page(rb->data_pages[i]);
 
-	free_page((unsigned long)rb->user_page);
+	perf_mmap_free_page(rb->user_page);
 
 fail_user_page:
 	kfree(rb);
@@ -799,21 +848,13 @@ fail:
 	return NULL;
 }
 
-static void perf_mmap_free_page(unsigned long addr)
-{
-	struct page *page = virt_to_page((void *)addr);
-
-	page->mapping = NULL;
-	__free_page(page);
-}
-
 void rb_free(struct perf_buffer *rb)
 {
 	int i;
 
-	perf_mmap_free_page((unsigned long)rb->user_page);
+	perf_mmap_free_page(rb->user_page);
 	for (i = 0; i < rb->nr_pages; i++)
-		perf_mmap_free_page((unsigned long)rb->data_pages[i]);
+		perf_mmap_free_page(rb->data_pages[i]);
 	kfree(rb);
 }
 
@@ -868,11 +909,13 @@ struct perf_buffer *rb_alloc(int nr_pages, long watermark, int cpu, int flags)
 	struct perf_buffer *rb;
 	unsigned long size;
 	void *all_buf;
+	int node;
 
 	size = sizeof(struct perf_buffer);
 	size += sizeof(void *);
 
-	rb = kzalloc(size, GFP_KERNEL);
+	node = (cpu == -1) ? cpu : cpu_to_node(cpu);
+	rb = kzalloc_node(size, GFP_KERNEL, node);
 	if (!rb)
 		goto fail;
 

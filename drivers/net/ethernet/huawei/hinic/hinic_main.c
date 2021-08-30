@@ -172,7 +172,6 @@ static int create_txqs(struct hinic_dev *nic_dev)
 				  "Failed to add SQ%d debug\n", i);
 			goto err_add_sq_dbg;
 		}
-
 	}
 
 	return 0;
@@ -233,7 +232,7 @@ static void free_txqs(struct hinic_dev *nic_dev)
 }
 
 /**
- * create_txqs - Create the Logical Rx Queues of specific NIC device
+ * create_rxqs - Create the Logical Rx Queues of specific NIC device
  * @nic_dev: the specific NIC device
  *
  * Return 0 - Success, negative - Failure
@@ -289,7 +288,7 @@ err_init_rxq:
 }
 
 /**
- * free_txqs - Free the Logical Rx Queues of specific NIC device
+ * free_rxqs - Free the Logical Rx Queues of specific NIC device
  * @nic_dev: the specific NIC device
  **/
 static void free_rxqs(struct hinic_dev *nic_dev)
@@ -313,13 +312,7 @@ static void free_rxqs(struct hinic_dev *nic_dev)
 
 static int hinic_configure_max_qnum(struct hinic_dev *nic_dev)
 {
-	int err;
-
-	err = hinic_set_max_qnum(nic_dev, nic_dev->hwdev->nic_cap.max_qps);
-	if (err)
-		return err;
-
-	return 0;
+	return hinic_set_max_qnum(nic_dev, nic_dev->hwdev->nic_cap.max_qps);
 }
 
 static int hinic_rss_init(struct hinic_dev *nic_dev)

@@ -35,10 +35,9 @@
 
 #include <linux/compiler.h>
 #include <linux/page-flags.h>
-#include <linux/mm.h>
 
 #include <asm/intrinsics.h>
-#include <asm/pgtable.h>
+#include <linux/pgtable.h>
 #include <asm/io.h>
 #include <asm/extable.h>
 
@@ -51,7 +50,7 @@
 #define get_fs()  (current_thread_info()->addr_limit)
 #define set_fs(x) (current_thread_info()->addr_limit = (x))
 
-#define segment_eq(a, b)	((a).seg == (b).seg)
+#define uaccess_kernel()	(get_fs().seg == KERNEL_DS.seg)
 
 /*
  * When accessing user memory, we need to make sure the entire area really is in
@@ -269,24 +268,6 @@ xlate_dev_mem_ptr(phys_addr_t p)
 		ptr = (void *)p + __IA64_UNCACHED_OFFSET;
 	else
 		ptr = __va(p);
-
-	return ptr;
-}
-
-/*
- * Convert a virtual cached kernel memory pointer to an uncached pointer
- */
-static __inline__ void *
-xlate_dev_kmem_ptr(void *p)
-{
-	struct page *page;
-	void *ptr;
-
-	page = virt_to_page((unsigned long)p);
-	if (PageUncached(page))
-		ptr = (void *)__pa(p) + __IA64_UNCACHED_OFFSET;
-	else
-		ptr = p;
 
 	return ptr;
 }

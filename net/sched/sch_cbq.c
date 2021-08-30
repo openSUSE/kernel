@@ -263,7 +263,7 @@ cbq_classify(struct sk_buff *skb, struct Qdisc *sch, int *qerr)
 		/*
 		 * Step 3+n. If classifier selected a link sharing class,
 		 *	   apply agency specific classifier.
-		 *	   Repeat this procdure until we hit a leaf node.
+		 *	   Repeat this procedure until we hit a leaf node.
 		 */
 		head = cl;
 	}
@@ -360,7 +360,7 @@ cbq_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 	    struct sk_buff **to_free)
 {
 	struct cbq_sched_data *q = qdisc_priv(sch);
-	int uninitialized_var(ret);
+	int ret;
 	struct cbq_class *cl = cbq_classify(skb, sch, &ret);
 
 #ifdef CONFIG_NET_CLS_ACT
@@ -859,7 +859,7 @@ cbq_dequeue(struct Qdisc *sch)
 	return NULL;
 }
 
-/* CBQ class maintanance routines */
+/* CBQ class maintenance routines */
 
 static void cbq_adjust_levels(struct cbq_class *this)
 {
@@ -1675,7 +1675,8 @@ failure:
 	return err;
 }
 
-static int cbq_delete(struct Qdisc *sch, unsigned long arg)
+static int cbq_delete(struct Qdisc *sch, unsigned long arg,
+		      struct netlink_ext_ack *extack)
 {
 	struct cbq_sched_data *q = qdisc_priv(sch);
 	struct cbq_class *cl = (struct cbq_class *)arg;

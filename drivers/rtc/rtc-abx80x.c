@@ -13,6 +13,7 @@
 #include <linux/bcd.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
+#include <linux/of_device.h>
 #include <linux/rtc.h>
 #include <linux/watchdog.h>
 
@@ -116,6 +117,16 @@ struct abx80x_priv {
 	struct watchdog_device wdog;
 };
 
+static int abx80x_write_config_key(struct i2c_client *client, u8 key)
+{
+	if (i2c_smbus_write_byte_data(client, ABX8XX_REG_CFG_KEY, key) < 0) {
+		dev_err(&client->dev, "Unable to write configuration key\n");
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static int abx80x_is_rc_mode(struct i2c_client *client)
 {
 	int flags = 0;
@@ -139,12 +150,8 @@ static int abx80x_enable_trickle_charger(struct i2c_client *client,
 	 * Write the configuration key register to enable access to the Trickle
 	 * register
 	 */
-	err = i2c_smbus_write_byte_data(client, ABX8XX_REG_CFG_KEY,
-					ABX8XX_CFG_KEY_MISC);
-	if (err < 0) {
-		dev_err(&client->dev, "Unable to write configuration key\n");
+	if (abx80x_write_config_key(client, ABX8XX_CFG_KEY_MISC) < 0)
 		return -EIO;
-	}
 
 	err = i2c_smbus_write_byte_data(client, ABX8XX_REG_TRICKLE,
 					ABX8XX_TRICKLE_CHARGE_ENABLE |
@@ -357,12 +364,8 @@ static int abx80x_rtc_set_autocalibration(struct device *dev,
 	}
 
 	/* Unlock write access to Oscillator Control Register */
-	retval = i2c_smbus_write_byte_data(client, ABX8XX_REG_CFG_KEY,
-					   ABX8XX_CFG_KEY_OSC);
-	if (retval < 0) {
-		dev_err(dev, "Failed to write CONFIG_KEY register\n");
-		return retval;
-	}
+	if (abx80x_write_config_key(client, ABX8XX_CFG_KEY_OSC) < 0)
+		return -EIO;
 
 	retval = i2c_smbus_write_byte_data(client, ABX8XX_REG_OSC, flags);
 
@@ -449,12 +452,8 @@ static ssize_t oscillator_store(struct device *dev,
 		flags |= (ABX8XX_OSC_OSEL);
 
 	/* Unlock write access on Oscillator Control register */
-	retval = i2c_smbus_write_byte_data(client, ABX8XX_REG_CFG_KEY,
-					   ABX8XX_CFG_KEY_OSC);
-	if (retval < 0) {
-		dev_err(dev, "Failed to write CONFIG_KEY register\n");
-		return retval;
-	}
+	if (abx80x_write_config_key(client, ABX8XX_CFG_KEY_OSC) < 0)
+		return -EIO;
 
 	retval = i2c_smbus_write_byte_data(client, ABX8XX_REG_OSC, flags);
 	if (retval < 0) {
@@ -554,8 +553,9 @@ static const struct rtc_class_ops abx80x_rtc_ops = {
 	.ioctl		= abx80x_ioctl,
 };
 
-static int abx80x_dt_trickle_cfg(struct device_node *np)
+static int abx80x_dt_trickle_cfg(struct i2c_client *client)
 {
+	struct device_node *np = client->dev.of_node;
 	const char *diode;
 	int trickle_cfg = 0;
 	int i, ret;
@@ -565,12 +565,14 @@ static int abx80x_dt_trickle_cfg(struct device_node *np)
 	if (ret)
 		return ret;
 
-	if (!strcmp(diode, "standard"))
+	if (!strcmp(diode, "standard")) {
 		trickle_cfg |= ABX8XX_TRICKLE_STANDARD_DIODE;
-	else if (!strcmp(diode, "schottky"))
+	} else if (!strcmp(diode, "schottky")) {
 		trickle_cfg |= ABX8XX_TRICKLE_SCHOTTKY_DIODE;
-	else
+	} else {
+		dev_dbg(&client->dev, "Invalid tc-diode value: %s\n", diode);
 		return -EINVAL;
+	}
 
 	ret = of_property_read_u32(np, "abracon,tc-resistor", &tmp);
 	if (ret)
@@ -580,8 +582,10 @@ static int abx80x_dt_trickle_cfg(struct device_node *np)
 		if (trickle_resistors[i] == tmp)
 			break;
 
-	if (i == sizeof(trickle_resistors))
+	if (i == sizeof(trickle_resistors)) {
+		dev_dbg(&client->dev, "Invalid tc-resistor value: %u\n", tmp);
 		return -EINVAL;
+	}
 
 	return (trickle_cfg | i);
 }
@@ -756,13 +760,8 @@ static int abx80x_probe(struct i2c_client *client,
 		 * Write the configuration key register to enable access to
 		 * the config2 register
 		 */
-		err = i2c_smbus_write_byte_data(client, ABX8XX_REG_CFG_KEY,
-						ABX8XX_CFG_KEY_MISC);
-		if (err < 0) {
-			dev_err(&client->dev,
-				"Unable to write configuration key\n");
+		if (abx80x_write_config_key(client, ABX8XX_CFG_KEY_MISC) < 0)
 			return -EIO;
-		}
 
 		err = i2c_smbus_write_byte_data(client, ABX8XX_REG_OUT_CTRL,
 						data | ABX8XX_OUT_CTRL_EXDS);
@@ -793,7 +792,7 @@ static int abx80x_probe(struct i2c_client *client,
 	}
 
 	if (np && abx80x_caps[part].has_tc)
-		trickle_cfg = abx80x_dt_trickle_cfg(np);
+		trickle_cfg = abx80x_dt_trickle_cfg(client);
 
 	if (trickle_cfg > 0) {
 		dev_info(&client->dev, "Enabling trickle charger: %02x\n",
@@ -845,7 +844,7 @@ static int abx80x_probe(struct i2c_client *client,
 		return err;
 	}
 
-	return rtc_register_device(priv->rtc);
+	return devm_rtc_register_device(priv->rtc);
 }
 
 static const struct i2c_device_id abx80x_id[] = {
@@ -863,9 +862,57 @@ static const struct i2c_device_id abx80x_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, abx80x_id);
 
+#ifdef CONFIG_OF
+static const struct of_device_id abx80x_of_match[] = {
+	{
+		.compatible = "abracon,abx80x",
+		.data = (void *)ABX80X
+	},
+	{
+		.compatible = "abracon,ab0801",
+		.data = (void *)AB0801
+	},
+	{
+		.compatible = "abracon,ab0803",
+		.data = (void *)AB0803
+	},
+	{
+		.compatible = "abracon,ab0804",
+		.data = (void *)AB0804
+	},
+	{
+		.compatible = "abracon,ab0805",
+		.data = (void *)AB0805
+	},
+	{
+		.compatible = "abracon,ab1801",
+		.data = (void *)AB1801
+	},
+	{
+		.compatible = "abracon,ab1803",
+		.data = (void *)AB1803
+	},
+	{
+		.compatible = "abracon,ab1804",
+		.data = (void *)AB1804
+	},
+	{
+		.compatible = "abracon,ab1805",
+		.data = (void *)AB1805
+	},
+	{
+		.compatible = "microcrystal,rv1805",
+		.data = (void *)RV1805
+	},
+	{ }
+};
+MODULE_DEVICE_TABLE(of, abx80x_of_match);
+#endif
+
 static struct i2c_driver abx80x_driver = {
 	.driver		= {
 		.name	= "rtc-abx80x",
+		.of_match_table = of_match_ptr(abx80x_of_match),
 	},
 	.probe		= abx80x_probe,
 	.id_table	= abx80x_id,

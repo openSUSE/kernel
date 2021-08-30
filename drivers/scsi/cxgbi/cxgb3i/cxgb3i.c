@@ -117,6 +117,7 @@ static struct iscsi_transport cxgb3i_iscsi_transport = {
 	/* connection management */
 	.create_conn	= cxgbi_create_conn,
 	.bind_conn	= cxgbi_bind_conn,
+	.unbind_conn	= iscsi_conn_unbind,
 	.destroy_conn	= iscsi_tcp_conn_teardown,
 	.start_conn	= iscsi_conn_start,
 	.stop_conn	= iscsi_conn_stop,
@@ -375,10 +376,8 @@ static inline void make_tx_data_wr(struct cxgbi_sock *csk, struct sk_buff *skb,
 	}
 }
 
-/**
+/*
  * push_tx_frames -- start transmit
- * @c3cn: the offloaded connection
- * @req_completion: request wr_ack or not
  *
  * Prepends TX_DATA_WR or CPL_CLOSE_CON_REQ headers to buffers waiting in a
  * connection's send queue and sends them on to T3.  Must be called with the
@@ -645,7 +644,7 @@ static int abort_status_to_errno(struct cxgbi_sock *csk, int abort_reason,
 				 int *need_rst)
 {
 	switch (abort_reason) {
-	case CPL_ERR_BAD_SYN: /* fall through */
+	case CPL_ERR_BAD_SYN:
 	case CPL_ERR_CONN_RESET:
 		return csk->state > CTP_ESTABLISHED ? -EPIPE : -ECONNRESET;
 	case CPL_ERR_XMIT_TIMEDOUT:
@@ -886,11 +885,6 @@ free_cpl_skbs:
 	return -ENOMEM;
 }
 
-/**
- * release_offload_resources - release offload resource
- * @c3cn: the offloaded iscsi tcp connection.
- * Release resources held by an offload connection (TID, L2T entry, etc.)
- */
 static void l2t_put(struct cxgbi_sock *csk)
 {
 	struct t3cdev *t3dev = (struct t3cdev *)csk->cdev->lldev;
@@ -902,6 +896,10 @@ static void l2t_put(struct cxgbi_sock *csk)
 	}
 }
 
+/*
+ * release_offload_resources - release offload resource
+ * Release resources held by an offload connection (TID, L2T entry, etc.)
+ */
 static void release_offload_resources(struct cxgbi_sock *csk)
 {
 	struct t3cdev *t3dev = (struct t3cdev *)csk->cdev->lldev;
@@ -1180,7 +1178,7 @@ static int ddp_setup_conn_pgidx(struct cxgbi_sock *csk,
 }
 
 /**
- * cxgb3i_setup_conn_digest - setup conn. digest setting
+ * ddp_setup_conn_digest - setup conn. digest setting
  * @csk: cxgb tcp socket
  * @tid: connection id
  * @hcrc: header digest enabled

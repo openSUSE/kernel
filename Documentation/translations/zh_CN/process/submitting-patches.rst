@@ -91,7 +91,7 @@
 :ref:`cn_split_changes`
 
 如果你用 ``git`` , ``git rebase -i`` 可以帮助你这一点。如果你不用 ``git``,
-``quilt`` <http://savannah.nongnu.org/projects/quilt> 另外一个流行的选择。
+``quilt`` <https://savannah.nongnu.org/projects/quilt> 另外一个流行的选择。
 
 .. _cn_describe_changes:
 
@@ -649,10 +649,10 @@ pull 请求还应该包含一条整体消息，说明请求中将包含什么，
 --------
 
 Andrew Morton, "The perfect patch" (tpp).
-  <http://www.ozlabs.org/~akpm/stuff/tpp.txt>
+  <https://www.ozlabs.org/~akpm/stuff/tpp.txt>
 
 Jeff Garzik, "Linux kernel patch submission format".
-  <http://linux.yyz.us/patch-format.html>
+  <https://web.archive.org/web/20180829112450/http://linux.yyz.us/patch-format.html>
 
 Greg Kroah-Hartman, "How to piss off a kernel subsystem maintainer".
   <http://www.kroah.com/log/linux/maintainer.html>
@@ -668,13 +668,13 @@ Greg Kroah-Hartman, "How to piss off a kernel subsystem maintainer".
   <http://www.kroah.com/log/linux/maintainer-06.html>
 
 NO!!!! No more huge patch bombs to linux-kernel@vger.kernel.org people!
-  <https://lkml.org/lkml/2005/7/11/336>
+  <https://lore.kernel.org/r/20050711.125305.08322243.davem@davemloft.net>
 
 Kernel Documentation/process/coding-style.rst:
   :ref:`Documentation/translations/zh_CN/process/coding-style.rst <cn_codingstyle>`
 
 Linus Torvalds's mail on the canonical patch format:
-  <http://lkml.org/lkml/2005/4/7/183>
+  <https://lore.kernel.org/r/Pine.LNX.4.58.0504071023190.28951@ppc970.osdl.org>
 
 Andi Kleen, "On submitting kernel patches"
   Some strategies to get difficult or controversial changes in.

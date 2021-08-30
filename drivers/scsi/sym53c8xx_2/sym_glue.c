@@ -156,12 +156,8 @@ void sym_xpt_async_bus_reset(struct sym_hcb *np)
 static int sym_xerr_cam_status(int cam_status, int x_status)
 {
 	if (x_status) {
-		if	(x_status & XE_PARITY_ERR)
+		if (x_status & XE_PARITY_ERR)
 			cam_status = DID_PARITY;
-		else if	(x_status &(XE_EXTRA_DATA|XE_SODL_UNRUN|XE_SWIDE_OVRUN))
-			cam_status = DID_ERROR;
-		else if	(x_status & XE_BAD_PHASE)
-			cam_status = DID_ERROR;
 		else
 			cam_status = DID_ERROR;
 	}
@@ -174,9 +170,8 @@ static int sym_xerr_cam_status(int cam_status, int x_status)
 void sym_set_cam_result_error(struct sym_hcb *np, struct sym_ccb *cp, int resid)
 {
 	struct scsi_cmnd *cmd = cp->cmd;
-	u_int cam_status, scsi_status, drv_status;
+	u_int cam_status, scsi_status;
 
-	drv_status  = 0;
 	cam_status  = DID_OK;
 	scsi_status = cp->ssss_status;
 
@@ -190,7 +185,6 @@ void sym_set_cam_result_error(struct sym_hcb *np, struct sym_ccb *cp, int resid)
 		    cp->xerr_status == 0) {
 			cam_status = sym_xerr_cam_status(DID_OK,
 							 cp->sv_xerr_status);
-			drv_status = DRIVER_SENSE;
 			/*
 			 *  Bounce back the sense data to user.
 			 */
@@ -239,7 +233,7 @@ void sym_set_cam_result_error(struct sym_hcb *np, struct sym_ccb *cp, int resid)
 		cam_status = sym_xerr_cam_status(DID_ERROR, cp->xerr_status);
 	}
 	scsi_set_resid(cmd, resid);
-	cmd->result = (drv_status << 24) | (cam_status << 16) | scsi_status;
+	cmd->result = (cam_status << 16) | scsi_status;
 }
 
 static int sym_scatter(struct sym_hcb *np, struct sym_ccb *cp, struct scsi_cmnd *cmd)
@@ -1774,6 +1768,7 @@ static pci_ers_result_t sym2_io_slot_dump(struct pci_dev *pdev)
 
 /**
  * sym2_reset_workarounds - hardware-specific work-arounds
+ * @pdev: pointer to PCI device
  *
  * This routine is similar to sym_set_workarounds(), except
  * that, at this point, we already know that the device was

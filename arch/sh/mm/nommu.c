@@ -10,7 +10,6 @@
 #include <linux/init.h>
 #include <linux/string.h>
 #include <linux/mm.h>
-#include <asm/pgtable.h>
 #include <asm/tlbflush.h>
 #include <asm/page.h>
 #include <linux/uaccess.h>
@@ -95,9 +94,5 @@ void __init page_table_range_init(unsigned long start, unsigned long end,
 }
 
 void __set_fixmap(enum fixed_addresses idx, unsigned long phys, pgprot_t prot)
-{
-}
-
-void pgtable_cache_init(void)
 {
 }

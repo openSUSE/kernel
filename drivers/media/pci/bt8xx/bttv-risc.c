@@ -20,8 +20,8 @@
 #include <linux/pci.h>
 #include <linux/vmalloc.h>
 #include <linux/interrupt.h>
+#include <linux/pgtable.h>
 #include <asm/page.h>
-#include <asm/pgtable.h>
 #include <media/v4l2-ioctl.h>
 
 #include "bttvp.h"
@@ -572,7 +572,6 @@ bttv_dma_free(struct videobuf_queue *q,struct bttv *btv, struct bttv_buffer *buf
 {
 	struct videobuf_dmabuf *dma=videobuf_to_dma(&buf->vb);
 
-	BUG_ON(in_interrupt());
 	videobuf_waiton(q, &buf->vb, 0, 0);
 	videobuf_dma_unmap(q->dev, dma);
 	videobuf_dma_free(dma);
@@ -699,9 +698,9 @@ bttv_buffer_risc(struct bttv *btv, struct bttv_buffer *buf)
 	const struct bttv_tvnorm *tvnorm = bttv_tvnorms + buf->tvnorm;
 	struct videobuf_dmabuf *dma=videobuf_to_dma(&buf->vb);
 
-	dprintk("%d: buffer field: %s  format: %s  size: %dx%d\n",
+	dprintk("%d: buffer field: %s  format: 0x%08x  size: %dx%d\n",
 		btv->c.nr, v4l2_field_names[buf->vb.field],
-		buf->fmt->name, buf->vb.width, buf->vb.height);
+		buf->fmt->fourcc, buf->vb.width, buf->vb.height);
 
 	/* packed pixel modes */
 	if (buf->fmt->flags & FORMAT_FLAGS_PACKED) {
@@ -860,9 +859,9 @@ bttv_overlay_risc(struct bttv *btv,
 		  struct bttv_buffer *buf)
 {
 	/* check interleave, bottom+top fields */
-	dprintk("%d: overlay fields: %s format: %s  size: %dx%d\n",
+	dprintk("%d: overlay fields: %s format: 0x%08x  size: %dx%d\n",
 		btv->c.nr, v4l2_field_names[buf->vb.field],
-		fmt->name, ov->w.width, ov->w.height);
+		fmt->fourcc, ov->w.width, ov->w.height);
 
 	/* calculate geometry */
 	bttv_calc_geo(btv,&buf->geo,ov->w.width,ov->w.height,

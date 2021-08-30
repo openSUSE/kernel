@@ -280,6 +280,10 @@ static const struct property_entry bq24190_props[] = {
 	{ }
 };
 
+static const struct software_node bq24190_node = {
+	.properties = bq24190_props,
+};
+
 static struct regulator_consumer_supply fusb302_consumer = {
 	.supply = "vbus",
 	/* Must match fusb302 dev_name in intel_cht_int33fe.c */
@@ -308,16 +312,14 @@ static int cht_wc_i2c_adap_i2c_probe(struct platform_device *pdev)
 		.type = "bq24190",
 		.addr = 0x6b,
 		.dev_name = "bq24190",
-		.properties = bq24190_props,
+		.swnode = &bq24190_node,
 		.platform_data = &bq24190_pdata,
 	};
 	int ret, reg, irq;
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		dev_err(&pdev->dev, "Error missing irq resource\n");
-		return -EINVAL;
-	}
+	if (irq < 0)
+		return irq;
 
 	adap = devm_kzalloc(&pdev->dev, sizeof(*adap), GFP_KERNEL);
 	if (!adap)
@@ -352,8 +354,7 @@ static int cht_wc_i2c_adap_i2c_probe(struct platform_device *pdev)
 		return ret;
 
 	/* Alloc and register client IRQ */
-	adap->irq_domain = irq_domain_add_linear(pdev->dev.of_node, 1,
-						 &irq_domain_simple_ops, NULL);
+	adap->irq_domain = irq_domain_add_linear(NULL, 1, &irq_domain_simple_ops, NULL);
 	if (!adap->irq_domain)
 		return -ENOMEM;
 
@@ -388,9 +389,9 @@ static int cht_wc_i2c_adap_i2c_probe(struct platform_device *pdev)
 	 */
 	if (acpi_dev_present("INT33FE", NULL, -1)) {
 		board_info.irq = adap->client_irq;
-		adap->client = i2c_new_device(&adap->adapter, &board_info);
-		if (!adap->client) {
-			ret = -ENOMEM;
+		adap->client = i2c_new_client_device(&adap->adapter, &board_info);
+		if (IS_ERR(adap->client)) {
+			ret = PTR_ERR(adap->client);
 			goto del_adapter;
 		}
 	}
@@ -409,8 +410,7 @@ static int cht_wc_i2c_adap_i2c_remove(struct platform_device *pdev)
 {
 	struct cht_wc_i2c_adap *adap = platform_get_drvdata(pdev);
 
-	if (adap->client)
-		i2c_unregister_device(adap->client);
+	i2c_unregister_device(adap->client);
 	i2c_del_adapter(&adap->adapter);
 	irq_domain_remove(adap->irq_domain);
 

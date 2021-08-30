@@ -28,11 +28,11 @@
 #include <linux/smp.h>
 #include <linux/string.h>
 #include <linux/cache.h>
+#include <linux/pgtable.h>
 
 #include <asm/cacheflush.h>
 #include <asm/cpu-type.h>
 #include <asm/mmu_context.h>
-#include <asm/pgtable.h>
 #include <asm/war.h>
 #include <asm/uasm.h>
 #include <asm/setup.h>
@@ -83,14 +83,18 @@ static inline int r4k_250MHZhwbug(void)
 	return 0;
 }
 
+extern int sb1250_m3_workaround_needed(void);
+
 static inline int __maybe_unused bcm1250_m3_war(void)
 {
-	return BCM1250_M3_WAR;
+	if (IS_ENABLED(CONFIG_SB1_PASS_2_WORKAROUNDS))
+		return sb1250_m3_workaround_needed();
+	return 0;
 }
 
 static inline int __maybe_unused r10000_llsc_war(void)
 {
-	return R10000_LLSC_WAR;
+	return IS_ENABLED(CONFIG_WAR_R10000_LLSC);
 }
 
 static int use_bbit_insns(void)
@@ -572,12 +576,12 @@ void build_tlb_write_entry(u32 **p, struct uasm_label **l,
 	case CPU_BMIPS4350:
 	case CPU_BMIPS4380:
 	case CPU_BMIPS5000:
-	case CPU_LOONGSON2:
-	case CPU_LOONGSON3:
+	case CPU_LOONGSON2EF:
+	case CPU_LOONGSON64:
 	case CPU_R5500:
 		if (m4kc_tlbp_war())
 			uasm_i_nop(p);
-		/* fall through */
+		fallthrough;
 	case CPU_ALCHEMY:
 		tlbw(p);
 		break;
@@ -604,13 +608,12 @@ void build_tlb_write_entry(u32 **p, struct uasm_label **l,
 
 	case CPU_VR4131:
 	case CPU_VR4133:
-	case CPU_R5432:
 		uasm_i_nop(p);
 		uasm_i_nop(p);
 		tlbw(p);
 		break;
 
-	case CPU_JZRISC:
+	case CPU_XBURST:
 		tlbw(p);
 		uasm_i_nop(p);
 		break;
@@ -846,8 +849,8 @@ void build_get_pmde64(u32 **p, struct uasm_label **l, struct uasm_reloc **r,
 		/* Clear lower 23 bits of context. */
 		uasm_i_dins(p, ptr, 0, 0, 23);
 
-		/* 1 0	1 0 1  << 6  xkphys cached */
-		uasm_i_ori(p, ptr, ptr, 0x540);
+		/* insert bit[63:59] of CAC_BASE into bit[11:6] of ptr */
+		uasm_i_ori(p, ptr, ptr, ((u64)(CAC_BASE) >> 53));
 		uasm_i_drotr(p, ptr, ptr, 11);
 #elif defined(CONFIG_SMP)
 		UASM_i_CPUID_MFC0(p, ptr, SMP_CPUID_REG);
@@ -1162,8 +1165,9 @@ build_fast_tlb_refill_handler (u32 **p, struct uasm_label **l,
 
 	if (pgd_reg == -1) {
 		vmalloc_branch_delay_filled = 1;
-		/* 1 0	1 0 1  << 6  xkphys cached */
-		uasm_i_ori(p, ptr, ptr, 0x540);
+		/* insert bit[63:59] of CAC_BASE into bit[11:6] of ptr */
+		uasm_i_ori(p, ptr, ptr, ((u64)(CAC_BASE) >> 53));
+
 		uasm_i_drotr(p, ptr, ptr, 11);
 	}
 
@@ -1379,7 +1383,8 @@ static void build_r4000_tlb_refill_handler(void)
 	switch (boot_cpu_type()) {
 	default:
 		if (sizeof(long) == 4) {
-	case CPU_LOONGSON2:
+		fallthrough;
+	case CPU_LOONGSON2EF:
 		/* Loongson2 ebase is different than r4k, we have more space */
 			if ((p - tlb_handler) > 64)
 				panic("TLB refill handler space exceeded");
@@ -1482,6 +1487,7 @@ static void build_r4000_tlb_refill_handler(void)
 
 static void setup_pw(void)
 {
+	unsigned int pwctl;
 	unsigned long pgd_i, pgd_w;
 #ifndef __PAGETABLE_PMD_FOLDED
 	unsigned long pmd_i, pmd_w;
@@ -1508,6 +1514,7 @@ static void setup_pw(void)
 
 	pte_i = ilog2(_PAGE_GLOBAL);
 	pte_w = 0;
+	pwctl = 1 << 30; /* Set PWDirExt */
 
 #ifndef __PAGETABLE_PMD_FOLDED
 	write_c0_pwfield(pgd_i << 24 | pmd_i << 12 | pt_i << 6 | pte_i);
@@ -1518,8 +1525,9 @@ static void setup_pw(void)
 #endif
 
 #ifdef CONFIG_MIPS_HUGE_TLB_SUPPORT
-	write_c0_pwctl(1 << 6 | psn);
+	pwctl |= (1 << 6 | psn);
 #endif
+	write_c0_pwctl(pwctl);
 	write_c0_kpgd((long)swapper_pg_dir);
 	kscratch_used_mask |= (1 << 7); /* KScratch6 is used for KPGD */
 }
@@ -2162,6 +2170,7 @@ static void build_r4000_tlb_load_handler(void)
 		default:
 			if (cpu_has_mips_r2_exec_hazard) {
 				uasm_i_ehb(&p);
+			fallthrough;
 
 		case CPU_CAVIUM_OCTEON:
 		case CPU_CAVIUM_OCTEON_PLUS:
@@ -2616,21 +2625,11 @@ void build_tlb_refill_handler(void)
 	check_for_high_segbits = current_cpu_data.vmbits > (PGDIR_SHIFT + PGD_ORDER + PAGE_SHIFT - 3);
 #endif
 
-	switch (current_cpu_type()) {
-	case CPU_R2000:
-	case CPU_R3000:
-	case CPU_R3000A:
-	case CPU_R3081E:
-	case CPU_TX3912:
-	case CPU_TX3922:
-	case CPU_TX3927:
+	if (cpu_has_3kex) {
 #ifndef CONFIG_MIPS_PGD_C0_CONTEXT
-		if (cpu_has_local_ebase)
-			build_r3000_tlb_refill_handler();
 		if (!run_once) {
-			if (!cpu_has_local_ebase)
-				build_r3000_tlb_refill_handler();
 			build_setup_pgd();
+			build_r3000_tlb_refill_handler();
 			build_r3000_tlb_load_handler();
 			build_r3000_tlb_store_handler();
 			build_r3000_tlb_modify_handler();
@@ -2640,34 +2639,27 @@ void build_tlb_refill_handler(void)
 #else
 		panic("No R3000 TLB refill handler");
 #endif
-		break;
-
-	case CPU_R8000:
-		panic("No R8000 TLB refill handler yet");
-		break;
-
-	default:
-		if (cpu_has_ldpte)
-			setup_pw();
-
-		if (!run_once) {
-			scratch_reg = allocate_kscratch();
-			build_setup_pgd();
-			build_r4000_tlb_load_handler();
-			build_r4000_tlb_store_handler();
-			build_r4000_tlb_modify_handler();
-			if (cpu_has_ldpte)
-				build_loongson3_tlb_refill_handler();
-			else if (!cpu_has_local_ebase)
-				build_r4000_tlb_refill_handler();
-			flush_tlb_handlers();
-			run_once++;
-		}
-		if (cpu_has_local_ebase)
-			build_r4000_tlb_refill_handler();
-		if (cpu_has_xpa)
-			config_xpa_params();
-		if (cpu_has_htw)
-			config_htw_params();
+		return;
 	}
+
+	if (cpu_has_ldpte)
+		setup_pw();
+
+	if (!run_once) {
+		scratch_reg = allocate_kscratch();
+		build_setup_pgd();
+		build_r4000_tlb_load_handler();
+		build_r4000_tlb_store_handler();
+		build_r4000_tlb_modify_handler();
+		if (cpu_has_ldpte)
+			build_loongson3_tlb_refill_handler();
+		else
+			build_r4000_tlb_refill_handler();
+		flush_tlb_handlers();
+		run_once++;
+	}
+	if (cpu_has_xpa)
+		config_xpa_params();
+	if (cpu_has_htw)
+		config_htw_params();
 }

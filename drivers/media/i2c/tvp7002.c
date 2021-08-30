@@ -688,9 +688,11 @@ static int tvp7002_g_register(struct v4l2_subdev *sd,
 	int ret;
 
 	ret = tvp7002_read(sd, reg->reg & 0xff, &val);
+	if (ret < 0)
+		return ret;
 	reg->val = val;
 	reg->size = 1;
-	return ret;
+	return 0;
 }
 
 /*
@@ -795,7 +797,8 @@ static const struct v4l2_ctrl_ops tvp7002_ctrl_ops = {
  * Enumerate supported digital video formats for pad.
  */
 static int
-tvp7002_enum_mbus_code(struct v4l2_subdev *sd, struct v4l2_subdev_pad_config *cfg,
+tvp7002_enum_mbus_code(struct v4l2_subdev *sd,
+		       struct v4l2_subdev_state *sd_state,
 		       struct v4l2_subdev_mbus_code_enum *code)
 {
 	/* Check requested format index is within range */
@@ -816,7 +819,8 @@ tvp7002_enum_mbus_code(struct v4l2_subdev *sd, struct v4l2_subdev_pad_config *cf
  * get video format for pad.
  */
 static int
-tvp7002_get_pad_format(struct v4l2_subdev *sd, struct v4l2_subdev_pad_config *cfg,
+tvp7002_get_pad_format(struct v4l2_subdev *sd,
+		       struct v4l2_subdev_state *sd_state,
 		       struct v4l2_subdev_format *fmt)
 {
 	struct tvp7002 *tvp7002 = to_tvp7002(sd);
@@ -839,10 +843,11 @@ tvp7002_get_pad_format(struct v4l2_subdev *sd, struct v4l2_subdev_pad_config *cf
  * set video format for pad.
  */
 static int
-tvp7002_set_pad_format(struct v4l2_subdev *sd, struct v4l2_subdev_pad_config *cfg,
+tvp7002_set_pad_format(struct v4l2_subdev *sd,
+		       struct v4l2_subdev_state *sd_state,
 		       struct v4l2_subdev_format *fmt)
 {
-	return tvp7002_get_pad_format(sd, cfg, fmt);
+	return tvp7002_get_pad_format(sd, sd_state, fmt);
 }
 
 /* V4L2 core operation handlers */
@@ -930,7 +935,7 @@ done:
  * Returns zero when successful, -EINVAL if register read fails or
  * -EIO if i2c access is not available.
  */
-static int tvp7002_probe(struct i2c_client *c, const struct i2c_device_id *id)
+static int tvp7002_probe(struct i2c_client *c)
 {
 	struct tvp7002_config *pdata = tvp7002_get_pdata(c);
 	struct v4l2_subdev *sd;
@@ -1075,7 +1080,7 @@ static struct i2c_driver tvp7002_driver = {
 		.of_match_table = of_match_ptr(tvp7002_of_match),
 		.name = TVP7002_MODULE_NAME,
 	},
-	.probe = tvp7002_probe,
+	.probe_new = tvp7002_probe,
 	.remove = tvp7002_remove,
 	.id_table = tvp7002_id,
 };

@@ -13,8 +13,6 @@
 #define EXFAT_SUPER_MAGIC       0x2011BAB0UL
 #define EXFAT_ROOT_INO		1
 
-#define EXFAT_SB_DIRTY		0
-
 #define EXFAT_CLUSTERS_UNTRACKED (~0u)
 
 /*
@@ -71,10 +69,8 @@ enum {
 #define MAX_NAME_LENGTH		255 /* max len of file name excluding NULL */
 #define MAX_VFSNAME_BUF_SIZE	((MAX_NAME_LENGTH + 1) * MAX_CHARSET_SIZE)
 
-#define FAT_CACHE_SIZE		128
-#define FAT_CACHE_HASH_SIZE	64
-#define BUF_CACHE_SIZE		256
-#define BUF_CACHE_HASH_SIZE	64
+/* Enough size to hold 256 dentry (even 512 Byte sector) */
+#define DIR_CACHE_SIZE		(256*sizeof(struct exfat_dentry)/512+1)
 
 #define EXFAT_HINT_NONE		-1
 #define EXFAT_MIN_SUBDIR	2
@@ -132,14 +128,14 @@ enum {
 
 struct exfat_dentry_namebuf {
 	char *lfn;
-	int lfnbuf_len; /* usally MAX_UNINAME_BUF_SIZE */
+	int lfnbuf_len; /* usually MAX_UNINAME_BUF_SIZE */
 };
 
 /* unicode name structure */
 struct exfat_uni_name {
 	/* +3 for null and for converting */
 	unsigned short name[MAX_NAME_LENGTH + 3];
-	unsigned short name_hash;
+	u16 name_hash;
 	unsigned char name_len;
 };
 
@@ -170,14 +166,12 @@ struct exfat_hint {
 };
 
 struct exfat_entry_set_cache {
-	/* sector number that contains file_entry */
-	sector_t sector;
-	/* byte offset in the sector */
-	unsigned int offset;
-	/* flag in stream entry. 01 for cluster chain, 03 for contig. */
-	int alloc_flag;
+	struct super_block *sb;
+	bool modified;
+	unsigned int start_off;
+	int num_bh;
+	struct buffer_head *bh[DIR_CACHE_SIZE];
 	unsigned int num_entries;
-	struct exfat_dentry entries[];
 };
 
 struct exfat_dir_entry {
@@ -230,8 +224,9 @@ struct exfat_sb_info {
 	unsigned int num_FAT_sectors; /* num of FAT sectors */
 	unsigned int root_dir; /* root dir cluster */
 	unsigned int dentries_per_clu; /* num of dentries per cluster */
-	unsigned int vol_flag; /* volume dirty flag */
-	struct buffer_head *pbr_bh; /* buffer_head of PBR sector */
+	unsigned int vol_flags; /* volume flags */
+	unsigned int vol_flags_persistent; /* volume flags to retain */
+	struct buffer_head *boot_bh; /* buffer_head of BOOT sector */
 
 	unsigned int map_clu; /* allocation bitmap start cluster */
 	unsigned int map_sectors; /* num of allocation bitmap sectors */
@@ -242,8 +237,8 @@ struct exfat_sb_info {
 	unsigned int clu_srch_ptr; /* cluster search pointer */
 	unsigned int used_clusters; /* number of used clusters */
 
-	unsigned long s_state;
 	struct mutex s_lock; /* superblock lock */
+	struct mutex bitmap_lock; /* bitmap lock */
 	struct exfat_mount_options options;
 	struct nls_table *nls_io; /* Charset used for input and display */
 	struct ratelimit_state ratelimit;
@@ -271,8 +266,6 @@ struct exfat_inode_info {
 	 * the validation of hint_stat.
 	 */
 	unsigned int version;
-	/* file offset or dentry index for readdir */
-	loff_t rwoffset;
 
 	/* hint for cluster last accessed */
 	struct exfat_hint hint_bmap;
@@ -389,13 +382,14 @@ static inline int exfat_sector_to_cluster(struct exfat_sb_info *sbi,
 }
 
 /* super.c */
-int exfat_set_vol_flags(struct super_block *sb, unsigned short new_flag);
+int exfat_set_volume_dirty(struct super_block *sb);
+int exfat_clear_volume_dirty(struct super_block *sb);
 
 /* fatent.c */
 #define exfat_get_next_cluster(sb, pclu) exfat_ent_get(sb, *(pclu), pclu)
 
 int exfat_alloc_cluster(struct inode *inode, unsigned int num_alloc,
-		struct exfat_chain *p_chain);
+		struct exfat_chain *p_chain, bool sync_bmap);
 int exfat_free_cluster(struct inode *inode, struct exfat_chain *p_chain);
 int exfat_ent_get(struct super_block *sb, unsigned int loc,
 		unsigned int *content);
@@ -414,18 +408,25 @@ int exfat_count_num_clusters(struct super_block *sb,
 /* balloc.c */
 int exfat_load_bitmap(struct super_block *sb);
 void exfat_free_bitmap(struct exfat_sb_info *sbi);
-int exfat_set_bitmap(struct inode *inode, unsigned int clu);
-void exfat_clear_bitmap(struct inode *inode, unsigned int clu);
+int exfat_set_bitmap(struct inode *inode, unsigned int clu, bool sync);
+void exfat_clear_bitmap(struct inode *inode, unsigned int clu, bool sync);
 unsigned int exfat_find_free_bitmap(struct super_block *sb, unsigned int clu);
 int exfat_count_used_clusters(struct super_block *sb, unsigned int *ret_count);
+int exfat_trim_fs(struct inode *inode, struct fstrim_range *range);
 
 /* file.c */
 extern const struct file_operations exfat_file_operations;
 int __exfat_truncate(struct inode *inode, loff_t new_size);
 void exfat_truncate(struct inode *inode, loff_t size);
-int exfat_setattr(struct dentry *dentry, struct iattr *attr);
-int exfat_getattr(const struct path *path, struct kstat *stat,
-		unsigned int request_mask, unsigned int query_flags);
+int exfat_setattr(struct user_namespace *mnt_userns, struct dentry *dentry,
+		  struct iattr *attr);
+int exfat_getattr(struct user_namespace *mnt_userns, const struct path *path,
+		  struct kstat *stat, unsigned int request_mask,
+		  unsigned int query_flags);
+int exfat_file_fsync(struct file *file, loff_t start, loff_t end, int datasync);
+long exfat_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
+long exfat_compat_ioctl(struct file *filp, unsigned int cmd,
+				unsigned long arg);
 
 /* namei.c */
 extern const struct dentry_operations exfat_dentry_ops;
@@ -452,21 +453,22 @@ int exfat_remove_entries(struct inode *inode, struct exfat_chain *p_dir,
 		int entry, int order, int num_entries);
 int exfat_update_dir_chksum(struct inode *inode, struct exfat_chain *p_dir,
 		int entry);
-int exfat_update_dir_chksum_with_entry_set(struct super_block *sb,
-		struct exfat_entry_set_cache *es, int sync);
+void exfat_update_dir_chksum_with_entry_set(struct exfat_entry_set_cache *es);
 int exfat_calc_num_entries(struct exfat_uni_name *p_uniname);
 int exfat_find_dir_entry(struct super_block *sb, struct exfat_inode_info *ei,
 		struct exfat_chain *p_dir, struct exfat_uni_name *p_uniname,
-		int num_entries, unsigned int type);
+		int num_entries, unsigned int type, struct exfat_hint *hint_opt);
 int exfat_alloc_new_dir(struct inode *inode, struct exfat_chain *clu);
 int exfat_find_location(struct super_block *sb, struct exfat_chain *p_dir,
 		int entry, sector_t *sector, int *offset);
 struct exfat_dentry *exfat_get_dentry(struct super_block *sb,
 		struct exfat_chain *p_dir, int entry, struct buffer_head **bh,
 		sector_t *sector);
+struct exfat_dentry *exfat_get_dentry_cached(struct exfat_entry_set_cache *es,
+		int num);
 struct exfat_entry_set_cache *exfat_get_dentry_set(struct super_block *sb,
-		struct exfat_chain *p_dir, int entry, unsigned int type,
-		struct exfat_dentry **file_ep);
+		struct exfat_chain *p_dir, int entry, unsigned int type);
+int exfat_free_dentry_set(struct exfat_entry_set_cache *es, int sync);
 int exfat_count_dir_entries(struct super_block *sb, struct exfat_chain *p_dir);
 
 /* inode.c */
@@ -493,8 +495,6 @@ int exfat_nls_to_utf16(struct super_block *sb,
 		struct exfat_uni_name *uniname, int *p_lossy);
 int exfat_create_upcase_table(struct super_block *sb);
 void exfat_free_upcase_table(struct exfat_sb_info *sbi);
-unsigned short exfat_high_surrogate(unicode_t u);
-unsigned short exfat_low_surrogate(unicode_t u);
 
 /* exfat/misc.c */
 void __exfat_fs_error(struct super_block *sb, int report, const char *fmt, ...)
@@ -506,13 +506,22 @@ void __exfat_fs_error(struct super_block *sb, int report, const char *fmt, ...)
 		fmt, ## args)
 void exfat_msg(struct super_block *sb, const char *lv, const char *fmt, ...)
 		__printf(3, 4) __cold;
+#define exfat_err(sb, fmt, ...)						\
+	exfat_msg(sb, KERN_ERR, fmt, ##__VA_ARGS__)
+#define exfat_warn(sb, fmt, ...)					\
+	exfat_msg(sb, KERN_WARNING, fmt, ##__VA_ARGS__)
+#define exfat_info(sb, fmt, ...)					\
+	exfat_msg(sb, KERN_INFO, fmt, ##__VA_ARGS__)
+
 void exfat_get_entry_time(struct exfat_sb_info *sbi, struct timespec64 *ts,
-		u8 tz, __le16 time, __le16 date, u8 time_ms);
+		u8 tz, __le16 time, __le16 date, u8 time_cs);
+void exfat_truncate_atime(struct timespec64 *ts);
 void exfat_set_entry_time(struct exfat_sb_info *sbi, struct timespec64 *ts,
-		u8 *tz, __le16 *time, __le16 *date, u8 *time_ms);
-unsigned short exfat_calc_chksum_2byte(void *data, int len,
-		unsigned short chksum, int type);
-void exfat_update_bh(struct super_block *sb, struct buffer_head *bh, int sync);
+		u8 *tz, __le16 *time, __le16 *date, u8 *time_cs);
+u16 exfat_calc_chksum16(void *data, int len, u16 chksum, int type);
+u32 exfat_calc_chksum32(void *data, int len, u32 chksum, int type);
+void exfat_update_bh(struct buffer_head *bh, int sync);
+int exfat_update_bhs(struct buffer_head **bhs, int nr_bhs, int sync);
 void exfat_chain_set(struct exfat_chain *ec, unsigned int dir,
 		unsigned int size, unsigned char flags);
 void exfat_chain_dup(struct exfat_chain *dup, struct exfat_chain *ec);

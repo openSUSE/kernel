@@ -143,7 +143,8 @@ static int snd_cs5535audio_mixer(struct cs5535audio *cs5535au)
 		.read = snd_cs5535audio_ac97_codec_read,
 	};
 
-	if ((err = snd_ac97_bus(card, 0, &ops, NULL, &pbus)) < 0)
+	err = snd_ac97_bus(card, 0, &ops, NULL, &pbus);
+	if (err < 0)
 		return err;
 
 	memset(&ac97, 0, sizeof(ac97));
@@ -155,7 +156,8 @@ static int snd_cs5535audio_mixer(struct cs5535audio *cs5535au)
 	/* set any OLPC-specific scaps */
 	olpc_prequirks(card, &ac97);
 
-	if ((err = snd_ac97_mixer(pbus, &ac97, &cs5535au->ac97)) < 0) {
+	err = snd_ac97_mixer(pbus, &ac97, &cs5535au->ac97);
+	if (err < 0) {
 		dev_err(card->dev, "mixer failed\n");
 		return err;
 	}
@@ -266,11 +268,11 @@ static int snd_cs5535audio_create(struct snd_card *card,
 	};
 
 	*rcs5535au = NULL;
-	if ((err = pci_enable_device(pci)) < 0)
+	err = pci_enable_device(pci);
+	if (err < 0)
 		return err;
 
-	if (dma_set_mask(&pci->dev, DMA_BIT_MASK(32)) < 0 ||
-	    dma_set_coherent_mask(&pci->dev, DMA_BIT_MASK(32)) < 0) {
+	if (dma_set_mask_and_coherent(&pci->dev, DMA_BIT_MASK(32))) {
 		dev_warn(card->dev, "unable to get 32bit dma\n");
 		err = -ENXIO;
 		goto pcifail;
@@ -287,7 +289,8 @@ static int snd_cs5535audio_create(struct snd_card *card,
 	cs5535au->pci = pci;
 	cs5535au->irq = -1;
 
-	if ((err = pci_request_regions(pci, "CS5535 Audio")) < 0) {
+	err = pci_request_regions(pci, "CS5535 Audio");
+	if (err < 0) {
 		kfree(cs5535au);
 		goto pcifail;
 	}
@@ -305,8 +308,8 @@ static int snd_cs5535audio_create(struct snd_card *card,
 	card->sync_irq = cs5535au->irq;
 	pci_set_master(pci);
 
-	if ((err = snd_device_new(card, SNDRV_DEV_LOWLEVEL,
-				  cs5535au, &ops)) < 0)
+	err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, cs5535au, &ops);
+	if (err < 0)
 		goto sndfail;
 
 	*rcs5535au = cs5535au;
@@ -341,15 +344,18 @@ static int snd_cs5535audio_probe(struct pci_dev *pci,
 	if (err < 0)
 		return err;
 
-	if ((err = snd_cs5535audio_create(card, pci, &cs5535au)) < 0)
+	err = snd_cs5535audio_create(card, pci, &cs5535au);
+	if (err < 0)
 		goto probefail_out;
 
 	card->private_data = cs5535au;
 
-	if ((err = snd_cs5535audio_mixer(cs5535au)) < 0)
+	err = snd_cs5535audio_mixer(cs5535au);
+	if (err < 0)
 		goto probefail_out;
 
-	if ((err = snd_cs5535audio_pcm(cs5535au)) < 0)
+	err = snd_cs5535audio_pcm(cs5535au);
+	if (err < 0)
 		goto probefail_out;
 
 	strcpy(card->driver, DRIVER_NAME);
@@ -359,7 +365,8 @@ static int snd_cs5535audio_probe(struct pci_dev *pci,
 		card->shortname, card->driver,
 		cs5535au->port, cs5535au->irq);
 
-	if ((err = snd_card_register(card)) < 0)
+	err = snd_card_register(card);
+	if (err < 0)
 		goto probefail_out;
 
 	pci_set_drvdata(pci, card);
@@ -394,4 +401,3 @@ module_pci_driver(cs5535audio_driver);
 MODULE_AUTHOR("Jaya Kumar");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("CS5535 Audio");
-MODULE_SUPPORTED_DEVICE("CS5535 Audio");

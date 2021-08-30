@@ -26,6 +26,7 @@
 #include <trace/events/devlink.h>
 
 #include "core.h"
+#include "core_env.h"
 #include "item.h"
 #include "cmd.h"
 #include "port.h"
@@ -83,15 +84,49 @@ struct mlxsw_core {
 	struct mlxsw_thermal *thermal;
 	struct mlxsw_core_port *ports;
 	unsigned int max_ports;
+	atomic_t active_ports_count;
 	bool fw_flash_in_progress;
+	struct {
+		struct devlink_health_reporter *fw_fatal;
+	} health;
+	struct mlxsw_env *env;
+	bool is_initialized; /* Denotes if core was already initialized. */
 	unsigned long driver_priv[];
 	/* driver_priv has to be always the last item */
 };
 
 #define MLXSW_PORT_MAX_PORTS_DEFAULT	0x40
 
-static int mlxsw_ports_init(struct mlxsw_core *mlxsw_core)
+static u64 mlxsw_ports_occ_get(void *priv)
 {
+	struct mlxsw_core *mlxsw_core = priv;
+
+	return atomic_read(&mlxsw_core->active_ports_count);
+}
+
+static int mlxsw_core_resources_ports_register(struct mlxsw_core *mlxsw_core)
+{
+	struct devlink *devlink = priv_to_devlink(mlxsw_core);
+	struct devlink_resource_size_params ports_num_params;
+	u32 max_ports;
+
+	max_ports = mlxsw_core->max_ports - 1;
+	devlink_resource_size_params_init(&ports_num_params, max_ports,
+					  max_ports, 1,
+					  DEVLINK_RESOURCE_UNIT_ENTRY);
+
+	return devlink_resource_register(devlink,
+					 DEVLINK_RESOURCE_GENERIC_NAME_PORTS,
+					 max_ports, MLXSW_CORE_RESOURCE_PORTS,
+					 DEVLINK_RESOURCE_ID_PARENT_TOP,
+					 &ports_num_params);
+}
+
+static int mlxsw_ports_init(struct mlxsw_core *mlxsw_core, bool reload)
+{
+	struct devlink *devlink = priv_to_devlink(mlxsw_core);
+	int err;
+
 	/* Switch ports are numbered from 1 to queried value */
 	if (MLXSW_CORE_RES_VALID(mlxsw_core, MAX_SYSTEM_PORT))
 		mlxsw_core->max_ports = MLXSW_CORE_RES_GET(mlxsw_core,
@@ -104,11 +139,30 @@ static int mlxsw_ports_init(struct mlxsw_core *mlxsw_core)
 	if (!mlxsw_core->ports)
 		return -ENOMEM;
 
+	if (!reload) {
+		err = mlxsw_core_resources_ports_register(mlxsw_core);
+		if (err)
+			goto err_resources_ports_register;
+	}
+	atomic_set(&mlxsw_core->active_ports_count, 0);
+	devlink_resource_occ_get_register(devlink, MLXSW_CORE_RESOURCE_PORTS,
+					  mlxsw_ports_occ_get, mlxsw_core);
+
 	return 0;
+
+err_resources_ports_register:
+	kfree(mlxsw_core->ports);
+	return err;
 }
 
-static void mlxsw_ports_fini(struct mlxsw_core *mlxsw_core)
+static void mlxsw_ports_fini(struct mlxsw_core *mlxsw_core, bool reload)
 {
+	struct devlink *devlink = priv_to_devlink(mlxsw_core);
+
+	devlink_resource_occ_get_unregister(devlink, MLXSW_CORE_RESOURCE_PORTS);
+	if (!reload)
+		devlink_resources_unregister(priv_to_devlink(mlxsw_core), NULL);
+
 	kfree(mlxsw_core->ports);
 }
 
@@ -130,6 +184,11 @@ bool mlxsw_core_res_query_enabled(const struct mlxsw_core *mlxsw_core)
 }
 EXPORT_SYMBOL(mlxsw_core_res_query_enabled);
 
+bool mlxsw_core_temp_warn_enabled(const struct mlxsw_core *mlxsw_core)
+{
+	return mlxsw_core->driver->temp_warn_enabled;
+}
+
 bool
 mlxsw_core_fw_rev_minor_subminor_validate(const struct mlxsw_fw_rev *rev,
 					  const struct mlxsw_fw_rev *req_rev)
@@ -149,6 +208,7 @@ struct mlxsw_rx_listener_item {
 
 struct mlxsw_event_listener_item {
 	struct list_head list;
+	struct mlxsw_core *mlxsw_core;
 	struct mlxsw_event_listener el;
 	void *priv;
 };
@@ -570,7 +630,7 @@ static int mlxsw_emad_transmit(struct mlxsw_core *mlxsw_core,
 	struct sk_buff *skb;
 	int err;
 
-	skb = skb_copy(trans->tx_skb, GFP_KERNEL);
+	skb = skb_clone(trans->tx_skb, GFP_KERNEL);
 	if (!skb)
 		return -ENOMEM;
 
@@ -1106,16 +1166,47 @@ static int mlxsw_core_fw_flash_update(struct mlxsw_core *mlxsw_core,
 				      struct devlink_flash_update_params *params,
 				      struct netlink_ext_ack *extack)
 {
-	const struct firmware *firmware;
+	return mlxsw_core_fw_flash(mlxsw_core, params->fw, extack);
+}
+
+static int mlxsw_core_devlink_param_fw_load_policy_validate(struct devlink *devlink, u32 id,
+							    union devlink_param_value val,
+							    struct netlink_ext_ack *extack)
+{
+	if (val.vu8 != DEVLINK_PARAM_FW_LOAD_POLICY_VALUE_DRIVER &&
+	    val.vu8 != DEVLINK_PARAM_FW_LOAD_POLICY_VALUE_FLASH) {
+		NL_SET_ERR_MSG_MOD(extack, "'fw_load_policy' must be 'driver' or 'flash'");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static const struct devlink_param mlxsw_core_fw_devlink_params[] = {
+	DEVLINK_PARAM_GENERIC(FW_LOAD_POLICY, BIT(DEVLINK_PARAM_CMODE_DRIVERINIT), NULL, NULL,
+			      mlxsw_core_devlink_param_fw_load_policy_validate),
+};
+
+static int mlxsw_core_fw_params_register(struct mlxsw_core *mlxsw_core)
+{
+	struct devlink *devlink = priv_to_devlink(mlxsw_core);
+	union devlink_param_value value;
 	int err;
 
-	err = request_firmware_direct(&firmware, params->file_name, mlxsw_core->bus_info->dev);
+	err = devlink_params_register(devlink, mlxsw_core_fw_devlink_params,
+				      ARRAY_SIZE(mlxsw_core_fw_devlink_params));
 	if (err)
 		return err;
-	err = mlxsw_core_fw_flash(mlxsw_core, firmware, extack);
-	release_firmware(firmware);
 
-	return err;
+	value.vu8 = DEVLINK_PARAM_FW_LOAD_POLICY_VALUE_DRIVER;
+	devlink_param_driverinit_value_set(devlink, DEVLINK_PARAM_GENERIC_ID_FW_LOAD_POLICY, value);
+	return 0;
+}
+
+static void mlxsw_core_fw_params_unregister(struct mlxsw_core *mlxsw_core)
+{
+	devlink_params_unregister(priv_to_devlink(mlxsw_core), mlxsw_core_fw_devlink_params,
+				  ARRAY_SIZE(mlxsw_core_fw_devlink_params));
 }
 
 static int mlxsw_devlink_port_split(struct devlink *devlink,
@@ -1353,7 +1444,9 @@ mlxsw_devlink_info_get(struct devlink *devlink, struct devlink_info_req *req,
 	if (err)
 		return err;
 
-	err = devlink_info_version_fixed_put(req, "fw.psid", fw_info_psid);
+	err = devlink_info_version_fixed_put(req,
+					     DEVLINK_INFO_VERSION_GENERIC_FW_PSID,
+					     fw_info_psid);
 	if (err)
 		return err;
 
@@ -1362,12 +1455,15 @@ mlxsw_devlink_info_get(struct devlink *devlink, struct devlink_info_req *req,
 	if (err)
 		return err;
 
-	return 0;
+	return devlink_info_version_running_put(req,
+						DEVLINK_INFO_VERSION_GENERIC_FW,
+						buf);
 }
 
 static int
 mlxsw_devlink_core_bus_device_reload_down(struct devlink *devlink,
-					  bool netns_change,
+					  bool netns_change, enum devlink_reload_action action,
+					  enum devlink_reload_limit limit,
 					  struct netlink_ext_ack *extack)
 {
 	struct mlxsw_core *mlxsw_core = devlink_priv(devlink);
@@ -1380,11 +1476,14 @@ mlxsw_devlink_core_bus_device_reload_down(struct devlink *devlink,
 }
 
 static int
-mlxsw_devlink_core_bus_device_reload_up(struct devlink *devlink,
+mlxsw_devlink_core_bus_device_reload_up(struct devlink *devlink, enum devlink_reload_action action,
+					enum devlink_reload_limit limit, u32 *actions_performed,
 					struct netlink_ext_ack *extack)
 {
 	struct mlxsw_core *mlxsw_core = devlink_priv(devlink);
 
+	*actions_performed = BIT(DEVLINK_RELOAD_ACTION_DRIVER_REINIT) |
+			     BIT(DEVLINK_RELOAD_ACTION_FW_ACTIVATE);
 	return mlxsw_core_bus_device_register(mlxsw_core->bus_info,
 					      mlxsw_core->bus,
 					      mlxsw_core->bus_priv, true,
@@ -1517,6 +1616,8 @@ mlxsw_devlink_trap_policer_counter_get(struct devlink *devlink,
 }
 
 static const struct devlink_ops mlxsw_devlink_ops = {
+	.reload_actions		= BIT(DEVLINK_RELOAD_ACTION_DRIVER_REINIT) |
+				  BIT(DEVLINK_RELOAD_ACTION_FW_ACTIVATE),
 	.reload_down		= mlxsw_devlink_core_bus_device_reload_down,
 	.reload_up		= mlxsw_devlink_core_bus_device_reload_up,
 	.port_type_set			= mlxsw_devlink_port_type_set,
@@ -1544,6 +1645,267 @@ static const struct devlink_ops mlxsw_devlink_ops = {
 	.trap_policer_set		= mlxsw_devlink_trap_policer_set,
 	.trap_policer_counter_get	= mlxsw_devlink_trap_policer_counter_get,
 };
+
+static int mlxsw_core_params_register(struct mlxsw_core *mlxsw_core)
+{
+	int err;
+
+	err = mlxsw_core_fw_params_register(mlxsw_core);
+	if (err)
+		return err;
+
+	if (mlxsw_core->driver->params_register) {
+		err = mlxsw_core->driver->params_register(mlxsw_core);
+		if (err)
+			goto err_params_register;
+	}
+	return 0;
+
+err_params_register:
+	mlxsw_core_fw_params_unregister(mlxsw_core);
+	return err;
+}
+
+static void mlxsw_core_params_unregister(struct mlxsw_core *mlxsw_core)
+{
+	mlxsw_core_fw_params_unregister(mlxsw_core);
+	if (mlxsw_core->driver->params_register)
+		mlxsw_core->driver->params_unregister(mlxsw_core);
+}
+
+struct mlxsw_core_health_event {
+	struct mlxsw_core *mlxsw_core;
+	char mfde_pl[MLXSW_REG_MFDE_LEN];
+	struct work_struct work;
+};
+
+static void mlxsw_core_health_event_work(struct work_struct *work)
+{
+	struct mlxsw_core_health_event *event;
+	struct mlxsw_core *mlxsw_core;
+
+	event = container_of(work, struct mlxsw_core_health_event, work);
+	mlxsw_core = event->mlxsw_core;
+	devlink_health_report(mlxsw_core->health.fw_fatal, "FW fatal event occurred",
+			      event->mfde_pl);
+	kfree(event);
+}
+
+static void mlxsw_core_health_listener_func(const struct mlxsw_reg_info *reg,
+					    char *mfde_pl, void *priv)
+{
+	struct mlxsw_core_health_event *event;
+	struct mlxsw_core *mlxsw_core = priv;
+
+	event = kmalloc(sizeof(*event), GFP_ATOMIC);
+	if (!event)
+		return;
+	event->mlxsw_core = mlxsw_core;
+	memcpy(event->mfde_pl, mfde_pl, sizeof(event->mfde_pl));
+	INIT_WORK(&event->work, mlxsw_core_health_event_work);
+	mlxsw_core_schedule_work(&event->work);
+}
+
+static const struct mlxsw_listener mlxsw_core_health_listener =
+	MLXSW_EVENTL(mlxsw_core_health_listener_func, MFDE, MFDE);
+
+static int mlxsw_core_health_fw_fatal_dump(struct devlink_health_reporter *reporter,
+					   struct devlink_fmsg *fmsg, void *priv_ctx,
+					   struct netlink_ext_ack *extack)
+{
+	char *mfde_pl = priv_ctx;
+	char *val_str;
+	u8 event_id;
+	u32 val;
+	int err;
+
+	if (!priv_ctx)
+		/* User-triggered dumps are not possible */
+		return -EOPNOTSUPP;
+
+	val = mlxsw_reg_mfde_irisc_id_get(mfde_pl);
+	err = devlink_fmsg_u8_pair_put(fmsg, "irisc_id", val);
+	if (err)
+		return err;
+	err = devlink_fmsg_arr_pair_nest_start(fmsg, "event");
+	if (err)
+		return err;
+
+	event_id = mlxsw_reg_mfde_event_id_get(mfde_pl);
+	err = devlink_fmsg_u32_pair_put(fmsg, "id", event_id);
+	if (err)
+		return err;
+	switch (event_id) {
+	case MLXSW_REG_MFDE_EVENT_ID_CRSPACE_TO:
+		val_str = "CR space timeout";
+		break;
+	case MLXSW_REG_MFDE_EVENT_ID_KVD_IM_STOP:
+		val_str = "KVD insertion machine stopped";
+		break;
+	default:
+		val_str = NULL;
+	}
+	if (val_str) {
+		err = devlink_fmsg_string_pair_put(fmsg, "desc", val_str);
+		if (err)
+			return err;
+	}
+	err = devlink_fmsg_arr_pair_nest_end(fmsg);
+	if (err)
+		return err;
+
+	val = mlxsw_reg_mfde_method_get(mfde_pl);
+	switch (val) {
+	case MLXSW_REG_MFDE_METHOD_QUERY:
+		val_str = "query";
+		break;
+	case MLXSW_REG_MFDE_METHOD_WRITE:
+		val_str = "write";
+		break;
+	default:
+		val_str = NULL;
+	}
+	if (val_str) {
+		err = devlink_fmsg_string_pair_put(fmsg, "method", val_str);
+		if (err)
+			return err;
+	}
+
+	val = mlxsw_reg_mfde_long_process_get(mfde_pl);
+	err = devlink_fmsg_bool_pair_put(fmsg, "long_process", val);
+	if (err)
+		return err;
+
+	val = mlxsw_reg_mfde_command_type_get(mfde_pl);
+	switch (val) {
+	case MLXSW_REG_MFDE_COMMAND_TYPE_MAD:
+		val_str = "mad";
+		break;
+	case MLXSW_REG_MFDE_COMMAND_TYPE_EMAD:
+		val_str = "emad";
+		break;
+	case MLXSW_REG_MFDE_COMMAND_TYPE_CMDIF:
+		val_str = "cmdif";
+		break;
+	default:
+		val_str = NULL;
+	}
+	if (val_str) {
+		err = devlink_fmsg_string_pair_put(fmsg, "command_type", val_str);
+		if (err)
+			return err;
+	}
+
+	val = mlxsw_reg_mfde_reg_attr_id_get(mfde_pl);
+	err = devlink_fmsg_u32_pair_put(fmsg, "reg_attr_id", val);
+	if (err)
+		return err;
+
+	if (event_id == MLXSW_REG_MFDE_EVENT_ID_CRSPACE_TO) {
+		val = mlxsw_reg_mfde_log_address_get(mfde_pl);
+		err = devlink_fmsg_u32_pair_put(fmsg, "log_address", val);
+		if (err)
+			return err;
+		val = mlxsw_reg_mfde_log_id_get(mfde_pl);
+		err = devlink_fmsg_u8_pair_put(fmsg, "log_irisc_id", val);
+		if (err)
+			return err;
+		val = mlxsw_reg_mfde_log_ip_get(mfde_pl);
+		err = devlink_fmsg_u64_pair_put(fmsg, "log_ip", val);
+		if (err)
+			return err;
+	} else if (event_id == MLXSW_REG_MFDE_EVENT_ID_KVD_IM_STOP) {
+		val = mlxsw_reg_mfde_pipes_mask_get(mfde_pl);
+		err = devlink_fmsg_u32_pair_put(fmsg, "pipes_mask", val);
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
+static int
+mlxsw_core_health_fw_fatal_test(struct devlink_health_reporter *reporter,
+				struct netlink_ext_ack *extack)
+{
+	struct mlxsw_core *mlxsw_core = devlink_health_reporter_priv(reporter);
+	char mfgd_pl[MLXSW_REG_MFGD_LEN];
+	int err;
+
+	/* Read the register first to make sure no other bits are changed. */
+	err = mlxsw_reg_query(mlxsw_core, MLXSW_REG(mfgd), mfgd_pl);
+	if (err)
+		return err;
+	mlxsw_reg_mfgd_trigger_test_set(mfgd_pl, true);
+	return mlxsw_reg_write(mlxsw_core, MLXSW_REG(mfgd), mfgd_pl);
+}
+
+static const struct devlink_health_reporter_ops
+mlxsw_core_health_fw_fatal_ops = {
+	.name = "fw_fatal",
+	.dump = mlxsw_core_health_fw_fatal_dump,
+	.test = mlxsw_core_health_fw_fatal_test,
+};
+
+static int mlxsw_core_health_fw_fatal_config(struct mlxsw_core *mlxsw_core,
+					     bool enable)
+{
+	char mfgd_pl[MLXSW_REG_MFGD_LEN];
+	int err;
+
+	/* Read the register first to make sure no other bits are changed. */
+	err = mlxsw_reg_query(mlxsw_core, MLXSW_REG(mfgd), mfgd_pl);
+	if (err)
+		return err;
+	mlxsw_reg_mfgd_fatal_event_mode_set(mfgd_pl, enable);
+	return mlxsw_reg_write(mlxsw_core, MLXSW_REG(mfgd), mfgd_pl);
+}
+
+static int mlxsw_core_health_init(struct mlxsw_core *mlxsw_core)
+{
+	struct devlink *devlink = priv_to_devlink(mlxsw_core);
+	struct devlink_health_reporter *fw_fatal;
+	int err;
+
+	if (!mlxsw_core->driver->fw_fatal_enabled)
+		return 0;
+
+	fw_fatal = devlink_health_reporter_create(devlink, &mlxsw_core_health_fw_fatal_ops,
+						  0, mlxsw_core);
+	if (IS_ERR(fw_fatal)) {
+		dev_err(mlxsw_core->bus_info->dev, "Failed to create fw fatal reporter");
+		return PTR_ERR(fw_fatal);
+	}
+	mlxsw_core->health.fw_fatal = fw_fatal;
+
+	err = mlxsw_core_trap_register(mlxsw_core, &mlxsw_core_health_listener, mlxsw_core);
+	if (err)
+		goto err_trap_register;
+
+	err = mlxsw_core_health_fw_fatal_config(mlxsw_core, true);
+	if (err)
+		goto err_fw_fatal_config;
+
+	return 0;
+
+err_fw_fatal_config:
+	mlxsw_core_trap_unregister(mlxsw_core, &mlxsw_core_health_listener, mlxsw_core);
+err_trap_register:
+	devlink_health_reporter_destroy(mlxsw_core->health.fw_fatal);
+	return err;
+}
+
+static void mlxsw_core_health_fini(struct mlxsw_core *mlxsw_core)
+{
+	if (!mlxsw_core->driver->fw_fatal_enabled)
+		return;
+
+	mlxsw_core_health_fw_fatal_config(mlxsw_core, false);
+	mlxsw_core_trap_unregister(mlxsw_core, &mlxsw_core_health_listener, mlxsw_core);
+	/* Make sure there is no more event work scheduled */
+	mlxsw_core_flush_owq();
+	devlink_health_reporter_destroy(mlxsw_core->health.fw_fatal);
+}
 
 static int
 __mlxsw_core_bus_device_register(const struct mlxsw_bus_info *mlxsw_bus_info,
@@ -1591,7 +1953,7 @@ __mlxsw_core_bus_device_register(const struct mlxsw_bus_info *mlxsw_bus_info,
 			goto err_register_resources;
 	}
 
-	err = mlxsw_ports_init(mlxsw_core);
+	err = mlxsw_ports_init(mlxsw_core, reload);
 	if (err)
 		goto err_ports_init;
 
@@ -1617,8 +1979,8 @@ __mlxsw_core_bus_device_register(const struct mlxsw_bus_info *mlxsw_bus_info,
 			goto err_devlink_register;
 	}
 
-	if (mlxsw_driver->params_register && !reload) {
-		err = mlxsw_driver->params_register(mlxsw_core);
+	if (!reload) {
+		err = mlxsw_core_params_register(mlxsw_core);
 		if (err)
 			goto err_register_params;
 	}
@@ -1627,6 +1989,10 @@ __mlxsw_core_bus_device_register(const struct mlxsw_bus_info *mlxsw_bus_info,
 					 mlxsw_driver->fw_filename);
 	if (err)
 		goto err_fw_rev_validate;
+
+	err = mlxsw_core_health_init(mlxsw_core);
+	if (err)
+		goto err_health_init;
 
 	if (mlxsw_driver->init) {
 		err = mlxsw_driver->init(mlxsw_core, mlxsw_bus_info, extack);
@@ -1643,26 +2009,31 @@ __mlxsw_core_bus_device_register(const struct mlxsw_bus_info *mlxsw_bus_info,
 	if (err)
 		goto err_thermal_init;
 
-	if (mlxsw_driver->params_register)
-		devlink_params_publish(devlink);
+	err = mlxsw_env_init(mlxsw_core, &mlxsw_core->env);
+	if (err)
+		goto err_env_init;
 
-	if (!reload)
-		devlink_reload_enable(devlink);
+	mlxsw_core->is_initialized = true;
+	devlink_params_publish(devlink);
 
 	if (!reload)
 		devlink_reload_enable(devlink);
 
 	return 0;
 
+err_env_init:
+	mlxsw_thermal_fini(mlxsw_core->thermal);
 err_thermal_init:
 	mlxsw_hwmon_fini(mlxsw_core->hwmon);
 err_hwmon_init:
 	if (mlxsw_core->driver->fini)
 		mlxsw_core->driver->fini(mlxsw_core);
 err_driver_init:
+	mlxsw_core_health_fini(mlxsw_core);
+err_health_init:
 err_fw_rev_validate:
-	if (mlxsw_driver->params_unregister && !reload)
-		mlxsw_driver->params_unregister(mlxsw_core);
+	if (!reload)
+		mlxsw_core_params_unregister(mlxsw_core);
 err_register_params:
 	if (!reload)
 		devlink_unregister(devlink);
@@ -1671,7 +2042,7 @@ err_devlink_register:
 err_emad_init:
 	kfree(mlxsw_core->lag.mapping);
 err_alloc_lag_mapping:
-	mlxsw_ports_fini(mlxsw_core);
+	mlxsw_ports_fini(mlxsw_core, reload);
 err_ports_init:
 	if (!reload)
 		devlink_resources_unregister(devlink, NULL);
@@ -1727,19 +2098,21 @@ void mlxsw_core_bus_device_unregister(struct mlxsw_core *mlxsw_core,
 			return;
 	}
 
-	if (mlxsw_core->driver->params_unregister)
-		devlink_params_unpublish(devlink);
+	devlink_params_unpublish(devlink);
+	mlxsw_core->is_initialized = false;
+	mlxsw_env_fini(mlxsw_core->env);
 	mlxsw_thermal_fini(mlxsw_core->thermal);
 	mlxsw_hwmon_fini(mlxsw_core->hwmon);
 	if (mlxsw_core->driver->fini)
 		mlxsw_core->driver->fini(mlxsw_core);
-	if (mlxsw_core->driver->params_unregister && !reload)
-		mlxsw_core->driver->params_unregister(mlxsw_core);
+	mlxsw_core_health_fini(mlxsw_core);
+	if (!reload)
+		mlxsw_core_params_unregister(mlxsw_core);
 	if (!reload)
 		devlink_unregister(devlink);
 	mlxsw_emad_fini(mlxsw_core);
 	kfree(mlxsw_core->lag.mapping);
-	mlxsw_ports_fini(mlxsw_core);
+	mlxsw_ports_fini(mlxsw_core, reload);
 	if (!reload)
 		devlink_resources_unregister(devlink, NULL);
 	mlxsw_core->bus->fini(mlxsw_core->bus_priv);
@@ -1749,8 +2122,7 @@ void mlxsw_core_bus_device_unregister(struct mlxsw_core *mlxsw_core,
 	return;
 
 reload_fail_deinit:
-	if (mlxsw_core->driver->params_unregister)
-		mlxsw_core->driver->params_unregister(mlxsw_core);
+	mlxsw_core_params_unregister(mlxsw_core);
 	devlink_unregister(devlink);
 	devlink_resources_unregister(devlink, NULL);
 	devlink_free(devlink);
@@ -1856,10 +2228,15 @@ static void mlxsw_core_event_listener_func(struct sk_buff *skb, u8 local_port,
 					   void *priv)
 {
 	struct mlxsw_event_listener_item *event_listener_item = priv;
+	struct mlxsw_core *mlxsw_core;
 	struct mlxsw_reg_info reg;
 	char *payload;
 	char *reg_tlv;
 	char *op_tlv;
+
+	mlxsw_core = event_listener_item->mlxsw_core;
+	trace_devlink_hwmsg(priv_to_devlink(mlxsw_core), true, 0,
+			    skb->data, skb->len);
 
 	mlxsw_emad_tlv_parse(skb);
 	op_tlv = mlxsw_emad_op_tlv(skb);
@@ -1910,6 +2287,7 @@ int mlxsw_core_event_listener_register(struct mlxsw_core *mlxsw_core,
 	el_item = kmalloc(sizeof(*el_item), GFP_KERNEL);
 	if (!el_item)
 		return -ENOMEM;
+	el_item->mlxsw_core = mlxsw_core;
 	el_item->el = *el;
 	el_item->priv = priv;
 
@@ -2433,16 +2811,25 @@ int mlxsw_core_port_init(struct mlxsw_core *mlxsw_core, u8 local_port,
 			 const unsigned char *switch_id,
 			 unsigned char switch_id_len)
 {
-	return __mlxsw_core_port_init(mlxsw_core, local_port,
-				      DEVLINK_PORT_FLAVOUR_PHYSICAL,
-				      port_number, split, split_port_subnumber,
-				      splittable, lanes,
-				      switch_id, switch_id_len);
+	int err;
+
+	err = __mlxsw_core_port_init(mlxsw_core, local_port,
+				     DEVLINK_PORT_FLAVOUR_PHYSICAL,
+				     port_number, split, split_port_subnumber,
+				     splittable, lanes,
+				     switch_id, switch_id_len);
+	if (err)
+		return err;
+
+	atomic_inc(&mlxsw_core->active_ports_count);
+	return 0;
 }
 EXPORT_SYMBOL(mlxsw_core_port_init);
 
 void mlxsw_core_port_fini(struct mlxsw_core *mlxsw_core, u8 local_port)
 {
+	atomic_dec(&mlxsw_core->active_ports_count);
+
 	__mlxsw_core_port_fini(mlxsw_core, local_port);
 }
 EXPORT_SYMBOL(mlxsw_core_port_fini);
@@ -2534,6 +2921,28 @@ mlxsw_core_port_devlink_port_get(struct mlxsw_core *mlxsw_core,
 }
 EXPORT_SYMBOL(mlxsw_core_port_devlink_port_get);
 
+bool mlxsw_core_port_is_xm(const struct mlxsw_core *mlxsw_core, u8 local_port)
+{
+	const struct mlxsw_bus_info *bus_info = mlxsw_core->bus_info;
+	int i;
+
+	for (i = 0; i < bus_info->xm_local_ports_count; i++)
+		if (bus_info->xm_local_ports[i] == local_port)
+			return true;
+	return false;
+}
+EXPORT_SYMBOL(mlxsw_core_port_is_xm);
+
+struct mlxsw_env *mlxsw_core_env(const struct mlxsw_core *mlxsw_core)
+{
+	return mlxsw_core->env;
+}
+
+bool mlxsw_core_is_initialized(const struct mlxsw_core *mlxsw_core)
+{
+	return mlxsw_core->is_initialized;
+}
+
 int mlxsw_core_module_max_width(struct mlxsw_core *mlxsw_core, u8 module)
 {
 	enum mlxsw_reg_pmtm_module_type module_type;
@@ -2549,21 +2958,21 @@ int mlxsw_core_module_max_width(struct mlxsw_core *mlxsw_core, u8 module)
 	/* Here we need to get the module width according to the module type. */
 
 	switch (module_type) {
-	case MLXSW_REG_PMTM_MODULE_TYPE_C2C8X: /* fall through */
-	case MLXSW_REG_PMTM_MODULE_TYPE_QSFP_DD: /* fall through */
+	case MLXSW_REG_PMTM_MODULE_TYPE_C2C8X:
+	case MLXSW_REG_PMTM_MODULE_TYPE_QSFP_DD:
 	case MLXSW_REG_PMTM_MODULE_TYPE_OSFP:
 		return 8;
-	case MLXSW_REG_PMTM_MODULE_TYPE_C2C4X: /* fall through */
-	case MLXSW_REG_PMTM_MODULE_TYPE_BP_4X: /* fall through */
+	case MLXSW_REG_PMTM_MODULE_TYPE_C2C4X:
+	case MLXSW_REG_PMTM_MODULE_TYPE_BP_4X:
 	case MLXSW_REG_PMTM_MODULE_TYPE_QSFP:
 		return 4;
-	case MLXSW_REG_PMTM_MODULE_TYPE_C2C2X: /* fall through */
-	case MLXSW_REG_PMTM_MODULE_TYPE_BP_2X: /* fall through */
-	case MLXSW_REG_PMTM_MODULE_TYPE_SFP_DD: /* fall through */
+	case MLXSW_REG_PMTM_MODULE_TYPE_C2C2X:
+	case MLXSW_REG_PMTM_MODULE_TYPE_BP_2X:
+	case MLXSW_REG_PMTM_MODULE_TYPE_SFP_DD:
 	case MLXSW_REG_PMTM_MODULE_TYPE_DSFP:
 		return 2;
-	case MLXSW_REG_PMTM_MODULE_TYPE_C2C1X: /* fall through */
-	case MLXSW_REG_PMTM_MODULE_TYPE_BP_1X: /* fall through */
+	case MLXSW_REG_PMTM_MODULE_TYPE_C2C1X:
+	case MLXSW_REG_PMTM_MODULE_TYPE_BP_1X:
 	case MLXSW_REG_PMTM_MODULE_TYPE_SFP:
 		return 1;
 	default:

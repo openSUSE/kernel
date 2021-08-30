@@ -96,12 +96,13 @@ static const struct bond_opt_value bond_pps_tbl[] = {
 };
 
 static const struct bond_opt_value bond_xmit_hashtype_tbl[] = {
-	{ "layer2",   BOND_XMIT_POLICY_LAYER2, BOND_VALFLAG_DEFAULT},
-	{ "layer3+4", BOND_XMIT_POLICY_LAYER34, 0},
-	{ "layer2+3", BOND_XMIT_POLICY_LAYER23, 0},
-	{ "encap2+3", BOND_XMIT_POLICY_ENCAP23, 0},
-	{ "encap3+4", BOND_XMIT_POLICY_ENCAP34, 0},
-	{ NULL,       -1,                       0},
+	{ "layer2",      BOND_XMIT_POLICY_LAYER2,      BOND_VALFLAG_DEFAULT},
+	{ "layer3+4",    BOND_XMIT_POLICY_LAYER34,     0},
+	{ "layer2+3",    BOND_XMIT_POLICY_LAYER23,     0},
+	{ "encap2+3",    BOND_XMIT_POLICY_ENCAP23,     0},
+	{ "encap3+4",    BOND_XMIT_POLICY_ENCAP34,     0},
+	{ "vlan+srcmac", BOND_XMIT_POLICY_VLAN_SRCMAC, 0},
+	{ NULL,          -1,                           0},
 };
 
 static const struct bond_opt_value bond_arp_validate_tbl[] = {
@@ -639,6 +640,15 @@ static void bond_opt_error_interpret(struct bonding *bond,
 		netdev_err(bond->dev, "option %s: unable to set because the bond device is up\n",
 			   opt->name);
 		break;
+	case -ENODEV:
+		if (val && val->string) {
+			p = strchr(val->string, '\n');
+			if (p)
+				*p = '\0';
+			netdev_err(bond->dev, "option %s: interface %s does not exist!\n",
+				   opt->name, val->string);
+		}
+		break;
 	default:
 		break;
 	}
@@ -695,7 +705,7 @@ out:
 int __bond_opt_set_notify(struct bonding *bond,
 			  unsigned int option, struct bond_opt_value *val)
 {
-	int ret = -ENOENT;
+	int ret;
 
 	ASSERT_RTNL();
 
@@ -1196,8 +1206,7 @@ static int bond_option_primary_set(struct bonding *bond,
 		RCU_INIT_POINTER(bond->primary_slave, NULL);
 		bond_select_active_slave(bond);
 	}
-	strncpy(bond->params.primary, primary, IFNAMSIZ);
-	bond->params.primary[IFNAMSIZ - 1] = 0;
+	strscpy_pad(bond->params.primary, primary, IFNAMSIZ);
 
 	netdev_dbg(bond->dev, "Recording %s as primary, but it has not been enslaved yet\n",
 		   primary);

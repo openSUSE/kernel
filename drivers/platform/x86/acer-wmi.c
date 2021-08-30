@@ -30,7 +30,6 @@
 #include <linux/input/sparse-keymap.h>
 #include <acpi/video.h>
 
-ACPI_MODULE_NAME(KBUILD_MODNAME);
 MODULE_AUTHOR("Carlos Corbacho");
 MODULE_DESCRIPTION("Acer Laptop WMI Extras Driver");
 MODULE_LICENSE("GPL");
@@ -308,9 +307,6 @@ static struct quirk_entry *quirks;
 
 static void __init set_quirks(void)
 {
-	if (!interface)
-		return;
-
 	if (quirks->mailled)
 		interface->capability |= ACER_CAP_MAILLED;
 
@@ -690,8 +686,6 @@ static void __init find_quirks(void)
 
 	if (quirks == NULL)
 		quirks = &quirk_unknown;
-
-	set_quirks();
 }
 
 /*
@@ -834,7 +828,6 @@ static acpi_status AMW0_set_u32(u32 value, u32 cap)
 		switch (quirks->brightness) {
 		default:
 			return ec_write(0x83, value);
-			break;
 		}
 	default:
 		return AE_ERROR;
@@ -1043,7 +1036,7 @@ static acpi_status WMID_get_u32(u32 *value, u32 cap)
 			*value = tmp & 0x1;
 			return 0;
 		}
-		/* fall through */
+		fallthrough;
 	default:
 		return AE_ERROR;
 	}
@@ -1368,7 +1361,7 @@ static acpi_status get_u32(u32 *value, u32 cap)
 			status = AMW0_get_u32(value, cap);
 			break;
 		}
-		/* fall through */
+		fallthrough;
 	case ACER_WMID:
 		status = WMID_get_u32(value, cap);
 		break;
@@ -1411,7 +1404,7 @@ static acpi_status set_u32(u32 value, u32 cap)
 
 				return AMW0_set_u32(value, cap);
 			}
-			/* fall through */
+			fallthrough;
 		case ACER_WMID:
 			return WMID_set_u32(value, cap);
 		case ACER_WMID_v2:
@@ -1421,7 +1414,7 @@ static acpi_status set_u32(u32 value, u32 cap)
 				return wmid_v2_set_u32(value, cap);
 			else if (wmi_has_guid(WMID_GUID2))
 				return WMID_set_u32(value, cap);
-			/* fall through */
+			fallthrough;
 		default:
 			return AE_BAD_PARAMETER;
 		}
@@ -1611,7 +1604,8 @@ static void acer_kbd_dock_get_initial_state(void)
 
 	status = wmi_evaluate_method(WMID_GUID3, 0, 0x2, &input_buf, &output_buf);
 	if (ACPI_FAILURE(status)) {
-		ACPI_EXCEPTION((AE_INFO, status, "Error getting keyboard-dock initial status"));
+		pr_err("Error getting keyboard-dock initial status: %s\n",
+		       acpi_format_exception(status));
 		return;
 	}
 
@@ -1987,52 +1981,17 @@ static int __init acer_wmi_enable_rf_button(void)
 	return status;
 }
 
-#define ACER_WMID_ACCEL_HID	"BST0001"
-
-static acpi_status __init acer_wmi_get_handle_cb(acpi_handle ah, u32 level,
-						void *ctx, void **retval)
-{
-	struct acpi_device *dev;
-
-	if (!strcmp(ctx, "SENR")) {
-		if (acpi_bus_get_device(ah, &dev))
-			return AE_OK;
-		if (strcmp(ACER_WMID_ACCEL_HID, acpi_device_hid(dev)))
-			return AE_OK;
-	} else
-		return AE_OK;
-
-	*(acpi_handle *)retval = ah;
-
-	return AE_CTRL_TERMINATE;
-}
-
-static int __init acer_wmi_get_handle(const char *name, const char *prop,
-					acpi_handle *ah)
-{
-	acpi_status status;
-	acpi_handle handle;
-
-	BUG_ON(!name || !ah);
-
-	handle = NULL;
-	status = acpi_get_devices(prop, acer_wmi_get_handle_cb,
-					(void *)name, &handle);
-	if (ACPI_SUCCESS(status) && handle) {
-		*ah = handle;
-		return 0;
-	} else {
-		return -ENODEV;
-	}
-}
-
 static int __init acer_wmi_accel_setup(void)
 {
+	struct acpi_device *adev;
 	int err;
 
-	err = acer_wmi_get_handle("SENR", ACER_WMID_ACCEL_HID, &gsensor_handle);
-	if (err)
-		return err;
+	adev = acpi_dev_get_first_match_dev("BST0001", NULL, -1);
+	if (!adev)
+		return -ENODEV;
+
+	gsensor_handle = acpi_device_handle(adev);
+	acpi_dev_put(adev);
 
 	acer_wmi_accel_dev = input_allocate_device();
 	if (!acer_wmi_accel_dev)

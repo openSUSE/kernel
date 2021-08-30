@@ -91,12 +91,13 @@
 #include <linux/gfp.h>
 
 #include <asm/delay.h>
-#include <asm/machvec.h>
+#include <asm/efi.h>
 #include <asm/meminit.h>
 #include <asm/page.h>
 #include <asm/ptrace.h>
 #include <asm/sal.h>
 #include <asm/mca.h>
+#include <asm/mca_asm.h>
 #include <asm/kexec.h>
 
 #include <asm/irq.h>
@@ -105,11 +106,12 @@
 
 #include "mca_drv.h"
 #include "entry.h"
+#include "irq.h"
 
 #if defined(IA64_MCA_DEBUG_INFO)
-# define IA64_MCA_DEBUG(fmt...)	printk(fmt)
+# define IA64_MCA_DEBUG(fmt...) printk(fmt)
 #else
-# define IA64_MCA_DEBUG(fmt...)
+# define IA64_MCA_DEBUG(fmt...) do {} while (0)
 #endif
 
 #define NOTIFY_INIT(event, regs, arg, spin)				\
@@ -149,9 +151,7 @@ static ia64_mc_info_t		ia64_mc_info;
 #define CPE_HISTORY_LENGTH    5
 #define CMC_HISTORY_LENGTH    5
 
-#ifdef CONFIG_ACPI
 static struct timer_list cpe_poll_timer;
-#endif
 static struct timer_list cmc_poll_timer;
 /*
  * This variable tells whether we are currently in polling mode.
@@ -532,8 +532,6 @@ int mca_recover_range(unsigned long addr)
 }
 EXPORT_SYMBOL_GPL(mca_recover_range);
 
-#ifdef CONFIG_ACPI
-
 int cpe_vector = -1;
 int ia64_cpe_irq = -1;
 
@@ -595,9 +593,6 @@ out:
 	return IRQ_HANDLED;
 }
 
-#endif /* CONFIG_ACPI */
-
-#ifdef CONFIG_ACPI
 /*
  * ia64_mca_register_cpev
  *
@@ -625,7 +620,6 @@ ia64_mca_register_cpev (int cpev)
 	IA64_MCA_DEBUG("%s: corrected platform error "
 		       "vector %#x registered\n", __func__, cpev);
 }
-#endif /* CONFIG_ACPI */
 
 /*
  * ia64_mca_cmc_vector_setup
@@ -744,7 +738,7 @@ ia64_mca_cmc_vector_enable_keventd(struct work_struct *unused)
 static void
 ia64_mca_wakeup(int cpu)
 {
-	platform_send_ipi(cpu, IA64_MCA_WAKEUP_VECTOR, IA64_IPI_DM_INT, 0);
+	ia64_send_ipi(cpu, IA64_MCA_WAKEUP_VECTOR, IA64_IPI_DM_INT, 0);
 }
 
 /*
@@ -902,7 +896,7 @@ static void
 finish_pt_regs(struct pt_regs *regs, struct ia64_sal_os_state *sos,
 		unsigned long *nat)
 {
-	const pal_min_state_area_t *ms = sos->pal_min_state;
+	const struct pal_min_state_area *ms = sos->pal_min_state;
 	const u64 *bank;
 
 	/* If ipsr.ic then use pmsa_{iip,ipsr,ifs}, else use
@@ -978,7 +972,7 @@ ia64_mca_modify_original_stack(struct pt_regs *regs,
 	char *p;
 	ia64_va va;
 	extern char ia64_leave_kernel[];	/* Need asm address, not function descriptor */
-	const pal_min_state_area_t *ms = sos->pal_min_state;
+	const struct pal_min_state_area *ms = sos->pal_min_state;
 	struct task_struct *previous_current;
 	struct pt_regs *old_regs;
 	struct switch_stack *old_sw;
@@ -1490,7 +1484,7 @@ ia64_mca_cmc_int_caller(int cmc_irq, void *arg)
 	cpuid = cpumask_next(cpuid+1, cpu_online_mask);
 
 	if (cpuid < nr_cpu_ids) {
-		platform_send_ipi(cpuid, IA64_CMCP_VECTOR, IA64_IPI_DM_INT, 0);
+		ia64_send_ipi(cpuid, IA64_CMCP_VECTOR, IA64_IPI_DM_INT, 0);
 	} else {
 		/* If no log record, switch out of polling mode */
 		if (start_count == IA64_LOG_COUNT(SAL_INFO_TYPE_CMC)) {
@@ -1523,7 +1517,7 @@ static void
 ia64_mca_cmc_poll (struct timer_list *unused)
 {
 	/* Trigger a CMC interrupt cascade  */
-	platform_send_ipi(cpumask_first(cpu_online_mask), IA64_CMCP_VECTOR,
+	ia64_send_ipi(cpumask_first(cpu_online_mask), IA64_CMCP_VECTOR,
 							IA64_IPI_DM_INT, 0);
 }
 
@@ -1540,8 +1534,6 @@ ia64_mca_cmc_poll (struct timer_list *unused)
  * Outputs
  * 	handled
  */
-#ifdef CONFIG_ACPI
-
 static irqreturn_t
 ia64_mca_cpe_int_caller(int cpe_irq, void *arg)
 {
@@ -1560,7 +1552,7 @@ ia64_mca_cpe_int_caller(int cpe_irq, void *arg)
 	cpuid = cpumask_next(cpuid+1, cpu_online_mask);
 
 	if (cpuid < NR_CPUS) {
-		platform_send_ipi(cpuid, IA64_CPEP_VECTOR, IA64_IPI_DM_INT, 0);
+		ia64_send_ipi(cpuid, IA64_CPEP_VECTOR, IA64_IPI_DM_INT, 0);
 	} else {
 		/*
 		 * If a log was recorded, increase our polling frequency,
@@ -1600,11 +1592,9 @@ static void
 ia64_mca_cpe_poll (struct timer_list *unused)
 {
 	/* Trigger a CPE interrupt cascade  */
-	platform_send_ipi(cpumask_first(cpu_online_mask), IA64_CPEP_VECTOR,
+	ia64_send_ipi(cpumask_first(cpu_online_mask), IA64_CPEP_VECTOR,
 							IA64_IPI_DM_INT, 0);
 }
-
-#endif /* CONFIG_ACPI */
 
 static int
 default_monarch_init_process(struct notifier_block *self, unsigned long val, void *data)
@@ -1643,7 +1633,7 @@ default_monarch_init_process(struct notifier_block *self, unsigned long val, voi
 	if (read_trylock(&tasklist_lock)) {
 		do_each_thread (g, t) {
 			printk("\nBacktrace of pid %d (%s)\n", t->pid, t->comm);
-			show_stack(t, NULL);
+			show_stack(t, NULL, KERN_DEFAULT);
 		} while_each_thread (g, t);
 		read_unlock(&tasklist_lock);
 	}
@@ -1779,38 +1769,6 @@ ia64_mca_disable_cpe_polling(char *str)
 
 __setup("disable_cpe_poll", ia64_mca_disable_cpe_polling);
 
-static struct irqaction cmci_irqaction = {
-	.handler =	ia64_mca_cmc_int_handler,
-	.name =		"cmc_hndlr"
-};
-
-static struct irqaction cmcp_irqaction = {
-	.handler =	ia64_mca_cmc_int_caller,
-	.name =		"cmc_poll"
-};
-
-static struct irqaction mca_rdzv_irqaction = {
-	.handler =	ia64_mca_rendez_int_handler,
-	.name =		"mca_rdzv"
-};
-
-static struct irqaction mca_wkup_irqaction = {
-	.handler =	ia64_mca_wakeup_int_handler,
-	.name =		"mca_wkup"
-};
-
-#ifdef CONFIG_ACPI
-static struct irqaction mca_cpe_irqaction = {
-	.handler =	ia64_mca_cpe_int_handler,
-	.name =		"cpe_hndlr"
-};
-
-static struct irqaction mca_cpep_irqaction = {
-	.handler =	ia64_mca_cpe_int_caller,
-	.name =		"cpe_poll"
-};
-#endif /* CONFIG_ACPI */
-
 /* Minimal format of the MCA/INIT stacks.  The pseudo processes that run on
  * these stacks can never sleep, they cannot return from the kernel to user
  * space, they do not appear in a normal ps listing.  So there is no need to
@@ -1830,7 +1788,7 @@ format_mca_init_stack(void *mca_data, unsigned long offset,
 	ti->task = p;
 	ti->cpu = cpu;
 	p->stack = ti;
-	p->state = TASK_UNINTERRUPTIBLE;
+	p->__state = TASK_UNINTERRUPTIBLE;
 	cpumask_set_cpu(cpu, &p->cpus_mask);
 	INIT_LIST_HEAD(&p->tasks);
 	p->parent = p->real_parent = p->group_leader = p;
@@ -1866,7 +1824,7 @@ ia64_mca_cpu_init(void *cpu_data)
 			data = mca_bootmem();
 			first_time = 0;
 		} else
-			data = (void *)__get_free_pages(GFP_KERNEL,
+			data = (void *)__get_free_pages(GFP_ATOMIC,
 							get_order(sz));
 		if (!data)
 			panic("Could not allocate MCA memory for cpu %d\n",
@@ -2071,20 +2029,23 @@ void __init ia64_mca_irq_init(void)
 	 *  Configure the CMCI/P vector and handler. Interrupts for CMC are
 	 *  per-processor, so AP CMC interrupts are setup in smp_callin() (smpboot.c).
 	 */
-	register_percpu_irq(IA64_CMC_VECTOR, &cmci_irqaction);
-	register_percpu_irq(IA64_CMCP_VECTOR, &cmcp_irqaction);
+	register_percpu_irq(IA64_CMC_VECTOR, ia64_mca_cmc_int_handler, 0,
+			    "cmc_hndlr");
+	register_percpu_irq(IA64_CMCP_VECTOR, ia64_mca_cmc_int_caller, 0,
+			    "cmc_poll");
 	ia64_mca_cmc_vector_setup();       /* Setup vector on BSP */
 
 	/* Setup the MCA rendezvous interrupt vector */
-	register_percpu_irq(IA64_MCA_RENDEZ_VECTOR, &mca_rdzv_irqaction);
+	register_percpu_irq(IA64_MCA_RENDEZ_VECTOR, ia64_mca_rendez_int_handler,
+			    0, "mca_rdzv");
 
 	/* Setup the MCA wakeup interrupt vector */
-	register_percpu_irq(IA64_MCA_WAKEUP_VECTOR, &mca_wkup_irqaction);
+	register_percpu_irq(IA64_MCA_WAKEUP_VECTOR, ia64_mca_wakeup_int_handler,
+			    0, "mca_wkup");
 
-#ifdef CONFIG_ACPI
 	/* Setup the CPEI/P handler */
-	register_percpu_irq(IA64_CPEP_VECTOR, &mca_cpep_irqaction);
-#endif
+	register_percpu_irq(IA64_CPEP_VECTOR, ia64_mca_cpe_int_caller, 0,
+			    "cpe_poll");
 }
 
 /*
@@ -2112,7 +2073,6 @@ ia64_mca_late_init(void)
 			  ia64_mca_cpu_online, NULL);
 	IA64_MCA_DEBUG("%s: CMCI/P setup and enabled.\n", __func__);
 
-#ifdef CONFIG_ACPI
 	/* Setup the CPEI/P vector and handler */
 	cpe_vector = acpi_request_vector(ACPI_INTERRUPT_CPEI);
 	timer_setup(&cpe_poll_timer, ia64_mca_cpe_poll, 0);
@@ -2126,7 +2086,9 @@ ia64_mca_late_init(void)
 			if (irq > 0) {
 				cpe_poll_enabled = 0;
 				irq_set_status_flags(irq, IRQ_PER_CPU);
-				setup_irq(irq, &mca_cpe_irqaction);
+				if (request_irq(irq, ia64_mca_cpe_int_handler,
+						0, "cpe_hndlr", NULL))
+					pr_err("Failed to register cpe_hndlr interrupt\n");
 				ia64_cpe_irq = irq;
 				ia64_mca_register_cpev(cpe_vector);
 				IA64_MCA_DEBUG("%s: CPEI/P setup and enabled.\n",
@@ -2143,7 +2105,6 @@ ia64_mca_late_init(void)
 			IA64_MCA_DEBUG("%s: CPEP setup and enabled.\n", __func__);
 		}
 	}
-#endif
 
 	return 0;
 }

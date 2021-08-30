@@ -1,8 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * QLogic Fibre Channel HBA Driver
  * Copyright (c)  2003-2014 QLogic Corporation
- *
- * See LICENSE.qla2xxx for copyright and licensing details.
  */
 #ifndef __QLA_DEF_H
 #define __QLA_DEF_H
@@ -5121,8 +5120,7 @@ struct secure_flash_update_block_pk {
 } while (0)
 
 #define QLA_QPAIR_MARK_NOT_BUSY(__qpair)		\
-	atomic_dec(&__qpair->ref_count);		\
-
+	atomic_dec(&__qpair->ref_count)
 
 #define QLA_ENA_CONF(_ha) {\
     int i;\

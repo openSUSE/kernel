@@ -16,7 +16,6 @@
  * gzip declarations
  */
 #define STATIC static
-#define STATIC_RW_DATA static __section(.data)
 
 #undef memset
 #undef memcpy
@@ -29,8 +28,10 @@ extern char _end[];
 extern unsigned char _compressed_start[];
 extern unsigned char _compressed_end[];
 
-#ifdef CONFIG_HAVE_KERNEL_BZIP2
+#ifdef CONFIG_KERNEL_BZIP2
 #define BOOT_HEAP_SIZE	0x400000
+#elif CONFIG_KERNEL_ZSTD
+#define BOOT_HEAP_SIZE	0x30000
 #else
 #define BOOT_HEAP_SIZE	0x10000
 #endif
@@ -60,6 +61,10 @@ static unsigned long free_mem_end_ptr = (unsigned long) _end + BOOT_HEAP_SIZE;
 
 #ifdef CONFIG_KERNEL_XZ
 #include "../../../../lib/decompress_unxz.c"
+#endif
+
+#ifdef CONFIG_KERNEL_ZSTD
+#include "../../../../lib/decompress_unzstd.c"
 #endif
 
 #define decompress_offset ALIGN((unsigned long)_end + BOOT_HEAP_SIZE, PAGE_SIZE)

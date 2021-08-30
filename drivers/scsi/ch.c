@@ -198,8 +198,9 @@ ch_do_scsi(scsi_changer *ch, unsigned char *cmd, int cmd_len,
 	result = scsi_execute_req(ch->device, cmd, direction, buffer,
 				  buflength, &sshdr, timeout * HZ,
 				  MAX_RETRIES, NULL);
-
-	if (driver_byte(result) == DRIVER_SENSE) {
+	if (result < 0)
+		return result;
+	if (scsi_sense_valid(&sshdr)) {
 		if (debug)
 			scsi_print_sense_hdr(ch->device, ch->name, &sshdr);
 		errno = ch_find_errno(&sshdr);
@@ -593,7 +594,7 @@ ch_open(struct inode *inode, struct file *file)
 	spin_lock(&ch_index_lock);
 	ch = idr_find(&ch_index_idr, minor);
 
-	if (NULL == ch || !kref_get_unless_zero(&ch->ref)) {
+	if (ch == NULL || !kref_get_unless_zero(&ch->ref)) {
 		spin_unlock(&ch_index_lock);
 		return -ENXIO;
 	}
@@ -1058,9 +1059,3 @@ static void __exit exit_ch_module(void)
 
 module_init(init_ch_module);
 module_exit(exit_ch_module);
-
-/*
- * Local variables:
- * c-basic-offset: 8
- * End:
- */

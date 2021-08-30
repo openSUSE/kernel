@@ -265,7 +265,7 @@ static int usbhsg_recip_handler_std_set_device(struct usbhs_priv *priv,
 	case USB_DEVICE_TEST_MODE:
 		usbhsg_recip_handler_std_control_done(priv, uep, ctrl);
 		udelay(100);
-		usbhs_sys_set_test_mode(priv, le16_to_cpu(ctrl->wIndex >> 8));
+		usbhs_sys_set_test_mode(priv, le16_to_cpu(ctrl->wIndex) >> 8);
 		break;
 	default:
 		usbhsg_recip_handler_std_control_done(priv, uep, ctrl);
@@ -315,7 +315,7 @@ static void __usbhsg_recip_send_status(struct usbhsg_gpriv *gpriv,
 	struct usbhs_pipe *pipe = usbhsg_uep_to_pipe(dcp);
 	struct device *dev = usbhsg_gpriv_to_dev(gpriv);
 	struct usb_request *req;
-	unsigned short *buf;
+	__le16 *buf;
 
 	/* alloc new usb_request for recip */
 	req = usb_ep_alloc_request(&dcp->ep, GFP_ATOMIC);
@@ -509,7 +509,7 @@ static int usbhsg_irq_ctrl_stage(struct usbhs_priv *priv,
 	case READ_STATUS_STAGE:
 	case WRITE_STATUS_STAGE:
 		usbhs_dcp_control_transfer_done(pipe);
-		/* fall through */
+		fallthrough;
 	default:
 		return ret;
 	}

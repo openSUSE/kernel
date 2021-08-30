@@ -142,9 +142,7 @@ static int fuel_gauge_reg_readb(struct axp288_fg_info *info, int reg)
 
 	for (i = 0; i < NR_RETRY_CNT; i++) {
 		ret = regmap_read(info->regmap, reg, &val);
-		if (ret == -EBUSY)
-			continue;
-		else
+		if (ret != -EBUSY)
 			break;
 	}
 
@@ -674,8 +672,9 @@ intr_failed:
 /*
  * Some devices have no battery (HDMI sticks) and the axp288 battery's
  * detection reports one despite it not being there.
+ * Please keep this listed sorted alphabetically.
  */
-static const struct dmi_system_id axp288_fuel_gauge_blacklist[] = {
+static const struct dmi_system_id axp288_no_battery_list[] = {
 	{
 		/* ACEPC T8 Cherry Trail Z8350 mini PC */
 		.matches = {
@@ -697,6 +696,12 @@ static const struct dmi_system_id axp288_fuel_gauge_blacklist[] = {
 		},
 	},
 	{
+		/* ECS EF20EA */
+		.matches = {
+			DMI_MATCH(DMI_PRODUCT_NAME, "EF20EA"),
+		},
+	},
+	{
 		/* Intel Cherry Trail Compute Stick, Windows version */
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "Intel"),
@@ -711,18 +716,31 @@ static const struct dmi_system_id axp288_fuel_gauge_blacklist[] = {
 		},
 	},
 	{
-		/* Meegopad T08 */
+		/* Meegopad T02 */
 		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "Default string"),
-			DMI_MATCH(DMI_BOARD_VENDOR, "To be filled by OEM."),
-			DMI_MATCH(DMI_BOARD_NAME, "T3 MRD"),
-			DMI_MATCH(DMI_BOARD_VERSION, "V1.1"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "MEEGOPAD T02"),
+		},
+	},
+	{	/* Mele PCG03 Mini PC */
+		.matches = {
+			DMI_EXACT_MATCH(DMI_BOARD_VENDOR, "Mini PC"),
+			DMI_EXACT_MATCH(DMI_BOARD_NAME, "Mini PC"),
 		},
 	},
 	{
-		/* ECS EF20EA */
+		/* Minix Neo Z83-4 mini PC */
 		.matches = {
-			DMI_MATCH(DMI_PRODUCT_NAME, "EF20EA"),
+			DMI_MATCH(DMI_SYS_VENDOR, "MINIX"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Z83-4"),
+		}
+	},
+	{
+		/* Various Ace PC/Meegopad/MinisForum/Wintel Mini-PCs/HDMI-sticks */
+		.matches = {
+			DMI_MATCH(DMI_BOARD_NAME, "T3 MRD"),
+			DMI_MATCH(DMI_CHASSIS_TYPE, "3"),
+			DMI_MATCH(DMI_BIOS_VENDOR, "American Megatrends Inc."),
+			DMI_MATCH(DMI_BIOS_VERSION, "5.11"),
 		},
 	},
 	{}
@@ -744,7 +762,7 @@ static int axp288_fuel_gauge_probe(struct platform_device *pdev)
 	};
 	unsigned int val;
 
-	if (dmi_check_system(axp288_fuel_gauge_blacklist))
+	if (dmi_check_system(axp288_no_battery_list))
 		return -ENODEV;
 
 	/*

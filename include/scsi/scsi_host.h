@@ -19,23 +19,9 @@ struct scsi_device;
 struct scsi_host_cmd_pool;
 struct scsi_target;
 struct Scsi_Host;
-struct scsi_host_cmd_pool;
 struct scsi_transport_template;
 
 
-/*
- * The various choices mean:
- * NONE: Self evident.	Host adapter is not capable of scatter-gather.
- * ALL:	 Means that the host adapter module can do scatter-gather,
- *	 and that there is no limit to the size of the table to which
- *	 we scatter/gather data.  The value we set here is the maximum
- *	 single element sglist.  To use chained sglists, the adapter
- *	 has to set a value beyond ALL (and correctly use the chain
- *	 handling API.
- * Anything else:  Indicates the maximum number of chains that can be
- *	 used in one scatter-gather request.
- */
-#define SG_NONE 0
 #define SG_ALL	SG_CHUNK_SIZE
 
 #define MODE_UNKNOWN 0x00
@@ -43,37 +29,15 @@ struct scsi_transport_template;
 #define MODE_TARGET 0x02
 
 struct scsi_host_template {
-	struct module *module;
-	const char *name;
+	/*
+	 * Put fields referenced in IO submission path together in
+	 * same cacheline
+	 */
 
 	/*
-	 * The info function will return whatever useful information the
-	 * developer sees fit.  If not provided, then the name field will
-	 * be used instead.
-	 *
-	 * Status: OPTIONAL
+	 * Additional per-command data allocated for the driver.
 	 */
-	const char *(* info)(struct Scsi_Host *);
-
-	/*
-	 * Ioctl interface
-	 *
-	 * Status: OPTIONAL
-	 */
-	int (*ioctl)(struct scsi_device *dev, unsigned int cmd,
-		     void __user *arg);
-
-
-#ifdef CONFIG_COMPAT
-	/* 
-	 * Compat handler. Handle 32bit ABI.
-	 * When unknown ioctl is passed return -ENOIOCTLCMD.
-	 *
-	 * Status: OPTIONAL
-	 */
-	int (*compat_ioctl)(struct scsi_device *dev, unsigned int cmd,
-			    void __user *arg);
-#endif
+	unsigned int cmd_size;
 
 	/*
 	 * The queuecommand function is used to queue up a scsi
@@ -120,6 +84,41 @@ struct scsi_host_template {
 	 * STATUS: OPTIONAL
 	 */
 	void (*commit_rqs)(struct Scsi_Host *, u16);
+
+	struct module *module;
+	const char *name;
+
+	/*
+	 * The info function will return whatever useful information the
+	 * developer sees fit.  If not provided, then the name field will
+	 * be used instead.
+	 *
+	 * Status: OPTIONAL
+	 */
+	const char *(*info)(struct Scsi_Host *);
+
+	/*
+	 * Ioctl interface
+	 *
+	 * Status: OPTIONAL
+	 */
+	int (*ioctl)(struct scsi_device *dev, unsigned int cmd,
+		     void __user *arg);
+
+
+#ifdef CONFIG_COMPAT
+	/*
+	 * Compat handler. Handle 32bit ABI.
+	 * When unknown ioctl is passed return -ENOIOCTLCMD.
+	 *
+	 * Status: OPTIONAL
+	 */
+	int (*compat_ioctl)(struct scsi_device *dev, unsigned int cmd,
+			    void __user *arg);
+#endif
+
+	int (*init_cmd_priv)(struct Scsi_Host *shost, struct scsi_cmnd *cmd);
+	int (*exit_cmd_priv)(struct Scsi_Host *shost, struct scsi_cmnd *cmd);
 
 	/*
 	 * This is an error handling strategy routine.  You don't need to
@@ -281,6 +280,16 @@ struct scsi_host_template {
 	int (* map_queues)(struct Scsi_Host *shost);
 
 	/*
+	 * SCSI interface of blk_poll - poll for IO completions.
+	 * Only applicable if SCSI LLD exposes multiple h/w queues.
+	 *
+	 * Return value: Number of completed entries found.
+	 *
+	 * Status: OPTIONAL
+	 */
+	int (* mq_poll)(struct Scsi_Host *shost, unsigned int queue_num);
+
+	/*
 	 * Check if scatterlists need to be padded for DMA draining.
 	 *
 	 * Status: OPTIONAL
@@ -324,6 +333,12 @@ struct scsi_host_template {
 	 * Status: OPTIONAL
 	 */
 	enum blk_eh_timer_return (*eh_timed_out)(struct scsi_cmnd *);
+	/*
+	 * Optional routine that allows the transport to decide if a cmd
+	 * is retryable. Return true if the transport is in a state the
+	 * cmd should be retried on.
+	 */
+	bool (*eh_should_retry_cmd)(struct scsi_cmnd *scmd);
 
 	/* This is an optional routine that allows transport to initiate
 	 * LLD adapter or firmware reset using sysfs attribute.
@@ -352,7 +367,7 @@ struct scsi_host_template {
 	/*
 	 * This determines if we will use a non-interrupt driven
 	 * or an interrupt driven scheme.  It is set to the maximum number
-	 * of simultaneous commands a given host adapter will accept.
+	 * of simultaneous commands a single hw queue in HBA will accept.
 	 */
 	int can_queue;
 
@@ -429,11 +444,6 @@ struct scsi_host_template {
 	unsigned supported_mode:2;
 
 	/*
-	 * True if this host adapter uses unchecked DMA onto an ISA bus.
-	 */
-	unsigned unchecked_isa_dma:1;
-
-	/*
 	 * True for emulated SCSI host adapters (e.g. ATAPI).
 	 */
 	unsigned emulated:1;
@@ -448,9 +458,6 @@ struct scsi_host_template {
 
 	/* True if the host uses host-wide tagspace */
 	unsigned host_tagset:1;
-
-	/* True if the low-level driver supports blk-mq only */
-	unsigned force_blk_mq:1;
 
 	/*
 	 * Countdown for host blocking with no commands outstanding.
@@ -491,11 +498,10 @@ struct scsi_host_template {
 	 */
 	u64 vendor_id;
 
-	/*
-	 * Additional per-command data allocated for the driver.
-	 */
-	unsigned int cmd_size;
 	struct scsi_host_cmd_pool *cmd_pool;
+
+	/* Delay for runtime autosuspend */
+	int rpm_autosuspend_delay;
 };
 
 /*
@@ -561,7 +567,6 @@ struct Scsi_Host {
 	/* Area to keep a shared tag map */
 	struct blk_mq_tag_set	tag_set;
 
-	atomic_t host_busy;		   /* commands actually active on low-level */
 	atomic_t host_blocked;
 
 	unsigned int host_failed;	   /* commands that failed.
@@ -621,8 +626,8 @@ struct Scsi_Host {
 	 * the total queue depth is can_queue.
 	 */
 	unsigned nr_hw_queues;
+	unsigned nr_maps;
 	unsigned active_mode:2;
-	unsigned unchecked_isa_dma:1;
 
 	/*
 	 * Host has requested that no further requests come through for the
@@ -657,9 +662,6 @@ struct Scsi_Host {
 
 	/* The transport requires the LUN bits NOT to be stored in CDB[1] */
 	unsigned no_scsi2_lun_in_cdb:1;
-
-	/* Allow asynchronous device scan */
-	unsigned async_device_scan:1;
 
 	/*
 	 * Optional work queue to be utilized by the transport
@@ -711,7 +713,7 @@ struct Scsi_Host {
 	 * and also because some compilers (m68k) don't automatically force
 	 * alignment to a long boundary.
 	 */
-	unsigned long hostdata[0]  /* Used for storage of host specific stuff */
+	unsigned long hostdata[]  /* Used for storage of host specific stuff */
 		__attribute__ ((aligned (sizeof(unsigned long))));
 };
 
@@ -762,7 +764,7 @@ extern void scsi_host_put(struct Scsi_Host *t);
 extern struct Scsi_Host *scsi_host_lookup(unsigned short);
 extern const char *scsi_host_state_name(enum scsi_host_state);
 extern void scsi_host_complete_all_commands(struct Scsi_Host *shost,
-					    int status);
+					    enum scsi_host_status status);
 
 static inline int __must_check scsi_add_host(struct Scsi_Host *host,
 					     struct device *dev)

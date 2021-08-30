@@ -50,7 +50,7 @@ static unsigned long chp_info_expires;
 static struct work_struct cfg_work;
 
 /* Wait queue for configure completion events. */
-static wait_queue_head_t cfg_wait_queue;
+static DECLARE_WAIT_QUEUE_HEAD(cfg_wait_queue);
 
 /* Set vary state for given chpid. */
 static void set_chp_logically_online(struct chp_id chpid, int onoff)
@@ -135,7 +135,7 @@ static ssize_t chp_measurement_chars_read(struct file *filp,
 	struct channel_path *chp;
 	struct device *device;
 
-	device = container_of(kobj, struct device, kobj);
+	device = kobj_to_dev(kobj);
 	chp = to_channelpath(device);
 	if (chp->cmg == -1)
 		return 0;
@@ -184,7 +184,7 @@ static ssize_t chp_measurement_read(struct file *filp, struct kobject *kobj,
 	struct device *device;
 	unsigned int size;
 
-	device = container_of(kobj, struct device, kobj);
+	device = kobj_to_dev(kobj);
 	chp = to_channelpath(device);
 	css = to_css(chp->dev.parent);
 
@@ -254,6 +254,9 @@ static ssize_t chp_status_write(struct device *dev,
 	num_args = sscanf(buf, "%5s", cmd);
 	if (!num_args)
 		return count;
+
+	/* Wait until previous actions have settled. */
+	css_wait_for_slow_path();
 
 	if (!strncasecmp(cmd, "on", 2) || !strcmp(cmd, "1")) {
 		mutex_lock(&cp->lock);
@@ -829,7 +832,6 @@ static int __init chp_init(void)
 	if (ret)
 		return ret;
 	INIT_WORK(&cfg_work, cfg_func);
-	init_waitqueue_head(&cfg_wait_queue);
 	if (info_update())
 		return 0;
 	/* Register available channel-paths. */

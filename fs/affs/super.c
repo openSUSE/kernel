@@ -121,8 +121,8 @@ static void init_once(void *foo)
 {
 	struct affs_inode_info *ei = (struct affs_inode_info *) foo;
 
-	sema_init(&ei->i_link_lock, 1);
-	sema_init(&ei->i_ext_lock, 1);
+	mutex_init(&ei->i_link_lock);
+	mutex_init(&ei->i_ext_lock);
 	inode_init_once(&ei->vfs_inode);
 }
 
@@ -355,6 +355,10 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
 	sb->s_op                = &affs_sops;
 	sb->s_flags |= SB_NODIRATIME;
 
+	sb->s_time_gran = NSEC_PER_SEC;
+	sb->s_time_min = sys_tz.tz_minuteswest * 60 + AFFS_EPOCH_DELTA;
+	sb->s_time_max = 86400LL * U32_MAX + 86400 + sb->s_time_min;
+
 	sbi = kzalloc(sizeof(struct affs_sb_info), GFP_KERNEL);
 	if (!sbi)
 		return -ENOMEM;
@@ -470,7 +474,7 @@ got_root:
 	case MUFS_INTLFFS:
 	case MUFS_DCFFS:
 		affs_set_opt(sbi->s_flags, SF_MUFS);
-		/* fall thru */
+		fallthrough;
 	case FS_INTLFFS:
 	case FS_DCFFS:
 		affs_set_opt(sbi->s_flags, SF_INTL);
@@ -482,7 +486,7 @@ got_root:
 		break;
 	case MUFS_OFS:
 		affs_set_opt(sbi->s_flags, SF_MUFS);
-		/* fall through */
+		fallthrough;
 	case FS_OFS:
 		affs_set_opt(sbi->s_flags, SF_OFS);
 		sb->s_flags |= SB_NOEXEC;
@@ -490,7 +494,7 @@ got_root:
 	case MUFS_DCOFS:
 	case MUFS_INTLOFS:
 		affs_set_opt(sbi->s_flags, SF_MUFS);
-		/* fall through */
+		fallthrough;
 	case FS_DCOFS:
 	case FS_INTLOFS:
 		affs_set_opt(sbi->s_flags, SF_INTL);
@@ -616,8 +620,7 @@ affs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_blocks  = AFFS_SB(sb)->s_partition_size - AFFS_SB(sb)->s_reserved;
 	buf->f_bfree   = free;
 	buf->f_bavail  = free;
-	buf->f_fsid.val[0] = (u32)id;
-	buf->f_fsid.val[1] = (u32)(id >> 32);
+	buf->f_fsid    = u64_to_fsid(id);
 	buf->f_namelen = AFFSNAMEMAX;
 	return 0;
 }

@@ -22,6 +22,7 @@
 #include <net/netlink.h>
 #include <net/pkt_cls.h>
 #include <net/rtnetlink.h>
+#include <net/udp_tunnel.h>
 
 #include "netdevsim.h"
 
@@ -111,6 +112,11 @@ static int nsim_set_vf_rate(struct net_device *dev, int vf, int min, int max)
 {
 	struct netdevsim *ns = netdev_priv(dev);
 	struct nsim_bus_dev *nsim_bus_dev = ns->nsim_bus_dev;
+
+	if (nsim_esw_mode_is_switchdev(ns->nsim_dev)) {
+		pr_err("Not supported in switchdev mode. Please use devlink API.\n");
+		return -EOPNOTSUPP;
+	}
 
 	if (vf >= nsim_bus_dev->num_vfs)
 		return -EINVAL;
@@ -260,6 +266,18 @@ static const struct net_device_ops nsim_netdev_ops = {
 	.ndo_get_devlink_port	= nsim_get_devlink_port,
 };
 
+static const struct net_device_ops nsim_vf_netdev_ops = {
+	.ndo_start_xmit		= nsim_start_xmit,
+	.ndo_set_rx_mode	= nsim_set_rx_mode,
+	.ndo_set_mac_address	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_change_mtu		= nsim_change_mtu,
+	.ndo_get_stats64	= nsim_get_stats64,
+	.ndo_setup_tc		= nsim_setup_tc,
+	.ndo_set_features	= nsim_set_features,
+	.ndo_get_devlink_port	= nsim_get_devlink_port,
+};
+
 static void nsim_setup(struct net_device *dev)
 {
 	ether_setup(dev);
@@ -277,6 +295,49 @@ static void nsim_setup(struct net_device *dev)
 			 NETIF_F_TSO;
 	dev->hw_features |= NETIF_F_HW_TC;
 	dev->max_mtu = ETH_MAX_MTU;
+}
+
+static int nsim_init_netdevsim(struct netdevsim *ns)
+{
+	int err;
+
+	ns->netdev->netdev_ops = &nsim_netdev_ops;
+
+	err = nsim_udp_tunnels_info_create(ns->nsim_dev, ns->netdev);
+	if (err)
+		return err;
+
+	rtnl_lock();
+	err = nsim_bpf_init(ns);
+	if (err)
+		goto err_utn_destroy;
+
+	nsim_ipsec_init(ns);
+
+	err = register_netdevice(ns->netdev);
+	if (err)
+		goto err_ipsec_teardown;
+	rtnl_unlock();
+	return 0;
+
+err_ipsec_teardown:
+	nsim_ipsec_teardown(ns);
+	nsim_bpf_uninit(ns);
+err_utn_destroy:
+	rtnl_unlock();
+	nsim_udp_tunnels_info_destroy(ns->netdev);
+	return err;
+}
+
+static int nsim_init_netdevsim_vf(struct netdevsim *ns)
+{
+	int err;
+
+	ns->netdev->netdev_ops = &nsim_vf_netdev_ops;
+	rtnl_lock();
+	err = register_netdevice(ns->netdev);
+	rtnl_unlock();
+	return err;
 }
 
 struct netdevsim *
@@ -298,27 +359,16 @@ nsim_create(struct nsim_dev *nsim_dev, struct nsim_dev_port *nsim_dev_port)
 	ns->nsim_dev_port = nsim_dev_port;
 	ns->nsim_bus_dev = nsim_dev->nsim_bus_dev;
 	SET_NETDEV_DEV(dev, &ns->nsim_bus_dev->dev);
-	dev->netdev_ops = &nsim_netdev_ops;
-
-	rtnl_lock();
-	err = nsim_bpf_init(ns);
+	nsim_ethtool_init(ns);
+	if (nsim_dev_port_is_pf(nsim_dev_port))
+		err = nsim_init_netdevsim(ns);
+	else
+		err = nsim_init_netdevsim_vf(ns);
 	if (err)
-		goto err_rtnl_unlock;
-
-	nsim_ipsec_init(ns);
-
-	err = register_netdevice(dev);
-	if (err)
-		goto err_ipsec_teardown;
-	rtnl_unlock();
-
+		goto err_free_netdev;
 	return ns;
 
-err_ipsec_teardown:
-	nsim_ipsec_teardown(ns);
-	nsim_bpf_uninit(ns);
-err_rtnl_unlock:
-	rtnl_unlock();
+err_free_netdev:
 	free_netdev(dev);
 	return ERR_PTR(err);
 }
@@ -329,9 +379,13 @@ void nsim_destroy(struct netdevsim *ns)
 
 	rtnl_lock();
 	unregister_netdevice(dev);
-	nsim_ipsec_teardown(ns);
-	nsim_bpf_uninit(ns);
+	if (nsim_dev_port_is_pf(ns->nsim_dev_port)) {
+		nsim_ipsec_teardown(ns);
+		nsim_bpf_uninit(ns);
+	}
 	rtnl_unlock();
+	if (nsim_dev_port_is_pf(ns->nsim_dev_port))
+		nsim_udp_tunnels_info_destroy(dev);
 	free_netdev(dev);
 }
 

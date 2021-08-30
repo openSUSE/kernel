@@ -17,7 +17,7 @@ description: |+
   any time. Be sure to use a device tree binary and a kernel image
   generated from the same source tree.
 
-  Please refer to Documentation/devicetree/bindings/ABI.txt for a definition of a
+  Please refer to Documentation/devicetree/bindings/ABI.rst for a definition of a
   stable binding/ABI.
 
 properties:
@@ -59,6 +59,7 @@ properties:
               - friendlyarm,nanopi-k2
               - hardkernel,odroid-c2
               - nexbox,a95x
+              - videostrong,kii-pro
               - wetek,hub
               - wetek,play2
           - const: amlogic,meson-gxbb
@@ -91,13 +92,12 @@ properties:
       - description: Boards with the Amlogic Meson GXL S905X SoC
         items:
           - enum:
-              - amediatech,x96-max
               - amlogic,p212
               - hwacom,amazetv
               - khadas,vim
-              - libretech,cc
+              - libretech,aml-s905x-cc
+              - libretech,aml-s905x-cc-v2
               - nexbox,a95x
-              - seirobotics,sei510
           - const: amlogic,s905x
           - const: amlogic,meson-gxl
 
@@ -106,7 +106,10 @@ properties:
           - enum:
               - amlogic,p230
               - amlogic,p231
+              - libretech,aml-s905d-pc
               - phicomm,n1
+              - smartlabs,sml5442tw
+              - videostrong,gxl-kii-pro
           - const: amlogic,s905d
           - const: amlogic,meson-gxl
 
@@ -117,8 +120,12 @@ properties:
               - amlogic,q201
               - khadas,vim2
               - kingnovel,r-box-pro
+              - libretech,aml-s912-pc
+              - minix,neo-u9h
               - nexbox,a1
               - tronsmart,vega-s96
+              - videostrong,gxm-kiii-pro
+              - wetek,core2
           - const: amlogic,s912
           - const: amlogic,meson-gxm
 
@@ -129,16 +136,50 @@ properties:
           - const: amlogic,a113d
           - const: amlogic,meson-axg
 
-      - description: Boards with the Amlogic Meson G12A S905D2 SoC
+      - description: Boards with the Amlogic Meson G12A S905D2/X2/Y2 SoC
         items:
           - enum:
+              - amediatech,x96-max
               - amlogic,u200
+              - seirobotics,sei510
           - const: amlogic,g12a
+
+      - description: Boards with the Amlogic Meson G12B A311D SoC
+        items:
+          - enum:
+              - khadas,vim3
+          - const: amlogic,a311d
+          - const: amlogic,g12b
 
       - description: Boards with the Amlogic Meson G12B S922X SoC
         items:
           - enum:
+              - azw,gsking-x
+              - azw,gtking
+              - azw,gtking-pro
               - hardkernel,odroid-n2
+              - hardkernel,odroid-n2-plus
+              - khadas,vim3
+              - ugoos,am6
+          - const: amlogic,s922x
           - const: amlogic,g12b
+
+      - description: Boards with the Amlogic Meson SM1 S905X3/D3/Y3 SoC
+        items:
+          - enum:
+              - bananapi,bpi-m5
+              - hardkernel,odroid-c4
+              - hardkernel,odroid-hc4
+              - khadas,vim3l
+              - seirobotics,sei610
+          - const: amlogic,sm1
+
+      - description: Boards with the Amlogic Meson A1 A113L SoC
+        items:
+          - enum:
+              - amlogic,ad401
+          - const: amlogic,a1
+
+additionalProperties: true
 
 ...

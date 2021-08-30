@@ -26,7 +26,6 @@
 #include <asm/platform_sst_audio.h>
 #include "../sst-mfld-platform.h"
 #include "sst.h"
-#include "../../common/sst-dsp.h"
 
 MODULE_AUTHOR("Vinod Koul <vinod.koul@intel.com>");
 MODULE_AUTHOR("Harsha Priya <priya.harsha@intel.com>");
@@ -187,7 +186,7 @@ int sst_driver_ops(struct intel_sst_drv *sst)
 			"SST Driver capabilities missing for dev_id: %x",
 			sst->dev_id);
 		return -EINVAL;
-	};
+	}
 }
 
 void sst_process_pending_msg(struct work_struct *work)
@@ -325,8 +324,7 @@ int sst_context_init(struct intel_sst_drv *ctx)
 		ret = -ENOMEM;
 		goto do_free_mem;
 	}
-	pm_qos_add_request(ctx->qos, PM_QOS_CPU_DMA_LATENCY,
-				PM_QOS_DEFAULT_VALUE);
+	cpu_latency_qos_add_request(ctx->qos, PM_QOS_DEFAULT_VALUE);
 
 	dev_dbg(ctx->dev, "Requesting FW %s now...\n", ctx->firmware_name);
 	ret = request_firmware_nowait(THIS_MODULE, true, ctx->firmware_name,
@@ -364,7 +362,7 @@ void sst_context_cleanup(struct intel_sst_drv *ctx)
 	sysfs_remove_group(&ctx->dev->kobj, &sst_fw_version_attr_group);
 	flush_scheduled_work();
 	destroy_workqueue(ctx->post_msg_wq);
-	pm_qos_remove_request(ctx->qos);
+	cpu_latency_qos_remove_request(ctx->qos);
 	kfree(ctx->fw_sg_list.src);
 	kfree(ctx->fw_sg_list.dst);
 	ctx->fw_sg_list.list_len = 0;

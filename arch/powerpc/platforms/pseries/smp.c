@@ -20,12 +20,12 @@
 #include <linux/err.h>
 #include <linux/device.h>
 #include <linux/cpu.h>
+#include <linux/pgtable.h>
 
 #include <asm/ptrace.h>
 #include <linux/atomic.h>
 #include <asm/irq.h>
 #include <asm/page.h>
-#include <asm/pgtable.h>
 #include <asm/io.h>
 #include <asm/prom.h>
 #include <asm/smp.h>
@@ -41,6 +41,7 @@
 #include <asm/dbell.h>
 #include <asm/plpar_wrappers.h>
 #include <asm/code-patching.h>
+#include <asm/svm.h>
 #include <asm/kvm_guest.h>
 
 #include "pseries.h"
@@ -103,9 +104,6 @@ static inline int smp_startup_cpu(unsigned int lcpu)
 		cpumask_set_cpu(lcpu, of_spin_mask);
 		return 1;
 	}
-
-	/* Fixup atomic count: it exited inside IRQ handler. */
-	task_thread_info(paca_ptrs[lcpu]->__current)->preempt_count	= 0;
 
 	/* 
 	 * If the RTAS start-cpu token does not exist then presume the
@@ -227,7 +225,7 @@ static __init void pSeries_smp_probe(void)
 		 * emulate secure guests because it can't read the instruction
 		 * out of their memory.
 		 */
-		if (0) /* no secure guest support */
+		if (is_secure_guest())
 			return;
 	}
 

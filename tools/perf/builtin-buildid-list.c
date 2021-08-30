@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
  * builtin-buildid-list.c
  *
@@ -11,13 +10,15 @@
 #include "builtin.h"
 #include "perf.h"
 #include "util/build-id.h"
-#include "util/cache.h"
 #include "util/debug.h"
+#include "util/dso.h"
+#include <subcmd/pager.h>
 #include <subcmd/parse-options.h>
 #include "util/session.h"
 #include "util/symbol.h"
 #include "util/data.h"
 #include <errno.h>
+#include <linux/err.h>
 
 static int sysfs__fprintf_build_id(FILE *fp)
 {
@@ -65,8 +66,8 @@ static int perf_session__list_build_ids(bool force, bool with_hits)
 		goto out;
 
 	session = perf_session__new(&data, false, &build_id__mark_dso_hit_ops);
-	if (session == NULL)
-		return -1;
+	if (IS_ERR(session))
+		return PTR_ERR(session);
 
 	/*
 	 * We take all buildids when the file contains AUX area tracing data
@@ -75,6 +76,12 @@ static int perf_session__list_build_ids(bool force, bool with_hits)
 	if (!perf_data__is_pipe(&data) &&
 	    perf_header__has_feat(&session->header, HEADER_AUXTRACE))
 		with_hits = false;
+
+	if (!perf_header__has_feat(&session->header, HEADER_BUILD_ID))
+		with_hits = true;
+
+	if (zstd_init(&(session->zstd_data), 0) < 0)
+		pr_warning("Decompression initialization failed. Reported data may be incomplete.\n");
 
 	/*
 	 * in pipe-mode, the only way to get the buildids is to parse

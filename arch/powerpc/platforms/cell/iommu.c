@@ -486,7 +486,8 @@ cell_iommu_setup_window(struct cbe_iommu *iommu, struct device_node *np,
 	window->table.it_size = size >> window->table.it_page_shift;
 	window->table.it_ops = &cell_iommu_ops;
 
-	iommu_init_table(&window->table, iommu->nid);
+	if (!iommu_init_table(&window->table, iommu->nid, 0, 0))
+		panic("Failed to initialize iommu table");
 
 	pr_debug("\tioid      %d\n", window->ioid);
 	pr_debug("\tblocksize %ld\n", window->table.it_blocksize);
@@ -943,7 +944,7 @@ static int __init cell_iommu_fixed_mapping_init(void)
 		fbase = max(fbase, dbase + dsize);
 	}
 
-	fbase = _ALIGN_UP(fbase, 1 << IO_SEGMENT_SHIFT);
+	fbase = ALIGN(fbase, 1 << IO_SEGMENT_SHIFT);
 	fsize = memblock_phys_mem_size();
 
 	if ((fbase + fsize) <= 0x800000000ul)
@@ -963,8 +964,8 @@ static int __init cell_iommu_fixed_mapping_init(void)
 		hend  = hbase + htab_size_bytes;
 
 		/* The window must start and end on a segment boundary */
-		if ((hbase != _ALIGN_UP(hbase, 1 << IO_SEGMENT_SHIFT)) ||
-		    (hend != _ALIGN_UP(hend, 1 << IO_SEGMENT_SHIFT))) {
+		if ((hbase != ALIGN(hbase, 1 << IO_SEGMENT_SHIFT)) ||
+		    (hend != ALIGN(hend, 1 << IO_SEGMENT_SHIFT))) {
 			pr_debug("iommu: hash window not segment aligned\n");
 			return -1;
 		}

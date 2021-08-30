@@ -593,7 +593,6 @@ static void longhaul_setup_voltagescaling(void)
 		break;
 	default:
 		return;
-		break;
 	}
 	if (min_vid_speed >= highest_speed)
 		return;
@@ -943,8 +942,6 @@ static int __init longhaul_init(void)
 		return cpufreq_register_driver(&longhaul_driver);
 	case 10:
 		pr_err("Use acpi-cpufreq driver for VIA C7\n");
-	default:
-		;
 	}
 
 	return -ENODEV;

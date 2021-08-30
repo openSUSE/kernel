@@ -80,14 +80,14 @@ EXPORT_SYMBOL_GPL(get_max_files);
  */
 #if defined(CONFIG_SYSCTL) && defined(CONFIG_PROC_FS)
 int proc_nr_files(struct ctl_table *table, int write,
-                     void __user *buffer, size_t *lenp, loff_t *ppos)
+                     void *buffer, size_t *lenp, loff_t *ppos)
 {
 	files_stat.nr_files = get_nr_files();
 	return proc_doulongvec_minmax(table, write, buffer, lenp, ppos);
 }
 #else
 int proc_nr_files(struct ctl_table *table, int write,
-                     void __user *buffer, size_t *lenp, loff_t *ppos)
+                     void *buffer, size_t *lenp, loff_t *ppos)
 {
 	return -ENOSYS;
 }
@@ -113,7 +113,6 @@ static struct file *__alloc_file(int flags, const struct cred *cred)
 	rwlock_init(&f->f_owner.lock);
 	spin_lock_init(&f->f_lock);
 	mutex_init(&f->f_pos_lock);
-	eventpoll_init_file(f);
 	f->f_flags = flags;
 	f->f_mode = OPEN_FMODE(flags);
 	/* f->f_version: 0 */
@@ -328,6 +327,7 @@ void flush_delayed_fput(void)
 {
 	delayed_fput(NULL);
 }
+EXPORT_SYMBOL_GPL(flush_delayed_fput);
 
 static DECLARE_DELAYED_WORK(delayed_fput_work, delayed_fput);
 
@@ -338,7 +338,7 @@ void fput_many(struct file *file, unsigned int refs)
 
 		if (likely(!in_interrupt() && !(task->flags & PF_KTHREAD))) {
 			init_task_work(&file->f_u.fu_rcuhead, ____fput);
-			if (!task_work_add(task, &file->f_u.fu_rcuhead, true))
+			if (!task_work_add(task, &file->f_u.fu_rcuhead, TWA_RESUME))
 				return;
 			/*
 			 * After this task has run exit_task_work(),

@@ -77,20 +77,20 @@ create_spin_counter(struct intel_engine_cs *engine,
 
 	vma = i915_vma_instance(obj, vm, NULL);
 	if (IS_ERR(vma)) {
-		i915_gem_object_put(obj);
-		return vma;
+		err = PTR_ERR(vma);
+		goto err_put;
 	}
 
 	err = i915_vma_pin(vma, 0, 0, PIN_USER);
-	if (err) {
-		i915_vma_put(vma);
-		return ERR_PTR(err);
-	}
+	if (err)
+		goto err_unlock;
+
+	i915_vma_lock(vma);
 
 	base = i915_gem_object_pin_map(obj, I915_MAP_WC);
 	if (IS_ERR(base)) {
-		i915_gem_object_put(obj);
-		return ERR_CAST(base);
+		err = PTR_ERR(base);
+		goto err_unpin;
 	}
 	cs = base;
 
@@ -134,6 +134,14 @@ create_spin_counter(struct intel_engine_cs *engine,
 	*cancel = base + loop;
 	*counter = srm ? memset32(base + end, 0, 1) : NULL;
 	return vma;
+
+err_unpin:
+	i915_vma_unpin(vma);
+err_unlock:
+	i915_vma_unlock(vma);
+err_put:
+	i915_gem_object_put(obj);
+	return ERR_PTR(err);
 }
 
 static u8 wait_for_freq(struct intel_rps *rps, u8 freq, int timeout_ms)
@@ -177,7 +185,10 @@ static u8 rps_set_check(struct intel_rps *rps, u8 freq)
 {
 	mutex_lock(&rps->lock);
 	GEM_BUG_ON(!intel_rps_is_active(rps));
-	intel_rps_set(rps, freq);
+	if (wait_for(!intel_rps_set(rps, freq), 50)) {
+		mutex_unlock(&rps->lock);
+		return 0;
+	}
 	GEM_BUG_ON(rps->last_freq != freq);
 	mutex_unlock(&rps->lock);
 
@@ -193,7 +204,7 @@ static void show_pstate_limits(struct intel_rps *rps)
 			i915_mmio_reg_offset(BXT_RP_STATE_CAP),
 			intel_uncore_read(rps_to_uncore(rps),
 					  BXT_RP_STATE_CAP));
-	} else if (IS_GEN(i915, 9)) {
+	} else if (GRAPHICS_VER(i915) == 9) {
 		pr_info("P_STATE_LIMITS[%x]: 0x%08x\n",
 			i915_mmio_reg_offset(GEN9_RP_STATE_LIMITS),
 			intel_uncore_read(rps_to_uncore(rps),
@@ -211,7 +222,7 @@ int live_rps_clock_interval(void *arg)
 	struct igt_spinner spin;
 	int err = 0;
 
-	if (!intel_rps_is_enabled(rps))
+	if (!intel_rps_is_enabled(rps) || GRAPHICS_VER(gt->i915) < 6)
 		return 0;
 
 	if (igt_spinner_init(&spin, gt))
@@ -495,7 +506,7 @@ static void show_pcu_config(struct intel_rps *rps)
 
 	min_gpu_freq = rps->min_freq;
 	max_gpu_freq = rps->max_freq;
-	if (INTEL_GEN(i915) >= 9) {
+	if (GRAPHICS_VER(i915) >= 9) {
 		/* Convert GT frequency to 50 HZ units */
 		min_gpu_freq /= GEN9_FREQ_SCALER;
 		max_gpu_freq /= GEN9_FREQ_SCALER;
@@ -595,7 +606,7 @@ int live_rps_frequency_cs(void *arg)
 	int err = 0;
 
 	/*
-	 * The premise is that the GPU does change freqency at our behest.
+	 * The premise is that the GPU does change frequency at our behest.
 	 * Let's check there is a correspondence between the requested
 	 * frequency, the actual frequency, and the observed clock rate.
 	 */
@@ -603,7 +614,7 @@ int live_rps_frequency_cs(void *arg)
 	if (!intel_rps_is_enabled(rps))
 		return 0;
 
-	if (INTEL_GEN(gt->i915) < 8) /* for CS simplicity */
+	if (GRAPHICS_VER(gt->i915) < 8) /* for CS simplicity */
 		return 0;
 
 	if (CPU_LATENCY >= 0)
@@ -639,7 +650,6 @@ int live_rps_frequency_cs(void *arg)
 			goto err_vma;
 		}
 
-		i915_vma_lock(vma);
 		err = i915_request_await_object(rq, vma->obj, false);
 		if (!err)
 			err = i915_vma_move_to_active(vma, rq, 0);
@@ -647,7 +657,6 @@ int live_rps_frequency_cs(void *arg)
 			err = rq->engine->emit_bb_start(rq,
 							vma->node.start,
 							PAGE_SIZE, 0);
-		i915_vma_unlock(vma);
 		i915_request_add(rq);
 		if (err)
 			goto err_vma;
@@ -700,7 +709,7 @@ int live_rps_frequency_cs(void *arg)
 				f = act; /* may skip ahead [pcu granularity] */
 			}
 
-			err = -EINVAL;
+			err = -EINTR; /* ignore error, continue on with test */
 		}
 
 err_vma:
@@ -708,6 +717,7 @@ err_vma:
 		i915_gem_object_flush_map(vma->obj);
 		i915_gem_object_unpin_map(vma->obj);
 		i915_vma_unpin(vma);
+		i915_vma_unlock(vma);
 		i915_vma_put(vma);
 
 		st_engine_heartbeat_enable(engine);
@@ -737,7 +747,7 @@ int live_rps_frequency_srm(void *arg)
 	int err = 0;
 
 	/*
-	 * The premise is that the GPU does change freqency at our behest.
+	 * The premise is that the GPU does change frequency at our behest.
 	 * Let's check there is a correspondence between the requested
 	 * frequency, the actual frequency, and the observed clock rate.
 	 */
@@ -745,7 +755,7 @@ int live_rps_frequency_srm(void *arg)
 	if (!intel_rps_is_enabled(rps))
 		return 0;
 
-	if (INTEL_GEN(gt->i915) < 8) /* for CS simplicity */
+	if (GRAPHICS_VER(gt->i915) < 8) /* for CS simplicity */
 		return 0;
 
 	if (CPU_LATENCY >= 0)
@@ -781,7 +791,6 @@ int live_rps_frequency_srm(void *arg)
 			goto err_vma;
 		}
 
-		i915_vma_lock(vma);
 		err = i915_request_await_object(rq, vma->obj, false);
 		if (!err)
 			err = i915_vma_move_to_active(vma, rq, 0);
@@ -789,7 +798,6 @@ int live_rps_frequency_srm(void *arg)
 			err = rq->engine->emit_bb_start(rq,
 							vma->node.start,
 							PAGE_SIZE, 0);
-		i915_vma_unlock(vma);
 		i915_request_add(rq);
 		if (err)
 			goto err_vma;
@@ -841,7 +849,7 @@ int live_rps_frequency_srm(void *arg)
 				f = act; /* may skip ahead [pcu granularity] */
 			}
 
-			err = -EINVAL;
+			err = -EINTR; /* ignore error, continue on with test */
 		}
 
 err_vma:
@@ -849,6 +857,7 @@ err_vma:
 		i915_gem_object_flush_map(vma->obj);
 		i915_gem_object_unpin_map(vma->obj);
 		i915_vma_unpin(vma);
+		i915_vma_unlock(vma);
 		i915_vma_put(vma);
 
 		st_engine_heartbeat_enable(engine);
@@ -1022,7 +1031,7 @@ int live_rps_interrupt(void *arg)
 	 * First, let's check whether or not we are receiving interrupts.
 	 */
 
-	if (!intel_rps_has_interrupts(rps))
+	if (!intel_rps_has_interrupts(rps) || GRAPHICS_VER(gt->i915) < 6)
 		return 0;
 
 	intel_gt_pm_get(gt);
@@ -1127,10 +1136,10 @@ int live_rps_power(void *arg)
 	 * that theory.
 	 */
 
-	if (!intel_rps_is_enabled(rps))
+	if (!intel_rps_is_enabled(rps) || GRAPHICS_VER(gt->i915) < 6)
 		return 0;
 
-	if (!librapl_energy_uJ())
+	if (!librapl_supported(gt->i915))
 		return 0;
 
 	if (igt_spinner_init(&spin, gt))
@@ -1231,7 +1240,7 @@ int live_rps_dynamic(void *arg)
 	 * moving parts into dynamic reclocking based on load.
 	 */
 
-	if (!intel_rps_is_enabled(rps))
+	if (!intel_rps_is_enabled(rps) || GRAPHICS_VER(gt->i915) < 6)
 		return 0;
 
 	if (igt_spinner_init(&spin, gt))

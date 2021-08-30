@@ -3,10 +3,6 @@
  * Copyright (C) 2012-2015 Spreadtrum Communications Inc.
  */
 
-#if defined(CONFIG_SERIAL_SPRD_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
-#define SUPPORT_SYSRQ
-#endif
-
 #include <linux/clk.h>
 #include <linux/console.h>
 #include <linux/delay.h>
@@ -79,6 +75,7 @@
 /* control register 1 */
 #define SPRD_CTL1		0x001C
 #define SPRD_DMA_EN		BIT(15)
+#define SPRD_LOOPBACK_EN	BIT(14)
 #define RX_HW_FLOW_CTL_THLD	BIT(6)
 #define RX_HW_FLOW_CTL_EN	BIT(7)
 #define TX_HW_FLOW_CTL_EN	BIT(8)
@@ -164,7 +161,14 @@ static unsigned int sprd_get_mctrl(struct uart_port *port)
 
 static void sprd_set_mctrl(struct uart_port *port, unsigned int mctrl)
 {
-	/* nothing to do */
+	u32 val = serial_in(port, SPRD_CTL1);
+
+	if (mctrl & TIOCM_LOOP)
+		val |= SPRD_LOOPBACK_EN;
+	else
+		val &= ~SPRD_LOOPBACK_EN;
+
+	serial_out(port, SPRD_CTL1, val);
 }
 
 static void sprd_stop_rx(struct uart_port *port)
@@ -914,6 +918,34 @@ static void sprd_pm(struct uart_port *port, unsigned int state,
 	}
 }
 
+#ifdef CONFIG_CONSOLE_POLL
+static int sprd_poll_init(struct uart_port *port)
+{
+	if (port->state->pm_state != UART_PM_STATE_ON) {
+		sprd_pm(port, UART_PM_STATE_ON, 0);
+		port->state->pm_state = UART_PM_STATE_ON;
+	}
+
+	return 0;
+}
+
+static int sprd_poll_get_char(struct uart_port *port)
+{
+	while (!(serial_in(port, SPRD_STS1) & SPRD_RX_FIFO_CNT_MASK))
+		cpu_relax();
+
+	return serial_in(port, SPRD_RXD);
+}
+
+static void sprd_poll_put_char(struct uart_port *port, unsigned char ch)
+{
+	while (serial_in(port, SPRD_STS1) & SPRD_TX_FIFO_CNT_MASK)
+		cpu_relax();
+
+	serial_out(port, SPRD_TXD, ch);
+}
+#endif
+
 static const struct uart_ops serial_sprd_ops = {
 	.tx_empty = sprd_tx_empty,
 	.get_mctrl = sprd_get_mctrl,
@@ -931,6 +963,11 @@ static const struct uart_ops serial_sprd_ops = {
 	.config_port = sprd_config_port,
 	.verify_port = sprd_verify_port,
 	.pm = sprd_pm,
+#ifdef CONFIG_CONSOLE_POLL
+	.poll_init	= sprd_poll_init,
+	.poll_get_char	= sprd_poll_get_char,
+	.poll_put_char	= sprd_poll_put_char,
+#endif
 };
 
 #ifdef CONFIG_SERIAL_SPRD_CONSOLE
@@ -976,9 +1013,9 @@ static void sprd_console_write(struct console *co, const char *s,
 		spin_unlock_irqrestore(&port->lock, flags);
 }
 
-static int __init sprd_console_setup(struct console *co, char *options)
+static int sprd_console_setup(struct console *co, char *options)
 {
-	struct uart_port *port;
+	struct sprd_uart_port *sprd_uart_port;
 	int baud = 115200;
 	int bits = 8;
 	int parity = 'n';
@@ -987,15 +1024,17 @@ static int __init sprd_console_setup(struct console *co, char *options)
 	if (co->index >= UART_NR_MAX || co->index < 0)
 		co->index = 0;
 
-	port = &sprd_port[co->index]->port;
-	if (port == NULL) {
+	sprd_uart_port = sprd_port[co->index];
+	if (!sprd_uart_port || !sprd_uart_port->port.membase) {
 		pr_info("serial port %d not yet initialized\n", co->index);
 		return -ENODEV;
 	}
+
 	if (options)
 		uart_parse_options(options, &baud, &parity, &bits, &flow);
 
-	return uart_set_options(port, co, baud, parity, bits, flow);
+	return uart_set_options(&sprd_uart_port->port, co, baud,
+				parity, bits, flow);
 }
 
 static struct uart_driver sprd_uart_driver;
@@ -1008,6 +1047,13 @@ static struct console sprd_console = {
 	.index = -1,
 	.data = &sprd_uart_driver,
 };
+
+static int __init sprd_serial_console_init(void)
+{
+	register_console(&sprd_console);
+	return 0;
+}
+console_initcall(sprd_serial_console_init);
 
 #define SPRD_CONSOLE	(&sprd_console)
 
@@ -1056,29 +1102,6 @@ static struct uart_driver sprd_uart_driver = {
 	.cons = SPRD_CONSOLE,
 };
 
-static int sprd_probe_dt_alias(int index, struct device *dev)
-{
-	struct device_node *np;
-	int ret = index;
-
-	if (!IS_ENABLED(CONFIG_OF))
-		return ret;
-
-	np = dev->of_node;
-	if (!np)
-		return ret;
-
-	ret = of_alias_get_id(np, "serial");
-	if (ret < 0)
-		ret = index;
-	else if (ret >= ARRAY_SIZE(sprd_port) || sprd_port[ret] != NULL) {
-		dev_warn(dev, "requested serial port %d not available.\n", ret);
-		ret = index;
-	}
-
-	return ret;
-}
-
 static int sprd_remove(struct platform_device *dev)
 {
 	struct sprd_uart_port *sup = platform_get_drvdata(dev);
@@ -1094,6 +1117,17 @@ static int sprd_remove(struct platform_device *dev)
 		uart_unregister_driver(&sprd_uart_driver);
 
 	return 0;
+}
+
+static bool sprd_uart_is_console(struct uart_port *uport)
+{
+	struct console *cons = sprd_uart_driver.cons;
+
+	if ((cons && cons->index >= 0 && cons->index == uport->line) ||
+	    of_console_check(uport->dev->of_node, SPRD_TTY_NAME, uport->line))
+		return true;
+
+	return false;
 }
 
 static int sprd_clk_init(struct uart_port *uport)
@@ -1122,10 +1156,17 @@ static int sprd_clk_init(struct uart_port *uport)
 
 	u->clk = devm_clk_get(uport->dev, "enable");
 	if (IS_ERR(u->clk)) {
-		if (PTR_ERR(u->clk) != -EPROBE_DEFER)
-			dev_err(uport->dev, "uart%d can't get enable clock\n",
-				uport->line);
-		return PTR_ERR(u->clk);
+		if (PTR_ERR(u->clk) == -EPROBE_DEFER)
+			return -EPROBE_DEFER;
+
+		dev_warn(uport->dev, "uart%d can't get enable clock\n",
+			uport->line);
+
+		/* To keep console alive even if the error occurred */
+		if (!sprd_uart_is_console(uport))
+			return PTR_ERR(u->clk);
+
+		u->clk = NULL;
 	}
 
 	return 0;
@@ -1139,14 +1180,11 @@ static int sprd_probe(struct platform_device *pdev)
 	int index;
 	int ret;
 
-	for (index = 0; index < ARRAY_SIZE(sprd_port); index++)
-		if (sprd_port[index] == NULL)
-			break;
-
-	if (index == ARRAY_SIZE(sprd_port))
-		return -EBUSY;
-
-	index = sprd_probe_dt_alias(index, &pdev->dev);
+	index = of_alias_get_id(pdev->dev.of_node, "serial");
+	if (index < 0 || index >= ARRAY_SIZE(sprd_port)) {
+		dev_err(&pdev->dev, "got a wrong serial alias id %d\n", index);
+		return -EINVAL;
+	}
 
 	sprd_port[index] = devm_kzalloc(&pdev->dev, sizeof(*sprd_port[index]),
 					GFP_KERNEL);
@@ -1162,6 +1200,7 @@ static int sprd_probe(struct platform_device *pdev)
 	up->fifosize = SPRD_FIFO_SIZE;
 	up->ops = &serial_sprd_ops;
 	up->flags = UPF_BOOT_AUTOCONF;
+	up->has_sysrq = IS_ENABLED(CONFIG_SERIAL_SPRD_CONSOLE);
 
 	ret = sprd_clk_init(up);
 	if (ret)
@@ -1175,10 +1214,8 @@ static int sprd_probe(struct platform_device *pdev)
 	up->mapbase = res->start;
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		dev_err(&pdev->dev, "not provide irq resource: %d\n", irq);
+	if (irq < 0)
 		return irq;
-	}
 	up->irq = irq;
 
 	/*
@@ -1199,10 +1236,8 @@ static int sprd_probe(struct platform_device *pdev)
 	sprd_ports_num++;
 
 	ret = uart_add_one_port(&sprd_uart_driver, up);
-	if (ret) {
-		sprd_port[index] = NULL;
+	if (ret)
 		sprd_remove(pdev);
-	}
 
 	platform_set_drvdata(pdev, up);
 

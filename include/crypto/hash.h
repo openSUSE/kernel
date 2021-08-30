@@ -59,11 +59,6 @@ struct ahash_request {
 	void *__ctx[] CRYPTO_MINALIGN_ATTR;
 };
 
-#define AHASH_REQUEST_ON_STACK(name, ahash) \
-	char __##name##_desc[sizeof(struct ahash_request) + \
-		crypto_ahash_reqsize(ahash)] CRYPTO_MINALIGN_ATTR; \
-	struct ahash_request *name = (void *)__##name##_desc
-
 /**
  * struct ahash_alg - asynchronous message digest definition
  * @init: **[mandatory]** Initialize the transformation context. Intended only to initialize the
@@ -123,6 +118,17 @@ struct ahash_request {
  *	    data so the transformation can continue from this point onward. No
  *	    data processing happens at this point. Driver must not use
  *	    req->result.
+ * @init_tfm: Initialize the cryptographic transformation object.
+ *	      This function is called only once at the instantiation
+ *	      time, right after the transformation context was
+ *	      allocated. In case the cryptographic hardware has
+ *	      some special requirements which need to be handled
+ *	      by software, this function shall check for the precise
+ *	      requirement of the transformation and put any software
+ *	      fallbacks in place.
+ * @exit_tfm: Deinitialize the cryptographic transformation object.
+ *	      This is a counterpart to @init_tfm, used to remove
+ *	      various changes set in @init_tfm.
  * @halg: see struct hash_alg_common
  */
 struct ahash_alg {
@@ -135,13 +141,15 @@ struct ahash_alg {
 	int (*import)(struct ahash_request *req, const void *in);
 	int (*setkey)(struct crypto_ahash *tfm, const u8 *key,
 		      unsigned int keylen);
+	int (*init_tfm)(struct crypto_ahash *tfm);
+	void (*exit_tfm)(struct crypto_ahash *tfm);
 
 	struct hash_alg_common halg;
 };
 
 struct shash_desc {
 	struct crypto_shash *tfm;
-	void *__ctx[] CRYPTO_MINALIGN_ATTR;
+	void *__ctx[] __aligned(ARCH_SLAB_MINALIGN);
 };
 
 #define HASH_MAX_DIGESTSIZE	 64
@@ -154,9 +162,9 @@ struct shash_desc {
 
 #define HASH_MAX_STATESIZE	512
 
-#define SHASH_DESC_ON_STACK(shash, ctx)				  \
-	char __##shash##_desc[sizeof(struct shash_desc) +	  \
-		HASH_MAX_DESCSIZE] CRYPTO_MINALIGN_ATTR; \
+#define SHASH_DESC_ON_STACK(shash, ctx)					     \
+	char __##shash##_desc[sizeof(struct shash_desc) + HASH_MAX_DESCSIZE] \
+		__aligned(__alignof__(struct shash_desc));		     \
 	struct shash_desc *shash = (struct shash_desc *)__##shash##_desc
 
 /**
@@ -169,6 +177,17 @@ struct shash_desc {
  * @export: see struct ahash_alg
  * @import: see struct ahash_alg
  * @setkey: see struct ahash_alg
+ * @init_tfm: Initialize the cryptographic transformation object.
+ *	      This function is called only once at the instantiation
+ *	      time, right after the transformation context was
+ *	      allocated. In case the cryptographic hardware has
+ *	      some special requirements which need to be handled
+ *	      by software, this function shall check for the precise
+ *	      requirement of the transformation and put any software
+ *	      fallbacks in place.
+ * @exit_tfm: Deinitialize the cryptographic transformation object.
+ *	      This is a counterpart to @init_tfm, used to remove
+ *	      various changes set in @init_tfm.
  * @digestsize: see struct ahash_alg
  * @statesize: see struct ahash_alg
  * @descsize: Size of the operational state for the message digest. This state
@@ -189,6 +208,8 @@ struct shash_alg {
 	int (*import)(struct shash_desc *desc, const void *in);
 	int (*setkey)(struct crypto_shash *tfm, const u8 *key,
 		      unsigned int keylen);
+	int (*init_tfm)(struct crypto_shash *tfm);
+	void (*exit_tfm)(struct crypto_shash *tfm);
 
 	unsigned int descsize;
 
@@ -227,7 +248,7 @@ struct crypto_shash {
  * CRYPTO_ALG_TYPE_AHASH (listed as type "ahash" in /proc/crypto)
  *
  * The asynchronous cipher operation discussion provided for the
- * CRYPTO_ALG_TYPE_ABLKCIPHER API applies here as well.
+ * CRYPTO_ALG_TYPE_SKCIPHER API applies here as well.
  */
 
 static inline struct crypto_ahash *__crypto_ahash_cast(struct crypto_tfm *tfm)
@@ -437,7 +458,7 @@ int crypto_ahash_finup(struct ahash_request *req);
  *
  * Return:
  * 0		if the message digest was successfully calculated;
- * -EINPROGRESS	if data is feeded into hardware (DMA) or queued for later;
+ * -EINPROGRESS	if data is fed into hardware (DMA) or queued for later;
  * -EBUSY	if queue is full and request should be resubmitted later;
  * other < 0	if an error occurred
  */
@@ -595,7 +616,7 @@ static inline struct ahash_request *ahash_request_alloc(
  */
 static inline void ahash_request_free(struct ahash_request *req)
 {
-	kzfree(req);
+	kfree_sensitive(req);
 }
 
 static inline void ahash_request_zero(struct ahash_request *req)
@@ -676,7 +697,7 @@ static inline void ahash_request_set_crypt(struct ahash_request *req,
  * The message digest API is able to maintain state information for the
  * caller.
  *
- * The synchronous message digest API can store user-related context in in its
+ * The synchronous message digest API can store user-related context in its
  * shash_desc request data structure.
  */
 

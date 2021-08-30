@@ -5,15 +5,25 @@ BPF Documentation
 This directory contains documentation for the BPF (Berkeley Packet
 Filter) facility, with a focus on the extended BPF version (eBPF).
 
-This kernel side documentation is still work in progress.  The main
+This kernel side documentation is still work in progress. The main
 textual documentation is (for historical reasons) described in
-`Documentation/networking/filter.txt`_, which describe both classical
-and extended BPF instruction-set.
+:ref:`networking-filter`, which describe both classical and extended
+BPF instruction-set.
 The Cilium project also maintains a `BPF and XDP Reference Guide`_
 that goes into great technical depth about the BPF Architecture.
 
-The primary info for the bpf syscall is available in the `man-pages`_
-for `bpf(2)`_.
+libbpf
+======
+
+Libbpf is a userspace library for loading and interacting with bpf programs.
+
+.. toctree::
+   :maxdepth: 1
+
+   libbpf/libbpf
+   libbpf/libbpf_api
+   libbpf/libbpf_build
+   libbpf/libbpf_naming_convention
 
 BPF Type Format (BTF)
 =====================
@@ -35,6 +45,12 @@ Two sets of Questions and Answers (Q&A) are maintained.
    bpf_design_QA
    bpf_devel_QA
 
+Syscall API
+===========
+
+The primary info for the bpf syscall is available in the `man-pages`_
+for `bpf(2)`_. For more information about the userspace API, see
+Documentation/userspace-api/ebpf/index.rst.
 
 Helper functions
 ================
@@ -52,6 +68,7 @@ Program types
    prog_cgroup_sysctl
    prog_flow_dissector
    bpf_lsm
+   prog_sk_lookup
 
 
 Map types
@@ -80,10 +97,11 @@ Other
    :maxdepth: 1
 
    ringbuf
+   llvm_reloc
 
 .. Links:
-.. _Documentation/networking/filter.txt: ../networking/filter.txt
+.. _networking-filter: ../networking/filter.rst
 .. _man-pages: https://www.kernel.org/doc/man-pages/
-.. _bpf(2): http://man7.org/linux/man-pages/man2/bpf.2.html
+.. _bpf(2): https://man7.org/linux/man-pages/man2/bpf.2.html
 .. _bpf-helpers(7): https://man7.org/linux/man-pages/man7/bpf-helpers.7.html
-.. _BPF and XDP Reference Guide: http://cilium.readthedocs.io/en/latest/bpf/
+.. _BPF and XDP Reference Guide: https://docs.cilium.io/en/latest/bpf/

@@ -49,6 +49,8 @@ extern const struct qed_common_ops qed_common_ops_pass;
 #define QED_MIN_WIDS		(4)
 #define QED_PF_DEMS_SIZE        (4)
 
+#define QED_LLH_DONT_CARE 0
+
 /* cau states */
 enum qed_coalescing_mode {
 	QED_COAL_MODE_DISABLE,
@@ -200,6 +202,7 @@ enum qed_pci_personality {
 	QED_PCI_ETH,
 	QED_PCI_FCOE,
 	QED_PCI_ISCSI,
+	QED_PCI_NVMETCP,
 	QED_PCI_ETH_ROCE,
 	QED_PCI_ETH_IWARP,
 	QED_PCI_ETH_RDMA,
@@ -239,6 +242,7 @@ enum QED_FEATURE {
 	QED_PF_L2_QUE,
 	QED_VF,
 	QED_RDMA_CNQ,
+	QED_NVMETCP_CQ,
 	QED_ISCSI_CQ,
 	QED_FCOE_CQ,
 	QED_VF_L2_QUE,
@@ -284,6 +288,8 @@ struct qed_hw_info {
 	((dev)->hw_info.personality == QED_PCI_FCOE)
 #define QED_IS_ISCSI_PERSONALITY(dev)					\
 	((dev)->hw_info.personality == QED_PCI_ISCSI)
+#define QED_IS_NVMETCP_PERSONALITY(dev)					\
+	((dev)->hw_info.personality == QED_PCI_NVMETCP)
 
 	/* Resource Allocation scheme results */
 	u32				resc_start[QED_MAX_RESC];
@@ -572,7 +578,7 @@ struct qed_hwfn {
 	struct qed_consq		*p_consq;
 
 	/* Slow-Path definitions */
-	struct tasklet_struct		*sp_dpc;
+	struct tasklet_struct		sp_dpc;
 	bool				b_sp_dpc_enabled;
 
 	struct qed_ptt			*p_main_ptt;
@@ -592,6 +598,7 @@ struct qed_hwfn {
 	struct qed_ooo_info		*p_ooo_info;
 	struct qed_rdma_info		*p_rdma_info;
 	struct qed_iscsi_info		*p_iscsi_info;
+	struct qed_nvmetcp_info		*p_nvmetcp_info;
 	struct qed_fcoe_info		*p_fcoe_info;
 	struct qed_pf_params		pf_params;
 
@@ -807,6 +814,7 @@ struct qed_dev {
 	struct qed_llh_info *p_llh_info;
 
 	/* Linux specific here */
+	struct qed_dev_info		common_dev_info;
 	struct  qede_dev		*edev;
 	struct  pci_dev			*pdev;
 	u32 flags;
@@ -827,6 +835,7 @@ struct qed_dev {
 		struct qed_eth_cb_ops		*eth;
 		struct qed_fcoe_cb_ops		*fcoe;
 		struct qed_iscsi_cb_ops		*iscsi;
+		struct qed_nvmetcp_cb_ops	*nvmetcp;
 	} protocol_ops;
 	void				*ops_cookie;
 
@@ -849,7 +858,6 @@ struct qed_dev {
 	u32 rdma_max_srq_sge;
 	u16 tunn_feature_mask;
 
-	struct devlink			*dl;
 	bool				iwarp_cmt;
 };
 
@@ -981,6 +989,7 @@ void qed_bw_update(struct qed_hwfn *hwfn, struct qed_ptt *ptt);
 u32 qed_unzip_data(struct qed_hwfn *p_hwfn,
 		   u32 input_len, u8 *input_buf,
 		   u32 max_size, u8 *unzip_buf);
+int qed_recovery_process(struct qed_dev *cdev);
 void qed_schedule_recovery_handler(struct qed_hwfn *p_hwfn);
 void qed_hw_error_occurred(struct qed_hwfn *p_hwfn,
 			   enum qed_hw_err_type err_type);
@@ -998,4 +1007,10 @@ int qed_mfw_fill_tlv_data(struct qed_hwfn *hwfn,
 void qed_hw_info_set_offload_tc(struct qed_hw_info *p_info, u8 tc);
 
 void qed_periodic_db_rec_start(struct qed_hwfn *p_hwfn);
+
+int qed_llh_add_src_tcp_port_filter(struct qed_dev *cdev, u16 src_port);
+int qed_llh_add_dst_tcp_port_filter(struct qed_dev *cdev, u16 dest_port);
+void qed_llh_remove_src_tcp_port_filter(struct qed_dev *cdev, u16 src_port);
+void qed_llh_remove_dst_tcp_port_filter(struct qed_dev *cdev, u16 src_port);
+void qed_llh_clear_all_filters(struct qed_dev *cdev);
 #endif /* _QED_H */

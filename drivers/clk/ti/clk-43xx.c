@@ -73,7 +73,7 @@ static const struct omap_clkctrl_reg_data am4_mpu_clkctrl_regs[] __initconst = {
 };
 
 static const struct omap_clkctrl_reg_data am4_gfx_l3_clkctrl_regs[] __initconst = {
-	{ AM4_GFX_L3_GFX_CLKCTRL, NULL, CLKF_SW_SUP, "gfx_fck_div_ck" },
+	{ AM4_GFX_L3_GFX_CLKCTRL, NULL, CLKF_SW_SUP | CLKF_NO_IDLEST, "gfx_fck_div_ck" },
 	{ 0 },
 };
 
@@ -126,7 +126,7 @@ static const struct omap_clkctrl_reg_data am4_l3s_clkctrl_regs[] __initconst = {
 };
 
 static const struct omap_clkctrl_reg_data am4_pruss_ocp_clkctrl_regs[] __initconst = {
-	{ AM4_PRUSS_OCP_PRUSS_CLKCTRL, NULL, CLKF_SW_SUP, "pruss_ocp_gclk" },
+	{ AM4_PRUSS_OCP_PRUSS_CLKCTRL, NULL, CLKF_SW_SUP | CLKF_NO_IDLEST, "pruss_ocp_gclk" },
 	{ 0 },
 };
 
@@ -272,6 +272,11 @@ static struct ti_dt_clk am43xx_clks[] = {
 	{ .node_name = NULL },
 };
 
+static const char *enable_init_clks[] = {
+	/* AM4_L3_L3_MAIN_CLKCTRL, needed during suspend */
+	"l3-clkctrl:0000:0",
+};
+
 int __init am43xx_dt_clk_init(void)
 {
 	struct clk *clk1, *clk2;
@@ -282,6 +287,9 @@ int __init am43xx_dt_clk_init(void)
 		ti_dt_clocks_register(am43xx_clks);
 
 	omap2_clk_disable_autoidle_all();
+
+	omap2_clk_enable_init_clocks(enable_init_clks,
+				     ARRAY_SIZE(enable_init_clks));
 
 	ti_clk_add_aliases();
 

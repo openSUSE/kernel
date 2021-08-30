@@ -13,8 +13,8 @@
 #include <linux/init.h>
 #include <linux/mm.h>
 #include <linux/highmem.h>
+#include <linux/pagemap.h>
 
-#include <asm/pgtable.h>
 #include <asm/tlbflush.h>
 #include <asm/cacheflush.h>
 

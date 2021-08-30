@@ -47,15 +47,12 @@ static void rtas_stop_self(void)
 
 	BUG_ON(rtas_stop_self_token == RTAS_UNKNOWN_SERVICE);
 
-	printk("cpu %u (hwid %u) Ready to die...\n",
-	       smp_processor_id(), hard_smp_processor_id());
-
 	rtas_call_unlocked(&args, rtas_stop_self_token, 0, 1, NULL);
 
 	panic("Alas, I survived.\n");
 }
 
-static void pseries_mach_cpu_die(void)
+static void pseries_cpu_offline_self(void)
 {
 	unsigned int hwcpu = hard_smp_processor_id();
 
@@ -105,7 +102,7 @@ static int pseries_cpu_disable(void)
  * to self-destroy so that the cpu-offline thread can send the CPU_DEAD
  * notifications.
  *
- * OTOH, pseries_mach_cpu_die() is called by the @cpu when it wants to
+ * OTOH, pseries_cpu_offline_self() is called by the @cpu when it wants to
  * self-destruct.
  */
 static void pseries_cpu_die(unsigned int cpu)
@@ -271,6 +268,19 @@ static int dlpar_offline_cpu(struct device_node *dn)
 			if (!cpu_online(cpu))
 				break;
 
+			/*
+			 * device_offline() will return -EBUSY (via cpu_down()) if there
+			 * is only one CPU left. Check it here to fail earlier and with a
+			 * more informative error message, while also retaining the
+			 * cpu_add_remove_lock to be sure that no CPUs are being
+			 * online/offlined during this check.
+			 */
+			if (num_online_cpus() == 1) {
+				pr_warn("Unable to remove last online CPU %pOFn\n", dn);
+				rc = -EBUSY;
+				goto out_unlock;
+			}
+
 			cpu_maps_update_done();
 			rc = device_offline(get_cpu_device(cpu));
 			if (rc)
@@ -283,6 +293,7 @@ static int dlpar_offline_cpu(struct device_node *dn)
 				thread);
 		}
 	}
+out_unlock:
 	cpu_maps_update_done();
 
 out:
@@ -802,8 +813,16 @@ int dlpar_cpu(struct pseries_hp_errorlog *hp_elog)
 	case PSERIES_HP_ELOG_ACTION_REMOVE:
 		if (hp_elog->id_type == PSERIES_HP_ELOG_ID_DRC_COUNT)
 			rc = dlpar_cpu_remove_by_count(count);
-		else if (hp_elog->id_type == PSERIES_HP_ELOG_ID_DRC_INDEX)
+		else if (hp_elog->id_type == PSERIES_HP_ELOG_ID_DRC_INDEX) {
 			rc = dlpar_cpu_remove_by_index(drc_index);
+			/*
+			 * Setting the isolation state of an UNISOLATED/CONFIGURED
+			 * device to UNISOLATE is a no-op, but the hypervisor can
+			 * use it as a hint that the CPU removal failed.
+			 */
+			if (rc)
+				dlpar_unisolate_drc(drc_index);
+		}
 		else
 			rc = -EINVAL;
 		break;
@@ -905,7 +924,7 @@ static int __init pseries_cpu_hotplug_init(void)
 		return 0;
 	}
 
-	ppc_md.cpu_die = pseries_mach_cpu_die;
+	smp_ops->cpu_offline_self = pseries_cpu_offline_self;
 	smp_ops->cpu_disable = pseries_cpu_disable;
 	smp_ops->cpu_die = pseries_cpu_die;
 

@@ -100,7 +100,7 @@ static int iuu_port_probe(struct usb_serial_port *port)
 	return 0;
 }
 
-static int iuu_port_remove(struct usb_serial_port *port)
+static void iuu_port_remove(struct usb_serial_port *port)
 {
 	struct iuu_private *priv = usb_get_serial_port_data(port);
 
@@ -108,8 +108,6 @@ static int iuu_port_remove(struct usb_serial_port *port)
 	kfree(priv->writebuf);
 	kfree(priv->buf);
 	kfree(priv);
-
-	return 0;
 }
 
 static int iuu_tiocmset(struct tty_struct *tty,
@@ -158,7 +156,6 @@ static int iuu_tiocmget(struct tty_struct *tty)
 static void iuu_rxcmd(struct urb *urb)
 {
 	struct usb_serial_port *port = urb->context;
-	int result;
 	int status = urb->status;
 
 	if (status) {
@@ -174,7 +171,7 @@ static void iuu_rxcmd(struct urb *urb)
 					  port->bulk_out_endpointAddress),
 			  port->write_urb->transfer_buffer, 1,
 			  read_rxcmd_callback, port);
-	result = usb_submit_urb(port->write_urb, GFP_ATOMIC);
+	usb_submit_urb(port->write_urb, GFP_ATOMIC);
 }
 
 static int iuu_reset(struct usb_serial_port *port, u8 wt)
@@ -241,7 +238,6 @@ static void iuu_update_status_callback(struct urb *urb)
 static void iuu_status_callback(struct urb *urb)
 {
 	struct usb_serial_port *port = urb->context;
-	int result;
 	int status = urb->status;
 
 	dev_dbg(&port->dev, "%s - status = %d\n", __func__, status);
@@ -250,7 +246,7 @@ static void iuu_status_callback(struct urb *urb)
 					  port->bulk_in_endpointAddress),
 			  port->read_urb->transfer_buffer, 256,
 			  iuu_update_status_callback, port);
-	result = usb_submit_urb(port->read_urb, GFP_ATOMIC);
+	usb_submit_urb(port->read_urb, GFP_ATOMIC);
 }
 
 static int iuu_status(struct usb_serial_port *port)
@@ -351,7 +347,6 @@ static void iuu_rgbf_fill_buffer(u8 *buf, u8 r1, u8 r2, u8 g1, u8 g2, u8 b1,
 static void iuu_led_activity_on(struct urb *urb)
 {
 	struct usb_serial_port *port = urb->context;
-	int result;
 	char *buf_ptr = port->write_urb->transfer_buffer;
 
 	if (xmas) {
@@ -367,13 +362,12 @@ static void iuu_led_activity_on(struct urb *urb)
 					  port->bulk_out_endpointAddress),
 			  port->write_urb->transfer_buffer, 8 ,
 			  iuu_rxcmd, port);
-	result = usb_submit_urb(port->write_urb, GFP_ATOMIC);
+	usb_submit_urb(port->write_urb, GFP_ATOMIC);
 }
 
 static void iuu_led_activity_off(struct urb *urb)
 {
 	struct usb_serial_port *port = urb->context;
-	int result;
 	char *buf_ptr = port->write_urb->transfer_buffer;
 
 	if (xmas) {
@@ -388,7 +382,7 @@ static void iuu_led_activity_off(struct urb *urb)
 					  port->bulk_out_endpointAddress),
 			  port->write_urb->transfer_buffer, 8 ,
 			  iuu_rxcmd, port);
-	result = usb_submit_urb(port->write_urb, GFP_ATOMIC);
+	usb_submit_urb(port->write_urb, GFP_ATOMIC);
 }
 
 
@@ -649,7 +643,6 @@ static void iuu_uart_read_callback(struct urb *urb)
 	struct iuu_private *priv = usb_get_serial_port_data(port);
 	unsigned long flags;
 	int status = urb->status;
-	int error = 0;
 	int len = 0;
 	unsigned char *data = urb->transfer_buffer;
 	priv->poll++;
@@ -666,12 +659,11 @@ static void iuu_uart_read_callback(struct urb *urb)
 	if (urb->actual_length > 1) {
 		dev_dbg(&port->dev, "%s - urb->actual_length = %i\n", __func__,
 		    urb->actual_length);
-		error = 1;
 		return;
 	}
 	/* if len > 0 call readbuf */
 
-	if (len > 0 && error == 0) {
+	if (len > 0) {
 		dev_dbg(&port->dev, "%s - call read buf - len to read is %i\n",
 			__func__, len);
 		status = iuu_read_buf(port, len);
@@ -864,7 +856,6 @@ static int iuu_uart_baud(struct usb_serial_port *port, u32 baud_base,
 	default:
 		kfree(dataout);
 		return IUU_INVALID_PARAMETER;
-		break;
 	}
 
 	switch (parity & 0xF0) {
@@ -878,7 +869,6 @@ static int iuu_uart_baud(struct usb_serial_port *port, u32 baud_base,
 	default:
 		kfree(dataout);
 		return IUU_INVALID_PARAMETER;
-		break;
 	}
 
 	status = bulk_immediate(port, dataout, DataCount);

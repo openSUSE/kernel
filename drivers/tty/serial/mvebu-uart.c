@@ -128,7 +128,6 @@ struct mvebu_uart {
 	struct uart_port *port;
 	struct clk *clk;
 	int irq[UART_IRQ_COUNT];
-	unsigned char __iomem *nb;
 	struct mvebu_uart_driver_data *data;
 #if defined(CONFIG_PM)
 	struct mvebu_uart_pm_regs pm_regs;
@@ -621,7 +620,7 @@ static void mvebu_uart_putc(struct uart_port *port, int c)
 
 static void mvebu_uart_putc_early_write(struct console *con,
 					const char *s,
-					unsigned n)
+					unsigned int n)
 {
 	struct earlycon_device *dev = con->data;
 
@@ -815,15 +814,12 @@ static int mvebu_uart_probe(struct platform_device *pdev)
 							   &pdev->dev);
 	struct uart_port *port;
 	struct mvebu_uart *mvuart;
-	int ret, id, irq;
+	int id, irq;
 
 	if (!reg) {
 		dev_err(&pdev->dev, "no registers defined\n");
 		return -EINVAL;
 	}
-
-	if (!match)
-		return -ENODEV;
 
 	/* Assume that all UART ports have a DT alias or none has */
 	id = of_alias_get_id(pdev->dev.of_node, "serial");
@@ -896,10 +892,8 @@ static int mvebu_uart_probe(struct platform_device *pdev)
 	if (platform_irq_count(pdev) == 1) {
 		/* Old bindings: no name on the single unamed UART0 IRQ */
 		irq = platform_get_irq(pdev, 0);
-		if (irq < 0) {
-			dev_err(&pdev->dev, "unable to get UART IRQ\n");
+		if (irq < 0)
 			return irq;
-		}
 
 		mvuart->irq[UART_IRQ_SUM] = irq;
 	} else {
@@ -909,18 +903,14 @@ static int mvebu_uart_probe(struct platform_device *pdev)
 		 * uart-sum of UART0 port.
 		 */
 		irq = platform_get_irq_byname(pdev, "uart-rx");
-		if (irq < 0) {
-			dev_err(&pdev->dev, "unable to get 'uart-rx' IRQ\n");
+		if (irq < 0)
 			return irq;
-		}
 
 		mvuart->irq[UART_RX_IRQ] = irq;
 
 		irq = platform_get_irq_byname(pdev, "uart-tx");
-		if (irq < 0) {
-			dev_err(&pdev->dev, "unable to get 'uart-tx' IRQ\n");
+		if (irq < 0)
 			return irq;
-		}
 
 		mvuart->irq[UART_TX_IRQ] = irq;
 	}
@@ -930,10 +920,7 @@ static int mvebu_uart_probe(struct platform_device *pdev)
 	udelay(1);
 	writel(0, port->membase + UART_CTRL(port));
 
-	ret = uart_add_one_port(&mvebu_uart_driver, port);
-	if (ret)
-		return ret;
-	return 0;
+	return uart_add_one_port(&mvebu_uart_driver, port);
 }
 
 static struct mvebu_uart_driver_data uart_std_driver_data = {

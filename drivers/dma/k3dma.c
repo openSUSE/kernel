@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013 - 2015 Linaro Ltd.
- * Copyright (c) 2013 Hisilicon Limited.
+ * Copyright (c) 2013 HiSilicon Limited.
  */
 #include <linux/sched.h>
 #include <linux/device.h>
@@ -223,24 +223,23 @@ static irqreturn_t k3_dma_int_handler(int irq, void *dev_id)
 		i = __ffs(stat);
 		stat &= ~BIT(i);
 		if (likely(tc1 & BIT(i)) || (tc2 & BIT(i))) {
-			unsigned long flags;
 
 			p = &d->phy[i];
 			c = p->vchan;
 			if (c && (tc1 & BIT(i))) {
-				spin_lock_irqsave(&c->vc.lock, flags);
+				spin_lock(&c->vc.lock);
 				if (p->ds_run != NULL) {
 					vchan_cookie_complete(&p->ds_run->vd);
 					p->ds_done = p->ds_run;
 					p->ds_run = NULL;
 				}
-				spin_unlock_irqrestore(&c->vc.lock, flags);
+				spin_unlock(&c->vc.lock);
 			}
 			if (c && (tc2 & BIT(i))) {
-				spin_lock_irqsave(&c->vc.lock, flags);
+				spin_lock(&c->vc.lock);
 				if (p->ds_run != NULL)
 					vchan_cyclic_callback(&p->ds_run->vd);
-				spin_unlock_irqrestore(&c->vc.lock, flags);
+				spin_unlock(&c->vc.lock);
 			}
 			irq_chan |= BIT(i);
 		}
@@ -297,9 +296,9 @@ static int k3_dma_start_txd(struct k3_dma_chan *c)
 	return -EAGAIN;
 }
 
-static void k3_dma_tasklet(unsigned long arg)
+static void k3_dma_tasklet(struct tasklet_struct *t)
 {
-	struct k3_dma_dev *d = (struct k3_dma_dev *)arg;
+	struct k3_dma_dev *d = from_tasklet(d, t, task);
 	struct k3_dma_phy *p;
 	struct k3_dma_chan *c, *cn;
 	unsigned pch, pch_alloc = 0;
@@ -841,12 +840,7 @@ static int k3_dma_probe(struct platform_device *op)
 	const struct k3dma_soc_data *soc_data;
 	struct k3_dma_dev *d;
 	const struct of_device_id *of_id;
-	struct resource *iores;
 	int i, ret, irq = 0;
-
-	iores = platform_get_resource(op, IORESOURCE_MEM, 0);
-	if (!iores)
-		return -EINVAL;
 
 	d = devm_kzalloc(&op->dev, sizeof(*d), GFP_KERNEL);
 	if (!d)
@@ -856,7 +850,7 @@ static int k3_dma_probe(struct platform_device *op)
 	if (!soc_data)
 		return -EINVAL;
 
-	d->base = devm_ioremap_resource(&op->dev, iores);
+	d->base = devm_platform_ioremap_resource(op, 0);
 	if (IS_ERR(d->base))
 		return PTR_ERR(d->base);
 
@@ -967,7 +961,7 @@ static int k3_dma_probe(struct platform_device *op)
 
 	spin_lock_init(&d->lock);
 	INIT_LIST_HEAD(&d->chan_pending);
-	tasklet_init(&d->task, k3_dma_tasklet, (unsigned long)d);
+	tasklet_setup(&d->task, k3_dma_tasklet);
 	platform_set_drvdata(op, d);
 	dev_info(&op->dev, "initialized\n");
 
@@ -1045,6 +1039,6 @@ static struct platform_driver k3_pdma_driver = {
 
 module_platform_driver(k3_pdma_driver);
 
-MODULE_DESCRIPTION("Hisilicon k3 DMA Driver");
+MODULE_DESCRIPTION("HiSilicon k3 DMA Driver");
 MODULE_ALIAS("platform:k3dma");
 MODULE_LICENSE("GPL v2");

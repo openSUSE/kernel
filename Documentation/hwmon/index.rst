@@ -7,6 +7,7 @@ Linux Hardware Monitoring
 
    hwmon-kernel-api
    pmbus-core
+   inspur-ipsps1
    submitting-patches
    sysfs-interface
    userspace-tools
@@ -17,10 +18,8 @@ Hardware Monitoring Kernel Drivers
 .. toctree::
    :maxdepth: 1
 
-   ab8500
    abituguru
    abituguru3
-   abx500
    acpi_power_meter
    ad7314
    adc128d818
@@ -28,23 +27,34 @@ Hardware Monitoring Kernel Drivers
    adm1025
    adm1026
    adm1031
+   adm1177
+   adm1266
    adm1275
    adm9240
-   ads1015
    ads7828
    adt7410
    adt7411
    adt7462
    adt7470
    adt7475
+   aht10
    amc6821
    asb100
    asc7621
    aspeed-pwm-tacho
+   bcm54140
+   bel-pfe
+   bpa-rs600
+   bt1-pvt
    coretemp
+   corsair-cpro
+   corsair-psu
    da9052
    da9055
+   dell-smm-hwmon
    dme1737
+   dps920ab
+   drivetemp
    ds1621
    ds620
    emc1403
@@ -53,9 +63,11 @@ Hardware Monitoring Kernel Drivers
    f71805f
    f71882fg
    fam15h_power
+   fsp-3y
    ftsteutates
    g760a
    g762
+   gsc-hwmon
    gl518sm
    hih6130
    ibmaem
@@ -64,8 +76,10 @@ Hardware Monitoring Kernel Drivers
    ina209
    ina2xx
    ina3221
+   intel-m10-bmc-hwmon
    ir35221
    ir38064
+   ir36021
    isl68137
    it87
    jc42
@@ -89,7 +103,9 @@ Hardware Monitoring Kernel Drivers
    lm95234
    lm95245
    lochnagar
+   ltc2992
    ltc2945
+   ltc2947
    ltc2978
    ltc2990
    ltc3815
@@ -98,13 +114,18 @@ Hardware Monitoring Kernel Drivers
    ltc4245
    ltc4260
    ltc4261
+   max127
+   max15301
    max16064
    max16065
    max1619
+   max16601
    max1668
    max197
+   max20730
    max20751
    max31722
+   max31730
    max31785
    max31790
    max34440
@@ -117,6 +138,8 @@ Hardware Monitoring Kernel Drivers
    mcp3021
    menf21bmc
    mlxreg-fan
+   mp2888
+   mp2975
    nct6683
    nct6775
    nct7802
@@ -124,26 +147,36 @@ Hardware Monitoring Kernel Drivers
    npcm750-pwm-fan
    nsa320
    ntc_thermistor
+   nzxt-kraken2
    occ
    pc87360
    pc87427
    pcf8591
+   pim4328
+   pm6764tr
    pmbus
    powr1220
+   pxe1610
    pwm-fan
+   q54sj108a2
    raspberrypi-hwmon
+   sbtsi_temp
    sch5627
    sch5636
    scpi-hwmon
    sht15
    sht21
    sht3x
+   sht4x
    shtc1
    sis5595
+   sl28cpld
    smm665
    smsc47b397
    smsc47m192
    smsc47m1
+   sparx5-temp
+   stpddc60
    tc654
    tc74
    thmc50
@@ -152,7 +185,10 @@ Hardware Monitoring Kernel Drivers
    tmp108
    tmp401
    tmp421
+   tmp513
+   tps23861
    tps40422
+   tps53679
    twl4030-madc-hwmon
    ucd9000
    ucd9200
@@ -172,6 +208,7 @@ Hardware Monitoring Kernel Drivers
    wm831x
    wm8350
    xgene-hwmon
+   xdpe12284
    zl6100
 
 .. only::  subproject and html

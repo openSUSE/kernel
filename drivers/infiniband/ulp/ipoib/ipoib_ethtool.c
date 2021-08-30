@@ -68,9 +68,6 @@ static void ipoib_get_drvinfo(struct net_device *netdev,
 	strlcpy(drvinfo->bus_info, dev_name(priv->ca->dev.parent),
 		sizeof(drvinfo->bus_info));
 
-	strlcpy(drvinfo->version, ipoib_driver_version,
-		sizeof(drvinfo->version));
-
 	strlcpy(drvinfo->driver, "ib_ipoib", sizeof(drvinfo->driver));
 }
 
@@ -169,6 +166,10 @@ static inline int ib_speed_enum_to_int(int speed)
 		return SPEED_14000;
 	case IB_SPEED_EDR:
 		return SPEED_25000;
+	case IB_SPEED_HDR:
+		return SPEED_50000;
+	case IB_SPEED_NDR:
+		return SPEED_100000;
 	}
 
 	return SPEED_UNKNOWN;

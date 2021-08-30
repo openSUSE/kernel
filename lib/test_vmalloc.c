@@ -15,14 +15,16 @@
 #include <linux/delay.h>
 #include <linux/rwsem.h>
 #include <linux/mm.h>
+#include <linux/rcupdate.h>
+#include <linux/slab.h>
 
 #define __param(type, name, init, msg)		\
 	static type name = init;				\
 	module_param(name, type, 0444);			\
 	MODULE_PARM_DESC(name, msg)				\
 
-__param(bool, single_cpu_test, false,
-	"Use single first online CPU to run tests");
+__param(int, nr_threads, 0,
+	"Number of workers to perform tests(min: 1 max: USHRT_MAX)");
 
 __param(bool, sequential_test_order, false,
 	"Use sequential stress tests order");
@@ -35,23 +37,18 @@ __param(int, test_loop_count, 1000000,
 
 __param(int, run_test_mask, INT_MAX,
 	"Set tests specified in the mask.\n\n"
-		"\t\tid: 1,   name: fix_size_alloc_test\n"
-		"\t\tid: 2,   name: full_fit_alloc_test\n"
-		"\t\tid: 4,   name: long_busy_list_alloc_test\n"
-		"\t\tid: 8,   name: random_size_alloc_test\n"
-		"\t\tid: 16,  name: fix_align_alloc_test\n"
-		"\t\tid: 32,  name: random_size_align_alloc_test\n"
-		"\t\tid: 64,  name: align_shift_alloc_test\n"
-		"\t\tid: 128, name: pcpu_alloc_test\n"
+		"\t\tid: 1,    name: fix_size_alloc_test\n"
+		"\t\tid: 2,    name: full_fit_alloc_test\n"
+		"\t\tid: 4,    name: long_busy_list_alloc_test\n"
+		"\t\tid: 8,    name: random_size_alloc_test\n"
+		"\t\tid: 16,   name: fix_align_alloc_test\n"
+		"\t\tid: 32,   name: random_size_align_alloc_test\n"
+		"\t\tid: 64,   name: align_shift_alloc_test\n"
+		"\t\tid: 128,  name: pcpu_alloc_test\n"
+		"\t\tid: 256,  name: kvfree_rcu_1_arg_vmalloc_test\n"
+		"\t\tid: 512,  name: kvfree_rcu_2_arg_vmalloc_test\n"
 		/* Add a new test case description here. */
 );
-
-/*
- * Depends on single_cpu_test parameter. If it is true, then
- * use first online CPU to trigger a test on, otherwise go with
- * all online CPUs.
- */
-static cpumask_t cpus_run_test_mask = CPU_MASK_NONE;
 
 /*
  * Read write semaphore for synchronization of setup
@@ -91,12 +88,8 @@ static int random_size_align_alloc_test(void)
 		 */
 		size = ((rnd % 10) + 1) * PAGE_SIZE;
 
-		ptr = __vmalloc_node_range(size, align,
-		   VMALLOC_START, VMALLOC_END,
-		   GFP_KERNEL | __GFP_ZERO,
-		   PAGE_KERNEL,
-		   0, 0, __builtin_return_address(0));
-
+		ptr = __vmalloc_node(size, align, GFP_KERNEL | __GFP_ZERO, 0,
+				__builtin_return_address(0));
 		if (!ptr)
 			return -1;
 
@@ -118,12 +111,8 @@ static int align_shift_alloc_test(void)
 	for (i = 0; i < BITS_PER_LONG; i++) {
 		align = ((unsigned long) 1) << i;
 
-		ptr = __vmalloc_node_range(PAGE_SIZE, align,
-			VMALLOC_START, VMALLOC_END,
-			GFP_KERNEL | __GFP_ZERO,
-			PAGE_KERNEL,
-			0, 0, __builtin_return_address(0));
-
+		ptr = __vmalloc_node(PAGE_SIZE, align, GFP_KERNEL|__GFP_ZERO, 0,
+				__builtin_return_address(0));
 		if (!ptr)
 			return -1;
 
@@ -139,13 +128,9 @@ static int fix_align_alloc_test(void)
 	int i;
 
 	for (i = 0; i < test_loop_count; i++) {
-		ptr = __vmalloc_node_range(5 * PAGE_SIZE,
-			THREAD_ALIGN << 1,
-			VMALLOC_START, VMALLOC_END,
-			GFP_KERNEL | __GFP_ZERO,
-			PAGE_KERNEL,
-			0, 0, __builtin_return_address(0));
-
+		ptr = __vmalloc_node(5 * PAGE_SIZE, THREAD_ALIGN << 1,
+				GFP_KERNEL | __GFP_ZERO, 0,
+				__builtin_return_address(0));
 		if (!ptr)
 			return -1;
 
@@ -328,6 +313,47 @@ pcpu_alloc_test(void)
 	return rv;
 }
 
+struct test_kvfree_rcu {
+	struct rcu_head rcu;
+	unsigned char array[20];
+};
+
+static int
+kvfree_rcu_1_arg_vmalloc_test(void)
+{
+	struct test_kvfree_rcu *p;
+	int i;
+
+	for (i = 0; i < test_loop_count; i++) {
+		p = vmalloc(1 * PAGE_SIZE);
+		if (!p)
+			return -1;
+
+		p->array[0] = 'a';
+		kvfree_rcu(p);
+	}
+
+	return 0;
+}
+
+static int
+kvfree_rcu_2_arg_vmalloc_test(void)
+{
+	struct test_kvfree_rcu *p;
+	int i;
+
+	for (i = 0; i < test_loop_count; i++) {
+		p = vmalloc(1 * PAGE_SIZE);
+		if (!p)
+			return -1;
+
+		p->array[0] = 'a';
+		kvfree_rcu(p, rcu);
+	}
+
+	return 0;
+}
+
 struct test_case_desc {
 	const char *test_name;
 	int (*test_func)(void);
@@ -342,6 +368,8 @@ static struct test_case_desc test_case_array[] = {
 	{ "random_size_align_alloc_test", random_size_align_alloc_test },
 	{ "align_shift_alloc_test", align_shift_alloc_test },
 	{ "pcpu_alloc_test", pcpu_alloc_test },
+	{ "kvfree_rcu_1_arg_vmalloc_test", kvfree_rcu_1_arg_vmalloc_test },
+	{ "kvfree_rcu_2_arg_vmalloc_test", kvfree_rcu_2_arg_vmalloc_test },
 	/* Add a new test case here. */
 };
 
@@ -351,16 +379,13 @@ struct test_case_data {
 	u64 time;
 };
 
-/* Split it to get rid of: WARNING: line over 80 characters */
-static struct test_case_data
-	per_cpu_test_data[NR_CPUS][ARRAY_SIZE(test_case_array)];
-
 static struct test_driver {
 	struct task_struct *task;
+	struct test_case_data data[ARRAY_SIZE(test_case_array)];
+
 	unsigned long start;
 	unsigned long stop;
-	int cpu;
-} per_cpu_test_driver[NR_CPUS];
+} *tdriver;
 
 static void shuffle_array(int *arr, int n)
 {
@@ -388,9 +413,6 @@ static int test_func(void *private)
 	ktime_t kt;
 	u64 delta;
 
-	if (set_cpus_allowed_ptr(current, cpumask_of(t->cpu)) < 0)
-		pr_err("Failed to set affinity to %d CPU\n", t->cpu);
-
 	for (i = 0; i < ARRAY_SIZE(test_case_array); i++)
 		random_array[i] = i;
 
@@ -415,9 +437,9 @@ static int test_func(void *private)
 		kt = ktime_get();
 		for (j = 0; j < test_repeat_count; j++) {
 			if (!test_case_array[index].test_func())
-				per_cpu_test_data[t->cpu][index].test_passed++;
+				t->data[index].test_passed++;
 			else
-				per_cpu_test_data[t->cpu][index].test_failed++;
+				t->data[index].test_failed++;
 		}
 
 		/*
@@ -426,7 +448,7 @@ static int test_func(void *private)
 		delta = (u64) ktime_us_delta(ktime_get(), kt);
 		do_div(delta, (u32) test_repeat_count);
 
-		per_cpu_test_data[t->cpu][index].time = delta;
+		t->data[index].time = delta;
 	}
 	t->stop = get_cycles();
 
@@ -442,53 +464,56 @@ static int test_func(void *private)
 	return 0;
 }
 
-static void
+static int
 init_test_configurtion(void)
 {
 	/*
-	 * Reset all data of all CPUs.
+	 * A maximum number of workers is defined as hard-coded
+	 * value and set to USHRT_MAX. We add such gap just in
+	 * case and for potential heavy stressing.
 	 */
-	memset(per_cpu_test_data, 0, sizeof(per_cpu_test_data));
+	nr_threads = clamp(nr_threads, 1, (int) USHRT_MAX);
 
-	if (single_cpu_test)
-		cpumask_set_cpu(cpumask_first(cpu_online_mask),
-			&cpus_run_test_mask);
-	else
-		cpumask_and(&cpus_run_test_mask, cpu_online_mask,
-			cpu_online_mask);
+	/* Allocate the space for test instances. */
+	tdriver = kvcalloc(nr_threads, sizeof(*tdriver), GFP_KERNEL);
+	if (tdriver == NULL)
+		return -1;
 
 	if (test_repeat_count <= 0)
 		test_repeat_count = 1;
 
 	if (test_loop_count <= 0)
 		test_loop_count = 1;
+
+	return 0;
 }
 
 static void do_concurrent_test(void)
 {
-	int cpu, ret;
+	int i, ret;
 
 	/*
 	 * Set some basic configurations plus sanity check.
 	 */
-	init_test_configurtion();
+	ret = init_test_configurtion();
+	if (ret < 0)
+		return;
 
 	/*
 	 * Put on hold all workers.
 	 */
 	down_write(&prepare_for_test_rwsem);
 
-	for_each_cpu(cpu, &cpus_run_test_mask) {
-		struct test_driver *t = &per_cpu_test_driver[cpu];
+	for (i = 0; i < nr_threads; i++) {
+		struct test_driver *t = &tdriver[i];
 
-		t->cpu = cpu;
-		t->task = kthread_run(test_func, t, "vmalloc_test/%d", cpu);
+		t->task = kthread_run(test_func, t, "vmalloc_test/%d", i);
 
 		if (!IS_ERR(t->task))
 			/* Success. */
 			atomic_inc(&test_n_undone);
 		else
-			pr_err("Failed to start kthread for %d CPU\n", cpu);
+			pr_err("Failed to start %d kthread\n", i);
 	}
 
 	/*
@@ -506,29 +531,31 @@ static void do_concurrent_test(void)
 		ret = wait_for_completion_timeout(&test_all_done_comp, HZ);
 	} while (!ret);
 
-	for_each_cpu(cpu, &cpus_run_test_mask) {
-		struct test_driver *t = &per_cpu_test_driver[cpu];
-		int i;
+	for (i = 0; i < nr_threads; i++) {
+		struct test_driver *t = &tdriver[i];
+		int j;
 
 		if (!IS_ERR(t->task))
 			kthread_stop(t->task);
 
-		for (i = 0; i < ARRAY_SIZE(test_case_array); i++) {
-			if (!((run_test_mask & (1 << i)) >> i))
+		for (j = 0; j < ARRAY_SIZE(test_case_array); j++) {
+			if (!((run_test_mask & (1 << j)) >> j))
 				continue;
 
 			pr_info(
 				"Summary: %s passed: %d failed: %d repeat: %d loops: %d avg: %llu usec\n",
-				test_case_array[i].test_name,
-				per_cpu_test_data[cpu][i].test_passed,
-				per_cpu_test_data[cpu][i].test_failed,
+				test_case_array[j].test_name,
+				t->data[j].test_passed,
+				t->data[j].test_failed,
 				test_repeat_count, test_loop_count,
-				per_cpu_test_data[cpu][i].time);
+				t->data[j].time);
 		}
 
-		pr_info("All test took CPU%d=%lu cycles\n",
-			cpu, t->stop - t->start);
+		pr_info("All test took worker%d=%lu cycles\n",
+			i, t->stop - t->start);
 	}
+
+	kvfree(tdriver);
 }
 
 static int vmalloc_test_init(void)

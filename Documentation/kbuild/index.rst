@@ -18,6 +18,9 @@ Kernel Build System
     headers_install
 
     issues
+    reproducible-builds
+    gcc-plugins
+    llvm
 
 .. only::  subproject and html
 

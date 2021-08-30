@@ -856,23 +856,18 @@ static int stk_vidioc_enum_fmt_vid_cap(struct file *filp,
 	switch (fmtd->index) {
 	case 0:
 		fmtd->pixelformat = V4L2_PIX_FMT_RGB565;
-		strscpy(fmtd->description, "r5g6b5", sizeof(fmtd->description));
 		break;
 	case 1:
 		fmtd->pixelformat = V4L2_PIX_FMT_RGB565X;
-		strscpy(fmtd->description, "r5g6b5BE", sizeof(fmtd->description));
 		break;
 	case 2:
 		fmtd->pixelformat = V4L2_PIX_FMT_UYVY;
-		strscpy(fmtd->description, "yuv4:2:2", sizeof(fmtd->description));
 		break;
 	case 3:
 		fmtd->pixelformat = V4L2_PIX_FMT_SBGGR8;
-		strscpy(fmtd->description, "Raw bayer", sizeof(fmtd->description));
 		break;
 	case 4:
 		fmtd->pixelformat = V4L2_PIX_FMT_YUYV;
-		strscpy(fmtd->description, "yuv4:2:2", sizeof(fmtd->description));
 		break;
 	default:
 		return -EINVAL;
@@ -1130,7 +1125,7 @@ static int stk_vidioc_dqbuf(struct file *filp,
 	sbuf->v4lbuf.flags &= ~V4L2_BUF_FLAG_QUEUED;
 	sbuf->v4lbuf.flags |= V4L2_BUF_FLAG_DONE;
 	sbuf->v4lbuf.sequence = ++dev->sequence;
-	sbuf->v4lbuf.timestamp = ns_to_timeval(ktime_get_ns());
+	v4l2_buffer_set_timestamp(&sbuf->v4lbuf, ktime_get_ns());
 
 	*buf = sbuf->v4lbuf;
 	return 0;
@@ -1259,7 +1254,7 @@ static int stk_register_video_device(struct stk_camera *dev)
 	dev->vdev.device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_READWRITE |
 				V4L2_CAP_STREAMING;
 	video_set_drvdata(&dev->vdev, dev);
-	err = video_register_device(&dev->vdev, VFL_TYPE_GRABBER, -1);
+	err = video_register_device(&dev->vdev, VFL_TYPE_VIDEO, -1);
 	if (err)
 		pr_err("v4l registration failed\n");
 	else

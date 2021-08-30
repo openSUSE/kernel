@@ -155,7 +155,7 @@ static struct attribute *port_dev_attrs[] = {
 	NULL,
 };
 
-static struct attribute_group port_dev_attr_grp = {
+static const struct attribute_group port_dev_attr_grp = {
 	.attrs = port_dev_attrs,
 };
 
@@ -169,7 +169,7 @@ static struct attribute *port_dev_usb3_attrs[] = {
 	NULL,
 };
 
-static struct attribute_group port_dev_usb3_attr_grp = {
+static const struct attribute_group port_dev_usb3_attr_grp = {
 	.attrs = port_dev_usb3_attrs,
 };
 
@@ -291,6 +291,14 @@ static int usb_port_runtime_suspend(struct device *dev)
 }
 #endif
 
+static void usb_port_shutdown(struct device *dev)
+{
+	struct usb_port *port_dev = to_usb_port(dev);
+
+	if (port_dev->child)
+		usb_disable_usb2_hardware_lpm(port_dev->child);
+}
+
 static const struct dev_pm_ops usb_port_pm_ops = {
 #ifdef CONFIG_PM
 	.runtime_suspend =	usb_port_runtime_suspend,
@@ -307,6 +315,7 @@ struct device_type usb_port_device_type = {
 static struct device_driver usb_port_driver = {
 	.name = "usb",
 	.owner = THIS_MODULE,
+	.shutdown = usb_port_shutdown,
 };
 
 static int link_peers(struct usb_port *left, struct usb_port *right)

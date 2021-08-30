@@ -3,7 +3,8 @@
 SRBDS - Special Register Buffer Data Sampling
 =============================================
 
-SRBDS is a hardware vulnerability that allows MDS :doc:`mds` techniques to
+SRBDS is a hardware vulnerability that allows MDS
+Documentation/admin-guide/hw-vuln/mds.rst techniques to
 infer values returned from special register accesses.  Special register
 accesses are accesses to off core registers.  According to Intel's evaluation,
 the special register reads that have a security expectation of privacy are
@@ -14,7 +15,7 @@ to the core through the special register mechanism that is susceptible
 to MDS attacks.
 
 Affected processors
---------------------
+-------------------
 Core models (desktop, mobile, Xeon-E3) that implement RDRAND and/or RDSEED may
 be affected.
 
@@ -27,6 +28,8 @@ by software using TSX_CTRL_MSR otherwise they are not affected.
   =============  ============  ========
   common name    Family_Model  Stepping
   =============  ============  ========
+  IvyBridge      06_3AH        All
+
   Haswell        06_3CH        All
   Haswell_L      06_45H        All
   Haswell_G      06_46H        All
@@ -37,9 +40,8 @@ by software using TSX_CTRL_MSR otherwise they are not affected.
   Skylake_L      06_4EH        All
   Skylake        06_5EH        All
 
-  Kabylake_L     06_8EH        <=0xC
-
-  Kabylake       06_9EH        <=0xD
+  Kabylake_L     06_8EH        <= 0xC
+  Kabylake       06_9EH        <= 0xD
   =============  ============  ========
 
 Related CVEs
@@ -58,7 +60,7 @@ executed on another core or sibling thread using MDS techniques.
 
 
 Mitigation mechanism
--------------------
+--------------------
 Intel will release microcode updates that modify the RDRAND, RDSEED, and
 EGETKEY instructions to overwrite secret special register data in the shared
 staging buffer before the secret data can be accessed by another logical
@@ -117,7 +119,7 @@ with the option "srbds=".  The option for this is:
   ============= =============================================================
 
 SRBDS System Information
------------------------
+------------------------
 The Linux kernel provides vulnerability status information through sysfs.  For
 SRBDS this can be accessed by the following sysfs file:
 /sys/devices/system/cpu/vulnerabilities/srbds

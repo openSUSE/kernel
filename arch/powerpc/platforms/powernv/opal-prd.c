@@ -24,7 +24,7 @@
 #include <linux/uaccess.h>
 
 
-/**
+/*
  * The msg member must be at the end of the struct, as it's followed by the
  * message data.
  */
@@ -105,7 +105,6 @@ static int opal_prd_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	size_t addr, size;
 	pgprot_t page_prot;
-	int rc;
 
 	pr_devel("opal_prd_mmap(0x%016lx, 0x%016lx, 0x%lx, 0x%lx)\n",
 			vma->vm_start, vma->vm_end, vma->vm_pgoff,
@@ -121,10 +120,8 @@ static int opal_prd_mmap(struct file *file, struct vm_area_struct *vma)
 	page_prot = phys_mem_access_prot(file, vma->vm_pgoff,
 					 size, vma->vm_page_prot);
 
-	rc = remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff, size,
+	return remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff, size,
 				page_prot);
-
-	return rc;
 }
 
 static bool opal_msg_queue_empty(void)
@@ -342,7 +339,7 @@ static int opal_prd_msg_notifier(struct notifier_block *nb,
 	int msg_size, item_size;
 	unsigned long flags;
 
-	if (msg_type != OPAL_MSG_PRD)
+	if (msg_type != OPAL_MSG_PRD && msg_type != OPAL_MSG_PRD2)
 		return 0;
 
 	/* Calculate total size of the message and item we need to store. The
@@ -390,6 +387,12 @@ static int opal_prd_probe(struct platform_device *pdev)
 	rc = opal_message_notifier_register(OPAL_MSG_PRD, &opal_prd_event_nb);
 	if (rc) {
 		pr_err("Couldn't register event notifier\n");
+		return rc;
+	}
+
+	rc = opal_message_notifier_register(OPAL_MSG_PRD2, &opal_prd_event_nb);
+	if (rc) {
+		pr_err("Couldn't register PRD2 event notifier\n");
 		return rc;
 	}
 

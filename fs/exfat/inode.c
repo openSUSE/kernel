@@ -19,7 +19,6 @@
 
 static int __exfat_write_inode(struct inode *inode, int sync)
 {
-	int ret = -EIO;
 	unsigned long long on_disk_size;
 	struct exfat_dentry *ep, *ep2;
 	struct exfat_entry_set_cache *es = NULL;
@@ -40,14 +39,14 @@ static int __exfat_write_inode(struct inode *inode, int sync)
 	if (is_dir && ei->dir.dir == sbi->root_dir && ei->entry == -1)
 		return 0;
 
-	exfat_set_vol_flags(sb, VOL_DIRTY);
+	exfat_set_volume_dirty(sb);
 
 	/* get the directory entry of given file or directory */
-	es = exfat_get_dentry_set(sb, &(ei->dir), ei->entry, ES_ALL_ENTRIES,
-		&ep);
+	es = exfat_get_dentry_set(sb, &(ei->dir), ei->entry, ES_ALL_ENTRIES);
 	if (!es)
 		return -EIO;
-	ep2 = ep + 1;
+	ep = exfat_get_dentry_cached(es, 0);
+	ep2 = exfat_get_dentry_cached(es, 1);
 
 	ep->dentry.file.attr = cpu_to_le16(exfat_make_attr(inode));
 
@@ -56,12 +55,12 @@ static int __exfat_write_inode(struct inode *inode, int sync)
 			&ep->dentry.file.create_tz,
 			&ep->dentry.file.create_time,
 			&ep->dentry.file.create_date,
-			&ep->dentry.file.create_time_ms);
+			&ep->dentry.file.create_time_cs);
 	exfat_set_entry_time(sbi, &inode->i_mtime,
 			&ep->dentry.file.modify_tz,
 			&ep->dentry.file.modify_time,
 			&ep->dentry.file.modify_date,
-			&ep->dentry.file.modify_time_ms);
+			&ep->dentry.file.modify_time_cs);
 	exfat_set_entry_time(sbi, &inode->i_atime,
 			&ep->dentry.file.access_tz,
 			&ep->dentry.file.access_time,
@@ -77,9 +76,8 @@ static int __exfat_write_inode(struct inode *inode, int sync)
 	ep2->dentry.stream.valid_size = cpu_to_le64(on_disk_size);
 	ep2->dentry.stream.size = ep2->dentry.stream.valid_size;
 
-	ret = exfat_update_dir_chksum_with_entry_set(sb, es, sync);
-	kfree(es);
-	return ret;
+	exfat_update_dir_chksum_with_entry_set(es);
+	return exfat_free_dentry_set(es, sync);
 }
 
 int exfat_write_inode(struct inode *inode, struct writeback_control *wbc)
@@ -110,15 +108,11 @@ static int exfat_map_cluster(struct inode *inode, unsigned int clu_offset,
 	int ret, modified = false;
 	unsigned int last_clu;
 	struct exfat_chain new_clu;
-	struct exfat_dentry *ep;
-	struct exfat_entry_set_cache *es = NULL;
 	struct super_block *sb = inode->i_sb;
 	struct exfat_sb_info *sbi = EXFAT_SB(sb);
 	struct exfat_inode_info *ei = EXFAT_I(inode);
 	unsigned int local_clu_offset = clu_offset;
 	unsigned int num_to_be_allocated = 0, num_clusters = 0;
-
-	ei->rwoffset = EXFAT_CLU_TO_B(clu_offset, sbi);
 
 	if (EXFAT_I(inode)->i_size_ondisk > 0)
 		num_clusters =
@@ -171,7 +165,7 @@ static int exfat_map_cluster(struct inode *inode, unsigned int clu_offset,
 	}
 
 	if (*clu == EXFAT_EOF_CLUSTER) {
-		exfat_set_vol_flags(sb, VOL_DIRTY);
+		exfat_set_volume_dirty(sb);
 
 		new_clu.dir = (last_clu == EXFAT_EOF_CLUSTER) ?
 				EXFAT_EOF_CLUSTER : last_clu + 1;
@@ -185,7 +179,8 @@ static int exfat_map_cluster(struct inode *inode, unsigned int clu_offset,
 			return -EIO;
 		}
 
-		ret = exfat_alloc_cluster(inode, num_to_be_allocated, &new_clu);
+		ret = exfat_alloc_cluster(inode, num_to_be_allocated, &new_clu,
+				inode_needs_sync(inode));
 		if (ret)
 			return ret;
 
@@ -222,35 +217,31 @@ static int exfat_map_cluster(struct inode *inode, unsigned int clu_offset,
 		num_clusters += num_to_be_allocated;
 		*clu = new_clu.dir;
 
-		if (ei->dir.dir != DIR_DELETED) {
+		if (ei->dir.dir != DIR_DELETED && modified) {
+			struct exfat_dentry *ep;
+			struct exfat_entry_set_cache *es;
+			int err;
+
 			es = exfat_get_dentry_set(sb, &(ei->dir), ei->entry,
-				ES_ALL_ENTRIES, &ep);
+				ES_ALL_ENTRIES);
 			if (!es)
 				return -EIO;
 			/* get stream entry */
-			ep++;
+			ep = exfat_get_dentry_cached(es, 1);
 
 			/* update directory entry */
-			if (modified) {
-				if (ep->dentry.stream.flags != ei->flags)
-					ep->dentry.stream.flags = ei->flags;
+			ep->dentry.stream.flags = ei->flags;
+			ep->dentry.stream.start_clu =
+				cpu_to_le32(ei->start_clu);
+			ep->dentry.stream.valid_size =
+				cpu_to_le64(i_size_read(inode));
+			ep->dentry.stream.size =
+				ep->dentry.stream.valid_size;
 
-				if (le32_to_cpu(ep->dentry.stream.start_clu) !=
-						ei->start_clu)
-					ep->dentry.stream.start_clu =
-						cpu_to_le32(ei->start_clu);
-
-				ep->dentry.stream.valid_size =
-					cpu_to_le64(i_size_read(inode));
-				ep->dentry.stream.size =
-					ep->dentry.stream.valid_size;
-			}
-
-			if (exfat_update_dir_chksum_with_entry_set(sb, es,
-			    inode_needs_sync(inode)))
-				return -EIO;
-			kfree(es);
-
+			exfat_update_dir_chksum_with_entry_set(es);
+			err = exfat_free_dentry_set(es, inode_needs_sync(inode));
+			if (err)
+				return err;
 		} /* end of if != DIR_DELETED */
 
 		inode->i_blocks +=
@@ -372,10 +363,9 @@ static int exfat_readpage(struct file *file, struct page *page)
 	return mpage_readpage(page, exfat_get_block);
 }
 
-static int exfat_readpages(struct file *file, struct address_space *mapping,
-		struct list_head *pages, unsigned int nr_pages)
+static void exfat_readahead(struct readahead_control *rac)
 {
-	return mpage_readpages(mapping, pages, nr_pages, exfat_get_block);
+	mpage_readahead(rac, exfat_get_block);
 }
 
 static int exfat_writepage(struct page *page, struct writeback_control *wbc)
@@ -501,8 +491,9 @@ int exfat_block_truncate_page(struct inode *inode, loff_t from)
 }
 
 static const struct address_space_operations exfat_aops = {
+	.set_page_dirty	= __set_page_dirty_buffers,
 	.readpage	= exfat_readpage,
-	.readpages	= exfat_readpages,
+	.readahead	= exfat_readahead,
 	.writepage	= exfat_writepage,
 	.writepages	= exfat_writepages,
 	.write_begin	= exfat_write_begin,
@@ -565,7 +556,7 @@ static int exfat_fill_inode(struct inode *inode, struct exfat_dir_entry *info)
 	struct exfat_inode_info *ei = EXFAT_I(inode);
 	loff_t size = info->size;
 
-	memcpy(&ei->dir, &info->dir, sizeof(struct exfat_chain));
+	ei->dir = info->dir;
 	ei->entry = info->entry;
 	ei->attr = info->attr;
 	ei->start_clu = info->start_clu;
@@ -576,7 +567,6 @@ static int exfat_fill_inode(struct inode *inode, struct exfat_dir_entry *info)
 	ei->hint_stat.eidx = 0;
 	ei->hint_stat.clu = info->start_clu;
 	ei->hint_femp.eidx = EXFAT_HINT_NONE;
-	ei->rwoffset = 0;
 	ei->hint_bmap.off = EXFAT_EOF_CLUSTER;
 	ei->i_pos = 0;
 

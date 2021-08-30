@@ -7,8 +7,8 @@
  * Copyright (c) 2015, Boaz Harrosh <boaz@plexistor.com>.
  */
 
-#include <asm/cacheflush.h>
 #include <linux/blkdev.h>
+#include <linux/pagemap.h>
 #include <linux/hdreg.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
@@ -24,11 +24,12 @@
 #include <linux/uio.h>
 #include <linux/dax.h>
 #include <linux/nd.h>
-#include <linux/backing-dev.h>
+#include <linux/mm.h>
+#include <asm/cacheflush.h>
 #include "pmem.h"
+#include "btt.h"
 #include "pfn.h"
 #include "nd.h"
-#include "nd-core.h"
 
 static struct device *to_dev(struct pmem_device *pmem)
 {
@@ -197,13 +198,13 @@ static blk_qc_t pmem_submit_bio(struct bio *bio)
 	unsigned long start;
 	struct bio_vec bvec;
 	struct bvec_iter iter;
-	struct pmem_device *pmem = bio->bi_disk->private_data;
+	struct pmem_device *pmem = bio->bi_bdev->bd_disk->private_data;
 	struct nd_region *nd_region = to_region(pmem);
 
 	if (bio->bi_opf & REQ_PREFLUSH)
 		ret = nvdimm_flush(nd_region, bio);
 
-	do_acct = blk_queue_io_stat(bio->bi_disk->queue);
+	do_acct = blk_queue_io_stat(bio->bi_bdev->bd_disk->queue);
 	if (do_acct)
 		start = bio_start_io_acct(bio);
 	bio_for_each_segment(bvec, bio, iter) {
@@ -238,11 +239,9 @@ static int pmem_rw_page(struct block_device *bdev, sector_t sector,
 	blk_status_t rc;
 
 	if (op_is_write(op))
-		rc = pmem_do_write(pmem, page, 0, sector,
-				   hpage_nr_pages(page) * PAGE_SIZE);
+		rc = pmem_do_write(pmem, page, 0, sector, thp_size(page));
 	else
-		rc = pmem_do_read(pmem, page, 0, sector,
-				   hpage_nr_pages(page) * PAGE_SIZE);
+		rc = pmem_do_read(pmem, page, 0, sector, thp_size(page));
 	/*
 	 * The ->rw_page interface is subtle and tricky.  The core
 	 * retries on any error, so we can only invoke page_endio() in
@@ -283,7 +282,6 @@ static const struct block_device_operations pmem_fops = {
 	.owner =		THIS_MODULE,
 	.submit_bio =		pmem_submit_bio,
 	.rw_page =		pmem_rw_page,
-	.revalidate_disk =	nvdimm_revalidate_disk,
 };
 
 static int pmem_dax_zero_page_range(struct dax_device *dax_dev, pgoff_t pgoff,
@@ -337,10 +335,9 @@ static const struct attribute_group *pmem_attribute_groups[] = {
 
 static void pmem_pagemap_cleanup(struct dev_pagemap *pgmap)
 {
-	struct request_queue *q =
-		container_of(pgmap->ref, struct request_queue, q_usage_counter);
+	struct pmem_device *pmem = pgmap->owner;
 
-	blk_cleanup_queue(q);
+	blk_cleanup_disk(pmem->disk);
 }
 
 static void pmem_release_queue(void *pgmap)
@@ -363,16 +360,9 @@ static void pmem_release_disk(void *__pmem)
 	kill_dax(pmem->dax_dev);
 	put_dax(pmem->dax_dev);
 	del_gendisk(pmem->disk);
-	put_disk(pmem->disk);
-}
-
-static void pmem_pagemap_page_free(struct page *page)
-{
-	wake_up_var(&page->_refcount);
 }
 
 static const struct dev_pagemap_ops fsdax_pagemap_ops = {
-	.page_free		= pmem_pagemap_page_free,
 	.kill			= pmem_pagemap_kill,
 	.cleanup		= pmem_pagemap_cleanup,
 };
@@ -430,10 +420,13 @@ static int pmem_attach_disk(struct device *dev,
 		return -EBUSY;
 	}
 
-	q = blk_alloc_queue(dev_to_node(dev));
-	if (!q)
+	disk = blk_alloc_disk(nid);
+	if (!disk)
 		return -ENOMEM;
+	q = disk->queue;
 
+	pmem->disk = disk;
+	pmem->pgmap.owner = pmem;
 	pmem->pfn_flags = PFN_DEV;
 	pmem->pgmap.ref = &q->q_usage_counter;
 	if (is_nd_pfn(dev)) {
@@ -478,16 +471,8 @@ static int pmem_attach_disk(struct device *dev,
 	if (pmem->pfn_flags & PFN_MAP)
 		blk_queue_flag_set(QUEUE_FLAG_DAX, q);
 
-	disk = alloc_disk_node(0, nid);
-	if (!disk)
-		return -ENOMEM;
-	pmem->disk = disk;
-
 	disk->fops		= &pmem_fops;
-	disk->queue		= q;
-	disk->flags		= GENHD_FL_EXT_DEVT;
 	disk->private_data	= pmem;
-	disk->queue->backing_dev_info->capabilities |= BDI_CAP_SYNCHRONOUS_IO;
 	nvdimm_namespace_disk_name(ndns, disk->disk_name);
 	set_capacity(disk, (pmem->size - pmem->pfn_pad - pmem->data_offset)
 			/ 512);
@@ -500,7 +485,6 @@ static int pmem_attach_disk(struct device *dev,
 		flags = DAXDEV_F_SYNC;
 	dax_dev = alloc_dax(pmem, disk->disk_name, &pmem_dax_ops, flags);
 	if (IS_ERR(dax_dev)) {
-		put_disk(disk);
 		return PTR_ERR(dax_dev);
 	}
 	dax_write_cache(dax_dev, nvdimm_has_cache(nd_region));
@@ -512,7 +496,7 @@ static int pmem_attach_disk(struct device *dev,
 	if (devm_add_action_or_reset(dev, pmem_release_disk, pmem))
 		return -ENOMEM;
 
-	revalidate_disk(disk);
+	nvdimm_check_and_set_ro(disk);
 
 	pmem->bb_state = sysfs_get_dirent(disk_to_dev(disk)->kobj.sd,
 					  "badblocks");
@@ -574,7 +558,7 @@ static int nd_pmem_probe(struct device *dev)
 	return pmem_attach_disk(dev, ndns);
 }
 
-static int nd_pmem_remove(struct device *dev)
+static void nd_pmem_remove(struct device *dev)
 {
 	struct pmem_device *pmem = dev_get_drvdata(dev);
 
@@ -589,8 +573,6 @@ static int nd_pmem_remove(struct device *dev)
 		pmem->bb_state = NULL;
 	}
 	nvdimm_flush(to_nd_region(dev->parent), NULL);
-
-	return 0;
 }
 
 static void nd_pmem_shutdown(struct device *dev)
@@ -598,7 +580,7 @@ static void nd_pmem_shutdown(struct device *dev)
 	nvdimm_flush(to_nd_region(dev->parent), NULL);
 }
 
-static void nd_pmem_notify(struct device *dev, enum nvdimm_event event)
+static void pmem_revalidate_poison(struct device *dev)
 {
 	struct nd_region *nd_region;
 	resource_size_t offset = 0, end_trunc = 0;
@@ -607,9 +589,6 @@ static void nd_pmem_notify(struct device *dev, enum nvdimm_event event)
 	struct badblocks *bb;
 	struct range range;
 	struct kernfs_node *bb_state;
-
-	if (event != NVDIMM_REVALIDATE_POISON)
-		return;
 
 	if (is_nd_btt(dev)) {
 		struct nd_btt *nd_btt = to_nd_btt(dev);
@@ -646,6 +625,37 @@ static void nd_pmem_notify(struct device *dev, enum nvdimm_event event)
 	nvdimm_badblocks_populate(nd_region, bb, &range);
 	if (bb_state)
 		sysfs_notify_dirent(bb_state);
+}
+
+static void pmem_revalidate_region(struct device *dev)
+{
+	struct pmem_device *pmem;
+
+	if (is_nd_btt(dev)) {
+		struct nd_btt *nd_btt = to_nd_btt(dev);
+		struct btt *btt = nd_btt->btt;
+
+		nvdimm_check_and_set_ro(btt->btt_disk);
+		return;
+	}
+
+	pmem = dev_get_drvdata(dev);
+	nvdimm_check_and_set_ro(pmem->disk);
+}
+
+static void nd_pmem_notify(struct device *dev, enum nvdimm_event event)
+{
+	switch (event) {
+	case NVDIMM_REVALIDATE_POISON:
+		pmem_revalidate_poison(dev);
+		break;
+	case NVDIMM_REVALIDATE_REGION:
+		pmem_revalidate_region(dev);
+		break;
+	default:
+		dev_WARN_ONCE(dev, 1, "notify: unknown event: %d\n", event);
+		break;
+	}
 }
 
 MODULE_ALIAS("pmem");

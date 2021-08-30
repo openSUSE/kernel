@@ -755,7 +755,7 @@ static void pll_factors(struct snd_soc_component *component,
 	u64 Kpart;
 	unsigned int K, Ndiv, Nmod, target;
 
-	/* The the PLL output is always 98.304MHz. */
+	/* The PLL output is always 98.304MHz. */
 	target = 98304000;
 
 	/* If the input frequency is over 14.4MHz then scale it down. */
@@ -1134,7 +1134,7 @@ static struct snd_soc_dai_driver wm9713_dai[] = {
 		.rates = WM9713_PCM_RATES,
 		.formats = WM9713_PCM_FORMATS,},
 	.ops = &wm9713_dai_ops_voice,
-	.symmetric_rates = 1,
+	.symmetric_rate = 1,
 	},
 };
 

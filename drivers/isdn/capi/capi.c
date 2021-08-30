@@ -11,6 +11,7 @@
 
 #include <linux/compiler.h>
 #include <linux/module.h>
+#include <linux/ethtool.h>
 #include <linux/errno.h>
 #include <linux/kernel.h>
 #include <linux/major.h>
@@ -39,7 +40,9 @@
 #include <linux/isdn/capiutil.h>
 #include <linux/isdn/capicmd.h>
 
-MODULE_DESCRIPTION("CAPI4Linux: Userspace /dev/capi20 interface");
+#include "kcapi.h"
+
+MODULE_DESCRIPTION("CAPI4Linux: kernel CAPI layer and /dev/capi20 interface");
 MODULE_AUTHOR("Carsten Paeth");
 MODULE_LICENSE("GPL");
 
@@ -1155,8 +1158,6 @@ static void capinc_tty_flush_chars(struct tty_struct *tty)
 	struct capiminor *mp = tty->driver_data;
 	struct sk_buff *skb;
 
-	pr_debug("capinc_tty_flush_chars\n");
-
 	spin_lock_bh(&mp->outlock);
 	skb = mp->outskb;
 	if (skb) {
@@ -1172,18 +1173,18 @@ static void capinc_tty_flush_chars(struct tty_struct *tty)
 	handle_minor_recv(mp);
 }
 
-static int capinc_tty_write_room(struct tty_struct *tty)
+static unsigned int capinc_tty_write_room(struct tty_struct *tty)
 {
 	struct capiminor *mp = tty->driver_data;
-	int room;
+	unsigned int room;
 
 	room = CAPINC_MAX_SENDQUEUE-skb_queue_len(&mp->outqueue);
 	room *= CAPI_MAX_BLKSIZE;
-	pr_debug("capinc_tty_write_room = %d\n", room);
+	pr_debug("capinc_tty_write_room = %u\n", room);
 	return room;
 }
 
-static int capinc_tty_chars_in_buffer(struct tty_struct *tty)
+static unsigned int capinc_tty_chars_in_buffer(struct tty_struct *tty)
 {
 	struct capiminor *mp = tty->driver_data;
 
@@ -1194,15 +1195,9 @@ static int capinc_tty_chars_in_buffer(struct tty_struct *tty)
 	return mp->outbytes;
 }
 
-static void capinc_tty_set_termios(struct tty_struct *tty, struct ktermios *old)
-{
-	pr_debug("capinc_tty_set_termios\n");
-}
-
 static void capinc_tty_throttle(struct tty_struct *tty)
 {
 	struct capiminor *mp = tty->driver_data;
-	pr_debug("capinc_tty_throttle\n");
 	mp->ttyinstop = 1;
 }
 
@@ -1210,7 +1205,6 @@ static void capinc_tty_unthrottle(struct tty_struct *tty)
 {
 	struct capiminor *mp = tty->driver_data;
 
-	pr_debug("capinc_tty_unthrottle\n");
 	mp->ttyinstop = 0;
 	handle_minor_recv(mp);
 }
@@ -1219,7 +1213,6 @@ static void capinc_tty_stop(struct tty_struct *tty)
 {
 	struct capiminor *mp = tty->driver_data;
 
-	pr_debug("capinc_tty_stop\n");
 	mp->ttyoutstop = 1;
 }
 
@@ -1227,7 +1220,6 @@ static void capinc_tty_start(struct tty_struct *tty)
 {
 	struct capiminor *mp = tty->driver_data;
 
-	pr_debug("capinc_tty_start\n");
 	mp->ttyoutstop = 0;
 	handle_minor_send(mp);
 }
@@ -1236,24 +1228,7 @@ static void capinc_tty_hangup(struct tty_struct *tty)
 {
 	struct capiminor *mp = tty->driver_data;
 
-	pr_debug("capinc_tty_hangup\n");
 	tty_port_hangup(&mp->port);
-}
-
-static int capinc_tty_break_ctl(struct tty_struct *tty, int state)
-{
-	pr_debug("capinc_tty_break_ctl(%d)\n", state);
-	return 0;
-}
-
-static void capinc_tty_flush_buffer(struct tty_struct *tty)
-{
-	pr_debug("capinc_tty_flush_buffer\n");
-}
-
-static void capinc_tty_set_ldisc(struct tty_struct *tty)
-{
-	pr_debug("capinc_tty_set_ldisc\n");
 }
 
 static void capinc_tty_send_xchar(struct tty_struct *tty, char ch)
@@ -1269,15 +1244,11 @@ static const struct tty_operations capinc_ops = {
 	.flush_chars = capinc_tty_flush_chars,
 	.write_room = capinc_tty_write_room,
 	.chars_in_buffer = capinc_tty_chars_in_buffer,
-	.set_termios = capinc_tty_set_termios,
 	.throttle = capinc_tty_throttle,
 	.unthrottle = capinc_tty_unthrottle,
 	.stop = capinc_tty_stop,
 	.start = capinc_tty_start,
 	.hangup = capinc_tty_hangup,
-	.break_ctl = capinc_tty_break_ctl,
-	.flush_buffer = capinc_tty_flush_buffer,
-	.set_ldisc = capinc_tty_set_ldisc,
 	.send_xchar = capinc_tty_send_xchar,
 	.install = capinc_tty_install,
 	.cleanup = capinc_tty_cleanup,
@@ -1412,15 +1383,22 @@ static int __init capi_init(void)
 {
 	const char *compileinfo;
 	int major_ret;
+	int ret;
+
+	ret = kcapi_init();
+	if (ret)
+		return ret;
 
 	major_ret = register_chrdev(capi_major, "capi20", &capi_fops);
 	if (major_ret < 0) {
 		printk(KERN_ERR "capi20: unable to get major %d\n", capi_major);
+		kcapi_exit();
 		return major_ret;
 	}
 	capi_class = class_create(THIS_MODULE, "capi");
 	if (IS_ERR(capi_class)) {
 		unregister_chrdev(capi_major, "capi20");
+		kcapi_exit();
 		return PTR_ERR(capi_class);
 	}
 
@@ -1430,6 +1408,7 @@ static int __init capi_init(void)
 		device_destroy(capi_class, MKDEV(capi_major, 0));
 		class_destroy(capi_class);
 		unregister_chrdev(capi_major, "capi20");
+		kcapi_exit();
 		return -ENOMEM;
 	}
 
@@ -1455,6 +1434,8 @@ static void __exit capi_exit(void)
 	unregister_chrdev(capi_major, "capi20");
 
 	capinc_tty_exit();
+
+	kcapi_exit();
 }
 
 module_init(capi_init);

@@ -31,8 +31,8 @@
 #include <linux/types.h>
 #include <linux/udp.h>
 #include <linux/workqueue.h>
+#include <linux/pgtable.h>
 
-#include <asm/pgtable.h>
 #include <asm/cacheflush.h>
 
 #define DRIVER_NAME	"pxa168-eth"
@@ -1187,11 +1187,10 @@ static int pxa168_eth_stop(struct net_device *dev)
 
 static int pxa168_eth_change_mtu(struct net_device *dev, int mtu)
 {
-	int retval;
 	struct pxa168_eth_private *pep = netdev_priv(dev);
 
 	dev->mtu = mtu;
-	retval = set_port_config_ext(pep);
+	set_port_config_ext(pep);
 
 	if (!netif_running(dev))
 		return 0;
@@ -1344,15 +1343,6 @@ static int pxa168_smi_write(struct mii_bus *bus, int phy_addr, int regnum,
 	return 0;
 }
 
-static int pxa168_eth_do_ioctl(struct net_device *dev, struct ifreq *ifr,
-			       int cmd)
-{
-	if (dev->phydev)
-		return phy_mii_ioctl(dev->phydev, ifr, cmd);
-
-	return -EOPNOTSUPP;
-}
-
 #ifdef CONFIG_NET_POLL_CONTROLLER
 static void pxa168_eth_netpoll(struct net_device *dev)
 {
@@ -1387,7 +1377,7 @@ static const struct net_device_ops pxa168_eth_netdev_ops = {
 	.ndo_set_rx_mode	= pxa168_eth_set_rx_mode,
 	.ndo_set_mac_address	= pxa168_eth_set_mac_address,
 	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_do_ioctl		= pxa168_eth_do_ioctl,
+	.ndo_do_ioctl		= phy_do_ioctl,
 	.ndo_change_mtu		= pxa168_eth_change_mtu,
 	.ndo_tx_timeout		= pxa168_eth_tx_timeout,
 #ifdef CONFIG_NET_POLL_CONTROLLER
@@ -1402,7 +1392,6 @@ static int pxa168_eth_probe(struct platform_device *pdev)
 	struct resource *res;
 	struct clk *clk;
 	struct device_node *np;
-	const unsigned char *mac_addr = NULL;
 	int err;
 
 	printk(KERN_NOTICE "PXA168 10/100 Ethernet Driver\n");
@@ -1425,10 +1414,9 @@ static int pxa168_eth_probe(struct platform_device *pdev)
 	pep->dev = dev;
 	pep->clk = clk;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	pep->base = devm_ioremap_resource(&pdev->dev, res);
+	pep->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(pep->base)) {
-		err = -ENOMEM;
+		err = PTR_ERR(pep->base);
 		goto err_netdev;
 	}
 
@@ -1446,12 +1434,8 @@ static int pxa168_eth_probe(struct platform_device *pdev)
 
 	INIT_WORK(&pep->tx_timeout_task, pxa168_eth_tx_timeout_task);
 
-	if (pdev->dev.of_node)
-		mac_addr = of_get_mac_address(pdev->dev.of_node);
-
-	if (!IS_ERR_OR_NULL(mac_addr)) {
-		ether_addr_copy(dev->dev_addr, mac_addr);
-	} else {
+	err = of_get_mac_address(pdev->dev.of_node, dev->dev_addr);
+	if (err) {
 		/* try reading the mac address, if set by the bootloader */
 		pxa168_eth_get_mac_address(dev, dev->dev_addr);
 		if (!is_valid_ether_addr(dev->dev_addr)) {
@@ -1544,6 +1528,7 @@ static int pxa168_eth_remove(struct platform_device *pdev)
 	struct net_device *dev = platform_get_drvdata(pdev);
 	struct pxa168_eth_private *pep = netdev_priv(dev);
 
+	cancel_work_sync(&pep->tx_timeout_task);
 	if (pep->htpr) {
 		dma_free_coherent(pep->dev->dev.parent, HASH_ADDR_TABLE_SIZE,
 				  pep->htpr, pep->htpr_dma);
@@ -1551,14 +1536,11 @@ static int pxa168_eth_remove(struct platform_device *pdev)
 	}
 	if (dev->phydev)
 		phy_disconnect(dev->phydev);
-	if (pep->clk) {
-		clk_disable_unprepare(pep->clk);
-	}
 
+	clk_disable_unprepare(pep->clk);
 	mdiobus_unregister(pep->smi_bus);
 	mdiobus_free(pep->smi_bus);
 	unregister_netdev(dev);
-	cancel_work_sync(&pep->tx_timeout_task);
 	free_netdev(dev);
 	return 0;
 }

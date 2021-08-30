@@ -22,6 +22,7 @@
 #include <linux/init.h>
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
+#include <linux/delay.h>
 #include <crypto/internal/skcipher.h>
 #include <crypto/xts.h>
 #include <asm/cpacf.h>
@@ -128,6 +129,9 @@ static inline int __paes_keyblob2pkey(struct key_blob *kb,
 
 	/* try three times in case of failure */
 	for (i = 0; i < 3; i++) {
+		if (i > 0 && ret == -EAGAIN && in_task())
+			if (msleep_interruptible(1000))
+				return -EINTR;
 		ret = pkey_keyblob2pkey(kb->key, kb->keylen, pk);
 		if (ret == 0)
 			break;
@@ -138,10 +142,12 @@ static inline int __paes_keyblob2pkey(struct key_blob *kb,
 
 static inline int __paes_convert_key(struct s390_paes_ctx *ctx)
 {
+	int ret;
 	struct pkey_protkey pkey;
 
-	if (__paes_keyblob2pkey(&ctx->kb, &pkey))
-		return -EINVAL;
+	ret = __paes_keyblob2pkey(&ctx->kb, &pkey);
+	if (ret)
+		return ret;
 
 	spin_lock_bh(&ctx->pk_lock);
 	memcpy(&ctx->pk, &pkey, sizeof(pkey));
@@ -169,10 +175,12 @@ static void ecb_paes_exit(struct crypto_skcipher *tfm)
 
 static inline int __ecb_paes_set_key(struct s390_paes_ctx *ctx)
 {
+	int rc;
 	unsigned long fc;
 
-	if (__paes_convert_key(ctx))
-		return -EINVAL;
+	rc = __paes_convert_key(ctx);
+	if (rc)
+		return rc;
 
 	/* Pick the correct function code based on the protected key type */
 	fc = (ctx->pk.type == PKEY_KEYTYPE_AES_128) ? CPACF_KM_PAES_128 :
@@ -196,11 +204,7 @@ static int ecb_paes_set_key(struct crypto_skcipher *tfm, const u8 *in_key,
 	if (rc)
 		return rc;
 
-	if (__ecb_paes_set_key(ctx)) {
-		crypto_skcipher_set_flags(tfm, CRYPTO_TFM_RES_BAD_KEY_LEN);
-		return -EINVAL;
-	}
-	return 0;
+	return __ecb_paes_set_key(ctx);
 }
 
 static int ecb_paes_crypt(struct skcipher_request *req, unsigned long modifier)
@@ -286,10 +290,12 @@ static void cbc_paes_exit(struct crypto_skcipher *tfm)
 
 static inline int __cbc_paes_set_key(struct s390_paes_ctx *ctx)
 {
+	int rc;
 	unsigned long fc;
 
-	if (__paes_convert_key(ctx))
-		return -EINVAL;
+	rc = __paes_convert_key(ctx);
+	if (rc)
+		return rc;
 
 	/* Pick the correct function code based on the protected key type */
 	fc = (ctx->pk.type == PKEY_KEYTYPE_AES_128) ? CPACF_KMC_PAES_128 :
@@ -313,11 +319,7 @@ static int cbc_paes_set_key(struct crypto_skcipher *tfm, const u8 *in_key,
 	if (rc)
 		return rc;
 
-	if (__cbc_paes_set_key(ctx)) {
-		crypto_skcipher_set_flags(tfm, CRYPTO_TFM_RES_BAD_KEY_LEN);
-		return -EINVAL;
-	}
-	return 0;
+	return __cbc_paes_set_key(ctx);
 }
 
 static int cbc_paes_crypt(struct skcipher_request *req, unsigned long modifier)
@@ -467,10 +469,9 @@ static int xts_paes_set_key(struct crypto_skcipher *tfm, const u8 *in_key,
 	if (rc)
 		return rc;
 
-	if (__xts_paes_set_key(ctx)) {
-		crypto_skcipher_set_flags(tfm, CRYPTO_TFM_RES_BAD_KEY_LEN);
-		return -EINVAL;
-	}
+	rc = __xts_paes_set_key(ctx);
+	if (rc)
+		return rc;
 
 	/*
 	 * xts_check_key verifies the key length is not odd and makes
@@ -586,10 +587,12 @@ static void ctr_paes_exit(struct crypto_skcipher *tfm)
 
 static inline int __ctr_paes_set_key(struct s390_paes_ctx *ctx)
 {
+	int rc;
 	unsigned long fc;
 
-	if (__paes_convert_key(ctx))
-		return -EINVAL;
+	rc = __paes_convert_key(ctx);
+	if (rc)
+		return rc;
 
 	/* Pick the correct function code based on the protected key type */
 	fc = (ctx->pk.type == PKEY_KEYTYPE_AES_128) ? CPACF_KMCTR_PAES_128 :
@@ -614,11 +617,7 @@ static int ctr_paes_set_key(struct crypto_skcipher *tfm, const u8 *in_key,
 	if (rc)
 		return rc;
 
-	if (__ctr_paes_set_key(ctx)) {
-		crypto_skcipher_set_flags(tfm, CRYPTO_TFM_RES_BAD_KEY_LEN);
-		return -EINVAL;
-	}
-	return 0;
+	return __ctr_paes_set_key(ctx);
 }
 
 static unsigned int __ctrblk_init(u8 *ctrptr, u8 *iv, unsigned int nbytes)

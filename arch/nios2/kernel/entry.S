@@ -389,12 +389,10 @@ ENTRY(ret_from_interrupt)
  */
 ENTRY(sys_clone)
 	SAVE_SWITCH_STACK
-	addi	sp, sp, -4
-	stw	r7, 0(sp)	/* Pass 5th arg thru stack */
-	mov	r7, r6		/* 4th arg is 3rd of clone() */
-	mov	r6, zero	/* 3rd arg always 0 */
-	call	do_fork
-	addi	sp, sp, 4
+	subi    sp, sp, 4 /* make space for tls pointer */
+	stw     r8, 0(sp) /* pass tls pointer (r8) via stack (5th argument) */
+	call	nios2_clone
+	addi    sp, sp, 4
 	RESTORE_SWITCH_STACK
 	ret
 

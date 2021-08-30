@@ -10,14 +10,37 @@
 #define _LINUX_FWNODE_H_
 
 #include <linux/types.h>
+#include <linux/list.h>
+#include <linux/err.h>
 
 struct fwnode_operations;
 struct device;
+
+/*
+ * fwnode link flags
+ *
+ * LINKS_ADDED:	The fwnode has already be parsed to add fwnode links.
+ * NOT_DEVICE:	The fwnode will never be populated as a struct device.
+ * INITIALIZED: The hardware corresponding to fwnode has been initialized.
+ */
+#define FWNODE_FLAG_LINKS_ADDED		BIT(0)
+#define FWNODE_FLAG_NOT_DEVICE		BIT(1)
+#define FWNODE_FLAG_INITIALIZED		BIT(2)
 
 struct fwnode_handle {
 	struct fwnode_handle *secondary;
 	const struct fwnode_operations *ops;
 	struct device *dev;
+	struct list_head suppliers;
+	struct list_head consumers;
+	u8 flags;
+};
+
+struct fwnode_link {
+	struct fwnode_handle *supplier;
+	struct list_head s_hook;
+	struct fwnode_handle *consumer;
+	struct list_head c_hook;
 };
 
 /**
@@ -31,6 +54,13 @@ struct fwnode_endpoint {
 	unsigned int id;
 	const struct fwnode_handle *local_fwnode;
 };
+
+/*
+ * ports and endpoints defined as software_nodes should all follow a common
+ * naming scheme; use these macros to ensure commonality.
+ */
+#define SWNODE_GRAPH_PORT_NAME_FMT		"port@%u"
+#define SWNODE_GRAPH_ENDPOINT_NAME_FMT		"endpoint@%u"
 
 #define NR_FWNODE_REFERENCE_ARGS	8
 
@@ -50,11 +80,11 @@ struct fwnode_reference_args {
  * struct fwnode_operations - Operations for fwnode interface
  * @get: Get a reference to an fwnode.
  * @put: Put a reference to an fwnode.
+ * @device_is_available: Return true if the device is available.
  * @device_get_match_data: Return the device driver match data.
  * @property_present: Return true if a property is present.
- * @property_read_integer_array: Read an array of integer properties. Return
- *				 zero on success, a negative error code
- *				 otherwise.
+ * @property_read_int_array: Read an array of integer properties. Return zero on
+ *			     success, a negative error code otherwise.
  * @property_read_string_array: Read an array of string properties. Return zero
  *				on success, a negative error code otherwise.
  * @get_name: Return the name of an fwnode.
@@ -68,21 +98,8 @@ struct fwnode_reference_args {
  *			       endpoint node.
  * @graph_get_port_parent: Return the parent node of a port node.
  * @graph_parse_endpoint: Parse endpoint for port and endpoint id.
- * @add_links:	Called after the device corresponding to the fwnode is added
- *		using device_add(). The function is expected to create device
- *		links to all the suppliers of the device that are available at
- *		the time this function is called.  The function must NOT stop
- *		at the first failed device link if other unlinked supplier
- *		devices are present in the system.  If some suppliers are not
- *		yet available, this function will be called again when other
- *		devices are added to allow creating device links to any newly
- *		available suppliers.
- *
- *		Return 0 if device links have been successfully created to all
- *		the suppliers of this device or if the supplier information is
- *		not known. Return an error if and only if the supplier
- *		information is known but some of the suppliers are not yet
- *		available to create device links to.
+ * @add_links:	Create fwnode links to all the suppliers of the fwnode. Return
+ *		zero on success, a negative error code otherwise.
  */
 struct fwnode_operations {
 	struct fwnode_handle *(*get)(struct fwnode_handle *fwnode);
@@ -122,8 +139,7 @@ struct fwnode_operations {
 	(*graph_get_port_parent)(struct fwnode_handle *fwnode);
 	int (*graph_parse_endpoint)(const struct fwnode_handle *fwnode,
 				    struct fwnode_endpoint *endpoint);
-	int (*add_links)(const struct fwnode_handle *fwnode,
-			 struct device *dev);
+	int (*add_links)(struct fwnode_handle *fwnode);
 };
 
 #define fwnode_has_op(fwnode, op)				\
@@ -132,10 +148,11 @@ struct fwnode_operations {
 	(fwnode ? (fwnode_has_op(fwnode, op) ?				\
 		   (fwnode)->ops->op(fwnode, ## __VA_ARGS__) : -ENXIO) : \
 	 -EINVAL)
-#define fwnode_call_bool_op(fwnode, op, ...)				\
-	(fwnode ? (fwnode_has_op(fwnode, op) ?				\
-		   (fwnode)->ops->op(fwnode, ## __VA_ARGS__) : false) : \
-	 false)
+
+#define fwnode_call_bool_op(fwnode, op, ...)		\
+	(fwnode_has_op(fwnode, op) ?			\
+	 (fwnode)->ops->op(fwnode, ## __VA_ARGS__) : false)
+
 #define fwnode_call_ptr_op(fwnode, op, ...)		\
 	(fwnode_has_op(fwnode, op) ?			\
 	 (fwnode)->ops->op(fwnode, ## __VA_ARGS__) : NULL)
@@ -145,5 +162,31 @@ struct fwnode_operations {
 			(fwnode)->ops->op(fwnode, ## __VA_ARGS__);	\
 	} while (false)
 #define get_dev_from_fwnode(fwnode)	get_device((fwnode)->dev)
+
+static inline void fwnode_init(struct fwnode_handle *fwnode,
+			       const struct fwnode_operations *ops)
+{
+	fwnode->ops = ops;
+	INIT_LIST_HEAD(&fwnode->consumers);
+	INIT_LIST_HEAD(&fwnode->suppliers);
+}
+
+static inline void fwnode_dev_initialized(struct fwnode_handle *fwnode,
+					  bool initialized)
+{
+	if (IS_ERR_OR_NULL(fwnode))
+		return;
+
+	if (initialized)
+		fwnode->flags |= FWNODE_FLAG_INITIALIZED;
+	else
+		fwnode->flags &= ~FWNODE_FLAG_INITIALIZED;
+}
+
+extern u32 fw_devlink_get_flags(void);
+extern bool fw_devlink_is_strict(void);
+int fwnode_link_add(struct fwnode_handle *con, struct fwnode_handle *sup);
+void fwnode_links_purge(struct fwnode_handle *fwnode);
+void fw_devlink_purge_absent_suppliers(struct fwnode_handle *fwnode);
 
 #endif

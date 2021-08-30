@@ -3,7 +3,7 @@
  * JMicron JMC2x0 series PCIe Ethernet Linux Device Driver
  *
  * Copyright 2008 JMicron Technology Corporation
- * http://www.jmicron.com/
+ * https://www.jmicron.com/
  * Copyright (c) 2009 - 2010 Guo-Fu Tseng <cooldavid@cooldavid.org>
  *
  * Author: Guo-Fu Tseng <cooldavid@cooldavid.org>
@@ -411,7 +411,7 @@ struct jme_adapter {
 	struct tasklet_struct	rxempty_task;
 	struct tasklet_struct	rxclean_task;
 	struct tasklet_struct	txclean_task;
-	struct tasklet_struct	linkch_task;
+	struct work_struct	linkch_task;
 	struct tasklet_struct	pcc_task;
 	unsigned long		flags;
 	u32			reg_txcs;

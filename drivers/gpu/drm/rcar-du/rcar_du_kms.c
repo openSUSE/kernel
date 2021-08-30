@@ -41,6 +41,7 @@ static const struct rcar_du_format_info rcar_du_format_infos[] = {
 		.v4l2 = V4L2_PIX_FMT_RGB565,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 		.pnmr = PnMR_SPIM_TP | PnMR_DDDF_16BPP,
 		.edf = PnDDCR4_EDF_NONE,
 	}, {
@@ -48,6 +49,7 @@ static const struct rcar_du_format_info rcar_du_format_infos[] = {
 		.v4l2 = V4L2_PIX_FMT_ARGB555,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 		.pnmr = PnMR_SPIM_ALP | PnMR_DDDF_ARGB,
 		.edf = PnDDCR4_EDF_NONE,
 	}, {
@@ -62,6 +64,7 @@ static const struct rcar_du_format_info rcar_du_format_infos[] = {
 		.v4l2 = V4L2_PIX_FMT_XBGR32,
 		.bpp = 32,
 		.planes = 1,
+		.hsub = 1,
 		.pnmr = PnMR_SPIM_TP | PnMR_DDDF_16BPP,
 		.edf = PnDDCR4_EDF_RGB888,
 	}, {
@@ -69,6 +72,7 @@ static const struct rcar_du_format_info rcar_du_format_infos[] = {
 		.v4l2 = V4L2_PIX_FMT_ABGR32,
 		.bpp = 32,
 		.planes = 1,
+		.hsub = 1,
 		.pnmr = PnMR_SPIM_ALP | PnMR_DDDF_16BPP,
 		.edf = PnDDCR4_EDF_ARGB8888,
 	}, {
@@ -76,6 +80,7 @@ static const struct rcar_du_format_info rcar_du_format_infos[] = {
 		.v4l2 = V4L2_PIX_FMT_UYVY,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 2,
 		.pnmr = PnMR_SPIM_TP_OFF | PnMR_DDDF_YC,
 		.edf = PnDDCR4_EDF_NONE,
 	}, {
@@ -83,6 +88,7 @@ static const struct rcar_du_format_info rcar_du_format_infos[] = {
 		.v4l2 = V4L2_PIX_FMT_YUYV,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 2,
 		.pnmr = PnMR_SPIM_TP_OFF | PnMR_DDDF_YC,
 		.edf = PnDDCR4_EDF_NONE,
 	}, {
@@ -90,6 +96,7 @@ static const struct rcar_du_format_info rcar_du_format_infos[] = {
 		.v4l2 = V4L2_PIX_FMT_NV12M,
 		.bpp = 12,
 		.planes = 2,
+		.hsub = 2,
 		.pnmr = PnMR_SPIM_TP_OFF | PnMR_DDDF_YC,
 		.edf = PnDDCR4_EDF_NONE,
 	}, {
@@ -97,6 +104,7 @@ static const struct rcar_du_format_info rcar_du_format_infos[] = {
 		.v4l2 = V4L2_PIX_FMT_NV21M,
 		.bpp = 12,
 		.planes = 2,
+		.hsub = 2,
 		.pnmr = PnMR_SPIM_TP_OFF | PnMR_DDDF_YC,
 		.edf = PnDDCR4_EDF_NONE,
 	}, {
@@ -104,6 +112,7 @@ static const struct rcar_du_format_info rcar_du_format_infos[] = {
 		.v4l2 = V4L2_PIX_FMT_NV16M,
 		.bpp = 16,
 		.planes = 2,
+		.hsub = 2,
 		.pnmr = PnMR_SPIM_TP_OFF | PnMR_DDDF_YC,
 		.edf = PnDDCR4_EDF_NONE,
 	},
@@ -116,156 +125,187 @@ static const struct rcar_du_format_info rcar_du_format_infos[] = {
 		.v4l2 = V4L2_PIX_FMT_RGB332,
 		.bpp = 8,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_ARGB4444,
 		.v4l2 = V4L2_PIX_FMT_ARGB444,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_XRGB4444,
 		.v4l2 = V4L2_PIX_FMT_XRGB444,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_RGBA4444,
 		.v4l2 = V4L2_PIX_FMT_RGBA444,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_RGBX4444,
 		.v4l2 = V4L2_PIX_FMT_RGBX444,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_ABGR4444,
 		.v4l2 = V4L2_PIX_FMT_ABGR444,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_XBGR4444,
 		.v4l2 = V4L2_PIX_FMT_XBGR444,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_BGRA4444,
 		.v4l2 = V4L2_PIX_FMT_BGRA444,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_BGRX4444,
 		.v4l2 = V4L2_PIX_FMT_BGRX444,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_RGBA5551,
 		.v4l2 = V4L2_PIX_FMT_RGBA555,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_RGBX5551,
 		.v4l2 = V4L2_PIX_FMT_RGBX555,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_ABGR1555,
 		.v4l2 = V4L2_PIX_FMT_ABGR555,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_XBGR1555,
 		.v4l2 = V4L2_PIX_FMT_XBGR555,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_BGRA5551,
 		.v4l2 = V4L2_PIX_FMT_BGRA555,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_BGRX5551,
 		.v4l2 = V4L2_PIX_FMT_BGRX555,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_BGR888,
 		.v4l2 = V4L2_PIX_FMT_RGB24,
 		.bpp = 24,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_RGB888,
 		.v4l2 = V4L2_PIX_FMT_BGR24,
 		.bpp = 24,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_RGBA8888,
 		.v4l2 = V4L2_PIX_FMT_BGRA32,
 		.bpp = 32,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_RGBX8888,
 		.v4l2 = V4L2_PIX_FMT_BGRX32,
 		.bpp = 32,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_ABGR8888,
 		.v4l2 = V4L2_PIX_FMT_RGBA32,
 		.bpp = 32,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_XBGR8888,
 		.v4l2 = V4L2_PIX_FMT_RGBX32,
 		.bpp = 32,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_BGRA8888,
 		.v4l2 = V4L2_PIX_FMT_ARGB32,
 		.bpp = 32,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_BGRX8888,
 		.v4l2 = V4L2_PIX_FMT_XRGB32,
 		.bpp = 32,
 		.planes = 1,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_YVYU,
 		.v4l2 = V4L2_PIX_FMT_YVYU,
 		.bpp = 16,
 		.planes = 1,
+		.hsub = 2,
 	}, {
 		.fourcc = DRM_FORMAT_NV61,
 		.v4l2 = V4L2_PIX_FMT_NV61M,
 		.bpp = 16,
 		.planes = 2,
+		.hsub = 2,
 	}, {
 		.fourcc = DRM_FORMAT_YUV420,
 		.v4l2 = V4L2_PIX_FMT_YUV420M,
 		.bpp = 12,
 		.planes = 3,
+		.hsub = 2,
 	}, {
 		.fourcc = DRM_FORMAT_YVU420,
 		.v4l2 = V4L2_PIX_FMT_YVU420M,
 		.bpp = 12,
 		.planes = 3,
+		.hsub = 2,
 	}, {
 		.fourcc = DRM_FORMAT_YUV422,
 		.v4l2 = V4L2_PIX_FMT_YUV422M,
 		.bpp = 16,
 		.planes = 3,
+		.hsub = 2,
 	}, {
 		.fourcc = DRM_FORMAT_YVU422,
 		.v4l2 = V4L2_PIX_FMT_YVU422M,
 		.bpp = 16,
 		.planes = 3,
+		.hsub = 2,
 	}, {
 		.fourcc = DRM_FORMAT_YUV444,
 		.v4l2 = V4L2_PIX_FMT_YUV444M,
 		.bpp = 24,
 		.planes = 3,
+		.hsub = 1,
 	}, {
 		.fourcc = DRM_FORMAT_YVU444,
 		.v4l2 = V4L2_PIX_FMT_YVU444M,
 		.bpp = 24,
 		.planes = 3,
+		.hsub = 1,
 	},
 };
 
@@ -288,7 +328,7 @@ const struct rcar_du_format_info *rcar_du_format_info(u32 fourcc)
 int rcar_du_dumb_create(struct drm_file *file, struct drm_device *dev,
 			struct drm_mode_create_dumb *args)
 {
-	struct rcar_du_device *rcdu = dev->dev_private;
+	struct rcar_du_device *rcdu = to_rcar_du_device(dev);
 	unsigned int min_pitch = DIV_ROUND_UP(args->width * args->bpp, 8);
 	unsigned int align;
 
@@ -310,8 +350,9 @@ static struct drm_framebuffer *
 rcar_du_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 		  const struct drm_mode_fb_cmd2 *mode_cmd)
 {
-	struct rcar_du_device *rcdu = dev->dev_private;
+	struct rcar_du_device *rcdu = to_rcar_du_device(dev);
 	const struct rcar_du_format_info *format;
+	unsigned int chroma_pitch;
 	unsigned int max_pitch;
 	unsigned int align;
 	unsigned int i;
@@ -354,10 +395,19 @@ rcar_du_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 		return ERR_PTR(-EINVAL);
 	}
 
+	/*
+	 * Calculate the chroma plane(s) pitch using the horizontal subsampling
+	 * factor. For semi-planar formats, the U and V planes are combined, the
+	 * pitch must thus be doubled.
+	 */
+	chroma_pitch = mode_cmd->pitches[0] / format->hsub;
+	if (format->planes == 2)
+		chroma_pitch *= 2;
+
 	for (i = 1; i < format->planes; ++i) {
-		if (mode_cmd->pitches[i] != mode_cmd->pitches[0]) {
+		if (mode_cmd->pitches[i] != chroma_pitch) {
 			dev_dbg(dev->dev,
-				"luma and chroma pitches do not match\n");
+				"luma and chroma pitches are not compatible\n");
 			return ERR_PTR(-EINVAL);
 		}
 	}
@@ -372,7 +422,7 @@ rcar_du_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 static int rcar_du_atomic_check(struct drm_device *dev,
 				struct drm_atomic_state *state)
 {
-	struct rcar_du_device *rcdu = dev->dev_private;
+	struct rcar_du_device *rcdu = to_rcar_du_device(dev);
 	int ret;
 
 	ret = drm_atomic_helper_check(dev, state);
@@ -388,7 +438,7 @@ static int rcar_du_atomic_check(struct drm_device *dev,
 static void rcar_du_atomic_commit_tail(struct drm_atomic_state *old_state)
 {
 	struct drm_device *dev = old_state->dev;
-	struct rcar_du_device *rcdu = dev->dev_private;
+	struct rcar_du_device *rcdu = to_rcar_du_device(dev);
 	struct drm_crtc_state *crtc_state;
 	struct drm_crtc *crtc;
 	unsigned int i;
@@ -534,7 +584,7 @@ static int rcar_du_properties_init(struct rcar_du_device *rcdu)
 	 * or enable source color keying (1).
 	 */
 	rcdu->props.colorkey =
-		drm_property_create_range(rcdu->ddev, 0, "colorkey",
+		drm_property_create_range(&rcdu->ddev, 0, "colorkey",
 					  0, 0x01ffffff);
 	if (rcdu->props.colorkey == NULL)
 		return -ENOMEM;
@@ -714,7 +764,7 @@ int rcar_du_modeset_init(struct rcar_du_device *rcdu)
 		DU0_REG_OFFSET, DU2_REG_OFFSET
 	};
 
-	struct drm_device *dev = rcdu->ddev;
+	struct drm_device *dev = &rcdu->ddev;
 	struct drm_encoder *encoder;
 	unsigned int dpad0_sources;
 	unsigned int num_encoders;

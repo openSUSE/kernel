@@ -49,7 +49,7 @@ static void rawsock_report_error(struct sock *sk, int err)
 
 	sk->sk_shutdown = SHUTDOWN_MASK;
 	sk->sk_err = -err;
-	sk->sk_error_report(sk);
+	sk_error_report(sk);
 
 	rawsock_write_queue_purge(sk);
 }
@@ -276,8 +276,6 @@ static const struct proto_ops rawsock_ops = {
 	.ioctl          = sock_no_ioctl,
 	.listen         = sock_no_listen,
 	.shutdown       = sock_no_shutdown,
-	.setsockopt     = sock_no_setsockopt,
-	.getsockopt     = sock_no_getsockopt,
 	.sendmsg        = rawsock_sendmsg,
 	.recvmsg        = rawsock_recvmsg,
 	.mmap           = sock_no_mmap,
@@ -296,8 +294,6 @@ static const struct proto_ops rawsock_raw_ops = {
 	.ioctl          = sock_no_ioctl,
 	.listen         = sock_no_listen,
 	.shutdown       = sock_no_shutdown,
-	.setsockopt     = sock_no_setsockopt,
-	.getsockopt     = sock_no_getsockopt,
 	.sendmsg        = sock_no_sendmsg,
 	.recvmsg        = rawsock_recvmsg,
 	.mmap           = sock_no_mmap,

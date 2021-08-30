@@ -19,7 +19,7 @@
  * New page-table pointer is expected in %rdi (first parameter)
  *
  */
-ENTRY(sev_verify_cbit)
+SYM_FUNC_START(sev_verify_cbit)
 #ifdef CONFIG_AMD_MEM_ENCRYPT
 	/* First check if a C-bit was detected */
 	movq	sme_me_mask(%rip), %rsi
@@ -86,4 +86,4 @@ ENTRY(sev_verify_cbit)
 	/* Return page-table pointer */
 	movq	%rdi, %rax
 	ret
-ENDPROC(sev_verify_cbit)
+SYM_FUNC_END(sev_verify_cbit)

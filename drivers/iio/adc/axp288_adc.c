@@ -257,10 +257,8 @@ static int axp288_adc_probe(struct platform_device *pdev)
 
 	info = iio_priv(indio_dev);
 	info->irq = platform_get_irq(pdev, 0);
-	if (info->irq < 0) {
-		dev_err(&pdev->dev, "no irq resource?\n");
+	if (info->irq < 0)
 		return info->irq;
-	}
 	platform_set_drvdata(pdev, indio_dev);
 	info->regmap = axp20x->regmap;
 	/*
@@ -273,7 +271,6 @@ static int axp288_adc_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	indio_dev->dev.parent = &pdev->dev;
 	indio_dev->name = pdev->name;
 	indio_dev->channels = axp288_adc_channels;
 	indio_dev->num_channels = ARRAY_SIZE(axp288_adc_channels);

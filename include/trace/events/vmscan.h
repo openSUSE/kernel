@@ -265,7 +265,7 @@ TRACE_EVENT(mm_shrink_slab_end,
 );
 
 TRACE_EVENT(mm_vmscan_lru_isolate,
-	TP_PROTO(int classzone_idx,
+	TP_PROTO(int highest_zoneidx,
 		int order,
 		unsigned long nr_requested,
 		unsigned long nr_scanned,
@@ -274,10 +274,10 @@ TRACE_EVENT(mm_vmscan_lru_isolate,
 		isolate_mode_t isolate_mode,
 		int lru),
 
-	TP_ARGS(classzone_idx, order, nr_requested, nr_scanned, nr_skipped, nr_taken, isolate_mode, lru),
+	TP_ARGS(highest_zoneidx, order, nr_requested, nr_scanned, nr_skipped, nr_taken, isolate_mode, lru),
 
 	TP_STRUCT__entry(
-		__field(int, classzone_idx)
+		__field(int, highest_zoneidx)
 		__field(int, order)
 		__field(unsigned long, nr_requested)
 		__field(unsigned long, nr_scanned)
@@ -288,7 +288,7 @@ TRACE_EVENT(mm_vmscan_lru_isolate,
 	),
 
 	TP_fast_assign(
-		__entry->classzone_idx = classzone_idx;
+		__entry->highest_zoneidx = highest_zoneidx;
 		__entry->order = order;
 		__entry->nr_requested = nr_requested;
 		__entry->nr_scanned = nr_scanned;
@@ -298,9 +298,13 @@ TRACE_EVENT(mm_vmscan_lru_isolate,
 		__entry->lru = lru;
 	),
 
+	/*
+	 * classzone is previous name of the highest_zoneidx.
+	 * Reason not to change it is the ABI requirement of the tracepoint.
+	 */
 	TP_printk("isolate_mode=%d classzone=%d order=%d nr_requested=%lu nr_scanned=%lu nr_skipped=%lu nr_taken=%lu lru=%s",
 		__entry->isolate_mode,
-		__entry->classzone_idx,
+		__entry->highest_zoneidx,
 		__entry->order,
 		__entry->nr_requested,
 		__entry->nr_scanned,
@@ -323,10 +327,10 @@ TRACE_EVENT(mm_vmscan_writepage,
 	TP_fast_assign(
 		__entry->pfn = page_to_pfn(page);
 		__entry->reclaim_flags = trace_reclaim_flags(
-						page_is_file_cache(page));
+						page_is_file_lru(page));
 	),
 
-	TP_printk("page=%p pfn=%lu flags=%s",
+	TP_printk("page=%p pfn=0x%lx flags=%s",
 		pfn_to_page(__entry->pfn),
 		__entry->pfn,
 		show_reclaim_flags(__entry->reclaim_flags))
@@ -416,47 +420,6 @@ TRACE_EVENT(mm_vmscan_lru_shrink_active,
 		__entry->nr_taken,
 		__entry->nr_active, __entry->nr_deactivated, __entry->nr_referenced,
 		__entry->priority,
-		show_reclaim_flags(__entry->reclaim_flags))
-);
-
-TRACE_EVENT(mm_vmscan_inactive_list_is_low,
-
-	TP_PROTO(int nid, int reclaim_idx,
-		unsigned long total_inactive, unsigned long inactive,
-		unsigned long total_active, unsigned long active,
-		unsigned long ratio, int file),
-
-	TP_ARGS(nid, reclaim_idx, total_inactive, inactive, total_active, active, ratio, file),
-
-	TP_STRUCT__entry(
-		__field(int, nid)
-		__field(int, reclaim_idx)
-		__field(unsigned long, total_inactive)
-		__field(unsigned long, inactive)
-		__field(unsigned long, total_active)
-		__field(unsigned long, active)
-		__field(unsigned long, ratio)
-		__field(int, reclaim_flags)
-	),
-
-	TP_fast_assign(
-		__entry->nid = nid;
-		__entry->reclaim_idx = reclaim_idx;
-		__entry->total_inactive = total_inactive;
-		__entry->inactive = inactive;
-		__entry->total_active = total_active;
-		__entry->active = active;
-		__entry->ratio = ratio;
-		__entry->reclaim_flags = trace_reclaim_flags(file) &
-					 RECLAIM_WB_LRU;
-	),
-
-	TP_printk("nid=%d reclaim_idx=%d total_inactive=%ld inactive=%ld total_active=%ld active=%ld ratio=%ld flags=%s",
-		__entry->nid,
-		__entry->reclaim_idx,
-		__entry->total_inactive, __entry->inactive,
-		__entry->total_active, __entry->active,
-		__entry->ratio,
 		show_reclaim_flags(__entry->reclaim_flags))
 );
 

@@ -3,7 +3,7 @@
  * ISP1704 USB Charger Detection driver
  *
  * Copyright (C) 2010 Nokia Corporation
- * Copyright (C) 2012 - 2013 Pali Rohár <pali.rohar@gmail.com>
+ * Copyright (C) 2012 - 2013 Pali Rohár <pali@kernel.org>
  */
 
 #include <linux/kernel.h>
@@ -342,7 +342,7 @@ static inline int isp1704_test_ulpi(struct isp1704_charger *isp)
 	int vendor;
 	int product;
 	int i;
-	int ret = -ENODEV;
+	int ret;
 
 	/* Test ULPI interface */
 	ret = isp1704_write(isp, ULPI_SCRATCH, 0xaa);

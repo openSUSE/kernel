@@ -259,7 +259,7 @@ static void rda_uart_set_termios(struct uart_port *port,
 	case CS5:
 	case CS6:
 		dev_warn(port->dev, "bit size not supported, using 7 bits\n");
-		/* Fall through */
+		fallthrough;
 	case CS7:
 		ctrl &= ~RDA_UART_DBITS_8;
 		break;
@@ -398,9 +398,7 @@ static void rda_uart_receive_chars(struct uart_port *port)
 		status = rda_uart_read(port, RDA_UART_STATUS);
 	}
 
-	spin_unlock(&port->lock);
 	tty_flip_buffer_push(&port->state->port);
-	spin_lock(&port->lock);
 }
 
 static irqreturn_t rda_interrupt(int irq, void *dev_id)
@@ -498,7 +496,7 @@ static int rda_uart_request_port(struct uart_port *port)
 		return -EBUSY;
 
 	if (port->flags & UPF_IOREMAP) {
-		port->membase = devm_ioremap_nocache(port->dev, port->mapbase,
+		port->membase = devm_ioremap(port->dev, port->mapbase,
 						     resource_size(res));
 		if (!port->membase)
 			return -EBUSY;
@@ -735,10 +733,8 @@ static int rda_uart_probe(struct platform_device *pdev)
 	}
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		dev_err(&pdev->dev, "could not get irq\n");
+	if (irq < 0)
 		return irq;
-	}
 
 	if (rda_uart_ports[pdev->id]) {
 		dev_err(&pdev->dev, "port %d already allocated\n", pdev->id);

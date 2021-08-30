@@ -5,6 +5,7 @@
  * Copyright (C) 2013 Tom Zanussi <tom.zanussi@linux.intel.com>
  */
 
+#include <linux/security.h>
 #include <linux/module.h>
 #include <linux/ctype.h>
 #include <linux/mutex.h>
@@ -52,7 +53,8 @@ void trigger_data_free(struct event_trigger_data *data)
  * any trigger that should be deferred, ETT_NONE if nothing to defer.
  */
 enum event_trigger_type
-event_triggers_call(struct trace_event_file *file, void *rec,
+event_triggers_call(struct trace_event_file *file,
+		    struct trace_buffer *buffer, void *rec,
 		    struct ring_buffer_event *event)
 {
 	struct event_trigger_data *data;
@@ -66,7 +68,7 @@ event_triggers_call(struct trace_event_file *file, void *rec,
 		if (data->paused)
 			continue;
 		if (!rec) {
-			data->ops->func(data, rec, event);
+			data->ops->func(data, buffer, rec, event);
 			continue;
 		}
 		filter = rcu_dereference_sched(data->filter);
@@ -76,7 +78,7 @@ event_triggers_call(struct trace_event_file *file, void *rec,
 			tt |= data->cmd_ops->trigger_type;
 			continue;
 		}
-		data->ops->func(data, rec, event);
+		data->ops->func(data, buffer, rec, event);
 	}
 	return tt;
 }
@@ -104,7 +106,7 @@ event_triggers_post_call(struct trace_event_file *file,
 		if (data->paused)
 			continue;
 		if (data->cmd_ops->trigger_type & tt)
-			data->ops->func(data, NULL, NULL);
+			data->ops->func(data, NULL, NULL, NULL);
 	}
 }
 EXPORT_SYMBOL_GPL(event_triggers_post_call);
@@ -115,9 +117,10 @@ static void *trigger_next(struct seq_file *m, void *t, loff_t *pos)
 {
 	struct trace_event_file *event_file = event_file_data(m->private);
 
-	if (t == SHOW_AVAILABLE_TRIGGERS)
+	if (t == SHOW_AVAILABLE_TRIGGERS) {
+		(*pos)++;
 		return NULL;
-
+	}
 	return seq_list_next(t, &event_file->triggers, pos);
 }
 
@@ -173,7 +176,11 @@ static const struct seq_operations event_triggers_seq_ops = {
 
 static int event_trigger_regex_open(struct inode *inode, struct file *file)
 {
-	int ret = 0;
+	int ret;
+
+	ret = security_locked_down(LOCKDOWN_TRACEFS);
+	if (ret)
+		return ret;
 
 	mutex_lock(&event_mutex);
 
@@ -208,7 +215,7 @@ static int event_trigger_regex_open(struct inode *inode, struct file *file)
 	return ret;
 }
 
-static int trigger_process_regex(struct trace_event_file *file, char *buff)
+int trigger_process_regex(struct trace_event_file *file, char *buff)
 {
 	char *command, *next;
 	struct event_command *p;
@@ -298,6 +305,7 @@ event_trigger_write(struct file *filp, const char __user *ubuf,
 static int
 event_trigger_open(struct inode *inode, struct file *filp)
 {
+	/* Checks for tracefs lockdown */
 	return event_trigger_regex_open(inode, filp);
 }
 
@@ -501,7 +509,9 @@ void update_cond_flag(struct trace_event_file *file)
 	struct event_trigger_data *data;
 	bool set_cond = false;
 
-	list_for_each_entry_rcu(data, &file->triggers, list) {
+	lockdep_assert_held(&event_mutex);
+
+	list_for_each_entry(data, &file->triggers, list) {
 		if (data->filter || event_command_post_trigger(data->cmd_ops) ||
 		    event_command_needs_rec(data->cmd_ops)) {
 			set_cond = true;
@@ -536,7 +546,9 @@ static int register_trigger(char *glob, struct event_trigger_ops *ops,
 	struct event_trigger_data *test;
 	int ret = 0;
 
-	list_for_each_entry_rcu(test, &file->triggers, list) {
+	lockdep_assert_held(&event_mutex);
+
+	list_for_each_entry(test, &file->triggers, list) {
 		if (test->cmd_ops->trigger_type == data->cmd_ops->trigger_type) {
 			ret = -EEXIST;
 			goto out;
@@ -581,7 +593,9 @@ static void unregister_trigger(char *glob, struct event_trigger_ops *ops,
 	struct event_trigger_data *data;
 	bool unregistered = false;
 
-	list_for_each_entry_rcu(data, &file->triggers, list) {
+	lockdep_assert_held(&event_mutex);
+
+	list_for_each_entry(data, &file->triggers, list) {
 		if (data->cmd_ops->trigger_type == test->cmd_ops->trigger_type) {
 			unregistered = true;
 			list_del_rcu(&data->list);
@@ -902,7 +916,8 @@ void unpause_named_trigger(struct event_trigger_data *data)
 
 /**
  * set_named_trigger_data - Associate common named trigger data
- * @data: The trigger data of a named trigger to unpause
+ * @data: The trigger data to associate
+ * @named_data: The common named trigger to be associated
  *
  * Named triggers are sets of triggers that share a common set of
  * trigger data.  The first named trigger registered with a given name
@@ -924,7 +939,8 @@ get_named_trigger_data(struct event_trigger_data *data)
 }
 
 static void
-traceon_trigger(struct event_trigger_data *data, void *rec,
+traceon_trigger(struct event_trigger_data *data,
+		struct trace_buffer *buffer, void *rec,
 		struct ring_buffer_event *event)
 {
 	if (tracing_is_on())
@@ -934,7 +950,8 @@ traceon_trigger(struct event_trigger_data *data, void *rec,
 }
 
 static void
-traceon_count_trigger(struct event_trigger_data *data, void *rec,
+traceon_count_trigger(struct event_trigger_data *data,
+		      struct trace_buffer *buffer, void *rec,
 		      struct ring_buffer_event *event)
 {
 	if (tracing_is_on())
@@ -950,7 +967,8 @@ traceon_count_trigger(struct event_trigger_data *data, void *rec,
 }
 
 static void
-traceoff_trigger(struct event_trigger_data *data, void *rec,
+traceoff_trigger(struct event_trigger_data *data,
+		 struct trace_buffer *buffer, void *rec,
 		 struct ring_buffer_event *event)
 {
 	if (!tracing_is_on())
@@ -960,7 +978,8 @@ traceoff_trigger(struct event_trigger_data *data, void *rec,
 }
 
 static void
-traceoff_count_trigger(struct event_trigger_data *data, void *rec,
+traceoff_count_trigger(struct event_trigger_data *data,
+		       struct trace_buffer *buffer, void *rec,
 		       struct ring_buffer_event *event)
 {
 	if (!tracing_is_on())
@@ -1058,7 +1077,8 @@ static struct event_command trigger_traceoff_cmd = {
 
 #ifdef CONFIG_TRACER_SNAPSHOT
 static void
-snapshot_trigger(struct event_trigger_data *data, void *rec,
+snapshot_trigger(struct event_trigger_data *data,
+		 struct trace_buffer *buffer, void *rec,
 		 struct ring_buffer_event *event)
 {
 	struct trace_event_file *file = data->private_data;
@@ -1070,7 +1090,8 @@ snapshot_trigger(struct event_trigger_data *data, void *rec,
 }
 
 static void
-snapshot_count_trigger(struct event_trigger_data *data, void *rec,
+snapshot_count_trigger(struct event_trigger_data *data,
+		       struct trace_buffer *buffer, void *rec,
 		       struct ring_buffer_event *event)
 {
 	if (!data->count)
@@ -1079,7 +1100,7 @@ snapshot_count_trigger(struct event_trigger_data *data, void *rec,
 	if (data->count != -1)
 		(data->count)--;
 
-	snapshot_trigger(data, rec, event);
+	snapshot_trigger(data, buffer, rec, event);
 }
 
 static int
@@ -1163,14 +1184,16 @@ static __init int register_trigger_snapshot_cmd(void) { return 0; }
 #endif
 
 static void
-stacktrace_trigger(struct event_trigger_data *data, void *rec,
+stacktrace_trigger(struct event_trigger_data *data,
+		   struct trace_buffer *buffer,  void *rec,
 		   struct ring_buffer_event *event)
 {
 	trace_dump_stack(STACK_SKIP);
 }
 
 static void
-stacktrace_count_trigger(struct event_trigger_data *data, void *rec,
+stacktrace_count_trigger(struct event_trigger_data *data,
+			 struct trace_buffer *buffer, void *rec,
 			 struct ring_buffer_event *event)
 {
 	if (!data->count)
@@ -1179,7 +1202,7 @@ stacktrace_count_trigger(struct event_trigger_data *data, void *rec,
 	if (data->count != -1)
 		(data->count)--;
 
-	stacktrace_trigger(data, rec, event);
+	stacktrace_trigger(data, buffer, rec, event);
 }
 
 static int
@@ -1241,7 +1264,8 @@ static __init void unregister_trigger_traceon_traceoff_cmds(void)
 }
 
 static void
-event_enable_trigger(struct event_trigger_data *data, void *rec,
+event_enable_trigger(struct event_trigger_data *data,
+		     struct trace_buffer *buffer,  void *rec,
 		     struct ring_buffer_event *event)
 {
 	struct enable_trigger_data *enable_data = data->private_data;
@@ -1253,7 +1277,8 @@ event_enable_trigger(struct event_trigger_data *data, void *rec,
 }
 
 static void
-event_enable_count_trigger(struct event_trigger_data *data, void *rec,
+event_enable_count_trigger(struct event_trigger_data *data,
+			   struct trace_buffer *buffer,  void *rec,
 			   struct ring_buffer_event *event)
 {
 	struct enable_trigger_data *enable_data = data->private_data;
@@ -1268,7 +1293,7 @@ event_enable_count_trigger(struct event_trigger_data *data, void *rec,
 	if (data->count != -1)
 		(data->count)--;
 
-	event_enable_trigger(data, rec, event);
+	event_enable_trigger(data, buffer, rec, event);
 }
 
 int event_enable_trigger_print(struct seq_file *m,
@@ -1504,7 +1529,9 @@ int event_enable_register_trigger(char *glob,
 	struct event_trigger_data *test;
 	int ret = 0;
 
-	list_for_each_entry_rcu(test, &file->triggers, list) {
+	lockdep_assert_held(&event_mutex);
+
+	list_for_each_entry(test, &file->triggers, list) {
 		test_enable_data = test->private_data;
 		if (test_enable_data &&
 		    (test->cmd_ops->trigger_type ==
@@ -1544,7 +1571,9 @@ void event_enable_unregister_trigger(char *glob,
 	struct event_trigger_data *data;
 	bool unregistered = false;
 
-	list_for_each_entry_rcu(data, &file->triggers, list) {
+	lockdep_assert_held(&event_mutex);
+
+	list_for_each_entry(data, &file->triggers, list) {
 		enable_data = data->private_data;
 		if (enable_data &&
 		    (data->cmd_ops->trigger_type ==

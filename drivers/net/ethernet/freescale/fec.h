@@ -462,6 +462,16 @@ struct bufdesc_ex {
  */
 #define FEC_QUIRK_CLEAR_SETUP_MII	(1 << 17)
 
+/* Some link partners do not tolerate the momentary reset of the REF_CLK
+ * frequency when the RNCTL register is cleared by hardware reset.
+ */
+#define FEC_QUIRK_NO_HARD_RESET		(1 << 18)
+
+/* i.MX6SX ENET IP supports multiple queues (3 queues), use this quirk to
+ * represents this ENET IP.
+ */
+#define FEC_QUIRK_HAS_MULTI_QUEUES	(1 << 19)
+
 struct bufdesc_prop {
 	int qid;
 	/* Address of Rx and Tx buffers */

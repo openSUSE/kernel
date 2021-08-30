@@ -17,6 +17,8 @@
 #include <linux/acpi.h>
 #include <linux/dmi.h>
 #include <linux/of.h>
+#include <linux/iopoll.h>
+
 #include "pci-quirks.h"
 #include "xhci-ext-caps.h"
 
@@ -206,7 +208,7 @@ static void usb_amd_find_chipset_info(void)
 {
 	unsigned long flags;
 	struct amd_chipset_info info;
-	info.need_pll_quirk = 0;
+	info.need_pll_quirk = false;
 
 	spin_lock_irqsave(&amd_lock, flags);
 
@@ -230,10 +232,10 @@ static void usb_amd_find_chipset_info(void)
 	case AMD_CHIPSET_SB800:
 	case AMD_CHIPSET_HUDSON2:
 	case AMD_CHIPSET_BOLTON:
-		info.need_pll_quirk = 1;
+		info.need_pll_quirk = true;
 		break;
 	default:
-		info.need_pll_quirk = 0;
+		info.need_pll_quirk = false;
 		break;
 	}
 
@@ -530,7 +532,7 @@ void usb_amd_dev_put(void)
 	amd_chipset.nb_type = 0;
 	memset(&amd_chipset.sb_type, 0, sizeof(amd_chipset.sb_type));
 	amd_chipset.isoc_reqs = 0;
-	amd_chipset.need_pll_quirk = 0;
+	amd_chipset.need_pll_quirk = false;
 
 	spin_unlock_irqrestore(&amd_lock, flags);
 
@@ -955,7 +957,8 @@ static void quirk_usb_disable_ehci(struct pci_dev *pdev)
 			ehci_bios_handoff(pdev, op_reg_base, cap, offset);
 			break;
 		case 0: /* Illegal reserved cap, set cap=0 so we exit */
-			cap = 0; /* fall through */
+			cap = 0;
+			fallthrough;
 		default:
 			dev_warn(&pdev->dev,
 				 "EHCI: unrecognized capability %02x\n",
@@ -1010,15 +1013,9 @@ static int handshake(void __iomem *ptr, u32 mask, u32 done,
 {
 	u32	result;
 
-	do {
-		result = readl(ptr);
-		result &= mask;
-		if (result == done)
-			return 0;
-		udelay(delay_usec);
-		wait_usec -= delay_usec;
-	} while (wait_usec > 0);
-	return -ETIMEDOUT;
+	return readl_poll_timeout_atomic(ptr, result,
+					 ((result & mask) == done),
+					 delay_usec, wait_usec);
 }
 
 /*
@@ -1131,7 +1128,7 @@ void usb_disable_xhci_ports(struct pci_dev *xhci_pdev)
 }
 EXPORT_SYMBOL_GPL(usb_disable_xhci_ports);
 
-/**
+/*
  * PCI Quirks for xHCI.
  *
  * Takes care of the handoff between the Pre-OS (i.e. BIOS) and the OS.
@@ -1151,7 +1148,7 @@ static void quirk_usb_handoff_xhci(struct pci_dev *pdev)
 	if (!mmio_resource_enabled(pdev, 0))
 		return;
 
-	base = ioremap_nocache(pci_resource_start(pdev, 0), len);
+	base = ioremap(pci_resource_start(pdev, 0), len);
 	if (base == NULL)
 		return;
 

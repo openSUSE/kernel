@@ -59,9 +59,7 @@
 
 #include "opa_vnic_internal.h"
 
-#define DRV_VERSION "1.0"
 char opa_vnic_driver_name[] = "opa_vnic";
-const char opa_vnic_driver_version[] = DRV_VERSION;
 
 /*
  * The trap service level is kept in bits 3 to 7 in the trap_sl_rsvd
@@ -235,7 +233,7 @@ static void vema_get_class_port_info(struct opa_vnic_vema_port *port,
 
 	port_info = (struct opa_class_port_info *)rsp_mad->data;
 	memcpy(port_info, &port->class_port_info, sizeof(*port_info));
-	port_info->base_version = OPA_MGMT_BASE_VERSION,
+	port_info->base_version = OPA_MGMT_BASE_VERSION;
 	port_info->class_version = OPA_EMA_CLASS_VERSION;
 
 	/*
@@ -549,7 +547,6 @@ static void vema_get(struct opa_vnic_vema_port *port,
 		vema_get_mac_entries(port, recvd_mad, rsp_mad);
 		break;
 	case OPA_EM_ATTR_IFACE_UCAST_MACS:
-		/* fall through */
 	case OPA_EM_ATTR_IFACE_MCAST_MACS:
 		vema_get_mac_list(port, recvd_mad, rsp_mad, attr_id);
 		break;
@@ -1038,9 +1035,6 @@ static void opa_vnic_vema_rem_one(struct ib_device *device,
 static int __init opa_vnic_init(void)
 {
 	int rc;
-
-	pr_info("OPA Virtual Network Driver - v%s\n",
-		opa_vnic_driver_version);
 
 	rc = ib_register_client(&opa_vnic_client);
 	if (rc)

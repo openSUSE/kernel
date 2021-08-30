@@ -104,18 +104,7 @@ static const struct seq_operations show_diag_stat_sops = {
 	.show	= show_diag_stat,
 };
 
-static int show_diag_stat_open(struct inode *inode, struct file *file)
-{
-	return seq_open(file, &show_diag_stat_sops);
-}
-
-static const struct file_operations show_diag_stat_fops = {
-	.open		= show_diag_stat_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= seq_release,
-};
-
+DEFINE_SEQ_ATTRIBUTE(show_diag_stat);
 
 static int __init show_diag_stat_init(void)
 {
@@ -152,16 +141,15 @@ EXPORT_SYMBOL(diag14);
 
 static inline int __diag204(unsigned long *subcode, unsigned long size, void *addr)
 {
-	register unsigned long _subcode asm("0") = *subcode;
-	register unsigned long _size asm("1") = size;
+	union register_pair rp = { .even = *subcode, .odd = size };
 
 	asm volatile(
-		"	diag	%2,%0,0x204\n"
+		"	diag	%[addr],%[rp],0x204\n"
 		"0:	nopr	%%r7\n"
 		EX_TABLE(0b,0b)
-		: "+d" (_subcode), "+d" (_size) : "d" (addr) : "memory");
-	*subcode = _subcode;
-	return _size;
+		: [rp] "+&d" (rp.pair) : [addr] "d" (addr) : "memory");
+	*subcode = rp.even;
+	return rp.odd;
 }
 
 int diag204(unsigned long subcode, unsigned long size, void *addr)

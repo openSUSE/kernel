@@ -87,7 +87,8 @@
 	SRI(OTG_CRC0_WINDOWB_X_CONTROL, OTG, inst),\
 	SRI(OTG_CRC0_WINDOWB_Y_CONTROL, OTG, inst),\
 	SR(GSL_SOURCE_SELECT),\
-	SRI(OTG_TRIGA_MANUAL_TRIG, OTG, inst)
+	SRI(OTG_TRIGA_MANUAL_TRIG, OTG, inst),\
+	SRI(OTG_DRR_CONTROL, OTG, inst)
 
 
 #define OPTC_COMMON_REG_LIST_DCN3_0(inst) \
@@ -233,7 +234,8 @@
 	SF(GSL_SOURCE_SELECT, GSL0_READY_SOURCE_SEL, mask_sh),\
 	SF(GSL_SOURCE_SELECT, GSL1_READY_SOURCE_SEL, mask_sh),\
 	SF(GSL_SOURCE_SELECT, GSL2_READY_SOURCE_SEL, mask_sh),\
-	SF(OTG0_OTG_GLOBAL_CONTROL2, MANUAL_FLOW_CONTROL_SEL, mask_sh)
+	SF(OTG0_OTG_GLOBAL_CONTROL2, MANUAL_FLOW_CONTROL_SEL, mask_sh),\
+	SF(OTG0_OTG_DRR_CONTROL, OTG_V_TOTAL_LAST_USED_BY_DRR, mask_sh)
 
 #define OPTC_COMMON_MASK_SH_LIST_DCN3_0(mask_sh)\
 	OPTC_COMMON_MASK_SH_LIST_DCN3_BASE(mask_sh),\
@@ -338,5 +340,9 @@ void optc3_set_dsc_config(struct timing_generator *optc,
 		uint32_t dsc_slice_width);
 
 void optc3_set_timing_db_mode(struct timing_generator *optc, bool enable);
+
+void optc3_set_odm_bypass(struct timing_generator *optc,
+		const struct dc_crtc_timing *dc_crtc_timing);
+void optc3_tg_init(struct timing_generator *optc);
 
 #endif /* __DC_OPTC_DCN30_H__ */

@@ -20,6 +20,7 @@
 #include <linux/iio/trigger_consumer.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
+#include <linux/mod_devicetable.h>
 #include <linux/property.h>
 #include <linux/regulator/consumer.h>
 #include <linux/spi/spi.h>
@@ -214,6 +215,11 @@ static const struct iio_info adc108s102_info = {
 	.update_scan_mode	= &adc108s102_update_scan_mode,
 };
 
+static void adc108s102_reg_disable(void *reg)
+{
+	regulator_disable(reg);
+}
+
 static int adc108s102_probe(struct spi_device *spi)
 {
 	struct adc108s102_state *st;
@@ -238,6 +244,10 @@ static int adc108s102_probe(struct spi_device *spi)
 			dev_err(&spi->dev, "Cannot enable vref regulator\n");
 			return ret;
 		}
+		ret = devm_add_action_or_reset(&spi->dev, adc108s102_reg_disable,
+					       st->reg);
+		if (ret)
+			return ret;
 
 		ret = regulator_get_voltage(st->reg);
 		if (ret < 0) {
@@ -248,11 +258,9 @@ static int adc108s102_probe(struct spi_device *spi)
 		st->va_millivolt = ret / 1000;
 	}
 
-	spi_set_drvdata(spi, indio_dev);
 	st->spi = spi;
 
 	indio_dev->name = spi->modalias;
-	indio_dev->dev.parent = &spi->dev;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->channels = adc108s102_channels;
 	indio_dev->num_channels = ARRAY_SIZE(adc108s102_channels);
@@ -266,47 +274,23 @@ static int adc108s102_probe(struct spi_device *spi)
 	spi_message_init_with_transfers(&st->scan_single_msg,
 					&st->scan_single_xfer, 1);
 
-	ret = iio_triggered_buffer_setup(indio_dev, NULL,
-					 &adc108s102_trigger_handler, NULL);
+	ret = devm_iio_triggered_buffer_setup(&spi->dev, indio_dev, NULL,
+					      &adc108s102_trigger_handler,
+					      NULL);
 	if (ret)
-		goto error_disable_reg;
+		return ret;
 
-	ret = iio_device_register(indio_dev);
-	if (ret) {
+	ret = devm_iio_device_register(&spi->dev, indio_dev);
+	if (ret)
 		dev_err(&spi->dev, "Failed to register IIO device\n");
-		goto error_cleanup_triggered_buffer;
-	}
-	return 0;
-
-error_cleanup_triggered_buffer:
-	iio_triggered_buffer_cleanup(indio_dev);
-
-error_disable_reg:
-	regulator_disable(st->reg);
-
 	return ret;
 }
 
-static int adc108s102_remove(struct spi_device *spi)
-{
-	struct iio_dev *indio_dev = spi_get_drvdata(spi);
-	struct adc108s102_state *st = iio_priv(indio_dev);
-
-	iio_device_unregister(indio_dev);
-	iio_triggered_buffer_cleanup(indio_dev);
-
-	regulator_disable(st->reg);
-
-	return 0;
-}
-
-#ifdef CONFIG_OF
 static const struct of_device_id adc108s102_of_match[] = {
 	{ .compatible = "ti,adc108s102" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, adc108s102_of_match);
-#endif
 
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id adc108s102_acpi_ids[] = {
@@ -325,11 +309,10 @@ MODULE_DEVICE_TABLE(spi, adc108s102_id);
 static struct spi_driver adc108s102_driver = {
 	.driver = {
 		.name   = "adc108s102",
-		.of_match_table = of_match_ptr(adc108s102_of_match),
+		.of_match_table = adc108s102_of_match,
 		.acpi_match_table = ACPI_PTR(adc108s102_acpi_ids),
 	},
 	.probe		= adc108s102_probe,
-	.remove		= adc108s102_remove,
 	.id_table	= adc108s102_id,
 };
 module_spi_driver(adc108s102_driver);

@@ -92,8 +92,6 @@ struct hdac_device {
 	bool lazy_cache:1;	/* don't wake up for writes */
 	bool caps_overwriting:1; /* caps overwrite being in process */
 	bool cache_coef:1;	/* cache COEF read/write too */
-
-	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* device/driver type used for matching */
@@ -243,6 +241,8 @@ struct hdac_bus_ops {
 	/* get a response from the last command */
 	int (*get_response)(struct hdac_bus *bus, unsigned int addr,
 			    unsigned int *res);
+	/* notify of codec link power-up/down */
+	void (*link_power)(struct hdac_device *hdev, bool enable);
 };
 
 /*
@@ -372,8 +372,6 @@ struct hdac_bus {
 
 	/* factor used to derive STRIPE control value */
 	unsigned int sdo_limit;
-
-	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 int snd_hdac_bus_init(struct hdac_bus *bus, struct device *dev,
@@ -382,15 +380,8 @@ void snd_hdac_bus_exit(struct hdac_bus *bus);
 int snd_hdac_bus_exec_verb_unlocked(struct hdac_bus *bus, unsigned int addr,
 				    unsigned int cmd, unsigned int *res);
 
-static inline void snd_hdac_codec_link_up(struct hdac_device *codec)
-{
-	set_bit(codec->addr, &codec->bus->codec_powered);
-}
-
-static inline void snd_hdac_codec_link_down(struct hdac_device *codec)
-{
-	clear_bit(codec->addr, &codec->bus->codec_powered);
-}
+void snd_hdac_codec_link_up(struct hdac_device *codec);
+void snd_hdac_codec_link_down(struct hdac_device *codec);
 
 int snd_hdac_bus_send_cmd(struct hdac_bus *bus, unsigned int val);
 int snd_hdac_bus_get_response(struct hdac_bus *bus, unsigned int addr,
@@ -404,6 +395,7 @@ void snd_hdac_bus_stop_cmd_io(struct hdac_bus *bus);
 void snd_hdac_bus_enter_link_reset(struct hdac_bus *bus);
 void snd_hdac_bus_exit_link_reset(struct hdac_bus *bus);
 int snd_hdac_bus_reset_link(struct hdac_bus *bus, bool full_reset);
+void snd_hdac_bus_link_power(struct hdac_device *hdev, bool enable);
 
 void snd_hdac_bus_update_rirb(struct hdac_bus *bus);
 int snd_hdac_bus_handle_stream_irq(struct hdac_bus *bus, unsigned int status,
@@ -548,8 +540,6 @@ struct hdac_stream {
 	/* DSP access mutex */
 	struct mutex dsp_mutex;
 #endif
-
-	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 void snd_hdac_stream_init(struct hdac_bus *bus, struct hdac_stream *azx_dev,

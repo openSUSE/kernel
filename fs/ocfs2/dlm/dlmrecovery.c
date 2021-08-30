@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* -*- mode: c; c-basic-offset: 8; -*-
- * vim: noexpandtab sw=8 ts=8 sts=0:
- *
+/*
  * dlmrecovery.c
  *
  * recovery stuff
@@ -124,13 +122,6 @@ static inline void __dlm_reset_recovery(struct dlm_ctxt *dlm)
 	clear_bit(dlm->reco.dead_node, dlm->recovery_map);
 	dlm_set_reco_dead_node(dlm, O2NM_INVALID_NODE_NUM);
 	dlm_set_reco_master(dlm, O2NM_INVALID_NODE_NUM);
-}
-
-static inline void dlm_reset_recovery(struct dlm_ctxt *dlm)
-{
-	spin_lock(&dlm->spinlock);
-	__dlm_reset_recovery(dlm);
-	spin_unlock(&dlm->spinlock);
 }
 
 /* Worker function used during recovery. */
@@ -1668,7 +1659,7 @@ static int dlm_lockres_master_requery(struct dlm_ctxt *dlm,
 int dlm_do_master_requery(struct dlm_ctxt *dlm, struct dlm_lock_resource *res,
 			  u8 nodenum, u8 *real_master)
 {
-	int ret = -EINVAL;
+	int ret;
 	struct dlm_master_requery req;
 	int status = DLM_LOCK_RES_OWNER_UNKNOWN;
 

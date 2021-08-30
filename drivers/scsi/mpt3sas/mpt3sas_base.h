@@ -71,13 +71,14 @@
 
 #include "mpt3sas_debug.h"
 #include "mpt3sas_trigger_diag.h"
+#include "mpt3sas_trigger_pages.h"
 
 /* driver versioning info */
 #define MPT3SAS_DRIVER_NAME		"mpt3sas"
 #define MPT3SAS_AUTHOR "Avago Technologies <MPT-FusionLinux.pdl@avagotech.com>"
 #define MPT3SAS_DESCRIPTION	"LSI MPT Fusion SAS 3.0 Device Driver"
-#define MPT3SAS_DRIVER_VERSION		"35.101.00.00"
-#define MPT3SAS_MAJOR_VERSION		35
+#define MPT3SAS_DRIVER_VERSION		"37.101.00.00"
+#define MPT3SAS_MAJOR_VERSION		37
 #define MPT3SAS_MINOR_VERSION		101
 #define MPT3SAS_BUILD_VERSION		0
 #define MPT3SAS_RELEASE_VERSION	00
@@ -93,6 +94,14 @@
 /* CoreDump: Default timeout */
 #define MPT3SAS_DEFAULT_COREDUMP_TIMEOUT_SECONDS	(15) /*15 seconds*/
 #define MPT3SAS_COREDUMP_LOOP_DONE                     (0xFF)
+#define MPT3SAS_TIMESYNC_TIMEOUT_SECONDS		(10) /* 10 seconds */
+#define MPT3SAS_TIMESYNC_UPDATE_INTERVAL		(900) /* 15 minutes */
+#define MPT3SAS_TIMESYNC_UNIT_MASK			(0x80) /* bit 7 */
+#define MPT3SAS_TIMESYNC_MASK				(0x7F) /* 0 - 6 bits */
+#define SECONDS_PER_MIN					(60)
+#define SECONDS_PER_HOUR				(3600)
+#define MPT3SAS_COREDUMP_LOOP_DONE			(0xFF)
+#define MPI26_SET_IOC_PARAMETER_SYNC_TIMESTAMP		(0x81)
 
 /*
  * Set MPT3SAS_SG_DEPTH value based on user input.
@@ -405,7 +414,7 @@ struct Mpi2ManufacturingPage11_t {
 	u16	HostTraceBufferMaxSizeKB;	/* 50h */
 	u16	HostTraceBufferMinSizeKB;	/* 52h */
 	u8	CoreDumpTOSec;			/* 54h */
-	u8	Reserved8;			/* 55h */
+	u8	TimeSyncInterval;		/* 55h */
 	u16	Reserved9;			/* 56h */
 	__le32	Reserved10;			/* 58h */
 };
@@ -491,6 +500,7 @@ struct MPT3SAS_DEVICE {
 #define MPT3_CMD_PENDING	0x0002	/* pending */
 #define MPT3_CMD_REPLY_VALID	0x0004	/* reply is valid */
 #define MPT3_CMD_RESET		0x0008	/* host reset dropped the command */
+#define MPT3_CMD_COMPLETE_ASYNC 0x0010  /* tells whether cmd completes in same thread or not */
 
 /**
  * struct _internal_cmd - internal commands struct
@@ -1064,6 +1074,50 @@ struct hba_port {
 
 #define MULTIPATH_DISABLED_PORT_ID     0xFF
 
+/**
+ * struct htb_rel_query - diagnostic buffer release reason
+ * @unique_id - unique id associated with this buffer.
+ * @buffer_rel_condition - Release condition ioctl/sysfs/reset
+ * @reserved
+ * @trigger_type - Master/Event/scsi/MPI
+ * @trigger_info_dwords - Data Correspondig to trigger type
+ */
+struct htb_rel_query {
+	u16	buffer_rel_condition;
+	u16	reserved;
+	u32	trigger_type;
+	u32	trigger_info_dwords[2];
+};
+
+/* Buffer_rel_condition bit fields */
+
+/* Bit 0 - Diag Buffer not Released */
+#define MPT3_DIAG_BUFFER_NOT_RELEASED	(0x00)
+/* Bit 0 - Diag Buffer Released */
+#define MPT3_DIAG_BUFFER_RELEASED	(0x01)
+
+/*
+ * Bit 1 - Diag Buffer Released by IOCTL,
+ * This bit is valid only if Bit 0 is one
+ */
+#define MPT3_DIAG_BUFFER_REL_IOCTL	(0x02 | MPT3_DIAG_BUFFER_RELEASED)
+
+/*
+ * Bit 2 - Diag Buffer Released by Trigger,
+ * This bit is valid only if Bit 0 is one
+ */
+#define MPT3_DIAG_BUFFER_REL_TRIGGER	(0x04 | MPT3_DIAG_BUFFER_RELEASED)
+
+/*
+ * Bit 3 - Diag Buffer Released by SysFs,
+ * This bit is valid only if Bit 0 is one
+ */
+#define MPT3_DIAG_BUFFER_REL_SYSFS	(0x08 | MPT3_DIAG_BUFFER_RELEASED)
+
+/* DIAG RESET Master trigger flags */
+#define MPT_DIAG_RESET_ISSUED_BY_DRIVER 0x00000000
+#define MPT_DIAG_RESET_ISSUED_BY_USER	0x00000001
+
 typedef void (*MPT3SAS_FLUSH_RUNNING_CMDS)(struct MPT3SAS_ADAPTER *ioc);
 /**
  * struct MPT3SAS_ADAPTER - per adapter struct
@@ -1113,6 +1167,8 @@ typedef void (*MPT3SAS_FLUSH_RUNNING_CMDS)(struct MPT3SAS_ADAPTER *ioc);
  * @cpu_msix_table_sz: table size
  * @total_io_cnt: Gives total IO count, used to load balance the interrupts
  * @ioc_coredump_loop: will have non-zero value when FW is in CoreDump state
+ * @timestamp_update_count: Counter to fire timeSync command
+ * time_sync_interval: Time sync interval read from man page 11
  * @high_iops_outstanding: used to load balance the interrupts
  *				within high iops reply queues
  * @msix_load_balance: Enables load balancing of interrupts across
@@ -1120,6 +1176,7 @@ typedef void (*MPT3SAS_FLUSH_RUNNING_CMDS)(struct MPT3SAS_ADAPTER *ioc);
  * @schedule_dead_ioc_flush_running_cmds: callback to flush pending commands
  * @thresh_hold: Max number of reply descriptors processed
  *				before updating Host Index
+ * @drv_internal_flags: Bit map internal to driver
  * @drv_support_bitmap: driver's supported feature bit map
  * @use_32bit_dma: Flag to use 32 bit consistent dma mask
  * @scsi_io_cb_idx: shost generated commands
@@ -1308,12 +1365,16 @@ struct MPT3SAS_ADAPTER {
 	MPT3SAS_FLUSH_RUNNING_CMDS schedule_dead_ioc_flush_running_cmds;
 	u32             non_operational_loop;
 	u8              ioc_coredump_loop;
+	u32		timestamp_update_count;
+	u32		time_sync_interval;
 	atomic64_t      total_io_cnt;
 	atomic64_t	high_iops_outstanding;
 	bool            msix_load_balance;
 	u16		thresh_hold;
 	u8		high_iops_queues;
+	u32             drv_internal_flags;
 	u32		drv_support_bitmap;
+	u32             dma_mask;
 	bool		enable_sdev_max_qd;
 	bool		use_32bit_dma;
 
@@ -1426,6 +1487,7 @@ struct MPT3SAS_ADAPTER {
 	spinlock_t	scsi_lookup_lock;
 	int		pending_io_count;
 	wait_queue_head_t reset_wq;
+	u16		*io_queue_num;
 
 	/* PCIe SGL */
 	struct dma_pool *pcie_sgl_dma_pool;
@@ -1516,6 +1578,8 @@ struct MPT3SAS_ADAPTER {
 	u32		diagnostic_flags[MPI2_DIAG_BUF_TYPE_COUNT];
 	u32		ring_buffer_offset;
 	u32		ring_buffer_sz;
+	struct htb_rel_query htb_rel;
+	u8 reset_from_user;
 	u8		is_warpdrive;
 	u8		is_mcpu_endpoint;
 	u8		hide_ir_msg;
@@ -1529,6 +1593,7 @@ struct MPT3SAS_ADAPTER {
 	struct SL_WH_EVENT_TRIGGERS_T diag_trigger_event;
 	struct SL_WH_SCSI_TRIGGERS_T diag_trigger_scsi;
 	struct SL_WH_MPI_TRIGGERS_T diag_trigger_mpi;
+	u8		supports_trigger_pages;
 	void		*device_remove_in_progress;
 	u16		device_remove_in_progress_sz;
 	u8		is_gen35_ioc;
@@ -1551,6 +1616,9 @@ struct mpt3sas_debugfs_buffer {
 };
 
 #define MPT_DRV_SUPPORT_BITMAP_MEMMOVE 0x00000001
+#define MPT_DRV_SUPPORT_BITMAP_ADDNLQUERY	0x00000002
+
+#define MPT_DRV_INTERNAL_FIRST_PE_ISSUED		0x00000001
 
 typedef u8 (*MPT_CALLBACK)(struct MPT3SAS_ADAPTER *ioc, u16 smid, u8 msix_index,
 	u32 reply);
@@ -1646,6 +1714,9 @@ void mpt3sas_halt_firmware(struct MPT3SAS_ADAPTER *ioc);
 void mpt3sas_base_update_missing_delay(struct MPT3SAS_ADAPTER *ioc,
 	u16 device_missing_delay, u8 io_missing_delay);
 
+int mpt3sas_base_check_for_fault_and_issue_reset(
+	struct MPT3SAS_ADAPTER *ioc);
+
 int mpt3sas_port_enable(struct MPT3SAS_ADAPTER *ioc);
 
 void
@@ -1659,6 +1730,10 @@ do {	ioc_err(ioc, "In func: %s\n", __func__); \
 	status, mpi_request, sz); } while (0)
 
 int mpt3sas_wait_for_ioc(struct MPT3SAS_ADAPTER *ioc, int wait_count);
+int
+mpt3sas_base_make_ioc_ready(struct MPT3SAS_ADAPTER *ioc, enum reset_type type);
+void mpt3sas_base_free_irq(struct MPT3SAS_ADAPTER *ioc);
+void mpt3sas_base_disable_msix(struct MPT3SAS_ADAPTER *ioc);
 
 /* scsih shared API */
 struct scsi_cmnd *mpt3sas_scsih_scsi_lookup_get(struct MPT3SAS_ADAPTER *ioc,
@@ -1805,6 +1880,33 @@ int mpt3sas_config_get_volume_handle(struct MPT3SAS_ADAPTER *ioc, u16 pd_handle,
 	u16 *volume_handle);
 int mpt3sas_config_get_volume_wwid(struct MPT3SAS_ADAPTER *ioc,
 	u16 volume_handle, u64 *wwid);
+int
+mpt3sas_config_get_driver_trigger_pg0(struct MPT3SAS_ADAPTER *ioc,
+	Mpi2ConfigReply_t *mpi_reply, Mpi26DriverTriggerPage0_t *config_page);
+int
+mpt3sas_config_get_driver_trigger_pg1(struct MPT3SAS_ADAPTER *ioc,
+	Mpi2ConfigReply_t *mpi_reply, Mpi26DriverTriggerPage1_t *config_page);
+int
+mpt3sas_config_get_driver_trigger_pg2(struct MPT3SAS_ADAPTER *ioc,
+	Mpi2ConfigReply_t *mpi_reply, Mpi26DriverTriggerPage2_t *config_page);
+int
+mpt3sas_config_get_driver_trigger_pg3(struct MPT3SAS_ADAPTER *ioc,
+	Mpi2ConfigReply_t *mpi_reply, Mpi26DriverTriggerPage3_t *config_page);
+int
+mpt3sas_config_get_driver_trigger_pg4(struct MPT3SAS_ADAPTER *ioc,
+	Mpi2ConfigReply_t *mpi_reply, Mpi26DriverTriggerPage4_t *config_page);
+int
+mpt3sas_config_update_driver_trigger_pg1(struct MPT3SAS_ADAPTER *ioc,
+	struct SL_WH_MASTER_TRIGGER_T *master_tg, bool set);
+int
+mpt3sas_config_update_driver_trigger_pg2(struct MPT3SAS_ADAPTER *ioc,
+	struct SL_WH_EVENT_TRIGGERS_T *event_tg, bool set);
+int
+mpt3sas_config_update_driver_trigger_pg3(struct MPT3SAS_ADAPTER *ioc,
+	struct SL_WH_SCSI_TRIGGERS_T *scsi_tg, bool set);
+int
+mpt3sas_config_update_driver_trigger_pg4(struct MPT3SAS_ADAPTER *ioc,
+	struct SL_WH_MPI_TRIGGERS_T *mpi_tg, bool set);
 
 /* ctl shared API */
 extern struct device_attribute *mpt3sas_host_attrs[];
@@ -1857,7 +1959,7 @@ void mpt3sas_send_trigger_data_event(struct MPT3SAS_ADAPTER *ioc,
 void mpt3sas_process_trigger_data(struct MPT3SAS_ADAPTER *ioc,
 	struct SL_WH_TRIGGERS_EVENT_DATA_T *event_data);
 void mpt3sas_trigger_master(struct MPT3SAS_ADAPTER *ioc,
-	u32 tigger_bitmask);
+	u32 trigger_bitmask);
 void mpt3sas_trigger_event(struct MPT3SAS_ADAPTER *ioc, u16 event,
 	u16 log_entry_qualifier);
 void mpt3sas_trigger_scsi(struct MPT3SAS_ADAPTER *ioc, u8 sense_key,

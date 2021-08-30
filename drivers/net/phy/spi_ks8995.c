@@ -160,11 +160,11 @@ static const struct spi_device_id ks8995_id[] = {
 MODULE_DEVICE_TABLE(spi, ks8995_id);
 
 static const struct of_device_id ks8895_spi_of_match[] = {
-        { .compatible = "micrel,ks8995" },
-        { .compatible = "micrel,ksz8864" },
-        { .compatible = "micrel,ksz8795" },
-        { },
- };
+	{ .compatible = "micrel,ks8995" },
+	{ .compatible = "micrel,ksz8864" },
+	{ .compatible = "micrel,ksz8795" },
+	{ },
+};
 MODULE_DEVICE_TABLE(of, ks8895_spi_of_match);
 
 static inline u8 get_chip_id(u8 val)
@@ -300,7 +300,7 @@ static ssize_t ks8995_registers_read(struct file *filp, struct kobject *kobj,
 	struct device *dev;
 	struct ks8995_switch *ks8995;
 
-	dev = container_of(kobj, struct device, kobj);
+	dev = kobj_to_dev(kobj);
 	ks8995 = dev_get_drvdata(dev);
 
 	return ks8995_read(ks8995, buf, off, count);
@@ -312,7 +312,7 @@ static ssize_t ks8995_registers_write(struct file *filp, struct kobject *kobj,
 	struct device *dev;
 	struct ks8995_switch *ks8995;
 
-	dev = container_of(kobj, struct device, kobj);
+	dev = kobj_to_dev(kobj);
 	ks8995 = dev_get_drvdata(dev);
 
 	return ks8995_write(ks8995, buf, off, count);

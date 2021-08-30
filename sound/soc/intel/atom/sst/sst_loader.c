@@ -29,7 +29,6 @@
 #include <asm/platform_sst_audio.h>
 #include "../sst-mfld-platform.h"
 #include "sst.h"
-#include "../../common/sst-dsp.h"
 
 void memcpy32_toio(void __iomem *dst, const void *src, int count)
 {
@@ -77,7 +76,7 @@ int intel_sst_reset_dsp_mrfld(struct intel_sst_drv *sst_drv_ctx)
 }
 
 /**
- * sst_start_merrifield - Start the SST DSP processor
+ * sst_start_mrfld - Start the SST DSP processor
  * @sst_drv_ctx: intel_sst_drv context pointer
  *
  * This starts the DSP in MERRIFIELD platfroms
@@ -413,7 +412,7 @@ int sst_load_fw(struct intel_sst_drv *sst_drv_ctx)
 		return -ENOMEM;
 
 	/* Prevent C-states beyond C6 */
-	pm_qos_update_request(sst_drv_ctx->qos, 0);
+	cpu_latency_qos_update_request(sst_drv_ctx->qos, 0);
 
 	sst_drv_ctx->sst_state = SST_FW_LOADING;
 
@@ -443,7 +442,7 @@ int sst_load_fw(struct intel_sst_drv *sst_drv_ctx)
 
 restore:
 	/* Re-enable Deeper C-states beyond C6 */
-	pm_qos_update_request(sst_drv_ctx->qos, PM_QOS_DEFAULT_VALUE);
+	cpu_latency_qos_update_request(sst_drv_ctx->qos, PM_QOS_DEFAULT_VALUE);
 	sst_free_block(sst_drv_ctx, block);
 	dev_dbg(sst_drv_ctx->dev, "fw load successful!!!\n");
 

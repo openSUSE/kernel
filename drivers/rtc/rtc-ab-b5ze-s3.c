@@ -7,7 +7,7 @@
  *
  * Detailed datasheet of the chip is available here:
  *
- *  http://www.abracon.com/realtimeclock/AB-RTCMC-32.768kHz-B5ZE-S3-Application-Manual.pdf
+ *  https://www.abracon.com/realtimeclock/AB-RTCMC-32.768kHz-B5ZE-S3-Application-Manual.pdf
  *
  * This work is based on ISL12057 driver (drivers/rtc/rtc-isl12057.c).
  *
@@ -892,22 +892,12 @@ static int abb5zes3_probe(struct i2c_client *client,
 		}
 	}
 
-	ret = rtc_register_device(data->rtc);
+	ret = devm_rtc_register_device(data->rtc);
 
 err:
 	if (ret && data->irq)
 		device_init_wakeup(dev, false);
 	return ret;
-}
-
-static int abb5zes3_remove(struct i2c_client *client)
-{
-	struct abb5zes3_rtc_data *rtc_data = dev_get_drvdata(&client->dev);
-
-	if (rtc_data->irq > 0)
-		device_init_wakeup(&client->dev, false);
-
-	return 0;
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -956,7 +946,6 @@ static struct i2c_driver abb5zes3_driver = {
 		.of_match_table = of_match_ptr(abb5zes3_dt_match),
 	},
 	.probe	  = abb5zes3_probe,
-	.remove	  = abb5zes3_remove,
 	.id_table = abb5zes3_id,
 };
 module_i2c_driver(abb5zes3_driver);

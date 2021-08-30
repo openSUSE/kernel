@@ -245,7 +245,7 @@
 #define H_CREATE_RPT            0x1A4
 #define H_REMOVE_RPT            0x1A8
 #define H_REGISTER_RPAGES       0x1AC
-#define H_DISABLE_AND_GETC      0x1B0
+#define H_DISABLE_AND_GET       0x1B0
 #define H_ERROR_DATA            0x1B4
 #define H_GET_HCA_INFO          0x1B8
 #define H_GET_PERF_COUNT        0x1BC
@@ -294,6 +294,13 @@
 #define H_RESIZE_HPT_COMMIT	0x370
 #define H_REGISTER_PROC_TBL	0x37C
 #define H_SIGNAL_SYS_RESET	0x380
+#define H_ALLOCATE_VAS_WINDOW	0x388
+#define H_MODIFY_VAS_WINDOW	0x38C
+#define H_DEALLOCATE_VAS_WINDOW	0x390
+#define H_QUERY_VAS_WINDOW	0x394
+#define H_QUERY_VAS_CAPABILITIES	0x398
+#define H_QUERY_NX_CAPABILITIES	0x39C
+#define H_GET_NX_FAULT		0x3A0
 #define H_INT_GET_SOURCE_INFO   0x3A8
 #define H_INT_SET_SOURCE_CONFIG 0x3AC
 #define H_INT_GET_SOURCE_CONFIG 0x3B0
@@ -353,6 +360,16 @@
 #define H_TLB_INVALIDATE	0xF808
 #define H_COPY_TOFROM_GUEST	0xF80C
 
+/* Flags for H_SVM_PAGE_IN */
+#define H_PAGE_IN_SHARED        0x1
+
+/* Platform-specific hcalls used by the Ultravisor */
+#define H_SVM_PAGE_IN		0xEF00
+#define H_SVM_PAGE_OUT		0xEF04
+#define H_SVM_INIT_START	0xEF08
+#define H_SVM_INIT_DONE		0xEF0C
+#define H_SVM_INIT_ABORT	0xEF14
+
 /* Values for 2nd argument to H_SET_MODE */
 #define H_SET_MODE_RESOURCE_SET_CIABR		1
 #define H_SET_MODE_RESOURCE_SET_DAWR0		2
@@ -406,9 +423,9 @@
 #define H_RPTI_TYPE_NESTED	0x0001	/* Invalidate nested guest partition-scope */
 #define H_RPTI_TYPE_TLB		0x0002	/* Invalidate TLB */
 #define H_RPTI_TYPE_PWC		0x0004	/* Invalidate Page Walk Cache */
-/* Invalidate Process Table Entries if H_RPTI_TYPE_NESTED is clear */
+/* Invalidate caching of Process Table Entries if H_RPTI_TYPE_NESTED is clear */
 #define H_RPTI_TYPE_PRT		0x0008
-/* Invalidate Partition Table Entries if H_RPTI_TYPE_NESTED is set */
+/* Invalidate caching of Partition Table Entries if H_RPTI_TYPE_NESTED is set */
 #define H_RPTI_TYPE_PAT		0x0008
 #define H_RPTI_TYPE_ALL		(H_RPTI_TYPE_TLB | H_RPTI_TYPE_PWC | \
 				 H_RPTI_TYPE_PRT)
@@ -533,9 +550,12 @@ struct h_cpu_char_result {
 	u64 behaviour;
 };
 
-/* Register state for entering a nested guest with H_ENTER_NESTED */
+/*
+ * Register state for entering a nested guest with H_ENTER_NESTED.
+ * New member must be added at the end.
+ */
 struct hv_guest_state {
-	u64 version;		/* version of this structure layout */
+	u64 version;		/* version of this structure layout, must be first */
 	u32 lpid;
 	u32 vcpu_token;
 	/* These registers are hypervisor privileged (at least for writing) */
@@ -564,10 +584,26 @@ struct hv_guest_state {
 	u64 pidr;
 	u64 cfar;
 	u64 ppr;
+	/* Version 1 ends here */
+	u64 dawr1;
+	u64 dawrx1;
+	/* Version 2 ends here */
 };
 
 /* Latest version of hv_guest_state structure */
-#define HV_GUEST_STATE_VERSION	1
+#define HV_GUEST_STATE_VERSION	2
+
+static inline int hv_guest_state_size(unsigned int version)
+{
+	switch (version) {
+	case 1:
+		return offsetofend(struct hv_guest_state, ppr);
+	case 2:
+		return offsetofend(struct hv_guest_state, dawrx1);
+	default:
+		return -1;
+	}
+}
 
 /*
  * From the document "H_GetPerformanceCounterInfo Interface" v1.07

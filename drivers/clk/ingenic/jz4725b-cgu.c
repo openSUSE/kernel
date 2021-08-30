@@ -9,7 +9,9 @@
 #include <linux/clk-provider.h>
 #include <linux/delay.h>
 #include <linux/of.h>
+
 #include <dt-bindings/clock/jz4725b-cgu.h>
+
 #include "cgu.h"
 #include "pm.h"
 
@@ -54,6 +56,7 @@ static const struct ingenic_cgu_clk_info jz4725b_cgu_clocks[] = {
 		.parents = { JZ4725B_CLK_EXT, -1, -1, -1 },
 		.pll = {
 			.reg = CGU_REG_CPPCR,
+			.rate_multiplier = 1,
 			.m_shift = 23,
 			.m_bits = 9,
 			.m_offset = 2,
@@ -65,6 +68,7 @@ static const struct ingenic_cgu_clk_info jz4725b_cgu_clocks[] = {
 			.od_max = 4,
 			.od_encoding = pll_od_encoding,
 			.stable_bit = 10,
+			.bypass_reg = CGU_REG_CPPCR,
 			.bypass_bit = 9,
 			.enable_bit = 8,
 		},
@@ -76,7 +80,7 @@ static const struct ingenic_cgu_clk_info jz4725b_cgu_clocks[] = {
 		"pll half", CGU_CLK_DIV,
 		.parents = { JZ4725B_CLK_PLL, -1, -1, -1 },
 		.div = {
-			CGU_REG_CPCCR, 21, 1, 1, -1, -1, -1,
+			CGU_REG_CPCCR, 21, 1, 1, -1, -1, -1, 0,
 			jz4725b_cgu_pll_half_div_table,
 		},
 	},
@@ -85,7 +89,7 @@ static const struct ingenic_cgu_clk_info jz4725b_cgu_clocks[] = {
 		"cclk", CGU_CLK_DIV,
 		.parents = { JZ4725B_CLK_PLL, -1, -1, -1 },
 		.div = {
-			CGU_REG_CPCCR, 0, 1, 4, 22, -1, -1,
+			CGU_REG_CPCCR, 0, 1, 4, 22, -1, -1, 0,
 			jz4725b_cgu_cpccr_div_table,
 		},
 	},
@@ -94,7 +98,7 @@ static const struct ingenic_cgu_clk_info jz4725b_cgu_clocks[] = {
 		"hclk", CGU_CLK_DIV,
 		.parents = { JZ4725B_CLK_PLL, -1, -1, -1 },
 		.div = {
-			CGU_REG_CPCCR, 4, 1, 4, 22, -1, -1,
+			CGU_REG_CPCCR, 4, 1, 4, 22, -1, -1, 0,
 			jz4725b_cgu_cpccr_div_table,
 		},
 	},
@@ -103,7 +107,7 @@ static const struct ingenic_cgu_clk_info jz4725b_cgu_clocks[] = {
 		"pclk", CGU_CLK_DIV,
 		.parents = { JZ4725B_CLK_PLL, -1, -1, -1 },
 		.div = {
-			CGU_REG_CPCCR, 8, 1, 4, 22, -1, -1,
+			CGU_REG_CPCCR, 8, 1, 4, 22, -1, -1, 0,
 			jz4725b_cgu_cpccr_div_table,
 		},
 	},
@@ -112,7 +116,7 @@ static const struct ingenic_cgu_clk_info jz4725b_cgu_clocks[] = {
 		"mclk", CGU_CLK_DIV,
 		.parents = { JZ4725B_CLK_PLL, -1, -1, -1 },
 		.div = {
-			CGU_REG_CPCCR, 12, 1, 4, 22, -1, -1,
+			CGU_REG_CPCCR, 12, 1, 4, 22, -1, -1, 0,
 			jz4725b_cgu_cpccr_div_table,
 		},
 	},
@@ -121,7 +125,7 @@ static const struct ingenic_cgu_clk_info jz4725b_cgu_clocks[] = {
 		"ipu", CGU_CLK_DIV | CGU_CLK_GATE,
 		.parents = { JZ4725B_CLK_PLL, -1, -1, -1 },
 		.div = {
-			CGU_REG_CPCCR, 16, 1, 4, 22, -1, -1,
+			CGU_REG_CPCCR, 16, 1, 4, 22, -1, -1, 0,
 			jz4725b_cgu_cpccr_div_table,
 		},
 		.gate = { CGU_REG_CLKGR, 13 },
@@ -257,4 +261,4 @@ static void __init jz4725b_cgu_init(struct device_node *np)
 
 	ingenic_cgu_register_syscore_ops(cgu);
 }
-CLK_OF_DECLARE(jz4725b_cgu, "ingenic,jz4725b-cgu", jz4725b_cgu_init);
+CLK_OF_DECLARE_DRIVER(jz4725b_cgu, "ingenic,jz4725b-cgu", jz4725b_cgu_init);

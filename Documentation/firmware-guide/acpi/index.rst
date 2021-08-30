@@ -10,6 +10,8 @@ ACPI Support
    namespace
    dsd/graph
    dsd/data-node-references
+   dsd/leds
+   dsd/phy
    enumeration
    osi
    method-customizing
@@ -25,3 +27,4 @@ ACPI Support
    lpit
    video_extension
    extcon-intel-int3496
+   intel-pmc-mux

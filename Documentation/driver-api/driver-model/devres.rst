@@ -263,10 +263,12 @@ DMA
   dmam_pool_destroy()
 
 DRM
-  devm_drm_dev_init()
+  devm_drm_dev_alloc()
 
 GPIO
   devm_gpiod_get()
+  devm_gpiod_get_array()
+  devm_gpiod_get_array_optional()
   devm_gpiod_get_index()
   devm_gpiod_get_index_optional()
   devm_gpiod_get_optional()
@@ -282,21 +284,14 @@ I2C
 
 IIO
   devm_iio_device_alloc()
-  devm_iio_device_free()
   devm_iio_device_register()
-  devm_iio_device_unregister()
-  devm_iio_kfifo_allocate()
-  devm_iio_kfifo_free()
+  devm_iio_dmaengine_buffer_setup()
+  devm_iio_kfifo_buffer_setup()
   devm_iio_triggered_buffer_setup()
-  devm_iio_triggered_buffer_cleanup()
   devm_iio_trigger_alloc()
-  devm_iio_trigger_free()
   devm_iio_trigger_register()
-  devm_iio_trigger_unregister()
   devm_iio_channel_get()
-  devm_iio_channel_release()
   devm_iio_channel_get_all()
-  devm_iio_channel_release_all()
 
 INPUT
   devm_input_allocate_device()
@@ -313,12 +308,14 @@ IOMAP
   devm_ioport_map()
   devm_ioport_unmap()
   devm_ioremap()
-  devm_ioremap_nocache()
+  devm_ioremap_uc()
   devm_ioremap_wc()
+  devm_ioremap_np()
   devm_ioremap_resource() : checks resource, requests memory region, ioremaps
   devm_ioremap_resource_wc()
-  devm_platform_ioremap_resource_wc()
+  devm_platform_ioremap_resource() : calls devm_ioremap_resource() for platform device
   devm_platform_ioremap_resource_byname()
+  devm_platform_get_and_ioremap_resource()
   devm_iounmap()
   pcim_iomap()
   pcim_iomap_regions()	: do request_region() and iomap() on multiple BARs
@@ -346,7 +343,8 @@ LED
 MDIO
   devm_mdiobus_alloc()
   devm_mdiobus_alloc_size()
-  devm_mdiobus_free()
+  devm_mdiobus_register()
+  devm_of_mdiobus_register()
 
 MEM
   devm_free_pages()
@@ -357,6 +355,7 @@ MEM
   devm_kmalloc()
   devm_kmalloc_array()
   devm_kmemdup()
+  devm_krealloc()
   devm_kstrdup()
   devm_kvasprintf()
   devm_kzalloc()
@@ -368,6 +367,11 @@ MUX
   devm_mux_chip_alloc()
   devm_mux_chip_register()
   devm_mux_control_get()
+
+NET
+  devm_alloc_etherdev()
+  devm_alloc_etherdev_mqs()
+  devm_register_netdev()
 
 PER-CPU MEM
   devm_alloc_percpu()
@@ -396,7 +400,8 @@ POWER
 
 PWM
   devm_pwm_get()
-  devm_pwm_put()
+  devm_of_pwm_get()
+  devm_fwnode_pwm_get()
 
 REGULATOR
   devm_regulator_bulk_get()
@@ -407,6 +412,12 @@ REGULATOR
 RESET
   devm_reset_control_get()
   devm_reset_controller_register()
+
+RTC
+  devm_rtc_device_register()
+  devm_rtc_allocate_device()
+  devm_rtc_register_device()
+  devm_rtc_nvmem_register()
 
 SERDEV
   devm_serdev_device_open()

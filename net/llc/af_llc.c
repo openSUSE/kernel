@@ -47,7 +47,7 @@ static int llc_ui_wait_for_busy_core(struct sock *sk, long timeout);
 #if 0
 #define dprintk(args...) printk(KERN_DEBUG args)
 #else
-#define dprintk(args...)
+#define dprintk(args...) do {} while (0)
 #endif
 
 /* Maybe we'll add some more in the future. */
@@ -98,8 +98,16 @@ static inline u8 llc_ui_header_len(struct sock *sk, struct sockaddr_llc *addr)
 {
 	u8 rc = LLC_PDU_LEN_U;
 
-	if (addr->sllc_test || addr->sllc_xid)
+	if (addr->sllc_test)
 		rc = LLC_PDU_LEN_U;
+	else if (addr->sllc_xid)
+		/* We need to expand header to sizeof(struct llc_xid_info)
+		 * since llc_pdu_init_as_xid_cmd() sets 4,5,6 bytes of LLC header
+		 * as XID PDU. In llc_ui_sendmsg() we reserved header size and then
+		 * filled all other space with user data. If we won't reserve this
+		 * bytes, llc_pdu_init_as_xid_cmd() will overwrite user data
+		 */
+		rc = LLC_PDU_LEN_U_XID;
 	else if (sk->sk_type == SOCK_STREAM)
 		rc = LLC_PDU_LEN_I;
 	return rc;
@@ -984,7 +992,6 @@ out:
  *	llc_ui_getname - return the address info of a socket
  *	@sock: Socket to get address of.
  *	@uaddr: Address structure to return information.
- *	@uaddrlen: Length of address structure.
  *	@peer: Does user want local or remote address information.
  *
  *	Return the address information of a socket.
@@ -1054,7 +1061,7 @@ static int llc_ui_ioctl(struct socket *sock, unsigned int cmd,
  *	Set various connection specific parameters.
  */
 static int llc_ui_setsockopt(struct socket *sock, int level, int optname,
-			     char __user *optval, unsigned int optlen)
+			     sockptr_t optval, unsigned int optlen)
 {
 	struct sock *sk = sock->sk;
 	struct llc_sock *llc = llc_sk(sk);
@@ -1064,7 +1071,7 @@ static int llc_ui_setsockopt(struct socket *sock, int level, int optname,
 	lock_sock(sk);
 	if (unlikely(level != SOL_LLC || optlen != sizeof(int)))
 		goto out;
-	rc = get_user(opt, (int __user *)optval);
+	rc = copy_from_sockptr(&opt, optval, sizeof(opt));
 	if (rc)
 		goto out;
 	rc = -EINVAL;

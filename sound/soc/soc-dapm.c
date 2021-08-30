@@ -2528,9 +2528,20 @@ static struct snd_soc_dapm_widget *dapm_find_widget(
 {
 	struct snd_soc_dapm_widget *w;
 	struct snd_soc_dapm_widget *fallback = NULL;
+	char prefixed_pin[80];
+	const char *pin_name;
+	const char *prefix = soc_dapm_prefix(dapm);
+
+	if (prefix) {
+		snprintf(prefixed_pin, sizeof(prefixed_pin), "%s %s",
+			 prefix, pin);
+		pin_name = prefixed_pin;
+	} else {
+		pin_name = pin;
+	}
 
 	for_each_card_widgets(dapm->card, w) {
-		if (!strcmp(w->name, pin)) {
+		if (!strcmp(w->name, pin_name)) {
 			if (w->dapm == dapm)
 				return w;
 			else
@@ -3820,11 +3831,9 @@ snd_soc_dai_link_event_pre_pmu(struct snd_soc_dapm_widget *w,
 		source = path->source->priv;
 
 		ret = snd_soc_dai_startup(source, substream);
-		if (ret < 0) {
-			dev_err(source->dev,
-				"ASoC: startup() failed: %d\n", ret);
+		if (ret < 0)
 			goto out;
-		}
+
 		snd_soc_dai_activate(source, substream->stream);
 	}
 
@@ -3833,11 +3842,9 @@ snd_soc_dai_link_event_pre_pmu(struct snd_soc_dapm_widget *w,
 		sink = path->sink->priv;
 
 		ret = snd_soc_dai_startup(sink, substream);
-		if (ret < 0) {
-			dev_err(sink->dev,
-				"ASoC: startup() failed: %d\n", ret);
+		if (ret < 0)
 			goto out;
-		}
+
 		snd_soc_dai_activate(sink, substream->stream);
 	}
 
@@ -3932,11 +3939,7 @@ static int snd_soc_dai_link_event(struct snd_soc_dapm_widget *w,
 		snd_soc_dapm_widget_for_each_sink_path(w, path) {
 			sink = path->sink->priv;
 
-			ret = snd_soc_dai_digital_mute(sink, 0,
-						       SNDRV_PCM_STREAM_PLAYBACK);
-			if (ret != 0 && ret != -ENOTSUPP)
-				dev_warn(sink->dev,
-					 "ASoC: Failed to unmute: %d\n", ret);
+			snd_soc_dai_digital_mute(sink, 0, SNDRV_PCM_STREAM_PLAYBACK);
 			ret = 0;
 		}
 		break;
@@ -3945,38 +3948,34 @@ static int snd_soc_dai_link_event(struct snd_soc_dapm_widget *w,
 		snd_soc_dapm_widget_for_each_sink_path(w, path) {
 			sink = path->sink->priv;
 
-			ret = snd_soc_dai_digital_mute(sink, 1,
-						       SNDRV_PCM_STREAM_PLAYBACK);
-			if (ret != 0 && ret != -ENOTSUPP)
-				dev_warn(sink->dev,
-					 "ASoC: Failed to mute: %d\n", ret);
+			snd_soc_dai_digital_mute(sink, 1, SNDRV_PCM_STREAM_PLAYBACK);
 			ret = 0;
 		}
 
 		substream->stream = SNDRV_PCM_STREAM_CAPTURE;
 		snd_soc_dapm_widget_for_each_source_path(w, path) {
 			source = path->source->priv;
-			snd_soc_dai_hw_free(source, substream);
+			snd_soc_dai_hw_free(source, substream, 0);
 		}
 
 		substream->stream = SNDRV_PCM_STREAM_PLAYBACK;
 		snd_soc_dapm_widget_for_each_sink_path(w, path) {
 			sink = path->sink->priv;
-			snd_soc_dai_hw_free(sink, substream);
+			snd_soc_dai_hw_free(sink, substream, 0);
 		}
 
 		substream->stream = SNDRV_PCM_STREAM_CAPTURE;
 		snd_soc_dapm_widget_for_each_source_path(w, path) {
 			source = path->source->priv;
 			snd_soc_dai_deactivate(source, substream->stream);
-			snd_soc_dai_shutdown(source, substream);
+			snd_soc_dai_shutdown(source, substream, 0);
 		}
 
 		substream->stream = SNDRV_PCM_STREAM_PLAYBACK;
 		snd_soc_dapm_widget_for_each_sink_path(w, path) {
 			sink = path->sink->priv;
 			snd_soc_dai_deactivate(sink, substream->stream);
-			snd_soc_dai_shutdown(sink, substream);
+			snd_soc_dai_shutdown(sink, substream, 0);
 		}
 		break;
 
@@ -4765,7 +4764,7 @@ void snd_soc_dapm_init(struct snd_soc_dapm_context *dapm,
 
 	if (component) {
 		dapm->dev		= component->dev;
-		dapm->idle_bias_off	= !component->driver->idle_bias_on,
+		dapm->idle_bias_off	= !component->driver->idle_bias_on;
 		dapm->suspend_bias_off	= component->driver->suspend_bias_off;
 	} else {
 		dapm->dev		= card->dev;

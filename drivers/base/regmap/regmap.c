@@ -11,7 +11,7 @@
 #include <linux/export.h>
 #include <linux/mutex.h>
 #include <linux/err.h>
-#include <linux/of.h>
+#include <linux/property.h>
 #include <linux/rbtree.h>
 #include <linux/sched.h>
 #include <linux/delay.h>
@@ -209,6 +209,18 @@ static bool regmap_volatile_range(struct regmap *map, unsigned int reg,
 	return true;
 }
 
+static void regmap_format_12_20_write(struct regmap *map,
+				     unsigned int reg, unsigned int val)
+{
+	u8 *out = map->work_buf;
+
+	out[0] = reg >> 4;
+	out[1] = (reg << 4) | (val >> 16);
+	out[2] = val >> 8;
+	out[3] = val;
+}
+
+
 static void regmap_format_2_6_write(struct regmap *map,
 				     unsigned int reg, unsigned int val)
 {
@@ -229,6 +241,16 @@ static void regmap_format_7_9_write(struct regmap *map,
 {
 	__be16 *out = map->work_buf;
 	*out = cpu_to_be16((reg << 9) | val);
+}
+
+static void regmap_format_7_17_write(struct regmap *map,
+				    unsigned int reg, unsigned int val)
+{
+	u8 *out = map->work_buf;
+
+	out[2] = val;
+	out[1] = val >> 8;
+	out[0] = (val >> 16) | (reg << 1);
 }
 
 static void regmap_format_10_14_write(struct regmap *map,
@@ -651,7 +673,7 @@ enum regmap_endian regmap_get_val_endian(struct device *dev,
 					 const struct regmap_bus *bus,
 					 const struct regmap_config *config)
 {
-	struct device_node *np;
+	struct fwnode_handle *fwnode = dev ? dev_fwnode(dev) : NULL;
 	enum regmap_endian endian;
 
 	/* Retrieve the endianness specification from the regmap config */
@@ -661,22 +683,17 @@ enum regmap_endian regmap_get_val_endian(struct device *dev,
 	if (endian != REGMAP_ENDIAN_DEFAULT)
 		return endian;
 
-	/* If the dev and dev->of_node exist try to get endianness from DT */
-	if (dev && dev->of_node) {
-		np = dev->of_node;
+	/* If the firmware node exist try to get endianness from it */
+	if (fwnode_property_read_bool(fwnode, "big-endian"))
+		endian = REGMAP_ENDIAN_BIG;
+	else if (fwnode_property_read_bool(fwnode, "little-endian"))
+		endian = REGMAP_ENDIAN_LITTLE;
+	else if (fwnode_property_read_bool(fwnode, "native-endian"))
+		endian = REGMAP_ENDIAN_NATIVE;
 
-		/* Parse the device's DT node for an endianness specification */
-		if (of_property_read_bool(np, "big-endian"))
-			endian = REGMAP_ENDIAN_BIG;
-		else if (of_property_read_bool(np, "little-endian"))
-			endian = REGMAP_ENDIAN_LITTLE;
-		else if (of_property_read_bool(np, "native-endian"))
-			endian = REGMAP_ENDIAN_NATIVE;
-
-		/* If the endianness was specified in DT, use that */
-		if (endian != REGMAP_ENDIAN_DEFAULT)
-			return endian;
-	}
+	/* If the endianness was specified in fwnode, use that */
+	if (endian != REGMAP_ENDIAN_DEFAULT)
+		return endian;
 
 	/* Retrieve the endianness specification from the bus config */
 	if (bus && bus->val_format_endian_default)
@@ -878,6 +895,9 @@ struct regmap *__regmap_init(struct device *dev,
 		case 9:
 			map->format.format_write = regmap_format_7_9_write;
 			break;
+		case 17:
+			map->format.format_write = regmap_format_7_17_write;
+			break;
 		default:
 			goto err_hwlock;
 		}
@@ -887,6 +907,16 @@ struct regmap *__regmap_init(struct device *dev,
 		switch (config->val_bits) {
 		case 14:
 			map->format.format_write = regmap_format_10_14_write;
+			break;
+		default:
+			goto err_hwlock;
+		}
+		break;
+
+	case 12:
+		switch (config->val_bits) {
+		case 20:
+			map->format.format_write = regmap_format_12_20_write;
 			break;
 		default:
 			goto err_hwlock;
@@ -1253,6 +1283,106 @@ struct regmap_field *devm_regmap_field_alloc(struct device *dev,
 }
 EXPORT_SYMBOL_GPL(devm_regmap_field_alloc);
 
+
+/**
+ * regmap_field_bulk_alloc() - Allocate and initialise a bulk register field.
+ *
+ * @regmap: regmap bank in which this register field is located.
+ * @rm_field: regmap register fields within the bank.
+ * @reg_field: Register fields within the bank.
+ * @num_fields: Number of register fields.
+ *
+ * The return value will be an -ENOMEM on error or zero for success.
+ * Newly allocated regmap_fields should be freed by calling
+ * regmap_field_bulk_free()
+ */
+int regmap_field_bulk_alloc(struct regmap *regmap,
+			    struct regmap_field **rm_field,
+			    struct reg_field *reg_field,
+			    int num_fields)
+{
+	struct regmap_field *rf;
+	int i;
+
+	rf = kcalloc(num_fields, sizeof(*rf), GFP_KERNEL);
+	if (!rf)
+		return -ENOMEM;
+
+	for (i = 0; i < num_fields; i++) {
+		regmap_field_init(&rf[i], regmap, reg_field[i]);
+		rm_field[i] = &rf[i];
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(regmap_field_bulk_alloc);
+
+/**
+ * devm_regmap_field_bulk_alloc() - Allocate and initialise a bulk register
+ * fields.
+ *
+ * @dev: Device that will be interacted with
+ * @regmap: regmap bank in which this register field is located.
+ * @rm_field: regmap register fields within the bank.
+ * @reg_field: Register fields within the bank.
+ * @num_fields: Number of register fields.
+ *
+ * The return value will be an -ENOMEM on error or zero for success.
+ * Newly allocated regmap_fields will be automatically freed by the
+ * device management code.
+ */
+int devm_regmap_field_bulk_alloc(struct device *dev,
+				 struct regmap *regmap,
+				 struct regmap_field **rm_field,
+				 struct reg_field *reg_field,
+				 int num_fields)
+{
+	struct regmap_field *rf;
+	int i;
+
+	rf = devm_kcalloc(dev, num_fields, sizeof(*rf), GFP_KERNEL);
+	if (!rf)
+		return -ENOMEM;
+
+	for (i = 0; i < num_fields; i++) {
+		regmap_field_init(&rf[i], regmap, reg_field[i]);
+		rm_field[i] = &rf[i];
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(devm_regmap_field_bulk_alloc);
+
+/**
+ * regmap_field_bulk_free() - Free register field allocated using
+ *                       regmap_field_bulk_alloc.
+ *
+ * @field: regmap fields which should be freed.
+ */
+void regmap_field_bulk_free(struct regmap_field *field)
+{
+	kfree(field);
+}
+EXPORT_SYMBOL_GPL(regmap_field_bulk_free);
+
+/**
+ * devm_regmap_field_bulk_free() - Free a bulk register field allocated using
+ *                            devm_regmap_field_bulk_alloc.
+ *
+ * @dev: Device that will be interacted with
+ * @field: regmap field which should be freed.
+ *
+ * Free register field allocated using devm_regmap_field_bulk_alloc(). Usually
+ * drivers need not call this function, as the memory allocated via devm
+ * will be freed as per device-driver life-cycle.
+ */
+void devm_regmap_field_bulk_free(struct device *dev,
+				 struct regmap_field *field)
+{
+	devm_kfree(dev, field);
+}
+EXPORT_SYMBOL_GPL(devm_regmap_field_bulk_free);
+
 /**
  * devm_regmap_field_free() - Free a register field allocated using
  *                            devm_regmap_field_alloc.
@@ -1375,8 +1505,12 @@ void regmap_exit(struct regmap *map)
 	}
 	if (map->hwlock)
 		hwspin_lock_free(map->hwlock);
+	if (map->lock == regmap_lock_mutex)
+		mutex_destroy(&map->mutex);
 	kfree_const(map->name);
 	kfree(map->patch);
+	if (map->bus && map->bus->free_on_exit)
+		kfree(map->bus);
 	kfree(map);
 }
 EXPORT_SYMBOL_GPL(regmap_exit);
@@ -1805,12 +1939,15 @@ int _regmap_write(struct regmap *map, unsigned int reg,
 		}
 	}
 
-	if (regmap_should_log(map))
-		dev_info(map->dev, "%x <= %x\n", reg, val);
+	ret = map->reg_write(context, reg, val);
+	if (ret == 0) {
+		if (regmap_should_log(map))
+			dev_info(map->dev, "%x <= %x\n", reg, val);
 
-	trace_regmap_reg_write(map, reg, val);
+		trace_regmap_reg_write(map, reg, val);
+	}
 
-	return map->reg_write(context, reg, val);
+	return ret;
 }
 
 /**

@@ -33,7 +33,6 @@
 #include <linux/spi/pxa2xx_spi.h>
 #include <linux/input/matrix_keypad.h>
 #include <linux/platform_data/i2c-pxa.h>
-#include <linux/usb/gpio_vbus.h>
 #include <linux/reboot.h>
 #include <linux/memblock.h>
 
@@ -240,18 +239,20 @@ static struct scoop_pcmcia_config tosa_pcmcia_config = {
 /*
  * USB Device Controller
  */
-static struct gpio_vbus_mach_info tosa_udc_info = {
-	.gpio_pullup		= TOSA_GPIO_USB_PULLUP,
-	.gpio_vbus		= TOSA_GPIO_USB_IN,
-	.gpio_vbus_inverted	= 1,
+static struct gpiod_lookup_table tosa_udc_gpiod_table = {
+	.dev_id = "gpio-vbus",
+	.table = {
+		GPIO_LOOKUP("gpio-pxa", TOSA_GPIO_USB_IN,
+			    "vbus", GPIO_ACTIVE_LOW),
+		GPIO_LOOKUP("gpio-pxa", TOSA_GPIO_USB_PULLUP,
+			    "pullup", GPIO_ACTIVE_HIGH),
+		{ },
+	},
 };
 
 static struct platform_device tosa_gpio_vbus = {
 	.name	= "gpio-vbus",
 	.id	= -1,
-	.dev	= {
-		.platform_data	= &tosa_udc_info,
-	},
 };
 
 /*
@@ -368,6 +369,15 @@ static struct pxaficp_platform_data tosa_ficp_platform_data = {
 /*
  * Tosa AC IN
  */
+static struct gpiod_lookup_table tosa_power_gpiod_table = {
+	.dev_id = "gpio-charger",
+	.table = {
+		GPIO_LOOKUP("gpio-pxa", TOSA_GPIO_AC_IN,
+			    NULL, GPIO_ACTIVE_LOW),
+		{ },
+	},
+};
+
 static char *tosa_ac_supplied_to[] = {
 	"main-battery",
 	"backup-battery",
@@ -377,8 +387,6 @@ static char *tosa_ac_supplied_to[] = {
 static struct gpio_charger_platform_data tosa_power_data = {
 	.name			= "charger",
 	.type			= POWER_SUPPLY_TYPE_MAINS,
-	.gpio			= TOSA_GPIO_AC_IN,
-	.gpio_active_low	= 1,
 	.supplied_to		= tosa_ac_supplied_to,
 	.num_supplicants	= ARRAY_SIZE(tosa_ac_supplied_to),
 };
@@ -949,6 +957,8 @@ static void __init tosa_init(void)
 
 	clk_add_alias("CLK_CK3P6MI", tc6393xb_device.name, "GPIO11_CLK", NULL);
 
+	gpiod_add_lookup_table(&tosa_udc_gpiod_table);
+	gpiod_add_lookup_table(&tosa_power_gpiod_table);
 	platform_add_devices(devices, ARRAY_SIZE(devices));
 }
 

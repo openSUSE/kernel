@@ -29,6 +29,7 @@
 #include <linux/sunrpc/xprtmultipath.h>
 
 struct rpc_inode;
+struct rpc_sysfs_client;
 
 /*
  * The high-level client handle
@@ -71,9 +72,7 @@ struct rpc_clnt {
 #if IS_ENABLED(CONFIG_SUNRPC_DEBUG)
 	struct dentry		*cl_debugfs;	/* debugfs directory */
 #endif
-#ifdef __GENKSYMS__
-	struct rpc_xprt_iter	cl_xpi;
-#else
+	struct rpc_sysfs_client *cl_sysfs;	/* sysfs directory */
 	/* cl_work is only needed after cl_xpi is no longer used,
 	 * and that are of similar size
 	 */
@@ -81,7 +80,6 @@ struct rpc_clnt {
 		struct rpc_xprt_iter	cl_xpi;
 		struct work_struct	cl_work;
 	};
-#endif
 	const struct cred	*cl_cred;
 };
 
@@ -118,8 +116,6 @@ struct rpc_procinfo {
 	u32			p_statidx;	/* Which procedure to account */
 	const char *		p_name;		/* name of procedure */
 };
-
-#ifdef __KERNEL__
 
 struct rpc_create_args {
 	struct net		*net;
@@ -253,5 +249,4 @@ static inline void rpc_task_close_connection(struct rpc_task *task)
 	if (task->tk_xprt)
 		xprt_force_disconnect(task->tk_xprt);
 }
-#endif /* __KERNEL__ */
 #endif /* _LINUX_SUNRPC_CLNT_H */

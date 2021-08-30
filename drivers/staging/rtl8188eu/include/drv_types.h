@@ -34,7 +34,6 @@ struct qos_priv {
 };
 
 #include <rtw_mlme.h>
-#include <rtw_debug.h>
 #include <rtw_rf.h>
 #include <rtw_event.h>
 #include <rtw_led.h>
@@ -150,7 +149,7 @@ struct adapter {
 
 	u8	hw_init_completed;
 
-	void *cmdThread;
+	struct task_struct *cmdThread;
 	struct  net_device *pnetdev;
 	struct  net_device *pmondev;
 

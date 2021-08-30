@@ -31,8 +31,8 @@
  *       - inform the user about the firmware's notion of memory layout
  *         via /sys/firmware/memmap
  *
- *       - the hibernation code uses it to generate a kernel-independent MD5
- *         fingerprint of the physical memory layout of a system.
+ *       - the hibernation code uses it to generate a kernel-independent CRC32
+ *         checksum of the physical memory layout of a system.
  *
  * - 'e820_table_kexec': a slightly modified (by the kernel) firmware version
  *   passed to us by the bootloader - the major difference between
@@ -793,7 +793,7 @@ core_initcall(e820__register_nvs_regions);
 #endif
 
 /*
- * Allocate the requested number of bytes with the requsted alignment
+ * Allocate the requested number of bytes with the requested alignment
  * and return (the physical address) to the caller. Also register this
  * range in the 'kexec' E820 table as a reserved range.
  *
@@ -924,14 +924,6 @@ static int __init parse_memmap_one(char *p)
 		return -EINVAL;
 
 	if (!strncmp(p, "exactmap", 8)) {
-#ifdef CONFIG_CRASH_DUMP
-		/*
-		 * If we are doing a crash dump, we still need to know
-		 * the real memory size before the original memory map is
-		 * reset.
-		 */
-		saved_max_pfn = e820__end_of_ram_pfn();
-#endif
 		e820_table->nr_entries = 0;
 		userdef = 1;
 		return 0;
@@ -1013,7 +1005,26 @@ void __init e820__reserve_setup_data(void)
 	while (pa_data) {
 		data = early_memremap(pa_data, sizeof(*data));
 		e820__range_update(pa_data, sizeof(*data)+data->len, E820_TYPE_RAM, E820_TYPE_RESERVED_KERN);
-		e820__range_update_kexec(pa_data, sizeof(*data)+data->len, E820_TYPE_RAM, E820_TYPE_RESERVED_KERN);
+
+		/*
+		 * SETUP_EFI is supplied by kexec and does not need to be
+		 * reserved.
+		 */
+		if (data->type != SETUP_EFI)
+			e820__range_update_kexec(pa_data,
+						 sizeof(*data) + data->len,
+						 E820_TYPE_RAM, E820_TYPE_RESERVED_KERN);
+
+		if (data->type == SETUP_INDIRECT &&
+		    ((struct setup_indirect *)data->data)->type != SETUP_INDIRECT) {
+			e820__range_update(((struct setup_indirect *)data->data)->addr,
+					   ((struct setup_indirect *)data->data)->len,
+					   E820_TYPE_RAM, E820_TYPE_RESERVED_KERN);
+			e820__range_update_kexec(((struct setup_indirect *)data->data)->addr,
+						 ((struct setup_indirect *)data->data)->len,
+						 E820_TYPE_RAM, E820_TYPE_RESERVED_KERN);
+		}
+
 		pa_data = data->next;
 		early_memunmap(data, sizeof(*data));
 	}

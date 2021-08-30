@@ -25,9 +25,9 @@ worry about UP vs SMP issues: the spinlocks work correctly under both.
 
      Documentation/memory-barriers.txt
 
-       (5) LOCK operations.
+       (5) ACQUIRE operations.
 
-       (6) UNLOCK operations.
+       (6) RELEASE operations.
 
 The above is usually pretty simple (you usually need and want only one
 spinlock for most things - using more than one spinlock can make things a
@@ -138,18 +138,6 @@ to disable the _local_ interrupts - it's ok to use spinlocks in interrupts
 on other CPU's, because an interrupt on another CPU doesn't interrupt the
 CPU that holds the lock, so the lock-holder can continue and eventually
 releases the lock).
-
-Note that you can be clever with read-write locks and interrupts. For
-example, if you know that the interrupt only ever gets a read-lock, then
-you can use a non-irq version of read locks everywhere - because they
-don't block on each other (and thus there is no dead-lock wrt interrupts.
-But when you do the write-lock, you have to use the irq-safe version.
-
-For an example of being clever with rw-locks, see the "waitqueue_lock"
-handling in kernel/sched/core.c - nothing ever _changes_ a wait-queue from
-within an interrupt, they only read the queue in order to know whom to
-wake up. So read-locks are safe (which is good: they are very common
-indeed), while write-locks need to protect themselves against interrupts.
 
 		Linus
 

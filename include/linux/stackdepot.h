@@ -19,4 +19,15 @@ depot_stack_handle_t stack_depot_save(unsigned long *entries,
 unsigned int stack_depot_fetch(depot_stack_handle_t handle,
 			       unsigned long **entries);
 
+unsigned int filter_irq_stacks(unsigned long *entries, unsigned int nr_entries);
+
+#ifdef CONFIG_STACKDEPOT
+int stack_depot_init(void);
+#else
+static inline int stack_depot_init(void)
+{
+	return 0;
+}
+#endif	/* CONFIG_STACKDEPOT */
+
 #endif

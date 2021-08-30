@@ -33,8 +33,8 @@
 #include <linux/dma-direct.h>
 #include <asm/processor.h>
 #include <linux/uaccess.h>
-#include <asm/pgtable.h>
 #include <asm/pgalloc.h>
+#include <asm/ptdump.h>
 #include <asm/dma.h>
 #include <asm/lowcore.h>
 #include <asm/tlb.h>
@@ -46,8 +46,12 @@
 #include <asm/kasan.h>
 #include <asm/dma-mapping.h>
 #include <asm/uv.h>
+#include <linux/virtio_config.h>
 
-pgd_t swapper_pg_dir[PTRS_PER_PGD] __section(.bss..swapper_pg_dir);
+pgd_t swapper_pg_dir[PTRS_PER_PGD] __section(".bss..swapper_pg_dir");
+static pgd_t invalid_pg_dir[PTRS_PER_PGD] __section(".bss..invalid_pg_dir");
+
+unsigned long s390_invalid_asce;
 
 unsigned long empty_zero_page, zero_page_mask;
 EXPORT_SYMBOL(empty_zero_page);
@@ -91,6 +95,9 @@ void __init paging_init(void)
 	unsigned long pgd_type, asce_bits;
 	psw_t psw;
 
+	s390_invalid_asce  = (unsigned long)invalid_pg_dir;
+	s390_invalid_asce |= _ASCE_TYPE_REGION3 | _ASCE_TABLE_LENGTH;
+	crst_table_init((unsigned long *)invalid_pg_dir, _REGION3_ENTRY_EMPTY);
 	init_mm.pgd = swapper_pg_dir;
 	if (VMALLOC_END > _REGION2_SIZE) {
 		asce_bits = _ASCE_TYPE_REGION2 | _ASCE_TABLE_LENGTH;
@@ -101,14 +108,14 @@ void __init paging_init(void)
 	}
 	init_mm.context.asce = (__pa(init_mm.pgd) & PAGE_MASK) | asce_bits;
 	S390_lowcore.kernel_asce = init_mm.context.asce;
-	S390_lowcore.user_asce = S390_lowcore.kernel_asce;
+	S390_lowcore.user_asce = s390_invalid_asce;
 	crst_table_init((unsigned long *) init_mm.pgd, pgd_type);
 	vmem_map_init();
-	kasan_copy_shadow(init_mm.pgd);
+	kasan_copy_shadow_mapping();
 
 	/* enable virtual mapping in kernel mode */
 	__ctl_load(S390_lowcore.kernel_asce, 1, 1);
-	__ctl_load(S390_lowcore.kernel_asce, 7, 7);
+	__ctl_load(S390_lowcore.user_asce, 7, 7);
 	__ctl_load(S390_lowcore.kernel_asce, 13, 13);
 	psw.mask = __extract_psw();
 	psw_bits(psw).dat = 1;
@@ -116,13 +123,12 @@ void __init paging_init(void)
 	__load_psw_mask(psw.mask);
 	kasan_free_early_identity();
 
-	sparse_memory_present_with_active_regions(MAX_NUMNODES);
 	sparse_init();
 	zone_dma_bits = 31;
 	memset(max_zone_pfns, 0, sizeof(max_zone_pfns));
 	max_zone_pfns[ZONE_DMA] = PFN_DOWN(MAX_DMA_ADDRESS);
 	max_zone_pfns[ZONE_NORMAL] = max_low_pfn;
-	free_area_init_nodes(max_zone_pfns);
+	free_area_init(max_zone_pfns);
 }
 
 void mark_rodata_ro(void)
@@ -131,6 +137,7 @@ void mark_rodata_ro(void)
 
 	set_memory_ro((unsigned long)__start_ro_after_init, size >> PAGE_SHIFT);
 	pr_info("Write protected read-only-after-init data: %luk\n", size >> 10);
+	debug_checkwx();
 }
 
 int set_memory_encrypted(unsigned long addr, int numpages)
@@ -157,15 +164,20 @@ int set_memory_decrypted(unsigned long addr, int numpages)
 }
 
 /* are we a protected virtualization guest? */
-bool sev_active(void)
+bool force_dma_unencrypted(struct device *dev)
 {
 	return is_prot_virt_guest();
 }
 
-bool force_dma_unencrypted(struct device *dev)
+#ifdef CONFIG_ARCH_HAS_RESTRICTED_VIRTIO_MEMORY_ACCESS
+
+int arch_has_restricted_virtio_memory_access(void)
 {
-	return sev_active();
+	return is_prot_virt_guest();
 }
+EXPORT_SYMBOL(arch_has_restricted_virtio_memory_access);
+
+#endif
 
 /* protected virtualization */
 static void pv_init(void)
@@ -197,8 +209,6 @@ void __init mem_init(void)
 	setup_zero_pages();	/* Setup zeroed pages. */
 
 	cmma_init_nodat();
-
-	mem_init_print_info(NULL);
 }
 
 void free_initmem(void)
@@ -285,6 +295,7 @@ int arch_add_memory(int nid, u64 start, u64 size,
 	if (WARN_ON_ONCE(params->pgprot.pgprot != PAGE_KERNEL.pgprot))
 		return -EINVAL;
 
+	VM_BUG_ON(!mhp_range_allowed(start, size, true));
 	rc = vmem_add_mapping(start, size);
 	if (rc)
 		return rc;

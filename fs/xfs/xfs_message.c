@@ -20,8 +20,8 @@ __xfs_printk(
 	const struct xfs_mount	*mp,
 	struct va_format	*vaf)
 {
-	if (mp && mp->m_fsname) {
-		printk("%sXFS (%s): %pV\n", level, mp->m_fsname, vaf);
+	if (mp && mp->m_super) {
+		printk("%sXFS (%s): %pV\n", level, mp->m_super->s_id, vaf);
 		return;
 	}
 	printk("%sXFS: %pV\n", level, vaf);
@@ -116,4 +116,26 @@ void
 xfs_hex_dump(const void *p, int length)
 {
 	print_hex_dump(KERN_ALERT, "", DUMP_PREFIX_OFFSET, 16, 1, p, length, 1);
+}
+
+void
+xfs_buf_alert_ratelimited(
+	struct xfs_buf		*bp,
+	const char		*rlmsg,
+	const char		*fmt,
+	...)
+{
+	struct xfs_mount	*mp = bp->b_mount;
+	struct va_format	vaf;
+	va_list			args;
+
+	/* use the more aggressive per-target rate limit for buffers */
+	if (!___ratelimit(&bp->b_target->bt_ioerror_rl, rlmsg))
+		return;
+
+	va_start(args, fmt);
+	vaf.fmt = fmt;
+	vaf.va = &args;
+	__xfs_printk(KERN_ALERT, mp, &vaf);
+	va_end(args);
 }

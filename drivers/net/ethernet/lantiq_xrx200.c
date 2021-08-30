@@ -154,6 +154,8 @@ static int xrx200_close(struct net_device *net_dev)
 
 static int xrx200_alloc_skb(struct xrx200_chan *ch)
 {
+	struct sk_buff *skb = ch->skb[ch->dma.desc];
+	dma_addr_t mapping;
 	int ret = 0;
 
 	ch->skb[ch->dma.desc] = netdev_alloc_skb_ip_align(ch->priv->net_dev,
@@ -163,16 +165,18 @@ static int xrx200_alloc_skb(struct xrx200_chan *ch)
 		goto skip;
 	}
 
-	ch->dma.desc_base[ch->dma.desc].addr = dma_map_single(ch->priv->dev,
-			ch->skb[ch->dma.desc]->data, XRX200_DMA_DATA_LEN,
-			DMA_FROM_DEVICE);
-	if (unlikely(dma_mapping_error(ch->priv->dev,
-				       ch->dma.desc_base[ch->dma.desc].addr))) {
+	mapping = dma_map_single(ch->priv->dev, ch->skb[ch->dma.desc]->data,
+				 XRX200_DMA_DATA_LEN, DMA_FROM_DEVICE);
+	if (unlikely(dma_mapping_error(ch->priv->dev, mapping))) {
 		dev_kfree_skb_any(ch->skb[ch->dma.desc]);
+		ch->skb[ch->dma.desc] = skb;
 		ret = -ENOMEM;
 		goto skip;
 	}
 
+	ch->dma.desc_base[ch->dma.desc].addr = mapping;
+	/* Make sure the address is written before we give it to HW */
+	wmb();
 skip:
 	ch->dma.desc_base[ch->dma.desc].ctl =
 		LTQ_DMA_OWN | LTQ_DMA_RX_OFFSET(NET_IP_ALIGN) |
@@ -196,6 +200,7 @@ static int xrx200_hw_receive(struct xrx200_chan *ch)
 	ch->dma.desc %= LTQ_DESC_NUM;
 
 	if (ret) {
+		net_dev->stats.rx_dropped++;
 		netdev_err(net_dev, "failed to allocate new rx buffer\n");
 		return ret;
 	}
@@ -245,6 +250,7 @@ static int xrx200_tx_housekeeping(struct napi_struct *napi, int budget)
 	int pkts = 0;
 	int bytes = 0;
 
+	netif_tx_lock(net_dev);
 	while (pkts < budget) {
 		struct ltq_dma_desc *desc = &ch->dma.desc_base[ch->tx_free];
 
@@ -268,6 +274,7 @@ static int xrx200_tx_housekeeping(struct napi_struct *napi, int budget)
 	net_dev->stats.tx_bytes += bytes;
 	netdev_completed_queue(ch->priv->net_dev, pkts, bytes);
 
+	netif_tx_unlock(net_dev);
 	if (netif_queue_stopped(net_dev))
 		netif_wake_queue(net_dev);
 
@@ -279,7 +286,8 @@ static int xrx200_tx_housekeeping(struct napi_struct *napi, int budget)
 	return pkts;
 }
 
-static int xrx200_start_xmit(struct sk_buff *skb, struct net_device *net_dev)
+static netdev_tx_t xrx200_start_xmit(struct sk_buff *skb,
+				     struct net_device *net_dev)
 {
 	struct xrx200_priv *priv = netdev_priv(net_dev);
 	struct xrx200_chan *ch = &priv->chan_tx;
@@ -345,8 +353,8 @@ static irqreturn_t xrx200_dma_irq(int irq, void *ptr)
 	struct xrx200_chan *ch = ptr;
 
 	if (napi_schedule_prep(&ch->napi)) {
-		__napi_schedule(&ch->napi);
 		ltq_dma_disable_irq(&ch->dma);
+		__napi_schedule(&ch->napi);
 	}
 
 	ltq_dma_ack_irq(&ch->dma);
@@ -429,10 +437,8 @@ static int xrx200_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct device_node *np = dev->of_node;
-	struct resource *res;
 	struct xrx200_priv *priv;
 	struct net_device *net_dev;
-	const u8 *mac;
 	int err;
 
 	/* alloc the network device */
@@ -450,17 +456,9 @@ static int xrx200_probe(struct platform_device *pdev)
 	net_dev->max_mtu = XRX200_DMA_DATA_LEN;
 
 	/* load the memory ranges */
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!res) {
-		dev_err(dev, "failed to get resources\n");
-		return -ENOENT;
-	}
-
-	priv->pmac_reg = devm_ioremap_resource(dev, res);
-	if (IS_ERR(priv->pmac_reg)) {
-		dev_err(dev, "failed to request and remap io ranges\n");
+	priv->pmac_reg = devm_platform_get_and_ioremap_resource(pdev, 0, NULL);
+	if (IS_ERR(priv->pmac_reg))
 		return PTR_ERR(priv->pmac_reg);
-	}
 
 	priv->chan_rx.dma.irq = platform_get_irq_byname(pdev, "rx");
 	if (priv->chan_rx.dma.irq < 0)
@@ -476,10 +474,8 @@ static int xrx200_probe(struct platform_device *pdev)
 		return PTR_ERR(priv->clk);
 	}
 
-	mac = of_get_mac_address(np);
-	if (!IS_ERR(mac))
-		ether_addr_copy(net_dev->dev_addr, mac);
-	else
+	err = of_get_mac_address(np, net_dev->dev_addr);
+	if (err)
 		eth_hw_addr_random(net_dev);
 
 	/* bring up the dma engine and IP core */

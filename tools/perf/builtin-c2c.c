@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <linux/compiler.h>
+#include <linux/err.h>
 #include <linux/kernel.h>
 #include <linux/stringify.h>
 #include <linux/zalloc.h>
@@ -20,12 +21,16 @@
 #include <sys/param.h>
 #include "debug.h"
 #include "builtin.h"
+#include <perf/cpumap.h>
+#include <subcmd/pager.h>
 #include <subcmd/parse-options.h>
+#include "map_symbol.h"
 #include "mem-events.h"
 #include "session.h"
 #include "hist.h"
 #include "sort.h"
 #include "tool.h"
+#include "cacheline.h"
 #include "data.h"
 #include "event.h"
 #include "evlist.h"
@@ -34,6 +39,11 @@
 #include "thread.h"
 #include "mem2node.h"
 #include "symbol.h"
+#include "ui/ui.h"
+#include "ui/progress.h"
+#include "../perf.h"
+#include "pmu.h"
+#include "pmu-hybrid.h"
 
 struct c2c_hists {
 	struct hists		hists;
@@ -87,9 +97,10 @@ struct perf_c2c {
 	bool			 use_stdio;
 	bool			 stats_only;
 	bool			 symbol_full;
+	bool			 stitch_lbr;
 
-	/* HITM shared clines stats */
-	struct c2c_stats	hitm_stats;
+	/* Shared cache line stats */
+	struct c2c_stats	shared_clines_stats;
 	int			shared_clines;
 
 	int			 display;
@@ -248,7 +259,7 @@ static void compute_stats(struct c2c_hist_entry *c2c_he,
 static int process_sample_event(struct perf_tool *tool __maybe_unused,
 				union perf_event *event,
 				struct perf_sample *sample,
-				struct perf_evsel *evsel,
+				struct evsel *evsel,
 				struct machine *machine)
 {
 	struct c2c_hists *c2c_hists = &c2c.hists;
@@ -264,6 +275,9 @@ static int process_sample_event(struct perf_tool *tool __maybe_unused,
 			 event->header.type);
 		return -1;
 	}
+
+	if (c2c.stitch_lbr)
+		al.thread->lbr_stitch_enable = true;
 
 	ret = sample__resolve_callchain(sample, &callchain_cursor, NULL,
 					evsel, &al, sysctl_perf_event_max_stack);
@@ -357,6 +371,10 @@ static struct perf_c2c c2c = {
 		.exit		= perf_event__process_exit,
 		.fork		= perf_event__process_fork,
 		.lost		= perf_event__process_lost,
+		.attr		= perf_event__process_attr,
+		.auxtrace_info  = perf_event__process_auxtrace_info,
+		.auxtrace       = perf_event__process_auxtrace,
+		.auxtrace_error = perf_event__process_auxtrace_error,
 		.ordered_events	= true,
 		.ordering_requires_timestamps = true,
 	},
@@ -640,45 +658,6 @@ STAT_FN(ld_l2hit)
 STAT_FN(ld_llchit)
 STAT_FN(rmt_hit)
 
-static uint64_t llc_miss(struct c2c_stats *stats)
-{
-	uint64_t llcmiss;
-
-	llcmiss = stats->lcl_dram +
-		  stats->rmt_dram +
-		  stats->rmt_hitm +
-		  stats->rmt_hit;
-
-	return llcmiss;
-}
-
-static int
-ld_llcmiss_entry(struct perf_hpp_fmt *fmt, struct perf_hpp *hpp,
-		 struct hist_entry *he)
-{
-	struct c2c_hist_entry *c2c_he;
-	int width = c2c_width(fmt, hpp, he->hists);
-
-	c2c_he = container_of(he, struct c2c_hist_entry, he);
-
-	return scnprintf(hpp->buf, hpp->size, "%*lu", width,
-			 llc_miss(&c2c_he->stats));
-}
-
-static int64_t
-ld_llcmiss_cmp(struct perf_hpp_fmt *fmt __maybe_unused,
-	       struct hist_entry *left, struct hist_entry *right)
-{
-	struct c2c_hist_entry *c2c_left;
-	struct c2c_hist_entry *c2c_right;
-
-	c2c_left  = container_of(left, struct c2c_hist_entry, he);
-	c2c_right = container_of(right, struct c2c_hist_entry, he);
-
-	return (uint64_t) llc_miss(&c2c_left->stats) -
-	       (uint64_t) llc_miss(&c2c_right->stats);
-}
-
 static uint64_t total_records(struct c2c_stats *stats)
 {
 	uint64_t lclmiss, ldcnt, total;
@@ -899,7 +878,7 @@ static struct c2c_stats *total_stats(struct hist_entry *he)
 	return &hists->stats;
 }
 
-static double percent(int st, int tot)
+static double percent(u32 st, u32 tot)
 {
 	return tot ? 100. * (double) st / (double) tot : 0;
 }
@@ -1071,6 +1050,19 @@ empty_cmp(struct perf_hpp_fmt *fmt __maybe_unused,
 	return 0;
 }
 
+static int display_metrics(struct perf_hpp *hpp, u32 val, u32 sum)
+{
+	int ret;
+
+	if (sum != 0)
+		ret = scnprintf(hpp->buf, hpp->size, "%5.1f%% ",
+				percent(val, sum));
+	else
+		ret = scnprintf(hpp->buf, hpp->size, "%6s ", "n/a");
+
+	return ret;
+}
+
 static int
 node_entry(struct perf_hpp_fmt *fmt __maybe_unused, struct perf_hpp *hpp,
 	   struct hist_entry *he)
@@ -1108,34 +1100,28 @@ node_entry(struct perf_hpp_fmt *fmt __maybe_unused, struct perf_hpp *hpp,
 			break;
 		case 1:
 		{
-			int num = bitmap_weight(c2c_he->cpuset, c2c.cpus_cnt);
+			int num = bitmap_weight(set, c2c.cpus_cnt);
 			struct c2c_stats *stats = &c2c_he->node_stats[node];
 
 			ret = scnprintf(hpp->buf, hpp->size, "%2d{%2d ", node, num);
 			advance_hpp(hpp, ret);
 
-		#define DISPLAY_HITM(__h)						\
-			if (c2c_he->stats.__h> 0) {					\
-				ret = scnprintf(hpp->buf, hpp->size, "%5.1f%% ",	\
-						percent(stats->__h, c2c_he->stats.__h));\
-			} else {							\
-				ret = scnprintf(hpp->buf, hpp->size, "%6s ", "n/a");	\
-			}
-
 			switch (c2c.display) {
 			case DISPLAY_RMT:
-				DISPLAY_HITM(rmt_hitm);
+				ret = display_metrics(hpp, stats->rmt_hitm,
+						      c2c_he->stats.rmt_hitm);
 				break;
 			case DISPLAY_LCL:
-				DISPLAY_HITM(lcl_hitm);
+				ret = display_metrics(hpp, stats->lcl_hitm,
+						      c2c_he->stats.lcl_hitm);
 				break;
 			case DISPLAY_TOT:
-				DISPLAY_HITM(tot_hitm);
+				ret = display_metrics(hpp, stats->tot_hitm,
+						      c2c_he->stats.tot_hitm);
+				break;
 			default:
 				break;
 			}
-
-		#undef DISPLAY_HITM
 
 			advance_hpp(hpp, ret);
 
@@ -1316,7 +1302,7 @@ static struct c2c_dimension dim_iaddr = {
 };
 
 static struct c2c_dimension dim_tot_hitm = {
-	.header		= HEADER_SPAN("----- LLC Load Hitm -----", "Total", 2),
+	.header		= HEADER_SPAN("------- Load Hitm -------", "Total", 2),
 	.name		= "tot_hitm",
 	.cmp		= tot_hitm_cmp,
 	.entry		= tot_hitm_entry,
@@ -1324,7 +1310,7 @@ static struct c2c_dimension dim_tot_hitm = {
 };
 
 static struct c2c_dimension dim_lcl_hitm = {
-	.header		= HEADER_SPAN_LOW("Lcl"),
+	.header		= HEADER_SPAN_LOW("LclHitm"),
 	.name		= "lcl_hitm",
 	.cmp		= lcl_hitm_cmp,
 	.entry		= lcl_hitm_entry,
@@ -1332,7 +1318,7 @@ static struct c2c_dimension dim_lcl_hitm = {
 };
 
 static struct c2c_dimension dim_rmt_hitm = {
-	.header		= HEADER_SPAN_LOW("Rmt"),
+	.header		= HEADER_SPAN_LOW("RmtHitm"),
 	.name		= "rmt_hitm",
 	.cmp		= rmt_hitm_cmp,
 	.entry		= rmt_hitm_entry,
@@ -1355,16 +1341,16 @@ static struct c2c_dimension dim_cl_lcl_hitm = {
 	.width		= 7,
 };
 
-static struct c2c_dimension dim_stores = {
-	.header		= HEADER_SPAN("---- Store Reference ----", "Total", 2),
-	.name		= "stores",
+static struct c2c_dimension dim_tot_stores = {
+	.header		= HEADER_BOTH("Total", "Stores"),
+	.name		= "tot_stores",
 	.cmp		= store_cmp,
 	.entry		= store_entry,
 	.width		= 7,
 };
 
 static struct c2c_dimension dim_stores_l1hit = {
-	.header		= HEADER_SPAN_LOW("L1Hit"),
+	.header		= HEADER_SPAN("---- Stores ----", "L1Hit", 1),
 	.name		= "stores_l1hit",
 	.cmp		= st_l1hit_cmp,
 	.entry		= st_l1hit_entry,
@@ -1420,7 +1406,7 @@ static struct c2c_dimension dim_ld_l2hit = {
 };
 
 static struct c2c_dimension dim_ld_llchit = {
-	.header		= HEADER_SPAN("-- LLC Load Hit --", "Llc", 1),
+	.header		= HEADER_SPAN("- LLC Load Hit --", "LclHit", 1),
 	.name		= "ld_lclhit",
 	.cmp		= ld_llchit_cmp,
 	.entry		= ld_llchit_entry,
@@ -1428,19 +1414,11 @@ static struct c2c_dimension dim_ld_llchit = {
 };
 
 static struct c2c_dimension dim_ld_rmthit = {
-	.header		= HEADER_SPAN_LOW("Rmt"),
+	.header		= HEADER_SPAN("- RMT Load Hit --", "RmtHit", 1),
 	.name		= "ld_rmthit",
 	.cmp		= rmt_hit_cmp,
 	.entry		= rmt_hit_entry,
 	.width		= 8,
-};
-
-static struct c2c_dimension dim_ld_llcmiss = {
-	.header		= HEADER_BOTH("LLC", "Ld Miss"),
-	.name		= "ld_llcmiss",
-	.cmp		= ld_llcmiss_cmp,
-	.entry		= ld_llcmiss_entry,
-	.width		= 7,
 };
 
 static struct c2c_dimension dim_tot_recs = {
@@ -1474,7 +1452,7 @@ static struct c2c_dimension dim_percent_hitm = {
 };
 
 static struct c2c_dimension dim_percent_rmt_hitm = {
-	.header		= HEADER_SPAN("----- HITM -----", "Rmt", 1),
+	.header		= HEADER_SPAN("----- HITM -----", "RmtHitm", 1),
 	.name		= "percent_rmt_hitm",
 	.cmp		= percent_rmt_hitm_cmp,
 	.entry		= percent_rmt_hitm_entry,
@@ -1483,7 +1461,7 @@ static struct c2c_dimension dim_percent_rmt_hitm = {
 };
 
 static struct c2c_dimension dim_percent_lcl_hitm = {
-	.header		= HEADER_SPAN_LOW("Lcl"),
+	.header		= HEADER_SPAN_LOW("LclHitm"),
 	.name		= "percent_lcl_hitm",
 	.cmp		= percent_lcl_hitm_cmp,
 	.entry		= percent_lcl_hitm_entry,
@@ -1636,7 +1614,7 @@ static struct c2c_dimension *dimensions[] = {
 	&dim_rmt_hitm,
 	&dim_cl_lcl_hitm,
 	&dim_cl_rmt_hitm,
-	&dim_stores,
+	&dim_tot_stores,
 	&dim_stores_l1hit,
 	&dim_stores_l1miss,
 	&dim_cl_stores_l1hit,
@@ -1646,7 +1624,6 @@ static struct c2c_dimension *dimensions[] = {
 	&dim_ld_l2hit,
 	&dim_ld_llchit,
 	&dim_ld_rmthit,
-	&dim_ld_llcmiss,
 	&dim_tot_recs,
 	&dim_tot_loads,
 	&dim_percent_hitm,
@@ -1697,7 +1674,7 @@ static struct c2c_dimension *get_dimension(const char *name)
 
 		if (!strcmp(dim->name, name))
 			return dim;
-	};
+	}
 
 	return NULL;
 }
@@ -1883,53 +1860,69 @@ static int c2c_hists__reinit(struct c2c_hists *c2c_hists,
 
 #define DISPLAY_LINE_LIMIT  0.001
 
+static u8 filter_display(u32 val, u32 sum)
+{
+	if (sum == 0 || ((double)val / sum) < DISPLAY_LINE_LIMIT)
+		return HIST_FILTER__C2C;
+
+	return 0;
+}
+
 static bool he__display(struct hist_entry *he, struct c2c_stats *stats)
 {
 	struct c2c_hist_entry *c2c_he;
-	double ld_dist;
 
 	if (c2c.show_all)
 		return true;
 
 	c2c_he = container_of(he, struct c2c_hist_entry, he);
 
-#define FILTER_HITM(__h)						\
-	if (stats->__h) {						\
-		ld_dist = ((double)c2c_he->stats.__h / stats->__h);	\
-		if (ld_dist < DISPLAY_LINE_LIMIT)			\
-			he->filtered = HIST_FILTER__C2C;		\
-	} else {							\
-		he->filtered = HIST_FILTER__C2C;			\
-	}
-
 	switch (c2c.display) {
 	case DISPLAY_LCL:
-		FILTER_HITM(lcl_hitm);
+		he->filtered = filter_display(c2c_he->stats.lcl_hitm,
+					      stats->lcl_hitm);
 		break;
 	case DISPLAY_RMT:
-		FILTER_HITM(rmt_hitm);
+		he->filtered = filter_display(c2c_he->stats.rmt_hitm,
+					      stats->rmt_hitm);
 		break;
 	case DISPLAY_TOT:
-		FILTER_HITM(tot_hitm);
+		he->filtered = filter_display(c2c_he->stats.tot_hitm,
+					      stats->tot_hitm);
+		break;
 	default:
 		break;
-	};
-
-#undef FILTER_HITM
+	}
 
 	return he->filtered == 0;
 }
 
-static inline int valid_hitm_or_store(struct hist_entry *he)
+static inline bool is_valid_hist_entry(struct hist_entry *he)
 {
 	struct c2c_hist_entry *c2c_he;
-	bool has_hitm;
+	bool has_record = false;
 
 	c2c_he = container_of(he, struct c2c_hist_entry, he);
-	has_hitm = c2c.display == DISPLAY_TOT ? c2c_he->stats.tot_hitm :
-		   c2c.display == DISPLAY_LCL ? c2c_he->stats.lcl_hitm :
-						c2c_he->stats.rmt_hitm;
-	return has_hitm || c2c_he->stats.store;
+
+	/* It's a valid entry if contains stores */
+	if (c2c_he->stats.store)
+		return true;
+
+	switch (c2c.display) {
+	case DISPLAY_LCL:
+		has_record = !!c2c_he->stats.lcl_hitm;
+		break;
+	case DISPLAY_RMT:
+		has_record = !!c2c_he->stats.rmt_hitm;
+		break;
+	case DISPLAY_TOT:
+		has_record = !!c2c_he->stats.tot_hitm;
+		break;
+	default:
+		break;
+	}
+
+	return has_record;
 }
 
 static void set_node_width(struct c2c_hist_entry *c2c_he, int len)
@@ -1983,7 +1976,7 @@ static int filter_cb(struct hist_entry *he, void *arg __maybe_unused)
 
 	calc_width(c2c_he);
 
-	if (!valid_hitm_or_store(he))
+	if (!is_valid_hist_entry(he))
 		he->filtered = HIST_FILTER__C2C;
 
 	return 0;
@@ -1993,7 +1986,7 @@ static int resort_cl_cb(struct hist_entry *he, void *arg __maybe_unused)
 {
 	struct c2c_hist_entry *c2c_he;
 	struct c2c_hists *c2c_hists;
-	bool display = he__display(he, &c2c.hitm_stats);
+	bool display = he__display(he, &c2c.shared_clines_stats);
 
 	c2c_he = container_of(he, struct c2c_hist_entry, he);
 	c2c_hists = c2c_he->hists;
@@ -2029,7 +2022,7 @@ static int setup_nodes(struct perf_session *session)
 		c2c.node_info = 2;
 
 	c2c.nodes_cnt = session->header.env.nr_numa_nodes;
-	c2c.cpus_cnt  = session->header.env.nr_cpus_online;
+	c2c.cpus_cnt  = session->header.env.nr_cpus_avail;
 
 	n = session->header.env.numa_nodes;
 	if (!n)
@@ -2051,7 +2044,7 @@ static int setup_nodes(struct perf_session *session)
 	c2c.cpu2node = cpu2node;
 
 	for (node = 0; node < c2c.nodes_cnt; node++) {
-		struct cpu_map *map = n[node].map;
+		struct perf_cpu_map *map = n[node].map;
 		unsigned long *set;
 
 		set = bitmap_alloc(c2c.cpus_cnt);
@@ -2061,7 +2054,7 @@ static int setup_nodes(struct perf_session *session)
 		nodes[node] = set;
 
 		/* empty node, skip */
-		if (cpu_map__empty(map))
+		if (perf_cpu_map__empty(map))
 			continue;
 
 		for (cpu = 0; cpu < map->nr; cpu++) {
@@ -2080,14 +2073,14 @@ static int setup_nodes(struct perf_session *session)
 
 #define HAS_HITMS(__h) ((__h)->stats.lcl_hitm || (__h)->stats.rmt_hitm)
 
-static int resort_hitm_cb(struct hist_entry *he, void *arg __maybe_unused)
+static int resort_shared_cl_cb(struct hist_entry *he, void *arg __maybe_unused)
 {
 	struct c2c_hist_entry *c2c_he;
 	c2c_he = container_of(he, struct c2c_hist_entry, he);
 
 	if (HAS_HITMS(c2c_he)) {
 		c2c.shared_clines++;
-		c2c_add_stats(&c2c.hitm_stats, &c2c_he->stats);
+		c2c_add_stats(&c2c.shared_clines_stats, &c2c_he->stats);
 	}
 
 	return 0;
@@ -2143,6 +2136,8 @@ static void print_c2c__display_stats(FILE *out)
 	fprintf(out, "  Load MESI State Exclusive         : %10d\n", stats->ld_excl);
 	fprintf(out, "  Load MESI State Shared            : %10d\n", stats->ld_shared);
 	fprintf(out, "  Load LLC Misses                   : %10d\n", llc_misses);
+	fprintf(out, "  Load access blocked by data       : %10d\n", stats->blk_data);
+	fprintf(out, "  Load access blocked by address    : %10d\n", stats->blk_addr);
 	fprintf(out, "  LLC Misses to Local DRAM          : %10.1f%%\n", ((double)stats->lcl_dram/(double)llc_misses) * 100.);
 	fprintf(out, "  LLC Misses to Remote DRAM         : %10.1f%%\n", ((double)stats->rmt_dram/(double)llc_misses) * 100.);
 	fprintf(out, "  LLC Misses to Remote cache (HIT)  : %10.1f%%\n", ((double)stats->rmt_hit /(double)llc_misses) * 100.);
@@ -2158,7 +2153,7 @@ static void print_c2c__display_stats(FILE *out)
 
 static void print_shared_cacheline_info(FILE *out)
 {
-	struct c2c_stats *stats = &c2c.hitm_stats;
+	struct c2c_stats *stats = &c2c.shared_clines_stats;
 	int hitm_cnt = stats->lcl_hitm + stats->rmt_hitm;
 
 	fprintf(out, "=================================================\n");
@@ -2171,6 +2166,7 @@ static void print_shared_cacheline_info(FILE *out)
 	fprintf(out, "  L2D hits on shared lines          : %10d\n", stats->ld_l2hit);
 	fprintf(out, "  LLC hits on shared lines          : %10d\n", stats->ld_llchit + stats->lcl_hitm);
 	fprintf(out, "  Locked Access on shared lines     : %10d\n", stats->locks);
+	fprintf(out, "  Blocked Access on shared lines    : %10d\n", stats->blk_data + stats->blk_addr);
 	fprintf(out, "  Store HITs on shared lines        : %10d\n", stats->store);
 	fprintf(out, "  Store L1D hits on shared lines    : %10d\n", stats->st_l1hit);
 	fprintf(out, "  Total Merged records              : %10d\n", hitm_cnt + stats->store);
@@ -2208,16 +2204,17 @@ static void print_pareto(FILE *out)
 	struct perf_hpp_list hpp_list;
 	struct rb_node *nd;
 	int ret;
+	const char *cl_output;
+
+	cl_output = "cl_num,"
+		    "cl_rmt_hitm,"
+		    "cl_lcl_hitm,"
+		    "cl_stores_l1hit,"
+		    "cl_stores_l1miss,"
+		    "dcacheline";
 
 	perf_hpp_list__init(&hpp_list);
-	ret = hpp_list__parse(&hpp_list,
-				"cl_num,"
-				"cl_rmt_hitm,"
-				"cl_lcl_hitm,"
-				"cl_stores_l1hit,"
-				"cl_stores_l1miss,"
-				"dcacheline",
-				NULL);
+	ret = hpp_list__parse(&hpp_list, cl_output, NULL);
 
 	if (WARN_ONCE(ret, "failed to setup sort entries\n"))
 		return;
@@ -2238,8 +2235,8 @@ static void print_pareto(FILE *out)
 
 static void print_c2c_info(FILE *out, struct perf_session *session)
 {
-	struct perf_evlist *evlist = session->evlist;
-	struct perf_evsel *evsel;
+	struct evlist *evlist = session->evlist;
+	struct evsel *evsel;
 	bool first = true;
 
 	fprintf(out, "=================================================\n");
@@ -2247,8 +2244,7 @@ static void print_c2c_info(FILE *out, struct perf_session *session)
 	fprintf(out, "=================================================\n");
 
 	evlist__for_each_entry(evlist, evsel) {
-		fprintf(out, "%-36s: %s\n", first ? "  Events" : "",
-			perf_evsel__name(evsel));
+		fprintf(out, "%-36s: %s\n", first ? "  Events" : "", evsel__name(evsel));
 		first = false;
 	}
 	fprintf(out, "  Cachelines sort on                : %s HITMs\n",
@@ -2378,7 +2374,7 @@ static int perf_c2c__browse_cacheline(struct hist_entry *he)
 	c2c_browser__update_nr_entries(browser);
 
 	while (1) {
-		key = hist_browser__run(browser, "? - help", true);
+		key = hist_browser__run(browser, "? - help", true, 0);
 
 		switch (key) {
 		case 's':
@@ -2447,7 +2443,7 @@ static int perf_c2c__hists_browse(struct hists *hists)
 	c2c_browser__update_nr_entries(browser);
 
 	while (1) {
-		key = hist_browser__run(browser, "? - help", true);
+		key = hist_browser__run(browser, "? - help", true, 0);
 
 		switch (key) {
 		case 'q':
@@ -2569,9 +2565,9 @@ parse_callchain_opt(const struct option *opt, const char *arg, int unset)
 	return parse_callchain_report_opt(arg);
 }
 
-static int setup_callchain(struct perf_evlist *evlist)
+static int setup_callchain(struct evlist *evlist)
 {
-	u64 sample_type = perf_evlist__combined_sample_type(evlist);
+	u64 sample_type = evlist__combined_sample_type(evlist);
 	enum perf_call_graph_mode mode = CALLCHAIN_NONE;
 
 	if ((sample_type & PERF_SAMPLE_REGS_USER) &&
@@ -2591,6 +2587,12 @@ static int setup_callchain(struct perf_evlist *evlist)
 			ui__error("Can't register callchain params.\n");
 			return -EINVAL;
 		}
+	}
+
+	if (c2c.stitch_lbr && (mode != CALLCHAIN_LBR)) {
+		ui__warning("Can't find LBR callchain. Switch off --stitch-lbr.\n"
+			    "Please apply --call-graph lbr when recording.\n");
+		c2c.stitch_lbr = false;
 	}
 
 	callchain_param.record_mode = mode;
@@ -2709,6 +2711,12 @@ static int setup_coalesce(const char *coalesce, bool no_source)
 
 static int perf_c2c__report(int argc, const char **argv)
 {
+	struct itrace_synth_opts itrace_synth_opts = {
+		.set = true,
+		.mem = true,	/* Only enable memory event */
+		.default_no_sample = true,
+	};
+
 	struct perf_session *session;
 	struct ui_progress prog;
 	struct perf_data data = {
@@ -2744,10 +2752,13 @@ static int perf_c2c__report(int argc, const char **argv)
 	OPT_STRING('c', "coalesce", &coalesce, "coalesce fields",
 		   "coalesce fields: pid,tid,iaddr,dso"),
 	OPT_BOOLEAN('f', "force", &symbol_conf.force, "don't complain, do it"),
+	OPT_BOOLEAN(0, "stitch-lbr", &c2c.stitch_lbr,
+		    "Enable LBR callgraph stitching approach"),
 	OPT_PARENT(c2c_options),
 	OPT_END()
 	};
 	int err = 0;
+	const char *output_str, *sort_str = NULL;
 
 	argc = parse_options(argc, argv, options, report_c2c_usage,
 			     PARSE_OPT_STOP_AT_NON_OPTION);
@@ -2780,10 +2791,13 @@ static int perf_c2c__report(int argc, const char **argv)
 	}
 
 	session = perf_session__new(&data, 0, &c2c.tool);
-	if (session == NULL) {
-		pr_debug("No memory for session\n");
+	if (IS_ERR(session)) {
+		err = PTR_ERR(session);
+		pr_debug("Error creating perf session\n");
 		goto out;
 	}
+
+	session->itrace_synth_opts = &itrace_synth_opts;
 
 	err = setup_nodes(session);
 	if (err) {
@@ -2821,28 +2835,34 @@ static int perf_c2c__report(int argc, const char **argv)
 		goto out_mem2node;
 	}
 
-	c2c_hists__reinit(&c2c.hists,
-			"cl_idx,"
-			"dcacheline,"
-			"dcacheline_node,"
-			"dcacheline_count,"
-			"tot_recs,"
-			"percent_hitm,"
-			"tot_hitm,lcl_hitm,rmt_hitm,"
-			"stores,stores_l1hit,stores_l1miss,"
-			"dram_lcl,dram_rmt,"
-			"ld_llcmiss,"
-			"tot_loads,"
-			"ld_fbhit,ld_l1hit,ld_l2hit,"
-			"ld_lclhit,ld_rmthit",
-			c2c.display == DISPLAY_TOT ? "tot_hitm" :
-			c2c.display == DISPLAY_LCL ? "lcl_hitm" : "rmt_hitm"
-			);
+	output_str = "cl_idx,"
+		     "dcacheline,"
+		     "dcacheline_node,"
+		     "dcacheline_count,"
+		     "percent_hitm,"
+		     "tot_hitm,lcl_hitm,rmt_hitm,"
+		     "tot_recs,"
+		     "tot_loads,"
+		     "tot_stores,"
+		     "stores_l1hit,stores_l1miss,"
+		     "ld_fbhit,ld_l1hit,ld_l2hit,"
+		     "ld_lclhit,lcl_hitm,"
+		     "ld_rmthit,rmt_hitm,"
+		     "dram_lcl,dram_rmt";
+
+	if (c2c.display == DISPLAY_TOT)
+		sort_str = "tot_hitm";
+	else if (c2c.display == DISPLAY_RMT)
+		sort_str = "rmt_hitm";
+	else if (c2c.display == DISPLAY_LCL)
+		sort_str = "lcl_hitm";
+
+	c2c_hists__reinit(&c2c.hists, output_str, sort_str);
 
 	ui_progress__init(&prog, c2c.hists.hists.nr_entries, "Sorting...");
 
 	hists__collapse_resort(&c2c.hists.hists, NULL);
-	hists__output_resort_cb(&c2c.hists.hists, &prog, resort_hitm_cb);
+	hists__output_resort_cb(&c2c.hists.hists, &prog, resort_shared_cl_cb);
 	hists__iterate_cb(&c2c.hists.hists, resort_cl_cb);
 
 	ui_progress__finish();
@@ -2867,8 +2887,15 @@ static int parse_record_events(const struct option *opt,
 {
 	bool *event_set = (bool *) opt->value;
 
+	if (!strcmp(str, "list")) {
+		perf_mem_events__list();
+		exit(0);
+	}
+	if (perf_mem_events__parse(str))
+		exit(-1);
+
 	*event_set = true;
-	return perf_mem_events__parse(str);
+	return 0;
 }
 
 
@@ -2882,14 +2909,16 @@ static const char * const *record_mem_usage = __usage_record;
 
 static int perf_c2c__record(int argc, const char **argv)
 {
-	int rec_argc, i = 0, j;
+	int rec_argc, i = 0, j, rec_tmp_nr = 0;
 	const char **rec_argv;
+	char **rec_tmp;
 	int ret;
 	bool all_user = false, all_kernel = false;
 	bool event_set = false;
+	struct perf_mem_event *e;
 	struct option options[] = {
 	OPT_CALLBACK('e', "event", &event_set, "event",
-		     "event selector. Use 'perf mem record -e list' to list available events",
+		     "event selector. Use 'perf c2c record -e list' to list available events",
 		     parse_record_events),
 	OPT_BOOLEAN('u', "all-user", &all_user, "collect only user level data"),
 	OPT_BOOLEAN('k', "all-kernel", &all_kernel, "collect only kernel level data"),
@@ -2906,39 +2935,51 @@ static int perf_c2c__record(int argc, const char **argv)
 	argc = parse_options(argc, argv, options, record_mem_usage,
 			     PARSE_OPT_KEEP_UNKNOWN);
 
-	rec_argc = argc + 11; /* max number of arguments */
+	if (!perf_pmu__has_hybrid())
+		rec_argc = argc + 11; /* max number of arguments */
+	else
+		rec_argc = argc + 11 * perf_pmu__hybrid_pmu_num();
+
 	rec_argv = calloc(rec_argc + 1, sizeof(char *));
 	if (!rec_argv)
 		return -1;
 
+	rec_tmp = calloc(rec_argc + 1, sizeof(char *));
+	if (!rec_tmp) {
+		free(rec_argv);
+		return -1;
+	}
+
 	rec_argv[i++] = "record";
 
 	if (!event_set) {
-		perf_mem_events[PERF_MEM_EVENTS__LOAD].record  = true;
-		perf_mem_events[PERF_MEM_EVENTS__STORE].record = true;
+		e = perf_mem_events__ptr(PERF_MEM_EVENTS__LOAD_STORE);
+		/*
+		 * The load and store operations are required, use the event
+		 * PERF_MEM_EVENTS__LOAD_STORE if it is supported.
+		 */
+		if (e->tag) {
+			e->record = true;
+		} else {
+			e = perf_mem_events__ptr(PERF_MEM_EVENTS__LOAD);
+			e->record = true;
+
+			e = perf_mem_events__ptr(PERF_MEM_EVENTS__STORE);
+			e->record = true;
+		}
 	}
 
-	if (perf_mem_events[PERF_MEM_EVENTS__LOAD].record)
+	e = perf_mem_events__ptr(PERF_MEM_EVENTS__LOAD);
+	if (e->record)
 		rec_argv[i++] = "-W";
 
 	rec_argv[i++] = "-d";
 	rec_argv[i++] = "--phys-data";
 	rec_argv[i++] = "--sample-cpu";
 
-	for (j = 0; j < PERF_MEM_EVENTS__MAX; j++) {
-		if (!perf_mem_events[j].record)
-			continue;
-
-		if (!perf_mem_events[j].supported) {
-			pr_err("failed: event '%s' not supported\n",
-			       perf_mem_events[j].name);
-			free(rec_argv);
-			return -1;
-		}
-
-		rec_argv[i++] = "-e";
-		rec_argv[i++] = perf_mem_events__name(j);
-	};
+	ret = perf_mem_events__record_args(rec_argv, &i, rec_tmp, &rec_tmp_nr);
+	if (ret)
+		goto out;
 
 	if (all_user)
 		rec_argv[i++] = "--all-user";
@@ -2962,6 +3003,11 @@ static int perf_c2c__record(int argc, const char **argv)
 	}
 
 	ret = cmd_record(i, rec_argv);
+out:
+	for (i = 0; i < rec_tmp_nr; i++)
+		free(rec_tmp[i]);
+
+	free(rec_tmp);
 	free(rec_argv);
 	return ret;
 }

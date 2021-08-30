@@ -11,7 +11,7 @@ struct fpga_bridge;
 /**
  * struct fpga_bridge_ops - ops for low level FPGA bridge drivers
  * @enable_show: returns the FPGA bridge's status
- * @enable_set: set a FPGA bridge as enabled or disabled
+ * @enable_set: set an FPGA bridge as enabled or disabled
  * @fpga_bridge_remove: set FPGA into a specific state during driver remove
  * @groups: optional attribute groups.
  */
@@ -20,8 +20,6 @@ struct fpga_bridge_ops {
 	int (*enable_set)(struct fpga_bridge *bridge, bool enable);
 	void (*fpga_bridge_remove)(struct fpga_bridge *bridge);
 	const struct attribute_group **groups;
-
-	void *suse_kabi_padding;
 };
 
 /**
@@ -42,8 +40,6 @@ struct fpga_bridge {
 	struct fpga_image_info *info;
 	struct list_head node;
 	void *priv;
-
-	void *suse_kabi_padding;
 };
 
 #define to_fpga_bridge(d) container_of(d, struct fpga_bridge, dev)

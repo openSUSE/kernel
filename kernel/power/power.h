@@ -5,10 +5,6 @@
 #include <linux/freezer.h>
 #include <linux/compiler.h>
 
-/* HMAC algorithm for hibernate snapshot signature */
-#define SNAPSHOT_HMAC	"hmac(sha512)"
-#define SNAPSHOT_DIGEST_SIZE 64
-
 struct swsusp_info {
 	struct new_utsname	uts;
 	u32			version_code;
@@ -17,8 +13,6 @@ struct swsusp_info {
 	unsigned long		image_pages;
 	unsigned long		pages;
 	unsigned long		size;
-	unsigned long           trampoline_pfn;
-	u8                      signature[SNAPSHOT_DIGEST_SIZE];
 } __aligned(PAGE_SIZE);
 
 #ifdef CONFIG_HIBERNATION
@@ -38,7 +32,7 @@ static inline int init_header_complete(struct swsusp_info *info)
 	return arch_hibernation_header_save(info, MAX_ARCH_HEADER_SIZE);
 }
 
-static inline char *check_image_kernel(struct swsusp_info *info)
+static inline const char *check_image_kernel(struct swsusp_info *info)
 {
 	return arch_hibernation_header_restore(info) ?
 			"architecture specific data" : NULL;
@@ -112,7 +106,7 @@ extern int create_basic_memory_bitmaps(void);
 extern void free_basic_memory_bitmaps(void);
 extern int hibernate_preallocate_memory(void);
 
-extern void clear_free_pages(void);
+extern void clear_or_poison_free_pages(void);
 
 /**
  *	Auxiliary structure used for reading the snapshot image data and
@@ -159,23 +153,6 @@ extern int snapshot_read_next(struct snapshot_handle *handle);
 extern int snapshot_write_next(struct snapshot_handle *handle);
 extern void snapshot_write_finalize(struct snapshot_handle *handle);
 extern int snapshot_image_loaded(struct snapshot_handle *handle);
-extern int snapshot_create_trampoline(void);
-extern void snapshot_init_trampoline(void);
-extern void snapshot_restore_trampoline(void);
-extern void snapshot_free_trampoline(void);
-#ifdef CONFIG_HIBERNATE_VERIFICATION
-extern int snapshot_image_verify(void);
-extern int swsusp_prepare_hash(bool may_sleep);
-extern void swsusp_finish_hash(void);
-extern void snapshot_set_enforce_verify(void);
-extern int snapshot_is_enforce_verify(void);
-#else
-static inline int snapshot_image_verify(void) { return 0; }
-static inline int swsusp_prepare_hash(bool may_sleep) { return 0; }
-static inline void swsusp_finish_hash(void) {}
-static inline void snapshot_set_enforce_verify(void) {}
-static inline int snapshot_is_enforce_verify(void) {return 0;}
-#endif
 
 extern bool hibernate_acquire(void);
 extern void hibernate_release(void);
@@ -202,7 +179,7 @@ extern void swsusp_close(fmode_t);
 extern int swsusp_unmark(void);
 #endif
 
-struct timeval;
+struct __kernel_old_timeval;
 /* kernel/power/swsusp.c */
 extern void swsusp_show_speed(ktime_t, ktime_t, unsigned int, char *);
 
@@ -233,8 +210,7 @@ static inline void suspend_test_finish(const char *label) {}
 
 #ifdef CONFIG_PM_SLEEP
 /* kernel/power/main.c */
-extern int __pm_notifier_call_chain(unsigned long val, int nr_to_call,
-				    int *nr_calls);
+extern int pm_notifier_call_chain_robust(unsigned long val_up, unsigned long val_down);
 extern int pm_notifier_call_chain(unsigned long val);
 #endif
 

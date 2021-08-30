@@ -12,6 +12,7 @@
 #include <linux/gpio/consumer.h>
 
 #include <drm/drm_atomic.h>
+#include <drm/drm_bridge.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_encoder.h>
 #include <drm/drm_fb_helper.h>
@@ -22,6 +23,9 @@
 #include "gem.h"
 #include "hub.h"
 #include "trace.h"
+
+/* XXX move to include/uapi/drm/drm_fourcc.h? */
+#define DRM_FORMAT_MOD_NVIDIA_SECTOR_LAYOUT BIT_ULL(22)
 
 struct reset_control;
 
@@ -53,7 +57,9 @@ struct tegra_drm {
 	struct tegra_fbdev *fbdev;
 #endif
 
+	unsigned int hmask, vmask;
 	unsigned int pitch_align;
+	unsigned int num_crtcs;
 
 	struct tegra_display_hub *hub;
 };
@@ -116,6 +122,7 @@ struct tegra_output {
 	struct device_node *of_node;
 	struct device *dev;
 
+	struct drm_bridge *bridge;
 	struct drm_panel *panel;
 	struct i2c_adapter *ddc;
 	const struct edid *edid;

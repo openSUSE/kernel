@@ -9,7 +9,7 @@ Supported chips:
 
     Addresses scanned: -
 
-    Datasheet: http://datasheets.maximintegrated.com/en/ds/MAX34440.pdf
+    Datasheet: https://datasheets.maximintegrated.com/en/ds/MAX34440.pdf
 
   * Maxim MAX34441
 
@@ -19,7 +19,7 @@ Supported chips:
 
     Addresses scanned: -
 
-    Datasheet: http://datasheets.maximintegrated.com/en/ds/MAX34441.pdf
+    Datasheet: https://datasheets.maximintegrated.com/en/ds/MAX34441.pdf
 
   * Maxim MAX34446
 
@@ -29,7 +29,7 @@ Supported chips:
 
     Addresses scanned: -
 
-    Datasheet: http://datasheets.maximintegrated.com/en/ds/MAX34446.pdf
+    Datasheet: https://datasheets.maximintegrated.com/en/ds/MAX34446.pdf
 
   * Maxim MAX34451
 
@@ -39,7 +39,7 @@ Supported chips:
 
     Addresses scanned: -
 
-    Datasheet: http://datasheets.maximintegrated.com/en/ds/MAX34451.pdf
+    Datasheet: https://datasheets.maximintegrated.com/en/ds/MAX34451.pdf
 
   * Maxim MAX34460
 
@@ -49,7 +49,7 @@ Supported chips:
 
     Addresses scanned: -
 
-    Datasheet: http://datasheets.maximintegrated.com/en/ds/MAX34460.pdf
+    Datasheet: https://datasheets.maximintegrated.com/en/ds/MAX34460.pdf
 
   * Maxim MAX34461
 
@@ -59,7 +59,7 @@ Supported chips:
 
     Addresses scanned: -
 
-    Datasheet: http://datasheets.maximintegrated.com/en/ds/MAX34461.pdf
+    Datasheet: https://datasheets.maximintegrated.com/en/ds/MAX34461.pdf
 
 Author: Guenter Roeck <linux@roeck-us.net>
 
@@ -83,7 +83,7 @@ Usage Notes
 -----------
 
 This driver does not auto-detect devices. You will have to instantiate the
-devices explicitly. Please see Documentation/i2c/instantiating-devices for
+devices explicitly. Please see Documentation/i2c/instantiating-devices.rst for
 details.
 
 For MAX34446, the value of the currX_crit attribute determines if current or

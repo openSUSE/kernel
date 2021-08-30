@@ -54,7 +54,6 @@ static int fsl_flexspi_clk_probe(struct platform_device *pdev)
 	void __iomem *reg;
 	struct clk_hw *hw;
 	const struct clk_div_table *divs;
-	int ret;
 
 	divs = device_get_match_data(dev);
 	if (!divs)
@@ -78,29 +77,12 @@ static int fsl_flexspi_clk_probe(struct platform_device *pdev)
 
 	of_property_read_string(np, "clock-output-names", &clk_name);
 
-	hw = clk_hw_register_divider_table(dev, clk_name, clk_parent, 0,
+	hw = devm_clk_hw_register_divider_table(dev, clk_name, clk_parent, 0,
 						reg, 0, 5, 0, divs, NULL);
 	if (IS_ERR(hw))
 		return PTR_ERR(hw);
 
-	platform_set_drvdata(pdev, hw);
-
-	ret = of_clk_add_hw_provider(pdev->dev.of_node, of_clk_hw_simple_get, hw);
-	if (ret)
-		clk_hw_unregister_divider(hw);
-
-	return ret;
-}
-
-static int fsl_flexspi_clk_remove(struct platform_device *pdev)
-{
-	struct clk_hw *hw = platform_get_drvdata(pdev);
-
-        of_clk_del_provider(pdev->dev.of_node);
-
-	clk_hw_unregister_divider(hw);
-
-        return 0;
+	return devm_of_clk_add_hw_provider(dev, of_clk_hw_simple_get, hw);
 }
 
 static const struct of_device_id fsl_flexspi_clk_dt_ids[] = {
@@ -116,7 +98,6 @@ static struct platform_driver fsl_flexspi_clk_driver = {
 		.of_match_table = fsl_flexspi_clk_dt_ids,
 	},
 	.probe = fsl_flexspi_clk_probe,
-	.remove = fsl_flexspi_clk_remove,
 };
 module_platform_driver(fsl_flexspi_clk_driver);
 

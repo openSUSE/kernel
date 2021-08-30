@@ -6,6 +6,11 @@
 #include "sort.h"
 #include "config.h"
 #include "time-utils.h"
+#include "../util.h"
+#include "../../util/util.h" // perf_exe()
+#include "../../perf.h"
+#include <stdlib.h>
+#include <string.h>
 #include <linux/time64.h>
 #include <linux/zalloc.h>
 
@@ -24,7 +29,7 @@ void res_sample_init(void)
 }
 
 int res_sample_browse(struct res_sample *res_samples, int num_res,
-		      struct perf_evsel *evsel, enum rstype rstype)
+		      struct evsel *evsel, enum rstype rstype)
 {
 	char **names;
 	int i, n;
@@ -51,7 +56,7 @@ int res_sample_browse(struct res_sample *res_samples, int num_res,
 			return -1;
 		}
 	}
-	choice = ui__popup_menu(num_res, names);
+	choice = ui__popup_menu(num_res, names, NULL);
 	for (i = 0; i < num_res; i++)
 		zfree(&names[i]);
 	free(names);
@@ -66,7 +71,7 @@ int res_sample_browse(struct res_sample *res_samples, int num_res,
 
 	timestamp__scnprintf_nsec(r->time, tsample, sizeof tsample);
 
-	attr_to_script(extra_format, &evsel->attr);
+	attr_to_script(extra_format, &evsel->core.attr);
 
 	if (asprintf(&cmd, "%s script %s%s --time %s %s%s %s%s --ns %s %s %s %s %s | less +/%s",
 		     perf,

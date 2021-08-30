@@ -75,7 +75,7 @@
 	leds {
 		compatible = "gpio-leds";
 
-		green {
+		led {
 			label = "lamobo_r1:green:usr";
 			gpios = <&pio 7 24 GPIO_ACTIVE_HIGH>;
 		};
@@ -123,8 +123,6 @@
 	phy-mode = "rgmii";
 	phy-supply = <&reg_gmac_3v3>;
 	status = "okay";
-	/delete-property/#address-cells;
-	/delete-property/#size-cells;
 
 	fixed-link {
 		speed = <1000>;

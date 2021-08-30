@@ -43,10 +43,8 @@ static int ghash_setkey(struct crypto_shash *tfm,
 {
 	struct ghash_ctx *ctx = crypto_shash_ctx(tfm);
 
-	if (keylen != GHASH_BLOCK_SIZE) {
-		crypto_shash_set_flags(tfm, CRYPTO_TFM_RES_BAD_KEY_LEN);
+	if (keylen != GHASH_BLOCK_SIZE)
 		return -EINVAL;
-	}
 
 	memcpy(ctx->key, key, GHASH_BLOCK_SIZE);
 
@@ -153,4 +151,4 @@ module_exit(ghash_mod_exit);
 MODULE_ALIAS_CRYPTO("ghash");
 
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("GHASH Message Digest Algorithm, s390 implementation");
+MODULE_DESCRIPTION("GHASH hash function, s390 implementation");

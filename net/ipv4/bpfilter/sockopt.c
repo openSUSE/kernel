@@ -8,7 +8,6 @@
 #include <linux/kmod.h>
 #include <linux/fs.h>
 #include <linux/file.h>
-#include <linux/sched/signal.h>
 
 struct bpfilter_umh_ops bpfilter_ops;
 EXPORT_SYMBOL_GPL(bpfilter_ops);

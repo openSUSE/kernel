@@ -9,7 +9,7 @@
 #include "wil6210.h"
 #include "trace.h"
 
-/**
+/*
  * Theory of operation:
  *
  * There is ISR pseudo-cause register,
@@ -645,9 +645,7 @@ static irqreturn_t wil6210_irq_misc_thread(int irq, void *cookie)
 	return IRQ_HANDLED;
 }
 
-/**
- * thread IRQ handler
- */
+/* thread IRQ handler */
 static irqreturn_t wil6210_thread_irq(int irq, void *cookie)
 {
 	struct wil6210_priv *wil = cookie;

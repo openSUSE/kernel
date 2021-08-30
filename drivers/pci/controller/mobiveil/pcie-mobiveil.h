@@ -86,10 +86,6 @@
 #define PAB_AXI_AMAP_PEX_WIN_H(win)	PAB_REG_ADDR(0x0bac, win)
 #define PAB_INTP_AXI_PIO_CLASS		0x474
 
-#define GPEX_ACK_REPLAY_TO		0x438
-#define  ACK_LAT_TO_VAL_MASK		0x1fff
-#define  ACK_LAT_TO_VAL_SHIFT		0
-
 #define PAB_PEX_AMAP_CTRL(win)		PAB_REG_ADDR(0x4ba0, win)
 #define  AMAP_CTRL_EN_SHIFT		0
 #define  AMAP_CTRL_TYPE_SHIFT		1
@@ -150,8 +146,6 @@ struct mobiveil_pcie;
 
 struct mobiveil_rp_ops {
 	int (*interrupt_init)(struct mobiveil_pcie *pcie);
-	int (*read_other_conf)(struct pci_bus *bus, unsigned int devfn,
-			       int where, int size, u32 *val);
 };
 
 struct mobiveil_root_port {
@@ -167,7 +161,6 @@ struct mobiveil_root_port {
 
 struct mobiveil_pab_ops {
 	int (*link_up)(struct mobiveil_pcie *pcie);
-	int (*host_init)(struct mobiveil_pcie *pcie);
 };
 
 struct mobiveil_pcie {

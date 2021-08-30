@@ -19,7 +19,9 @@
 #include <linux/err.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
+#include <linux/iopoll.h>
 #include <linux/i2c.h>
+#include <linux/i2c-smbus.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/of_device.h>
@@ -104,10 +106,11 @@
 #define ID_ARBLOST	(1 << 3)
 #define ID_NACK		(1 << 4)
 /* persistent flags */
+#define ID_P_HOST_NOTIFY	BIT(28)
 #define ID_P_REP_AFTER_RD	BIT(29)
 #define ID_P_NO_RXDMA		BIT(30) /* HW forbids RXDMA sometimes */
 #define ID_P_PM_BLOCKED		BIT(31)
-#define ID_P_MASK		GENMASK(31, 29)
+#define ID_P_MASK		GENMASK(31, 28)
 
 enum rcar_i2c_type {
 	I2C_RCAR_GEN1,
@@ -138,14 +141,14 @@ struct rcar_i2c_priv {
 	enum dma_data_direction dma_direction;
 
 	struct reset_control *rstc;
+	bool atomic_xfer;
 	int irq;
+
+	struct i2c_client *host_notify_client;
 };
 
 #define rcar_i2c_priv_to_dev(p)		((p)->adap.dev.parent)
 #define rcar_i2c_is_recv(p)		((p)->msg->flags & I2C_M_RD)
-
-#define LOOP_TIMEOUT	1024
-
 
 static void rcar_i2c_write(struct rcar_i2c_priv *priv, int reg, u32 val)
 {
@@ -220,31 +223,34 @@ static void rcar_i2c_init(struct rcar_i2c_priv *priv)
 
 static int rcar_i2c_bus_barrier(struct rcar_i2c_priv *priv)
 {
-	int i;
+	int ret;
+	u32 val;
 
-	for (i = 0; i < LOOP_TIMEOUT; i++) {
-		/* make sure that bus is not busy */
-		if (!(rcar_i2c_read(priv, ICMCR) & FSDA))
-			return 0;
-		udelay(1);
+	ret = readl_poll_timeout(priv->io + ICMCR, val, !(val & FSDA), 10,
+				 priv->adap.timeout);
+	if (ret) {
+		/* Waiting did not help, try to recover */
+		priv->recovery_icmcr = MDBS | OBPC | FSDA | FSCL;
+		ret = i2c_recover_bus(&priv->adap);
 	}
 
-	/* Waiting did not help, try to recover */
-	priv->recovery_icmcr = MDBS | OBPC | FSDA | FSCL;
-	return i2c_recover_bus(&priv->adap);
+	return ret;
 }
 
-static int rcar_i2c_clock_calculate(struct rcar_i2c_priv *priv, struct i2c_timings *t)
+static int rcar_i2c_clock_calculate(struct rcar_i2c_priv *priv)
 {
 	u32 scgd, cdf, round, ick, sum, scl, cdf_width;
 	unsigned long rate;
 	struct device *dev = rcar_i2c_priv_to_dev(priv);
+	struct i2c_timings t = {
+		.bus_freq_hz		= I2C_MAX_STANDARD_MODE_FREQ,
+		.scl_fall_ns		= 35,
+		.scl_rise_ns		= 200,
+		.scl_int_delay_ns	= 50,
+	};
 
 	/* Fall back to previously used values if not supplied */
-	t->bus_freq_hz = t->bus_freq_hz ?: 100000;
-	t->scl_fall_ns = t->scl_fall_ns ?: 35;
-	t->scl_rise_ns = t->scl_rise_ns ?: 200;
-	t->scl_int_delay_ns = t->scl_int_delay_ns ?: 50;
+	i2c_parse_fw_timings(dev, &t, false);
 
 	switch (priv->devtype) {
 	case I2C_RCAR_GEN1:
@@ -290,7 +296,7 @@ static int rcar_i2c_clock_calculate(struct rcar_i2c_priv *priv, struct i2c_timin
 	 *  = F[sum * ick / 1000000000]
 	 *  = F[(ick / 1000000) * sum / 1000]
 	 */
-	sum = t->scl_fall_ns + t->scl_rise_ns + t->scl_int_delay_ns;
+	sum = t.scl_fall_ns + t.scl_rise_ns + t.scl_int_delay_ns;
 	round = (ick + 500000) / 1000000 * sum;
 	round = (round + 500) / 1000;
 
@@ -308,7 +314,7 @@ static int rcar_i2c_clock_calculate(struct rcar_i2c_priv *priv, struct i2c_timin
 	 */
 	for (scgd = 0; scgd < 0x40; scgd++) {
 		scl = ick / (20 + (scgd * 8) + round);
-		if (scl <= t->bus_freq_hz)
+		if (scl <= t.bus_freq_hz)
 			goto scgd_find;
 	}
 	dev_err(dev, "it is impossible to calculate best SCL\n");
@@ -316,7 +322,7 @@ static int rcar_i2c_clock_calculate(struct rcar_i2c_priv *priv, struct i2c_timin
 
 scgd_find:
 	dev_dbg(dev, "clk %d/%d(%lu), round %u, CDF:0x%x, SCGD: 0x%x\n",
-		scl, t->bus_freq_hz, clk_get_rate(priv->clk), round, cdf, scgd);
+		scl, t.bus_freq_hz, rate, round, cdf, scgd);
 
 	/* keep icccr value */
 	priv->icccr = scgd << cdf_width | cdf;
@@ -348,7 +354,9 @@ static void rcar_i2c_prepare_msg(struct rcar_i2c_priv *priv)
 			rcar_i2c_write(priv, ICMCR, RCAR_BUS_PHASE_START);
 		rcar_i2c_write(priv, ICMSR, 0);
 	}
-	rcar_i2c_write(priv, ICMIER, read ? RCAR_IRQ_RECV : RCAR_IRQ_SEND);
+
+	if (!priv->atomic_xfer)
+		rcar_i2c_write(priv, ICMIER, read ? RCAR_IRQ_RECV : RCAR_IRQ_SEND);
 }
 
 static void rcar_i2c_next_msg(struct rcar_i2c_priv *priv)
@@ -413,7 +421,7 @@ static bool rcar_i2c_dma(struct rcar_i2c_priv *priv)
 	int len;
 
 	/* Do various checks to see if DMA is feasible at all */
-	if (IS_ERR(chan) || msg->len < RCAR_MIN_DMA_LEN ||
+	if (priv->atomic_xfer || IS_ERR(chan) || msg->len < RCAR_MIN_DMA_LEN ||
 	    !(msg->flags & I2C_M_DMA_SAFE) || (read && priv->flags & ID_P_NO_RXDMA))
 		return false;
 
@@ -620,20 +628,11 @@ static bool rcar_i2c_slave_irq(struct rcar_i2c_priv *priv)
  * generated. It turned out that taking a spinlock at the beginning of the ISR
  * was already causing repeated messages. Thus, this driver was converted to
  * the now lockless behaviour. Please keep this in mind when hacking the driver.
+ * R-Car Gen3 seems to have this fixed but earlier versions than R-Car Gen2 are
+ * likely affected. Therefore, we have different interrupt handler entries.
  */
-static irqreturn_t rcar_i2c_irq(int irq, void *ptr)
+static irqreturn_t rcar_i2c_irq(int irq, struct rcar_i2c_priv *priv, u32 msr)
 {
-	struct rcar_i2c_priv *priv = ptr;
-	u32 msr;
-
-	/* Clear START or STOP immediately, except for REPSTART after read */
-	if (likely(!(priv->flags & ID_P_REP_AFTER_RD)))
-		rcar_i2c_write(priv, ICMCR, RCAR_BUS_PHASE_DATA);
-
-	msr = rcar_i2c_read(priv, ICMSR);
-
-	/* Only handle interrupts that are currently enabled */
-	msr &= rcar_i2c_read(priv, ICMIER);
 	if (!msr) {
 		if (rcar_i2c_slave_irq(priv))
 			return IRQ_HANDLED;
@@ -650,7 +649,8 @@ static irqreturn_t rcar_i2c_irq(int irq, void *ptr)
 	/* Nack */
 	if (msr & MNR) {
 		/* HW automatically sends STOP after received NACK */
-		rcar_i2c_write(priv, ICMIER, RCAR_IRQ_STOP);
+		if (!priv->atomic_xfer)
+			rcar_i2c_write(priv, ICMIER, RCAR_IRQ_STOP);
 		priv->flags |= ID_NACK;
 		goto out;
 	}
@@ -671,10 +671,48 @@ out:
 	if (priv->flags & ID_DONE) {
 		rcar_i2c_write(priv, ICMIER, 0);
 		rcar_i2c_write(priv, ICMSR, 0);
-		wake_up(&priv->wait);
+		if (!priv->atomic_xfer)
+			wake_up(&priv->wait);
 	}
 
 	return IRQ_HANDLED;
+}
+
+static irqreturn_t rcar_i2c_gen2_irq(int irq, void *ptr)
+{
+	struct rcar_i2c_priv *priv = ptr;
+	u32 msr;
+
+	/* Clear START or STOP immediately, except for REPSTART after read */
+	if (likely(!(priv->flags & ID_P_REP_AFTER_RD)))
+		rcar_i2c_write(priv, ICMCR, RCAR_BUS_PHASE_DATA);
+
+	/* Only handle interrupts that are currently enabled */
+	msr = rcar_i2c_read(priv, ICMSR);
+	if (!priv->atomic_xfer)
+		msr &= rcar_i2c_read(priv, ICMIER);
+
+	return rcar_i2c_irq(irq, priv, msr);
+}
+
+static irqreturn_t rcar_i2c_gen3_irq(int irq, void *ptr)
+{
+	struct rcar_i2c_priv *priv = ptr;
+	u32 msr;
+
+	/* Only handle interrupts that are currently enabled */
+	msr = rcar_i2c_read(priv, ICMSR);
+	if (!priv->atomic_xfer)
+		msr &= rcar_i2c_read(priv, ICMIER);
+
+	/*
+	 * Clear START or STOP immediately, except for REPSTART after read or
+	 * if a spurious interrupt was detected.
+	 */
+	if (likely(!(priv->flags & ID_P_REP_AFTER_RD) && msr))
+		rcar_i2c_write(priv, ICMCR, RCAR_BUS_PHASE_DATA);
+
+	return rcar_i2c_irq(irq, priv, msr);
 }
 
 static struct dma_chan *rcar_i2c_request_dma_chan(struct device *dev,
@@ -754,20 +792,14 @@ static void rcar_i2c_release_dma(struct rcar_i2c_priv *priv)
 /* I2C is a special case, we need to poll the status of a reset */
 static int rcar_i2c_do_reset(struct rcar_i2c_priv *priv)
 {
-	int i, ret;
+	int ret;
 
 	ret = reset_control_reset(priv->rstc);
 	if (ret)
 		return ret;
 
-	for (i = 0; i < LOOP_TIMEOUT; i++) {
-		ret = reset_control_status(priv->rstc);
-		if (ret == 0)
-			return 0;
-		udelay(1);
-	}
-
-	return -ETIMEDOUT;
+	return read_poll_timeout_atomic(reset_control_status, ret, ret == 0, 1,
+					100, false, priv->rstc);
 }
 
 static int rcar_i2c_master_xfer(struct i2c_adapter *adap,
@@ -778,6 +810,8 @@ static int rcar_i2c_master_xfer(struct i2c_adapter *adap,
 	struct device *dev = rcar_i2c_priv_to_dev(priv);
 	int i, ret;
 	long time_left;
+
+	priv->atomic_xfer = false;
 
 	pm_runtime_get_sync(dev);
 
@@ -813,6 +847,68 @@ static int rcar_i2c_master_xfer(struct i2c_adapter *adap,
 	/* cleanup DMA if it couldn't complete properly due to an error */
 	if (priv->dma_direction != DMA_NONE)
 		rcar_i2c_cleanup_dma(priv);
+
+	if (!time_left) {
+		rcar_i2c_init(priv);
+		ret = -ETIMEDOUT;
+	} else if (priv->flags & ID_NACK) {
+		ret = -ENXIO;
+	} else if (priv->flags & ID_ARBLOST) {
+		ret = -EAGAIN;
+	} else {
+		ret = num - priv->msgs_left; /* The number of transfer */
+	}
+out:
+	pm_runtime_put(dev);
+
+	if (ret < 0 && ret != -ENXIO)
+		dev_err(dev, "error %d : %x\n", ret, priv->flags);
+
+	return ret;
+}
+
+static int rcar_i2c_master_xfer_atomic(struct i2c_adapter *adap,
+				struct i2c_msg *msgs,
+				int num)
+{
+	struct rcar_i2c_priv *priv = i2c_get_adapdata(adap);
+	struct device *dev = rcar_i2c_priv_to_dev(priv);
+	unsigned long j;
+	bool time_left;
+	int ret;
+
+	priv->atomic_xfer = true;
+
+	pm_runtime_get_sync(dev);
+
+	/* Check bus state before init otherwise bus busy info will be lost */
+	ret = rcar_i2c_bus_barrier(priv);
+	if (ret < 0)
+		goto out;
+
+	rcar_i2c_init(priv);
+
+	/* init first message */
+	priv->msg = msgs;
+	priv->msgs_left = num;
+	priv->flags = (priv->flags & ID_P_MASK) | ID_FIRST_MSG;
+	rcar_i2c_prepare_msg(priv);
+
+	j = jiffies + num * adap->timeout;
+	do {
+		u32 msr = rcar_i2c_read(priv, ICMSR);
+
+		msr &= (rcar_i2c_is_recv(priv) ? RCAR_IRQ_RECV : RCAR_IRQ_SEND) | RCAR_IRQ_STOP;
+
+		if (msr) {
+			if (priv->devtype < I2C_RCAR_GEN3)
+				rcar_i2c_gen2_irq(0, priv);
+			else
+				rcar_i2c_gen3_irq(0, priv);
+		}
+
+		time_left = time_before_eq(jiffies, j);
+	} while (!(priv->flags & ID_DONE) && time_left);
 
 	if (!time_left) {
 		rcar_i2c_init(priv);
@@ -878,18 +974,26 @@ static int rcar_unreg_slave(struct i2c_client *slave)
 
 static u32 rcar_i2c_func(struct i2c_adapter *adap)
 {
+	struct rcar_i2c_priv *priv = i2c_get_adapdata(adap);
+
 	/*
 	 * This HW can't do:
 	 * I2C_SMBUS_QUICK (setting FSB during START didn't work)
 	 * I2C_M_NOSTART (automatically sends address after START)
 	 * I2C_M_IGNORE_NAK (automatically sends STOP after NAK)
 	 */
-	return I2C_FUNC_I2C | I2C_FUNC_SLAVE |
-		(I2C_FUNC_SMBUS_EMUL & ~I2C_FUNC_SMBUS_QUICK);
+	u32 func = I2C_FUNC_I2C | I2C_FUNC_SLAVE |
+		   (I2C_FUNC_SMBUS_EMUL & ~I2C_FUNC_SMBUS_QUICK);
+
+	if (priv->flags & ID_P_HOST_NOTIFY)
+		func |= I2C_FUNC_SMBUS_HOST_NOTIFY;
+
+	return func;
 }
 
 static const struct i2c_algorithm rcar_i2c_algo = {
 	.master_xfer	= rcar_i2c_master_xfer,
+	.master_xfer_atomic = rcar_i2c_master_xfer_atomic,
 	.functionality	= rcar_i2c_func,
 	.reg_slave	= rcar_reg_slave,
 	.unreg_slave	= rcar_unreg_slave,
@@ -909,7 +1013,6 @@ static const struct of_device_id rcar_i2c_dt_ids[] = {
 	{ .compatible = "renesas,i2c-r8a7794", .data = (void *)I2C_RCAR_GEN2 },
 	{ .compatible = "renesas,i2c-r8a7795", .data = (void *)I2C_RCAR_GEN3 },
 	{ .compatible = "renesas,i2c-r8a7796", .data = (void *)I2C_RCAR_GEN3 },
-	{ .compatible = "renesas,i2c-rcar", .data = (void *)I2C_RCAR_GEN1 },	/* Deprecated */
 	{ .compatible = "renesas,rcar-gen1-i2c", .data = (void *)I2C_RCAR_GEN1 },
 	{ .compatible = "renesas,rcar-gen2-i2c", .data = (void *)I2C_RCAR_GEN2 },
 	{ .compatible = "renesas,rcar-gen3-i2c", .data = (void *)I2C_RCAR_GEN3 },
@@ -922,7 +1025,8 @@ static int rcar_i2c_probe(struct platform_device *pdev)
 	struct rcar_i2c_priv *priv;
 	struct i2c_adapter *adap;
 	struct device *dev = &pdev->dev;
-	struct i2c_timings i2c_t;
+	unsigned long irqflags = 0;
+	irqreturn_t (*irqhandler)(int irq, void *ptr) = rcar_i2c_gen3_irq;
 	int ret;
 
 	/* Otherwise logic will break because some bytes must always use PIO */
@@ -938,9 +1042,7 @@ static int rcar_i2c_probe(struct platform_device *pdev)
 		return PTR_ERR(priv->clk);
 	}
 
-	priv->res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-
-	priv->io = devm_ioremap_resource(dev, priv->res);
+	priv->io = devm_platform_get_and_ioremap_resource(pdev, 0, &priv->res);
 	if (IS_ERR(priv->io))
 		return PTR_ERR(priv->io);
 
@@ -959,8 +1061,6 @@ static int rcar_i2c_probe(struct platform_device *pdev)
 	i2c_set_adapdata(adap, priv);
 	strlcpy(adap->name, pdev->name, sizeof(adap->name));
 
-	i2c_parse_fw_timings(dev, &i2c_t, false);
-
 	/* Init DMA */
 	sg_init_table(&priv->sg, 1);
 	priv->dma_direction = DMA_NONE;
@@ -969,11 +1069,16 @@ static int rcar_i2c_probe(struct platform_device *pdev)
 	/* Activate device for clock calculation */
 	pm_runtime_enable(dev);
 	pm_runtime_get_sync(dev);
-	ret = rcar_i2c_clock_calculate(priv, &i2c_t);
+	ret = rcar_i2c_clock_calculate(priv);
 	if (ret < 0)
 		goto out_pm_put;
 
 	rcar_i2c_write(priv, ICSAR, 0); /* Gen2: must be 0 if not using slave */
+
+	if (priv->devtype < I2C_RCAR_GEN3) {
+		irqflags |= IRQF_NO_THREAD;
+		irqhandler = rcar_i2c_gen2_irq;
+	}
 
 	if (priv->devtype == I2C_RCAR_GEN3) {
 		priv->rstc = devm_reset_control_get_exclusive(&pdev->dev, NULL);
@@ -990,9 +1095,14 @@ static int rcar_i2c_probe(struct platform_device *pdev)
 	else
 		pm_runtime_put(dev);
 
+	if (of_property_read_bool(dev->of_node, "smbus"))
+		priv->flags |= ID_P_HOST_NOTIFY;
 
-	priv->irq = platform_get_irq(pdev, 0);
-	ret = devm_request_irq(dev, priv->irq, rcar_i2c_irq, 0, dev_name(dev), priv);
+	ret = platform_get_irq(pdev, 0);
+	if (ret < 0)
+		goto out_pm_disable;
+	priv->irq = ret;
+	ret = devm_request_irq(dev, priv->irq, irqhandler, irqflags, dev_name(dev), priv);
 	if (ret < 0) {
 		dev_err(dev, "cannot get irq %d\n", priv->irq);
 		goto out_pm_disable;
@@ -1004,10 +1114,20 @@ static int rcar_i2c_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto out_pm_disable;
 
+	if (priv->flags & ID_P_HOST_NOTIFY) {
+		priv->host_notify_client = i2c_new_slave_host_notify_device(adap);
+		if (IS_ERR(priv->host_notify_client)) {
+			ret = PTR_ERR(priv->host_notify_client);
+			goto out_del_device;
+		}
+	}
+
 	dev_info(dev, "probed\n");
 
 	return 0;
 
+ out_del_device:
+	i2c_del_adapter(&priv->adap);
  out_pm_put:
 	pm_runtime_put(dev);
  out_pm_disable:
@@ -1020,6 +1140,8 @@ static int rcar_i2c_remove(struct platform_device *pdev)
 	struct rcar_i2c_priv *priv = platform_get_drvdata(pdev);
 	struct device *dev = &pdev->dev;
 
+	if (priv->host_notify_client)
+		i2c_free_slave_host_notify_device(priv->host_notify_client);
 	i2c_del_adapter(&priv->adap);
 	rcar_i2c_release_dma(priv);
 	if (priv->flags & ID_P_PM_BLOCKED)

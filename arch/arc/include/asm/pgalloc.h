@@ -18,10 +18,10 @@
  * vineetg: April 2010
  *  -Switched pgtable_t from being struct page * to unsigned long
  *      =Needed so that Page Table allocator (pte_alloc_one) is not forced to
- *       to deal with struct page. Thay way in future we can make it allocate
+ *       deal with struct page. That way in future we can make it allocate
  *       multiple PG Tbls in one Page Frame
  *      =sweet side effect is avoiding calls to ugly page_address( ) from the
- *       pg-tlb allocator sub-sys (pte_alloc_one, ptr_free, pmd_populate
+ *       pg-tlb allocator sub-sys (pte_alloc_one, ptr_free, pmd_populate)
  *
  *  Amit Bhor, Sameer Dhavale: Codito Technologies 2004
  */
@@ -108,7 +108,7 @@ pte_alloc_one(struct mm_struct *mm)
 		return 0;
 	memzero((void *)pte_pg, PTRS_PER_PTE * sizeof(pte_t));
 	page = virt_to_page(pte_pg);
-	if (!pgtable_page_ctor(page)) {
+	if (!pgtable_pte_page_ctor(page)) {
 		__free_page(page);
 		return 0;
 	}
@@ -123,13 +123,10 @@ static inline void pte_free_kernel(struct mm_struct *mm, pte_t *pte)
 
 static inline void pte_free(struct mm_struct *mm, pgtable_t ptep)
 {
-	pgtable_page_dtor(virt_to_page(ptep));
+	pgtable_pte_page_dtor(virt_to_page(ptep));
 	free_pages((unsigned long)ptep, __get_order_pte());
 }
 
 #define __pte_free_tlb(tlb, pte, addr)  pte_free((tlb)->mm, pte)
-
-#define check_pgt_cache()   do { } while (0)
-#define pmd_pgtable(pmd)	((pgtable_t) pmd_page_vaddr(pmd))
 
 #endif /* _ASM_ARC_PGALLOC_H */

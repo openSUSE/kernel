@@ -239,6 +239,24 @@ struct dpaa2_faead {
 #define DPAA2_FAEAD_EBDDV		0x00002000
 #define DPAA2_FAEAD_UPD			0x00000010
 
+struct ptp_tstamp {
+	u16 sec_msb;
+	u32 sec_lsb;
+	u32 nsec;
+};
+
+static inline void ns_to_ptp_tstamp(struct ptp_tstamp *tstamp, u64 ns)
+{
+	u64 sec, nsec;
+
+	sec = ns;
+	nsec = do_div(sec, 1000000000);
+
+	tstamp->sec_lsb = sec & 0xFFFFFFFF;
+	tstamp->sec_msb = (sec >> 32) & 0xFFFF;
+	tstamp->nsec = nsec;
+}
+
 /* Accessors for the hardware annotation fields that we use */
 static inline void *dpaa2_get_hwa(void *buf_addr, bool swa)
 {
@@ -420,8 +438,6 @@ struct dpaa2_eth_fq {
 
 struct dpaa2_eth_ch_xdp {
 	struct bpf_prog *prog;
-	u64 drop_bufs[DPAA2_ETH_BUFS_PER_CMD];
-	int drop_cnt;
 	unsigned int res;
 };
 
@@ -439,6 +455,10 @@ struct dpaa2_eth_channel {
 	struct dpaa2_eth_ch_xdp xdp;
 	struct xdp_rxq_info xdp_rxq;
 	struct list_head *rx_list;
+
+	/* Buffers to be recycled back in the buffer pool */
+	u64 recycled_bufs[DPAA2_ETH_BUFS_PER_CMD];
+	int recycled_bufs_cnt;
 };
 
 struct dpaa2_eth_dist_fields {
@@ -468,6 +488,8 @@ struct dpaa2_eth_trap_data {
 	struct dpaa2_eth_trap_item *trap_items_arr;
 	struct dpaa2_eth_priv *priv;
 };
+
+#define DPAA2_ETH_DEFAULT_COPYBREAK	512
 
 /* Driver private data */
 struct dpaa2_eth_priv {
@@ -535,9 +557,22 @@ struct dpaa2_eth_priv {
 #endif
 
 	struct dpaa2_mac *mac;
+	struct workqueue_struct	*dpaa2_ptp_wq;
+	struct work_struct	tx_onestep_tstamp;
+	struct sk_buff_head	tx_skbs;
+	/* The one-step timestamping configuration on hardware
+	 * registers could only be done when no one-step
+	 * timestamping frames are in flight. So we use a mutex
+	 * lock here to make sure the lock is released by last
+	 * one-step timestamping packet through TX confirmation
+	 * queue before transmit current packet.
+	 */
+	struct mutex		onestep_tstamp_lock;
 	struct devlink *devlink;
 	struct dpaa2_eth_trap_data *trap_data;
 	struct devlink_port devlink_port;
+
+	u32 rx_copybreak;
 };
 
 struct dpaa2_eth_devlink_priv {
@@ -545,6 +580,7 @@ struct dpaa2_eth_devlink_priv {
 };
 
 #define TX_TSTAMP		0x1
+#define TX_TSTAMP_ONESTEP_SYNC	0x2
 
 #define DPAA2_RXH_SUPPORTED	(RXH_L2DA | RXH_VLAN | RXH_L3_PROTO \
 				| RXH_IP_SRC | RXH_IP_DST | RXH_L4_B_0_1 \
@@ -649,7 +685,7 @@ static inline unsigned int dpaa2_eth_needed_headroom(struct sk_buff *skb)
 		return 0;
 
 	/* If we have Tx timestamping, need 128B hardware annotation */
-	if (skb->cb[0] == TX_TSTAMP)
+	if (skb->cb[0])
 		headroom += DPAA2_ETH_TX_HWA_SIZE;
 
 	return headroom;
@@ -661,6 +697,21 @@ static inline unsigned int dpaa2_eth_needed_headroom(struct sk_buff *skb)
 static inline unsigned int dpaa2_eth_rx_head_room(struct dpaa2_eth_priv *priv)
 {
 	return priv->tx_data_offset - DPAA2_ETH_RX_HWA_SIZE;
+}
+
+static inline bool dpaa2_eth_is_type_phy(struct dpaa2_eth_priv *priv)
+{
+	if (priv->mac &&
+	    (priv->mac->attr.link_type == DPMAC_LINK_TYPE_PHY ||
+	     priv->mac->attr.link_type == DPMAC_LINK_TYPE_BACKPLANE))
+		return true;
+
+	return false;
+}
+
+static inline bool dpaa2_eth_has_mac(struct dpaa2_eth_priv *priv)
+{
+	return priv->mac ? true : false;
 }
 
 int dpaa2_eth_set_hash(struct net_device *net_dev, u64 flags);

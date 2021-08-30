@@ -30,7 +30,7 @@ static unsigned int jhash_rnd __read_mostly;
 
 static unsigned int xt_rateest_hash(const char *name)
 {
-	return jhash(name, FIELD_SIZEOF(struct xt_rateest, name), jhash_rnd) &
+	return jhash(name, sizeof_field(struct xt_rateest, name), jhash_rnd) &
 	       (RATEEST_HSIZE - 1);
 }
 
@@ -114,6 +114,9 @@ static int xt_rateest_tg_checkentry(const struct xt_tgchk_param *par)
 		struct gnet_estimator	est;
 	} cfg;
 	int ret;
+
+	if (strnlen(info->name, sizeof(est->name)) >= sizeof(est->name))
+		return -ENAMETOOLONG;
 
 	net_get_random_once(&jhash_rnd, sizeof(jhash_rnd));
 

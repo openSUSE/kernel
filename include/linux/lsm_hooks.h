@@ -34,40 +34,48 @@
  *
  * Security hooks for program execution operations.
  *
- * @bprm_set_creds:
- *	Save security information in the bprm->security field, typically based
- *	on information about the bprm->file, for later use by the apply_creds
- *	hook.  This hook may also optionally check permissions (e.g. for
- *	transitions between security domains).
- *	This hook may be called multiple times during a single execve, e.g. for
- *	interpreters.  The hook can tell whether it has already been called by
- *	checking to see if @bprm->security is non-NULL.  If so, then the hook
- *	may decide either to retain the security information saved earlier or
- *	to replace it.  The hook must set @bprm->secureexec to 1 if a "secure
- *	exec" has happened as a result of this hook call.  The flag is used to
- *	indicate the need for a sanitized execution environment, and is also
- *	passed in the ELF auxiliary table on the initial stack to indicate
- *	whether libc should enable secure mode.
+ * @bprm_creds_for_exec:
+ *	If the setup in prepare_exec_creds did not setup @bprm->cred->security
+ *	properly for executing @bprm->file, update the LSM's portion of
+ *	@bprm->cred->security to be what commit_creds needs to install for the
+ *	new program.  This hook may also optionally check permissions
+ *	(e.g. for transitions between security domains).
+ *	The hook must set @bprm->secureexec to 1 if AT_SECURE should be set to
+ *	request libc enable secure mode.
+ *	@bprm contains the linux_binprm structure.
+ *	Return 0 if the hook is successful and permission is granted.
+ * @bprm_creds_from_file:
+ *	If @file is setpcap, suid, sgid or otherwise marked to change
+ *	privilege upon exec, update @bprm->cred to reflect that change.
+ *	This is called after finding the binary that will be executed.
+ *	without an interpreter.  This ensures that the credentials will not
+ *	be derived from a script that the binary will need to reopen, which
+ *	when reopend may end up being a completely different file.  This
+ *	hook may also optionally check permissions (e.g. for transitions
+ *	between security domains).
+ *	The hook must set @bprm->secureexec to 1 if AT_SECURE should be set to
+ *	request libc enable secure mode.
+ *	The hook must add to @bprm->per_clear any personality flags that
+ * 	should be cleared from current->personality.
  *	@bprm contains the linux_binprm structure.
  *	Return 0 if the hook is successful and permission is granted.
  * @bprm_check_security:
  *	This hook mediates the point when a search for a binary handler will
- *	begin.  It allows a check the @bprm->security value which is set in the
- *	preceding set_creds call.  The primary difference from set_creds is
- *	that the argv list and envp list are reliably available in @bprm.  This
- *	hook may be called multiple times during a single execve; and in each
- *	pass set_creds is called first.
+ *	begin.  It allows a check against the @bprm->cred->security value
+ *	which was set in the preceding creds_for_exec call.  The argv list and
+ *	envp list are reliably available in @bprm.  This hook may be called
+ *	multiple times during a single execve.
  *	@bprm contains the linux_binprm structure.
  *	Return 0 if the hook is successful and permission is granted.
  * @bprm_committing_creds:
  *	Prepare to install the new security attributes of a process being
  *	transformed by an execve operation, based on the old credentials
  *	pointed to by @current->cred and the information set in @bprm->cred by
- *	the bprm_set_creds hook.  @bprm points to the linux_binprm structure.
- *	This hook is a good place to perform state changes on the process such
- *	as closing open file descriptors to which access will no longer be
- *	granted when the attributes are changed.  This is called immediately
- *	before commit_creds().
+ *	the bprm_creds_for_exec hook.  @bprm points to the linux_binprm
+ *	structure.  This hook is a good place to perform state changes on the
+ *	process such as closing open file descriptors to which access will no
+ *	longer be granted when the attributes are changed.  This is called
+ *	immediately before commit_creds().
  * @bprm_committed_creds:
  *	Tidy up after the installation of the new security attributes of a
  *	process being transformed by an execve operation.  The new credentials
@@ -77,7 +85,7 @@
  *	state.  This is called immediately after commit_creds().
  *
  * Security hooks for mount using fs_context.
- *	[See also Documentation/filesystems/mount_api.txt]
+ *	[See also Documentation/filesystems/mount_api.rst]
  *
  * @fs_context_dup:
  *	Allocate and attach a security structure to sc->security.  This pointer
@@ -100,9 +108,16 @@
  *	allocated.
  *	@sb contains the super_block structure to be modified.
  *	Return 0 if operation was successful.
+ * @sb_delete:
+ *	Release objects tied to a superblock (e.g. inodes).
+ *	@sb contains the super_block structure being released.
  * @sb_free_security:
  *	Deallocate and clear the sb->s_security field.
  *	@sb contains the super_block structure to be modified.
+ * @sb_free_mnt_opts:
+ * 	Free memory associated with @mnt_ops.
+ * @sb_eat_lsm_opts:
+ * 	Eat (scan @orig options) and save them in @mnt_opts.
  * @sb_statfs:
  *	Check permission before obtaining filesystem statistics for the @mnt
  *	mountpoint.
@@ -130,12 +145,22 @@
  *	@orig the original mount data copied from userspace.
  *	@copy copied data which will be passed to the security module.
  *	Returns 0 if the copy was successful.
+ * @sb_mnt_opts_compat:
+ *	Determine if the new mount options in @mnt_opts are allowed given
+ *	the existing mounted filesystem at @sb.
+ *	@sb superblock being compared
+ *	@mnt_opts new mount options
+ *	Return 0 if options are compatible.
  * @sb_remount:
  *	Extracts security system specific mount options and verifies no changes
  *	are being made to those options.
  *	@sb superblock being remounted
  *	@data contains the filesystem-specific data.
  *	Return 0 if permission is granted.
+ * @sb_kern_mount:
+ * 	Mount this @sb if allowed by permissions.
+ * @sb_show_options:
+ * 	Show (print on @m) mount options for this @sb.
  * @sb_umount:
  *	Check permission before the @mnt file system is unmounted.
  *	@mnt contains the mounted file system.
@@ -155,6 +180,8 @@
  *	Copy all security options from a given superblock to another
  *	@oldsb old superblock which contain information to clone
  *	@newsb new superblock which needs filled in
+ * @sb_add_mnt_opt:
+ * 	Add one mount @option to @mnt_opts.
  * @sb_parse_opts_str:
  *	Parse a string of security data filling in the opts structure
  *	@options string containing all mount options known by the LSM
@@ -215,6 +242,15 @@
  *	Returns 0 if @name and @value have been successfully set,
  *	-EOPNOTSUPP if no security attribute is needed, or
  *	-ENOMEM on memory allocation failure.
+ * @inode_init_security_anon:
+ *      Set up the incore security field for the new anonymous inode
+ *      and return whether the inode creation is permitted by the security
+ *      module or not.
+ *      @inode contains the inode structure
+ *      @name name of the anonymous inode class
+ *      @context_inode optional related inode
+ *	Returns 0 on success, -EACCES if the security module denies the
+ *	creation of this inode, or another -errno upon other errors.
  * @inode_create:
  *	Check permission to create a regular file.
  *	@dir contains inode structure of the parent of the new file.
@@ -426,6 +462,7 @@
  * @inode_killpriv:
  *	The setuid bit is being removed.  Remove similar security labels.
  *	Called with the dentry->d_inode->i_mutex held.
+ *	@mnt_userns: user namespace of the mount
  *	@dentry is the dentry being changed.
  *	Return 0 on success.  If error is returned, then the operation
  *	causing setuid bit removal is failed.
@@ -451,6 +488,12 @@
  *	security module does not know about attribute or a negative error code
  *	to abort the copy up. Note that the caller is responsible for reading
  *	and writing the xattrs as this hook is merely a filter.
+ * @d_instantiate:
+ * 	Fill in @inode security information for a @dentry if allowed.
+ * @getprocattr:
+ * 	Read attribute @name for process @p and store it into @value if allowed.
+ * @setprocattr:
+ * 	Write (set) attribute @name to @value, size @size if allowed.
  *
  * Security hooks for kernfs node operations
  *
@@ -611,12 +654,23 @@
  * @kernel_load_data:
  *	Load data provided by userspace.
  *	@id kernel load data identifier
+ *	@contents if a subsequent @kernel_post_load_data will be called.
  *	Return 0 if permission is granted.
+ * @kernel_post_load_data:
+ *	Load data provided by a non-file source (usually userspace buffer).
+ *	@buf pointer to buffer containing the data contents.
+ *	@size length of the data contents.
+ *	@id kernel load data identifier
+ *	@description a text description of what was loaded, @id-specific
+ *	Return 0 if permission is granted.
+ *	This must be paired with a prior @kernel_load_data call that had
+ *	@contents set to true.
  * @kernel_read_file:
  *	Read a file specified by userspace.
  *	@file contains the file structure pointing to the file being read
  *	by the kernel.
  *	@id kernel read file identifier
+ *	@contents if a subsequent @kernel_post_read_file will be called.
  *	Return 0 if permission is granted.
  * @kernel_post_read_file:
  *	Read a file specified by userspace.
@@ -625,6 +679,8 @@
  *	@buf pointer to buffer containing the file contents.
  *	@size length of the file contents.
  *	@id kernel read file identifier
+ *	This must be paired with a prior @kernel_read_file call that had
+ *	@contents set to true.
  *	Return 0 if permission is granted.
  * @task_fix_setuid:
  *	Update the module's state after setting one or more of the user
@@ -633,6 +689,15 @@
  *	@new is the set of credentials that will be installed.  Modifications
  *	should be made to this rather than to @current->cred.
  *	@old is the set of credentials that are being replaces
+ *	@flags contains one of the LSM_SETID_* values.
+ *	Return 0 on success.
+ * @task_fix_setgid:
+ *	Update the module's state after setting one or more of the group
+ *	identity attributes of the current process.  The @flags parameter
+ *	indicates which of the set*gid system calls invoked this hook.
+ *	@new is the set of credentials that will be installed.  Modifications
+ *	should be made to this rather than to @current->cred.
+ *	@old is the set of credentials that are being replaced.
  *	@flags contains one of the LSM_SETID_* values.
  *	Return 0 on success.
  * @task_setpgid:
@@ -651,9 +716,15 @@
  *	@p.
  *	@p contains the task_struct for the process.
  *	Return 0 if permission is granted.
- * @task_getsecid:
- *	Retrieve the security identifier of the process @p.
- *	@p contains the task_struct for the process and place is into @secid.
+ * @task_getsecid_subj:
+ *	Retrieve the subjective security identifier of the task_struct in @p
+ *	and return it in @secid.  Special care must be taken to ensure that @p
+ *	is the either the "current" task, or the caller has exclusive access
+ *	to @p.
+ *	In case of failure, @secid will be set to zero.
+ * @task_getsecid_obj:
+ *	Retrieve the objective security identifier of the task_struct in @p
+ *	and return it in @secid.
  *	In case of failure, @secid will be set to zero.
  *
  * @task_setnice:
@@ -782,7 +853,7 @@
  *	structure. Note that the security field was not added directly to the
  *	socket structure, but rather, the socket security information is stored
  *	in the associated inode.  Typically, the inode alloc_security hook will
- *	allocate and and attach security information to
+ *	allocate and attach security information to
  *	SOCK_INODE(sock)->i_security.  This hook may be used to update the
  *	SOCK_INODE(sock)->i_security field with additional information that
  *	wasn't available when the inode was allocated.
@@ -1059,7 +1130,7 @@
  * @xfrm_state_pol_flow_match:
  *	@x contains the state to match.
  *	@xp contains the policy to check for a match.
- *	@fl contains the flow to check for a match.
+ *	@flic contains the flowi_common struct to check for a match.
  *	Return 1 if there is a match.
  * @xfrm_decode_session:
  *	@skb points to skb to decode.
@@ -1113,6 +1184,7 @@
  *	In case of failure, @secid will be set to zero.
  *
  * Security hooks for individual messages held in System V IPC message queues
+ *
  * @msg_msg_alloc_security:
  *	Allocate and attach a security structure to the msg->security field.
  *	The security field is initialized to NULL when the structure is first
@@ -1302,6 +1374,10 @@
  *	@cap contains the capability <include/linux/capability.h>.
  *	@opts contains options for the capable check <include/linux/security.h>
  *	Return 0 if the capability is granted for @tsk.
+ * @quotactl:
+ * 	Check whether the quotactl syscall is allowed for this @sb.
+ * @quota_on:
+ * 	Check whether QUOTAON is allowed for this @dentry.
  * @syslog:
  *	Check permission before accessing the kernel message ring or changing
  *	logging to the console.
@@ -1416,6 +1492,20 @@
  *	@ctx is a pointer in which to place the allocated security context.
  *	@ctxlen points to the place to put the length of @ctx.
  *
+ * Security hooks for the general notification queue:
+ *
+ * @post_notification:
+ *	Check to see if a watch notification can be posted to a particular
+ *	queue.
+ *	@w_cred: The credentials of the whoever set the watch.
+ *	@cred: The event-triggerer's credentials
+ *	@n: The notification being posted
+ *
+ * @watch_key:
+ *	Check to see if a process is allowed to watch for event notifications
+ *	from a key or keyring.
+ *	@key: The key to watch.
+ *
  * Security hooks for using the eBPF maps and programs functionalities through
  * eBPF syscalls.
  *
@@ -1449,17 +1539,24 @@
  * @bpf_prog_free_security:
  *	Clean up the security information stored inside bpf prog.
  *
- * @locked_down
+ * @locked_down:
  *     Determine whether a kernel feature that potentially enables arbitrary
  *     code execution in kernel space should be permitted.
  *
  *     @what: kernel feature being accessed
  *
- * @lock_kernel_down
- *     Put the kernel into lock-down mode.
+ * Security hooks for perf events
  *
- *     @where: Where the lock-down is originating from (e.g. command line option)
- *     @level: The lock-down level (can only increase)
+ * @perf_event_open:
+ * 	Check whether the @type of perf_event_open syscall is allowed.
+ * @perf_event_alloc:
+ * 	Allocate and save perf_event security info.
+ * @perf_event_free:
+ * 	Release (free) perf_event security info.
+ * @perf_event_read:
+ * 	Read perf_event security info if allowed.
+ * @perf_event_write:
+ * 	Write perf_event security info if allowed.
  */
 union security_list_options {
 	#define LSM_HOOK(RET, DEFAULT, NAME, ...) RET (*NAME)(__VA_ARGS__);
@@ -1491,6 +1588,7 @@ struct lsm_blob_sizes {
 	int	lbs_cred;
 	int	lbs_file;
 	int	lbs_inode;
+	int	lbs_superblock;
 	int	lbs_ipc;
 	int	lbs_msg_msg;
 	int	lbs_task;
@@ -1539,12 +1637,12 @@ extern struct lsm_info __start_early_lsm_info[], __end_early_lsm_info[];
 
 #define DEFINE_LSM(lsm)							\
 	static struct lsm_info __lsm_##lsm				\
-		__used __section(.lsm_info.init)			\
+		__used __section(".lsm_info.init")			\
 		__aligned(sizeof(unsigned long))
 
 #define DEFINE_EARLY_LSM(lsm)						\
 	static struct lsm_info __early_lsm_##lsm			\
-		__used __section(.early_lsm_info.init)			\
+		__used __section(".early_lsm_info.init")		\
 		__aligned(sizeof(unsigned long))
 
 #ifdef CONFIG_SECURITY_SELINUX_DISABLE

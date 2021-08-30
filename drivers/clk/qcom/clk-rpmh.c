@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/clk-provider.h>
@@ -12,22 +12,12 @@
 #include <linux/platform_device.h>
 #include <soc/qcom/cmd-db.h>
 #include <soc/qcom/rpmh.h>
+#include <soc/qcom/tcs.h>
 
 #include <dt-bindings/clock/qcom,rpmh.h>
 
 #define CLK_RPMH_ARC_EN_OFFSET		0
 #define CLK_RPMH_VRM_EN_OFFSET		4
-
-#define BCM_TCS_CMD_COMMIT_MASK		0x40000000
-#define BCM_TCS_CMD_VALID_SHIFT		29
-#define BCM_TCS_CMD_VOTE_MASK		0x3fff
-#define BCM_TCS_CMD_VOTE_SHIFT		0
-
-#define BCM_TCS_CMD(valid, vote)				\
-	(BCM_TCS_CMD_COMMIT_MASK |				\
-	((valid) << BCM_TCS_CMD_VALID_SHIFT) |			\
-	((vote & BCM_TCS_CMD_VOTE_MASK)				\
-	<< BCM_TCS_CMD_VOTE_SHIFT))
 
 /**
  * struct bcm_db - Auxiliary data pertaining to each Bus Clock Manager(BCM)
@@ -95,7 +85,10 @@ static DEFINE_MUTEX(rpmh_clk_lock);
 		.hw.init = &(struct clk_init_data){			\
 			.ops = &clk_rpmh_ops,				\
 			.name = #_name,					\
-			.parent_names = (const char *[]){ "xo_board" },	\
+			.parent_data =  &(const struct clk_parent_data){ \
+					.fw_name = "xo",		\
+					.name = "xo_board",		\
+			},						\
 			.num_parents = 1,				\
 		},							\
 	};								\
@@ -110,7 +103,10 @@ static DEFINE_MUTEX(rpmh_clk_lock);
 		.hw.init = &(struct clk_init_data){			\
 			.ops = &clk_rpmh_ops,				\
 			.name = #_name_active,				\
-			.parent_names = (const char *[]){ "xo_board" },	\
+			.parent_data =  &(const struct clk_parent_data){ \
+					.fw_name = "xo",		\
+					.name = "xo_board",		\
+			},						\
 			.num_parents = 1,				\
 		},							\
 	}
@@ -231,7 +227,7 @@ static int clk_rpmh_prepare(struct clk_hw *hw)
 	mutex_unlock(&rpmh_clk_lock);
 
 	return ret;
-};
+}
 
 static void clk_rpmh_unprepare(struct clk_hw *hw)
 {
@@ -263,38 +259,33 @@ static int clk_rpmh_bcm_send_cmd(struct clk_rpmh *c, bool enable)
 {
 	struct tcs_cmd cmd = { 0 };
 	u32 cmd_state;
-	int ret;
+	int ret = 0;
 
 	mutex_lock(&rpmh_clk_lock);
-
-	cmd_state = 0;
 	if (enable) {
 		cmd_state = 1;
 		if (c->aggr_state)
 			cmd_state = c->aggr_state;
+	} else {
+		cmd_state = 0;
 	}
 
-	if (c->last_sent_aggr_state == cmd_state) {
-		mutex_unlock(&rpmh_clk_lock);
-		return 0;
+	if (c->last_sent_aggr_state != cmd_state) {
+		cmd.addr = c->res_addr;
+		cmd.data = BCM_TCS_CMD(1, enable, 0, cmd_state);
+
+		ret = clk_rpmh_send(c, RPMH_ACTIVE_ONLY_STATE, &cmd, enable);
+		if (ret) {
+			dev_err(c->dev, "set active state of %s failed: (%d)\n",
+				c->res_name, ret);
+		} else {
+			c->last_sent_aggr_state = cmd_state;
+		}
 	}
-
-	cmd.addr = c->res_addr;
-	cmd.data = BCM_TCS_CMD(enable, cmd_state);
-
-	ret = clk_rpmh_send(c, RPMH_ACTIVE_ONLY_STATE, &cmd, enable);
-	if (ret) {
-		dev_err(c->dev, "set active state of %s failed: (%d)\n",
-			c->res_name, ret);
-		mutex_unlock(&rpmh_clk_lock);
-		return ret;
-	}
-
-	c->last_sent_aggr_state = cmd_state;
 
 	mutex_unlock(&rpmh_clk_lock);
 
-	return 0;
+	return ret;
 }
 
 static int clk_rpmh_bcm_prepare(struct clk_hw *hw)
@@ -302,14 +293,14 @@ static int clk_rpmh_bcm_prepare(struct clk_hw *hw)
 	struct clk_rpmh *c = to_clk_rpmh(hw);
 
 	return clk_rpmh_bcm_send_cmd(c, true);
-};
+}
 
 static void clk_rpmh_bcm_unprepare(struct clk_hw *hw)
 {
 	struct clk_rpmh *c = to_clk_rpmh(hw);
 
 	clk_rpmh_bcm_send_cmd(c, false);
-};
+}
 
 static int clk_rpmh_bcm_set_rate(struct clk_hw *hw, unsigned long rate,
 				 unsigned long parent_rate)
@@ -325,7 +316,7 @@ static int clk_rpmh_bcm_set_rate(struct clk_hw *hw, unsigned long rate,
 		clk_rpmh_bcm_send_cmd(c, true);
 
 	return 0;
-};
+}
 
 static long clk_rpmh_round_rate(struct clk_hw *hw, unsigned long rate,
 				unsigned long *parent_rate)
@@ -349,14 +340,20 @@ static const struct clk_ops clk_rpmh_bcm_ops = {
 	.recalc_rate	= clk_rpmh_bcm_recalc_rate,
 };
 
-/* Resource name must match resource id present in cmd-db. */
+/* Resource name must match resource id present in cmd-db */
 DEFINE_CLK_RPMH_ARC(sdm845, bi_tcxo, bi_tcxo_ao, "xo.lvl", 0x3, 2);
 DEFINE_CLK_RPMH_VRM(sdm845, ln_bb_clk2, ln_bb_clk2_ao, "lnbclka2", 2);
 DEFINE_CLK_RPMH_VRM(sdm845, ln_bb_clk3, ln_bb_clk3_ao, "lnbclka3", 2);
 DEFINE_CLK_RPMH_VRM(sdm845, rf_clk1, rf_clk1_ao, "rfclka1", 1);
 DEFINE_CLK_RPMH_VRM(sdm845, rf_clk2, rf_clk2_ao, "rfclka2", 1);
 DEFINE_CLK_RPMH_VRM(sdm845, rf_clk3, rf_clk3_ao, "rfclka3", 1);
+DEFINE_CLK_RPMH_VRM(sm8150, rf_clk3, rf_clk3_ao, "rfclka3", 1);
+DEFINE_CLK_RPMH_VRM(sc8180x, rf_clk1, rf_clk1_ao, "rfclkd1", 1);
+DEFINE_CLK_RPMH_VRM(sc8180x, rf_clk2, rf_clk2_ao, "rfclkd2", 1);
+DEFINE_CLK_RPMH_VRM(sc8180x, rf_clk3, rf_clk3_ao, "rfclkd3", 1);
+DEFINE_CLK_RPMH_VRM(sc8180x, rf_clk4, rf_clk4_ao, "rfclkd4", 1);
 DEFINE_CLK_RPMH_BCM(sdm845, ipa, "IP0");
+DEFINE_CLK_RPMH_BCM(sdm845, ce, "CE0");
 
 static struct clk_hw *sdm845_rpmh_clocks[] = {
 	[RPMH_CXO_CLK]		= &sdm845_bi_tcxo.hw,
@@ -372,11 +369,171 @@ static struct clk_hw *sdm845_rpmh_clocks[] = {
 	[RPMH_RF_CLK3]		= &sdm845_rf_clk3.hw,
 	[RPMH_RF_CLK3_A]	= &sdm845_rf_clk3_ao.hw,
 	[RPMH_IPA_CLK]		= &sdm845_ipa.hw,
+	[RPMH_CE_CLK]		= &sdm845_ce.hw,
 };
 
 static const struct clk_rpmh_desc clk_rpmh_sdm845 = {
 	.clks = sdm845_rpmh_clocks,
 	.num_clks = ARRAY_SIZE(sdm845_rpmh_clocks),
+};
+
+DEFINE_CLK_RPMH_VRM(sdx55, rf_clk1, rf_clk1_ao, "rfclkd1", 1);
+DEFINE_CLK_RPMH_VRM(sdx55, rf_clk2, rf_clk2_ao, "rfclkd2", 1);
+DEFINE_CLK_RPMH_BCM(sdx55, qpic_clk, "QP0");
+DEFINE_CLK_RPMH_BCM(sdx55, ipa, "IP0");
+
+static struct clk_hw *sdx55_rpmh_clocks[] = {
+	[RPMH_CXO_CLK]		= &sdm845_bi_tcxo.hw,
+	[RPMH_CXO_CLK_A]	= &sdm845_bi_tcxo_ao.hw,
+	[RPMH_RF_CLK1]		= &sdx55_rf_clk1.hw,
+	[RPMH_RF_CLK1_A]	= &sdx55_rf_clk1_ao.hw,
+	[RPMH_RF_CLK2]		= &sdx55_rf_clk2.hw,
+	[RPMH_RF_CLK2_A]	= &sdx55_rf_clk2_ao.hw,
+	[RPMH_QPIC_CLK]		= &sdx55_qpic_clk.hw,
+	[RPMH_IPA_CLK]		= &sdx55_ipa.hw,
+};
+
+static const struct clk_rpmh_desc clk_rpmh_sdx55 = {
+	.clks = sdx55_rpmh_clocks,
+	.num_clks = ARRAY_SIZE(sdx55_rpmh_clocks),
+};
+
+static struct clk_hw *sm8150_rpmh_clocks[] = {
+	[RPMH_CXO_CLK]		= &sdm845_bi_tcxo.hw,
+	[RPMH_CXO_CLK_A]	= &sdm845_bi_tcxo_ao.hw,
+	[RPMH_LN_BB_CLK2]	= &sdm845_ln_bb_clk2.hw,
+	[RPMH_LN_BB_CLK2_A]	= &sdm845_ln_bb_clk2_ao.hw,
+	[RPMH_LN_BB_CLK3]	= &sdm845_ln_bb_clk3.hw,
+	[RPMH_LN_BB_CLK3_A]	= &sdm845_ln_bb_clk3_ao.hw,
+	[RPMH_RF_CLK1]		= &sdm845_rf_clk1.hw,
+	[RPMH_RF_CLK1_A]	= &sdm845_rf_clk1_ao.hw,
+	[RPMH_RF_CLK2]		= &sdm845_rf_clk2.hw,
+	[RPMH_RF_CLK2_A]	= &sdm845_rf_clk2_ao.hw,
+	[RPMH_RF_CLK3]		= &sdm845_rf_clk3.hw,
+	[RPMH_RF_CLK3_A]	= &sdm845_rf_clk3_ao.hw,
+};
+
+static const struct clk_rpmh_desc clk_rpmh_sm8150 = {
+	.clks = sm8150_rpmh_clocks,
+	.num_clks = ARRAY_SIZE(sm8150_rpmh_clocks),
+};
+
+static struct clk_hw *sc7180_rpmh_clocks[] = {
+	[RPMH_CXO_CLK]		= &sdm845_bi_tcxo.hw,
+	[RPMH_CXO_CLK_A]	= &sdm845_bi_tcxo_ao.hw,
+	[RPMH_LN_BB_CLK2]	= &sdm845_ln_bb_clk2.hw,
+	[RPMH_LN_BB_CLK2_A]	= &sdm845_ln_bb_clk2_ao.hw,
+	[RPMH_LN_BB_CLK3]	= &sdm845_ln_bb_clk3.hw,
+	[RPMH_LN_BB_CLK3_A]	= &sdm845_ln_bb_clk3_ao.hw,
+	[RPMH_RF_CLK1]		= &sdm845_rf_clk1.hw,
+	[RPMH_RF_CLK1_A]	= &sdm845_rf_clk1_ao.hw,
+	[RPMH_RF_CLK2]		= &sdm845_rf_clk2.hw,
+	[RPMH_RF_CLK2_A]	= &sdm845_rf_clk2_ao.hw,
+	[RPMH_IPA_CLK]		= &sdm845_ipa.hw,
+};
+
+static const struct clk_rpmh_desc clk_rpmh_sc7180 = {
+	.clks = sc7180_rpmh_clocks,
+	.num_clks = ARRAY_SIZE(sc7180_rpmh_clocks),
+};
+
+static struct clk_hw *sc8180x_rpmh_clocks[] = {
+	[RPMH_CXO_CLK]		= &sdm845_bi_tcxo.hw,
+	[RPMH_CXO_CLK_A]	= &sdm845_bi_tcxo_ao.hw,
+	[RPMH_LN_BB_CLK2]	= &sdm845_ln_bb_clk2.hw,
+	[RPMH_LN_BB_CLK2_A]	= &sdm845_ln_bb_clk2_ao.hw,
+	[RPMH_LN_BB_CLK3]	= &sdm845_ln_bb_clk3.hw,
+	[RPMH_LN_BB_CLK3_A]	= &sdm845_ln_bb_clk3_ao.hw,
+	[RPMH_RF_CLK1]		= &sc8180x_rf_clk1.hw,
+	[RPMH_RF_CLK1_A]	= &sc8180x_rf_clk1_ao.hw,
+	[RPMH_RF_CLK2]		= &sc8180x_rf_clk2.hw,
+	[RPMH_RF_CLK2_A]	= &sc8180x_rf_clk2_ao.hw,
+	[RPMH_RF_CLK3]		= &sc8180x_rf_clk3.hw,
+	[RPMH_RF_CLK3_A]	= &sc8180x_rf_clk3_ao.hw,
+};
+
+static const struct clk_rpmh_desc clk_rpmh_sc8180x = {
+	.clks = sc8180x_rpmh_clocks,
+	.num_clks = ARRAY_SIZE(sc8180x_rpmh_clocks),
+};
+
+DEFINE_CLK_RPMH_VRM(sm8250, ln_bb_clk1, ln_bb_clk1_ao, "lnbclka1", 2);
+
+static struct clk_hw *sm8250_rpmh_clocks[] = {
+	[RPMH_CXO_CLK]		= &sdm845_bi_tcxo.hw,
+	[RPMH_CXO_CLK_A]	= &sdm845_bi_tcxo_ao.hw,
+	[RPMH_LN_BB_CLK1]	= &sm8250_ln_bb_clk1.hw,
+	[RPMH_LN_BB_CLK1_A]	= &sm8250_ln_bb_clk1_ao.hw,
+	[RPMH_LN_BB_CLK2]	= &sdm845_ln_bb_clk2.hw,
+	[RPMH_LN_BB_CLK2_A]	= &sdm845_ln_bb_clk2_ao.hw,
+	[RPMH_LN_BB_CLK3]	= &sdm845_ln_bb_clk3.hw,
+	[RPMH_LN_BB_CLK3_A]	= &sdm845_ln_bb_clk3_ao.hw,
+	[RPMH_RF_CLK1]		= &sdm845_rf_clk1.hw,
+	[RPMH_RF_CLK1_A]	= &sdm845_rf_clk1_ao.hw,
+	[RPMH_RF_CLK3]		= &sdm845_rf_clk3.hw,
+	[RPMH_RF_CLK3_A]	= &sdm845_rf_clk3_ao.hw,
+};
+
+static const struct clk_rpmh_desc clk_rpmh_sm8250 = {
+	.clks = sm8250_rpmh_clocks,
+	.num_clks = ARRAY_SIZE(sm8250_rpmh_clocks),
+};
+
+DEFINE_CLK_RPMH_VRM(sm8350, div_clk1, div_clk1_ao, "divclka1", 2);
+DEFINE_CLK_RPMH_VRM(sm8350, rf_clk4, rf_clk4_ao, "rfclka4", 1);
+DEFINE_CLK_RPMH_VRM(sm8350, rf_clk5, rf_clk5_ao, "rfclka5", 1);
+DEFINE_CLK_RPMH_BCM(sm8350, pka, "PKA0");
+DEFINE_CLK_RPMH_BCM(sm8350, hwkm, "HK0");
+
+static struct clk_hw *sm8350_rpmh_clocks[] = {
+	[RPMH_CXO_CLK]		= &sdm845_bi_tcxo.hw,
+	[RPMH_CXO_CLK_A]	= &sdm845_bi_tcxo_ao.hw,
+	[RPMH_DIV_CLK1]		= &sm8350_div_clk1.hw,
+	[RPMH_DIV_CLK1_A]	= &sm8350_div_clk1_ao.hw,
+	[RPMH_LN_BB_CLK1]	= &sm8250_ln_bb_clk1.hw,
+	[RPMH_LN_BB_CLK1_A]	= &sm8250_ln_bb_clk1_ao.hw,
+	[RPMH_LN_BB_CLK2]	= &sdm845_ln_bb_clk2.hw,
+	[RPMH_LN_BB_CLK2_A]	= &sdm845_ln_bb_clk2_ao.hw,
+	[RPMH_RF_CLK1]		= &sdm845_rf_clk1.hw,
+	[RPMH_RF_CLK1_A]	= &sdm845_rf_clk1_ao.hw,
+	[RPMH_RF_CLK3]		= &sdm845_rf_clk3.hw,
+	[RPMH_RF_CLK3_A]	= &sdm845_rf_clk3_ao.hw,
+	[RPMH_RF_CLK4]		= &sm8350_rf_clk4.hw,
+	[RPMH_RF_CLK4_A]	= &sm8350_rf_clk4_ao.hw,
+	[RPMH_RF_CLK5]		= &sm8350_rf_clk5.hw,
+	[RPMH_RF_CLK5_A]	= &sm8350_rf_clk5_ao.hw,
+	[RPMH_IPA_CLK]		= &sdm845_ipa.hw,
+	[RPMH_PKA_CLK]		= &sm8350_pka.hw,
+	[RPMH_HWKM_CLK]		= &sm8350_hwkm.hw,
+};
+
+static const struct clk_rpmh_desc clk_rpmh_sm8350 = {
+	.clks = sm8350_rpmh_clocks,
+	.num_clks = ARRAY_SIZE(sm8350_rpmh_clocks),
+};
+
+/* Resource name must match resource id present in cmd-db */
+DEFINE_CLK_RPMH_ARC(sc7280, bi_tcxo, bi_tcxo_ao, "xo.lvl", 0x3, 4);
+
+static struct clk_hw *sc7280_rpmh_clocks[] = {
+	[RPMH_CXO_CLK]      = &sc7280_bi_tcxo.hw,
+	[RPMH_CXO_CLK_A]    = &sc7280_bi_tcxo_ao.hw,
+	[RPMH_LN_BB_CLK2]   = &sdm845_ln_bb_clk2.hw,
+	[RPMH_LN_BB_CLK2_A] = &sdm845_ln_bb_clk2_ao.hw,
+	[RPMH_RF_CLK1]      = &sdm845_rf_clk1.hw,
+	[RPMH_RF_CLK1_A]    = &sdm845_rf_clk1_ao.hw,
+	[RPMH_RF_CLK3]      = &sdm845_rf_clk3.hw,
+	[RPMH_RF_CLK3_A]    = &sdm845_rf_clk3_ao.hw,
+	[RPMH_RF_CLK4]      = &sm8350_rf_clk4.hw,
+	[RPMH_RF_CLK4_A]    = &sm8350_rf_clk4_ao.hw,
+	[RPMH_IPA_CLK]      = &sdm845_ipa.hw,
+	[RPMH_PKA_CLK]      = &sm8350_pka.hw,
+	[RPMH_HWKM_CLK]     = &sm8350_hwkm.hw,
+};
+
+static const struct clk_rpmh_desc clk_rpmh_sc7280 = {
+	.clks = sc7280_rpmh_clocks,
+	.num_clks = ARRAY_SIZE(sc7280_rpmh_clocks),
 };
 
 static struct clk_hw *of_clk_rpmh_hw_get(struct of_phandle_args *clkspec,
@@ -407,9 +564,15 @@ static int clk_rpmh_probe(struct platform_device *pdev)
 	hw_clks = desc->clks;
 
 	for (i = 0; i < desc->num_clks; i++) {
+		const char *name;
 		u32 res_addr;
 		size_t aux_data_len;
 		const struct bcm_db *data;
+
+		if (!hw_clks[i])
+			continue;
+
+		name = hw_clks[i]->init->name;
 
 		rpmh_clk = to_clk_rpmh(hw_clks[i]);
 		res_addr = cmd_db_read_addr(rpmh_clk->res_name);
@@ -437,8 +600,7 @@ static int clk_rpmh_probe(struct platform_device *pdev)
 
 		ret = devm_clk_hw_register(&pdev->dev, hw_clks[i]);
 		if (ret) {
-			dev_err(&pdev->dev, "failed to register %s\n",
-				hw_clks[i]->init->name);
+			dev_err(&pdev->dev, "failed to register %s\n", name);
 			return ret;
 		}
 	}
@@ -457,7 +619,14 @@ static int clk_rpmh_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id clk_rpmh_match_table[] = {
+	{ .compatible = "qcom,sc7180-rpmh-clk", .data = &clk_rpmh_sc7180},
+	{ .compatible = "qcom,sc8180x-rpmh-clk", .data = &clk_rpmh_sc8180x},
 	{ .compatible = "qcom,sdm845-rpmh-clk", .data = &clk_rpmh_sdm845},
+	{ .compatible = "qcom,sdx55-rpmh-clk",  .data = &clk_rpmh_sdx55},
+	{ .compatible = "qcom,sm8150-rpmh-clk", .data = &clk_rpmh_sm8150},
+	{ .compatible = "qcom,sm8250-rpmh-clk", .data = &clk_rpmh_sm8250},
+	{ .compatible = "qcom,sm8350-rpmh-clk", .data = &clk_rpmh_sm8350},
+	{ .compatible = "qcom,sc7280-rpmh-clk", .data = &clk_rpmh_sc7280},
 	{ }
 };
 MODULE_DEVICE_TABLE(of, clk_rpmh_match_table);
@@ -474,7 +643,7 @@ static int __init clk_rpmh_init(void)
 {
 	return platform_driver_register(&clk_rpmh_driver);
 }
-subsys_initcall(clk_rpmh_init);
+core_initcall(clk_rpmh_init);
 
 static void __exit clk_rpmh_exit(void)
 {

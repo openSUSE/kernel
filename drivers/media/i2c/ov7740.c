@@ -624,11 +624,9 @@ static int ov7740_set_stream(struct v4l2_subdev *sd, int enable)
 	}
 
 	if (enable) {
-		ret = pm_runtime_get_sync(&client->dev);
-		if (ret < 0) {
-			pm_runtime_put_noidle(&client->dev);
+		ret = pm_runtime_resume_and_get(&client->dev);
+		if (ret < 0)
 			goto err_unlock;
-		}
 
 		ret = ov7740_start_streaming(ov7740);
 		if (ret)
@@ -709,7 +707,7 @@ static const struct ov7740_pixfmt ov7740_formats[] = {
 #define N_OV7740_FMTS ARRAY_SIZE(ov7740_formats)
 
 static int ov7740_enum_mbus_code(struct v4l2_subdev *sd,
-				 struct v4l2_subdev_pad_config *cfg,
+				 struct v4l2_subdev_state *sd_state,
 				 struct v4l2_subdev_mbus_code_enum *code)
 {
 	if (code->pad || code->index >= N_OV7740_FMTS)
@@ -721,7 +719,7 @@ static int ov7740_enum_mbus_code(struct v4l2_subdev *sd,
 }
 
 static int ov7740_enum_frame_interval(struct v4l2_subdev *sd,
-				struct v4l2_subdev_pad_config *cfg,
+				struct v4l2_subdev_state *sd_state,
 				struct v4l2_subdev_frame_interval_enum *fie)
 {
 	if (fie->pad)
@@ -740,7 +738,7 @@ static int ov7740_enum_frame_interval(struct v4l2_subdev *sd,
 }
 
 static int ov7740_enum_frame_size(struct v4l2_subdev *sd,
-				  struct v4l2_subdev_pad_config *cfg,
+				  struct v4l2_subdev_state *sd_state,
 				  struct v4l2_subdev_frame_size_enum *fse)
 {
 	if (fse->pad)
@@ -803,7 +801,7 @@ static int ov7740_try_fmt_internal(struct v4l2_subdev *sd,
 }
 
 static int ov7740_set_fmt(struct v4l2_subdev *sd,
-			  struct v4l2_subdev_pad_config *cfg,
+			  struct v4l2_subdev_state *sd_state,
 			  struct v4l2_subdev_format *format)
 {
 	struct ov7740 *ov7740 = container_of(sd, struct ov7740, subdev);
@@ -825,15 +823,12 @@ static int ov7740_set_fmt(struct v4l2_subdev *sd,
 		if (ret)
 			goto error;
 #ifdef CONFIG_VIDEO_V4L2_SUBDEV_API
-		mbus_fmt = v4l2_subdev_get_try_format(sd, cfg, format->pad);
+		mbus_fmt = v4l2_subdev_get_try_format(sd, sd_state,
+						      format->pad);
 		*mbus_fmt = format->format;
-
+#endif
 		mutex_unlock(&ov7740->mutex);
 		return 0;
-#else
-		ret = -ENOTTY;
-		goto error;
-#endif
 	}
 
 	ret = ov7740_try_fmt_internal(sd, &format->format, &ovfmt, &fsize);
@@ -852,7 +847,7 @@ error:
 }
 
 static int ov7740_get_fmt(struct v4l2_subdev *sd,
-			  struct v4l2_subdev_pad_config *cfg,
+			  struct v4l2_subdev_state *sd_state,
 			  struct v4l2_subdev_format *format)
 {
 	struct ov7740 *ov7740 = container_of(sd, struct ov7740, subdev);
@@ -864,11 +859,11 @@ static int ov7740_get_fmt(struct v4l2_subdev *sd,
 	mutex_lock(&ov7740->mutex);
 	if (format->which == V4L2_SUBDEV_FORMAT_TRY) {
 #ifdef CONFIG_VIDEO_V4L2_SUBDEV_API
-		mbus_fmt = v4l2_subdev_get_try_format(sd, cfg, 0);
+		mbus_fmt = v4l2_subdev_get_try_format(sd, sd_state, 0);
 		format->format = *mbus_fmt;
 		ret = 0;
 #else
-		ret = -ENOTTY;
+		ret = -EINVAL;
 #endif
 	} else {
 		format->format = ov7740->format;
@@ -909,7 +904,7 @@ static int ov7740_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 {
 	struct ov7740 *ov7740 = container_of(sd, struct ov7740, subdev);
 	struct v4l2_mbus_framefmt *format =
-				v4l2_subdev_get_try_format(sd, fh->pad, 0);
+				v4l2_subdev_get_try_format(sd, fh->state, 0);
 
 	mutex_lock(&ov7740->mutex);
 	ov7740_get_default_format(sd, format);
@@ -1066,19 +1061,11 @@ static const struct regmap_config ov7740_regmap_config = {
 	.max_register	= OV7740_MAX_REGISTER,
 };
 
-static int ov7740_probe(struct i2c_client *client,
-			const struct i2c_device_id *id)
+static int ov7740_probe(struct i2c_client *client)
 {
 	struct ov7740 *ov7740;
 	struct v4l2_subdev *sd;
 	int ret;
-
-	if (!i2c_check_functionality(client->adapter,
-				     I2C_FUNC_SMBUS_BYTE_DATA)) {
-		dev_err(&client->dev,
-			"OV7740: I2C-Adapter doesn't support SMBUS\n");
-		return -EIO;
-	}
 
 	ov7740 = devm_kzalloc(&client->dev, sizeof(*ov7740), GFP_KERNEL);
 	if (!ov7740)
@@ -1096,7 +1083,7 @@ static int ov7740_probe(struct i2c_client *client,
 	if (ret)
 		return ret;
 
-	ov7740->regmap = devm_regmap_init_i2c(client, &ov7740_regmap_config);
+	ov7740->regmap = devm_regmap_init_sccb(client, &ov7740_regmap_config);
 	if (IS_ERR(ov7740->regmap)) {
 		ret = PTR_ERR(ov7740->regmap);
 		dev_err(&client->dev, "Failed to allocate register map: %d\n",
@@ -1105,7 +1092,6 @@ static int ov7740_probe(struct i2c_client *client,
 	}
 
 	sd = &ov7740->subdev;
-	client->flags |= I2C_CLIENT_SCCB;
 	v4l2_i2c_subdev_init(sd, client, &ov7740_subdev_ops);
 
 #ifdef CONFIG_VIDEO_V4L2_SUBDEV_API
@@ -1189,8 +1175,7 @@ static int ov7740_remove(struct i2c_client *client)
 
 static int __maybe_unused ov7740_runtime_suspend(struct device *dev)
 {
-	struct i2c_client *client = to_i2c_client(dev);
-	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct v4l2_subdev *sd = dev_get_drvdata(dev);
 	struct ov7740 *ov7740 = container_of(sd, struct ov7740, subdev);
 
 	ov7740_set_power(ov7740, 0);
@@ -1200,8 +1185,7 @@ static int __maybe_unused ov7740_runtime_suspend(struct device *dev)
 
 static int __maybe_unused ov7740_runtime_resume(struct device *dev)
 {
-	struct i2c_client *client = to_i2c_client(dev);
-	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct v4l2_subdev *sd = dev_get_drvdata(dev);
 	struct ov7740 *ov7740 = container_of(sd, struct ov7740, subdev);
 
 	return ov7740_set_power(ov7740, 1);
@@ -1229,7 +1213,7 @@ static struct i2c_driver ov7740_i2c_driver = {
 		.pm = &ov7740_pm_ops,
 		.of_match_table = of_match_ptr(ov7740_of_match),
 	},
-	.probe    = ov7740_probe,
+	.probe_new = ov7740_probe,
 	.remove   = ov7740_remove,
 	.id_table = ov7740_id,
 };

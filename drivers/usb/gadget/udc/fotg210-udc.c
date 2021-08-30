@@ -881,6 +881,8 @@ static irqreturn_t fotg210_irq(int irq, void *_fotg210)
 		int_grp2 &= ~int_msk2;
 
 		if (int_grp2 & DISGR2_USBRST_INT) {
+			usb_gadget_udc_reset(&fotg210->gadget,
+					     fotg210->driver);
 			value = ioread32(reg);
 			value &= ~DISGR2_USBRST_INT;
 			iowrite32(value, reg);
@@ -1209,7 +1211,7 @@ err:
 
 static struct platform_driver fotg210_driver = {
 	.driver		= {
-		.name =	(char *)udc_name,
+		.name =	udc_name,
 	},
 	.probe		= fotg210_udc_probe,
 	.remove		= fotg210_udc_remove,

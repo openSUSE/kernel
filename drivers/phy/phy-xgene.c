@@ -961,7 +961,8 @@ static void xgene_phy_sata_cfg_lanes(struct xgene_phy_ctx *ctx)
 		serdes_wr(ctx, lane, RXTX_REG1, val);
 
 		/* Latch VTT value based on the termination to ground and
-		   enable TX FIFO */
+		 * enable TX FIFO
+		 */
 		serdes_rd(ctx, lane, RXTX_REG2, &val);
 		val = RXTX_REG2_VTT_ENA_SET(val, 0x1);
 		val = RXTX_REG2_VTT_SEL_SET(val, 0x1);
@@ -1342,7 +1343,7 @@ static int xgene_phy_hw_initialize(struct xgene_phy_ctx *ctx,
 static void xgene_phy_force_lat_summer_cal(struct xgene_phy_ctx *ctx, int lane)
 {
 	int i;
-	struct {
+	static const struct {
 		u32 reg;
 		u32 val;
 	} serdes_reg[] = {
@@ -1615,7 +1616,7 @@ static struct phy *xgene_phy_xlate(struct device *dev,
 
 	if (args->args_count <= 0)
 		return ERR_PTR(-EINVAL);
-	if (args->args[0] < MODE_SATA || args->args[0] >= MODE_MAX)
+	if (args->args[0] >= MODE_MAX)
 		return ERR_PTR(-EINVAL);
 
 	ctx->mode = args->args[0];
@@ -1644,7 +1645,6 @@ static int xgene_phy_probe(struct platform_device *pdev)
 {
 	struct phy_provider *phy_provider;
 	struct xgene_phy_ctx *ctx;
-	struct resource *res;
 	u32 default_spd[] = DEFAULT_SATA_SPD_SEL;
 	u32 default_txboost_gain[] = DEFAULT_SATA_TXBOOST_GAIN;
 	u32 default_txeye_direction[] = DEFAULT_SATA_TXEYEDIRECTION;
@@ -1661,8 +1661,7 @@ static int xgene_phy_probe(struct platform_device *pdev)
 
 	ctx->dev = &pdev->dev;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	ctx->sds_base = devm_ioremap_resource(&pdev->dev, res);
+	ctx->sds_base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(ctx->sds_base))
 		return PTR_ERR(ctx->sds_base);
 

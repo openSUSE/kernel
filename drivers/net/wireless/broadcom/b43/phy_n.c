@@ -3239,7 +3239,7 @@ static void b43_nphy_workarounds_rev3plus(struct b43_wldev *dev)
 		if (!(dev->phy.rev >= 4 &&
 		      b43_current_band(dev->wl) == NL80211_BAND_2GHZ))
 			break;
-		/* FALL THROUGH */
+		fallthrough;
 	case 0:
 	case 1:
 		b43_ntab_write_bulk(dev, B43_NTAB16(8, 0x08), 4, vmid);
@@ -3342,8 +3342,9 @@ static void b43_nphy_workarounds_rev3plus(struct b43_wldev *dev)
 	b43_phy_write(dev, B43_NPHY_ED_CRS20UDEASSERTTHRESH0, 0x0381);
 	b43_phy_write(dev, B43_NPHY_ED_CRS20UDEASSERTTHRESH1, 0x0381);
 
-	if (dev->phy.rev >= 6 && sprom->boardflags2_lo & B43_BFL2_SINGLEANT_CCK)
+	if (dev->phy.rev >= 6 && sprom->boardflags2_lo & B43_BFL2_SINGLEANT_CCK) {
 		; /* TODO: 0x0080000000000000 HF */
+	}
 }
 
 static void b43_nphy_workarounds_rev1_2(struct b43_wldev *dev)
@@ -4591,55 +4592,10 @@ static void b43_nphy_spur_workaround(struct b43_wldev *dev)
 {
 	struct b43_phy_n *nphy = dev->phy.n;
 
-	u8 channel = dev->phy.channel;
-	int tone[2] = { 57, 58 };
-	u32 noise[2] = { 0x3FF, 0x3FF };
-
 	B43_WARN_ON(dev->phy.rev < 3);
 
 	if (nphy->hang_avoid)
 		b43_nphy_stay_in_carrier_search(dev, 1);
-
-	if (nphy->gband_spurwar_en) {
-		/* TODO: N PHY Adjust Analog Pfbw (7) */
-		if (channel == 11 && b43_is_40mhz(dev))
-			; /* TODO: N PHY Adjust Min Noise Var(2, tone, noise)*/
-		else
-			; /* TODO: N PHY Adjust Min Noise Var(0, NULL, NULL)*/
-		/* TODO: N PHY Adjust CRS Min Power (0x1E) */
-	}
-
-	if (nphy->aband_spurwar_en) {
-		if (channel == 54) {
-			tone[0] = 0x20;
-			noise[0] = 0x25F;
-		} else if (channel == 38 || channel == 102 || channel == 118) {
-			if (0 /* FIXME */) {
-				tone[0] = 0x20;
-				noise[0] = 0x21F;
-			} else {
-				tone[0] = 0;
-				noise[0] = 0;
-			}
-		} else if (channel == 134) {
-			tone[0] = 0x20;
-			noise[0] = 0x21F;
-		} else if (channel == 151) {
-			tone[0] = 0x10;
-			noise[0] = 0x23F;
-		} else if (channel == 153 || channel == 161) {
-			tone[0] = 0x30;
-			noise[0] = 0x23F;
-		} else {
-			tone[0] = 0;
-			noise[0] = 0;
-		}
-
-		if (!tone[0] && !noise[0])
-			; /* TODO: N PHY Adjust Min Noise Var(1, tone, noise)*/
-		else
-			; /* TODO: N PHY Adjust Min Noise Var(0, NULL, NULL)*/
-	}
 
 	if (nphy->hang_avoid)
 		b43_nphy_stay_in_carrier_search(dev, 0);
@@ -5643,7 +5599,7 @@ static int b43_nphy_rev2_cal_rx_iq(struct b43_wldev *dev,
 	u8 rfctl[2];
 	u8 afectl_core;
 	u16 tmp[6];
-	u16 uninitialized_var(cur_hpf1), uninitialized_var(cur_hpf2), cur_lna;
+	u16 cur_hpf1, cur_hpf2, cur_lna;
 	u32 real, imag;
 	enum nl80211_band band;
 
@@ -6166,8 +6122,9 @@ static int b43_phy_initn(struct b43_wldev *dev)
 
 	if (nphy->phyrxchain != 3)
 		b43_nphy_set_rx_core_state(dev, nphy->phyrxchain);
-	if (nphy->mphase_cal_phase_id > 0)
+	if (nphy->mphase_cal_phase_id > 0) {
 		;/* TODO PHY Periodic Calibration Multi-Phase Restart */
+	}
 
 	do_rssi_cal = false;
 	if (phy->rev >= 3) {
@@ -6211,8 +6168,9 @@ static int b43_phy_initn(struct b43_wldev *dev)
 				if (!b43_nphy_cal_tx_iq_lo(dev, target, true, false))
 					if (b43_nphy_cal_rx_iq(dev, target, 2, 0) == 0)
 						b43_nphy_save_cal(dev);
-			} else if (nphy->mphase_cal_phase_id == 0)
+			} else if (nphy->mphase_cal_phase_id == 0) {
 				;/* N PHY Periodic Calibration with arg 3 */
+			}
 		} else {
 			b43_nphy_restore_cal(dev);
 		}

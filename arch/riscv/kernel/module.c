@@ -8,6 +8,10 @@
 #include <linux/err.h>
 #include <linux/errno.h>
 #include <linux/moduleloader.h>
+#include <linux/vmalloc.h>
+#include <linux/sizes.h>
+#include <linux/pgtable.h>
+#include <asm/sections.h>
 
 static int apply_r_riscv_32_rela(struct module *me, u32 *location, Elf_Addr v)
 {
@@ -259,10 +263,24 @@ static int apply_r_riscv_add32_rela(struct module *me, u32 *location,
 	return 0;
 }
 
+static int apply_r_riscv_add64_rela(struct module *me, u32 *location,
+				    Elf_Addr v)
+{
+	*(u64 *)location += (u64)v;
+	return 0;
+}
+
 static int apply_r_riscv_sub32_rela(struct module *me, u32 *location,
 				    Elf_Addr v)
 {
 	*(u32 *)location -= (u32)v;
+	return 0;
+}
+
+static int apply_r_riscv_sub64_rela(struct module *me, u32 *location,
+				    Elf_Addr v)
+{
+	*(u64 *)location -= (u64)v;
 	return 0;
 }
 
@@ -286,7 +304,9 @@ static int (*reloc_handlers_rela[]) (struct module *me, u32 *location,
 	[R_RISCV_RELAX]			= apply_r_riscv_relax_rela,
 	[R_RISCV_ALIGN]			= apply_r_riscv_align_rela,
 	[R_RISCV_ADD32]			= apply_r_riscv_add32_rela,
+	[R_RISCV_ADD64]			= apply_r_riscv_add64_rela,
 	[R_RISCV_SUB32]			= apply_r_riscv_sub32_rela,
+	[R_RISCV_SUB64]			= apply_r_riscv_sub64_rela,
 };
 
 int apply_relocate_add(Elf_Shdr *sechdrs, const char *strtab,
@@ -315,8 +335,8 @@ int apply_relocate_add(Elf_Shdr *sechdrs, const char *strtab,
 			/* Ignore unresolved weak symbol */
 			if (ELF_ST_BIND(sym->st_info) == STB_WEAK)
 				continue;
-			pr_warning("%s: Unknown symbol %s\n",
-				   me->name, strtab + sym->st_name);
+			pr_warn("%s: Unknown symbol %s\n",
+				me->name, strtab + sym->st_name);
 			return -ENOENT;
 		}
 
@@ -386,3 +406,13 @@ int apply_relocate_add(Elf_Shdr *sechdrs, const char *strtab,
 
 	return 0;
 }
+
+#if defined(CONFIG_MMU) && defined(CONFIG_64BIT)
+void *module_alloc(unsigned long size)
+{
+	return __vmalloc_node_range(size, 1, MODULES_VADDR,
+				    MODULES_END, GFP_KERNEL,
+				    PAGE_KERNEL, 0, NUMA_NO_NODE,
+				    __builtin_return_address(0));
+}
+#endif

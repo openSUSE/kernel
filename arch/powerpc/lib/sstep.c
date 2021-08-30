@@ -16,6 +16,7 @@
 #include <asm/disassemble.h>
 
 extern char system_call_common[];
+extern char system_call_vectored_emulate[];
 
 #ifdef CONFIG_PPC64
 /* Bits in SRR1 that are copied from MSR */
@@ -111,11 +112,11 @@ static nokprobe_inline long address_ok(struct pt_regs *regs,
 {
 	if (!user_mode(regs))
 		return 1;
-	if (__access_ok(ea, nb, USER_DS))
+	if (__access_ok(ea, nb))
 		return 1;
-	if (__access_ok(ea, 1, USER_DS))
+	if (__access_ok(ea, 1))
 		/* Access overlaps the end of the user region */
-		regs->dar = USER_DS.seg;
+		regs->dar = TASK_SIZE_MAX - 1;
 	else
 		regs->dar = ea;
 	return 0;
@@ -222,10 +223,13 @@ static nokprobe_inline unsigned long mlsd_8lsd_ea(unsigned int instr,
 		ea += regs->gpr[ra];
 	else if (!prefix_r && !ra)
 		; /* Leave ea as is */
-	else if (prefix_r && !ra)
+	else if (prefix_r)
 		ea += regs->nip;
-	else if (prefix_r && ra)
-		; /* Invalid form. Should already be checked for by caller! */
+
+	/*
+	 * (prefix_r && ra) is an invalid form. Should already be
+	 * checked for by caller!
+	 */
 
 	return ea;
 }
@@ -1301,7 +1305,12 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 	case 17:	/* sc */
 		if ((word & 0xfe2) == 2)
 			op->type = SYSCALL;
-		else
+		else if (IS_ENABLED(CONFIG_PPC_BOOK3S_64) &&
+				(word & 0xfe3) == 1) {	/* scv */
+			op->type = SYSCALL_VECTORED_0;
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
+		} else
 			op->type = UNKNOWN;
 		return 0;
 #endif
@@ -1391,10 +1400,6 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 		}
 		break;
 	}
-
-	/* Following cases refer to regs->gpr[], so we need all regs */
-	if (!FULL_REGS(regs))
-		return -1;
 
 	rd = (word >> 21) & 0x1f;
 	ra = (word >> 16) & 0x1f;
@@ -1693,6 +1698,28 @@ int analyse_instr(struct instruction_op *op, const struct pt_regs *regs,
 				}
 			}
 			op->val = regs->ccr & imm;
+			goto compute_done;
+
+		case 128:	/* setb */
+			if (!cpu_has_feature(CPU_FTR_ARCH_300))
+				goto unknown_opcode;
+			/*
+			 * 'ra' encodes the CR field number (bfa) in the top 3 bits.
+			 * Since each CR field is 4 bits,
+			 * we can simply mask off the bottom two bits (bfa * 4)
+			 * to yield the first bit in the CR field.
+			 */
+			ra = ra & ~0x3;
+			/* 'val' stores bits of the CR field (bfa) */
+			val = regs->ccr >> (CR0_SHIFT - ra);
+			/* checks if the LT bit of CR field (bfa) is set */
+			if (val & 8)
+				op->val = -1;
+			/* checks if the GT bit of CR field (bfa) is set */
+			else if (val & 4)
+				op->val = 1;
+			else
+				op->val = 0;
 			goto compute_done;
 
 		case 144:	/* mtcrf */
@@ -3077,15 +3104,6 @@ NOKPROBE_SYMBOL(analyse_instr);
  */
 static nokprobe_inline int handle_stack_update(unsigned long ea, struct pt_regs *regs)
 {
-#ifdef CONFIG_PPC32
-	/*
-	 * Check if we will touch kernel stack overflow
-	 */
-	if (ea - STACK_INT_FRAME_SIZE <= current->thread.ksp_limit) {
-		printk(KERN_CRIT "Can't kprobe this since kernel stack would overflow.\n");
-		return -EINVAL;
-	}
-#endif /* CONFIG_PPC32 */
 	/*
 	 * Check if we already set since that means we'll
 	 * lose the previous value.
@@ -3207,7 +3225,7 @@ void emulate_update_regs(struct pt_regs *regs, struct instruction_op *op)
 	default:
 		WARN_ON_ONCE(1);
 	}
-	regs->nip = next_pc;
+	regs_set_return_ip(regs, next_pc);
 }
 NOKPROBE_SYMBOL(emulate_update_regs);
 
@@ -3545,7 +3563,7 @@ int emulate_step(struct pt_regs *regs, struct ppc_inst instr)
 			/* can't step mtmsr[d] that would clear MSR_RI */
 			return -1;
 		/* here op.val is the mask of bits to change */
-		regs->msr = (regs->msr & ~op.val) | (val & op.val);
+		regs_set_return_msr(regs, (regs->msr & ~op.val) | (val & op.val));
 		goto instr_done;
 
 #ifdef CONFIG_PPC64
@@ -3555,9 +3573,10 @@ int emulate_step(struct pt_regs *regs, struct ppc_inst instr)
 		 * entry code works.  If that is changed, this will
 		 * need to be changed also.
 		 */
-		if (regs->gpr[0] == 0x1ebe &&
-		    cpu_has_feature(CPU_FTR_REAL_LE)) {
-			regs->msr ^= MSR_LE;
+		if (IS_ENABLED(CONFIG_PPC_FAST_ENDIAN_SWITCH) &&
+				cpu_has_feature(CPU_FTR_REAL_LE) &&
+				regs->gpr[0] == 0x1ebe) {
+			regs_set_return_msr(regs, regs->msr ^ MSR_LE);
 			goto instr_done;
 		}
 		regs->gpr[9] = regs->gpr[13];
@@ -3565,9 +3584,21 @@ int emulate_step(struct pt_regs *regs, struct ppc_inst instr)
 		regs->gpr[11] = regs->nip + 4;
 		regs->gpr[12] = regs->msr & MSR_MASK;
 		regs->gpr[13] = (unsigned long) get_paca();
-		regs->nip = (unsigned long) &system_call_common;
-		regs->msr = MSR_KERNEL;
+		regs_set_return_ip(regs, (unsigned long) &system_call_common);
+		regs_set_return_msr(regs, MSR_KERNEL);
 		return 1;
+
+#ifdef CONFIG_PPC_BOOK3S_64
+	case SYSCALL_VECTORED_0:	/* scv 0 */
+		regs->gpr[9] = regs->gpr[13];
+		regs->gpr[10] = MSR_KERNEL;
+		regs->gpr[11] = regs->nip + 4;
+		regs->gpr[12] = regs->msr & MSR_MASK;
+		regs->gpr[13] = (unsigned long) get_paca();
+		regs_set_return_ip(regs, (unsigned long) &system_call_vectored_emulate);
+		regs_set_return_msr(regs, MSR_KERNEL);
+		return 1;
+#endif
 
 	case RFI:
 		return -1;
@@ -3576,7 +3607,8 @@ int emulate_step(struct pt_regs *regs, struct ppc_inst instr)
 	return 0;
 
  instr_done:
-	regs->nip = truncate_if_32bit(regs->msr, regs->nip + GETLENGTH(op.type));
+	regs_set_return_ip(regs,
+		truncate_if_32bit(regs->msr, regs->nip + GETLENGTH(op.type)));
 	return 1;
 }
 NOKPROBE_SYMBOL(emulate_step);

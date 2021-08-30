@@ -2,7 +2,7 @@
 /*
  * Texas Instruments' Message Manager Driver
  *
- * Copyright (C) 2015-2017 Texas Instruments Incorporated - http://www.ti.com/
+ * Copyright (C) 2015-2017 Texas Instruments Incorporated - https://www.ti.com/
  *	Nishanth Menon
  */
 
@@ -239,7 +239,7 @@ static irqreturn_t ti_msgmgr_queue_rx_interrupt(int irq, void *p)
 
 	/*
 	 * I have no idea about the protocol being used to communicate with the
-	 * remote producer - 0 could be valid data, so I wont make a judgement
+	 * remote producer - 0 could be valid data, so I won't make a judgement
 	 * of how many bytes I should be reading. Let the client figure this
 	 * out.. I just read the full message and pass it on..
 	 */

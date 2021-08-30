@@ -4,7 +4,6 @@
  */
 #ifndef __ASM_COMPAT_H
 #define __ASM_COMPAT_H
-#ifdef __KERNEL__
 
 #include <asm-generic/compat.h>
 
@@ -36,8 +35,6 @@ typedef s32		compat_nlink_t;
 typedef u16		compat_ipc_pid_t;
 typedef u32		compat_caddr_t;
 typedef __kernel_fsid_t	compat_fsid_t;
-typedef s64		compat_s64;
-typedef u64		compat_u64;
 
 struct compat_stat {
 #ifdef __AARCH64EB__
@@ -199,5 +196,4 @@ static inline int is_compat_thread(struct thread_info *thread)
 }
 
 #endif /* CONFIG_COMPAT */
-#endif /* __KERNEL__ */
 #endif /* __ASM_COMPAT_H */

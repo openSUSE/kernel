@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-/* Copyright(c) 2013 - 2018 Intel Corporation. */
+/* Copyright(c) 2013 - 2021 Intel Corporation. */
 
 #ifndef _I40E_H_
 #define _I40E_H_
@@ -66,6 +66,8 @@
 #define I40E_FDIR_RING_COUNT		32
 #define I40E_MAX_AQ_BUF_SIZE		4096
 #define I40E_AQ_LEN			256
+#define I40E_MIN_ARQ_LEN		1
+#define I40E_MIN_ASQ_LEN		2
 #define I40E_AQ_WORK_LIMIT		66 /* max number of VFs + a little */
 #define I40E_MAX_USER_PRIORITY		8
 #define I40E_DEFAULT_TRAFFIC_CLASS	BIT(0)
@@ -214,14 +216,18 @@ struct i40e_fdir_filter {
 	struct hlist_node fdir_node;
 	/* filter ipnut set */
 	u8 flow_type;
-	u8 ip4_proto;
+	u8 ipl4_proto;
 	/* TX packet view of src and dst */
 	__be32 dst_ip;
 	__be32 src_ip;
+	__be32 dst_ip6[4];
+	__be32 src_ip6[4];
 	__be16 src_port;
 	__be16 dst_port;
 	__be32 sctp_v_tag;
 
+	__be16 vlan_etype;
+	__be16 vlan_tag;
 	/* Flexible data to match within the packet payload */
 	__be16 flex_word;
 	u16 flex_offset;
@@ -290,6 +296,9 @@ struct i40e_cloud_filter {
 	u8 tunnel_type;
 };
 
+#define I40E_DCB_PRIO_TYPE_STRICT	0
+#define I40E_DCB_PRIO_TYPE_ETS		1
+#define I40E_DCB_STRICT_PRIO_CREDITS	127
 /* DCB per TC information data structure */
 struct i40e_tc_info {
 	u16	qoffset;	/* Queue offset from base queue */
@@ -475,6 +484,11 @@ struct i40e_pf {
 	u16 fd_sctp4_filter_cnt;
 	u16 fd_ip4_filter_cnt;
 
+	u16 fd_tcp6_filter_cnt;
+	u16 fd_udp6_filter_cnt;
+	u16 fd_sctp6_filter_cnt;
+	u16 fd_ip6_filter_cnt;
+
 	/* Flexible filter table values that need to be programmed into
 	 * hardware, which expects L3 and L4 to be programmed separately. We
 	 * need to ensure that the values are in ascended order and don't have
@@ -627,6 +641,8 @@ struct i40e_pf {
 	u16 dcbx_cap;
 
 	struct i40e_filter_control_settings filter_settings;
+	struct i40e_rx_pb_config pb_cfg; /* Current Rx packet buffer config */
+	struct i40e_dcbx_config tmp_cfg;
 
 	struct ptp_clock *ptp_clock;
 	struct ptp_clock_info ptp_caps;
@@ -854,6 +870,8 @@ struct i40e_netdev_priv {
 	struct i40e_vsi *vsi;
 };
 
+extern struct ida i40e_client_ida;
+
 /* struct that defines an interrupt vector */
 struct i40e_q_vector {
 	struct i40e_vsi *vsi;
@@ -995,7 +1013,6 @@ static inline void i40e_write_fd_input_set(struct i40e_pf *pf,
 int i40e_up(struct i40e_vsi *vsi);
 void i40e_down(struct i40e_vsi *vsi);
 extern const char i40e_driver_name[];
-extern const char i40e_driver_version_str[];
 void i40e_do_reset_safe(struct i40e_pf *pf, u32 reset_flags);
 void i40e_do_reset(struct i40e_pf *pf, u32 reset_flags, bool lock_acquired);
 int i40e_config_rss(struct i40e_vsi *vsi, u8 *seed, u8 *lut, u16 lut_size);
@@ -1124,6 +1141,11 @@ bool i40e_is_vsi_in_vlan(struct i40e_vsi *vsi);
 int i40e_count_filters(struct i40e_vsi *vsi);
 struct i40e_mac_filter *i40e_find_mac(struct i40e_vsi *vsi, const u8 *macaddr);
 void i40e_vlan_stripping_enable(struct i40e_vsi *vsi);
+static inline bool i40e_is_sw_dcb(struct i40e_pf *pf)
+{
+	return !!(pf->flags & I40E_FLAG_DISABLE_FW_LLDP);
+}
+
 #ifdef CONFIG_I40E_DCB
 void i40e_dcbnl_flush_apps(struct i40e_pf *pf,
 			   struct i40e_dcbx_config *old_cfg,
@@ -1133,6 +1155,8 @@ void i40e_dcbnl_setup(struct i40e_vsi *vsi);
 bool i40e_dcb_need_reconfig(struct i40e_pf *pf,
 			    struct i40e_dcbx_config *old_cfg,
 			    struct i40e_dcbx_config *new_cfg);
+int i40e_hw_dcb_config(struct i40e_pf *pf, struct i40e_dcbx_config *new_cfg);
+int i40e_dcb_sw_default_config(struct i40e_pf *pf);
 #endif /* CONFIG_I40E_DCB */
 void i40e_ptp_rx_hang(struct i40e_pf *pf);
 void i40e_ptp_tx_hang(struct i40e_pf *pf);

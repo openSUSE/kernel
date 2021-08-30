@@ -231,7 +231,7 @@ static void ucma_copy_conn_event(struct rdma_ucm_conn_param *dst,
 		memcpy(dst->private_data, src->private_data,
 		       src->private_data_len);
 	dst->private_data_len = src->private_data_len;
-	dst->responder_resources =src->responder_resources;
+	dst->responder_resources = src->responder_resources;
 	dst->initiator_depth = src->initiator_depth;
 	dst->flow_control = src->flow_control;
 	dst->retry_count = src->retry_count;
@@ -458,8 +458,7 @@ static ssize_t ucma_create_id(struct ucma_file *file, const char __user *inbuf,
 		return -ENOMEM;
 
 	ctx->uid = cmd.uid;
-	cm_id = __rdma_create_id(current->nsproxy->net_ns,
-				 ucma_event_handler, ctx, cmd.ps, qp_type, NULL);
+	cm_id = rdma_create_user_id(ucma_event_handler, ctx, cmd.ps, qp_type);
 	if (IS_ERR(cm_id)) {
 		ret = PTR_ERR(cm_id);
 		goto err1;
@@ -469,8 +468,8 @@ static ssize_t ucma_create_id(struct ucma_file *file, const char __user *inbuf,
 	resp.id = ctx->id;
 	if (copy_to_user(u64_to_user_ptr(cmd.response),
 			 &resp, sizeof(resp))) {
-		ucma_destroy_private_ctx(ctx);
-		return -EFAULT;
+		ret = -EFAULT;
+		goto err1;
 	}
 
 	mutex_lock(&file->mut);
@@ -765,7 +764,7 @@ static void ucma_copy_ib_route(struct rdma_ucm_query_route_resp *resp,
 	case 2:
 		ib_copy_path_rec_to_user(&resp->ib_route[1],
 					 &route->path_rec[1]);
-		/* fall through */
+		fallthrough;
 	case 1:
 		ib_copy_path_rec_to_user(&resp->ib_route[0],
 					 &route->path_rec[0]);
@@ -791,7 +790,7 @@ static void ucma_copy_iboe_route(struct rdma_ucm_query_route_resp *resp,
 	case 2:
 		ib_copy_path_rec_to_user(&resp->ib_route[1],
 					 &route->path_rec[1]);
-		/* fall through */
+		fallthrough;
 	case 1:
 		ib_copy_path_rec_to_user(&resp->ib_route[0],
 					 &route->path_rec[0]);
@@ -1035,7 +1034,7 @@ static void ucma_copy_conn_param(struct rdma_cm_id *id,
 {
 	dst->private_data = src->private_data;
 	dst->private_data_len = src->private_data_len;
-	dst->responder_resources =src->responder_resources;
+	dst->responder_resources = src->responder_resources;
 	dst->initiator_depth = src->initiator_depth;
 	dst->flow_control = src->flow_control;
 	dst->retry_count = src->retry_count;
@@ -1135,7 +1134,7 @@ static ssize_t ucma_accept(struct ucma_file *file, const char __user *inbuf,
 		ucma_copy_conn_param(ctx->cm_id, &conn_param, &cmd.conn_param);
 		mutex_lock(&ctx->mutex);
 		rdma_lock_handler(ctx->cm_id);
-		ret = __rdma_accept_ece(ctx->cm_id, &conn_param, NULL, &ece);
+		ret = rdma_accept_ece(ctx->cm_id, &conn_param, &ece);
 		if (!ret) {
 			/* The uid must be set atomically with the handler */
 			ctx->uid = cmd.uid;
@@ -1145,7 +1144,7 @@ static ssize_t ucma_accept(struct ucma_file *file, const char __user *inbuf,
 	} else {
 		mutex_lock(&ctx->mutex);
 		rdma_lock_handler(ctx->cm_id);
-		ret = __rdma_accept_ece(ctx->cm_id, NULL, NULL, &ece);
+		ret = rdma_accept_ece(ctx->cm_id, NULL, &ece);
 		rdma_unlock_handler(ctx->cm_id);
 		mutex_unlock(&ctx->mutex);
 	}
@@ -1709,8 +1708,8 @@ static ssize_t ucma_write(struct file *filp, const char __user *buf,
 	ssize_t ret;
 
 	if (!ib_safe_file_access(filp)) {
-		pr_err_once("ucma_write: process %d (%s) changed security contexts after opening file descriptor, this is not allowed.\n",
-			    task_tgid_vnr(current), current->comm);
+		pr_err_once("%s: process %d (%s) changed security contexts after opening file descriptor, this is not allowed.\n",
+			    __func__, task_tgid_vnr(current), current->comm);
 		return -EACCES;
 	}
 
@@ -1831,13 +1830,12 @@ static struct ib_client rdma_cma_client = {
 };
 MODULE_ALIAS_RDMA_CLIENT("rdma_cm");
 
-static ssize_t show_abi_version(struct device *dev,
-				struct device_attribute *attr,
-				char *buf)
+static ssize_t abi_version_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
 {
-	return sprintf(buf, "%d\n", RDMA_USER_CM_ABI_VERSION);
+	return sysfs_emit(buf, "%d\n", RDMA_USER_CM_ABI_VERSION);
 }
-static DEVICE_ATTR(abi_version, S_IRUGO, show_abi_version, NULL);
+static DEVICE_ATTR_RO(abi_version);
 
 static int __init ucma_init(void)
 {

@@ -29,6 +29,7 @@
 #include <sys/ioctl.h>
 
 #define BIT(x) (1 << (x))
+#define BIT_ULL(nr) (1ULL << (nr))
 #define GENMASK(h, l) (((~0UL) << (l)) & (~0UL >> (sizeof(long) * 8 - 1 - (h))))
 #define GENMASK_ULL(h, l)                                                      \
 	(((~0ULL) << (l)) & (~0ULL >> (sizeof(long long) * 8 - 1 - (h))))
@@ -68,6 +69,12 @@
 #define PM_QOS_CONFIG_OFFSET			0x04
 #define PM_CLOS_OFFSET				0x08
 #define PQR_ASSOC_OFFSET			0x20
+
+#define READ_PM_CONFIG				0x94
+#define WRITE_PM_CONFIG				0x95
+#define PM_FEATURE				0x03
+
+#define DISP_FREQ_MULTIPLIER 100
 
 struct isst_clos_config {
 	int pkg_id;
@@ -117,6 +124,8 @@ struct isst_pkg_ctdp_level_info {
 	int pbf_support;
 	int fact_enabled;
 	int pbf_enabled;
+	int sst_cp_support;
+	int sst_cp_enabled;
 	int tdp_ratio;
 	int active;
 	int tdp_control;
@@ -134,6 +143,7 @@ struct isst_pkg_ctdp_level_info {
 	size_t core_cpumask_size;
 	cpu_set_t *core_cpumask;
 	int cpu_count;
+	unsigned long long buckets_info;
 	int trl_sse_active_cores[ISST_TRL_MAX_ACTIVE_CORES];
 	int trl_avx_active_cores[ISST_TRL_MAX_ACTIVE_CORES];
 	int trl_avx_512_active_cores[ISST_TRL_MAX_ACTIVE_CORES];
@@ -160,8 +170,10 @@ struct isst_pkg_ctdp {
 
 extern int get_topo_max_cpus(void);
 extern int get_cpu_count(int pkg_id, int die_id);
+extern int get_max_punit_core_id(int pkg_id, int die_id);
 
 /* Common interfaces */
+FILE *get_output_file(void);
 extern void debug_printf(const char *format, ...);
 extern int out_format_is_json(void);
 extern int get_physical_package_id(int cpu);
@@ -186,12 +198,18 @@ extern int isst_send_msr_command(unsigned int cpu, unsigned int command,
 				 int write, unsigned long long *req_resp);
 
 extern int isst_get_ctdp_levels(int cpu, struct isst_pkg_ctdp *pkg_dev);
+extern int isst_get_ctdp_control(int cpu, int config_index,
+				 struct isst_pkg_ctdp_level_info *ctdp_level);
+extern int isst_get_coremask_info(int cpu, int config_index,
+			   struct isst_pkg_ctdp_level_info *ctdp_level);
 extern int isst_get_process_ctdp(int cpu, int tdp_level,
 				 struct isst_pkg_ctdp *pkg_dev);
 extern void isst_get_process_ctdp_complete(int cpu,
 					   struct isst_pkg_ctdp *pkg_dev);
 extern void isst_ctdp_display_information(int cpu, FILE *outf, int tdp_level,
 					  struct isst_pkg_ctdp *pkg_dev);
+extern void isst_ctdp_display_core_info(int cpu, FILE *outf, char *prefix,
+					unsigned int val, char *str0, char *str1);
 extern void isst_ctdp_display_information_start(FILE *outf);
 extern void isst_ctdp_display_information_end(FILE *outf);
 extern void isst_pbf_display_information(int cpu, FILE *outf, int level,
@@ -202,7 +220,7 @@ extern int isst_set_pbf_fact_status(int cpu, int pbf, int enable);
 extern int isst_get_pbf_info(int cpu, int level,
 			     struct isst_pbf_info *pbf_info);
 extern void isst_get_pbf_info_complete(struct isst_pbf_info *pbf_info);
-extern int isst_get_fact_info(int cpu, int level,
+extern int isst_get_fact_info(int cpu, int level, int fact_bucket,
 			      struct isst_fact_info *fact_info);
 extern int isst_get_fact_bucket_info(int cpu, int level,
 				     struct isst_fact_bucket_info *bucket_info);
@@ -210,6 +228,7 @@ extern void isst_fact_display_information(int cpu, FILE *outf, int level,
 					  int fact_bucket, int fact_avx,
 					  struct isst_fact_info *fact_info);
 extern int isst_set_trl(int cpu, unsigned long long trl);
+extern int isst_get_trl(int cpu, unsigned long long *trl);
 extern int isst_set_trl_from_current_tdp(int cpu, unsigned long long trl);
 extern int isst_get_config_tdp_lock_status(int cpu);
 
@@ -222,10 +241,23 @@ extern int isst_clos_associate(int cpu, int clos);
 extern int isst_clos_get_assoc_status(int cpu, int *clos_id);
 extern void isst_clos_display_information(int cpu, FILE *outf, int clos,
 					  struct isst_clos_config *clos_config);
-
+extern void isst_clos_display_assoc_information(int cpu, FILE *outf, int clos);
 extern int isst_read_reg(unsigned short reg, unsigned int *val);
 extern int isst_write_reg(int reg, unsigned int val);
 
 extern void isst_display_result(int cpu, FILE *outf, char *feature, char *cmd,
 				int result);
+
+extern int isst_clos_get_clos_information(int cpu, int *enable, int *type);
+extern void isst_clos_display_clos_information(int cpu, FILE *outf,
+					       int clos_enable, int type,
+					       int state, int cap);
+extern int is_clx_n_platform(void);
+extern int get_cpufreq_base_freq(int cpu);
+extern int isst_read_pm_config(int cpu, int *cp_state, int *cp_cap);
+extern void isst_display_error_info_message(int error, char *msg, int arg_valid, int arg);
+extern int is_skx_based_platform(void);
+extern int is_spr_platform(void);
+extern int is_icx_platform(void);
+extern void isst_trl_display_information(int cpu, FILE *outf, unsigned long long trl);
 #endif

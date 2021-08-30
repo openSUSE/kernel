@@ -9,6 +9,7 @@
 #include <linux/bitops.h>
 #include <linux/genalloc.h>
 #include <asm/types.h>
+#include <asm/tpi.h>
 
 #define LPM_ANYPATH 0xff
 #define __MAX_CSSID 0
@@ -329,7 +330,7 @@ struct ccw_dev_id {
 };
 
 /**
- * ccw_device_id_is_equal() - compare two ccw_dev_ids
+ * ccw_dev_id_is_equal() - compare two ccw_dev_ids
  * @dev_id1: a ccw_dev_id
  * @dev_id2: another ccw_dev_id
  * Returns:
@@ -356,7 +357,6 @@ static inline u8 pathmask_to_pos(u8 mask)
 	return 8 - ffs(mask);
 }
 
-void channel_subsystem_reinit(void);
 extern void css_schedule_reprobe(void);
 
 extern void *cio_dma_zalloc(size_t size);

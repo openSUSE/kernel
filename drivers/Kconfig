@@ -6,6 +6,7 @@ menu "Device Drivers"
 source "drivers/amba/Kconfig"
 source "drivers/eisa/Kconfig"
 source "drivers/pci/Kconfig"
+source "drivers/cxl/Kconfig"
 source "drivers/pcmcia/Kconfig"
 source "drivers/rapidio/Kconfig"
 
@@ -30,11 +31,7 @@ source "drivers/block/Kconfig"
 
 source "drivers/nvme/Kconfig"
 
-# misc before ide - BLK_DEV_SGIIOC4 depends on SGI_IOC4
-
 source "drivers/misc/Kconfig"
-
-source "drivers/ide/Kconfig"
 
 source "drivers/scsi/Kconfig"
 
@@ -108,8 +105,6 @@ source "drivers/hid/Kconfig"
 
 source "drivers/usb/Kconfig"
 
-source "drivers/uwb/Kconfig"
-
 source "drivers/mmc/Kconfig"
 
 source "drivers/memstick/Kconfig"
@@ -142,9 +137,17 @@ source "drivers/virt/Kconfig"
 
 source "drivers/virtio/Kconfig"
 
+source "drivers/vdpa/Kconfig"
+
+source "drivers/vhost/Kconfig"
+
 source "drivers/hv/Kconfig"
 
 source "drivers/xen/Kconfig"
+
+source "drivers/greybus/Kconfig"
+
+source "drivers/comedi/Kconfig"
 
 source "drivers/staging/Kconfig"
 
@@ -202,6 +205,8 @@ source "drivers/thunderbolt/Kconfig"
 
 source "drivers/android/Kconfig"
 
+source "drivers/gpu/trace/Kconfig"
+
 source "drivers/nvdimm/Kconfig"
 
 source "drivers/dax/Kconfig"
@@ -230,4 +235,5 @@ source "drivers/interconnect/Kconfig"
 
 source "drivers/counter/Kconfig"
 
+source "drivers/most/Kconfig"
 endmenu

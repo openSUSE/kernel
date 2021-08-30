@@ -32,7 +32,6 @@
 
 static struct s5p_mfc_fmt formats[] = {
 	{
-		.name		= "4:2:0 2 Planes 16x16 Tiles",
 		.fourcc		= V4L2_PIX_FMT_NV12MT_16X16,
 		.codec_mode	= S5P_MFC_CODEC_NONE,
 		.type		= MFC_FMT_RAW,
@@ -40,7 +39,6 @@ static struct s5p_mfc_fmt formats[] = {
 		.versions	= MFC_V6_BIT | MFC_V7_BIT,
 	},
 	{
-		.name		= "4:2:0 2 Planes 64x32 Tiles",
 		.fourcc		= V4L2_PIX_FMT_NV12MT,
 		.codec_mode	= S5P_MFC_CODEC_NONE,
 		.type		= MFC_FMT_RAW,
@@ -48,7 +46,6 @@ static struct s5p_mfc_fmt formats[] = {
 		.versions	= MFC_V5_BIT,
 	},
 	{
-		.name		= "4:2:0 2 Planes Y/CbCr",
 		.fourcc		= V4L2_PIX_FMT_NV12M,
 		.codec_mode	= S5P_MFC_CODEC_NONE,
 		.type		= MFC_FMT_RAW,
@@ -56,7 +53,6 @@ static struct s5p_mfc_fmt formats[] = {
 		.versions	= MFC_V5PLUS_BITS,
 	},
 	{
-		.name		= "4:2:0 2 Planes Y/CrCb",
 		.fourcc		= V4L2_PIX_FMT_NV21M,
 		.codec_mode	= S5P_MFC_CODEC_NONE,
 		.type		= MFC_FMT_RAW,
@@ -64,7 +60,6 @@ static struct s5p_mfc_fmt formats[] = {
 		.versions	= MFC_V6PLUS_BITS,
 	},
 	{
-		.name		= "H264 Encoded Stream",
 		.fourcc		= V4L2_PIX_FMT_H264,
 		.codec_mode	= S5P_MFC_CODEC_H264_ENC,
 		.type		= MFC_FMT_ENC,
@@ -72,7 +67,6 @@ static struct s5p_mfc_fmt formats[] = {
 		.versions	= MFC_V5PLUS_BITS,
 	},
 	{
-		.name		= "MPEG4 Encoded Stream",
 		.fourcc		= V4L2_PIX_FMT_MPEG4,
 		.codec_mode	= S5P_MFC_CODEC_MPEG4_ENC,
 		.type		= MFC_FMT_ENC,
@@ -80,7 +74,6 @@ static struct s5p_mfc_fmt formats[] = {
 		.versions	= MFC_V5PLUS_BITS,
 	},
 	{
-		.name		= "H263 Encoded Stream",
 		.fourcc		= V4L2_PIX_FMT_H263,
 		.codec_mode	= S5P_MFC_CODEC_H263_ENC,
 		.type		= MFC_FMT_ENC,
@@ -88,7 +81,6 @@ static struct s5p_mfc_fmt formats[] = {
 		.versions	= MFC_V5PLUS_BITS,
 	},
 	{
-		.name		= "VP8 Encoded Stream",
 		.fourcc		= V4L2_PIX_FMT_VP8,
 		.codec_mode	= S5P_MFC_CODEC_VP8_ENC,
 		.type		= MFC_FMT_ENC,
@@ -268,6 +260,12 @@ static struct mfc_control controls[] = {
 		.maximum = V4L2_MPEG_MFC51_VIDEO_FRAME_SKIP_MODE_BUF_LIMIT,
 		.menu_skip_mask = 0,
 		.default_value = V4L2_MPEG_MFC51_VIDEO_FRAME_SKIP_MODE_DISABLED,
+	},
+	{
+		.id = V4L2_CID_MPEG_VIDEO_FRAME_SKIP_MODE,
+		.type = V4L2_CTRL_TYPE_MENU,
+		.maximum = V4L2_MPEG_VIDEO_FRAME_SKIP_MODE_BUF_LIMIT,
+		.default_value = V4L2_MPEG_VIDEO_FRAME_SKIP_MODE_DISABLED,
 	},
 	{
 		.id = V4L2_CID_MPEG_MFC51_VIDEO_RC_FIXED_TARGET_BIT,
@@ -1320,7 +1318,6 @@ static int vidioc_enum_fmt(struct file *file, struct v4l2_fmtdesc *f,
 							bool out)
 {
 	struct s5p_mfc_dev *dev = video_drvdata(file);
-	struct s5p_mfc_fmt *fmt;
 	int i, j = 0;
 
 	for (i = 0; i < ARRAY_SIZE(formats); ++i) {
@@ -1332,10 +1329,7 @@ static int vidioc_enum_fmt(struct file *file, struct v4l2_fmtdesc *f,
 			continue;
 
 		if (j == f->index) {
-			fmt = &formats[i];
-			strscpy(f->description, fmt->name,
-				sizeof(f->description));
-			f->pixelformat = fmt->fourcc;
+			f->pixelformat = formats[i].fourcc;
 			return 0;
 		}
 		++j;
@@ -1861,6 +1855,7 @@ static int s5p_mfc_enc_s_ctrl(struct v4l2_ctrl *ctrl)
 		p->seq_hdr_mode = ctrl->val;
 		break;
 	case V4L2_CID_MPEG_MFC51_VIDEO_FRAME_SKIP_MODE:
+	case V4L2_CID_MPEG_VIDEO_FRAME_SKIP_MODE:
 		p->frame_skip_mode = ctrl->val;
 		break;
 	case V4L2_CID_MPEG_MFC51_VIDEO_RC_FIXED_TARGET_BIT:
@@ -2619,7 +2614,7 @@ const struct v4l2_ioctl_ops *get_enc_v4l2_ioctl_ops(void)
 	return &s5p_mfc_enc_ioctl_ops;
 }
 
-#define IS_MFC51_PRIV(x) ((V4L2_CTRL_ID2WHICH(x) == V4L2_CTRL_CLASS_MPEG) \
+#define IS_MFC51_PRIV(x) ((V4L2_CTRL_ID2WHICH(x) == V4L2_CTRL_CLASS_CODEC) \
 						&& V4L2_CTRL_DRIVER_PRIV(x))
 
 int s5p_mfc_enc_ctrls_setup(struct s5p_mfc_ctx *ctx)

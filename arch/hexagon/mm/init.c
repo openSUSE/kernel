@@ -55,7 +55,6 @@ void __init mem_init(void)
 {
 	/*  No idea where this is actually declared.  Seems to evade LXR.  */
 	memblock_free_all();
-	mem_init_print_info(NULL);
 
 	/*
 	 *  To-Do:  someone somewhere should wipe out the bootmem map
@@ -69,19 +68,6 @@ void __init mem_init(void)
 	 * kernel segment table's physical address.
 	 */
 	init_mm.context.ptbase = __pa(init_mm.pgd);
-}
-
-/*
- * free_initrd_mem - frees...  initrd memory.
- * @start - start of init memory
- * @end - end of init memory
- *
- * Apparently has to be passed the address of the initrd memory.
- *
- * Wrapped by #ifdef CONFIG_BLKDEV_INITRD
- */
-void free_initrd_mem(unsigned long start, unsigned long end)
-{
 }
 
 void sync_icache_dcache(pte_t pte)
@@ -104,7 +90,7 @@ void sync_icache_dcache(pte_t pte)
  */
 void __init paging_init(void)
 {
-	unsigned long zones_sizes[MAX_NR_ZONES] = {0, };
+	unsigned long max_zone_pfn[MAX_NR_ZONES] = {0, };
 
 	/*
 	 *  This is not particularly well documented anywhere, but
@@ -114,9 +100,9 @@ void __init paging_init(void)
 	 *  adjust accordingly.
 	 */
 
-	zones_sizes[ZONE_NORMAL] = max_low_pfn;
+	max_zone_pfn[ZONE_NORMAL] = max_low_pfn;
 
-	free_area_init(zones_sizes);  /*  sets up the zonelists and mem_map  */
+	free_area_init(max_zone_pfn);  /*  sets up the zonelists and mem_map  */
 
 	/*
 	 * Start of high memory area.  Will probably need something more

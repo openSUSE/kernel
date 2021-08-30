@@ -98,7 +98,7 @@ static bool tomoyo_envp(const char *env_name, const char *env_value,
  * @argc: Length of @argc.
  * @argv: Pointer to "struct tomoyo_argv".
  * @envc: Length of @envp.
- * @envp: Poiner to "struct tomoyo_envp".
+ * @envp: Pointer to "struct tomoyo_envp".
  *
  * Returns true on success, false otherwise.
  */
@@ -743,7 +743,7 @@ void tomoyo_get_attributes(struct tomoyo_obj_info *obj)
 			stat->gid  = inode->i_gid;
 			stat->ino  = inode->i_ino;
 			stat->mode = inode->i_mode;
-			stat->dev  = inode_get_dev(inode);
+			stat->dev  = inode->i_sb->s_dev;
 			stat->rdev = inode->i_rdev;
 			obj->stat_valid[i] = true;
 		}

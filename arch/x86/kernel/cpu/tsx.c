@@ -2,7 +2,7 @@
 /*
  * Intel Transactional Synchronization Extensions (TSX) control.
  *
- * Copyright (C) 2019 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * Author:
  *	Pawan Gupta <pawan.kumar.gupta@linux.intel.com>
@@ -13,6 +13,9 @@
 #include <asm/cmdline.h>
 
 #include "cpu.h"
+
+#undef pr_fmt
+#define pr_fmt(fmt) "tsx: " fmt
 
 enum tsx_ctrl_states tsx_ctrl_state __ro_after_init = TSX_CTRL_NOT_SUPPORTED;
 
@@ -81,13 +84,46 @@ static enum tsx_ctrl_states x86_get_tsx_auto_mode(void)
 	return TSX_CTRL_ENABLE;
 }
 
+void tsx_clear_cpuid(void)
+{
+	u64 msr;
+
+	/*
+	 * MSR_TFA_TSX_CPUID_CLEAR bit is only present when both CPUID
+	 * bits RTM_ALWAYS_ABORT and TSX_FORCE_ABORT are present.
+	 */
+	if (boot_cpu_has(X86_FEATURE_RTM_ALWAYS_ABORT) &&
+	    boot_cpu_has(X86_FEATURE_TSX_FORCE_ABORT)) {
+		rdmsrl(MSR_TSX_FORCE_ABORT, msr);
+		msr |= MSR_TFA_TSX_CPUID_CLEAR;
+		wrmsrl(MSR_TSX_FORCE_ABORT, msr);
+	}
+}
+
 void __init tsx_init(void)
 {
 	char arg[5] = {};
 	int ret;
 
-	if (!tsx_ctrl_is_supported())
+	/*
+	 * Hardware will always abort a TSX transaction if both CPUID bits
+	 * RTM_ALWAYS_ABORT and TSX_FORCE_ABORT are set. In this case, it is
+	 * better not to enumerate CPUID.RTM and CPUID.HLE bits. Clear them
+	 * here.
+	 */
+	if (boot_cpu_has(X86_FEATURE_RTM_ALWAYS_ABORT) &&
+	    boot_cpu_has(X86_FEATURE_TSX_FORCE_ABORT)) {
+		tsx_ctrl_state = TSX_CTRL_RTM_ALWAYS_ABORT;
+		tsx_clear_cpuid();
+		setup_clear_cpu_cap(X86_FEATURE_RTM);
+		setup_clear_cpu_cap(X86_FEATURE_HLE);
 		return;
+	}
+
+	if (!tsx_ctrl_is_supported()) {
+		tsx_ctrl_state = TSX_CTRL_NOT_SUPPORTED;
+		return;
+	}
 
 	ret = cmdline_find_option(boot_command_line, "tsx", arg, sizeof(arg));
 	if (ret >= 0) {
@@ -99,7 +135,7 @@ void __init tsx_init(void)
 			tsx_ctrl_state = x86_get_tsx_auto_mode();
 		} else {
 			tsx_ctrl_state = TSX_CTRL_DISABLE;
-			pr_err("tsx: invalid option, defaulting to off\n");
+			pr_err("invalid option, defaulting to off\n");
 		}
 	} else {
 		/* tsx= not provided */

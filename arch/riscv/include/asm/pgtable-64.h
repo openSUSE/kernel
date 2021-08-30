@@ -43,6 +43,12 @@ static inline int pud_bad(pud_t pud)
 	return !pud_present(pud);
 }
 
+#define pud_leaf	pud_leaf
+static inline int pud_leaf(pud_t pud)
+{
+	return pud_present(pud) && (pud_val(pud) & _PAGE_LEAF);
+}
+
 static inline void set_pud(pud_t *pudp, pud_t pud)
 {
 	*pudp = pud;
@@ -53,16 +59,14 @@ static inline void pud_clear(pud_t *pudp)
 	set_pud(pudp, __pud(0));
 }
 
-static inline unsigned long pud_page_vaddr(pud_t pud)
+static inline pmd_t *pud_pgtable(pud_t pud)
 {
-	return (unsigned long)pfn_to_virt(pud_val(pud) >> _PAGE_PFN_SHIFT);
+	return (pmd_t *)pfn_to_virt(pud_val(pud) >> _PAGE_PFN_SHIFT);
 }
 
-#define pmd_index(addr) (((addr) >> PMD_SHIFT) & (PTRS_PER_PMD - 1))
-
-static inline pmd_t *pmd_offset(pud_t *pud, unsigned long addr)
+static inline struct page *pud_page(pud_t pud)
 {
-	return (pmd_t *)pud_page_vaddr(*pud) + pmd_index(addr);
+	return pfn_to_page(pud_val(pud) >> _PAGE_PFN_SHIFT);
 }
 
 static inline pmd_t pfn_pmd(unsigned long pfn, pgprot_t prot)
@@ -74,6 +78,8 @@ static inline unsigned long _pmd_pfn(pmd_t pmd)
 {
 	return pmd_val(pmd) >> _PAGE_PFN_SHIFT;
 }
+
+#define mk_pmd(page, prot)    pfn_pmd(page_to_pfn(page), prot)
 
 #define pmd_ERROR(e) \
 	pr_err("%s:%d: bad pmd %016lx.\n", __FILE__, __LINE__, pmd_val(e))

@@ -186,13 +186,12 @@ static void byt_i2c_setup(struct lpss_private_data *pdata)
 	long uid = 0;
 
 	/* Expected to always be true, but better safe then sorry */
-	if (uid_str)
-		uid = simple_strtol(uid_str, NULL, 10);
-
-	/* Detect I2C bus shared with PUNIT and ignore its d3 status */
-	status = acpi_evaluate_integer(handle, "_SEM", NULL, &shared_host);
-	if (ACPI_SUCCESS(status) && shared_host && uid)
-		pmc_atom_d3_mask &= ~(BIT_LPSS2_F1_I2C1 << (uid - 1));
+	if (uid_str && !kstrtol(uid_str, 10, &uid) && uid) {
+		/* Detect I2C bus shared with PUNIT and ignore its d3 status */
+		status = acpi_evaluate_integer(handle, "_SEM", NULL, &shared_host);
+		if (ACPI_SUCCESS(status) && shared_host)
+			pmc_atom_d3_mask &= ~(BIT_LPSS2_F1_I2C1 << (uid - 1));
+	}
 
 	lpss_deassert_reset(pdata);
 
@@ -377,6 +376,7 @@ static const struct acpi_device_id acpi_lpss_device_ids[] = {
 static int is_memory(struct acpi_resource *res, void *not_used)
 {
 	struct resource r;
+
 	return !acpi_dev_resource_memory(res, &r);
 }
 
@@ -1200,6 +1200,7 @@ static int acpi_lpss_poweroff_noirq(struct device *dev)
 	if (pdata->dev_desc->resume_from_noirq) {
 		/* This is analogous to the acpi_lpss_suspend_noirq() case. */
 		int ret = acpi_lpss_do_poweroff_late(dev);
+
 		if (ret)
 			return ret;
 	}

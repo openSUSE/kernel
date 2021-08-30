@@ -17,6 +17,7 @@
 #include <linux/mutex.h>
 #include <linux/kfifo.h>
 #include <linux/videodev2.h>
+#include <linux/ratelimit.h>
 
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
@@ -27,6 +28,13 @@
 
 #define CODA_MAX_FRAMEBUFFERS	19
 #define FMO_SLICE_SAVE_BUF_SIZE	(32)
+
+/*
+ * This control allows applications to read the per-stream
+ * (i.e. per-context) Macroblocks Error Count. This value
+ * is CODA specific.
+ */
+#define V4L2_CID_CODA_MB_ERR_CNT (V4L2_CID_USER_CODA_BASE + 0)
 
 enum {
 	V4L2_M2M_SRC = 0,
@@ -69,7 +77,7 @@ struct coda_aux_buf {
 
 struct coda_dev {
 	struct v4l2_device	v4l2_dev;
-	struct video_device	vfd[5];
+	struct video_device	vfd[6];
 	struct device		*dev;
 	const struct coda_devtype *devtype;
 	int			firmware;
@@ -86,13 +94,13 @@ struct coda_dev {
 	struct gen_pool		*iram_pool;
 	struct coda_aux_buf	iram;
 
-	spinlock_t		irqlock;
 	struct mutex		dev_mutex;
 	struct mutex		coda_mutex;
 	struct workqueue_struct	*workqueue;
 	struct v4l2_m2m_dev	*m2m_dev;
 	struct ida		ida;
 	struct dentry		*debugfs_root;
+	struct ratelimit_state	mb_err_rs;
 };
 
 struct coda_codec {
@@ -124,9 +132,15 @@ struct coda_params {
 	u8			mpeg4_inter_qp;
 	u8			gop_size;
 	int			intra_refresh;
+	enum v4l2_jpeg_chroma_subsampling jpeg_chroma_subsampling;
 	u8			jpeg_quality;
 	u8			jpeg_restart_interval;
 	u8			*jpeg_qmat_tab[3];
+	int			jpeg_qmat_index[3];
+	int			jpeg_huff_dc_index[3];
+	int			jpeg_huff_ac_index[3];
+	u32			*jpeg_huff_data;
+	struct coda_huff_tab	*jpeg_huff_tab;
 	int			codec_mode;
 	int			codec_mode_aux;
 	enum v4l2_mpeg_video_multi_slice_mode slice_mode;
@@ -143,6 +157,8 @@ struct coda_params {
 	bool			h264_intra_qp_changed;
 	bool			intra_refresh_changed;
 	bool			slice_mode_changed;
+	bool			frame_rc_enable;
+	bool			mb_rc_enable;
 };
 
 struct coda_buffer_meta {
@@ -235,9 +251,11 @@ struct coda_ctx {
 	struct v4l2_ctrl		*mpeg2_level_ctrl;
 	struct v4l2_ctrl		*mpeg4_profile_ctrl;
 	struct v4l2_ctrl		*mpeg4_level_ctrl;
+	struct v4l2_ctrl		*mb_err_cnt_ctrl;
 	struct v4l2_fh			fh;
 	int				gopcounter;
 	int				runcounter;
+	int				jpeg_ecs_offset;
 	char				vpu_header[3][64];
 	int				vpu_header_size[3];
 	struct kfifo			bitstream_fifo;
@@ -251,6 +269,7 @@ struct coda_ctx {
 	struct list_head		buffer_meta_list;
 	spinlock_t			buffer_meta_lock;
 	int				num_metas;
+	unsigned int			first_frame_sequence;
 	struct coda_aux_buf		workbuf;
 	int				num_internal_frames;
 	int				idx;
@@ -362,12 +381,16 @@ void coda_update_profile_level_ctrls(struct coda_ctx *ctx, u8 profile_idc,
 				     u8 level_idc);
 
 bool coda_jpeg_check_buffer(struct coda_ctx *ctx, struct vb2_buffer *vb);
+int coda_jpeg_decode_header(struct coda_ctx *ctx, struct vb2_buffer *vb);
 int coda_jpeg_write_tables(struct coda_ctx *ctx);
 void coda_set_jpeg_compression_quality(struct coda_ctx *ctx, int quality);
 
 extern const struct coda_context_ops coda_bit_encode_ops;
 extern const struct coda_context_ops coda_bit_decode_ops;
+extern const struct coda_context_ops coda9_jpeg_encode_ops;
+extern const struct coda_context_ops coda9_jpeg_decode_ops;
 
 irqreturn_t coda_irq_handler(int irq, void *data);
+irqreturn_t coda9_jpeg_irq_handler(int irq, void *data);
 
 #endif /* __CODA_H__ */

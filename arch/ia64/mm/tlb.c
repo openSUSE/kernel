@@ -27,7 +27,6 @@
 
 #include <asm/delay.h>
 #include <asm/mmu_context.h>
-#include <asm/pgalloc.h>
 #include <asm/pal.h>
 #include <asm/tlbflush.h>
 #include <asm/dma.h>
@@ -245,7 +244,8 @@ resetsema:
 	spinaphore_init(&ptcg_sem, max_purges);
 }
 
-void
+#ifdef CONFIG_SMP
+static void
 ia64_global_tlb_purge (struct mm_struct *mm, unsigned long start,
 		       unsigned long end, unsigned long nbits)
 {
@@ -282,6 +282,7 @@ ia64_global_tlb_purge (struct mm_struct *mm, unsigned long start,
                 activate_context(active_mm);
         }
 }
+#endif /* CONFIG_SMP */
 
 void
 local_flush_tlb_all (void)
@@ -332,7 +333,7 @@ __flush_tlb_range (struct vm_area_struct *vma, unsigned long start,
 	preempt_disable();
 #ifdef CONFIG_SMP
 	if (mm != current->active_mm || cpumask_weight(mm_cpumask(mm)) != 1) {
-		platform_global_tlb_purge(mm, start, end, nbits);
+		ia64_global_tlb_purge(mm, start, end, nbits);
 		preempt_enable();
 		return;
 	}
@@ -367,7 +368,7 @@ EXPORT_SYMBOL(flush_tlb_range);
 
 void ia64_tlb_init(void)
 {
-	ia64_ptce_info_t uninitialized_var(ptce_info); /* GCC be quiet */
+	ia64_ptce_info_t ptce_info;
 	u64 tr_pgbits;
 	long status;
 	pal_vm_info_1_u_t vm_info_1;

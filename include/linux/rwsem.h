@@ -53,12 +53,6 @@ struct rw_semaphore {
 #endif
 };
 
-/*
- * Setting all bits of the owner field except bit 0 will indicate
- * that the rwsem is writer-owned with an unknown owner.
- */
-#define RWSEM_OWNER_UNKNOWN	(-2L)
-
 /* In all implementations count != 0 means locked */
 static inline int rwsem_is_locked(struct rw_semaphore *sem)
 {
@@ -66,35 +60,39 @@ static inline int rwsem_is_locked(struct rw_semaphore *sem)
 }
 
 #define RWSEM_UNLOCKED_VALUE		0L
-#define __RWSEM_INIT_COUNT(name)	.count = ATOMIC_LONG_INIT(RWSEM_UNLOCKED_VALUE)
+#define __RWSEM_COUNT_INIT(name)	.count = ATOMIC_LONG_INIT(RWSEM_UNLOCKED_VALUE)
 
 /* Common initializer macros and functions */
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
-# define __RWSEM_DEP_MAP_INIT(lockname) , .dep_map = { .name = #lockname }
+# define __RWSEM_DEP_MAP_INIT(lockname)			\
+	.dep_map = {					\
+		.name = #lockname,			\
+		.wait_type_inner = LD_WAIT_SLEEP,	\
+	},
 #else
 # define __RWSEM_DEP_MAP_INIT(lockname)
 #endif
 
 #ifdef CONFIG_DEBUG_RWSEMS
-# define __DEBUG_RWSEM_INITIALIZER(lockname) , .magic = &lockname
+# define __RWSEM_DEBUG_INIT(lockname) .magic = &lockname,
 #else
-# define __DEBUG_RWSEM_INITIALIZER(lockname)
+# define __RWSEM_DEBUG_INIT(lockname)
 #endif
 
 #ifdef CONFIG_RWSEM_SPIN_ON_OWNER
-#define __RWSEM_OPT_INIT(lockname) , .osq = OSQ_LOCK_UNLOCKED
+#define __RWSEM_OPT_INIT(lockname) .osq = OSQ_LOCK_UNLOCKED,
 #else
 #define __RWSEM_OPT_INIT(lockname)
 #endif
 
 #define __RWSEM_INITIALIZER(name)				\
-	{ __RWSEM_INIT_COUNT(name),				\
+	{ __RWSEM_COUNT_INIT(name),				\
 	  .owner = ATOMIC_LONG_INIT(0),				\
-	  .wait_list = LIST_HEAD_INIT((name).wait_list),	\
-	  .wait_lock = __RAW_SPIN_LOCK_UNLOCKED(name.wait_lock)	\
 	  __RWSEM_OPT_INIT(name)				\
-	  __DEBUG_RWSEM_INITIALIZER(name)			\
+	  .wait_lock = __RAW_SPIN_LOCK_UNLOCKED(name.wait_lock),\
+	  .wait_list = LIST_HEAD_INIT((name).wait_list),	\
+	  __RWSEM_DEBUG_INIT(name)				\
 	  __RWSEM_DEP_MAP_INIT(name) }
 
 #define DECLARE_RWSEM(name) \
@@ -112,7 +110,7 @@ do {								\
 
 /*
  * This is the same regardless of which rwsem implementation that is being used.
- * It is just a heuristic meant to be called by somebody alreadying holding the
+ * It is just a heuristic meant to be called by somebody already holding the
  * rwsem to see if somebody from an incompatible type is wanting access to the
  * lock.
  */
@@ -125,6 +123,7 @@ static inline int rwsem_is_contended(struct rw_semaphore *sem)
  * lock for reading
  */
 extern void down_read(struct rw_semaphore *sem);
+extern int __must_check down_read_interruptible(struct rw_semaphore *sem);
 extern int __must_check down_read_killable(struct rw_semaphore *sem);
 
 /*
@@ -173,6 +172,7 @@ extern void downgrade_write(struct rw_semaphore *sem);
  * See Documentation/locking/lockdep-design.rst for more details.)
  */
 extern void down_read_nested(struct rw_semaphore *sem, int subclass);
+extern int __must_check down_read_killable_nested(struct rw_semaphore *sem, int subclass);
 extern void down_write_nested(struct rw_semaphore *sem, int subclass);
 extern int down_write_killable_nested(struct rw_semaphore *sem, int subclass);
 extern void _down_write_nest_lock(struct rw_semaphore *sem, struct lockdep_map *nest_lock);
@@ -193,6 +193,7 @@ extern void down_read_non_owner(struct rw_semaphore *sem);
 extern void up_read_non_owner(struct rw_semaphore *sem);
 #else
 # define down_read_nested(sem, subclass)		down_read(sem)
+# define down_read_killable_nested(sem, subclass)	down_read_killable(sem)
 # define down_write_nest_lock(sem, nest_lock)	down_write(sem)
 # define down_write_nested(sem, subclass)	down_write(sem)
 # define down_write_killable_nested(sem, subclass)	down_write_killable(sem)

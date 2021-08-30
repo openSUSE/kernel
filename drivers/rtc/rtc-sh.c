@@ -504,8 +504,7 @@ static int __init sh_rtc_probe(struct platform_device *pdev)
 	if (unlikely(!rtc->res))
 		return -EBUSY;
 
-	rtc->regbase = devm_ioremap_nocache(&pdev->dev, rtc->res->start,
-					rtc->regsize);
+	rtc->regbase = devm_ioremap(&pdev->dev, rtc->res->start, rtc->regsize);
 	if (unlikely(!rtc->regbase))
 		return -EINVAL;
 
@@ -608,7 +607,7 @@ static int __init sh_rtc_probe(struct platform_device *pdev)
 		rtc->rtc_dev->range_max = mktime64(2098, 12, 31, 23, 59, 59);
 	}
 
-	ret = rtc_register_device(rtc->rtc_dev);
+	ret = devm_rtc_register_device(rtc->rtc_dev);
 	if (ret)
 		goto err_unmap;
 

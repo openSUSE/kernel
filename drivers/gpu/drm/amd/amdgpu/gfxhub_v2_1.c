@@ -31,7 +31,81 @@
 
 #include "soc15_common.h"
 
-u64 gfxhub_v2_1_get_fb_location(struct amdgpu_device *adev)
+#define mmGCUTCL2_HARVEST_BYPASS_GROUPS_YELLOW_CARP				0x16f8
+#define mmGCUTCL2_HARVEST_BYPASS_GROUPS_YELLOW_CARP_BASE_IDX	0
+
+static const char *gfxhub_client_ids[] = {
+	"CB/DB",
+	"Reserved",
+	"GE1",
+	"GE2",
+	"CPF",
+	"CPC",
+	"CPG",
+	"RLC",
+	"TCP",
+	"SQC (inst)",
+	"SQC (data)",
+	"SQG",
+	"Reserved",
+	"SDMA0",
+	"SDMA1",
+	"GCR",
+	"SDMA2",
+	"SDMA3",
+};
+
+static uint32_t gfxhub_v2_1_get_invalidate_req(unsigned int vmid,
+					       uint32_t flush_type)
+{
+	u32 req = 0;
+
+	/* invalidate using legacy mode on vmid*/
+	req = REG_SET_FIELD(req, GCVM_INVALIDATE_ENG0_REQ,
+			    PER_VMID_INVALIDATE_REQ, 1 << vmid);
+	req = REG_SET_FIELD(req, GCVM_INVALIDATE_ENG0_REQ, FLUSH_TYPE, flush_type);
+	req = REG_SET_FIELD(req, GCVM_INVALIDATE_ENG0_REQ, INVALIDATE_L2_PTES, 1);
+	req = REG_SET_FIELD(req, GCVM_INVALIDATE_ENG0_REQ, INVALIDATE_L2_PDE0, 1);
+	req = REG_SET_FIELD(req, GCVM_INVALIDATE_ENG0_REQ, INVALIDATE_L2_PDE1, 1);
+	req = REG_SET_FIELD(req, GCVM_INVALIDATE_ENG0_REQ, INVALIDATE_L2_PDE2, 1);
+	req = REG_SET_FIELD(req, GCVM_INVALIDATE_ENG0_REQ, INVALIDATE_L1_PTES, 1);
+	req = REG_SET_FIELD(req, GCVM_INVALIDATE_ENG0_REQ,
+			    CLEAR_PROTECTION_FAULT_STATUS_ADDR,	0);
+
+	return req;
+}
+
+static void
+gfxhub_v2_1_print_l2_protection_fault_status(struct amdgpu_device *adev,
+					     uint32_t status)
+{
+	u32 cid = REG_GET_FIELD(status,
+				GCVM_L2_PROTECTION_FAULT_STATUS, CID);
+
+	dev_err(adev->dev,
+		"GCVM_L2_PROTECTION_FAULT_STATUS:0x%08X\n",
+		status);
+	dev_err(adev->dev, "\t Faulty UTCL2 client ID: %s (0x%x)\n",
+		cid >= ARRAY_SIZE(gfxhub_client_ids) ? "unknown" : gfxhub_client_ids[cid],
+		cid);
+	dev_err(adev->dev, "\t MORE_FAULTS: 0x%lx\n",
+		REG_GET_FIELD(status,
+		GCVM_L2_PROTECTION_FAULT_STATUS, MORE_FAULTS));
+	dev_err(adev->dev, "\t WALKER_ERROR: 0x%lx\n",
+		REG_GET_FIELD(status,
+		GCVM_L2_PROTECTION_FAULT_STATUS, WALKER_ERROR));
+	dev_err(adev->dev, "\t PERMISSION_FAULTS: 0x%lx\n",
+		REG_GET_FIELD(status,
+		GCVM_L2_PROTECTION_FAULT_STATUS, PERMISSION_FAULTS));
+	dev_err(adev->dev, "\t MAPPING_ERROR: 0x%lx\n",
+		REG_GET_FIELD(status,
+		GCVM_L2_PROTECTION_FAULT_STATUS, MAPPING_ERROR));
+	dev_err(adev->dev, "\t RW: 0x%lx\n",
+		REG_GET_FIELD(status,
+		GCVM_L2_PROTECTION_FAULT_STATUS, RW));
+}
+
+static u64 gfxhub_v2_1_get_fb_location(struct amdgpu_device *adev)
 {
 	u64 base = RREG32_SOC15(GC, 0, mmGCMC_VM_FB_LOCATION_BASE);
 
@@ -41,12 +115,12 @@ u64 gfxhub_v2_1_get_fb_location(struct amdgpu_device *adev)
 	return base;
 }
 
-u64 gfxhub_v2_1_get_mc_fb_offset(struct amdgpu_device *adev)
+static u64 gfxhub_v2_1_get_mc_fb_offset(struct amdgpu_device *adev)
 {
 	return (u64)RREG32_SOC15(GC, 0, mmGCMC_VM_FB_OFFSET) << 24;
 }
 
-void gfxhub_v2_1_setup_vm_pt_regs(struct amdgpu_device *adev, uint32_t vmid,
+static void gfxhub_v2_1_setup_vm_pt_regs(struct amdgpu_device *adev, uint32_t vmid,
 				uint64_t page_table_base)
 {
 	struct amdgpu_vmhub *hub = &adev->vmhub[AMDGPU_GFXHUB_0];
@@ -81,20 +155,19 @@ static void gfxhub_v2_1_init_system_aperture_regs(struct amdgpu_device *adev)
 {
 	uint64_t value;
 
-	/* Disable AGP. */
+	/* Program the AGP BAR */
 	WREG32_SOC15(GC, 0, mmGCMC_VM_AGP_BASE, 0);
-	WREG32_SOC15(GC, 0, mmGCMC_VM_AGP_TOP, 0);
-	WREG32_SOC15(GC, 0, mmGCMC_VM_AGP_BOT, 0x00FFFFFF);
+	WREG32_SOC15(GC, 0, mmGCMC_VM_AGP_BOT, adev->gmc.agp_start >> 24);
+	WREG32_SOC15(GC, 0, mmGCMC_VM_AGP_TOP, adev->gmc.agp_end >> 24);
 
 	/* Program the system aperture low logical page number. */
 	WREG32_SOC15(GC, 0, mmGCMC_VM_SYSTEM_APERTURE_LOW_ADDR,
-		     adev->gmc.vram_start >> 18);
+		     min(adev->gmc.fb_start, adev->gmc.agp_start) >> 18);
 	WREG32_SOC15(GC, 0, mmGCMC_VM_SYSTEM_APERTURE_HIGH_ADDR,
-		     adev->gmc.vram_end >> 18);
+		     max(adev->gmc.fb_end, adev->gmc.agp_end) >> 18);
 
 	/* Set default page address. */
-	value = adev->vram_scratch.gpu_addr - adev->gmc.vram_start
-		+ adev->vm_manager.vram_base_offset;
+	value = amdgpu_gmc_vram_mc2pa(adev, adev->vram_scratch.gpu_addr);
 	WREG32_SOC15(GC, 0, mmGCMC_VM_SYSTEM_APERTURE_DEFAULT_ADDR_LSB,
 		     (u32)(value >> 12));
 	WREG32_SOC15(GC, 0, mmGCMC_VM_SYSTEM_APERTURE_DEFAULT_ADDR_MSB,
@@ -248,7 +321,7 @@ static void gfxhub_v2_1_setup_vmid_config(struct amdgpu_device *adev)
 		/* Send no-retry XNACK on fault to suppress VM fault storm. */
 		tmp = REG_SET_FIELD(tmp, GCVM_CONTEXT1_CNTL,
 				    RETRY_PERMISSION_OR_INVALID_PAGE_FAULT,
-				    !amdgpu_noretry);
+				    !adev->gmc.noretry);
 		WREG32_SOC15_OFFSET(GC, 0, mmGCVM_CONTEXT1_CNTL,
 				    i * hub->ctx_distance, tmp);
 		WREG32_SOC15_OFFSET(GC, 0, mmGCVM_CONTEXT1_PAGE_TABLE_START_ADDR_LO32,
@@ -277,7 +350,7 @@ static void gfxhub_v2_1_program_invalidation(struct amdgpu_device *adev)
 	}
 }
 
-int gfxhub_v2_1_gart_enable(struct amdgpu_device *adev)
+static int gfxhub_v2_1_gart_enable(struct amdgpu_device *adev)
 {
 	if (amdgpu_sriov_vf(adev)) {
 		/*
@@ -305,7 +378,7 @@ int gfxhub_v2_1_gart_enable(struct amdgpu_device *adev)
 	return 0;
 }
 
-void gfxhub_v2_1_gart_disable(struct amdgpu_device *adev)
+static void gfxhub_v2_1_gart_disable(struct amdgpu_device *adev)
 {
 	struct amdgpu_vmhub *hub = &adev->vmhub[AMDGPU_GFXHUB_0];
 	u32 tmp;
@@ -334,7 +407,7 @@ void gfxhub_v2_1_gart_disable(struct amdgpu_device *adev)
  * @adev: amdgpu_device pointer
  * @value: true redirects VM faults to the default page
  */
-void gfxhub_v2_1_set_fault_enable_default(struct amdgpu_device *adev,
+static void gfxhub_v2_1_set_fault_enable_default(struct amdgpu_device *adev,
 					  bool value)
 {
 	u32 tmp;
@@ -378,7 +451,12 @@ void gfxhub_v2_1_set_fault_enable_default(struct amdgpu_device *adev,
 	WREG32_SOC15(GC, 0, mmGCVM_L2_PROTECTION_FAULT_CNTL, tmp);
 }
 
-void gfxhub_v2_1_init(struct amdgpu_device *adev)
+static const struct amdgpu_vmhub_funcs gfxhub_v2_1_vmhub_funcs = {
+	.print_l2_protection_fault_status = gfxhub_v2_1_print_l2_protection_fault_status,
+	.get_invalidate_req = gfxhub_v2_1_get_invalidate_req,
+};
+
+static void gfxhub_v2_1_init(struct amdgpu_device *adev)
 {
 	struct amdgpu_vmhub *hub = &adev->vmhub[AMDGPU_GFXHUB_0];
 
@@ -408,9 +486,19 @@ void gfxhub_v2_1_init(struct amdgpu_device *adev)
 		mmGCVM_INVALIDATE_ENG0_REQ;
 	hub->eng_addr_distance = mmGCVM_INVALIDATE_ENG1_ADDR_RANGE_LO32 -
 		mmGCVM_INVALIDATE_ENG0_ADDR_RANGE_LO32;
+
+	hub->vm_cntx_cntl_vm_fault = GCVM_CONTEXT1_CNTL__RANGE_PROTECTION_FAULT_ENABLE_INTERRUPT_MASK |
+		GCVM_CONTEXT1_CNTL__DUMMY_PAGE_PROTECTION_FAULT_ENABLE_INTERRUPT_MASK |
+		GCVM_CONTEXT1_CNTL__PDE0_PROTECTION_FAULT_ENABLE_INTERRUPT_MASK |
+		GCVM_CONTEXT1_CNTL__VALID_PROTECTION_FAULT_ENABLE_INTERRUPT_MASK |
+		GCVM_CONTEXT1_CNTL__READ_PROTECTION_FAULT_ENABLE_INTERRUPT_MASK |
+		GCVM_CONTEXT1_CNTL__WRITE_PROTECTION_FAULT_ENABLE_INTERRUPT_MASK |
+		GCVM_CONTEXT1_CNTL__EXECUTE_PROTECTION_FAULT_ENABLE_INTERRUPT_MASK;
+
+	hub->vmhub_funcs = &gfxhub_v2_1_vmhub_funcs;
 }
 
-int gfxhub_v2_1_get_xgmi_info(struct amdgpu_device *adev)
+static int gfxhub_v2_1_get_xgmi_info(struct amdgpu_device *adev)
 {
 	u32 xgmi_lfb_cntl = RREG32_SOC15(GC, 0, mmGCMC_VM_XGMI_LFB_CNTL);
 	u32 max_region =
@@ -445,3 +533,51 @@ int gfxhub_v2_1_get_xgmi_info(struct amdgpu_device *adev)
 
 	return 0;
 }
+
+static void gfxhub_v2_1_utcl2_harvest(struct amdgpu_device *adev)
+{
+	int i;
+	u32 tmp = 0, disabled_sa = 0;
+	u32 efuse_setting, vbios_setting;
+
+	u32 max_sa_mask = amdgpu_gfx_create_bitmask(
+		adev->gfx.config.max_sh_per_se *
+		adev->gfx.config.max_shader_engines);
+
+	if (adev->asic_type == CHIP_YELLOW_CARP) {
+		/* Get SA disabled bitmap from eFuse setting */
+		efuse_setting = RREG32_SOC15(GC, 0, mmCC_GC_SA_UNIT_DISABLE);
+		efuse_setting &= CC_GC_SA_UNIT_DISABLE__SA_DISABLE_MASK;
+		efuse_setting >>= CC_GC_SA_UNIT_DISABLE__SA_DISABLE__SHIFT;
+
+		/* Get SA disabled bitmap from VBIOS setting */
+		vbios_setting = RREG32_SOC15(GC, 0, mmGC_USER_SA_UNIT_DISABLE);
+		vbios_setting &= GC_USER_SA_UNIT_DISABLE__SA_DISABLE_MASK;
+		vbios_setting >>= GC_USER_SA_UNIT_DISABLE__SA_DISABLE__SHIFT;
+
+		disabled_sa |= efuse_setting | vbios_setting;
+		/* Make sure not to report harvested SAs beyond the max SA count */
+		disabled_sa &= max_sa_mask;
+
+		for (i = 0; disabled_sa > 0; i++) {
+			if (disabled_sa & 1)
+				tmp |= 0x3 << (i * 2);
+			disabled_sa >>= 1;
+		}
+		disabled_sa = tmp;
+
+		WREG32_SOC15(GC, 0, mmGCUTCL2_HARVEST_BYPASS_GROUPS_YELLOW_CARP, disabled_sa);
+	}
+}
+
+const struct amdgpu_gfxhub_funcs gfxhub_v2_1_funcs = {
+	.get_fb_location = gfxhub_v2_1_get_fb_location,
+	.get_mc_fb_offset = gfxhub_v2_1_get_mc_fb_offset,
+	.setup_vm_pt_regs = gfxhub_v2_1_setup_vm_pt_regs,
+	.gart_enable = gfxhub_v2_1_gart_enable,
+	.gart_disable = gfxhub_v2_1_gart_disable,
+	.set_fault_enable_default = gfxhub_v2_1_set_fault_enable_default,
+	.init = gfxhub_v2_1_init,
+	.get_xgmi_info = gfxhub_v2_1_get_xgmi_info,
+	.utcl2_harvest = gfxhub_v2_1_utcl2_harvest,
+};

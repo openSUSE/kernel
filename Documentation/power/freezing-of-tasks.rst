@@ -134,7 +134,7 @@ Generally speaking, there is a couple of reasons to use the freezing of tasks:
    safeguards against race conditions that might occur in such a case.
 
 Although Linus Torvalds doesn't like the freezing of tasks, he said this in one
-of the discussions on LKML (http://lkml.org/lkml/2007/4/27/608):
+of the discussions on LKML (https://lore.kernel.org/r/alpine.LFD.0.98.0704271801020.9964@woody.linux-foundation.org):
 
 "RJW:> Why we freeze tasks at all or why we freeze kernel threads?
 
@@ -215,30 +215,31 @@ VI. Are there any precautions to be taken to prevent freezing failures?
 
 Yes, there are.
 
-First of all, grabbing the 'system_transition_mutex' lock to mutually exclude a piece of code
-from system-wide sleep such as suspend/hibernation is not encouraged.
-If possible, that piece of code must instead hook onto the suspend/hibernation
-notifiers to achieve mutual exclusion. Look at the CPU-Hotplug code
-(kernel/cpu.c) for an example.
+First of all, grabbing the 'system_transition_mutex' lock to mutually exclude a
+piece of code from system-wide sleep such as suspend/hibernation is not
+encouraged.  If possible, that piece of code must instead hook onto the
+suspend/hibernation notifiers to achieve mutual exclusion. Look at the
+CPU-Hotplug code (kernel/cpu.c) for an example.
 
-However, if that is not feasible, and grabbing 'system_transition_mutex' is deemed necessary,
-it is strongly discouraged to directly call mutex_[un]lock(&system_transition_mutex) since
-that could lead to freezing failures, because if the suspend/hibernate code
-successfully acquired the 'system_transition_mutex' lock, and hence that other entity failed
-to acquire the lock, then that task would get blocked in TASK_UNINTERRUPTIBLE
-state. As a consequence, the freezer would not be able to freeze that task,
-leading to freezing failure.
+However, if that is not feasible, and grabbing 'system_transition_mutex' is
+deemed necessary, it is strongly discouraged to directly call
+mutex_[un]lock(&system_transition_mutex) since that could lead to freezing
+failures, because if the suspend/hibernate code successfully acquired the
+'system_transition_mutex' lock, and hence that other entity failed to acquire
+the lock, then that task would get blocked in TASK_UNINTERRUPTIBLE state. As a
+consequence, the freezer would not be able to freeze that task, leading to
+freezing failure.
 
 However, the [un]lock_system_sleep() APIs are safe to use in this scenario,
 since they ask the freezer to skip freezing this task, since it is anyway
-"frozen enough" as it is blocked on 'system_transition_mutex', which will be released
-only after the entire suspend/hibernation sequence is complete.
-So, to summarize, use [un]lock_system_sleep() instead of directly using
+"frozen enough" as it is blocked on 'system_transition_mutex', which will be
+released only after the entire suspend/hibernation sequence is complete.  So, to
+summarize, use [un]lock_system_sleep() instead of directly using
 mutex_[un]lock(&system_transition_mutex). That would prevent freezing failures.
 
 V. Miscellaneous
 ================
 
 /sys/power/pm_freeze_timeout controls how long it will cost at most to freeze
-all user space processes or all freezable kernel threads, in unit of millisecond.
-The default value is 20000, with range of unsigned integer.
+all user space processes or all freezable kernel threads, in unit of
+millisecond.  The default value is 20000, with range of unsigned integer.

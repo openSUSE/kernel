@@ -913,7 +913,7 @@ err:
 }
 
 static int ov2640_get_fmt(struct v4l2_subdev *sd,
-		struct v4l2_subdev_pad_config *cfg,
+		struct v4l2_subdev_state *sd_state,
 		struct v4l2_subdev_format *format)
 {
 	struct v4l2_mbus_framefmt *mf = &format->format;
@@ -925,11 +925,11 @@ static int ov2640_get_fmt(struct v4l2_subdev *sd,
 
 	if (format->which == V4L2_SUBDEV_FORMAT_TRY) {
 #ifdef CONFIG_VIDEO_V4L2_SUBDEV_API
-		mf = v4l2_subdev_get_try_format(sd, cfg, 0);
+		mf = v4l2_subdev_get_try_format(sd, sd_state, 0);
 		format->format = *mf;
 		return 0;
 #else
-		return -ENOTTY;
+		return -EINVAL;
 #endif
 	}
 
@@ -946,7 +946,7 @@ static int ov2640_get_fmt(struct v4l2_subdev *sd,
 }
 
 static int ov2640_set_fmt(struct v4l2_subdev *sd,
-		struct v4l2_subdev_pad_config *cfg,
+		struct v4l2_subdev_state *sd_state,
 		struct v4l2_subdev_format *format)
 {
 	struct v4l2_mbus_framefmt *mf = &format->format;
@@ -996,7 +996,7 @@ static int ov2640_set_fmt(struct v4l2_subdev *sd,
 		/* select format */
 		priv->cfmt_code = mf->code;
 	} else {
-		cfg->try_fmt = *mf;
+		sd_state->pads->try_fmt = *mf;
 	}
 out:
 	mutex_unlock(&priv->lock);
@@ -1005,11 +1005,11 @@ out:
 }
 
 static int ov2640_init_cfg(struct v4l2_subdev *sd,
-			   struct v4l2_subdev_pad_config *cfg)
+			   struct v4l2_subdev_state *sd_state)
 {
 #ifdef CONFIG_VIDEO_V4L2_SUBDEV_API
 	struct v4l2_mbus_framefmt *try_fmt =
-		v4l2_subdev_get_try_format(sd, cfg, 0);
+		v4l2_subdev_get_try_format(sd, sd_state, 0);
 	const struct ov2640_win_size *win =
 		ov2640_select_win(SVGA_WIDTH, SVGA_HEIGHT);
 
@@ -1026,7 +1026,7 @@ static int ov2640_init_cfg(struct v4l2_subdev *sd,
 }
 
 static int ov2640_enum_mbus_code(struct v4l2_subdev *sd,
-		struct v4l2_subdev_pad_config *cfg,
+		struct v4l2_subdev_state *sd_state,
 		struct v4l2_subdev_mbus_code_enum *code)
 {
 	if (code->pad || code->index >= ARRAY_SIZE(ov2640_codes))
@@ -1037,7 +1037,7 @@ static int ov2640_enum_mbus_code(struct v4l2_subdev *sd,
 }
 
 static int ov2640_get_selection(struct v4l2_subdev *sd,
-		struct v4l2_subdev_pad_config *cfg,
+		struct v4l2_subdev_state *sd_state,
 		struct v4l2_subdev_selection *sel)
 {
 	if (sel->which != V4L2_SUBDEV_FORMAT_ACTIVE)
@@ -1190,8 +1190,7 @@ static int ov2640_probe_dt(struct i2c_client *client,
 /*
  * i2c_driver functions
  */
-static int ov2640_probe(struct i2c_client *client,
-			const struct i2c_device_id *did)
+static int ov2640_probe(struct i2c_client *client)
 {
 	struct ov2640_priv	*priv;
 	struct i2c_adapter	*adapter = client->adapter;
@@ -1302,7 +1301,7 @@ static struct i2c_driver ov2640_i2c_driver = {
 		.name = "ov2640",
 		.of_match_table = of_match_ptr(ov2640_of_match),
 	},
-	.probe    = ov2640_probe,
+	.probe_new = ov2640_probe,
 	.remove   = ov2640_remove,
 	.id_table = ov2640_id,
 };

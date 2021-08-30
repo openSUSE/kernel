@@ -7,7 +7,6 @@ s390 Architecture
 
     cds
     3270
-    debugging390
     driver-model
     monreader
     qeth
@@ -15,10 +14,12 @@ s390 Architecture
     vfio-ap
     vfio-ccw
     zfcpdump
-    dasd
     common_io
+    pci
 
     text_files
+
+    features
 
 .. only::  subproject and html
 

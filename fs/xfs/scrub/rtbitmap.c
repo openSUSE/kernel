@@ -13,18 +13,18 @@
 #include "xfs_trans.h"
 #include "xfs_rtalloc.h"
 #include "xfs_inode.h"
+#include "xfs_bmap.h"
 #include "scrub/scrub.h"
 #include "scrub/common.h"
 
 /* Set us up with the realtime metadata locked. */
 int
 xchk_setup_rt(
-	struct xfs_scrub	*sc,
-	struct xfs_inode	*ip)
+	struct xfs_scrub	*sc)
 {
 	int			error;
 
-	error = xchk_setup_fs(sc, ip);
+	error = xchk_setup_fs(sc);
 	if (error)
 		return error;
 
@@ -51,11 +51,44 @@ xchk_rtbitmap_rec(
 	startblock = rec->ar_startext * tp->t_mountp->m_sb.sb_rextsize;
 	blockcount = rec->ar_extcount * tp->t_mountp->m_sb.sb_rextsize;
 
-	if (startblock + blockcount <= startblock ||
-	    !xfs_verify_rtbno(sc->mp, startblock) ||
-	    !xfs_verify_rtbno(sc->mp, startblock + blockcount - 1))
+	if (!xfs_verify_rtext(sc->mp, startblock, blockcount))
 		xchk_fblock_set_corrupt(sc, XFS_DATA_FORK, 0);
 	return 0;
+}
+
+/* Make sure the entire rtbitmap file is mapped with written extents. */
+STATIC int
+xchk_rtbitmap_check_extents(
+	struct xfs_scrub	*sc)
+{
+	struct xfs_mount	*mp = sc->mp;
+	struct xfs_bmbt_irec	map;
+	xfs_rtblock_t		off;
+	int			nmap;
+	int			error = 0;
+
+	for (off = 0; off < mp->m_sb.sb_rbmblocks;) {
+		if (xchk_should_terminate(sc, &error) ||
+		    (sc->sm->sm_flags & XFS_SCRUB_OFLAG_CORRUPT))
+			break;
+
+		/* Make sure we have a written extent. */
+		nmap = 1;
+		error = xfs_bmapi_read(mp->m_rbmip, off,
+				mp->m_sb.sb_rbmblocks - off, &map, &nmap,
+				XFS_DATA_FORK);
+		if (!xchk_fblock_process_error(sc, XFS_DATA_FORK, off, &error))
+			break;
+
+		if (nmap != 1 || !xfs_bmap_is_written_extent(&map)) {
+			xchk_fblock_set_corrupt(sc, XFS_DATA_FORK, off);
+			break;
+		}
+
+		off += map.br_blockcount;
+	}
+
+	return error;
 }
 
 /* Scrub the realtime bitmap. */
@@ -65,8 +98,19 @@ xchk_rtbitmap(
 {
 	int			error;
 
+	/* Is the size of the rtbitmap correct? */
+	if (sc->mp->m_rbmip->i_disk_size !=
+	    XFS_FSB_TO_B(sc->mp, sc->mp->m_sb.sb_rbmblocks)) {
+		xchk_ino_set_corrupt(sc, sc->mp->m_rbmip->i_ino);
+		return 0;
+	}
+
 	/* Invoke the fork scrubber. */
 	error = xchk_metadata_inode_forks(sc);
+	if (error || (sc->sm->sm_flags & XFS_SCRUB_OFLAG_CORRUPT))
+		return error;
+
+	error = xchk_rtbitmap_check_extents(sc);
 	if (error || (sc->sm->sm_flags & XFS_SCRUB_OFLAG_CORRUPT))
 		return error;
 

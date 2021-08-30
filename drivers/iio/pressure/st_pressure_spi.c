@@ -17,7 +17,6 @@
 #include <linux/iio/common/st_sensors_spi.h>
 #include "st_pressure.h"
 
-#ifdef CONFIG_OF
 /*
  * For new single-chip sensors use <device_name> as compatible string.
  * For old single-chip devices keep <device_name>-press to maintain
@@ -55,36 +54,57 @@ static const struct of_device_id st_press_of_match[] = {
 	{},
 };
 MODULE_DEVICE_TABLE(of, st_press_of_match);
-#else
-#define st_press_of_match	NULL
-#endif
 
 static int st_press_spi_probe(struct spi_device *spi)
 {
-	struct iio_dev *indio_dev;
+	const struct st_sensor_settings *settings;
 	struct st_sensor_data *press_data;
+	struct iio_dev *indio_dev;
 	int err;
 
+	st_sensors_dev_name_probe(&spi->dev, spi->modalias, sizeof(spi->modalias));
+
+	settings = st_press_get_settings(spi->modalias);
+	if (!settings) {
+		dev_err(&spi->dev, "device name %s not recognized.\n",
+			spi->modalias);
+		return -ENODEV;
+	}
+
 	indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*press_data));
-	if (indio_dev == NULL)
+	if (!indio_dev)
 		return -ENOMEM;
 
 	press_data = iio_priv(indio_dev);
+	press_data->sensor_settings = (struct st_sensor_settings *)settings;
 
-	st_sensors_of_name_probe(&spi->dev, st_press_of_match,
-				 spi->modalias, sizeof(spi->modalias));
-	st_sensors_spi_configure(indio_dev, spi, press_data);
-
-	err = st_press_common_probe(indio_dev);
+	err = st_sensors_spi_configure(indio_dev, spi);
 	if (err < 0)
 		return err;
 
+	err = st_sensors_power_enable(indio_dev);
+	if (err)
+		return err;
+
+	err = st_press_common_probe(indio_dev);
+	if (err < 0)
+		goto st_press_power_off;
+
 	return 0;
+
+st_press_power_off:
+	st_sensors_power_disable(indio_dev);
+
+	return err;
 }
 
 static int st_press_spi_remove(struct spi_device *spi)
 {
-	st_press_common_remove(spi_get_drvdata(spi));
+	struct iio_dev *indio_dev = spi_get_drvdata(spi);
+
+	st_sensors_power_disable(indio_dev);
+
+	st_press_common_remove(indio_dev);
 
 	return 0;
 }
@@ -104,7 +124,7 @@ MODULE_DEVICE_TABLE(spi, st_press_id_table);
 static struct spi_driver st_press_driver = {
 	.driver = {
 		.name = "st-press-spi",
-		.of_match_table = of_match_ptr(st_press_of_match),
+		.of_match_table = st_press_of_match,
 	},
 	.probe = st_press_spi_probe,
 	.remove = st_press_spi_remove,

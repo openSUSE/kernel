@@ -15,17 +15,9 @@
 #include <linux/linkage.h>
 #include <asm/asm-offsets.h>
 #include <asm/asmmacro.h>
-#include <asm/processor.h>
 #include <asm/coprocessor.h>
-#include <asm/thread_info.h>
-#include <asm/asm-uaccess.h>
-#include <asm/unistd.h>
-#include <asm/ptrace.h>
 #include <asm/current.h>
-#include <asm/pgtable.h>
-#include <asm/page.h>
-#include <asm/signal.h>
-#include <asm/tlbflush.h>
+#include <asm/regs.h>
 
 #if XTENSA_HAVE_COPROCESSORS
 
@@ -66,6 +58,8 @@
 	.endif;								\
 	.long THREAD_XTREGS_CP##x
 
+	__XTENSA_HANDLER
+
 	SAVE_CP_REGS(0)
 	SAVE_CP_REGS(1)
 	SAVE_CP_REGS(2)
@@ -84,7 +78,6 @@
 	LOAD_CP_REGS(6)
 	LOAD_CP_REGS(7)
 
-	.section ".rodata", "a"
 	.align 4
 .Lsave_cp_regs_jump_table:
 	SAVE_CP_REGS_TAB(0)
@@ -106,39 +99,6 @@
 	LOAD_CP_REGS_TAB(6)
 	LOAD_CP_REGS_TAB(7)
 
-	.previous
-
-/*
- * coprocessor_flush(struct thread_info*, index)
- *                             a2        a3
- *
- * Save coprocessor registers for coprocessor 'index'.
- * The register values are saved to or loaded from the coprocessor area 
- * inside the task_info structure.
- *
- * Note that this function doesn't update the coprocessor_owner information!
- *
- */
-
-ENTRY(coprocessor_flush)
-
-	/* reserve 4 bytes on stack to save a0 */
-	abi_entry(4)
-
-	s32i	a0, a1, 0
-	movi	a0, .Lsave_cp_regs_jump_table
-	addx8	a3, a3, a0
-	l32i	a4, a3, 4
-	l32i	a3, a3, 0
-	add	a2, a2, a4
-	beqz	a3, 1f
-	callx0	a3
-1:	l32i	a0, a1, 0
-
-	abi_ret(4)
-
-ENDPROC(coprocessor_flush)
-
 /*
  * Entry condition:
  *
@@ -152,13 +112,6 @@ ENDPROC(coprocessor_flush)
  *   PT_DEPC >= VALID_DOUBLE_EXCEPTION_ADDRESS: double exception, DEPC
  *	     <  VALID_DOUBLE_EXCEPTION_ADDRESS: regular exception
  */
-
-ENTRY(fast_coprocessor_double)
-
-	wsr	a0, excsave1
-	call0	unrecoverable_exception
-
-ENDPROC(fast_coprocessor_double)
 
 ENTRY(fast_coprocessor)
 
@@ -260,6 +213,39 @@ ENTRY(fast_coprocessor)
 	rfe
 
 ENDPROC(fast_coprocessor)
+
+	.text
+
+/*
+ * coprocessor_flush(struct thread_info*, index)
+ *                             a2        a3
+ *
+ * Save coprocessor registers for coprocessor 'index'.
+ * The register values are saved to or loaded from the coprocessor area
+ * inside the task_info structure.
+ *
+ * Note that this function doesn't update the coprocessor_owner information!
+ *
+ */
+
+ENTRY(coprocessor_flush)
+
+	/* reserve 4 bytes on stack to save a0 */
+	abi_entry(4)
+
+	s32i	a0, a1, 0
+	movi	a0, .Lsave_cp_regs_jump_table
+	addx8	a3, a3, a0
+	l32i	a4, a3, 4
+	l32i	a3, a3, 0
+	add	a2, a2, a4
+	beqz	a3, 1f
+	callx0	a3
+1:	l32i	a0, a1, 0
+
+	abi_ret(4)
+
+ENDPROC(coprocessor_flush)
 
 	.data
 

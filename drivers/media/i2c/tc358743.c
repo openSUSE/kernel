@@ -1604,8 +1604,9 @@ static int tc358743_dv_timings_cap(struct v4l2_subdev *sd,
 	return 0;
 }
 
-static int tc358743_g_mbus_config(struct v4l2_subdev *sd,
-			     struct v4l2_mbus_config *cfg)
+static int tc358743_get_mbus_config(struct v4l2_subdev *sd,
+				    unsigned int pad,
+				    struct v4l2_mbus_config *cfg)
 {
 	struct tc358743_state *state = to_state(sd);
 
@@ -1648,7 +1649,7 @@ static int tc358743_s_stream(struct v4l2_subdev *sd, int enable)
 /* --------------- PAD OPS --------------- */
 
 static int tc358743_enum_mbus_code(struct v4l2_subdev *sd,
-		struct v4l2_subdev_pad_config *cfg,
+		struct v4l2_subdev_state *sd_state,
 		struct v4l2_subdev_mbus_code_enum *code)
 {
 	switch (code->index) {
@@ -1665,7 +1666,7 @@ static int tc358743_enum_mbus_code(struct v4l2_subdev *sd,
 }
 
 static int tc358743_get_fmt(struct v4l2_subdev *sd,
-		struct v4l2_subdev_pad_config *cfg,
+		struct v4l2_subdev_state *sd_state,
 		struct v4l2_subdev_format *format)
 {
 	struct tc358743_state *state = to_state(sd);
@@ -1701,13 +1702,13 @@ static int tc358743_get_fmt(struct v4l2_subdev *sd,
 }
 
 static int tc358743_set_fmt(struct v4l2_subdev *sd,
-		struct v4l2_subdev_pad_config *cfg,
+		struct v4l2_subdev_state *sd_state,
 		struct v4l2_subdev_format *format)
 {
 	struct tc358743_state *state = to_state(sd);
 
 	u32 code = format->format.code; /* is overwritten by get_fmt */
-	int ret = tc358743_get_fmt(sd, cfg, format);
+	int ret = tc358743_get_fmt(sd, sd_state, format);
 
 	format->format.code = code;
 
@@ -1838,7 +1839,6 @@ static const struct v4l2_subdev_video_ops tc358743_video_ops = {
 	.s_dv_timings = tc358743_s_dv_timings,
 	.g_dv_timings = tc358743_g_dv_timings,
 	.query_dv_timings = tc358743_query_dv_timings,
-	.g_mbus_config = tc358743_g_mbus_config,
 	.s_stream = tc358743_s_stream,
 };
 
@@ -1850,6 +1850,7 @@ static const struct v4l2_subdev_pad_ops tc358743_pad_ops = {
 	.set_edid = tc358743_s_edid,
 	.enum_dv_timings = tc358743_enum_dv_timings,
 	.dv_timings_cap = tc358743_dv_timings_cap,
+	.get_mbus_config = tc358743_get_mbus_config,
 };
 
 static const struct v4l2_subdev_ops tc358743_ops = {
@@ -2029,8 +2030,7 @@ static inline int tc358743_probe_of(struct tc358743_state *state)
 }
 #endif
 
-static int tc358743_probe(struct i2c_client *client,
-			  const struct i2c_device_id *id)
+static int tc358743_probe(struct i2c_client *client)
 {
 	static struct v4l2_dv_timings default_timing =
 		V4L2_DV_BT_CEA_640X480P59_94;
@@ -2225,7 +2225,7 @@ static struct i2c_driver tc358743_driver = {
 		.name = "tc358743",
 		.of_match_table = of_match_ptr(tc358743_of_match),
 	},
-	.probe = tc358743_probe,
+	.probe_new = tc358743_probe,
 	.remove = tc358743_remove,
 	.id_table = tc358743_id,
 };

@@ -10,6 +10,7 @@
 #define _ASM_S390_GMAP_H
 
 #include <linux/radix-tree.h>
+#include <linux/refcount.h>
 
 /* Generic bits for GMAP notification on DAT table entry changes. */
 #define GMAP_NOTIFY_SHADOW	0x2
@@ -49,7 +50,7 @@ struct gmap {
 	struct radix_tree_root guest_to_host;
 	struct radix_tree_root host_to_guest;
 	spinlock_t guest_table_lock;
-	atomic_t ref_count;
+	refcount_t ref_count;
 	unsigned long *table;
 	unsigned long asce;
 	unsigned long asce_end;
@@ -139,8 +140,6 @@ int gmap_shadow_page(struct gmap *sg, unsigned long saddr, pte_t pte);
 
 void gmap_register_pte_notifier(struct gmap_notifier *);
 void gmap_unregister_pte_notifier(struct gmap_notifier *);
-void gmap_pte_notify(struct mm_struct *, unsigned long addr, pte_t *,
-		     unsigned long bits);
 
 int gmap_mprotect_notify(struct gmap *, unsigned long start,
 			 unsigned long len, int prot);

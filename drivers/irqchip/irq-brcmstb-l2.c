@@ -110,7 +110,7 @@ static void brcmstb_l2_intc_irq_handle(struct irq_desc *desc)
 	do {
 		irq = ffs(status) - 1;
 		status &= ~(1 << irq);
-		generic_handle_irq(irq_linear_revmap(b->domain, irq));
+		generic_handle_domain_irq(b->domain, irq);
 	} while (status);
 out:
 	chained_irq_exit(chip, desc);
@@ -254,6 +254,7 @@ static int __init brcmstb_l2_intc_of_init(struct device_node *np,
 		 */
 		data->gc->wake_enabled = 0xffffffff;
 		ct->chip.irq_set_wake = irq_gc_set_wake;
+		enable_irq_wake(parent_irq);
 	}
 
 	pr_info("registered L2 intc (%pOF, parent irq: %d)\n", np, parent_irq);
@@ -275,6 +276,10 @@ static int __init brcmstb_l2_edge_intc_of_init(struct device_node *np,
 	return brcmstb_l2_intc_of_init(np, parent, &l2_edge_intc_init);
 }
 IRQCHIP_DECLARE(brcmstb_l2_intc, "brcm,l2-intc", brcmstb_l2_edge_intc_of_init);
+IRQCHIP_DECLARE(brcmstb_hif_spi_l2_intc, "brcm,hif-spi-l2-intc",
+		brcmstb_l2_edge_intc_of_init);
+IRQCHIP_DECLARE(brcmstb_upg_aux_aon_l2_intc, "brcm,upg-aux-aon-l2-intc",
+		brcmstb_l2_edge_intc_of_init);
 
 static int __init brcmstb_l2_lvl_intc_of_init(struct device_node *np,
 	struct device_node *parent)

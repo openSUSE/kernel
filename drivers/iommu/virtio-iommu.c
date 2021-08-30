@@ -10,11 +10,11 @@
 #include <linux/amba/bus.h>
 #include <linux/delay.h>
 #include <linux/dma-iommu.h>
+#include <linux/dma-map-ops.h>
 #include <linux/freezer.h>
 #include <linux/interval_tree.h>
 #include <linux/iommu.h>
 #include <linux/module.h>
-#include <linux/of_iommu.h>
 #include <linux/of_platform.h>
 #include <linux/pci.h>
 #include <linux/platform_device.h>
@@ -440,7 +440,7 @@ static int viommu_add_resv_mem(struct viommu_endpoint *vdev,
 	default:
 		dev_warn(vdev->dev, "unknown resv mem subtype 0x%x\n",
 			 mem->subtype);
-		/* Fall-through */
+		fallthrough;
 	case VIRTIO_IOMMU_RESV_MEM_T_RESERVED:
 		region = iommu_alloc_resv_region(start, size, 0,
 						 IOMMU_RESV_RESERVED);
@@ -904,6 +904,15 @@ err_free_dev:
 	return ERR_PTR(ret);
 }
 
+static void viommu_probe_finalize(struct device *dev)
+{
+#ifndef CONFIG_ARCH_HAS_SETUP_DMA_OPS
+	/* First clear the DMA ops in case we're switching from a DMA domain */
+	set_dma_ops(dev, NULL);
+	iommu_setup_dma_ops(dev, 0, U64_MAX);
+#endif
+}
+
 static void viommu_release_device(struct device *dev)
 {
 	struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(dev);
@@ -940,11 +949,13 @@ static struct iommu_ops viommu_ops = {
 	.iova_to_phys		= viommu_iova_to_phys,
 	.iotlb_sync		= viommu_iotlb_sync,
 	.probe_device		= viommu_probe_device,
+	.probe_finalize		= viommu_probe_finalize,
 	.release_device		= viommu_release_device,
 	.device_group		= viommu_device_group,
 	.get_resv_regions	= viommu_get_resv_regions,
 	.put_resv_regions	= generic_iommu_put_resv_regions,
 	.of_xlate		= viommu_of_xlate,
+	.owner			= THIS_MODULE,
 };
 
 static int viommu_init_vqs(struct viommu_dev *viommu)
@@ -1010,8 +1021,8 @@ static int viommu_probe(struct virtio_device *vdev)
 	if (ret)
 		return ret;
 
-	virtio_cread(vdev, struct virtio_iommu_config, page_size_mask,
-		     &viommu->pgsize_bitmap);
+	virtio_cread_le(vdev, struct virtio_iommu_config, page_size_mask,
+			&viommu->pgsize_bitmap);
 
 	if (!viommu->pgsize_bitmap) {
 		ret = -EINVAL;
@@ -1022,25 +1033,25 @@ static int viommu_probe(struct virtio_device *vdev)
 	viommu->last_domain = ~0U;
 
 	/* Optional features */
-	virtio_cread_feature(vdev, VIRTIO_IOMMU_F_INPUT_RANGE,
-			     struct virtio_iommu_config, input_range.start,
-			     &input_start);
+	virtio_cread_le_feature(vdev, VIRTIO_IOMMU_F_INPUT_RANGE,
+				struct virtio_iommu_config, input_range.start,
+				&input_start);
 
-	virtio_cread_feature(vdev, VIRTIO_IOMMU_F_INPUT_RANGE,
-			     struct virtio_iommu_config, input_range.end,
-			     &input_end);
+	virtio_cread_le_feature(vdev, VIRTIO_IOMMU_F_INPUT_RANGE,
+				struct virtio_iommu_config, input_range.end,
+				&input_end);
 
-	virtio_cread_feature(vdev, VIRTIO_IOMMU_F_DOMAIN_RANGE,
-			     struct virtio_iommu_config, domain_range.start,
-			     &viommu->first_domain);
+	virtio_cread_le_feature(vdev, VIRTIO_IOMMU_F_DOMAIN_RANGE,
+				struct virtio_iommu_config, domain_range.start,
+				&viommu->first_domain);
 
-	virtio_cread_feature(vdev, VIRTIO_IOMMU_F_DOMAIN_RANGE,
-			     struct virtio_iommu_config, domain_range.end,
-			     &viommu->last_domain);
+	virtio_cread_le_feature(vdev, VIRTIO_IOMMU_F_DOMAIN_RANGE,
+				struct virtio_iommu_config, domain_range.end,
+				&viommu->last_domain);
 
-	virtio_cread_feature(vdev, VIRTIO_IOMMU_F_PROBE,
-			     struct virtio_iommu_config, probe_size,
-			     &viommu->probe_size);
+	virtio_cread_le_feature(vdev, VIRTIO_IOMMU_F_PROBE,
+				struct virtio_iommu_config, probe_size,
+				&viommu->probe_size);
 
 	viommu->geometry = (struct iommu_domain_geometry) {
 		.aperture_start	= input_start,
@@ -1065,10 +1076,7 @@ static int viommu_probe(struct virtio_device *vdev)
 	if (ret)
 		goto err_free_vqs;
 
-	iommu_device_set_ops(&viommu->iommu, &viommu_ops);
-	iommu_device_set_fwnode(&viommu->iommu, parent_dev->fwnode);
-
-	iommu_device_register(&viommu->iommu);
+	iommu_device_register(&viommu->iommu, &viommu_ops, parent_dev);
 
 #ifdef CONFIG_PCI
 	if (pci_bus_type.iommu_ops != &viommu_ops) {

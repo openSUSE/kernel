@@ -8,6 +8,7 @@
  */
 
 #include <crypto/algapi.h>
+#include <crypto/internal/cipher.h>
 #include <crypto/internal/skcipher.h>
 #include <linux/err.h>
 #include <linux/init.h>
@@ -55,9 +56,11 @@ static int crypto_ofb_create(struct crypto_template *tmpl, struct rtattr **tb)
 	struct crypto_alg *alg;
 	int err;
 
-	inst = skcipher_alloc_instance_simple(tmpl, tb, &alg);
+	inst = skcipher_alloc_instance_simple(tmpl, tb);
 	if (IS_ERR(inst))
 		return PTR_ERR(inst);
+
+	alg = skcipher_ialg_simple(inst);
 
 	/* OFB mode is a stream cipher. */
 	inst->alg.base.cra_blocksize = 1;
@@ -75,7 +78,6 @@ static int crypto_ofb_create(struct crypto_template *tmpl, struct rtattr **tb)
 	if (err)
 		inst->free(inst);
 
-	crypto_mod_put(alg);
 	return err;
 }
 
@@ -101,3 +103,4 @@ module_exit(crypto_ofb_module_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("OFB block cipher mode of operation");
 MODULE_ALIAS_CRYPTO("ofb");
+MODULE_IMPORT_NS(CRYPTO_INTERNAL);

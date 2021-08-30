@@ -295,6 +295,7 @@ static int create_qp(struct c4iw_rdev *rdev, struct t4_wq *wq,
 	if (user && (!wq->sq.bar2_pa || (need_rq && !wq->rq.bar2_pa))) {
 		pr_warn("%s: sqid %u or rqid %u not in BAR2 range\n",
 			pci_name(rdev->lldi.pdev), wq->sq.qid, wq->rq.qid);
+		ret = -EINVAL;
 		goto free_dma;
 	}
 
@@ -1165,7 +1166,7 @@ int c4iw_post_send(struct ib_qp *ibqp, const struct ib_send_wr *wr,
 				break;
 			}
 			fw_flags |= FW_RI_RDMA_WRITE_WITH_IMMEDIATE;
-			/*FALLTHROUGH*/
+			fallthrough;
 		case IB_WR_RDMA_WRITE:
 			fw_opcode = FW_RI_RDMA_WRITE_WR;
 			swsqe->opcode = FW_RI_RDMA_WRITE;
@@ -1963,7 +1964,6 @@ int c4iw_modify_qp(struct c4iw_dev *rhp, struct c4iw_qp *qhp,
 			t4_set_wq_in_error(&qhp->wq, 0);
 			set_state(qhp, C4IW_QP_STATE_ERROR);
 			if (!internal) {
-				abort = 1;
 				disconnect = 1;
 				ep = qhp->ep;
 				c4iw_get_ep(&qhp->ep->com);
@@ -2126,7 +2126,7 @@ struct ib_qp *c4iw_create_qp(struct ib_pd *pd, struct ib_qp_init_attr *attrs,
 
 	pr_debug("ib_pd %p\n", pd);
 
-	if (attrs->qp_type != IB_QPT_RC)
+	if (attrs->qp_type != IB_QPT_RC || attrs->create_flags)
 		return ERR_PTR(-EOPNOTSUPP);
 
 	php = to_c4iw_pd(pd);
@@ -2374,6 +2374,9 @@ int c4iw_ib_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 
 	pr_debug("ib_qp %p\n", ibqp);
 
+	if (attr_mask & ~IB_QP_ATTR_STANDARD_BITS)
+		return -EOPNOTSUPP;
+
 	/* iwarp does not support the RTR state */
 	if ((attr_mask & IB_QP_STATE) && (attr->qp_state == IB_QPS_RTR))
 		attr_mask &= ~IB_QP_STATE;
@@ -2471,7 +2474,7 @@ int c4iw_ib_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 	init_attr->cap.max_send_wr = qhp->attr.sq_num_entries;
 	init_attr->cap.max_recv_wr = qhp->attr.rq_num_entries;
 	init_attr->cap.max_send_sge = qhp->attr.sq_max_sges;
-	init_attr->cap.max_recv_sge = qhp->attr.sq_max_sges;
+	init_attr->cap.max_recv_sge = qhp->attr.rq_max_sges;
 	init_attr->cap.max_inline_data = T4_MAX_SEND_INLINE;
 	init_attr->sq_sig_type = qhp->sq_sig_all ? IB_SIGNAL_ALL_WR : 0;
 	return 0;
@@ -2680,6 +2683,9 @@ int c4iw_create_srq(struct ib_srq *ib_srq, struct ib_srq_init_attr *attrs,
 	int ret;
 	int wr_len;
 
+	if (attrs->srq_type != IB_SRQT_BASIC)
+		return -EOPNOTSUPP;
+
 	pr_debug("%s ib_pd %p\n", __func__, pd);
 
 	php = to_c4iw_pd(pd);
@@ -2797,7 +2803,7 @@ err_free_wr_wait:
 	return ret;
 }
 
-void c4iw_destroy_srq(struct ib_srq *ibsrq, struct ib_udata *udata)
+int c4iw_destroy_srq(struct ib_srq *ibsrq, struct ib_udata *udata)
 {
 	struct c4iw_dev *rhp;
 	struct c4iw_srq *srq;
@@ -2813,4 +2819,5 @@ void c4iw_destroy_srq(struct ib_srq *ibsrq, struct ib_udata *udata)
 		       srq->wr_waitp);
 	c4iw_free_srq_idx(&rhp->rdev, srq->idx);
 	c4iw_put_wr_wait(srq->wr_waitp);
+	return 0;
 }

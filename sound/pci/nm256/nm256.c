@@ -32,8 +32,6 @@
 MODULE_AUTHOR("Takashi Iwai <tiwai@suse.de>");
 MODULE_DESCRIPTION("NeoMagic NM256AV/ZX");
 MODULE_LICENSE("GPL");
-MODULE_SUPPORTED_DEVICE("{{NeoMagic,NM256AV},"
-		"{NeoMagic,NM256ZX}}");
 
 /*
  * some compile conditions.
@@ -1320,7 +1318,8 @@ snd_nm256_mixer(struct nm256 *chip)
 	if (! chip->ac97_regs)
 		return -ENOMEM;
 
-	if ((err = snd_ac97_bus(chip->card, 0, &ops, NULL, &pbus)) < 0)
+	err = snd_ac97_bus(chip->card, 0, &ops, NULL, &pbus);
+	if (err < 0)
 		return err;
 
 	memset(&ac97, 0, sizeof(ac97));
@@ -1353,7 +1352,7 @@ snd_nm256_peek_for_sig(struct nm256 *chip)
 	unsigned long pointer_found = chip->buffer_end - 0x1400;
 	u32 sig;
 
-	temp = ioremap_nocache(chip->buffer_addr + chip->buffer_end - 0x400, 16);
+	temp = ioremap(chip->buffer_addr + chip->buffer_end - 0x400, 16);
 	if (temp == NULL) {
 		dev_err(chip->card->dev,
 			"Unable to scan for card signature in video RAM\n");
@@ -1478,7 +1477,8 @@ snd_nm256_create(struct snd_card *card, struct pci_dev *pci,
 
 	*chip_ret = NULL;
 
-	if ((err = pci_enable_device(pci)) < 0)
+	err = pci_enable_device(pci);
+	if (err < 0)
 		return err;
 
 	chip = kzalloc(sizeof(*chip), GFP_KERNEL);
@@ -1518,7 +1518,7 @@ snd_nm256_create(struct snd_card *card, struct pci_dev *pci,
 		err = -EBUSY;
 		goto __error;
 	}
-	chip->cport = ioremap_nocache(chip->cport_addr, NM_PORT2_SIZE);
+	chip->cport = ioremap(chip->cport_addr, NM_PORT2_SIZE);
 	if (chip->cport == NULL) {
 		dev_err(card->dev, "unable to map control port %lx\n",
 			chip->cport_addr);
@@ -1570,7 +1570,8 @@ snd_nm256_create(struct snd_card *card, struct pci_dev *pci,
 		chip->buffer_end = buffer_top;
 	else {
 		/* get buffer end pointer from signature */
-		if ((err = snd_nm256_peek_for_sig(chip)) < 0)
+		err = snd_nm256_peek_for_sig(chip);
+		if (err < 0)
 			goto __error;
 	}
 
@@ -1589,7 +1590,7 @@ snd_nm256_create(struct snd_card *card, struct pci_dev *pci,
 		err = -EBUSY;
 		goto __error;
 	}
-	chip->buffer = ioremap_nocache(chip->buffer_addr, chip->buffer_size);
+	chip->buffer = ioremap(chip->buffer_addr, chip->buffer_size);
 	if (chip->buffer == NULL) {
 		err = -ENOMEM;
 		dev_err(card->dev, "unable to map ring buffer at %lx\n",
@@ -1620,7 +1621,8 @@ snd_nm256_create(struct snd_card *card, struct pci_dev *pci,
 
 	// pci_set_master(pci); /* needed? */
 	
-	if ((err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, chip, &ops)) < 0)
+	err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, chip, &ops);
+	if (err < 0)
 		goto __error;
 
 	*chip_ret = chip;
@@ -1702,7 +1704,8 @@ static int snd_nm256_probe(struct pci_dev *pci,
 		capture_bufsize = 4;
 	if (capture_bufsize > 128)
 		capture_bufsize = 128;
-	if ((err = snd_nm256_create(card, pci, &chip)) < 0) {
+	err = snd_nm256_create(card, pci, &chip);
+	if (err < 0) {
 		snd_card_free(card);
 		return err;
 	}
@@ -1718,8 +1721,13 @@ static int snd_nm256_probe(struct pci_dev *pci,
 		chip->reset_workaround_2 = 1;
 	}
 
-	if ((err = snd_nm256_pcm(chip, 0)) < 0 ||
-	    (err = snd_nm256_mixer(chip)) < 0) {
+	err = snd_nm256_pcm(chip, 0);
+	if (err < 0) {
+		snd_card_free(card);
+		return err;
+	}
+	err = snd_nm256_mixer(chip);
+	if (err < 0) {
 		snd_card_free(card);
 		return err;
 	}
@@ -1729,7 +1737,8 @@ static int snd_nm256_probe(struct pci_dev *pci,
 		card->shortname,
 		chip->buffer_addr, chip->cport_addr, chip->irq);
 
-	if ((err = snd_card_register(card)) < 0) {
+	err = snd_card_register(card);
+	if (err < 0) {
 		snd_card_free(card);
 		return err;
 	}

@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* -*- mode: c; c-basic-offset: 8; -*-
- * vim: noexpandtab sw=8 ts=8 sts=0:
- *
+/*
  * reservations.c
  *
  * Allocation reservations implementation
@@ -32,9 +30,6 @@
 #endif
 
 static DEFINE_SPINLOCK(resv_lock);
-
-#define	OCFS2_MIN_RESV_WINDOW_BITS	8
-#define	OCFS2_MAX_RESV_WINDOW_BITS	1024
 
 int ocfs2_dir_resv_allowed(struct ocfs2_super *osb)
 {

@@ -3,6 +3,7 @@ config RTLLIB
 	tristate "Support for rtllib wireless devices"
 	depends on WLAN && m
 	select LIB80211
+	select CRC32
 	help
 	  If you have a wireless card that uses rtllib, say
 	  Y. Currently the only card is the rtl8192e.
@@ -26,7 +27,8 @@ config RTLLIB_CRYPTO_CCMP
 config RTLLIB_CRYPTO_TKIP
 	tristate "Support for rtllib TKIP crypto"
 	depends on RTLLIB
-	select CRYPTO_ARC4
+	select CRYPTO
+	select CRYPTO_LIB_ARC4
 	select CRYPTO_MICHAEL_MIC
 	default y
 	help
@@ -36,7 +38,7 @@ config RTLLIB_CRYPTO_TKIP
 
 config RTLLIB_CRYPTO_WEP
 	tristate "Support for rtllib WEP crypto"
-	select CRYPTO_ARC4
+	select CRYPTO_LIB_ARC4
 	depends on RTLLIB
 	default y
 	help

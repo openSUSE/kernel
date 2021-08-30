@@ -19,6 +19,7 @@ struct mmu_psize_def {
 	int		penc[MMU_PAGE_COUNT];	/* HPTE encoding */
 	unsigned int	tlbiel;	/* tlbiel supported for that page size */
 	unsigned long	avpnm;	/* bits to mask out in AVPN in the HPTE */
+	unsigned long   h_rpt_pgsize; /* H_RPT_INVALIDATE page size encoding */
 	union {
 		unsigned long	sllp;	/* SLB L||LP (exact mask to use in slbmte) */
 		unsigned long ap;	/* Ap encoding used by PowerISA 3.0 */
@@ -26,21 +27,6 @@ struct mmu_psize_def {
 };
 extern struct mmu_psize_def mmu_psize_defs[MMU_PAGE_COUNT];
 #endif /* __ASSEMBLY__ */
-
-/*
- * If we store section details in page->flags we can't increase the MAX_PHYSMEM_BITS
- * if we increase SECTIONS_WIDTH we will not store node details in page->flags and
- * page_to_nid does a page->section->node lookup
- * Hence only increase for VMEMMAP. Further depending on SPARSEMEM_EXTREME reduce
- * memory requirements with large number of sections.
- * 51 bits is the max physical real address on POWER9
- */
-#if defined(CONFIG_SPARSEMEM_VMEMMAP) && defined(CONFIG_SPARSEMEM_EXTREME) &&  \
-	defined(CONFIG_PPC_64K_PAGES)
-#define MAX_PHYSMEM_BITS 51
-#else
-#define MAX_PHYSMEM_BITS 46
-#endif
 
 /* 64-bit classic hash table MMU */
 #include <asm/book3s/64/mmu-hash.h>
@@ -121,6 +107,9 @@ typedef struct {
 	/* Number of users of the external (Nest) MMU */
 	atomic_t copros;
 
+	/* Number of user space windows opened in process mm_context */
+	atomic_t vas_windows;
+
 	struct hash_mm_context *hash_context;
 
 	void __user *vdso;
@@ -142,7 +131,6 @@ typedef struct {
 	u32 pkey_allocation_map;
 	s16 execute_only_pkey; /* key holding execute-only protection */
 #endif
-	void* suse_kabi_padding;
 } mm_context_t;
 
 static inline u16 mm_ctx_user_psize(mm_context_t *ctx)
@@ -212,7 +200,7 @@ extern int mmu_io_psize;
 void mmu_early_init_devtree(void);
 void hash__early_init_devtree(void);
 void radix__early_init_devtree(void);
-#ifdef CONFIG_PPC_MEM_KEYS
+#ifdef CONFIG_PPC_PKEY
 void pkey_early_init_devtree(void);
 #else
 static inline void pkey_early_init_devtree(void) {}
@@ -252,7 +240,7 @@ static inline void setup_initial_memory_limit(phys_addr_t first_memblock_base,
 #ifdef CONFIG_PPC_PSERIES
 extern void radix_init_pseries(void);
 #else
-static inline void radix_init_pseries(void) { };
+static inline void radix_init_pseries(void) { }
 #endif
 
 #ifdef CONFIG_HOTPLUG_CPU

@@ -90,7 +90,7 @@ struct iwpm_remote_info {
 };
 
 struct iwpm_admin_data {
-	atomic_t refcount;
+	refcount_t refcount;
 	atomic_t nlmsg_seq;
 	int      client_list[RDMA_NL_NUM_CLIENTS];
 	u32      reg_list[RDMA_NL_NUM_CLIENTS];
@@ -141,7 +141,7 @@ int iwpm_wait_complete_req(struct iwpm_nlmsg_request *nlmsg_request);
 int iwpm_get_nlmsg_seq(void);
 
 /**
- * iwpm_add_reminfo - Add remote address info of the connecting peer
+ * iwpm_add_remote_info - Add remote address info of the connecting peer
  *                    to the remote info hash table
  * @reminfo: The remote info to be added
  */
@@ -183,7 +183,7 @@ u32 iwpm_check_registration(u8 nl_client, u32 reg);
 void iwpm_set_registration(u8 nl_client, u32 reg);
 
 /**
- * iwpm_get_registration
+ * iwpm_get_registration - Get the client registration
  * @nl_client: The index of the netlink client
  *
  * Returns the client registration type

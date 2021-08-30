@@ -8,6 +8,7 @@
 #define __PERF_NAMESPACES_H
 
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <linux/stddef.h>
 #include <linux/perf_event.h>
 #include <linux/refcount.h>
@@ -17,7 +18,7 @@
 int setns(int fd, int nstype);
 #endif
 
-struct namespaces_event;
+struct perf_record_namespaces;
 
 struct namespaces {
 	struct list_head list;
@@ -25,7 +26,7 @@ struct namespaces {
 	struct perf_ns_link_info link_info[];
 };
 
-struct namespaces *namespaces__new(struct namespaces_event *event);
+struct namespaces *namespaces__new(struct perf_record_namespaces *event);
 void namespaces__free(struct namespaces *namespaces);
 
 struct nsinfo {
@@ -33,6 +34,7 @@ struct nsinfo {
 	pid_t			tgid;
 	pid_t			nstgid;
 	bool			need_setns;
+	bool			in_pidns;
 	char			*mntns_path;
 	refcount_t		refcnt;
 };
@@ -55,6 +57,7 @@ void nsinfo__mountns_enter(struct nsinfo *nsi, struct nscookie *nc);
 void nsinfo__mountns_exit(struct nscookie *nc);
 
 char *nsinfo__realpath(const char *path, struct nsinfo *nsi);
+int nsinfo__stat(const char *filename, struct stat *st, struct nsinfo *nsi);
 
 static inline void __nsinfo__zput(struct nsinfo **nsip)
 {
@@ -65,5 +68,7 @@ static inline void __nsinfo__zput(struct nsinfo **nsip)
 }
 
 #define nsinfo__zput(nsi) __nsinfo__zput(&nsi)
+
+const char *perf_ns__name(unsigned int id);
 
 #endif  /* __PERF_NAMESPACES_H */

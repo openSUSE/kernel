@@ -35,6 +35,8 @@
 
 #include <linux/scatterlist.h>
 
+struct dma_buf_map;
+
 void drm_clflush_pages(struct page *pages[], unsigned long num_pages);
 void drm_clflush_sg(struct sg_table *st);
 void drm_clflush_virt_range(void *addr, unsigned long length);
@@ -45,7 +47,7 @@ static inline bool drm_arch_can_wc_memory(void)
 {
 #if defined(CONFIG_PPC) && !defined(CONFIG_NOT_COHERENT_CACHE)
 	return false;
-#elif defined(CONFIG_MIPS) && defined(CONFIG_CPU_LOONGSON3)
+#elif defined(CONFIG_MIPS) && defined(CONFIG_CPU_LOONGSON64)
 	return false;
 #elif defined(CONFIG_ARM) || defined(CONFIG_ARM64)
 	/*
@@ -70,4 +72,9 @@ static inline bool drm_arch_can_wc_memory(void)
 #endif
 }
 
+void drm_memcpy_init_early(void);
+
+void drm_memcpy_from_wc(struct dma_buf_map *dst,
+			const struct dma_buf_map *src,
+			unsigned long len);
 #endif

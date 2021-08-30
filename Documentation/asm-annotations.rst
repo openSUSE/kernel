@@ -73,10 +73,11 @@ The new macros are prefixed with the ``SYM_`` prefix and can be divided into
 three main groups:
 
 1. ``SYM_FUNC_*`` -- to annotate C-like functions. This means functions with
-   standard C calling conventions, i.e. the stack contains a return address at
-   the predefined place and a return from the function can happen in a
-   standard way. When frame pointers are enabled, save/restore of frame
-   pointer shall happen at the start/end of a function, respectively, too.
+   standard C calling conventions. For example, on x86, this means that the
+   stack contains a return address at the predefined place and a return from
+   the function can happen in a standard way. When frame pointers are enabled,
+   save/restore of frame pointer shall happen at the start/end of a function,
+   respectively, too.
 
    Checking tools like ``objtool`` should ensure such marked functions conform
    to these rules. The tools can also easily annotate these functions with
@@ -99,6 +100,11 @@ Instruction Macros
 ~~~~~~~~~~~~~~~~~~
 This section covers ``SYM_FUNC_*`` and ``SYM_CODE_*`` enumerated above.
 
+``objtool`` requires that all code must be contained in an ELF symbol. Symbol
+names that have a ``.L`` prefix do not emit symbol table entries. ``.L``
+prefixed symbols can be used within a code region, but should be avoided for
+denoting a range of code via ``SYM_*_START/END`` annotations.
+
 * ``SYM_FUNC_START`` and ``SYM_FUNC_START_LOCAL`` are supposed to be **the
   most frequent markings**. They are used for functions with standard calling
   conventions -- global and local. Like in C, they both align the functions to
@@ -117,9 +123,9 @@ This section covers ``SYM_FUNC_*`` and ``SYM_CODE_*`` enumerated above.
   So in most cases, developers should write something like in the following
   example, having some asm instructions in between the macros, of course::
 
-    SYM_FUNC_START(function_hook)
+    SYM_FUNC_START(memset)
         ... asm insns ...
-    SYM_FUNC_END(function_hook)
+    SYM_FUNC_END(memset)
 
   In fact, this kind of annotation corresponds to the now deprecated ``ENTRY``
   and ``ENDPROC`` macros.

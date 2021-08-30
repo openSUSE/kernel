@@ -205,7 +205,7 @@ Again:
 	switch (opcode) {
 	case TC_NO_ERROR:
 		ts->resp = SAS_TASK_COMPLETE;
-		ts->stat = SAM_STAT_GOOD;
+		ts->stat = SAS_SAM_STAT_GOOD;
 		break;
 	case TC_UNDERRUN:
 		ts->resp = SAS_TASK_COMPLETE;
@@ -315,6 +315,7 @@ Again:
 		break;
 	case SAS_PROTOCOL_SSP:
 		asd_unbuild_ssp_ascb(ascb);
+		break;
 	default:
 		break;
 	}
@@ -609,6 +610,7 @@ out_err_unmap:
 				break;
 			case SAS_PROTOCOL_SSP:
 				asd_unbuild_ssp_ascb(a);
+				break;
 			default:
 				break;
 			}

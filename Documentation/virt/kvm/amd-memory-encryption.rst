@@ -22,7 +22,7 @@ to SEV::
 		  [ecx]:
 			Bits[31:0]  Number of encrypted guests supported simultaneously
 
-If support for SEV is present, MSR 0xc001_0010 (MSR_K8_SYSCFG) and MSR 0xc001_0015
+If support for SEV is present, MSR 0xc001_0010 (MSR_AMD64_SYSCFG) and MSR 0xc001_0015
 (MSR_K7_HWCR) can be used to determine if it can be enabled::
 
 	0xc001_0010:
@@ -53,11 +53,11 @@ key management interface to perform common hypervisor activities such as
 encrypting bootstrap code, snapshot, migrating and debugging the guest. For more
 information, see the SEV Key Management spec [api-spec]_
 
-The main ioctl to access SEV is KVM_MEM_ENCRYPT_OP.  If the argument
-to KVM_MEM_ENCRYPT_OP is NULL, the ioctl returns 0 if SEV is enabled
+The main ioctl to access SEV is KVM_MEMORY_ENCRYPT_OP.  If the argument
+to KVM_MEMORY_ENCRYPT_OP is NULL, the ioctl returns 0 if SEV is enabled
 and ``ENOTTY` if it is disabled (on some older versions of Linux,
 the ioctl runs normally even with a NULL argument, and therefore will
-likely return ``EFAULT``).  If non-NULL, the argument to KVM_MEM_ENCRYPT_OP
+likely return ``EFAULT``).  If non-NULL, the argument to KVM_MEMORY_ENCRYPT_OP
 must be a struct kvm_sev_cmd::
 
        struct kvm_sev_cmd {
@@ -147,6 +147,9 @@ wait to provide the guest with confidential information until it can verify the
 measurement. Since the guest owner knows the initial contents of the guest at
 boot, the measurement can be verified by comparing it to what the guest owner
 expects.
+
+If len is zero on entry, the measurement blob length is written to len and
+uaddr is unused.
 
 Parameters (in): struct  kvm_sev_launch_measure
 
@@ -263,6 +266,167 @@ Returns: 0 on success, -negative on error
                 __u32 trans_len;
         };
 
+10. KVM_SEV_GET_ATTESTATION_REPORT
+----------------------------------
+
+The KVM_SEV_GET_ATTESTATION_REPORT command can be used by the hypervisor to query the attestation
+report containing the SHA-256 digest of the guest memory and VMSA passed through the KVM_SEV_LAUNCH
+commands and signed with the PEK. The digest returned by the command should match the digest
+used by the guest owner with the KVM_SEV_LAUNCH_MEASURE.
+
+If len is zero on entry, the measurement blob length is written to len and
+uaddr is unused.
+
+Parameters (in): struct kvm_sev_attestation
+
+Returns: 0 on success, -negative on error
+
+::
+
+        struct kvm_sev_attestation_report {
+                __u8 mnonce[16];        /* A random mnonce that will be placed in the report */
+
+                __u64 uaddr;            /* userspace address where the report should be copied */
+                __u32 len;
+        };
+
+11. KVM_SEV_SEND_START
+----------------------
+
+The KVM_SEV_SEND_START command can be used by the hypervisor to create an
+outgoing guest encryption context.
+
+If session_len is zero on entry, the length of the guest session information is
+written to session_len and all other fields are not used.
+
+Parameters (in): struct kvm_sev_send_start
+
+Returns: 0 on success, -negative on error
+
+::
+
+        struct kvm_sev_send_start {
+                __u32 policy;                 /* guest policy */
+
+                __u64 pdh_cert_uaddr;         /* platform Diffie-Hellman certificate */
+                __u32 pdh_cert_len;
+
+                __u64 plat_certs_uaddr;        /* platform certificate chain */
+                __u32 plat_certs_len;
+
+                __u64 amd_certs_uaddr;        /* AMD certificate */
+                __u32 amd_certs_len;
+
+                __u64 session_uaddr;          /* Guest session information */
+                __u32 session_len;
+        };
+
+12. KVM_SEV_SEND_UPDATE_DATA
+----------------------------
+
+The KVM_SEV_SEND_UPDATE_DATA command can be used by the hypervisor to encrypt the
+outgoing guest memory region with the encryption context creating using
+KVM_SEV_SEND_START.
+
+If hdr_len or trans_len are zero on entry, the length of the packet header and
+transport region are written to hdr_len and trans_len respectively, and all
+other fields are not used.
+
+Parameters (in): struct kvm_sev_send_update_data
+
+Returns: 0 on success, -negative on error
+
+::
+
+        struct kvm_sev_launch_send_update_data {
+                __u64 hdr_uaddr;        /* userspace address containing the packet header */
+                __u32 hdr_len;
+
+                __u64 guest_uaddr;      /* the source memory region to be encrypted */
+                __u32 guest_len;
+
+                __u64 trans_uaddr;      /* the destination memory region  */
+                __u32 trans_len;
+        };
+
+13. KVM_SEV_SEND_FINISH
+------------------------
+
+After completion of the migration flow, the KVM_SEV_SEND_FINISH command can be
+issued by the hypervisor to delete the encryption context.
+
+Returns: 0 on success, -negative on error
+
+14. KVM_SEV_SEND_CANCEL
+------------------------
+
+After completion of SEND_START, but before SEND_FINISH, the source VMM can issue the
+SEND_CANCEL command to stop a migration. This is necessary so that a cancelled
+migration can restart with a new target later.
+
+Returns: 0 on success, -negative on error
+
+15. KVM_SEV_RECEIVE_START
+-------------------------
+
+The KVM_SEV_RECEIVE_START command is used for creating the memory encryption
+context for an incoming SEV guest. To create the encryption context, the user must
+provide a guest policy, the platform public Diffie-Hellman (PDH) key and session
+information.
+
+Parameters: struct  kvm_sev_receive_start (in/out)
+
+Returns: 0 on success, -negative on error
+
+::
+
+        struct kvm_sev_receive_start {
+                __u32 handle;           /* if zero then firmware creates a new handle */
+                __u32 policy;           /* guest's policy */
+
+                __u64 pdh_uaddr;        /* userspace address pointing to the PDH key */
+                __u32 pdh_len;
+
+                __u64 session_uaddr;    /* userspace address which points to the guest session information */
+                __u32 session_len;
+        };
+
+On success, the 'handle' field contains a new handle and on error, a negative value.
+
+For more details, see SEV spec Section 6.12.
+
+16. KVM_SEV_RECEIVE_UPDATE_DATA
+-------------------------------
+
+The KVM_SEV_RECEIVE_UPDATE_DATA command can be used by the hypervisor to copy
+the incoming buffers into the guest memory region with encryption context
+created during the KVM_SEV_RECEIVE_START.
+
+Parameters (in): struct kvm_sev_receive_update_data
+
+Returns: 0 on success, -negative on error
+
+::
+
+        struct kvm_sev_launch_receive_update_data {
+                __u64 hdr_uaddr;        /* userspace address containing the packet header */
+                __u32 hdr_len;
+
+                __u64 guest_uaddr;      /* the destination guest memory region */
+                __u32 guest_len;
+
+                __u64 trans_uaddr;      /* the incoming buffer memory region  */
+                __u32 trans_len;
+        };
+
+17. KVM_SEV_RECEIVE_FINISH
+--------------------------
+
+After completion of the migration flow, the KVM_SEV_RECEIVE_FINISH command can be
+issued by the hypervisor to make the guest ready for execution.
+
+Returns: 0 on success, -negative on error
+
 References
 ==========
 
@@ -270,6 +434,6 @@ References
 See [white-paper]_, [api-spec]_, [amd-apm]_ and [kvm-forum]_ for more info.
 
 .. [white-paper] http://amd-dev.wpengine.netdna-cdn.com/wordpress/media/2013/12/AMD_Memory_Encryption_Whitepaper_v7-Public.pdf
-.. [api-spec] http://support.amd.com/TechDocs/55766_SEV-KM_API_Specification.pdf
-.. [amd-apm] http://support.amd.com/TechDocs/24593.pdf (section 15.34)
-.. [kvm-forum]  http://www.linux-kvm.org/images/7/74/02x08A-Thomas_Lendacky-AMDs_Virtualizatoin_Memory_Encryption_Technology.pdf
+.. [api-spec] https://support.amd.com/TechDocs/55766_SEV-KM_API_Specification.pdf
+.. [amd-apm] https://support.amd.com/TechDocs/24593.pdf (section 15.34)
+.. [kvm-forum]  https://www.linux-kvm.org/images/7/74/02x08A-Thomas_Lendacky-AMDs_Virtualizatoin_Memory_Encryption_Technology.pdf

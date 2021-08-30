@@ -214,9 +214,13 @@ static int mergable_maps(struct extent_map *prev, struct extent_map *next)
 	ASSERT(next->block_start != EXTENT_MAP_DELALLOC &&
 	       prev->block_start != EXTENT_MAP_DELALLOC);
 
+	if (prev->map_lookup || next->map_lookup)
+		ASSERT(test_bit(EXTENT_FLAG_FS_MAPPING, &prev->flags) &&
+		       test_bit(EXTENT_FLAG_FS_MAPPING, &next->flags));
+
 	if (extent_map_end(prev) == next->start &&
 	    prev->flags == next->flags &&
-	    prev->bdev == next->bdev &&
+	    prev->map_lookup == next->map_lookup &&
 	    ((next->block_start == EXTENT_MAP_HOLE &&
 	      prev->block_start == EXTENT_MAP_HOLE) ||
 	     (next->block_start == EXTENT_MAP_INLINE &&
@@ -232,6 +236,17 @@ static void try_merge_map(struct extent_map_tree *tree, struct extent_map *em)
 {
 	struct extent_map *merge = NULL;
 	struct rb_node *rb;
+
+	/*
+	 * We can't modify an extent map that is in the tree and that is being
+	 * used by another task, as it can cause that other task to see it in
+	 * inconsistent state during the merging. We always have 1 reference for
+	 * the tree and 1 for this task (which is unpinning the extent map or
+	 * clearing the logging flag), so anything > 2 means it's being used by
+	 * other tasks too.
+	 */
+	if (refcount_read(&em->refs) > 2)
+		return;
 
 	if (em->start != 0) {
 		rb = rb_prev(&em->rb_node);
@@ -370,9 +385,12 @@ static void extent_map_device_clear_bits(struct extent_map *em, unsigned bits)
 }
 
 /**
- * add_extent_mapping - add new extent map to the extent tree
+ * Add new extent map to the extent tree
+ *
  * @tree:	tree to insert new map in
  * @em:		map to insert
+ * @modified:	indicate whether the given @em should be added to the
+ *	        modified list, which indicates the extent needs to be logged
  *
  * Insert @em into @tree or perform a simple forward/backward merge with
  * existing mappings.  The extent_map struct passed in will be inserted
@@ -383,6 +401,8 @@ int add_extent_mapping(struct extent_map_tree *tree,
 		       struct extent_map *em, int modified)
 {
 	int ret = 0;
+
+	lockdep_assert_held_write(&tree->lock);
 
 	ret = tree_insert(&tree->map, em);
 	if (ret)
@@ -557,12 +577,13 @@ static noinline int merge_extent_mapping(struct extent_map_tree *em_tree,
 }
 
 /**
- * btrfs_add_extent_mapping - add extent mapping into em_tree
- * @fs_info - used for tracepoint
- * @em_tree - the extent tree into which we want to insert the extent mapping
- * @em_in   - extent we are inserting
- * @start   - start of the logical range btrfs_get_extent() is requesting
- * @len     - length of the logical range btrfs_get_extent() is requesting
+ * Add extent mapping into em_tree
+ *
+ * @fs_info:  the filesystem
+ * @em_tree:  extent tree into which we want to insert the extent mapping
+ * @em_in:    extent we are inserting
+ * @start:    start of the logical range btrfs_get_extent() is requesting
+ * @len:      length of the logical range btrfs_get_extent() is requesting
  *
  * Note that @em_in's range may be different from [start, start+len),
  * but they must be overlapped.

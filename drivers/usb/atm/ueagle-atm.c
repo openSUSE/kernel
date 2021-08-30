@@ -350,7 +350,7 @@ struct l1_code {
 	u8 string_header[E4_L1_STRING_HEADER];
 	u8 page_number_to_block_index[E4_MAX_PAGE_NUMBER];
 	struct block_index page_header[E4_NO_SWAPPAGE_HEADERS];
-	u8 code[0];
+	u8 code[];
 } __packed;
 
 /* structures describing a block within a DSP page */
@@ -570,7 +570,7 @@ MODULE_PARM_DESC(annex,
 #define LOAD_INTERNAL     0xA0
 #define F8051_USBCS       0x7f92
 
-/**
+/*
  * uea_send_modem_cmd - Send a command for pre-firmware devices.
  */
 static int uea_send_modem_cmd(struct usb_device *usb,
@@ -672,7 +672,7 @@ err:
 	uea_leaves(usb);
 }
 
-/**
+/*
  * uea_load_firmware - Load usb firmware for pre-firmware devices.
  */
 static int uea_load_firmware(struct usb_device *usb, unsigned int ver)
@@ -2464,7 +2464,7 @@ static int claim_interface(struct usb_device *usb_dev,
 	return ret;
 }
 
-static struct attribute *attrs[] = {
+static struct attribute *uea_attrs[] = {
 	&dev_attr_stat_status.attr,
 	&dev_attr_stat_mflags.attr,
 	&dev_attr_stat_human_status.attr,
@@ -2485,9 +2485,7 @@ static struct attribute *attrs[] = {
 	&dev_attr_stat_firmid.attr,
 	NULL,
 };
-static const struct attribute_group attr_grp = {
-	.attrs = attrs,
-};
+ATTRIBUTE_GROUPS(uea);
 
 static int uea_bind(struct usbatm_data *usbatm, struct usb_interface *intf,
 		   const struct usb_device_id *id)
@@ -2556,18 +2554,12 @@ static int uea_bind(struct usbatm_data *usbatm, struct usb_interface *intf,
 		}
 	}
 
-	ret = sysfs_create_group(&intf->dev.kobj, &attr_grp);
+	ret = uea_boot(sc, intf);
 	if (ret < 0)
 		goto error;
 
-	ret = uea_boot(sc, intf);
-	if (ret < 0)
-		goto error_rm_grp;
-
 	return 0;
 
-error_rm_grp:
-	sysfs_remove_group(&intf->dev.kobj, &attr_grp);
 error:
 	kfree(sc);
 	return ret;
@@ -2577,7 +2569,6 @@ static void uea_unbind(struct usbatm_data *usbatm, struct usb_interface *intf)
 {
 	struct uea_softc *sc = usbatm->driver_data;
 
-	sysfs_remove_group(&intf->dev.kobj, &attr_grp);
 	uea_stop(sc);
 	kfree(sc);
 }
@@ -2727,6 +2718,7 @@ static struct usb_driver uea_driver = {
 	.id_table = uea_ids,
 	.probe = uea_probe,
 	.disconnect = uea_disconnect,
+	.dev_groups = uea_groups,
 };
 
 MODULE_DEVICE_TABLE(usb, uea_ids);

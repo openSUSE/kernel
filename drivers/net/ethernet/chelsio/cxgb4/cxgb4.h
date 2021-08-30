@@ -39,6 +39,7 @@
 
 #include <linux/bitops.h>
 #include <linux/cache.h>
+#include <linux/ethtool.h>
 #include <linux/interrupt.h>
 #include <linux/list.h>
 #include <linux/netdevice.h>
@@ -413,7 +414,6 @@ struct pf_resources {
 };
 
 struct pci_params {
-	unsigned int vpd_cap_addr;
 	unsigned char speed;
 	unsigned char width;
 };
@@ -1605,9 +1605,8 @@ static inline unsigned int qtimer_val(const struct adapter *adap,
 	return idx < SGE_NTIMERS ? adap->sge.timer_val[idx] : 0;
 }
 
-/* driver version & name used for ethtool_drvinfo */
+/* driver name used for ethtool_drvinfo */
 extern char cxgb4_driver_name[];
-extern const char cxgb4_driver_version[];
 
 void t4_os_portmod_changed(struct adapter *adap, int port_id);
 void t4_os_link_changed(struct adapter *adap, int port_id, int link_stat);
@@ -2112,7 +2111,7 @@ void free_tx_desc(struct adapter *adap, struct sge_txq *q,
 void cxgb4_eosw_txq_free_desc(struct adapter *adap, struct sge_eosw_txq *txq,
 			      u32 ndesc);
 int cxgb4_ethofld_send_flowc(struct net_device *dev, u32 eotid, u32 tc);
-void cxgb4_ethofld_restart(unsigned long data);
+void cxgb4_ethofld_restart(struct tasklet_struct *t);
 int cxgb4_ethofld_rx_handler(struct sge_rspq *q, const __be64 *rsp,
 			     const struct pkt_gl *si);
 void free_txq(struct adapter *adap, struct sge_txq *q);

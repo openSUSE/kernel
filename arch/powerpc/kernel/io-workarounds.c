@@ -10,10 +10,10 @@
 
 #include <linux/kernel.h>
 #include <linux/sched/mm.h>	/* for init_mm */
+#include <linux/pgtable.h>
 
 #include <asm/io.h>
 #include <asm/machdep.h>
-#include <asm/pgtable.h>
 #include <asm/ppc-pci.h>
 #include <asm/io-workarounds.h>
 #include <asm/pte-walk.h>
@@ -55,7 +55,6 @@ static struct iowa_bus *iowa_pci_find(unsigned long vaddr, unsigned long paddr)
 #ifdef CONFIG_PPC_INDIRECT_MMIO
 struct iowa_bus *iowa_mem_find_bus(const PCI_IO_ADDR addr)
 {
-	unsigned hugepage_shift;
 	struct iowa_bus *bus;
 	int token;
 
@@ -65,22 +64,13 @@ struct iowa_bus *iowa_mem_find_bus(const PCI_IO_ADDR addr)
 		bus = &iowa_busses[token - 1];
 	else {
 		unsigned long vaddr, paddr;
-		pte_t *ptep;
 
 		vaddr = (unsigned long)PCI_FIX_ADDR(addr);
 		if (vaddr < PHB_IO_BASE || vaddr >= PHB_IO_END)
 			return NULL;
-		/*
-		 * We won't find huge pages here (iomem). Also can't hit
-		 * a page table free due to init_mm
-		 */
-		ptep = find_init_mm_pte(vaddr, &hugepage_shift);
-		if (ptep == NULL)
-			paddr = 0;
-		else {
-			WARN_ON(hugepage_shift);
-			paddr = pte_pfn(*ptep) << PAGE_SHIFT;
-		}
+
+		paddr = ppc_find_vmap_phys(vaddr);
+
 		bus = iowa_pci_find(vaddr, paddr);
 
 		if (bus == NULL)
@@ -149,8 +139,8 @@ static const struct ppc_pci_io iowa_pci_io = {
 };
 
 #ifdef CONFIG_PPC_INDIRECT_MMIO
-static void __iomem *iowa_ioremap(phys_addr_t addr, unsigned long size,
-				  pgprot_t prot, void *caller)
+void __iomem *iowa_ioremap(phys_addr_t addr, unsigned long size,
+			   pgprot_t prot, void *caller)
 {
 	struct iowa_bus *bus;
 	void __iomem *res = __ioremap_caller(addr, size, prot, caller);
@@ -163,20 +153,17 @@ static void __iomem *iowa_ioremap(phys_addr_t addr, unsigned long size,
 	}
 	return res;
 }
-#else /* CONFIG_PPC_INDIRECT_MMIO */
-#define iowa_ioremap NULL
 #endif /* !CONFIG_PPC_INDIRECT_MMIO */
+
+bool io_workaround_inited;
 
 /* Enable IO workaround */
 static void io_workaround_init(void)
 {
-	static int io_workaround_inited;
-
 	if (io_workaround_inited)
 		return;
 	ppc_pci_io = iowa_pci_io;
-	ppc_md.ioremap = iowa_ioremap;
-	io_workaround_inited = 1;
+	io_workaround_inited = true;
 }
 
 /* Register new bus to support workaround */

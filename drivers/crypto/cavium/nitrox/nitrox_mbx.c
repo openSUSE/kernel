@@ -4,10 +4,11 @@
 #include "nitrox_csr.h"
 #include "nitrox_hal.h"
 #include "nitrox_dev.h"
+#include "nitrox_mbx.h"
 
 #define RING_TO_VFNO(_x, _y)	((_x) / (_y))
 
-/**
+/*
  * mbx_msg_type - Mailbox message types
  */
 enum mbx_msg_type {
@@ -17,7 +18,7 @@ enum mbx_msg_type {
 	MBX_MSG_TYPE_NACK,
 };
 
-/**
+/*
  * mbx_msg_opcode - Mailbox message opcodes
  */
 enum mbx_msg_opcode {
@@ -25,6 +26,7 @@ enum mbx_msg_opcode {
 	MSG_OP_VF_UP,
 	MSG_OP_VF_DOWN,
 	MSG_OP_CHIPID_VFID,
+	MSG_OP_MCODE_INFO = 11,
 };
 
 struct pf2vf_work {
@@ -73,6 +75,13 @@ static void pf2vf_send_response(struct nitrox_device *ndev,
 		vfdev->nr_queues = 0;
 		atomic_set(&vfdev->state, __NDEV_NOT_READY);
 		break;
+	case MSG_OP_MCODE_INFO:
+		msg.data = 0;
+		msg.mcode_info.count = 2;
+		msg.mcode_info.info = MCODE_TYPE_SE_SSL | (MCODE_TYPE_AE << 5);
+		msg.mcode_info.next_se_grp = 1;
+		msg.mcode_info.next_ae_grp = 1;
+		break;
 	default:
 		msg.type = MBX_MSG_TYPE_NOP;
 		break;
@@ -104,7 +113,7 @@ static void pf2vf_resp_handler(struct work_struct *work)
 	case MBX_MSG_TYPE_ACK:
 	case MBX_MSG_TYPE_NACK:
 		break;
-	};
+	}
 
 	kfree(pf2vf_resp);
 }

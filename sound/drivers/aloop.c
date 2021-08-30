@@ -33,7 +33,6 @@
 MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_DESCRIPTION("A loopback soundcard");
 MODULE_LICENSE("GPL");
-MODULE_SUPPORTED_DEVICE("{{ALSA,Loopback soundcard}}");
 
 #define MAX_PCM_SUBSTREAMS	8
 
@@ -105,12 +104,12 @@ struct loopback_cable {
 	unsigned int running;
 	unsigned int pause;
 	/* timer specific */
-	struct loopback_ops *ops;
+	const struct loopback_ops *ops;
 	/* If sound timer is used */
 	struct {
 		int stream;
 		struct snd_timer_id id;
-		struct tasklet_struct event_tasklet;
+		struct work_struct event_work;
 		struct snd_timer_instance *instance;
 	} snd_timer;
 };
@@ -219,7 +218,7 @@ static int loopback_jiffies_timer_start(struct loopback_pcm *dpcm)
 		dpcm->period_update_pending = 1;
 	}
 	tick = dpcm->period_size_frac - dpcm->irq_pos;
-	tick = (tick + dpcm->pcm_bps - 1) / dpcm->pcm_bps;
+	tick = DIV_ROUND_UP(tick, dpcm->pcm_bps);
 	mod_timer(&dpcm->timer, jiffies + tick);
 
 	return 0;
@@ -309,8 +308,8 @@ static int loopback_snd_timer_close_cable(struct loopback_pcm *dpcm)
 	 */
 	snd_timer_close(cable->snd_timer.instance);
 
-	/* wait till drain tasklet has finished if requested */
-	tasklet_kill(&cable->snd_timer.event_tasklet);
+	/* wait till drain work has finished if requested */
+	cancel_work_sync(&cable->snd_timer.event_work);
 
 	snd_timer_instance_free(cable->snd_timer.instance);
 	memset(&cable->snd_timer, 0, sizeof(cable->snd_timer));
@@ -794,11 +793,11 @@ static void loopback_snd_timer_function(struct snd_timer_instance *timeri,
 					  resolution);
 }
 
-static void loopback_snd_timer_tasklet(unsigned long arg)
+static void loopback_snd_timer_work(struct work_struct *work)
 {
-	struct snd_timer_instance *timeri = (struct snd_timer_instance *)arg;
-	struct loopback_cable *cable = timeri->callback_data;
+	struct loopback_cable *cable;
 
+	cable = container_of(work, struct loopback_cable, snd_timer.event_work);
 	loopback_snd_timer_period_elapsed(cable, SNDRV_TIMER_EVENT_MSTOP, 0);
 }
 
@@ -828,9 +827,9 @@ static void loopback_snd_timer_event(struct snd_timer_instance *timeri,
 		 * state the streaming will be aborted by the usual timeout. It
 		 * should not be aborted here because may be the timer sound
 		 * card does only a recovery and the timer is back soon.
-		 * This tasklet triggers loopback_snd_timer_tasklet()
+		 * This work triggers loopback_snd_timer_work()
 		 */
-		tasklet_schedule(&cable->snd_timer.event_tasklet);
+		schedule_work(&cable->snd_timer.event_work);
 	}
 }
 
@@ -1021,7 +1020,7 @@ static int loopback_jiffies_timer_open(struct loopback_pcm *dpcm)
 	return 0;
 }
 
-static struct loopback_ops loopback_jiffies_timer_ops = {
+static const struct loopback_ops loopback_jiffies_timer_ops = {
 	.open = loopback_jiffies_timer_open,
 	.start = loopback_jiffies_timer_start,
 	.stop = loopback_jiffies_timer_stop,
@@ -1124,7 +1123,7 @@ static int loopback_snd_timer_open(struct loopback_pcm *dpcm)
 		err = -ENOMEM;
 		goto exit;
 	}
-	/* The callback has to be called from another tasklet. If
+	/* The callback has to be called from another work. If
 	 * SNDRV_TIMER_IFLG_FAST is specified it will be called from the
 	 * snd_pcm_period_elapsed() call of the selected sound card.
 	 * snd_pcm_period_elapsed() helds snd_pcm_stream_lock_irqsave().
@@ -1137,9 +1136,8 @@ static int loopback_snd_timer_open(struct loopback_pcm *dpcm)
 	timeri->callback_data = (void *)cable;
 	timeri->ccallback = loopback_snd_timer_event;
 
-	/* initialise a tasklet used for draining */
-	tasklet_init(&cable->snd_timer.event_tasklet,
-		     loopback_snd_timer_tasklet, (unsigned long)timeri);
+	/* initialise a work used for draining */
+	INIT_WORK(&cable->snd_timer.event_work, loopback_snd_timer_work);
 
 	/* The mutex loopback->cable_lock is kept locked.
 	 * Therefore snd_timer_open() cannot be called a second time
@@ -1173,7 +1171,7 @@ exit:
 /* stop_sync() is not required for sound timer because it does not need to be
  * restarted in loopback_prepare() on Xrun recovery
  */
-static struct loopback_ops loopback_snd_timer_ops = {
+static const struct loopback_ops loopback_snd_timer_ops = {
 	.open = loopback_snd_timer_open,
 	.start = loopback_snd_timer_start,
 	.stop = loopback_snd_timer_stop,

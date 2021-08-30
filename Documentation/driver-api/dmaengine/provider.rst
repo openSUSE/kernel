@@ -95,7 +95,7 @@ accommodates that API in some cases, and made some design choices to
 ensure that it stayed compatible.
 
 For more information on the Async TX API, please look the relevant
-documentation file in Documentation/crypto/async-tx-api.txt.
+documentation file in Documentation/crypto/async-tx-api.rst.
 
 DMAEngine APIs
 ==============
@@ -239,6 +239,22 @@ Currently, the types available are:
     want to transfer a portion of uncompressed data directly to the
     display to print it
 
+- DMA_COMPLETION_NO_ORDER
+
+  - The device does not support in order completion.
+
+  - The driver should return DMA_OUT_OF_ORDER for device_tx_status if
+    the device is setting this capability.
+
+  - All cookie tracking and checking API should be treated as invalid if
+    the device exports this capability.
+
+  - At this point, this is incompatible with polling option for dmatest.
+
+  - If this cap is set, the user is recommended to provide an unique
+    identifier for each descriptor sent to the DMA device in order to
+    properly track the completion.
+
 - DMA_REPEAT
 
   - The device supports repeated transfers. A repeated transfer, indicated by
@@ -260,22 +276,6 @@ Currently, the types available are:
     as end of burst instead of end of transfer) will be added in the future
     based on DMA clients needs, if and when the need arises.
 
-- DMA_COMPLETION_NO_ORDER
-
-  - The device does not support in order completion.
-
-  - The driver should return DMA_OUT_OF_ORDER for device_tx_status if
-    the device is setting this capability.
-
-  - All cookie tracking and checking API should be treated as invalid if
-    the device exports this capability.
-
-  - At this point, this is incompatible with polling option for dmatest.
-
-  - If this cap is set, the user is recommended to provide an unique
-    identifier for each descriptor sent to the DMA device in order to
-    properly track the completion.
-
 These various types will also affect how the source and destination
 addresses change over time.
 
@@ -283,6 +283,62 @@ Addresses pointing to RAM are typically incremented (or decremented)
 after each transfer. In case of a ring buffer, they may loop
 (DMA_CYCLIC). Addresses pointing to a device's register (e.g. a FIFO)
 are typically fixed.
+
+Per descriptor metadata support
+-------------------------------
+Some data movement architecture (DMA controller and peripherals) uses metadata
+associated with a transaction. The DMA controller role is to transfer the
+payload and the metadata alongside.
+The metadata itself is not used by the DMA engine itself, but it contains
+parameters, keys, vectors, etc for peripheral or from the peripheral.
+
+The DMAengine framework provides a generic ways to facilitate the metadata for
+descriptors. Depending on the architecture the DMA driver can implement either
+or both of the methods and it is up to the client driver to choose which one
+to use.
+
+- DESC_METADATA_CLIENT
+
+  The metadata buffer is allocated/provided by the client driver and it is
+  attached (via the dmaengine_desc_attach_metadata() helper to the descriptor.
+
+  From the DMA driver the following is expected for this mode:
+
+  - DMA_MEM_TO_DEV / DEV_MEM_TO_MEM
+
+    The data from the provided metadata buffer should be prepared for the DMA
+    controller to be sent alongside of the payload data. Either by copying to a
+    hardware descriptor, or highly coupled packet.
+
+  - DMA_DEV_TO_MEM
+
+    On transfer completion the DMA driver must copy the metadata to the client
+    provided metadata buffer before notifying the client about the completion.
+    After the transfer completion, DMA drivers must not touch the metadata
+    buffer provided by the client.
+
+- DESC_METADATA_ENGINE
+
+  The metadata buffer is allocated/managed by the DMA driver. The client driver
+  can ask for the pointer, maximum size and the currently used size of the
+  metadata and can directly update or read it. dmaengine_desc_get_metadata_ptr()
+  and dmaengine_desc_set_metadata_len() is provided as helper functions.
+
+  From the DMA driver the following is expected for this mode:
+
+  - get_metadata_ptr()
+
+    Should return a pointer for the metadata buffer, the maximum size of the
+    metadata buffer and the currently used / valid (if any) bytes in the buffer.
+
+  - set_metadata_len()
+
+    It is called by the clients after it have placed the metadata to the buffer
+    to let the DMA driver know the number of valid bytes provided.
+
+  Note: since the client will ask for the metadata pointer in the completion
+  callback (in DMA_DEV_TO_MEM case) the DMA driver must ensure that the
+  descriptor is not freed up prior the callback is called.
 
 Device operations
 -----------------
@@ -472,7 +528,7 @@ dma_cookie_t
 DMA_CTRL_ACK
 
 - If clear, the descriptor cannot be reused by provider until the
-  client acknowledges receipt, i.e. has has a chance to establish any
+  client acknowledges receipt, i.e. has a chance to establish any
   dependency chains
 
 - This can be acked by invoking async_tx_ack()

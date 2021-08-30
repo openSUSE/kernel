@@ -47,6 +47,9 @@ extern int pciehp_poll_time;
  * struct controller - PCIe hotplug controller
  * @pcie: pointer to the controller's PCIe port service device
  * @slot_cap: cached copy of the Slot Capabilities register
+ * @inband_presence_disabled: In-Band Presence Detect Disable supported by
+ *	controller and disabled per spec recommendation (PCIe r5.0, appendix I
+ *	implementation note)
  * @slot_ctrl: cached copy of the Slot Control register
  * @ctrl_lock: serializes writes to the Slot Control register
  * @cmd_started: jiffies when the Slot Control register was last written;
@@ -106,8 +109,6 @@ struct controller {
 	unsigned int ist_running;
 	int request_result;
 	wait_queue_head_t requester;
-
-	void* suse_kabi_padding;
 };
 
 /**
@@ -115,9 +116,9 @@ struct controller {
  *
  * @OFF_STATE: slot is powered off, no subordinate devices are enumerated
  * @BLINKINGON_STATE: slot will be powered on after the 5 second delay,
- *	green led is blinking
+ *	Power Indicator is blinking
  * @BLINKINGOFF_STATE: slot will be powered off after the 5 second delay,
- *	green led is blinking
+ *	Power Indicator is blinking
  * @POWERON_STATE: slot is currently powering on
  * @POWEROFF_STATE: slot is currently powering off
  * @ON_STATE: slot is powered on, subordinate devices have been enumerated
@@ -150,8 +151,6 @@ struct controller {
 #define MRL_SENS(ctrl)		((ctrl)->slot_cap & PCI_EXP_SLTCAP_MRLSP)
 #define ATTN_LED(ctrl)		((ctrl)->slot_cap & PCI_EXP_SLTCAP_AIP)
 #define PWR_LED(ctrl)		((ctrl)->slot_cap & PCI_EXP_SLTCAP_PIP)
-#define HP_SUPR_RM(ctrl)	((ctrl)->slot_cap & PCI_EXP_SLTCAP_HPS)
-#define EMI(ctrl)		((ctrl)->slot_cap & PCI_EXP_SLTCAP_EIP)
 #define NO_CMD_CMPL(ctrl)	((ctrl)->slot_cap & PCI_EXP_SLTCAP_NCCS)
 #define PSN(ctrl)		(((ctrl)->slot_cap & PCI_EXP_SLTCAP_PSN) >> 19)
 
@@ -172,16 +171,15 @@ int pciehp_power_on_slot(struct controller *ctrl);
 void pciehp_power_off_slot(struct controller *ctrl);
 void pciehp_get_power_status(struct controller *ctrl, u8 *status);
 
-void pciehp_set_attention_status(struct controller *ctrl, u8 status);
+#define INDICATOR_NOOP -1	/* Leave indicator unchanged */
+void pciehp_set_indicators(struct controller *ctrl, int pwr, int attn);
+
 void pciehp_get_latch_status(struct controller *ctrl, u8 *status);
 int pciehp_query_power_fault(struct controller *ctrl);
-void pciehp_green_led_on(struct controller *ctrl);
-void pciehp_green_led_off(struct controller *ctrl);
-void pciehp_green_led_blink(struct controller *ctrl);
-bool pciehp_card_present(struct controller *ctrl);
-bool pciehp_card_present_or_link_active(struct controller *ctrl);
+int pciehp_card_present(struct controller *ctrl);
+int pciehp_card_present_or_link_active(struct controller *ctrl);
 int pciehp_check_link_status(struct controller *ctrl);
-bool pciehp_check_link_active(struct controller *ctrl);
+int pciehp_check_link_active(struct controller *ctrl);
 void pciehp_release_ctrl(struct controller *ctrl);
 
 int pciehp_sysfs_enable_slot(struct hotplug_slot *hotplug_slot);

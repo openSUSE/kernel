@@ -58,7 +58,7 @@
  * AD5272		1		1024		20, 50, 100 (50-TP)
  * AD5274		1		256		20, 50, 100 (50-TP)
  *
- * See Documentation/misc-devices/ad525x_dpot.txt for more info.
+ * See Documentation/misc-devices/ad525x_dpot.rst for more info.
  *
  * derived from ad5258.c
  * Copyright (c) 2009 Cyber Switching, Inc.
@@ -138,6 +138,9 @@ static s32 dpot_read_spi(struct dpot_data *dpot, u8 reg)
 
 			value = dpot_read_r8d8(dpot,
 				DPOT_AD5291_READ_RDAC << 2);
+
+			if (value < 0)
+				return value;
 
 			if (dpot->uid == DPOT_UID(AD5291_ID))
 				value = value >> 2;

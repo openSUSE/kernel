@@ -7,7 +7,7 @@ endif
 # that is not a function of syscall inputs. E.g. involuntary context switches.
 KCOV_INSTRUMENT := n
 
-# There are numerous races here, however, most of them due to plain accesses.
+# There are numerous data races here, however, most of them are due to plain accesses.
 # This would make it even harder for syzbot to find reproducers, because these
 # bugs trigger without specific input. Disable by default, but should re-enable
 # eventually.
@@ -36,3 +36,4 @@ obj-$(CONFIG_CPU_FREQ_GOV_SCHEDUTIL) += cpufreq_schedutil.o
 obj-$(CONFIG_MEMBARRIER) += membarrier.o
 obj-$(CONFIG_CPU_ISOLATION) += isolation.o
 obj-$(CONFIG_PSI) += psi.o
+obj-$(CONFIG_SCHED_CORE) += core_sched.o

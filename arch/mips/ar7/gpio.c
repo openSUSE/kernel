@@ -308,7 +308,7 @@ int __init ar7_gpio_init(void)
 		size = 0x1f;
 	}
 
-	gpch->regs = ioremap_nocache(AR7_REGS_GPIO, size);
+	gpch->regs = ioremap(AR7_REGS_GPIO, size);
 	if (!gpch->regs) {
 		printk(KERN_ERR "%s: failed to ioremap regs\n",
 					gpch->chip.label);
@@ -319,6 +319,7 @@ int __init ar7_gpio_init(void)
 	if (ret) {
 		printk(KERN_ERR "%s: failed to add gpiochip\n",
 					gpch->chip.label);
+		iounmap(gpch->regs);
 		return ret;
 	}
 	printk(KERN_INFO "%s: registered %d GPIOs\n",

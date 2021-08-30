@@ -13,8 +13,7 @@
 #include "../../entry/calling.h"
 
 .macro EXCEPTION_HANDLER name function error_code=0
-	.globl	\name
-\name:
+SYM_FUNC_START(\name)
 
 	/* Build pt_regs */
 	.if \error_code == 0
@@ -64,6 +63,7 @@
 	addq    $8, %rsp
 
 	iretq
+SYM_FUNC_END(\name)
 	.endm
 
 	.text

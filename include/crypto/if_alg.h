@@ -34,22 +34,19 @@ struct alg_sock {
 
 	const struct af_alg_type *type;
 	void *private;
-
-	void *suse_kabi_padding;
 };
 
 struct af_alg_control {
 	struct af_alg_iv *iv;
 	int op;
 	unsigned int aead_assoclen;
-
-	void *suse_kabi_padding;
 };
 
 struct af_alg_type {
 	void *(*bind)(const char *name, u32 type, u32 mask);
 	void (*release)(void *private);
 	int (*setkey)(void *private, const u8 *key, unsigned int keylen);
+	int (*setentropy)(void *private, sockptr_t entropy, unsigned int len);
 	int (*accept)(void *private, struct sock *sk);
 	int (*accept_nokey)(void *private, struct sock *sk);
 	int (*setauthsize)(void *private, unsigned int authsize);
@@ -58,8 +55,6 @@ struct af_alg_type {
 	struct proto_ops *ops_nokey;
 	struct module *owner;
 	char name[14];
-
-	 void *suse_kabi_padding;
 };
 
 struct af_alg_sgl {
@@ -161,9 +156,6 @@ struct af_alg_ctx {
 	bool init;
 
 	unsigned int len;
-
-	void *suse_kabi_padding;
-
 };
 
 int af_alg_register_type(const struct af_alg_type *type);

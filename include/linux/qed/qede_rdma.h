@@ -20,10 +20,8 @@ enum qede_rdma_event {
 	QEDE_UP,
 	QEDE_DOWN,
 	QEDE_CHANGE_ADDR,
-	QEDE_CLOSE
-#ifndef __GENKSYMS__
-	, QEDE_CHANGE_MTU,
-#endif
+	QEDE_CLOSE,
+	QEDE_CHANGE_MTU,
 };
 
 struct qede_rdma_event_work {

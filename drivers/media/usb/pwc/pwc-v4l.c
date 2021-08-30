@@ -554,7 +554,7 @@ static int pwc_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 		if (!DEVICE_USE_CODEC3(pdev->type))
 			break;
 		/* For CODEC3 where autogain also controls expo */
-		/* fall through */
+		fallthrough;
 	case V4L2_CID_EXPOSURE_AUTO:
 		if (pdev->exposure_valid && time_before(jiffies,
 				pdev->last_exposure_update + HZ / 4)) {
@@ -873,14 +873,9 @@ static int pwc_enum_fmt_vid_cap(struct file *file, void *fh, struct v4l2_fmtdesc
 	case 0:
 		/* RAW format */
 		f->pixelformat = pdev->type <= 646 ? V4L2_PIX_FMT_PWC1 : V4L2_PIX_FMT_PWC2;
-		f->flags = V4L2_FMT_FLAG_COMPRESSED;
-		strscpy(f->description, "Raw Philips Webcam",
-			sizeof(f->description));
 		break;
 	case 1:
 		f->pixelformat = V4L2_PIX_FMT_YUV420;
-		strscpy(f->description, "4:2:0, planar, Y-Cb-Cr",
-			sizeof(f->description));
 		break;
 	default:
 		return -EINVAL;

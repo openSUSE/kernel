@@ -21,7 +21,6 @@ subdir-ccflags-y += $(call cc-disable-warning, unused-but-set-variable)
 subdir-ccflags-y += $(call cc-disable-warning, sign-compare)
 subdir-ccflags-y += $(call cc-disable-warning, sometimes-uninitialized)
 subdir-ccflags-y += $(call cc-disable-warning, initializer-overrides)
-subdir-ccflags-y += $(call cc-disable-warning, uninitialized)
 subdir-ccflags-y += $(call cc-disable-warning, frame-address)
 subdir-ccflags-$(CONFIG_DRM_I915_WERROR) += -Werror
 
@@ -38,6 +37,7 @@ i915-y += i915_drv.o \
 	  i915_config.o \
 	  i915_irq.o \
 	  i915_getparam.o \
+	  i915_mitigations.o \
 	  i915_params.o \
 	  i915_pci.o \
 	  i915_scatterlist.o \
@@ -50,14 +50,17 @@ i915-y += i915_drv.o \
 	  intel_memory_region.o \
 	  intel_pch.o \
 	  intel_pm.o \
+	  intel_region_ttm.o \
 	  intel_runtime_pm.o \
 	  intel_sideband.o \
+	  intel_step.o \
 	  intel_uncore.o \
 	  intel_wakeref.o \
 	  vlv_suspend.o
 
 # core library code
 i915-y += \
+	dma_resv_utils.o \
 	i915_memcpy.o \
 	i915_mm.o \
 	i915_sw_fence.o \
@@ -82,6 +85,7 @@ gt-y += \
 	gt/gen6_engine_cs.o \
 	gt/gen6_ppgtt.o \
 	gt/gen7_renderclear.o \
+	gt/gen8_engine_cs.o \
 	gt/gen8_ppgtt.o \
 	gt/intel_breadcrumbs.o \
 	gt/intel_context.o \
@@ -91,6 +95,7 @@ gt-y += \
 	gt/intel_engine_heartbeat.o \
 	gt/intel_engine_pm.o \
 	gt/intel_engine_user.o \
+	gt/intel_execlists_submission.o \
 	gt/intel_ggtt.o \
 	gt/intel_ggtt_fencing.o \
 	gt/intel_gt.o \
@@ -106,6 +111,7 @@ gt-y += \
 	gt/intel_mocs.o \
 	gt/intel_ppgtt.o \
 	gt/intel_rc6.o \
+	gt/intel_region_lmem.o \
 	gt/intel_renderstate.o \
 	gt/intel_reset.o \
 	gt/intel_ring.o \
@@ -131,10 +137,10 @@ gem-y += \
 	gem/i915_gem_clflush.o \
 	gem/i915_gem_client_blt.o \
 	gem/i915_gem_context.o \
+	gem/i915_gem_create.o \
 	gem/i915_gem_dmabuf.o \
 	gem/i915_gem_domain.o \
 	gem/i915_gem_execbuffer.o \
-	gem/i915_gem_fence.o \
 	gem/i915_gem_internal.o \
 	gem/i915_gem_object.o \
 	gem/i915_gem_object_blt.o \
@@ -155,7 +161,6 @@ gem-y += \
 i915-y += \
 	  $(gem-y) \
 	  i915_active.o \
-	  i915_buddy.o \
 	  i915_cmd_parser.o \
 	  i915_gem_evict.o \
 	  i915_gem_gtt.o \
@@ -166,7 +171,6 @@ i915-y += \
 	  i915_scheduler.o \
 	  i915_trace_points.o \
 	  i915_vma.o \
-	  intel_region_lmem.o \
 	  intel_wopcm.o
 
 # general-purpose microcontroller (GuC) support
@@ -196,13 +200,18 @@ i915-y += \
 	display/intel_color.o \
 	display/intel_combo_phy.o \
 	display/intel_connector.o \
-	display/intel_csr.o \
+	display/intel_crtc.o \
+	display/intel_cursor.o \
 	display/intel_display.o \
 	display/intel_display_power.o \
+	display/intel_dmc.o \
 	display/intel_dpio_phy.o \
+	display/intel_dpll.o \
 	display/intel_dpll_mgr.o \
 	display/intel_dsb.o \
+	display/intel_fb.o \
 	display/intel_fbc.o \
+	display/intel_fdi.o \
 	display/intel_fifo_underrun.o \
 	display/intel_frontbuffer.o \
 	display/intel_global_state.o \
@@ -214,7 +223,10 @@ i915-y += \
 	display/intel_quirks.o \
 	display/intel_sprite.o \
 	display/intel_tc.o \
-	display/intel_vga.o
+	display/intel_vga.o \
+	display/i9xx_plane.o \
+	display/skl_scaler.o \
+	display/skl_universal_plane.o
 i915-$(CONFIG_ACPI) += \
 	display/intel_acpi.o \
 	display/intel_opregion.o
@@ -229,11 +241,16 @@ i915-y += \
 	display/dvo_ns2501.o \
 	display/dvo_sil164.o \
 	display/dvo_tfp410.o \
+	display/g4x_dp.o \
+	display/g4x_hdmi.o \
 	display/icl_dsi.o \
 	display/intel_crt.o \
 	display/intel_ddi.o \
+	display/intel_ddi_buf_trans.o \
 	display/intel_dp.o \
+	display/intel_dp_aux.o \
 	display/intel_dp_aux_backlight.o \
+	display/intel_dp_hdcp.o \
 	display/intel_dp_link_training.o \
 	display/intel_dp_mst.o \
 	display/intel_dsi.o \
@@ -245,9 +262,12 @@ i915-y += \
 	display/intel_lspcon.o \
 	display/intel_lvds.o \
 	display/intel_panel.o \
+	display/intel_pps.o \
+	display/intel_qp_tables.o \
 	display/intel_sdvo.o \
 	display/intel_tv.o \
 	display/intel_vdsc.o \
+	display/intel_vrr.o \
 	display/vlv_dsi.o \
 	display/vlv_dsi_pll.o
 
@@ -282,17 +302,9 @@ obj-$(CONFIG_DRM_I915_GVT_KVMGT) += gvt/kvmgt.o
 
 # exclude some broken headers from the test coverage
 no-header-test := \
-	display/intel_vbt_defs.h \
-	gvt/execlist.h \
-	gvt/fb_decoder.h \
-	gvt/gtt.h \
-	gvt/gvt.h \
-	gvt/interrupt.h \
-	gvt/mmio_context.h \
-	gvt/mpt.h \
-	gvt/scheduler.h
+	display/intel_vbt_defs.h
 
-extra-$(CONFIG_DRM_I915_WERROR) += \
+always-$(CONFIG_DRM_I915_WERROR) += \
 	$(patsubst %.h,%.hdrtest, $(filter-out $(no-header-test), \
 		$(shell cd $(srctree)/$(src) && find * -name '*.h')))
 

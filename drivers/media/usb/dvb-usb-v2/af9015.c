@@ -43,7 +43,7 @@ static int af9015_ctrl_msg(struct dvb_usb_device *d, struct req_t *req)
 	case READ_I2C:
 		write = 0;
 		state->buf[2] |= 0x01; /* set I2C direction */
-		/* fall through */
+		fallthrough;
 	case WRITE_I2C:
 		state->buf[0] = READ_WRITE_I2C;
 		break;
@@ -51,6 +51,7 @@ static int af9015_ctrl_msg(struct dvb_usb_device *d, struct req_t *req)
 		if (((req->addr & 0xff00) == 0xff00) ||
 		    ((req->addr & 0xff00) == 0xae00))
 			state->buf[0] = WRITE_VIRTUAL_MEMORY;
+		break;
 	case WRITE_VIRTUAL_MEMORY:
 	case COPY_FIRMWARE:
 	case DOWNLOAD_FIRMWARE:

@@ -2,6 +2,8 @@
 /* Copyright (c) 2014 Mahesh Bandewar <maheshb@google.com>
  */
 
+#include <linux/ethtool.h>
+
 #include "ipvlan.h"
 
 static int ipvlan_set_port_mode(struct ipvl_port *port, u16 nval,
@@ -137,6 +139,7 @@ static int ipvlan_init(struct net_device *dev)
 	dev->features |= IPVLAN_ALWAYS_ON;
 	dev->vlan_features = phy_dev->vlan_features & IPVLAN_FEATURES;
 	dev->vlan_features |= IPVLAN_ALWAYS_ON_OFLOADS;
+	dev->hw_enc_features |= dev->features;
 	dev->gso_max_size = phy_dev->gso_max_size;
 	dev->gso_max_segs = phy_dev->gso_max_segs;
 	dev->hard_header_len = phy_dev->hard_header_len;
@@ -683,6 +686,13 @@ static const struct nla_policy ipvlan_nl_policy[IFLA_IPVLAN_MAX + 1] =
 	[IFLA_IPVLAN_FLAGS] = { .type = NLA_U16 },
 };
 
+static struct net *ipvlan_get_link_net(const struct net_device *dev)
+{
+	struct ipvl_dev *ipvlan = netdev_priv(dev);
+
+	return dev_net(ipvlan->phy_dev);
+}
+
 static struct rtnl_link_ops ipvlan_link_ops = {
 	.kind		= "ipvlan",
 	.priv_size	= sizeof(struct ipvl_dev),
@@ -690,6 +700,7 @@ static struct rtnl_link_ops ipvlan_link_ops = {
 	.setup		= ipvlan_link_setup,
 	.newlink	= ipvlan_link_new,
 	.dellink	= ipvlan_link_delete,
+	.get_link_net   = ipvlan_get_link_net,
 };
 
 int ipvlan_link_register(struct rtnl_link_ops *ops)

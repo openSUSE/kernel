@@ -3,7 +3,7 @@
  * PCIe host controller driver for Kirin Phone SoCs
  *
  * Copyright (C) 2017 HiSilicon Electronics Co., Ltd.
- *		http://www.huawei.com
+ *		https://www.huawei.com
  *
  * Author: Xiaowei Song <songxiaowei@huawei.com>
  */
@@ -404,8 +404,6 @@ static int kirin_pcie_start_link(struct dw_pcie *pci)
 static int kirin_pcie_host_init(struct pcie_port *pp)
 {
 	pp->bridge->ops = &kirin_pci_ops;
-
-	dw_pcie_setup_rc(pp);
 
 	return 0;
 }

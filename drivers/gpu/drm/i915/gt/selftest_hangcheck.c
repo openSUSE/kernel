@@ -1,25 +1,6 @@
+// SPDX-License-Identifier: MIT
 /*
  * Copyright © 2016 Intel Corporation
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice (including the next
- * paragraph) shall be included in all copies or substantial portions of the
- * Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
- * IN THE SOFTWARE.
- *
  */
 
 #include <linux/kthread.h>
@@ -80,15 +61,15 @@ static int hang_init(struct hang *h, struct intel_gt *gt)
 	}
 
 	i915_gem_object_set_cache_coherency(h->hws, I915_CACHE_LLC);
-	vaddr = i915_gem_object_pin_map(h->hws, I915_MAP_WB);
+	vaddr = i915_gem_object_pin_map_unlocked(h->hws, I915_MAP_WB);
 	if (IS_ERR(vaddr)) {
 		err = PTR_ERR(vaddr);
 		goto err_obj;
 	}
 	h->seqno = memset(vaddr, 0xff, PAGE_SIZE);
 
-	vaddr = i915_gem_object_pin_map(h->obj,
-					i915_coherent_map_type(gt->i915));
+	vaddr = i915_gem_object_pin_map_unlocked(h->obj,
+						 i915_coherent_map_type(gt->i915, h->obj, false));
 	if (IS_ERR(vaddr)) {
 		err = PTR_ERR(vaddr);
 		goto err_unpin_hws;
@@ -149,7 +130,7 @@ hang_create_request(struct hang *h, struct intel_engine_cs *engine)
 		return ERR_CAST(obj);
 	}
 
-	vaddr = i915_gem_object_pin_map(obj, i915_coherent_map_type(gt->i915));
+	vaddr = i915_gem_object_pin_map_unlocked(obj, i915_coherent_map_type(gt->i915, obj, false));
 	if (IS_ERR(vaddr)) {
 		i915_gem_object_put(obj);
 		i915_vm_put(vm);
@@ -199,7 +180,7 @@ hang_create_request(struct hang *h, struct intel_engine_cs *engine)
 		goto cancel_rq;
 
 	batch = h->batch;
-	if (INTEL_GEN(gt->i915) >= 8) {
+	if (GRAPHICS_VER(gt->i915) >= 8) {
 		*batch++ = MI_STORE_DWORD_IMM_GEN4;
 		*batch++ = lower_32_bits(hws_address(hws, rq));
 		*batch++ = upper_32_bits(hws_address(hws, rq));
@@ -213,7 +194,7 @@ hang_create_request(struct hang *h, struct intel_engine_cs *engine)
 		*batch++ = MI_BATCH_BUFFER_START | 1 << 8 | 1;
 		*batch++ = lower_32_bits(vma->node.start);
 		*batch++ = upper_32_bits(vma->node.start);
-	} else if (INTEL_GEN(gt->i915) >= 6) {
+	} else if (GRAPHICS_VER(gt->i915) >= 6) {
 		*batch++ = MI_STORE_DWORD_IMM_GEN4;
 		*batch++ = 0;
 		*batch++ = lower_32_bits(hws_address(hws, rq));
@@ -226,7 +207,7 @@ hang_create_request(struct hang *h, struct intel_engine_cs *engine)
 		*batch++ = MI_NOOP;
 		*batch++ = MI_BATCH_BUFFER_START | 1 << 8;
 		*batch++ = lower_32_bits(vma->node.start);
-	} else if (INTEL_GEN(gt->i915) >= 4) {
+	} else if (GRAPHICS_VER(gt->i915) >= 4) {
 		*batch++ = MI_STORE_DWORD_IMM_GEN4 | MI_USE_GGTT;
 		*batch++ = 0;
 		*batch++ = lower_32_bits(hws_address(hws, rq));
@@ -262,7 +243,7 @@ hang_create_request(struct hang *h, struct intel_engine_cs *engine)
 	}
 
 	flags = 0;
-	if (INTEL_GEN(gt->i915) <= 5)
+	if (GRAPHICS_VER(gt->i915) <= 5)
 		flags |= I915_DISPATCH_SECURE;
 
 	err = rq->engine->emit_bb_start(rq, vma->node.start, PAGE_SIZE, flags);
@@ -506,7 +487,8 @@ static int igt_reset_nop_engine(void *arg)
 			}
 			err = intel_engine_reset(engine, NULL);
 			if (err) {
-				pr_err("i915_reset_engine failed\n");
+				pr_err("intel_engine_reset(%s) failed, err:%d\n",
+				       engine->name, err);
 				break;
 			}
 
@@ -539,6 +521,149 @@ static int igt_reset_nop_engine(void *arg)
 	return 0;
 }
 
+static void force_reset_timeout(struct intel_engine_cs *engine)
+{
+	engine->reset_timeout.probability = 999;
+	atomic_set(&engine->reset_timeout.times, -1);
+}
+
+static void cancel_reset_timeout(struct intel_engine_cs *engine)
+{
+	memset(&engine->reset_timeout, 0, sizeof(engine->reset_timeout));
+}
+
+static int igt_reset_fail_engine(void *arg)
+{
+	struct intel_gt *gt = arg;
+	struct intel_engine_cs *engine;
+	enum intel_engine_id id;
+
+	/* Check that we can recover from engine-reset failues */
+
+	if (!intel_has_reset_engine(gt))
+		return 0;
+
+	for_each_engine(engine, gt, id) {
+		unsigned int count;
+		struct intel_context *ce;
+		IGT_TIMEOUT(end_time);
+		int err;
+
+		ce = intel_context_create(engine);
+		if (IS_ERR(ce))
+			return PTR_ERR(ce);
+
+		st_engine_heartbeat_disable(engine);
+		set_bit(I915_RESET_ENGINE + id, &gt->reset.flags);
+
+		force_reset_timeout(engine);
+		err = intel_engine_reset(engine, NULL);
+		cancel_reset_timeout(engine);
+		if (err == 0) /* timeouts only generated on gen8+ */
+			goto skip;
+
+		count = 0;
+		do {
+			struct i915_request *last = NULL;
+			int i;
+
+			if (!wait_for_idle(engine)) {
+				pr_err("%s failed to idle before reset\n",
+				       engine->name);
+				err = -EIO;
+				break;
+			}
+
+			for (i = 0; i < count % 15; i++) {
+				struct i915_request *rq;
+
+				rq = intel_context_create_request(ce);
+				if (IS_ERR(rq)) {
+					struct drm_printer p =
+						drm_info_printer(gt->i915->drm.dev);
+					intel_engine_dump(engine, &p,
+							  "%s(%s): failed to submit request\n",
+							  __func__,
+							  engine->name);
+
+					GEM_TRACE("%s(%s): failed to submit request\n",
+						  __func__,
+						  engine->name);
+					GEM_TRACE_DUMP();
+
+					intel_gt_set_wedged(gt);
+					if (last)
+						i915_request_put(last);
+
+					err = PTR_ERR(rq);
+					goto out;
+				}
+
+				if (last)
+					i915_request_put(last);
+				last = i915_request_get(rq);
+				i915_request_add(rq);
+			}
+
+			if (count & 1) {
+				err = intel_engine_reset(engine, NULL);
+				if (err) {
+					GEM_TRACE_ERR("intel_engine_reset(%s) failed, err:%d\n",
+						      engine->name, err);
+					GEM_TRACE_DUMP();
+					i915_request_put(last);
+					break;
+				}
+			} else {
+				force_reset_timeout(engine);
+				err = intel_engine_reset(engine, NULL);
+				cancel_reset_timeout(engine);
+				if (err != -ETIMEDOUT) {
+					pr_err("intel_engine_reset(%s) did not fail, err:%d\n",
+					       engine->name, err);
+					i915_request_put(last);
+					break;
+				}
+			}
+
+			err = 0;
+			if (last) {
+				if (i915_request_wait(last, 0, HZ / 2) < 0) {
+					struct drm_printer p =
+						drm_info_printer(gt->i915->drm.dev);
+
+					intel_engine_dump(engine, &p,
+							  "%s(%s): failed to complete request\n",
+							  __func__,
+							  engine->name);
+
+					GEM_TRACE("%s(%s): failed to complete request\n",
+						  __func__,
+						  engine->name);
+					GEM_TRACE_DUMP();
+
+					err = -EIO;
+				}
+				i915_request_put(last);
+			}
+			count++;
+		} while (err == 0 && time_before(jiffies, end_time));
+out:
+		pr_info("%s(%s): %d resets\n", __func__, engine->name, count);
+skip:
+		clear_bit(I915_RESET_ENGINE + id, &gt->reset.flags);
+		st_engine_heartbeat_enable(engine);
+		intel_context_put(ce);
+
+		if (igt_flush_test(gt->i915))
+			err = -EIO;
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
 static int __igt_reset_engine(struct intel_gt *gt, bool active)
 {
 	struct i915_gpu_error *global = &gt->i915->gpu_error;
@@ -560,6 +685,7 @@ static int __igt_reset_engine(struct intel_gt *gt, bool active)
 
 	for_each_engine(engine, gt, id) {
 		unsigned int reset_count, reset_engine_count;
+		unsigned long count;
 		IGT_TIMEOUT(end_time);
 
 		if (active && !intel_engine_can_store_dword(engine))
@@ -577,6 +703,7 @@ static int __igt_reset_engine(struct intel_gt *gt, bool active)
 
 		st_engine_heartbeat_disable(engine);
 		set_bit(I915_RESET_ENGINE + id, &gt->reset.flags);
+		count = 0;
 		do {
 			if (active) {
 				struct i915_request *rq;
@@ -608,7 +735,8 @@ static int __igt_reset_engine(struct intel_gt *gt, bool active)
 
 			err = intel_engine_reset(engine, NULL);
 			if (err) {
-				pr_err("i915_reset_engine failed\n");
+				pr_err("intel_engine_reset(%s) failed, err:%d\n",
+				       engine->name, err);
 				break;
 			}
 
@@ -625,9 +753,13 @@ static int __igt_reset_engine(struct intel_gt *gt, bool active)
 				err = -EINVAL;
 				break;
 			}
+
+			count++;
 		} while (time_before(jiffies, end_time));
 		clear_bit(I915_RESET_ENGINE + id, &gt->reset.flags);
 		st_engine_heartbeat_enable(engine);
+		pr_info("%s: Completed %lu %s resets\n",
+			engine->name, count, active ? "active" : "idle");
 
 		if (err)
 			break;
@@ -1478,7 +1610,8 @@ static int igt_reset_queue(void *arg)
 			prev = rq;
 			count++;
 		} while (time_before(jiffies, end_time));
-		pr_info("%s: Completed %d resets\n", engine->name, count);
+		pr_info("%s: Completed %d queued resets\n",
+			engine->name, count);
 
 		*h.batch = MI_BATCH_BUFFER_END;
 		intel_gt_chipset_flush(engine->gt);
@@ -1575,13 +1708,21 @@ static int __igt_atomic_reset_engine(struct intel_engine_cs *engine,
 	GEM_TRACE("i915_reset_engine(%s:%s) under %s\n",
 		  engine->name, mode, p->name);
 
-	tasklet_disable(t);
+	if (t->func)
+		tasklet_disable(t);
+	if (strcmp(p->name, "softirq"))
+		local_bh_disable();
 	p->critical_section_begin();
 
-	err = intel_engine_reset(engine, NULL);
+	err = __intel_engine_reset_bh(engine, NULL);
 
 	p->critical_section_end();
-	tasklet_enable(t);
+	if (strcmp(p->name, "softirq"))
+		local_bh_enable();
+	if (t->func) {
+		tasklet_enable(t);
+		tasklet_hi_schedule(t);
+	}
 
 	if (err)
 		pr_err("i915_reset_engine(%s:%s) failed under %s\n",
@@ -1687,6 +1828,7 @@ int intel_hangcheck_live_selftests(struct drm_i915_private *i915)
 		SUBTEST(igt_reset_nop_engine),
 		SUBTEST(igt_reset_idle_engine),
 		SUBTEST(igt_reset_active_engine),
+		SUBTEST(igt_reset_fail_engine),
 		SUBTEST(igt_reset_engines),
 		SUBTEST(igt_reset_engines_atomic),
 		SUBTEST(igt_reset_queue),

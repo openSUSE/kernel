@@ -6,14 +6,20 @@
 #include <bpf/libbpf.h>
 #include <linux/btf.h>
 #include <linux/err.h>
+#include <linux/string.h>
+#include <internal/lib.h>
+#include <symbol/kallsyms.h>
 #include "bpf-event.h"
 #include "debug.h"
+#include "dso.h"
 #include "symbol.h"
 #include "machine.h"
 #include "env.h"
 #include "session.h"
 #include "map.h"
 #include "evlist.h"
+#include "record.h"
+#include "util/synthetic-events.h"
 
 #define ptr_to_u64(ptr)    ((__u64)(unsigned long)(ptr))
 
@@ -34,7 +40,7 @@ static int machine__process_bpf_event_load(struct machine *machine,
 	struct bpf_prog_info_linear *info_linear;
 	struct bpf_prog_info_node *info_node;
 	struct perf_env *env = machine->env;
-	int id = event->bpf_event.id;
+	int id = event->bpf.id;
 	unsigned int i;
 
 	/* perf-record, no need to handle bpf-event */
@@ -49,9 +55,7 @@ static int machine__process_bpf_event_load(struct machine *machine,
 	for (i = 0; i < info_linear->info.nr_jited_ksyms; i++) {
 		u64 *addrs = (u64 *)(uintptr_t)(info_linear->info.jited_ksyms);
 		u64 addr = addrs[i];
-		struct map *map;
-
-		map = map_groups__find(&machine->kmaps, addr);
+		struct map *map = maps__find(&machine->kmaps, addr);
 
 		if (map) {
 			map->dso->binary_type = DSO_BINARY_TYPE__BPF_PROG_INFO;
@@ -63,14 +67,13 @@ static int machine__process_bpf_event_load(struct machine *machine,
 	return 0;
 }
 
-int machine__process_bpf_event(struct machine *machine __maybe_unused,
-			       union perf_event *event,
-			       struct perf_sample *sample __maybe_unused)
+int machine__process_bpf(struct machine *machine, union perf_event *event,
+			 struct perf_sample *sample)
 {
 	if (dump_trace)
-		perf_event__fprintf_bpf_event(event, stdout);
+		perf_event__fprintf_bpf(event, stdout);
 
-	switch (event->bpf_event.type) {
+	switch (event->bpf.type) {
 	case PERF_BPF_EVENT_PROG_LOAD:
 		return machine__process_bpf_event_load(machine, event, sample);
 
@@ -82,8 +85,7 @@ int machine__process_bpf_event(struct machine *machine __maybe_unused,
 		 */
 		break;
 	default:
-		pr_debug("unexpected bpf_event type of %d\n",
-			 event->bpf_event.type);
+		pr_debug("unexpected bpf event type of %d\n", event->bpf.type);
 		break;
 	}
 	return 0;
@@ -160,8 +162,8 @@ static int perf_event__synthesize_one_bpf_prog(struct perf_session *session,
 					       union perf_event *event,
 					       struct record_opts *opts)
 {
-	struct ksymbol_event *ksymbol_event = &event->ksymbol_event;
-	struct bpf_event *bpf_event = &event->bpf_event;
+	struct perf_record_ksymbol *ksymbol_event = &event->ksymbol;
+	struct perf_record_bpf_event *bpf_event = &event->bpf;
 	struct bpf_prog_info_linear *info_linear;
 	struct perf_tool *tool = session->tool;
 	struct bpf_prog_info_node *info_node;
@@ -194,25 +196,32 @@ static int perf_event__synthesize_one_bpf_prog(struct perf_session *session,
 	}
 
 	if (info_linear->info_len < offsetof(struct bpf_prog_info, prog_tags)) {
+		free(info_linear);
 		pr_debug("%s: the kernel is too old, aborting\n", __func__);
 		return -2;
 	}
 
 	info = &info_linear->info;
+	if (!info->jited_ksyms) {
+		free(info_linear);
+		return -1;
+	}
 
 	/* number of ksyms, func_lengths, and tags should match */
 	sub_prog_cnt = info->nr_jited_ksyms;
 	if (sub_prog_cnt != info->nr_prog_tags ||
-	    sub_prog_cnt != info->nr_jited_func_lens)
+	    sub_prog_cnt != info->nr_jited_func_lens) {
+		free(info_linear);
 		return -1;
+	}
 
 	/* check BTF func info support */
 	if (info->btf_id && info->nr_func_info && info->func_info_rec_size) {
 		/* btf func info number should be same as sub_prog_cnt */
 		if (sub_prog_cnt != info->nr_func_info) {
 			pr_debug("%s: mismatch in BPF sub program count and BTF function info count, aborting\n", __func__);
-			err = -1;
-			goto out;
+			free(info_linear);
+			return -1;
 		}
 		if (btf__get_from_id(info->btf_id, &btf)) {
 			pr_debug("%s: failed to get BTF of id %u, aborting\n", __func__, info->btf_id);
@@ -229,10 +238,10 @@ static int perf_event__synthesize_one_bpf_prog(struct perf_session *session,
 		__u64 *prog_addrs = (__u64 *)(uintptr_t)(info->jited_ksyms);
 		int name_len;
 
-		*ksymbol_event = (struct ksymbol_event){
+		*ksymbol_event = (struct perf_record_ksymbol) {
 			.header = {
 				.type = PERF_RECORD_KSYMBOL,
-				.size = offsetof(struct ksymbol_event, name),
+				.size = offsetof(struct perf_record_ksymbol, name),
 			},
 			.addr = prog_addrs[i],
 			.len = prog_lens[i],
@@ -253,10 +262,10 @@ static int perf_event__synthesize_one_bpf_prog(struct perf_session *session,
 
 	if (!opts->no_bpf_event) {
 		/* Synthesize PERF_RECORD_BPF_EVENT */
-		*bpf_event = (struct bpf_event){
+		*bpf_event = (struct perf_record_bpf_event) {
 			.header = {
 				.type = PERF_RECORD_BPF_EVENT,
-				.size = sizeof(struct bpf_event),
+				.size = sizeof(struct perf_record_bpf_event),
 			},
 			.type = PERF_BPF_EVENT_PROG_LOAD,
 			.flags = 0,
@@ -291,19 +300,92 @@ out:
 	return err ? -1 : 0;
 }
 
+struct kallsyms_parse {
+	union perf_event	*event;
+	perf_event__handler_t	 process;
+	struct machine		*machine;
+	struct perf_tool	*tool;
+};
+
+static int
+process_bpf_image(char *name, u64 addr, struct kallsyms_parse *data)
+{
+	struct machine *machine = data->machine;
+	union perf_event *event = data->event;
+	struct perf_record_ksymbol *ksymbol;
+	int len;
+
+	ksymbol = &event->ksymbol;
+
+	*ksymbol = (struct perf_record_ksymbol) {
+		.header = {
+			.type = PERF_RECORD_KSYMBOL,
+			.size = offsetof(struct perf_record_ksymbol, name),
+		},
+		.addr      = addr,
+		.len       = page_size,
+		.ksym_type = PERF_RECORD_KSYMBOL_TYPE_BPF,
+		.flags     = 0,
+	};
+
+	len = scnprintf(ksymbol->name, KSYM_NAME_LEN, "%s", name);
+	ksymbol->header.size += PERF_ALIGN(len + 1, sizeof(u64));
+	memset((void *) event + event->header.size, 0, machine->id_hdr_size);
+	event->header.size += machine->id_hdr_size;
+
+	return perf_tool__process_synth_event(data->tool, event, machine,
+					      data->process);
+}
+
+static int
+kallsyms_process_symbol(void *data, const char *_name,
+			char type __maybe_unused, u64 start)
+{
+	char disp[KSYM_NAME_LEN];
+	char *module, *name;
+	unsigned long id;
+	int err = 0;
+
+	module = strchr(_name, '\t');
+	if (!module)
+		return 0;
+
+	/* We are going after [bpf] module ... */
+	if (strcmp(module + 1, "[bpf]"))
+		return 0;
+
+	name = memdup(_name, (module - _name) + 1);
+	if (!name)
+		return -ENOMEM;
+
+	name[module - _name] = 0;
+
+	/* .. and only for trampolines and dispatchers */
+	if ((sscanf(name, "bpf_trampoline_%lu", &id) == 1) ||
+	    (sscanf(name, "bpf_dispatcher_%s", disp) == 1))
+		err = process_bpf_image(name, start, data);
+
+	free(name);
+	return err;
+}
+
 int perf_event__synthesize_bpf_events(struct perf_session *session,
 				      perf_event__handler_t process,
 				      struct machine *machine,
 				      struct record_opts *opts)
 {
+	const char *kallsyms_filename = "/proc/kallsyms";
+	struct kallsyms_parse arg;
 	union perf_event *event;
 	__u32 id = 0;
 	int err;
 	int fd;
 
-	event = malloc(sizeof(event->bpf_event) + KSYM_NAME_LEN + machine->id_hdr_size);
+	event = malloc(sizeof(event->bpf) + KSYM_NAME_LEN + machine->id_hdr_size);
 	if (!event)
 		return -1;
+
+	/* Synthesize all the bpf programs in system. */
 	while (true) {
 		err = bpf_prog_get_next_id(id, &id);
 		if (err) {
@@ -336,6 +418,23 @@ int perf_event__synthesize_bpf_events(struct perf_session *session,
 			break;
 		}
 	}
+
+	/* Synthesize all the bpf images - trampolines/dispatchers. */
+	if (symbol_conf.kallsyms_name != NULL)
+		kallsyms_filename = symbol_conf.kallsyms_name;
+
+	arg = (struct kallsyms_parse) {
+		.event   = event,
+		.process = process,
+		.machine = machine,
+		.tool    = session->tool,
+	};
+
+	if (kallsyms__parse(kallsyms_filename, &arg, kallsyms_process_symbol)) {
+		pr_err("%s: failed to synthesize bpf images: %s\n",
+		       __func__, strerror(errno));
+	}
+
 	free(event);
 	return err;
 }
@@ -398,9 +497,9 @@ static int bpf_event__sb_cb(union perf_event *event, void *data)
 	if (event->header.type != PERF_RECORD_BPF_EVENT)
 		return -1;
 
-	switch (event->bpf_event.type) {
+	switch (event->bpf.type) {
 	case PERF_BPF_EVENT_PROG_LOAD:
-		perf_env__add_bpf_info(env, event->bpf_event.id);
+		perf_env__add_bpf_info(env, event->bpf.id);
 
 	case PERF_BPF_EVENT_PROG_UNLOAD:
 		/*
@@ -410,16 +509,14 @@ static int bpf_event__sb_cb(union perf_event *event, void *data)
 		 */
 		break;
 	default:
-		pr_debug("unexpected bpf_event type of %d\n",
-			 event->bpf_event.type);
+		pr_debug("unexpected bpf event type of %d\n", event->bpf.type);
 		break;
 	}
 
 	return 0;
 }
 
-int bpf_event__add_sb_event(struct perf_evlist **evlist,
-			    struct perf_env *env)
+int evlist__add_bpf_sb_event(struct evlist *evlist, struct perf_env *env)
 {
 	struct perf_event_attr attr = {
 		.type	          = PERF_TYPE_SOFTWARE,
@@ -436,7 +533,7 @@ int bpf_event__add_sb_event(struct perf_evlist **evlist,
 	 */
 	attr.wakeup_watermark = 1;
 
-	return perf_evlist__add_sb_event(evlist, &attr, bpf_event__sb_cb, env);
+	return evlist__add_sb_event(evlist, &attr, bpf_event__sb_cb, env);
 }
 
 void bpf_event__print_bpf_prog_info(struct bpf_prog_info *info,

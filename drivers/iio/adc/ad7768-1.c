@@ -161,6 +161,7 @@ struct ad7768_state {
 	struct completion completion;
 	struct iio_trigger *trig;
 	struct gpio_desc *gpio_sync_in;
+	const char *labels[ARRAY_SIZE(ad7768_channels)];
 	/*
 	 * DMA (thus cache coherency maintenance) requires the
 	 * transfer buffers to live in their own cache lines.
@@ -411,6 +412,14 @@ static int ad7768_write_raw(struct iio_dev *indio_dev,
 	}
 }
 
+static int ad7768_read_label(struct iio_dev *indio_dev,
+	const struct iio_chan_spec *chan, char *label)
+{
+	struct ad7768_state *st = iio_priv(indio_dev);
+
+	return sprintf(label, "%s\n", st->labels[chan->channel]);
+}
+
 static struct attribute *ad7768_attributes[] = {
 	&iio_dev_attr_sampling_frequency_available.dev_attr.attr,
 	NULL
@@ -424,6 +433,7 @@ static const struct iio_info ad7768_info = {
 	.attrs = &ad7768_group,
 	.read_raw = &ad7768_read_raw,
 	.write_raw = &ad7768_write_raw,
+	.read_label = ad7768_read_label,
 	.debugfs_reg_access = &ad7768_reg_access,
 };
 
@@ -494,7 +504,6 @@ static int ad7768_buffer_postenable(struct iio_dev *indio_dev)
 {
 	struct ad7768_state *st = iio_priv(indio_dev);
 
-	iio_triggered_buffer_postenable(indio_dev);
 	/*
 	 * Write a 1 to the LSB of the INTERFACE_FORMAT register to enter
 	 * continuous read mode. Subsequent data reads do not require an
@@ -506,17 +515,12 @@ static int ad7768_buffer_postenable(struct iio_dev *indio_dev)
 static int ad7768_buffer_predisable(struct iio_dev *indio_dev)
 {
 	struct ad7768_state *st = iio_priv(indio_dev);
-	int ret;
 
 	/*
 	 * To exit continuous read mode, perform a single read of the ADC_DATA
 	 * reg (0x2C), which allows further configuration of the device.
 	 */
-	ret = ad7768_spi_reg_read(st, AD7768_REG_ADC_DATA, 3);
-	if (ret < 0)
-		return ret;
-
-	return iio_triggered_buffer_predisable(indio_dev);
+	return ad7768_spi_reg_read(st, AD7768_REG_ADC_DATA, 3);
 }
 
 static const struct iio_buffer_setup_ops ad7768_buffer_ops = {
@@ -540,6 +544,33 @@ static void ad7768_clk_disable(void *data)
 	struct ad7768_state *st = data;
 
 	clk_disable_unprepare(st->mclk);
+}
+
+static int ad7768_set_channel_label(struct iio_dev *indio_dev,
+						int num_channels)
+{
+	struct ad7768_state *st = iio_priv(indio_dev);
+	struct device *device = indio_dev->dev.parent;
+	struct fwnode_handle *fwnode;
+	struct fwnode_handle *child;
+	const char *label;
+	int crt_ch = 0;
+
+	fwnode = dev_fwnode(device);
+	fwnode_for_each_child_node(fwnode, child) {
+		if (fwnode_property_read_u32(child, "reg", &crt_ch))
+			continue;
+
+		if (crt_ch >= num_channels)
+			continue;
+
+		if (fwnode_property_read_string(child, "label", &label))
+			continue;
+
+		st->labels[crt_ch] = label;
+	}
+
+	return 0;
 }
 
 static int ad7768_probe(struct spi_device *spi)
@@ -583,12 +614,10 @@ static int ad7768_probe(struct spi_device *spi)
 
 	st->mclk_freq = clk_get_rate(st->mclk);
 
-	spi_set_drvdata(spi, indio_dev);
 	mutex_init(&st->lock);
 
 	indio_dev->channels = ad7768_channels;
 	indio_dev->num_channels = ARRAY_SIZE(ad7768_channels);
-	indio_dev->dev.parent = &spi->dev;
 	indio_dev->name = spi_get_device_id(spi)->name;
 	indio_dev->info = &ad7768_info;
 	indio_dev->modes = INDIO_DIRECT_MODE | INDIO_BUFFER_TRIGGERED;
@@ -600,12 +629,12 @@ static int ad7768_probe(struct spi_device *spi)
 	}
 
 	st->trig = devm_iio_trigger_alloc(&spi->dev, "%s-dev%d",
-					  indio_dev->name, indio_dev->id);
+					  indio_dev->name,
+					  iio_device_id(indio_dev));
 	if (!st->trig)
 		return -ENOMEM;
 
 	st->trig->ops = &ad7768_trigger_ops;
-	st->trig->dev.parent = &spi->dev;
 	iio_trigger_set_drvdata(st->trig, indio_dev);
 	ret = devm_iio_trigger_register(&spi->dev, st->trig);
 	if (ret)
@@ -614,6 +643,10 @@ static int ad7768_probe(struct spi_device *spi)
 	indio_dev->trig = iio_trigger_get(st->trig);
 
 	init_completion(&st->completion);
+
+	ret = ad7768_set_channel_label(indio_dev, ARRAY_SIZE(ad7768_channels));
+	if (ret)
+		return ret;
 
 	ret = devm_request_irq(&spi->dev, spi->irq,
 			       &ad7768_interrupt,

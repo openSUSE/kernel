@@ -183,6 +183,7 @@ static void tcf_ct_flow_table_add_action_meta(struct nf_conn *ct,
 					     IP_CT_ESTABLISHED_REPLY;
 	/* aligns with the CT reference on the SKB nf_ct_set */
 	entry->ct_metadata.cookie = (unsigned long)ct | ctinfo;
+	entry->ct_metadata.orig_dir = dir == IP_CT_DIR_ORIGINAL;
 
 	act_ct_labels = entry->ct_metadata.labels;
 	ct_labels = nf_ct_labels_find(ct);
@@ -296,7 +297,8 @@ static int tcf_ct_flow_table_get(struct tcf_ct_params *params)
 		goto err_insert;
 
 	ct_ft->nf_ft.type = &flowtable_ct;
-	ct_ft->nf_ft.flags |= NF_FLOWTABLE_HW_OFFLOAD;
+	ct_ft->nf_ft.flags |= NF_FLOWTABLE_HW_OFFLOAD |
+			      NF_FLOWTABLE_COUNTER;
 	err = nf_flow_table_init(&ct_ft->nf_ft);
 	if (err)
 		goto err_init;
@@ -551,7 +553,8 @@ static bool tcf_ct_flow_table_lookup(struct tcf_ct_params *p,
 	flow_offload_refresh(nf_ft, flow);
 	nf_conntrack_get(&ct->ct_general);
 	nf_ct_set(skb, ct, ctinfo);
-	nf_ct_acct_update(ct, dir, skb->len);
+	if (nf_ft->flags & NF_FLOWTABLE_COUNTER)
+		nf_ct_acct_update(ct, dir, skb->len);
 
 	return true;
 }
@@ -863,7 +866,7 @@ static void tcf_ct_act_set_labels(struct nf_conn *ct,
 				  u32 *labels_m)
 {
 #if IS_ENABLED(CONFIG_NF_CONNTRACK_LABELS)
-	size_t labels_sz = FIELD_SIZEOF(struct tcf_ct_params, labels);
+	size_t labels_sz = sizeof_field(struct tcf_ct_params, labels);
 
 	if (!memchr_inv(labels_m, 0, labels_sz))
 		return;
@@ -959,13 +962,14 @@ static int tcf_ct_act(struct sk_buff *skb, const struct tc_action *a,
 	tcf_lastuse_update(&c->tcf_tm);
 
 	if (clear) {
+		qdisc_skb_cb(skb)->post_ct = false;
 		ct = nf_ct_get(skb, &ctinfo);
 		if (ct) {
 			nf_conntrack_put(&ct->ct_general);
 			nf_ct_set(skb, NULL, IP_CT_UNTRACKED);
 		}
 
-		goto out;
+		goto out_clear;
 	}
 
 	family = tcf_ct_skb_nf_family(skb);
@@ -980,7 +984,7 @@ static int tcf_ct_act(struct sk_buff *skb, const struct tc_action *a,
 	err = tcf_ct_handle_fragments(net, skb, family, p->zone, &defrag);
 	if (err == -EINPROGRESS) {
 		retval = TC_ACT_STOLEN;
-		goto out;
+		goto out_clear;
 	}
 	if (err)
 		goto drop;
@@ -1003,9 +1007,7 @@ static int tcf_ct_act(struct sk_buff *skb, const struct tc_action *a,
 
 		/* Associate skb with specified zone. */
 		if (tmpl) {
-			ct = nf_ct_get(skb, &ctinfo);
-			if (skb_nfct(skb))
-				nf_conntrack_put(skb_nfct(skb));
+			nf_conntrack_put(skb_nfct(skb));
 			nf_conntrack_get(&tmpl->ct_general);
 			nf_ct_set(skb, tmpl, IP_CT_NEW);
 		}
@@ -1035,7 +1037,8 @@ do_nat:
 		/* This will take care of sending queued events
 		 * even if the connection is already confirmed.
 		 */
-		nf_conntrack_confirm(skb);
+		if (nf_conntrack_confirm(skb) != NF_ACCEPT)
+			goto drop;
 	}
 
 	if (!skip_add)
@@ -1044,7 +1047,8 @@ do_nat:
 out_push:
 	skb_push_rcsum(skb, nh_ofs);
 
-out:
+	qdisc_skb_cb(skb)->post_ct = true;
+out_clear:
 	tcf_action_update_bstats(&c->common, skb);
 	if (defrag)
 		qdisc_skb_cb(skb)->pkt_len = skb->len;
@@ -1057,7 +1061,7 @@ drop:
 
 static const struct nla_policy ct_policy[TCA_CT_MAX + 1] = {
 	[TCA_CT_ACTION] = { .type = NLA_U16 },
-	[TCA_CT_PARMS] = { .type = NLA_EXACT_LEN, .len = sizeof(struct tc_ct) },
+	[TCA_CT_PARMS] = NLA_POLICY_EXACT_LEN(sizeof(struct tc_ct)),
 	[TCA_CT_ZONE] = { .type = NLA_U16 },
 	[TCA_CT_MARK] = { .type = NLA_U32 },
 	[TCA_CT_MARK_MASK] = { .type = NLA_U32 },
@@ -1067,10 +1071,8 @@ static const struct nla_policy ct_policy[TCA_CT_MAX + 1] = {
 				 .len = 128 / BITS_PER_BYTE },
 	[TCA_CT_NAT_IPV4_MIN] = { .type = NLA_U32 },
 	[TCA_CT_NAT_IPV4_MAX] = { .type = NLA_U32 },
-	[TCA_CT_NAT_IPV6_MIN] = { .type = NLA_EXACT_LEN,
-				  .len = sizeof(struct in6_addr) },
-	[TCA_CT_NAT_IPV6_MAX] = { .type = NLA_EXACT_LEN,
-				   .len = sizeof(struct in6_addr) },
+	[TCA_CT_NAT_IPV6_MIN] = NLA_POLICY_EXACT_LEN(sizeof(struct in6_addr)),
+	[TCA_CT_NAT_IPV6_MAX] = NLA_POLICY_EXACT_LEN(sizeof(struct in6_addr)),
 	[TCA_CT_NAT_PORT_MIN] = { .type = NLA_U16 },
 	[TCA_CT_NAT_PORT_MAX] = { .type = NLA_U16 },
 };
@@ -1218,9 +1220,6 @@ static int tcf_ct_fill_params(struct net *net,
 				   sizeof(p->zone));
 	}
 
-	if (p->zone == NF_CT_DEFAULT_ZONE_ID)
-		return 0;
-
 	nf_ct_zone_init(&zone, p->zone, NF_CT_DEFAULT_ZONE_DIR, 0);
 	tmpl = nf_ct_tmpl_alloc(net, &zone, GFP_KERNEL);
 	if (!tmpl) {
@@ -1315,8 +1314,6 @@ static int tcf_ct_init(struct net *net, struct nlattr *nla,
 		tcf_chain_put_by_act(goto_ch);
 	if (params)
 		call_rcu(&params->rcu, tcf_ct_params_free);
-	if (res == ACT_P_CREATED)
-		tcf_idr_insert(tn, *a);
 
 	return res;
 
@@ -1511,7 +1508,7 @@ static struct tc_action_ops act_ct_ops = {
 
 static __net_init int ct_init_net(struct net *net)
 {
-	unsigned int n_bits = FIELD_SIZEOF(struct tcf_ct_params, labels) * 8;
+	unsigned int n_bits = sizeof_field(struct tcf_ct_params, labels) * 8;
 	struct tc_ct_action_net *tn = net_generic(net, ct_net_id);
 
 	if (nf_connlabels_get(net, n_bits - 1)) {
@@ -1563,6 +1560,8 @@ static int __init ct_init_module(void)
 	if (err)
 		goto err_register;
 
+	static_branch_inc(&tcf_frag_xmit_count);
+
 	return 0;
 
 err_register:
@@ -1574,6 +1573,7 @@ err_tbl_init:
 
 static void __exit ct_cleanup_module(void)
 {
+	static_branch_dec(&tcf_frag_xmit_count);
 	tcf_unregister_action(&act_ct_ops, &ct_net_ops);
 	tcf_ct_flow_tables_uninit();
 	destroy_workqueue(act_ct_wq);

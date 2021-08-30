@@ -1,7 +1,7 @@
 /*
  * Critical Link MityOMAP-L138 SoM
  *
- * Copyright (C) 2010 Critical Link LLC - http://www.criticallink.com
+ * Copyright (C) 2010 Critical Link LLC - https://www.criticallink.com
  *
  * This file is licensed under the terms of the GNU General Public License
  * version 2. This program is licensed "as is" without any warranty of
@@ -197,6 +197,10 @@ static const struct property_entry mityomapl138_fd_chip_properties[] = {
 	{ }
 };
 
+static const struct software_node mityomapl138_fd_chip_node = {
+	.properties = mityomapl138_fd_chip_properties,
+};
+
 static struct davinci_i2c_platform_data mityomap_i2c_0_pdata = {
 	.bus_freq	= 100,	/* kHz */
 	.bus_delay	= 0,	/* usec */
@@ -323,7 +327,7 @@ static struct i2c_board_info __initdata mityomap_tps65023_info[] = {
 	},
 	{
 		I2C_BOARD_INFO("24c02", 0x50),
-		.properties = mityomapl138_fd_chip_properties,
+		.swnode = &mityomapl138_fd_chip_node,
 	},
 };
 
@@ -432,7 +436,7 @@ static struct davinci_nand_pdata mityomapl138_nandflash_data = {
 	.core_chipsel	= 1,
 	.parts		= mityomapl138_nandflash_partition,
 	.nr_parts	= ARRAY_SIZE(mityomapl138_nandflash_partition),
-	.ecc_mode	= NAND_ECC_HW,
+	.engine_type	= NAND_ECC_ENGINE_TYPE_ON_HOST,
 	.bbt_options	= NAND_BBT_USE_FLASH,
 	.options	= NAND_BUSWIDTH_16,
 	.ecc_bits	= 1, /* 4 bit mode is not supported with 16 bit NAND */

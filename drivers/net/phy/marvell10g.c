@@ -23,6 +23,7 @@
  * link takes priority and the other port is completely locked out.
  */
 #include <linux/ctype.h>
+#include <linux/delay.h>
 #include <linux/hwmon.h>
 #include <linux/marvell_phy.h>
 #include <linux/phy.h>
@@ -32,6 +33,17 @@
 #define MV_PHY_ALASKA_NBT_QUIRK_REV	(MARVELL_PHY_ID_88X3310 | 0xa)
 
 enum {
+	MV_PMA_FW_VER0		= 0xc011,
+	MV_PMA_FW_VER1		= 0xc012,
+	MV_PMA_21X0_PORT_CTRL	= 0xc04a,
+	MV_PMA_21X0_PORT_CTRL_SWRST				= BIT(15),
+	MV_PMA_21X0_PORT_CTRL_MACTYPE_MASK			= 0x7,
+	MV_PMA_21X0_PORT_CTRL_MACTYPE_USXGMII			= 0x0,
+	MV_PMA_2180_PORT_CTRL_MACTYPE_DXGMII			= 0x1,
+	MV_PMA_2180_PORT_CTRL_MACTYPE_QXGMII			= 0x2,
+	MV_PMA_21X0_PORT_CTRL_MACTYPE_5GBASER			= 0x4,
+	MV_PMA_21X0_PORT_CTRL_MACTYPE_5GBASER_NO_SGMII_AN	= 0x5,
+	MV_PMA_21X0_PORT_CTRL_MACTYPE_10GBASER_RATE_MATCH	= 0x6,
 	MV_PMA_BOOT		= 0xc050,
 	MV_PMA_BOOT_FATAL	= BIT(0),
 
@@ -39,13 +51,37 @@ enum {
 	MV_PCS_BASE_R		= 0x1000,
 	MV_PCS_1000BASEX	= 0x2000,
 
-	MV_PCS_PAIRSWAP		= 0x8182,
-	MV_PCS_PAIRSWAP_MASK	= 0x0003,
-	MV_PCS_PAIRSWAP_AB	= 0x0002,
-	MV_PCS_PAIRSWAP_NONE	= 0x0003,
+	MV_PCS_CSCR1		= 0x8000,
+	MV_PCS_CSCR1_ED_MASK	= 0x0300,
+	MV_PCS_CSCR1_ED_OFF	= 0x0000,
+	MV_PCS_CSCR1_ED_RX	= 0x0200,
+	MV_PCS_CSCR1_ED_NLP	= 0x0300,
+	MV_PCS_CSCR1_MDIX_MASK	= 0x0060,
+	MV_PCS_CSCR1_MDIX_MDI	= 0x0000,
+	MV_PCS_CSCR1_MDIX_MDIX	= 0x0020,
+	MV_PCS_CSCR1_MDIX_AUTO	= 0x0060,
+
+	MV_PCS_CSSR1		= 0x8008,
+	MV_PCS_CSSR1_SPD1_MASK	= 0xc000,
+	MV_PCS_CSSR1_SPD1_SPD2	= 0xc000,
+	MV_PCS_CSSR1_SPD1_1000	= 0x8000,
+	MV_PCS_CSSR1_SPD1_100	= 0x4000,
+	MV_PCS_CSSR1_SPD1_10	= 0x0000,
+	MV_PCS_CSSR1_DUPLEX_FULL= BIT(13),
+	MV_PCS_CSSR1_RESOLVED	= BIT(11),
+	MV_PCS_CSSR1_MDIX	= BIT(6),
+	MV_PCS_CSSR1_SPD2_MASK	= 0x000c,
+	MV_PCS_CSSR1_SPD2_5000	= 0x0008,
+	MV_PCS_CSSR1_SPD2_2500	= 0x0004,
+	MV_PCS_CSSR1_SPD2_10000	= 0x0000,
 
 	/* Temperature read register (88E2110 only) */
 	MV_PCS_TEMP		= 0x8042,
+
+	/* Number of ports on the device */
+	MV_PCS_PORT_INFO	= 0xd00d,
+	MV_PCS_PORT_INFO_NPORTS_MASK	= 0x0380,
+	MV_PCS_PORT_INFO_NPORTS_SHIFT	= 7,
 
 	/* These registers appear at 0x800X and 0xa00X - the 0xa00X control
 	 * registers appear to set themselves to the 0x800X when AN is
@@ -56,7 +92,19 @@ enum {
 
 	/* Vendor2 MMD registers */
 	MV_V2_PORT_CTRL		= 0xf001,
-	MV_V2_PORT_CTRL_PWRDOWN = 0x0800,
+	MV_V2_PORT_CTRL_PWRDOWN					= BIT(11),
+	MV_V2_33X0_PORT_CTRL_SWRST				= BIT(15),
+	MV_V2_33X0_PORT_CTRL_MACTYPE_MASK			= 0x7,
+	MV_V2_33X0_PORT_CTRL_MACTYPE_RXAUI			= 0x0,
+	MV_V2_3310_PORT_CTRL_MACTYPE_XAUI_RATE_MATCH		= 0x1,
+	MV_V2_3340_PORT_CTRL_MACTYPE_RXAUI_NO_SGMII_AN		= 0x1,
+	MV_V2_33X0_PORT_CTRL_MACTYPE_RXAUI_RATE_MATCH		= 0x2,
+	MV_V2_3310_PORT_CTRL_MACTYPE_XAUI			= 0x3,
+	MV_V2_33X0_PORT_CTRL_MACTYPE_10GBASER			= 0x4,
+	MV_V2_33X0_PORT_CTRL_MACTYPE_10GBASER_NO_SGMII_AN	= 0x5,
+	MV_V2_33X0_PORT_CTRL_MACTYPE_10GBASER_RATE_MATCH	= 0x6,
+	MV_V2_33X0_PORT_CTRL_MACTYPE_USXGMII			= 0x7,
+	/* Temperature control/read registers (88X3310 only) */
 	MV_V2_TEMP_CTRL		= 0xf08a,
 	MV_V2_TEMP_CTRL_MASK	= 0xc000,
 	MV_V2_TEMP_CTRL_SAMPLE	= 0x0000,
@@ -65,10 +113,31 @@ enum {
 	MV_V2_TEMP_UNKNOWN	= 0x9600, /* unknown function */
 };
 
+struct mv3310_chip {
+	void (*init_supported_interfaces)(unsigned long *mask);
+	int (*get_mactype)(struct phy_device *phydev);
+	int (*init_interface)(struct phy_device *phydev, int mactype);
+
+#ifdef CONFIG_HWMON
+	int (*hwmon_read_temp_reg)(struct phy_device *phydev);
+#endif
+};
+
 struct mv3310_priv {
+	DECLARE_BITMAP(supported_interfaces, PHY_INTERFACE_MODE_MAX);
+
+	u32 firmware_ver;
+	bool rate_match;
+	phy_interface_t const_interface;
+
 	struct device *hwmon_dev;
 	char *hwmon_name;
 };
+
+static const struct mv3310_chip *to_mv3310_chip(struct phy_device *phydev)
+{
+	return phydev->drv->driver_data;
+}
 
 #ifdef CONFIG_HWMON
 static umode_t mv3310_hwmon_is_visible(const void *data,
@@ -92,18 +161,11 @@ static int mv2110_hwmon_read_temp_reg(struct phy_device *phydev)
 	return phy_read_mmd(phydev, MDIO_MMD_PCS, MV_PCS_TEMP);
 }
 
-static int mv10g_hwmon_read_temp_reg(struct phy_device *phydev)
-{
-	if (phydev->drv->phy_id == MARVELL_PHY_ID_88X3310)
-		return mv3310_hwmon_read_temp_reg(phydev);
-	else /* MARVELL_PHY_ID_88E2110 */
-		return mv2110_hwmon_read_temp_reg(phydev);
-}
-
 static int mv3310_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
 			     u32 attr, int channel, long *value)
 {
 	struct phy_device *phydev = dev_get_drvdata(dev);
+	const struct mv3310_chip *chip = to_mv3310_chip(phydev);
 	int temp;
 
 	if (type == hwmon_chip && attr == hwmon_chip_update_interval) {
@@ -112,7 +174,7 @@ static int mv3310_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
 	}
 
 	if (type == hwmon_temp && attr == hwmon_temp_input) {
-		temp = mv10g_hwmon_read_temp_reg(phydev);
+		temp = chip->hwmon_read_temp_reg(phydev);
 		if (temp < 0)
 			return temp;
 
@@ -220,6 +282,96 @@ static int mv3310_hwmon_probe(struct phy_device *phydev)
 }
 #endif
 
+static int mv3310_power_down(struct phy_device *phydev)
+{
+	return phy_set_bits_mmd(phydev, MDIO_MMD_VEND2, MV_V2_PORT_CTRL,
+				MV_V2_PORT_CTRL_PWRDOWN);
+}
+
+static int mv3310_power_up(struct phy_device *phydev)
+{
+	struct mv3310_priv *priv = dev_get_drvdata(&phydev->mdio.dev);
+	int ret;
+
+	ret = phy_clear_bits_mmd(phydev, MDIO_MMD_VEND2, MV_V2_PORT_CTRL,
+				 MV_V2_PORT_CTRL_PWRDOWN);
+
+	if (phydev->drv->phy_id != MARVELL_PHY_ID_88X3310 ||
+	    priv->firmware_ver < 0x00030000)
+		return ret;
+
+	return phy_set_bits_mmd(phydev, MDIO_MMD_VEND2, MV_V2_PORT_CTRL,
+				MV_V2_33X0_PORT_CTRL_SWRST);
+}
+
+static int mv3310_reset(struct phy_device *phydev, u32 unit)
+{
+	int val, err;
+
+	err = phy_modify_mmd(phydev, MDIO_MMD_PCS, unit + MDIO_CTRL1,
+			     MDIO_CTRL1_RESET, MDIO_CTRL1_RESET);
+	if (err < 0)
+		return err;
+
+	return phy_read_mmd_poll_timeout(phydev, MDIO_MMD_PCS,
+					 unit + MDIO_CTRL1, val,
+					 !(val & MDIO_CTRL1_RESET),
+					 5000, 100000, true);
+}
+
+static int mv3310_get_edpd(struct phy_device *phydev, u16 *edpd)
+{
+	int val;
+
+	val = phy_read_mmd(phydev, MDIO_MMD_PCS, MV_PCS_CSCR1);
+	if (val < 0)
+		return val;
+
+	switch (val & MV_PCS_CSCR1_ED_MASK) {
+	case MV_PCS_CSCR1_ED_NLP:
+		*edpd = 1000;
+		break;
+	case MV_PCS_CSCR1_ED_RX:
+		*edpd = ETHTOOL_PHY_EDPD_NO_TX;
+		break;
+	default:
+		*edpd = ETHTOOL_PHY_EDPD_DISABLE;
+		break;
+	}
+	return 0;
+}
+
+static int mv3310_set_edpd(struct phy_device *phydev, u16 edpd)
+{
+	u16 val;
+	int err;
+
+	switch (edpd) {
+	case 1000:
+	case ETHTOOL_PHY_EDPD_DFLT_TX_MSECS:
+		val = MV_PCS_CSCR1_ED_NLP;
+		break;
+
+	case ETHTOOL_PHY_EDPD_NO_TX:
+		val = MV_PCS_CSCR1_ED_RX;
+		break;
+
+	case ETHTOOL_PHY_EDPD_DISABLE:
+		val = MV_PCS_CSCR1_ED_OFF;
+		break;
+
+	default:
+		return -EINVAL;
+	}
+
+	err = phy_modify_mmd_changed(phydev, MDIO_MMD_PCS, MV_PCS_CSCR1,
+				     MV_PCS_CSCR1_ED_MASK, val);
+	if (err > 0)
+		err = mv3310_reset(phydev, MV_PCS_BASE_T);
+
+	return err;
+}
+
 static int mv3310_sfp_insert(void *upstream, const struct sfp_eeprom_id *id)
 {
 	struct phy_device *phydev = upstream;
@@ -229,7 +381,7 @@ static int mv3310_sfp_insert(void *upstream, const struct sfp_eeprom_id *id)
 	sfp_parse_support(phydev->sfp_bus, id, support);
 	iface = sfp_select_interface(phydev->sfp_bus, support);
 
-	if (iface != PHY_INTERFACE_MODE_10GKR) {
+	if (iface != PHY_INTERFACE_MODE_10GBASER) {
 		dev_err(&phydev->mdio.dev, "incompatible SFP module inserted\n");
 		return -EINVAL;
 	}
@@ -244,6 +396,7 @@ static const struct sfp_upstream_ops mv3310_sfp_ops = {
 
 static int mv3310_probe(struct phy_device *phydev)
 {
+	const struct mv3310_chip *chip = to_mv3310_chip(phydev);
 	struct mv3310_priv *priv;
 	u32 mmd_mask = MDIO_DEVS_PMAPMD | MDIO_DEVS_AN;
 	int ret;
@@ -268,9 +421,32 @@ static int mv3310_probe(struct phy_device *phydev)
 
 	dev_set_drvdata(&phydev->mdio.dev, priv);
 
+	ret = phy_read_mmd(phydev, MDIO_MMD_PMAPMD, MV_PMA_FW_VER0);
+	if (ret < 0)
+		return ret;
+
+	priv->firmware_ver = ret << 16;
+
+	ret = phy_read_mmd(phydev, MDIO_MMD_PMAPMD, MV_PMA_FW_VER1);
+	if (ret < 0)
+		return ret;
+
+	priv->firmware_ver |= ret;
+
+	phydev_info(phydev, "Firmware version %u.%u.%u.%u\n",
+		    priv->firmware_ver >> 24, (priv->firmware_ver >> 16) & 255,
+		    (priv->firmware_ver >> 8) & 255, priv->firmware_ver & 255);
+
+	/* Powering down the port when not in use saves about 600mW */
+	ret = mv3310_power_down(phydev);
+	if (ret)
+		return ret;
+
 	ret = mv3310_hwmon_probe(phydev);
 	if (ret)
 		return ret;
+
+	chip->init_supported_interfaces(priv->supported_interfaces);
 
 	return phy_sfp_probe(phydev, &mv3310_sfp_ops);
 }
@@ -282,16 +458,14 @@ static void mv3310_remove(struct phy_device *phydev)
 
 static int mv3310_suspend(struct phy_device *phydev)
 {
-	return phy_set_bits_mmd(phydev, MDIO_MMD_VEND2, MV_V2_PORT_CTRL,
-				MV_V2_PORT_CTRL_PWRDOWN);
+	return mv3310_power_down(phydev);
 }
 
 static int mv3310_resume(struct phy_device *phydev)
 {
 	int ret;
 
-	ret = phy_clear_bits_mmd(phydev, MDIO_MMD_VEND2, MV_V2_PORT_CTRL,
-				 MV_V2_PORT_CTRL_PWRDOWN);
+	ret = mv3310_power_up(phydev);
 	if (ret)
 		return ret;
 
@@ -315,17 +489,123 @@ static bool mv3310_has_pma_ngbaset_quirk(struct phy_device *phydev)
 		MV_PHY_ALASKA_NBT_QUIRK_MASK) == MV_PHY_ALASKA_NBT_QUIRK_REV;
 }
 
-static int mv3310_config_init(struct phy_device *phydev)
+static int mv2110_get_mactype(struct phy_device *phydev)
 {
-	/* Check that the PHY interface type is compatible */
-	if (phydev->interface != PHY_INTERFACE_MODE_SGMII &&
-	    phydev->interface != PHY_INTERFACE_MODE_2500BASEX &&
-	    phydev->interface != PHY_INTERFACE_MODE_XAUI &&
-	    phydev->interface != PHY_INTERFACE_MODE_RXAUI &&
-	    phydev->interface != PHY_INTERFACE_MODE_10GKR)
-		return -ENODEV;
+	int mactype;
+
+	mactype = phy_read_mmd(phydev, MDIO_MMD_PMAPMD, MV_PMA_21X0_PORT_CTRL);
+	if (mactype < 0)
+		return mactype;
+
+	return mactype & MV_PMA_21X0_PORT_CTRL_MACTYPE_MASK;
+}
+
+static int mv3310_get_mactype(struct phy_device *phydev)
+{
+	int mactype;
+
+	mactype = phy_read_mmd(phydev, MDIO_MMD_VEND2, MV_V2_PORT_CTRL);
+	if (mactype < 0)
+		return mactype;
+
+	return mactype & MV_V2_33X0_PORT_CTRL_MACTYPE_MASK;
+}
+
+static int mv2110_init_interface(struct phy_device *phydev, int mactype)
+{
+	struct mv3310_priv *priv = dev_get_drvdata(&phydev->mdio.dev);
+
+	priv->rate_match = false;
+
+	if (mactype == MV_PMA_21X0_PORT_CTRL_MACTYPE_10GBASER_RATE_MATCH)
+		priv->rate_match = true;
+
+	if (mactype == MV_PMA_21X0_PORT_CTRL_MACTYPE_USXGMII)
+		priv->const_interface = PHY_INTERFACE_MODE_USXGMII;
+	else if (mactype == MV_PMA_21X0_PORT_CTRL_MACTYPE_10GBASER_RATE_MATCH)
+		priv->const_interface = PHY_INTERFACE_MODE_10GBASER;
+	else if (mactype == MV_PMA_21X0_PORT_CTRL_MACTYPE_5GBASER ||
+		 mactype == MV_PMA_21X0_PORT_CTRL_MACTYPE_5GBASER_NO_SGMII_AN)
+		priv->const_interface = PHY_INTERFACE_MODE_NA;
+	else
+		return -EINVAL;
 
 	return 0;
+}
+
+static int mv3310_init_interface(struct phy_device *phydev, int mactype)
+{
+	struct mv3310_priv *priv = dev_get_drvdata(&phydev->mdio.dev);
+
+	priv->rate_match = false;
+
+	if (mactype == MV_V2_33X0_PORT_CTRL_MACTYPE_10GBASER_RATE_MATCH ||
+	    mactype == MV_V2_33X0_PORT_CTRL_MACTYPE_RXAUI_RATE_MATCH ||
+	    mactype == MV_V2_3310_PORT_CTRL_MACTYPE_XAUI_RATE_MATCH)
+		priv->rate_match = true;
+
+	if (mactype == MV_V2_33X0_PORT_CTRL_MACTYPE_USXGMII)
+		priv->const_interface = PHY_INTERFACE_MODE_USXGMII;
+	else if (mactype == MV_V2_33X0_PORT_CTRL_MACTYPE_10GBASER_RATE_MATCH ||
+		 mactype == MV_V2_33X0_PORT_CTRL_MACTYPE_10GBASER_NO_SGMII_AN ||
+		 mactype == MV_V2_33X0_PORT_CTRL_MACTYPE_10GBASER)
+		priv->const_interface = PHY_INTERFACE_MODE_10GBASER;
+	else if (mactype == MV_V2_33X0_PORT_CTRL_MACTYPE_RXAUI_RATE_MATCH ||
+		 mactype == MV_V2_33X0_PORT_CTRL_MACTYPE_RXAUI)
+		priv->const_interface = PHY_INTERFACE_MODE_RXAUI;
+	else if (mactype == MV_V2_3310_PORT_CTRL_MACTYPE_XAUI_RATE_MATCH ||
+		 mactype == MV_V2_3310_PORT_CTRL_MACTYPE_XAUI)
+		priv->const_interface = PHY_INTERFACE_MODE_XAUI;
+	else
+		return -EINVAL;
+
+	return 0;
+}
+
+static int mv3340_init_interface(struct phy_device *phydev, int mactype)
+{
+	struct mv3310_priv *priv = dev_get_drvdata(&phydev->mdio.dev);
+	int err = 0;
+
+	priv->rate_match = false;
+
+	if (mactype == MV_V2_3340_PORT_CTRL_MACTYPE_RXAUI_NO_SGMII_AN)
+		priv->const_interface = PHY_INTERFACE_MODE_RXAUI;
+	else
+		err = mv3310_init_interface(phydev, mactype);
+
+	return err;
+}
+
+static int mv3310_config_init(struct phy_device *phydev)
+{
+	struct mv3310_priv *priv = dev_get_drvdata(&phydev->mdio.dev);
+	const struct mv3310_chip *chip = to_mv3310_chip(phydev);
+	int err, mactype;
+
+	/* Check that the PHY interface type is compatible */
+	if (!test_bit(phydev->interface, priv->supported_interfaces))
+		return -ENODEV;
+
+	phydev->mdix_ctrl = ETH_TP_MDI_AUTO;
+
+	/* Power up so reset works */
+	err = mv3310_power_up(phydev);
+	if (err)
+		return err;
+
+	mactype = chip->get_mactype(phydev);
+	if (mactype < 0)
+		return mactype;
+
+	err = chip->init_interface(phydev, mactype);
+	if (err) {
+		phydev_err(phydev, "MACTYPE configuration invalid\n");
+		return err;
+	}
+
+	/* Enable EDPD mode - saving 600mW */
+	return mv3310_set_edpd(phydev, ETHTOOL_PHY_EDPD_DFLT_TX_MSECS);
 }
 
 static int mv3310_get_features(struct phy_device *phydev)
@@ -354,14 +634,42 @@ static int mv3310_get_features(struct phy_device *phydev)
 	return 0;
 }
 
+static int mv3310_config_mdix(struct phy_device *phydev)
+{
+	u16 val;
+	int err;
+
+	switch (phydev->mdix_ctrl) {
+	case ETH_TP_MDI_AUTO:
+		val = MV_PCS_CSCR1_MDIX_AUTO;
+		break;
+	case ETH_TP_MDI_X:
+		val = MV_PCS_CSCR1_MDIX_MDIX;
+		break;
+	case ETH_TP_MDI:
+		val = MV_PCS_CSCR1_MDIX_MDI;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	err = phy_modify_mmd_changed(phydev, MDIO_MMD_PCS, MV_PCS_CSCR1,
+				     MV_PCS_CSCR1_MDIX_MASK, val);
+	if (err > 0)
+		err = mv3310_reset(phydev, MV_PCS_BASE_T);
+
+	return err;
+}
+
 static int mv3310_config_aneg(struct phy_device *phydev)
 {
 	bool changed = false;
 	u16 reg;
 	int ret;
 
-	/* We don't support manual MDI control */
-	phydev->mdix_ctrl = ETH_TP_MDI_AUTO;
+	ret = mv3310_config_mdix(phydev);
+	if (ret < 0)
+		return ret;
 
 	if (phydev->autoneg == AUTONEG_DISABLE)
 		return genphy_c45_pma_setup_forced(phydev);
@@ -402,63 +710,63 @@ static int mv3310_aneg_done(struct phy_device *phydev)
 
 static void mv3310_update_interface(struct phy_device *phydev)
 {
-	if ((phydev->interface == PHY_INTERFACE_MODE_SGMII ||
-	     phydev->interface == PHY_INTERFACE_MODE_2500BASEX ||
-	     phydev->interface == PHY_INTERFACE_MODE_10GKR) && phydev->link) {
-		/* The PHY automatically switches its serdes interface (and
-		 * active PHYXS instance) between Cisco SGMII, 10GBase-KR and
-		 * 2500BaseX modes according to the speed.  Florian suggests
-		 * setting phydev->interface to communicate this to the MAC.
-		 * Only do this if we are already in one of the above modes.
-		 */
-		switch (phydev->speed) {
-		case SPEED_10000:
-			phydev->interface = PHY_INTERFACE_MODE_10GKR;
-			break;
-		case SPEED_2500:
-			phydev->interface = PHY_INTERFACE_MODE_2500BASEX;
-			break;
-		case SPEED_1000:
-		case SPEED_100:
-		case SPEED_10:
-			phydev->interface = PHY_INTERFACE_MODE_SGMII;
-			break;
-		default:
-			break;
-		}
+	struct mv3310_priv *priv = dev_get_drvdata(&phydev->mdio.dev);
+
+	if (!phydev->link)
+		return;
+
+	/* In all of the "* with Rate Matching" modes the PHY interface is fixed
+	 * at 10Gb. The PHY adapts the rate to actual wire speed with help of
+	 * internal 16KB buffer.
+	 *
+	 * In USXGMII mode the PHY interface mode is also fixed.
+	 */
+	if (priv->rate_match ||
+	    priv->const_interface == PHY_INTERFACE_MODE_USXGMII) {
+		phydev->interface = priv->const_interface;
+		return;
+	}
+
+	/* The PHY automatically switches its serdes interface (and active PHYXS
+	 * instance) between Cisco SGMII, 2500BaseX, 5GBase-R and 10GBase-R /
+	 * xaui / rxaui modes according to the speed.
+	 * Florian suggests setting phydev->interface to communicate this to the
+	 * MAC. Only do this if we are already in one of the above modes.
+	 */
+	switch (phydev->speed) {
+	case SPEED_10000:
+		phydev->interface = priv->const_interface;
+		break;
+	case SPEED_5000:
+		phydev->interface = PHY_INTERFACE_MODE_5GBASER;
+		break;
+	case SPEED_2500:
+		phydev->interface = PHY_INTERFACE_MODE_2500BASEX;
+		break;
+	case SPEED_1000:
+	case SPEED_100:
+	case SPEED_10:
+		phydev->interface = PHY_INTERFACE_MODE_SGMII;
+		break;
+	default:
+		break;
 	}
 }
 
 /* 10GBASE-ER,LR,LRM,SR do not support autonegotiation. */
-static int mv3310_read_10gbr_status(struct phy_device *phydev)
+static int mv3310_read_status_10gbaser(struct phy_device *phydev)
 {
 	phydev->link = 1;
 	phydev->speed = SPEED_10000;
 	phydev->duplex = DUPLEX_FULL;
-
-	mv3310_update_interface(phydev);
+	phydev->port = PORT_FIBRE;
 
 	return 0;
 }
 
-static int mv3310_read_status(struct phy_device *phydev)
+static int mv3310_read_status_copper(struct phy_device *phydev)
 {
-	int val;
-
-	phydev->speed = SPEED_UNKNOWN;
-	phydev->duplex = DUPLEX_UNKNOWN;
-	linkmode_zero(phydev->lp_advertising);
-	phydev->link = 0;
-	phydev->pause = 0;
-	phydev->asym_pause = 0;
-	phydev->mdix = 0;
-
-	val = phy_read_mmd(phydev, MDIO_MMD_PCS, MV_PCS_BASE_R + MDIO_STAT1);
-	if (val < 0)
-		return val;
-
-	if (val & MDIO_STAT1_LSTATUS)
-		return mv3310_read_10gbr_status(phydev);
+	int cssr1, speed, val;
 
 	val = genphy_c45_read_link(phydev);
 	if (val < 0)
@@ -467,6 +775,53 @@ static int mv3310_read_status(struct phy_device *phydev)
 	val = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_STAT1);
 	if (val < 0)
 		return val;
+
+	cssr1 = phy_read_mmd(phydev, MDIO_MMD_PCS, MV_PCS_CSSR1);
+	if (cssr1 < 0)
+		return val;
+
+	/* If the link settings are not resolved, mark the link down */
+	if (!(cssr1 & MV_PCS_CSSR1_RESOLVED)) {
+		phydev->link = 0;
+		return 0;
+	}
+
+	/* Read the copper link settings */
+	speed = cssr1 & MV_PCS_CSSR1_SPD1_MASK;
+	if (speed == MV_PCS_CSSR1_SPD1_SPD2)
+		speed |= cssr1 & MV_PCS_CSSR1_SPD2_MASK;
+
+	switch (speed) {
+	case MV_PCS_CSSR1_SPD1_SPD2 | MV_PCS_CSSR1_SPD2_10000:
+		phydev->speed = SPEED_10000;
+		break;
+
+	case MV_PCS_CSSR1_SPD1_SPD2 | MV_PCS_CSSR1_SPD2_5000:
+		phydev->speed = SPEED_5000;
+		break;
+
+	case MV_PCS_CSSR1_SPD1_SPD2 | MV_PCS_CSSR1_SPD2_2500:
+		phydev->speed = SPEED_2500;
+		break;
+
+	case MV_PCS_CSSR1_SPD1_1000:
+		phydev->speed = SPEED_1000;
+		break;
+
+	case MV_PCS_CSSR1_SPD1_100:
+		phydev->speed = SPEED_100;
+		break;
+
+	case MV_PCS_CSSR1_SPD1_10:
+		phydev->speed = SPEED_10;
+		break;
+	}
+
+	phydev->duplex = cssr1 & MV_PCS_CSSR1_DUPLEX_FULL ?
+			 DUPLEX_FULL : DUPLEX_HALF;
+	phydev->port = PORT_TP;
+	phydev->mdix = cssr1 & MV_PCS_CSSR1_MDIX ?
+		       ETH_TP_MDI_X : ETH_TP_MDI;
 
 	if (val & MDIO_AN_STAT1_COMPLETE) {
 		val = genphy_c45_read_lpa(phydev);
@@ -480,50 +835,199 @@ static int mv3310_read_status(struct phy_device *phydev)
 
 		mii_stat1000_mod_linkmode_lpa_t(phydev->lp_advertising, val);
 
-		if (phydev->autoneg == AUTONEG_ENABLE)
-			phy_resolve_aneg_linkmode(phydev);
+		/* Update the pause status */
+		phy_resolve_aneg_pause(phydev);
 	}
-
-	if (phydev->autoneg != AUTONEG_ENABLE) {
-		val = genphy_c45_read_pma(phydev);
-		if (val < 0)
-			return val;
-	}
-
-	if (phydev->speed == SPEED_10000) {
-		val = genphy_c45_read_mdix(phydev);
-		if (val < 0)
-			return val;
-	} else {
-		val = phy_read_mmd(phydev, MDIO_MMD_PCS, MV_PCS_PAIRSWAP);
-		if (val < 0)
-			return val;
-
-		switch (val & MV_PCS_PAIRSWAP_MASK) {
-		case MV_PCS_PAIRSWAP_AB:
-			phydev->mdix = ETH_TP_MDI_X;
-			break;
-		case MV_PCS_PAIRSWAP_NONE:
-			phydev->mdix = ETH_TP_MDI;
-			break;
-		default:
-			phydev->mdix = ETH_TP_MDI_INVALID;
-			break;
-		}
-	}
-
-	mv3310_update_interface(phydev);
 
 	return 0;
+}
+
+static int mv3310_read_status(struct phy_device *phydev)
+{
+	int err, val;
+
+	phydev->speed = SPEED_UNKNOWN;
+	phydev->duplex = DUPLEX_UNKNOWN;
+	linkmode_zero(phydev->lp_advertising);
+	phydev->link = 0;
+	phydev->pause = 0;
+	phydev->asym_pause = 0;
+	phydev->mdix = ETH_TP_MDI_INVALID;
+
+	val = phy_read_mmd(phydev, MDIO_MMD_PCS, MV_PCS_BASE_R + MDIO_STAT1);
+	if (val < 0)
+		return val;
+
+	if (val & MDIO_STAT1_LSTATUS)
+		err = mv3310_read_status_10gbaser(phydev);
+	else
+		err = mv3310_read_status_copper(phydev);
+	if (err < 0)
+		return err;
+
+	if (phydev->link)
+		mv3310_update_interface(phydev);
+
+	return 0;
+}
+
+static int mv3310_get_tunable(struct phy_device *phydev,
+			      struct ethtool_tunable *tuna, void *data)
+{
+	switch (tuna->id) {
+	case ETHTOOL_PHY_EDPD:
+		return mv3310_get_edpd(phydev, data);
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int mv3310_set_tunable(struct phy_device *phydev,
+			      struct ethtool_tunable *tuna, const void *data)
+{
+	switch (tuna->id) {
+	case ETHTOOL_PHY_EDPD:
+		return mv3310_set_edpd(phydev, *(u16 *)data);
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static void mv3310_init_supported_interfaces(unsigned long *mask)
+{
+	__set_bit(PHY_INTERFACE_MODE_SGMII, mask);
+	__set_bit(PHY_INTERFACE_MODE_2500BASEX, mask);
+	__set_bit(PHY_INTERFACE_MODE_5GBASER, mask);
+	__set_bit(PHY_INTERFACE_MODE_XAUI, mask);
+	__set_bit(PHY_INTERFACE_MODE_RXAUI, mask);
+	__set_bit(PHY_INTERFACE_MODE_10GBASER, mask);
+	__set_bit(PHY_INTERFACE_MODE_USXGMII, mask);
+}
+
+static void mv3340_init_supported_interfaces(unsigned long *mask)
+{
+	__set_bit(PHY_INTERFACE_MODE_SGMII, mask);
+	__set_bit(PHY_INTERFACE_MODE_2500BASEX, mask);
+	__set_bit(PHY_INTERFACE_MODE_5GBASER, mask);
+	__set_bit(PHY_INTERFACE_MODE_RXAUI, mask);
+	__set_bit(PHY_INTERFACE_MODE_10GBASER, mask);
+	__set_bit(PHY_INTERFACE_MODE_USXGMII, mask);
+}
+
+static void mv2110_init_supported_interfaces(unsigned long *mask)
+{
+	__set_bit(PHY_INTERFACE_MODE_SGMII, mask);
+	__set_bit(PHY_INTERFACE_MODE_2500BASEX, mask);
+	__set_bit(PHY_INTERFACE_MODE_5GBASER, mask);
+	__set_bit(PHY_INTERFACE_MODE_10GBASER, mask);
+	__set_bit(PHY_INTERFACE_MODE_USXGMII, mask);
+}
+
+static void mv2111_init_supported_interfaces(unsigned long *mask)
+{
+	__set_bit(PHY_INTERFACE_MODE_SGMII, mask);
+	__set_bit(PHY_INTERFACE_MODE_2500BASEX, mask);
+	__set_bit(PHY_INTERFACE_MODE_10GBASER, mask);
+	__set_bit(PHY_INTERFACE_MODE_USXGMII, mask);
+}
+
+static const struct mv3310_chip mv3310_type = {
+	.init_supported_interfaces = mv3310_init_supported_interfaces,
+	.get_mactype = mv3310_get_mactype,
+	.init_interface = mv3310_init_interface,
+
+#ifdef CONFIG_HWMON
+	.hwmon_read_temp_reg = mv3310_hwmon_read_temp_reg,
+#endif
+};
+
+static const struct mv3310_chip mv3340_type = {
+	.init_supported_interfaces = mv3340_init_supported_interfaces,
+	.get_mactype = mv3310_get_mactype,
+	.init_interface = mv3340_init_interface,
+
+#ifdef CONFIG_HWMON
+	.hwmon_read_temp_reg = mv3310_hwmon_read_temp_reg,
+#endif
+};
+
+static const struct mv3310_chip mv2110_type = {
+	.init_supported_interfaces = mv2110_init_supported_interfaces,
+	.get_mactype = mv2110_get_mactype,
+	.init_interface = mv2110_init_interface,
+
+#ifdef CONFIG_HWMON
+	.hwmon_read_temp_reg = mv2110_hwmon_read_temp_reg,
+#endif
+};
+
+static const struct mv3310_chip mv2111_type = {
+	.init_supported_interfaces = mv2111_init_supported_interfaces,
+	.get_mactype = mv2110_get_mactype,
+	.init_interface = mv2110_init_interface,
+
+#ifdef CONFIG_HWMON
+	.hwmon_read_temp_reg = mv2110_hwmon_read_temp_reg,
+#endif
+};
+
+static int mv3310_get_number_of_ports(struct phy_device *phydev)
+{
+	int ret;
+
+	ret = phy_read_mmd(phydev, MDIO_MMD_PCS, MV_PCS_PORT_INFO);
+	if (ret < 0)
+		return ret;
+
+	ret &= MV_PCS_PORT_INFO_NPORTS_MASK;
+	ret >>= MV_PCS_PORT_INFO_NPORTS_SHIFT;
+
+	return ret + 1;
+}
+
+static int mv3310_match_phy_device(struct phy_device *phydev)
+{
+	return mv3310_get_number_of_ports(phydev) == 1;
+}
+
+static int mv3340_match_phy_device(struct phy_device *phydev)
+{
+	return mv3310_get_number_of_ports(phydev) == 4;
+}
+
+static int mv211x_match_phy_device(struct phy_device *phydev, bool has_5g)
+{
+	int val;
+
+	if ((phydev->c45_ids.device_ids[MDIO_MMD_PMAPMD] &
+	     MARVELL_PHY_ID_MASK) != MARVELL_PHY_ID_88E2110)
+		return 0;
+
+	val = phy_read_mmd(phydev, MDIO_MMD_PCS, MDIO_SPEED);
+	if (val < 0)
+		return val;
+
+	return !!(val & MDIO_PCS_SPEED_5G) == has_5g;
+}
+
+static int mv2110_match_phy_device(struct phy_device *phydev)
+{
+	return mv211x_match_phy_device(phydev, true);
+}
+
+static int mv2111_match_phy_device(struct phy_device *phydev)
+{
+	return mv211x_match_phy_device(phydev, false);
 }
 
 static struct phy_driver mv3310_drivers[] = {
 	{
 		.phy_id		= MARVELL_PHY_ID_88X3310,
 		.phy_id_mask	= MARVELL_PHY_ID_MASK,
+		.match_phy_device = mv3310_match_phy_device,
 		.name		= "mv88x3310",
+		.driver_data	= &mv3310_type,
 		.get_features	= mv3310_get_features,
-		.soft_reset	= genphy_no_soft_reset,
 		.config_init	= mv3310_config_init,
 		.probe		= mv3310_probe,
 		.suspend	= mv3310_suspend,
@@ -531,21 +1035,65 @@ static struct phy_driver mv3310_drivers[] = {
 		.config_aneg	= mv3310_config_aneg,
 		.aneg_done	= mv3310_aneg_done,
 		.read_status	= mv3310_read_status,
+		.get_tunable	= mv3310_get_tunable,
+		.set_tunable	= mv3310_set_tunable,
 		.remove		= mv3310_remove,
+		.set_loopback	= genphy_c45_loopback,
+	},
+	{
+		.phy_id		= MARVELL_PHY_ID_88X3310,
+		.phy_id_mask	= MARVELL_PHY_ID_MASK,
+		.match_phy_device = mv3340_match_phy_device,
+		.name		= "mv88x3340",
+		.driver_data	= &mv3340_type,
+		.get_features	= mv3310_get_features,
+		.config_init	= mv3310_config_init,
+		.probe		= mv3310_probe,
+		.suspend	= mv3310_suspend,
+		.resume		= mv3310_resume,
+		.config_aneg	= mv3310_config_aneg,
+		.aneg_done	= mv3310_aneg_done,
+		.read_status	= mv3310_read_status,
+		.get_tunable	= mv3310_get_tunable,
+		.set_tunable	= mv3310_set_tunable,
+		.remove		= mv3310_remove,
+		.set_loopback	= genphy_c45_loopback,
 	},
 	{
 		.phy_id		= MARVELL_PHY_ID_88E2110,
 		.phy_id_mask	= MARVELL_PHY_ID_MASK,
-		.name		= "mv88x2110",
+		.match_phy_device = mv2110_match_phy_device,
+		.name		= "mv88e2110",
+		.driver_data	= &mv2110_type,
 		.probe		= mv3310_probe,
 		.suspend	= mv3310_suspend,
 		.resume		= mv3310_resume,
-		.soft_reset	= genphy_no_soft_reset,
 		.config_init	= mv3310_config_init,
 		.config_aneg	= mv3310_config_aneg,
 		.aneg_done	= mv3310_aneg_done,
 		.read_status	= mv3310_read_status,
+		.get_tunable	= mv3310_get_tunable,
+		.set_tunable	= mv3310_set_tunable,
 		.remove		= mv3310_remove,
+		.set_loopback	= genphy_c45_loopback,
+	},
+	{
+		.phy_id		= MARVELL_PHY_ID_88E2110,
+		.phy_id_mask	= MARVELL_PHY_ID_MASK,
+		.match_phy_device = mv2111_match_phy_device,
+		.name		= "mv88e2111",
+		.driver_data	= &mv2111_type,
+		.probe		= mv3310_probe,
+		.suspend	= mv3310_suspend,
+		.resume		= mv3310_resume,
+		.config_init	= mv3310_config_init,
+		.config_aneg	= mv3310_config_aneg,
+		.aneg_done	= mv3310_aneg_done,
+		.read_status	= mv3310_read_status,
+		.get_tunable	= mv3310_get_tunable,
+		.set_tunable	= mv3310_set_tunable,
+		.remove		= mv3310_remove,
+		.set_loopback	= genphy_c45_loopback,
 	},
 };
 
@@ -557,5 +1105,5 @@ static struct mdio_device_id __maybe_unused mv3310_tbl[] = {
 	{ },
 };
 MODULE_DEVICE_TABLE(mdio, mv3310_tbl);
-MODULE_DESCRIPTION("Marvell Alaska X 10Gigabit Ethernet PHY driver (MV88X3310)");
+MODULE_DESCRIPTION("Marvell Alaska X/M multi-gigabit Ethernet PHY driver");
 MODULE_LICENSE("GPL");

@@ -8,13 +8,13 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/thermal.h>
-#include <linux/slab.h>
-#include <linux/types.h>
-#include <linux/of_device.h>
-#include <linux/of_platform.h>
 #include <linux/err.h>
 #include <linux/export.h>
+#include <linux/of_device.h>
+#include <linux/of_platform.h>
+#include <linux/slab.h>
+#include <linux/thermal.h>
+#include <linux/types.h>
 #include <linux/string.h>
 
 #include "thermal_core.h"
@@ -411,6 +411,50 @@ thermal_zone_of_add_sensor(struct device_node *zone,
 }
 
 /**
+ * thermal_zone_of_get_sensor_id - get sensor ID from a DT thermal zone
+ * @tz_np: a valid thermal zone device node.
+ * @sensor_np: a sensor node of a valid sensor device.
+ * @id: the sensor ID returned if success.
+ *
+ * This function will get sensor ID from a given thermal zone node and
+ * the sensor node must match the temperature provider @sensor_np.
+ *
+ * Return: 0 on success, proper error code otherwise.
+ */
+
+int thermal_zone_of_get_sensor_id(struct device_node *tz_np,
+				  struct device_node *sensor_np,
+				  u32 *id)
+{
+	struct of_phandle_args sensor_specs;
+	int ret;
+
+	ret = of_parse_phandle_with_args(tz_np,
+					 "thermal-sensors",
+					 "#thermal-sensor-cells",
+					 0,
+					 &sensor_specs);
+	if (ret)
+		return ret;
+
+	if (sensor_specs.np != sensor_np) {
+		of_node_put(sensor_specs.np);
+		return -ENODEV;
+	}
+
+	if (sensor_specs.args_count > 1)
+		pr_warn("%pOFn: too many cells in sensor specifier %d\n",
+		     sensor_specs.np, sensor_specs.args_count);
+
+	*id = sensor_specs.args_count ? sensor_specs.args[0] : 0;
+
+	of_node_put(sensor_specs.np);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(thermal_zone_of_get_sensor_id);
+
+/**
  * thermal_zone_of_sensor_register - registers a sensor to a DT thermal zone
  * @dev: a valid struct device pointer of a sensor device. Must contain
  *       a valid .of_node, for the sensor node.
@@ -455,42 +499,28 @@ thermal_zone_of_sensor_register(struct device *dev, int sensor_id, void *data,
 
 	if (!dev || !dev->of_node) {
 		of_node_put(np);
-		return ERR_PTR(-EINVAL);
+		return ERR_PTR(-ENODEV);
 	}
 
 	sensor_np = of_node_get(dev->of_node);
 
 	for_each_available_child_of_node(np, child) {
-		struct of_phandle_args sensor_specs;
 		int ret, id;
 
 		/* For now, thermal framework supports only 1 sensor per zone */
-		ret = of_parse_phandle_with_args(child, "thermal-sensors",
-						 "#thermal-sensor-cells",
-						 0, &sensor_specs);
+		ret = thermal_zone_of_get_sensor_id(child, sensor_np, &id);
 		if (ret)
 			continue;
 
-		if (sensor_specs.args_count >= 1) {
-			id = sensor_specs.args[0];
-			WARN(sensor_specs.args_count > 1,
-			     "%pOFn: too many cells in sensor specifier %d\n",
-			     sensor_specs.np, sensor_specs.args_count);
-		} else {
-			id = 0;
-		}
-
-		if (sensor_specs.np == sensor_np && id == sensor_id) {
+		if (id == sensor_id) {
 			tzd = thermal_zone_of_add_sensor(child, sensor_np,
 							 data, ops);
 			if (!IS_ERR(tzd))
 				thermal_zone_device_enable(tzd);
 
-			of_node_put(sensor_specs.np);
 			of_node_put(child);
 			goto exit;
 		}
-		of_node_put(sensor_specs.np);
 	}
 exit:
 	of_node_put(sensor_np);
@@ -528,6 +558,9 @@ void thermal_zone_of_sensor_unregister(struct device *dev,
 	/* no __thermal_zone, nothing to be done */
 	if (!tz)
 		return;
+
+	/* stop temperature polling */
+	thermal_zone_device_disable(tzd);
 
 	mutex_lock(&tzd->lock);
 	tzd->ops->get_temp = NULL;
@@ -719,7 +752,7 @@ end:
 	return ret;
 }
 
-/**
+/*
  * It maps 'enum thermal_trip_type' found in include/linux/thermal.h
  * into the device tree binding of 'trip', property type.
  */
@@ -941,7 +974,7 @@ free_tz:
 	return ERR_PTR(ret);
 }
 
-static inline void of_thermal_free_zone(struct __thermal_zone *tz)
+static __init void of_thermal_free_zone(struct __thermal_zone *tz)
 {
 	struct __thermal_bind_params *tbp;
 	int i, j;
@@ -960,6 +993,38 @@ static inline void of_thermal_free_zone(struct __thermal_zone *tz)
 		of_node_put(tz->trips[i].np);
 	kfree(tz->trips);
 	kfree(tz);
+}
+
+/**
+ * of_thermal_destroy_zones - remove all zones parsed and allocated resources
+ *
+ * Finds all zones parsed and added to the thermal framework and remove them
+ * from the system, together with their resources.
+ *
+ */
+static __init void of_thermal_destroy_zones(void)
+{
+	struct device_node *np, *child;
+
+	np = of_find_node_by_name(NULL, "thermal-zones");
+	if (!np) {
+		pr_debug("unable to find thermal zones\n");
+		return;
+	}
+
+	for_each_available_child_of_node(np, child) {
+		struct thermal_zone_device *zone;
+
+		zone = thermal_zone_get_zone_by_name(child->name);
+		if (IS_ERR(zone))
+			continue;
+
+		thermal_zone_device_unregister(zone);
+		kfree(zone->tzp);
+		kfree(zone->ops);
+		of_thermal_free_zone(zone->devdata);
+	}
+	of_node_put(np);
 }
 
 /**
@@ -1050,36 +1115,4 @@ exit_free:
 	of_thermal_destroy_zones();
 
 	return -ENOMEM;
-}
-
-/**
- * of_thermal_destroy_zones - remove all zones parsed and allocated resources
- *
- * Finds all zones parsed and added to the thermal framework and remove them
- * from the system, together with their resources.
- *
- */
-void of_thermal_destroy_zones(void)
-{
-	struct device_node *np, *child;
-
-	np = of_find_node_by_name(NULL, "thermal-zones");
-	if (!np) {
-		pr_debug("unable to find thermal zones\n");
-		return;
-	}
-
-	for_each_available_child_of_node(np, child) {
-		struct thermal_zone_device *zone;
-
-		zone = thermal_zone_get_zone_by_name(child->name);
-		if (IS_ERR(zone))
-			continue;
-
-		thermal_zone_device_unregister(zone);
-		kfree(zone->tzp);
-		kfree(zone->ops);
-		of_thermal_free_zone(zone->devdata);
-	}
-	of_node_put(np);
 }

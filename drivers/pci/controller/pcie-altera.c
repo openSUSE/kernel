@@ -193,7 +193,7 @@ static bool altera_pcie_valid_device(struct altera_pcie *pcie,
 	if (bus->number == pcie->root_bus_nr && dev > 0)
 		return false;
 
-	 return true;
+	return true;
 }
 
 static int tlp_read_packet(struct altera_pcie *pcie, u32 *value)
@@ -694,19 +694,15 @@ static void altera_pcie_irq_teardown(struct altera_pcie *pcie)
 
 static int altera_pcie_parse_dt(struct altera_pcie *pcie)
 {
-	struct device *dev = &pcie->pdev->dev;
 	struct platform_device *pdev = pcie->pdev;
-	struct resource *cra;
-	struct resource *hip;
 
-	cra = platform_get_resource_byname(pdev, IORESOURCE_MEM, "Cra");
-	pcie->cra_base = devm_ioremap_resource(dev, cra);
+	pcie->cra_base = devm_platform_ioremap_resource_byname(pdev, "Cra");
 	if (IS_ERR(pcie->cra_base))
 		return PTR_ERR(pcie->cra_base);
 
 	if (pcie->pcie_data->version == ALTERA_PCIE_V2) {
-		hip = platform_get_resource_byname(pdev, IORESOURCE_MEM, "Hip");
-		pcie->hip_base = devm_ioremap_resource(&pdev->dev, hip);
+		pcie->hip_base =
+			devm_platform_ioremap_resource_byname(pdev, "Hip");
 		if (IS_ERR(pcie->hip_base))
 			return PTR_ERR(pcie->hip_base);
 	}

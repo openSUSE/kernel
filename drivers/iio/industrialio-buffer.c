@@ -9,9 +9,11 @@
  * - Better memory allocation techniques?
  * - Alternative access techniques?
  */
+#include <linux/anon_inodes.h>
 #include <linux/kernel.h>
 #include <linux/export.h>
 #include <linux/device.h>
+#include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/cdev.h>
 #include <linux/slab.h>
@@ -19,7 +21,9 @@
 #include <linux/sched/signal.h>
 
 #include <linux/iio/iio.h>
+#include <linux/iio/iio-opaque.h>
 #include "iio_core.h"
+#include "iio_core_trigger.h"
 #include <linux/iio/sysfs.h>
 #include <linux/iio/buffer.h>
 #include <linux/iio/buffer_impl.h>
@@ -87,7 +91,7 @@ static bool iio_buffer_ready(struct iio_dev *indio_dev, struct iio_buffer *buf,
 }
 
 /**
- * iio_buffer_read_first_n_outer() - chrdev read for buffer access
+ * iio_buffer_read() - chrdev read for buffer access
  * @filp:	File structure pointer for the char device
  * @buf:	Destination buffer for iio buffer read
  * @n:		First n bytes to read
@@ -99,11 +103,12 @@ static bool iio_buffer_ready(struct iio_dev *indio_dev, struct iio_buffer *buf,
  * Return: negative values corresponding to error codes or ret != 0
  *	   for ending the reading activity
  **/
-ssize_t iio_buffer_read_first_n_outer(struct file *filp, char __user *buf,
-				      size_t n, loff_t *f_ps)
+static ssize_t iio_buffer_read(struct file *filp, char __user *buf,
+			       size_t n, loff_t *f_ps)
 {
-	struct iio_dev *indio_dev = filp->private_data;
-	struct iio_buffer *rb = indio_dev->buffer;
+	struct iio_dev_buffer_pair *ib = filp->private_data;
+	struct iio_buffer *rb = ib->buffer;
+	struct iio_dev *indio_dev = ib->indio_dev;
 	DEFINE_WAIT_FUNC(wait, woken_wake_function);
 	size_t datum_size;
 	size_t to_wait;
@@ -112,7 +117,7 @@ ssize_t iio_buffer_read_first_n_outer(struct file *filp, char __user *buf,
 	if (!indio_dev->info)
 		return -ENODEV;
 
-	if (!rb || !rb->access->read_first_n)
+	if (!rb || !rb->access->read)
 		return -EINVAL;
 
 	datum_size = rb->bytes_per_datum;
@@ -147,7 +152,7 @@ ssize_t iio_buffer_read_first_n_outer(struct file *filp, char __user *buf,
 			continue;
 		}
 
-		ret = rb->access->read_first_n(rb, n, buf);
+		ret = rb->access->read(rb, n, buf);
 		if (ret == 0 && (filp->f_flags & O_NONBLOCK))
 			ret = -EAGAIN;
 	} while (ret == 0);
@@ -165,11 +170,12 @@ ssize_t iio_buffer_read_first_n_outer(struct file *filp, char __user *buf,
  * Return: (EPOLLIN | EPOLLRDNORM) if data is available for reading
  *	   or 0 for other cases
  */
-__poll_t iio_buffer_poll(struct file *filp,
-			     struct poll_table_struct *wait)
+static __poll_t iio_buffer_poll(struct file *filp,
+				struct poll_table_struct *wait)
 {
-	struct iio_dev *indio_dev = filp->private_data;
-	struct iio_buffer *rb = indio_dev->buffer;
+	struct iio_dev_buffer_pair *ib = filp->private_data;
+	struct iio_buffer *rb = ib->buffer;
+	struct iio_dev *indio_dev = ib->indio_dev;
 
 	if (!indio_dev->info || rb == NULL)
 		return 0;
@@ -178,6 +184,32 @@ __poll_t iio_buffer_poll(struct file *filp,
 	if (iio_buffer_ready(indio_dev, rb, rb->watermark, 0))
 		return EPOLLIN | EPOLLRDNORM;
 	return 0;
+}
+
+ssize_t iio_buffer_read_wrapper(struct file *filp, char __user *buf,
+				size_t n, loff_t *f_ps)
+{
+	struct iio_dev_buffer_pair *ib = filp->private_data;
+	struct iio_buffer *rb = ib->buffer;
+
+	/* check if buffer was opened through new API */
+	if (test_bit(IIO_BUSY_BIT_POS, &rb->flags))
+		return -EBUSY;
+
+	return iio_buffer_read(filp, buf, n, f_ps);
+}
+
+__poll_t iio_buffer_poll_wrapper(struct file *filp,
+				 struct poll_table_struct *wait)
+{
+	struct iio_dev_buffer_pair *ib = filp->private_data;
+	struct iio_buffer *rb = ib->buffer;
+
+	/* check if buffer was opened through new API */
+	if (test_bit(IIO_BUSY_BIT_POS, &rb->flags))
+		return 0;
+
+	return iio_buffer_poll(filp, wait);
 }
 
 /**
@@ -189,10 +221,14 @@ __poll_t iio_buffer_poll(struct file *filp,
  */
 void iio_buffer_wakeup_poll(struct iio_dev *indio_dev)
 {
-	if (!indio_dev->buffer)
-		return;
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
+	struct iio_buffer *buffer;
+	unsigned int i;
 
-	wake_up(&indio_dev->buffer->pollq);
+	for (i = 0; i < iio_dev_opaque->attached_buffers_cnt; i++) {
+		buffer = iio_dev_opaque->attached_buffers[i];
+		wake_up(&buffer->pollq);
+	}
 }
 
 void iio_buffer_init(struct iio_buffer *buffer)
@@ -206,23 +242,25 @@ void iio_buffer_init(struct iio_buffer *buffer)
 }
 EXPORT_SYMBOL(iio_buffer_init);
 
-/**
- * iio_buffer_set_attrs - Set buffer specific attributes
- * @buffer: The buffer for which we are setting attributes
- * @attrs: Pointer to a null terminated list of pointers to attributes
- */
-void iio_buffer_set_attrs(struct iio_buffer *buffer,
-			 const struct attribute **attrs)
+void iio_device_detach_buffers(struct iio_dev *indio_dev)
 {
-	buffer->attrs = attrs;
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
+	struct iio_buffer *buffer;
+	unsigned int i;
+
+	for (i = 0; i < iio_dev_opaque->attached_buffers_cnt; i++) {
+		buffer = iio_dev_opaque->attached_buffers[i];
+		iio_buffer_put(buffer);
+	}
+
+	kfree(iio_dev_opaque->attached_buffers);
 }
-EXPORT_SYMBOL_GPL(iio_buffer_set_attrs);
 
 static ssize_t iio_show_scan_index(struct device *dev,
 				   struct device_attribute *attr,
 				   char *buf)
 {
-	return sprintf(buf, "%u\n", to_iio_dev_attr(attr)->c->scan_index);
+	return sysfs_emit(buf, "%u\n", to_iio_dev_attr(attr)->c->scan_index);
 }
 
 static ssize_t iio_show_fixed_type(struct device *dev,
@@ -240,15 +278,15 @@ static ssize_t iio_show_fixed_type(struct device *dev,
 #endif
 	}
 	if (this_attr->c->scan_type.repeat > 1)
-		return sprintf(buf, "%s:%c%d/%dX%d>>%u\n",
+		return sysfs_emit(buf, "%s:%c%d/%dX%d>>%u\n",
 		       iio_endian_prefix[type],
 		       this_attr->c->scan_type.sign,
 		       this_attr->c->scan_type.realbits,
 		       this_attr->c->scan_type.storagebits,
 		       this_attr->c->scan_type.repeat,
 		       this_attr->c->scan_type.shift);
-		else
-			return sprintf(buf, "%s:%c%d/%d>>%u\n",
+	else
+		return sysfs_emit(buf, "%s:%c%d/%d>>%u\n",
 		       iio_endian_prefix[type],
 		       this_attr->c->scan_type.sign,
 		       this_attr->c->scan_type.realbits,
@@ -261,13 +299,13 @@ static ssize_t iio_scan_el_show(struct device *dev,
 				char *buf)
 {
 	int ret;
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
+	struct iio_buffer *buffer = to_iio_dev_attr(attr)->buffer;
 
 	/* Ensure ret is 0 or 1. */
 	ret = !!test_bit(to_iio_dev_attr(attr)->address,
-		       indio_dev->buffer->scan_mask);
+		       buffer->scan_mask);
 
-	return sprintf(buf, "%d\n", ret);
+	return sysfs_emit(buf, "%d\n", ret);
 }
 
 /* Note NULL used as error indicator as it doesn't make sense. */
@@ -316,8 +354,7 @@ static int iio_scan_mask_set(struct iio_dev *indio_dev,
 	const unsigned long *mask;
 	unsigned long *trialmask;
 
-	trialmask = kcalloc(BITS_TO_LONGS(indio_dev->masklength),
-			    sizeof(*trialmask), GFP_KERNEL);
+	trialmask = bitmap_zalloc(indio_dev->masklength, GFP_KERNEL);
 	if (trialmask == NULL)
 		return -ENOMEM;
 	if (!indio_dev->masklength) {
@@ -375,14 +412,14 @@ static ssize_t iio_scan_el_store(struct device *dev,
 	int ret;
 	bool state;
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	struct iio_buffer *buffer = indio_dev->buffer;
 	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
+	struct iio_buffer *buffer = this_attr->buffer;
 
 	ret = strtobool(buf, &state);
 	if (ret < 0)
 		return ret;
 	mutex_lock(&indio_dev->mlock);
-	if (iio_buffer_is_active(indio_dev->buffer)) {
+	if (iio_buffer_is_active(buffer)) {
 		ret = -EBUSY;
 		goto error_ret;
 	}
@@ -410,8 +447,9 @@ static ssize_t iio_scan_el_ts_show(struct device *dev,
 				   struct device_attribute *attr,
 				   char *buf)
 {
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	return sprintf(buf, "%d\n", indio_dev->buffer->scan_timestamp);
+	struct iio_buffer *buffer = to_iio_dev_attr(attr)->buffer;
+
+	return sysfs_emit(buf, "%d\n", buffer->scan_timestamp);
 }
 
 static ssize_t iio_scan_el_ts_store(struct device *dev,
@@ -421,6 +459,7 @@ static ssize_t iio_scan_el_ts_store(struct device *dev,
 {
 	int ret;
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
+	struct iio_buffer *buffer = to_iio_dev_attr(attr)->buffer;
 	bool state;
 
 	ret = strtobool(buf, &state);
@@ -428,11 +467,11 @@ static ssize_t iio_scan_el_ts_store(struct device *dev,
 		return ret;
 
 	mutex_lock(&indio_dev->mlock);
-	if (iio_buffer_is_active(indio_dev->buffer)) {
+	if (iio_buffer_is_active(buffer)) {
 		ret = -EBUSY;
 		goto error_ret;
 	}
-	indio_dev->buffer->scan_timestamp = state;
+	buffer->scan_timestamp = state;
 error_ret:
 	mutex_unlock(&indio_dev->mlock);
 
@@ -440,10 +479,10 @@ error_ret:
 }
 
 static int iio_buffer_add_channel_sysfs(struct iio_dev *indio_dev,
+					struct iio_buffer *buffer,
 					const struct iio_chan_spec *chan)
 {
 	int ret, attrcount = 0;
-	struct iio_buffer *buffer = indio_dev->buffer;
 
 	ret = __iio_add_chan_devattr("index",
 				     chan,
@@ -452,7 +491,8 @@ static int iio_buffer_add_channel_sysfs(struct iio_dev *indio_dev,
 				     0,
 				     IIO_SEPARATE,
 				     &indio_dev->dev,
-				     &buffer->scan_el_dev_attr_list);
+				     buffer,
+				     &buffer->buffer_attr_list);
 	if (ret)
 		return ret;
 	attrcount++;
@@ -463,7 +503,8 @@ static int iio_buffer_add_channel_sysfs(struct iio_dev *indio_dev,
 				     0,
 				     0,
 				     &indio_dev->dev,
-				     &buffer->scan_el_dev_attr_list);
+				     buffer,
+				     &buffer->buffer_attr_list);
 	if (ret)
 		return ret;
 	attrcount++;
@@ -475,7 +516,8 @@ static int iio_buffer_add_channel_sysfs(struct iio_dev *indio_dev,
 					     chan->scan_index,
 					     0,
 					     &indio_dev->dev,
-					     &buffer->scan_el_dev_attr_list);
+					     buffer,
+					     &buffer->buffer_attr_list);
 	else
 		ret = __iio_add_chan_devattr("en",
 					     chan,
@@ -484,7 +526,8 @@ static int iio_buffer_add_channel_sysfs(struct iio_dev *indio_dev,
 					     chan->scan_index,
 					     0,
 					     &indio_dev->dev,
-					     &buffer->scan_el_dev_attr_list);
+					     buffer,
+					     &buffer->buffer_attr_list);
 	if (ret)
 		return ret;
 	attrcount++;
@@ -496,10 +539,9 @@ static ssize_t iio_buffer_read_length(struct device *dev,
 				      struct device_attribute *attr,
 				      char *buf)
 {
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	struct iio_buffer *buffer = indio_dev->buffer;
+	struct iio_buffer *buffer = to_iio_dev_attr(attr)->buffer;
 
-	return sprintf(buf, "%d\n", buffer->length);
+	return sysfs_emit(buf, "%d\n", buffer->length);
 }
 
 static ssize_t iio_buffer_write_length(struct device *dev,
@@ -507,7 +549,7 @@ static ssize_t iio_buffer_write_length(struct device *dev,
 				       const char *buf, size_t len)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	struct iio_buffer *buffer = indio_dev->buffer;
+	struct iio_buffer *buffer = to_iio_dev_attr(attr)->buffer;
 	unsigned int val;
 	int ret;
 
@@ -519,7 +561,7 @@ static ssize_t iio_buffer_write_length(struct device *dev,
 		return len;
 
 	mutex_lock(&indio_dev->mlock);
-	if (iio_buffer_is_active(indio_dev->buffer)) {
+	if (iio_buffer_is_active(buffer)) {
 		ret = -EBUSY;
 	} else {
 		buffer->access->set_length(buffer, val);
@@ -539,8 +581,9 @@ static ssize_t iio_buffer_show_enable(struct device *dev,
 				      struct device_attribute *attr,
 				      char *buf)
 {
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	return sprintf(buf, "%d\n", iio_buffer_is_active(indio_dev->buffer));
+	struct iio_buffer *buffer = to_iio_dev_attr(attr)->buffer;
+
+	return sysfs_emit(buf, "%d\n", iio_buffer_is_active(buffer));
 }
 
 static unsigned int iio_storage_bytes_for_si(struct iio_dev *indio_dev,
@@ -558,8 +601,10 @@ static unsigned int iio_storage_bytes_for_si(struct iio_dev *indio_dev,
 
 static unsigned int iio_storage_bytes_for_timestamp(struct iio_dev *indio_dev)
 {
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
+
 	return iio_storage_bytes_for_si(indio_dev,
-					indio_dev->scan_index_timestamp);
+					iio_dev_opaque->scan_index_timestamp);
 }
 
 static int iio_compute_scan_bytes(struct iio_dev *indio_dev,
@@ -591,8 +636,10 @@ static int iio_compute_scan_bytes(struct iio_dev *indio_dev,
 static void iio_buffer_activate(struct iio_dev *indio_dev,
 	struct iio_buffer *buffer)
 {
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
+
 	iio_buffer_get(buffer);
-	list_add(&buffer->buffer_list, &indio_dev->buffer_list);
+	list_add(&buffer->buffer_list, &iio_dev_opaque->buffer_list);
 }
 
 static void iio_buffer_deactivate(struct iio_buffer *buffer)
@@ -604,10 +651,11 @@ static void iio_buffer_deactivate(struct iio_buffer *buffer)
 
 static void iio_buffer_deactivate_all(struct iio_dev *indio_dev)
 {
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
 	struct iio_buffer *buffer, *_buffer;
 
 	list_for_each_entry_safe(buffer, _buffer,
-			&indio_dev->buffer_list, buffer_list)
+			&iio_dev_opaque->buffer_list, buffer_list)
 		iio_buffer_deactivate(buffer);
 }
 
@@ -680,6 +728,7 @@ static int iio_verify_update(struct iio_dev *indio_dev,
 	struct iio_buffer *insert_buffer, struct iio_buffer *remove_buffer,
 	struct iio_device_config *config)
 {
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
 	unsigned long *compound_mask;
 	const unsigned long *scan_mask;
 	bool strict_scanmask = false;
@@ -702,12 +751,12 @@ static int iio_verify_update(struct iio_dev *indio_dev,
 	 * to verify.
 	 */
 	if (remove_buffer && !insert_buffer &&
-		list_is_singular(&indio_dev->buffer_list))
+		list_is_singular(&iio_dev_opaque->buffer_list))
 			return 0;
 
 	modes = indio_dev->modes;
 
-	list_for_each_entry(buffer, &indio_dev->buffer_list, buffer_list) {
+	list_for_each_entry(buffer, &iio_dev_opaque->buffer_list, buffer_list) {
 		if (buffer == remove_buffer)
 			continue;
 		modes &= buffer->access->modes;
@@ -728,7 +777,7 @@ static int iio_verify_update(struct iio_dev *indio_dev,
 		 * Keep things simple for now and only allow a single buffer to
 		 * be connected in hardware mode.
 		 */
-		if (insert_buffer && !list_empty(&indio_dev->buffer_list))
+		if (insert_buffer && !list_empty(&iio_dev_opaque->buffer_list))
 			return -EINVAL;
 		config->mode = INDIO_BUFFER_HARDWARE;
 		strict_scanmask = true;
@@ -748,7 +797,7 @@ static int iio_verify_update(struct iio_dev *indio_dev,
 
 	scan_timestamp = false;
 
-	list_for_each_entry(buffer, &indio_dev->buffer_list, buffer_list) {
+	list_for_each_entry(buffer, &iio_dev_opaque->buffer_list, buffer_list) {
 		if (buffer == remove_buffer)
 			continue;
 		bitmap_or(compound_mask, compound_mask, buffer->scan_mask,
@@ -877,7 +926,6 @@ static int iio_buffer_update_demux(struct iio_dev *indio_dev,
 		if (ret)
 			goto error_clear_mux_table;
 		out_loc += length;
-		in_loc += length;
 	}
 	buffer->demux_bounce = kzalloc(out_loc, GFP_KERNEL);
 	if (buffer->demux_bounce == NULL) {
@@ -894,10 +942,11 @@ error_clear_mux_table:
 
 static int iio_update_demux(struct iio_dev *indio_dev)
 {
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
 	struct iio_buffer *buffer;
 	int ret;
 
-	list_for_each_entry(buffer, &indio_dev->buffer_list, buffer_list) {
+	list_for_each_entry(buffer, &iio_dev_opaque->buffer_list, buffer_list) {
 		ret = iio_buffer_update_demux(indio_dev, buffer);
 		if (ret < 0)
 			goto error_clear_mux_table;
@@ -905,7 +954,7 @@ static int iio_update_demux(struct iio_dev *indio_dev)
 	return 0;
 
 error_clear_mux_table:
-	list_for_each_entry(buffer, &indio_dev->buffer_list, buffer_list)
+	list_for_each_entry(buffer, &iio_dev_opaque->buffer_list, buffer_list)
 		iio_buffer_demux_free(buffer);
 
 	return ret;
@@ -914,12 +963,14 @@ error_clear_mux_table:
 static int iio_enable_buffers(struct iio_dev *indio_dev,
 	struct iio_device_config *config)
 {
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
 	struct iio_buffer *buffer;
 	int ret;
 
 	indio_dev->active_scan_mask = config->scan_mask;
 	indio_dev->scan_timestamp = config->scan_timestamp;
 	indio_dev->scan_bytes = config->scan_bytes;
+	indio_dev->currentmode = config->mode;
 
 	iio_update_demux(indio_dev);
 
@@ -949,34 +1000,44 @@ static int iio_enable_buffers(struct iio_dev *indio_dev,
 		indio_dev->info->hwfifo_set_watermark(indio_dev,
 			config->watermark);
 
-	list_for_each_entry(buffer, &indio_dev->buffer_list, buffer_list) {
+	list_for_each_entry(buffer, &iio_dev_opaque->buffer_list, buffer_list) {
 		ret = iio_buffer_enable(buffer, indio_dev);
 		if (ret)
 			goto err_disable_buffers;
 	}
 
-	indio_dev->currentmode = config->mode;
+	if (indio_dev->currentmode == INDIO_BUFFER_TRIGGERED) {
+		ret = iio_trigger_attach_poll_func(indio_dev->trig,
+						   indio_dev->pollfunc);
+		if (ret)
+			goto err_disable_buffers;
+	}
 
 	if (indio_dev->setup_ops->postenable) {
 		ret = indio_dev->setup_ops->postenable(indio_dev);
 		if (ret) {
 			dev_dbg(&indio_dev->dev,
 			       "Buffer not started: postenable failed (%d)\n", ret);
-			goto err_disable_buffers;
+			goto err_detach_pollfunc;
 		}
 	}
 
 	return 0;
 
+err_detach_pollfunc:
+	if (indio_dev->currentmode == INDIO_BUFFER_TRIGGERED) {
+		iio_trigger_detach_poll_func(indio_dev->trig,
+					     indio_dev->pollfunc);
+	}
 err_disable_buffers:
-	list_for_each_entry_continue_reverse(buffer, &indio_dev->buffer_list,
+	list_for_each_entry_continue_reverse(buffer, &iio_dev_opaque->buffer_list,
 					     buffer_list)
 		iio_buffer_disable(buffer, indio_dev);
 err_run_postdisable:
-	indio_dev->currentmode = INDIO_DIRECT_MODE;
 	if (indio_dev->setup_ops->postdisable)
 		indio_dev->setup_ops->postdisable(indio_dev);
 err_undo_config:
+	indio_dev->currentmode = INDIO_DIRECT_MODE;
 	indio_dev->active_scan_mask = NULL;
 
 	return ret;
@@ -984,12 +1045,13 @@ err_undo_config:
 
 static int iio_disable_buffers(struct iio_dev *indio_dev)
 {
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
 	struct iio_buffer *buffer;
 	int ret = 0;
 	int ret2;
 
 	/* Wind down existing buffers - iff there are any */
-	if (list_empty(&indio_dev->buffer_list))
+	if (list_empty(&iio_dev_opaque->buffer_list))
 		return 0;
 
 	/*
@@ -1005,13 +1067,16 @@ static int iio_disable_buffers(struct iio_dev *indio_dev)
 			ret = ret2;
 	}
 
-	list_for_each_entry(buffer, &indio_dev->buffer_list, buffer_list) {
+	if (indio_dev->currentmode == INDIO_BUFFER_TRIGGERED) {
+		iio_trigger_detach_poll_func(indio_dev->trig,
+					     indio_dev->pollfunc);
+	}
+
+	list_for_each_entry(buffer, &iio_dev_opaque->buffer_list, buffer_list) {
 		ret2 = iio_buffer_disable(buffer, indio_dev);
 		if (ret2 && !ret)
 			ret = ret2;
 	}
-
-	indio_dev->currentmode = INDIO_DIRECT_MODE;
 
 	if (indio_dev->setup_ops->postdisable) {
 		ret2 = indio_dev->setup_ops->postdisable(indio_dev);
@@ -1021,6 +1086,7 @@ static int iio_disable_buffers(struct iio_dev *indio_dev)
 
 	iio_free_scan_mask(indio_dev, indio_dev->active_scan_mask);
 	indio_dev->active_scan_mask = NULL;
+	indio_dev->currentmode = INDIO_DIRECT_MODE;
 
 	return ret;
 }
@@ -1029,6 +1095,7 @@ static int __iio_update_buffers(struct iio_dev *indio_dev,
 		       struct iio_buffer *insert_buffer,
 		       struct iio_buffer *remove_buffer)
 {
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
 	struct iio_device_config new_config;
 	int ret;
 
@@ -1053,7 +1120,7 @@ static int __iio_update_buffers(struct iio_dev *indio_dev,
 		iio_buffer_activate(indio_dev, insert_buffer);
 
 	/* If no buffers in list, we are done */
-	if (list_empty(&indio_dev->buffer_list))
+	if (list_empty(&iio_dev_opaque->buffer_list))
 		return 0;
 
 	ret = iio_enable_buffers(indio_dev, &new_config);
@@ -1082,12 +1149,13 @@ int iio_update_buffers(struct iio_dev *indio_dev,
 		       struct iio_buffer *insert_buffer,
 		       struct iio_buffer *remove_buffer)
 {
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
 	int ret;
 
 	if (insert_buffer == remove_buffer)
 		return 0;
 
-	mutex_lock(&indio_dev->info_exist_lock);
+	mutex_lock(&iio_dev_opaque->info_exist_lock);
 	mutex_lock(&indio_dev->mlock);
 
 	if (insert_buffer && iio_buffer_is_active(insert_buffer))
@@ -1110,7 +1178,7 @@ int iio_update_buffers(struct iio_dev *indio_dev,
 
 out_unlock:
 	mutex_unlock(&indio_dev->mlock);
-	mutex_unlock(&indio_dev->info_exist_lock);
+	mutex_unlock(&iio_dev_opaque->info_exist_lock);
 
 	return ret;
 }
@@ -1130,6 +1198,7 @@ static ssize_t iio_buffer_store_enable(struct device *dev,
 	int ret;
 	bool requested_state;
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
+	struct iio_buffer *buffer = to_iio_dev_attr(attr)->buffer;
 	bool inlist;
 
 	ret = strtobool(buf, &requested_state);
@@ -1139,33 +1208,28 @@ static ssize_t iio_buffer_store_enable(struct device *dev,
 	mutex_lock(&indio_dev->mlock);
 
 	/* Find out if it is in the list */
-	inlist = iio_buffer_is_active(indio_dev->buffer);
+	inlist = iio_buffer_is_active(buffer);
 	/* Already in desired state */
 	if (inlist == requested_state)
 		goto done;
 
 	if (requested_state)
-		ret = __iio_update_buffers(indio_dev,
-					 indio_dev->buffer, NULL);
+		ret = __iio_update_buffers(indio_dev, buffer, NULL);
 	else
-		ret = __iio_update_buffers(indio_dev,
-					 NULL, indio_dev->buffer);
+		ret = __iio_update_buffers(indio_dev, NULL, buffer);
 
 done:
 	mutex_unlock(&indio_dev->mlock);
 	return (ret < 0) ? ret : len;
 }
 
-static const char * const iio_scan_elements_group_name = "scan_elements";
-
 static ssize_t iio_buffer_show_watermark(struct device *dev,
 					 struct device_attribute *attr,
 					 char *buf)
 {
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	struct iio_buffer *buffer = indio_dev->buffer;
+	struct iio_buffer *buffer = to_iio_dev_attr(attr)->buffer;
 
-	return sprintf(buf, "%u\n", buffer->watermark);
+	return sysfs_emit(buf, "%u\n", buffer->watermark);
 }
 
 static ssize_t iio_buffer_store_watermark(struct device *dev,
@@ -1174,7 +1238,7 @@ static ssize_t iio_buffer_store_watermark(struct device *dev,
 					  size_t len)
 {
 	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	struct iio_buffer *buffer = indio_dev->buffer;
+	struct iio_buffer *buffer = to_iio_dev_attr(attr)->buffer;
 	unsigned int val;
 	int ret;
 
@@ -1191,7 +1255,7 @@ static ssize_t iio_buffer_store_watermark(struct device *dev,
 		goto out;
 	}
 
-	if (iio_buffer_is_active(indio_dev->buffer)) {
+	if (iio_buffer_is_active(buffer)) {
 		ret = -EBUSY;
 		goto out;
 	}
@@ -1207,12 +1271,9 @@ static ssize_t iio_dma_show_data_available(struct device *dev,
 						struct device_attribute *attr,
 						char *buf)
 {
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
-	size_t bytes;
+	struct iio_buffer *buffer = to_iio_dev_attr(attr)->buffer;
 
-	bytes = iio_buffer_data_available(indio_dev->buffer);
-
-	return sprintf(buf, "%zu\n", bytes);
+	return sysfs_emit(buf, "%zu\n", iio_buffer_data_available(buffer));
 }
 
 static DEVICE_ATTR(length, S_IRUGO | S_IWUSR, iio_buffer_read_length,
@@ -1235,62 +1296,195 @@ static struct attribute *iio_buffer_attrs[] = {
 	&dev_attr_data_available.attr,
 };
 
-int iio_buffer_alloc_sysfs_and_mask(struct iio_dev *indio_dev)
+#define to_dev_attr(_attr) container_of(_attr, struct device_attribute, attr)
+
+static struct attribute *iio_buffer_wrap_attr(struct iio_buffer *buffer,
+					      struct attribute *attr)
 {
-	struct iio_dev_attr *p;
-	struct attribute **attr;
-	struct iio_buffer *buffer = indio_dev->buffer;
-	int ret, i, attrn, attrcount, attrcount_orig = 0;
-	const struct iio_chan_spec *channels;
+	struct device_attribute *dattr = to_dev_attr(attr);
+	struct iio_dev_attr *iio_attr;
 
-	channels = indio_dev->channels;
-	if (channels) {
-		int ml = indio_dev->masklength;
+	iio_attr = kzalloc(sizeof(*iio_attr), GFP_KERNEL);
+	if (!iio_attr)
+		return NULL;
 
-		for (i = 0; i < indio_dev->num_channels; i++)
-			ml = max(ml, channels[i].scan_index + 1);
-		indio_dev->masklength = ml;
-	}
+	iio_attr->buffer = buffer;
+	memcpy(&iio_attr->dev_attr, dattr, sizeof(iio_attr->dev_attr));
+	iio_attr->dev_attr.attr.name = kstrdup_const(attr->name, GFP_KERNEL);
+	sysfs_attr_init(&iio_attr->dev_attr.attr);
 
-	if (!buffer)
-		return 0;
+	list_add(&iio_attr->l, &buffer->buffer_attr_list);
 
-	attrcount = 0;
-	if (buffer->attrs) {
-		while (buffer->attrs[attrcount] != NULL)
-			attrcount++;
-	}
+	return &iio_attr->dev_attr.attr;
+}
 
-	attr = kcalloc(attrcount + ARRAY_SIZE(iio_buffer_attrs) + 1,
-		       sizeof(struct attribute *), GFP_KERNEL);
-	if (!attr)
+static int iio_buffer_register_legacy_sysfs_groups(struct iio_dev *indio_dev,
+						   struct attribute **buffer_attrs,
+						   int buffer_attrcount,
+						   int scan_el_attrcount)
+{
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
+	struct attribute_group *group;
+	struct attribute **attrs;
+	int ret;
+
+	attrs = kcalloc(buffer_attrcount + 1, sizeof(*attrs), GFP_KERNEL);
+	if (!attrs)
 		return -ENOMEM;
 
-	memcpy(attr, iio_buffer_attrs, sizeof(iio_buffer_attrs));
-	if (!buffer->access->set_length)
-		attr[0] = &dev_attr_length_ro.attr;
+	memcpy(attrs, buffer_attrs, buffer_attrcount * sizeof(*attrs));
 
-	if (buffer->access->flags & INDIO_BUFFER_FLAG_FIXED_WATERMARK)
-		attr[2] = &dev_attr_watermark_ro.attr;
+	group = &iio_dev_opaque->legacy_buffer_group;
+	group->attrs = attrs;
+	group->name = "buffer";
 
-	if (buffer->attrs)
-		memcpy(&attr[ARRAY_SIZE(iio_buffer_attrs)], buffer->attrs,
-		       sizeof(struct attribute *) * attrcount);
+	ret = iio_device_register_sysfs_group(indio_dev, group);
+	if (ret)
+		goto error_free_buffer_attrs;
 
-	attr[attrcount + ARRAY_SIZE(iio_buffer_attrs)] = NULL;
-
-	buffer->buffer_group.name = "buffer";
-	buffer->buffer_group.attrs = attr;
-
-	indio_dev->groups[indio_dev->groupcounter++] = &buffer->buffer_group;
-
-	if (buffer->scan_el_attrs != NULL) {
-		attr = buffer->scan_el_attrs->attrs;
-		while (*attr++ != NULL)
-			attrcount_orig++;
+	attrs = kcalloc(scan_el_attrcount + 1, sizeof(*attrs), GFP_KERNEL);
+	if (!attrs) {
+		ret = -ENOMEM;
+		goto error_free_buffer_attrs;
 	}
-	attrcount = attrcount_orig;
-	INIT_LIST_HEAD(&buffer->scan_el_dev_attr_list);
+
+	memcpy(attrs, &buffer_attrs[buffer_attrcount],
+	       scan_el_attrcount * sizeof(*attrs));
+
+	group = &iio_dev_opaque->legacy_scan_el_group;
+	group->attrs = attrs;
+	group->name = "scan_elements";
+
+	ret = iio_device_register_sysfs_group(indio_dev, group);
+	if (ret)
+		goto error_free_scan_el_attrs;
+
+	return 0;
+
+error_free_buffer_attrs:
+	kfree(iio_dev_opaque->legacy_buffer_group.attrs);
+error_free_scan_el_attrs:
+	kfree(iio_dev_opaque->legacy_scan_el_group.attrs);
+
+	return ret;
+}
+
+static void iio_buffer_unregister_legacy_sysfs_groups(struct iio_dev *indio_dev)
+{
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
+
+	kfree(iio_dev_opaque->legacy_buffer_group.attrs);
+	kfree(iio_dev_opaque->legacy_scan_el_group.attrs);
+}
+
+static int iio_buffer_chrdev_release(struct inode *inode, struct file *filep)
+{
+	struct iio_dev_buffer_pair *ib = filep->private_data;
+	struct iio_dev *indio_dev = ib->indio_dev;
+	struct iio_buffer *buffer = ib->buffer;
+
+	wake_up(&buffer->pollq);
+
+	kfree(ib);
+	clear_bit(IIO_BUSY_BIT_POS, &buffer->flags);
+	iio_device_put(indio_dev);
+
+	return 0;
+}
+
+static const struct file_operations iio_buffer_chrdev_fileops = {
+	.owner = THIS_MODULE,
+	.llseek = noop_llseek,
+	.read = iio_buffer_read,
+	.poll = iio_buffer_poll,
+	.release = iio_buffer_chrdev_release,
+};
+
+static long iio_device_buffer_getfd(struct iio_dev *indio_dev, unsigned long arg)
+{
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
+	int __user *ival = (int __user *)arg;
+	struct iio_dev_buffer_pair *ib;
+	struct iio_buffer *buffer;
+	int fd, idx, ret;
+
+	if (copy_from_user(&idx, ival, sizeof(idx)))
+		return -EFAULT;
+
+	if (idx >= iio_dev_opaque->attached_buffers_cnt)
+		return -ENODEV;
+
+	iio_device_get(indio_dev);
+
+	buffer = iio_dev_opaque->attached_buffers[idx];
+
+	if (test_and_set_bit(IIO_BUSY_BIT_POS, &buffer->flags)) {
+		ret = -EBUSY;
+		goto error_iio_dev_put;
+	}
+
+	ib = kzalloc(sizeof(*ib), GFP_KERNEL);
+	if (!ib) {
+		ret = -ENOMEM;
+		goto error_clear_busy_bit;
+	}
+
+	ib->indio_dev = indio_dev;
+	ib->buffer = buffer;
+
+	fd = anon_inode_getfd("iio:buffer", &iio_buffer_chrdev_fileops,
+			      ib, O_RDWR | O_CLOEXEC);
+	if (fd < 0) {
+		ret = fd;
+		goto error_free_ib;
+	}
+
+	if (copy_to_user(ival, &fd, sizeof(fd))) {
+		put_unused_fd(fd);
+		ret = -EFAULT;
+		goto error_free_ib;
+	}
+
+	return 0;
+
+error_free_ib:
+	kfree(ib);
+error_clear_busy_bit:
+	clear_bit(IIO_BUSY_BIT_POS, &buffer->flags);
+error_iio_dev_put:
+	iio_device_put(indio_dev);
+	return ret;
+}
+
+static long iio_device_buffer_ioctl(struct iio_dev *indio_dev, struct file *filp,
+				    unsigned int cmd, unsigned long arg)
+{
+	switch (cmd) {
+	case IIO_BUFFER_GET_FD_IOCTL:
+		return iio_device_buffer_getfd(indio_dev, arg);
+	default:
+		return IIO_IOCTL_UNHANDLED;
+	}
+}
+
+static int __iio_buffer_alloc_sysfs_and_mask(struct iio_buffer *buffer,
+					     struct iio_dev *indio_dev,
+					     int index)
+{
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
+	struct iio_dev_attr *p;
+	struct attribute **attr;
+	int ret, i, attrn, scan_el_attrcount, buffer_attrcount;
+	const struct iio_chan_spec *channels;
+
+	buffer_attrcount = 0;
+	if (buffer->attrs) {
+		while (buffer->attrs[buffer_attrcount] != NULL)
+			buffer_attrcount++;
+	}
+
+	scan_el_attrcount = 0;
+	INIT_LIST_HEAD(&buffer->buffer_attr_list);
 	channels = indio_dev->channels;
 	if (channels) {
 		/* new magic */
@@ -1298,13 +1492,13 @@ int iio_buffer_alloc_sysfs_and_mask(struct iio_dev *indio_dev)
 			if (channels[i].scan_index < 0)
 				continue;
 
-			ret = iio_buffer_add_channel_sysfs(indio_dev,
+			ret = iio_buffer_add_channel_sysfs(indio_dev, buffer,
 							 &channels[i]);
 			if (ret < 0)
 				goto error_cleanup_dynamic;
-			attrcount += ret;
+			scan_el_attrcount += ret;
 			if (channels[i].type == IIO_TIMESTAMP)
-				indio_dev->scan_index_timestamp =
+				iio_dev_opaque->scan_index_timestamp =
 					channels[i].scan_index;
 		}
 		if (indio_dev->masklength && buffer->scan_mask == NULL) {
@@ -1317,44 +1511,155 @@ int iio_buffer_alloc_sysfs_and_mask(struct iio_dev *indio_dev)
 		}
 	}
 
-	buffer->scan_el_group.name = iio_scan_elements_group_name;
-
-	buffer->scan_el_group.attrs = kcalloc(attrcount + 1,
-					      sizeof(buffer->scan_el_group.attrs[0]),
-					      GFP_KERNEL);
-	if (buffer->scan_el_group.attrs == NULL) {
+	attrn = buffer_attrcount + scan_el_attrcount + ARRAY_SIZE(iio_buffer_attrs);
+	attr = kcalloc(attrn + 1, sizeof(* attr), GFP_KERNEL);
+	if (!attr) {
 		ret = -ENOMEM;
 		goto error_free_scan_mask;
 	}
-	if (buffer->scan_el_attrs)
-		memcpy(buffer->scan_el_group.attrs, buffer->scan_el_attrs,
-		       sizeof(buffer->scan_el_group.attrs[0])*attrcount_orig);
-	attrn = attrcount_orig;
 
-	list_for_each_entry(p, &buffer->scan_el_dev_attr_list, l)
-		buffer->scan_el_group.attrs[attrn++] = &p->dev_attr.attr;
-	indio_dev->groups[indio_dev->groupcounter++] = &buffer->scan_el_group;
+	memcpy(attr, iio_buffer_attrs, sizeof(iio_buffer_attrs));
+	if (!buffer->access->set_length)
+		attr[0] = &dev_attr_length_ro.attr;
+
+	if (buffer->access->flags & INDIO_BUFFER_FLAG_FIXED_WATERMARK)
+		attr[2] = &dev_attr_watermark_ro.attr;
+
+	if (buffer->attrs)
+		memcpy(&attr[ARRAY_SIZE(iio_buffer_attrs)], buffer->attrs,
+		       sizeof(struct attribute *) * buffer_attrcount);
+
+	buffer_attrcount += ARRAY_SIZE(iio_buffer_attrs);
+
+	for (i = 0; i < buffer_attrcount; i++) {
+		struct attribute *wrapped;
+
+		wrapped = iio_buffer_wrap_attr(buffer, attr[i]);
+		if (!wrapped) {
+			ret = -ENOMEM;
+			goto error_free_scan_mask;
+		}
+		attr[i] = wrapped;
+	}
+
+	attrn = 0;
+	list_for_each_entry(p, &buffer->buffer_attr_list, l)
+		attr[attrn++] = &p->dev_attr.attr;
+
+	buffer->buffer_group.name = kasprintf(GFP_KERNEL, "buffer%d", index);
+	if (!buffer->buffer_group.name) {
+		ret = -ENOMEM;
+		goto error_free_buffer_attrs;
+	}
+
+	buffer->buffer_group.attrs = attr;
+
+	ret = iio_device_register_sysfs_group(indio_dev, &buffer->buffer_group);
+	if (ret)
+		goto error_free_buffer_attr_group_name;
+
+	/* we only need to register the legacy groups for the first buffer */
+	if (index > 0)
+		return 0;
+
+	ret = iio_buffer_register_legacy_sysfs_groups(indio_dev, attr,
+						      buffer_attrcount,
+						      scan_el_attrcount);
+	if (ret)
+		goto error_free_buffer_attr_group_name;
 
 	return 0;
 
+error_free_buffer_attr_group_name:
+	kfree(buffer->buffer_group.name);
+error_free_buffer_attrs:
+	kfree(buffer->buffer_group.attrs);
 error_free_scan_mask:
 	bitmap_free(buffer->scan_mask);
 error_cleanup_dynamic:
-	iio_free_chan_devattr_list(&buffer->scan_el_dev_attr_list);
-	kfree(indio_dev->buffer->buffer_group.attrs);
+	iio_free_chan_devattr_list(&buffer->buffer_attr_list);
 
 	return ret;
 }
 
-void iio_buffer_free_sysfs_and_mask(struct iio_dev *indio_dev)
+static void __iio_buffer_free_sysfs_and_mask(struct iio_buffer *buffer)
 {
-	if (!indio_dev->buffer)
+	bitmap_free(buffer->scan_mask);
+	kfree(buffer->buffer_group.name);
+	kfree(buffer->buffer_group.attrs);
+	iio_free_chan_devattr_list(&buffer->buffer_attr_list);
+}
+
+int iio_buffers_alloc_sysfs_and_mask(struct iio_dev *indio_dev)
+{
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
+	const struct iio_chan_spec *channels;
+	struct iio_buffer *buffer;
+	int unwind_idx;
+	int ret, i;
+	size_t sz;
+
+	channels = indio_dev->channels;
+	if (channels) {
+		int ml = indio_dev->masklength;
+
+		for (i = 0; i < indio_dev->num_channels; i++)
+			ml = max(ml, channels[i].scan_index + 1);
+		indio_dev->masklength = ml;
+	}
+
+	if (!iio_dev_opaque->attached_buffers_cnt)
+		return 0;
+
+	for (i = 0; i < iio_dev_opaque->attached_buffers_cnt; i++) {
+		buffer = iio_dev_opaque->attached_buffers[i];
+		ret = __iio_buffer_alloc_sysfs_and_mask(buffer, indio_dev, i);
+		if (ret) {
+			unwind_idx = i;
+			goto error_unwind_sysfs_and_mask;
+		}
+	}
+	unwind_idx = iio_dev_opaque->attached_buffers_cnt - 1;
+
+	sz = sizeof(*(iio_dev_opaque->buffer_ioctl_handler));
+	iio_dev_opaque->buffer_ioctl_handler = kzalloc(sz, GFP_KERNEL);
+	if (!iio_dev_opaque->buffer_ioctl_handler) {
+		ret = -ENOMEM;
+		goto error_unwind_sysfs_and_mask;
+	}
+
+	iio_dev_opaque->buffer_ioctl_handler->ioctl = iio_device_buffer_ioctl;
+	iio_device_ioctl_handler_register(indio_dev,
+					  iio_dev_opaque->buffer_ioctl_handler);
+
+	return 0;
+
+error_unwind_sysfs_and_mask:
+	for (; unwind_idx >= 0; unwind_idx--) {
+		buffer = iio_dev_opaque->attached_buffers[unwind_idx];
+		__iio_buffer_free_sysfs_and_mask(buffer);
+	}
+	return ret;
+}
+
+void iio_buffers_free_sysfs_and_mask(struct iio_dev *indio_dev)
+{
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
+	struct iio_buffer *buffer;
+	int i;
+
+	if (!iio_dev_opaque->attached_buffers_cnt)
 		return;
 
-	bitmap_free(indio_dev->buffer->scan_mask);
-	kfree(indio_dev->buffer->buffer_group.attrs);
-	kfree(indio_dev->buffer->scan_el_group.attrs);
-	iio_free_chan_devattr_list(&indio_dev->buffer->scan_el_dev_attr_list);
+	iio_device_ioctl_handler_unregister(iio_dev_opaque->buffer_ioctl_handler);
+	kfree(iio_dev_opaque->buffer_ioctl_handler);
+
+	iio_buffer_unregister_legacy_sysfs_groups(indio_dev);
+
+	for (i = iio_dev_opaque->attached_buffers_cnt - 1; i >= 0; i--) {
+		buffer = iio_dev_opaque->attached_buffers[i];
+		__iio_buffer_free_sysfs_and_mask(buffer);
+	}
 }
 
 /**
@@ -1411,10 +1716,11 @@ static int iio_push_to_buffer(struct iio_buffer *buffer, const void *data)
  */
 int iio_push_to_buffers(struct iio_dev *indio_dev, const void *data)
 {
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
 	int ret;
 	struct iio_buffer *buf;
 
-	list_for_each_entry(buf, &indio_dev->buffer_list, buffer_list) {
+	list_for_each_entry(buf, &iio_dev_opaque->buffer_list, buffer_list) {
 		ret = iio_push_to_buffer(buf, data);
 		if (ret < 0)
 			return ret;
@@ -1471,13 +1777,37 @@ EXPORT_SYMBOL_GPL(iio_buffer_put);
  * @indio_dev: The device the buffer should be attached to
  * @buffer: The buffer to attach to the device
  *
+ * Return 0 if successful, negative if error.
+ *
  * This function attaches a buffer to a IIO device. The buffer stays attached to
- * the device until the device is freed. The function should only be called at
- * most once per device.
+ * the device until the device is freed. For legacy reasons, the first attached
+ * buffer will also be assigned to 'indio_dev->buffer'.
+ * The array allocated here, will be free'd via the iio_device_detach_buffers()
+ * call which is handled by the iio_device_free().
  */
-void iio_device_attach_buffer(struct iio_dev *indio_dev,
-			      struct iio_buffer *buffer)
+int iio_device_attach_buffer(struct iio_dev *indio_dev,
+			     struct iio_buffer *buffer)
 {
-	indio_dev->buffer = iio_buffer_get(buffer);
+	struct iio_dev_opaque *iio_dev_opaque = to_iio_dev_opaque(indio_dev);
+	struct iio_buffer **new, **old = iio_dev_opaque->attached_buffers;
+	unsigned int cnt = iio_dev_opaque->attached_buffers_cnt;
+
+	cnt++;
+
+	new = krealloc(old, sizeof(*new) * cnt, GFP_KERNEL);
+	if (!new)
+		return -ENOMEM;
+	iio_dev_opaque->attached_buffers = new;
+
+	buffer = iio_buffer_get(buffer);
+
+	/* first buffer is legacy; attach it to the IIO device directly */
+	if (!indio_dev->buffer)
+		indio_dev->buffer = buffer;
+
+	iio_dev_opaque->attached_buffers[cnt - 1] = buffer;
+	iio_dev_opaque->attached_buffers_cnt = cnt;
+
+	return 0;
 }
 EXPORT_SYMBOL_GPL(iio_device_attach_buffer);

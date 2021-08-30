@@ -51,8 +51,8 @@ struct pinctrl_pin_desc {
  * @id: an ID number for the chip in this range
  * @base: base offset of the GPIO range
  * @pin_base: base pin number of the GPIO range if pins == NULL
- * @pins: enumeration of pins in GPIO range or NULL
  * @npins: number of pins in the GPIO range, including the base number
+ * @pins: enumeration of pins in GPIO range or NULL
  * @gc: an optional pointer to a gpio_chip
  */
 struct pinctrl_gpio_range {
@@ -61,8 +61,8 @@ struct pinctrl_gpio_range {
 	unsigned int id;
 	unsigned int base;
 	unsigned int pin_base;
-	unsigned const *pins;
 	unsigned int npins;
+	unsigned const *pins;
 	struct gpio_chip *gc;
 };
 
@@ -186,7 +186,7 @@ extern int pinctrl_get_group_pins(struct pinctrl_dev *pctldev,
 				const char *pin_group, const unsigned **pins,
 				unsigned *num_pins);
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF) && IS_ENABLED(CONFIG_PINCTRL)
 extern struct pinctrl_dev *of_pinctrl_get(struct device_node *np);
 #else
 static inline

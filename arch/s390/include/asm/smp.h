@@ -10,6 +10,7 @@
 
 #include <asm/sigp.h>
 #include <asm/lowcore.h>
+#include <asm/processor.h>
 
 #define raw_smp_processor_id()	(S390_lowcore.cpu_nr)
 
@@ -30,7 +31,6 @@ extern void smp_emergency_stop(void);
 extern int smp_find_processor_id(u16 address);
 extern int smp_store_status(int cpu);
 extern void smp_save_dump_cpus(void);
-extern int smp_vcpu_scheduled(int cpu);
 extern void smp_yield_cpu(int cpu);
 extern void smp_cpu_set_polarization(int cpu, int val);
 extern int smp_cpu_get_polarization(int cpu);
@@ -54,9 +54,15 @@ static inline int smp_get_base_cpu(int cpu)
 	return cpu - (cpu % (smp_cpu_mtid + 1));
 }
 
+static inline void smp_cpus_done(unsigned int max_cpus)
+{
+}
+
 extern int smp_rescan_cpus(void);
 extern void __noreturn cpu_die(void);
 extern void __cpu_die(unsigned int cpu);
 extern int __cpu_disable(void);
+extern void schedule_mcck_handler(void);
+void notrace smp_yield_cpu(int cpu);
 
 #endif /* __ASM_SMP_H */

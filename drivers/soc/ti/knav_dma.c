@@ -355,7 +355,7 @@ static void dma_debug_show_devices(struct seq_file *s,
 	}
 }
 
-static int dma_debug_show(struct seq_file *s, void *v)
+static int knav_dma_debug_show(struct seq_file *s, void *v)
 {
 	struct knav_dma_device *dma;
 
@@ -370,17 +370,7 @@ static int dma_debug_show(struct seq_file *s, void *v)
 	return 0;
 }
 
-static int knav_dma_debug_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, dma_debug_show, NULL);
-}
-
-static const struct file_operations knav_dma_debug_ops = {
-	.open		= knav_dma_debug_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
+DEFINE_SHOW_ATTRIBUTE(knav_dma_debug);
 
 static int of_channel_match_helper(struct device_node *np, const char *name,
 					const char **dma_instance)
@@ -510,7 +500,7 @@ EXPORT_SYMBOL_GPL(knav_dma_open_channel);
 /**
  * knav_dma_close_channel()	- Destroy a dma channel
  *
- * channel:	dma channel handle
+ * @channel:	dma channel handle
  *
  */
 void knav_dma_close_channel(void *channel)
@@ -768,6 +758,7 @@ static int knav_dma_probe(struct platform_device *pdev)
 	for_each_child_of_node(node, child) {
 		ret = dma_init(node, child);
 		if (ret) {
+			of_node_put(child);
 			dev_err(&pdev->dev, "init failed with %d\n", ret);
 			break;
 		}
@@ -780,7 +771,7 @@ static int knav_dma_probe(struct platform_device *pdev)
 	}
 
 	debugfs_create_file("knav_dma", S_IFREG | S_IRUGO, NULL, NULL,
-			    &knav_dma_debug_ops);
+			    &knav_dma_debug_fops);
 
 	device_ready = true;
 	return ret;

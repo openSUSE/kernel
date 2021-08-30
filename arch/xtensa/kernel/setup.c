@@ -37,7 +37,6 @@
 #include <asm/bootparam.h>
 #include <asm/kasan.h>
 #include <asm/mmu_context.h>
-#include <asm/pgtable.h>
 #include <asm/processor.h>
 #include <asm/timex.h>
 #include <asm/platform.h>
@@ -61,7 +60,6 @@ struct screen_info screen_info = {
 #ifdef CONFIG_BLK_DEV_INITRD
 extern unsigned long initrd_start;
 extern unsigned long initrd_end;
-int initrd_is_mapped = 0;
 extern int initrd_below_start_ok;
 #endif
 
@@ -95,7 +93,7 @@ typedef struct tagtable {
 } tagtable_t;
 
 #define __tagtable(tag, fn) static tagtable_t __tagtable_##fn 		\
-	__attribute__((used, section(".taglist"))) = { tag, fn }
+	__section(".taglist") __attribute__((used)) = { tag, fn }
 
 /* parse current tag */
 
@@ -285,6 +283,8 @@ extern char _UserExceptionVector_text_start;
 extern char _UserExceptionVector_text_end;
 extern char _DoubleExceptionVector_text_start;
 extern char _DoubleExceptionVector_text_end;
+extern char _exception_text_start;
+extern char _exception_text_end;
 #if XCHAL_EXCM_LEVEL >= 2
 extern char _Level2InterruptVector_text_start;
 extern char _Level2InterruptVector_text_end;
@@ -309,6 +309,10 @@ extern char _Level6InterruptVector_text_end;
 extern char _SecondaryResetVector_text_start;
 extern char _SecondaryResetVector_text_end;
 #endif
+#ifdef CONFIG_XIP_KERNEL
+extern char _xip_start[];
+extern char _xip_end[];
+#endif
 
 static inline int __init_memblock mem_reserve(unsigned long start,
 					      unsigned long end)
@@ -332,18 +336,19 @@ void __init setup_arch(char **cmdline_p)
 	/* Reserve some memory regions */
 
 #ifdef CONFIG_BLK_DEV_INITRD
-	if (initrd_start < initrd_end) {
-		initrd_is_mapped = mem_reserve(__pa(initrd_start),
-					       __pa(initrd_end)) == 0;
+	if (initrd_start < initrd_end &&
+	    !mem_reserve(__pa(initrd_start), __pa(initrd_end)))
 		initrd_below_start_ok = 1;
-	} else {
+	else
 		initrd_start = 0;
-	}
 #endif
 
 	mem_reserve(__pa(_stext), __pa(_end));
+#ifdef CONFIG_XIP_KERNEL
+	mem_reserve(__pa(_xip_start), __pa(_xip_end));
+#endif
 
-#ifdef CONFIG_VECTORS_OFFSET
+#ifdef CONFIG_VECTORS_ADDR
 	mem_reserve(__pa(&_WindowVectors_text_start),
 		    __pa(&_WindowVectors_text_end));
 
@@ -359,6 +364,8 @@ void __init setup_arch(char **cmdline_p)
 	mem_reserve(__pa(&_DoubleExceptionVector_text_start),
 		    __pa(&_DoubleExceptionVector_text_end));
 
+	mem_reserve(__pa(&_exception_text_start),
+		    __pa(&_exception_text_end));
 #if XCHAL_EXCM_LEVEL >= 2
 	mem_reserve(__pa(&_Level2InterruptVector_text_start),
 		    __pa(&_Level2InterruptVector_text_end));
@@ -380,7 +387,7 @@ void __init setup_arch(char **cmdline_p)
 		    __pa(&_Level6InterruptVector_text_end));
 #endif
 
-#endif /* CONFIG_VECTORS_OFFSET */
+#endif /* CONFIG_VECTORS_ADDR */
 
 #ifdef CONFIG_SMP
 	mem_reserve(__pa(&_SecondaryResetVector_text_start),
@@ -401,8 +408,6 @@ void __init setup_arch(char **cmdline_p)
 #ifdef CONFIG_VT
 # if defined(CONFIG_VGA_CONSOLE)
 	conswitchp = &vga_con;
-# elif defined(CONFIG_DUMMY_CONSOLE)
-	conswitchp = &dummy_con;
 # endif
 #endif
 }
@@ -719,7 +724,8 @@ c_start(struct seq_file *f, loff_t *pos)
 static void *
 c_next(struct seq_file *f, void *v, loff_t *pos)
 {
-	return NULL;
+	++*pos;
+	return c_start(f, pos);
 }
 
 static void

@@ -2,7 +2,7 @@
 /*
 * Portions of this file
 * Copyright(c) 2016-2017 Intel Deutschland GmbH
-* Copyright (C) 2018 - 2019 Intel Corporation
+* Copyright (C) 2018 - 2021 Intel Corporation
 */
 
 #if !defined(__MAC80211_DRIVER_TRACE) || defined(TRACE_HEADER_MULTI_READ)
@@ -419,21 +419,21 @@ TRACE_EVENT(drv_bss_info_changed,
 		__field(u32, basic_rates)
 		__array(int, mcast_rate, NUM_NL80211_BANDS)
 		__field(u16, ht_operation_mode)
-		__field(s32, cqm_rssi_thold);
-		__field(s32, cqm_rssi_hyst);
-		__field(u32, channel_width);
-		__field(u32, channel_cfreq1);
+		__field(s32, cqm_rssi_thold)
+		__field(s32, cqm_rssi_hyst)
+		__field(u32, channel_width)
+		__field(u32, channel_cfreq1)
 		__field(u32, channel_cfreq1_offset)
 		__dynamic_array(u32, arp_addr_list,
 				info->arp_addr_cnt > IEEE80211_BSS_ARP_ADDR_LIST_LEN ?
 					IEEE80211_BSS_ARP_ADDR_LIST_LEN :
-					info->arp_addr_cnt);
-		__field(int, arp_addr_cnt);
-		__field(bool, qos);
-		__field(bool, idle);
-		__field(bool, ps);
-		__dynamic_array(u8, ssid, info->ssid_len);
-		__field(bool, hidden_ssid);
+					info->arp_addr_cnt)
+		__field(int, arp_addr_cnt)
+		__field(bool, qos)
+		__field(bool, idle)
+		__field(bool, ps)
+		__dynamic_array(u8, ssid, info->ssid_len)
+		__field(bool, hidden_ssid)
 		__field(int, txpower)
 		__field(u8, p2p_oppps_ctwindow)
 	),
@@ -1461,29 +1461,50 @@ DEFINE_EVENT(release_evt, drv_allow_buffered_frames,
 	TP_ARGS(local, sta, tids, num_frames, reason, more_data)
 );
 
-TRACE_EVENT(drv_mgd_prepare_tx,
+DECLARE_EVENT_CLASS(mgd_prepare_complete_tx_evt,
 	TP_PROTO(struct ieee80211_local *local,
 		 struct ieee80211_sub_if_data *sdata,
-		 u16 duration),
+		 u16 duration, u16 subtype, bool success),
 
-	TP_ARGS(local, sdata, duration),
+	TP_ARGS(local, sdata, duration, subtype, success),
 
 	TP_STRUCT__entry(
 		LOCAL_ENTRY
 		VIF_ENTRY
 		__field(u32, duration)
+		__field(u16, subtype)
+		__field(u8, success)
 	),
 
 	TP_fast_assign(
 		LOCAL_ASSIGN;
 		VIF_ASSIGN;
 		__entry->duration = duration;
+		__entry->subtype = subtype;
+		__entry->success = success;
 	),
 
 	TP_printk(
-		LOCAL_PR_FMT VIF_PR_FMT " duration: %u",
-		LOCAL_PR_ARG, VIF_PR_ARG, __entry->duration
+		LOCAL_PR_FMT VIF_PR_FMT " duration: %u, subtype:0x%x, success:%d",
+		LOCAL_PR_ARG, VIF_PR_ARG, __entry->duration,
+		__entry->subtype, __entry->success
 	)
+);
+
+DEFINE_EVENT(mgd_prepare_complete_tx_evt, drv_mgd_prepare_tx,
+	TP_PROTO(struct ieee80211_local *local,
+		 struct ieee80211_sub_if_data *sdata,
+		 u16 duration, u16 subtype, bool success),
+
+	TP_ARGS(local, sdata, duration, subtype, success)
+);
+
+DEFINE_EVENT(mgd_prepare_complete_tx_evt, drv_mgd_complete_tx,
+	TP_PROTO(struct ieee80211_local *local,
+		 struct ieee80211_sub_if_data *sdata,
+		 u16 duration, u16 subtype, bool success),
+
+	TP_ARGS(local, sdata, duration, subtype, success)
 );
 
 DEFINE_EVENT(local_sdata_evt, drv_mgd_protect_tdls_discover,
@@ -1698,8 +1719,8 @@ TRACE_EVENT(drv_start_ap,
 		VIF_ENTRY
 		__field(u8, dtimper)
 		__field(u16, bcnint)
-		__dynamic_array(u8, ssid, info->ssid_len);
-		__field(bool, hidden_ssid);
+		__dynamic_array(u8, ssid, info->ssid_len)
+		__field(bool, hidden_ssid)
 	),
 
 	TP_fast_assign(
@@ -1765,7 +1786,7 @@ TRACE_EVENT(drv_join_ibss,
 		VIF_ENTRY
 		__field(u8, dtimper)
 		__field(u16, bcnint)
-		__dynamic_array(u8, ssid, info->ssid_len);
+		__dynamic_array(u8, ssid, info->ssid_len)
 	),
 
 	TP_fast_assign(
@@ -2083,6 +2104,27 @@ TRACE_EVENT(api_connection_loss,
 	TP_printk(
 		VIF_PR_FMT,
 		VIF_PR_ARG
+	)
+);
+
+TRACE_EVENT(api_disconnect,
+	TP_PROTO(struct ieee80211_sub_if_data *sdata, bool reconnect),
+
+	TP_ARGS(sdata, reconnect),
+
+	TP_STRUCT__entry(
+		VIF_ENTRY
+		__field(int, reconnect)
+	),
+
+	TP_fast_assign(
+		VIF_ASSIGN;
+		__entry->reconnect = reconnect;
+	),
+
+	TP_printk(
+		VIF_PR_FMT " reconnect:%d",
+		VIF_PR_ARG, __entry->reconnect
 	)
 );
 
@@ -2732,6 +2774,55 @@ TRACE_EVENT(drv_get_ftm_responder_stats,
 		LOCAL_PR_FMT VIF_PR_FMT,
 		LOCAL_PR_ARG, VIF_PR_ARG
 	)
+);
+
+DEFINE_EVENT(local_sdata_addr_evt, drv_update_vif_offload,
+	TP_PROTO(struct ieee80211_local *local,
+		 struct ieee80211_sub_if_data *sdata),
+	TP_ARGS(local, sdata)
+);
+
+DECLARE_EVENT_CLASS(sta_flag_evt,
+	TP_PROTO(struct ieee80211_local *local,
+		 struct ieee80211_sub_if_data *sdata,
+		 struct ieee80211_sta *sta, bool enabled),
+
+	TP_ARGS(local, sdata, sta, enabled),
+
+	TP_STRUCT__entry(
+		LOCAL_ENTRY
+		VIF_ENTRY
+		STA_ENTRY
+		__field(bool, enabled)
+	),
+
+	TP_fast_assign(
+		LOCAL_ASSIGN;
+		VIF_ASSIGN;
+		STA_ASSIGN;
+		__entry->enabled = enabled;
+	),
+
+	TP_printk(
+		LOCAL_PR_FMT  VIF_PR_FMT  STA_PR_FMT " enabled:%d",
+		LOCAL_PR_ARG, VIF_PR_ARG, STA_PR_ARG, __entry->enabled
+	)
+);
+
+DEFINE_EVENT(sta_flag_evt, drv_sta_set_4addr,
+	TP_PROTO(struct ieee80211_local *local,
+		 struct ieee80211_sub_if_data *sdata,
+		 struct ieee80211_sta *sta, bool enabled),
+
+	TP_ARGS(local, sdata, sta, enabled)
+);
+
+DEFINE_EVENT(sta_flag_evt, drv_sta_set_decap_offload,
+	TP_PROTO(struct ieee80211_local *local,
+		 struct ieee80211_sub_if_data *sdata,
+		 struct ieee80211_sta *sta, bool enabled),
+
+	TP_ARGS(local, sdata, sta, enabled)
 );
 
 #endif /* !__MAC80211_DRIVER_TRACE || TRACE_HEADER_MULTI_READ */

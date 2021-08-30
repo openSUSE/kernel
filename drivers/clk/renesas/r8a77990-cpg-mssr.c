@@ -105,6 +105,7 @@ static const struct cpg_core_clk r8a77990_core_clks[] __initconst = {
 	DEF_GEN3_SD("sd3",     R8A77990_CLK_SD3,   CLK_SDSRC,	  0x026c),
 
 	DEF_FIXED("cl",        R8A77990_CLK_CL,    CLK_PLL1,      48, 1),
+	DEF_FIXED("cr",        R8A77990_CLK_CR,    CLK_PLL1D2,     2, 1),
 	DEF_FIXED("cp",        R8A77990_CLK_CP,    CLK_EXTAL,      2, 1),
 	DEF_FIXED("cpex",      R8A77990_CLK_CPEX,  CLK_EXTAL,      4, 1),
 
@@ -123,6 +124,11 @@ static const struct cpg_core_clk r8a77990_core_clks[] __initconst = {
 };
 
 static const struct mssr_mod_clk r8a77990_mod_clks[] __initconst = {
+	DEF_MOD("tmu4",			 121,	R8A77990_CLK_S0D6C),
+	DEF_MOD("tmu3",			 122,	R8A77990_CLK_S3D2C),
+	DEF_MOD("tmu2",			 123,	R8A77990_CLK_S3D2C),
+	DEF_MOD("tmu1",			 124,	R8A77990_CLK_S3D2C),
+	DEF_MOD("tmu0",			 125,	R8A77990_CLK_CP),
 	DEF_MOD("scif5",		 202,	R8A77990_CLK_S3D4C),
 	DEF_MOD("scif4",		 203,	R8A77990_CLK_S3D4C),
 	DEF_MOD("scif3",		 204,	R8A77990_CLK_S3D4C),
@@ -135,6 +141,7 @@ static const struct mssr_mod_clk r8a77990_mod_clks[] __initconst = {
 	DEF_MOD("sys-dmac2",		 217,	R8A77990_CLK_S3D1),
 	DEF_MOD("sys-dmac1",		 218,	R8A77990_CLK_S3D1),
 	DEF_MOD("sys-dmac0",		 219,	R8A77990_CLK_S3D1),
+	DEF_MOD("sceg-pub",		 229,	R8A77990_CLK_CR),
 
 	DEF_MOD("cmt3",			 300,	R8A77990_CLK_R),
 	DEF_MOD("cmt2",			 301,	R8A77990_CLK_R),
@@ -225,6 +232,7 @@ static const struct mssr_mod_clk r8a77990_mod_clks[] __initconst = {
 	DEF_MOD("ssi2",			1013,	MOD_CLK_ID(1005)),
 	DEF_MOD("ssi1",			1014,	MOD_CLK_ID(1005)),
 	DEF_MOD("ssi0",			1015,	MOD_CLK_ID(1005)),
+	DEF_MOD("dab",			1016,	R8A77990_CLK_S3D1),
 	DEF_MOD("scu-all",		1017,	R8A77990_CLK_S3D4),
 	DEF_MOD("scu-dvc1",		1018,	MOD_CLK_ID(1017)),
 	DEF_MOD("scu-dvc0",		1019,	MOD_CLK_ID(1017)),
@@ -243,6 +251,7 @@ static const struct mssr_mod_clk r8a77990_mod_clks[] __initconst = {
 };
 
 static const unsigned int r8a77990_crit_mod_clks[] __initconst = {
+	MOD_CLK_ID(402),	/* RWDT */
 	MOD_CLK_ID(408),	/* INTC-AP (GIC) */
 };
 

@@ -7,6 +7,7 @@
 /*
  * Call Logical Processor - Command Codes
  */
+#define CLP_SLPC		0x0001
 #define CLP_LIST_PCI		0x0002
 #define CLP_QUERY_PCI_FN	0x0003
 #define CLP_QUERY_PCI_FNGRP	0x0004
@@ -50,6 +51,19 @@ struct clp_fh_list_entry {
 #define CLP_PFIP_NR_SEGMENTS	4
 
 extern bool zpci_unique_uid;
+
+struct clp_rsp_slpc_pci {
+	struct clp_rsp_hdr hdr;
+	u32 reserved2[4];
+	u32 lpif[8];
+	u32 reserved3[4];
+	u32 vwb		:  1;
+	u32		:  1;
+	u32 mio_wb	:  6;
+	u32		: 24;
+	u32 reserved5[3];
+	u32 lpic[8];
+} __packed;
 
 /* List PCI functions request */
 struct clp_req_list_pci {
@@ -105,7 +119,8 @@ struct clp_rsp_query_pci {
 	u16 pchid;
 	__le32 bar[PCI_STD_NUM_BARS];
 	u8 pfip[CLP_PFIP_NR_SEGMENTS];	/* pci function internal path */
-	u32			: 16;
+	u16			: 12;
+	u16 port		:  4;
 	u8 fmb_len;
 	u8 pft;				/* pci function type */
 	u64 sdma;			/* start dma as */
@@ -171,6 +186,11 @@ struct clp_rsp_set_pci {
 } __packed;
 
 /* Combined request/response block structures used by clp insn */
+struct clp_req_rsp_slpc_pci {
+	struct clp_req_slpc request;
+	struct clp_rsp_slpc_pci response;
+} __packed;
+
 struct clp_req_rsp_list_pci {
 	struct clp_req_list_pci request;
 	struct clp_rsp_list_pci response;

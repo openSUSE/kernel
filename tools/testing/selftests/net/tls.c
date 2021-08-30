@@ -25,6 +25,47 @@
 #define TLS_PAYLOAD_MAX_LEN 16384
 #define SOL_TLS 282
 
+struct tls_crypto_info_keys {
+	union {
+		struct tls12_crypto_info_aes_gcm_128 aes128;
+		struct tls12_crypto_info_chacha20_poly1305 chacha20;
+	};
+	size_t len;
+};
+
+static void tls_crypto_info_init(uint16_t tls_version, uint16_t cipher_type,
+				 struct tls_crypto_info_keys *tls12)
+{
+	memset(tls12, 0, sizeof(*tls12));
+
+	switch (cipher_type) {
+	case TLS_CIPHER_CHACHA20_POLY1305:
+		tls12->len = sizeof(struct tls12_crypto_info_chacha20_poly1305);
+		tls12->chacha20.info.version = tls_version;
+		tls12->chacha20.info.cipher_type = cipher_type;
+		break;
+	case TLS_CIPHER_AES_GCM_128:
+		tls12->len = sizeof(struct tls12_crypto_info_aes_gcm_128);
+		tls12->aes128.info.version = tls_version;
+		tls12->aes128.info.cipher_type = cipher_type;
+		break;
+	default:
+		break;
+	}
+}
+
+static void memrnd(void *s, size_t n)
+{
+	int *dword = s;
+	char *byte;
+
+	for (; n >= 4; n -= 4)
+		*dword++ = rand();
+	byte = (void *)dword;
+	while (n--)
+		*byte++ = rand();
+}
+
 FIXTURE(tls_basic)
 {
 	int fd, cfd;
@@ -101,9 +142,39 @@ FIXTURE(tls)
 	bool notls;
 };
 
+FIXTURE_VARIANT(tls)
+{
+	uint16_t tls_version;
+	uint16_t cipher_type;
+};
+
+FIXTURE_VARIANT_ADD(tls, 12_gcm)
+{
+	.tls_version = TLS_1_2_VERSION,
+	.cipher_type = TLS_CIPHER_AES_GCM_128,
+};
+
+FIXTURE_VARIANT_ADD(tls, 13_gcm)
+{
+	.tls_version = TLS_1_3_VERSION,
+	.cipher_type = TLS_CIPHER_AES_GCM_128,
+};
+
+FIXTURE_VARIANT_ADD(tls, 12_chacha)
+{
+	.tls_version = TLS_1_2_VERSION,
+	.cipher_type = TLS_CIPHER_CHACHA20_POLY1305,
+};
+
+FIXTURE_VARIANT_ADD(tls, 13_chacha)
+{
+	.tls_version = TLS_1_3_VERSION,
+	.cipher_type = TLS_CIPHER_CHACHA20_POLY1305,
+};
+
 FIXTURE_SETUP(tls)
 {
-	struct tls12_crypto_info_aes_gcm_128 tls12;
+	struct tls_crypto_info_keys tls12;
 	struct sockaddr_in addr;
 	socklen_t len;
 	int sfd, ret;
@@ -111,9 +182,8 @@ FIXTURE_SETUP(tls)
 	self->notls = false;
 	len = sizeof(addr);
 
-	memset(&tls12, 0, sizeof(tls12));
-	tls12.info.version = TLS_1_3_VERSION;
-	tls12.info.cipher_type = TLS_CIPHER_AES_GCM_128;
+	tls_crypto_info_init(variant->tls_version, variant->cipher_type,
+			     &tls12);
 
 	addr.sin_family = AF_INET;
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -141,7 +211,7 @@ FIXTURE_SETUP(tls)
 
 	if (!self->notls) {
 		ret = setsockopt(self->fd, SOL_TLS, TLS_TX, &tls12,
-				 sizeof(tls12));
+				 tls12.len);
 		ASSERT_EQ(ret, 0);
 	}
 
@@ -154,7 +224,7 @@ FIXTURE_SETUP(tls)
 		ASSERT_EQ(ret, 0);
 
 		ret = setsockopt(self->cfd, SOL_TLS, TLS_RX, &tls12,
-				 sizeof(tls12));
+				 tls12.len);
 		ASSERT_EQ(ret, 0);
 	}
 
@@ -198,11 +268,71 @@ TEST_F(tls, send_then_sendfile)
 	EXPECT_EQ(recv(self->cfd, buf, st.st_size, MSG_WAITALL), st.st_size);
 }
 
+static void chunked_sendfile(struct __test_metadata *_metadata,
+			     struct _test_data_tls *self,
+			     uint16_t chunk_size,
+			     uint16_t extra_payload_size)
+{
+	char buf[TLS_PAYLOAD_MAX_LEN];
+	uint16_t test_payload_size;
+	int size = 0;
+	int ret;
+	char filename[] = "/tmp/mytemp.XXXXXX";
+	int fd = mkstemp(filename);
+	off_t offset = 0;
+
+	unlink(filename);
+	ASSERT_GE(fd, 0);
+	EXPECT_GE(chunk_size, 1);
+	test_payload_size = chunk_size + extra_payload_size;
+	ASSERT_GE(TLS_PAYLOAD_MAX_LEN, test_payload_size);
+	memset(buf, 1, test_payload_size);
+	size = write(fd, buf, test_payload_size);
+	EXPECT_EQ(size, test_payload_size);
+	fsync(fd);
+
+	while (size > 0) {
+		ret = sendfile(self->fd, fd, &offset, chunk_size);
+		EXPECT_GE(ret, 0);
+		size -= ret;
+	}
+
+	EXPECT_EQ(recv(self->cfd, buf, test_payload_size, MSG_WAITALL),
+		  test_payload_size);
+
+	close(fd);
+}
+
+TEST_F(tls, multi_chunk_sendfile)
+{
+	chunked_sendfile(_metadata, self, 4096, 4096);
+	chunked_sendfile(_metadata, self, 4096, 0);
+	chunked_sendfile(_metadata, self, 4096, 1);
+	chunked_sendfile(_metadata, self, 4096, 2048);
+	chunked_sendfile(_metadata, self, 8192, 2048);
+	chunked_sendfile(_metadata, self, 4096, 8192);
+	chunked_sendfile(_metadata, self, 8192, 4096);
+	chunked_sendfile(_metadata, self, 12288, 1024);
+	chunked_sendfile(_metadata, self, 12288, 2000);
+	chunked_sendfile(_metadata, self, 15360, 100);
+	chunked_sendfile(_metadata, self, 15360, 300);
+	chunked_sendfile(_metadata, self, 1, 4096);
+	chunked_sendfile(_metadata, self, 2048, 4096);
+	chunked_sendfile(_metadata, self, 2048, 8192);
+	chunked_sendfile(_metadata, self, 4096, 8192);
+	chunked_sendfile(_metadata, self, 1024, 12288);
+	chunked_sendfile(_metadata, self, 2000, 12288);
+	chunked_sendfile(_metadata, self, 100, 15360);
+	chunked_sendfile(_metadata, self, 300, 15360);
+}
+
 TEST_F(tls, recv_max)
 {
 	unsigned int send_len = TLS_PAYLOAD_MAX_LEN;
 	char recv_mem[TLS_PAYLOAD_MAX_LEN];
 	char buf[TLS_PAYLOAD_MAX_LEN];
+
+	memrnd(buf, sizeof(buf));
 
 	EXPECT_GE(send(self->fd, buf, send_len, 0), 0);
 	EXPECT_NE(recv(self->cfd, recv_mem, send_len, 0), -1);
@@ -314,8 +444,9 @@ TEST_F(tls, sendmsg_large)
 		EXPECT_EQ(sendmsg(self->cfd, &msg, 0), send_len);
 	}
 
-	while (recvs++ < sends)
+	while (recvs++ < sends) {
 		EXPECT_NE(recv(self->fd, mem, send_len, 0), -1);
+	}
 
 	free(mem);
 }
@@ -484,6 +615,8 @@ TEST_F(tls, recvmsg_single_max)
 	struct iovec vec;
 	struct msghdr hdr;
 
+	memrnd(send_mem, sizeof(send_mem));
+
 	EXPECT_EQ(send(self->fd, send_mem, send_len, 0), send_len);
 	vec.iov_base = (char *)recv_mem;
 	vec.iov_len = TLS_PAYLOAD_MAX_LEN;
@@ -505,6 +638,8 @@ TEST_F(tls, recvmsg_multiple)
 	char buf[1 << 14];
 	struct msghdr hdr;
 	int i;
+
+	memrnd(buf, sizeof(buf));
 
 	EXPECT_EQ(send(self->fd, buf, send_len, 0), send_len);
 	for (i = 0; i < msg_iovlen; i++) {
@@ -529,6 +664,8 @@ TEST_F(tls, single_send_multiple_recv)
 	unsigned int send_len = TLS_PAYLOAD_MAX_LEN;
 	char send_mem[TLS_PAYLOAD_MAX_LEN * 2];
 	char recv_mem[TLS_PAYLOAD_MAX_LEN * 2];
+
+	memrnd(send_mem, sizeof(send_mem));
 
 	EXPECT_GE(send(self->fd, send_mem, total_len, 0), 0);
 	memset(recv_mem, 0, total_len);
@@ -730,18 +867,17 @@ TEST_F(tls, bidir)
 	int ret;
 
 	if (!self->notls) {
-		struct tls12_crypto_info_aes_gcm_128 tls12;
+		struct tls_crypto_info_keys tls12;
 
-		memset(&tls12, 0, sizeof(tls12));
-		tls12.info.version = TLS_1_3_VERSION;
-		tls12.info.cipher_type = TLS_CIPHER_AES_GCM_128;
+		tls_crypto_info_init(variant->tls_version, variant->cipher_type,
+				     &tls12);
 
 		ret = setsockopt(self->fd, SOL_TLS, TLS_RX, &tls12,
-				 sizeof(tls12));
+				 tls12.len);
 		ASSERT_EQ(ret, 0);
 
 		ret = setsockopt(self->cfd, SOL_TLS, TLS_TX, &tls12,
-				 sizeof(tls12));
+				 tls12.len);
 		ASSERT_EQ(ret, 0);
 	}
 
@@ -1254,80 +1390,6 @@ TEST(keysizes) {
 	}
 
 	close(sfd);
-	close(fd);
-	close(cfd);
-}
-
-TEST(tls12) {
-	int fd, cfd;
-	bool notls;
-
-	struct tls12_crypto_info_aes_gcm_128 tls12;
-	struct sockaddr_in addr;
-	socklen_t len;
-	int sfd, ret;
-
-	notls = false;
-	len = sizeof(addr);
-
-	memset(&tls12, 0, sizeof(tls12));
-	tls12.info.version = TLS_1_2_VERSION;
-	tls12.info.cipher_type = TLS_CIPHER_AES_GCM_128;
-
-	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	addr.sin_port = 0;
-
-	fd = socket(AF_INET, SOCK_STREAM, 0);
-	sfd = socket(AF_INET, SOCK_STREAM, 0);
-
-	ret = bind(sfd, &addr, sizeof(addr));
-	ASSERT_EQ(ret, 0);
-	ret = listen(sfd, 10);
-	ASSERT_EQ(ret, 0);
-
-	ret = getsockname(sfd, &addr, &len);
-	ASSERT_EQ(ret, 0);
-
-	ret = connect(fd, &addr, sizeof(addr));
-	ASSERT_EQ(ret, 0);
-
-	ret = setsockopt(fd, IPPROTO_TCP, TCP_ULP, "tls", sizeof("tls"));
-	if (ret != 0) {
-		notls = true;
-		printf("Failure setting TCP_ULP, testing without tls\n");
-	}
-
-	if (!notls) {
-		ret = setsockopt(fd, SOL_TLS, TLS_TX, &tls12,
-				 sizeof(tls12));
-		ASSERT_EQ(ret, 0);
-	}
-
-	cfd = accept(sfd, &addr, &len);
-	ASSERT_GE(cfd, 0);
-
-	if (!notls) {
-		ret = setsockopt(cfd, IPPROTO_TCP, TCP_ULP, "tls",
-				 sizeof("tls"));
-		ASSERT_EQ(ret, 0);
-
-		ret = setsockopt(cfd, SOL_TLS, TLS_RX, &tls12,
-				 sizeof(tls12));
-		ASSERT_EQ(ret, 0);
-	}
-
-	close(sfd);
-
-	char const *test_str = "test_read";
-	int send_len = 10;
-	char buf[10];
-
-	send_len = strlen(test_str) + 1;
-	EXPECT_EQ(send(fd, test_str, send_len, 0), send_len);
-	EXPECT_NE(recv(cfd, buf, send_len, 0), -1);
-	EXPECT_EQ(memcmp(buf, test_str, send_len), 0);
-
 	close(fd);
 	close(cfd);
 }

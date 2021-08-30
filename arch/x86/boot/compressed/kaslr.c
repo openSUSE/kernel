@@ -19,13 +19,6 @@
  */
 #define BOOT_CTYPE_H
 
-/*
- * _ctype[] in lib/ctype.c is needed by isspace() of linux/ctype.h.
- * While both lib/ctype.c and lib/cmdline.c will bring EXPORT_SYMBOL
- * which is meaningless and will cause compiling error in some cases.
- */
-#define __DISABLE_EXPORTS
-
 #include "misc.h"
 #include "error.h"
 #include "../string.h"
@@ -42,6 +35,10 @@
 /* Macros used by the included decompressor code below. */
 #define STATIC
 #include <linux/decompress/mm.h>
+
+#define _SETUP
+#include <asm/setup.h>	/* For COMMAND_LINE_SIZE */
+#undef _SETUP
 
 extern unsigned long get_cmd_line_ptr(void);
 
@@ -85,8 +82,11 @@ static unsigned long get_boot_seed(void)
 static bool memmap_too_large;
 
 
-/* Store memory limit specified by "mem=nn[KMG]" or "memmap=nn[KMG]" */
-static unsigned long long mem_limit = ULLONG_MAX;
+/*
+ * Store memory limit: MAXMEM on 64-bit and KERNEL_IMAGE_SIZE on 32-bit.
+ * It may be reduced by "mem=nn[KMG]" or "memmap=nn[KMG]" command line options.
+ */
+static u64 mem_limit;
 
 /* Number of immovable memory regions */
 static int num_immovable_mem;
@@ -129,8 +129,7 @@ enum parse_mode {
 };
 
 static int
-parse_memmap(char *p, unsigned long long *start, unsigned long long *size,
-		enum parse_mode mode)
+parse_memmap(char *p, u64 *start, u64 *size, enum parse_mode mode)
 {
 	char *oldp;
 
@@ -160,7 +159,7 @@ parse_memmap(char *p, unsigned long long *start, unsigned long long *size,
 			 */
 			*size = 0;
 		} else {
-			unsigned long long flags;
+			u64 flags;
 
 			/*
 			 * efi_fake_mem=nn@ss:attr the attr specifies
@@ -176,7 +175,7 @@ parse_memmap(char *p, unsigned long long *start, unsigned long long *size,
 			}
 			*size = 0;
 		}
-		/* Fall through */
+		fallthrough;
 	default:
 		/*
 		 * If w/o offset, only size specified, memmap=nn[KMG] has the
@@ -199,7 +198,7 @@ static void mem_avoid_memmap(enum parse_mode mode, char *str)
 
 	while (str && (i < MAX_MEMMAP_REGIONS)) {
 		int rc;
-		unsigned long long start, size;
+		u64 start, size;
 		char *k = strchr(str, ',');
 
 		if (k)
@@ -212,7 +211,7 @@ static void mem_avoid_memmap(enum parse_mode mode, char *str)
 
 		if (start == 0) {
 			/* Store the specified memory limit if size > 0 */
-			if (size > 0)
+			if (size > 0 && size < mem_limit)
 				mem_limit = size;
 
 			continue;
@@ -259,15 +258,15 @@ static void parse_gb_huge_pages(char *param, char *val)
 static void handle_mem_options(void)
 {
 	char *args = (char *)get_cmd_line_ptr();
-	size_t len = strlen((char *)args);
+	size_t len;
 	char *tmp_cmdline;
 	char *param, *val;
 	u64 mem_size;
 
-	if (!strstr(args, "memmap=") && !strstr(args, "mem=") &&
-		!strstr(args, "hugepages"))
+	if (!args)
 		return;
 
+	len = strnlen(args, COMMAND_LINE_SIZE-1);
 	tmp_cmdline = malloc(len + 1);
 	if (!tmp_cmdline)
 		error("Failed to allocate space for tmp_cmdline");
@@ -282,14 +281,12 @@ static void handle_mem_options(void)
 	while (*args) {
 		args = next_arg(args, &param, &val);
 		/* Stop at -- */
-		if (!val && strcmp(param, "--") == 0) {
-			warn("Only '--' specified in cmdline");
-			goto out;
-		}
+		if (!val && strcmp(param, "--") == 0)
+			break;
 
 		if (!strcmp(param, "memmap")) {
 			mem_avoid_memmap(PARSE_MEMMAP, val);
-		} else if (strstr(param, "hugepages")) {
+		} else if (IS_ENABLED(CONFIG_X86_64) && strstr(param, "hugepages")) {
 			parse_gb_huge_pages(param, val);
 		} else if (!strcmp(param, "mem")) {
 			char *p = val;
@@ -298,21 +295,23 @@ static void handle_mem_options(void)
 				continue;
 			mem_size = memparse(p, &p);
 			if (mem_size == 0)
-				goto out;
+				break;
 
-			mem_limit = mem_size;
+			if (mem_size < mem_limit)
+				mem_limit = mem_size;
 		} else if (!strcmp(param, "efi_fake_mem")) {
 			mem_avoid_memmap(PARSE_EFI, val);
 		}
 	}
 
-out:
 	free(tmp_cmdline);
 	return;
 }
 
 /*
- * In theory, KASLR can put the kernel anywhere in the range of [16M, 64T).
+ * In theory, KASLR can put the kernel anywhere in the range of [16M, MAXMEM)
+ * on 64-bit, and [16M, KERNEL_IMAGE_SIZE) on 32-bit.
+ *
  * The mem_avoid array is used to store the ranges that need to be avoided
  * when KASLR searches for an appropriate random address. We must avoid any
  * regions that are unsafe to overlap with during decompression, and other
@@ -390,8 +389,7 @@ static void mem_avoid_init(unsigned long input, unsigned long input_size,
 {
 	unsigned long init_size = boot_params->hdr.init_size;
 	u64 initrd_start, initrd_size;
-	u64 cmd_line, cmd_line_size;
-	char *ptr;
+	unsigned long cmd_line, cmd_line_size;
 
 	/*
 	 * Avoid the region that is unsafe to overlap during
@@ -410,14 +408,13 @@ static void mem_avoid_init(unsigned long input, unsigned long input_size,
 	/* No need to set mapping for initrd, it will be handled in VO. */
 
 	/* Avoid kernel command line. */
-	cmd_line  = (u64)boot_params->ext_cmd_line_ptr << 32;
-	cmd_line |= boot_params->hdr.cmd_line_ptr;
+	cmd_line = get_cmd_line_ptr();
 	/* Calculate size of cmd_line. */
-	ptr = (char *)(unsigned long)cmd_line;
-	for (cmd_line_size = 0; ptr[cmd_line_size++];)
-		;
-	mem_avoid[MEM_AVOID_CMDLINE].start = cmd_line;
-	mem_avoid[MEM_AVOID_CMDLINE].size = cmd_line_size;
+	if (cmd_line) {
+		cmd_line_size = strnlen((char *)cmd_line, COMMAND_LINE_SIZE-1) + 1;
+		mem_avoid[MEM_AVOID_CMDLINE].start = cmd_line;
+		mem_avoid[MEM_AVOID_CMDLINE].size = cmd_line_size;
+	}
 
 	/* Avoid boot parameters. */
 	mem_avoid[MEM_AVOID_BOOTPARAMS].start = (unsigned long)boot_params;
@@ -441,7 +438,7 @@ static bool mem_avoid_overlap(struct mem_vector *img,
 {
 	int i;
 	struct setup_data *ptr;
-	unsigned long earliest = img->start + img->size;
+	u64 earliest = img->start + img->size;
 	bool is_overlapping = false;
 
 	for (i = 0; i < MEM_AVOID_MAX; i++) {
@@ -467,6 +464,18 @@ static bool mem_avoid_overlap(struct mem_vector *img,
 			is_overlapping = true;
 		}
 
+		if (ptr->type == SETUP_INDIRECT &&
+		    ((struct setup_indirect *)ptr->data)->type != SETUP_INDIRECT) {
+			avoid.start = ((struct setup_indirect *)ptr->data)->addr;
+			avoid.size = ((struct setup_indirect *)ptr->data)->len;
+
+			if (mem_overlaps(img, &avoid) && (avoid.start < earliest)) {
+				*overlap = avoid;
+				earliest = overlap->start;
+				is_overlapping = true;
+			}
+		}
+
 		ptr = (struct setup_data *)(unsigned long)ptr->next;
 	}
 
@@ -474,17 +483,15 @@ static bool mem_avoid_overlap(struct mem_vector *img,
 }
 
 struct slot_area {
-	unsigned long addr;
-	int num;
+	u64 addr;
+	unsigned long num;
 };
 
 #define MAX_SLOT_AREA 100
 
 static struct slot_area slot_areas[MAX_SLOT_AREA];
-
+static unsigned int slot_area_index;
 static unsigned long slot_max;
-
-static unsigned long slot_area_index;
 
 static void store_slot_info(struct mem_vector *region, unsigned long image_size)
 {
@@ -494,13 +501,10 @@ static void store_slot_info(struct mem_vector *region, unsigned long image_size)
 		return;
 
 	slot_area.addr = region->start;
-	slot_area.num = (region->size - image_size) /
-			CONFIG_PHYSICAL_ALIGN + 1;
+	slot_area.num = 1 + (region->size - image_size) / CONFIG_PHYSICAL_ALIGN;
 
-	if (slot_area.num > 0) {
-		slot_areas[slot_area_index++] = slot_area;
-		slot_max += slot_area.num;
-	}
+	slot_areas[slot_area_index++] = slot_area;
+	slot_max += slot_area.num;
 }
 
 /*
@@ -510,57 +514,53 @@ static void store_slot_info(struct mem_vector *region, unsigned long image_size)
 static void
 process_gb_huge_pages(struct mem_vector *region, unsigned long image_size)
 {
-	unsigned long addr, size = 0;
+	u64 pud_start, pud_end;
+	unsigned long gb_huge_pages;
 	struct mem_vector tmp;
-	int i = 0;
 
-	if (!max_gb_huge_pages) {
+	if (!IS_ENABLED(CONFIG_X86_64) || !max_gb_huge_pages) {
 		store_slot_info(region, image_size);
 		return;
 	}
 
-	addr = ALIGN(region->start, PUD_SIZE);
-	/* Did we raise the address above the passed in memory entry? */
-	if (addr < region->start + region->size)
-		size = region->size - (addr - region->start);
-
-	/* Check how many 1GB huge pages can be filtered out: */
-	while (size > PUD_SIZE && max_gb_huge_pages) {
-		size -= PUD_SIZE;
-		max_gb_huge_pages--;
-		i++;
-	}
+	/* Are there any 1GB pages in the region? */
+	pud_start = ALIGN(region->start, PUD_SIZE);
+	pud_end = ALIGN_DOWN(region->start + region->size, PUD_SIZE);
 
 	/* No good 1GB huge pages found: */
-	if (!i) {
+	if (pud_start >= pud_end) {
 		store_slot_info(region, image_size);
 		return;
 	}
 
-	/*
-	 * Skip those 'i'*1GB good huge pages, and continue checking and
-	 * processing the remaining head or tail part of the passed region
-	 * if available.
-	 */
-
-	if (addr >= region->start + image_size) {
+	/* Check if the head part of the region is usable. */
+	if (pud_start >= region->start + image_size) {
 		tmp.start = region->start;
-		tmp.size = addr - region->start;
+		tmp.size = pud_start - region->start;
 		store_slot_info(&tmp, image_size);
 	}
 
-	size  = region->size - (addr - region->start) - i * PUD_SIZE;
-	if (size >= image_size) {
-		tmp.start = addr + i * PUD_SIZE;
-		tmp.size = size;
+	/* Skip the good 1GB pages. */
+	gb_huge_pages = (pud_end - pud_start) >> PUD_SHIFT;
+	if (gb_huge_pages > max_gb_huge_pages) {
+		pud_end = pud_start + (max_gb_huge_pages << PUD_SHIFT);
+		max_gb_huge_pages = 0;
+	} else {
+		max_gb_huge_pages -= gb_huge_pages;
+	}
+
+	/* Check if the tail part of the region is usable. */
+	if (region->start + region->size >= pud_end + image_size) {
+		tmp.start = pud_end;
+		tmp.size = region->start + region->size - pud_end;
 		store_slot_info(&tmp, image_size);
 	}
 }
 
-static unsigned long slots_fetch_random(void)
+static u64 slots_fetch_random(void)
 {
 	unsigned long slot;
-	int i;
+	unsigned int i;
 
 	/* Handle case of no slots stored. */
 	if (slot_max == 0)
@@ -573,7 +573,7 @@ static unsigned long slots_fetch_random(void)
 			slot -= slot_areas[i].num;
 			continue;
 		}
-		return slot_areas[i].addr + slot * CONFIG_PHYSICAL_ALIGN;
+		return slot_areas[i].addr + ((u64)slot * CONFIG_PHYSICAL_ALIGN);
 	}
 
 	if (i == slot_area_index)
@@ -586,49 +586,23 @@ static void __process_mem_region(struct mem_vector *entry,
 				 unsigned long image_size)
 {
 	struct mem_vector region, overlap;
-	unsigned long start_orig, end;
-	struct mem_vector cur_entry;
+	u64 region_end;
 
-	/* On 32-bit, ignore entries entirely above our maximum. */
-	if (IS_ENABLED(CONFIG_X86_32) && entry->start >= KERNEL_IMAGE_SIZE)
-		return;
-
-	/* Ignore entries entirely below our minimum. */
-	if (entry->start + entry->size < minimum)
-		return;
-
-	/* Ignore entries above memory limit */
-	end = min(entry->size + entry->start, mem_limit);
-	if (entry->start >= end)
-		return;
-	cur_entry.start = entry->start;
-	cur_entry.size = end - entry->start;
-
-	region.start = cur_entry.start;
-	region.size = cur_entry.size;
+	/* Enforce minimum and memory limit. */
+	region.start = max_t(u64, entry->start, minimum);
+	region_end = min(entry->start + entry->size, mem_limit);
 
 	/* Give up if slot area array is full. */
 	while (slot_area_index < MAX_SLOT_AREA) {
-		start_orig = region.start;
-
-		/* Potentially raise address to minimum location. */
-		if (region.start < minimum)
-			region.start = minimum;
-
 		/* Potentially raise address to meet alignment needs. */
 		region.start = ALIGN(region.start, CONFIG_PHYSICAL_ALIGN);
 
 		/* Did we raise the address above the passed in memory entry? */
-		if (region.start > cur_entry.start + cur_entry.size)
+		if (region.start > region_end)
 			return;
 
 		/* Reduce size by any delta from the original address. */
-		region.size -= region.start - start_orig;
-
-		/* On 32-bit, reduce region size to fit within max size. */
-		if (IS_ENABLED(CONFIG_X86_32) &&
-		    region.start + region.size > KERNEL_IMAGE_SIZE)
-			region.size = KERNEL_IMAGE_SIZE - region.start;
+		region.size = region_end - region.start;
 
 		/* Return if region can't contain decompressed kernel */
 		if (region.size < image_size)
@@ -641,27 +615,19 @@ static void __process_mem_region(struct mem_vector *entry,
 		}
 
 		/* Store beginning of region if holds at least image_size. */
-		if (overlap.start > region.start + image_size) {
-			struct mem_vector beginning;
-
-			beginning.start = region.start;
-			beginning.size = overlap.start - region.start;
-			process_gb_huge_pages(&beginning, image_size);
+		if (overlap.start >= region.start + image_size) {
+			region.size = overlap.start - region.start;
+			process_gb_huge_pages(&region, image_size);
 		}
 
-		/* Return if overlap extends to or past end of region. */
-		if (overlap.start + overlap.size >= region.start + region.size)
-			return;
-
 		/* Clip off the overlapping region and start over. */
-		region.size -= overlap.start - region.start + overlap.size;
 		region.start = overlap.start + overlap.size;
 	}
 }
 
 static bool process_mem_region(struct mem_vector *region,
-			       unsigned long long minimum,
-			       unsigned long long image_size)
+			       unsigned long minimum,
+			       unsigned long image_size)
 {
 	int i;
 	/*
@@ -673,9 +639,9 @@ static bool process_mem_region(struct mem_vector *region,
 
 		if (slot_area_index == MAX_SLOT_AREA) {
 			debug_putstr("Aborted e820/efi memmap scan (slot_areas full)!\n");
-			return 1;
+			return true;
 		}
-		return 0;
+		return false;
 	}
 
 #if defined(CONFIG_MEMORY_HOTREMOVE) && defined(CONFIG_ACPI)
@@ -684,7 +650,7 @@ static bool process_mem_region(struct mem_vector *region,
 	 * immovable memory and @region.
 	 */
 	for (i = 0; i < num_immovable_mem; i++) {
-		unsigned long long start, end, entry_end, region_end;
+		u64 start, end, entry_end, region_end;
 		struct mem_vector entry;
 
 		if (!mem_overlaps(region, &immovable_mem[i]))
@@ -711,8 +677,8 @@ static bool process_mem_region(struct mem_vector *region,
 
 #ifdef CONFIG_EFI
 /*
- * Returns true if mirror region found (and must have been processed
- * for slots adding)
+ * Returns true if we processed the EFI memmap, which we prefer over the E820
+ * table if it is available.
  */
 static bool
 process_efi_entries(unsigned long minimum, unsigned long image_size)
@@ -814,20 +780,30 @@ static void process_e820_entries(unsigned long minimum,
 static unsigned long find_random_phys_addr(unsigned long minimum,
 					   unsigned long image_size)
 {
+	u64 phys_addr;
+
+	/* Bail out early if it's impossible to succeed. */
+	if (minimum + image_size > mem_limit)
+		return 0;
+
 	/* Check if we had too many memmaps. */
 	if (memmap_too_large) {
 		debug_putstr("Aborted memory entries scan (more than 4 memmap= args)!\n");
 		return 0;
 	}
 
-	/* Make sure minimum is aligned. */
-	minimum = ALIGN(minimum, CONFIG_PHYSICAL_ALIGN);
+	if (!process_efi_entries(minimum, image_size))
+		process_e820_entries(minimum, image_size);
 
-	if (process_efi_entries(minimum, image_size))
-		return slots_fetch_random();
+	phys_addr = slots_fetch_random();
 
-	process_e820_entries(minimum, image_size);
-	return slots_fetch_random();
+	/* Perform a final check to make sure the address is in range. */
+	if (phys_addr < minimum || phys_addr + image_size > mem_limit) {
+		warn("Invalid physical address chosen!\n");
+		return 0;
+	}
+
+	return (unsigned long)phys_addr;
 }
 
 static unsigned long find_random_virt_addr(unsigned long minimum,
@@ -835,18 +811,12 @@ static unsigned long find_random_virt_addr(unsigned long minimum,
 {
 	unsigned long slots, random_addr;
 
-	/* Make sure minimum is aligned. */
-	minimum = ALIGN(minimum, CONFIG_PHYSICAL_ALIGN);
-	/* Align image_size for easy slot calculations. */
-	image_size = ALIGN(image_size, CONFIG_PHYSICAL_ALIGN);
-
 	/*
 	 * There are how many CONFIG_PHYSICAL_ALIGN-sized slots
 	 * that can hold image_size within the range of minimum to
 	 * KERNEL_IMAGE_SIZE?
 	 */
-	slots = (KERNEL_IMAGE_SIZE - minimum - image_size) /
-		 CONFIG_PHYSICAL_ALIGN + 1;
+	slots = 1 + (KERNEL_IMAGE_SIZE - minimum - image_size) / CONFIG_PHYSICAL_ALIGN;
 
 	random_addr = kaslr_get_random_long("Virtual") % slots;
 
@@ -872,6 +842,11 @@ void choose_random_location(unsigned long input,
 
 	boot_params->hdr.loadflags |= KASLR_FLAG;
 
+	if (IS_ENABLED(CONFIG_X86_32))
+		mem_limit = KERNEL_IMAGE_SIZE;
+	else
+		mem_limit = MAXMEM;
+
 	/* Record the various known unsafe memory ranges. */
 	mem_avoid_init(input, input_size, *output);
 
@@ -881,6 +856,8 @@ void choose_random_location(unsigned long input,
 	 * location:
 	 */
 	min_addr = min(*output, 512UL << 20);
+	/* Make sure minimum is aligned. */
+	min_addr = ALIGN(min_addr, CONFIG_PHYSICAL_ALIGN);
 
 	/* Walk available memory entries to find a random address. */
 	random_addr = find_random_phys_addr(min_addr, output_size);

@@ -245,24 +245,6 @@ static const unsigned int pcie_gen_freq[] = {
 	GEN4_CORE_CLK_FREQ
 };
 
-static const u32 event_cntr_ctrl_offset[] = {
-	0x1d8,
-	0x1a8,
-	0x1a8,
-	0x1a8,
-	0x1c4,
-	0x1d8
-};
-
-static const u32 event_cntr_data_offset[] = {
-	0x1dc,
-	0x1ac,
-	0x1ac,
-	0x1ac,
-	0x1c8,
-	0x1dc
-};
-
 struct tegra_pcie_dw {
 	struct device *dev;
 	struct resource *appl_res;
@@ -594,6 +576,24 @@ static struct pci_ops tegra_pci_ops = {
 };
 
 #if defined(CONFIG_PCIEASPM)
+static const u32 event_cntr_ctrl_offset[] = {
+	0x1d8,
+	0x1a8,
+	0x1a8,
+	0x1a8,
+	0x1c4,
+	0x1d8
+};
+
+static const u32 event_cntr_data_offset[] = {
+	0x1dc,
+	0x1ac,
+	0x1ac,
+	0x1ac,
+	0x1c8,
+	0x1dc
+};
+
 static void disable_aspm_l11(struct tegra_pcie_dw *pcie)
 {
 	u32 val;
@@ -853,11 +853,13 @@ static void config_gen3_gen4_eq_presets(struct tegra_pcie_dw *pcie)
 	dw_pcie_writel_dbi(pci, GEN3_RELATED_OFF, val);
 }
 
-static void tegra_pcie_prepare_host(struct pcie_port *pp)
+static int tegra_pcie_dw_host_init(struct pcie_port *pp)
 {
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 	struct tegra_pcie_dw *pcie = to_tegra_pcie(pci);
 	u32 val;
+
+	pp->bridge->ops = &tegra_pci_ops;
 
 	if (!pcie->pcie_cap_base)
 		pcie->pcie_cap_base = dw_pcie_find_capability(&pcie->pci,
@@ -907,10 +909,24 @@ static void tegra_pcie_prepare_host(struct pcie_port *pp)
 		dw_pcie_writel_dbi(pci, CFG_TIMER_CTRL_MAX_FUNC_NUM_OFF, val);
 	}
 
-	dw_pcie_setup_rc(pp);
-
 	clk_set_rate(pcie->core_clk, GEN4_CORE_CLK_FREQ);
 
+	return 0;
+}
+
+static int tegra_pcie_dw_start_link(struct dw_pcie *pci)
+{
+	u32 val, offset, speed, tmp;
+	struct tegra_pcie_dw *pcie = to_tegra_pcie(pci);
+	struct pcie_port *pp = &pci->pp;
+	bool retry = true;
+
+	if (pcie->mode == DW_PCIE_EP_TYPE) {
+		enable_irq(pcie->pex_rst_irq);
+		return 0;
+	}
+
+retry_link:
 	/* Assert RST */
 	val = appl_readl(pcie, APPL_PINMUX);
 	val &= ~APPL_PINMUX_PEX_RST;
@@ -929,19 +945,10 @@ static void tegra_pcie_prepare_host(struct pcie_port *pp)
 	appl_writel(pcie, val, APPL_PINMUX);
 
 	msleep(100);
-}
-
-static int tegra_pcie_dw_host_init(struct pcie_port *pp)
-{
-	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
-	struct tegra_pcie_dw *pcie = to_tegra_pcie(pci);
-	u32 val, tmp, offset, speed;
-
-	pp->bridge->ops = &tegra_pci_ops;
-
-	tegra_pcie_prepare_host(pp);
 
 	if (dw_pcie_wait_for_link(pci)) {
+		if (!retry)
+			return 0;
 		/*
 		 * There are some endpoints which can't get the link up if
 		 * root port has Data Link Feature (DLF) enabled.
@@ -975,10 +982,11 @@ static int tegra_pcie_dw_host_init(struct pcie_port *pp)
 		val &= ~PCI_DLF_EXCHANGE_ENABLE;
 		dw_pcie_writel_dbi(pci, offset, val);
 
-		tegra_pcie_prepare_host(pp);
+		tegra_pcie_dw_host_init(pp);
+		dw_pcie_setup_rc(pp);
 
-		if (dw_pcie_wait_for_link(pci))
-			return 0;
+		retry = false;
+		goto retry_link;
 	}
 
 	speed = dw_pcie_readw_dbi(pci, pcie->pcie_cap_base + PCI_EXP_LNKSTA) &
@@ -998,15 +1006,6 @@ static int tegra_pcie_dw_link_up(struct dw_pcie *pci)
 	return !!(val & PCI_EXP_LNKSTA_DLLLA);
 }
 
-static int tegra_pcie_dw_start_link(struct dw_pcie *pci)
-{
-	struct tegra_pcie_dw *pcie = to_tegra_pcie(pci);
-
-	enable_irq(pcie->pex_rst_irq);
-
-	return 0;
-}
-
 static void tegra_pcie_dw_stop_link(struct dw_pcie *pci)
 {
 	struct tegra_pcie_dw *pcie = to_tegra_pcie(pci);
@@ -1020,7 +1019,7 @@ static const struct dw_pcie_ops tegra_dw_pcie_ops = {
 	.stop_link = tegra_pcie_dw_stop_link,
 };
 
-static struct dw_pcie_host_ops tegra_pcie_dw_host_ops = {
+static const struct dw_pcie_host_ops tegra_pcie_dw_host_ops = {
 	.host_init = tegra_pcie_dw_host_init,
 };
 
@@ -1646,7 +1645,7 @@ static void pex_ep_event_pex_rst_deassert(struct tegra_pcie_dw *pcie)
 	if (pcie->ep_state == EP_STATE_ENABLED)
 		return;
 
-	ret = pm_runtime_get_sync(dev);
+	ret = pm_runtime_resume_and_get(dev);
 	if (ret < 0) {
 		dev_err(dev, "Failed to get runtime sync for PCIe dev: %d\n",
 			ret);
@@ -1882,7 +1881,7 @@ tegra_pcie_ep_get_features(struct dw_pcie_ep *ep)
 	return &tegra_pcie_epc_features;
 }
 
-static struct dw_pcie_ep_ops pcie_ep_ops = {
+static const struct dw_pcie_ep_ops pcie_ep_ops = {
 	.raise_irq = tegra_pcie_ep_raise_irq,
 	.get_features = tegra_pcie_ep_get_features,
 };
@@ -2214,6 +2213,12 @@ static int tegra_pcie_dw_resume_noirq(struct device *dev)
 		dev_err(dev, "Failed to init host: %d\n", ret);
 		goto fail_host_init;
 	}
+
+	dw_pcie_setup_rc(&pcie->pci.pp);
+
+	ret = tegra_pcie_dw_start_link(&pcie->pci);
+	if (ret < 0)
+		goto fail_host_init;
 
 	/* Restore MSI interrupt vector */
 	dw_pcie_writel_dbi(&pcie->pci, PORT_LOGIC_MSI_CTRL_INT_0_EN,

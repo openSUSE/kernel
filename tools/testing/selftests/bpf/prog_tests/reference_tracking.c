@@ -15,7 +15,7 @@ void test_reference_tracking(void)
 	int err = 0;
 
 	obj = bpf_object__open_file(file, &open_opts);
-	if (CHECK_FAIL(IS_ERR(obj)))
+	if (!ASSERT_OK_PTR(obj, "obj_open_file"))
 		return;
 
 	if (CHECK(strcmp(bpf_object__name(obj), obj_name), "obj_name",
@@ -27,7 +27,7 @@ void test_reference_tracking(void)
 		const char *title;
 
 		/* Ignore .text sections */
-		title = bpf_program__title(prog, false);
+		title = bpf_program__section_name(prog);
 		if (strstr(title, ".text") != NULL)
 			continue;
 

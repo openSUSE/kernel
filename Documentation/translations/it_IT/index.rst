@@ -4,6 +4,10 @@
 Traduzione italiana
 ===================
 
+.. raw:: latex
+
+	\kerneldocCJKoff
+
 :manutentore: Federico Vaga <federico.vaga@vaga.pv.it>
 
 .. _it_disclaimer:
@@ -121,9 +125,10 @@ file sorgenti, informazioni aggiuntive vengono aggiunte solo se necessarie
 (o almeno ci proviamo — probabilmente *non* tutto quello che è davvero
 necessario).
 
-.. warning::
+.. toctree::
+   :maxdepth: 2
 
-    TODO ancora da tradurre
+   core-api/index
 
 Documentazione specifica per architettura
 -----------------------------------------

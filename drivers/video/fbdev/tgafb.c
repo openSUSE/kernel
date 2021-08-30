@@ -555,7 +555,7 @@ tgafb_setcolreg(unsigned regno, unsigned red, unsigned green, unsigned blue,
 
 /**
  *      tgafb_blank - Optional function.  Blanks the display.
- *      @blank_mode: the blank mode we want.
+ *      @blank: the blank mode we want.
  *      @info: frame buffer structure that represents a single frame buffer
  */
 static int
@@ -837,7 +837,7 @@ tgafb_clut_imageblit(struct fb_info *info, const struct fb_image *image)
 	u32 *palette = ((u32 *)info->pseudo_palette);
 	unsigned long pos, line_length, i, j;
 	const unsigned char *data;
-	void __iomem *regs_base, *fb_base;
+	void __iomem *fb_base;
 
 	dx = image->dx;
 	dy = image->dy;
@@ -855,7 +855,6 @@ tgafb_clut_imageblit(struct fb_info *info, const struct fb_image *image)
 	if (dy + height > vyres)
 		height = vyres - dy;
 
-	regs_base = par->tga_regs_base;
 	fb_base = par->tga_fb_base;
 
 	pos = dy * line_length + (dx * 4);
@@ -989,8 +988,10 @@ tgafb_fillrect(struct fb_info *info, const struct fb_fillrect *rect)
 	/* We can fill 2k pixels per operation.  Notice blocks that fit
 	   the width of the screen so that we can take advantage of this
 	   and fill more than one line per write.  */
-	if (width == line_length)
-		width *= height, height = 1;
+	if (width == line_length) {
+		width *= height;
+		height = 1;
+	}
 
 	/* The write into the frame buffer must be aligned to 4 bytes,
 	   but we are allowed to encode the offset within the word in
@@ -1032,7 +1033,7 @@ tgafb_fillrect(struct fb_info *info, const struct fb_fillrect *rect)
 		     regs_base + TGA_MODE_REG);
 }
 
-/**
+/*
  *      tgafb_copyarea - REQUIRED function. Can use generic routines if
  *                       non acclerated hardware and packed pixel based.
  *                       Copies on area of the screen to another area.
@@ -1171,8 +1172,10 @@ copyarea_8bpp(struct fb_info *info, u32 dx, u32 dy, u32 sx, u32 sy,
 	   More than anything else, these control how we do copies.  */
 	depos = dy * line_length + dx;
 	sepos = sy * line_length + sx;
-	if (backward)
-		depos += width, sepos += width;
+	if (backward) {
+		depos += width;
+		sepos += width;
+	}
 
 	/* Next copy full words at a time.  */
 	n32 = width / 32;

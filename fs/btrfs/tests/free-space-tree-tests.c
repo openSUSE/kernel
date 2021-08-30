@@ -60,8 +60,6 @@ static int __check_free_space_extents(struct btrfs_trans_handle *trans,
 				if (prev_bit == 0 && bit == 1) {
 					extent_start = offset;
 				} else if (prev_bit == 1 && bit == 0) {
-					if (i >= num_extents)
-						goto invalid;
 					if (i >= num_extents ||
 					    extent_start != extents[i].start ||
 					    offset - extent_start != extents[i].length)
@@ -452,9 +450,9 @@ static int run_test(test_func_t test_func, int bitmaps, u32 sectorsize,
 	root->fs_info->tree_root = root;
 
 	root->node = alloc_test_extent_buffer(root->fs_info, nodesize);
-	if (!root->node) {
+	if (IS_ERR(root->node)) {
 		test_std_err(TEST_ALLOC_EXTENT_BUFFER);
-		ret = -ENOMEM;
+		ret = PTR_ERR(root->node);
 		goto out;
 	}
 	btrfs_set_header_level(root->node, 0);

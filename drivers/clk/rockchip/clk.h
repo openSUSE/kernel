@@ -121,6 +121,19 @@ struct clk;
 #define RK3288_EMMC_CON0		0x218
 #define RK3288_EMMC_CON1		0x21c
 
+#define RK3308_PLL_CON(x)		RK2928_PLL_CON(x)
+#define RK3308_CLKSEL_CON(x)		((x) * 0x4 + 0x100)
+#define RK3308_CLKGATE_CON(x)		((x) * 0x4 + 0x300)
+#define RK3308_GLB_SRST_FST		0xb8
+#define RK3308_SOFTRST_CON(x)		((x) * 0x4 + 0x400)
+#define RK3308_MODE_CON			0xa0
+#define RK3308_SDMMC_CON0		0x480
+#define RK3308_SDMMC_CON1		0x484
+#define RK3308_SDIO_CON0		0x488
+#define RK3308_SDIO_CON1		0x48c
+#define RK3308_EMMC_CON0		0x490
+#define RK3308_EMMC_CON1		0x494
+
 #define RK3328_PLL_CON(x)		RK2928_PLL_CON(x)
 #define RK3328_CLKSEL_CON(x)		((x) * 0x4 + 0x100)
 #define RK3328_CLKGATE_CON(x)		((x) * 0x4 + 0x200)
@@ -174,6 +187,34 @@ struct clk;
 #define RK3399_PMU_CLKSEL_CON(x)	((x) * 0x4 + 0x80)
 #define RK3399_PMU_CLKGATE_CON(x)	((x) * 0x4 + 0x100)
 #define RK3399_PMU_SOFTRST_CON(x)	((x) * 0x4 + 0x110)
+
+#define RK3568_PLL_CON(x)		RK2928_PLL_CON(x)
+#define RK3568_MODE_CON0		0xc0
+#define RK3568_MISC_CON0		0xc4
+#define RK3568_MISC_CON1		0xc8
+#define RK3568_MISC_CON2		0xcc
+#define RK3568_GLB_CNT_TH		0xd0
+#define RK3568_GLB_SRST_FST		0xd4
+#define RK3568_GLB_SRST_SND		0xd8
+#define RK3568_GLB_RST_CON		0xdc
+#define RK3568_GLB_RST_ST		0xe0
+#define RK3568_CLKSEL_CON(x)		((x) * 0x4 + 0x100)
+#define RK3568_CLKGATE_CON(x)		((x) * 0x4 + 0x300)
+#define RK3568_SOFTRST_CON(x)		((x) * 0x4 + 0x400)
+#define RK3568_SDMMC0_CON0		0x580
+#define RK3568_SDMMC0_CON1		0x584
+#define RK3568_SDMMC1_CON0		0x588
+#define RK3568_SDMMC1_CON1		0x58c
+#define RK3568_SDMMC2_CON0		0x590
+#define RK3568_SDMMC2_CON1		0x594
+#define RK3568_EMMC_CON0		0x598
+#define RK3568_EMMC_CON1		0x59c
+
+#define RK3568_PMU_PLL_CON(x)		RK2928_PLL_CON(x)
+#define RK3568_PMU_MODE_CON0		0x80
+#define RK3568_PMU_CLKSEL_CON(x)	((x) * 0x4 + 0x100)
+#define RK3568_PMU_CLKGATE_CON(x)	((x) * 0x4 + 0x180)
+#define RK3568_PMU_SOFTRST_CON(x)	((x) * 0x4 + 0x200)
 
 enum rockchip_pll_type {
 	pll_rk3036,
@@ -230,17 +271,24 @@ struct rockchip_clk_provider {
 
 struct rockchip_pll_rate_table {
 	unsigned long rate;
-	unsigned int nr;
-	unsigned int nf;
-	unsigned int no;
-	unsigned int nb;
-	/* for RK3036/RK3399 */
-	unsigned int fbdiv;
-	unsigned int postdiv1;
-	unsigned int refdiv;
-	unsigned int postdiv2;
-	unsigned int dsmpd;
-	unsigned int frac;
+	union {
+		struct {
+			/* for RK3066 */
+			unsigned int nr;
+			unsigned int nf;
+			unsigned int no;
+			unsigned int nb;
+		};
+		struct {
+			/* for RK3036/RK3399 */
+			unsigned int fbdiv;
+			unsigned int postdiv1;
+			unsigned int refdiv;
+			unsigned int postdiv2;
+			unsigned int dsmpd;
+			unsigned int frac;
+		};
+	};
 };
 
 /**
@@ -309,7 +357,8 @@ struct rockchip_cpuclk_clksel {
 	u32 val;
 };
 
-#define ROCKCHIP_CPUCLK_NUM_DIVIDERS	2
+#define ROCKCHIP_CPUCLK_NUM_DIVIDERS	5
+#define ROCKCHIP_CPUCLK_MAX_CORES	4
 struct rockchip_cpuclk_rate_table {
 	unsigned long prate;
 	struct rockchip_cpuclk_clksel divs[ROCKCHIP_CPUCLK_NUM_DIVIDERS];
@@ -317,22 +366,23 @@ struct rockchip_cpuclk_rate_table {
 
 /**
  * struct rockchip_cpuclk_reg_data - register offsets and masks of the cpuclock
- * @core_reg:		register offset of the core settings register
- * @div_core_shift:	core divider offset used to divide the pll value
- * @div_core_mask:	core divider mask
- * @mux_core_alt:	mux value to select alternate parent
+ * @core_reg[]:	register offset of the cores setting register
+ * @div_core_shift[]:	cores divider offset used to divide the pll value
+ * @div_core_mask[]:	cores divider mask
+ * @num_cores:	number of cpu cores
  * @mux_core_main:	mux value to select main parent of core
  * @mux_core_shift:	offset of the core multiplexer
  * @mux_core_mask:	core multiplexer mask
  */
 struct rockchip_cpuclk_reg_data {
-	int		core_reg;
-	u8		div_core_shift;
-	u32		div_core_mask;
-	u8		mux_core_alt;
-	u8		mux_core_main;
-	u8		mux_core_shift;
-	u32		mux_core_mask;
+	int	core_reg[ROCKCHIP_CPUCLK_MAX_CORES];
+	u8	div_core_shift[ROCKCHIP_CPUCLK_MAX_CORES];
+	u32	div_core_mask[ROCKCHIP_CPUCLK_MAX_CORES];
+	int	num_cores;
+	u8	mux_core_alt;
+	u8	mux_core_main;
+	u8	mux_core_shift;
+	u32	mux_core_mask;
 };
 
 struct clk *rockchip_clk_register_cpuclk(const char *name,

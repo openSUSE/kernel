@@ -21,7 +21,7 @@
 #include <linux/stddef.h>
 #include <linux/types.h>
 
-#if defined(__KERNEL__) && defined(CONFIG_COMPAT)
+#ifdef CONFIG_COMPAT
 /* Masks for extracting the FPSR and FPCR from the FPSCR */
 #define VFP_FPSCR_STAT_MASK	0xf800009f
 #define VFP_FPSCR_CTRL_MASK	0x07f79f00
@@ -69,7 +69,11 @@ static inline void *sve_pffr(struct thread_struct *thread)
 extern void sve_save_state(void *state, u32 *pfpsr);
 extern void sve_load_state(void const *state, u32 const *pfpsr,
 			   unsigned long vq_minus_1);
+extern void sve_flush_live(unsigned long vq_minus_1);
+extern void sve_load_from_fpsimd_state(struct user_fpsimd_state const *state,
+				       unsigned long vq_minus_1);
 extern unsigned int sve_get_vl(void);
+extern void sve_set_vq(unsigned long vq_minus_1);
 
 struct arm64_cpu_capabilities;
 extern void sve_kernel_enable(const struct arm64_cpu_capabilities *__unused);
@@ -127,6 +131,15 @@ static inline void sve_user_enable(void)
 	sysreg_clear_set(cpacr_el1, 0, CPACR_EL1_ZEN_EL0EN);
 }
 
+#define sve_cond_update_zcr_vq(val, reg)		\
+	do {						\
+		u64 __zcr = read_sysreg_s((reg));	\
+		u64 __new = __zcr & ~ZCR_ELx_LEN_MASK;	\
+		__new |= (val) & ZCR_ELx_LEN_MASK;	\
+		if (__zcr != __new)			\
+			write_sysreg_s(__new, (reg));	\
+	} while (0)
+
 /*
  * Probing and setup functions.
  * Calls to these functions must be serialised with one another.
@@ -155,6 +168,8 @@ static inline int sve_get_current_vl(void)
 
 static inline void sve_user_disable(void) { BUILD_BUG(); }
 static inline void sve_user_enable(void) { BUILD_BUG(); }
+
+#define sve_cond_update_zcr_vq(val, reg) do { } while (0)
 
 static inline void sve_init_vq_map(void) { }
 static inline void sve_update_vq_map(void) { }

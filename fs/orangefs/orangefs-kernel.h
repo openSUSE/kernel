@@ -107,7 +107,9 @@ extern int orangefs_init_acl(struct inode *inode, struct inode *dir);
 extern const struct xattr_handler *orangefs_xattr_handlers[];
 
 extern struct posix_acl *orangefs_get_acl(struct inode *inode, int type);
-extern int orangefs_set_acl(struct inode *inode, struct posix_acl *acl, int type);
+extern int orangefs_set_acl(struct user_namespace *mnt_userns,
+			    struct inode *inode, struct posix_acl *acl,
+			    int type);
 
 /*
  * orangefs data structures
@@ -239,14 +241,10 @@ struct orangefs_write_range {
 	kgid_t gid;
 };
 
-struct orangefs_read_options {
-	ssize_t blksiz;
-};
-
 extern struct orangefs_stats orangefs_stats;
 
 /*
- * NOTE: See Documentation/filesystems/porting for information
+ * NOTE: See Documentation/filesystems/porting.rst for information
  * on implementing FOO_I and properly accessing fs private data
  */
 static inline struct orangefs_inode_s *ORANGEFS_I(struct inode *inode)
@@ -363,12 +361,13 @@ struct inode *orangefs_new_inode(struct super_block *sb,
 			      struct orangefs_object_kref *ref);
 
 int __orangefs_setattr(struct inode *, struct iattr *);
-int orangefs_setattr(struct dentry *, struct iattr *);
+int orangefs_setattr(struct user_namespace *, struct dentry *, struct iattr *);
 
-int orangefs_getattr(const struct path *path, struct kstat *stat,
-		     u32 request_mask, unsigned int flags);
+int orangefs_getattr(struct user_namespace *mnt_userns, const struct path *path,
+		     struct kstat *stat, u32 request_mask, unsigned int flags);
 
-int orangefs_permission(struct inode *inode, int mask);
+int orangefs_permission(struct user_namespace *mnt_userns,
+			struct inode *inode, int mask);
 
 int orangefs_update_time(struct inode *, struct timespec64 *, int);
 
@@ -398,7 +397,8 @@ bool __is_daemon_in_service(void);
  */
 int orangefs_revalidate_mapping(struct inode *);
 ssize_t wait_for_direct_io(enum ORANGEFS_io_type, struct inode *, loff_t *,
-    struct iov_iter *, size_t, loff_t, struct orangefs_write_range *, int *);
+    struct iov_iter *, size_t, loff_t, struct orangefs_write_range *, int *,
+    struct file *);
 ssize_t do_readv_writev(enum ORANGEFS_io_type, struct file *, loff_t *,
     struct iov_iter *);
 

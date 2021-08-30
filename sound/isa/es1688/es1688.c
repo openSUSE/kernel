@@ -26,11 +26,6 @@
 MODULE_DESCRIPTION(CRD_NAME);
 MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_LICENSE("GPL");
-MODULE_SUPPORTED_DEVICE("{{ESS,ES688 PnP AudioDrive,pnp:ESS0100},"
-	        "{ESS,ES1688 PnP AudioDrive,pnp:ESS0102},"
-	        "{ESS,ES688 AudioDrive,pnp:ESS6881},"
-	        "{ESS,ES1688 AudioDrive,pnp:ESS1681}}");
-
 MODULE_ALIAS("snd_es968");
 
 static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
@@ -192,10 +187,9 @@ out:
 	return error;
 }
 
-static int snd_es1688_isa_remove(struct device *dev, unsigned int n)
+static void snd_es1688_isa_remove(struct device *dev, unsigned int n)
 {
 	snd_card_free(dev_get_drvdata(dev));
-	return 0;
 }
 
 static struct isa_driver snd_es1688_driver = {

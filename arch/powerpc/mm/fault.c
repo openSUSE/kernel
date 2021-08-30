@@ -32,10 +32,12 @@
 #include <linux/context_tracking.h>
 #include <linux/hugetlb.h>
 #include <linux/uaccess.h>
+#include <linux/kfence.h>
+#include <linux/pkeys.h>
 
 #include <asm/firmware.h>
+#include <asm/interrupt.h>
 #include <asm/page.h>
-#include <asm/pgtable.h>
 #include <asm/mmu.h>
 #include <asm/mmu_context.h>
 #include <asm/siginfo.h>
@@ -43,39 +45,7 @@
 #include <asm/kup.h>
 #include <asm/inst.h>
 
-/*
- * Check whether the instruction inst is a store using
- * an update addressing form which will update r1.
- */
-static bool store_updates_sp(struct ppc_inst inst)
-{
-	/* check for 1 in the rA field */
-	if (((ppc_inst_val(inst) >> 16) & 0x1f) != 1)
-		return false;
-	/* check major opcode */
-	switch (ppc_inst_primary_opcode(inst)) {
-	case OP_STWU:
-	case OP_STBU:
-	case OP_STHU:
-	case OP_STFSU:
-	case OP_STFDU:
-		return true;
-	case OP_STD:	/* std or stdu */
-		return (ppc_inst_val(inst) & 3) == 1;
-	case OP_31:
-		/* check minor opcode */
-		switch ((ppc_inst_val(inst) >> 1) & 0x3ff) {
-		case OP_31_XOP_STDUX:
-		case OP_31_XOP_STWUX:
-		case OP_31_XOP_STBUX:
-		case OP_31_XOP_STHUX:
-		case OP_31_XOP_STFSUX:
-		case OP_31_XOP_STFDUX:
-			return true;
-		}
-	}
-	return false;
-}
+
 /*
  * do_page_fault error handling helpers
  */
@@ -109,7 +79,7 @@ static int __bad_area(struct pt_regs *regs, unsigned long address, int si_code)
 	 * Something tried to access memory that isn't in our memory map..
 	 * Fix it, but check if it's kernel or user first..
 	 */
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 
 	return __bad_area_nosemaphore(regs, address, si_code);
 }
@@ -119,7 +89,6 @@ static noinline int bad_area(struct pt_regs *regs, unsigned long address)
 	return __bad_area(regs, address, SEGV_MAPERR);
 }
 
-#ifdef CONFIG_PPC_MEM_KEYS
 static noinline int bad_access_pkey(struct pt_regs *regs, unsigned long address,
 				    struct vm_area_struct *vma)
 {
@@ -139,13 +108,13 @@ static noinline int bad_access_pkey(struct pt_regs *regs, unsigned long address,
 	 * 2. T1   : set AMR to deny access to pkey=4, touches, page
 	 * 3. T1   : faults...
 	 * 4.    T2: mprotect_key(foo, PAGE_SIZE, pkey=5);
-	 * 5. T1   : enters fault handler, takes mmap_sem, etc...
+	 * 5. T1   : enters fault handler, takes mmap_lock, etc...
 	 * 6. T1   : reaches here, sees vma_pkey(vma)=5, when we really
 	 *	     faulted on a pte with its pkey=4.
 	 */
 	pkey = vma_pkey(vma);
 
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 
 	/*
 	 * If we are in kernel mode, bail out with a SEGV, this will
@@ -159,7 +128,6 @@ static noinline int bad_access_pkey(struct pt_regs *regs, unsigned long address,
 
 	return 0;
 }
-#endif
 
 static noinline int bad_access(struct pt_regs *regs, unsigned long address)
 {
@@ -229,7 +197,7 @@ static int mm_fault_error(struct pt_regs *regs, unsigned long addr,
 static bool bad_kernel_fault(struct pt_regs *regs, unsigned long error_code,
 			     unsigned long address, bool is_write)
 {
-	int is_exec = TRAP(regs) == 0x400;
+	int is_exec = TRAP(regs) == INTERRUPT_INST_STORAGE;
 
 	if (is_exec) {
 		pr_crit_ratelimited("kernel tried to execute %s page (%lx) - exploit attempt? (uid: %d)\n",
@@ -241,83 +209,29 @@ static bool bad_kernel_fault(struct pt_regs *regs, unsigned long error_code,
 		return true;
 	}
 
-	if (!is_exec && address < TASK_SIZE && (error_code & DSISR_PROTFAULT) &&
-	    !search_exception_tables(regs->nip)) {
-		pr_crit_ratelimited("Kernel attempted to access user page (%lx) - exploit attempt? (uid: %d)\n",
-				    address,
-				    from_kuid(&init_user_ns, current_uid()));
-	}
-
 	// Kernel fault on kernel address is bad
 	if (address >= TASK_SIZE)
 		return true;
 
-	// Fault on user outside of certain regions (eg. copy_tofrom_user()) is bad
-	if (!search_exception_tables(regs->nip))
-		return true;
+	// Read/write fault blocked by KUAP is bad, it can never succeed.
+	if (bad_kuap_fault(regs, address, is_write)) {
+		pr_crit_ratelimited("Kernel attempted to %s user page (%lx) - exploit attempt? (uid: %d)\n",
+				    is_write ? "write" : "read", address,
+				    from_kuid(&init_user_ns, current_uid()));
 
-	// Read/write fault in a valid region (the exception table search passed
-	// above), but blocked by KUAP is bad, it can never succeed.
-	if (bad_kuap_fault(regs, address, is_write))
-		return true;
-
-	// What's left? Kernel fault on user in well defined regions (extable
-	// matched), and allowed by KUAP in the faulting context.
-	return false;
-}
-
-// This comes from 64-bit struct rt_sigframe + __SIGNAL_FRAMESIZE
-#define SIGFRAME_MAX_SIZE	(4096 + 128)
-
-static bool bad_stack_expansion(struct pt_regs *regs, unsigned long address,
-				struct vm_area_struct *vma, unsigned int flags,
-				bool *must_retry)
-{
-	/*
-	 * N.B. The POWER/Open ABI allows programs to access up to
-	 * 288 bytes below the stack pointer.
-	 * The kernel signal delivery code writes a bit over 4KB
-	 * below the stack pointer (r1) before decrementing it.
-	 * The exec code can write slightly over 640kB to the stack
-	 * before setting the user r1.  Thus we allow the stack to
-	 * expand to 1MB without further checks.
-	 */
-	if (address + 0x100000 < vma->vm_end) {
-		struct ppc_inst __user *nip = (struct ppc_inst __user *)regs->nip;
-		/* get user regs even if this fault is in kernel mode */
-		struct pt_regs *uregs = current->thread.regs;
-		if (uregs == NULL)
+		// Fault on user outside of certain regions (eg. copy_tofrom_user()) is bad
+		if (!search_exception_tables(regs->nip))
 			return true;
 
-		/*
-		 * A user-mode access to an address a long way below
-		 * the stack pointer is only valid if the instruction
-		 * is one which would update the stack pointer to the
-		 * address accessed if the instruction completed,
-		 * i.e. either stwu rs,n(r1) or stwux rs,r1,rb
-		 * (or the byte, halfword, float or double forms).
-		 *
-		 * If we don't check this then any write to the area
-		 * between the last mapped region and the stack will
-		 * expand the stack rather than segfaulting.
-		 */
-		if (address + SIGFRAME_MAX_SIZE >= uregs->gpr[1])
-			return false;
-
-		if ((flags & FAULT_FLAG_WRITE) && (flags & FAULT_FLAG_USER) &&
-		    access_ok(nip, sizeof(*nip))) {
-			struct ppc_inst inst;
-
-			if (!probe_user_read_inst(&inst, nip))
-				return !store_updates_sp(inst);
-			*must_retry = true;
-		}
-		return true;
+		// Read/write fault in a valid region (the exception table search passed
+		// above), but blocked by KUAP is bad, it can never succeed.
+		return WARN(true, "Bug: %s fault blocked by KUAP!", is_write ? "Write" : "Read");
 	}
+
+	// What's left? Kernel fault on user and allowed by KUAP in the faulting context.
 	return false;
 }
 
-#ifdef CONFIG_PPC_MEM_KEYS
 static bool access_pkey_error(bool is_write, bool is_exec, bool is_pkey,
 			      struct vm_area_struct *vma)
 {
@@ -331,7 +245,6 @@ static bool access_pkey_error(bool is_write, bool is_exec, bool is_pkey,
 
 	return false;
 }
-#endif
 
 static bool access_error(bool is_write, bool is_exec, struct vm_area_struct *vma)
 {
@@ -357,7 +270,7 @@ static bool access_error(bool is_write, bool is_exec, struct vm_area_struct *vma
 		return false;
 	}
 
-	if (unlikely(!(vma->vm_flags & (VM_READ | VM_EXEC | VM_WRITE))))
+	if (unlikely(!vma_is_accessible(vma)))
 		return true;
 	/*
 	 * We should ideally do the vma pkey access check here. But in the
@@ -385,7 +298,6 @@ static inline void cmo_account_page_fault(void)
 static inline void cmo_account_page_fault(void) { }
 #endif /* CONFIG_PPC_SMLPAR */
 
-#ifdef CONFIG_PPC_BOOK3S
 static void sanity_check_fault(bool is_write, bool is_user,
 			       unsigned long error_code, unsigned long address)
 {
@@ -393,11 +305,17 @@ static void sanity_check_fault(bool is_write, bool is_user,
 	 * Userspace trying to access kernel address, we get PROTFAULT for that.
 	 */
 	if (is_user && address >= TASK_SIZE) {
+		if ((long)address == -1)
+			return;
+
 		pr_crit_ratelimited("%s[%d]: User access of kernel address (%lx) - exploit attempt? (uid: %d)\n",
 				   current->comm, current->pid, address,
 				   from_kuid(&init_user_ns, current_uid()));
 		return;
 	}
+
+	if (!IS_ENABLED(CONFIG_PPC_BOOK3S))
+		return;
 
 	/*
 	 * For hash translation mode, we should never get a
@@ -433,10 +351,6 @@ static void sanity_check_fault(bool is_write, bool is_user,
 
 	WARN_ON_ONCE(error_code & DSISR_PROTFAULT);
 }
-#else
-static void sanity_check_fault(bool is_write, bool is_user,
-			       unsigned long error_code, unsigned long address) { }
-#endif /* CONFIG_PPC_BOOK3S */
 
 /*
  * Define the correct "is_write" bit in error_code based
@@ -444,42 +358,41 @@ static void sanity_check_fault(bool is_write, bool is_user,
  */
 #if (defined(CONFIG_4xx) || defined(CONFIG_BOOKE))
 #define page_fault_is_write(__err)	((__err) & ESR_DST)
-#define page_fault_is_bad(__err)	(0)
 #else
 #define page_fault_is_write(__err)	((__err) & DSISR_ISSTORE)
-#if defined(CONFIG_PPC_8xx)
+#endif
+
+#if defined(CONFIG_4xx) || defined(CONFIG_BOOKE)
+#define page_fault_is_bad(__err)	(0)
+#elif defined(CONFIG_PPC_8xx)
 #define page_fault_is_bad(__err)	((__err) & DSISR_NOEXEC_OR_G)
 #elif defined(CONFIG_PPC64)
 #define page_fault_is_bad(__err)	((__err) & DSISR_BAD_FAULT_64S)
 #else
 #define page_fault_is_bad(__err)	((__err) & DSISR_BAD_FAULT_32S)
 #endif
-#endif
 
 /*
  * For 600- and 800-family processors, the error_code parameter is DSISR
- * for a data fault, SRR1 for an instruction fault. For 400-family processors
- * the error_code parameter is ESR for a data fault, 0 for an instruction
- * fault.
- * For 64-bit processors, the error_code parameter is
- *  - DSISR for a non-SLB data access fault,
- *  - SRR1 & 0x08000000 for a non-SLB instruction access fault
- *  - 0 any SLB fault.
+ * for a data fault, SRR1 for an instruction fault.
+ * For 400-family processors the error_code parameter is ESR for a data fault,
+ * 0 for an instruction fault.
+ * For 64-bit processors, the error_code parameter is DSISR for a data access
+ * fault, SRR1 & 0x08000000 for an instruction access fault.
  *
  * The return value is 0 if the fault was handled, or the signal
  * number if this is a kernel fault that can't be handled here.
  */
-static int __do_page_fault(struct pt_regs *regs, unsigned long address,
+static int ___do_page_fault(struct pt_regs *regs, unsigned long address,
 			   unsigned long error_code)
 {
 	struct vm_area_struct * vma;
 	struct mm_struct *mm = current->mm;
-	unsigned int flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
- 	int is_exec = TRAP(regs) == 0x400;
+	unsigned int flags = FAULT_FLAG_DEFAULT;
+	int is_exec = TRAP(regs) == INTERRUPT_INST_STORAGE;
 	int is_user = user_mode(regs);
 	int is_write = page_fault_is_write(error_code);
 	vm_fault_t fault, major = 0;
-	bool must_retry = false;
 	bool kprobe_fault = kprobe_page_fault(regs, 11);
 
 	if (unlikely(debugger_fault_handler(regs) || kprobe_fault))
@@ -501,8 +414,12 @@ static int __do_page_fault(struct pt_regs *regs, unsigned long address,
 	 * take a page fault to a kernel address or a page fault to a user
 	 * address outside of dedicated places
 	 */
-	if (unlikely(!is_user && bad_kernel_fault(regs, error_code, address, is_write)))
+	if (unlikely(!is_user && bad_kernel_fault(regs, error_code, address, is_write))) {
+		if (kfence_handle_page_fault(address, is_write, regs))
+			return 0;
+
 		return SIGSEGV;
+	}
 
 	/*
 	 * If we're in an interrupt, have no user context or are running
@@ -517,16 +434,14 @@ static int __do_page_fault(struct pt_regs *regs, unsigned long address,
 		return bad_area_nosemaphore(regs, address);
 	}
 
-	/* We restore the interrupt state now */
-	if (!arch_irq_disabled_regs(regs))
-		local_irq_enable();
+	interrupt_cond_local_irq_enable(regs);
 
 	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, address);
 
 	/*
-	 * We want to do this outside mmap_sem, because reading code around nip
+	 * We want to do this outside mmap_lock, because reading code around nip
 	 * can result in fault, which will cause a deadlock when called with
-	 * mmap_sem held
+	 * mmap_lock held
 	 */
 	if (is_user)
 		flags |= FAULT_FLAG_USER;
@@ -538,7 +453,7 @@ static int __do_page_fault(struct pt_regs *regs, unsigned long address,
 	/* When running in the kernel we expect faults to occur only to
 	 * addresses in user space.  All other faults represent errors in the
 	 * kernel and should generate an OOPS.  Unfortunately, in the case of an
-	 * erroneous fault occurring in a code path which already holds mmap_sem
+	 * erroneous fault occurring in a code path which already holds mmap_lock
 	 * we will deadlock attempting to validate the fault against the
 	 * address space.  Luckily the kernel only validly references user
 	 * space from well defined areas of code, which are listed in the
@@ -550,12 +465,12 @@ static int __do_page_fault(struct pt_regs *regs, unsigned long address,
 	 * source.  If this is invalid we can skip the address space check,
 	 * thus avoiding the deadlock.
 	 */
-	if (unlikely(!down_read_trylock(&mm->mmap_sem))) {
+	if (unlikely(!mmap_read_trylock(mm))) {
 		if (!is_user && !search_exception_tables(regs->nip))
 			return bad_area_nosemaphore(regs, address);
 
 retry:
-		down_read(&mm->mmap_sem);
+		mmap_read_lock(mm);
 	} else {
 		/*
 		 * The above down_read_trylock() might have succeeded in
@@ -568,35 +483,18 @@ retry:
 	vma = find_vma(mm, address);
 	if (unlikely(!vma))
 		return bad_area(regs, address);
-	if (likely(vma->vm_start <= address))
-		goto good_area;
-	if (unlikely(!(vma->vm_flags & VM_GROWSDOWN)))
-		return bad_area(regs, address);
 
-	/* The stack is being expanded, check if it's valid */
-	if (unlikely(bad_stack_expansion(regs, address, vma, flags,
-					 &must_retry))) {
-		if (!must_retry)
+	if (unlikely(vma->vm_start > address)) {
+		if (unlikely(!(vma->vm_flags & VM_GROWSDOWN)))
 			return bad_area(regs, address);
 
-		up_read(&mm->mmap_sem);
-		if (fault_in_pages_readable((const char __user *)regs->nip,
-					    sizeof(unsigned int)))
-			return bad_area_nosemaphore(regs, address);
-		goto retry;
+		if (unlikely(expand_stack(vma, address)))
+			return bad_area(regs, address);
 	}
 
-	/* Try to expand it */
-	if (unlikely(expand_stack(vma, address)))
-		return bad_area(regs, address);
-
-good_area:
-
-#ifdef CONFIG_PPC_MEM_KEYS
 	if (unlikely(access_pkey_error(is_write, is_exec,
 				       (error_code & DSISR_KEYFAULT), vma)))
 		return bad_access_pkey(regs, address, vma);
-#endif /* CONFIG_PPC_MEM_KEYS */
 
 	if (unlikely(access_error(is_write, is_exec, vma)))
 		return bad_access(regs, address);
@@ -606,35 +504,25 @@ good_area:
 	 * make sure we exit gracefully rather than endlessly redo
 	 * the fault.
 	 */
-	fault = handle_mm_fault(vma, address, flags);
+	fault = handle_mm_fault(vma, address, flags, regs);
 
 	major |= fault & VM_FAULT_MAJOR;
 
+	if (fault_signal_pending(fault, regs))
+		return user_mode(regs) ? 0 : SIGBUS;
+
 	/*
-	 * Handle the retry right now, the mmap_sem has been released in that
+	 * Handle the retry right now, the mmap_lock has been released in that
 	 * case.
 	 */
 	if (unlikely(fault & VM_FAULT_RETRY)) {
-		/* We retry only once */
 		if (flags & FAULT_FLAG_ALLOW_RETRY) {
-			/*
-			 * Clear FAULT_FLAG_ALLOW_RETRY to avoid any risk
-			 * of starvation.
-			 */
-			flags &= ~FAULT_FLAG_ALLOW_RETRY;
 			flags |= FAULT_FLAG_TRIED;
-			if (!fatal_signal_pending(current))
-				goto retry;
+			goto retry;
 		}
-
-		/*
-		 * User mode? Just return to handle the fatal exception otherwise
-		 * return to bad_page_fault
-		 */
-		return is_user ? 0 : SIGBUS;
 	}
 
-	up_read(&current->mm->mmap_sem);
+	mmap_read_unlock(current->mm);
 
 	if (unlikely(fault & VM_FAULT_ERROR))
 		return mm_fault_error(regs, address, fault);
@@ -642,59 +530,62 @@ good_area:
 	/*
 	 * Major/minor page fault accounting.
 	 */
-	if (major) {
-		current->maj_flt++;
-		perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS_MAJ, 1, regs, address);
+	if (major)
 		cmo_account_page_fault();
-	} else {
-		current->min_flt++;
-		perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS_MIN, 1, regs, address);
-	}
+
 	return 0;
 }
-NOKPROBE_SYMBOL(__do_page_fault);
+NOKPROBE_SYMBOL(___do_page_fault);
 
-int do_page_fault(struct pt_regs *regs, unsigned long address,
-		  unsigned long error_code)
+static __always_inline void __do_page_fault(struct pt_regs *regs)
 {
-	enum ctx_state prev_state = exception_enter();
-	int rc = __do_page_fault(regs, address, error_code);
-	exception_exit(prev_state);
-	return rc;
+	long err;
+
+	err = ___do_page_fault(regs, regs->dar, regs->dsisr);
+	if (unlikely(err))
+		bad_page_fault(regs, err);
 }
-NOKPROBE_SYMBOL(do_page_fault);
+
+DEFINE_INTERRUPT_HANDLER(do_page_fault)
+{
+	__do_page_fault(regs);
+}
+
+#ifdef CONFIG_PPC_BOOK3S_64
+/* Same as do_page_fault but interrupt entry has already run in do_hash_fault */
+void hash__do_page_fault(struct pt_regs *regs)
+{
+	__do_page_fault(regs);
+}
+NOKPROBE_SYMBOL(hash__do_page_fault);
+#endif
 
 /*
  * bad_page_fault is called when we have a bad access from the kernel.
  * It is called from the DSI and ISI handlers in head.S and from some
  * of the procedures in traps.c.
  */
-void bad_page_fault(struct pt_regs *regs, unsigned long address, int sig)
+static void __bad_page_fault(struct pt_regs *regs, int sig)
 {
-	const struct exception_table_entry *entry;
-
-	/* Are we prepared to handle this fault?  */
-	if ((entry = search_exception_tables(regs->nip)) != NULL) {
-		regs->nip = extable_fixup(entry);
-		return;
-	}
+	int is_write = page_fault_is_write(regs->dsisr);
 
 	/* kernel has accessed a bad area */
 
 	switch (TRAP(regs)) {
-	case 0x300:
-	case 0x380:
-	case 0xe00:
-		pr_alert("BUG: %s at 0x%08lx\n",
+	case INTERRUPT_DATA_STORAGE:
+	case INTERRUPT_DATA_SEGMENT:
+	case INTERRUPT_H_DATA_STORAGE:
+		pr_alert("BUG: %s on %s at 0x%08lx\n",
 			 regs->dar < PAGE_SIZE ? "Kernel NULL pointer dereference" :
-			 "Unable to handle kernel data access", regs->dar);
+			 "Unable to handle kernel data access",
+			 is_write ? "write" : "read", regs->dar);
 		break;
-	case 0x400:
-	case 0x480:
+	case INTERRUPT_INST_STORAGE:
+	case INTERRUPT_INST_SEGMENT:
 		pr_alert("BUG: Unable to handle kernel instruction fetch%s",
 			 regs->nip < PAGE_SIZE ? " (NULL pointer?)\n" : "\n");
 		break;
-	case 0x600:
+	case INTERRUPT_ALIGNMENT:
 		pr_alert("BUG: Unable to handle kernel unaligned access at 0x%08lx\n",
 			 regs->dar);
 		break;
@@ -711,3 +602,22 @@ void bad_page_fault(struct pt_regs *regs, unsigned long address, int sig)
 
 	die("Kernel access of bad area", regs, sig);
 }
+
+void bad_page_fault(struct pt_regs *regs, int sig)
+{
+	const struct exception_table_entry *entry;
+
+	/* Are we prepared to handle this fault?  */
+	entry = search_exception_tables(instruction_pointer(regs));
+	if (entry)
+		instruction_pointer_set(regs, extable_fixup(entry));
+	else
+		__bad_page_fault(regs, sig);
+}
+
+#ifdef CONFIG_PPC_BOOK3S_64
+DEFINE_INTERRUPT_HANDLER(do_bad_page_fault_segv)
+{
+	bad_page_fault(regs, SIGSEGV);
+}
+#endif

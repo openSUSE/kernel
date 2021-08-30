@@ -49,16 +49,6 @@
 #define FDB_TC_MAX_PRIO 16
 #define FDB_TC_LEVELS_PER_PRIO 2
 
-#define FDB_TC_MAX_CHAIN 3
-#define FDB_FT_CHAIN (FDB_TC_MAX_CHAIN + 1)
-#define FDB_TC_SLOW_PATH_CHAIN (FDB_FT_CHAIN + 1)
-
-/* The index of the last real chain (FT) + 1 as chain zero is valid as well */
-#define FDB_NUM_CHAINS (FDB_FT_CHAIN + 1)
-
-#define FDB_TC_MAX_PRIO 16
-#define FDB_TC_LEVELS_PER_PRIO 2
-
 struct mlx5_modify_hdr {
 	enum mlx5_flow_namespace_type ns_type;
 	union {
@@ -139,6 +129,8 @@ struct mlx5_flow_steering {
 	struct mlx5_flow_root_namespace	*rdma_rx_root_ns;
 	struct mlx5_flow_root_namespace	*rdma_tx_root_ns;
 	struct mlx5_flow_root_namespace	*egress_root_ns;
+	int esw_egress_acl_vports;
+	int esw_ingress_acl_vports;
 };
 
 struct fs_node {
@@ -204,7 +196,7 @@ struct mlx5_ft_underlay_qp {
 	u32 qpn;
 };
 
-#define MLX5_FTE_MATCH_PARAM_RESERVED	reserved_at_a00
+#define MLX5_FTE_MATCH_PARAM_RESERVED	reserved_at_c00
 /* Calculate the fte_match_param length and without the reserved length.
  * Make sure the reserved field is the last.
  */
@@ -297,6 +289,11 @@ int mlx5_flow_namespace_set_mode(struct mlx5_flow_namespace *ns,
 int mlx5_init_fs(struct mlx5_core_dev *dev);
 void mlx5_cleanup_fs(struct mlx5_core_dev *dev);
 
+int mlx5_fs_egress_acls_init(struct mlx5_core_dev *dev, int total_vports);
+void mlx5_fs_egress_acls_cleanup(struct mlx5_core_dev *dev);
+int mlx5_fs_ingress_acls_init(struct mlx5_core_dev *dev, int total_vports);
+void mlx5_fs_ingress_acls_cleanup(struct mlx5_core_dev *dev);
+
 #define fs_get_obj(v, _node)  {v = container_of((_node), typeof(*v), node); }
 
 #define fs_list_for_each_entry(pos, root)		\
@@ -334,6 +331,7 @@ void mlx5_cleanup_fs(struct mlx5_core_dev *dev);
 
 #define MLX5_CAP_FLOWTABLE_TYPE(mdev, cap, type) (		\
 	(type == FS_FT_NIC_RX) ? MLX5_CAP_FLOWTABLE_NIC_RX(mdev, cap) :		\
+	(type == FS_FT_NIC_TX) ? MLX5_CAP_FLOWTABLE_NIC_TX(mdev, cap) :		\
 	(type == FS_FT_ESW_EGRESS_ACL) ? MLX5_CAP_ESW_EGRESS_ACL(mdev, cap) :		\
 	(type == FS_FT_ESW_INGRESS_ACL) ? MLX5_CAP_ESW_INGRESS_ACL(mdev, cap) :		\
 	(type == FS_FT_FDB) ? MLX5_CAP_ESW_FLOWTABLE_FDB(mdev, cap) :		\

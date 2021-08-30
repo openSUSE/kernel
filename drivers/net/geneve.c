@@ -7,6 +7,7 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/ethtool.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/etherdevice.h>
@@ -217,7 +218,6 @@ static void geneve_rx(struct geneve_dev *geneve, struct geneve_sock *gs,
 {
 	struct genevehdr *gnvh = geneve_hdr(skb);
 	struct metadata_dst *tun_dst = NULL;
-	struct pcpu_sw_netstats *stats;
 	unsigned int len;
 	int err = 0;
 	void *oiph;
@@ -225,8 +225,7 @@ static void geneve_rx(struct geneve_dev *geneve, struct geneve_sock *gs,
 	if (ip_tunnel_collect_metadata() || gs->collect_md) {
 		__be16 flags;
 
-		flags = TUNNEL_KEY | TUNNEL_GENEVE_OPT |
-			(gnvh->oam ? TUNNEL_OAM : 0) |
+		flags = TUNNEL_KEY | (gnvh->oam ? TUNNEL_OAM : 0) |
 			(gnvh->critical ? TUNNEL_CRIT_OPT : 0);
 
 		tun_dst = udp_tun_rx_dst(skb, geneve_get_sk_family(gs), flags,
@@ -296,13 +295,9 @@ static void geneve_rx(struct geneve_dev *geneve, struct geneve_sock *gs,
 
 	len = skb->len;
 	err = gro_cells_receive(&geneve->gro_cells, skb);
-	if (likely(err == NET_RX_SUCCESS)) {
-		stats = this_cpu_ptr(geneve->dev->tstats);
-		u64_stats_update_begin(&stats->syncp);
-		stats->rx_packets++;
-		stats->rx_bytes += len;
-		u64_stats_update_end(&stats->syncp);
-	}
+	if (likely(err == NET_RX_SUCCESS))
+		dev_sw_netstats_rx_add(geneve->dev, len);
+
 	return;
 drop:
 	/* Consume bad packet */
@@ -466,6 +461,7 @@ static struct socket *geneve_create_sock(struct net *net, bool ipv6,
 	if (err < 0)
 		return ERR_PTR(err);
 
+	udp_allow_gso(sock->sk);
 	return sock;
 }
 
@@ -1165,7 +1161,7 @@ static const struct net_device_ops geneve_netdev_ops = {
 	.ndo_open		= geneve_open,
 	.ndo_stop		= geneve_stop,
 	.ndo_start_xmit		= geneve_xmit,
-	.ndo_get_stats64	= ip_tunnel_get_stats64,
+	.ndo_get_stats64	= dev_get_tstats64,
 	.ndo_change_mtu		= geneve_change_mtu,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_mac_address	= eth_mac_addr,
@@ -1224,11 +1220,12 @@ static void geneve_setup(struct net_device *dev)
 	SET_NETDEV_DEVTYPE(dev, &geneve_type);
 
 	dev->features    |= NETIF_F_LLTX;
-	dev->features    |= NETIF_F_SG | NETIF_F_HW_CSUM;
+	dev->features    |= NETIF_F_SG | NETIF_F_HW_CSUM | NETIF_F_FRAGLIST;
 	dev->features    |= NETIF_F_RXCSUM;
 	dev->features    |= NETIF_F_GSO_SOFTWARE;
 
-	dev->hw_features |= NETIF_F_SG | NETIF_F_HW_CSUM | NETIF_F_RXCSUM;
+	dev->hw_features |= NETIF_F_SG | NETIF_F_HW_CSUM | NETIF_F_FRAGLIST;
+	dev->hw_features |= NETIF_F_RXCSUM;
 	dev->hw_features |= NETIF_F_GSO_SOFTWARE;
 
 	/* MTU range: 68 - (something less than 65535) */
@@ -1247,7 +1244,7 @@ static void geneve_setup(struct net_device *dev)
 
 static const struct nla_policy geneve_policy[IFLA_GENEVE_MAX + 1] = {
 	[IFLA_GENEVE_ID]		= { .type = NLA_U32 },
-	[IFLA_GENEVE_REMOTE]		= { .len = FIELD_SIZEOF(struct iphdr, daddr) },
+	[IFLA_GENEVE_REMOTE]		= { .len = sizeof_field(struct iphdr, daddr) },
 	[IFLA_GENEVE_REMOTE6]		= { .len = sizeof(struct in6_addr) },
 	[IFLA_GENEVE_TTL]		= { .type = NLA_U8 },
 	[IFLA_GENEVE_TOS]		= { .type = NLA_U8 },
@@ -1414,8 +1411,8 @@ static int geneve_nl2info(struct nlattr *tb[], struct nlattr *data[],
 			  struct netlink_ext_ack *extack,
 			  struct geneve_config *cfg, bool changelink)
 {
-	int attrtype;
 	struct ip_tunnel_info *info = &cfg->info;
+	int attrtype;
 
 	if (data[IFLA_GENEVE_REMOTE] && data[IFLA_GENEVE_REMOTE6]) {
 		NL_SET_ERR_MSG(extack,
@@ -1878,16 +1875,10 @@ static int geneve_netdevice_event(struct notifier_block *unused,
 {
 	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
 
-	if (event == NETDEV_UDP_TUNNEL_PUSH_INFO ||
-	    event == NETDEV_UDP_TUNNEL_DROP_INFO) {
-		geneve_offload_rx_ports(dev, event == NETDEV_UDP_TUNNEL_PUSH_INFO);
-	} else if (event == NETDEV_UNREGISTER) {
-		if (!dev->udp_tunnel_nic_info)
-			geneve_offload_rx_ports(dev, false);
-	} else if (event == NETDEV_REGISTER) {
-		if (!dev->udp_tunnel_nic_info)
-			geneve_offload_rx_ports(dev, true);
-	}
+	if (event == NETDEV_UDP_TUNNEL_PUSH_INFO)
+		geneve_offload_rx_ports(dev, true);
+	else if (event == NETDEV_UDP_TUNNEL_DROP_INFO)
+		geneve_offload_rx_ports(dev, false);
 
 	return NOTIFY_DONE;
 }

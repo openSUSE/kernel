@@ -781,45 +781,27 @@ static int mxs_i2c_get_ofdata(struct mxs_i2c_dev *i2c)
 	return 0;
 }
 
-static const struct platform_device_id mxs_i2c_devtype[] = {
-	{
-		.name = "imx23-i2c",
-		.driver_data = MXS_I2C_V1,
-	}, {
-		.name = "imx28-i2c",
-		.driver_data = MXS_I2C_V2,
-	}, { /* sentinel */ }
-};
-MODULE_DEVICE_TABLE(platform, mxs_i2c_devtype);
-
 static const struct of_device_id mxs_i2c_dt_ids[] = {
-	{ .compatible = "fsl,imx23-i2c", .data = &mxs_i2c_devtype[0], },
-	{ .compatible = "fsl,imx28-i2c", .data = &mxs_i2c_devtype[1], },
+	{ .compatible = "fsl,imx23-i2c", .data = (void *)MXS_I2C_V1, },
+	{ .compatible = "fsl,imx28-i2c", .data = (void *)MXS_I2C_V2, },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, mxs_i2c_dt_ids);
 
 static int mxs_i2c_probe(struct platform_device *pdev)
 {
-	const struct of_device_id *of_id =
-				of_match_device(mxs_i2c_dt_ids, &pdev->dev);
 	struct device *dev = &pdev->dev;
 	struct mxs_i2c_dev *i2c;
 	struct i2c_adapter *adap;
-	struct resource *res;
 	int err, irq;
 
 	i2c = devm_kzalloc(dev, sizeof(*i2c), GFP_KERNEL);
 	if (!i2c)
 		return -ENOMEM;
 
-	if (of_id) {
-		const struct platform_device_id *device_id = of_id->data;
-		i2c->dev_type = device_id->driver_data;
-	}
+	i2c->dev_type = (enum mxs_i2c_devtype)of_device_get_match_data(&pdev->dev);
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	i2c->regs = devm_ioremap_resource(&pdev->dev, res);
+	i2c->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(i2c->regs))
 		return PTR_ERR(i2c->regs);
 
@@ -842,10 +824,10 @@ static int mxs_i2c_probe(struct platform_device *pdev)
 	}
 
 	/* Setup the DMA */
-	i2c->dmach = dma_request_slave_channel(dev, "rx-tx");
-	if (!i2c->dmach) {
+	i2c->dmach = dma_request_chan(dev, "rx-tx");
+	if (IS_ERR(i2c->dmach)) {
 		dev_err(dev, "Failed to request dma\n");
-		return -ENODEV;
+		return PTR_ERR(i2c->dmach);
 	}
 
 	platform_set_drvdata(pdev, i2c);

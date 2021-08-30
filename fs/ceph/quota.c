@@ -12,7 +12,7 @@
 
 void ceph_adjust_quota_realms_count(struct inode *inode, bool inc)
 {
-	struct ceph_mds_client *mdsc = ceph_inode_to_client(inode)->mdsc;
+	struct ceph_mds_client *mdsc = ceph_sb_to_mdsc(inode->i_sb);
 	if (inc)
 		atomic64_inc(&mdsc->quotarealms_count);
 	else
@@ -21,14 +21,14 @@ void ceph_adjust_quota_realms_count(struct inode *inode, bool inc)
 
 static inline bool ceph_has_realms_with_quotas(struct inode *inode)
 {
-	struct ceph_mds_client *mdsc = ceph_inode_to_client(inode)->mdsc;
-	struct super_block *sb = mdsc->fsc->sb;
+	struct super_block *sb = inode->i_sb;
+	struct ceph_mds_client *mdsc = ceph_sb_to_mdsc(sb);
+	struct inode *root = d_inode(sb->s_root);
 
 	if (atomic64_read(&mdsc->quotarealms_count) > 0)
 		return true;
 	/* if root is the real CephFS root, we don't have quota realms */
-	if (sb->s_root->d_inode &&
-	    (sb->s_root->d_inode->i_ino == CEPH_INO_ROOT))
+	if (root && ceph_ino(root) == CEPH_INO_ROOT)
 		return false;
 	/* otherwise, we can't know for sure */
 	return true;
@@ -74,8 +74,7 @@ void ceph_handle_quota(struct ceph_mds_client *mdsc,
 		            le64_to_cpu(h->max_files));
 	spin_unlock(&ci->i_ceph_lock);
 
-	/* avoid calling iput_final() in dispatch thread */
-	ceph_async_iput(inode);
+	iput(inode);
 }
 
 static struct ceph_quotarealm_inode *
@@ -247,8 +246,7 @@ restart:
 
 		ci = ceph_inode(in);
 		has_quota = __ceph_has_any_quota(ci);
-		/* avoid calling iput_final() while holding mdsc->snap_rwsem */
-		ceph_async_iput(in);
+		iput(in);
 
 		next = realm->parent;
 		if (has_quota || !next)
@@ -266,7 +264,7 @@ restart:
 
 bool ceph_quota_is_same_realm(struct inode *old, struct inode *new)
 {
-	struct ceph_mds_client *mdsc = ceph_inode_to_client(old)->mdsc;
+	struct ceph_mds_client *mdsc = ceph_sb_to_mdsc(old->i_sb);
 	struct ceph_snap_realm *old_realm, *new_realm;
 	bool is_same;
 
@@ -313,7 +311,7 @@ enum quota_check_op {
 static bool check_quota_exceeded(struct inode *inode, enum quota_check_op op,
 				 loff_t delta)
 {
-	struct ceph_mds_client *mdsc = ceph_inode_to_client(inode)->mdsc;
+	struct ceph_mds_client *mdsc = ceph_sb_to_mdsc(inode->i_sb);
 	struct ceph_inode_info *ci;
 	struct ceph_snap_realm *realm, *next;
 	struct inode *in;
@@ -383,8 +381,7 @@ restart:
 			pr_warn("Invalid quota check op (%d)\n", op);
 			exceeded = true; /* Just break the loop */
 		}
-		/* avoid calling iput_final() while holding mdsc->snap_rwsem */
-		ceph_async_iput(in);
+		iput(in);
 
 		next = realm->parent;
 		if (exceeded || !next)

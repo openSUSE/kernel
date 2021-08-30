@@ -5,7 +5,7 @@ GPIO Driver Interface
 This document serves as a guide for writers of GPIO chip drivers.
 
 Each GPIO controller driver needs to include the following header, which defines
-the structures used to define a GPIO driver:
+the structures used to define a GPIO driver::
 
 	#include <linux/gpio/driver.h>
 
@@ -69,9 +69,9 @@ driver code:
 
 The code implementing a gpio_chip should support multiple instances of the
 controller, preferably using the driver model. That code will configure each
-gpio_chip and issue ``gpiochip_add[_data]()`` or ``devm_gpiochip_add_data()``.
-Removing a GPIO controller should be rare; use ``[devm_]gpiochip_remove()``
-when it is unavoidable.
+gpio_chip and issue gpiochip_add(), gpiochip_add_data(), or
+devm_gpiochip_add_data().  Removing a GPIO controller should be rare; use
+gpiochip_remove() when it is unavoidable.
 
 Often a gpio_chip is part of an instance-specific structure with states not
 exposed by the GPIO interfaces, such as addressing, power management, and more.
@@ -342,12 +342,12 @@ Cascaded GPIO irqchips usually fall in one of three categories:
   forced to a thread. The "fake?" raw lock can be used to work around this
   problem::
 
-	raw_spinlock_t wa_lock;
-	static irqreturn_t omap_gpio_irq_handler(int irq, void *gpiobank)
-		unsigned long wa_lock_flags;
-		raw_spin_lock_irqsave(&bank->wa_lock, wa_lock_flags);
-		generic_handle_irq(irq_find_mapping(bank->chip.irq.domain, bit));
-		raw_spin_unlock_irqrestore(&bank->wa_lock, wa_lock_flags);
+    raw_spinlock_t wa_lock;
+    static irqreturn_t omap_gpio_irq_handler(int irq, void *gpiobank)
+        unsigned long wa_lock_flags;
+        raw_spin_lock_irqsave(&bank->wa_lock, wa_lock_flags);
+        generic_handle_irq(irq_find_mapping(bank->chip.irq.domain, bit));
+        raw_spin_unlock_irqrestore(&bank->wa_lock, wa_lock_flags);
 
 - GENERIC CHAINED GPIO IRQCHIPS: these are the same as "CHAINED GPIO irqchips",
   but chained IRQ handlers are not used. Instead GPIO IRQs dispatching is
@@ -398,12 +398,15 @@ provided. A big portion of overhead code will be managed by gpiolib,
 under the assumption that your interrupts are 1-to-1-mapped to the
 GPIO line index:
 
-  GPIO line offset   Hardware IRQ
-  0                  0
-  1                  1
-  2                  2
-  ...                ...
-  ngpio-1            ngpio-1
+.. csv-table::
+    :header: GPIO line offset, Hardware IRQ
+
+    0,0
+    1,1
+    2,2
+    ...,...
+    ngpio-1, ngpio-1
+
 
 If some GPIO lines do not have corresponding IRQs, the bitmask valid_mask
 and the flag need_valid_mask in gpio_irq_chip can be used to mask off some
@@ -413,7 +416,10 @@ The preferred way to set up the helpers is to fill in the
 struct gpio_irq_chip inside struct gpio_chip before adding the gpio_chip.
 If you do this, the additional irq_chip will be set up by gpiolib at the
 same time as setting up the rest of the GPIO functionality. The following
-is a typical example of a cascaded interrupt handler using gpio_irq_chip:
+is a typical example of a chained cascaded interrupt handler using
+the gpio_irq_chip:
+
+.. code-block:: c
 
   /* Typical state container with dynamic irqchip */
   struct my_gpio {
@@ -447,8 +453,49 @@ is a typical example of a cascaded interrupt handler using gpio_irq_chip:
 
   return devm_gpiochip_add_data(dev, &g->gc, g);
 
-The helper support using hierarchical interrupt controllers as well.
+The helper supports using threaded interrupts as well. Then you just request
+the interrupt separately and go with it:
+
+.. code-block:: c
+
+  /* Typical state container with dynamic irqchip */
+  struct my_gpio {
+      struct gpio_chip gc;
+      struct irq_chip irq;
+  };
+
+  int irq; /* from platform etc */
+  struct my_gpio *g;
+  struct gpio_irq_chip *girq;
+
+  /* Set up the irqchip dynamically */
+  g->irq.name = "my_gpio_irq";
+  g->irq.irq_ack = my_gpio_ack_irq;
+  g->irq.irq_mask = my_gpio_mask_irq;
+  g->irq.irq_unmask = my_gpio_unmask_irq;
+  g->irq.irq_set_type = my_gpio_set_irq_type;
+
+  ret = devm_request_threaded_irq(dev, irq, NULL,
+		irq_thread_fn, IRQF_ONESHOT, "my-chip", g);
+  if (ret < 0)
+	return ret;
+
+  /* Get a pointer to the gpio_irq_chip */
+  girq = &g->gc.irq;
+  girq->chip = &g->irq;
+  /* This will let us handle the parent IRQ in the driver */
+  girq->parent_handler = NULL;
+  girq->num_parents = 0;
+  girq->parents = NULL;
+  girq->default_type = IRQ_TYPE_NONE;
+  girq->handler = handle_bad_irq;
+
+  return devm_gpiochip_add_data(dev, &g->gc, g);
+
+The helper supports using hierarchical interrupt controllers as well.
 In this case the typical set-up will look like this:
+
+.. code-block:: c
 
   /* Typical state container with dynamic irqchip */
   struct my_gpio {
@@ -486,37 +533,13 @@ the parent hardware irq from a child (i.e. this gpio chip) hardware irq.
 As always it is good to look at examples in the kernel tree for advice
 on how to find the required pieces.
 
-The old way of adding irqchips to gpiochips after registration is also still
-available but we try to move away from this:
-
-- DEPRECATED: gpiochip_irqchip_add(): adds a chained cascaded irqchip to a
-  gpiochip. It will pass the struct gpio_chip* for the chip to all IRQ
-  callbacks, so the callbacks need to embed the gpio_chip in its state
-  container and obtain a pointer to the container using container_of().
-  (See Documentation/driver-model/design-patterns.txt)
-
-- gpiochip_irqchip_add_nested(): adds a nested cascaded irqchip to a gpiochip,
-  as discussed above regarding different types of cascaded irqchips. The
-  cascaded irq has to be handled by a threaded interrupt handler.
-  Apart from that it works exactly like the chained irqchip.
-
-- DEPRECATED: gpiochip_set_chained_irqchip(): sets up a chained cascaded irq
-  handler for a gpio_chip from a parent IRQ and passes the struct gpio_chip*
-  as handler data. Notice that we pass is as the handler data, since the
-  irqchip data is likely used by the parent irqchip.
-
-- gpiochip_set_nested_irqchip(): sets up a nested cascaded irq handler for a
-  gpio_chip from a parent IRQ. As the parent IRQ has usually been
-  explicitly requested by the driver, this does very little more than
-  mark all the child IRQs as having the other IRQ as parent.
-
 If there is a need to exclude certain GPIO lines from the IRQ domain handled by
 these helpers, we can set .irq.need_valid_mask of the gpiochip before
-``[devm_]gpiochip_add_data()`` is called. This allocates an .irq.valid_mask with as
-many bits set as there are GPIO lines in the chip, each bit representing line
-0..n-1. Drivers can exclude GPIO lines by clearing bits from this mask. The mask
-must be filled in before gpiochip_irqchip_add() or gpiochip_irqchip_add_nested()
-is called.
+devm_gpiochip_add_data() or gpiochip_add_data() is called. This allocates an
+.irq.valid_mask with as many bits set as there are GPIO lines in the chip, each
+bit representing line 0..n-1. Drivers can exclude GPIO lines by clearing bits
+from this mask. The mask can be filled in the init_valid_mask() callback
+that is part of the struct gpio_irq_chip.
 
 To use the helpers please keep the following in mind:
 
@@ -617,8 +640,8 @@ compliance:
   level and edge IRQs
 
 * [1] http://www.spinics.net/lists/linux-omap/msg120425.html
-* [2] https://lkml.org/lkml/2015/9/25/494
-* [3] https://lkml.org/lkml/2015/9/25/495
+* [2] https://lore.kernel.org/r/1443209283-20781-2-git-send-email-grygorii.strashko@ti.com
+* [3] https://lore.kernel.org/r/1443209283-20781-3-git-send-email-grygorii.strashko@ti.com
 
 
 Requesting self-owned GPIO pins

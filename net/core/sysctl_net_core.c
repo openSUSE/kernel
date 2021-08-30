@@ -22,7 +22,9 @@
 #include <net/busy_poll.h>
 #include <net/pkt_sched.h>
 
-static int two __maybe_unused = 2;
+static int two = 2;
+static int three = 3;
+static int int_3600 = 3600;
 static int min_sndbuf = SOCK_MIN_SNDBUF;
 static int min_rcvbuf = SOCK_MIN_RCVBUF;
 static int max_skb_frags = MAX_SKB_FRAGS;
@@ -39,13 +41,14 @@ EXPORT_SYMBOL(sysctl_fb_tunnels_only_for_init_net);
  *     IPv6: reset all settings to default
  * 1 - Both inherit all current settings from init_net
  * 2 - Both reset all settings to default
+ * 3 - Both inherit all settings from current netns
  */
 int sysctl_devconf_inherit_init_net __read_mostly;
 EXPORT_SYMBOL(sysctl_devconf_inherit_init_net);
 
 #ifdef CONFIG_RPS
 static int rps_sock_flow_sysctl(struct ctl_table *table, int write,
-				void __user *buffer, size_t *lenp, loff_t *ppos)
+				void *buffer, size_t *lenp, loff_t *ppos)
 {
 	unsigned int orig_size, size;
 	int ret, i;
@@ -115,8 +118,7 @@ static int rps_sock_flow_sysctl(struct ctl_table *table, int write,
 static DEFINE_MUTEX(flow_limit_update_mutex);
 
 static int flow_limit_cpu_sysctl(struct ctl_table *table, int write,
-				 void __user *buffer, size_t *lenp,
-				 loff_t *ppos)
+				 void *buffer, size_t *lenp, loff_t *ppos)
 {
 	struct sd_flow_limit *cur;
 	struct softnet_data *sd;
@@ -127,7 +129,7 @@ static int flow_limit_cpu_sysctl(struct ctl_table *table, int write,
 		return -ENOMEM;
 
 	if (write) {
-		ret = cpumask_parse_user(buffer, *lenp, mask);
+		ret = cpumask_parse(buffer, mask);
 		if (ret)
 			goto done;
 
@@ -180,10 +182,7 @@ write_unlock:
 		}
 		if (len < *lenp)
 			kbuf[len++] = '\n';
-		if (copy_to_user(buffer, kbuf, len)) {
-			ret = -EFAULT;
-			goto done;
-		}
+		memcpy(buffer, kbuf, len);
 		*lenp = len;
 		*ppos += len;
 	}
@@ -194,8 +193,7 @@ done:
 }
 
 static int flow_limit_table_len_sysctl(struct ctl_table *table, int write,
-				       void __user *buffer, size_t *lenp,
-				       loff_t *ppos)
+				       void *buffer, size_t *lenp, loff_t *ppos)
 {
 	unsigned int old, *ptr;
 	int ret;
@@ -217,7 +215,7 @@ static int flow_limit_table_len_sysctl(struct ctl_table *table, int write,
 
 #ifdef CONFIG_NET_SCHED
 static int set_default_qdisc(struct ctl_table *table, int write,
-			     void __user *buffer, size_t *lenp, loff_t *ppos)
+			     void *buffer, size_t *lenp, loff_t *ppos)
 {
 	char id[IFNAMSIZ];
 	struct ctl_table tbl = {
@@ -236,7 +234,7 @@ static int set_default_qdisc(struct ctl_table *table, int write,
 #endif
 
 static int proc_do_dev_weight(struct ctl_table *table, int write,
-			   void __user *buffer, size_t *lenp, loff_t *ppos)
+			   void *buffer, size_t *lenp, loff_t *ppos)
 {
 	int ret;
 
@@ -251,7 +249,7 @@ static int proc_do_dev_weight(struct ctl_table *table, int write,
 }
 
 static int proc_do_rss_key(struct ctl_table *table, int write,
-			   void __user *buffer, size_t *lenp, loff_t *ppos)
+			   void *buffer, size_t *lenp, loff_t *ppos)
 {
 	struct ctl_table fake_table;
 	char buf[NETDEV_RSS_KEY_LEN * 3];
@@ -264,7 +262,7 @@ static int proc_do_rss_key(struct ctl_table *table, int write,
 
 #ifdef CONFIG_BPF_JIT
 static int proc_dointvec_minmax_bpf_enable(struct ctl_table *table, int write,
-					   void __user *buffer, size_t *lenp,
+					   void *buffer, size_t *lenp,
 					   loff_t *ppos)
 {
 	int ret, jit_enable = *(int *)table->data;
@@ -291,8 +289,7 @@ static int proc_dointvec_minmax_bpf_enable(struct ctl_table *table, int write,
 # ifdef CONFIG_HAVE_EBPF_JIT
 static int
 proc_dointvec_minmax_bpf_restricted(struct ctl_table *table, int write,
-				    void __user *buffer, size_t *lenp,
-				    loff_t *ppos)
+				    void *buffer, size_t *lenp, loff_t *ppos)
 {
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
@@ -303,8 +300,7 @@ proc_dointvec_minmax_bpf_restricted(struct ctl_table *table, int write,
 
 static int
 proc_dolongvec_minmax_bpf_restricted(struct ctl_table *table, int write,
-				     void __user *buffer, size_t *lenp,
-				     loff_t *ppos)
+				     void *buffer, size_t *lenp, loff_t *ppos)
 {
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
@@ -314,7 +310,6 @@ proc_dolongvec_minmax_bpf_restricted(struct ctl_table *table, int write,
 #endif
 
 static struct ctl_table net_core_table[] = {
-#ifdef CONFIG_NET
 	{
 		.procname	= "wmem_max",
 		.data		= &sysctl_wmem_max,
@@ -512,7 +507,6 @@ static struct ctl_table net_core_table[] = {
 		.proc_handler	= set_default_qdisc
 	},
 #endif
-#endif /* CONFIG_NET */
 	{
 		.procname	= "netdev_budget",
 		.data		= &netdev_budget,
@@ -551,7 +545,7 @@ static struct ctl_table net_core_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
 		.extra1		= SYSCTL_ZERO,
-		.extra2		= SYSCTL_ONE,
+		.extra2		= &two,
 	},
 	{
 		.procname	= "devconf_inherit_init_net",
@@ -560,7 +554,7 @@ static struct ctl_table net_core_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
 		.extra1		= SYSCTL_ZERO,
-		.extra2		= &two,
+		.extra2		= &three,
 	},
 	{
 		.procname	= "high_order_alloc_disable",
@@ -577,6 +571,15 @@ static struct ctl_table net_core_table[] = {
 		.proc_handler	= proc_dointvec_minmax,
 		.extra1		= SYSCTL_ONE,
 	},
+	{
+		.procname	= "netdev_unregister_timeout_secs",
+		.data		= &netdev_unregister_timeout_secs,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= SYSCTL_ONE,
+		.extra2		= &int_3600,
+	},
 	{ }
 };
 
@@ -591,6 +594,19 @@ static struct ctl_table netns_core_table[] = {
 	},
 	{ }
 };
+
+static int __init fb_tunnels_only_for_init_net_sysctl_setup(char *str)
+{
+	/* fallback tunnels for initns only */
+	if (!strncmp(str, "initns", 6))
+		sysctl_fb_tunnels_only_for_init_net = 1;
+	/* no fallback tunnels anywhere */
+	else if (!strncmp(str, "none", 4))
+		sysctl_fb_tunnels_only_for_init_net = 2;
+
+	return 1;
+}
+__setup("fb_tunnels=", fb_tunnels_only_for_init_net_sysctl_setup);
 
 static __net_init int sysctl_core_net_init(struct net *net)
 {

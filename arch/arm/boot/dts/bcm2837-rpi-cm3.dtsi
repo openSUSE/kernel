@@ -5,6 +5,7 @@
 
 / {
 	memory@0 {
+		device_type = "memory";
 		reg = <0 0x40000000>;
 	};
 
@@ -13,7 +14,7 @@
 		 * Since there is no upstream GPIO driver yet,
 		 * remove the incomplete node.
 		 */
-		/delete-node/ act;
+		/delete-node/ led-act;
 	};
 
 	reg_3v3: fixed-regulator {

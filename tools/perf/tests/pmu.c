@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 #include "parse-events.h"
 #include "pmu.h"
-#include "util.h"
 #include "tests.h"
 #include <errno.h>
 #include <stdio.h>
@@ -157,8 +156,8 @@ int test__pmu(struct test *test __maybe_unused, int subtest __maybe_unused)
 		if (ret)
 			break;
 
-		ret = perf_pmu__config_terms(&formats, &attr, terms,
-					     false, NULL);
+		ret = perf_pmu__config_terms("perf-pmu-test", &formats, &attr,
+					     terms, false, NULL);
 		if (ret)
 			break;
 
@@ -174,6 +173,7 @@ int test__pmu(struct test *test __maybe_unused, int subtest __maybe_unused)
 		ret = 0;
 	} while (0);
 
+	perf_pmu__del_formats(&formats);
 	test_format_dir_put(format);
 	return ret;
 }

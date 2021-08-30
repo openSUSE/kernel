@@ -32,12 +32,6 @@
  * the driver.
  */
 
-static inline struct uvc_streaming *
-uvc_queue_to_stream(struct uvc_video_queue *queue)
-{
-	return container_of(queue, struct uvc_streaming, queue);
-}
-
 static inline struct uvc_buffer *uvc_vbuf_to_buffer(struct vb2_v4l2_buffer *buf)
 {
 	return container_of(buf, struct uvc_buffer, buf);
@@ -79,7 +73,7 @@ static int uvc_queue_setup(struct vb2_queue *vq,
 
 	switch (vq->type) {
 	case V4L2_BUF_TYPE_META_CAPTURE:
-		size = UVC_METATADA_BUF_SIZE;
+		size = UVC_METADATA_BUF_SIZE;
 		break;
 
 	default:
@@ -109,7 +103,8 @@ static int uvc_buffer_prepare(struct vb2_buffer *vb)
 
 	if (vb->type == V4L2_BUF_TYPE_VIDEO_OUTPUT &&
 	    vb2_get_plane_payload(vb, 0) > vb2_plane_size(vb, 0)) {
-		uvc_trace(UVC_TRACE_CAPTURE, "[E] Bytes used out of bounds.\n");
+		uvc_dbg(uvc_queue_to_stream(queue)->dev, CAPTURE,
+			"[E] Bytes used out of bounds\n");
 		return -EINVAL;
 	}
 

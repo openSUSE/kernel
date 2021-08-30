@@ -152,7 +152,8 @@ int cx88_risc_buffer(struct pci_dev *pci, struct cx88_riscmem *risc,
 	instructions += 4;
 	risc->size = instructions * 8;
 	risc->dma = 0;
-	risc->cpu = pci_zalloc_consistent(pci, risc->size, &risc->dma);
+	risc->cpu = dma_alloc_coherent(&pci->dev, risc->size, &risc->dma,
+				       GFP_KERNEL);
 	if (!risc->cpu)
 		return -ENOMEM;
 
@@ -190,7 +191,8 @@ int cx88_risc_databuffer(struct pci_dev *pci, struct cx88_riscmem *risc,
 	instructions += 3;
 	risc->size = instructions * 8;
 	risc->dma = 0;
-	risc->cpu = pci_zalloc_consistent(pci, risc->size, &risc->dma);
+	risc->cpu = dma_alloc_coherent(&pci->dev, risc->size, &risc->dma,
+				       GFP_KERNEL);
 	if (!risc->cpu)
 		return -ENOMEM;
 
@@ -1070,8 +1072,7 @@ void cx88_core_put(struct cx88_core *core, struct pci_dev *pci)
 	mutex_lock(&devlist);
 	cx88_ir_fini(core);
 	if (core->i2c_rc == 0) {
-		if (core->i2c_rtc)
-			i2c_unregister_device(core->i2c_rtc);
+		i2c_unregister_device(core->i2c_rtc);
 		i2c_del_adapter(&core->i2c_adap);
 	}
 	list_del(&core->devlist);

@@ -148,7 +148,7 @@ struct fme_perf_priv {
 	struct device *dev;
 	void __iomem *ioaddr;
 	struct pmu pmu;
-	u64 id;
+	u16 id;
 
 	u32 fab_users;
 	u32 fab_port_id;
@@ -192,7 +192,7 @@ static struct attribute *fme_perf_cpumask_attrs[] = {
 	NULL,
 };
 
-static struct attribute_group fme_perf_cpumask_group = {
+static const struct attribute_group fme_perf_cpumask_group = {
 	.attrs = fme_perf_cpumask_attrs,
 };
 
@@ -225,7 +225,7 @@ static struct attribute *fme_perf_format_attrs[] = {
 	NULL,
 };
 
-static struct attribute_group fme_perf_format_group = {
+static const struct attribute_group fme_perf_format_group = {
 	.name = "format",
 	.attrs = fme_perf_format_attrs,
 };
@@ -239,7 +239,7 @@ static struct attribute *fme_perf_events_attrs_empty[] = {
 	NULL,
 };
 
-static struct attribute_group fme_perf_events_group = {
+static const struct attribute_group fme_perf_events_group = {
 	.name = "events",
 	.attrs = fme_perf_events_attrs_empty,
 };

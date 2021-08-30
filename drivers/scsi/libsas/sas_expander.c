@@ -101,7 +101,7 @@ static int smp_execute_task_sg(struct domain_device *dev,
 			}
 		}
 		if (task->task_status.resp == SAS_TASK_COMPLETE &&
-		    task->task_status.stat == SAM_STAT_GOOD) {
+		    task->task_status.stat == SAS_SAM_STAT_GOOD) {
 			res = 0;
 			break;
 		}
@@ -427,7 +427,7 @@ out_err:
 static int sas_expander_discover(struct domain_device *dev)
 {
 	struct expander_device *ex = &dev->ex_dev;
-	int res = -ENOMEM;
+	int res;
 
 	ex->ex_phy = kcalloc(ex->num_phys, sizeof(*ex->ex_phy), GFP_KERNEL);
 	if (!ex->ex_phy)
@@ -500,7 +500,7 @@ static int sas_ex_general(struct domain_device *dev)
 		ex_assign_report_general(dev, rg_resp);
 
 		if (dev->ex_dev.configuring) {
-			pr_debug("RG: ex %llx self-configuring...\n",
+			pr_debug("RG: ex %016llx self-configuring...\n",
 				 SAS_ADDR(dev->sas_addr));
 			schedule_timeout_interruptible(5*HZ);
 		} else
@@ -553,7 +553,7 @@ static int sas_ex_manuf_info(struct domain_device *dev)
 
 	mi_req[1] = SMP_REPORT_MANUF_INFO;
 
-	res = smp_execute_task(dev, mi_req, MI_REQ_SIZE, mi_resp,MI_RESP_SIZE);
+	res = smp_execute_task(dev, mi_req, MI_REQ_SIZE, mi_resp, MI_RESP_SIZE);
 	if (res) {
 		pr_notice("MI: ex %016llx failed:0x%x\n",
 			  SAS_ADDR(dev->sas_addr), res);
@@ -594,13 +594,13 @@ int sas_smp_phy_control(struct domain_device *dev, int phy_id,
 
 	pc_req[1] = SMP_PHY_CONTROL;
 	pc_req[9] = phy_id;
-	pc_req[10]= phy_func;
+	pc_req[10] = phy_func;
 	if (rates) {
 		pc_req[32] = rates->minimum_linkrate << 4;
 		pc_req[33] = rates->maximum_linkrate << 4;
 	}
 
-	res = smp_execute_task(dev, pc_req, PC_REQ_SIZE, pc_resp,PC_RESP_SIZE);
+	res = smp_execute_task(dev, pc_req, PC_REQ_SIZE, pc_resp, PC_RESP_SIZE);
 	if (res) {
 		pr_err("ex %016llx phy%02d PHY control failed: %d\n",
 		       SAS_ADDR(dev->sas_addr), phy_id, res);
@@ -678,7 +678,7 @@ int sas_smp_get_phy_events(struct sas_phy *phy)
 	req[9] = phy->number;
 
 	res = smp_execute_task(dev, req, RPEL_REQ_SIZE,
-			            resp, RPEL_RESP_SIZE);
+			       resp, RPEL_RESP_SIZE);
 
 	if (res)
 		goto out;
@@ -714,7 +714,7 @@ int sas_get_report_phy_sata(struct domain_device *dev, int phy_id,
 	rps_req[9] = phy_id;
 
 	res = smp_execute_task(dev, rps_req, RPS_REQ_SIZE,
-			            rps_resp, RPS_RESP_SIZE);
+			       rps_resp, RPS_RESP_SIZE);
 
 	/* 0x34 is the FIS type for the D2H fis.  There's a potential
 	 * standards cockup here.  sas-2 explicitly specifies the FIS
@@ -881,7 +881,7 @@ static struct domain_device *sas_ex_discover_end_dev(
 
 		res = sas_discover_end_dev(child);
 		if (res) {
-			pr_notice("sas_discover_end_dev() for device %16llx at %016llx:%02d returned 0x%x\n",
+			pr_notice("sas_discover_end_dev() for device %016llx at %016llx:%02d returned 0x%x\n",
 				  SAS_ADDR(child->sas_addr),
 				  SAS_ADDR(parent->sas_addr), phy_id, res);
 			goto out_list_del;
@@ -1096,7 +1096,7 @@ static int sas_ex_discover_dev(struct domain_device *dev, int phy_id)
 		} else
 			memcpy(dev->port->disc.fanout_sas_addr,
 			       ex_phy->attached_sas_addr, SAS_ADDR_SIZE);
-		/* fallthrough */
+		fallthrough;
 	case SAS_EDGE_EXPANDER_DEVICE:
 		child = sas_ex_discover_expander(dev, phy_id);
 		break;
@@ -1506,7 +1506,8 @@ static int sas_configure_phy(struct domain_device *dev, int phy_id,
 	if (res)
 		return res;
 	if (include ^ present)
-		return sas_configure_set(dev, phy_id, sas_addr, index,include);
+		return sas_configure_set(dev, phy_id, sas_addr, index,
+					 include);
 
 	return res;
 }

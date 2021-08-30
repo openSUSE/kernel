@@ -44,11 +44,13 @@ properties:
       be at least 4.
 
       The 1st cell is the interrupt type; 0 for SPI interrupts, 1 for PPI
-      interrupts. Other values are reserved for future use.
+      interrupts, 2 for interrupts in the Extended SPI range, 3 for the
+      Extended PPI range. Other values are reserved for future use.
 
       The 2nd cell contains the interrupt number for the interrupt type.
       SPI interrupts are in the range [0-987]. PPI interrupts are in the
-      range [0-15].
+      range [0-15]. Extented SPI interrupts are in the range [0-1023].
+      Extended PPI interrupts are in the range [0-127].
 
       The 3rd cell is the flags, encoded as follows:
       bits[3:0] trigger type and level flags.
@@ -89,18 +91,16 @@ properties:
     description:
       If using padding pages, specifies the stride of consecutive
       redistributors. Must be a multiple of 64kB.
-    allOf:
-      - $ref: /schemas/types.yaml#/definitions/uint64
-      - multipleOf: 0x10000
-        exclusiveMinimum: 0
+    $ref: /schemas/types.yaml#/definitions/uint64
+    multipleOf: 0x10000
+    exclusiveMinimum: 0
 
   "#redistributor-regions":
     description:
       The number of independent contiguous regions occupied by the
       redistributors. Required if more than one such region is present.
-    allOf:
-      - $ref: /schemas/types.yaml#/definitions/uint32
-      - maximum: 4096   # Should be enough?
+    $ref: /schemas/types.yaml#/definitions/uint32
+    maximum: 4096
 
   msi-controller:
     description:
@@ -112,22 +112,20 @@ properties:
       A list of pairs <intid span>, where "intid" is the first SPI of a range
       that can be used an MBI, and "span" the size of that range. Multiple
       ranges can be provided.
-    allOf:
-      - $ref: /schemas/types.yaml#/definitions/uint32-matrix
-      - items:
-          minItems: 2
-          maxItems: 2
+    $ref: /schemas/types.yaml#/definitions/uint32-matrix
+    items:
+      minItems: 2
+      maxItems: 2
 
   mbi-alias:
     description:
       Address property. Base address of an alias of the GICD region containing
       only the {SET,CLR}SPI registers to be used if isolation is required,
       and if supported by the HW.
-    allOf:
-      - $ref: /schemas/types.yaml#/definitions/uint32-array
-      - items:
-          minItems: 1
-          maxItems: 2
+    $ref: /schemas/types.yaml#/definitions/uint32-array
+    items:
+      minItems: 1
+      maxItems: 2
 
   ppi-partitions:
     type: object
@@ -136,6 +134,7 @@ properties:
       containing a set of sub-nodes.
     patternProperties:
       "^interrupt-partition-[0-9]+$":
+        type: object
         properties:
           affinity:
             $ref: /schemas/types.yaml#/definitions/phandle-array
@@ -145,6 +144,19 @@ properties:
 
         required:
           - affinity
+
+  clocks:
+    maxItems: 1
+
+  clock-names:
+    items:
+      - const: aclk
+
+  power-domains:
+    maxItems: 1
+
+  resets:
+    maxItems: 1
 
 dependencies:
   mbi-ranges: [ msi-controller ]
@@ -185,11 +197,10 @@ patternProperties:
         description:
           (u32, u32) tuple describing the untranslated
           address and size of the pre-ITS window.
-        allOf:
-          - $ref: /schemas/types.yaml#/definitions/uint32-array
-          - items:
-              minItems: 2
-              maxItems: 2
+        $ref: /schemas/types.yaml#/definitions/uint32-array
+        items:
+          minItems: 2
+          maxItems: 2
 
     required:
       - compatible

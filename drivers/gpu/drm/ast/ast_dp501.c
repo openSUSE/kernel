@@ -8,11 +8,24 @@
 
 MODULE_FIRMWARE("ast_dp501_fw.bin");
 
+static void ast_release_firmware(void *data)
+{
+	struct ast_private *ast = data;
+
+	release_firmware(ast->dp501_fw);
+	ast->dp501_fw = NULL;
+}
+
 static int ast_load_dp501_microcode(struct drm_device *dev)
 {
 	struct ast_private *ast = to_ast_private(dev);
+	int ret;
 
-	return request_firmware(&ast->dp501_fw, "ast_dp501_fw.bin", dev->dev);
+	ret = request_firmware(&ast->dp501_fw, "ast_dp501_fw.bin", dev->dev);
+	if (ret)
+		return ret;
+
+	return devm_add_action_or_reset(dev->dev, ast_release_firmware, ast);
 }
 
 static void send_ack(struct ast_private *ast)
@@ -167,10 +180,7 @@ void ast_set_dp501_video_output(struct drm_device *dev, u8 mode)
 
 static u32 get_fw_base(struct ast_private *ast)
 {
-	if (ast->chip == AST2500)
-		return ast_mindwm(ast, 0x1e6e2104) & 0xfffffffe;
-	else
-		return ast_mindwm(ast, 0x1e6e2104) & 0x7fffffff;
+	return ast_mindwm(ast, 0x1e6e2104) & 0x7fffffff;
 }
 
 bool ast_backup_fw(struct drm_device *dev, u8 *addr, u32 size)
@@ -220,15 +230,21 @@ static bool ast_launch_m68k(struct drm_device *dev)
 		/* Get BootAddress */
 		ast_moutdwm(ast, 0x1e6e2000, 0x1688a8a8);
 		data = ast_mindwm(ast, 0x1e6e0004);
-		if (ast->chip == AST2500)
-			boot_address = 0x8000000;               /* 128MB */
-		else
-			boot_address = 0x4000000;               /* 64MB */
-		boot_address <<= (data & 0x03);
-		if (ast->chip == AST2500)
-			boot_address |= 0x80000000;             /* Base = 0x80000000 */
-		else
-			boot_address |= 0x40000000;             /* Base = 0x40000000 */
+		switch (data & 0x03) {
+		case 0:
+			boot_address = 0x44000000;
+			break;
+		default:
+		case 1:
+			boot_address = 0x48000000;
+			break;
+		case 2:
+			boot_address = 0x50000000;
+			break;
+		case 3:
+			boot_address = 0x60000000;
+			break;
+		}
 		boot_address -= 0x200000; /* -2MB */
 
 		/* copy image to buffer */
@@ -241,10 +257,7 @@ static bool ast_launch_m68k(struct drm_device *dev)
 		ast_moutdwm(ast, 0x1e6e2000, 0x1688a8a8);
 
 		/* Launch FW */
-		if (ast->chip == AST2500)
-			ast_moutdwm(ast, 0x1e6e2104, boot_address | 0x00000001);
-		else
-			ast_moutdwm(ast, 0x1e6e2104, boot_address | 0x80000000);
+		ast_moutdwm(ast, 0x1e6e2104, 0x80000000 + boot_address);
 		ast_moutdwm(ast, 0x1e6e2100, 1);
 
 		/* Update Scratch */
@@ -259,43 +272,60 @@ static bool ast_launch_m68k(struct drm_device *dev)
 	return true;
 }
 
-static u32 ast_peek(struct ast_private *ast, u32 address, u32 offset)
-{
-	if (ast->config_mode == ast_use_p2a)
-		return ast_mindwm(ast, address + offset);
-	else
-		return *(u32 *) (ast->reservedbuffer + offset);
-}
-
 u8 ast_get_dp501_max_clk(struct drm_device *dev)
 {
 	struct ast_private *ast = to_ast_private(dev);
-	u32 boot_address, data;
+	u32 boot_address, offset, data;
 	u8 linkcap[4], linkrate, linklanes, maxclk = 0xff;
+	u32 *plinkcap;
 
 	if (ast->config_mode == ast_use_p2a) {
 		boot_address = get_fw_base(ast);
+
+		/* validate FW version */
+		offset = AST_DP501_GBL_VERSION;
+		data = ast_mindwm(ast, boot_address + offset);
+		if ((data & AST_DP501_FW_VERSION_MASK) != AST_DP501_FW_VERSION_1) /* version: 1x */
+			return maxclk;
+
+		/* Read Link Capability */
+		offset  = AST_DP501_LINKRATE;
+		plinkcap = (u32 *)linkcap;
+		*plinkcap  = ast_mindwm(ast, boot_address + offset);
+		if (linkcap[2] == 0) {
+			linkrate = linkcap[0];
+			linklanes = linkcap[1];
+			data = (linkrate == 0x0a) ? (90 * linklanes) : (54 * linklanes);
+			if (data > 0xff)
+				data = 0xff;
+			maxclk = (u8)data;
+		}
 	} else {
-		boot_address = 0;
-		if (!ast->reservedbuffer)
-			return 65;	/* 1024x768 as default */
-		ast_peek(ast, boot_address, 0x0000); /* dummy read */
-	}
+		if (!ast->dp501_fw_buf)
+			return AST_DP501_DEFAULT_DCLK;	/* 1024x768 as default */
 
-	/* validate FW version */
-	data = ast_peek(ast, boot_address, 0xf000);
-	if ((data & 0xf0) != 0x10) /* version: 1x */
-		return maxclk;
+		/* dummy read */
+		offset = 0x0000;
+		data = readl(ast->dp501_fw_buf + offset);
 
-	/* Read Link Capability */
-	*(u32 *)linkcap = ast_peek(ast, boot_address, 0xf014);
-	if (linkcap[2] == 0) {
-		linkrate = linkcap[0];
-		linklanes = linkcap[1];
-		data = (linkrate == 0x0a) ? (90 * linklanes) : (54 * linklanes);
-		if (data > 0xff)
-			data = 0xff;
-		maxclk = (u8)data;
+		/* validate FW version */
+		offset = AST_DP501_GBL_VERSION;
+		data = readl(ast->dp501_fw_buf + offset);
+		if ((data & AST_DP501_FW_VERSION_MASK) != AST_DP501_FW_VERSION_1) /* version: 1x */
+			return maxclk;
+
+		/* Read Link Capability */
+		offset = AST_DP501_LINKRATE;
+		plinkcap = (u32 *)linkcap;
+		*plinkcap = readl(ast->dp501_fw_buf + offset);
+		if (linkcap[2] == 0) {
+			linkrate = linkcap[0];
+			linklanes = linkcap[1];
+			data = (linkrate == 0x0a) ? (90 * linklanes) : (54 * linklanes);
+			if (data > 0xff)
+				data = 0xff;
+			maxclk = (u8)data;
+		}
 	}
 	return maxclk;
 }
@@ -303,31 +333,58 @@ u8 ast_get_dp501_max_clk(struct drm_device *dev)
 bool ast_dp501_read_edid(struct drm_device *dev, u8 *ediddata)
 {
 	struct ast_private *ast = to_ast_private(dev);
-	u32 i, boot_address, data;
+	u32 i, boot_address, offset, data;
+	u32 *pEDIDidx;
 
 	if (ast->config_mode == ast_use_p2a) {
 		boot_address = get_fw_base(ast);
-	} else {
-		boot_address = 0;
-		if (!ast->reservedbuffer)
+
+		/* validate FW version */
+		offset = AST_DP501_GBL_VERSION;
+		data = ast_mindwm(ast, boot_address + offset);
+		if ((data & AST_DP501_FW_VERSION_MASK) != AST_DP501_FW_VERSION_1)
 			return false;
-		ast_peek(ast, boot_address, 0x0000); /* dummy read */
-	}
 
-	/* validate FW version */
-	data = ast_peek(ast, boot_address, 0xf000);
-	if ((data & 0xf0) != 0x10)
-		return false;
+		/* validate PnP Monitor */
+		offset = AST_DP501_PNPMONITOR;
+		data = ast_mindwm(ast, boot_address + offset);
+		if (!(data & AST_DP501_PNP_CONNECTED))
+			return false;
 
-	/* validate PnP Monitor */
-	data = ast_peek(ast, boot_address, 0xf010);
-	if (!(data & 0x01))
-		return false;
+		/* Read EDID */
+		offset = AST_DP501_EDID_DATA;
+		for (i = 0; i < 128; i += 4) {
+			data = ast_mindwm(ast, boot_address + offset + i);
+			pEDIDidx = (u32 *)(ediddata + i);
+			*pEDIDidx = data;
+		}
+	} else {
+		if (!ast->dp501_fw_buf)
+			return false;
 
-	/* Read EDID */
-	for (i = 0; i < 128; i += 4) {
-		data = ast_peek(ast, boot_address, 0xf020 + i);
-		*(u32 *)(ediddata + i) = data;
+		/* dummy read */
+		offset = 0x0000;
+		data = readl(ast->dp501_fw_buf + offset);
+
+		/* validate FW version */
+		offset = AST_DP501_GBL_VERSION;
+		data = readl(ast->dp501_fw_buf + offset);
+		if ((data & AST_DP501_FW_VERSION_MASK) != AST_DP501_FW_VERSION_1)
+			return false;
+
+		/* validate PnP Monitor */
+		offset = AST_DP501_PNPMONITOR;
+		data = readl(ast->dp501_fw_buf + offset);
+		if (!(data & AST_DP501_PNP_CONNECTED))
+			return false;
+
+		/* Read EDID */
+		offset = AST_DP501_EDID_DATA;
+		for (i = 0; i < 128; i += 4) {
+			data = readl(ast->dp501_fw_buf + offset + i);
+			pEDIDidx = (u32 *)(ediddata + i);
+			*pEDIDidx = data;
+		}
 	}
 
 	return true;
@@ -457,12 +514,4 @@ void ast_init_3rdtx(struct drm_device *dev)
 				ast_init_analog(dev);
 		}
 	}
-}
-
-void ast_release_firmware(struct drm_device *dev)
-{
-	struct ast_private *ast = to_ast_private(dev);
-
-	release_firmware(ast->dp501_fw);
-	ast->dp501_fw = NULL;
 }

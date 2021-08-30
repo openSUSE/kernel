@@ -15,13 +15,16 @@ Contents:
    device_drivers/index
    dsa/index
    devlink/index
+   caif/index
    ethtool-netlink
    ieee802154
+   j1939
    kapi
-   z8530book
    msg_zerocopy
    failover
+   net_dim
    net_failover
+   page_pool
    phy
    sfp-phylink
    alias
@@ -32,6 +35,85 @@ Contents:
    scaling
    tls
    tls-offload
+   nfc
+   6lowpan
+   6pack
+   arcnet-hardware
+   arcnet
+   atm
+   ax25
+   bonding
+   cdc_mbim
+   dccp
+   dctcp
+   decnet
+   dns_resolver
+   driver
+   eql
+   fib_trie
+   filter
+   generic-hdlc
+   generic_netlink
+   gen_stats
+   gtp
+   ila
+   ipddp
+   ip_dynaddr
+   ipsec
+   ip-sysctl
+   ipv6
+   ipvlan
+   ipvs-sysctl
+   kcm
+   l2tp
+   lapb-module
+   mac80211-injection
+   mpls-sysctl
+   mptcp-sysctl
+   multiqueue
+   netconsole
+   netdev-features
+   netdevices
+   netfilter-sysctl
+   netif-msg
+   nexthop-group-resilient
+   nf_conntrack-sysctl
+   nf_flowtable
+   openvswitch
+   operstates
+   packet_mmap
+   phonet
+   pktgen
+   plip
+   ppp_generic
+   proc_net_tcp
+   radiotap-headers
+   rds
+   regulatory
+   rxrpc
+   sctp
+   secid
+   seg6-sysctl
+   statistics
+   strparser
+   switchdev
+   sysfs-tagging
+   tc-actions-env-rules
+   tcp-thin
+   team
+   timestamping
+   tipc
+   tproxy
+   tuntap
+   udplite
+   vrf
+   vxlan
+   x25-iface
+   x25
+   xfrm_device
+   xfrm_proc
+   xfrm_sync
+   xfrm_sysctl
 
 .. only::  subproject and html
 

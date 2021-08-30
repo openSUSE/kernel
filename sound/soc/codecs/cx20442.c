@@ -259,8 +259,8 @@ static int v253_hangup(struct tty_struct *tty)
 }
 
 /* Line discipline .receive_buf() */
-static void v253_receive(struct tty_struct *tty,
-				const unsigned char *cp, char *fp, int count)
+static void v253_receive(struct tty_struct *tty, const unsigned char *cp,
+		const char *fp, int count)
 {
 	struct snd_soc_component *component = tty->disc_data;
 	struct cx20442_priv *cx20442;
@@ -285,7 +285,6 @@ static void v253_wakeup(struct tty_struct *tty)
 }
 
 struct tty_ldisc_ops v253_ops = {
-	.magic = TTY_LDISC_MAGIC,
 	.name = "cx20442",
 	.owner = THIS_MODULE,
 	.open = v253_open,

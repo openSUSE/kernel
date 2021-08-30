@@ -54,6 +54,7 @@ properties:
   compatible:
     items:
       - enum:
+          - apple,simple-framebuffer
           - allwinner,simple-framebuffer
           - amlogic,simple-framebuffer
       - const: simple-framebuffer
@@ -84,9 +85,13 @@ properties:
       Format of the framebuffer:
         * `a8b8g8r8` - 32-bit pixels, d[31:24]=a, d[23:16]=b, d[15:8]=g, d[7:0]=r
         * `r5g6b5` - 16-bit pixels, d[15:11]=r, d[10:5]=g, d[4:0]=b
+        * `x2r10g10b10` - 32-bit pixels, d[29:20]=r, d[19:10]=g, d[9:0]=b
+        * `x8r8g8b8` - 32-bit pixels, d[23:16]=r, d[15:8]=g, d[7:0]=b
     enum:
       - a8b8g8r8
       - r5g6b5
+      - x2r10g10b10
+      - x8r8g8b8
 
   display:
     $ref: /schemas/types.yaml#/definitions/phandle
@@ -152,32 +157,28 @@ additionalProperties: false
 
 examples:
   - |
-    aliases {
-      display0 = &lcdc0;
-    };
+    / {
+        compatible = "foo";
+        model = "foo";
+        #address-cells = <1>;
+        #size-cells = <1>;
 
-    chosen {
-      #address-cells = <1>;
-      #size-cells = <1>;
-      stdout-path = "display0";
-      framebuffer0: framebuffer@1d385000 {
-        compatible = "allwinner,simple-framebuffer", "simple-framebuffer";
-        allwinner,pipeline = "de_be0-lcd0";
-        reg = <0x1d385000 3840000>;
-        width = <1600>;
-        height = <1200>;
-        stride = <3200>;
-        format = "r5g6b5";
-        clocks = <&ahb_gates 36>, <&ahb_gates 43>, <&ahb_gates 44>;
-        lcd-supply = <&reg_dc1sw>;
-        display = <&lcdc0>;
-      };
-    };
-
-    soc@1c00000 {
-      lcdc0: lcdc@1c0c000 {
-        compatible = "allwinner,sun4i-a10-lcdc";
-      };
+        chosen {
+            #address-cells = <1>;
+            #size-cells = <1>;
+            framebuffer0: framebuffer@1d385000 {
+                compatible = "allwinner,simple-framebuffer", "simple-framebuffer";
+                allwinner,pipeline = "de_be0-lcd0";
+                reg = <0x1d385000 3840000>;
+                width = <1600>;
+                height = <1200>;
+                stride = <3200>;
+                format = "r5g6b5";
+                clocks = <&ahb_gates 36>, <&ahb_gates 43>, <&ahb_gates 44>;
+                lcd-supply = <&reg_dc1sw>;
+                display = <&lcdc0>;
+            };
+        };
     };
 
 ...

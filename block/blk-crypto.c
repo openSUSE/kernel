@@ -81,7 +81,15 @@ subsys_initcall(bio_crypt_ctx_init);
 void bio_crypt_set_ctx(struct bio *bio, const struct blk_crypto_key *key,
 		       const u64 dun[BLK_CRYPTO_DUN_ARRAY_SIZE], gfp_t gfp_mask)
 {
-	struct bio_crypt_ctx *bc = mempool_alloc(bio_crypt_ctx_pool, gfp_mask);
+	struct bio_crypt_ctx *bc;
+
+	/*
+	 * The caller must use a gfp_mask that contains __GFP_DIRECT_RECLAIM so
+	 * that the mempool_alloc() can't fail.
+	 */
+	WARN_ON_ONCE(!(gfp_mask & __GFP_DIRECT_RECLAIM));
+
+	bc = mempool_alloc(bio_crypt_ctx_pool, gfp_mask);
 
 	bc->bc_key = key;
 	memcpy(bc->bc_dun, dun, sizeof(bc->bc_dun));
@@ -95,10 +103,13 @@ void __bio_crypt_free_ctx(struct bio *bio)
 	bio->bi_crypt_context = NULL;
 }
 
-void __bio_crypt_clone(struct bio *dst, struct bio *src, gfp_t gfp_mask)
+int __bio_crypt_clone(struct bio *dst, struct bio *src, gfp_t gfp_mask)
 {
 	dst->bi_crypt_context = mempool_alloc(bio_crypt_ctx_pool, gfp_mask);
+	if (!dst->bi_crypt_context)
+		return -ENOMEM;
 	*dst->bi_crypt_context = *src->bi_crypt_context;
+	return 0;
 }
 EXPORT_SYMBOL_GPL(__bio_crypt_clone);
 
@@ -269,7 +280,7 @@ bool __blk_crypto_bio_prep(struct bio **bio_ptr)
 	 * Success if device supports the encryption context, or if we succeeded
 	 * in falling back to the crypto API.
 	 */
-	if (blk_ksm_crypto_cfg_supported(bio->bi_disk->queue->ksm,
+	if (blk_ksm_crypto_cfg_supported(bio->bi_bdev->bd_disk->queue->ksm,
 					 &bc_key->crypto_cfg))
 		return true;
 
@@ -280,20 +291,16 @@ fail:
 	return false;
 }
 
-/**
- * __blk_crypto_rq_bio_prep - Prepare a request's crypt_ctx when its first bio
- *			      is inserted
- *
- * @rq: The request to prepare
- * @bio: The first bio being inserted into the request
- * @gfp_mask: gfp mask
- */
-void __blk_crypto_rq_bio_prep(struct request *rq, struct bio *bio,
-			      gfp_t gfp_mask)
+int __blk_crypto_rq_bio_prep(struct request *rq, struct bio *bio,
+			     gfp_t gfp_mask)
 {
-	if (!rq->crypt_ctx)
+	if (!rq->crypt_ctx) {
 		rq->crypt_ctx = mempool_alloc(bio_crypt_ctx_pool, gfp_mask);
+		if (!rq->crypt_ctx)
+			return -ENOMEM;
+	}
 	*rq->crypt_ctx = *bio->bi_crypt_context;
+	return 0;
 }
 
 /**
@@ -402,3 +409,4 @@ int blk_crypto_evict_key(struct request_queue *q,
 	 */
 	return blk_crypto_fallback_evict_key(key);
 }
+EXPORT_SYMBOL_GPL(blk_crypto_evict_key);

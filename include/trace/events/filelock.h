@@ -48,7 +48,7 @@ TRACE_EVENT(locks_get_lock_context,
 	),
 
 	TP_fast_assign(
-		__entry->s_dev = inode_get_dev(inode);
+		__entry->s_dev = inode->i_sb->s_dev;
 		__entry->i_ino = inode->i_ino;
 		__entry->type = type;
 		__entry->ctx = ctx;
@@ -80,7 +80,7 @@ DECLARE_EVENT_CLASS(filelock_lock,
 
 	TP_fast_assign(
 		__entry->fl = fl ? fl : NULL;
-		__entry->s_dev = inode_get_dev(inode);
+		__entry->s_dev = inode->i_sb->s_dev;
 		__entry->i_ino = inode->i_ino;
 		__entry->fl_blocker = fl ? fl->fl_blocker : NULL;
 		__entry->fl_owner = fl ? fl->fl_owner : NULL;
@@ -92,7 +92,7 @@ DECLARE_EVENT_CLASS(filelock_lock,
 		__entry->ret = ret;
 	),
 
-	TP_printk("fl=0x%p dev=0x%x:0x%x ino=0x%lx fl_blocker=0x%p fl_owner=0x%p fl_pid=%u fl_flags=%s fl_type=%s fl_start=%lld fl_end=%lld ret=%d",
+	TP_printk("fl=%p dev=0x%x:0x%x ino=0x%lx fl_blocker=%p fl_owner=%p fl_pid=%u fl_flags=%s fl_type=%s fl_start=%lld fl_end=%lld ret=%d",
 		__entry->fl, MAJOR(__entry->s_dev), MINOR(__entry->s_dev),
 		__entry->i_ino, __entry->fl_blocker, __entry->fl_owner,
 		__entry->fl_pid, show_fl_flags(__entry->fl_flags),
@@ -135,7 +135,7 @@ DECLARE_EVENT_CLASS(filelock_lease,
 
 	TP_fast_assign(
 		__entry->fl = fl ? fl : NULL;
-		__entry->s_dev = inode_get_dev(inode);
+		__entry->s_dev = inode->i_sb->s_dev;
 		__entry->i_ino = inode->i_ino;
 		__entry->fl_blocker = fl ? fl->fl_blocker : NULL;
 		__entry->fl_owner = fl ? fl->fl_owner : NULL;
@@ -145,7 +145,7 @@ DECLARE_EVENT_CLASS(filelock_lease,
 		__entry->fl_downgrade_time = fl ? fl->fl_downgrade_time : 0;
 	),
 
-	TP_printk("fl=0x%p dev=0x%x:0x%x ino=0x%lx fl_blocker=0x%p fl_owner=0x%p fl_flags=%s fl_type=%s fl_break_time=%lu fl_downgrade_time=%lu",
+	TP_printk("fl=%p dev=0x%x:0x%x ino=0x%lx fl_blocker=%p fl_owner=%p fl_flags=%s fl_type=%s fl_break_time=%lu fl_downgrade_time=%lu",
 		__entry->fl, MAJOR(__entry->s_dev), MINOR(__entry->s_dev),
 		__entry->i_ino, __entry->fl_blocker, __entry->fl_owner,
 		show_fl_flags(__entry->fl_flags),
@@ -176,7 +176,7 @@ TRACE_EVENT(generic_add_lease,
 	TP_STRUCT__entry(
 		__field(unsigned long, i_ino)
 		__field(int, wcount)
-		__field(int, dcount)
+		__field(int, rcount)
 		__field(int, icount)
 		__field(dev_t, s_dev)
 		__field(fl_owner_t, fl_owner)
@@ -185,19 +185,19 @@ TRACE_EVENT(generic_add_lease,
 	),
 
 	TP_fast_assign(
-		__entry->s_dev = inode_get_dev(inode);
+		__entry->s_dev = inode->i_sb->s_dev;
 		__entry->i_ino = inode->i_ino;
 		__entry->wcount = atomic_read(&inode->i_writecount);
-		__entry->dcount = d_count(fl->fl_file->f_path.dentry);
+		__entry->rcount = atomic_read(&inode->i_readcount);
 		__entry->icount = atomic_read(&inode->i_count);
-		__entry->fl_owner = fl ? fl->fl_owner : NULL;
-		__entry->fl_flags = fl ? fl->fl_flags : 0;
-		__entry->fl_type = fl ? fl->fl_type : 0;
+		__entry->fl_owner = fl->fl_owner;
+		__entry->fl_flags = fl->fl_flags;
+		__entry->fl_type = fl->fl_type;
 	),
 
-	TP_printk("dev=0x%x:0x%x ino=0x%lx wcount=%d dcount=%d icount=%d fl_owner=0x%p fl_flags=%s fl_type=%s",
+	TP_printk("dev=0x%x:0x%x ino=0x%lx wcount=%d rcount=%d icount=%d fl_owner=%p fl_flags=%s fl_type=%s",
 		MAJOR(__entry->s_dev), MINOR(__entry->s_dev),
-		__entry->i_ino, __entry->wcount, __entry->dcount,
+		__entry->i_ino, __entry->wcount, __entry->rcount,
 		__entry->icount, __entry->fl_owner,
 		show_fl_flags(__entry->fl_flags),
 		show_fl_type(__entry->fl_type))
@@ -228,7 +228,7 @@ TRACE_EVENT(leases_conflict,
 		__entry->conflict = conflict;
 	),
 
-	TP_printk("conflict %d: lease=0x%p fl_flags=%s fl_type=%s; breaker=0x%p fl_flags=%s fl_type=%s",
+	TP_printk("conflict %d: lease=%p fl_flags=%s fl_type=%s; breaker=%p fl_flags=%s fl_type=%s",
 		__entry->conflict,
 		__entry->lease,
 		show_fl_flags(__entry->l_fl_flags),

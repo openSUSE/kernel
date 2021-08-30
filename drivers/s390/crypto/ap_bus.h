@@ -25,8 +25,11 @@
 #define AP_RESET_TIMEOUT (HZ*0.7)	/* Time in ticks for reset timeouts. */
 #define AP_CONFIG_TIME 30	/* Time in seconds between AP bus rescans. */
 #define AP_POLL_TIME 1		/* Time in ticks between receive polls. */
+#define AP_DEFAULT_MAX_MSG_SIZE (12 * 1024)
+#define AP_TAPQ_ML_FIELD_CHUNK_SIZE (4096)
 
 extern int ap_domain_index;
+extern atomic_t ap_max_msg_size;
 
 extern DECLARE_HASHTABLE(ap_queues, 8);
 extern spinlock_t ap_queues_lock;
@@ -93,7 +96,6 @@ enum ap_sm_state {
 	AP_SM_STATE_IDLE,
 	AP_SM_STATE_WORKING,
 	AP_SM_STATE_QUEUE_FULL,
-	AP_SM_STATE_SUSPEND_WAIT,
 	NR_AP_SM_STATES
 };
 
@@ -146,8 +148,6 @@ struct ap_driver {
 
 	int (*probe)(struct ap_device *);
 	void (*remove)(struct ap_device *);
-	void (*suspend)(struct ap_device *);
-	void (*resume)(struct ap_device *);
 };
 
 #define to_ap_drv(x) container_of((x), struct ap_driver, driver)
@@ -170,6 +170,7 @@ struct ap_card {
 	unsigned int functions;		/* AP device function bitfield. */
 	int queue_depth;		/* AP queue depth.*/
 	int id;				/* AP card number. */
+	unsigned int maxmsgsize;	/* AP msg limit for this card */
 	bool config;			/* configured state */
 	atomic64_t total_request_count;	/* # requests ever for this AP device.*/
 };
@@ -231,7 +232,8 @@ struct ap_message {
 	struct list_head list;		/* Request queueing. */
 	unsigned long long psmid;	/* Message id. */
 	void *msg;			/* Pointer to message buffer. */
-	unsigned int len;		/* Message length. */
+	unsigned int len;		/* actual msg len in msg buffer */
+	unsigned int bufsize;		/* allocated msg buffer size */
 	u16 flags;			/* Flags, see AP_MSG_FLAG_xxx */
 	struct ap_fi fi;		/* Failure Injection cmd */
 	int rc;				/* Return code for this message */
@@ -260,8 +262,8 @@ static inline void ap_init_message(struct ap_message *ap_msg)
  */
 static inline void ap_release_message(struct ap_message *ap_msg)
 {
-	kzfree(ap_msg->msg);
-	kzfree(ap_msg->private);
+	kfree_sensitive(ap_msg->msg);
+	kfree_sensitive(ap_msg->private);
 }
 
 /*
@@ -291,12 +293,10 @@ void ap_queue_init_reply(struct ap_queue *aq, struct ap_message *ap_msg);
 struct ap_queue *ap_queue_create(ap_qid_t qid, int device_type);
 void ap_queue_prepare_remove(struct ap_queue *aq);
 void ap_queue_remove(struct ap_queue *aq);
-void ap_queue_suspend(struct ap_device *ap_dev);
-void ap_queue_resume(struct ap_device *ap_dev);
 void ap_queue_init_state(struct ap_queue *aq);
 
-struct ap_card *ap_card_create(int id, int queue_depth, int raw_device_type,
-			       int comp_device_type, unsigned int functions);
+struct ap_card *ap_card_create(int id, int queue_depth, int raw_type,
+			       int comp_type, unsigned int functions, int ml);
 
 struct ap_perms {
 	unsigned long ioctlm[BITS_TO_LONGS(AP_IOCTLS)];
@@ -354,5 +354,20 @@ int ap_apqn_in_matrix_owned_by_def_drv(unsigned long *apm,
 int ap_parse_mask_str(const char *str,
 		      unsigned long *bitmap, int bits,
 		      struct mutex *lock);
+
+/*
+ * Interface to wait for the AP bus to have done one initial ap bus
+ * scan and all detected APQNs have been bound to device drivers.
+ * If these both conditions are not fulfilled, this function blocks
+ * on a condition with wait_for_completion_killable_timeout().
+ * If these both conditions are fulfilled (before the timeout hits)
+ * the return value is 0. If the timeout (in jiffies) hits instead
+ * -ETIME is returned. On failures negative return values are
+ * returned to the caller.
+ */
+int ap_wait_init_apqn_bindings_complete(unsigned long timeout);
+
+void ap_send_config_uevent(struct ap_device *ap_dev, bool cfg);
+void ap_send_online_uevent(struct ap_device *ap_dev, int online);
 
 #endif /* _AP_BUS_H_ */

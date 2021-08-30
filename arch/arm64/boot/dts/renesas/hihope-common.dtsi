@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Device Tree Source for the HiHope RZ/G2[MN] main board common parts
+ * Device Tree Source for the HiHope RZ/G2H Rev.4.0 and
+ * HiHope RZ/G2[MN] Rev.[2.0/3.0/4.0] main board common parts
  *
  * Copyright (C) 2019 Renesas Electronics Corp.
  */
@@ -10,6 +11,10 @@
 / {
 	aliases {
 		serial0 = &scif2;
+		serial1 = &hscif0;
+		mmc0 = &sdhi3;
+		mmc1 = &sdhi0;
+		mmc2 = &sdhi2;
 	};
 
 	chosen {
@@ -31,10 +36,6 @@
 	leds {
 		compatible = "gpio-leds";
 
-		led0 {
-			gpios = <&gpio6 11 GPIO_ACTIVE_HIGH>;
-		};
-
 		led1 {
 			gpios = <&gpio6 12 GPIO_ACTIVE_HIGH>;
 		};
@@ -45,6 +46,10 @@
 
 		led3 {
 			gpios = <&gpio0  0 GPIO_ACTIVE_HIGH>;
+		};
+
+		led4 {
+			gpios = <&gpio6 11 GPIO_ACTIVE_HIGH>;
 		};
 	};
 
@@ -64,6 +69,14 @@
 		regulator-max-microvolt = <3300000>;
 		regulator-boot-on;
 		regulator-always-on;
+	};
+
+	sound_card: sound {
+		compatible = "audio-graph-card";
+
+		label = "rcar-sound";
+
+		dais = <&rsnd_port>;
 	};
 
 	vbus0_usb2: regulator-vbus0-usb2 {
@@ -86,8 +99,7 @@
 
 		gpios = <&gpio6 30 GPIO_ACTIVE_HIGH>;
 		gpios-states = <1>;
-		states = <3300000 1
-			  1800000 0>;
+		states = <3300000 1>, <1800000 0>;
 	};
 
 	x302_clk: x302-clock {
@@ -103,15 +115,11 @@
 	};
 };
 
+&audio_clk_a {
+	clock-frequency = <22579200>;
+};
+
 &du {
-	clocks = <&cpg CPG_MOD 724>,
-		 <&cpg CPG_MOD 723>,
-		 <&cpg CPG_MOD 722>,
-		 <&versaclock5 1>,
-		 <&x302_clk>,
-		 <&versaclock5 2>;
-	clock-names = "du.0", "du.1", "du.2",
-		      "dclkin.0", "dclkin.1", "dclkin.2";
 	status = "okay";
 };
 
@@ -150,7 +158,21 @@
 				remote-endpoint = <&hdmi0_con>;
 			};
 		};
+		port@2 {
+			reg = <2>;
+			dw_hdmi0_snd_in: endpoint {
+				remote-endpoint = <&rsnd_endpoint>;
+			};
+		};
 	};
+};
+
+&hscif0 {
+	pinctrl-0 = <&hscif0_pins>;
+	pinctrl-names = "default";
+
+	uart-has-rtscts;
+	status = "okay";
 };
 
 &hsusb {
@@ -187,6 +209,11 @@
 	pinctrl-0 = <&scif_clk_pins>;
 	pinctrl-names = "default";
 
+	hscif0_pins: hscif0 {
+		groups = "hscif0_data", "hscif0_ctrl";
+		function = "hscif0";
+	};
+
 	scif2_pins: scif2 {
 		groups = "scif2_data_a";
 		function = "scif2";
@@ -206,6 +233,12 @@
 	sdhi0_pins_uhs: sd0_uhs {
 		groups = "sdhi0_data4", "sdhi0_ctrl";
 		function = "sdhi0";
+		power-source = <1800>;
+	};
+
+	sdhi2_pins: sd2 {
+		groups = "sdhi2_data4", "sdhi2_ctrl";
+		function = "sdhi2";
 		power-source = <1800>;
 	};
 
@@ -268,6 +301,27 @@
 	status = "okay";
 };
 
+&sdhi2 {
+	status = "okay";
+	pinctrl-0 = <&sdhi2_pins>;
+	pinctrl-names = "default";
+
+	vmmc-supply = <&wlan_en_reg>;
+	bus-width = <4>;
+	non-removable;
+	cap-power-off-card;
+	keep-power-in-suspend;
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+	wlcore: wlcore@2 {
+		compatible = "ti,wl1837";
+		reg = <2>;
+		interrupt-parent = <&gpio2>;
+		interrupts = <5 IRQ_TYPE_LEVEL_HIGH>;
+	};
+};
+
 &sdhi3 {
 	pinctrl-0 = <&sdhi3_pins>;
 	pinctrl-1 = <&sdhi3_pins>;
@@ -277,6 +331,8 @@
 	vqmmc-supply = <&reg_1p8v>;
 	bus-width = <8>;
 	mmc-hs200-1_8v;
+	no-sd;
+	no-sdio;
 	non-removable;
 	fixed-emmc-driver-type = <1>;
 	status = "okay";

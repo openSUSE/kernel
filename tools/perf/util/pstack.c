@@ -10,11 +10,12 @@
 #include <linux/kernel.h>
 #include <linux/zalloc.h>
 #include <stdlib.h>
+#include <string.h>
 
 struct pstack {
 	unsigned short	top;
 	unsigned short	max_nr_entries;
-	void		*entries[0];
+	void		*entries[];
 };
 
 struct pstack *pstack__new(unsigned short max_nr_entries)

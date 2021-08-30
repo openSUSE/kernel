@@ -30,7 +30,6 @@
 #include <linux/sched/task_stack.h>
 
 #include <linux/uaccess.h>
-#include <asm/pgalloc.h>
 #include <asm/cacheflush.h>
 #include <asm/user32.h>
 #include <asm/ia32.h>
@@ -131,7 +130,7 @@ static int load_aout_binary(struct linux_binprm *bprm)
 		return -ENOMEM;
 
 	/* Flush all traces of the currently running executable */
-	retval = flush_old_exec(bprm);
+	retval = begin_new_exec(bprm);
 	if (retval)
 		return retval;
 
@@ -155,8 +154,6 @@ static int load_aout_binary(struct linux_binprm *bprm)
 	retval = setup_arg_pages(bprm, IA32_STACK_TOP, EXSTACK_DEFAULT);
 	if (retval < 0)
 		return retval;
-
-	install_exec_creds(bprm);
 
 	if (N_MAGIC(ex) == OMAGIC) {
 		unsigned long text_addr, map_size;
@@ -206,7 +203,7 @@ static int load_aout_binary(struct linux_binprm *bprm)
 		error = vm_mmap(bprm->file, N_TXTADDR(ex), ex.a_text,
 				PROT_READ | PROT_EXEC,
 				MAP_FIXED | MAP_PRIVATE | MAP_DENYWRITE |
-				MAP_EXECUTABLE | MAP_32BIT,
+				MAP_32BIT,
 				fd_offset);
 
 		if (error != N_TXTADDR(ex))
@@ -215,7 +212,7 @@ static int load_aout_binary(struct linux_binprm *bprm)
 		error = vm_mmap(bprm->file, N_DATADDR(ex), ex.a_data,
 				PROT_READ | PROT_WRITE | PROT_EXEC,
 				MAP_FIXED | MAP_PRIVATE | MAP_DENYWRITE |
-				MAP_EXECUTABLE | MAP_32BIT,
+				MAP_32BIT,
 				fd_offset + ex.a_text);
 		if (error != N_DATADDR(ex))
 			return error;
@@ -242,7 +239,6 @@ beyond_if:
 	(regs)->ss = __USER32_DS;
 	regs->r8 = regs->r9 = regs->r10 = regs->r11 =
 	regs->r12 = regs->r13 = regs->r14 = regs->r15 = 0;
-	set_fs(USER_DS);
 	return 0;
 }
 

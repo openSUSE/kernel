@@ -28,7 +28,7 @@
 #include "usb_ops.h"
 #include "wifi.h"
 
-static void recv_tasklet(unsigned long priv);
+static void recv_tasklet(struct tasklet_struct *t);
 
 void r8712_init_recv_priv(struct recv_priv *precvpriv,
 			  struct _adapter *padapter)
@@ -60,8 +60,7 @@ void r8712_init_recv_priv(struct recv_priv *precvpriv,
 		precvbuf++;
 	}
 	precvpriv->free_recv_buf_queue_cnt = NR_RECVBUFF;
-	tasklet_init(&precvpriv->recv_tasklet, recv_tasklet,
-		     (unsigned long)padapter);
+	tasklet_setup(&precvpriv->recv_tasklet, recv_tasklet);
 	skb_queue_head_init(&precvpriv->rx_skb_queue);
 
 	skb_queue_head_init(&precvpriv->free_recv_skb_queue);
@@ -1040,8 +1039,9 @@ static void recvbuf2recvframe(struct _adapter *padapter, struct sk_buff *pskb)
 		skb_reserve(pkt_copy, 4 - ((addr_t)(pkt_copy->data) % 4));
 		skb_reserve(pkt_copy, shift_sz);
 		memcpy(pkt_copy->data, pbuf, tmp_len);
-		precvframe->u.hdr.rx_head = precvframe->u.hdr.rx_data =
-			precvframe->u.hdr.rx_tail = pkt_copy->data;
+		precvframe->u.hdr.rx_head = pkt_copy->data;
+		precvframe->u.hdr.rx_data = pkt_copy->data;
+		precvframe->u.hdr.rx_tail = pkt_copy->data;
 		precvframe->u.hdr.rx_end = pkt_copy->data + alloc_sz;
 
 		recvframe_put(precvframe, tmp_len);
@@ -1060,10 +1060,11 @@ static void recvbuf2recvframe(struct _adapter *padapter, struct sk_buff *pskb)
 	} while ((transfer_len > 0) && pkt_cnt > 0);
 }
 
-static void recv_tasklet(unsigned long priv)
+static void recv_tasklet(struct tasklet_struct *t)
 {
 	struct sk_buff *pskb;
-	struct _adapter *padapter = (struct _adapter *)priv;
+	struct _adapter *padapter = from_tasklet(padapter, t,
+						 recvpriv.recv_tasklet);
 	struct recv_priv *precvpriv = &padapter->recvpriv;
 
 	while (NULL != (pskb = skb_dequeue(&precvpriv->rx_skb_queue))) {

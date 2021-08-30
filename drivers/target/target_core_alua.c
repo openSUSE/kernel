@@ -123,7 +123,7 @@ target_emulate_report_referrals(struct se_cmd *cmd)
 
 	transport_kunmap_data_sg(cmd);
 
-	target_complete_cmd(cmd, GOOD);
+	target_complete_cmd(cmd, SAM_STAT_GOOD);
 	return 0;
 }
 
@@ -255,7 +255,7 @@ target_emulate_report_target_port_groups(struct se_cmd *cmd)
 	}
 	transport_kunmap_data_sg(cmd);
 
-	target_complete_cmd_with_length(cmd, GOOD, rd_len + 4);
+	target_complete_cmd_with_length(cmd, SAM_STAT_GOOD, rd_len + 4);
 	return 0;
 }
 
@@ -424,7 +424,7 @@ target_emulate_set_target_port_groups(struct se_cmd *cmd)
 out:
 	transport_kunmap_data_sg(cmd);
 	if (!rc)
-		target_complete_cmd(cmd, GOOD);
+		target_complete_cmd(cmd, SAM_STAT_GOOD);
 	return rc;
 }
 
@@ -859,8 +859,6 @@ int core_alua_check_nonop_delay(
 	struct se_cmd *cmd)
 {
 	if (!(cmd->se_cmd_flags & SCF_ALUA_NON_OPTIMIZED))
-		return 0;
-	if (in_interrupt())
 		return 0;
 	/*
 	 * The ALUA Active/NonOptimized access state delay can be disabled

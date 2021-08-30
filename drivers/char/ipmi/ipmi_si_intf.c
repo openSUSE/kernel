@@ -40,6 +40,7 @@
 #include <linux/ipmi.h>
 #include <linux/ipmi_smi.h>
 #include "ipmi_si.h"
+#include "ipmi_si_sm.h"
 #include <linux/string.h>
 #include <linux/ctype.h>
 
@@ -69,7 +70,8 @@ enum si_intf_state {
 #define IPMI_BT_INTMASK_CLEAR_IRQ_BIT	2
 #define IPMI_BT_INTMASK_ENABLE_IRQ_BIT	1
 
-static const char * const si_to_str[] = { "invalid", "kcs", "smic", "bt" };
+/* 'invalid' to allow a firmware-specified interface to be disabled */
+const char *const si_to_str[] = { "invalid", "kcs", "smic", "bt", NULL };
 
 static bool initialized;
 
@@ -267,7 +269,7 @@ void debug_timestamp(char *msg)
 	struct timespec64 t;
 
 	ktime_get_ts64(&t);
-	pr_debug("**%s: %lld.%9.9ld\n", msg, (long long) t.tv_sec, t.tv_nsec);
+	pr_debug("**%s: %lld.%9.9ld\n", msg, t.tv_sec, t.tv_nsec);
 }
 #else
 #define debug_timestamp(x)
@@ -934,42 +936,29 @@ static void set_run_to_completion(void *send_info, bool i_run_to_completion)
 }
 
 /*
- * Use -1 in the nsec value of the busy waiting timespec to tell that
- * we are spinning in kipmid looking for something and not delaying
- * between checks
+ * Use -1 as a special constant to tell that we are spinning in kipmid
+ * looking for something and not delaying between checks
  */
-static inline void ipmi_si_set_not_busy(struct timespec64 *ts)
-{
-	ts->tv_nsec = -1;
-}
-static inline int ipmi_si_is_busy(struct timespec64 *ts)
-{
-	return ts->tv_nsec != -1;
-}
-
-static inline int ipmi_thread_busy_wait(enum si_sm_result smi_result,
-					const struct smi_info *smi_info,
-					struct timespec64 *busy_until)
+#define IPMI_TIME_NOT_BUSY ns_to_ktime(-1ull)
+static inline bool ipmi_thread_busy_wait(enum si_sm_result smi_result,
+					 const struct smi_info *smi_info,
+					 ktime_t *busy_until)
 {
 	unsigned int max_busy_us = 0;
 
 	if (smi_info->si_num < num_max_busy_us)
 		max_busy_us = kipmid_max_busy_us[smi_info->si_num];
 	if (max_busy_us == 0 || smi_result != SI_SM_CALL_WITH_DELAY)
-		ipmi_si_set_not_busy(busy_until);
-	else if (!ipmi_si_is_busy(busy_until)) {
-		ktime_get_ts64(busy_until);
-		timespec64_add_ns(busy_until, max_busy_us*NSEC_PER_USEC);
+		*busy_until = IPMI_TIME_NOT_BUSY;
+	else if (*busy_until == IPMI_TIME_NOT_BUSY) {
+		*busy_until = ktime_get() + max_busy_us * NSEC_PER_USEC;
 	} else {
-		struct timespec64 now;
-
-		ktime_get_ts64(&now);
-		if (unlikely(timespec64_compare(&now, busy_until) > 0)) {
-			ipmi_si_set_not_busy(busy_until);
-			return 0;
+		if (unlikely(ktime_get() > *busy_until)) {
+			*busy_until = IPMI_TIME_NOT_BUSY;
+			return false;
 		}
 	}
-	return 1;
+	return true;
 }
 
 
@@ -980,16 +969,15 @@ static inline int ipmi_thread_busy_wait(enum si_sm_result smi_result,
  * that are not BT and do not have interrupts.  It starts spinning
  * when an operation is complete or until max_busy tells it to stop
  * (if that is enabled).  See the paragraph on kimid_max_busy_us in
- * Documentation/IPMI.txt for details.
+ * Documentation/driver-api/ipmi.rst for details.
  */
 static int ipmi_thread(void *data)
 {
 	struct smi_info *smi_info = data;
 	unsigned long flags;
 	enum si_sm_result smi_result;
-	struct timespec64 busy_until;
+	ktime_t busy_until = IPMI_TIME_NOT_BUSY;
 
-	ipmi_si_set_not_busy(&busy_until);
 	set_user_nice(current, MAX_NICE);
 	while (!kthread_should_stop()) {
 		int busy_wait;
@@ -1182,9 +1170,8 @@ static int smi_start_processing(void            *send_info,
 		new_smi->thread = kthread_run(ipmi_thread, new_smi,
 					      "kipmi%d", new_smi->si_num);
 		if (IS_ERR(new_smi->thread)) {
-			dev_notice(new_smi->io.dev, "Could not start"
-				   " kernel thread due to error %ld, only using"
-				   " timers to drive the interface\n",
+			dev_notice(new_smi->io.dev,
+				   "Could not start kernel thread due to error %ld, only using timers to drive the interface\n",
 				   PTR_ERR(new_smi->thread));
 			new_smi->thread = NULL;
 		}
@@ -1236,18 +1223,14 @@ static int smi_num; /* Used to sequence the SMIs */
 static const char * const addr_space_to_str[] = { "i/o", "mem" };
 
 module_param_array(force_kipmid, int, &num_force_kipmid, 0);
-MODULE_PARM_DESC(force_kipmid, "Force the kipmi daemon to be enabled (1) or"
-		 " disabled(0).  Normally the IPMI driver auto-detects"
-		 " this, but the value may be overridden by this parm.");
+MODULE_PARM_DESC(force_kipmid,
+		 "Force the kipmi daemon to be enabled (1) or disabled(0).  Normally the IPMI driver auto-detects this, but the value may be overridden by this parm.");
 module_param(unload_when_empty, bool, 0);
-MODULE_PARM_DESC(unload_when_empty, "Unload the module if no interfaces are"
-		 " specified or found, default is 1.  Setting to 0"
-		 " is useful for hot add of devices using hotmod.");
+MODULE_PARM_DESC(unload_when_empty,
+		 "Unload the module if no interfaces are specified or found, default is 1.  Setting to 0 is useful for hot add of devices using hotmod.");
 module_param_array(kipmid_max_busy_us, uint, &num_max_busy_us, 0644);
 MODULE_PARM_DESC(kipmid_max_busy_us,
-		 "Max time (in microseconds) to busy-wait for IPMI data before"
-		 " sleeping. 0 (default) means to wait forever. Set to 100-500"
-		 " if kipmid is using up a lot of CPU time.");
+		 "Max time (in microseconds) to busy-wait for IPMI data before sleeping. 0 (default) means to wait forever. Set to 100-500 if kipmid is using up a lot of CPU time.");
 
 void ipmi_irq_finish_setup(struct si_sm_io *io)
 {
@@ -1280,12 +1263,11 @@ int ipmi_std_irq_setup(struct si_sm_io *io)
 	rv = request_irq(io->irq,
 			 ipmi_si_irq_handler,
 			 IRQF_SHARED,
-			 DEVICE_NAME,
+			 SI_DEVICE_NAME,
 			 io->irq_handler_data);
 	if (rv) {
-		dev_warn(io->dev, "%s unable to claim interrupt %d,"
-			 " running polled\n",
-			 DEVICE_NAME, io->irq);
+		dev_warn(io->dev, "%s unable to claim interrupt %d, running polled\n",
+			 SI_DEVICE_NAME, io->irq);
 		io->irq = 0;
 	} else {
 		io->irq_cleanup = std_irq_cleanup;
@@ -1329,6 +1311,7 @@ static int try_get_dev_id(struct smi_info *smi_info)
 	unsigned char         *resp;
 	unsigned long         resp_len;
 	int                   rv = 0;
+	unsigned int          retry_count = 0;
 
 	resp = kmalloc(IPMI_MAX_MSG_LENGTH, GFP_KERNEL);
 	if (!resp)
@@ -1340,6 +1323,8 @@ static int try_get_dev_id(struct smi_info *smi_info)
 	 */
 	msg[0] = IPMI_NETFN_APP_REQUEST << 2;
 	msg[1] = IPMI_GET_DEVICE_ID_CMD;
+
+retry:
 	smi_info->handlers->start_transaction(smi_info->si_sm, msg, 2);
 
 	rv = wait_for_msg_done(smi_info);
@@ -1352,6 +1337,18 @@ static int try_get_dev_id(struct smi_info *smi_info)
 	/* Check and record info from the get device id, in case we need it. */
 	rv = ipmi_demangle_device_id(resp[0] >> 2, resp[1],
 			resp + 2, resp_len - 2, &smi_info->device_id);
+	if (rv) {
+		/* record completion code */
+		unsigned char cc = *(resp + 2);
+
+		if (cc != IPMI_CC_NO_ERROR &&
+		    ++retry_count <= GET_DEVICE_ID_MAX_RETRY) {
+			dev_warn(smi_info->io.dev,
+			    "BMC returned 0x%2.2x, retry get bmc device id\n",
+			    cc);
+			goto retry;
+		}
+	}
 
 out:
 	kfree(resp);
@@ -1600,37 +1597,37 @@ out:
 }
 
 #define IPMI_SI_ATTR(name) \
-static ssize_t ipmi_##name##_show(struct device *dev,			\
-				  struct device_attribute *attr,	\
-				  char *buf)				\
+static ssize_t name##_show(struct device *dev,			\
+			   struct device_attribute *attr,		\
+			   char *buf)					\
 {									\
 	struct smi_info *smi_info = dev_get_drvdata(dev);		\
 									\
 	return snprintf(buf, 10, "%u\n", smi_get_stat(smi_info, name));	\
 }									\
-static DEVICE_ATTR(name, S_IRUGO, ipmi_##name##_show, NULL)
+static DEVICE_ATTR(name, 0444, name##_show, NULL)
 
-static ssize_t ipmi_type_show(struct device *dev,
-			      struct device_attribute *attr,
-			      char *buf)
+static ssize_t type_show(struct device *dev,
+			 struct device_attribute *attr,
+			 char *buf)
 {
 	struct smi_info *smi_info = dev_get_drvdata(dev);
 
 	return snprintf(buf, 10, "%s\n", si_to_str[smi_info->io.si_type]);
 }
-static DEVICE_ATTR(type, S_IRUGO, ipmi_type_show, NULL);
+static DEVICE_ATTR(type, 0444, type_show, NULL);
 
-static ssize_t ipmi_interrupts_enabled_show(struct device *dev,
-					    struct device_attribute *attr,
-					    char *buf)
+static ssize_t interrupts_enabled_show(struct device *dev,
+				       struct device_attribute *attr,
+				       char *buf)
 {
 	struct smi_info *smi_info = dev_get_drvdata(dev);
 	int enabled = smi_info->io.irq && !smi_info->interrupt_disabled;
 
 	return snprintf(buf, 10, "%d\n", enabled);
 }
-static DEVICE_ATTR(interrupts_enabled, S_IRUGO,
-		   ipmi_interrupts_enabled_show, NULL);
+static DEVICE_ATTR(interrupts_enabled, 0444,
+		   interrupts_enabled_show, NULL);
 
 IPMI_SI_ATTR(short_timeouts);
 IPMI_SI_ATTR(long_timeouts);
@@ -1644,9 +1641,9 @@ IPMI_SI_ATTR(events);
 IPMI_SI_ATTR(watchdog_pretimeouts);
 IPMI_SI_ATTR(incoming_messages);
 
-static ssize_t ipmi_params_show(struct device *dev,
-				struct device_attribute *attr,
-				char *buf)
+static ssize_t params_show(struct device *dev,
+			   struct device_attribute *attr,
+			   char *buf)
 {
 	struct smi_info *smi_info = dev_get_drvdata(dev);
 
@@ -1661,7 +1658,7 @@ static ssize_t ipmi_params_show(struct device *dev,
 			smi_info->io.irq,
 			smi_info->io.slave_addr);
 }
-static DEVICE_ATTR(params, S_IRUGO, ipmi_params_show, NULL);
+static DEVICE_ATTR(params, 0444, params_show, NULL);
 
 static struct attribute *ipmi_si_dev_attrs[] = {
 	&dev_attr_type.attr,
@@ -1842,8 +1839,7 @@ static inline void stop_timer_and_thread(struct smi_info *smi_info)
 	}
 
 	smi_info->timer_can_start = false;
-	if (smi_info->timer_running)
-		del_timer_sync(&smi_info->si_timer);
+	del_timer_sync(&smi_info->si_timer);
 }
 
 static struct smi_info *find_dup_si(struct smi_info *info)
@@ -2204,10 +2200,6 @@ static void shutdown_smi(void *send_info)
 	if (smi_info->handlers)
 		smi_info->handlers->cleanup(smi_info->si_sm);
 
-	if (smi_info->io.addr_source_cleanup) {
-		smi_info->io.addr_source_cleanup(&smi_info->io);
-		smi_info->io.addr_source_cleanup = NULL;
-	}
 	if (smi_info->io.io_cleanup) {
 		smi_info->io.io_cleanup(&smi_info->io);
 		smi_info->io.io_cleanup = NULL;
@@ -2303,5 +2295,4 @@ module_exit(cleanup_ipmi_si);
 MODULE_ALIAS("platform:dmi-ipmi-si");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Corey Minyard <minyard@mvista.com>");
-MODULE_DESCRIPTION("Interface to the IPMI driver for the KCS, SMIC, and BT"
-		   " system interfaces.");
+MODULE_DESCRIPTION("Interface to the IPMI driver for the KCS, SMIC, and BT system interfaces.");

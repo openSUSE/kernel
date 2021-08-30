@@ -124,12 +124,9 @@ static int ds1672_probe(struct i2c_client *client,
 	rtc->ops = &ds1672_rtc_ops;
 	rtc->range_max = U32_MAX;
 
-	err = rtc_register_device(rtc);
+	err = devm_rtc_register_device(rtc);
 	if (err)
 		return err;
-
-	if (IS_ERR(rtc))
-		return PTR_ERR(rtc);
 
 	i2c_set_clientdata(client, rtc);
 
@@ -142,7 +139,7 @@ static const struct i2c_device_id ds1672_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, ds1672_id);
 
-static const struct of_device_id ds1672_of_match[] = {
+static const __maybe_unused struct of_device_id ds1672_of_match[] = {
 	{ .compatible = "dallas,ds1672" },
 	{ }
 };

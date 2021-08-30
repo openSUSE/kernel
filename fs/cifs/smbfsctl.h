@@ -1,22 +1,10 @@
+/* SPDX-License-Identifier: LGPL-2.1 */
 /*
  *   fs/cifs/smbfsctl.h: SMB, CIFS, SMB2 FSCTL definitions
  *
  *   Copyright (c) International Business Machines  Corp., 2002,2013
  *   Author(s): Steve French (sfrench@us.ibm.com)
  *
- *   This library is free software; you can redistribute it and/or modify
- *   it under the terms of the GNU Lesser General Public License as published
- *   by the Free Software Foundation; either version 2.1 of the License, or
- *   (at your option) any later version.
- *
- *   This library is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
- *   the GNU Lesser General Public License for more details.
- *
- *   You should have received a copy of the GNU Lesser General Public License
- *   along with this library; if not, write to the Free Software
- *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
 /* IOCTL information */
@@ -103,6 +91,8 @@
 #define FSCTL_SET_ZERO_ON_DEALLOC    0x00090194 /* BB add struct */
 #define FSCTL_SET_SHORT_NAME_BEHAVIOR 0x000901B4 /* BB add struct */
 #define FSCTL_GET_INTEGRITY_INFORMATION 0x0009027C
+#define FSCTL_GET_RETRIEVAL_POINTERS_AND_REFCOUNT 0x000903d3
+#define FSCTL_GET_RETRIEVAL_POINTER_COUNT 0x0009042b
 #define FSCTL_QUERY_ALLOCATED_RANGES 0x000940CF
 #define FSCTL_SET_DEFECT_MANAGEMENT  0x00098134 /* BB add struct */
 #define FSCTL_FILE_LEVEL_TRIM        0x00098208 /* BB add struct */

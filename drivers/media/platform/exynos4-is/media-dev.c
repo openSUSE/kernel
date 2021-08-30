@@ -19,6 +19,7 @@
 #include <linux/of_platform.h>
 #include <linux/of_device.h>
 #include <linux/of_graph.h>
+#include <linux/pinctrl/consumer.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/types.h>
@@ -92,7 +93,7 @@ static void fimc_pipeline_prepare(struct fimc_pipeline *p,
 		switch (sd->grp_id) {
 		case GRP_ID_SENSOR:
 			sensor = sd;
-			/* fall through */
+			fallthrough;
 		case GRP_ID_FIMC_IS_SENSOR:
 			p->subdevs[IDX_SENSOR] = sd;
 			break;
@@ -289,11 +290,26 @@ static int __fimc_pipeline_s_stream(struct exynos_media_pipeline *ep, bool on)
 		{ IDX_CSIS, IDX_FLITE, IDX_FIMC, IDX_SENSOR, IDX_IS_ISP },
 	};
 	struct fimc_pipeline *p = to_fimc_pipeline(ep);
-	struct fimc_md *fmd = entity_to_fimc_mdev(&p->subdevs[IDX_CSIS]->entity);
 	enum fimc_subdev_index sd_id;
 	int i, ret = 0;
 
 	if (p->subdevs[IDX_SENSOR] == NULL) {
+		struct fimc_md *fmd;
+		struct v4l2_subdev *sd = p->subdevs[IDX_CSIS];
+
+		if (!sd)
+			sd = p->subdevs[IDX_FIMC];
+
+		if (!sd) {
+			/*
+			 * If neither CSIS nor FIMC was set up,
+			 * it's impossible to have any sensors
+			 */
+			return -ENODEV;
+		}
+
+		fmd = entity_to_fimc_mdev(&sd->entity);
+
 		if (!fmd->user_subdev_api) {
 			/*
 			 * Sensor must be already discovered if we
@@ -379,20 +395,15 @@ static void fimc_md_pipelines_free(struct fimc_md *fmd)
 	}
 }
 
-/* Parse port node and register as a sub-device any sensor specified there. */
-static int fimc_md_parse_port_node(struct fimc_md *fmd,
-				   struct device_node *port,
-				   unsigned int index)
+static int fimc_md_parse_one_endpoint(struct fimc_md *fmd,
+				   struct device_node *ep)
 {
+	int index = fmd->num_sensors;
 	struct fimc_source_info *pd = &fmd->sensor[index].pdata;
-	struct device_node *rem, *ep, *np;
+	struct device_node *rem, *np;
+	struct v4l2_async_subdev *asd;
 	struct v4l2_fwnode_endpoint endpoint = { .bus_type = 0 };
 	int ret;
-
-	/* Assume here a port node can have only one endpoint node. */
-	ep = of_get_next_child(port, NULL);
-	if (!ep)
-		return 0;
 
 	ret = v4l2_fwnode_endpoint_parse(of_fwnode_handle(ep), &endpoint);
 	if (ret) {
@@ -408,10 +419,10 @@ static int fimc_md_parse_port_node(struct fimc_md *fmd,
 	pd->mux_id = (endpoint.base.port - 1) & 0x1;
 
 	rem = of_graph_get_remote_port_parent(ep);
-	of_node_put(ep);
 	if (rem == NULL) {
 		v4l2_info(&fmd->v4l2_dev, "Remote device at %pOF not found\n",
 							ep);
+		of_node_put(ep);
 		return 0;
 	}
 
@@ -440,6 +451,7 @@ static int fimc_md_parse_port_node(struct fimc_md *fmd,
 	 * checking parent's node name.
 	 */
 	np = of_get_parent(rem);
+	of_node_put(rem);
 
 	if (of_node_name_eq(np, "i2c-isp"))
 		pd->fimc_bus_type = FIMC_BUS_TYPE_ISP_WRITEBACK;
@@ -448,21 +460,39 @@ static int fimc_md_parse_port_node(struct fimc_md *fmd,
 	of_node_put(np);
 
 	if (WARN_ON(index >= ARRAY_SIZE(fmd->sensor))) {
-		of_node_put(rem);
+		of_node_put(ep);
 		return -EINVAL;
 	}
 
-	fmd->sensor[index].asd.match_type = V4L2_ASYNC_MATCH_FWNODE;
-	fmd->sensor[index].asd.match.fwnode = of_fwnode_handle(rem);
+	asd = v4l2_async_notifier_add_fwnode_remote_subdev(
+		&fmd->subdev_notifier, of_fwnode_handle(ep),
+		struct v4l2_async_subdev);
 
-	ret = v4l2_async_notifier_add_subdev(&fmd->subdev_notifier,
-					     &fmd->sensor[index].asd);
-	if (ret) {
-		of_node_put(rem);
-		return ret;
-	}
+	of_node_put(ep);
 
+	if (IS_ERR(asd))
+		return PTR_ERR(asd);
+
+	fmd->sensor[index].asd = asd;
 	fmd->num_sensors++;
+
+	return 0;
+}
+
+/* Parse port node and register as a sub-device any sensor specified there. */
+static int fimc_md_parse_port_node(struct fimc_md *fmd,
+				   struct device_node *port)
+{
+	struct device_node *ep;
+	int ret;
+
+	for_each_child_of_node(port, ep) {
+		ret = fimc_md_parse_one_endpoint(fmd, ep);
+		if (ret < 0) {
+			of_node_put(ep);
+			return ret;
+		}
+	}
 
 	return 0;
 }
@@ -473,7 +503,6 @@ static int fimc_md_register_sensor_entities(struct fimc_md *fmd)
 	struct device_node *parent = fmd->pdev->dev.of_node;
 	struct device_node *ports = NULL;
 	struct device_node *node;
-	int index = 0;
 	int ret;
 
 	/*
@@ -483,11 +512,9 @@ static int fimc_md_register_sensor_entities(struct fimc_md *fmd)
 	if (!fmd->pmf)
 		return -ENXIO;
 
-	ret = pm_runtime_get_sync(fmd->pmf);
-	if (ret < 0) {
-		pm_runtime_put(fmd->pmf);
+	ret = pm_runtime_resume_and_get(fmd->pmf);
+	if (ret < 0)
 		return ret;
-	}
 
 	fmd->num_sensors = 0;
 
@@ -502,13 +529,12 @@ static int fimc_md_register_sensor_entities(struct fimc_md *fmd)
 		if (!port)
 			continue;
 
-		ret = fimc_md_parse_port_node(fmd, port, index);
+		ret = fimc_md_parse_port_node(fmd, port);
 		of_node_put(port);
 		if (ret < 0) {
 			of_node_put(node);
 			goto cleanup;
 		}
-		index++;
 	}
 
 	/* Attach sensors listed in the parallel-ports node */
@@ -517,12 +543,11 @@ static int fimc_md_register_sensor_entities(struct fimc_md *fmd)
 		goto rpm_put;
 
 	for_each_child_of_node(ports, node) {
-		ret = fimc_md_parse_port_node(fmd, node, index);
+		ret = fimc_md_parse_port_node(fmd, node);
 		if (ret < 0) {
 			of_node_put(node);
 			goto cleanup;
 		}
-		index++;
 	}
 	of_node_put(ports);
 
@@ -781,7 +806,7 @@ static void fimc_md_unregister_entities(struct fimc_md *fmd)
 }
 
 /**
- * __fimc_md_create_fimc_links - create links to all FIMC entities
+ * __fimc_md_create_fimc_sink_links - create links to all FIMC entities
  * @fmd: fimc media device
  * @source: the source entity to create links to all fimc entities from
  * @sensor: sensor subdev linked to FIMC[fimc_id] entity, may be null
@@ -1256,36 +1281,14 @@ static ssize_t fimc_md_sysfs_store(struct device *dev,
 static DEVICE_ATTR(subdev_conf_mode, S_IWUSR | S_IRUGO,
 		   fimc_md_sysfs_show, fimc_md_sysfs_store);
 
-static int fimc_md_get_pinctrl(struct fimc_md *fmd)
-{
-	struct device *dev = &fmd->pdev->dev;
-	struct fimc_pinctrl *pctl = &fmd->pinctl;
-
-	pctl->pinctrl = devm_pinctrl_get(dev);
-	if (IS_ERR(pctl->pinctrl))
-		return PTR_ERR(pctl->pinctrl);
-
-	pctl->state_default = pinctrl_lookup_state(pctl->pinctrl,
-					PINCTRL_STATE_DEFAULT);
-	if (IS_ERR(pctl->state_default))
-		return PTR_ERR(pctl->state_default);
-
-	/* PINCTRL_STATE_IDLE is optional */
-	pctl->state_idle = pinctrl_lookup_state(pctl->pinctrl,
-					PINCTRL_STATE_IDLE);
-	return 0;
-}
-
 static int cam_clk_prepare(struct clk_hw *hw)
 {
 	struct cam_clk *camclk = to_cam_clk(hw);
-	int ret;
 
 	if (camclk->fmd->pmf == NULL)
 		return -ENODEV;
 
-	ret = pm_runtime_get_sync(camclk->fmd->pmf);
-	return ret < 0 ? ret : 0;
+	return pm_runtime_resume_and_get(camclk->fmd->pmf);
 }
 
 static void cam_clk_unprepare(struct clk_hw *hw)
@@ -1378,7 +1381,8 @@ static int subdev_notifier_bound(struct v4l2_async_notifier *notifier,
 
 	/* Find platform data for this sensor subdev */
 	for (i = 0; i < ARRAY_SIZE(fmd->sensor); i++)
-		if (fmd->sensor[i].asd.match.fwnode ==
+		if (fmd->sensor[i].asd &&
+		    fmd->sensor[i].asd->match.fwnode ==
 		    of_fwnode_handle(subdev->dev->of_node))
 			si = &fmd->sensor[i];
 
@@ -1431,6 +1435,7 @@ static int fimc_md_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct v4l2_device *v4l2_dev;
+	struct pinctrl *pinctrl;
 	struct fimc_md *fmd;
 	int ret;
 
@@ -1442,7 +1447,7 @@ static int fimc_md_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&fmd->pipelines);
 	fmd->pdev = pdev;
 
-	strscpy(fmd->media_dev.model, "SAMSUNG S5P FIMC",
+	strscpy(fmd->media_dev.model, "Samsung S5P FIMC",
 		sizeof(fmd->media_dev.model));
 	fmd->media_dev.ops = &fimc_md_ops;
 	fmd->media_dev.dev = dev;
@@ -1467,8 +1472,9 @@ static int fimc_md_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_v4l2dev;
 
-	ret = fimc_md_get_pinctrl(fmd);
-	if (ret < 0) {
+	pinctrl = devm_pinctrl_get(dev);
+	if (IS_ERR(pinctrl)) {
+		ret = PTR_ERR(pinctrl);
 		if (ret != EPROBE_DEFER)
 			dev_err(dev, "Failed to get pinctrl: %d\n", ret);
 		goto err_clk;

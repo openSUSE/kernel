@@ -4,16 +4,18 @@
 
 #include <sys/types.h>
 #include <linux/rbtree.h>
-#include "map_groups.h"
-#include "dso.h"
-#include "event.h"
+#include "maps.h"
+#include "dsos.h"
 #include "rwsem.h"
 
 struct addr_location;
 struct branch_stack;
-struct perf_evsel;
+struct dso;
+struct dso_id;
+struct evsel;
 struct perf_sample;
 struct symbol;
+struct target;
 struct thread;
 union perf_event;
 
@@ -49,7 +51,7 @@ struct machine {
 	struct vdso_info  *vdso_info;
 	struct perf_env   *env;
 	struct dsos	  dsos;
-	struct map_groups kmaps;
+	struct maps	  kmaps;
 	struct map	  *vmlinux_map;
 	u64		  kernel_start;
 	pid_t		  *current_tid;
@@ -81,7 +83,7 @@ struct map *machine__kernel_map(struct machine *machine)
 static inline
 struct maps *machine__kernel_maps(struct machine *machine)
 {
-	return &machine->kmaps.maps;
+	return &machine->kmaps;
 }
 
 int machine__get_kernel_start(struct machine *machine);
@@ -104,6 +106,7 @@ u8 machine__addr_cpumode(struct machine *machine, u8 cpumode, u64 addr);
 
 struct thread *machine__find_thread(struct machine *machine, pid_t pid,
 				    pid_t tid);
+struct thread *machine__idle_thread(struct machine *machine);
 struct comm *machine__thread_exec_comm(struct machine *machine,
 				       struct thread *thread);
 
@@ -126,6 +129,9 @@ int machine__process_switch_event(struct machine *machine,
 int machine__process_namespaces_event(struct machine *machine,
 				      union perf_event *event,
 				      struct perf_sample *sample);
+int machine__process_cgroup_event(struct machine *machine,
+				  union perf_event *event,
+				  struct perf_sample *sample);
 int machine__process_mmap_event(struct machine *machine, union perf_event *event,
 				struct perf_sample *sample);
 int machine__process_mmap2_event(struct machine *machine, union perf_event *event,
@@ -133,6 +139,9 @@ int machine__process_mmap2_event(struct machine *machine, union perf_event *even
 int machine__process_ksymbol(struct machine *machine,
 			     union perf_event *event,
 			     struct perf_sample *sample);
+int machine__process_text_poke(struct machine *machine,
+			       union perf_event *event,
+			       struct perf_sample *sample);
 int machine__process_event(struct machine *machine, union perf_event *event,
 				struct perf_sample *sample);
 
@@ -154,6 +163,7 @@ struct machine *machines__add(struct machines *machines, pid_t pid,
 struct machine *machines__find_host(struct machines *machines);
 struct machine *machines__find(struct machines *machines, pid_t pid);
 struct machine *machines__findnew(struct machines *machines, pid_t pid);
+struct machine *machines__find_guest(struct machines *machines, pid_t pid);
 
 void machines__set_id_hdr_size(struct machines *machines, u16 id_hdr_size);
 void machines__set_comm_exec(struct machines *machines, bool comm_exec);
@@ -175,7 +185,7 @@ struct callchain_cursor;
 
 int thread__resolve_callchain(struct thread *thread,
 			      struct callchain_cursor *cursor,
-			      struct perf_evsel *evsel,
+			      struct evsel *evsel,
 			      struct perf_sample *sample,
 			      struct symbol **parent,
 			      struct addr_location *root_al,
@@ -201,6 +211,7 @@ int machine__nr_cpus_avail(struct machine *machine);
 struct thread *__machine__findnew_thread(struct machine *machine, pid_t pid, pid_t tid);
 struct thread *machine__findnew_thread(struct machine *machine, pid_t pid, pid_t tid);
 
+struct dso *machine__findnew_dso_id(struct machine *machine, const char *filename, struct dso_id *id);
 struct dso *machine__findnew_dso(struct machine *machine, const char *filename);
 
 size_t machine__fprintf(struct machine *machine, FILE *fp);
@@ -209,7 +220,7 @@ static inline
 struct symbol *machine__find_kernel_symbol(struct machine *machine, u64 addr,
 					   struct map **mapp)
 {
-	return map_groups__find_symbol(&machine->kmaps, addr, mapp);
+	return maps__find_symbol(&machine->kmaps, addr, mapp);
 }
 
 static inline
@@ -217,11 +228,9 @@ struct symbol *machine__find_kernel_symbol_by_name(struct machine *machine,
 						   const char *name,
 						   struct map **mapp)
 {
-	return map_groups__find_symbol_by_name(&machine->kmaps, name, mapp);
+	return maps__find_symbol_by_name(&machine->kmaps, name, mapp);
 }
 
-struct map *machine__findnew_module_map(struct machine *machine, u64 start,
-					const char *filename);
 int arch__fix_module_text_start(u64 *start, u64 *size, const char *name);
 
 int machine__load_kallsyms(struct machine *machine, const char *filename);
@@ -243,26 +252,16 @@ void machines__destroy_kernel_maps(struct machines *machines);
 
 size_t machine__fprintf_vmlinux_path(struct machine *machine, FILE *fp);
 
+typedef int (*machine__dso_t)(struct dso *dso, struct machine *machine, void *priv);
+
+int machine__for_each_dso(struct machine *machine, machine__dso_t fn,
+			  void *priv);
 int machine__for_each_thread(struct machine *machine,
 			     int (*fn)(struct thread *thread, void *p),
 			     void *priv);
 int machines__for_each_thread(struct machines *machines,
 			      int (*fn)(struct thread *thread, void *p),
 			      void *priv);
-
-int __machine__synthesize_threads(struct machine *machine, struct perf_tool *tool,
-				  struct target *target, struct thread_map *threads,
-				  perf_event__handler_t process, bool data_mmap,
-				  unsigned int nr_threads_synthesize);
-static inline
-int machine__synthesize_threads(struct machine *machine, struct target *target,
-				struct thread_map *threads, bool data_mmap,
-				unsigned int nr_threads_synthesize)
-{
-	return __machine__synthesize_threads(machine, NULL, target, threads,
-					     perf_event__process, data_mmap,
-					     nr_threads_synthesize);
-}
 
 pid_t machine__get_current_tid(struct machine *machine, int cpu);
 int machine__set_current_tid(struct machine *machine, int cpu, pid_t pid,

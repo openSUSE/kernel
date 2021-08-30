@@ -129,7 +129,7 @@ static int msb_sg_compare_to_buffer(struct scatterlist *sg,
  * Each zone consists of 512 eraseblocks, out of which in first
  * zone 494 are used and 496 are for all following zones.
  * Therefore zone #0 hosts blocks 0-493, zone #1 blocks 494-988, etc...
-*/
+ */
 static int msb_get_zone_from_lba(int lba)
 {
 	if (lba < 494)
@@ -348,8 +348,9 @@ again:
 	switch (msb->state) {
 	case MSB_RP_SEND_BLOCK_ADDRESS:
 		/* msb_write_regs sometimes "fails" because it needs to update
-			the reg window, and thus it returns request for that.
-			Then we stay in this state and retry */
+		 * the reg window, and thus it returns request for that.
+		 * Then we stay in this state and retry
+		 */
 		if (!msb_write_regs(msb,
 			offsetof(struct ms_register, param),
 			sizeof(struct ms_param_register),
@@ -368,10 +369,11 @@ again:
 	case MSB_RP_SEND_INT_REQ:
 		msb->state = MSB_RP_RECEIVE_INT_REQ_RESULT;
 		/* If dont actually need to send the int read request (only in
-			serial mode), then just fall through */
+		 * serial mode), then just fall through
+		 */
 		if (msb_read_int_reg(msb, -1))
 			return 0;
-		/* fallthrough */
+		fallthrough;
 
 	case MSB_RP_RECEIVE_INT_REQ_RESULT:
 		intreg = mrq->data[0];
@@ -403,7 +405,7 @@ again:
 	case MSB_RP_RECEIVE_STATUS_REG:
 		msb->regs.status = *(struct ms_status_register *)mrq->data;
 		msb->state = MSB_RP_SEND_OOB_READ;
-		/* fallthrough */
+		fallthrough;
 
 	case MSB_RP_SEND_OOB_READ:
 		if (!msb_read_regs(msb,
@@ -418,7 +420,7 @@ again:
 		msb->regs.extra_data =
 			*(struct ms_extra_data_register *) mrq->data;
 		msb->state = MSB_RP_SEND_READ_DATA;
-		/* fallthrough */
+		fallthrough;
 
 	case MSB_RP_SEND_READ_DATA:
 		/* Skip that state if we only read the oob */
@@ -518,7 +520,7 @@ again:
 		msb->state = MSB_WB_RECEIVE_INT_REQ;
 		if (msb_read_int_reg(msb, -1))
 			return 0;
-		/* fallthrough */
+		fallthrough;
 
 	case MSB_WB_RECEIVE_INT_REQ:
 		intreg = mrq->data[0];
@@ -549,7 +551,7 @@ again:
 
 		msb->int_polling = false;
 		msb->state = MSB_WB_SEND_WRITE_DATA;
-		/* fallthrough */
+		fallthrough;
 
 	case MSB_WB_SEND_WRITE_DATA:
 		sg_init_table(sg, ARRAY_SIZE(sg));
@@ -628,7 +630,7 @@ again:
 		msb->state = MSB_SC_RECEIVE_INT_REQ;
 		if (msb_read_int_reg(msb, -1))
 			return 0;
-		/* fallthrough */
+		fallthrough;
 
 	case MSB_SC_RECEIVE_INT_REQ:
 		intreg = mrq->data[0];
@@ -702,7 +704,8 @@ static int h_msb_parallel_switch(struct memstick_dev *card,
 
 	case MSB_PS_SWICH_HOST:
 		 /* Set parallel interface on our side + send a dummy request
-			to see if card responds */
+		  * to see if card responds
+		  */
 		host->set_param(host, MEMSTICK_INTERFACE, MEMSTICK_PAR4);
 		memstick_init_req(mrq, MS_TPC_GET_INT, NULL, 1);
 		msb->state = MSB_PS_CONFIRM;
@@ -821,6 +824,7 @@ static int msb_mark_page_bad(struct msb_data *msb, int pba, int page)
 static int msb_erase_block(struct msb_data *msb, u16 pba)
 {
 	int error, try;
+
 	if (msb->read_only)
 		return -EROFS;
 
@@ -997,6 +1001,7 @@ static int msb_write_block(struct msb_data *msb,
 			u16 pba, u32 lba, struct scatterlist *sg, int offset)
 {
 	int error, current_try = 1;
+
 	BUG_ON(sg->length < msb->page_size);
 
 	if (msb->read_only)
@@ -1045,11 +1050,12 @@ static int msb_write_block(struct msb_data *msb,
 		error = msb_run_state_machine(msb, h_msb_write_block);
 
 		/* Sector we just wrote to is assumed erased since its pba
-			was erased. If it wasn't erased, write will succeed
-			and will just clear the bits that were set in the block
-			thus test that what we have written,
-			matches what we expect.
-			We do trust the blocks that we erased */
+		 * was erased. If it wasn't erased, write will succeed
+		 * and will just clear the bits that were set in the block
+		 * thus test that what we have written,
+		 * matches what we expect.
+		 * We do trust the blocks that we erased
+		 */
 		if (!error && (verify_writes ||
 				!test_bit(pba, msb->erased_blocks_bitmap)))
 			error = msb_verify_block(msb, pba, sg, offset);
@@ -1087,7 +1093,7 @@ static u16 msb_get_free_block(struct msb_data *msb, int zone)
 
 	pos %= msb->free_block_count[zone];
 
-	dbg_verbose("have %d choices for a free block, selected randomally: %d",
+	dbg_verbose("have %d choices for a free block, selected randomly: %d",
 		msb->free_block_count[zone], pos);
 
 	pba = find_next_zero_bit(msb->used_blocks_bitmap,
@@ -1223,7 +1229,7 @@ static int msb_read_boot_blocks(struct msb_data *msb)
 		}
 
 		if (be16_to_cpu(page->header.block_id) != MS_BLOCK_BOOT_ID) {
-			dbg("the pba at %d doesn' contain boot block ID", pba);
+			dbg("the pba at %d doesn't contain boot block ID", pba);
 			continue;
 		}
 
@@ -1493,6 +1499,7 @@ static int msb_ftl_scan(struct msb_data *msb)
 static void msb_cache_flush_timer(struct timer_list *t)
 {
 	struct msb_data *msb = from_timer(msb, t, cache_flush_timer);
+
 	msb->need_flush_cache = true;
 	queue_work(msb->io_queue, &msb->io_work);
 }
@@ -1673,7 +1680,8 @@ static int msb_cache_read(struct msb_data *msb, int lba,
  * This table content isn't that importaint,
  * One could put here different values, providing that they still
  * cover whole disk.
- * 64 MB entry is what windows reports for my 64M memstick */
+ * 64 MB entry is what windows reports for my 64M memstick
+ */
 
 static const struct chs_entry chs_table[] = {
 /*        size sectors cylynders  heads */
@@ -1706,8 +1714,9 @@ static int msb_init_card(struct memstick_dev *card)
 		return error;
 
 	/* Due to a bug in Jmicron driver written by Alex Dubov,
-	 its serial mode barely works,
-	 so we switch to parallel mode right away */
+	 * its serial mode barely works,
+	 * so we switch to parallel mode right away
+	 */
 	if (host->caps & MEMSTICK_CAP_PAR4)
 		msb_switch_to_parallel(msb);
 
@@ -2033,6 +2042,7 @@ static blk_status_t msb_queue_rq(struct blk_mq_hw_ctx *hctx,
 static int msb_check_card(struct memstick_dev *card)
 {
 	struct msb_data *msb = memstick_get_drvdata(card);
+
 	return (msb->card_dead == 0);
 }
 
@@ -2110,21 +2120,17 @@ static int msb_init_disk(struct memstick_dev *card)
 	if (msb->disk_id  < 0)
 		return msb->disk_id;
 
-	msb->disk = alloc_disk(0);
-	if (!msb->disk) {
-		rc = -ENOMEM;
+	rc = blk_mq_alloc_sq_tag_set(&msb->tag_set, &msb_mq_ops, 2,
+				     BLK_MQ_F_SHOULD_MERGE);
+	if (rc)
 		goto out_release_id;
-	}
 
-	msb->queue = blk_mq_init_sq_queue(&msb->tag_set, &msb_mq_ops, 2,
-						BLK_MQ_F_SHOULD_MERGE);
-	if (IS_ERR(msb->queue)) {
-		rc = PTR_ERR(msb->queue);
-		msb->queue = NULL;
-		goto out_put_disk;
+	msb->disk = blk_mq_alloc_disk(&msb->tag_set, card);
+	if (IS_ERR(msb->disk)) {
+		rc = PTR_ERR(msb->disk);
+		goto out_free_tag_set;
 	}
-
-	msb->queue->queuedata = card;
+	msb->queue = msb->disk->queue;
 
 	blk_queue_max_hw_sectors(msb->queue, MS_BLOCK_MAX_PAGES);
 	blk_queue_max_segments(msb->queue, MS_BLOCK_MAX_SEGS);
@@ -2135,8 +2141,6 @@ static int msb_init_disk(struct memstick_dev *card)
 	sprintf(msb->disk->disk_name, "msblk%d", msb->disk_id);
 	msb->disk->fops = &msb_bdops;
 	msb->disk->private_data = msb;
-	msb->disk->queue = msb->queue;
-	msb->disk->flags |= GENHD_FL_EXT_DEVT;
 
 	capacity = msb->pages_in_block * msb->logical_block_count;
 	capacity *= (msb->page_size / 512);
@@ -2156,8 +2160,8 @@ static int msb_init_disk(struct memstick_dev *card)
 	dbg("Disk added");
 	return 0;
 
-out_put_disk:
-	put_disk(msb->disk);
+out_free_tag_set:
+	blk_mq_free_tag_set(&msb->tag_set);
 out_release_id:
 	mutex_lock(&msb_disk_lock);
 	idr_remove(&msb_disk_idr, msb->disk_id);
@@ -2333,6 +2337,7 @@ static struct memstick_driver msb_driver = {
 static int __init msb_init(void)
 {
 	int rc = memstick_register_driver(&msb_driver);
+
 	if (rc)
 		pr_err("failed to register memstick driver (error %d)\n", rc);
 

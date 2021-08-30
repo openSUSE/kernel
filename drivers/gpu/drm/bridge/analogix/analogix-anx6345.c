@@ -507,10 +507,6 @@ static const struct drm_connector_helper_funcs anx6345_connector_helper_funcs = 
 static void
 anx6345_connector_destroy(struct drm_connector *connector)
 {
-	struct anx6345 *anx6345 = connector_to_anx6345(connector);
-
-	if (anx6345->panel)
-		drm_panel_detach(anx6345->panel);
 	drm_connector_cleanup(connector);
 }
 
@@ -541,6 +537,7 @@ static int anx6345_bridge_attach(struct drm_bridge *bridge,
 	/* Register aux channel */
 	anx6345->aux.name = "DP-AUX";
 	anx6345->aux.dev = &anx6345->client->dev;
+	anx6345->aux.drm_dev = bridge->dev;
 	anx6345->aux.transfer = anx6345_aux_transfer;
 
 	err = drm_dp_aux_register(&anx6345->aux);
@@ -554,17 +551,11 @@ static int anx6345_bridge_attach(struct drm_bridge *bridge,
 				 DRM_MODE_CONNECTOR_eDP);
 	if (err) {
 		DRM_ERROR("Failed to initialize connector: %d\n", err);
-		return err;
+		goto aux_unregister;
 	}
 
 	drm_connector_helper_add(&anx6345->connector,
 				 &anx6345_connector_helper_funcs);
-
-	err = drm_connector_register(&anx6345->connector);
-	if (err) {
-		DRM_ERROR("Failed to register connector: %d\n", err);
-		return err;
-	}
 
 	anx6345->connector.polled = DRM_CONNECTOR_POLL_HPD;
 
@@ -572,18 +563,26 @@ static int anx6345_bridge_attach(struct drm_bridge *bridge,
 					   bridge->encoder);
 	if (err) {
 		DRM_ERROR("Failed to link up connector to encoder: %d\n", err);
-		return err;
+		goto connector_cleanup;
 	}
 
-	if (anx6345->panel) {
-		err = drm_panel_attach(anx6345->panel, &anx6345->connector);
-		if (err) {
-			DRM_ERROR("Failed to attach panel: %d\n", err);
-			return err;
-		}
+	err = drm_connector_register(&anx6345->connector);
+	if (err) {
+		DRM_ERROR("Failed to register connector: %d\n", err);
+		goto connector_cleanup;
 	}
 
 	return 0;
+connector_cleanup:
+	drm_connector_cleanup(&anx6345->connector);
+aux_unregister:
+	drm_dp_aux_unregister(&anx6345->aux);
+	return err;
+}
+
+static void anx6345_bridge_detach(struct drm_bridge *bridge)
+{
+	drm_dp_aux_unregister(&bridge_to_anx6345(bridge)->aux);
 }
 
 static enum drm_mode_status
@@ -636,6 +635,7 @@ static void anx6345_bridge_enable(struct drm_bridge *bridge)
 
 static const struct drm_bridge_funcs anx6345_bridge_funcs = {
 	.attach = anx6345_bridge_attach,
+	.detach = anx6345_bridge_detach,
 	.mode_valid = anx6345_bridge_mode_valid,
 	.disable = anx6345_bridge_disable,
 	.enable = anx6345_bridge_enable,

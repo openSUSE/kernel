@@ -24,7 +24,7 @@ Directory Structure
 
 The pci_ep configfs has two directories at its root: controllers and
 functions. Every EPC device present in the system will have an entry in
-the *controllers* directory and and every EPF driver present in the system
+the *controllers* directory and every EPF driver present in the system
 will have an entry in the *functions* directory.
 ::
 
@@ -68,6 +68,16 @@ created)
 				... subsys_vendor_id
 				... subsys_id
 				... interrupt_pin
+                                ... primary/
+			                ... <Symlink EPC Device1>/
+                                ... secondary/
+			                ... <Symlink EPC Device2>/
+
+If an EPF device has to be associated with 2 EPCs (like in the case of
+Non-transparent bridge), symlink of endpoint controller connected to primary
+interface should be added in 'primary' directory and symlink of endpoint
+controller connected to secondary interface should be added in 'secondary'
+directory.
 
 EPC Device
 ==========
@@ -115,4 +125,4 @@ all the EPF devices are created and linked with the EPC device.
 						| interrupt_pin
 						| function
 
-[1] :doc:`pci-endpoint`
+[1] Documentation/PCI/endpoint/pci-endpoint.rst

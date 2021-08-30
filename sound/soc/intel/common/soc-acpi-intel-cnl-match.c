@@ -36,7 +36,7 @@ static const struct snd_soc_acpi_endpoint single_endpoint = {
 
 static const struct snd_soc_acpi_adr_device rt5682_2_adr[] = {
 	{
-		.adr = 0x000220025D568200,
+		.adr = 0x000220025D568200ull,
 		.num_endpoints = 1,
 		.endpoints = &single_endpoint,
 		.name_prefix = "rt5682"
@@ -63,6 +63,3 @@ struct snd_soc_acpi_mach snd_soc_acpi_intel_cnl_sdw_machines[] = {
 	{}
 };
 EXPORT_SYMBOL_GPL(snd_soc_acpi_intel_cnl_sdw_machines);
-
-MODULE_LICENSE("GPL v2");
-MODULE_DESCRIPTION("Intel Common ACPI Match module");

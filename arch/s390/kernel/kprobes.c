@@ -7,6 +7,7 @@
  * s390 port, used ppc64 as template. Mike Grundy <grundym@us.ibm.com>
  */
 
+#include <linux/moduleloader.h>
 #include <linux/kprobes.h>
 #include <linux/ptrace.h>
 #include <linux/preempt.h>
@@ -21,6 +22,7 @@
 #include <asm/set_memory.h>
 #include <asm/sections.h>
 #include <asm/dis.h>
+#include "entry.h"
 
 DEFINE_PER_CPU(struct kprobe *, current_kprobe);
 DEFINE_PER_CPU(struct kprobe_ctlblk, kprobe_ctlblk);
@@ -30,19 +32,27 @@ struct kretprobe_blackpoint kretprobe_blacklist[] = { };
 DEFINE_INSN_CACHE_OPS(s390_insn);
 
 static int insn_page_in_use;
-static char insn_page[PAGE_SIZE] __aligned(PAGE_SIZE);
+
+void *alloc_insn_page(void)
+{
+	void *page;
+
+	page = module_alloc(PAGE_SIZE);
+	if (!page)
+		return NULL;
+	__set_memory((unsigned long) page, 1, SET_MEMORY_RO | SET_MEMORY_X);
+	return page;
+}
 
 static void *alloc_s390_insn_page(void)
 {
 	if (xchg(&insn_page_in_use, 1) == 1)
 		return NULL;
-	set_memory_x((unsigned long) &insn_page, 1);
-	return &insn_page;
+	return &kprobes_insn_page;
 }
 
 static void free_s390_insn_page(void *page)
 {
-	set_memory_nx((unsigned long) page, 1);
 	xchg(&insn_page_in_use, 0);
 }
 
@@ -56,32 +66,31 @@ struct kprobe_insn_cache kprobe_s390_insn_slots = {
 
 static void copy_instruction(struct kprobe *p)
 {
+	kprobe_opcode_t insn[MAX_INSN_SIZE];
 	s64 disp, new_disp;
 	u64 addr, new_addr;
+	unsigned int len;
 
-	memcpy(p->ainsn.insn, p->addr, insn_length(*p->addr >> 8));
-	p->opcode = p->ainsn.insn[0];
-	if (!probe_is_insn_relative_long(p->ainsn.insn))
-		return;
-	/*
-	 * For pc-relative instructions in RIL-b or RIL-c format patch the
-	 * RI2 displacement field. We have already made sure that the insn
-	 * slot for the patched instruction is within the same 2GB area
-	 * as the original instruction (either kernel image or module area).
-	 * Therefore the new displacement will always fit.
-	 */
-	disp = *(s32 *)&p->ainsn.insn[1];
-	addr = (u64)(unsigned long)p->addr;
-	new_addr = (u64)(unsigned long)p->ainsn.insn;
-	new_disp = ((addr + (disp * 2)) - new_addr) / 2;
-	*(s32 *)&p->ainsn.insn[1] = new_disp;
+	len = insn_length(*p->addr >> 8);
+	memcpy(&insn, p->addr, len);
+	p->opcode = insn[0];
+	if (probe_is_insn_relative_long(&insn[0])) {
+		/*
+		 * For pc-relative instructions in RIL-b or RIL-c format patch
+		 * the RI2 displacement field. We have already made sure that
+		 * the insn slot for the patched instruction is within the same
+		 * 2GB area as the original instruction (either kernel image or
+		 * module area). Therefore the new displacement will always fit.
+		 */
+		disp = *(s32 *)&insn[1];
+		addr = (u64)(unsigned long)p->addr;
+		new_addr = (u64)(unsigned long)p->ainsn.insn;
+		new_disp = ((addr + (disp * 2)) - new_addr) / 2;
+		*(s32 *)&insn[1] = new_disp;
+	}
+	s390_kernel_write(p->ainsn.insn, &insn, len);
 }
 NOKPROBE_SYMBOL(copy_instruction);
-
-static inline int is_kernel_addr(void *addr)
-{
-	return addr < (void *)_end;
-}
 
 static int s390_get_insn_slot(struct kprobe *p)
 {
@@ -91,7 +100,7 @@ static int s390_get_insn_slot(struct kprobe *p)
 	 * field can be patched and executed within the insn slot.
 	 */
 	p->ainsn.insn = NULL;
-	if (is_kernel_addr(p->addr))
+	if (is_kernel((unsigned long)p->addr))
 		p->ainsn.insn = get_s390_insn_slot();
 	else if (is_module_addr(p->addr))
 		p->ainsn.insn = get_insn_slot();
@@ -103,7 +112,7 @@ static void s390_free_insn_slot(struct kprobe *p)
 {
 	if (!p->ainsn.insn)
 		return;
-	if (is_kernel_addr(p->addr))
+	if (is_kernel((unsigned long)p->addr))
 		free_s390_insn_slot(p->ainsn.insn, 0);
 	else
 		free_insn_slot(p->ainsn.insn, 0);
@@ -228,6 +237,7 @@ NOKPROBE_SYMBOL(pop_kprobe);
 void arch_prepare_kretprobe(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	ri->ret_addr = (kprobe_opcode_t *) regs->gprs[14];
+	ri->fp = NULL;
 
 	/* Replace the return addr with trampoline addr */
 	regs->gprs[14] = (unsigned long) &kretprobe_trampoline;
@@ -331,83 +341,7 @@ static void __used kretprobe_trampoline_holder(void)
  */
 static int trampoline_probe_handler(struct kprobe *p, struct pt_regs *regs)
 {
-	struct kretprobe_instance *ri;
-	struct hlist_head *head, empty_rp;
-	struct hlist_node *tmp;
-	unsigned long flags, orig_ret_address;
-	unsigned long trampoline_address;
-	kprobe_opcode_t *correct_ret_addr;
-
-	INIT_HLIST_HEAD(&empty_rp);
-	kretprobe_hash_lock(current, &head, &flags);
-
-	/*
-	 * It is possible to have multiple instances associated with a given
-	 * task either because an multiple functions in the call path
-	 * have a return probe installed on them, and/or more than one return
-	 * return probe was registered for a target function.
-	 *
-	 * We can handle this because:
-	 *     - instances are always inserted at the head of the list
-	 *     - when multiple return probes are registered for the same
-	 *	 function, the first instance's ret_addr will point to the
-	 *	 real return address, and all the rest will point to
-	 *	 kretprobe_trampoline
-	 */
-	ri = NULL;
-	orig_ret_address = 0;
-	correct_ret_addr = NULL;
-	trampoline_address = (unsigned long) &kretprobe_trampoline;
-	hlist_for_each_entry_safe(ri, tmp, head, hlist) {
-		if (ri->task != current)
-			/* another task is sharing our hash bucket */
-			continue;
-
-		orig_ret_address = (unsigned long) ri->ret_addr;
-
-		if (orig_ret_address != trampoline_address)
-			/*
-			 * This is the real return address. Any other
-			 * instances associated with this task are for
-			 * other calls deeper on the call stack
-			 */
-			break;
-	}
-
-	kretprobe_assert(ri, orig_ret_address, trampoline_address);
-
-	correct_ret_addr = ri->ret_addr;
-	hlist_for_each_entry_safe(ri, tmp, head, hlist) {
-		if (ri->task != current)
-			/* another task is sharing our hash bucket */
-			continue;
-
-		orig_ret_address = (unsigned long) ri->ret_addr;
-
-		if (ri->rp && ri->rp->handler) {
-			ri->ret_addr = correct_ret_addr;
-			ri->rp->handler(ri, regs);
-		}
-
-		recycle_rp_inst(ri, &empty_rp);
-
-		if (orig_ret_address != trampoline_address)
-			/*
-			 * This is the real return address. Any other
-			 * instances associated with this task are for
-			 * other calls deeper on the call stack
-			 */
-			break;
-	}
-
-	regs->psw.addr = orig_ret_address;
-
-	kretprobe_hash_unlock(current, &flags);
-
-	hlist_for_each_entry_safe(ri, tmp, &empty_rp, hlist) {
-		hlist_del(&ri->hlist);
-		kfree(ri);
-	}
+	regs->psw.addr = __kretprobe_trampoline_handler(regs, &kretprobe_trampoline, NULL);
 	/*
 	 * By returning a non-zero value, we are telling
 	 * kprobe_handler() that we don't want the post_handler
@@ -502,31 +436,12 @@ static int kprobe_trap_handler(struct pt_regs *regs, int trapnr)
 	case KPROBE_HIT_ACTIVE:
 	case KPROBE_HIT_SSDONE:
 		/*
-		 * We increment the nmissed count for accounting,
-		 * we can also use npre/npostfault count for accounting
-		 * these specific fault cases.
-		 */
-		kprobes_inc_nmissed_count(p);
-
-		/*
-		 * We come here because instructions in the pre/post
-		 * handler caused the page_fault, this could happen
-		 * if handler tries to access user space by
-		 * copy_from_user(), get_user() etc. Let the
-		 * user-specified handler try to fix it first.
-		 */
-		if (p->fault_handler && p->fault_handler(p, regs, trapnr))
-			return 1;
-
-		/*
 		 * In case the user-specified fault handler returned
 		 * zero, try to fix up.
 		 */
 		entry = s390_search_extables(regs->psw.addr);
-		if (entry) {
-			regs->psw.addr = extable_fixup(entry);
+		if (entry && ex_handle(entry, regs))
 			return 1;
-		}
 
 		/*
 		 * fixup_exception() could not handle it,

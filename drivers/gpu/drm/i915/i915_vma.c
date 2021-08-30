@@ -27,6 +27,7 @@
 
 #include "display/intel_frontbuffer.h"
 
+#include "gem/i915_gem_lmem.h"
 #include "gt/intel_engine.h"
 #include "gt/intel_engine_heartbeat.h"
 #include "gt/intel_gt.h"
@@ -93,7 +94,6 @@ static int __i915_vma_active(struct i915_active *ref)
 	return i915_vma_tryget(active_to_vma(ref)) ? 0 : -ENOENT;
 }
 
-__i915_active_call
 static void __i915_vma_retire(struct i915_active *ref)
 {
 	i915_vma_put(active_to_vma(ref));
@@ -124,7 +124,7 @@ vma_create(struct drm_i915_gem_object *obj,
 	vma->size = obj->base.size;
 	vma->display_alignment = I915_GTT_MIN_ALIGNMENT;
 
-	i915_active_init(&vma->active, __i915_vma_active, __i915_vma_retire);
+	i915_active_init(&vma->active, __i915_vma_active, __i915_vma_retire, 0);
 
 	/* Declare ourselves safe for use inside shrinkers */
 	if (IS_ENABLED(CONFIG_LOCKDEP)) {
@@ -230,7 +230,7 @@ err_vma:
 }
 
 static struct i915_vma *
-vma_lookup(struct drm_i915_gem_object *obj,
+i915_vma_lookup(struct drm_i915_gem_object *obj,
 	   struct i915_address_space *vm,
 	   const struct i915_ggtt_view *view)
 {
@@ -274,11 +274,11 @@ i915_vma_instance(struct drm_i915_gem_object *obj,
 {
 	struct i915_vma *vma;
 
-	GEM_BUG_ON(view && !i915_is_ggtt(vm));
+	GEM_BUG_ON(view && !i915_is_ggtt_or_dpt(vm));
 	GEM_BUG_ON(!atomic_read(&vm->open));
 
 	spin_lock(&obj->vma.lock);
-	vma = vma_lookup(obj, vm, view);
+	vma = i915_vma_lookup(obj, vm, view);
 	spin_unlock(&obj->vma.lock);
 
 	/* vma_create() will resolve the race if another creates the vma */
@@ -291,6 +291,8 @@ i915_vma_instance(struct drm_i915_gem_object *obj,
 
 struct i915_vma_work {
 	struct dma_fence_work base;
+	struct i915_address_space *vm;
+	struct i915_vm_pt_stash stash;
 	struct i915_vma *vma;
 	struct drm_i915_gem_object *pinned;
 	struct i915_sw_dma_fence_cb cb;
@@ -302,13 +304,10 @@ static int __vma_bind(struct dma_fence_work *work)
 {
 	struct i915_vma_work *vw = container_of(work, typeof(*vw), base);
 	struct i915_vma *vma = vw->vma;
-	int err;
 
-	err = vma->ops->bind_vma(vma->vm, vma, vw->cache_level, vw->flags);
-	if (err)
-		atomic_or(I915_VMA_ERROR, &vma->flags);
-
-	return err;
+	vma->ops->bind_vma(vw->vm, &vw->stash,
+			   vma, vw->cache_level, vw->flags);
+	return 0;
 }
 
 static void __vma_release(struct dma_fence_work *work)
@@ -319,6 +318,9 @@ static void __vma_release(struct dma_fence_work *work)
 		__i915_gem_object_unpin_pages(vw->pinned);
 		i915_gem_object_put(vw->pinned);
 	}
+
+	i915_vm_free_pt_stash(vw->vm, &vw->stash);
+	i915_vm_put(vw->vm);
 }
 
 static const struct dma_fence_work_ops bind_ops = {
@@ -378,7 +380,6 @@ int i915_vma_bind(struct i915_vma *vma,
 {
 	u32 bind_flags;
 	u32 vma_flags;
-	int ret;
 
 	GEM_BUG_ON(!drm_mm_node_allocated(&vma->node));
 	GEM_BUG_ON(vma->size > vma->node.size);
@@ -435,9 +436,7 @@ int i915_vma_bind(struct i915_vma *vma,
 			work->pinned = i915_gem_object_get(vma->obj);
 		}
 	} else {
-		ret = vma->ops->bind_vma(vma->vm, vma, cache_level, bind_flags);
-		if (ret)
-			return ret;
+		vma->ops->bind_vma(vma->vm, NULL, vma, cache_level, bind_flags);
 	}
 
 	atomic_or(bind_flags, &vma->flags);
@@ -449,9 +448,11 @@ void __iomem *i915_vma_pin_iomap(struct i915_vma *vma)
 	void __iomem *ptr;
 	int err;
 
-	if (GEM_WARN_ON(!i915_vma_is_map_and_fenceable(vma))) {
-		err = -ENODEV;
-		goto err;
+	if (!i915_gem_object_is_lmem(vma->obj)) {
+		if (GEM_WARN_ON(!i915_vma_is_map_and_fenceable(vma))) {
+			err = -ENODEV;
+			goto err;
+		}
 	}
 
 	GEM_BUG_ON(!i915_vma_is_ggtt(vma));
@@ -459,9 +460,19 @@ void __iomem *i915_vma_pin_iomap(struct i915_vma *vma)
 
 	ptr = READ_ONCE(vma->iomap);
 	if (ptr == NULL) {
-		ptr = io_mapping_map_wc(&i915_vm_to_ggtt(vma->vm)->iomap,
-					vma->node.start,
-					vma->node.size);
+		/*
+		 * TODO: consider just using i915_gem_object_pin_map() for lmem
+		 * instead, which already supports mapping non-contiguous chunks
+		 * of pages, that way we can also drop the
+		 * I915_BO_ALLOC_CONTIGUOUS when allocating the object.
+		 */
+		if (i915_gem_object_is_lmem(vma->obj))
+			ptr = i915_gem_object_lmem_io_map(vma->obj, 0,
+							  vma->obj->base.size);
+		else
+			ptr = io_mapping_map_wc(&i915_vm_to_ggtt(vma->vm)->iomap,
+						vma->node.start,
+						vma->node.size);
 		if (ptr == NULL) {
 			err = -ENOMEM;
 			goto err;
@@ -789,32 +800,37 @@ unpinned:
 static int vma_get_pages(struct i915_vma *vma)
 {
 	int err = 0;
+	bool pinned_pages = false;
 
 	if (atomic_add_unless(&vma->pages_count, 1, 0))
 		return 0;
 
+	if (vma->obj) {
+		err = i915_gem_object_pin_pages(vma->obj);
+		if (err)
+			return err;
+		pinned_pages = true;
+	}
+
 	/* Allocations ahoy! */
-	if (mutex_lock_interruptible(&vma->pages_mutex))
-		return -EINTR;
+	if (mutex_lock_interruptible(&vma->pages_mutex)) {
+		err = -EINTR;
+		goto unpin;
+	}
 
 	if (!atomic_read(&vma->pages_count)) {
-		if (vma->obj) {
-			err = i915_gem_object_pin_pages(vma->obj);
-			if (err)
-				goto unlock;
-		}
-
 		err = vma->ops->set_pages(vma);
-		if (err) {
-			if (vma->obj)
-				i915_gem_object_unpin_pages(vma->obj);
+		if (err)
 			goto unlock;
-		}
+		pinned_pages = false;
 	}
 	atomic_inc(&vma->pages_count);
 
 unlock:
 	mutex_unlock(&vma->pages_mutex);
+unpin:
+	if (pinned_pages)
+		__i915_gem_object_unpin_pages(vma->obj);
 
 	return err;
 }
@@ -855,12 +871,18 @@ static void vma_unbind_pages(struct i915_vma *vma)
 	__vma_put_pages(vma, count | count << I915_VMA_PAGES_BIAS);
 }
 
-int i915_vma_pin(struct i915_vma *vma, u64 size, u64 alignment, u64 flags)
+int i915_vma_pin_ww(struct i915_vma *vma, struct i915_gem_ww_ctx *ww,
+		    u64 size, u64 alignment, u64 flags)
 {
 	struct i915_vma_work *work = NULL;
 	intel_wakeref_t wakeref = 0;
 	unsigned int bound;
 	int err;
+
+#ifdef CONFIG_PROVE_LOCKING
+	if (debug_locks && !WARN_ON(!ww) && vma->resv)
+		assert_vma_held(vma);
+#endif
 
 	BUILD_BUG_ON(PIN_GLOBAL != I915_VMA_GLOBAL_BIND);
 	BUILD_BUG_ON(PIN_USER != I915_VMA_LOCAL_BIND);
@@ -875,16 +897,36 @@ int i915_vma_pin(struct i915_vma *vma, u64 size, u64 alignment, u64 flags)
 	if (err)
 		return err;
 
+	if (flags & PIN_GLOBAL)
+		wakeref = intel_runtime_pm_get(&vma->vm->i915->runtime_pm);
+
 	if (flags & vma->vm->bind_async_flags) {
+		/* lock VM */
+		err = i915_vm_lock_objects(vma->vm, ww);
+		if (err)
+			goto err_rpm;
+
 		work = i915_vma_work();
 		if (!work) {
 			err = -ENOMEM;
-			goto err_pages;
+			goto err_rpm;
+		}
+
+		work->vm = i915_vm_get(vma->vm);
+
+		/* Allocate enough page directories to used PTE */
+		if (vma->vm->allocate_va_range) {
+			err = i915_vm_alloc_pt_stash(vma->vm,
+						     &work->stash,
+						     vma->size);
+			if (err)
+				goto err_fence;
+
+			err = i915_vm_map_pt_stash(vma->vm, &work->stash);
+			if (err)
+				goto err_fence;
 		}
 	}
-
-	if (flags & PIN_GLOBAL)
-		wakeref = intel_runtime_pm_get(&vma->vm->i915->runtime_pm);
 
 	/*
 	 * Differentiate between user/kernel vma inside the aliasing-ppgtt.
@@ -973,9 +1015,9 @@ err_unlock:
 err_fence:
 	if (work)
 		dma_fence_work_commit_imm(&work->base);
+err_rpm:
 	if (wakeref)
 		intel_runtime_pm_put(&vma->vm->i915->runtime_pm, wakeref);
-err_pages:
 	vma_put_pages(vma);
 	return err;
 }
@@ -991,15 +1033,23 @@ static void flush_idle_contexts(struct intel_gt *gt)
 	intel_gt_wait_for_idle(gt, MAX_SCHEDULE_TIMEOUT);
 }
 
-int i915_ggtt_pin(struct i915_vma *vma, u32 align, unsigned int flags)
+int i915_ggtt_pin(struct i915_vma *vma, struct i915_gem_ww_ctx *ww,
+		  u32 align, unsigned int flags)
 {
 	struct i915_address_space *vm = vma->vm;
 	int err;
 
 	GEM_BUG_ON(!i915_vma_is_ggtt(vma));
 
+#ifdef CONFIG_LOCKDEP
+	WARN_ON(!ww && vma->resv && dma_resv_held(vma->resv));
+#endif
+
 	do {
-		err = i915_vma_pin(vma, 0, align, flags | PIN_GLOBAL);
+		if (ww)
+			err = i915_vma_pin_ww(vma, ww, 0, align, flags | PIN_GLOBAL);
+		else
+			err = i915_vma_pin(vma, 0, align, flags | PIN_GLOBAL);
 		if (err != -ENOSPC) {
 			if (!err) {
 				err = i915_vma_wait_for_bind(vma);
@@ -1169,6 +1219,12 @@ void i915_vma_revoke_mmap(struct i915_vma *vma)
 		list_del(&vma->obj->userfault_link);
 }
 
+static int
+__i915_request_await_bind(struct i915_request *rq, struct i915_vma *vma)
+{
+	return __i915_request_await_exclusive(rq, &vma->active);
+}
+
 int __i915_vma_move_to_active(struct i915_vma *vma, struct i915_request *rq)
 {
 	int err;
@@ -1176,8 +1232,7 @@ int __i915_vma_move_to_active(struct i915_vma *vma, struct i915_request *rq)
 	GEM_BUG_ON(!i915_vma_is_pinned(vma));
 
 	/* Wait for the vma to be bound before we start! */
-	err = i915_request_await_active(rq, &vma->active,
-					I915_ACTIVE_AWAIT_EXCL);
+	err = __i915_request_await_bind(rq, vma);
 	if (err)
 		return err;
 
@@ -1211,9 +1266,11 @@ int i915_vma_move_to_active(struct i915_vma *vma,
 		obj->write_domain = I915_GEM_DOMAIN_RENDER;
 		obj->read_domains = 0;
 	} else {
-		err = dma_resv_reserve_shared(vma->resv, 1);
-		if (unlikely(err))
-			return err;
+		if (!(flags & __EXEC_OBJECT_NO_RESERVE)) {
+			err = dma_resv_reserve_shared(vma->resv, 1);
+			if (unlikely(err))
+				return err;
+		}
 
 		dma_resv_add_shared_fence(vma->resv, &rq->fence);
 		obj->write_domain = 0;

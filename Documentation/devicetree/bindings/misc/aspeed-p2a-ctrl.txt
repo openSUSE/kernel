@@ -18,6 +18,7 @@ Required properties:
 Optional properties:
 ===================
 
+- reg: A hint for the memory regions associated with the P2A controller
 - memory-region: A phandle to a reserved_memory region to be used for the PCI
 		to AHB mapping
 
@@ -26,9 +27,7 @@ property:
 
 - compatible : Should be one of the following:
 		"aspeed,ast2400-scu", "syscon", "simple-mfd"
-		"aspeed,g4-scu", "syscon", "simple-mfd"
 		"aspeed,ast2500-scu", "syscon", "simple-mfd"
-		"aspeed,g5-scu", "syscon", "simple-mfd"
 
 Example
 ===================

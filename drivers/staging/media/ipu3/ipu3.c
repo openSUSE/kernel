@@ -345,8 +345,20 @@ failed:
 static int imgu_powerup(struct imgu_device *imgu)
 {
 	int r;
+	unsigned int pipe;
+	unsigned int freq = 200;
+	struct v4l2_mbus_framefmt *fmt;
 
-	r = imgu_css_set_powerup(&imgu->pci_dev->dev, imgu->base);
+	/* input larger than 2048*1152, ask imgu to work on high freq */
+	for_each_set_bit(pipe, imgu->css.enabled_pipes, IMGU_MAX_PIPE_NUM) {
+		fmt = &imgu->imgu_pipe[pipe].nodes[IMGU_NODE_IN].pad_fmt;
+		dev_dbg(&imgu->pci_dev->dev, "pipe %u input format = %ux%u",
+			pipe, fmt->width, fmt->height);
+		if ((fmt->width * fmt->height) >= (2048 * 1152))
+			freq = 450;
+	}
+
+	r = imgu_css_set_powerup(&imgu->pci_dev->dev, imgu->base, freq);
 	if (r)
 		return r;
 
@@ -380,10 +392,9 @@ int imgu_s_stream(struct imgu_device *imgu, int enable)
 	}
 
 	/* Set Power */
-	r = pm_runtime_get_sync(dev);
+	r = pm_runtime_resume_and_get(dev);
 	if (r < 0) {
 		dev_err(dev, "failed to set imgu power\n");
-		pm_runtime_put(dev);
 		return r;
 	}
 
@@ -667,7 +678,7 @@ static int imgu_pci_probe(struct pci_dev *pci_dev,
 	atomic_set(&imgu->qbuf_barrier, 0);
 	init_waitqueue_head(&imgu->buf_drain_wq);
 
-	r = imgu_css_set_powerup(&pci_dev->dev, imgu->base);
+	r = imgu_css_set_powerup(&pci_dev->dev, imgu->base, 200);
 	if (r) {
 		dev_err(&pci_dev->dev,
 			"failed to power up CSS (%d)\n", r);
@@ -781,8 +792,7 @@ out:
 
 static int __maybe_unused imgu_resume(struct device *dev)
 {
-	struct pci_dev *pci_dev = to_pci_dev(dev);
-	struct imgu_device *imgu = pci_get_drvdata(pci_dev);
+	struct imgu_device *imgu = dev_get_drvdata(dev);
 	int r = 0;
 	unsigned int pipe;
 

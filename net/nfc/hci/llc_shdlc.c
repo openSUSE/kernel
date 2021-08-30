@@ -236,7 +236,7 @@ static void llc_shdlc_rcv_i_frame(struct llc_shdlc *shdlc,
 		goto exit;
 	}
 
-	if (shdlc->t1_active == false) {
+	if (!shdlc->t1_active) {
 		shdlc->t1_active = true;
 		mod_timer(&shdlc->t1_timer, jiffies +
 			  msecs_to_jiffies(SHDLC_T1_VALUE_MS(shdlc->w)));
@@ -406,7 +406,7 @@ static void llc_shdlc_rcv_u_frame(struct llc_shdlc *shdlc,
 		case SHDLC_NEGOTIATING:
 		case SHDLC_CONNECTING:
 			/*
-			 * We sent RSET, but chip wants to negociate or we
+			 * We sent RSET, but chip wants to negotiate or we
 			 * got RSET before we managed to send out our.
 			 */
 			if (skb->len > 0)

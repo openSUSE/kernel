@@ -228,10 +228,8 @@ static int __init imx_gpcv2_irqchip_init(struct device_node *node,
 	}
 
 	cd = kzalloc(sizeof(struct gpcv2_irqchip_data), GFP_KERNEL);
-	if (!cd) {
-		pr_err("%pOF: kzalloc failed!\n", node);
+	if (!cd)
 		return -ENOMEM;
-	}
 
 	raw_spin_lock_init(&cd->rlock);
 
@@ -259,7 +257,7 @@ static int __init imx_gpcv2_irqchip_init(struct device_node *node,
 		case 4:
 			writel_relaxed(~0, reg + GPC_IMR1_CORE2);
 			writel_relaxed(~0, reg + GPC_IMR1_CORE3);
-			/* fall through */
+			fallthrough;
 		case 2:
 			writel_relaxed(~0, reg + GPC_IMR1_CORE0);
 			writel_relaxed(~0, reg + GPC_IMR1_CORE1);

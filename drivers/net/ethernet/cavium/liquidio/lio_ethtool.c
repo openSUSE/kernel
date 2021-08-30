@@ -15,6 +15,7 @@
  * of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE, TITLE, or
  * NONINFRINGEMENT.  See the GNU General Public License for more details.
  ***********************************************************************/
+#include <linux/ethtool.h>
 #include <linux/netdevice.h>
 #include <linux/net_tstamp.h>
 #include <linux/pci.h>
@@ -442,7 +443,6 @@ lio_get_drvinfo(struct net_device *netdev, struct ethtool_drvinfo *drvinfo)
 
 	memset(drvinfo, 0, sizeof(struct ethtool_drvinfo));
 	strcpy(drvinfo->driver, "liquidio");
-	strcpy(drvinfo->version, LIQUIDIO_VERSION);
 	strncpy(drvinfo->fw_version, oct->fw_info.liquidio_firmware_version,
 		ETHTOOL_FWVERS_LEN);
 	strncpy(drvinfo->bus_info, pci_name(oct->pci_dev), 32);
@@ -459,7 +459,6 @@ lio_get_vf_drvinfo(struct net_device *netdev, struct ethtool_drvinfo *drvinfo)
 
 	memset(drvinfo, 0, sizeof(struct ethtool_drvinfo));
 	strcpy(drvinfo->driver, "liquidio_vf");
-	strcpy(drvinfo->version, LIQUIDIO_VERSION);
 	strncpy(drvinfo->fw_version, oct->fw_info.liquidio_firmware_version,
 		ETHTOOL_FWVERS_LEN);
 	strncpy(drvinfo->bus_info, pci_name(oct->pci_dev), 32);

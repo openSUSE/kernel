@@ -54,7 +54,7 @@ static int mlx5_fpga_conn_map_buf(struct mlx5_fpga_conn *conn,
 	if (unlikely(!buf->sg[0].data))
 		goto out;
 
-	dma_device = &conn->fdev->mdev->pdev->dev;
+	dma_device = mlx5_core_dma_dev(conn->fdev->mdev);
 	buf->sg[0].dma_addr = dma_map_single(dma_device, buf->sg[0].data,
 					     buf->sg[0].size, buf->dma_dir);
 	err = dma_mapping_error(dma_device, buf->sg[0].dma_addr);
@@ -86,7 +86,7 @@ static void mlx5_fpga_conn_unmap_buf(struct mlx5_fpga_conn *conn,
 {
 	struct device *dma_device;
 
-	dma_device = &conn->fdev->mdev->pdev->dev;
+	dma_device = mlx5_core_dma_dev(conn->fdev->mdev);
 	if (buf->sg[1].data)
 		dma_unmap_single(dma_device, buf->sg[1].dma_addr,
 				 buf->sg[1].size, buf->dma_dir);
@@ -388,9 +388,9 @@ static inline void mlx5_fpga_conn_cqes(struct mlx5_fpga_conn *conn,
 	mlx5_fpga_conn_arm_cq(conn);
 }
 
-static void mlx5_fpga_conn_cq_tasklet(unsigned long data)
+static void mlx5_fpga_conn_cq_tasklet(struct tasklet_struct *t)
 {
-	struct mlx5_fpga_conn *conn = (void *)data;
+	struct mlx5_fpga_conn *conn = from_tasklet(conn, t, cq.tasklet);
 
 	if (unlikely(!conn->qp.active))
 		return;
@@ -417,7 +417,6 @@ static int mlx5_fpga_conn_create_cq(struct mlx5_fpga_conn *conn, int cq_size)
 	struct mlx5_wq_param wqp;
 	struct mlx5_cqe64 *cqe;
 	int inlen, err, eqn;
-	unsigned int irqn;
 	void *cqc, *in;
 	__be64 *pas;
 	u32 i;
@@ -446,7 +445,7 @@ static int mlx5_fpga_conn_create_cq(struct mlx5_fpga_conn *conn, int cq_size)
 		goto err_cqwq;
 	}
 
-	err = mlx5_vector2eqn(mdev, smp_processor_id(), &eqn, &irqn);
+	err = mlx5_vector2eqn(mdev, smp_processor_id(), &eqn);
 	if (err) {
 		kvfree(in);
 		goto err_cqwq;
@@ -476,10 +475,8 @@ static int mlx5_fpga_conn_create_cq(struct mlx5_fpga_conn *conn, int cq_size)
 	*conn->cq.mcq.arm_db    = 0;
 	conn->cq.mcq.vector     = 0;
 	conn->cq.mcq.comp       = mlx5_fpga_conn_cq_complete;
-	conn->cq.mcq.irqn       = irqn;
 	conn->cq.mcq.uar        = fdev->conn_res.uar;
-	tasklet_init(&conn->cq.tasklet, mlx5_fpga_conn_cq_tasklet,
-		     (unsigned long)conn);
+	tasklet_setup(&conn->cq.tasklet, mlx5_fpga_conn_cq_tasklet);
 
 	mlx5_fpga_dbg(fdev, "Created CQ #0x%x\n", conn->cq.mcq.cqn);
 
@@ -576,6 +573,7 @@ static int mlx5_fpga_conn_create_qp(struct mlx5_fpga_conn *conn,
 	MLX5_SET(qpc, qpc, log_sq_size, ilog2(conn->qp.sq.size));
 	MLX5_SET(qpc, qpc, cqn_snd, conn->cq.mcq.cqn);
 	MLX5_SET(qpc, qpc, cqn_rcv, conn->cq.mcq.cqn);
+	MLX5_SET(qpc, qpc, ts_format, mlx5_get_qp_default_ts(mdev));
 	MLX5_SET64(qpc, qpc, dbr_addr, conn->qp.wq_ctrl.db.dma);
 	if (MLX5_CAP_GEN(mdev, cqe_version) == 1)
 		MLX5_SET(qpc, qpc, user_index, 0xFFFFFF);

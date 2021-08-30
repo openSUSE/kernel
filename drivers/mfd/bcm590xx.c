@@ -61,11 +61,11 @@ static int bcm590xx_i2c_probe(struct i2c_client *i2c_pri,
 	}
 
 	/* Secondary I2C slave address is the base address with A(2) asserted */
-	bcm590xx->i2c_sec = i2c_new_dummy(i2c_pri->adapter,
+	bcm590xx->i2c_sec = i2c_new_dummy_device(i2c_pri->adapter,
 					  i2c_pri->addr | BIT(2));
-	if (!bcm590xx->i2c_sec) {
+	if (IS_ERR(bcm590xx->i2c_sec)) {
 		dev_err(&i2c_pri->dev, "failed to add secondary I2C device\n");
-		return -ENODEV;
+		return PTR_ERR(bcm590xx->i2c_sec);
 	}
 	i2c_set_clientdata(bcm590xx->i2c_sec, bcm590xx);
 
@@ -107,7 +107,7 @@ MODULE_DEVICE_TABLE(i2c, bcm590xx_i2c_id);
 static struct i2c_driver bcm590xx_i2c_driver = {
 	.driver = {
 		   .name = "bcm590xx",
-		   .of_match_table = of_match_ptr(bcm590xx_of_match),
+		   .of_match_table = bcm590xx_of_match,
 	},
 	.probe = bcm590xx_i2c_probe,
 	.id_table = bcm590xx_i2c_id,

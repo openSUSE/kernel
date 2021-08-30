@@ -29,5 +29,8 @@ atlantic-objs := aq_main.o \
 	hw_atl2/hw_atl2_utils.o \
 	hw_atl2/hw_atl2_utils_fw.o \
 	hw_atl2/hw_atl2_llh.o \
+	macsec/macsec_api.o
+
+atlantic-$(CONFIG_MACSEC) += aq_macsec.o
 
 atlantic-$(CONFIG_PTP_1588_CLOCK) += aq_ptp.o

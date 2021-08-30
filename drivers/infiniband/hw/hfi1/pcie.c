@@ -161,7 +161,7 @@ int hfi1_pcie_ddinit(struct hfi1_devdata *dd, struct pci_dev *pdev)
 		return -EINVAL;
 	}
 
-	dd->kregbase1 = ioremap_nocache(addr, RCV_ARRAY);
+	dd->kregbase1 = ioremap(addr, RCV_ARRAY);
 	if (!dd->kregbase1) {
 		dd_dev_err(dd, "UC mapping of kregbase1 failed\n");
 		return -ENOMEM;
@@ -179,7 +179,7 @@ int hfi1_pcie_ddinit(struct hfi1_devdata *dd, struct pci_dev *pdev)
 	dd_dev_info(dd, "RcvArray count: %u\n", rcv_array_count);
 	dd->base2_start  = RCV_ARRAY + rcv_array_count * 8;
 
-	dd->kregbase2 = ioremap_nocache(
+	dd->kregbase2 = ioremap(
 		addr + dd->base2_start,
 		TXE_PIO_SEND - dd->base2_start);
 	if (!dd->kregbase2) {
@@ -334,7 +334,7 @@ int pcie_speeds(struct hfi1_devdata *dd)
 	return 0;
 }
 
-/**
+/*
  * Restore command and BARs after a reset has wiped them out
  *
  * Returns 0 on success, otherwise a negative error value
@@ -393,7 +393,7 @@ error:
 	return pcibios_err_to_errno(ret);
 }
 
-/**
+/*
  * Save BARs and command to rewrite after device reset
  *
  * Returns 0 on success, otherwise a negative error value

@@ -219,7 +219,6 @@ struct arasan_cf_dev {
 
 static struct scsi_host_template arasan_cf_sht = {
 	ATA_BASE_SHT(DRIVER_NAME),
-	.sg_tablesize = SG_NONE,
 	.dma_boundary = 0xFFFFFFFFUL,
 };
 
@@ -834,7 +833,7 @@ static int arasan_cf_probe(struct platform_device *pdev)
 	}
 
 	acdev->pbase = res->start;
-	acdev->vbase = devm_ioremap_nocache(&pdev->dev, res->start,
+	acdev->vbase = devm_ioremap(&pdev->dev, res->start,
 			resource_size(res));
 	if (!acdev->vbase) {
 		dev_warn(&pdev->dev, "ioremap fail\n");

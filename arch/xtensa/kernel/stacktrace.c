@@ -16,7 +16,7 @@
 #include <asm/traps.h>
 #include <linux/uaccess.h>
 
-#if IS_ENABLED(CONFIG_OPROFILE) || IS_ENABLED(CONFIG_PERF_EVENTS)
+#if IS_ENABLED(CONFIG_PERF_EVENTS)
 
 /* Address of common_exception_return, used to check the
  * transition from kernel to user space.
@@ -42,6 +42,11 @@ void xtensa_backtrace_user(struct pt_regs *regs, unsigned int depth,
 	frame.sp = a1;
 
 	if (pc == 0 || pc >= TASK_SIZE || ufn(&frame, data))
+		return;
+
+	if (IS_ENABLED(CONFIG_USER_ABI_CALL0_ONLY) ||
+	    (IS_ENABLED(CONFIG_USER_ABI_CALL0_PROBE) &&
+	     !(regs->ps & PS_WOE_MASK)))
 		return;
 
 	/* Two steps:

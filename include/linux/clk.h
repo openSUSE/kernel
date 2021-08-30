@@ -110,6 +110,17 @@ int clk_notifier_register(struct clk *clk, struct notifier_block *nb);
 int clk_notifier_unregister(struct clk *clk, struct notifier_block *nb);
 
 /**
+ * devm_clk_notifier_register - register a managed rate-change notifier callback
+ * @dev: device for clock "consumer"
+ * @clk: clock whose rate we are interested in
+ * @nb: notifier block with callback function pointer
+ *
+ * Returns 0 on success, -EERROR otherwise
+ */
+int devm_clk_notifier_register(struct device *dev, struct clk *clk,
+			       struct notifier_block *nb);
+
+/**
  * clk_get_accuracy - obtain the clock accuracy in ppb (parts per billion)
  *		      for a clock source.
  * @clk: clock source
@@ -150,7 +161,7 @@ int clk_get_phase(struct clk *clk);
 int clk_set_duty_cycle(struct clk *clk, unsigned int num, unsigned int den);
 
 /**
- * clk_get_duty_cycle - return the duty cycle ratio of a clock signal
+ * clk_get_scaled_duty_cycle - return the duty cycle ratio of a clock signal
  * @clk: clock signal source
  * @scale: scaling factor to be applied to represent the ratio as an integer
  *
@@ -182,6 +193,13 @@ static inline int clk_notifier_register(struct clk *clk,
 
 static inline int clk_notifier_unregister(struct clk *clk,
 					  struct notifier_block *nb)
+{
+	return -ENOTSUPP;
+}
+
+static inline int devm_clk_notifier_register(struct device *dev,
+					     struct clk *clk,
+					     struct notifier_block *nb)
 {
 	return -ENOTSUPP;
 }
@@ -220,6 +238,7 @@ static inline bool clk_is_match(const struct clk *p, const struct clk *q)
 
 #endif
 
+#ifdef CONFIG_HAVE_CLK_PREPARE
 /**
  * clk_prepare - prepare a clock source
  * @clk: clock source
@@ -228,10 +247,26 @@ static inline bool clk_is_match(const struct clk *p, const struct clk *q)
  *
  * Must not be called from within atomic context.
  */
-#ifdef CONFIG_HAVE_CLK_PREPARE
 int clk_prepare(struct clk *clk);
 int __must_check clk_bulk_prepare(int num_clks,
 				  const struct clk_bulk_data *clks);
+
+/**
+ * clk_is_enabled_when_prepared - indicate if preparing a clock also enables it.
+ * @clk: clock source
+ *
+ * Returns true if clk_prepare() implicitly enables the clock, effectively
+ * making clk_enable()/clk_disable() no-ops, false otherwise.
+ *
+ * This is of interest mainly to the power management code where actually
+ * disabling the clock also requires unpreparing it to have any material
+ * effect.
+ *
+ * Regardless of the value returned here, the caller must always invoke
+ * clk_enable() or clk_prepare_enable()  and counterparts for usage counts
+ * to be right.
+ */
+bool clk_is_enabled_when_prepared(struct clk *clk);
 #else
 static inline int clk_prepare(struct clk *clk)
 {
@@ -239,10 +274,16 @@ static inline int clk_prepare(struct clk *clk)
 	return 0;
 }
 
-static inline int __must_check clk_bulk_prepare(int num_clks, struct clk_bulk_data *clks)
+static inline int __must_check
+clk_bulk_prepare(int num_clks, const struct clk_bulk_data *clks)
 {
 	might_sleep();
 	return 0;
+}
+
+static inline bool clk_is_enabled_when_prepared(struct clk *clk)
+{
+	return false;
 }
 #endif
 
@@ -263,7 +304,8 @@ static inline void clk_unprepare(struct clk *clk)
 {
 	might_sleep();
 }
-static inline void clk_bulk_unprepare(int num_clks, struct clk_bulk_data *clks)
+static inline void clk_bulk_unprepare(int num_clks,
+				      const struct clk_bulk_data *clks)
 {
 	might_sleep();
 }
@@ -625,6 +667,9 @@ long clk_round_rate(struct clk *clk, unsigned long rate);
  * @clk: clock source
  * @rate: desired clock rate in Hz
  *
+ * Updating the rate starts at the top-most affected clock and then
+ * walks the tree down to the bottom-most clock that needs updating.
+ *
  * Returns success (0) or negative errno.
  */
 int clk_set_rate(struct clk *clk, unsigned long rate);
@@ -820,7 +865,8 @@ static inline int clk_enable(struct clk *clk)
 	return 0;
 }
 
-static inline int __must_check clk_bulk_enable(int num_clks, struct clk_bulk_data *clks)
+static inline int __must_check clk_bulk_enable(int num_clks,
+					       const struct clk_bulk_data *clks)
 {
 	return 0;
 }
@@ -829,7 +875,7 @@ static inline void clk_disable(struct clk *clk) {}
 
 
 static inline void clk_bulk_disable(int num_clks,
-				    struct clk_bulk_data *clks) {}
+				    const struct clk_bulk_data *clks) {}
 
 static inline unsigned long clk_get_rate(struct clk *clk)
 {
@@ -918,8 +964,8 @@ static inline void clk_disable_unprepare(struct clk *clk)
 	clk_unprepare(clk);
 }
 
-static inline int __must_check clk_bulk_prepare_enable(int num_clks,
-					struct clk_bulk_data *clks)
+static inline int __must_check
+clk_bulk_prepare_enable(int num_clks, const struct clk_bulk_data *clks)
 {
 	int ret;
 
@@ -934,7 +980,7 @@ static inline int __must_check clk_bulk_prepare_enable(int num_clks,
 }
 
 static inline void clk_bulk_disable_unprepare(int num_clks,
-					      struct clk_bulk_data *clks)
+					      const struct clk_bulk_data *clks)
 {
 	clk_bulk_disable(num_clks, clks);
 	clk_bulk_unprepare(num_clks, clks);

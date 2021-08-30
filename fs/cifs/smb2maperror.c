@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LGPL-2.1
 /*
  *   fs/smb2/smb2maperror.c
  *
@@ -6,19 +7,6 @@
  *   Copyright (C) International Business Machines  Corp., 2009
  *   Author(s): Steve French (sfrench@us.ibm.com)
  *
- *   This library is free software; you can redistribute it and/or modify
- *   it under the terms of the GNU Lesser General Public License as published
- *   by the Free Software Foundation; either version 2.1 of the License, or
- *   (at your option) any later version.
- *
- *   This library is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
- *   the GNU Lesser General Public License for more details.
- *
- *   You should have received a copy of the GNU Lesser General Public License
- *   along with this library; if not, write to the Free Software
- *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 #include <linux/errno.h>
 #include "cifsglob.h"
@@ -488,7 +476,7 @@ static const struct status_to_posix_error smb2_error_map_table[] = {
 	{STATUS_PIPE_CONNECTED, -EIO, "STATUS_PIPE_CONNECTED"},
 	{STATUS_PIPE_LISTENING, -EIO, "STATUS_PIPE_LISTENING"},
 	{STATUS_INVALID_READ_MODE, -EIO, "STATUS_INVALID_READ_MODE"},
-	{STATUS_IO_TIMEOUT, -ETIMEDOUT, "STATUS_IO_TIMEOUT"},
+	{STATUS_IO_TIMEOUT, -EAGAIN, "STATUS_IO_TIMEOUT"},
 	{STATUS_FILE_FORCED_CLOSED, -EIO, "STATUS_FILE_FORCED_CLOSED"},
 	{STATUS_PROFILING_NOT_STARTED, -EIO, "STATUS_PROFILING_NOT_STARTED"},
 	{STATUS_PROFILING_NOT_STOPPED, -EIO, "STATUS_PROFILING_NOT_STOPPED"},
@@ -814,7 +802,7 @@ static const struct status_to_posix_error smb2_error_map_table[] = {
 	{STATUS_INVALID_VARIANT, -EIO, "STATUS_INVALID_VARIANT"},
 	{STATUS_DOMAIN_CONTROLLER_NOT_FOUND, -EIO,
 	"STATUS_DOMAIN_CONTROLLER_NOT_FOUND"},
-	{STATUS_ACCOUNT_LOCKED_OUT, -EIO, "STATUS_ACCOUNT_LOCKED_OUT"},
+	{STATUS_ACCOUNT_LOCKED_OUT, -EACCES, "STATUS_ACCOUNT_LOCKED_OUT"},
 	{STATUS_HANDLE_NOT_CLOSABLE, -EIO, "STATUS_HANDLE_NOT_CLOSABLE"},
 	{STATUS_CONNECTION_REFUSED, -EIO, "STATUS_CONNECTION_REFUSED"},
 	{STATUS_GRACEFUL_DISCONNECT, -EIO, "STATUS_GRACEFUL_DISCONNECT"},

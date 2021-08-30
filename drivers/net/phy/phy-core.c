@@ -6,9 +6,14 @@
 #include <linux/phy.h>
 #include <linux/of.h>
 
+/**
+ * phy_speed_to_str - Return a string representing the PHY link speed
+ *
+ * @speed: Speed of the link
+ */
 const char *phy_speed_to_str(int speed)
 {
-	BUILD_BUG_ON_MSG(__ETHTOOL_LINK_MODE_MASK_NBITS != 90,
+	BUILD_BUG_ON_MSG(__ETHTOOL_LINK_MODE_MASK_NBITS != 92,
 		"Enum ethtool_link_mode_bit_indices and phylib are out of sync. "
 		"If a speed or mode has been added please update phy_speed_to_str "
 		"and the PHY settings array.\n");
@@ -52,6 +57,11 @@ const char *phy_speed_to_str(int speed)
 }
 EXPORT_SYMBOL_GPL(phy_speed_to_str);
 
+/**
+ * phy_duplex_to_str - Return string describing the duplex
+ *
+ * @duplex: Duplex setting to describe
+ */
 const char *phy_duplex_to_str(unsigned int duplex)
 {
 	if (duplex == DUPLEX_HALF)
@@ -66,7 +76,8 @@ EXPORT_SYMBOL_GPL(phy_duplex_to_str);
 
 /* A mapping of all SUPPORTED settings to speed/duplex.  This table
  * must be grouped by speed and sorted in descending match priority
- * - iow, descending speed. */
+ * - iow, descending speed.
+ */
 
 #define PHY_SETTING(s, d, b) { .speed = SPEED_ ## s, .duplex = DUPLEX_ ## d, \
 			       .bit = ETHTOOL_LINK_MODE_ ## b ## _BIT}
@@ -160,6 +171,8 @@ static const struct phy_setting settings[] = {
 	PHY_SETTING(    100, FULL,    100baseT_Full		),
 	PHY_SETTING(    100, FULL,    100baseT1_Full		),
 	PHY_SETTING(    100, HALF,    100baseT_Half		),
+	PHY_SETTING(    100, HALF,    100baseFX_Half		),
+	PHY_SETTING(    100, FULL,    100baseFX_Full		),
 	/* 10M */
 	PHY_SETTING(     10, FULL,     10baseT_Full		),
 	PHY_SETTING(     10, HALF,     10baseT_Half		),
@@ -250,6 +263,16 @@ static int __set_phy_supported(struct phy_device *phydev, u32 max_speed)
 	return __set_linkmode_max_speed(max_speed, phydev->supported);
 }
 
+/**
+ * phy_set_max_speed - Set the maximum speed the PHY should support
+ *
+ * @phydev: The phy_device struct
+ * @max_speed: Maximum speed
+ *
+ * The PHY might be more capable than the MAC. For example a Fast Ethernet
+ * is connected to a 1G PHY. This function allows the MAC to indicate its
+ * maximum speed, and so limit what the PHY will advertise.
+ */
 int phy_set_max_speed(struct phy_device *phydev, u32 max_speed)
 {
 	int err;
@@ -306,6 +329,16 @@ void of_set_phy_eee_broken(struct phy_device *phydev)
 	phydev->eee_broken_modes = broken;
 }
 
+/**
+ * phy_resolve_aneg_pause - Determine pause autoneg results
+ *
+ * @phydev: The phy_device struct
+ *
+ * Once autoneg has completed the local pause settings can be
+ * resolved.  Determine if pause and asymmetric pause should be used
+ * by the MAC.
+ */
+
 void phy_resolve_aneg_pause(struct phy_device *phydev)
 {
 	if (phydev->duplex == DUPLEX_FULL) {
@@ -319,7 +352,7 @@ void phy_resolve_aneg_pause(struct phy_device *phydev)
 EXPORT_SYMBOL_GPL(phy_resolve_aneg_pause);
 
 /**
- * phy_resolve_aneg_linkmode - resolve the advertisements into phy settings
+ * phy_resolve_aneg_linkmode - resolve the advertisements into PHY settings
  * @phydev: The phy_device struct
  *
  * Resolve our and the link partner advertisements into their corresponding
@@ -443,9 +476,8 @@ int __phy_read_mmd(struct phy_device *phydev, int devad, u32 regnum)
 	if (phydev->drv && phydev->drv->read_mmd) {
 		val = phydev->drv->read_mmd(phydev, devad, regnum);
 	} else if (phydev->is_c45) {
-		u32 addr = MII_ADDR_C45 | (devad << 16) | (regnum & 0xffff);
-
-		val = __mdiobus_read(phydev->mdio.bus, phydev->mdio.addr, addr);
+		val = __mdiobus_c45_read(phydev->mdio.bus, phydev->mdio.addr,
+					 devad, regnum);
 	} else {
 		struct mii_bus *bus = phydev->mdio.bus;
 		int phy_addr = phydev->mdio.addr;
@@ -500,10 +532,8 @@ int __phy_write_mmd(struct phy_device *phydev, int devad, u32 regnum, u16 val)
 	if (phydev->drv && phydev->drv->write_mmd) {
 		ret = phydev->drv->write_mmd(phydev, devad, regnum, val);
 	} else if (phydev->is_c45) {
-		u32 addr = MII_ADDR_C45 | (devad << 16) | (regnum & 0xffff);
-
-		ret = __mdiobus_write(phydev->mdio.bus, phydev->mdio.addr,
-				      addr, val);
+		ret = __mdiobus_c45_write(phydev->mdio.bus, phydev->mdio.addr,
+					  devad, regnum, val);
 	} else {
 		struct mii_bus *bus = phydev->mdio.bus;
 		int phy_addr = phydev->mdio.addr;
@@ -540,37 +570,6 @@ int phy_write_mmd(struct phy_device *phydev, int devad, u32 regnum, u16 val)
 	return ret;
 }
 EXPORT_SYMBOL(phy_write_mmd);
-
-/**
- * __phy_modify_changed() - Convenience function for modifying a PHY register
- * @phydev: a pointer to a &struct phy_device
- * @regnum: register number
- * @mask: bit mask of bits to clear
- * @set: bit mask of bits to set
- *
- * Unlocked helper function which allows a PHY register to be modified as
- * new register value = (old register value & ~mask) | set
- *
- * Returns negative errno, 0 if there was no change, and 1 in case of change
- */
-int __phy_modify_changed(struct phy_device *phydev, u32 regnum, u16 mask,
-			 u16 set)
-{
-	int new, ret;
-
-	ret = __phy_read(phydev, regnum);
-	if (ret < 0)
-		return ret;
-
-	new = (ret & ~mask) | set;
-	if (new == ret)
-		return 0;
-
-	ret = __phy_write(phydev, regnum, new);
-
-	return ret < 0 ? ret : 1;
-}
-EXPORT_SYMBOL_GPL(__phy_modify_changed);
 
 /**
  * phy_modify_changed - Function for modifying a PHY register

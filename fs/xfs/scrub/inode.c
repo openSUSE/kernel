@@ -28,8 +28,7 @@
  */
 int
 xchk_setup_inode(
-	struct xfs_scrub	*sc,
-	struct xfs_inode	*ip)
+	struct xfs_scrub	*sc)
 {
 	int			error;
 
@@ -37,7 +36,7 @@ xchk_setup_inode(
 	 * Try to get the inode.  If the verifiers fail, we try again
 	 * in raw mode.
 	 */
-	error = xchk_get_inode(sc, ip);
+	error = xchk_get_inode(sc);
 	switch (error) {
 	case 0:
 		break;
@@ -74,11 +73,25 @@ xchk_inode_extsize(
 	uint16_t		flags)
 {
 	xfs_failaddr_t		fa;
+	uint32_t		value = be32_to_cpu(dip->di_extsize);
 
-	fa = xfs_inode_validate_extsize(sc->mp, be32_to_cpu(dip->di_extsize),
-			mode, flags);
+	fa = xfs_inode_validate_extsize(sc->mp, value, mode, flags);
 	if (fa)
 		xchk_ino_set_corrupt(sc, ino);
+
+	/*
+	 * XFS allows a sysadmin to change the rt extent size when adding a rt
+	 * section to a filesystem after formatting.  If there are any
+	 * directories with extszinherit and rtinherit set, the hint could
+	 * become misaligned with the new rextsize.  The verifier doesn't check
+	 * this, because we allow rtinherit directories even without an rt
+	 * device.  Flag this as an administrative warning since we will clean
+	 * this up eventually.
+	 */
+	if ((flags & XFS_DIFLAG_RTINHERIT) &&
+	    (flags & XFS_DIFLAG_EXTSZINHERIT) &&
+	    value % sc->mp->m_sb.sb_rextsize > 0)
+		xchk_ino_set_warning(sc, ino);
 }
 
 /*
@@ -185,13 +198,28 @@ xchk_inode_flags2(
 	if ((flags & XFS_DIFLAG_REALTIME) && (flags2 & XFS_DIFLAG2_REFLINK))
 		goto bad;
 
-	/* dax and reflink make no sense, currently */
-	if ((flags2 & XFS_DIFLAG2_DAX) && (flags2 & XFS_DIFLAG2_REFLINK))
+	/* no bigtime iflag without the bigtime feature */
+	if (xfs_dinode_has_bigtime(dip) &&
+	    !xfs_sb_version_hasbigtime(&mp->m_sb))
 		goto bad;
 
 	return;
 bad:
 	xchk_ino_set_corrupt(sc, ino);
+}
+
+static inline void
+xchk_dinode_nsec(
+	struct xfs_scrub	*sc,
+	xfs_ino_t		ino,
+	struct xfs_dinode	*dip,
+	const xfs_timestamp_t	ts)
+{
+	struct timespec64	tv;
+
+	tv = xfs_inode_from_disk_ts(dip, ts);
+	if (tv.tv_nsec < 0 || tv.tv_nsec >= NSEC_PER_SEC)
+		xchk_ino_set_corrupt(sc, ino);
 }
 
 /* Scrub all the ondisk inode fields. */
@@ -292,12 +320,9 @@ xchk_dinode(
 	}
 
 	/* di_[amc]time.nsec */
-	if (be32_to_cpu(dip->di_atime.t_nsec) >= NSEC_PER_SEC)
-		xchk_ino_set_corrupt(sc, ino);
-	if (be32_to_cpu(dip->di_mtime.t_nsec) >= NSEC_PER_SEC)
-		xchk_ino_set_corrupt(sc, ino);
-	if (be32_to_cpu(dip->di_ctime.t_nsec) >= NSEC_PER_SEC)
-		xchk_ino_set_corrupt(sc, ino);
+	xchk_dinode_nsec(sc, ino, dip, dip->di_atime);
+	xchk_dinode_nsec(sc, ino, dip, dip->di_mtime);
+	xchk_dinode_nsec(sc, ino, dip, dip->di_ctime);
 
 	/*
 	 * di_size.  xfs_dinode_verify checks for things that screw up
@@ -402,8 +427,7 @@ xchk_dinode(
 	}
 
 	if (dip->di_version >= 3) {
-		if (be32_to_cpu(dip->di_crtime.t_nsec) >= NSEC_PER_SEC)
-			xchk_ino_set_corrupt(sc, ino);
+		xchk_dinode_nsec(sc, ino, dip, dip->di_crtime);
 		xchk_inode_flags2(sc, dip, ino, mode, flags, flags2);
 		xchk_inode_cowextsize(sc, dip, ino, mode, flags,
 				flags2);

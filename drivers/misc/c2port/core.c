@@ -899,7 +899,7 @@ struct c2port_device *c2port_device_register(char *name,
 		unlikely(!ops->c2d_get) || unlikely(!ops->c2d_set))
 		return ERR_PTR(-EINVAL);
 
-	c2dev = kmalloc(sizeof(struct c2port_device), GFP_KERNEL);
+	c2dev = kzalloc(sizeof(struct c2port_device), GFP_KERNEL);
 	if (unlikely(!c2dev))
 		return ERR_PTR(-ENOMEM);
 
@@ -923,7 +923,7 @@ struct c2port_device *c2port_device_register(char *name,
 	}
 	dev_set_drvdata(c2dev->dev, c2dev);
 
-	strncpy(c2dev->name, name, C2PORT_NAME_LEN);
+	strncpy(c2dev->name, name, C2PORT_NAME_LEN - 1);
 	c2dev->ops = ops;
 	mutex_init(&c2dev->mutex);
 

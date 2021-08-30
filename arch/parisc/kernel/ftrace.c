@@ -13,13 +13,15 @@
 #include <linux/init.h>
 #include <linux/ftrace.h>
 #include <linux/uaccess.h>
+#include <linux/kprobes.h>
+#include <linux/ptrace.h>
 
 #include <asm/assembly.h>
 #include <asm/sections.h>
 #include <asm/ftrace.h>
 #include <asm/patch.h>
 
-#define __hot __attribute__ ((__section__ (".text.hot")))
+#define __hot __section(".text.hot")
 
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
 /*
@@ -48,17 +50,23 @@ static void __hot prepare_ftrace_return(unsigned long *parent,
 
 void notrace __hot ftrace_function_trampoline(unsigned long parent,
 				unsigned long self_addr,
-				unsigned long org_sp_gr3)
+				unsigned long org_sp_gr3,
+				struct ftrace_regs *fregs)
 {
 #ifndef CONFIG_DYNAMIC_FTRACE
 	extern ftrace_func_t ftrace_trace_function;
 #endif
-	if (ftrace_trace_function != ftrace_stub)
-		ftrace_trace_function(self_addr, parent, NULL, NULL);
+	extern struct ftrace_ops *function_trace_op;
+
+	if (function_trace_op->flags & FTRACE_OPS_FL_ENABLED &&
+	    ftrace_trace_function != ftrace_stub)
+		ftrace_trace_function(self_addr, parent,
+				function_trace_op, fregs);
 
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
-	if (ftrace_graph_return != (trace_func_graph_ret_t) ftrace_stub ||
-		ftrace_graph_entry != ftrace_graph_entry_stub) {
+	if (dereference_function_descriptor(ftrace_graph_return) !=
+	    dereference_function_descriptor(ftrace_stub) ||
+	    ftrace_graph_entry != ftrace_graph_entry_stub) {
 		unsigned long *parent_rp;
 
 		/* calculate pointer to %rp in stack */
@@ -92,6 +100,12 @@ int __init ftrace_dyn_arch_init(void)
 	return 0;
 }
 int ftrace_update_ftrace_func(ftrace_func_t func)
+{
+	return 0;
+}
+
+int ftrace_modify_call(struct dyn_ftrace *rec, unsigned long old_addr,
+			unsigned long addr)
 {
 	return 0;
 }
@@ -159,7 +173,7 @@ int ftrace_make_call(struct dyn_ftrace *rec, unsigned long addr)
 
 	ip = (void *)(rec->ip + 4 - size);
 
-	ret = probe_kernel_read(insn, ip, size);
+	ret = copy_from_kernel_nofault(insn, ip, size);
 	if (ret)
 		return ret;
 
@@ -184,6 +198,61 @@ int ftrace_make_nop(struct module *mod, struct dyn_ftrace *rec,
 	__patch_text((void *)rec->ip, INSN_NOP);
 	__patch_text_multiple((void *)rec->ip + 4 - sizeof(insn),
 			      insn, sizeof(insn)-4);
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_KPROBES_ON_FTRACE
+void kprobe_ftrace_handler(unsigned long ip, unsigned long parent_ip,
+			   struct ftrace_ops *ops, struct ftrace_regs *fregs)
+{
+	struct kprobe_ctlblk *kcb;
+	struct pt_regs *regs;
+	struct kprobe *p;
+	int bit;
+
+	bit = ftrace_test_recursion_trylock(ip, parent_ip);
+	if (bit < 0)
+		return;
+
+	regs = ftrace_get_regs(fregs);
+	preempt_disable_notrace();
+	p = get_kprobe((kprobe_opcode_t *)ip);
+	if (unlikely(!p) || kprobe_disabled(p))
+		goto out;
+
+	if (kprobe_running()) {
+		kprobes_inc_nmissed_count(p);
+		goto out;
+	}
+
+	__this_cpu_write(current_kprobe, p);
+
+	kcb = get_kprobe_ctlblk();
+	kcb->kprobe_status = KPROBE_HIT_ACTIVE;
+
+	regs->iaoq[0] = ip;
+	regs->iaoq[1] = ip + 4;
+
+	if (!p->pre_handler || !p->pre_handler(p, regs)) {
+		regs->iaoq[0] = ip + 4;
+		regs->iaoq[1] = ip + 8;
+
+		if (unlikely(p->post_handler)) {
+			kcb->kprobe_status = KPROBE_HIT_SSDONE;
+			p->post_handler(p, regs, 0);
+		}
+	}
+	__this_cpu_write(current_kprobe, NULL);
+out:
+	preempt_enable_notrace();
+	ftrace_test_recursion_unlock(bit);
+}
+NOKPROBE_SYMBOL(kprobe_ftrace_handler);
+
+int arch_prepare_kprobe_ftrace(struct kprobe *p)
+{
+	p->ainsn.insn = NULL;
 	return 0;
 }
 #endif

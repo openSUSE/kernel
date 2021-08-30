@@ -2,7 +2,7 @@
 /*
  * Hisilicon's Hi6220 mailbox driver
  *
- * Copyright (c) 2015 Hisilicon Limited.
+ * Copyright (c) 2015 HiSilicon Limited.
  * Copyright (c) 2015 Linaro Limited.
  *
  * Author: Leo Yan <leo.yan@linaro.org>
@@ -354,7 +354,6 @@ static int hi6220_mbox_probe(struct platform_device *pdev)
 static struct platform_driver hi6220_mbox_driver = {
 	.driver = {
 		.name = "hi6220-mbox",
-		.owner = THIS_MODULE,
 		.of_match_table = hi6220_mbox_of_match,
 	},
 	.probe	= hi6220_mbox_probe,

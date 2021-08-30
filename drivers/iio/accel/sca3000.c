@@ -111,7 +111,7 @@
 /* Currently unsupported */
 #define SCA3000_MD_CTRL_AND_Y				BIT(3)
 #define SCA3000_MD_CTRL_AND_X				BIT(4)
-#define SAC3000_MD_CTRL_AND_Z				BIT(5)
+#define SCA3000_MD_CTRL_AND_Z				BIT(5)
 
 /*
  * Some control registers of complex access methods requiring this register to
@@ -186,9 +186,9 @@ struct sca3000_state {
  * @option_mode_2_freq:		option mode 2 sampling frequency
  * @option_mode_2_3db_freq:	3db cutoff frequency of the low pass filter for
  * the second option mode.
- * @mod_det_mult_xz:		Bit wise multipliers to calculate the threshold
+ * @mot_det_mult_xz:		Bit wise multipliers to calculate the threshold
  * for motion detection in the x and z axis.
- * @mod_det_mult_y:		Bit wise multipliers to calculate the threshold
+ * @mot_det_mult_y:		Bit wise multipliers to calculate the threshold
  * for motion detection in the y axis.
  *
  * This structure is used to hold information about the functionality of a given
@@ -351,7 +351,7 @@ static int __sca3000_unlock_reg_lock(struct sca3000_state *st)
 }
 
 /**
- * sca3000_write_ctrl_reg() write to a lock protect ctrl register
+ * sca3000_write_ctrl_reg() - write to a lock protect ctrl register
  * @st: Driver specific device instance data.
  * @sel: selects which registers we wish to write to
  * @val: the value to be written
@@ -389,7 +389,7 @@ error_ret:
 }
 
 /**
- * sca3000_read_ctrl_reg() read from lock protected control register.
+ * sca3000_read_ctrl_reg() - read from lock protected control register.
  * @st: Driver specific device instance data.
  * @ctrl_reg: Which ctrl register do we want to read.
  *
@@ -421,7 +421,7 @@ error_ret:
 }
 
 /**
- * sca3000_show_rev() - sysfs interface to read the chip revision number
+ * sca3000_print_rev() - sysfs interface to read the chip revision number
  * @indio_dev: Device instance specific generic IIO data.
  * Driver specific device instance data can be obtained via
  * via iio_priv(indio_dev)
@@ -859,9 +859,9 @@ error_ret:
  */
 static IIO_DEV_ATTR_SAMP_FREQ_AVAIL(sca3000_read_av_freq);
 
-/**
+/*
  * sca3000_read_event_value() - query of a threshold or period
- **/
+ */
 static int sca3000_read_event_value(struct iio_dev *indio_dev,
 				    const struct iio_chan_spec *chan,
 				    enum iio_event_type type,
@@ -902,7 +902,7 @@ static int sca3000_read_event_value(struct iio_dev *indio_dev,
 }
 
 /**
- * sca3000_write_value() - control of threshold and period
+ * sca3000_write_event_value() - control of threshold and period
  * @indio_dev: Device instance specific IIO information.
  * @chan: Description of the channel for which the event is being
  * configured.
@@ -1100,9 +1100,9 @@ done:
 	return IRQ_HANDLED;
 }
 
-/**
+/*
  * sca3000_read_event_config() what events are enabled
- **/
+ */
 static int sca3000_read_event_config(struct iio_dev *indio_dev,
 				     const struct iio_chan_spec *chan,
 				     enum iio_event_type type,
@@ -1270,20 +1270,6 @@ static int sca3000_write_event_config(struct iio_dev *indio_dev,
 	mutex_unlock(&st->lock);
 
 	return ret;
-}
-
-static int sca3000_configure_ring(struct iio_dev *indio_dev)
-{
-	struct iio_buffer *buffer;
-
-	buffer = devm_iio_kfifo_allocate(&indio_dev->dev);
-	if (!buffer)
-		return -ENOMEM;
-
-	iio_device_attach_buffer(indio_dev, buffer);
-	indio_dev->modes |= INDIO_BUFFER_SOFTWARE;
-
-	return 0;
 }
 
 static inline
@@ -1467,7 +1453,6 @@ static int sca3000_probe(struct spi_device *spi)
 	st->info = &sca3000_spi_chip_info_tbl[spi_get_device_id(spi)
 					      ->driver_data];
 
-	indio_dev->dev.parent = &spi->dev;
 	indio_dev->name = spi_get_device_id(spi)->name;
 	indio_dev->info = &sca3000_info;
 	if (st->info->temp_output) {
@@ -1480,7 +1465,9 @@ static int sca3000_probe(struct spi_device *spi)
 	}
 	indio_dev->modes = INDIO_DIRECT_MODE;
 
-	ret = sca3000_configure_ring(indio_dev);
+	ret = devm_iio_kfifo_buffer_setup(&spi->dev, indio_dev,
+					  INDIO_BUFFER_SOFTWARE,
+					  &sca3000_ring_setup_ops);
 	if (ret)
 		return ret;
 
@@ -1494,7 +1481,6 @@ static int sca3000_probe(struct spi_device *spi)
 		if (ret)
 			return ret;
 	}
-	indio_dev->setup_ops = &sca3000_ring_setup_ops;
 	ret = sca3000_clean_setup(st);
 	if (ret)
 		goto error_free_irq;

@@ -51,14 +51,12 @@ void ttm_eu_backoff_reservation(struct ww_acquire_ctx *ticket,
 	if (list_empty(list))
 		return;
 
-	spin_lock(&ttm_bo_glob.lru_lock);
 	list_for_each_entry(entry, list, head) {
 		struct ttm_buffer_object *bo = entry->bo;
 
-		ttm_bo_move_to_lru_tail(bo, NULL);
+		ttm_bo_move_to_lru_tail_unlocked(bo);
 		dma_resv_unlock(bo->base.resv);
 	}
-	spin_unlock(&ttm_bo_glob.lru_lock);
 
 	if (ticket)
 		ww_acquire_fini(ticket);
@@ -93,7 +91,7 @@ int ttm_eu_reserve_buffers(struct ww_acquire_ctx *ticket,
 	list_for_each_entry(entry, list, head) {
 		struct ttm_buffer_object *bo = entry->bo;
 
-		ret = __ttm_bo_reserve(bo, intr, (ticket == NULL), ticket);
+		ret = ttm_bo_reserve(bo, intr, (ticket == NULL), ticket);
 		if (ret == -EALREADY && dups) {
 			struct ttm_validate_buffer *safe = entry;
 			entry = list_prev_entry(entry, head);
@@ -119,13 +117,7 @@ int ttm_eu_reserve_buffers(struct ww_acquire_ctx *ticket,
 		ttm_eu_backoff_reservation_reverse(list, entry);
 
 		if (ret == -EDEADLK) {
-			if (intr) {
-				ret = dma_resv_lock_slow_interruptible(bo->base.resv,
-										 ticket);
-			} else {
-				dma_resv_lock_slow(bo->base.resv, ticket);
-				ret = 0;
-			}
+			ret = ttm_bo_reserve_slowpath(bo, intr, ticket);
 		}
 
 		if (!ret && entry->num_shared)
@@ -133,8 +125,6 @@ int ttm_eu_reserve_buffers(struct ww_acquire_ctx *ticket,
 								entry->num_shared);
 
 		if (unlikely(ret != 0)) {
-			if (ret == -EINTR)
-				ret = -ERESTARTSYS;
 			if (ticket) {
 				ww_acquire_done(ticket);
 				ww_acquire_fini(ticket);
@@ -162,7 +152,6 @@ void ttm_eu_fence_buffer_objects(struct ww_acquire_ctx *ticket,
 	if (list_empty(list))
 		return;
 
-	spin_lock(&ttm_bo_glob.lru_lock);
 	list_for_each_entry(entry, list, head) {
 		struct ttm_buffer_object *bo = entry->bo;
 
@@ -170,10 +159,9 @@ void ttm_eu_fence_buffer_objects(struct ww_acquire_ctx *ticket,
 			dma_resv_add_shared_fence(bo->base.resv, fence);
 		else
 			dma_resv_add_excl_fence(bo->base.resv, fence);
-		ttm_bo_move_to_lru_tail(bo, NULL);
+		ttm_bo_move_to_lru_tail_unlocked(bo);
 		dma_resv_unlock(bo->base.resv);
 	}
-	spin_unlock(&ttm_bo_glob.lru_lock);
 	if (ticket)
 		ww_acquire_fini(ticket);
 }

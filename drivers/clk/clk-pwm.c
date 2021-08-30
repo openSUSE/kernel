@@ -89,7 +89,12 @@ static int clk_pwm_probe(struct platform_device *pdev)
 	}
 
 	if (of_property_read_u32(node, "clock-frequency", &clk_pwm->fixed_rate))
-		clk_pwm->fixed_rate = NSEC_PER_SEC / pargs.period;
+		clk_pwm->fixed_rate = div64_u64(NSEC_PER_SEC, pargs.period);
+
+	if (!clk_pwm->fixed_rate) {
+		dev_err(&pdev->dev, "fixed_rate cannot be zero\n");
+		return -EINVAL;
+	}
 
 	if (pargs.period != NSEC_PER_SEC / clk_pwm->fixed_rate &&
 	    pargs.period != DIV_ROUND_UP(NSEC_PER_SEC, clk_pwm->fixed_rate)) {
@@ -142,7 +147,7 @@ static struct platform_driver clk_pwm_driver = {
 	.remove = clk_pwm_remove,
 	.driver = {
 		.name = "pwm-clock",
-		.of_match_table = of_match_ptr(clk_pwm_dt_ids),
+		.of_match_table = clk_pwm_dt_ids,
 	},
 };
 

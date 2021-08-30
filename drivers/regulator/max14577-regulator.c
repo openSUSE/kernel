@@ -155,7 +155,7 @@ static const struct regulator_desc max77836_supported_regulators[] = {
 	[MAX77836_LDO2] = MAX77836_LDO_REG(2),
 };
 
-/**
+/*
  * Registers for regulators of max77836 use different I2C slave addresses so
  * different regmaps must be used for them.
  *
@@ -269,3 +269,5 @@ module_exit(max14577_regulator_exit);
 MODULE_AUTHOR("Krzysztof Kozlowski <krzk@kernel.org>");
 MODULE_DESCRIPTION("Maxim 14577/77836 regulator driver");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:max14577-regulator");
+MODULE_ALIAS("platform:max77836-regulator");

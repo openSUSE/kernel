@@ -29,7 +29,7 @@
 #include "ccdc_hw_device.h"
 
 /* Defaults for module configuration parameters */
-static struct isif_config_params_raw isif_config_defaults = {
+static const struct isif_config_params_raw isif_config_defaults = {
 	.linearize = {
 		.en = 0,
 		.corr_shft = ISIF_NO_SHIFT,
@@ -1045,7 +1045,7 @@ static int isif_probe(struct platform_device *pdev)
 			status = -EBUSY;
 			goto fail_nobase_res;
 		}
-		addr = ioremap_nocache(res->start, resource_size(res));
+		addr = ioremap(res->start, resource_size(res));
 		if (!addr) {
 			status = -ENOMEM;
 			goto fail_base_iomap;
@@ -1075,10 +1075,14 @@ fail_base_iomap:
 	release_mem_region(res->start, resource_size(res));
 	i--;
 fail_nobase_res:
-	if (isif_cfg.base_addr)
+	if (isif_cfg.base_addr) {
 		iounmap(isif_cfg.base_addr);
-	if (isif_cfg.linear_tbl0_addr)
+		isif_cfg.base_addr = NULL;
+	}
+	if (isif_cfg.linear_tbl0_addr) {
 		iounmap(isif_cfg.linear_tbl0_addr);
+		isif_cfg.linear_tbl0_addr = NULL;
+	}
 
 	while (i >= 0) {
 		res = platform_get_resource(pdev, IORESOURCE_MEM, i);
@@ -1096,8 +1100,11 @@ static int isif_remove(struct platform_device *pdev)
 	int i = 0;
 
 	iounmap(isif_cfg.base_addr);
+	isif_cfg.base_addr = NULL;
 	iounmap(isif_cfg.linear_tbl0_addr);
+	isif_cfg.linear_tbl0_addr = NULL;
 	iounmap(isif_cfg.linear_tbl1_addr);
+	isif_cfg.linear_tbl1_addr = NULL;
 	while (i < 3) {
 		res = platform_get_resource(pdev, IORESOURCE_MEM, i);
 		if (res)

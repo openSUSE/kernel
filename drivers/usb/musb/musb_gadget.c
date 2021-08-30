@@ -451,7 +451,7 @@ void musb_g_tx(struct musb *musb, u8 epnum)
 		return;
 	}
 
-	if (request) {
+	if (req) {
 
 		trace_musb_req_tx(req);
 
@@ -611,7 +611,7 @@ static void rxstate(struct musb *musb, struct musb_request *req)
 	 * mode 0 only. So we do not get endpoint interrupts due to DMA
 	 * completion. We only get interrupts from DMA controller.
 	 *
-	 * We could operate in DMA mode 1 if we knew the size of the tranfer
+	 * We could operate in DMA mode 1 if we knew the size of the transfer
 	 * in advance. For mass storage class, request->length = what the host
 	 * sends, so that'd work.  But for pretty much everything else,
 	 * request->length is routinely more than what the host sends. For
@@ -1085,7 +1085,6 @@ static int musb_gadget_disable(struct usb_ep *ep)
 	u8		epnum;
 	struct musb_ep	*musb_ep;
 	void __iomem	*epio;
-	int		status = 0;
 
 	musb_ep = to_musb_ep(ep);
 	musb = musb_ep->musb;
@@ -1118,7 +1117,7 @@ static int musb_gadget_disable(struct usb_ep *ep)
 
 	musb_dbg(musb, "%s", musb_ep->end_point.name);
 
-	return status;
+	return 0;
 }
 
 /*
@@ -1316,7 +1315,7 @@ done:
 }
 
 /*
- * Set or clear the halt bit of an endpoint. A halted enpoint won't tx/rx any
+ * Set or clear the halt bit of an endpoint. A halted endpoint won't tx/rx any
  * data but will queue requests.
  *
  * exported to ep0 code

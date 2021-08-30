@@ -558,7 +558,8 @@ static bool hmat_update_best(u8 type, u32 value, u32 *best)
 	return updated;
 }
 
-static int initiator_cmp(void *priv, struct list_head *a, struct list_head *b)
+static int initiator_cmp(void *priv, const struct list_head *a,
+			 const struct list_head *b)
 {
 	struct memory_initiator *ia;
 	struct memory_initiator *ib;
@@ -703,7 +704,7 @@ static void hmat_register_target_devices(struct memory_target *target)
 		return;
 
 	for (res = target->memregions.child; res; res = res->sibling) {
-		int target_nid = acpi_map_pxm_to_node(target->memory_pxm);
+		int target_nid = pxm_to_node(target->memory_pxm);
 
 		hmem_register_device(target_nid, res);
 	}
@@ -722,7 +723,7 @@ static void hmat_register_target(struct memory_target *target)
 	/*
 	 * Skip offline nodes. This can happen when memory
 	 * marked EFI_MEMORY_SP, "specific purpose", is applied
-	 * to all the memory in a promixity domain leading to
+	 * to all the memory in a proximity domain leading to
 	 * the node being marked offline / unplugged, or if
 	 * memory-only "hotplug" node is offline.
 	 */

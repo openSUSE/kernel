@@ -5,8 +5,6 @@
 #ifndef __ASM_DEBUG_MONITORS_H
 #define __ASM_DEBUG_MONITORS_H
 
-#ifdef __KERNEL__
-
 #include <linux/errno.h>
 #include <linux/types.h>
 #include <asm/brk-imm.h>
@@ -55,6 +53,7 @@
 
 /* kprobes BRK opcodes with ESR encoding  */
 #define BRK64_OPCODE_KPROBES	(AARCH64_BREAK_MON | (KPROBES_BRK_IMM << 5))
+#define BRK64_OPCODE_KPROBES_SS	(AARCH64_BREAK_MON | (KPROBES_BRK_SS_IMM << 5))
 /* uprobes BRK opcodes with ESR encoding  */
 #define BRK64_OPCODE_UPROBES	(AARCH64_BREAK_MON | (UPROBES_BRK_IMM << 5))
 
@@ -111,6 +110,8 @@ void disable_debug_monitors(enum dbg_active_el el);
 
 void user_rewind_single_step(struct task_struct *task);
 void user_fastforward_single_step(struct task_struct *task);
+void user_regs_reset_single_step(struct user_pt_regs *regs,
+				 struct task_struct *task);
 
 void kernel_enable_single_step(struct pt_regs *regs);
 void kernel_disable_single_step(void);
@@ -127,6 +128,7 @@ static inline int reinstall_suspended_bps(struct pt_regs *regs)
 
 int aarch32_break_handler(struct pt_regs *regs);
 
+void debug_traps_init(void);
+
 #endif	/* __ASSEMBLY */
-#endif	/* __KERNEL__ */
 #endif	/* __ASM_DEBUG_MONITORS_H */

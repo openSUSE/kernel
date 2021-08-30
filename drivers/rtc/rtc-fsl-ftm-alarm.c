@@ -246,7 +246,6 @@ static const struct rtc_class_ops ftm_rtc_ops = {
 
 static int ftm_rtc_probe(struct platform_device *pdev)
 {
-	struct resource *r;
 	int irq;
 	int ret;
 	struct ftm_rtc *rtc;
@@ -263,23 +262,15 @@ static int ftm_rtc_probe(struct platform_device *pdev)
 	if (IS_ERR(rtc->rtc_dev))
 		return PTR_ERR(rtc->rtc_dev);
 
-	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!r) {
-		dev_err(&pdev->dev, "cannot get resource for rtc\n");
-		return -ENODEV;
-	}
-
-	rtc->base = devm_ioremap_resource(&pdev->dev, r);
+	rtc->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(rtc->base)) {
 		dev_err(&pdev->dev, "cannot ioremap resource for rtc\n");
 		return PTR_ERR(rtc->base);
 	}
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		dev_err(&pdev->dev, "can't get irq number\n");
+	if (irq < 0)
 		return irq;
-	}
 
 	ret = devm_request_irq(&pdev->dev, irq, ftm_rtc_alarm_interrupt,
 			       0, dev_name(&pdev->dev), rtc);
@@ -299,7 +290,7 @@ static int ftm_rtc_probe(struct platform_device *pdev)
 	if (ret)
 		dev_err(&pdev->dev, "failed to enable irq wake\n");
 
-	ret = rtc_register_device(rtc->rtc_dev);
+	ret = devm_rtc_register_device(rtc->rtc_dev);
 	if (ret) {
 		dev_err(&pdev->dev, "can't register rtc device\n");
 		return ret;

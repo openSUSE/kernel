@@ -22,6 +22,7 @@
 #include <linux/device.h>
 #include <linux/uaccess.h>
 #include <linux/ctype.h>
+#include <linux/panic_notifier.h>
 #include <linux/reboot.h>
 #include <linux/olpc-ec.h>
 #include <asm/tsc.h>
@@ -576,7 +577,7 @@ static struct notifier_block dcon_panic_nb = {
 
 static int dcon_detect(struct i2c_client *client, struct i2c_board_info *info)
 {
-	strlcpy(info->type, "olpc_dcon", I2C_NAME_SIZE);
+	strscpy(info->type, "olpc_dcon", I2C_NAME_SIZE);
 
 	return 0;
 }
@@ -791,15 +792,11 @@ static struct i2c_driver dcon_driver = {
 
 static int __init olpc_dcon_init(void)
 {
-#ifdef CONFIG_FB_OLPC_DCON_1_5
 	/* XO-1.5 */
 	if (olpc_board_at_least(olpc_board(0xd0)))
 		pdata = &dcon_pdata_xo_1_5;
-#endif
-#ifdef CONFIG_FB_OLPC_DCON_1
-	if (!pdata)
+	else
 		pdata = &dcon_pdata_xo_1;
-#endif
 
 	return i2c_add_driver(&dcon_driver);
 }

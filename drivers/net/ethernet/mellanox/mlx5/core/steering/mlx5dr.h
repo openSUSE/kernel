@@ -26,6 +26,7 @@ enum mlx5dr_action_reformat_type {
 	DR_ACTION_REFORMAT_TYP_L2_TO_TNL_L2,
 	DR_ACTION_REFORMAT_TYP_TNL_L3_TO_L2,
 	DR_ACTION_REFORMAT_TYP_L2_TO_TNL_L3,
+	DR_ACTION_REFORMAT_TYP_INSERT_HDR,
 };
 
 struct mlx5dr_match_parameters {
@@ -67,7 +68,8 @@ struct mlx5dr_rule *
 mlx5dr_rule_create(struct mlx5dr_matcher *matcher,
 		   struct mlx5dr_match_parameters *value,
 		   size_t num_actions,
-		   struct mlx5dr_action *actions[]);
+		   struct mlx5dr_action *actions[],
+		   u32 flow_source);
 
 int mlx5dr_rule_destroy(struct mlx5dr_rule *rule);
 
@@ -99,11 +101,16 @@ struct mlx5dr_action *mlx5dr_action_create_drop(void);
 struct mlx5dr_action *mlx5dr_action_create_tag(u32 tag_value);
 
 struct mlx5dr_action *
+mlx5dr_action_create_flow_sampler(struct mlx5dr_domain *dmn, u32 sampler_id);
+
+struct mlx5dr_action *
 mlx5dr_action_create_flow_counter(u32 counter_id);
 
 struct mlx5dr_action *
 mlx5dr_action_create_packet_reformat(struct mlx5dr_domain *dmn,
 				     enum mlx5dr_action_reformat_type reformat_type,
+				     u8 reformat_param_0,
+				     u8 reformat_param_1,
 				     size_t data_sz,
 				     void *data);
 
@@ -123,7 +130,43 @@ int mlx5dr_action_destroy(struct mlx5dr_action *action);
 static inline bool
 mlx5dr_is_supported(struct mlx5_core_dev *dev)
 {
-	return MLX5_CAP_ESW_FLOWTABLE_FDB(dev, sw_owner);
+	return MLX5_CAP_GEN(dev, roce) &&
+	       (MLX5_CAP_ESW_FLOWTABLE_FDB(dev, sw_owner) ||
+		(MLX5_CAP_ESW_FLOWTABLE_FDB(dev, sw_owner_v2) &&
+		 (MLX5_CAP_GEN(dev, steering_format_version) <=
+		  MLX5_STEERING_FORMAT_CONNECTX_6DX)));
 }
+
+/* buddy functions & structure */
+
+struct mlx5dr_icm_mr;
+
+struct mlx5dr_icm_buddy_mem {
+	unsigned long		**bitmap;
+	unsigned int		*num_free;
+	u32			max_order;
+	struct list_head	list_node;
+	struct mlx5dr_icm_mr	*icm_mr;
+	struct mlx5dr_icm_pool	*pool;
+
+	/* This is the list of used chunks. HW may be accessing this memory */
+	struct list_head	used_list;
+	u64			used_memory;
+
+	/* Hardware may be accessing this memory but at some future,
+	 * undetermined time, it might cease to do so.
+	 * sync_ste command sets them free.
+	 */
+	struct list_head	hot_list;
+};
+
+int mlx5dr_buddy_init(struct mlx5dr_icm_buddy_mem *buddy,
+		      unsigned int max_order);
+void mlx5dr_buddy_cleanup(struct mlx5dr_icm_buddy_mem *buddy);
+int mlx5dr_buddy_alloc_mem(struct mlx5dr_icm_buddy_mem *buddy,
+			   unsigned int order,
+			   unsigned int *segment);
+void mlx5dr_buddy_free_mem(struct mlx5dr_icm_buddy_mem *buddy,
+			   unsigned int seg, unsigned int order);
 
 #endif /* _MLX5DR_H_ */

@@ -21,7 +21,7 @@ static int hfi1_ipoib_dev_init(struct net_device *dev)
 	struct hfi1_ipoib_dev_priv *priv = hfi1_ipoib_priv(dev);
 	int ret;
 
-	priv->netstats = netdev_alloc_pcpu_stats(struct pcpu_sw_netstats);
+	dev->tstats = netdev_alloc_pcpu_stats(struct pcpu_sw_netstats);
 
 	ret = priv->netdev_ops->ndo_init(dev);
 	if (ret)
@@ -93,62 +93,13 @@ static int hfi1_ipoib_dev_stop(struct net_device *dev)
 	return priv->netdev_ops->ndo_stop(dev);
 }
 
-static void hfi1_ipoib_dev_get_stats64(struct net_device *dev,
-				       struct rtnl_link_stats64 *storage)
-{
-	struct hfi1_ipoib_dev_priv *priv = hfi1_ipoib_priv(dev);
-	u64 rx_packets = 0ull;
-	u64 rx_bytes = 0ull;
-	u64 tx_packets = 0ull;
-	u64 tx_bytes = 0ull;
-	int i;
-
-	netdev_stats_to_stats64(storage, &dev->stats);
-
-	for_each_possible_cpu(i) {
-		const struct pcpu_sw_netstats *stats;
-		unsigned int start;
-		u64 trx_packets;
-		u64 trx_bytes;
-		u64 ttx_packets;
-		u64 ttx_bytes;
-
-		stats = per_cpu_ptr(priv->netstats, i);
-		do {
-			start = u64_stats_fetch_begin_irq(&stats->syncp);
-			trx_packets = stats->rx_packets;
-			trx_bytes = stats->rx_bytes;
-			ttx_packets = stats->tx_packets;
-			ttx_bytes = stats->tx_bytes;
-		} while (u64_stats_fetch_retry_irq(&stats->syncp, start));
-
-		rx_packets += trx_packets;
-		rx_bytes += trx_bytes;
-		tx_packets += ttx_packets;
-		tx_bytes += ttx_bytes;
-	}
-
-	storage->rx_packets += rx_packets;
-	storage->rx_bytes += rx_bytes;
-	storage->tx_packets += tx_packets;
-	storage->tx_bytes += tx_bytes;
-}
-
 static const struct net_device_ops hfi1_ipoib_netdev_ops = {
 	.ndo_init         = hfi1_ipoib_dev_init,
 	.ndo_uninit       = hfi1_ipoib_dev_uninit,
 	.ndo_open         = hfi1_ipoib_dev_open,
 	.ndo_stop         = hfi1_ipoib_dev_stop,
-	.ndo_get_stats64  = hfi1_ipoib_dev_get_stats64,
+	.ndo_get_stats64  = dev_get_tstats64,
 };
-
-static int hfi1_ipoib_send(struct net_device *dev,
-			   struct sk_buff *skb,
-			   struct ib_ah *address,
-			   u32 dqpn)
-{
-	return hfi1_ipoib_send_dma(dev, skb, address, dqpn);
-}
 
 static int hfi1_ipoib_mcast_attach(struct net_device *dev,
 				   struct ib_device *device,
@@ -214,7 +165,7 @@ static void hfi1_ipoib_netdev_dtor(struct net_device *dev)
 	hfi1_ipoib_txreq_deinit(priv);
 	hfi1_ipoib_rxq_deinit(priv->netdev);
 
-	free_percpu(priv->netstats);
+	free_percpu(dev->tstats);
 }
 
 static void hfi1_ipoib_free_rdma_netdev(struct net_device *dev)
@@ -235,7 +186,7 @@ static void hfi1_ipoib_set_id(struct net_device *dev, int id)
 }
 
 static int hfi1_ipoib_setup_rn(struct ib_device *device,
-			       u8 port_num,
+			       u32 port_num,
 			       struct net_device *netdev,
 			       void *param)
 {
@@ -245,6 +196,7 @@ static int hfi1_ipoib_setup_rn(struct ib_device *device,
 	int rc;
 
 	rn->send = hfi1_ipoib_send;
+	rn->tx_timeout = hfi1_ipoib_tx_timeout;
 	rn->attach_mcast = hfi1_ipoib_mcast_attach;
 	rn->detach_mcast = hfi1_ipoib_mcast_detach;
 	rn->set_id = hfi1_ipoib_set_id;
@@ -284,7 +236,7 @@ static int hfi1_ipoib_setup_rn(struct ib_device *device,
 }
 
 int hfi1_ipoib_rn_get_params(struct ib_device *device,
-			     u8 port_num,
+			     u32 port_num,
 			     enum rdma_netdev_t type,
 			     struct rdma_netdev_alloc_params *params)
 {

@@ -6,13 +6,15 @@
 
 void my_direct_func(struct task_struct *p)
 {
-	trace_printk("wakeing up %s-%d\n", p->comm, p->pid);
+	trace_printk("waking up %s-%d\n", p->comm, p->pid);
 }
 
 extern void my_tramp(void *);
 
 asm (
 "	.pushsection    .text, \"ax\", @progbits\n"
+"	.type		my_tramp, @function\n"
+"	.globl		my_tramp\n"
 "   my_tramp:"
 "	pushq %rbp\n"
 "	movq %rsp, %rbp\n"
@@ -21,6 +23,7 @@ asm (
 "	popq %rdi\n"
 "	leave\n"
 "	ret\n"
+"	.size		my_tramp, .-my_tramp\n"
 "	.popsection\n"
 );
 

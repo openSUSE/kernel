@@ -37,8 +37,6 @@ const unsigned char scsi_command_size_tbl[8] =
 };
 EXPORT_SYMBOL(scsi_command_size_tbl);
 
-#include <scsi/sg.h>
-
 static int sg_get_version(int __user *p)
 {
 	static const int sg_version_num = 30527;
@@ -256,9 +254,11 @@ static int blk_complete_sghdr_rq(struct request *rq, struct sg_io_hdr *hdr,
 	 */
 	hdr->status = req->result & 0xff;
 	hdr->masked_status = status_byte(req->result);
-	hdr->msg_status = msg_byte(req->result);
+	hdr->msg_status = COMMAND_COMPLETE;
 	hdr->host_status = host_byte(req->result);
-	hdr->driver_status = driver_byte(req->result);
+	hdr->driver_status = 0;
+	if (scsi_status_is_check_condition(hdr->status))
+		hdr->driver_status = DRIVER_SENSE;
 	hdr->info = 0;
 	if (hdr->masked_status || hdr->host_status || hdr->driver_status)
 		hdr->info |= SG_INFO_CHECK;
@@ -313,7 +313,7 @@ static int sg_io(struct request_queue *q, struct gendisk *bd_disk,
 		at_head = 1;
 
 	ret = -ENOMEM;
-	rq = blk_get_request(q, writing ? REQ_OP_SCSI_OUT : REQ_OP_SCSI_IN, 0);
+	rq = blk_get_request(q, writing ? REQ_OP_DRV_OUT : REQ_OP_DRV_IN, 0);
 	if (IS_ERR(rq))
 		return PTR_ERR(rq);
 	req = scsi_req(rq);
@@ -333,16 +333,8 @@ static int sg_io(struct request_queue *q, struct gendisk *bd_disk,
 		struct iov_iter i;
 		struct iovec *iov = NULL;
 
-#ifdef CONFIG_COMPAT
-		if (in_compat_syscall())
-			ret = compat_import_iovec(rq_data_dir(rq),
-				   hdr->dxferp, hdr->iovec_count,
-				   0, &iov, &i);
-		else
-#endif
-			ret = import_iovec(rq_data_dir(rq),
-				   hdr->dxferp, hdr->iovec_count,
-				   0, &iov, &i);
+		ret = import_iovec(rq_data_dir(rq), hdr->dxferp,
+				   hdr->iovec_count, 0, &iov, &i);
 		if (ret < 0)
 			goto out_free_cdb;
 
@@ -363,11 +355,7 @@ static int sg_io(struct request_queue *q, struct gendisk *bd_disk,
 
 	start_time = jiffies;
 
-	/* ignore return value. All information is passed back to caller
-	 * (if he doesn't check that is his problem).
-	 * N.B. a non-zero SCSI status is _not_ necessarily an error.
-	 */
-	blk_execute_rq(q, bd_disk, rq, at_head);
+	blk_execute_rq(bd_disk, rq, at_head);
 
 	hdr->duration = jiffies_to_msecs(jiffies - start_time);
 
@@ -441,13 +429,13 @@ int sg_scsi_ioctl(struct request_queue *q, struct gendisk *disk, fmode_t mode,
 
 	bytes = max(in_len, out_len);
 	if (bytes) {
-		buffer = kzalloc(bytes, q->bounce_gfp | GFP_USER| __GFP_NOWARN);
+		buffer = kzalloc(bytes, GFP_NOIO | GFP_USER | __GFP_NOWARN);
 		if (!buffer)
 			return -ENOMEM;
 
 	}
 
-	rq = blk_get_request(q, in_len ? REQ_OP_SCSI_OUT : REQ_OP_SCSI_IN, 0);
+	rq = blk_get_request(q, in_len ? REQ_OP_DRV_OUT : REQ_OP_DRV_IN, 0);
 	if (IS_ERR(rq)) {
 		err = PTR_ERR(rq);
 		goto error_free_buffer;
@@ -498,12 +486,13 @@ int sg_scsi_ioctl(struct request_queue *q, struct gendisk *disk, fmode_t mode,
 		break;
 	}
 
-	if (bytes && blk_rq_map_kern(q, rq, buffer, bytes, GFP_NOIO)) {
-		err = DRIVER_ERROR << 24;
-		goto error;
+	if (bytes) {
+		err = blk_rq_map_kern(q, rq, buffer, bytes, GFP_NOIO);
+		if (err)
+			goto error;
 	}
 
-	blk_execute_rq(q, disk, rq, 0);
+	blk_execute_rq(disk, rq, 0);
 
 	err = req->result & 0xff;	/* only 8 bit SCSI status */
 	if (err) {
@@ -535,14 +524,14 @@ static int __blk_send_generic(struct request_queue *q, struct gendisk *bd_disk,
 	struct request *rq;
 	int err;
 
-	rq = blk_get_request(q, REQ_OP_SCSI_OUT, 0);
+	rq = blk_get_request(q, REQ_OP_DRV_OUT, 0);
 	if (IS_ERR(rq))
 		return PTR_ERR(rq);
 	rq->timeout = BLK_DEFAULT_SG_TIMEOUT;
 	scsi_req(rq)->cmd[0] = cmd;
 	scsi_req(rq)->cmd[4] = data;
 	scsi_req(rq)->cmd_len = 6;
-	blk_execute_rq(q, bd_disk, rq, 0);
+	blk_execute_rq(bd_disk, rq, 0);
 	err = scsi_req(rq)->result ? -EIO : 0;
 	blk_put_request(rq);
 
@@ -651,9 +640,10 @@ struct compat_cdrom_generic_command {
 	compat_int_t	stat;
 	compat_caddr_t	sense;
 	unsigned char	data_direction;
+	unsigned char	pad[3];
 	compat_int_t	quiet;
 	compat_int_t	timeout;
-	compat_caddr_t	reserved[1];
+	compat_caddr_t	unused;
 };
 #endif
 
@@ -675,7 +665,7 @@ static int scsi_get_cdrom_generic_arg(struct cdrom_generic_command *cgc,
 			.data_direction	= cgc32.data_direction,
 			.quiet		= cgc32.quiet,
 			.timeout	= cgc32.timeout,
-			.reserved[0]	= compat_ptr(cgc32.reserved[0]),
+			.unused		= compat_ptr(cgc32.unused),
 		};
 		memcpy(&cgc->cmd, &cgc32.cmd, CDROM_PACKET_SIZE);
 		return 0;
@@ -700,7 +690,7 @@ static int scsi_put_cdrom_generic_arg(const struct cdrom_generic_command *cgc,
 			.data_direction	= cgc->data_direction,
 			.quiet		= cgc->quiet,
 			.timeout	= cgc->timeout,
-			.reserved[0]	= (uintptr_t)(cgc->reserved[0]),
+			.unused		= (uintptr_t)(cgc->unused),
 		};
 		memcpy(&cgc32.cmd, &cgc->cmd, CDROM_PACKET_SIZE);
 
@@ -854,7 +844,7 @@ EXPORT_SYMBOL(scsi_cmd_ioctl);
 
 int scsi_verify_blk_ioctl(struct block_device *bd, unsigned int cmd)
 {
-	if (bd && bd == bd->bd_contains)
+	if (bd && !bdev_is_partition(bd))
 		return 0;
 
 	if (capable(CAP_SYS_RAWIO))

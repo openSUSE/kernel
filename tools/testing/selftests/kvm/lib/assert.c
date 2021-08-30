@@ -71,9 +71,9 @@ test_assert(bool exp, const char *exp_str,
 
 		fprintf(stderr, "==== Test Assertion Failure ====\n"
 			"  %s:%u: %s\n"
-			"  pid=%d tid=%d - %s\n",
+			"  pid=%d tid=%d errno=%d - %s\n",
 			file, line, exp_str, getpid(), _gettid(),
-			strerror(errno));
+			errno, strerror(errno));
 		test_dump_stack();
 		if (fmt) {
 			fputs("  ", stderr);
@@ -82,8 +82,10 @@ test_assert(bool exp, const char *exp_str,
 		}
 		va_end(ap);
 
-		if (errno == EACCES)
-			ksft_exit_skip("Access denied - Exiting.\n");
+		if (errno == EACCES) {
+			print_skip("Access denied - Exiting");
+			exit(KSFT_SKIP);
+		}
 		exit(254);
 	}
 

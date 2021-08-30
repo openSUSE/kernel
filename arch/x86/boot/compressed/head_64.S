@@ -42,10 +42,35 @@
  */
 	.hidden _bss
 	.hidden _ebss
-	.hidden _got
-	.hidden _egot
+	.hidden _end
 
 	__HEAD
+
+/*
+ * This macro gives the relative virtual address of X, i.e. the offset of X
+ * from startup_32. This is the same as the link-time virtual address of X,
+ * since startup_32 is at 0, but defining it this way tells the
+ * assembler/linker that we do not want the actual run-time address of X. This
+ * prevents the linker from trying to create unwanted run-time relocation
+ * entries for the reference when the compressed kernel is linked as PIE.
+ *
+ * A reference X(%reg) will result in the link-time VA of X being stored with
+ * the instruction, and a run-time R_X86_64_RELATIVE relocation entry that
+ * adds the 64-bit base address where the kernel is loaded.
+ *
+ * Replacing it with (X-startup_32)(%reg) results in the offset being stored,
+ * and no run-time relocation.
+ *
+ * The macro should be used as a displacement with a base register containing
+ * the run-time address of startup_32 [i.e. rva(X)(%reg)], or as an immediate
+ * [$ rva(X)].
+ *
+ * This macro can only be used from within the .head.text section, since the
+ * expression requires startup_32 to be in the same section as the code being
+ * assembled.
+ */
+#define rva(X) ((X) - startup_32)
+
 	.code32
 SYM_FUNC_START(startup_32)
 	/*
@@ -55,15 +80,7 @@ SYM_FUNC_START(startup_32)
 	 * all need to be under the 4G limit.
 	 */
 	cld
-	/*
-	 * Test KEEP_SEGMENTS flag to see if the bootloader is asking
-	 * us to not reload segments
-	 */
-	testb $KEEP_SEGMENTS, BP_loadflags(%esi)
-	jnz 1f
-
 	cli
-1:
 
 /*
  * Calculate the delta between where we were compiled to run
@@ -76,11 +93,12 @@ SYM_FUNC_START(startup_32)
 	leal	(BP_scratch+4)(%esi), %esp
 	call	1f
 1:	popl	%ebp
-	subl	$1b, %ebp
+	subl	$ rva(1b), %ebp
 
 	/* Load new GDT with the 64bit segments using 32bit descriptor */
-	addl	%ebp, gdt+2(%ebp)
-	lgdt	gdt(%ebp)
+	leal	rva(gdt)(%ebp), %eax
+	movl	%eax, 2(%eax)
+	lgdt	(%eax)
 
 	/* Load segment registers with our descriptors */
 	movl	$__BOOT_DS, %eax
@@ -91,10 +109,10 @@ SYM_FUNC_START(startup_32)
 	movl	%eax, %ss
 
 	/* Setup a stack and load CS from current GDT */
-	leal	boot_stack_end(%ebp), %esp
+	leal	rva(boot_stack_end)(%ebp), %esp
 
 	pushl	$__KERNEL32_CS
-	leal	1f(%ebp), %eax
+	leal	rva(1f)(%ebp), %eax
 	pushl	%eax
 	lretl
 1:
@@ -105,7 +123,7 @@ SYM_FUNC_START(startup_32)
 	/* Make sure cpu supports long mode. */
 	call	verify_cpu
 	testl	%eax, %eax
-	jnz	no_longmode
+	jnz	.Lno_longmode
 
 /*
  * Compute the delta between where we were compiled to run at
@@ -128,7 +146,7 @@ SYM_FUNC_START(startup_32)
  *	image_offset = startup_32 - image_base
  * Otherwise image_offset will be zero and has no effect on the calculations.
  */
-	subl    image_offset(%ebp), %ebx
+	subl    rva(image_offset)(%ebp), %ebx
 #endif
 
 	movl	BP_kernel_alignment(%esi), %eax
@@ -144,7 +162,7 @@ SYM_FUNC_START(startup_32)
 
 	/* Target address to relocate to for decompression */
 	addl	BP_init_size(%esi), %ebx
-	subl	$_end, %ebx
+	subl	$ rva(_end), %ebx
 
 /*
  * Prepare for entering 64 bit mode
@@ -177,24 +195,24 @@ SYM_FUNC_START(startup_32)
 	 * set_sev_encryption_mask(). For now it is sufficient to know that SEV
 	 * is active.
 	 */
-	movl	$1, sev_status(%ebp)
+	movl	$1, rva(sev_status)(%ebp)
 1:
 #endif
 
 	/* Initialize Page tables to 0 */
-	leal	pgtable(%ebx), %edi
+	leal	rva(pgtable)(%ebx), %edi
 	xorl	%eax, %eax
 	movl	$(BOOT_INIT_PGT_SIZE/4), %ecx
 	rep	stosl
 
 	/* Build Level 4 */
-	leal	pgtable + 0(%ebx), %edi
+	leal	rva(pgtable + 0)(%ebx), %edi
 	leal	0x1007 (%edi), %eax
 	movl	%eax, 0(%edi)
 	addl	%edx, 4(%edi)
 
 	/* Build Level 3 */
-	leal	pgtable + 0x1000(%ebx), %edi
+	leal	rva(pgtable + 0x1000)(%ebx), %edi
 	leal	0x1007(%edi), %eax
 	movl	$4, %ecx
 1:	movl	%eax, 0x00(%edi)
@@ -205,7 +223,7 @@ SYM_FUNC_START(startup_32)
 	jnz	1b
 
 	/* Build Level 2 */
-	leal	pgtable + 0x2000(%ebx), %edi
+	leal	rva(pgtable + 0x2000)(%ebx), %edi
 	movl	$0x00000183, %eax
 	movl	$2048, %ecx
 1:	movl	%eax, 0(%edi)
@@ -216,7 +234,7 @@ SYM_FUNC_START(startup_32)
 	jnz	1b
 
 	/* Enable the boot page tables */
-	leal	pgtable(%ebx), %eax
+	leal	rva(pgtable)(%ebx), %eax
 	movl	%eax, %cr3
 
 	/* Enable Long mode in EFER (Extended Feature Enable Register) */
@@ -234,22 +252,22 @@ SYM_FUNC_START(startup_32)
 	/*
 	 * Setup for the jump to 64bit mode
 	 *
-	 * When the jump is performend we will be in long mode but
+	 * When the jump is performed we will be in long mode but
 	 * in 32bit compatibility mode with EFER.LME = 1, CS.L = 0, CS.D = 1
 	 * (and in turn EFER.LMA = 1).	To jump into 64bit mode we use
 	 * the new gdt/idt that has __KERNEL_CS with CS.L = 1.
 	 * We place all of the values on our mini stack so lret can
 	 * used to perform that far jump.
 	 */
-	leal	startup_64(%ebp), %eax
+	leal	rva(startup_64)(%ebp), %eax
 #ifdef CONFIG_EFI_MIXED
-	movl	efi32_boot_args(%ebp), %edi
-	cmp	$0, %edi
+	movl	rva(efi32_boot_args)(%ebp), %edi
+	testl	%edi, %edi
 	jz	1f
-	leal	efi64_stub_entry(%ebp), %eax
-	movl	efi32_boot_args+4(%ebp), %esi
-	movl	efi32_boot_args+8(%ebp), %edx	// saved bootparams pointer
-	cmpl	$0, %edx
+	leal	rva(efi64_stub_entry)(%ebp), %eax
+	movl	rva(efi32_boot_args+4)(%ebp), %esi
+	movl	rva(efi32_boot_args+8)(%ebp), %edx	// saved bootparams pointer
+	testl	%edx, %edx
 	jnz	1f
 	/*
 	 * efi_pe_entry uses MS calling convention, which requires 32 bytes of
@@ -259,7 +277,7 @@ SYM_FUNC_START(startup_32)
 	 * the correct stack alignment for entry.
 	 */
 	subl	$40, %esp
-	leal	efi_pe_entry(%ebp), %eax
+	leal	rva(efi_pe_entry)(%ebp), %eax
 	movl	%edi, %ecx			// MS calling convention
 	movl	%esi, %edx
 1:
@@ -288,18 +306,21 @@ SYM_FUNC_START(efi32_stub_entry)
 
 	call	1f
 1:	pop	%ebp
-	subl	$1b, %ebp
+	subl	$ rva(1b), %ebp
 
-	movl	%esi, efi32_boot_args+8(%ebp)
+	movl	%esi, rva(efi32_boot_args+8)(%ebp)
 SYM_INNER_LABEL(efi32_pe_stub_entry, SYM_L_LOCAL)
-	movl	%ecx, efi32_boot_args(%ebp)
-	movl	%edx, efi32_boot_args+4(%ebp)
-	movb	$0, efi_is64(%ebp)
+	movl	%ecx, rva(efi32_boot_args)(%ebp)
+	movl	%edx, rva(efi32_boot_args+4)(%ebp)
+	movb	$0, rva(efi_is64)(%ebp)
 
 	/* Save firmware GDTR and code/data selectors */
-	sgdtl	efi32_boot_gdt(%ebp)
-	movw	%cs, efi32_boot_cs(%ebp)
-	movw	%ds, efi32_boot_ds(%ebp)
+	sgdtl	rva(efi32_boot_gdt)(%ebp)
+	movw	%cs, rva(efi32_boot_cs)(%ebp)
+	movw	%ds, rva(efi32_boot_ds)(%ebp)
+
+	/* Store firmware IDT descriptor */
+	sidtl	rva(efi32_boot_idt)(%ebp)
 
 	/* Disable paging */
 	movl	%cr0, %eax
@@ -312,7 +333,7 @@ SYM_FUNC_END(efi32_stub_entry)
 
 	.code64
 	.org 0x200
-ENTRY(startup_64)
+SYM_CODE_START(startup_64)
 	/*
 	 * 64bit entry is 0x200 and it is ABI so immutable!
 	 * We come here either from startup_32 or directly from a
@@ -323,6 +344,9 @@ ENTRY(startup_64)
 	 * that maps our entire kernel(text+data+bss+brk), zero page
 	 * and command line.
 	 */
+
+	cld
+	cli
 
 	/* Setup data segments. */
 	xorl	%eax, %eax
@@ -375,30 +399,11 @@ ENTRY(startup_64)
 
 	/* Target address to relocate to for decompression */
 	movl	BP_init_size(%rsi), %ebx
-	subl	$_end, %ebx
+	subl	$ rva(_end), %ebx
 	addq	%rbp, %rbx
 
 	/* Set up the stack */
-	leaq	boot_stack_end(%rbx), %rsp
-
-	/*
-	 * paging_prepare() and cleanup_trampoline() below can have GOT
-	 * references. Adjust the table with address we are running at.
-	 *
-	 * Zero RAX for adjust_got: the GOT was not adjusted before;
-	 * there's no adjustment to undo.
-	 */
-	xorq	%rax, %rax
-
-	/*
-	 * Calculate the address the binary is loaded at and use it as
-	 * a GOT adjustment.
-	 */
-	call	1f
-1:	popq	%rdi
-	subq	$1b, %rdi
-
-	call	adjust_got
+	leaq	rva(boot_stack_end)(%rbx), %rsp
 
 	/*
 	 * At this point we are in long mode with 4-level paging enabled,
@@ -426,9 +431,9 @@ ENTRY(startup_64)
 	 */
 
 	/* Make sure we have GDT with 32-bit code segment */
-	leaq	gdt(%rip), %rax
-	movq	%rax, gdt64+2(%rip)
-	lgdt	gdt64(%rip)
+	leaq	gdt64(%rip), %rax
+	addq	%rax, 2(%rax)
+	lgdt	(%rax)
 
 	/* Reload CS so IRET returns to a CS actually in the GDT */
 	pushq	$__KERNEL_CS
@@ -476,7 +481,7 @@ ENTRY(startup_64)
 	lretq
 trampoline_return:
 	/* Restore the stack, the 32-bit trampoline uses its own stack */
-	leaq	boot_stack_end(%rbx), %rsp
+	leaq	rva(boot_stack_end)(%rbx), %rsp
 
 	/*
 	 * cleanup_trampoline() would restore trampoline memory.
@@ -488,7 +493,7 @@ trampoline_return:
 	 * this function call.
 	 */
 	pushq	%rsi
-	leaq	top_pgtable(%rbx), %rdi
+	leaq	rva(top_pgtable)(%rbx), %rdi
 	call	cleanup_trampoline
 	popq	%rsi
 
@@ -496,40 +501,36 @@ trampoline_return:
 	pushq	$0
 	popfq
 
-	/*
-	 * Previously we've adjusted the GOT with address the binary was
-	 * loaded at. Now we need to re-adjust for relocation address.
-	 *
-	 * Calculate the address the binary is loaded at, so that we can
-	 * undo the previous GOT adjustment.
-	 */
-	call	1f
-1:	popq	%rax
-	subq	$1b, %rax
-
-	/* The new adjustment is the relocation address */
-	movq	%rbx, %rdi
-	call	adjust_got
-
 /*
  * Copy the compressed kernel to the end of our buffer
  * where decompression in place becomes safe.
  */
 	pushq	%rsi
 	leaq	(_bss-8)(%rip), %rsi
-	leaq	(_bss-8)(%rbx), %rdi
-	movq	$_bss /* - $startup_32 */, %rcx
-	shrq	$3, %rcx
+	leaq	rva(_bss-8)(%rbx), %rdi
+	movl	$(_bss - startup_32), %ecx
+	shrl	$3, %ecx
 	std
 	rep	movsq
 	cld
 	popq	%rsi
 
+	/*
+	 * The GDT may get overwritten either during the copy we just did or
+	 * during extract_kernel below. To avoid any issues, repoint the GDTR
+	 * to the new copy of the GDT.
+	 */
+	leaq	rva(gdt64)(%rbx), %rax
+	leaq	rva(gdt)(%rbx), %rdx
+	movq	%rdx, 2(%rax)
+	lgdt	(%rax)
+
 /*
  * Jump to the relocated address.
  */
-	leaq	relocated(%rbx), %rax
+	leaq	rva(.Lrelocated)(%rbx), %rax
 	jmp	*%rax
+SYM_CODE_END(startup_64)
 
 #ifdef CONFIG_EFI_STUB
 	.org 0x390
@@ -539,14 +540,14 @@ SYM_FUNC_START_ALIAS(efi_stub_entry)
 	movq	%rdx, %rbx			/* save boot_params pointer */
 	call	efi_main
 	movq	%rbx,%rsi
-	leaq	startup_64(%rax), %rax
+	leaq	rva(startup_64)(%rax), %rax
 	jmp	*%rax
 SYM_FUNC_END(efi64_stub_entry)
 SYM_FUNC_END_ALIAS(efi_stub_entry)
 #endif
 
 	.text
-relocated:
+SYM_FUNC_START_LOCAL_NOALIGN(.Lrelocated)
 
 /*
  * Clear BSS (stack is currently empty)
@@ -557,15 +558,6 @@ relocated:
 	subq	%rdi, %rcx
 	shrq	$3, %rcx
 	rep	stosq
-
-	/*
-	 * The GDT may get overwritten either during the copy we just did or
-	 * during extract_kernel below. To avoid any issues, repoint the GDTR
-	 * to the new copy of the GDT.
-	 */
-	leaq	gdt(%rip), %rax
-	movq	%rax, gdt64+2(%rip)
-	lgdt	gdt64(%rip)
 
 /*
  * If running as an SEV guest, the encryption mask is required in the
@@ -592,9 +584,9 @@ relocated:
 	movq	%rsi, %rdi		/* real mode address */
 	leaq	boot_heap(%rip), %rsi	/* malloc area for uncompression */
 	leaq	input_data(%rip), %rdx  /* input_data */
-	movl	$z_input_len, %ecx	/* input_len */
+	movl	input_len(%rip), %ecx	/* input_len */
 	movq	%rbp, %r8		/* output target address */
-	movq	$z_output_len, %r9	/* decompressed length, end of relocs */
+	movl	output_len(%rip), %r9d	/* decompressed length, end of relocs */
 	call	extract_kernel		/* returns kernel location in %rax */
 	popq	%rsi
 
@@ -602,27 +594,7 @@ relocated:
  * Jump to the decompressed kernel.
  */
 	jmp	*%rax
-
-/*
- * Adjust the global offset table
- *
- * RAX is the previous adjustment of the table to undo (use 0 if it's the
- * first time we touch GOT).
- * RDI is the new adjustment to apply.
- */
-adjust_got:
-	/* Walk through the GOT adding the address to the entries */
-	leaq	_got(%rip), %rdx
-	leaq	_egot(%rip), %rcx
-1:
-	cmpq	%rcx, %rdx
-	jae	2f
-	subq	%rax, (%rdx)	/* Undo previous adjustment */
-	addq	%rdi, (%rdx)	/* Apply the new adjustment */
-	addq	$8, %rdx
-	jmp	1b
-2:
-	ret
+SYM_FUNC_END(.Lrelocated)
 
 	.code32
 /*
@@ -632,7 +604,7 @@ adjust_got:
  * ECX contains the base address of the trampoline memory.
  * Non zero RDX means trampoline needs to enable 5-level paging.
  */
-ENTRY(trampoline_32bit_src)
+SYM_CODE_START(trampoline_32bit_src)
 	/* Set up data and stack segments */
 	movl	$__KERNEL_DS, %eax
 	movl	%eax, %ds
@@ -647,7 +619,7 @@ ENTRY(trampoline_32bit_src)
 	movl	%eax, %cr0
 
 	/* Check what paging mode we want to be in after the trampoline */
-	cmpl	$0, %edx
+	testl	%edx, %edx
 	jz	1f
 
 	/* We want 5-level paging: don't touch CR3 if it already points to 5-level page tables */
@@ -677,14 +649,14 @@ ENTRY(trampoline_32bit_src)
 
 	/* Enable PAE and LA57 (if required) paging modes */
 	movl	$X86_CR4_PAE, %eax
-	cmpl	$0, %edx
+	testl	%edx, %edx
 	jz	1f
 	orl	$X86_CR4_LA57, %eax
 1:
 	movl	%eax, %cr4
 
 	/* Calculate address of paging_enabled() once we are executing in the trampoline */
-	leal	paging_enabled - trampoline_32bit_src + TRAMPOLINE_32BIT_CODE_OFFSET(%ecx), %eax
+	leal	.Lpaging_enabled - trampoline_32bit_src + TRAMPOLINE_32BIT_CODE_OFFSET(%ecx), %eax
 
 	/* Prepare the stack for far return to Long Mode */
 	pushl	$__KERNEL_CS
@@ -695,11 +667,13 @@ ENTRY(trampoline_32bit_src)
 	movl	%eax, %cr0
 
 	lret
+SYM_CODE_END(trampoline_32bit_src)
 
 	.code64
-paging_enabled:
+SYM_FUNC_START_LOCAL_NOALIGN(.Lpaging_enabled)
 	/* Return from the trampoline */
 	jmp	*%rdi
+SYM_FUNC_END(.Lpaging_enabled)
 
 	/*
          * The trampoline code has a size limit.
@@ -709,23 +683,24 @@ paging_enabled:
 	.org	trampoline_32bit_src + TRAMPOLINE_32BIT_CODE_SIZE
 
 	.code32
-no_longmode:
+SYM_FUNC_START_LOCAL_NOALIGN(.Lno_longmode)
 	/* This isn't an x86-64 CPU, so hang intentionally, we cannot continue */
 1:
 	hlt
 	jmp     1b
+SYM_FUNC_END(.Lno_longmode)
 
 #include "../../kernel/verify_cpu.S"
 
 	.data
 SYM_DATA_START_LOCAL(gdt64)
-	.word	gdt_end - gdt
-	.quad   0
+	.word	gdt_end - gdt - 1
+	.quad   gdt - gdt64
 SYM_DATA_END(gdt64)
 	.balign	8
 SYM_DATA_START_LOCAL(gdt)
-	.word	gdt_end - gdt
-	.long	gdt
+	.word	gdt_end - gdt - 1
+	.long	0
 	.word	0
 	.quad	0x00cf9a000000ffff	/* __KERNEL32_CS */
 	.quad	0x00af9a000000ffff	/* __KERNEL_CS */
@@ -733,6 +708,18 @@ SYM_DATA_START_LOCAL(gdt)
 	.quad	0x0080890000000000	/* TS descriptor */
 	.quad   0x0000000000000000	/* TS continued */
 SYM_DATA_END_LABEL(gdt, SYM_L_LOCAL, gdt_end)
+
+SYM_DATA_START(boot_idt_desc)
+	.word	boot_idt_end - boot_idt - 1
+	.quad	0
+SYM_DATA_END(boot_idt_desc)
+	.balign 8
+SYM_DATA_START(boot_idt)
+	.rept	BOOT_IDT_ENTRIES
+	.quad	0
+	.quad	0
+	.endr
+SYM_DATA_END_LABEL(boot_idt, SYM_L_GLOBAL, boot_idt_end)
 
 #ifdef CONFIG_AMD_MEM_ENCRYPT
 SYM_DATA_START(boot32_idt_desc)
@@ -750,20 +737,6 @@ SYM_DATA_END_LABEL(boot32_idt, SYM_L_GLOBAL, boot32_idt_end)
 #ifdef CONFIG_EFI_STUB
 SYM_DATA(image_offset, .long 0)
 #endif
-
-	.globl boot_idt_desc
-boot_idt_desc:
-	.word	boot_idt_end - boot_idt - 1
-	.quad	0
-	.balign 8
-	.globl boot_idt
-boot_idt:
-	.rept	BOOT_IDT_ENTRIES
-	.quad	0
-	.quad	0
-	.endr
-boot_idt_end:
-
 #ifdef CONFIG_EFI_MIXED
 SYM_DATA_LOCAL(efi32_boot_args, .long 0, 0, 0)
 SYM_DATA(efi_is64, .byte 1)
@@ -772,7 +745,7 @@ SYM_DATA(efi_is64, .byte 1)
 #define BS32_handle_protocol	88 // offsetof(efi_boot_services_32_t, handle_protocol)
 #define LI32_image_base		32 // offsetof(efi_loaded_image_32_t, image_base)
 
-	.text
+	__HEAD
 	.code32
 SYM_FUNC_START(efi32_pe_entry)
 /*
@@ -794,12 +767,12 @@ SYM_FUNC_START(efi32_pe_entry)
 
 	call	1f
 1:	pop	%ebx
-	subl	$1b, %ebx
+	subl	$ rva(1b), %ebx
 
 	/* Get the loaded image protocol pointer from the image handle */
 	leal	-4(%ebp), %eax
 	pushl	%eax				// &loaded_image
-	leal	loaded_image_proto(%ebx), %eax
+	leal	rva(loaded_image_proto)(%ebx), %eax
 	pushl	%eax				// pass the GUID address
 	pushl	8(%ebp)				// pass the image handle
 
@@ -834,7 +807,7 @@ SYM_FUNC_START(efi32_pe_entry)
 	 * use it before we get to the 64-bit efi_pe_entry() in C code.
 	 */
 	subl	%esi, %ebx
-	movl	%ebx, image_offset(%ebp)	// save image_offset
+	movl	%ebx, rva(image_offset)(%ebp)	// save image_offset
 	jmp	efi32_pe_stub_entry
 
 2:	popl	%edi				// restore callee-save registers
@@ -866,12 +839,12 @@ SYM_DATA_END(loaded_image_proto)
  *
  * Physical offset is expected in %ebp
  */
-ENTRY(startup32_set_idt_entry)
+SYM_FUNC_START(startup32_set_idt_entry)
 	push    %ebx
 	push    %ecx
 
 	/* IDT entry address to %ebx */
-	leal    boot32_idt(%ebp), %ebx
+	leal    rva(boot32_idt)(%ebp), %ebx
 	shl	$3, %edx
 	addl    %edx, %ebx
 
@@ -896,23 +869,23 @@ ENTRY(startup32_set_idt_entry)
 	pop     %ecx
 	pop     %ebx
 	ret
-ENDPROC(startup32_set_idt_entry)
+SYM_FUNC_END(startup32_set_idt_entry)
 #endif
 
-ENTRY(startup32_load_idt)
+SYM_FUNC_START(startup32_load_idt)
 #ifdef CONFIG_AMD_MEM_ENCRYPT
 	/* #VC handler */
-	leal    startup32_vc_handler(%ebp), %eax
+	leal    rva(startup32_vc_handler)(%ebp), %eax
 	movl    $X86_TRAP_VC, %edx
 	call    startup32_set_idt_entry
 
 	/* Load IDT */
-	leal	boot32_idt(%ebp), %eax
-	movl	%eax, (boot32_idt_desc+2)(%ebp)
-	lidt    boot32_idt_desc(%ebp)
+	leal	rva(boot32_idt)(%ebp), %eax
+	movl	%eax, rva(boot32_idt_desc+2)(%ebp)
+	lidt    rva(boot32_idt_desc)(%ebp)
 #endif
 	ret
-ENDPROC(startup32_load_idt)
+SYM_FUNC_END(startup32_load_idt)
 
 /*
  * Check for the correct C-bit position when the startup_32 boot-path is used.
@@ -939,7 +912,7 @@ SYM_FUNC_START(startup32_check_sev_cbit)
 	pushl	%edx
 
 	/* Check for non-zero sev_status */
-	movl	sev_status(%ebp), %eax
+	movl	rva(sev_status)(%ebp), %eax
 	testl	%eax, %eax
 	jz	4f
 
@@ -954,17 +927,17 @@ SYM_FUNC_START(startup32_check_sev_cbit)
 	jnc	2b
 
 	/* Store to memory and keep it in the registers */
-	movl	%eax, sev_check_data(%ebp)
-	movl	%ebx, sev_check_data+4(%ebp)
+	movl	%eax, rva(sev_check_data)(%ebp)
+	movl	%ebx, rva(sev_check_data+4)(%ebp)
 
 	/* Enable paging to see if encryption is active */
 	movl	%cr0, %edx			 /* Backup %cr0 in %edx */
 	movl	$(X86_CR0_PG | X86_CR0_PE), %ecx /* Enable Paging and Protected mode */
 	movl	%ecx, %cr0
 
-	cmpl	%eax, sev_check_data(%ebp)
+	cmpl	%eax, rva(sev_check_data)(%ebp)
 	jne	3f
-	cmpl	%ebx, sev_check_data+4(%ebp)
+	cmpl	%ebx, rva(sev_check_data+4)(%ebp)
 	jne	3f
 
 	movl	%edx, %cr0	/* Restore previous %cr0 */
@@ -999,7 +972,7 @@ SYM_DATA_END_LABEL(boot_stack, SYM_L_LOCAL, boot_stack_end)
 /*
  * Space for page tables (not in .bss so not zeroed)
  */
-	.section ".pgtable","a",@nobits
+	.section ".pgtable","aw",@nobits
 	.balign 4096
 SYM_DATA_LOCAL(pgtable,		.fill BOOT_PGT_SIZE, 1, 0)
 

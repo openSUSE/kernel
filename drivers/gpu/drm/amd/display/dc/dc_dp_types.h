@@ -95,6 +95,12 @@ enum dc_dp_training_pattern {
 	DP_TRAINING_PATTERN_SEQUENCE_2,
 	DP_TRAINING_PATTERN_SEQUENCE_3,
 	DP_TRAINING_PATTERN_SEQUENCE_4,
+	DP_TRAINING_PATTERN_VIDEOIDLE,
+};
+
+enum dp_link_encoding {
+	DP_UNKNOWN_ENCODING = 0,
+	DP_8b_10b_ENCODING = 1,
 };
 
 struct dc_link_settings {
@@ -123,6 +129,7 @@ struct dc_link_training_overrides {
 
 	uint16_t *cr_pattern_time;
 	uint16_t *eq_pattern_time;
+	enum dc_dp_training_pattern *pattern_for_cr;
 	enum dc_dp_training_pattern *pattern_for_eq;
 
 	enum dc_link_spread *downspread;
@@ -450,6 +457,9 @@ struct dpcd_amd_signature {
 	uint8_t AMD_IEEE_TxSignature_byte1;
 	uint8_t AMD_IEEE_TxSignature_byte2;
 	uint8_t AMD_IEEE_TxSignature_byte3;
+};
+
+struct dpcd_amd_device_id {
 	uint8_t device_id_byte1;
 	uint8_t device_id_byte2;
 	uint8_t zero[4];

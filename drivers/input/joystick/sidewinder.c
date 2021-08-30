@@ -223,7 +223,7 @@ static __u64 sw_get_bits(unsigned char *buf, int pos, int num, char bits)
 
 static void sw_init_digital(struct gameport *gameport)
 {
-	int seq[] = { 140, 140+725, 140+300, 0 };
+	static const int seq[] = { 140, 140+725, 140+300, 0 };
 	unsigned long flags;
 	int i, t;
 
@@ -656,16 +656,20 @@ static int sw_connect(struct gameport *gameport, struct gameport_driver *drv)
 
 			switch (i * m) {
 				case 60:
-					sw->number++;			/* fall through */
+					sw->number++;
+					fallthrough;
 				case 45:				/* Ambiguous packet length */
 					if (j <= 40) {			/* ID length less or eq 40 -> FSP */
+					fallthrough;
 				case 43:
 						sw->type = SW_ID_FSP;
 						break;
 					}
-					sw->number++;			/* fall through */
+					sw->number++;
+					fallthrough;
 				case 30:
-					sw->number++;			/* fall through */
+					sw->number++;
+					fallthrough;
 				case 15:
 					sw->type = SW_ID_GP;
 					break;
@@ -681,9 +685,11 @@ static int sw_connect(struct gameport *gameport, struct gameport_driver *drv)
 						sw->type = SW_ID_PP;
 					break;
 				case 66:
-					sw->bits = 3;			/* fall through */
+					sw->bits = 3;
+					fallthrough;
 				case 198:
-					sw->length = 22;		/* fall through */
+					sw->length = 22;
+					fallthrough;
 				case 64:
 					sw->type = SW_ID_3DP;
 					if (j == 160)

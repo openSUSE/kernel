@@ -38,7 +38,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/scatterlist.h>
-#include <linux/dma-noncoherent.h>
+#include <linux/dma-map-ops.h>
 #include <linux/of_device.h>
 
 #include <asm/io.h>
@@ -372,9 +372,6 @@ void arch_sync_dma_for_cpu(phys_addr_t paddr, size_t size,
 	if (dir != PCI_DMA_TODEVICE)
 		dma_make_coherent(paddr, PAGE_ALIGN(size));
 }
-
-const struct dma_map_ops *dma_ops;
-EXPORT_SYMBOL(dma_ops);
 
 #ifdef CONFIG_PROC_FS
 

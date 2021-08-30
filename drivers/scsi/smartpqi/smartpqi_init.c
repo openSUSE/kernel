@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  *    driver for Microsemi PQI-based storage controllers
- *    Copyright (c) 2019 Microchip Technology Inc. and its subsidiaries
+ *    Copyright (c) 2019-2020 Microchip Technology Inc. and its subsidiaries
  *    Copyright (c) 2016-2018 Microsemi Corporation
  *    Copyright (c) 2016 PMC-Sierra, Inc.
  *
@@ -51,7 +51,6 @@
 MODULE_AUTHOR("Microsemi");
 MODULE_DESCRIPTION("Driver for Microsemi Smart Family Controller version "
 	DRIVER_VERSION);
-MODULE_SUPPORTED_DEVICE("Microsemi Smart Family Controllers");
 MODULE_VERSION(DRIVER_VERSION);
 MODULE_LICENSE("GPL");
 
@@ -558,7 +557,7 @@ static int pqi_build_raid_path_request(struct pqi_ctrl_info *ctrl_info,
 		break;
 	case BMIC_SENSE_DIAG_OPTIONS:
 		cdb_length = 0;
-		/* fall through */
+		fallthrough;
 	case BMIC_IDENTIFY_CONTROLLER:
 	case BMIC_IDENTIFY_PHYSICAL_DEVICE:
 	case BMIC_SENSE_SUBSYSTEM_INFORMATION:
@@ -570,7 +569,7 @@ static int pqi_build_raid_path_request(struct pqi_ctrl_info *ctrl_info,
 		break;
 	case BMIC_SET_DIAG_OPTIONS:
 		cdb_length = 0;
-		/* fall through */
+		fallthrough;
 	case BMIC_WRITE_HOST_WELLNESS:
 		request->data_direction = SOP_WRITE_FLAG;
 		cdb[0] = BMIC_WRITE;
@@ -2444,7 +2443,7 @@ static int pqi_get_aio_lba_and_block_count(struct scsi_cmnd *scmd,
 	switch (scmd->cmnd[0]) {
 	case WRITE_6:
 		rmd->is_write = true;
-		/* fall through */
+		fallthrough;
 	case READ_6:
 		rmd->first_block = (u64)(((scmd->cmnd[1] & 0x1f) << 16) |
 			(scmd->cmnd[2] << 8) | scmd->cmnd[3]);
@@ -2454,21 +2453,21 @@ static int pqi_get_aio_lba_and_block_count(struct scsi_cmnd *scmd,
 		break;
 	case WRITE_10:
 		rmd->is_write = true;
-		/* fall through */
+		fallthrough;
 	case READ_10:
 		rmd->first_block = (u64)get_unaligned_be32(&scmd->cmnd[2]);
 		rmd->block_cnt = (u32)get_unaligned_be16(&scmd->cmnd[7]);
 		break;
 	case WRITE_12:
 		rmd->is_write = true;
-		/* fall through */
+		fallthrough;
 	case READ_12:
 		rmd->first_block = (u64)get_unaligned_be32(&scmd->cmnd[2]);
 		rmd->block_cnt = get_unaligned_be32(&scmd->cmnd[6]);
 		break;
 	case WRITE_16:
 		rmd->is_write = true;
-		/* fall through */
+		fallthrough;
 	case READ_16:
 		rmd->first_block = get_unaligned_be64(&scmd->cmnd[2]);
 		rmd->block_cnt = get_unaligned_be32(&scmd->cmnd[10]);
@@ -3088,8 +3087,7 @@ static void pqi_process_aio_io_error(struct pqi_io_request *io_request)
 	}
 
 	if (device_offline && sense_data_length == 0)
-		scsi_build_sense_buffer(0, scmd->sense_buffer, HARDWARE_ERROR,
-			0x3e, 0x1);
+		scsi_build_sense(scmd, 0, HARDWARE_ERROR, 0x3e, 0x1);
 
 	scmd->result = scsi_status;
 	set_host_byte(scmd, host_byte);
@@ -3189,7 +3187,7 @@ static int pqi_process_io_intr(struct pqi_ctrl_info *ctrl_info, struct pqi_queue
 		case PQI_RESPONSE_IU_AIO_PATH_IO_SUCCESS:
 			if (io_request->scmd)
 				io_request->scmd->result = 0;
-			/* fall through */
+			fallthrough;
 		case PQI_RESPONSE_IU_GENERAL_MANAGEMENT:
 			break;
 		case PQI_RESPONSE_IU_VENDOR_GENERAL:
@@ -3366,7 +3364,7 @@ static void pqi_process_soft_reset(struct pqi_ctrl_info *ctrl_info)
 		dev_info(&ctrl_info->pci_dev->dev,
 				"Online Firmware Activation: resetting controller\n");
 		sis_soft_reset(ctrl_info);
-		/* fall through */
+		fallthrough;
 	case RESET_INITIATE_FIRMWARE:
 		ctrl_info->pqi_mode_enabled = false;
 		pqi_save_ctrl_mode(ctrl_info, SIS_MODE);
@@ -7995,8 +7993,12 @@ static int pqi_ctrl_init_resume(struct pqi_ctrl_info *ctrl_info)
 
 static inline int pqi_set_pcie_completion_timeout(struct pci_dev *pci_dev, u16 timeout)
 {
-	return pcie_capability_clear_and_set_word(pci_dev, PCI_EXP_DEVCTL2,
+	int rc;
+
+	rc = pcie_capability_clear_and_set_word(pci_dev, PCI_EXP_DEVCTL2,
 		PCI_EXP_DEVCTL2_COMP_TIMEOUT, timeout);
+
+	return pcibios_err_to_errno(rc);
 }
 
 static int pqi_pci_init(struct pqi_ctrl_info *ctrl_info)
@@ -8029,7 +8031,7 @@ static int pqi_pci_init(struct pqi_ctrl_info *ctrl_info)
 		goto disable_device;
 	}
 
-	ctrl_info->iomem_base = ioremap_nocache(pci_resource_start(
+	ctrl_info->iomem_base = ioremap(pci_resource_start(
 		ctrl_info->pci_dev, 0),
 		sizeof(struct pqi_ctrl_registers));
 	if (!ctrl_info->iomem_base) {
@@ -9388,11 +9390,11 @@ static void __attribute__((unused)) verify_structures(void)
 	BUILD_BUG_ON(offsetof(struct pqi_general_admin_request,
 		data.delete_operational_queue.queue_id) != 12);
 	BUILD_BUG_ON(sizeof(struct pqi_general_admin_request) != 64);
-	BUILD_BUG_ON(FIELD_SIZEOF(struct pqi_general_admin_request,
+	BUILD_BUG_ON(sizeof_field(struct pqi_general_admin_request,
 		data.create_operational_iq) != 64 - 11);
-	BUILD_BUG_ON(FIELD_SIZEOF(struct pqi_general_admin_request,
+	BUILD_BUG_ON(sizeof_field(struct pqi_general_admin_request,
 		data.create_operational_oq) != 64 - 11);
-	BUILD_BUG_ON(FIELD_SIZEOF(struct pqi_general_admin_request,
+	BUILD_BUG_ON(sizeof_field(struct pqi_general_admin_request,
 		data.delete_operational_queue) != 64 - 11);
 
 	BUILD_BUG_ON(offsetof(struct pqi_general_admin_response,

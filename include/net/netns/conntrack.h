@@ -24,11 +24,12 @@ struct nf_generic_net {
 
 struct nf_tcp_net {
 	unsigned int timeouts[TCP_CONNTRACK_TIMEOUT_MAX];
-	int tcp_loose;
-	int tcp_be_liberal;
-	int tcp_max_retrans;
-#ifndef __GENKSYMS__
-	int tcp_ignore_invalid_rst;
+	u8 tcp_loose;
+	u8 tcp_be_liberal;
+	u8 tcp_max_retrans;
+	u8 tcp_ignore_invalid_rst;
+#if IS_ENABLED(CONFIG_NF_FLOW_TABLE)
+	unsigned int offload_timeout;
 #endif
 };
 
@@ -40,6 +41,9 @@ enum udp_conntrack {
 
 struct nf_udp_net {
 	unsigned int timeouts[UDP_CT_MAX];
+#if IS_ENABLED(CONFIG_NF_FLOW_TABLE)
+	unsigned int offload_timeout;
+#endif
 };
 
 struct nf_icmp_net {
@@ -48,7 +52,7 @@ struct nf_icmp_net {
 
 #ifdef CONFIG_NF_CT_PROTO_DCCP
 struct nf_dccp_net {
-	int dccp_loose;
+	u8 dccp_loose;
 	unsigned int dccp_timeout[CT_DCCP_MAX + 1];
 };
 #endif
@@ -96,22 +100,15 @@ struct ct_pcpu {
 };
 
 struct netns_ct {
-	atomic_t		count;
-	unsigned int		expect_count;
 #ifdef CONFIG_NF_CONNTRACK_EVENTS
-	struct delayed_work ecache_dwork;
 	bool ecache_dwork_pending;
 #endif
-	bool			auto_assign_helper_warned;
-#ifdef CONFIG_SYSCTL
-	struct ctl_table_header	*sysctl_header;
-#endif
-	unsigned int		sysctl_log_invalid; /* Log invalid packets */
-	int			sysctl_events;
-	int			sysctl_acct;
-	int			sysctl_auto_assign_helper;
-	int			sysctl_tstamp;
-	int			sysctl_checksum;
+	u8			sysctl_log_invalid; /* Log invalid packets */
+	u8			sysctl_events;
+	u8			sysctl_acct;
+	u8			sysctl_auto_assign_helper;
+	u8			sysctl_tstamp;
+	u8			sysctl_checksum;
 
 	struct ct_pcpu __percpu *pcpu_lists;
 	struct ip_conntrack_stat __percpu *stat;

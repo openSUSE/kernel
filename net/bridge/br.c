@@ -43,7 +43,10 @@ static int br_device_event(struct notifier_block *unused, unsigned long event, v
 
 		if (event == NETDEV_REGISTER) {
 			/* register of bridge completed, add sysfs entries */
-			br_sysfs_addbr(dev);
+			err = br_sysfs_addbr(dev);
+			if (err)
+				return notifier_from_errno(err);
+
 			return NOTIFY_DONE;
 		}
 	}
@@ -119,7 +122,7 @@ static int br_device_event(struct notifier_block *unused, unsigned long event, v
 		break;
 
 	case NETDEV_PRE_TYPE_CHANGE:
-		/* Forbid underlaying device to change its type. */
+		/* Forbid underlying device to change its type. */
 		return NOTIFY_BAD;
 
 	case NETDEV_RESEND_IGMP:
@@ -317,7 +320,7 @@ static int __init br_init(void)
 {
 	int err;
 
-	BUILD_BUG_ON(sizeof(struct br_input_skb_cb) > FIELD_SIZEOF(struct sk_buff, cb));
+	BUILD_BUG_ON(sizeof(struct br_input_skb_cb) > sizeof_field(struct sk_buff, cb));
 
 	err = stp_proto_register(&br_stp_proto);
 	if (err < 0) {

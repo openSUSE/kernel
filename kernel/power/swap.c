@@ -31,7 +31,6 @@
 #include <linux/kthread.h>
 #include <linux/crc32.h>
 #include <linux/ktime.h>
-#include <linux/security.h>
 
 #include "power.h"
 
@@ -347,26 +346,23 @@ static int swsusp_swap_check(void)
 {
 	int res;
 
-	res = swap_type_of(swsusp_resume_device, swsusp_resume_block,
-			&hib_resume_bdev);
+	if (swsusp_resume_device)
+		res = swap_type_of(swsusp_resume_device, swsusp_resume_block);
+	else
+		res = find_first_swap(&swsusp_resume_device);
 	if (res < 0)
 		return res;
-
 	root_swap = res;
-	res = blkdev_get(hib_resume_bdev, FMODE_WRITE, NULL);
-	if (res)
-		return res;
+
+	hib_resume_bdev = blkdev_get_by_dev(swsusp_resume_device, FMODE_WRITE,
+			NULL);
+	if (IS_ERR(hib_resume_bdev))
+		return PTR_ERR(hib_resume_bdev);
 
 	res = set_blocksize(hib_resume_bdev, PAGE_SIZE);
 	if (res < 0)
 		blkdev_put(hib_resume_bdev, FMODE_WRITE);
 
-	/*
-	 * Update the resume device to the one actually used,
-	 * so the test_resume mode can use it in case it is
-	 * invoked from hibernate() to test the snapshot.
-	 */
-	swsusp_resume_device = hib_resume_bdev->bd_dev;
 	return res;
 }
 
@@ -888,7 +884,7 @@ out_clean:
  *	enough_swap - Make sure we have enough swap to save the image.
  *
  *	Returns TRUE or FALSE after checking the total amount of swap
- *	space avaiable from the resume partition.
+ *	space available from the resume partition.
  */
 
 static int enough_swap(unsigned int nr_pages)
@@ -1107,11 +1103,6 @@ static int load_image(struct swap_map_handle *handle,
 		snapshot_write_finalize(snapshot);
 		if (!snapshot_image_loaded(snapshot))
 			ret = -ENODATA;
-		if (!ret)
-			ret = snapshot_image_verify();
-		snapshot_init_trampoline();
-		/* clean the hidden area in boot kernel */
-		clean_hidden_area();
 	}
 	swsusp_show_speed(start, stop, nr_to_read, "Read");
 	return ret;
@@ -1134,7 +1125,7 @@ struct dec_data {
 };
 
 /**
- * Deompression function that runs in its own thread.
+ * Decompression function that runs in its own thread.
  */
 static int lzo_decompress_threadfn(void *data)
 {
@@ -1464,11 +1455,6 @@ out_finish:
 				}
 			}
 		}
-		if (!ret)
-			ret = snapshot_image_verify();
-		snapshot_init_trampoline();
-		/* clean the hidden area in boot kernel */
-		clean_hidden_area();
 	}
 	swsusp_show_speed(start, stop, nr_to_read, "Read");
 out_clean:
@@ -1616,7 +1602,7 @@ int swsusp_unmark(void)
 }
 #endif
 
-static int swsusp_header_init(void)
+static int __init swsusp_header_init(void)
 {
 	swsusp_header = (struct swsusp_header*) __get_free_page(GFP_KERNEL);
 	if (!swsusp_header)

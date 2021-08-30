@@ -10,7 +10,6 @@
     |         arc: |  ..  |
     |         arm: |  ..  |
     |       arm64: |  ok  |
-    |         c6x: |  ..  |
     |        csky: |  ..  |
     |       h8300: |  ..  |
     |     hexagon: |  ..  |
@@ -23,12 +22,11 @@
     |    openrisc: |  ..  |
     |      parisc: |  ..  |
     |     powerpc: |  ok  |
-    |       riscv: | TODO |
+    |       riscv: |  ok  |
     |        s390: |  ok  |
     |          sh: |  ..  |
     |       sparc: | TODO |
     |          um: |  ..  |
-    |   unicore32: |  ..  |
     |         x86: |  ok  |
     |      xtensa: |  ..  |
     -----------------------

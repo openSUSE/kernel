@@ -66,7 +66,6 @@ static const struct v4l2_frequency_band bands[] = {
 
 /* stream formats */
 struct msi2500_format {
-	char	*name;
 	u32	pixelformat;
 	u32	buffersize;
 };
@@ -74,27 +73,21 @@ struct msi2500_format {
 /* format descriptions for capture and preview */
 static struct msi2500_format formats[] = {
 	{
-		.name		= "Complex S8",
 		.pixelformat	= V4L2_SDR_FMT_CS8,
 		.buffersize	= 3 * 1008,
 #if 0
 	}, {
-		.name		= "10+2-bit signed",
 		.pixelformat	= MSI2500_PIX_FMT_SDR_MSI2500_384,
 	}, {
-		.name		= "12-bit signed",
 		.pixelformat	= MSI2500_PIX_FMT_SDR_S12,
 #endif
 	}, {
-		.name		= "Complex S14LE",
 		.pixelformat	= V4L2_SDR_FMT_CS14LE,
 		.buffersize	= 3 * 1008,
 	}, {
-		.name		= "Complex U8 (emulated)",
 		.pixelformat	= V4L2_SDR_FMT_CU8,
 		.buffersize	= 3 * 1008,
 	}, {
-		.name		= "Complex U16LE (emulated)",
 		.pixelformat	=  V4L2_SDR_FMT_CU16LE,
 		.buffersize	= 3 * 1008,
 	},
@@ -874,7 +867,7 @@ static void msi2500_stop_streaming(struct vb2_queue *vq)
 
 	/* according to tests, at least 700us delay is required  */
 	msleep(20);
-	if (!msi2500_ctrl_msg(dev, CMD_STOP_STREAMING, 0)) {
+	if (dev->udev && !msi2500_ctrl_msg(dev, CMD_STOP_STREAMING, 0)) {
 		/* sleep USB IF / ADC */
 		msi2500_ctrl_msg(dev, CMD_WREG, 0x01000003);
 	}
@@ -904,7 +897,6 @@ static int msi2500_enum_fmt_sdr_cap(struct file *file, void *priv,
 	if (f->index >= dev->num_formats)
 		return -EINVAL;
 
-	strscpy(f->description, formats[f->index].name, sizeof(f->description));
 	f->pixelformat = formats[f->index].pixelformat;
 
 	return 0;
@@ -920,7 +912,6 @@ static int msi2500_g_fmt_sdr_cap(struct file *file, void *priv,
 
 	f->fmt.sdr.pixelformat = dev->pixelformat;
 	f->fmt.sdr.buffersize = dev->buffersize;
-	memset(f->fmt.sdr.reserved, 0, sizeof(f->fmt.sdr.reserved));
 
 	return 0;
 }
@@ -938,7 +929,6 @@ static int msi2500_s_fmt_sdr_cap(struct file *file, void *priv,
 	if (vb2_is_busy(q))
 		return -EBUSY;
 
-	memset(f->fmt.sdr.reserved, 0, sizeof(f->fmt.sdr.reserved));
 	for (i = 0; i < dev->num_formats; i++) {
 		if (formats[i].pixelformat == f->fmt.sdr.pixelformat) {
 			dev->pixelformat = formats[i].pixelformat;
@@ -965,7 +955,6 @@ static int msi2500_try_fmt_sdr_cap(struct file *file, void *priv,
 	dev_dbg(dev->dev, "pixelformat fourcc %4.4s\n",
 		(char *)&f->fmt.sdr.pixelformat);
 
-	memset(f->fmt.sdr.reserved, 0, sizeof(f->fmt.sdr.reserved));
 	for (i = 0; i < dev->num_formats; i++) {
 		if (formats[i].pixelformat == f->fmt.sdr.pixelformat) {
 			f->fmt.sdr.buffersize = formats[i].buffersize;

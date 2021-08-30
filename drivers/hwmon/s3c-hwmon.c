@@ -20,7 +20,7 @@
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
 
-#include <plat/adc.h>
+#include <linux/soc/samsung/s3c-adc.h>
 #include <linux/platform_data/hwmon-s3c.h>
 
 struct s3c_hwmon_attr {
@@ -166,7 +166,7 @@ static ssize_t s3c_hwmon_ch_show(struct device *dev,
 	ret *= cfg->mult;
 	ret = DIV_ROUND_CLOSEST(ret, cfg->div);
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", ret);
+	return sysfs_emit(buf, "%d\n", ret);
 }
 
 /**
@@ -187,7 +187,7 @@ static ssize_t s3c_hwmon_label_show(struct device *dev,
 
 	cfg = pdata->in[sen_attr->index];
 
-	return snprintf(buf, PAGE_SIZE, "%s\n", cfg->name);
+	return sysfs_emit(buf, "%s\n", cfg->name);
 }
 
 /**

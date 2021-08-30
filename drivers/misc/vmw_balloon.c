@@ -17,6 +17,7 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/types.h>
+#include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
@@ -344,11 +345,6 @@ struct vmballoon {
 
 	/* statistics */
 	struct vmballoon_stats *stats;
-
-#ifdef CONFIG_DEBUG_FS
-	/* debugfs file exporting statistics */
-	struct dentry *dbg_entry;
-#endif
 
 	/**
 	 * @b_dev_info: balloon device information descriptor.
@@ -1708,14 +1704,14 @@ DEFINE_SHOW_ATTRIBUTE(vmballoon_debug);
 
 static void __init vmballoon_debugfs_init(struct vmballoon *b)
 {
-	b->dbg_entry = debugfs_create_file("vmmemctl", S_IRUGO, NULL, b,
-					   &vmballoon_debug_fops);
+	debugfs_create_file("vmmemctl", S_IRUGO, NULL, b,
+			    &vmballoon_debug_fops);
 }
 
 static void __exit vmballoon_debugfs_exit(struct vmballoon *b)
 {
 	static_key_disable(&balloon_stat_enabled.key);
-	debugfs_remove(b->dbg_entry);
+	debugfs_remove(debugfs_lookup("vmmemctl", NULL));
 	kfree(b->stats);
 	b->stats = NULL;
 }

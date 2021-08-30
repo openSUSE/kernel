@@ -9,10 +9,8 @@
 #include <linux/scatterlist.h>
 #include <linux/numa.h>
 #include <asm/io.h>
-#include <asm/pat.h>
+#include <asm/memtype.h>
 #include <asm/x86_init.h>
-
-#ifdef __KERNEL__
 
 struct pci_sysdata {
 	int		domain;		/* PCI domain */
@@ -106,12 +104,6 @@ static inline void early_quirks(void) { }
 #endif
 
 extern void pci_iommu_alloc(void);
-
-#endif  /* __KERNEL__ */
-
-#ifdef CONFIG_X86_64
-#include <asm/pci_64.h>
-#endif
 
 /* generic pci stuff */
 #include <asm-generic/pci.h>

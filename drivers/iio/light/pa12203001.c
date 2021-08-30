@@ -186,9 +186,7 @@ static int pa12203001_set_power_state(struct pa12203001_data *data, bool on,
 	}
 
 	if (on) {
-		ret = pm_runtime_get_sync(&data->client->dev);
-		if (ret < 0)
-			pm_runtime_put_noidle(&data->client->dev);
+		ret = pm_runtime_resume_and_get(&data->client->dev);
 
 	} else {
 		pm_runtime_mark_last_busy(&data->client->dev);
@@ -362,7 +360,6 @@ static int pa12203001_probe(struct i2c_client *client,
 
 	mutex_init(&data->lock);
 
-	indio_dev->dev.parent = &client->dev;
 	indio_dev->info = &pa12203001_info;
 	indio_dev->name = PA12203001_DRIVER_NAME;
 	indio_dev->channels = pa12203001_channels;

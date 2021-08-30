@@ -35,6 +35,7 @@ enum st_accel_type {
 	LIS2DW12,
 	LIS3DHH,
 	LIS2DE12,
+	LIS2HH12,
 	ST_ACCEL_MAX,
 };
 
@@ -59,17 +60,7 @@ enum st_accel_type {
 #define LIS3DHH_ACCEL_DEV_NAME		"lis3dhh"
 #define LIS3DE_ACCEL_DEV_NAME		"lis3de"
 #define LIS2DE12_ACCEL_DEV_NAME		"lis2de12"
-
-/**
-* struct st_sensors_platform_data - default accel platform data
-* @drdy_int_pin: default accel DRDY is available on INT1 pin.
-*/
-static const struct st_sensors_platform_data default_accel_pdata = {
-	.drdy_int_pin = 1,
-};
-
-int st_accel_common_probe(struct iio_dev *indio_dev);
-void st_accel_common_remove(struct iio_dev *indio_dev);
+#define LIS2HH12_ACCEL_DEV_NAME		"lis2hh12"
 
 #ifdef CONFIG_IIO_BUFFER
 int st_accel_allocate_ring(struct iio_dev *indio_dev);

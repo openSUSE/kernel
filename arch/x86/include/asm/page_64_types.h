@@ -55,13 +55,36 @@
 
 #ifdef CONFIG_X86_5LEVEL
 #define __VIRTUAL_MASK_SHIFT	(pgtable_l5_enabled() ? 56 : 47)
+/* See task_size_max() in <asm/page_64.h> */
 #else
 #define __VIRTUAL_MASK_SHIFT	47
+#define task_size_max()		((_AC(1,UL) << __VIRTUAL_MASK_SHIFT) - PAGE_SIZE)
 #endif
 
+#define TASK_SIZE_MAX		task_size_max()
+#define DEFAULT_MAP_WINDOW	((1UL << 47) - PAGE_SIZE)
+
+/* This decides where the kernel will search for a free chunk of vm
+ * space during mmap's.
+ */
+#define IA32_PAGE_OFFSET	((current->personality & ADDR_LIMIT_3GB) ? \
+					0xc0000000 : 0xFFFFe000)
+
+#define TASK_SIZE_LOW		(test_thread_flag(TIF_ADDR32) ? \
+					IA32_PAGE_OFFSET : DEFAULT_MAP_WINDOW)
+#define TASK_SIZE		(test_thread_flag(TIF_ADDR32) ? \
+					IA32_PAGE_OFFSET : TASK_SIZE_MAX)
+#define TASK_SIZE_OF(child)	((test_tsk_thread_flag(child, TIF_ADDR32)) ? \
+					IA32_PAGE_OFFSET : TASK_SIZE_MAX)
+
+#define STACK_TOP		TASK_SIZE_LOW
+#define STACK_TOP_MAX		TASK_SIZE_MAX
+
 /*
- * Maximum kernel image size is limited to 1 GiB, due to the fixmap living
- * in the next 1 GiB (see level2_kernel_pgt in arch/x86/kernel/head_64.S).
+ * In spite of the name, KERNEL_IMAGE_SIZE is a limit on the maximum virtual
+ * address for the kernel image, rather than the limit on the size itself.
+ * This can be at most 1 GiB, due to the fixmap living in the next 1 GiB (see
+ * level2_kernel_pgt in arch/x86/kernel/head_64.S).
  *
  * On KASLR use 1 GiB by default, leaving 1 GiB for modules once the
  * page tables are fully set up.

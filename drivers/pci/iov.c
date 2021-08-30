@@ -9,7 +9,6 @@
 
 #include <linux/pci.h>
 #include <linux/slab.h>
-#include <linux/mutex.h>
 #include <linux/export.h>
 #include <linux/string.h>
 #include <linux/delay.h>
@@ -32,6 +31,7 @@ int pci_iov_virtfn_devfn(struct pci_dev *dev, int vf_id)
 	return (dev->devfn + dev->sriov->offset +
 		dev->sriov->stride * vf_id) & 0xff;
 }
+EXPORT_SYMBOL_GPL(pci_iov_virtfn_devfn);
 
 /*
  * Per SR-IOV spec sec 3.3.10 and 3.3.11, First VF Offset and VF Stride may
@@ -158,6 +158,92 @@ failed:
 	return rc;
 }
 
+#ifdef CONFIG_PCI_MSI
+static ssize_t sriov_vf_total_msix_show(struct device *dev,
+					struct device_attribute *attr,
+					char *buf)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+	u32 vf_total_msix = 0;
+
+	device_lock(dev);
+	if (!pdev->driver || !pdev->driver->sriov_get_vf_total_msix)
+		goto unlock;
+
+	vf_total_msix = pdev->driver->sriov_get_vf_total_msix(pdev);
+unlock:
+	device_unlock(dev);
+	return sysfs_emit(buf, "%u\n", vf_total_msix);
+}
+static DEVICE_ATTR_RO(sriov_vf_total_msix);
+
+static ssize_t sriov_vf_msix_count_store(struct device *dev,
+					 struct device_attribute *attr,
+					 const char *buf, size_t count)
+{
+	struct pci_dev *vf_dev = to_pci_dev(dev);
+	struct pci_dev *pdev = pci_physfn(vf_dev);
+	int val, ret;
+
+	ret = kstrtoint(buf, 0, &val);
+	if (ret)
+		return ret;
+
+	if (val < 0)
+		return -EINVAL;
+
+	device_lock(&pdev->dev);
+	if (!pdev->driver || !pdev->driver->sriov_set_msix_vec_count) {
+		ret = -EOPNOTSUPP;
+		goto err_pdev;
+	}
+
+	device_lock(&vf_dev->dev);
+	if (vf_dev->driver) {
+		/*
+		 * A driver is already attached to this VF and has configured
+		 * itself based on the current MSI-X vector count. Changing
+		 * the vector size could mess up the driver, so block it.
+		 */
+		ret = -EBUSY;
+		goto err_dev;
+	}
+
+	ret = pdev->driver->sriov_set_msix_vec_count(vf_dev, val);
+
+err_dev:
+	device_unlock(&vf_dev->dev);
+err_pdev:
+	device_unlock(&pdev->dev);
+	return ret ? : count;
+}
+static DEVICE_ATTR_WO(sriov_vf_msix_count);
+#endif
+
+static struct attribute *sriov_vf_dev_attrs[] = {
+#ifdef CONFIG_PCI_MSI
+	&dev_attr_sriov_vf_msix_count.attr,
+#endif
+	NULL,
+};
+
+static umode_t sriov_vf_attrs_are_visible(struct kobject *kobj,
+					  struct attribute *a, int n)
+{
+	struct device *dev = kobj_to_dev(kobj);
+	struct pci_dev *pdev = to_pci_dev(dev);
+
+	if (!pdev->is_virtfn)
+		return 0;
+
+	return a->mode;
+}
+
+const struct attribute_group sriov_vf_dev_attr_group = {
+	.attrs = sriov_vf_dev_attrs,
+	.is_visible = sriov_vf_attrs_are_visible,
+};
+
 int pci_iov_add_virtfn(struct pci_dev *dev, int id)
 {
 	int i;
@@ -253,6 +339,189 @@ void pci_iov_remove_virtfn(struct pci_dev *dev, int id)
 	pci_dev_put(virtfn);
 	pci_dev_put(dev);
 }
+
+static ssize_t sriov_totalvfs_show(struct device *dev,
+				   struct device_attribute *attr,
+				   char *buf)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+
+	return sysfs_emit(buf, "%u\n", pci_sriov_get_totalvfs(pdev));
+}
+
+static ssize_t sriov_numvfs_show(struct device *dev,
+				 struct device_attribute *attr,
+				 char *buf)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+	u16 num_vfs;
+
+	/* Serialize vs sriov_numvfs_store() so readers see valid num_VFs */
+	device_lock(&pdev->dev);
+	num_vfs = pdev->sriov->num_VFs;
+	device_unlock(&pdev->dev);
+
+	return sysfs_emit(buf, "%u\n", num_vfs);
+}
+
+/*
+ * num_vfs > 0; number of VFs to enable
+ * num_vfs = 0; disable all VFs
+ *
+ * Note: SRIOV spec does not allow partial VF
+ *	 disable, so it's all or none.
+ */
+static ssize_t sriov_numvfs_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+	int ret;
+	u16 num_vfs;
+
+	ret = kstrtou16(buf, 0, &num_vfs);
+	if (ret < 0)
+		return ret;
+
+	if (num_vfs > pci_sriov_get_totalvfs(pdev))
+		return -ERANGE;
+
+	device_lock(&pdev->dev);
+
+	if (num_vfs == pdev->sriov->num_VFs)
+		goto exit;
+
+	/* is PF driver loaded */
+	if (!pdev->driver) {
+		pci_info(pdev, "no driver bound to device; cannot configure SR-IOV\n");
+		ret = -ENOENT;
+		goto exit;
+	}
+
+	/* is PF driver loaded w/callback */
+	if (!pdev->driver->sriov_configure) {
+		pci_info(pdev, "driver does not support SR-IOV configuration via sysfs\n");
+		ret = -ENOENT;
+		goto exit;
+	}
+
+	if (num_vfs == 0) {
+		/* disable VFs */
+		ret = pdev->driver->sriov_configure(pdev, 0);
+		goto exit;
+	}
+
+	/* enable VFs */
+	if (pdev->sriov->num_VFs) {
+		pci_warn(pdev, "%d VFs already enabled. Disable before enabling %d VFs\n",
+			 pdev->sriov->num_VFs, num_vfs);
+		ret = -EBUSY;
+		goto exit;
+	}
+
+	ret = pdev->driver->sriov_configure(pdev, num_vfs);
+	if (ret < 0)
+		goto exit;
+
+	if (ret != num_vfs)
+		pci_warn(pdev, "%d VFs requested; only %d enabled\n",
+			 num_vfs, ret);
+
+exit:
+	device_unlock(&pdev->dev);
+
+	if (ret < 0)
+		return ret;
+
+	return count;
+}
+
+static ssize_t sriov_offset_show(struct device *dev,
+				 struct device_attribute *attr,
+				 char *buf)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+
+	return sysfs_emit(buf, "%u\n", pdev->sriov->offset);
+}
+
+static ssize_t sriov_stride_show(struct device *dev,
+				 struct device_attribute *attr,
+				 char *buf)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+
+	return sysfs_emit(buf, "%u\n", pdev->sriov->stride);
+}
+
+static ssize_t sriov_vf_device_show(struct device *dev,
+				    struct device_attribute *attr,
+				    char *buf)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+
+	return sysfs_emit(buf, "%x\n", pdev->sriov->vf_device);
+}
+
+static ssize_t sriov_drivers_autoprobe_show(struct device *dev,
+					    struct device_attribute *attr,
+					    char *buf)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+
+	return sysfs_emit(buf, "%u\n", pdev->sriov->drivers_autoprobe);
+}
+
+static ssize_t sriov_drivers_autoprobe_store(struct device *dev,
+					     struct device_attribute *attr,
+					     const char *buf, size_t count)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+	bool drivers_autoprobe;
+
+	if (kstrtobool(buf, &drivers_autoprobe) < 0)
+		return -EINVAL;
+
+	pdev->sriov->drivers_autoprobe = drivers_autoprobe;
+
+	return count;
+}
+
+static DEVICE_ATTR_RO(sriov_totalvfs);
+static DEVICE_ATTR_RW(sriov_numvfs);
+static DEVICE_ATTR_RO(sriov_offset);
+static DEVICE_ATTR_RO(sriov_stride);
+static DEVICE_ATTR_RO(sriov_vf_device);
+static DEVICE_ATTR_RW(sriov_drivers_autoprobe);
+
+static struct attribute *sriov_pf_dev_attrs[] = {
+	&dev_attr_sriov_totalvfs.attr,
+	&dev_attr_sriov_numvfs.attr,
+	&dev_attr_sriov_offset.attr,
+	&dev_attr_sriov_stride.attr,
+	&dev_attr_sriov_vf_device.attr,
+	&dev_attr_sriov_drivers_autoprobe.attr,
+#ifdef CONFIG_PCI_MSI
+	&dev_attr_sriov_vf_total_msix.attr,
+#endif
+	NULL,
+};
+
+static umode_t sriov_pf_attrs_are_visible(struct kobject *kobj,
+					  struct attribute *a, int n)
+{
+	struct device *dev = kobj_to_dev(kobj);
+
+	if (!dev_is_pf(dev))
+		return 0;
+
+	return a->mode;
+}
+
+const struct attribute_group sriov_pf_dev_attr_group = {
+	.attrs = sriov_pf_dev_attrs,
+	.is_visible = sriov_pf_attrs_are_visible,
+};
 
 int __weak pcibios_sriov_enable(struct pci_dev *pdev, u16 num_vfs)
 {
@@ -568,8 +837,8 @@ static void sriov_restore_state(struct pci_dev *dev)
 	ctrl |= iov->ctrl & PCI_SRIOV_CTRL_ARI;
 	pci_write_config_word(dev, iov->pos + PCI_SRIOV_CTRL, ctrl);
 
-	for (i = PCI_IOV_RESOURCES; i <= PCI_IOV_RESOURCE_END; i++)
-		pci_update_resource(dev, i);
+	for (i = 0; i < PCI_SRIOV_NUM_BARS; i++)
+		pci_update_resource(dev, i + PCI_IOV_RESOURCES);
 
 	pci_write_config_dword(dev, iov->pos + PCI_SRIOV_SYS_PGSIZE, iov->pgsz);
 	pci_iov_set_numvfs(dev, iov->num_VFs);

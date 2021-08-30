@@ -302,14 +302,15 @@ sisusbcon_deinit(struct vc_data *c)
 
 /* interface routine */
 static u8
-sisusbcon_build_attr(struct vc_data *c, u8 color, u8 intensity,
-			    u8 blink, u8 underline, u8 reverse, u8 unused)
+sisusbcon_build_attr(struct vc_data *c, u8 color, enum vc_intensity intensity,
+			    bool blink, bool underline, bool reverse,
+			    bool unused)
 {
 	u8 attr = color;
 
 	if (underline)
 		attr = (attr & 0xf0) | c->vc_ulcolor;
-	else if (intensity == 0)
+	else if (intensity == VCI_HALF_BRIGHT)
 		attr = (attr & 0xf0) | c->vc_halfcolor;
 
 	if (reverse)
@@ -320,7 +321,7 @@ sisusbcon_build_attr(struct vc_data *c, u8 color, u8 intensity,
 	if (blink)
 		attr ^= 0x80;
 
-	if (intensity == 2)
+	if (intensity == VCI_BOLD)
 		attr ^= 0x08;
 
 	return attr;
@@ -509,7 +510,7 @@ sisusbcon_switch(struct vc_data *c)
 	/* Restore the screen contents */
 	memcpy((u16 *)c->vc_origin, (u16 *)c->vc_screenbuf, length);
 
-	sisusb_copy_memory(sisusb, (char *)c->vc_origin,
+	sisusb_copy_memory(sisusb, (u8 *)c->vc_origin,
 			sisusb_haddr(sisusb, c, 0, 0), length);
 
 	mutex_unlock(&sisusb->lock);
@@ -615,7 +616,7 @@ sisusbcon_blank(struct vc_data *c, int blank, int mode_switch)
 		sisusbcon_memsetw((u16 *)c->vc_origin,
 				c->vc_video_erase_char,
 				c->vc_screenbuf_size);
-		sisusb_copy_memory(sisusb, (char *)c->vc_origin,
+		sisusb_copy_memory(sisusb, (u8 *)c->vc_origin,
 				sisusb_haddr(sisusb, c, 0, 0),
 				c->vc_screenbuf_size);
 		sisusb->con_blanked = 1;
@@ -726,7 +727,7 @@ sisusbcon_cursor(struct vc_data *c, int mode)
 
 	baseline = c->vc_font.height - (c->vc_font.height < 10 ? 1 : 2);
 
-	switch (c->vc_cursor_type & 0x0f) {
+	switch (CUR_SIZE(c->vc_cursor_type)) {
 		case CUR_BLOCK:		from = 1;
 					to   = c->vc_font.height;
 					break;
@@ -897,18 +898,18 @@ sisusbcon_scroll(struct vc_data *c, unsigned int t, unsigned int b,
 
 	if (copyall)
 		sisusb_copy_memory(sisusb,
-			(char *)c->vc_origin,
+			(u8 *)c->vc_origin,
 			sisusb_haddr(sisusb, c, 0, 0),
 			c->vc_screenbuf_size);
 	else if (dir == SM_UP)
 		sisusb_copy_memory(sisusb,
-			(char *)c->vc_origin + c->vc_screenbuf_size - delta,
+			(u8 *)c->vc_origin + c->vc_screenbuf_size - delta,
 			sisusb_haddr(sisusb, c, 0, 0) +
 					c->vc_screenbuf_size - delta,
 			delta);
 	else
 		sisusb_copy_memory(sisusb,
-			(char *)c->vc_origin,
+			(u8 *)c->vc_origin,
 			sisusb_haddr(sisusb, c, 0, 0),
 			delta);
 
@@ -1226,7 +1227,7 @@ sisusbcon_font_set(struct vc_data *c, struct console_font *font,
 		sisusb->font_backup = vmalloc(array_size(charcount, 32));
 
 	if (sisusb->font_backup) {
-		memcpy(sisusb->font_backup, font->data, charcount * 32);
+		memcpy(sisusb->font_backup, font->data, array_size(charcount, 32));
 		sisusb->font_backup_size = charcount;
 		sisusb->font_backup_height = font->height;
 		sisusb->font_backup_512 = (charcount == 512) ? 1 : 0;
@@ -1344,24 +1345,6 @@ static int sisusbdummycon_blank(struct vc_data *vc, int blank, int mode_switch)
 	return 0;
 }
 
-static int sisusbdummycon_font_set(struct vc_data *vc,
-				   struct console_font *font,
-				   unsigned int flags)
-{
-	return 0;
-}
-
-static int sisusbdummycon_font_default(struct vc_data *vc,
-				       struct console_font *font, char *name)
-{
-	return 0;
-}
-
-static int sisusbdummycon_font_copy(struct vc_data *vc, int con)
-{
-	return 0;
-}
-
 static const struct consw sisusb_dummy_con = {
 	.owner =		THIS_MODULE,
 	.con_startup =		sisusbdummycon_startup,
@@ -1374,9 +1357,6 @@ static const struct consw sisusb_dummy_con = {
 	.con_scroll =		sisusbdummycon_scroll,
 	.con_switch =		sisusbdummycon_switch,
 	.con_blank =		sisusbdummycon_blank,
-	.con_font_set =		sisusbdummycon_font_set,
-	.con_font_default =	sisusbdummycon_font_default,
-	.con_font_copy =	sisusbdummycon_font_copy,
 };
 
 int

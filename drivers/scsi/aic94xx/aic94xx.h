@@ -33,7 +33,7 @@
 #ifdef ASD_DEBUG
 #define ASD_DPRINTK asd_printk
 #else
-#define ASD_DPRINTK(fmt, ...)
+#define ASD_DPRINTK(fmt, ...) no_printk(fmt, ##__VA_ARGS__)
 #endif
 
 /* 2*ITNL timeout + 1 second */
@@ -41,14 +41,6 @@
 
 extern struct kmem_cache *asd_dma_token_cache;
 extern struct kmem_cache *asd_ascb_cache;
-
-static inline void asd_stringify_sas_addr(char *p, const u8 *sas_addr)
-{
-	int i;
-	for (i = 0; i < SAS_ADDR_SIZE; i++, p += 2)
-		snprintf(p, 3, "%02X", sas_addr[i]);
-	*p = '\0';
-}
 
 struct asd_ha_struct;
 struct asd_ascb;

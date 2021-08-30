@@ -28,6 +28,10 @@ static void tlb_flush(struct mmu_gather *tlb);
  */
 static inline int tlb_get_level(struct mmu_gather *tlb)
 {
+	/* The TTL field is only valid for the leaf entry. */
+	if (tlb->freed_tables)
+		return 0;
+
 	if (tlb->cleared_ptes && !(tlb->cleared_pmds ||
 				   tlb->cleared_puds ||
 				   tlb->cleared_p4ds))
@@ -71,7 +75,7 @@ static inline void tlb_flush(struct mmu_gather *tlb)
 static inline void __pte_free_tlb(struct mmu_gather *tlb, pgtable_t pte,
 				  unsigned long addr)
 {
-	pgtable_page_dtor(pte);
+	pgtable_pte_page_dtor(pte);
 	tlb_remove_table(tlb, pte);
 }
 

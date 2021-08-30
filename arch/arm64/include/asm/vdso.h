@@ -5,14 +5,14 @@
 #ifndef __ASM_VDSO_H
 #define __ASM_VDSO_H
 
-#ifdef __KERNEL__
-
 /*
  * Default link address for the vDSO.
  * Since we randomise the VDSO mapping, there's little point in trying
  * to prelink this.
  */
 #define VDSO_LBASE	0x0
+
+#define __VVAR_PAGES    2
 
 #ifndef __ASSEMBLY__
 
@@ -27,7 +27,5 @@
 })
 
 #endif /* !__ASSEMBLY__ */
-
-#endif /* __KERNEL__ */
 
 #endif /* __ASM_VDSO_H */

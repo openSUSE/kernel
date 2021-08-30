@@ -84,6 +84,7 @@ static inline bool uuid_is_null(const uuid_t *uuid)
 }
 
 void generate_random_uuid(unsigned char uuid[16]);
+void generate_random_guid(unsigned char guid[16]);
 
 extern void guid_gen(guid_t *u);
 extern void uuid_gen(uuid_t *u);
@@ -97,9 +98,6 @@ int guid_parse(const char *uuid, guid_t *u);
 int uuid_parse(const char *uuid, uuid_t *u);
 
 /* backwards compatibility, don't use in new code */
-#define uuid_le_gen(u)		guid_gen(u)
-#define uuid_le_to_bin(guid, u)	guid_parse(guid, u)
-
 static inline int uuid_le_cmp(const guid_t u1, const guid_t u2)
 {
 	return memcmp(&u1, &u2, sizeof(guid_t));

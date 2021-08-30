@@ -7,7 +7,7 @@
 
 /*
    Comparing to general packet classification problem,
-   RSVP needs only sevaral relatively simple rules:
+   RSVP needs only several relatively simple rules:
 
    * (dst, protocol) are always specified,
      so that we are able to hash them.
@@ -238,7 +238,7 @@ static void rsvp_replace(struct tcf_proto *tp, struct rsvp_filter *n, u32 h)
 		}
 	}
 
-	/* Something went wrong if we are trying to replace a non-existant
+	/* Something went wrong if we are trying to replace a non-existent
 	 * node. Mind as well halt instead of silently failing.
 	 */
 	BUG_ON(1);

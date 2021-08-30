@@ -180,12 +180,6 @@ int ghes_estatus_pool_init(int num_ghes)
 	if (!addr)
 		goto err_pool_alloc;
 
-	/*
-	 * New allocation must be visible in all pgd before it can be found by
-	 * an NMI allocating from the pool.
-	 */
-	vmalloc_sync_mappings();
-
 	rc = gen_pool_add(ghes_estatus_pool, addr, PAGE_ALIGN(len), -1);
 	if (rc)
 		goto err_pool_add;
@@ -995,7 +989,7 @@ static void ghes_proc_in_irq(struct irq_work *irq_work)
 			estatus_node->task_work.func = ghes_kick_task_work;
 			estatus_node->task_work_cpu = smp_processor_id();
 			ret = task_work_add(current, &estatus_node->task_work,
-					    true);
+					    TWA_RESUME);
 			if (ret)
 				estatus_node->task_work.func = NULL;
 		}

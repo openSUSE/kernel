@@ -9,7 +9,7 @@
 #include <linux/types.h>
 #include <linux/slab.h>
 #include <linux/string.h>
-#include <linux/dma-mapping.h>
+#include <linux/dma-map-ops.h>
 #include <linux/scatterlist.h>
 
 #include <asm/machdep.h>
@@ -112,21 +112,11 @@ extern pgprot_t	pci_phys_mem_access_prot(struct file *file,
 					 unsigned long size,
 					 pgprot_t prot);
 
-#define HAVE_ARCH_PCI_RESOURCE_TO_USER
-
 extern resource_size_t pcibios_io_space_offset(struct pci_controller *hose);
-extern void pcibios_setup_bus_devices(struct pci_bus *bus);
 extern void pcibios_setup_bus_self(struct pci_bus *bus);
 extern void pcibios_setup_phb_io_space(struct pci_controller *hose);
 extern void pcibios_scan_phb(struct pci_controller *hose);
 
 #endif	/* __KERNEL__ */
-
-extern struct pci_dev *pnv_pci_get_gpu_dev(struct pci_dev *npdev);
-extern struct pci_dev *pnv_pci_get_npu_dev(struct pci_dev *gpdev, int index);
-extern int pnv_npu2_init(struct pci_controller *hose);
-extern int pnv_npu2_map_lpar_dev(struct pci_dev *gpdev, unsigned int lparid,
-		unsigned long msr);
-extern int pnv_npu2_unmap_lpar_dev(struct pci_dev *gpdev);
 
 #endif /* __ASM_POWERPC_PCI_H */

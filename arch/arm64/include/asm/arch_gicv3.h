@@ -32,7 +32,7 @@ static inline void gic_write_eoir(u32 irq)
 	isb();
 }
 
-static inline void gic_write_dir(u32 irq)
+static __always_inline void gic_write_dir(u32 irq)
 {
 	write_sysreg_s(irq, SYS_ICC_DIR_EL1);
 	isb();
@@ -124,7 +124,8 @@ static inline u32 gic_read_rpr(void)
 #define gic_read_lpir(c)		readq_relaxed(c)
 #define gic_write_lpir(v, c)		writeq_relaxed(v, c)
 
-#define gic_flush_dcache_to_poc(a,l)	__flush_dcache_area((a), (l))
+#define gic_flush_dcache_to_poc(a,l)	\
+	dcache_clean_inval_poc((unsigned long)(a), (unsigned long)(a)+(l))
 
 #define gits_read_baser(c)		readq_relaxed(c)
 #define gits_write_baser(v, c)		writeq_relaxed(v, c)
@@ -153,7 +154,7 @@ static inline bool gic_prio_masking_enabled(void)
 
 static inline void gic_pmr_mask_irqs(void)
 {
-	BUILD_BUG_ON(GICD_INT_DEF_PRI < (GIC_PRIO_IRQOFF |
+	BUILD_BUG_ON(GICD_INT_DEF_PRI < (__GIC_PRIO_IRQOFF |
 					 GIC_PRIO_PSR_I_SET));
 	BUILD_BUG_ON(GICD_INT_DEF_PRI >= GIC_PRIO_IRQON);
 	/*
@@ -162,12 +163,18 @@ static inline void gic_pmr_mask_irqs(void)
 	 * are applied to IRQ priorities
 	 */
 	BUILD_BUG_ON((0x80 | (GICD_INT_DEF_PRI >> 1)) >= GIC_PRIO_IRQON);
+	/*
+	 * Same situation as above, but now we make sure that we can mask
+	 * regular interrupts.
+	 */
+	BUILD_BUG_ON((0x80 | (GICD_INT_DEF_PRI >> 1)) < (__GIC_PRIO_IRQOFF_NS |
+							 GIC_PRIO_PSR_I_SET));
 	gic_write_pmr(GIC_PRIO_IRQOFF);
 }
 
 static inline void gic_arch_enable_irqs(void)
 {
-	asm volatile ("msr daifclr, #2" : : : "memory");
+	asm volatile ("msr daifclr, #3" : : : "memory");
 }
 
 #endif /* __ASSEMBLY__ */

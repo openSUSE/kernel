@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (C) 2015 Hisilicon Limited, All Rights Reserved.
+ * Copyright (C) 2015 HiSilicon Limited, All Rights Reserved.
  * Author: Jun Ma <majun258@huawei.com>
  * Author: Yun Wu <wuyun.wu@huawei.com>
  */
@@ -273,6 +273,12 @@ static int mbigen_of_create_domain(struct platform_device *pdev,
 }
 
 #ifdef CONFIG_ACPI
+static const struct acpi_device_id mbigen_acpi_match[] = {
+	{ "HISI0152", 0 },
+	{}
+};
+MODULE_DEVICE_TABLE(acpi, mbigen_acpi_match);
+
 static int mbigen_acpi_create_domain(struct platform_device *pdev,
 				     struct mbigen_device *mgn_chip)
 {
@@ -369,12 +375,6 @@ static const struct of_device_id mbigen_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, mbigen_of_match);
 
-static const struct acpi_device_id mbigen_acpi_match[] = {
-	{ "HISI0152", 0 },
-	{}
-};
-MODULE_DEVICE_TABLE(acpi, mbigen_acpi_match);
-
 static struct platform_driver mbigen_platform_driver = {
 	.driver = {
 		.name		= "Hisilicon MBIGEN-V2",
@@ -390,4 +390,4 @@ module_platform_driver(mbigen_platform_driver);
 MODULE_AUTHOR("Jun Ma <majun258@huawei.com>");
 MODULE_AUTHOR("Yun Wu <wuyun.wu@huawei.com>");
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Hisilicon MBI Generator driver");
+MODULE_DESCRIPTION("HiSilicon MBI Generator driver");

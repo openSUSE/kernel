@@ -7,6 +7,7 @@
 #include <linux/prime_numbers.h>
 
 #include "gt/intel_engine_pm.h"
+#include "gt/intel_gpu_commands.h"
 #include "gt/intel_gt.h"
 #include "gt/intel_gt_pm.h"
 #include "gem/i915_gem_region.h"
@@ -103,7 +104,7 @@ static int check_partial_mapping(struct drm_i915_gem_object *obj,
 	GEM_BUG_ON(i915_gem_object_get_tiling(obj) != tile->tiling);
 	GEM_BUG_ON(i915_gem_object_get_stride(obj) != tile->stride);
 
-	i915_gem_object_lock(obj);
+	i915_gem_object_lock(obj, NULL);
 	err = i915_gem_object_set_to_gtt_domain(obj, true);
 	i915_gem_object_unlock(obj);
 	if (err) {
@@ -188,7 +189,7 @@ static int check_partial_mappings(struct drm_i915_gem_object *obj,
 	GEM_BUG_ON(i915_gem_object_get_tiling(obj) != tile->tiling);
 	GEM_BUG_ON(i915_gem_object_get_stride(obj) != tile->stride);
 
-	i915_gem_object_lock(obj);
+	i915_gem_object_lock(obj, NULL);
 	err = i915_gem_object_set_to_gtt_domain(obj, true);
 	i915_gem_object_unlock(obj);
 	if (err) {
@@ -272,7 +273,7 @@ static int check_partial_mappings(struct drm_i915_gem_object *obj,
 static unsigned int
 setup_tile_size(struct tile *tile, struct drm_i915_private *i915)
 {
-	if (INTEL_GEN(i915) <= 2) {
+	if (GRAPHICS_VER(i915) <= 2) {
 		tile->height = 16;
 		tile->width = 128;
 		tile->size = 11;
@@ -287,9 +288,9 @@ setup_tile_size(struct tile *tile, struct drm_i915_private *i915)
 		tile->size = 12;
 	}
 
-	if (INTEL_GEN(i915) < 4)
+	if (GRAPHICS_VER(i915) < 4)
 		return 8192 / tile->width;
-	else if (INTEL_GEN(i915) < 7)
+	else if (GRAPHICS_VER(i915) < 7)
 		return 128 * I965_FENCE_MAX_PITCH_VAL / tile->width;
 	else
 		return 128 * GEN7_FENCE_MAX_PITCH_VAL / tile->width;
@@ -321,7 +322,7 @@ static int igt_partial_tiling(void *arg)
 	if (IS_ERR(obj))
 		return PTR_ERR(obj);
 
-	err = i915_gem_object_pin_pages(obj);
+	err = i915_gem_object_pin_pages_unlocked(obj);
 	if (err) {
 		pr_err("Failed to allocate %u pages (%lu total), err=%d\n",
 		       nreal, obj->base.size / PAGE_SIZE, err);
@@ -385,7 +386,7 @@ static int igt_partial_tiling(void *arg)
 			if (err)
 				goto out_unlock;
 
-			if (pitch > 2 && INTEL_GEN(i915) >= 4) {
+			if (pitch > 2 && GRAPHICS_VER(i915) >= 4) {
 				tile.stride = tile.width * (pitch - 1);
 				err = check_partial_mappings(obj, &tile, end);
 				if (err == -EINTR)
@@ -394,7 +395,7 @@ static int igt_partial_tiling(void *arg)
 					goto out_unlock;
 			}
 
-			if (pitch < max_pitch && INTEL_GEN(i915) >= 4) {
+			if (pitch < max_pitch && GRAPHICS_VER(i915) >= 4) {
 				tile.stride = tile.width * (pitch + 1);
 				err = check_partial_mappings(obj, &tile, end);
 				if (err == -EINTR)
@@ -404,7 +405,7 @@ static int igt_partial_tiling(void *arg)
 			}
 		}
 
-		if (INTEL_GEN(i915) >= 4) {
+		if (GRAPHICS_VER(i915) >= 4) {
 			for_each_prime_number(pitch, max_pitch) {
 				tile.stride = tile.width * pitch;
 				err = check_partial_mappings(obj, &tile, end);
@@ -458,7 +459,7 @@ static int igt_smoke_tiling(void *arg)
 	if (IS_ERR(obj))
 		return PTR_ERR(obj);
 
-	err = i915_gem_object_pin_pages(obj);
+	err = i915_gem_object_pin_pages_unlocked(obj);
 	if (err) {
 		pr_err("Failed to allocate %u pages (%lu total), err=%d\n",
 		       nreal, obj->base.size / PAGE_SIZE, err);
@@ -500,7 +501,7 @@ static int igt_smoke_tiling(void *arg)
 			tile.stride =
 				i915_prandom_u32_max_state(max_pitch, &prng);
 			tile.stride = (1 + tile.stride) * tile.width;
-			if (INTEL_GEN(i915) < 4)
+			if (GRAPHICS_VER(i915) < 4)
 				tile.stride = rounddown_pow_of_two(tile.stride);
 		}
 
@@ -528,31 +529,42 @@ static int make_obj_busy(struct drm_i915_gem_object *obj)
 	for_each_uabi_engine(engine, i915) {
 		struct i915_request *rq;
 		struct i915_vma *vma;
+		struct i915_gem_ww_ctx ww;
 		int err;
 
 		vma = i915_vma_instance(obj, &engine->gt->ggtt->vm, NULL);
 		if (IS_ERR(vma))
 			return PTR_ERR(vma);
 
-		err = i915_vma_pin(vma, 0, 0, PIN_USER);
+		i915_gem_ww_ctx_init(&ww, false);
+retry:
+		err = i915_gem_object_lock(obj, &ww);
+		if (!err)
+			err = i915_vma_pin_ww(vma, &ww, 0, 0, PIN_USER);
 		if (err)
-			return err;
+			goto err;
 
 		rq = intel_engine_create_kernel_request(engine);
 		if (IS_ERR(rq)) {
-			i915_vma_unpin(vma);
-			return PTR_ERR(rq);
+			err = PTR_ERR(rq);
+			goto err_unpin;
 		}
 
-		i915_vma_lock(vma);
 		err = i915_request_await_object(rq, vma->obj, true);
 		if (err == 0)
 			err = i915_vma_move_to_active(vma, rq,
 						      EXEC_OBJECT_WRITE);
-		i915_vma_unlock(vma);
 
 		i915_request_add(rq);
+err_unpin:
 		i915_vma_unpin(vma);
+err:
+		if (err == -EDEADLK) {
+			err = i915_gem_ww_ctx_backoff(&ww);
+			if (!err)
+				goto retry;
+		}
+		i915_gem_ww_ctx_fini(&ww);
 		if (err)
 			return err;
 	}
@@ -786,7 +798,7 @@ static int wc_set(struct drm_i915_gem_object *obj)
 {
 	void *vaddr;
 
-	vaddr = i915_gem_object_pin_map(obj, I915_MAP_WC);
+	vaddr = i915_gem_object_pin_map_unlocked(obj, I915_MAP_WC);
 	if (IS_ERR(vaddr))
 		return PTR_ERR(vaddr);
 
@@ -802,7 +814,7 @@ static int wc_check(struct drm_i915_gem_object *obj)
 	void *vaddr;
 	int err = 0;
 
-	vaddr = i915_gem_object_pin_map(obj, I915_MAP_WC);
+	vaddr = i915_gem_object_pin_map_unlocked(obj, I915_MAP_WC);
 	if (IS_ERR(vaddr))
 		return PTR_ERR(vaddr);
 
@@ -823,12 +835,29 @@ static bool can_mmap(struct drm_i915_gem_object *obj, enum i915_mmap_type type)
 		return false;
 
 	if (type != I915_MMAP_TYPE_GTT &&
-	    !i915_gem_object_type_has(obj,
-				      I915_GEM_OBJECT_HAS_STRUCT_PAGE |
-				      I915_GEM_OBJECT_HAS_IOMEM))
+	    !i915_gem_object_has_struct_page(obj) &&
+	    !i915_gem_object_type_has(obj, I915_GEM_OBJECT_HAS_IOMEM))
 		return false;
 
 	return true;
+}
+
+static void object_set_placements(struct drm_i915_gem_object *obj,
+				  struct intel_memory_region **placements,
+				  unsigned int n_placements)
+{
+	GEM_BUG_ON(!n_placements);
+
+	if (n_placements == 1) {
+		struct drm_i915_private *i915 = to_i915(obj->base.dev);
+		struct intel_memory_region *mr = placements[0];
+
+		obj->mm.placements = &i915->mm.regions[mr->id];
+		obj->mm.n_placements = 1;
+	} else {
+		obj->mm.placements = placements;
+		obj->mm.n_placements = n_placements;
+	}
 }
 
 #define expand32(x) (((x) << 0) | ((x) << 8) | ((x) << 16) | ((x) << 24))
@@ -939,6 +968,8 @@ static int igt_mmap(void *arg)
 			if (IS_ERR(obj))
 				return PTR_ERR(obj);
 
+			object_set_placements(obj, &mr, 1);
+
 			err = __igt_mmap(i915, obj, I915_MMAP_TYPE_GTT);
 			if (err == 0)
 				err = __igt_mmap(i915, obj, I915_MMAP_TYPE_WC);
@@ -965,10 +996,8 @@ static const char *repr_mmap_type(enum i915_mmap_type type)
 
 static bool can_access(const struct drm_i915_gem_object *obj)
 {
-	unsigned int flags =
-		I915_GEM_OBJECT_HAS_STRUCT_PAGE | I915_GEM_OBJECT_HAS_IOMEM;
-
-	return i915_gem_object_type_has(obj, flags);
+	return i915_gem_object_has_struct_page(obj) ||
+	       i915_gem_object_type_has(obj, I915_GEM_OBJECT_HAS_IOMEM);
 }
 
 static int __igt_mmap_access(struct drm_i915_private *i915,
@@ -1059,6 +1088,8 @@ static int igt_mmap_access(void *arg)
 		if (IS_ERR(obj))
 			return PTR_ERR(obj);
 
+		object_set_placements(obj, &mr, 1);
+
 		err = __igt_mmap_access(i915, obj, I915_MMAP_TYPE_GTT);
 		if (err == 0)
 			err = __igt_mmap_access(i915, obj, I915_MMAP_TYPE_WB);
@@ -1123,6 +1154,7 @@ static int __igt_mmap_gpu(struct drm_i915_private *i915,
 	for_each_uabi_engine(engine, i915) {
 		struct i915_request *rq;
 		struct i915_vma *vma;
+		struct i915_gem_ww_ctx ww;
 
 		vma = i915_vma_instance(obj, engine->kernel_context->vm, NULL);
 		if (IS_ERR(vma)) {
@@ -1130,9 +1162,13 @@ static int __igt_mmap_gpu(struct drm_i915_private *i915,
 			goto out_unmap;
 		}
 
-		err = i915_vma_pin(vma, 0, 0, PIN_USER);
+		i915_gem_ww_ctx_init(&ww, false);
+retry:
+		err = i915_gem_object_lock(obj, &ww);
+		if (!err)
+			err = i915_vma_pin_ww(vma, &ww, 0, 0, PIN_USER);
 		if (err)
-			goto out_unmap;
+			goto out_ww;
 
 		rq = i915_request_create(engine->kernel_context);
 		if (IS_ERR(rq)) {
@@ -1140,11 +1176,9 @@ static int __igt_mmap_gpu(struct drm_i915_private *i915,
 			goto out_unpin;
 		}
 
-		i915_vma_lock(vma);
 		err = i915_request_await_object(rq, vma->obj, false);
 		if (err == 0)
 			err = i915_vma_move_to_active(vma, rq, 0);
-		i915_vma_unlock(vma);
 
 		err = engine->emit_bb_start(rq, vma->node.start, 0, 0);
 		i915_request_get(rq);
@@ -1166,6 +1200,13 @@ static int __igt_mmap_gpu(struct drm_i915_private *i915,
 
 out_unpin:
 		i915_vma_unpin(vma);
+out_ww:
+		if (err == -EDEADLK) {
+			err = i915_gem_ww_ctx_backoff(&ww);
+			if (!err)
+				goto retry;
+		}
+		i915_gem_ww_ctx_fini(&ww);
 		if (err)
 			goto out_unmap;
 	}
@@ -1191,6 +1232,8 @@ static int igt_mmap_gpu(void *arg)
 
 		if (IS_ERR(obj))
 			return PTR_ERR(obj);
+
+		object_set_placements(obj, &mr, 1);
 
 		err = __igt_mmap_gpu(i915, obj, I915_MMAP_TYPE_GTT);
 		if (err == 0)
@@ -1297,7 +1340,9 @@ static int __igt_mmap_revoke(struct drm_i915_private *i915,
 	}
 
 	if (type != I915_MMAP_TYPE_GTT) {
+		i915_gem_object_lock(obj, NULL);
 		__i915_gem_object_put_pages(obj);
+		i915_gem_object_unlock(obj);
 		if (i915_gem_object_has_pages(obj)) {
 			pr_err("Failed to put-pages object!\n");
 			err = -EINVAL;
@@ -1332,6 +1377,8 @@ static int igt_mmap_revoke(void *arg)
 
 		if (IS_ERR(obj))
 			return PTR_ERR(obj);
+
+		object_set_placements(obj, &mr, 1);
 
 		err = __igt_mmap_revoke(i915, obj, I915_MMAP_TYPE_GTT);
 		if (err == 0)

@@ -20,6 +20,7 @@
 #include "hw_atl2/hw_atl2.h"
 #include "aq_filters.h"
 #include "aq_drvinfo.h"
+#include "aq_macsec.h"
 
 static const struct pci_device_id aq_pci_tbl[] = {
 	{ PCI_VDEVICE(AQUANTIA, AQ_DEVICE_ID_0001), },
@@ -276,7 +277,7 @@ static int aq_pci_probe(struct pci_dev *pdev,
 				goto err_free_aq_hw_priv;
 			}
 
-			self->aq_hw->mmio = ioremap_nocache(mmio_pa, reg_sz);
+			self->aq_hw->mmio = ioremap(mmio_pa, reg_sz);
 			if (!self->aq_hw->mmio) {
 				err = -EIO;
 				goto err_free_aq_hw_priv;
@@ -349,6 +350,10 @@ static void aq_pci_remove(struct pci_dev *pdev)
 		aq_clear_rxnfc_all_rules(self);
 		if (self->ndev->reg_state == NETREG_REGISTERED)
 			unregister_netdev(self->ndev);
+
+#if IS_ENABLED(CONFIG_MACSEC)
+		aq_macsec_free(self);
+#endif
 		aq_nic_free_vectors(self);
 		aq_pci_free_irq_vectors(self);
 		iounmap(self->aq_hw->mmio);

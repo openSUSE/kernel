@@ -162,18 +162,13 @@ static const struct iio_chan_spec rcar_gyroadc_iio_channels_3[] = {
 static int rcar_gyroadc_set_power(struct rcar_gyroadc *priv, bool on)
 {
 	struct device *dev = priv->dev;
-	int ret;
 
 	if (on) {
-		ret = pm_runtime_get_sync(dev);
-		if (ret < 0)
-			pm_runtime_put_noidle(dev);
+		return pm_runtime_resume_and_get(dev);
 	} else {
 		pm_runtime_mark_last_busy(dev);
-		ret = pm_runtime_put_autosuspend(dev);
+		return pm_runtime_put_autosuspend(dev);
 	}
-
-	return ret;
 }
 
 static int rcar_gyroadc_read_raw(struct iio_dev *indio_dev,
@@ -490,7 +485,6 @@ static int rcar_gyroadc_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct rcar_gyroadc *priv;
 	struct iio_dev *indio_dev;
-	struct resource *mem;
 	int ret;
 
 	indio_dev = devm_iio_device_alloc(dev, sizeof(*priv));
@@ -500,18 +494,14 @@ static int rcar_gyroadc_probe(struct platform_device *pdev)
 	priv = iio_priv(indio_dev);
 	priv->dev = dev;
 
-	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	priv->regs = devm_ioremap_resource(dev, mem);
+	priv->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(priv->regs))
 		return PTR_ERR(priv->regs);
 
 	priv->clk = devm_clk_get(dev, "fck");
-	if (IS_ERR(priv->clk)) {
-		ret = PTR_ERR(priv->clk);
-		if (ret != -EPROBE_DEFER)
-			dev_err(dev, "Failed to get IF clock (ret=%i)\n", ret);
-		return ret;
-	}
+	if (IS_ERR(priv->clk))
+		return dev_err_probe(dev, PTR_ERR(priv->clk),
+				     "Failed to get IF clock\n");
 
 	ret = rcar_gyroadc_parse_subdevs(indio_dev);
 	if (ret)
@@ -527,8 +517,6 @@ static int rcar_gyroadc_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, indio_dev);
 
 	indio_dev->name = DRIVER_NAME;
-	indio_dev->dev.parent = dev;
-	indio_dev->dev.of_node = pdev->dev.of_node;
 	indio_dev->info = &rcar_gyroadc_iio_info;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 
@@ -542,7 +530,10 @@ static int rcar_gyroadc_probe(struct platform_device *pdev)
 	pm_runtime_use_autosuspend(dev);
 	pm_runtime_enable(dev);
 
-	pm_runtime_get_sync(dev);
+	ret = pm_runtime_resume_and_get(dev);
+	if (ret)
+		goto err_power_up;
+
 	rcar_gyroadc_hw_init(priv);
 	rcar_gyroadc_hw_start(priv);
 
@@ -559,6 +550,7 @@ static int rcar_gyroadc_probe(struct platform_device *pdev)
 err_iio_device_register:
 	rcar_gyroadc_hw_stop(priv);
 	pm_runtime_put_sync(dev);
+err_power_up:
 	pm_runtime_disable(dev);
 	pm_runtime_set_suspended(dev);
 	clk_disable_unprepare(priv->clk);

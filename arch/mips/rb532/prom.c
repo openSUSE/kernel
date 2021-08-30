@@ -34,11 +34,6 @@ static struct resource ddr_reg[] = {
 	}
 };
 
-void __init prom_free_prom_memory(void)
-{
-	/* No prom memory to free */
-}
-
 static inline int match_tag(char *arg, const char *tag)
 {
 	return strncmp(arg, tag, strlen(tag)) == 0;
@@ -110,7 +105,7 @@ void __init prom_init(void)
 	phys_addr_t memsize;
 	phys_addr_t ddrbase;
 
-	ddr = ioremap_nocache(ddr_reg[0].start,
+	ddr = ioremap(ddr_reg[0].start,
 			ddr_reg[0].end - ddr_reg[0].start);
 
 	if (!ddr) {
@@ -126,5 +121,5 @@ void __init prom_init(void)
 
 	/* give all RAM to boot allocator,
 	 * except for the first 0x400 and the last 0x200 bytes */
-	add_memory_region(ddrbase + 0x400, memsize - 0x600, BOOT_MEM_RAM);
+	memblock_add(ddrbase + 0x400, memsize - 0x600);
 }

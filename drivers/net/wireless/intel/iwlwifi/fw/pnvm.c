@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
-/******************************************************************************
- *
- * Copyright(c) 2020 Intel Corporation
- *
- *****************************************************************************/
+/*
+ * Copyright(c) 2020-2021 Intel Corporation
+ */
 
 #include "iwl-drv.h"
 #include "pnvm.h"
@@ -12,6 +10,7 @@
 #include "fw/api/commands.h"
 #include "fw/api/nvm-reg.h"
 #include "fw/api/alive.h"
+#include "fw/uefi.h"
 
 struct iwl_pnvm_section {
 	__le32 offset;
@@ -38,6 +37,7 @@ static int iwl_pnvm_handle_section(struct iwl_trans *trans, const u8 *data,
 	u32 sha1 = 0;
 	u16 mac_type = 0, rf_id = 0;
 	u8 *pnvm_data = NULL, *tmp;
+	bool hw_match = false;
 	u32 size = 0;
 	int ret;
 
@@ -84,6 +84,9 @@ static int iwl_pnvm_handle_section(struct iwl_trans *trans, const u8 *data,
 				break;
 			}
 
+			if (hw_match)
+				break;
+
 			mac_type = le16_to_cpup((__le16 *)data);
 			rf_id = le16_to_cpup((__le16 *)(data + sizeof(__le16)));
 
@@ -91,15 +94,9 @@ static int iwl_pnvm_handle_section(struct iwl_trans *trans, const u8 *data,
 				     "Got IWL_UCODE_TLV_HW_TYPE mac_type 0x%0x rf_id 0x%0x\n",
 				     mac_type, rf_id);
 
-			if (mac_type != CSR_HW_REV_TYPE(trans->hw_rev) ||
-			    rf_id != CSR_HW_RFID_TYPE(trans->hw_rf_id)) {
-				IWL_DEBUG_FW(trans,
-					     "HW mismatch, skipping PNVM section, mac_type 0x%0x, rf_id 0x%0x.\n",
-					     CSR_HW_REV_TYPE(trans->hw_rev), trans->hw_rf_id);
-				ret = -ENOENT;
-				goto out;
-			}
-
+			if (mac_type == CSR_HW_REV_TYPE(trans->hw_rev) &&
+			    rf_id == CSR_HW_RFID_TYPE(trans->hw_rf_id))
+				hw_match = true;
 			break;
 		case IWL_UCODE_TLV_SEC_RT: {
 			struct iwl_pnvm_section *section = (void *)data;
@@ -150,6 +147,15 @@ static int iwl_pnvm_handle_section(struct iwl_trans *trans, const u8 *data,
 	}
 
 done:
+	if (!hw_match) {
+		IWL_DEBUG_FW(trans,
+			     "HW mismatch, skipping PNVM section (need mac_type 0x%x rf_id 0x%x)\n",
+			     CSR_HW_REV_TYPE(trans->hw_rev),
+			     CSR_HW_RFID_TYPE(trans->hw_rf_id));
+		ret = -ENOENT;
+		goto out;
+	}
+
 	if (!size) {
 		IWL_DEBUG_FW(trans, "Empty PNVM, skipping.\n");
 		ret = -ENOENT;
@@ -221,9 +227,45 @@ static int iwl_pnvm_parse(struct iwl_trans *trans, const u8 *data,
 	return -ENOENT;
 }
 
+static int iwl_pnvm_get_from_fs(struct iwl_trans *trans, u8 **data, size_t *len)
+{
+	const struct firmware *pnvm;
+	char pnvm_name[64];
+	int ret;
+
+	/*
+	 * The prefix unfortunately includes a hyphen at the end, so
+	 * don't add the dot here...
+	 */
+	snprintf(pnvm_name, sizeof(pnvm_name), "%spnvm",
+		 trans->cfg->fw_name_pre);
+
+	/* ...but replace the hyphen with the dot here. */
+	if (strlen(trans->cfg->fw_name_pre) < sizeof(pnvm_name))
+		pnvm_name[strlen(trans->cfg->fw_name_pre) - 1] = '.';
+
+	ret = firmware_request_nowarn(&pnvm, pnvm_name, trans->dev);
+	if (ret) {
+		IWL_DEBUG_FW(trans, "PNVM file %s not found %d\n",
+			     pnvm_name, ret);
+		return ret;
+	}
+
+	*data = kmemdup(pnvm->data, pnvm->size, GFP_KERNEL);
+	if (!*data)
+		return -ENOMEM;
+
+	*len = pnvm->size;
+
+	return 0;
+}
+
 int iwl_pnvm_load(struct iwl_trans *trans,
 		  struct iwl_notif_wait_data *notif_wait)
 {
+	u8 *data;
+	size_t len;
+	struct pnvm_sku_package *package;
 	struct iwl_notification_wait pnvm_wait;
 	static const u16 ntf_cmds[] = { WIDE_ID(REGULATORY_AND_NVM_GROUP,
 						PNVM_INIT_COMPLETE_NTFY) };
@@ -233,44 +275,75 @@ int iwl_pnvm_load(struct iwl_trans *trans,
 	if (!trans->sku_id[0] && !trans->sku_id[1] && !trans->sku_id[2])
 		return 0;
 
-	/* load from disk only if we haven't done it (or tried) before */
-	if (!trans->pnvm_loaded) {
-		const struct firmware *pnvm;
-		char pnvm_name[64];
+	/*
+	 * If we already loaded (or tried to load) it before, we just
+	 * need to set it again.
+	 */
+	if (trans->pnvm_loaded) {
+		ret = iwl_trans_set_pnvm(trans, NULL, 0);
+		if (ret)
+			return ret;
+		goto skip_parse;
+	}
 
+	/* First attempt to get the PNVM from BIOS */
+	package = iwl_uefi_get_pnvm(trans, &len);
+	if (!IS_ERR_OR_NULL(package)) {
+		data = kmemdup(package->data, len, GFP_KERNEL);
+
+		/* free package regardless of whether kmemdup succeeded */
+		kfree(package);
+
+		if (data) {
+			/* we need only the data size */
+			len -= sizeof(*package);
+			goto parse;
+		}
+	}
+
+	/* If it's not available, try from the filesystem */
+	ret = iwl_pnvm_get_from_fs(trans, &data, &len);
+	if (ret) {
 		/*
-		 * The prefix unfortunately includes a hyphen at the end, so
-		 * don't add the dot here...
+		 * Pretend we've loaded it - at least we've tried and
+		 * couldn't load it at all, so there's no point in
+		 * trying again over and over.
 		 */
-		snprintf(pnvm_name, sizeof(pnvm_name), "%spnvm",
-			 trans->cfg->fw_name_pre);
+		trans->pnvm_loaded = true;
 
-		/* ...but replace the hyphen with the dot here. */
-		if (strlen(trans->cfg->fw_name_pre) < sizeof(pnvm_name))
-			pnvm_name[strlen(trans->cfg->fw_name_pre) - 1] = '.';
+		goto skip_parse;
+	}
 
-		ret = firmware_request_nowarn(&pnvm, pnvm_name, trans->dev);
-		if (ret) {
-			IWL_DEBUG_FW(trans, "PNVM file %s not found %d\n",
-				     pnvm_name, ret);
+parse:
+	iwl_pnvm_parse(trans, data, len);
+
+	kfree(data);
+
+skip_parse:
+	data = NULL;
+	/* now try to get the reduce power table, if not loaded yet */
+	if (!trans->reduce_power_loaded) {
+		data = iwl_uefi_get_reduced_power(trans, &len);
+		if (IS_ERR_OR_NULL(data)) {
 			/*
 			 * Pretend we've loaded it - at least we've tried and
 			 * couldn't load it at all, so there's no point in
 			 * trying again over and over.
 			 */
-			trans->pnvm_loaded = true;
-		} else {
-			iwl_pnvm_parse(trans, pnvm->data, pnvm->size);
+			trans->reduce_power_loaded = true;
 
-			release_firmware(pnvm);
+			goto skip_reduce_power;
 		}
-	} else {
-		/* if we already loaded, we need to set it again */
-		ret = iwl_trans_set_pnvm(trans, NULL, 0);
-		if (ret)
-			return ret;
 	}
 
+	ret = iwl_trans_set_reduce_power(trans, data, len);
+	if (ret)
+		IWL_DEBUG_FW(trans,
+			     "Failed to set reduce power table %d\n",
+			     ret);
+	kfree(data);
+
+skip_reduce_power:
 	iwl_init_notification_wait(notif_wait, &pnvm_wait,
 				   ntf_cmds, ARRAY_SIZE(ntf_cmds),
 				   iwl_pnvm_complete_fn, trans);

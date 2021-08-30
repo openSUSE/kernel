@@ -247,6 +247,9 @@ struct svc_rqst {
 
 	size_t			rq_xprt_hlen;	/* xprt header len */
 	struct xdr_buf		rq_arg;
+	struct xdr_stream	rq_arg_stream;
+	struct xdr_stream	rq_res_stream;
+	struct page		*rq_scratch_page;
 	struct xdr_buf		rq_res;
 	struct page		*rq_pages[RPCSVC_MAXPAGES + 1];
 	struct page *		*rq_respages;	/* points into rq_pages */
@@ -254,6 +257,7 @@ struct svc_rqst {
 	struct page *		*rq_page_end;  /* one past the last page */
 
 	struct kvec		rq_vec[RPCSVC_MAXPAGES]; /* generally useful.. */
+	struct bio_vec		rq_bvec[RPCSVC_MAXPAGES];
 
 	__be32			rq_xid;		/* transmission id */
 	u32			rq_prog;	/* program number */
@@ -299,6 +303,7 @@ struct svc_rqst {
 	struct net		*rq_bc_net;	/* pointer to backchannel's
 						 * net namespace
 						 */
+	void **			rq_lease_breaker; /* The v4 client breaking a lease */
 };
 
 #define SVC_NET(rqst) (rqst->rq_xprt ? rqst->rq_xprt->xpt_net : rqst->rq_bc_net)
@@ -380,7 +385,7 @@ struct svc_deferred_req {
 	struct cache_deferred_req handle;
 	size_t			xprt_hlen;
 	int			argslen;
-	__be32			args[0];
+	__be32			args[];
 };
 
 struct svc_process_info {
@@ -459,6 +464,7 @@ struct svc_procedure {
 	unsigned int		pc_ressize;	/* result struct size */
 	unsigned int		pc_cachetype;	/* cache info (NFS) */
 	unsigned int		pc_xdrressize;	/* maximum size of XDR reply */
+	const char *		pc_name;	/* for display */
 };
 
 /*
@@ -517,9 +523,9 @@ void		   svc_wake_up(struct svc_serv *);
 void		   svc_reserve(struct svc_rqst *rqstp, int space);
 struct svc_pool *  svc_pool_for_cpu(struct svc_serv *serv, int cpu);
 char *		   svc_print_addr(struct svc_rqst *, char *, size_t);
-int		   svc_encode_read_payload(struct svc_rqst *rqstp,
-					   unsigned int offset,
-					   unsigned int length);
+int		   svc_encode_result_payload(struct svc_rqst *rqstp,
+					     unsigned int offset,
+					     unsigned int length);
 unsigned int	   svc_fill_write_vector(struct svc_rqst *rqstp,
 					 struct page **pages,
 					 struct kvec *first, size_t total);
@@ -553,6 +559,44 @@ int		   svc_rpcbind_set_version(struct net *net,
 static inline void svc_reserve_auth(struct svc_rqst *rqstp, int space)
 {
 	svc_reserve(rqstp, space + rqstp->rq_auth_slack);
+}
+
+/**
+ * svcxdr_init_decode - Prepare an xdr_stream for svc Call decoding
+ * @rqstp: controlling server RPC transaction context
+ *
+ */
+static inline void svcxdr_init_decode(struct svc_rqst *rqstp)
+{
+	struct xdr_stream *xdr = &rqstp->rq_arg_stream;
+	struct kvec *argv = rqstp->rq_arg.head;
+
+	xdr_init_decode(xdr, &rqstp->rq_arg, argv->iov_base, NULL);
+	xdr_set_scratch_page(xdr, rqstp->rq_scratch_page);
+}
+
+/**
+ * svcxdr_init_encode - Prepare an xdr_stream for svc Reply encoding
+ * @rqstp: controlling server RPC transaction context
+ *
+ */
+static inline void svcxdr_init_encode(struct svc_rqst *rqstp)
+{
+	struct xdr_stream *xdr = &rqstp->rq_res_stream;
+	struct xdr_buf *buf = &rqstp->rq_res;
+	struct kvec *resv = buf->head;
+
+	xdr_reset_scratch_buffer(xdr);
+
+	xdr->buf = buf;
+	xdr->iov = resv;
+	xdr->p   = resv->iov_base + resv->iov_len;
+	xdr->end = resv->iov_base + PAGE_SIZE - rqstp->rq_auth_slack;
+	buf->len = resv->iov_len;
+	xdr->page_ptr = buf->pages - 1;
+	buf->buflen = PAGE_SIZE * (1 + rqstp->rq_page_end - buf->pages);
+	buf->buflen -= rqstp->rq_auth_slack;
+	xdr->rqst = NULL;
 }
 
 #endif /* SUNRPC_SVC_H */

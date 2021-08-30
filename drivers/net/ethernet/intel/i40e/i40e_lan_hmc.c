@@ -511,7 +511,7 @@ configure_lan_hmc_out:
 }
 
 /**
- * i40e_delete_hmc_object - remove hmc objects
+ * i40e_delete_lan_hmc_object - remove hmc objects
  * @hw: pointer to the HW structure
  * @info: pointer to i40e_hmc_delete_obj_info struct
  *
@@ -659,7 +659,7 @@ i40e_status i40e_shutdown_lan_hmc(struct i40e_hw *hw)
 
 #define I40E_HMC_STORE(_struct, _ele)		\
 	offsetof(struct _struct, _ele),		\
-	FIELD_SIZEOF(struct _struct, _ele)
+	sizeof_field(struct _struct, _ele)
 
 struct i40e_context_ele {
 	u16 offset;

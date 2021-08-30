@@ -16,6 +16,7 @@
 #include "member.h"
 #include "recoverd.h"
 #include "dir.h"
+#include "midcomms.h"
 #include "lowcomms.h"
 #include "config.h"
 #include "memory.h"
@@ -197,8 +198,6 @@ static struct kset *dlm_kset;
 
 static int do_uevent(struct dlm_ls *ls, int in)
 {
-	int error;
-
 	if (in)
 		kobject_uevent(&ls->ls_kobj, KOBJ_ONLINE);
 	else
@@ -209,20 +208,12 @@ static int do_uevent(struct dlm_ls *ls, int in)
 	/* dlm_controld will see the uevent, do the necessary group management
 	   and then write to sysfs to wake us */
 
-	error = wait_event_interruptible(ls->ls_uevent_wait,
-			test_and_clear_bit(LSFL_UEVENT_WAIT, &ls->ls_flags));
+	wait_event(ls->ls_uevent_wait,
+		   test_and_clear_bit(LSFL_UEVENT_WAIT, &ls->ls_flags));
 
-	log_rinfo(ls, "group event done %d %d", error, ls->ls_uevent_result);
+	log_rinfo(ls, "group event done %d", ls->ls_uevent_result);
 
-	if (error)
-		goto out;
-
-	error = ls->ls_uevent_result;
- out:
-	if (error)
-		log_error(ls, "group %s failed %d %d", in ? "join" : "leave",
-			  error, ls->ls_uevent_result);
-	return error;
+	return ls->ls_uevent_result;
 }
 
 static int dlm_uevent(struct kset *kset, struct kobject *kobj,
@@ -400,7 +391,7 @@ static int threads_start(void)
 	}
 
 	/* Thread for sending/receiving messages for all lockspace's */
-	error = dlm_lowcomms_start();
+	error = dlm_midcomms_start();
 	if (error) {
 		log_print("cannot start dlm lowcomms %d", error);
 		goto scand_fail;
@@ -412,12 +403,6 @@ static int threads_start(void)
 	dlm_scand_stop();
  fail:
 	return error;
-}
-
-static void threads_stop(void)
-{
-	dlm_scand_stop();
-	dlm_lowcomms_stop();
 }
 
 static int new_lockspace(const char *name, const char *cluster,
@@ -582,7 +567,12 @@ static int new_lockspace(const char *name, const char *cluster,
 	mutex_init(&ls->ls_requestqueue_mutex);
 	mutex_init(&ls->ls_clear_proc_locks);
 
-	ls->ls_recover_buf = kmalloc(dlm_config.ci_buffer_size, GFP_NOFS);
+	/* Due backwards compatibility with 3.1 we need to use maximum
+	 * possible dlm message size to be sure the message will fit and
+	 * not having out of bounds issues. However on sending side 3.2
+	 * might send less.
+	 */
+	ls->ls_recover_buf = kmalloc(DLM_MAX_SOCKET_BUFSIZE, GFP_NOFS);
 	if (!ls->ls_recover_buf)
 		goto out_lkbidr;
 
@@ -712,8 +702,11 @@ int dlm_new_lockspace(const char *name, const char *cluster,
 		ls_count++;
 	if (error > 0)
 		error = 0;
-	if (!ls_count)
-		threads_stop();
+	if (!ls_count) {
+		dlm_scand_stop();
+		dlm_midcomms_shutdown();
+		dlm_lowcomms_stop();
+	}
  out:
 	mutex_unlock(&ls_lock);
 	return error;
@@ -797,6 +790,11 @@ static int release_lockspace(struct dlm_ls *ls, int force)
 		do_uevent(ls, 0);
 
 	dlm_recoverd_stop(ls);
+
+	if (ls_count == 1) {
+		dlm_scand_stop();
+		dlm_midcomms_shutdown();
+	}
 
 	dlm_callback_stop(ls);
 
@@ -890,7 +888,7 @@ int dlm_release_lockspace(void *lockspace, int force)
 	if (!error)
 		ls_count--;
 	if (!ls_count)
-		threads_stop();
+		dlm_lowcomms_stop();
 	mutex_unlock(&ls_lock);
 
 	return error;

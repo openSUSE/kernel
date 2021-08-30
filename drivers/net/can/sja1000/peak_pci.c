@@ -24,8 +24,6 @@
 
 MODULE_AUTHOR("Stephane Grosjean <s.grosjean@peak-system.com>");
 MODULE_DESCRIPTION("Socket-CAN driver for PEAK PCAN PCI family cards");
-MODULE_SUPPORTED_DEVICE("PEAK PCAN PCI/PCIe/PCIeC miniPCI CAN cards");
-MODULE_SUPPORTED_DEVICE("PEAK PCAN miniPCIe/cPCI PC/104+ PCI/104e CAN Cards");
 MODULE_LICENSE("GPL v2");
 
 #define DRV_NAME  "peak_pci"
@@ -97,7 +95,7 @@ MODULE_DEVICE_TABLE(pci, peak_pci_tbl);
 /* GPIOICR byte access offsets */
 #define PITA_GPOUT		0x18	/* GPx output value */
 #define PITA_GPIN		0x19	/* GPx input value */
-#define PITA_GPOEN		0x1A	/* configure GPx as ouput pin */
+#define PITA_GPOEN		0x1A	/* configure GPx as output pin */
 
 /* I2C GP bits */
 #define PITA_GPIN_SCL		0x01	/* Serial Clock Line */
@@ -417,7 +415,7 @@ static void peak_pciec_write_reg(const struct sja1000_priv *priv,
 	peak_pci_write_reg(priv, port, val);
 }
 
-static struct i2c_algo_bit_data peak_pciec_i2c_bit_ops = {
+static const struct i2c_algo_bit_data peak_pciec_i2c_bit_ops = {
 	.setsda	= pita_setsda,
 	.setscl	= pita_setscl,
 	.getsda	= pita_getsda,

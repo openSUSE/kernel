@@ -339,10 +339,8 @@ void hubp2_program_size(
 	 */
 	use_pitch_c = format >= SURFACE_PIXEL_FORMAT_VIDEO_BEGIN
 		&& format < SURFACE_PIXEL_FORMAT_SUBSAMPLE_END;
-#if defined(CONFIG_DRM_AMD_DC_DCN3_0)
 	use_pitch_c = use_pitch_c
 		|| (format == SURFACE_PIXEL_FORMAT_GRPH_RGBE_ALPHA);
-#endif
 	if (use_pitch_c) {
 		ASSERT(plane_size->chroma_pitch != 0);
 		/* Chroma pitch zero can cause system hang! */
@@ -367,10 +365,8 @@ void hubp2_program_size(
 			PITCH, pitch, META_PITCH, meta_pitch);
 
 	use_pitch_c = format >= SURFACE_PIXEL_FORMAT_VIDEO_BEGIN;
-#if defined(CONFIG_DRM_AMD_DC_DCN3_0)
 	use_pitch_c = use_pitch_c
 		|| (format == SURFACE_PIXEL_FORMAT_GRPH_RGBE_ALPHA);
-#endif
 	if (use_pitch_c)
 		REG_UPDATE_2(DCSURF_SURFACE_PITCH_C,
 			PITCH_C, pitch_c, META_PITCH_C, meta_pitch_c);
@@ -435,6 +431,7 @@ void hubp2_program_pixel_format(
 	if (format == SURFACE_PIXEL_FORMAT_GRPH_ABGR8888
 			|| format == SURFACE_PIXEL_FORMAT_GRPH_ABGR2101010
 			|| format == SURFACE_PIXEL_FORMAT_GRPH_ABGR2101010_XR_BIAS
+			|| format == SURFACE_PIXEL_FORMAT_GRPH_ABGR16161616
 			|| format == SURFACE_PIXEL_FORMAT_GRPH_ABGR16161616F) {
 		red_bar = 2;
 		blue_bar = 3;
@@ -467,8 +464,9 @@ void hubp2_program_pixel_format(
 				SURFACE_PIXEL_FORMAT, 10);
 		break;
 	case SURFACE_PIXEL_FORMAT_GRPH_ARGB16161616:
+	case SURFACE_PIXEL_FORMAT_GRPH_ABGR16161616: /*we use crossbar already*/
 		REG_UPDATE(DCSURF_SURFACE_CONFIG,
-				SURFACE_PIXEL_FORMAT, 22);
+				SURFACE_PIXEL_FORMAT, 26); /* ARGB16161616_UNORM */
 		break;
 	case SURFACE_PIXEL_FORMAT_GRPH_ARGB16161616F:
 	case SURFACE_PIXEL_FORMAT_GRPH_ABGR16161616F:/*we use crossbar already*/
@@ -516,7 +514,6 @@ void hubp2_program_pixel_format(
 		REG_UPDATE(DCSURF_SURFACE_CONFIG,
 				SURFACE_PIXEL_FORMAT, 119);
 		break;
-#if defined(CONFIG_DRM_AMD_DC_DCN3_0)
 	case SURFACE_PIXEL_FORMAT_GRPH_RGBE:
 		REG_UPDATE_2(DCSURF_SURFACE_CONFIG,
 				SURFACE_PIXEL_FORMAT, 116,
@@ -527,7 +524,6 @@ void hubp2_program_pixel_format(
 				SURFACE_PIXEL_FORMAT, 116,
 				ALPHA_PLANE_EN, 1);
 		break;
-#endif
 	default:
 		BREAK_TO_DEBUGGER();
 		break;
@@ -910,6 +906,9 @@ bool hubp2_is_flip_pending(struct hubp *hubp)
 	uint32_t flip_pending = 0;
 	struct dcn20_hubp *hubp2 = TO_DCN20_HUBP(hubp);
 	struct dc_plane_address earliest_inuse_address;
+
+	if (hubp && hubp->power_gated)
+		return false;
 
 	REG_GET(DCSURF_FLIP_CONTROL,
 			SURFACE_FLIP_PENDING, &flip_pending);
@@ -1601,6 +1600,9 @@ static struct hubp_funcs dcn20_hubp_funcs = {
 	.hubp_set_flip_control_surface_gsl = hubp2_set_flip_control_surface_gsl,
 	.hubp_init = hubp1_init,
 	.validate_dml_output = hubp2_validate_dml_output,
+	.hubp_in_blank = hubp1_in_blank,
+	.hubp_soft_reset = hubp1_soft_reset,
+	.hubp_set_flip_int = hubp1_set_flip_int,
 };
 
 

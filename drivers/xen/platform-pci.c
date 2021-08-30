@@ -74,7 +74,7 @@ static int xen_allocate_irq(struct pci_dev *pdev)
 			"xen-platform-pci", pdev);
 }
 
-static int platform_pci_resume(struct pci_dev *pdev)
+static int platform_pci_resume(struct device *dev)
 {
 	int err;
 
@@ -83,7 +83,7 @@ static int platform_pci_resume(struct pci_dev *pdev)
 
 	err = xen_set_callback_via(callback_via);
 	if (err) {
-		dev_err(&pdev->dev, "platform_pci_resume failure!\n");
+		dev_err(dev, "platform_pci_resume failure!\n");
 		return err;
 	}
 	return 0;
@@ -132,6 +132,13 @@ static int platform_pci_probe(struct pci_dev *pdev,
 			dev_warn(&pdev->dev, "request_irq failed err=%d\n", ret);
 			goto out;
 		}
+		/*
+		 * It doesn't strictly *have* to run on CPU0 but it sure
+		 * as hell better process the event channel ports delivered
+		 * to CPU0.
+		 */
+		irq_set_affinity(pdev->irq, cpumask_of(0));
+
 		callback_via = get_callback_via(pdev);
 		ret = xen_set_callback_via(callback_via);
 		if (ret) {
@@ -149,7 +156,6 @@ static int platform_pci_probe(struct pci_dev *pdev,
 	ret = gnttab_init();
 	if (ret)
 		goto grant_out;
-	xenbus_probe(NULL);
 	return 0;
 grant_out:
 	gnttab_free_auto_xlat_frames();
@@ -168,13 +174,17 @@ static const struct pci_device_id platform_pci_tbl[] = {
 	{0,}
 };
 
+static const struct dev_pm_ops platform_pm_ops = {
+	.resume_noirq =   platform_pci_resume,
+};
+
 static struct pci_driver platform_driver = {
 	.name =           DRV_NAME,
 	.probe =          platform_pci_probe,
 	.id_table =       platform_pci_tbl,
-#ifdef CONFIG_PM
-	.resume_early =   platform_pci_resume,
-#endif
+	.driver = {
+		.pm =     &platform_pm_ops,
+	},
 };
 
 builtin_pci_driver(platform_driver);

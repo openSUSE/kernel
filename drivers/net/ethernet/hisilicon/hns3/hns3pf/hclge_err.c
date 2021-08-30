@@ -631,6 +631,134 @@ static const struct hclge_hw_error hclge_rocee_qmm_ovf_err_int[] = {
 	{ /* sentinel */ }
 };
 
+static const struct hclge_hw_module_id hclge_hw_module_id_st[] = {
+	{
+		.module_id = MODULE_NONE,
+		.msg = "MODULE_NONE"
+	}, {
+		.module_id = MODULE_BIOS_COMMON,
+		.msg = "MODULE_BIOS_COMMON"
+	}, {
+		.module_id = MODULE_GE,
+		.msg = "MODULE_GE"
+	}, {
+		.module_id = MODULE_IGU_EGU,
+		.msg = "MODULE_IGU_EGU"
+	}, {
+		.module_id = MODULE_LGE,
+		.msg = "MODULE_LGE"
+	}, {
+		.module_id = MODULE_NCSI,
+		.msg = "MODULE_NCSI"
+	}, {
+		.module_id = MODULE_PPP,
+		.msg = "MODULE_PPP"
+	}, {
+		.module_id = MODULE_QCN,
+		.msg = "MODULE_QCN"
+	}, {
+		.module_id = MODULE_RCB_RX,
+		.msg = "MODULE_RCB_RX"
+	}, {
+		.module_id = MODULE_RTC,
+		.msg = "MODULE_RTC"
+	}, {
+		.module_id = MODULE_SSU,
+		.msg = "MODULE_SSU"
+	}, {
+		.module_id = MODULE_TM,
+		.msg = "MODULE_TM"
+	}, {
+		.module_id = MODULE_RCB_TX,
+		.msg = "MODULE_RCB_TX"
+	}, {
+		.module_id = MODULE_TXDMA,
+		.msg = "MODULE_TXDMA"
+	}, {
+		.module_id = MODULE_MASTER,
+		.msg = "MODULE_MASTER"
+	}, {
+		.module_id = MODULE_ROCEE_TOP,
+		.msg = "MODULE_ROCEE_TOP"
+	}, {
+		.module_id = MODULE_ROCEE_TIMER,
+		.msg = "MODULE_ROCEE_TIMER"
+	}, {
+		.module_id = MODULE_ROCEE_MDB,
+		.msg = "MODULE_ROCEE_MDB"
+	}, {
+		.module_id = MODULE_ROCEE_TSP,
+		.msg = "MODULE_ROCEE_TSP"
+	}, {
+		.module_id = MODULE_ROCEE_TRP,
+		.msg = "MODULE_ROCEE_TRP"
+	}, {
+		.module_id = MODULE_ROCEE_SCC,
+		.msg = "MODULE_ROCEE_SCC"
+	}, {
+		.module_id = MODULE_ROCEE_CAEP,
+		.msg = "MODULE_ROCEE_CAEP"
+	}, {
+		.module_id = MODULE_ROCEE_GEN_AC,
+		.msg = "MODULE_ROCEE_GEN_AC"
+	}, {
+		.module_id = MODULE_ROCEE_QMM,
+		.msg = "MODULE_ROCEE_QMM"
+	}, {
+		.module_id = MODULE_ROCEE_LSAN,
+		.msg = "MODULE_ROCEE_LSAN"
+	}
+};
+
+static const struct hclge_hw_type_id hclge_hw_type_id_st[] = {
+	{
+		.type_id = NONE_ERROR,
+		.msg = "none_error"
+	}, {
+		.type_id = FIFO_ERROR,
+		.msg = "fifo_error"
+	}, {
+		.type_id = MEMORY_ERROR,
+		.msg = "memory_error"
+	}, {
+		.type_id = POISON_ERROR,
+		.msg = "poison_error"
+	}, {
+		.type_id = MSIX_ECC_ERROR,
+		.msg = "msix_ecc_error"
+	}, {
+		.type_id = TQP_INT_ECC_ERROR,
+		.msg = "tqp_int_ecc_error"
+	}, {
+		.type_id = PF_ABNORMAL_INT_ERROR,
+		.msg = "pf_abnormal_int_error"
+	}, {
+		.type_id = MPF_ABNORMAL_INT_ERROR,
+		.msg = "mpf_abnormal_int_error"
+	}, {
+		.type_id = COMMON_ERROR,
+		.msg = "common_error"
+	}, {
+		.type_id = PORT_ERROR,
+		.msg = "port_error"
+	}, {
+		.type_id = ETS_ERROR,
+		.msg = "ets_error"
+	}, {
+		.type_id = NCSI_ERROR,
+		.msg = "ncsi_error"
+	}, {
+		.type_id = GLB_ERROR,
+		.msg = "glb_error"
+	}, {
+		.type_id = ROCEE_NORMAL_ERR,
+		.msg = "rocee_normal_error"
+	}, {
+		.type_id = ROCEE_OVF_ERR,
+		.msg = "rocee_ovf_error"
+	}
+};
+
 static void hclge_log_error(struct device *dev, char *reg,
 			    const struct hclge_hw_error *err,
 			    u32 err_sts, unsigned long *reset_requests)
@@ -729,7 +857,7 @@ static int hclge_config_ncsi_hw_err_int(struct hclge_dev *hdev, bool en)
 	struct hclge_desc desc;
 	int ret;
 
-	if (hdev->pdev->revision < 0x21)
+	if (hdev->ae_dev->dev_version < HNAE3_DEVICE_VERSION_V2)
 		return 0;
 
 	/* configure NCSI error interrupts */
@@ -809,7 +937,7 @@ static int hclge_config_ppp_error_interrupt(struct hclge_dev *hdev, u32 cmd,
 			cpu_to_le32(HCLGE_PPP_MPF_ECC_ERR_INT0_EN_MASK);
 		desc[1].data[1] =
 			cpu_to_le32(HCLGE_PPP_MPF_ECC_ERR_INT1_EN_MASK);
-		if (hdev->pdev->revision >= 0x21)
+		if (hdev->ae_dev->dev_version >= HNAE3_DEVICE_VERSION_V2)
 			desc[1].data[2] =
 				cpu_to_le32(HCLGE_PPP_PF_ERR_INT_EN_MASK);
 	} else if (cmd == HCLGE_PPP_CMD1_INT_CMD) {
@@ -866,13 +994,7 @@ static int hclge_config_tm_hw_err_int(struct hclge_dev *hdev, bool en)
 	}
 
 	/* configure TM QCN hw errors */
-	ret = hclge_cmd_query_error(hdev, &desc, HCLGE_TM_QCN_MEM_INT_CFG, 0);
-	if (ret) {
-		dev_err(dev, "fail(%d) to read TM QCN CFG status\n", ret);
-		return ret;
-	}
-
-	hclge_cmd_reuse_desc(&desc, false);
+	hclge_cmd_setup_basic_desc(&desc, HCLGE_TM_QCN_MEM_INT_CFG, false);
 	if (en)
 		desc.data[1] = cpu_to_le32(HCLGE_TM_QCN_MEM_ERR_INT_EN);
 
@@ -1042,7 +1164,7 @@ static int hclge_config_ssu_hw_err_int(struct hclge_dev *hdev, bool en)
 	hclge_cmd_setup_basic_desc(&desc[1], HCLGE_SSU_COMMON_INT_CMD, false);
 
 	if (en) {
-		if (hdev->pdev->revision >= 0x21)
+		if (hdev->ae_dev->dev_version >= HNAE3_DEVICE_VERSION_V2)
 			desc[0].data[0] =
 				cpu_to_le32(HCLGE_SSU_COMMON_INT_EN);
 		else
@@ -1074,7 +1196,7 @@ static int hclge_config_ssu_hw_err_int(struct hclge_dev *hdev, bool en)
  * This function querys number of mpf and pf buffer descriptors.
  */
 static int hclge_query_bd_num(struct hclge_dev *hdev, bool is_ras,
-			      int *mpf_bd_num, int *pf_bd_num)
+			      u32 *mpf_bd_num, u32 *pf_bd_num)
 {
 	struct device *dev = &hdev->pdev->dev;
 	u32 mpf_min_bd_num, pf_min_bd_num;
@@ -1103,7 +1225,7 @@ static int hclge_query_bd_num(struct hclge_dev *hdev, bool is_ras,
 	*mpf_bd_num = le32_to_cpu(desc_bd.data[0]);
 	*pf_bd_num = le32_to_cpu(desc_bd.data[1]);
 	if (*mpf_bd_num < mpf_min_bd_num || *pf_bd_num < pf_min_bd_num) {
-		dev_err(dev, "Invalid bd num: mpf(%d), pf(%d)\n",
+		dev_err(dev, "Invalid bd num: mpf(%u), pf(%u)\n",
 			*mpf_bd_num, *pf_bd_num);
 		return -EINVAL;
 	}
@@ -1498,7 +1620,6 @@ hclge_log_and_clear_rocee_ras_error(struct hclge_dev *hdev)
 	}
 
 	status = le32_to_cpu(desc[0].data[0]);
-
 	if (status & HCLGE_ROCEE_AXI_ERR_INT_MASK) {
 		if (status & HCLGE_ROCEE_RERR_INT_MASK)
 			dev_err(dev, "ROCEE RAS AXI rresp error\n");
@@ -1507,6 +1628,8 @@ hclge_log_and_clear_rocee_ras_error(struct hclge_dev *hdev)
 			dev_err(dev, "ROCEE RAS AXI bresp error\n");
 
 		reset_type = HNAE3_FUNC_RESET;
+
+		hclge_report_hw_error(hdev, HNAE3_ROCEE_AXI_RESP_ERROR);
 
 		ret = hclge_log_rocee_axi_error(hdev);
 		if (ret)
@@ -1549,7 +1672,8 @@ int hclge_config_rocee_ras_interrupt(struct hclge_dev *hdev, bool en)
 	struct hclge_desc desc;
 	int ret;
 
-	if (hdev->pdev->revision < 0x21 || !hnae3_dev_roce_supported(hdev))
+	if (hdev->ae_dev->dev_version < HNAE3_DEVICE_VERSION_V2 ||
+	    !hnae3_dev_roce_supported(hdev))
 		return 0;
 
 	hclge_cmd_setup_basic_desc(&desc, HCLGE_CONFIG_ROCEE_RAS_INT_EN, false);
@@ -1575,8 +1699,7 @@ static void hclge_handle_rocee_ras_error(struct hnae3_ae_dev *ae_dev)
 	struct hclge_dev *hdev = ae_dev->priv;
 	enum hnae3_reset_type reset_type;
 
-	if (test_bit(HCLGE_STATE_RST_HANDLING, &hdev->state) ||
-	    hdev->pdev->revision < 0x21)
+	if (test_bit(HCLGE_STATE_RST_HANDLING, &hdev->state))
 		return;
 
 	reset_type = hclge_log_and_clear_rocee_ras_error(hdev);
@@ -1616,10 +1739,26 @@ static const struct hclge_hw_blk hw_blk[] = {
 	{ /* sentinel */ }
 };
 
+static void hclge_config_all_msix_error(struct hclge_dev *hdev, bool enable)
+{
+	u32 reg_val;
+
+	reg_val = hclge_read_dev(&hdev->hw, HCLGE_PF_OTHER_INT_REG);
+
+	if (enable)
+		reg_val |= BIT(HCLGE_VECTOR0_ALL_MSIX_ERR_B);
+	else
+		reg_val &= ~BIT(HCLGE_VECTOR0_ALL_MSIX_ERR_B);
+
+	hclge_write_dev(&hdev->hw, HCLGE_PF_OTHER_INT_REG, reg_val);
+}
+
 int hclge_config_nic_hw_error(struct hclge_dev *hdev, bool state)
 {
 	const struct hclge_hw_blk *module = hw_blk;
 	int ret = 0;
+
+	hclge_config_all_msix_error(hdev, state);
 
 	while (module->name) {
 		if (module->config_err_int) {
@@ -1646,7 +1785,6 @@ pci_ers_result_t hclge_handle_hw_ras_error(struct hnae3_ae_dev *ae_dev)
 	}
 
 	status = hclge_read_dev(&hdev->hw, HCLGE_RAS_PF_OTHER_INT_STS_REG);
-
 	if (status & HCLGE_RAS_REG_NFE_MASK ||
 	    status & HCLGE_RAS_REG_ROCEE_ERR_MASK)
 		ae_dev->hw_err_reset_req = 0;
@@ -1662,7 +1800,7 @@ pci_ers_result_t hclge_handle_hw_ras_error(struct hnae3_ae_dev *ae_dev)
 	}
 
 	/* Handling Non-fatal Rocee RAS errors */
-	if (hdev->pdev->revision >= 0x21 &&
+	if (hdev->ae_dev->dev_version >= HNAE3_DEVICE_VERSION_V2 &&
 	    status & HCLGE_RAS_REG_ROCEE_ERR_MASK) {
 		dev_err(dev, "ROCEE Non-Fatal RAS error identified\n");
 		hclge_handle_rocee_ras_error(ae_dev);
@@ -1882,11 +2020,8 @@ static int hclge_handle_pf_msix_error(struct hclge_dev *hdev,
 static int hclge_handle_all_hw_msix_error(struct hclge_dev *hdev,
 					  unsigned long *reset_requests)
 {
-	struct hclge_mac_tnl_stats mac_tnl_stats;
-	struct device *dev = &hdev->pdev->dev;
 	u32 mpf_bd_num, pf_bd_num, bd_num;
 	struct hclge_desc *desc;
-	u32 status;
 	int ret;
 
 	/* query the number of bds for the MSIx int status */
@@ -1909,29 +2044,7 @@ static int hclge_handle_all_hw_msix_error(struct hclge_dev *hdev,
 	if (ret)
 		goto msi_error;
 
-	/* query and clear mac tnl interruptions */
-	hclge_cmd_setup_basic_desc(&desc[0], HCLGE_OPC_QUERY_MAC_TNL_INT,
-				   true);
-	ret = hclge_cmd_send(&hdev->hw, &desc[0], 1);
-	if (ret) {
-		dev_err(dev, "query mac tnl int cmd failed (%d)\n", ret);
-		goto msi_error;
-	}
-
-	status = le32_to_cpu(desc->data[0]);
-	if (status) {
-		/* When mac tnl interrupt occurs, we record current time and
-		 * register status here in a fifo, then clear the status. So
-		 * that if link status changes suddenly at some time, we can
-		 * query them by debugfs.
-		 */
-		mac_tnl_stats.time = local_clock();
-		mac_tnl_stats.status = status;
-		kfifo_put(&hdev->mac_tnl_log, mac_tnl_stats);
-		ret = hclge_clear_mac_tnl_int(hdev);
-		if (ret)
-			dev_err(dev, "clear mac tnl int failed (%d)\n", ret);
-	}
+	ret = hclge_handle_mac_tnl(hdev);
 
 msi_error:
 	kfree(desc);
@@ -1946,17 +2059,50 @@ int hclge_handle_hw_msix_error(struct hclge_dev *hdev,
 
 	if (!test_bit(HCLGE_STATE_SERVICE_INITED, &hdev->state)) {
 		dev_err(dev,
-			"Can't handle - MSIx error reported during dev init\n");
-		return 0;
+			"failed to handle msix error during dev init\n");
+		return -EAGAIN;
 	}
 
 	return hclge_handle_all_hw_msix_error(hdev, reset_requests);
 }
 
+int hclge_handle_mac_tnl(struct hclge_dev *hdev)
+{
+	struct hclge_mac_tnl_stats mac_tnl_stats;
+	struct device *dev = &hdev->pdev->dev;
+	struct hclge_desc desc;
+	u32 status;
+	int ret;
+
+	/* query and clear mac tnl interruptions */
+	hclge_cmd_setup_basic_desc(&desc, HCLGE_OPC_QUERY_MAC_TNL_INT, true);
+	ret = hclge_cmd_send(&hdev->hw, &desc, 1);
+	if (ret) {
+		dev_err(dev, "failed to query mac tnl int, ret = %d.\n", ret);
+		return ret;
+	}
+
+	status = le32_to_cpu(desc.data[0]);
+	if (status) {
+		/* When mac tnl interrupt occurs, we record current time and
+		 * register status here in a fifo, then clear the status. So
+		 * that if link status changes suddenly at some time, we can
+		 * query them by debugfs.
+		 */
+		mac_tnl_stats.time = local_clock();
+		mac_tnl_stats.status = status;
+		kfifo_put(&hdev->mac_tnl_log, mac_tnl_stats);
+		ret = hclge_clear_mac_tnl_int(hdev);
+		if (ret)
+			dev_err(dev, "failed to clear mac tnl int, ret = %d.\n",
+				ret);
+	}
+
+	return ret;
+}
+
 void hclge_handle_all_hns_hw_errors(struct hnae3_ae_dev *ae_dev)
 {
-#define HCLGE_DESC_NO_DATA_LEN 8
-
 	struct hclge_dev *hdev = ae_dev->priv;
 	struct device *dev = &hdev->pdev->dev;
 	u32 mpf_bd_num, pf_bd_num, bd_num;
@@ -2004,4 +2150,208 @@ void hclge_handle_all_hns_hw_errors(struct hnae3_ae_dev *ae_dev)
 
 msi_error:
 	kfree(desc);
+}
+
+bool hclge_find_error_source(struct hclge_dev *hdev)
+{
+	u32 msix_src_flag, hw_err_src_flag;
+
+	msix_src_flag = hclge_read_dev(&hdev->hw, HCLGE_MISC_VECTOR_INT_STS) &
+			HCLGE_VECTOR0_REG_MSIX_MASK;
+
+	hw_err_src_flag = hclge_read_dev(&hdev->hw,
+					 HCLGE_RAS_PF_OTHER_INT_STS_REG) &
+			  HCLGE_RAS_REG_ERR_MASK;
+
+	return msix_src_flag || hw_err_src_flag;
+}
+
+void hclge_handle_occurred_error(struct hclge_dev *hdev)
+{
+	struct hnae3_ae_dev *ae_dev = pci_get_drvdata(hdev->pdev);
+
+	if (hclge_find_error_source(hdev))
+		hclge_handle_error_info_log(ae_dev);
+}
+
+static void
+hclge_handle_error_type_reg_log(struct device *dev,
+				struct hclge_mod_err_info *mod_info,
+				struct hclge_type_reg_err_info *type_reg_info)
+{
+#define HCLGE_ERR_TYPE_MASK 0x7F
+#define HCLGE_ERR_TYPE_IS_RAS_OFFSET 7
+
+	u8 mod_id, total_module, type_id, total_type, i, is_ras;
+	u8 index_module = MODULE_NONE;
+	u8 index_type = NONE_ERROR;
+
+	mod_id = mod_info->mod_id;
+	type_id = type_reg_info->type_id & HCLGE_ERR_TYPE_MASK;
+	is_ras = type_reg_info->type_id >> HCLGE_ERR_TYPE_IS_RAS_OFFSET;
+
+	total_module = ARRAY_SIZE(hclge_hw_module_id_st);
+	total_type = ARRAY_SIZE(hclge_hw_type_id_st);
+
+	for (i = 0; i < total_module; i++) {
+		if (mod_id == hclge_hw_module_id_st[i].module_id) {
+			index_module = i;
+			break;
+		}
+	}
+
+	for (i = 0; i < total_type; i++) {
+		if (type_id == hclge_hw_type_id_st[i].type_id) {
+			index_type = i;
+			break;
+		}
+	}
+
+	if (index_module != MODULE_NONE && index_type != NONE_ERROR)
+		dev_err(dev,
+			"found %s %s, is %s error.\n",
+			hclge_hw_module_id_st[index_module].msg,
+			hclge_hw_type_id_st[index_type].msg,
+			is_ras ? "ras" : "msix");
+	else
+		dev_err(dev,
+			"unknown module[%u] or type[%u].\n", mod_id, type_id);
+
+	dev_err(dev, "reg_value:\n");
+	for (i = 0; i < type_reg_info->reg_num; i++)
+		dev_err(dev, "0x%08x\n", type_reg_info->hclge_reg[i]);
+}
+
+static void hclge_handle_error_module_log(struct hnae3_ae_dev *ae_dev,
+					  const u32 *buf, u32 buf_size)
+{
+	struct hclge_type_reg_err_info *type_reg_info;
+	struct hclge_dev *hdev = ae_dev->priv;
+	struct device *dev = &hdev->pdev->dev;
+	struct hclge_mod_err_info *mod_info;
+	struct hclge_sum_err_info *sum_info;
+	u8 mod_num, err_num, i;
+	u32 offset = 0;
+
+	sum_info = (struct hclge_sum_err_info *)&buf[offset++];
+	if (sum_info->reset_type &&
+	    sum_info->reset_type != HNAE3_NONE_RESET)
+		set_bit(sum_info->reset_type, &ae_dev->hw_err_reset_req);
+	mod_num = sum_info->mod_num;
+
+	while (mod_num--) {
+		if (offset >= buf_size) {
+			dev_err(dev, "The offset(%u) exceeds buf's size(%u).\n",
+				offset, buf_size);
+			return;
+		}
+		mod_info = (struct hclge_mod_err_info *)&buf[offset++];
+		err_num = mod_info->err_num;
+
+		for (i = 0; i < err_num; i++) {
+			if (offset >= buf_size) {
+				dev_err(dev,
+					"The offset(%u) exceeds buf size(%u).\n",
+					offset, buf_size);
+				return;
+			}
+
+			type_reg_info = (struct hclge_type_reg_err_info *)
+					    &buf[offset++];
+			hclge_handle_error_type_reg_log(dev, mod_info,
+							type_reg_info);
+
+			offset += type_reg_info->reg_num;
+		}
+	}
+}
+
+static int hclge_query_all_err_bd_num(struct hclge_dev *hdev, u32 *bd_num)
+{
+	struct device *dev = &hdev->pdev->dev;
+	struct hclge_desc desc_bd;
+	int ret;
+
+	hclge_cmd_setup_basic_desc(&desc_bd, HCLGE_QUERY_ALL_ERR_BD_NUM, true);
+	ret = hclge_cmd_send(&hdev->hw, &desc_bd, 1);
+	if (ret) {
+		dev_err(dev, "failed to query error bd_num, ret = %d.\n", ret);
+		return ret;
+	}
+
+	*bd_num = le32_to_cpu(desc_bd.data[0]);
+	if (!(*bd_num)) {
+		dev_err(dev, "The value of bd_num is 0!\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int hclge_query_all_err_info(struct hclge_dev *hdev,
+				    struct hclge_desc *desc, u32 bd_num)
+{
+	struct device *dev = &hdev->pdev->dev;
+	int ret;
+
+	hclge_cmd_setup_basic_desc(desc, HCLGE_QUERY_ALL_ERR_INFO, true);
+	ret = hclge_cmd_send(&hdev->hw, desc, bd_num);
+	if (ret)
+		dev_err(dev, "failed to query error info, ret = %d.\n", ret);
+
+	return ret;
+}
+
+int hclge_handle_error_info_log(struct hnae3_ae_dev *ae_dev)
+{
+	u32 bd_num, desc_len, buf_len, buf_size, i;
+	struct hclge_dev *hdev = ae_dev->priv;
+	struct hclge_desc *desc;
+	__le32 *desc_data;
+	u32 *buf;
+	int ret;
+
+	ret = hclge_query_all_err_bd_num(hdev, &bd_num);
+	if (ret)
+		goto out;
+
+	desc_len = bd_num * sizeof(struct hclge_desc);
+	desc = kzalloc(desc_len, GFP_KERNEL);
+	if (!desc) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	ret = hclge_query_all_err_info(hdev, desc, bd_num);
+	if (ret)
+		goto err_desc;
+
+	buf_len = bd_num * sizeof(struct hclge_desc) - HCLGE_DESC_NO_DATA_LEN;
+	buf_size = buf_len / sizeof(u32);
+
+	desc_data = kzalloc(buf_len, GFP_KERNEL);
+	if (!desc_data) {
+		ret = -ENOMEM;
+		goto err_desc;
+	}
+
+	buf = kzalloc(buf_len, GFP_KERNEL);
+	if (!buf) {
+		ret = -ENOMEM;
+		goto err_buf_alloc;
+	}
+
+	memcpy(desc_data, &desc[0].data[0], buf_len);
+	for (i = 0; i < buf_size; i++)
+		buf[i] = le32_to_cpu(desc_data[i]);
+
+	hclge_handle_error_module_log(ae_dev, buf, buf_size);
+	kfree(buf);
+
+err_buf_alloc:
+	kfree(desc_data);
+err_desc:
+	kfree(desc);
+out:
+	return ret;
 }

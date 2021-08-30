@@ -67,6 +67,15 @@ static void bpf_iter_done_stop(struct seq_file *seq)
 	iter_priv->done_stop = true;
 }
 
+static bool bpf_iter_support_resched(struct seq_file *seq)
+{
+	struct bpf_iter_priv_data *iter_priv;
+
+	iter_priv = container_of(seq->private, struct bpf_iter_priv_data,
+				 target_private);
+	return iter_priv->tinfo->reg_info->feature & BPF_ITER_RESCHED;
+}
+
 /* maximum visited objects before bailing out */
 #define MAX_ITER_OBJECTS	1000000
 
@@ -83,13 +92,14 @@ static ssize_t bpf_seq_read(struct file *file, char __user *buf, size_t size,
 	struct seq_file *seq = file->private_data;
 	size_t n, offs, copied = 0;
 	int err = 0, num_objs = 0;
+	bool can_resched;
 	void *p;
 
 	mutex_lock(&seq->lock);
 
 	if (!seq->buf) {
-		seq->size = PAGE_SIZE;
-		seq->buf = kmalloc(seq->size, GFP_KERNEL);
+		seq->size = PAGE_SIZE << 3;
+		seq->buf = kvmalloc(seq->size, GFP_KERNEL);
 		if (!seq->buf) {
 			err = -ENOMEM;
 			goto done;
@@ -135,6 +145,7 @@ static ssize_t bpf_seq_read(struct file *file, char __user *buf, size_t size,
 		goto done;
 	}
 
+	can_resched = bpf_iter_support_resched(seq);
 	while (1) {
 		loff_t pos = seq->index;
 
@@ -180,6 +191,9 @@ static ssize_t bpf_seq_read(struct file *file, char __user *buf, size_t size,
 			}
 			break;
 		}
+
+		if (can_resched)
+			cond_resched();
 	}
 stop:
 	offs = seq->count;
@@ -390,10 +404,68 @@ out_unlock:
 	return ret;
 }
 
+static void bpf_iter_link_show_fdinfo(const struct bpf_link *link,
+				      struct seq_file *seq)
+{
+	struct bpf_iter_link *iter_link =
+		container_of(link, struct bpf_iter_link, link);
+	bpf_iter_show_fdinfo_t show_fdinfo;
+
+	seq_printf(seq,
+		   "target_name:\t%s\n",
+		   iter_link->tinfo->reg_info->target);
+
+	show_fdinfo = iter_link->tinfo->reg_info->show_fdinfo;
+	if (show_fdinfo)
+		show_fdinfo(&iter_link->aux, seq);
+}
+
+static int bpf_iter_link_fill_link_info(const struct bpf_link *link,
+					struct bpf_link_info *info)
+{
+	struct bpf_iter_link *iter_link =
+		container_of(link, struct bpf_iter_link, link);
+	char __user *ubuf = u64_to_user_ptr(info->iter.target_name);
+	bpf_iter_fill_link_info_t fill_link_info;
+	u32 ulen = info->iter.target_name_len;
+	const char *target_name;
+	u32 target_len;
+
+	if (!ulen ^ !ubuf)
+		return -EINVAL;
+
+	target_name = iter_link->tinfo->reg_info->target;
+	target_len =  strlen(target_name);
+	info->iter.target_name_len = target_len + 1;
+
+	if (ubuf) {
+		if (ulen >= target_len + 1) {
+			if (copy_to_user(ubuf, target_name, target_len + 1))
+				return -EFAULT;
+		} else {
+			char zero = '\0';
+
+			if (copy_to_user(ubuf, target_name, ulen - 1))
+				return -EFAULT;
+			if (put_user(zero, ubuf + ulen - 1))
+				return -EFAULT;
+			return -ENOSPC;
+		}
+	}
+
+	fill_link_info = iter_link->tinfo->reg_info->fill_link_info;
+	if (fill_link_info)
+		return fill_link_info(&iter_link->aux, info);
+
+	return 0;
+}
+
 static const struct bpf_link_ops bpf_iter_link_lops = {
 	.release = bpf_iter_link_release,
 	.dealloc = bpf_iter_link_dealloc,
 	.update_prog = bpf_iter_link_replace,
+	.show_fdinfo = bpf_iter_link_show_fdinfo,
+	.fill_link_info = bpf_iter_link_fill_link_info,
 };
 
 bool bpf_link_is_iter(struct bpf_link *link)
@@ -401,15 +473,16 @@ bool bpf_link_is_iter(struct bpf_link *link)
 	return link->ops == &bpf_iter_link_lops;
 }
 
-int bpf_iter_link_attach(const union bpf_attr *attr, struct bpf_prog *prog)
+int bpf_iter_link_attach(const union bpf_attr *attr, bpfptr_t uattr,
+			 struct bpf_prog *prog)
 {
-	union bpf_iter_link_info __user *ulinfo;
 	struct bpf_link_primer link_primer;
 	struct bpf_iter_target_info *tinfo;
 	union bpf_iter_link_info linfo;
 	struct bpf_iter_link *link;
 	u32 prog_btf_id, linfo_len;
 	bool existed = false;
+	bpfptr_t ulinfo;
 	int err;
 
 	if (attr->link_create.target_fd || attr->link_create.flags)
@@ -417,18 +490,18 @@ int bpf_iter_link_attach(const union bpf_attr *attr, struct bpf_prog *prog)
 
 	memset(&linfo, 0, sizeof(union bpf_iter_link_info));
 
-	ulinfo = u64_to_user_ptr(attr->link_create.iter_info);
+	ulinfo = make_bpfptr(attr->link_create.iter_info, uattr.is_kernel);
 	linfo_len = attr->link_create.iter_info_len;
-	if (!ulinfo ^ !linfo_len)
+	if (bpfptr_is_null(ulinfo) ^ !linfo_len)
 		return -EINVAL;
 
-	if (ulinfo) {
+	if (!bpfptr_is_null(ulinfo)) {
 		err = bpf_check_uarg_tail_zero(ulinfo, sizeof(linfo),
 					       linfo_len);
 		if (err)
 			return err;
 		linfo_len = min_t(u32, linfo_len, sizeof(linfo));
-		if (copy_from_user(&linfo, ulinfo, linfo_len))
+		if (copy_from_bpfptr(&linfo, ulinfo, linfo_len))
 			return -EFAULT;
 	}
 
@@ -603,3 +676,19 @@ int bpf_iter_run_prog(struct bpf_prog *prog, void *ctx)
 	 */
 	return ret == 0 ? 0 : -EAGAIN;
 }
+
+BPF_CALL_4(bpf_for_each_map_elem, struct bpf_map *, map, void *, callback_fn,
+	   void *, callback_ctx, u64, flags)
+{
+	return map->ops->map_for_each_callback(map, callback_fn, callback_ctx, flags);
+}
+
+const struct bpf_func_proto bpf_for_each_map_elem_proto = {
+	.func		= bpf_for_each_map_elem,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_CONST_MAP_PTR,
+	.arg2_type	= ARG_PTR_TO_FUNC,
+	.arg3_type	= ARG_PTR_TO_STACK_OR_NULL,
+	.arg4_type	= ARG_ANYTHING,
+};

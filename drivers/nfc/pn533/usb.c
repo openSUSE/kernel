@@ -210,7 +210,7 @@ static void pn533_usb_abort_cmd(struct pn533 *dev, gfp_t flags)
 	usb_kill_urb(phy->in_urb);
 }
 
-/* ACR122 specific structs and fucntions */
+/* ACR122 specific structs and functions */
 
 /* ACS ACR122 pn533 frame definitions */
 #define PN533_ACR122_TX_FRAME_HEADER_LEN (sizeof(struct pn533_acr122_tx_frame) \
@@ -354,8 +354,6 @@ static void pn533_acr122_poweron_rdr_resp(struct urb *urb)
 {
 	struct pn533_acr122_poweron_rdr_arg *arg = urb->context;
 
-	dev_dbg(&urb->dev->dev, "%s\n", __func__);
-
 	print_hex_dump_debug("ACR122 RX: ", DUMP_PREFIX_NONE, 16, 1,
 		       urb->transfer_buffer, urb->transfer_buffer_length,
 		       false);
@@ -374,8 +372,6 @@ static int pn533_acr122_poweron_rdr(struct pn533_usb_phy *phy)
 	int rc;
 	void *cntx;
 	struct pn533_acr122_poweron_rdr_arg arg;
-
-	dev_dbg(&phy->udev->dev, "%s\n", __func__);
 
 	buffer = kmemdup(cmd, sizeof(cmd), GFP_KERNEL);
 	if (!buffer)
@@ -517,7 +513,7 @@ static int pn533_usb_probe(struct usb_interface *interface,
 	case PN533_DEVICE_ACR122U:
 		protocols = PN533_NO_TYPE_B_PROTOCOLS;
 		fops = &pn533_acr122_frame_ops;
-		protocol_type = PN533_PROTO_REQ_RESP,
+		protocol_type = PN533_PROTO_REQ_RESP;
 
 		rc = pn533_acr122_poweron_rdr(phy);
 		if (rc < 0) {
@@ -534,9 +530,9 @@ static int pn533_usb_probe(struct usb_interface *interface,
 		goto error;
 	}
 
-	priv = pn533_register_device(id->driver_info, protocols, protocol_type,
+	priv = pn53x_common_init(id->driver_info, protocol_type,
 					phy, &usb_phy_ops, fops,
-					&phy->udev->dev, &interface->dev);
+					&phy->udev->dev);
 
 	if (IS_ERR(priv)) {
 		rc = PTR_ERR(priv);
@@ -547,14 +543,17 @@ static int pn533_usb_probe(struct usb_interface *interface,
 
 	rc = pn533_finalize_setup(priv);
 	if (rc)
-		goto err_deregister;
+		goto err_clean;
 
 	usb_set_intfdata(interface, phy);
+	rc = pn53x_register_nfc(priv, protocols, &interface->dev);
+	if (rc)
+		goto err_clean;
 
 	return 0;
 
-err_deregister:
-	pn533_unregister_device(phy->priv);
+err_clean:
+	pn53x_common_clean(priv);
 error:
 	usb_kill_urb(phy->in_urb);
 	usb_kill_urb(phy->out_urb);
@@ -577,7 +576,8 @@ static void pn533_usb_disconnect(struct usb_interface *interface)
 	if (!phy)
 		return;
 
-	pn533_unregister_device(phy->priv);
+	pn53x_unregister_nfc(phy->priv);
+	pn53x_common_clean(phy->priv);
 
 	usb_set_intfdata(interface, NULL);
 

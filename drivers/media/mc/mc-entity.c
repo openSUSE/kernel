@@ -323,7 +323,7 @@ static void media_graph_walk_iter(struct media_graph *graph)
 		return;
 	}
 
-	/* Get the entity in the other end of the link . */
+	/* Get the entity at the other end of the link. */
 	next = media_entity_other(entity, link);
 
 	/* Has the entity already been visited? */
@@ -340,6 +340,7 @@ static void media_graph_walk_iter(struct media_graph *graph)
 	stack_push(graph, next);
 	dev_dbg(entity->graph_obj.mdev->dev, "walk: pushing '%s' on stack\n",
 		next->name);
+	lockdep_assert_held(&entity->graph_obj.mdev->graph_mutex);
 }
 
 struct media_entity *media_graph_walk_next(struct media_graph *graph)
@@ -386,7 +387,7 @@ int media_entity_get_fwnode_pad(struct media_entity *entity,
 	if (ret)
 		return ret;
 
-	ret = entity->ops->get_fwnode_pad(&endpoint);
+	ret = entity->ops->get_fwnode_pad(entity, &endpoint);
 	if (ret < 0)
 		return ret;
 
@@ -662,9 +663,14 @@ media_create_pad_link(struct media_entity *source, u16 source_pad,
 	struct media_link *link;
 	struct media_link *backlink;
 
-	BUG_ON(source == NULL || sink == NULL);
-	BUG_ON(source_pad >= source->num_pads);
-	BUG_ON(sink_pad >= sink->num_pads);
+	if (WARN_ON(!source || !sink) ||
+	    WARN_ON(source_pad >= source->num_pads) ||
+	    WARN_ON(sink_pad >= sink->num_pads))
+		return -EINVAL;
+	if (WARN_ON(!(source->pads[source_pad].flags & MEDIA_PAD_FL_SOURCE)))
+		return -EINVAL;
+	if (WARN_ON(!(sink->pads[sink_pad].flags & MEDIA_PAD_FL_SINK)))
+		return -EINVAL;
 
 	link = media_add_link(&source->links);
 	if (link == NULL)

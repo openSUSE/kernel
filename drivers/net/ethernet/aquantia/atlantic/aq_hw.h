@@ -67,8 +67,8 @@ struct aq_hw_caps_s {
 	u8 rx_rings;
 	bool flow_control;
 	bool is_64_dma;
-	u32 quirks;
 	bool op64bit;
+	u32 quirks;
 	u32 priv_data_len;
 };
 
@@ -142,6 +142,8 @@ struct aq_stats_s {
 
 #define AQ_HW_LED_BLINK    0x2U
 #define AQ_HW_LED_DEFAULT  0x0U
+
+#define AQ_HW_MEDIA_DETECT_CNT 6000
 
 enum aq_priv_flags {
 	AQ_HW_LOOPBACK_DMA_SYS,
@@ -385,6 +387,16 @@ struct aq_fw_ops {
 
 	int (*get_eee_rate)(struct aq_hw_s *self, u32 *rate,
 			    u32 *supported_rates);
+
+	int (*set_downshift)(struct aq_hw_s *self, u32 counter);
+
+	int (*set_media_detect)(struct aq_hw_s *self, bool enable);
+
+	u32 (*get_link_capabilities)(struct aq_hw_s *self);
+
+	int (*send_macsec_req)(struct aq_hw_s *self,
+			       struct macsec_msg_fw_request *msg,
+			       struct macsec_msg_fw_response *resp);
 };
 
 #endif /* AQ_HW_H */

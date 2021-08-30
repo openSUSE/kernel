@@ -188,11 +188,9 @@ static struct fsnotify_mark *alloc_mark(void)
 static struct audit_chunk *alloc_chunk(int count)
 {
 	struct audit_chunk *chunk;
-	size_t size;
 	int i;
 
-	size = offsetof(struct audit_chunk, owners) + count * sizeof(struct node);
-	chunk = kzalloc(size, GFP_KERNEL);
+	chunk = kzalloc(struct_size(chunk, owners, count), GFP_KERNEL);
 	if (!chunk)
 		return NULL;
 
@@ -691,8 +689,7 @@ void audit_trim_trees(void)
 
 		tree = container_of(cursor.next, struct audit_tree, list);
 		get_tree(tree);
-		list_del(&cursor);
-		list_add(&cursor, &tree->list);
+		list_move(&cursor, &tree->list);
 		mutex_unlock(&audit_filter_mutex);
 
 		err = kern_path(tree->pathname, 0, &path);
@@ -901,8 +898,7 @@ int audit_tag_tree(char *old, char *new)
 
 		tree = container_of(cursor.next, struct audit_tree, list);
 		get_tree(tree);
-		list_del(&cursor);
-		list_add(&cursor, &tree->list);
+		list_move(&cursor, &tree->list);
 		mutex_unlock(&audit_filter_mutex);
 
 		err = kern_path(tree->pathname, 0, &path2);
@@ -927,8 +923,7 @@ int audit_tag_tree(char *old, char *new)
 		mutex_lock(&audit_filter_mutex);
 		spin_lock(&hash_lock);
 		if (!tree->goner) {
-			list_del(&tree->list);
-			list_add(&tree->list, &tree_list);
+			list_move(&tree->list, &tree_list);
 		}
 		spin_unlock(&hash_lock);
 		put_tree(tree);
@@ -939,8 +934,7 @@ int audit_tag_tree(char *old, char *new)
 
 		tree = container_of(barrier.prev, struct audit_tree, list);
 		get_tree(tree);
-		list_del(&tree->list);
-		list_add(&tree->list, &barrier);
+		list_move(&tree->list, &barrier);
 		mutex_unlock(&audit_filter_mutex);
 
 		if (!failed) {
@@ -1037,11 +1031,9 @@ static void evict_chunk(struct audit_chunk *chunk)
 		audit_schedule_prune();
 }
 
-static int audit_tree_handle_event(struct fsnotify_group *group,
-				   struct inode *to_tell,
-				   u32 mask, const void *data, int data_type,
-				   const struct qstr *file_name, u32 cookie,
-				   struct fsnotify_iter_info *iter_info)
+static int audit_tree_handle_event(struct fsnotify_mark *mark, u32 mask,
+				   struct inode *inode, struct inode *dir,
+				   const struct qstr *file_name, u32 cookie)
 {
 	return 0;
 }
@@ -1070,7 +1062,7 @@ static void audit_tree_freeing_mark(struct fsnotify_mark *mark,
 }
 
 static const struct fsnotify_ops audit_tree_ops = {
-	.handle_event = audit_tree_handle_event,
+	.handle_inode_event = audit_tree_handle_event,
 	.freeing_mark = audit_tree_freeing_mark,
 	.free_mark = audit_tree_destroy_watch,
 };

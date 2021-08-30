@@ -88,15 +88,15 @@ enum qdio_irq_states {
 static inline int do_sqbs(u64 token, unsigned char state, int queue,
 			  int *start, int *count)
 {
-	register unsigned long _ccq asm ("0") = *count;
-	register unsigned long _token asm ("1") = token;
 	unsigned long _queuestart = ((unsigned long)queue << 32) | *start;
+	unsigned long _ccq = *count;
 
 	asm volatile(
-		"	.insn	rsy,0xeb000000008A,%1,0,0(%2)"
-		: "+d" (_ccq), "+d" (_queuestart)
-		: "d" ((unsigned long)state), "d" (_token)
-		: "memory", "cc");
+		"	lgr	1,%[token]\n"
+		"	.insn	rsy,0xeb000000008a,%[qs],%[ccq],0(%[state])"
+		: [ccq] "+&d" (_ccq), [qs] "+&d" (_queuestart)
+		: [state] "d" ((unsigned long)state), [token] "d" (token)
+		: "memory", "cc", "1");
 	*count = _ccq & 0xff;
 	*start = _queuestart & 0xff;
 
@@ -106,16 +106,17 @@ static inline int do_sqbs(u64 token, unsigned char state, int queue,
 static inline int do_eqbs(u64 token, unsigned char *state, int queue,
 			  int *start, int *count, int ack)
 {
-	register unsigned long _ccq asm ("0") = *count;
-	register unsigned long _token asm ("1") = token;
 	unsigned long _queuestart = ((unsigned long)queue << 32) | *start;
 	unsigned long _state = (unsigned long)ack << 63;
+	unsigned long _ccq = *count;
 
 	asm volatile(
-		"	.insn	rrf,0xB99c0000,%1,%2,0,0"
-		: "+d" (_ccq), "+d" (_queuestart), "+d" (_state)
-		: "d" (_token)
-		: "memory", "cc");
+		"	lgr	1,%[token]\n"
+		"	.insn	rrf,0xb99c0000,%[qs],%[state],%[ccq],0"
+		: [ccq] "+&d" (_ccq), [qs] "+&d" (_queuestart),
+		  [state] "+&d" (_state)
+		: [token] "d" (token)
+		: "memory", "cc", "1");
 	*count = _ccq & 0xff;
 	*start = _queuestart & 0xff;
 	*state = _state & 0xff;
@@ -139,9 +140,6 @@ struct qdio_dev_perf_stat {
 	unsigned int qdio_int;
 	unsigned int pci_request_int;
 
-	unsigned int tasklet_inbound;
-	unsigned int tasklet_inbound_resched;
-	unsigned int tasklet_inbound_resched2;
 	unsigned int tasklet_outbound;
 
 	unsigned int siga_read;
@@ -149,7 +147,6 @@ struct qdio_dev_perf_stat {
 	unsigned int siga_sync;
 
 	unsigned int inbound_call;
-	unsigned int inbound_handler;
 	unsigned int stop_polling;
 	unsigned int inbound_queue_full;
 	unsigned int outbound_call;
@@ -185,14 +182,10 @@ struct qdio_input_q {
 struct qdio_output_q {
 	/* PCIs are enabled for the queue */
 	int pci_out_enabled;
-	/* cq: use asynchronous output buffers */
-	int use_cq;
-	/* cq: aobs used for particual SBAL */
-	struct qaob **aobs;
-	/* cq: sbal state related to asynchronous operation */
-	struct qdio_outbuf_state *sbal_state;
 	/* timer to check for more outbound work */
 	struct timer_list timer;
+	/* tasklet to check for completions */
+	struct tasklet_struct tasklet;
 };
 
 /*
@@ -216,13 +209,9 @@ struct qdio_q {
 	/* number of buffers in use by the adapter */
 	atomic_t nr_buf_used;
 
-	/* error condition during a data transfer */
-	unsigned int qdio_error;
-
 	/* last scan of the queue */
 	u64 timestamp;
 
-	struct tasklet_struct tasklet;
 	struct qdio_queue_perf_stat q_stats;
 
 	struct qdio_buffer *sbal[QDIO_MAX_BUFFERS_PER_Q] ____cacheline_aligned;
@@ -254,6 +243,7 @@ struct qdio_irq {
 	struct ccw_device *cdev;
 	struct list_head entry;		/* list of thinint devices */
 	struct dentry *debugfs_dev;
+	u64 last_data_irq_time;
 
 	unsigned long int_parm;
 	struct subchannel_id schid;
@@ -324,6 +314,14 @@ static inline int multicast_outbound(struct qdio_q *q)
 	       (q->nr == q->irq_ptr->nr_output_qs - 1);
 }
 
+static inline void qdio_deliver_irq(struct qdio_irq *irq)
+{
+	if (!test_and_set_bit(QDIO_IRQ_DISABLED, &irq->poll_state))
+		irq->irq_poll(irq->cdev, irq->int_parm);
+	else
+		QDIO_PERF_STAT_INC(irq, int_discarded);
+}
+
 #define pci_out_supported(irq) ((irq)->qib.ac & QIB_AC_OUTBOUND_PCI_SUPPORTED)
 #define is_qebsm(q)			(q->irq_ptr->sch_token != 0)
 
@@ -357,16 +355,12 @@ extern u64 last_ai_time;
 /* prototypes for thin interrupt */
 int qdio_establish_thinint(struct qdio_irq *irq_ptr);
 void qdio_shutdown_thinint(struct qdio_irq *irq_ptr);
-void tiqdio_add_device(struct qdio_irq *irq_ptr);
-void tiqdio_remove_device(struct qdio_irq *irq_ptr);
-void tiqdio_inbound_processing(unsigned long q);
 int qdio_thinint_init(void);
 void qdio_thinint_exit(void);
 int test_nonshared_ind(struct qdio_irq *);
 
 /* prototypes for setup */
-void qdio_inbound_processing(unsigned long data);
-void qdio_outbound_processing(unsigned long data);
+void qdio_outbound_tasklet(struct tasklet_struct *t);
 void qdio_outbound_timer(struct timer_list *t);
 void qdio_int_handler(struct ccw_device *cdev, unsigned long intparm,
 		      struct irb *irb);
@@ -380,12 +374,8 @@ int qdio_setup_irq(struct qdio_irq *irq_ptr, struct qdio_initialize *init_data);
 void qdio_shutdown_irq(struct qdio_irq *irq);
 void qdio_print_subchannel_info(struct qdio_irq *irq_ptr);
 void qdio_free_queues(struct qdio_irq *irq_ptr);
-void qdio_free_async_data(struct qdio_irq *irq_ptr);
 int qdio_setup_init(void);
 void qdio_setup_exit(void);
-int qdio_enable_async_operation(struct qdio_output_q *q);
-void qdio_disable_async_operation(struct qdio_output_q *q);
-struct qaob *qdio_allocate_aob(void);
 
 int debug_get_buf_state(struct qdio_q *q, unsigned int bufnr,
 			unsigned char *state);

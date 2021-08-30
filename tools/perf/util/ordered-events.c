@@ -8,6 +8,7 @@
 #include "session.h"
 #include "asm/bug.h"
 #include "debug.h"
+#include "ui/progress.h"
 
 #define pr_N(n, fmt, ...) \
 	eprintf(n, debug_ordered_events, fmt, ##__VA_ARGS__)
@@ -313,7 +314,7 @@ static int __ordered_events__flush(struct ordered_events *oe, enum oe_flush how,
 	case OE_FLUSH__NONE:
 	default:
 		break;
-	};
+	}
 
 	pr_oe_time(oe->next_flush, "next_flush - ordered_events__flush PRE  %s, nr_events %u\n",
 		   str[how], oe->nr_events);

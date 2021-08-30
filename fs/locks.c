@@ -61,7 +61,7 @@
  *
  *  Initial implementation of mandatory locks. SunOS turned out to be
  *  a rotten model, so I implemented the "obvious" semantics.
- *  See 'Documentation/filesystems/mandatory-locking.txt' for details.
+ *  See 'Documentation/filesystems/mandatory-locking.rst' for details.
  *  Andy Walker (andy@lysaker.kvaerner.no), April 06, 1996.
  *
  *  Don't allow mandatory locks on mmap()'ed files. Added simple functions to
@@ -211,6 +211,7 @@ struct file_lock_list_struct {
 };
 static DEFINE_PER_CPU(struct file_lock_list_struct, file_lock_list);
 DEFINE_STATIC_PERCPU_RWSEM(file_rwsem);
+
 
 /*
  * The blocked_hash is used to find POSIX lock loops for deadlock detection.
@@ -541,7 +542,7 @@ static int flock64_to_posix_lock(struct file *filp, struct file_lock *fl,
 	if (l->l_len > 0) {
 		if (l->l_len - 1 > OFFSET_MAX - fl->fl_start)
 			return -EOVERFLOW;
-		fl->fl_end = fl->fl_start + l->l_len - 1;
+		fl->fl_end = fl->fl_start + (l->l_len - 1);
 
 	} else if (l->l_len < 0) {
 		if (fl->fl_start + l->l_len < 0)
@@ -749,7 +750,7 @@ static void __locks_wake_up_blocks(struct file_lock *blocker)
 }
 
 /**
- *	locks_delete_lock - stop waiting for a file lock
+ *	locks_delete_block - stop waiting for a file lock
  *	@waiter: the lock which was waiting
  *
  *	lockd/nfsd need to disconnect the lock while working on it.
@@ -1281,6 +1282,7 @@ static int posix_lock_inode(struct inode *inode, struct file_lock *request,
 				if (!new_fl)
 					goto out;
 				locks_copy_lock(new_fl, request);
+				locks_move_blocks(new_fl, request);
 				request = new_fl;
 				new_fl = NULL;
 				locks_insert_lock_ctx(request, &fl->fl_list);
@@ -1497,7 +1499,7 @@ static void lease_clear_pending(struct file_lock *fl, int arg)
 	switch (arg) {
 	case F_UNLCK:
 		fl->fl_flags &= ~FL_UNLOCK_PENDING;
-		/* fall through */
+		fallthrough;
 	case F_RDLCK:
 		fl->fl_flags &= ~FL_DOWNGRADE_PENDING;
 	}
@@ -1556,6 +1558,9 @@ static bool leases_conflict(struct file_lock *lease, struct file_lock *breaker)
 {
 	bool rc;
 
+	if (lease->fl_lmops->lm_breaker_owns_lease
+			&& lease->fl_lmops->lm_breaker_owns_lease(lease))
+		return false;
 	if ((breaker->fl_flags & FL_LAYOUT) != (lease->fl_flags & FL_LAYOUT)) {
 		rc = false;
 		goto trace;
@@ -1617,7 +1622,7 @@ int __break_lease(struct inode *inode, unsigned int mode, unsigned int type)
 	ctx = smp_load_acquire(&inode->i_flctx);
 	if (!ctx) {
 		WARN_ON_ONCE(1);
-		return error;
+		goto free_lock;
 	}
 
 	percpu_down_read(&file_rwsem);
@@ -1698,6 +1703,7 @@ out:
 	spin_unlock(&ctx->flc_lock);
 	percpu_up_read(&file_rwsem);
 	locks_dispose_list(&dispose);
+free_lock:
 	locks_free_lock(new_fl);
 	return error;
 }
@@ -1801,6 +1807,9 @@ check_conflicting_open(struct file *filp, const long arg, int flags)
 	int self_wcount = 0, self_rcount = 0;
 
 	if (flags & FL_LAYOUT)
+		return 0;
+	if (flags & FL_DELEG)
+		/* We leave these checks to the caller */
 		return 0;
 
 	if (arg == F_RDLCK)
@@ -2016,6 +2025,64 @@ int generic_setlease(struct file *filp, long arg, struct file_lock **flp,
 }
 EXPORT_SYMBOL(generic_setlease);
 
+#if IS_ENABLED(CONFIG_SRCU)
+/*
+ * Kernel subsystems can register to be notified on any attempt to set
+ * a new lease with the lease_notifier_chain. This is used by (e.g.) nfsd
+ * to close files that it may have cached when there is an attempt to set a
+ * conflicting lease.
+ */
+static struct srcu_notifier_head lease_notifier_chain;
+
+static inline void
+lease_notifier_chain_init(void)
+{
+	srcu_init_notifier_head(&lease_notifier_chain);
+}
+
+static inline void
+setlease_notifier(long arg, struct file_lock *lease)
+{
+	if (arg != F_UNLCK)
+		srcu_notifier_call_chain(&lease_notifier_chain, arg, lease);
+}
+
+int lease_register_notifier(struct notifier_block *nb)
+{
+	return srcu_notifier_chain_register(&lease_notifier_chain, nb);
+}
+EXPORT_SYMBOL_GPL(lease_register_notifier);
+
+void lease_unregister_notifier(struct notifier_block *nb)
+{
+	srcu_notifier_chain_unregister(&lease_notifier_chain, nb);
+}
+EXPORT_SYMBOL_GPL(lease_unregister_notifier);
+
+#else /* !IS_ENABLED(CONFIG_SRCU) */
+static inline void
+lease_notifier_chain_init(void)
+{
+}
+
+static inline void
+setlease_notifier(long arg, struct file_lock *lease)
+{
+}
+
+int lease_register_notifier(struct notifier_block *nb)
+{
+	return 0;
+}
+EXPORT_SYMBOL_GPL(lease_register_notifier);
+
+void lease_unregister_notifier(struct notifier_block *nb)
+{
+}
+EXPORT_SYMBOL_GPL(lease_unregister_notifier);
+
+#endif /* IS_ENABLED(CONFIG_SRCU) */
+
 /**
  * vfs_setlease        -       sets a lease on an open file
  * @filp:	file pointer
@@ -2036,6 +2103,8 @@ EXPORT_SYMBOL(generic_setlease);
 int
 vfs_setlease(struct file *filp, long arg, struct file_lock **lease, void **priv)
 {
+	if (lease)
+		setlease_notifier(arg, *lease);
 	if (filp->f_op->setlease)
 		return filp->f_op->setlease(filp, arg, lease, priv);
 	else
@@ -2303,7 +2372,6 @@ int fcntl_getlk(struct file *filp, unsigned int cmd, struct flock *flock)
 		if (flock->l_pid != 0)
 			goto out;
 
-		cmd = F_GETLK;
 		fl->fl_flags |= FL_OFDLCK;
 		fl->fl_owner = filp;
 	}
@@ -2456,7 +2524,7 @@ int fcntl_setlk(unsigned int fd, struct file *filp, unsigned int cmd,
 		cmd = F_SETLKW;
 		file_lock->fl_flags |= FL_OFDLCK;
 		file_lock->fl_owner = filp;
-		/* Fallthrough */
+		fallthrough;
 	case F_SETLKW:
 		file_lock->fl_flags |= FL_SLEEP;
 	}
@@ -2470,14 +2538,15 @@ int fcntl_setlk(unsigned int fd, struct file *filp, unsigned int cmd,
 	 */
 	if (!error && file_lock->fl_type != F_UNLCK &&
 	    !(file_lock->fl_flags & FL_OFDLCK)) {
+		struct files_struct *files = current->files;
 		/*
 		 * We need that spin_lock here - it prevents reordering between
 		 * update of i_flctx->flc_posix and check for it done in
 		 * close(). rcu_read_lock() wouldn't do.
 		 */
-		spin_lock(&current->files->file_lock);
-		f = fcheck(fd);
-		spin_unlock(&current->files->file_lock);
+		spin_lock(&files->file_lock);
+		f = files_lookup_fd_locked(files, fd);
+		spin_unlock(&files->file_lock);
 		if (f != filp) {
 			file_lock->fl_type = F_UNLCK;
 			error = do_lock_file_wait(filp, cmd, file_lock);
@@ -2587,7 +2656,7 @@ int fcntl_setlk64(unsigned int fd, struct file *filp, unsigned int cmd,
 		cmd = F_SETLKW64;
 		file_lock->fl_flags |= FL_OFDLCK;
 		file_lock->fl_owner = filp;
-		/* Fallthrough */
+		fallthrough;
 	case F_SETLKW64:
 		file_lock->fl_flags |= FL_SLEEP;
 	}
@@ -2601,14 +2670,15 @@ int fcntl_setlk64(unsigned int fd, struct file *filp, unsigned int cmd,
 	 */
 	if (!error && file_lock->fl_type != F_UNLCK &&
 	    !(file_lock->fl_flags & FL_OFDLCK)) {
+		struct files_struct *files = current->files;
 		/*
 		 * We need that spin_lock here - it prevents reordering between
 		 * update of i_flctx->flc_posix and check for it done in
 		 * close(). rcu_read_lock() wouldn't do.
 		 */
-		spin_lock(&current->files->file_lock);
-		f = fcheck(fd);
-		spin_unlock(&current->files->file_lock);
+		spin_lock(&files->file_lock);
+		f = files_lookup_fd_locked(files, fd);
+		spin_unlock(&files->file_lock);
 		if (f != filp) {
 			file_lock->fl_type = F_UNLCK;
 			error = do_lock_file_wait(filp, cmd, file_lock);
@@ -2757,11 +2827,11 @@ struct locks_iterator {
 };
 
 static void lock_get_status(struct seq_file *f, struct file_lock *fl,
-			    loff_t id, char *pfx)
+			    loff_t id, char *pfx, int repeat)
 {
 	struct inode *inode = NULL;
 	unsigned int fl_pid;
-	struct pid_namespace *proc_pidns = file_inode(f->file)->i_sb->s_fs_info;
+	struct pid_namespace *proc_pidns = proc_pid_ns(file_inode(f->file)->i_sb);
 
 	fl_pid = locks_translate_pid(fl, proc_pidns);
 	/*
@@ -2773,7 +2843,11 @@ static void lock_get_status(struct seq_file *f, struct file_lock *fl,
 	if (fl->fl_file != NULL)
 		inode = locks_inode(fl->fl_file);
 
-	seq_printf(f, "%lld:%s ", id, pfx);
+	seq_printf(f, "%lld: ", id);
+
+	if (repeat)
+		seq_printf(f, "%*s", repeat - 1 + (int)strlen(pfx), pfx);
+
 	if (IS_POSIX(fl)) {
 		if (fl->fl_flags & FL_ACCESS)
 			seq_puts(f, "ACCESS");
@@ -2812,16 +2886,16 @@ static void lock_get_status(struct seq_file *f, struct file_lock *fl,
 			       ? (fl->fl_type & LOCK_WRITE) ? "RW   " : "READ "
 			       : (fl->fl_type & LOCK_WRITE) ? "WRITE" : "NONE ");
 	} else {
-		seq_printf(f, "%s ",
-			       (lease_breaking(fl))
-			       ? (fl->fl_type == F_UNLCK) ? "UNLCK" : "READ "
-			       : (fl->fl_type == F_WRLCK) ? "WRITE" : "READ ");
+		int type = IS_LEASE(fl) ? target_leasetype(fl) : fl->fl_type;
+
+		seq_printf(f, "%s ", (type == F_WRLCK) ? "WRITE" :
+				     (type == F_RDLCK) ? "READ" : "UNLCK");
 	}
 	if (inode) {
 		/* userspace relies on this representation of dev_t */
 		seq_printf(f, "%d %02x:%02x:%lu ", fl_pid,
-				MAJOR(inode_get_dev(inode)),
-				MINOR(inode_get_dev(inode)), inode->i_ino);
+				MAJOR(inode->i_sb->s_dev),
+				MINOR(inode->i_sb->s_dev), inode->i_ino);
 	} else {
 		seq_printf(f, "%d <none>:0 ", fl_pid);
 	}
@@ -2835,21 +2909,64 @@ static void lock_get_status(struct seq_file *f, struct file_lock *fl,
 	}
 }
 
+static struct file_lock *get_next_blocked_member(struct file_lock *node)
+{
+	struct file_lock *tmp;
+
+	/* NULL node or root node */
+	if (node == NULL || node->fl_blocker == NULL)
+		return NULL;
+
+	/* Next member in the linked list could be itself */
+	tmp = list_next_entry(node, fl_blocked_member);
+	if (list_entry_is_head(tmp, &node->fl_blocker->fl_blocked_requests, fl_blocked_member)
+		|| tmp == node) {
+		return NULL;
+	}
+
+	return tmp;
+}
+
 static int locks_show(struct seq_file *f, void *v)
 {
 	struct locks_iterator *iter = f->private;
-	struct file_lock *fl, *bfl;
-	struct pid_namespace *proc_pidns = file_inode(f->file)->i_sb->s_fs_info;
+	struct file_lock *cur, *tmp;
+	struct pid_namespace *proc_pidns = proc_pid_ns(file_inode(f->file)->i_sb);
+	int level = 0;
 
-	fl = hlist_entry(v, struct file_lock, fl_link);
+	cur = hlist_entry(v, struct file_lock, fl_link);
 
-	if (locks_translate_pid(fl, proc_pidns) == 0)
+	if (locks_translate_pid(cur, proc_pidns) == 0)
 		return 0;
 
-	lock_get_status(f, fl, iter->li_pos, "");
+	/* View this crossed linked list as a binary tree, the first member of fl_blocked_requests
+	 * is the left child of current node, the next silibing in fl_blocked_member is the
+	 * right child, we can alse get the parent of current node from fl_blocker, so this
+	 * question becomes traversal of a binary tree
+	 */
+	while (cur != NULL) {
+		if (level)
+			lock_get_status(f, cur, iter->li_pos, "-> ", level);
+		else
+			lock_get_status(f, cur, iter->li_pos, "", level);
 
-	list_for_each_entry(bfl, &fl->fl_blocked_requests, fl_blocked_member)
-		lock_get_status(f, bfl, iter->li_pos, " ->");
+		if (!list_empty(&cur->fl_blocked_requests)) {
+			/* Turn left */
+			cur = list_first_entry_or_null(&cur->fl_blocked_requests,
+				struct file_lock, fl_blocked_member);
+			level++;
+		} else {
+			/* Turn right */
+			tmp = get_next_blocked_member(cur);
+			/* Fall back to parent node */
+			while (tmp == NULL && cur->fl_blocker != NULL) {
+				cur = cur->fl_blocker;
+				level--;
+				tmp = get_next_blocked_member(cur);
+			}
+			cur = tmp;
+		}
+	}
 
 	return 0;
 }
@@ -2870,7 +2987,7 @@ static void __show_fd_locks(struct seq_file *f,
 
 		(*id)++;
 		seq_puts(f, "lock:\t");
-		lock_get_status(f, fl, *id, "");
+		lock_get_status(f, fl, *id, "", 0);
 	}
 }
 
@@ -2951,6 +3068,7 @@ static int __init filelock_init(void)
 		INIT_HLIST_HEAD(&fll->hlist);
 	}
 
+	lease_notifier_chain_init();
 	return 0;
 }
 core_initcall(filelock_init);

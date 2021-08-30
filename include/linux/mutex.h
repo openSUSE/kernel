@@ -20,6 +20,7 @@
 #include <linux/osq_lock.h>
 #include <linux/debug_locks.h>
 
+struct ww_class;
 struct ww_acquire_ctx;
 
 /*
@@ -62,6 +63,14 @@ struct mutex {
 #endif
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 	struct lockdep_map	dep_map;
+#endif
+};
+
+struct ww_mutex {
+	struct mutex base;
+	struct ww_acquire_ctx *ctx;
+#ifdef CONFIG_DEBUG_MUTEXES
+	struct ww_class *ww_class;
 #endif
 };
 
@@ -109,8 +118,11 @@ do {									\
 } while (0)
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
-# define __DEP_MAP_MUTEX_INITIALIZER(lockname) \
-		, .dep_map = { .name = #lockname }
+# define __DEP_MAP_MUTEX_INITIALIZER(lockname)			\
+		, .dep_map = {					\
+			.name = #lockname,			\
+			.wait_type_inner = LD_WAIT_SLEEP,	\
+		}
 #else
 # define __DEP_MAP_MUTEX_INITIALIZER(lockname)
 #endif
@@ -184,30 +196,5 @@ extern int mutex_trylock(struct mutex *lock);
 extern void mutex_unlock(struct mutex *lock);
 
 extern int atomic_dec_and_mutex_lock(atomic_t *cnt, struct mutex *lock);
-
-/*
- * These values are chosen such that FAIL and SUCCESS match the
- * values of the regular mutex_trylock().
- */
-enum mutex_trylock_recursive_enum {
-	MUTEX_TRYLOCK_FAILED    = 0,
-	MUTEX_TRYLOCK_SUCCESS   = 1,
-	MUTEX_TRYLOCK_RECURSIVE,
-};
-
-/**
- * mutex_trylock_recursive - trylock variant that allows recursive locking
- * @lock: mutex to be locked
- *
- * This function should not be used, _ever_. It is purely for hysterical GEM
- * raisins, and once those are gone this will be removed.
- *
- * Returns:
- *  - MUTEX_TRYLOCK_FAILED    - trylock failed,
- *  - MUTEX_TRYLOCK_SUCCESS   - lock acquired,
- *  - MUTEX_TRYLOCK_RECURSIVE - we already owned the lock.
- */
-extern /* __deprecated */ __must_check enum mutex_trylock_recursive_enum
-mutex_trylock_recursive(struct mutex *lock);
 
 #endif /* __LINUX_MUTEX_H */

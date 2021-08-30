@@ -1966,7 +1966,6 @@ struct rtl_efuse {
 
 	u8 txpwr_safetyflag;			/* Band edge enable flag */
 	u16 eeprom_txpowerdiff;
-	u8 legacy_httxpowerdiff;	/* Legacy to HT rate power diff */
 	u8 antenna_txpwdiff[3];
 
 	u8 eeprom_regulatory;
@@ -2451,7 +2450,6 @@ struct rtl_locks {
 	spinlock_t waitq_lock;
 	spinlock_t entry_list_lock;
 	spinlock_t usb_lock;
-	spinlock_t c2hcmd_lock;
 	spinlock_t scan_list_lock; /* lock for the scan list */
 
 	/*FW clock change */
@@ -2488,6 +2486,7 @@ struct rtl_works {
 
 	struct work_struct lps_change_work;
 	struct work_struct fill_h2c_cmd;
+	struct work_struct update_beacon_work;
 };
 
 struct rtl_debug {
@@ -2936,9 +2935,6 @@ enum bt_radio_shared {
 #define	RT_SET_PS_LEVEL(ppsc, _ps_flg)		\
 	(ppsc->cur_ps_level |= _ps_flg)
 
-#define container_of_dwork_rtl(x, y, z) \
-	container_of(to_delayed_work(x), y, z)
-
 #define FILL_OCTET_STRING(_os, _octet, _len)	\
 		(_os).octet = (u8 *)(_octet);		\
 		(_os).length = (_len);
@@ -3090,14 +3086,9 @@ static inline __le16 rtl_get_fc(struct sk_buff *skb)
 	return rtl_get_hdr(skb)->frame_control;
 }
 
-static inline u16 rtl_get_tid_h(struct ieee80211_hdr *hdr)
-{
-	return (ieee80211_get_qos_ctl(hdr))[0] & IEEE80211_QOS_CTL_TID_MASK;
-}
-
 static inline u16 rtl_get_tid(struct sk_buff *skb)
 {
-	return rtl_get_tid_h(rtl_get_hdr(skb));
+	return ieee80211_get_tid(rtl_get_hdr(skb));
 }
 
 static inline struct ieee80211_sta *get_sta(struct ieee80211_hw *hw,

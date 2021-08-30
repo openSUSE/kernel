@@ -31,8 +31,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/scatterlist.h>
 #include <linux/pm_runtime.h>
-#include <linux/gpio.h>
-#include <linux/of_gpio.h>
+#include <linux/of.h>
 #include <linux/pinctrl/consumer.h>
 
 /*
@@ -289,7 +288,7 @@
 #define SPI_POLLING_TIMEOUT 1000
 
 /*
- * The type of reading going on on this chip
+ * The type of reading going on this chip
  */
 enum ssp_reading {
 	READING_NULL,
@@ -298,8 +297,8 @@ enum ssp_reading {
 	READING_U32
 };
 
-/**
- * The type of writing going on on this chip
+/*
+ * The type of writing going on this chip
  */
 enum ssp_writing {
 	WRITING_NULL,
@@ -317,6 +316,7 @@ enum ssp_writing {
  * @extended_cr: 32 bit wide control register 0 with extra
  * features and extra features in CR1 as found in the ST variants
  * @pl023: supports a subset of the ST extensions called "PL023"
+ * @loopback: supports loopback mode
  * @internal_cs_ctrl: supports chip select control register
  */
 struct vendor_data {
@@ -353,13 +353,16 @@ struct vendor_data {
  * @read: the type of read currently going on
  * @write: the type of write currently going on
  * @exp_fifo_level: expected FIFO level
+ * @rx_lev_trig: receive FIFO watermark level which triggers IRQ
+ * @tx_lev_trig: transmit FIFO watermark level which triggers IRQ
  * @dma_rx_channel: optional channel for RX DMA
  * @dma_tx_channel: optional channel for TX DMA
  * @sgt_rx: scattertable for the RX transfer
  * @sgt_tx: scattertable for the TX transfer
  * @dummypage: a dummy page used for driving data on the bus with DMA
- * @cur_cs: current chip select (gpio)
- * @chipselects: list of chipselects (gpios)
+ * @dma_running: indicates whether DMA is in operation
+ * @cur_cs: current chip select index
+ * @cur_gpiod: current chip select GPIO descriptor
  */
 struct pl022 {
 	struct amba_device		*adev;
@@ -394,7 +397,7 @@ struct pl022 {
 	bool				dma_running;
 #endif
 	int cur_cs;
-	int *chipselects;
+	struct gpio_desc *cur_gpiod;
 };
 
 /**
@@ -408,7 +411,6 @@ struct pl022 {
  * @enable_dma: Whether to enable DMA or not
  * @read: function ptr to be used to read when doing xfer for this chip
  * @write: function ptr to be used to write when doing xfer for this chip
- * @cs_control: chip select callback provided by chip
  * @xfer_type: polling/interrupt/DMA
  *
  * Runtime state of the SSP controller, maintained per chip,
@@ -423,21 +425,8 @@ struct chip_data {
 	bool enable_dma;
 	enum ssp_reading read;
 	enum ssp_writing write;
-	void (*cs_control) (u32 command);
 	int xfer_type;
 };
-
-/**
- * null_cs_control - Dummy chip select function
- * @command: select/delect the chip
- *
- * If no chip select function is provided by client this is used as dummy
- * chip select
- */
-static void null_cs_control(u32 command)
-{
-	pr_debug("pl022: dummy chip select control, CS=0x%x\n", command);
-}
 
 /**
  * internal_cs_control - Control chip select signals via SSP_CSR.
@@ -464,10 +453,16 @@ static void pl022_cs_control(struct pl022 *pl022, u32 command)
 {
 	if (pl022->vendor->internal_cs_ctrl)
 		internal_cs_control(pl022, command);
-	else if (gpio_is_valid(pl022->cur_cs))
-		gpio_set_value(pl022->cur_cs, command);
-	else
-		pl022->cur_chip->cs_control(command);
+	else if (pl022->cur_gpiod)
+		/*
+		 * This needs to be inverted since with GPIOLIB in
+		 * control, the inversion will be handled by
+		 * GPIOLIB's active low handling. The "command"
+		 * passed into this function will be SSP_CHIP_SELECT
+		 * which is enum:ed to 0, so we need the inverse
+		 * (1) to activate chip select.
+		 */
+		gpiod_set_value(pl022->cur_gpiod, !command);
 }
 
 /**
@@ -662,7 +657,7 @@ static void load_ssp_default_config(struct pl022 *pl022)
 	writew(CLEAR_ALL_INTERRUPTS, SSP_ICR(pl022->virtbase));
 }
 
-/**
+/*
  * This will write to TX and read from RX according to the parameters
  * set in pl022.
  */
@@ -1158,7 +1153,7 @@ static int pl022_dma_autoprobe(struct pl022 *pl022)
 	int err;
 
 	/* automatically configure DMA channels from platform, normally using DT */
-	chan = dma_request_slave_channel_reason(dev, "rx");
+	chan = dma_request_chan(dev, "rx");
 	if (IS_ERR(chan)) {
 		err = PTR_ERR(chan);
 		goto err_no_rxchan;
@@ -1166,7 +1161,7 @@ static int pl022_dma_autoprobe(struct pl022 *pl022)
 
 	pl022->dma_rx_channel = chan;
 
-	chan = dma_request_slave_channel_reason(dev, "tx");
+	chan = dma_request_chan(dev, "tx");
 	if (IS_ERR(chan)) {
 		err = PTR_ERR(chan);
 		goto err_no_txchan;
@@ -1191,7 +1186,7 @@ err_no_txchan:
 err_no_rxchan:
 	return err;
 }
-		
+
 static void terminate_dma(struct pl022 *pl022)
 {
 	struct dma_chan *rxchan = pl022->dma_rx_channel;
@@ -1237,6 +1232,8 @@ static inline void pl022_dma_remove(struct pl022 *pl022)
 
 /**
  * pl022_interrupt_handler - Interrupt handler for SSP controller
+ * @irq: IRQ number
+ * @dev_id: Local device data
  *
  * This function handles interrupts generated for an interrupt based transfer.
  * If a receive overrun (ROR) interrupt is there then we disable SSP, flag the
@@ -1334,7 +1331,7 @@ static irqreturn_t pl022_interrupt_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-/**
+/*
  * This sets up the pointers to memory for the next message to
  * send out on the SPI bus.
  */
@@ -1590,7 +1587,9 @@ static int pl022_transfer_one_message(struct spi_master *master,
 
 	/* Setup the SPI using the per chip configuration */
 	pl022->cur_chip = spi_get_ctldata(msg->spi);
-	pl022->cur_cs = pl022->chipselects[msg->spi->chip_select];
+	pl022->cur_cs = msg->spi->chip_select;
+	/* This is always available but may be set to -ENOENT */
+	pl022->cur_gpiod = msg->spi->cs_gpiod;
 
 	restore_state(pl022);
 	flush(pl022);
@@ -1814,16 +1813,15 @@ static int calculate_effective_freq(struct pl022 *pl022, int freq, struct
  * supplies it.
  */
 static const struct pl022_config_chip pl022_default_chip_info = {
-	.com_mode = POLLING_TRANSFER,
+	.com_mode = INTERRUPT_TRANSFER,
 	.iface = SSP_INTERFACE_MOTOROLA_SPI,
-	.hierarchy = SSP_SLAVE,
+	.hierarchy = SSP_MASTER,
 	.slave_tx_disable = DO_NOT_DRIVE_TX,
 	.rx_lev_trig = SSP_RX_1_OR_MORE_ELEM,
 	.tx_lev_trig = SSP_TX_1_OR_MORE_EMPTY_LOC,
 	.ctrl_len = SSP_BITS_8,
 	.wait_state = SSP_MWIRE_WAIT_ZERO,
 	.duplex = SSP_MICROWIRE_CHANNEL_FULL_DUPLEX,
-	.cs_control = null_cs_control,
 };
 
 /**
@@ -1934,13 +1932,6 @@ static int pl022_setup(struct spi_device *spi)
 
 	/* Now set controller state based on controller data */
 	chip->xfer_type = chip_info->com_mode;
-	if (!chip_info->cs_control) {
-		chip->cs_control = null_cs_control;
-		if (!gpio_is_valid(pl022->chipselects[spi->chip_select]))
-			dev_warn(&spi->dev,
-				 "invalid chip select\n");
-	} else
-		chip->cs_control = chip_info->cs_control;
 
 	/* Check bits per word with vendor specific range */
 	if ((bits <= 3) || (bits > pl022->vendor->max_bpw)) {
@@ -2088,7 +2079,6 @@ pl022_platform_data_dt_get(struct device *dev)
 {
 	struct device_node *np = dev->of_node;
 	struct pl022_ssp_controller *pd;
-	u32 tmp = 0;
 
 	if (!np) {
 		dev_err(dev, "no dt node defined\n");
@@ -2101,8 +2091,6 @@ pl022_platform_data_dt_get(struct device *dev)
 
 	pd->bus_id = -1;
 	pd->enable_dma = 1;
-	of_property_read_u32(np, "num-cs", &tmp);
-	pd->num_chipselect = tmp;
 	of_property_read_u32(np, "pl022,autosuspend-delay",
 			     &pd->autosuspend_delay);
 	pd->rt = of_property_read_bool(np, "pl022,rt");
@@ -2117,8 +2105,7 @@ static int pl022_probe(struct amba_device *adev, const struct amba_id *id)
 			dev_get_platdata(&adev->dev);
 	struct spi_master *master;
 	struct pl022 *pl022 = NULL;	/*Data for this driver */
-	struct device_node *np = adev->dev.of_node;
-	int status = 0, i, num_cs;
+	int status = 0;
 
 	dev_info(&adev->dev,
 		 "ARM PL022 driver, device ID: 0x%08x\n", adev->periphid);
@@ -2127,13 +2114,6 @@ static int pl022_probe(struct amba_device *adev, const struct amba_id *id)
 
 	if (!platform_info) {
 		dev_err(dev, "probe: no platform data defined\n");
-		return -ENODEV;
-	}
-
-	if (platform_info->num_chipselect) {
-		num_cs = platform_info->num_chipselect;
-	} else {
-		dev_err(dev, "probe: no chip select defined\n");
 		return -ENODEV;
 	}
 
@@ -2149,19 +2129,12 @@ static int pl022_probe(struct amba_device *adev, const struct amba_id *id)
 	pl022->master_info = platform_info;
 	pl022->adev = adev;
 	pl022->vendor = id->data;
-	pl022->chipselects = devm_kcalloc(dev, num_cs, sizeof(int),
-					  GFP_KERNEL);
-	if (!pl022->chipselects) {
-		status = -ENOMEM;
-		goto err_no_mem;
-	}
 
 	/*
 	 * Bus Number Which has been Assigned to this SSP controller
 	 * on this board
 	 */
 	master->bus_num = platform_info->bus_id;
-	master->num_chipselect = num_cs;
 	master->cleanup = pl022_cleanup;
 	master->setup = pl022_setup;
 	master->auto_runtime_pm = true;
@@ -2169,36 +2142,7 @@ static int pl022_probe(struct amba_device *adev, const struct amba_id *id)
 	master->unprepare_transfer_hardware = pl022_unprepare_transfer_hardware;
 	master->rt = platform_info->rt;
 	master->dev.of_node = dev->of_node;
-
-	if (platform_info->num_chipselect && platform_info->chipselects) {
-		for (i = 0; i < num_cs; i++)
-			pl022->chipselects[i] = platform_info->chipselects[i];
-	} else if (pl022->vendor->internal_cs_ctrl) {
-		for (i = 0; i < num_cs; i++)
-			pl022->chipselects[i] = i;
-	} else if (IS_ENABLED(CONFIG_OF)) {
-		for (i = 0; i < num_cs; i++) {
-			int cs_gpio = of_get_named_gpio(np, "cs-gpios", i);
-
-			if (cs_gpio == -EPROBE_DEFER) {
-				status = -EPROBE_DEFER;
-				goto err_no_gpio;
-			}
-
-			pl022->chipselects[i] = cs_gpio;
-
-			if (gpio_is_valid(cs_gpio)) {
-				if (devm_gpio_request(dev, cs_gpio, "ssp-pl022"))
-					dev_err(&adev->dev,
-						"could not request %d gpio\n",
-						cs_gpio);
-				else if (gpio_direction_output(cs_gpio, 1))
-					dev_err(&adev->dev,
-						"could not set gpio %d as output\n",
-						cs_gpio);
-			}
-		}
-	}
+	master->use_gpio_descriptors = true;
 
 	/*
 	 * Supports mode 0-3, loopback, and active low CS. Transfers are
@@ -2302,19 +2246,17 @@ static int pl022_probe(struct amba_device *adev, const struct amba_id *id)
  err_no_ioremap:
 	amba_release_regions(adev);
  err_no_ioregion:
- err_no_gpio:
- err_no_mem:
 	spi_master_put(master);
 	return status;
 }
 
-static int
+static void
 pl022_remove(struct amba_device *adev)
 {
 	struct pl022 *pl022 = amba_get_drvdata(adev);
 
 	if (!pl022)
-		return 0;
+		return;
 
 	/*
 	 * undo pm_runtime_put() in probe.  I assume that we're not
@@ -2329,7 +2271,6 @@ pl022_remove(struct amba_device *adev)
 	clk_disable_unprepare(pl022->clk);
 	amba_release_regions(adev);
 	tasklet_disable(&pl022->pump_transfers);
-	return 0;
 }
 
 #ifdef CONFIG_PM_SLEEP

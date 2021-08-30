@@ -23,9 +23,6 @@ static dev_t fieldbus_devt;
 static DEFINE_IDA(fieldbus_ida);
 static DEFINE_MUTEX(fieldbus_mtx);
 
-static const char ctrl_enabled[] = "enabled";
-static const char ctrl_disabled[] = "disabled";
-
 static ssize_t online_show(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
@@ -137,7 +134,7 @@ static struct attribute *fieldbus_attrs[] = {
 static umode_t fieldbus_is_visible(struct kobject *kobj, struct attribute *attr,
 				   int n)
 {
-	struct device *dev = container_of(kobj, struct device, kobj);
+	struct device *dev = kobj_to_dev(kobj);
 	struct fieldbus_dev *fb = dev_get_drvdata(dev);
 	umode_t mode = attr->mode;
 

@@ -8,6 +8,9 @@ m68k Architecture
    :maxdepth: 2
 
    kernel-options
+   buddha-driver
+
+   features
 
 .. only::  subproject and html
 

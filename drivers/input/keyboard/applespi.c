@@ -187,7 +187,7 @@ struct touchpad_protocol {
 	u8			number_of_fingers;
 	u8			clicked2;
 	u8			unknown3[16];
-	struct tp_finger	fingers[0];
+	struct tp_finger	fingers[];
 };
 
 /**
@@ -287,6 +287,15 @@ struct command_protocol_bl {
  *		structure (after re-assembly in case of being split over
  *		multiple spi-packets), minus the trailing crc. The total size
  *		of the message struct is therefore @length + 10.
+ *
+ * @keyboard:		Keyboard message
+ * @touchpad:		Touchpad message
+ * @tp_info:		Touchpad info (response)
+ * @tp_info_command:	Touchpad info (CRC)
+ * @init_mt_command:	Initialise Multitouch
+ * @capsl_command:	Toggle caps-lock LED
+ * @bl_command:		Keyboard brightness
+ * @data:		Buffer data
  */
 struct message {
 	__le16		type;
@@ -546,7 +555,8 @@ static void applespi_setup_read_txfrs(struct applespi_data *applespi)
 	memset(dl_t, 0, sizeof(*dl_t));
 	memset(rd_t, 0, sizeof(*rd_t));
 
-	dl_t->delay_usecs = applespi->spi_settings.spi_cs_delay;
+	dl_t->delay.value = applespi->spi_settings.spi_cs_delay;
+	dl_t->delay.unit = SPI_DELAY_UNIT_USECS;
 
 	rd_t->rx_buf = applespi->rx_buffer;
 	rd_t->len = APPLESPI_PACKET_SIZE;
@@ -575,14 +585,17 @@ static void applespi_setup_write_txfrs(struct applespi_data *applespi)
 	 * end up with an extra unnecessary (but harmless) cs assertion and
 	 * deassertion.
 	 */
-	wt_t->delay_usecs = SPI_RW_CHG_DELAY_US;
+	wt_t->delay.value = SPI_RW_CHG_DELAY_US;
+	wt_t->delay.unit = SPI_DELAY_UNIT_USECS;
 	wt_t->cs_change = 1;
 
-	dl_t->delay_usecs = applespi->spi_settings.spi_cs_delay;
+	dl_t->delay.value = applespi->spi_settings.spi_cs_delay;
+	dl_t->delay.unit = SPI_DELAY_UNIT_USECS;
 
 	wr_t->tx_buf = applespi->tx_buffer;
 	wr_t->len = APPLESPI_PACKET_SIZE;
-	wr_t->delay_usecs = SPI_RW_CHG_DELAY_US;
+	wr_t->delay.value = SPI_RW_CHG_DELAY_US;
+	wr_t->delay.unit = SPI_DELAY_UNIT_USECS;
 
 	st_t->rx_buf = applespi->tx_status;
 	st_t->len = APPLESPI_STATUS_SIZE;
@@ -735,6 +748,8 @@ static void applespi_async_write_complete(void *context)
 	applespi_get_trace_fun(evt_type)(evt_type, PT_STATUS,
 					 applespi->tx_status,
 					 APPLESPI_STATUS_SIZE);
+
+	udelay(SPI_RW_CHG_DELAY_US);
 
 	if (!applespi_check_write_status(applespi, applespi->wr_m.status)) {
 		/*
@@ -1806,30 +1821,12 @@ static int applespi_probe(struct spi_device *spi)
 
 	/* set up debugfs entries for touchpad dimensions logging */
 	applespi->debugfs_root = debugfs_create_dir("applespi", NULL);
-	if (IS_ERR(applespi->debugfs_root)) {
-		if (PTR_ERR(applespi->debugfs_root) != -ENODEV)
-			dev_warn(&applespi->spi->dev,
-				 "Error creating debugfs root entry (%ld)\n",
-				 PTR_ERR(applespi->debugfs_root));
-	} else {
-		struct dentry *ret;
 
-		ret = debugfs_create_bool("enable_tp_dim", 0600,
-					  applespi->debugfs_root,
-					  &applespi->debug_tp_dim);
-		if (IS_ERR(ret))
-			dev_dbg(&applespi->spi->dev,
-				"Error creating debugfs entry enable_tp_dim (%ld)\n",
-				PTR_ERR(ret));
+	debugfs_create_bool("enable_tp_dim", 0600, applespi->debugfs_root,
+			    &applespi->debug_tp_dim);
 
-		ret = debugfs_create_file("tp_dim", 0400,
-					  applespi->debugfs_root, applespi,
-					  &applespi_tp_dim_fops);
-		if (IS_ERR(ret))
-			dev_dbg(&applespi->spi->dev,
-				"Error creating debugfs entry tp_dim (%ld)\n",
-				PTR_ERR(ret));
-	}
+	debugfs_create_file("tp_dim", 0400, applespi->debugfs_root, applespi,
+			    &applespi_tp_dim_fops);
 
 	return 0;
 }

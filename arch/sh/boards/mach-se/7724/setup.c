@@ -32,6 +32,7 @@
 #include <linux/smc91x.h>
 #include <linux/usb/r8a66597.h>
 #include <linux/videodev2.h>
+#include <linux/dma-map-ops.h>
 
 #include <mach-se/mach/se7724.h>
 #include <media/drv-intf/renesas-ceu.h>
@@ -937,7 +938,6 @@ static int __init devices_setup(void)
 
 	/* Initialize CEU platform devices separately to map memory first */
 	device_initialize(&ms7724se_ceu_devices[0]->dev);
-	arch_setup_pdev_archdata(ms7724se_ceu_devices[0]);
 	dma_declare_coherent_memory(&ms7724se_ceu_devices[0]->dev,
 				    ceu0_dma_membase, ceu0_dma_membase,
 				    ceu0_dma_membase +
@@ -945,7 +945,6 @@ static int __init devices_setup(void)
 	platform_device_add(ms7724se_ceu_devices[0]);
 
 	device_initialize(&ms7724se_ceu_devices[1]->dev);
-	arch_setup_pdev_archdata(ms7724se_ceu_devices[1]);
 	dma_declare_coherent_memory(&ms7724se_ceu_devices[1]->dev,
 				    ceu1_dma_membase, ceu1_dma_membase,
 				    ceu1_dma_membase +

@@ -1,177 +1,55 @@
 // SPDX-License-Identifier: GPL-2.0
 /* Copyright 2019 NXP Semiconductors
  */
+#include <linux/dsa/ocelot.h>
 #include <soc/mscc/ocelot.h>
-#include <linux/packing.h>
 #include "dsa_priv.h"
 
-/* The CPU injection header and the CPU extraction header can have 3 types of
- * prefixes: long, short and no prefix. The format of the header itself is the
- * same in all 3 cases.
- *
- * Extraction with long prefix:
- *
- * +-------------------+-------------------+------+------+------------+-------+
- * | ff:ff:ff:ff:ff:ff | ff:ff:ff:ff:ff:ff | 8880 | 000a | extraction | frame |
- * |                   |                   |      |      |   header   |       |
- * +-------------------+-------------------+------+------+------------+-------+
- *        48 bits             48 bits      16 bits 16 bits  128 bits
- *
- * Extraction with short prefix:
- *
- *                                         +------+------+------------+-------+
- *                                         | 8880 | 000a | extraction | frame |
- *                                         |      |      |   header   |       |
- *                                         +------+------+------------+-------+
- *                                         16 bits 16 bits  128 bits
- *
- * Extraction with no prefix:
- *
- *                                                       +------------+-------+
- *                                                       | extraction | frame |
- *                                                       |   header   |       |
- *                                                       +------------+-------+
- *                                                          128 bits
- *
- *
- * Injection with long prefix:
- *
- * +-------------------+-------------------+------+------+------------+-------+
- * |      any dmac     |      any smac     | 8880 | 000a | injection  | frame |
- * |                   |                   |      |      |   header   |       |
- * +-------------------+-------------------+------+------+------------+-------+
- *        48 bits             48 bits      16 bits 16 bits  128 bits
- *
- * Injection with short prefix:
- *
- *                                         +------+------+------------+-------+
- *                                         | 8880 | 000a | injection  | frame |
- *                                         |      |      |   header   |       |
- *                                         +------+------+------------+-------+
- *                                         16 bits 16 bits  128 bits
- *
- * Injection with no prefix:
- *
- *                                                       +------------+-------+
- *                                                       | injection  | frame |
- *                                                       |   header   |       |
- *                                                       +------------+-------+
- *                                                          128 bits
- *
- * The injection header looks like this (network byte order, bit 127
- * is part of lowest address byte in memory, bit 0 is part of highest
- * address byte):
- *
- *         +------+------+------+------+------+------+------+------+
- * 127:120 |BYPASS| MASQ |          MASQ_PORT        |REW_OP|REW_OP|
- *         +------+------+------+------+------+------+------+------+
- * 119:112 |                         REW_OP                        |
- *         +------+------+------+------+------+------+------+------+
- * 111:104 |                         REW_VAL                       |
- *         +------+------+------+------+------+------+------+------+
- * 103: 96 |                         REW_VAL                       |
- *         +------+------+------+------+------+------+------+------+
- *  95: 88 |                         REW_VAL                       |
- *         +------+------+------+------+------+------+------+------+
- *  87: 80 |                         REW_VAL                       |
- *         +------+------+------+------+------+------+------+------+
- *  79: 72 |                          RSV                          |
- *         +------+------+------+------+------+------+------+------+
- *  71: 64 |            RSV            |           DEST            |
- *         +------+------+------+------+------+------+------+------+
- *  63: 56 |                         DEST                          |
- *         +------+------+------+------+------+------+------+------+
- *  55: 48 |                          RSV                          |
- *         +------+------+------+------+------+------+------+------+
- *  47: 40 |  RSV |         SRC_PORT          |     RSV     |TFRM_TIMER|
- *         +------+------+------+------+------+------+------+------+
- *  39: 32 |     TFRM_TIMER     |               RSV                |
- *         +------+------+------+------+------+------+------+------+
- *  31: 24 |  RSV |  DP  |   POP_CNT   |           CPUQ            |
- *         +------+------+------+------+------+------+------+------+
- *  23: 16 |           CPUQ            |      QOS_CLASS     |TAG_TYPE|
- *         +------+------+------+------+------+------+------+------+
- *  15:  8 |         PCP        |  DEI |            VID            |
- *         +------+------+------+------+------+------+------+------+
- *   7:  0 |                          VID                          |
- *         +------+------+------+------+------+------+------+------+
- *
- * And the extraction header looks like this:
- *
- *         +------+------+------+------+------+------+------+------+
- * 127:120 |  RSV |                  REW_OP                        |
- *         +------+------+------+------+------+------+------+------+
- * 119:112 |       REW_OP       |              REW_VAL             |
- *         +------+------+------+------+------+------+------+------+
- * 111:104 |                         REW_VAL                       |
- *         +------+------+------+------+------+------+------+------+
- * 103: 96 |                         REW_VAL                       |
- *         +------+------+------+------+------+------+------+------+
- *  95: 88 |                         REW_VAL                       |
- *         +------+------+------+------+------+------+------+------+
- *  87: 80 |       REW_VAL      |               LLEN               |
- *         +------+------+------+------+------+------+------+------+
- *  79: 72 | LLEN |                      WLEN                      |
- *         +------+------+------+------+------+------+------+------+
- *  71: 64 | WLEN |                      RSV                       |
- *         +------+------+------+------+------+------+------+------+
- *  63: 56 |                          RSV                          |
- *         +------+------+------+------+------+------+------+------+
- *  55: 48 |                          RSV                          |
- *         +------+------+------+------+------+------+------+------+
- *  47: 40 | RSV  |          SRC_PORT         |       ACL_ID       |
- *         +------+------+------+------+------+------+------+------+
- *  39: 32 |       ACL_ID       |  RSV |         SFLOW_ID          |
- *         +------+------+------+------+------+------+------+------+
- *  31: 24 |ACL_HIT| DP  |  LRN_FLAGS  |           CPUQ            |
- *         +------+------+------+------+------+------+------+------+
- *  23: 16 |           CPUQ            |      QOS_CLASS     |TAG_TYPE|
- *         +------+------+------+------+------+------+------+------+
- *  15:  8 |         PCP        |  DEI |            VID            |
- *         +------+------+------+------+------+------+------+------+
- *   7:  0 |                          VID                          |
- *         +------+------+------+------+------+------+------+------+
- */
+static void ocelot_xmit_common(struct sk_buff *skb, struct net_device *netdev,
+			       __be32 ifh_prefix, void **ifh)
+{
+	struct dsa_port *dp = dsa_slave_to_port(netdev);
+	struct dsa_switch *ds = dp->ds;
+	void *injection;
+	__be32 *prefix;
+	u32 rew_op = 0;
+
+	injection = skb_push(skb, OCELOT_TAG_LEN);
+	prefix = skb_push(skb, OCELOT_SHORT_PREFIX_LEN);
+
+	*prefix = ifh_prefix;
+	memset(injection, 0, OCELOT_TAG_LEN);
+	ocelot_ifh_set_bypass(injection, 1);
+	ocelot_ifh_set_src(injection, ds->num_ports);
+	ocelot_ifh_set_qos_class(injection, skb->priority);
+
+	rew_op = ocelot_ptp_rew_op(skb);
+	if (rew_op)
+		ocelot_ifh_set_rew_op(injection, rew_op);
+
+	*ifh = injection;
+}
 
 static struct sk_buff *ocelot_xmit(struct sk_buff *skb,
 				   struct net_device *netdev)
 {
 	struct dsa_port *dp = dsa_slave_to_port(netdev);
-	u64 bypass, dest, src, qos_class, rew_op;
-	struct dsa_switch *ds = dp->ds;
-	int port = dp->index;
-	struct ocelot *ocelot = ds->priv;
-	struct ocelot_port *ocelot_port = ocelot->ports[port];
-	u8 *injection;
+	void *injection;
 
-	if (unlikely(skb_cow_head(skb, OCELOT_TAG_LEN) < 0)) {
-		netdev_err(netdev, "Cannot make room for tag.\n");
-		return NULL;
-	}
+	ocelot_xmit_common(skb, netdev, cpu_to_be32(0x8880000a), &injection);
+	ocelot_ifh_set_dest(injection, BIT_ULL(dp->index));
 
-	injection = skb_push(skb, OCELOT_TAG_LEN);
+	return skb;
+}
 
-	memset(injection, 0, OCELOT_TAG_LEN);
+static struct sk_buff *seville_xmit(struct sk_buff *skb,
+				    struct net_device *netdev)
+{
+	struct dsa_port *dp = dsa_slave_to_port(netdev);
+	void *injection;
 
-	src = dsa_upstream_port(ds, port);
-	dest = BIT(port);
-	bypass = true;
-	qos_class = skb->priority;
-
-	packing(injection, &bypass,   127, 127, OCELOT_TAG_LEN, PACK, 0);
-	packing(injection, &dest,      68,  56, OCELOT_TAG_LEN, PACK, 0);
-	packing(injection, &src,       46,  43, OCELOT_TAG_LEN, PACK, 0);
-	packing(injection, &qos_class, 19,  17, OCELOT_TAG_LEN, PACK, 0);
-
-	if (ocelot->ptp && (skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP)) {
-		rew_op = ocelot_port->ptp_cmd;
-		if (ocelot_port->ptp_cmd == IFH_REW_OP_TWO_STEP_PTP) {
-			rew_op |= (ocelot_port->ts_id  % 4) << 3;
-			ocelot_port->ts_id++;
-		}
-
-		packing(injection, &rew_op, 125, 117, OCELOT_TAG_LEN, PACK, 0);
-	}
+	ocelot_xmit_common(skb, netdev, cpu_to_be32(0x88800005), &injection);
+	seville_ifh_set_dest(injection, BIT_ULL(dp->index));
 
 	return skb;
 }
@@ -181,18 +59,21 @@ static struct sk_buff *ocelot_rcv(struct sk_buff *skb,
 				  struct packet_type *pt)
 {
 	u64 src_port, qos_class;
+	u64 vlan_tci, tag_type;
 	u8 *start = skb->data;
+	struct dsa_port *dp;
 	u8 *extraction;
+	u16 vlan_tpid;
 
 	/* Revert skb->data by the amount consumed by the DSA master,
 	 * so it points to the beginning of the frame.
 	 */
 	skb_push(skb, ETH_HLEN);
-	/* We don't care about the long prefix, it is just for easy entrance
+	/* We don't care about the short prefix, it is just for easy entrance
 	 * into the DSA master's RX filter. Discard it now by moving it into
 	 * the headroom.
 	 */
-	skb_pull(skb, OCELOT_LONG_PREFIX_LEN);
+	skb_pull(skb, OCELOT_SHORT_PREFIX_LEN);
 	/* And skb->data now points to the extraction frame header.
 	 * Keep a pointer to it.
 	 */
@@ -206,10 +87,12 @@ static struct sk_buff *ocelot_rcv(struct sk_buff *skb,
 	skb_pull(skb, ETH_HLEN);
 
 	/* Remove from inet csum the extraction header */
-	skb_postpull_rcsum(skb, start, OCELOT_LONG_PREFIX_LEN + OCELOT_TAG_LEN);
+	skb_postpull_rcsum(skb, start, OCELOT_TOTAL_TAG_LEN);
 
-	packing(extraction, &src_port,  46, 43, OCELOT_TAG_LEN, UNPACK, 0);
-	packing(extraction, &qos_class, 19, 17, OCELOT_TAG_LEN, UNPACK, 0);
+	ocelot_xfh_get_src_port(extraction, &src_port);
+	ocelot_xfh_get_qos_class(extraction, &qos_class);
+	ocelot_xfh_get_tag_type(extraction, &tag_type);
+	ocelot_xfh_get_vlan_tci(extraction, &vlan_tci);
 
 	skb->dev = dsa_master_find_slave(netdev, 0, src_port);
 	if (!skb->dev)
@@ -224,18 +107,66 @@ static struct sk_buff *ocelot_rcv(struct sk_buff *skb,
 	skb->offload_fwd_mark = 1;
 	skb->priority = qos_class;
 
+	/* Ocelot switches copy frames unmodified to the CPU. However, it is
+	 * possible for the user to request a VLAN modification through
+	 * VCAP_IS1_ACT_VID_REPLACE_ENA. In this case, what will happen is that
+	 * the VLAN ID field from the Extraction Header gets updated, but the
+	 * 802.1Q header does not (the classified VLAN only becomes visible on
+	 * egress through the "port tag" of front-panel ports).
+	 * So, for traffic extracted by the CPU, we want to pick up the
+	 * classified VLAN and manually replace the existing 802.1Q header from
+	 * the packet with it, so that the operating system is always up to
+	 * date with the result of tc-vlan actions.
+	 * NOTE: In VLAN-unaware mode, we don't want to do that, we want the
+	 * frame to remain unmodified, because the classified VLAN is always
+	 * equal to the pvid of the ingress port and should not be used for
+	 * processing.
+	 */
+	dp = dsa_slave_to_port(skb->dev);
+	vlan_tpid = tag_type ? ETH_P_8021AD : ETH_P_8021Q;
+
+	if (dsa_port_is_vlan_filtering(dp) &&
+	    eth_hdr(skb)->h_proto == htons(vlan_tpid)) {
+		u16 dummy_vlan_tci;
+
+		skb_push_rcsum(skb, ETH_HLEN);
+		__skb_vlan_pop(skb, &dummy_vlan_tci);
+		skb_pull_rcsum(skb, ETH_HLEN);
+		__vlan_hwaccel_put_tag(skb, htons(vlan_tpid), vlan_tci);
+	}
+
 	return skb;
 }
 
-static struct dsa_device_ops ocelot_netdev_ops = {
+static const struct dsa_device_ops ocelot_netdev_ops = {
 	.name			= "ocelot",
 	.proto			= DSA_TAG_PROTO_OCELOT,
 	.xmit			= ocelot_xmit,
 	.rcv			= ocelot_rcv,
-	.overhead		= OCELOT_TAG_LEN + OCELOT_LONG_PREFIX_LEN,
+	.needed_headroom	= OCELOT_TOTAL_TAG_LEN,
+	.promisc_on_master	= true,
 };
 
-MODULE_LICENSE("GPL v2");
+DSA_TAG_DRIVER(ocelot_netdev_ops);
 MODULE_ALIAS_DSA_TAG_DRIVER(DSA_TAG_PROTO_OCELOT);
 
-module_dsa_tag_driver(ocelot_netdev_ops);
+static const struct dsa_device_ops seville_netdev_ops = {
+	.name			= "seville",
+	.proto			= DSA_TAG_PROTO_SEVILLE,
+	.xmit			= seville_xmit,
+	.rcv			= ocelot_rcv,
+	.needed_headroom	= OCELOT_TOTAL_TAG_LEN,
+	.promisc_on_master	= true,
+};
+
+DSA_TAG_DRIVER(seville_netdev_ops);
+MODULE_ALIAS_DSA_TAG_DRIVER(DSA_TAG_PROTO_SEVILLE);
+
+static struct dsa_tag_driver *ocelot_tag_driver_array[] = {
+	&DSA_TAG_DRIVER_NAME(ocelot_netdev_ops),
+	&DSA_TAG_DRIVER_NAME(seville_netdev_ops),
+};
+
+module_dsa_tag_drivers(ocelot_tag_driver_array);
+
+MODULE_LICENSE("GPL v2");

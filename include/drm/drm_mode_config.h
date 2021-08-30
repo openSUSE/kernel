@@ -687,6 +687,12 @@ struct drm_mode_config {
 	struct drm_property *dvi_i_select_subconnector_property;
 
 	/**
+	 * @dp_subconnector_property: Optional DP property to differentiate
+	 * between different DP downstream port types.
+	 */
+	struct drm_property *dp_subconnector_property;
+
+	/**
 	 * @tv_subconnector_property: Optional TV property to differentiate
 	 * between different TV connector types.
 	 */
@@ -872,18 +878,6 @@ struct drm_mode_config {
 	bool prefer_shadow_fbdev;
 
 	/**
-	 * @fbdev_use_iomem:
-	 *
-	 * Set to true if framebuffer reside in iomem.
-	 * When set to true memcpy_toio() is used when copying the framebuffer in
-	 * drm_fb_helper.drm_fb_helper_dirty_blit_real().
-	 *
-	 * FIXME: This should be replaced with a per-mapping is_iomem
-	 * flag (like ttm does), and then used everywhere in fbdev code.
-	 */
-	bool fbdev_use_iomem;
-
-	/**
 	 * @quirk_addfb_prefer_xbgr_30bpp:
 	 *
 	 * Special hack for legacy ADDFB to keep nouveau userspace happy. Should
@@ -915,6 +909,8 @@ struct drm_mode_config {
 	 * @allow_fb_modifiers:
 	 *
 	 * Whether the driver supports fb modifiers in the ADDFB2.1 ioctl call.
+	 * Note that drivers should not set this directly, it is automatically
+	 * set in drm_universal_plane_init().
 	 *
 	 * IMPORTANT:
 	 *

@@ -8,10 +8,12 @@
 
 #include <linux/ktime.h>
 #include <linux/list.h>
+#include <linux/llist.h>
 #include <linux/mutex.h>
 #include <linux/notifier.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
+#include <linux/workqueue.h>
 
 #include "uc/intel_uc.h"
 
@@ -29,6 +31,12 @@ struct i915_ggtt;
 struct intel_engine_cs;
 struct intel_uncore;
 
+enum intel_submission_method {
+	INTEL_SUBMISSION_RING,
+	INTEL_SUBMISSION_ELSP,
+	INTEL_SUBMISSION_GUC,
+};
+
 struct intel_gt {
 	struct drm_i915_private *i915;
 	struct intel_uncore *uncore;
@@ -39,10 +47,6 @@ struct intel_gt {
 	struct intel_gt_timelines {
 		spinlock_t lock; /* protects active_list */
 		struct list_head active_list;
-
-		/* Pack multiple timelines' seqnos into the same page */
-		spinlock_t hwsp_lock;
-		struct list_head hwsp_free_list;
 	} timelines;
 
 	struct intel_gt_requests {
@@ -55,6 +59,11 @@ struct intel_gt {
 		 */
 		struct delayed_work retire_work;
 	} requests;
+
+	struct {
+		struct llist_head list;
+		struct work_struct work;
+	} watchdog;
 
 	struct intel_wakeref wakeref;
 	atomic_t user_wakeref;
@@ -75,6 +84,7 @@ struct intel_gt {
 	intel_wakeref_t awake;
 
 	u32 clock_frequency;
+	u32 clock_period_ns;
 
 	struct intel_llc llc;
 	struct intel_rc6 rc6;
@@ -87,9 +97,34 @@ struct intel_gt {
 
 	u32 pm_guc_events;
 
+	struct {
+		bool active;
+
+		/**
+		 * @lock: Lock protecting the below fields.
+		 */
+		seqcount_mutex_t lock;
+
+		/**
+		 * @total: Total time this engine was busy.
+		 *
+		 * Accumulated time not counting the most recent block in cases
+		 * where engine is currently busy (active > 0).
+		 */
+		ktime_t total;
+
+		/**
+		 * @start: Timestamp of the last idle to active transition.
+		 *
+		 * Idle is defined as active == 0, active is active > 0.
+		 */
+		ktime_t start;
+	} stats;
+
 	struct intel_engine_cs *engine[I915_NUM_ENGINES];
 	struct intel_engine_cs *engine_class[MAX_ENGINE_CLASS + 1]
 					    [MAX_ENGINE_INSTANCE + 1];
+	enum intel_submission_method submission_method;
 
 	/*
 	 * Default address space (either GGTT or ppGTT depending on arch).

@@ -39,6 +39,10 @@
 
 static DEFINE_IDA(watchdog_ida);
 
+static int stop_on_reboot = -1;
+module_param(stop_on_reboot, int, 0444);
+MODULE_PARM_DESC(stop_on_reboot, "Stop watchdogs on reboot (0=keep watching, 1=stop)");
+
 /*
  * Deferred Registration infrastructure.
  *
@@ -154,7 +158,7 @@ static int watchdog_reboot_notifier(struct notifier_block *nb,
 
 	wdd = container_of(nb, struct watchdog_device, reboot_nb);
 	if (code == SYS_DOWN || code == SYS_HALT) {
-		if (watchdog_active(wdd)) {
+		if (watchdog_active(wdd) || watchdog_hw_running(wdd)) {
 			int ret;
 
 			ret = wdd->ops->stop(wdd);
@@ -252,6 +256,14 @@ static int __watchdog_register_device(struct watchdog_device *wdd)
 			ida_simple_remove(&watchdog_ida, id);
 			return ret;
 		}
+	}
+
+	/* Module parameter to force watchdog policy on reboot. */
+	if (stop_on_reboot != -1) {
+		if (stop_on_reboot)
+			set_bit(WDOG_STOP_ON_REBOOT, &wdd->status);
+		else
+			clear_bit(WDOG_STOP_ON_REBOOT, &wdd->status);
 	}
 
 	if (test_bit(WDOG_STOP_ON_REBOOT, &wdd->status)) {

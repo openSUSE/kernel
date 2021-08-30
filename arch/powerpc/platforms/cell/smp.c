@@ -21,12 +21,12 @@
 #include <linux/err.h>
 #include <linux/device.h>
 #include <linux/cpu.h>
+#include <linux/pgtable.h>
 
 #include <asm/ptrace.h>
 #include <linux/atomic.h>
 #include <asm/irq.h>
 #include <asm/page.h>
-#include <asm/pgtable.h>
 #include <asm/io.h>
 #include <asm/prom.h>
 #include <asm/smp.h>
@@ -77,9 +77,6 @@ static inline int smp_startup_cpu(unsigned int lcpu)
 		return 1;
 
 	pcpu = get_hard_smp_processor_id(lcpu);
-
-	/* Fixup atomic count: it exited inside IRQ handler. */
-	task_thread_info(paca_ptrs[lcpu]->__current)->preempt_count	= 0;
 
 	/*
 	 * If the RTAS start-cpu token does not exist then presume the

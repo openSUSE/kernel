@@ -203,9 +203,10 @@
 #define ARMV8_PMU_PMCR_X	(1 << 4) /* Export to ETM */
 #define ARMV8_PMU_PMCR_DP	(1 << 5) /* Disable CCNT if non-invasive debug*/
 #define ARMV8_PMU_PMCR_LC	(1 << 6) /* Overflow on 64 bit cycle counter */
+#define ARMV8_PMU_PMCR_LP	(1 << 7) /* Long event counter enable */
 #define	ARMV8_PMU_PMCR_N_SHIFT	11	 /* Number of counters supported */
 #define	ARMV8_PMU_PMCR_N_MASK	0x1f
-#define	ARMV8_PMU_PMCR_MASK	0x7f	 /* Mask for writable bits */
+#define	ARMV8_PMU_PMCR_MASK	0xff	 /* Mask for writable bits */
 
 /*
  * PMOVSR: counters overflow flag status reg
@@ -234,6 +235,14 @@
 #define ARMV8_PMU_USERENR_SW	(1 << 1) /* PMSWINC can be written at EL0 */
 #define ARMV8_PMU_USERENR_CR	(1 << 2) /* Cycle counter can be read at EL0 */
 #define ARMV8_PMU_USERENR_ER	(1 << 3) /* Event counter can be read at EL0 */
+
+/* PMMIR_EL1.SLOTS mask */
+#define ARMV8_PMU_SLOTS_MASK	0xff
+
+#define ARMV8_PMU_BUS_SLOTS_SHIFT 8
+#define ARMV8_PMU_BUS_SLOTS_MASK 0xff
+#define ARMV8_PMU_BUS_WIDTH_SHIFT 16
+#define ARMV8_PMU_BUS_WIDTH_MASK 0xf
 
 #ifdef CONFIG_PERF_EVENTS
 struct pt_regs;

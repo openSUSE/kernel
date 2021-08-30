@@ -11,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/of_device.h>
 #include <linux/of_graph.h>
+#include <linux/dma-mapping.h>
 #include <linux/platform_device.h>
 #include <linux/reset.h>
 
@@ -509,7 +510,6 @@ static int sun4i_backend_atomic_check(struct sunxi_engine *engine,
 		struct sun4i_layer_state *layer_state =
 			state_to_sun4i_layer_state(plane_state);
 		struct drm_framebuffer *fb = plane_state->fb;
-		struct drm_format_name_buf format_name;
 
 		if (!sun4i_backend_plane_is_supported(plane_state,
 						      &layer_state->uses_frontend))
@@ -526,9 +526,8 @@ static int sun4i_backend_atomic_check(struct sunxi_engine *engine,
 			}
 		}
 
-		DRM_DEBUG_DRIVER("Plane FB format is %s\n",
-				 drm_get_format_name(fb->format->format,
-						     &format_name));
+		DRM_DEBUG_DRIVER("Plane FB format is %p4cc\n",
+				 &fb->format->format);
 		if (fb->format->has_alpha || (plane_state->alpha != DRM_BLEND_ALPHA_OPAQUE))
 			num_alpha_planes++;
 
@@ -768,7 +767,7 @@ static const struct sunxi_engine_ops sun4i_backend_engine_ops = {
 	.vblank_quirk			= sun4i_backend_vblank_quirk,
 };
 
-static struct regmap_config sun4i_backend_regmap_config = {
+static const struct regmap_config sun4i_backend_regmap_config = {
 	.reg_bits	= 32,
 	.val_bits	= 32,
 	.reg_stride	= 4,
@@ -804,14 +803,6 @@ static int sun4i_backend_bind(struct device *dev, struct device *master,
 		ret = of_dma_configure(drm->dev, dev->of_node, true);
 		if (ret)
 			return ret;
-	} else {
-		/*
-		 * If we don't have the interconnect property, most likely
-		 * because of an old DT, we need to set the DMA offset by hand
-		 * on our device since the RAM mapping is at 0 for the DMA bus,
-		 * unlike the CPU.
-		 */
-		drm->dev->dma_pfn_offset = PHYS_PFN_OFFSET;
 	}
 
 	backend->engine.node = dev->of_node;

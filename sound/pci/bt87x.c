@@ -23,8 +23,6 @@
 MODULE_AUTHOR("Clemens Ladisch <clemens@ladisch.de>");
 MODULE_DESCRIPTION("Brooktree Bt87x audio driver");
 MODULE_LICENSE("GPL");
-MODULE_SUPPORTED_DEVICE("{{Brooktree,Bt878},"
-		"{Brooktree,Bt879}}");
 
 static int index[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = -2}; /* Exclude the first card */
 static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
@@ -271,13 +269,8 @@ static void snd_bt87x_free_risc(struct snd_bt87x *chip)
 
 static void snd_bt87x_pci_error(struct snd_bt87x *chip, unsigned int status)
 {
-	u16 pci_status;
+	int pci_status = pci_status_get_and_clear_errors(chip->pci);
 
-	pci_read_config_word(chip->pci, PCI_STATUS, &pci_status);
-	pci_status &= PCI_STATUS_PARITY | PCI_STATUS_SIG_TARGET_ABORT |
-		PCI_STATUS_REC_TARGET_ABORT | PCI_STATUS_REC_MASTER_ABORT |
-		PCI_STATUS_SIG_SYSTEM_ERROR | PCI_STATUS_DETECTED_PARITY;
-	pci_write_config_word(chip->pci, PCI_STATUS, pci_status);
 	if (pci_status != PCI_STATUS_DETECTED_PARITY)
 		dev_err(chip->card->dev,
 			"Aieee - PCI error! status %#08x, PCI status %#04x\n",
@@ -332,7 +325,8 @@ static irqreturn_t snd_bt87x_interrupt(int irq, void *dev_id)
 		current_block = chip->current_line * 16 / chip->lines;
 		irq_block = status >> INT_RISCS_SHIFT;
 		if (current_block != irq_block)
-			chip->current_line = (irq_block * chip->lines + 15) / 16;
+			chip->current_line = DIV_ROUND_UP(irq_block * chip->lines,
+							  16);
 
 		snd_pcm_period_elapsed(chip->substream);
 	}
@@ -725,7 +719,8 @@ static int snd_bt87x_create(struct snd_card *card,
 	chip->irq = -1;
 	spin_lock_init(&chip->reg_lock);
 
-	if ((err = pci_request_regions(pci, "Bt87x audio")) < 0) {
+	err = pci_request_regions(pci, "Bt87x audio");
+	if (err < 0) {
 		kfree(chip);
 		pci_disable_device(pci);
 		return err;

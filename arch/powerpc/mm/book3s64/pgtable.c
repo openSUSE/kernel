@@ -8,14 +8,19 @@
 #include <linux/memblock.h>
 #include <misc/cxl-base.h>
 
+#include <asm/debugfs.h>
 #include <asm/pgalloc.h>
 #include <asm/tlb.h>
 #include <asm/trace.h>
 #include <asm/powernv.h>
+#include <asm/firmware.h>
+#include <asm/ultravisor.h>
 #include <asm/kexec.h>
 
 #include <mm/mmu_decl.h>
 #include <trace/events/thp.h>
+
+#include "internal.h"
 
 unsigned long __pmd_frag_nr;
 EXPORT_SYMBOL(__pmd_frag_nr);
@@ -76,10 +81,15 @@ void set_pmd_at(struct mm_struct *mm, unsigned long addr,
 	return set_pte_at(mm, addr, pmdp_ptep(pmdp), pmd_pte(pmd));
 }
 
-static void do_nothing(void *unused)
+static void do_serialize(void *arg)
 {
-
+	/* We've taken the IPI, so try to trim the mask while here */
+	if (radix_enabled()) {
+		struct mm_struct *mm = arg;
+		exit_lazy_flush_tlb(mm, false);
+	}
 }
+
 /*
  * Serialize against find_current_mm_pte which does lock-less
  * lookup in page tables with local interrupts disabled. For huge pages
@@ -93,7 +103,7 @@ static void do_nothing(void *unused)
 void serialize_against_pte_lookup(struct mm_struct *mm)
 {
 	smp_mb();
-	smp_call_function_many(mm_cpumask(mm), do_nothing, NULL, 1);
+	smp_call_function_many(mm_cpumask(mm), do_serialize, mm, 1);
 }
 
 /*
@@ -107,15 +117,25 @@ pmd_t pmdp_invalidate(struct vm_area_struct *vma, unsigned long address,
 
 	old_pmd = pmd_hugepage_update(vma->vm_mm, address, pmdp, _PAGE_PRESENT, _PAGE_INVALID);
 	flush_pmd_tlb_range(vma, address, address + HPAGE_PMD_SIZE);
-	/*
-	 * This ensures that generic code that rely on IRQ disabling
-	 * to prevent a parallel THP split work as expected.
-	 *
-	 * Marking the entry with _PAGE_INVALID && ~_PAGE_PRESENT requires
-	 * a special case check in pmd_access_permitted.
-	 */
-	serialize_against_pte_lookup(vma->vm_mm);
 	return __pmd(old_pmd);
+}
+
+pmd_t pmdp_huge_get_and_clear_full(struct vm_area_struct *vma,
+				   unsigned long addr, pmd_t *pmdp, int full)
+{
+	pmd_t pmd;
+	VM_BUG_ON(addr & ~HPAGE_PMD_MASK);
+	VM_BUG_ON((pmd_present(*pmdp) && !pmd_trans_huge(*pmdp) &&
+		   !pmd_devmap(*pmdp)) || !pmd_present(*pmdp));
+	pmd = pmdp_huge_get_and_clear(vma->vm_mm, addr, pmdp);
+	/*
+	 * if it not a fullmm flush, then we can possibly end up converting
+	 * this PMD pte entry to a regular level 0 PTE by a parallel page fault.
+	 * Make sure we flush the tlb in this case.
+	 */
+	if (!full)
+		flush_pmd_tlb_range(vma, addr, addr + HPAGE_PMD_SIZE);
+	return pmd;
 }
 
 static pmd_t pmd_set_protbits(pmd_t pmd, pgprot_t pgprot)
@@ -123,12 +143,18 @@ static pmd_t pmd_set_protbits(pmd_t pmd, pgprot_t pgprot)
 	return __pmd(pmd_val(pmd) | pgprot_val(pgprot));
 }
 
+/*
+ * At some point we should be able to get rid of
+ * pmd_mkhuge() and mk_huge_pmd() when we update all the
+ * other archs to mark the pmd huge in pfn_pmd()
+ */
 pmd_t pfn_pmd(unsigned long pfn, pgprot_t pgprot)
 {
 	unsigned long pmdv;
 
 	pmdv = (pfn << PAGE_SHIFT) & PTE_RPN_MASK;
-	return pmd_set_protbits(__pmd(pmdv), pgprot);
+
+	return __pmd_mkhuge(pmd_set_protbits(__pmd(pmdv), pgprot));
 }
 
 pmd_t mk_pmd(struct page *page, pgprot_t pgprot)
@@ -143,19 +169,6 @@ pmd_t pmd_modify(pmd_t pmd, pgprot_t newprot)
 	pmdv = pmd_val(pmd);
 	pmdv &= _HPAGE_CHG_MASK;
 	return pmd_set_protbits(__pmd(pmdv), newprot);
-}
-
-/*
- * This is called at the end of handling a user page fault, when the
- * fault has been handled by updating a HUGE PMD entry in the linux page tables.
- * We use it to preload an HPTE into the hash table corresponding to
- * the updated linux HUGE PMD entry.
- */
-void update_mmu_cache_pmd(struct vm_area_struct *vma, unsigned long addr,
-			  pmd_t *pmd)
-{
-	if (radix_enabled())
-		prefetch((void *)addr);
 }
 #endif /* CONFIG_TRANSPARENT_HUGEPAGE */
 
@@ -206,32 +219,13 @@ void __init mmu_partition_table_init(void)
 	 * 64 K size.
 	 */
 	ptcr = __pa(partition_tb) | (PATB_SIZE_SHIFT - 12);
-	mtspr(SPRN_PTCR, ptcr);
+	set_ptcr_when_no_uv(ptcr);
 	powernv_set_nmmu_ptcr(ptcr);
 }
 
-void mmu_partition_table_set_entry(unsigned int lpid, unsigned long dw0,
-				   unsigned long dw1, bool flush)
+static void flush_partition(unsigned int lpid, bool radix)
 {
-	unsigned long old = be64_to_cpu(partition_tb[lpid].patb0);
-
-	partition_tb[lpid].patb0 = cpu_to_be64(dw0);
-	partition_tb[lpid].patb1 = cpu_to_be64(dw1);
-
-	/*
-	 * Boot does not need to flush, because MMU is off and each
-	 * CPU does a tlbiel_all() before switching them on, which
-	 * flushes everything.
-	 */
-	if (!flush)
-		return;
-
-	/*
-	 * Global flush of TLBs and partition table caches for this lpid.
-	 * The type of flush (hash or radix) depends on what the previous
-	 * use of this partition ID was, not the new use.
-	 */
-	if (old & PATB_HR) {
+	if (radix) {
 		radix__flush_all_lpid(lpid);
 		radix__flush_all_lpid_guest(lpid);
 	} else {
@@ -241,6 +235,44 @@ void mmu_partition_table_set_entry(unsigned int lpid, unsigned long dw0,
 		/* do we need fixup here ?*/
 		asm volatile("eieio; tlbsync; ptesync" : : : "memory");
 		trace_tlbie(lpid, 0, TLBIEL_INVAL_SET_LPID, lpid, 2, 0, 0);
+	}
+}
+
+void mmu_partition_table_set_entry(unsigned int lpid, unsigned long dw0,
+				  unsigned long dw1, bool flush)
+{
+	unsigned long old = be64_to_cpu(partition_tb[lpid].patb0);
+
+	/*
+	 * When ultravisor is enabled, the partition table is stored in secure
+	 * memory and can only be accessed doing an ultravisor call. However, we
+	 * maintain a copy of the partition table in normal memory to allow Nest
+	 * MMU translations to occur (for normal VMs).
+	 *
+	 * Therefore, here we always update partition_tb, regardless of whether
+	 * we are running under an ultravisor or not.
+	 */
+	partition_tb[lpid].patb0 = cpu_to_be64(dw0);
+	partition_tb[lpid].patb1 = cpu_to_be64(dw1);
+
+	/*
+	 * If ultravisor is enabled, we do an ultravisor call to register the
+	 * partition table entry (PATE), which also do a global flush of TLBs
+	 * and partition table caches for the lpid. Otherwise, just do the
+	 * flush. The type of flush (hash or radix) depends on what the previous
+	 * use of the partition ID was, not the new use.
+	 */
+	if (firmware_has_feature(FW_FEATURE_ULTRAVISOR)) {
+		uv_register_pate(lpid, dw0, dw1);
+		pr_info("PATE registered by ultravisor: dw0 = 0x%lx, dw1 = 0x%lx\n",
+			dw0, dw1);
+	} else if (flush) {
+		/*
+		 * Boot does not need to flush, because MMU is off and each
+		 * CPU does a tlbiel_all() before switching them on, which
+		 * flushes everything.
+		 */
+		flush_partition(lpid, (old & PATB_HR));
 	}
 }
 EXPORT_SYMBOL_GPL(mmu_partition_table_set_entry);
@@ -449,23 +481,48 @@ int pmd_move_must_withdraw(struct spinlock *new_pmd_ptl,
 	return true;
 }
 
-int ioremap_range(unsigned long ea, phys_addr_t pa, unsigned long size, pgprot_t prot, int nid)
+/*
+ * Does the CPU support tlbie?
+ */
+bool tlbie_capable __read_mostly = true;
+EXPORT_SYMBOL(tlbie_capable);
+
+/*
+ * Should tlbie be used for management of CPU TLBs, for kernel and process
+ * address spaces? tlbie may still be used for nMMU accelerators, and for KVM
+ * guest address spaces.
+ */
+bool tlbie_enabled __read_mostly = true;
+
+static int __init setup_disable_tlbie(char *str)
 {
-	unsigned long i;
-
-	if (radix_enabled())
-		return radix__ioremap_range(ea, pa, size, prot, nid);
-
-	for (i = 0; i < size; i += PAGE_SIZE) {
-		int err = map_kernel_page(ea + i, pa + i, prot);
-		if (err) {
-			if (slab_is_available())
-				unmap_kernel_range(ea, size);
-			else
-				WARN_ON_ONCE(1); /* Should clean up */
-			return err;
-		}
+	if (!radix_enabled()) {
+		pr_err("disable_tlbie: Unable to disable TLBIE with Hash MMU.\n");
+		return 1;
 	}
+
+	tlbie_capable = false;
+	tlbie_enabled = false;
+
+        return 1;
+}
+__setup("disable_tlbie", setup_disable_tlbie);
+
+static int __init pgtable_debugfs_setup(void)
+{
+	if (!tlbie_capable)
+		return 0;
+
+	/*
+	 * There is no locking vs tlb flushing when changing this value.
+	 * The tlb flushers will see one value or another, and use either
+	 * tlbie or tlbiel with IPIs. In both cases the TLBs will be
+	 * invalidated as expected.
+	 */
+	debugfs_create_bool("tlbie_enabled", 0600,
+			powerpc_debugfs_root,
+			&tlbie_enabled);
 
 	return 0;
 }
+arch_initcall(pgtable_debugfs_setup);

@@ -31,7 +31,6 @@ static const struct net_protocol udplite_protocol = {
 	.handler	= udplite_rcv,
 	.err_handler	= udplite_err,
 	.no_policy	= 1,
-	.netns_ok	= 1,
 };
 
 struct proto 	udplite_prot = {
@@ -56,10 +55,6 @@ struct proto 	udplite_prot = {
 	.sysctl_mem	   = sysctl_udp_mem,
 	.obj_size	   = sizeof(struct udp_sock),
 	.h.udp_table	   = &udplite_table,
-#ifdef CONFIG_COMPAT
-	.compat_setsockopt = compat_udp_setsockopt,
-	.compat_getsockopt = compat_udp_getsockopt,
-#endif
 };
 EXPORT_SYMBOL(udplite_prot);
 

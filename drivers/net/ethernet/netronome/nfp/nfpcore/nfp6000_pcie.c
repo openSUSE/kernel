@@ -340,12 +340,12 @@ static int matching_bar(struct nfp_bar *bar, u32 tgt, u32 act, u32 tok,
 	switch (maptype) {
 	case NFP_PCIE_BAR_PCIE2CPP_MapType_TARGET:
 		bartok = -1;
-		/* FALLTHROUGH */
+		fallthrough;
 	case NFP_PCIE_BAR_PCIE2CPP_MapType_BULK:
 		baract = NFP_CPP_ACTION_RW;
 		if (act == 0)
 			act = NFP_CPP_ACTION_RW;
-		/* FALLTHROUGH */
+		fallthrough;
 	case NFP_PCIE_BAR_PCIE2CPP_MapType_FIXED:
 		break;
 	default:
@@ -611,7 +611,7 @@ static int enable_bars(struct nfp6000_pcie *nfp, u16 interface)
 	/* Configure, and lock, BAR0.0 for General Target use (MSI-X SRAM) */
 	bar = &nfp->bar[0];
 	if (nfp_bar_resource_len(bar) >= NFP_PCI_MIN_MAP_SIZE)
-		bar->iomem = ioremap_nocache(nfp_bar_resource_start(bar),
+		bar->iomem = ioremap(nfp_bar_resource_start(bar),
 					     nfp_bar_resource_len(bar));
 	if (bar->iomem) {
 		int pf;
@@ -677,7 +677,7 @@ static int enable_bars(struct nfp6000_pcie *nfp, u16 interface)
 		}
 
 		bar = &nfp->bar[4 + i];
-		bar->iomem = ioremap_nocache(nfp_bar_resource_start(bar),
+		bar->iomem = ioremap(nfp_bar_resource_start(bar),
 					     nfp_bar_resource_len(bar));
 		if (bar->iomem) {
 			msg += scnprintf(msg, end - msg,
@@ -858,7 +858,7 @@ static int nfp6000_area_acquire(struct nfp_cpp_area *area)
 		priv->iomem = priv->bar->iomem + priv->bar_offset;
 	else
 		/* Must have been too big. Sub-allocate. */
-		priv->iomem = ioremap_nocache(priv->phys, priv->size);
+		priv->iomem = ioremap(priv->phys, priv->size);
 
 	if (IS_ERR_OR_NULL(priv->iomem)) {
 		dev_err(nfp->dev, "Can't ioremap() a %d byte region of BAR %d\n",

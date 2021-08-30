@@ -244,14 +244,12 @@ struct tc_data {
 	struct drm_dp_aux	aux;
 
 	struct drm_bridge	bridge;
+	struct drm_bridge	*panel_bridge;
 	struct drm_connector	connector;
-	struct drm_panel	*panel;
 
 	/* link settings */
 	struct tc_edp_link	link;
 
-	/* display edid */
-	struct edid		*edid;
 	/* current mode */
 	struct drm_display_mode	mode;
 
@@ -1236,13 +1234,6 @@ static int tc_stream_disable(struct tc_data *tc)
 	return 0;
 }
 
-static void tc_bridge_pre_enable(struct drm_bridge *bridge)
-{
-	struct tc_data *tc = bridge_to_tc(bridge);
-
-	drm_panel_prepare(tc->panel);
-}
-
 static void tc_bridge_enable(struct drm_bridge *bridge)
 {
 	struct tc_data *tc = bridge_to_tc(bridge);
@@ -1266,16 +1257,12 @@ static void tc_bridge_enable(struct drm_bridge *bridge)
 		tc_main_link_disable(tc);
 		return;
 	}
-
-	drm_panel_enable(tc->panel);
 }
 
 static void tc_bridge_disable(struct drm_bridge *bridge)
 {
 	struct tc_data *tc = bridge_to_tc(bridge);
 	int ret;
-
-	drm_panel_disable(tc->panel);
 
 	ret = tc_stream_disable(tc);
 	if (ret < 0)
@@ -1284,13 +1271,6 @@ static void tc_bridge_disable(struct drm_bridge *bridge)
 	ret = tc_main_link_disable(tc);
 	if (ret < 0)
 		dev_err(tc->dev, "main link disable error: %d\n", ret);
-}
-
-static void tc_bridge_post_disable(struct drm_bridge *bridge)
-{
-	struct tc_data *tc = bridge_to_tc(bridge);
-
-	drm_panel_unprepare(tc->panel);
 }
 
 static bool tc_bridge_mode_fixup(struct drm_bridge *bridge,
@@ -1335,11 +1315,19 @@ static void tc_bridge_mode_set(struct drm_bridge *bridge,
 	tc->mode = *mode;
 }
 
+static struct edid *tc_get_edid(struct drm_bridge *bridge,
+				struct drm_connector *connector)
+{
+	struct tc_data *tc = bridge_to_tc(bridge);
+
+	return drm_get_edid(connector, &tc->aux.ddc);
+}
+
 static int tc_connector_get_modes(struct drm_connector *connector)
 {
 	struct tc_data *tc = connector_to_tc(connector);
+	int num_modes;
 	struct edid *edid;
-	int count;
 	int ret;
 
 	ret = tc_get_display_props(tc);
@@ -1348,41 +1336,29 @@ static int tc_connector_get_modes(struct drm_connector *connector)
 		return 0;
 	}
 
-	count = drm_panel_get_modes(tc->panel, connector);
-	if (count > 0)
-		return count;
+	if (tc->panel_bridge) {
+		num_modes = drm_bridge_get_modes(tc->panel_bridge, connector);
+		if (num_modes > 0)
+			return num_modes;
+	}
 
-	edid = drm_get_edid(connector, &tc->aux.ddc);
+	edid = tc_get_edid(&tc->bridge, connector);
+	num_modes = drm_add_edid_modes(connector, edid);
+	kfree(edid);
 
-	kfree(tc->edid);
-	tc->edid = edid;
-	if (!edid)
-		return 0;
-
-	drm_connector_update_edid_property(connector, edid);
-	count = drm_add_edid_modes(connector, edid);
-
-	return count;
+	return num_modes;
 }
 
 static const struct drm_connector_helper_funcs tc_connector_helper_funcs = {
 	.get_modes = tc_connector_get_modes,
 };
 
-static enum drm_connector_status tc_connector_detect(struct drm_connector *connector,
-						     bool force)
+static enum drm_connector_status tc_bridge_detect(struct drm_bridge *bridge)
 {
-	struct tc_data *tc = connector_to_tc(connector);
+	struct tc_data *tc = bridge_to_tc(bridge);
 	bool conn;
 	u32 val;
 	int ret;
-
-	if (tc->hpd_pin < 0) {
-		if (tc->panel)
-			return connector_status_connected;
-		else
-			return connector_status_unknown;
-	}
 
 	ret = regmap_read(tc->regmap, GPIOI, &val);
 	if (ret)
@@ -1394,6 +1370,20 @@ static enum drm_connector_status tc_connector_detect(struct drm_connector *conne
 		return connector_status_connected;
 	else
 		return connector_status_disconnected;
+}
+
+static enum drm_connector_status
+tc_connector_detect(struct drm_connector *connector, bool force)
+{
+	struct tc_data *tc = connector_to_tc(connector);
+
+	if (tc->hpd_pin >= 0)
+		return tc_bridge_detect(&tc->bridge);
+
+	if (tc->panel_bridge)
+		return connector_status_connected;
+	else
+		return connector_status_unknown;
 }
 
 static const struct drm_connector_funcs tc_connector_funcs = {
@@ -1413,18 +1403,27 @@ static int tc_bridge_attach(struct drm_bridge *bridge,
 	struct drm_device *drm = bridge->dev;
 	int ret;
 
-	if (flags & DRM_BRIDGE_ATTACH_NO_CONNECTOR) {
-		DRM_ERROR("Fix bridge driver to make connector optional!");
-		return -EINVAL;
+	if (tc->panel_bridge) {
+		/* If a connector is required then this driver shall create it */
+		ret = drm_bridge_attach(tc->bridge.encoder, tc->panel_bridge,
+					&tc->bridge, flags | DRM_BRIDGE_ATTACH_NO_CONNECTOR);
+		if (ret)
+			return ret;
 	}
+
+	if (flags & DRM_BRIDGE_ATTACH_NO_CONNECTOR)
+		return 0;
+
+	tc->aux.drm_dev = drm;
+	ret = drm_dp_aux_register(&tc->aux);
+	if (ret < 0)
+		return ret;
 
 	/* Create DP/eDP connector */
 	drm_connector_helper_add(&tc->connector, &tc_connector_helper_funcs);
-	ret = drm_connector_init(drm, &tc->connector, &tc_connector_funcs,
-				 tc->panel ? DRM_MODE_CONNECTOR_eDP :
-				 DRM_MODE_CONNECTOR_DisplayPort);
+	ret = drm_connector_init(drm, &tc->connector, &tc_connector_funcs, tc->bridge.type);
 	if (ret)
-		return ret;
+		goto aux_unregister;
 
 	/* Don't poll if don't have HPD connected */
 	if (tc->hpd_pin >= 0) {
@@ -1435,9 +1434,6 @@ static int tc_bridge_attach(struct drm_bridge *bridge,
 					       DRM_CONNECTOR_POLL_DISCONNECT;
 	}
 
-	if (tc->panel)
-		drm_panel_attach(tc->panel, &tc->connector);
-
 	drm_display_info_set_bus_formats(&tc->connector.display_info,
 					 &bus_format, 1);
 	tc->connector.display_info.bus_flags =
@@ -1447,17 +1443,26 @@ static int tc_bridge_attach(struct drm_bridge *bridge,
 	drm_connector_attach_encoder(&tc->connector, tc->bridge.encoder);
 
 	return 0;
+aux_unregister:
+	drm_dp_aux_unregister(&tc->aux);
+	return ret;
+}
+
+static void tc_bridge_detach(struct drm_bridge *bridge)
+{
+	drm_dp_aux_unregister(&bridge_to_tc(bridge)->aux);
 }
 
 static const struct drm_bridge_funcs tc_bridge_funcs = {
 	.attach = tc_bridge_attach,
+	.detach = tc_bridge_detach,
 	.mode_valid = tc_mode_valid,
 	.mode_set = tc_bridge_mode_set,
-	.pre_enable = tc_bridge_pre_enable,
 	.enable = tc_bridge_enable,
 	.disable = tc_bridge_disable,
-	.post_disable = tc_bridge_post_disable,
 	.mode_fixup = tc_bridge_mode_fixup,
+	.detect = tc_bridge_detect,
+	.get_edid = tc_get_edid,
 };
 
 static bool tc_readable_reg(struct device *dev, unsigned int reg)
@@ -1547,6 +1552,7 @@ static irqreturn_t tc_irq_handler(int irq, void *arg)
 static int tc_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct device *dev = &client->dev;
+	struct drm_panel *panel;
 	struct tc_data *tc;
 	int ret;
 
@@ -1557,9 +1563,22 @@ static int tc_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	tc->dev = dev;
 
 	/* port@2 is the output port */
-	ret = drm_of_find_panel_or_bridge(dev->of_node, 2, 0, &tc->panel, NULL);
+	ret = drm_of_find_panel_or_bridge(dev->of_node, 2, 0, &panel, NULL);
 	if (ret && ret != -ENODEV)
 		return ret;
+
+	if (panel) {
+		struct drm_bridge *panel_bridge;
+
+		panel_bridge = devm_drm_panel_bridge_add(dev, panel);
+		if (IS_ERR(panel_bridge))
+			return PTR_ERR(panel_bridge);
+
+		tc->panel_bridge = panel_bridge;
+		tc->bridge.type = DRM_MODE_CONNECTOR_eDP;
+	} else {
+		tc->bridge.type = DRM_MODE_CONNECTOR_DisplayPort;
+	}
 
 	/* Shut down GPIO is optional */
 	tc->sd_gpio = devm_gpiod_get_optional(dev, "shutdown", GPIOD_OUT_HIGH);
@@ -1675,11 +1694,13 @@ static int tc_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	tc->aux.name = "TC358767 AUX i2c adapter";
 	tc->aux.dev = tc->dev;
 	tc->aux.transfer = tc_aux_transfer;
-	ret = drm_dp_aux_register(&tc->aux);
-	if (ret)
-		return ret;
+	drm_dp_aux_init(&tc->aux);
 
 	tc->bridge.funcs = &tc_bridge_funcs;
+	if (tc->hpd_pin >= 0)
+		tc->bridge.ops |= DRM_BRIDGE_OP_DETECT;
+	tc->bridge.ops |= DRM_BRIDGE_OP_EDID;
+
 	tc->bridge.of_node = dev->of_node;
 	drm_bridge_add(&tc->bridge);
 
@@ -1693,7 +1714,6 @@ static int tc_remove(struct i2c_client *client)
 	struct tc_data *tc = i2c_get_clientdata(client);
 
 	drm_bridge_remove(&tc->bridge);
-	drm_dp_aux_unregister(&tc->aux);
 
 	return 0;
 }

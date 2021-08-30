@@ -95,15 +95,20 @@ static void cleanup_slot(struct controller *ctrl)
 }
 
 /*
- * set_attention_status - Turns the Amber LED for a slot on, off or blink
+ * set_attention_status - Turns the Attention Indicator on, off or blinking
  */
 static int set_attention_status(struct hotplug_slot *hotplug_slot, u8 status)
 {
 	struct controller *ctrl = to_ctrl(hotplug_slot);
 	struct pci_dev *pdev = ctrl->pcie->port;
 
+	if (status)
+		status <<= PCI_EXP_SLTCTL_ATTN_IND_SHIFT;
+	else
+		status = PCI_EXP_SLTCTL_ATTN_IND_OFF;
+
 	pci_config_pm_runtime_get(pdev);
-	pciehp_set_attention_status(ctrl, status);
+	pciehp_set_indicators(ctrl, INDICATOR_NOOP, status);
 	pci_config_pm_runtime_put(pdev);
 	return 0;
 }
@@ -134,10 +139,15 @@ static int get_adapter_status(struct hotplug_slot *hotplug_slot, u8 *value)
 {
 	struct controller *ctrl = to_ctrl(hotplug_slot);
 	struct pci_dev *pdev = ctrl->pcie->port;
+	int ret;
 
 	pci_config_pm_runtime_get(pdev);
-	*value = pciehp_card_present_or_link_active(ctrl);
+	ret = pciehp_card_present_or_link_active(ctrl);
 	pci_config_pm_runtime_put(pdev);
+	if (ret < 0)
+		return ret;
+
+	*value = ret;
 	return 0;
 }
 
@@ -154,13 +164,13 @@ static int get_adapter_status(struct hotplug_slot *hotplug_slot, u8 *value)
  */
 static void pciehp_check_presence(struct controller *ctrl)
 {
-	bool occupied;
+	int occupied;
 
 	down_read(&ctrl->reset_lock);
 	mutex_lock(&ctrl->state_lock);
 
 	occupied = pciehp_card_present_or_link_active(ctrl);
-	if ((occupied && (ctrl->state == OFF_STATE ||
+	if ((occupied > 0 && (ctrl->state == OFF_STATE ||
 			  ctrl->state == BLINKINGON_STATE)) ||
 	    (!occupied && (ctrl->state == ON_STATE ||
 			   ctrl->state == BLINKINGOFF_STATE)))

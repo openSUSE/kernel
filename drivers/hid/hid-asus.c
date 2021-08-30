@@ -40,12 +40,16 @@ MODULE_AUTHOR("Frederik Wenigwieser <frederik.wenigwieser@gmail.com>");
 MODULE_DESCRIPTION("Asus HID Keyboard and TouchPad");
 
 #define T100_TPAD_INTF 2
+#define MEDION_E1239T_TPAD_INTF 1
 
+#define E1239T_TP_TOGGLE_REPORT_ID 0x05
 #define T100CHI_MOUSE_REPORT_ID 0x06
 #define FEATURE_REPORT_ID 0x0d
 #define INPUT_REPORT_ID 0x5d
 #define FEATURE_KBD_REPORT_ID 0x5a
 #define FEATURE_KBD_REPORT_SIZE 16
+#define FEATURE_KBD_LED_REPORT_ID1 0x5d
+#define FEATURE_KBD_LED_REPORT_ID2 0x5e
 
 #define SUPPORT_KBD_BACKLIGHT BIT(0)
 
@@ -75,8 +79,9 @@ MODULE_DESCRIPTION("Asus HID Keyboard and TouchPad");
 #define QUIRK_T100_KEYBOARD		BIT(6)
 #define QUIRK_T100CHI			BIT(7)
 #define QUIRK_G752_KEYBOARD		BIT(8)
-#define QUIRK_T101HA_DOCK		BIT(9)
-#define QUIRK_T90CHI			BIT(10)
+#define QUIRK_T90CHI			BIT(9)
+#define QUIRK_MEDION_E1239T		BIT(10)
+#define QUIRK_ROG_NKEY_KEYBOARD		BIT(11)
 
 #define I2C_KEYBOARD_QUIRKS			(QUIRK_FIX_NOTEBOOK_REPORT | \
 						 QUIRK_NO_INIT_REPORTS | \
@@ -102,12 +107,14 @@ struct asus_touchpad_info {
 	int res_y;
 	int contact_size;
 	int max_contacts;
+	int report_size;
 };
 
 struct asus_drvdata {
 	unsigned long quirks;
 	struct hid_device *hdev;
 	struct input_dev *input;
+	struct input_dev *tp_kbd_input;
 	struct asus_kbd_leds *kbd_backlight;
 	const struct asus_touchpad_info *tp;
 	bool enable_backlight;
@@ -126,6 +133,7 @@ static const struct asus_touchpad_info asus_i2c_tp = {
 	.max_y = 1758,
 	.contact_size = 5,
 	.max_contacts = 5,
+	.report_size = 28 /* 2 byte header + 5 * 5 + 1 byte footer */,
 };
 
 static const struct asus_touchpad_info asus_t100ta_tp = {
@@ -135,6 +143,7 @@ static const struct asus_touchpad_info asus_t100ta_tp = {
 	.res_y = 27, /* units/mm */
 	.contact_size = 5,
 	.max_contacts = 5,
+	.report_size = 28 /* 2 byte header + 5 * 5 + 1 byte footer */,
 };
 
 static const struct asus_touchpad_info asus_t100ha_tp = {
@@ -144,6 +153,7 @@ static const struct asus_touchpad_info asus_t100ha_tp = {
 	.res_y = 29, /* units/mm */
 	.contact_size = 5,
 	.max_contacts = 5,
+	.report_size = 28 /* 2 byte header + 5 * 5 + 1 byte footer */,
 };
 
 static const struct asus_touchpad_info asus_t200ta_tp = {
@@ -153,6 +163,7 @@ static const struct asus_touchpad_info asus_t200ta_tp = {
 	.res_y = 28, /* units/mm */
 	.contact_size = 5,
 	.max_contacts = 5,
+	.report_size = 28 /* 2 byte header + 5 * 5 + 1 byte footer */,
 };
 
 static const struct asus_touchpad_info asus_t100chi_tp = {
@@ -162,6 +173,17 @@ static const struct asus_touchpad_info asus_t100chi_tp = {
 	.res_y = 29, /* units/mm */
 	.contact_size = 3,
 	.max_contacts = 4,
+	.report_size = 15 /* 2 byte header + 3 * 4 + 1 byte footer */,
+};
+
+static const struct asus_touchpad_info medion_e1239t_tp = {
+	.max_x = 2640,
+	.max_y = 1380,
+	.res_x = 29, /* units/mm */
+	.res_y = 28, /* units/mm */
+	.contact_size = 5,
+	.max_contacts = 5,
+	.report_size = 32 /* 2 byte header + 5 * 5 + 5 byte footer */,
 };
 
 static void asus_report_contact_down(struct asus_drvdata *drvdat,
@@ -229,7 +251,7 @@ static int asus_report_input(struct asus_drvdata *drvdat, u8 *data, int size)
 	int i, toolType = MT_TOOL_FINGER;
 	u8 *contactData = data + 2;
 
-	if (size != 3 + drvdat->tp->contact_size * drvdat->tp->max_contacts)
+	if (size != drvdat->tp->report_size)
 		return 0;
 
 	for (i = 0; i < drvdat->tp->max_contacts; i++) {
@@ -257,6 +279,34 @@ static int asus_report_input(struct asus_drvdata *drvdat, u8 *data, int size)
 	return 1;
 }
 
+static int asus_e1239t_event(struct asus_drvdata *drvdat, u8 *data, int size)
+{
+	if (size != 3)
+		return 0;
+
+	/* Handle broken mute key which only sends press events */
+	if (!drvdat->tp &&
+	    data[0] == 0x02 && data[1] == 0xe2 && data[2] == 0x00) {
+		input_report_key(drvdat->input, KEY_MUTE, 1);
+		input_sync(drvdat->input);
+		input_report_key(drvdat->input, KEY_MUTE, 0);
+		input_sync(drvdat->input);
+		return 1;
+	}
+
+	/* Handle custom touchpad toggle key which only sends press events */
+	if (drvdat->tp_kbd_input &&
+	    data[0] == 0x05 && data[1] == 0x02 && data[2] == 0x28) {
+		input_report_key(drvdat->tp_kbd_input, KEY_F21, 1);
+		input_sync(drvdat->tp_kbd_input);
+		input_report_key(drvdat->tp_kbd_input, KEY_F21, 0);
+		input_sync(drvdat->tp_kbd_input);
+		return 1;
+	}
+
+	return 0;
+}
+
 static int asus_event(struct hid_device *hdev, struct hid_field *field,
 		      struct hid_usage *usage, __s32 value)
 {
@@ -281,6 +331,41 @@ static int asus_raw_event(struct hid_device *hdev,
 	if (drvdata->tp && data[0] == INPUT_REPORT_ID)
 		return asus_report_input(drvdata, data, size);
 
+	if (drvdata->quirks & QUIRK_MEDION_E1239T)
+		return asus_e1239t_event(drvdata, data, size);
+
+	if (drvdata->quirks & QUIRK_USE_KBD_BACKLIGHT) {
+		/*
+		 * Skip these report ID, the device emits a continuous stream associated
+		 * with the AURA mode it is in which looks like an 'echo'.
+		*/
+		if (report->id == FEATURE_KBD_LED_REPORT_ID1 ||
+				report->id == FEATURE_KBD_LED_REPORT_ID2) {
+			return -1;
+		/* Additional report filtering */
+		} else if (report->id == FEATURE_KBD_REPORT_ID) {
+			/*
+			 * G14 and G15 send these codes on some keypresses with no
+			 * discernable reason for doing so. We'll filter them out to avoid
+			 * unmapped warning messages later.
+			*/
+			if (data[1] == 0xea || data[1] == 0xec || data[1] == 0x02 ||
+					data[1] == 0x8a || data[1] == 0x9e) {
+				return -1;
+			}
+		}
+		if (drvdata->quirks & QUIRK_ROG_NKEY_KEYBOARD) {
+			/*
+			 * G713 and G733 send these codes on some keypresses, depending on
+			 * the key pressed it can trigger a shutdown event if not caught.
+			*/
+			if(data[0] == 0x02 && data[1] == 0x30) {
+				return -1;
+			}
+		}
+
+	}
+
 	return 0;
 }
 
@@ -293,7 +378,11 @@ static int asus_kbd_set_report(struct hid_device *hdev, u8 *buf, size_t buf_size
 	if (!dmabuf)
 		return -ENOMEM;
 
-	ret = hid_hw_raw_request(hdev, FEATURE_KBD_REPORT_ID, dmabuf,
+	/*
+	 * The report ID should be set from the incoming buffer due to LED and key
+	 * interfaces having different pages
+	*/
+	ret = hid_hw_raw_request(hdev, buf[0], dmabuf,
 				 buf_size, HID_FEATURE_REPORT,
 				 HID_REQ_SET_REPORT);
 	kfree(dmabuf);
@@ -346,14 +435,56 @@ static int asus_kbd_get_functions(struct hid_device *hdev,
 	return ret;
 }
 
+static int rog_nkey_led_init(struct hid_device *hdev)
+{
+	u8 buf_init_start[] = { FEATURE_KBD_LED_REPORT_ID1, 0xB9 };
+	u8 buf_init2[] = { FEATURE_KBD_LED_REPORT_ID1, 0x41, 0x53, 0x55, 0x53, 0x20,
+				0x54, 0x65, 0x63, 0x68, 0x2e, 0x49, 0x6e, 0x63, 0x2e, 0x00 };
+	u8 buf_init3[] = { FEATURE_KBD_LED_REPORT_ID1,
+						0x05, 0x20, 0x31, 0x00, 0x08 };
+	int ret;
+
+	hid_info(hdev, "Asus initialise N-KEY Device");
+	/* The first message is an init start */
+	ret = asus_kbd_set_report(hdev, buf_init_start, sizeof(buf_init_start));
+	if (ret < 0) {
+		hid_warn(hdev, "Asus failed to send init start command: %d\n", ret);
+		return ret;
+	}
+	/* Followed by a string */
+	ret = asus_kbd_set_report(hdev, buf_init2, sizeof(buf_init2));
+	if (ret < 0) {
+		hid_warn(hdev, "Asus failed to send init command 1.0: %d\n", ret);
+		return ret;
+	}
+	/* Followed by a string */
+	ret = asus_kbd_set_report(hdev, buf_init3, sizeof(buf_init3));
+	if (ret < 0) {
+		hid_warn(hdev, "Asus failed to send init command 1.1: %d\n", ret);
+		return ret;
+	}
+
+	/* begin second report ID with same data */
+	buf_init2[0] = FEATURE_KBD_LED_REPORT_ID2;
+	buf_init3[0] = FEATURE_KBD_LED_REPORT_ID2;
+
+	ret = asus_kbd_set_report(hdev, buf_init2, sizeof(buf_init2));
+	if (ret < 0) {
+		hid_warn(hdev, "Asus failed to send init command 2.0: %d\n", ret);
+		return ret;
+	}
+	ret = asus_kbd_set_report(hdev, buf_init3, sizeof(buf_init3));
+	if (ret < 0)
+		hid_warn(hdev, "Asus failed to send init command 2.1: %d\n", ret);
+
+	return ret;
+}
+
 static void asus_kbd_backlight_set(struct led_classdev *led_cdev,
 				   enum led_brightness brightness)
 {
 	struct asus_kbd_leds *led = container_of(led_cdev, struct asus_kbd_leds,
 						 cdev);
-	if (led->brightness == brightness)
-		return;
-
 	led->brightness = brightness;
 	schedule_work(&led->work);
 }
@@ -409,19 +540,25 @@ static int asus_kbd_register_leds(struct hid_device *hdev)
 	unsigned char kbd_func;
 	int ret;
 
-	/* Initialize keyboard */
-	ret = asus_kbd_init(hdev);
-	if (ret < 0)
-		return ret;
+	if (drvdata->quirks & QUIRK_ROG_NKEY_KEYBOARD) {
+		ret = rog_nkey_led_init(hdev);
+		if (ret < 0)
+			return ret;
+	} else {
+		/* Initialize keyboard */
+		ret = asus_kbd_init(hdev);
+		if (ret < 0)
+			return ret;
 
-	/* Get keyboard functions */
-	ret = asus_kbd_get_functions(hdev, &kbd_func);
-	if (ret < 0)
-		return ret;
+		/* Get keyboard functions */
+		ret = asus_kbd_get_functions(hdev, &kbd_func);
+		if (ret < 0)
+			return ret;
 
-	/* Check for backlight support */
-	if (!(kbd_func & SUPPORT_KBD_BACKLIGHT))
-		return -ENODEV;
+		/* Check for backlight support */
+		if (!(kbd_func & SUPPORT_KBD_BACKLIGHT))
+			return -ENODEV;
+	}
 
 	drvdata->kbd_backlight = devm_kzalloc(&hdev->dev,
 					      sizeof(struct asus_kbd_leds),
@@ -615,6 +752,21 @@ static int asus_input_configured(struct hid_device *hdev, struct hid_input *hi)
 	    hi->report->id != T100CHI_MOUSE_REPORT_ID)
 		return 0;
 
+	/* Handle MULTI_INPUT on E1239T mouse/touchpad USB interface */
+	if (drvdata->tp && (drvdata->quirks & QUIRK_MEDION_E1239T)) {
+		switch (hi->report->id) {
+		case E1239T_TP_TOGGLE_REPORT_ID:
+			input_set_capability(input, EV_KEY, KEY_F21);
+			input->name = "Asus Touchpad Keys";
+			drvdata->tp_kbd_input = input;
+			return 0;
+		case INPUT_REPORT_ID:
+			break; /* Touchpad report, handled below */
+		default:
+			return 0; /* Ignore other reports */
+		}
+	}
+
 	if (drvdata->tp) {
 		int ret;
 
@@ -677,24 +829,16 @@ static int asus_input_mapping(struct hid_device *hdev,
 	 * This avoids a bunch of non-functional hid_input devices getting
 	 * created because of the T100CHI using HID_QUIRK_MULTI_INPUT.
 	 */
-	if (drvdata->quirks & (QUIRK_T100CHI | QUIRK_T90CHI)) {
-		if (field->application == (HID_UP_GENDESK | 0x0080) ||
-		    usage->hid == (HID_UP_GENDEVCTRLS | 0x0024) ||
-		    usage->hid == (HID_UP_GENDEVCTRLS | 0x0025) ||
-		    usage->hid == (HID_UP_GENDEVCTRLS | 0x0026))
-			return -1;
-		/*
-		 * We use the hid_input for the mouse report for the touchpad,
-		 * keep the left button, to avoid the core removing it.
-		 */
-		if (field->application == HID_GD_MOUSE &&
-		    usage->hid != (HID_UP_BUTTON | 1))
-			return -1;
-	}
+	if ((drvdata->quirks & (QUIRK_T100CHI | QUIRK_T90CHI)) &&
+	    (field->application == (HID_UP_GENDESK | 0x0080) ||
+	     field->application == HID_GD_MOUSE ||
+	     usage->hid == (HID_UP_GENDEVCTRLS | 0x0024) ||
+	     usage->hid == (HID_UP_GENDEVCTRLS | 0x0025) ||
+	     usage->hid == (HID_UP_GENDEVCTRLS | 0x0026)))
+		return -1;
 
-	/* ASUS-specific keyboard hotkeys */
-	if ((usage->hid & HID_USAGE_PAGE) == 0xff310000) {
-		set_bit(EV_REP, hi->input->evbit);
+	/* ASUS-specific keyboard hotkeys and led backlight */
+	if ((usage->hid & HID_USAGE_PAGE) == HID_UP_ASUSVENDOR) {
 		switch (usage->hid & HID_USAGE) {
 		case 0x10: asus_map_key_clear(KEY_BRIGHTNESSDOWN);	break;
 		case 0x20: asus_map_key_clear(KEY_BRIGHTNESSUP);		break;
@@ -722,6 +866,18 @@ static int asus_input_mapping(struct hid_device *hdev,
 		/* Fn+F5 "fan" symbol on FX503VD */
 		case 0x99: asus_map_key_clear(KEY_PROG4);		break;
 
+		/* Fn+F5 "fan" symbol on N-Key keyboard */
+		case 0xae: asus_map_key_clear(KEY_PROG4);		break;
+
+		/* Fn+Ret "Calc" symbol on N-Key keyboard */
+		case 0x92: asus_map_key_clear(KEY_CALC);		break;
+
+		/* Fn+Left Aura mode previous on N-Key keyboard */
+		case 0xb2: asus_map_key_clear(KEY_PROG2);		break;
+
+		/* Fn+Right Aura mode next on N-Key keyboard */
+		case 0xb3: asus_map_key_clear(KEY_PROG3);		break;
+
 		default:
 			/* ASUS lazily declares 256 usages, ignore the rest,
 			 * as some make the keyboard appear as a pointer device. */
@@ -737,11 +893,11 @@ static int asus_input_mapping(struct hid_device *hdev,
 		if (drvdata->quirks & QUIRK_USE_KBD_BACKLIGHT)
 			drvdata->enable_backlight = true;
 
+		set_bit(EV_REP, hi->input->evbit);
 		return 1;
 	}
 
 	if ((usage->hid & HID_USAGE_PAGE) == HID_UP_MSVENDOR) {
-		set_bit(EV_REP, hi->input->evbit);
 		switch (usage->hid & HID_USAGE) {
 		case 0xff01: asus_map_key_clear(BTN_1);	break;
 		case 0xff02: asus_map_key_clear(BTN_2);	break;
@@ -764,6 +920,7 @@ static int asus_input_mapping(struct hid_device *hdev,
 			return 0;
 		}
 
+		set_bit(EV_REP, hi->input->evbit);
 		return 1;
 	}
 
@@ -780,6 +937,16 @@ static int asus_input_mapping(struct hid_device *hdev,
 			 */
 			return -1;
 		}
+	}
+
+	/*
+	 * The mute button is broken and only sends press events, we
+	 * deal with this in our raw_event handler, so do not map it.
+	 */
+	if ((drvdata->quirks & QUIRK_MEDION_E1239T) &&
+	    usage->hid == (HID_UP_CONSUMER | 0xe2)) {
+		input_set_capability(hi->input, EV_KEY, KEY_MUTE);
+		return -1;
 	}
 
 	return 0;
@@ -849,7 +1016,8 @@ static int asus_probe(struct hid_device *hdev, const struct hid_device_id *id)
 	if (drvdata->quirks & QUIRK_IS_MULTITOUCH)
 		drvdata->tp = &asus_i2c_tp;
 
-	if (drvdata->quirks & QUIRK_T100_KEYBOARD) {
+	if ((drvdata->quirks & QUIRK_T100_KEYBOARD) &&
+	    hid_is_using_ll_driver(hdev, &usb_hid_driver)) {
 		struct usb_interface *intf = to_usb_interface(hdev->dev.parent);
 
 		if (intf->altsetting->desc.bInterfaceNumber == T100_TPAD_INTF) {
@@ -877,6 +1045,19 @@ static int asus_probe(struct hid_device *hdev, const struct hid_device_id *id)
 		drvdata->tp = &asus_t100chi_tp;
 	}
 
+	if ((drvdata->quirks & QUIRK_MEDION_E1239T) &&
+	    hid_is_using_ll_driver(hdev, &usb_hid_driver)) {
+		struct usb_host_interface *alt =
+			to_usb_interface(hdev->dev.parent)->altsetting;
+
+		if (alt->desc.bInterfaceNumber == MEDION_E1239T_TPAD_INTF) {
+			/* For separate input-devs for tp and tp toggle key */
+			hdev->quirks |= HID_QUIRK_MULTI_INPUT;
+			drvdata->quirks |= QUIRK_SKIP_INPUT_MAPPING;
+			drvdata->tp = &medion_e1239t_tp;
+		}
+	}
+
 	if (drvdata->quirks & QUIRK_NO_INIT_REPORTS)
 		hdev->quirks |= HID_QUIRK_NO_INIT_REPORTS;
 
@@ -896,11 +1077,6 @@ static int asus_probe(struct hid_device *hdev, const struct hid_device_id *id)
 		hid_err(hdev, "Asus hid parse failed: %d\n", ret);
 		return ret;
 	}
-
-	/* use hid-multitouch for T101HA touchpad */
-	if (id->driver_data & QUIRK_T101HA_DOCK &&
-	    hdev->collection->usage == HID_GD_MOUSE)
-		return -ENODEV;
 
 	ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
 	if (ret) {
@@ -1044,19 +1220,30 @@ static const struct hid_device_id asus_devices[] = {
 		USB_DEVICE_ID_ASUSTEK_FX503VD_KEYBOARD),
 	  QUIRK_USE_KBD_BACKLIGHT },
 	{ HID_USB_DEVICE(USB_VENDOR_ID_ASUSTEK,
+	    USB_DEVICE_ID_ASUSTEK_ROG_NKEY_KEYBOARD),
+	  QUIRK_USE_KBD_BACKLIGHT | QUIRK_ROG_NKEY_KEYBOARD },
+	{ HID_USB_DEVICE(USB_VENDOR_ID_ASUSTEK,
+	    USB_DEVICE_ID_ASUSTEK_ROG_NKEY_KEYBOARD2),
+	  QUIRK_USE_KBD_BACKLIGHT | QUIRK_ROG_NKEY_KEYBOARD },
+	{ HID_USB_DEVICE(USB_VENDOR_ID_ASUSTEK,
 		USB_DEVICE_ID_ASUSTEK_T100TA_KEYBOARD),
 	  QUIRK_T100_KEYBOARD | QUIRK_NO_CONSUMER_USAGES },
 	{ HID_USB_DEVICE(USB_VENDOR_ID_ASUSTEK,
 		USB_DEVICE_ID_ASUSTEK_T100TAF_KEYBOARD),
 	  QUIRK_T100_KEYBOARD | QUIRK_NO_CONSUMER_USAGES },
-	{ HID_USB_DEVICE(USB_VENDOR_ID_ASUSTEK,
-		USB_DEVICE_ID_ASUSTEK_T101HA_KEYBOARD), QUIRK_T101HA_DOCK },
 	{ HID_USB_DEVICE(USB_VENDOR_ID_CHICONY, USB_DEVICE_ID_ASUS_AK1D) },
 	{ HID_USB_DEVICE(USB_VENDOR_ID_TURBOX, USB_DEVICE_ID_ASUS_MD_5110) },
 	{ HID_USB_DEVICE(USB_VENDOR_ID_JESS, USB_DEVICE_ID_ASUS_MD_5112) },
 	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_ASUSTEK,
 		USB_DEVICE_ID_ASUSTEK_T100CHI_KEYBOARD), QUIRK_T100CHI },
-
+	{ HID_USB_DEVICE(USB_VENDOR_ID_ITE, USB_DEVICE_ID_ITE_MEDION_E1239T),
+		QUIRK_MEDION_E1239T },
+	/*
+	 * Note bind to the HID_GROUP_GENERIC group, so that we only bind to the keyboard
+	 * part, while letting hid-multitouch.c handle the touchpad.
+	 */
+	{ HID_DEVICE(BUS_USB, HID_GROUP_GENERIC,
+		USB_VENDOR_ID_ASUSTEK, USB_DEVICE_ID_ASUSTEK_T101HA_KEYBOARD) },
 	{ }
 };
 MODULE_DEVICE_TABLE(hid, asus_devices);

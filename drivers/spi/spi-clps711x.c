@@ -91,7 +91,6 @@ static int spi_clps711x_probe(struct platform_device *pdev)
 {
 	struct spi_clps711x_data *hw;
 	struct spi_master *master;
-	struct resource *res;
 	int irq, ret;
 
 	irq = platform_get_irq(pdev, 0);
@@ -105,7 +104,7 @@ static int spi_clps711x_probe(struct platform_device *pdev)
 	master->use_gpio_descriptors = true;
 	master->bus_num = -1;
 	master->mode_bits = SPI_CPHA | SPI_CS_HIGH;
-	master->bits_per_word_mask =  SPI_BPW_RANGE_MASK(1, 8);
+	master->bits_per_word_mask = SPI_BPW_RANGE_MASK(1, 8);
 	master->dev.of_node = pdev->dev.of_node;
 	master->prepare_message = spi_clps711x_prepare_message;
 	master->transfer_one = spi_clps711x_transfer_one;
@@ -125,8 +124,7 @@ static int spi_clps711x_probe(struct platform_device *pdev)
 		goto err_out;
 	}
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	hw->syncio = devm_ioremap_resource(&pdev->dev, res);
+	hw->syncio = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(hw->syncio)) {
 		ret = PTR_ERR(hw->syncio);
 		goto err_out;

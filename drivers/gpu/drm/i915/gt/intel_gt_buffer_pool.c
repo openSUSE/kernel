@@ -35,66 +35,69 @@ static void node_free(struct intel_gt_buffer_pool_node *node)
 {
 	i915_gem_object_put(node->obj);
 	i915_active_fini(&node->active);
-	kfree(node);
+	kfree_rcu(node, rcu);
+}
+
+static bool pool_free_older_than(struct intel_gt_buffer_pool *pool, long keep)
+{
+	struct intel_gt_buffer_pool_node *node, *stale = NULL;
+	bool active = false;
+	int n;
+
+	/* Free buffers that have not been used in the past second */
+	for (n = 0; n < ARRAY_SIZE(pool->cache_list); n++) {
+		struct list_head *list = &pool->cache_list[n];
+
+		if (list_empty(list))
+			continue;
+
+		if (spin_trylock_irq(&pool->lock)) {
+			struct list_head *pos;
+
+			/* Most recent at head; oldest at tail */
+			list_for_each_prev(pos, list) {
+				unsigned long age;
+
+				node = list_entry(pos, typeof(*node), link);
+
+				age = READ_ONCE(node->age);
+				if (!age || jiffies - age < keep)
+					break;
+
+				/* Check we are the first to claim this node */
+				if (!xchg(&node->age, 0))
+					break;
+
+				node->free = stale;
+				stale = node;
+			}
+			if (!list_is_last(pos, list))
+				__list_del_many(pos, list);
+
+			spin_unlock_irq(&pool->lock);
+		}
+
+		active |= !list_empty(list);
+	}
+
+	while ((node = stale)) {
+		stale = stale->free;
+		node_free(node);
+	}
+
+	return active;
 }
 
 static void pool_free_work(struct work_struct *wrk)
 {
 	struct intel_gt_buffer_pool *pool =
 		container_of(wrk, typeof(*pool), work.work);
-	struct intel_gt_buffer_pool_node *node, *next;
-	unsigned long old = jiffies - HZ;
-	bool active = false;
-	LIST_HEAD(stale);
-	int n;
 
-	/* Free buffers that have not been used in the past second */
-	spin_lock_irq(&pool->lock);
-	for (n = 0; n < ARRAY_SIZE(pool->cache_list); n++) {
-		struct list_head *list = &pool->cache_list[n];
-
-		/* Most recent at head; oldest at tail */
-		list_for_each_entry_safe_reverse(node, next, list, link) {
-			if (time_before(node->age, old))
-				break;
-
-			list_move(&node->link, &stale);
-		}
-		active |= !list_empty(list);
-	}
-	spin_unlock_irq(&pool->lock);
-
-	list_for_each_entry_safe(node, next, &stale, link)
-		node_free(node);
-
-	if (active)
+	if (pool_free_older_than(pool, HZ))
 		schedule_delayed_work(&pool->work,
 				      round_jiffies_up_relative(HZ));
 }
 
-static int pool_active(struct i915_active *ref)
-{
-	struct intel_gt_buffer_pool_node *node =
-		container_of(ref, typeof(*node), active);
-	struct dma_resv *resv = node->obj->base.resv;
-	int err;
-
-	if (dma_resv_trylock(resv)) {
-		dma_resv_add_excl_fence(resv, NULL);
-		dma_resv_unlock(resv);
-	}
-
-	err = i915_gem_object_pin_pages(node->obj);
-	if (err)
-		return err;
-
-	/* Hide this pinned object from the shrinker until retired */
-	i915_gem_object_make_unshrinkable(node->obj);
-
-	return 0;
-}
-
-__i915_active_call
 static void pool_retire(struct i915_active *ref)
 {
 	struct intel_gt_buffer_pool_node *node =
@@ -103,22 +106,40 @@ static void pool_retire(struct i915_active *ref)
 	struct list_head *list = bucket_for_size(pool, node->obj->base.size);
 	unsigned long flags;
 
-	i915_gem_object_unpin_pages(node->obj);
+	if (node->pinned) {
+		i915_gem_object_unpin_pages(node->obj);
 
-	/* Return this object to the shrinker pool */
-	i915_gem_object_make_purgeable(node->obj);
+		/* Return this object to the shrinker pool */
+		i915_gem_object_make_purgeable(node->obj);
+		node->pinned = false;
+	}
 
+	GEM_BUG_ON(node->age);
 	spin_lock_irqsave(&pool->lock, flags);
-	node->age = jiffies;
-	list_add(&node->link, list);
+	list_add_rcu(&node->link, list);
+	WRITE_ONCE(node->age, jiffies ?: 1); /* 0 reserved for active nodes */
 	spin_unlock_irqrestore(&pool->lock, flags);
 
 	schedule_delayed_work(&pool->work,
 			      round_jiffies_up_relative(HZ));
 }
 
+void intel_gt_buffer_pool_mark_used(struct intel_gt_buffer_pool_node *node)
+{
+	assert_object_held(node->obj);
+
+	if (node->pinned)
+		return;
+
+	__i915_gem_object_pin_pages(node->obj);
+	/* Hide this pinned object from the shrinker until retired */
+	i915_gem_object_make_unshrinkable(node->obj);
+	node->pinned = true;
+}
+
 static struct intel_gt_buffer_pool_node *
-node_create(struct intel_gt_buffer_pool *pool, size_t sz)
+node_create(struct intel_gt_buffer_pool *pool, size_t sz,
+	    enum i915_map_type type)
 {
 	struct intel_gt *gt = to_gt(pool);
 	struct intel_gt_buffer_pool_node *node;
@@ -129,8 +150,10 @@ node_create(struct intel_gt_buffer_pool *pool, size_t sz)
 	if (!node)
 		return ERR_PTR(-ENOMEM);
 
+	node->age = 0;
 	node->pool = pool;
-	i915_active_init(&node->active, pool_active, pool_retire);
+	node->pinned = false;
+	i915_active_init(&node->active, NULL, pool_retire, 0);
 
 	obj = i915_gem_object_create_internal(gt->i915, sz);
 	if (IS_ERR(obj)) {
@@ -141,33 +164,48 @@ node_create(struct intel_gt_buffer_pool *pool, size_t sz)
 
 	i915_gem_object_set_readonly(obj);
 
+	node->type = type;
 	node->obj = obj;
 	return node;
 }
 
 struct intel_gt_buffer_pool_node *
-intel_gt_get_buffer_pool(struct intel_gt *gt, size_t size)
+intel_gt_get_buffer_pool(struct intel_gt *gt, size_t size,
+			 enum i915_map_type type)
 {
 	struct intel_gt_buffer_pool *pool = &gt->buffer_pool;
 	struct intel_gt_buffer_pool_node *node;
 	struct list_head *list;
-	unsigned long flags;
 	int ret;
 
 	size = PAGE_ALIGN(size);
 	list = bucket_for_size(pool, size);
 
-	spin_lock_irqsave(&pool->lock, flags);
-	list_for_each_entry(node, list, link) {
+	rcu_read_lock();
+	list_for_each_entry_rcu(node, list, link) {
+		unsigned long age;
+
 		if (node->obj->base.size < size)
 			continue;
-		list_del(&node->link);
-		break;
+
+		if (node->type != type)
+			continue;
+
+		age = READ_ONCE(node->age);
+		if (!age)
+			continue;
+
+		if (cmpxchg(&node->age, age, 0) == age) {
+			spin_lock_irq(&pool->lock);
+			list_del_rcu(&node->link);
+			spin_unlock_irq(&pool->lock);
+			break;
+		}
 	}
-	spin_unlock_irqrestore(&pool->lock, flags);
+	rcu_read_unlock();
 
 	if (&node->link == list) {
-		node = node_create(pool, size);
+		node = node_create(pool, size, type);
 		if (IS_ERR(node))
 			return node;
 	}
@@ -192,28 +230,13 @@ void intel_gt_init_buffer_pool(struct intel_gt *gt)
 	INIT_DELAYED_WORK(&pool->work, pool_free_work);
 }
 
-static void pool_free_imm(struct intel_gt_buffer_pool *pool)
-{
-	int n;
-
-	spin_lock_irq(&pool->lock);
-	for (n = 0; n < ARRAY_SIZE(pool->cache_list); n++) {
-		struct intel_gt_buffer_pool_node *node, *next;
-		struct list_head *list = &pool->cache_list[n];
-
-		list_for_each_entry_safe(node, next, list, link)
-			node_free(node);
-		INIT_LIST_HEAD(list);
-	}
-	spin_unlock_irq(&pool->lock);
-}
-
 void intel_gt_flush_buffer_pool(struct intel_gt *gt)
 {
 	struct intel_gt_buffer_pool *pool = &gt->buffer_pool;
 
 	do {
-		pool_free_imm(pool);
+		while (pool_free_older_than(pool, 0))
+			;
 	} while (cancel_delayed_work_sync(&pool->work));
 }
 

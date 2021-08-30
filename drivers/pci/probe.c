@@ -65,11 +65,6 @@ static struct resource *get_pci_domain_busn_res(int domain_nr)
 	return &r->res;
 }
 
-static int find_anything(struct device *dev, const void *data)
-{
-	return 1;
-}
-
 /*
  * Some device drivers need know if PCI is initiated.
  * Basically, we think PCI is not initiated when there
@@ -80,7 +75,7 @@ int no_pci_devices(void)
 	struct device *dev;
 	int no_devices;
 
-	dev = bus_find_device(&pci_bus_type, NULL, NULL, find_anything);
+	dev = bus_find_next_device(&pci_bus_type, NULL);
 	no_devices = (dev == NULL);
 	put_device(dev);
 	return no_devices;
@@ -170,7 +165,7 @@ static inline unsigned long decode_bar(struct pci_dev *dev, u32 bar)
 #define PCI_COMMAND_DECODE_ENABLE	(PCI_COMMAND_MEMORY | PCI_COMMAND_IO)
 
 /**
- * pci_read_base - Read a PCI BAR
+ * __pci_read_base - Read a PCI BAR
  * @dev: the PCI device
  * @type: type of the BAR
  * @res: resource buffer to be filled in
@@ -654,6 +649,7 @@ void pci_free_host_bridge(struct pci_host_bridge *bridge)
 }
 EXPORT_SYMBOL(pci_free_host_bridge);
 
+/* Indexed by PCI_X_SSTATUS_FREQ (secondary bus mode and frequency) */
 static const unsigned char pcix_bus_speed[] = {
 	PCI_SPEED_UNKNOWN,		/* 0 */
 	PCI_SPEED_66MHz_PCIX,		/* 1 */
@@ -673,6 +669,7 @@ static const unsigned char pcix_bus_speed[] = {
 	PCI_SPEED_133MHz_PCIX_533	/* F */
 };
 
+/* Indexed by PCI_EXP_LNKCAP_SLS, PCI_EXP_LNKSTA_CLS */
 const unsigned char pcie_link_speed[] = {
 	PCI_SPEED_UNKNOWN,		/* 0 */
 	PCIE_SPEED_2_5GT,		/* 1 */
@@ -680,7 +677,7 @@ const unsigned char pcie_link_speed[] = {
 	PCIE_SPEED_8_0GT,		/* 3 */
 	PCIE_SPEED_16_0GT,		/* 4 */
 	PCIE_SPEED_32_0GT,		/* 5 */
-	PCI_SPEED_UNKNOWN,		/* 6 */
+	PCIE_SPEED_64_0GT,		/* 6 */
 	PCI_SPEED_UNKNOWN,		/* 7 */
 	PCI_SPEED_UNKNOWN,		/* 8 */
 	PCI_SPEED_UNKNOWN,		/* 9 */
@@ -691,6 +688,45 @@ const unsigned char pcie_link_speed[] = {
 	PCI_SPEED_UNKNOWN,		/* E */
 	PCI_SPEED_UNKNOWN		/* F */
 };
+EXPORT_SYMBOL_GPL(pcie_link_speed);
+
+const char *pci_speed_string(enum pci_bus_speed speed)
+{
+	/* Indexed by the pci_bus_speed enum */
+	static const char *speed_strings[] = {
+	    "33 MHz PCI",		/* 0x00 */
+	    "66 MHz PCI",		/* 0x01 */
+	    "66 MHz PCI-X",		/* 0x02 */
+	    "100 MHz PCI-X",		/* 0x03 */
+	    "133 MHz PCI-X",		/* 0x04 */
+	    NULL,			/* 0x05 */
+	    NULL,			/* 0x06 */
+	    NULL,			/* 0x07 */
+	    NULL,			/* 0x08 */
+	    "66 MHz PCI-X 266",		/* 0x09 */
+	    "100 MHz PCI-X 266",	/* 0x0a */
+	    "133 MHz PCI-X 266",	/* 0x0b */
+	    "Unknown AGP",		/* 0x0c */
+	    "1x AGP",			/* 0x0d */
+	    "2x AGP",			/* 0x0e */
+	    "4x AGP",			/* 0x0f */
+	    "8x AGP",			/* 0x10 */
+	    "66 MHz PCI-X 533",		/* 0x11 */
+	    "100 MHz PCI-X 533",	/* 0x12 */
+	    "133 MHz PCI-X 533",	/* 0x13 */
+	    "2.5 GT/s PCIe",		/* 0x14 */
+	    "5.0 GT/s PCIe",		/* 0x15 */
+	    "8.0 GT/s PCIe",		/* 0x16 */
+	    "16.0 GT/s PCIe",		/* 0x17 */
+	    "32.0 GT/s PCIe",		/* 0x18 */
+	    "64.0 GT/s PCIe",		/* 0x19 */
+	};
+
+	if (speed < ARRAY_SIZE(speed_strings))
+		return speed_strings[speed];
+	return "Unknown";
+}
+EXPORT_SYMBOL_GPL(pci_speed_string);
 
 void pcie_update_link_speed(struct pci_bus *bus, u16 linksta)
 {
@@ -859,7 +895,6 @@ static int pci_register_host_bridge(struct pci_host_bridge *bridge)
 	/* Temporarily move resources off the list */
 	list_splice_init(&bridge->windows, &resources);
 	bus->sysdata = bridge->sysdata;
-	bus->msi = bridge->msi;
 	bus->ops = bridge->ops;
 	bus->number = bus->busn_res.start = bridge->busnr;
 #ifdef CONFIG_PCI_DOMAINS_GENERIC
@@ -890,6 +925,9 @@ static int pci_register_host_bridge(struct pci_host_bridge *bridge)
 	device_enable_async_suspend(bus->bridge);
 	pci_set_bus_of_node(bus);
 	pci_set_bus_msi_domain(bus);
+	if (bridge->msi_domain && !dev_get_msi_domain(&bus->dev) &&
+	    !pci_host_of_has_msi_map(parent))
+		bus->bus_flags |= PCI_BUS_FLAGS_NO_MSI;
 
 	if (!parent)
 		set_dev_node(bus->bridge, pcibus_to_node(bus));
@@ -919,6 +957,9 @@ static int pci_register_host_bridge(struct pci_host_bridge *bridge)
 		dev_info(parent, "PCI host bridge to bus %s\n", name);
 	else
 		pr_info("PCI host bridge to bus %s\n", name);
+
+	if (nr_node_ids > 1 && pcibus_to_node(bus) == NUMA_NO_NODE)
+		dev_warn(&bus->dev, "Unknown NUMA node; performance will be reduced\n");
 
 	/* Add initial resources to the bus */
 	resource_list_for_each_entry_safe(window, n, &resources) {
@@ -1014,7 +1055,6 @@ static struct pci_bus *pci_alloc_child_bus(struct pci_bus *parent,
 		return NULL;
 
 	child->parent = parent;
-	child->msi = parent->msi;
 	child->sysdata = parent->sysdata;
 	child->bus_flags = parent->bus_flags;
 
@@ -1461,26 +1501,38 @@ void set_pcie_port_type(struct pci_dev *pdev)
 	pci_read_config_word(pdev, pos + PCI_EXP_DEVCAP, &reg16);
 	pdev->pcie_mpss = reg16 & PCI_EXP_DEVCAP_PAYLOAD;
 
+	parent = pci_upstream_bridge(pdev);
+	if (!parent)
+		return;
+
 	/*
-	 * A Root Port or a PCI-to-PCIe bridge is always the upstream end
-	 * of a Link.  No PCIe component has two Links.  Two Links are
-	 * connected by a Switch that has a Port on each Link and internal
-	 * logic to connect the two Ports.
+	 * Some systems do not identify their upstream/downstream ports
+	 * correctly so detect impossible configurations here and correct
+	 * the port type accordingly.
 	 */
 	type = pci_pcie_type(pdev);
-	if (type == PCI_EXP_TYPE_ROOT_PORT ||
-	    type == PCI_EXP_TYPE_PCIE_BRIDGE)
-		pdev->has_secondary_link = 1;
-	else if (type == PCI_EXP_TYPE_UPSTREAM ||
-		 type == PCI_EXP_TYPE_DOWNSTREAM) {
-		parent = pci_upstream_bridge(pdev);
-
+	if (type == PCI_EXP_TYPE_DOWNSTREAM) {
 		/*
-		 * Usually there's an upstream device (Root Port or Switch
-		 * Downstream Port), but we can't assume one exists.
+		 * If pdev claims to be downstream port but the parent
+		 * device is also downstream port assume pdev is actually
+		 * upstream port.
 		 */
-		if (parent && !parent->has_secondary_link)
-			pdev->has_secondary_link = 1;
+		if (pcie_downstream_port(parent)) {
+			pci_info(pdev, "claims to be downstream port but is acting as upstream port, correcting type\n");
+			pdev->pcie_flags_reg &= ~PCI_EXP_FLAGS_TYPE;
+			pdev->pcie_flags_reg |= PCI_EXP_TYPE_UPSTREAM;
+		}
+	} else if (type == PCI_EXP_TYPE_UPSTREAM) {
+		/*
+		 * If pdev claims to be upstream port but the parent
+		 * device is also upstream port assume pdev is actually
+		 * downstream port.
+		 */
+		if (pci_pcie_type(parent) == PCI_EXP_TYPE_UPSTREAM) {
+			pci_info(pdev, "claims to be upstream port but is acting as downstream port, correcting type\n");
+			pdev->pcie_flags_reg &= ~PCI_EXP_FLAGS_TYPE;
+			pdev->pcie_flags_reg |= PCI_EXP_TYPE_DOWNSTREAM;
+		}
 	}
 }
 
@@ -1520,8 +1572,28 @@ static void set_pcie_untrusted(struct pci_dev *dev)
 	 * untrusted as well.
 	 */
 	parent = pci_upstream_bridge(dev);
-	if (parent && parent->untrusted)
+	if (parent && (parent->untrusted || parent->external_facing))
 		dev->untrusted = true;
+}
+
+static void pci_set_removable(struct pci_dev *dev)
+{
+	struct pci_dev *parent = pci_upstream_bridge(dev);
+
+	/*
+	 * We (only) consider everything downstream from an external_facing
+	 * device to be removable by the user. We're mainly concerned with
+	 * consumer platforms with user accessible thunderbolt ports that are
+	 * vulnerable to DMA attacks, and we expect those ports to be marked by
+	 * the firmware as external_facing. Devices in traditional hotplug
+	 * slots can technically be removed, but the expectation is that unless
+	 * the port is marked with external_facing, such devices are less
+	 * accessible to user / may not be removed by end user, and thus not
+	 * exposed as "removable" to userspace.
+	 */
+	if (parent &&
+	    (parent->external_facing || dev_is_removable(&parent->dev)))
+		dev_set_removable(&dev->dev, DEVICE_REMOVABLE);
 }
 
 /**
@@ -1562,7 +1634,7 @@ static bool pci_ext_cfg_is_aliased(struct pci_dev *dev)
 }
 
 /**
- * pci_cfg_space_size - Get the configuration space size of the PCI device
+ * pci_cfg_space_size_ext - Get the configuration space size of the PCI device
  * @dev: PCI device
  *
  * Regular PCI devices have 256 bytes, but PCI-X 2 and PCI Express devices
@@ -1666,22 +1738,6 @@ static u8 pci_hdr_type(struct pci_dev *dev)
 
 #define LEGACY_IO_RESOURCE	(IORESOURCE_IO | IORESOURCE_PCI_FIXED)
 
-static void pci_msi_setup_pci_dev(struct pci_dev *dev)
-{
-	/*
-	 * Disable the MSI hardware to avoid screaming interrupts
-	 * during boot.  This is the power on reset default so
-	 * usually this should be a noop.
-	 */
-	dev->msi_cap = pci_find_capability(dev, PCI_CAP_ID_MSI);
-	if (dev->msi_cap)
-		pci_msi_set_enable(dev, 0);
-
-	dev->msix_cap = pci_find_capability(dev, PCI_CAP_ID_MSIX);
-	if (dev->msix_cap)
-		pci_msix_clear_and_set_ctrl(dev, PCI_MSIX_FLAGS_ENABLE, 0);
-}
-
 /**
  * pci_intx_mask_broken - Test PCI_COMMAND_INTX_DISABLE writability
  * @dev: PCI device
@@ -1770,9 +1826,6 @@ int pci_setup_device(struct pci_dev *dev)
 	dev->revision = class & 0xff;
 	dev->class = class >> 8;		    /* upper 3 bytes */
 
-	pci_info(dev, "[%04x:%04x] type %02x class %#08x\n",
-		   dev->vendor, dev->device, dev->hdr_type, dev->class);
-
 	if (pci_early_dump)
 		early_dump_pci_device(dev);
 
@@ -1789,6 +1842,11 @@ int pci_setup_device(struct pci_dev *dev)
 
 	/* Early fixups, before probing the BARs */
 	pci_fixup_device(pci_fixup_early, dev);
+
+	pci_set_removable(dev);
+
+	pci_info(dev, "[%04x:%04x] type %02x class %#08x\n",
+		 dev->vendor, dev->device, dev->hdr_type, dev->class);
 
 	/* Device class may be changed after fixup */
 	class = dev->class >> 8;
@@ -2068,6 +2126,9 @@ static void pci_configure_ltr(struct pci_dev *dev)
 	if (!pci_is_pcie(dev))
 		return;
 
+	/* Read L1 PM substate capabilities */
+	dev->l1ss = pci_find_ext_capability(dev, PCI_EXT_CAP_ID_L1SS);
+
 	pcie_capability_read_dword(dev, PCI_EXP_DEVCAP2, &cap);
 	if (!(cap & PCI_EXP_DEVCAP2_LTR))
 		return;
@@ -2188,6 +2249,7 @@ static void pci_release_dev(struct device *dev)
 	pci_bus_put(pci_dev->bus);
 	kfree(pci_dev->driver_override);
 	bitmap_free(pci_dev->dma_alias_mask);
+	dev_dbg(dev, "device released\n");
 	kfree(pci_dev);
 }
 
@@ -2345,42 +2407,24 @@ void pcie_report_downtraining(struct pci_dev *dev)
 
 static void pci_init_capabilities(struct pci_dev *dev)
 {
-	/* Enhanced Allocation */
-	pci_ea_init(dev);
-
-	/* Setup MSI caps & disable MSI/MSI-X interrupts */
-	pci_msi_setup_pci_dev(dev);
+	pci_ea_init(dev);		/* Enhanced Allocation */
+	pci_msi_init(dev);		/* Disable MSI */
+	pci_msix_init(dev);		/* Disable MSI-X */
 
 	/* Buffers for saving PCIe and PCI-X capabilities */
 	pci_allocate_cap_save_buffers(dev);
 
-	/* Power Management */
-	pci_pm_init(dev);
-
-	/* Vital Product Data */
-	pci_vpd_init(dev);
-
-	/* Alternative Routing-ID Forwarding */
-	pci_configure_ari(dev);
-
-	/* Single Root I/O Virtualization */
-	pci_iov_init(dev);
-
-	/* Address Translation Services */
-	pci_ats_init(dev);
-
-	/* Enable ACS P2P upstream forwarding */
-	pci_enable_acs(dev);
-
-	/* Precision Time Measurement */
-	pci_ptm_init(dev);
-
-	/* Advanced Error Reporting */
-	pci_aer_init(dev);
-
-	/* Downstream Port Containment */
-	pci_dpc_init(dev);
-
+	pci_pm_init(dev);		/* Power Management */
+	pci_vpd_init(dev);		/* Vital Product Data */
+	pci_configure_ari(dev);		/* Alternative Routing-ID Forwarding */
+	pci_iov_init(dev);		/* Single Root I/O Virtualization */
+	pci_ats_init(dev);		/* Address Translation Services */
+	pci_pri_init(dev);		/* Page Request Interface */
+	pci_pasid_init(dev);		/* Process Address Space ID */
+	pci_acs_init(dev);		/* Access Control Services */
+	pci_ptm_init(dev);		/* Precision Time Measurement */
+	pci_aer_init(dev);		/* Advanced Error Reporting */
+	pci_dpc_init(dev);		/* Downstream Port Containment */
 	pci_rcec_init(dev);		/* Root Complex Event Collector */
 
 	pcie_report_downtraining(dev);
@@ -2453,13 +2497,10 @@ void pci_device_add(struct pci_dev *dev, struct pci_bus *bus)
 	/* Fix up broken headers */
 	pci_fixup_device(pci_fixup_header, dev);
 
-	/* Moved out from quirk header fixup code */
 	pci_reassigndev_resource_alignment(dev);
 
-	/* Clear the state_saved flag */
 	dev->state_saved = false;
 
-	/* Initialize various capabilities */
 	pci_init_capabilities(dev);
 
 	/*
@@ -2545,12 +2586,8 @@ static int only_one_child(struct pci_bus *bus)
 	 * A PCIe Downstream Port normally leads to a Link with only Device
 	 * 0 on it (PCIe spec r3.1, sec 7.3.1).  As an optimization, scan
 	 * only for Device 0 in that situation.
-	 *
-	 * Checking has_secondary_link is a hack to identify Downstream
-	 * Ports because sometimes Switches are configured such that the
-	 * PCIe Port Type labels are backwards.
 	 */
-	if (bridge && pci_is_pcie(bridge) && bridge->has_secondary_link)
+	if (bridge && pci_is_pcie(bridge) && pcie_downstream_port(bridge))
 		return 1;
 
 	return 0;

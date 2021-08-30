@@ -151,10 +151,6 @@ void __init setup_arch(char **cmdline_p)
 	dma_ops_init();
 #endif
 
-#if defined(CONFIG_VT) && defined(CONFIG_DUMMY_CONSOLE)
-	conswitchp = &dummy_con;	/* we use do_take_over_console() later ! */
-#endif
-
 	clear_sched_clock_stable();
 }
 
@@ -272,7 +268,7 @@ static int __init parisc_init_resources(void)
 	result = request_resource(&iomem_resource, &local_broadcast);
 	if (result < 0) {
 		printk(KERN_ERR 
-		       "%s: failed to claim %saddress space!\n", 
+		       "%s: failed to claim %s address space!\n",
 		       __FILE__, local_broadcast.name);
 		return result;
 	}

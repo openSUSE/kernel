@@ -24,6 +24,7 @@
 #include <media/v4l2-event.h>
 #include <media/v4l2-mem2mem.h>
 #include <media/v4l2-ioctl.h>
+#include <media/v4l2-rect.h>
 #include <media/videobuf2-v4l2.h>
 #include <media/videobuf2-dma-contig.h>
 
@@ -35,7 +36,6 @@
 
 static struct s5p_jpeg_fmt sjpeg_formats[] = {
 	{
-		.name		= "JPEG JFIF",
 		.fourcc		= V4L2_PIX_FMT_JPEG,
 		.flags		= SJPEG_FMT_FLAG_ENC_CAPTURE |
 				  SJPEG_FMT_FLAG_DEC_OUTPUT |
@@ -44,7 +44,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 				  SJPEG_FMT_FLAG_EXYNOS4,
 	},
 	{
-		.name		= "YUV 4:2:2 packed, YCbYCr",
 		.fourcc		= V4L2_PIX_FMT_YUYV,
 		.depth		= 16,
 		.colplanes	= 1,
@@ -57,7 +56,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_422,
 	},
 	{
-		.name		= "YUV 4:2:2 packed, YCbYCr",
 		.fourcc		= V4L2_PIX_FMT_YUYV,
 		.depth		= 16,
 		.colplanes	= 1,
@@ -70,7 +68,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_422,
 	},
 	{
-		.name		= "YUV 4:2:2 packed, YCbYCr",
 		.fourcc		= V4L2_PIX_FMT_YUYV,
 		.depth		= 16,
 		.colplanes	= 1,
@@ -83,7 +80,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_422,
 	},
 	{
-		.name		= "YUV 4:2:2 packed, YCrYCb",
 		.fourcc		= V4L2_PIX_FMT_YVYU,
 		.depth		= 16,
 		.colplanes	= 1,
@@ -96,7 +92,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_422,
 	},
 	{
-		.name		= "YUV 4:2:2 packed, YCrYCb",
 		.fourcc		= V4L2_PIX_FMT_YVYU,
 		.depth		= 16,
 		.colplanes	= 1,
@@ -109,7 +104,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_422,
 	},
 	{
-		.name		= "YUV 4:2:2 packed, YCrYCb",
 		.fourcc		= V4L2_PIX_FMT_UYVY,
 		.depth		= 16,
 		.colplanes	= 1,
@@ -122,7 +116,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_422,
 	},
 	{
-		.name		= "YUV 4:2:2 packed, YCrYCb",
 		.fourcc		= V4L2_PIX_FMT_VYUY,
 		.depth		= 16,
 		.colplanes	= 1,
@@ -135,7 +128,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_422,
 	},
 	{
-		.name		= "RGB565",
 		.fourcc		= V4L2_PIX_FMT_RGB565,
 		.depth		= 16,
 		.colplanes	= 1,
@@ -148,7 +140,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_444,
 	},
 	{
-		.name		= "RGB565",
 		.fourcc		= V4L2_PIX_FMT_RGB565,
 		.depth		= 16,
 		.colplanes	= 1,
@@ -161,7 +152,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_444,
 	},
 	{
-		.name		= "RGB565X",
 		.fourcc		= V4L2_PIX_FMT_RGB565X,
 		.depth		= 16,
 		.colplanes	= 1,
@@ -174,7 +164,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_444,
 	},
 	{
-		.name		= "RGB565",
 		.fourcc		= V4L2_PIX_FMT_RGB565,
 		.depth		= 16,
 		.colplanes	= 1,
@@ -186,7 +175,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_444,
 	},
 	{
-		.name		= "ARGB8888, 32 bpp",
 		.fourcc		= V4L2_PIX_FMT_RGB32,
 		.depth		= 32,
 		.colplanes	= 1,
@@ -199,7 +187,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_444,
 	},
 	{
-		.name		= "ARGB8888, 32 bpp",
 		.fourcc		= V4L2_PIX_FMT_RGB32,
 		.depth		= 32,
 		.colplanes	= 1,
@@ -212,7 +199,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_444,
 	},
 	{
-		.name		= "YUV 4:4:4 planar, Y/CbCr",
 		.fourcc		= V4L2_PIX_FMT_NV24,
 		.depth		= 24,
 		.colplanes	= 2,
@@ -225,7 +211,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_444,
 	},
 	{
-		.name		= "YUV 4:4:4 planar, Y/CrCb",
 		.fourcc		= V4L2_PIX_FMT_NV42,
 		.depth		= 24,
 		.colplanes	= 2,
@@ -238,7 +223,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_444,
 	},
 	{
-		.name		= "YUV 4:2:2 planar, Y/CrCb",
 		.fourcc		= V4L2_PIX_FMT_NV61,
 		.depth		= 16,
 		.colplanes	= 2,
@@ -251,7 +235,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_422,
 	},
 	{
-		.name		= "YUV 4:2:2 planar, Y/CbCr",
 		.fourcc		= V4L2_PIX_FMT_NV16,
 		.depth		= 16,
 		.colplanes	= 2,
@@ -264,7 +247,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_422,
 	},
 	{
-		.name		= "YUV 4:2:0 planar, Y/CbCr",
 		.fourcc		= V4L2_PIX_FMT_NV12,
 		.depth		= 12,
 		.colplanes	= 2,
@@ -277,7 +259,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_420,
 	},
 	{
-		.name		= "YUV 4:2:0 planar, Y/CbCr",
 		.fourcc		= V4L2_PIX_FMT_NV12,
 		.depth		= 12,
 		.colplanes	= 2,
@@ -290,7 +271,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_420,
 	},
 	{
-		.name		= "YUV 4:2:0 planar, Y/CbCr",
 		.fourcc		= V4L2_PIX_FMT_NV12,
 		.depth		= 12,
 		.colplanes	= 2,
@@ -303,7 +283,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_420,
 	},
 	{
-		.name		= "YUV 4:2:0 planar, Y/CrCb",
 		.fourcc		= V4L2_PIX_FMT_NV21,
 		.depth		= 12,
 		.colplanes	= 2,
@@ -316,7 +295,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_420,
 	},
 	{
-		.name		= "YUV 4:2:0 planar, Y/CrCb",
 		.fourcc		= V4L2_PIX_FMT_NV21,
 		.depth		= 12,
 		.colplanes	= 2,
@@ -330,7 +308,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_420,
 	},
 	{
-		.name		= "YUV 4:2:0 contiguous 3-planar, Y/Cb/Cr",
 		.fourcc		= V4L2_PIX_FMT_YUV420,
 		.depth		= 12,
 		.colplanes	= 3,
@@ -343,7 +320,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_420,
 	},
 	{
-		.name		= "YUV 4:2:0 contiguous 3-planar, Y/Cb/Cr",
 		.fourcc		= V4L2_PIX_FMT_YUV420,
 		.depth		= 12,
 		.colplanes	= 3,
@@ -356,7 +332,6 @@ static struct s5p_jpeg_fmt sjpeg_formats[] = {
 		.subsampling	= V4L2_JPEG_CHROMA_SUBSAMPLING_420,
 	},
 	{
-		.name		= "Gray",
 		.fourcc		= V4L2_PIX_FMT_GREY,
 		.depth		= 8,
 		.colplanes	= 1,
@@ -1262,7 +1237,6 @@ static bool s5p_jpeg_parse_hdr(struct s5p_jpeg_q_data *result,
 	}
 	result->sof = sof;
 	result->sof_len = sof_len;
-	result->components = components;
 
 	return true;
 }
@@ -1285,8 +1259,6 @@ static int s5p_jpeg_querycap(struct file *file, void *priv,
 	}
 	snprintf(cap->bus_info, sizeof(cap->bus_info), "platform:%s",
 		 dev_name(ctx->jpeg->dev));
-	cap->device_caps = V4L2_CAP_STREAMING | V4L2_CAP_VIDEO_M2M;
-	cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
 	return 0;
 }
 
@@ -1314,7 +1286,6 @@ static int enum_fmt(struct s5p_jpeg_ctx *ctx,
 	if (i >= n)
 		return -EINVAL;
 
-	strscpy(f->description, sjpeg_formats[i].name, sizeof(f->description));
 	f->pixelformat = sjpeg_formats[i].fourcc;
 
 	return 0;
@@ -1765,19 +1736,6 @@ static int exynos3250_jpeg_try_downscale(struct s5p_jpeg_ctx *ctx,
 	return 0;
 }
 
-/* Return 1 if rectangle a is enclosed in rectangle b, or 0 otherwise. */
-static int enclosed_rectangle(struct v4l2_rect *a, struct v4l2_rect *b)
-{
-	if (a->left < b->left || a->top < b->top)
-		return 0;
-	if (a->left + a->width > b->left + b->width)
-		return 0;
-	if (a->top + a->height > b->top + b->height)
-		return 0;
-
-	return 1;
-}
-
 static int exynos3250_jpeg_try_crop(struct s5p_jpeg_ctx *ctx,
 				   struct v4l2_rect *r)
 {
@@ -1810,7 +1768,7 @@ static int exynos3250_jpeg_try_crop(struct s5p_jpeg_ctx *ctx,
 	r->left = round_down(r->left, 2);
 	r->top = round_down(r->top, 2);
 
-	if (!enclosed_rectangle(r, &base_rect))
+	if (!v4l2_rect_enclosed(r, &base_rect))
 		return -EINVAL;
 
 	ctx->crop_rect.left = r->left;
@@ -2901,6 +2859,8 @@ static int s5p_jpeg_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	jpeg->variant = jpeg_get_drv_data(&pdev->dev);
+	if (!jpeg->variant)
+		return -ENODEV;
 
 	mutex_init(&jpeg->lock);
 	spin_lock_init(&jpeg->slock);
@@ -2971,8 +2931,9 @@ static int s5p_jpeg_probe(struct platform_device *pdev)
 	jpeg->vfd_encoder->lock		= &jpeg->lock;
 	jpeg->vfd_encoder->v4l2_dev	= &jpeg->v4l2_dev;
 	jpeg->vfd_encoder->vfl_dir	= VFL_DIR_M2M;
+	jpeg->vfd_encoder->device_caps	= V4L2_CAP_STREAMING | V4L2_CAP_VIDEO_M2M;
 
-	ret = video_register_device(jpeg->vfd_encoder, VFL_TYPE_GRABBER, -1);
+	ret = video_register_device(jpeg->vfd_encoder, VFL_TYPE_VIDEO, -1);
 	if (ret) {
 		v4l2_err(&jpeg->v4l2_dev, "Failed to register video device\n");
 		video_device_release(jpeg->vfd_encoder);
@@ -3000,8 +2961,9 @@ static int s5p_jpeg_probe(struct platform_device *pdev)
 	jpeg->vfd_decoder->lock		= &jpeg->lock;
 	jpeg->vfd_decoder->v4l2_dev	= &jpeg->v4l2_dev;
 	jpeg->vfd_decoder->vfl_dir	= VFL_DIR_M2M;
+	jpeg->vfd_decoder->device_caps	= V4L2_CAP_STREAMING | V4L2_CAP_VIDEO_M2M;
 
-	ret = video_register_device(jpeg->vfd_decoder, VFL_TYPE_GRABBER, -1);
+	ret = video_register_device(jpeg->vfd_decoder, VFL_TYPE_VIDEO, -1);
 	if (ret) {
 		v4l2_err(&jpeg->v4l2_dev, "Failed to register video device\n");
 		video_device_release(jpeg->vfd_decoder);

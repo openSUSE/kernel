@@ -18,9 +18,6 @@
 #warning Your compiler does not have EABI support.
 #warning    ARM unwind is known to compile only with EABI compilers.
 #warning    Change compiler or disable ARM_UNWIND option.
-#elif (__GNUC__ == 4 && __GNUC_MINOR__ <= 2) && !defined(__clang__)
-#warning Your compiler is too buggy; it is known to not compile ARM unwind support.
-#warning    Change compiler or disable ARM_UNWIND option.
 #endif
 #endif /* __CHECKER__ */
 
@@ -236,7 +233,11 @@ static int unwind_pop_register(struct unwind_ctrl_block *ctrl,
 		if (*vsp >= (unsigned long *)ctrl->sp_high)
 			return -URC_FAILURE;
 
-	ctrl->vrs[reg] = *(*vsp)++;
+	/* Use READ_ONCE_NOCHECK here to avoid this memory access
+	 * from being tracked by KASAN.
+	 */
+	ctrl->vrs[reg] = READ_ONCE_NOCHECK(*(*vsp));
+	(*vsp)++;
 	return URC_OK;
 }
 
@@ -444,7 +445,7 @@ int unwind_frame(struct stackframe *frame)
 		ctrl.vrs[PC] = ctrl.vrs[LR];
 
 	/* check for infinite loop */
-	if (frame->pc == ctrl.vrs[PC])
+	if (frame->pc == ctrl.vrs[PC] && frame->sp == ctrl.vrs[SP])
 		return -URC_FAILURE;
 
 	frame->fp = ctrl.vrs[FP];
@@ -455,7 +456,8 @@ int unwind_frame(struct stackframe *frame)
 	return URC_OK;
 }
 
-void unwind_backtrace(struct pt_regs *regs, struct task_struct *tsk)
+void unwind_backtrace(struct pt_regs *regs, struct task_struct *tsk,
+		      const char *loglvl)
 {
 	struct stackframe frame;
 
@@ -493,7 +495,7 @@ void unwind_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 		urc = unwind_frame(&frame);
 		if (urc < 0)
 			break;
-		dump_backtrace_entry(where, frame.pc, frame.sp - 4);
+		dump_backtrace_entry(where, frame.pc, frame.sp - 4, loglvl);
 	}
 }
 

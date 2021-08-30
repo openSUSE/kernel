@@ -27,6 +27,8 @@
 
 #include <uapi/drm/i915_drm.h>
 
+#include "intel_step.h"
+
 #include "display/intel_display.h"
 
 #include "gt/intel_engine_types.h"
@@ -79,10 +81,13 @@ enum intel_platform {
 	/* gen11 */
 	INTEL_ICELAKE,
 	INTEL_ELKHARTLAKE,
+	INTEL_JASPERLAKE,
 	/* gen12 */
 	INTEL_TIGERLAKE,
 	INTEL_ROCKETLAKE,
 	INTEL_DG1,
+	INTEL_ALDERLAKE_S,
+	INTEL_ALDERLAKE_P,
 	INTEL_MAX_PLATFORMS
 };
 
@@ -91,7 +96,8 @@ enum intel_platform {
  * it is fine for the same bit to be used on multiple parent platforms.
  */
 
-#define INTEL_SUBPLATFORM_BITS (3)
+#define INTEL_SUBPLATFORM_BITS (2)
+#define INTEL_SUBPLATFORM_MASK (BIT(INTEL_SUBPLATFORM_BITS) - 1)
 
 /* HSW/BDW/SKL/KBL/CFL */
 #define INTEL_SUBPLATFORM_ULT	(0)
@@ -115,14 +121,12 @@ enum intel_ppgtt_type {
 	func(has_64bit_reloc); \
 	func(gpu_reset_clobbers_display); \
 	func(has_reset_engine); \
-	func(has_fpga_dbg); \
 	func(has_global_mocs); \
 	func(has_gt_uc); \
 	func(has_l3_dpf); \
 	func(has_llc); \
 	func(has_logical_ring_contexts); \
 	func(has_logical_ring_elsq); \
-	func(has_logical_ring_preemption); \
 	func(has_master_unit_irq); \
 	func(has_pooled_eu); \
 	func(has_rc6); \
@@ -137,15 +141,17 @@ enum intel_ppgtt_type {
 #define DEV_INFO_DISPLAY_FOR_EACH_FLAG(func) \
 	/* Keep in alphabetical order */ \
 	func(cursor_needs_physical); \
-	func(has_csr); \
+	func(has_dmc); \
 	func(has_ddi); \
 	func(has_dp_mst); \
 	func(has_dsb); \
 	func(has_dsc); \
 	func(has_fbc); \
+	func(has_fpga_dbg); \
 	func(has_gmch); \
 	func(has_hdcp); \
 	func(has_hotplug); \
+	func(has_hti); \
 	func(has_ipc); \
 	func(has_modular_fia); \
 	func(has_overlay); \
@@ -155,9 +161,9 @@ enum intel_ppgtt_type {
 	func(supports_tv);
 
 struct intel_device_info {
-	u16 gen_mask;
+	u8 graphics_ver;
+	u8 media_ver;
 
-	u8 gen;
 	u8 gt; /* GT number, 0 if undefined */
 	intel_engine_mask_t platform_engine_mask; /* Engines supported by the HW */
 
@@ -179,18 +185,24 @@ struct intel_device_info {
 
 	u8 abox_mask;
 
+	u8 has_cdclk_crawl;  /* does support CDCLK crawling */
+
 #define DEFINE_FLAG(name) u8 name:1
 	DEV_INFO_FOR_EACH_FLAG(DEFINE_FLAG);
 #undef DEFINE_FLAG
 
 	struct {
+		u8 ver;
+
 #define DEFINE_FLAG(name) u8 name:1
 		DEV_INFO_DISPLAY_FOR_EACH_FLAG(DEFINE_FLAG);
 #undef DEFINE_FLAG
 	} display;
 
-	u16 ddb_size; /* in blocks */
-	u8 num_supported_dbuf_slices; /* number of DBuf slices */
+	struct {
+		u16 size; /* in blocks */
+		u8 slice_mask;
+	} dbuf;
 
 	/* Register offsets for the various display pipes and transcoders */
 	int pipe_offsets[I915_MAX_TRANSCODERS];
@@ -223,8 +235,7 @@ struct intel_runtime_info {
 
 	u32 rawclk_freq;
 
-	u32 cs_timestamp_frequency_hz;
-	u32 cs_timestamp_period_ns;
+	struct intel_step_info step;
 };
 
 struct intel_driver_caps {

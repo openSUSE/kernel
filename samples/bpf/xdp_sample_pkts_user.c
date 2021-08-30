@@ -18,7 +18,6 @@
 
 #include "perf-sys.h"
 
-#define MAX_CPUS 128
 static int if_idx;
 static char *if_name;
 static __u32 xdp_flags = XDP_FLAGS_UPDATE_IF_NOEXIST;
@@ -104,13 +103,13 @@ static void usage(const char *prog)
 	fprintf(stderr,
 		"%s: %s [OPTS] <ifname|ifindex>\n\n"
 		"OPTS:\n"
-		"    -F    force loading prog\n",
+		"    -F    force loading prog\n"
+		"    -S    use skb-mode\n",
 		__func__, prog);
 }
 
 int main(int argc, char **argv)
 {
-	struct rlimit r = {RLIM_INFINITY, RLIM_INFINITY};
 	struct bpf_prog_load_attr prog_load_attr = {
 		.prog_type	= BPF_PROG_TYPE_XDP,
 	};
@@ -141,11 +140,6 @@ int main(int argc, char **argv)
 
 	if (optind == argc) {
 		usage(basename(argv[0]));
-		return 1;
-	}
-
-	if (setrlimit(RLIMIT_MEMLOCK, &r)) {
-		perror("setrlimit(RLIMIT_MEMLOCK)");
 		return 1;
 	}
 

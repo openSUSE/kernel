@@ -105,6 +105,7 @@ struct sd_desc {
 	cam_cf_op config;	/* called on probe */
 	cam_op init;		/* called on probe and resume */
 	cam_op init_controls;	/* called on probe */
+	cam_v_op probe_error;	/* called if probe failed, do cleanup here */
 	cam_op start;		/* called on stream on after URBs creation */
 	cam_pkt_op pkt_scan;
 /* optional operations */
@@ -130,8 +131,6 @@ struct sd_desc {
 	   int_pkt_scan is NULL, for cams with non interrupt driven buttons */
 	u8 other_input;
 #endif
-
-	void *suse_kabi_padding;
 };
 
 /* packet types when moving from iso buf to frame buf */
@@ -215,8 +214,6 @@ struct gspca_dev {
 	/* (*) These variables are proteced by both usb_lock and queue_lock,
 	   that is any code setting them is holding *both*, which means that
 	   any code getting them needs to hold at least one of them */
-
-	void *suse_kabi_padding;
 };
 
 int gspca_dev_probe(struct usb_interface *intf,

@@ -23,7 +23,7 @@
  * with a battery powered AVR microcontroller and lots of goodies.  You
  * can use GCC to develop firmware for this.
  *
- * See Documentation/spi/butterfly for information about how to build
+ * See Documentation/spi/butterfly.rst for information about how to build
  * and use this custom parallel port cable.
  */
 
@@ -317,18 +317,7 @@ static struct parport_driver butterfly_driver = {
 	.detach =	butterfly_detach,
 	.devmodel = true,
 };
-
-static int __init butterfly_init(void)
-{
-	return parport_register_driver(&butterfly_driver);
-}
-device_initcall(butterfly_init);
-
-static void __exit butterfly_exit(void)
-{
-	parport_unregister_driver(&butterfly_driver);
-}
-module_exit(butterfly_exit);
+module_parport_driver(butterfly_driver);
 
 MODULE_DESCRIPTION("Parport Adapter driver for AVR Butterfly");
 MODULE_LICENSE("GPL");

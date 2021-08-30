@@ -61,12 +61,9 @@
 #include <linux/mutex.h>
 #include <linux/toshiba.h>
 
-#define TOSH_MINOR_DEV 181
-
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Jonathan Buzzard <jonathan@buzzard.org.uk>");
 MODULE_DESCRIPTION("Toshiba laptop SMM driver");
-MODULE_SUPPORTED_DEVICE("toshiba");
 
 static DEFINE_MUTEX(tosh_mutex);
 static int tosh_fn;
@@ -373,7 +370,7 @@ static int tosh_get_machine_id(void __iomem *bios)
 		   value. This has been verified on a Satellite Pro 430CDT,
 		   Tecra 750CDT, Tecra 780DVD and Satellite 310CDT. */
 #if TOSH_DEBUG
-		printk("toshiba: debugging ID ebx=0x%04x\n", regs.ebx);
+		pr_debug("toshiba: debugging ID ebx=0x%04x\n", regs.ebx);
 #endif
 		bx = 0xe6f5;
 
@@ -417,7 +414,7 @@ static int tosh_probe(void)
 
 	for (i=0;i<7;i++) {
 		if (readb(bios+0xe010+i)!=signature[i]) {
-			printk("toshiba: not a supported Toshiba laptop\n");
+			pr_err("toshiba: not a supported Toshiba laptop\n");
 			iounmap(bios);
 			return -ENODEV;
 		}
@@ -433,7 +430,7 @@ static int tosh_probe(void)
 	/* if this is not a Toshiba laptop carry flag is set and ah=0x86 */
 
 	if ((flag==1) || ((regs.eax & 0xff00)==0x8600)) {
-		printk("toshiba: not a supported Toshiba laptop\n");
+		pr_err("toshiba: not a supported Toshiba laptop\n");
 		iounmap(bios);
 		return -ENODEV;
 	}
@@ -486,7 +483,7 @@ static int __init toshiba_init(void)
 	if (tosh_probe())
 		return -ENODEV;
 
-	printk(KERN_INFO "Toshiba System Management Mode driver v" TOSH_VERSION "\n");
+	pr_info("Toshiba System Management Mode driver v" TOSH_VERSION "\n");
 
 	/* set the port to use for Fn status if not specified as a parameter */
 	if (tosh_fn==0x00)

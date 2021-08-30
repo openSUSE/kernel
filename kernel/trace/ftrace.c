@@ -18,6 +18,7 @@
 #include <linux/clocksource.h>
 #include <linux/sched/task.h>
 #include <linux/kallsyms.h>
+#include <linux/security.h>
 #include <linux/seq_file.h>
 #include <linux/tracefs.h>
 #include <linux/hardirq.h>
@@ -61,8 +62,6 @@
 	})
 
 /* hash bits for specific function selection */
-#define FTRACE_HASH_BITS 7
-#define FTRACE_FUNC_HASHSIZE (1 << FTRACE_HASH_BITS)
 #define FTRACE_HASH_DEFAULT_BITS 10
 #define FTRACE_HASH_MAX_BITS 12
 
@@ -81,7 +80,7 @@ enum {
 
 struct ftrace_ops ftrace_list_end __read_mostly = {
 	.func		= ftrace_stub,
-	.flags		= FTRACE_OPS_FL_RECURSION_SAFE | FTRACE_OPS_FL_STUB,
+	.flags		= FTRACE_OPS_FL_STUB,
 	INIT_OPS_HASH(ftrace_list_end)
 };
 
@@ -103,7 +102,7 @@ static bool ftrace_pids_enabled(struct ftrace_ops *ops)
 
 	tr = ops->private;
 
-	return tr->function_pids != NULL;
+	return tr->function_pids != NULL || tr->function_no_pids != NULL;
 }
 
 static void ftrace_update_trampoline(struct ftrace_ops *ops);
@@ -122,7 +121,7 @@ struct ftrace_ops global_ops;
 
 #if ARCH_SUPPORTS_FTRACE_OPS
 static void ftrace_ops_list_func(unsigned long ip, unsigned long parent_ip,
-				 struct ftrace_ops *op, struct pt_regs *regs);
+				 struct ftrace_ops *op, struct ftrace_regs *fregs);
 #else
 /* See comment below, where ftrace_ops_list_func is defined */
 static void ftrace_ops_no_ops(unsigned long ip, unsigned long parent_ip);
@@ -141,25 +140,21 @@ static inline void ftrace_ops_init(struct ftrace_ops *ops)
 }
 
 static void ftrace_pid_func(unsigned long ip, unsigned long parent_ip,
-			    struct ftrace_ops *op, struct pt_regs *regs)
+			    struct ftrace_ops *op, struct ftrace_regs *fregs)
 {
 	struct trace_array *tr = op->private;
+	int pid;
 
-	if (tr && this_cpu_read(tr->trace_buffer.data->ftrace_ignore_pid))
-		return;
+	if (tr) {
+		pid = this_cpu_read(tr->array_buffer.data->ftrace_ignore_pid);
+		if (pid == FTRACE_PID_IGNORE)
+			return;
+		if (pid != FTRACE_PID_TRACE &&
+		    pid != current->pid)
+			return;
+	}
 
-	op->saved_func(ip, parent_ip, op, regs);
-}
-
-static void ftrace_sync(struct work_struct *work)
-{
-	/*
-	 * This function is just a stub to implement a hard force
-	 * of synchronize_rcu(). This requires synchronizing
-	 * tasks even in userspace and idle.
-	 *
-	 * Yes, function tracing is rude.
-	 */
+	op->saved_func(ip, parent_ip, op, fregs);
 }
 
 static void ftrace_sync_ipi(void *data)
@@ -235,7 +230,7 @@ static void update_ftrace_function(void)
 	/*
 	 * For static tracing, we need to be a bit more careful.
 	 * The function change takes affect immediately. Thus,
-	 * we need to coorditate the setting of the function_trace_ops
+	 * we need to coordinate the setting of the function_trace_ops
 	 * with the setting of the ftrace_trace_function.
 	 *
 	 * Set the function to the list ops, which will call the
@@ -247,7 +242,7 @@ static void update_ftrace_function(void)
 	 * Make sure all CPUs see this. Yes this is slow, but static
 	 * tracing is slow and nasty to have enabled.
 	 */
-	schedule_on_each_cpu(ftrace_sync);
+	synchronize_rcu_tasks_rude();
 	/* Now all cpus are using the list ops. */
 	function_trace_op = set_function_trace_op;
 	/* Make sure the function_trace_op is visible on all CPUs */
@@ -464,10 +459,10 @@ static void *function_stat_start(struct tracer_stat *trace)
 
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
 /* function graph compares on total time */
-static int function_stat_cmp(void *p1, void *p2)
+static int function_stat_cmp(const void *p1, const void *p2)
 {
-	struct ftrace_profile *a = p1;
-	struct ftrace_profile *b = p2;
+	const struct ftrace_profile *a = p1;
+	const struct ftrace_profile *b = p2;
 
 	if (a->time < b->time)
 		return -1;
@@ -478,10 +473,10 @@ static int function_stat_cmp(void *p1, void *p2)
 }
 #else
 /* not function graph compares against hits */
-static int function_stat_cmp(void *p1, void *p2)
+static int function_stat_cmp(const void *p1, const void *p2)
 {
-	struct ftrace_profile *a = p1;
-	struct ftrace_profile *b = p2;
+	const struct ftrace_profile *a = p1;
+	const struct ftrace_profile *b = p2;
 
 	if (a->counter < b->counter)
 		return -1;
@@ -759,7 +754,7 @@ ftrace_profile_alloc(struct ftrace_profile_stat *stat, unsigned long ip)
 
 static void
 function_profile_call(unsigned long ip, unsigned long parent_ip,
-		      struct ftrace_ops *ops, struct pt_regs *regs)
+		      struct ftrace_ops *ops, struct ftrace_regs *fregs)
 {
 	struct ftrace_profile_stat *stat;
 	struct ftrace_profile *rec;
@@ -871,7 +866,7 @@ static void unregister_ftrace_profiler(void)
 #else
 static struct ftrace_ops ftrace_profile_ops __read_mostly = {
 	.func		= function_profile_call,
-	.flags		= FTRACE_OPS_FL_RECURSION_SAFE | FTRACE_OPS_FL_INITIALIZED,
+	.flags		= FTRACE_OPS_FL_INITIALIZED,
 	INIT_OPS_HASH(ftrace_profile_ops)
 };
 
@@ -1019,12 +1014,6 @@ static bool update_all_ops;
 # error Dynamic ftrace depends on MCOUNT_RECORD
 #endif
 
-struct ftrace_func_entry {
-	struct hlist_node hlist;
-	unsigned long ip;
-	unsigned long direct; /* for direct lookup only */
-};
-
 struct ftrace_func_probe {
 	struct ftrace_probe_ops	*probe_ops;
 	struct ftrace_ops	ops;
@@ -1051,13 +1040,12 @@ struct ftrace_ops global_ops = {
 	.local_hash.notrace_hash	= EMPTY_HASH,
 	.local_hash.filter_hash		= EMPTY_HASH,
 	INIT_OPS_HASH(global_ops)
-	.flags				= FTRACE_OPS_FL_RECURSION_SAFE |
-					  FTRACE_OPS_FL_INITIALIZED |
+	.flags				= FTRACE_OPS_FL_INITIALIZED |
 					  FTRACE_OPS_FL_PID,
 };
 
 /*
- * Used by the stack undwinder to know about dynamic ftrace trampolines.
+ * Used by the stack unwinder to know about dynamic ftrace trampolines.
  */
 struct ftrace_ops *ftrace_ops_trampoline(unsigned long addr)
 {
@@ -1102,14 +1090,11 @@ struct ftrace_page {
 	struct ftrace_page	*next;
 	struct dyn_ftrace	*records;
 	int			index;
-	int			size;
+	int			order;
 };
 
 #define ENTRY_SIZE sizeof(struct dyn_ftrace)
 #define ENTRIES_PER_PAGE (PAGE_SIZE / ENTRY_SIZE)
-
-/* estimate from running different kernels */
-#define NR_TO_INIT		10000
 
 static struct ftrace_page	*ftrace_pages_start;
 static struct ftrace_page	*ftrace_pages;
@@ -1382,10 +1367,10 @@ static struct ftrace_hash *dup_hash(struct ftrace_hash *src, int size)
 	int i;
 
 	/*
-	 * Make the hash size about 1/2 the # found
+	 * Use around half the size (max bit of it), but
+	 * a minimum of 2 is fine (as size of 0 or 1 both give 1 for bits).
 	 */
-	for (size /= 2; size; size >>= 1)
-		bits++;
+	bits = fls(size / 2);
 
 	/* Don't allocate too much */
 	if (bits > FTRACE_HASH_MAX_BITS)
@@ -1465,7 +1450,7 @@ static bool hash_contains_ip(unsigned long ip,
 {
 	/*
 	 * The function record is a match if it exists in the filter
-	 * hash and not in the notrace hash. Note, an emty hash is
+	 * hash and not in the notrace hash. Note, an empty hash is
 	 * considered a match for the filter hash, but an empty
 	 * notrace hash is considered not in the notrace hash.
 	 */
@@ -1985,7 +1970,7 @@ static void print_ip_ins(const char *fmt, const unsigned char *p)
 	char ins[MCOUNT_INSN_SIZE];
 	int i;
 
-	if (probe_kernel_read(ins, p, MCOUNT_INSN_SIZE)) {
+	if (copy_from_kernel_nofault(ins, p, MCOUNT_INSN_SIZE)) {
 		printk(KERN_CONT "%s[FAULT] %px\n", fmt, p);
 		return;
 	}
@@ -2035,16 +2020,16 @@ void ftrace_bug(int failed, struct dyn_ftrace *rec)
 {
 	unsigned long ip = rec ? rec->ip : 0;
 
+	pr_info("------------[ ftrace bug ]------------\n");
+
 	switch (failed) {
 	case -EFAULT:
-		FTRACE_WARN_ON_ONCE(1);
 		pr_info("ftrace faulted on modifying ");
-		print_ip_sym(ip);
+		print_ip_sym(KERN_INFO, ip);
 		break;
 	case -EINVAL:
-		FTRACE_WARN_ON_ONCE(1);
 		pr_info("ftrace failed to modify ");
-		print_ip_sym(ip);
+		print_ip_sym(KERN_INFO, ip);
 		print_ip_ins(" actual:   ", (unsigned char *)ip);
 		pr_cont("\n");
 		if (ftrace_expected) {
@@ -2053,14 +2038,12 @@ void ftrace_bug(int failed, struct dyn_ftrace *rec)
 		}
 		break;
 	case -EPERM:
-		FTRACE_WARN_ON_ONCE(1);
 		pr_info("ftrace faulted on writing ");
-		print_ip_sym(ip);
+		print_ip_sym(KERN_INFO, ip);
 		break;
 	default:
-		FTRACE_WARN_ON_ONCE(1);
 		pr_info("ftrace faulted on unknown error ");
-		print_ip_sym(ip);
+		print_ip_sym(KERN_INFO, ip);
 	}
 	print_bug_type();
 	if (rec) {
@@ -2085,6 +2068,8 @@ void ftrace_bug(int failed, struct dyn_ftrace *rec)
 		ip = ftrace_get_addr_curr(rec);
 		pr_cont("\n expected tramp: %lx\n", ip);
 	}
+
+	FTRACE_WARN_ON_ONCE(1);
 }
 
 static int ftrace_check_record(struct dyn_ftrace *rec, bool enable, bool update)
@@ -2166,6 +2151,7 @@ static int ftrace_check_record(struct dyn_ftrace *rec, bool enable, bool update)
 				else
 					rec->flags &= ~FTRACE_FL_TRAMP_EN;
 			}
+
 			if (flag & FTRACE_FL_DIRECT) {
 				/*
 				 * If there's only one user (direct_ops helper)
@@ -2297,7 +2283,7 @@ ftrace_find_tramp_ops_next(struct dyn_ftrace *rec,
 
 		if (hash_contains_ip(ip, op->func_hash))
 			return op;
-	} 
+	}
 
 	return NULL;
 }
@@ -2397,7 +2383,7 @@ int ftrace_direct_func_count;
  * Search the direct_functions hash to see if the given instruction pointer
  * has a direct caller attached to it.
  */
-static unsigned long find_rec_direct(unsigned long ip)
+unsigned long ftrace_find_rec_direct(unsigned long ip)
 {
 	struct ftrace_func_entry *entry;
 
@@ -2409,11 +2395,12 @@ static unsigned long find_rec_direct(unsigned long ip)
 }
 
 static void call_direct_funcs(unsigned long ip, unsigned long pip,
-			      struct ftrace_ops *ops, struct pt_regs *regs)
+			      struct ftrace_ops *ops, struct ftrace_regs *fregs)
 {
+	struct pt_regs *regs = ftrace_get_regs(fregs);
 	unsigned long addr;
 
-	addr = find_rec_direct(ip);
+	addr = ftrace_find_rec_direct(ip);
 	if (!addr)
 		return;
 
@@ -2422,15 +2409,18 @@ static void call_direct_funcs(unsigned long ip, unsigned long pip,
 
 struct ftrace_ops direct_ops = {
 	.func		= call_direct_funcs,
-	.flags		= FTRACE_OPS_FL_IPMODIFY | FTRACE_OPS_FL_RECURSION_SAFE
+	.flags		= FTRACE_OPS_FL_IPMODIFY
 			  | FTRACE_OPS_FL_DIRECT | FTRACE_OPS_FL_SAVE_REGS
 			  | FTRACE_OPS_FL_PERMANENT,
+	/*
+	 * By declaring the main trampoline as this trampoline
+	 * it will never have one allocated for it. Allocated
+	 * trampolines should not call direct functions.
+	 * The direct_ops should only be called by the builtin
+	 * ftrace_regs_caller trampoline.
+	 */
+	.trampoline	= FTRACE_REGS_ADDR,
 };
-#else
-static inline unsigned long find_rec_direct(unsigned long ip)
-{
-	return 0;
-}
 #endif /* CONFIG_DYNAMIC_FTRACE_WITH_DIRECT_CALLS */
 
 /**
@@ -2439,7 +2429,7 @@ static inline unsigned long find_rec_direct(unsigned long ip)
  *
  * If the record has the FTRACE_FL_REGS set, that means that it
  * wants to convert to a callback that saves all regs. If FTRACE_FL_REGS
- * is not not set, then it wants to convert to the normal callback.
+ * is not set, then it wants to convert to the normal callback.
  *
  * Returns the address of the trampoline to set to
  */
@@ -2450,7 +2440,7 @@ unsigned long ftrace_get_addr_new(struct dyn_ftrace *rec)
 
 	if ((rec->flags & FTRACE_FL_DIRECT) &&
 	    (ftrace_rec_count(rec) == 1)) {
-		addr = find_rec_direct(rec->ip);
+		addr = ftrace_find_rec_direct(rec->ip);
 		if (addr)
 			return addr;
 		WARN_ON_ONCE(1);
@@ -2491,7 +2481,7 @@ unsigned long ftrace_get_addr_curr(struct dyn_ftrace *rec)
 
 	/* Direct calls take precedence over trampolines */
 	if (rec->flags & FTRACE_FL_DIRECT_EN) {
-		addr = find_rec_direct(rec->ip);
+		addr = ftrace_find_rec_direct(rec->ip);
 		if (addr)
 			return addr;
 		WARN_ON_ONCE(1);
@@ -2651,14 +2641,14 @@ struct dyn_ftrace *ftrace_rec_iter_record(struct ftrace_rec_iter *iter)
 }
 
 static int
-ftrace_code_disable(struct module *mod, struct dyn_ftrace *rec)
+ftrace_nop_initialize(struct module *mod, struct dyn_ftrace *rec)
 {
 	int ret;
 
 	if (unlikely(ftrace_disabled))
 		return 0;
 
-	ret = ftrace_make_nop(mod, rec, MCOUNT_ADDR);
+	ret = ftrace_init_nop(mod, rec);
 	if (ret) {
 		ftrace_bug_type = FTRACE_BUG_INIT;
 		ftrace_bug(ret, rec);
@@ -2806,6 +2796,51 @@ void __weak arch_ftrace_trampoline_free(struct ftrace_ops *ops)
 {
 }
 
+/* List of trace_ops that have allocated trampolines */
+static LIST_HEAD(ftrace_ops_trampoline_list);
+
+static void ftrace_add_trampoline_to_kallsyms(struct ftrace_ops *ops)
+{
+	lockdep_assert_held(&ftrace_lock);
+	list_add_rcu(&ops->list, &ftrace_ops_trampoline_list);
+}
+
+static void ftrace_remove_trampoline_from_kallsyms(struct ftrace_ops *ops)
+{
+	lockdep_assert_held(&ftrace_lock);
+	list_del_rcu(&ops->list);
+	synchronize_rcu();
+}
+
+/*
+ * "__builtin__ftrace" is used as a module name in /proc/kallsyms for symbols
+ * for pages allocated for ftrace purposes, even though "__builtin__ftrace" is
+ * not a module.
+ */
+#define FTRACE_TRAMPOLINE_MOD "__builtin__ftrace"
+#define FTRACE_TRAMPOLINE_SYM "ftrace_trampoline"
+
+static void ftrace_trampoline_free(struct ftrace_ops *ops)
+{
+	if (ops && (ops->flags & FTRACE_OPS_FL_ALLOC_TRAMP) &&
+	    ops->trampoline) {
+		/*
+		 * Record the text poke event before the ksymbol unregister
+		 * event.
+		 */
+		perf_event_text_poke((void *)ops->trampoline,
+				     (void *)ops->trampoline,
+				     ops->trampoline_size, NULL, 0);
+		perf_event_ksymbol(PERF_RECORD_KSYMBOL_TYPE_OOL,
+				   ops->trampoline, ops->trampoline_size,
+				   true, FTRACE_TRAMPOLINE_SYM);
+		/* Remove from kallsyms after the perf events */
+		ftrace_remove_trampoline_from_kallsyms(ops);
+	}
+
+	arch_ftrace_trampoline_free(ops);
+}
+
 static void ftrace_startup_enable(int command)
 {
 	if (saved_ftrace_func != ftrace_trace_function) {
@@ -2856,7 +2891,7 @@ int ftrace_startup(struct ftrace_ops *ops, int command)
 		ftrace_start_up--;
 		ops->flags &= ~FTRACE_OPS_FL_ENABLED;
 		if (ops->flags & FTRACE_OPS_FL_DYNAMIC)
-			arch_ftrace_trampoline_free(ops);
+			ftrace_trampoline_free(ops);
 		return ret;
 	}
 
@@ -2965,20 +3000,20 @@ int ftrace_shutdown(struct ftrace_ops *ops, int command)
 		 * infrastructure to do the synchronization, thus we must do it
 		 * ourselves.
 		 */
-		schedule_on_each_cpu(ftrace_sync);
+		synchronize_rcu_tasks_rude();
 
 		/*
-		 * When the kernel is preeptive, tasks can be preempted
+		 * When the kernel is preemptive, tasks can be preempted
 		 * while on a ftrace trampoline. Just scheduling a task on
 		 * a CPU is not good enough to flush them. Calling
-		 * synchornize_rcu_tasks() will wait for those tasks to
+		 * synchronize_rcu_tasks() will wait for those tasks to
 		 * execute and either schedule voluntarily or enter user space.
 		 */
 		if (IS_ENABLED(CONFIG_PREEMPTION))
 			synchronize_rcu_tasks();
 
  free_ops:
-		arch_ftrace_trampoline_free(ops);
+		ftrace_trampoline_free(ops);
 	}
 
 	return 0;
@@ -3020,6 +3055,8 @@ static void ftrace_shutdown_sysctl(void)
 
 static u64		ftrace_update_time;
 unsigned long		ftrace_update_tot_cnt;
+unsigned long		ftrace_number_of_pages;
+unsigned long		ftrace_number_of_groups;
 
 static inline int ops_traces_mod(struct ftrace_ops *ops)
 {
@@ -3102,7 +3139,7 @@ static int ftrace_update_code(struct module *mod, struct ftrace_page *new_pgs)
 			 * to the NOP instructions.
 			 */
 			if (!__is_defined(CC_USING_NOP_MCOUNT) &&
-			    !ftrace_code_disable(mod, p))
+			    !ftrace_nop_initialize(mod, p))
 				break;
 
 			update_cnt++;
@@ -3119,19 +3156,15 @@ static int ftrace_update_code(struct module *mod, struct ftrace_page *new_pgs)
 static int ftrace_allocate_records(struct ftrace_page *pg, int count)
 {
 	int order;
+	int pages;
 	int cnt;
 
 	if (WARN_ON(!count))
 		return -EINVAL;
 
-	order = get_count_order(DIV_ROUND_UP(count, ENTRIES_PER_PAGE));
-
-	/*
-	 * We want to fill as much as possible. No more than a page
-	 * may be empty.
-	 */
-	while ((PAGE_SIZE << order) / ENTRY_SIZE >= count + ENTRIES_PER_PAGE)
-		order--;
+	/* We want to fill as much as possible, with no empty pages */
+	pages = DIV_ROUND_UP(count, ENTRIES_PER_PAGE);
+	order = fls(pages) - 1;
 
  again:
 	pg->records = (void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO, order);
@@ -3144,8 +3177,11 @@ static int ftrace_allocate_records(struct ftrace_page *pg, int count)
 		goto again;
 	}
 
+	ftrace_number_of_pages += 1 << order;
+	ftrace_number_of_groups++;
+
 	cnt = (PAGE_SIZE << order) / ENTRY_SIZE;
-	pg->size = cnt;
+	pg->order = order;
 
 	if (cnt > count)
 		cnt = count;
@@ -3158,7 +3194,6 @@ ftrace_allocate_pages(unsigned long num_to_init)
 {
 	struct ftrace_page *start_pg;
 	struct ftrace_page *pg;
-	int order;
 	int cnt;
 
 	if (!num_to_init)
@@ -3194,11 +3229,14 @@ ftrace_allocate_pages(unsigned long num_to_init)
  free_pages:
 	pg = start_pg;
 	while (pg) {
-		order = get_count_order(pg->size / ENTRIES_PER_PAGE);
-		free_pages((unsigned long)pg->records, order);
+		if (pg->records) {
+			free_pages((unsigned long)pg->records, pg->order);
+			ftrace_number_of_pages -= 1 << pg->order;
+		}
 		start_pg = pg->next;
 		kfree(pg);
 		pg = start_pg;
+		ftrace_number_of_groups--;
 	}
 	pr_info("ftrace: FAILED to allocate memory for functions\n");
 	return NULL;
@@ -3632,11 +3670,11 @@ static int t_show(struct seq_file *m, void *v)
 		if (rec->flags & FTRACE_FL_DIRECT) {
 			unsigned long direct;
 
-			direct = find_rec_direct(rec->ip);
+			direct = ftrace_find_rec_direct(rec->ip);
 			if (direct)
 				seq_printf(m, "\n\tdirect-->%pS", (void *)direct);
 		}
-	}	
+	}
 
 	seq_putc(m, '\n');
 
@@ -3654,6 +3692,11 @@ static int
 ftrace_avail_open(struct inode *inode, struct file *file)
 {
 	struct ftrace_iterator *iter;
+	int ret;
+
+	ret = security_locked_down(LOCKDOWN_TRACEFS);
+	if (ret)
+		return ret;
 
 	if (unlikely(ftrace_disabled))
 		return -ENODEV;
@@ -3672,6 +3715,15 @@ static int
 ftrace_enabled_open(struct inode *inode, struct file *file)
 {
 	struct ftrace_iterator *iter;
+
+	/*
+	 * This shows us what functions are currently being
+	 * traced and by what. Not sure if we want lockdown
+	 * to hide such critical information for an admin.
+	 * Although, perhaps it can show information we don't
+	 * want people to see, but if something is tracing
+	 * something, we probably want to know about it.
+	 */
 
 	iter = __seq_open_private(file, &show_ftrace_seq_ops, sizeof(*iter));
 	if (!iter)
@@ -3715,7 +3767,7 @@ ftrace_regex_open(struct ftrace_ops *ops, int flag,
 	if (unlikely(ftrace_disabled))
 		return -ENODEV;
 
-	if (tr && trace_array_get(tr) < 0)
+	if (tracing_check_open_get_tr(tr))
 		return -ENODEV;
 
 	iter = kzalloc(sizeof(*iter), GFP_KERNEL);
@@ -3793,6 +3845,7 @@ ftrace_filter_open(struct inode *inode, struct file *file)
 {
 	struct ftrace_ops *ops = inode->i_private;
 
+	/* Checks for tracefs lockdown */
 	return ftrace_regex_open(ops,
 			FTRACE_ITER_FILTER | FTRACE_ITER_DO_PROBES,
 			inode, file);
@@ -3803,6 +3856,7 @@ ftrace_notrace_open(struct inode *inode, struct file *file)
 {
 	struct ftrace_ops *ops = inode->i_private;
 
+	/* Checks for tracefs lockdown */
 	return ftrace_regex_open(ops, FTRACE_ITER_NOTRACE,
 				 inode, file);
 }
@@ -4130,7 +4184,6 @@ static void process_mod_list(struct list_head *head, struct ftrace_ops *ops,
 	struct ftrace_hash **orig_hash, *new_hash;
 	LIST_HEAD(process_mods);
 	char *func;
-	int ret;
 
 	mutex_lock(&ops->func_hash->regex_lock);
 
@@ -4159,8 +4212,7 @@ static void process_mod_list(struct list_head *head, struct ftrace_ops *ops,
 		if (!func) /* warn? */
 			continue;
 
-		list_del(&ftrace_mod->list);
-		list_add(&ftrace_mod->list, &process_mods);
+		list_move(&ftrace_mod->list, &process_mods);
 
 		/* Use the newly allocated func, as it may be "*" */
 		kfree(ftrace_mod->func);
@@ -4183,7 +4235,7 @@ static void process_mod_list(struct list_head *head, struct ftrace_ops *ops,
 
 	mutex_lock(&ftrace_lock);
 
-	ret = ftrace_hash_move_and_update_ops(ops, orig_hash,
+	ftrace_hash_move_and_update_ops(ops, orig_hash,
 					      new_hash, enable);
 	mutex_unlock(&ftrace_lock);
 
@@ -4261,7 +4313,7 @@ static int __init ftrace_mod_cmd_init(void)
 core_initcall(ftrace_mod_cmd_init);
 
 static void function_trace_probe_call(unsigned long ip, unsigned long parent_ip,
-				      struct ftrace_ops *op, struct pt_regs *pt_regs)
+				      struct ftrace_ops *op, struct ftrace_regs *fregs)
 {
 	struct ftrace_probe_ops *probe_ops;
 	struct ftrace_func_probe *probe;
@@ -4337,7 +4389,7 @@ void **ftrace_func_mapper_find_ip(struct ftrace_func_mapper *mapper,
  * @ip: The instruction pointer address to map @data to
  * @data: The data to map to @ip
  *
- * Returns 0 on succes otherwise an error.
+ * Returns 0 on success otherwise an error.
  */
 int ftrace_func_mapper_add_ip(struct ftrace_func_mapper *mapper,
 			      unsigned long ip, void *data)
@@ -4505,7 +4557,7 @@ register_ftrace_function_probe(char *glob, struct trace_array *tr,
 
 	/*
 	 * Note, there's a small window here that the func_hash->filter_hash
-	 * may be NULL or empty. Need to be carefule when reading the loop.
+	 * may be NULL or empty. Need to be careful when reading the loop.
 	 */
 	mutex_lock(&probe->ops.func_hash->regex_lock);
 
@@ -5034,7 +5086,7 @@ int register_ftrace_direct(unsigned long ip, unsigned long addr)
 	mutex_lock(&direct_mutex);
 
 	/* See if there's a direct function at @ip already */
-	if (find_rec_direct(ip))
+	if (ftrace_find_rec_direct(ip))
 		goto out_unlock;
 
 	ret = -ENODEV;
@@ -5053,7 +5105,7 @@ int register_ftrace_direct(unsigned long ip, unsigned long addr)
 	if (ip != rec->ip) {
 		ip = rec->ip;
 		/* Need to check this ip for a direct. */
-		if (find_rec_direct(ip))
+		if (ftrace_find_rec_direct(ip))
 			goto out_unlock;
 	}
 
@@ -5128,7 +5180,8 @@ int register_ftrace_direct(unsigned long ip, unsigned long addr)
 }
 EXPORT_SYMBOL_GPL(register_ftrace_direct);
 
-static struct ftrace_func_entry *find_direct_entry(unsigned long *ip)
+static struct ftrace_func_entry *find_direct_entry(unsigned long *ip,
+						   struct dyn_ftrace **recp)
 {
 	struct ftrace_func_entry *entry;
 	struct dyn_ftrace *rec;
@@ -5148,6 +5201,9 @@ static struct ftrace_func_entry *find_direct_entry(unsigned long *ip)
 	/* Passed in ip just needs to be on the call site */
 	*ip = rec->ip;
 
+	if (recp)
+		*recp = rec;
+
 	return entry;
 }
 
@@ -5159,7 +5215,7 @@ int unregister_ftrace_direct(unsigned long ip, unsigned long addr)
 
 	mutex_lock(&direct_mutex);
 
-	entry = find_direct_entry(&ip);
+	entry = find_direct_entry(&ip, NULL);
 	if (!entry)
 		goto out_unlock;
 
@@ -5181,6 +5237,7 @@ int unregister_ftrace_direct(unsigned long ip, unsigned long addr)
 			list_del_rcu(&direct->next);
 			synchronize_rcu_tasks();
 			kfree(direct);
+			kfree(entry);
 			ftrace_direct_func_count--;
 		}
 	}
@@ -5194,6 +5251,75 @@ EXPORT_SYMBOL_GPL(unregister_ftrace_direct);
 static struct ftrace_ops stub_ops = {
 	.func		= ftrace_stub,
 };
+
+/**
+ * ftrace_modify_direct_caller - modify ftrace nop directly
+ * @entry: The ftrace hash entry of the direct helper for @rec
+ * @rec: The record representing the function site to patch
+ * @old_addr: The location that the site at @rec->ip currently calls
+ * @new_addr: The location that the site at @rec->ip should call
+ *
+ * An architecture may overwrite this function to optimize the
+ * changing of the direct callback on an ftrace nop location.
+ * This is called with the ftrace_lock mutex held, and no other
+ * ftrace callbacks are on the associated record (@rec). Thus,
+ * it is safe to modify the ftrace record, where it should be
+ * currently calling @old_addr directly, to call @new_addr.
+ *
+ * Safety checks should be made to make sure that the code at
+ * @rec->ip is currently calling @old_addr. And this must
+ * also update entry->direct to @new_addr.
+ */
+int __weak ftrace_modify_direct_caller(struct ftrace_func_entry *entry,
+				       struct dyn_ftrace *rec,
+				       unsigned long old_addr,
+				       unsigned long new_addr)
+{
+	unsigned long ip = rec->ip;
+	int ret;
+
+	/*
+	 * The ftrace_lock was used to determine if the record
+	 * had more than one registered user to it. If it did,
+	 * we needed to prevent that from changing to do the quick
+	 * switch. But if it did not (only a direct caller was attached)
+	 * then this function is called. But this function can deal
+	 * with attached callers to the rec that we care about, and
+	 * since this function uses standard ftrace calls that take
+	 * the ftrace_lock mutex, we need to release it.
+	 */
+	mutex_unlock(&ftrace_lock);
+
+	/*
+	 * By setting a stub function at the same address, we force
+	 * the code to call the iterator and the direct_ops helper.
+	 * This means that @ip does not call the direct call, and
+	 * we can simply modify it.
+	 */
+	ret = ftrace_set_filter_ip(&stub_ops, ip, 0, 0);
+	if (ret)
+		goto out_lock;
+
+	ret = register_ftrace_function(&stub_ops);
+	if (ret) {
+		ftrace_set_filter_ip(&stub_ops, ip, 1, 0);
+		goto out_lock;
+	}
+
+	entry->direct = new_addr;
+
+	/*
+	 * By removing the stub, we put back the direct call, calling
+	 * the @new_addr.
+	 */
+	unregister_ftrace_function(&stub_ops);
+	ftrace_set_filter_ip(&stub_ops, ip, 1, 0);
+
+ out_lock:
+	mutex_lock(&ftrace_lock);
+
+	return ret;
+}
 
 /**
  * modify_ftrace_direct - Modify an existing direct call to call something else
@@ -5214,11 +5340,13 @@ int modify_ftrace_direct(unsigned long ip,
 {
 	struct ftrace_direct_func *direct, *new_direct = NULL;
 	struct ftrace_func_entry *entry;
+	struct dyn_ftrace *rec;
 	int ret = -ENODEV;
 
 	mutex_lock(&direct_mutex);
 
-	entry = find_direct_entry(&ip);
+	mutex_lock(&ftrace_lock);
+	entry = find_direct_entry(&ip, &rec);
 	if (!entry)
 		goto out_unlock;
 
@@ -5241,31 +5369,17 @@ int modify_ftrace_direct(unsigned long ip,
 	}
 
 	/*
-	 * By setting a stub function at the same address, we force
-	 * the code to call the iterator and the direct_ops helper.
-	 * This means that @ip does not call the direct call, and
-	 * we can simply modify it.
+	 * If there's no other ftrace callback on the rec->ip location,
+	 * then it can be changed directly by the architecture.
+	 * If there is another caller, then we just need to change the
+	 * direct caller helper to point to @new_addr.
 	 */
-	ret = ftrace_set_filter_ip(&stub_ops, ip, 0, 0);
-	if (ret)
-		goto out_unlock;
-
-	ret = register_ftrace_function(&stub_ops);
-	if (ret) {
-		ftrace_set_filter_ip(&stub_ops, ip, 1, 0);
-		goto out_unlock;
+	if (ftrace_rec_count(rec) == 1) {
+		ret = ftrace_modify_direct_caller(entry, rec, old_addr, new_addr);
+	} else {
+		entry->direct = new_addr;
+		ret = 0;
 	}
-
-	entry->direct = new_addr;
-
-	/*
-	 * By removing the stub, we put back the direct call, calling
-	 * the @new_addr.
-	 */
-	unregister_ftrace_function(&stub_ops);
-	ftrace_set_filter_ip(&stub_ops, ip, 1, 0);
-
-	ret = 0;
 
 	if (unlikely(ret && new_direct)) {
 		direct->count++;
@@ -5276,6 +5390,7 @@ int modify_ftrace_direct(unsigned long ip,
 	}
 
  out_unlock:
+	mutex_unlock(&ftrace_lock);
 	mutex_unlock(&direct_mutex);
 	return ret;
 }
@@ -5290,7 +5405,7 @@ EXPORT_SYMBOL_GPL(modify_ftrace_direct);
  * @reset - non zero to reset all filters before applying this filter.
  *
  * Filters denote which functions should be enabled when tracing is enabled
- * If @ip is NULL, it failes to update filter.
+ * If @ip is NULL, it fails to update filter.
  */
 int ftrace_set_filter_ip(struct ftrace_ops *ops, unsigned long ip,
 			 int remove, int reset)
@@ -5452,7 +5567,7 @@ static void __init set_ftrace_early_graph(char *buf, int enable)
 	struct ftrace_hash *hash;
 
 	hash = alloc_ftrace_hash(FTRACE_HASH_DEFAULT_BITS);
-	if (WARN_ON(!hash))
+	if (MEM_FAIL(!hash, "Failed to allocate hash\n"))
 		return;
 
 	while (buf) {
@@ -5505,7 +5620,6 @@ int ftrace_regex_release(struct inode *inode, struct file *file)
 	struct ftrace_hash **orig_hash;
 	struct trace_parser *parser;
 	int filter_hash;
-	int ret;
 
 	if (file->f_mode & FMODE_READ) {
 		iter = m->private;
@@ -5536,7 +5650,7 @@ int ftrace_regex_release(struct inode *inode, struct file *file)
 			orig_hash = &iter->ops->func_hash->notrace_hash;
 
 		mutex_lock(&ftrace_lock);
-		ret = ftrace_hash_move_and_update_ops(iter->ops, orig_hash,
+		ftrace_hash_move_and_update_ops(iter->ops, orig_hash,
 						      iter->hash, filter_hash);
 		mutex_unlock(&ftrace_lock);
 	} else {
@@ -5705,8 +5819,12 @@ static int
 __ftrace_graph_open(struct inode *inode, struct file *file,
 		    struct ftrace_graph_data *fgd)
 {
-	int ret = 0;
+	int ret;
 	struct ftrace_hash *new_hash = NULL;
+
+	ret = security_locked_down(LOCKDOWN_TRACEFS);
+	if (ret)
+		return ret;
 
 	if (file->f_mode & FMODE_WRITE) {
 		const int size_bits = FTRACE_HASH_DEFAULT_BITS;
@@ -5867,7 +5985,8 @@ ftrace_graph_release(struct inode *inode, struct file *file)
 		 * infrastructure to do the synchronization, thus we must do it
 		 * ourselves.
 		 */
-		schedule_on_each_cpu(ftrace_sync);
+		if (old_hash != EMPTY_HASH)
+			synchronize_rcu_tasks_rude();
 
 		free_ftrace_hash(old_hash);
 	}
@@ -6104,6 +6223,7 @@ static int ftrace_process_locs(struct module *mod,
 	p = start;
 	pg = start_pg;
 	while (p < end) {
+		unsigned long end_offset;
 		addr = ftrace_call_adjust(*p++);
 		/*
 		 * Some architecture linkers will pad between
@@ -6114,7 +6234,8 @@ static int ftrace_process_locs(struct module *mod,
 		if (!addr)
 			continue;
 
-		if (pg->index == pg->size) {
+		end_offset = (pg->index+1) * sizeof(pg->records[0]);
+		if (end_offset > PAGE_SIZE << pg->order) {
 			/* We should have allocated enough */
 			if (WARN_ON(!pg->next))
 				break;
@@ -6168,6 +6289,27 @@ struct ftrace_mod_map {
 	unsigned int		num_funcs;
 };
 
+static int ftrace_get_trampoline_kallsym(unsigned int symnum,
+					 unsigned long *value, char *type,
+					 char *name, char *module_name,
+					 int *exported)
+{
+	struct ftrace_ops *op;
+
+	list_for_each_entry_rcu(op, &ftrace_ops_trampoline_list, list) {
+		if (!op->trampoline || symnum--)
+			continue;
+		*value = op->trampoline;
+		*type = 't';
+		strlcpy(name, FTRACE_TRAMPOLINE_SYM, KSYM_NAME_LEN);
+		strlcpy(module_name, FTRACE_TRAMPOLINE_MOD, MODULE_NAME_LEN);
+		*exported = 0;
+		return 0;
+	}
+
+	return -ERANGE;
+}
+
 #ifdef CONFIG_MODULES
 
 #define next_to_ftrace_page(p) container_of(p, struct ftrace_page, next)
@@ -6181,9 +6323,17 @@ static int referenced_filters(struct dyn_ftrace *rec)
 
 	for (ops = ftrace_ops_list; ops != &ftrace_list_end; ops = ops->next) {
 		if (ops_references_rec(ops, rec)) {
+			if (WARN_ON_ONCE(ops->flags & FTRACE_OPS_FL_DIRECT))
+				continue;
+			if (WARN_ON_ONCE(ops->flags & FTRACE_OPS_FL_IPMODIFY))
+				continue;
 			cnt++;
 			if (ops->flags & FTRACE_OPS_FL_SAVE_REGS)
 				rec->flags |= FTRACE_FL_REGS;
+			if (cnt == 1 && ops->trampoline)
+				rec->flags |= FTRACE_FL_TRAMP;
+			else
+				rec->flags &= ~FTRACE_FL_TRAMP;
 		}
 	}
 
@@ -6213,7 +6363,7 @@ clear_mod_from_hash(struct ftrace_page *pg, struct ftrace_hash *hash)
 	}
 }
 
-/* Clear any records from hashs */
+/* Clear any records from hashes */
 static void clear_mod_from_hashes(struct ftrace_page *pg)
 {
 	struct trace_array *tr;
@@ -6254,7 +6404,6 @@ void ftrace_release_mod(struct module *mod)
 	struct ftrace_page **last_pg;
 	struct ftrace_page *tmp_page = NULL;
 	struct ftrace_page *pg;
-	int order;
 
 	mutex_lock(&ftrace_lock);
 
@@ -6305,10 +6454,13 @@ void ftrace_release_mod(struct module *mod)
 		/* Needs to be called outside of ftrace_lock */
 		clear_mod_from_hashes(pg);
 
-		order = get_count_order(pg->size / ENTRIES_PER_PAGE);
-		free_pages((unsigned long)pg->records, order);
+		if (pg->records) {
+			free_pages((unsigned long)pg->records, pg->order);
+			ftrace_number_of_pages -= 1 << pg->order;
+		}
 		tmp_page = pg->next;
 		kfree(pg);
+		ftrace_number_of_groups--;
 	}
 }
 
@@ -6505,6 +6657,7 @@ int ftrace_mod_get_kallsym(unsigned int symnum, unsigned long *value,
 {
 	struct ftrace_mod_map *mod_map;
 	struct ftrace_mod_func *mod_func;
+	int ret;
 
 	preempt_disable();
 	list_for_each_entry_rcu(mod_map, &ftrace_mod_maps, list) {
@@ -6531,8 +6684,10 @@ int ftrace_mod_get_kallsym(unsigned int symnum, unsigned long *value,
 		WARN_ON(1);
 		break;
 	}
+	ret = ftrace_get_trampoline_kallsym(symnum, value, type, name,
+					    module_name, exported);
 	preempt_enable();
-	return -ERANGE;
+	return ret;
 }
 
 #else
@@ -6543,6 +6698,18 @@ allocate_ftrace_mod_map(struct module *mod,
 			unsigned long start, unsigned long end)
 {
 	return NULL;
+}
+int ftrace_mod_get_kallsym(unsigned int symnum, unsigned long *value,
+			   char *type, char *name, char *module_name,
+			   int *exported)
+{
+	int ret;
+
+	preempt_disable();
+	ret = ftrace_get_trampoline_kallsym(symnum, value, type, name,
+					    module_name, exported);
+	preempt_enable();
+	return ret;
 }
 #endif /* CONFIG_MODULES */
 
@@ -6557,11 +6724,7 @@ clear_func_from_hash(struct ftrace_init_func *func, struct ftrace_hash *hash)
 {
 	struct ftrace_func_entry *entry;
 
-	if (ftrace_hash_empty(hash))
-		return;
-
-	entry = __ftrace_lookup_ip(hash, func->ip);
-
+	entry = ftrace_lookup_ip(hash, func->ip);
 	/*
 	 * Do not allow this rec to match again.
 	 * Yeah, it may waste some memory, but will be removed
@@ -6595,7 +6758,7 @@ static void add_to_clear_hash_list(struct list_head *clear_list,
 
 	func = kmalloc(sizeof(*func), GFP_KERNEL);
 	if (!func) {
-		WARN_ONCE(1, "alloc failure, ftrace filter could be stale\n");
+		MEM_FAIL(1, "alloc failure, ftrace filter could be stale\n");
 		return;
 	}
 
@@ -6614,7 +6777,6 @@ void ftrace_free_mem(struct module *mod, void *start_ptr, void *end_ptr)
 	struct ftrace_mod_map *mod_map = NULL;
 	struct ftrace_init_func *func, *func_next;
 	struct list_head clear_hash;
-	int order;
 
 	INIT_LIST_HEAD(&clear_hash);
 
@@ -6652,8 +6814,11 @@ void ftrace_free_mem(struct module *mod, void *start_ptr, void *end_ptr)
 		ftrace_update_tot_cnt--;
 		if (!pg->index) {
 			*last_pg = pg->next;
-			order = get_count_order(pg->size / ENTRIES_PER_PAGE);
-			free_pages((unsigned long)pg->records, order);
+			if (pg->records) {
+				free_pages((unsigned long)pg->records, pg->order);
+				ftrace_number_of_pages -= 1 << pg->order;
+			}
+			ftrace_number_of_groups--;
 			kfree(pg);
 			pg = container_of(last_pg, struct ftrace_page, next);
 			if (!(*last_pg))
@@ -6709,6 +6874,9 @@ void __init ftrace_init(void)
 				  __start_mcount_loc,
 				  __stop_mcount_loc);
 
+	pr_info("ftrace: allocated %ld pages with %ld groups\n",
+		ftrace_number_of_pages, ftrace_number_of_groups);
+
 	set_ftrace_early_filters();
 
 	return;
@@ -6723,7 +6891,24 @@ void __weak arch_ftrace_update_trampoline(struct ftrace_ops *ops)
 
 static void ftrace_update_trampoline(struct ftrace_ops *ops)
 {
+	unsigned long trampoline = ops->trampoline;
+
 	arch_ftrace_update_trampoline(ops);
+	if (ops->trampoline && ops->trampoline != trampoline &&
+	    (ops->flags & FTRACE_OPS_FL_ALLOC_TRAMP)) {
+		/* Add to kallsyms before the perf events */
+		ftrace_add_trampoline_to_kallsyms(ops);
+		perf_event_ksymbol(PERF_RECORD_KSYMBOL_TYPE_OOL,
+				   ops->trampoline, ops->trampoline_size, false,
+				   FTRACE_TRAMPOLINE_SYM);
+		/*
+		 * Record the perf text poke event after the ksymbol register
+		 * event.
+		 */
+		perf_event_text_poke((void *)ops->trampoline, NULL, 0,
+				     (void *)ops->trampoline,
+				     ops->trampoline_size);
+	}
 }
 
 void ftrace_init_trace_array(struct trace_array *tr)
@@ -6736,8 +6921,7 @@ void ftrace_init_trace_array(struct trace_array *tr)
 
 struct ftrace_ops global_ops = {
 	.func			= ftrace_stub,
-	.flags			= FTRACE_OPS_FL_RECURSION_SAFE |
-				  FTRACE_OPS_FL_INITIALIZED |
+	.flags			= FTRACE_OPS_FL_INITIALIZED |
 				  FTRACE_OPS_FL_PID,
 };
 
@@ -6787,12 +6971,13 @@ void ftrace_reset_array_ops(struct trace_array *tr)
 
 static nokprobe_inline void
 __ftrace_ops_list_func(unsigned long ip, unsigned long parent_ip,
-		       struct ftrace_ops *ignored, struct pt_regs *regs)
+		       struct ftrace_ops *ignored, struct ftrace_regs *fregs)
 {
+	struct pt_regs *regs = ftrace_get_regs(fregs);
 	struct ftrace_ops *op;
 	int bit;
 
-	bit = trace_test_and_set_recursion(TRACE_LIST_START, TRACE_LIST_MAX);
+	bit = trace_test_and_set_recursion(ip, parent_ip, TRACE_LIST_START, TRACE_LIST_MAX);
 	if (bit < 0)
 		return;
 
@@ -6821,7 +7006,7 @@ __ftrace_ops_list_func(unsigned long ip, unsigned long parent_ip,
 				pr_warn("op=%p %pS\n", op, op);
 				goto out;
 			}
-			op->func(ip, parent_ip, op, regs);
+			op->func(ip, parent_ip, op, fregs);
 		}
 	} while_for_each_ftrace_op(op);
 out:
@@ -6844,9 +7029,9 @@ out:
  */
 #if ARCH_SUPPORTS_FTRACE_OPS
 static void ftrace_ops_list_func(unsigned long ip, unsigned long parent_ip,
-				 struct ftrace_ops *op, struct pt_regs *regs)
+				 struct ftrace_ops *op, struct ftrace_regs *fregs)
 {
-	__ftrace_ops_list_func(ip, parent_ip, NULL, regs);
+	__ftrace_ops_list_func(ip, parent_ip, NULL, fregs);
 }
 NOKPROBE_SYMBOL(ftrace_ops_list_func);
 #else
@@ -6863,18 +7048,18 @@ NOKPROBE_SYMBOL(ftrace_ops_no_ops);
  * this function will be called by the mcount trampoline.
  */
 static void ftrace_ops_assist_func(unsigned long ip, unsigned long parent_ip,
-				   struct ftrace_ops *op, struct pt_regs *regs)
+				   struct ftrace_ops *op, struct ftrace_regs *fregs)
 {
 	int bit;
 
-	bit = trace_test_and_set_recursion(TRACE_LIST_START, TRACE_LIST_MAX);
+	bit = trace_test_and_set_recursion(ip, parent_ip, TRACE_LIST_START, TRACE_LIST_MAX);
 	if (bit < 0)
 		return;
 
 	preempt_disable_notrace();
 
 	if (!(op->flags & FTRACE_OPS_FL_RCU) || rcu_is_watching())
-		op->func(ip, parent_ip, op, regs);
+		op->func(ip, parent_ip, op, fregs);
 
 	preempt_enable_notrace();
 	trace_clear_recursion(bit);
@@ -6895,11 +7080,11 @@ NOKPROBE_SYMBOL(ftrace_ops_assist_func);
 ftrace_func_t ftrace_ops_get_func(struct ftrace_ops *ops)
 {
 	/*
-	 * If the function does not handle recursion, needs to be RCU safe,
-	 * or does per cpu logic, then we need to call the assist handler.
+	 * If the function does not handle recursion or needs to be RCU safe,
+	 * then we need to call the assist handler.
 	 */
-	if (!(ops->flags & FTRACE_OPS_FL_RECURSION_SAFE) ||
-	    ops->flags & FTRACE_OPS_FL_RCU)
+	if (ops->flags & (FTRACE_OPS_FL_RECURSION |
+			  FTRACE_OPS_FL_RCU))
 		return ftrace_ops_assist_func;
 
 	return ops->func;
@@ -6911,11 +7096,17 @@ ftrace_filter_pid_sched_switch_probe(void *data, bool preempt,
 {
 	struct trace_array *tr = data;
 	struct trace_pid_list *pid_list;
+	struct trace_pid_list *no_pid_list;
 
 	pid_list = rcu_dereference_sched(tr->function_pids);
+	no_pid_list = rcu_dereference_sched(tr->function_no_pids);
 
-	this_cpu_write(tr->trace_buffer.data->ftrace_ignore_pid,
-		       trace_ignore_this_task(pid_list, next));
+	if (trace_ignore_this_task(pid_list, no_pid_list, next))
+		this_cpu_write(tr->array_buffer.data->ftrace_ignore_pid,
+			       FTRACE_PID_IGNORE);
+	else
+		this_cpu_write(tr->array_buffer.data->ftrace_ignore_pid,
+			       next->pid);
 }
 
 static void
@@ -6928,6 +7119,9 @@ ftrace_pid_follow_sched_process_fork(void *data,
 
 	pid_list = rcu_dereference_sched(tr->function_pids);
 	trace_filter_add_remove_task(pid_list, self, task);
+
+	pid_list = rcu_dereference_sched(tr->function_no_pids);
+	trace_filter_add_remove_task(pid_list, self, task);
 }
 
 static void
@@ -6937,6 +7131,9 @@ ftrace_pid_follow_sched_process_exit(void *data, struct task_struct *task)
 	struct trace_array *tr = data;
 
 	pid_list = rcu_dereference_sched(tr->function_pids);
+	trace_filter_add_remove_task(pid_list, NULL, task);
+
+	pid_list = rcu_dereference_sched(tr->function_no_pids);
 	trace_filter_add_remove_task(pid_list, NULL, task);
 }
 
@@ -6955,42 +7152,57 @@ void ftrace_pid_follow_fork(struct trace_array *tr, bool enable)
 	}
 }
 
-static void clear_ftrace_pids(struct trace_array *tr)
+static void clear_ftrace_pids(struct trace_array *tr, int type)
 {
 	struct trace_pid_list *pid_list;
+	struct trace_pid_list *no_pid_list;
 	int cpu;
 
 	pid_list = rcu_dereference_protected(tr->function_pids,
 					     lockdep_is_held(&ftrace_lock));
-	if (!pid_list)
+	no_pid_list = rcu_dereference_protected(tr->function_no_pids,
+						lockdep_is_held(&ftrace_lock));
+
+	/* Make sure there's something to do */
+	if (!pid_type_enabled(type, pid_list, no_pid_list))
 		return;
 
-	unregister_trace_sched_switch(ftrace_filter_pid_sched_switch_probe, tr);
+	/* See if the pids still need to be checked after this */
+	if (!still_need_pid_events(type, pid_list, no_pid_list)) {
+		unregister_trace_sched_switch(ftrace_filter_pid_sched_switch_probe, tr);
+		for_each_possible_cpu(cpu)
+			per_cpu_ptr(tr->array_buffer.data, cpu)->ftrace_ignore_pid = FTRACE_PID_TRACE;
+	}
 
-	for_each_possible_cpu(cpu)
-		per_cpu_ptr(tr->trace_buffer.data, cpu)->ftrace_ignore_pid = false;
+	if (type & TRACE_PIDS)
+		rcu_assign_pointer(tr->function_pids, NULL);
 
-	rcu_assign_pointer(tr->function_pids, NULL);
+	if (type & TRACE_NO_PIDS)
+		rcu_assign_pointer(tr->function_no_pids, NULL);
 
 	/* Wait till all users are no longer using pid filtering */
 	synchronize_rcu();
 
-	trace_free_pid_list(pid_list);
+	if ((type & TRACE_PIDS) && pid_list)
+		trace_free_pid_list(pid_list);
+
+	if ((type & TRACE_NO_PIDS) && no_pid_list)
+		trace_free_pid_list(no_pid_list);
 }
 
 void ftrace_clear_pids(struct trace_array *tr)
 {
 	mutex_lock(&ftrace_lock);
 
-	clear_ftrace_pids(tr);
+	clear_ftrace_pids(tr, TRACE_PIDS | TRACE_NO_PIDS);
 
 	mutex_unlock(&ftrace_lock);
 }
 
-static void ftrace_pid_reset(struct trace_array *tr)
+static void ftrace_pid_reset(struct trace_array *tr, int type)
 {
 	mutex_lock(&ftrace_lock);
-	clear_ftrace_pids(tr);
+	clear_ftrace_pids(tr, type);
 
 	ftrace_update_pid_func();
 	ftrace_startup_all(0);
@@ -7023,9 +7235,10 @@ static void *fpid_next(struct seq_file *m, void *v, loff_t *pos)
 	struct trace_array *tr = m->private;
 	struct trace_pid_list *pid_list = rcu_dereference_sched(tr->function_pids);
 
-	if (v == FTRACE_NO_PIDS)
+	if (v == FTRACE_NO_PIDS) {
+		(*pos)++;
 		return NULL;
-
+	}
 	return trace_pid_next(pid_list, v, pos);
 }
 
@@ -7053,21 +7266,71 @@ static const struct seq_operations ftrace_pid_sops = {
 	.show = fpid_show,
 };
 
-static int
-ftrace_pid_open(struct inode *inode, struct file *file)
+static void *fnpid_start(struct seq_file *m, loff_t *pos)
+	__acquires(RCU)
 {
+	struct trace_pid_list *pid_list;
+	struct trace_array *tr = m->private;
+
+	mutex_lock(&ftrace_lock);
+	rcu_read_lock_sched();
+
+	pid_list = rcu_dereference_sched(tr->function_no_pids);
+
+	if (!pid_list)
+		return !(*pos) ? FTRACE_NO_PIDS : NULL;
+
+	return trace_pid_start(pid_list, pos);
+}
+
+static void *fnpid_next(struct seq_file *m, void *v, loff_t *pos)
+{
+	struct trace_array *tr = m->private;
+	struct trace_pid_list *pid_list = rcu_dereference_sched(tr->function_no_pids);
+
+	if (v == FTRACE_NO_PIDS) {
+		(*pos)++;
+		return NULL;
+	}
+	return trace_pid_next(pid_list, v, pos);
+}
+
+static const struct seq_operations ftrace_no_pid_sops = {
+	.start = fnpid_start,
+	.next = fnpid_next,
+	.stop = fpid_stop,
+	.show = fpid_show,
+};
+
+static int pid_open(struct inode *inode, struct file *file, int type)
+{
+	const struct seq_operations *seq_ops;
 	struct trace_array *tr = inode->i_private;
 	struct seq_file *m;
 	int ret = 0;
 
-	if (trace_array_get(tr) < 0)
-		return -ENODEV;
+	ret = tracing_check_open_get_tr(tr);
+	if (ret)
+		return ret;
 
 	if ((file->f_mode & FMODE_WRITE) &&
 	    (file->f_flags & O_TRUNC))
-		ftrace_pid_reset(tr);
+		ftrace_pid_reset(tr, type);
 
-	ret = seq_open(file, &ftrace_pid_sops);
+	switch (type) {
+	case TRACE_PIDS:
+		seq_ops = &ftrace_pid_sops;
+		break;
+	case TRACE_NO_PIDS:
+		seq_ops = &ftrace_no_pid_sops;
+		break;
+	default:
+		trace_array_put(tr);
+		WARN_ON_ONCE(1);
+		return -EINVAL;
+	}
+
+	ret = seq_open(file, seq_ops);
 	if (ret < 0) {
 		trace_array_put(tr);
 	} else {
@@ -7079,10 +7342,23 @@ ftrace_pid_open(struct inode *inode, struct file *file)
 	return ret;
 }
 
+static int
+ftrace_pid_open(struct inode *inode, struct file *file)
+{
+	return pid_open(inode, file, TRACE_PIDS);
+}
+
+static int
+ftrace_no_pid_open(struct inode *inode, struct file *file)
+{
+	return pid_open(inode, file, TRACE_NO_PIDS);
+}
+
 static void ignore_task_cpu(void *data)
 {
 	struct trace_array *tr = data;
 	struct trace_pid_list *pid_list;
+	struct trace_pid_list *no_pid_list;
 
 	/*
 	 * This function is called by on_each_cpu() while the
@@ -7090,18 +7366,25 @@ static void ignore_task_cpu(void *data)
 	 */
 	pid_list = rcu_dereference_protected(tr->function_pids,
 					     mutex_is_locked(&ftrace_lock));
+	no_pid_list = rcu_dereference_protected(tr->function_no_pids,
+						mutex_is_locked(&ftrace_lock));
 
-	this_cpu_write(tr->trace_buffer.data->ftrace_ignore_pid,
-		       trace_ignore_this_task(pid_list, current));
+	if (trace_ignore_this_task(pid_list, no_pid_list, current))
+		this_cpu_write(tr->array_buffer.data->ftrace_ignore_pid,
+			       FTRACE_PID_IGNORE);
+	else
+		this_cpu_write(tr->array_buffer.data->ftrace_ignore_pid,
+			       current->pid);
 }
 
 static ssize_t
-ftrace_pid_write(struct file *filp, const char __user *ubuf,
-		   size_t cnt, loff_t *ppos)
+pid_write(struct file *filp, const char __user *ubuf,
+	  size_t cnt, loff_t *ppos, int type)
 {
 	struct seq_file *m = filp->private_data;
 	struct trace_array *tr = m->private;
-	struct trace_pid_list *filtered_pids = NULL;
+	struct trace_pid_list *filtered_pids;
+	struct trace_pid_list *other_pids;
 	struct trace_pid_list *pid_list;
 	ssize_t ret;
 
@@ -7110,19 +7393,43 @@ ftrace_pid_write(struct file *filp, const char __user *ubuf,
 
 	mutex_lock(&ftrace_lock);
 
-	filtered_pids = rcu_dereference_protected(tr->function_pids,
+	switch (type) {
+	case TRACE_PIDS:
+		filtered_pids = rcu_dereference_protected(tr->function_pids,
 					     lockdep_is_held(&ftrace_lock));
+		other_pids = rcu_dereference_protected(tr->function_no_pids,
+					     lockdep_is_held(&ftrace_lock));
+		break;
+	case TRACE_NO_PIDS:
+		filtered_pids = rcu_dereference_protected(tr->function_no_pids,
+					     lockdep_is_held(&ftrace_lock));
+		other_pids = rcu_dereference_protected(tr->function_pids,
+					     lockdep_is_held(&ftrace_lock));
+		break;
+	default:
+		ret = -EINVAL;
+		WARN_ON_ONCE(1);
+		goto out;
+	}
 
 	ret = trace_pid_write(filtered_pids, &pid_list, ubuf, cnt);
 	if (ret < 0)
 		goto out;
 
-	rcu_assign_pointer(tr->function_pids, pid_list);
+	switch (type) {
+	case TRACE_PIDS:
+		rcu_assign_pointer(tr->function_pids, pid_list);
+		break;
+	case TRACE_NO_PIDS:
+		rcu_assign_pointer(tr->function_no_pids, pid_list);
+		break;
+	}
+
 
 	if (filtered_pids) {
 		synchronize_rcu();
 		trace_free_pid_list(filtered_pids);
-	} else if (pid_list) {
+	} else if (pid_list && !other_pids) {
 		/* Register a probe to set whether to ignore the tracing of a task */
 		register_trace_sched_switch(ftrace_filter_pid_sched_switch_probe, tr);
 	}
@@ -7145,6 +7452,20 @@ ftrace_pid_write(struct file *filp, const char __user *ubuf,
 	return ret;
 }
 
+static ssize_t
+ftrace_pid_write(struct file *filp, const char __user *ubuf,
+		 size_t cnt, loff_t *ppos)
+{
+	return pid_write(filp, ubuf, cnt, ppos, TRACE_PIDS);
+}
+
+static ssize_t
+ftrace_no_pid_write(struct file *filp, const char __user *ubuf,
+		    size_t cnt, loff_t *ppos)
+{
+	return pid_write(filp, ubuf, cnt, ppos, TRACE_NO_PIDS);
+}
+
 static int
 ftrace_pid_release(struct inode *inode, struct file *file)
 {
@@ -7163,10 +7484,20 @@ static const struct file_operations ftrace_pid_fops = {
 	.release	= ftrace_pid_release,
 };
 
+static const struct file_operations ftrace_no_pid_fops = {
+	.open		= ftrace_no_pid_open,
+	.write		= ftrace_no_pid_write,
+	.read		= seq_read,
+	.llseek		= tracing_lseek,
+	.release	= ftrace_pid_release,
+};
+
 void ftrace_init_tracefs(struct trace_array *tr, struct dentry *d_tracer)
 {
 	trace_create_file("set_ftrace_pid", 0644, d_tracer,
 			    tr, &ftrace_pid_fops);
+	trace_create_file("set_ftrace_notrace_pid", 0644, d_tracer,
+			    tr, &ftrace_no_pid_fops);
 }
 
 void __init ftrace_init_tracefs_toplevel(struct trace_array *tr,
@@ -7214,7 +7545,7 @@ int ftrace_is_dead(void)
  */
 int register_ftrace_function(struct ftrace_ops *ops)
 {
-	int ret = -1;
+	int ret;
 
 	ftrace_ops_init(ops);
 
@@ -7260,8 +7591,7 @@ static bool is_permanent_ops_registered(void)
 
 int
 ftrace_enable_sysctl(struct ctl_table *table, int write,
-		     void __user *buffer, size_t *lenp,
-		     loff_t *ppos)
+		     void *buffer, size_t *lenp, loff_t *ppos)
 {
 	int ret = -ENODEV;
 

@@ -1105,9 +1105,9 @@ static const struct telemetry_core_ops telm_pltops = {
 
 static int telemetry_pltdrv_probe(struct platform_device *pdev)
 {
-	struct resource *res0 = NULL, *res1 = NULL;
 	const struct x86_cpu_id *id;
-	int size, ret = -ENOMEM;
+	void __iomem *mem;
+	int ret;
 
 	id = x86_match_cpu(telemetry_cpu_ids);
 	if (!id)
@@ -1117,50 +1117,17 @@ static int telemetry_pltdrv_probe(struct platform_device *pdev)
 
 	telm_conf->pmc = dev_get_drvdata(pdev->dev.parent);
 
-	res0 = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!res0) {
-		ret = -EINVAL;
-		goto out;
-	}
-	size = resource_size(res0);
-	if (!devm_request_mem_region(&pdev->dev, res0->start, size,
-				     pdev->name)) {
-		ret = -EBUSY;
-		goto out;
-	}
-	telm_conf->pss_config.ssram_base_addr = res0->start;
-	telm_conf->pss_config.ssram_size = size;
+	mem = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(mem))
+		return PTR_ERR(mem);
 
-	res1 = platform_get_resource(pdev, IORESOURCE_MEM, 1);
-	if (!res1) {
-		ret = -EINVAL;
-		goto out;
-	}
-	size = resource_size(res1);
-	if (!devm_request_mem_region(&pdev->dev, res1->start, size,
-				     pdev->name)) {
-		ret = -EBUSY;
-		goto out;
-	}
+	telm_conf->pss_config.regmap = mem;
 
-	telm_conf->ioss_config.ssram_base_addr = res1->start;
-	telm_conf->ioss_config.ssram_size = size;
+	mem = devm_platform_ioremap_resource(pdev, 1);
+	if (IS_ERR(mem))
+		return PTR_ERR(mem);
 
-	telm_conf->pss_config.regmap = ioremap_nocache(
-					telm_conf->pss_config.ssram_base_addr,
-					telm_conf->pss_config.ssram_size);
-	if (!telm_conf->pss_config.regmap) {
-		ret = -ENOMEM;
-		goto out;
-	}
-
-	telm_conf->ioss_config.regmap = ioremap_nocache(
-				telm_conf->ioss_config.ssram_base_addr,
-				telm_conf->ioss_config.ssram_size);
-	if (!telm_conf->ioss_config.regmap) {
-		ret = -ENOMEM;
-		goto out;
-	}
+	telm_conf->ioss_config.regmap = mem;
 
 	telm_conf->scu = devm_intel_scu_ipc_dev_get(&pdev->dev);
 	if (!telm_conf->scu) {
@@ -1184,14 +1151,6 @@ static int telemetry_pltdrv_probe(struct platform_device *pdev)
 	return 0;
 
 out:
-	if (res0)
-		release_mem_region(res0->start, resource_size(res0));
-	if (res1)
-		release_mem_region(res1->start, resource_size(res1));
-	if (telm_conf->pss_config.regmap)
-		iounmap(telm_conf->pss_config.regmap);
-	if (telm_conf->ioss_config.regmap)
-		iounmap(telm_conf->ioss_config.regmap);
 	dev_err(&pdev->dev, "TELEMETRY Setup Failed.\n");
 
 	return ret;
@@ -1200,9 +1159,6 @@ out:
 static int telemetry_pltdrv_remove(struct platform_device *pdev)
 {
 	telemetry_clear_pltdata();
-	iounmap(telm_conf->pss_config.regmap);
-	iounmap(telm_conf->ioss_config.regmap);
-
 	return 0;
 }
 

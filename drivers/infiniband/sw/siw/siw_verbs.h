@@ -36,20 +36,20 @@ static inline void siw_copy_sgl(struct ib_sge *sge, struct siw_sge *siw_sge,
 
 int siw_alloc_ucontext(struct ib_ucontext *base_ctx, struct ib_udata *udata);
 void siw_dealloc_ucontext(struct ib_ucontext *base_ctx);
-int siw_query_port(struct ib_device *base_dev, u8 port,
+int siw_query_port(struct ib_device *base_dev, u32 port,
 		   struct ib_port_attr *attr);
-int siw_get_port_immutable(struct ib_device *base_dev, u8 port,
+int siw_get_port_immutable(struct ib_device *base_dev, u32 port,
 			   struct ib_port_immutable *port_immutable);
 int siw_query_device(struct ib_device *base_dev, struct ib_device_attr *attr,
 		     struct ib_udata *udata);
 int siw_create_cq(struct ib_cq *base_cq, const struct ib_cq_init_attr *attr,
 		  struct ib_udata *udata);
-int siw_query_port(struct ib_device *base_dev, u8 port,
+int siw_query_port(struct ib_device *base_dev, u32 port,
 		   struct ib_port_attr *attr);
-int siw_query_gid(struct ib_device *base_dev, u8 port, int idx,
+int siw_query_gid(struct ib_device *base_dev, u32 port, int idx,
 		  union ib_gid *gid);
 int siw_alloc_pd(struct ib_pd *base_pd, struct ib_udata *udata);
-void siw_dealloc_pd(struct ib_pd *base_pd, struct ib_udata *udata);
+int siw_dealloc_pd(struct ib_pd *base_pd, struct ib_udata *udata);
 struct ib_qp *siw_create_qp(struct ib_pd *base_pd,
 			    struct ib_qp_init_attr *attr,
 			    struct ib_udata *udata);
@@ -62,7 +62,7 @@ int siw_post_send(struct ib_qp *base_qp, const struct ib_send_wr *wr,
 		  const struct ib_send_wr **bad_wr);
 int siw_post_receive(struct ib_qp *base_qp, const struct ib_recv_wr *wr,
 		     const struct ib_recv_wr **bad_wr);
-void siw_destroy_cq(struct ib_cq *base_cq, struct ib_udata *udata);
+int siw_destroy_cq(struct ib_cq *base_cq, struct ib_udata *udata);
 int siw_poll_cq(struct ib_cq *base_cq, int num_entries, struct ib_wc *wc);
 int siw_req_notify_cq(struct ib_cq *base_cq, enum ib_cq_notify_flags flags);
 struct ib_mr *siw_reg_user_mr(struct ib_pd *base_pd, u64 start, u64 len,
@@ -78,7 +78,7 @@ int siw_create_srq(struct ib_srq *base_srq, struct ib_srq_init_attr *attr,
 int siw_modify_srq(struct ib_srq *base_srq, struct ib_srq_attr *attr,
 		   enum ib_srq_attr_mask mask, struct ib_udata *udata);
 int siw_query_srq(struct ib_srq *base_srq, struct ib_srq_attr *attr);
-void siw_destroy_srq(struct ib_srq *base_srq, struct ib_udata *udata);
+int siw_destroy_srq(struct ib_srq *base_srq, struct ib_udata *udata);
 int siw_post_srq_recv(struct ib_srq *base_srq, const struct ib_recv_wr *wr,
 		      const struct ib_recv_wr **bad_wr);
 int siw_mmap(struct ib_ucontext *ctx, struct vm_area_struct *vma);
@@ -86,6 +86,6 @@ void siw_mmap_free(struct rdma_user_mmap_entry *rdma_entry);
 void siw_qp_event(struct siw_qp *qp, enum ib_event_type type);
 void siw_cq_event(struct siw_cq *cq, enum ib_event_type type);
 void siw_srq_event(struct siw_srq *srq, enum ib_event_type type);
-void siw_port_event(struct siw_device *dev, u8 port, enum ib_event_type type);
+void siw_port_event(struct siw_device *dev, u32 port, enum ib_event_type type);
 
 #endif

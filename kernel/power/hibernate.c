@@ -30,8 +30,8 @@
 #include <linux/ctype.h>
 #include <linux/genhd.h>
 #include <linux/ktime.h>
-#include <linux/efi.h>
 #include <linux/security.h>
+#include <linux/secretmem.h>
 #include <trace/events/power.h>
 
 #include "power.h"
@@ -82,19 +82,9 @@ void hibernate_release(void)
 
 bool hibernation_available(void)
 {
-	if (nohibernate != 0)
-		return false;
-
-	if (security_locked_down(LOCKDOWN_HIBERNATION) || snapshot_is_enforce_verify()) {
-		snapshot_set_enforce_verify();
-		if (get_efi_secret_key())
-			return true;
-		else
-			pr_warn("the secret key is invalid\n");
-		return false;
-	} else {
-		return true;
-	}
+	return nohibernate == 0 &&
+		!security_locked_down(LOCKDOWN_HIBERNATION) &&
+		!secretmem_active();
 }
 
 /**
@@ -300,14 +290,10 @@ static int create_image(int platform_mode)
 {
 	int error;
 
-	error = swsusp_prepare_hash(false);
-	if (error)
-		return error;
-
 	error = dpm_suspend_end(PMSG_FREEZE);
 	if (error) {
 		pr_err("Some devices failed to power down, aborting\n");
-		goto finish_hash;
+		return error;
 	}
 
 	error = platform_pre_snapshot(platform_mode);
@@ -343,7 +329,7 @@ static int create_image(int platform_mode)
 
 	if (!in_suspend) {
 		events_check_enabled = false;
-		clear_free_pages();
+		clear_or_poison_free_pages();
 	}
 
 	platform_leave(platform_mode);
@@ -367,9 +353,6 @@ static int create_image(int platform_mode)
 
 	dpm_resume_start(in_suspend ?
 		(error ? PMSG_RECOVER : PMSG_THAW) : PMSG_RESTORE);
-
- finish_hash:
-	swsusp_finish_hash();
 
 	return error;
 }
@@ -679,7 +662,7 @@ static void power_down(void)
 		break;
 	case HIBERNATION_PLATFORM:
 		hibernation_platform_enter();
-		/* Fall through */
+		fallthrough;
 	case HIBERNATION_SHUTDOWN:
 		if (pm_power_off)
 			kernel_power_off();
@@ -710,7 +693,7 @@ static int load_image_and_restore(void)
 	error = swsusp_read(&flags);
 	swsusp_close(FMODE_READ);
 	if (!error)
-		hibernation_restore(flags & SF_PLATFORM_MODE);
+		error = hibernation_restore(flags & SF_PLATFORM_MODE);
 
 	pr_err("Failed to load image, recovering.\n");
 	swsusp_free();
@@ -726,29 +709,12 @@ static int load_image_and_restore(void)
  */
 int hibernate(void)
 {
-	int error, nr_calls = 0;
 	bool snapshot_test = false;
-	void *secret_key;
+	int error;
 
 	if (!hibernation_available()) {
 		pm_pr_dbg("Hibernation not available.\n");
 		return -EPERM;
-	}
-	efi_skey_stop_regen();
-
-	error = snapshot_create_trampoline();
-	if (error)
-		return error;
-
-	/* using EFI secret key to encrypt hidden area */
-	secret_key = get_efi_secret_key();
-	if (secret_key) {
-		error = encrypt_backup_hidden_area(secret_key, SECRET_KEY_SIZE);
-		if (error) {
-			pr_err("Encrypt hidden area failed: %d\n", error);
-			snapshot_free_trampoline();
-			return error;
-		}
 	}
 
 	lock_system_sleep();
@@ -760,11 +726,9 @@ int hibernate(void)
 
 	pr_info("hibernation entry\n");
 	pm_prepare_console();
-	error = __pm_notifier_call_chain(PM_HIBERNATION_PREPARE, -1, &nr_calls);
-	if (error) {
-		nr_calls--;
-		goto Exit;
-	}
+	error = pm_notifier_call_chain_robust(PM_HIBERNATION_PREPARE, PM_POST_HIBERNATION);
+	if (error)
+		goto Restore;
 
 	ksys_sync_helper();
 
@@ -805,7 +769,6 @@ int hibernate(void)
 		pm_restore_gfp_mask();
 	} else {
 		pm_pr_dbg("Hibernation image restored successfully.\n");
-		snapshot_restore_trampoline();
 	}
 
  Free_bitmaps:
@@ -823,7 +786,8 @@ int hibernate(void)
 	/* Don't bother checking whether freezer_test_done is true */
 	freezer_test_done = false;
  Exit:
-	__pm_notifier_call_chain(PM_POST_HIBERNATION, nr_calls, NULL);
+	pm_notifier_call_chain(PM_POST_HIBERNATION);
+ Restore:
 	pm_restore_console();
 	hibernate_release();
  Unlock:
@@ -842,7 +806,7 @@ int hibernate(void)
  */
 int hibernate_quiet_exec(int (*func)(void *data), void *data)
 {
-	int error, nr_calls = 0;
+	int error;
 
 	lock_system_sleep();
 
@@ -853,11 +817,9 @@ int hibernate_quiet_exec(int (*func)(void *data), void *data)
 
 	pm_prepare_console();
 
-	error = __pm_notifier_call_chain(PM_HIBERNATION_PREPARE, -1, &nr_calls);
-	if (error) {
-		nr_calls--;
-		goto exit;
-	}
+	error = pm_notifier_call_chain_robust(PM_HIBERNATION_PREPARE, PM_POST_HIBERNATION);
+	if (error)
+		goto restore;
 
 	error = freeze_processes();
 	if (error)
@@ -918,8 +880,9 @@ thaw:
 	thaw_processes();
 
 exit:
-	__pm_notifier_call_chain(PM_POST_HIBERNATION, nr_calls, NULL);
+	pm_notifier_call_chain(PM_POST_HIBERNATION);
 
+restore:
 	pm_restore_console();
 
 	hibernate_release();
@@ -948,7 +911,7 @@ EXPORT_SYMBOL_GPL(hibernate_quiet_exec);
  */
 static int software_resume(void)
 {
-	int error, nr_calls = 0;
+	int error;
 
 	/*
 	 * If the user said "noresume".. bail out early.
@@ -1024,11 +987,9 @@ static int software_resume(void)
 
 	pr_info("resume from hibernation\n");
 	pm_prepare_console();
-	error = __pm_notifier_call_chain(PM_RESTORE_PREPARE, -1, &nr_calls);
-	if (error) {
-		nr_calls--;
-		goto Close_Finish;
-	}
+	error = pm_notifier_call_chain_robust(PM_RESTORE_PREPARE, PM_POST_RESTORE);
+	if (error)
+		goto Restore;
 
 	pm_pr_dbg("Preparing processes for hibernation restore.\n");
 	error = freeze_processes();
@@ -1044,7 +1005,8 @@ static int software_resume(void)
 	error = load_image_and_restore();
 	thaw_processes();
  Finish:
-	__pm_notifier_call_chain(PM_POST_RESTORE, nr_calls, NULL);
+	pm_notifier_call_chain(PM_POST_RESTORE);
+ Restore:
 	pm_restore_console();
 	pr_info("resume failed (%d)\n", error);
 	hibernate_release();
@@ -1186,7 +1148,7 @@ power_attr(disk);
 static ssize_t resume_show(struct kobject *kobj, struct kobj_attribute *attr,
 			   char *buf)
 {
-	return sprintf(buf,"%d:%d\n", MAJOR(swsusp_resume_device),
+	return sprintf(buf, "%d:%d\n", MAJOR(swsusp_resume_device),
 		       MINOR(swsusp_resume_device));
 }
 
@@ -1286,7 +1248,7 @@ static ssize_t reserved_size_store(struct kobject *kobj,
 
 power_attr(reserved_size);
 
-static struct attribute * g[] = {
+static struct attribute *g[] = {
 	&disk_attr.attr,
 	&resume_offset_attr.attr,
 	&resume_attr.attr,
@@ -1314,7 +1276,7 @@ static int __init resume_setup(char *str)
 	if (noresume)
 		return 1;
 
-	strncpy( resume_file, str, 255 );
+	strncpy(resume_file, str, 255);
 	return 1;
 }
 
@@ -1343,8 +1305,6 @@ static int __init hibernate_setup(char *str)
 	} else if (IS_ENABLED(CONFIG_STRICT_KERNEL_RWX)
 		   && !strncmp(str, "protect_image", 13)) {
 		enable_restore_image_protection();
-	} else if (!strncmp(str, "sigenforce", 10)) {
-		snapshot_set_enforce_verify();
 	}
 	return 1;
 }

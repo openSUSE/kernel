@@ -3,11 +3,13 @@
  * Copyright 2014 Linaro Ltd.
  */
 
+#include "ste-ab8500.dtsi"
+
 / {
 	soc {
 		prcmu@80157000 {
 			ab8500 {
-				ab8500-gpio {
+				ab8500-gpiocontroller {
 					/* Hog a few default settings */
 					pinctrl-names = "default";
 					pinctrl-0 = <&gpio2_default_mode>,

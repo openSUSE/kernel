@@ -12,6 +12,7 @@ _Static_assert(MAX_ENTRIES < LOOP_BOUND, "MAX_ENTRIES must be < LOOP_BOUND");
 
 enum bpf_map_type g_map_type = BPF_MAP_TYPE_UNSPEC;
 __u32 g_line = 0;
+int page_size = 0; /* userspace should set it */
 
 #define VERIFY_TYPE(type, func) ({	\
 	g_map_type = type;		\
@@ -26,17 +27,12 @@ __u32 g_line = 0;
 		return 0;	\
 })
 
-struct bpf_map_memory {
-	__u32 pages;
-} __attribute__((preserve_access_index));
-
 struct bpf_map {
 	enum bpf_map_type map_type;
 	__u32 key_size;
 	__u32 value_size;
 	__u32 max_entries;
 	__u32 id;
-	struct bpf_map_memory memory;
 } __attribute__((preserve_access_index));
 
 static inline int check_bpf_map_fields(struct bpf_map *map, __u32 key_size,
@@ -47,7 +43,6 @@ static inline int check_bpf_map_fields(struct bpf_map *map, __u32 key_size,
 	VERIFY(map->value_size == value_size);
 	VERIFY(map->max_entries == max_entries);
 	VERIFY(map->id > 0);
-	VERIFY(map->memory.pages > 0);
 
 	return 1;
 }
@@ -60,7 +55,6 @@ static inline int check_bpf_map_ptr(struct bpf_map *indirect,
 	VERIFY(indirect->value_size == direct->value_size);
 	VERIFY(indirect->max_entries == direct->max_entries);
 	VERIFY(indirect->id == direct->id);
-	VERIFY(indirect->memory.pages == direct->memory.pages);
 
 	return 1;
 }
@@ -76,6 +70,14 @@ static inline int check(struct bpf_map *indirect, struct bpf_map *direct,
 
 static inline int check_default(struct bpf_map *indirect,
 				struct bpf_map *direct)
+{
+	VERIFY(check(indirect, direct, sizeof(__u32), sizeof(__u32),
+		     MAX_ENTRIES));
+	return 1;
+}
+
+static __noinline int
+check_default_noinline(struct bpf_map *indirect, struct bpf_map *direct)
 {
 	VERIFY(check(indirect, direct, sizeof(__u32), sizeof(__u32),
 		     MAX_ENTRIES));
@@ -107,7 +109,7 @@ static inline int check_hash(void)
 	struct bpf_map *map = (struct bpf_map *)&m_hash;
 	int i;
 
-	VERIFY(check_default(&hash->map, map));
+	VERIFY(check_default_noinline(&hash->map, map));
 
 	VERIFY(hash->n_buckets == MAX_ENTRIES);
 	VERIFY(hash->elem_size == 64);
@@ -589,7 +591,7 @@ static inline int check_stack(void)
 	return 1;
 }
 
-struct bpf_sk_storage_map {
+struct bpf_local_storage_map {
 	struct bpf_map map;
 } __attribute__((preserve_access_index));
 
@@ -602,8 +604,8 @@ struct {
 
 static inline int check_sk_storage(void)
 {
-	struct bpf_sk_storage_map *sk_storage =
-		(struct bpf_sk_storage_map *)&m_sk_storage;
+	struct bpf_local_storage_map *sk_storage =
+		(struct bpf_local_storage_map *)&m_sk_storage;
 	struct bpf_map *map = (struct bpf_map *)&m_sk_storage;
 
 	VERIFY(check(&sk_storage->map, map, sizeof(__u32), sizeof(__u32), 0));
@@ -634,7 +636,6 @@ struct bpf_ringbuf_map {
 
 struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
-	__uint(max_entries, 1 << 12);
 } m_ringbuf SEC(".maps");
 
 static inline int check_ringbuf(void)
@@ -642,7 +643,7 @@ static inline int check_ringbuf(void)
 	struct bpf_ringbuf_map *ringbuf = (struct bpf_ringbuf_map *)&m_ringbuf;
 	struct bpf_map *map = (struct bpf_map *)&m_ringbuf;
 
-	VERIFY(check(&ringbuf->map, map, 0, 0, 1 << 12));
+	VERIFY(check(&ringbuf->map, map, 0, 0, page_size));
 
 	return 1;
 }

@@ -1,10 +1,20 @@
 # SPDX-License-Identifier: GPL-2.0
+
+menuconfig ARCH_DAVINCI
+	bool "TI DaVinci"
+	depends on ARCH_MULTI_V5
+	select DAVINCI_TIMER
+	select ZONE_DMA
+	select PM_GENERIC_DOMAINS if PM
+	select PM_GENERIC_DOMAINS_OF if PM && OF
+	select REGMAP_MMIO
+	select RESET_CONTROLLER
+	select PINCTRL_SINGLE
+
 if ARCH_DAVINCI
 
 config ARCH_DAVINCI_DMx
 	bool
-
-menu "TI DaVinci Implementations"
 
 comment "DaVinci Core Type"
 
@@ -52,7 +62,6 @@ config MACH_DA8XX_DT
 	default y
 	depends on ARCH_DAVINCI_DA850
 	select PINCTRL
-	select TIMER_OF
 	help
 	  Say y here to include support for TI DaVinci DA850 based using
 	  Flattened Device Tree. More information at Documentation/devicetree
@@ -190,15 +199,13 @@ config MACH_MITYOMAPL138
 	help
 	  Say Y here to select the Critical Link MityDSP-L138/MityARM-1808
 	  System on Module.  Information on this SoM may be found at
-	  http://www.mitydsp.com
+	  https://www.mitydsp.com
 
 config MACH_OMAPL138_HAWKBOARD
 	bool "TI AM1808 / OMAPL-138 Hawkboard platform"
 	depends on ARCH_DAVINCI_DA850
 	help
 	  Say Y here to select the TI AM1808 / OMAPL-138 Hawkboard platform .
-	  Information of this board may be found at
-	  http://www.hawkboard.org/
 
 config DAVINCI_MUX
 	bool "DAVINCI multiplexing support"
@@ -224,7 +231,5 @@ config DAVINCI_MUX_WARNINGS
 	  Choose Y here to warn whenever driver initialization logic needs
 	  to change the pin multiplexing setup. When there are no warnings
 	  printed, it's safe to deselect DAVINCI_MUX for your product.
-
-endmenu
 
 endif

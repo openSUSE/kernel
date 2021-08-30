@@ -22,6 +22,7 @@
 #include "xfs_rmap_btree.h"
 #include "xfs_refcount_btree.h"
 #include "xfs_extent_busy.h"
+#include "xfs_ag.h"
 #include "xfs_ag_resv.h"
 #include "xfs_quota.h"
 #include "scrub/scrub.h"
@@ -37,19 +38,18 @@
  */
 int
 xrep_attempt(
-	struct xfs_inode	*ip,
 	struct xfs_scrub	*sc)
 {
 	int			error = 0;
 
-	trace_xrep_attempt(ip, sc->sm, error);
+	trace_xrep_attempt(XFS_I(file_inode(sc->file)), sc->sm, error);
 
 	xchk_ag_btcur_free(&sc->sa);
 
 	/* Repair whatever's broken. */
 	ASSERT(sc->ops->repair);
 	error = sc->ops->repair(sc);
-	trace_xrep_done(ip, sc->sm, error);
+	trace_xrep_done(XFS_I(file_inode(sc->file)), sc->sm, error);
 	switch (error) {
 	case 0:
 		/*
@@ -207,9 +207,15 @@ xrep_calc_ag_resblks(
 
 	/* Now grab the block counters from the AGF. */
 	error = xfs_alloc_read_agf(mp, NULL, sm->sm_agno, 0, &bp);
-	if (!error) {
-		aglen = be32_to_cpu(XFS_BUF_TO_AGF(bp)->agf_length);
-		freelen = be32_to_cpu(XFS_BUF_TO_AGF(bp)->agf_freeblks);
+	if (error) {
+		aglen = xfs_ag_block_count(mp, sm->sm_agno);
+		freelen = aglen;
+		usedlen = aglen;
+	} else {
+		struct xfs_agf	*agf = bp->b_addr;
+
+		aglen = be32_to_cpu(agf->agf_length);
+		freelen = be32_to_cpu(agf->agf_freeblks);
 		usedlen = aglen - freelen;
 		xfs_buf_relse(bp);
 	}
@@ -298,7 +304,7 @@ xrep_alloc_ag_block(
 			return error;
 		if (bno == NULLAGBLOCK)
 			return -ENOSPC;
-		xfs_extent_busy_reuse(sc->mp, sc->sa.agno, bno,
+		xfs_extent_busy_reuse(sc->mp, sc->sa.pag, bno,
 				1, false);
 		*fsbno = XFS_AGB_TO_FSB(sc->mp, sc->sa.agno, bno);
 		if (resv == XFS_AG_RESV_RMAPBT)
@@ -341,17 +347,21 @@ xrep_init_btblock(
 	struct xfs_trans		*tp = sc->tp;
 	struct xfs_mount		*mp = sc->mp;
 	struct xfs_buf			*bp;
+	int				error;
 
 	trace_xrep_init_btblock(mp, XFS_FSB_TO_AGNO(mp, fsb),
 			XFS_FSB_TO_AGBNO(mp, fsb), btnum);
 
 	ASSERT(XFS_FSB_TO_AGNO(mp, fsb) == sc->sa.agno);
-	bp = xfs_trans_get_buf(tp, mp->m_ddev_targp, XFS_FSB_TO_DADDR(mp, fsb),
-			XFS_FSB_TO_BB(mp, 1), 0);
+	error = xfs_trans_get_buf(tp, mp->m_ddev_targp,
+			XFS_FSB_TO_DADDR(mp, fsb), XFS_FSB_TO_BB(mp, 1), 0,
+			&bp);
+	if (error)
+		return error;
 	xfs_buf_zero(bp, 0, BBTOB(bp->b_length));
 	xfs_btree_init_block(mp, bp, btnum, 0, 0, sc->sa.agno);
 	xfs_trans_buf_set_type(tp, bp, XFS_BLFT_BTREE_BUF);
-	xfs_trans_log_buf(tp, bp, 0, bp->b_length);
+	xfs_trans_log_buf(tp, bp, 0, BBTOB(bp->b_length) - 1);
 	bp->b_ops = ops;
 	*bpp = bp;
 
@@ -430,10 +440,10 @@ xrep_init_btblock(
 int
 xrep_invalidate_blocks(
 	struct xfs_scrub	*sc,
-	struct xfs_bitmap	*bitmap)
+	struct xbitmap		*bitmap)
 {
-	struct xfs_bitmap_range	*bmr;
-	struct xfs_bitmap_range	*n;
+	struct xbitmap_range	*bmr;
+	struct xbitmap_range	*n;
 	struct xfs_buf		*bp;
 	xfs_fsblock_t		fsbno;
 
@@ -445,7 +455,7 @@ xrep_invalidate_blocks(
 	 * because we never own those; and if we can't TRYLOCK the buffer we
 	 * assume it's owned by someone else.
 	 */
-	for_each_xfs_bitmap_block(fsbno, bmr, n, bitmap) {
+	for_each_xbitmap_block(fsbno, bmr, n, bitmap) {
 		/* Skip AG headers and post-EOFS blocks */
 		if (!xfs_verify_fsbno(sc->mp, fsbno))
 			continue;
@@ -499,7 +509,7 @@ xrep_put_freelist(
 	 * create an rmap for the block prior to merging it or else other
 	 * parts will break.
 	 */
-	error = xfs_rmap_alloc(sc->tp, sc->sa.agf_bp, sc->sa.agno, agbno, 1,
+	error = xfs_rmap_alloc(sc->tp, sc->sa.agf_bp, sc->sa.pag, agbno, 1,
 			&XFS_RMAP_OINFO_AG);
 	if (error)
 		return error;
@@ -509,7 +519,7 @@ xrep_put_freelist(
 			agbno, 0);
 	if (error)
 		return error;
-	xfs_extent_busy_insert(sc->tp, sc->sa.agno, agbno, 1,
+	xfs_extent_busy_insert(sc->tp, sc->sa.pag, agbno, 1,
 			XFS_EXTENT_BUSY_SKIP_DISCARD);
 
 	return 0;
@@ -542,12 +552,10 @@ xrep_reap_block(
 		error = xfs_alloc_read_agf(sc->mp, sc->tp, agno, 0, &agf_bp);
 		if (error)
 			return error;
-		if (!agf_bp)
-			return -ENOMEM;
 	} else {
 		agf_bp = sc->sa.agf_bp;
 	}
-	cur = xfs_rmapbt_init_cursor(sc->mp, sc->tp, agf_bp, agno);
+	cur = xfs_rmapbt_init_cursor(sc->mp, sc->tp, agf_bp, sc->sa.pag);
 
 	/* Can we find any other rmappings? */
 	error = xfs_rmap_has_other_keys(cur, agbno, 1, oinfo, &has_other_rmap);
@@ -569,7 +577,8 @@ xrep_reap_block(
 	 * to run xfs_repair.
 	 */
 	if (has_other_rmap)
-		error = xfs_rmap_free(sc->tp, agf_bp, agno, agbno, 1, oinfo);
+		error = xfs_rmap_free(sc->tp, agf_bp, sc->sa.pag, agbno,
+					1, oinfo);
 	else if (resv == XFS_AG_RESV_AGFL)
 		error = xrep_put_freelist(sc, agbno);
 	else
@@ -593,18 +602,18 @@ out_free:
 int
 xrep_reap_extents(
 	struct xfs_scrub		*sc,
-	struct xfs_bitmap		*bitmap,
+	struct xbitmap			*bitmap,
 	const struct xfs_owner_info	*oinfo,
 	enum xfs_ag_resv_type		type)
 {
-	struct xfs_bitmap_range		*bmr;
-	struct xfs_bitmap_range		*n;
+	struct xbitmap_range		*bmr;
+	struct xbitmap_range		*n;
 	xfs_fsblock_t			fsbno;
 	int				error = 0;
 
 	ASSERT(xfs_sb_version_hasrmapbt(&sc->mp->m_sb));
 
-	for_each_xfs_bitmap_block(fsbno, bmr, n, bitmap) {
+	for_each_xbitmap_block(fsbno, bmr, n, bitmap) {
 		ASSERT(sc->ip != NULL ||
 		       XFS_FSB_TO_AGNO(sc->mp, fsbno) == sc->sa.agno);
 		trace_xrep_dispose_btree_extent(sc->mp,
@@ -613,11 +622,9 @@ xrep_reap_extents(
 
 		error = xrep_reap_block(sc, fsbno, oinfo, type);
 		if (error)
-			goto out;
+			break;
 	}
 
-out:
-	xfs_bitmap_destroy(bitmap);
 	return error;
 }
 
@@ -664,7 +671,7 @@ xrep_findroot_agfl_walk(
 {
 	xfs_agblock_t		*agbno = priv;
 
-	return (*agbno == bno) ? XFS_ITER_ABORT : 0;
+	return (*agbno == bno) ? -ECANCELED : 0;
 }
 
 /* Does this block match the btree information passed in? */
@@ -694,7 +701,7 @@ xrep_findroot_block(
 	if (owner == XFS_RMAP_OWN_AG) {
 		error = xfs_agfl_walk(mp, ri->agf, ri->agfl_bp,
 				xrep_findroot_agfl_walk, &agbno);
-		if (error == XFS_ITER_ABORT)
+		if (error == -ECANCELED)
 			return 0;
 		if (error)
 			return error;
@@ -877,7 +884,7 @@ xrep_find_ag_btree_roots(
 
 	ri.sc = sc;
 	ri.btree_info = btree_info;
-	ri.agf = XFS_BUF_TO_AGF(agf_bp);
+	ri.agf = agf_bp->b_addr;
 	ri.agfl_bp = agfl_bp;
 	for (fab = btree_info; fab->buf_ops; fab++) {
 		ASSERT(agfl_bp || fab->rmap_owner != XFS_RMAP_OWN_AG);
@@ -886,7 +893,7 @@ xrep_find_ag_btree_roots(
 		fab->height = 0;
 	}
 
-	cur = xfs_rmapbt_init_cursor(mp, sc->tp, agf_bp, sc->sa.agno);
+	cur = xfs_rmapbt_init_cursor(mp, sc->tp, agf_bp, sc->sa.pag);
 	error = xfs_rmap_query_all(cur, xrep_findroot_rmap, &ri);
 	xfs_btree_del_cursor(cur, error);
 
@@ -897,11 +904,11 @@ xrep_find_ag_btree_roots(
 void
 xrep_force_quotacheck(
 	struct xfs_scrub	*sc,
-	uint			dqtype)
+	xfs_dqtype_t		type)
 {
 	uint			flag;
 
-	flag = xfs_quota_chkd_flag(dqtype);
+	flag = xfs_quota_chkd_flag(type);
 	if (!(flag & sc->mp->m_qflags))
 		return;
 
@@ -937,12 +944,12 @@ xrep_ino_dqattach(
 "inode %llu repair encountered quota error %d, quotacheck forced.",
 				(unsigned long long)sc->ip->i_ino, error);
 		if (XFS_IS_UQUOTA_ON(sc->mp) && !sc->ip->i_udquot)
-			xrep_force_quotacheck(sc, XFS_DQ_USER);
+			xrep_force_quotacheck(sc, XFS_DQTYPE_USER);
 		if (XFS_IS_GQUOTA_ON(sc->mp) && !sc->ip->i_gdquot)
-			xrep_force_quotacheck(sc, XFS_DQ_GROUP);
+			xrep_force_quotacheck(sc, XFS_DQTYPE_GROUP);
 		if (XFS_IS_PQUOTA_ON(sc->mp) && !sc->ip->i_pdquot)
-			xrep_force_quotacheck(sc, XFS_DQ_PROJ);
-		/* fall through */
+			xrep_force_quotacheck(sc, XFS_DQTYPE_PROJ);
+		fallthrough;
 	case -ESRCH:
 		error = 0;
 		break;

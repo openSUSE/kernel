@@ -273,6 +273,30 @@
 #define SKX_CPUNODEID			0xc0
 #define SKX_GIDNIDMAP			0xd4
 
+/*
+ * The CPU_BUS_NUMBER MSR returns the values of the respective CPUBUSNO CSR
+ * that BIOS programmed. MSR has package scope.
+ * |  Bit  |  Default  |  Description
+ * | [63]  |    00h    | VALID - When set, indicates the CPU bus
+ *                       numbers have been initialized. (RO)
+ * |[62:48]|    ---    | Reserved
+ * |[47:40]|    00h    | BUS_NUM_5 - Return the bus number BIOS assigned
+ *                       CPUBUSNO(5). (RO)
+ * |[39:32]|    00h    | BUS_NUM_4 - Return the bus number BIOS assigned
+ *                       CPUBUSNO(4). (RO)
+ * |[31:24]|    00h    | BUS_NUM_3 - Return the bus number BIOS assigned
+ *                       CPUBUSNO(3). (RO)
+ * |[23:16]|    00h    | BUS_NUM_2 - Return the bus number BIOS assigned
+ *                       CPUBUSNO(2). (RO)
+ * |[15:8] |    00h    | BUS_NUM_1 - Return the bus number BIOS assigned
+ *                       CPUBUSNO(1). (RO)
+ * | [7:0] |    00h    | BUS_NUM_0 - Return the bus number BIOS assigned
+ *                       CPUBUSNO(0). (RO)
+ */
+#define SKX_MSR_CPU_BUS_NUMBER		0x300
+#define SKX_MSR_CPU_BUS_VALID_BIT	(1ULL << 63)
+#define BUS_NUM_STRIDE			8
+
 /* SKX CHA */
 #define SKX_CHA_MSR_PMON_BOX_FILTER_TID		(0x1ffULL << 0)
 #define SKX_CHA_MSR_PMON_BOX_FILTER_LINK	(0xfULL << 9)
@@ -323,6 +347,13 @@
 #define SKX_M2M_PCI_PMON_CTL0		0x228
 #define SKX_M2M_PCI_PMON_CTR0		0x200
 #define SKX_M2M_PCI_PMON_BOX_CTL	0x258
+
+/* Memory Map registers device ID */
+#define SNR_ICX_MESH2IIO_MMAP_DID		0x9a2
+#define SNR_ICX_SAD_CONTROL_CFG		0x3f4
+
+/* Getting I/O stack id in SAD_COTROL_CFG notation */
+#define SAD_CONTROL_STACK_ID(data)		(((data) >> 4) & 0x7)
 
 /* SNR Ubox */
 #define SNR_U_MSR_PMON_CTR0			0x1f98
@@ -3651,6 +3682,182 @@ static struct intel_uncore_ops skx_uncore_iio_ops = {
 	.read_counter		= uncore_msr_read_counter,
 };
 
+static inline u8 skx_iio_stack(struct intel_uncore_pmu *pmu, int die)
+{
+	return pmu->type->topology[die].configuration >>
+	       (pmu->pmu_idx * BUS_NUM_STRIDE);
+}
+
+static umode_t
+pmu_iio_mapping_visible(struct kobject *kobj, struct attribute *attr,
+			 int die, int zero_bus_pmu)
+{
+	struct intel_uncore_pmu *pmu = dev_to_uncore_pmu(kobj_to_dev(kobj));
+
+	return (!skx_iio_stack(pmu, die) && pmu->pmu_idx != zero_bus_pmu) ? 0 : attr->mode;
+}
+
+static umode_t
+skx_iio_mapping_visible(struct kobject *kobj, struct attribute *attr, int die)
+{
+	/* Root bus 0x00 is valid only for pmu_idx = 0. */
+	return pmu_iio_mapping_visible(kobj, attr, die, 0);
+}
+
+static ssize_t skx_iio_mapping_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
+{
+	struct intel_uncore_pmu *pmu = dev_to_uncore_pmu(dev);
+	struct dev_ext_attribute *ea = to_dev_ext_attribute(attr);
+	long die = (long)ea->var;
+
+	return sprintf(buf, "%04x:%02x\n", pmu->type->topology[die].segment,
+					   skx_iio_stack(pmu, die));
+}
+
+static int skx_msr_cpu_bus_read(int cpu, u64 *topology)
+{
+	u64 msr_value;
+
+	if (rdmsrl_on_cpu(cpu, SKX_MSR_CPU_BUS_NUMBER, &msr_value) ||
+			!(msr_value & SKX_MSR_CPU_BUS_VALID_BIT))
+		return -ENXIO;
+
+	*topology = msr_value;
+
+	return 0;
+}
+
+static int die_to_cpu(int die)
+{
+	int res = 0, cpu, current_die;
+	/*
+	 * Using cpus_read_lock() to ensure cpu is not going down between
+	 * looking at cpu_online_mask.
+	 */
+	cpus_read_lock();
+	for_each_online_cpu(cpu) {
+		current_die = topology_logical_die_id(cpu);
+		if (current_die == die) {
+			res = cpu;
+			break;
+		}
+	}
+	cpus_read_unlock();
+	return res;
+}
+
+static int skx_iio_get_topology(struct intel_uncore_type *type)
+{
+	int die, ret = -EPERM;
+
+	type->topology = kcalloc(uncore_max_dies(), sizeof(*type->topology),
+				 GFP_KERNEL);
+	if (!type->topology)
+		return -ENOMEM;
+
+	for (die = 0; die < uncore_max_dies(); die++) {
+		ret = skx_msr_cpu_bus_read(die_to_cpu(die),
+					   &type->topology[die].configuration);
+		if (ret)
+			break;
+
+		ret = uncore_die_to_segment(die);
+		if (ret < 0)
+			break;
+
+		type->topology[die].segment = ret;
+	}
+
+	if (ret < 0) {
+		kfree(type->topology);
+		type->topology = NULL;
+	}
+
+	return ret;
+}
+
+static struct attribute_group skx_iio_mapping_group = {
+	.is_visible	= skx_iio_mapping_visible,
+};
+
+static const struct attribute_group *skx_iio_attr_update[] = {
+	&skx_iio_mapping_group,
+	NULL,
+};
+
+static int
+pmu_iio_set_mapping(struct intel_uncore_type *type, struct attribute_group *ag)
+{
+	char buf[64];
+	int ret;
+	long die = -1;
+	struct attribute **attrs = NULL;
+	struct dev_ext_attribute *eas = NULL;
+
+	ret = type->get_topology(type);
+	if (ret < 0)
+		goto clear_attr_update;
+
+	ret = -ENOMEM;
+
+	/* One more for NULL. */
+	attrs = kcalloc((uncore_max_dies() + 1), sizeof(*attrs), GFP_KERNEL);
+	if (!attrs)
+		goto clear_topology;
+
+	eas = kcalloc(uncore_max_dies(), sizeof(*eas), GFP_KERNEL);
+	if (!eas)
+		goto clear_attrs;
+
+	for (die = 0; die < uncore_max_dies(); die++) {
+		sprintf(buf, "die%ld", die);
+		sysfs_attr_init(&eas[die].attr.attr);
+		eas[die].attr.attr.name = kstrdup(buf, GFP_KERNEL);
+		if (!eas[die].attr.attr.name)
+			goto err;
+		eas[die].attr.attr.mode = 0444;
+		eas[die].attr.show = skx_iio_mapping_show;
+		eas[die].attr.store = NULL;
+		eas[die].var = (void *)die;
+		attrs[die] = &eas[die].attr.attr;
+	}
+	ag->attrs = attrs;
+
+	return 0;
+err:
+	for (; die >= 0; die--)
+		kfree(eas[die].attr.attr.name);
+	kfree(eas);
+clear_attrs:
+	kfree(attrs);
+clear_topology:
+	kfree(type->topology);
+clear_attr_update:
+	type->attr_update = NULL;
+	return ret;
+}
+
+static int skx_iio_set_mapping(struct intel_uncore_type *type)
+{
+	return pmu_iio_set_mapping(type, &skx_iio_mapping_group);
+}
+
+static void skx_iio_cleanup_mapping(struct intel_uncore_type *type)
+{
+	struct attribute **attr = skx_iio_mapping_group.attrs;
+
+	if (!attr)
+		return;
+
+	for (; *attr; attr++)
+		kfree((*attr)->name);
+	kfree(attr_to_ext_attr(*skx_iio_mapping_group.attrs));
+	kfree(skx_iio_mapping_group.attrs);
+	skx_iio_mapping_group.attrs = NULL;
+	kfree(type->topology);
+}
+
 static struct intel_uncore_type skx_uncore_iio = {
 	.name			= "iio",
 	.num_counters		= 4,
@@ -3665,6 +3872,10 @@ static struct intel_uncore_type skx_uncore_iio = {
 	.constraints		= skx_uncore_iio_constraints,
 	.ops			= &skx_uncore_iio_ops,
 	.format_group		= &skx_uncore_iio_format_group,
+	.attr_update		= skx_iio_attr_update,
+	.get_topology		= skx_iio_get_topology,
+	.set_mapping		= skx_iio_set_mapping,
+	.cleanup_mapping	= skx_iio_cleanup_mapping,
 };
 
 enum perf_uncore_iio_freerunning_type_id {
@@ -4205,6 +4416,91 @@ static const struct attribute_group snr_uncore_iio_format_group = {
 	.attrs = snr_uncore_iio_formats_attr,
 };
 
+static umode_t
+snr_iio_mapping_visible(struct kobject *kobj, struct attribute *attr, int die)
+{
+	/* Root bus 0x00 is valid only for pmu_idx = 1. */
+	return pmu_iio_mapping_visible(kobj, attr, die, 1);
+}
+
+static struct attribute_group snr_iio_mapping_group = {
+	.is_visible	= snr_iio_mapping_visible,
+};
+
+static const struct attribute_group *snr_iio_attr_update[] = {
+	&snr_iio_mapping_group,
+	NULL,
+};
+
+static int sad_cfg_iio_topology(struct intel_uncore_type *type, u8 *sad_pmon_mapping)
+{
+	u32 sad_cfg;
+	int die, stack_id, ret = -EPERM;
+	struct pci_dev *dev = NULL;
+
+	type->topology = kcalloc(uncore_max_dies(), sizeof(*type->topology),
+				 GFP_KERNEL);
+	if (!type->topology)
+		return -ENOMEM;
+
+	while ((dev = pci_get_device(PCI_VENDOR_ID_INTEL, SNR_ICX_MESH2IIO_MMAP_DID, dev))) {
+		ret = pci_read_config_dword(dev, SNR_ICX_SAD_CONTROL_CFG, &sad_cfg);
+		if (ret) {
+			ret = pcibios_err_to_errno(ret);
+			break;
+		}
+
+		die = uncore_pcibus_to_dieid(dev->bus);
+		stack_id = SAD_CONTROL_STACK_ID(sad_cfg);
+		if (die < 0 || stack_id >= type->num_boxes) {
+			ret = -EPERM;
+			break;
+		}
+
+		/* Convert stack id from SAD_CONTROL to PMON notation. */
+		stack_id = sad_pmon_mapping[stack_id];
+
+		((u8 *)&(type->topology[die].configuration))[stack_id] = dev->bus->number;
+		type->topology[die].segment = pci_domain_nr(dev->bus);
+	}
+
+	if (ret) {
+		kfree(type->topology);
+		type->topology = NULL;
+	}
+
+	return ret;
+}
+
+/*
+ * SNR has a static mapping of stack IDs from SAD_CONTROL_CFG notation to PMON
+ */
+enum {
+	SNR_QAT_PMON_ID,
+	SNR_CBDMA_DMI_PMON_ID,
+	SNR_NIS_PMON_ID,
+	SNR_DLB_PMON_ID,
+	SNR_PCIE_GEN3_PMON_ID
+};
+
+static u8 snr_sad_pmon_mapping[] = {
+	SNR_CBDMA_DMI_PMON_ID,
+	SNR_PCIE_GEN3_PMON_ID,
+	SNR_DLB_PMON_ID,
+	SNR_NIS_PMON_ID,
+	SNR_QAT_PMON_ID
+};
+
+static int snr_iio_get_topology(struct intel_uncore_type *type)
+{
+	return sad_cfg_iio_topology(type, snr_sad_pmon_mapping);
+}
+
+static int snr_iio_set_mapping(struct intel_uncore_type *type)
+{
+	return pmu_iio_set_mapping(type, &snr_iio_mapping_group);
+}
+
 static struct intel_uncore_type snr_uncore_iio = {
 	.name			= "iio",
 	.num_counters		= 4,
@@ -4218,6 +4514,10 @@ static struct intel_uncore_type snr_uncore_iio = {
 	.msr_offset		= SNR_IIO_MSR_OFFSET,
 	.ops			= &ivbep_uncore_msr_ops,
 	.format_group		= &snr_uncore_iio_format_group,
+	.attr_update		= snr_iio_attr_update,
+	.get_topology		= snr_iio_get_topology,
+	.set_mapping		= snr_iio_set_mapping,
+	.cleanup_mapping	= skx_iio_cleanup_mapping,
 };
 
 static struct intel_uncore_type snr_uncore_irp = {
@@ -4503,6 +4803,7 @@ static void __snr_uncore_mmio_init_box(struct intel_uncore_box *box,
 				       unsigned int box_ctl, int mem_offset)
 {
 	struct pci_dev *pdev = snr_uncore_get_mc_dev(box->dieid);
+	struct intel_uncore_type *type = box->pmu->type;
 	resource_size_t addr;
 	u32 pci_dword;
 
@@ -4510,16 +4811,18 @@ static void __snr_uncore_mmio_init_box(struct intel_uncore_box *box,
 		return;
 
 	pci_read_config_dword(pdev, SNR_IMC_MMIO_BASE_OFFSET, &pci_dword);
-	addr = (pci_dword & SNR_IMC_MMIO_BASE_MASK) << 23;
+	addr = ((resource_size_t)pci_dword & SNR_IMC_MMIO_BASE_MASK) << 23;
 
 	pci_read_config_dword(pdev, mem_offset, &pci_dword);
 	addr |= (pci_dword & SNR_IMC_MMIO_MEM0_MASK) << 12;
 
 	addr += box_ctl;
 
-	box->io_addr = ioremap(addr, SNR_IMC_MMIO_SIZE);
-	if (!box->io_addr)
+	box->io_addr = ioremap(addr, type->mmio_map_size);
+	if (!box->io_addr) {
+		pr_warn("perf uncore: Failed to ioremap for %s.\n", type->name);
 		return;
+	}
 
 	writel(IVBEP_PMON_BOX_CTL_INT, box->io_addr);
 }
@@ -4562,6 +4865,9 @@ static void snr_uncore_mmio_enable_event(struct intel_uncore_box *box,
 	if (!box->io_addr)
 		return;
 
+	if (!uncore_mmio_is_valid_offset(box, hwc->config_base))
+		return;
+
 	writel(hwc->config | SNBEP_PMON_CTL_EN,
 	       box->io_addr + hwc->config_base);
 }
@@ -4572,6 +4878,9 @@ static void snr_uncore_mmio_disable_event(struct intel_uncore_box *box,
 	struct hw_perf_event *hwc = &event->hw;
 
 	if (!box->io_addr)
+		return;
+
+	if (!uncore_mmio_is_valid_offset(box, hwc->config_base))
 		return;
 
 	writel(hwc->config, box->io_addr + hwc->config_base);
@@ -4612,6 +4921,7 @@ static struct intel_uncore_type snr_uncore_imc = {
 	.event_mask	= SNBEP_PMON_RAW_EVENT_MASK,
 	.box_ctl	= SNR_IMC_MMIO_PMON_BOX_CTL,
 	.mmio_offset	= SNR_IMC_MMIO_OFFSET,
+	.mmio_map_size	= SNR_IMC_MMIO_SIZE,
 	.ops		= &snr_uncore_mmio_ops,
 	.format_group	= &skx_uncore_format_group,
 };
@@ -4632,10 +4942,10 @@ static struct uncore_event_desc snr_uncore_imc_freerunning_events[] = {
 	INTEL_UNCORE_EVENT_DESC(dclk,		"event=0xff,umask=0x10"),
 
 	INTEL_UNCORE_EVENT_DESC(read,		"event=0xff,umask=0x20"),
-	INTEL_UNCORE_EVENT_DESC(read.scale,	"3.814697266e-6"),
+	INTEL_UNCORE_EVENT_DESC(read.scale,	"6.103515625e-5"),
 	INTEL_UNCORE_EVENT_DESC(read.unit,	"MiB"),
 	INTEL_UNCORE_EVENT_DESC(write,		"event=0xff,umask=0x21"),
-	INTEL_UNCORE_EVENT_DESC(write.scale,	"3.814697266e-6"),
+	INTEL_UNCORE_EVENT_DESC(write.scale,	"6.103515625e-5"),
 	INTEL_UNCORE_EVENT_DESC(write.unit,	"MiB"),
 	{ /* end: all zeroes */ },
 };
@@ -4652,6 +4962,7 @@ static struct intel_uncore_type snr_uncore_imc_free_running = {
 	.num_counters		= 3,
 	.num_boxes		= 1,
 	.num_freerunning_types	= SNR_IMC_FREERUNNING_TYPE_MAX,
+	.mmio_map_size		= SNR_IMC_MMIO_SIZE,
 	.freerunning		= snr_imc_freerunning,
 	.ops			= &snr_uncore_imc_freerunning_ops,
 	.event_descs		= snr_uncore_imc_freerunning_events,
@@ -4734,6 +5045,53 @@ static struct event_constraint icx_uncore_iio_constraints[] = {
 	EVENT_CONSTRAINT_END
 };
 
+static umode_t
+icx_iio_mapping_visible(struct kobject *kobj, struct attribute *attr, int die)
+{
+	/* Root bus 0x00 is valid only for pmu_idx = 5. */
+	return pmu_iio_mapping_visible(kobj, attr, die, 5);
+}
+
+static struct attribute_group icx_iio_mapping_group = {
+	.is_visible	= icx_iio_mapping_visible,
+};
+
+static const struct attribute_group *icx_iio_attr_update[] = {
+	&icx_iio_mapping_group,
+	NULL,
+};
+
+/*
+ * ICX has a static mapping of stack IDs from SAD_CONTROL_CFG notation to PMON
+ */
+enum {
+	ICX_PCIE1_PMON_ID,
+	ICX_PCIE2_PMON_ID,
+	ICX_PCIE3_PMON_ID,
+	ICX_PCIE4_PMON_ID,
+	ICX_PCIE5_PMON_ID,
+	ICX_CBDMA_DMI_PMON_ID
+};
+
+static u8 icx_sad_pmon_mapping[] = {
+	ICX_CBDMA_DMI_PMON_ID,
+	ICX_PCIE1_PMON_ID,
+	ICX_PCIE2_PMON_ID,
+	ICX_PCIE3_PMON_ID,
+	ICX_PCIE4_PMON_ID,
+	ICX_PCIE5_PMON_ID,
+};
+
+static int icx_iio_get_topology(struct intel_uncore_type *type)
+{
+	return sad_cfg_iio_topology(type, icx_sad_pmon_mapping);
+}
+
+static int icx_iio_set_mapping(struct intel_uncore_type *type)
+{
+	return pmu_iio_set_mapping(type, &icx_iio_mapping_group);
+}
+
 static struct intel_uncore_type icx_uncore_iio = {
 	.name			= "iio",
 	.num_counters		= 4,
@@ -4748,6 +5106,10 @@ static struct intel_uncore_type icx_uncore_iio = {
 	.constraints		= icx_uncore_iio_constraints,
 	.ops			= &skx_uncore_iio_ops,
 	.format_group		= &snr_uncore_iio_format_group,
+	.attr_update		= icx_iio_attr_update,
+	.get_topology		= icx_iio_get_topology,
+	.set_mapping		= icx_iio_set_mapping,
+	.cleanup_mapping	= skx_iio_cleanup_mapping,
 };
 
 static struct intel_uncore_type icx_uncore_irp = {
@@ -4900,9 +5262,10 @@ static struct intel_uncore_type icx_uncore_m2m = {
 	.perf_ctr	= SNR_M2M_PCI_PMON_CTR0,
 	.event_ctl	= SNR_M2M_PCI_PMON_CTL0,
 	.event_mask	= SNBEP_PMON_RAW_EVENT_MASK,
+	.event_mask_ext	= SNR_M2M_PCI_PMON_UMASK_EXT,
 	.box_ctl	= SNR_M2M_PCI_PMON_BOX_CTL,
 	.ops		= &snr_m2m_uncore_pci_ops,
-	.format_group	= &skx_uncore_format_group,
+	.format_group	= &snr_m2m_uncore_format_group,
 };
 
 static struct attribute *icx_upi_uncore_formats_attr[] = {
@@ -5069,6 +5432,7 @@ static struct intel_uncore_type icx_uncore_imc = {
 	.event_mask	= SNBEP_PMON_RAW_EVENT_MASK,
 	.box_ctl	= SNR_IMC_MMIO_PMON_BOX_CTL,
 	.mmio_offset	= SNR_IMC_MMIO_OFFSET,
+	.mmio_map_size	= SNR_IMC_MMIO_SIZE,
 	.ops		= &icx_uncore_mmio_ops,
 	.format_group	= &skx_uncore_format_group,
 };
@@ -5091,17 +5455,17 @@ static struct uncore_event_desc icx_uncore_imc_freerunning_events[] = {
 	INTEL_UNCORE_EVENT_DESC(dclk,			"event=0xff,umask=0x10"),
 
 	INTEL_UNCORE_EVENT_DESC(read,			"event=0xff,umask=0x20"),
-	INTEL_UNCORE_EVENT_DESC(read.scale,		"3.814697266e-6"),
+	INTEL_UNCORE_EVENT_DESC(read.scale,		"6.103515625e-5"),
 	INTEL_UNCORE_EVENT_DESC(read.unit,		"MiB"),
 	INTEL_UNCORE_EVENT_DESC(write,			"event=0xff,umask=0x21"),
-	INTEL_UNCORE_EVENT_DESC(write.scale,		"3.814697266e-6"),
+	INTEL_UNCORE_EVENT_DESC(write.scale,		"6.103515625e-5"),
 	INTEL_UNCORE_EVENT_DESC(write.unit,		"MiB"),
 
 	INTEL_UNCORE_EVENT_DESC(ddrt_read,		"event=0xff,umask=0x30"),
-	INTEL_UNCORE_EVENT_DESC(ddrt_read.scale,	"3.814697266e-6"),
+	INTEL_UNCORE_EVENT_DESC(ddrt_read.scale,	"6.103515625e-5"),
 	INTEL_UNCORE_EVENT_DESC(ddrt_read.unit,		"MiB"),
 	INTEL_UNCORE_EVENT_DESC(ddrt_write,		"event=0xff,umask=0x31"),
-	INTEL_UNCORE_EVENT_DESC(ddrt_write.scale,	"3.814697266e-6"),
+	INTEL_UNCORE_EVENT_DESC(ddrt_write.scale,	"6.103515625e-5"),
 	INTEL_UNCORE_EVENT_DESC(ddrt_write.unit,	"MiB"),
 	{ /* end: all zeroes */ },
 };
@@ -5126,6 +5490,7 @@ static struct intel_uncore_type icx_uncore_imc_free_running = {
 	.num_counters		= 5,
 	.num_boxes		= 4,
 	.num_freerunning_types	= ICX_IMC_FREERUNNING_TYPE_MAX,
+	.mmio_map_size		= SNR_IMC_MMIO_SIZE,
 	.freerunning		= icx_imc_freerunning,
 	.ops			= &icx_uncore_imc_freerunning_ops,
 	.event_descs		= icx_uncore_imc_freerunning_events,

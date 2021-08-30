@@ -118,6 +118,7 @@ struct gsc_context {
  * struct gsc_driverdata - per device type driver data for init time.
  *
  * @limits: picture size limits array
+ * @num_limits: number of items in the aforementioned array
  * @clk_names: names of clocks needed by this variant
  * @num_clocks: the number of clocks needed by this variant
  */
@@ -1117,7 +1118,12 @@ static int gsc_commit(struct exynos_drm_ipp *ipp,
 	struct gsc_context *ctx = container_of(ipp, struct gsc_context, ipp);
 	int ret;
 
-	pm_runtime_get_sync(ctx->dev);
+	ret = pm_runtime_resume_and_get(ctx->dev);
+	if (ret < 0) {
+		dev_err(ctx->dev, "failed to enable GScaler device.\n");
+		return ret;
+	}
+
 	ctx->task = task;
 
 	ret = gsc_reset(ctx);

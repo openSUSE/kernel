@@ -208,6 +208,7 @@ switch_create()
 	ip link set dev br2_11 up
 
 	local size=$(devlink_pool_size_thtype 0 | cut -d' ' -f 1)
+	devlink_port_pool_th_save $swp3 8
 	devlink_port_pool_th_set $swp3 8 $size
 }
 
@@ -506,8 +507,8 @@ do_red_test()
 	check_err $? "backlog $backlog / $limit Got $pct% marked packets, expected == 0."
 	local diff=$((limit - backlog))
 	pct=$((100 * diff / limit))
-	((0 <= pct && pct <= 5))
-	check_err $? "backlog $backlog / $limit expected <= 5% distance"
+	((0 <= pct && pct <= 10))
+	check_err $? "backlog $backlog / $limit expected <= 10% distance"
 	log_test "TC $((vlan - 10)): RED backlog > limit"
 
 	stop_traffic

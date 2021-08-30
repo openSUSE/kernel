@@ -11,11 +11,6 @@
 
 #ifdef CONFIG_DEBUG_FS
 
-/****************************************************************************
-*
-*   log category entries
-*
-***************************************************************************/
 #define DEBUGFS_WRITE_BUF_SIZE 256
 
 #define VCHIQ_LOG_ERROR_STR   "error"
@@ -40,6 +35,7 @@ static struct vchiq_debugfs_log_entry vchiq_debugfs_log_entries[] = {
 	{ "susp", &vchiq_susp_log_level },
 	{ "arm",  &vchiq_arm_log_level },
 };
+
 static int n_log_entries = ARRAY_SIZE(vchiq_debugfs_log_entries);
 
 static int debugfs_log_show(struct seq_file *f, void *offset)
@@ -117,7 +113,7 @@ static const struct file_operations debugfs_log_fops = {
 
 static int debugfs_usecount_show(struct seq_file *f, void *offset)
 {
-	VCHIQ_INSTANCE_T instance = f->private;
+	struct vchiq_instance *instance = f->private;
 	int use_count;
 
 	use_count = vchiq_instance_get_use_count(instance);
@@ -129,7 +125,7 @@ DEFINE_SHOW_ATTRIBUTE(debugfs_usecount);
 
 static int debugfs_trace_show(struct seq_file *f, void *offset)
 {
-	VCHIQ_INSTANCE_T instance = f->private;
+	struct vchiq_instance *instance = f->private;
 	int trace;
 
 	trace = vchiq_instance_get_trace(instance);
@@ -148,7 +144,7 @@ static ssize_t debugfs_trace_write(struct file *file,
 	size_t count, loff_t *ppos)
 {
 	struct seq_file *f = (struct seq_file *)file->private_data;
-	VCHIQ_INSTANCE_T instance = f->private;
+	struct vchiq_instance *instance = f->private;
 	char firstchar;
 
 	if (copy_from_user(&firstchar, buffer, 1))
@@ -184,7 +180,7 @@ static const struct file_operations debugfs_trace_fops = {
 };
 
 /* add an instance (process) to the debugfs entries */
-void vchiq_debugfs_add_instance(VCHIQ_INSTANCE_T instance)
+void vchiq_debugfs_add_instance(struct vchiq_instance *instance)
 {
 	char pidstr[16];
 	struct dentry *top;
@@ -201,7 +197,7 @@ void vchiq_debugfs_add_instance(VCHIQ_INSTANCE_T instance)
 	vchiq_instance_get_debugfs_node(instance)->dentry = top;
 }
 
-void vchiq_debugfs_remove_instance(VCHIQ_INSTANCE_T instance)
+void vchiq_debugfs_remove_instance(struct vchiq_instance *instance)
 {
 	struct vchiq_debugfs_node *node =
 				vchiq_instance_get_debugfs_node(instance);
@@ -242,11 +238,11 @@ void vchiq_debugfs_deinit(void)
 {
 }
 
-void vchiq_debugfs_add_instance(VCHIQ_INSTANCE_T instance)
+void vchiq_debugfs_add_instance(struct vchiq_instance *instance)
 {
 }
 
-void vchiq_debugfs_remove_instance(VCHIQ_INSTANCE_T instance)
+void vchiq_debugfs_remove_instance(struct vchiq_instance *instance)
 {
 }
 

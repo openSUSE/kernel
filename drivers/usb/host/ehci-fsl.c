@@ -39,10 +39,10 @@ static struct hc_driver __read_mostly fsl_ehci_hc_driver;
 /*
  * fsl_ehci_drv_probe - initialize FSL-based HCDs
  * @pdev: USB Host Controller being probed
- * Context: !in_interrupt()
+ *
+ * Context: task context, might sleep
  *
  * Allocates basic resources for this USB host controller.
- *
  */
 static int fsl_ehci_drv_probe(struct platform_device *pdev)
 {
@@ -234,7 +234,7 @@ static int ehci_fsl_setup_phy(struct usb_hcd *hcd,
 		break;
 	case FSL_USB2_PHY_UTMI_WIDE:
 		portsc |= PORT_PTS_PTW;
-		/* fall through */
+		fallthrough;
 	case FSL_USB2_PHY_UTMI:
 		/* Presence of this node "has_fsl_erratum_a006918"
 		 * in device-tree is used to stop USB controller
@@ -244,7 +244,7 @@ static int ehci_fsl_setup_phy(struct usb_hcd *hcd,
 			dev_warn(dev, "USB PHY clock invalid\n");
 			return -EINVAL;
 		}
-		/* fall through */
+		fallthrough;
 	case FSL_USB2_PHY_UTMI_DUAL:
 		/* PHY_CLK_VALID bit is de-featured from all controller
 		 * versions below 2.4 and is to be checked only for
@@ -387,11 +387,11 @@ static int ehci_fsl_setup(struct usb_hcd *hcd)
 	/* EHCI registers start at offset 0x100 */
 	ehci->caps = hcd->regs + 0x100;
 
-#ifdef CONFIG_PPC_83xx
+#if defined(CONFIG_PPC_83xx) || defined(CONFIG_PPC_85xx)
 	/*
-	 * Deal with MPC834X that need port power to be cycled after the power
-	 * fault condition is removed. Otherwise the state machine does not
-	 * reflect PORTSC[CSC] correctly.
+	 * Deal with MPC834X/85XX that need port power to be cycled
+	 * after the power fault condition is removed. Otherwise the
+	 * state machine does not reflect PORTSC[CSC] correctly.
 	 */
 	ehci->need_oc_pp_cycle = 1;
 #endif
@@ -683,13 +683,12 @@ static const struct ehci_driver_overrides ehci_fsl_overrides __initconst = {
 
 /**
  * fsl_ehci_drv_remove - shutdown processing for FSL-based HCDs
- * @dev: USB Host Controller being removed
- * Context: !in_interrupt()
+ * @pdev: USB Host Controller being removed
+ *
+ * Context: task context, might sleep
  *
  * Reverses the effect of usb_hcd_fsl_probe().
- *
  */
-
 static int fsl_ehci_drv_remove(struct platform_device *pdev)
 {
 	struct fsl_usb2_platform_data *pdata = dev_get_platdata(&pdev->dev);

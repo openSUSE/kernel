@@ -88,8 +88,6 @@ static inline void __mwaitx(unsigned long eax, unsigned long ebx,
 
 static inline void __sti_mwait(unsigned long eax, unsigned long ecx)
 {
-	trace_hardirqs_on();
-
 	mds_idle_clear_cpu_buffers();
 	/* "mwait %eax, %ecx;" */
 	asm volatile("sti; .byte 0x0f, 0x01, 0xc9;"
@@ -130,9 +128,16 @@ static inline void mwait_idle_with_hints(unsigned long eax, unsigned long ecx)
  */
 static inline void __tpause(u32 ecx, u32 edx, u32 eax)
 {
+	/* "tpause %ecx, %edx, %eax;" */
+	#ifdef CONFIG_AS_TPAUSE
+	asm volatile("tpause %%ecx\n"
+		     :
+		     : "c"(ecx), "d"(edx), "a"(eax));
+	#else
 	asm volatile(".byte 0x66, 0x0f, 0xae, 0xf1\t\n"
 		     :
 		     : "c"(ecx), "d"(edx), "a"(eax));
+	#endif
 }
 
 #endif /* _ASM_X86_MWAIT_H */

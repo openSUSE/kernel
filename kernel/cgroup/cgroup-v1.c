@@ -18,8 +18,6 @@
 
 #include <trace/events/cgroup.h>
 
-#define cg_invalf(fc, fmt, ...) invalf(fc, fmt, ## __VA_ARGS__)
-
 /*
  * pidlists linger the following amount before being destroyed.  The goal
  * is avoiding frequent destruction in the middle of consecutive read calls
@@ -40,10 +38,7 @@ static bool cgroup_no_v1_named;
  */
 static struct workqueue_struct *cgroup_pidlist_destroy_wq;
 
-/*
- * Protects cgroup_subsys->release_agent_path.  Modifying it also requires
- * cgroup_mutex.  Reading requires either cgroup_mutex or this spinlock.
- */
+/* protects cgroup_subsys->release_agent_path */
 static DEFINE_SPINLOCK(release_agent_path_lock);
 
 bool cgroup1_ssid_disabled(int ssid)
@@ -194,25 +189,6 @@ struct cgroup_pidlist {
 };
 
 /*
- * The following two functions "fix" the issue where there are more pids
- * than kmalloc will give memory for; in such cases, we use vmalloc/vfree.
- * TODO: replace with a kernel-wide solution to this problem
- */
-#define PIDLIST_TOO_LARGE(c) ((c) * sizeof(pid_t) > (PAGE_SIZE * 2))
-static void *pidlist_allocate(int count)
-{
-	if (PIDLIST_TOO_LARGE(count))
-		return vmalloc(array_size(count, sizeof(pid_t)));
-	else
-		return kmalloc_array(count, sizeof(pid_t), GFP_KERNEL);
-}
-
-static void pidlist_free(void *p)
-{
-	kvfree(p);
-}
-
-/*
  * Used to destroy all pidlists lingering waiting for destroy timer.  None
  * should be left afterwards.
  */
@@ -244,7 +220,7 @@ static void cgroup_pidlist_destroy_work_fn(struct work_struct *work)
 	 */
 	if (!delayed_work_pending(dwork)) {
 		list_del(&l->links);
-		pidlist_free(l->list);
+		kvfree(l->list);
 		put_pid_ns(l->key.ns);
 		tofree = l;
 	}
@@ -365,7 +341,7 @@ static int pidlist_array_load(struct cgroup *cgrp, enum cgroup_filetype type,
 	 * show up until sometime later on.
 	 */
 	length = cgroup_task_count(cgrp);
-	array = pidlist_allocate(length);
+	array = kvmalloc_array(length, sizeof(pid_t), GFP_KERNEL);
 	if (!array)
 		return -ENOMEM;
 	/* now, populate the array */
@@ -390,12 +366,12 @@ static int pidlist_array_load(struct cgroup *cgrp, enum cgroup_filetype type,
 
 	l = cgroup_pidlist_find_create(cgrp, type);
 	if (!l) {
-		pidlist_free(array);
+		kvfree(array);
 		return -ENOMEM;
 	}
 
 	/* store array, freeing old if necessary */
-	pidlist_free(l->list);
+	kvfree(l->list);
 	l->list = array;
 	l->length = length;
 	*lp = l;
@@ -492,6 +468,7 @@ static void *cgroup_pidlist_next(struct seq_file *s, void *v, loff_t *pos)
 	 */
 	p++;
 	if (p >= end) {
+		(*pos)++;
 		return NULL;
 	} else {
 		*pos = *p;
@@ -736,7 +713,7 @@ int cgroupstats_build(struct cgroupstats *stats, struct dentry *dentry)
 
 	css_task_iter_start(&cgrp->self, 0, &it);
 	while ((tsk = css_task_iter_next(&it))) {
-		switch (tsk->state) {
+		switch (READ_ONCE(tsk->__state)) {
 		case TASK_RUNNING:
 			stats->nr_running++;
 			break;
@@ -750,7 +727,7 @@ int cgroupstats_build(struct cgroupstats *stats, struct dentry *dentry)
 			stats->nr_stopped++;
 			break;
 		default:
-			if (delayacct_is_task_waiting_on_io(tsk))
+			if (tsk->in_iowait)
 				stats->nr_io_wait++;
 			break;
 		}
@@ -795,22 +772,29 @@ void cgroup1_release_agent(struct work_struct *work)
 {
 	struct cgroup *cgrp =
 		container_of(work, struct cgroup, release_agent_work);
-	char *pathbuf = NULL, *agentbuf = NULL;
+	char *pathbuf, *agentbuf;
 	char *argv[3], *envp[3];
 	int ret;
 
-	mutex_lock(&cgroup_mutex);
+	/* snoop agent path and exit early if empty */
+	if (!cgrp->root->release_agent_path[0])
+		return;
 
+	/* prepare argument buffers */
 	pathbuf = kmalloc(PATH_MAX, GFP_KERNEL);
-	agentbuf = kstrdup(cgrp->root->release_agent_path, GFP_KERNEL);
+	agentbuf = kmalloc(PATH_MAX, GFP_KERNEL);
 	if (!pathbuf || !agentbuf)
-		goto out;
+		goto out_free;
 
-	spin_lock_irq(&css_set_lock);
-	ret = cgroup_path_ns_locked(cgrp, pathbuf, PATH_MAX, &init_cgroup_ns);
-	spin_unlock_irq(&css_set_lock);
+	spin_lock(&release_agent_path_lock);
+	strlcpy(agentbuf, cgrp->root->release_agent_path, PATH_MAX);
+	spin_unlock(&release_agent_path_lock);
+	if (!agentbuf[0])
+		goto out_free;
+
+	ret = cgroup_path_ns(cgrp, pathbuf, PATH_MAX, &init_cgroup_ns);
 	if (ret < 0 || ret >= PATH_MAX)
-		goto out;
+		goto out_free;
 
 	argv[0] = agentbuf;
 	argv[1] = pathbuf;
@@ -821,11 +805,7 @@ void cgroup1_release_agent(struct work_struct *work)
 	envp[1] = "PATH=/sbin:/bin:/usr/sbin:/usr/bin";
 	envp[2] = NULL;
 
-	mutex_unlock(&cgroup_mutex);
 	call_usermodehelper(argv[0], argv, envp, UMH_WAIT_EXEC);
-	goto out_free;
-out:
-	mutex_unlock(&cgroup_mutex);
 out_free:
 	kfree(agentbuf);
 	kfree(pathbuf);
@@ -910,7 +890,7 @@ enum cgroup1_param {
 	Opt_xattr,
 };
 
-static const struct fs_parameter_spec cgroup1_param_specs[] = {
+const struct fs_parameter_spec cgroup1_fs_parameters[] = {
 	fsparam_flag  ("all",		Opt_all),
 	fsparam_flag  ("clone_children", Opt_clone_children),
 	fsparam_flag  ("cpuset_v2_mode", Opt_cpuset_v2_mode),
@@ -922,11 +902,6 @@ static const struct fs_parameter_spec cgroup1_param_specs[] = {
 	{}
 };
 
-const struct fs_parameter_description cgroup1_fs_parameters = {
-	.name		= "cgroup1",
-	.specs		= cgroup1_param_specs,
-};
-
 int cgroup1_parse_param(struct fs_context *fc, struct fs_parameter *param)
 {
 	struct cgroup_fs_context *ctx = cgroup_fc2context(fc);
@@ -934,25 +909,23 @@ int cgroup1_parse_param(struct fs_context *fc, struct fs_parameter *param)
 	struct fs_parse_result result;
 	int opt, i;
 
-	opt = fs_parse(fc, &cgroup1_fs_parameters, param, &result);
+	opt = fs_parse(fc, cgroup1_fs_parameters, param, &result);
 	if (opt == -ENOPARAM) {
-		if (strcmp(param->key, "source") == 0) {
-			if (fc->source)
-				return cg_invalf(fc, "Multiple sources not supported");
-			fc->source = param->string;
-			param->string = NULL;
-			return 0;
-		}
+		int ret;
+
+		ret = vfs_parse_fs_param_source(fc, param);
+		if (ret != -ENOPARAM)
+			return ret;
 		for_each_subsys(ss, i) {
 			if (strcmp(param->key, ss->legacy_name))
 				continue;
 			if (!cgroup_ssid_enabled(i) || cgroup1_ssid_disabled(i))
-				return cg_invalf(fc, "Disabled controller '%s'",
+				return invalfc(fc, "Disabled controller '%s'",
 					       param->key);
 			ctx->subsys_mask |= (1 << i);
 			return 0;
 		}
-		return cg_invalf(fc, "cgroup1: Unknown subsys name '%s'", param->key);
+		return invalfc(fc, "Unknown subsys name '%s'", param->key);
 	}
 	if (opt < 0)
 		return opt;
@@ -980,7 +953,7 @@ int cgroup1_parse_param(struct fs_context *fc, struct fs_parameter *param)
 	case Opt_release_agent:
 		/* Specifying two release agents is forbidden */
 		if (ctx->release_agent)
-			return cg_invalf(fc, "cgroup1: release_agent respecified");
+			return invalfc(fc, "release_agent respecified");
 		ctx->release_agent = param->string;
 		param->string = NULL;
 		break;
@@ -990,9 +963,9 @@ int cgroup1_parse_param(struct fs_context *fc, struct fs_parameter *param)
 			return -ENOENT;
 		/* Can't specify an empty name */
 		if (!param->size)
-			return cg_invalf(fc, "cgroup1: Empty name");
+			return invalfc(fc, "Empty name");
 		if (param->size > MAX_CGROUP_ROOT_NAMELEN - 1)
-			return cg_invalf(fc, "cgroup1: Name too long");
+			return invalfc(fc, "Name too long");
 		/* Must match [\w.-]+ */
 		for (i = 0; i < param->size; i++) {
 			char c = param->string[i];
@@ -1000,11 +973,11 @@ int cgroup1_parse_param(struct fs_context *fc, struct fs_parameter *param)
 				continue;
 			if ((c == '.') || (c == '-') || (c == '_'))
 				continue;
-			return cg_invalf(fc, "cgroup1: Invalid name");
+			return invalfc(fc, "Invalid name");
 		}
 		/* Specifying two names is forbidden */
 		if (ctx->name)
-			return cg_invalf(fc, "cgroup1: name respecified");
+			return invalfc(fc, "name respecified");
 		ctx->name = param->string;
 		param->string = NULL;
 		break;
@@ -1030,7 +1003,7 @@ static int check_cgroupfs_options(struct fs_context *fc)
 	ctx->subsys_mask &= enabled;
 
 	/*
-	 * In absense of 'none', 'name=' or subsystem name options,
+	 * In absence of 'none', 'name=' and subsystem name options,
 	 * let's default to 'all'.
 	 */
 	if (!ctx->subsys_mask && !ctx->none && !ctx->name)
@@ -1039,7 +1012,7 @@ static int check_cgroupfs_options(struct fs_context *fc)
 	if (ctx->all_ss) {
 		/* Mutually exclusive option 'all' + subsystem name */
 		if (ctx->subsys_mask)
-			return cg_invalf(fc, "cgroup1: subsys name conflicts with all");
+			return invalfc(fc, "subsys name conflicts with all");
 		/* 'all' => select all the subsystems */
 		ctx->subsys_mask = enabled;
 	}
@@ -1049,7 +1022,7 @@ static int check_cgroupfs_options(struct fs_context *fc)
 	 * empty hierarchies must have a name).
 	 */
 	if (!ctx->subsys_mask && !ctx->name)
-		return cg_invalf(fc, "cgroup1: Need name or subsystem set");
+		return invalfc(fc, "Need name or subsystem set");
 
 	/*
 	 * Option noprefix was introduced just for backward compatibility
@@ -1057,11 +1030,11 @@ static int check_cgroupfs_options(struct fs_context *fc)
 	 * the cpuset subsystem.
 	 */
 	if ((ctx->flags & CGRP_ROOT_NOPREFIX) && (ctx->subsys_mask & mask))
-		return cg_invalf(fc, "cgroup1: noprefix used incorrectly");
+		return invalfc(fc, "noprefix used incorrectly");
 
 	/* Can't specify "none" and some subsystems */
 	if (ctx->subsys_mask && ctx->none)
-		return cg_invalf(fc, "cgroup1: none used incorrectly");
+		return invalfc(fc, "none used incorrectly");
 
 	return 0;
 }
@@ -1091,7 +1064,7 @@ int cgroup1_reconfigure(struct fs_context *fc)
 	/* Don't allow flags or name to change at remount */
 	if ((ctx->flags ^ root->flags) ||
 	    (ctx->name && strcmp(ctx->name, root->name))) {
-		cg_invalf(fc, "option or name mismatch, new: 0x%x \"%s\", old: 0x%x \"%s\"",
+		errorfc(fc, "option or name mismatch, new: 0x%x \"%s\", old: 0x%x \"%s\"",
 		       ctx->flags, ctx->name ?: "", root->flags, root->name);
 		ret = -EINVAL;
 		goto out_unlock;
@@ -1208,7 +1181,7 @@ static int cgroup1_root_to_use(struct fs_context *fc)
 	 * can't create new one without subsys specification.
 	 */
 	if (!ctx->subsys_mask && !ctx->none)
-		return cg_invalf(fc, "cgroup1: No subsys list or none specified");
+		return invalfc(fc, "No subsys list or none specified");
 
 	/* Hierarchies may only be created in the initial cgroup namespace. */
 	if (ctx->ns != &init_cgroup_ns)
@@ -1248,9 +1221,7 @@ int cgroup1_get_tree(struct fs_context *fc)
 		ret = cgroup_do_get_tree(fc);
 
 	if (!ret && percpu_ref_is_dying(&ctx->root->cgrp.self.refcnt)) {
-		struct super_block *sb = fc->root->d_sb;
-		dput(fc->root);
-		deactivate_locked_super(sb);
+		fc_drop_locked(fc);
 		ret = 1;
 	}
 

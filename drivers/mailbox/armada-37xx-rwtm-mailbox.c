@@ -2,7 +2,7 @@
 /*
  * rWTM BIU Mailbox driver for Armada 37xx
  *
- * Author: Marek Behun <marek.behun@nic.cz>
+ * Author: Marek Behún <kabel@kernel.org>
  */
 
 #include <linux/device.h>
@@ -143,7 +143,6 @@ static const struct mbox_chan_ops a37xx_mbox_ops = {
 static int armada_37xx_mbox_probe(struct platform_device *pdev)
 {
 	struct a37xx_mbox *mbox;
-	struct resource *regs;
 	struct mbox_chan *chans;
 	int ret;
 
@@ -156,19 +155,13 @@ static int armada_37xx_mbox_probe(struct platform_device *pdev)
 	if (!chans)
 		return -ENOMEM;
 
-	regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-
-	mbox->base = devm_ioremap_resource(&pdev->dev, regs);
-	if (IS_ERR(mbox->base)) {
-		dev_err(&pdev->dev, "ioremap failed\n");
+	mbox->base = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(mbox->base))
 		return PTR_ERR(mbox->base);
-	}
 
 	mbox->irq = platform_get_irq(pdev, 0);
-	if (mbox->irq < 0) {
-		dev_err(&pdev->dev, "Cannot get irq\n");
+	if (mbox->irq < 0)
 		return mbox->irq;
-	}
 
 	mbox->dev = &pdev->dev;
 
@@ -180,7 +173,7 @@ static int armada_37xx_mbox_probe(struct platform_device *pdev)
 	mbox->controller.ops = &a37xx_mbox_ops;
 	mbox->controller.txdone_irq = true;
 
-	ret = mbox_controller_register(&mbox->controller);
+	ret = devm_mbox_controller_register(mbox->dev, &mbox->controller);
 	if (ret) {
 		dev_err(&pdev->dev, "Could not register mailbox controller\n");
 		return ret;
@@ -190,17 +183,6 @@ static int armada_37xx_mbox_probe(struct platform_device *pdev)
 	return ret;
 }
 
-static int armada_37xx_mbox_remove(struct platform_device *pdev)
-{
-	struct a37xx_mbox *mbox = platform_get_drvdata(pdev);
-
-	if (!mbox)
-		return -EINVAL;
-
-	mbox_controller_unregister(&mbox->controller);
-
-	return 0;
-}
 
 static const struct of_device_id armada_37xx_mbox_match[] = {
 	{ .compatible = "marvell,armada-3700-rwtm-mailbox" },
@@ -211,7 +193,6 @@ MODULE_DEVICE_TABLE(of, armada_37xx_mbox_match);
 
 static struct platform_driver armada_37xx_mbox_driver = {
 	.probe	= armada_37xx_mbox_probe,
-	.remove	= armada_37xx_mbox_remove,
 	.driver	= {
 		.name		= DRIVER_NAME,
 		.of_match_table	= armada_37xx_mbox_match,
@@ -222,4 +203,4 @@ module_platform_driver(armada_37xx_mbox_driver);
 
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("rWTM BIU Mailbox driver for Armada 37xx");
-MODULE_AUTHOR("Marek Behun <marek.behun@nic.cz>");
+MODULE_AUTHOR("Marek Behun <kabel@kernel.org>");

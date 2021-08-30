@@ -1529,11 +1529,11 @@ static void pipapo_gc(const struct nft_set *set, struct nft_pipapo_match *m)
 {
 	struct nft_pipapo *priv = nft_set_priv(set);
 	int rules_f0, first_rule = 0;
+	struct nft_pipapo_elem *e;
 
 	while ((rules_f0 = pipapo_rules_same_key(m->f, first_rule))) {
 		union nft_pipapo_map_bucket rulemap[NFT_PIPAPO_MAX_FIELDS];
 		struct nft_pipapo_field *f;
-		struct nft_pipapo_elem *e;
 		int i, start, rules_fx;
 
 		start = first_rule;
@@ -1568,6 +1568,10 @@ static void pipapo_gc(const struct nft_set *set, struct nft_pipapo_match *m)
 			first_rule += rules_f0;
 		}
 	}
+
+	e = nft_set_catchall_gc(set);
+	if (e)
+		nft_set_elem_destroy(set, e, true);
 
 	priv->last_gc = jiffies;
 }
@@ -2203,7 +2207,7 @@ const struct nft_set_type nft_set_pipapo_type = {
 	},
 };
 
-#if defined(CONFIG_X86_64) && defined(CONFIG_AS_AVX2)
+#if defined(CONFIG_X86_64) && !defined(CONFIG_UML)
 const struct nft_set_type nft_set_pipapo_avx2_type = {
 	.features	= NFT_SET_INTERVAL | NFT_SET_MAP | NFT_SET_OBJECT |
 			  NFT_SET_TIMEOUT,

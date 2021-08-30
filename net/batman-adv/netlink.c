@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
-/* Copyright (C) 2016-2019  B.A.T.M.A.N. contributors:
+/* Copyright (C) B.A.T.M.A.N. contributors:
  *
  * Matthias Schiffer
  */
@@ -23,6 +23,7 @@
 #include <linux/kernel.h>
 #include <linux/limits.h>
 #include <linux/list.h>
+#include <linux/minmax.h>
 #include <linux/netdevice.h>
 #include <linux/netlink.h>
 #include <linux/printk.h>
@@ -192,7 +193,7 @@ static int batadv_netlink_mesh_fill_ap_isolation(struct sk_buff *msg,
 }
 
 /**
- * batadv_option_set_ap_isolation() - Set ap_isolation from genl msg
+ * batadv_netlink_set_mesh_ap_isolation() - Set ap_isolation from genl msg
  * @attr: parsed BATADV_ATTR_AP_ISOLATION_ENABLED attribute
  * @bat_priv: the bat priv with all the soft interface information
  *
@@ -640,7 +641,7 @@ batadv_netlink_tp_meter_put(struct sk_buff *msg, u32 cookie)
  * @bat_priv: the bat priv with all the soft interface information
  * @dst: destination of tp_meter session
  * @result: reason for tp meter session stop
- * @test_time: total time ot the tp_meter session
+ * @test_time: total time of the tp_meter session
  * @total_bytes: bytes acked to the receiver
  * @cookie: cookie of tp_meter session
  *
@@ -756,7 +757,7 @@ batadv_netlink_tp_meter_start(struct sk_buff *skb, struct genl_info *info)
 }
 
 /**
- * batadv_netlink_tp_meter_start() - Cancel a running tp_meter session
+ * batadv_netlink_tp_meter_cancel() - Cancel a running tp_meter session
  * @skb: received netlink message
  * @info: receiver information
  *
@@ -813,6 +814,10 @@ static int batadv_netlink_hardif_fill(struct sk_buff *msg,
 			bat_priv->soft_iface->ifindex))
 		goto nla_put_failure;
 
+	if (nla_put_string(msg, BATADV_ATTR_MESH_IFNAME,
+			   bat_priv->soft_iface->name))
+		goto nla_put_failure;
+
 	if (nla_put_u32(msg, BATADV_ATTR_HARD_IFINDEX,
 			net_dev->ifindex) ||
 	    nla_put_string(msg, BATADV_ATTR_HARD_IFNAME,
@@ -825,6 +830,10 @@ static int batadv_netlink_hardif_fill(struct sk_buff *msg,
 		if (nla_put_flag(msg, BATADV_ATTR_ACTIVE))
 			goto nla_put_failure;
 	}
+
+	if (nla_put_u8(msg, BATADV_ATTR_HOP_PENALTY,
+		       atomic_read(&hard_iface->hop_penalty)))
+		goto nla_put_failure;
 
 #ifdef CONFIG_BATMAN_ADV_BATMAN_V
 	if (nla_put_u32(msg, BATADV_ATTR_ELP_INTERVAL,
@@ -920,9 +929,15 @@ static int batadv_netlink_set_hardif(struct sk_buff *skb,
 {
 	struct batadv_hard_iface *hard_iface = info->user_ptr[1];
 	struct batadv_priv *bat_priv = info->user_ptr[0];
+	struct nlattr *attr;
+
+	if (info->attrs[BATADV_ATTR_HOP_PENALTY]) {
+		attr = info->attrs[BATADV_ATTR_HOP_PENALTY];
+
+		atomic_set(&hard_iface->hop_penalty, nla_get_u8(attr));
+	}
 
 #ifdef CONFIG_BATMAN_ADV_BATMAN_V
-	struct nlattr *attr;
 
 	if (info->attrs[BATADV_ATTR_ELP_INTERVAL]) {
 		attr = info->attrs[BATADV_ATTR_ELP_INTERVAL];
@@ -1032,6 +1047,10 @@ static int batadv_netlink_vlan_fill(struct sk_buff *msg,
 
 	if (nla_put_u32(msg, BATADV_ATTR_MESH_IFINDEX,
 			bat_priv->soft_iface->ifindex))
+		goto nla_put_failure;
+
+	if (nla_put_string(msg, BATADV_ATTR_MESH_IFNAME,
+			   bat_priv->soft_iface->name))
 		goto nla_put_failure;
 
 	if (nla_put_u32(msg, BATADV_ATTR_VLANID, vlan->vid & VLAN_VID_MASK))
@@ -1340,7 +1359,7 @@ static void batadv_post_doit(const struct genl_ops *ops, struct sk_buff *skb,
 	}
 }
 
-static const struct genl_ops batadv_netlink_ops[] = {
+static const struct genl_small_ops batadv_netlink_ops[] = {
 	{
 		.cmd = BATADV_CMD_GET_MESH,
 		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
@@ -1474,8 +1493,8 @@ struct genl_family batadv_netlink_family __ro_after_init = {
 	.pre_doit = batadv_pre_doit,
 	.post_doit = batadv_post_doit,
 	.module = THIS_MODULE,
-	.ops = batadv_netlink_ops,
-	.n_ops = ARRAY_SIZE(batadv_netlink_ops),
+	.small_ops = batadv_netlink_ops,
+	.n_small_ops = ARRAY_SIZE(batadv_netlink_ops),
 	.mcgrps = batadv_netlink_mcgrps,
 	.n_mcgrps = ARRAY_SIZE(batadv_netlink_mcgrps),
 };

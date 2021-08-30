@@ -293,10 +293,14 @@ static bool icmp6hdr_ok(struct sk_buff *skb)
 }
 
 /**
- * Parse vlan tag from vlan header.
- * Returns ERROR on memory error.
- * Returns 0 if it encounters a non-vlan or incomplete packet.
- * Returns 1 after successfully parsing vlan tag.
+ * parse_vlan_tag - Parse vlan tag from vlan header.
+ * @skb: skb containing frame to parse
+ * @key_vh: pointer to parsed vlan tag
+ * @untag_vlan: should the vlan header be removed from the frame
+ *
+ * Return: ERROR on memory error.
+ * %0 if it encounters a non-vlan or incomplete packet.
+ * %1 after successfully parsing vlan tag.
  */
 static int parse_vlan_tag(struct sk_buff *skb, struct vlan_head *key_vh,
 			  bool untag_vlan)
@@ -528,6 +532,7 @@ static int parse_nsh(struct sk_buff *skb, struct sw_flow_key *key)
  *       L3 header
  * @key: output flow key
  *
+ * Return: %0 if successful, otherwise a negative errno value.
  */
 static int key_extract_l3l4(struct sk_buff *skb, struct sw_flow_key *key)
 {
@@ -637,27 +642,35 @@ static int key_extract_l3l4(struct sk_buff *skb, struct sw_flow_key *key)
 			memset(&key->ipv4, 0, sizeof(key->ipv4));
 		}
 	} else if (eth_p_mpls(key->eth.type)) {
-		size_t stack_len = MPLS_HLEN;
+		u8 label_count = 1;
 
+		memset(&key->mpls, 0, sizeof(key->mpls));
 		skb_set_inner_network_header(skb, skb->mac_len);
 		while (1) {
 			__be32 lse;
 
-			error = check_header(skb, skb->mac_len + stack_len);
+			error = check_header(skb, skb->mac_len +
+					     label_count * MPLS_HLEN);
 			if (unlikely(error))
 				return 0;
 
 			memcpy(&lse, skb_inner_network_header(skb), MPLS_HLEN);
 
-			if (stack_len == MPLS_HLEN)
-				memcpy(&key->mpls.top_lse, &lse, MPLS_HLEN);
+			if (label_count <= MPLS_LABEL_DEPTH)
+				memcpy(&key->mpls.lse[label_count - 1], &lse,
+				       MPLS_HLEN);
 
-			skb_set_inner_network_header(skb, skb->mac_len + stack_len);
+			skb_set_inner_network_header(skb, skb->mac_len +
+						     label_count * MPLS_HLEN);
 			if (lse & htonl(MPLS_LS_S_MASK))
 				break;
 
-			stack_len += MPLS_HLEN;
+			label_count++;
 		}
+		if (label_count > MPLS_LABEL_DEPTH)
+			label_count = MPLS_LABEL_DEPTH;
+
+		key->mpls.num_labels_mask = GENMASK(label_count - 1, 0);
 	} else if (key->eth.type == htons(ETH_P_IPV6)) {
 		int nh_len;             /* IPv6 Header + Extensions */
 
@@ -667,7 +680,7 @@ static int key_extract_l3l4(struct sk_buff *skb, struct sw_flow_key *key)
 			case -EINVAL:
 				memset(&key->ip, 0, sizeof(key->ip));
 				memset(&key->ipv6.addr, 0, sizeof(key->ipv6.addr));
-				/* fall-through */
+				fallthrough;
 			case -EPROTO:
 				skb->transport_header = skb->network_header;
 				error = 0;
@@ -736,8 +749,6 @@ static int key_extract_l3l4(struct sk_buff *skb, struct sw_flow_key *key)
  *
  * The caller must ensure that skb->len >= ETH_HLEN.
  *
- * Returns 0 if successful, otherwise a negative errno value.
- *
  * Initializes @skb header fields as follows:
  *
  *    - skb->mac_header: the L2 header.
@@ -752,6 +763,8 @@ static int key_extract_l3l4(struct sk_buff *skb, struct sw_flow_key *key)
  *
  *    - skb->protocol: the type of the data starting at skb->network_header.
  *      Equals to key->eth.type.
+ *
+ * Return: %0 if successful, otherwise a negative errno value.
  */
 static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 {
@@ -845,6 +858,7 @@ int ovs_flow_key_extract(const struct ip_tunnel_info *tun_info,
 #if IS_ENABLED(CONFIG_NET_TC_SKB_EXT)
 	struct tc_skb_ext *tc_ext;
 #endif
+	bool post_ct = false;
 	int res, err;
 
 	/* Extract metadata from packet. */
@@ -883,6 +897,7 @@ int ovs_flow_key_extract(const struct ip_tunnel_info *tun_info,
 		tc_ext = skb_ext_find(skb, TC_SKB_EXT);
 		key->recirc_id = tc_ext ? tc_ext->chain : 0;
 		OVS_CB(skb)->mru = tc_ext ? tc_ext->mru : 0;
+		post_ct = tc_ext ? tc_ext->post_ct : false;
 	} else {
 		key->recirc_id = 0;
 	}
@@ -892,7 +907,7 @@ int ovs_flow_key_extract(const struct ip_tunnel_info *tun_info,
 
 	err = key_extract(skb, key);
 	if (!err)
-		ovs_ct_fill_key(skb, key);   /* Must be after key_extract(). */
+		ovs_ct_fill_key(skb, key, post_ct);   /* Must be after key_extract(). */
 	return err;
 }
 

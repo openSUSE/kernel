@@ -7,11 +7,6 @@
 
 #include <asm/ucontext.h>
 
-#define __SYSCALL_I386(nr, sym, qual) [nr] = 1,
-static char syscalls[] = {
-#include <asm/syscalls_32.h>
-};
-
 /* workaround for a warning with -Wmissing-prototypes */
 void foo(void);
 
@@ -57,15 +52,6 @@ void foo(void)
 	DEFINE(TSS_entry2task_stack,
 	       offsetof(struct cpu_entry_area, tss.x86_tss.sp1) -
 	       offsetofend(struct cpu_entry_area, entry_stack_page.stack));
-
-#ifdef CONFIG_STACKPROTECTOR
-	BLANK();
-	OFFSET(stack_canary_offset, stack_canary, canary);
-#endif
-
-	BLANK();
-	DEFINE(__NR_syscall_max, sizeof(syscalls) - 1);
-	DEFINE(NR_syscalls, sizeof(syscalls));
 
 	BLANK();
 	DEFINE(EFI_svam, offsetof(efi_runtime_services_t, set_virtual_address_map));

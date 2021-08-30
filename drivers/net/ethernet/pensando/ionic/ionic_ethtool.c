@@ -86,7 +86,6 @@ static void ionic_get_drvinfo(struct net_device *netdev,
 	struct ionic *ionic = lif->ionic;
 
 	strlcpy(drvinfo->driver, IONIC_DRV_NAME, sizeof(drvinfo->driver));
-	strlcpy(drvinfo->version, IONIC_DRV_VERSION, sizeof(drvinfo->version));
 	strlcpy(drvinfo->fw_version, ionic->idev.dev_info.fw_version,
 		sizeof(drvinfo->fw_version));
 	strlcpy(drvinfo->bus_info, ionic_bus_info(ionic),
@@ -207,6 +206,14 @@ static int ionic_get_link_ksettings(struct net_device *netdev,
 	case IONIC_XCVR_PID_SFP_10GBASE_ER:
 		ethtool_link_ksettings_add_link_mode(ks, supported,
 						     10000baseER_Full);
+		break;
+	case IONIC_XCVR_PID_SFP_10GBASE_T:
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     10000baseT_Full);
+		break;
+	case IONIC_XCVR_PID_SFP_1000BASE_T:
+		ethtool_link_ksettings_add_link_mode(ks, supported,
+						     1000baseT_Full);
 		break;
 	case IONIC_XCVR_PID_UNKNOWN:
 		/* This means there's no module plugged in */
@@ -735,16 +742,11 @@ static int ionic_set_rxfh(struct net_device *netdev, const u32 *indir,
 			  const u8 *key, const u8 hfunc)
 {
 	struct ionic_lif *lif = netdev_priv(netdev);
-	int err;
 
 	if (hfunc != ETH_RSS_HASH_NO_CHANGE && hfunc != ETH_RSS_HASH_TOP)
 		return -EOPNOTSUPP;
 
-	err = ionic_lif_rss_config(lif, lif->rss_types, key, indir);
-	if (err)
-		return err;
-
-	return 0;
+	return ionic_lif_rss_config(lif, lif->rss_types, key, indir);
 }
 
 static int ionic_set_tunable(struct net_device *dev,
@@ -794,12 +796,12 @@ static int ionic_get_module_info(struct net_device *netdev,
 
 	/* report the module data type and length */
 	switch (sfp->phys_id) {
-	case 0x03: /* SFP */
+	case SFF8024_ID_SFP:
 		modinfo->type = ETH_MODULE_SFF_8079;
 		modinfo->eeprom_len = ETH_MODULE_SFF_8079_LEN;
 		break;
-	case 0x0D: /* QSFP */
-	case 0x11: /* QSFP28 */
+	case SFF8024_ID_QSFP_8436_8636:
+	case SFF8024_ID_QSFP28_8636:
 		modinfo->type = ETH_MODULE_SFF_8436;
 		modinfo->eeprom_len = ETH_MODULE_SFF_8436_LEN;
 		break;
@@ -843,6 +845,98 @@ static int ionic_get_module_eeprom(struct net_device *netdev,
 
 	if (!count)
 		return -ETIMEDOUT;
+
+	return 0;
+}
+
+static int ionic_get_ts_info(struct net_device *netdev,
+			     struct ethtool_ts_info *info)
+{
+	struct ionic_lif *lif = netdev_priv(netdev);
+	struct ionic *ionic = lif->ionic;
+	__le64 mask;
+
+	if (!lif->phc || !lif->phc->ptp)
+		return ethtool_op_get_ts_info(netdev, info);
+
+	info->phc_index = ptp_clock_index(lif->phc->ptp);
+
+	info->so_timestamping = SOF_TIMESTAMPING_TX_SOFTWARE |
+				SOF_TIMESTAMPING_RX_SOFTWARE |
+				SOF_TIMESTAMPING_SOFTWARE |
+				SOF_TIMESTAMPING_TX_HARDWARE |
+				SOF_TIMESTAMPING_RX_HARDWARE |
+				SOF_TIMESTAMPING_RAW_HARDWARE;
+
+	/* tx modes */
+
+	info->tx_types = BIT(HWTSTAMP_TX_OFF) |
+			 BIT(HWTSTAMP_TX_ON);
+
+	mask = cpu_to_le64(BIT_ULL(IONIC_TXSTAMP_ONESTEP_SYNC));
+	if (ionic->ident.lif.eth.hwstamp_tx_modes & mask)
+		info->tx_types |= BIT(HWTSTAMP_TX_ONESTEP_SYNC);
+
+	mask = cpu_to_le64(BIT_ULL(IONIC_TXSTAMP_ONESTEP_P2P));
+	if (ionic->ident.lif.eth.hwstamp_tx_modes & mask)
+		info->tx_types |= BIT(HWTSTAMP_TX_ONESTEP_P2P);
+
+	/* rx filters */
+
+	info->rx_filters = BIT(HWTSTAMP_FILTER_NONE) |
+			   BIT(HWTSTAMP_FILTER_ALL);
+
+	mask = cpu_to_le64(IONIC_PKT_CLS_NTP_ALL);
+	if ((ionic->ident.lif.eth.hwstamp_rx_filters & mask) == mask)
+		info->rx_filters |= BIT(HWTSTAMP_FILTER_NTP_ALL);
+
+	mask = cpu_to_le64(IONIC_PKT_CLS_PTP1_SYNC);
+	if ((ionic->ident.lif.eth.hwstamp_rx_filters & mask) == mask)
+		info->rx_filters |= BIT(HWTSTAMP_FILTER_PTP_V1_L4_SYNC);
+
+	mask = cpu_to_le64(IONIC_PKT_CLS_PTP1_DREQ);
+	if ((ionic->ident.lif.eth.hwstamp_rx_filters & mask) == mask)
+		info->rx_filters |= BIT(HWTSTAMP_FILTER_PTP_V1_L4_DELAY_REQ);
+
+	mask = cpu_to_le64(IONIC_PKT_CLS_PTP1_ALL);
+	if ((ionic->ident.lif.eth.hwstamp_rx_filters & mask) == mask)
+		info->rx_filters |= BIT(HWTSTAMP_FILTER_PTP_V1_L4_EVENT);
+
+	mask = cpu_to_le64(IONIC_PKT_CLS_PTP2_L4_SYNC);
+	if ((ionic->ident.lif.eth.hwstamp_rx_filters & mask) == mask)
+		info->rx_filters |= BIT(HWTSTAMP_FILTER_PTP_V2_L4_SYNC);
+
+	mask = cpu_to_le64(IONIC_PKT_CLS_PTP2_L4_DREQ);
+	if ((ionic->ident.lif.eth.hwstamp_rx_filters & mask) == mask)
+		info->rx_filters |= BIT(HWTSTAMP_FILTER_PTP_V2_L4_DELAY_REQ);
+
+	mask = cpu_to_le64(IONIC_PKT_CLS_PTP2_L4_ALL);
+	if ((ionic->ident.lif.eth.hwstamp_rx_filters & mask) == mask)
+		info->rx_filters |= BIT(HWTSTAMP_FILTER_PTP_V2_L4_EVENT);
+
+	mask = cpu_to_le64(IONIC_PKT_CLS_PTP2_L2_SYNC);
+	if ((ionic->ident.lif.eth.hwstamp_rx_filters & mask) == mask)
+		info->rx_filters |= BIT(HWTSTAMP_FILTER_PTP_V2_L2_SYNC);
+
+	mask = cpu_to_le64(IONIC_PKT_CLS_PTP2_L2_DREQ);
+	if ((ionic->ident.lif.eth.hwstamp_rx_filters & mask) == mask)
+		info->rx_filters |= BIT(HWTSTAMP_FILTER_PTP_V2_L2_DELAY_REQ);
+
+	mask = cpu_to_le64(IONIC_PKT_CLS_PTP2_L2_ALL);
+	if ((ionic->ident.lif.eth.hwstamp_rx_filters & mask) == mask)
+		info->rx_filters |= BIT(HWTSTAMP_FILTER_PTP_V2_L2_EVENT);
+
+	mask = cpu_to_le64(IONIC_PKT_CLS_PTP2_SYNC);
+	if ((ionic->ident.lif.eth.hwstamp_rx_filters & mask) == mask)
+		info->rx_filters |= BIT(HWTSTAMP_FILTER_PTP_V2_SYNC);
+
+	mask = cpu_to_le64(IONIC_PKT_CLS_PTP2_DREQ);
+	if ((ionic->ident.lif.eth.hwstamp_rx_filters & mask) == mask)
+		info->rx_filters |= BIT(HWTSTAMP_FILTER_PTP_V2_DELAY_REQ);
+
+	mask = cpu_to_le64(IONIC_PKT_CLS_PTP2_ALL);
+	if ((ionic->ident.lif.eth.hwstamp_rx_filters & mask) == mask)
+		info->rx_filters |= BIT(HWTSTAMP_FILTER_PTP_V2_EVENT);
 
 	return 0;
 }
@@ -904,6 +998,7 @@ static const struct ethtool_ops ionic_ethtool_ops = {
 	.set_pauseparam		= ionic_set_pauseparam,
 	.get_fecparam		= ionic_get_fecparam,
 	.set_fecparam		= ionic_set_fecparam,
+	.get_ts_info		= ionic_get_ts_info,
 	.nway_reset		= ionic_nway_reset,
 };
 

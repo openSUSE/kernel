@@ -64,6 +64,7 @@
 #include <linux/memory.h>
 #include <linux/ipc_namespace.h>
 #include <linux/rhashtable.h>
+#include <linux/log2.h>
 
 #include <asm/unistd.h>
 
@@ -100,7 +101,7 @@ device_initcall(ipc_init);
 static const struct rhashtable_params ipc_kht_params = {
 	.head_offset		= offsetof(struct kern_ipc_perm, khtnode),
 	.key_offset		= offsetof(struct kern_ipc_perm, key),
-	.key_len		= FIELD_SIZEOF(struct kern_ipc_perm, key),
+	.key_len		= sizeof_field(struct kern_ipc_perm, key),
 	.automatic_shrinking	= true,
 };
 
@@ -126,7 +127,7 @@ void ipc_init_ids(struct ipc_ids *ids)
 }
 
 #ifdef CONFIG_PROC_FS
-static const struct file_operations sysvipc_proc_fops;
+static const struct proc_ops sysvipc_proc_ops;
 /**
  * ipc_init_proc_interface -  create a proc interface for sysipc types using a seq_file interface.
  * @path: Path in procfs
@@ -151,7 +152,7 @@ void __init ipc_init_proc_interface(const char *path, const char *header,
 	pde = proc_create_data(path,
 			       S_IRUGO,        /* world readable */
 			       NULL,           /* parent dir */
-			       &sysvipc_proc_fops,
+			       &sysvipc_proc_ops,
 			       iface);
 	if (!pde)
 		kfree(iface);
@@ -451,6 +452,41 @@ static void ipc_kht_remove(struct ipc_ids *ids, struct kern_ipc_perm *ipcp)
 }
 
 /**
+ * ipc_search_maxidx - search for the highest assigned index
+ * @ids: ipc identifier set
+ * @limit: known upper limit for highest assigned index
+ *
+ * The function determines the highest assigned index in @ids. It is intended
+ * to be called when ids->max_idx needs to be updated.
+ * Updating ids->max_idx is necessary when the current highest index ipc
+ * object is deleted.
+ * If no ipc object is allocated, then -1 is returned.
+ *
+ * ipc_ids.rwsem needs to be held by the caller.
+ */
+static int ipc_search_maxidx(struct ipc_ids *ids, int limit)
+{
+	int tmpidx;
+	int i;
+	int retval;
+
+	i = ilog2(limit+1);
+
+	retval = 0;
+	for (; i >= 0; i--) {
+		tmpidx = retval | (1<<i);
+		/*
+		 * "0" is a possible index value, thus search using
+		 * e.g. 15,7,3,1,0 instead of 16,8,4,2,1.
+		 */
+		tmpidx = tmpidx-1;
+		if (idr_get_next(&ids->ipcs_idr, &tmpidx))
+			retval |= (1<<i);
+	}
+	return retval - 1;
+}
+
+/**
  * ipc_rmid - remove an ipc identifier
  * @ids: ipc identifier set
  * @ipcp: ipc perm structure containing the identifier to remove
@@ -468,11 +504,9 @@ void ipc_rmid(struct ipc_ids *ids, struct kern_ipc_perm *ipcp)
 	ipcp->deleted = true;
 
 	if (unlikely(idx == ids->max_idx)) {
-		do {
-			idx--;
-			if (idx == -1)
-				break;
-		} while (!idr_find(&ids->ipcs_idr, idx));
+		idx = ids->max_idx-1;
+		if (idx >= 0)
+			idx = ipc_search_maxidx(ids, idx);
 		ids->max_idx = idx;
 	}
 }
@@ -884,10 +918,11 @@ static int sysvipc_proc_release(struct inode *inode, struct file *file)
 	return seq_release_private(inode, file);
 }
 
-static const struct file_operations sysvipc_proc_fops = {
-	.open    = sysvipc_proc_open,
-	.read    = seq_read,
-	.llseek  = seq_lseek,
-	.release = sysvipc_proc_release,
+static const struct proc_ops sysvipc_proc_ops = {
+	.proc_flags	= PROC_ENTRY_PERMANENT,
+	.proc_open	= sysvipc_proc_open,
+	.proc_read	= seq_read,
+	.proc_lseek	= seq_lseek,
+	.proc_release	= sysvipc_proc_release,
 };
 #endif /* CONFIG_PROC_FS */

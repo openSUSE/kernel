@@ -99,10 +99,9 @@ static int qnx6_readpage(struct file *file, struct page *page)
 	return mpage_readpage(page, qnx6_get_block);
 }
 
-static int qnx6_readpages(struct file *file, struct address_space *mapping,
-		   struct list_head *pages, unsigned nr_pages)
+static void qnx6_readahead(struct readahead_control *rac)
 {
-	return mpage_readpages(mapping, pages, nr_pages, qnx6_get_block);
+	mpage_readahead(rac, qnx6_get_block);
 }
 
 /*
@@ -167,8 +166,7 @@ static int qnx6_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_ffree   = fs32_to_cpu(sbi, sbi->sb->sb_free_inodes);
 	buf->f_bavail  = buf->f_bfree;
 	buf->f_namelen = QNX6_LONG_NAME_MAX;
-	buf->f_fsid.val[0] = (u32)id;
-	buf->f_fsid.val[1] = (u32)(id >> 32);
+	buf->f_fsid    = u64_to_fsid(id);
 
 	return 0;
 }
@@ -429,6 +427,8 @@ mmi_success:
 	s->s_op = &qnx6_sops;
 	s->s_magic = QNX6_SUPER_MAGIC;
 	s->s_flags |= SB_RDONLY;        /* Yup, read-only yet */
+	s->s_time_min = 0;
+	s->s_time_max = U32_MAX;
 
 	/* ease the later tree level calculations */
 	sbi = QNX6_SB(s);
@@ -497,7 +497,7 @@ static sector_t qnx6_bmap(struct address_space *mapping, sector_t block)
 }
 static const struct address_space_operations qnx6_aops = {
 	.readpage	= qnx6_readpage,
-	.readpages	= qnx6_readpages,
+	.readahead	= qnx6_readahead,
 	.bmap		= qnx6_bmap
 };
 

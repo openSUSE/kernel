@@ -378,7 +378,6 @@ static void osd_req_op_data_release(struct ceph_osd_request *osd_req,
 	case CEPH_OSD_OP_READ:
 	case CEPH_OSD_OP_WRITE:
 	case CEPH_OSD_OP_WRITEFULL:
-	case CEPH_OSD_OP_CMPEXT:
 		ceph_osd_data_release(&op->extent.osd_data);
 		break;
 	case CEPH_OSD_OP_CALL:
@@ -449,6 +448,7 @@ static void target_copy(struct ceph_osd_request_target *dest,
 	dest->recovery_deletes = src->recovery_deletes;
 
 	dest->flags = src->flags;
+	dest->used_replica = src->used_replica;
 	dest->paused = src->paused;
 
 	dest->epoch = src->epoch;
@@ -525,7 +525,7 @@ EXPORT_SYMBOL(ceph_osdc_put_request);
 
 static void request_init(struct ceph_osd_request *req)
 {
-	/* req only, each op is zeroed in _osd_req_op_init() */
+	/* req only, each op is zeroed in osd_req_op_init() */
 	memset(req, 0, sizeof(*req));
 
 	kref_init(&req->r_kref);
@@ -700,7 +700,6 @@ static void get_num_data_items(struct ceph_osd_request *req,
 		case CEPH_OSD_OP_CMPXATTR:
 		case CEPH_OSD_OP_NOTIFY_ACK:
 		case CEPH_OSD_OP_COPY_FROM2:
-		case CEPH_OSD_OP_CMPEXT:
 			*num_request_data_items += 1;
 			break;
 
@@ -747,8 +746,8 @@ EXPORT_SYMBOL(ceph_osdc_alloc_messages);
  * other information associated with them.  It also serves as a
  * common init routine for all the other init functions, below.
  */
-static struct ceph_osd_req_op *
-_osd_req_op_init(struct ceph_osd_request *osd_req, unsigned int which,
+struct ceph_osd_req_op *
+osd_req_op_init(struct ceph_osd_request *osd_req, unsigned int which,
 		 u16 opcode, u32 flags)
 {
 	struct ceph_osd_req_op *op;
@@ -763,12 +762,6 @@ _osd_req_op_init(struct ceph_osd_request *osd_req, unsigned int which,
 
 	return op;
 }
-
-void osd_req_op_init(struct ceph_osd_request *osd_req,
-		     unsigned int which, u16 opcode, u32 flags)
-{
-	(void)_osd_req_op_init(osd_req, which, opcode, flags);
-}
 EXPORT_SYMBOL(osd_req_op_init);
 
 void osd_req_op_extent_init(struct ceph_osd_request *osd_req,
@@ -776,20 +769,19 @@ void osd_req_op_extent_init(struct ceph_osd_request *osd_req,
 				u64 offset, u64 length,
 				u64 truncate_size, u32 truncate_seq)
 {
-	struct ceph_osd_req_op *op = _osd_req_op_init(osd_req, which,
-						      opcode, 0);
+	struct ceph_osd_req_op *op = osd_req_op_init(osd_req, which,
+						     opcode, 0);
 	size_t payload_len = 0;
 
 	BUG_ON(opcode != CEPH_OSD_OP_READ && opcode != CEPH_OSD_OP_WRITE &&
 	       opcode != CEPH_OSD_OP_WRITEFULL && opcode != CEPH_OSD_OP_ZERO &&
-	       opcode != CEPH_OSD_OP_TRUNCATE && opcode != CEPH_OSD_OP_CMPEXT);
+	       opcode != CEPH_OSD_OP_TRUNCATE);
 
 	op->extent.offset = offset;
 	op->extent.length = length;
 	op->extent.truncate_size = truncate_size;
 	op->extent.truncate_seq = truncate_seq;
-	if (opcode == CEPH_OSD_OP_WRITE || opcode == CEPH_OSD_OP_WRITEFULL
-						|| opcode == CEPH_OSD_OP_CMPEXT)
+	if (opcode == CEPH_OSD_OP_WRITE || opcode == CEPH_OSD_OP_WRITEFULL)
 		payload_len += length;
 
 	op->indata_len = payload_len;
@@ -811,8 +803,7 @@ void osd_req_op_extent_update(struct ceph_osd_request *osd_req,
 	BUG_ON(length > previous);
 
 	op->extent.length = length;
-	if (op->op == CEPH_OSD_OP_WRITE || op->op == CEPH_OSD_OP_WRITEFULL
-						|| op->op == CEPH_OSD_OP_CMPEXT)
+	if (op->op == CEPH_OSD_OP_WRITE || op->op == CEPH_OSD_OP_WRITEFULL)
 		op->indata_len -= previous - length;
 }
 EXPORT_SYMBOL(osd_req_op_extent_update);
@@ -825,7 +816,7 @@ void osd_req_op_extent_dup_last(struct ceph_osd_request *osd_req,
 	BUG_ON(which + 1 >= osd_req->r_num_ops);
 
 	prev_op = &osd_req->r_ops[which];
-	op = _osd_req_op_init(osd_req, which + 1, prev_op->op, prev_op->flags);
+	op = osd_req_op_init(osd_req, which + 1, prev_op->op, prev_op->flags);
 	/* dup previous one */
 	op->indata_len = prev_op->indata_len;
 	op->outdata_len = prev_op->outdata_len;
@@ -834,8 +825,7 @@ void osd_req_op_extent_dup_last(struct ceph_osd_request *osd_req,
 	op->extent.offset += offset_inc;
 	op->extent.length -= offset_inc;
 
-	if (op->op == CEPH_OSD_OP_WRITE || op->op == CEPH_OSD_OP_WRITEFULL
-						|| op->op == CEPH_OSD_OP_CMPEXT)
+	if (op->op == CEPH_OSD_OP_WRITE || op->op == CEPH_OSD_OP_WRITEFULL)
 		op->indata_len -= offset_inc;
 }
 EXPORT_SYMBOL(osd_req_op_extent_dup_last);
@@ -849,7 +839,7 @@ int osd_req_op_cls_init(struct ceph_osd_request *osd_req, unsigned int which,
 	size_t size;
 	int ret;
 
-	op = _osd_req_op_init(osd_req, which, CEPH_OSD_OP_CALL, 0);
+	op = osd_req_op_init(osd_req, which, CEPH_OSD_OP_CALL, 0);
 
 	pagelist = ceph_pagelist_alloc(GFP_NOFS);
 	if (!pagelist)
@@ -887,8 +877,8 @@ int osd_req_op_xattr_init(struct ceph_osd_request *osd_req, unsigned int which,
 			  u16 opcode, const char *name, const void *value,
 			  size_t size, u8 cmp_op, u8 cmp_mode)
 {
-	struct ceph_osd_req_op *op = _osd_req_op_init(osd_req, which,
-						      opcode, 0);
+	struct ceph_osd_req_op *op = osd_req_op_init(osd_req, which,
+						     opcode, 0);
 	struct ceph_pagelist *pagelist;
 	size_t payload_len;
 	int ret;
@@ -932,23 +922,27 @@ static void osd_req_op_watch_init(struct ceph_osd_request *req, int which,
 {
 	struct ceph_osd_req_op *op;
 
-	op = _osd_req_op_init(req, which, CEPH_OSD_OP_WATCH, 0);
+	op = osd_req_op_init(req, which, CEPH_OSD_OP_WATCH, 0);
 	op->watch.cookie = cookie;
 	op->watch.op = watch_opcode;
 	op->watch.gen = 0;
 }
 
+/*
+ * @flags: CEPH_OSD_OP_ALLOC_HINT_FLAG_*
+ */
 void osd_req_op_alloc_hint_init(struct ceph_osd_request *osd_req,
 				unsigned int which,
 				u64 expected_object_size,
-				u64 expected_write_size)
+				u64 expected_write_size,
+				u32 flags)
 {
-	struct ceph_osd_req_op *op = _osd_req_op_init(osd_req, which,
-						      CEPH_OSD_OP_SETALLOCHINT,
-						      0);
+	struct ceph_osd_req_op *op;
 
+	op = osd_req_op_init(osd_req, which, CEPH_OSD_OP_SETALLOCHINT, 0);
 	op->alloc_hint.expected_object_size = expected_object_size;
 	op->alloc_hint.expected_write_size = expected_write_size;
+	op->alloc_hint.flags = flags;
 
 	/*
 	 * CEPH_OSD_OP_SETALLOCHINT op is advisory and therefore deemed
@@ -994,7 +988,6 @@ static u32 osd_req_encode_op(struct ceph_osd_op *dst,
 	case CEPH_OSD_OP_WRITEFULL:
 	case CEPH_OSD_OP_ZERO:
 	case CEPH_OSD_OP_TRUNCATE:
-	case CEPH_OSD_OP_CMPEXT:
 		dst->extent.offset = cpu_to_le64(src->extent.offset);
 		dst->extent.length = cpu_to_le64(src->extent.length);
 		dst->extent.truncate_size =
@@ -1025,6 +1018,7 @@ static u32 osd_req_encode_op(struct ceph_osd_op *dst,
 		    cpu_to_le64(src->alloc_hint.expected_object_size);
 		dst->alloc_hint.expected_write_size =
 		    cpu_to_le64(src->alloc_hint.expected_write_size);
+		dst->alloc_hint.flags = cpu_to_le32(src->alloc_hint.flags);
 		break;
 	case CEPH_OSD_OP_SETXATTR:
 	case CEPH_OSD_OP_CMPXATTR:
@@ -1086,8 +1080,7 @@ struct ceph_osd_request *ceph_osdc_new_request(struct ceph_osd_client *osdc,
 
 	BUG_ON(opcode != CEPH_OSD_OP_READ && opcode != CEPH_OSD_OP_WRITE &&
 	       opcode != CEPH_OSD_OP_ZERO && opcode != CEPH_OSD_OP_TRUNCATE &&
-	       opcode != CEPH_OSD_OP_CREATE && opcode != CEPH_OSD_OP_DELETE &&
-	       opcode != CEPH_OSD_OP_CMPEXT);
+	       opcode != CEPH_OSD_OP_CREATE && opcode != CEPH_OSD_OP_DELETE);
 
 	req = ceph_osdc_alloc_request(osdc, snapc, num_ops, use_mempool,
 					GFP_NOFS);
@@ -1119,10 +1112,10 @@ struct ceph_osd_request *ceph_osdc_new_request(struct ceph_osd_client *osdc,
 				       truncate_size, truncate_seq);
 	}
 
-	req->r_flags = flags;
 	req->r_base_oloc.pool = layout->pool_id;
 	req->r_base_oloc.pool_ns = ceph_try_get_string(layout->pool_ns);
 	ceph_oid_printf(&req->r_base_oid, "%llx.%08llx", vino.ino, objnum);
+	req->r_flags = flags | osdc->client->options->read_from_replica;
 
 	req->r_snapid = vino.snap;
 	if (flags & CEPH_OSD_FLAG_WRITE)
@@ -1505,6 +1498,45 @@ static bool target_should_be_paused(struct ceph_osd_client *osdc,
 	       (osdc->osdmap->epoch < osdc->epoch_barrier);
 }
 
+static int pick_random_replica(const struct ceph_osds *acting)
+{
+	int i = prandom_u32() % acting->size;
+
+	dout("%s picked osd%d, primary osd%d\n", __func__,
+	     acting->osds[i], acting->primary);
+	return i;
+}
+
+/*
+ * Picks the closest replica based on client's location given by
+ * crush_location option.  Prefers the primary if the locality is
+ * the same.
+ */
+static int pick_closest_replica(struct ceph_osd_client *osdc,
+				const struct ceph_osds *acting)
+{
+	struct ceph_options *opt = osdc->client->options;
+	int best_i, best_locality;
+	int i = 0, locality;
+
+	do {
+		locality = ceph_get_crush_locality(osdc->osdmap,
+						   acting->osds[i],
+						   &opt->crush_locs);
+		if (i == 0 ||
+		    (locality >= 0 && best_locality < 0) ||
+		    (locality >= 0 && best_locality >= 0 &&
+		     locality < best_locality)) {
+			best_i = i;
+			best_locality = locality;
+		}
+	} while (++i < acting->size);
+
+	dout("%s picked osd%d with locality %d, primary osd%d\n", __func__,
+	     acting->osds[best_i], best_locality, acting->primary);
+	return best_i;
+}
+
 enum calc_target_result {
 	CALC_TARGET_NO_ACTION = 0,
 	CALC_TARGET_NEED_RESEND,
@@ -1518,6 +1550,8 @@ static enum calc_target_result calc_target(struct ceph_osd_client *osdc,
 	struct ceph_pg_pool_info *pi;
 	struct ceph_pg pgid, last_pgid;
 	struct ceph_osds up, acting;
+	bool is_read = t->flags & CEPH_OSD_FLAG_READ;
+	bool is_write = t->flags & CEPH_OSD_FLAG_WRITE;
 	bool force_resend = false;
 	bool unpaused = false;
 	bool legacy_change = false;
@@ -1548,9 +1582,9 @@ static enum calc_target_result calc_target(struct ceph_osd_client *osdc,
 	ceph_oid_copy(&t->target_oid, &t->base_oid);
 	ceph_oloc_copy(&t->target_oloc, &t->base_oloc);
 	if ((t->flags & CEPH_OSD_FLAG_IGNORE_OVERLAY) == 0) {
-		if (t->flags & CEPH_OSD_FLAG_READ && pi->read_tier >= 0)
+		if (is_read && pi->read_tier >= 0)
 			t->target_oloc.pool = pi->read_tier;
-		if (t->flags & CEPH_OSD_FLAG_WRITE && pi->write_tier >= 0)
+		if (is_write && pi->write_tier >= 0)
 			t->target_oloc.pool = pi->write_tier;
 
 		pi = ceph_pg_pool_by_id(osdc->osdmap, t->target_oloc.pool);
@@ -1589,7 +1623,8 @@ static enum calc_target_result calc_target(struct ceph_osd_client *osdc,
 		unpaused = true;
 	}
 	legacy_change = ceph_pg_compare(&t->pgid, &pgid) ||
-			ceph_osds_changed(&t->acting, &acting, any_change);
+			ceph_osds_changed(&t->acting, &acting,
+					  t->used_replica || any_change);
 	if (t->pg_num)
 		split = ceph_pg_is_split(&last_pgid, t->pg_num, pi->pg_num);
 
@@ -1605,7 +1640,24 @@ static enum calc_target_result calc_target(struct ceph_osd_client *osdc,
 		t->sort_bitwise = sort_bitwise;
 		t->recovery_deletes = recovery_deletes;
 
-		t->osd = acting.primary;
+		if ((t->flags & (CEPH_OSD_FLAG_BALANCE_READS |
+				 CEPH_OSD_FLAG_LOCALIZE_READS)) &&
+		    !is_write && pi->type == CEPH_POOL_TYPE_REP &&
+		    acting.size > 1) {
+			int pos;
+
+			WARN_ON(!is_read || acting.osds[0] != acting.primary);
+			if (t->flags & CEPH_OSD_FLAG_BALANCE_READS) {
+				pos = pick_random_replica(&acting);
+			} else {
+				pos = pick_closest_replica(osdc, &acting);
+			}
+			t->osd = acting.osds[pos];
+			t->used_replica = pos > 0;
+		} else {
+			t->osd = acting.primary;
+			t->used_replica = false;
+		}
 	}
 
 	if (unpaused || legacy_change || force_resend || split)
@@ -1959,7 +2011,6 @@ static void setup_request_data(struct ceph_osd_request *req)
 		/* request */
 		case CEPH_OSD_OP_WRITE:
 		case CEPH_OSD_OP_WRITEFULL:
-		case CEPH_OSD_OP_CMPEXT:
 			WARN_ON(op->indata_len != op->extent.length);
 			ceph_osdc_msg_data_add(request_msg,
 					       &op->extent.osd_data);
@@ -2382,6 +2433,7 @@ static void account_request(struct ceph_osd_request *req)
 	atomic_inc(&req->r_osdc->num_requests);
 
 	req->r_start_stamp = jiffies;
+	req->r_start_latency = ktime_get();
 }
 
 static void submit_request(struct ceph_osd_request *req, bool wrlocked)
@@ -2397,6 +2449,8 @@ static void finish_request(struct ceph_osd_request *req)
 
 	WARN_ON(lookup_request_mc(&osdc->map_checks, req->r_tid));
 	dout("%s req %p tid %llu\n", __func__, req, req->r_tid);
+
+	req->r_end_latency = ktime_get();
 
 	if (req->r_osd)
 		unlink_request(req->r_osd, req);
@@ -3015,9 +3069,7 @@ static void send_linger(struct ceph_osd_linger_request *lreq)
 		cancel_linger_request(req);
 
 	request_reinit(req);
-	ceph_oid_copy(&req->r_base_oid, &lreq->t.base_oid);
-	ceph_oloc_copy(&req->r_base_oloc, &lreq->t.base_oloc);
-	req->r_flags = lreq->t.flags;
+	target_copy(&req->r_t, &lreq->t);
 	req->r_mtime = lreq->mtime;
 
 	mutex_lock(&lreq->lock);
@@ -3666,6 +3718,26 @@ static void handle_reply(struct ceph_osd *osd, struct ceph_msg *msg)
 		goto out_unlock_osdc;
 	}
 
+	if (m.result == -EAGAIN) {
+		dout("req %p tid %llu EAGAIN\n", req, req->r_tid);
+		unlink_request(osd, req);
+		mutex_unlock(&osd->lock);
+
+		/*
+		 * The object is missing on the replica or not (yet)
+		 * readable.  Clear pgid to force a resend to the primary
+		 * via legacy_change.
+		 */
+		req->r_t.pgid.pool = 0;
+		req->r_t.pgid.seed = 0;
+		WARN_ON(!req->r_t.used_replica);
+		req->r_flags &= ~(CEPH_OSD_FLAG_BALANCE_READS |
+				  CEPH_OSD_FLAG_LOCALIZE_READS);
+		req->r_tid = 0;
+		__submit_request(req, false);
+		goto out_unlock_osdc;
+	}
+
 	if (m.num_ops != req->r_num_ops) {
 		pr_err("num_ops %d != %d for tid %llu\n", m.num_ops,
 		       req->r_num_ops, req->r_tid);
@@ -3782,7 +3854,7 @@ static void scan_requests(struct ceph_osd *osd,
 			if (!force_resend && !force_resend_writes)
 				break;
 
-			/* fall through */
+			fallthrough;
 		case CALC_TARGET_NEED_RESEND:
 			cancel_linger_map_check(lreq);
 			/*
@@ -3819,7 +3891,7 @@ static void scan_requests(struct ceph_osd *osd,
 			     !force_resend_writes))
 				break;
 
-			/* fall through */
+			fallthrough;
 		case CALC_TARGET_NEED_RESEND:
 			cancel_map_check(req);
 			unlink_request(osd, req);
@@ -3846,9 +3918,11 @@ static int handle_one_map(struct ceph_osd_client *osdc,
 	set_pool_was_full(osdc);
 
 	if (incremental)
-		newmap = osdmap_apply_incremental(&p, end, osdc->osdmap);
+		newmap = osdmap_apply_incremental(&p, end,
+						  ceph_msgr2(osdc->client),
+						  osdc->osdmap);
 	else
-		newmap = ceph_osdmap_decode(&p, end);
+		newmap = ceph_osdmap_decode(&p, end, ceph_msgr2(osdc->client));
 	if (IS_ERR(newmap))
 		return PTR_ERR(newmap);
 
@@ -4720,7 +4794,7 @@ static int osd_req_op_notify_ack_init(struct ceph_osd_request *req, int which,
 	struct ceph_pagelist *pl;
 	int ret;
 
-	op = _osd_req_op_init(req, which, CEPH_OSD_OP_NOTIFY_ACK, 0);
+	op = osd_req_op_init(req, which, CEPH_OSD_OP_NOTIFY_ACK, 0);
 
 	pl = ceph_pagelist_alloc(GFP_NOIO);
 	if (!pl)
@@ -4789,7 +4863,7 @@ static int osd_req_op_notify_init(struct ceph_osd_request *req, int which,
 	struct ceph_pagelist *pl;
 	int ret;
 
-	op = _osd_req_op_init(req, which, CEPH_OSD_OP_NOTIFY, 0);
+	op = osd_req_op_init(req, which, CEPH_OSD_OP_NOTIFY, 0);
 	op->notify.cookie = cookie;
 
 	pl = ceph_pagelist_alloc(GFP_NOIO);
@@ -5253,8 +5327,8 @@ static int osd_req_op_copy_from_init(struct ceph_osd_request *req,
 	if (IS_ERR(pages))
 		return PTR_ERR(pages);
 
-	op = _osd_req_op_init(req, 0, CEPH_OSD_OP_COPY_FROM2,
-			      dst_fadvise_flags);
+	op = osd_req_op_init(req, 0, CEPH_OSD_OP_COPY_FROM2,
+			     dst_fadvise_flags);
 	op->copy_from.snapid = src_snapid;
 	op->copy_from.src_version = src_version;
 	op->copy_from.flags = copy_from_flags;
@@ -5338,7 +5412,7 @@ void ceph_osdc_cleanup(void)
 /*
  * handle incoming message
  */
-static void dispatch(struct ceph_connection *con, struct ceph_msg *msg)
+static void osd_dispatch(struct ceph_connection *con, struct ceph_msg *msg)
 {
 	struct ceph_osd *osd = con->private;
 	struct ceph_osd_client *osdc = osd->o_osdc;
@@ -5460,9 +5534,9 @@ static struct ceph_msg *alloc_msg_with_page_vector(struct ceph_msg_header *hdr)
 	return m;
 }
 
-static struct ceph_msg *alloc_msg(struct ceph_connection *con,
-				  struct ceph_msg_header *hdr,
-				  int *skip)
+static struct ceph_msg *osd_alloc_msg(struct ceph_connection *con,
+				      struct ceph_msg_header *hdr,
+				      int *skip)
 {
 	struct ceph_osd *osd = con->private;
 	int type = le16_to_cpu(hdr->type);
@@ -5486,7 +5560,7 @@ static struct ceph_msg *alloc_msg(struct ceph_connection *con,
 /*
  * Wrappers to refcount containing ceph_osd struct
  */
-static struct ceph_connection *get_osd_con(struct ceph_connection *con)
+static struct ceph_connection *osd_get_con(struct ceph_connection *con)
 {
 	struct ceph_osd *osd = con->private;
 	if (get_osd(osd))
@@ -5494,7 +5568,7 @@ static struct ceph_connection *get_osd_con(struct ceph_connection *con)
 	return NULL;
 }
 
-static void put_osd_con(struct ceph_connection *con)
+static void osd_put_con(struct ceph_connection *con)
 {
 	struct ceph_osd *osd = con->private;
 	put_osd(osd);
@@ -5503,39 +5577,29 @@ static void put_osd_con(struct ceph_connection *con)
 /*
  * authentication
  */
+
 /*
  * Note: returned pointer is the address of a structure that's
  * managed separately.  Caller must *not* attempt to free it.
  */
-static struct ceph_auth_handshake *get_authorizer(struct ceph_connection *con,
-					int *proto, int force_new)
+static struct ceph_auth_handshake *
+osd_get_authorizer(struct ceph_connection *con, int *proto, int force_new)
 {
 	struct ceph_osd *o = con->private;
 	struct ceph_osd_client *osdc = o->o_osdc;
 	struct ceph_auth_client *ac = osdc->client->monc.auth;
 	struct ceph_auth_handshake *auth = &o->o_auth;
+	int ret;
 
-	if (force_new && auth->authorizer) {
-		ceph_auth_destroy_authorizer(auth->authorizer);
-		auth->authorizer = NULL;
-	}
-	if (!auth->authorizer) {
-		int ret = ceph_auth_create_authorizer(ac, CEPH_ENTITY_TYPE_OSD,
-						      auth);
-		if (ret)
-			return ERR_PTR(ret);
-	} else {
-		int ret = ceph_auth_update_authorizer(ac, CEPH_ENTITY_TYPE_OSD,
-						     auth);
-		if (ret)
-			return ERR_PTR(ret);
-	}
-	*proto = ac->protocol;
+	ret = __ceph_auth_get_authorizer(ac, auth, CEPH_ENTITY_TYPE_OSD,
+					 force_new, proto, NULL, NULL);
+	if (ret)
+		return ERR_PTR(ret);
 
 	return auth;
 }
 
-static int add_authorizer_challenge(struct ceph_connection *con,
+static int osd_add_authorizer_challenge(struct ceph_connection *con,
 				    void *challenge_buf, int challenge_buf_len)
 {
 	struct ceph_osd *o = con->private;
@@ -5546,16 +5610,19 @@ static int add_authorizer_challenge(struct ceph_connection *con,
 					    challenge_buf, challenge_buf_len);
 }
 
-static int verify_authorizer_reply(struct ceph_connection *con)
+static int osd_verify_authorizer_reply(struct ceph_connection *con)
 {
 	struct ceph_osd *o = con->private;
 	struct ceph_osd_client *osdc = o->o_osdc;
 	struct ceph_auth_client *ac = osdc->client->monc.auth;
+	struct ceph_auth_handshake *auth = &o->o_auth;
 
-	return ceph_auth_verify_authorizer_reply(ac, o->o_auth.authorizer);
+	return ceph_auth_verify_authorizer_reply(ac, auth->authorizer,
+		auth->authorizer_reply_buf, auth->authorizer_reply_buf_len,
+		NULL, NULL, NULL, NULL);
 }
 
-static int invalidate_authorizer(struct ceph_connection *con)
+static int osd_invalidate_authorizer(struct ceph_connection *con)
 {
 	struct ceph_osd *o = con->private;
 	struct ceph_osd_client *osdc = o->o_osdc;
@@ -5563,6 +5630,80 @@ static int invalidate_authorizer(struct ceph_connection *con)
 
 	ceph_auth_invalidate_authorizer(ac, CEPH_ENTITY_TYPE_OSD);
 	return ceph_monc_validate_auth(&osdc->client->monc);
+}
+
+static int osd_get_auth_request(struct ceph_connection *con,
+				void *buf, int *buf_len,
+				void **authorizer, int *authorizer_len)
+{
+	struct ceph_osd *o = con->private;
+	struct ceph_auth_client *ac = o->o_osdc->client->monc.auth;
+	struct ceph_auth_handshake *auth = &o->o_auth;
+	int ret;
+
+	ret = ceph_auth_get_authorizer(ac, auth, CEPH_ENTITY_TYPE_OSD,
+				       buf, buf_len);
+	if (ret)
+		return ret;
+
+	*authorizer = auth->authorizer_buf;
+	*authorizer_len = auth->authorizer_buf_len;
+	return 0;
+}
+
+static int osd_handle_auth_reply_more(struct ceph_connection *con,
+				      void *reply, int reply_len,
+				      void *buf, int *buf_len,
+				      void **authorizer, int *authorizer_len)
+{
+	struct ceph_osd *o = con->private;
+	struct ceph_auth_client *ac = o->o_osdc->client->monc.auth;
+	struct ceph_auth_handshake *auth = &o->o_auth;
+	int ret;
+
+	ret = ceph_auth_handle_svc_reply_more(ac, auth, reply, reply_len,
+					      buf, buf_len);
+	if (ret)
+		return ret;
+
+	*authorizer = auth->authorizer_buf;
+	*authorizer_len = auth->authorizer_buf_len;
+	return 0;
+}
+
+static int osd_handle_auth_done(struct ceph_connection *con,
+				u64 global_id, void *reply, int reply_len,
+				u8 *session_key, int *session_key_len,
+				u8 *con_secret, int *con_secret_len)
+{
+	struct ceph_osd *o = con->private;
+	struct ceph_auth_client *ac = o->o_osdc->client->monc.auth;
+	struct ceph_auth_handshake *auth = &o->o_auth;
+
+	return ceph_auth_handle_svc_reply_done(ac, auth, reply, reply_len,
+					       session_key, session_key_len,
+					       con_secret, con_secret_len);
+}
+
+static int osd_handle_auth_bad_method(struct ceph_connection *con,
+				      int used_proto, int result,
+				      const int *allowed_protos, int proto_cnt,
+				      const int *allowed_modes, int mode_cnt)
+{
+	struct ceph_osd *o = con->private;
+	struct ceph_mon_client *monc = &o->o_osdc->client->monc;
+	int ret;
+
+	if (ceph_auth_handle_bad_authorizer(monc->auth, CEPH_ENTITY_TYPE_OSD,
+					    used_proto, result,
+					    allowed_protos, proto_cnt,
+					    allowed_modes, mode_cnt)) {
+		ret = ceph_monc_validate_auth(monc);
+		if (ret)
+			return ret;
+	}
+
+	return -EACCES;
 }
 
 static void osd_reencode_message(struct ceph_msg *msg)
@@ -5590,16 +5731,20 @@ static int osd_check_message_signature(struct ceph_msg *msg)
 }
 
 static const struct ceph_connection_operations osd_con_ops = {
-	.get = get_osd_con,
-	.put = put_osd_con,
-	.dispatch = dispatch,
-	.get_authorizer = get_authorizer,
-	.add_authorizer_challenge = add_authorizer_challenge,
-	.verify_authorizer_reply = verify_authorizer_reply,
-	.invalidate_authorizer = invalidate_authorizer,
-	.alloc_msg = alloc_msg,
+	.get = osd_get_con,
+	.put = osd_put_con,
+	.alloc_msg = osd_alloc_msg,
+	.dispatch = osd_dispatch,
+	.fault = osd_fault,
 	.reencode_message = osd_reencode_message,
+	.get_authorizer = osd_get_authorizer,
+	.add_authorizer_challenge = osd_add_authorizer_challenge,
+	.verify_authorizer_reply = osd_verify_authorizer_reply,
+	.invalidate_authorizer = osd_invalidate_authorizer,
 	.sign_message = osd_sign_message,
 	.check_message_signature = osd_check_message_signature,
-	.fault = osd_fault,
+	.get_auth_request = osd_get_auth_request,
+	.handle_auth_reply_more = osd_handle_auth_reply_more,
+	.handle_auth_done = osd_handle_auth_done,
+	.handle_auth_bad_method = osd_handle_auth_bad_method,
 };

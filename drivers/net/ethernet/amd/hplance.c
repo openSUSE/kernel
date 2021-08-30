@@ -15,6 +15,7 @@
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/errno.h>
+#include <linux/pgtable.h>
 /* Used for the temporal inet entries and routing */
 #include <linux/socket.h>
 #include <linux/route.h>
@@ -24,7 +25,6 @@
 #include <linux/skbuff.h>
 
 #include <asm/io.h>
-#include <asm/pgtable.h>
 
 #include "hplance.h"
 
@@ -170,6 +170,7 @@ static void hplance_init(struct net_device *dev, struct dio_dev *d)
 static void hplance_writerap(void *priv, unsigned short value)
 {
 	struct lance_private *lp = (struct lance_private *)priv;
+
 	do {
 		out_be16(lp->base + HPLANCE_REGOFF + LANCE_RAP, value);
 	} while ((in_8(lp->base + HPLANCE_STATUS) & LE_ACK) == 0);
@@ -178,6 +179,7 @@ static void hplance_writerap(void *priv, unsigned short value)
 static void hplance_writerdp(void *priv, unsigned short value)
 {
 	struct lance_private *lp = (struct lance_private *)priv;
+
 	do {
 		out_be16(lp->base + HPLANCE_REGOFF + LANCE_RDP, value);
 	} while ((in_8(lp->base + HPLANCE_STATUS) & LE_ACK) == 0);
@@ -187,6 +189,7 @@ static unsigned short hplance_readrdp(void *priv)
 {
 	struct lance_private *lp = (struct lance_private *)priv;
 	__u16 value;
+
 	do {
 		value = in_be16(lp->base + HPLANCE_REGOFF + LANCE_RDP);
 	} while ((in_8(lp->base + HPLANCE_STATUS) & LE_ACK) == 0);

@@ -64,17 +64,10 @@ static inline void pte_free(struct mm_struct *mm, pgtable_t ptepage)
 extern struct kmem_cache *pgtable_cache[];
 #define PGT_CACHE(shift) pgtable_cache[shift]
 
-static inline void check_pgt_cache(void) { }
-
 #ifdef CONFIG_PPC_BOOK3S
 #include <asm/book3s/pgalloc.h>
 #else
 #include <asm/nohash/pgalloc.h>
 #endif
-
-static inline pgtable_t pmd_pgtable(pmd_t pmd)
-{
-	return (pgtable_t)pmd_page_vaddr(pmd);
-}
 
 #endif /* _ASM_POWERPC_PGALLOC_H */

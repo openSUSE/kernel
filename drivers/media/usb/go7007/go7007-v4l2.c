@@ -285,33 +285,22 @@ static int vidioc_querycap(struct file *file, void  *priv,
 static int vidioc_enum_fmt_vid_cap(struct file *file, void  *priv,
 					struct v4l2_fmtdesc *fmt)
 {
-	char *desc = NULL;
-
 	switch (fmt->index) {
 	case 0:
 		fmt->pixelformat = V4L2_PIX_FMT_MJPEG;
-		desc = "Motion JPEG";
 		break;
 	case 1:
 		fmt->pixelformat = V4L2_PIX_FMT_MPEG1;
-		desc = "MPEG-1 ES";
 		break;
 	case 2:
 		fmt->pixelformat = V4L2_PIX_FMT_MPEG2;
-		desc = "MPEG-2 ES";
 		break;
 	case 3:
 		fmt->pixelformat = V4L2_PIX_FMT_MPEG4;
-		desc = "MPEG-4 ES";
 		break;
 	default:
 		return -EINVAL;
 	}
-	fmt->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	fmt->flags = V4L2_FMT_FLAG_COMPRESSED;
-
-	strscpy(fmt->description, desc, sizeof(fmt->description));
-
 	return 0;
 }
 
@@ -1149,7 +1138,7 @@ int go7007_v4l2_init(struct go7007 *go)
 	go7007_s_input(go);
 	if (go->board_info->sensor_flags & GO7007_SENSOR_TV)
 		go7007_s_std(go);
-	rv = video_register_device(vdev, VFL_TYPE_GRABBER, -1);
+	rv = video_register_device(vdev, VFL_TYPE_VIDEO, -1);
 	if (rv < 0)
 		return rv;
 	dev_info(go->dev, "registered device %s [v4l2]\n",

@@ -21,7 +21,6 @@ config PPC_PSERIES
 	select PPC_DOORBELL
 	select HOTPLUG_CPU
 	select ARCH_RANDOM
-	select PPC_DOORBELL
 	select FORCE_SMP
 	select SWIOTLB
 	default y
@@ -115,6 +114,7 @@ config PPC_SMLPAR
 config CMM
 	tristate "Collaborative memory management"
 	depends on PPC_SMLPAR
+	select MEMORY_BALLOON
 	default y
 	help
 	  Select this option, if you want to enable the kernel interface
@@ -152,3 +152,17 @@ config PAPR_SCM
 	tristate "Support for the PAPR Storage Class Memory interface"
 	help
 	  Enable access to hypervisor provided storage class memory.
+
+config PPC_SVM
+	bool "Secure virtual machine (SVM) support for POWER"
+	depends on PPC_PSERIES
+	select SWIOTLB
+	select ARCH_HAS_MEM_ENCRYPT
+	select ARCH_HAS_FORCE_DMA_UNENCRYPTED
+	help
+	 There are certain POWER platforms which support secure guests using
+	 the Protected Execution Facility, with the help of an Ultravisor
+	 executing below the hypervisor layer. This enables support for
+	 those guests.
+
+	 If unsure, say "N".

@@ -1,6 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0
 # description: Test ftrace direct functions against kprobes
+# requires: kprobe_events
 
 rmmod ftrace-direct ||:
 if ! modprobe ftrace-direct ; then
@@ -8,15 +9,10 @@ if ! modprobe ftrace-direct ; then
   exit_unresolved;
 fi
 
-if [ ! -f kprobe_events ]; then
-	echo "No kprobe_events file -please build CONFIG_KPROBE_EVENTS"
-	exit_unresolved;
-fi
-
 echo "Let the module run a little"
 sleep 1
 
-grep -q "my_direct_func: wakeing up" trace
+grep -q "my_direct_func: waking up" trace
 
 rmmod ftrace-direct
 
@@ -26,7 +22,7 @@ start_direct() {
 	echo > trace
 	modprobe ftrace-direct
 	sleep 1
-	grep -q "my_direct_func: wakeing up" trace
+	grep -q "my_direct_func: waking up" trace
 }
 
 stop_direct() {

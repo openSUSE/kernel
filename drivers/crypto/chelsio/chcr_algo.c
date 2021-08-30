@@ -44,7 +44,6 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/crypto.h>
-#include <linux/cryptohash.h>
 #include <linux/skbuff.h>
 #include <linux/rtnetlink.h>
 #include <linux/highmem.h>
@@ -125,11 +124,6 @@ static inline struct chcr_authenc_ctx *AUTHENC_CTX(struct chcr_aead_ctx *gctx)
 static inline struct uld_ctx *ULD_CTX(struct chcr_context *ctx)
 {
 	return container_of(ctx->dev, struct uld_ctx, dev);
-}
-
-static inline int is_ofld_imm(const struct sk_buff *skb)
-{
-	return (skb->len <= SGE_MAX_WR_LEN);
 }
 
 static inline void chcr_init_hctx_per_wr(struct chcr_ahash_req_ctx *reqctx)
@@ -799,10 +793,7 @@ static inline void create_wreq(struct chcr_context *ctx,
 
 /**
  *	create_cipher_wr - form the WR for cipher operations
- *	@req: cipher req.
- *	@ctx: crypto driver context of the request.
- *	@qid: ingress qid where response of this WR should be received.
- *	@op_type:	encryption or decryption
+ *	@wrparam: Container for create_cipher_wr()'s parameters
  */
 static struct sk_buff *create_cipher_wr(struct cipher_wr_param *wrparam)
 {
@@ -923,20 +914,13 @@ static int chcr_cipher_fallback_setkey(struct crypto_skcipher *cipher,
 				       const u8 *key,
 				       unsigned int keylen)
 {
-	struct crypto_tfm *tfm = crypto_skcipher_tfm(cipher);
 	struct ablk_ctx *ablkctx = ABLK_CTX(c_ctx(cipher));
-	int err = 0;
 
 	crypto_skcipher_clear_flags(ablkctx->sw_cipher,
 				CRYPTO_TFM_REQ_MASK);
 	crypto_skcipher_set_flags(ablkctx->sw_cipher,
 				cipher->base.crt_flags & CRYPTO_TFM_REQ_MASK);
-	err = crypto_skcipher_setkey(ablkctx->sw_cipher, key, keylen);
-	tfm->crt_flags &= ~CRYPTO_TFM_RES_MASK;
-	tfm->crt_flags |=
-		crypto_skcipher_get_flags(ablkctx->sw_cipher) &
-		CRYPTO_TFM_RES_MASK;
-	return err;
+	return crypto_skcipher_setkey(ablkctx->sw_cipher, key, keylen);
 }
 
 static int chcr_aes_cbc_setkey(struct crypto_skcipher *cipher,
@@ -965,7 +949,6 @@ static int chcr_aes_cbc_setkey(struct crypto_skcipher *cipher,
 	ablkctx->ciph_mode = CHCR_SCMD_CIPHER_MODE_AES_CBC;
 	return 0;
 badkey_err:
-	crypto_skcipher_set_flags(cipher, CRYPTO_TFM_RES_BAD_KEY_LEN);
 	ablkctx->enckey_len = 0;
 
 	return err;
@@ -996,7 +979,6 @@ static int chcr_aes_ctr_setkey(struct crypto_skcipher *cipher,
 
 	return 0;
 badkey_err:
-	crypto_skcipher_set_flags(cipher, CRYPTO_TFM_RES_BAD_KEY_LEN);
 	ablkctx->enckey_len = 0;
 
 	return err;
@@ -1034,7 +1016,6 @@ static int chcr_aes_rfc3686_setkey(struct crypto_skcipher *cipher,
 
 	return 0;
 badkey_err:
-	crypto_skcipher_set_flags(cipher, CRYPTO_TFM_RES_BAD_KEY_LEN);
 	ablkctx->enckey_len = 0;
 
 	return err;
@@ -1573,7 +1554,8 @@ static inline void chcr_free_shash(struct crypto_shash *base_hash)
 
 /**
  *	create_hash_wr - Create hash work request
- *	@req - Cipher req base
+ *	@req: Cipher req base
+ *	@param: Container for create_hash_wr()'s parameters
  */
 static struct sk_buff *create_hash_wr(struct ahash_request *req,
 				      struct hash_wr_param *param)
@@ -2301,7 +2283,6 @@ static int chcr_aes_xts_setkey(struct crypto_skcipher *cipher, const u8 *key,
 	ablkctx->ciph_mode = CHCR_SCMD_CIPHER_MODE_AES_XTS;
 	return 0;
 badkey_err:
-	crypto_skcipher_set_flags(cipher, CRYPTO_TFM_RES_BAD_KEY_LEN);
 	ablkctx->enckey_len = 0;
 
 	return err;
@@ -3454,7 +3435,6 @@ static int chcr_ccm_common_setkey(struct crypto_aead *aead,
 		ck_size = CHCR_KEYCTX_CIPHER_KEY_SIZE_256;
 		mk_size = CHCR_KEYCTX_MAC_KEY_SIZE_256;
 	} else {
-		crypto_aead_set_flags(aead, CRYPTO_TFM_RES_BAD_KEY_LEN);
 		aeadctx->enckey_len = 0;
 		return	-EINVAL;
 	}
@@ -3477,9 +3457,6 @@ static int chcr_aead_ccm_setkey(struct crypto_aead *aead,
 	crypto_aead_set_flags(aeadctx->sw_cipher, crypto_aead_get_flags(aead) &
 			      CRYPTO_TFM_REQ_MASK);
 	error = crypto_aead_setkey(aeadctx->sw_cipher, key, keylen);
-	crypto_aead_clear_flags(aead, CRYPTO_TFM_RES_MASK);
-	crypto_aead_set_flags(aead, crypto_aead_get_flags(aeadctx->sw_cipher) &
-			      CRYPTO_TFM_RES_MASK);
 	if (error)
 		return error;
 	return chcr_ccm_common_setkey(aead, key, keylen);
@@ -3492,7 +3469,6 @@ static int chcr_aead_rfc4309_setkey(struct crypto_aead *aead, const u8 *key,
 	int error;
 
 	if (keylen < 3) {
-		crypto_aead_set_flags(aead, CRYPTO_TFM_RES_BAD_KEY_LEN);
 		aeadctx->enckey_len = 0;
 		return	-EINVAL;
 	}
@@ -3500,9 +3476,6 @@ static int chcr_aead_rfc4309_setkey(struct crypto_aead *aead, const u8 *key,
 	crypto_aead_set_flags(aeadctx->sw_cipher, crypto_aead_get_flags(aead) &
 			      CRYPTO_TFM_REQ_MASK);
 	error = crypto_aead_setkey(aeadctx->sw_cipher, key, keylen);
-	crypto_aead_clear_flags(aead, CRYPTO_TFM_RES_MASK);
-	crypto_aead_set_flags(aead, crypto_aead_get_flags(aeadctx->sw_cipher) &
-			      CRYPTO_TFM_RES_MASK);
 	if (error)
 		return error;
 	keylen -= 3;
@@ -3524,9 +3497,6 @@ static int chcr_gcm_setkey(struct crypto_aead *aead, const u8 *key,
 	crypto_aead_set_flags(aeadctx->sw_cipher, crypto_aead_get_flags(aead)
 			      & CRYPTO_TFM_REQ_MASK);
 	ret = crypto_aead_setkey(aeadctx->sw_cipher, key, keylen);
-	crypto_aead_clear_flags(aead, CRYPTO_TFM_RES_MASK);
-	crypto_aead_set_flags(aead, crypto_aead_get_flags(aeadctx->sw_cipher) &
-			      CRYPTO_TFM_RES_MASK);
 	if (ret)
 		goto out;
 
@@ -3542,7 +3512,6 @@ static int chcr_gcm_setkey(struct crypto_aead *aead, const u8 *key,
 	} else if (keylen == AES_KEYSIZE_256) {
 		ck_size = CHCR_KEYCTX_CIPHER_KEY_SIZE_256;
 	} else {
-		crypto_aead_set_flags(aead, CRYPTO_TFM_RES_BAD_KEY_LEN);
 		pr_err("GCM: Invalid key length %d\n", keylen);
 		ret = -EINVAL;
 		goto out;
@@ -3593,16 +3562,11 @@ static int chcr_authenc_setkey(struct crypto_aead *authenc, const u8 *key,
 	crypto_aead_set_flags(aeadctx->sw_cipher, crypto_aead_get_flags(authenc)
 			      & CRYPTO_TFM_REQ_MASK);
 	err = crypto_aead_setkey(aeadctx->sw_cipher, key, keylen);
-	crypto_aead_clear_flags(authenc, CRYPTO_TFM_RES_MASK);
-	crypto_aead_set_flags(authenc, crypto_aead_get_flags(aeadctx->sw_cipher)
-			      & CRYPTO_TFM_RES_MASK);
 	if (err)
 		goto out;
 
-	if (crypto_authenc_extractkeys(&keys, key, keylen) != 0) {
-		crypto_aead_set_flags(authenc, CRYPTO_TFM_RES_BAD_KEY_LEN);
+	if (crypto_authenc_extractkeys(&keys, key, keylen) != 0)
 		goto out;
-	}
 
 	if (get_alg_config(&param, max_authsize)) {
 		pr_err("Unsupported digest size\n");
@@ -3721,16 +3685,12 @@ static int chcr_aead_digest_null_setkey(struct crypto_aead *authenc,
 	crypto_aead_set_flags(aeadctx->sw_cipher, crypto_aead_get_flags(authenc)
 			      & CRYPTO_TFM_REQ_MASK);
 	err = crypto_aead_setkey(aeadctx->sw_cipher, key, keylen);
-	crypto_aead_clear_flags(authenc, CRYPTO_TFM_RES_MASK);
-	crypto_aead_set_flags(authenc, crypto_aead_get_flags(aeadctx->sw_cipher)
-			      & CRYPTO_TFM_RES_MASK);
 	if (err)
 		goto out;
 
-	if (crypto_authenc_extractkeys(&keys, key, keylen) != 0) {
-		crypto_aead_set_flags(authenc, CRYPTO_TFM_RES_BAD_KEY_LEN);
+	if (crypto_authenc_extractkeys(&keys, key, keylen) != 0)
 		goto out;
-	}
+
 	subtype = get_aead_subtype(authenc);
 	if (subtype == CRYPTO_ALG_SUB_TYPE_CTR_SHA ||
 	    subtype == CRYPTO_ALG_SUB_TYPE_CTR_NULL) {

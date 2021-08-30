@@ -37,6 +37,7 @@
 #include <linux/key-type.h>
 #include <keys/user-type.h>
 #include <keys/encrypted-type.h>
+#include <keys/trusted-type.h>
 
 #include <linux/device-mapper.h>
 
@@ -133,7 +134,7 @@ enum flags { DM_CRYPT_SUSPENDED, DM_CRYPT_KEY_VALID,
 	     DM_CRYPT_WRITE_INLINE };
 
 enum cipher_flags {
-	CRYPT_MODE_INTEGRITY_AEAD,	/* Use authenticated mode for cihper */
+	CRYPT_MODE_INTEGRITY_AEAD,	/* Use authenticated mode for cipher */
 	CRYPT_IV_LARGE_SECTORS,		/* Calculate IV from sector_size, not 512B sectors */
 	CRYPT_ENCRYPT_PREPROCESS,	/* Must preprocess data for encryption (elephant) */
 };
@@ -228,7 +229,7 @@ static DEFINE_SPINLOCK(dm_crypt_clients_lock);
 static unsigned dm_crypt_clients_n = 0;
 static volatile unsigned long dm_crypt_pages_per_client;
 #define DM_CRYPT_MEMORY_PERCENT			2
-#define DM_CRYPT_MIN_PAGES_PER_CLIENT		(BIO_MAX_PAGES * 16)
+#define DM_CRYPT_MIN_PAGES_PER_CLIENT		(BIO_MAX_VECS * 16)
 
 static void clone_init(struct dm_crypt_io *, struct bio *);
 static void kcryptd_queue_crypt(struct dm_crypt_io *io);
@@ -303,7 +304,7 @@ static struct crypto_aead *any_tfm_aead(struct crypt_config *cc)
  * elephant: The extended version of eboiv with additional Elephant diffuser
  *           used with Bitlocker CBC mode.
  *           This mode was used in older Windows systems
- *           http://download.microsoft.com/download/0/2/3/0238acaf-d3bf-4a6d-b3d6-0a0be4bbb36e/bitlockercipher200608.pdf
+ *           https://download.microsoft.com/download/0/2/3/0238acaf-d3bf-4a6d-b3d6-0a0be4bbb36e/bitlockercipher200608.pdf
  */
 
 static int crypt_iv_plain_gen(struct crypt_config *cc, u8 *iv,
@@ -410,7 +411,7 @@ static void crypt_iv_lmk_dtr(struct crypt_config *cc)
 		crypto_free_shash(lmk->hash_tfm);
 	lmk->hash_tfm = NULL;
 
-	kzfree(lmk->seed);
+	kfree_sensitive(lmk->seed);
 	lmk->seed = NULL;
 }
 
@@ -562,9 +563,9 @@ static void crypt_iv_tcw_dtr(struct crypt_config *cc)
 {
 	struct iv_tcw_private *tcw = &cc->iv_gen_private.tcw;
 
-	kzfree(tcw->iv_seed);
+	kfree_sensitive(tcw->iv_seed);
 	tcw->iv_seed = NULL;
-	kzfree(tcw->whitening);
+	kfree_sensitive(tcw->whitening);
 	tcw->whitening = NULL;
 
 	if (tcw->crc32_tfm && !IS_ERR(tcw->crc32_tfm))
@@ -1000,8 +1001,8 @@ static int crypt_iv_elephant(struct crypt_config *cc, struct dm_crypt_request *d
 
 	kunmap_atomic(data);
 out:
-	kzfree(ks);
-	kzfree(es);
+	kfree_sensitive(ks);
+	kfree_sensitive(es);
 	skcipher_request_free(req);
 	return r;
 }
@@ -1090,16 +1091,16 @@ static const struct crypt_iv_operations crypt_iv_tcw_ops = {
 	.post	   = crypt_iv_tcw_post
 };
 
-static struct crypt_iv_operations crypt_iv_random_ops = {
+static const struct crypt_iv_operations crypt_iv_random_ops = {
 	.generator = crypt_iv_random_gen
 };
 
-static struct crypt_iv_operations crypt_iv_eboiv_ops = {
+static const struct crypt_iv_operations crypt_iv_eboiv_ops = {
 	.ctr	   = crypt_iv_eboiv_ctr,
 	.generator = crypt_iv_eboiv_gen
 };
 
-static struct crypt_iv_operations crypt_iv_elephant_ops = {
+static const struct crypt_iv_operations crypt_iv_elephant_ops = {
 	.ctr	   = crypt_iv_elephant_ctr,
 	.dtr	   = crypt_iv_elephant_dtr,
 	.init	   = crypt_iv_elephant_init,
@@ -1594,7 +1595,7 @@ static blk_status_t crypt_convert(struct crypt_config *cc,
 				wait_for_completion(&ctx->restart);
 			}
 			reinit_completion(&ctx->restart);
-			/* fall through */
+			fallthrough;
 		/*
 		 * The request is queued and processed asynchronously,
 		 * completion function kcryptd_async_done() will be called.
@@ -2436,7 +2437,6 @@ static int set_key_user(struct crypt_config *cc, struct key *key)
 	return 0;
 }
 
-#if defined(CONFIG_ENCRYPTED_KEYS) || defined(CONFIG_ENCRYPTED_KEYS_MODULE)
 static int set_key_encrypted(struct crypt_config *cc, struct key *key)
 {
 	const struct encrypted_key_payload *ekp;
@@ -2452,7 +2452,22 @@ static int set_key_encrypted(struct crypt_config *cc, struct key *key)
 
 	return 0;
 }
-#endif /* CONFIG_ENCRYPTED_KEYS */
+
+static int set_key_trusted(struct crypt_config *cc, struct key *key)
+{
+	const struct trusted_key_payload *tkp;
+
+	tkp = key->payload.data[0];
+	if (!tkp)
+		return -EKEYREVOKED;
+
+	if (cc->key_size != tkp->key_len)
+		return -EINVAL;
+
+	memcpy(cc->key, tkp->key, cc->key_size);
+
+	return 0;
+}
 
 static int crypt_set_keyring_key(struct crypt_config *cc, const char *key_string)
 {
@@ -2482,11 +2497,14 @@ static int crypt_set_keyring_key(struct crypt_config *cc, const char *key_string
 	} else if (!strncmp(key_string, "user:", key_desc - key_string + 1)) {
 		type = &key_type_user;
 		set_key = set_key_user;
-#if defined(CONFIG_ENCRYPTED_KEYS) || defined(CONFIG_ENCRYPTED_KEYS_MODULE)
-	} else if (!strncmp(key_string, "encrypted:", key_desc - key_string + 1)) {
+	} else if (IS_ENABLED(CONFIG_ENCRYPTED_KEYS) &&
+		   !strncmp(key_string, "encrypted:", key_desc - key_string + 1)) {
 		type = &key_type_encrypted;
 		set_key = set_key_encrypted;
-#endif
+	} else if (IS_ENABLED(CONFIG_TRUSTED_KEYS) &&
+	           !strncmp(key_string, "trusted:", key_desc - key_string + 1)) {
+		type = &key_type_trusted;
+		set_key = set_key_trusted;
 	} else {
 		return -EINVAL;
 	}
@@ -2497,7 +2515,7 @@ static int crypt_set_keyring_key(struct crypt_config *cc, const char *key_string
 
 	key = request_key(type, key_desc + 1, NULL);
 	if (IS_ERR(key)) {
-		kzfree(new_key_string);
+		kfree_sensitive(new_key_string);
 		return PTR_ERR(key);
 	}
 
@@ -2507,7 +2525,7 @@ static int crypt_set_keyring_key(struct crypt_config *cc, const char *key_string
 	if (ret < 0) {
 		up_read(&key->sem);
 		key_put(key);
-		kzfree(new_key_string);
+		kfree_sensitive(new_key_string);
 		return ret;
 	}
 
@@ -2521,10 +2539,10 @@ static int crypt_set_keyring_key(struct crypt_config *cc, const char *key_string
 
 	if (!ret) {
 		set_bit(DM_CRYPT_KEY_VALID, &cc->flags);
-		kzfree(cc->key_string);
+		kfree_sensitive(cc->key_string);
 		cc->key_string = new_key_string;
 	} else
-		kzfree(new_key_string);
+		kfree_sensitive(new_key_string);
 
 	return ret;
 }
@@ -2585,7 +2603,7 @@ static int crypt_set_key(struct crypt_config *cc, char *key)
 	clear_bit(DM_CRYPT_KEY_VALID, &cc->flags);
 
 	/* wipe references to any kernel keyring key */
-	kzfree(cc->key_string);
+	kfree_sensitive(cc->key_string);
 	cc->key_string = NULL;
 
 	/* Decode key from its hex representation. */
@@ -2617,7 +2635,7 @@ static int crypt_wipe_key(struct crypt_config *cc)
 			return r;
 	}
 
-	kzfree(cc->key_string);
+	kfree_sensitive(cc->key_string);
 	cc->key_string = NULL;
 	r = crypt_setkey(cc);
 	memset(&cc->key, 0, cc->key_size * sizeof(u8));
@@ -2696,15 +2714,15 @@ static void crypt_dtr(struct dm_target *ti)
 	if (cc->dev)
 		dm_put_device(ti, cc->dev);
 
-	kzfree(cc->cipher_string);
-	kzfree(cc->key_string);
-	kzfree(cc->cipher_auth);
-	kzfree(cc->authenc_key);
+	kfree_sensitive(cc->cipher_string);
+	kfree_sensitive(cc->key_string);
+	kfree_sensitive(cc->cipher_auth);
+	kfree_sensitive(cc->authenc_key);
 
 	mutex_destroy(&cc->bio_alloc_lock);
 
 	/* Must zero key material before freeing */
-	kzfree(cc);
+	kfree_sensitive(cc);
 
 	spin_lock(&dm_crypt_clients_lock);
 	WARN_ON(!dm_crypt_clients_n);
@@ -3116,18 +3134,17 @@ static int crypt_ctr_optional(struct dm_target *ti, unsigned int argc, char **ar
 }
 
 #ifdef CONFIG_BLK_DEV_ZONED
-
 static int crypt_report_zones(struct dm_target *ti,
 		struct dm_report_zones_args *args, unsigned int nr_zones)
 {
 	struct crypt_config *cc = ti->private;
-	sector_t sector = cc->start + dm_target_offset(ti, args->next_sector);
 
-	args->start = cc->start;
-	return blkdev_report_zones(cc->dev->bdev, sector, nr_zones,
-				   dm_report_zones_cb, args);
+	return dm_report_zones(cc->dev->bdev, cc->start,
+			cc->start + dm_target_offset(ti, args->next_sector),
+			args, nr_zones);
 }
-
+#else
+#define crypt_report_zones NULL
 #endif
 
 /*
@@ -3228,7 +3245,7 @@ static int crypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		ALIGN(sizeof(struct dm_crypt_io) + cc->dmreq_start + additional_req_size,
 		      ARCH_KMALLOC_MINALIGN);
 
-	ret = mempool_init(&cc->page_pool, BIO_MAX_PAGES, crypt_page_alloc, crypt_page_free, cc);
+	ret = mempool_init(&cc->page_pool, BIO_MAX_VECS, crypt_page_alloc, crypt_page_free, cc);
 	if (ret) {
 		ti->error = "Cannot allocate page mempool";
 		goto bad;
@@ -3263,14 +3280,28 @@ static int crypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	}
 	cc->start = tmpll;
 
-	/*
-	 * For zoned block devices, we need to preserve the issuer write
-	 * ordering. To do so, disable write workqueues and force inline
-	 * encryption completion.
-	 */
 	if (bdev_is_zoned(cc->dev->bdev)) {
+		/*
+		 * For zoned block devices, we need to preserve the issuer write
+		 * ordering. To do so, disable write workqueues and force inline
+		 * encryption completion.
+		 */
 		set_bit(DM_CRYPT_NO_WRITE_WORKQUEUE, &cc->flags);
 		set_bit(DM_CRYPT_WRITE_INLINE, &cc->flags);
+
+		/*
+		 * All zone append writes to a zone of a zoned block device will
+		 * have the same BIO sector, the start of the zone. When the
+		 * cypher IV mode uses sector values, all data targeting a
+		 * zone will be encrypted using the first sector numbers of the
+		 * zone. This will not result in write errors but will
+		 * cause most reads to fail as reads will use the sector values
+		 * for the actual data locations, resulting in IV mismatch.
+		 * To avoid this problem, ask DM core to emulate zone append
+		 * operations with regular writes.
+		 */
+		DMDEBUG("Zone append operations will be emulated");
+		ti->emulate_zone_append = true;
 	}
 
 	if (crypt_integrity_aead(cc) || cc->integrity_iv_size) {
@@ -3324,6 +3355,7 @@ static int crypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	wake_up_process(cc->write_thread);
 
 	ti->num_flush_bios = 1;
+	ti->limit_swap_bios = true;
 
 	return 0;
 
@@ -3354,9 +3386,9 @@ static int crypt_map(struct dm_target *ti, struct bio *bio)
 	/*
 	 * Check if bio is too large, split as needed.
 	 */
-	if (unlikely(bio->bi_iter.bi_size > (BIO_MAX_PAGES << PAGE_SHIFT)) &&
+	if (unlikely(bio->bi_iter.bi_size > (BIO_MAX_VECS << PAGE_SHIFT)) &&
 	    (bio_data_dir(bio) == WRITE || cc->on_disk_tag_size))
-		dm_accept_partial_bio(bio, ((BIO_MAX_PAGES << PAGE_SHIFT) >> SECTOR_SHIFT));
+		dm_accept_partial_bio(bio, ((BIO_MAX_VECS << PAGE_SHIFT) >> SECTOR_SHIFT));
 
 	/*
 	 * Ensure that bio is a multiple of internal sector encryption size
@@ -3558,14 +3590,12 @@ static void crypt_io_hints(struct dm_target *ti, struct queue_limits *limits)
 
 static struct target_type crypt_target = {
 	.name   = "crypt",
-	.version = {1, 22, 0},
+	.version = {1, 23, 0},
 	.module = THIS_MODULE,
 	.ctr    = crypt_ctr,
 	.dtr    = crypt_dtr,
-#ifdef CONFIG_BLK_DEV_ZONED
 	.features = DM_TARGET_ZONED_HM,
 	.report_zones = crypt_report_zones,
-#endif
 	.map    = crypt_map,
 	.status = crypt_status,
 	.postsuspend = crypt_postsuspend,

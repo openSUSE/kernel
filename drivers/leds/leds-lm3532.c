@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 // TI LM3532 LED driver
-// Copyright (C) 2019 Texas Instruments Incorporated - http://www.ti.com/
+// Copyright (C) 2019 Texas Instruments Incorporated - https://www.ti.com/
+// https://www.ti.com/lit/ds/symlink/lm3532.pdf
 
 #include <linux/i2c.h>
 #include <linux/leds.h>
@@ -23,11 +24,11 @@
 #define LM3532_REG_PWM_B_CFG	0x14
 #define LM3532_REG_PWM_C_CFG	0x15
 #define LM3532_REG_ZONE_CFG_A	0x16
-#define LM3532_REG_CTRL_A_BRT	0x17
+#define LM3532_REG_CTRL_A_FS_CURR	0x17
 #define LM3532_REG_ZONE_CFG_B	0x18
-#define LM3532_REG_CTRL_B_BRT	0x19
+#define LM3532_REG_CTRL_B_FS_CURR	0x19
 #define LM3532_REG_ZONE_CFG_C	0x1a
-#define LM3532_REG_CTRL_C_BRT	0x1b
+#define LM3532_REG_CTRL_C_FS_CURR	0x1b
 #define LM3532_REG_ENABLE	0x1d
 #define LM3532_ALS_CONFIG	0x23
 #define LM3532_REG_ZN_0_HI	0x60
@@ -89,17 +90,21 @@
 #define LM3532_NUM_AVG_VALS	8
 #define LM3532_NUM_IMP_VALS	32
 
+#define LM3532_FS_CURR_MIN	5000
+#define LM3532_FS_CURR_MAX	29800
+#define LM3532_FS_CURR_STEP	800
+
 /*
  * struct lm3532_als_data
- * @config - value of ALS configuration register
- * @als1_imp_sel - value of ALS1 resistor select register
- * @als2_imp_sel - value of ALS2 resistor select register
- * @als_avrg_time - ALS averaging time
- * @als_input_mode - ALS input mode for brightness control
- * @als_vmin - Minimum ALS voltage
- * @als_vmax - Maximum ALS voltage
- * @zone_lo - values of ALS lo ZB(Zone Boundary) registers
- * @zone_hi - values of ALS hi ZB(Zone Boundary) registers
+ * @config: value of ALS configuration register
+ * @als1_imp_sel: value of ALS1 resistor select register
+ * @als2_imp_sel: value of ALS2 resistor select register
+ * @als_avrg_time: ALS averaging time
+ * @als_input_mode: ALS input mode for brightness control
+ * @als_vmin: Minimum ALS voltage
+ * @als_vmax: Maximum ALS voltage
+ * @zone_lo: values of ALS lo ZB(Zone Boundary) registers
+ * @zone_hi: values of ALS hi ZB(Zone Boundary) registers
  */
 struct lm3532_als_data {
 	u8 config;
@@ -116,13 +121,14 @@ struct lm3532_als_data {
 /**
  * struct lm3532_led
  * @led_dev: led class device
- * @priv - Pointer the device data structure
- * @control_bank - Control bank the LED is associated to
- * @mode - Mode of the LED string
- * @ctrl_brt_pointer - Zone target register that controls the sink
- * @num_leds - Number of LED strings are supported in this array
- * @led_strings - The LED strings supported in this array
- * @label - LED label
+ * @priv: Pointer the device data structure
+ * @control_bank: Control bank the LED is associated to
+ * @mode: Mode of the LED string
+ * @ctrl_brt_pointer: Zone target register that controls the sink
+ * @num_leds: Number of LED strings are supported in this array
+ * @full_scale_current: The full-scale current setting for the current sink.
+ * @led_strings: The LED strings supported in this array
+ * @enabled: Enabled status
  */
 struct lm3532_led {
 	struct led_classdev led_dev;
@@ -132,22 +138,23 @@ struct lm3532_led {
 	int mode;
 	int ctrl_brt_pointer;
 	int num_leds;
+	int full_scale_current;
+	unsigned int enabled:1;
 	u32 led_strings[LM3532_MAX_CONTROL_BANKS];
-	char label[LED_MAX_NAME_SIZE];
 };
 
 /**
  * struct lm3532_data
- * @enable_gpio - Hardware enable gpio
+ * @enable_gpio: Hardware enable gpio
  * @regulator: regulator
  * @client: i2c client
- * @regmap - Devices register map
- * @dev - Pointer to the devices device struct
- * @lock - Lock for reading/writing the device
- * @als_data - Pointer to the als data struct
- * @runtime_ramp_up - Runtime ramp up setting
- * @runtime_ramp_down - Runtime ramp down setting
- * @leds - Array of LED strings
+ * @regmap: Devices register map
+ * @dev: Pointer to the devices device struct
+ * @lock: Lock for reading/writing the device
+ * @als_data: Pointer to the als data struct
+ * @runtime_ramp_up: Runtime ramp up setting
+ * @runtime_ramp_down: Runtime ramp down setting
+ * @leds: Array of LED strings
  */
 struct lm3532_data {
 	struct gpio_desc *enable_gpio;
@@ -173,11 +180,11 @@ static const struct reg_default lm3532_reg_defs[] = {
 	{LM3532_REG_PWM_B_CFG, 0x82},
 	{LM3532_REG_PWM_C_CFG, 0x82},
 	{LM3532_REG_ZONE_CFG_A, 0xf1},
-	{LM3532_REG_CTRL_A_BRT, 0xf3},
+	{LM3532_REG_CTRL_A_FS_CURR, 0xf3},
 	{LM3532_REG_ZONE_CFG_B, 0xf1},
-	{LM3532_REG_CTRL_B_BRT, 0xf3},
+	{LM3532_REG_CTRL_B_FS_CURR, 0xf3},
 	{LM3532_REG_ZONE_CFG_C, 0xf1},
-	{LM3532_REG_CTRL_C_BRT, 0xf3},
+	{LM3532_REG_CTRL_C_FS_CURR, 0xf3},
 	{LM3532_REG_ENABLE, 0xf8},
 	{LM3532_ALS_CONFIG, 0x44},
 	{LM3532_REG_ZN_0_HI, 0x35},
@@ -200,7 +207,7 @@ static const struct regmap_config lm3532_regmap_config = {
 	.cache_type = REGCACHE_FLAT,
 };
 
-const static int als_imp_table[LM3532_NUM_IMP_VALS] = {37000, 18500, 12330,
+static const int als_imp_table[LM3532_NUM_IMP_VALS] = {37000, 18500, 12330,
 						       92500, 7400, 6170, 5290,
 						       4630, 4110, 3700, 3360,
 						       3080, 2850, 2640, 2440,
@@ -257,7 +264,7 @@ static int lm3532_get_index(const int table[], int size, int value)
 	return -EINVAL;
 }
 
-const static int als_avrg_table[LM3532_NUM_AVG_VALS] = {17920, 35840, 71680,
+static const int als_avrg_table[LM3532_NUM_AVG_VALS] = {17920, 35840, 71680,
 							1433360, 286720, 573440,
 							1146880, 2293760};
 static int lm3532_get_als_avg_index(int avg_time)
@@ -272,7 +279,7 @@ static int lm3532_get_als_avg_index(int avg_time)
 				avg_time);
 }
 
-const static int ramp_table[LM3532_NUM_RAMP_VALS] = { 8, 1024, 2048, 4096, 8192,
+static const int ramp_table[LM3532_NUM_RAMP_VALS] = { 8, 1024, 2048, 4096, 8192,
 						     16384, 32768, 65536};
 static int lm3532_get_ramp_index(int ramp_time)
 {
@@ -286,10 +293,14 @@ static int lm3532_get_ramp_index(int ramp_time)
 				ramp_time);
 }
 
+/* Caller must take care of locking */
 static int lm3532_led_enable(struct lm3532_led *led_data)
 {
 	int ctrl_en_val = BIT(led_data->control_bank);
 	int ret;
+
+	if (led_data->enabled)
+		return 0;
 
 	ret = regmap_update_bits(led_data->priv->regmap, LM3532_REG_ENABLE,
 					 ctrl_en_val, ctrl_en_val);
@@ -298,13 +309,23 @@ static int lm3532_led_enable(struct lm3532_led *led_data)
 		return ret;
 	}
 
-	return regulator_enable(led_data->priv->regulator);
+	ret = regulator_enable(led_data->priv->regulator);
+	if (ret < 0)
+		return ret;
+
+	led_data->enabled = 1;
+
+	return 0;
 }
 
+/* Caller must take care of locking */
 static int lm3532_led_disable(struct lm3532_led *led_data)
 {
 	int ctrl_en_val = BIT(led_data->control_bank);
 	int ret;
+
+	if (!led_data->enabled)
+		return 0;
 
 	ret = regmap_update_bits(led_data->priv->regmap, LM3532_REG_ENABLE,
 					 ctrl_en_val, 0);
@@ -313,7 +334,13 @@ static int lm3532_led_disable(struct lm3532_led *led_data)
 		return ret;
 	}
 
-	return regulator_disable(led_data->priv->regulator);
+	ret = regulator_disable(led_data->priv->regulator);
+	if (ret < 0)
+		return ret;
+
+	led_data->enabled = 0;
+
+	return 0;
 }
 
 static int lm3532_brightness_set(struct led_classdev *led_cdev,
@@ -363,6 +390,8 @@ static int lm3532_init_registers(struct lm3532_led *led)
 	unsigned int output_cfg_mask = 0;
 	unsigned int brightness_config_reg;
 	unsigned int brightness_config_val;
+	int fs_current_reg;
+	int fs_current_val;
 	int ret, i;
 
 	if (drvdata->enable_gpio)
@@ -384,6 +413,17 @@ static int lm3532_init_registers(struct lm3532_led *led)
 			   brightness_config_val);
 	if (ret)
 		return ret;
+
+	if (led->full_scale_current) {
+		fs_current_reg = LM3532_REG_CTRL_A_FS_CURR + led->control_bank * 2;
+		fs_current_val = (led->full_scale_current - LM3532_FS_CURR_MIN) /
+				 LM3532_FS_CURR_STEP;
+
+		ret = regmap_write(drvdata->regmap, fs_current_reg,
+				   fs_current_val);
+		if (ret)
+			return ret;
+	}
 
 	for (i = 0; i < led->num_leds; i++) {
 		output_cfg_shift = led->led_strings[i] * 2;
@@ -506,7 +546,6 @@ static int lm3532_parse_node(struct lm3532_data *priv)
 {
 	struct fwnode_handle *child = NULL;
 	struct lm3532_led *led;
-	const char *name;
 	int control_bank;
 	u32 ramp_time;
 	size_t i = 0;
@@ -536,12 +575,17 @@ static int lm3532_parse_node(struct lm3532_data *priv)
 		priv->runtime_ramp_down = lm3532_get_ramp_index(ramp_time);
 
 	device_for_each_child_node(priv->dev, child) {
+		struct led_init_data idata = {
+			.fwnode = child,
+			.default_label = ":",
+			.devicename = priv->client->name,
+		};
+
 		led = &priv->leds[i];
 
 		ret = fwnode_property_read_u32(child, "reg", &control_bank);
 		if (ret) {
 			dev_err(&priv->client->dev, "reg property missing\n");
-			fwnode_handle_put(child);
 			goto child_out;
 		}
 
@@ -556,9 +600,17 @@ static int lm3532_parse_node(struct lm3532_data *priv)
 					       &led->mode);
 		if (ret) {
 			dev_err(&priv->client->dev, "ti,led-mode property missing\n");
-			fwnode_handle_put(child);
 			goto child_out;
 		}
+
+		if (fwnode_property_present(child, "led-max-microamp") &&
+		    fwnode_property_read_u32(child, "led-max-microamp",
+					     &led->full_scale_current))
+			dev_err(&priv->client->dev,
+				"Failed getting led-max-microamp\n");
+		else
+			led->full_scale_current = min(led->full_scale_current,
+						      LM3532_FS_CURR_MAX);
 
 		if (led->mode == LM3532_BL_MODE_ALS) {
 			led->mode = LM3532_ALS_CTRL;
@@ -571,12 +623,9 @@ static int lm3532_parse_node(struct lm3532_data *priv)
 			led->mode = LM3532_I2C_CTRL;
 		}
 
-		led->num_leds = fwnode_property_read_u32_array(child,
-							       "led-sources",
-							       NULL, 0);
-
+		led->num_leds = fwnode_property_count_u32(child, "led-sources");
 		if (led->num_leds > LM3532_MAX_LED_STRINGS) {
-			dev_err(&priv->client->dev, "To many LED string defined\n");
+			dev_err(&priv->client->dev, "Too many LED string defined\n");
 			continue;
 		}
 
@@ -585,30 +634,16 @@ static int lm3532_parse_node(struct lm3532_data *priv)
 						    led->num_leds);
 		if (ret) {
 			dev_err(&priv->client->dev, "led-sources property missing\n");
-			fwnode_handle_put(child);
 			goto child_out;
 		}
 
-		fwnode_property_read_string(child, "linux,default-trigger",
-					    &led->led_dev.default_trigger);
-
-		ret = fwnode_property_read_string(child, "label", &name);
-		if (ret)
-			snprintf(led->label, sizeof(led->label),
-				"%s::", priv->client->name);
-		else
-			snprintf(led->label, sizeof(led->label),
-				 "%s:%s", priv->client->name, name);
-
 		led->priv = priv;
-		led->led_dev.name = led->label;
 		led->led_dev.brightness_set_blocking = lm3532_brightness_set;
 
-		ret = devm_led_classdev_register(priv->dev, &led->led_dev);
+		ret = devm_led_classdev_register_ext(priv->dev, &led->led_dev, &idata);
 		if (ret) {
 			dev_err(&priv->client->dev, "led register err: %d\n",
 				ret);
-			fwnode_handle_put(child);
 			goto child_out;
 		}
 
@@ -616,14 +651,15 @@ static int lm3532_parse_node(struct lm3532_data *priv)
 		if (ret) {
 			dev_err(&priv->client->dev, "register init err: %d\n",
 				ret);
-			fwnode_handle_put(child);
 			goto child_out;
 		}
 
 		i++;
 	}
+	return 0;
 
 child_out:
+	fwnode_handle_put(child);
 	return ret;
 }
 

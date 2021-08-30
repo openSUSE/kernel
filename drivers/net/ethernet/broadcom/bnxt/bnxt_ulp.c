@@ -492,3 +492,4 @@ struct bnxt_en_dev *bnxt_ulp_probe(struct net_device *dev)
 		edev->flags |= BNXT_EN_FLAG_ROCEV2_CAP;
 	return bp->edev;
 }
+EXPORT_SYMBOL(bnxt_ulp_probe);

@@ -91,10 +91,14 @@ PHDRS
 VERSION
 {
 	LINUX_2.6 {
-#ifndef DISABLE_MIPS_VDSO
+#ifndef CONFIG_MIPS_DISABLE_VDSO
 	global:
 		__vdso_clock_gettime;
 		__vdso_gettimeofday;
+		__vdso_clock_getres;
+#if _MIPS_SIM != _MIPS_SIM_ABI64
+		__vdso_clock_gettime64;
+#endif
 #endif
 	local: *;
 	};

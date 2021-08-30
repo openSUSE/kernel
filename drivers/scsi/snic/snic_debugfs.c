@@ -334,25 +334,7 @@ snic_stats_show(struct seq_file *sfp, void *data)
 	return 0;
 }
 
-/*
- * snic_stats_open - Open the stats file for specific host
- *
- * Description:
- * This routine opens a debugfs file stats of specific host
- */
-static int
-snic_stats_open(struct inode *inode, struct file *filp)
-{
-	return single_open(filp, snic_stats_show, inode->i_private);
-}
-
-static const struct file_operations snic_stats_fops = {
-	.owner	= THIS_MODULE,
-	.open	= snic_stats_open,
-	.read	= seq_read,
-	.llseek = seq_lseek,
-	.release = single_release,
-};
+DEFINE_SHOW_ATTRIBUTE(snic_stats);
 
 static const struct file_operations snic_reset_stats_fops = {
 	.owner = THIS_MODULE,
@@ -439,42 +421,28 @@ snic_trc_seq_show(struct seq_file *sfp, void *data)
 	return 0;
 }
 
-static const struct seq_operations snic_trc_seq_ops = {
+static const struct seq_operations snic_trc_sops = {
 	.start	= snic_trc_seq_start,
 	.next	= snic_trc_seq_next,
 	.stop	= snic_trc_seq_stop,
 	.show	= snic_trc_seq_show,
 };
 
-static int
-snic_trc_open(struct inode *inode, struct file *filp)
-{
-	return seq_open(filp, &snic_trc_seq_ops);
-}
+DEFINE_SEQ_ATTRIBUTE(snic_trc);
 
-static const struct file_operations snic_trc_fops = {
-	.owner	= THIS_MODULE,
-	.open	= snic_trc_open,
-	.read	= seq_read,
-	.llseek = seq_lseek,
-	.release = seq_release,
-};
-
+#define TRC_ENABLE_FILE	"tracing_enable"
+#define TRC_FILE	"trace"
 /*
  * snic_trc_debugfs_init : creates trace/tracing_enable files for trace
  * under debugfs
  */
 void snic_trc_debugfs_init(void)
 {
-	snic_glob->trc.trc_enable = debugfs_create_bool("tracing_enable",
-							S_IFREG | S_IRUGO | S_IWUSR,
-							snic_glob->trc_root,
-							&snic_glob->trc.enable);
+	debugfs_create_bool(TRC_ENABLE_FILE, S_IFREG | S_IRUGO | S_IWUSR,
+			    snic_glob->trc_root, &snic_glob->trc.enable);
 
-	snic_glob->trc.trc_file = debugfs_create_file("trace",
-						      S_IFREG | S_IRUGO | S_IWUSR,
-						      snic_glob->trc_root, NULL,
-						      &snic_trc_fops);
+	debugfs_create_file(TRC_FILE, S_IFREG | S_IRUGO | S_IWUSR,
+			    snic_glob->trc_root, NULL, &snic_trc_fops);
 }
 
 /*
@@ -483,9 +451,6 @@ void snic_trc_debugfs_init(void)
 void
 snic_trc_debugfs_term(void)
 {
-	debugfs_remove(snic_glob->trc.trc_file);
-	snic_glob->trc.trc_file = NULL;
-
-	debugfs_remove(snic_glob->trc.trc_enable);
-	snic_glob->trc.trc_enable = NULL;
+	debugfs_remove(debugfs_lookup(TRC_FILE, snic_glob->trc_root));
+	debugfs_remove(debugfs_lookup(TRC_ENABLE_FILE, snic_glob->trc_root));
 }

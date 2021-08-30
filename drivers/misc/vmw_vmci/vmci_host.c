@@ -108,6 +108,11 @@ bool vmci_host_code_active(void)
 	     atomic_read(&vmci_host_active_users) > 0);
 }
 
+int vmci_host_users(void)
+{
+	return atomic_read(&vmci_host_active_users);
+}
+
 /*
  * Called on open of /dev/vmci.
  */
@@ -228,8 +233,6 @@ static int vmci_host_setup_notify(struct vmci_ctx *context,
 	 * about the size.
 	 */
 	BUILD_BUG_ON(sizeof(bool) != sizeof(u8));
-	if (!access_ok((void __user *)uva, sizeof(u8)))
-		return VMCI_ERROR_GENERIC;
 
 	/*
 	 * Lock physical page backing a given user VA.
@@ -337,6 +340,8 @@ static int vmci_host_do_init_context(struct vmci_host_dev *vmci_host_dev,
 
 	vmci_host_dev->ct_type = VMCIOBJ_CONTEXT;
 	atomic_inc(&vmci_host_active_users);
+
+	vmci_call_vsock_callback(true);
 
 	retval = 0;
 
@@ -903,7 +908,7 @@ static long vmci_host_unlocked_ioctl(struct file *filp,
 				     unsigned int iocmd, unsigned long ioarg)
 {
 #define VMCI_DO_IOCTL(ioctl_name, ioctl_fn) do {			\
-		char *name = __stringify(IOCTL_VMCI_ ## ioctl_name);	\
+		char *name = "IOCTL_VMCI_" # ioctl_name;		\
 		return vmci_host_do_ ## ioctl_fn(			\
 			vmci_host_dev, name, uptr);			\
 	} while (0)

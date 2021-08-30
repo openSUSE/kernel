@@ -13,7 +13,7 @@
 
 	chosen {
 		stdout-path = &uart5;
-		bootargs = "console=tty0 console=ttyS4,115200 earlyprintk";
+		bootargs = "console=tty0 console=ttyS4,115200 earlycon";
 	};
 
 	memory@80000000 {
@@ -40,6 +40,7 @@
 		status = "okay";
 		m25p,fast-read;
 		label = "bmc";
+		spi-max-frequency = <50000000>;
 #include "openbmc-flash-layout.dtsi"
 	};
 };
@@ -50,6 +51,7 @@
 		status = "okay";
 		m25p,fast-read;
 		label = "pnor";
+		spi-max-frequency = <100000000>;
 	};
 };
 
@@ -92,6 +94,17 @@
 		compatible = "national,lm75";
 		reg = <0x4d>;
 	};
+};
+
+&sdmmc {
+	status = "okay";
+};
+
+&sdhci0 {
+	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_sd1_default>;
 };
 
 /*

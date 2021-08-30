@@ -20,12 +20,10 @@ static int __igt_client_fill(struct intel_engine_cs *engine)
 {
 	struct intel_context *ce = engine->kernel_context;
 	struct drm_i915_gem_object *obj;
-	struct rnd_state prng;
+	I915_RND_STATE(prng);
 	IGT_TIMEOUT(end);
 	u32 *vaddr;
 	int err = 0;
-
-	prandom_seed_state(&prng, i915_selftest.random_seed);
 
 	intel_engine_pm_get(engine);
 	do {
@@ -47,7 +45,7 @@ static int __igt_client_fill(struct intel_engine_cs *engine)
 			goto err_flush;
 		}
 
-		vaddr = i915_gem_object_pin_map(obj, I915_MAP_WB);
+		vaddr = i915_gem_object_pin_map_unlocked(obj, I915_MAP_WB);
 		if (IS_ERR(vaddr)) {
 			err = PTR_ERR(vaddr);
 			goto err_put;
@@ -75,7 +73,7 @@ static int __igt_client_fill(struct intel_engine_cs *engine)
 		if (err)
 			goto err_unpin;
 
-		i915_gem_object_lock(obj);
+		i915_gem_object_lock(obj, NULL);
 		err = i915_gem_object_set_to_cpu_domain(obj, false);
 		i915_gem_object_unlock(obj);
 		if (err)
@@ -154,12 +152,12 @@ static int prepare_blit(const struct tiled_blits *t,
 			struct blit_buffer *src,
 			struct drm_i915_gem_object *batch)
 {
-	const int gen = INTEL_GEN(to_i915(batch->base.dev));
-	bool use_64b_reloc = gen >= 8;
+	const int ver = GRAPHICS_VER(to_i915(batch->base.dev));
+	bool use_64b_reloc = ver >= 8;
 	u32 src_pitch, dst_pitch;
 	u32 cmd, *cs;
 
-	cs = i915_gem_object_pin_map(batch, I915_MAP_WC);
+	cs = i915_gem_object_pin_map_unlocked(batch, I915_MAP_WC);
 	if (IS_ERR(cs))
 		return PTR_ERR(cs);
 
@@ -173,7 +171,7 @@ static int prepare_blit(const struct tiled_blits *t,
 	*cs++ = cmd;
 
 	cmd = MI_FLUSH_DW;
-	if (gen >= 8)
+	if (ver >= 8)
 		cmd++;
 	*cs++ = cmd;
 	*cs++ = 0;
@@ -181,7 +179,7 @@ static int prepare_blit(const struct tiled_blits *t,
 	*cs++ = 0;
 
 	cmd = XY_SRC_COPY_BLT_CMD | BLT_WRITE_RGBA | (8 - 2);
-	if (gen >= 8)
+	if (ver >= 8)
 		cmd += 2;
 
 	src_pitch = t->width * 4;
@@ -379,7 +377,7 @@ static int verify_buffer(const struct tiled_blits *t,
 	y = i915_prandom_u32_max_state(t->height, prng);
 	p = y * t->width + x;
 
-	vaddr = i915_gem_object_pin_map(buf->vma->obj, I915_MAP_WC);
+	vaddr = i915_gem_object_pin_map_unlocked(buf->vma->obj, I915_MAP_WC);
 	if (IS_ERR(vaddr))
 		return PTR_ERR(vaddr);
 
@@ -566,7 +564,7 @@ static int tiled_blits_prepare(struct tiled_blits *t,
 	int err;
 	int i;
 
-	map = i915_gem_object_pin_map(t->scratch.vma->obj, I915_MAP_WC);
+	map = i915_gem_object_pin_map_unlocked(t->scratch.vma->obj, I915_MAP_WC);
 	if (IS_ERR(map))
 		return PTR_ERR(map);
 
@@ -668,7 +666,7 @@ static int igt_client_tiled_blits(void *arg)
 	int inst = 0;
 
 	/* Test requires explicit BLT tiling controls */
-	if (INTEL_GEN(i915) < 4)
+	if (GRAPHICS_VER(i915) < 4)
 		return 0;
 
 	if (bad_swizzling(i915)) /* Requires sane (sub-page) swizzling */

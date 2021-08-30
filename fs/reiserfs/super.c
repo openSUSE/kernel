@@ -30,26 +30,6 @@
 #include <linux/namei.h>
 #include <linux/crc32.h>
 #include <linux/seq_file.h>
-#include <linux/moduleparam.h>
-#include <linux/unsupported-feature.h>
-
-DECLARE_SUSE_UNSUPPORTED_FEATURE(reiserfs)
-DEFINE_SUSE_UNSUPPORTED_FEATURE(reiserfs)
-
-static bool check_rw_mount(struct super_block *sb, unsigned long flags)
-{
-	if (flags & SB_RDONLY)
-		return true;
-
-	if (reiserfs_allow_unsupported()) {
-		reiserfs_mark_unsupported();
-		return true;
-	}
-
-	pr_warn("reiserfs: read-write mode is unsupported.\n");
-	pr_warn("reiserfs: load module with allow_unsupported=1 to enable read-write mode.\n");
-	return false;
-}
 
 struct file_system_type reiserfs_fs_type;
 
@@ -1278,6 +1258,10 @@ static int reiserfs_parse_options(struct super_block *s,
 						 "turned on.");
 				return 0;
 			}
+			if (qf_names[qtype] !=
+			    REISERFS_SB(s)->s_qf_names[qtype])
+				kfree(qf_names[qtype]);
+			qf_names[qtype] = NULL;
 			if (*arg) {	/* Some filename specified? */
 				if (REISERFS_SB(s)->s_qf_names[qtype]
 				    && strcmp(REISERFS_SB(s)->s_qf_names[qtype],
@@ -1307,10 +1291,6 @@ static int reiserfs_parse_options(struct super_block *s,
 				else
 					*mount_options |= 1 << REISERFS_GRPQUOTA;
 			} else {
-				if (qf_names[qtype] !=
-				    REISERFS_SB(s)->s_qf_names[qtype])
-					kfree(qf_names[qtype]);
-				qf_names[qtype] = NULL;
 				if (qtype == USRQUOTA)
 					*mount_options &= ~(1 << REISERFS_USRQUOTA);
 				else
@@ -1464,9 +1444,6 @@ static int reiserfs_remount(struct super_block *s, int *mount_flags, char *arg)
 #ifdef CONFIG_QUOTA
 	int i;
 #endif
-
-	if (!check_rw_mount(s, *mount_flags))
-		return -EACCES;
 
 	new_opts = kstrdup(arg, GFP_KERNEL);
 	if (arg && !new_opts)
@@ -1932,9 +1909,6 @@ static int reiserfs_fill_super(struct super_block *s, void *data, int silent)
 	char *qf_names[REISERFS_MAXQUOTAS] = {};
 	unsigned int qfmt = 0;
 
-	if (!check_rw_mount(s, s->s_flags))
-		return -EACCES;
-
 	sbi = kzalloc(sizeof(struct reiserfs_sb_info), GFP_KERNEL);
 	if (!sbi)
 		return -ENOMEM;
@@ -2002,6 +1976,9 @@ static int reiserfs_fill_super(struct super_block *s, void *data, int silent)
 		      s->s_id);
 		goto error_unlocked;
 	}
+
+	s->s_time_min = 0;
+	s->s_time_max = U32_MAX;
 
 	rs = SB_DISK_SUPER_BLOCK(s);
 	/*
@@ -2103,6 +2080,14 @@ static int reiserfs_fill_super(struct super_block *s, void *data, int silent)
 	if (root_inode->i_state & I_NEW) {
 		reiserfs_read_locked_inode(root_inode, &args);
 		unlock_new_inode(root_inode);
+	}
+
+	if (!S_ISDIR(root_inode->i_mode) || !inode_get_bytes(root_inode) ||
+	    !root_inode->i_size) {
+		SWARN(silent, s, "", "corrupt root inode, run fsck");
+		iput(root_inode);
+		errval = -EUCLEAN;
+		goto error;
 	}
 
 	s->s_root = d_make_root(root_inode);
@@ -2431,7 +2416,7 @@ static int reiserfs_quota_on(struct super_block *sb, int type, int format_id,
 	 * IO to work
 	 */
 	if (!(REISERFS_I(inode)->i_flags & i_nopack_mask)) {
-		err = reiserfs_unpack(inode, NULL);
+		err = reiserfs_unpack(inode);
 		if (err) {
 			reiserfs_warning(sb, "super-6520",
 				"Unpacking tail of quota file failed"

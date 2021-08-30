@@ -16,6 +16,9 @@ config PINCTRL_MADERA
 	select PINMUX
 	select GENERIC_PINCONF
 
+config PINCTRL_CS47L15
+	bool
+
 config PINCTRL_CS47L35
 	bool
 
@@ -23,4 +26,7 @@ config PINCTRL_CS47L85
 	bool
 
 config PINCTRL_CS47L90
+	bool
+
+config PINCTRL_CS47L92
 	bool

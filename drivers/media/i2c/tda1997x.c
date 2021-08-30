@@ -908,7 +908,7 @@ tda1997x_configure_audout(struct v4l2_subdev *sd, u8 channel_assignment)
 {
 	struct tda1997x_state *state = to_state(sd);
 	struct tda1997x_platform_data *pdata = &state->pdata;
-	bool sp_used_by_fifo = 1;
+	bool sp_used_by_fifo = true;
 	u8 reg;
 
 	if (!pdata->audout_format)
@@ -936,7 +936,7 @@ tda1997x_configure_audout(struct v4l2_subdev *sd, u8 channel_assignment)
 		break;
 	case AUDCFG_TYPE_DST:
 		reg |= AUDCFG_TYPE_DST << AUDCFG_TYPE_SHIFT;
-		sp_used_by_fifo = 0;
+		sp_used_by_fifo = false;
 		break;
 	case AUDCFG_TYPE_HBR:
 		reg |= AUDCFG_TYPE_HBR << AUDCFG_TYPE_SHIFT;
@@ -944,7 +944,7 @@ tda1997x_configure_audout(struct v4l2_subdev *sd, u8 channel_assignment)
 			/* demuxed via AP0:AP3 */
 			reg |= AUDCFG_HBR_DEMUX << AUDCFG_HBR_SHIFT;
 			if (pdata->audout_format == AUDFMT_TYPE_SPDIF)
-				sp_used_by_fifo = 0;
+				sp_used_by_fifo = false;
 		} else {
 			/* straight via AP0 */
 			reg |= AUDCFG_HBR_STRAIGHT << AUDCFG_HBR_SHIFT;
@@ -1718,19 +1718,19 @@ static const struct v4l2_subdev_video_ops tda1997x_video_ops = {
  */
 
 static int tda1997x_init_cfg(struct v4l2_subdev *sd,
-			     struct v4l2_subdev_pad_config *cfg)
+			     struct v4l2_subdev_state *sd_state)
 {
 	struct tda1997x_state *state = to_state(sd);
 	struct v4l2_mbus_framefmt *mf;
 
-	mf = v4l2_subdev_get_try_format(sd, cfg, 0);
+	mf = v4l2_subdev_get_try_format(sd, sd_state, 0);
 	mf->code = state->mbus_codes[0];
 
 	return 0;
 }
 
 static int tda1997x_enum_mbus_code(struct v4l2_subdev *sd,
-				  struct v4l2_subdev_pad_config *cfg,
+				  struct v4l2_subdev_state *sd_state,
 				  struct v4l2_subdev_mbus_code_enum *code)
 {
 	struct tda1997x_state *state = to_state(sd);
@@ -1762,7 +1762,7 @@ static void tda1997x_fill_format(struct tda1997x_state *state,
 }
 
 static int tda1997x_get_format(struct v4l2_subdev *sd,
-			       struct v4l2_subdev_pad_config *cfg,
+			       struct v4l2_subdev_state *sd_state,
 			       struct v4l2_subdev_format *format)
 {
 	struct tda1997x_state *state = to_state(sd);
@@ -1775,7 +1775,7 @@ static int tda1997x_get_format(struct v4l2_subdev *sd,
 	if (format->which == V4L2_SUBDEV_FORMAT_TRY) {
 		struct v4l2_mbus_framefmt *fmt;
 
-		fmt = v4l2_subdev_get_try_format(sd, cfg, format->pad);
+		fmt = v4l2_subdev_get_try_format(sd, sd_state, format->pad);
 		format->format.code = fmt->code;
 	} else
 		format->format.code = state->mbus_code;
@@ -1784,7 +1784,7 @@ static int tda1997x_get_format(struct v4l2_subdev *sd,
 }
 
 static int tda1997x_set_format(struct v4l2_subdev *sd,
-			       struct v4l2_subdev_pad_config *cfg,
+			       struct v4l2_subdev_state *sd_state,
 			       struct v4l2_subdev_format *format)
 {
 	struct tda1997x_state *state = to_state(sd);
@@ -1809,7 +1809,7 @@ static int tda1997x_set_format(struct v4l2_subdev *sd,
 	if (format->which == V4L2_SUBDEV_FORMAT_TRY) {
 		struct v4l2_mbus_framefmt *fmt;
 
-		fmt = v4l2_subdev_get_try_format(sd, cfg, format->pad);
+		fmt = v4l2_subdev_get_try_format(sd, sd_state, format->pad);
 		*fmt = format->format;
 	} else {
 		int ret = tda1997x_setup_format(state, format->format.code);
@@ -2588,7 +2588,7 @@ static int tda1997x_probe(struct i2c_client *client,
 			case 36:
 				mbus_codes[i++] = MEDIA_BUS_FMT_RGB121212_1X36;
 				mbus_codes[i++] = MEDIA_BUS_FMT_YUV12_1X36;
-				/* fall-through */
+				fallthrough;
 			case 24:
 				mbus_codes[i++] = MEDIA_BUS_FMT_UYVY12_1X24;
 				break;
@@ -2617,10 +2617,10 @@ static int tda1997x_probe(struct i2c_client *client,
 				mbus_codes[i++] = MEDIA_BUS_FMT_RGB888_1X24;
 				mbus_codes[i++] = MEDIA_BUS_FMT_YUV8_1X24;
 				mbus_codes[i++] = MEDIA_BUS_FMT_UYVY12_1X24;
-				/* fall through */
+				fallthrough;
 			case 20:
 				mbus_codes[i++] = MEDIA_BUS_FMT_UYVY10_1X20;
-				/* fall through */
+				fallthrough;
 			case 16:
 				mbus_codes[i++] = MEDIA_BUS_FMT_UYVY8_1X16;
 				break;
@@ -2633,10 +2633,10 @@ static int tda1997x_probe(struct i2c_client *client,
 			case 16:
 			case 12:
 				mbus_codes[i++] = MEDIA_BUS_FMT_UYVY12_2X12;
-				/* fall through */
+				fallthrough;
 			case 10:
 				mbus_codes[i++] = MEDIA_BUS_FMT_UYVY10_2X10;
-				/* fall through */
+				fallthrough;
 			case 8:
 				mbus_codes[i++] = MEDIA_BUS_FMT_UYVY8_2X8;
 				break;

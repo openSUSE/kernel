@@ -21,6 +21,7 @@
 #include <linux/user_namespace.h>
 #include <linux/netfilter_ipv4.h>
 #include <linux/netfilter_ipv6.h>
+#include <linux/zlib.h>
 #include <net/sock.h>
 #include <uapi/linux/mount.h>
 
@@ -223,8 +224,10 @@ static int common_perm(const char *op, const struct path *path, u32 mask,
  */
 static int common_perm_cond(const char *op, const struct path *path, u32 mask)
 {
-	struct path_cond cond = { d_backing_inode(path->dentry)->i_uid,
-				  d_backing_inode(path->dentry)->i_mode
+	struct user_namespace *mnt_userns = mnt_user_ns(path->mnt);
+	struct path_cond cond = {
+		i_uid_into_mnt(mnt_userns, d_backing_inode(path->dentry)),
+		d_backing_inode(path->dentry)->i_mode
 	};
 
 	if (!path_mediated_fs(path->dentry))
@@ -265,12 +268,13 @@ static int common_perm_rm(const char *op, const struct path *dir,
 			  struct dentry *dentry, u32 mask)
 {
 	struct inode *inode = d_backing_inode(dentry);
+	struct user_namespace *mnt_userns = mnt_user_ns(dir->mnt);
 	struct path_cond cond = { };
 
 	if (!inode || !path_mediated_fs(dentry))
 		return 0;
 
-	cond.uid = inode->i_uid;
+	cond.uid = i_uid_into_mnt(mnt_userns, inode);
 	cond.mode = inode->i_mode;
 
 	return common_perm_dir_dentry(op, dir, dentry, mask, &cond);
@@ -360,12 +364,14 @@ static int apparmor_path_rename(const struct path *old_dir, struct dentry *old_d
 
 	label = begin_current_label_crit_section();
 	if (!unconfined(label)) {
+		struct user_namespace *mnt_userns = mnt_user_ns(old_dir->mnt);
 		struct path old_path = { .mnt = old_dir->mnt,
 					 .dentry = old_dentry };
 		struct path new_path = { .mnt = new_dir->mnt,
 					 .dentry = new_dentry };
-		struct path_cond cond = { d_backing_inode(old_dentry)->i_uid,
-					  d_backing_inode(old_dentry)->i_mode
+		struct path_cond cond = {
+			i_uid_into_mnt(mnt_userns, d_backing_inode(old_dentry)),
+			d_backing_inode(old_dentry)->i_mode
 		};
 
 		error = aa_path_perm(OP_RENAME_SRC, label, &old_path, 0,
@@ -419,8 +425,12 @@ static int apparmor_file_open(struct file *file)
 
 	label = aa_get_newest_cred_label(file->f_cred);
 	if (!unconfined(label)) {
+		struct user_namespace *mnt_userns = file_mnt_user_ns(file);
 		struct inode *inode = file_inode(file);
-		struct path_cond cond = { inode->i_uid, inode->i_mode };
+		struct path_cond cond = {
+			i_uid_into_mnt(mnt_userns, inode),
+			inode->i_mode
+		};
 
 		error = aa_path_perm(OP_OPEN, label, &file->f_path, 0,
 				     aa_map_file_to_perms(file), &cond);
@@ -1146,7 +1156,7 @@ static void apparmor_sock_graft(struct sock *sk, struct socket *parent)
 }
 
 #ifdef CONFIG_NETWORK_SECMARK
-static int apparmor_inet_conn_request(struct sock *sk, struct sk_buff *skb,
+static int apparmor_inet_conn_request(const struct sock *sk, struct sk_buff *skb,
 				      struct request_sock *req)
 {
 	struct aa_sk_ctx *ctx = SK_CTX(sk);
@@ -1236,13 +1246,14 @@ static struct security_hook_list apparmor_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(cred_prepare, apparmor_cred_prepare),
 	LSM_HOOK_INIT(cred_transfer, apparmor_cred_transfer),
 
-	LSM_HOOK_INIT(bprm_set_creds, apparmor_bprm_set_creds),
+	LSM_HOOK_INIT(bprm_creds_for_exec, apparmor_bprm_creds_for_exec),
 	LSM_HOOK_INIT(bprm_committing_creds, apparmor_bprm_committing_creds),
 	LSM_HOOK_INIT(bprm_committed_creds, apparmor_bprm_committed_creds),
 
 	LSM_HOOK_INIT(task_free, apparmor_task_free),
 	LSM_HOOK_INIT(task_alloc, apparmor_task_alloc),
-	LSM_HOOK_INIT(task_getsecid, apparmor_task_getsecid),
+	LSM_HOOK_INIT(task_getsecid_subj, apparmor_task_getsecid),
+	LSM_HOOK_INIT(task_getsecid_obj, apparmor_task_getsecid),
 	LSM_HOOK_INIT(task_setrlimit, apparmor_task_setrlimit),
 	LSM_HOOK_INIT(task_kill, apparmor_task_kill),
 
@@ -1279,6 +1290,16 @@ static const struct kernel_param_ops param_ops_aauint = {
 	.get = param_get_aauint
 };
 
+static int param_set_aacompressionlevel(const char *val,
+					const struct kernel_param *kp);
+static int param_get_aacompressionlevel(char *buffer,
+					const struct kernel_param *kp);
+#define param_check_aacompressionlevel param_check_int
+static const struct kernel_param_ops param_ops_aacompressionlevel = {
+	.set = param_set_aacompressionlevel,
+	.get = param_get_aacompressionlevel
+};
+
 static int param_set_aalockpolicy(const char *val, const struct kernel_param *kp);
 static int param_get_aalockpolicy(char *buffer, const struct kernel_param *kp);
 #define param_check_aalockpolicy param_check_bool
@@ -1308,6 +1329,11 @@ bool aa_g_hash_policy = IS_ENABLED(CONFIG_SECURITY_APPARMOR_HASH_DEFAULT);
 #ifdef CONFIG_SECURITY_APPARMOR_HASH
 module_param_named(hash_policy, aa_g_hash_policy, aabool, S_IRUSR | S_IWUSR);
 #endif
+
+/* policy loaddata compression level */
+int aa_g_rawdata_compression_level = Z_DEFAULT_COMPRESSION;
+module_param_named(rawdata_compression_level, aa_g_rawdata_compression_level,
+		   aacompressionlevel, 0400);
 
 /* Debug mode */
 bool aa_g_debug = IS_ENABLED(CONFIG_SECURITY_APPARMOR_DEBUG_MESSAGES);
@@ -1474,6 +1500,37 @@ static int param_get_aaintbool(char *buffer, const struct kernel_param *kp)
 	return param_get_bool(buffer, &kp_local);
 }
 
+static int param_set_aacompressionlevel(const char *val,
+					const struct kernel_param *kp)
+{
+	int error;
+
+	if (!apparmor_enabled)
+		return -EINVAL;
+	if (apparmor_initialized)
+		return -EPERM;
+
+	error = param_set_int(val, kp);
+
+	aa_g_rawdata_compression_level = clamp(aa_g_rawdata_compression_level,
+					       Z_NO_COMPRESSION,
+					       Z_BEST_COMPRESSION);
+	pr_info("AppArmor: policy rawdata compression level set to %u\n",
+		aa_g_rawdata_compression_level);
+
+	return error;
+}
+
+static int param_get_aacompressionlevel(char *buffer,
+					const struct kernel_param *kp)
+{
+	if (!apparmor_enabled)
+		return -EINVAL;
+	if (apparmor_initialized && !policy_view_capable(NULL))
+		return -EPERM;
+	return param_get_int(buffer, kp);
+}
+
 static int param_get_audit(char *buffer, const struct kernel_param *kp)
 {
 	if (!apparmor_enabled)
@@ -1598,7 +1655,7 @@ void aa_put_buffer(char *buf)
  */
 static int __init set_init_ctx(void)
 {
-	struct cred *cred = (struct cred *)current->real_cred;
+	struct cred *cred = (__force struct cred *)current->real_cred;
 
 	set_cred_label(cred, aa_get_label(ns_unconfined(root_ns)));
 
@@ -1654,7 +1711,7 @@ static int __init alloc_buffers(void)
 
 #ifdef CONFIG_SYSCTL
 static int apparmor_dointvec(struct ctl_table *table, int write,
-			     void __user *buffer, size_t *lenp, loff_t *ppos)
+			     void *buffer, size_t *lenp, loff_t *ppos)
 {
 	if (!policy_admin_capable(NULL))
 		return -EPERM;

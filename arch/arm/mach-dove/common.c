@@ -22,11 +22,11 @@
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 #include <asm/mach/time.h>
-#include <mach/bridge-regs.h>
-#include <mach/pm.h>
 #include <plat/common.h>
 #include <plat/irq.h>
 #include <plat/time.h>
+#include "bridge-regs.h"
+#include "pm.h"
 #include "common.h"
 
 /* These can go away once Dove uses the mvebu-mbus DT binding */
@@ -48,7 +48,7 @@
 /*****************************************************************************
  * I/O Address Mapping
  ****************************************************************************/
-static struct map_desc dove_io_desc[] __initdata = {
+static struct map_desc __maybe_unused dove_io_desc[] __initdata = {
 	{
 		.virtual	= (unsigned long) DOVE_SB_REGS_VIRT_BASE,
 		.pfn		= __phys_to_pfn(DOVE_SB_REGS_PHYS_BASE),

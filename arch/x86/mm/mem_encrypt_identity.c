@@ -81,7 +81,7 @@ struct sme_populate_pgd_data {
  * section is 2MB aligned to allow for simple pagetable setup using only
  * PMD entries (see vmlinux.lds.S).
  */
-static char sme_workarea[2 * PMD_PAGE_SIZE] __section(.init.scratch);
+static char sme_workarea[2 * PMD_PAGE_SIZE] __section(".init.scratch");
 
 static char sme_cmdline_arg[] __initdata = "mem_encrypt";
 static char sme_cmdline_on[]  __initdata = "on";
@@ -530,7 +530,7 @@ void __init sme_enable(struct boot_params *bp)
 		/*
 		 * No SME if Hypervisor bit is set. This check is here to
 		 * prevent a guest from trying to enable SME. For running as a
-		 * KVM guest the MSR_K8_SYSCFG will be sufficient, but there
+		 * KVM guest the MSR_AMD64_SYSCFG will be sufficient, but there
 		 * might be other hypervisors which emulate that MSR as non-zero
 		 * or even pass it through to the guest.
 		 * A malicious hypervisor can still trick a guest into this
@@ -543,13 +543,12 @@ void __init sme_enable(struct boot_params *bp)
 			return;
 
 		/* For SME, check the SYSCFG MSR */
-		msr = __rdmsr(MSR_K8_SYSCFG);
-		if (!(msr & MSR_K8_SYSCFG_MEM_ENCRYPT))
+		msr = __rdmsr(MSR_AMD64_SYSCFG);
+		if (!(msr & MSR_AMD64_SYSCFG_MEM_ENCRYPT))
 			return;
 	} else {
 		/* SEV state cannot be controlled by a command line option */
 		sme_me_mask = me_mask;
-		sev_enabled = true;
 		physical_mask &= ~sme_me_mask;
 		return;
 	}

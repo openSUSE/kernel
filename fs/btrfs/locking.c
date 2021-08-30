@@ -8,352 +8,284 @@
 #include <linux/spinlock.h>
 #include <linux/page-flags.h>
 #include <asm/bug.h>
+#include "misc.h"
 #include "ctree.h"
 #include "extent_io.h"
 #include "locking.h"
 
-#ifdef CONFIG_BTRFS_DEBUG
-static void btrfs_assert_spinning_writers_get(struct extent_buffer *eb)
-{
-	WARN_ON(eb->spinning_writers);
-	eb->spinning_writers++;
-}
-
-static void btrfs_assert_spinning_writers_put(struct extent_buffer *eb)
-{
-	WARN_ON(eb->spinning_writers != 1);
-	eb->spinning_writers--;
-}
-
-static void btrfs_assert_no_spinning_writers(struct extent_buffer *eb)
-{
-	WARN_ON(eb->spinning_writers);
-}
-
-static void btrfs_assert_spinning_readers_get(struct extent_buffer *eb)
-{
-	atomic_inc(&eb->spinning_readers);
-}
-
-static void btrfs_assert_spinning_readers_put(struct extent_buffer *eb)
-{
-	WARN_ON(atomic_read(&eb->spinning_readers) == 0);
-	atomic_dec(&eb->spinning_readers);
-}
-
-static void btrfs_assert_tree_read_locks_get(struct extent_buffer *eb)
-{
-	atomic_inc(&eb->read_locks);
-}
-
-static void btrfs_assert_tree_read_locks_put(struct extent_buffer *eb)
-{
-	atomic_dec(&eb->read_locks);
-}
-
-static void btrfs_assert_tree_read_locked(struct extent_buffer *eb)
-{
-	BUG_ON(!atomic_read(&eb->read_locks));
-}
-
-static void btrfs_assert_tree_write_locks_get(struct extent_buffer *eb)
-{
-	eb->write_locks++;
-}
-
-static void btrfs_assert_tree_write_locks_put(struct extent_buffer *eb)
-{
-	eb->write_locks--;
-}
-
-void btrfs_assert_tree_locked(struct extent_buffer *eb)
-{
-	BUG_ON(!eb->write_locks);
-}
-
-#else
-static void btrfs_assert_spinning_writers_get(struct extent_buffer *eb) { }
-static void btrfs_assert_spinning_writers_put(struct extent_buffer *eb) { }
-static void btrfs_assert_no_spinning_writers(struct extent_buffer *eb) { }
-static void btrfs_assert_spinning_readers_put(struct extent_buffer *eb) { }
-static void btrfs_assert_spinning_readers_get(struct extent_buffer *eb) { }
-static void btrfs_assert_tree_read_locked(struct extent_buffer *eb) { }
-static void btrfs_assert_tree_read_locks_get(struct extent_buffer *eb) { }
-static void btrfs_assert_tree_read_locks_put(struct extent_buffer *eb) { }
-void btrfs_assert_tree_locked(struct extent_buffer *eb) { }
-static void btrfs_assert_tree_write_locks_get(struct extent_buffer *eb) { }
-static void btrfs_assert_tree_write_locks_put(struct extent_buffer *eb) { }
-#endif
-
-void btrfs_set_lock_blocking_read(struct extent_buffer *eb)
-{
-	trace_btrfs_set_lock_blocking_read(eb);
-	/*
-	 * No lock is required.  The lock owner may change if we have a read
-	 * lock, but it won't change to or away from us.  If we have the write
-	 * lock, we are the owner and it'll never change.
-	 */
-	if (eb->lock_nested && current->pid == eb->lock_owner)
-		return;
-	btrfs_assert_tree_read_locked(eb);
-	atomic_inc(&eb->blocking_readers);
-	btrfs_assert_spinning_readers_put(eb);
-	read_unlock(&eb->lock);
-}
-
-void btrfs_set_lock_blocking_write(struct extent_buffer *eb)
-{
-	trace_btrfs_set_lock_blocking_write(eb);
-	/*
-	 * No lock is required.  The lock owner may change if we have a read
-	 * lock, but it won't change to or away from us.  If we have the write
-	 * lock, we are the owner and it'll never change.
-	 */
-	if (eb->lock_nested && current->pid == eb->lock_owner)
-		return;
-	if (eb->blocking_writers == 0) {
-		btrfs_assert_spinning_writers_put(eb);
-		btrfs_assert_tree_locked(eb);
-		eb->blocking_writers++;
-		write_unlock(&eb->lock);
-	}
-}
-
-void btrfs_clear_lock_blocking_read(struct extent_buffer *eb)
-{
-	trace_btrfs_clear_lock_blocking_read(eb);
-	/*
-	 * No lock is required.  The lock owner may change if we have a read
-	 * lock, but it won't change to or away from us.  If we have the write
-	 * lock, we are the owner and it'll never change.
-	 */
-	if (eb->lock_nested && current->pid == eb->lock_owner)
-		return;
-	BUG_ON(atomic_read(&eb->blocking_readers) == 0);
-	read_lock(&eb->lock);
-	btrfs_assert_spinning_readers_get(eb);
-	/* atomic_dec_and_test implies a barrier */
-	if (atomic_dec_and_test(&eb->blocking_readers))
-		cond_wake_up_nomb(&eb->read_lock_wq);
-}
-
-void btrfs_clear_lock_blocking_write(struct extent_buffer *eb)
-{
-	trace_btrfs_clear_lock_blocking_write(eb);
-	/*
-	 * no lock is required.  The lock owner may change if
-	 * we have a read lock, but it won't change to or away
-	 * from us.  If we have the write lock, we are the owner
-	 * and it'll never change.
-	 */
-	if (eb->lock_nested && current->pid == eb->lock_owner)
-		return;
-	write_lock(&eb->lock);
-	BUG_ON(eb->blocking_writers != 1);
-	btrfs_assert_spinning_writers_get(eb);
-	if (--eb->blocking_writers == 0)
-		cond_wake_up(&eb->write_lock_wq);
-}
+/*
+ * Extent buffer locking
+ * =====================
+ *
+ * We use a rw_semaphore for tree locking, and the semantics are exactly the
+ * same:
+ *
+ * - reader/writer exclusion
+ * - writer/writer exclusion
+ * - reader/reader sharing
+ * - try-lock semantics for readers and writers
+ *
+ * The rwsem implementation does opportunistic spinning which reduces number of
+ * times the locking task needs to sleep.
+ */
 
 /*
- * take a spinning read lock.  This will wait for any blocking
- * writers
+ * __btrfs_tree_read_lock - lock extent buffer for read
+ * @eb:		the eb to be locked
+ * @nest:	the nesting level to be used for lockdep
+ *
+ * This takes the read lock on the extent buffer, using the specified nesting
+ * level for lockdep purposes.
  */
-void btrfs_tree_read_lock(struct extent_buffer *eb)
+void __btrfs_tree_read_lock(struct extent_buffer *eb, enum btrfs_lock_nesting nest)
 {
 	u64 start_ns = 0;
 
 	if (trace_btrfs_tree_read_lock_enabled())
 		start_ns = ktime_get_ns();
-again:
-	read_lock(&eb->lock);
-	BUG_ON(eb->blocking_writers == 0 &&
-	       current->pid == eb->lock_owner);
-	if (eb->blocking_writers && current->pid == eb->lock_owner) {
-		/*
-		 * This extent is already write-locked by our thread. We allow
-		 * an additional read lock to be added because it's for the same
-		 * thread. btrfs_find_all_roots() depends on this as it may be
-		 * called on a partly (write-)locked tree.
-		 */
-		BUG_ON(eb->lock_nested);
-		eb->lock_nested = true;
-		read_unlock(&eb->lock);
-		trace_btrfs_tree_read_lock(eb, start_ns);
-		return;
-	}
-	if (eb->blocking_writers) {
-		read_unlock(&eb->lock);
-		wait_event(eb->write_lock_wq,
-			   eb->blocking_writers == 0);
-		goto again;
-	}
-	btrfs_assert_tree_read_locks_get(eb);
-	btrfs_assert_spinning_readers_get(eb);
+
+	down_read_nested(&eb->lock, nest);
+	eb->lock_owner = current->pid;
 	trace_btrfs_tree_read_lock(eb, start_ns);
 }
 
-/*
- * take a spinning read lock.
- * returns 1 if we get the read lock and 0 if we don't
- * this won't wait for blocking writers
- */
-int btrfs_tree_read_lock_atomic(struct extent_buffer *eb)
+void btrfs_tree_read_lock(struct extent_buffer *eb)
 {
-	if (eb->blocking_writers)
-		return 0;
-
-	read_lock(&eb->lock);
-	if (eb->blocking_writers) {
-		read_unlock(&eb->lock);
-		return 0;
-	}
-	btrfs_assert_tree_read_locks_get(eb);
-	btrfs_assert_spinning_readers_get(eb);
-	trace_btrfs_tree_read_lock_atomic(eb);
-	return 1;
+	__btrfs_tree_read_lock(eb, BTRFS_NESTING_NORMAL);
 }
 
 /*
- * returns 1 if we get the read lock and 0 if we don't
- * this won't wait for blocking writers
+ * Try-lock for read.
+ *
+ * Return 1 if the rwlock has been taken, 0 otherwise
  */
 int btrfs_try_tree_read_lock(struct extent_buffer *eb)
 {
-	if (eb->blocking_writers)
-		return 0;
-
-	if (!read_trylock(&eb->lock))
-		return 0;
-
-	if (eb->blocking_writers) {
-		read_unlock(&eb->lock);
-		return 0;
+	if (down_read_trylock(&eb->lock)) {
+		eb->lock_owner = current->pid;
+		trace_btrfs_try_tree_read_lock(eb);
+		return 1;
 	}
-	btrfs_assert_tree_read_locks_get(eb);
-	btrfs_assert_spinning_readers_get(eb);
-	trace_btrfs_try_tree_read_lock(eb);
-	return 1;
+	return 0;
 }
 
 /*
- * returns 1 if we get the read lock and 0 if we don't
- * this won't wait for blocking writers or readers
+ * Try-lock for write.
+ *
+ * Return 1 if the rwlock has been taken, 0 otherwise
  */
 int btrfs_try_tree_write_lock(struct extent_buffer *eb)
 {
-	if (eb->blocking_writers || atomic_read(&eb->blocking_readers))
-		return 0;
-
-	write_lock(&eb->lock);
-	if (eb->blocking_writers || atomic_read(&eb->blocking_readers)) {
-		write_unlock(&eb->lock);
-		return 0;
+	if (down_write_trylock(&eb->lock)) {
+		eb->lock_owner = current->pid;
+		trace_btrfs_try_tree_write_lock(eb);
+		return 1;
 	}
-	btrfs_assert_tree_write_locks_get(eb);
-	btrfs_assert_spinning_writers_get(eb);
-	eb->lock_owner = current->pid;
-	trace_btrfs_try_tree_write_lock(eb);
-	return 1;
+	return 0;
 }
 
 /*
- * drop a spinning read lock
+ * Release read lock.
  */
 void btrfs_tree_read_unlock(struct extent_buffer *eb)
 {
 	trace_btrfs_tree_read_unlock(eb);
-	/*
-	 * if we're nested, we have the write lock.  No new locking
-	 * is needed as long as we are the lock owner.
-	 * The write unlock will do a barrier for us, and the lock_nested
-	 * field only matters to the lock owner.
-	 */
-	if (eb->lock_nested && current->pid == eb->lock_owner) {
-		eb->lock_nested = false;
-		return;
-	}
-	btrfs_assert_tree_read_locked(eb);
-	btrfs_assert_spinning_readers_put(eb);
-	btrfs_assert_tree_read_locks_put(eb);
-	read_unlock(&eb->lock);
+	eb->lock_owner = 0;
+	up_read(&eb->lock);
 }
 
 /*
- * drop a blocking read lock
+ * __btrfs_tree_lock - lock eb for write
+ * @eb:		the eb to lock
+ * @nest:	the nesting to use for the lock
+ *
+ * Returns with the eb->lock write locked.
  */
-void btrfs_tree_read_unlock_blocking(struct extent_buffer *eb)
-{
-	trace_btrfs_tree_read_unlock_blocking(eb);
-	/*
-	 * if we're nested, we have the write lock.  No new locking
-	 * is needed as long as we are the lock owner.
-	 * The write unlock will do a barrier for us, and the lock_nested
-	 * field only matters to the lock owner.
-	 */
-	if (eb->lock_nested && current->pid == eb->lock_owner) {
-		eb->lock_nested = false;
-		return;
-	}
-	btrfs_assert_tree_read_locked(eb);
-	WARN_ON(atomic_read(&eb->blocking_readers) == 0);
-	/* atomic_dec_and_test implies a barrier */
-	if (atomic_dec_and_test(&eb->blocking_readers))
-		cond_wake_up_nomb(&eb->read_lock_wq);
-	btrfs_assert_tree_read_locks_put(eb);
-}
-
-/*
- * take a spinning write lock.  This will wait for both
- * blocking readers or writers
- */
-void btrfs_tree_lock(struct extent_buffer *eb)
+void __btrfs_tree_lock(struct extent_buffer *eb, enum btrfs_lock_nesting nest)
+	__acquires(&eb->lock)
 {
 	u64 start_ns = 0;
 
 	if (trace_btrfs_tree_lock_enabled())
 		start_ns = ktime_get_ns();
 
-	WARN_ON(eb->lock_owner == current->pid);
-again:
-	wait_event(eb->read_lock_wq, atomic_read(&eb->blocking_readers) == 0);
-	wait_event(eb->write_lock_wq, eb->blocking_writers == 0);
-	write_lock(&eb->lock);
-	if (atomic_read(&eb->blocking_readers) || eb->blocking_writers) {
-		write_unlock(&eb->lock);
-		goto again;
-	}
-	btrfs_assert_spinning_writers_get(eb);
-	btrfs_assert_tree_write_locks_get(eb);
+	down_write_nested(&eb->lock, nest);
 	eb->lock_owner = current->pid;
 	trace_btrfs_tree_lock(eb, start_ns);
 }
 
+void btrfs_tree_lock(struct extent_buffer *eb)
+{
+	__btrfs_tree_lock(eb, BTRFS_NESTING_NORMAL);
+}
+
 /*
- * drop a spinning or a blocking write lock.
+ * Release the write lock.
  */
 void btrfs_tree_unlock(struct extent_buffer *eb)
 {
-	int blockers = eb->blocking_writers;
-
-	BUG_ON(blockers > 1);
-
-	btrfs_assert_tree_locked(eb);
 	trace_btrfs_tree_unlock(eb);
 	eb->lock_owner = 0;
-	btrfs_assert_tree_write_locks_put(eb);
+	up_write(&eb->lock);
+}
 
-	if (blockers) {
-		btrfs_assert_no_spinning_writers(eb);
-		eb->blocking_writers--;
-		/*
-		 * We need to order modifying blocking_writers above with
-		 * actually waking up the sleepers to ensure they see the
-		 * updated value of blocking_writers
-		 */
-		cond_wake_up(&eb->write_lock_wq);
-	} else {
-		btrfs_assert_spinning_writers_put(eb);
-		write_unlock(&eb->lock);
+/*
+ * This releases any locks held in the path starting at level and going all the
+ * way up to the root.
+ *
+ * btrfs_search_slot will keep the lock held on higher nodes in a few corner
+ * cases, such as COW of the block at slot zero in the node.  This ignores
+ * those rules, and it should only be called when there are no more updates to
+ * be done higher up in the tree.
+ */
+void btrfs_unlock_up_safe(struct btrfs_path *path, int level)
+{
+	int i;
+
+	if (path->keep_locks)
+		return;
+
+	for (i = level; i < BTRFS_MAX_LEVEL; i++) {
+		if (!path->nodes[i])
+			continue;
+		if (!path->locks[i])
+			continue;
+		btrfs_tree_unlock_rw(path->nodes[i], path->locks[i]);
+		path->locks[i] = 0;
 	}
+}
+
+/*
+ * Loop around taking references on and locking the root node of the tree until
+ * we end up with a lock on the root node.
+ *
+ * Return: root extent buffer with write lock held
+ */
+struct extent_buffer *btrfs_lock_root_node(struct btrfs_root *root)
+{
+	struct extent_buffer *eb;
+
+	while (1) {
+		eb = btrfs_root_node(root);
+		btrfs_tree_lock(eb);
+		if (eb == root->node)
+			break;
+		btrfs_tree_unlock(eb);
+		free_extent_buffer(eb);
+	}
+	return eb;
+}
+
+/*
+ * Loop around taking references on and locking the root node of the tree until
+ * we end up with a lock on the root node.
+ *
+ * Return: root extent buffer with read lock held
+ */
+struct extent_buffer *btrfs_read_lock_root_node(struct btrfs_root *root)
+{
+	struct extent_buffer *eb;
+
+	while (1) {
+		eb = btrfs_root_node(root);
+		btrfs_tree_read_lock(eb);
+		if (eb == root->node)
+			break;
+		btrfs_tree_read_unlock(eb);
+		free_extent_buffer(eb);
+	}
+	return eb;
+}
+
+/*
+ * DREW locks
+ * ==========
+ *
+ * DREW stands for double-reader-writer-exclusion lock. It's used in situation
+ * where you want to provide A-B exclusion but not AA or BB.
+ *
+ * Currently implementation gives more priority to reader. If a reader and a
+ * writer both race to acquire their respective sides of the lock the writer
+ * would yield its lock as soon as it detects a concurrent reader. Additionally
+ * if there are pending readers no new writers would be allowed to come in and
+ * acquire the lock.
+ */
+
+int btrfs_drew_lock_init(struct btrfs_drew_lock *lock)
+{
+	int ret;
+
+	ret = percpu_counter_init(&lock->writers, 0, GFP_KERNEL);
+	if (ret)
+		return ret;
+
+	atomic_set(&lock->readers, 0);
+	init_waitqueue_head(&lock->pending_readers);
+	init_waitqueue_head(&lock->pending_writers);
+
+	return 0;
+}
+
+void btrfs_drew_lock_destroy(struct btrfs_drew_lock *lock)
+{
+	percpu_counter_destroy(&lock->writers);
+}
+
+/* Return true if acquisition is successful, false otherwise */
+bool btrfs_drew_try_write_lock(struct btrfs_drew_lock *lock)
+{
+	if (atomic_read(&lock->readers))
+		return false;
+
+	percpu_counter_inc(&lock->writers);
+
+	/* Ensure writers count is updated before we check for pending readers */
+	smp_mb();
+	if (atomic_read(&lock->readers)) {
+		btrfs_drew_write_unlock(lock);
+		return false;
+	}
+
+	return true;
+}
+
+void btrfs_drew_write_lock(struct btrfs_drew_lock *lock)
+{
+	while (true) {
+		if (btrfs_drew_try_write_lock(lock))
+			return;
+		wait_event(lock->pending_writers, !atomic_read(&lock->readers));
+	}
+}
+
+void btrfs_drew_write_unlock(struct btrfs_drew_lock *lock)
+{
+	percpu_counter_dec(&lock->writers);
+	cond_wake_up(&lock->pending_readers);
+}
+
+void btrfs_drew_read_lock(struct btrfs_drew_lock *lock)
+{
+	atomic_inc(&lock->readers);
+
+	/*
+	 * Ensure the pending reader count is perceieved BEFORE this reader
+	 * goes to sleep in case of active writers. This guarantees new writers
+	 * won't be allowed and that the current reader will be woken up when
+	 * the last active writer finishes its jobs.
+	 */
+	smp_mb__after_atomic();
+
+	wait_event(lock->pending_readers,
+		   percpu_counter_sum(&lock->writers) == 0);
+}
+
+void btrfs_drew_read_unlock(struct btrfs_drew_lock *lock)
+{
+	/*
+	 * atomic_dec_and_test implies a full barrier, so woken up writers
+	 * are guaranteed to see the decrement
+	 */
+	if (atomic_dec_and_test(&lock->readers))
+		wake_up(&lock->pending_writers);
 }

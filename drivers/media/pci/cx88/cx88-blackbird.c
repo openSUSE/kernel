@@ -685,7 +685,8 @@ static void buffer_finish(struct vb2_buffer *vb)
 	struct cx88_riscmem *risc = &buf->risc;
 
 	if (risc->cpu)
-		pci_free_consistent(dev->pci, risc->size, risc->cpu, risc->dma);
+		dma_free_coherent(&dev->pci->dev, risc->size, risc->cpu,
+				  risc->dma);
 	memset(risc, 0, sizeof(*risc));
 }
 
@@ -805,9 +806,7 @@ static int vidioc_enum_fmt_vid_cap(struct file *file, void  *priv,
 	if (f->index != 0)
 		return -EINVAL;
 
-	strscpy(f->description, "MPEG", sizeof(f->description));
 	f->pixelformat = V4L2_PIX_FMT_MPEG;
-	f->flags = V4L2_FMT_FLAG_COMPRESSED;
 	return 0;
 }
 
@@ -1140,7 +1139,7 @@ static int blackbird_register_video(struct cx8802_dev *dev)
 				    V4L2_CAP_VIDEO_CAPTURE;
 	if (dev->core->board.tuner_type != UNSET)
 		dev->mpeg_dev.device_caps |= V4L2_CAP_TUNER;
-	err = video_register_device(&dev->mpeg_dev, VFL_TYPE_GRABBER, -1);
+	err = video_register_device(&dev->mpeg_dev, VFL_TYPE_VIDEO, -1);
 	if (err < 0) {
 		pr_info("can't register mpeg device\n");
 		return err;

@@ -2,8 +2,6 @@
 #include <linux/mm.h>
 #include <linux/hugetlb.h>
 #include <linux/security.h>
-#include <asm/pgtable.h>
-#include <asm/pgalloc.h>
 #include <asm/cacheflush.h>
 #include <asm/machdep.h>
 #include <asm/mman.h>
@@ -34,7 +32,13 @@ void radix__flush_hugetlb_tlb_range(struct vm_area_struct *vma, unsigned long st
 	struct hstate *hstate = hstate_file(vma->vm_file);
 
 	psize = hstate_get_psize(hstate);
-	radix__flush_tlb_range_psize(vma->vm_mm, start, end, psize);
+	/*
+	 * Flush PWC even if we get PUD_SIZE hugetlb invalidate to keep this simpler.
+	 */
+	if (end - start >= PUD_SIZE)
+		radix__flush_tlb_pwc_range_psize(vma->vm_mm, start, end, psize);
+	else
+		radix__flush_tlb_range_psize(vma->vm_mm, start, end, psize);
 }
 
 /*

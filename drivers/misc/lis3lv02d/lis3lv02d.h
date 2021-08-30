@@ -6,7 +6,7 @@
  *  Copyright (C) 2008-2009 Eric Piel
  */
 #include <linux/platform_device.h>
-#include <linux/input-polldev.h>
+#include <linux/input.h>
 #include <linux/regulator/consumer.h>
 #include <linux/miscdevice.h>
 
@@ -271,11 +271,9 @@ struct lis3lv02d {
 	int			regs_size;
 	u8                      *reg_cache;
 	bool			regs_stored;
+	bool			init_required;
 	u8                      odr_mask;  /* ODR bit mask */
 	u8			whoami;    /* indicates measurement precision */
-#ifndef __GENKSYMS__
-	bool			init_required;
-#endif
 	s16 (*read_data) (struct lis3lv02d *lis3, int reg);
 	int			mdps_max_val;
 	int			pwron_delay;
@@ -284,7 +282,7 @@ struct lis3lv02d {
 					* (1/1000th of earth gravity)
 					*/
 
-	struct input_polled_dev	*idev;     /* input device */
+	struct input_dev	*idev;     /* input device */
 	struct platform_device	*pdev;     /* platform device */
 	struct regulator_bulk_data regulators[2];
 	atomic_t		count;     /* interrupt count after last read */

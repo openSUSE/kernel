@@ -43,7 +43,6 @@ static int tcf_bpf_act(struct sk_buff *skb, const struct tc_action *act,
 	tcf_lastuse_update(&prog->tcf_tm);
 	bstats_cpu_update(this_cpu_ptr(prog->common.cpu_bstats), skb);
 
-	rcu_read_lock();
 	filter = rcu_dereference(prog->filter);
 	if (at_ingress) {
 		__skb_push(skb, skb->mac_len);
@@ -56,7 +55,6 @@ static int tcf_bpf_act(struct sk_buff *skb, const struct tc_action *act,
 	}
 	if (skb_sk_is_prefetched(skb) && filter_res != TC_ACT_OK)
 		skb_orphan(skb);
-	rcu_read_unlock();
 
 	/* A BPF program may overwrite the default action opcode.
 	 * Similarly as in cls_bpf, if filter_res == -1 we use the
@@ -65,7 +63,7 @@ static int tcf_bpf_act(struct sk_buff *skb, const struct tc_action *act,
 	 * In case a different well-known TC_ACT opcode has been
 	 * returned, it will overwrite the default one.
 	 *
-	 * For everything else that is unkown, TC_ACT_UNSPEC is
+	 * For everything else that is unknown, TC_ACT_UNSPEC is
 	 * returned.
 	 */
 	switch (filter_res) {
@@ -365,9 +363,7 @@ static int tcf_bpf_init(struct net *net, struct nlattr *nla,
 	if (goto_ch)
 		tcf_chain_put_by_act(goto_ch);
 
-	if (res == ACT_P_CREATED) {
-		tcf_idr_insert(tn, *act);
-	} else {
+	if (res != ACT_P_CREATED) {
 		/* make sure the program being replaced is no longer executing */
 		synchronize_rcu();
 		tcf_bpf_cfg_cleanup(&old);

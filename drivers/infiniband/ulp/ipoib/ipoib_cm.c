@@ -512,13 +512,13 @@ static int ipoib_cm_rx_handler(struct ib_cm_id *cm_id,
 		return ipoib_cm_req_handler(cm_id, event);
 	case IB_CM_DREQ_RECEIVED:
 		ib_send_cm_drep(cm_id, NULL, 0);
-		/* Fall through */
+		fallthrough;
 	case IB_CM_REJ_RECEIVED:
 		p = cm_id->context;
 		priv = ipoib_priv(p->dev);
 		if (ib_modify_qp(p->qp, &ipoib_cm_err_attr, IB_QP_STATE))
 			ipoib_warn(priv, "unable to move qp to error state\n");
-		/* Fall through */
+		fallthrough;
 	default:
 		return 0;
 	}
@@ -1122,12 +1122,8 @@ static int ipoib_cm_modify_tx_init(struct net_device *dev,
 	struct ipoib_dev_priv *priv = ipoib_priv(dev);
 	struct ib_qp_attr qp_attr;
 	int qp_attr_mask, ret;
-	ret = ib_find_pkey(priv->ca, priv->port, priv->pkey, &qp_attr.pkey_index);
-	if (ret) {
-		ipoib_warn(priv, "pkey 0x%x not found: %d\n", priv->pkey, ret);
-		return ret;
-	}
 
+	qp_attr.pkey_index = priv->pkey_index;
 	qp_attr.qp_state = IB_QPS_INIT;
 	qp_attr.qp_access_flags = IB_ACCESS_LOCAL_WRITE;
 	qp_attr.port_num = priv->port;
@@ -1507,20 +1503,20 @@ static void ipoib_cm_stale_task(struct work_struct *work)
 	spin_unlock_irq(&priv->lock);
 }
 
-static ssize_t show_mode(struct device *d, struct device_attribute *attr,
+static ssize_t mode_show(struct device *d, struct device_attribute *attr,
 			 char *buf)
 {
 	struct net_device *dev = to_net_dev(d);
 	struct ipoib_dev_priv *priv = ipoib_priv(dev);
 
 	if (test_bit(IPOIB_FLAG_ADMIN_CM, &priv->flags))
-		return sprintf(buf, "connected\n");
+		return sysfs_emit(buf, "connected\n");
 	else
-		return sprintf(buf, "datagram\n");
+		return sysfs_emit(buf, "datagram\n");
 }
 
-static ssize_t set_mode(struct device *d, struct device_attribute *attr,
-			const char *buf, size_t count)
+static ssize_t mode_store(struct device *d, struct device_attribute *attr,
+			  const char *buf, size_t count)
 {
 	struct net_device *dev = to_net_dev(d);
 	int ret;
@@ -1546,7 +1542,7 @@ static ssize_t set_mode(struct device *d, struct device_attribute *attr,
 	return (!ret || ret == -EBUSY) ? count : ret;
 }
 
-static DEVICE_ATTR(mode, S_IWUSR | S_IRUGO, show_mode, set_mode);
+static DEVICE_ATTR_RW(mode);
 
 int ipoib_cm_add_mode_attr(struct net_device *dev)
 {
@@ -1647,17 +1643,13 @@ int ipoib_cm_dev_init(struct net_device *dev)
 void ipoib_cm_dev_cleanup(struct net_device *dev)
 {
 	struct ipoib_dev_priv *priv = ipoib_priv(dev);
-	int ret;
 
 	if (!priv->cm.srq)
 		return;
 
 	ipoib_dbg(priv, "Cleanup ipoib connected mode.\n");
 
-	ret = ib_destroy_srq(priv->cm.srq);
-	if (ret)
-		ipoib_warn(priv, "ib_destroy_srq failed: %d\n", ret);
-
+	ib_destroy_srq(priv->cm.srq);
 	priv->cm.srq = NULL;
 	if (!priv->cm.srq_ring)
 		return;

@@ -40,7 +40,6 @@
 #include "b44.h"
 
 #define DRV_MODULE_NAME		"b44"
-#define DRV_MODULE_VERSION	"2.0"
 #define DRV_DESCRIPTION		"Broadcom 44xx/47xx 10/100 PCI ethernet driver"
 
 #define B44_DEF_MSG_ENABLE	  \
@@ -97,7 +96,6 @@
 MODULE_AUTHOR("Felix Fietkau, Florian Schirmer, Pekka Pietikainen, David S. Miller");
 MODULE_DESCRIPTION(DRV_DESCRIPTION);
 MODULE_LICENSE("GPL");
-MODULE_VERSION(DRV_MODULE_VERSION);
 
 static int b44_debug = -1;	/* -1 == use B44_DEF_MSG_ENABLE as value */
 module_param(b44_debug, int, 0);
@@ -510,9 +508,6 @@ static void b44_stats_update(struct b44 *bp)
 	for (reg = B44_TX_GOOD_O; reg <= B44_TX_PAUSE; reg += 4UL) {
 		*val++ += br32(bp, reg);
 	}
-
-	/* Pad */
-	reg += 8*4UL;
 
 	for (reg = B44_RX_GOOD_O; reg <= B44_RX_NPAUSE; reg += 4UL) {
 		*val++ += br32(bp, reg);
@@ -1561,8 +1556,8 @@ static void b44_setup_pseudo_magicp(struct b44 *bp)
 	plen0 = b44_magic_pattern(bp->dev->dev_addr, pwol_pattern, pwol_mask,
 				  B44_ETHIPV4UDP_HLEN);
 
-   	bwfilter_table(bp, pwol_pattern, B44_PATTERN_SIZE, B44_PATTERN_BASE);
-   	bwfilter_table(bp, pwol_mask, B44_PMASK_SIZE, B44_PMASK_BASE);
+	bwfilter_table(bp, pwol_pattern, B44_PATTERN_SIZE, B44_PATTERN_BASE);
+	bwfilter_table(bp, pwol_mask, B44_PMASK_SIZE, B44_PMASK_BASE);
 
 	/* Raw ethernet II magic packet pattern - pattern 1 */
 	memset(pwol_pattern, 0, B44_PATTERN_SIZE);
@@ -1570,9 +1565,9 @@ static void b44_setup_pseudo_magicp(struct b44 *bp)
 	plen1 = b44_magic_pattern(bp->dev->dev_addr, pwol_pattern, pwol_mask,
 				  ETH_HLEN);
 
-   	bwfilter_table(bp, pwol_pattern, B44_PATTERN_SIZE,
+	bwfilter_table(bp, pwol_pattern, B44_PATTERN_SIZE,
 		       B44_PATTERN_BASE + B44_PATTERN_SIZE);
-  	bwfilter_table(bp, pwol_mask, B44_PMASK_SIZE,
+	bwfilter_table(bp, pwol_mask, B44_PMASK_SIZE,
 		       B44_PMASK_BASE + B44_PMASK_SIZE);
 
 	/* Ipv6 magic packet pattern - pattern 2 */
@@ -1581,9 +1576,9 @@ static void b44_setup_pseudo_magicp(struct b44 *bp)
 	plen2 = b44_magic_pattern(bp->dev->dev_addr, pwol_pattern, pwol_mask,
 				  B44_ETHIPV6UDP_HLEN);
 
-   	bwfilter_table(bp, pwol_pattern, B44_PATTERN_SIZE,
+	bwfilter_table(bp, pwol_pattern, B44_PATTERN_SIZE,
 		       B44_PATTERN_BASE + B44_PATTERN_SIZE + B44_PATTERN_SIZE);
-  	bwfilter_table(bp, pwol_mask, B44_PMASK_SIZE,
+	bwfilter_table(bp, pwol_mask, B44_PMASK_SIZE,
 		       B44_PMASK_BASE + B44_PMASK_SIZE + B44_PMASK_SIZE);
 
 	kfree(pwol_pattern);
@@ -1636,9 +1631,9 @@ static void b44_setup_wol(struct b44 *bp)
 		val = br32(bp, B44_DEVCTRL);
 		bw32(bp, B44_DEVCTRL, val | DEVCTRL_MPM | DEVCTRL_PFE);
 
- 	} else {
- 		b44_setup_pseudo_magicp(bp);
- 	}
+	} else {
+		b44_setup_pseudo_magicp(bp);
+	}
 	b44_setup_wol_pci(bp);
 }
 
@@ -1762,7 +1757,7 @@ static void __b44_set_rx_mode(struct net_device *dev)
 			__b44_cam_write(bp, zero, i);
 
 		bw32(bp, B44_RXCONFIG, val);
-        	val = br32(bp, B44_CAM_CTRL);
+		val = br32(bp, B44_CAM_CTRL);
 	        bw32(bp, B44_CAM_CTRL, val | CAM_CTRL_ENABLE);
 	}
 }
@@ -1794,7 +1789,6 @@ static void b44_get_drvinfo (struct net_device *dev, struct ethtool_drvinfo *inf
 	struct ssb_bus *bus = bp->sdev->bus;
 
 	strlcpy(info->driver, DRV_MODULE_NAME, sizeof(info->driver));
-	strlcpy(info->version, DRV_MODULE_VERSION, sizeof(info->version));
 	switch (bus->bustype) {
 	case SSB_BUSTYPE_PCI:
 		strlcpy(info->bus_info, pci_name(bus->host_pci), sizeof(info->bus_info));
@@ -2216,12 +2210,12 @@ static void b44_adjust_link(struct net_device *dev)
 {
 	struct b44 *bp = netdev_priv(dev);
 	struct phy_device *phydev = dev->phydev;
-	bool status_changed = 0;
+	bool status_changed = false;
 
 	BUG_ON(!phydev);
 
 	if (bp->old_link != phydev->link) {
-		status_changed = 1;
+		status_changed = true;
 		bp->old_link = phydev->link;
 	}
 
@@ -2229,11 +2223,11 @@ static void b44_adjust_link(struct net_device *dev)
 	if (phydev->link) {
 		if ((phydev->duplex == DUPLEX_HALF) &&
 		    (bp->flags & B44_FLAG_FULL_DUPLEX)) {
-			status_changed = 1;
+			status_changed = true;
 			bp->flags &= ~B44_FLAG_FULL_DUPLEX;
 		} else if ((phydev->duplex == DUPLEX_FULL) &&
 			   !(bp->flags & B44_FLAG_FULL_DUPLEX)) {
-			status_changed = 1;
+			status_changed = true;
 			bp->flags |= B44_FLAG_FULL_DUPLEX;
 		}
 	}
@@ -2349,8 +2343,6 @@ static int b44_init_one(struct ssb_device *sdev,
 	int err;
 
 	instance++;
-
-	pr_info_once("%s version %s\n", DRV_DESCRIPTION, DRV_MODULE_VERSION);
 
 	dev = alloc_etherdev(sizeof(*bp));
 	if (!dev) {

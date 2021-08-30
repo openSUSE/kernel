@@ -688,15 +688,12 @@ static int cobalt_enum_fmt_vid_cap(struct file *file, void *priv_fh,
 {
 	switch (f->index) {
 	case 0:
-		strscpy(f->description, "YUV 4:2:2", sizeof(f->description));
 		f->pixelformat = V4L2_PIX_FMT_YUYV;
 		break;
 	case 1:
-		strscpy(f->description, "RGB24", sizeof(f->description));
 		f->pixelformat = V4L2_PIX_FMT_RGB24;
 		break;
 	case 2:
-		strscpy(f->description, "RGB32", sizeof(f->description));
 		f->pixelformat = V4L2_PIX_FMT_BGR32;
 		break;
 	default:
@@ -788,7 +785,6 @@ static int cobalt_try_fmt_vid_cap(struct file *file, void *priv_fh,
 
 	pix->sizeimage = pix->bytesperline * pix->height;
 	pix->field = V4L2_FIELD_NONE;
-	pix->priv = 0;
 
 	return 0;
 }
@@ -893,11 +889,9 @@ static int cobalt_enum_fmt_vid_out(struct file *file, void *priv_fh,
 {
 	switch (f->index) {
 	case 0:
-		strscpy(f->description, "YUV 4:2:2", sizeof(f->description));
 		f->pixelformat = V4L2_PIX_FMT_YUYV;
 		break;
 	case 1:
-		strscpy(f->description, "RGB32", sizeof(f->description));
 		f->pixelformat = V4L2_PIX_FMT_BGR32;
 		break;
 	default:
@@ -1278,7 +1272,7 @@ static int cobalt_node_register(struct cobalt *cobalt, int node)
 	video_set_drvdata(vdev, s);
 	ret = vb2_queue_init(q);
 	if (!s->is_audio && ret == 0)
-		ret = video_register_device(vdev, VFL_TYPE_GRABBER, -1);
+		ret = video_register_device(vdev, VFL_TYPE_VIDEO, -1);
 	else if (!s->is_dummy)
 		ret = cobalt_alsa_init(s);
 

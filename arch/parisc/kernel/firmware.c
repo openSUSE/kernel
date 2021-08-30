@@ -4,7 +4,8 @@
  *
  *	PDC == Processor Dependent Code
  *
- * See http://www.parisc-linux.org/documentation/index.html
+ * See PDC documentation at
+ * https://parisc.wiki.kernel.org/index.php/Technical_Documentation
  * for documentation describing the entry points and calling
  * conventions defined below.
  *
@@ -310,6 +311,19 @@ int pdc_chassis_disp(unsigned long disp)
 
 	return retval;
 }
+
+/**
+ * pdc_cpu_rendenzvous - Stop currently executing CPU
+ * @retval: -1 on error, 0 on success
+ */
+int __pdc_cpu_rendezvous(void)
+{
+	if (is_pdc_pat())
+		return mem_pdc_call(PDC_PAT_CPU, PDC_PAT_CPU_RENDEZVOUS);
+	else
+		return mem_pdc_call(PDC_PROC, 1, 0);
+}
+
 
 /**
  * pdc_chassis_warn - Fetches chassis warnings

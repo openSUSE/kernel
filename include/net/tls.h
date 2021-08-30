@@ -79,8 +79,6 @@
 	__SNMP_INC_STATS((net)->mib.tls_statistics, field)
 #define TLS_INC_STATS(net, field)				\
 	SNMP_INC_STATS((net)->mib.tls_statistics, field)
-#define __TLS_DEC_STATS(net, field)				\
-	__SNMP_DEC_STATS((net)->mib.tls_statistics, field)
 #define TLS_DEC_STATS(net, field)				\
 	SNMP_DEC_STATS((net)->mib.tls_statistics, field)
 
@@ -193,12 +191,22 @@ struct tls_offload_context_tx {
 	(sizeof(struct tls_offload_context_tx) + TLS_DRIVER_STATE_SIZE_TX)
 
 enum tls_context_flags {
-	TLS_RX_SYNC_RUNNING = 0,
+	/* tls_device_down was called after the netdev went down, device state
+	 * was released, and kTLS works in software, even though rx_conf is
+	 * still TLS_HW (needed for transition).
+	 */
+	TLS_RX_DEV_DEGRADED = 0,
 	/* Unlike RX where resync is driven entirely by the core in TX only
 	 * the driver knows when things went out of sync, so we need the flag
 	 * to be atomic.
 	 */
 	TLS_TX_SYNC_SCHED = 1,
+	/* tls_dev_del was called for the RX side, device state was released,
+	 * but tls_ctx->netdev might still be kept, because TX-side driver
+	 * resources might not be released yet. Used to prevent the second
+	 * tls_dev_del call in tls_device_down if it happens simultaneously.
+	 */
+	TLS_RX_DEV_CLOSED = 2,
 };
 
 struct cipher_context {
@@ -211,6 +219,7 @@ union tls_crypto_context {
 	union {
 		struct tls12_crypto_info_aes_gcm_128 aes_gcm_128;
 		struct tls12_crypto_info_aes_gcm_256 aes_gcm_256;
+		struct tls12_crypto_info_chacha20_poly1305 chacha20_poly1305;
 	};
 };
 
@@ -259,6 +268,7 @@ struct tls_context {
 
 	/* cache cold stuff */
 	struct proto *sk_proto;
+	struct sock *sk;
 
 	void (*sk_destruct)(struct sock *sk);
 
@@ -441,6 +451,9 @@ static inline u16 tls_user_config(struct tls_context *ctx, bool tx)
 struct sk_buff *
 tls_validate_xmit_skb(struct sock *sk, struct net_device *dev,
 		      struct sk_buff *skb);
+struct sk_buff *
+tls_validate_xmit_skb_sw(struct sock *sk, struct net_device *dev,
+			 struct sk_buff *skb);
 
 static inline bool tls_is_sk_tx_device_offloaded(struct sock *sk)
 {
@@ -456,7 +469,7 @@ static inline bool tls_is_sk_tx_device_offloaded(struct sock *sk)
 static inline void tls_err_abort(struct sock *sk, int err)
 {
 	sk->sk_err = err;
-	sk->sk_error_report(sk);
+	sk_error_report(sk);
 }
 
 static inline bool tls_bigint_increment(unsigned char *seq, int len)
@@ -501,32 +514,33 @@ static inline void tls_advance_record_sn(struct sock *sk,
 	if (tls_bigint_increment(ctx->rec_seq, prot->rec_seq_size))
 		tls_err_abort(sk, EBADMSG);
 
-	if (prot->version != TLS_1_3_VERSION)
-		tls_bigint_increment(ctx->iv + TLS_CIPHER_AES_GCM_128_SALT_SIZE,
+	if (prot->version != TLS_1_3_VERSION &&
+	    prot->cipher_type != TLS_CIPHER_CHACHA20_POLY1305)
+		tls_bigint_increment(ctx->iv + prot->salt_size,
 				     prot->iv_size);
 }
 
 static inline void tls_fill_prepend(struct tls_context *ctx,
 			     char *buf,
 			     size_t plaintext_len,
-			     unsigned char record_type,
-			     int version)
+			     unsigned char record_type)
 {
 	struct tls_prot_info *prot = &ctx->prot_info;
 	size_t pkt_len, iv_size = prot->iv_size;
 
 	pkt_len = plaintext_len + prot->tag_size;
-	if (version != TLS_1_3_VERSION) {
+	if (prot->version != TLS_1_3_VERSION &&
+	    prot->cipher_type != TLS_CIPHER_CHACHA20_POLY1305) {
 		pkt_len += iv_size;
 
 		memcpy(buf + TLS_NONCE_OFFSET,
-		       ctx->tx.iv + TLS_CIPHER_AES_GCM_128_SALT_SIZE, iv_size);
+		       ctx->tx.iv + prot->salt_size, iv_size);
 	}
 
 	/* we cover nonce explicit here as well, so buf should be of
 	 * size KTLS_DTLS_HEADER_SIZE + KTLS_DTLS_NONCE_EXPLICIT_SIZE
 	 */
-	buf[0] = version == TLS_1_3_VERSION ?
+	buf[0] = prot->version == TLS_1_3_VERSION ?
 		   TLS_RECORD_TYPE_DATA : record_type;
 	/* Note that VERSION must be TLS_1_2 for both TLS1.2 and TLS1.3 */
 	buf[1] = TLS_1_2_VERSION_MINOR;
@@ -539,18 +553,17 @@ static inline void tls_fill_prepend(struct tls_context *ctx,
 static inline void tls_make_aad(char *buf,
 				size_t size,
 				char *record_sequence,
-				int record_sequence_size,
 				unsigned char record_type,
-				int version)
+				struct tls_prot_info *prot)
 {
-	if (version != TLS_1_3_VERSION) {
-		memcpy(buf, record_sequence, record_sequence_size);
+	if (prot->version != TLS_1_3_VERSION) {
+		memcpy(buf, record_sequence, prot->rec_seq_size);
 		buf += 8;
 	} else {
-		size += TLS_CIPHER_AES_GCM_128_TAG_SIZE;
+		size += prot->tag_size;
 	}
 
-	buf[0] = version == TLS_1_3_VERSION ?
+	buf[0] = prot->version == TLS_1_3_VERSION ?
 		  TLS_RECORD_TYPE_DATA : record_type;
 	buf[1] = TLS_1_2_VERSION_MAJOR;
 	buf[2] = TLS_1_2_VERSION_MINOR;
@@ -558,11 +571,12 @@ static inline void tls_make_aad(char *buf,
 	buf[4] = size & 0xFF;
 }
 
-static inline void xor_iv_with_seq(int version, char *iv, char *seq)
+static inline void xor_iv_with_seq(struct tls_prot_info *prot, char *iv, char *seq)
 {
 	int i;
 
-	if (version == TLS_1_3_VERSION) {
+	if (prot->version == TLS_1_3_VERSION ||
+	    prot->cipher_type == TLS_CIPHER_CHACHA20_POLY1305) {
 		for (i = 0; i < 8; i++)
 			iv[i + 4] ^= seq[i];
 	}
@@ -692,10 +706,6 @@ int tls_proccess_cmsg(struct sock *sk, struct msghdr *msg,
 int decrypt_skb(struct sock *sk, struct sk_buff *skb,
 		struct scatterlist *sgout);
 struct sk_buff *tls_encrypt_skb(struct sk_buff *skb);
-
-struct sk_buff *tls_validate_xmit_skb(struct sock *sk,
-				      struct net_device *dev,
-				      struct sk_buff *skb);
 
 int tls_sw_fallback_init(struct sock *sk,
 			 struct tls_offload_context_tx *offload_ctx,

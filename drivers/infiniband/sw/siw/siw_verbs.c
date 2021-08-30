@@ -160,7 +160,7 @@ int siw_query_device(struct ib_device *base_dev, struct ib_device_attr *attr,
 	return 0;
 }
 
-int siw_query_port(struct ib_device *base_dev, u8 port,
+int siw_query_port(struct ib_device *base_dev, u32 port,
 		   struct ib_port_attr *attr)
 {
 	struct siw_device *sdev = to_siw_dev(base_dev);
@@ -194,7 +194,7 @@ int siw_query_port(struct ib_device *base_dev, u8 port,
 	return rv;
 }
 
-int siw_get_port_immutable(struct ib_device *base_dev, u8 port,
+int siw_get_port_immutable(struct ib_device *base_dev, u32 port,
 			   struct ib_port_immutable *port_immutable)
 {
 	struct ib_port_attr attr;
@@ -209,7 +209,7 @@ int siw_get_port_immutable(struct ib_device *base_dev, u8 port,
 	return 0;
 }
 
-int siw_query_gid(struct ib_device *base_dev, u8 port, int idx,
+int siw_query_gid(struct ib_device *base_dev, u32 port, int idx,
 		  union ib_gid *gid)
 {
 	struct siw_device *sdev = to_siw_dev(base_dev);
@@ -234,12 +234,13 @@ int siw_alloc_pd(struct ib_pd *pd, struct ib_udata *udata)
 	return 0;
 }
 
-void siw_dealloc_pd(struct ib_pd *pd, struct ib_udata *udata)
+int siw_dealloc_pd(struct ib_pd *pd, struct ib_udata *udata)
 {
 	struct siw_device *sdev = to_siw_dev(pd->device);
 
 	siw_dbg_pd(pd, "free PD\n");
 	atomic_dec(&sdev->num_pd);
+	return 0;
 }
 
 void siw_qp_get_ref(struct ib_qp *base_qp)
@@ -299,12 +300,14 @@ struct ib_qp *siw_create_qp(struct ib_pd *pd,
 	struct siw_ucontext *uctx =
 		rdma_udata_to_drv_context(udata, struct siw_ucontext,
 					  base_ucontext);
-	struct siw_cq *scq = NULL, *rcq = NULL;
 	unsigned long flags;
 	int num_sqe, num_rqe, rv = 0;
 	size_t length;
 
 	siw_dbg(base_dev, "create new QP\n");
+
+	if (attrs->create_flags)
+		return ERR_PTR(-EOPNOTSUPP);
 
 	if (atomic_inc_return(&sdev->num_qp) > SIW_MAX_QP) {
 		siw_dbg(base_dev, "too many QP's\n");
@@ -339,10 +342,8 @@ struct ib_qp *siw_create_qp(struct ib_pd *pd,
 		rv = -EINVAL;
 		goto err_out;
 	}
-	scq = to_siw_cq(attrs->send_cq);
-	rcq = to_siw_cq(attrs->recv_cq);
 
-	if (!scq || (!rcq && !attrs->srq)) {
+	if (!attrs->send_cq || (!attrs->recv_cq && !attrs->srq)) {
 		siw_dbg(base_dev, "send CQ or receive CQ invalid\n");
 		rv = -EINVAL;
 		goto err_out;
@@ -361,13 +362,23 @@ struct ib_qp *siw_create_qp(struct ib_pd *pd,
 	if (rv)
 		goto err_out;
 
+	num_sqe = attrs->cap.max_send_wr;
+	num_rqe = attrs->cap.max_recv_wr;
+
 	/* All queue indices are derived from modulo operations
 	 * on a free running 'get' (consumer) and 'put' (producer)
 	 * unsigned counter. Having queue sizes at power of two
 	 * avoids handling counter wrap around.
 	 */
-	num_sqe = roundup_pow_of_two(attrs->cap.max_send_wr);
-	num_rqe = roundup_pow_of_two(attrs->cap.max_recv_wr);
+	if (num_sqe)
+		num_sqe = roundup_pow_of_two(num_sqe);
+	else {
+		/* Zero sized SQ is not supported */
+		rv = -EINVAL;
+		goto err_out_xa;
+	}
+	if (num_rqe)
+		num_rqe = roundup_pow_of_two(num_rqe);
 
 	if (udata)
 		qp->sendq = vmalloc_user(num_sqe * sizeof(struct siw_sqe));
@@ -375,7 +386,6 @@ struct ib_qp *siw_create_qp(struct ib_pd *pd,
 		qp->sendq = vzalloc(num_sqe * sizeof(struct siw_sqe));
 
 	if (qp->sendq == NULL) {
-		siw_dbg(base_dev, "SQ size %d alloc failed\n", num_sqe);
 		rv = -ENOMEM;
 		goto err_out_xa;
 	}
@@ -388,8 +398,8 @@ struct ib_qp *siw_create_qp(struct ib_pd *pd,
 		}
 	}
 	qp->pd = pd;
-	qp->scq = scq;
-	qp->rcq = rcq;
+	qp->scq = to_siw_cq(attrs->send_cq);
+	qp->rcq = to_siw_cq(attrs->recv_cq);
 
 	if (attrs->srq) {
 		/*
@@ -409,7 +419,6 @@ struct ib_qp *siw_create_qp(struct ib_pd *pd,
 			qp->recvq = vzalloc(num_rqe * sizeof(struct siw_rqe));
 
 		if (qp->recvq == NULL) {
-			siw_dbg(base_dev, "RQ size %d alloc failed\n", num_rqe);
 			rv = -ENOMEM;
 			goto err_out_xa;
 		}
@@ -542,6 +551,9 @@ int siw_verbs_modify_qp(struct ib_qp *base_qp, struct ib_qp_attr *attr,
 
 	if (!attr_mask)
 		return 0;
+
+	if (attr_mask & ~IB_QP_ATTR_STANDARD_BITS)
+		return -EOPNOTSUPP;
 
 	memset(&new_attrs, 0, sizeof(new_attrs));
 
@@ -959,9 +971,9 @@ int siw_post_receive(struct ib_qp *base_qp, const struct ib_recv_wr *wr,
 	unsigned long flags;
 	int rv = 0;
 
-	if (qp->srq) {
+	if (qp->srq || qp->attrs.rq_size == 0) {
 		*bad_wr = wr;
-		return -EOPNOTSUPP; /* what else from errno.h? */
+		return -EINVAL;
 	}
 	if (!rdma_is_kernel_res(&qp->base_qp.res)) {
 		siw_dbg_qp(qp, "no kernel post_recv for user mapped rq\n");
@@ -1055,7 +1067,7 @@ int siw_post_receive(struct ib_qp *base_qp, const struct ib_recv_wr *wr,
 	return rv > 0 ? 0 : rv;
 }
 
-void siw_destroy_cq(struct ib_cq *base_cq, struct ib_udata *udata)
+int siw_destroy_cq(struct ib_cq *base_cq, struct ib_udata *udata)
 {
 	struct siw_cq *cq = to_siw_cq(base_cq);
 	struct siw_device *sdev = to_siw_dev(base_cq->device);
@@ -1073,6 +1085,7 @@ void siw_destroy_cq(struct ib_cq *base_cq, struct ib_udata *udata)
 	atomic_dec(&sdev->num_cq);
 
 	vfree(cq->queue);
+	return 0;
 }
 
 /*
@@ -1091,6 +1104,9 @@ int siw_create_cq(struct ib_cq *base_cq, const struct ib_cq_init_attr *attr,
 	struct siw_device *sdev = to_siw_dev(base_cq->device);
 	struct siw_cq *cq = to_siw_cq(base_cq);
 	int rv, size = attr->cqe;
+
+	if (attr->flags)
+		return -EOPNOTSUPP;
 
 	if (atomic_inc_return(&sdev->num_cq) > SIW_MAX_CQ) {
 		siw_dbg(base_cq->device, "too many CQ's\n");
@@ -1553,6 +1569,9 @@ int siw_create_srq(struct ib_srq *base_srq,
 					  base_ucontext);
 	int rv;
 
+	if (init_attrs->srq_type != IB_SRQT_BASIC)
+		return -EOPNOTSUPP;
+
 	if (atomic_inc_return(&sdev->num_srq) > SIW_MAX_SRQ) {
 		siw_dbg_pd(base_srq->pd, "too many SRQ's\n");
 		rv = -ENOMEM;
@@ -1690,7 +1709,7 @@ int siw_query_srq(struct ib_srq *base_srq, struct ib_srq_attr *attrs)
  * QP anymore - the code trusts the RDMA core environment to keep track
  * of QP references.
  */
-void siw_destroy_srq(struct ib_srq *base_srq, struct ib_udata *udata)
+int siw_destroy_srq(struct ib_srq *base_srq, struct ib_udata *udata)
 {
 	struct siw_srq *srq = to_siw_srq(base_srq);
 	struct siw_device *sdev = to_siw_dev(base_srq->device);
@@ -1702,6 +1721,7 @@ void siw_destroy_srq(struct ib_srq *base_srq, struct ib_udata *udata)
 		rdma_user_mmap_entry_remove(srq->srq_entry);
 	vfree(srq->recvq);
 	atomic_dec(&sdev->num_srq);
+	return 0;
 }
 
 /*
@@ -1825,7 +1845,7 @@ void siw_srq_event(struct siw_srq *srq, enum ib_event_type etype)
 	}
 }
 
-void siw_port_event(struct siw_device *sdev, u8 port, enum ib_event_type etype)
+void siw_port_event(struct siw_device *sdev, u32 port, enum ib_event_type etype)
 {
 	struct ib_event event;
 

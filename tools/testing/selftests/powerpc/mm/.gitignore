@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 hugetlb_vs_thp_test
 subpage_prot
 tempfile
@@ -9,3 +10,5 @@ bad_accesses
 tlbie_test
 pkey_exec_prot
 pkey_siginfo
+stack_expansion_ldst
+stack_expansion_signal

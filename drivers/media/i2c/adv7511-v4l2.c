@@ -214,36 +214,25 @@ static inline void adv7511_wr_and_or(struct v4l2_subdev *sd, u8 reg, u8 clr_mask
 	adv7511_wr(sd, reg, (adv7511_rd(sd, reg) & clr_mask) | val_mask);
 }
 
-static int adv_smbus_read_i2c_block_data(struct i2c_client *client,
-					 u8 command, unsigned length, u8 *values)
-{
-	union i2c_smbus_data data;
-	int ret;
-
-	if (length > I2C_SMBUS_BLOCK_MAX)
-		length = I2C_SMBUS_BLOCK_MAX;
-	data.block[0] = length;
-
-	ret = i2c_smbus_xfer(client->adapter, client->addr, client->flags,
-			     I2C_SMBUS_READ, command,
-			     I2C_SMBUS_I2C_BLOCK_DATA, &data);
-	memcpy(values, data.block + 1, length);
-	return ret;
-}
-
-static void adv7511_edid_rd(struct v4l2_subdev *sd, uint16_t len, uint8_t *buf)
+static int adv7511_edid_rd(struct v4l2_subdev *sd, uint16_t len, uint8_t *buf)
 {
 	struct adv7511_state *state = get_adv7511_state(sd);
 	int i;
-	int err = 0;
 
 	v4l2_dbg(1, debug, sd, "%s:\n", __func__);
 
-	for (i = 0; !err && i < len; i += I2C_SMBUS_BLOCK_MAX)
-		err = adv_smbus_read_i2c_block_data(state->i2c_edid, i,
+	for (i = 0; i < len; i += I2C_SMBUS_BLOCK_MAX) {
+		s32 ret;
+
+		ret = i2c_smbus_read_i2c_block_data(state->i2c_edid, i,
 						    I2C_SMBUS_BLOCK_MAX, buf + i);
-	if (err)
-		v4l2_err(sd, "%s: i2c read error\n", __func__);
+		if (ret < 0) {
+			v4l2_err(sd, "%s: i2c read error\n", __func__);
+			return ret;
+		}
+	}
+
+	return 0;
 }
 
 static inline int adv7511_cec_read(struct v4l2_subdev *sd, u8 reg)
@@ -470,7 +459,7 @@ static int adv7511_g_register(struct v4l2_subdev *sd, struct v4l2_dbg_register *
 			reg->val = adv7511_cec_read(sd, reg->reg & 0xff);
 			break;
 		}
-		/* fall through */
+		fallthrough;
 	default:
 		v4l2_info(sd, "Register %03llx not supported\n", reg->reg);
 		adv7511_inv_register(sd);
@@ -492,7 +481,7 @@ static int adv7511_s_register(struct v4l2_subdev *sd, const struct v4l2_dbg_regi
 			adv7511_cec_write(sd, reg->reg & 0xff, reg->val & 0xff);
 			break;
 		}
-		/* fall through */
+		fallthrough;
 	default:
 		v4l2_info(sd, "Register %03llx not supported\n", reg->reg);
 		adv7511_inv_register(sd);
@@ -1207,27 +1196,27 @@ static int adv7511_get_edid(struct v4l2_subdev *sd, struct v4l2_edid *edid)
 		return -EINVAL;
 
 	if (edid->start_block == 0 && edid->blocks == 0) {
-		edid->blocks = state->edid.segments * 2;
+		edid->blocks = state->edid.blocks;
 		return 0;
 	}
 
-	if (state->edid.segments == 0)
+	if (state->edid.blocks == 0)
 		return -ENODATA;
 
-	if (edid->start_block >= state->edid.segments * 2)
+	if (edid->start_block >= state->edid.blocks)
 		return -EINVAL;
 
-	if (edid->start_block + edid->blocks > state->edid.segments * 2)
-		edid->blocks = state->edid.segments * 2 - edid->start_block;
+	if (edid->start_block + edid->blocks > state->edid.blocks)
+		edid->blocks = state->edid.blocks - edid->start_block;
 
 	memcpy(edid->edid, &state->edid.data[edid->start_block * 128],
-			128 * edid->blocks);
+	       128 * edid->blocks);
 
 	return 0;
 }
 
 static int adv7511_enum_mbus_code(struct v4l2_subdev *sd,
-				  struct v4l2_subdev_pad_config *cfg,
+				  struct v4l2_subdev_state *sd_state,
 				  struct v4l2_subdev_mbus_code_enum *code)
 {
 	if (code->pad != 0)
@@ -1258,7 +1247,7 @@ static void adv7511_fill_format(struct adv7511_state *state,
 }
 
 static int adv7511_get_fmt(struct v4l2_subdev *sd,
-			   struct v4l2_subdev_pad_config *cfg,
+			   struct v4l2_subdev_state *sd_state,
 			   struct v4l2_subdev_format *format)
 {
 	struct adv7511_state *state = get_adv7511_state(sd);
@@ -1272,7 +1261,7 @@ static int adv7511_get_fmt(struct v4l2_subdev *sd,
 	if (format->which == V4L2_SUBDEV_FORMAT_TRY) {
 		struct v4l2_mbus_framefmt *fmt;
 
-		fmt = v4l2_subdev_get_try_format(sd, cfg, format->pad);
+		fmt = v4l2_subdev_get_try_format(sd, sd_state, format->pad);
 		format->format.code = fmt->code;
 		format->format.colorspace = fmt->colorspace;
 		format->format.ycbcr_enc = fmt->ycbcr_enc;
@@ -1290,7 +1279,7 @@ static int adv7511_get_fmt(struct v4l2_subdev *sd,
 }
 
 static int adv7511_set_fmt(struct v4l2_subdev *sd,
-			   struct v4l2_subdev_pad_config *cfg,
+			   struct v4l2_subdev_state *sd_state,
 			   struct v4l2_subdev_format *format)
 {
 	struct adv7511_state *state = get_adv7511_state(sd);
@@ -1327,7 +1316,7 @@ static int adv7511_set_fmt(struct v4l2_subdev *sd,
 	if (format->which == V4L2_SUBDEV_FORMAT_TRY) {
 		struct v4l2_mbus_framefmt *fmt;
 
-		fmt = v4l2_subdev_get_try_format(sd, cfg, format->pad);
+		fmt = v4l2_subdev_get_try_format(sd, sd_state, format->pad);
 		fmt->code = format->format.code;
 		fmt->colorspace = format->format.colorspace;
 		fmt->ycbcr_enc = format->format.ycbcr_enc;
@@ -1668,22 +1657,27 @@ static bool adv7511_check_edid_status(struct v4l2_subdev *sd)
 	if (edidRdy & MASK_ADV7511_EDID_RDY) {
 		int segment = adv7511_rd(sd, 0xc4);
 		struct adv7511_edid_detect ed;
+		int err;
 
 		if (segment >= EDID_MAX_SEGM) {
 			v4l2_err(sd, "edid segment number too big\n");
 			return false;
 		}
 		v4l2_dbg(1, debug, sd, "%s: got segment %d\n", __func__, segment);
-		adv7511_edid_rd(sd, 256, &state->edid.data[segment * 256]);
-		adv7511_dbg_dump_edid(2, debug, sd, segment, &state->edid.data[segment * 256]);
-		if (segment == 0) {
-			state->edid.blocks = state->edid.data[0x7e] + 1;
-			v4l2_dbg(1, debug, sd, "%s: %d blocks in total\n", __func__, state->edid.blocks);
+		err = adv7511_edid_rd(sd, 256, &state->edid.data[segment * 256]);
+		if (!err) {
+			adv7511_dbg_dump_edid(2, debug, sd, segment, &state->edid.data[segment * 256]);
+			if (segment == 0) {
+				state->edid.blocks = state->edid.data[0x7e] + 1;
+				v4l2_dbg(1, debug, sd, "%s: %d blocks in total\n",
+					 __func__, state->edid.blocks);
+			}
 		}
-		if (!edid_verify_crc(sd, segment) ||
-		    !edid_verify_header(sd, segment)) {
-			/* edid crc error, force reread of edid segment */
-			v4l2_err(sd, "%s: edid crc or header error\n", __func__);
+
+		if (err || !edid_verify_crc(sd, segment) || !edid_verify_header(sd, segment)) {
+			/* Couldn't read EDID or EDID is invalid. Force retry! */
+			if (!err)
+				v4l2_err(sd, "%s: edid crc or header error\n", __func__);
 			state->have_monitor = false;
 			adv7511_s_power(sd, false);
 			adv7511_s_power(sd, true);
@@ -1872,11 +1866,11 @@ static int adv7511_probe(struct i2c_client *client, const struct i2c_device_id *
 		goto err_entity;
 	}
 
-	state->i2c_edid = i2c_new_dummy(client->adapter,
+	state->i2c_edid = i2c_new_dummy_device(client->adapter,
 					state->i2c_edid_addr >> 1);
-	if (state->i2c_edid == NULL) {
+	if (IS_ERR(state->i2c_edid)) {
 		v4l2_err(sd, "failed to register edid i2c client\n");
-		err = -ENOMEM;
+		err = PTR_ERR(state->i2c_edid);
 		goto err_entity;
 	}
 
@@ -1889,11 +1883,11 @@ static int adv7511_probe(struct i2c_client *client, const struct i2c_device_id *
 	}
 
 	if (state->pdata.cec_clk) {
-		state->i2c_cec = i2c_new_dummy(client->adapter,
+		state->i2c_cec = i2c_new_dummy_device(client->adapter,
 					       state->i2c_cec_addr >> 1);
-		if (state->i2c_cec == NULL) {
+		if (IS_ERR(state->i2c_cec)) {
 			v4l2_err(sd, "failed to register cec i2c client\n");
-			err = -ENOMEM;
+			err = PTR_ERR(state->i2c_cec);
 			goto err_unreg_edid;
 		}
 		adv7511_wr(sd, 0xe2, 0x00); /* power up cec section */
@@ -1901,10 +1895,10 @@ static int adv7511_probe(struct i2c_client *client, const struct i2c_device_id *
 		adv7511_wr(sd, 0xe2, 0x01); /* power down cec section */
 	}
 
-	state->i2c_pktmem = i2c_new_dummy(client->adapter, state->i2c_pktmem_addr >> 1);
-	if (state->i2c_pktmem == NULL) {
+	state->i2c_pktmem = i2c_new_dummy_device(client->adapter, state->i2c_pktmem_addr >> 1);
+	if (IS_ERR(state->i2c_pktmem)) {
 		v4l2_err(sd, "failed to register pktmem i2c client\n");
-		err = -ENOMEM;
+		err = PTR_ERR(state->i2c_pktmem);
 		goto err_unreg_cec;
 	}
 
@@ -1940,8 +1934,7 @@ static int adv7511_probe(struct i2c_client *client, const struct i2c_device_id *
 err_unreg_pktmem:
 	i2c_unregister_device(state->i2c_pktmem);
 err_unreg_cec:
-	if (state->i2c_cec)
-		i2c_unregister_device(state->i2c_cec);
+	i2c_unregister_device(state->i2c_cec);
 err_unreg_edid:
 	i2c_unregister_device(state->i2c_edid);
 err_entity:
@@ -1967,8 +1960,7 @@ static int adv7511_remove(struct i2c_client *client)
 	adv7511_init_setup(sd);
 	cancel_delayed_work_sync(&state->edid_handler);
 	i2c_unregister_device(state->i2c_edid);
-	if (state->i2c_cec)
-		i2c_unregister_device(state->i2c_cec);
+	i2c_unregister_device(state->i2c_cec);
 	i2c_unregister_device(state->i2c_pktmem);
 	destroy_workqueue(state->work_queue);
 	v4l2_device_unregister_subdev(sd);
@@ -1980,14 +1972,14 @@ static int adv7511_remove(struct i2c_client *client)
 /* ----------------------------------------------------------------------- */
 
 static const struct i2c_device_id adv7511_id[] = {
-	{ "adv7511", 0 },
+	{ "adv7511-v4l2", 0 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, adv7511_id);
 
 static struct i2c_driver adv7511_driver = {
 	.driver = {
-		.name = "adv7511",
+		.name = "adv7511-v4l2",
 	},
 	.probe = adv7511_probe,
 	.remove = adv7511_remove,

@@ -49,7 +49,7 @@ struct bio_set pblk_bio_set;
 
 static blk_qc_t pblk_submit_bio(struct bio *bio)
 {
-	struct pblk *pblk = bio->bi_disk->queue->queuedata;
+	struct pblk *pblk = bio->bi_bdev->bd_disk->queue->queuedata;
 
 	if (bio_op(bio) == REQ_OP_DISCARD) {
 		pblk_discard(pblk, bio);
@@ -151,9 +151,8 @@ static int pblk_l2p_init(struct pblk *pblk, bool factory_init)
 	int ret = 0;
 
 	map_size = pblk_trans_map_size(pblk);
-	pblk->trans_map = __vmalloc(map_size, GFP_KERNEL | __GFP_NOWARN
-					| __GFP_RETRY_MAYFAIL | __GFP_HIGHMEM,
-					PAGE_KERNEL);
+	pblk->trans_map = __vmalloc(map_size, GFP_KERNEL | __GFP_NOWARN |
+				    __GFP_RETRY_MAYFAIL | __GFP_HIGHMEM);
 	if (!pblk->trans_map) {
 		pblk_err(pblk, "failed to allocate L2P (need %zu of memory)\n",
 				map_size);

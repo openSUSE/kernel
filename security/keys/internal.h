@@ -15,6 +15,7 @@
 #include <linux/task_work.h>
 #include <linux/keyctl.h>
 #include <linux/refcount.h>
+#include <linux/watch_queue.h>
 #include <linux/compat.h>
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
@@ -99,7 +100,8 @@ extern int __key_link_begin(struct key *keyring,
 			    const struct keyring_index_key *index_key,
 			    struct assoc_array_edit **_edit);
 extern int __key_link_check_live_key(struct key *keyring, struct key *key);
-extern void __key_link(struct key *key, struct assoc_array_edit **_edit);
+extern void __key_link(struct key *keyring, struct key *key,
+		       struct assoc_array_edit **_edit);
 extern void __key_link_end(struct key *keyring,
 			   const struct keyring_index_key *index_key,
 			   struct assoc_array_edit *edit);
@@ -182,6 +184,23 @@ extern int key_task_permission(const key_ref_t key_ref,
 			       const struct cred *cred,
 			       enum key_need_perm need_perm);
 
+static inline void notify_key(struct key *key,
+			      enum key_notification_subtype subtype, u32 aux)
+{
+#ifdef CONFIG_KEY_NOTIFICATIONS
+	struct key_notification n = {
+		.watch.type	= WATCH_TYPE_KEY_NOTIFY,
+		.watch.subtype	= subtype,
+		.watch.info	= watch_sizeof(n),
+		.key_id		= key_serial(key),
+		.aux		= aux,
+	};
+
+	post_watch_notification(key->watchers, &n.watch, current_cred(),
+				n.key_id);
+#endif
+}
+
 /*
  * Check to see whether permission is granted to use a key in the desired way.
  */
@@ -243,11 +262,6 @@ extern long keyctl_instantiate_key_iov(key_serial_t,
 				       const struct iovec __user *,
 				       unsigned, key_serial_t);
 extern long keyctl_invalidate_key(key_serial_t);
-
-struct iov_iter;
-extern long keyctl_instantiate_key_common(key_serial_t,
-					  struct iov_iter *,
-					  key_serial_t);
 extern long keyctl_restrict_keyring(key_serial_t id,
 				    const char __user *_type,
 				    const char __user *_restriction);
@@ -332,6 +346,15 @@ static inline long keyctl_pkey_e_d_s(int op,
 #endif
 
 extern long keyctl_capabilities(unsigned char __user *_buffer, size_t buflen);
+
+#ifdef CONFIG_KEY_NOTIFICATIONS
+extern long keyctl_watch_key(key_serial_t, int, int);
+#else
+static inline long keyctl_watch_key(key_serial_t key_id, int watch_fd, int watch_id)
+{
+	return -EOPNOTSUPP;
+}
+#endif
 
 /*
  * Debugging key validation

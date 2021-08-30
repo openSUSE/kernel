@@ -10,6 +10,7 @@
 #include <linux/io.h>
 #include <linux/iopoll.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 
 #include "panfrost_device.h"
 #include "panfrost_features.h"
@@ -227,6 +228,7 @@ static void panfrost_gpu_init_features(struct panfrost_device *pfdev)
 	pfdev->features.thread_max_workgroup_sz = gpu_read(pfdev, GPU_THREAD_MAX_WORKGROUP_SIZE);
 	pfdev->features.thread_max_barrier_sz = gpu_read(pfdev, GPU_THREAD_MAX_BARRIER_SIZE);
 	pfdev->features.coherency_features = gpu_read(pfdev, GPU_COHERENCY_FEATURES);
+	pfdev->features.afbc_features = gpu_read(pfdev, GPU_AFBC_FEATURES);
 	for (i = 0; i < 4; i++)
 		pfdev->features.texture_features[i] = gpu_read(pfdev, GPU_TEXTURE_FEATURES(i));
 
@@ -360,6 +362,7 @@ int panfrost_gpu_init(struct panfrost_device *pfdev)
 
 	dma_set_mask_and_coherent(pfdev->dev,
 		DMA_BIT_MASK(FIELD_GET(0xff00, pfdev->features.mmu_features)));
+	dma_set_max_seg_size(pfdev->dev, UINT_MAX);
 
 	irq = platform_get_irq_byname(to_platform_device(pfdev->dev), "gpu");
 	if (irq <= 0)
@@ -384,7 +387,16 @@ void panfrost_gpu_fini(struct panfrost_device *pfdev)
 
 u32 panfrost_gpu_get_latest_flush_id(struct panfrost_device *pfdev)
 {
-	if (panfrost_has_hw_feature(pfdev, HW_FEATURE_FLUSH_REDUCTION))
-		return gpu_read(pfdev, GPU_LATEST_FLUSH_ID);
+	u32 flush_id;
+
+	if (panfrost_has_hw_feature(pfdev, HW_FEATURE_FLUSH_REDUCTION)) {
+		/* Flush reduction only makes sense when the GPU is kept powered on between jobs */
+		if (pm_runtime_get_if_in_use(pfdev->dev)) {
+			flush_id = gpu_read(pfdev, GPU_LATEST_FLUSH_ID);
+			pm_runtime_put(pfdev->dev);
+			return flush_id;
+		}
+	}
+
 	return 0;
 }

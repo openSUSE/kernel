@@ -609,7 +609,7 @@ static int cfi_staa_write_buffers (struct mtd_info *mtd, loff_t to,
 	struct map_info *map = mtd->priv;
 	struct cfi_private *cfi = map->fldrv_priv;
 	int wbufsize = cfi_interleave(cfi) << cfi->cfiq->MaxBufWriteSize;
-	int ret = 0;
+	int ret;
 	int chipnum;
 	unsigned long ofs;
 
@@ -892,7 +892,7 @@ static int cfi_staa_erase_varsize(struct mtd_info *mtd,
 {	struct map_info *map = mtd->priv;
 	struct cfi_private *cfi = map->fldrv_priv;
 	unsigned long adr, len;
-	int chipnum, ret = 0;
+	int chipnum, ret;
 	int i, first;
 	struct mtd_erase_region_info *regions = mtd->eraseregions;
 
@@ -1128,7 +1128,7 @@ static int cfi_staa_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 	struct map_info *map = mtd->priv;
 	struct cfi_private *cfi = map->fldrv_priv;
 	unsigned long adr;
-	int chipnum, ret = 0;
+	int chipnum, ret;
 #ifdef DEBUG_LOCK_BITS
 	int ofs_factor = cfi->interleave * cfi->device_type;
 #endif
@@ -1274,7 +1274,7 @@ static int cfi_staa_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 	struct map_info *map = mtd->priv;
 	struct cfi_private *cfi = map->fldrv_priv;
 	unsigned long adr;
-	int chipnum, ret = 0;
+	int chipnum, ret;
 #ifdef DEBUG_LOCK_BITS
 	int ofs_factor = cfi->interleave * cfi->device_type;
 #endif
@@ -1332,6 +1332,8 @@ static int cfi_staa_suspend(struct mtd_info *mtd)
 			 * as the whole point is that nobody can do anything
 			 * with the chip now anyway.
 			 */
+			break;
+
 		case FL_PM_SUSPENDED:
 			break;
 

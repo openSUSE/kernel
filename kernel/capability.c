@@ -93,7 +93,7 @@ static int cap_validate_magic(cap_user_header_t header, unsigned *tocopy)
 		break;
 	case _LINUX_CAPABILITY_VERSION_2:
 		warn_deprecated_v2();
-		/* fall through - v3 is otherwise equivalent to v2. */
+		fallthrough;	/* v3 is otherwise equivalent to v2 */
 	case _LINUX_CAPABILITY_VERSION_3:
 		*tocopy = _LINUX_CAPABILITY_U32S_3;
 		break;
@@ -418,7 +418,7 @@ EXPORT_SYMBOL(ns_capable_noaudit);
 /**
  * ns_capable_setid - Determine if the current task has a superior capability
  * in effect, while signalling that this check is being done from within a
- * setid syscall.
+ * setid or setgroups syscall.
  * @ns:  The usernamespace we want the capability in
  * @cap: The capability to be tested for
  *
@@ -484,10 +484,12 @@ EXPORT_SYMBOL(file_ns_capable);
  *
  * Return true if the inode uid and gid are within the namespace.
  */
-bool privileged_wrt_inode_uidgid(struct user_namespace *ns, const struct inode *inode)
+bool privileged_wrt_inode_uidgid(struct user_namespace *ns,
+				 struct user_namespace *mnt_userns,
+				 const struct inode *inode)
 {
-	return kuid_has_mapping(ns, inode->i_uid) &&
-		kgid_has_mapping(ns, inode->i_gid);
+	return kuid_has_mapping(ns, i_uid_into_mnt(mnt_userns, inode)) &&
+	       kgid_has_mapping(ns, i_gid_into_mnt(mnt_userns, inode));
 }
 
 /**
@@ -499,11 +501,13 @@ bool privileged_wrt_inode_uidgid(struct user_namespace *ns, const struct inode *
  * its own user namespace and that the given inode's uid and gid are
  * mapped into the current user namespace.
  */
-bool capable_wrt_inode_uidgid(const struct inode *inode, int cap)
+bool capable_wrt_inode_uidgid(struct user_namespace *mnt_userns,
+			      const struct inode *inode, int cap)
 {
 	struct user_namespace *ns = current_user_ns();
 
-	return ns_capable(ns, cap) && privileged_wrt_inode_uidgid(ns, inode);
+	return ns_capable(ns, cap) &&
+	       privileged_wrt_inode_uidgid(ns, mnt_userns, inode);
 }
 EXPORT_SYMBOL(capable_wrt_inode_uidgid);
 

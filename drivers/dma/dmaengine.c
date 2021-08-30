@@ -53,18 +53,103 @@
 #include <linux/mempool.h>
 #include <linux/numa.h>
 
+#include "dmaengine.h"
+
 static DEFINE_MUTEX(dma_list_mutex);
 static DEFINE_IDA(dma_ida);
 static LIST_HEAD(dma_device_list);
 static long dmaengine_ref_count;
 
+/* --- debugfs implementation --- */
+#ifdef CONFIG_DEBUG_FS
+#include <linux/debugfs.h>
+
+static struct dentry *rootdir;
+
+static void dmaengine_debug_register(struct dma_device *dma_dev)
+{
+	dma_dev->dbg_dev_root = debugfs_create_dir(dev_name(dma_dev->dev),
+						   rootdir);
+	if (IS_ERR(dma_dev->dbg_dev_root))
+		dma_dev->dbg_dev_root = NULL;
+}
+
+static void dmaengine_debug_unregister(struct dma_device *dma_dev)
+{
+	debugfs_remove_recursive(dma_dev->dbg_dev_root);
+	dma_dev->dbg_dev_root = NULL;
+}
+
+static void dmaengine_dbg_summary_show(struct seq_file *s,
+				       struct dma_device *dma_dev)
+{
+	struct dma_chan *chan;
+
+	list_for_each_entry(chan, &dma_dev->channels, device_node) {
+		if (chan->client_count) {
+			seq_printf(s, " %-13s| %s", dma_chan_name(chan),
+				   chan->dbg_client_name ?: "in-use");
+
+			if (chan->router)
+				seq_printf(s, " (via router: %s)\n",
+					dev_name(chan->router->dev));
+			else
+				seq_puts(s, "\n");
+		}
+	}
+}
+
+static int dmaengine_summary_show(struct seq_file *s, void *data)
+{
+	struct dma_device *dma_dev = NULL;
+
+	mutex_lock(&dma_list_mutex);
+	list_for_each_entry(dma_dev, &dma_device_list, global_node) {
+		seq_printf(s, "dma%d (%s): number of channels: %u\n",
+			   dma_dev->dev_id, dev_name(dma_dev->dev),
+			   dma_dev->chancnt);
+
+		if (dma_dev->dbg_summary_show)
+			dma_dev->dbg_summary_show(s, dma_dev);
+		else
+			dmaengine_dbg_summary_show(s, dma_dev);
+
+		if (!list_is_last(&dma_dev->global_node, &dma_device_list))
+			seq_puts(s, "\n");
+	}
+	mutex_unlock(&dma_list_mutex);
+
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(dmaengine_summary);
+
+static void __init dmaengine_debugfs_init(void)
+{
+	rootdir = debugfs_create_dir("dmaengine", NULL);
+
+	/* /sys/kernel/debug/dmaengine/summary */
+	debugfs_create_file("summary", 0444, rootdir, NULL,
+			    &dmaengine_summary_fops);
+}
+#else
+static inline void dmaengine_debugfs_init(void) { }
+static inline int dmaengine_debug_register(struct dma_device *dma_dev)
+{
+	return 0;
+}
+
+static inline void dmaengine_debug_unregister(struct dma_device *dma_dev) { }
+#endif	/* DEBUG_FS */
+
 /* --- sysfs implementation --- */
+
+#define DMA_SLAVE_NAME	"slave"
 
 /**
  * dev_to_dma_chan - convert a device pointer to its sysfs container object
- * @dev - device node
+ * @dev:	device node
  *
- * Must be called under dma_list_mutex
+ * Must be called under dma_list_mutex.
  */
 static struct dma_chan *dev_to_dma_chan(struct device *dev)
 {
@@ -160,22 +245,18 @@ static struct class dma_devclass = {
 
 /* --- client and device registration --- */
 
-/**
- * dma_cap_mask_all - enable iteration over all operation types
- */
+/* enable iteration over all operation types */
 static dma_cap_mask_t dma_cap_mask_all;
 
 /**
- * dma_chan_tbl_ent - tracks channel allocations per core/operation
- * @chan - associated channel for this entry
+ * struct dma_chan_tbl_ent - tracks channel allocations per core/operation
+ * @chan:	associated channel for this entry
  */
 struct dma_chan_tbl_ent {
 	struct dma_chan *chan;
 };
 
-/**
- * channel_table - percpu lookup table for memory-to-memory offload providers
- */
+/* percpu lookup table for memory-to-memory offload providers */
 static struct dma_chan_tbl_ent __percpu *channel_table[DMA_TX_TYPE_END];
 
 static int __init dma_channel_table_init(void)
@@ -212,8 +293,11 @@ static int __init dma_channel_table_init(void)
 arch_initcall(dma_channel_table_init);
 
 /**
- * dma_chan_is_local - returns true if the channel is in the same numa-node as
- *	the cpu
+ * dma_chan_is_local - checks if the channel is in the same NUMA-node as the CPU
+ * @chan:	DMA channel to test
+ * @cpu:	CPU index which the channel should be close to
+ *
+ * Returns true if the channel is in the same NUMA-node as the CPU.
  */
 static bool dma_chan_is_local(struct dma_chan *chan, int cpu)
 {
@@ -223,14 +307,14 @@ static bool dma_chan_is_local(struct dma_chan *chan, int cpu)
 }
 
 /**
- * min_chan - returns the channel with min count and in the same numa-node as
- *	the cpu
- * @cap: capability to match
- * @cpu: cpu index which the channel should be close to
+ * min_chan - finds the channel with min count and in the same NUMA-node as the CPU
+ * @cap:	capability to match
+ * @cpu:	CPU index which the channel should be close to
  *
- * If some channels are close to the given cpu, the one with the lowest
- * reference count is returned. Otherwise, cpu is ignored and only the
+ * If some channels are close to the given CPU, the one with the lowest
+ * reference count is returned. Otherwise, CPU is ignored and only the
  * reference count is taken into account.
+ *
  * Must be called under dma_list_mutex.
  */
 static struct dma_chan *min_chan(enum dma_transaction_type cap, int cpu)
@@ -268,10 +352,11 @@ static struct dma_chan *min_chan(enum dma_transaction_type cap, int cpu)
 /**
  * dma_channel_rebalance - redistribute the available channels
  *
- * Optimize for cpu isolation (each cpu gets a dedicated channel for an
- * operation type) in the SMP case,  and operation isolation (avoid
- * multi-tasking channels) in the non-SMP case.  Must be called under
- * dma_list_mutex.
+ * Optimize for CPU isolation (each CPU gets a dedicated channel for an
+ * operation type) in the SMP case, and operation isolation (avoid
+ * multi-tasking channels) in the non-SMP case.
+ *
+ * Must be called under dma_list_mutex.
  */
 static void dma_channel_rebalance(void)
 {
@@ -304,11 +389,8 @@ static void dma_channel_rebalance(void)
 		}
 }
 
-#define dma_device_satisfies_mask(device, mask) \
-	__dma_device_satisfies_mask((device), &(mask))
-static int
-__dma_device_satisfies_mask(struct dma_device *device,
-			    const dma_cap_mask_t *want)
+static int dma_device_satisfies_mask(struct dma_device *device,
+				     const dma_cap_mask_t *want)
 {
 	dma_cap_mask_t has;
 
@@ -324,9 +406,9 @@ static struct module *dma_chan_to_owner(struct dma_chan *chan)
 
 /**
  * balance_ref_count - catch up the channel reference count
- * @chan - channel to balance ->client_count versus dmaengine_ref_count
+ * @chan:	channel to balance ->client_count versus dmaengine_ref_count
  *
- * balance_ref_count must be called under dma_list_mutex
+ * Must be called under dma_list_mutex.
  */
 static void balance_ref_count(struct dma_chan *chan)
 {
@@ -356,10 +438,10 @@ static void dma_device_put(struct dma_device *device)
 }
 
 /**
- * dma_chan_get - try to grab a dma channel's parent driver module
- * @chan - channel to grab
+ * dma_chan_get - try to grab a DMA channel's parent driver module
+ * @chan:	channel to grab
  *
- * Must be called under dma_list_mutex
+ * Must be called under dma_list_mutex.
  */
 static int dma_chan_get(struct dma_chan *chan)
 {
@@ -403,10 +485,10 @@ module_put_out:
 }
 
 /**
- * dma_chan_put - drop a reference to a dma channel's parent driver module
- * @chan - channel to release
+ * dma_chan_put - drop a reference to a DMA channel's parent driver module
+ * @chan:	channel to release
  *
- * Must be called under dma_list_mutex
+ * Must be called under dma_list_mutex.
  */
 static void dma_chan_put(struct dma_chan *chan)
 {
@@ -457,7 +539,7 @@ EXPORT_SYMBOL(dma_sync_wait);
 
 /**
  * dma_find_channel - find a channel to carry out the operation
- * @tx_type: transaction type
+ * @tx_type:	transaction type
  */
 struct dma_chan *dma_find_channel(enum dma_transaction_type tx_type)
 {
@@ -510,12 +592,24 @@ int dma_get_slave_caps(struct dma_chan *chan, struct dma_slave_caps *caps)
 	caps->src_addr_widths = device->src_addr_widths;
 	caps->dst_addr_widths = device->dst_addr_widths;
 	caps->directions = device->directions;
+	caps->min_burst = device->min_burst;
 	caps->max_burst = device->max_burst;
+	caps->max_sg_burst = device->max_sg_burst;
 	caps->residue_granularity = device->residue_granularity;
 	caps->descriptor_reuse = device->descriptor_reuse;
 	caps->cmd_pause = !!device->device_pause;
 	caps->cmd_resume = !!device->device_resume;
 	caps->cmd_terminate = !!device->device_terminate_all;
+
+	/*
+	 * DMA engine device might be configured with non-uniformly
+	 * distributed slave capabilities per device channels. In this
+	 * case the corresponding driver may provide the device_caps
+	 * callback to override the generic capabilities with
+	 * channel-specific ones.
+	 */
+	if (device->device_caps)
+		device->device_caps(chan, caps);
 
 	return 0;
 }
@@ -527,7 +621,7 @@ static struct dma_chan *private_candidate(const dma_cap_mask_t *mask,
 {
 	struct dma_chan *chan;
 
-	if (mask && !__dma_device_satisfies_mask(dev, mask)) {
+	if (mask && !dma_device_satisfies_mask(dev, mask)) {
 		dev_dbg(dev->dev, "%s: wrong capabilities\n", __func__);
 		return NULL;
 	}
@@ -597,7 +691,7 @@ static struct dma_chan *find_candidate(struct dma_device *device,
 
 /**
  * dma_get_slave_channel - try to get specific channel exclusively
- * @chan: target channel
+ * @chan:	target channel
  */
 struct dma_chan *dma_get_slave_channel(struct dma_chan *chan)
 {
@@ -651,10 +745,10 @@ EXPORT_SYMBOL_GPL(dma_get_any_slave_channel);
 
 /**
  * __dma_request_channel - try to allocate an exclusive channel
- * @mask: capabilities that the channel must satisfy
- * @fn: optional callback to disposition available channels
- * @fn_param: opaque parameter to pass to dma_filter_fn
- * @np: device node to look for DMA channels
+ * @mask:	capabilities that the channel must satisfy
+ * @fn:		optional callback to disposition available channels
+ * @fn_param:	opaque parameter to pass to dma_filter_fn()
+ * @np:		device node to look for DMA channels
  *
  * Returns pointer to appropriate DMA channel on success or NULL.
  */
@@ -729,11 +823,11 @@ struct dma_chan *dma_request_chan(struct device *dev, const char *name)
 	if (has_acpi_companion(dev) && !chan)
 		chan = acpi_dma_request_slave_chan_by_name(dev, name);
 
-	if (chan) {
-		/* Valid channel found or requester needs to be deferred */
-		if (!IS_ERR(chan) || PTR_ERR(chan) == -EPROBE_DEFER)
-			return chan;
-	}
+	if (PTR_ERR(chan) == -EPROBE_DEFER)
+		return chan;
+
+	if (!IS_ERR_OR_NULL(chan))
+		goto found;
 
 	/* Try to find the channel via the DMA filter map(s) */
 	mutex_lock(&dma_list_mutex);
@@ -753,31 +847,35 @@ struct dma_chan *dma_request_chan(struct device *dev, const char *name)
 	}
 	mutex_unlock(&dma_list_mutex);
 
-	return chan ? chan : ERR_PTR(-EPROBE_DEFER);
+	if (IS_ERR(chan))
+		return chan;
+	if (!chan)
+		return ERR_PTR(-EPROBE_DEFER);
+
+found:
+#ifdef CONFIG_DEBUG_FS
+	chan->dbg_client_name = kasprintf(GFP_KERNEL, "%s:%s", dev_name(dev),
+					  name);
+#endif
+
+	chan->name = kasprintf(GFP_KERNEL, "dma:%s", name);
+	if (!chan->name)
+		return chan;
+	chan->slave = dev;
+
+	if (sysfs_create_link(&chan->dev->device.kobj, &dev->kobj,
+			      DMA_SLAVE_NAME))
+		dev_warn(dev, "Cannot create DMA %s symlink\n", DMA_SLAVE_NAME);
+	if (sysfs_create_link(&dev->kobj, &chan->dev->device.kobj, chan->name))
+		dev_warn(dev, "Cannot create DMA %s symlink\n", chan->name);
+
+	return chan;
 }
 EXPORT_SYMBOL_GPL(dma_request_chan);
 
 /**
- * dma_request_slave_channel - try to allocate an exclusive slave channel
- * @dev:	pointer to client device structure
- * @name:	slave channel name
- *
- * Returns pointer to appropriate DMA channel on success or NULL.
- */
-struct dma_chan *dma_request_slave_channel(struct device *dev,
-					   const char *name)
-{
-	struct dma_chan *ch = dma_request_chan(dev, name);
-	if (IS_ERR(ch))
-		return NULL;
-
-	return ch;
-}
-EXPORT_SYMBOL_GPL(dma_request_slave_channel);
-
-/**
  * dma_request_chan_by_mask - allocate a channel satisfying certain capabilities
- * @mask: capabilities that the channel must satisfy
+ * @mask:	capabilities that the channel must satisfy
  *
  * Returns pointer to appropriate DMA channel on success or an error pointer.
  */
@@ -811,6 +909,19 @@ void dma_release_channel(struct dma_chan *chan)
 	/* drop PRIVATE cap enabled by __dma_request_channel() */
 	if (--chan->device->privatecnt == 0)
 		dma_cap_clear(DMA_PRIVATE, chan->device->cap_mask);
+
+	if (chan->slave) {
+		sysfs_remove_link(&chan->dev->device.kobj, DMA_SLAVE_NAME);
+		sysfs_remove_link(&chan->slave->kobj, chan->name);
+		kfree(chan->name);
+		chan->name = NULL;
+		chan->slave = NULL;
+	}
+
+#ifdef CONFIG_DEBUG_FS
+	kfree(chan->dbg_client_name);
+	chan->dbg_client_name = NULL;
+#endif
 	mutex_unlock(&dma_list_mutex);
 }
 EXPORT_SYMBOL_GPL(dma_release_channel);
@@ -855,7 +966,7 @@ void dmaengine_get(void)
 EXPORT_SYMBOL(dmaengine_get);
 
 /**
- * dmaengine_put - let dma drivers be removed when ref_count == 0
+ * dmaengine_put - let DMA drivers be removed when ref_count == 0
  */
 void dmaengine_put(void)
 {
@@ -1020,7 +1131,7 @@ EXPORT_SYMBOL_GPL(dma_async_device_channel_unregister);
 
 /**
  * dma_async_device_register - registers DMA devices found
- * @device: &dma_device
+ * @device:	pointer to &struct dma_device
  *
  * After calling this routine the structure should not be freed except in the
  * device_release() callback which will be called after
@@ -1166,6 +1277,8 @@ int dma_async_device_register(struct dma_device *device)
 	dma_channel_rebalance();
 	mutex_unlock(&dma_list_mutex);
 
+	dmaengine_debug_register(device);
+
 	return 0;
 
 err_out:
@@ -1190,7 +1303,7 @@ EXPORT_SYMBOL(dma_async_device_register);
 
 /**
  * dma_async_device_unregister - unregister a DMA device
- * @device: &dma_device
+ * @device:	pointer to &struct dma_device
  *
  * This routine is called by dma driver exit routines, dmaengine holds module
  * references to prevent it being called while channels are in use.
@@ -1198,6 +1311,8 @@ EXPORT_SYMBOL(dma_async_device_register);
 void dma_async_device_unregister(struct dma_device *device)
 {
 	struct dma_chan *chan, *n;
+
+	dmaengine_debug_unregister(device);
 
 	list_for_each_entry_safe(chan, n, &device->channels, device_node)
 		__dma_async_device_channel_unregister(device, chan);
@@ -1225,7 +1340,7 @@ static void dmam_device_release(struct device *dev, void *res)
 
 /**
  * dmaenginem_async_device_register - registers DMA devices found
- * @device: &dma_device
+ * @device:	pointer to &struct dma_device
  *
  * The operation is managed and will be undone on driver detach.
  */
@@ -1389,8 +1504,82 @@ void dma_async_tx_descriptor_init(struct dma_async_tx_descriptor *tx,
 }
 EXPORT_SYMBOL(dma_async_tx_descriptor_init);
 
-/* dma_wait_for_async_tx - spin wait for a transaction to complete
- * @tx: in-flight transaction to wait on
+static inline int desc_check_and_set_metadata_mode(
+	struct dma_async_tx_descriptor *desc, enum dma_desc_metadata_mode mode)
+{
+	/* Make sure that the metadata mode is not mixed */
+	if (!desc->desc_metadata_mode) {
+		if (dmaengine_is_metadata_mode_supported(desc->chan, mode))
+			desc->desc_metadata_mode = mode;
+		else
+			return -ENOTSUPP;
+	} else if (desc->desc_metadata_mode != mode) {
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int dmaengine_desc_attach_metadata(struct dma_async_tx_descriptor *desc,
+				   void *data, size_t len)
+{
+	int ret;
+
+	if (!desc)
+		return -EINVAL;
+
+	ret = desc_check_and_set_metadata_mode(desc, DESC_METADATA_CLIENT);
+	if (ret)
+		return ret;
+
+	if (!desc->metadata_ops || !desc->metadata_ops->attach)
+		return -ENOTSUPP;
+
+	return desc->metadata_ops->attach(desc, data, len);
+}
+EXPORT_SYMBOL_GPL(dmaengine_desc_attach_metadata);
+
+void *dmaengine_desc_get_metadata_ptr(struct dma_async_tx_descriptor *desc,
+				      size_t *payload_len, size_t *max_len)
+{
+	int ret;
+
+	if (!desc)
+		return ERR_PTR(-EINVAL);
+
+	ret = desc_check_and_set_metadata_mode(desc, DESC_METADATA_ENGINE);
+	if (ret)
+		return ERR_PTR(ret);
+
+	if (!desc->metadata_ops || !desc->metadata_ops->get_ptr)
+		return ERR_PTR(-ENOTSUPP);
+
+	return desc->metadata_ops->get_ptr(desc, payload_len, max_len);
+}
+EXPORT_SYMBOL_GPL(dmaengine_desc_get_metadata_ptr);
+
+int dmaengine_desc_set_metadata_len(struct dma_async_tx_descriptor *desc,
+				    size_t payload_len)
+{
+	int ret;
+
+	if (!desc)
+		return -EINVAL;
+
+	ret = desc_check_and_set_metadata_mode(desc, DESC_METADATA_ENGINE);
+	if (ret)
+		return ret;
+
+	if (!desc->metadata_ops || !desc->metadata_ops->set_len)
+		return -ENOTSUPP;
+
+	return desc->metadata_ops->set_len(desc, payload_len);
+}
+EXPORT_SYMBOL_GPL(dmaengine_desc_set_metadata_len);
+
+/**
+ * dma_wait_for_async_tx - spin wait for a transaction to complete
+ * @tx:		in-flight transaction to wait on
  */
 enum dma_status
 dma_wait_for_async_tx(struct dma_async_tx_descriptor *tx)
@@ -1413,9 +1602,12 @@ dma_wait_for_async_tx(struct dma_async_tx_descriptor *tx)
 }
 EXPORT_SYMBOL_GPL(dma_wait_for_async_tx);
 
-/* dma_run_dependencies - helper routine for dma drivers to process
- *	(start) dependent operations on their target channel
- * @tx: transaction with dependencies
+/**
+ * dma_run_dependencies - process dependent operations on the target channel
+ * @tx:		transaction with dependencies
+ *
+ * Helper routine for DMA drivers to process (start) dependent operations
+ * on their target channel.
  */
 void dma_run_dependencies(struct dma_async_tx_descriptor *tx)
 {
@@ -1457,6 +1649,11 @@ static int __init dma_bus_init(void)
 
 	if (err)
 		return err;
-	return class_register(&dma_devclass);
+
+	err = class_register(&dma_devclass);
+	if (!err)
+		dmaengine_debugfs_init();
+
+	return err;
 }
 arch_initcall(dma_bus_init);

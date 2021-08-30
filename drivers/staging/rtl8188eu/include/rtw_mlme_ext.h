@@ -171,14 +171,6 @@ struct rt_channel_plan_map {
 	unsigned char	Index2G;
 };
 
-static const struct {
-	int channel_plan;
-	char *name;
-} channel_table[] = { { RT_CHANNEL_DOMAIN_FCC, "US" },
-	{ RT_CHANNEL_DOMAIN_ETSI, "EU" },
-	{ RT_CHANNEL_DOMAIN_MKK, "JP" },
-	{ RT_CHANNEL_DOMAIN_CHINA, "CN"} };
-
 enum Associated_AP {
 	atherosAP	= 0,
 	broadcomAP	= 1,
@@ -391,7 +383,6 @@ struct p2p_oper_class_map {
 };
 
 struct mlme_ext_priv {
-	struct adapter	*padapter;
 	u8	mlmeext_init;
 	atomic_t	event_seq;
 	u16	mgnt_seq;
@@ -448,7 +439,7 @@ void init_addba_retry_timer(struct adapter *adapt, struct sta_info *sta);
 struct xmit_frame *alloc_mgtxmitframe(struct xmit_priv *pxmitpriv);
 
 unsigned char networktype_to_raid(unsigned char network_type);
-u8 judge_network_type(struct adapter *padapter, unsigned char *rate, int len);
+u8 judge_network_type(struct adapter *padapter, unsigned char *rate);
 void get_rate_set(struct adapter *padapter, unsigned char *pbssrate, int *len);
 void UpdateBrateTbl(struct adapter *padapter, u8 *mBratesOS);
 void UpdateBrateTblForSoftAP(u8 *bssrateset, u32 bssratelen);
@@ -568,9 +559,6 @@ void addba_timer_hdl(struct timer_list *t);
 	mod_timer(&mlmeext->link_timer, jiffies +	\
 		  msecs_to_jiffies(ms))
 
-bool cckrates_included(unsigned char *rate, int ratelen);
-bool cckratesonly_included(unsigned char *rate, int ratelen);
-
 void process_addba_req(struct adapter *padapter, u8 *paddba_req, u8 *addr);
 
 void update_TSF(struct mlme_ext_priv *pmlmeext, u8 *pframe, uint len);
@@ -608,28 +596,6 @@ u8 led_blink_hdl(struct adapter *padapter, unsigned char *pbuf);
 /* Handling DFS channel switch announcement ie. */
 u8 set_csa_hdl(struct adapter *padapter, unsigned char *pbuf);
 u8 tdls_hdl(struct adapter *padapter, unsigned char *pbuf);
-
-#ifdef _RTW_CMD_C_
-
-static struct cmd_hdl wlancmds[] = {
-	{sizeof(struct wlan_bssid_ex), join_cmd_hdl},
-	{sizeof(struct disconnect_parm), disconnect_hdl},
-	{sizeof(struct wlan_bssid_ex), createbss_hdl},
-	{sizeof(struct setopmode_parm), setopmode_hdl},
-	{sizeof(struct sitesurvey_parm), sitesurvey_cmd_hdl},
-	{sizeof(struct setauth_parm), setauth_hdl},
-	{sizeof(struct setkey_parm), setkey_hdl},
-	{sizeof(struct set_stakey_parm), set_stakey_hdl},
-	{sizeof(struct set_assocsta_parm), NULL},
-	{sizeof(struct addBaReq_parm), add_ba_hdl},
-	{sizeof(struct set_ch_parm), set_ch_hdl},
-	{sizeof(struct wlan_bssid_ex), tx_beacon_hdl},
-	{0, mlme_evt_hdl},
-	{0, rtw_drvextra_cmd_hdl},
-	{sizeof(struct SetChannelPlan_param), set_chplan_hdl}
-};
-
-#endif
 
 struct C2HEvent_Header {
 #ifdef __LITTLE_ENDIAN
@@ -695,7 +661,7 @@ static struct fwevent wlanevents[] = {
 	{0, &rtw_joinbss_event_callback},		/*10*/
 	{sizeof(struct stassoc_event), &rtw_stassoc_event_callback},
 	{sizeof(struct stadel_event), &rtw_stadel_event_callback},
-	{0, &rtw_atimdone_event_callback},
+	{0, NULL},
 	{0, rtw_dummy_event_callback},
 	{0, NULL},	/*15*/
 	{0, NULL},
@@ -705,7 +671,7 @@ static struct fwevent wlanevents[] = {
 	{0, NULL},	 /*20*/
 	{0, NULL},
 	{0, NULL},
-	{0, &rtw_cpwm_event_callback},
+	{0, NULL},
 	{0, NULL},
 };
 

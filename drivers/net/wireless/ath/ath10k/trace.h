@@ -239,7 +239,7 @@ TRACE_EVENT(ath10k_wmi_dbglog,
 	TP_STRUCT__entry(
 		__string(device, dev_name(ar->dev))
 		__string(driver, dev_driver_string(ar->dev))
-		__field(u8, hw_type);
+		__field(u8, hw_type)
 		__field(size_t, buf_len)
 		__dynamic_array(u8, buf, buf_len)
 	),
@@ -269,7 +269,7 @@ TRACE_EVENT(ath10k_htt_pktlog,
 	TP_STRUCT__entry(
 		__string(device, dev_name(ar->dev))
 		__string(driver, dev_driver_string(ar->dev))
-		__field(u8, hw_type);
+		__field(u8, hw_type)
 		__field(u16, buf_len)
 		__dynamic_array(u8, pktlog, buf_len)
 	),
@@ -283,7 +283,7 @@ TRACE_EVENT(ath10k_htt_pktlog,
 	),
 
 	TP_printk(
-		"%s %s %d size %hu",
+		"%s %s %d size %u",
 		__get_str(driver),
 		__get_str(device),
 		__entry->hw_type,
@@ -435,7 +435,7 @@ TRACE_EVENT(ath10k_htt_rx_desc,
 	TP_STRUCT__entry(
 		__string(device, dev_name(ar->dev))
 		__string(driver, dev_driver_string(ar->dev))
-		__field(u8, hw_type);
+		__field(u8, hw_type)
 		__field(u16, len)
 		__dynamic_array(u8, rxdesc, len)
 	),
@@ -488,7 +488,7 @@ TRACE_EVENT(ath10k_wmi_diag_container,
 	),
 
 	TP_printk(
-		"%s %s diag container type %hhu timestamp %u code %u len %d",
+		"%s %s diag container type %u timestamp %u code %u len %d",
 		__get_str(driver),
 		__get_str(device),
 		__entry->type,

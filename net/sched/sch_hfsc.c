@@ -1090,7 +1090,8 @@ hfsc_destroy_class(struct Qdisc *sch, struct hfsc_class *cl)
 }
 
 static int
-hfsc_delete_class(struct Qdisc *sch, unsigned long arg)
+hfsc_delete_class(struct Qdisc *sch, unsigned long arg,
+		  struct netlink_ext_ack *extack)
 {
 	struct hfsc_sched *q = qdisc_priv(sch);
 	struct hfsc_class *cl = (struct hfsc_class *)arg;
@@ -1533,7 +1534,7 @@ hfsc_enqueue(struct sk_buff *skb, struct Qdisc *sch, struct sk_buff **to_free)
 {
 	unsigned int len = qdisc_pkt_len(skb);
 	struct hfsc_class *cl;
-	int uninitialized_var(err);
+	int err;
 	bool first;
 
 	cl = hfsc_classify(skb, sch, &err);

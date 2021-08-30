@@ -5,7 +5,7 @@
     begin                : Thu Sep 7 2000
     copyright            : (C) 2001 by Adaptec
 
-    See Documentation/scsi/dpti.txt for history, notes, license info
+    See Documentation/scsi/dpti.rst for history, notes, license info
     and credits
  ***************************************************************************/
 
@@ -286,7 +286,7 @@ static s32 adpt_i2o_status_get(adpt_hba* pHba);
 static s32 adpt_i2o_init_outbound_q(adpt_hba* pHba);
 static s32 adpt_i2o_hrt_get(adpt_hba* pHba);
 static s32 adpt_scsi_to_i2o(adpt_hba* pHba, struct scsi_cmnd* cmd, struct adpt_device* dptdevice);
-static s32 adpt_i2o_to_scsi(void __iomem *reply, struct scsi_cmnd* cmd);
+static void adpt_i2o_scsi_complete(void __iomem *reply, struct scsi_cmnd *cmd);
 static s32 adpt_scsi_host_alloc(adpt_hba* pHba,struct scsi_host_template * sht);
 static s32 adpt_hba_reset(adpt_hba* pHba);
 static s32 adpt_i2o_reset_hba(adpt_hba* pHba);

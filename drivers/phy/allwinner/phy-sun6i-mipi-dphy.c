@@ -233,7 +233,7 @@ static int sun6i_dphy_exit(struct phy *phy)
 }
 
 
-static struct phy_ops sun6i_dphy_ops = {
+static const struct phy_ops sun6i_dphy_ops = {
 	.configure	= sun6i_dphy_configure,
 	.power_on	= sun6i_dphy_power_on,
 	.power_off	= sun6i_dphy_power_off,
@@ -241,7 +241,7 @@ static struct phy_ops sun6i_dphy_ops = {
 	.exit		= sun6i_dphy_exit,
 };
 
-static struct regmap_config sun6i_dphy_regmap_config = {
+static const struct regmap_config sun6i_dphy_regmap_config = {
 	.reg_bits	= 32,
 	.val_bits	= 32,
 	.reg_stride	= 4,
@@ -253,15 +253,13 @@ static int sun6i_dphy_probe(struct platform_device *pdev)
 {
 	struct phy_provider *phy_provider;
 	struct sun6i_dphy *dphy;
-	struct resource *res;
 	void __iomem *regs;
 
 	dphy = devm_kzalloc(&pdev->dev, sizeof(*dphy), GFP_KERNEL);
 	if (!dphy)
 		return -ENOMEM;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	regs = devm_ioremap_resource(&pdev->dev, res);
+	regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(regs)) {
 		dev_err(&pdev->dev, "Couldn't map the DPHY encoder registers\n");
 		return PTR_ERR(regs);

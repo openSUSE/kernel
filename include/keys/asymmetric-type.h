@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /* Asymmetric Public-key cryptography key type interface
  *
- * See Documentation/crypto/asymmetric-keys.txt
+ * See Documentation/crypto/asymmetric-keys.rst
  *
  * Copyright (C) 2012 Red Hat, Inc. All Rights Reserved.
  * Written by David Howells (dhowells@redhat.com)
@@ -70,6 +70,12 @@ static inline
 const struct asymmetric_key_ids *asymmetric_key_ids(const struct key *key)
 {
 	return key->payload.data[asym_key_ids];
+}
+
+static inline
+const struct public_key *asymmetric_key_public_key(const struct key *key)
+{
+	return key->payload.data[asym_crypto];
 }
 
 extern struct key *find_asymmetric_key(struct key *keyring,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
-/**
+/*
  * xhci-dbgtty.c - tty glue for xHCI debug capability
  *
  * Copyright (C) 2017 Intel Corporation
@@ -240,11 +240,11 @@ static void dbc_tty_flush_chars(struct tty_struct *tty)
 	spin_unlock_irqrestore(&port->port_lock, flags);
 }
 
-static int dbc_tty_write_room(struct tty_struct *tty)
+static unsigned int dbc_tty_write_room(struct tty_struct *tty)
 {
 	struct dbc_port		*port = tty->driver_data;
 	unsigned long		flags;
-	int			room = 0;
+	unsigned int		room;
 
 	spin_lock_irqsave(&port->port_lock, flags);
 	room = kfifo_avail(&port->write_fifo);
@@ -253,11 +253,11 @@ static int dbc_tty_write_room(struct tty_struct *tty)
 	return room;
 }
 
-static int dbc_tty_chars_in_buffer(struct tty_struct *tty)
+static unsigned int dbc_tty_chars_in_buffer(struct tty_struct *tty)
 {
 	struct dbc_port		*port = tty->driver_data;
 	unsigned long		flags;
-	int			chars = 0;
+	unsigned int		chars;
 
 	spin_lock_irqsave(&port->port_lock, flags);
 	chars = kfifo_len(&port->write_fifo);
@@ -288,14 +288,14 @@ static const struct tty_operations dbc_tty_ops = {
 	.unthrottle		= dbc_tty_unthrottle,
 };
 
-static void dbc_rx_push(unsigned long _port)
+static void dbc_rx_push(struct tasklet_struct *t)
 {
 	struct dbc_request	*req;
 	struct tty_struct	*tty;
 	unsigned long		flags;
 	bool			do_push = false;
 	bool			disconnect = false;
-	struct dbc_port		*port = (void *)_port;
+	struct dbc_port		*port = from_tasklet(port, t, push);
 	struct list_head	*queue = &port->read_queue;
 
 	spin_lock_irqsave(&port->port_lock, flags);
@@ -382,7 +382,7 @@ xhci_dbc_tty_init_port(struct xhci_dbc *dbc, struct dbc_port *port)
 {
 	tty_port_init(&port->port);
 	spin_lock_init(&port->port_lock);
-	tasklet_init(&port->push, dbc_rx_push, (unsigned long)port);
+	tasklet_setup(&port->push, dbc_rx_push);
 	INIT_LIST_HEAD(&port->read_pool);
 	INIT_LIST_HEAD(&port->read_queue);
 	INIT_LIST_HEAD(&port->write_pool);

@@ -31,14 +31,6 @@ struct device;
 extern int edac_op_state;
 
 struct bus_type *edac_get_sysfs_subsys(void);
-int edac_get_report_status(void);
-void edac_set_report_status(int new);
-
-enum {
-	EDAC_REPORTING_ENABLED,
-	EDAC_REPORTING_DISABLED,
-	EDAC_REPORTING_FORCE
-};
 
 static inline void opstate_init(void)
 {
@@ -183,12 +175,15 @@ static inline char *mc_event_error_type(const unsigned int err_type)
  * @MEM_RDDR3:		Registered DDR3 RAM
  *			This is a variant of the DDR3 memories.
  * @MEM_LRDDR3:		Load-Reduced DDR3 memory.
+ * @MEM_LPDDR3:		Low-Power DDR3 memory.
  * @MEM_DDR4:		Unbuffered DDR4 RAM
  * @MEM_RDDR4:		Registered DDR4 RAM
  *			This is a variant of the DDR4 memories.
  * @MEM_LRDDR4:		Load-Reduced DDR4 memory.
+ * @MEM_LPDDR4:		Low-Power DDR4 memory.
  * @MEM_DDR5:		Unbuffered DDR5 RAM
  * @MEM_NVDIMM:		Non-volatile RAM
+ * @MEM_WIO2:		Wide I/O 2.
  */
 enum mem_type {
 	MEM_EMPTY = 0,
@@ -209,11 +204,14 @@ enum mem_type {
 	MEM_DDR3,
 	MEM_RDDR3,
 	MEM_LRDDR3,
+	MEM_LPDDR3,
 	MEM_DDR4,
 	MEM_RDDR4,
 	MEM_LRDDR4,
+	MEM_LPDDR4,
 	MEM_DDR5,
 	MEM_NVDIMM,
+	MEM_WIO2,
 };
 
 #define MEM_FLAG_EMPTY		BIT(MEM_EMPTY)
@@ -233,14 +231,17 @@ enum mem_type {
 #define MEM_FLAG_XDR            BIT(MEM_XDR)
 #define MEM_FLAG_DDR3           BIT(MEM_DDR3)
 #define MEM_FLAG_RDDR3          BIT(MEM_RDDR3)
+#define MEM_FLAG_LPDDR3         BIT(MEM_LPDDR3)
 #define MEM_FLAG_DDR4           BIT(MEM_DDR4)
 #define MEM_FLAG_RDDR4          BIT(MEM_RDDR4)
 #define MEM_FLAG_LRDDR4         BIT(MEM_LRDDR4)
+#define MEM_FLAG_LPDDR4         BIT(MEM_LPDDR4)
 #define MEM_FLAG_DDR5           BIT(MEM_DDR5)
 #define MEM_FLAG_NVDIMM         BIT(MEM_NVDIMM)
+#define MEM_FLAG_WIO2		BIT(MEM_WIO2)
 
 /**
- * enum edac-type - Error Detection and Correction capabilities and mode
+ * enum edac_type - Error Detection and Correction capabilities and mode
  * @EDAC_UNKNOWN:	Unknown if ECC is available
  * @EDAC_NONE:		Doesn't support ECC
  * @EDAC_RESERVED:	Reserved ECC type
@@ -320,7 +321,7 @@ enum scrub_type {
 #define OP_OFFLINE		0x300
 
 /**
- * enum edac_mc_layer - memory controller hierarchy layer
+ * enum edac_mc_layer_type - memory controller hierarchy layer
  *
  * @EDAC_MC_LAYER_BRANCH:	memory layer is named "branch"
  * @EDAC_MC_LAYER_CHANNEL:	memory layer is named "channel"
@@ -606,27 +607,6 @@ struct mem_ctl_info {
 		     : NULL)
 
 /**
- * edac_get_dimm_by_index - Get DIMM info at @index from a memory
- * 			    controller
- *
- * @mci:	MC descriptor struct mem_ctl_info
- * @index:	index in the memory controller's DIMM array
- *
- * Returns a struct dimm_info * or NULL on failure.
- */
-static inline struct dimm_info *
-edac_get_dimm_by_index(struct mem_ctl_info *mci, int index)
-{
-	if (index < 0 || index >= mci->tot_dimms)
-		return NULL;
-
-	if (WARN_ON_ONCE(mci->dimms[index]->idx != index))
-		return NULL;
-
-	return mci->dimms[index];
-}
-
-/**
  * edac_get_dimm - Get DIMM info from a memory controller given by
  *                 [layer0,layer1,layer2] position
  *
@@ -661,6 +641,12 @@ static inline struct dimm_info *edac_get_dimm(struct mem_ctl_info *mci,
 	if (mci->n_layers > 2)
 		index = index * mci->layers[2].size + layer2;
 
-	return edac_get_dimm_by_index(mci, index);
+	if (index < 0 || index >= mci->tot_dimms)
+		return NULL;
+
+	if (WARN_ON_ONCE(mci->dimms[index]->idx != index))
+		return NULL;
+
+	return mci->dimms[index];
 }
 #endif /* _LINUX_EDAC_H_ */

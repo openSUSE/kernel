@@ -35,10 +35,10 @@ struct mlxsw_sp_nve {
 struct mlxsw_sp_nve_ops {
 	enum mlxsw_sp_nve_type type;
 	bool (*can_offload)(const struct mlxsw_sp_nve *nve,
-			    const struct net_device *dev,
+			    const struct mlxsw_sp_nve_params *params,
 			    struct netlink_ext_ack *extack);
 	void (*nve_config)(const struct mlxsw_sp_nve *nve,
-			   const struct net_device *dev,
+			   const struct mlxsw_sp_nve_params *params,
 			   struct mlxsw_sp_nve_config *config);
 	int (*init)(struct mlxsw_sp_nve *nve,
 		    const struct mlxsw_sp_nve_config *config);

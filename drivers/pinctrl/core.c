@@ -27,6 +27,7 @@
 #include <linux/pinctrl/machine.h>
 
 #ifdef CONFIG_GPIOLIB
+#include "../gpio/gpiolib.h"
 #include <asm-generic/gpio.h>
 #endif
 
@@ -161,7 +162,7 @@ int pin_get_from_name(struct pinctrl_dev *pctldev, const char *name)
 /**
  * pin_get_name() - look up a pin name from a pin id
  * @pctldev: the pin control device to lookup the pin on
- * @name: the name of the pin to look up
+ * @pin: pin number/id to look up
  */
 const char *pin_get_name(struct pinctrl_dev *pctldev, const unsigned pin)
 {
@@ -176,6 +177,7 @@ const char *pin_get_name(struct pinctrl_dev *pctldev, const unsigned pin)
 
 	return desc->name;
 }
+EXPORT_SYMBOL_GPL(pin_get_name);
 
 /* Deletes a range of pin descriptors */
 static void pinctrl_free_pindescs(struct pinctrl_dev *pctldev,
@@ -576,7 +578,7 @@ EXPORT_SYMBOL_GPL(pinctrl_generic_get_group_pins);
 /**
  * pinctrl_generic_get_group() - returns a pin group based on the number
  * @pctldev: pin controller device
- * @gselector: group number
+ * @selector: group number
  */
 struct group_desc *pinctrl_generic_get_group(struct pinctrl_dev *pctldev,
 					     unsigned int selector)
@@ -1256,11 +1258,34 @@ static int pinctrl_commit_state(struct pinctrl *p, struct pinctrl_state *state)
 
 	p->state = NULL;
 
-	/* Apply all the settings for the new state */
+	/* Apply all the settings for the new state - pinmux first */
 	list_for_each_entry(setting, &state->settings, node) {
 		switch (setting->type) {
 		case PIN_MAP_TYPE_MUX_GROUP:
 			ret = pinmux_enable_setting(setting);
+			break;
+		case PIN_MAP_TYPE_CONFIGS_PIN:
+		case PIN_MAP_TYPE_CONFIGS_GROUP:
+			ret = 0;
+			break;
+		default:
+			ret = -EINVAL;
+			break;
+		}
+
+		if (ret < 0)
+			goto unapply_new_state;
+
+		/* Do not link hogs (circular dependency) */
+		if (p != setting->pctldev->p)
+			pinctrl_link_add(setting->pctldev, p->dev);
+	}
+
+	/* Apply all the settings for the new state - pinconf after */
+	list_for_each_entry(setting, &state->settings, node) {
+		switch (setting->type) {
+		case PIN_MAP_TYPE_MUX_GROUP:
+			ret = 0;
 			break;
 		case PIN_MAP_TYPE_CONFIGS_PIN:
 		case PIN_MAP_TYPE_CONFIGS_GROUP:
@@ -1328,7 +1353,7 @@ static void devm_pinctrl_release(struct device *dev, void *res)
 }
 
 /**
- * struct devm_pinctrl_get() - Resource managed pinctrl_get()
+ * devm_pinctrl_get() - Resource managed pinctrl_get()
  * @dev: the device to obtain the handle for
  *
  * If there is a need to explicitly destroy the returned struct pinctrl,
@@ -1450,7 +1475,7 @@ EXPORT_SYMBOL_GPL(pinctrl_register_mappings);
 
 /**
  * pinctrl_unregister_mappings() - unregister a set of pin controller mappings
- * @maps: the pincontrol mappings table passed to pinctrl_register_mappings()
+ * @map: the pincontrol mappings table passed to pinctrl_register_mappings()
  *	when registering the mappings.
  */
 void pinctrl_unregister_mappings(const struct pinctrl_map *map)
@@ -1600,6 +1625,11 @@ static int pinctrl_pins_show(struct seq_file *s, void *what)
 	struct pinctrl_dev *pctldev = s->private;
 	const struct pinctrl_ops *ops = pctldev->desc->pctlops;
 	unsigned i, pin;
+#ifdef CONFIG_GPIOLIB
+	struct pinctrl_gpio_range *range;
+	struct gpio_chip *chip;
+	int gpio_num;
+#endif
 
 	seq_printf(s, "registered pins: %d\n", pctldev->desc->npins);
 
@@ -1616,6 +1646,25 @@ static int pinctrl_pins_show(struct seq_file *s, void *what)
 			continue;
 
 		seq_printf(s, "pin %d (%s) ", pin, desc->name);
+
+#ifdef CONFIG_GPIOLIB
+		gpio_num = -1;
+		list_for_each_entry(range, &pctldev->gpio_ranges, node) {
+			if ((pin >= range->pin_base) &&
+			    (pin < (range->pin_base + range->npins))) {
+				gpio_num = range->base + (pin - range->pin_base);
+				break;
+			}
+		}
+		if (gpio_num >= 0)
+			chip = gpio_to_chip(gpio_num);
+		else
+			chip = NULL;
+		if (chip)
+			seq_printf(s, "%u:%s ", gpio_num - chip->gpiodev->base, chip->label);
+		else
+			seq_puts(s, "0:? ");
+#endif
 
 		/* Driver-specific info per pin */
 		if (ops->pin_dbg_show)
@@ -1866,11 +1915,11 @@ static void pinctrl_init_device_debugfs(struct pinctrl_dev *pctldev)
 			dev_name(pctldev->dev));
 		return;
 	}
-	debugfs_create_file("pins", S_IFREG | S_IRUGO,
+	debugfs_create_file("pins", 0444,
 			    device_root, pctldev, &pinctrl_pins_fops);
-	debugfs_create_file("pingroups", S_IFREG | S_IRUGO,
+	debugfs_create_file("pingroups", 0444,
 			    device_root, pctldev, &pinctrl_groups_fops);
-	debugfs_create_file("gpio-ranges", S_IFREG | S_IRUGO,
+	debugfs_create_file("gpio-ranges", 0444,
 			    device_root, pctldev, &pinctrl_gpioranges_fops);
 	if (pctldev->desc->pmxops)
 		pinmux_init_device_debugfs(device_root, pctldev);
@@ -1892,11 +1941,11 @@ static void pinctrl_init_debugfs(void)
 		return;
 	}
 
-	debugfs_create_file("pinctrl-devices", S_IFREG | S_IRUGO,
+	debugfs_create_file("pinctrl-devices", 0444,
 			    debugfs_root, NULL, &pinctrl_devices_fops);
-	debugfs_create_file("pinctrl-maps", S_IFREG | S_IRUGO,
+	debugfs_create_file("pinctrl-maps", 0444,
 			    debugfs_root, NULL, &pinctrl_maps_fops);
-	debugfs_create_file("pinctrl-handles", S_IFREG | S_IRUGO,
+	debugfs_create_file("pinctrl-handles", 0444,
 			    debugfs_root, NULL, &pinctrl_fops);
 }
 
@@ -2093,7 +2142,6 @@ struct pinctrl_dev *pinctrl_register(struct pinctrl_desc *pctldesc,
 		return ERR_PTR(error);
 
 	return pctldev;
-
 }
 EXPORT_SYMBOL_GPL(pinctrl_register);
 
@@ -2225,9 +2273,9 @@ EXPORT_SYMBOL_GPL(devm_pinctrl_register);
  * @dev: parent device for this pin controller
  * @pctldesc: descriptor for this pin controller
  * @driver_data: private pin controller data for this pin controller
+ * @pctldev: pin controller device
  *
- * Returns an error pointer if pincontrol register failed. Otherwise
- * it returns valid pinctrl handle.
+ * Returns zero on success or an error number on failure.
  *
  * The pinctrl device will be automatically released when the device is unbound.
  */

@@ -74,10 +74,8 @@ static void bcm7120_l2_intc_irq_handle(struct irq_desc *desc)
 					    data->irq_map_mask[idx];
 		irq_gc_unlock(gc);
 
-		for_each_set_bit(hwirq, &pending, IRQS_PER_WORD) {
-			generic_handle_irq(irq_find_mapping(b->domain,
-					   base + hwirq));
-		}
+		for_each_set_bit(hwirq, &pending, IRQS_PER_WORD)
+			generic_handle_domain_irq(b->domain, base + hwirq);
 	}
 
 	chained_irq_exit(chip, desc);
@@ -143,6 +141,9 @@ static int bcm7120_l2_intc_init_one(struct device_node *dn,
 
 	irq_set_chained_handler_and_data(parent_irq,
 					 bcm7120_l2_intc_irq_handle, l1_data);
+	if (data->can_wake)
+		enable_irq_wake(parent_irq);
+
 	return 0;
 }
 
@@ -247,6 +248,8 @@ static int __init bcm7120_l2_intc_probe(struct device_node *dn,
 	if (ret < 0)
 		goto out_free_l1_data;
 
+	data->can_wake = of_property_read_bool(dn, "brcm,irq-can-wake");
+
 	for (irq = 0; irq < data->num_parent_irqs; irq++) {
 		ret = bcm7120_l2_intc_init_one(dn, data, irq, valid_mask);
 		if (ret)
@@ -273,9 +276,6 @@ static int __init bcm7120_l2_intc_probe(struct device_node *dn,
 		pr_err("failed to allocate generic irq chip\n");
 		goto out_free_domain;
 	}
-
-	if (of_property_read_bool(dn, "brcm,irq-can-wake"))
-		data->can_wake = true;
 
 	for (idx = 0; idx < data->n_words; idx++) {
 		irq = idx * IRQS_PER_WORD;
@@ -307,7 +307,7 @@ static int __init bcm7120_l2_intc_probe(struct device_node *dn,
 
 		if (data->can_wake) {
 			/* This IRQ chip can wake the system, set all
-			 * relevant child interupts in wake_enabled mask
+			 * relevant child interrupts in wake_enabled mask
 			 */
 			gc->wake_enabled = 0xffffffff;
 			gc->wake_enabled &= ~gc->unused;

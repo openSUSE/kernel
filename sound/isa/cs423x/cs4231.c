@@ -23,7 +23,6 @@
 MODULE_DESCRIPTION(CRD_NAME);
 MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_LICENSE("GPL");
-MODULE_SUPPORTED_DEVICE("{{Crystal Semiconductors,CS4231}}");
 
 static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
 static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
@@ -135,10 +134,9 @@ out:	snd_card_free(card);
 	return error;
 }
 
-static int snd_cs4231_remove(struct device *dev, unsigned int n)
+static void snd_cs4231_remove(struct device *dev, unsigned int n)
 {
 	snd_card_free(dev_get_drvdata(dev));
-	return 0;
 }
 
 #ifdef CONFIG_PM

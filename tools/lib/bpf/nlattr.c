@@ -27,7 +27,7 @@ static struct nlattr *nla_next(const struct nlattr *nla, int *remaining)
 	int totlen = NLA_ALIGN(nla->nla_len);
 
 	*remaining -= totlen;
-	return (struct nlattr *) ((char *) nla + totlen);
+	return (struct nlattr *)((void *)nla + totlen);
 }
 
 static int nla_ok(const struct nlattr *nla, int remaining)
@@ -122,8 +122,8 @@ int libbpf_nla_parse(struct nlattr *tb[], int maxtype, struct nlattr *head,
 		}
 
 		if (tb[type])
-			pr_warning("Attribute of type %#x found multiple times in message, "
-				   "previous attribute is being ignored.\n", type);
+			pr_warn("Attribute of type %#x found multiple times in message, "
+				"previous attribute is being ignored.\n", type);
 
 		tb[type] = nla;
 	}
@@ -182,14 +182,14 @@ int libbpf_nla_dump_errormsg(struct nlmsghdr *nlh)
 
 	if (libbpf_nla_parse(tb, NLMSGERR_ATTR_MAX, attr, alen,
 			     extack_policy) != 0) {
-		pr_warning("Failed to parse extended error attributes\n");
+		pr_warn("Failed to parse extended error attributes\n");
 		return 0;
 	}
 
 	if (tb[NLMSGERR_ATTR_MSG])
 		errmsg = (char *) libbpf_nla_data(tb[NLMSGERR_ATTR_MSG]);
 
-	pr_warning("Kernel error message: %s\n", errmsg);
+	pr_warn("Kernel error message: %s\n", errmsg);
 
 	return 0;
 }

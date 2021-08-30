@@ -11,18 +11,16 @@
  *	Jianhua Li <lijianhua@huawei.com>
  */
 
-#include <linux/console.h>
 #include <linux/module.h>
 #include <linux/pci.h>
 
+#include <drm/drm_aperture.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
-#include <drm/drm_fb_helper.h>
+#include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_gem_vram_helper.h>
 #include <drm/drm_irq.h>
 #include <drm/drm_managed.h>
-#include <drm/drm_print.h>
-#include <drm/drm_probe_helper.h>
 #include <drm/drm_vblank.h>
 
 #include "hibmc_drm_drv.h"
@@ -33,8 +31,7 @@ DEFINE_DRM_GEM_FOPS(hibmc_fops);
 static irqreturn_t hibmc_drm_interrupt(int irq, void *arg)
 {
 	struct drm_device *dev = (struct drm_device *)arg;
-	struct hibmc_drm_private *priv =
-		(struct hibmc_drm_private *)dev->dev_private;
+	struct hibmc_drm_private *priv = to_hibmc_drm_private(dev);
 	u32 status;
 
 	status = readl(priv->mmio + HIBMC_RAW_INTERRUPT);
@@ -48,7 +45,13 @@ static irqreturn_t hibmc_drm_interrupt(int irq, void *arg)
 	return IRQ_HANDLED;
 }
 
-static struct drm_driver hibmc_driver = {
+static int hibmc_dumb_create(struct drm_file *file, struct drm_device *dev,
+			     struct drm_mode_create_dumb *args)
+{
+	return drm_gem_vram_fill_create_dumb(file, dev, 0, 128, args);
+}
+
+static const struct drm_driver hibmc_driver = {
 	.driver_features	= DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
 	.fops			= &hibmc_fops,
 	.name			= "hibmc",
@@ -58,7 +61,7 @@ static struct drm_driver hibmc_driver = {
 	.minor			= 0,
 	.debugfs_init		= drm_vram_mm_debugfs_init,
 	.dumb_create            = hibmc_dumb_create,
-	.dumb_map_offset        = drm_gem_vram_driver_dumb_mmap_offset,
+	.dumb_map_offset        = drm_gem_ttm_dumb_map_offset,
 	.gem_prime_mmap		= drm_gem_prime_mmap,
 	.irq_handler		= hibmc_drm_interrupt,
 };
@@ -82,56 +85,56 @@ static const struct dev_pm_ops hibmc_pm_ops = {
 				hibmc_pm_resume)
 };
 
+static const struct drm_mode_config_funcs hibmc_mode_funcs = {
+	.mode_valid = drm_vram_helper_mode_valid,
+	.atomic_check = drm_atomic_helper_check,
+	.atomic_commit = drm_atomic_helper_commit,
+	.fb_create = drm_gem_fb_create,
+};
+
 static int hibmc_kms_init(struct hibmc_drm_private *priv)
 {
+	struct drm_device *dev = &priv->dev;
 	int ret;
 
-	drm_mode_config_init(priv->dev);
-	priv->mode_config_initialized = true;
+	ret = drmm_mode_config_init(dev);
+	if (ret)
+		return ret;
 
-	priv->dev->mode_config.min_width = 0;
-	priv->dev->mode_config.min_height = 0;
-	priv->dev->mode_config.max_width = 1920;
-	priv->dev->mode_config.max_height = 1200;
+	dev->mode_config.min_width = 0;
+	dev->mode_config.min_height = 0;
+	dev->mode_config.max_width = 1920;
+	dev->mode_config.max_height = 1200;
 
-	priv->dev->mode_config.fb_base = priv->fb_base;
-	priv->dev->mode_config.preferred_depth = 32;
-	priv->dev->mode_config.prefer_shadow = 1;
+	dev->mode_config.fb_base = priv->fb_base;
+	dev->mode_config.preferred_depth = 32;
+	dev->mode_config.prefer_shadow = 1;
 
-	priv->dev->mode_config.funcs = (void *)&hibmc_mode_funcs;
+	dev->mode_config.funcs = (void *)&hibmc_mode_funcs;
 
 	ret = hibmc_de_init(priv);
 	if (ret) {
-		DRM_ERROR("failed to init de: %d\n", ret);
+		drm_err(dev, "failed to init de: %d\n", ret);
 		return ret;
 	}
 
 	ret = hibmc_vdac_init(priv);
 	if (ret) {
-		DRM_ERROR("failed to init vdac: %d\n", ret);
+		drm_err(dev, "failed to init vdac: %d\n", ret);
 		return ret;
 	}
 
 	return 0;
 }
 
-static void hibmc_kms_fini(struct hibmc_drm_private *priv)
-{
-	if (priv->mode_config_initialized) {
-		drm_mode_config_cleanup(priv->dev);
-		priv->mode_config_initialized = false;
-	}
-}
-
 /*
  * It can operate in one of three modes: 0, 1 or Sleep.
  */
-void hibmc_set_power_mode(struct hibmc_drm_private *priv,
-			  unsigned int power_mode)
+void hibmc_set_power_mode(struct hibmc_drm_private *priv, u32 power_mode)
 {
-	unsigned int control_value = 0;
+	u32 control_value = 0;
 	void __iomem   *mmio = priv->mmio;
-	unsigned int input = 1;
+	u32 input = 1;
 
 	if (power_mode > HIBMC_PW_MODE_CTL_MODE_SLEEP)
 		return;
@@ -149,8 +152,8 @@ void hibmc_set_power_mode(struct hibmc_drm_private *priv,
 
 void hibmc_set_current_gate(struct hibmc_drm_private *priv, unsigned int gate)
 {
-	unsigned int gate_reg;
-	unsigned int mode;
+	u32 gate_reg;
+	u32 mode;
 	void __iomem   *mmio = priv->mmio;
 
 	/* Get current power mode. */
@@ -175,7 +178,7 @@ void hibmc_set_current_gate(struct hibmc_drm_private *priv, unsigned int gate)
 
 static void hibmc_hw_config(struct hibmc_drm_private *priv)
 {
-	unsigned int reg;
+	u32 reg;
 
 	/* On hardware reset, power mode 0 is default. */
 	hibmc_set_power_mode(priv, HIBMC_PW_MODE_CTL_MODE_MODE0);
@@ -208,15 +211,15 @@ static void hibmc_hw_config(struct hibmc_drm_private *priv)
 
 static int hibmc_hw_map(struct hibmc_drm_private *priv)
 {
-	struct drm_device *dev = priv->dev;
-	struct pci_dev *pdev = dev->pdev;
+	struct drm_device *dev = &priv->dev;
+	struct pci_dev *pdev = to_pci_dev(dev->dev);
 	resource_size_t addr, size, ioaddr, iosize;
 
 	ioaddr = pci_resource_start(pdev, 1);
 	iosize = pci_resource_len(pdev, 1);
 	priv->mmio = devm_ioremap(dev->dev, ioaddr, iosize);
 	if (!priv->mmio) {
-		DRM_ERROR("Cannot map mmio region\n");
+		drm_err(dev, "Cannot map mmio region\n");
 		return -ENOMEM;
 	}
 
@@ -224,7 +227,7 @@ static int hibmc_hw_map(struct hibmc_drm_private *priv)
 	size = pci_resource_len(pdev, 0);
 	priv->fb_map = devm_ioremap(dev->dev, addr, size);
 	if (!priv->fb_map) {
-		DRM_ERROR("Cannot map framebuffer\n");
+		drm_err(dev, "Cannot map framebuffer\n");
 		return -ENOMEM;
 	}
 	priv->fb_base = addr;
@@ -248,41 +251,31 @@ static int hibmc_hw_init(struct hibmc_drm_private *priv)
 
 static int hibmc_unload(struct drm_device *dev)
 {
-	struct hibmc_drm_private *priv = dev->dev_private;
-
 	drm_atomic_helper_shutdown(dev);
 
 	if (dev->irq_enabled)
 		drm_irq_uninstall(dev);
-	if (priv->msi_enabled)
-		pci_disable_msi(dev->pdev);
 
-	hibmc_kms_fini(priv);
-	hibmc_mm_fini(priv);
-	dev->dev_private = NULL;
+	pci_disable_msi(to_pci_dev(dev->dev));
+
 	return 0;
 }
 
 static int hibmc_load(struct drm_device *dev)
 {
-	struct hibmc_drm_private *priv;
+	struct pci_dev *pdev = to_pci_dev(dev->dev);
+	struct hibmc_drm_private *priv = to_hibmc_drm_private(dev);
 	int ret;
-
-	priv = drmm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
-	if (!priv) {
-		DRM_ERROR("no memory to allocate for hibmc_drm_private\n");
-		return -ENOMEM;
-	}
-	dev->dev_private = priv;
-	priv->dev = dev;
 
 	ret = hibmc_hw_init(priv);
 	if (ret)
 		goto err;
 
-	ret = hibmc_mm_init(priv);
-	if (ret)
+	ret = drmm_vram_helper_init(dev, pci_resource_start(pdev, 0), priv->fb_size);
+	if (ret) {
+		drm_err(dev, "Error initializing VRAM MM; %d\n", ret);
 		goto err;
+	}
 
 	ret = hibmc_kms_init(priv);
 	if (ret)
@@ -290,19 +283,17 @@ static int hibmc_load(struct drm_device *dev)
 
 	ret = drm_vblank_init(dev, dev->mode_config.num_crtc);
 	if (ret) {
-		DRM_ERROR("failed to initialize vblank: %d\n", ret);
+		drm_err(dev, "failed to initialize vblank: %d\n", ret);
 		goto err;
 	}
 
-	priv->msi_enabled = 0;
-	ret = pci_enable_msi(dev->pdev);
+	ret = pci_enable_msi(pdev);
 	if (ret) {
-		DRM_WARN("enabling MSI failed: %d\n", ret);
+		drm_warn(dev, "enabling MSI failed: %d\n", ret);
 	} else {
-		priv->msi_enabled = 1;
-		ret = drm_irq_install(dev, dev->pdev->irq);
+		ret = drm_irq_install(dev, pdev->irq);
 		if (ret)
-			DRM_WARN("install irq failed: %d\n", ret);
+			drm_warn(dev, "install irq failed: %d\n", ret);
 	}
 
 	/* reset all the states of crtc/plane/encoder/connector */
@@ -312,45 +303,46 @@ static int hibmc_load(struct drm_device *dev)
 
 err:
 	hibmc_unload(dev);
-	DRM_ERROR("failed to initialize drm driver: %d\n", ret);
+	drm_err(dev, "failed to initialize drm driver: %d\n", ret);
 	return ret;
 }
 
 static int hibmc_pci_probe(struct pci_dev *pdev,
 			   const struct pci_device_id *ent)
 {
+	struct hibmc_drm_private *priv;
 	struct drm_device *dev;
 	int ret;
 
-	ret = drm_fb_helper_remove_conflicting_pci_framebuffers(pdev,
-								"hibmcdrmfb");
+	ret = drm_aperture_remove_conflicting_pci_framebuffers(pdev, "hibmcdrmfb");
 	if (ret)
 		return ret;
 
-	dev = drm_dev_alloc(&hibmc_driver, &pdev->dev);
-	if (IS_ERR(dev)) {
+	priv = devm_drm_dev_alloc(&pdev->dev, &hibmc_driver,
+				  struct hibmc_drm_private, dev);
+	if (IS_ERR(priv)) {
 		DRM_ERROR("failed to allocate drm_device\n");
-		return PTR_ERR(dev);
+		return PTR_ERR(priv);
 	}
 
-	dev->pdev = pdev;
+	dev = &priv->dev;
 	pci_set_drvdata(pdev, dev);
 
-	ret = pci_enable_device(pdev);
+	ret = pcim_enable_device(pdev);
 	if (ret) {
-		DRM_ERROR("failed to enable pci device: %d\n", ret);
-		goto err_free;
+		drm_err(dev, "failed to enable pci device: %d\n", ret);
+		goto err_return;
 	}
 
 	ret = hibmc_load(dev);
 	if (ret) {
-		DRM_ERROR("failed to load hibmc: %d\n", ret);
-		goto err_disable;
+		drm_err(dev, "failed to load hibmc: %d\n", ret);
+		goto err_return;
 	}
 
 	ret = drm_dev_register(dev, 0);
 	if (ret) {
-		DRM_ERROR("failed to register drv for userspace access: %d\n",
+		drm_err(dev, "failed to register drv for userspace access: %d\n",
 			  ret);
 		goto err_unload;
 	}
@@ -361,11 +353,7 @@ static int hibmc_pci_probe(struct pci_dev *pdev,
 
 err_unload:
 	hibmc_unload(dev);
-err_disable:
-	pci_disable_device(pdev);
-err_free:
-	drm_dev_put(dev);
-
+err_return:
 	return ret;
 }
 
@@ -377,7 +365,7 @@ static void hibmc_pci_remove(struct pci_dev *pdev)
 	hibmc_unload(dev);
 }
 
-static struct pci_device_id hibmc_pci_table[] = {
+static const struct pci_device_id hibmc_pci_table[] = {
 	{ PCI_VDEVICE(HUAWEI, 0x1711) },
 	{0,}
 };

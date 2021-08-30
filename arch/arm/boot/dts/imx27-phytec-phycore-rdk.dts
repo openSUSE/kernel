@@ -14,11 +14,11 @@
 
 	display0: LQ035Q7 {
 		model = "Sharp-LQ035Q7";
-		native-mode = <&timing0>;
 		bits-per-pixel = <16>;
 		fsl,pcr = <0xf00080c0>;
 
 		display-timings {
+			native-mode = <&timing0>;
 			timing0: 240x320 {
 				clock-frequency = <5500000>;
 				hactive = <240>;
@@ -65,7 +65,7 @@
 
 &cspi1 {
 	pinctrl-0 = <&pinctrl_cspi1>, <&pinctrl_cspi1cs1>;
-	cs-gpios = <&gpio4 28 GPIO_ACTIVE_HIGH>,
+	cs-gpios = <&gpio4 28 GPIO_ACTIVE_LOW>,
 		   <&gpio4 27 GPIO_ACTIVE_LOW>;
 };
 

@@ -508,6 +508,11 @@ static void ali1535_remove(struct pci_dev *dev)
 {
 	i2c_del_adapter(&ali1535_adapter);
 	release_region(ali1535_smba, ALI1535_SMB_IOSIZE);
+
+	/*
+	 * do not call pci_disable_device(dev) since it can cause hard hangs on
+	 * some systems during power-off
+	 */
 }
 
 static struct pci_driver ali1535_driver = {
@@ -519,9 +524,9 @@ static struct pci_driver ali1535_driver = {
 
 module_pci_driver(ali1535_driver);
 
-MODULE_AUTHOR("Frodo Looijaard <frodol@dds.nl>, "
-	      "Philip Edelbrock <phil@netroedge.com>, "
-	      "Mark D. Studebaker <mdsxyz123@yahoo.com> "
-	      "and Dan Eaton <dan.eaton@rocketlogix.com>");
+MODULE_AUTHOR("Frodo Looijaard <frodol@dds.nl>");
+MODULE_AUTHOR("Philip Edelbrock <phil@netroedge.com>");
+MODULE_AUTHOR("Mark D. Studebaker <mdsxyz123@yahoo.com>");
+MODULE_AUTHOR("Dan Eaton <dan.eaton@rocketlogix.com>");
 MODULE_DESCRIPTION("ALI1535 SMBus driver");
 MODULE_LICENSE("GPL");

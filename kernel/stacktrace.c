@@ -20,7 +20,7 @@
  * @nr_entries:	Number of entries in the storage array
  * @spaces:	Number of leading spaces to print
  */
-void stack_trace_print(unsigned long *entries, unsigned int nr_entries,
+void stack_trace_print(const unsigned long *entries, unsigned int nr_entries,
 		       int spaces)
 {
 	unsigned int i;
@@ -43,7 +43,7 @@ EXPORT_SYMBOL_GPL(stack_trace_print);
  *
  * Return: Number of bytes printed.
  */
-int stack_trace_snprint(char *buf, size_t size, unsigned long *entries,
+int stack_trace_snprint(char *buf, size_t size, const unsigned long *entries,
 			unsigned int nr_entries, int spaces)
 {
 	unsigned int generated, i, total = 0;
@@ -78,8 +78,7 @@ struct stacktrace_cookie {
 	unsigned int	len;
 };
 
-static bool stack_trace_consume_entry(void *cookie, unsigned long addr,
-				      bool reliable)
+static bool stack_trace_consume_entry(void *cookie, unsigned long addr)
 {
 	struct stacktrace_cookie *c = cookie;
 
@@ -94,12 +93,11 @@ static bool stack_trace_consume_entry(void *cookie, unsigned long addr,
 	return c->len < c->size;
 }
 
-static bool stack_trace_consume_entry_nosched(void *cookie, unsigned long addr,
-					      bool reliable)
+static bool stack_trace_consume_entry_nosched(void *cookie, unsigned long addr)
 {
 	if (in_sched_functions(addr))
 		return true;
-	return stack_trace_consume_entry(cookie, addr, reliable);
+	return stack_trace_consume_entry(cookie, addr);
 }
 
 /**
@@ -142,7 +140,7 @@ unsigned int stack_trace_save_tsk(struct task_struct *tsk, unsigned long *store,
 		.store	= store,
 		.size	= size,
 		/* skip this function if they are tracing us */
-		.skip	= skipnr + !!(current == tsk),
+		.skip	= skipnr + (current == tsk),
 	};
 
 	if (!try_get_task_stack(tsk))
@@ -233,10 +231,9 @@ unsigned int stack_trace_save_user(unsigned long *store, unsigned int size)
 	if (current->flags & PF_KTHREAD)
 		return 0;
 
-	fs = get_fs();
-	set_fs(USER_DS);
+	fs = force_uaccess_begin();
 	arch_stack_walk_user(consume_entry, &c, task_pt_regs(current));
-	set_fs(fs);
+	force_uaccess_end(fs);
 
 	return c.len;
 }
@@ -300,7 +297,7 @@ unsigned int stack_trace_save_tsk(struct task_struct *task,
 		.entries	= store,
 		.max_entries	= size,
 		/* skip this function if they are tracing us */
-		.skip	= skipnr + !!(current == task),
+		.skip	= skipnr + (current == task),
 	};
 
 	save_stack_trace_tsk(task, &trace);

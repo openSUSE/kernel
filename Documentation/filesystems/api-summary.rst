@@ -86,9 +86,6 @@ Other Functions
 .. kernel-doc:: fs/dax.c
    :export:
 
-.. kernel-doc:: fs/direct-io.c
-   :export:
-
 .. kernel-doc:: fs/libfs.c
    :export:
 
@@ -102,6 +99,9 @@ Other Functions
    :export:
 
 .. kernel-doc:: fs/xattr.c
+   :export:
+
+.. kernel-doc:: fs/namespace.c
    :export:
 
 The proc filesystem
@@ -124,6 +124,12 @@ Events based on file descriptors
 
 .. kernel-doc:: fs/eventfd.c
    :export:
+
+eventpoll (epoll) interfaces
+============================
+
+.. kernel-doc:: fs/eventpoll.c
+   :internal:
 
 The Filesystem for Exporting Kernel Objects
 ===========================================

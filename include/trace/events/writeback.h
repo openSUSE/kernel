@@ -35,9 +35,9 @@
 	EM( WB_REASON_SYNC,			"sync")			\
 	EM( WB_REASON_PERIODIC,			"periodic")		\
 	EM( WB_REASON_LAPTOP_TIMER,		"laptop_timer")		\
-	EM( WB_REASON_FREE_MORE_MEM,		"free_more_memory")	\
 	EM( WB_REASON_FS_FREE_SPACE,		"fs_free_space")	\
-	EMe(WB_REASON_FORKER_THREAD,		"forker_thread")
+	EM( WB_REASON_FORKER_THREAD,		"forker_thread")	\
+	EMe(WB_REASON_FOREIGN_FLUSH,		"foreign_flush")
 
 WB_WORK_REASON
 
@@ -191,7 +191,7 @@ TRACE_EVENT(inode_foreign_history,
 	),
 
 	TP_fast_assign(
-		strncpy(__entry->name, bdi_dev_name(inode_to_bdi(inode)), 32);
+		strscpy_pad(__entry->name, bdi_dev_name(inode_to_bdi(inode)), 32);
 		__entry->ino		= inode->i_ino;
 		__entry->cgroup_ino	= __trace_wbc_assign_cgroup(wbc);
 		__entry->history	= history;
@@ -220,7 +220,7 @@ TRACE_EVENT(inode_switch_wbs,
 	),
 
 	TP_fast_assign(
-		strncpy(__entry->name,	bdi_dev_name(old_wb->bdi), 32);
+		strscpy_pad(__entry->name, bdi_dev_name(old_wb->bdi), 32);
 		__entry->ino		= inode->i_ino;
 		__entry->old_cgroup_ino	= __trace_wb_assign_cgroup(old_wb);
 		__entry->new_cgroup_ino	= __trace_wb_assign_cgroup(new_wb);
@@ -253,12 +253,12 @@ TRACE_EVENT(track_foreign_dirty,
 		struct address_space *mapping = page_mapping(page);
 		struct inode *inode = mapping ? mapping->host : NULL;
 
-		strncpy(__entry->name,	bdi_dev_name(wb->bdi), 32);
+		strscpy_pad(__entry->name, bdi_dev_name(wb->bdi), 32);
 		__entry->bdi_id		= wb->bdi->id;
 		__entry->ino		= inode ? inode->i_ino : 0;
 		__entry->memcg_id	= wb->memcg_css->id;
 		__entry->cgroup_ino	= __trace_wb_assign_cgroup(wb);
-		__entry->page_cgroup_ino = cgroup_ino(page->mem_cgroup->css.cgroup);
+		__entry->page_cgroup_ino = cgroup_ino(page_memcg(page)->css.cgroup);
 	),
 
 	TP_printk("bdi %s[%llu]: ino=%lu memcg_id=%u cgroup_ino=%lu page_cgroup_ino=%lu",
@@ -286,7 +286,7 @@ TRACE_EVENT(flush_foreign,
 	),
 
 	TP_fast_assign(
-		strncpy(__entry->name,	bdi_dev_name(wb->bdi), 32);
+		strscpy_pad(__entry->name, bdi_dev_name(wb->bdi), 32);
 		__entry->cgroup_ino	= __trace_wb_assign_cgroup(wb);
 		__entry->frn_bdi_id	= frn_bdi_id;
 		__entry->frn_memcg_id	= frn_memcg_id;
@@ -540,7 +540,6 @@ TRACE_EVENT(global_dirty_state,
 	TP_STRUCT__entry(
 		__field(unsigned long,	nr_dirty)
 		__field(unsigned long,	nr_writeback)
-		__field(unsigned long,	nr_unstable)
 		__field(unsigned long,	background_thresh)
 		__field(unsigned long,	dirty_thresh)
 		__field(unsigned long,	dirty_limit)
@@ -551,7 +550,6 @@ TRACE_EVENT(global_dirty_state,
 	TP_fast_assign(
 		__entry->nr_dirty	= global_node_page_state(NR_FILE_DIRTY);
 		__entry->nr_writeback	= global_node_page_state(NR_WRITEBACK);
-		__entry->nr_unstable	= global_node_page_state(NR_UNSTABLE_NFS);
 		__entry->nr_dirtied	= global_node_page_state(NR_DIRTIED);
 		__entry->nr_written	= global_node_page_state(NR_WRITTEN);
 		__entry->background_thresh = background_thresh;
@@ -559,12 +557,11 @@ TRACE_EVENT(global_dirty_state,
 		__entry->dirty_limit	= global_wb_domain.dirty_limit;
 	),
 
-	TP_printk("dirty=%lu writeback=%lu unstable=%lu "
+	TP_printk("dirty=%lu writeback=%lu "
 		  "bg_thresh=%lu thresh=%lu limit=%lu "
 		  "dirtied=%lu written=%lu",
 		  __entry->nr_dirty,
 		  __entry->nr_writeback,
-		  __entry->nr_unstable,
 		  __entry->background_thresh,
 		  __entry->dirty_thresh,
 		  __entry->dirty_limit,
@@ -847,7 +844,7 @@ DECLARE_EVENT_CLASS(writeback_inode_template,
 	),
 
 	TP_fast_assign(
-		__entry->dev	= inode_get_dev(inode);
+		__entry->dev	= inode->i_sb->s_dev;
 		__entry->ino	= inode->i_ino;
 		__entry->state	= inode->i_state;
 		__entry->mode	= inode->i_mode;

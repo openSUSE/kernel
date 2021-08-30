@@ -34,53 +34,43 @@
  */
 static const struct tw68_format formats[] = {
 	{
-		.name		= "15 bpp RGB, le",
 		.fourcc		= V4L2_PIX_FMT_RGB555,
 		.depth		= 16,
 		.twformat	= ColorFormatRGB15,
 	}, {
-		.name		= "15 bpp RGB, be",
 		.fourcc		= V4L2_PIX_FMT_RGB555X,
 		.depth		= 16,
 		.twformat	= ColorFormatRGB15 | ColorFormatBSWAP,
 	}, {
-		.name		= "16 bpp RGB, le",
 		.fourcc		= V4L2_PIX_FMT_RGB565,
 		.depth		= 16,
 		.twformat	= ColorFormatRGB16,
 	}, {
-		.name		= "16 bpp RGB, be",
 		.fourcc		= V4L2_PIX_FMT_RGB565X,
 		.depth		= 16,
 		.twformat	= ColorFormatRGB16 | ColorFormatBSWAP,
 	}, {
-		.name		= "24 bpp RGB, le",
 		.fourcc		= V4L2_PIX_FMT_BGR24,
 		.depth		= 24,
 		.twformat	= ColorFormatRGB24,
 	}, {
-		.name		= "24 bpp RGB, be",
 		.fourcc		= V4L2_PIX_FMT_RGB24,
 		.depth		= 24,
 		.twformat	= ColorFormatRGB24 | ColorFormatBSWAP,
 	}, {
-		.name		= "32 bpp RGB, le",
 		.fourcc		= V4L2_PIX_FMT_BGR32,
 		.depth		= 32,
 		.twformat	= ColorFormatRGB32,
 	}, {
-		.name		= "32 bpp RGB, be",
 		.fourcc		= V4L2_PIX_FMT_RGB32,
 		.depth		= 32,
 		.twformat	= ColorFormatRGB32 | ColorFormatBSWAP |
 				  ColorFormatWSWAP,
 	}, {
-		.name		= "4:2:2 packed, YUYV",
 		.fourcc		= V4L2_PIX_FMT_YUYV,
 		.depth		= 16,
 		.twformat	= ColorFormatYUY2,
 	}, {
-		.name		= "4:2:2 packed, UYVY",
 		.fourcc		= V4L2_PIX_FMT_UYVY,
 		.depth		= 16,
 		.twformat	= ColorFormatYUY2 | ColorFormatBSWAP,
@@ -495,7 +485,7 @@ static void tw68_buf_finish(struct vb2_buffer *vb)
 	struct tw68_dev *dev = vb2_get_drv_priv(vq);
 	struct tw68_buf *buf = container_of(vbuf, struct tw68_buf, vb);
 
-	pci_free_consistent(dev->pci, buf->size, buf->cpu, buf->dma);
+	dma_free_coherent(&dev->pci->dev, buf->size, buf->cpu, buf->dma);
 }
 
 static int tw68_start_streaming(struct vb2_queue *q, unsigned int count)
@@ -592,7 +582,6 @@ static int tw68_g_fmt_vid_cap(struct file *file, void *priv,
 	f->fmt.pix.sizeimage =
 		f->fmt.pix.height * f->fmt.pix.bytesperline;
 	f->fmt.pix.colorspace	= V4L2_COLORSPACE_SMPTE170M;
-	f->fmt.pix.priv = 0;
 	return 0;
 }
 
@@ -773,9 +762,6 @@ static int tw68_enum_fmt_vid_cap(struct file *file, void  *priv,
 {
 	if (f->index >= FORMATS)
 		return -EINVAL;
-
-	strscpy(f->description, formats[f->index].name,
-		sizeof(f->description));
 
 	f->pixelformat = formats[f->index].fourcc;
 
@@ -976,7 +962,7 @@ int tw68_video_init2(struct tw68_dev *dev, int video_nr)
 	dev->vdev.lock = &dev->lock;
 	dev->vdev.queue = &dev->vidq;
 	video_set_drvdata(&dev->vdev, dev);
-	return video_register_device(&dev->vdev, VFL_TYPE_GRABBER, video_nr);
+	return video_register_device(&dev->vdev, VFL_TYPE_VIDEO, video_nr);
 }
 
 /*

@@ -111,7 +111,7 @@ extern void fscache_enqueue_object(struct fscache_object *);
  * object-list.c
  */
 #ifdef CONFIG_FSCACHE_OBJECT_LIST
-extern const struct file_operations fscache_objlist_fops;
+extern const struct proc_ops fscache_objlist_proc_ops;
 
 extern void fscache_objlist_add(struct fscache_object *);
 extern void fscache_objlist_remove(struct fscache_object *);
@@ -142,6 +142,10 @@ extern int fscache_wait_for_operation_activation(struct fscache_object *,
 						 atomic_t *,
 						 atomic_t *);
 extern void fscache_invalidate_writes(struct fscache_cookie *);
+struct fscache_retrieval *fscache_alloc_retrieval(struct fscache_cookie *cookie,
+						  struct address_space *mapping,
+						  fscache_rw_complete_t end_io_func,
+						  void *context);
 
 /*
  * proc.c

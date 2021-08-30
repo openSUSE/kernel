@@ -3,7 +3,7 @@
 #include <linux/efi.h>
 #include <linux/module.h>
 #include <linux/seq_file.h>
-#include <asm/pgtable.h>
+#include <linux/pgtable.h>
 
 static int ptdump_show(struct seq_file *m, void *v)
 {
@@ -15,11 +15,8 @@ DEFINE_SHOW_ATTRIBUTE(ptdump);
 
 static int ptdump_curknl_show(struct seq_file *m, void *v)
 {
-	if (current->mm->pgd) {
-		down_read(&current->mm->mmap_sem);
+	if (current->mm->pgd)
 		ptdump_walk_pgd_level_debugfs(m, current->mm, false);
-		up_read(&current->mm->mmap_sem);
-	}
 	return 0;
 }
 
@@ -28,11 +25,8 @@ DEFINE_SHOW_ATTRIBUTE(ptdump_curknl);
 #ifdef CONFIG_PAGE_TABLE_ISOLATION
 static int ptdump_curusr_show(struct seq_file *m, void *v)
 {
-	if (current->mm->pgd) {
-		down_read(&current->mm->mmap_sem);
+	if (current->mm->pgd)
 		ptdump_walk_pgd_level_debugfs(m, current->mm, true);
-		up_read(&current->mm->mmap_sem);
-	}
 	return 0;
 }
 

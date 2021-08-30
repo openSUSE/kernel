@@ -53,8 +53,6 @@ static inline void ppc_elf_core_copy_regs(elf_gregset_t elf_regs,
 }
 #define ELF_CORE_COPY_REGS(gregs, regs) ppc_elf_core_copy_regs(gregs, regs);
 
-typedef elf_vrregset_t elf_fpxregset_t;
-
 /* ELF_HWCAP yields a mask that user programs can use to figure out what
    instruction set this cpu supports.  This could be done in userspace,
    but it's not easy, and we've already done it here.  */
@@ -170,9 +168,12 @@ do {									\
 	/* Cache size items */						\
 	NEW_AUX_ENT(AT_DCACHEBSIZE, dcache_bsize);			\
 	NEW_AUX_ENT(AT_ICACHEBSIZE, icache_bsize);			\
-	NEW_AUX_ENT(AT_UCACHEBSIZE, ucache_bsize);			\
+	NEW_AUX_ENT(AT_UCACHEBSIZE, 0);					\
 	VDSO_AUX_ENT(AT_SYSINFO_EHDR, (unsigned long)current->mm->context.vdso);\
 	ARCH_DLINFO_CACHE_GEOMETRY;					\
 } while (0)
+
+/* Relocate the kernel image to @final_address */
+void relocate(unsigned long final_address);
 
 #endif /* _ASM_POWERPC_ELF_H */

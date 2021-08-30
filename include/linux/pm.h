@@ -39,7 +39,6 @@ static inline void pm_vt_switch_unregister(struct device *dev)
  * Device power management
  */
 
-struct device;
 
 #ifdef CONFIG_PM
 extern const char power_group_name[];		/* = "power" */
@@ -351,7 +350,7 @@ struct dev_pm_ops {
  * to RAM and hibernation.
  */
 #define SIMPLE_DEV_PM_OPS(name, suspend_fn, resume_fn) \
-const struct dev_pm_ops name = { \
+const struct dev_pm_ops __maybe_unused name = { \
 	SET_SYSTEM_SLEEP_PM_OPS(suspend_fn, resume_fn) \
 }
 
@@ -369,10 +368,16 @@ const struct dev_pm_ops name = { \
  * .runtime_resume(), respectively (and analogously for hibernation).
  */
 #define UNIVERSAL_DEV_PM_OPS(name, suspend_fn, resume_fn, idle_fn) \
-const struct dev_pm_ops name = { \
+const struct dev_pm_ops __maybe_unused name = { \
 	SET_SYSTEM_SLEEP_PM_OPS(suspend_fn, resume_fn) \
 	SET_RUNTIME_PM_OPS(suspend_fn, resume_fn, idle_fn) \
 }
+
+#ifdef CONFIG_PM
+#define pm_ptr(_ptr) (_ptr)
+#else
+#define pm_ptr(_ptr) NULL
+#endif
 
 /*
  * PM_EVENT_ messages
@@ -531,6 +536,8 @@ struct pm_subsys_data {
 	spinlock_t lock;
 	unsigned int refcount;
 #ifdef CONFIG_PM_CLK
+	unsigned int clock_op_might_sleep;
+	struct mutex clock_mutex;
 	struct list_head clock_list;
 #endif
 #ifdef CONFIG_PM_GENERIC_DOMAINS
@@ -545,25 +552,11 @@ struct pm_subsys_data {
  * cleared by the drivers as the driver core will take care of that.
  *
  * NO_DIRECT_COMPLETE: Do not apply direct-complete optimization to the device.
- * SMART_PREPARE: Check the return value of the driver's ->prepare callback.
- * SMART_SUSPEND: No need to resume the device from runtime suspend.
- * MAY_SKIP_RESUME: Avoid resuming the device during system resume if possible.
+ * SMART_PREPARE: Take the driver ->prepare callback return value into account.
+ * SMART_SUSPEND: Avoid resuming the device from runtime suspend.
+ * MAY_SKIP_RESUME: Allow driver "noirq" and "early" callbacks to be skipped.
  *
- * Setting SMART_PREPARE instructs bus types and PM domains which may want
- * system suspend/resume callbacks to be skipped for the device to return 0 from
- * their ->prepare callbacks if the driver's ->prepare callback returns 0 (in
- * other words, the system suspend/resume callbacks can only be skipped for the
- * device if its driver doesn't object against that).  This flag has no effect
- * if NO_DIRECT_COMPLETE is set.
- *
- * Setting SMART_SUSPEND instructs bus types and PM domains which may want to
- * runtime resume the device upfront during system suspend that doing so is not
- * necessary from the driver's perspective.  It also may cause them to skip
- * invocations of the ->suspend_late and ->suspend_noirq callbacks provided by
- * the driver if they decide to leave the device in runtime suspend.
- *
- * Setting MAY_SKIP_RESUME informs the PM core and middle-layer code that the
- * driver prefers the device to be left in suspend after system resume.
+ * See Documentation/driver-api/pm/devices.rst for details.
  */
 #define DPM_FLAG_NO_DIRECT_COMPLETE	BIT(0)
 #define DPM_FLAG_SMART_PREPARE		BIT(1)
@@ -608,6 +601,7 @@ struct dev_pm_info {
 	unsigned int		idle_notification:1;
 	unsigned int		request_pending:1;
 	unsigned int		deferred_resume:1;
+	unsigned int		needs_force_resume:1;
 	unsigned int		runtime_auto:1;
 	bool			ignore_children:1;
 	unsigned int		no_callbacks:1;
@@ -637,6 +631,7 @@ extern void dev_pm_put_subsys_data(struct device *dev);
  * struct dev_pm_domain - power management domain representation.
  *
  * @ops: Power management operations associated with this domain.
+ * @start: Called when a user needs to start the device via the domain.
  * @detach: Called when removing a device from the domain.
  * @activate: Called before executing probe routines for bus types and drivers.
  * @sync: Called after successful driver probe.
@@ -648,6 +643,7 @@ extern void dev_pm_put_subsys_data(struct device *dev);
  */
 struct dev_pm_domain {
 	struct dev_pm_ops	ops;
+	int (*start)(struct device *dev);
 	void (*detach)(struct device *dev, bool power_off);
 	int (*activate)(struct device *dev);
 	void (*sync)(struct device *dev);

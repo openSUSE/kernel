@@ -2,7 +2,6 @@
 /*
  * Copyright (C) 2008,2009, Steven Rostedt <srostedt@redhat.com>
  */
-#include "util.h"
 #include <dirent.h>
 #include <mntent.h>
 #include <stdio.h>
@@ -19,8 +18,8 @@
 #include <linux/list.h>
 #include <linux/kernel.h>
 #include <linux/zalloc.h>
+#include <internal/lib.h> // page_size
 
-#include "../perf.h"
 #include "trace-event.h"
 #include <api/fs/tracing_path.h>
 #include "evsel.h"
@@ -153,7 +152,7 @@ static bool name_in_tp_list(char *sys, struct tracepoint_path *tps)
 	return false;
 }
 
-#define for_each_event(dir, dent, tps)				\
+#define for_each_event_tps(dir, dent, tps)			\
 	while ((dent = readdir(dir)))				\
 		if (dent->d_type == DT_DIR &&			\
 		    (strcmp(dent->d_name, ".")) &&		\
@@ -175,7 +174,7 @@ static int copy_event_system(const char *sys, struct tracepoint_path *tps)
 		return -errno;
 	}
 
-	for_each_event(dir, dent, tps) {
+	for_each_event_tps(dir, dent, tps) {
 		if (!name_in_tp_list(dent->d_name, tps))
 			continue;
 
@@ -197,7 +196,7 @@ static int copy_event_system(const char *sys, struct tracepoint_path *tps)
 	}
 
 	rewinddir(dir);
-	for_each_event(dir, dent, tps) {
+	for_each_event_tps(dir, dent, tps) {
 		if (!name_in_tp_list(dent->d_name, tps))
 			continue;
 
@@ -275,7 +274,7 @@ static int record_event_files(struct tracepoint_path *tps)
 		goto out;
 	}
 
-	for_each_event(dir, dent, tps) {
+	for_each_event_tps(dir, dent, tps) {
 		if (strcmp(dent->d_name, "ftrace") == 0 ||
 		    !system_in_tp_list(dent->d_name, tps))
 			continue;
@@ -290,7 +289,7 @@ static int record_event_files(struct tracepoint_path *tps)
 	}
 
 	rewinddir(dir);
-	for_each_event(dir, dent, tps) {
+	for_each_event_tps(dir, dent, tps) {
 		if (strcmp(dent->d_name, "ftrace") == 0 ||
 		    !system_in_tp_list(dent->d_name, tps))
 			continue;
@@ -405,11 +404,11 @@ static struct tracepoint_path *
 get_tracepoints_path(struct list_head *pattrs)
 {
 	struct tracepoint_path path, *ppath = &path;
-	struct perf_evsel *pos;
+	struct evsel *pos;
 	int nr_tracepoints = 0;
 
-	list_for_each_entry(pos, pattrs, node) {
-		if (pos->attr.type != PERF_TYPE_TRACEPOINT)
+	list_for_each_entry(pos, pattrs, core.node) {
+		if (pos->core.attr.type != PERF_TYPE_TRACEPOINT)
 			continue;
 		++nr_tracepoints;
 
@@ -425,11 +424,11 @@ get_tracepoints_path(struct list_head *pattrs)
 		}
 
 try_id:
-		ppath->next = tracepoint_id_to_path(pos->attr.config);
+		ppath->next = tracepoint_id_to_path(pos->core.attr.config);
 		if (!ppath->next) {
 error:
 			pr_debug("No memory to alloc tracepoints list\n");
-			put_tracepoints_path(&path);
+			put_tracepoints_path(path.next);
 			return NULL;
 		}
 next:
@@ -441,10 +440,10 @@ next:
 
 bool have_tracepoints(struct list_head *pattrs)
 {
-	struct perf_evsel *pos;
+	struct evsel *pos;
 
-	list_for_each_entry(pos, pattrs, node)
-		if (pos->attr.type == PERF_TYPE_TRACEPOINT)
+	list_for_each_entry(pos, pattrs, core.node)
+		if (pos->core.attr.type == PERF_TYPE_TRACEPOINT)
 			return true;
 
 	return false;

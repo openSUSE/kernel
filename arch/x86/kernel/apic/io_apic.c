@@ -154,19 +154,6 @@ static inline bool mp_is_legacy_irq(int irq)
 	return irq >= 0 && irq < nr_legacy_irqs();
 }
 
-/*
- * Initialize all legacy IRQs and all pins on the first IOAPIC
- * if we have legacy interrupt controller. Kernel boot option "pirq="
- * may rely on non-legacy pins on the first IOAPIC.
- */
-static inline int mp_init_irq_at_boot(int ioapic, int irq)
-{
-	if (!nr_legacy_irqs())
-		return 0;
-
-	return ioapic == 0 || mp_is_legacy_irq(irq);
-}
-
 static inline struct irq_domain *mp_ioapic_irqdomain(int ioapic)
 {
 	return ioapics[ioapic].irqdomain;
@@ -211,7 +198,7 @@ static int __init parse_noapic(char *str)
 }
 early_param("noapic", parse_noapic);
 
-/* Will be called in mpparse/acpi/sfi codes for saving IRQ info */
+/* Will be called in mpparse/ACPI codes for saving IRQ info */
 void mp_save_irq(struct mpc_intsrc *m)
 {
 	int i;
@@ -763,7 +750,7 @@ static bool irq_active_low(int idx)
 		return false;
 	case MP_IRQPOL_RESERVED:
 		pr_warn("IOAPIC: Invalid polarity: 2, defaulting to low\n");
-		/* fall through */
+		fallthrough;
 	case MP_IRQPOL_ACTIVE_LOW:
 	default: /* Pointless default required due to do gcc stupidity */
 		return true;
@@ -831,7 +818,7 @@ static bool irq_is_level(int idx)
 		return false;
 	case MP_IRQTRIG_RESERVED:
 		pr_warn("IOAPIC: Invalid trigger mode 2 defaulting to level\n");
-		/* fall through */
+		fallthrough;
 	case MP_IRQTRIG_LEVEL:
 	default: /* Pointless default required due to do gcc stupidity */
 		return true;
@@ -941,7 +928,7 @@ static bool mp_check_pin_attr(int irq, struct irq_alloc_info *info)
 
 	/*
 	 * setup_IO_APIC_irqs() programs all legacy IRQs with default trigger
-	 * and polarity attirbutes. So allow the first user to reprogram the
+	 * and polarity attributes. So allow the first user to reprogram the
 	 * pin with real trigger and polarity attributes.
 	 */
 	if (irq < nr_legacy_irqs() && data->count == 1) {
@@ -1007,7 +994,7 @@ static int alloc_isa_irq_from_domain(struct irq_domain *domain,
 
 	/*
 	 * Legacy ISA IRQ has already been allocated, just add pin to
-	 * the pin list assoicated with this IRQ and program the IOAPIC
+	 * the pin list associated with this IRQ and program the IOAPIC
 	 * entry. The IOAPIC entry
 	 */
 	if (irq_data && irq_data->parent_data) {
@@ -1643,20 +1630,15 @@ static void __init delay_without_tsc(void)
 static int __init timer_irq_works(void)
 {
 	unsigned long t1 = jiffies;
-	unsigned long flags;
 
 	if (no_timer_check)
 		return 1;
 
-	local_save_flags(flags);
 	local_irq_enable();
-
 	if (boot_cpu_has(X86_FEATURE_TSC))
 		delay_with_tsc();
 	else
 		delay_without_tsc();
-
-	local_irq_restore(flags);
 
 	/*
 	 * Expect a few ticks at least, to be sure some possible
@@ -1666,10 +1648,10 @@ static int __init timer_irq_works(void)
 	 * least one tick may be lost due to delays.
 	 */
 
-	/* jiffies wrap? */
-	if (time_after(jiffies, t1 + 4))
-		return 1;
-	return 0;
+	local_irq_disable();
+
+	/* Did jiffies advance? */
+	return time_after(jiffies, t1 + 4);
 }
 
 /*
@@ -1770,7 +1752,7 @@ static inline void ioapic_finish_move(struct irq_data *data, bool moveit)
 		 * with masking the ioapic entry and then polling until
 		 * Remote IRR was clear before reprogramming the
 		 * ioapic I don't trust the Remote IRR bit to be
-		 * completey accurate.
+		 * completely accurate.
 		 *
 		 * However there appears to be no other way to plug
 		 * this race, so if the Remote IRR bit is not
@@ -1848,7 +1830,7 @@ static void ioapic_ack_level(struct irq_data *irq_data)
 	/*
 	 * Tail end of clearing remote IRR bit (either by delivering the EOI
 	 * message via io-apic EOI register write or simulating it using
-	 * mask+edge followed by unnask+level logic) manually when the
+	 * mask+edge followed by unmask+level logic) manually when the
 	 * level triggered interrupt is seen as the edge triggered interrupt
 	 * at the cpu.
 	 */
@@ -2004,7 +1986,8 @@ static struct irq_chip ioapic_chip __read_mostly = {
 	.irq_set_affinity	= ioapic_set_affinity,
 	.irq_retrigger		= irq_chip_retrigger_hierarchy,
 	.irq_get_irqchip_state	= ioapic_irq_get_chip_state,
-	.flags			= IRQCHIP_SKIP_SET_WAKE,
+	.flags			= IRQCHIP_SKIP_SET_WAKE |
+				  IRQCHIP_AFFINITY_PRE_STARTUP,
 };
 
 static struct irq_chip ioapic_ir_chip __read_mostly = {
@@ -2017,7 +2000,8 @@ static struct irq_chip ioapic_ir_chip __read_mostly = {
 	.irq_set_affinity	= ioapic_set_affinity,
 	.irq_retrigger		= irq_chip_retrigger_hierarchy,
 	.irq_get_irqchip_state	= ioapic_irq_get_chip_state,
-	.flags			= IRQCHIP_SKIP_SET_WAKE,
+	.flags			= IRQCHIP_SKIP_SET_WAKE |
+				  IRQCHIP_AFFINITY_PRE_STARTUP,
 };
 
 static inline void init_IO_APIC_traps(void)
@@ -2186,13 +2170,12 @@ static inline void __init check_timer(void)
 	struct irq_cfg *cfg = irqd_cfg(irq_data);
 	int node = cpu_to_node(0);
 	int apic1, pin1, apic2, pin2;
-	unsigned long flags;
 	int no_pin1 = 0;
 
 	if (!global_clock_event)
 		return;
 
-	local_irq_save(flags);
+	local_irq_disable();
 
 	/*
 	 * get/set the timer IRQ vector:
@@ -2260,7 +2243,6 @@ static inline void __init check_timer(void)
 			goto out;
 		}
 		panic_if_irq_remap("timer doesn't work through Interrupt-remapped IO-APIC");
-		local_irq_disable();
 		clear_IO_APIC_pin(apic1, pin1);
 		if (!no_pin1)
 			apic_printk(APIC_QUIET, KERN_ERR "..MP-BIOS bug: "
@@ -2284,7 +2266,6 @@ static inline void __init check_timer(void)
 		/*
 		 * Cleanup, just in case ...
 		 */
-		local_irq_disable();
 		legacy_pic->mask(0);
 		clear_IO_APIC_pin(apic2, pin2);
 		apic_printk(APIC_QUIET, KERN_INFO "....... failed.\n");
@@ -2301,7 +2282,6 @@ static inline void __init check_timer(void)
 		apic_printk(APIC_QUIET, KERN_INFO "..... works.\n");
 		goto out;
 	}
-	local_irq_disable();
 	legacy_pic->mask(0);
 	apic_write(APIC_LVT0, APIC_LVT_MASKED | APIC_DM_FIXED | cfg->vector);
 	apic_printk(APIC_QUIET, KERN_INFO "..... failed.\n");
@@ -2320,7 +2300,6 @@ static inline void __init check_timer(void)
 		apic_printk(APIC_QUIET, KERN_INFO "..... works.\n");
 		goto out;
 	}
-	local_irq_disable();
 	apic_printk(APIC_QUIET, KERN_INFO "..... failed :(.\n");
 	if (apic_is_x2apic_enabled())
 		apic_printk(APIC_QUIET, KERN_INFO
@@ -2329,7 +2308,7 @@ static inline void __init check_timer(void)
 	panic("IO-APIC + timer doesn't work!  Boot with apic=debug and send a "
 		"report.  Then try booting with the 'noapic' option.\n");
 out:
-	local_irq_restore(flags);
+	local_irq_enable();
 }
 
 /*
@@ -2896,7 +2875,7 @@ int mp_register_ioapic(int id, u32 address, u32 gsi_base,
 
 	/*
 	 * If mp_register_ioapic() is called during early boot stage when
-	 * walking ACPI/SFI/DT tables, it's too early to create irqdomain,
+	 * walking ACPI/DT tables, it's too early to create irqdomain,
 	 * we are still using bootmem allocator. So delay it to setup_IO_APIC().
 	 */
 	if (hotplug) {

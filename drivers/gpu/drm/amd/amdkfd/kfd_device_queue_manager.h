@@ -121,11 +121,6 @@ struct device_queue_manager_ops {
 					   void __user *alternate_aperture_base,
 					   uint64_t alternate_aperture_size);
 
-	int	(*set_trap_handler)(struct device_queue_manager *dqm,
-				    struct qcm_process_device *qpd,
-				    uint64_t tba_addr,
-				    uint64_t tma_addr);
-
 	int (*process_termination)(struct device_queue_manager *dqm,
 			struct qcm_process_device *qpd);
 
@@ -251,5 +246,11 @@ static inline void dqm_unlock(struct device_queue_manager *dqm)
 	mutex_unlock(&dqm->lock_hidden);
 }
 
-int read_sdma_queue_counter(uint64_t q_rptr, uint64_t *val);
+static inline int read_sdma_queue_counter(uint64_t __user *q_rptr, uint64_t *val)
+{
+        /*
+         * SDMA activity counter is stored at queue's RPTR + 0x8 location.
+         */
+	return get_user(*val, q_rptr + 1);
+}
 #endif /* KFD_DEVICE_QUEUE_MANAGER_H_ */

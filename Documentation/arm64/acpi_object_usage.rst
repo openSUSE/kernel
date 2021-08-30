@@ -17,12 +17,12 @@ For ACPI on arm64, tables also fall into the following categories:
 
        -  Recommended: BERT, EINJ, ERST, HEST, PCCT, SSDT
 
-       -  Optional: BGRT, CPEP, CSRT, DBG2, DRTM, ECDT, FACS, FPDT, IORT,
-          MCHI, MPST, MSCT, NFIT, PMTT, RASF, SBST, SLIT, SPMI, SRAT, STAO,
-	  TCPA, TPM2, UEFI, XENV
+       -  Optional: BGRT, CPEP, CSRT, DBG2, DRTM, ECDT, FACS, FPDT, IBFT,
+          IORT, MCHI, MPST, MSCT, NFIT, PMTT, RASF, SBST, SLIT, SPMI, SRAT,
+          STAO, TCPA, TPM2, UEFI, XENV
 
-       -  Not supported: BOOT, DBGP, DMAR, ETDT, HPET, IBFT, IVRS, LPIT,
-          MSDM, OEMx, PSDT, RSDT, SLIC, WAET, WDAT, WDRT, WPBT
+       -  Not supported: BOOT, DBGP, DMAR, ETDT, HPET, IVRS, LPIT, MSDM, OEMx,
+          PSDT, RSDT, SLIC, WAET, WDAT, WDRT, WPBT
 
 ====== ========================================================================
 Table  Usage for ARMv8 Linux
@@ -220,7 +220,7 @@ LPIT   Signature Reserved (signature == "LPIT")
        x86 only table as of ACPI 5.1; starting with ACPI 6.0, processor
        descriptions and power states on ARM platforms should use the DSDT
        and define processor container devices (_HID ACPI0010, Section 8.4,
-       and more specifically 8.4.3 and and 8.4.4).
+       and more specifically 8.4.3 and 8.4.4).
 
 MADT   Section 5.2.12 (signature == "APIC")
 

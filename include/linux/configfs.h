@@ -1,7 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/* -*- mode: c; c-basic-offset: 8; -*-
- * vim: noexpandtab sw=8 ts=8 sts=0:
- *
+/*
  * configfs.h - definitions for the device driver filesystem
  *
  * Based on sysfs:
@@ -13,7 +11,7 @@
  *
  * configfs Copyright (C) 2005 Oracle.  All rights reserved.
  *
- * Please read Documentation/filesystems/configfs/configfs.txt before using
+ * Please read Documentation/filesystems/configfs.rst before using
  * the configfs interface, ESPECIALLY the parts about reference counts and
  * item destructors.
  */

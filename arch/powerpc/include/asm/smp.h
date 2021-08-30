@@ -30,8 +30,8 @@ extern int spinning_secondaries;
 extern u32 *cpu_to_phys_id;
 extern bool coregroup_enabled;
 
-extern void cpu_die(void);
 extern int cpu_to_chip_id(int cpu);
+extern int *chip_id_lookup_table;
 
 DECLARE_PER_CPU(cpumask_var_t, thread_group_l1_cache_map);
 DECLARE_PER_CPU(cpumask_var_t, thread_group_l2_cache_map);
@@ -55,6 +55,9 @@ struct smp_ops_t {
 	int   (*cpu_disable)(void);
 	void  (*cpu_die)(unsigned int nr);
 	int   (*cpu_bootable)(unsigned int nr);
+#ifdef CONFIG_HOTPLUG_CPU
+	void  (*cpu_offline_self)(void);
+#endif
 };
 
 extern int smp_send_nmi_ipi(int cpu, void (*fn)(struct pt_regs *), u64 delay_us);
@@ -245,7 +248,7 @@ static inline void set_hard_smp_processor_id(int cpu, int phys)
 #if defined(CONFIG_PPC64) && (defined(CONFIG_SMP) || defined(CONFIG_KEXEC_CORE))
 extern void smp_release_cpus(void);
 #else
-static inline void smp_release_cpus(void) { };
+static inline void smp_release_cpus(void) { }
 #endif
 
 extern int smt_enabled_at_boot;
@@ -269,7 +272,6 @@ extern void arch_send_call_function_ipi_mask(const struct cpumask *mask);
  * 64-bit but defining them all here doesn't harm
  */
 extern void generic_secondary_smp_init(void);
-extern void generic_secondary_thread_init(void);
 extern unsigned long __secondary_hold_spinloop;
 extern unsigned long __secondary_hold_acknowledge;
 extern char __secondary_hold;

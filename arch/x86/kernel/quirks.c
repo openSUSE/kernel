@@ -91,14 +91,12 @@ static void ich_force_hpet_resume(void)
 		BUG();
 	else
 		printk(KERN_DEBUG "Force enabled HPET at resume\n");
-
-	return;
 }
 
 static void ich_force_enable_hpet(struct pci_dev *dev)
 {
 	u32 val;
-	u32 uninitialized_var(rcba);
+	u32 rcba;
 	int err = 0;
 
 	if (hpet_address || force_hpet_address)
@@ -113,7 +111,7 @@ static void ich_force_enable_hpet(struct pci_dev *dev)
 	}
 
 	/* use bits 31:14, 16 kB aligned */
-	rcba_base = ioremap_nocache(rcba, 0x4000);
+	rcba_base = ioremap(rcba, 0x4000);
 	if (rcba_base == NULL) {
 		dev_printk(KERN_DEBUG, &dev->dev, "ioremap failed; "
 			"cannot force enable HPET\n");
@@ -188,7 +186,7 @@ static void hpet_print_force_info(void)
 static void old_ich_force_hpet_resume(void)
 {
 	u32 val;
-	u32 uninitialized_var(gen_cntl);
+	u32 gen_cntl;
 
 	if (!force_hpet_address || !cached_dev)
 		return;
@@ -210,7 +208,7 @@ static void old_ich_force_hpet_resume(void)
 static void old_ich_force_enable_hpet(struct pci_dev *dev)
 {
 	u32 val;
-	u32 uninitialized_var(gen_cntl);
+	u32 gen_cntl;
 
 	if (hpet_address || force_hpet_address)
 		return;
@@ -301,7 +299,7 @@ static void vt8237_force_hpet_resume(void)
 
 static void vt8237_force_enable_hpet(struct pci_dev *dev)
 {
-	u32 uninitialized_var(val);
+	u32 val;
 
 	if (hpet_address || force_hpet_address)
 		return;
@@ -432,7 +430,7 @@ static void nvidia_force_hpet_resume(void)
 
 static void nvidia_force_enable_hpet(struct pci_dev *dev)
 {
-	u32 uninitialized_var(val);
+	u32 val;
 
 	if (hpet_address || force_hpet_address)
 		return;
@@ -449,7 +447,6 @@ static void nvidia_force_enable_hpet(struct pci_dev *dev)
 	dev_printk(KERN_DEBUG, &dev->dev, "Force enabled HPET at 0x%lx\n",
 		force_hpet_address);
 	cached_dev = dev;
-	return;
 }
 
 /* ISA Bridges */
@@ -514,7 +511,6 @@ static void e6xx_force_enable_hpet(struct pci_dev *dev)
 	force_hpet_resume_type = NONE_FORCE_HPET_RESUME;
 	dev_printk(KERN_DEBUG, &dev->dev, "Force enabled HPET at "
 		"0x%lx\n", force_hpet_address);
-	return;
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_E6XX_CU,
 			 e6xx_force_enable_hpet);

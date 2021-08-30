@@ -14,7 +14,6 @@
 
 #include <linux/clkdev.h>
 #include <linux/delay.h>
-#include <linux/dma-mapping.h>
 #include <linux/gpio.h>
 #include <linux/gpio/machine.h>
 #include <linux/i2c.h>
@@ -33,6 +32,7 @@
 #include <linux/sh_intc.h>
 #include <linux/usb/r8a66597.h>
 #include <linux/videodev2.h>
+#include <linux/dma-map-ops.h>
 
 #include <mach/kfr2r09.h>
 
@@ -601,7 +601,6 @@ static int __init kfr2r09_devices_setup(void)
 
 	/* Initialize CEU platform device separately to map memory first */
 	device_initialize(&kfr2r09_ceu_device.dev);
-	arch_setup_pdev_archdata(&kfr2r09_ceu_device);
 	dma_declare_coherent_memory(&kfr2r09_ceu_device.dev,
 			ceu_dma_membase, ceu_dma_membase,
 			ceu_dma_membase + CEU_BUFFER_MEMORY_SIZE - 1);

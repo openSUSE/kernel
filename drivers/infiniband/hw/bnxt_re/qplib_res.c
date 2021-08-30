@@ -823,7 +823,7 @@ static int bnxt_qplib_alloc_dpi_tbl(struct bnxt_qplib_res     *res,
 		return -ENOMEM;
 	}
 
-	dpit->dbr_bar_reg_iomem = ioremap_nocache(bar_reg_base + dbr_offset,
+	dpit->dbr_bar_reg_iomem = ioremap(bar_reg_base + dbr_offset,
 						  dbr_len);
 	if (!dpit->dbr_bar_reg_iomem) {
 		dev_err(&res->pdev->dev,
@@ -855,6 +855,7 @@ static int bnxt_qplib_alloc_dpi_tbl(struct bnxt_qplib_res     *res,
 
 unmap_io:
 	pci_iounmap(res->pdev, dpit->dbr_bar_reg_iomem);
+	dpit->dbr_bar_reg_iomem = NULL;
 	return -ENOMEM;
 }
 
@@ -955,4 +956,21 @@ int bnxt_qplib_alloc_res(struct bnxt_qplib_res *res, struct pci_dev *pdev,
 fail:
 	bnxt_qplib_free_res(res);
 	return rc;
+}
+
+int bnxt_qplib_determine_atomics(struct pci_dev *dev)
+{
+	int comp;
+	u16 ctl2;
+
+	comp = pci_enable_atomic_ops_to_root(dev,
+					     PCI_EXP_DEVCAP2_ATOMIC_COMP32);
+	if (comp)
+		return -EOPNOTSUPP;
+	comp = pci_enable_atomic_ops_to_root(dev,
+					     PCI_EXP_DEVCAP2_ATOMIC_COMP64);
+	if (comp)
+		return -EOPNOTSUPP;
+	pcie_capability_read_word(dev, PCI_EXP_DEVCTL2, &ctl2);
+	return !(ctl2 & PCI_EXP_DEVCTL2_ATOMIC_REQ);
 }

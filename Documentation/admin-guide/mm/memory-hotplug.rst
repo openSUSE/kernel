@@ -160,16 +160,16 @@ Under each memory block, you can see 5 files:
 
                     "online_movable", "online", "offline" command
                     which will be performed on all sections in the block.
-``phys_device``     read-only: designed to show the name of physical memory
-                    device.  This is not well implemented now.
-``removable``       read-only: contains an integer value indicating
-                    whether the memory block is removable or not
-                    removable.  A value of 1 indicates that the memory
-                    block is removable and a value of 0 indicates that
-                    it is not removable. A memory block is removable only if
-                    every section in the block is removable.
-``valid_zones``     read-only: designed to show which zones this memory block
-		    can be onlined to.
+``phys_device``	    read-only: legacy interface only ever used on s390x to
+		    expose the covered storage increment.
+``removable``	    read-only: legacy interface that indicated whether a memory
+		    block was likely to be offlineable or not.  Newer kernel
+		    versions return "1" if and only if the kernel supports
+		    memory offlining.
+``valid_zones``     read-only: designed to show by which zone memory provided by
+		    a memory block is managed, and to show by which zone memory
+		    provided by an offline memory block could be managed when
+		    onlining.
 
 		    The first column shows it`s default zone.
 
@@ -356,6 +356,28 @@ creates ZONE_MOVABLE as following.
 
    Unfortunately, there is no information to show which memory block belongs
    to ZONE_MOVABLE. This is TBD.
+
+   Memory offlining can fail when dissolving a free huge page on ZONE_MOVABLE
+   and the feature of freeing unused vmemmap pages associated with each hugetlb
+   page is enabled.
+
+   This can happen when we have plenty of ZONE_MOVABLE memory, but not enough
+   kernel memory to allocate vmemmmap pages.  We may even be able to migrate
+   huge page contents, but will not be able to dissolve the source huge page.
+   This will prevent an offline operation and is unfortunate as memory offlining
+   is expected to succeed on movable zones.  Users that depend on memory hotplug
+   to succeed for movable zones should carefully consider whether the memory
+   savings gained from this feature are worth the risk of possibly not being
+   able to offline memory in certain situations.
+
+.. note::
+   Techniques that rely on long-term pinnings of memory (especially, RDMA and
+   vfio) are fundamentally problematic with ZONE_MOVABLE and, therefore, memory
+   hot remove. Pinned pages cannot reside on ZONE_MOVABLE, to guarantee that
+   memory can still get hot removed - be aware that pinning can fail even if
+   there is plenty of free memory in ZONE_MOVABLE. In addition, using
+   ZONE_MOVABLE might make page pinning more expensive, because pages have to be
+   migrated off that zone first.
 
 .. _memory_hotplug_how_to_offline_memory:
 

@@ -16,6 +16,7 @@
 #include <asm/byteorder.h>
 #include <asm/cacheflush.h>
 #include <asm/debug-monitors.h>
+#include <asm/insn.h>
 #include <asm/set_memory.h>
 
 #include "bpf_jit.h"
@@ -178,11 +179,12 @@ static bool is_addsub_imm(u32 imm)
 	return !(imm & ~0xfff) || !(imm & ~0xfff000);
 }
 
-/* Stack must be multiples of 16B */
-#define STACK_ALIGN(sz) (((sz) + 15) & ~15)
-
 /* Tail call offset to jump into */
+#if IS_ENABLED(CONFIG_ARM64_BTI_KERNEL)
+#define PROLOGUE_OFFSET 8
+#else
 #define PROLOGUE_OFFSET 7
+#endif
 
 static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 {
@@ -219,6 +221,10 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 	 *
 	 */
 
+	/* BTI landing pad */
+	if (IS_ENABLED(CONFIG_ARM64_BTI_KERNEL))
+		emit(A64_BTI_C, ctx);
+
 	/* Save FP and LR registers to stay align with ARM64 AAPCS */
 	emit(A64_PUSH(A64_FP, A64_LR, A64_SP), ctx);
 	emit(A64_MOV(1, A64_FP, A64_SP), ctx);
@@ -241,9 +247,14 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 				    cur_offset, PROLOGUE_OFFSET);
 			return -1;
 		}
+
+		/* BTI landing pad for the tail call, done with a BR */
+		if (IS_ENABLED(CONFIG_ARM64_BTI_KERNEL))
+			emit(A64_BTI_J, ctx);
 	}
 
-	ctx->stack_size = STACK_ALIGN(prog->aux->stack_depth);
+	/* Stack must be multiples of 16B */
+	ctx->stack_size = round_up(prog->aux->stack_depth, 16);
 
 	/* Set up function call stack */
 	emit(A64_SUB_I(1, A64_SP, A64_SP, ctx->stack_size), ctx);
@@ -475,17 +486,12 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx,
 		break;
 	case BPF_ALU | BPF_DIV | BPF_X:
 	case BPF_ALU64 | BPF_DIV | BPF_X:
+		emit(A64_UDIV(is64, dst, dst, src), ctx);
+		break;
 	case BPF_ALU | BPF_MOD | BPF_X:
 	case BPF_ALU64 | BPF_MOD | BPF_X:
-		switch (BPF_OP(code)) {
-		case BPF_DIV:
-			emit(A64_UDIV(is64, dst, dst, src), ctx);
-			break;
-		case BPF_MOD:
-			emit(A64_UDIV(is64, tmp, dst, src), ctx);
-			emit(A64_MSUB(is64, dst, dst, tmp, src), ctx);
-			break;
-		}
+		emit(A64_UDIV(is64, tmp, dst, src), ctx);
+		emit(A64_MSUB(is64, dst, dst, tmp, src), ctx);
 		break;
 	case BPF_ALU | BPF_LSH | BPF_X:
 	case BPF_ALU64 | BPF_LSH | BPF_X:
@@ -817,6 +823,19 @@ emit_cond_jmp:
 			return ret;
 		break;
 
+	/* speculation barrier */
+	case BPF_ST | BPF_NOSPEC:
+		/*
+		 * Nothing required here.
+		 *
+		 * In case of arm64, we rely on the firmware mitigation of
+		 * Speculative Store Bypass as controlled via the ssbd kernel
+		 * parameter. Whenever the mitigation is enabled, it works
+		 * for all of the kernel code with no need to provide any
+		 * additional instructions.
+		 */
+		break;
+
 	/* ST: *(size *)(dst + off) = imm */
 	case BPF_ST | BPF_MEM | BPF_W:
 	case BPF_ST | BPF_MEM | BPF_H:
@@ -863,10 +882,18 @@ emit_cond_jmp:
 		}
 		break;
 
-	/* STX XADD: lock *(u32 *)(dst + off) += src */
-	case BPF_STX | BPF_XADD | BPF_W:
-	/* STX XADD: lock *(u64 *)(dst + off) += src */
-	case BPF_STX | BPF_XADD | BPF_DW:
+	case BPF_STX | BPF_ATOMIC | BPF_W:
+	case BPF_STX | BPF_ATOMIC | BPF_DW:
+		if (insn->imm != BPF_ADD) {
+			pr_err_once("unknown atomic op code %02x\n", insn->imm);
+			return -EINVAL;
+		}
+
+		/* STX XADD: lock *(u32 *)(dst + off) += src
+		 * and
+		 * STX XADD: lock *(u64 *)(dst + off) += src
+		 */
+
 		if (!off) {
 			reg = dst;
 		} else {

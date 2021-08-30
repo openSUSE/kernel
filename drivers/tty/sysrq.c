@@ -19,6 +19,7 @@
 #include <linux/sched/rt.h>
 #include <linux/sched/debug.h>
 #include <linux/sched/task.h>
+#include <linux/ctype.h>
 #include <linux/interrupt.h>
 #include <linux/mm.h>
 #include <linux/fs.h>
@@ -63,6 +64,19 @@ static bool sysrq_on(void)
 	return sysrq_enabled || sysrq_always_enabled;
 }
 
+/**
+ * sysrq_mask - Getter for sysrq_enabled mask.
+ *
+ * Return: 1 if sysrq is always enabled, enabled sysrq_key_op mask otherwise.
+ */
+int sysrq_mask(void)
+{
+	if (sysrq_always_enabled)
+		return 1;
+	return sysrq_enabled;
+}
+EXPORT_SYMBOL_GPL(sysrq_mask);
+
 /*
  * A value of 1 means 'all', other nonzero values are an op mask:
  */
@@ -104,6 +118,7 @@ static const struct sysrq_key_op sysrq_loglevel_op = {
 static void sysrq_handle_SAK(int key)
 {
 	struct work_struct *SAK_work = &vc_cons[fg_console].SAK_work;
+
 	schedule_work(SAK_work);
 }
 static const struct sysrq_key_op sysrq_SAK_op = {
@@ -222,7 +237,7 @@ static void showacpu(void *dummy)
 
 	raw_spin_lock_irqsave(&show_lock, flags);
 	pr_info("CPU%d:\n", smp_processor_id());
-	show_stack(NULL, NULL);
+	show_stack(NULL, NULL, KERN_INFO);
 	raw_spin_unlock_irqrestore(&show_lock, flags);
 }
 
@@ -427,7 +442,7 @@ static const struct sysrq_key_op sysrq_unrt_op = {
 /* Key Operations table and lock */
 static DEFINE_SPINLOCK(sysrq_key_table_lock);
 
-static const struct sysrq_key_op *sysrq_key_table[36] = {
+static const struct sysrq_key_op *sysrq_key_table[62] = {
 	&sysrq_loglevel_op,		/* 0 */
 	&sysrq_loglevel_op,		/* 1 */
 	&sysrq_loglevel_op,		/* 2 */
@@ -484,6 +499,32 @@ static const struct sysrq_key_op *sysrq_key_table[36] = {
 	/* y: May be registered on sparc64 for global register dump */
 	NULL,				/* y */
 	&sysrq_ftrace_dump_op,		/* z */
+	NULL,				/* A */
+	NULL,				/* B */
+	NULL,				/* C */
+	NULL,				/* D */
+	NULL,				/* E */
+	NULL,				/* F */
+	NULL,				/* G */
+	NULL,				/* H */
+	NULL,				/* I */
+	NULL,				/* J */
+	NULL,				/* K */
+	NULL,				/* L */
+	NULL,				/* M */
+	NULL,				/* N */
+	NULL,				/* O */
+	NULL,				/* P */
+	NULL,				/* Q */
+	NULL,				/* R */
+	NULL,				/* S */
+	NULL,				/* T */
+	NULL,				/* U */
+	NULL,				/* V */
+	NULL,				/* W */
+	NULL,				/* X */
+	NULL,				/* Y */
+	NULL,				/* Z */
 };
 
 /* key2index calculation, -1 on invalid index */
@@ -495,6 +536,8 @@ static int sysrq_key_table_key2index(int key)
 		retval = key - '0';
 	else if ((key >= 'a') && (key <= 'z'))
 		retval = key + 10 - 'a';
+	else if ((key >= 'A') && (key <= 'Z'))
+		retval = key + 36 - 'A';
 	else
 		retval = -1;
 	return retval;
@@ -505,22 +548,22 @@ static int sysrq_key_table_key2index(int key)
  */
 static const struct sysrq_key_op *__sysrq_get_key_op(int key)
 {
-        const struct sysrq_key_op *op_p = NULL;
-        int i;
+	const struct sysrq_key_op *op_p = NULL;
+	int i;
 
 	i = sysrq_key_table_key2index(key);
 	if (i != -1)
-	        op_p = sysrq_key_table[i];
+		op_p = sysrq_key_table[i];
 
-        return op_p;
+	return op_p;
 }
 
 static void __sysrq_put_key_op(int key, const struct sysrq_key_op *op_p)
 {
-        int i = sysrq_key_table_key2index(key);
+	int i = sysrq_key_table_key2index(key);
 
-        if (i != -1)
-                sysrq_key_table[i] = op_p;
+	if (i != -1)
+		sysrq_key_table[i] = op_p;
 }
 
 void __handle_sysrq(int key, bool check_mask)
@@ -544,8 +587,8 @@ void __handle_sysrq(int key, bool check_mask)
 	orig_log_level = console_loglevel;
 	console_loglevel = CONSOLE_LOGLEVEL_DEFAULT;
 
-        op_p = __sysrq_get_key_op(key);
-        if (op_p) {
+	op_p = __sysrq_get_key_op(key);
+	if (op_p) {
 		/*
 		 * Should we check for enabled operations (/proc/sysrq-trigger
 		 * should not) and is the invoked operation enabled?
@@ -594,13 +637,13 @@ static int sysrq_reset_downtime_ms;
 
 /* Simple translation table for the SysRq keys */
 static const unsigned char sysrq_xlate[KEY_CNT] =
-        "\000\0331234567890-=\177\t"                    /* 0x00 - 0x0f */
-        "qwertyuiop[]\r\000as"                          /* 0x10 - 0x1f */
-        "dfghjkl;'`\000\\zxcv"                          /* 0x20 - 0x2f */
-        "bnm,./\000*\000 \000\201\202\203\204\205"      /* 0x30 - 0x3f */
-        "\206\207\210\211\212\000\000789-456+1"         /* 0x40 - 0x4f */
-        "230\177\000\000\213\214\000\000\000\000\000\000\000\000\000\000" /* 0x50 - 0x5f */
-        "\r\000/";                                      /* 0x60 - 0x6f */
+	"\000\0331234567890-=\177\t"                    /* 0x00 - 0x0f */
+	"qwertyuiop[]\r\000as"                          /* 0x10 - 0x1f */
+	"dfghjkl;'`\000\\zxcv"                          /* 0x20 - 0x2f */
+	"bnm,./\000*\000 \000\201\202\203\204\205"      /* 0x30 - 0x3f */
+	"\206\207\210\211\212\000\000789-456+1"         /* 0x40 - 0x4f */
+	"230\177\000\000\213\214\000\000\000\000\000\000\000\000\000\000" /* 0x50 - 0x5f */
+	"\r\000/";                                      /* 0x60 - 0x6f */
 
 struct sysrq_state {
 	struct input_handle handle;
@@ -608,6 +651,8 @@ struct sysrq_state {
 	unsigned long key_down[BITS_TO_LONGS(KEY_CNT)];
 	unsigned int alt;
 	unsigned int alt_use;
+	unsigned int shift;
+	unsigned int shift_use;
 	bool active;
 	bool need_reinject;
 	bool reinjecting;
@@ -792,10 +837,20 @@ static bool sysrq_handle_keypress(struct sysrq_state *sysrq,
 		}
 		break;
 
+	case KEY_LEFTSHIFT:
+	case KEY_RIGHTSHIFT:
+		if (!value)
+			sysrq->shift = KEY_RESERVED;
+		else if (value != 2)
+			sysrq->shift = code;
+		break;
+
 	case KEY_SYSRQ:
 		if (value == 1 && sysrq->alt != KEY_RESERVED) {
 			sysrq->active = true;
 			sysrq->alt_use = sysrq->alt;
+			/* either RESERVED (for released) or actual code */
+			sysrq->shift_use = sysrq->shift;
 			/*
 			 * If nothing else will be pressed we'll need
 			 * to re-inject Alt-SysRq keysroke.
@@ -818,8 +873,12 @@ static bool sysrq_handle_keypress(struct sysrq_state *sysrq,
 
 	default:
 		if (sysrq->active && value && value != 2) {
+			unsigned char c = sysrq_xlate[code];
+
 			sysrq->need_reinject = false;
-			__handle_sysrq(sysrq_xlate[code], true);
+			if (sysrq->shift_use != KEY_RESERVED)
+				c = toupper(c);
+			__handle_sysrq(c, true);
 		}
 		break;
 	}
@@ -967,8 +1026,6 @@ static struct input_handler sysrq_handler = {
 	.id_table	= sysrq_ids,
 };
 
-static bool sysrq_handler_registered;
-
 static inline void sysrq_register_handler(void)
 {
 	int error;
@@ -978,16 +1035,11 @@ static inline void sysrq_register_handler(void)
 	error = input_register_handler(&sysrq_handler);
 	if (error)
 		pr_err("Failed to register input handler, error %d", error);
-	else
-		sysrq_handler_registered = true;
 }
 
 static inline void sysrq_unregister_handler(void)
 {
-	if (sysrq_handler_registered) {
-		input_unregister_handler(&sysrq_handler);
-		sysrq_handler_registered = false;
-	}
+	input_unregister_handler(&sysrq_handler);
 }
 
 static int sysrq_reset_seq_param_set(const char *buffer,
@@ -1053,9 +1105,10 @@ int sysrq_toggle_support(int enable_mask)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(sysrq_toggle_support);
 
 static int __sysrq_swap_key_ops(int key, const struct sysrq_key_op *insert_op_p,
-                                const struct sysrq_key_op *remove_op_p)
+				const struct sysrq_key_op *remove_op_p)
 {
 	int retval;
 
@@ -1108,15 +1161,15 @@ static ssize_t write_sysrq_trigger(struct file *file, const char __user *buf,
 	return count;
 }
 
-static const struct file_operations proc_sysrq_trigger_operations = {
-	.write		= write_sysrq_trigger,
-	.llseek		= noop_llseek,
+static const struct proc_ops sysrq_trigger_proc_ops = {
+	.proc_write	= write_sysrq_trigger,
+	.proc_lseek	= noop_llseek,
 };
 
 static void sysrq_init_procfs(void)
 {
 	if (!proc_create("sysrq-trigger", S_IWUSR, NULL,
-			 &proc_sysrq_trigger_operations))
+			 &sysrq_trigger_proc_ops))
 		pr_err("Failed to register proc interface\n");
 }
 

@@ -193,7 +193,7 @@ ENTRY(_startup)
 	movi	a1, start_info
 	l32i	a1, a1, 0
 
-	movi	a2, (1 << PS_WOE_BIT) | LOCKLEVEL
+	movi	a2, PS_WOE_MASK | LOCKLEVEL
 					# WOE=1, INTLEVEL=LOCKLEVEL, UM=0
 	wsr	a2, ps			# (enable reg-windows; progmode stack)
 	rsync
@@ -212,7 +212,7 @@ ENTRY(_startup)
 	 *
 	 * The linker script used to build the Linux kernel image
 	 * creates a table located at __boot_reloc_table_start
-	 * that contans the information what data needs to be unpacked.
+	 * that contains the information what data needs to be unpacked.
 	 *
 	 * Uses a2-a7.
 	 */
@@ -222,7 +222,7 @@ ENTRY(_startup)
 
 1:	beq	a2, a3, 3f	# no more entries?
 	l32i	a4, a2, 0	# start destination (in RAM)
-	l32i	a5, a2, 4	# end desination (in RAM)
+	l32i	a5, a2, 4	# end destination (in RAM)
 	l32i	a6, a2, 8	# start source (in ROM)
 	addi	a2, a2, 12	# next entry
 	beq	a4, a5, 1b	# skip, empty entry
@@ -259,6 +259,13 @@ ENTRY(_startup)
 	isync
 	___invalidate_icache_all a2 a3
 	isync
+
+#ifdef CONFIG_XIP_KERNEL
+	/* Setup bootstrap CPU stack in XIP kernel */
+
+	movi	a1, start_info
+	l32i	a1, a1, 0
+#endif
 
 	movi	a6, 0
 	xsr	a6, excsave1
@@ -355,10 +362,10 @@ ENDPROC(cpu_restart)
  * DATA section
  */
 
-        .section ".data.init.refok"
-        .align  4
+	__REFDATA
+	.align  4
 ENTRY(start_info)
-        .long   init_thread_union + KERNEL_STACK_SIZE
+	.long	init_thread_union + KERNEL_STACK_SIZE
 
 /*
  * BSS section

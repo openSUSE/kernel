@@ -10,7 +10,6 @@
 #include <linux/export.h>
 #include <linux/bitops.h>
 #include <linux/string.h>
-#include <linux/cryptohash.h>
 #include <asm/unaligned.h>
 #include <crypto/chacha.h>
 
@@ -65,7 +64,7 @@ static void chacha_permute(u32 *x, int nrounds)
 }
 
 /**
- * chacha_block - generate one keystream block and increment block counter
+ * chacha_block_generic - generate one keystream block and increment block counter
  * @state: input state matrix (16 32-bit words)
  * @stream: output keystream block (64 bytes)
  * @nrounds: number of rounds (20 or 12; 20 is recommended)
@@ -93,7 +92,7 @@ EXPORT_SYMBOL(chacha_block_generic);
 /**
  * hchacha_block_generic - abbreviated ChaCha core, for XChaCha
  * @state: input state matrix (16 32-bit words)
- * @out: output (8 32-bit words)
+ * @stream: output (8 32-bit words)
  * @nrounds: number of rounds (20 or 12; 20 is recommended)
  *
  * HChaCha is the ChaCha equivalent of HSalsa and is an intermediate step

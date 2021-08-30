@@ -17,6 +17,11 @@ extern int __read_mostly pt_mode;
 #define PT_MODE_SYSTEM		0
 #define PT_MODE_HOST_GUEST	1
 
+#define PMU_CAP_FW_WRITES	(1ULL << 13)
+#define PMU_CAP_LBR_FMT		0x3f
+
+#define DEBUGCTLMSR_LBR_MASK		(DEBUGCTLMSR_LBR | DEBUGCTLMSR_FREEZE_LBRS_ON_PMI)
+
 struct nested_vmx_msrs {
 	/*
 	 * We only store the "true" versions of the VMX capability MSRs. We
@@ -84,8 +89,7 @@ static inline bool cpu_has_vmx_preemption_timer(void)
 
 static inline bool cpu_has_vmx_posted_intr(void)
 {
-	return IS_ENABLED(CONFIG_X86_LOCAL_APIC) &&
-		vmcs_config.pin_based_exec_ctrl & PIN_BASED_POSTED_INTR;
+	return vmcs_config.pin_based_exec_ctrl & PIN_BASED_POSTED_INTR;
 }
 
 static inline bool cpu_has_load_ia32_efer(void)
@@ -100,7 +104,7 @@ static inline bool cpu_has_load_perf_global_ctrl(void)
 	       (vmcs_config.vmexit_ctrl & VM_EXIT_LOAD_IA32_PERF_GLOBAL_CTRL);
 }
 
-static inline bool vmx_mpx_supported(void)
+static inline bool cpu_has_vmx_mpx(void)
 {
 	return (vmcs_config.vmexit_ctrl & VM_EXIT_CLEAR_BNDCFGS) &&
 		(vmcs_config.vmentry_ctrl & VM_ENTRY_LOAD_BNDCFGS);
@@ -145,15 +149,10 @@ static inline bool vmx_umip_emulated(void)
 		SECONDARY_EXEC_DESC;
 }
 
-static inline bool vmx_pku_supported(void)
-{
-	return boot_cpu_has(X86_FEATURE_PKU);
-}
-
 static inline bool cpu_has_vmx_rdtscp(void)
 {
 	return vmcs_config.cpu_based_2nd_exec_ctrl &
-		SECONDARY_EXEC_RDTSCP;
+		SECONDARY_EXEC_ENABLE_RDTSCP;
 }
 
 static inline bool cpu_has_vmx_virtualize_x2apic_mode(void)
@@ -198,7 +197,7 @@ static inline bool cpu_has_vmx_ple(void)
 		SECONDARY_EXEC_PAUSE_LOOP_EXITING;
 }
 
-static inline bool vmx_rdrand_supported(void)
+static inline bool cpu_has_vmx_rdrand(void)
 {
 	return vmcs_config.cpu_based_2nd_exec_ctrl &
 		SECONDARY_EXEC_RDRAND_EXITING;
@@ -235,7 +234,7 @@ static inline bool cpu_has_vmx_encls_vmexit(void)
 		SECONDARY_EXEC_ENCLS_EXITING;
 }
 
-static inline bool vmx_rdseed_supported(void)
+static inline bool cpu_has_vmx_rdseed(void)
 {
 	return vmcs_config.cpu_based_2nd_exec_ctrl &
 		SECONDARY_EXEC_RDSEED_EXITING;
@@ -246,13 +245,13 @@ static inline bool cpu_has_vmx_pml(void)
 	return vmcs_config.cpu_based_2nd_exec_ctrl & SECONDARY_EXEC_ENABLE_PML;
 }
 
-static inline bool vmx_xsaves_supported(void)
+static inline bool cpu_has_vmx_xsaves(void)
 {
 	return vmcs_config.cpu_based_2nd_exec_ctrl &
 		SECONDARY_EXEC_XSAVES;
 }
 
-static inline bool vmx_waitpkg_supported(void)
+static inline bool cpu_has_vmx_waitpkg(void)
 {
 	return vmcs_config.cpu_based_2nd_exec_ctrl &
 		SECONDARY_EXEC_ENABLE_USR_WAIT_PAUSE;
@@ -262,6 +261,12 @@ static inline bool cpu_has_vmx_tsc_scaling(void)
 {
 	return vmcs_config.cpu_based_2nd_exec_ctrl &
 		SECONDARY_EXEC_TSC_SCALING;
+}
+
+static inline bool cpu_has_vmx_bus_lock_detection(void)
+{
+	return vmcs_config.cpu_based_2nd_exec_ctrl &
+	    SECONDARY_EXEC_BUS_LOCK_DETECTION;
 }
 
 static inline bool cpu_has_vmx_apicv(void)
@@ -351,6 +356,53 @@ static inline bool cpu_has_vmx_intel_pt(void)
 		(vmcs_config.cpu_based_2nd_exec_ctrl & SECONDARY_EXEC_PT_USE_GPA) &&
 		(vmcs_config.vmexit_ctrl & VM_EXIT_CLEAR_IA32_RTIT_CTL) &&
 		(vmcs_config.vmentry_ctrl & VM_ENTRY_LOAD_IA32_RTIT_CTL);
+}
+
+/*
+ * Processor Trace can operate in one of three modes:
+ *  a. system-wide: trace both host/guest and output to host buffer
+ *  b. host-only:   only trace host and output to host buffer
+ *  c. host-guest:  trace host and guest simultaneously and output to their
+ *                  respective buffer
+ *
+ * KVM currently only supports (a) and (c).
+ */
+static inline bool vmx_pt_mode_is_system(void)
+{
+	return pt_mode == PT_MODE_SYSTEM;
+}
+static inline bool vmx_pt_mode_is_host_guest(void)
+{
+	return pt_mode == PT_MODE_HOST_GUEST;
+}
+
+static inline u64 vmx_get_perf_capabilities(void)
+{
+	u64 perf_cap = 0;
+
+	if (boot_cpu_has(X86_FEATURE_PDCM))
+		rdmsrl(MSR_IA32_PERF_CAPABILITIES, perf_cap);
+
+	perf_cap &= PMU_CAP_LBR_FMT;
+
+	/*
+	 * Since counters are virtualized, KVM would support full
+	 * width counting unconditionally, even if the host lacks it.
+	 */
+	return PMU_CAP_FW_WRITES | perf_cap;
+}
+
+static inline u64 vmx_supported_debugctl(void)
+{
+	u64 debugctl = 0;
+
+	if (boot_cpu_has(X86_FEATURE_BUS_LOCK_DETECT))
+		debugctl |= DEBUGCTLMSR_BUS_LOCK_DETECT;
+
+	if (vmx_get_perf_capabilities() & PMU_CAP_LBR_FMT)
+		debugctl |= DEBUGCTLMSR_LBR_MASK;
+
+	return debugctl;
 }
 
 #endif /* __KVM_X86_VMX_CAPS_H */

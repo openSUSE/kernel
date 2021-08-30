@@ -3,7 +3,7 @@
  *
  * Module Name: apfiles - File-related functions for acpidump utility
  *
- * Copyright (C) 2000 - 2020, Intel Corp.
+ * Copyright (C) 2000 - 2021, Intel Corp.
  *
  *****************************************************************************/
 
@@ -29,18 +29,24 @@ static int ap_is_existing_file(char *pathname)
 {
 #if !defined(_GNU_EFI) && !defined(_EDK2_EFI)
 	struct stat stat_info;
+	int in_char;
 
 	if (!stat(pathname, &stat_info)) {
 		fprintf(stderr,
 			"Target path already exists, overwrite? [y|n] ");
 
-		if (getchar() != 'y') {
+		in_char = fgetc(stdin);
+		if (in_char == '\n') {
+			in_char = fgetc(stdin);
+		}
+
+		if (in_char != 'y' && in_char != 'Y') {
 			return (-1);
 		}
 	}
 #endif
 
-	return 0;
+	return (0);
 }
 
 /******************************************************************************

@@ -4,6 +4,8 @@
  */
 
 #include "debugfs_gt.h"
+
+#include "gem/i915_gem_lmem.h"
 #include "i915_drv.h"
 #include "intel_context.h"
 #include "intel_gt.h"
@@ -29,6 +31,9 @@ void intel_gt_init_early(struct intel_gt *gt, struct drm_i915_private *i915)
 	INIT_LIST_HEAD(&gt->closed_vma);
 	spin_lock_init(&gt->closed_lock);
 
+	init_llist_head(&gt->watchdog.list);
+	INIT_WORK(&gt->watchdog.work, intel_gt_watchdog_work);
+
 	intel_gt_init_buffer_pool(gt);
 	intel_gt_init_reset(gt);
 	intel_gt_init_requests(gt);
@@ -39,6 +44,40 @@ void intel_gt_init_early(struct intel_gt *gt, struct drm_i915_private *i915)
 	intel_uc_init_early(&gt->uc);
 }
 
+int intel_gt_probe_lmem(struct intel_gt *gt)
+{
+	struct drm_i915_private *i915 = gt->i915;
+	struct intel_memory_region *mem;
+	int id;
+	int err;
+
+	mem = intel_gt_setup_lmem(gt);
+	if (mem == ERR_PTR(-ENODEV))
+		mem = intel_gt_setup_fake_lmem(gt);
+	if (IS_ERR(mem)) {
+		err = PTR_ERR(mem);
+		if (err == -ENODEV)
+			return 0;
+
+		drm_err(&i915->drm,
+			"Failed to setup region(%d) type=%d\n",
+			err, INTEL_MEMORY_LOCAL);
+		return err;
+	}
+
+	id = INTEL_REGION_LMEM;
+
+	mem->id = id;
+
+	intel_memory_region_set_name(mem, "local%u", mem->instance);
+
+	GEM_BUG_ON(!HAS_REGION(i915, id));
+	GEM_BUG_ON(i915->mm.regions[id]);
+	i915->mm.regions[id] = mem;
+
+	return 0;
+}
+
 void intel_gt_init_hw_early(struct intel_gt *gt, struct i915_ggtt *ggtt)
 {
 	gt->ggtt = ggtt;
@@ -46,6 +85,8 @@ void intel_gt_init_hw_early(struct intel_gt *gt, struct i915_ggtt *ggtt)
 
 int intel_gt_init_mmio(struct intel_gt *gt)
 {
+	intel_gt_init_clock_frequency(gt);
+
 	intel_uc_init_mmio(&gt->uc);
 	intel_sseu_info_init(gt);
 
@@ -72,10 +113,10 @@ static void init_unused_rings(struct intel_gt *gt)
 		init_unused_ring(gt, SRB1_BASE);
 		init_unused_ring(gt, SRB2_BASE);
 		init_unused_ring(gt, SRB3_BASE);
-	} else if (IS_GEN(i915, 2)) {
+	} else if (GRAPHICS_VER(i915) == 2) {
 		init_unused_ring(gt, SRB0_BASE);
 		init_unused_ring(gt, SRB1_BASE);
-	} else if (IS_GEN(i915, 3)) {
+	} else if (GRAPHICS_VER(i915) == 3) {
 		init_unused_ring(gt, PRB1_BASE);
 		init_unused_ring(gt, PRB2_BASE);
 	}
@@ -92,7 +133,7 @@ int intel_gt_init_hw(struct intel_gt *gt)
 	/* Double layer security blanket, see i915_gem_init() */
 	intel_uncore_forcewake_get(uncore, FORCEWAKE_ALL);
 
-	if (HAS_EDRAM(i915) && INTEL_GEN(i915) < 9)
+	if (HAS_EDRAM(i915) && GRAPHICS_VER(i915) < 9)
 		intel_uncore_rmw(uncore, HSW_IDICR, 0, IDIHASHMSK(0xf));
 
 	if (IS_HASWELL(i915))
@@ -165,10 +206,10 @@ intel_gt_clear_error_registers(struct intel_gt *gt,
 	struct intel_uncore *uncore = gt->uncore;
 	u32 eir;
 
-	if (!IS_GEN(i915, 2))
+	if (GRAPHICS_VER(i915) != 2)
 		clear_register(uncore, PGTBL_ER);
 
-	if (INTEL_GEN(i915) < 4)
+	if (GRAPHICS_VER(i915) < 4)
 		clear_register(uncore, IPEIR(RENDER_RING_BASE));
 	else
 		clear_register(uncore, IPEIR_I965);
@@ -186,13 +227,13 @@ intel_gt_clear_error_registers(struct intel_gt *gt,
 				   I915_MASTER_ERROR_INTERRUPT);
 	}
 
-	if (INTEL_GEN(i915) >= 12) {
+	if (GRAPHICS_VER(i915) >= 12) {
 		rmw_clear(uncore, GEN12_RING_FAULT_REG, RING_FAULT_VALID);
 		intel_uncore_posting_read(uncore, GEN12_RING_FAULT_REG);
-	} else if (INTEL_GEN(i915) >= 8) {
+	} else if (GRAPHICS_VER(i915) >= 8) {
 		rmw_clear(uncore, GEN8_RING_FAULT_REG, RING_FAULT_VALID);
 		intel_uncore_posting_read(uncore, GEN8_RING_FAULT_REG);
-	} else if (INTEL_GEN(i915) >= 6) {
+	} else if (GRAPHICS_VER(i915) >= 6) {
 		struct intel_engine_cs *engine;
 		enum intel_engine_id id;
 
@@ -230,7 +271,7 @@ static void gen8_check_faults(struct intel_gt *gt)
 	i915_reg_t fault_reg, fault_data0_reg, fault_data1_reg;
 	u32 fault;
 
-	if (INTEL_GEN(gt->i915) >= 12) {
+	if (GRAPHICS_VER(gt->i915) >= 12) {
 		fault_reg = GEN12_RING_FAULT_REG;
 		fault_data0_reg = GEN12_FAULT_TLB_DATA0;
 		fault_data1_reg = GEN12_FAULT_TLB_DATA1;
@@ -270,9 +311,9 @@ void intel_gt_check_and_clear_faults(struct intel_gt *gt)
 	struct drm_i915_private *i915 = gt->i915;
 
 	/* From GEN8 onwards we only have one 'All Engine Fault Register' */
-	if (INTEL_GEN(i915) >= 8)
+	if (GRAPHICS_VER(i915) >= 8)
 		gen8_check_faults(gt);
-	else if (INTEL_GEN(i915) >= 6)
+	else if (GRAPHICS_VER(i915) >= 6)
 		gen6_check_faults(gt);
 	else
 		return;
@@ -324,7 +365,7 @@ void intel_gt_flush_ggtt_writes(struct intel_gt *gt)
 void intel_gt_chipset_flush(struct intel_gt *gt)
 {
 	wmb();
-	if (INTEL_GEN(gt->i915) < 6)
+	if (GRAPHICS_VER(gt->i915) < 6)
 		intel_gtt_chipset_flush();
 }
 
@@ -342,11 +383,13 @@ static int intel_gt_init_scratch(struct intel_gt *gt, unsigned int size)
 	struct i915_vma *vma;
 	int ret;
 
-	obj = i915_gem_object_create_stolen(i915, size);
+	obj = i915_gem_object_create_lmem(i915, size, I915_BO_ALLOC_VOLATILE);
+	if (IS_ERR(obj))
+		obj = i915_gem_object_create_stolen(i915, size);
 	if (IS_ERR(obj))
 		obj = i915_gem_object_create_internal(i915, size);
 	if (IS_ERR(obj)) {
-		DRM_ERROR("Failed to allocate scratch page\n");
+		drm_err(&i915->drm, "Failed to allocate scratch page\n");
 		return PTR_ERR(obj);
 	}
 
@@ -356,7 +399,7 @@ static int intel_gt_init_scratch(struct intel_gt *gt, unsigned int size)
 		goto err_unref;
 	}
 
-	ret = i915_ggtt_pin(vma, 0, PIN_HIGH);
+	ret = i915_ggtt_pin(vma, NULL, 0, PIN_HIGH);
 	if (ret)
 		goto err_unref;
 
@@ -406,21 +449,20 @@ static int __engines_record_defaults(struct intel_gt *gt)
 		/* We must be able to switch to something! */
 		GEM_BUG_ON(!engine->kernel_context);
 
-		err = intel_renderstate_init(&so, engine);
-		if (err)
-			goto out;
-
 		ce = intel_context_create(engine);
 		if (IS_ERR(ce)) {
 			err = PTR_ERR(ce);
 			goto out;
 		}
 
-		rq = intel_context_create_request(ce);
+		err = intel_renderstate_init(&so, ce);
+		if (err)
+			goto err;
+
+		rq = i915_request_create(ce);
 		if (IS_ERR(rq)) {
 			err = PTR_ERR(rq);
-			intel_context_put(ce);
-			goto out;
+			goto err_fini;
 		}
 
 		err = intel_engine_emit_ctx_wa(rq);
@@ -434,9 +476,13 @@ static int __engines_record_defaults(struct intel_gt *gt)
 err_rq:
 		requests[id] = i915_request_get(rq);
 		i915_request_add(rq);
-		intel_renderstate_fini(&so);
-		if (err)
+err_fini:
+		intel_renderstate_fini(&so, ce);
+err:
+		if (err) {
+			intel_context_put(ce);
 			goto out;
+		}
 	}
 
 	/* Flush the default context image to memory, and enable powersaving. */
@@ -543,9 +589,8 @@ int intel_gt_init(struct intel_gt *gt)
 	 */
 	intel_uncore_forcewake_get(gt->uncore, FORCEWAKE_ALL);
 
-	intel_gt_init_clock_frequency(gt);
-
-	err = intel_gt_init_scratch(gt, IS_GEN(gt->i915, 2) ? SZ_256K : SZ_4K);
+	err = intel_gt_init_scratch(gt,
+				    GRAPHICS_VER(gt->i915) == 2 ? SZ_256K : SZ_4K);
 	if (err)
 		goto out_fw;
 
@@ -611,6 +656,8 @@ void intel_gt_driver_remove(struct intel_gt *gt)
 
 void intel_gt_driver_unregister(struct intel_gt *gt)
 {
+	intel_wakeref_t wakeref;
+
 	intel_rps_driver_unregister(&gt->rps);
 
 	/*
@@ -619,16 +666,15 @@ void intel_gt_driver_unregister(struct intel_gt *gt)
 	 * resources.
 	 */
 	intel_gt_set_wedged(gt);
+
+	/* Scrub all HW state upon release */
+	with_intel_runtime_pm(gt->uncore->rpm, wakeref)
+		__intel_gt_reset(gt, ALL_ENGINES);
 }
 
 void intel_gt_driver_release(struct intel_gt *gt)
 {
 	struct i915_address_space *vm;
-	intel_wakeref_t wakeref;
-
-	/* Scrub all HW state upon release */
-	with_intel_runtime_pm(gt->uncore->rpm, wakeref)
-		__intel_gt_reset(gt, ALL_ENGINES);
 
 	vm = fetch_and_zero(&gt->vm);
 	if (vm) /* FIXME being called twice on error paths :( */

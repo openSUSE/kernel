@@ -4,8 +4,10 @@
  */
 
 #include <linux/slab.h>
+#include <linux/compat.h>
 #include <linux/cred.h>
 #include <linux/buffer_head.h>
+#include <linux/blkdev.h>
 
 #include "exfat_raw.h"
 #include "exfat_fs.h"
@@ -96,18 +98,16 @@ int __exfat_truncate(struct inode *inode, loff_t new_size)
 	unsigned int num_clusters_new, num_clusters_phys;
 	unsigned int last_clu = EXFAT_FREE_CLUSTER;
 	struct exfat_chain clu;
-	struct exfat_dentry *ep, *ep2;
 	struct super_block *sb = inode->i_sb;
 	struct exfat_sb_info *sbi = EXFAT_SB(sb);
 	struct exfat_inode_info *ei = EXFAT_I(inode);
-	struct exfat_entry_set_cache *es = NULL;
 	int evict = (ei->dir.dir == DIR_DELETED) ? 1 : 0;
 
 	/* check if the given file ID is opened */
 	if (ei->type != TYPE_FILE && ei->type != TYPE_DIR)
 		return -EPERM;
 
-	exfat_set_vol_flags(sb, VOL_DIRTY);
+	exfat_set_volume_dirty(sb);
 
 	num_clusters_new = EXFAT_B_TO_CLU_ROUND_UP(i_size_read(inode), sbi);
 	num_clusters_phys =
@@ -153,19 +153,23 @@ int __exfat_truncate(struct inode *inode, loff_t new_size)
 	/* update the directory entry */
 	if (!evict) {
 		struct timespec64 ts;
+		struct exfat_dentry *ep, *ep2;
+		struct exfat_entry_set_cache *es;
+		int err;
 
 		es = exfat_get_dentry_set(sb, &(ei->dir), ei->entry,
-				ES_ALL_ENTRIES, &ep);
+				ES_ALL_ENTRIES);
 		if (!es)
 			return -EIO;
-		ep2 = ep + 1;
+		ep = exfat_get_dentry_cached(es, 0);
+		ep2 = exfat_get_dentry_cached(es, 1);
 
 		ts = current_time(inode);
 		exfat_set_entry_time(sbi, &ts,
 				&ep->dentry.file.modify_tz,
 				&ep->dentry.file.modify_time,
 				&ep->dentry.file.modify_date,
-				&ep->dentry.file.modify_time_ms);
+				&ep->dentry.file.modify_time_cs);
 		ep->dentry.file.attr = cpu_to_le16(ei->attr);
 
 		/* File size should be zero if there is no cluster allocated */
@@ -185,10 +189,10 @@ int __exfat_truncate(struct inode *inode, loff_t new_size)
 			ep2->dentry.stream.start_clu = EXFAT_FREE_CLUSTER;
 		}
 
-		if (exfat_update_dir_chksum_with_entry_set(sb, es,
-		    inode_needs_sync(inode)))
-			return -EIO;
-		kfree(es);
+		exfat_update_dir_chksum_with_entry_set(es);
+		err = exfat_free_dentry_set(es, inode_needs_sync(inode));
+		if (err)
+			return err;
 	}
 
 	/* cut off from the FAT chain */
@@ -205,8 +209,6 @@ int __exfat_truncate(struct inode *inode, loff_t new_size)
 	/* hint information */
 	ei->hint_bmap.off = EXFAT_EOF_CLUSTER;
 	ei->hint_bmap.clu = EXFAT_EOF_CLUSTER;
-	if (ei->rwoffset > new_size)
-		ei->rwoffset = new_size;
 
 	/* hint_stat will be used if this is directory. */
 	ei->hint_stat.eidx = 0;
@@ -217,7 +219,7 @@ int __exfat_truncate(struct inode *inode, loff_t new_size)
 	if (exfat_free_cluster(inode, &clu))
 		return -EIO;
 
-	exfat_set_vol_flags(sb, VOL_CLEAN);
+	exfat_clear_volume_dirty(sb);
 
 	return 0;
 }
@@ -226,7 +228,7 @@ void exfat_truncate(struct inode *inode, loff_t size)
 {
 	struct super_block *sb = inode->i_sb;
 	struct exfat_sb_info *sbi = EXFAT_SB(sb);
-	unsigned int blocksize = 1 << inode->i_blkbits;
+	unsigned int blocksize = i_blocksize(inode);
 	loff_t aligned_size;
 	int err;
 
@@ -266,13 +268,15 @@ write_size:
 	mutex_unlock(&sbi->s_lock);
 }
 
-int exfat_getattr(const struct path *path, struct kstat *stat,
-		unsigned int request_mask, unsigned int query_flags)
+int exfat_getattr(struct user_namespace *mnt_uerns, const struct path *path,
+		  struct kstat *stat, unsigned int request_mask,
+		  unsigned int query_flags)
 {
 	struct inode *inode = d_backing_inode(path->dentry);
 	struct exfat_inode_info *ei = EXFAT_I(inode);
 
-	generic_fillattr(inode, stat);
+	generic_fillattr(&init_user_ns, inode, stat);
+	exfat_truncate_atime(&stat->atime);
 	stat->result_mask |= STATX_BTIME;
 	stat->btime.tv_sec = ei->i_crtime.tv_sec;
 	stat->btime.tv_nsec = ei->i_crtime.tv_nsec;
@@ -280,7 +284,8 @@ int exfat_getattr(const struct path *path, struct kstat *stat,
 	return 0;
 }
 
-int exfat_setattr(struct dentry *dentry, struct iattr *attr)
+int exfat_setattr(struct user_namespace *mnt_userns, struct dentry *dentry,
+		  struct iattr *attr)
 {
 	struct exfat_sb_info *sbi = EXFAT_SB(dentry->d_sb);
 	struct inode *inode = dentry->d_inode;
@@ -303,7 +308,7 @@ int exfat_setattr(struct dentry *dentry, struct iattr *attr)
 				ATTR_TIMES_SET);
 	}
 
-	error = setattr_prepare(dentry, attr);
+	error = setattr_prepare(&init_user_ns, dentry, attr);
 	attr->ia_valid = ia_valid;
 	if (error)
 		goto out;
@@ -338,20 +343,90 @@ int exfat_setattr(struct dentry *dentry, struct iattr *attr)
 		up_write(&EXFAT_I(inode)->truncate_lock);
 	}
 
-	setattr_copy(inode, attr);
+	setattr_copy(&init_user_ns, inode, attr);
+	exfat_truncate_atime(&inode->i_atime);
 	mark_inode_dirty(inode);
 
 out:
 	return error;
 }
 
+static int exfat_ioctl_fitrim(struct inode *inode, unsigned long arg)
+{
+	struct request_queue *q = bdev_get_queue(inode->i_sb->s_bdev);
+	struct fstrim_range range;
+	int ret = 0;
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	if (!blk_queue_discard(q))
+		return -EOPNOTSUPP;
+
+	if (copy_from_user(&range, (struct fstrim_range __user *)arg, sizeof(range)))
+		return -EFAULT;
+
+	range.minlen = max_t(unsigned int, range.minlen,
+				q->limits.discard_granularity);
+
+	ret = exfat_trim_fs(inode, &range);
+	if (ret < 0)
+		return ret;
+
+	if (copy_to_user((struct fstrim_range __user *)arg, &range, sizeof(range)))
+		return -EFAULT;
+
+	return 0;
+}
+
+long exfat_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+	struct inode *inode = file_inode(filp);
+
+	switch (cmd) {
+	case FITRIM:
+		return exfat_ioctl_fitrim(inode, arg);
+	default:
+		return -ENOTTY;
+	}
+}
+
+#ifdef CONFIG_COMPAT
+long exfat_compat_ioctl(struct file *filp, unsigned int cmd,
+				unsigned long arg)
+{
+	return exfat_ioctl(filp, cmd, (unsigned long)compat_ptr(arg));
+}
+#endif
+
+int exfat_file_fsync(struct file *filp, loff_t start, loff_t end, int datasync)
+{
+	struct inode *inode = filp->f_mapping->host;
+	int err;
+
+	err = __generic_file_fsync(filp, start, end, datasync);
+	if (err)
+		return err;
+
+	err = sync_blockdev(inode->i_sb->s_bdev);
+	if (err)
+		return err;
+
+	return blkdev_issue_flush(inode->i_sb->s_bdev);
+}
+
 const struct file_operations exfat_file_operations = {
-	.llseek      = generic_file_llseek,
-	.read_iter   = generic_file_read_iter,
-	.write_iter  = generic_file_write_iter,
-	.mmap        = generic_file_mmap,
-	.fsync       = generic_file_fsync,
-	.splice_read = generic_file_splice_read,
+	.llseek		= generic_file_llseek,
+	.read_iter	= generic_file_read_iter,
+	.write_iter	= generic_file_write_iter,
+	.unlocked_ioctl = exfat_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = exfat_compat_ioctl,
+#endif
+	.mmap		= generic_file_mmap,
+	.fsync		= exfat_file_fsync,
+	.splice_read	= generic_file_splice_read,
+	.splice_write	= iter_file_splice_write,
 };
 
 const struct inode_operations exfat_file_inode_operations = {

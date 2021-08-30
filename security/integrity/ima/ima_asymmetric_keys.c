@@ -9,9 +9,9 @@
  *       create or update.
  */
 
-#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
-
 #include <keys/asymmetric-type.h>
+#include <linux/user_namespace.h>
+#include <linux/ima.h>
 #include "ima.h"
 
 /**
@@ -30,11 +30,19 @@ void ima_post_key_create_or_update(struct key *keyring, struct key *key,
 				   const void *payload, size_t payload_len,
 				   unsigned long flags, bool create)
 {
+	bool queued = false;
+
 	/* Only asymmetric keys are handled by this hook. */
 	if (key->type != &key_type_asymmetric)
 		return;
 
 	if (!payload || (payload_len == 0))
+		return;
+
+	if (ima_should_queue_key())
+		queued = ima_queue_key(keyring, payload, payload_len);
+
+	if (queued)
 		return;
 
 	/*
@@ -52,7 +60,7 @@ void ima_post_key_create_or_update(struct key *keyring, struct key *key,
 	 * if the IMA policy is configured to measure a key linked
 	 * to the given keyring.
 	 */
-	process_buffer_measurement(payload, payload_len,
+	process_buffer_measurement(&init_user_ns, NULL, payload, payload_len,
 				   keyring->description, KEY_CHECK, 0,
-				   keyring->description);
+				   keyring->description, false);
 }

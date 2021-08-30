@@ -58,6 +58,7 @@
 #include <net/ip.h>
 #include <net/dsa.h>
 #include <net/flow_dissector.h>
+#include <net/gro.h>
 #include <linux/uaccess.h>
 #include <net/pkt_sched.h>
 
@@ -122,7 +123,7 @@ EXPORT_SYMBOL(eth_header);
  * Make a best effort attempt to pull the length for all of the headers for
  * a given frame in a linear buffer.
  */
-u32 eth_get_headlen(const struct net_device *dev, void *data, unsigned int len)
+u32 eth_get_headlen(const struct net_device *dev, const void *data, u32 len)
 {
 	const unsigned int flags = FLOW_DISSECTOR_F_PARSE_1ST_FRAG;
 	const struct ethhdr *eth = (const struct ethhdr *)data;
@@ -272,7 +273,7 @@ void eth_header_cache_update(struct hh_cache *hh,
 EXPORT_SYMBOL(eth_header_cache_update);
 
 /**
- * eth_header_parser_protocol - extract protocol from L2 header
+ * eth_header_parse_protocol - extract protocol from L2 header
  * @skb: packet to extract protocol from
  */
 __be16 eth_header_parse_protocol(const struct sk_buff *skb)
@@ -334,22 +335,6 @@ int eth_mac_addr(struct net_device *dev, void *p)
 	return 0;
 }
 EXPORT_SYMBOL(eth_mac_addr);
-
-/**
- * eth_change_mtu - set new MTU size
- * @dev: network device
- * @new_mtu: new Maximum Transfer Unit
- *
- * Allow changing MTU size. Needs to be overridden for devices
- * supporting jumbo frames.
- */
-int eth_change_mtu(struct net_device *dev, int new_mtu)
-{
-	netdev_warn(dev, "%s is deprecated\n", __func__);
-	dev->mtu = new_mtu;
-	return 0;
-}
-EXPORT_SYMBOL(eth_change_mtu);
 
 int eth_validate_addr(struct net_device *dev)
 {
@@ -465,7 +450,10 @@ struct sk_buff *eth_gro_receive(struct list_head *head, struct sk_buff *skb)
 
 	skb_gro_pull(skb, sizeof(*eh));
 	skb_gro_postpull_rcsum(skb, eh, sizeof(*eh));
-	pp = call_gro_receive(ptype->callbacks.gro_receive, head, skb);
+
+	pp = indirect_call_gro_receive_inet(ptype->callbacks.gro_receive,
+					    ipv6_gro_receive, inet_gro_receive,
+					    head, skb);
 
 out_unlock:
 	rcu_read_unlock();
@@ -489,8 +477,9 @@ int eth_gro_complete(struct sk_buff *skb, int nhoff)
 	rcu_read_lock();
 	ptype = gro_find_complete_by_type(type);
 	if (ptype != NULL)
-		err = ptype->callbacks.gro_complete(skb, nhoff +
-						    sizeof(struct ethhdr));
+		err = INDIRECT_CALL_INET(ptype->callbacks.gro_complete,
+					 ipv6_gro_complete, inet_gro_complete,
+					 skb, nhoff + sizeof(*eh));
 
 	rcu_read_unlock();
 	return err;
@@ -522,13 +511,14 @@ unsigned char * __weak arch_get_platform_mac_address(void)
 
 int eth_platform_get_mac_address(struct device *dev, u8 *mac_addr)
 {
-	const unsigned char *addr = NULL;
+	unsigned char *addr;
+	int ret;
 
-	if (dev->of_node)
-		addr = of_get_mac_address(dev->of_node);
-	if (IS_ERR_OR_NULL(addr))
-		addr = arch_get_platform_mac_address();
+	ret = of_get_mac_address(dev->of_node, mac_addr);
+	if (!ret)
+		return 0;
 
+	addr = arch_get_platform_mac_address();
 	if (!addr)
 		return -ENODEV;
 
@@ -539,8 +529,8 @@ int eth_platform_get_mac_address(struct device *dev, u8 *mac_addr)
 EXPORT_SYMBOL(eth_platform_get_mac_address);
 
 /**
- * Obtain the MAC address from an nvmem cell named 'mac-address' associated
- * with given device.
+ * nvmem_get_mac_address - Obtain the MAC address from an nvmem cell named
+ * 'mac-address' associated with given device.
  *
  * @dev:	Device with which the mac-address cell is associated.
  * @addrbuf:	Buffer to which the MAC address will be copied on success.

@@ -653,14 +653,14 @@ static struct request *nvme_nvm_alloc_request(struct request_queue *q,
 
 	nvme_nvm_rqtocmd(rqd, ns, cmd);
 
-	rq = nvme_alloc_request(q, (struct nvme_command *)cmd, 0, NVME_QID_ANY);
+	rq = nvme_alloc_request(q, (struct nvme_command *)cmd, 0);
 	if (IS_ERR(rq))
 		return rq;
 
 	rq->cmd_flags &= ~REQ_FAILFAST_DRIVER;
 
 	if (rqd->bio)
-		blk_rq_append_bio(rq, &rqd->bio);
+		blk_rq_append_bio(rq, rqd->bio);
 	else
 		rq->ioprio = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_BE, IOPRIO_NORM);
 
@@ -695,7 +695,7 @@ static int nvme_nvm_submit_io(struct nvm_dev *dev, struct nvm_rq *rqd,
 
 	rq->end_io_data = rqd;
 
-	blk_execute_rq_nowait(q, NULL, rq, 0, nvme_nvm_end_io);
+	blk_execute_rq_nowait(NULL, rq, 0, nvme_nvm_end_io);
 
 	return 0;
 
@@ -757,7 +757,6 @@ static int nvme_nvm_submit_user_cmd(struct request_queue *q,
 {
 	bool write = nvme_is_write((struct nvme_command *)vcmd);
 	struct nvm_dev *dev = ns->ndev;
-	struct gendisk *disk = ns->disk;
 	struct request *rq;
 	struct bio *bio = NULL;
 	__le64 *ppa_list = NULL;
@@ -767,14 +766,14 @@ static int nvme_nvm_submit_user_cmd(struct request_queue *q,
 	DECLARE_COMPLETION_ONSTACK(wait);
 	int ret = 0;
 
-	rq = nvme_alloc_request(q, (struct nvme_command *)vcmd, 0,
-			NVME_QID_ANY);
+	rq = nvme_alloc_request(q, (struct nvme_command *)vcmd, 0);
 	if (IS_ERR(rq)) {
 		ret = -ENOMEM;
 		goto err_cmd;
 	}
 
-	rq->timeout = timeout ? timeout : ADMIN_TIMEOUT;
+	if (timeout)
+		rq->timeout = timeout;
 
 	if (ppa_buf && ppa_len) {
 		ppa_list = dma_pool_alloc(dev->dma_pool, GFP_KERNEL, &ppa_dma);
@@ -817,10 +816,10 @@ static int nvme_nvm_submit_user_cmd(struct request_queue *q,
 			vcmd->ph_rw.metadata = cpu_to_le64(metadata_dma);
 		}
 
-		bio->bi_disk = disk;
+		bio_set_dev(bio, ns->disk->part0);
 	}
 
-	blk_execute_rq(q, NULL, rq, 0);
+	blk_execute_rq(NULL, rq, 0);
 
 	if (nvme_req(rq)->flags & NVME_REQ_CANCELLED)
 		ret = -EINTR;
@@ -931,15 +930,15 @@ static int nvme_nvm_user_vcmd(struct nvme_ns *ns, int admin,
 	return ret;
 }
 
-int nvme_nvm_ioctl(struct nvme_ns *ns, unsigned int cmd, unsigned long arg)
+int nvme_nvm_ioctl(struct nvme_ns *ns, unsigned int cmd, void __user *argp)
 {
 	switch (cmd) {
 	case NVME_NVM_IOCTL_ADMIN_VIO:
-		return nvme_nvm_user_vcmd(ns, 1, (void __user *)arg);
+		return nvme_nvm_user_vcmd(ns, 1, argp);
 	case NVME_NVM_IOCTL_IO_VIO:
-		return nvme_nvm_user_vcmd(ns, 0, (void __user *)arg);
+		return nvme_nvm_user_vcmd(ns, 0, argp);
 	case NVME_NVM_IOCTL_SUBMIT_VIO:
-		return nvme_nvm_submit_vio(ns, (void __user *)arg);
+		return nvme_nvm_submit_vio(ns, argp);
 	default:
 		return -ENOTTY;
 	}
@@ -1241,7 +1240,7 @@ static struct attribute *nvm_dev_attrs[] = {
 static umode_t nvm_dev_attrs_visible(struct kobject *kobj,
 				     struct attribute *attr, int index)
 {
-	struct device *dev = container_of(kobj, struct device, kobj);
+	struct device *dev = kobj_to_dev(kobj);
 	struct gendisk *disk = dev_to_disk(dev);
 	struct nvme_ns *ns = disk->private_data;
 	struct nvm_dev *ndev = ns->ndev;

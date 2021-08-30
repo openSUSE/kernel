@@ -10,9 +10,6 @@
 #include <linux/types.h>
 #include <asm/efi.h>
 
-/* error code which can't be mistaken for valid address */
-#define EFI_ERROR	(~0UL)
-
 /*
  * __init annotations should not be used in the EFI stub, since the code is
  * either included in the decompressor (x86, ARM) where they have no effect,
@@ -138,6 +135,16 @@ void efi_set_u64_split(u64 data, u32 *lo, u32 *hi)
 #define EFI_LOCATE_BY_PROTOCOL			2
 
 /*
+ * boottime->stall takes the time period in microseconds
+ */
+#define EFI_USEC_PER_SEC		1000000
+
+/*
+ * boottime->set_timer takes the time in 100ns units
+ */
+#define EFI_100NSEC_PER_USEC	((u64)10)
+
+/*
  * An efi_boot_memmap is used by efi_get_memory_map() to return the
  * EFI memory map in a dynamically allocated buffer.
  *
@@ -149,16 +156,6 @@ void efi_set_u64_split(u64 data, u32 *lo, u32 *hi)
  * to factor in this headroom requirement as well.
  */
 #define EFI_MMAP_NR_SLACK_SLOTS	8
-
-/*
- * boottime->stall takes the time period in microseconds
- */
-#define EFI_USEC_PER_SEC		1000000
-
-/*
- * boottime->set_timer takes the time in 100ns units
- */
-#define EFI_100NSEC_PER_USEC	((u64)10)
 
 struct efi_boot_memmap {
 	efi_memory_desc_t	**map;
@@ -675,7 +672,7 @@ typedef union efi_tcg2_protocol efi_tcg2_protocol_t;
 union efi_tcg2_protocol {
 	struct {
 		void *get_capability;
-		efi_status_t (__efiapi *get_event_log)(efi_handle_t,
+		efi_status_t (__efiapi *get_event_log)(efi_tcg2_protocol_t *,
 						       efi_tcg2_event_log_format,
 						       efi_physical_addr_t *,
 						       efi_physical_addr_t *,
@@ -753,7 +750,6 @@ efi_status_t efi_exit_boot_services(void *handle,
 
 efi_status_t allocate_new_fdt_and_exit_boot(void *handle,
 					    unsigned long *new_fdt_addr,
-					    unsigned long max_addr,
 					    u64 initrd_addr, u64 initrd_size,
 					    char *cmdline_ptr,
 					    unsigned long fdt_addr,
@@ -843,7 +839,6 @@ efi_status_t handle_kernel_image(unsigned long *image_addr,
 				 unsigned long *image_size,
 				 unsigned long *reserve_addr,
 				 unsigned long *reserve_size,
-				 unsigned long dram_base,
 				 efi_loaded_image_t *image);
 
 asmlinkage void __noreturn efi_enter_kernel(unsigned long entrypoint,
@@ -851,5 +846,16 @@ asmlinkage void __noreturn efi_enter_kernel(unsigned long entrypoint,
 					    unsigned long fdt_size);
 
 void efi_handle_post_ebs_state(void);
+
+enum efi_secureboot_mode efi_get_secureboot(void);
+
+#ifdef CONFIG_RESET_ATTACK_MITIGATION
+void efi_enable_reset_attack_mitigation(void);
+#else
+static inline void
+efi_enable_reset_attack_mitigation(void) { }
+#endif
+
+void efi_retrieve_tpm2_eventlog(void);
 
 #endif

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
- *  Copyright (C) 2013, Lars-Peter Clausen <lars@metafoo.de>
  *  GDMA4740 DMAC support
  */
 
@@ -701,9 +700,9 @@ static void gdma_dma_desc_free(struct virt_dma_desc *vdesc)
 	kfree(container_of(vdesc, struct gdma_dma_desc, vdesc));
 }
 
-static void gdma_dma_tasklet(unsigned long arg)
+static void gdma_dma_tasklet(struct tasklet_struct *t)
 {
-	struct gdma_dma_dev *dma_dev = (struct gdma_dma_dev *)arg;
+	struct gdma_dma_dev *dma_dev = from_tasklet(dma_dev, t, task);
 	struct gdma_dmaengine_chan *chan;
 	static unsigned int last_chan;
 	unsigned int i, chan_mask;
@@ -788,6 +787,7 @@ static const struct of_device_id gdma_of_match_table[] = {
 	{ .compatible = "ralink,rt3883-gdma", .data = &rt3883_gdma_data },
 	{ },
 };
+MODULE_DEVICE_TABLE(of, gdma_of_match_table);
 
 static int gdma_dma_probe(struct platform_device *pdev)
 {
@@ -796,7 +796,6 @@ static int gdma_dma_probe(struct platform_device *pdev)
 	struct gdma_dma_dev *dma_dev;
 	struct dma_device *dd;
 	unsigned int i;
-	struct resource *res;
 	int ret;
 	int irq;
 	void __iomem *base;
@@ -818,18 +817,15 @@ static int gdma_dma_probe(struct platform_device *pdev)
 		return -EINVAL;
 	dma_dev->data = data;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	base = devm_ioremap_resource(&pdev->dev, res);
+	base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(base))
 		return PTR_ERR(base);
 	dma_dev->base = base;
-	tasklet_init(&dma_dev->task, gdma_dma_tasklet, (unsigned long)dma_dev);
+	tasklet_setup(&dma_dev->task, gdma_dma_tasklet);
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		dev_err(&pdev->dev, "failed to get irq\n");
+	if (irq < 0)
 		return -EINVAL;
-	}
 	ret = devm_request_irq(&pdev->dev, irq, gdma_dma_irq,
 			       0, dev_name(&pdev->dev), dma_dev);
 	if (ret) {
@@ -837,7 +833,9 @@ static int gdma_dma_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	device_reset(&pdev->dev);
+	ret = device_reset(&pdev->dev);
+	if (ret)
+		dev_err(&pdev->dev, "failed to reset: %d\n", ret);
 
 	dd = &dma_dev->ddev;
 	dma_cap_set(DMA_MEMCPY, dd->cap_mask);
@@ -915,6 +913,5 @@ static struct platform_driver gdma_dma_driver = {
 };
 module_platform_driver(gdma_dma_driver);
 
-MODULE_AUTHOR("Lars-Peter Clausen <lars@metafoo.de>");
 MODULE_DESCRIPTION("Ralink/MTK DMA driver");
 MODULE_LICENSE("GPL v2");

@@ -77,7 +77,7 @@ struct fault {
 };
 
 static LIST_HEAD(state_list);
-static spinlock_t state_lock;
+static DEFINE_SPINLOCK(state_lock);
 
 static struct workqueue_struct *iommu_wq;
 
@@ -485,7 +485,7 @@ static void do_fault(struct work_struct *work)
 		flags |= FAULT_FLAG_WRITE;
 	flags |= FAULT_FLAG_REMOTE;
 
-	down_read(&mm->mmap_sem);
+	mmap_read_lock(mm);
 	vma = find_extend_vma(mm, address);
 	if (!vma || address < vma->vm_start)
 		/* failed to get a vma in the right range */
@@ -495,9 +495,9 @@ static void do_fault(struct work_struct *work)
 	if (access_error(vma, fault))
 		goto out;
 
-	ret = handle_mm_fault(vma, address, flags);
+	ret = handle_mm_fault(vma, address, flags, NULL);
 out:
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 
 	if (ret & VM_FAULT_ERROR)
 		/* failed to service fault */
@@ -937,8 +937,6 @@ static int __init amd_iommu_v2_init(void)
 		 */
 		return 0;
 	}
-
-	spin_lock_init(&state_lock);
 
 	ret = -ENOMEM;
 	iommu_wq = alloc_workqueue("amd_iommu_v2", WQ_MEM_RECLAIM, 0);

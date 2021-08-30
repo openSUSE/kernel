@@ -10,13 +10,18 @@ maintainers:
   - Linus Walleij <linus.walleij@linaro.org>
 
 properties:
+  $nodename:
+    const: "/"
   compatible:
     oneOf:
       - items:
           - enum:
               - linksys,nslu2
+              - welltech,epbx100
           - const: intel,ixp42x
       - items:
           - enum:
               - gateworks,gw2358
           - const: intel,ixp43x
+
+additionalProperties: true

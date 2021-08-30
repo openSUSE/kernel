@@ -12,6 +12,7 @@
 #include "aq_vec.h"
 #include "aq_hw.h"
 #include "aq_pci_func.h"
+#include "aq_macsec.h"
 #include "aq_main.h"
 #include "aq_phy.h"
 #include "aq_ptp.h"
@@ -192,6 +193,9 @@ static int aq_nic_update_link_status(struct aq_nic_s *self)
 		aq_utils_obj_clear(&self->flags,
 				   AQ_NIC_LINK_DOWN);
 		netif_carrier_on(self->ndev);
+#if IS_ENABLED(CONFIG_MACSEC)
+		aq_macsec_enable(self);
+#endif
 		if (self->aq_hw_ops->hw_tc_rate_limit_set)
 			self->aq_hw_ops->hw_tc_rate_limit_set(self->aq_hw);
 
@@ -235,6 +239,10 @@ static void aq_nic_service_task(struct work_struct *work)
 	err = aq_nic_update_link_status(self);
 	if (err)
 		return;
+
+#if IS_ENABLED(CONFIG_MACSEC)
+	aq_macsec_work(self);
+#endif
 
 	mutex_lock(&self->fwreq_mutex);
 	if (self->aq_fw_ops->update_stats)
@@ -303,6 +311,10 @@ int aq_nic_ndev_register(struct aq_nic_s *self)
 	if (err)
 		goto err_exit;
 
+#if IS_ENABLED(CONFIG_MACSEC)
+	aq_macsec_init(self);
+#endif
+
 	mutex_lock(&self->fwreq_mutex);
 	err = self->aq_fw_ops->get_mac_permanent(self->aq_hw,
 			    self->ndev->dev_addr);
@@ -343,6 +355,10 @@ int aq_nic_ndev_register(struct aq_nic_s *self)
 		goto err_exit;
 
 err_exit:
+#if IS_ENABLED(CONFIG_MACSEC)
+	if (err)
+		aq_macsec_free(self);
+#endif
 	return err;
 }
 
@@ -389,6 +405,10 @@ int aq_nic_init(struct aq_nic_s *self)
 	mutex_unlock(&self->fwreq_mutex);
 	if (err < 0)
 		goto err_exit;
+	/* Restore default settings */
+	aq_nic_set_downshift(self, self->aq_nic_cfg.downshift_counter);
+	aq_nic_set_media_detect(self, self->aq_nic_cfg.is_media_detect ?
+				AQ_HW_MEDIA_DETECT_CNT : 0);
 
 	err = self->aq_hw_ops->hw_init(self->aq_hw,
 				       aq_nic_get_ndev(self)->dev_addr);
@@ -850,7 +870,7 @@ int aq_nic_get_regs_count(struct aq_nic_s *self)
 	return self->aq_nic_cfg.aq_hw_caps->mac_regs_count;
 }
 
-void aq_nic_get_stats(struct aq_nic_s *self, u64 *data)
+u64 *aq_nic_get_stats(struct aq_nic_s *self, u64 *data)
 {
 	struct aq_vec_s *aq_vec = NULL;
 	struct aq_stats_s *stats;
@@ -900,11 +920,14 @@ void aq_nic_get_stats(struct aq_nic_s *self, u64 *data)
 		     aq_vec && self->aq_vecs > i;
 		     ++i, aq_vec = self->aq_vec[i]) {
 			data += count;
-			aq_vec_get_sw_stats(aq_vec, tc, data, &count);
+			count = aq_vec_get_sw_stats(aq_vec, tc, data);
 		}
 	}
 
-err_exit:;
+	data += count;
+
+err_exit:
+	return data;
 }
 
 static void aq_nic_update_ndev_stats(struct aq_nic_s *self)
@@ -1140,7 +1163,6 @@ int aq_nic_set_link_ksettings(struct aq_nic_s *self,
 		default:
 			err = -1;
 			goto err_exit;
-		break;
 		}
 		if (!(self->aq_nic_cfg.aq_hw_caps->link_speed_msk & rate)) {
 			err = -1;
@@ -1379,6 +1401,52 @@ void aq_nic_release_filter(struct aq_nic_s *self, enum aq_rx_filter_type type,
 	}
 }
 
+int aq_nic_set_downshift(struct aq_nic_s *self, int val)
+{
+	int err = 0;
+	struct aq_nic_cfg_s *cfg = &self->aq_nic_cfg;
+
+	if (!self->aq_fw_ops->set_downshift)
+		return -EOPNOTSUPP;
+
+	if (val > 15) {
+		netdev_err(self->ndev, "downshift counter should be <= 15\n");
+		return -EINVAL;
+	}
+	cfg->downshift_counter = val;
+
+	mutex_lock(&self->fwreq_mutex);
+	err = self->aq_fw_ops->set_downshift(self->aq_hw, cfg->downshift_counter);
+	mutex_unlock(&self->fwreq_mutex);
+
+	return err;
+}
+
+int aq_nic_set_media_detect(struct aq_nic_s *self, int val)
+{
+	struct aq_nic_cfg_s *cfg = &self->aq_nic_cfg;
+	int err = 0;
+
+	if (!self->aq_fw_ops->set_media_detect)
+		return -EOPNOTSUPP;
+
+	if (val > 0 && val != AQ_HW_MEDIA_DETECT_CNT) {
+		netdev_err(self->ndev, "EDPD on this device could have only fixed value of %d\n",
+			   AQ_HW_MEDIA_DETECT_CNT);
+		return -EINVAL;
+	}
+
+	mutex_lock(&self->fwreq_mutex);
+	err = self->aq_fw_ops->set_media_detect(self->aq_hw, !!val);
+	mutex_unlock(&self->fwreq_mutex);
+
+	/* msecs plays no role - configuration is always fixed in PHY */
+	if (!err)
+		cfg->is_media_detect = !!val;
+
+	return err;
+}
+
 int aq_nic_setup_tc_mqprio(struct aq_nic_s *self, u32 tcs, u8 *prio_tc_map)
 {
 	struct aq_nic_cfg_s *cfg = &self->aq_nic_cfg;
@@ -1406,7 +1474,7 @@ int aq_nic_setup_tc_mqprio(struct aq_nic_s *self, u32 tcs, u8 *prio_tc_map)
 		for (i = 0; i < sizeof(cfg->prio_tc_map); i++)
 			cfg->prio_tc_map[i] = cfg->tcs * i / 8;
 
-	cfg->is_qos = (tcs != 0 ? true : false);
+	cfg->is_qos = !!tcs;
 	cfg->is_ptp = (cfg->tcs <= AQ_HW_PTP_TC);
 	if (!cfg->is_ptp)
 		netdev_warn(self->ndev, "%s\n",

@@ -151,7 +151,6 @@ struct mcam_camera {
 	 */
 	struct video_device vdev;
 	struct v4l2_async_notifier notifier;
-	struct v4l2_async_subdev asd;
 	struct v4l2_subdev *sensor;
 
 	/* Videobuf2 stuff */
@@ -236,10 +235,8 @@ static inline void mcam_reg_set_bit(struct mcam_camera *cam,
 int mccic_register(struct mcam_camera *cam);
 int mccic_irq(struct mcam_camera *cam, unsigned int irqs);
 void mccic_shutdown(struct mcam_camera *cam);
-#ifdef CONFIG_PM
 void mccic_suspend(struct mcam_camera *cam);
 int mccic_resume(struct mcam_camera *cam);
-#endif
 
 /*
  * Register definitions for the m88alp01 camera interface.  Offsets in bytes

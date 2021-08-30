@@ -261,7 +261,7 @@ directories like /tmp. The common method of exploitation of this flaw
 is to cross privilege boundaries when following a given symlink (i.e. a
 root process follows a symlink belonging to another user). For a likely
 incomplete list of hundreds of examples across the years, please see:
-http://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=/tmp
+https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=/tmp
 
 When set to "0", symlink following behavior is unrestricted.
 
@@ -326,42 +326,6 @@ This denotes the maximum number of mounts that may exist
 in a mount namespace.
 
 
-procfs-drop-fd-dentries
------------------------
-
-* SUSE-specific; This option may be removed in a future release.
-
-This option controls when the proc files representing a task's
-opene files are removed.  It applies to the following directories:
-- /proc/pid/fd
-- /proc/pid/fdinfo
-- /proc/pid/task/*/fd
-- /proc/pid/task/*/fdinfo
-
-By default, dentries belonging to tasks that are still running
-will be retained and those belonging to exited tasks will be
-dropped immediately.
-
-This policy ensures that memory is not wasted, but can run into
-scalability issues on very large systems when a task with thousands
-of threads and many open files exits.  When many tasks exit
-simultaneously, substantial contention on the global inode spinlock
-may result in suboptimal performance of the system until the inodes
-are released.
-
-When set to "0" (default), the policy is to retain dentries for running
-tasks and delete dentries from tasks which have exited immediately.  Once
-the dentry is released, the inode will be freed immediately.
-
-When set to "1", the policy is to delete the dentries immediately after
-the last reference is dropped.  Once the dentry is released, the inode
-will be freed immediately.  This ensures that the thread which created
-the inodes will also clean them up, eliminating much of the lock
-contention.  The tradeoff is that frequent use of fd/fdinfo will be
-slower as these files will need to be recreated each time they
-are accessed.
-
-
 
 2. /proc/sys/fs/binfmt_misc
 ===========================
@@ -416,5 +380,5 @@ This configuration option sets the maximum number of "watches" that are
 allowed for each user.
 Each "watch" costs roughly 90 bytes on a 32bit kernel, and roughly 160 bytes
 on a 64bit one.
-The current default value for  max_user_watches  is the 1/32 of the available
-low memory, divided for the "watch" cost in bytes.
+The current default value for  max_user_watches  is the 1/25 (4%) of the
+available low memory, divided for the "watch" cost in bytes.

@@ -16,6 +16,7 @@
 #include <linux/soc/qcom/mdt_loader.h>
 #include <soc/qcom/ocmem.h>
 #include "adreno_gpu.h"
+#include "a6xx_gpu.h"
 #include "msm_gem.h"
 #include "msm_mmu.h"
 
@@ -185,6 +186,11 @@ int adreno_zap_shader_load(struct msm_gpu *gpu, u32 pasid)
 	return zap_shader_load_mdt(gpu, adreno_gpu->info->zapfw, pasid);
 }
 
+void adreno_set_llc_attributes(struct iommu_domain *iommu)
+{
+	iommu_set_pgtable_quirks(iommu, IO_PGTABLE_QUIRK_ARM_OUTER_WBWA);
+}
+
 struct msm_gem_address_space *
 adreno_iommu_create_address_space(struct msm_gpu *gpu,
 		struct platform_device *pdev)
@@ -192,15 +198,28 @@ adreno_iommu_create_address_space(struct msm_gpu *gpu,
 	struct iommu_domain *iommu;
 	struct msm_mmu *mmu;
 	struct msm_gem_address_space *aspace;
+	u64 start, size;
 
 	iommu = iommu_domain_alloc(&platform_bus_type);
 	if (!iommu)
 		return NULL;
 
 	mmu = msm_iommu_new(&pdev->dev, iommu);
+	if (IS_ERR(mmu)) {
+		iommu_domain_free(iommu);
+		return ERR_CAST(mmu);
+	}
 
-	aspace = msm_gem_address_space_create(mmu, "gpu", SZ_16M,
-		0xffffffff - SZ_16M);
+	/*
+	 * Use the aperture start or SZ_16M, whichever is greater. This will
+	 * ensure that we align with the allocated pagetable range while still
+	 * allowing room in the lower 32 bits for GMEM and whatnot
+	 */
+	start = max_t(u64, SZ_16M, iommu->geometry.aperture_start);
+	size = iommu->geometry.aperture_end - start + 1;
+
+	aspace = msm_gem_address_space_create(mmu, "gpu",
+		start & GENMASK_ULL(48, 0), size);
 
 	if (IS_ERR(aspace) && !IS_ERR(mmu))
 		mmu->funcs->destroy(mmu);
@@ -220,7 +239,7 @@ int adreno_get_param(struct msm_gpu *gpu, uint32_t param, uint64_t *value)
 		*value = adreno_gpu->gmem;
 		return 0;
 	case MSM_PARAM_GMEM_BASE:
-		*value = !adreno_is_a650(adreno_gpu) ? 0x100000 : 0;
+		*value = !adreno_is_a650_family(adreno_gpu) ? 0x100000 : 0;
 		return 0;
 	case MSM_PARAM_CHIP_ID:
 		*value = adreno_gpu->rev.patchid |
@@ -250,6 +269,9 @@ int adreno_get_param(struct msm_gpu *gpu, uint32_t param, uint64_t *value)
 		return 0;
 	case MSM_PARAM_FAULTS:
 		*value = gpu->global_faults;
+		return 0;
+	case MSM_PARAM_SUSPENDS:
+		*value = gpu->suspend_count;
 		return 0;
 	default:
 		DBG("%s: invalid param: %u", gpu->name, param);
@@ -369,7 +391,7 @@ struct drm_gem_object *adreno_fw_create_bo(struct msm_gpu *gpu,
 	void *ptr;
 
 	ptr = msm_gem_kernel_new_locked(gpu->dev, fw->size - 4,
-		MSM_BO_UNCACHED | MSM_BO_GPU_READONLY, gpu->aspace, &bo, iova);
+		MSM_BO_WC | MSM_BO_GPU_READONLY, gpu->aspace, &bo, iova);
 
 	if (IS_ERR(ptr))
 		return ERR_CAST(ptr);
@@ -386,7 +408,7 @@ int adreno_hw_init(struct msm_gpu *gpu)
 	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
 	int ret, i;
 
-	DBG("%s", gpu->name);
+	VERB("%s", gpu->name);
 
 	ret = adreno_load_fw(adreno_gpu);
 	if (ret)
@@ -413,8 +435,9 @@ int adreno_hw_init(struct msm_gpu *gpu)
 static uint32_t get_rptr(struct adreno_gpu *adreno_gpu,
 		struct msm_ringbuffer *ring)
 {
-	return ring->memptrs->rptr = adreno_gpu_read(
-		adreno_gpu, REG_ADRENO_CP_RB_RPTR);
+	struct msm_gpu *gpu = &adreno_gpu->base;
+
+	return gpu->funcs->get_rptr(gpu, ring);
 }
 
 struct msm_ringbuffer *adreno_active_ring(struct msm_gpu *gpu)
@@ -440,81 +463,8 @@ void adreno_recover(struct msm_gpu *gpu)
 	}
 }
 
-void adreno_submit(struct msm_gpu *gpu, struct msm_gem_submit *submit,
-		struct msm_file_private *ctx)
+void adreno_flush(struct msm_gpu *gpu, struct msm_ringbuffer *ring, u32 reg)
 {
-	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
-	struct msm_drm_private *priv = gpu->dev->dev_private;
-	struct msm_ringbuffer *ring = submit->ring;
-	unsigned i;
-
-	for (i = 0; i < submit->nr_cmds; i++) {
-		switch (submit->cmd[i].type) {
-		case MSM_SUBMIT_CMD_IB_TARGET_BUF:
-			/* ignore IB-targets */
-			break;
-		case MSM_SUBMIT_CMD_CTX_RESTORE_BUF:
-			/* ignore if there has not been a ctx switch: */
-			if (priv->lastctx == ctx)
-				break;
-			fallthrough;
-		case MSM_SUBMIT_CMD_BUF:
-			OUT_PKT3(ring, adreno_is_a4xx(adreno_gpu) ?
-				CP_INDIRECT_BUFFER_PFE : CP_INDIRECT_BUFFER_PFD, 2);
-			OUT_RING(ring, lower_32_bits(submit->cmd[i].iova));
-			OUT_RING(ring, submit->cmd[i].size);
-			OUT_PKT2(ring);
-			break;
-		}
-	}
-
-	OUT_PKT0(ring, REG_AXXX_CP_SCRATCH_REG2, 1);
-	OUT_RING(ring, submit->seqno);
-
-	if (adreno_is_a3xx(adreno_gpu) || adreno_is_a4xx(adreno_gpu)) {
-		/* Flush HLSQ lazy updates to make sure there is nothing
-		 * pending for indirect loads after the timestamp has
-		 * passed:
-		 */
-		OUT_PKT3(ring, CP_EVENT_WRITE, 1);
-		OUT_RING(ring, HLSQ_FLUSH);
-	}
-
-	/* wait for idle before cache flush/interrupt */
-	OUT_PKT3(ring, CP_WAIT_FOR_IDLE, 1);
-	OUT_RING(ring, 0x00000000);
-
-	if (!adreno_is_a2xx(adreno_gpu)) {
-		/* BIT(31) of CACHE_FLUSH_TS triggers CACHE_FLUSH_TS IRQ from GPU */
-		OUT_PKT3(ring, CP_EVENT_WRITE, 3);
-		OUT_RING(ring, CACHE_FLUSH_TS | BIT(31));
-		OUT_RING(ring, rbmemptr(ring, fence));
-		OUT_RING(ring, submit->seqno);
-	} else {
-		/* BIT(31) means something else on a2xx */
-		OUT_PKT3(ring, CP_EVENT_WRITE, 3);
-		OUT_RING(ring, CACHE_FLUSH_TS);
-		OUT_RING(ring, rbmemptr(ring, fence));
-		OUT_RING(ring, submit->seqno);
-		OUT_PKT3(ring, CP_INTERRUPT, 1);
-		OUT_RING(ring, 0x80000000);
-	}
-
-#if 0
-	if (adreno_is_a3xx(adreno_gpu)) {
-		/* Dummy set-constant to trigger context rollover */
-		OUT_PKT3(ring, CP_SET_CONSTANT, 2);
-		OUT_RING(ring, CP_REG(REG_A3XX_HLSQ_CL_KERNEL_GROUP_X_REG));
-		OUT_RING(ring, 0x00000000);
-	}
-#endif
-
-	gpu->funcs->flush(gpu, ring);
-}
-
-void adreno_flush(struct msm_gpu *gpu, struct msm_ringbuffer *ring)
-{
-	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
 	uint32_t wptr;
 
 	/* Copy the shadow to the actual register */
@@ -530,7 +480,7 @@ void adreno_flush(struct msm_gpu *gpu, struct msm_ringbuffer *ring)
 	/* ensure writes to ringbuffer have hit system memory: */
 	mb();
 
-	adreno_gpu_write(adreno_gpu, REG_ADRENO_CP_RB_WPTR, wptr);
+	gpu_write(gpu, reg, wptr);
 }
 
 bool adreno_idle(struct msm_gpu *gpu, struct msm_ringbuffer *ring)
@@ -734,6 +684,21 @@ void adreno_show(struct msm_gpu *gpu, struct msm_gpu_state *state,
 			adreno_gpu->info->revn, adreno_gpu->rev.core,
 			adreno_gpu->rev.major, adreno_gpu->rev.minor,
 			adreno_gpu->rev.patchid);
+	/*
+	 * If this is state collected due to iova fault, so fault related info
+	 *
+	 * TTBR0 would not be zero, so this is a good way to distinguish
+	 */
+	if (state->fault_info.ttbr0) {
+		const struct msm_gpu_fault_info *info = &state->fault_info;
+
+		drm_puts(p, "fault-info:\n");
+		drm_printf(p, "  - ttbr0=%.16llx\n", info->ttbr0);
+		drm_printf(p, "  - iova=%.16lx\n", info->iova);
+		drm_printf(p, "  - dir=%s\n", info->flags & IOMMU_FAULT_WRITE ? "WRITE" : "READ");
+		drm_printf(p, "  - type=%s\n", info->type);
+		drm_printf(p, "  - source=%s\n", info->block);
+	}
 
 	drm_printf(p, "rbbm-status: 0x%08x\n", state->rbbm_status);
 
@@ -891,7 +856,7 @@ static void adreno_get_pwrlevels(struct device *dev,
 	if (!of_find_property(dev->of_node, "operating-points-v2", NULL))
 		ret = adreno_get_legacy_pwrlevels(dev);
 	else {
-		ret = dev_pm_opp_of_add_table(dev);
+		ret = devm_pm_opp_of_add_table(dev);
 		if (ret)
 			DRM_DEV_ERROR(dev, "Unable to set the OPP table\n");
 	}
@@ -962,7 +927,6 @@ int adreno_gpu_init(struct drm_device *drm, struct platform_device *pdev,
 	struct adreno_platform_config *config = dev->platform_data;
 	struct msm_gpu_config adreno_gpu_config  = { 0 };
 	struct msm_gpu *gpu = &adreno_gpu->base;
-	int ret;
 
 	adreno_gpu->funcs = funcs;
 	adreno_gpu->info = adreno_info(config->rev);
@@ -981,37 +945,8 @@ int adreno_gpu_init(struct drm_device *drm, struct platform_device *pdev,
 	pm_runtime_use_autosuspend(dev);
 	pm_runtime_enable(dev);
 
-	ret = msm_gpu_init(drm, pdev, &adreno_gpu->base, &funcs->base,
+	return msm_gpu_init(drm, pdev, &adreno_gpu->base, &funcs->base,
 			adreno_gpu->info->name, &adreno_gpu_config);
-	if (ret)
-		return ret;
-
-	/*
-	 * The legacy case, before "interconnect-names", only has a
-	 * single interconnect path which is equivalent to "gfx-mem"
-	 */
-	if (!of_find_property(dev->of_node, "interconnect-names", NULL)) {
-		gpu->icc_path = of_icc_get(dev, NULL);
-	} else {
-		gpu->icc_path = of_icc_get(dev, "gfx-mem");
-		gpu->ocmem_icc_path = of_icc_get(dev, "ocmem");
-	}
-
-	if (IS_ERR(gpu->icc_path)) {
-		ret = PTR_ERR(gpu->icc_path);
-		gpu->icc_path = NULL;
-		return ret;
-	}
-
-	if (IS_ERR(gpu->ocmem_icc_path)) {
-		ret = PTR_ERR(gpu->ocmem_icc_path);
-		gpu->ocmem_icc_path = NULL;
-		/* allow -ENODATA, ocmem icc is optional */
-		if (ret != -ENODATA)
-			return ret;
-	}
-
-	return 0;
 }
 
 void adreno_gpu_cleanup(struct adreno_gpu *adreno_gpu)
@@ -1026,7 +961,4 @@ void adreno_gpu_cleanup(struct adreno_gpu *adreno_gpu)
 	pm_runtime_disable(&priv->gpu_pdev->dev);
 
 	msm_gpu_cleanup(&adreno_gpu->base);
-
-	icc_put(gpu->icc_path);
-	icc_put(gpu->ocmem_icc_path);
 }

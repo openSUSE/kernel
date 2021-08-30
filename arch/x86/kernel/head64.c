@@ -20,13 +20,13 @@
 #include <linux/io.h>
 #include <linux/memblock.h>
 #include <linux/mem_encrypt.h>
+#include <linux/pgtable.h>
 
 #include <asm/processor.h>
 #include <asm/proto.h>
 #include <asm/smp.h>
 #include <asm/setup.h>
 #include <asm/desc.h>
-#include <asm/pgtable.h>
 #include <asm/tlbflush.h>
 #include <asm/sections.h>
 #include <asm/kdebug.h>
@@ -37,10 +37,9 @@
 #include <asm/kasan.h>
 #include <asm/fixmap.h>
 #include <asm/realmode.h>
-#include <asm/desc.h>
 #include <asm/extable.h>
 #include <asm/trapnr.h>
-#include <asm/sev-es.h>
+#include <asm/sev.h>
 
 /*
  * Manage page tables very early on.
@@ -84,7 +83,7 @@ static struct desc_ptr startup_gdt_descr = {
 	.address = 0,
 };
 
-#define __head	__section(.head.text)
+#define __head	__section(".head.text")
 
 static void __head *fixup_pointer(void *ptr, unsigned long physaddr)
 {
@@ -105,7 +104,7 @@ static unsigned int __head *fixup_int(void *ptr, unsigned long physaddr)
 static bool __head check_la57_support(unsigned long physaddr)
 {
 	/*
-	 * 5-level paging is detected and enabled at kernel decomression
+	 * 5-level paging is detected and enabled at kernel decompression
 	 * stage. Only check if it has been enabled there.
 	 */
 	if (!(native_read_cr4() & X86_CR4_LA57))

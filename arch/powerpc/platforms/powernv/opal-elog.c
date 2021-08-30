@@ -72,9 +72,14 @@ static ssize_t elog_ack_store(struct elog_obj *elog_obj,
 			      const char *buf,
 			      size_t count)
 {
-	opal_send_ack_elog(elog_obj->id);
-	sysfs_remove_file_self(&elog_obj->kobj, &attr->attr);
-	kobject_put(&elog_obj->kobj);
+	/*
+	 * Try to self remove this attribute. If we are successful,
+	 * delete the kobject itself.
+	 */
+	if (sysfs_remove_file_self(&elog_obj->kobj, &attr->attr)) {
+		opal_send_ack_elog(elog_obj->id);
+		kobject_put(&elog_obj->kobj);
+	}
 	return count;
 }
 
@@ -166,8 +171,8 @@ static ssize_t raw_attr_read(struct file *filep, struct kobject *kobj,
 		opal_rc = opal_read_elog(__pa(elog->buffer),
 					 elog->size, elog->id);
 		if (opal_rc != OPAL_SUCCESS) {
-			pr_err("ELOG: log read failed for log-id=%llx\n",
-			       elog->id);
+			pr_err_ratelimited("ELOG: log read failed for log-id=%llx\n",
+					   elog->id);
 			kfree(elog->buffer);
 			elog->buffer = NULL;
 			return -EIO;

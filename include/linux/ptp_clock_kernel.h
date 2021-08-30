@@ -11,7 +11,23 @@
 #include <linux/device.h>
 #include <linux/pps_kernel.h>
 #include <linux/ptp_clock.h>
+#include <linux/timecounter.h>
+#include <linux/skbuff.h>
 
+#define PTP_CLOCK_NAME_LEN	32
+/**
+ * struct ptp_clock_request - request PTP clock event
+ *
+ * @type:   The type of the request.
+ *	    EXTTS:  Configure external trigger timestamping
+ *	    PEROUT: Configure periodic output signal (e.g. PPS)
+ *	    PPS:    trigger internal PPS event for input
+ *	            into kernel PPS subsystem
+ * @extts:  describes configuration for external trigger timestamping.
+ *          This is only valid when event == PTP_CLK_REQ_EXTTS.
+ * @perout: describes configuration for periodic output.
+ *	    This is only valid when event == PTP_CLK_REQ_PEROUT.
+ */
 
 struct ptp_clock_request {
 	enum {
@@ -108,10 +124,10 @@ struct ptp_system_timestamp {
  *            parameter func: the desired function to use.
  *            parameter chan: the function channel index to use.
  *
- * @do_work:  Request driver to perform auxiliary (periodic) operations
- *	      Driver should return delay of the next auxiliary work scheduling
- *	      time (>=0) or negative value in case further scheduling
- *	      is not required.
+ * @do_aux_work:  Request driver to perform auxiliary (periodic) operations
+ *                Driver should return delay of the next auxiliary work
+ *                scheduling time (>=0) or negative value in case further
+ *                scheduling is not required.
  *
  * Drivers should embed their ptp_clock_info within a private
  * structure, obtaining a reference to it using container_of().
@@ -121,7 +137,7 @@ struct ptp_system_timestamp {
 
 struct ptp_clock_info {
 	struct module *owner;
-	char name[16];
+	char name[PTP_CLOCK_NAME_LEN];
 	s32 max_adj;
 	int n_alarm;
 	int n_ext_ts;
@@ -173,6 +189,32 @@ struct ptp_clock_event {
 	};
 };
 
+/**
+ * scaled_ppm_to_ppb() - convert scaled ppm to ppb
+ *
+ * @ppm:    Parts per million, but with a 16 bit binary fractional field
+ */
+static inline long scaled_ppm_to_ppb(long ppm)
+{
+	/*
+	 * The 'freq' field in the 'struct timex' is in parts per
+	 * million, but with a 16 bit binary fractional field.
+	 *
+	 * We want to calculate
+	 *
+	 *    ppb = scaled_ppm * 1000 / 2^16
+	 *
+	 * which simplifies to
+	 *
+	 *    ppb = scaled_ppm * 125 / 2^13
+	 */
+	s64 ppb = 1 + ppm;
+
+	ppb *= 125;
+	ppb >>= 13;
+	return (long)ppb;
+}
+
 #if IS_REACHABLE(CONFIG_PTP_1588_CLOCK)
 
 /**
@@ -217,15 +259,13 @@ extern void ptp_clock_event(struct ptp_clock *ptp,
 extern int ptp_clock_index(struct ptp_clock *ptp);
 
 /**
- * scaled_ppm_to_ppb() - convert scaled ppm to ppb
- *
- * @ppm:    Parts per million, but with a 16 bit binary fractional field
- */
-
-extern s32 scaled_ppm_to_ppb(long ppm);
-
-/**
  * ptp_find_pin() - obtain the pin index of a given auxiliary function
+ *
+ * The caller must hold ptp_clock::pincfg_mux.  Drivers do not have
+ * access to that mutex as ptp_clock is an opaque type.  However, the
+ * core code acquires the mutex before invoking the driver's
+ * ptp_clock_info::enable() callback, and so drivers may call this
+ * function from that context.
  *
  * @ptp:    The clock obtained from ptp_clock_register().
  * @func:   One of the ptp_pin_function enumerated values.
@@ -238,6 +278,19 @@ int ptp_find_pin(struct ptp_clock *ptp,
 		 enum ptp_pin_function func, unsigned int chan);
 
 /**
+ * ptp_find_pin_unlocked() - wrapper for ptp_find_pin()
+ *
+ * This function acquires the ptp_clock::pincfg_mux mutex before
+ * invoking ptp_find_pin().  Instead of using this function, drivers
+ * should most likely call ptp_find_pin() directly from their
+ * ptp_clock_info::enable() method.
+ *
+ */
+
+int ptp_find_pin_unlocked(struct ptp_clock *ptp,
+			  enum ptp_pin_function func, unsigned int chan);
+
+/**
  * ptp_schedule_worker() - schedule ptp auxiliary work
  *
  * @ptp:    The clock obtained from ptp_clock_register().
@@ -246,6 +299,34 @@ int ptp_find_pin(struct ptp_clock *ptp,
  */
 
 int ptp_schedule_worker(struct ptp_clock *ptp, unsigned long delay);
+
+/**
+ * ptp_cancel_worker_sync() - cancel ptp auxiliary clock
+ *
+ * @ptp:     The clock obtained from ptp_clock_register().
+ */
+void ptp_cancel_worker_sync(struct ptp_clock *ptp);
+
+/**
+ * ptp_get_vclocks_index() - get all vclocks index on pclock, and
+ *                           caller is responsible to free memory
+ *                           of vclock_index
+ *
+ * @pclock_index: phc index of ptp pclock.
+ * @vclock_index: pointer to pointer of vclock index.
+ *
+ * return number of vclocks.
+ */
+int ptp_get_vclocks_index(int pclock_index, int **vclock_index);
+
+/**
+ * ptp_convert_timestamp() - convert timestamp to a ptp vclock time
+ *
+ * @hwtstamps:    skb_shared_hwtstamps structure pointer
+ * @vclock_index: phc index of ptp vclock.
+ */
+void ptp_convert_timestamp(struct skb_shared_hwtstamps *hwtstamps,
+			   int vclock_index);
 
 #else
 static inline struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info,
@@ -264,6 +345,13 @@ static inline int ptp_find_pin(struct ptp_clock *ptp,
 static inline int ptp_schedule_worker(struct ptp_clock *ptp,
 				      unsigned long delay)
 { return -EOPNOTSUPP; }
+static inline void ptp_cancel_worker_sync(struct ptp_clock *ptp)
+{ }
+static inline int ptp_get_vclocks_index(int pclock_index, int **vclock_index)
+{ return 0; }
+static inline void ptp_convert_timestamp(struct skb_shared_hwtstamps *hwtstamps,
+					 int vclock_index)
+{ }
 
 #endif
 

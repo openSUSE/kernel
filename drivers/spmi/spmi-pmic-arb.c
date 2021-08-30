@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2012-2015, 2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2015, 2017, 2021, The Linux Foundation. All rights reserved.
  */
 #include <linux/bitmap.h>
 #include <linux/delay.h>
@@ -505,8 +505,7 @@ static void cleanup_irq(struct spmi_pmic_arb *pmic_arb, u16 apid, int id)
 static void periph_interrupt(struct spmi_pmic_arb *pmic_arb, u16 apid)
 {
 	unsigned int irq;
-	u32 status;
-	int id;
+	u32 status, id;
 	u8 sid = (pmic_arb->apid_data[apid].ppid >> 8) & 0xF;
 	u8 per = pmic_arb->apid_data[apid].ppid & 0xFF;
 
@@ -731,6 +730,7 @@ static int qpnpint_irq_domain_translate(struct irq_domain *d,
 	return 0;
 }
 
+static struct lock_class_key qpnpint_irq_lock_class, qpnpint_irq_request_class;
 
 static void qpnpint_irq_domain_map(struct spmi_pmic_arb *pmic_arb,
 				   struct irq_domain *domain, unsigned int virq,
@@ -746,6 +746,9 @@ static void qpnpint_irq_domain_map(struct spmi_pmic_arb *pmic_arb,
 	else
 		handler = handle_level_irq;
 
+
+	irq_set_lockdep_class(virq, &qpnpint_irq_lock_class,
+			      &qpnpint_irq_request_class);
 	irq_domain_set_info(domain, virq, hwirq, &pmic_arb_irqchip, pmic_arb,
 			    handler, NULL, NULL);
 }

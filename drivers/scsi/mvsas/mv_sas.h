@@ -40,7 +40,7 @@
 #define mv_dprintk(format, arg...)	\
 	printk(KERN_DEBUG"%s %d:" format, __FILE__, __LINE__, ## arg)
 #else
-#define mv_dprintk(format, arg...)
+#define mv_dprintk(format, arg...) no_printk(format, ## arg)
 #endif
 #define MV_MAX_U32			0xffffffff
 
@@ -394,7 +394,7 @@ struct mvs_info {
 	dma_addr_t bulk_buffer_dma1;
 #define TRASH_BUCKET_SIZE    	0x20000
 	void *dma_pool;
-	struct mvs_slot_info slot_info[0];
+	struct mvs_slot_info slot_info[];
 };
 
 struct mvs_prv_info{

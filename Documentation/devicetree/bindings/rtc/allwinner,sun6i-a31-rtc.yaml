@@ -8,7 +8,7 @@ title: Allwinner A31 RTC Device Tree Bindings
 
 maintainers:
   - Chen-Yu Tsai <wens@csie.org>
-  - Maxime Ripard <maxime.ripard@bootlin.com>
+  - Maxime Ripard <mripard@kernel.org>
 
 properties:
   "#clock-cells":
@@ -25,13 +25,13 @@ properties:
       - items:
           - const: allwinner,sun50i-a64-rtc
           - const: allwinner,sun8i-h3-rtc
+      - const: allwinner,sun50i-h6-rtc
 
   reg:
     maxItems: 1
 
   interrupts:
     minItems: 1
-    maxItems: 2
     items:
       - description: RTC Alarm 0
       - description: RTC Alarm 1
@@ -96,6 +96,18 @@ allOf:
       properties:
         compatible:
           contains:
+            const: allwinner,sun50i-h6-rtc
+
+    then:
+      properties:
+        clock-output-names:
+          minItems: 3
+          maxItems: 3
+
+  - if:
+      properties:
+        compatible:
+          contains:
             const: allwinner,sun8i-r40-rtc
 
     then:
@@ -115,7 +127,6 @@ required:
   - compatible
   - reg
   - interrupts
-  - clocks
   - clock-output-names
 
 additionalProperties: false

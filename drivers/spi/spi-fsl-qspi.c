@@ -15,7 +15,7 @@
  *     Yogesh Gaur <yogeshnarayan.gaur@nxp.com>
  *     Suresh Gupta <suresh.gupta@nxp.com>
  *
- * Based on the original fsl-quadspi.c spi-nor driver:
+ * Based on the original fsl-quadspi.c SPI NOR driver:
  * Author: Freescale Semiconductor, Inc.
  *
  */
@@ -68,10 +68,10 @@
 #define QUADSPI_FLSHCR_TCSH_MASK	GENMASK(11, 8)
 #define QUADSPI_FLSHCR_TDH_MASK		GENMASK(17, 16)
 
-#define QUADSPI_BUF0CR			0x10
-#define QUADSPI_BUF1CR			0x14
-#define QUADSPI_BUF2CR			0x18
-#define QUADSPI_BUFXCR_INVALID_MSTRID	0xe
+#define QUADSPI_BUF0CR                  0x10
+#define QUADSPI_BUF1CR                  0x14
+#define QUADSPI_BUF2CR                  0x18
+#define QUADSPI_BUFXCR_INVALID_MSTRID   0xe
 
 #define QUADSPI_BUF3CR			0x1c
 #define QUADSPI_BUF3CR_ALLMST_MASK	BIT(31)
@@ -484,7 +484,7 @@ static int fsl_qspi_clk_prep_enable(struct fsl_qspi *q)
 	}
 
 	if (needs_wakeup_wait_mode(q))
-		pm_qos_add_request(&q->pm_qos_req, PM_QOS_CPU_DMA_LATENCY, 0);
+		cpu_latency_qos_add_request(&q->pm_qos_req, 0);
 
 	return 0;
 }
@@ -492,7 +492,7 @@ static int fsl_qspi_clk_prep_enable(struct fsl_qspi *q)
 static void fsl_qspi_clk_disable_unprep(struct fsl_qspi *q)
 {
 	if (needs_wakeup_wait_mode(q))
-		pm_qos_remove_request(&q->pm_qos_req);
+		cpu_latency_qos_remove_request(&q->pm_qos_req);
 
 	clk_disable_unprepare(q->clk);
 	clk_disable_unprepare(q->clk_en);
@@ -906,10 +906,8 @@ static int fsl_qspi_probe(struct platform_device *pdev)
 
 	/* find the irq */
 	ret = platform_get_irq(pdev, 0);
-	if (ret < 0) {
-		dev_err(dev, "failed to get the irq: %d\n", ret);
+	if (ret < 0)
 		goto err_disable_clk;
-	}
 
 	ret = devm_request_irq(dev, ret,
 			fsl_qspi_irq_handler, 0, pdev->name, q);

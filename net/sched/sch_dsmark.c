@@ -150,7 +150,8 @@ errout:
 	return err;
 }
 
-static int dsmark_delete(struct Qdisc *sch, unsigned long arg)
+static int dsmark_delete(struct Qdisc *sch, unsigned long arg,
+			 struct netlink_ext_ack *extack)
 {
 	struct dsmark_qdisc_data *p = qdisc_priv(sch);
 
@@ -406,7 +407,8 @@ static void dsmark_reset(struct Qdisc *sch)
 	struct dsmark_qdisc_data *p = qdisc_priv(sch);
 
 	pr_debug("%s(sch %p,[qdisc %p])\n", __func__, sch, p);
-	qdisc_reset(p->q);
+	if (p->q)
+		qdisc_reset(p->q);
 	sch->qstats.backlog = 0;
 	sch->q.qlen = 0;
 }

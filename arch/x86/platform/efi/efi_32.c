@@ -24,11 +24,11 @@
 #include <linux/types.h>
 #include <linux/ioport.h>
 #include <linux/efi.h>
+#include <linux/pgtable.h>
 
 #include <asm/io.h>
 #include <asm/desc.h>
 #include <asm/page.h>
-#include <asm/pgtable.h>
 #include <asm/set_memory.h>
 #include <asm/tlbflush.h>
 #include <asm/efi.h>
@@ -57,7 +57,6 @@ void __init efi_map_region(efi_memory_desc_t *md)
 	if (!va)
 		pr_err("ioremap of 0x%llX failed!\n", md->phys_addr);
 }
- 
 
 /*
  * To make EFI call EFI runtime service in physical addressing mode we need

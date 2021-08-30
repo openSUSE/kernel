@@ -685,7 +685,7 @@ static void iser_cleanup_handler(struct rdma_cm_id *cma_id,
 	iser_disconnected_handler(cma_id);
 	iser_free_ib_conn_res(iser_conn, destroy);
 	complete(&iser_conn->ib_completion);
-};
+}
 
 static int iser_cma_handler(struct rdma_cm_id *cma_id, struct rdma_cm_event *event)
 {
@@ -711,7 +711,7 @@ static int iser_cma_handler(struct rdma_cm_id *cma_id, struct rdma_cm_event *eve
 	case RDMA_CM_EVENT_REJECTED:
 		iser_info("Connection rejected: %s\n",
 			 rdma_reject_msg(cma_id, event->status));
-		/* FALLTHROUGH */
+		fallthrough;
 	case RDMA_CM_EVENT_ADDR_ERROR:
 	case RDMA_CM_EVENT_ROUTE_ERROR:
 	case RDMA_CM_EVENT_CONNECT_ERROR:
@@ -761,7 +761,7 @@ void iser_conn_init(struct iser_conn *iser_conn)
 	ib_conn->reg_cqe.done = iser_reg_comp;
 }
 
- /**
+/*
  * starts the process of connecting to the target
  * sleeps until the connection is established or rejected
  */

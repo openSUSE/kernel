@@ -13,6 +13,7 @@
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/list.h>
+#include <linux/panic_notifier.h>
 #include <linux/types.h>
 #include <linux/slab.h>
 #include <linux/err.h>
@@ -544,7 +545,6 @@ con3270_flush(void)
 	cp = condev;
 	if (!cp->view.dev)
 		return;
-	raw3270_pm_unfreeze(&cp->view);
 	raw3270_activate_view(&cp->view);
 	spin_lock_irqsave(&cp->view.lock, flags);
 	con3270_wait_write(cp);

@@ -28,7 +28,6 @@
 #include <sound/soc.h>
 #include <sound/soc-acpi.h>
 #include "../atom/sst-atom-controls.h"
-#include "../common/sst-dsp.h"
 #include "../common/soc-intel-quirks.h"
 
 /* jd-inv + terminating entry */
@@ -332,16 +331,12 @@ static struct snd_soc_dai_link byt_cht_es8316_dais[] = {
 
 		/* back ends */
 	{
-		/* Only SSP2 has been tested here, so BYT-CR platforms that
-		 * require SSP0 will not work.
-		 */
 		.name = "SSP2-Codec",
 		.id = 0,
 		.no_pcm = 1,
 		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF
 						| SND_SOC_DAIFMT_CBS_CFS,
 		.be_hw_params_fixup = byt_cht_es8316_codec_fixup,
-		.nonatomic = true,
 		.dpcm_playback = 1,
 		.dpcm_capture = 1,
 		.init = byt_cht_es8316_init,
@@ -570,7 +565,7 @@ static int snd_byt_cht_es8316_mc_probe(struct platform_device *pdev)
 			break;
 		default:
 			dev_err(dev, "get speaker GPIO failed: %d\n", ret);
-			/* fall through */
+			fallthrough;
 		case -EPROBE_DEFER:
 			return ret;
 		}

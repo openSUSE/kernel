@@ -59,8 +59,6 @@
 #include "bnx2_fw.h"
 
 #define DRV_MODULE_NAME		"bnx2"
-#define DRV_MODULE_VERSION	"2.2.6"
-#define DRV_MODULE_RELDATE	"January 29, 2014"
 #define FW_MIPS_FILE_06		"bnx2/bnx2-mips-06-6.2.3.fw"
 #define FW_RV2P_FILE_06		"bnx2/bnx2-rv2p-06-6.0.15.fw"
 #define FW_MIPS_FILE_09		"bnx2/bnx2-mips-09-6.2.1b.fw"
@@ -72,13 +70,9 @@
 /* Time in jiffies before concluding the transmitter is hung. */
 #define TX_TIMEOUT  (5*HZ)
 
-static char version[] =
-	"QLogic " DRV_MODULE_NAME " Gigabit Ethernet Driver v" DRV_MODULE_VERSION " (" DRV_MODULE_RELDATE ")\n";
-
 MODULE_AUTHOR("Michael Chan <mchan@broadcom.com>");
 MODULE_DESCRIPTION("QLogic BCM5706/5708/5709/5716 Driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION(DRV_MODULE_VERSION);
 MODULE_FIRMWARE(FW_MIPS_FILE_06);
 MODULE_FIRMWARE(FW_RV2P_FILE_06);
 MODULE_FIRMWARE(FW_MIPS_FILE_09);
@@ -578,7 +572,7 @@ bnx2_write_phy(struct bnx2 *bp, u32 reg, u32 val)
 	}
 
 	if (val1 & BNX2_EMAC_MDIO_COMM_START_BUSY)
-        	ret = -EBUSY;
+		ret = -EBUSY;
 	else
 		ret = 0;
 
@@ -1343,13 +1337,13 @@ bnx2_set_mac_link(struct bnx2 *bp)
 					val |= BNX2_EMAC_MODE_PORT_MII_10M;
 					break;
 				}
-				/* fall through */
+				fallthrough;
 			case SPEED_100:
 				val |= BNX2_EMAC_MODE_PORT_MII;
 				break;
 			case SPEED_2500:
 				val |= BNX2_EMAC_MODE_25G_MODE;
-				/* fall through */
+				fallthrough;
 			case SPEED_1000:
 				val |= BNX2_EMAC_MODE_PORT_GMII;
 				break;
@@ -1461,7 +1455,7 @@ bnx2_test_and_disable_2g5(struct bnx2 *bp)
 static void
 bnx2_enable_forced_2g5(struct bnx2 *bp)
 {
-	u32 uninitialized_var(bmcr);
+	u32 bmcr;
 	int err;
 
 	if (!(bp->phy_flags & BNX2_PHY_FLAG_2_5G_CAPABLE))
@@ -1505,7 +1499,7 @@ bnx2_enable_forced_2g5(struct bnx2 *bp)
 static void
 bnx2_disable_forced_2g5(struct bnx2 *bp)
 {
-	u32 uninitialized_var(bmcr);
+	u32 bmcr;
 	int err;
 
 	if (!(bp->phy_flags & BNX2_PHY_FLAG_2_5G_CAPABLE))
@@ -2001,26 +1995,26 @@ bnx2_remote_phy_event(struct bnx2 *bp)
 		switch (speed) {
 			case BNX2_LINK_STATUS_10HALF:
 				bp->duplex = DUPLEX_HALF;
-				/* fall through */
+				fallthrough;
 			case BNX2_LINK_STATUS_10FULL:
 				bp->line_speed = SPEED_10;
 				break;
 			case BNX2_LINK_STATUS_100HALF:
 				bp->duplex = DUPLEX_HALF;
-				/* fall through */
+				fallthrough;
 			case BNX2_LINK_STATUS_100BASE_T4:
 			case BNX2_LINK_STATUS_100FULL:
 				bp->line_speed = SPEED_100;
 				break;
 			case BNX2_LINK_STATUS_1000HALF:
 				bp->duplex = DUPLEX_HALF;
-				/* fall through */
+				fallthrough;
 			case BNX2_LINK_STATUS_1000FULL:
 				bp->line_speed = SPEED_1000;
 				break;
 			case BNX2_LINK_STATUS_2500HALF:
 				bp->duplex = DUPLEX_HALF;
-				/* fall through */
+				fallthrough;
 			case BNX2_LINK_STATUS_2500FULL:
 				bp->line_speed = SPEED_2500;
 				break;
@@ -3605,7 +3599,7 @@ bnx2_set_rx_mode(struct net_device *dev)
 		for (i = 0; i < NUM_MC_HASH_REGISTERS; i++) {
 			BNX2_WR(bp, BNX2_EMAC_MULTICAST_HASH0 + (i * 4),
 				0xffffffff);
-        	}
+		}
 		sort_mode |= BNX2_RPM_SORT_USER0_MC_EN;
 	}
 	else {
@@ -4680,7 +4674,7 @@ bnx2_nvram_write(struct bnx2 *bp, u32 offset, u8 *data_buf,
 
 				if (addr == page_end-4) {
 					cmd_flags = BNX2_NVM_COMMAND_LAST;
-                		}
+				}
 				rc = bnx2_nvram_write_dword(bp, addr,
 					&flash_buffer[i], cmd_flags);
 
@@ -7048,7 +7042,6 @@ bnx2_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
 	struct bnx2 *bp = netdev_priv(dev);
 
 	strlcpy(info->driver, DRV_MODULE_NAME, sizeof(info->driver));
-	strlcpy(info->version, DRV_MODULE_VERSION, sizeof(info->version));
 	strlcpy(info->bus_info, pci_name(bp->pdev), sizeof(info->bus_info));
 	strlcpy(info->fw_version, bp->fw_version, sizeof(info->fw_version));
 }
@@ -7863,7 +7856,7 @@ bnx2_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	case SIOCGMIIPHY:
 		data->phy_id = bp->phy_addr;
 
-		/* fallthru */
+		fallthrough;
 	case SIOCGMIIREG: {
 		u32 mii_regval;
 
@@ -8064,7 +8057,7 @@ bnx2_read_vpd_fw_ver(struct bnx2 *bp)
 		data[i + 3] = data[i + BNX2_VPD_LEN];
 	}
 
-	i = pci_vpd_find_tag(data, 0, BNX2_VPD_LEN, PCI_VPD_LRDT_RO_DATA);
+	i = pci_vpd_find_tag(data, BNX2_VPD_LEN, PCI_VPD_LRDT_RO_DATA);
 	if (i < 0)
 		goto vpd_done;
 
@@ -8567,14 +8560,10 @@ static const struct net_device_ops bnx2_netdev_ops = {
 static int
 bnx2_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
-	static int version_printed = 0;
 	struct net_device *dev;
 	struct bnx2 *bp;
 	int rc;
 	char str[40];
-
-	if (version_printed++ == 0)
-		pr_info("%s", version);
 
 	/* dev zeroed in init_etherdev */
 	dev = alloc_etherdev_mq(sizeof(*bp), TX_MAX_RINGS);

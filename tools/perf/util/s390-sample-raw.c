@@ -22,11 +22,8 @@
 #include <asm/byteorder.h>
 
 #include "debug.h"
-#include "util.h"
-#include "auxtrace.h"
 #include "session.h"
 #include "evlist.h"
-#include "config.h"
 #include "color.h"
 #include "sample-raw.h"
 #include "s390-cpumcf-kernel.h"
@@ -163,11 +160,9 @@ static void s390_cpumcfdg_dump(struct perf_sample *sample)
 	const char *color = PERF_COLOR_BLUE;
 	struct cf_ctrset_entry *cep, ce;
 	struct pmu_events_map *map;
-	struct perf_pmu pmu;
 	u64 *p;
 
-	memset(&pmu, 0, sizeof(pmu));
-	map = perf_pmu__find_map(&pmu);
+	map = pmu_events_map__find();
 	while (offset < len) {
 		cep = (struct cf_ctrset_entry *)(buf + offset);
 
@@ -200,17 +195,16 @@ static void s390_cpumcfdg_dump(struct perf_sample *sample)
  * its raw data.
  * The function is only invoked when the dump flag -D is set.
  */
-void perf_evlist__s390_sample_raw(struct perf_evlist *evlist, union perf_event *event,
-				  struct perf_sample *sample)
+void evlist__s390_sample_raw(struct evlist *evlist, union perf_event *event, struct perf_sample *sample)
 {
-	struct perf_evsel *ev_bc000;
+	struct evsel *ev_bc000;
 
 	if (event->header.type != PERF_RECORD_SAMPLE)
 		return;
 
-	ev_bc000 = perf_evlist__event2evsel(evlist, event);
+	ev_bc000 = evlist__event2evsel(evlist, event);
 	if (ev_bc000 == NULL ||
-	    ev_bc000->attr.config != PERF_EVENT_CPUM_CF_DIAG)
+	    ev_bc000->core.attr.config != PERF_EVENT_CPUM_CF_DIAG)
 		return;
 
 	/* Display raw data on screen */

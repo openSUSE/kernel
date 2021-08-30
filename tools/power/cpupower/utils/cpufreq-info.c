@@ -186,8 +186,7 @@ static int get_boost_mode_x86(unsigned int cpu)
 	if ((cpupower_cpu_info.vendor == X86_VENDOR_AMD &&
 	     cpupower_cpu_info.family >= 0x10) ||
 	     cpupower_cpu_info.vendor == X86_VENDOR_HYGON) {
-		ret = decode_pstates(cpu, cpupower_cpu_info.family, b_states,
-				     pstates, &pstate_no);
+		ret = decode_pstates(cpu, b_states, pstates, &pstate_no);
 		if (ret)
 			return ret;
 
@@ -244,14 +243,14 @@ static int get_boost_mode_x86(unsigned int cpu)
 
 static int get_boost_mode(unsigned int cpu)
 {
-	struct cpufreq_frequencies *freqs;
+	struct cpufreq_available_frequencies *freqs;
 
 	if (cpupower_cpu_info.vendor == X86_VENDOR_AMD ||
 	    cpupower_cpu_info.vendor == X86_VENDOR_HYGON ||
 	    cpupower_cpu_info.vendor == X86_VENDOR_INTEL)
 		return get_boost_mode_x86(cpu);
 
-	freqs = cpufreq_get_frequencies("boost", cpu);
+	freqs = cpufreq_get_boost_frequencies(cpu);
 	if (freqs) {
 		printf(_("  boost frequency steps: "));
 		while (freqs->next) {
@@ -261,7 +260,7 @@ static int get_boost_mode(unsigned int cpu)
 		}
 		print_speed(freqs->frequency);
 		printf("\n");
-		cpufreq_put_frequencies(freqs);
+		cpufreq_put_available_frequencies(freqs);
 	}
 
 	return 0;
@@ -475,7 +474,7 @@ static int get_latency(unsigned int cpu, unsigned int human)
 
 static void debug_output_one(unsigned int cpu)
 {
-	struct cpufreq_frequencies *freqs;
+	struct cpufreq_available_frequencies *freqs;
 
 	get_driver(cpu);
 	get_related_cpus(cpu);
@@ -483,7 +482,7 @@ static void debug_output_one(unsigned int cpu)
 	get_latency(cpu, 1);
 	get_hardware_limits(cpu, 1);
 
-	freqs = cpufreq_get_frequencies("available", cpu);
+	freqs = cpufreq_get_available_frequencies(cpu);
 	if (freqs) {
 		printf(_("  available frequency steps:  "));
 		while (freqs->next) {
@@ -493,7 +492,7 @@ static void debug_output_one(unsigned int cpu)
 		}
 		print_speed(freqs->frequency);
 		printf("\n");
-		cpufreq_put_frequencies(freqs);
+		cpufreq_put_available_frequencies(freqs);
 	}
 
 	get_available_governors(cpu);

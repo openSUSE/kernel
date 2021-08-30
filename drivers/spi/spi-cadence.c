@@ -419,8 +419,8 @@ static int cdns_transfer_one(struct spi_master *master,
 	xspi->rx_bytes = transfer->len;
 
 	cdns_spi_setup_transfer(spi, transfer);
-
 	cdns_spi_fill_tx_fifo(xspi);
+	spi_transfer_delay_exec(transfer);
 
 	cdns_spi_write(xspi, CDNS_SPI_IER, CDNS_SPI_IXR_DEFAULT);
 	return transfer->len;
@@ -475,7 +475,6 @@ static int cdns_spi_probe(struct platform_device *pdev)
 	int ret = 0, irq;
 	struct spi_master *master;
 	struct cdns_spi *xspi;
-	struct resource *res;
 	u32 num_cs;
 
 	master = spi_alloc_master(&pdev->dev, sizeof(*xspi));
@@ -486,8 +485,7 @@ static int cdns_spi_probe(struct platform_device *pdev)
 	master->dev.of_node = pdev->dev.of_node;
 	platform_set_drvdata(pdev, master);
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	xspi->regs = devm_ioremap_resource(&pdev->dev, res);
+	xspi->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(xspi->regs)) {
 		ret = PTR_ERR(xspi->regs);
 		goto remove_master;
@@ -542,7 +540,6 @@ static int cdns_spi_probe(struct platform_device *pdev)
 	irq = platform_get_irq(pdev, 0);
 	if (irq <= 0) {
 		ret = -ENXIO;
-		dev_err(&pdev->dev, "irq number is invalid\n");
 		goto clk_dis_all;
 	}
 
@@ -561,7 +558,7 @@ static int cdns_spi_probe(struct platform_device *pdev)
 	master->unprepare_transfer_hardware = cdns_unprepare_transfer_hardware;
 	master->set_cs = cdns_spi_chipselect;
 	master->auto_runtime_pm = true;
-	master->mode_bits = SPI_CPOL | SPI_CPHA;
+	master->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH;
 
 	xspi->clk_rate = clk_get_rate(xspi->ref_clk);
 	/* Set to default valid value */

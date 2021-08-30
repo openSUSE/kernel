@@ -17,7 +17,8 @@
  * struct pinctrl_dt_map - mapping table chunk parsed from device tree
  * @node: list node for struct pinctrl's @dt_maps field
  * @pctldev: the pin controller that allocated this struct, and will free it
- * @maps: the mapping table entries
+ * @map: the mapping table entries
+ * @num_maps: number of mapping table entries
  */
 struct pinctrl_dt_map {
 	struct list_head node;
@@ -128,11 +129,11 @@ static int dt_to_map_one_config(struct pinctrl *p,
 		np_pctldev = of_get_next_parent(np_pctldev);
 		if (!np_pctldev || of_node_is_root(np_pctldev)) {
 			of_node_put(np_pctldev);
-			/* keep deferring if modules are enabled unless we've timed out */
-			if (IS_ENABLED(CONFIG_MODULES) && !allow_default)
-				return driver_deferred_probe_check_state_continue(p->dev);
-
-			return driver_deferred_probe_check_state(p->dev);
+			ret = driver_deferred_probe_check_state(p->dev);
+			/* keep deferring if modules are enabled */
+			if (IS_ENABLED(CONFIG_MODULES) && !allow_default && ret < 0)
+				ret = -EPROBE_DEFER;
+			return ret;
 		}
 		/* If we're creating a hog we can use the passed pctldev */
 		if (hog_pctldev && (np_pctldev == p->dev->of_node)) {
@@ -163,6 +164,16 @@ static int dt_to_map_one_config(struct pinctrl *p,
 	ret = ops->dt_node_to_map(pctldev, np_config, &map, &num_maps);
 	if (ret < 0)
 		return ret;
+	else if (num_maps == 0) {
+		/*
+		 * If we have no valid maps (maybe caused by empty pinctrl node
+		 * or typing error) ther is no need remember this, so just
+		 * return.
+		 */
+		dev_info(p->dev,
+			 "there is not valid maps for state %s\n", statename);
+		return 0;
+	}
 
 	/* Stash the mapping table chunk away for later use */
 	return dt_remember_or_free_map(p, statename, pctldev, map, num_maps);
@@ -180,21 +191,6 @@ static int dt_remember_dummy_state(struct pinctrl *p, const char *statename)
 	map->type = PIN_MAP_TYPE_DUMMY_STATE;
 
 	return dt_remember_or_free_map(p, statename, NULL, map, 1);
-}
-
-bool pinctrl_dt_has_hogs(struct pinctrl_dev *pctldev)
-{
-	struct device_node *np;
-	struct property *prop;
-	int size;
-
-	np = pctldev->dev->of_node;
-	if (!np)
-		return false;
-
-	prop = of_find_property(np, "pinctrl-0", &size);
-
-	return prop ? true : false;
 }
 
 int pinctrl_dt_to_map(struct pinctrl *p, struct pinctrl_dev *pctldev)
@@ -244,10 +240,8 @@ int pinctrl_dt_to_map(struct pinctrl *p, struct pinctrl_dev *pctldev)
 		 * than dynamically allocate it and have to free it later,
 		 * just point part way into the property name for the string.
 		 */
-		if (ret < 0) {
-			/* strlen("pinctrl-") == 8 */
-			statename = prop->name + 8;
-		}
+		if (ret < 0)
+			statename = prop->name + strlen("pinctrl-");
 
 		/* For every referenced pin configuration node in it */
 		for (config = 0; config < size; config++) {
@@ -403,7 +397,7 @@ static int pinctrl_copy_args(const struct device_node *np,
  * @np: pointer to device node with the property
  * @list_name: property that contains the list
  * @index: index within the list
- * @out_arts: entries in the list pointed by index
+ * @out_args: entries in the list pointed by index
  *
  * Finds the selected element in a pinctrl array consisting of an index
  * within the controller and a number of u32 entries specified for each

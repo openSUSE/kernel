@@ -15,7 +15,13 @@ power-domains.
 - compatible:
 	Usage: required
 	Value type: <string>
-	Definition: must be "qcom,sdm845-aoss-qmp"
+	Definition: must be one of:
+		    "qcom,sc7180-aoss-qmp"
+		    "qcom,sc7280-aoss-qmp"
+		    "qcom,sdm845-aoss-qmp"
+		    "qcom,sm8150-aoss-qmp"
+		    "qcom,sm8250-aoss-qmp"
+		    "qcom,sm8350-aoss-qmp"
 
 - reg:
 	Usage: required

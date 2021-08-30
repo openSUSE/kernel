@@ -31,7 +31,6 @@
 #include <linux/io.h>
 #include <linux/ioport.h>
 
-#define DEBUG
 #define NAME "it8712f_wdt"
 
 MODULE_AUTHOR("Jorge Boncompte - DTI2 <jorge@dti2.net>");
@@ -303,7 +302,7 @@ static long it8712f_wdt_ioctl(struct file *file, unsigned int cmd,
 
 		superio_exit();
 		it8712f_wdt_ping();
-		/* Fall through */
+		fallthrough;
 	case WDIOC_GETTIMEOUT:
 		if (put_user(margin, p))
 			return -EFAULT;

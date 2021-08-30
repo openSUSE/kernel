@@ -268,8 +268,8 @@ defined in include/linux/pm.h:
   `unsigned int runtime_auto;`
     - if set, indicates that the user space has allowed the device driver to
       power manage the device at run time via the /sys/devices/.../power/control
-      `interface;` it may only be modified with the help of the pm_runtime_allow()
-      and pm_runtime_forbid() helper functions
+      `interface;` it may only be modified with the help of the
+      pm_runtime_allow() and pm_runtime_forbid() helper functions
 
   `unsigned int no_callbacks;`
     - indicates that the device does not use the runtime PM callbacks (see
@@ -378,13 +378,23 @@ drivers/base/power/runtime.c and include/linux/pm_runtime.h:
 
   `int pm_runtime_get_sync(struct device *dev);`
     - increment the device's usage counter, run pm_runtime_resume(dev) and
-      return its result
+      return its result;
+      note that it does not drop the device's usage counter on errors, so
+      consider using pm_runtime_resume_and_get() instead of it, especially
+      if its return value is checked by the caller, as this is likely to
+      result in cleaner code.
 
   `int pm_runtime_get_if_in_use(struct device *dev);`
     - return -EINVAL if 'power.disable_depth' is nonzero; otherwise, if the
       runtime PM status is RPM_ACTIVE and the runtime PM usage counter is
       nonzero, increment the counter and return 1; otherwise return 0 without
       changing the counter
+
+  `int pm_runtime_get_if_active(struct device *dev, bool ign_usage_count);`
+    - return -EINVAL if 'power.disable_depth' is nonzero; otherwise, if the
+      runtime PM status is RPM_ACTIVE, and either ign_usage_count is true
+      or the device's usage_count is non-zero, increment the counter and
+      return 1; otherwise return 0 without changing the counter
 
   `void pm_runtime_put_noidle(struct device *dev);`
     - decrement the device's usage counter
@@ -577,7 +587,7 @@ should be used.  Of course, for this purpose the device's runtime PM has to be
 enabled earlier by calling pm_runtime_enable().
 
 Note, if the device may execute pm_runtime calls during the probe (such as
-if it is registers with a subsystem that may call back in) then the
+if it is registered with a subsystem that may call back in) then the
 pm_runtime_get_sync() call paired with a pm_runtime_put() call will be
 appropriate to ensure that the device is not put back to sleep during the
 probe. This can happen with systems such as the network device layer.
@@ -585,11 +595,11 @@ probe. This can happen with systems such as the network device layer.
 It may be desirable to suspend the device once ->probe() has finished.
 Therefore the driver core uses the asynchronous pm_request_idle() to submit a
 request to execute the subsystem-level idle callback for the device at that
-time.  A driver that makes use of the runtime autosuspend feature, may want to
+time.  A driver that makes use of the runtime autosuspend feature may want to
 update the last busy mark before returning from ->probe().
 
 Moreover, the driver core prevents runtime PM callbacks from racing with the bus
-notifier callback in __device_release_driver(), which is necessary, because the
+notifier callback in __device_release_driver(), which is necessary because the
 notifier is used by some subsystems to carry out operations affecting the
 runtime PM functionality.  It does so by calling pm_runtime_get_sync() before
 driver_sysfs_remove() and the BUS_NOTIFY_UNBIND_DRIVER notifications.  This
@@ -601,7 +611,7 @@ calling pm_runtime_suspend() from their ->remove() routines, the driver core
 executes pm_runtime_put_sync() after running the BUS_NOTIFY_UNBIND_DRIVER
 notifications in __device_release_driver().  This requires bus types and
 drivers to make their ->remove() callbacks avoid races with runtime PM directly,
-but also it allows of more flexibility in the handling of devices during the
+but it also allows more flexibility in the handling of devices during the
 removal of their drivers.
 
 Drivers in ->remove() callback should undo the runtime PM changes done
@@ -691,7 +701,7 @@ that the device appears to be runtime-suspended and its state is fine, so it
 may be left in runtime suspend provided that all of its descendants are also
 left in runtime suspend.  If that happens, the PM core will not execute any
 system suspend and resume callbacks for all of those devices, except for the
-complete callback, which is then entirely responsible for handling the device
+.complete() callback, which is then entirely responsible for handling the device
 as appropriate.  This only applies to system suspend transitions that are not
 related to hibernation (see Documentation/driver-api/pm/devices.rst for more
 information).
@@ -704,7 +714,7 @@ out the following operations:
     right before executing the subsystem-level .prepare() callback for it and
     pm_runtime_barrier() is called for every device right before executing the
     subsystem-level .suspend() callback for it.  In addition to that the PM core
-    calls  __pm_runtime_disable() with 'false' as the second argument for every
+    calls __pm_runtime_disable() with 'false' as the second argument for every
     device right before executing the subsystem-level .suspend_late() callback
     for it.
 
@@ -781,7 +791,7 @@ driver/base/power/generic_ops.c:
   `int pm_generic_restore_noirq(struct device *dev);`
     - invoke the ->restore_noirq() callback provided by the device's driver
 
-These functions are the defaults used by the PM core, if a subsystem doesn't
+These functions are the defaults used by the PM core if a subsystem doesn't
 provide its own callbacks for ->runtime_idle(), ->runtime_suspend(),
 ->runtime_resume(), ->suspend(), ->suspend_noirq(), ->resume(),
 ->resume_noirq(), ->freeze(), ->freeze_noirq(), ->thaw(), ->thaw_noirq(),
@@ -820,6 +830,15 @@ As a consequence, the PM core will never directly inform the device's subsystem
 or driver about runtime power changes.  Instead, the driver for the device's
 parent must take responsibility for telling the device's driver when the
 parent's power state changes.
+
+Note that, in some cases it may not be desirable for subsystems/drivers to call
+pm_runtime_no_callbacks() for their devices. This could be because a subset of
+the runtime PM callbacks needs to be implemented, a platform dependent PM
+domain could get attached to the device or that the device is power managed
+through a supplier device link. For these reasons and to avoid boilerplate code
+in subsystems/drivers, the PM core allows runtime PM callbacks to be
+unassigned. More precisely, if a callback pointer is NULL, the PM core will act
+as though there was a callback and it returned 0.
 
 9. Autosuspend, or automatically-delayed suspends
 =================================================

@@ -71,6 +71,7 @@
  *	until pending frames are delivered
  * @WLAN_STA_USES_ENCRYPTION: This station was configured for encryption,
  *	so drop all packets without a key later.
+ * @WLAN_STA_DECAP_OFFLOAD: This station uses rx decap offload
  *
  * @NUM_WLAN_STA_FLAGS: number of defined flags
  */
@@ -102,6 +103,7 @@ enum ieee80211_sta_info_flags {
 	WLAN_STA_MPSP_RECIPIENT,
 	WLAN_STA_PS_DELIVER,
 	WLAN_STA_USES_ENCRYPTION,
+	WLAN_STA_DECAP_OFFLOAD,
 
 	NUM_WLAN_STA_FLAGS,
 };
@@ -133,18 +135,25 @@ enum ieee80211_agg_stop_reason {
 #define AIRTIME_USE_TX		BIT(0)
 #define AIRTIME_USE_RX		BIT(1)
 
+
 struct airtime_info {
 	u64 rx_airtime;
 	u64 tx_airtime;
-	s64 deficit;
+	u64 v_t;
+	u64 last_scheduled;
+	struct list_head list;
 	atomic_t aql_tx_pending; /* Estimated airtime for frames pending */
 	u32 aql_limit_low;
 	u32 aql_limit_high;
+	u32 weight_reciprocal;
+	u16 weight;
 };
 
 void ieee80211_sta_update_pending_airtime(struct ieee80211_local *local,
 					  struct sta_info *sta, u8 ac,
 					  u16 tx_airtime, bool tx_completed);
+void ieee80211_register_airtime(struct ieee80211_txq *txq,
+				u32 tx_airtime, u32 rx_airtime);
 
 struct sta_info;
 
@@ -336,7 +345,6 @@ struct ieee80211_fast_tx {
  * @expected_ds_bits: from/to DS bits expected
  * @icv_len: length of the MIC if present
  * @key: bool indicating encryption is expected (key is set)
- * @sta_notify: notify the MLME code (once)
  * @internal_forward: forward froms internally on AP/VLAN type interfaces
  * @uses_rss: copy of USES_RSS hw flag
  * @da_offs: offset of the DA in the header (for header conversion)
@@ -352,7 +360,6 @@ struct ieee80211_fast_rx {
 	__le16 expected_ds_bits;
 	u8 icv_len;
 	u8 key:1,
-	   sta_notify:1,
 	   internal_forward:1,
 	   uses_rss:1;
 	u8 da_offs, sa_offs;
@@ -515,7 +522,6 @@ struct ieee80211_fragment_cache {
  * @tid_seq: per-TID sequence numbers for sending to this STA
  * @airtime: per-AC struct airtime_info describing airtime statistics for this
  *	station
- * @airtime_weight: station weight for airtime fairness calculation purposes
  * @ampdu_mlme: A-MPDU state machine state
  * @mesh: mesh STA information
  * @debugfs_dir: debug filesystem directory dentry
@@ -646,7 +652,6 @@ struct sta_info {
 	u16 tid_seq[IEEE80211_QOS_CTL_TID_MASK + 1];
 
 	struct airtime_info airtime[IEEE80211_NUM_ACS];
-	u16 airtime_weight;
 
 	/*
 	 * Aggregation information, locked with lock.
@@ -668,18 +673,11 @@ struct sta_info {
 
 	struct cfg80211_chan_def tdls_chandef;
 
+	struct ieee80211_fragment_cache frags;
+
 	/* keep last! */
 	struct ieee80211_sta sta;
 };
-
-/* XXX frags is factoroed out for SLE kABI compatibility */
-struct __sta_info {
-	struct ieee80211_fragment_cache frags;
-	void *reserved;
-	struct sta_info sta;
-};
-
-#define sta_frags(s) container_of(s, struct __sta_info, sta)->frags
 
 static inline enum nl80211_plink_state sta_plink_state(struct sta_info *sta)
 {
@@ -825,7 +823,7 @@ int sta_info_init(struct ieee80211_local *local);
 void sta_info_stop(struct ieee80211_local *local);
 
 /**
- * sta_info_flush - flush matching STA entries from the STA table
+ * __sta_info_flush - flush matching STA entries from the STA table
  *
  * Returns the number of removed STA entries.
  *
@@ -834,6 +832,13 @@ void sta_info_stop(struct ieee80211_local *local);
  */
 int __sta_info_flush(struct ieee80211_sub_if_data *sdata, bool vlans);
 
+/**
+ * sta_info_flush - flush matching STA entries from the STA table
+ *
+ * Returns the number of removed STA entries.
+ *
+ * @sdata: sdata to remove all stations from
+ */
 static inline int sta_info_flush(struct ieee80211_sub_if_data *sdata)
 {
 	return __sta_info_flush(sdata, false);
@@ -863,6 +868,7 @@ enum sta_stats_type {
 	STA_STATS_RATE_TYPE_HT,
 	STA_STATS_RATE_TYPE_VHT,
 	STA_STATS_RATE_TYPE_HE,
+	STA_STATS_RATE_TYPE_S1G,
 };
 
 #define STA_STATS_FIELD_HT_MCS		GENMASK( 7,  0)

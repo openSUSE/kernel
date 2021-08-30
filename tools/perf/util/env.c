@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: GPL-2.0
 #include "cpumap.h"
+#include "debug.h"
 #include "env.h"
+#include "util/header.h"
 #include <linux/ctype.h>
 #include <linux/zalloc.h>
-#include "bpf-event.h"
+#include "cgroup.h"
 #include <errno.h>
 #include <sys/utsname.h>
-#include <bpf/libbpf.h>
 #include <stdlib.h>
+#include <string.h>
 
 struct perf_env perf_env;
+
+#ifdef HAVE_LIBBPF_SUPPORT
+#include "bpf-event.h"
+#include <bpf/libbpf.h>
 
 void perf_env__insert_bpf_prog_info(struct perf_env *env,
 				    struct bpf_prog_info_node *info_node)
@@ -138,6 +144,7 @@ static void perf_env__purge_bpf(struct perf_env *env)
 		node = rb_entry(next, struct bpf_prog_info_node, rb_node);
 		next = rb_next(&node->rb_node);
 		rb_erase(&node->rb_node, root);
+		free(node->info_linear);
 		free(node);
 	}
 
@@ -159,12 +166,18 @@ static void perf_env__purge_bpf(struct perf_env *env)
 
 	up_write(&env->bpf_progs.lock);
 }
+#else // HAVE_LIBBPF_SUPPORT
+static void perf_env__purge_bpf(struct perf_env *env __maybe_unused)
+{
+}
+#endif // HAVE_LIBBPF_SUPPORT
 
 void perf_env__exit(struct perf_env *env)
 {
 	int i;
 
 	perf_env__purge_bpf(env);
+	perf_env__purge_cgroups(env);
 	zfree(&env->hostname);
 	zfree(&env->os_release);
 	zfree(&env->version);
@@ -173,13 +186,16 @@ void perf_env__exit(struct perf_env *env)
 	zfree(&env->cpuid);
 	zfree(&env->cmdline);
 	zfree(&env->cmdline_argv);
+	zfree(&env->sibling_dies);
 	zfree(&env->sibling_cores);
 	zfree(&env->sibling_threads);
 	zfree(&env->pmu_mappings);
 	zfree(&env->cpu);
+	zfree(&env->cpu_pmu_caps);
+	zfree(&env->numa_map);
 
 	for (i = 0; i < env->nr_numa_nodes; i++)
-		cpu_map__put(env->numa_nodes[i].map);
+		perf_cpu_map__put(env->numa_nodes[i].map);
 	zfree(&env->numa_nodes);
 
 	for (i = 0; i < env->caches_cnt; i++)
@@ -189,13 +205,27 @@ void perf_env__exit(struct perf_env *env)
 	for (i = 0; i < env->nr_memory_nodes; i++)
 		zfree(&env->memory_nodes[i].set);
 	zfree(&env->memory_nodes);
+
+	for (i = 0; i < env->nr_hybrid_nodes; i++) {
+		zfree(&env->hybrid_nodes[i].pmu_name);
+		zfree(&env->hybrid_nodes[i].cpus);
+	}
+	zfree(&env->hybrid_nodes);
+
+	for (i = 0; i < env->nr_hybrid_cpc_nodes; i++) {
+		zfree(&env->hybrid_cpc_nodes[i].cpu_pmu_caps);
+		zfree(&env->hybrid_cpc_nodes[i].pmu_name);
+	}
+	zfree(&env->hybrid_cpc_nodes);
 }
 
-void perf_env__init(struct perf_env *env)
+void perf_env__init(struct perf_env *env __maybe_unused)
 {
+#ifdef HAVE_LIBBPF_SUPPORT
 	env->bpf_progs.infos = RB_ROOT;
 	env->bpf_progs.btfs = RB_ROOT;
 	init_rwsem(&env->bpf_progs.lock);
+#endif
 }
 
 int perf_env__set_cmdline(struct perf_env *env, int argc, const char *argv[])
@@ -251,6 +281,21 @@ int perf_env__read_cpu_topology_map(struct perf_env *env)
 	}
 
 	env->nr_cpus_avail = nr_cpus;
+	return 0;
+}
+
+int perf_env__read_cpuid(struct perf_env *env)
+{
+	char cpuid[128];
+	int err = get_cpuid(cpuid, sizeof(cpuid));
+
+	if (err)
+		return err;
+
+	free(env->cpuid);
+	env->cpuid = strdup(cpuid);
+	if (env->cpuid == NULL)
+		return ENOMEM;
 	return 0;
 }
 
@@ -324,15 +369,54 @@ static const char *normalize_arch(char *arch)
 
 const char *perf_env__arch(struct perf_env *env)
 {
-	struct utsname uts;
 	char *arch_name;
 
 	if (!env || !env->arch) { /* Assume local operation */
-		if (uname(&uts) < 0)
+		static struct utsname uts = { .machine[0] = '\0', };
+		if (uts.machine[0] == '\0' && uname(&uts) < 0)
 			return NULL;
 		arch_name = uts.machine;
 	} else
 		arch_name = env->arch;
 
 	return normalize_arch(arch_name);
+}
+
+
+int perf_env__numa_node(struct perf_env *env, int cpu)
+{
+	if (!env->nr_numa_map) {
+		struct numa_node *nn;
+		int i, nr = 0;
+
+		for (i = 0; i < env->nr_numa_nodes; i++) {
+			nn = &env->numa_nodes[i];
+			nr = max(nr, perf_cpu_map__max(nn->map));
+		}
+
+		nr++;
+
+		/*
+		 * We initialize the numa_map array to prepare
+		 * it for missing cpus, which return node -1
+		 */
+		env->numa_map = malloc(nr * sizeof(int));
+		if (!env->numa_map)
+			return -1;
+
+		for (i = 0; i < nr; i++)
+			env->numa_map[i] = -1;
+
+		env->nr_numa_map = nr;
+
+		for (i = 0; i < env->nr_numa_nodes; i++) {
+			int tmp, j;
+
+			nn = &env->numa_nodes[i];
+			perf_cpu_map__for_each_cpu(j, tmp, nn->map)
+				env->numa_map[j] = i;
+		}
+	}
+
+	return cpu >= 0 && cpu < env->nr_numa_map ? env->numa_map[cpu] : -1;
 }

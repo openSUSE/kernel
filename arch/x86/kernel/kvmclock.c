@@ -43,7 +43,6 @@ static int __init parse_no_kvmclock_vsyscall(char *arg)
 early_param("no-kvmclock-vsyscall", parse_no_kvmclock_vsyscall);
 
 /* Aligned to page sizes to match whats mapped via vsyscalls to userspace */
-#define HV_CLOCK_SIZE	(sizeof(struct pvclock_vsyscall_time_info) * NR_CPUS)
 #define HVC_BOOT_ARRAY_SIZE \
 	(PAGE_SIZE / sizeof(struct pvclock_vsyscall_time_info))
 
@@ -106,7 +105,7 @@ static inline void kvm_sched_clock_init(bool stable)
 	if (!stable)
 		clear_sched_clock_stable();
 	kvm_sched_clock_offset = kvm_clock_read();
-	pv_ops.time.sched_clock = kvm_sched_clock_read;
+	paravirt_set_sched_clock(kvm_sched_clock_read);
 
 	pr_info("kvm-clock: using sched offset of %llu cycles",
 		kvm_sched_clock_offset);
@@ -158,12 +157,19 @@ bool kvm_check_and_clear_guest_paused(void)
 	return ret;
 }
 
+static int kvm_cs_enable(struct clocksource *cs)
+{
+	vclocks_set_used(VDSO_CLOCKMODE_PVCLOCK);
+	return 0;
+}
+
 struct clocksource kvm_clock = {
 	.name	= "kvm-clock",
 	.read	= kvm_clock_get_cycles,
 	.rating	= 400,
 	.mask	= CLOCKSOURCE_MASK(64),
 	.flags	= CLOCK_SOURCE_IS_CONTINUOUS,
+	.enable	= kvm_cs_enable,
 };
 EXPORT_SYMBOL_GPL(kvm_clock);
 
@@ -252,7 +258,7 @@ static int __init kvm_setup_vsyscall_timeinfo(void)
 		if (!(flags & PVCLOCK_TSC_STABLE_BIT))
 			return 0;
 
-		kvm_clock.archdata.vclock_mode = VCLOCK_PVCLOCK;
+		kvm_clock.vdso_clock_mode = VDSO_CLOCKMODE_PVCLOCK;
 	}
 #endif
 

@@ -70,7 +70,7 @@ static int siu_pcm_stmwrite_start(struct siu_port *port_info)
 	siu_stream->rw_flg = RWF_STM_WT;
 
 	/* DMA transfer start */
-	tasklet_schedule(&siu_stream->tasklet);
+	queue_work(system_highpri_wq, &siu_stream->work);
 
 	return 0;
 }
@@ -93,7 +93,7 @@ static void siu_dma_tx_complete(void *arg)
 		siu_stream->cur_period * siu_stream->period_bytes,
 		siu_stream->buf_bytes, siu_stream->cookie);
 
-	tasklet_schedule(&siu_stream->tasklet);
+	queue_work(system_highpri_wq, &siu_stream->work);
 
 	/* Notify alsa: a period is done */
 	snd_pcm_period_elapsed(siu_stream->substream);
@@ -198,9 +198,10 @@ static int siu_pcm_rd_set(struct siu_port *port_info,
 	return 0;
 }
 
-static void siu_io_tasklet(unsigned long data)
+static void siu_io_work(struct work_struct *work)
 {
-	struct siu_stream *siu_stream = (struct siu_stream *)data;
+	struct siu_stream *siu_stream = container_of(work, struct siu_stream,
+						     work);
 	struct snd_pcm_substream *substream = siu_stream->substream;
 	struct device *dev = substream->pcm->card->dev;
 	struct snd_pcm_runtime *rt = substream->runtime;
@@ -216,14 +217,10 @@ static void siu_io_tasklet(unsigned long data)
 	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
 		dma_addr_t buff;
 		size_t count;
-		u8 *virt;
 
 		buff = (dma_addr_t)PERIOD_OFFSET(rt->dma_addr,
 						siu_stream->cur_period,
 						siu_stream->period_bytes);
-		virt = PERIOD_OFFSET(rt->dma_area,
-				     siu_stream->cur_period,
-				     siu_stream->period_bytes);
 		count = siu_stream->period_bytes;
 
 		/* DMA transfer start */
@@ -253,7 +250,7 @@ static int siu_pcm_stmread_start(struct siu_port *port_info)
 	/* during stmread flag set */
 	siu_stream->rw_flg = RWF_STM_RD;
 
-	tasklet_schedule(&siu_stream->tasklet);
+	queue_work(system_highpri_wq, &siu_stream->work);
 
 	return 0;
 }
@@ -362,7 +359,7 @@ static int siu_pcm_prepare(struct snd_soc_component *component,
 	struct siu_info *info = siu_i2s_data;
 	struct siu_port *port_info = siu_port_info(ss);
 	struct device *dev = ss->pcm->card->dev;
-	struct snd_pcm_runtime 	*rt = ss->runtime;
+	struct snd_pcm_runtime *rt;
 	struct siu_stream *siu_stream;
 	snd_pcm_sframes_t xfer_cnt;
 
@@ -519,11 +516,9 @@ static int siu_pcm_new(struct snd_soc_component *component,
 
 		(*port_info)->pcm = pcm;
 
-		/* IO tasklets */
-		tasklet_init(&(*port_info)->playback.tasklet, siu_io_tasklet,
-			     (unsigned long)&(*port_info)->playback);
-		tasklet_init(&(*port_info)->capture.tasklet, siu_io_tasklet,
-			     (unsigned long)&(*port_info)->capture);
+		/* IO works */
+		INIT_WORK(&(*port_info)->playback.work, siu_io_work);
+		INIT_WORK(&(*port_info)->capture.work, siu_io_work);
 	}
 
 	dev_info(card->dev, "SuperH SIU driver initialized.\n");
@@ -536,8 +531,8 @@ static void siu_pcm_free(struct snd_soc_component *component,
 	struct platform_device *pdev = to_platform_device(pcm->card->dev);
 	struct siu_port *port_info = siu_ports[pdev->id];
 
-	tasklet_kill(&port_info->capture.tasklet);
-	tasklet_kill(&port_info->playback.tasklet);
+	cancel_work_sync(&port_info->capture.work);
+	cancel_work_sync(&port_info->playback.work);
 
 	siu_free_port(port_info);
 

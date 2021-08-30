@@ -987,9 +987,6 @@ static int vidioc_enum_fmt_vid_cap(struct file *file, void *private_data,
 	if (f->index != 0)
 		return -EINVAL;
 
-	f->flags = V4L2_FMT_FLAG_COMPRESSED;
-	strscpy(f->description, "MPEG2-TS with AVC/AAC streams",
-		sizeof(f->description));
 	f->pixelformat = V4L2_PIX_FMT_MPEG;
 
 	return 0;
@@ -1241,7 +1238,7 @@ int hdpvr_register_videodev(struct hdpvr_device *dev, struct device *parent,
 	dev->video_dev.v4l2_dev = &dev->v4l2_dev;
 	video_set_drvdata(&dev->video_dev, dev);
 
-	res = video_register_device(&dev->video_dev, VFL_TYPE_GRABBER, devnum);
+	res = video_register_device(&dev->video_dev, VFL_TYPE_VIDEO, devnum);
 	if (res < 0) {
 		v4l2_err(&dev->v4l2_dev, "video_device registration failed\n");
 		goto error;

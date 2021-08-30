@@ -30,8 +30,7 @@
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
 #include <linux/of_platform.h>
-#include <linux/gpio.h>
-#include <linux/of_gpio.h>
+#include <linux/gpio/consumer.h>
 #include <linux/clk.h>
 
 #include <asm/io.h>
@@ -39,10 +38,6 @@
 #include <asm/delay.h>
 #include <asm/fs_pd.h>
 #include <asm/udbg.h>
-
-#if defined(CONFIG_SERIAL_CPM_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
-#define SUPPORT_SYSRQ
-#endif
 
 #include <linux/serial_core.h>
 #include <linux/kernel.h>
@@ -92,11 +87,11 @@ static void cpm_uart_set_mctrl(struct uart_port *port, unsigned int mctrl)
 	struct uart_cpm_port *pinfo =
 		container_of(port, struct uart_cpm_port, port);
 
-	if (pinfo->gpios[GPIO_RTS] >= 0)
-		gpio_set_value(pinfo->gpios[GPIO_RTS], !(mctrl & TIOCM_RTS));
+	if (pinfo->gpios[GPIO_RTS])
+		gpiod_set_value(pinfo->gpios[GPIO_RTS], !(mctrl & TIOCM_RTS));
 
-	if (pinfo->gpios[GPIO_DTR] >= 0)
-		gpio_set_value(pinfo->gpios[GPIO_DTR], !(mctrl & TIOCM_DTR));
+	if (pinfo->gpios[GPIO_DTR])
+		gpiod_set_value(pinfo->gpios[GPIO_DTR], !(mctrl & TIOCM_DTR));
 }
 
 static unsigned int cpm_uart_get_mctrl(struct uart_port *port)
@@ -105,23 +100,23 @@ static unsigned int cpm_uart_get_mctrl(struct uart_port *port)
 		container_of(port, struct uart_cpm_port, port);
 	unsigned int mctrl = TIOCM_CTS | TIOCM_DSR | TIOCM_CAR;
 
-	if (pinfo->gpios[GPIO_CTS] >= 0) {
-		if (gpio_get_value(pinfo->gpios[GPIO_CTS]))
+	if (pinfo->gpios[GPIO_CTS]) {
+		if (gpiod_get_value(pinfo->gpios[GPIO_CTS]))
 			mctrl &= ~TIOCM_CTS;
 	}
 
-	if (pinfo->gpios[GPIO_DSR] >= 0) {
-		if (gpio_get_value(pinfo->gpios[GPIO_DSR]))
+	if (pinfo->gpios[GPIO_DSR]) {
+		if (gpiod_get_value(pinfo->gpios[GPIO_DSR]))
 			mctrl &= ~TIOCM_DSR;
 	}
 
-	if (pinfo->gpios[GPIO_DCD] >= 0) {
-		if (gpio_get_value(pinfo->gpios[GPIO_DCD]))
+	if (pinfo->gpios[GPIO_DCD]) {
+		if (gpiod_get_value(pinfo->gpios[GPIO_DCD]))
 			mctrl &= ~TIOCM_CAR;
 	}
 
-	if (pinfo->gpios[GPIO_RI] >= 0) {
-		if (!gpio_get_value(pinfo->gpios[GPIO_RI]))
+	if (pinfo->gpios[GPIO_RI]) {
+		if (!gpiod_get_value(pinfo->gpios[GPIO_RI]))
 			mctrl |= TIOCM_RNG;
 	}
 
@@ -347,9 +342,7 @@ static void cpm_uart_int_rx(struct uart_port *port)
 		/* ASSUMPTION: it contains nothing valid */
 		i = 0;
 	}
-#ifdef SUPPORT_SYSRQ
 	port->sysrq = 0;
-#endif
 	goto error_return;
 }
 
@@ -506,8 +499,7 @@ static void cpm_uart_set_termios(struct uart_port *port,
 	pr_debug("CPM uart[%d]:set_termios\n", port->line);
 
 	baud = uart_get_baud_rate(port, termios, old, 0, port->uartclk / 16);
-	if (baud < HW_BUF_SPD_THRESHOLD ||
-	    (pinfo->port.state && pinfo->port.state->port.low_latency))
+	if (baud < HW_BUF_SPD_THRESHOLD || port->flags & UPF_LOW_LATENCY)
 		pinfo->rx_fifosize = 1;
 	else
 		pinfo->rx_fifosize = RX_BUF_SIZE;
@@ -532,24 +524,7 @@ static void cpm_uart_set_termios(struct uart_port *port,
 	scval = 0;
 
 	/* byte size */
-	switch (termios->c_cflag & CSIZE) {
-	case CS5:
-		bits = 5;
-		break;
-	case CS6:
-		bits = 6;
-		break;
-	case CS7:
-		bits = 7;
-		break;
-	case CS8:
-		bits = 8;
-		break;
-		/* Never happens, but GCC is too dumb to figure it out */
-	default:
-		bits = 8;
-		break;
-	}
+	bits = tty_get_char_size(termios->c_cflag);
 	sbits = bits - 5;
 
 	if (termios->c_cflag & CSTOPB) {
@@ -1114,6 +1089,32 @@ static void cpm_put_poll_char(struct uart_port *port,
 	ch[0] = (char)c;
 	cpm_uart_early_write(pinfo, ch, 1, false);
 }
+
+static struct uart_port *udbg_port;
+
+static void udbg_cpm_putc(char c)
+{
+	if (c == '\n')
+		cpm_put_poll_char(udbg_port, '\r');
+	cpm_put_poll_char(udbg_port, c);
+}
+
+static int udbg_cpm_getc_poll(void)
+{
+	int c = cpm_get_poll_char(udbg_port);
+
+	return c == NO_POLL_CHAR ? -1 : c;
+}
+
+static int udbg_cpm_getc(void)
+{
+	int c;
+
+	while ((c = udbg_cpm_getc_poll()) == -1)
+		cpu_relax();
+	return c;
+}
+
 #endif /* CONFIG_CONSOLE_POLL */
 
 static const struct uart_ops cpm_uart_pops = {
@@ -1145,6 +1146,7 @@ static int cpm_uart_init_port(struct device_node *np,
 {
 	const u32 *data;
 	void __iomem *mem, *pram;
+	struct device *dev = pinfo->port.dev;
 	int len;
 	int ret;
 	int i;
@@ -1204,7 +1206,8 @@ static int cpm_uart_init_port(struct device_node *np,
 	pinfo->port.uartclk = ppc_proc_freq;
 	pinfo->port.mapbase = (unsigned long)mem;
 	pinfo->port.type = PORT_CPM;
-	pinfo->port.ops = &cpm_uart_pops,
+	pinfo->port.ops = &cpm_uart_pops;
+	pinfo->port.has_sysrq = IS_ENABLED(CONFIG_SERIAL_CPM_CONSOLE);
 	pinfo->port.iotype = UPIO_MEM;
 	pinfo->port.fifosize = pinfo->tx_nrfifos * pinfo->tx_fifosize;
 	spin_lock_init(&pinfo->port.lock);
@@ -1216,38 +1219,42 @@ static int cpm_uart_init_port(struct device_node *np,
 	}
 
 	for (i = 0; i < NUM_GPIOS; i++) {
-		int gpio;
+		struct gpio_desc *gpiod;
 
-		pinfo->gpios[i] = -1;
+		pinfo->gpios[i] = NULL;
 
-		gpio = of_get_gpio(np, i);
+		gpiod = devm_gpiod_get_index_optional(dev, NULL, i, GPIOD_ASIS);
 
-		if (gpio_is_valid(gpio)) {
-			ret = gpio_request(gpio, "cpm_uart");
-			if (ret) {
-				pr_err("can't request gpio #%d: %d\n", i, ret);
-				continue;
-			}
+		if (IS_ERR(gpiod)) {
+			ret = PTR_ERR(gpiod);
+			goto out_irq;
+		}
+
+		if (gpiod) {
 			if (i == GPIO_RTS || i == GPIO_DTR)
-				ret = gpio_direction_output(gpio, 0);
+				ret = gpiod_direction_output(gpiod, 0);
 			else
-				ret = gpio_direction_input(gpio);
+				ret = gpiod_direction_input(gpiod);
 			if (ret) {
 				pr_err("can't set direction for gpio #%d: %d\n",
 					i, ret);
-				gpio_free(gpio);
 				continue;
 			}
-			pinfo->gpios[i] = gpio;
+			pinfo->gpios[i] = gpiod;
 		}
 	}
 
 #ifdef CONFIG_PPC_EARLY_DEBUG_CPM
-	udbg_putc = NULL;
+#ifdef CONFIG_CONSOLE_POLL
+	if (!udbg_port)
+#endif
+		udbg_putc = NULL;
 #endif
 
 	return cpm_uart_request_port(&pinfo->port);
 
+out_irq:
+	irq_dispose_mapping(pinfo->port.irq);
 out_pram:
 	cpm_uart_unmap_pram(pinfo, pram);
 out_mem:
@@ -1361,6 +1368,15 @@ static int __init cpm_uart_console_setup(struct console *co, char *options)
 
 	uart_set_options(port, co, baud, parity, bits, flow);
 	cpm_line_cr_cmd(pinfo, CPM_CR_RESTART_TX);
+
+#ifdef CONFIG_CONSOLE_POLL
+	if (!udbg_port) {
+		udbg_port = &pinfo->port;
+		udbg_putc = udbg_cpm_putc;
+		udbg_getc = udbg_cpm_getc;
+		udbg_getc_poll = udbg_cpm_getc_poll;
+	}
+#endif
 
 	return 0;
 }

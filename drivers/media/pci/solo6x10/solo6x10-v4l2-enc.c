@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * Copyright (C) 2010-2013 Bluecherry, LLC <http://www.bluecherrydvr.com>
+ * Copyright (C) 2010-2013 Bluecherry, LLC <https://www.bluecherrydvr.com>
  *
  * Original author:
  * Ben Collins <bcollins@ubuntu.com>
@@ -822,25 +822,18 @@ static int solo_enc_enum_fmt_cap(struct file *file, void *priv,
 		switch (dev_type) {
 		case SOLO_DEV_6010:
 			f->pixelformat = V4L2_PIX_FMT_MPEG4;
-			strscpy(f->description, "MPEG-4 part 2",
-				sizeof(f->description));
 			break;
 		case SOLO_DEV_6110:
 			f->pixelformat = V4L2_PIX_FMT_H264;
-			strscpy(f->description, "H.264", sizeof(f->description));
 			break;
 		}
 		break;
 	case 1:
 		f->pixelformat = V4L2_PIX_FMT_MJPEG;
-		strscpy(f->description, "MJPEG", sizeof(f->description));
 		break;
 	default:
 		return -EINVAL;
 	}
-
-	f->flags = V4L2_FMT_FLAG_COMPRESSED;
-
 	return 0;
 }
 
@@ -886,7 +879,6 @@ static int solo_enc_try_fmt_cap(struct file *file, void *priv,
 	pix->colorspace = V4L2_COLORSPACE_SMPTE170M;
 	pix->sizeimage = FRAME_BUF_SIZE;
 	pix->bytesperline = 0;
-	pix->priv = 0;
 
 	return 0;
 }
@@ -941,7 +933,6 @@ static int solo_enc_get_fmt_cap(struct file *file, void *priv,
 		     V4L2_FIELD_NONE;
 	pix->sizeimage = FRAME_BUF_SIZE;
 	pix->colorspace = V4L2_COLORSPACE_SMPTE170M;
-	pix->priv = 0;
 
 	return 0;
 }
@@ -1295,10 +1286,11 @@ static struct solo_enc_dev *solo_enc_alloc(struct solo_dev *solo_dev,
 	memcpy(solo_enc->jpeg_header, jpeg_header, solo_enc->jpeg_len);
 
 	solo_enc->desc_nelts = 32;
-	solo_enc->desc_items = pci_alloc_consistent(solo_dev->pdev,
-				      sizeof(struct solo_p2m_desc) *
-				      solo_enc->desc_nelts,
-				      &solo_enc->desc_dma);
+	solo_enc->desc_items = dma_alloc_coherent(&solo_dev->pdev->dev,
+						  sizeof(struct solo_p2m_desc) *
+						  solo_enc->desc_nelts,
+						  &solo_enc->desc_dma,
+						  GFP_KERNEL);
 	ret = -ENOMEM;
 	if (solo_enc->desc_items == NULL)
 		goto hdl_free;
@@ -1313,7 +1305,7 @@ static struct solo_enc_dev *solo_enc_alloc(struct solo_dev *solo_dev,
 	solo_enc->vfd->queue = &solo_enc->vidq;
 	solo_enc->vfd->lock = &solo_enc->lock;
 	video_set_drvdata(solo_enc->vfd, solo_enc);
-	ret = video_register_device(solo_enc->vfd, VFL_TYPE_GRABBER, nr);
+	ret = video_register_device(solo_enc->vfd, VFL_TYPE_VIDEO, nr);
 	if (ret < 0)
 		goto vdev_release;
 
@@ -1326,9 +1318,9 @@ static struct solo_enc_dev *solo_enc_alloc(struct solo_dev *solo_dev,
 vdev_release:
 	video_device_release(solo_enc->vfd);
 pci_free:
-	pci_free_consistent(solo_enc->solo_dev->pdev,
-			sizeof(struct solo_p2m_desc) * solo_enc->desc_nelts,
-			solo_enc->desc_items, solo_enc->desc_dma);
+	dma_free_coherent(&solo_enc->solo_dev->pdev->dev,
+			  sizeof(struct solo_p2m_desc) * solo_enc->desc_nelts,
+			  solo_enc->desc_items, solo_enc->desc_dma);
 hdl_free:
 	v4l2_ctrl_handler_free(hdl);
 	kfree(solo_enc);
@@ -1340,9 +1332,9 @@ static void solo_enc_free(struct solo_enc_dev *solo_enc)
 	if (solo_enc == NULL)
 		return;
 
-	pci_free_consistent(solo_enc->solo_dev->pdev,
-			sizeof(struct solo_p2m_desc) * solo_enc->desc_nelts,
-			solo_enc->desc_items, solo_enc->desc_dma);
+	dma_free_coherent(&solo_enc->solo_dev->pdev->dev,
+			  sizeof(struct solo_p2m_desc) * solo_enc->desc_nelts,
+			  solo_enc->desc_items, solo_enc->desc_dma);
 	video_unregister_device(solo_enc->vfd);
 	v4l2_ctrl_handler_free(&solo_enc->hdl);
 	kfree(solo_enc);
@@ -1355,9 +1347,9 @@ int solo_enc_v4l2_init(struct solo_dev *solo_dev, unsigned nr)
 	init_waitqueue_head(&solo_dev->ring_thread_wait);
 
 	solo_dev->vh_size = sizeof(vop_header);
-	solo_dev->vh_buf = pci_alloc_consistent(solo_dev->pdev,
-						solo_dev->vh_size,
-						&solo_dev->vh_dma);
+	solo_dev->vh_buf = dma_alloc_coherent(&solo_dev->pdev->dev,
+					      solo_dev->vh_size,
+					      &solo_dev->vh_dma, GFP_KERNEL);
 	if (solo_dev->vh_buf == NULL)
 		return -ENOMEM;
 
@@ -1372,8 +1364,8 @@ int solo_enc_v4l2_init(struct solo_dev *solo_dev, unsigned nr)
 
 		while (i--)
 			solo_enc_free(solo_dev->v4l2_enc[i]);
-		pci_free_consistent(solo_dev->pdev, solo_dev->vh_size,
-				    solo_dev->vh_buf, solo_dev->vh_dma);
+		dma_free_coherent(&solo_dev->pdev->dev, solo_dev->vh_size,
+				  solo_dev->vh_buf, solo_dev->vh_dma);
 		solo_dev->vh_buf = NULL;
 		return ret;
 	}
@@ -1400,6 +1392,6 @@ void solo_enc_v4l2_exit(struct solo_dev *solo_dev)
 		solo_enc_free(solo_dev->v4l2_enc[i]);
 
 	if (solo_dev->vh_buf)
-		pci_free_consistent(solo_dev->pdev, solo_dev->vh_size,
-			    solo_dev->vh_buf, solo_dev->vh_dma);
+		dma_free_coherent(&solo_dev->pdev->dev, solo_dev->vh_size,
+				  solo_dev->vh_buf, solo_dev->vh_dma);
 }

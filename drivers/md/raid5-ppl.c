@@ -496,7 +496,7 @@ static void ppl_submit_iounit(struct ppl_io_unit *io)
 		if (!bio_add_page(bio, sh->ppl_page, PAGE_SIZE, 0)) {
 			struct bio *prev = bio;
 
-			bio = bio_alloc_bioset(GFP_NOIO, BIO_MAX_PAGES,
+			bio = bio_alloc_bioset(GFP_NOIO, BIO_MAX_VECS,
 					       &ppl_conf->bs);
 			bio->bi_opf = prev->bi_opf;
 			bio->bi_write_hint = prev->bi_write_hint;
@@ -1037,7 +1037,7 @@ static int ppl_recover(struct ppl_log *log, struct ppl_header *pplhdr,
 	}
 
 	/* flush the disk cache after recovery if necessary */
-	ret = blkdev_issue_flush(rdev->bdev, GFP_KERNEL);
+	ret = blkdev_issue_flush(rdev->bdev);
 out:
 	__free_page(page);
 	return ret;
@@ -1361,7 +1361,7 @@ int ppl_init_log(struct r5conf *conf)
 		return -EINVAL;
 	}
 
-	max_disks = FIELD_SIZEOF(struct ppl_log, disk_flush_bitmap) *
+	max_disks = sizeof_field(struct ppl_log, disk_flush_bitmap) *
 		BITS_PER_BYTE;
 	if (conf->raid_disks > max_disks) {
 		pr_warn("md/raid:%s PPL doesn't support over %d disks in the array\n",

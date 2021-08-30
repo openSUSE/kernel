@@ -39,11 +39,6 @@
 MODULE_AUTHOR("Zach Brown <zab@zabbo.net>, Takashi Iwai <tiwai@suse.de>");
 MODULE_DESCRIPTION("ESS Maestro3 PCI");
 MODULE_LICENSE("GPL");
-MODULE_SUPPORTED_DEVICE("{{ESS,Maestro3 PCI},"
-		"{ESS,ES1988},"
-		"{ESS,Allegro PCI},"
-		"{ESS,Allegro-1 PCI},"
-	        "{ESS,Canyon3D-2/LE PCI}}");
 MODULE_FIRMWARE("ess/maestro3_assp_kernel.fw");
 MODULE_FIRMWARE("ess/maestro3_assp_minisrc.fw");
 
@@ -1245,7 +1240,7 @@ static void snd_m3_pcm_setup2(struct snd_m3 *chip, struct m3_dma *s,
 			  snd_pcm_format_width(runtime->format) == 16 ? 0 : 1);
 
 	/* set up dac/adc rate */
-	freq = ((runtime->rate << 15) + 24000 ) / 48000;
+	freq = DIV_ROUND_CLOSEST(runtime->rate << 15, 48000);
 	if (freq) 
 		freq--;
 
@@ -1770,7 +1765,8 @@ snd_m3_playback_open(struct snd_pcm_substream *subs)
 	struct snd_pcm_runtime *runtime = subs->runtime;
 	int err;
 
-	if ((err = snd_m3_substream_open(chip, subs)) < 0)
+	err = snd_m3_substream_open(chip, subs);
+	if (err < 0)
 		return err;
 
 	runtime->hw = snd_m3_playback;
@@ -1794,7 +1790,8 @@ snd_m3_capture_open(struct snd_pcm_substream *subs)
 	struct snd_pcm_runtime *runtime = subs->runtime;
 	int err;
 
-	if ((err = snd_m3_substream_open(chip, subs)) < 0)
+	err = snd_m3_substream_open(chip, subs);
+	if (err < 0)
 		return err;
 
 	runtime->hw = snd_m3_capture;
@@ -2041,12 +2038,14 @@ static int snd_m3_mixer(struct snd_m3 *chip)
 		.read = snd_m3_ac97_read,
 	};
 
-	if ((err = snd_ac97_bus(chip->card, 0, &ops, NULL, &pbus)) < 0)
+	err = snd_ac97_bus(chip->card, 0, &ops, NULL, &pbus);
+	if (err < 0)
 		return err;
 	
 	memset(&ac97, 0, sizeof(ac97));
 	ac97.private_data = chip;
-	if ((err = snd_ac97_mixer(pbus, &ac97, &chip->ac97)) < 0)
+	err = snd_ac97_mixer(pbus, &ac97, &chip->ac97);
+	if (err < 0)
 		return err;
 
 	/* seems ac97 PCM needs initialization.. hack hack.. */
@@ -2532,8 +2531,7 @@ snd_m3_create(struct snd_card *card, struct pci_dev *pci,
 		return -EIO;
 
 	/* check, if we can restrict PCI DMA transfers to 28 bits */
-	if (dma_set_mask(&pci->dev, DMA_BIT_MASK(28)) < 0 ||
-	    dma_set_coherent_mask(&pci->dev, DMA_BIT_MASK(28)) < 0) {
+	if (dma_set_mask_and_coherent(&pci->dev, DMA_BIT_MASK(28))) {
 		dev_err(card->dev,
 			"architecture does not support 28bit PCI busmaster DMA\n");
 		pci_disable_device(pci);
@@ -2648,16 +2646,19 @@ snd_m3_create(struct snd_card *card, struct pci_dev *pci,
 	if (err < 0)
 		goto free_chip;
 
-	if ((err = snd_m3_mixer(chip)) < 0)
+	err = snd_m3_mixer(chip);
+	if (err < 0)
 		return err;
 
 	for (i = 0; i < chip->num_substreams; i++) {
 		struct m3_dma *s = &chip->substreams[i];
-		if ((err = snd_m3_assp_client_init(chip, s, i)) < 0)
+		err = snd_m3_assp_client_init(chip, s, i);
+		if (err < 0)
 			return err;
 	}
 
-	if ((err = snd_m3_pcm(chip, 0)) < 0)
+	err = snd_m3_pcm(chip, 0);
+	if (err < 0)
 		return err;
 
 #ifdef CONFIG_SND_MAESTRO3_INPUT

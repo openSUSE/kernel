@@ -292,7 +292,7 @@ static int ntb_transport_bus_match(struct device *dev,
 static int ntb_transport_bus_probe(struct device *dev)
 {
 	const struct ntb_transport_client *client;
-	int rc = -EINVAL;
+	int rc;
 
 	get_device(dev);
 
@@ -1483,7 +1483,7 @@ static void ntb_rx_copy_callback(void *data,
 		case DMA_TRANS_READ_FAILED:
 		case DMA_TRANS_WRITE_FAILED:
 			entry->errors++;
-			/* fall through */
+			fallthrough;
 		case DMA_TRANS_ABORTED:
 		{
 			struct ntb_transport_qp *qp = entry->qp;
@@ -1739,7 +1739,7 @@ static void ntb_tx_copy_callback(void *data,
 		case DMA_TRANS_READ_FAILED:
 		case DMA_TRANS_WRITE_FAILED:
 			entry->errors++;
-			/* fall through */
+			fallthrough;
 		case DMA_TRANS_ABORTED:
 		{
 			void __iomem *offset =

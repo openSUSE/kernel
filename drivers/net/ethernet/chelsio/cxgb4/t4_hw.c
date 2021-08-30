@@ -2690,7 +2690,6 @@ void t4_get_regs(struct adapter *adap, void *buf, size_t buf_size)
 #define VPD_BASE           0x400
 #define VPD_BASE_OLD       0
 #define VPD_LEN            1024
-#define CHELSIO_VPD_UNIQUE_ID 0x82
 
 /**
  * t4_eeprom_ptov - translate a physical EEPROM address to virtual
@@ -2746,7 +2745,7 @@ int t4_get_raw_vpd_params(struct adapter *adapter, struct vpd_params *p)
 {
 	int i, ret = 0, addr;
 	int ec, sn, pn, na;
-	u8 *vpd, csum;
+	u8 *vpd, csum, base_val = 0;
 	unsigned int vpdr_len, kw_offset, id_len;
 
 	vpd = vmalloc(VPD_LEN);
@@ -2756,17 +2755,11 @@ int t4_get_raw_vpd_params(struct adapter *adapter, struct vpd_params *p)
 	/* Card information normally starts at VPD_BASE but early cards had
 	 * it at 0.
 	 */
-	ret = pci_read_vpd(adapter->pdev, VPD_BASE, sizeof(u32), vpd);
+	ret = pci_read_vpd(adapter->pdev, VPD_BASE, 1, &base_val);
 	if (ret < 0)
 		goto out;
 
-	/* The VPD shall have a unique identifier specified by the PCI SIG.
-	 * For chelsio adapters, the identifier is 0x82. The first byte of a VPD
-	 * shall be CHELSIO_VPD_UNIQUE_ID (0x82). The VPD programming software
-	 * is expected to automatically put this entry at the
-	 * beginning of the VPD.
-	 */
-	addr = *vpd == CHELSIO_VPD_UNIQUE_ID ? VPD_BASE : VPD_BASE_OLD;
+	addr = base_val == PCI_VPD_LRDT_ID_STRING ? VPD_BASE : VPD_BASE_OLD;
 
 	ret = pci_read_vpd(adapter->pdev, addr, VPD_LEN, vpd);
 	if (ret < 0)
@@ -2782,7 +2775,7 @@ int t4_get_raw_vpd_params(struct adapter *adapter, struct vpd_params *p)
 	if (id_len > ID_LEN)
 		id_len = ID_LEN;
 
-	i = pci_vpd_find_tag(vpd, 0, VPD_LEN, PCI_VPD_LRDT_RO_DATA);
+	i = pci_vpd_find_tag(vpd, VPD_LEN, PCI_VPD_LRDT_RO_DATA);
 	if (i < 0) {
 		dev_err(adapter->pdev_dev, "missing VPD-R section\n");
 		ret = -EINVAL;
@@ -7000,7 +6993,7 @@ int t4_fw_bye(struct adapter *adap, unsigned int mbox)
 }
 
 /**
- *	t4_init_cmd - ask FW to initialize the device
+ *	t4_early_init - ask FW to initialize the device
  *	@adap: the adapter
  *	@mbox: mailbox to use for the FW command
  *
@@ -7669,13 +7662,13 @@ int t4_alloc_vi(struct adapter *adap, unsigned int mbox, unsigned int port,
 		switch (nmac) {
 		case 5:
 			memcpy(mac + 24, c.nmac3, sizeof(c.nmac3));
-			/* Fall through */
+			fallthrough;
 		case 4:
 			memcpy(mac + 18, c.nmac2, sizeof(c.nmac2));
-			/* Fall through */
+			fallthrough;
 		case 3:
 			memcpy(mac + 12, c.nmac1, sizeof(c.nmac1));
-			/* Fall through */
+			fallthrough;
 		case 2:
 			memcpy(mac + 6,  c.nmac0, sizeof(c.nmac0));
 		}
@@ -7799,7 +7792,6 @@ int t4_free_encap_mac_filt(struct adapter *adap, unsigned int viid,
 			   int idx, bool sleep_ok)
 {
 	struct fw_vi_mac_exact *p;
-	u8 addr[] = {0, 0, 0, 0, 0, 0};
 	struct fw_vi_mac_cmd c;
 	int ret = 0;
 	u32 exact;
@@ -7816,7 +7808,7 @@ int t4_free_encap_mac_filt(struct adapter *adap, unsigned int viid,
 	p = c.u.exact;
 	p->valid_to_idx = cpu_to_be16(FW_VI_MAC_CMD_VALID_F |
 				      FW_VI_MAC_CMD_IDX_V(idx));
-	memcpy(p->macaddr, addr, sizeof(p->macaddr));
+	eth_zero_addr(p->macaddr);
 	ret = t4_wr_mbox_meat(adap, adap->mbox, &c, sizeof(c), &c, sleep_ok);
 	return ret;
 }
@@ -10241,7 +10233,7 @@ out:
 }
 
 /**
- *	t4_set_vf_mac - Set MAC address for the specified VF
+ *	t4_set_vf_mac_acl - Set MAC address for the specified VF
  *	@adapter: The adapter
  *	@vf: one of the VFs instantiated by the specified PF
  *	@naddr: the number of MAC addresses

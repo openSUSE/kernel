@@ -345,16 +345,16 @@ static int aspeed_sgpio_set_type(struct irq_data *d, unsigned int type)
 	switch (type & IRQ_TYPE_SENSE_MASK) {
 	case IRQ_TYPE_EDGE_BOTH:
 		type2 |= bit;
-		/* fall through */
+		fallthrough;
 	case IRQ_TYPE_EDGE_RISING:
 		type0 |= bit;
-		/* fall through */
+		fallthrough;
 	case IRQ_TYPE_EDGE_FALLING:
 		handler = handle_edge_irq;
 		break;
 	case IRQ_TYPE_LEVEL_HIGH:
 		type0 |= bit;
-		/* fall through */
+		fallthrough;
 	case IRQ_TYPE_LEVEL_LOW:
 		type1 |= bit;
 		handler = handle_level_irq;
@@ -433,7 +433,7 @@ static int aspeed_sgpio_setup_irqs(struct aspeed_sgpio *gpio,
 
 	gpio->irq = rc;
 
-	/* Disable IRQ and clear Interrupt status registers for all SPGIO Pins. */
+	/* Disable IRQ and clear Interrupt status registers for all SGPIO Pins. */
 	for (i = 0; i < ARRAY_SIZE(aspeed_sgpio_banks); i++) {
 		bank =  &aspeed_sgpio_banks[i];
 		/* disable irq enable bits */

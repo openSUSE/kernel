@@ -87,7 +87,7 @@ static int csky_pmu_irq;
 })
 
 /* cycle counter */
-static uint64_t csky_pmu_read_cc(void)
+uint64_t csky_pmu_read_cc(void)
 {
 	uint32_t lo, hi, tmp;
 	uint64_t result;
@@ -1306,7 +1306,7 @@ int csky_pmu_device_probe(struct platform_device *pdev,
 				 &csky_pmu.count_width)) {
 		csky_pmu.count_width = DEFAULT_COUNT_WIDTH;
 	}
-	csky_pmu.max_period = BIT(csky_pmu.count_width) - 1;
+	csky_pmu.max_period = BIT_ULL(csky_pmu.count_width) - 1;
 
 	csky_pmu.plat_device = pdev;
 
@@ -1319,7 +1319,7 @@ int csky_pmu_device_probe(struct platform_device *pdev,
 		pr_notice("[perf] PMU request irq fail!\n");
 	}
 
-	ret = cpuhp_setup_state(CPUHP_AP_PERF_ONLINE, "AP_PERF_ONLINE",
+	ret = cpuhp_setup_state(CPUHP_AP_PERF_CSKY_ONLINE, "AP_PERF_ONLINE",
 				csky_pmu_starting_cpu,
 				csky_pmu_dying_cpu);
 	if (ret) {
@@ -1337,7 +1337,7 @@ int csky_pmu_device_probe(struct platform_device *pdev,
 	return ret;
 }
 
-const static struct of_device_id csky_pmu_of_device_ids[] = {
+static const struct of_device_id csky_pmu_of_device_ids[] = {
 	{.compatible = "csky,csky-pmu"},
 	{},
 };

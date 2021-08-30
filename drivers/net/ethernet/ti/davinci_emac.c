@@ -169,11 +169,11 @@ static const char emac_version_string[] = "TI DaVinci EMAC Linux v6.1";
 /* EMAC mac_status register */
 #define EMAC_MACSTATUS_TXERRCODE_MASK	(0xF00000)
 #define EMAC_MACSTATUS_TXERRCODE_SHIFT	(20)
-#define EMAC_MACSTATUS_TXERRCH_MASK	(0x7)
+#define EMAC_MACSTATUS_TXERRCH_MASK	(0x70000)
 #define EMAC_MACSTATUS_TXERRCH_SHIFT	(16)
 #define EMAC_MACSTATUS_RXERRCODE_MASK	(0xF000)
 #define EMAC_MACSTATUS_RXERRCODE_SHIFT	(12)
-#define EMAC_MACSTATUS_RXERRCH_MASK	(0x7)
+#define EMAC_MACSTATUS_RXERRCH_MASK	(0x700)
 #define EMAC_MACSTATUS_RXERRCH_SHIFT	(8)
 
 /* EMAC RX register masks */
@@ -481,6 +481,7 @@ static int emac_set_coalesce(struct net_device *ndev,
  * Ethtool support for EMAC adapter
  */
 static const struct ethtool_ops ethtool_ops = {
+	.supported_coalesce_params = ETHTOOL_COALESCE_RX_USECS,
 	.get_drvinfo = emac_get_drvinfo,
 	.get_link = ethtool_op_get_link,
 	.get_coalesce = emac_get_coalesce,
@@ -670,7 +671,7 @@ static int emac_hash_del(struct emac_priv *priv, u8 *mac_addr)
  * emac_add_mcast - Set multicast address in the EMAC adapter (Internal)
  * @priv: The DaVinci EMAC private adapter structure
  * @action: multicast operation to perform
- * mac_addr: mac address to set
+ * @mac_addr: mac address to set
  *
  * Set multicast addresses in EMAC adapter - internal function
  *
@@ -976,6 +977,7 @@ fail_tx:
 /**
  * emac_dev_tx_timeout - EMAC Transmit timeout function
  * @ndev: The DaVinci EMAC network adapter
+ * @txqueue: the index of the hung transmit queue
  *
  * Called when system detects that a skb timeout period has expired
  * potentially due to a fault in the adapter in not being able to send
@@ -1208,7 +1210,7 @@ static int emac_hw_enable(struct emac_priv *priv)
 
 /**
  * emac_poll - EMAC NAPI Poll function
- * @ndev: The DaVinci EMAC network adapter
+ * @napi: pointer to the napi_struct containing The DaVinci EMAC network adapter
  * @budget: Number of receive packets to process (as told by NAPI layer)
  *
  * NAPI Poll function implemented to process packets as per budget. We check
@@ -1226,7 +1228,7 @@ static int emac_poll(struct napi_struct *napi, int budget)
 	struct net_device *ndev = priv->ndev;
 	struct device *emac_dev = &ndev->dev;
 	u32 status = 0;
-	u32 num_tx_pkts = 0, num_rx_pkts = 0;
+	u32 num_rx_pkts = 0;
 
 	/* Check interrupt vectors and call packet processing */
 	status = emac_read(EMAC_MACINVECTOR);
@@ -1237,8 +1239,7 @@ static int emac_poll(struct napi_struct *napi, int budget)
 		mask = EMAC_DM646X_MAC_IN_VECTOR_TX_INT_VEC;
 
 	if (status & mask) {
-		num_tx_pkts = cpdma_chan_process(priv->txchan,
-					      EMAC_DEF_TX_MAX_SERVICE);
+		cpdma_chan_process(priv->txchan, EMAC_DEF_TX_MAX_SERVICE);
 	} /* TX processing */
 
 	mask = EMAC_DM644X_MAC_IN_VECTOR_RX_INT_VEC;
@@ -1686,7 +1687,6 @@ davinci_emac_of_get_pdata(struct platform_device *pdev, struct emac_priv *priv)
 	const struct of_device_id *match;
 	const struct emac_platform_data *auxdata;
 	struct emac_platform_data *pdata = NULL;
-	const u8 *mac_addr;
 
 	if (!IS_ENABLED(CONFIG_OF) || !pdev->dev.of_node)
 		return dev_get_platdata(&pdev->dev);
@@ -1698,11 +1698,8 @@ davinci_emac_of_get_pdata(struct platform_device *pdev, struct emac_priv *priv)
 	np = pdev->dev.of_node;
 	pdata->version = EMAC_VERSION_2;
 
-	if (!is_valid_ether_addr(pdata->mac_addr)) {
-		mac_addr = of_get_mac_address(np);
-		if (!IS_ERR(mac_addr))
-			ether_addr_copy(pdata->mac_addr, mac_addr);
-	}
+	if (!is_valid_ether_addr(pdata->mac_addr))
+		of_get_mac_address(np, pdata->mac_addr);
 
 	of_property_read_u32(np, "ti,davinci-ctrl-reg-offset",
 			     &pdata->ctrl_reg_offset);
@@ -1817,13 +1814,12 @@ static int davinci_emac_probe(struct platform_device *pdev)
 	priv->bus_freq_mhz = (u32)(emac_bus_frequency / 1000000);
 
 	/* Get EMAC platform data */
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	priv->emac_base_phys = res->start + pdata->ctrl_reg_offset;
-	priv->remap_addr = devm_ioremap_resource(&pdev->dev, res);
+	priv->remap_addr = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
 	if (IS_ERR(priv->remap_addr)) {
 		rc = PTR_ERR(priv->remap_addr);
 		goto no_pdata;
 	}
+	priv->emac_base_phys = res->start + pdata->ctrl_reg_offset;
 
 	res_ctrl = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	if (res_ctrl) {

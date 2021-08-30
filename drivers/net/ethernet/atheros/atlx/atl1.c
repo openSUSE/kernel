@@ -65,12 +65,10 @@
 
 #include "atl1.h"
 
-#define ATLX_DRIVER_VERSION "2.1.3"
 MODULE_AUTHOR("Xiong Huang <xiong.huang@atheros.com>, "
 	      "Chris Snook <csnook@redhat.com>, "
 	      "Jay Cliburn <jcliburn@gmail.com>");
 MODULE_LICENSE("GPL");
-MODULE_VERSION(ATLX_DRIVER_VERSION);
 
 /* Temporary hack for merging atl1 and atl2 */
 #include "atlx.c"
@@ -1013,7 +1011,7 @@ static int atl1_mii_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
 }
 
 /**
- * atl1_setup_mem_resources - allocate Tx / RX descriptor resources
+ * atl1_setup_ring_resources - allocate Tx / RX descriptor resources
  * @adapter: board private structure
  *
  * Return 0 on success, negative on failure
@@ -1044,7 +1042,7 @@ static s32 atl1_setup_ring_resources(struct atl1_adapter *adapter)
 	 * each ring/block may need up to 8 bytes for alignment, hence the
 	 * additional 40 bytes tacked onto the end.
 	 */
-	ring_header->size = size =
+	ring_header->size =
 		sizeof(struct tx_packet_desc) * tpd_ring->count
 		+ sizeof(struct rx_free_desc) * rfd_ring->count
 		+ sizeof(struct rx_return_desc) * rrd_ring->count
@@ -2554,7 +2552,7 @@ static irqreturn_t atl1_intr(int irq, void *data)
 
 /**
  * atl1_phy_config - Timer Call-back
- * @data: pointer to netdev cast into an unsigned long
+ * @t: timer_list containing pointer to netdev cast into an unsigned long
  */
 static void atl1_phy_config(struct timer_list *t)
 {
@@ -2755,8 +2753,7 @@ static int atl1_close(struct net_device *netdev)
 #ifdef CONFIG_PM_SLEEP
 static int atl1_suspend(struct device *dev)
 {
-	struct pci_dev *pdev = to_pci_dev(dev);
-	struct net_device *netdev = pci_get_drvdata(pdev);
+	struct net_device *netdev = dev_get_drvdata(dev);
 	struct atl1_adapter *adapter = netdev_priv(netdev);
 	struct atl1_hw *hw = &adapter->hw;
 	u32 ctrl = 0;
@@ -2781,7 +2778,7 @@ static int atl1_suspend(struct device *dev)
 		val = atl1_get_speed_and_duplex(hw, &speed, &duplex);
 		if (val) {
 			if (netif_msg_ifdown(adapter))
-				dev_printk(KERN_DEBUG, &pdev->dev,
+				dev_printk(KERN_DEBUG, dev,
 					"error getting speed/duplex\n");
 			goto disable_wol;
 		}
@@ -2838,8 +2835,7 @@ static int atl1_suspend(struct device *dev)
 
 static int atl1_resume(struct device *dev)
 {
-	struct pci_dev *pdev = to_pci_dev(dev);
-	struct net_device *netdev = pci_get_drvdata(pdev);
+	struct net_device *netdev = dev_get_drvdata(dev);
 	struct atl1_adapter *adapter = netdev_priv(netdev);
 
 	iowrite32(0, adapter->hw.hw_addr + REG_WOL_CTRL);
@@ -2969,8 +2965,6 @@ static int atl1_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	/* get device revision number */
 	adapter->hw.dev_rev = ioread16(adapter->hw.hw_addr +
 		(REG_MASTER_CTRL + 2));
-	if (netif_msg_probe(adapter))
-		dev_info(&pdev->dev, "version %s\n", ATLX_DRIVER_VERSION);
 
 	/* set default ring resource counts */
 	adapter->rfd_ring.count = adapter->rrd_ring.count = ATL1_DEFAULT_RFD;
@@ -3348,8 +3342,6 @@ static void atl1_get_drvinfo(struct net_device *netdev,
 	struct atl1_adapter *adapter = netdev_priv(netdev);
 
 	strlcpy(drvinfo->driver, ATLX_DRIVER_NAME, sizeof(drvinfo->driver));
-	strlcpy(drvinfo->version, ATLX_DRIVER_VERSION,
-		sizeof(drvinfo->version));
 	strlcpy(drvinfo->bus_info, pci_name(adapter->pdev),
 		sizeof(drvinfo->bus_info));
 }

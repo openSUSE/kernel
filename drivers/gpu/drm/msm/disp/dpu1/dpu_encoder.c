@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2018, 2020-2021 The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  */
@@ -26,14 +26,15 @@
 #include "dpu_crtc.h"
 #include "dpu_trace.h"
 #include "dpu_core_irq.h"
+#include "disp/msm_disp_snapshot.h"
 
-#define DPU_DEBUG_ENC(e, fmt, ...) DPU_DEBUG("enc%d " fmt,\
+#define DPU_DEBUG_ENC(e, fmt, ...) DRM_DEBUG_ATOMIC("enc%d " fmt,\
 		(e) ? (e)->base.base.id : -1, ##__VA_ARGS__)
 
 #define DPU_ERROR_ENC(e, fmt, ...) DPU_ERROR("enc%d " fmt,\
 		(e) ? (e)->base.base.id : -1, ##__VA_ARGS__)
 
-#define DPU_DEBUG_PHYS(p, fmt, ...) DPU_DEBUG("enc%d intf%d pp%d " fmt,\
+#define DPU_DEBUG_PHYS(p, fmt, ...) DRM_DEBUG_ATOMIC("enc%d intf%d pp%d " fmt,\
 		(p) ? (p)->parent->base.id : -1, \
 		(p) ? (p)->intf_idx - INTF_0 : -1, \
 		(p) ? ((p)->hw_pp ? (p)->hw_pp->idx - PINGPONG_0 : -1) : -1, \
@@ -132,9 +133,10 @@ enum dpu_enc_rc_states {
  * @phys_encs:		Container of physical encoders managed.
  * @cur_master:		Pointer to the current master in this mode. Optimization
  *			Only valid after enable. Cleared as disable.
- * @hw_pp		Handle to the pingpong blocks used for the display. No.
+ * @cur_slave:		As above but for the slave encoder.
+ * @hw_pp:		Handle to the pingpong blocks used for the display. No.
  *			pingpong blocks can be different than num_phys_encs.
- * @intfs_swapped	Whether or not the phys_enc interfaces have been swapped
+ * @intfs_swapped:	Whether or not the phys_enc interfaces have been swapped
  *			for partial update right-only cases, such as pingpong
  *			split where virtual pingpong does not generate IRQs
  * @crtc:		Pointer to the currently assigned crtc. Normally you
@@ -252,7 +254,7 @@ void dpu_encoder_helper_report_irq_timeout(struct dpu_encoder_phys *phys_enc,
 }
 
 static int dpu_encoder_helper_wait_event_timeout(int32_t drm_id,
-		int32_t hw_id, struct dpu_encoder_wait_info *info);
+		u32 irq_idx, struct dpu_encoder_wait_info *info);
 
 int dpu_encoder_helper_wait_for_irq(struct dpu_encoder_phys *phys_enc,
 		enum dpu_intr_idx intr_idx,
@@ -272,27 +274,27 @@ int dpu_encoder_helper_wait_for_irq(struct dpu_encoder_phys *phys_enc,
 
 	/* return EWOULDBLOCK since we know the wait isn't necessary */
 	if (phys_enc->enable_state == DPU_ENC_DISABLED) {
-		DRM_ERROR("encoder is disabled id=%u, intr=%d, hw=%d, irq=%d",
-			  DRMID(phys_enc->parent), intr_idx, irq->hw_idx,
+		DRM_ERROR("encoder is disabled id=%u, intr=%d, irq=%d",
+			  DRMID(phys_enc->parent), intr_idx,
 			  irq->irq_idx);
 		return -EWOULDBLOCK;
 	}
 
 	if (irq->irq_idx < 0) {
-		DRM_DEBUG_KMS("skip irq wait id=%u, intr=%d, hw=%d, irq=%s",
-			      DRMID(phys_enc->parent), intr_idx, irq->hw_idx,
+		DRM_DEBUG_KMS("skip irq wait id=%u, intr=%d, irq=%s",
+			      DRMID(phys_enc->parent), intr_idx,
 			      irq->name);
 		return 0;
 	}
 
-	DRM_DEBUG_KMS("id=%u, intr=%d, hw=%d, irq=%d, pp=%d, pending_cnt=%d",
-		      DRMID(phys_enc->parent), intr_idx, irq->hw_idx,
+	DRM_DEBUG_KMS("id=%u, intr=%d, irq=%d, pp=%d, pending_cnt=%d",
+		      DRMID(phys_enc->parent), intr_idx,
 		      irq->irq_idx, phys_enc->hw_pp->idx - PINGPONG_0,
 		      atomic_read(wait_info->atomic_cnt));
 
 	ret = dpu_encoder_helper_wait_event_timeout(
 			DRMID(phys_enc->parent),
-			irq->hw_idx,
+			irq->irq_idx,
 			wait_info);
 
 	if (ret <= 0) {
@@ -302,9 +304,9 @@ int dpu_encoder_helper_wait_for_irq(struct dpu_encoder_phys *phys_enc,
 			unsigned long flags;
 
 			DRM_DEBUG_KMS("irq not triggered id=%u, intr=%d, "
-				      "hw=%d, irq=%d, pp=%d, atomic_cnt=%d",
+				      "irq=%d, pp=%d, atomic_cnt=%d",
 				      DRMID(phys_enc->parent), intr_idx,
-				      irq->hw_idx, irq->irq_idx,
+				      irq->irq_idx,
 				      phys_enc->hw_pp->idx - PINGPONG_0,
 				      atomic_read(wait_info->atomic_cnt));
 			local_irq_save(flags);
@@ -314,16 +316,16 @@ int dpu_encoder_helper_wait_for_irq(struct dpu_encoder_phys *phys_enc,
 		} else {
 			ret = -ETIMEDOUT;
 			DRM_DEBUG_KMS("irq timeout id=%u, intr=%d, "
-				      "hw=%d, irq=%d, pp=%d, atomic_cnt=%d",
+				      "irq=%d, pp=%d, atomic_cnt=%d",
 				      DRMID(phys_enc->parent), intr_idx,
-				      irq->hw_idx, irq->irq_idx,
+				      irq->irq_idx,
 				      phys_enc->hw_pp->idx - PINGPONG_0,
 				      atomic_read(wait_info->atomic_cnt));
 		}
 	} else {
 		ret = 0;
 		trace_dpu_enc_irq_wait_success(DRMID(phys_enc->parent),
-			intr_idx, irq->hw_idx, irq->irq_idx,
+			intr_idx, irq->irq_idx,
 			phys_enc->hw_pp->idx - PINGPONG_0,
 			atomic_read(wait_info->atomic_cnt));
 	}
@@ -343,19 +345,9 @@ int dpu_encoder_helper_register_irq(struct dpu_encoder_phys *phys_enc,
 	}
 	irq = &phys_enc->irq[intr_idx];
 
-	if (irq->irq_idx >= 0) {
-		DPU_DEBUG_PHYS(phys_enc,
-				"skipping already registered irq %s type %d\n",
-				irq->name, irq->intr_type);
-		return 0;
-	}
-
-	irq->irq_idx = dpu_core_irq_idx_lookup(phys_enc->dpu_kms,
-			irq->intr_type, irq->hw_idx);
 	if (irq->irq_idx < 0) {
 		DPU_ERROR_PHYS(phys_enc,
-			"failed to lookup IRQ index for %s type:%d\n",
-			irq->name, irq->intr_type);
+			"invalid IRQ index:%d\n", irq->irq_idx);
 		return -EINVAL;
 	}
 
@@ -369,19 +361,8 @@ int dpu_encoder_helper_register_irq(struct dpu_encoder_phys *phys_enc,
 		return ret;
 	}
 
-	ret = dpu_core_irq_enable(phys_enc->dpu_kms, &irq->irq_idx, 1);
-	if (ret) {
-		DRM_ERROR("enable failed id=%u, intr=%d, hw=%d, irq=%d",
-			  DRMID(phys_enc->parent), intr_idx, irq->hw_idx,
-			  irq->irq_idx);
-		dpu_core_irq_unregister_callback(phys_enc->dpu_kms,
-				irq->irq_idx, &irq->cb);
-		irq->irq_idx = -EINVAL;
-		return ret;
-	}
-
 	trace_dpu_enc_irq_register_success(DRMID(phys_enc->parent), intr_idx,
-				irq->hw_idx, irq->irq_idx);
+				irq->irq_idx);
 
 	return ret;
 }
@@ -396,33 +377,54 @@ int dpu_encoder_helper_unregister_irq(struct dpu_encoder_phys *phys_enc,
 
 	/* silently skip irqs that weren't registered */
 	if (irq->irq_idx < 0) {
-		DRM_ERROR("duplicate unregister id=%u, intr=%d, hw=%d, irq=%d",
-			  DRMID(phys_enc->parent), intr_idx, irq->hw_idx,
+		DRM_ERROR("duplicate unregister id=%u, intr=%d, irq=%d",
+			  DRMID(phys_enc->parent), intr_idx,
 			  irq->irq_idx);
 		return 0;
-	}
-
-	ret = dpu_core_irq_disable(phys_enc->dpu_kms, &irq->irq_idx, 1);
-	if (ret) {
-		DRM_ERROR("disable failed id=%u, intr=%d, hw=%d, irq=%d ret=%d",
-			  DRMID(phys_enc->parent), intr_idx, irq->hw_idx,
-			  irq->irq_idx, ret);
 	}
 
 	ret = dpu_core_irq_unregister_callback(phys_enc->dpu_kms, irq->irq_idx,
 			&irq->cb);
 	if (ret) {
-		DRM_ERROR("unreg cb fail id=%u, intr=%d, hw=%d, irq=%d ret=%d",
-			  DRMID(phys_enc->parent), intr_idx, irq->hw_idx,
+		DRM_ERROR("unreg cb fail id=%u, intr=%d, irq=%d ret=%d",
+			  DRMID(phys_enc->parent), intr_idx,
 			  irq->irq_idx, ret);
 	}
 
 	trace_dpu_enc_irq_unregister_success(DRMID(phys_enc->parent), intr_idx,
-					     irq->hw_idx, irq->irq_idx);
-
-	irq->irq_idx = -EINVAL;
+					     irq->irq_idx);
 
 	return 0;
+}
+
+int dpu_encoder_get_frame_count(struct drm_encoder *drm_enc)
+{
+	struct dpu_encoder_virt *dpu_enc;
+	struct dpu_encoder_phys *phys;
+	int framecount = 0;
+
+	dpu_enc = to_dpu_encoder_virt(drm_enc);
+	phys = dpu_enc ? dpu_enc->cur_master : NULL;
+
+	if (phys && phys->ops.get_frame_count)
+		framecount = phys->ops.get_frame_count(phys);
+
+	return framecount;
+}
+
+int dpu_encoder_get_linecount(struct drm_encoder *drm_enc)
+{
+	struct dpu_encoder_virt *dpu_enc;
+	struct dpu_encoder_phys *phys;
+	int linecount = 0;
+
+	dpu_enc = to_dpu_encoder_virt(drm_enc);
+	phys = dpu_enc ? dpu_enc->cur_master : NULL;
+
+	if (phys && phys->ops.get_line_count)
+		linecount = phys->ops.get_line_count(phys);
+
+	return linecount;
 }
 
 void dpu_encoder_get_hw_resources(struct drm_encoder *drm_enc,
@@ -789,13 +791,13 @@ static int dpu_encoder_resource_control(struct drm_encoder *drm_enc,
 
 		/* return if the resource control is already in ON state */
 		if (dpu_enc->rc_state == DPU_ENC_RC_STATE_ON) {
-			DRM_DEBUG_KMS("id;%u, sw_event:%d, rc in ON state\n",
+			DRM_DEBUG_ATOMIC("id;%u, sw_event:%d, rc in ON state\n",
 				      DRMID(drm_enc), sw_event);
 			mutex_unlock(&dpu_enc->rc_lock);
 			return 0;
 		} else if (dpu_enc->rc_state != DPU_ENC_RC_STATE_OFF &&
 				dpu_enc->rc_state != DPU_ENC_RC_STATE_IDLE) {
-			DRM_DEBUG_KMS("id;%u, sw_event:%d, rc in state %d\n",
+			DRM_DEBUG_ATOMIC("id;%u, sw_event:%d, rc in state %d\n",
 				      DRMID(drm_enc), sw_event,
 				      dpu_enc->rc_state);
 			mutex_unlock(&dpu_enc->rc_lock);
@@ -973,12 +975,11 @@ static void dpu_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 	struct drm_crtc *drm_crtc;
 	struct dpu_crtc_state *cstate;
 	struct dpu_global_state *global_state;
-	struct msm_display_topology topology;
 	struct dpu_hw_blk *hw_pp[MAX_CHANNELS_PER_ENC];
 	struct dpu_hw_blk *hw_ctl[MAX_CHANNELS_PER_ENC];
 	struct dpu_hw_blk *hw_lm[MAX_CHANNELS_PER_ENC];
 	struct dpu_hw_blk *hw_dspp[MAX_CHANNELS_PER_ENC] = { NULL };
-	int num_lm, num_ctl, num_pp, num_dspp;
+	int num_lm, num_ctl, num_pp;
 	int i, j;
 
 	if (!drm_enc) {
@@ -1001,6 +1002,9 @@ static void dpu_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 
 	trace_dpu_enc_mode_set(DRMID(drm_enc));
 
+	if (drm_enc->encoder_type == DRM_MODE_ENCODER_TMDS && priv->dp)
+		msm_dp_display_mode_set(priv->dp, drm_enc, mode, adj_mode);
+
 	list_for_each_entry(conn_iter, connector_list, head)
 		if (conn_iter->encoder == drm_enc)
 			conn = conn_iter;
@@ -1017,8 +1021,6 @@ static void dpu_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 		if (drm_crtc->state->encoder_mask & drm_encoder_mask(drm_enc))
 			break;
 
-	topology = dpu_encoder_get_topology(dpu_enc, dpu_kms, adj_mode);
-
 	/* Query resource that have been reserved in atomic check step. */
 	num_pp = dpu_rm_get_assigned_resources(&dpu_kms->rm, global_state,
 		drm_enc->base.id, DPU_HW_BLK_PINGPONG, hw_pp,
@@ -1027,7 +1029,7 @@ static void dpu_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 		drm_enc->base.id, DPU_HW_BLK_CTL, hw_ctl, ARRAY_SIZE(hw_ctl));
 	num_lm = dpu_rm_get_assigned_resources(&dpu_kms->rm, global_state,
 		drm_enc->base.id, DPU_HW_BLK_LM, hw_lm, ARRAY_SIZE(hw_lm));
-	num_dspp = dpu_rm_get_assigned_resources(&dpu_kms->rm, global_state,
+	dpu_rm_get_assigned_resources(&dpu_kms->rm, global_state,
 		drm_enc->base.id, DPU_HW_BLK_DSPP, hw_dspp,
 		ARRAY_SIZE(hw_dspp));
 
@@ -1093,7 +1095,6 @@ static void dpu_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 static void _dpu_encoder_virt_enable_helper(struct drm_encoder *drm_enc)
 {
 	struct dpu_encoder_virt *dpu_enc = NULL;
-	struct msm_drm_private *priv;
 	int i;
 
 	if (!drm_enc || !drm_enc->dev) {
@@ -1101,13 +1102,18 @@ static void _dpu_encoder_virt_enable_helper(struct drm_encoder *drm_enc)
 		return;
 	}
 
-	priv = drm_enc->dev->dev_private;
-
 	dpu_enc = to_dpu_encoder_virt(drm_enc);
 	if (!dpu_enc || !dpu_enc->cur_master) {
 		DPU_ERROR("invalid dpu encoder/master\n");
 		return;
 	}
+
+
+	if (dpu_enc->disp_info.intf_type == DRM_MODE_CONNECTOR_DisplayPort &&
+		dpu_enc->cur_master->hw_mdptop &&
+		dpu_enc->cur_master->hw_mdptop->ops.intf_audio_select)
+		dpu_enc->cur_master->hw_mdptop->ops.intf_audio_select(
+			dpu_enc->cur_master->hw_mdptop);
 
 	_dpu_encoder_update_vsync_source(dpu_enc, &dpu_enc->disp_info);
 
@@ -1146,6 +1152,7 @@ static void dpu_encoder_virt_enable(struct drm_encoder *drm_enc)
 {
 	struct dpu_encoder_virt *dpu_enc = NULL;
 	int ret = 0;
+	struct msm_drm_private *priv;
 	struct drm_display_mode *cur_mode = NULL;
 
 	if (!drm_enc) {
@@ -1156,6 +1163,7 @@ static void dpu_encoder_virt_enable(struct drm_encoder *drm_enc)
 
 	mutex_lock(&dpu_enc->enc_lock);
 	cur_mode = &dpu_enc->base.crtc->state->adjusted_mode;
+	priv = drm_enc->dev->dev_private;
 
 	trace_dpu_enc_enable(DRMID(drm_enc), cur_mode->hdisplay,
 			     cur_mode->vdisplay);
@@ -1176,6 +1184,15 @@ static void dpu_encoder_virt_enable(struct drm_encoder *drm_enc)
 
 	_dpu_encoder_virt_enable_helper(drm_enc);
 
+	if (drm_enc->encoder_type == DRM_MODE_ENCODER_TMDS && priv->dp) {
+		ret = msm_dp_display_enable(priv->dp,
+						drm_enc);
+		if (ret) {
+			DPU_ERROR_ENC(dpu_enc, "dp display enable failed: %d\n",
+				ret);
+			goto out;
+		}
+	}
 	dpu_enc->enabled = true;
 
 out:
@@ -1186,7 +1203,6 @@ static void dpu_encoder_virt_disable(struct drm_encoder *drm_enc)
 {
 	struct dpu_encoder_virt *dpu_enc = NULL;
 	struct msm_drm_private *priv;
-	struct dpu_kms *dpu_kms;
 	int i = 0;
 
 	if (!drm_enc) {
@@ -1204,12 +1220,16 @@ static void dpu_encoder_virt_disable(struct drm_encoder *drm_enc)
 	dpu_enc->enabled = false;
 
 	priv = drm_enc->dev->dev_private;
-	dpu_kms = to_dpu_kms(priv->kms);
 
 	trace_dpu_enc_disable(DRMID(drm_enc));
 
 	/* wait for idle */
 	dpu_encoder_wait_for_event(drm_enc, MSM_ENC_TX_COMPLETE);
+
+	if (drm_enc->encoder_type == DRM_MODE_ENCODER_TMDS && priv->dp) {
+		if (msm_dp_display_pre_disable(priv->dp, drm_enc))
+			DPU_ERROR_ENC(dpu_enc, "dp display push idle failed\n");
+	}
 
 	dpu_encoder_resource_control(drm_enc, DPU_ENC_RC_EVENT_PRE_STOP);
 
@@ -1219,6 +1239,7 @@ static void dpu_encoder_virt_disable(struct drm_encoder *drm_enc)
 		if (phys->ops.disable)
 			phys->ops.disable(phys);
 	}
+
 
 	/* after phys waits for frame-done, should be no more frames pending */
 	if (atomic_xchg(&dpu_enc->frame_done_timeout_ms, 0)) {
@@ -1233,6 +1254,11 @@ static void dpu_encoder_virt_disable(struct drm_encoder *drm_enc)
 	}
 
 	DPU_DEBUG_ENC(dpu_enc, "encoder disabled\n");
+
+	if (drm_enc->encoder_type == DRM_MODE_ENCODER_TMDS && priv->dp) {
+		if (msm_dp_display_disable(priv->dp, drm_enc))
+			DPU_ERROR_ENC(dpu_enc, "dp display disable failed\n");
+	}
 
 	mutex_unlock(&dpu_enc->enc_lock);
 }
@@ -1281,6 +1307,11 @@ static void dpu_encoder_underrun_callback(struct drm_encoder *drm_enc,
 
 	DPU_ATRACE_BEGIN("encoder_underrun_callback");
 	atomic_inc(&phy_enc->underrun_cnt);
+
+	/* trigger dump only on the first underrun */
+	if (atomic_read(&phy_enc->underrun_cnt) == 1)
+		msm_disp_snapshot_state(drm_enc->dev);
+
 	trace_dpu_enc_underrun_cb(DRMID(drm_enc),
 				  atomic_read(&phy_enc->underrun_cnt));
 	DPU_ATRACE_END("encoder_underrun_callback");
@@ -1398,11 +1429,6 @@ static void dpu_encoder_off_work(struct work_struct *work)
 	struct dpu_encoder_virt *dpu_enc = container_of(work,
 			struct dpu_encoder_virt, delayed_off_work.work);
 
-	if (!dpu_enc) {
-		DPU_ERROR("invalid dpu encoder\n");
-		return;
-	}
-
 	dpu_encoder_resource_control(&dpu_enc->base,
 						DPU_ENC_RC_EVENT_ENTER_IDLE);
 
@@ -1412,9 +1438,9 @@ static void dpu_encoder_off_work(struct work_struct *work)
 
 /**
  * _dpu_encoder_trigger_flush - trigger flush for a physical encoder
- * drm_enc: Pointer to drm encoder structure
- * phys: Pointer to physical encoder structure
- * extra_flush_bits: Additional bit mask to include in flush trigger
+ * @drm_enc: Pointer to drm encoder structure
+ * @phys: Pointer to physical encoder structure
+ * @extra_flush_bits: Additional bit mask to include in flush trigger
  */
 static void _dpu_encoder_trigger_flush(struct drm_encoder *drm_enc,
 		struct dpu_encoder_phys *phys, uint32_t extra_flush_bits)
@@ -1451,7 +1477,7 @@ static void _dpu_encoder_trigger_flush(struct drm_encoder *drm_enc,
 
 /**
  * _dpu_encoder_trigger_start - trigger start for a physical encoder
- * phys: Pointer to physical encoder structure
+ * @phys: Pointer to physical encoder structure
  */
 static void _dpu_encoder_trigger_start(struct dpu_encoder_phys *phys)
 {
@@ -1482,7 +1508,7 @@ void dpu_encoder_helper_trigger_start(struct dpu_encoder_phys *phys_enc)
 
 static int dpu_encoder_helper_wait_event_timeout(
 		int32_t drm_id,
-		int32_t hw_id,
+		u32 irq_idx,
 		struct dpu_encoder_wait_info *info)
 {
 	int rc = 0;
@@ -1495,7 +1521,7 @@ static int dpu_encoder_helper_wait_event_timeout(
 				atomic_read(info->atomic_cnt) == 0, jiffies);
 		time = ktime_to_ms(ktime_get());
 
-		trace_dpu_enc_wait_event_timeout(drm_id, hw_id, rc, time,
+		trace_dpu_enc_wait_event_timeout(drm_id, irq_idx, rc, time,
 						 expected_time,
 						 atomic_read(info->atomic_cnt));
 	/* If we timed out, counter is valid and time is less, wait again */
@@ -1510,19 +1536,23 @@ static void dpu_encoder_helper_hw_reset(struct dpu_encoder_phys *phys_enc)
 	struct dpu_encoder_virt *dpu_enc;
 	struct dpu_hw_ctl *ctl;
 	int rc;
+	struct drm_encoder *drm_enc;
 
 	dpu_enc = to_dpu_encoder_virt(phys_enc->parent);
 	ctl = phys_enc->hw_ctl;
+	drm_enc = phys_enc->parent;
 
 	if (!ctl->ops.reset)
 		return;
 
-	DRM_DEBUG_KMS("id:%u ctl %d reset\n", DRMID(phys_enc->parent),
+	DRM_DEBUG_KMS("id:%u ctl %d reset\n", DRMID(drm_enc),
 		      ctl->idx);
 
 	rc = ctl->ops.reset(ctl);
-	if (rc)
+	if (rc) {
 		DPU_ERROR_ENC(dpu_enc, "ctl %d reset failure\n",  ctl->idx);
+		msm_disp_snapshot_state(drm_enc->dev);
+	}
 
 	phys_enc->enable_state = DPU_ENC_ENABLED;
 }
@@ -1534,7 +1564,7 @@ static void dpu_encoder_helper_hw_reset(struct dpu_encoder_phys *phys_enc)
  *	encoder rather than the individual physical ones in order to handle
  *	use cases that require visibility into multiple physical encoders at
  *	a time.
- * dpu_enc: Pointer to virtual encoder structure
+ * @dpu_enc: Pointer to virtual encoder structure
  */
 static void _dpu_encoder_kickoff_phys(struct dpu_encoder_virt *dpu_enc)
 {
@@ -1742,11 +1772,6 @@ static void dpu_encoder_vsync_event_work_handler(struct kthread_work *work)
 			struct dpu_encoder_virt, vsync_event_work);
 	ktime_t wakeup_time;
 
-	if (!dpu_enc) {
-		DPU_ERROR("invalid dpu encoder\n");
-		return;
-	}
-
 	if (dpu_encoder_vsync_time(&dpu_enc->base, &wakeup_time))
 		return;
 
@@ -1880,23 +1905,12 @@ static int _dpu_encoder_status_show(struct seq_file *s, void *data)
 	return 0;
 }
 
-static int _dpu_encoder_debugfs_status_open(struct inode *inode,
-		struct file *file)
-{
-	return single_open(file, _dpu_encoder_status_show, inode->i_private);
-}
+DEFINE_SHOW_ATTRIBUTE(_dpu_encoder_status);
 
 static int _dpu_encoder_init_debugfs(struct drm_encoder *drm_enc)
 {
 	struct dpu_encoder_virt *dpu_enc = to_dpu_encoder_virt(drm_enc);
 	int i;
-
-	static const struct file_operations debugfs_status_fops = {
-		.open =		_dpu_encoder_debugfs_status_open,
-		.read =		seq_read,
-		.llseek =	seq_lseek,
-		.release =	single_release,
-	};
 
 	char name[DPU_NAME_SIZE];
 
@@ -1913,7 +1927,7 @@ static int _dpu_encoder_init_debugfs(struct drm_encoder *drm_enc)
 
 	/* don't error check these */
 	debugfs_create_file("status", 0600,
-		dpu_enc->debugfs_root, dpu_enc, &debugfs_status_fops);
+		dpu_enc->debugfs_root, dpu_enc, &_dpu_encoder_status_fops);
 
 	for (i = 0; i < dpu_enc->num_phys_encs; i++)
 		if (dpu_enc->phys_encs[i]->ops.late_register)
@@ -2008,7 +2022,7 @@ static int dpu_encoder_setup_display(struct dpu_encoder_virt *dpu_enc,
 {
 	int ret = 0;
 	int i = 0;
-	enum dpu_intf_type intf_type;
+	enum dpu_intf_type intf_type = INTF_NONE;
 	struct dpu_enc_phys_init_params phys_params;
 
 	if (!dpu_enc) {
@@ -2024,15 +2038,13 @@ static int dpu_encoder_setup_display(struct dpu_encoder_virt *dpu_enc,
 	phys_params.parent_ops = &dpu_encoder_parent_ops;
 	phys_params.enc_spinlock = &dpu_enc->enc_spinlock;
 
-	DPU_DEBUG("\n");
-
 	switch (disp_info->intf_type) {
 	case DRM_MODE_ENCODER_DSI:
 		intf_type = INTF_DSI;
 		break;
-	default:
-		DPU_ERROR_ENC(dpu_enc, "unsupported display interface type\n");
-		return -EINVAL;
+	case DRM_MODE_ENCODER_TMDS:
+		intf_type = INTF_DP;
+		break;
 	}
 
 	WARN_ON(disp_info->num_of_h_tiles < 1);

@@ -1021,7 +1021,7 @@ static int acpi_pci_set_power_state(struct pci_dev *dev, pci_power_t state)
 
 	if (!error)
 		pci_dbg(dev, "power state changed by ACPI to %s\n",
-			 acpi_power_state_string(state_conv[state]));
+		        acpi_power_state_string(adev->power.state));
 
 	return error;
 }
@@ -1060,7 +1060,7 @@ static int acpi_pci_propagate_wakeup(struct pci_bus *bus, bool enable)
 {
 	while (bus->parent) {
 		if (acpi_pm_device_can_wakeup(&bus->self->dev))
-			return acpi_pm_set_bridge_wakeup(&bus->self->dev, enable);
+			return acpi_pm_set_device_wakeup(&bus->self->dev, enable);
 
 		bus = bus->parent;
 	}
@@ -1068,7 +1068,7 @@ static int acpi_pci_propagate_wakeup(struct pci_bus *bus, bool enable)
 	/* We have reached the root bus. */
 	if (bus->bridge) {
 		if (acpi_pm_device_can_wakeup(bus->bridge))
-			return acpi_pm_set_bridge_wakeup(bus->bridge, enable);
+			return acpi_pm_set_device_wakeup(bus->bridge, enable);
 	}
 	return 0;
 }
@@ -1162,14 +1162,34 @@ void acpi_pci_remove_bus(struct pci_bus *bus)
 static struct acpi_device *acpi_pci_find_companion(struct device *dev)
 {
 	struct pci_dev *pci_dev = to_pci_dev(dev);
+	struct acpi_device *adev;
 	bool check_children;
 	u64 addr;
 
 	check_children = pci_is_bridge(pci_dev);
 	/* Please ref to ACPI spec for the syntax of _ADR */
 	addr = (PCI_SLOT(pci_dev->devfn) << 16) | PCI_FUNC(pci_dev->devfn);
-	return acpi_find_child_device(ACPI_COMPANION(dev->parent), addr,
+	adev = acpi_find_child_device(ACPI_COMPANION(dev->parent), addr,
 				      check_children);
+
+	/*
+	 * There may be ACPI device objects in the ACPI namespace that are
+	 * children of the device object representing the host bridge, but don't
+	 * represent PCI devices.  Both _HID and _ADR may be present for them,
+	 * even though that is against the specification (for example, see
+	 * Section 6.1 of ACPI 6.3), but in many cases the _ADR returns 0 which
+	 * appears to indicate that they should not be taken into consideration
+	 * as potential companions of PCI devices on the root bus.
+	 *
+	 * To catch this special case, disregard the returned device object if
+	 * it has a valid _HID, addr is 0 and the PCI device at hand is on the
+	 * root bus.
+	 */
+	if (adev && adev->pnp.type.platform_id && !addr &&
+	    pci_is_root_bus(pci_dev->bus))
+		return NULL;
+
+	return adev;
 }
 
 /**
@@ -1177,7 +1197,7 @@ static struct acpi_device *acpi_pci_find_companion(struct device *dev)
  * @pdev: the PCI device whose delay is to be updated
  * @handle: ACPI handle of this device
  *
- * Update the d3_delay and d3cold_delay of a PCI device from the ACPI _DSM
+ * Update the d3hot_delay and d3cold_delay of a PCI device from the ACPI _DSM
  * control method of either the device itself or the PCI host bridge.
  *
  * Function 8, "Reset Delay," applies to the entire hierarchy below a PCI
@@ -1216,14 +1236,14 @@ static void pci_acpi_optimize_delay(struct pci_dev *pdev,
 		}
 		if (elements[3].type == ACPI_TYPE_INTEGER) {
 			value = (int)elements[3].integer.value / 1000;
-			if (value < PCI_PM_D3_WAIT)
-				pdev->d3_delay = value;
+			if (value < PCI_PM_D3HOT_WAIT)
+				pdev->d3hot_delay = value;
 		}
 	}
 	ACPI_FREE(obj);
 }
 
-static void pci_acpi_set_untrusted(struct pci_dev *dev)
+static void pci_acpi_set_external_facing(struct pci_dev *dev)
 {
 	u8 val;
 
@@ -1234,11 +1254,10 @@ static void pci_acpi_set_untrusted(struct pci_dev *dev)
 
 	/*
 	 * These root ports expose PCIe (including DMA) outside of the
-	 * system so make sure we treat them and everything behind as
-	 * untrusted.
+	 * system.  Everything downstream from them is external.
 	 */
 	if (val)
-		dev->untrusted = 1;
+		dev->external_facing = 1;
 }
 
 static void pci_acpi_setup(struct device *dev)
@@ -1250,7 +1269,7 @@ static void pci_acpi_setup(struct device *dev)
 		return;
 
 	pci_acpi_optimize_delay(pci_dev, adev->handle);
-	pci_acpi_set_untrusted(pci_dev);
+	pci_acpi_set_external_facing(pci_dev);
 	pci_acpi_add_edr_notifier(pci_dev);
 
 	pci_acpi_add_pm_notifier(adev, pci_dev);

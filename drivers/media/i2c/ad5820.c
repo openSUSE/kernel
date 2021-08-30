@@ -19,12 +19,11 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/regulator/consumer.h>
+#include <linux/gpio/consumer.h>
 
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-subdev.h>
-
-#define AD5820_NAME		"ad5820"
 
 /* Register definitions */
 #define AD5820_POWER_DOWN		(1 << 15)
@@ -46,6 +45,8 @@ struct ad5820_device {
 	u32 focus_absolute;
 	u32 focus_ramp_time;
 	u32 focus_ramp_mode;
+
+	struct gpio_desc *enable_gpio;
 
 	struct mutex power_lock;
 	int power_count;
@@ -114,6 +115,8 @@ static int ad5820_power_off(struct ad5820_device *coil, bool standby)
 		ret = ad5820_update_hw(coil);
 	}
 
+	gpiod_set_value_cansleep(coil->enable_gpio, 0);
+
 	ret2 = regulator_disable(coil->vana);
 	if (ret)
 		return ret;
@@ -128,6 +131,8 @@ static int ad5820_power_on(struct ad5820_device *coil, bool restore)
 	if (ret < 0)
 		return ret;
 
+	gpiod_set_value_cansleep(coil->enable_gpio, 1);
+
 	if (restore) {
 		/* Restore the hardware settings. */
 		coil->standby = false;
@@ -138,6 +143,7 @@ static int ad5820_power_on(struct ad5820_device *coil, bool restore)
 	return 0;
 
 fail:
+	gpiod_set_value_cansleep(coil->enable_gpio, 0);
 	coil->standby = true;
 	regulator_disable(coil->vana);
 
@@ -264,8 +270,7 @@ static const struct v4l2_subdev_internal_ops ad5820_internal_ops = {
  */
 static int __maybe_unused ad5820_suspend(struct device *dev)
 {
-	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
-	struct v4l2_subdev *subdev = i2c_get_clientdata(client);
+	struct v4l2_subdev *subdev = dev_get_drvdata(dev);
 	struct ad5820_device *coil = to_ad5820_device(subdev);
 
 	if (!coil->power_count)
@@ -276,8 +281,7 @@ static int __maybe_unused ad5820_suspend(struct device *dev)
 
 static int __maybe_unused ad5820_resume(struct device *dev)
 {
-	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
-	struct v4l2_subdev *subdev = i2c_get_clientdata(client);
+	struct v4l2_subdev *subdev = dev_get_drvdata(dev);
 	struct ad5820_device *coil = to_ad5820_device(subdev);
 
 	if (!coil->power_count)
@@ -301,6 +305,15 @@ static int ad5820_probe(struct i2c_client *client,
 		ret = PTR_ERR(coil->vana);
 		if (ret != -EPROBE_DEFER)
 			dev_err(&client->dev, "could not get regulator for vana\n");
+		return ret;
+	}
+
+	coil->enable_gpio = devm_gpiod_get_optional(&client->dev, "enable",
+						    GPIOD_OUT_LOW);
+	if (IS_ERR(coil->enable_gpio)) {
+		ret = PTR_ERR(coil->enable_gpio);
+		if (ret != -EPROBE_DEFER)
+			dev_err(&client->dev, "could not get enable gpio\n");
 		return ret;
 	}
 
@@ -342,17 +355,28 @@ static int ad5820_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id ad5820_id_table[] = {
-	{ AD5820_NAME, 0 },
+	{ "ad5820", 0 },
+	{ "ad5821", 0 },
+	{ "ad5823", 0 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ad5820_id_table);
+
+static const struct of_device_id ad5820_of_table[] = {
+	{ .compatible = "adi,ad5820" },
+	{ .compatible = "adi,ad5821" },
+	{ .compatible = "adi,ad5823" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, ad5820_of_table);
 
 static SIMPLE_DEV_PM_OPS(ad5820_pm, ad5820_suspend, ad5820_resume);
 
 static struct i2c_driver ad5820_i2c_driver = {
 	.driver		= {
-		.name	= AD5820_NAME,
+		.name	= "ad5820",
 		.pm	= &ad5820_pm,
+		.of_match_table = ad5820_of_table,
 	},
 	.probe		= ad5820_probe,
 	.remove		= ad5820_remove,

@@ -29,7 +29,7 @@ list:
 This may also include issues related to XDP, BPF tracing, etc.
 
 Given netdev has a high volume of traffic, please also add the BPF
-maintainers to Cc (from kernel MAINTAINERS_ file):
+maintainers to Cc (from kernel ``MAINTAINERS`` file):
 
 * Alexei Starovoitov <ast@kernel.org>
 * Daniel Borkmann <daniel@iogearbox.net>
@@ -60,13 +60,13 @@ Q: Where can I find patches currently under discussion for BPF subsystem?
 A: All patches that are Cc'ed to netdev are queued for review under netdev
 patchwork project:
 
-  http://patchwork.ozlabs.org/project/netdev/list/
+  https://patchwork.kernel.org/project/netdevbpf/list/
 
 Those patches which target BPF, are assigned to a 'bpf' delegate for
 further processing from BPF maintainers. The current queue with
 patches under review can be found at:
 
-  https://patchwork.ozlabs.org/project/netdev/list/?delegate=77147
+  https://patchwork.kernel.org/project/netdevbpf/list/?delegate=121173
 
 Once the patches have been reviewed by the BPF community as a whole
 and approved by the BPF maintainers, their status in patchwork will be
@@ -149,7 +149,7 @@ In case the patch or patch series has to be reworked and sent out
 again in a second or later revision, it is also required to add a
 version number (``v2``, ``v3``, ...) into the subject prefix::
 
-  git format-patch --subject-prefix='PATCH net-next v2' start..finish
+  git format-patch --subject-prefix='PATCH bpf-next v2' start..finish
 
 When changes have been requested to the patch series, always send the
 whole patch series again with the feedback incorporated (never send
@@ -234,11 +234,11 @@ be subject to change.
 
 Q: samples/bpf preference vs selftests?
 ---------------------------------------
-Q: When should I add code to `samples/bpf/`_ and when to BPF kernel
-selftests_ ?
+Q: When should I add code to ``samples/bpf/`` and when to BPF kernel
+selftests_?
 
 A: In general, we prefer additions to BPF kernel selftests_ rather than
-`samples/bpf/`_. The rationale is very simple: kernel selftests are
+``samples/bpf/``. The rationale is very simple: kernel selftests are
 regularly run by various bots to test for kernel regressions.
 
 The more test cases we add to BPF selftests, the better the coverage
@@ -246,9 +246,9 @@ and the less likely it is that those could accidentally break. It is
 not that BPF kernel selftests cannot demo how a specific feature can
 be used.
 
-That said, `samples/bpf/`_ may be a good place for people to get started,
+That said, ``samples/bpf/`` may be a good place for people to get started,
 so it might be advisable that simple demos of features could go into
-`samples/bpf/`_, but advanced functional and corner-case testing rather
+``samples/bpf/``, but advanced functional and corner-case testing rather
 into kernel selftests.
 
 If your sample looks like a test case, then go for BPF kernel selftests
@@ -449,6 +449,19 @@ from source at
 
 https://github.com/acmel/dwarves
 
+pahole starts to use libbpf definitions and APIs since v1.13 after the
+commit 21507cd3e97b ("pahole: add libbpf as submodule under lib/bpf").
+It works well with the git repository because the libbpf submodule will
+use "git submodule update --init --recursive" to update.
+
+Unfortunately, the default github release source code does not contain
+libbpf submodule source code and this will cause build issues, the tarball
+from https://git.kernel.org/pub/scm/devel/pahole/pahole.git/ is same with
+github, you can get the source tarball with corresponding libbpf submodule
+codes from
+
+https://fedorapeople.org/~acme/dwarves
+
 Some distros have pahole version 1.16 packaged already, e.g.
 Fedora, Gentoo.
 
@@ -479,17 +492,18 @@ LLVM's static compiler lists the supported targets through
 
      $ llc --version
      LLVM (http://llvm.org/):
-       LLVM version 6.0.0svn
+       LLVM version 10.0.0
        Optimized build.
        Default target: x86_64-unknown-linux-gnu
        Host CPU: skylake
 
        Registered Targets:
-         bpf    - BPF (host endian)
-         bpfeb  - BPF (big endian)
-         bpfel  - BPF (little endian)
-         x86    - 32-bit X86: Pentium-Pro and above
-         x86-64 - 64-bit X86: EM64T and AMD64
+         aarch64    - AArch64 (little endian)
+         bpf        - BPF (host endian)
+         bpfeb      - BPF (big endian)
+         bpfel      - BPF (little endian)
+         x86        - 32-bit X86: Pentium-Pro and above
+         x86-64     - 64-bit X86: EM64T and AMD64
 
 For developers in order to utilize the latest features added to LLVM's
 BPF back end, it is advisable to run the latest LLVM releases. Support
@@ -500,22 +514,29 @@ All LLVM releases can be found at: http://releases.llvm.org/
 
 Q: Got it, so how do I build LLVM manually anyway?
 --------------------------------------------------
-A: You need cmake and gcc-c++ as build requisites for LLVM. Once you have
-that set up, proceed with building the latest LLVM and clang version
+A: We recommend that developers who want the fastest incremental builds
+use the Ninja build system, you can find it in your system's package
+manager, usually the package is ninja or ninja-build.
+
+You need ninja, cmake and gcc-c++ as build requisites for LLVM. Once you
+have that set up, proceed with building the latest LLVM and clang version
 from the git repositories::
 
      $ git clone https://github.com/llvm/llvm-project.git
-     $ mkdir -p llvm-project/llvm/build/install
+     $ mkdir -p llvm-project/llvm/build
      $ cd llvm-project/llvm/build
      $ cmake .. -G "Ninja" -DLLVM_TARGETS_TO_BUILD="BPF;X86" \
                 -DLLVM_ENABLE_PROJECTS="clang"    \
-                -DBUILD_SHARED_LIBS=OFF           \
                 -DCMAKE_BUILD_TYPE=Release        \
                 -DLLVM_BUILD_RUNTIME=OFF
      $ ninja
 
 The built binaries can then be found in the build/bin/ directory, where
 you can point the PATH variable to.
+
+Set ``-DLLVM_TARGETS_TO_BUILD`` equal to the target you wish to build, you
+will find a full list of targets within the llvm-project/llvm/lib/Target
+directory.
 
 Q: Reporting LLVM BPF issues
 ----------------------------
@@ -637,10 +658,9 @@ when:
 
 .. Links
 .. _Documentation/process/: https://www.kernel.org/doc/html/latest/process/
-.. _MAINTAINERS: ../../MAINTAINERS
 .. _netdev-FAQ: ../networking/netdev-FAQ.rst
-.. _samples/bpf/: ../../samples/bpf/
-.. _selftests: ../../tools/testing/selftests/bpf/
+.. _selftests:
+   https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/tools/testing/selftests/bpf/
 .. _Documentation/dev-tools/kselftest.rst:
    https://www.kernel.org/doc/html/latest/dev-tools/kselftest.html
 .. _Documentation/bpf/btf.rst: btf.rst

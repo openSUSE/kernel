@@ -503,77 +503,65 @@ static const unsigned int BTTV_TVNORMS = ARRAY_SIZE(bttv_tvnorms);
    packed pixel formats must come first */
 static const struct bttv_format formats[] = {
 	{
-		.name     = "8 bpp, gray",
 		.fourcc   = V4L2_PIX_FMT_GREY,
 		.btformat = BT848_COLOR_FMT_Y8,
 		.depth    = 8,
 		.flags    = FORMAT_FLAGS_PACKED,
 	},{
-		.name     = "8 bpp, dithered color",
 		.fourcc   = V4L2_PIX_FMT_HI240,
 		.btformat = BT848_COLOR_FMT_RGB8,
 		.depth    = 8,
 		.flags    = FORMAT_FLAGS_PACKED | FORMAT_FLAGS_DITHER,
 	},{
-		.name     = "15 bpp RGB, le",
 		.fourcc   = V4L2_PIX_FMT_RGB555,
 		.btformat = BT848_COLOR_FMT_RGB15,
 		.depth    = 16,
 		.flags    = FORMAT_FLAGS_PACKED,
 	},{
-		.name     = "15 bpp RGB, be",
 		.fourcc   = V4L2_PIX_FMT_RGB555X,
 		.btformat = BT848_COLOR_FMT_RGB15,
 		.btswap   = 0x03, /* byteswap */
 		.depth    = 16,
 		.flags    = FORMAT_FLAGS_PACKED,
 	},{
-		.name     = "16 bpp RGB, le",
 		.fourcc   = V4L2_PIX_FMT_RGB565,
 		.btformat = BT848_COLOR_FMT_RGB16,
 		.depth    = 16,
 		.flags    = FORMAT_FLAGS_PACKED,
 	},{
-		.name     = "16 bpp RGB, be",
 		.fourcc   = V4L2_PIX_FMT_RGB565X,
 		.btformat = BT848_COLOR_FMT_RGB16,
 		.btswap   = 0x03, /* byteswap */
 		.depth    = 16,
 		.flags    = FORMAT_FLAGS_PACKED,
 	},{
-		.name     = "24 bpp RGB, le",
 		.fourcc   = V4L2_PIX_FMT_BGR24,
 		.btformat = BT848_COLOR_FMT_RGB24,
 		.depth    = 24,
 		.flags    = FORMAT_FLAGS_PACKED,
 	},{
-		.name     = "32 bpp RGB, le",
 		.fourcc   = V4L2_PIX_FMT_BGR32,
 		.btformat = BT848_COLOR_FMT_RGB32,
 		.depth    = 32,
 		.flags    = FORMAT_FLAGS_PACKED,
 	},{
-		.name     = "32 bpp RGB, be",
 		.fourcc   = V4L2_PIX_FMT_RGB32,
 		.btformat = BT848_COLOR_FMT_RGB32,
 		.btswap   = 0x0f, /* byte+word swap */
 		.depth    = 32,
 		.flags    = FORMAT_FLAGS_PACKED,
 	},{
-		.name     = "4:2:2, packed, YUYV",
 		.fourcc   = V4L2_PIX_FMT_YUYV,
 		.btformat = BT848_COLOR_FMT_YUY2,
 		.depth    = 16,
 		.flags    = FORMAT_FLAGS_PACKED,
 	},{
-		.name     = "4:2:2, packed, UYVY",
 		.fourcc   = V4L2_PIX_FMT_UYVY,
 		.btformat = BT848_COLOR_FMT_YUY2,
 		.btswap   = 0x03, /* byteswap */
 		.depth    = 16,
 		.flags    = FORMAT_FLAGS_PACKED,
 	},{
-		.name     = "4:2:2, planar, Y-Cb-Cr",
 		.fourcc   = V4L2_PIX_FMT_YUV422P,
 		.btformat = BT848_COLOR_FMT_YCrCb422,
 		.depth    = 16,
@@ -581,7 +569,6 @@ static const struct bttv_format formats[] = {
 		.hshift   = 1,
 		.vshift   = 0,
 	},{
-		.name     = "4:2:0, planar, Y-Cb-Cr",
 		.fourcc   = V4L2_PIX_FMT_YUV420,
 		.btformat = BT848_COLOR_FMT_YCrCb422,
 		.depth    = 12,
@@ -589,7 +576,6 @@ static const struct bttv_format formats[] = {
 		.hshift   = 1,
 		.vshift   = 1,
 	},{
-		.name     = "4:2:0, planar, Y-Cr-Cb",
 		.fourcc   = V4L2_PIX_FMT_YVU420,
 		.btformat = BT848_COLOR_FMT_YCrCb422,
 		.depth    = 12,
@@ -597,7 +583,6 @@ static const struct bttv_format formats[] = {
 		.hshift   = 1,
 		.vshift   = 1,
 	},{
-		.name     = "4:1:1, planar, Y-Cb-Cr",
 		.fourcc   = V4L2_PIX_FMT_YUV411P,
 		.btformat = BT848_COLOR_FMT_YCrCb411,
 		.depth    = 12,
@@ -605,7 +590,6 @@ static const struct bttv_format formats[] = {
 		.hshift   = 2,
 		.vshift   = 0,
 	},{
-		.name     = "4:1:0, planar, Y-Cb-Cr",
 		.fourcc   = V4L2_PIX_FMT_YUV410,
 		.btformat = BT848_COLOR_FMT_YCrCb411,
 		.depth    = 9,
@@ -613,7 +597,6 @@ static const struct bttv_format formats[] = {
 		.hshift   = 2,
 		.vshift   = 2,
 	},{
-		.name     = "4:1:0, planar, Y-Cr-Cb",
 		.fourcc   = V4L2_PIX_FMT_YVU410,
 		.btformat = BT848_COLOR_FMT_YCrCb411,
 		.depth    = 9,
@@ -621,7 +604,6 @@ static const struct bttv_format formats[] = {
 		.hshift   = 2,
 		.vshift   = 2,
 	},{
-		.name     = "raw scanlines",
 		.fourcc   = -1,
 		.btformat = BT848_COLOR_FMT_RAW,
 		.depth    = 8,
@@ -2076,7 +2058,6 @@ verify_window_lock(struct bttv_fh *fh, struct v4l2_window *win,
 {
 	enum v4l2_field field;
 	unsigned int width_mask;
-	int rc;
 
 	if (win->w.width < 48)
 		win->w.width = 48;
@@ -2129,13 +2110,10 @@ verify_window_lock(struct bttv_fh *fh, struct v4l2_window *win,
 	win->w.width -= win->w.left & ~width_mask;
 	win->w.left = (win->w.left - width_mask - 1) & width_mask;
 
-	rc = limit_scaled_size_lock(fh, &win->w.width, &win->w.height,
-			       field, width_mask,
-			       /* width_bias: round down */ 0,
-			       adjust_size, adjust_crop);
-	if (0 != rc)
-		return rc;
-	return 0;
+	return limit_scaled_size_lock(fh, &win->w.width, &win->w.height,
+				      field, width_mask,
+				      /* width_bias: round down */ 0,
+				      adjust_size, adjust_crop);
 }
 
 static int setup_window_lock(struct bttv_fh *fh, struct bttv *btv,
@@ -2161,12 +2139,8 @@ static int setup_window_lock(struct bttv_fh *fh, struct bttv *btv,
 	clips = kmalloc(size,GFP_KERNEL);
 	if (NULL == clips)
 		return -ENOMEM;
-	if (n > 0) {
-		if (copy_from_user(clips,win->clips,sizeof(struct v4l2_clip)*n)) {
-			kfree(clips);
-			return -EFAULT;
-		}
-	}
+	if (n > 0)
+		memcpy(clips, win->clips, sizeof(struct v4l2_clip) * n);
 
 	/* clip against screen */
 	if (NULL != btv->fbuf.base)
@@ -2350,7 +2324,7 @@ static int bttv_try_fmt_vid_cap(struct file *file, void *priv,
 			field = V4L2_FIELD_SEQ_TB;
 			break;
 		}
-		/* fall through */
+		fallthrough;
 	default: /* FIELD_ANY case */
 		height2 = btv->crop[!!fh->do_crop].rect.height >> 1;
 		field = (f->fmt.pix.height > height2)
@@ -2500,7 +2474,6 @@ static int bttv_enum_fmt_cap_ovr(struct v4l2_fmtdesc *f)
 		return -EINVAL;
 
 	f->pixelformat = formats[i].fourcc;
-	strscpy(f->description, formats[i].name, sizeof(f->description));
 
 	return i;
 }
@@ -2983,7 +2956,7 @@ static int bttv_open(struct file *file)
 
 	dprintk("open dev=%s\n", video_device_node_name(vdev));
 
-	if (vdev->vfl_type == VFL_TYPE_GRABBER) {
+	if (vdev->vfl_type == VFL_TYPE_VIDEO) {
 		type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	} else if (vdev->vfl_type == VFL_TYPE_VBI) {
 		type = V4L2_BUF_TYPE_VBI_CAPTURE;
@@ -3206,7 +3179,7 @@ static int radio_release(struct file *file)
 
 	btv->radio_user--;
 
-	bttv_call_all(btv, core, ioctl, SAA6588_CMD_CLOSE, &cmd);
+	bttv_call_all(btv, core, command, SAA6588_CMD_CLOSE, &cmd);
 
 	if (btv->radio_user == 0)
 		btv->has_radio_tuner = 0;
@@ -3287,7 +3260,7 @@ static ssize_t radio_read(struct file *file, char __user *data,
 	cmd.result = -ENODEV;
 	radio_enable(btv);
 
-	bttv_call_all(btv, core, ioctl, SAA6588_CMD_READ, &cmd);
+	bttv_call_all(btv, core, command, SAA6588_CMD_READ, &cmd);
 
 	return cmd.result;
 }
@@ -3308,7 +3281,7 @@ static __poll_t radio_poll(struct file *file, poll_table *wait)
 	cmd.instance = file;
 	cmd.event_list = wait;
 	cmd.poll_mask = res;
-	bttv_call_all(btv, core, ioctl, SAA6588_CMD_POLL, &cmd);
+	bttv_call_all(btv, core, command, SAA6588_CMD_POLL, &cmd);
 
 	return cmd.poll_mask;
 }
@@ -3924,7 +3897,7 @@ static int bttv_register_video(struct bttv *btv)
 	if (no_overlay <= 0)
 		btv->video_dev.device_caps |= V4L2_CAP_VIDEO_OVERLAY;
 
-	if (video_register_device(&btv->video_dev, VFL_TYPE_GRABBER,
+	if (video_register_device(&btv->video_dev, VFL_TYPE_VIDEO,
 				  video_nr[btv->c.nr]) < 0)
 		goto err;
 	pr_info("%d: registered device %s\n",
@@ -4035,7 +4008,7 @@ static int bttv_probe(struct pci_dev *dev, const struct pci_device_id *pci_id)
 		result = -EIO;
 		goto free_mem;
 	}
-	if (pci_set_dma_mask(dev, DMA_BIT_MASK(32))) {
+	if (dma_set_mask(&dev->dev, DMA_BIT_MASK(32))) {
 		pr_warn("%d: No suitable DMA available\n", btv->c.nr);
 		result = -EIO;
 		goto free_mem;
@@ -4289,15 +4262,14 @@ static void bttv_remove(struct pci_dev *pci_dev)
 	return;
 }
 
-#ifdef CONFIG_PM
-static int bttv_suspend(struct pci_dev *pci_dev, pm_message_t state)
+static int __maybe_unused bttv_suspend(struct device *dev)
 {
-	struct v4l2_device *v4l2_dev = pci_get_drvdata(pci_dev);
+	struct v4l2_device *v4l2_dev = dev_get_drvdata(dev);
 	struct bttv *btv = to_bttv(v4l2_dev);
 	struct bttv_buffer_set idle;
 	unsigned long flags;
 
-	dprintk("%d: suspend %d\n", btv->c.nr, state.event);
+	dprintk("%d: suspend\n", btv->c.nr);
 
 	/* stop dma + irqs */
 	spin_lock_irqsave(&btv->s_lock,flags);
@@ -4317,42 +4289,19 @@ static int bttv_suspend(struct pci_dev *pci_dev, pm_message_t state)
 	btv->state.gpio_enable = btread(BT848_GPIO_OUT_EN);
 	btv->state.gpio_data   = gpio_read();
 
-	/* save pci state */
-	pci_save_state(pci_dev);
-	if (0 != pci_set_power_state(pci_dev, pci_choose_state(pci_dev, state))) {
-		pci_disable_device(pci_dev);
-		btv->state.disabled = 1;
-	}
+	btv->state.disabled = 1;
 	return 0;
 }
 
-static int bttv_resume(struct pci_dev *pci_dev)
+static int __maybe_unused bttv_resume(struct device *dev)
 {
-	struct v4l2_device *v4l2_dev = pci_get_drvdata(pci_dev);
+	struct v4l2_device *v4l2_dev = dev_get_drvdata(dev);
 	struct bttv *btv = to_bttv(v4l2_dev);
 	unsigned long flags;
-	int err;
 
 	dprintk("%d: resume\n", btv->c.nr);
 
-	/* restore pci state */
-	if (btv->state.disabled) {
-		err=pci_enable_device(pci_dev);
-		if (err) {
-			pr_warn("%d: Can't enable device\n", btv->c.nr);
-			return err;
-		}
-		btv->state.disabled = 0;
-	}
-	err=pci_set_power_state(pci_dev, PCI_D0);
-	if (err) {
-		pci_disable_device(pci_dev);
-		pr_warn("%d: Can't enable device\n", btv->c.nr);
-		btv->state.disabled = 1;
-		return err;
-	}
-
-	pci_restore_state(pci_dev);
+	btv->state.disabled = 0;
 
 	/* restore bt878 state */
 	bttv_reinit_bt848(btv);
@@ -4370,7 +4319,6 @@ static int bttv_resume(struct pci_dev *pci_dev)
 	spin_unlock_irqrestore(&btv->s_lock,flags);
 	return 0;
 }
-#endif
 
 static const struct pci_device_id bttv_pci_tbl[] = {
 	{PCI_VDEVICE(BROOKTREE, PCI_DEVICE_ID_BT848), 0},
@@ -4383,15 +4331,16 @@ static const struct pci_device_id bttv_pci_tbl[] = {
 
 MODULE_DEVICE_TABLE(pci, bttv_pci_tbl);
 
+static SIMPLE_DEV_PM_OPS(bttv_pm_ops,
+			 bttv_suspend,
+			 bttv_resume);
+
 static struct pci_driver bttv_pci_driver = {
-	.name     = "bttv",
-	.id_table = bttv_pci_tbl,
-	.probe    = bttv_probe,
-	.remove   = bttv_remove,
-#ifdef CONFIG_PM
-	.suspend  = bttv_suspend,
-	.resume   = bttv_resume,
-#endif
+	.name      = "bttv",
+	.id_table  = bttv_pci_tbl,
+	.probe     = bttv_probe,
+	.remove    = bttv_remove,
+	.driver.pm = &bttv_pm_ops,
 };
 
 static int __init bttv_init_module(void)

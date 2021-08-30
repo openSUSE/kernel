@@ -32,7 +32,6 @@
 #define cpu_has_vtag_icache		0
 #define cpu_has_ic_fills_f_dc		0
 #define cpu_has_pindexed_dcache		0
-#define cpu_has_local_ebase		0
 #define cpu_icache_snoops_remote_store	1
 #define cpu_has_mips_4			0
 #define cpu_has_mips_5			0
@@ -44,7 +43,6 @@
 #define cpu_has_dsp2			0
 #define cpu_has_mipsmt			0
 #define cpu_has_userlocal		0
-#define cpu_hwrena_impl_bits		0
 #define cpu_has_perf_cntr_intr_bit	0
 #define cpu_has_vz			0
 #define cpu_has_fre			0

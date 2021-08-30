@@ -33,19 +33,6 @@ static struct workqueue_struct *xcopy_wq = NULL;
 
 static sense_reason_t target_parse_xcopy_cmd(struct xcopy_op *xop);
 
-static int target_xcopy_gen_naa_ieee(struct se_device *dev, unsigned char *buf)
-{
-	int off = 0;
-
-	buf[off++] = (0x6 << 4);
-	buf[off++] = 0x01;
-	buf[off++] = 0x40;
-	buf[off] = (0x5 << 4);
-
-	spc_parse_naa_6h_vendor_specific(dev, &buf[off]);
-	return 0;
-}
-
 /**
  * target_xcopy_locate_se_dev_e4_iter - compare XCOPY NAA device identifiers
  *
@@ -65,7 +52,7 @@ static int target_xcopy_locate_se_dev_e4_iter(struct se_device *se_dev,
 	}
 
 	memset(&tmp_dev_wwn[0], 0, XCOPY_NAA_IEEE_REGEX_LEN);
-	target_xcopy_gen_naa_ieee(se_dev, &tmp_dev_wwn[0]);
+	spc_gen_naa_6h_vendor_specific(se_dev, &tmp_dev_wwn[0]);
 
 	rc = memcmp(&tmp_dev_wwn[0], dev_wwn, XCOPY_NAA_IEEE_REGEX_LEN);
 	if (rc != 0) {
@@ -87,7 +74,6 @@ static int target_xcopy_locate_se_dev_e4(struct se_session *sess,
 	struct se_node_acl *nacl;
 	struct se_lun *this_lun = NULL;
 	struct se_device *found_dev = NULL;
-	int rc = 0;
 
 	/* cmd with NULL sess indicates no associated $FABRIC_MOD */
 	if (!sess)
@@ -100,6 +86,7 @@ static int target_xcopy_locate_se_dev_e4(struct se_session *sess,
 	rcu_read_lock();
 	hlist_for_each_entry_rcu(deve, &nacl->lun_entry_hlist, link) {
 		struct se_device *this_dev;
+		int rc;
 
 		this_lun = rcu_dereference(deve->se_lun);
 		this_dev = rcu_dereference_raw(this_lun->lun_se_dev);
@@ -241,7 +228,7 @@ static int target_xcopy_parse_target_descriptors(struct se_cmd *se_cmd,
 	 * se_device the XCOPY was received upon..
 	 */
 	memset(&xop->local_dev_wwn[0], 0, XCOPY_NAA_IEEE_REGEX_LEN);
-	target_xcopy_gen_naa_ieee(local_dev, &xop->local_dev_wwn[0]);
+	spc_gen_naa_6h_vendor_specific(local_dev, &xop->local_dev_wwn[0]);
 
 	while (start < tdll) {
 		/*
@@ -554,7 +541,7 @@ static int target_xcopy_setup_pt_cmd(
 	}
 	cmd->se_cmd_flags |= SCF_SE_LUN_CMD;
 
-	if (target_cmd_init_cdb(cmd, cdb))
+	if (target_cmd_init_cdb(cmd, cdb, GFP_KERNEL))
 		return -EINVAL;
 
 	cmd->tag = 0;
@@ -615,8 +602,8 @@ static int target_xcopy_read_source(
 	pr_debug("XCOPY: Built READ_16: LBA: %llu Sectors: %u Length: %u\n",
 		(unsigned long long)src_lba, src_sectors, length);
 
-	transport_init_se_cmd(se_cmd, &xcopy_pt_tfo, &xcopy_pt_sess, length,
-			      DMA_FROM_DEVICE, 0, &xpt_cmd.sense_buffer[0], 0);
+	__target_init_cmd(se_cmd, &xcopy_pt_tfo, &xcopy_pt_sess, length,
+			  DMA_FROM_DEVICE, 0, &xpt_cmd.sense_buffer[0], 0);
 
 	rc = target_xcopy_setup_pt_cmd(&xpt_cmd, xop, src_dev, &cdb[0],
 				remote_port);
@@ -660,8 +647,8 @@ static int target_xcopy_write_destination(
 	pr_debug("XCOPY: Built WRITE_16: LBA: %llu Sectors: %u Length: %u\n",
 		(unsigned long long)dst_lba, dst_sectors, length);
 
-	transport_init_se_cmd(se_cmd, &xcopy_pt_tfo, &xcopy_pt_sess, length,
-			      DMA_TO_DEVICE, 0, &xpt_cmd.sense_buffer[0], 0);
+	__target_init_cmd(se_cmd, &xcopy_pt_tfo, &xcopy_pt_sess, length,
+			  DMA_TO_DEVICE, 0, &xpt_cmd.sense_buffer[0], 0);
 
 	rc = target_xcopy_setup_pt_cmd(&xpt_cmd, xop, dst_dev, &cdb[0],
 				remote_port);
@@ -1011,7 +998,7 @@ static sense_reason_t target_rcr_operating_parameters(struct se_cmd *se_cmd)
 	put_unaligned_be32(42, &p[0]);
 
 	transport_kunmap_data_sg(se_cmd);
-	target_complete_cmd(se_cmd, GOOD);
+	target_complete_cmd(se_cmd, SAM_STAT_GOOD);
 
 	return TCM_NO_SENSE;
 }

@@ -33,7 +33,6 @@ struct task_struct *idle_thread_get(unsigned int cpu)
 
 	if (!tsk)
 		return ERR_PTR(-ENOMEM);
-	init_idle(tsk, cpu);
 	return tsk;
 }
 
@@ -48,7 +47,7 @@ void __init idle_thread_set_boot_cpu(void)
  *
  * Creates the thread if it does not exist.
  */
-static inline void idle_init(unsigned int cpu)
+static __always_inline void idle_init(unsigned int cpu)
 {
 	struct task_struct *tsk = per_cpu(idle_threads, cpu);
 
@@ -188,6 +187,7 @@ __smpboot_create_thread(struct smp_hotplug_thread *ht, unsigned int cpu)
 		kfree(td);
 		return PTR_ERR(tsk);
 	}
+	kthread_set_per_cpu(tsk, cpu);
 	/*
 	 * Park the thread so that it could start right on the CPU
 	 * when it is available.

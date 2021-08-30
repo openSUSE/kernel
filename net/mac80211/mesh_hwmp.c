@@ -212,7 +212,7 @@ static void prepare_frame_for_deferred_tx(struct ieee80211_sub_if_data *sdata,
 	skb->priority = 7;
 
 	info->control.vif = &sdata->vif;
-	info->flags |= IEEE80211_TX_INTFL_NEED_TXPROCESSING;
+	info->control.flags |= IEEE80211_TX_INTCFL_NEED_TXPROCESSING;
 	ieee80211_set_qos_hdr(sdata, skb);
 	ieee80211_mps_set_frame_flags(sdata, NULL, hdr);
 }
@@ -1124,7 +1124,7 @@ enddiscovery:
  * forwarding information is found.
  *
  * Returns: 0 if the next hop was found and -ENOENT if the frame was queued.
- * skb is freeed here if no mpath could be allocated.
+ * skb is freed here if no mpath could be allocated.
  */
 int mesh_nexthop_resolve(struct ieee80211_sub_if_data *sdata,
 			 struct sk_buff *skb)
@@ -1163,7 +1163,7 @@ int mesh_nexthop_resolve(struct ieee80211_sub_if_data *sdata,
 	if (skb_queue_len(&mpath->frame_queue) >= MESH_FRAME_QUEUE_LEN)
 		skb_to_free = skb_dequeue(&mpath->frame_queue);
 
-	info->flags |= IEEE80211_TX_INTFL_NEED_TXPROCESSING;
+	info->control.flags |= IEEE80211_TX_INTCFL_NEED_TXPROCESSING;
 	ieee80211_set_qos_hdr(sdata, skb);
 	skb_queue_tail(&mpath->frame_queue, skb);
 	if (skb_to_free)

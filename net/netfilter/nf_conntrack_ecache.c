@@ -96,8 +96,8 @@ static enum retry_state ecache_work_evict_list(struct ct_pcpu *pcpu)
 
 static void ecache_work(struct work_struct *work)
 {
-	struct netns_ct *ctnet =
-		container_of(work, struct netns_ct, ecache_dwork.work);
+	struct nf_conntrack_net *cnet = container_of(work, struct nf_conntrack_net, ecache_dwork.work);
+	struct netns_ct *ctnet = cnet->ct_net;
 	int cpu, delay = -1;
 	struct ct_pcpu *pcpu;
 
@@ -127,7 +127,7 @@ static void ecache_work(struct work_struct *work)
 
 	ctnet->ecache_dwork_pending = delay > 0;
 	if (delay >= 0)
-		schedule_delayed_work(&ctnet->ecache_dwork, delay);
+		schedule_delayed_work(&cnet->ecache_dwork, delay);
 }
 
 int nf_conntrack_eventmask_report(unsigned int eventmask, struct nf_conn *ct,
@@ -344,6 +344,20 @@ void nf_ct_expect_unregister_notifier(struct net *net,
 }
 EXPORT_SYMBOL_GPL(nf_ct_expect_unregister_notifier);
 
+void nf_conntrack_ecache_work(struct net *net, enum nf_ct_ecache_state state)
+{
+	struct nf_conntrack_net *cnet = nf_ct_pernet(net);
+
+	if (state == NFCT_ECACHE_DESTROY_FAIL &&
+	    !delayed_work_pending(&cnet->ecache_dwork)) {
+		schedule_delayed_work(&cnet->ecache_dwork, HZ);
+		net->ct.ecache_dwork_pending = true;
+	} else if (state == NFCT_ECACHE_DESTROY_SENT) {
+		net->ct.ecache_dwork_pending = false;
+		mod_delayed_work(system_wq, &cnet->ecache_dwork, 0);
+	}
+}
+
 #define NF_CT_EVENTS_DEFAULT 1
 static int nf_ct_events __read_mostly = NF_CT_EVENTS_DEFAULT;
 
@@ -355,13 +369,18 @@ static const struct nf_ct_ext_type event_extend = {
 
 void nf_conntrack_ecache_pernet_init(struct net *net)
 {
+	struct nf_conntrack_net *cnet = nf_ct_pernet(net);
+
 	net->ct.sysctl_events = nf_ct_events;
-	INIT_DELAYED_WORK(&net->ct.ecache_dwork, ecache_work);
+	cnet->ct_net = &net->ct;
+	INIT_DELAYED_WORK(&cnet->ecache_dwork, ecache_work);
 }
 
 void nf_conntrack_ecache_pernet_fini(struct net *net)
 {
-	cancel_delayed_work_sync(&net->ct.ecache_dwork);
+	struct nf_conntrack_net *cnet = nf_ct_pernet(net);
+
+	cancel_delayed_work_sync(&cnet->ecache_dwork);
 }
 
 int nf_conntrack_ecache_init(void)

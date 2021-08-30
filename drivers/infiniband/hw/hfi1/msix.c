@@ -103,8 +103,8 @@ int msix_initialize(struct hfi1_devdata *dd)
  * @arg: context information for the IRQ
  * @handler: IRQ handler
  * @thread: IRQ thread handler (could be NULL)
- * @idx: zero base idx if multiple devices are needed
  * @type: affinty IRQ type
+ * @name: IRQ name
  *
  * Allocated an MSIx vector if available, and then create the appropriate
  * meta data needed to keep track of the pci IRQ request.
@@ -206,7 +206,7 @@ int msix_request_rcd_irq(struct hfi1_ctxtdata *rcd)
 }
 
 /**
- * msix_request_rcd_irq() - Helper function for RCVAVAIL IRQs
+ * msix_netdev_request_rcd_irq  - Helper function for RCVAVAIL IRQs
  * for netdev context
  * @rcd: valid netdev contexti
  */
@@ -221,7 +221,7 @@ int msix_netdev_request_rcd_irq(struct hfi1_ctxtdata *rcd)
 }
 
 /**
- * msix_request_smda_ira() - Helper for getting SDMA IRQ resources
+ * msix_request_sdma_irq  - Helper for getting SDMA IRQ resources
  * @sde: valid sdma engine
  *
  */
@@ -243,7 +243,7 @@ int msix_request_sdma_irq(struct sdma_engine *sde)
 }
 
 /**
- * msix_request_general_irq(void) - Helper for getting general IRQ
+ * msix_request_general_irq - Helper for getting general IRQ
  * resources
  * @dd: valid device data
  */
@@ -269,7 +269,7 @@ int msix_request_general_irq(struct hfi1_devdata *dd)
 }
 
 /**
- * enable_sdma_src() - Helper to enable SDMA IRQ srcs
+ * enable_sdma_srcs - Helper to enable SDMA IRQ srcs
  * @dd: valid devdata structure
  * @i: index of SDMA engine
  */
@@ -349,7 +349,7 @@ void msix_free_irq(struct hfi1_devdata *dd, u8 msix_intr)
 }
 
 /**
- * hfi1_clean_up_msix_interrupts() - Free all MSIx IRQ resources
+ * msix_clean_up_interrupts  - Free all MSIx IRQ resources
  * @dd: valid device data data structure
  *
  * Free the MSIx and associated PCI resources, if they have been allocated.
@@ -372,7 +372,7 @@ void msix_clean_up_interrupts(struct hfi1_devdata *dd)
 }
 
 /**
- * msix_netdev_syncrhonize_irq() - netdev IRQ synchronize
+ * msix_netdev_synchronize_irq - netdev IRQ synchronize
  * @dd: valid devdata
  */
 void msix_netdev_synchronize_irq(struct hfi1_devdata *dd)

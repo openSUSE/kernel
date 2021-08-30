@@ -1,3 +1,5 @@
+.. _embargoed_hardware_issues:
+
 Embargoed hardware issues
 =========================
 
@@ -36,7 +38,10 @@ issue according to our documented process.
 The list is encrypted and email to the list can be sent by either PGP or
 S/MIME encrypted and must be signed with the reporter's PGP key or S/MIME
 certificate. The list's PGP key and S/MIME certificate are available from
-https://www.kernel.org/....
+the following URLs:
+
+  - PGP: https://www.kernel.org/static/files/hardware-security.asc
+  - S/MIME: https://www.kernel.org/static/files/hardware-security.crt
 
 While hardware security issues are often handled by the affected hardware
 vendor, we welcome contact from researchers or individuals who have
@@ -55,14 +60,14 @@ Operation of mailing-lists
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The encrypted mailing-lists which are used in our process are hosted on
-Linux Foundation's IT infrastructure. By providing this service Linux
-Foundation's director of IT Infrastructure security technically has the
-ability to access the embargoed information, but is obliged to
-confidentiality by his employment contract. Linux Foundation's director of
-IT Infrastructure security is also responsible for the kernel.org
-infrastructure.
+Linux Foundation's IT infrastructure. By providing this service, members
+of Linux Foundation's IT operations personnel technically have the
+ability to access the embargoed information, but are obliged to
+confidentiality by their employment contract. Linux Foundation IT
+personnel are also responsible for operating and managing the rest of
+kernel.org infrastructure.
 
-The Linux Foundation's current director of IT Infrastructure security is
+The Linux Foundation's current director of IT Project infrastructure is
 Konstantin Ryabitsev.
 
 
@@ -143,6 +148,20 @@ via their employer, they cannot enter individual non-disclosure agreements
 in their role as Linux kernel developers. They will, however, agree to
 adhere to this documented process and the Memorandum of Understanding.
 
+The disclosing party should provide a list of contacts for all other
+entities who have already been, or should be, informed about the issue.
+This serves several purposes:
+
+ - The list of disclosed entities allows communication across the
+   industry, e.g. other OS vendors, HW vendors, etc.
+
+ - The disclosed entities can be contacted to name experts who should
+   participate in the mitigation development.
+
+ - If an expert which is required to handle an issue is employed by an
+   listed entity or member of an listed entity, then the response teams can
+   request the disclosure of that expert from that entity. This ensures
+   that the expert is also part of the entity's response team.
 
 Disclosure
 """"""""""
@@ -158,10 +177,7 @@ Mitigation development
 """"""""""""""""""""""
 
 The initial response team sets up an encrypted mailing-list or repurposes
-an existing one if appropriate. The disclosing party should provide a list
-of contacts for all other parties who have already been, or should be,
-informed about the issue. The response team contacts these parties so they
-can name experts who should be subscribed to the mailing-list.
+an existing one if appropriate.
 
 Using a mailing-list is close to the normal Linux development process and
 has been successfully used in developing mitigations for various hardware
@@ -175,9 +191,24 @@ development branch against the mainline kernel and backport branches for
 stable kernel versions as necessary.
 
 The initial response team will identify further experts from the Linux
-kernel developer community as needed and inform the disclosing party about
-their participation. Bringing in experts can happen at any time of the
-development process and often needs to be handled in a timely manner.
+kernel developer community as needed. Bringing in experts can happen at any
+time of the development process and needs to be handled in a timely manner.
+
+If an expert is employed by or member of an entity on the disclosure list
+provided by the disclosing party, then participation will be requested from
+the relevant entity.
+
+If not, then the disclosing party will be informed about the experts
+participation. The experts are covered by the Memorandum of Understanding
+and the disclosing party is requested to acknowledge the participation. In
+case that the disclosing party has a compelling reason to object, then this
+objection has to be raised within five work days and resolved with the
+incident team immediately. If the disclosing party does not react within
+five work days this is taken as silent acknowledgement.
+
+After acknowledgement or resolution of an objection the expert is disclosed
+by the incident team and brought into the development process.
+
 
 Coordinated release
 """""""""""""""""""
@@ -213,17 +244,18 @@ disclosure of a particular issue, unless requested by a response team or by
 an involved disclosed party. The current ambassadors list:
 
   ============= ========================================================
-  ARM
-  AMD
-  IBM
-  Intel
+  ARM           Grant Likely <grant.likely@arm.com>
+  AMD		Tom Lendacky <tom.lendacky@amd.com>
+  IBM Z         Christian Borntraeger <borntraeger@de.ibm.com>
+  IBM Power     Anton Blanchard <anton@linux.ibm.com>
+  Intel		Tony Luck <tony.luck@intel.com>
   Qualcomm	Trilok Soni <tsoni@codeaurora.org>
 
-  Microsoft	Sasha Levin <sashal@kernel.org>
+  Microsoft	James Morris <jamorris@linux.microsoft.com>
   VMware
   Xen		Andrew Cooper <andrew.cooper3@citrix.com>
 
-  Canonical	Tyler Hicks <tyhicks@canonical.com>
+  Canonical	John Johansen <john.johansen@canonical.com>
   Debian	Ben Hutchings <ben@decadent.org.uk>
   Oracle	Konrad Rzeszutek Wilk <konrad.wilk@oracle.com>
   Red Hat	Josh Poimboeuf <jpoimboe@redhat.com>
@@ -248,7 +280,7 @@ software decrypts the email and re-encrypts it individually for each
 subscriber with the subscriber's PGP key or S/MIME certificate. Details
 about the mailing-list software and the setup which is used to ensure the
 security of the lists and protection of the data can be found here:
-https://www.kernel.org/....
+https://korg.wiki.kernel.org/userdoc/remail.
 
 List keys
 ^^^^^^^^^

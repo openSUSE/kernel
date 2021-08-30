@@ -2,16 +2,13 @@
 /*
  * AMD Cryptographic Coprocessor (CCP) driver
  *
- * Copyright (C) 2016,2017 Advanced Micro Devices, Inc.
+ * Copyright (C) 2016,2019 Advanced Micro Devices, Inc.
  *
  * Author: Gary R Hook <gary.hook@amd.com>
  */
 
-#include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/pci.h>
 #include <linux/kthread.h>
-#include <linux/debugfs.h>
 #include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
 #include <linux/compiler.h>
@@ -224,8 +221,8 @@ static unsigned int ccp5_get_free_slots(struct ccp_cmd_queue *cmd_q)
 static int ccp5_do_cmd(struct ccp5_desc *desc,
 		       struct ccp_cmd_queue *cmd_q)
 {
-	u32 *mP;
-	__le32 *dP;
+	__le32 *mP;
+	u32 *dP;
 	u32 tail;
 	int	i;
 	int ret = 0;
@@ -238,8 +235,8 @@ static int ccp5_do_cmd(struct ccp5_desc *desc,
 	}
 	mutex_lock(&cmd_q->q_mutex);
 
-	mP = (u32 *) &cmd_q->qbase[cmd_q->qidx];
-	dP = (__le32 *) desc;
+	mP = (__le32 *)&cmd_q->qbase[cmd_q->qidx];
+	dP = (u32 *)desc;
 	for (i = 0; i < 8; i++)
 		mP[i] = cpu_to_le32(dP[i]); /* handle endianness */
 
@@ -804,8 +801,7 @@ static int ccp5_init(struct ccp_device *ccp)
 		return 1;
 	}
 
-	for (i = 0; i < MAX_HW_QUEUES; i++) {
-
+	for (i = 0; (i < MAX_HW_QUEUES) && (ccp->cmd_q_count < ccp->max_q_count); i++) {
 		if (!(qmr & (1 << i)))
 			continue;
 
@@ -983,8 +979,10 @@ static int ccp5_init(struct ccp_device *ccp)
 	if (ret)
 		goto e_hwrng;
 
+#ifdef CONFIG_CRYPTO_DEV_CCP_DEBUGFS
 	/* Set up debugfs entries */
 	ccp5_debugfs_setup(ccp);
+#endif
 
 	return 0;
 
@@ -1021,11 +1019,13 @@ static void ccp5_destroy(struct ccp_device *ccp)
 	/* Remove this device from the list of available units first */
 	ccp_del_device(ccp);
 
+#ifdef CONFIG_CRYPTO_DEV_CCP_DEBUGFS
 	/* We're in the process of tearing down the entire driver;
 	 * when all the devices are gone clean up debugfs
 	 */
 	if (ccp_present())
 		ccp5_debugfs_destroy();
+#endif
 
 	/* Disable and clear interrupts */
 	ccp5_disable_queue_interrupts(ccp);

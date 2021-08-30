@@ -12,8 +12,6 @@
  * Copyright (C) 2012  Intel Corporation. All rights reserved.
  */
 
-#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
-
 #include <linux/acpi.h>
 #include <linux/delay.h>
 #include <linux/i2c.h>
@@ -21,8 +19,6 @@
 #include <linux/module.h>
 #include <linux/nfc.h>
 #include <linux/gpio/consumer.h>
-#include <linux/of_gpio.h>
-#include <linux/of_irq.h>
 #include <asm/unaligned.h>
 
 #include <net/nfc/nfc.h>
@@ -260,87 +256,46 @@ static const struct acpi_gpio_mapping acpi_nxp_nci_gpios[] = {
 	{ }
 };
 
-static int nxp_nci_i2c_parse_devtree(struct i2c_client *client)
-{
-	struct nxp_nci_i2c_phy *phy = i2c_get_clientdata(client);
-
-	phy->gpiod_en = devm_gpiod_get(&client->dev, "enable", GPIOD_OUT_LOW);
-	if (IS_ERR(phy->gpiod_en)) {
-		nfc_err(&client->dev, "Failed to get EN gpio\n");
-		return PTR_ERR(phy->gpiod_en);
-	}
-
-	phy->gpiod_fw = devm_gpiod_get(&client->dev, "firmware", GPIOD_OUT_LOW);
-	if (IS_ERR(phy->gpiod_fw)) {
-		nfc_err(&client->dev, "Failed to get FW gpio\n");
-		return PTR_ERR(phy->gpiod_fw);
-	}
-
-	return 0;
-}
-
-static int nxp_nci_i2c_acpi_config(struct nxp_nci_i2c_phy *phy)
-{
-	struct i2c_client *client = phy->i2c_dev;
-	int r;
-
-	r = devm_acpi_dev_add_driver_gpios(&client->dev, acpi_nxp_nci_gpios);
-	if (r)
-		return r;
-
-	phy->gpiod_en = devm_gpiod_get(&client->dev, "enable", GPIOD_OUT_LOW);
-	phy->gpiod_fw = devm_gpiod_get(&client->dev, "firmware", GPIOD_OUT_LOW);
-
-	if (IS_ERR(phy->gpiod_en) || IS_ERR(phy->gpiod_fw)) {
-		nfc_err(&client->dev, "No GPIOs\n");
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
 static int nxp_nci_i2c_probe(struct i2c_client *client,
 			    const struct i2c_device_id *id)
 {
+	struct device *dev = &client->dev;
 	struct nxp_nci_i2c_phy *phy;
 	int r;
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		nfc_err(&client->dev, "Need I2C_FUNC_I2C\n");
-		r = -ENODEV;
-		goto probe_exit;
+		return -ENODEV;
 	}
 
 	phy = devm_kzalloc(&client->dev, sizeof(struct nxp_nci_i2c_phy),
 			   GFP_KERNEL);
-	if (!phy) {
-		r = -ENOMEM;
-		goto probe_exit;
-	}
+	if (!phy)
+		return -ENOMEM;
 
 	phy->i2c_dev = client;
 	i2c_set_clientdata(client, phy);
 
-	if (client->dev.of_node) {
-		r = nxp_nci_i2c_parse_devtree(client);
-		if (r < 0) {
-			nfc_err(&client->dev, "Failed to get DT data\n");
-			goto probe_exit;
-		}
-	} else if (ACPI_HANDLE(&client->dev)) {
-		r = nxp_nci_i2c_acpi_config(phy);
-		if (r < 0)
-			goto probe_exit;
-	} else {
-		nfc_err(&client->dev, "No platform data\n");
-		r = -EINVAL;
-		goto probe_exit;
+	r = devm_acpi_dev_add_driver_gpios(dev, acpi_nxp_nci_gpios);
+	if (r)
+		dev_dbg(dev, "Unable to add GPIO mapping table\n");
+
+	phy->gpiod_en = devm_gpiod_get(dev, "enable", GPIOD_OUT_LOW);
+	if (IS_ERR(phy->gpiod_en)) {
+		nfc_err(dev, "Failed to get EN gpio\n");
+		return PTR_ERR(phy->gpiod_en);
+	}
+
+	phy->gpiod_fw = devm_gpiod_get_optional(dev, "firmware", GPIOD_OUT_LOW);
+	if (IS_ERR(phy->gpiod_fw)) {
+		nfc_err(dev, "Failed to get FW gpio\n");
+		return PTR_ERR(phy->gpiod_fw);
 	}
 
 	r = nxp_nci_probe(phy, &client->dev, &i2c_phy_ops,
 			  NXP_NCI_I2C_MAX_PAYLOAD, &phy->ndev);
 	if (r < 0)
-		goto probe_exit;
+		return r;
 
 	r = request_threaded_irq(client->irq, NULL,
 				 nxp_nci_i2c_irq_thread_fn,
@@ -349,7 +304,6 @@ static int nxp_nci_i2c_probe(struct i2c_client *client,
 	if (r < 0)
 		nfc_err(&client->dev, "Unable to register IRQ handler\n");
 
-probe_exit:
 	return r;
 }
 
@@ -371,16 +325,15 @@ MODULE_DEVICE_TABLE(i2c, nxp_nci_i2c_id_table);
 
 static const struct of_device_id of_nxp_nci_i2c_match[] = {
 	{ .compatible = "nxp,nxp-nci-i2c", },
-	{},
+	{}
 };
 MODULE_DEVICE_TABLE(of, of_nxp_nci_i2c_match);
 
 #ifdef CONFIG_ACPI
-static struct acpi_device_id acpi_id[] = {
+static const struct acpi_device_id acpi_id[] = {
 	{ "NXP1001" },
-	{ "NXP1002" },
 	{ "NXP7471" },
-	{ },
+	{ }
 };
 MODULE_DEVICE_TABLE(acpi, acpi_id);
 #endif
@@ -389,7 +342,7 @@ static struct i2c_driver nxp_nci_i2c_driver = {
 	.driver = {
 		   .name = NXP_NCI_I2C_DRIVER_NAME,
 		   .acpi_match_table = ACPI_PTR(acpi_id),
-		   .of_match_table = of_match_ptr(of_nxp_nci_i2c_match),
+		   .of_match_table = of_nxp_nci_i2c_match,
 		  },
 	.probe = nxp_nci_i2c_probe,
 	.id_table = nxp_nci_i2c_id_table,

@@ -15,6 +15,7 @@
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
 #include <linux/remoteproc.h>
+#include <linux/slab.h>
 
 #include "st_fdma.h"
 
@@ -771,10 +772,8 @@ static int st_fdma_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, fdev);
 
 	fdev->irq = platform_get_irq(pdev, 0);
-	if (fdev->irq < 0) {
-		dev_err(&pdev->dev, "Failed to get irq resource\n");
+	if (fdev->irq < 0)
 		return -EINVAL;
-	}
 
 	ret = devm_request_irq(&pdev->dev, fdev->irq, st_fdma_irq_handler, 0,
 			       dev_name(&pdev->dev), fdev);

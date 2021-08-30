@@ -248,7 +248,7 @@ MODULE_DEVICE_TABLE(of, ti_emif_of_match);
 static int ti_emif_resume(struct device *dev)
 {
 	unsigned long tmp =
-			__raw_readl((void *)emif_instance->ti_emif_sram_virt);
+			__raw_readl((void __iomem *)emif_instance->ti_emif_sram_virt);
 
 	/*
 	 * Check to see if what we are copying is already present in the
@@ -340,7 +340,7 @@ static struct platform_driver ti_emif_driver = {
 	.remove = ti_emif_remove,
 	.driver = {
 		.name = KBUILD_MODNAME,
-		.of_match_table = of_match_ptr(ti_emif_of_match),
+		.of_match_table = ti_emif_of_match,
 		.pm = &ti_emif_pm_ops,
 	},
 };

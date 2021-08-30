@@ -254,8 +254,8 @@ static void aeq_irq_handler(struct hinic_eq *eq)
 					    HINIC_EQE_ENABLED,
 					    HINIC_EQE_ENABLED |
 					    HINIC_EQE_RUNNING);
-			if ((eqe_state == HINIC_EQE_ENABLED) &&
-			    (hwe_cb->hwe_handler))
+			if (eqe_state == HINIC_EQE_ENABLED &&
+			    hwe_cb->hwe_handler)
 				hwe_cb->hwe_handler(hwe_cb->handle,
 						    aeqe_curr->data, size);
 			else
@@ -299,7 +299,7 @@ static void ceq_event_handler(struct hinic_ceqs *ceqs, u32 ceqe)
 			    HINIC_EQE_ENABLED,
 			    HINIC_EQE_ENABLED | HINIC_EQE_RUNNING);
 
-	if ((eqe_state == HINIC_EQE_ENABLED) && (ceq_cb->handler))
+	if (eqe_state == HINIC_EQE_ENABLED && ceq_cb->handler)
 		ceq_cb->handler(ceq_cb->handle, CEQE_DATA(ceqe));
 	else
 		dev_err(&pdev->dev, "Unhandled CEQ Event %d\n", event);
@@ -371,9 +371,9 @@ static void eq_irq_work(struct work_struct *work)
  * ceq_tasklet - the tasklet of the EQ that received the event
  * @t: the tasklet struct pointer
  **/
-static void ceq_tasklet(unsigned long ceq_data)
+static void ceq_tasklet(struct tasklet_struct *t)
 {
-	struct hinic_eq *ceq = (struct hinic_eq *)ceq_data;
+	struct hinic_eq *ceq = from_tasklet(ceq, t, ceq_tasklet);
 
 	eq_irq_handler(ceq);
 }
@@ -783,8 +783,7 @@ static int init_eq(struct hinic_eq *eq, struct hinic_hwif *hwif,
 
 		INIT_WORK(&aeq_work->work, eq_irq_work);
 	} else if (type == HINIC_CEQ) {
-		tasklet_init(&eq->ceq_tasklet, ceq_tasklet,
-			     (unsigned long)eq);
+		tasklet_setup(&eq->ceq_tasklet, ceq_tasklet);
 	}
 
 	/* set the attributes of the msix entry */

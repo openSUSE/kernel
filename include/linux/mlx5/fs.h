@@ -50,6 +50,7 @@ enum {
 	MLX5_FLOW_TABLE_TUNNEL_EN_DECAP = BIT(1),
 	MLX5_FLOW_TABLE_TERMINATION = BIT(2),
 	MLX5_FLOW_TABLE_UNMANAGED = BIT(3),
+	MLX5_FLOW_TABLE_OTHER_VPORT = BIT(4),
 };
 
 #define LEFTOVERS_RULE_NUM	 2
@@ -76,6 +77,7 @@ enum mlx5_flow_namespace_type {
 	MLX5_FLOW_NAMESPACE_SNIFFER_RX,
 	MLX5_FLOW_NAMESPACE_SNIFFER_TX,
 	MLX5_FLOW_NAMESPACE_EGRESS,
+	MLX5_FLOW_NAMESPACE_EGRESS_KERNEL,
 	MLX5_FLOW_NAMESPACE_RDMA_RX,
 	MLX5_FLOW_NAMESPACE_RDMA_RX_KERNEL,
 	MLX5_FLOW_NAMESPACE_RDMA_TX,
@@ -85,6 +87,8 @@ enum {
 	FDB_BYPASS_PATH,
 	FDB_TC_OFFLOAD,
 	FDB_FT_OFFLOAD,
+	FDB_TC_MISS,
+	FDB_BR_OFFLOAD,
 	FDB_SLOW_PATH,
 	FDB_PER_VPORT,
 };
@@ -131,6 +135,7 @@ struct mlx5_flow_destination {
 			struct mlx5_pkt_reformat *pkt_reformat;
 			u8		flags;
 		} vport;
+		u32			sampler_id;
 	};
 };
 
@@ -172,9 +177,7 @@ mlx5_create_auto_grouped_flow_table(struct mlx5_flow_namespace *ns,
 
 struct mlx5_flow_table *
 mlx5_create_vport_flow_table(struct mlx5_flow_namespace *ns,
-			     int prio,
-			     int num_flow_table_entries,
-			     u32 level, u16 vport);
+			     struct mlx5_flow_table_attr *ft_attr, u16 vport);
 struct mlx5_flow_table *mlx5_create_lag_demux_flow_table(
 					       struct mlx5_flow_namespace *ns,
 					       int prio, u32 level);
@@ -253,10 +256,16 @@ struct mlx5_modify_hdr *mlx5_modify_header_alloc(struct mlx5_core_dev *dev,
 void mlx5_modify_header_dealloc(struct mlx5_core_dev *dev,
 				struct mlx5_modify_hdr *modify_hdr);
 
+struct mlx5_pkt_reformat_params {
+	int type;
+	u8 param_0;
+	u8 param_1;
+	size_t size;
+	void *data;
+};
+
 struct mlx5_pkt_reformat *mlx5_packet_reformat_alloc(struct mlx5_core_dev *dev,
-						     int reformat_type,
-						     size_t size,
-						     void *reformat_data,
+						     struct mlx5_pkt_reformat_params *params,
 						     enum mlx5_flow_namespace_type ns_type);
 void mlx5_packet_reformat_dealloc(struct mlx5_core_dev *dev,
 				  struct mlx5_pkt_reformat *reformat);

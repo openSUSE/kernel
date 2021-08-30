@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+
 #ifndef __TI_SYSC_DATA_H__
 #define __TI_SYSC_DATA_H__
 
@@ -15,6 +17,7 @@ enum ti_sysc_module_type {
 	TI_SYSC_OMAP4_MCASP,
 	TI_SYSC_OMAP4_USB_HOST_FS,
 	TI_SYSC_DRA7_MCAN,
+	TI_SYSC_PRUSS,
 };
 
 struct ti_sysc_cookie {
@@ -47,6 +50,16 @@ struct sysc_regbits {
 	s8 emufree_shift;
 };
 
+#define SYSC_QUIRK_REINIT_ON_RESUME	BIT(27)
+#define SYSC_QUIRK_GPMC_DEBUG		BIT(26)
+#define SYSC_MODULE_QUIRK_ENA_RESETDONE	BIT(25)
+#define SYSC_MODULE_QUIRK_PRUSS		BIT(24)
+#define SYSC_MODULE_QUIRK_DSS_RESET	BIT(23)
+#define SYSC_MODULE_QUIRK_RTC_UNLOCK	BIT(22)
+#define SYSC_QUIRK_CLKDM_NOAUTO		BIT(21)
+#define SYSC_QUIRK_FORCE_MSTANDBY	BIT(20)
+#define SYSC_MODULE_QUIRK_AESS		BIT(19)
+#define SYSC_MODULE_QUIRK_SGX		BIT(18)
 #define SYSC_MODULE_QUIRK_HDQ1W		BIT(17)
 #define SYSC_MODULE_QUIRK_I2C		BIT(16)
 #define SYSC_MODULE_QUIRK_WDT		BIT(15)
@@ -70,7 +83,7 @@ struct sysc_regbits {
 
 /**
  * struct sysc_capabilities - capabilities for an interconnect target module
- *
+ * @type: sysc type identifier for the module
  * @sysc_mask: bitmask of supported SYSCONFIG register bits
  * @regbits: bitmask of SYSCONFIG register bits
  * @mod_quirks: bitmask of module specific quirks
@@ -85,8 +98,9 @@ struct sysc_capabilities {
 /**
  * struct sysc_config - configuration for an interconnect target module
  * @sysc_val: configured value for sysc register
+ * @syss_mask: configured mask value for SYSSTATUS register
  * @midlemodes: bitmask of supported master idle modes
- * @sidlemodes: bitmask of supported master idle modes
+ * @sidlemodes: bitmask of supported slave idle modes
  * @srst_udelay: optional delay needed after OCP soft reset
  * @quirks: bitmask of enabled quirks
  */
@@ -134,6 +148,7 @@ struct clk;
 
 struct ti_sysc_platform_data {
 	struct of_dev_auxdata *auxdata;
+	bool (*soc_type_gp)(void);
 	int (*init_clockdomain)(struct device *dev, struct clk *fck,
 				struct clk *ick, struct ti_sysc_cookie *cookie);
 	void (*clkdm_deny_idle)(struct device *dev,

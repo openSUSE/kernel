@@ -2,6 +2,7 @@
 /* Copyright (c) 2018-2019 SiFive, Inc */
 
 #include "fu540-c000.dtsi"
+#include <dt-bindings/gpio/gpio.h>
 
 /* Clock frequency (in Hz) of the PCB crystal for rtcclk */
 #define RTCCLK_FREQ		1000000
@@ -13,6 +14,7 @@
 	compatible = "sifive,hifive-unleashed-a00", "sifive,fu540-c000";
 
 	chosen {
+		stdout-path = "serial0";
 	};
 
 	cpus {
@@ -39,6 +41,10 @@
 		compatible = "fixed-clock";
 		clock-frequency = <RTCCLK_FREQ>;
 		clock-output-names = "rtcclk";
+	};
+	gpio-restart {
+		compatible = "gpio-restart";
+		gpios = <&gpio 10 GPIO_ACTIVE_LOW>;
 	};
 };
 
@@ -82,6 +88,19 @@
 	phy-mode = "gmii";
 	phy-handle = <&phy0>;
 	phy0: ethernet-phy@0 {
+		compatible = "ethernet-phy-id0007.0771";
 		reg = <0>;
 	};
+};
+
+&pwm0 {
+	status = "okay";
+};
+
+&pwm1 {
+	status = "okay";
+};
+
+&gpio {
+	status = "okay";
 };

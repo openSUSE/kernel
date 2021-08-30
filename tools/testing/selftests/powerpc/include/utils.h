@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include <linux/auxvec.h>
 #include <linux/perf_event.h>
+#include <asm/cputable.h>
 #include "reg.h"
 
 /* Avoid headaches with PRI?64 - just use %ll? always */
@@ -86,6 +87,15 @@ do {								\
 	}							\
 } while (0)
 
+#define FAIL_IF_EXIT(x)						\
+do {								\
+	if ((x)) {						\
+		fprintf(stderr,					\
+		"[FAIL] Test FAILED on line %d\n", __LINE__);	\
+		_exit(1);					\
+	}							\
+} while (0)
+
 /* The test harness uses this, yes it's gross */
 #define MAGIC_SKIP_RETURN_VALUE	99
 
@@ -118,6 +128,11 @@ do {								\
 /* POWER9 feature */
 #ifndef PPC_FEATURE2_ARCH_3_00
 #define PPC_FEATURE2_ARCH_3_00 0x00800000
+#endif
+
+/* POWER10 feature */
+#ifndef PPC_FEATURE2_ARCH_3_1
+#define PPC_FEATURE2_ARCH_3_1 0x00040000
 #endif
 
 #if defined(__powerpc64__)

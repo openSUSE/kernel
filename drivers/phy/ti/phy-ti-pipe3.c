@@ -337,7 +337,6 @@ static int ti_pipe3_power_on(struct phy *x)
 {
 	u32 val;
 	u32 mask;
-	int ret;
 	unsigned long rate;
 	struct ti_pipe3 *phy = phy_get_drvdata(x);
 	bool rx_pending = false;
@@ -355,8 +354,8 @@ static int ti_pipe3_power_on(struct phy *x)
 	rate = rate / 1000000;
 	mask = OMAP_CTRL_PIPE3_PHY_PWRCTL_CLK_FREQ_MASK;
 	val = rate << OMAP_CTRL_PIPE3_PHY_PWRCTL_CLK_FREQ_SHIFT;
-	ret = regmap_update_bits(phy->phy_power_syscon, phy->power_reg,
-				 mask, val);
+	regmap_update_bits(phy->phy_power_syscon, phy->power_reg,
+			   mask, val);
 	/*
 	 * For PCIe, TX and RX must be powered on simultaneously.
 	 * For USB and SATA, TX must be powered on before RX
@@ -746,35 +745,28 @@ static int ti_pipe3_get_sysctrl(struct ti_pipe3 *phy)
 
 static int ti_pipe3_get_tx_rx_base(struct ti_pipe3 *phy)
 {
-	struct resource *res;
 	struct device *dev = phy->dev;
 	struct platform_device *pdev = to_platform_device(dev);
 
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
-					   "phy_rx");
-	phy->phy_rx = devm_ioremap_resource(dev, res);
+	phy->phy_rx = devm_platform_ioremap_resource_byname(pdev, "phy_rx");
 	if (IS_ERR(phy->phy_rx))
 		return PTR_ERR(phy->phy_rx);
 
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
-					   "phy_tx");
-	phy->phy_tx = devm_ioremap_resource(dev, res);
+	phy->phy_tx = devm_platform_ioremap_resource_byname(pdev, "phy_tx");
 
 	return PTR_ERR_OR_ZERO(phy->phy_tx);
 }
 
 static int ti_pipe3_get_pll_base(struct ti_pipe3 *phy)
 {
-	struct resource *res;
 	struct device *dev = phy->dev;
 	struct platform_device *pdev = to_platform_device(dev);
 
 	if (phy->mode == PIPE3_MODE_PCIE)
 		return 0;
 
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
-					   "pll_ctrl");
-	phy->pll_ctrl_base = devm_ioremap_resource(dev, res);
+	phy->pll_ctrl_base =
+		devm_platform_ioremap_resource_byname(pdev, "pll_ctrl");
 	return PTR_ERR_OR_ZERO(phy->pll_ctrl_base);
 }
 
@@ -850,6 +842,12 @@ static int ti_pipe3_probe(struct platform_device *pdev)
 
 static int ti_pipe3_remove(struct platform_device *pdev)
 {
+	struct ti_pipe3 *phy = platform_get_drvdata(pdev);
+
+	if (phy->mode == PIPE3_MODE_SATA) {
+		clk_disable_unprepare(phy->refclk);
+		phy->sata_refclk_enabled = false;
+	}
 	pm_runtime_disable(&pdev->dev);
 
 	return 0;
@@ -900,18 +898,8 @@ static void ti_pipe3_disable_clocks(struct ti_pipe3 *phy)
 {
 	if (!IS_ERR(phy->wkupclk))
 		clk_disable_unprepare(phy->wkupclk);
-	if (!IS_ERR(phy->refclk)) {
+	if (!IS_ERR(phy->refclk))
 		clk_disable_unprepare(phy->refclk);
-		/*
-		 * SATA refclk needs an additional disable as we left it
-		 * on in probe to avoid Errata i783
-		 */
-		if (phy->sata_refclk_enabled) {
-			clk_disable_unprepare(phy->refclk);
-			phy->sata_refclk_enabled = false;
-		}
-	}
-
 	if (!IS_ERR(phy->div_clk))
 		clk_disable_unprepare(phy->div_clk);
 }

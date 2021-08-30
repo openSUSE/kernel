@@ -208,20 +208,6 @@ static inline struct uv_hub_info_s *uv_cpu_hub_info(int cpu)
 	return (struct uv_hub_info_s *)uv_cpu_info_per(cpu)->p_uv_hub_info;
 }
 
-#define	UV_HUB_INFO_VERSION	0x7150
-extern int uv_hub_info_version(void);
-static inline int uv_hub_info_check(int version)
-{
-	if (uv_hub_info_version() == version)
-		return 0;
-
-	pr_crit("UV: uv_hub_info version(%x) mismatch, expecting(%x)\n",
-		uv_hub_info_version(), version);
-
-	BUG();	/* Catastrophic - cannot continue on unknown UV system */
-}
-#define	_uv_hub_info_check()	uv_hub_info_check(UV_HUB_INFO_VERSION)
-
 static inline int uv_hub_type(void)
 {
 	return uv_hub_info->hub_type;
@@ -367,7 +353,7 @@ union uvh_apicid {
  *
  * Note there are NO leds on a UV system.  This register is only
  * used by the system controller to monitor system-wide operation.
- * There are 64 regs per node.  With Nahelem cpus (2 cores per node,
+ * There are 64 regs per node.  With Nehalem cpus (2 cores per node,
  * 8 cpus per core, 2 threads per cpu) there are 32 cpu threads on
  * a node.
  *
@@ -677,7 +663,7 @@ static inline int uv_node_to_blade_id(int nid)
 	return nid;
 }
 
-/* Convert a cpu number to the the UV blade number */
+/* Convert a CPU number to the UV blade number */
 static inline int uv_cpu_to_blade_id(int cpu)
 {
 	return uv_node_to_blade_id(cpu_to_node(cpu));

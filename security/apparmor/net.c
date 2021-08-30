@@ -72,16 +72,18 @@ void audit_net_cb(struct audit_buffer *ab, void *va)
 {
 	struct common_audit_data *sa = va;
 
-	audit_log_format(ab, " family=");
 	if (address_family_names[sa->u.net->family])
-		audit_log_string(ab, address_family_names[sa->u.net->family]);
+		audit_log_format(ab, " family=\"%s\"",
+				 address_family_names[sa->u.net->family]);
 	else
-		audit_log_format(ab, "\"unknown(%d)\"", sa->u.net->family);
-	audit_log_format(ab, " sock_type=");
+		audit_log_format(ab, " family=\"unknown(%d)\"",
+				 sa->u.net->family);
 	if (sock_type_names[aad(sa)->net.type])
-		audit_log_string(ab, sock_type_names[aad(sa)->net.type]);
+		audit_log_format(ab, " sock_type=\"%s\"",
+				 sock_type_names[aad(sa)->net.type]);
 	else
-		audit_log_format(ab, "\"unknown(%d)\"", aad(sa)->net.type);
+		audit_log_format(ab, " sock_type=\"unknown(%d)\"",
+				 aad(sa)->net.type);
 	audit_log_format(ab, " protocol=%d", aad(sa)->net.protocol);
 
 	if (aad(sa)->request & NET_PERMS_MASK) {
@@ -209,7 +211,7 @@ static int apparmor_secmark_init(struct aa_secmark *secmark)
 }
 
 static int aa_secmark_perm(struct aa_profile *profile, u32 request, u32 secid,
-			   struct common_audit_data *sa, struct sock *sk)
+			   struct common_audit_data *sa)
 {
 	int i, ret;
 	struct aa_perms perms = { };
@@ -242,13 +244,13 @@ static int aa_secmark_perm(struct aa_profile *profile, u32 request, u32 secid,
 }
 
 int apparmor_secmark_check(struct aa_label *label, char *op, u32 request,
-			   u32 secid, struct sock *sk)
+			   u32 secid, const struct sock *sk)
 {
 	struct aa_profile *profile;
 	DEFINE_AUDIT_SK(sa, op, sk);
 
 	return fn_for_each_confined(label, profile,
 				    aa_secmark_perm(profile, request, secid,
-						    &sa, sk));
+						    &sa));
 }
 #endif

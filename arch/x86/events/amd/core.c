@@ -623,7 +623,7 @@ static void amd_pmu_disable_all(void)
 	/*
 	 * Check each counter for overflow and wait for it to be reset by the
 	 * NMI if it has overflowed. This relies on the fact that all active
-	 * counters are always enabled when this function is caled and
+	 * counters are always enabled when this function is called and
 	 * ARCH_PERFMON_EVENTSEL_INT is always set.
 	 */
 	for (idx = 0; idx < x86_pmu.num_counters; idx++) {
@@ -671,15 +671,7 @@ static void amd_pmu_disable_event(struct perf_event *event)
  */
 static int amd_pmu_handle_irq(struct pt_regs *regs)
 {
-	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
-	int active, handled;
-
-	/*
-	 * Obtain the active count before calling x86_pmu_handle_irq() since
-	 * it is possible that x86_pmu_handle_irq() may make a counter
-	 * inactive (through x86_pmu_stop).
-	 */
-	active = __bitmap_weight(cpuc->active_mask, X86_PMC_IDX_MAX);
+	int handled;
 
 	/* Process any counter overflows */
 	handled = x86_pmu_handle_irq(regs);
@@ -689,8 +681,7 @@ static int amd_pmu_handle_irq(struct pt_regs *regs)
 	 * NMIs will be claimed if arriving within that window.
 	 */
 	if (handled) {
-		this_cpu_write(perf_nmi_tstamp,
-			       jiffies + perf_nmi_window);
+		this_cpu_write(perf_nmi_tstamp, jiffies + perf_nmi_window);
 
 		return handled;
 	}

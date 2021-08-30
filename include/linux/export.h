@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef _LINUX_EXPORT_H
 #define _LINUX_EXPORT_H
 
@@ -18,9 +19,6 @@ extern struct module __this_module;
 #define THIS_MODULE ((struct module *)0)
 #endif
 
-#ifdef CONFIG_MODULES
-
-#if defined(__KERNEL__) && !defined(__GENKSYMS__)
 #ifdef CONFIG_MODVERSIONS
 /* Mark the CRC weak since genksyms apparently decides not to
  * generate a checksums for some symbols */
@@ -78,19 +76,40 @@ struct kernel_symbol {
 };
 #endif
 
-/* For every exported symbol, place a struct in the __ksymtab section */
-#define ___EXPORT_SYMBOL(sym, sec, ns)					\
-	extern typeof(sym) sym;						\
-	__CRC_SYMBOL(sym, sec);						\
-	static const char __kstrtab_##sym[]				\
-	__attribute__((section("__ksymtab_strings"), used, aligned(1)))	\
-	= #sym;								\
-	static const char __kstrtabns_##sym[]				\
-	__attribute__((section("__ksymtab_strings"), used, aligned(1)))	\
-	= ns;								\
+#ifdef __GENKSYMS__
+
+#define ___EXPORT_SYMBOL(sym, sec, ns)	__GENKSYMS_EXPORT_SYMBOL(sym)
+
+#else
+
+/*
+ * For every exported symbol, do the following:
+ *
+ * - If applicable, place a CRC entry in the __kcrctab section.
+ * - Put the name of the symbol and namespace (empty string "" for none) in
+ *   __ksymtab_strings.
+ * - Place a struct kernel_symbol entry in the __ksymtab section.
+ *
+ * note on .section use: we specify progbits since usage of the "M" (SHF_MERGE)
+ * section flag requires it. Use '%progbits' instead of '@progbits' since the
+ * former apparently works on all arches according to the binutils source.
+ */
+#define ___EXPORT_SYMBOL(sym, sec, ns)						\
+	extern typeof(sym) sym;							\
+	extern const char __kstrtab_##sym[];					\
+	extern const char __kstrtabns_##sym[];					\
+	__CRC_SYMBOL(sym, sec);							\
+	asm("	.section \"__ksymtab_strings\",\"aMS\",%progbits,1	\n"	\
+	    "__kstrtab_" #sym ":					\n"	\
+	    "	.asciz 	\"" #sym "\"					\n"	\
+	    "__kstrtabns_" #sym ":					\n"	\
+	    "	.asciz 	\"" ns "\"					\n"	\
+	    "	.previous						\n");	\
 	__KSYMTAB_ENTRY(sym, sec)
 
-#if defined(__DISABLE_EXPORTS)
+#endif
+
+#if !defined(CONFIG_MODULES) || defined(__DISABLE_EXPORTS)
 
 /*
  * Allow symbol exports to be disabled completely so that C code may
@@ -113,19 +132,26 @@ struct kernel_symbol {
 #define __ksym_marker(sym)	\
 	static int __ksym_marker_##sym[0] __section(".discard.ksym") __used
 
-#define __EXPORT_SYMBOL(sym, sec, ns)				\
+#define __EXPORT_SYMBOL(sym, sec, ns)					\
 	__ksym_marker(sym);						\
 	__cond_export_sym(sym, sec, ns, __is_defined(__KSYM_##sym))
-#define __cond_export_sym(sym, sec, ns, conf)			\
+#define __cond_export_sym(sym, sec, ns, conf)				\
 	___cond_export_sym(sym, sec, ns, conf)
 #define ___cond_export_sym(sym, sec, ns, enabled)			\
 	__cond_export_sym_##enabled(sym, sec, ns)
 #define __cond_export_sym_1(sym, sec, ns) ___EXPORT_SYMBOL(sym, sec, ns)
+
+#ifdef __GENKSYMS__
+#define __cond_export_sym_0(sym, sec, ns) __GENKSYMS_EXPORT_SYMBOL(sym)
+#else
 #define __cond_export_sym_0(sym, sec, ns) /* nothing */
+#endif
 
 #else
-#define __EXPORT_SYMBOL ___EXPORT_SYMBOL
-#endif
+
+#define __EXPORT_SYMBOL(sym, sec, ns)	___EXPORT_SYMBOL(sym, sec, ns)
+
+#endif /* CONFIG_MODULES */
 
 #ifdef DEFAULT_SYMBOL_NAMESPACE
 #include <linux/stringify.h>
@@ -134,48 +160,11 @@ struct kernel_symbol {
 #define _EXPORT_SYMBOL(sym, sec)	__EXPORT_SYMBOL(sym, sec, "")
 #endif
 
-#define EXPORT_SYMBOL(sym) _EXPORT_SYMBOL(sym, "")
-#define EXPORT_SYMBOL_GPL(sym) _EXPORT_SYMBOL(sym, "_gpl")
-#define EXPORT_SYMBOL_GPL_FUTURE(sym) _EXPORT_SYMBOL(sym, "_gpl_future")
-#define EXPORT_SYMBOL_NS(sym, ns) __EXPORT_SYMBOL(sym, "", #ns)
-#define EXPORT_SYMBOL_NS_GPL(sym, ns) __EXPORT_SYMBOL(sym, "_gpl", #ns)
+#define EXPORT_SYMBOL(sym)		_EXPORT_SYMBOL(sym, "")
+#define EXPORT_SYMBOL_GPL(sym)		_EXPORT_SYMBOL(sym, "_gpl")
+#define EXPORT_SYMBOL_NS(sym, ns)	__EXPORT_SYMBOL(sym, "", #ns)
+#define EXPORT_SYMBOL_NS_GPL(sym, ns)	__EXPORT_SYMBOL(sym, "_gpl", #ns)
 
-#ifdef CONFIG_UNUSED_SYMBOLS
-#define EXPORT_UNUSED_SYMBOL(sym) _EXPORT_SYMBOL(sym, "_unused")
-#define EXPORT_UNUSED_SYMBOL_GPL(sym) _EXPORT_SYMBOL(sym, "_unused_gpl")
-#else
-#define EXPORT_UNUSED_SYMBOL(sym)
-#define EXPORT_UNUSED_SYMBOL_GPL(sym)
-#endif
-
-#endif	/* __KERNEL__ && !__GENKSYMS__ */
-
-#if defined(__GENKSYMS__)
-/*
- * When we're running genksyms, ignore the namespace and make the _NS
- * variants look like the normal ones. There are two reasons for this:
- * 1) In the normal definition of EXPORT_SYMBOL_NS, the 'ns' macro
- *    argument is itself not expanded because it's always tokenized or
- *    concatenated; but when running genksyms, a blank definition of the
- *    macro does allow the argument to be expanded; if a namespace
- *    happens to collide with a #define, this can cause issues.
- * 2) There's no need to modify genksyms to deal with the _NS variants
- */
-#define EXPORT_SYMBOL_NS(sym, ns) EXPORT_SYMBOL(sym)
-#define EXPORT_SYMBOL_NS_GPL(sym, ns) EXPORT_SYMBOL_GPL(sym)
-#endif
-
-#else /* !CONFIG_MODULES... */
-
-#define EXPORT_SYMBOL(sym)
-#define EXPORT_SYMBOL_NS(sym, ns)
-#define EXPORT_SYMBOL_NS_GPL(sym, ns)
-#define EXPORT_SYMBOL_GPL(sym)
-#define EXPORT_SYMBOL_GPL_FUTURE(sym)
-#define EXPORT_UNUSED_SYMBOL(sym)
-#define EXPORT_UNUSED_SYMBOL_GPL(sym)
-
-#endif /* CONFIG_MODULES */
 #endif /* !__ASSEMBLY__ */
 
 #endif /* _LINUX_EXPORT_H */

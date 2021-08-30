@@ -12,7 +12,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "lkc.h"
 #include "parser.tab.h"
@@ -36,7 +35,7 @@ struct buffer {
 	YY_BUFFER_STATE state;
 };
 
-struct buffer *current_buf;
+static struct buffer *current_buf;
 
 static int last_ts, first_ts;
 
@@ -92,7 +91,6 @@ n	[A-Za-z0-9_-]
 [ \t]*			/* whitespaces */
 \\\n			/* escaped new line */
 \n			return T_EOL;
-"allnoconfig_y"		return T_ALLNOCONFIG_Y;
 "bool"			return T_BOOL;
 "choice"		return T_CHOICE;
 "comment"		return T_COMMENT;
@@ -100,12 +98,11 @@ n	[A-Za-z0-9_-]
 "def_bool"		return T_DEF_BOOL;
 "def_tristate"		return T_DEF_TRISTATE;
 "default"		return T_DEFAULT;
-"defconfig_list"	return T_DEFCONFIG_LIST;
 "depends"		return T_DEPENDS;
 "endchoice"		return T_ENDCHOICE;
 "endif"			return T_ENDIF;
 "endmenu"		return T_ENDMENU;
-"help"|"---help---"	return T_HELP;
+"help"			return T_HELP;
 "hex"			return T_HEX;
 "if"			return T_IF;
 "imply"			return T_IMPLY;
@@ -115,7 +112,6 @@ n	[A-Za-z0-9_-]
 "menuconfig"		return T_MENUCONFIG;
 "modules"		return T_MODULES;
 "on"			return T_ON;
-"option"		return T_OPTION;
 "optional"		return T_OPTIONAL;
 "prompt"		return T_PROMPT;
 "range"			return T_RANGE;

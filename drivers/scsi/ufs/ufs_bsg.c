@@ -11,13 +11,12 @@ static int ufs_bsg_get_query_desc_size(struct ufs_hba *hba, int *desc_len,
 {
 	int desc_size = be16_to_cpu(qr->length);
 	int desc_id = qr->idn;
-	int ret;
 
 	if (desc_size <= 0)
 		return -EINVAL;
 
-	ret = ufshcd_map_desc_id_to_length(hba, desc_id, desc_len);
-	if (ret || !*desc_len)
+	ufshcd_map_desc_id_to_length(hba, desc_id, desc_len);
+	if (!*desc_len)
 		return -EINVAL;
 
 	*desc_len = min_t(int, *desc_len, desc_size);
@@ -98,7 +97,7 @@ static int ufs_bsg_request(struct bsg_job *job)
 
 	bsg_reply->reply_payload_rcv_len = 0;
 
-	pm_runtime_get_sync(hba->dev);
+	ufshcd_rpm_get_sync(hba);
 
 	msgcode = bsg_request->msgcode;
 	switch (msgcode) {
@@ -107,11 +106,11 @@ static int ufs_bsg_request(struct bsg_job *job)
 		ret = ufs_bsg_alloc_desc_buffer(hba, job, &desc_buff,
 						&desc_len, desc_op);
 		if (ret) {
-			pm_runtime_put_sync(hba->dev);
+			ufshcd_rpm_put_sync(hba);
 			goto out;
 		}
 
-		/* fall through */
+		fallthrough;
 	case UPIU_TRANSACTION_NOP_OUT:
 	case UPIU_TRANSACTION_TASK_REQ:
 		ret = ufshcd_exec_raw_upiu_cmd(hba, &bsg_request->upiu_req,
@@ -139,7 +138,7 @@ static int ufs_bsg_request(struct bsg_job *job)
 		break;
 	}
 
-	pm_runtime_put_sync(hba->dev);
+	ufshcd_rpm_put_sync(hba);
 
 	if (!desc_buff)
 		goto out;
@@ -164,6 +163,7 @@ out:
 
 /**
  * ufs_bsg_remove - detach and remove the added ufs-bsg node
+ * @hba: per adapter object
  *
  * Should be called when unloading the driver.
  */

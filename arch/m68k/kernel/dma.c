@@ -6,7 +6,7 @@
 
 #undef DEBUG
 
-#include <linux/dma-noncoherent.h>
+#include <linux/dma-map-ops.h>
 #include <linux/device.h>
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
@@ -15,7 +15,7 @@
 #include <linux/vmalloc.h>
 #include <linux/export.h>
 
-#include <asm/pgalloc.h>
+#include <asm/cacheflush.h>
 
 #if defined(CONFIG_MMU) && !defined(CONFIG_COLDFIRE)
 void arch_dma_prep_coherent(struct page *page, size_t size)
@@ -34,9 +34,6 @@ pgprot_t pgprot_dmacoherent(pgprot_t prot)
 	return prot;
 }
 #else
-
-#include <asm/cacheflush.h>
-
 void *arch_dma_alloc(struct device *dev, size_t size, dma_addr_t *dma_handle,
 		gfp_t gfp, unsigned long attrs)
 {
@@ -76,14 +73,5 @@ void arch_sync_dma_for_device(phys_addr_t handle, size_t size,
 		pr_err_ratelimited("dma_sync_single_for_device: unsupported dir %u\n",
 				   dir);
 		break;
-	}
-}
-
-void arch_setup_pdev_archdata(struct platform_device *pdev)
-{
-	if (pdev->dev.coherent_dma_mask == DMA_MASK_NONE &&
-	    pdev->dev.dma_mask == NULL) {
-		pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
-		pdev->dev.dma_mask = &pdev->dev.coherent_dma_mask;
 	}
 }

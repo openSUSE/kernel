@@ -38,7 +38,7 @@ either letters or blanks. In above example it looks like this::
 
 	Tainted: P        W  O
 
-The meaning of those characters is explained in the table below. In tis case
+The meaning of those characters is explained in the table below. In this case
 the kernel got tainted earlier because a proprietary Module (``P``) was loaded,
 a warning occurred (``W``), and an externally-built module was loaded (``O``).
 To decode other letters use the table below.
@@ -61,7 +61,7 @@ this on the machine that had the statements in the logs that were quoted earlier
 	 * Proprietary module was loaded (#0)
 	 * Kernel issued warning (#9)
 	 * Externally-built ('out-of-tree') module was loaded  (#12)
-	See Documentation/admin-guide/tainted-kernels.rst in the the Linux kernel or
+	See Documentation/admin-guide/tainted-kernels.rst in the Linux kernel or
 	 https://www.kernel.org/doc/html/latest/admin-guide/tainted-kernels.html for
 	 a more details explanation of the various taint flags.
 	Raw taint value as int/string: 4609/'P        W  O     '
@@ -84,7 +84,7 @@ Bit  Log  Number  Reason that got the kernel tainted
 ===  ===  ======  ========================================================
   0  G/P       1  proprietary module was loaded
   1  _/F       2  module was force loaded
-  2  _/S       4  SMP kernel oops on an officially SMP incapable processor
+  2  _/S       4  kernel running on an out of specification system
   3  _/R       8  module was force unloaded
   4  _/M      16  processor reported a Machine Check Exception (MCE)
   5  _/B      32  bad page referenced or some unexpected page flags
@@ -116,10 +116,23 @@ More detailed explanation for tainting
  1)  ``F`` if any module was force loaded by ``insmod -f``, ``' '`` if all
      modules were loaded normally.
 
- 2)  ``S`` if the oops occurred on an SMP kernel running on hardware that
-     hasn't been certified as safe to run multiprocessor.
-     Currently this occurs only on various Athlons that are not
-     SMP capable.
+ 2)  ``S`` if the kernel is running on a processor or system that is out of
+     specification: hardware has been put into an unsupported configuration,
+     therefore proper execution cannot be guaranteed.
+     Kernel will be tainted if, for example:
+
+     - on x86: PAE is forced through forcepae on intel CPUs (such as Pentium M)
+       which do not report PAE but may have a functional implementation, an SMP
+       kernel is running on non officially capable SMP Athlon CPUs, MSRs are
+       being poked at from userspace.
+     - on arm: kernel running on certain CPUs (such as Keystone 2) without
+       having certain kernel features enabled.
+     - on arm64: there are mismatched hardware features between CPUs, the
+       bootloader has booted CPUs in different modes.
+     - certain drivers are being used on non supported architectures (such as
+       scsi/snic on something else than x86_64, scsi/ips on non
+       x86/x86_64/itanium, have broken firmware settings for the
+       irqchip/irq-gic on arm64 ...).
 
  3)  ``R`` if a module was force unloaded by ``rmmod -f``, ``' '`` if all
      modules were unloaded normally.
@@ -130,7 +143,7 @@ More detailed explanation for tainting
  5)  ``B`` If a page-release function has found a bad page reference or some
      unexpected page flags. This indicates a hardware problem or a kernel bug;
      there should be other information in the log indicating why this tainting
-     occured.
+     occurred.
 
  6)  ``U`` if a user or user application specifically requested that the
      Tainted flag be set, ``' '`` otherwise.

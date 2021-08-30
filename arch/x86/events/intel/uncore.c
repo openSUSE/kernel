@@ -4,8 +4,13 @@
 #include <asm/cpu_device_id.h>
 #include <asm/intel-family.h>
 #include "uncore.h"
+#include "uncore_discovery.h"
 
-static struct intel_uncore_type *empty_uncore[] = { NULL, };
+static bool uncore_no_discover;
+module_param(uncore_no_discover, bool, 0);
+MODULE_PARM_DESC(uncore_no_discover, "Don't enable the Intel uncore PerfMon discovery mechanism "
+				     "(default: enable the discovery mechanism).");
+struct intel_uncore_type *empty_uncore[] = { NULL, };
 struct intel_uncore_type **uncore_msr_uncores = empty_uncore;
 struct intel_uncore_type **uncore_pci_uncores = empty_uncore;
 struct intel_uncore_type **uncore_mmio_uncores = empty_uncore;
@@ -18,7 +23,7 @@ struct pci_driver *uncore_pci_sub_driver;
 DEFINE_RAW_SPINLOCK(pci2phy_map_lock);
 struct list_head pci2phy_map_head = LIST_HEAD_INIT(pci2phy_map_head);
 struct pci_extra_dev *uncore_extra_pci_dev;
-static int max_dies;
+int __uncore_max_dies;
 
 /* mask of cpus that collect uncore events */
 static cpumask_t uncore_cpu_mask;
@@ -46,6 +51,18 @@ int uncore_pcibus_to_dieid(struct pci_bus *bus)
 	raw_spin_unlock(&pci2phy_map_lock);
 
 	return die_id;
+}
+
+int uncore_die_to_segment(int die)
+{
+	struct pci_bus *bus = NULL;
+
+	/* Find first pci bus which attributes to specified die. */
+	while ((bus = pci_find_next_bus(bus)) &&
+	       (die != uncore_pcibus_to_dieid(bus)))
+		;
+
+	return bus ? pci_domain_nr(bus) : -EINVAL;
 }
 
 static void uncore_free_pcibus_map(void)
@@ -94,8 +111,8 @@ end:
 	return map;
 }
 
-ssize_t uncore_event_show(struct kobject *kobj,
-			  struct kobj_attribute *attr, char *buf)
+ssize_t uncore_event_show(struct device *dev,
+			  struct device_attribute *attr, char *buf)
 {
 	struct uncore_event_desc *event =
 		container_of(attr, struct uncore_event_desc, attr);
@@ -110,7 +127,7 @@ struct intel_uncore_box *uncore_pmu_to_box(struct intel_uncore_pmu *pmu, int cpu
 	 * The unsigned check also catches the '-1' return value for non
 	 * existent mappings in the topology map.
 	 */
-	return dieid < max_dies ? pmu->boxes[dieid] : NULL;
+	return dieid < uncore_max_dies() ? pmu->boxes[dieid] : NULL;
 }
 
 u64 uncore_msr_read_counter(struct intel_uncore_box *box, struct perf_event *event)
@@ -132,6 +149,9 @@ u64 uncore_mmio_read_counter(struct intel_uncore_box *box,
 			     struct perf_event *event)
 {
 	if (!box->io_addr)
+		return 0;
+
+	if (!uncore_mmio_is_valid_offset(box, event->hw.event_base))
 		return 0;
 
 	return readq(box->io_addr + event->hw.event_base);
@@ -781,8 +801,6 @@ static void uncore_pmu_enable(struct pmu *pmu)
 	struct intel_uncore_box *box;
 
 	uncore_pmu = container_of(pmu, struct intel_uncore_pmu, pmu);
-	if (!uncore_pmu)
-		return;
 
 	box = uncore_pmu_to_box(uncore_pmu, smp_processor_id());
 	if (!box)
@@ -798,8 +816,6 @@ static void uncore_pmu_disable(struct pmu *pmu)
 	struct intel_uncore_box *box;
 
 	uncore_pmu = container_of(pmu, struct intel_uncore_pmu, pmu);
-	if (!uncore_pmu)
-		return;
 
 	box = uncore_pmu_to_box(uncore_pmu, smp_processor_id());
 	if (!box)
@@ -826,6 +842,34 @@ static const struct attribute_group uncore_pmu_attr_group = {
 	.attrs = uncore_pmu_attrs,
 };
 
+static void uncore_get_pmu_name(struct intel_uncore_pmu *pmu)
+{
+	struct intel_uncore_type *type = pmu->type;
+
+	/*
+	 * No uncore block name in discovery table.
+	 * Use uncore_type_&typeid_&boxid as name.
+	 */
+	if (!type->name) {
+		if (type->num_boxes == 1)
+			sprintf(pmu->name, "uncore_type_%u", type->type_id);
+		else {
+			sprintf(pmu->name, "uncore_type_%u_%d",
+				type->type_id, type->box_ids[pmu->pmu_idx]);
+		}
+		return;
+	}
+
+	if (type->num_boxes == 1) {
+		if (strlen(type->name) > 0)
+			sprintf(pmu->name, "uncore_%s", type->name);
+		else
+			sprintf(pmu->name, "uncore");
+	} else
+		sprintf(pmu->name, "uncore_%s_%d", type->name, pmu->pmu_idx);
+
+}
+
 static int uncore_pmu_register(struct intel_uncore_pmu *pmu)
 {
 	int ret;
@@ -844,21 +888,15 @@ static int uncore_pmu_register(struct intel_uncore_pmu *pmu)
 			.read		= uncore_pmu_event_read,
 			.module		= THIS_MODULE,
 			.capabilities	= PERF_PMU_CAP_NO_EXCLUDE,
+			.attr_update	= pmu->type->attr_update,
 		};
 	} else {
 		pmu->pmu = *pmu->type->pmu;
 		pmu->pmu.attr_groups = pmu->type->attr_groups;
+		pmu->pmu.attr_update = pmu->type->attr_update;
 	}
 
-	if (pmu->type->num_boxes == 1) {
-		if (strlen(pmu->type->name) > 0)
-			sprintf(pmu->name, "uncore_%s", pmu->type->name);
-		else
-			sprintf(pmu->name, "uncore");
-	} else {
-		sprintf(pmu->name, "uncore_%s_%d", pmu->type->name,
-			pmu->pmu_idx);
-	}
+	uncore_get_pmu_name(pmu);
 
 	ret = perf_pmu_register(&pmu->pmu, pmu->name, -1);
 	if (!ret)
@@ -878,7 +916,7 @@ static void uncore_free_boxes(struct intel_uncore_pmu *pmu)
 {
 	int die;
 
-	for (die = 0; die < max_dies; die++)
+	for (die = 0; die < uncore_max_dies(); die++)
 		kfree(pmu->boxes[die]);
 	kfree(pmu->boxes);
 }
@@ -888,6 +926,9 @@ static void uncore_type_exit(struct intel_uncore_type *type)
 	struct intel_uncore_pmu *pmu = type->pmus;
 	int i;
 
+	if (type->cleanup_mapping)
+		type->cleanup_mapping(type);
+
 	if (pmu) {
 		for (i = 0; i < type->num_boxes; i++, pmu++) {
 			uncore_pmu_unregister(pmu);
@@ -895,6 +936,10 @@ static void uncore_type_exit(struct intel_uncore_type *type)
 		}
 		kfree(type->pmus);
 		type->pmus = NULL;
+	}
+	if (type->box_ids) {
+		kfree(type->box_ids);
+		type->box_ids = NULL;
 	}
 	kfree(type->events_group);
 	type->events_group = NULL;
@@ -916,7 +961,7 @@ static int __init uncore_type_init(struct intel_uncore_type *type, bool setid)
 	if (!pmus)
 		return -ENOMEM;
 
-	size = max_dies * sizeof(struct intel_uncore_box *);
+	size = uncore_max_dies() * sizeof(struct intel_uncore_box *);
 
 	for (i = 0; i < type->num_boxes; i++) {
 		pmus[i].func_id	= setid ? i : -1;
@@ -955,6 +1000,9 @@ static int __init uncore_type_init(struct intel_uncore_type *type, bool setid)
 
 	type->pmu_group = &uncore_pmu_attr_group;
 
+	if (type->set_mapping)
+		type->set_mapping(type);
+
 	return 0;
 
 err:
@@ -992,10 +1040,37 @@ static int uncore_pci_get_dev_die_info(struct pci_dev *pdev, int *die)
 	return 0;
 }
 
+static struct intel_uncore_pmu *
+uncore_pci_find_dev_pmu_from_types(struct pci_dev *pdev)
+{
+	struct intel_uncore_type **types = uncore_pci_uncores;
+	struct intel_uncore_type *type;
+	u64 box_ctl;
+	int i, die;
+
+	for (; *types; types++) {
+		type = *types;
+		for (die = 0; die < __uncore_max_dies; die++) {
+			for (i = 0; i < type->num_boxes; i++) {
+				if (!type->box_ctls[die])
+					continue;
+				box_ctl = type->box_ctls[die] + type->pci_offsets[i];
+				if (pdev->devfn == UNCORE_DISCOVERY_PCI_DEVFN(box_ctl) &&
+				    pdev->bus->number == UNCORE_DISCOVERY_PCI_BUS(box_ctl) &&
+				    pci_domain_nr(pdev->bus) == UNCORE_DISCOVERY_PCI_DOMAIN(box_ctl))
+					return &type->pmus[i];
+			}
+		}
+	}
+
+	return NULL;
+}
+
 /*
  * Find the PMU of a PCI device.
  * @pdev: The PCI device.
  * @ids: The ID table of the available PCI devices with a PMU.
+ *       If NULL, search the whole uncore_pci_uncores.
  */
 static struct intel_uncore_pmu *
 uncore_pci_find_dev_pmu(struct pci_dev *pdev, const struct pci_device_id *ids)
@@ -1004,6 +1079,9 @@ uncore_pci_find_dev_pmu(struct pci_dev *pdev, const struct pci_device_id *ids)
 	struct intel_uncore_type *type;
 	kernel_ulong_t data;
 	unsigned int devfn;
+
+	if (!ids)
+		return uncore_pci_find_dev_pmu_from_types(pdev);
 
 	while (ids && ids->vendor) {
 		if ((ids->vendor == pdev->vendor) &&
@@ -1163,7 +1241,8 @@ static void uncore_pci_remove(struct pci_dev *pdev)
 }
 
 static int uncore_bus_notify(struct notifier_block *nb,
-			     unsigned long action, void *data)
+			     unsigned long action, void *data,
+			     const struct pci_device_id *ids)
 {
 	struct device *dev = data;
 	struct pci_dev *pdev = to_pci_dev(dev);
@@ -1174,7 +1253,7 @@ static int uncore_bus_notify(struct notifier_block *nb,
 	if (action != BUS_NOTIFY_DEL_DEVICE)
 		return NOTIFY_DONE;
 
-	pmu = uncore_pci_find_dev_pmu(pdev, uncore_pci_sub_driver->id_table);
+	pmu = uncore_pci_find_dev_pmu(pdev, ids);
 	if (!pmu)
 		return NOTIFY_DONE;
 
@@ -1186,8 +1265,15 @@ static int uncore_bus_notify(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
-static struct notifier_block uncore_notifier = {
-	.notifier_call = uncore_bus_notify,
+static int uncore_pci_sub_bus_notify(struct notifier_block *nb,
+				     unsigned long action, void *data)
+{
+	return uncore_bus_notify(nb, action, data,
+				 uncore_pci_sub_driver->id_table);
+}
+
+static struct notifier_block uncore_pci_sub_notifier = {
+	.notifier_call = uncore_pci_sub_bus_notify,
 };
 
 static void uncore_pci_sub_driver_init(void)
@@ -1228,11 +1314,53 @@ static void uncore_pci_sub_driver_init(void)
 		ids++;
 	}
 
-	if (notify && bus_register_notifier(&pci_bus_type, &uncore_notifier))
+	if (notify && bus_register_notifier(&pci_bus_type, &uncore_pci_sub_notifier))
 		notify = false;
 
 	if (!notify)
 		uncore_pci_sub_driver = NULL;
+}
+
+static int uncore_pci_bus_notify(struct notifier_block *nb,
+				     unsigned long action, void *data)
+{
+	return uncore_bus_notify(nb, action, data, NULL);
+}
+
+static struct notifier_block uncore_pci_notifier = {
+	.notifier_call = uncore_pci_bus_notify,
+};
+
+
+static void uncore_pci_pmus_register(void)
+{
+	struct intel_uncore_type **types = uncore_pci_uncores;
+	struct intel_uncore_type *type;
+	struct intel_uncore_pmu *pmu;
+	struct pci_dev *pdev;
+	u64 box_ctl;
+	int i, die;
+
+	for (; *types; types++) {
+		type = *types;
+		for (die = 0; die < __uncore_max_dies; die++) {
+			for (i = 0; i < type->num_boxes; i++) {
+				if (!type->box_ctls[die])
+					continue;
+				box_ctl = type->box_ctls[die] + type->pci_offsets[i];
+				pdev = pci_get_domain_bus_and_slot(UNCORE_DISCOVERY_PCI_DOMAIN(box_ctl),
+								   UNCORE_DISCOVERY_PCI_BUS(box_ctl),
+								   UNCORE_DISCOVERY_PCI_DEVFN(box_ctl));
+				if (!pdev)
+					continue;
+				pmu = &type->pmus[i];
+
+				uncore_pci_pmu_register(pdev, type, pmu, die);
+			}
+		}
+	}
+
+	bus_register_notifier(&pci_bus_type, &uncore_pci_notifier);
 }
 
 static int __init uncore_pci_init(void)
@@ -1240,7 +1368,7 @@ static int __init uncore_pci_init(void)
 	size_t size;
 	int ret;
 
-	size = max_dies * sizeof(struct pci_extra_dev);
+	size = uncore_max_dies() * sizeof(struct pci_extra_dev);
 	uncore_extra_pci_dev = kzalloc(size, GFP_KERNEL);
 	if (!uncore_extra_pci_dev) {
 		ret = -ENOMEM;
@@ -1251,12 +1379,15 @@ static int __init uncore_pci_init(void)
 	if (ret)
 		goto errtype;
 
-	uncore_pci_driver->probe = uncore_pci_probe;
-	uncore_pci_driver->remove = uncore_pci_remove;
+	if (uncore_pci_driver) {
+		uncore_pci_driver->probe = uncore_pci_probe;
+		uncore_pci_driver->remove = uncore_pci_remove;
 
-	ret = pci_register_driver(uncore_pci_driver);
-	if (ret)
-		goto errtype;
+		ret = pci_register_driver(uncore_pci_driver);
+		if (ret)
+			goto errtype;
+	} else
+		uncore_pci_pmus_register();
 
 	if (uncore_pci_sub_driver)
 		uncore_pci_sub_driver_init();
@@ -1279,8 +1410,11 @@ static void uncore_pci_exit(void)
 	if (pcidrv_registered) {
 		pcidrv_registered = false;
 		if (uncore_pci_sub_driver)
-			bus_unregister_notifier(&pci_bus_type, &uncore_notifier);
-		pci_unregister_driver(uncore_pci_driver);
+			bus_unregister_notifier(&pci_bus_type, &uncore_pci_sub_notifier);
+		if (uncore_pci_driver)
+			pci_unregister_driver(uncore_pci_driver);
+		else
+			bus_unregister_notifier(&pci_bus_type, &uncore_pci_notifier);
 		uncore_types_exit(uncore_pci_uncores);
 		kfree(uncore_extra_pci_dev);
 		uncore_free_pcibus_map();
@@ -1600,13 +1734,23 @@ static const struct intel_uncore_init_fun icl_uncore_init __initconst = {
 };
 
 static const struct intel_uncore_init_fun tgl_uncore_init __initconst = {
-	.cpu_init = icl_uncore_cpu_init,
+	.cpu_init = tgl_uncore_cpu_init,
 	.mmio_init = tgl_uncore_mmio_init,
 };
 
 static const struct intel_uncore_init_fun tgl_l_uncore_init __initconst = {
-	.cpu_init = icl_uncore_cpu_init,
+	.cpu_init = tgl_uncore_cpu_init,
 	.mmio_init = tgl_l_uncore_mmio_init,
+};
+
+static const struct intel_uncore_init_fun rkl_uncore_init __initconst = {
+	.cpu_init = tgl_uncore_cpu_init,
+	.pci_init = skl_uncore_pci_init,
+};
+
+static const struct intel_uncore_init_fun adl_uncore_init __initconst = {
+	.cpu_init = adl_uncore_cpu_init,
+	.mmio_init = tgl_uncore_mmio_init,
 };
 
 static const struct intel_uncore_init_fun icx_uncore_init __initconst = {
@@ -1619,6 +1763,12 @@ static const struct intel_uncore_init_fun snr_uncore_init __initconst = {
 	.cpu_init = snr_uncore_cpu_init,
 	.pci_init = snr_uncore_pci_init,
 	.mmio_init = snr_uncore_mmio_init,
+};
+
+static const struct intel_uncore_init_fun generic_uncore_init __initconst = {
+	.cpu_init = intel_uncore_generic_uncore_cpu_init,
+	.pci_init = intel_uncore_generic_uncore_pci_init,
+	.mmio_init = intel_uncore_generic_uncore_mmio_init,
 };
 
 static const struct x86_cpu_id intel_uncore_match[] __initconst = {
@@ -1656,6 +1806,9 @@ static const struct x86_cpu_id intel_uncore_match[] __initconst = {
 	X86_MATCH_INTEL_FAM6_MODEL(ICELAKE_X,		&icx_uncore_init),
 	X86_MATCH_INTEL_FAM6_MODEL(TIGERLAKE_L,		&tgl_l_uncore_init),
 	X86_MATCH_INTEL_FAM6_MODEL(TIGERLAKE,		&tgl_uncore_init),
+	X86_MATCH_INTEL_FAM6_MODEL(ROCKETLAKE,		&rkl_uncore_init),
+	X86_MATCH_INTEL_FAM6_MODEL(ALDERLAKE,		&adl_uncore_init),
+	X86_MATCH_INTEL_FAM6_MODEL(ALDERLAKE_L,		&adl_uncore_init),
 	X86_MATCH_INTEL_FAM6_MODEL(ATOM_TREMONT_D,	&snr_uncore_init),
 	{},
 };
@@ -1667,16 +1820,21 @@ static int __init intel_uncore_init(void)
 	struct intel_uncore_init_fun *uncore_init;
 	int pret = 0, cret = 0, mret = 0, ret;
 
-	id = x86_match_cpu(intel_uncore_match);
-	if (!id)
-		return -ENODEV;
-
 	if (boot_cpu_has(X86_FEATURE_HYPERVISOR))
 		return -ENODEV;
 
-	max_dies = topology_max_packages() * topology_max_die_per_package();
+	__uncore_max_dies =
+		topology_max_packages() * topology_max_die_per_package();
 
-	uncore_init = (struct intel_uncore_init_fun *)id->driver_data;
+	id = x86_match_cpu(intel_uncore_match);
+	if (!id) {
+		if (!uncore_no_discover && intel_uncore_has_discovery_tables())
+			uncore_init = (struct intel_uncore_init_fun *)&generic_uncore_init;
+		else
+			return -ENODEV;
+	} else
+		uncore_init = (struct intel_uncore_init_fun *)id->driver_data;
+
 	if (uncore_init->pci_init) {
 		pret = uncore_init->pci_init();
 		if (!pret)
@@ -1693,8 +1851,10 @@ static int __init intel_uncore_init(void)
 		mret = uncore_mmio_init();
 	}
 
-	if (cret && pret && mret)
-		return -ENODEV;
+	if (cret && pret && mret) {
+		ret = -ENODEV;
+		goto free_discovery;
+	}
 
 	/* Install hotplug callbacks to setup the targets for each package */
 	ret = cpuhp_setup_state(CPUHP_AP_PERF_X86_UNCORE_ONLINE,
@@ -1709,6 +1869,8 @@ err:
 	uncore_types_exit(uncore_msr_uncores);
 	uncore_types_exit(uncore_mmio_uncores);
 	uncore_pci_exit();
+free_discovery:
+	intel_uncore_clear_discovery_tables();
 	return ret;
 }
 module_init(intel_uncore_init);
@@ -1719,5 +1881,6 @@ static void __exit intel_uncore_exit(void)
 	uncore_types_exit(uncore_msr_uncores);
 	uncore_types_exit(uncore_mmio_uncores);
 	uncore_pci_exit();
+	intel_uncore_clear_discovery_tables();
 }
 module_exit(intel_uncore_exit);

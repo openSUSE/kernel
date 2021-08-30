@@ -10,7 +10,7 @@
  *
  * based on the other drivers in this same directory.
  *
- * Datasheet: http://cache.nxp.com/documents/data_sheet/PCF2127.pdf
+ * Datasheet: https://www.nxp.com/docs/en/data-sheet/PCF2127.pdf
  */
 
 #include <linux/i2c.h>
@@ -26,6 +26,7 @@
 
 /* Control register 1 */
 #define PCF2127_REG_CTRL1		0x00
+#define PCF2127_BIT_CTRL1_POR_OVRD		BIT(3)
 #define PCF2127_BIT_CTRL1_TSF1			BIT(4)
 /* Control register 2 */
 #define PCF2127_REG_CTRL2		0x01
@@ -57,6 +58,9 @@
 #define PCF2127_REG_ALARM_DM		0x0D
 #define PCF2127_REG_ALARM_DW		0x0E
 #define PCF2127_BIT_ALARM_AE			BIT(7)
+/* CLKOUT control register */
+#define PCF2127_REG_CLKOUT		0x0f
+#define PCF2127_BIT_CLKOUT_OTPR			BIT(5)
 /* Watchdog registers */
 #define PCF2127_REG_WD_CTL		0x10
 #define PCF2127_BIT_WD_CTL_TF0			BIT(0)
@@ -234,12 +238,6 @@ static int pcf2127_rtc_ioctl(struct device *dev,
 		return -ENOIOCTLCMD;
 	}
 }
-
-static const struct rtc_class_ops pcf2127_rtc_ops = {
-	.ioctl		= pcf2127_rtc_ioctl,
-	.read_time	= pcf2127_rtc_read_time,
-	.set_time	= pcf2127_rtc_set_time,
-};
 
 static int pcf2127_nvmem_read(void *priv, unsigned int offset,
 			      void *val, size_t bytes)
@@ -542,7 +540,7 @@ static irqreturn_t pcf2127_rtc_irq(int irq, void *dev)
 	return IRQ_HANDLED;
 }
 
-static const struct rtc_class_ops pcf2127_rtc_alrm_ops = {
+static const struct rtc_class_ops pcf2127_rtc_ops = {
 	.ioctl            = pcf2127_rtc_ioctl,
 	.read_time        = pcf2127_rtc_read_time,
 	.set_time         = pcf2127_rtc_set_time,
@@ -637,6 +635,7 @@ static int pcf2127_probe(struct device *dev, struct regmap *regmap,
 {
 	struct pcf2127 *pcf2127;
 	int ret = 0;
+	unsigned int val;
 
 	dev_dbg(dev, "%s\n", __func__);
 
@@ -657,6 +656,7 @@ static int pcf2127_probe(struct device *dev, struct regmap *regmap,
 	pcf2127->rtc->range_max = RTC_TIMESTAMP_END_2099;
 	pcf2127->rtc->set_start_time = true; /* Sets actual start to 1970 */
 	pcf2127->rtc->uie_unsupported = 1;
+	clear_bit(RTC_FEATURE_ALARM, pcf2127->rtc->features);
 
 	if (alarm_irq > 0) {
 		ret = devm_request_threaded_irq(dev, alarm_irq, NULL,
@@ -672,7 +672,7 @@ static int pcf2127_probe(struct device *dev, struct regmap *regmap,
 
 	if (alarm_irq > 0 || device_property_read_bool(dev, "wakeup-source")) {
 		device_init_wakeup(dev, true);
-		pcf2127->rtc->ops = &pcf2127_rtc_alrm_ops;
+		set_bit(RTC_FEATURE_ALARM, pcf2127->rtc->features);
 	}
 
 	if (is_pcf2127) {
@@ -683,7 +683,27 @@ static int pcf2127_probe(struct device *dev, struct regmap *regmap,
 			.size = 512,
 		};
 
-		ret = rtc_nvmem_register(pcf2127->rtc, &nvmem_cfg);
+		ret = devm_rtc_nvmem_register(pcf2127->rtc, &nvmem_cfg);
+	}
+
+	/*
+	 * The "Power-On Reset Override" facility prevents the RTC to do a reset
+	 * after power on. For normal operation the PORO must be disabled.
+	 */
+	regmap_clear_bits(pcf2127->regmap, PCF2127_REG_CTRL1,
+				PCF2127_BIT_CTRL1_POR_OVRD);
+
+	ret = regmap_read(pcf2127->regmap, PCF2127_REG_CLKOUT, &val);
+	if (ret < 0)
+		return ret;
+
+	if (!(val & PCF2127_BIT_CLKOUT_OTPR)) {
+		ret = regmap_set_bits(pcf2127->regmap, PCF2127_REG_CLKOUT,
+				      PCF2127_BIT_CLKOUT_OTPR);
+		if (ret < 0)
+			return ret;
+
+		msleep(100);
 	}
 
 	/*
@@ -761,7 +781,7 @@ static int pcf2127_probe(struct device *dev, struct regmap *regmap,
 		return ret;
 	}
 
-	return rtc_register_device(pcf2127->rtc);
+	return devm_rtc_register_device(pcf2127->rtc);
 }
 
 #ifdef CONFIG_OF

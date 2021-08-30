@@ -74,7 +74,7 @@ struct intel_th_drvdata {
  */
 struct intel_th_device {
 	struct device		dev;
-	struct intel_th_drvdata *drvdata;
+	const struct intel_th_drvdata *drvdata;
 	struct resource		*resource;
 	unsigned int		num_resources;
 	unsigned int		type;
@@ -165,6 +165,8 @@ struct intel_th_driver {
 					  struct intel_th_device *othdev);
 	void			(*unassign)(struct intel_th_device *thdev,
 					    struct intel_th_device *othdev);
+	void			(*prepare)(struct intel_th_device *thdev,
+					   struct intel_th_output *output);
 	void			(*enable)(struct intel_th_device *thdev,
 					  struct intel_th_output *output);
 	void			(*trig_switch)(struct intel_th_device *thdev,
@@ -179,15 +181,11 @@ struct intel_th_driver {
 	/* file_operations for those who want a device node */
 	const struct file_operations *fops;
 	/* optional attributes */
-	struct attribute_group	*attr_group;
+	const struct attribute_group *attr_group;
 
 	/* source ops */
 	int			(*set_output)(struct intel_th_device *thdev,
 					      unsigned int master);
-#ifndef __GENKSYMS__
-	void			(*prepare)(struct intel_th_device *thdev,
-					   struct intel_th_output *output);
-#endif
 };
 
 #define to_intel_th_driver(_d)					\
@@ -229,7 +227,7 @@ static inline struct intel_th *to_intel_th(struct intel_th_device *thdev)
 }
 
 struct intel_th *
-intel_th_alloc(struct device *dev, struct intel_th_drvdata *drvdata,
+intel_th_alloc(struct device *dev, const struct intel_th_drvdata *drvdata,
 	       struct resource *devres, unsigned int ndevres);
 void intel_th_free(struct intel_th *th);
 
@@ -277,7 +275,7 @@ struct intel_th {
 
 	struct intel_th_device	*thdev[TH_SUBDEVICE_MAX];
 	struct intel_th_device	*hub;
-	struct intel_th_drvdata	*drvdata;
+	const struct intel_th_drvdata	*drvdata;
 
 	struct resource		resource[TH_MMIO_END];
 	int			(*activate)(struct intel_th *);

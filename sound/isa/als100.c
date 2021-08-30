@@ -26,17 +26,6 @@
 #define PFX "als100: "
 
 MODULE_DESCRIPTION("Avance Logic ALS007/ALS1X0");
-MODULE_SUPPORTED_DEVICE("{{Diamond Technologies DT-019X},"
-		"{Avance Logic ALS-007}}"
-		"{{Avance Logic,ALS100 - PRO16PNP},"
-	        "{Avance Logic,ALS110},"
-	        "{Avance Logic,ALS120},"
-	        "{Avance Logic,ALS200},"
-	        "{3D Melody,MF1000},"
-	        "{Digimate,3D Sound},"
-	        "{Avance Logic,ALS120},"
-	        "{RTL,RTL3000}}");
-
 MODULE_AUTHOR("Massimo Piccioni <dafastidio@libero.it>");
 MODULE_LICENSE("GPL");
 
@@ -188,7 +177,8 @@ static int snd_card_als100_probe(int dev,
 		return error;
 	acard = card->private_data;
 
-	if ((error = snd_card_als100_pnp(dev, acard, pcard, pid))) {
+	error = snd_card_als100_pnp(dev, acard, pcard, pid);
+	if (error) {
 		snd_card_free(card);
 		return error;
 	}
@@ -222,12 +212,14 @@ static int snd_card_als100_probe(int dev,
 			 dma16[dev]);
 	}
 
-	if ((error = snd_sb16dsp_pcm(chip, 0)) < 0) {
+	error = snd_sb16dsp_pcm(chip, 0);
+	if (error < 0) {
 		snd_card_free(card);
 		return error;
 	}
 
-	if ((error = snd_sbmixer_new(chip)) < 0) {
+	error = snd_sbmixer_new(chip);
+	if (error < 0) {
 		snd_card_free(card);
 		return error;
 	}
@@ -256,18 +248,21 @@ static int snd_card_als100_probe(int dev,
 			snd_printk(KERN_ERR PFX "no OPL device at 0x%lx-0x%lx\n",
 				   fm_port[dev], fm_port[dev] + 2);
 		} else {
-			if ((error = snd_opl3_timer_new(opl3, 0, 1)) < 0) {
+			error = snd_opl3_timer_new(opl3, 0, 1);
+			if (error < 0) {
 				snd_card_free(card);
 				return error;
 			}
-			if ((error = snd_opl3_hwdep_new(opl3, 0, 1, NULL)) < 0) {
+			error = snd_opl3_hwdep_new(opl3, 0, 1, NULL);
+			if (error < 0) {
 				snd_card_free(card);
 				return error;
 			}
 		}
 	}
 
-	if ((error = snd_card_register(card)) < 0) {
+	error = snd_card_register(card);
+	if (error < 0) {
 		snd_card_free(card);
 		return error;
 	}

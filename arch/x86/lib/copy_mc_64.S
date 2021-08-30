@@ -2,14 +2,11 @@
 /* Copyright(c) 2016-2020 Intel Corporation. All rights reserved. */
 
 #include <linux/linkage.h>
-#include <asm/copy_mc_test.h>
-#include <asm/export.h>
 #include <asm/asm.h>
 
 #ifndef CONFIG_UML
 
 #ifdef CONFIG_X86_MCE
-COPY_MC_TEST_CTL
 
 /*
  * copy_mc_fragile - copy memory with indication if an exception / fault happened
@@ -20,7 +17,7 @@ COPY_MC_TEST_CTL
  * boundary. The non-fragile version is equivalent to memcpy()
  * regardless of CPU machine-check-recovery capability.
  */
-ENTRY(copy_mc_fragile)
+SYM_FUNC_START(copy_mc_fragile)
 	cmpl $8, %edx
 	/* Less than 8 bytes? Go to byte copy loop */
 	jb .L_no_whole_words
@@ -38,8 +35,6 @@ ENTRY(copy_mc_fragile)
 	subl %ecx, %edx
 .L_read_leading_bytes:
 	movb (%rsi), %al
-	COPY_MC_TEST_SRC %rsi 1 .E_leading_bytes
-	COPY_MC_TEST_DST %rdi 1 .E_leading_bytes
 .L_write_leading_bytes:
 	movb %al, (%rdi)
 	incq %rsi
@@ -55,8 +50,6 @@ ENTRY(copy_mc_fragile)
 
 .L_read_words:
 	movq (%rsi), %r8
-	COPY_MC_TEST_SRC %rsi 8 .E_read_words
-	COPY_MC_TEST_DST %rdi 8 .E_write_words
 .L_write_words:
 	movq %r8, (%rdi)
 	addq $8, %rsi
@@ -73,8 +66,6 @@ ENTRY(copy_mc_fragile)
 	movl %edx, %ecx
 .L_read_trailing_bytes:
 	movb (%rsi), %al
-	COPY_MC_TEST_SRC %rsi 1 .E_trailing_bytes
-	COPY_MC_TEST_DST %rdi 1 .E_trailing_bytes
 .L_write_trailing_bytes:
 	movb %al, (%rdi)
 	incq %rsi
@@ -87,8 +78,7 @@ ENTRY(copy_mc_fragile)
 	xorl %eax, %eax
 .L_done:
 	ret
-ENDPROC(copy_mc_fragile)
-EXPORT_SYMBOL_GPL(copy_mc_fragile)
+SYM_FUNC_END(copy_mc_fragile)
 
 	.section .fixup, "ax"
 	/*
@@ -135,7 +125,7 @@ EXPORT_SYMBOL_GPL(copy_mc_fragile)
  * machine check recovery support this version should be no slower than
  * standard memcpy.
  */
-ENTRY(copy_mc_enhanced_fast_string)
+SYM_FUNC_START(copy_mc_enhanced_fast_string)
 	movq %rdi, %rax
 	movq %rdx, %rcx
 .L_copy:
@@ -143,7 +133,7 @@ ENTRY(copy_mc_enhanced_fast_string)
 	/* Copy successful. Return zero */
 	xorl %eax, %eax
 	ret
-ENDPROC(copy_mc_enhanced_fast_string)
+SYM_FUNC_END(copy_mc_enhanced_fast_string)
 
 	.section .fixup, "ax"
 .E_copy:

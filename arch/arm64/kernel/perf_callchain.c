@@ -116,7 +116,7 @@ void perf_callchain_user(struct perf_callchain_entry_ctx *entry,
 		tail = (struct frame_tail __user *)regs->regs[29];
 
 		while (entry->nr < entry->max_stack &&
-		       tail && !((unsigned long)tail & 0xf))
+		       tail && !((unsigned long)tail & 0x7))
 			tail = user_backtrace(tail, entry);
 	} else {
 #ifdef CONFIG_COMPAT
@@ -137,11 +137,11 @@ void perf_callchain_user(struct perf_callchain_entry_ctx *entry,
  * whist unwinding the stackframe and is like a subroutine return so we use
  * the PC.
  */
-static int callchain_trace(struct stackframe *frame, void *data)
+static bool callchain_trace(void *data, unsigned long pc)
 {
 	struct perf_callchain_entry_ctx *entry = data;
-	perf_callchain_store(entry, frame->pc);
-	return 0;
+	perf_callchain_store(entry, pc);
+	return true;
 }
 
 void perf_callchain_kernel(struct perf_callchain_entry_ctx *entry,

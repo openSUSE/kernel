@@ -6,7 +6,7 @@
 	Copyright (C) 2000, 2001 David S. Miller (davem@redhat.com) [sungem.c]
 	Copyright 2001 Manfred Spraul				    [natsemi.c]
 	Copyright 1999-2001 by Donald Becker.			    [natsemi.c]
-       	Written 1997-2001 by Donald Becker.			    [8139too.c]
+	Written 1997-2001 by Donald Becker.			    [8139too.c]
 	Copyright 1998-2001 by Jes Sorensen, <jes@trained-monkey.org>. [acenic.c]
 
 	This software may be used and distributed according to the terms of
@@ -947,8 +947,8 @@ static struct net_device_stats *cp_get_stats(struct net_device *dev)
 
 	/* The chip only need report frame silently dropped. */
 	spin_lock_irqsave(&cp->lock, flags);
- 	if (netif_running(dev) && netif_device_present(dev))
- 		__cp_get_stats(cp);
+	if (netif_running(dev) && netif_device_present(dev))
+		__cp_get_stats(cp);
 	spin_unlock_irqrestore(&cp->lock, flags);
 
 	return &dev->stats;
@@ -1239,7 +1239,7 @@ static void cp_tx_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	struct cp_private *cp = netdev_priv(dev);
 	unsigned long flags;
-	int rc, i;
+	int i;
 
 	netdev_warn(dev, "Transmit timeout, status %2x %4x %4x %4x\n",
 		    cpr8(Cmd), cpr16(CpCmd),
@@ -1260,7 +1260,7 @@ static void cp_tx_timeout(struct net_device *dev, unsigned int txqueue)
 
 	cp_stop_hw(cp);
 	cp_clean_rings(cp);
-	rc = cp_init_rings(cp);
+	cp_init_rings(cp);
 	cp_start_hw(cp);
 	__cp_set_rx_mode(dev);
 	cpw16_f(IntrMask, cp_norx_intr_mask);

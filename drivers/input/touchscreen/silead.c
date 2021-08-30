@@ -289,7 +289,7 @@ static int silead_ts_load_fw(struct i2c_client *client)
 
 	dev_dbg(dev, "Firmware file name: %s", data->fw_name);
 
-	error = request_firmware(&fw, data->fw_name, dev);
+	error = firmware_request_platform(&fw, data->fw_name, dev);
 	if (error) {
 		dev_err(dev, "Firmware request error %d\n", error);
 		return error;
@@ -522,7 +522,7 @@ static int silead_ts_probe(struct i2c_client *client,
 
 	silead_ts_read_props(client);
 
-	/* We must have the IRQ provided by DT or ACPI subsytem */
+	/* We must have the IRQ provided by DT or ACPI subsystem */
 	if (client->irq <= 0)
 		return -ENODEV;
 

@@ -7,6 +7,7 @@
  * Copyright (c) 2017 Savoir-faire Linux, Inc.
  */
 
+#include <linux/bitfield.h>
 #include <linux/interrupt.h>
 #include <linux/irqdomain.h>
 
@@ -67,8 +68,9 @@ static int mv88e6xxx_g1_vtu_sid_write(struct mv88e6xxx_chip *chip,
 
 static int mv88e6xxx_g1_vtu_op_wait(struct mv88e6xxx_chip *chip)
 {
-	return mv88e6xxx_g1_wait(chip, MV88E6XXX_G1_VTU_OP,
-				 MV88E6XXX_G1_VTU_OP_BUSY);
+	int bit = __bf_shf(MV88E6XXX_G1_VTU_OP_BUSY);
+
+	return mv88e6xxx_g1_wait_bit(chip, MV88E6XXX_G1_VTU_OP, bit, 0);
 }
 
 static int mv88e6xxx_g1_vtu_op(struct mv88e6xxx_chip *chip, u16 op)
@@ -305,8 +307,8 @@ static int mv88e6xxx_g1_vtu_stu_get(struct mv88e6xxx_chip *chip,
 	return 0;
 }
 
-static int mv88e6xxx_g1_vtu_getnext(struct mv88e6xxx_chip *chip,
-				    struct mv88e6xxx_vtu_entry *entry)
+int mv88e6xxx_g1_vtu_getnext(struct mv88e6xxx_chip *chip,
+			     struct mv88e6xxx_vtu_entry *entry)
 {
 	int err;
 
@@ -334,39 +336,6 @@ static int mv88e6xxx_g1_vtu_getnext(struct mv88e6xxx_chip *chip,
 	return mv88e6xxx_g1_vtu_vid_read(chip, entry);
 }
 
-int mv88e6250_g1_vtu_getnext(struct mv88e6xxx_chip *chip,
-			     struct mv88e6xxx_vtu_entry *entry)
-{
-	u16 val;
-	int err;
-
-	err = mv88e6xxx_g1_vtu_getnext(chip, entry);
-	if (err)
-		return err;
-
-	if (entry->valid) {
-		err = mv88e6185_g1_vtu_data_read(chip, entry);
-		if (err)
-			return err;
-
-		err = mv88e6185_g1_stu_data_read(chip, entry);
-		if (err)
-			return err;
-
-		/* VTU DBNum[3:0] are located in VTU Operation 3:0
-		 * VTU DBNum[5:4] are located in VTU Operation 9:8
-		 */
-		err = mv88e6xxx_g1_read(chip, MV88E6XXX_G1_VTU_OP, &val);
-		if (err)
-			return err;
-
-		entry->fid = val & 0x000f;
-		entry->fid |= (val & 0x0300) >> 4;
-	}
-
-	return 0;
-}
-
 int mv88e6185_g1_vtu_getnext(struct mv88e6xxx_chip *chip,
 			     struct mv88e6xxx_vtu_entry *entry)
 {
@@ -387,7 +356,7 @@ int mv88e6185_g1_vtu_getnext(struct mv88e6xxx_chip *chip,
 			return err;
 
 		/* VTU DBNum[3:0] are located in VTU Operation 3:0
-		 * VTU DBNum[7:4] are located in VTU Operation 11:8
+		 * VTU DBNum[7:4] ([5:4] for 6250) are located in VTU Operation 11:8 (9:8)
 		 */
 		err = mv88e6xxx_g1_read(chip, MV88E6XXX_G1_VTU_OP, &val);
 		if (err)
@@ -395,6 +364,7 @@ int mv88e6185_g1_vtu_getnext(struct mv88e6xxx_chip *chip,
 
 		entry->fid = val & 0x000f;
 		entry->fid |= (val & 0x0f00) >> 4;
+		entry->fid &= mv88e6xxx_num_databases(chip) - 1;
 	}
 
 	return 0;
@@ -464,35 +434,6 @@ int mv88e6390_g1_vtu_getnext(struct mv88e6xxx_chip *chip,
 	return 0;
 }
 
-int mv88e6250_g1_vtu_loadpurge(struct mv88e6xxx_chip *chip,
-			       struct mv88e6xxx_vtu_entry *entry)
-{
-	u16 op = MV88E6XXX_G1_VTU_OP_VTU_LOAD_PURGE;
-	int err;
-
-	err = mv88e6xxx_g1_vtu_op_wait(chip);
-	if (err)
-		return err;
-
-	err = mv88e6xxx_g1_vtu_vid_write(chip, entry);
-	if (err)
-		return err;
-
-	if (entry->valid) {
-		err = mv88e6185_g1_vtu_data_write(chip, entry);
-		if (err)
-			return err;
-
-		/* VTU DBNum[3:0] are located in VTU Operation 3:0
-		 * VTU DBNum[5:4] are located in VTU Operation 9:8
-		 */
-		op |= entry->fid & 0x000f;
-		op |= (entry->fid & 0x0030) << 4;
-	}
-
-	return mv88e6xxx_g1_vtu_op(chip, op);
-}
-
 int mv88e6185_g1_vtu_loadpurge(struct mv88e6xxx_chip *chip,
 			       struct mv88e6xxx_vtu_entry *entry)
 {
@@ -514,6 +455,10 @@ int mv88e6185_g1_vtu_loadpurge(struct mv88e6xxx_chip *chip,
 
 		/* VTU DBNum[3:0] are located in VTU Operation 3:0
 		 * VTU DBNum[7:4] are located in VTU Operation 11:8
+		 *
+		 * For the 6250/6220, the latter are really [5:4] and
+		 * 9:8, but in those cases bits 7:6 of entry->fid are
+		 * 0 since they have num_databases = 64.
 		 */
 		op |= entry->fid & 0x000f;
 		op |= (entry->fid & 0x00f0) << 4;
@@ -672,9 +617,12 @@ int mv88e6xxx_g1_vtu_prob_irq_setup(struct mv88e6xxx_chip *chip)
 	if (chip->vtu_prob_irq < 0)
 		return chip->vtu_prob_irq;
 
+	snprintf(chip->vtu_prob_irq_name, sizeof(chip->vtu_prob_irq_name),
+		 "mv88e6xxx-%s-g1-vtu-prob", dev_name(chip->dev));
+
 	err = request_threaded_irq(chip->vtu_prob_irq, NULL,
 				   mv88e6xxx_g1_vtu_prob_irq_thread_fn,
-				   IRQF_ONESHOT, "mv88e6xxx-g1-vtu-prob",
+				   IRQF_ONESHOT, chip->vtu_prob_irq_name,
 				   chip);
 	if (err)
 		irq_dispose_mapping(chip->vtu_prob_irq);

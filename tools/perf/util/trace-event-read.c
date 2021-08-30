@@ -15,8 +15,6 @@
 #include <unistd.h>
 #include <errno.h>
 
-#include "../perf.h"
-#include "util.h"
 #include "trace-event.h"
 #include "debug.h"
 
@@ -77,7 +75,7 @@ static void skip(int size)
 		r = size > BUFSIZ ? BUFSIZ : size;
 		do_read(buf, r);
 		size -= r;
-	};
+	}
 }
 
 static unsigned int read4(struct tep_handle *pevent)
@@ -363,6 +361,7 @@ static int read_saved_cmdline(struct tep_handle *pevent)
 		pr_debug("error reading saved cmdlines\n");
 		goto out;
 	}
+	buf[ret] = '\0';
 
 	parse_saved_cmdline(pevent, buf, size);
 	ret = 0;

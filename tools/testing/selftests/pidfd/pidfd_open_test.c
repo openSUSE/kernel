@@ -6,7 +6,6 @@
 #include <inttypes.h>
 #include <limits.h>
 #include <linux/types.h>
-#include <linux/wait.h>
 #include <sched.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -21,11 +20,6 @@
 
 #include "pidfd.h"
 #include "../kselftest.h"
-
-static inline int sys_pidfd_open(pid_t pid, unsigned int flags)
-{
-	return syscall(__NR_pidfd_open, pid, flags);
-}
 
 static int safe_int(const char *numstr, int *converted)
 {

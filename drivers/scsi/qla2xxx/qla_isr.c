@@ -1,8 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * QLogic Fibre Channel HBA Driver
  * Copyright (c)  2003-2014 QLogic Corporation
- *
- * See LICENSE.qla2xxx for copyright and licensing details.
  */
 #include "qla_def.h"
 #include "qla_target.h"
@@ -1733,11 +1732,11 @@ global_port_update:
 				qla2xxx_wake_dpc(vha);
 			}
 		}
-		/* fall through */
+		fallthrough;
 	case MBA_IDC_COMPLETE:
 		if (ha->notify_lb_portup_comp && !vha->vp_idx)
 			complete(&ha->lb_portup_comp);
-		/* Fallthru */
+		fallthrough;
 	case MBA_IDC_TIME_EXT:
 		if (IS_QLA81XX(vha->hw) || IS_QLA8031(vha->hw) ||
 		    IS_QLA8044(ha))
@@ -2433,7 +2432,7 @@ qla24xx_logio_entry(scsi_qla_host_t *vha, struct req_que *req,
 				set_bit(ISP_ABORT_NEEDED, &vha->dpc_flags);
 			qla2xxx_wake_dpc(vha);
 		}
-		/* fall through */
+		fallthrough;
 	default:
 		data[0] = MBS_COMMAND_ERROR;
 		break;
@@ -2641,7 +2640,7 @@ static void qla24xx_nvme_iocb_entry(scsi_qla_host_t *vha, struct req_que *req,
 	case CS_PORT_UNAVAILABLE:
 	case CS_PORT_LOGGED_OUT:
 		fcport->nvme_flag |= NVME_FLAG_RESETTING;
-		/* fall through */
+		fallthrough;
 	case CS_ABORTED:
 	case CS_PORT_BUSY:
 		fd->transferred_length = 0;
@@ -2920,31 +2919,22 @@ qla2x00_handle_dif_error(srb_t *sp, struct sts_entry_24xx *sts24)
 
 	/* check guard */
 	if (e_guard != a_guard) {
-		scsi_build_sense_buffer(1, cmd->sense_buffer, ILLEGAL_REQUEST,
-		    0x10, 0x1);
-		set_driver_byte(cmd, DRIVER_SENSE);
+		scsi_build_sense(cmd, 1, ILLEGAL_REQUEST, 0x10, 0x1);
 		set_host_byte(cmd, DID_ABORT);
-		cmd->result |= SAM_STAT_CHECK_CONDITION;
 		return 1;
 	}
 
 	/* check ref tag */
 	if (e_ref_tag != a_ref_tag) {
-		scsi_build_sense_buffer(1, cmd->sense_buffer, ILLEGAL_REQUEST,
-		    0x10, 0x3);
-		set_driver_byte(cmd, DRIVER_SENSE);
+		scsi_build_sense(cmd, 1, ILLEGAL_REQUEST, 0x10, 0x3);
 		set_host_byte(cmd, DID_ABORT);
-		cmd->result |= SAM_STAT_CHECK_CONDITION;
 		return 1;
 	}
 
 	/* check appl tag */
 	if (e_app_tag != a_app_tag) {
-		scsi_build_sense_buffer(1, cmd->sense_buffer, ILLEGAL_REQUEST,
-		    0x10, 0x2);
-		set_driver_byte(cmd, DRIVER_SENSE);
+		scsi_build_sense(cmd, 1, ILLEGAL_REQUEST, 0x10, 0x2);
 		set_host_byte(cmd, DID_ABORT);
-		cmd->result |= SAM_STAT_CHECK_CONDITION;
 		return 1;
 	}
 
@@ -3825,7 +3815,7 @@ process_err:
 			} else {
 				qlt_24xx_process_atio_queue(vha, 1);
 			}
-			/* fall through */
+			fallthrough;
 		case ABTS_RESP_24XX:
 		case CTIO_TYPE7:
 		case CTIO_CRC2:

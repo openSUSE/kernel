@@ -27,8 +27,37 @@ struct key *afs_request_key(struct afs_cell *cell)
 	_enter("{%x}", key_serial(cell->anonymous_key));
 
 	_debug("key %s", cell->anonymous_key->description);
-	key = request_key(&key_type_rxrpc, cell->anonymous_key->description,
-			  NULL);
+	key = request_key_net(&key_type_rxrpc, cell->anonymous_key->description,
+			      cell->net->net, NULL);
+	if (IS_ERR(key)) {
+		if (PTR_ERR(key) != -ENOKEY) {
+			_leave(" = %ld", PTR_ERR(key));
+			return key;
+		}
+
+		/* act as anonymous user */
+		_leave(" = {%x} [anon]", key_serial(cell->anonymous_key));
+		return key_get(cell->anonymous_key);
+	} else {
+		/* act as authorised user */
+		_leave(" = {%x} [auth]", key_serial(key));
+		return key;
+	}
+}
+
+/*
+ * Get a key when pathwalk is in rcuwalk mode.
+ */
+struct key *afs_request_key_rcu(struct afs_cell *cell)
+{
+	struct key *key;
+
+	_enter("{%x}", key_serial(cell->anonymous_key));
+
+	_debug("key %s", cell->anonymous_key->description);
+	key = request_key_net_rcu(&key_type_rxrpc,
+				  cell->anonymous_key->description,
+				  cell->net->net);
 	if (IS_ERR(key)) {
 		if (PTR_ERR(key) != -ENOKEY) {
 			_leave(" = %ld", PTR_ERR(key));
@@ -141,8 +170,7 @@ void afs_cache_permit(struct afs_vnode *vnode, struct key *key,
 					break;
 				}
 
-				if (afs_cb_is_broken(cb_break, vnode,
-						     rcu_dereference(vnode->cb_interest))) {
+				if (afs_cb_is_broken(cb_break, vnode)) {
 					changed = true;
 					break;
 				}
@@ -172,7 +200,7 @@ void afs_cache_permit(struct afs_vnode *vnode, struct key *key,
 		}
 	}
 
-	if (afs_cb_is_broken(cb_break, vnode, rcu_dereference(vnode->cb_interest)))
+	if (afs_cb_is_broken(cb_break, vnode))
 		goto someone_else_changed_it;
 
 	/* We need a ref on any permits list we want to copy as we'll have to
@@ -252,8 +280,7 @@ found:
 	rcu_read_lock();
 	spin_lock(&vnode->lock);
 	zap = rcu_access_pointer(vnode->permit_cache);
-	if (!afs_cb_is_broken(cb_break, vnode, rcu_dereference(vnode->cb_interest)) &&
-	    zap == permits)
+	if (!afs_cb_is_broken(cb_break, vnode) && zap == permits)
 		rcu_assign_pointer(vnode->permit_cache, replacement);
 	else
 		zap = replacement;
@@ -272,6 +299,40 @@ someone_else_changed_it:
 	 */
 	rcu_read_unlock();
 	return;
+}
+
+static bool afs_check_permit_rcu(struct afs_vnode *vnode, struct key *key,
+				 afs_access_t *_access)
+{
+	const struct afs_permits *permits;
+	int i;
+
+	_enter("{%llx:%llu},%x",
+	       vnode->fid.vid, vnode->fid.vnode, key_serial(key));
+
+	/* check the permits to see if we've got one yet */
+	if (key == vnode->volume->cell->anonymous_key) {
+		*_access = vnode->status.anon_access;
+		_leave(" = t [anon %x]", *_access);
+		return true;
+	}
+
+	permits = rcu_dereference(vnode->permit_cache);
+	if (permits) {
+		for (i = 0; i < permits->nr_permits; i++) {
+			if (permits->permits[i].key < key)
+				continue;
+			if (permits->permits[i].key > key)
+				break;
+
+			*_access = permits->permits[i].access;
+			_leave(" = %u [perm %x]", !permits->invalidated, *_access);
+			return !permits->invalidated;
+		}
+	}
+
+	_leave(" = f");
+	return false;
 }
 
 /*
@@ -335,38 +396,48 @@ int afs_check_permit(struct afs_vnode *vnode, struct key *key,
  * - AFS ACLs are attached to directories only, and a file is controlled by its
  *   parent directory's ACL
  */
-int afs_permission(struct inode *inode, int mask)
+int afs_permission(struct user_namespace *mnt_userns, struct inode *inode,
+		   int mask)
 {
 	struct afs_vnode *vnode = AFS_FS_I(inode);
-	afs_access_t uninitialized_var(access);
+	afs_access_t access;
 	struct key *key;
-	int ret;
-
-	if (mask & MAY_NOT_BLOCK)
-		return -ECHILD;
+	int ret = 0;
 
 	_enter("{{%llx:%llu},%lx},%x,",
 	       vnode->fid.vid, vnode->fid.vnode, vnode->flags, mask);
 
-	key = afs_request_key(vnode->volume->cell);
-	if (IS_ERR(key)) {
-		_leave(" = %ld [key]", PTR_ERR(key));
-		return PTR_ERR(key);
+	if (mask & MAY_NOT_BLOCK) {
+		key = afs_request_key_rcu(vnode->volume->cell);
+		if (IS_ERR(key))
+			return -ECHILD;
+
+		ret = -ECHILD;
+		if (!afs_check_validity(vnode) ||
+		    !afs_check_permit_rcu(vnode, key, &access))
+			goto error;
+	} else {
+		key = afs_request_key(vnode->volume->cell);
+		if (IS_ERR(key)) {
+			_leave(" = %ld [key]", PTR_ERR(key));
+			return PTR_ERR(key);
+		}
+
+		ret = afs_validate(vnode, key);
+		if (ret < 0)
+			goto error;
+
+		/* check the permits to see if we've got one yet */
+		ret = afs_check_permit(vnode, key, &access);
+		if (ret < 0)
+			goto error;
 	}
-
-	ret = afs_validate(vnode, key);
-	if (ret < 0)
-		goto error;
-
-	/* check the permits to see if we've got one yet */
-	ret = afs_check_permit(vnode, key, &access);
-	if (ret < 0)
-		goto error;
 
 	/* interpret the access mask */
 	_debug("REQ %x ACC %x on %s",
 	       mask, access, S_ISDIR(inode->i_mode) ? "dir" : "file");
 
+	ret = 0;
 	if (S_ISDIR(inode->i_mode)) {
 		if (mask & (MAY_EXEC | MAY_READ | MAY_CHDIR)) {
 			if (!(access & AFS_ACE_LOOKUP))

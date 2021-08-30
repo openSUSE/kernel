@@ -6,7 +6,7 @@
  * Copyright (C) 2014 Pavel Machek <pavel@denx.de>
  *
  * You can get hardware description at
- * http://www.ti.com/lit/ds/symlink/bq32000.pdf
+ * https://www.ti.com/lit/ds/symlink/bq32000.pdf
  */
 
 #include <linux/module.h>
@@ -311,7 +311,7 @@ static const struct i2c_device_id bq32k_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, bq32k_id);
 
-static const struct of_device_id bq32k_of_match[] = {
+static const __maybe_unused struct of_device_id bq32k_of_match[] = {
 	{ .compatible = "ti,bq32000" },
 	{ }
 };

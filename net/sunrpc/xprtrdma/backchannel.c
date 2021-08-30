@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (c) 2015 Oracle.  All rights reserved.
+ * Copyright (c) 2015-2020, Oracle and/or its affiliates.
  *
- * Support for backward direction RPCs on RPC/RDMA.
+ * Support for reverse-direction RPCs on RPC/RDMA.
  */
 
 #include <linux/sunrpc/xprt.h>
@@ -44,10 +44,10 @@ int xprt_rdma_bc_setup(struct rpc_xprt *xprt, unsigned int reqs)
 size_t xprt_rdma_bc_maxpayload(struct rpc_xprt *xprt)
 {
 	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(xprt);
-	struct rpcrdma_ep *ep = &r_xprt->rx_ep;
+	struct rpcrdma_ep *ep = r_xprt->rx_ep;
 	size_t maxmsg;
 
-	maxmsg = min_t(unsigned int, ep->rep_inline_send, ep->rep_inline_recv);
+	maxmsg = min_t(unsigned int, ep->re_inline_send, ep->re_inline_recv);
 	maxmsg = min_t(unsigned int, maxmsg, PAGE_SIZE);
 	return maxmsg - RPCRDMA_HDRLEN_MIN;
 }
@@ -82,7 +82,7 @@ static int rpcrdma_bc_marshal_reply(struct rpc_rqst *rqst)
 				      &rqst->rq_snd_buf, rpcrdma_noch_pullup))
 		return -EIO;
 
-	trace_xprtrdma_cb_reply(rqst);
+	trace_xprtrdma_cb_reply(r_xprt, rqst);
 	return 0;
 }
 
@@ -115,7 +115,7 @@ int xprt_rdma_bc_send_reply(struct rpc_rqst *rqst)
 	if (rc < 0)
 		goto failed_marshal;
 
-	if (rpcrdma_ep_post(&r_xprt->rx_ia, &r_xprt->rx_ep, req))
+	if (rpcrdma_post_sends(r_xprt, req))
 		goto drop_connection;
 	return 0;
 
@@ -155,9 +155,11 @@ void xprt_rdma_bc_destroy(struct rpc_xprt *xprt, unsigned int reqs)
 void xprt_rdma_bc_free_rqst(struct rpc_rqst *rqst)
 {
 	struct rpcrdma_req *req = rpcr_to_rdmar(rqst);
+	struct rpcrdma_rep *rep = req->rl_reply;
 	struct rpc_xprt *xprt = rqst->rq_xprt;
+	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(xprt);
 
-	rpcrdma_recv_buffer_put(req->rl_reply);
+	rpcrdma_rep_put(&r_xprt->rx_buf, rep);
 	req->rl_reply = NULL;
 
 	spin_lock(&xprt->bc_pa_lock);
@@ -190,10 +192,14 @@ create_req:
 	if (xprt->bc_alloc_count >= RPCRDMA_BACKWARD_WRS)
 		return NULL;
 
-	size = min_t(size_t, r_xprt->rx_ep.rep_inline_recv, PAGE_SIZE);
+	size = min_t(size_t, r_xprt->rx_ep->re_inline_recv, PAGE_SIZE);
 	req = rpcrdma_req_create(r_xprt, size, GFP_KERNEL);
 	if (!req)
 		return NULL;
+	if (rpcrdma_req_setup(r_xprt, req)) {
+		rpcrdma_req_destroy(req);
+		return NULL;
+	}
 
 	xprt->bc_alloc_count++;
 	rqst = &req->rl_slot;
@@ -204,7 +210,7 @@ create_req:
 }
 
 /**
- * rpcrdma_bc_receive_call - Handle a backward direction call
+ * rpcrdma_bc_receive_call - Handle a reverse-direction Call
  * @r_xprt: transport receiving the call
  * @rep: receive buffer containing the call
  *
@@ -256,7 +262,7 @@ void rpcrdma_bc_receive_call(struct rpcrdma_xprt *r_xprt,
 	 */
 	req = rpcr_to_rdmar(rqst);
 	req->rl_reply = rep;
-	trace_xprtrdma_cb_call(rqst);
+	trace_xprtrdma_cb_call(r_xprt, rqst);
 
 	/* Queue rqst for ULP's callback service */
 	bc_serv = xprt->bc_serv;

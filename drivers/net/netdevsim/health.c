@@ -235,15 +235,10 @@ static ssize_t nsim_dev_health_break_write(struct file *file,
 	char *break_msg;
 	int err;
 
-	break_msg = kmalloc(count + 1, GFP_KERNEL);
-	if (!break_msg)
-		return -ENOMEM;
+	break_msg = memdup_user_nul(data, count);
+	if (IS_ERR(break_msg))
+		return PTR_ERR(break_msg);
 
-	if (copy_from_user(break_msg, data, count)) {
-		err = -EFAULT;
-		goto out;
-	}
-	break_msg[count] = '\0';
 	if (break_msg[count - 1] == '\n')
 		break_msg[count - 1] = '\0';
 
@@ -261,6 +256,7 @@ static const struct file_operations nsim_dev_health_break_fops = {
 	.open = simple_open,
 	.write = nsim_dev_health_break_write,
 	.llseek = generic_file_llseek,
+	.owner = THIS_MODULE,
 };
 
 int nsim_dev_health_init(struct nsim_dev *nsim_dev, struct devlink *devlink)

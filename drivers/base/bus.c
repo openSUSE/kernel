@@ -9,6 +9,7 @@
  */
 
 #include <linux/async.h>
+#include <linux/device/bus.h>
 #include <linux/device.h>
 #include <linux/module.h>
 #include <linux/errno.h>
@@ -209,15 +210,11 @@ static ssize_t bind_store(struct device_driver *drv, const char *buf,
 	int err = -ENODEV;
 
 	dev = bus_find_device_by_name(bus, NULL, buf);
-	if (dev && dev->driver == NULL && driver_match_device(drv, dev)) {
+	if (dev && driver_match_device(drv, dev)) {
 		err = device_driver_attach(drv, dev);
-
-		if (err > 0) {
+		if (!err) {
 			/* success */
 			err = count;
-		} else if (err == 0) {
-			/* driver didn't accept device */
-			err = -ENODEV;
 		}
 	}
 	put_device(dev);
@@ -228,7 +225,7 @@ static DRIVER_ATTR_IGNORE_LOCKDEP(bind, S_IWUSR, NULL, bind_store);
 
 static ssize_t drivers_autoprobe_show(struct bus_type *bus, char *buf)
 {
-	return sprintf(buf, "%d\n", bus->p->drivers_autoprobe);
+	return sysfs_emit(buf, "%d\n", bus->p->drivers_autoprobe);
 }
 
 static ssize_t drivers_autoprobe_store(struct bus_type *bus,
@@ -632,7 +629,7 @@ int bus_add_driver(struct device_driver *drv)
 	error = driver_add_groups(drv, bus->drv_groups);
 	if (error) {
 		/* How the hell do we get out of this pickle? Give up */
-		printk(KERN_ERR "%s: driver_create_groups(%s) failed\n",
+		printk(KERN_ERR "%s: driver_add_groups(%s) failed\n",
 			__func__, drv->name);
 	}
 
@@ -727,23 +724,6 @@ int device_reprobe(struct device *dev)
 	return bus_rescan_devices_helper(dev, NULL);
 }
 EXPORT_SYMBOL_GPL(device_reprobe);
-
-/**
- * find_bus - locate bus by name.
- * @name: name of bus.
- *
- * Call kset_find_obj() to iterate over list of buses to
- * find a bus by name. Return bus if found.
- *
- * Note that kset_find_obj increments bus' reference count.
- */
-#if 0
-struct bus_type *find_bus(char *name)
-{
-	struct kobject *k = kset_find_obj(bus_kset, name);
-	return k ? to_bus(k) : NULL;
-}
-#endif  /*  0  */
 
 static int bus_add_groups(struct bus_type *bus,
 			  const struct attribute_group **groups)

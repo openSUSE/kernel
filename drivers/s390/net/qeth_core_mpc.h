@@ -437,7 +437,7 @@ struct qeth_ipacmd_setassparms {
 	} data;
 } __attribute__ ((packed));
 
-#define SETASS_DATA_SIZEOF(field) FIELD_SIZEOF(struct qeth_ipacmd_setassparms,\
+#define SETASS_DATA_SIZEOF(field) sizeof_field(struct qeth_ipacmd_setassparms,\
 					       data.field)
 
 /* SETRTG IPA Command:    ****************************************************/
@@ -489,9 +489,45 @@ struct qeth_set_access_ctrl {
 	__u8 reserved[8];
 } __attribute__((packed));
 
+#define QETH_QOAT_PHYS_SPEED_UNKNOWN		0x00
+#define QETH_QOAT_PHYS_SPEED_10M_HALF		0x01
+#define QETH_QOAT_PHYS_SPEED_10M_FULL		0x02
+#define QETH_QOAT_PHYS_SPEED_100M_HALF		0x03
+#define QETH_QOAT_PHYS_SPEED_100M_FULL		0x04
+#define QETH_QOAT_PHYS_SPEED_1000M_HALF		0x05
+#define QETH_QOAT_PHYS_SPEED_1000M_FULL		0x06
+// n/a						0x07
+#define QETH_QOAT_PHYS_SPEED_10G_FULL		0x08
+// n/a						0x09
+#define QETH_QOAT_PHYS_SPEED_25G_FULL		0x0A
+
+#define QETH_QOAT_PHYS_MEDIA_COPPER		0x01
+#define QETH_QOAT_PHYS_MEDIA_FIBRE_SHORT	0x02
+#define QETH_QOAT_PHYS_MEDIA_FIBRE_LONG		0x04
+
+struct qeth_query_oat_physical_if {
+	u8 res_head[33];
+	u8 speed_duplex;
+	u8 media_type;
+	u8 res_tail[29];
+};
+
+#define QETH_QOAT_REPLY_TYPE_PHYS_IF		0x0004
+
+struct qeth_query_oat_reply {
+	u16 type;
+	u16 length;
+	u16 version;
+	u8 res[10];
+	struct qeth_query_oat_physical_if phys_if;
+};
+
+#define QETH_QOAT_SCOPE_INTERFACE		0x00000001
+
 struct qeth_query_oat {
-	__u32 subcmd_code;
-	__u8 reserved[12];
+	u32 subcmd_code;
+	u8 reserved[12];
+	struct qeth_query_oat_reply reply[];
 } __packed;
 
 struct qeth_qoat_priv {
@@ -551,7 +587,7 @@ struct qeth_ipacmd_setadpparms {
 	} data;
 } __attribute__ ((packed));
 
-#define SETADP_DATA_SIZEOF(field) FIELD_SIZEOF(struct qeth_ipacmd_setadpparms,\
+#define SETADP_DATA_SIZEOF(field) sizeof_field(struct qeth_ipacmd_setadpparms,\
 					       data.field)
 
 /* CREATE_ADDR IPA Command:    ***********************************************/
@@ -665,7 +701,7 @@ struct qeth_ipacmd_vnicc {
 	} data;
 };
 
-#define VNICC_DATA_SIZEOF(field)	FIELD_SIZEOF(struct qeth_ipacmd_vnicc,\
+#define VNICC_DATA_SIZEOF(field)	sizeof_field(struct qeth_ipacmd_vnicc,\
 						     data.field)
 
 /* SETBRIDGEPORT IPA Command:	 *********************************************/
@@ -738,7 +774,7 @@ struct qeth_ipacmd_setbridgeport {
 	} data;
 } __packed;
 
-#define SBP_DATA_SIZEOF(field)	FIELD_SIZEOF(struct qeth_ipacmd_setbridgeport,\
+#define SBP_DATA_SIZEOF(field)	sizeof_field(struct qeth_ipacmd_setbridgeport,\
 					     data.field)
 
 /* ADDRESS_CHANGE_NOTIFICATION adapter-initiated "command" *******************/
@@ -823,7 +859,7 @@ struct qeth_ipa_cmd {
 	} data;
 } __attribute__ ((packed));
 
-#define IPA_DATA_SIZEOF(field)	FIELD_SIZEOF(struct qeth_ipa_cmd, data.field)
+#define IPA_DATA_SIZEOF(field)	sizeof_field(struct qeth_ipa_cmd, data.field)
 
 /*
  * special command for ARP processing.

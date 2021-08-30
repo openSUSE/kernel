@@ -6,15 +6,16 @@
  * Author: Matt Ranostay <matt.ranostay@konsulko.com>
  *
  * Datasheets:
- * http://www.ti.com/product/HDC1000/datasheet
- * http://www.ti.com/product/HDC1008/datasheet
- * http://www.ti.com/product/HDC1010/datasheet
- * http://www.ti.com/product/HDC1050/datasheet
- * http://www.ti.com/product/HDC1080/datasheet
+ * https://www.ti.com/product/HDC1000/datasheet
+ * https://www.ti.com/product/HDC1008/datasheet
+ * https://www.ti.com/product/HDC1010/datasheet
+ * https://www.ti.com/product/HDC1050/datasheet
+ * https://www.ti.com/product/HDC1080/datasheet
  */
 
 #include <linux/delay.h>
 #include <linux/module.h>
+#include <linux/mod_devicetable.h>
 #include <linux/init.h>
 #include <linux/i2c.h>
 
@@ -290,21 +291,14 @@ static int hdc100x_buffer_postenable(struct iio_dev *indio_dev)
 	ret = hdc100x_update_config(data, HDC100X_REG_CONFIG_ACQ_MODE,
 				    HDC100X_REG_CONFIG_ACQ_MODE);
 	mutex_unlock(&data->lock);
-	if (ret)
-		return ret;
 
-	return iio_triggered_buffer_postenable(indio_dev);
+	return ret;
 }
 
 static int hdc100x_buffer_predisable(struct iio_dev *indio_dev)
 {
 	struct hdc100x_data *data = iio_priv(indio_dev);
 	int ret;
-
-	/* First detach poll func, then reset ACQ mode. OK to disable buffer */
-	ret = iio_triggered_buffer_predisable(indio_dev);
-	if (ret)
-		return ret;
 
 	mutex_lock(&data->lock);
 	ret = hdc100x_update_config(data, HDC100X_REG_CONFIG_ACQ_MODE, 0);
@@ -377,7 +371,6 @@ static int hdc100x_probe(struct i2c_client *client,
 	data->client = client;
 	mutex_init(&data->lock);
 
-	indio_dev->dev.parent = &client->dev;
 	indio_dev->name = dev_name(&client->dev);
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->info = &hdc100x_info;
@@ -391,28 +384,16 @@ static int hdc100x_probe(struct i2c_client *client,
 	hdc100x_set_it_time(data, 1, hdc100x_int_time[1][0]);
 	hdc100x_update_config(data, HDC100X_REG_CONFIG_ACQ_MODE, 0);
 
-	ret = iio_triggered_buffer_setup(indio_dev, NULL,
+	ret = devm_iio_triggered_buffer_setup(&client->dev,
+					 indio_dev, NULL,
 					 hdc100x_trigger_handler,
 					 &hdc_buffer_setup_ops);
 	if (ret < 0) {
 		dev_err(&client->dev, "iio triggered buffer setup failed\n");
 		return ret;
 	}
-	ret = iio_device_register(indio_dev);
-	if (ret < 0)
-		iio_triggered_buffer_cleanup(indio_dev);
 
-	return ret;
-}
-
-static int hdc100x_remove(struct i2c_client *client)
-{
-	struct iio_dev *indio_dev = i2c_get_clientdata(client);
-
-	iio_device_unregister(indio_dev);
-	iio_triggered_buffer_cleanup(indio_dev);
-
-	return 0;
+	return devm_iio_device_register(&client->dev, indio_dev);
 }
 
 static const struct i2c_device_id hdc100x_id[] = {
@@ -439,10 +420,9 @@ MODULE_DEVICE_TABLE(of, hdc100x_dt_ids);
 static struct i2c_driver hdc100x_driver = {
 	.driver = {
 		.name	= "hdc100x",
-		.of_match_table = of_match_ptr(hdc100x_dt_ids),
+		.of_match_table = hdc100x_dt_ids,
 	},
 	.probe = hdc100x_probe,
-	.remove = hdc100x_remove,
 	.id_table = hdc100x_id,
 };
 module_i2c_driver(hdc100x_driver);

@@ -10,7 +10,7 @@
 
 static void seg_show(struct seq_file *m, int i)
 {
-	u32 val = mfsrin(i << 28);
+	u32 val = mfsr(i << 28);
 
 	seq_printf(m, "0x%01x0000000-0x%01xfffffff ", i, i);
 	seq_printf(m, "Kern key %d ", (val >> 30) & 1);
@@ -55,10 +55,8 @@ static const struct file_operations sr_fops = {
 
 static int __init sr_init(void)
 {
-	struct dentry *debugfs_file;
-
-	debugfs_file = debugfs_create_file("segment_registers", 0400,
-					   powerpc_debugfs_root, NULL, &sr_fops);
-	return debugfs_file ? 0 : -ENOMEM;
+	debugfs_create_file("segment_registers", 0400, powerpc_debugfs_root,
+			    NULL, &sr_fops);
+	return 0;
 }
 device_initcall(sr_init);

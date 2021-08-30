@@ -8,7 +8,8 @@ Overview
 ========
 
 phylink is a mechanism to support hot-pluggable networking modules
-without needing to re-initialise the adapter on hot-plug events.
+directly connected to a MAC without needing to re-initialise the
+adapter on hot-plug events.
 
 phylink supports conventional phylib-based setups, fixed link setups
 and SFP (Small Formfactor Pluggable) modules at present.
@@ -137,32 +138,32 @@ this documentation.
 
    .. code-block:: c
 
-    static int foo_ethtool_set_link_ksettings(struct net_device *dev,
-					     const struct ethtool_link_ksettings *cmd)
-    {
-	struct foo_priv *priv = netdev_priv(dev);
+	static int foo_ethtool_set_link_ksettings(struct net_device *dev,
+						  const struct ethtool_link_ksettings *cmd)
+	{
+		struct foo_priv *priv = netdev_priv(dev);
+	
+		return phylink_ethtool_ksettings_set(priv->phylink, cmd);
+	}
 
-	return phylink_ethtool_ksettings_set(priv->phylink, cmd);
-    }
+	static int foo_ethtool_get_link_ksettings(struct net_device *dev,
+						  struct ethtool_link_ksettings *cmd)
+	{
+		struct foo_priv *priv = netdev_priv(dev);
+	
+		return phylink_ethtool_ksettings_get(priv->phylink, cmd);
+	}
 
-    static int foo_ethtool_get_link_ksettings(struct net_device *dev,
-					     struct ethtool_link_ksettings *cmd)
-    {
-	struct foo_priv *priv = netdev_priv(dev);
-
-	return phylink_ethtool_ksettings_get(priv->phylink, cmd);
-    }
-
-7. Replace the call to:
+7. Replace the call to::
 
 	phy_dev = of_phy_connect(dev, node, link_func, flags, phy_interface);
 
-   and associated code with a call to:
+   and associated code with a call to::
 
 	err = phylink_of_phy_connect(priv->phylink, node, flags);
 
    For the most part, ``flags`` can be zero; these flags are passed to
-   the of_phy_attach() inside this function call if a PHY is specified
+   the phy_attach_direct() inside this function call if a PHY is specified
    in the DT node ``node``.
 
    ``node`` should be the DT node which contains the network phy property,

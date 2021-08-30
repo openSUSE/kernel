@@ -554,7 +554,7 @@ static irqreturn_t altera_isr(int irq, void *dev_id)
  * physically contiguous fragment starting at
  * skb->data, for length of skb_headlen(skb).
  */
-static int tse_start_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t tse_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct altera_tse_private *priv = netdev_priv(dev);
 	unsigned int txsize = priv->tx_ring_size;
@@ -562,7 +562,7 @@ static int tse_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct tse_buffer *buffer = NULL;
 	int nfrags = skb_shinfo(skb)->nr_frags;
 	unsigned int nopaged_len = skb_headlen(skb);
-	enum netdev_tx ret = NETDEV_TX_OK;
+	netdev_tx_t ret = NETDEV_TX_OK;
 	dma_addr_t dma_addr;
 
 	spin_lock_bh(&priv->tx_lock);
@@ -1332,10 +1332,10 @@ static int request_and_map(struct platform_device *pdev, const char *name,
 		return -EBUSY;
 	}
 
-	*ptr = devm_ioremap_nocache(device, region->start,
+	*ptr = devm_ioremap(device, region->start,
 				    resource_size(region));
 	if (*ptr == NULL) {
-		dev_err(device, "ioremap_nocache of %s failed!", name);
+		dev_err(device, "ioremap of %s failed!", name);
 		return -ENOMEM;
 	}
 
@@ -1351,7 +1351,6 @@ static int altera_tse_probe(struct platform_device *pdev)
 	struct resource *control_port;
 	struct resource *dma_res;
 	struct altera_tse_private *priv;
-	const unsigned char *macaddr;
 	void __iomem *descmap;
 	const struct of_device_id *of_id = NULL;
 
@@ -1525,10 +1524,8 @@ static int altera_tse_probe(struct platform_device *pdev)
 	priv->rx_dma_buf_sz = ALTERA_RXDMABUFFER_SIZE;
 
 	/* get default MAC address from device tree */
-	macaddr = of_get_mac_address(pdev->dev.of_node);
-	if (!IS_ERR(macaddr))
-		ether_addr_copy(ndev->dev_addr, macaddr);
-	else
+	ret = of_get_mac_address(pdev->dev.of_node, ndev->dev_addr);
+	if (ret)
 		eth_hw_addr_random(ndev);
 
 	/* get phy addr and create mdio */

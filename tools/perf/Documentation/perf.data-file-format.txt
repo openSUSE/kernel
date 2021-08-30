@@ -298,16 +298,21 @@ Physical memory map and its node assignments.
 
 The format of data in MEM_TOPOLOGY is as follows:
 
-   0 - version          | for future changes
-   8 - block_size_bytes | /sys/devices/system/memory/block_size_bytes
-  16 - count            | number of nodes
+	u64 version;            // Currently 1
+	u64 block_size_bytes;   // /sys/devices/system/memory/block_size_bytes
+	u64 count;              // number of nodes
 
-For each node we store map of physical indexes:
-
-  32 - node id          | node index
-  40 - size             | size of bitmap
-  48 - bitmap           | bitmap of memory indexes that belongs to node
-                        | /sys/devices/system/node/node<NODE>/memory<INDEX>
+struct memory_node {
+        u64 node_id;            // node index
+        u64 size;               // size of bitmap
+        struct bitmap {
+		/* size of bitmap again */
+                u64 bitmapsize;
+		/* bitmap of memory indexes that belongs to node     */
+		/* /sys/devices/system/node/node<NODE>/memory<INDEX> */
+                u64 entries[(bitmapsize/64)+1];
+        }
+}[count];
 
 The MEM_TOPOLOGY can be displayed with following command:
 
@@ -367,6 +372,68 @@ struct {
 
 Indicates that trace contains records of PERF_RECORD_COMPRESSED type
 that have perf_events records in compressed form.
+
+	HEADER_CPU_PMU_CAPS = 28,
+
+	A list of cpu PMU capabilities. The format of data is as below.
+
+struct {
+	u32 nr_cpu_pmu_caps;
+	{
+		char	name[];
+		char	value[];
+	} [nr_cpu_pmu_caps]
+};
+
+
+Example:
+ cpu pmu capabilities: branches=32, max_precise=3, pmu_name=icelake
+
+	HEADER_CLOCK_DATA = 29,
+
+	Contains clock id and its reference time together with wall clock
+	time taken at the 'same time', both values are in nanoseconds.
+	The format of data is as below.
+
+struct {
+	u32 version;  /* version = 1 */
+	u32 clockid;
+	u64 wall_clock_ns;
+	u64 clockid_time_ns;
+};
+
+	HEADER_HYBRID_TOPOLOGY = 30,
+
+Indicate the hybrid CPUs. The format of data is as below.
+
+struct {
+	u32 nr;
+	struct {
+		char pmu_name[];
+		char cpus[];
+	} [nr]; /* Variable length records */
+};
+
+Example:
+  hybrid cpu system:
+  cpu_core cpu list : 0-15
+  cpu_atom cpu list : 16-23
+
+	HEADER_HYBRID_CPU_PMU_CAPS = 31,
+
+	A list of hybrid CPU PMU capabilities.
+
+struct {
+	u32 nr_pmu;
+	struct {
+		u32 nr_cpu_pmu_caps;
+		{
+			char	name[];
+			char	value[];
+		} [nr_cpu_pmu_caps];
+		char pmu_name[];
+	} [nr_pmu];
+};
 
 	other bits are reserved and should ignored for now
 	HEADER_FEAT_BITS	= 256,

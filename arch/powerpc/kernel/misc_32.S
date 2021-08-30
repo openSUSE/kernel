@@ -28,45 +28,6 @@
 	.text
 
 /*
- * We store the saved ksp_limit in the unused part
- * of the STACK_FRAME_OVERHEAD
- */
-_GLOBAL(call_do_softirq)
-	mflr	r0
-	stw	r0,4(r1)
-	lwz	r10,THREAD+KSP_LIMIT(r2)
-	stw	r3, THREAD+KSP_LIMIT(r2)
-	stwu	r1,THREAD_SIZE-STACK_FRAME_OVERHEAD(r3)
-	mr	r1,r3
-	stw	r10,8(r1)
-	bl	__do_softirq
-	lwz	r10,8(r1)
-	lwz	r1,0(r1)
-	lwz	r0,4(r1)
-	stw	r10,THREAD+KSP_LIMIT(r2)
-	mtlr	r0
-	blr
-
-/*
- * void call_do_irq(struct pt_regs *regs, void *sp);
- */
-_GLOBAL(call_do_irq)
-	mflr	r0
-	stw	r0,4(r1)
-	lwz	r10,THREAD+KSP_LIMIT(r2)
-	stw	r4, THREAD+KSP_LIMIT(r2)
-	stwu	r1,THREAD_SIZE-STACK_FRAME_OVERHEAD(r4)
-	mr	r1,r4
-	stw	r10,8(r1)
-	bl	__do_irq
-	lwz	r10,8(r1)
-	lwz	r1,0(r1)
-	lwz	r0,4(r1)
-	stw	r10,THREAD+KSP_LIMIT(r2)
-	mtlr	r0
-	blr
-
-/*
  * This returns the high 64 bits of the product of two 64-bit numbers.
  */
 _GLOBAL(mulhdu)
@@ -215,19 +176,6 @@ _GLOBAL(low_choose_7447a_dfs)
 
 #endif /* CONFIG_CPU_FREQ_PMAC && CONFIG_PPC_BOOK3S_32 */
 
-/*
- * complement mask on the msr then "or" some values on.
- *     _nmask_and_or_msr(nmask, value_to_or)
- */
-_GLOBAL(_nmask_and_or_msr)
-	mfmsr	r0		/* Get current msr */
-	andc	r0,r0,r3	/* And off the bits set in r3 (first parm) */
-	or	r0,r0,r4	/* Or on the bits in r4 (second parm) */
-	SYNC			/* Some chip revs have problems here... */
-	mtmsr	r0		/* Update machine state */
-	isync
-	blr			/* Done */
-
 #ifdef CONFIG_40x
 
 /*
@@ -268,52 +216,6 @@ _ASM_NOKPROBE_SYMBOL(real_writeb)
 
 #endif /* CONFIG_40x */
 
-
-/*
- * Flush instruction cache.
- * This is a no-op on the 601.
- */
-#ifndef CONFIG_PPC_8xx
-_GLOBAL(flush_instruction_cache)
-#if defined(CONFIG_4xx)
-#ifdef CONFIG_403GCX
-	li      r3, 512
-	mtctr   r3
-	lis     r4, KERNELBASE@h
-1:	iccci   0, r4
-	addi    r4, r4, 16
-	bdnz    1b
-#else
-	lis	r3, KERNELBASE@h
-	iccci	0,r3
-#endif
-#elif defined(CONFIG_FSL_BOOKE)
-BEGIN_FTR_SECTION
-	mfspr   r3,SPRN_L1CSR0
-	ori     r3,r3,L1CSR0_CFI|L1CSR0_CLFC
-	/* msync; isync recommended here */
-	mtspr   SPRN_L1CSR0,r3
-	isync
-	blr
-END_FTR_SECTION_IFSET(CPU_FTR_UNIFIED_ID_CACHE)
-	mfspr	r3,SPRN_L1CSR1
-	ori	r3,r3,L1CSR1_ICFI|L1CSR1_ICLFR
-	mtspr	SPRN_L1CSR1,r3
-#else
-	mfspr	r3,SPRN_PVR
-	rlwinm	r3,r3,16,16,31
-	cmpwi	0,r3,1
-	beqlr			/* for 601, do nothing */
-	/* 603/604 processor - use invalidate-all bit in HID0 */
-	mfspr	r3,SPRN_HID0
-	ori	r3,r3,HID0_ICFI
-	mtspr	SPRN_HID0,r3
-#endif /* CONFIG_4xx */
-	isync
-	blr
-EXPORT_SYMBOL(flush_instruction_cache)
-#endif /* CONFIG_PPC_8xx */
-
 /*
  * Copy a whole page.  We use the dcbz instruction on the destination
  * to reduce memory traffic (it eliminates the unnecessary reads of
@@ -331,7 +233,12 @@ EXPORT_SYMBOL(flush_instruction_cache)
 	stwu	r9,16(r3)
 
 _GLOBAL(copy_page)
+	rlwinm	r5, r3, 0, L1_CACHE_BYTES - 1
 	addi	r3,r3,-4
+
+0:	twnei	r5, 0	/* WARN if r3 is not cache aligned */
+	EMIT_BUG_ENTRY 0b,__FILE__,__LINE__, BUGFLAG_WARNING
+
 	addi	r4,r4,-4
 
 	li	r5,4
@@ -481,9 +388,3 @@ _GLOBAL(start_secondary_resume)
 	bl	start_secondary
 	b	.
 #endif /* CONFIG_SMP */
-	
-/*
- * This routine is just here to keep GCC happy - sigh...
- */
-_GLOBAL(__main)
-	blr

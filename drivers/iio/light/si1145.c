@@ -17,7 +17,6 @@
 #include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/irq.h>
-#include <linux/gpio.h>
 
 #include <linux/iio/iio.h>
 #include <linux/iio/sysfs.h>
@@ -191,7 +190,7 @@ struct si1145_data {
 	u8 buffer[24] __aligned(8);
 };
 
-/**
+/*
  * __si1145_command_reset() - Send CMD_NOP and wait for response 0
  *
  * Does not modify data->rsp_seq
@@ -225,7 +224,7 @@ static int __si1145_command_reset(struct si1145_data *data)
 	}
 }
 
-/**
+/*
  * si1145_command() - Execute a command and poll the response register
  *
  * All conversion overflows are reported as -EOVERFLOW
@@ -272,7 +271,7 @@ static int si1145_command(struct si1145_data *data, u8 cmd)
 		if ((ret & ~SI1145_RSP_COUNTER_MASK) == 0) {
 			if (ret == data->rsp_seq) {
 				if (time_after(jiffies, stop_jiffies)) {
-					dev_warn(dev, "timeout on command %#02hhx\n",
+					dev_warn(dev, "timeout on command 0x%02x\n",
 						 cmd);
 					ret = -ETIMEDOUT;
 					break;
@@ -292,12 +291,12 @@ static int si1145_command(struct si1145_data *data, u8 cmd)
 			ret = -EIO;
 		} else {
 			if (ret == SI1145_RSP_INVALID_SETTING) {
-				dev_warn(dev, "INVALID_SETTING error on command %#02hhx\n",
+				dev_warn(dev, "INVALID_SETTING error on command 0x%02x\n",
 					 cmd);
 				ret = -EINVAL;
 			} else {
 				/* All overflows are treated identically */
-				dev_dbg(dev, "overflow, ret=%d, cmd=%#02hhx\n",
+				dev_dbg(dev, "overflow, ret=%d, cmd=0x%02x\n",
 					ret, cmd);
 				ret = -EOVERFLOW;
 			}
@@ -1046,7 +1045,7 @@ static int si1145_initialize(struct si1145_data *data)
 						SI1145_LED_CURRENT_45mA);
 		if (ret < 0)
 			return ret;
-		/* fallthrough */
+		fallthrough;
 	case 2:
 		ret = i2c_smbus_write_byte_data(client,
 						SI1145_REG_PS_LED21,
@@ -1175,12 +1174,10 @@ static bool si1145_validate_scan_mask(struct iio_dev *indio_dev,
 
 static const struct iio_buffer_setup_ops si1145_buffer_setup_ops = {
 	.preenable = si1145_buffer_preenable,
-	.postenable = iio_triggered_buffer_postenable,
-	.predisable = iio_triggered_buffer_predisable,
 	.validate_scan_mask = si1145_validate_scan_mask,
 };
 
-/**
+/*
  * si1145_trigger_set_state() - Set trigger state
  *
  * When not using triggers interrupts are disabled and measurement rate is
@@ -1246,11 +1243,10 @@ static int si1145_probe_trigger(struct iio_dev *indio_dev)
 	int ret;
 
 	trig = devm_iio_trigger_alloc(&client->dev,
-			"%s-dev%d", indio_dev->name, indio_dev->id);
+			"%s-dev%d", indio_dev->name, iio_device_id(indio_dev));
 	if (!trig)
 		return -ENOMEM;
 
-	trig->dev.parent = &client->dev;
 	trig->ops = &si1145_trigger_ops;
 	iio_trigger_set_drvdata(trig, indio_dev);
 
@@ -1264,7 +1260,7 @@ static int si1145_probe_trigger(struct iio_dev *indio_dev)
 		return ret;
 	}
 
-	ret = iio_trigger_register(trig);
+	ret = devm_iio_trigger_register(&client->dev, trig);
 	if (ret)
 		return ret;
 
@@ -1272,16 +1268,6 @@ static int si1145_probe_trigger(struct iio_dev *indio_dev)
 	indio_dev->trig = iio_trigger_get(data->trig);
 
 	return 0;
-}
-
-static void si1145_remove_trigger(struct iio_dev *indio_dev)
-{
-	struct si1145_data *data = iio_priv(indio_dev);
-
-	if (data->trig) {
-		iio_trigger_unregister(data->trig);
-		data->trig = NULL;
-	}
 }
 
 static int si1145_probe(struct i2c_client *client,
@@ -1313,15 +1299,14 @@ static int si1145_probe(struct i2c_client *client,
 						SI1145_REG_SEQ_ID);
 	if (ret < 0)
 		return ret;
-	dev_info(&client->dev, "device ID part %#02hhx rev %#02hhx seq %#02hhx\n",
+	dev_info(&client->dev, "device ID part 0x%02x rev 0x%02x seq 0x%02x\n",
 			part_id, rev_id, seq_id);
 	if (part_id != data->part_info->part) {
-		dev_err(&client->dev, "part ID mismatch got %#02hhx, expected %#02x\n",
+		dev_err(&client->dev, "part ID mismatch got 0x%02x, expected 0x%02x\n",
 				part_id, data->part_info->part);
 		return -ENODEV;
 	}
 
-	indio_dev->dev.parent = &client->dev;
 	indio_dev->name = id->name;
 	indio_dev->channels = data->part_info->channels;
 	indio_dev->num_channels = data->part_info->num_channels;
@@ -1335,7 +1320,8 @@ static int si1145_probe(struct i2c_client *client,
 	if (ret < 0)
 		return ret;
 
-	ret = iio_triggered_buffer_setup(indio_dev, NULL,
+	ret = devm_iio_triggered_buffer_setup(&client->dev,
+		indio_dev, NULL,
 		si1145_trigger_handler, &si1145_buffer_setup_ops);
 	if (ret < 0)
 		return ret;
@@ -1343,23 +1329,12 @@ static int si1145_probe(struct i2c_client *client,
 	if (client->irq) {
 		ret = si1145_probe_trigger(indio_dev);
 		if (ret < 0)
-			goto error_free_buffer;
+			return ret;
 	} else {
 		dev_info(&client->dev, "no irq, using polling\n");
 	}
 
-	ret = iio_device_register(indio_dev);
-	if (ret < 0)
-		goto error_free_trigger;
-
-	return 0;
-
-error_free_trigger:
-	si1145_remove_trigger(indio_dev);
-error_free_buffer:
-	iio_triggered_buffer_cleanup(indio_dev);
-
-	return ret;
+	return devm_iio_device_register(&client->dev, indio_dev);
 }
 
 static const struct i2c_device_id si1145_ids[] = {
@@ -1374,23 +1349,11 @@ static const struct i2c_device_id si1145_ids[] = {
 };
 MODULE_DEVICE_TABLE(i2c, si1145_ids);
 
-static int si1145_remove(struct i2c_client *client)
-{
-	struct iio_dev *indio_dev = i2c_get_clientdata(client);
-
-	iio_device_unregister(indio_dev);
-	si1145_remove_trigger(indio_dev);
-	iio_triggered_buffer_cleanup(indio_dev);
-
-	return 0;
-}
-
 static struct i2c_driver si1145_driver = {
 	.driver = {
 		.name   = "si1145",
 	},
 	.probe  = si1145_probe,
-	.remove = si1145_remove,
 	.id_table = si1145_ids,
 };
 

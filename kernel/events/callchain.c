@@ -16,7 +16,7 @@
 
 struct callchain_cpus_entries {
 	struct rcu_head			rcu_head;
-	struct perf_callchain_entry	*cpu_entries[0];
+	struct perf_callchain_entry	*cpu_entries[];
 };
 
 int sysctl_perf_event_max_stack __read_mostly = PERF_MAX_STACK_DEPTH;
@@ -217,10 +217,9 @@ get_perf_callchain(struct pt_regs *regs, u32 init_nr, bool kernel, bool user,
 			if (add_mark)
 				perf_callchain_store_context(&ctx, PERF_CONTEXT_USER);
 
-			fs = get_fs();
-			set_fs(USER_DS);
+			fs = force_uaccess_begin();
 			perf_callchain_user(&ctx, regs);
-			set_fs(fs);
+			force_uaccess_end(fs);
 		}
 	}
 
@@ -235,7 +234,7 @@ exit_put:
  * sysctl_perf_event_max_contexts_per_stack.
  */
 int perf_event_max_stack_handler(struct ctl_table *table, int write,
-				 void __user *buffer, size_t *lenp, loff_t *ppos)
+				 void *buffer, size_t *lenp, loff_t *ppos)
 {
 	int *value = table->data;
 	int new_value = *value, ret;

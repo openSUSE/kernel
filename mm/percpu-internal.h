@@ -48,12 +48,17 @@ struct pcpu_chunk {
 
 	void			*data;		/* chunk data */
 	bool			immutable;	/* no [de]population allowed */
+	bool			isolated;	/* isolated from active chunk
+						   slots */
 	int			start_offset;	/* the overlap with the previous
 						   region to have a page aligned
 						   base_addr */
 	int			end_offset;	/* additional area required to
 						   have the region end page
 						   aligned */
+#ifdef CONFIG_MEMCG_KMEM
+	struct obj_cgroup	**obj_cgroups;	/* vector of object cgroups */
+#endif
 
 	int			nr_pages;	/* # of pages served by this chunk */
 	int			nr_populated;	/* # of populated pages */
@@ -63,8 +68,10 @@ struct pcpu_chunk {
 
 extern spinlock_t pcpu_lock;
 
-extern struct list_head *pcpu_slot;
+extern struct list_head *pcpu_chunk_lists;
 extern int pcpu_nr_slots;
+extern int pcpu_sidelined_slot;
+extern int pcpu_to_depopulate_slot;
 extern int pcpu_nr_empty_pop_pages;
 
 extern struct pcpu_chunk *pcpu_first_chunk;
@@ -117,7 +124,7 @@ struct percpu_stats {
 	u64 nr_max_alloc;	/* max # of live allocations */
 	u32 nr_chunks;		/* current # of live chunks */
 	u32 nr_max_chunks;	/* max # of live chunks */
-	size_t min_alloc_size;	/* min allocaiton size */
+	size_t min_alloc_size;	/* min allocation size */
 	size_t max_alloc_size;	/* max allocation size */
 };
 

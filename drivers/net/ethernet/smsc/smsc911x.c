@@ -557,6 +557,7 @@ static int smsc911x_mii_read(struct mii_bus *bus, int phyaddr, int regidx)
 	unsigned int addr;
 	int i, reg;
 
+	pm_runtime_get_sync(bus->parent);
 	spin_lock_irqsave(&pdata->mac_lock, flags);
 
 	/* Confirm MII not busy */
@@ -582,6 +583,7 @@ static int smsc911x_mii_read(struct mii_bus *bus, int phyaddr, int regidx)
 
 out:
 	spin_unlock_irqrestore(&pdata->mac_lock, flags);
+	pm_runtime_put(bus->parent);
 	return reg;
 }
 
@@ -594,6 +596,7 @@ static int smsc911x_mii_write(struct mii_bus *bus, int phyaddr, int regidx,
 	unsigned int addr;
 	int i, reg;
 
+	pm_runtime_get_sync(bus->parent);
 	spin_lock_irqsave(&pdata->mac_lock, flags);
 
 	/* Confirm MII not busy */
@@ -623,6 +626,7 @@ static int smsc911x_mii_write(struct mii_bus *bus, int phyaddr, int regidx,
 
 out:
 	spin_unlock_irqrestore(&pdata->mac_lock, flags);
+	pm_runtime_put(bus->parent);
 	return reg;
 }
 
@@ -1196,9 +1200,8 @@ smsc911x_rx_fastforward(struct smsc911x_data *pdata, unsigned int pktwords)
 			SMSC_WARN(pdata, hw, "Timed out waiting for "
 				  "RX FFWD to finish, RX_DP_CTRL: 0x%08X", val);
 	} else {
-		unsigned int temp;
 		while (pktwords--)
-			temp = smsc911x_reg_read(pdata, RX_DATA_FIFO);
+			smsc911x_reg_read(pdata, RX_DATA_FIFO);
 	}
 }
 
@@ -1590,6 +1593,8 @@ static int smsc911x_open(struct net_device *dev)
 	int retval;
 	int irq_flags;
 
+	pm_runtime_get_sync(dev->dev.parent);
+
 	/* find and start the given phy */
 	if (!dev->phydev) {
 		retval = smsc911x_mii_probe(dev);
@@ -1736,6 +1741,7 @@ mii_free_out:
 	phy_disconnect(dev->phydev);
 	dev->phydev = NULL;
 out:
+	pm_runtime_put(dev->dev.parent);
 	return retval;
 }
 
@@ -1767,6 +1773,7 @@ static int smsc911x_stop(struct net_device *dev)
 		dev->phydev = NULL;
 	}
 	netif_carrier_off(dev);
+	pm_runtime_put(dev->dev.parent);
 
 	SMSC_TRACE(pdata, ifdown, "Interface stopped");
 	return 0;
@@ -1943,15 +1950,6 @@ static int smsc911x_set_mac_address(struct net_device *dev, void *p)
 	return 0;
 }
 
-/* Standard ioctls for mii-tool */
-static int smsc911x_do_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
-{
-	if (!netif_running(dev) || !dev->phydev)
-		return -EINVAL;
-
-	return phy_mii_ioctl(dev->phydev, ifr, cmd);
-}
-
 static void smsc911x_ethtool_getdrvinfo(struct net_device *dev,
 					struct ethtool_drvinfo *info)
 {
@@ -2064,7 +2062,6 @@ static int smsc911x_eeprom_write_location(struct smsc911x_data *pdata,
 					  u8 address, u8 data)
 {
 	u32 op = E2P_CMD_EPC_CMD_ERASE_ | address;
-	u32 temp;
 	int ret;
 
 	SMSC_TRACE(pdata, drv, "address 0x%x, data 0x%x", address, data);
@@ -2075,7 +2072,7 @@ static int smsc911x_eeprom_write_location(struct smsc911x_data *pdata,
 		smsc911x_reg_write(pdata, E2P_DATA, (u32)data);
 
 		/* Workaround for hardware read-after-write restriction */
-		temp = smsc911x_reg_read(pdata, BYTE_TEST);
+		smsc911x_reg_read(pdata, BYTE_TEST);
 
 		ret = smsc911x_eeprom_send_cmd(pdata, op);
 	}
@@ -2151,7 +2148,7 @@ static const struct net_device_ops smsc911x_netdev_ops = {
 	.ndo_start_xmit		= smsc911x_hard_start_xmit,
 	.ndo_get_stats		= smsc911x_get_stats,
 	.ndo_set_rx_mode	= smsc911x_set_multicast_list,
-	.ndo_do_ioctl		= smsc911x_do_ioctl,
+	.ndo_do_ioctl		= phy_do_ioctl_running,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_mac_address 	= smsc911x_set_mac_address,
 #ifdef CONFIG_NET_POLL_CONTROLLER
@@ -2345,7 +2342,6 @@ static int smsc911x_drv_remove(struct platform_device *pdev)
 
 	free_netdev(dev);
 
-	pm_runtime_put(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
 
 	return 0;
@@ -2454,7 +2450,7 @@ static int smsc911x_drv_probe(struct platform_device *pdev)
 
 	pdata = netdev_priv(dev);
 	dev->irq = irq;
-	pdata->ioaddr = ioremap_nocache(res->start, res_size);
+	pdata->ioaddr = ioremap(res->start, res_size);
 	if (!pdata->ioaddr) {
 		retval = -ENOMEM;
 		goto out_ioremap_fail;
@@ -2502,20 +2498,20 @@ static int smsc911x_drv_probe(struct platform_device *pdev)
 
 	retval = smsc911x_init(dev);
 	if (retval < 0)
-		goto out_disable_resources;
+		goto out_init_fail;
 
 	netif_carrier_off(dev);
 
 	retval = smsc911x_mii_init(pdev, dev);
 	if (retval) {
 		SMSC_WARN(pdata, probe, "Error %i initialising mii", retval);
-		goto out_disable_resources;
+		goto out_init_fail;
 	}
 
 	retval = register_netdev(dev);
 	if (retval) {
 		SMSC_WARN(pdata, probe, "Error %i registering device", retval);
-		goto out_disable_resources;
+		goto out_init_fail;
 	} else {
 		SMSC_TRACE(pdata, probe,
 			   "Network interface: \"%s\"", dev->name);
@@ -2551,14 +2547,16 @@ static int smsc911x_drv_probe(struct platform_device *pdev)
 	}
 
 	spin_unlock_irq(&pdata->mac_lock);
+	pm_runtime_put(&pdev->dev);
 
 	netdev_info(dev, "MAC Address: %pM\n", dev->dev_addr);
 
 	return 0;
 
-out_disable_resources:
+out_init_fail:
 	pm_runtime_put(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
+out_disable_resources:
 	(void)smsc911x_disable_resources(pdev);
 out_enable_resources_fail:
 	smsc911x_free_resources(pdev);
@@ -2651,11 +2649,13 @@ static const struct of_device_id smsc911x_dt_ids[] = {
 MODULE_DEVICE_TABLE(of, smsc911x_dt_ids);
 #endif
 
+#ifdef CONFIG_ACPI
 static const struct acpi_device_id smsc911x_acpi_match[] = {
 	{ "ARMH9118", 0 },
 	{ }
 };
 MODULE_DEVICE_TABLE(acpi, smsc911x_acpi_match);
+#endif
 
 static struct platform_driver smsc911x_driver = {
 	.probe = smsc911x_drv_probe,

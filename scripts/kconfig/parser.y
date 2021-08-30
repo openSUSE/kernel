@@ -12,6 +12,7 @@
 #include <stdbool.h>
 
 #include "lkc.h"
+#include "internal.h"
 
 #define printd(mask, fmt...) if (cdebug & (mask)) printf(fmt)
 
@@ -28,7 +29,7 @@ static bool zconf_endtoken(const char *tokenname,
 
 struct symbol *symbol_hash[SYMBOL_HASHSIZE];
 
-static struct menu *current_menu, *current_entry;
+struct menu *current_menu, *current_entry;
 
 %}
 
@@ -45,7 +46,6 @@ static struct menu *current_menu, *current_entry;
 %token <string> T_HELPTEXT
 %token <string> T_WORD
 %token <string> T_WORD_QUOTE
-%token T_ALLNOCONFIG_Y
 %token T_BOOL
 %token T_CHOICE
 %token T_CLOSE_PAREN
@@ -53,7 +53,6 @@ static struct menu *current_menu, *current_entry;
 %token T_COMMENT
 %token T_CONFIG
 %token T_DEFAULT
-%token T_DEFCONFIG_LIST
 %token T_DEF_BOOL
 %token T_DEF_TRISTATE
 %token T_DEPENDS
@@ -71,7 +70,6 @@ static struct menu *current_menu, *current_entry;
 %token T_MODULES
 %token T_ON
 %token T_OPEN_PAREN
-%token T_OPTION
 %token T_OPTIONAL
 %token T_PLUS_EQUAL
 %token T_PROMPT
@@ -90,7 +88,6 @@ static struct menu *current_menu, *current_entry;
 %left T_LESS T_LESS_EQUAL T_GREATER T_GREATER_EQUAL
 %nonassoc T_NOT
 
-%type <string> prompt
 %type <symbol> nonconst_symbol
 %type <symbol> symbol
 %type <type> type logic_type default
@@ -113,27 +110,31 @@ input: mainmenu_stmt stmt_list | stmt_list;
 
 /* mainmenu entry */
 
-mainmenu_stmt: T_MAINMENU prompt T_EOL
+mainmenu_stmt: T_MAINMENU T_WORD_QUOTE T_EOL
 {
 	menu_add_prompt(P_MENU, $2, NULL);
 };
 
 stmt_list:
 	  /* empty */
-	| stmt_list common_stmt
+	| stmt_list assignment_stmt
 	| stmt_list choice_stmt
+	| stmt_list comment_stmt
+	| stmt_list config_stmt
+	| stmt_list if_stmt
 	| stmt_list menu_stmt
+	| stmt_list menuconfig_stmt
+	| stmt_list source_stmt
 	| stmt_list T_WORD error T_EOL	{ zconf_error("unknown statement \"%s\"", $2); }
 	| stmt_list error T_EOL		{ zconf_error("invalid statement"); }
 ;
 
-common_stmt:
-	  if_stmt
-	| comment_stmt
-	| config_stmt
-	| menuconfig_stmt
-	| source_stmt
-	| assignment_stmt
+stmt_list_in_choice:
+	  /* empty */
+	| stmt_list_in_choice comment_stmt
+	| stmt_list_in_choice config_stmt
+	| stmt_list_in_choice if_stmt_in_choice
+	| stmt_list_in_choice error T_EOL	{ zconf_error("invalid statement"); }
 ;
 
 /* config/menuconfig entry */
@@ -181,7 +182,7 @@ config_option: type prompt_stmt_opt T_EOL
 		$1);
 };
 
-config_option: T_PROMPT prompt if_expr T_EOL
+config_option: T_PROMPT T_WORD_QUOTE if_expr T_EOL
 {
 	menu_add_prompt(P_PROMPT, $2, $3);
 	printd(DEBUG_PARSE, "%s:%d:prompt\n", zconf_curname(), zconf_lineno());
@@ -215,19 +216,12 @@ config_option: T_RANGE symbol symbol if_expr T_EOL
 	printd(DEBUG_PARSE, "%s:%d:range\n", zconf_curname(), zconf_lineno());
 };
 
-config_option: T_OPTION T_MODULES T_EOL
+config_option: T_MODULES T_EOL
 {
-	menu_add_option_modules();
-};
-
-config_option: T_OPTION T_DEFCONFIG_LIST T_EOL
-{
-	menu_add_option_defconfig_list();
-};
-
-config_option: T_OPTION T_ALLNOCONFIG_Y T_EOL
-{
-	menu_add_option_allnoconfig_y();
+	if (modules_sym)
+		zconf_error("symbol '%s' redefines option 'modules' already defined by symbol '%s'",
+			    current_entry->sym->name, modules_sym->name);
+	modules_sym = current_entry->sym;
 };
 
 /* choice entry */
@@ -255,7 +249,7 @@ choice_end: end
 	}
 };
 
-choice_stmt: choice_entry choice_block choice_end
+choice_stmt: choice_entry stmt_list_in_choice choice_end
 ;
 
 choice_option_list:
@@ -265,7 +259,7 @@ choice_option_list:
 	| choice_option_list help
 ;
 
-choice_option: T_PROMPT prompt if_expr T_EOL
+choice_option: T_PROMPT T_WORD_QUOTE if_expr T_EOL
 {
 	menu_add_prompt(P_PROMPT, $2, $3);
 	printd(DEBUG_PARSE, "%s:%d:prompt\n", zconf_curname(), zconf_lineno());
@@ -306,11 +300,6 @@ default:
 	| T_DEF_BOOL		{ $$ = S_BOOLEAN; }
 	| T_DEF_TRISTATE	{ $$ = S_TRISTATE; }
 
-choice_block:
-	  /* empty */
-	| choice_block common_stmt
-;
-
 /* if entry */
 
 if_entry: T_IF expr T_EOL
@@ -332,9 +321,12 @@ if_end: end
 if_stmt: if_entry stmt_list if_end
 ;
 
+if_stmt_in_choice: if_entry stmt_list_in_choice if_end
+;
+
 /* menu entry */
 
-menu: T_MENU prompt T_EOL
+menu: T_MENU T_WORD_QUOTE T_EOL
 {
 	menu_add_entry(NULL);
 	menu_add_prompt(P_MENU, $2, NULL);
@@ -363,7 +355,7 @@ menu_option_list:
 	| menu_option_list depends
 ;
 
-source_stmt: T_SOURCE prompt T_EOL
+source_stmt: T_SOURCE T_WORD_QUOTE T_EOL
 {
 	printd(DEBUG_PARSE, "%s:%d:source %s\n", zconf_curname(), zconf_lineno(), $2);
 	zconf_nextfile($2);
@@ -372,7 +364,7 @@ source_stmt: T_SOURCE prompt T_EOL
 
 /* comment entry */
 
-comment: T_COMMENT prompt T_EOL
+comment: T_COMMENT T_WORD_QUOTE T_EOL
 {
 	menu_add_entry(NULL);
 	menu_add_prompt(P_COMMENT, $2, NULL);
@@ -429,14 +421,10 @@ visible: T_VISIBLE if_expr T_EOL
 
 prompt_stmt_opt:
 	  /* empty */
-	| prompt if_expr
+	| T_WORD_QUOTE if_expr
 {
 	menu_add_prompt(P_PROMPT, $1, $2);
 };
-
-prompt:	  T_WORD
-	| T_WORD_QUOTE
-;
 
 end:	  T_ENDMENU T_EOL	{ $$ = "menu"; }
 	| T_ENDCHOICE T_EOL	{ $$ = "choice"; }
@@ -520,7 +508,7 @@ void conf_parse(const char *name)
 	}
 	if (yynerrs)
 		exit(1);
-	sym_set_change_count(1);
+	conf_set_changed(true);
 }
 
 static bool zconf_endtoken(const char *tokenname,
@@ -665,7 +653,7 @@ static void print_symbol(FILE *out, struct menu *menu)
 			break;
 		case P_SYMBOL:
 			fputs( "  symbol ", out);
-			fprintf(out, "%s\n", prop->sym->name);
+			fprintf(out, "%s\n", prop->menu->sym->name);
 			break;
 		default:
 			fprintf(out, "  unknown prop %d!\n", prop->type);
@@ -726,6 +714,3 @@ void zconfdump(FILE *out)
 		}
 	}
 }
-
-#include "util.c"
-#include "menu.c"

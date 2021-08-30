@@ -69,8 +69,7 @@ xchk_setup_xattr_buf(
 /* Set us up to scrub an inode's extended attributes. */
 int
 xchk_setup_xattr(
-	struct xfs_scrub	*sc,
-	struct xfs_inode	*ip)
+	struct xfs_scrub	*sc)
 {
 	int			error;
 
@@ -85,7 +84,7 @@ xchk_setup_xattr(
 			return error;
 	}
 
-	return xchk_setup_inode_contents(sc, ip, 0);
+	return xchk_setup_inode_contents(sc, 0);
 }
 
 /* Extended Attributes */
@@ -98,7 +97,7 @@ struct xchk_xattr {
 /*
  * Check that an extended attribute key can be looked up by hash.
  *
- * We use the XFS attribute list iterator (i.e. xfs_attr_list_int_ilocked)
+ * We use the XFS attribute list iterator (i.e. xfs_attr_list_ilocked)
  * to call this function for every attribute key in an inode.  Once
  * we're here, we load the attribute value to see if any errors happen,
  * or if we get more or less data than we expected.
@@ -147,11 +146,8 @@ xchk_xattr_listent(
 		return;
 	}
 
-	args.flags = ATTR_KERNOTIME;
-	if (flags & XFS_ATTR_ROOT)
-		args.flags |= ATTR_ROOT;
-	else if (flags & XFS_ATTR_SECURE)
-		args.flags |= ATTR_SECURE;
+	args.op_flags = XFS_DA_OP_NOTIME;
+	args.attr_filter = flags & XFS_ATTR_NSP_ONDISK_MASK;
 	args.geo = context->dp->i_mount->m_attr_geo;
 	args.whichfork = XFS_ATTR_FORK;
 	args.dp = context->dp;
@@ -162,9 +158,10 @@ xchk_xattr_listent(
 	args.value = xchk_xattr_valuebuf(sx->sc);
 	args.valuelen = valuelen;
 
-	error = xfs_attr_get_ilocked(context->dp, &args);
-	if (error == -EEXIST)
-		error = 0;
+	error = xfs_attr_get_ilocked(&args);
+	/* ENODATA means the hash lookup failed and the attr is bad */
+	if (error == -ENODATA)
+		error = -EFSCORRUPTED;
 	if (!xchk_fblock_process_error(sx->sc, XFS_ATTR_FORK, args.blkno,
 			&error))
 		goto fail_xref;
@@ -173,7 +170,7 @@ xchk_xattr_listent(
 					     args.blkno);
 fail_xref:
 	if (sx->sc->sm->sm_flags & XFS_SCRUB_OFLAG_CORRUPT)
-		context->seen_enough = XFS_ITER_ABORT;
+		context->seen_enough = 1;
 	return;
 }
 
@@ -400,15 +397,14 @@ out:
 STATIC int
 xchk_xattr_rec(
 	struct xchk_da_btree		*ds,
-	int				level,
-	void				*rec)
+	int				level)
 {
 	struct xfs_mount		*mp = ds->state->mp;
-	struct xfs_attr_leaf_entry	*ent = rec;
-	struct xfs_da_state_blk		*blk;
+	struct xfs_da_state_blk		*blk = &ds->state->path.blk[level];
 	struct xfs_attr_leaf_name_local	*lentry;
 	struct xfs_attr_leaf_name_remote	*rentry;
 	struct xfs_buf			*bp;
+	struct xfs_attr_leaf_entry	*ent;
 	xfs_dahash_t			calc_hash;
 	xfs_dahash_t			hash;
 	int				nameidx;
@@ -416,7 +412,9 @@ xchk_xattr_rec(
 	unsigned int			badflags;
 	int				error;
 
-	blk = &ds->state->path.blk[level];
+	ASSERT(blk->magic == XFS_ATTR_LEAF_MAGIC);
+
+	ent = xfs_attr3_leaf_entryp(blk->bp->b_addr) + blk->index;
 
 	/* Check the whole block, if necessary. */
 	error = xchk_xattr_block(ds, level);
@@ -475,7 +473,6 @@ xchk_xattr(
 	struct xfs_scrub		*sc)
 {
 	struct xchk_xattr		sx;
-	struct attrlist_cursor_kern	cursor = { 0 };
 	xfs_dablk_t			last_checked = -1U;
 	int				error = 0;
 
@@ -494,11 +491,10 @@ xchk_xattr(
 
 	/* Check that every attr key can also be looked up by hash. */
 	sx.context.dp = sc->ip;
-	sx.context.cursor = &cursor;
 	sx.context.resynch = 1;
 	sx.context.put_listent = xchk_xattr_listent;
 	sx.context.tp = sc->tp;
-	sx.context.flags = ATTR_INCOMPLETE;
+	sx.context.allow_incomplete = true;
 	sx.sc = sc;
 
 	/*
@@ -517,7 +513,7 @@ xchk_xattr(
 	 * iteration, which doesn't really follow the usual buffer
 	 * locking order.
 	 */
-	error = xfs_attr_list_int_ilocked(&sx.context);
+	error = xfs_attr_list_ilocked(&sx.context);
 	if (!xchk_fblock_process_error(sc, XFS_ATTR_FORK, 0, &error))
 		goto out;
 

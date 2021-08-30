@@ -185,8 +185,8 @@ static int get_children_props(struct device_node *dn, const __be32 **drc_indexes
 
 
 /* Verify the existence of 'drc_name' and/or 'drc_type' within the
- * current node.  First obtain it's my-drc-index property.  Next,
- * obtain the DRC info from it's parent.  Use the my-drc-index for
+ * current node.  First obtain its my-drc-index property.  Next,
+ * obtain the DRC info from its parent.  Use the my-drc-index for
  * correlation, and obtain/validate the requested properties.
  */
 
@@ -288,11 +288,10 @@ EXPORT_SYMBOL_GPL(rpaphp_check_drc_props);
 
 static int is_php_type(char *drc_type)
 {
-	unsigned long value;
 	char *endptr;
 
 	/* PCI Hotplug nodes have an integer for drc_type */
-	value = simple_strtoul(drc_type, &endptr, 10);
+	simple_strtoul(drc_type, &endptr, 10);
 	if (endptr == drc_type)
 		return 0;
 
@@ -461,7 +460,6 @@ static void __exit cleanup_slots(void)
 		pci_hp_deregister(&slot->hotplug_slot);
 		dealloc_slot_struct(slot);
 	}
-	return;
 }
 
 static int __init rpaphp_init(void)
@@ -495,6 +493,8 @@ static int enable_slot(struct hotplug_slot *hotplug_slot)
 		return retval;
 
 	if (state == PRESENT) {
+		pseries_eeh_init_edev_recursive(PCI_DN(slot->dn));
+
 		pci_lock_rescan_remove();
 		pci_hp_add_devices(slot->bus);
 		pci_unlock_rescan_remove();

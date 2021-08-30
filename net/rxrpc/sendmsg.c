@@ -18,6 +18,21 @@
 #include "ar-internal.h"
 
 /*
+ * Return true if there's sufficient Tx queue space.
+ */
+static bool rxrpc_check_tx_space(struct rxrpc_call *call, rxrpc_seq_t *_tx_win)
+{
+	unsigned int win_size =
+		min_t(unsigned int, call->tx_winsize,
+		      call->cong_cwnd + call->cong_extra);
+	rxrpc_seq_t tx_win = READ_ONCE(call->tx_hard_ack);
+
+	if (_tx_win)
+		*_tx_win = tx_win;
+	return call->tx_top - tx_win < win_size;
+}
+
+/*
  * Wait for space to appear in the Tx queue or a signal to occur.
  */
 static int rxrpc_wait_for_tx_window_intr(struct rxrpc_sock *rx,
@@ -26,9 +41,7 @@ static int rxrpc_wait_for_tx_window_intr(struct rxrpc_sock *rx,
 {
 	for (;;) {
 		set_current_state(TASK_INTERRUPTIBLE);
-		if (call->tx_top - call->tx_hard_ack <
-		    min_t(unsigned int, call->tx_winsize,
-			  call->cong_cwnd + call->cong_extra))
+		if (rxrpc_check_tx_space(call, NULL))
 			return 0;
 
 		if (call->state >= RXRPC_CALL_COMPLETE)
@@ -49,45 +62,61 @@ static int rxrpc_wait_for_tx_window_intr(struct rxrpc_sock *rx,
  * Wait for space to appear in the Tx queue uninterruptibly, but with
  * a timeout of 2*RTT if no progress was made and a signal occurred.
  */
-static int rxrpc_wait_for_tx_window_nonintr(struct rxrpc_sock *rx,
+static int rxrpc_wait_for_tx_window_waitall(struct rxrpc_sock *rx,
 					    struct rxrpc_call *call)
 {
 	rxrpc_seq_t tx_start, tx_win;
-	signed long rtt2, timeout;
-	u64 rtt;
+	signed long rtt, timeout;
 
-	rtt = READ_ONCE(call->peer->rtt);
-	rtt2 = nsecs_to_jiffies64(rtt) * 2;
-	if (rtt2 < 1)
-		rtt2 = 1;
+	rtt = READ_ONCE(call->peer->srtt_us) >> 3;
+	rtt = usecs_to_jiffies(rtt) * 2;
+	if (rtt < 2)
+		rtt = 2;
 
-	timeout = rtt2;
+	timeout = rtt;
 	tx_start = READ_ONCE(call->tx_hard_ack);
 
 	for (;;) {
 		set_current_state(TASK_UNINTERRUPTIBLE);
 
 		tx_win = READ_ONCE(call->tx_hard_ack);
-		if (call->tx_top - tx_win <
-		    min_t(unsigned int, call->tx_winsize,
-			  call->cong_cwnd + call->cong_extra))
+		if (rxrpc_check_tx_space(call, &tx_win))
 			return 0;
 
 		if (call->state >= RXRPC_CALL_COMPLETE)
 			return call->error;
 
-		if (test_bit(RXRPC_CALL_IS_INTR, &call->flags) &&
-		    timeout == 0 &&
+		if (timeout == 0 &&
 		    tx_win == tx_start && signal_pending(current))
 			return -EINTR;
 
 		if (tx_win != tx_start) {
-			timeout = rtt2;
+			timeout = rtt;
 			tx_start = tx_win;
 		}
 
 		trace_rxrpc_transmit(call, rxrpc_transmit_wait);
 		timeout = schedule_timeout(timeout);
+	}
+}
+
+/*
+ * Wait for space to appear in the Tx queue uninterruptibly.
+ */
+static int rxrpc_wait_for_tx_window_nonintr(struct rxrpc_sock *rx,
+					    struct rxrpc_call *call,
+					    long *timeo)
+{
+	for (;;) {
+		set_current_state(TASK_UNINTERRUPTIBLE);
+		if (rxrpc_check_tx_space(call, NULL))
+			return 0;
+
+		if (call->state >= RXRPC_CALL_COMPLETE)
+			return call->error;
+
+		trace_rxrpc_transmit(call, rxrpc_transmit_wait);
+		*timeo = schedule_timeout(*timeo);
 	}
 }
 
@@ -108,10 +137,19 @@ static int rxrpc_wait_for_tx_window(struct rxrpc_sock *rx,
 
 	add_wait_queue(&call->waitq, &myself);
 
-	if (waitall)
-		ret = rxrpc_wait_for_tx_window_nonintr(rx, call);
-	else
-		ret = rxrpc_wait_for_tx_window_intr(rx, call, timeo);
+	switch (call->interruptibility) {
+	case RXRPC_INTERRUPTIBLE:
+		if (waitall)
+			ret = rxrpc_wait_for_tx_window_waitall(rx, call);
+		else
+			ret = rxrpc_wait_for_tx_window_intr(rx, call, timeo);
+		break;
+	case RXRPC_PREINTERRUPTIBLE:
+	case RXRPC_UNINTERRUPTIBLE:
+	default:
+		ret = rxrpc_wait_for_tx_window_nonintr(rx, call, timeo);
+		break;
+	}
 
 	remove_wait_queue(&call->waitq, &myself);
 	set_current_state(TASK_RUNNING);
@@ -203,7 +241,7 @@ static int rxrpc_queue_packet(struct rxrpc_sock *rx, struct rxrpc_call *call,
 			trace_rxrpc_timer(call, rxrpc_timer_init_for_send_reply, now);
 			if (!last)
 				break;
-			/* Fall through */
+			fallthrough;
 		case RXRPC_CALL_SERVER_SEND_REPLY:
 			call->state = RXRPC_CALL_SERVER_AWAIT_ACK;
 			rxrpc_notify_end_tx(rx, call, notify_end_tx);
@@ -223,25 +261,16 @@ static int rxrpc_queue_packet(struct rxrpc_sock *rx, struct rxrpc_call *call,
 		case -ENETUNREACH:
 		case -EHOSTUNREACH:
 		case -ECONNREFUSED:
-			rxrpc_set_call_completion(call,
-						  RXRPC_CALL_LOCAL_ERROR,
+			rxrpc_set_call_completion(call, RXRPC_CALL_LOCAL_ERROR,
 						  0, ret);
-			rxrpc_notify_socket(call);
 			goto out;
 		}
 		_debug("need instant resend %d", ret);
 		rxrpc_instant_resend(call, ix);
 	} else {
-		unsigned long now = jiffies, resend_at;
+		unsigned long now = jiffies;
+		unsigned long resend_at = now + call->peer->rto_j;
 
-		if (call->peer->rtt_usage > 1)
-			resend_at = nsecs_to_jiffies(call->peer->rtt * 3 / 2);
-		else
-			resend_at = rxrpc_resend_timeout;
-		if (resend_at < 1)
-			resend_at = 1;
-
-		resend_at += now;
 		WRITE_ONCE(call->resend_at, resend_at);
 		rxrpc_reduce_call_timer(call, resend_at, now,
 					rxrpc_timer_set_for_send);
@@ -298,13 +327,11 @@ static int rxrpc_send_data(struct rxrpc_sock *rx,
 			rxrpc_send_ack_packet(call, false, NULL);
 
 		if (!skb) {
-			size_t size, chunk, max, space;
+			size_t remain, bufsize, chunk, offset;
 
 			_debug("alloc");
 
-			if (call->tx_top - call->tx_hard_ack >=
-			    min_t(unsigned int, call->tx_winsize,
-				  call->cong_cwnd + call->cong_extra)) {
+			if (!rxrpc_check_tx_space(call, NULL)) {
 				ret = -EAGAIN;
 				if (msg->msg_flags & MSG_DONTWAIT)
 					goto maybe_error;
@@ -315,24 +342,21 @@ static int rxrpc_send_data(struct rxrpc_sock *rx,
 					goto maybe_error;
 			}
 
-			max = RXRPC_JUMBO_DATALEN;
-			max -= call->conn->security_size;
-			max &= ~(call->conn->size_align - 1UL);
+			/* Work out the maximum size of a packet.  Assume that
+			 * the security header is going to be in the padded
+			 * region (enc blocksize), but the trailer is not.
+			 */
+			remain = more ? INT_MAX : msg_data_left(msg);
+			ret = call->conn->security->how_much_data(call, remain,
+								  &bufsize, &chunk, &offset);
+			if (ret < 0)
+				goto maybe_error;
 
-			chunk = max;
-			if (chunk > msg_data_left(msg) && !more)
-				chunk = msg_data_left(msg);
-
-			space = chunk + call->conn->size_align;
-			space &= ~(call->conn->size_align - 1UL);
-
-			size = space + call->conn->security_size;
-
-			_debug("SIZE: %zu/%zu/%zu", chunk, space, size);
+			_debug("SIZE: %zu/%zu @%zu", chunk, bufsize, offset);
 
 			/* create a buffer that we can retain until it's ACK'd */
 			skb = sock_alloc_send_skb(
-				sk, size, msg->msg_flags & MSG_DONTWAIT, &ret);
+				sk, bufsize, msg->msg_flags & MSG_DONTWAIT, &ret);
 			if (!skb)
 				goto maybe_error;
 
@@ -344,9 +368,7 @@ static int rxrpc_send_data(struct rxrpc_sock *rx,
 
 			ASSERTCMP(skb->mark, ==, 0);
 
-			_debug("HS: %u", call->conn->security_size);
-			skb_reserve(skb, call->conn->security_size);
-			skb->len += call->conn->security_size;
+			__skb_put(skb, offset);
 
 			sp->remain = chunk;
 			if (sp->remain > skb_tailroom(skb))
@@ -395,17 +417,6 @@ static int rxrpc_send_data(struct rxrpc_sock *rx,
 		    (msg_data_left(msg) == 0 && !more)) {
 			struct rxrpc_connection *conn = call->conn;
 			uint32_t seq;
-			size_t pad;
-
-			/* pad out if we're using security */
-			if (conn->security_ix) {
-				pad = conn->security_size + skb->mark;
-				pad = conn->size_align - pad;
-				pad &= conn->size_align - 1;
-				_debug("pad %zu", pad);
-				if (pad)
-					skb_put_zero(skb, pad);
-			}
 
 			seq = call->tx_top + 1;
 
@@ -419,8 +430,7 @@ static int rxrpc_send_data(struct rxrpc_sock *rx,
 				 call->tx_winsize)
 				sp->hdr.flags |= RXRPC_MORE_PACKETS;
 
-			ret = conn->security->secure_packet(
-				call, skb, skb->mark, skb->head);
+			ret = call->security->secure_packet(call, skb, skb->mark);
 			if (ret < 0)
 				goto out;
 
@@ -503,10 +513,10 @@ static int rxrpc_sendmsg_cmsg(struct msghdr *msg, struct rxrpc_send_params *p)
 				return -EINVAL;
 			break;
 
-		case RXRPC_ACCEPT:
+		case RXRPC_CHARGE_ACCEPT:
 			if (p->command != RXRPC_CMD_SEND_DATA)
 				return -EINVAL;
-			p->command = RXRPC_CMD_ACCEPT;
+			p->command = RXRPC_CMD_CHARGE_ACCEPT;
 			if (len != 0)
 				return -EINVAL;
 			break;
@@ -619,7 +629,7 @@ int rxrpc_do_sendmsg(struct rxrpc_sock *rx, struct msghdr *msg, size_t len)
 		.call.tx_total_len	= -1,
 		.call.user_call_ID	= 0,
 		.call.nr_timeouts	= 0,
-		.call.intr		= true,
+		.call.interruptibility	= RXRPC_INTERRUPTIBLE,
 		.abort_code		= 0,
 		.command		= RXRPC_CMD_SEND_DATA,
 		.exclusive		= false,
@@ -632,16 +642,12 @@ int rxrpc_do_sendmsg(struct rxrpc_sock *rx, struct msghdr *msg, size_t len)
 	if (ret < 0)
 		goto error_release_sock;
 
-	if (p.command == RXRPC_CMD_ACCEPT) {
+	if (p.command == RXRPC_CMD_CHARGE_ACCEPT) {
 		ret = -EINVAL;
 		if (rx->sk.sk_state != RXRPC_SERVER_LISTENING)
 			goto error_release_sock;
-		call = rxrpc_accept_call(rx, p.call.user_call_ID, NULL);
-		/* The socket is now unlocked. */
-		if (IS_ERR(call))
-			return PTR_ERR(call);
-		ret = 0;
-		goto out_put_unlock;
+		ret = rxrpc_user_charge_accept(rx, p.call.user_call_ID);
+		goto error_release_sock;
 	}
 
 	call = rxrpc_find_call_by_user_ID(rx, p.call.user_call_ID);
@@ -663,7 +669,6 @@ int rxrpc_do_sendmsg(struct rxrpc_sock *rx, struct msghdr *msg, size_t len)
 		case RXRPC_CALL_CLIENT_AWAIT_CONN:
 		case RXRPC_CALL_SERVER_PREALLOC:
 		case RXRPC_CALL_SERVER_SECURING:
-		case RXRPC_CALL_SERVER_ACCEPTING:
 			rxrpc_put_call(call, rxrpc_call_put);
 			ret = -EBUSY;
 			goto error_release_sock;
@@ -694,13 +699,13 @@ int rxrpc_do_sendmsg(struct rxrpc_sock *rx, struct msghdr *msg, size_t len)
 		if (p.call.timeouts.normal > 0 && j == 0)
 			j = 1;
 		WRITE_ONCE(call->next_rx_timo, j);
-		/* Fall through */
+		fallthrough;
 	case 2:
 		j = msecs_to_jiffies(p.call.timeouts.idle);
 		if (p.call.timeouts.idle > 0 && j == 0)
 			j = 1;
 		WRITE_ONCE(call->next_req_timo, j);
-		/* Fall through */
+		fallthrough;
 	case 1:
 		if (p.call.timeouts.hard > 0) {
 			j = msecs_to_jiffies(p.call.timeouts.hard);

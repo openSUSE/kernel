@@ -134,6 +134,7 @@ static struct iscsi_transport cxgb4i_iscsi_transport = {
 	/* connection management */
 	.create_conn	= cxgbi_create_conn,
 	.bind_conn		= cxgbi_bind_conn,
+	.unbind_conn	= iscsi_conn_unbind,
 	.destroy_conn	= iscsi_tcp_conn_teardown,
 	.start_conn		= iscsi_conn_start,
 	.stop_conn		= iscsi_conn_stop,
@@ -1133,7 +1134,7 @@ static int abort_status_to_errno(struct cxgbi_sock *csk, int abort_reason,
 								int *need_rst)
 {
 	switch (abort_reason) {
-	case CPL_ERR_BAD_SYN: /* fall through */
+	case CPL_ERR_BAD_SYN:
 	case CPL_ERR_CONN_RESET:
 		return csk->state > CTP_ESTABLISHED ?
 			-EPIPE : -ECONNRESET;

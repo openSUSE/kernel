@@ -283,7 +283,7 @@ static unsigned int qe_uart_tx_empty(struct uart_port *port)
  * don't need that support. This function must exist, however, otherwise
  * the kernel will panic.
  */
-void qe_uart_set_mctrl(struct uart_port *port, unsigned int mctrl)
+static void qe_uart_set_mctrl(struct uart_port *port, unsigned int mctrl)
 {
 }
 
@@ -554,9 +554,7 @@ handle_error:
 	/* Overrun does not affect the current character ! */
 	if (status & BD_SC_OV)
 		tty_insert_flip_char(tport, 0, TTY_OVERRUN);
-#ifdef SUPPORT_SYSRQ
 	port->sysrq = 0;
-#endif
 	goto error_return;
 }
 
@@ -1229,7 +1227,7 @@ static int soft_uart_init(struct platform_device *ofdev)
 		 * kernel, then we use it.
 		 */
 		ret = request_firmware_nowait(THIS_MODULE,
-					      FW_ACTION_HOTPLUG, filename, &ofdev->dev,
+					      FW_ACTION_UEVENT, filename, &ofdev->dev,
 					      GFP_KERNEL, &ofdev->dev, uart_firmware_cont);
 		if (ret) {
 			dev_err(&ofdev->dev,

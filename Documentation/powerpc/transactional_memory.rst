@@ -189,7 +189,7 @@ kernel aborted a transaction:
  ====================== ================================
 
 These can be checked by the user program's abort handler as TEXASR[0:7].  If
-bit 7 is set, it indicates that the error is consider persistent.  For example
+bit 7 is set, it indicates that the error is considered persistent.  For example
 a TM_CAUSE_ALIGNMENT will be persistent while a TM_CAUSE_RESCHED will not.
 
 GDB
@@ -245,3 +245,30 @@ POWER9N DD2.2.
 Guest migration from POWER8 to POWER9 will work with POWER9N DD2.2 and
 POWER9C DD1.2. Since earlier POWER9 processors don't support TM
 emulation, migration from POWER8 to POWER9 is not supported there.
+
+Kernel implementation
+=====================
+
+h/rfid mtmsrd quirk
+-------------------
+
+As defined in the ISA, rfid has a quirk which is useful in early
+exception handling. When in a userspace transaction and we enter the
+kernel via some exception, MSR will end up as TM=0 and TS=01 (ie. TM
+off but TM suspended). Regularly the kernel will want change bits in
+the MSR and will perform an rfid to do this. In this case rfid can
+have SRR0 TM = 0 and TS = 00 (ie. TM off and non transaction) and the
+resulting MSR will retain TM = 0 and TS=01 from before (ie. stay in
+suspend). This is a quirk in the architecture as this would normally
+be a transition from TS=01 to TS=00 (ie. suspend -> non transactional)
+which is an illegal transition.
+
+This quirk is described the architecture in the definition of rfid
+with these lines:
+
+  if (MSR 29:31 ¬ = 0b010 | SRR1 29:31 ¬ = 0b000) then
+     MSR 29:31 <- SRR1 29:31
+
+hrfid and mtmsrd have the same quirk.
+
+The Linux kernel uses this quirk in its early exception handling.

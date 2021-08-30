@@ -1,6 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2002 Steve Schmidtke
- * Licensed under the GPL
  */
 
 #include <linux/fs.h>
@@ -122,13 +122,11 @@ static ssize_t hostaudio_write(struct file *file, const char __user *buffer,
 static __poll_t hostaudio_poll(struct file *file,
 				struct poll_table_struct *wait)
 {
-	__poll_t mask = 0;
-
 #ifdef DEBUG
 	printk(KERN_DEBUG "hostaudio: poll called (unimplemented)\n");
 #endif
 
-	return mask;
+	return 0;
 }
 
 static long hostaudio_ioctl(struct file *file,

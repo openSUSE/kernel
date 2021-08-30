@@ -16,60 +16,6 @@
 #define SZL			(BITS_PER_LONG/8)
 
 /*
- * Stuff for accurate CPU time accounting.
- * These macros handle transitions between user and system state
- * in exception entry and exit and accumulate time to the
- * user_time and system_time fields in the paca.
- */
-
-#ifndef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
-#define ACCOUNT_CPU_USER_ENTRY(ptr, ra, rb)
-#define ACCOUNT_CPU_USER_EXIT(ptr, ra, rb)
-#define ACCOUNT_STOLEN_TIME
-#else
-#define ACCOUNT_CPU_USER_ENTRY(ptr, ra, rb)				\
-	MFTB(ra);			/* get timebase */		\
-	PPC_LL	rb, ACCOUNT_STARTTIME_USER(ptr);			\
-	PPC_STL	ra, ACCOUNT_STARTTIME(ptr);				\
-	subf	rb,rb,ra;		/* subtract start value */	\
-	PPC_LL	ra, ACCOUNT_USER_TIME(ptr);				\
-	add	ra,ra,rb;		/* add on to user time */	\
-	PPC_STL	ra, ACCOUNT_USER_TIME(ptr);				\
-
-#define ACCOUNT_CPU_USER_EXIT(ptr, ra, rb)				\
-	MFTB(ra);			/* get timebase */		\
-	PPC_LL	rb, ACCOUNT_STARTTIME(ptr);				\
-	PPC_STL	ra, ACCOUNT_STARTTIME_USER(ptr);			\
-	subf	rb,rb,ra;		/* subtract start value */	\
-	PPC_LL	ra, ACCOUNT_SYSTEM_TIME(ptr);				\
-	add	ra,ra,rb;		/* add on to system time */	\
-	PPC_STL	ra, ACCOUNT_SYSTEM_TIME(ptr)
-
-#ifdef CONFIG_PPC_SPLPAR
-#define ACCOUNT_STOLEN_TIME						\
-BEGIN_FW_FTR_SECTION;							\
-	beq	33f;							\
-	/* from user - see if there are any DTL entries to process */	\
-	ld	r10,PACALPPACAPTR(r13);	/* get ptr to VPA */		\
-	ld	r11,PACA_DTL_RIDX(r13);	/* get log read index */	\
-	addi	r10,r10,LPPACA_DTLIDX;					\
-	LDX_BE	r10,0,r10;		/* get log write index */	\
-	cmpd	cr1,r11,r10;						\
-	beq+	cr1,33f;						\
-	bl	accumulate_stolen_time;				\
-	ld	r12,_MSR(r1);						\
-	andi.	r10,r12,MSR_PR;		/* Restore cr0 (coming from user) */ \
-33:									\
-END_FW_FTR_SECTION_IFSET(FW_FEATURE_SPLPAR)
-
-#else  /* CONFIG_PPC_SPLPAR */
-#define ACCOUNT_STOLEN_TIME
-
-#endif /* CONFIG_PPC_SPLPAR */
-
-#endif /* CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */
-
-/*
  * Macros for storing registers into and loading registers from
  * exception frames.
  */
@@ -180,7 +126,12 @@ END_FW_FTR_SECTION_IFSET(FW_FEATURE_SPLPAR)
 #define VCPU_GPR(n)	__VCPU_GPR(__REG_##n)
 
 #ifdef __KERNEL__
-#ifdef CONFIG_PPC64
+
+/*
+ * We use __powerpc64__ here because we want the compat VDSO to use the 32-bit
+ * version below in the else case of the ifdef.
+ */
+#ifdef __powerpc64__
 
 #define STACKFRAMESIZE 256
 #define __STK_REG(i)   (112 + ((i)-14)*8)
@@ -250,6 +201,8 @@ n:
 n:
 
 #define _GLOBAL_TOC(name) _GLOBAL(name)
+
+#define DOTSYM(a)	a
 
 #endif
 
@@ -382,16 +335,6 @@ n:
 #endif
 
 /* various errata or part fixups */
-#ifdef CONFIG_PPC601_SYNC_FIX
-#define SYNC		sync; isync
-#define SYNC_601	sync
-#define ISYNC_601	isync
-#else
-#define	SYNC
-#define SYNC_601
-#define ISYNC_601
-#endif
-
 #if defined(CONFIG_PPC_CELL) || defined(CONFIG_PPC_FSL_BOOK3E)
 #define MFTB(dest)			\
 90:	mfspr dest, SPRN_TBRL;		\
@@ -411,8 +354,7 @@ END_FTR_SECTION_NESTED(CPU_FTR_CELL_TB_BUG, CPU_FTR_CELL_TB_BUG, 96)
 #define MFTBU(dest)			mfspr dest, SPRN_TBRU
 #endif
 
-/* tlbsync is not implemented on 601 */
-#if !defined(CONFIG_SMP) || defined(CONFIG_PPC_BOOK3S_601)
+#ifndef CONFIG_SMP
 #define TLBSYNC
 #else
 #define TLBSYNC		tlbsync; sync
@@ -506,15 +448,9 @@ END_FTR_SECTION_NESTED(CPU_FTR_CELL_TB_BUG, CPU_FTR_CELL_TB_BUG, 96)
 #endif
 
 #ifdef CONFIG_PPC_BOOK3S_64
-#define RFI		rfid
 #define MTMSRD(r)	mtmsrd	r
 #define MTMSR_EERI(reg)	mtmsrd	reg,1
 #else
-#ifndef CONFIG_40x
-#define	RFI		rfi
-#else
-#define RFI		rfi; b .	/* Prevent prefetch past rfi */
-#endif
 #define MTMSRD(r)	mtmsr	r
 #define MTMSR_EERI(reg)	mtmsr	reg
 #endif
@@ -755,6 +691,8 @@ END_FTR_SECTION_NESTED(CPU_FTR_CELL_TB_BUG, CPU_FTR_CELL_TB_BUG, 96)
 #define N_SLINE	68
 #define N_SO	100
 
+#define RFSCV	.long 0x4c0000a4
+
 /*
  * Create an endian fixup trampoline
  *
@@ -822,6 +760,21 @@ END_FTR_SECTION_NESTED(CPU_FTR_CELL_TB_BUG, CPU_FTR_CELL_TB_BUG, 96)
 	stringify_in_c(.balign 4;)		\
 	stringify_in_c(.long (_fault) - . ;)	\
 	stringify_in_c(.long (_target) - . ;)	\
+	stringify_in_c(.previous)
+
+#define SOFT_MASK_TABLE(_start, _end)		\
+	stringify_in_c(.section __soft_mask_table,"a";)\
+	stringify_in_c(.balign 8;)		\
+	stringify_in_c(.llong (_start);)	\
+	stringify_in_c(.llong (_end);)		\
+	stringify_in_c(.previous)
+
+#define RESTART_TABLE(_start, _end, _target)	\
+	stringify_in_c(.section __restart_table,"a";)\
+	stringify_in_c(.balign 8;)		\
+	stringify_in_c(.llong (_start);)	\
+	stringify_in_c(.llong (_end);)		\
+	stringify_in_c(.llong (_target);)	\
 	stringify_in_c(.previous)
 
 #ifdef CONFIG_PPC_FSL_BOOK3E

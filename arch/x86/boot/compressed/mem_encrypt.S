@@ -15,7 +15,7 @@
 
 	.text
 	.code32
-ENTRY(get_sev_encryption_bit)
+SYM_FUNC_START(get_sev_encryption_bit)
 	xor	%eax, %eax
 
 #ifdef CONFIG_AMD_MEM_ENCRYPT
@@ -59,7 +59,7 @@ ENTRY(get_sev_encryption_bit)
 #endif	/* CONFIG_AMD_MEM_ENCRYPT */
 
 	ret
-ENDPROC(get_sev_encryption_bit)
+SYM_FUNC_END(get_sev_encryption_bit)
 
 /**
  * sev_es_req_cpuid - Request a CPUID value from the Hypervisor using
@@ -71,7 +71,7 @@ ENDPROC(get_sev_encryption_bit)
  * Returns 0 in %eax on success, non-zero on failure
  * %edx returns CPUID value on success
  */
-ENTRY(sev_es_req_cpuid)
+SYM_CODE_START_LOCAL(sev_es_req_cpuid)
 	shll	$30, %eax
 	orl     $0x00000004, %eax
 	movl    $MSR_AMD64_SEV_ES_GHCB, %ecx
@@ -96,9 +96,9 @@ ENTRY(sev_es_req_cpuid)
 2:
 	movl	$-1, %eax
 	jmp	1b
-ENDPROC(sev_es_req_cpuid)
+SYM_CODE_END(sev_es_req_cpuid)
 
-ENTRY(startup32_vc_handler)
+SYM_CODE_START(startup32_vc_handler)
 	pushl	%eax
 	pushl	%ebx
 	pushl	%ecx
@@ -182,12 +182,12 @@ ENTRY(startup32_vc_handler)
 	/* If request fails, go to hlt loop */
 	hlt
 	jmp .Lfail
-ENDPROC(startup32_vc_handler)
+SYM_CODE_END(startup32_vc_handler)
 
 	.code64
 
 #include "../../kernel/sev_verify_cbit.S"
-ENTRY(set_sev_encryption_mask)
+SYM_FUNC_START(set_sev_encryption_mask)
 #ifdef CONFIG_AMD_MEM_ENCRYPT
 	push	%rbp
 	push	%rdx
@@ -222,7 +222,7 @@ ENTRY(set_sev_encryption_mask)
 
 	xor	%rax, %rax
 	ret
-ENDPROC(set_sev_encryption_mask)
+SYM_FUNC_END(set_sev_encryption_mask)
 
 	.data
 

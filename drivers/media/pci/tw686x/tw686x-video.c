@@ -92,8 +92,8 @@ static void tw686x_memcpy_dma_free(struct tw686x_video_channel *vc,
 	}
 
 	if (desc->virt) {
-		pci_free_consistent(dev->pci_dev, desc->size,
-				    desc->virt, desc->phys);
+		dma_free_coherent(&dev->pci_dev->dev, desc->size, desc->virt,
+				  desc->phys);
 		desc->virt = NULL;
 	}
 }
@@ -110,8 +110,8 @@ static int tw686x_memcpy_dma_alloc(struct tw686x_video_channel *vc,
 	     "Allocating buffer but previous still here\n");
 
 	len = (vc->width * vc->height * vc->format->depth) >> 3;
-	virt = pci_alloc_consistent(dev->pci_dev, len,
-				    &vc->dma_descs[pb].phys);
+	virt = dma_alloc_coherent(&dev->pci_dev->dev, len,
+				  &vc->dma_descs[pb].phys, GFP_KERNEL);
 	if (!virt) {
 		v4l2_err(&dev->v4l2_dev,
 			 "dma%d: unable to allocate %s-buffer\n",
@@ -258,8 +258,8 @@ static void tw686x_sg_dma_free(struct tw686x_video_channel *vc,
 	struct tw686x_dev *dev = vc->dev;
 
 	if (desc->size) {
-		pci_free_consistent(dev->pci_dev, desc->size,
-				    desc->virt, desc->phys);
+		dma_free_coherent(&dev->pci_dev->dev, desc->size, desc->virt,
+				  desc->phys);
 		desc->virt = NULL;
 	}
 
@@ -276,9 +276,8 @@ static int tw686x_sg_dma_alloc(struct tw686x_video_channel *vc,
 	void *virt;
 
 	if (desc->size) {
-
-		virt = pci_alloc_consistent(dev->pci_dev, desc->size,
-					    &desc->phys);
+		virt = dma_alloc_coherent(&dev->pci_dev->dev, desc->size,
+					  &desc->phys, GFP_KERNEL);
 		if (!virt) {
 			v4l2_err(&dev->v4l2_dev,
 				 "dma%d: unable to allocate %s-buffer\n",
@@ -1282,7 +1281,7 @@ int tw686x_video_init(struct tw686x_dev *dev)
 		vc->device = vdev;
 		video_set_drvdata(vdev, vc);
 
-		err = video_register_device(vdev, VFL_TYPE_GRABBER, -1);
+		err = video_register_device(vdev, VFL_TYPE_VIDEO, -1);
 		if (err < 0)
 			goto error;
 		vc->num = vdev->num;

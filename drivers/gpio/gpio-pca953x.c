@@ -73,6 +73,7 @@
 static const struct i2c_device_id pca953x_id[] = {
 	{ "pca6416", 16 | PCA953X_TYPE | PCA_INT, },
 	{ "pca9505", 40 | PCA953X_TYPE | PCA_INT, },
+	{ "pca9506", 40 | PCA953X_TYPE | PCA_INT, },
 	{ "pca9534", 8  | PCA953X_TYPE | PCA_INT, },
 	{ "pca9535", 16 | PCA953X_TYPE | PCA_INT, },
 	{ "pca9536", 4  | PCA953X_TYPE, },
@@ -90,6 +91,7 @@ static const struct i2c_device_id pca953x_id[] = {
 	{ "pcal6416", 16 | PCA953X_TYPE | PCA_LATCH_INT, },
 	{ "pcal6524", 24 | PCA953X_TYPE | PCA_LATCH_INT, },
 	{ "pcal9535", 16 | PCA953X_TYPE | PCA_LATCH_INT, },
+	{ "pcal9554b", 8  | PCA953X_TYPE | PCA_LATCH_INT, },
 	{ "pcal9555a", 16 | PCA953X_TYPE | PCA_LATCH_INT, },
 
 	{ "max7310", 8  | PCA953X_TYPE, },
@@ -353,6 +355,7 @@ static const struct regmap_config pca953x_i2c_regmap = {
 	.writeable_reg = pca953x_writeable_register,
 	.volatile_reg = pca953x_volatile_register,
 
+	.disable_locking = true,
 	.cache_type = REGCACHE_RBTREE,
 	.max_register = 0x7f,
 };
@@ -781,16 +784,31 @@ static irqreturn_t pca953x_irq_handler(int irq, void *devid)
 {
 	struct pca953x_chip *chip = devid;
 	struct gpio_chip *gc = &chip->gpio_chip;
-	DECLARE_BITMAP(pending, MAX_LINE) = {};
+	DECLARE_BITMAP(pending, MAX_LINE);
 	int level;
 	bool ret;
+
+	bitmap_zero(pending, MAX_LINE);
 
 	mutex_lock(&chip->i2c_lock);
 	ret = pca953x_irq_pending(chip, pending);
 	mutex_unlock(&chip->i2c_lock);
 
-	for_each_set_bit(level, pending, gc->ngpio)
-		handle_nested_irq(irq_find_mapping(gc->irq.domain, level));
+	if (ret) {
+		ret = 0;
+
+		for_each_set_bit(level, pending, gc->ngpio) {
+			int nested_irq = irq_find_mapping(gc->irq.domain, level);
+
+			if (unlikely(nested_irq <= 0)) {
+				dev_warn_ratelimited(gc->parent, "unmapped interrupt %d\n", level);
+				continue;
+			}
+
+			handle_nested_irq(nested_irq);
+			ret = 1;
+		}
+	}
 
 	return IRQ_RETVAL(ret);
 }
@@ -970,12 +988,9 @@ static int pca953x_probe(struct i2c_client *client,
 	chip->client = client;
 
 	reg = devm_regulator_get(&client->dev, "vcc");
-	if (IS_ERR(reg)) {
-		ret = PTR_ERR(reg);
-		if (ret != -EPROBE_DEFER)
-			dev_err(&client->dev, "reg get err: %d\n", ret);
-		return ret;
-	}
+	if (IS_ERR(reg))
+		return dev_err_probe(&client->dev, PTR_ERR(reg), "reg get err\n");
+
 	ret = regulator_enable(reg);
 	if (ret) {
 		dev_err(&client->dev, "reg en err: %d\n", ret);
@@ -1190,6 +1205,7 @@ static int pca953x_resume(struct device *dev)
 static const struct of_device_id pca953x_dt_ids[] = {
 	{ .compatible = "nxp,pca6416", .data = OF_953X(16, PCA_INT), },
 	{ .compatible = "nxp,pca9505", .data = OF_953X(40, PCA_INT), },
+	{ .compatible = "nxp,pca9506", .data = OF_953X(40, PCA_INT), },
 	{ .compatible = "nxp,pca9534", .data = OF_953X( 8, PCA_INT), },
 	{ .compatible = "nxp,pca9535", .data = OF_953X(16, PCA_INT), },
 	{ .compatible = "nxp,pca9536", .data = OF_953X( 4, 0), },
@@ -1207,6 +1223,7 @@ static const struct of_device_id pca953x_dt_ids[] = {
 	{ .compatible = "nxp,pcal6416", .data = OF_953X(16, PCA_LATCH_INT), },
 	{ .compatible = "nxp,pcal6524", .data = OF_953X(24, PCA_LATCH_INT), },
 	{ .compatible = "nxp,pcal9535", .data = OF_953X(16, PCA_LATCH_INT), },
+	{ .compatible = "nxp,pcal9554b", .data = OF_953X( 8, PCA_LATCH_INT), },
 	{ .compatible = "nxp,pcal9555a", .data = OF_953X(16, PCA_LATCH_INT), },
 
 	{ .compatible = "maxim,max7310", .data = OF_953X( 8, 0), },

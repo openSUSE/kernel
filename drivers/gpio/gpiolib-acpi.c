@@ -128,6 +128,34 @@ static struct gpio_desc *acpi_get_gpiod(char *path, int pin)
 	return gpiochip_get_desc(chip, pin);
 }
 
+/**
+ * acpi_get_and_request_gpiod - Translate ACPI GPIO pin to GPIO descriptor and
+ *                              hold a refcount to the GPIO device.
+ * @path:      ACPI GPIO controller full path name, (e.g. "\\_SB.GPO1")
+ * @pin:       ACPI GPIO pin number (0-based, controller-relative)
+ * @label:     Label to pass to gpiod_request()
+ *
+ * This function is a simple pass-through to acpi_get_gpiod(), except that
+ * as it is intended for use outside of the GPIO layer (in a similar fashion to
+ * gpiod_get_index() for example) it also holds a reference to the GPIO device.
+ */
+struct gpio_desc *acpi_get_and_request_gpiod(char *path, int pin, char *label)
+{
+	struct gpio_desc *gpio;
+	int ret;
+
+	gpio = acpi_get_gpiod(path, pin);
+	if (IS_ERR(gpio))
+		return gpio;
+
+	ret = gpiod_request(gpio, label);
+	if (ret)
+		return ERR_PTR(ret);
+
+	return gpio;
+}
+EXPORT_SYMBOL_GPL(acpi_get_and_request_gpiod);
+
 static irqreturn_t acpi_gpio_irq_handler(int irq, void *data)
 {
 	struct acpi_gpio_event *event = data;
@@ -167,6 +195,29 @@ bool acpi_gpio_get_irq_resource(struct acpi_resource *ares,
 	return true;
 }
 EXPORT_SYMBOL_GPL(acpi_gpio_get_irq_resource);
+
+/**
+ * acpi_gpio_get_io_resource - Fetch details of an ACPI resource if it is a GPIO
+ *			       I/O resource or return False if not.
+ * @ares:	Pointer to the ACPI resource to fetch
+ * @agpio:	Pointer to a &struct acpi_resource_gpio to store the output pointer
+ */
+bool acpi_gpio_get_io_resource(struct acpi_resource *ares,
+			       struct acpi_resource_gpio **agpio)
+{
+	struct acpi_resource_gpio *gpio;
+
+	if (ares->type != ACPI_RESOURCE_TYPE_GPIO)
+		return false;
+
+	gpio = &ares->data.gpio;
+	if (gpio->connection_type != ACPI_RESOURCE_GPIO_TYPE_IO)
+		return false;
+
+	*agpio = gpio;
+	return true;
+}
+EXPORT_SYMBOL_GPL(acpi_gpio_get_io_resource);
 
 static void acpi_gpiochip_request_irq(struct acpi_gpio_chip *acpi_gpio,
 				      struct acpi_gpio_event *event)
@@ -318,6 +369,7 @@ static bool acpi_gpio_irq_is_wake(struct device *parent,
 	return true;
 }
 
+/* Always returns AE_OK so that we keep looping over the resources */
 static acpi_status acpi_gpiochip_alloc_event(struct acpi_resource *ares,
 					     void *context)
 {
@@ -353,19 +405,25 @@ static acpi_status acpi_gpiochip_alloc_event(struct acpi_resource *ares,
 
 	desc = acpi_request_own_gpiod(chip, agpio, 0, "ACPI:Event");
 	if (IS_ERR(desc)) {
-		dev_err(chip->parent, "Failed to request GPIO\n");
-		return AE_ERROR;
+		dev_err(chip->parent,
+			"Failed to request GPIO for pin 0x%04X, err %ld\n",
+			pin, PTR_ERR(desc));
+		return AE_OK;
 	}
 
 	ret = gpiochip_lock_as_irq(chip, pin);
 	if (ret) {
-		dev_err(chip->parent, "Failed to lock GPIO as interrupt\n");
+		dev_err(chip->parent,
+			"Failed to lock GPIO pin 0x%04X as interrupt, err %d\n",
+			pin, ret);
 		goto fail_free_desc;
 	}
 
 	irq = gpiod_to_irq(desc);
 	if (irq < 0) {
-		dev_err(chip->parent, "Failed to translate GPIO to IRQ\n");
+		dev_err(chip->parent,
+			"Failed to translate GPIO pin 0x%04X to IRQ, err %d\n",
+			pin, irq);
 		goto fail_unlock_irq;
 	}
 
@@ -410,7 +468,7 @@ fail_unlock_irq:
 fail_free_desc:
 	gpiochip_free_own_desc(desc);
 
-	return AE_ERROR;
+	return AE_OK;
 }
 
 /**
@@ -1226,14 +1284,14 @@ static void acpi_gpiochip_scan_gpios(struct acpi_gpio_chip *achip)
 void acpi_gpiochip_add(struct gpio_chip *chip)
 {
 	struct acpi_gpio_chip *acpi_gpio;
-	acpi_handle handle;
+	struct acpi_device *adev;
 	acpi_status status;
 
 	if (!chip || !chip->parent)
 		return;
 
-	handle = ACPI_HANDLE(chip->parent);
-	if (!handle)
+	adev = ACPI_COMPANION(chip->parent);
+	if (!adev)
 		return;
 
 	acpi_gpio = kzalloc(sizeof(*acpi_gpio), GFP_KERNEL);
@@ -1247,19 +1305,16 @@ void acpi_gpiochip_add(struct gpio_chip *chip)
 	INIT_LIST_HEAD(&acpi_gpio->events);
 	INIT_LIST_HEAD(&acpi_gpio->deferred_req_irqs_list_entry);
 
-	status = acpi_attach_data(handle, acpi_gpio_chip_dh, acpi_gpio);
+	status = acpi_attach_data(adev->handle, acpi_gpio_chip_dh, acpi_gpio);
 	if (ACPI_FAILURE(status)) {
 		dev_err(chip->parent, "Failed to attach ACPI GPIO chip\n");
 		kfree(acpi_gpio);
 		return;
 	}
 
-	if (!chip->names)
-		devprop_gpiochip_set_names(chip, dev_fwnode(chip->parent));
-
 	acpi_gpiochip_request_regions(acpi_gpio);
 	acpi_gpiochip_scan_gpios(acpi_gpio);
-	acpi_walk_dep_device_list(handle);
+	acpi_dev_clear_dependencies(adev);
 }
 
 void acpi_gpiochip_remove(struct gpio_chip *chip)
@@ -1287,6 +1342,13 @@ void acpi_gpiochip_remove(struct gpio_chip *chip)
 	kfree(acpi_gpio);
 }
 
+void acpi_gpio_dev_init(struct gpio_chip *gc, struct gpio_device *gdev)
+{
+	/* Set default fwnode to parent's one if present */
+	if (gc->parent)
+		ACPI_COMPANION_SET(&gdev->dev, ACPI_COMPANION(gc->parent));
+}
+
 static int acpi_gpio_package_count(const union acpi_object *obj)
 {
 	const union acpi_object *element = obj->package.elements;
@@ -1297,7 +1359,7 @@ static int acpi_gpio_package_count(const union acpi_object *obj)
 		switch (element->type) {
 		case ACPI_TYPE_LOCAL_REFERENCE:
 			element += 3;
-			/* Fallthrough */
+			fallthrough;
 		case ACPI_TYPE_INTEGER:
 			element++;
 			count++;
@@ -1386,7 +1448,7 @@ int acpi_gpio_count(struct device *dev, const char *con_id)
 }
 
 /* Run deferred acpi_gpiochip_request_irqs() */
-static int acpi_gpio_handle_deferred_request_irqs(void)
+static int __init acpi_gpio_handle_deferred_request_irqs(void)
 {
 	struct acpi_gpio_chip *acpi_gpio, *tmp;
 
@@ -1404,7 +1466,7 @@ static int acpi_gpio_handle_deferred_request_irqs(void)
 /* We must use _sync so that this runs after the first deferred_probe run */
 late_initcall_sync(acpi_gpio_handle_deferred_request_irqs);
 
-static const struct dmi_system_id gpiolib_acpi_quirks[] = {
+static const struct dmi_system_id gpiolib_acpi_quirks[] __initconst = {
 	{
 		/*
 		 * The Minix Neo Z83-4 has a micro-USB-B id-pin handler for
@@ -1502,7 +1564,7 @@ static const struct dmi_system_id gpiolib_acpi_quirks[] = {
 	{} /* Terminating entry */
 };
 
-static int acpi_gpio_setup_params(void)
+static int __init acpi_gpio_setup_params(void)
 {
 	const struct acpi_gpiolib_dmi_quirk *quirk = NULL;
 	const struct dmi_system_id *id;

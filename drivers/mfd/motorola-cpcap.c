@@ -97,7 +97,7 @@ static struct regmap_irq_chip cpcap_irq_chip[CPCAP_NR_IRQ_CHIPS] = {
 		.ack_base = CPCAP_REG_MI1,
 		.mask_base = CPCAP_REG_MIM1,
 		.use_ack = true,
-		.ack_invert = true,
+		.clear_ack = true,
 	},
 	{
 		.name = "cpcap-m2",
@@ -106,7 +106,7 @@ static struct regmap_irq_chip cpcap_irq_chip[CPCAP_NR_IRQ_CHIPS] = {
 		.ack_base = CPCAP_REG_MI2,
 		.mask_base = CPCAP_REG_MIM2,
 		.use_ack = true,
-		.ack_invert = true,
+		.clear_ack = true,
 	},
 	{
 		.name = "cpcap1-4",
@@ -115,7 +115,7 @@ static struct regmap_irq_chip cpcap_irq_chip[CPCAP_NR_IRQ_CHIPS] = {
 		.ack_base = CPCAP_REG_INT1,
 		.mask_base = CPCAP_REG_INTM1,
 		.use_ack = true,
-		.ack_invert = true,
+		.clear_ack = true,
 	},
 };
 
@@ -213,6 +213,28 @@ static const struct regmap_config cpcap_regmap_config = {
 	.reg_format_endian = REGMAP_ENDIAN_LITTLE,
 	.val_format_endian = REGMAP_ENDIAN_LITTLE,
 };
+
+#ifdef CONFIG_PM_SLEEP
+static int cpcap_suspend(struct device *dev)
+{
+	struct spi_device *spi = to_spi_device(dev);
+
+	disable_irq(spi->irq);
+
+	return 0;
+}
+
+static int cpcap_resume(struct device *dev)
+{
+	struct spi_device *spi = to_spi_device(dev);
+
+	enable_irq(spi->irq);
+
+	return 0;
+}
+#endif
+
+static SIMPLE_DEV_PM_OPS(cpcap_pm, cpcap_suspend, cpcap_resume);
 
 static const struct mfd_cell cpcap_mfd_devices[] = {
 	{
@@ -317,6 +339,7 @@ static struct spi_driver cpcap_driver = {
 	.driver = {
 		.name = "cpcap-core",
 		.of_match_table = cpcap_of_match,
+		.pm = &cpcap_pm,
 	},
 	.probe = cpcap_probe,
 };

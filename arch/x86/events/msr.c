@@ -99,6 +99,9 @@ static bool test_intel(int idx, void *data)
 	case INTEL_FAM6_ICELAKE_D:
 	case INTEL_FAM6_TIGERLAKE_L:
 	case INTEL_FAM6_TIGERLAKE:
+	case INTEL_FAM6_ROCKETLAKE:
+	case INTEL_FAM6_ALDERLAKE:
+	case INTEL_FAM6_ALDERLAKE_L:
 		if (idx == PERF_MSR_SMI || idx == PERF_MSR_PPERF)
 			return true;
 		break;
@@ -176,7 +179,7 @@ static const struct attribute_group *attr_groups[] = {
 	NULL,
 };
 
-const struct attribute_group *attr_update[] = {
+static const struct attribute_group *attr_update[] = {
 	&group_aperf,
 	&group_mperf,
 	&group_pperf,

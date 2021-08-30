@@ -65,7 +65,7 @@ struct posix_acl *nfs3_get_acl(struct inode *inode, int type)
 	if (!nfs_server_capable(inode, NFS_CAP_ACLS))
 		return ERR_PTR(-EOPNOTSUPP);
 
-	status = nfs_revalidate_inode(server, inode);
+	status = nfs_revalidate_inode(inode, NFS_INO_INVALID_CHANGE);
 	if (status < 0)
 		return ERR_PTR(status);
 
@@ -108,9 +108,10 @@ struct posix_acl *nfs3_get_acl(struct inode *inode, int type)
 		case -EPROTONOSUPPORT:
 			dprintk("NFS_V3_ACL extension not supported; disabling\n");
 			server->caps &= ~NFS_CAP_ACLS;
-			/* fall through */
+			fallthrough;
 		case -ENOTSUPP:
 			status = -EOPNOTSUPP;
+			goto getout;
 		default:
 			goto getout;
 	}
@@ -228,7 +229,7 @@ static int __nfs3_proc_setacls(struct inode *inode, struct posix_acl *acl,
 			dprintk("NFS_V3_ACL SETACL RPC not supported"
 					"(will not retry)\n");
 			server->caps &= ~NFS_CAP_ACLS;
-			/* fall through */
+			fallthrough;
 		case -ENOTSUPP:
 			status = -EOPNOTSUPP;
 	}
@@ -251,7 +252,8 @@ int nfs3_proc_setacls(struct inode *inode, struct posix_acl *acl,
 
 }
 
-int nfs3_set_acl(struct inode *inode, struct posix_acl *acl, int type)
+int nfs3_set_acl(struct user_namespace *mnt_userns, struct inode *inode,
+		 struct posix_acl *acl, int type)
 {
 	struct posix_acl *orig = acl, *dfacl = NULL, *alloc;
 	int status;

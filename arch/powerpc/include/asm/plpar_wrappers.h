@@ -395,6 +395,12 @@ static inline long plpar_set_ciabr(unsigned long ciabr)
 	return 0;
 }
 
+static inline long plpar_pte_read_4(unsigned long flags, unsigned long ptex,
+				    unsigned long *ptes)
+{
+	return 0;
+}
+
 static inline long pseries_rpt_invalidate(u32 pid, u64 target, u64 type,
 					  u64 page_sizes, u64 start, u64 end)
 {

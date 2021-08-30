@@ -40,6 +40,8 @@
 #define FAN_RPM_MIN			120
 #define FAN_RPM_MAX			7864320
 
+#define FAN_COUNT_REG_MAX		0xffe0
+
 #define RPM_FROM_REG(reg, sr)		(((reg) >> 4) ? \
 					 ((60 * (sr) * 8192) / ((reg) >> 4)) : \
 					 FAN_RPM_MAX)
@@ -80,7 +82,7 @@ static struct max31790_data *max31790_update_device(struct device *dev)
 				MAX31790_REG_FAN_FAULT_STATUS1);
 		if (rv < 0)
 			goto abort;
-		data->fault_status = rv & 0x3F;
+		data->fault_status |= rv & 0x3F;
 
 		rv = i2c_smbus_read_byte_data(client,
 				MAX31790_REG_FAN_FAULT_STATUS2);
@@ -172,7 +174,10 @@ static int max31790_read_fan(struct device *dev, u32 attr, int channel,
 	switch (attr) {
 	case hwmon_fan_input:
 		sr = get_tach_period(data->fan_dynamics[channel % NR_CHANNEL]);
-		rpm = RPM_FROM_REG(data->tach[channel], sr);
+		if (data->tach[channel] == FAN_COUNT_REG_MAX)
+			rpm = 0;
+		else
+			rpm = RPM_FROM_REG(data->tach[channel], sr);
 		*val = rpm;
 		return 0;
 	case hwmon_fan_target:
@@ -181,7 +186,21 @@ static int max31790_read_fan(struct device *dev, u32 attr, int channel,
 		*val = rpm;
 		return 0;
 	case hwmon_fan_fault:
+		mutex_lock(&data->update_lock);
 		*val = !!(data->fault_status & (1 << channel));
+		data->fault_status &= ~(1 << channel);
+		/*
+		 * If a fault bit is set, we need to write into one of the fan
+		 * configuration registers to clear it. Note that this also
+		 * clears the fault for the companion channel if enabled.
+		 */
+		if (*val) {
+			int reg = MAX31790_REG_TARGET_COUNT(channel % NR_CHANNEL);
+
+			i2c_smbus_write_byte_data(data->client, reg,
+						  data->target_count[channel % NR_CHANNEL] >> 8);
+		}
+		mutex_unlock(&data->update_lock);
 		return 0;
 	default:
 		return -EOPNOTSUPP;
@@ -459,8 +478,7 @@ static int max31790_init_client(struct i2c_client *client,
 	return 0;
 }
 
-static int max31790_probe(struct i2c_client *client,
-			  const struct i2c_device_id *id)
+static int max31790_probe(struct i2c_client *client)
 {
 	struct i2c_adapter *adapter = client->adapter;
 	struct device *dev = &client->dev;
@@ -502,7 +520,7 @@ MODULE_DEVICE_TABLE(i2c, max31790_id);
 
 static struct i2c_driver max31790_driver = {
 	.class		= I2C_CLASS_HWMON,
-	.probe		= max31790_probe,
+	.probe_new	= max31790_probe,
 	.driver = {
 		.name	= "max31790",
 	},

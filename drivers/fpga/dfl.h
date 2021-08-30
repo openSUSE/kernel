@@ -22,6 +22,7 @@
 #include <linux/interrupt.h>
 #include <linux/iopoll.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
+#include <linux/mod_devicetable.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/uuid.h>
@@ -129,6 +130,10 @@
 #define PORT_HDR_CAP		0x30
 #define PORT_HDR_CTRL		0x38
 #define PORT_HDR_STS		0x40
+#define PORT_HDR_USRCLK_CMD0	0x50
+#define PORT_HDR_USRCLK_CMD1	0x58
+#define PORT_HDR_USRCLK_STS0	0x60
+#define PORT_HDR_USRCLK_STS1	0x68
 
 /* Port Capability Register Bitfield */
 #define PORT_CAP_PORT_NUM	GENMASK_ULL(1, 0)	/* ID of this port */
@@ -149,6 +154,20 @@
 #define PORT_STS_PWR_STATE_AP1	1			/* 50% throttling */
 #define PORT_STS_PWR_STATE_AP2	2			/* 90% throttling */
 #define PORT_STS_PWR_STATE_AP6	6			/* 100% throttling */
+
+/* Port Error Capability Register */
+#define PORT_ERROR_CAP		0x38
+
+/* Port Error Capability Register Bitfield */
+#define PORT_ERROR_CAP_SUPP_INT	BIT_ULL(0)		/* Interrupt Support */
+#define PORT_ERROR_CAP_INT_VECT	GENMASK_ULL(12, 1)	/* Interrupt vector */
+
+/* Port Uint Capability Register */
+#define PORT_UINT_CAP		0x8
+
+/* Port Uint Capability Register Bitfield */
+#define PORT_UINT_CAP_INT_NUM	GENMASK_ULL(11, 0)	/* Interrupts num */
+#define PORT_UINT_CAP_FST_VECT	GENMASK_ULL(23, 12)	/* First Vector */
 
 /**
  * struct dfl_fpga_port_ops - port ops
@@ -173,27 +192,13 @@ struct dfl_fpga_port_ops *dfl_fpga_port_ops_get(struct platform_device *pdev);
 void dfl_fpga_port_ops_put(struct dfl_fpga_port_ops *ops);
 int dfl_fpga_check_port_id(struct platform_device *pdev, void *pport_id);
 
-/* Port Error Capability Register */
-#define PORT_ERROR_CAP		0x38
-
-/* Port Error Capability Register Bitfield */
-#define PORT_ERROR_CAP_SUPP_INT	BIT_ULL(0)		/* Interrupt Support */
-#define PORT_ERROR_CAP_INT_VECT	GENMASK_ULL(12, 1)	/* Interrupt vector */
-
-/* Port Uint Capability Register */
-#define PORT_UINT_CAP		0x8
-
-/* Port Uint Capability Register Bitfield */
-#define PORT_UINT_CAP_INT_NUM	GENMASK_ULL(11, 0)	/* Interrupts num */
-#define PORT_UINT_CAP_FST_VECT	GENMASK_ULL(23, 12)	/* First Vector */
-
 /**
  * struct dfl_feature_id - dfl private feature id
  *
  * @id: unique dfl private feature id.
  */
 struct dfl_feature_id {
-	u64 id;
+	u16 id;
 };
 
 /**
@@ -205,7 +210,6 @@ struct dfl_feature_id {
 struct dfl_feature_driver {
 	const struct dfl_feature_id *id_table;
 	const struct dfl_feature_ops *ops;
-	void *priv;
 };
 
 /**
@@ -233,16 +237,18 @@ struct dfl_feature_irq_ctx {
  * @irq_ctx: interrupt context list.
  * @nr_irqs: number of interrupt contexts.
  * @ops: ops of this sub feature.
+ * @ddev: ptr to the dfl device of this sub feature.
  * @priv: priv data of this feature.
  */
 struct dfl_feature {
 	struct platform_device *dev;
-	u64 id;
+	u16 id;
 	int resource_index;
 	void __iomem *ioaddr;
 	struct dfl_feature_irq_ctx *irq_ctx;
 	unsigned int nr_irqs;
 	const struct dfl_feature_ops *ops;
+	struct dfl_device *ddev;
 	void *priv;
 };
 
@@ -362,7 +368,7 @@ struct platform_device *dfl_fpga_inode_to_feature_dev(struct inode *inode)
 	   (feature) < (pdata)->features + (pdata)->num; (feature)++)
 
 static inline
-struct dfl_feature *dfl_get_feature_by_id(struct device *dev, u64 id)
+struct dfl_feature *dfl_get_feature_by_id(struct device *dev, u16 id)
 {
 	struct dfl_feature_platform_data *pdata = dev_get_platdata(dev);
 	struct dfl_feature *feature;
@@ -375,7 +381,7 @@ struct dfl_feature *dfl_get_feature_by_id(struct device *dev, u64 id)
 }
 
 static inline
-void __iomem *dfl_get_feature_ioaddr_by_id(struct device *dev, u64 id)
+void __iomem *dfl_get_feature_ioaddr_by_id(struct device *dev, u16 id)
 {
 	struct dfl_feature *feature = dfl_get_feature_by_id(dev, id);
 
@@ -386,7 +392,7 @@ void __iomem *dfl_get_feature_ioaddr_by_id(struct device *dev, u64 id)
 	return NULL;
 }
 
-static inline bool is_dfl_feature_present(struct device *dev, u64 id)
+static inline bool is_dfl_feature_present(struct device *dev, u16 id)
 {
 	return !!dfl_get_feature_ioaddr_by_id(dev, id);
 }
@@ -438,22 +444,17 @@ struct dfl_fpga_enum_info {
  *
  * @start: base address of this device feature list.
  * @len: size of this device feature list.
- * @ioaddr: mapped base address of this device feature list.
  * @node: node in list of device feature lists.
  */
 struct dfl_fpga_enum_dfl {
 	resource_size_t start;
 	resource_size_t len;
-
-	void __iomem *ioaddr;
-
 	struct list_head node;
 };
 
 struct dfl_fpga_enum_info *dfl_fpga_enum_info_alloc(struct device *dev);
 int dfl_fpga_enum_info_add_dfl(struct dfl_fpga_enum_info *info,
-			       resource_size_t start, resource_size_t len,
-			       void __iomem *ioaddr);
+			       resource_size_t start, resource_size_t len);
 int dfl_fpga_enum_info_add_irq(struct dfl_fpga_enum_info *info,
 			       unsigned int nr_irqs, int *irq_table);
 void dfl_fpga_enum_info_free(struct dfl_fpga_enum_info *info);
@@ -480,14 +481,6 @@ struct dfl_fpga_cdev {
 struct dfl_fpga_cdev *
 dfl_fpga_feature_devs_enumerate(struct dfl_fpga_enum_info *info);
 void dfl_fpga_feature_devs_remove(struct dfl_fpga_cdev *cdev);
-int dfl_fpga_set_irq_triggers(struct dfl_feature *feature, unsigned int start,
-				unsigned int count, int32_t *fds);
-long dfl_feature_ioctl_get_num_irqs(struct platform_device *pdev,
-				struct dfl_feature *feature,
-				unsigned long arg);
-long dfl_feature_ioctl_set_irq(struct platform_device *pdev,
-				struct dfl_feature *feature,
-				unsigned long arg);
 
 /*
  * need to drop the device reference with put_device() after use port platform
@@ -513,5 +506,15 @@ dfl_fpga_cdev_find_port(struct dfl_fpga_cdev *cdev, void *data,
 
 int dfl_fpga_cdev_release_port(struct dfl_fpga_cdev *cdev, int port_id);
 int dfl_fpga_cdev_assign_port(struct dfl_fpga_cdev *cdev, int port_id);
+void dfl_fpga_cdev_config_ports_pf(struct dfl_fpga_cdev *cdev);
+int dfl_fpga_cdev_config_ports_vf(struct dfl_fpga_cdev *cdev, int num_vf);
+int dfl_fpga_set_irq_triggers(struct dfl_feature *feature, unsigned int start,
+			      unsigned int count, int32_t *fds);
+long dfl_feature_ioctl_get_num_irqs(struct platform_device *pdev,
+				    struct dfl_feature *feature,
+				    unsigned long arg);
+long dfl_feature_ioctl_set_irq(struct platform_device *pdev,
+			       struct dfl_feature *feature,
+			       unsigned long arg);
 
 #endif /* __FPGA_DFL_H */

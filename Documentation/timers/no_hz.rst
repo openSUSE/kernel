@@ -1,4 +1,4 @@
-﻿======================================
+======================================
 NO_HZ: Reducing Scheduling-Clock Ticks
 ======================================
 
@@ -170,8 +170,6 @@ not come for free:
 5.	Scheduler statistics for adaptive-tick CPUs may be computed
 	slightly differently than those for non-adaptive-tick CPUs.
 	This might in turn perturb load-balancing of real-time tasks.
-
-6.	The LB_BIAS scheduler feature is disabled by adaptive ticks.
 
 Although improvements are expected over time, adaptive ticks is quite
 useful for many types of real-time and compute-intensive applications.

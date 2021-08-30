@@ -173,7 +173,6 @@ enum imx_dma_type {
 
 struct imxdma_engine {
 	struct device			*dev;
-	struct device_dma_parameters	dma_parms;
 	struct dma_device		dma_device;
 	void __iomem			*base;
 	struct clk			*dma_ahb;
@@ -192,32 +191,13 @@ struct imxdma_filter_data {
 	int			 request;
 };
 
-static const struct platform_device_id imx_dma_devtype[] = {
-	{
-		.name = "imx1-dma",
-		.driver_data = IMX1_DMA,
-	}, {
-		.name = "imx21-dma",
-		.driver_data = IMX21_DMA,
-	}, {
-		.name = "imx27-dma",
-		.driver_data = IMX27_DMA,
-	}, {
-		/* sentinel */
-	}
-};
-MODULE_DEVICE_TABLE(platform, imx_dma_devtype);
-
 static const struct of_device_id imx_dma_of_dev_id[] = {
 	{
-		.compatible = "fsl,imx1-dma",
-		.data = &imx_dma_devtype[IMX1_DMA],
+		.compatible = "fsl,imx1-dma", .data = (const void *)IMX1_DMA,
 	}, {
-		.compatible = "fsl,imx21-dma",
-		.data = &imx_dma_devtype[IMX21_DMA],
+		.compatible = "fsl,imx21-dma", .data = (const void *)IMX21_DMA,
 	}, {
-		.compatible = "fsl,imx27-dma",
-		.data = &imx_dma_devtype[IMX27_DMA],
+		.compatible = "fsl,imx27-dma", .data = (const void *)IMX27_DMA,
 	}, {
 		/* sentinel */
 	}
@@ -556,7 +536,7 @@ static int imxdma_xfer_desc(struct imxdma_desc *d)
 		 * We fall-through here intentionally, since a 2D transfer is
 		 * similar to MEMCPY just adding the 2D slot configuration.
 		 */
-		/* Fall through */
+		fallthrough;
 	case IMXDMA_DESC_MEMCPY:
 		imx_dmav1_writel(imxdma, d->src, DMA_SAR(imxdmac->channel));
 		imx_dmav1_writel(imxdma, d->dest, DMA_DAR(imxdmac->channel));
@@ -613,9 +593,9 @@ static int imxdma_xfer_desc(struct imxdma_desc *d)
 	return 0;
 }
 
-static void imxdma_tasklet(unsigned long data)
+static void imxdma_tasklet(struct tasklet_struct *t)
 {
-	struct imxdma_channel *imxdmac = (void *)data;
+	struct imxdma_channel *imxdmac = from_tasklet(imxdmac, t, dma_tasklet);
 	struct imxdma_engine *imxdma = imxdmac->imxdma;
 	struct imxdma_desc *desc, *next_desc;
 	unsigned long flags;
@@ -1059,20 +1039,15 @@ static int __init imxdma_probe(struct platform_device *pdev)
 {
 	struct imxdma_engine *imxdma;
 	struct resource *res;
-	const struct of_device_id *of_id;
 	int ret, i;
 	int irq, irq_err;
-
-	of_id = of_match_device(imx_dma_of_dev_id, &pdev->dev);
-	if (of_id)
-		pdev->id_entry = of_id->data;
 
 	imxdma = devm_kzalloc(&pdev->dev, sizeof(*imxdma), GFP_KERNEL);
 	if (!imxdma)
 		return -ENOMEM;
 
 	imxdma->dev = &pdev->dev;
-	imxdma->devtype = pdev->id_entry->driver_data;
+	imxdma->devtype = (enum imx_dma_type)of_device_get_match_data(&pdev->dev);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	imxdma->base = devm_ioremap_resource(&pdev->dev, res);
@@ -1171,8 +1146,7 @@ static int __init imxdma_probe(struct platform_device *pdev)
 		INIT_LIST_HEAD(&imxdmac->ld_free);
 		INIT_LIST_HEAD(&imxdmac->ld_active);
 
-		tasklet_init(&imxdmac->dma_tasklet, imxdma_tasklet,
-			     (unsigned long)imxdmac);
+		tasklet_setup(&imxdmac->dma_tasklet, imxdma_tasklet);
 		imxdmac->chan.device = &imxdma->dma_device;
 		dma_cookie_init(&imxdmac->chan);
 		imxdmac->channel = i;
@@ -1198,7 +1172,6 @@ static int __init imxdma_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, imxdma);
 
 	imxdma->dma_device.copy_align = DMAENGINE_ALIGN_4_BYTES;
-	imxdma->dma_device.dev->dma_parms = &imxdma->dma_parms;
 	dma_set_max_seg_size(imxdma->dma_device.dev, 0xffffff);
 
 	ret = dma_async_device_register(&imxdma->dma_device);
@@ -1268,7 +1241,6 @@ static struct platform_driver imxdma_driver = {
 		.name	= "imx-dma",
 		.of_match_table = imx_dma_of_dev_id,
 	},
-	.id_table	= imx_dma_devtype,
 	.remove		= imxdma_remove,
 };
 

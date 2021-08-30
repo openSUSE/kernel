@@ -8,6 +8,8 @@
 #define REQ_TX_DESCRIPTOR_MULTIPLE	8
 #define REQ_RX_DESCRIPTOR_MULTIPLE	8
 
+#define IGC_CTRL_EXT_SDP2_DIR	0x00000400 /* SDP2 Data direction */
+#define IGC_CTRL_EXT_SDP3_DIR	0x00000800 /* SDP3 Data direction */
 #define IGC_CTRL_EXT_DRV_LOAD	0x10000000 /* Drv loaded bit for FW */
 
 /* Definitions for power management and wakeup registers */
@@ -92,9 +94,13 @@
 #define IGC_CTRL_SLU		0x00000040  /* Set link up (Force Link) */
 #define IGC_CTRL_FRCSPD		0x00000800  /* Force Speed */
 #define IGC_CTRL_FRCDPX		0x00001000  /* Force Duplex */
+#define IGC_CTRL_VME		0x40000000  /* IEEE VLAN mode enable */
 
 #define IGC_CTRL_RFCE		0x08000000  /* Receive Flow Control enable */
 #define IGC_CTRL_TFCE		0x10000000  /* Transmit flow control enable */
+
+#define IGC_CTRL_SDP0_DIR	0x00400000  /* SDP0 Data direction */
+#define IGC_CTRL_SDP1_DIR	0x00800000  /* SDP1 Data direction */
 
 /* As per the EAS the maximum supported size is 9.5KB (9728 bytes) */
 #define MAX_JUMBO_FRAME_SIZE	0x2600
@@ -123,13 +129,11 @@
 #define NWAY_LPAR_ASM_DIR	0x0800 /* LP Asymmetric Pause Direction bit */
 
 /* 1000BASE-T Control Register */
-#define CR_1000T_ASYM_PAUSE	0x0080 /* Advertise asymmetric pause bit */
 #define CR_1000T_HD_CAPS	0x0100 /* Advertise 1000T HD capability */
 #define CR_1000T_FD_CAPS	0x0200 /* Advertise 1000T FD capability  */
 
 /* 1000BASE-T Status Register */
 #define SR_1000T_REMOTE_RX_STATUS	0x1000 /* Remote receiver OK */
-#define SR_1000T_LOCAL_RX_STATUS	0x2000 /* Local receiver OK */
 
 /* PHY GPY 211 registers */
 #define STANDARD_AN_REG_MASK	0x0007 /* MMD */
@@ -160,6 +164,7 @@
 #define IGC_NVM_RW_REG_START	1    /* Start operation */
 #define IGC_NVM_RW_ADDR_SHIFT	2    /* Shift to the address bits */
 #define IGC_NVM_POLL_READ	0    /* Flag for polling for read complete */
+#define IGC_NVM_DEV_STARTER	5    /* Dev_starter Version */
 
 /* NVM Word Offsets */
 #define NVM_CHECKSUM_REG		0x003F
@@ -179,7 +184,6 @@
 #define IGC_STATUS_LU		0x00000002      /* Link up.0=no,1=link */
 #define IGC_STATUS_FUNC_MASK	0x0000000C      /* PCI Function Mask */
 #define IGC_STATUS_FUNC_SHIFT	2
-#define IGC_STATUS_FUNC_1	0x00000004      /* Function 1 */
 #define IGC_STATUS_TXOFF	0x00000010      /* transmission paused */
 #define IGC_STATUS_SPEED_100	0x00000040      /* Speed 100Mb/s */
 #define IGC_STATUS_SPEED_1000	0x00000080      /* Speed 1000Mb/s */
@@ -284,7 +288,6 @@
 #define IGC_TCTL_CT		0x00000ff0 /* collision threshold */
 #define IGC_TCTL_COLD		0x003ff000 /* collision distance */
 #define IGC_TCTL_RTLC		0x01000000 /* Re-transmit on late collision */
-#define IGC_TCTL_MULR		0x10000000 /* Multiple request support */
 
 /* Flow Control Constants */
 #define FLOW_CONTROL_ADDRESS_LOW	0x00C28001
@@ -320,25 +323,16 @@
 #define IGC_RXD_STAT_IXSM	0x04	/* Ignore checksum */
 #define IGC_RXD_STAT_UDPCS	0x10	/* UDP xsum calculated */
 #define IGC_RXD_STAT_TCPCS	0x20	/* TCP xsum calculated */
+#define IGC_RXD_STAT_VP		0x08	/* IEEE VLAN Packet */
+
+#define IGC_RXDEXT_STATERR_LB	0x00040000
 
 /* Advanced Receive Descriptor bit definitions */
 #define IGC_RXDADV_STAT_TSIP	0x08000 /* timestamp in packet */
 
-#define IGC_RXDEXT_STATERR_CE		0x01000000
-#define IGC_RXDEXT_STATERR_SE		0x02000000
-#define IGC_RXDEXT_STATERR_SEQ		0x04000000
-#define IGC_RXDEXT_STATERR_CXE		0x10000000
-#define IGC_RXDEXT_STATERR_TCPE		0x20000000
+#define IGC_RXDEXT_STATERR_L4E		0x20000000
 #define IGC_RXDEXT_STATERR_IPE		0x40000000
 #define IGC_RXDEXT_STATERR_RXE		0x80000000
-
-/* Same mask, but for extended and packet split descriptors */
-#define IGC_RXDEXT_ERR_FRAME_ERR_MASK ( \
-	IGC_RXDEXT_STATERR_CE  |	\
-	IGC_RXDEXT_STATERR_SE  |	\
-	IGC_RXDEXT_STATERR_SEQ |	\
-	IGC_RXDEXT_STATERR_CXE |	\
-	IGC_RXDEXT_STATERR_RXE)
 
 #define IGC_MRQC_RSS_FIELD_IPV4_TCP	0x00010000
 #define IGC_MRQC_RSS_FIELD_IPV4		0x00020000
@@ -409,13 +403,71 @@
 #define IGC_IMIREXT_SIZE_BP	0x00001000  /* Packet size bypass */
 
 /* Time Sync Transmit Control bit definitions */
-#define IGC_TSYNCTXCTL_VALID			0x00000001  /* Tx timestamp valid */
+#define IGC_TSYNCTXCTL_TXTT_0			0x00000001  /* Tx timestamp reg 0 valid */
 #define IGC_TSYNCTXCTL_ENABLED			0x00000010  /* enable Tx timestamping */
 #define IGC_TSYNCTXCTL_MAX_ALLOWED_DLY_MASK	0x0000F000  /* max delay */
 #define IGC_TSYNCTXCTL_SYNC_COMP_ERR		0x20000000  /* sync err */
 #define IGC_TSYNCTXCTL_SYNC_COMP		0x40000000  /* sync complete */
 #define IGC_TSYNCTXCTL_START_SYNC		0x80000000  /* initiate sync */
 #define IGC_TSYNCTXCTL_TXSYNSIG			0x00000020  /* Sample TX tstamp in PHY sop */
+
+/* Timer selection bits */
+#define IGC_AUX_IO_TIMER_SEL_SYSTIM0	(0u << 30) /* Select SYSTIM0 for auxiliary time stamp */
+#define IGC_AUX_IO_TIMER_SEL_SYSTIM1	(1u << 30) /* Select SYSTIM1 for auxiliary time stamp */
+#define IGC_AUX_IO_TIMER_SEL_SYSTIM2	(2u << 30) /* Select SYSTIM2 for auxiliary time stamp */
+#define IGC_AUX_IO_TIMER_SEL_SYSTIM3	(3u << 30) /* Select SYSTIM3 for auxiliary time stamp */
+#define IGC_TT_IO_TIMER_SEL_SYSTIM0	(0u << 30) /* Select SYSTIM0 for target time stamp */
+#define IGC_TT_IO_TIMER_SEL_SYSTIM1	(1u << 30) /* Select SYSTIM1 for target time stamp */
+#define IGC_TT_IO_TIMER_SEL_SYSTIM2	(2u << 30) /* Select SYSTIM2 for target time stamp */
+#define IGC_TT_IO_TIMER_SEL_SYSTIM3	(3u << 30) /* Select SYSTIM3 for target time stamp */
+
+/* TSAUXC Configuration Bits */
+#define IGC_TSAUXC_EN_TT0	BIT(0)  /* Enable target time 0. */
+#define IGC_TSAUXC_EN_TT1	BIT(1)  /* Enable target time 1. */
+#define IGC_TSAUXC_EN_CLK0	BIT(2)  /* Enable Configurable Frequency Clock 0. */
+#define IGC_TSAUXC_EN_CLK1	BIT(5)  /* Enable Configurable Frequency Clock 1. */
+#define IGC_TSAUXC_EN_TS0	BIT(8)  /* Enable hardware timestamp 0. */
+#define IGC_TSAUXC_AUTT0	BIT(9)  /* Auxiliary Timestamp Taken. */
+#define IGC_TSAUXC_EN_TS1	BIT(10) /* Enable hardware timestamp 0. */
+#define IGC_TSAUXC_AUTT1	BIT(11) /* Auxiliary Timestamp Taken. */
+#define IGC_TSAUXC_PLSG		BIT(17) /* Generate a pulse. */
+#define IGC_TSAUXC_DISABLE1	BIT(27) /* Disable SYSTIM0 Count Operation. */
+#define IGC_TSAUXC_DISABLE2	BIT(28) /* Disable SYSTIM1 Count Operation. */
+#define IGC_TSAUXC_DISABLE3	BIT(29) /* Disable SYSTIM2 Count Operation. */
+#define IGC_TSAUXC_DIS_TS_CLEAR	BIT(30) /* Disable EN_TT0/1 auto clear. */
+#define IGC_TSAUXC_DISABLE0	BIT(31) /* Disable SYSTIM0 Count Operation. */
+
+/* SDP Configuration Bits */
+#define IGC_AUX0_SEL_SDP0	(0u << 0)  /* Assign SDP0 to auxiliary time stamp 0. */
+#define IGC_AUX0_SEL_SDP1	(1u << 0)  /* Assign SDP1 to auxiliary time stamp 0. */
+#define IGC_AUX0_SEL_SDP2	(2u << 0)  /* Assign SDP2 to auxiliary time stamp 0. */
+#define IGC_AUX0_SEL_SDP3	(3u << 0)  /* Assign SDP3 to auxiliary time stamp 0. */
+#define IGC_AUX0_TS_SDP_EN	(1u << 2)  /* Enable auxiliary time stamp trigger 0. */
+#define IGC_AUX1_SEL_SDP0	(0u << 3)  /* Assign SDP0 to auxiliary time stamp 1. */
+#define IGC_AUX1_SEL_SDP1	(1u << 3)  /* Assign SDP1 to auxiliary time stamp 1. */
+#define IGC_AUX1_SEL_SDP2	(2u << 3)  /* Assign SDP2 to auxiliary time stamp 1. */
+#define IGC_AUX1_SEL_SDP3	(3u << 3)  /* Assign SDP3 to auxiliary time stamp 1. */
+#define IGC_AUX1_TS_SDP_EN	(1u << 5)  /* Enable auxiliary time stamp trigger 1. */
+#define IGC_TS_SDP0_SEL_TT0	(0u << 6)  /* Target time 0 is output on SDP0. */
+#define IGC_TS_SDP0_SEL_TT1	(1u << 6)  /* Target time 1 is output on SDP0. */
+#define IGC_TS_SDP0_SEL_FC0	(2u << 6)  /* Freq clock  0 is output on SDP0. */
+#define IGC_TS_SDP0_SEL_FC1	(3u << 6)  /* Freq clock  1 is output on SDP0. */
+#define IGC_TS_SDP0_EN		(1u << 8)  /* SDP0 is assigned to Tsync. */
+#define IGC_TS_SDP1_SEL_TT0	(0u << 9)  /* Target time 0 is output on SDP1. */
+#define IGC_TS_SDP1_SEL_TT1	(1u << 9)  /* Target time 1 is output on SDP1. */
+#define IGC_TS_SDP1_SEL_FC0	(2u << 9)  /* Freq clock  0 is output on SDP1. */
+#define IGC_TS_SDP1_SEL_FC1	(3u << 9)  /* Freq clock  1 is output on SDP1. */
+#define IGC_TS_SDP1_EN		(1u << 11) /* SDP1 is assigned to Tsync. */
+#define IGC_TS_SDP2_SEL_TT0	(0u << 12) /* Target time 0 is output on SDP2. */
+#define IGC_TS_SDP2_SEL_TT1	(1u << 12) /* Target time 1 is output on SDP2. */
+#define IGC_TS_SDP2_SEL_FC0	(2u << 12) /* Freq clock  0 is output on SDP2. */
+#define IGC_TS_SDP2_SEL_FC1	(3u << 12) /* Freq clock  1 is output on SDP2. */
+#define IGC_TS_SDP2_EN		(1u << 14) /* SDP2 is assigned to Tsync. */
+#define IGC_TS_SDP3_SEL_TT0	(0u << 15) /* Target time 0 is output on SDP3. */
+#define IGC_TS_SDP3_SEL_TT1	(1u << 15) /* Target time 1 is output on SDP3. */
+#define IGC_TS_SDP3_SEL_FC0	(2u << 15) /* Freq clock  0 is output on SDP3. */
+#define IGC_TS_SDP3_SEL_FC1	(3u << 15) /* Freq clock  1 is output on SDP3. */
+#define IGC_TS_SDP3_EN		(1u << 17) /* SDP3 is assigned to Tsync. */
 
 /* Transmit Scheduling */
 #define IGC_TQAVCTRL_TRANSMIT_MODE_TSN	0x00000001
@@ -455,11 +507,6 @@
 #define MII_CR_RESTART_AUTO_NEG	0x0200  /* Restart auto negotiation */
 #define MII_CR_POWER_DOWN	0x0800  /* Power down */
 #define MII_CR_AUTO_NEG_EN	0x1000  /* Auto Neg Enable */
-#define MII_CR_LOOPBACK		0x4000  /* 0 = normal, 1 = loopback */
-#define MII_CR_RESET		0x8000  /* 0 = normal, 1 = PHY reset */
-#define MII_CR_SPEED_1000	0x0040
-#define MII_CR_SPEED_100	0x2000
-#define MII_CR_SPEED_10		0x0000
 
 /* PHY Status Register */
 #define MII_SR_LINK_STATUS	0x0004 /* Link Status 1 = link */

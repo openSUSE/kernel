@@ -11,19 +11,24 @@
 #include <linux/coresight-pmu.h>
 #include <linux/kernel.h>
 #include <linux/log2.h>
+#include <linux/string.h>
 #include <linux/types.h>
 #include <linux/zalloc.h>
 
 #include "cs-etm.h"
-#include "../../perf.h"
+#include "../../util/debug.h"
+#include "../../util/record.h"
 #include "../../util/auxtrace.h"
 #include "../../util/cpumap.h"
+#include "../../util/event.h"
 #include "../../util/evlist.h"
 #include "../../util/evsel.h"
+#include "../../util/perf_api_probe.h"
+#include "../../util/evsel_config.h"
 #include "../../util/pmu.h"
-#include "../../util/thread_map.h"
 #include "../../util/cs-etm.h"
-#include "../../util/util.h"
+#include <internal/lib.h> // page_size
+#include "../../util/session.h"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -32,9 +37,7 @@
 struct cs_etm_recording {
 	struct auxtrace_record	itr;
 	struct perf_pmu		*cs_etm_pmu;
-	struct perf_evlist	*evlist;
-	int			wrapped_cnt;
-	bool			*wrapped;
+	struct evlist		*evlist;
 	bool			snapshot_mode;
 	size_t			snapshot_size;
 };
@@ -55,13 +58,14 @@ static const char *metadata_etmv4_ro[CS_ETMV4_PRIV_MAX] = {
 static bool cs_etm_is_etmv4(struct auxtrace_record *itr, int cpu);
 
 static int cs_etm_set_context_id(struct auxtrace_record *itr,
-				 struct perf_evsel *evsel, int cpu)
+				 struct evsel *evsel, int cpu)
 {
 	struct cs_etm_recording *ptr;
 	struct perf_pmu *cs_etm_pmu;
 	char path[PATH_MAX];
 	int err = -EINVAL;
 	u32 val;
+	u64 contextid;
 
 	ptr = container_of(itr, struct cs_etm_recording, itr);
 	cs_etm_pmu = ptr->cs_etm_pmu;
@@ -81,30 +85,64 @@ static int cs_etm_set_context_id(struct auxtrace_record *itr,
 		goto out;
 	}
 
+	/* User has configured for PID tracing, respects it. */
+	contextid = evsel->core.attr.config &
+			(BIT(ETM_OPT_CTXTID) | BIT(ETM_OPT_CTXTID2));
+
 	/*
-	 * TRCIDR2.CIDSIZE, bit [9-5], indicates whether contextID tracing
-	 * is supported:
-	 *  0b00000 Context ID tracing is not supported.
-	 *  0b00100 Maximum of 32-bit Context ID size.
-	 *  All other values are reserved.
+	 * If user doesn't configure the contextid format, parse PMU format and
+	 * enable PID tracing according to the "contextid" format bits:
+	 *
+	 *   If bit ETM_OPT_CTXTID is set, trace CONTEXTIDR_EL1;
+	 *   If bit ETM_OPT_CTXTID2 is set, trace CONTEXTIDR_EL2.
 	 */
-	val = BMVAL(val, 5, 9);
-	if (!val || val != 0x4) {
-		err = -EINVAL;
-		goto out;
+	if (!contextid)
+		contextid = perf_pmu__format_bits(&cs_etm_pmu->format,
+						  "contextid");
+
+	if (contextid & BIT(ETM_OPT_CTXTID)) {
+		/*
+		 * TRCIDR2.CIDSIZE, bit [9-5], indicates whether contextID
+		 * tracing is supported:
+		 *  0b00000 Context ID tracing is not supported.
+		 *  0b00100 Maximum of 32-bit Context ID size.
+		 *  All other values are reserved.
+		 */
+		val = BMVAL(val, 5, 9);
+		if (!val || val != 0x4) {
+			pr_err("%s: CONTEXTIDR_EL1 isn't supported\n",
+			       CORESIGHT_ETM_PMU_NAME);
+			err = -EINVAL;
+			goto out;
+		}
+	}
+
+	if (contextid & BIT(ETM_OPT_CTXTID2)) {
+		/*
+		 * TRCIDR2.VMIDOPT[30:29] != 0 and
+		 * TRCIDR2.VMIDSIZE[14:10] == 0b00100 (32bit virtual contextid)
+		 * We can't support CONTEXTIDR in VMID if the size of the
+		 * virtual context id is < 32bit.
+		 * Any value of VMIDSIZE >= 4 (i.e, > 32bit) is fine for us.
+		 */
+		if (!BMVAL(val, 29, 30) || BMVAL(val, 10, 14) < 4) {
+			pr_err("%s: CONTEXTIDR_EL2 isn't supported\n",
+			       CORESIGHT_ETM_PMU_NAME);
+			err = -EINVAL;
+			goto out;
+		}
 	}
 
 	/* All good, let the kernel know */
-	evsel->attr.config |= (1 << ETM_OPT_CTXTID);
+	evsel->core.attr.config |= contextid;
 	err = 0;
 
 out:
-
 	return err;
 }
 
 static int cs_etm_set_timestamp(struct auxtrace_record *itr,
-				struct perf_evsel *evsel, int cpu)
+				struct evsel *evsel, int cpu)
 {
 	struct cs_etm_recording *ptr;
 	struct perf_pmu *cs_etm_pmu;
@@ -144,19 +182,23 @@ static int cs_etm_set_timestamp(struct auxtrace_record *itr,
 	}
 
 	/* All good, let the kernel know */
-	evsel->attr.config |= (1 << ETM_OPT_TS);
+	evsel->core.attr.config |= (1 << ETM_OPT_TS);
 	err = 0;
 
 out:
 	return err;
 }
 
+#define ETM_SET_OPT_CTXTID	(1 << 0)
+#define ETM_SET_OPT_TS		(1 << 1)
+#define ETM_SET_OPT_MASK	(ETM_SET_OPT_CTXTID | ETM_SET_OPT_TS)
+
 static int cs_etm_set_option(struct auxtrace_record *itr,
-			     struct perf_evsel *evsel, u32 option)
+			     struct evsel *evsel, u32 option)
 {
 	int i, err = -EINVAL;
-	struct cpu_map *event_cpus = evsel->evlist->cpus;
-	struct cpu_map *online_cpus = cpu_map__new(NULL);
+	struct perf_cpu_map *event_cpus = evsel->evlist->core.cpus;
+	struct perf_cpu_map *online_cpus = perf_cpu_map__new(NULL);
 
 	/* Set option of each CPU we have */
 	for (i = 0; i < cpu__max_cpu(); i++) {
@@ -164,24 +206,24 @@ static int cs_etm_set_option(struct auxtrace_record *itr,
 		    !cpu_map__has(online_cpus, i))
 			continue;
 
-		if (option & ETM_OPT_CTXTID) {
+		if (option & BIT(ETM_OPT_CTXTID)) {
 			err = cs_etm_set_context_id(itr, evsel, i);
 			if (err)
 				goto out;
 		}
-		if (option & ETM_OPT_TS) {
+		if (option & BIT(ETM_OPT_TS)) {
 			err = cs_etm_set_timestamp(itr, evsel, i);
 			if (err)
 				goto out;
 		}
-		if (option & ~(ETM_OPT_CTXTID | ETM_OPT_TS))
+		if (option & ~(BIT(ETM_OPT_CTXTID) | BIT(ETM_OPT_TS)))
 			/* Nothing else is currently supported */
 			goto out;
 	}
 
 	err = 0;
 out:
-	cpu_map__put(online_cpus);
+	perf_cpu_map__put(online_cpus);
 	return err;
 }
 
@@ -208,70 +250,71 @@ static int cs_etm_parse_snapshot_options(struct auxtrace_record *itr,
 }
 
 static int cs_etm_set_sink_attr(struct perf_pmu *pmu,
-				struct perf_evsel *evsel)
+				struct evsel *evsel)
 {
 	char msg[BUFSIZ], path[PATH_MAX], *sink;
-	struct perf_evsel_config_term *term;
+	struct evsel_config_term *term;
 	int ret = -EINVAL;
 	u32 hash;
 
-	if (evsel->attr.config2 & GENMASK(31, 0))
+	if (evsel->core.attr.config2 & GENMASK(31, 0))
 		return 0;
 
 	list_for_each_entry(term, &evsel->config_terms, list) {
-		if (term->type != PERF_EVSEL__CONFIG_TERM_DRV_CFG)
+		if (term->type != EVSEL__CONFIG_TERM_DRV_CFG)
 			continue;
 
-		sink = term->val.drv_cfg;
+		sink = term->val.str;
 		snprintf(path, PATH_MAX, "sinks/%s", sink);
 
 		ret = perf_pmu__scan_file(pmu, path, "%x", &hash);
 		if (ret != 1) {
 			pr_err("failed to set sink \"%s\" on event %s with %d (%s)\n",
-			       sink, perf_evsel__name(evsel), errno,
+			       sink, evsel__name(evsel), errno,
 			       str_error_r(errno, msg, sizeof(msg)));
 			return ret;
 		}
 
-		evsel->attr.config2 |= hash;
+		evsel->core.attr.config2 |= hash;
 		return 0;
 	}
 
 	/*
-	 * No sink was provided on the command line - for _now_ treat
-	 * this as an error.
+	 * No sink was provided on the command line - allow the CoreSight
+	 * system to look for a default
 	 */
-	return ret;
+	return 0;
 }
 
 static int cs_etm_recording_options(struct auxtrace_record *itr,
-				    struct perf_evlist *evlist,
+				    struct evlist *evlist,
 				    struct record_opts *opts)
 {
 	int ret;
 	struct cs_etm_recording *ptr =
 				container_of(itr, struct cs_etm_recording, itr);
 	struct perf_pmu *cs_etm_pmu = ptr->cs_etm_pmu;
-	struct perf_evsel *evsel, *cs_etm_evsel = NULL;
-	struct cpu_map *cpus = evlist->cpus;
-	bool privileged = (geteuid() == 0 || perf_event_paranoid() < 0);
+	struct evsel *evsel, *cs_etm_evsel = NULL;
+	struct perf_cpu_map *cpus = evlist->core.cpus;
+	bool privileged = perf_event_paranoid_check(-1);
 	int err = 0;
 
 	ptr->evlist = evlist;
 	ptr->snapshot_mode = opts->auxtrace_snapshot_mode;
 
-	if (perf_can_record_switch_events())
+	if (!record_opts__no_switch_events(opts) &&
+	    perf_can_record_switch_events())
 		opts->record_switch_events = true;
 
 	evlist__for_each_entry(evlist, evsel) {
-		if (evsel->attr.type == cs_etm_pmu->type) {
+		if (evsel->core.attr.type == cs_etm_pmu->type) {
 			if (cs_etm_evsel) {
 				pr_err("There may be only one %s event\n",
 				       CORESIGHT_ETM_PMU_NAME);
 				return -EINVAL;
 			}
-			evsel->attr.freq = 0;
-			evsel->attr.sample_period = 1;
+			evsel->core.attr.freq = 0;
+			evsel->core.attr.sample_period = 1;
 			cs_etm_evsel = evsel;
 			opts->full_auxtrace = true;
 		}
@@ -333,7 +376,7 @@ static int cs_etm_recording_options(struct auxtrace_record *itr,
 			opts->auxtrace_mmap_pages = roundup_pow_of_two(sz);
 		}
 
-		/* Snapshost size can't be bigger than the auxtrace area */
+		/* Snapshot size can't be bigger than the auxtrace area */
 		if (opts->auxtrace_snapshot_size >
 				opts->auxtrace_mmap_pages * (size_t)page_size) {
 			pr_err("Snapshot size %zu must not be greater than AUX area tracing mmap size %zu\n",
@@ -389,39 +432,39 @@ static int cs_etm_recording_options(struct auxtrace_record *itr,
 	 * To obtain the auxtrace buffer file descriptor, the auxtrace
 	 * event must come first.
 	 */
-	perf_evlist__to_front(evlist, cs_etm_evsel);
+	evlist__to_front(evlist, cs_etm_evsel);
 
 	/*
 	 * In the case of per-cpu mmaps, we need the CPU on the
 	 * AUX event.  We also need the contextID in order to be notified
 	 * when a context switch happened.
 	 */
-	if (!cpu_map__empty(cpus)) {
-		perf_evsel__set_sample_bit(cs_etm_evsel, CPU);
+	if (!perf_cpu_map__empty(cpus)) {
+		evsel__set_sample_bit(cs_etm_evsel, CPU);
 
 		err = cs_etm_set_option(itr, cs_etm_evsel,
-					ETM_OPT_CTXTID | ETM_OPT_TS);
+					BIT(ETM_OPT_CTXTID) | BIT(ETM_OPT_TS));
 		if (err)
 			goto out;
 	}
 
 	/* Add dummy event to keep tracking */
 	if (opts->full_auxtrace) {
-		struct perf_evsel *tracking_evsel;
+		struct evsel *tracking_evsel;
 
 		err = parse_events(evlist, "dummy:u", NULL);
 		if (err)
 			goto out;
 
-		tracking_evsel = perf_evlist__last(evlist);
-		perf_evlist__set_tracking_event(evlist, tracking_evsel);
+		tracking_evsel = evlist__last(evlist);
+		evlist__set_tracking_event(evlist, tracking_evsel);
 
-		tracking_evsel->attr.freq = 0;
-		tracking_evsel->attr.sample_period = 1;
+		tracking_evsel->core.attr.freq = 0;
+		tracking_evsel->core.attr.sample_period = 1;
 
 		/* In per-cpu case, always need the time of mmap events etc */
-		if (!cpu_map__empty(cpus))
-			perf_evsel__set_sample_bit(tracking_evsel, TIME);
+		if (!perf_cpu_map__empty(cpus))
+			evsel__set_sample_bit(tracking_evsel, TIME);
 	}
 
 out:
@@ -434,11 +477,11 @@ static u64 cs_etm_get_config(struct auxtrace_record *itr)
 	struct cs_etm_recording *ptr =
 			container_of(itr, struct cs_etm_recording, itr);
 	struct perf_pmu *cs_etm_pmu = ptr->cs_etm_pmu;
-	struct perf_evlist *evlist = ptr->evlist;
-	struct perf_evsel *evsel;
+	struct evlist *evlist = ptr->evlist;
+	struct evsel *evsel;
 
 	evlist__for_each_entry(evlist, evsel) {
-		if (evsel->attr.type == cs_etm_pmu->type) {
+		if (evsel->core.attr.type == cs_etm_pmu->type) {
 			/*
 			 * Variable perf_event_attr::config is assigned to
 			 * ETMv3/PTM.  The bit fields have been made to match
@@ -447,7 +490,7 @@ static u64 cs_etm_get_config(struct auxtrace_record *itr)
 			 * drivers/hwtracing/coresight/coresight-perf.c for
 			 * details.
 			 */
-			config = evsel->attr.config;
+			config = evsel->core.attr.config;
 			break;
 		}
 	}
@@ -479,21 +522,23 @@ static u64 cs_etmv4_get_config(struct auxtrace_record *itr)
 		config |= BIT(ETM4_CFG_BIT_TS);
 	if (config_opts & BIT(ETM_OPT_RETSTK))
 		config |= BIT(ETM4_CFG_BIT_RETSTK);
-
+	if (config_opts & BIT(ETM_OPT_CTXTID2))
+		config |= BIT(ETM4_CFG_BIT_VMID) |
+			  BIT(ETM4_CFG_BIT_VMID_OPT);
 	return config;
 }
 
 static size_t
 cs_etm_info_priv_size(struct auxtrace_record *itr __maybe_unused,
-		      struct perf_evlist *evlist __maybe_unused)
+		      struct evlist *evlist __maybe_unused)
 {
 	int i;
 	int etmv3 = 0, etmv4 = 0;
-	struct cpu_map *event_cpus = evlist->cpus;
-	struct cpu_map *online_cpus = cpu_map__new(NULL);
+	struct perf_cpu_map *event_cpus = evlist->core.cpus;
+	struct perf_cpu_map *online_cpus = perf_cpu_map__new(NULL);
 
 	/* cpu map is not empty, we have specific CPUs to work with */
-	if (!cpu_map__empty(event_cpus)) {
+	if (!perf_cpu_map__empty(event_cpus)) {
 		for (i = 0; i < cpu__max_cpu(); i++) {
 			if (!cpu_map__has(event_cpus, i) ||
 			    !cpu_map__has(online_cpus, i))
@@ -517,7 +562,7 @@ cs_etm_info_priv_size(struct auxtrace_record *itr __maybe_unused,
 		}
 	}
 
-	cpu_map__put(online_cpus);
+	perf_cpu_map__put(online_cpus);
 
 	return (CS_ETM_HEADER_SIZE +
 	       (etmv4 * CS_ETMV4_PRIV_SIZE) +
@@ -564,9 +609,9 @@ static int cs_etm_get_ro(struct perf_pmu *pmu, int cpu, const char *path)
 
 static void cs_etm_get_metadata(int cpu, u32 *offset,
 				struct auxtrace_record *itr,
-				struct auxtrace_info_event *info)
+				struct perf_record_auxtrace_info *info)
 {
-	u32 increment;
+	u32 increment, nr_trc_params;
 	u64 magic;
 	struct cs_etm_recording *ptr =
 			container_of(itr, struct cs_etm_recording, itr);
@@ -601,6 +646,7 @@ static void cs_etm_get_metadata(int cpu, u32 *offset,
 
 		/* How much space was used */
 		increment = CS_ETMV4_PRIV_MAX;
+		nr_trc_params = CS_ETMV4_PRIV_MAX - CS_ETMV4_TRCCONFIGR;
 	} else {
 		magic = __perf_cs_etmv3_magic;
 		/* Get configuration register */
@@ -618,26 +664,28 @@ static void cs_etm_get_metadata(int cpu, u32 *offset,
 
 		/* How much space was used */
 		increment = CS_ETM_PRIV_MAX;
+		nr_trc_params = CS_ETM_PRIV_MAX - CS_ETM_ETMCR;
 	}
 
 	/* Build generic header portion */
 	info->priv[*offset + CS_ETM_MAGIC] = magic;
 	info->priv[*offset + CS_ETM_CPU] = cpu;
+	info->priv[*offset + CS_ETM_NR_TRC_PARAMS] = nr_trc_params;
 	/* Where the next CPU entry should start from */
 	*offset += increment;
 }
 
 static int cs_etm_info_fill(struct auxtrace_record *itr,
 			    struct perf_session *session,
-			    struct auxtrace_info_event *info,
+			    struct perf_record_auxtrace_info *info,
 			    size_t priv_size)
 {
 	int i;
 	u32 offset;
 	u64 nr_cpu, type;
-	struct cpu_map *cpu_map;
-	struct cpu_map *event_cpus = session->evlist->cpus;
-	struct cpu_map *online_cpus = cpu_map__new(NULL);
+	struct perf_cpu_map *cpu_map;
+	struct perf_cpu_map *event_cpus = session->evlist->core.cpus;
+	struct perf_cpu_map *online_cpus = perf_cpu_map__new(NULL);
 	struct cs_etm_recording *ptr =
 			container_of(itr, struct cs_etm_recording, itr);
 	struct perf_pmu *cs_etm_pmu = ptr->cs_etm_pmu;
@@ -645,15 +693,15 @@ static int cs_etm_info_fill(struct auxtrace_record *itr,
 	if (priv_size != cs_etm_info_priv_size(itr, session->evlist))
 		return -EINVAL;
 
-	if (!session->evlist->nr_mmaps)
+	if (!session->evlist->core.nr_mmaps)
 		return -EINVAL;
 
 	/* If the cpu_map is empty all online CPUs are involved */
-	if (cpu_map__empty(event_cpus)) {
+	if (perf_cpu_map__empty(event_cpus)) {
 		cpu_map = online_cpus;
 	} else {
 		/* Make sure all specified CPUs are online */
-		for (i = 0; i < cpu_map__nr(event_cpus); i++) {
+		for (i = 0; i < perf_cpu_map__nr(event_cpus); i++) {
 			if (cpu_map__has(event_cpus, i) &&
 			    !cpu_map__has(online_cpus, i))
 				return -EINVAL;
@@ -662,13 +710,13 @@ static int cs_etm_info_fill(struct auxtrace_record *itr,
 		cpu_map = event_cpus;
 	}
 
-	nr_cpu = cpu_map__nr(cpu_map);
+	nr_cpu = perf_cpu_map__nr(cpu_map);
 	/* Get PMU type as dynamically assigned by the core */
 	type = cs_etm_pmu->type;
 
 	/* First fill out the session header */
 	info->type = PERF_AUXTRACE_CS_ETM;
-	info->priv[CS_HEADER_VERSION_0] = 0;
+	info->priv[CS_HEADER_VERSION] = CS_HEADER_CURRENT_VERSION;
 	info->priv[CS_PMU_TYPE_CPUS] = type << 32;
 	info->priv[CS_PMU_TYPE_CPUS] |= nr_cpu;
 	info->priv[CS_ETM_SNAPSHOT] = ptr->snapshot_mode;
@@ -679,136 +727,7 @@ static int cs_etm_info_fill(struct auxtrace_record *itr,
 		if (cpu_map__has(cpu_map, i))
 			cs_etm_get_metadata(i, &offset, itr, info);
 
-	cpu_map__put(online_cpus);
-
-	return 0;
-}
-
-static int cs_etm_alloc_wrapped_array(struct cs_etm_recording *ptr, int idx)
-{
-	bool *wrapped;
-	int cnt = ptr->wrapped_cnt;
-
-	/* Make @ptr->wrapped as big as @idx */
-	while (cnt <= idx)
-		cnt++;
-
-	/*
-	 * Free'ed in cs_etm_recording_free().  Using realloc() to avoid
-	 * cross compilation problems where the host's system supports
-	 * reallocarray() but not the target.
-	 */
-	wrapped = realloc(ptr->wrapped, cnt * sizeof(bool));
-	if (!wrapped)
-		return -ENOMEM;
-
-	wrapped[cnt - 1] = false;
-	ptr->wrapped_cnt = cnt;
-	ptr->wrapped = wrapped;
-
-	return 0;
-}
-
-static bool cs_etm_buffer_has_wrapped(unsigned char *buffer,
-				      size_t buffer_size, u64 head)
-{
-	u64 i, watermark;
-	u64 *buf = (u64 *)buffer;
-	size_t buf_size = buffer_size;
-
-	/*
-	 * We want to look the very last 512 byte (chosen arbitrarily) in
-	 * the ring buffer.
-	 */
-	watermark = buf_size - 512;
-
-	/*
-	 * @head is continuously increasing - if its value is equal or greater
-	 * than the size of the ring buffer, it has wrapped around.
-	 */
-	if (head >= buffer_size)
-		return true;
-
-	/*
-	 * The value of @head is somewhere within the size of the ring buffer.
-	 * This can be that there hasn't been enough data to fill the ring
-	 * buffer yet or the trace time was so long that @head has numerically
-	 * wrapped around.  To find we need to check if we have data at the very
-	 * end of the ring buffer.  We can reliably do this because mmap'ed
-	 * pages are zeroed out and there is a fresh mapping with every new
-	 * session.
-	 */
-
-	/* @head is less than 512 byte from the end of the ring buffer */
-	if (head > watermark)
-		watermark = head;
-
-	/*
-	 * Speed things up by using 64 bit transactions (see "u64 *buf" above)
-	 */
-	watermark >>= 3;
-	buf_size >>= 3;
-
-	/*
-	 * If we find trace data at the end of the ring buffer, @head has
-	 * been there and has numerically wrapped around at least once.
-	 */
-	for (i = watermark; i < buf_size; i++)
-		if (buf[i])
-			return true;
-
-	return false;
-}
-
-static int cs_etm_find_snapshot(struct auxtrace_record *itr,
-				int idx, struct auxtrace_mmap *mm,
-				unsigned char *data,
-				u64 *head, u64 *old)
-{
-	int err;
-	bool wrapped;
-	struct cs_etm_recording *ptr =
-			container_of(itr, struct cs_etm_recording, itr);
-
-	/*
-	 * Allocate memory to keep track of wrapping if this is the first
-	 * time we deal with this *mm.
-	 */
-	if (idx >= ptr->wrapped_cnt) {
-		err = cs_etm_alloc_wrapped_array(ptr, idx);
-		if (err)
-			return err;
-	}
-
-	/*
-	 * Check to see if *head has wrapped around.  If it hasn't only the
-	 * amount of data between *head and *old is snapshot'ed to avoid
-	 * bloating the perf.data file with zeros.  But as soon as *head has
-	 * wrapped around the entire size of the AUX ring buffer it taken.
-	 */
-	wrapped = ptr->wrapped[idx];
-	if (!wrapped && cs_etm_buffer_has_wrapped(data, mm->len, *head)) {
-		wrapped = true;
-		ptr->wrapped[idx] = true;
-	}
-
-	pr_debug3("%s: mmap index %d old head %zu new head %zu size %zu\n",
-		  __func__, idx, (size_t)*old, (size_t)*head, mm->len);
-
-	/* No wrap has occurred, we can just use *head and *old. */
-	if (!wrapped)
-		return 0;
-
-	/*
-	 * *head has wrapped around - adjust *head and *old to pickup the
-	 * entire content of the AUX buffer.
-	 */
-	if (*head >= mm->len) {
-		*old = *head - mm->len;
-	} else {
-		*head += mm->len;
-		*old = *head - mm->len;
-	}
+	perf_cpu_map__put(online_cpus);
 
 	return 0;
 }
@@ -817,11 +736,11 @@ static int cs_etm_snapshot_start(struct auxtrace_record *itr)
 {
 	struct cs_etm_recording *ptr =
 			container_of(itr, struct cs_etm_recording, itr);
-	struct perf_evsel *evsel;
+	struct evsel *evsel;
 
 	evlist__for_each_entry(ptr->evlist, evsel) {
-		if (evsel->attr.type == ptr->cs_etm_pmu->type)
-			return perf_evsel__disable(evsel);
+		if (evsel->core.attr.type == ptr->cs_etm_pmu->type)
+			return evsel__disable(evsel);
 	}
 	return -EINVAL;
 }
@@ -830,11 +749,11 @@ static int cs_etm_snapshot_finish(struct auxtrace_record *itr)
 {
 	struct cs_etm_recording *ptr =
 			container_of(itr, struct cs_etm_recording, itr);
-	struct perf_evsel *evsel;
+	struct evsel *evsel;
 
 	evlist__for_each_entry(ptr->evlist, evsel) {
-		if (evsel->attr.type == ptr->cs_etm_pmu->type)
-			return perf_evsel__enable(evsel);
+		if (evsel->core.attr.type == ptr->cs_etm_pmu->type)
+			return evsel__enable(evsel);
 	}
 	return -EINVAL;
 }
@@ -850,23 +769,7 @@ static void cs_etm_recording_free(struct auxtrace_record *itr)
 	struct cs_etm_recording *ptr =
 			container_of(itr, struct cs_etm_recording, itr);
 
-	zfree(&ptr->wrapped);
 	free(ptr);
-}
-
-static int cs_etm_read_finish(struct auxtrace_record *itr, int idx)
-{
-	struct cs_etm_recording *ptr =
-			container_of(itr, struct cs_etm_recording, itr);
-	struct perf_evsel *evsel;
-
-	evlist__for_each_entry(ptr->evlist, evsel) {
-		if (evsel->attr.type == ptr->cs_etm_pmu->type)
-			return perf_evlist__enable_event_idx(ptr->evlist,
-							     evsel, idx);
-	}
-
-	return -EINVAL;
 }
 
 struct auxtrace_record *cs_etm_record_init(int *err)
@@ -888,16 +791,16 @@ struct auxtrace_record *cs_etm_record_init(int *err)
 	}
 
 	ptr->cs_etm_pmu			= cs_etm_pmu;
+	ptr->itr.pmu			= cs_etm_pmu;
 	ptr->itr.parse_snapshot_options	= cs_etm_parse_snapshot_options;
 	ptr->itr.recording_options	= cs_etm_recording_options;
 	ptr->itr.info_priv_size		= cs_etm_info_priv_size;
 	ptr->itr.info_fill		= cs_etm_info_fill;
-	ptr->itr.find_snapshot		= cs_etm_find_snapshot;
 	ptr->itr.snapshot_start		= cs_etm_snapshot_start;
 	ptr->itr.snapshot_finish	= cs_etm_snapshot_finish;
 	ptr->itr.reference		= cs_etm_reference;
 	ptr->itr.free			= cs_etm_recording_free;
-	ptr->itr.read_finish		= cs_etm_read_finish;
+	ptr->itr.read_finish		= auxtrace_record__read_finish;
 
 	*err = 0;
 	return &ptr->itr;

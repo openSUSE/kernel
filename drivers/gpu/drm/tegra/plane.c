@@ -8,7 +8,7 @@
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_fourcc.h>
-#include <drm/drm_gem_framebuffer_helper.h>
+#include <drm/drm_gem_atomic_helper.h>
 #include <drm/drm_plane_helper.h>
 
 #include "dc.h"
@@ -83,6 +83,22 @@ static void tegra_plane_atomic_destroy_state(struct drm_plane *plane,
 	kfree(state);
 }
 
+static bool tegra_plane_supports_sector_layout(struct drm_plane *plane)
+{
+	struct drm_crtc *crtc;
+
+	drm_for_each_crtc(crtc, plane->dev) {
+		if (plane->possible_crtcs & drm_crtc_mask(crtc)) {
+			struct tegra_dc *dc = to_tegra_dc(crtc);
+
+			if (!dc->soc->supports_sector_layout)
+				return false;
+		}
+	}
+
+	return true;
+}
+
 static bool tegra_plane_format_mod_supported(struct drm_plane *plane,
 					     uint32_t format,
 					     uint64_t modifier)
@@ -91,6 +107,14 @@ static bool tegra_plane_format_mod_supported(struct drm_plane *plane,
 
 	if (modifier == DRM_FORMAT_MOD_LINEAR)
 		return true;
+
+	/* check for the sector layout bit */
+	if ((modifier >> 56) == DRM_FORMAT_MOD_VENDOR_NVIDIA) {
+		if (modifier & DRM_FORMAT_MOD_NVIDIA_SECTOR_LAYOUT) {
+			if (!tegra_plane_supports_sector_layout(plane))
+				return false;
+		}
+	}
 
 	if (info->num_planes == 1)
 		return true;
@@ -119,6 +143,14 @@ static int tegra_dc_pin(struct tegra_dc *dc, struct tegra_plane_state *state)
 		dma_addr_t phys_addr, *phys;
 		struct sg_table *sgt;
 
+		/*
+		 * If we're not attached to a domain, we already stored the
+		 * physical address when the buffer was allocated. If we're
+		 * part of a group that's shared between all display
+		 * controllers, we've also already mapped the framebuffer
+		 * through the SMMU. In both cases we can short-circuit the
+		 * code below and retrieve the stored IOV address.
+		 */
 		if (!domain || dc->client.group)
 			phys = &phys_addr;
 		else
@@ -131,12 +163,9 @@ static int tegra_dc_pin(struct tegra_dc *dc, struct tegra_plane_state *state)
 		}
 
 		if (sgt) {
-			err = dma_map_sg(dc->dev, sgt->sgl, sgt->nents,
-					 DMA_TO_DEVICE);
-			if (err == 0) {
-				err = -ENOMEM;
+			err = dma_map_sgtable(dc->dev, sgt, DMA_TO_DEVICE, 0);
+			if (err)
 				goto unpin;
-			}
 
 			/*
 			 * The display controller needs contiguous memory, so
@@ -144,7 +173,7 @@ static int tegra_dc_pin(struct tegra_dc *dc, struct tegra_plane_state *state)
 			 * map its SG table to a single contiguous chunk of
 			 * I/O virtual memory.
 			 */
-			if (err > 1) {
+			if (sgt->nents > 1) {
 				err = -EINVAL;
 				goto unpin;
 			}
@@ -166,8 +195,7 @@ unpin:
 		struct sg_table *sgt = state->sgt[i];
 
 		if (sgt)
-			dma_unmap_sg(dc->dev, sgt->sgl, sgt->nents,
-				     DMA_TO_DEVICE);
+			dma_unmap_sgtable(dc->dev, sgt, DMA_TO_DEVICE, 0);
 
 		host1x_bo_unpin(dc->dev, &bo->base, sgt);
 		state->iova[i] = DMA_MAPPING_ERROR;
@@ -186,8 +214,7 @@ static void tegra_dc_unpin(struct tegra_dc *dc, struct tegra_plane_state *state)
 		struct sg_table *sgt = state->sgt[i];
 
 		if (sgt)
-			dma_unmap_sg(dc->dev, sgt->sgl, sgt->nents,
-				     DMA_TO_DEVICE);
+			dma_unmap_sgtable(dc->dev, sgt, DMA_TO_DEVICE, 0);
 
 		host1x_bo_unpin(dc->dev, &bo->base, sgt);
 		state->iova[i] = DMA_MAPPING_ERROR;
@@ -203,7 +230,7 @@ int tegra_plane_prepare_fb(struct drm_plane *plane,
 	if (!state->fb)
 		return 0;
 
-	drm_gem_fb_prepare_fb(plane, state);
+	drm_gem_plane_helper_prepare_fb(plane, state);
 
 	return tegra_dc_pin(dc, to_tegra_plane_state(state));
 }
@@ -348,13 +375,29 @@ int tegra_plane_format(u32 fourcc, u32 *format, u32 *swap)
 	return 0;
 }
 
-bool tegra_plane_format_is_yuv(unsigned int format, bool *planar)
+bool tegra_plane_format_is_indexed(unsigned int format)
+{
+	switch (format) {
+	case WIN_COLOR_DEPTH_P1:
+	case WIN_COLOR_DEPTH_P2:
+	case WIN_COLOR_DEPTH_P4:
+	case WIN_COLOR_DEPTH_P8:
+		return true;
+	}
+
+	return false;
+}
+
+bool tegra_plane_format_is_yuv(unsigned int format, bool *planar, unsigned int *bpc)
 {
 	switch (format) {
 	case WIN_COLOR_DEPTH_YCbCr422:
 	case WIN_COLOR_DEPTH_YUV422:
 		if (planar)
 			*planar = false;
+
+		if (bpc)
+			*bpc = 8;
 
 		return true;
 
@@ -368,6 +411,9 @@ bool tegra_plane_format_is_yuv(unsigned int format, bool *planar)
 	case WIN_COLOR_DEPTH_YUV422RA:
 		if (planar)
 			*planar = true;
+
+		if (bpc)
+			*bpc = 8;
 
 		return true;
 	}
@@ -394,7 +440,7 @@ static bool __drm_format_has_alpha(u32 format)
 static int tegra_plane_format_get_alpha(unsigned int opaque,
 					unsigned int *alpha)
 {
-	if (tegra_plane_format_is_yuv(opaque, NULL)) {
+	if (tegra_plane_format_is_yuv(opaque, NULL, NULL)) {
 		*alpha = opaque;
 		return 0;
 	}

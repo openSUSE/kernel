@@ -56,6 +56,8 @@
 #define HW_ATL_FW2X_CAP_EEE_5G_MASK      BIT(CAPS_HI_5GBASET_FD_EEE)
 #define HW_ATL_FW2X_CAP_EEE_10G_MASK     BIT(CAPS_HI_10GBASET_FD_EEE)
 
+#define HW_ATL_FW2X_CAP_MACSEC           BIT(CAPS_LO_MACSEC)
+
 #define HAL_ATLANTIC_WOL_FILTERS_COUNT   8
 #define HAL_ATLANTIC_UTILS_FW2X_MSG_WOL  0x0E
 
@@ -87,6 +89,7 @@ static int aq_fw2x_set_state(struct aq_hw_s *self,
 static u32 aq_fw2x_mbox_get(struct aq_hw_s *self);
 static u32 aq_fw2x_rpc_get(struct aq_hw_s *self);
 static int aq_fw2x_settings_get(struct aq_hw_s *self, u32 *addr);
+static u32 aq_fw2x_state_get(struct aq_hw_s *self);
 static u32 aq_fw2x_state2_get(struct aq_hw_s *self);
 
 static int aq_fw2x_init(struct aq_hw_s *self)
@@ -599,9 +602,108 @@ static int aq_fw2x_settings_get(struct aq_hw_s *self, u32 *addr)
 	return err;
 }
 
+static u32 aq_fw2x_state_get(struct aq_hw_s *self)
+{
+	return aq_hw_read_reg(self, HW_ATL_FW2X_MPI_STATE_ADDR);
+}
+
 static u32 aq_fw2x_state2_get(struct aq_hw_s *self)
 {
 	return aq_hw_read_reg(self, HW_ATL_FW2X_MPI_STATE2_ADDR);
+}
+
+static int aq_fw2x_set_downshift(struct aq_hw_s *self, u32 counter)
+{
+	int err = 0;
+	u32 mpi_opts;
+	u32 offset;
+
+	offset = offsetof(struct hw_atl_utils_settings, downshift_retry_count);
+	err = hw_atl_write_fwsettings_dwords(self, offset, &counter, 1);
+	if (err)
+		return err;
+
+	mpi_opts = aq_hw_read_reg(self, HW_ATL_FW2X_MPI_CONTROL2_ADDR);
+	if (counter)
+		mpi_opts |= HW_ATL_FW2X_CTRL_DOWNSHIFT;
+	else
+		mpi_opts &= ~HW_ATL_FW2X_CTRL_DOWNSHIFT;
+	aq_hw_write_reg(self, HW_ATL_FW2X_MPI_CONTROL2_ADDR, mpi_opts);
+
+	return err;
+}
+
+static int aq_fw2x_set_media_detect(struct aq_hw_s *self, bool on)
+{
+	u32 enable;
+	u32 offset;
+
+	if (self->fw_ver_actual < HW_ATL_FW_VER_MEDIA_CONTROL)
+		return -EOPNOTSUPP;
+
+	offset = offsetof(struct hw_atl_utils_settings, media_detect);
+	enable = on;
+
+	return hw_atl_write_fwsettings_dwords(self, offset, &enable, 1);
+}
+
+static u32 aq_fw2x_get_link_capabilities(struct aq_hw_s *self)
+{
+	int err = 0;
+	u32 offset;
+	u32 val;
+
+	offset = self->mbox_addr +
+		 offsetof(struct hw_atl_utils_mbox, info.caps_lo);
+
+	err = hw_atl_utils_fw_downld_dwords(self, offset, &val, 1);
+
+	if (err)
+		return 0;
+
+	return val;
+}
+
+static int aq_fw2x_send_macsec_req(struct aq_hw_s *hw,
+				   struct macsec_msg_fw_request *req,
+				   struct macsec_msg_fw_response *response)
+{
+	u32 low_status, low_req = 0;
+	u32 dword_cnt;
+	u32 caps_lo;
+	u32 offset;
+	int err;
+
+	if (!req || !response)
+		return -EINVAL;
+
+	caps_lo = aq_fw2x_get_link_capabilities(hw);
+	if (!(caps_lo & BIT(CAPS_LO_MACSEC)))
+		return -EOPNOTSUPP;
+
+	/* Write macsec request to cfg memory */
+	dword_cnt = (sizeof(*req) + sizeof(u32) - 1) / sizeof(u32);
+	err = hw_atl_write_fwcfg_dwords(hw, (void *)req, dword_cnt);
+	if (err < 0)
+		return err;
+
+	/* Toggle 0x368.CAPS_LO_MACSEC bit */
+	low_req = aq_hw_read_reg(hw, HW_ATL_FW2X_MPI_CONTROL_ADDR);
+	low_req ^= HW_ATL_FW2X_CAP_MACSEC;
+	aq_hw_write_reg(hw, HW_ATL_FW2X_MPI_CONTROL_ADDR, low_req);
+
+	/* Wait FW to report back */
+	err = readx_poll_timeout_atomic(aq_fw2x_state_get, hw, low_status,
+		low_req != (low_status & BIT(CAPS_LO_MACSEC)), 1U, 10000U);
+	if (err)
+		return -EIO;
+
+	/* Read status of write operation */
+	offset = hw->rpc_addr + sizeof(u32);
+	err = hw_atl_utils_fw_downld_dwords(hw, offset, (u32 *)(void *)response,
+					    sizeof(*response) / sizeof(u32));
+
+	return err;
 }
 
 const struct aq_fw_ops aq_fw_2x_ops = {
@@ -625,5 +727,9 @@ const struct aq_fw_ops aq_fw_2x_ops = {
 	.enable_ptp         = aq_fw3x_enable_ptp,
 	.led_control        = aq_fw2x_led_control,
 	.set_phyloopback    = aq_fw2x_set_phyloopback,
+	.set_downshift      = aq_fw2x_set_downshift,
+	.set_media_detect   = aq_fw2x_set_media_detect,
 	.adjust_ptp         = aq_fw3x_adjust_ptp,
+	.get_link_capabilities = aq_fw2x_get_link_capabilities,
+	.send_macsec_req    = aq_fw2x_send_macsec_req,
 };

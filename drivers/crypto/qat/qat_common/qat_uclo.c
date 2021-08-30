@@ -764,7 +764,7 @@ static int qat_uclo_init_reg(struct icp_qat_fw_loader_handle *handle,
 	case ICP_GPA_ABS:
 	case ICP_GPB_ABS:
 		ctx_mask = 0;
-		/* fall through */
+		fallthrough;
 	case ICP_GPA_REL:
 	case ICP_GPB_REL:
 		return qat_hal_init_gpr(handle, ae, ctx_mask, reg_type,
@@ -774,7 +774,7 @@ static int qat_uclo_init_reg(struct icp_qat_fw_loader_handle *handle,
 	case ICP_SR_RD_ABS:
 	case ICP_DR_RD_ABS:
 		ctx_mask = 0;
-		/* fall through */
+		fallthrough;
 	case ICP_SR_REL:
 	case ICP_DR_REL:
 	case ICP_SR_RD_REL:
@@ -784,7 +784,7 @@ static int qat_uclo_init_reg(struct icp_qat_fw_loader_handle *handle,
 	case ICP_SR_WR_ABS:
 	case ICP_DR_WR_ABS:
 		ctx_mask = 0;
-		/* fall through */
+		fallthrough;
 	case ICP_SR_WR_REL:
 	case ICP_DR_WR_REL:
 		return qat_hal_init_wr_xfer(handle, ae, ctx_mask, reg_type,
@@ -1545,15 +1545,14 @@ int qat_uclo_wr_mimage(struct icp_qat_fw_loader_handle *handle,
 	int status = 0;
 
 	if (handle->chip_info->fw_auth) {
-		if (!qat_uclo_map_auth_fw(handle, addr_ptr, mem_size, &desc))
+		status = qat_uclo_map_auth_fw(handle, addr_ptr, mem_size, &desc);
+		if (!status)
 			status = qat_uclo_auth_fw(handle, desc);
 		qat_uclo_ummap_auth_fw(handle, &desc);
 	} else {
-		if (!handle->chip_info->sram_visible) {
-			dev_dbg(&handle->pci_dev->dev,
-				"QAT MMP fw not loaded for device 0x%x",
-				handle->pci_dev->device);
-			return status;
+		if (handle->chip_info->mmp_sram_size < mem_size) {
+			pr_err("QAT: MMP size is too large: 0x%x\n", mem_size);
+			return -EFBIG;
 		}
 		qat_uclo_wr_sram_by_words(handle, 0, addr_ptr, mem_size);
 	}

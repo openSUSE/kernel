@@ -111,7 +111,7 @@ int hns_mac_get_port_info(struct hns_mac_cb *mac_cb,
 }
 
 /**
- *hns_mac_is_adjust_link - check is need change mac speed and duplex register
+ *hns_mac_need_adjust_link - check is need change mac speed and duplex register
  *@mac_cb: mac device
  *@speed: phy device speed
  *@duplex:phy device duplex
@@ -374,11 +374,12 @@ static void hns_mac_param_get(struct mac_params *param,
 }
 
 /**
- *hns_mac_queue_config_bc_en - set broadcast rx&tx enable
- *@mac_cb: mac device
- *@queue: queue number
- *@en:enable
- *retuen 0 - success , negative --fail
+ * hns_mac_port_config_bc_en - set broadcast rx&tx enable
+ * @mac_cb: mac device
+ * @port_num: queue number
+ * @vlan_id: vlan id`
+ * @enable: enable
+ * return 0 - success , negative --fail
  */
 static int hns_mac_port_config_bc_en(struct hns_mac_cb *mac_cb,
 				     u32 port_num, u16 vlan_id, bool enable)
@@ -408,11 +409,11 @@ static int hns_mac_port_config_bc_en(struct hns_mac_cb *mac_cb,
 }
 
 /**
- *hns_mac_vm_config_bc_en - set broadcast rx&tx enable
- *@mac_cb: mac device
- *@vmid: vm id
- *@en:enable
- *retuen 0 - success , negative --fail
+ * hns_mac_vm_config_bc_en - set broadcast rx&tx enable
+ * @mac_cb: mac device
+ * @vmid: vm id
+ * @enable: enable
+ * return 0 - success , negative --fail
  */
 int hns_mac_vm_config_bc_en(struct hns_mac_cb *mac_cb, u32 vmid, bool enable)
 {
@@ -542,8 +543,8 @@ void hns_mac_stop(struct hns_mac_cb *mac_cb)
 /**
  * hns_mac_get_autoneg - get auto autonegotiation
  * @mac_cb: mac control block
- * @enable: enable or not
- * retuen 0 - success , negative --fail
+ * @auto_neg: output pointer to autoneg result
+ * return 0 - success , negative --fail
  */
 void hns_mac_get_autoneg(struct hns_mac_cb *mac_cb, u32 *auto_neg)
 {
@@ -560,7 +561,7 @@ void hns_mac_get_autoneg(struct hns_mac_cb *mac_cb, u32 *auto_neg)
  * @mac_cb: mac control block
  * @rx_en: rx enable status
  * @tx_en: tx enable status
- * retuen 0 - success , negative --fail
+ * return 0 - success , negative --fail
  */
 void hns_mac_get_pauseparam(struct hns_mac_cb *mac_cb, u32 *rx_en, u32 *tx_en)
 {
@@ -578,7 +579,7 @@ void hns_mac_get_pauseparam(struct hns_mac_cb *mac_cb, u32 *rx_en, u32 *tx_en)
  * hns_mac_set_autoneg - set auto autonegotiation
  * @mac_cb: mac control block
  * @enable: enable or not
- * retuen 0 - success , negative --fail
+ * return 0 - success , negative --fail
  */
 int hns_mac_set_autoneg(struct hns_mac_cb *mac_cb, u8 enable)
 {
@@ -596,7 +597,7 @@ int hns_mac_set_autoneg(struct hns_mac_cb *mac_cb, u8 enable)
 }
 
 /**
- * hns_mac_set_autoneg - set rx & tx pause parameter
+ * hns_mac_set_pauseparam - set rx & tx pause parameter
  * @mac_cb: mac control block
  * @rx_en: rx enable or not
  * @tx_en: tx enable or not
@@ -623,7 +624,7 @@ int hns_mac_set_pauseparam(struct hns_mac_cb *mac_cb, u32 rx_en, u32 tx_en)
 /**
  * hns_mac_init_ex - mac init
  * @mac_cb: mac control block
- * retuen 0 - success , negative --fail
+ * return 0 - success , negative --fail
  */
 static int hns_mac_init_ex(struct hns_mac_cb *mac_cb)
 {
@@ -800,7 +801,6 @@ static const struct {
 /**
  *hns_mac_get_info  - get mac information from device node
  *@mac_cb: mac device
- *@np:device node
  * return: 0 --success, negative --fail
  */
 static int hns_mac_get_info(struct hns_mac_cb *mac_cb)
@@ -914,8 +914,7 @@ static int hns_mac_get_info(struct hns_mac_cb *mac_cb)
 		}
 	} else if (is_acpi_node(mac_cb->fw_port)) {
 		ret = hns_mac_register_phy(mac_cb);
-		/*
-		 * Mac can work well if there is phy or not.If the port don't
+		/* Mac can work well if there is phy or not.If the port don't
 		 * connect with phy, the return value will be ignored. Only
 		 * when there is phy but can't find mdio bus, the return value
 		 * will be handled.
@@ -951,7 +950,7 @@ static int hns_mac_get_info(struct hns_mac_cb *mac_cb)
 /**
  * hns_mac_get_mode - get mac mode
  * @phy_if: phy interface
- * retuen 0 - gmac, 1 - xgmac , negative --fail
+ * return 0 - gmac, 1 - xgmac , negative --fail
  */
 static int hns_mac_get_mode(phy_interface_t phy_if)
 {
@@ -1202,7 +1201,7 @@ void hns_mac_get_regs(struct hns_mac_cb *mac_cb, void *data)
 
 void hns_set_led_opt(struct hns_mac_cb *mac_cb)
 {
-	int nic_data = 0;
+	int nic_data;
 	int txpkts, rxpkts;
 
 	txpkts = mac_cb->txpkt_for_led - mac_cb->hw_stats.tx_good_pkts;

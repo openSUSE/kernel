@@ -610,17 +610,14 @@ static int ether3_rx(struct net_device *dev, unsigned int maxcnt)
 		ether3_readbuffer(dev, addrs+2, 12);
 
 if (next_ptr < RX_START || next_ptr >= RX_END) {
- int i;
  printk("%s: bad next pointer @%04X: ", dev->name, priv(dev)->rx_head);
  printk("%02X %02X %02X %02X ", next_ptr >> 8, next_ptr & 255, status & 255, status >> 8);
- for (i = 2; i < 14; i++)
-   printk("%02X ", addrs[i]);
- printk("\n");
+ printk("%pM %pM\n", addrs + 2, addrs + 8);
  next_ptr = priv(dev)->rx_head;
  break;
 }
 		/*
- 		 * ignore our own packets...
+		 * ignore our own packets...
 	 	 */
 		if (!(*(unsigned long *)&dev->dev_addr[0] ^ *(unsigned long *)&addrs[2+6]) &&
 		    !(*(unsigned short *)&dev->dev_addr[4] ^ *(unsigned short *)&addrs[2+10])) {
@@ -675,7 +672,7 @@ done:
 	 */
 	if (!(ether3_inw(REG_STATUS) & STAT_RXON)) {
 		dev->stats.rx_dropped++;
-    		ether3_outw(next_ptr, REG_RECVPTR);
+		ether3_outw(next_ptr, REG_RECVPTR);
 		ether3_outw(priv(dev)->regs.command | CMD_RXON, REG_COMMAND);
 	}
 
@@ -693,11 +690,11 @@ static void ether3_tx(struct net_device *dev)
 	do {
 	    	unsigned long status;
 
-    		/*
+		/*
 	    	 * Read the packet header
-    		 */
+		 */
 	    	ether3_setbuffer(dev, buffer_read, tx_tail * 0x600);
-    		status = ether3_readlong(dev);
+		status = ether3_readlong(dev);
 
 		/*
 		 * Check to see if this packet has been transmitted

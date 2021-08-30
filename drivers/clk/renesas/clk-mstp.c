@@ -150,7 +150,7 @@ static struct clk * __init cpg_mstp_clock_register(const char *name,
 	const char *parent_name, unsigned int index,
 	struct mstp_clock_group *group)
 {
-	struct clk_init_data init;
+	struct clk_init_data init = {};
 	struct mstp_clock *clock;
 	struct clk *clk;
 
@@ -189,10 +189,8 @@ static void __init cpg_mstp_clocks_init(struct device_node *np)
 	unsigned int i;
 
 	group = kzalloc(struct_size(group, clks, MSTP_MAX_CLOCKS), GFP_KERNEL);
-	if (group == NULL) {
-		kfree(group);
+	if (!group)
 		return;
-	}
 
 	clks = group->clks;
 	spin_lock_init(&group->lock);

@@ -137,9 +137,51 @@ union cpuid10_edx {
 	struct {
 		unsigned int num_counters_fixed:5;
 		unsigned int bit_width_fixed:8;
-		unsigned int reserved:19;
+		unsigned int reserved1:2;
+		unsigned int anythread_deprecated:1;
+		unsigned int reserved2:16;
 	} split;
 	unsigned int full;
+};
+
+/*
+ * Intel Architectural LBR CPUID detection/enumeration details:
+ */
+union cpuid28_eax {
+	struct {
+		/* Supported LBR depth values */
+		unsigned int	lbr_depth_mask:8;
+		unsigned int	reserved:22;
+		/* Deep C-state Reset */
+		unsigned int	lbr_deep_c_reset:1;
+		/* IP values contain LIP */
+		unsigned int	lbr_lip:1;
+	} split;
+	unsigned int		full;
+};
+
+union cpuid28_ebx {
+	struct {
+		/* CPL Filtering Supported */
+		unsigned int    lbr_cpl:1;
+		/* Branch Filtering Supported */
+		unsigned int    lbr_filter:1;
+		/* Call-stack Mode Supported */
+		unsigned int    lbr_call_stack:1;
+	} split;
+	unsigned int            full;
+};
+
+union cpuid28_ecx {
+	struct {
+		/* Mispredict Bit Supported */
+		unsigned int    lbr_mispred:1;
+		/* Timed LBRs Supported */
+		unsigned int    lbr_timed_lbr:1;
+		/* Branch Type Field Supported */
+		unsigned int    lbr_br_type:1;
+	} split;
+	unsigned int            full;
 };
 
 struct x86_pmu_capability {
@@ -219,8 +261,12 @@ struct x86_pmu_capability {
 #define INTEL_PMC_IDX_TD_BAD_SPEC		(INTEL_PMC_IDX_METRIC_BASE + 1)
 #define INTEL_PMC_IDX_TD_FE_BOUND		(INTEL_PMC_IDX_METRIC_BASE + 2)
 #define INTEL_PMC_IDX_TD_BE_BOUND		(INTEL_PMC_IDX_METRIC_BASE + 3)
-#define INTEL_PMC_IDX_METRIC_END		INTEL_PMC_IDX_TD_BE_BOUND
-#define INTEL_PMC_MSK_TOPDOWN			((0xfull << INTEL_PMC_IDX_METRIC_BASE) | \
+#define INTEL_PMC_IDX_TD_HEAVY_OPS		(INTEL_PMC_IDX_METRIC_BASE + 4)
+#define INTEL_PMC_IDX_TD_BR_MISPREDICT		(INTEL_PMC_IDX_METRIC_BASE + 5)
+#define INTEL_PMC_IDX_TD_FETCH_LAT		(INTEL_PMC_IDX_METRIC_BASE + 6)
+#define INTEL_PMC_IDX_TD_MEM_BOUND		(INTEL_PMC_IDX_METRIC_BASE + 7)
+#define INTEL_PMC_IDX_METRIC_END		INTEL_PMC_IDX_TD_MEM_BOUND
+#define INTEL_PMC_MSK_TOPDOWN			((0xffull << INTEL_PMC_IDX_METRIC_BASE) | \
 						INTEL_PMC_MSK_FIXED_SLOTS)
 
 /*
@@ -238,8 +284,14 @@ struct x86_pmu_capability {
 #define INTEL_TD_METRIC_BAD_SPEC		0x8100	/* Bad speculation metric */
 #define INTEL_TD_METRIC_FE_BOUND		0x8200	/* FE bound metric */
 #define INTEL_TD_METRIC_BE_BOUND		0x8300	/* BE bound metric */
-#define INTEL_TD_METRIC_MAX			INTEL_TD_METRIC_BE_BOUND
-#define INTEL_TD_METRIC_NUM			4
+/* Level 2 metrics */
+#define INTEL_TD_METRIC_HEAVY_OPS		0x8400  /* Heavy Operations metric */
+#define INTEL_TD_METRIC_BR_MISPREDICT		0x8500  /* Branch Mispredict metric */
+#define INTEL_TD_METRIC_FETCH_LAT		0x8600  /* Fetch Latency metric */
+#define INTEL_TD_METRIC_MEM_BOUND		0x8700  /* Memory bound metric */
+
+#define INTEL_TD_METRIC_MAX			INTEL_TD_METRIC_MEM_BOUND
+#define INTEL_TD_METRIC_NUM			8
 
 static inline bool is_metric_idx(int idx)
 {
@@ -311,14 +363,6 @@ struct pebs_gprs {
 
 struct pebs_xmm {
 	u64 xmm[16*2];	/* two entries for each register */
-};
-
-struct pebs_lbr_entry {
-	u64 from, to, info;
-};
-
-struct pebs_lbr {
-	struct pebs_lbr_entry lbr[0]; /* Variable length */
 };
 
 /*
@@ -434,6 +478,7 @@ struct x86_pmu_lbr {
 
 extern void perf_get_x86_pmu_capability(struct x86_pmu_capability *cap);
 extern void perf_check_microcode(void);
+extern void perf_clear_dirty_counters(void);
 extern int x86_perf_rdpmc_index(struct perf_event *event);
 #else
 static inline void perf_get_x86_pmu_capability(struct x86_pmu_capability *cap)
@@ -449,11 +494,7 @@ static inline void perf_check_microcode(void) { }
 extern struct perf_guest_switch_msr *perf_guest_get_msrs(int *nr);
 extern int x86_perf_get_lbr(struct x86_pmu_lbr *lbr);
 #else
-static inline struct perf_guest_switch_msr *perf_guest_get_msrs(int *nr)
-{
-	*nr = 0;
-	return NULL;
-}
+struct perf_guest_switch_msr *perf_guest_get_msrs(int *nr);
 static inline int x86_perf_get_lbr(struct x86_pmu_lbr *lbr)
 {
 	return -1;

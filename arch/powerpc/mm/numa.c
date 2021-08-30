@@ -809,17 +809,14 @@ static void __init setup_nonnuma(void)
 	unsigned long total_ram = memblock_phys_mem_size();
 	unsigned long start_pfn, end_pfn;
 	unsigned int nid = 0;
-	struct memblock_region *reg;
+	int i;
 
 	printk(KERN_DEBUG "Top of RAM: 0x%lx, Total RAM: 0x%lx\n",
 	       top_of_ram, total_ram);
 	printk(KERN_DEBUG "Memory hole size: %ldMB\n",
 	       (top_of_ram - total_ram) >> 20);
 
-	for_each_memblock(memory, reg) {
-		start_pfn = memblock_region_memory_base_pfn(reg);
-		end_pfn = memblock_region_memory_end_pfn(reg);
-
+	for_each_mem_pfn_range(i, MAX_NUMNODES, &start_pfn, &end_pfn, NULL) {
 		fake_numa_create_new_node(end_pfn, &nid);
 		memblock_set_node(PFN_PHYS(start_pfn),
 				  PFN_PHYS(end_pfn - start_pfn),
@@ -994,7 +991,6 @@ void __init initmem_init(void)
 
 		get_pfn_range_for_nid(nid, &start_pfn, &end_pfn);
 		setup_node_data(nid, start_pfn, end_pfn);
-		sparse_memory_present_with_active_regions(nid);
 	}
 
 	sparse_init();
@@ -1182,20 +1178,27 @@ static long vphn_get_associativity(unsigned long cpu,
 				VPHN_FLAG_VCPU, associativity);
 
 	switch (rc) {
-	case H_FUNCTION:
-		printk_once(KERN_INFO
-			"VPHN is not supported. Disabling polling...\n");
-		break;
-	case H_HARDWARE:
-		printk(KERN_ERR
-			"hcall_vphn() experienced a hardware fault "
-			"preventing VPHN. Disabling polling...\n");
-		break;
 	case H_SUCCESS:
 		dbg("VPHN hcall succeeded. Reset polling...\n");
+		goto out;
+
+	case H_FUNCTION:
+		pr_err_ratelimited("VPHN unsupported. Disabling polling...\n");
+		break;
+	case H_HARDWARE:
+		pr_err_ratelimited("hcall_vphn() experienced a hardware fault "
+			"preventing VPHN. Disabling polling...\n");
+		break;
+	case H_PARAMETER:
+		pr_err_ratelimited("hcall_vphn() was passed an invalid parameter. "
+			"Disabling polling...\n");
+		break;
+	default:
+		pr_err_ratelimited("hcall_vphn() returned %ld. Disabling polling...\n"
+			, rc);
 		break;
 	}
-
+out:
 	return rc;
 }
 

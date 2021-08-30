@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/**
+/*
  * i2c-exynos5.c - Samsung Exynos5 I2C Controller Driver
  *
  * Copyright (C) 2013 Samsung Electronics Co., Ltd.
@@ -742,7 +742,6 @@ static int exynos5_i2c_probe(struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;
 	struct exynos5_i2c *i2c;
-	struct resource *mem;
 	int ret;
 
 	i2c = devm_kzalloc(&pdev->dev, sizeof(struct exynos5_i2c), GFP_KERNEL);
@@ -768,8 +767,7 @@ static int exynos5_i2c_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	i2c->regs = devm_ioremap_resource(&pdev->dev, mem);
+	i2c->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(i2c->regs)) {
 		ret = PTR_ERR(i2c->regs);
 		goto err_clk;
@@ -786,11 +784,8 @@ static int exynos5_i2c_probe(struct platform_device *pdev)
 	init_completion(&i2c->msg_complete);
 
 	i2c->irq = ret = platform_get_irq(pdev, 0);
-	if (ret <= 0) {
-		dev_err(&pdev->dev, "cannot find HS-I2C IRQ\n");
-		ret = -EINVAL;
+	if (ret < 0)
 		goto err_clk;
-	}
 
 	ret = devm_request_irq(&pdev->dev, i2c->irq, exynos5_i2c_irq,
 			       IRQF_NO_SUSPEND, dev_name(&pdev->dev), i2c);
@@ -885,6 +880,6 @@ static struct platform_driver exynos5_i2c_driver = {
 module_platform_driver(exynos5_i2c_driver);
 
 MODULE_DESCRIPTION("Exynos5 HS-I2C Bus driver");
-MODULE_AUTHOR("Naveen Krishna Chatradhi, <ch.naveen@samsung.com>");
-MODULE_AUTHOR("Taekgyun Ko, <taeggyun.ko@samsung.com>");
+MODULE_AUTHOR("Naveen Krishna Chatradhi <ch.naveen@samsung.com>");
+MODULE_AUTHOR("Taekgyun Ko <taeggyun.ko@samsung.com>");
 MODULE_LICENSE("GPL v2");

@@ -22,6 +22,7 @@
  * @DPU_PERF_MODE_NORMAL: performance controlled by user mode client
  * @DPU_PERF_MODE_MINIMUM: performance bounded by minimum setting
  * @DPU_PERF_MODE_FIXED: performance bounded by fixed setting
+ * @DPU_PERF_MODE_MAX: maximum value, used for error checking
  */
 enum dpu_perf_mode {
 	DPU_PERF_MODE_NORMAL,
@@ -29,6 +30,74 @@ enum dpu_perf_mode {
 	DPU_PERF_MODE_FIXED,
 	DPU_PERF_MODE_MAX
 };
+
+/**
+ * _dpu_core_perf_calc_bw() - to calculate BW per crtc
+ * @kms:  pointer to the dpu_kms
+ * @crtc: pointer to a crtc
+ * Return: returns aggregated BW for all planes in crtc.
+ */
+static u64 _dpu_core_perf_calc_bw(struct dpu_kms *kms,
+		struct drm_crtc *crtc)
+{
+	struct drm_plane *plane;
+	struct dpu_plane_state *pstate;
+	u64 crtc_plane_bw = 0;
+	u32 bw_factor;
+
+	drm_atomic_crtc_for_each_plane(plane, crtc) {
+		pstate = to_dpu_plane_state(plane->state);
+		if (!pstate)
+			continue;
+
+		crtc_plane_bw += pstate->plane_fetch_bw;
+	}
+
+	bw_factor = kms->catalog->perf.bw_inefficiency_factor;
+	if (bw_factor) {
+		crtc_plane_bw *= bw_factor;
+		do_div(crtc_plane_bw, 100);
+	}
+
+	return crtc_plane_bw;
+}
+
+/**
+ * _dpu_core_perf_calc_clk() - to calculate clock per crtc
+ * @kms:  pointer to the dpu_kms
+ * @crtc: pointer to a crtc
+ * @state: pointer to a crtc state
+ * Return: returns max clk for all planes in crtc.
+ */
+static u64 _dpu_core_perf_calc_clk(struct dpu_kms *kms,
+		struct drm_crtc *crtc, struct drm_crtc_state *state)
+{
+	struct drm_plane *plane;
+	struct dpu_plane_state *pstate;
+	struct drm_display_mode *mode;
+	u64 crtc_clk;
+	u32 clk_factor;
+
+	mode = &state->adjusted_mode;
+
+	crtc_clk = mode->vtotal * mode->hdisplay * drm_mode_vrefresh(mode);
+
+	drm_atomic_crtc_for_each_plane(plane, crtc) {
+		pstate = to_dpu_plane_state(plane->state);
+		if (!pstate)
+			continue;
+
+		crtc_clk = max(pstate->plane_clk, crtc_clk);
+	}
+
+	clk_factor = kms->catalog->perf.clk_inefficiency_factor;
+	if (clk_factor) {
+		crtc_clk *= clk_factor;
+		do_div(crtc_clk, 100);
+	}
+
+	return crtc_clk;
+}
 
 static struct dpu_kms *_dpu_crtc_get_kms(struct drm_crtc *crtc)
 {
@@ -42,22 +111,14 @@ static void _dpu_core_perf_calc_crtc(struct dpu_kms *kms,
 		struct drm_crtc_state *state,
 		struct dpu_core_perf_params *perf)
 {
-	struct dpu_crtc_state *dpu_cstate;
-
 	if (!kms || !kms->catalog || !crtc || !state || !perf) {
 		DPU_ERROR("invalid parameters\n");
 		return;
 	}
 
-	dpu_cstate = to_dpu_crtc_state(state);
 	memset(perf, 0, sizeof(struct dpu_core_perf_params));
 
-	if (!dpu_cstate->bw_control) {
-		perf->bw_ctl = kms->catalog->perf.max_bw_high *
-					1000ULL;
-		perf->max_per_pipe_ib = perf->bw_ctl;
-		perf->core_clk_rate = kms->perf.max_core_clk_rate;
-	} else if (kms->perf.perf_tune.mode == DPU_PERF_MODE_MINIMUM) {
+	if (kms->perf.perf_tune.mode == DPU_PERF_MODE_MINIMUM) {
 		perf->bw_ctl = 0;
 		perf->max_per_pipe_ib = 0;
 		perf->core_clk_rate = 0;
@@ -65,9 +126,13 @@ static void _dpu_core_perf_calc_crtc(struct dpu_kms *kms,
 		perf->bw_ctl = kms->perf.fix_core_ab_vote;
 		perf->max_per_pipe_ib = kms->perf.fix_core_ib_vote;
 		perf->core_clk_rate = kms->perf.fix_core_clk_rate;
+	} else {
+		perf->bw_ctl = _dpu_core_perf_calc_bw(kms, crtc);
+		perf->max_per_pipe_ib = kms->catalog->perf.min_dram_ib;
+		perf->core_clk_rate = _dpu_core_perf_calc_clk(kms, crtc, state);
 	}
 
-	DPU_DEBUG(
+	DRM_DEBUG_ATOMIC(
 		"crtc=%d clk_rate=%llu core_ib=%llu core_ab=%llu\n",
 			crtc->base.id, perf->core_clk_rate,
 			perf->max_per_pipe_ib, perf->bw_ctl);
@@ -113,28 +178,22 @@ int dpu_core_perf_crtc_check(struct drm_crtc *crtc,
 			struct dpu_crtc_state *tmp_cstate =
 				to_dpu_crtc_state(tmp_crtc->state);
 
-			DPU_DEBUG("crtc:%d bw:%llu ctrl:%d\n",
+			DRM_DEBUG_ATOMIC("crtc:%d bw:%llu ctrl:%d\n",
 				tmp_crtc->base.id, tmp_cstate->new_perf.bw_ctl,
 				tmp_cstate->bw_control);
-			/*
-			 * For bw check only use the bw if the
-			 * atomic property has been already set
-			 */
-			if (tmp_cstate->bw_control)
+
 				bw_sum_of_intfs += tmp_cstate->new_perf.bw_ctl;
 		}
 
 		/* convert bandwidth to kb */
 		bw = DIV_ROUND_UP_ULL(bw_sum_of_intfs, 1000);
-		DPU_DEBUG("calculated bandwidth=%uk\n", bw);
+		DRM_DEBUG_ATOMIC("calculated bandwidth=%uk\n", bw);
 
 		threshold = kms->catalog->perf.max_bw_high;
 
-		DPU_DEBUG("final threshold bw limit = %d\n", threshold);
+		DRM_DEBUG_ATOMIC("final threshold bw limit = %d\n", threshold);
 
-		if (!dpu_cstate->bw_control) {
-			DPU_DEBUG("bypass bandwidth check\n");
-		} else if (!threshold) {
+		if (!threshold) {
 			DPU_ERROR("no bandwidth limits specified\n");
 			return -E2BIG;
 		} else if (bw > threshold) {
@@ -155,7 +214,8 @@ static int _dpu_core_perf_crtc_update_bus(struct dpu_kms *kms,
 					= dpu_crtc_get_client_type(crtc);
 	struct drm_crtc *tmp_crtc;
 	struct dpu_crtc_state *dpu_cstate;
-	int ret = 0;
+	int i, ret = 0;
+	u64 avg_bw;
 
 	drm_for_each_crtc(tmp_crtc, crtc->dev) {
 		if (tmp_crtc->enabled &&
@@ -166,16 +226,29 @@ static int _dpu_core_perf_crtc_update_bus(struct dpu_kms *kms,
 			perf.max_per_pipe_ib = max(perf.max_per_pipe_ib,
 					dpu_cstate->new_perf.max_per_pipe_ib);
 
-			DPU_DEBUG("crtc=%d bw=%llu\n", tmp_crtc->base.id,
-					dpu_cstate->new_perf.bw_ctl);
+			perf.bw_ctl += dpu_cstate->new_perf.bw_ctl;
+
+			DRM_DEBUG_ATOMIC("crtc=%d bw=%llu paths:%d\n",
+				  tmp_crtc->base.id,
+				  dpu_cstate->new_perf.bw_ctl, kms->num_paths);
 		}
 	}
+
+	if (!kms->num_paths)
+		return 0;
+
+	avg_bw = perf.bw_ctl;
+	do_div(avg_bw, (kms->num_paths * 1000)); /*Bps_to_icc*/
+
+	for (i = 0; i < kms->num_paths; i++)
+		icc_set_bw(kms->path[i], avg_bw, perf.max_per_pipe_ib);
+
 	return ret;
 }
 
 /**
- * @dpu_core_perf_crtc_release_bw() - request zero bandwidth
- * @crtc - pointer to a crtc
+ * dpu_core_perf_crtc_release_bw() - request zero bandwidth
+ * @crtc: pointer to a crtc
  *
  * Function checks a state variable for the crtc, if all pending commit
  * requests are done, meaning no more bandwidth is needed, release
@@ -205,7 +278,7 @@ void dpu_core_perf_crtc_release_bw(struct drm_crtc *crtc)
 	/* Release the bandwidth */
 	if (kms->perf.enable_bw_release) {
 		trace_dpu_cmd_release_bw(crtc->base.id);
-		DPU_DEBUG("Release BW crtc=%d\n", crtc->base.id);
+		DRM_DEBUG_ATOMIC("Release BW crtc=%d\n", crtc->base.id);
 		dpu_crtc->cur_perf.bw_ctl = 0;
 		_dpu_core_perf_crtc_update_bus(kms, crtc);
 	}
@@ -241,7 +314,7 @@ static u64 _dpu_core_perf_get_core_clk_rate(struct dpu_kms *kms)
 	if (kms->perf.perf_tune.mode == DPU_PERF_MODE_FIXED)
 		clk_rate = kms->perf.fix_core_clk_rate;
 
-	DPU_DEBUG("clk:%llu\n", clk_rate);
+	DRM_DEBUG_ATOMIC("clk:%llu\n", clk_rate);
 
 	return clk_rate;
 }
@@ -271,7 +344,7 @@ int dpu_core_perf_crtc_update(struct drm_crtc *crtc,
 	dpu_crtc = to_dpu_crtc(crtc);
 	dpu_cstate = to_dpu_crtc_state(crtc->state);
 
-	DPU_DEBUG("crtc:%d stop_req:%d core_clk:%llu\n",
+	DRM_DEBUG_ATOMIC("crtc:%d stop_req:%d core_clk:%llu\n",
 			crtc->base.id, stop_req, kms->perf.core_clk_rate);
 
 	old = &dpu_crtc->cur_perf;
@@ -289,7 +362,7 @@ int dpu_core_perf_crtc_update(struct drm_crtc *crtc,
 			(new->max_per_pipe_ib > old->max_per_pipe_ib)))	||
 			(!params_changed && ((new->bw_ctl < old->bw_ctl) ||
 			(new->max_per_pipe_ib < old->max_per_pipe_ib)))) {
-			DPU_DEBUG("crtc=%d p=%d new_bw=%llu,old_bw=%llu\n",
+			DRM_DEBUG_ATOMIC("crtc=%d p=%d new_bw=%llu,old_bw=%llu\n",
 				crtc->base.id, params_changed,
 				new->bw_ctl, old->bw_ctl);
 			old->bw_ctl = new->bw_ctl;
@@ -305,9 +378,8 @@ int dpu_core_perf_crtc_update(struct drm_crtc *crtc,
 			update_clk = true;
 		}
 	} else {
-		DPU_DEBUG("crtc=%d disable\n", crtc->base.id);
+		DRM_DEBUG_ATOMIC("crtc=%d disable\n", crtc->base.id);
 		memset(old, 0, sizeof(*old));
-		memset(new, 0, sizeof(*new));
 		update_bus = true;
 		update_clk = true;
 	}
@@ -341,7 +413,7 @@ int dpu_core_perf_crtc_update(struct drm_crtc *crtc,
 		}
 
 		kms->perf.core_clk_rate = clk_rate;
-		DPU_DEBUG("update clk rate = %lld HZ\n", clk_rate);
+		DRM_DEBUG_ATOMIC("update clk rate = %lld HZ\n", clk_rate);
 	}
 	return 0;
 }

@@ -41,13 +41,29 @@ static inline void arch_ftrace_set_direct_caller(struct pt_regs *regs, unsigned 
 	regs->orig_ax = addr;
 }
 
+#ifdef CONFIG_HAVE_DYNAMIC_FTRACE_WITH_ARGS
+struct ftrace_regs {
+	struct pt_regs		regs;
+};
+
+static __always_inline struct pt_regs *
+arch_ftrace_get_regs(struct ftrace_regs *fregs)
+{
+	/* Only when FL_SAVE_REGS is set, cs will be non zero */
+	if (!fregs->regs.cs)
+		return NULL;
+	return &fregs->regs;
+}
+
+#define ftrace_instruction_pointer_set(fregs, _ip)	\
+	do { (fregs)->regs.ip = (_ip); } while (0)
+#endif
+
 #ifdef CONFIG_DYNAMIC_FTRACE
 
 struct dyn_arch_ftrace {
 	/* No extra data needed for x86 */
 };
-
-int ftrace_int3_handler(struct pt_regs *regs);
 
 #define FTRACE_GRAPH_TRAMP_ADDR FTRACE_GRAPH_ADDR
 
@@ -58,16 +74,23 @@ int ftrace_int3_handler(struct pt_regs *regs);
 
 #ifndef __ASSEMBLY__
 
+#if defined(CONFIG_FUNCTION_TRACER) && defined(CONFIG_DYNAMIC_FTRACE)
+extern void set_ftrace_ops_ro(void);
+#else
+static inline void set_ftrace_ops_ro(void) { }
+#endif
+
 #define ARCH_HAS_SYSCALL_MATCH_SYM_NAME
 static inline bool arch_syscall_match_sym_name(const char *sym, const char *name)
 {
 	/*
 	 * Compare the symbol name with the system call name. Skip the
-	 * "__x64_sys", "__ia32_sys" or simple "sys" prefix.
+	 * "__x64_sys", "__ia32_sys", "__do_sys" or simple "sys" prefix.
 	 */
 	return !strcmp(sym + 3, name + 3) ||
 		(!strncmp(sym, "__x64_", 6) && !strcmp(sym + 9, name + 3)) ||
-		(!strncmp(sym, "__ia32_", 7) && !strcmp(sym + 10, name + 3));
+		(!strncmp(sym, "__ia32_", 7) && !strcmp(sym + 10, name + 3)) ||
+		(!strncmp(sym, "__do_sys", 8) && !strcmp(sym + 8, name + 3));
 }
 
 #ifndef COMPILE_OFFSETS

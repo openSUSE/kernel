@@ -111,9 +111,7 @@ struct vfio_ccw_private {
 
 	struct eventfd_ctx	*io_trigger;
 	struct eventfd_ctx	*crw_trigger;
-#ifndef __GENKSYMS__
 	struct eventfd_ctx	*req_trigger;
-#endif
 	struct work_struct	io_work;
 	struct work_struct	crw_work;
 } __aligned(8);

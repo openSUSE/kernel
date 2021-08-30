@@ -55,10 +55,7 @@
 
 MODULE_AUTHOR("YOKOTA Hiroshi <yokota@netlab.is.tsukuba.ac.jp>");
 MODULE_DESCRIPTION("WorkBit NinjaSCSI-3 / NinjaSCSI-32Bi(16bit) PCMCIA SCSI host adapter module");
-MODULE_SUPPORTED_DEVICE("sd,sr,sg,st");
-#ifdef MODULE_LICENSE
 MODULE_LICENSE("GPL");
-#endif
 
 #include "nsp_io.h"
 
@@ -136,6 +133,7 @@ static inline void nsp_inc_resid(struct scsi_cmnd *SCpnt, int residInc)
 	scsi_set_resid(SCpnt, scsi_get_resid(SCpnt) + residInc);
 }
 
+__printf(4, 5)
 static void nsp_cs_message(const char *func, int line, char *type, char *fmt, ...)
 {
 	va_list args;
@@ -223,7 +221,7 @@ static int nsp_queuecommand_lck(struct scsi_cmnd *SCpnt,
 
 	data->CurrentSC		= SCpnt;
 
-	SCpnt->SCp.Status	= CHECK_CONDITION;
+	SCpnt->SCp.Status	= SAM_STAT_CHECK_CONDITION;
 	SCpnt->SCp.Message	= 0;
 	SCpnt->SCp.have_data_in = IO_UNKNOWN;
 	SCpnt->SCp.sent_command = 0;
@@ -691,14 +689,14 @@ static int nsp_fifo_count(struct scsi_cmnd *SCpnt)
 {
 	unsigned int base = SCpnt->device->host->io_port;
 	unsigned int count;
-	unsigned int l, m, h, dummy;
+	unsigned int l, m, h;
 
 	nsp_index_write(base, POINTERCLR, POINTER_CLEAR | ACK_COUNTER);
 
 	l     = nsp_index_read(base, TRANSFERCOUNT);
 	m     = nsp_index_read(base, TRANSFERCOUNT);
 	h     = nsp_index_read(base, TRANSFERCOUNT);
-	dummy = nsp_index_read(base, TRANSFERCOUNT); /* required this! */
+	nsp_index_read(base, TRANSFERCOUNT); /* required this! */
 
 	count = (h << 16) | (m << 8) | (l << 0);
 
@@ -1112,7 +1110,7 @@ static irqreturn_t nspintr(int irq, void *dev_id)
 			nsp_scsi_done(tmpSC);
 			return IRQ_HANDLED;
 		}
-		/* fall thru */
+		fallthrough;
 	default:
 		if ((irq_status & (IRQSTATUS_SCSI | IRQSTATUS_FIFO)) == 0) {
 			return IRQ_HANDLED;
@@ -1133,7 +1131,7 @@ static irqreturn_t nspintr(int irq, void *dev_id)
 		//*sync_neg       = SYNC_NOT_YET;
 
 		/* all command complete and return status */
-		if (tmpSC->SCp.Message == MSG_COMMAND_COMPLETE) {
+		if (tmpSC->SCp.Message == COMMAND_COMPLETE) {
 			tmpSC->result = (DID_OK		             << 16) |
 					((tmpSC->SCp.Message & 0xff) <<  8) |
 					((tmpSC->SCp.Status  & 0xff) <<  0);
@@ -1227,9 +1225,9 @@ static irqreturn_t nspintr(int irq, void *dev_id)
 			data->Sync[target].SyncOffset = 0;
 
 			/**/
-			data->MsgBuffer[i] = MSG_EXTENDED; i++;
+			data->MsgBuffer[i] = EXTENDED_MESSAGE; i++;
 			data->MsgBuffer[i] = 3;            i++;
-			data->MsgBuffer[i] = MSG_EXT_SDTR; i++;
+			data->MsgBuffer[i] = EXTENDED_SDTR; i++;
 			data->MsgBuffer[i] = 0x0c;         i++;
 			data->MsgBuffer[i] = 15;           i++;
 			/**/
@@ -1256,9 +1254,9 @@ static irqreturn_t nspintr(int irq, void *dev_id)
 			//nsp_dbg(NSP_DEBUG_INTR, "sync target=%d,lun=%d",target,lun);
 
 			if (data->MsgLen       >= 5            &&
-			    data->MsgBuffer[0] == MSG_EXTENDED &&
+			    data->MsgBuffer[0] == EXTENDED_MESSAGE &&
 			    data->MsgBuffer[1] == 3            &&
-			    data->MsgBuffer[2] == MSG_EXT_SDTR ) {
+			    data->MsgBuffer[2] == EXTENDED_SDTR ) {
 				data->Sync[target].SyncPeriod = data->MsgBuffer[3];
 				data->Sync[target].SyncOffset = data->MsgBuffer[4];
 				//nsp_dbg(NSP_DEBUG_INTR, "sync ok, %d %d", data->MsgBuffer[3], data->MsgBuffer[4]);
@@ -1276,7 +1274,7 @@ static irqreturn_t nspintr(int irq, void *dev_id)
 		tmp = -1;
 		for (i = 0; i < data->MsgLen; i++) {
 			tmp = data->MsgBuffer[i];
-			if (data->MsgBuffer[i] == MSG_EXTENDED) {
+			if (data->MsgBuffer[i] == EXTENDED_MESSAGE) {
 				i += (1 + data->MsgBuffer[i+1]);
 			}
 		}
@@ -1560,7 +1558,7 @@ static int nsp_cs_config_check(struct pcmcia_device *p_dev, void *priv_data)
 			goto next_entry;
 
 		data->MmioAddress = (unsigned long)
-			ioremap_nocache(p_dev->resource[2]->start,
+			ioremap(p_dev->resource[2]->start,
 					resource_size(p_dev->resource[2]));
 		data->MmioLength  = resource_size(p_dev->resource[2]);
 	}

@@ -29,16 +29,21 @@
 #include "psp_gfx_if.h"
 #include "ta_xgmi_if.h"
 #include "ta_ras_if.h"
+#include "ta_rap_if.h"
+#include "ta_secureDisplay_if.h"
 
 #define PSP_FENCE_BUFFER_SIZE	0x1000
 #define PSP_CMD_BUFFER_SIZE	0x1000
 #define PSP_XGMI_SHARED_MEM_SIZE 0x4000
 #define PSP_RAS_SHARED_MEM_SIZE 0x4000
 #define PSP_1_MEG		0x100000
-#define PSP_TMR_SIZE	0x400000
+#define PSP_TMR_SIZE(adev)	((adev)->asic_type == CHIP_ALDEBARAN ? 0x800000 : 0x400000)
 #define PSP_HDCP_SHARED_MEM_SIZE	0x4000
 #define PSP_DTM_SHARED_MEM_SIZE	0x4000
+#define PSP_RAP_SHARED_MEM_SIZE	0x4000
+#define PSP_SECUREDISPLAY_SHARED_MEM_SIZE	0x4000
 #define PSP_SHARED_MEM_SIZE		0x4000
+#define PSP_FW_NAME_LEN		0x24
 
 struct psp_context;
 struct psp_xgmi_node_info;
@@ -160,6 +165,24 @@ struct psp_dtm_context {
 	struct mutex		mutex;
 };
 
+struct psp_rap_context {
+	bool			rap_initialized;
+	uint32_t		session_id;
+	struct amdgpu_bo	*rap_shared_bo;
+	uint64_t		rap_shared_mc_addr;
+	void			*rap_shared_buf;
+	struct mutex		mutex;
+};
+
+struct psp_securedisplay_context {
+	bool			securedisplay_initialized;
+	uint32_t		session_id;
+	struct amdgpu_bo	*securedisplay_shared_bo;
+	uint64_t		securedisplay_shared_mc_addr;
+	void			*securedisplay_shared_buf;
+	struct mutex		mutex;
+};
+
 #define MEM_TRAIN_SYSTEM_SIGNATURE		0x54534942
 #define GDDR6_MEM_TRAINING_DATA_SIZE_IN_BYTES	0x1000
 #define GDDR6_MEM_TRAINING_OFFSET		0x8000
@@ -202,6 +225,61 @@ struct psp_memory_training_context {
 
 	enum psp_memory_training_init_flag init;
 	u32 training_cnt;
+	bool enable_mem_training;
+};
+
+/** PSP runtime DB **/
+#define PSP_RUNTIME_DB_SIZE_IN_BYTES		0x10000
+#define PSP_RUNTIME_DB_OFFSET			0x100000
+#define PSP_RUNTIME_DB_COOKIE_ID		0x0ed5
+#define PSP_RUNTIME_DB_VER_1			0x0100
+#define PSP_RUNTIME_DB_DIAG_ENTRY_MAX_COUNT	0x40
+
+enum psp_runtime_entry_type {
+	PSP_RUNTIME_ENTRY_TYPE_INVALID		= 0x0,
+	PSP_RUNTIME_ENTRY_TYPE_TEST		= 0x1,
+	PSP_RUNTIME_ENTRY_TYPE_MGPU_COMMON	= 0x2,  /* Common mGPU runtime data */
+	PSP_RUNTIME_ENTRY_TYPE_MGPU_WAFL	= 0x3,  /* WAFL runtime data */
+	PSP_RUNTIME_ENTRY_TYPE_MGPU_XGMI	= 0x4,  /* XGMI runtime data */
+	PSP_RUNTIME_ENTRY_TYPE_BOOT_CONFIG	= 0x5,  /* Boot Config runtime data */
+};
+
+/* PSP runtime DB header */
+struct psp_runtime_data_header {
+	/* determine the existence of runtime db */
+	uint16_t cookie;
+	/* version of runtime db */
+	uint16_t version;
+};
+
+/* PSP runtime DB entry */
+struct psp_runtime_entry {
+	/* type of runtime db entry */
+	uint32_t entry_type;
+	/* offset of entry in bytes */
+	uint16_t offset;
+	/* size of entry in bytes */
+	uint16_t size;
+};
+
+/* PSP runtime DB directory */
+struct psp_runtime_data_directory {
+	/* number of valid entries */
+	uint16_t			entry_count;
+	/* db entries*/
+	struct psp_runtime_entry	entry_list[PSP_RUNTIME_DB_DIAG_ENTRY_MAX_COUNT];
+};
+
+/* PSP runtime DB boot config feature bitmask */
+enum psp_runtime_boot_cfg_feature {
+	BOOT_CFG_FEATURE_GECC                       = 0x1,
+	BOOT_CFG_FEATURE_TWO_STAGE_DRAM_TRAINING    = 0x2,
+};
+
+/* PSP runtime DB boot config entry */
+struct psp_runtime_boot_cfg_entry {
+	uint32_t boot_cfg_bitmask;
+	uint32_t reserved;
 };
 
 struct psp_context
@@ -226,11 +304,13 @@ struct psp_context
 	uint32_t			toc_bin_size;
 	uint32_t			kdb_bin_size;
 	uint32_t			spl_bin_size;
+	uint32_t			rl_bin_size;
 	uint8_t				*sys_start_addr;
 	uint8_t				*sos_start_addr;
 	uint8_t				*toc_start_addr;
 	uint8_t				*kdb_start_addr;
 	uint8_t				*spl_start_addr;
+	uint8_t				*rl_start_addr;
 
 	/* tmr buffer */
 	struct amdgpu_bo		*tmr_bo;
@@ -242,6 +322,11 @@ struct psp_context
 	uint32_t			asd_feature_version;
 	uint32_t			asd_ucode_size;
 	uint8_t				*asd_start_addr;
+
+	/* toc firmware */
+	const struct firmware		*toc_fw;
+	uint32_t			toc_fw_version;
+	uint32_t			toc_feature_version;
 
 	/* fence buffer */
 	struct amdgpu_bo		*fence_buf_bo;
@@ -278,13 +363,25 @@ struct psp_context
 	uint32_t			ta_dtm_ucode_size;
 	uint8_t				*ta_dtm_start_addr;
 
+	uint32_t			ta_rap_ucode_version;
+	uint32_t			ta_rap_ucode_size;
+	uint8_t				*ta_rap_start_addr;
+
+	uint32_t			ta_securedisplay_ucode_version;
+	uint32_t			ta_securedisplay_ucode_size;
+	uint8_t				*ta_securedisplay_start_addr;
+
 	struct psp_asd_context		asd_context;
 	struct psp_xgmi_context		xgmi_context;
 	struct psp_ras_context		ras;
 	struct psp_hdcp_context 	hdcp_context;
 	struct psp_dtm_context		dtm_context;
+	struct psp_rap_context		rap_context;
+	struct psp_securedisplay_context	securedisplay_context;
 	struct mutex			mutex;
 	struct psp_memory_training_context mem_train_ctx;
+
+	uint32_t			boot_cfg_bitmask;
 };
 
 struct amdgpu_psp_funcs {
@@ -328,11 +425,13 @@ struct amdgpu_psp_funcs {
 extern const struct amd_ip_funcs psp_ip_funcs;
 
 extern const struct amdgpu_ip_block_version psp_v3_1_ip_block;
+extern const struct amdgpu_ip_block_version psp_v10_0_ip_block;
+extern const struct amdgpu_ip_block_version psp_v11_0_ip_block;
+extern const struct amdgpu_ip_block_version psp_v12_0_ip_block;
+extern const struct amdgpu_ip_block_version psp_v13_0_ip_block;
+
 extern int psp_wait_for(struct psp_context *psp, uint32_t reg_index,
 			uint32_t field_val, uint32_t mask, bool check_changed);
-
-extern const struct amdgpu_ip_block_version psp_v10_0_ip_block;
-extern const struct amdgpu_ip_block_version psp_v12_0_ip_block;
 
 int psp_gpu_reset(struct amdgpu_device *adev);
 int psp_update_vcn_sram(struct amdgpu_device *adev, int inst_idx,
@@ -358,10 +457,11 @@ int psp_ras_trigger_error(struct psp_context *psp,
 
 int psp_hdcp_invoke(struct psp_context *psp, uint32_t ta_cmd_id);
 int psp_dtm_invoke(struct psp_context *psp, uint32_t ta_cmd_id);
+int psp_rap_invoke(struct psp_context *psp, uint32_t ta_cmd_id, enum ta_rap_status *status);
+int psp_securedisplay_invoke(struct psp_context *psp, uint32_t ta_cmd_id);
 
 int psp_rlc_autoload_start(struct psp_context *psp);
 
-extern const struct amdgpu_ip_block_version psp_v11_0_ip_block;
 int psp_reg_program(struct psp_context *psp, enum psp_reg_prog_id reg,
 		uint32_t value);
 int psp_ring_cmd_submit(struct psp_context *psp,
@@ -370,8 +470,17 @@ int psp_ring_cmd_submit(struct psp_context *psp,
 			int index);
 int psp_init_asd_microcode(struct psp_context *psp,
 			   const char *chip_name);
+int psp_init_toc_microcode(struct psp_context *psp,
+			   const char *chip_name);
 int psp_init_sos_microcode(struct psp_context *psp,
 			   const char *chip_name);
 int psp_init_ta_microcode(struct psp_context *psp,
 			  const char *chip_name);
+int psp_get_fw_attestation_records_addr(struct psp_context *psp,
+					uint64_t *output_ptr);
+
+int psp_load_fw_list(struct psp_context *psp,
+		     struct amdgpu_firmware_info **ucode_list, int ucode_count);
+void psp_copy_fw(struct psp_context *psp, uint8_t *start_addr, uint32_t bin_size);
+
 #endif

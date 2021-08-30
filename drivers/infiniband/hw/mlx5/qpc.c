@@ -441,6 +441,12 @@ static int modify_qp_mbox_alloc(struct mlx5_core_dev *dev, u16 opcode, int qpn,
 		MOD_QP_IN_SET_QPC(sqerr2rts_qp, mbox->in, opcode, qpn,
 				  opt_param_mask, qpc, uid);
 		break;
+	case MLX5_CMD_OP_SQD_RTS_QP:
+		if (MBOX_ALLOC(mbox, sqd2rts_qp))
+			return -ENOMEM;
+		MOD_QP_IN_SET_QPC(sqd2rts_qp, mbox->in, opcode, qpn,
+				  opt_param_mask, qpc, uid);
+		break;
 	case MLX5_CMD_OP_INIT2INIT_QP:
 		if (MBOX_ALLOC(mbox, init2init_qp))
 			return -ENOMEM;
@@ -576,11 +582,12 @@ err_destroy_rq:
 	return err;
 }
 
-void mlx5_core_destroy_rq_tracked(struct mlx5_ib_dev *dev,
-				  struct mlx5_core_qp *rq)
+int mlx5_core_destroy_rq_tracked(struct mlx5_ib_dev *dev,
+				 struct mlx5_core_qp *rq)
 {
 	destroy_resource_common(dev, rq);
 	destroy_rq_tracked(dev, rq->qpn, rq->uid);
+	return 0;
 }
 
 static void destroy_sq_tracked(struct mlx5_ib_dev *dev, u32 sqn, u16 uid)

@@ -210,7 +210,7 @@ static void hns_mdio_cmd_write(struct hns_mdio_device *mdio_dev,
  * @bus: mdio bus
  * @phy_id: phy id
  * @regnum: register num
- * @value: register value
+ * @data: register value
  *
  * Return 0 on success, negative on failure
  */
@@ -273,14 +273,13 @@ static int hns_mdio_write(struct mii_bus *bus,
  * @bus: mdio bus
  * @phy_id: phy id
  * @regnum: register num
- * @value: register value
  *
  * Return phy register value
  */
 static int hns_mdio_read(struct mii_bus *bus, int phy_id, int regnum)
 {
 	int ret;
-	u16 reg_val = 0;
+	u16 reg_val;
 	u8 devad = ((regnum >> 16) & 0x1f);
 	u8 is_c45 = !!(regnum & MII_ADDR_C45);
 	u16 reg = (u16)(regnum & 0xffff);
@@ -421,7 +420,7 @@ static int hns_mdio_probe(struct platform_device *pdev)
 {
 	struct hns_mdio_device *mdio_dev;
 	struct mii_bus *new_bus;
-	int ret = -ENODEV;
+	int ret;
 
 	if (!pdev) {
 		dev_err(NULL, "pdev is NULL!\r\n");

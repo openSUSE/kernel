@@ -51,6 +51,7 @@
 #include "prm33xx.h"
 #include "prm44xx.h"
 #include "opp2xxx.h"
+#include "omap-secure.h"
 
 /*
  * omap_clk_soc_init: points to a function that does the SoC-specific
@@ -401,6 +402,7 @@ static int __init _omap2_init_reprogram_sdrc(void)
 	return v;
 }
 
+#ifdef CONFIG_OMAP_HWMOD
 static int _set_hwmod_postsetup_state(struct omap_hwmod *oh, void *data)
 {
 	return omap_hwmod_set_postsetup_state(oh, *(u8 *)data);
@@ -413,6 +415,11 @@ static void __init __maybe_unused omap_hwmod_init_postsetup(void)
 	/* Set the default postsetup state for all hwmods */
 	omap_hwmod_for_each(_set_hwmod_postsetup_state, &postsetup_state);
 }
+#else
+static inline void omap_hwmod_init_postsetup(void)
+{
+}
+#endif
 
 #ifdef CONFIG_SOC_OMAP2420
 void __init omap2420_init_early(void)
@@ -481,6 +488,7 @@ void __init omap3_init_early(void)
 	omap3xxx_clockdomains_init();
 	omap3xxx_hwmod_init();
 	omap_hwmod_init_postsetup();
+	omap_secure_init();
 }
 
 void __init omap3430_init_early(void)
@@ -533,6 +541,7 @@ void __init ti814x_init_early(void)
 	dm814x_hwmod_init();
 	omap_hwmod_init_postsetup();
 	omap_clk_soc_init = dm814x_dt_clk_init;
+	omap_secure_init();
 }
 
 void __init ti816x_init_early(void)
@@ -549,6 +558,7 @@ void __init ti816x_init_early(void)
 	dm816x_hwmod_init();
 	omap_hwmod_init_postsetup();
 	omap_clk_soc_init = dm816x_dt_clk_init;
+	omap_secure_init();
 }
 #endif
 
@@ -563,9 +573,8 @@ void __init am33xx_init_early(void)
 	omap2_prcm_base_init();
 	am33xx_powerdomains_init();
 	am33xx_clockdomains_init();
-	am33xx_hwmod_init();
-	omap_hwmod_init_postsetup();
 	omap_clk_soc_init = am33xx_dt_clk_init;
+	omap_secure_init();
 }
 
 void __init am33xx_init_late(void)
@@ -585,10 +594,9 @@ void __init am43xx_init_early(void)
 	omap2_prcm_base_init();
 	am43xx_powerdomains_init();
 	am43xx_clockdomains_init();
-	am43xx_hwmod_init();
-	omap_hwmod_init_postsetup();
 	omap_l2_cache_init();
 	omap_clk_soc_init = am43xx_dt_clk_init;
+	omap_secure_init();
 }
 
 void __init am43xx_init_late(void)
@@ -613,10 +621,9 @@ void __init omap4430_init_early(void)
 	omap44xx_voltagedomains_init();
 	omap44xx_powerdomains_init();
 	omap44xx_clockdomains_init();
-	omap44xx_hwmod_init();
-	omap_hwmod_init_postsetup();
 	omap_l2_cache_init();
 	omap_clk_soc_init = omap4xxx_dt_clk_init;
+	omap_secure_init();
 }
 
 void __init omap4430_init_late(void)
@@ -640,9 +647,8 @@ void __init omap5_init_early(void)
 	omap54xx_voltagedomains_init();
 	omap54xx_powerdomains_init();
 	omap54xx_clockdomains_init();
-	omap54xx_hwmod_init();
-	omap_hwmod_init_postsetup();
 	omap_clk_soc_init = omap5xxx_dt_clk_init;
+	omap_secure_init();
 }
 
 void __init omap5_init_late(void)
@@ -663,9 +669,8 @@ void __init dra7xx_init_early(void)
 	dra7xxx_check_revision();
 	dra7xx_powerdomains_init();
 	dra7xx_clockdomains_init();
-	dra7xx_hwmod_init();
-	omap_hwmod_init_postsetup();
 	omap_clk_soc_init = dra7xx_dt_clk_init;
+	omap_secure_init();
 }
 
 void __init dra7xx_init_late(void)

@@ -45,7 +45,7 @@ To use the target for the first time:
    will format the device
 3. unload the dm-integrity target
 4. read the "provided_data_sectors" value from the superblock
-5. load the dm-integrity target with the the target size
+5. load the dm-integrity target with the target size
    "provided_data_sectors"
 6. if you want to use dm-integrity with dm-crypt, load the dm-crypt target
    with the size "provided_data_sectors"
@@ -99,7 +99,7 @@ interleave_sectors:number
 	the superblock is used.
 
 meta_device:device
-	Don't interleave the data and metadata on on device. Use a
+	Don't interleave the data and metadata on the device. Use a
 	separate device for metadata.
 
 buffer_sectors:number
@@ -117,7 +117,7 @@ journal_watermark:number
 
 commit_time:number
 	Commit time in milliseconds. When this time passes, the journal is
-	written. The journal is also written immediatelly if the FLUSH
+	written. The journal is also written immediately if the FLUSH
 	request is received.
 
 internal_hash:algorithm(:key)	(the key is optional)
@@ -143,11 +143,11 @@ recalculate
 journal_crypt:algorithm(:key)	(the key is optional)
 	Encrypt the journal using given algorithm to make sure that the
 	attacker can't read the journal. You can use a block cipher here
-	(such as "cbc(aes)") or a stream cipher (for example "chacha20",
-	"salsa20", "ctr(aes)" or "ecb(arc4)").
+	(such as "cbc(aes)") or a stream cipher (for example "chacha20"
+	or "ctr(aes)").
 
 	The journal contains history of last writes to the block device,
-	an attacker reading the journal could see the last sector nubmers
+	an attacker reading the journal could see the last sector numbers
 	that were written. From the sector numbers, the attacker can infer
 	the size of files that were written. To protect against this
 	situation, you can encrypt the journal.
@@ -177,17 +177,45 @@ bitmap_flush_interval:number
 	The bitmap flush interval in milliseconds. The metadata buffers
 	are synchronized when this interval expires.
 
+allow_discards
+	Allow block discard requests (a.k.a. TRIM) for the integrity device.
+	Discards are only allowed to devices using internal hash.
+
 fix_padding
 	Use a smaller padding of the tag area that is more
 	space-efficient. If this option is not present, large padding is
 	used - that is for compatibility with older kernels.
 
+fix_hmac
+	Improve security of internal_hash and journal_mac:
 
-The journal mode (D/J), buffer_sectors, journal_watermark, commit_time can
-be changed when reloading the target (load an inactive table and swap the
-tables with suspend and resume). The other arguments should not be changed
-when reloading the target because the layout of disk data depend on them
-and the reloaded target would be non-functional.
+	- the section number is mixed to the mac, so that an attacker can't
+	  copy sectors from one journal section to another journal section
+	- the superblock is protected by journal_mac
+	- a 16-byte salt stored in the superblock is mixed to the mac, so
+	  that the attacker can't detect that two disks have the same hmac
+	  key and also to disallow the attacker to move sectors from one
+	  disk to another
+
+legacy_recalculate
+	Allow recalculating of volumes with HMAC keys. This is disabled by
+	default for security reasons - an attacker could modify the volume,
+	set recalc_sector to zero, and the kernel would not detect the
+	modification.
+
+The journal mode (D/J), buffer_sectors, journal_watermark, commit_time and
+allow_discards can be changed when reloading the target (load an inactive
+table and swap the tables with suspend and resume). The other arguments
+should not be changed when reloading the target because the layout of disk
+data depend on them and the reloaded target would be non-functional.
+
+
+Status line:
+
+1. the number of integrity mismatches
+2. provided data sectors - that is the number of sectors that the user
+   could use
+3. the current recalculating position (or '-' if we didn't recalculate)
 
 
 The layout of the formatted block device:

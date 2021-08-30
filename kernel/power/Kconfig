@@ -3,7 +3,7 @@ config SUSPEND
 	bool "Suspend to RAM and standby"
 	depends on ARCH_SUSPEND_POSSIBLE
 	default y
-	---help---
+	help
 	  Allow the system to enter sleep states in which main memory is
 	  powered and thus its contents are preserved, such as the
 	  suspend-to-RAM state (e.g. the ACPI S3 state).
@@ -27,7 +27,10 @@ config SUSPEND_SKIP_SYNC
 	  Skip the kernel sys_sync() before freezing user processes.
 	  Some systems prefer not to pay this cost on every invocation
 	  of suspend, or they are content with invoking sync() from
-	  user-space before invoking suspend.  Say Y if that's your case.
+	  user-space before invoking suspend.  There's a run-time switch
+	  at '/sys/power/sync_on_suspend' to configure this behaviour.
+	  This setting changes the default for the run-tim switch. Say Y
+	  to change the default to disable the kernel sys_sync().
 
 config HIBERNATE_CALLBACKS
 	bool
@@ -39,7 +42,7 @@ config HIBERNATION
 	select LZO_COMPRESS
 	select LZO_DECOMPRESS
 	select CRC32
-	---help---
+	help
 	  Enable the suspend to disk (STD) functionality, which is usually
 	  called "hibernation" in user interfaces.  STD checkpoints the
 	  system and powers it off; and restores that checkpoint on reboot.
@@ -77,36 +80,11 @@ config HIBERNATION
 
 	  For more information take a look at <file:Documentation/power/swsusp.rst>.
 
-config HIBERNATE_VERIFICATION
-	bool "Hibernate verification"
-	depends on HIBERNATION
-	depends on EFI_SECRET_KEY
-	select CRYPTO_HMAC
-	select CRYPTO_SHA512
-	help
-	  This option provides support for generating and verifying the
-	  signature of memory snapshot image by HMAC-SHA512. Current mechanism
-	  relies on UEFI secure boot environment, EFI stub generates HMAC
-	  key for hibernate verification. This function will be bypassed on
-	  legacy BIOS.
-
-config HIBERNATE_VERIFICATION_FORCE
-	bool "Require hibernate snapshot image to be validly signed"
-	depends on HIBERNATE_VERIFICATION
-	help
-	  Refuse the system to be resumed from a snapshot image which is
-	  unsigned or signed by a wrong key. If this option is not enabled,
-	  the system can be resumed by unsigned snapshot image and kernel
-	  will be tainted.
-
-config ARCH_SAVE_PAGE_KEYS
-	bool
-
 config HIBERNATION_SNAPSHOT_DEV
 	bool "Userspace snapshot device"
 	depends on HIBERNATION
 	default y
-	---help---
+	help
 	  Device used by the uswsusp tools.
 
 	  Say N if no snapshotting from userspace is needed, this also
@@ -118,22 +96,22 @@ config PM_STD_PARTITION
 	string "Default resume partition"
 	depends on HIBERNATION
 	default ""
-	---help---
+	help
 	  The default resume partition is the partition that the suspend-
-	  to-disk implementation will look for a suspended disk image. 
+	  to-disk implementation will look for a suspended disk image.
 
-	  The partition specified here will be different for almost every user. 
+	  The partition specified here will be different for almost every user.
 	  It should be a valid swap partition (at least for now) that is turned
-	  on before suspending. 
+	  on before suspending.
 
 	  The partition specified can be overridden by specifying:
 
-		resume=/dev/<other device> 
+		resume=/dev/<other device>
 
-	  which will set the resume partition to the device specified. 
+	  which will set the resume partition to the device specified.
 
 	  Note there is currently not a way to specify which device to save the
-	  suspended image to. It will simply pick the first available swap 
+	  suspended image to. It will simply pick the first available swap
 	  device.
 
 config PM_SLEEP
@@ -153,7 +131,7 @@ config PM_SLEEP_SMP_NONZERO_CPU
 	def_bool y
 	depends on PM_SLEEP_SMP
 	depends on ARCH_SUSPEND_NONZERO_CPU
-	---help---
+	help
 	If an arch can suspend (for suspend, hibernate, kexec, etc) on a
 	non-zero numbered CPU, it may define ARCH_SUSPEND_NONZERO_CPU. This
 	will allow nohz_full mask to include CPU0.
@@ -161,16 +139,14 @@ config PM_SLEEP_SMP_NONZERO_CPU
 config PM_AUTOSLEEP
 	bool "Opportunistic sleep"
 	depends on PM_SLEEP
-	default n
-	---help---
+	help
 	Allow the kernel to trigger a system transition into a global sleep
 	state automatically whenever there are no active wakeup sources.
 
 config PM_WAKELOCKS
 	bool "User space wakeup sources interface"
 	depends on PM_SLEEP
-	default n
-	---help---
+	help
 	Allow user space to create, activate and deactivate wakeup source
 	objects with the help of a sysfs-based interface.
 
@@ -187,7 +163,7 @@ config PM_WAKELOCKS_GC
 
 config PM
 	bool "Device power management core functionality"
-	---help---
+	help
 	  Enable functionality allowing I/O devices to be put into energy-saving
 	  (low power) states, for example after a specified period of inactivity
 	  (autosuspended), and woken up in response to a hardware-generated
@@ -201,7 +177,7 @@ config PM
 config PM_DEBUG
 	bool "Power Management Debug Support"
 	depends on PM
-	---help---
+	help
 	This option enables various debugging support in the Power Management
 	code. This is helpful when debugging and reporting PM bugs, like
 	suspend support.
@@ -209,7 +185,7 @@ config PM_DEBUG
 config PM_ADVANCED_DEBUG
 	bool "Extra PM attributes in sysfs for low-level debugging/testing"
 	depends on PM_DEBUG
-	---help---
+	help
 	Add extra sysfs attributes allowing one to access some Power Management
 	fields of device objects from user space.  If you are not a kernel
 	developer interested in debugging/testing Power Management, say "no".
@@ -217,7 +193,7 @@ config PM_ADVANCED_DEBUG
 config PM_TEST_SUSPEND
 	bool "Test suspend/resume and wakealarm during bootup"
 	depends on SUSPEND && PM_DEBUG && RTC_CLASS=y
-	---help---
+	help
 	This option will let you suspend your machine during bootup, and
 	make it wake up a few seconds later using an RTC wakeup alarm.
 	Enable this with a kernel parameter like "test_suspend=mem".
@@ -232,7 +208,7 @@ config PM_SLEEP_DEBUG
 config DPM_WATCHDOG
 	bool "Device suspend/resume watchdog"
 	depends on PM_DEBUG && PSTORE && EXPERT
-	---help---
+	help
 	  Sets up a watchdog timer to capture drivers that are
 	  locked up attempting to suspend/resume a device.
 	  A detected lockup causes system panic with message
@@ -265,7 +241,7 @@ config PM_TRACE_RTC
 	depends on PM_SLEEP_DEBUG
 	depends on X86
 	select PM_TRACE
-	---help---
+	help
 	This enables some cheesy code to save the last PM event point in the
 	RTC across reboots, so that you can debug a machine that just hangs
 	during suspend (or more commonly, during resume).
@@ -315,7 +291,6 @@ config PM_GENERIC_DOMAINS
 config WQ_POWER_EFFICIENT_DEFAULT
 	bool "Enable workqueue power-efficient mode by default"
 	depends on PM
-	default n
 	help
 	  Per-cpu workqueues are generally preferred because they show
 	  better performance thanks to cache locality; unfortunately,
@@ -344,15 +319,14 @@ config CPU_PM
 	bool
 
 config ENERGY_MODEL
-	bool "Energy Model for CPUs"
+	bool "Energy Model for devices with DVFS (CPUs, GPUs, etc)"
 	depends on SMP
 	depends on CPU_FREQ
-	default n
 	help
 	  Several subsystems (thermal and/or the task scheduler for example)
-	  can leverage information about the energy consumed by CPUs to make
-	  smarter decisions. This config option enables the framework from
-	  which subsystems can access the energy models.
+	  can leverage information about the energy consumed by devices to
+	  make smarter decisions. This config option enables the framework
+	  from which subsystems can access the energy models.
 
 	  The exact usage of the energy model is subsystem-dependent.
 

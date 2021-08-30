@@ -19,12 +19,30 @@
 #include <linux/ksm.h>
 #include <linux/mman.h>
 
-#include <asm/pgtable.h>
-#include <asm/pgalloc.h>
 #include <asm/tlb.h>
 #include <asm/tlbflush.h>
 #include <asm/mmu_context.h>
 #include <asm/page-states.h>
+
+pgprot_t pgprot_writecombine(pgprot_t prot)
+{
+	/*
+	 * mio_wb_bit_mask may be set on a different CPU, but it is only set
+	 * once at init and only read afterwards.
+	 */
+	return __pgprot(pgprot_val(prot) | mio_wb_bit_mask);
+}
+EXPORT_SYMBOL_GPL(pgprot_writecombine);
+
+pgprot_t pgprot_writethrough(pgprot_t prot)
+{
+	/*
+	 * mio_wb_bit_mask may be set on a different CPU, but it is only set
+	 * once at init and only read afterwards.
+	 */
+	return __pgprot(pgprot_val(prot) & ~mio_wb_bit_mask);
+}
+EXPORT_SYMBOL_GPL(pgprot_writethrough);
 
 static inline void ptep_ipte_local(struct mm_struct *mm, unsigned long addr,
 				   pte_t *ptep, int nodat)
@@ -673,7 +691,7 @@ static void ptep_zap_swap_entry(struct mm_struct *mm, swp_entry_t entry)
 	if (!non_swap_entry(entry))
 		dec_mm_counter(mm, MM_SWAPENTS);
 	else if (is_migration_entry(entry)) {
-		struct page *page = migration_entry_to_page(entry);
+		struct page *page = pfn_swap_entry_to_page(entry);
 
 		dec_mm_counter(mm, mm_counter(page));
 	}

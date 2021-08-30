@@ -75,7 +75,7 @@ static int sas_get_port_device(struct asd_sas_port *port)
 		struct dev_to_host_fis *fis =
 			(struct dev_to_host_fis *) dev->frame_rcvd;
 		if (fis->interrupt_reason == 1 && fis->lbal == 1 &&
-		    fis->byte_count_low==0x69 && fis->byte_count_high == 0x96
+		    fis->byte_count_low == 0x69 && fis->byte_count_high == 0x96
 		    && (fis->device & ~0x10) == 0)
 			dev->dev_type = SAS_SATA_PM;
 		else
@@ -108,7 +108,7 @@ static int sas_get_port_device(struct asd_sas_port *port)
 			rphy = NULL;
 			break;
 		}
-		/* fall through */
+		fallthrough;
 	case SAS_END_DEVICE:
 		rphy = sas_end_device_alloc(port->port);
 		break;
@@ -179,7 +179,7 @@ int sas_notify_lldd_dev_found(struct domain_device *dev)
 
 	res = i->dft->lldd_dev_found(dev);
 	if (res) {
-		pr_warn("driver on host %s cannot handle device %llx, error:%d\n",
+		pr_warn("driver on host %s cannot handle device %016llx, error:%d\n",
 			dev_name(sas_ha->dev),
 			SAS_ADDR(dev->sas_addr), res);
 		return res;
@@ -278,13 +278,7 @@ static void sas_resume_devices(struct work_struct *work)
  */
 int sas_discover_end_dev(struct domain_device *dev)
 {
-	int res;
-
-	res = sas_notify_lldd_dev_found(dev);
-	if (res)
-		return res;
-
-	return 0;
+	return sas_notify_lldd_dev_found(dev);
 }
 
 /* ---------- Device registration and unregistration ---------- */
@@ -467,7 +461,7 @@ static void sas_discover_domain(struct work_struct *work)
 		break;
 #else
 		pr_notice("ATA device seen but CONFIG_SCSI_SAS_ATA=N so cannot attach\n");
-		/* Fall through */
+		fallthrough;
 #endif
 		/* Fall through - only for the #else condition above. */
 	default:

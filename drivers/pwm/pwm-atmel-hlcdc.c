@@ -39,7 +39,7 @@ static inline struct atmel_hlcdc_pwm *to_atmel_hlcdc_pwm(struct pwm_chip *chip)
 }
 
 static int atmel_hlcdc_pwm_apply(struct pwm_chip *c, struct pwm_device *pwm,
-				 struct pwm_state *state)
+				 const struct pwm_state *state)
 {
 	struct atmel_hlcdc_pwm *chip = to_atmel_hlcdc_pwm(c);
 	struct atmel_hlcdc *hlcdc = chip->hlcdc;
@@ -265,12 +265,9 @@ static int atmel_hlcdc_pwm_probe(struct platform_device *pdev)
 	chip->hlcdc = hlcdc;
 	chip->chip.ops = &atmel_hlcdc_pwm_ops;
 	chip->chip.dev = dev;
-	chip->chip.base = -1;
 	chip->chip.npwm = 1;
-	chip->chip.of_xlate = of_pwm_xlate_with_flags;
-	chip->chip.of_pwm_n_cells = 3;
 
-	ret = pwmchip_add_with_polarity(&chip->chip, PWM_POLARITY_INVERSED);
+	ret = pwmchip_add(&chip->chip);
 	if (ret) {
 		clk_disable_unprepare(hlcdc->periph_clk);
 		return ret;

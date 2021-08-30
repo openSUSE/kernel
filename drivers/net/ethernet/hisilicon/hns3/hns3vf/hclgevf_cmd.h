@@ -8,6 +8,7 @@
 #include "hnae3.h"
 
 #define HCLGEVF_CMDQ_TX_TIMEOUT		30000
+#define HCLGEVF_CMDQ_CLEAR_WAIT_TIME	200
 #define HCLGEVF_CMDQ_RX_INVLD_B		0
 #define HCLGEVF_CMDQ_RX_OUTVLD_B	1
 
@@ -91,6 +92,8 @@ enum hclgevf_opcode_type {
 	/* Generic command */
 	HCLGEVF_OPC_QUERY_FW_VER	= 0x0001,
 	HCLGEVF_OPC_QUERY_VF_RSRC	= 0x0024,
+	HCLGEVF_OPC_QUERY_DEV_SPECS	= 0x0050,
+
 	/* TQP command */
 	HCLGEVF_OPC_QUERY_TX_STATUS	= 0x0B03,
 	HCLGEVF_OPC_QUERY_RX_STATUS	= 0x0B13,
@@ -108,6 +111,9 @@ enum hclgevf_opcode_type {
 
 #define HCLGEVF_TQP_REG_OFFSET		0x80000
 #define HCLGEVF_TQP_REG_SIZE		0x200
+
+#define HCLGEVF_TQP_MAX_SIZE_DEV_V2	1024
+#define HCLGEVF_TQP_EXT_REG_OFFSET	0x100
 
 struct hclgevf_tqp_map {
 	__le16 tqp_id;	/* Absolute tqp id for in this pf */
@@ -141,9 +147,32 @@ struct hclgevf_ctrl_vector_chain {
 	u8 resv;
 };
 
+enum HCLGEVF_CAP_BITS {
+	HCLGEVF_CAP_UDP_GSO_B,
+	HCLGEVF_CAP_QB_B,
+	HCLGEVF_CAP_FD_FORWARD_TC_B,
+	HCLGEVF_CAP_PTP_B,
+	HCLGEVF_CAP_INT_QL_B,
+	HCLGEVF_CAP_HW_TX_CSUM_B,
+	HCLGEVF_CAP_TX_PUSH_B,
+	HCLGEVF_CAP_PHY_IMP_B,
+	HCLGEVF_CAP_TQP_TXRX_INDEP_B,
+	HCLGEVF_CAP_HW_PAD_B,
+	HCLGEVF_CAP_STASH_B,
+	HCLGEVF_CAP_UDP_TUNNEL_CSUM_B,
+	HCLGEVF_CAP_RXD_ADV_LAYOUT_B = 15,
+};
+
+enum HCLGEVF_API_CAP_BITS {
+	HCLGEVF_API_CAP_FLEX_RSS_TBL_B,
+};
+
+#define HCLGEVF_QUERY_CAP_LENGTH		3
 struct hclgevf_query_version_cmd {
 	__le32 firmware;
-	__le32 firmware_rsv[5];
+	__le32 hardware;
+	__le32 api_caps;
+	__le32 caps[HCLGEVF_QUERY_CAP_LENGTH]; /* capabilities of device */
 };
 
 #define HCLGEVF_MSIX_OFT_ROCEE_S       0
@@ -189,20 +218,23 @@ struct hclgevf_rss_input_tuple_cmd {
 #define HCLGEVF_RSS_CFG_TBL_SIZE	16
 
 struct hclgevf_rss_indirection_table_cmd {
-	u16 start_table_index;
-	u16 rss_set_bitmap;
+	__le16 start_table_index;
+	__le16 rss_set_bitmap;
 	u8 rsv[4];
 	u8 rss_result[HCLGEVF_RSS_CFG_TBL_SIZE];
 };
 
 #define HCLGEVF_RSS_TC_OFFSET_S		0
-#define HCLGEVF_RSS_TC_OFFSET_M		(0x3ff << HCLGEVF_RSS_TC_OFFSET_S)
+#define HCLGEVF_RSS_TC_OFFSET_M		GENMASK(10, 0)
+#define HCLGEVF_RSS_TC_SIZE_MSB_B	11
 #define HCLGEVF_RSS_TC_SIZE_S		12
-#define HCLGEVF_RSS_TC_SIZE_M		(0x7 << HCLGEVF_RSS_TC_SIZE_S)
+#define HCLGEVF_RSS_TC_SIZE_M		GENMASK(14, 12)
 #define HCLGEVF_RSS_TC_VALID_B		15
 #define HCLGEVF_MAX_TC_NUM		8
+#define HCLGEVF_RSS_TC_SIZE_MSB_OFFSET	3
+
 struct hclgevf_rss_tc_mode_cmd {
-	u16 rss_tc_mode[HCLGEVF_MAX_TC_NUM];
+	__le16 rss_tc_mode[HCLGEVF_MAX_TC_NUM];
 	u8 rsv[8];
 };
 
@@ -251,7 +283,28 @@ struct hclgevf_cfg_tx_queue_pointer_cmd {
 
 #define HCLGEVF_NIC_CMQ_DESC_NUM	1024
 #define HCLGEVF_NIC_CMQ_DESC_NUM_S	3
-#define HCLGEVF_NIC_CMDQ_INT_SRC_REG	0x27100
+
+#define HCLGEVF_QUERY_DEV_SPECS_BD_NUM		4
+
+struct hclgevf_dev_specs_0_cmd {
+	__le32 rsv0;
+	__le32 mac_entry_num;
+	__le32 mng_entry_num;
+	__le16 rss_ind_tbl_size;
+	__le16 rss_key_size;
+	__le16 int_ql_max;
+	u8 max_non_tso_bd_num;
+	u8 rsv1[5];
+};
+
+#define HCLGEVF_DEF_MAX_INT_GL		0x1FE0U
+
+struct hclgevf_dev_specs_1_cmd {
+	__le16 max_frm_size;
+	__le16 rsv0;
+	__le16 max_int_gl;
+	u8 rsv1[18];
+};
 
 static inline void hclgevf_write_reg(void __iomem *base, u32 reg, u32 value)
 {
@@ -266,9 +319,9 @@ static inline u32 hclgevf_read_reg(u8 __iomem *base, u32 reg)
 }
 
 #define hclgevf_write_dev(a, reg, value) \
-	hclgevf_write_reg((a)->io_base, (reg), (value))
+	hclgevf_write_reg((a)->io_base, reg, value)
 #define hclgevf_read_dev(a, reg) \
-	hclgevf_read_reg((a)->io_base, (reg))
+	hclgevf_read_reg((a)->io_base, reg)
 
 #define HCLGEVF_SEND_SYNC(flag) \
 	((flag) & HCLGEVF_CMD_FLAG_NO_INTR)

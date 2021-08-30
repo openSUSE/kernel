@@ -13,6 +13,7 @@
 #include <linux/kernel.h>
 #include <linux/log2.h>
 #include <linux/platform_device.h>
+#include <linux/ratelimit.h>
 #include <linux/reset.h>
 #include <linux/slab.h>
 #include <linux/videodev2.h>
@@ -293,12 +294,11 @@ static bool coda_bitstream_try_queue(struct coda_ctx *ctx,
 			coda_dbg(1, ctx,
 				 "could not parse header, sequence initialization might fail\n");
 		}
-	}
 
-	/* Add padding before the first buffer, if it is too small */
-	if (ctx->qsequence == 0 && payload < 512 &&
-	    ctx->codec->src_fourcc == V4L2_PIX_FMT_H264)
-		coda_h264_bitstream_pad(ctx, 512 - payload);
+		/* Add padding before the first buffer, if it is too small */
+		if (ctx->codec->src_fourcc == V4L2_PIX_FMT_H264)
+			coda_h264_bitstream_pad(ctx, 512 - payload);
+	}
 
 	ret = coda_bitstream_queue(ctx, vaddr, payload);
 	if (ret < 0) {
@@ -1101,7 +1101,7 @@ static int coda_start_encoding(struct coda_ctx *ctx)
 		break;
 	case CODA_960:
 		coda_write(dev, 0, CODA9_GDI_WPROT_RGN_EN);
-		/* fallthrough */
+		fallthrough;
 	case CODA_HX4:
 	case CODA_7541:
 		coda_write(dev, CODA7_STREAM_BUF_DYNALLOC_EN |
@@ -1141,7 +1141,7 @@ static int coda_start_encoding(struct coda_ctx *ctx)
 				 CODA7_PICHEIGHT_MASK) << CODA_PICHEIGHT_OFFSET;
 			break;
 		}
-		/* fallthrough */
+		fallthrough;
 	case CODA_960:
 		value = (q_data_src->rect.width & CODA7_PICWIDTH_MASK)
 			<< CODA7_PICWIDTH_OFFSET;
@@ -1215,7 +1215,8 @@ static int coda_start_encoding(struct coda_ctx *ctx)
 		coda_write(dev, value, CODA_CMD_ENC_SEQ_GOP_SIZE);
 	}
 
-	if (ctx->params.bitrate) {
+	if (ctx->params.bitrate && (ctx->params.frame_rc_enable ||
+				    ctx->params.mb_rc_enable)) {
 		ctx->params.bitrate_changed = false;
 		ctx->params.h264_intra_qp_changed = false;
 
@@ -1276,7 +1277,11 @@ static int coda_start_encoding(struct coda_ctx *ctx)
 	}
 	coda_write(dev, value, CODA_CMD_ENC_SEQ_OPTION);
 
-	coda_write(dev, 0, CODA_CMD_ENC_SEQ_RC_INTERVAL_MODE);
+	if (ctx->params.frame_rc_enable && !ctx->params.mb_rc_enable)
+		value = 1;
+	else
+		value = 0;
+	coda_write(dev, value, CODA_CMD_ENC_SEQ_RC_INTERVAL_MODE);
 
 	coda_setup_iram(ctx);
 
@@ -1629,6 +1634,9 @@ static void coda_finish_encode(struct coda_ctx *ctx)
 	struct coda_dev *dev = ctx->dev;
 	u32 wr_ptr, start_ptr;
 
+	if (ctx->aborting)
+		return;
+
 	/*
 	 * Lock to make sure that an encoder stop command running in parallel
 	 * will either already have marked src_buf as last, or it will wake up
@@ -1829,6 +1837,29 @@ static bool coda_reorder_enable(struct coda_ctx *ctx)
 	return profile > V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE;
 }
 
+static void coda_decoder_drop_used_metas(struct coda_ctx *ctx)
+{
+	struct coda_buffer_meta *meta, *tmp;
+
+	/*
+	 * All metas that end at or before the RD pointer (fifo out),
+	 * are now consumed by the VPU and should be released.
+	 */
+	spin_lock(&ctx->buffer_meta_lock);
+	list_for_each_entry_safe(meta, tmp, &ctx->buffer_meta_list, list) {
+		if (ctx->bitstream_fifo.kfifo.out >= meta->end) {
+			coda_dbg(2, ctx, "releasing meta: seq=%d start=%d end=%d\n",
+				 meta->sequence, meta->start, meta->end);
+
+			list_del(&meta->list);
+			ctx->num_metas--;
+			ctx->first_frame_sequence++;
+			kfree(meta);
+		}
+	}
+	spin_unlock(&ctx->buffer_meta_lock);
+}
+
 static int __coda_decoder_seq_init(struct coda_ctx *ctx)
 {
 	struct coda_q_data *q_data_src, *q_data_dst;
@@ -1914,9 +1945,16 @@ static int __coda_decoder_seq_init(struct coda_ctx *ctx)
 	}
 	ctx->sequence_offset = ~0U;
 	ctx->initialized = 1;
+	ctx->first_frame_sequence = 0;
 
 	/* Update kfifo out pointer from coda bitstream read pointer */
 	coda_kfifo_sync_from_device(ctx);
+
+	/*
+	 * After updating the read pointer, we need to check if
+	 * any metas are consumed and should be released.
+	 */
+	coda_decoder_drop_used_metas(ctx);
 
 	if (coda_read(dev, CODA_RET_DEC_SEQ_SUCCESS) == 0) {
 		v4l2_err(&dev->v4l2_dev,
@@ -1997,21 +2035,13 @@ static void coda_dec_seq_init_work(struct work_struct *work)
 	struct coda_ctx *ctx = container_of(work,
 					    struct coda_ctx, seq_init_work);
 	struct coda_dev *dev = ctx->dev;
-	int ret;
 
 	mutex_lock(&ctx->buffer_mutex);
 	mutex_lock(&dev->coda_mutex);
 
-	if (ctx->initialized == 1)
-		goto out;
+	if (!ctx->initialized)
+		__coda_decoder_seq_init(ctx);
 
-	ret = __coda_decoder_seq_init(ctx);
-	if (ret < 0)
-		goto out;
-
-	ctx->initialized = 1;
-
-out:
 	mutex_unlock(&dev->coda_mutex);
 	mutex_unlock(&ctx->buffer_mutex);
 }
@@ -2165,16 +2195,21 @@ static int coda_prepare_decode(struct coda_ctx *ctx)
 	} else {
 		if (dev->devtype->product == CODA_960) {
 			/*
-			 * The CODA960 seems to have an internal list of
-			 * buffers with 64 entries that includes the
-			 * registered frame buffers as well as the rotator
-			 * buffer output.
-			 *
-			 * ROT_INDEX needs to be < 0x40, but >
-			 * ctx->num_internal_frames.
+			 * It was previously assumed that the CODA960 has an
+			 * internal list of 64 buffer entries that contains
+			 * both the registered internal frame buffers as well
+			 * as the rotator buffer output, and that the ROT_INDEX
+			 * register must be set to a value between the last
+			 * internal frame buffers' index and 64.
+			 * At least on firmware version 3.1.1 it turns out that
+			 * setting ROT_INDEX to any value >= 32 causes CODA
+			 * hangups that it can not recover from with the SRC VPU
+			 * reset.
+			 * It does appear to work however, to just set it to a
+			 * fixed value in the [ctx->num_internal_frames, 31]
+			 * range, for example CODA_MAX_FRAMEBUFFERS.
 			 */
-			coda_write(dev,
-				   CODA_MAX_FRAMEBUFFERS + dst_buf->vb2_buf.index,
+			coda_write(dev, CODA_MAX_FRAMEBUFFERS,
 				   CODA9_CMD_DEC_PIC_ROT_INDEX);
 
 			reg_addr = CODA9_CMD_DEC_PIC_ROT_ADDR_Y;
@@ -2266,6 +2301,9 @@ static void coda_finish_decode(struct coda_ctx *ctx)
 	int err_vdoa = 0;
 	u32 val;
 
+	if (ctx->aborting)
+		return;
+
 	/* Update kfifo out pointer from coda bitstream read pointer */
 	coda_kfifo_sync_from_device(ctx);
 
@@ -2332,9 +2370,12 @@ static void coda_finish_decode(struct coda_ctx *ctx)
 	}
 
 	err_mb = coda_read(dev, CODA_RET_DEC_PIC_ERR_MB);
-	if (err_mb > 0)
-		v4l2_err(&dev->v4l2_dev,
-			 "errors in %d macroblocks\n", err_mb);
+	if (err_mb > 0) {
+		if (__ratelimit(&dev->mb_err_rs))
+			coda_dbg(1, ctx, "errors in %d macroblocks\n", err_mb);
+		v4l2_ctrl_s_ctrl(ctx->mb_err_cnt_ctrl,
+				 v4l2_ctrl_g_ctrl(ctx->mb_err_cnt_ctrl) + err_mb);
+	}
 
 	if (dev->devtype->product == CODA_HX4 ||
 	    dev->devtype->product == CODA_7541) {
@@ -2388,12 +2429,16 @@ static void coda_finish_decode(struct coda_ctx *ctx)
 		v4l2_err(&dev->v4l2_dev,
 			 "decoded frame index out of range: %d\n", decoded_idx);
 	} else {
+		int sequence;
+
 		decoded_frame = &ctx->internal_frames[decoded_idx];
 
 		val = coda_read(dev, CODA_RET_DEC_PIC_FRAME_NUM);
 		if (ctx->sequence_offset == -1)
 			ctx->sequence_offset = val;
-		val -= ctx->sequence_offset;
+
+		sequence = val + ctx->first_frame_sequence
+			       - ctx->sequence_offset;
 		spin_lock(&ctx->buffer_meta_lock);
 		if (!list_empty(&ctx->buffer_meta_list)) {
 			meta = list_first_entry(&ctx->buffer_meta_list,
@@ -2408,10 +2453,10 @@ static void coda_finish_decode(struct coda_ctx *ctx)
 			 * should be enough to detect most errors and saves us
 			 * from doing different things based on the format.
 			 */
-			if ((val & 0xffff) != (meta->sequence & 0xffff)) {
+			if ((sequence & 0xffff) != (meta->sequence & 0xffff)) {
 				v4l2_err(&dev->v4l2_dev,
 					 "sequence number mismatch (%d(%d) != %d)\n",
-					 val, ctx->sequence_offset,
+					 sequence, ctx->sequence_offset,
 					 meta->sequence);
 			}
 			decoded_frame->meta = *meta;
@@ -2421,7 +2466,7 @@ static void coda_finish_decode(struct coda_ctx *ctx)
 			v4l2_err(&dev->v4l2_dev, "empty timestamp list!\n");
 			memset(&decoded_frame->meta, 0,
 			       sizeof(struct coda_buffer_meta));
-			decoded_frame->meta.sequence = val;
+			decoded_frame->meta.sequence = sequence;
 			decoded_frame->meta.last = false;
 			ctx->sequence_offset++;
 		}

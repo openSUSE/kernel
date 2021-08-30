@@ -644,9 +644,8 @@ static int synquacer_spi_probe(struct platform_device *pdev)
 		}
 
 		if (IS_ERR(sspi->clk)) {
-			if (!(PTR_ERR(sspi->clk) == -EPROBE_DEFER))
-				dev_err(&pdev->dev, "clock not found\n");
-			ret = PTR_ERR(sspi->clk);
+			ret = dev_err_probe(&pdev->dev, PTR_ERR(sspi->clk),
+					    "clock not found\n");
 			goto put_spi;
 		}
 
@@ -675,7 +674,6 @@ static int synquacer_spi_probe(struct platform_device *pdev)
 
 	rx_irq = platform_get_irq(pdev, 0);
 	if (rx_irq <= 0) {
-		dev_err(&pdev->dev, "get rx_irq failed (%d)\n", rx_irq);
 		ret = rx_irq;
 		goto disable_clk;
 	}
@@ -690,7 +688,6 @@ static int synquacer_spi_probe(struct platform_device *pdev)
 
 	tx_irq = platform_get_irq(pdev, 1);
 	if (tx_irq <= 0) {
-		dev_err(&pdev->dev, "get tx_irq failed (%d)\n", tx_irq);
 		ret = tx_irq;
 		goto disable_clk;
 	}

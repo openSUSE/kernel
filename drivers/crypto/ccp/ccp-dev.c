@@ -2,12 +2,13 @@
 /*
  * AMD Cryptographic Coprocessor (CCP) driver
  *
- * Copyright (C) 2013,2017 Advanced Micro Devices, Inc.
+ * Copyright (C) 2013,2019 Advanced Micro Devices, Inc.
  *
  * Author: Tom Lendacky <thomas.lendacky@amd.com>
  * Author: Gary R Hook <gary.hook@amd.com>
  */
 
+#include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/kthread.h>
 #include <linux/sched.h>
@@ -19,12 +20,26 @@
 #include <linux/delay.h>
 #include <linux/hw_random.h>
 #include <linux/cpu.h>
+#include <linux/atomic.h>
 #ifdef CONFIG_X86
 #include <asm/cpu_device_id.h>
 #endif
 #include <linux/ccp.h>
 
 #include "ccp-dev.h"
+
+#define MAX_CCPS 32
+
+/* Limit CCP use to a specifed number of queues per device */
+static unsigned int nqueues = 0;
+module_param(nqueues, uint, 0444);
+MODULE_PARM_DESC(nqueues, "Number of queues per CCP (minimum 1; default: all available)");
+
+/* Limit the maximum number of configured CCPs */
+static atomic_t dev_count = ATOMIC_INIT(0);
+static unsigned int max_devs = MAX_CCPS;
+module_param(max_devs, uint, 0444);
+MODULE_PARM_DESC(max_devs, "Maximum number of CCPs to enable (default: all; 0 disables all CCPs)");
 
 struct ccp_tasklet_data {
 	struct completion completion;
@@ -455,7 +470,7 @@ int ccp_cmd_queue_thread(void *data)
 /**
  * ccp_alloc_struct - allocate and initialize the ccp_device struct
  *
- * @dev: device struct of the CCP
+ * @sp: sp_device struct of the CCP
  */
 struct ccp_device *ccp_alloc_struct(struct sp_device *sp)
 {
@@ -516,7 +531,6 @@ int ccp_trng_read(struct hwrng *rng, void *data, size_t max, bool wait)
 	return len;
 }
 
-#ifdef CONFIG_PM
 bool ccp_queues_suspended(struct ccp_device *ccp)
 {
 	unsigned int suspended = 0;
@@ -534,7 +548,7 @@ bool ccp_queues_suspended(struct ccp_device *ccp)
 	return ccp->cmd_q_count == suspended;
 }
 
-int ccp_dev_suspend(struct sp_device *sp, pm_message_t state)
+void ccp_dev_suspend(struct sp_device *sp)
 {
 	struct ccp_device *ccp = sp->ccp_data;
 	unsigned long flags;
@@ -542,7 +556,7 @@ int ccp_dev_suspend(struct sp_device *sp, pm_message_t state)
 
 	/* If there's no device there's nothing to do */
 	if (!ccp)
-		return 0;
+		return;
 
 	spin_lock_irqsave(&ccp->cmd_lock, flags);
 
@@ -558,11 +572,9 @@ int ccp_dev_suspend(struct sp_device *sp, pm_message_t state)
 	while (!ccp_queues_suspended(ccp))
 		wait_event_interruptible(ccp->suspend_queue,
 					 ccp_queues_suspended(ccp));
-
-	return 0;
 }
 
-int ccp_dev_resume(struct sp_device *sp)
+void ccp_dev_resume(struct sp_device *sp)
 {
 	struct ccp_device *ccp = sp->ccp_data;
 	unsigned long flags;
@@ -570,7 +582,7 @@ int ccp_dev_resume(struct sp_device *sp)
 
 	/* If there's no device there's nothing to do */
 	if (!ccp)
-		return 0;
+		return;
 
 	spin_lock_irqsave(&ccp->cmd_lock, flags);
 
@@ -583,10 +595,7 @@ int ccp_dev_resume(struct sp_device *sp)
 	}
 
 	spin_unlock_irqrestore(&ccp->cmd_lock, flags);
-
-	return 0;
 }
-#endif
 
 int ccp_dev_init(struct sp_device *sp)
 {
@@ -594,11 +603,23 @@ int ccp_dev_init(struct sp_device *sp)
 	struct ccp_device *ccp;
 	int ret;
 
+	/*
+	 * Check how many we have so far, and stop after reaching
+	 * that number
+	 */
+	if (atomic_inc_return(&dev_count) > max_devs)
+		return 0; /* don't fail the load */
+
 	ret = -ENOMEM;
 	ccp = ccp_alloc_struct(sp);
 	if (!ccp)
 		goto e_err;
 	sp->ccp_data = ccp;
+
+	if (!nqueues || (nqueues > MAX_HW_QUEUES))
+		ccp->max_q_count = MAX_HW_QUEUES;
+	else
+		ccp->max_q_count = nqueues;
 
 	ccp->vdata = (struct ccp_vdata *)sp->dev_vdata->ccp_vdata;
 	if (!ccp->vdata || !ccp->vdata->version) {

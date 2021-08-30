@@ -92,7 +92,7 @@ static int max5487_spi_probe(struct spi_device *spi)
 	if (!indio_dev)
 		return -ENOMEM;
 
-	dev_set_drvdata(&spi->dev, indio_dev);
+	spi_set_drvdata(spi, indio_dev);
 	data = iio_priv(indio_dev);
 
 	data->spi = spi;
@@ -100,7 +100,6 @@ static int max5487_spi_probe(struct spi_device *spi)
 
 	indio_dev->info = &max5487_info;
 	indio_dev->name = id->name;
-	indio_dev->dev.parent = &spi->dev;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->channels = max5487_channels;
 	indio_dev->num_channels = ARRAY_SIZE(max5487_channels);
@@ -115,7 +114,7 @@ static int max5487_spi_probe(struct spi_device *spi)
 
 static int max5487_spi_remove(struct spi_device *spi)
 {
-	struct iio_dev *indio_dev = dev_get_drvdata(&spi->dev);
+	struct iio_dev *indio_dev = spi_get_drvdata(spi);
 
 	iio_device_unregister(indio_dev);
 

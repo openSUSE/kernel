@@ -13,7 +13,6 @@
 #include <linux/spinlock.h>
 #include <linux/soundcard.h>
 #include <linux/slab.h>
-#include <linux/proc_fs.h>
 #include <linux/module.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -671,7 +670,7 @@ static int cx231xx_audio_fini(struct cx231xx *dev)
 	}
 
 	if (dev->adev.sndcard) {
-		snd_card_free(dev->adev.sndcard);
+		snd_card_free_when_closed(dev->adev.sndcard);
 		kfree(dev->adev.alt_max_pkt_size);
 		dev->adev.sndcard = NULL;
 	}

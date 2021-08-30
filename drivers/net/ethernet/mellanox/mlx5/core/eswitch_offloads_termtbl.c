@@ -3,6 +3,7 @@
 
 #include <linux/mlx5/fs.h>
 #include "eswitch.h"
+#include "en_tc.h"
 #include "fs_core.h"
 
 struct mlx5_termtbl_handle {
@@ -64,7 +65,7 @@ mlx5_eswitch_termtbl_create(struct mlx5_core_dev *dev,
 {
 	struct mlx5_flow_table_attr ft_attr = {};
 	struct mlx5_flow_namespace *root_ns;
-	int err;
+	int err, err2;
 
 	root_ns = mlx5_get_flow_namespace(dev, MLX5_FLOW_NAMESPACE_FDB);
 	if (!root_ns) {
@@ -83,24 +84,26 @@ mlx5_eswitch_termtbl_create(struct mlx5_core_dev *dev,
 	ft_attr.autogroup.max_num_groups = 1;
 	tt->termtbl = mlx5_create_auto_grouped_flow_table(root_ns, &ft_attr);
 	if (IS_ERR(tt->termtbl)) {
-		esw_warn(dev, "Failed to create termination table\n");
-		return -EOPNOTSUPP;
+		err = PTR_ERR(tt->termtbl);
+		esw_warn(dev, "Failed to create termination table, err %pe\n", tt->termtbl);
+		return err;
 	}
 
 	tt->rule = mlx5_add_flow_rules(tt->termtbl, NULL, flow_act,
 				       &tt->dest, 1);
 	if (IS_ERR(tt->rule)) {
-		esw_warn(dev, "Failed to create termination table rule\n");
+		err = PTR_ERR(tt->rule);
+		esw_warn(dev, "Failed to create termination table rule, err %pe\n", tt->rule);
 		goto add_flow_err;
 	}
 	return 0;
 
 add_flow_err:
-	err = mlx5_destroy_flow_table(tt->termtbl);
-	if (err)
-		esw_warn(dev, "Failed to destroy termination table\n");
+	err2 = mlx5_destroy_flow_table(tt->termtbl);
+	if (err2)
+		esw_warn(dev, "Failed to destroy termination table, err %d\n", err2);
 
-	return -EOPNOTSUPP;
+	return err;
 }
 
 static struct mlx5_termtbl_handle *
@@ -140,10 +143,9 @@ mlx5_eswitch_termtbl_get_create(struct mlx5_eswitch *esw,
 	memcpy(&tt->flow_act, flow_act, sizeof(*flow_act));
 
 	err = mlx5_eswitch_termtbl_create(esw->dev, tt, flow_act);
-	if (err) {
-		esw_warn(esw->dev, "Failed to create termination table\n");
+	if (err)
 		goto tt_create_err;
-	}
+
 	hash_add(esw->offloads.termtbl_tbl, &tt->termtbl_hlist, hash_key);
 tt_add_ref:
 	tt->ref_count++;
@@ -208,10 +210,11 @@ static bool mlx5_eswitch_offload_is_uplink_port(const struct mlx5_eswitch *esw,
 
 bool
 mlx5_eswitch_termtbl_required(struct mlx5_eswitch *esw,
-			      struct mlx5_esw_flow_attr *attr,
+			      struct mlx5_flow_attr *attr,
 			      struct mlx5_flow_act *flow_act,
 			      struct mlx5_flow_spec *spec)
 {
+	struct mlx5_esw_flow_attr *esw_attr = attr->esw_attr;
 	int i;
 
 	if (!MLX5_CAP_ESW_FLOWTABLE_FDB(esw->dev, termination_table) ||
@@ -225,8 +228,8 @@ mlx5_eswitch_termtbl_required(struct mlx5_eswitch *esw,
 		return true;
 
 	/* hairpin */
-	for (i = attr->split_count; i < attr->out_count; i++)
-		if (attr->dests[i].rep->vport == MLX5_VPORT_UPLINK)
+	for (i = esw_attr->split_count; i < esw_attr->out_count; i++)
+		if (esw_attr->dests[i].rep->vport == MLX5_VPORT_UPLINK)
 			return true;
 
 	return false;
@@ -269,7 +272,7 @@ mlx5_eswitch_add_termtbl_rule(struct mlx5_eswitch *esw,
 		tt = mlx5_eswitch_termtbl_get_create(esw, &term_tbl_act,
 						     &dest[i], attr);
 		if (IS_ERR(tt)) {
-			esw_warn(esw->dev, "Failed to create termination table\n");
+			esw_warn(esw->dev, "Failed to get termination table, err %pe\n", tt);
 			goto revert_changes;
 		}
 		attr->dests[num_vport_dests].termtbl = tt;

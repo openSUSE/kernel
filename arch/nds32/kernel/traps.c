@@ -25,16 +25,7 @@ extern void show_pte(struct mm_struct *mm, unsigned long addr);
 void dump_mem(const char *lvl, unsigned long bottom, unsigned long top)
 {
 	unsigned long first;
-	mm_segment_t fs;
 	int i;
-
-	/*
-	 * We need to switch to kernel mode so that we can use __get_user
-	 * to safely read from kernel space.  Note that we now dump the
-	 * code first, just in case the backtrace kills us.
-	 */
-	fs = get_fs();
-	set_fs(KERNEL_DS);
 
 	pr_emerg("%s(0x%08lx to 0x%08lx)\n", lvl, bottom, top);
 
@@ -48,7 +39,9 @@ void dump_mem(const char *lvl, unsigned long bottom, unsigned long top)
 		for (p = first, i = 0; i < 8 && p < top; i++, p += 4) {
 			if (p >= bottom && p < top) {
 				unsigned long val;
-				if (__get_user(val, (unsigned long *)p) == 0)
+
+				if (get_kernel_nofault(val,
+						(unsigned long *)p) == 0)
 					sprintf(str + i * 9, " %08lx", val);
 				else
 					sprintf(str + i * 9, " ????????");
@@ -56,59 +49,24 @@ void dump_mem(const char *lvl, unsigned long bottom, unsigned long top)
 		}
 		pr_emerg("%s%04lx:%s\n", lvl, first & 0xffff, str);
 	}
-
-	set_fs(fs);
 }
 
 EXPORT_SYMBOL(dump_mem);
 
-static void dump_instr(struct pt_regs *regs)
-{
-	unsigned long addr = instruction_pointer(regs);
-	mm_segment_t fs;
-	char str[sizeof("00000000 ") * 5 + 2 + 1], *p = str;
-	int i;
-
-	return;
-	/*
-	 * We need to switch to kernel mode so that we can use __get_user
-	 * to safely read from kernel space.  Note that we now dump the
-	 * code first, just in case the backtrace kills us.
-	 */
-	fs = get_fs();
-	set_fs(KERNEL_DS);
-
-	pr_emerg("Code: ");
-	for (i = -4; i < 1; i++) {
-		unsigned int val, bad;
-
-		bad = __get_user(val, &((u32 *) addr)[i]);
-
-		if (!bad) {
-			p += sprintf(p, i == 0 ? "(%08x) " : "%08x ", val);
-		} else {
-			p += sprintf(p, "bad PC value");
-			break;
-		}
-	}
-	pr_emerg("Code: %s\n", str);
-
-	set_fs(fs);
-}
-
 #define LOOP_TIMES (100)
-static void __dump(struct task_struct *tsk, unsigned long *base_reg)
+static void __dump(struct task_struct *tsk, unsigned long *base_reg,
+		   const char *loglvl)
 {
 	unsigned long ret_addr;
 	int cnt = LOOP_TIMES, graph = 0;
-	pr_emerg("Call Trace:\n");
+	printk("%sCall Trace:\n", loglvl);
 	if (!IS_ENABLED(CONFIG_FRAME_POINTER)) {
 		while (!kstack_end(base_reg)) {
 			ret_addr = *base_reg++;
 			if (__kernel_text_address(ret_addr)) {
 				ret_addr = ftrace_graph_ret_addr(
 						tsk, &graph, ret_addr, NULL);
-				print_ip_sym(ret_addr);
+				print_ip_sym(loglvl, ret_addr);
 			}
 			if (--cnt < 0)
 				break;
@@ -124,17 +82,17 @@ static void __dump(struct task_struct *tsk, unsigned long *base_reg)
 
 				ret_addr = ftrace_graph_ret_addr(
 						tsk, &graph, ret_addr, NULL);
-				print_ip_sym(ret_addr);
+				print_ip_sym(loglvl, ret_addr);
 			}
 			if (--cnt < 0)
 				break;
 			base_reg = (unsigned long *)next_fp;
 		}
 	}
-	pr_emerg("\n");
+	printk("%s\n", loglvl);
 }
 
-void show_stack(struct task_struct *tsk, unsigned long *sp)
+void show_stack(struct task_struct *tsk, unsigned long *sp, const char *loglvl)
 {
 	unsigned long *base_reg;
 
@@ -151,7 +109,7 @@ void show_stack(struct task_struct *tsk, unsigned long *sp)
 		else
 			__asm__ __volatile__("\tori\t%0, $fp, #0\n":"=r"(base_reg));
 	}
-	__dump(tsk, base_reg);
+	__dump(tsk, base_reg, loglvl);
 	barrier();
 }
 
@@ -178,7 +136,6 @@ void die(const char *str, struct pt_regs *regs, int err)
 
 	if (!user_mode(regs) || in_interrupt()) {
 		dump_mem("Stack: ", regs->sp, (regs->sp + PAGE_SIZE) & PAGE_MASK);
-		dump_instr(regs);
 		dump_stack();
 	}
 

@@ -1583,7 +1583,6 @@ static const struct owl_pinmux_func s700_functions[] = {
 	[S700_MUX_USB30] = FUNCTION(usb30),
 	[S700_MUX_CLKO_25M] = FUNCTION(clko_25m),
 	[S700_MUX_MIPI_CSI] = FUNCTION(mipi_csi),
-	[S700_MUX_DSI] = FUNCTION(dsi),
 	[S700_MUX_NAND] = FUNCTION(nand),
 	[S700_MUX_SPDIF] = FUNCTION(spdif),
 	[S700_MUX_SIRQ0] = FUNCTION(sirq0),
@@ -1686,7 +1685,7 @@ static PAD_PULLCTL_CONF(I2C2_SDATA, 2, 8, 1);
 static PAD_PULLCTL_CONF(I2C2_SCLK, 2, 7, 1);
 
 /* Pad info table for the pinmux subsystem */
-static struct owl_padinfo s700_padinfo[NUM_PADS] = {
+static const struct owl_padinfo s700_padinfo[NUM_PADS] = {
 	[ETH_TXD0] = PAD_INFO_ST(ETH_TXD0),
 	[ETH_TXD1] = PAD_INFO_ST(ETH_TXD1),
 	[ETH_TXEN] = PAD_INFO_ST(ETH_TXEN),

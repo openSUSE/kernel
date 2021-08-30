@@ -43,7 +43,6 @@
 #include <asm/mmu.h>
 #include <asm/processor.h>
 #include <asm/io.h>
-#include <asm/pgtable.h>
 #include <asm/prom.h>
 #include <asm/rtas.h>
 #include <asm/pci-bridge.h>
@@ -70,6 +69,9 @@
 #include <asm/asm-const.h>
 #include <asm/idle.h>
 #include <asm/swiotlb.h>
+#include <asm/svm.h>
+#include <asm/dtl.h>
+#include <asm/hvconsole.h>
 
 #include "pseries.h"
 #include "../../../../drivers/pci/pci.h"
@@ -310,8 +312,10 @@ static inline int alloc_dispatch_logs(void)
 
 static int alloc_dispatch_log_kmem_cache(void)
 {
+	void (*ctor)(void *) = get_dtl_cache_ctor();
+
 	dtl_cache = kmem_cache_create("dtl", DISPATCH_LOG_BYTES,
-						DISPATCH_LOG_BYTES, 0, NULL);
+						DISPATCH_LOG_BYTES, 0, ctor);
 	if (!dtl_cache) {
 		pr_warn("Failed to create dispatch trace log buffer cache\n");
 		pr_warn("Stolen time statistics will be unreliable\n");
@@ -357,7 +361,7 @@ static void pseries_lpar_idle(void)
  * to ever be a problem in practice we can move this into a kernel thread to
  * finish off the process later in boot.
  */
-void pseries_enable_reloc_on_exc(void)
+bool pseries_enable_reloc_on_exc(void)
 {
 	long rc;
 	unsigned int delay, total_delay = 0;
@@ -368,11 +372,13 @@ void pseries_enable_reloc_on_exc(void)
 			if (rc == H_P2) {
 				pr_info("Relocation on exceptions not"
 					" supported\n");
+				return false;
 			} else if (rc != H_SUCCESS) {
 				pr_warn("Unable to enable relocation"
 					" on exceptions: %ld\n", rc);
+				return false;
 			}
-			break;
+			return true;
 		}
 
 		delay = get_longbusy_msecs(rc);
@@ -381,7 +387,7 @@ void pseries_enable_reloc_on_exc(void)
 			pr_warn("Warning: Giving up waiting to enable "
 				"relocation on exceptions (%u msec)!\n",
 				total_delay);
-			return;
+			return false;
 		}
 
 		mdelay(delay);
@@ -459,7 +465,7 @@ void pseries_little_endian_exceptions(void)
 }
 #endif
 
-static void __init find_and_init_phbs(void)
+static void __init pSeries_discover_phbs(void)
 {
 	struct device_node *node;
 	struct pci_controller *phb;
@@ -477,6 +483,9 @@ static void __init find_and_init_phbs(void)
 		pci_process_bridge_OF_ranges(phb, node, 0);
 		isa_bridge_find_early(phb);
 		phb->controller_ops = pseries_pci_controller_ops;
+
+		/* create pci_dn's for DT nodes under this PHB */
+		pci_devs_phb_init_dynamic(phb);
 	}
 
 	of_node_put(root);
@@ -619,8 +628,8 @@ enum get_iov_fw_value_index {
 	WDW_SIZE      = 3     /*  Get Window Size */
 };
 
-resource_size_t pseries_get_iov_fw_value(struct pci_dev *dev, int resno,
-					 enum get_iov_fw_value_index value)
+static resource_size_t pseries_get_iov_fw_value(struct pci_dev *dev, int resno,
+						enum get_iov_fw_value_index value)
 {
 	const int *indexes;
 	struct device_node *dn = pci_device_to_OF_node(dev);
@@ -655,7 +664,7 @@ resource_size_t pseries_get_iov_fw_value(struct pci_dev *dev, int resno,
 	return ret;
 }
 
-void of_pci_set_vf_bar_size(struct pci_dev *dev, const int *indexes)
+static void of_pci_set_vf_bar_size(struct pci_dev *dev, const int *indexes)
 {
 	struct resource *res;
 	resource_size_t base, size;
@@ -677,7 +686,7 @@ void of_pci_set_vf_bar_size(struct pci_dev *dev, const int *indexes)
 	}
 }
 
-void of_pci_parse_iov_addrs(struct pci_dev *dev, const int *indexes)
+static void of_pci_parse_iov_addrs(struct pci_dev *dev, const int *indexes)
 {
 	struct resource *res, *root, *conflict;
 	resource_size_t base, size;
@@ -798,7 +807,6 @@ static void __init pSeries_setup_arch(void)
 
 	/* Find and initialize PCI host bridges */
 	init_pci_config_tokens();
-	find_and_init_phbs();
 	of_reconfig_notifier_register(&pci_dn_reconfig_nb);
 
 	pSeries_nvram_init();
@@ -1062,6 +1070,7 @@ define_machine(pseries) {
 	.init_IRQ		= pseries_init_irq,
 	.show_cpuinfo		= pSeries_show_cpuinfo,
 	.log_error		= pSeries_log_error,
+	.discover_phbs		= pSeries_discover_phbs,
 	.pcibios_fixup		= pSeries_final_fixup,
 	.restart		= rtas_restart,
 	.halt			= rtas_halt,

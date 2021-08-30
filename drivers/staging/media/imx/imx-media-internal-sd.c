@@ -142,9 +142,9 @@ static int create_internal_link(struct imx_media_dev *imxmd,
 				   &sink->entity.pads[link->remote_pad]))
 		return 0;
 
-	v4l2_info(&imxmd->v4l2_dev, "%s:%d -> %s:%d\n",
-		  src->name, link->local_pad,
-		  sink->name, link->remote_pad);
+	dev_dbg(imxmd->md.dev, "%s:%d -> %s:%d\n",
+		src->name, link->local_pad,
+		sink->name, link->remote_pad);
 
 	ret = media_create_pad_link(&src->entity, link->local_pad,
 				    &sink->entity, link->remote_pad, 0);
@@ -209,6 +209,10 @@ int imx_media_register_ipu_internal_subdevs(struct imx_media_dev *imxmd,
 	}
 
 	mutex_lock(&imxmd->mutex);
+
+	/* record this IPU */
+	if (!imxmd->ipu[ipu_id])
+		imxmd->ipu[ipu_id] = ipu;
 
 	/* register the synchronous subdevs */
 	for (i = 0; i < NUM_IPU_SUBDEVS; i++) {

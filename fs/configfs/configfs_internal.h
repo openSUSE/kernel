@@ -1,7 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/* -*- mode: c; c-basic-offset:8; -*-
- * vim: noexpandtab sw=8 ts=8 sts=0:
- *
+/*
  * configfs_internal.h - Internal stuff for configfs
  *
  * Based on sysfs:
@@ -34,7 +32,7 @@ struct configfs_dirent {
 	int			s_dependent_count;
 	struct list_head	s_sibling;
 	struct list_head	s_children;
-	struct list_head	s_links;
+	int			s_links;
 	void			* s_element;
 	int			s_type;
 	umode_t			s_mode;
@@ -66,7 +64,7 @@ extern struct kmem_cache *configfs_dir_cachep;
 extern int configfs_is_root(struct config_item *item);
 
 extern struct inode * configfs_new_inode(umode_t mode, struct configfs_dirent *, struct super_block *);
-extern int configfs_create(struct dentry *, umode_t mode, void (*init)(struct inode *));
+extern struct inode *configfs_create(struct dentry *, umode_t mode);
 
 extern int configfs_create_file(struct config_item *, const struct configfs_attribute *);
 extern int configfs_create_bin_file(struct config_item *,
@@ -79,12 +77,12 @@ extern void configfs_hash_and_remove(struct dentry * dir, const char * name);
 
 extern const unsigned char * configfs_get_name(struct configfs_dirent *sd);
 extern void configfs_drop_dentry(struct configfs_dirent *sd, struct dentry *parent);
-extern int configfs_setattr(struct dentry *dentry, struct iattr *iattr);
+extern int configfs_setattr(struct user_namespace *mnt_userns,
+			    struct dentry *dentry, struct iattr *iattr);
 
 extern struct dentry *configfs_pin_fs(void);
 extern void configfs_release_fs(void);
 
-extern struct rw_semaphore configfs_rename_sem;
 extern const struct file_operations configfs_dir_operations;
 extern const struct file_operations configfs_file_operations;
 extern const struct file_operations configfs_bin_file_operations;
@@ -93,18 +91,13 @@ extern const struct inode_operations configfs_root_inode_operations;
 extern const struct inode_operations configfs_symlink_inode_operations;
 extern const struct dentry_operations configfs_dentry_ops;
 
-extern int configfs_symlink(struct inode *dir, struct dentry *dentry,
+extern int configfs_symlink(struct user_namespace *mnt_userns,
+			    struct inode *dir, struct dentry *dentry,
 			    const char *symname);
 extern int configfs_unlink(struct inode *dir, struct dentry *dentry);
 
-struct configfs_symlink {
-	struct list_head sl_list;
-	struct config_item *sl_target;
-};
-
-extern int configfs_create_link(struct configfs_symlink *sl,
-				struct dentry *parent,
-				struct dentry *dentry);
+int configfs_create_link(struct configfs_dirent *target, struct dentry *parent,
+		struct dentry *dentry, char *body);
 
 static inline struct config_item * to_item(struct dentry * dentry)
 {
@@ -132,11 +125,7 @@ static inline struct config_item *configfs_get_config_item(struct dentry *dentry
 	spin_lock(&dentry->d_lock);
 	if (!d_unhashed(dentry)) {
 		struct configfs_dirent * sd = dentry->d_fsdata;
-		if (sd->s_type & CONFIGFS_ITEM_LINK) {
-			struct configfs_symlink * sl = sd->s_element;
-			item = config_item_get(sl->sl_target);
-		} else
-			item = config_item_get(sd->s_element);
+		item = config_item_get(sd->s_element);
 	}
 	spin_unlock(&dentry->d_lock);
 

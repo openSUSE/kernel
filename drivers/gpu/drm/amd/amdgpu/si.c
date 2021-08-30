@@ -26,6 +26,8 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 
+#include <drm/amdgpu_drm.h>
+
 #include "amdgpu.h"
 #include "amdgpu_atombios.h"
 #include "amdgpu_ih.h"
@@ -51,6 +53,8 @@
 #include "uvd/uvd_4_0_d.h"
 #include "bif/bif_3_0_d.h"
 #include "bif/bif_3_0_sh_mask.h"
+
+#include "amdgpu_dm.h"
 
 static const u32 tahiti_golden_registers[] =
 {
@@ -903,6 +907,114 @@ static const u32 hainan_mgcg_cgcg_init[] =
 	0x3630, 0xfffffff0, 0x00000100,
 };
 
+/* XXX: update when we support VCE */
+#if 0
+/* tahiti, pitcarin, verde */
+static const struct amdgpu_video_codec_info tahiti_video_codecs_encode_array[] =
+{
+	{
+		.codec_type = AMDGPU_INFO_VIDEO_CAPS_CODEC_IDX_MPEG4_AVC,
+		.max_width = 2048,
+		.max_height = 1152,
+		.max_pixels_per_frame = 2048 * 1152,
+		.max_level = 0,
+	},
+};
+
+static const struct amdgpu_video_codecs tahiti_video_codecs_encode =
+{
+	.codec_count = ARRAY_SIZE(tahiti_video_codecs_encode_array),
+	.codec_array = tahiti_video_codecs_encode_array,
+};
+#else
+static const struct amdgpu_video_codecs tahiti_video_codecs_encode =
+{
+	.codec_count = 0,
+	.codec_array = NULL,
+};
+#endif
+/* oland and hainan don't support encode */
+static const struct amdgpu_video_codecs hainan_video_codecs_encode =
+{
+	.codec_count = 0,
+	.codec_array = NULL,
+};
+
+/* tahiti, pitcarin, verde, oland */
+static const struct amdgpu_video_codec_info tahiti_video_codecs_decode_array[] =
+{
+	{
+		.codec_type = AMDGPU_INFO_VIDEO_CAPS_CODEC_IDX_MPEG2,
+		.max_width = 2048,
+		.max_height = 1152,
+		.max_pixels_per_frame = 2048 * 1152,
+		.max_level = 3,
+	},
+	{
+		.codec_type = AMDGPU_INFO_VIDEO_CAPS_CODEC_IDX_MPEG4,
+		.max_width = 2048,
+		.max_height = 1152,
+		.max_pixels_per_frame = 2048 * 1152,
+		.max_level = 5,
+	},
+	{
+		.codec_type = AMDGPU_INFO_VIDEO_CAPS_CODEC_IDX_MPEG4_AVC,
+		.max_width = 2048,
+		.max_height = 1152,
+		.max_pixels_per_frame = 2048 * 1152,
+		.max_level = 41,
+	},
+	{
+		.codec_type = AMDGPU_INFO_VIDEO_CAPS_CODEC_IDX_VC1,
+		.max_width = 2048,
+		.max_height = 1152,
+		.max_pixels_per_frame = 2048 * 1152,
+		.max_level = 4,
+	},
+};
+
+static const struct amdgpu_video_codecs tahiti_video_codecs_decode =
+{
+	.codec_count = ARRAY_SIZE(tahiti_video_codecs_decode_array),
+	.codec_array = tahiti_video_codecs_decode_array,
+};
+
+/* hainan doesn't support decode */
+static const struct amdgpu_video_codecs hainan_video_codecs_decode =
+{
+	.codec_count = 0,
+	.codec_array = NULL,
+};
+
+static int si_query_video_codecs(struct amdgpu_device *adev, bool encode,
+				 const struct amdgpu_video_codecs **codecs)
+{
+	switch (adev->asic_type) {
+	case CHIP_VERDE:
+	case CHIP_TAHITI:
+	case CHIP_PITCAIRN:
+		if (encode)
+			*codecs = &tahiti_video_codecs_encode;
+		else
+			*codecs = &tahiti_video_codecs_decode;
+		return 0;
+	case CHIP_OLAND:
+		if (encode)
+			*codecs = &hainan_video_codecs_encode;
+		else
+			*codecs = &tahiti_video_codecs_decode;
+		return 0;
+	case CHIP_HAINAN:
+		if (encode)
+			*codecs = &hainan_video_codecs_encode;
+		else
+			*codecs = &hainan_video_codecs_decode;
+		return 0;
+	default:
+		return -EINVAL;
+	}
+}
+
 static u32 si_pcie_rreg(struct amdgpu_device *adev, u32 reg)
 {
 	unsigned long flags;
@@ -1215,10 +1327,86 @@ static bool si_read_bios_from_rom(struct amdgpu_device *adev,
 	return true;
 }
 
-//xxx: not implemented
-static int si_asic_reset(struct amdgpu_device *adev)
+static void si_set_clk_bypass_mode(struct amdgpu_device *adev)
 {
-	return 0;
+	u32 tmp, i;
+
+	tmp = RREG32(CG_SPLL_FUNC_CNTL);
+	tmp |= SPLL_BYPASS_EN;
+	WREG32(CG_SPLL_FUNC_CNTL, tmp);
+
+	tmp = RREG32(CG_SPLL_FUNC_CNTL_2);
+	tmp |= SPLL_CTLREQ_CHG;
+	WREG32(CG_SPLL_FUNC_CNTL_2, tmp);
+
+	for (i = 0; i < adev->usec_timeout; i++) {
+		if (RREG32(SPLL_STATUS) & SPLL_CHG_STATUS)
+			break;
+		udelay(1);
+	}
+
+	tmp = RREG32(CG_SPLL_FUNC_CNTL_2);
+	tmp &= ~(SPLL_CTLREQ_CHG | SCLK_MUX_UPDATE);
+	WREG32(CG_SPLL_FUNC_CNTL_2, tmp);
+
+	tmp = RREG32(MPLL_CNTL_MODE);
+	tmp &= ~MPLL_MCLK_SEL;
+	WREG32(MPLL_CNTL_MODE, tmp);
+}
+
+static void si_spll_powerdown(struct amdgpu_device *adev)
+{
+	u32 tmp;
+
+	tmp = RREG32(SPLL_CNTL_MODE);
+	tmp |= SPLL_SW_DIR_CONTROL;
+	WREG32(SPLL_CNTL_MODE, tmp);
+
+	tmp = RREG32(CG_SPLL_FUNC_CNTL);
+	tmp |= SPLL_RESET;
+	WREG32(CG_SPLL_FUNC_CNTL, tmp);
+
+	tmp = RREG32(CG_SPLL_FUNC_CNTL);
+	tmp |= SPLL_SLEEP;
+	WREG32(CG_SPLL_FUNC_CNTL, tmp);
+
+	tmp = RREG32(SPLL_CNTL_MODE);
+	tmp &= ~SPLL_SW_DIR_CONTROL;
+	WREG32(SPLL_CNTL_MODE, tmp);
+}
+
+static int si_gpu_pci_config_reset(struct amdgpu_device *adev)
+{
+	u32 i;
+	int r = -EINVAL;
+
+	amdgpu_atombios_scratch_regs_engine_hung(adev, true);
+
+	/* set mclk/sclk to bypass */
+	si_set_clk_bypass_mode(adev);
+	/* powerdown spll */
+	si_spll_powerdown(adev);
+	/* disable BM */
+	pci_clear_master(adev->pdev);
+	/* reset */
+	amdgpu_device_pci_config_reset(adev);
+
+	udelay(100);
+
+	/* wait for asic to come out of reset */
+	for (i = 0; i < adev->usec_timeout; i++) {
+		if (RREG32(mmCONFIG_MEMSIZE) != 0xffffffff) {
+			/* enable BM */
+			pci_set_master(adev->pdev);
+			adev->has_hw_reset = true;
+			r = 0;
+			break;
+		}
+		udelay(1);
+	}
+	amdgpu_atombios_scratch_regs_engine_hung(adev, false);
+
+	return r;
 }
 
 static bool si_asic_supports_baco(struct amdgpu_device *adev)
@@ -1229,12 +1417,32 @@ static bool si_asic_supports_baco(struct amdgpu_device *adev)
 static enum amd_reset_method
 si_asic_reset_method(struct amdgpu_device *adev)
 {
-	if (amdgpu_reset_method != AMD_RESET_METHOD_LEGACY &&
-	    amdgpu_reset_method != -1)
+	if (amdgpu_reset_method == AMD_RESET_METHOD_PCI)
+		return amdgpu_reset_method;
+	else if (amdgpu_reset_method != AMD_RESET_METHOD_LEGACY &&
+		 amdgpu_reset_method != -1)
 		dev_warn(adev->dev, "Specified reset method:%d isn't supported, using AUTO instead.\n",
-				  amdgpu_reset_method);
+			 amdgpu_reset_method);
 
 	return AMD_RESET_METHOD_LEGACY;
+}
+
+static int si_asic_reset(struct amdgpu_device *adev)
+{
+	int r;
+
+	switch (si_asic_reset_method(adev)) {
+	case AMD_RESET_METHOD_PCI:
+		dev_info(adev->dev, "PCI reset\n");
+		r = amdgpu_device_pci_reset(adev);
+		break;
+	default:
+		dev_info(adev->dev, "PCI CONFIG reset\n");
+		r = si_gpu_pci_config_reset(adev);
+		break;
+	}
+
+	return r;
 }
 
 static u32 si_get_config_memsize(struct amdgpu_device *adev)
@@ -1247,7 +1455,7 @@ static void si_vga_set_state(struct amdgpu_device *adev, bool state)
 	uint32_t temp;
 
 	temp = RREG32(CONFIG_CNTL);
-	if (state == false) {
+	if (!state) {
 		temp &= ~(1<<0);
 		temp |= (1<<1);
 	} else {
@@ -1258,7 +1466,7 @@ static void si_vga_set_state(struct amdgpu_device *adev, bool state)
 
 static u32 si_get_xclk(struct amdgpu_device *adev)
 {
-        u32 reference_clock = adev->clock.spll.reference_freq;
+	u32 reference_clock = adev->clock.spll.reference_freq;
 	u32 tmp;
 
 	tmp = RREG32(CG_CLKPIN_CNTL_2);
@@ -1779,6 +1987,10 @@ static int si_set_vce_clocks(struct amdgpu_device *adev, u32 evclk, u32 ecclk)
 	return 0;
 }
 
+static void si_pre_asic_init(struct amdgpu_device *adev)
+{
+}
+
 static const struct amdgpu_asic_funcs si_asic_funcs =
 {
 	.read_disabled_bios = &si_read_disabled_bios,
@@ -1800,6 +2012,8 @@ static const struct amdgpu_asic_funcs si_asic_funcs =
 	.need_reset_on_init = &si_need_reset_on_init,
 	.get_pcie_replay_count = &si_get_pcie_replay_count,
 	.supports_baco = &si_asic_supports_baco,
+	.pre_asic_init = &si_pre_asic_init,
+	.query_video_codecs = &si_query_video_codecs,
 };
 
 static uint32_t si_get_rev_id(struct amdgpu_device *adev)
@@ -2546,6 +2760,10 @@ int si_set_ip_blocks(struct amdgpu_device *adev)
 		amdgpu_device_ip_block_add(adev, &si_smu_ip_block);
 		if (adev->enable_virtual_display)
 			amdgpu_device_ip_block_add(adev, &dce_virtual_ip_block);
+#if defined(CONFIG_DRM_AMD_DC) && defined(CONFIG_DRM_AMD_DC_SI)
+		else if (amdgpu_device_has_dc_support(adev))
+			amdgpu_device_ip_block_add(adev, &dm_ip_block);
+#endif
 		else
 			amdgpu_device_ip_block_add(adev, &dce_v6_0_ip_block);
 		amdgpu_device_ip_block_add(adev, &uvd_v3_1_ip_block);
@@ -2560,6 +2778,10 @@ int si_set_ip_blocks(struct amdgpu_device *adev)
 		amdgpu_device_ip_block_add(adev, &si_smu_ip_block);
 		if (adev->enable_virtual_display)
 			amdgpu_device_ip_block_add(adev, &dce_virtual_ip_block);
+#if defined(CONFIG_DRM_AMD_DC) && defined(CONFIG_DRM_AMD_DC_SI)
+		else if (amdgpu_device_has_dc_support(adev))
+			amdgpu_device_ip_block_add(adev, &dm_ip_block);
+#endif
 		else
 			amdgpu_device_ip_block_add(adev, &dce_v6_4_ip_block);
 		amdgpu_device_ip_block_add(adev, &uvd_v3_1_ip_block);

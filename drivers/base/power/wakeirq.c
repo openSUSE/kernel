@@ -182,7 +182,6 @@ int dev_pm_set_dedicated_wake_irq(struct device *dev, int irq)
 
 	wirq->dev = dev;
 	wirq->irq = irq;
-	irq_set_status_flags(irq, IRQ_NOAUTOEN);
 
 	/* Prevent deferred spurious wakeirqs with disable_irq_nosync() */
 	irq_set_status_flags(irq, IRQ_DISABLE_UNLAZY);
@@ -192,7 +191,8 @@ int dev_pm_set_dedicated_wake_irq(struct device *dev, int irq)
 	 * so we use a threaded irq.
 	 */
 	err = request_threaded_irq(irq, NULL, handle_threaded_wake_irq,
-				   IRQF_ONESHOT, wirq->name, wirq);
+				   IRQF_ONESHOT | IRQF_NO_AUTOEN,
+				   wirq->name, wirq);
 	if (err)
 		goto err_free_name;
 
@@ -272,7 +272,7 @@ void dev_pm_enable_wake_irq_check(struct device *dev,
 {
 	struct wake_irq *wirq = dev->power.wakeirq;
 
-	if (!wirq || !((wirq->status & WAKE_IRQ_DEDICATED_MASK)))
+	if (!wirq || !(wirq->status & WAKE_IRQ_DEDICATED_MASK))
 		return;
 
 	if (likely(wirq->status & WAKE_IRQ_DEDICATED_MANAGED)) {
@@ -299,7 +299,7 @@ void dev_pm_disable_wake_irq_check(struct device *dev)
 {
 	struct wake_irq *wirq = dev->power.wakeirq;
 
-	if (!wirq || !((wirq->status & WAKE_IRQ_DEDICATED_MASK)))
+	if (!wirq || !(wirq->status & WAKE_IRQ_DEDICATED_MASK))
 		return;
 
 	if (wirq->status & WAKE_IRQ_DEDICATED_MANAGED)

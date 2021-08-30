@@ -30,13 +30,13 @@
 #include <linux/hardirq.h>
 #include <linux/cpu.h>
 #include <linux/compiler.h>
+#include <linux/pgtable.h>
 
 #include <asm/ptrace.h>
 #include <linux/atomic.h>
 #include <asm/code-patching.h>
 #include <asm/irq.h>
 #include <asm/page.h>
-#include <asm/pgtable.h>
 #include <asm/sections.h>
 #include <asm/io.h>
 #include <asm/prom.h>
@@ -146,6 +146,7 @@ static inline void psurge_clr_ipi(int cpu)
 		switch(psurge_type) {
 		case PSURGE_DUAL:
 			out_8(psurge_sec_intr, ~0);
+			break;
 		case PSURGE_NONE:
 			break;
 		default:
@@ -269,10 +270,6 @@ static void __init smp_psurge_probe(void)
 {
 	int i, ncpus;
 	struct device_node *dn;
-
-	/* We don't do SMP on the PPC601 -- paulus */
-	if (PVR_VER(mfspr(SPRN_PVR)) == 1)
-		return;
 
 	/*
 	 * The powersurge cpu board can be used in the generation
@@ -400,21 +397,19 @@ static int __init smp_psurge_kick_cpu(int nr)
 	return 0;
 }
 
-static struct irqaction psurge_irqaction = {
-	.handler = psurge_ipi_intr,
-	.flags = IRQF_PERCPU | IRQF_NO_THREAD,
-	.name = "primary IPI",
-};
-
 static void __init smp_psurge_setup_cpu(int cpu_nr)
 {
+	unsigned long flags = IRQF_PERCPU | IRQF_NO_THREAD;
+	int irq;
+
 	if (cpu_nr != 0 || !psurge_start)
 		return;
 
 	/* reset the entry point so if we get another intr we won't
 	 * try to startup again */
 	out_be32(psurge_start, 0x100);
-	if (setup_irq(irq_create_mapping(NULL, 30), &psurge_irqaction))
+	irq = irq_create_mapping(NULL, 30);
+	if (request_irq(irq, psurge_ipi_intr, flags, "primary IPI", NULL))
 		printk(KERN_ERR "Couldn't get primary IPI interrupt");
 }
 
@@ -661,13 +656,13 @@ static void smp_core99_gpio_tb_freeze(int freeze)
 
 #endif /* !CONFIG_PPC64 */
 
-/* L2 and L3 cache settings to pass from CPU0 to CPU1 on G4 cpus */
-volatile static long int core99_l2_cache;
-volatile static long int core99_l3_cache;
-
 static void core99_init_caches(int cpu)
 {
 #ifndef CONFIG_PPC64
+	/* L2 and L3 cache settings to pass from CPU0 to CPU1 on G4 cpus */
+	static long int core99_l2_cache;
+	static long int core99_l3_cache;
+
 	if (!cpu_has_feature(CPU_FTR_L2CR))
 		return;
 
@@ -816,7 +811,7 @@ static int smp_core99_kick_cpu(int nr)
 	 *   b __secondary_start_pmac_0 + nr*8
 	 */
 	target = (unsigned long) __secondary_start_pmac_0 + nr * 8;
-	patch_branch((struct ppc_inst *)vector, target, BRANCH_SET_LINK);
+	patch_branch(vector, target, BRANCH_SET_LINK);
 
 	/* Put some life in our friend */
 	pmac_call_feature(PMAC_FTR_RESET_CPU, NULL, nr, 0);
@@ -829,7 +824,7 @@ static int smp_core99_kick_cpu(int nr)
 	mdelay(1);
 
 	/* Restore our exception vector */
-	patch_instruction((struct ppc_inst *)vector, ppc_inst(save_vector));
+	patch_instruction(vector, ppc_inst(save_vector));
 
 	local_irq_restore(flags);
 	if (ppc_md.progress) ppc_md.progress("smp_core99_kick_cpu done", 0x347);
@@ -924,7 +919,7 @@ static int smp_core99_cpu_disable(void)
 
 #ifdef CONFIG_PPC32
 
-static void pmac_cpu_die(void)
+static void pmac_cpu_offline_self(void)
 {
 	int cpu = smp_processor_id();
 
@@ -934,12 +929,12 @@ static void pmac_cpu_die(void)
 	generic_set_cpu_dead(cpu);
 	smp_wmb();
 	mb();
-	low_cpu_die();
+	low_cpu_offline_self();
 }
 
 #else /* CONFIG_PPC32 */
 
-static void pmac_cpu_die(void)
+static void pmac_cpu_offline_self(void)
 {
 	int cpu = smp_processor_id();
 
@@ -1024,7 +1019,7 @@ void __init pmac_setup_smp(void)
 #endif /* CONFIG_PPC_PMAC32_PSURGE */
 
 #ifdef CONFIG_HOTPLUG_CPU
-	ppc_md.cpu_die = pmac_cpu_die;
+	smp_ops->cpu_offline_self = pmac_cpu_offline_self;
 #endif
 }
 

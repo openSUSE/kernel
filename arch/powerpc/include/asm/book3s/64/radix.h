@@ -30,7 +30,7 @@
 /* Don't have anything in the reserved bits and leaf bits */
 #define RADIX_PMD_BAD_BITS		0x60000000000000e0UL
 #define RADIX_PUD_BAD_BITS		0x60000000000000e0UL
-#define RADIX_PGD_BAD_BITS		0x60000000000000e0UL
+#define RADIX_P4D_BAD_BITS		0x60000000000000e0UL
 
 #define RADIX_PMD_SHIFT		(PAGE_SHIFT + RADIX_PTE_INDEX_SIZE)
 #define RADIX_PUD_SHIFT		(RADIX_PMD_SHIFT + RADIX_PMD_INDEX_SIZE)
@@ -90,6 +90,22 @@
  * |                              |
  * +------------------------------+  Kernel linear (0xc.....)
  */
+
+
+/*
+ * If we store section details in page->flags we can't increase the MAX_PHYSMEM_BITS
+ * if we increase SECTIONS_WIDTH we will not store node details in page->flags and
+ * page_to_nid does a page->section->node lookup
+ * Hence only increase for VMEMMAP. Further depending on SPARSEMEM_EXTREME reduce
+ * memory requirements with large number of sections.
+ * 51 bits is the max physical real address on POWER9
+ */
+
+#if defined(CONFIG_SPARSEMEM_VMEMMAP) && defined(CONFIG_SPARSEMEM_EXTREME)
+#define R_MAX_PHYSMEM_BITS	51
+#else
+#define R_MAX_PHYSMEM_BITS	46
+#endif
 
 #define RADIX_KERN_VIRT_START	ASM_CONST(0xc008000000000000)
 /*
@@ -229,9 +245,9 @@ static inline int radix__pud_bad(pud_t pud)
 }
 
 
-static inline int radix__pgd_bad(pgd_t pgd)
+static inline int radix__p4d_bad(p4d_t p4d)
 {
-	return !!(pgd_val(pgd) & RADIX_PGD_BAD_BITS);
+	return !!(p4d_val(p4d) & RADIX_P4D_BAD_BITS);
 }
 
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
@@ -278,9 +294,6 @@ extern void radix__vmemmap_remove_mapping(unsigned long start,
 
 extern int radix__map_kernel_page(unsigned long ea, unsigned long pa,
 				 pgprot_t flags, unsigned int psz);
-
-extern int radix__ioremap_range(unsigned long ea, phys_addr_t pa,
-				unsigned long size, pgprot_t prot, int nid);
 
 static inline unsigned long radix__get_tree_size(void)
 {

@@ -101,7 +101,7 @@ int ap_recv(ap_qid_t qid, unsigned long long *psmid, void *msg, size_t length)
 
 	if (msg == NULL)
 		return -EINVAL;
-	status = ap_dqap(qid, psmid, msg, length);
+	status = ap_dqap(qid, psmid, msg, length, NULL, NULL);
 	switch (status.response_code) {
 	case AP_RESPONSE_NORMAL:
 		return 0;
@@ -136,9 +136,24 @@ static struct ap_queue_status ap_sm_recv(struct ap_queue *aq)
 	struct ap_queue_status status;
 	struct ap_message *ap_msg;
 	bool found = false;
+	size_t reslen;
+	unsigned long resgr0 = 0;
+	int parts = 0;
 
-	status = ap_dqap(aq->qid, &aq->reply->psmid,
-			 aq->reply->msg, aq->reply->len);
+	/*
+	 * DQAP loop until response code and resgr0 indicate that
+	 * the msg is totally received. As we use the very same buffer
+	 * the msg is overwritten with each invocation. That's intended
+	 * and the receiver of the msg is informed with a msg rc code
+	 * of EMSGSIZE in such a case.
+	 */
+	do {
+		status = ap_dqap(aq->qid, &aq->reply->psmid,
+				 aq->reply->msg, aq->reply->bufsize,
+				 &reslen, &resgr0);
+		parts++;
+	} while (status.response_code == 0xFF && resgr0 != 0);
+
 	switch (status.response_code) {
 	case AP_RESPONSE_NORMAL:
 		aq->queue_count = max_t(int, 0, aq->queue_count - 1);
@@ -150,7 +165,12 @@ static struct ap_queue_status ap_sm_recv(struct ap_queue *aq)
 				continue;
 			list_del_init(&ap_msg->list);
 			aq->pendingq_count--;
-			ap_msg->receive(aq, ap_msg, aq->reply);
+			if (parts > 1) {
+				ap_msg->rc = -EMSGSIZE;
+				ap_msg->receive(aq, ap_msg, NULL);
+			} else {
+				ap_msg->receive(aq, ap_msg, aq->reply);
+			}
 			found = true;
 			break;
 		}
@@ -159,7 +179,7 @@ static struct ap_queue_status ap_sm_recv(struct ap_queue *aq)
 				    __func__, aq->reply->psmid,
 				    AP_QID_CARD(aq->qid), AP_QID_QUEUE(aq->qid));
 		}
-		/* fall through */
+		fallthrough;
 	case AP_RESPONSE_NO_PENDING_REPLY:
 		if (!status.queue_empty || aq->queue_count <= 0)
 			break;
@@ -212,31 +232,6 @@ static enum ap_sm_wait ap_sm_read(struct ap_queue *aq)
 }
 
 /**
- * ap_sm_suspend_read(): Receive pending reply messages from an AP queue
- * without changing the device state in between. In suspend mode we don't
- * allow sending new requests, therefore just fetch pending replies.
- * @aq: pointer to the AP queue
- *
- * Returns AP_SM_WAIT_NONE or AP_SM_WAIT_AGAIN
- */
-static enum ap_sm_wait ap_sm_suspend_read(struct ap_queue *aq)
-{
-	struct ap_queue_status status;
-
-	if (!aq->reply)
-		return AP_SM_WAIT_NONE;
-	status = ap_sm_recv(aq);
-	switch (status.response_code) {
-	case AP_RESPONSE_NORMAL:
-		if (aq->queue_count > 0)
-			return AP_SM_WAIT_AGAIN;
-		/* fall through */
-	default:
-		return AP_SM_WAIT_NONE;
-	}
-}
-
-/**
  * ap_sm_write(): Send messages from the request queue to an AP queue.
  * @aq: pointer to the AP queue
  *
@@ -274,7 +269,7 @@ static enum ap_sm_wait ap_sm_write(struct ap_queue *aq)
 			aq->sm_state = AP_SM_STATE_WORKING;
 			return AP_SM_WAIT_AGAIN;
 		}
-		/* fall through */
+		fallthrough;
 	case AP_RESPONSE_Q_FULL:
 		aq->sm_state = AP_SM_STATE_QUEUE_FULL;
 		return AP_SM_WAIT_INTERRUPT;
@@ -410,7 +405,7 @@ static enum ap_sm_wait ap_sm_setirq_wait(struct ap_queue *aq)
 	case AP_RESPONSE_NORMAL:
 		if (aq->queue_count > 0)
 			return AP_SM_WAIT_AGAIN;
-		/* fallthrough */
+		fallthrough;
 	case AP_RESPONSE_NO_PENDING_REPLY:
 		return AP_SM_WAIT_TIMEOUT;
 	default:
@@ -451,10 +446,6 @@ static ap_func_t *ap_jumptable[NR_AP_SM_STATES][NR_AP_SM_EVENTS] = {
 		[AP_SM_EVENT_POLL] = ap_sm_read,
 		[AP_SM_EVENT_TIMEOUT] = ap_sm_reset,
 	},
-	[AP_SM_STATE_SUSPEND_WAIT] = {
-		[AP_SM_EVENT_POLL] = ap_sm_suspend_read,
-		[AP_SM_EVENT_TIMEOUT] = ap_sm_nop,
-	},
 };
 
 enum ap_sm_wait ap_sm_event(struct ap_queue *aq, enum ap_sm_event event)
@@ -473,28 +464,6 @@ enum ap_sm_wait ap_sm_event_loop(struct ap_queue *aq, enum ap_sm_event event)
 		;
 	return wait;
 }
-
-/*
- * Power management for queue devices
- */
-void ap_queue_suspend(struct ap_device *ap_dev)
-{
-	struct ap_queue *aq = to_ap_queue(&ap_dev->device);
-
-	/* Poll on the device until all requests are finished. */
-	spin_lock_bh(&aq->lock);
-	aq->sm_state = AP_SM_STATE_SUSPEND_WAIT;
-	while (ap_sm_event(aq, AP_SM_EVENT_POLL) != AP_SM_WAIT_NONE)
-		;
-	aq->dev_state = AP_DEV_STATE_ERROR;
-	spin_unlock_bh(&aq->lock);
-}
-EXPORT_SYMBOL(ap_queue_suspend);
-
-void ap_queue_resume(struct ap_device *ap_dev)
-{
-}
-EXPORT_SYMBOL(ap_queue_resume);
 
 /*
  * AP queue related attributes.

@@ -73,15 +73,15 @@ The Reduced Gigabit Medium Independent Interface (RGMII) is a 12-pin
 electrical signal interface using a synchronous 125Mhz clock signal and several
 data lines. Due to this design decision, a 1.5ns to 2ns delay must be added
 between the clock line (RXC or TXC) and the data lines to let the PHY (clock
-sink) have enough setup and hold times to sample the data lines correctly. The
+sink) have a large enough setup and hold time to sample the data lines correctly. The
 PHY library offers different types of PHY_INTERFACE_MODE_RGMII* values to let
 the PHY driver and optionally the MAC driver, implement the required delay. The
 values of phy_interface_t must be understood from the perspective of the PHY
 device itself, leading to the following:
 
 * PHY_INTERFACE_MODE_RGMII: the PHY is not responsible for inserting any
-  internal delay by itself, it assumes that either the Ethernet MAC (if capable
-  or the PCB traces) insert the correct 1.5-2ns delay
+  internal delay by itself, it assumes that either the Ethernet MAC (if capable)
+  or the PCB traces insert the correct 1.5-2ns delay
 
 * PHY_INTERFACE_MODE_RGMII_TXID: the PHY should insert an internal delay
   for the transmit data lines (TXD[3:0]) processed by the PHY device
@@ -216,7 +216,7 @@ put into an unsupported state.
 Lastly, once the controller is ready to handle network traffic, you call
 phy_start(phydev).  This tells the PAL that you are ready, and configures the
 PHY to connect to the network. If the MAC interrupt of your network driver
-also handles PHY status changes, just set phydev->irq to PHY_IGNORE_INTERRUPT
+also handles PHY status changes, just set phydev->irq to PHY_MAC_INTERRUPT
 before you call phy_start and use phy_mac_interrupt() from the network
 driver. If you don't want to use interrupts, set phydev->irq to PHY_POLL.
 phy_start() enables the PHY interrupts (if applicable) and starts the
@@ -247,8 +247,8 @@ Some of the interface modes are described below:
     speeds (see below.)
 
 ``PHY_INTERFACE_MODE_2500BASEX``
-    This defines a variant of 1000BASE-X which is clocked 2.5 times faster,
-    than the 802.3 standard giving a fixed bit rate of 3.125Gbaud.
+    This defines a variant of 1000BASE-X which is clocked 2.5 times as fast
+    as the 802.3 standard, giving a fixed bit rate of 3.125Gbaud.
 
 ``PHY_INTERFACE_MODE_SGMII``
     This is used for Cisco SGMII, which is a modification of 1000BASE-X
@@ -267,6 +267,41 @@ Some of the interface modes are described below:
     duplex, pause or other settings.  This is dependent on the MAC and/or
     PHY behaviour.
 
+``PHY_INTERFACE_MODE_5GBASER``
+    This is the IEEE 802.3 Clause 129 defined 5GBASE-R protocol. It is
+    identical to the 10GBASE-R protocol defined in Clause 49, with the
+    exception that it operates at half the frequency. Please refer to the
+    IEEE standard for the definition.
+
+``PHY_INTERFACE_MODE_10GBASER``
+    This is the IEEE 802.3 Clause 49 defined 10GBASE-R protocol used with
+    various different mediums. Please refer to the IEEE standard for a
+    definition of this.
+
+    Note: 10GBASE-R is just one protocol that can be used with XFI and SFI.
+    XFI and SFI permit multiple protocols over a single SERDES lane, and
+    also defines the electrical characteristics of the signals with a host
+    compliance board plugged into the host XFP/SFP connector. Therefore,
+    XFI and SFI are not PHY interface types in their own right.
+
+``PHY_INTERFACE_MODE_10GKR``
+    This is the IEEE 802.3 Clause 49 defined 10GBASE-R with Clause 73
+    autonegotiation. Please refer to the IEEE standard for further
+    information.
+
+    Note: due to legacy usage, some 10GBASE-R usage incorrectly makes
+    use of this definition.
+
+``PHY_INTERFACE_MODE_25GBASER``
+    This is the IEEE 802.3 PCS Clause 107 defined 25GBASE-R protocol.
+    The PCS is identical to 10GBASE-R, i.e. 64B/66B encoded
+    running 2.5 as fast, giving a fixed bit rate of 25.78125 Gbaud.
+    Please refer to the IEEE standard for further information.
+
+``PHY_INTERFACE_MODE_100BASEX``
+    This defines IEEE 802.3 Clause 24.  The link operates at a fixed data
+    rate of 125Mpbs using a 4B/5B encoding scheme, resulting in an underlying
+    data rate of 100Mpbs.
 
 Pause frames / flow control
 ===========================
@@ -469,8 +504,9 @@ phy_register_fixup_for_id()::
 The stubs set one of the two matching criteria, and set the other one to
 match anything.
 
-When phy_register_fixup() or \*_for_uid()/\*_for_id() is called at module,
-unregister fixup and free allocate memory are required.
+When phy_register_fixup() or \*_for_uid()/\*_for_id() is called at module load
+time, the module needs to unregister the fixup and free allocated memory when
+it's unloaded.
 
 Call one of following function before unloading module::
 
