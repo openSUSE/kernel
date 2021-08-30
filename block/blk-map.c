@@ -230,8 +230,7 @@ out_bmd:
 	return ret;
 }
 
-static int bio_map_user_iov(struct request *rq, struct iov_iter *iter,
-		gfp_t gfp_mask)
+int bio_map_user_iov(struct request *rq, struct iov_iter *iter, gfp_t gfp_mask)
 {
 	unsigned int max_sectors = queue_max_hw_sectors(rq->q);
 	struct bio *bio;
@@ -306,6 +305,7 @@ static int bio_map_user_iov(struct request *rq, struct iov_iter *iter,
 	bio_put(bio);
 	return ret;
 }
+EXPORT_SYMBOL_GPL(bio_map_user_iov);
 
 static void bio_invalidate_vmalloc_pages(struct bio *bio)
 {
