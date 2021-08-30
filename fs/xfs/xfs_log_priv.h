@@ -456,6 +456,8 @@ struct xlog {
 	xfs_lsn_t		l_recovery_lsn;
 
 	uint32_t		l_iclog_roundoff;/* padding roundoff */
+
+	int			l_malformed_inode_warning;
 };
 
 #define XLOG_BUF_CANCEL_BUCKET(log, blkno) \
