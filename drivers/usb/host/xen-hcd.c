@@ -479,7 +479,7 @@ static int xenhcd_hub_control(struct usb_hcd *hcd, __u16 typeReq, __u16 wValue,
 			break;
 		case USB_PORT_FEAT_C_CONNECTION:
 			info->ports[wIndex-1].c_connection = 0;
-			/* Fall through */
+			fallthrough;
 		default:
 			info->ports[wIndex-1].status &= ~(1 << wValue);
 			break;
@@ -1500,6 +1500,7 @@ static void xenhcd_backend_changed(struct xenbus_device *dev,
 		if (dev->state == XenbusStateClosed)
 			break;
 		/* Fall through -- Missed the backend's Closing state. */
+		fallthrough;
 	case XenbusStateClosing:
 		xenhcd_disconnect(dev);
 		break;
