@@ -22,6 +22,7 @@
 #include "modpost.h"
 #include "../../include/generated/autoconf.h"
 #include "../../include/linux/license.h"
+#include "../../include/generated/uapi/linux/suse_version.h"
 
 /* Are we using CONFIG_MODVERSIONS? */
 static int modversions = 0;
@@ -2485,6 +2486,14 @@ static void write_buf(struct buffer *b, const char *fname)
 	}
 }
 
+static void add_suserelease(struct buffer *b, struct module *mod)
+{
+#ifdef SUSE_PRODUCT_SHORTNAME
+	buf_printf(b, "\n");
+	buf_printf(b, "MODULE_INFO(suserelease, \"%s\");\n",
+		   SUSE_PRODUCT_SHORTNAME);
+#endif
+}
 static void write_if_changed(struct buffer *b, const char *fname)
 {
 	char *tmp;
@@ -2740,6 +2749,7 @@ int main(int argc, char **argv)
 		add_depends(&buf, mod);
 		add_moddevtable(&buf, mod);
 		add_srcversion(&buf, mod);
+		add_suserelease(&buf, mod);
 
 		sprintf(fname, "%s.mod.c", mod->name);
 		write_if_changed(&buf, fname);
