@@ -2421,6 +2421,10 @@
 			feature (tagged TLBs) on capable Intel chips.
 			Default is 1 (enabled)
 
+	kvm_nopvspin	[X86,KVM]
+			Disables the paravirtualized spinlock slowpath
+			optimizations for KVM.
+
 	l1tf=           [X86] Control mitigation of the L1TF vulnerability on
 			      affected CPUs
 
@@ -4138,8 +4142,8 @@
 			There is some performance impact when enabling this.
 
 	ppc_tm=		[PPC]
-			Format: {"off"}
-			Disable Hardware Transactional Memory
+			Format: {"on"}
+			Enable Hardware Transactional Memory
 
 	preempt=	[KNL]
 			Select preemption mode if you have CONFIG_PREEMPT_DYNAMIC

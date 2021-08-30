@@ -22,6 +22,7 @@
 #include <linux/xattr.h>
 #include <linux/export.h>
 #include <linux/user_namespace.h>
+#include <linux/magic.h>
 
 static struct posix_acl **acl_by_type(struct inode *inode, int type)
 {
@@ -910,8 +911,14 @@ set_posix_acl(struct user_namespace *mnt_userns, struct inode *inode,
 
 	if (type == ACL_TYPE_DEFAULT && !S_ISDIR(inode->i_mode))
 		return acl ? -EACCES : 0;
-	if (!inode_owner_or_capable(mnt_userns, inode))
-		return -EPERM;
+	/* NFS doesn't need an owner check, as the server will
+	 * do that.  The owner check is wrong when the server
+	 * is mapping uids, such as with all_squash (which makes
+	 * everyone an owner of a newly created file).
+	 */
+	if (inode->i_sb->s_magic != NFS_SUPER_MAGIC)
+		if (!inode_owner_or_capable(mnt_userns, inode))
+			return -EPERM;
 
 	if (acl) {
 		int ret = posix_acl_valid(inode->i_sb->s_user_ns, acl);

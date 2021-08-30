@@ -39,6 +39,8 @@
 #define INTEL_CPUFREQ_TRANSITION_DELAY_HWP	5000
 #define INTEL_CPUFREQ_TRANSITION_DELAY		500
 
+#define CPUFREQ_SERVER_UTIL_THRESHOLD		10
+
 #ifdef CONFIG_ACPI
 #include <acpi/processor.h>
 #include <acpi/cppc_acpi.h>
@@ -173,6 +175,9 @@ struct vid_data {
  *			P-state capacity.
  * @max_perf_pct:	Maximum capacity limit in percent of the maximum turbo
  *			P-state capacity.
+ * @vanilla_policy:	If set to true, avoid the optimization that makes
+ *			frequency ramp up faster after utilisation reaches a
+ *			given threshold.
  */
 struct global_params {
 	bool no_turbo;
@@ -180,6 +185,7 @@ struct global_params {
 	bool turbo_disabled_mf;
 	int max_perf_pct;
 	int min_perf_pct;
+	bool vanilla_policy;
 };
 
 /**
@@ -189,6 +195,7 @@ struct global_params {
  * @update_util:	CPUFreq utility callback information
  * @update_util_set:	CPUFreq utility callback is set
  * @iowait_boost:	iowait-related boost fraction
+ * @idlewait_boost:	idle-related boost fraction
  * @last_update:	Time of the last update.
  * @pstate:		Stores P state limits for this CPU
  * @vid:		Stores VID limits for this CPU
@@ -245,6 +252,7 @@ struct cpudata {
 	bool valid_pss_table;
 #endif
 	unsigned int iowait_boost;
+	unsigned int idle_boost;
 	s16 epp_powersave;
 	s16 epp_policy;
 	s16 epp_default;
@@ -2099,23 +2107,32 @@ static inline int32_t get_target_pstate(struct cpudata *cpu)
 {
 	struct sample *sample = &cpu->sample;
 	int32_t busy_frac, boost;
-	int target, avg_pstate;
+	int target, avg_pstate, max_target;
 
 	busy_frac = div_fp(sample->mperf << cpu->aperf_mperf_shift,
 			   sample->tsc);
 
+	/* IO-wait boosting */
 	boost = cpu->iowait_boost;
 	cpu->iowait_boost >>= 1;
-
 	if (busy_frac < boost)
 		busy_frac = boost;
-
 	sample->busy_scaled = busy_frac * 100;
 
-	target = global.no_turbo || global.turbo_disabled ?
+	/* Exit from long idle boosting */
+	if (cpu->idle_boost && !global.vanilla_policy) {
+		boost = max_t(int32_t, CPUFREQ_SERVER_UTIL_THRESHOLD, cpu->idle_boost);
+		cpu->idle_boost >>= 1;
+		if (busy_frac < boost && !is_idle_task(current)) {
+			busy_frac = boost;
+			sample->busy_scaled = boost * 100;
+		}
+	}
+
+	max_target = global.no_turbo || global.turbo_disabled ?
 			cpu->pstate.max_pstate : cpu->pstate.turbo_pstate;
-	target += target >> 2;
-	target = mul_fp(target, busy_frac);
+	max_target += max_target >> 2;
+	target = mul_fp(max_target, busy_frac);
 	if (target < cpu->pstate.min_pstate)
 		target = cpu->pstate.min_pstate;
 
@@ -2129,6 +2146,19 @@ static inline int32_t get_target_pstate(struct cpudata *cpu)
 	avg_pstate = get_avg_pstate(cpu);
 	if (avg_pstate > target)
 		target += (avg_pstate - target) >> 1;
+
+	/*
+	 * If the policy is the Server Enterprise policy then ramp up faster
+	 * once utilisation hits CPUFREQ_SERVER_DEFAULT_SETPOINT similar to
+	 * the setpoint for the PID policy.
+	 */
+	if (sample->busy_scaled >= CPUFREQ_SERVER_UTIL_THRESHOLD &&
+	    !global.vanilla_policy) {
+		int delta = max(0, max_target - target);
+
+		target += delta >> 1;
+		target = min(max_target, target);
+	}
 
 	return target;
 }
@@ -2196,11 +2226,16 @@ static void intel_pstate_update_util(struct update_util_data *data, u64 time,
 			return;
 
 		goto set_pstate;
-	} else if (cpu->iowait_boost) {
-		/* Clear iowait_boost if the CPU may have been idle. */
+	} else {
 		delta_ns = time - cpu->last_update;
-		if (delta_ns > TICK_NSEC)
-			cpu->iowait_boost = 0;
+		if (delta_ns > TICK_NSEC) {
+			/* Clear iowait_boost if the CPU may have been idle. */
+			if (cpu->iowait_boost)
+				cpu->iowait_boost = 0;
+
+			if (!is_idle_task(current))
+				cpu->idle_boost = int_tofp(1);
+		}
 	}
 	cpu->last_update = time;
 	delta_ns = time - cpu->sample.time;
@@ -3367,6 +3402,8 @@ static int __init intel_pstate_setup(char *str)
 		hwp_only = 1;
 	if (!strcmp(str, "per_cpu_perf_limits"))
 		per_cpu_limits = true;
+	if (!strcmp(str, "vanilla_policy"))
+		global.vanilla_policy = true;
 
 #ifdef CONFIG_ACPI
 	if (!strcmp(str, "support_acpi_ppc"))

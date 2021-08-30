@@ -1018,6 +1018,7 @@ config NUMA
 	select GENERIC_ARCH_NUMA
 	select ACPI_NUMA if ACPI
 	select OF_NUMA
+	select CPUMASK_OFFSTACK
 	help
 	  Enable NUMA (Non-Uniform Memory Access) support.
 

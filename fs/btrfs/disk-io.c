@@ -3282,6 +3282,13 @@ int __cold open_ctree(struct super_block *sb, struct btrfs_fs_devices *fs_device
 
 	disk_super = fs_info->super_copy;
 
+	if (btrfs_super_flags(disk_super) & BTRFS_SUPER_FLAG_SEEDING) {
+		if (!btrfs_allow_unsupported) {
+			printk(KERN_WARNING "btrfs: seeding mode is not supported, load module with allow_unsupported=1\n");
+			ret = -EOPNOTSUPP;
+			goto fail_alloc;
+		}
+	}
 
 	features = btrfs_super_flags(disk_super);
 	if (features & BTRFS_SUPER_FLAG_CHANGING_FSID_V2) {
@@ -3374,6 +3381,13 @@ int __cold open_ctree(struct super_block *sb, struct btrfs_fs_devices *fs_device
 "unequal nodesize/sectorsize (%u != %u) are not allowed for mixed block groups",
 			nodesize, sectorsize);
 		goto fail_alloc;
+	}
+
+	if (features & BTRFS_FEATURE_INCOMPAT_RAID56) {
+		if (!btrfs_allow_unsupported) {
+			printk(KERN_WARNING "btrfs: RAID56 is supported read-only, load module with allow_unsupported=1\n");
+			sb->s_flags |= SB_RDONLY;
+		}
 	}
 
 	/*

@@ -10776,6 +10776,7 @@ F:	arch/powerpc/include/asm/livepatch.h
 F:	arch/s390/include/asm/livepatch.h
 F:	arch/x86/include/asm/livepatch.h
 F:	include/linux/livepatch.h
+F:	include/uapi/linux/livepatch.h
 F:	kernel/livepatch/
 F:	lib/livepatch/
 F:	samples/livepatch/

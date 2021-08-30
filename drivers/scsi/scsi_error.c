@@ -1952,8 +1952,11 @@ enum scsi_disposition scsi_decide_disposition(struct scsi_cmnd *scmd)
 		return SUCCESS;
 
 	case SAM_STAT_RESERVATION_CONFLICT:
-		sdev_printk(KERN_INFO, scmd->device,
-			    "reservation conflict\n");
+		if (scmd->cmnd[0] != TEST_UNIT_READY)
+			sdev_printk(KERN_INFO, scmd->device,
+				    "reservation conflict\n");
+		else
+			scmd->request->rq_flags |= RQF_QUIET;
 		set_host_byte(scmd, DID_NEXUS_FAILURE);
 		return SUCCESS; /* causes immediate i/o error */
 	default:

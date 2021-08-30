@@ -523,6 +523,9 @@ will be charged as a new owner of it.
   write will still return success. In this case, it is expected that
   memory.kmem.usage_in_bytes == memory.usage_in_bytes.
 
+  Please note that this knob is considered deprecated and will be removed
+  in future.
+
 5.2 stat file
 -------------
 

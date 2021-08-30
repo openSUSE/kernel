@@ -39,6 +39,8 @@
 #ifdef __KERNEL__
 #include <linux/compat.h>
 #endif
+#include <linux/module.h>
+#include <linux/unsupported-feature.h>
 
 #include <linux/fscrypt.h>
 #include <linux/fsverity.h>
@@ -3808,4 +3810,5 @@ static inline int ext4_buffer_uptodate(struct buffer_head *bh)
 #define EFSBADCRC	EBADMSG		/* Bad CRC detected */
 #define EFSCORRUPTED	EUCLEAN		/* Filesystem is corrupted */
 
+DECLARE_SUSE_UNSUPPORTED_FEATURE(ext4);
 #endif	/* _EXT4_H */

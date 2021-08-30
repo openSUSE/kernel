@@ -852,7 +852,7 @@ struct readahead_control {
 		._index = i,						\
 	}
 
-#define VM_READAHEAD_PAGES	(SZ_128K / PAGE_SIZE)
+#define VM_READAHEAD_PAGES	(SZ_512K / PAGE_SIZE)
 
 void page_cache_ra_unbounded(struct readahead_control *,
 		unsigned long nr_to_read, unsigned long lookahead_count);
