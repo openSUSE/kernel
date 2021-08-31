@@ -1090,16 +1090,6 @@ void wake_up_nohz_cpu(int cpu)
 		wake_up_idle_cpu(cpu);
 }
 
-/*
- * Returns true if a CPU is idling on average more that the cost of
- * migration. This is used to avoid entering nohz for very short
- * durations as the exit cost from a nohz idle is substantial.
- */
-bool nohz_sched_idling_cpu(int cpu)
-{
-	return cpu_rq(cpu)->avg_idle >= sysctl_sched_migration_cost;
-}
-
 static void nohz_csd_func(void *info)
 {
 	struct rq *rq = info;
