@@ -303,7 +303,7 @@ static ssize_t copy_event_to_user(struct fsnotify_group *group,
 	} else if (fanotify_event_has_fid(event)) {
 		ret = copy_fid_to_user(event, buf + FAN_EVENT_METADATA_LEN);
 		if (ret < 0)
-			return ret;
+			goto out_close_fd;
 	}
 
 	return metadata.event_len;
