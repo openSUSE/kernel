@@ -1872,12 +1872,15 @@ static void __nvme_revalidate_disk(struct gendisk *disk, struct nvme_id_ns *id)
 	else
 		ns->pi_type = 0;
 
+	set_bit(NVME_NS_READY, &ns->flags);
+
 	if (iob)
 		blk_queue_chunk_sectors(ns->queue, rounddown_pow_of_two(iob));
 	nvme_update_disk_info(disk, ns, id);
 #ifdef CONFIG_NVME_MULTIPATH
 	if (ns->head->disk) {
 		nvme_update_disk_info(ns->head->disk, ns, id);
+		nvme_mpath_revalidate_paths(ns);
 		blk_queue_stack_limits(ns->head->disk->queue, ns->queue);
 		nvme_mpath_update_disk_size(ns->head->disk);
 	}
@@ -3687,6 +3690,8 @@ static void nvme_ns_remove(struct nvme_ns *ns)
 {
 	if (test_and_set_bit(NVME_NS_REMOVING, &ns->flags))
 		return;
+
+	clear_bit(NVME_NS_READY, &ns->flags);
 
 	nvme_fault_inject_fini(&ns->fault_inject);
 
