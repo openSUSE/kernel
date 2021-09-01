@@ -982,6 +982,12 @@ ifdef CONFIG_DEBUG_FORCE_FUNCTION_ALIGN_64B
 KBUILD_CFLAGS += -falign-functions=64
 endif
 
+ifdef CONFIG_LIVEPATCH_IPA_CLONES
+ifeq ($(KBUILD_EXTMOD),)
+KBUILD_CFLAGS += -fdump-ipa-clones
+endif
+endif
+
 # arch Makefile may override CC so keep this after arch Makefile is included
 NOSTDINC_FLAGS += -nostdinc -isystem $(shell $(CC) -print-file-name=include)
 
