@@ -490,6 +490,7 @@ struct mddev {
 	struct bio_set			sync_set; /* for sync operations like
 						   * metadata and bitmap writes
 						   */
+	/* keep it for KABI consistency */
 	mempool_t			md_io_pool;
 
 	/* Generic flush handling.
