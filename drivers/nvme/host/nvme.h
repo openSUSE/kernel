@@ -423,6 +423,7 @@ struct nvme_ns {
 #define NVME_NS_REMOVING	0
 #define NVME_NS_DEAD     	1
 #define NVME_NS_ANA_PENDING	2
+#define NVME_NS_READY		4
 
 	struct nvme_fault_inject fault_inject;
 
@@ -650,6 +651,7 @@ void nvme_mpath_init_ctrl(struct nvme_ctrl *ctrl);
 void nvme_mpath_uninit(struct nvme_ctrl *ctrl);
 void nvme_mpath_stop(struct nvme_ctrl *ctrl);
 bool nvme_mpath_clear_current_path(struct nvme_ns *ns);
+void nvme_mpath_revalidate_paths(struct nvme_ns *ns);
 void nvme_mpath_clear_ctrl_paths(struct nvme_ctrl *ctrl);
 struct nvme_ns *nvme_find_path(struct nvme_ns_head *head);
 
@@ -722,6 +724,9 @@ static inline void nvme_mpath_remove_disk(struct nvme_ns_head *head)
 static inline bool nvme_mpath_clear_current_path(struct nvme_ns *ns)
 {
 	return false;
+}
+static inline void nvme_mpath_revalidate_paths(struct nvme_ns *ns)
+{
 }
 static inline void nvme_mpath_clear_ctrl_paths(struct nvme_ctrl *ctrl)
 {
