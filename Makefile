@@ -928,6 +928,10 @@ KBUILD_CFLAGS_KERNEL += -ffunction-sections -fdata-sections
 LDFLAGS_vmlinux += --gc-sections
 endif
 
+ifdef CONFIG_LIVEPATCH
+KBUILD_CFLAGS += $(call cc-option, -flive-patching=inline-clone)
+endif
+
 ifdef CONFIG_SHADOW_CALL_STACK
 CC_FLAGS_SCS	:= -fsanitize=shadow-call-stack
 KBUILD_CFLAGS	+= $(CC_FLAGS_SCS)
@@ -980,6 +984,12 @@ endif
 
 ifdef CONFIG_DEBUG_FORCE_FUNCTION_ALIGN_64B
 KBUILD_CFLAGS += -falign-functions=64
+endif
+
+ifdef CONFIG_LIVEPATCH_IPA_CLONES
+ifeq ($(KBUILD_EXTMOD),)
+KBUILD_CFLAGS += -fdump-ipa-clones
+endif
 endif
 
 # arch Makefile may override CC so keep this after arch Makefile is included

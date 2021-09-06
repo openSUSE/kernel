@@ -124,7 +124,6 @@ struct module {
 	int seen;
 	int has_init;
 	int has_cleanup;
-	int livepatch;
 	struct buffer dev_table_buf;
 	char	     srcversion[25];
 	// Missing namespace dependencies
