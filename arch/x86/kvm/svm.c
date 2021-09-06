@@ -3412,7 +3412,7 @@ static int nested_svm_vmexit(struct vcpu_svm *svm)
 	nested_vmcb->save.dr6    = vmcb->save.dr6;
 	nested_vmcb->save.cpl    = vmcb->save.cpl;
 
-	nested_vmcb->control.int_ctl           = vmcb->control.int_ctl;
+	nested_vmcb->control.int_ctl           = vmcb->control.int_ctl & (V_INTR_MASKING_MASK | V_TPR_MASK | V_IRQ_INJECTION_BITS_MASK);
 	nested_vmcb->control.int_vector        = vmcb->control.int_vector;
 	nested_vmcb->control.int_state         = vmcb->control.int_state;
 	nested_vmcb->control.exit_code         = vmcb->control.exit_code;
