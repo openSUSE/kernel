@@ -1982,7 +1982,7 @@ static int check_stack_write(struct bpf_verifier_env *env,
 		}
 
 		if (sanitize)
-			env->insn_aux_data[insn_idx].sanitize_stack_spill = true;
+			env->insn_aux_data[insn_idx].sanitize_stack_off = 1;
 	}
 
 	if (reg && size == BPF_REG_SIZE && register_is_const(reg) &&
@@ -8904,7 +8904,7 @@ static int convert_ctx_accesses(struct bpf_verifier_env *env)
 		}
 
 		if (type == BPF_WRITE &&
-		    env->insn_aux_data[i + delta].sanitize_stack_spill) {
+		    env->insn_aux_data[i + delta].sanitize_stack_off) {
 			struct bpf_insn patch[] = {
 				*insn,
 				BPF_ST_NOSPEC(),
