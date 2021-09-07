@@ -183,11 +183,13 @@ static int xilinx_spi_remove(struct spi_device *spi)
 	return 0;
 }
 
+#ifdef CONFIG_OF
 static const struct of_device_id xlnx_spi_of_match[] = {
 	{ .compatible = "xlnx,fpga-slave-serial", },
 	{}
 };
 MODULE_DEVICE_TABLE(of, xlnx_spi_of_match);
+#endif
 
 static struct spi_driver xilinx_slave_spi_driver = {
 	.driver = {
