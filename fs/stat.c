@@ -43,7 +43,7 @@
 void generic_fillattr(struct user_namespace *mnt_userns, struct inode *inode,
 		      struct kstat *stat)
 {
-	stat->dev = inode->i_sb->s_dev;
+	stat->dev = inode_get_dev(inode);
 	stat->ino = inode->i_ino;
 	stat->mode = inode->i_mode;
 	stat->nlink = inode->i_nlink;
