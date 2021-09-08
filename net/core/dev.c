@@ -5876,7 +5876,7 @@ static void flush_all_backlogs(void)
 	 */
 	ASSERT_RTNL();
 
-	get_online_cpus();
+	cpus_read_lock();
 
 	cpumask_clear(&flush_cpus);
 	for_each_online_cpu(cpu) {
@@ -5894,7 +5894,7 @@ static void flush_all_backlogs(void)
 	for_each_cpu(cpu, &flush_cpus)
 		flush_work(per_cpu_ptr(&flush_works, cpu));
 
-	put_online_cpus();
+	cpus_read_unlock();
 }
 
 /* Pass the currently batched GRO_NORMAL SKBs up to the stack. */
