@@ -44,8 +44,6 @@ include $(srctree)/scripts/Kbuild.include
 # for ld_flags
 include $(srctree)/scripts/Makefile.lib
 
-MODVERDIR := $(if $(KBUILD_EXTMOD),$(firstword $(KBUILD_EXTMOD))/).tmp_versions
-
 MODPOST = scripts/mod/modpost								\
 	$(if $(CONFIG_MODVERSIONS),-m)							\
 	$(if $(CONFIG_MODULE_SRCVERSION_ALL),-a)					\
@@ -106,10 +104,7 @@ existing-input-symdump := $(wildcard $(input-symdump))
 MODPOST += \
 	$(addprefix -i ,$(existing-input-symdump)) \
 	$(if $(KBUILD_NSDEPS),-d $(MODULES_NSDEPS)) \
-	$(if $(CONFIG_MODULE_ALLOW_MISSING_NAMESPACE_IMPORTS)$(KBUILD_NSDEPS),-N) \
-	$(if $(CONFIG_SUSE_KERNEL_SUPPORTED),						\
-		-S $(firstword $(wildcard $(dir $(MODVERDIR))/Module.supported		\
-		$(if $(KBUILD_EXTMOD),,$(srctree)/Module.supported) /dev/null)))
+	$(if $(CONFIG_MODULE_ALLOW_MISSING_NAMESPACE_IMPORTS)$(KBUILD_NSDEPS),-N)
 
 # 'make -i -k' ignores compile errors, and builds as many modules as possible.
 ifneq ($(findstring i,$(filter-out --%,$(MAKEFLAGS))),)
@@ -145,6 +140,12 @@ modules := $(sort $(shell cat $(MODORDER)))
 ifneq ($(KBUILD_MODPOST_WARN)$(filter-out $(existing-input-symdump), $(input-symdump)),)
 MODPOST += -w
 endif
+
+MODVERDIR := $(if $(KBUILD_EXTMOD),$(firstword $(KBUILD_EXTMOD))/).tmp_versions
+
+MODPOST += $(if $(CONFIG_SUSE_KERNEL_SUPPORTED),				\
+		-S $(firstword $(wildcard $(dir $(MODVERDIR))/Module.supported \
+		$(if $(KBUILD_EXTMOD),,$(srctree)/Module.supported) /dev/null)))
 
 # Read out modules.order to pass in modpost.
 # Otherwise, allmodconfig would fail with "Argument list too long".

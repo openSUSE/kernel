@@ -460,6 +460,40 @@ failed:
 	return map;
 }
 
+/**
+  * Return a copy of the next line in a mmap'ed file.
+  * spaces in the beginning of the line is trimmed away.
+  * Return a pointer to a static buffer.
+  **/
+static char *get_next_line(unsigned long *pos, void *file, unsigned long size)
+{
+	static char line[4096];
+	int skip = 1;
+	size_t len = 0;
+	signed char *p = (signed char *)file + *pos;
+	char *s = line;
+
+	for (; *pos < size ; (*pos)++) {
+		if (skip && isspace(*p)) {
+			p++;
+			continue;
+		}
+		skip = 0;
+		if (*p != '\n' && (*pos < size)) {
+			len++;
+			*s++ = *p++;
+			if (len > 4095)
+				break; /* Too long, stop */
+		} else {
+			/* End of string */
+			*s = '\0';
+			return line;
+		}
+	}
+	/* End of buffer */
+	return NULL;
+}
+
 static void release_file(void *file, size_t size)
 {
 	munmap(file, size);
@@ -2008,7 +2042,7 @@ static char *underscores(char *string)
 	return string;
 }
 
-void *supported_file;
+char *supported_file;
 unsigned long supported_size;
 
 static const char *supported(const char *modname)
@@ -2493,9 +2527,11 @@ static void write_if_changed(struct buffer *b, const char *fname)
 #ifdef CONFIG_SUSE_KERNEL_SUPPORTED
 static void read_supported(const char *fname)
 {
-	supported_file = grab_file(fname, &supported_size);
-	if (!supported_file)
-		; /* ignore error */
+	if (fname) {
+		supported_file = grab_file(fname, &supported_size);
+		if (!supported_file)
+			; /* ignore error */
+	}
 }
 #endif
 
@@ -2668,9 +2704,9 @@ int main(int argc, char **argv)
 	}
 
 #ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-	if (supported)
-		read_supported(supported);
+	read_supported(supported);
 #endif
+
 	while (dump_read_start) {
 		struct dump_list *tmp;
 

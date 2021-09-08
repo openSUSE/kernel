@@ -237,10 +237,6 @@ extern int func_ptr_is_kernel_text(void *ptr);
 
 extern void bust_spinlocks(int yes);
 
-#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-extern int suse_unsupported;
-#endif
-
 extern int root_mountflags;
 
 extern bool early_boot_irqs_disabled;
