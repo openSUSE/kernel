@@ -1922,7 +1922,7 @@ unsigned int mempolicy_slab_node(void)
 	struct mempolicy *policy;
 	int node = numa_mem_id();
 
-	if (in_interrupt())
+	if (!in_task())
 		return node;
 
 	policy = current->mempolicy;
