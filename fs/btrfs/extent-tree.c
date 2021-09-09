@@ -1290,6 +1290,7 @@ int btrfs_discard_extent(struct btrfs_fs_info *fs_info, u64 bytenr,
 		struct btrfs_bio_stripe *stripe = bbio->stripes;
 		int i;
 
+
 		for (i = 0; i < bbio->num_stripes; i++, stripe++) {
 			u64 bytes;
 			struct request_queue *req_q;
@@ -1744,19 +1745,6 @@ void btrfs_cleanup_ref_head_accounting(struct btrfs_fs_info *fs_info,
 		delayed_refs->pending_csums -= head->num_bytes;
 		spin_unlock(&delayed_refs->lock);
 		nr_items += btrfs_csum_bytes_to_leaves(fs_info, head->num_bytes);
-	}
-
-	/*
-	 * We were dropping refs, or had a new ref and dropped it, and thus must
-	 * adjust down our total_bytes_pinned, the space may or may not have
-	 * been pinned and so is accounted for properly in the pinned space by
-	 * now.
-	 */
-	if (head->total_ref_mod < 0 ||
-	    (head->total_ref_mod == 0 && head->must_insert_reserved)) {
-		u64 flags = btrfs_ref_head_to_space_flags(head);
-
-		btrfs_mod_total_bytes_pinned(fs_info, flags, -head->num_bytes);
 	}
 
 	btrfs_delayed_refs_rsv_release(fs_info, nr_items);
@@ -2533,7 +2521,6 @@ static int pin_down_extent(struct btrfs_block_group *cache,
 	spin_unlock(&cache->lock);
 	spin_unlock(&cache->space_info->lock);
 
-	__btrfs_mod_total_bytes_pinned(cache->space_info, num_bytes);
 	set_extent_dirty(fs_info->pinned_extents, bytenr,
 			 bytenr + num_bytes - 1, GFP_NOFS | __GFP_NOFAIL);
 	return 0;
@@ -2790,7 +2777,6 @@ static int unpin_extent_range(struct btrfs_fs_info *fs_info,
 		cache->pinned -= len;
 		btrfs_space_info_update_bytes_pinned(fs_info, space_info, -len);
 		space_info->max_extent_size = 0;
-		__btrfs_mod_total_bytes_pinned(space_info, -len);
 		if (cache->ro) {
 			space_info->bytes_readonly += len;
 			readonly = true;

@@ -1383,7 +1383,6 @@ void btrfs_delete_unused_bgs(struct btrfs_fs_info *fs_info)
 		btrfs_space_info_update_bytes_pinned(fs_info, space_info,
 						     -block_group->pinned);
 		space_info->bytes_readonly += block_group->pinned;
-		__btrfs_mod_total_bytes_pinned(space_info, -block_group->pinned);
 		block_group->pinned = 0;
 
 		spin_unlock(&block_group->lock);
@@ -2819,8 +2818,6 @@ int btrfs_update_block_group(struct btrfs_trans_handle *trans,
 			spin_unlock(&cache->lock);
 			spin_unlock(&cache->space_info->lock);
 
-			__btrfs_mod_total_bytes_pinned(cache->space_info,
-						       num_bytes);
 			set_extent_dirty(info->pinned_extents,
 					 bytenr, bytenr + num_bytes - 1,
 					 GFP_NOFS | __GFP_NOFAIL);
@@ -3480,7 +3477,6 @@ int btrfs_free_block_groups(struct btrfs_fs_info *info)
 
 	while (!list_empty(&info->space_info)) {
 		int i;
-		s64 pinned;
 		space_info = list_entry(info->space_info.next,
 					struct btrfs_space_info,
 					list);
@@ -3489,11 +3485,9 @@ int btrfs_free_block_groups(struct btrfs_fs_info *info)
 		 * Do not hide this behind enospc_debug, this is actually
 		 * important and indicates a real bug if this happens.
 		 */
-		pinned = percpu_counter_sum(&space_info->total_bytes_pinned);
 		if (WARN_ON(space_info->bytes_pinned > 0 ||
 			    space_info->bytes_reserved > 0 ||
-			    space_info->bytes_may_use > 0 ||
-			    pinned != 0))
+			    space_info->bytes_may_use > 0))
 			btrfs_dump_space_info(info, space_info, 0, 0);
 		WARN_ON(space_info->reclaim_size > 0);
 		list_del(&space_info->list);
