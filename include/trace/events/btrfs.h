@@ -1051,8 +1051,7 @@ TRACE_EVENT(btrfs_space_reservation,
 	EM( ALLOC_CHUNK,		"ALLOC_CHUNK")			\
 	EM( ALLOC_CHUNK_FORCE,		"ALLOC_CHUNK_FORCE")		\
 	EM( RUN_DELAYED_IPUTS,		"RUN_DELAYED_IPUTS")		\
-	EM( COMMIT_TRANS,		"COMMIT_TRANS")			\
-	EMe(FORCE_COMMIT_TRANS,		"FORCE_COMMIT_TRANS")
+	EMe(COMMIT_TRANS,		"COMMIT_TRANS")
 
 /*
  * First define the enums in the above macros to be exported to userspace via
