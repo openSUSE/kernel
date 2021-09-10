@@ -183,6 +183,7 @@ int idxd_submit_desc(struct idxd_wq *wq, struct idxd_desc *desc)
 		 */
 		rc = enqcmds(portal, desc->hw);
 		if (rc < 0) {
+			percpu_ref_put(&wq->wq_active);
 			if (ie)
 				llist_abort_desc(wq, ie, desc);
 			return rc;
