@@ -333,15 +333,6 @@ static ssize_t btrfs_space_info_show_##field(struct kobject *kobj,	\
 }									\
 BTRFS_ATTR(space_info, field, btrfs_space_info_show_##field)
 
-static ssize_t btrfs_space_info_show_total_bytes_pinned(struct kobject *kobj,
-						       struct kobj_attribute *a,
-						       char *buf)
-{
-	struct btrfs_space_info *sinfo = to_space_info(kobj);
-	s64 val = percpu_counter_sum(&sinfo->total_bytes_pinned);
-	return snprintf(buf, PAGE_SIZE, "%lld\n", val);
-}
-
 SPACE_INFO_ATTR(flags);
 SPACE_INFO_ATTR(total_bytes);
 SPACE_INFO_ATTR(bytes_used);
@@ -351,8 +342,6 @@ SPACE_INFO_ATTR(bytes_may_use);
 SPACE_INFO_ATTR(bytes_readonly);
 SPACE_INFO_ATTR(disk_used);
 SPACE_INFO_ATTR(disk_total);
-BTRFS_ATTR(space_info, total_bytes_pinned,
-	   btrfs_space_info_show_total_bytes_pinned);
 
 static struct attribute *space_info_attrs[] = {
 	BTRFS_ATTR_PTR(space_info, flags),
@@ -364,7 +353,6 @@ static struct attribute *space_info_attrs[] = {
 	BTRFS_ATTR_PTR(space_info, bytes_readonly),
 	BTRFS_ATTR_PTR(space_info, disk_used),
 	BTRFS_ATTR_PTR(space_info, disk_total),
-	BTRFS_ATTR_PTR(space_info, total_bytes_pinned),
 	NULL,
 };
 ATTRIBUTE_GROUPS(space_info);
@@ -372,7 +360,6 @@ ATTRIBUTE_GROUPS(space_info);
 static void space_info_release(struct kobject *kobj)
 {
 	struct btrfs_space_info *sinfo = to_space_info(kobj);
-	percpu_counter_destroy(&sinfo->total_bytes_pinned);
 	kfree(sinfo);
 }
 

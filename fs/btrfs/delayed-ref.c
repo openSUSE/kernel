@@ -649,8 +649,7 @@ inserted:
  */
 static noinline void update_existing_head_ref(struct btrfs_trans_handle *trans,
 			 struct btrfs_delayed_ref_head *existing,
-			 struct btrfs_delayed_ref_head *update,
-			 int *old_ref_mod_ret)
+			 struct btrfs_delayed_ref_head *update)
 {
 	struct btrfs_delayed_ref_root *delayed_refs =
 		&trans->transaction->delayed_refs;
@@ -702,8 +701,6 @@ static noinline void update_existing_head_ref(struct btrfs_trans_handle *trans,
 	 * currently, for refs we just added we know we're a-ok.
 	 */
 	old_ref_mod = existing->total_ref_mod;
-	if (old_ref_mod_ret)
-		*old_ref_mod_ret = old_ref_mod;
 	existing->ref_mod += update->ref_mod;
 	existing->total_ref_mod += update->ref_mod;
 
@@ -725,6 +722,7 @@ static noinline void update_existing_head_ref(struct btrfs_trans_handle *trans,
 			trans->delayed_ref_updates += csum_leaves;
 		}
 	}
+
 	spin_unlock(&existing->lock);
 }
 
@@ -799,8 +797,7 @@ static noinline struct btrfs_delayed_ref_head *
 add_delayed_ref_head(struct btrfs_trans_handle *trans,
 		     struct btrfs_delayed_ref_head *head_ref,
 		     struct btrfs_qgroup_extent_record *qrecord,
-		     int action, int *qrecord_inserted_ret,
-		     int *old_ref_mod, int *new_ref_mod)
+		     int action, int *qrecord_inserted_ret)
 {
 	struct btrfs_delayed_ref_head *existing;
 	struct btrfs_delayed_ref_root *delayed_refs;
@@ -822,8 +819,7 @@ add_delayed_ref_head(struct btrfs_trans_handle *trans,
 	existing = htree_insert(&delayed_refs->href_root,
 				&head_ref->href_node);
 	if (existing) {
-		update_existing_head_ref(trans, existing, head_ref,
-					 old_ref_mod);
+		update_existing_head_ref(trans, existing, head_ref);
 		/*
 		 * we've updated the existing ref, free the newly
 		 * allocated ref
@@ -831,8 +827,6 @@ add_delayed_ref_head(struct btrfs_trans_handle *trans,
 		kmem_cache_free(btrfs_delayed_ref_head_cachep, head_ref);
 		head_ref = existing;
 	} else {
-		if (old_ref_mod)
-			*old_ref_mod = 0;
 		if (head_ref->is_data && head_ref->ref_mod < 0) {
 			delayed_refs->pending_csums += head_ref->num_bytes;
 			trans->delayed_ref_updates +=
@@ -846,8 +840,6 @@ add_delayed_ref_head(struct btrfs_trans_handle *trans,
 	}
 	if (qrecord_inserted_ret)
 		*qrecord_inserted_ret = qrecord_inserted;
-	if (new_ref_mod)
-		*new_ref_mod = head_ref->total_ref_mod;
 
 	return head_ref;
 }
@@ -910,8 +902,7 @@ static void init_delayed_ref_common(struct btrfs_fs_info *fs_info,
  */
 int btrfs_add_delayed_tree_ref(struct btrfs_trans_handle *trans,
 			       struct btrfs_ref *generic_ref,
-			       struct btrfs_delayed_extent_op *extent_op,
-			       int *old_ref_mod, int *new_ref_mod)
+			       struct btrfs_delayed_extent_op *extent_op)
 {
 	struct btrfs_fs_info *fs_info = trans->fs_info;
 	struct btrfs_delayed_tree_ref *ref;
@@ -978,8 +969,7 @@ int btrfs_add_delayed_tree_ref(struct btrfs_trans_handle *trans,
 	 * the spin lock
 	 */
 	head_ref = add_delayed_ref_head(trans, head_ref, record,
-					action, &qrecord_inserted,
-					old_ref_mod, new_ref_mod);
+					action, &qrecord_inserted);
 
 	ret = insert_delayed_ref(trans, delayed_refs, head_ref, &ref->node);
 	spin_unlock(&delayed_refs->lock);
@@ -1007,8 +997,7 @@ int btrfs_add_delayed_tree_ref(struct btrfs_trans_handle *trans,
  */
 int btrfs_add_delayed_data_ref(struct btrfs_trans_handle *trans,
 			       struct btrfs_ref *generic_ref,
-			       u64 reserved, int *old_ref_mod,
-			       int *new_ref_mod)
+			       u64 reserved)
 {
 	struct btrfs_fs_info *fs_info = trans->fs_info;
 	struct btrfs_delayed_data_ref *ref;
@@ -1074,8 +1063,7 @@ int btrfs_add_delayed_data_ref(struct btrfs_trans_handle *trans,
 	 * the spin lock
 	 */
 	head_ref = add_delayed_ref_head(trans, head_ref, record,
-					action, &qrecord_inserted,
-					old_ref_mod, new_ref_mod);
+					action, &qrecord_inserted);
 
 	ret = insert_delayed_ref(trans, delayed_refs, head_ref, &ref->node);
 	spin_unlock(&delayed_refs->lock);
@@ -1118,7 +1106,7 @@ int btrfs_add_delayed_extent_op(struct btrfs_trans_handle *trans,
 	spin_lock(&delayed_refs->lock);
 
 	add_delayed_ref_head(trans, head_ref, NULL, BTRFS_UPDATE_DELAYED_HEAD,
-			     NULL, NULL, NULL);
+			     NULL);
 
 	spin_unlock(&delayed_refs->lock);
 
