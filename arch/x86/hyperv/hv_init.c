@@ -369,7 +369,7 @@ void __init hyperv_init(void)
 	u64 guest_id, required_msrs;
 	union hv_x64_msr_hypercall_contents hypercall_msr;
 	int cpuhp, i;
-	__u8 d1 = 0x10; /* SuSE */
+	__u8 d1 = 0x10; /* SUSE */
 	__u16 d2 = 0x0; /* -d of a.b.c-d */
 
 	if (x86_hyper_type != X86_HYPER_MS_HYPERV)

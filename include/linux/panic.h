@@ -37,6 +37,10 @@ extern int sysctl_panic_on_stackoverflow;
 
 extern bool crash_kexec_post_notifiers;
 
+#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+extern int suse_unsupported;
+#endif
+
 /*
  * panic_cpu is used for synchronizing panic() and crash_kexec() execution. It
  * holds a CPU number which is executing panic() currently. A value of
@@ -89,9 +93,6 @@ static inline void set_arch_panic_timeout(int timeout, int arch_default_timeout)
 #  endif
 #  undef TAINT_FLAGS_COUNT
 #  define TAINT_FLAGS_COUNT		32
-#  undef TAINT_FLAGS_MAX
-#  define TAINT_FLAGS_MAX \
-	((1 << TAINT_NO_SUPPORT) | ((1 << TAINT_NO_SUPPORT) - 1))
 #endif
 
 struct taint_flag {

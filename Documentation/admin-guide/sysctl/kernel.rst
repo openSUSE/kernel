@@ -1351,7 +1351,7 @@ ORed together. The letters are seen in "Tainted" line of Oops reports.
 ==========  =====  ==========================================================
          1  `(P)`  proprietary module was loaded
          2  `(F)`  module was force loaded
-         4  `(S)`  kernel running on an out of specification system
+	  4  `(S)`  kernel running on an out of specification system
          8  `(R)`  module was force unloaded
         16  `(M)`  processor reported a Machine Check Exception (MCE)
         32  `(B)`  bad page referenced or some unexpected page flags
@@ -1380,19 +1380,6 @@ Note:
   See Documentation/admin-guide/kernel-parameters.rst for more details on
   that particular kernel command line option and its optional
   ``nousertaint`` switch.
-
-
-unsupported
-===========
-
-Allow to load unsupported kernel modules:
-
-  = =========================================================================
-  0 refuse to load unsupported modules,
-  1 warn when loading unsupported modules,
-  2 don't warn.
-  = =========================================================================
-
 
 threads-max
 ===========
