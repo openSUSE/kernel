@@ -159,6 +159,8 @@ xfs_parseargs(
 	char			*options)
 {
 	const struct super_block *sb = mp->m_super;
+	struct xfs_mount	*xmp = XFS_M(sb);
+	struct xfs_sb		xsb = xmp->m_sb;
 	char			*p;
 	substring_t		args[MAX_OPT_ARGS];
 	int			dsunit = 0;
@@ -368,7 +370,8 @@ xfs_parseargs(
 
 	if ((dsunit && !dswidth) || (!dsunit && dswidth)) {
 		xfs_warn(mp, "sunit and swidth must be specified together");
-		return -EINVAL;
+		if (!xsb.sb_unit)
+			return -EINVAL;
 	}
 
 	if (dsunit && (dswidth % dsunit != 0)) {
