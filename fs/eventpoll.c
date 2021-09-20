@@ -870,7 +870,7 @@ static void ep_show_fdinfo(struct seq_file *m, struct file *f)
 			   epi->ffd.fd, epi->event.events,
 			   (long long)epi->event.data,
 			   (long long)epi->ffd.file->f_pos,
-			   inode->i_ino, inode_get_dev(inode->i_sb->s_dev));
+			   inode->i_ino, inode_get_dev(inode));
 		if (seq_has_overflowed(m))
 			break;
 	}
