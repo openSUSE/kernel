@@ -329,7 +329,7 @@ xfs_validate_sb_common(
 
 	if (sbp->sb_unit) {
 		if (!xfs_sb_version_hasdalign(sbp) ||
-		    sbp->sb_unit > sbp->sb_width ||
+		    (sbp->sb_width && sbp->sb_unit > sbp->sb_width) ||
 		    (sbp->sb_width % sbp->sb_unit) != 0) {
 			xfs_notice(mp, "SB stripe unit sanity check failed");
 			return -EFSCORRUPTED;
