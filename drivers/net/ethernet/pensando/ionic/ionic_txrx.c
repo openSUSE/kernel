@@ -189,12 +189,11 @@ static void ionic_rx_clean(struct ionic_queue *q, struct ionic_desc_info *desc_i
 		}
 	}
 
-	if (likely(netdev->features & NETIF_F_RXCSUM)) {
-		if (comp->csum_flags & IONIC_RXQ_COMP_CSUM_F_CALC) {
-			skb->ip_summed = CHECKSUM_COMPLETE;
-			skb->csum = (__wsum)le16_to_cpu(comp->csum);
-			stats->csum_complete++;
-		}
+	if (likely(netdev->features & NETIF_F_RXCSUM) &&
+	    (comp->csum_flags & IONIC_RXQ_COMP_CSUM_F_CALC)) {
+		skb->ip_summed = CHECKSUM_COMPLETE;
+		skb->csum = (__force __wsum)le16_to_cpu(comp->csum);
+		stats->csum_complete++;
 	} else {
 		stats->csum_none++;
 	}
