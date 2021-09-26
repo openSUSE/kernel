@@ -3208,6 +3208,8 @@ static long btrfs_ioctl_rm_dev_v2(struct file *file, void __user *arg)
 	struct inode *inode = file_inode(file);
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
 	struct btrfs_ioctl_vol_args_v2 *vol_args;
+	struct block_device *bdev = NULL;
+	fmode_t mode;
 	int ret;
 	bool cancel = false;
 
@@ -3240,9 +3242,9 @@ static long btrfs_ioctl_rm_dev_v2(struct file *file, void __user *arg)
 	/* Exclusive operation is now claimed */
 
 	if (vol_args->flags & BTRFS_DEVICE_SPEC_BY_ID)
-		ret = btrfs_rm_device(fs_info, NULL, vol_args->devid);
+		ret = btrfs_rm_device(fs_info, NULL, vol_args->devid, &bdev, &mode);
 	else
-		ret = btrfs_rm_device(fs_info, vol_args->name, 0);
+		ret = btrfs_rm_device(fs_info, vol_args->name, 0, &bdev, &mode);
 
 	btrfs_exclop_finish(fs_info);
 
@@ -3258,6 +3260,8 @@ out:
 	kfree(vol_args);
 err_drop:
 	mnt_drop_write_file(file);
+	if (bdev)
+		blkdev_put(bdev, mode);
 	return ret;
 }
 
@@ -3266,6 +3270,8 @@ static long btrfs_ioctl_rm_dev(struct file *file, void __user *arg)
 	struct inode *inode = file_inode(file);
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
 	struct btrfs_ioctl_vol_args *vol_args;
+	struct block_device *bdev = NULL;
+	fmode_t mode;
 	int ret;
 	bool cancel;
 
@@ -3287,7 +3293,7 @@ static long btrfs_ioctl_rm_dev(struct file *file, void __user *arg)
 	ret = exclop_start_or_cancel_reloc(fs_info, BTRFS_EXCLOP_DEV_REMOVE,
 					   cancel);
 	if (ret == 0) {
-		ret = btrfs_rm_device(fs_info, vol_args->name, 0);
+		ret = btrfs_rm_device(fs_info, vol_args->name, 0, &bdev, &mode);
 		if (!ret)
 			btrfs_info(fs_info, "disk deleted %s", vol_args->name);
 		btrfs_exclop_finish(fs_info);
@@ -3296,7 +3302,8 @@ static long btrfs_ioctl_rm_dev(struct file *file, void __user *arg)
 	kfree(vol_args);
 out_drop_write:
 	mnt_drop_write_file(file);
-
+	if (bdev)
+		blkdev_put(bdev, mode);
 	return ret;
 }
 
