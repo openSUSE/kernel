@@ -2466,10 +2466,11 @@ found:
 	nfs_access_free_entry(entry);
 }
 
-void nfs_access_add_cache(struct inode *inode, struct nfs_access_entry *set,
-			  const struct cred *cred)
+void nfs_access_add_cache(struct inode *inode, struct nfs_access_entry *set)
 {
 	struct nfs_access_entry *cache = kmalloc(sizeof(*cache), GFP_KERNEL);
+	struct cred *cred = (void*)set->group_info;
+
 	if (cache == NULL)
 		return;
 	RB_CLEAR_NODE(&cache->rb_node);
@@ -2566,7 +2567,7 @@ static int nfs_do_access(struct inode *inode, const struct cred *cred, int mask)
 		cache.mask |= NFS_ACCESS_DELETE | NFS_ACCESS_LOOKUP;
 	else
 		cache.mask |= NFS_ACCESS_EXECUTE;
-	status = NFS_PROTO(inode)->access(inode, &cache, cred);
+	status = NFS_PROTO(inode)->access(inode, &cache);
 	if (status != 0) {
 		if (status == -ESTALE) {
 			nfs_zap_caches(inode);
@@ -2575,7 +2576,8 @@ static int nfs_do_access(struct inode *inode, const struct cred *cred, int mask)
 		}
 		goto out;
 	}
-	nfs_access_add_cache(inode, &cache, cred);
+	cache.group_info = (void*)cred;
+	nfs_access_add_cache(inode, &cache);
 out_cached:
 	cache_mask = nfs_access_calc_mask(cache.mask, inode->i_mode);
 	if ((mask & ~cache_mask & (MAY_READ | MAY_WRITE | MAY_EXEC)) != 0)
