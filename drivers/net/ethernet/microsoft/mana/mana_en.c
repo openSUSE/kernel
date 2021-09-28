@@ -1787,7 +1787,7 @@ static int mana_probe_port(struct mana_context *ac, int port_idx,
 	if (err)
 		goto free_net;
 
-	netdev_lockdep_set_classes(ndev);
+
 
 	ndev->hw_features = NETIF_F_SG | NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
 	ndev->hw_features |= NETIF_F_RXCSUM;
