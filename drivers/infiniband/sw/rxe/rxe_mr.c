@@ -123,7 +123,6 @@ int rxe_mr_init_user(struct rxe_pd *pd, u64 start, u64 length, u64 iova,
 		goto err_out;
 	}
 
-	mr->umem = umem;
 	num_buf = ib_umem_num_pages(umem);
 
 	rxe_mr_init(access, mr);
