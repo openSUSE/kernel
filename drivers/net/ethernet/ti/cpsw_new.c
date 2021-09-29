@@ -374,7 +374,7 @@ static void cpsw_rx_handler(void *token, int len, int status)
 	skb->protocol = eth_type_trans(skb, ndev);
 
 	/* mark skb for recycling */
-	skb_mark_for_recycle(skb, page, pool);
+	skb_mark_for_recycle(skb);
 	netif_receive_skb(skb);
 
 	ndev->stats.rx_bytes += len;
@@ -893,7 +893,7 @@ static int cpsw_ndo_open(struct net_device *ndev)
 		struct ethtool_coalesce coal;
 
 		coal.rx_coalesce_usecs = cpsw->coal_intvl;
-		cpsw_set_coalesce(ndev, &coal);
+		cpsw_set_coalesce(ndev, &coal, NULL, NULL);
 	}
 
 	cpdma_ctlr_start(cpsw->dma);

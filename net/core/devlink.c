@@ -817,10 +817,11 @@ static int devlink_nl_port_attrs_put(struct sk_buff *msg,
 	return 0;
 }
 
-static int
-devlink_port_fn_hw_addr_fill(struct devlink *devlink, const struct devlink_ops *ops,
-			     struct devlink_port *port, struct sk_buff *msg,
-			     struct netlink_ext_ack *extack, bool *msg_updated)
+static int devlink_port_fn_hw_addr_fill(const struct devlink_ops *ops,
+					struct devlink_port *port,
+					struct sk_buff *msg,
+					struct netlink_ext_ack *extack,
+					bool *msg_updated)
 {
 	u8 hw_addr[MAX_ADDR_LEN];
 	int hw_addr_len;
@@ -829,7 +830,8 @@ devlink_port_fn_hw_addr_fill(struct devlink *devlink, const struct devlink_ops *
 	if (!ops->port_function_hw_addr_get)
 		return 0;
 
-	err = ops->port_function_hw_addr_get(devlink, port, hw_addr, &hw_addr_len, extack);
+	err = ops->port_function_hw_addr_get(port, hw_addr, &hw_addr_len,
+					     extack);
 	if (err) {
 		if (err == -EOPNOTSUPP)
 			return 0;
@@ -906,12 +908,11 @@ devlink_port_fn_opstate_valid(enum devlink_port_fn_opstate opstate)
 	       opstate == DEVLINK_PORT_FN_OPSTATE_ATTACHED;
 }
 
-static int
-devlink_port_fn_state_fill(struct devlink *devlink,
-			   const struct devlink_ops *ops,
-			   struct devlink_port *port, struct sk_buff *msg,
-			   struct netlink_ext_ack *extack,
-			   bool *msg_updated)
+static int devlink_port_fn_state_fill(const struct devlink_ops *ops,
+				      struct devlink_port *port,
+				      struct sk_buff *msg,
+				      struct netlink_ext_ack *extack,
+				      bool *msg_updated)
 {
 	enum devlink_port_fn_opstate opstate;
 	enum devlink_port_fn_state state;
@@ -920,7 +921,7 @@ devlink_port_fn_state_fill(struct devlink *devlink,
 	if (!ops->port_fn_state_get)
 		return 0;
 
-	err = ops->port_fn_state_get(devlink, port, &state, &opstate, extack);
+	err = ops->port_fn_state_get(port, &state, &opstate, extack);
 	if (err) {
 		if (err == -EOPNOTSUPP)
 			return 0;
@@ -948,7 +949,6 @@ static int
 devlink_nl_port_function_attrs_put(struct sk_buff *msg, struct devlink_port *port,
 				   struct netlink_ext_ack *extack)
 {
-	struct devlink *devlink = port->devlink;
 	const struct devlink_ops *ops;
 	struct nlattr *function_attr;
 	bool msg_updated = false;
@@ -958,13 +958,12 @@ devlink_nl_port_function_attrs_put(struct sk_buff *msg, struct devlink_port *por
 	if (!function_attr)
 		return -EMSGSIZE;
 
-	ops = devlink->ops;
-	err = devlink_port_fn_hw_addr_fill(devlink, ops, port, msg,
-					   extack, &msg_updated);
+	ops = port->devlink->ops;
+	err = devlink_port_fn_hw_addr_fill(ops, port, msg, extack,
+					   &msg_updated);
 	if (err)
 		goto out;
-	err = devlink_port_fn_state_fill(devlink, ops, port, msg, extack,
-					 &msg_updated);
+	err = devlink_port_fn_state_fill(ops, port, msg, extack, &msg_updated);
 out:
 	if (err || !msg_updated)
 		nla_nest_cancel(msg, function_attr);
@@ -1282,31 +1281,33 @@ out:
 	return msg->len;
 }
 
-static int devlink_port_type_set(struct devlink *devlink,
-				 struct devlink_port *devlink_port,
+static int devlink_port_type_set(struct devlink_port *devlink_port,
 				 enum devlink_port_type port_type)
 
 {
 	int err;
 
-	if (devlink->ops->port_type_set) {
-		if (port_type == devlink_port->type)
-			return 0;
-		err = devlink->ops->port_type_set(devlink_port, port_type);
-		if (err)
-			return err;
-		devlink_port->desired_type = port_type;
-		devlink_port_notify(devlink_port, DEVLINK_CMD_PORT_NEW);
+	if (devlink_port->devlink->ops->port_type_set)
+		return -EOPNOTSUPP;
+
+	if (port_type == devlink_port->type)
 		return 0;
-	}
-	return -EOPNOTSUPP;
+
+	err = devlink_port->devlink->ops->port_type_set(devlink_port,
+							port_type);
+	if (err)
+		return err;
+
+	devlink_port->desired_type = port_type;
+	devlink_port_notify(devlink_port, DEVLINK_CMD_PORT_NEW);
+	return 0;
 }
 
-static int
-devlink_port_function_hw_addr_set(struct devlink *devlink, struct devlink_port *port,
-				  const struct nlattr *attr, struct netlink_ext_ack *extack)
+static int devlink_port_function_hw_addr_set(struct devlink_port *port,
+					     const struct nlattr *attr,
+					     struct netlink_ext_ack *extack)
 {
-	const struct devlink_ops *ops;
+	const struct devlink_ops *ops = port->devlink->ops;
 	const u8 *hw_addr;
 	int hw_addr_len;
 
@@ -1327,17 +1328,16 @@ devlink_port_function_hw_addr_set(struct devlink *devlink, struct devlink_port *
 		}
 	}
 
-	ops = devlink->ops;
 	if (!ops->port_function_hw_addr_set) {
 		NL_SET_ERR_MSG_MOD(extack, "Port doesn't support function attributes");
 		return -EOPNOTSUPP;
 	}
 
-	return ops->port_function_hw_addr_set(devlink, port, hw_addr, hw_addr_len, extack);
+	return ops->port_function_hw_addr_set(port, hw_addr, hw_addr_len,
+					      extack);
 }
 
-static int devlink_port_fn_state_set(struct devlink *devlink,
-				     struct devlink_port *port,
+static int devlink_port_fn_state_set(struct devlink_port *port,
 				     const struct nlattr *attr,
 				     struct netlink_ext_ack *extack)
 {
@@ -1345,18 +1345,18 @@ static int devlink_port_fn_state_set(struct devlink *devlink,
 	const struct devlink_ops *ops;
 
 	state = nla_get_u8(attr);
-	ops = devlink->ops;
+	ops = port->devlink->ops;
 	if (!ops->port_fn_state_set) {
 		NL_SET_ERR_MSG_MOD(extack,
 				   "Function does not support state setting");
 		return -EOPNOTSUPP;
 	}
-	return ops->port_fn_state_set(devlink, port, state, extack);
+	return ops->port_fn_state_set(port, state, extack);
 }
 
-static int
-devlink_port_function_set(struct devlink *devlink, struct devlink_port *port,
-			  const struct nlattr *attr, struct netlink_ext_ack *extack)
+static int devlink_port_function_set(struct devlink_port *port,
+				     const struct nlattr *attr,
+				     struct netlink_ext_ack *extack)
 {
 	struct nlattr *tb[DEVLINK_PORT_FUNCTION_ATTR_MAX + 1];
 	int err;
@@ -1370,7 +1370,7 @@ devlink_port_function_set(struct devlink *devlink, struct devlink_port *port,
 
 	attr = tb[DEVLINK_PORT_FUNCTION_ATTR_HW_ADDR];
 	if (attr) {
-		err = devlink_port_function_hw_addr_set(devlink, port, attr, extack);
+		err = devlink_port_function_hw_addr_set(port, attr, extack);
 		if (err)
 			return err;
 	}
@@ -1380,7 +1380,7 @@ devlink_port_function_set(struct devlink *devlink, struct devlink_port *port,
 	 */
 	attr = tb[DEVLINK_PORT_FN_ATTR_STATE];
 	if (attr)
-		err = devlink_port_fn_state_set(devlink, port, attr, extack);
+		err = devlink_port_fn_state_set(port, attr, extack);
 
 	if (!err)
 		devlink_port_notify(port, DEVLINK_CMD_PORT_NEW);
@@ -1391,14 +1391,13 @@ static int devlink_nl_cmd_port_set_doit(struct sk_buff *skb,
 					struct genl_info *info)
 {
 	struct devlink_port *devlink_port = info->user_ptr[1];
-	struct devlink *devlink = devlink_port->devlink;
 	int err;
 
 	if (info->attrs[DEVLINK_ATTR_PORT_TYPE]) {
 		enum devlink_port_type port_type;
 
 		port_type = nla_get_u16(info->attrs[DEVLINK_ATTR_PORT_TYPE]);
-		err = devlink_port_type_set(devlink, devlink_port, port_type);
+		err = devlink_port_type_set(devlink_port, port_type);
 		if (err)
 			return err;
 	}
@@ -1407,7 +1406,7 @@ static int devlink_nl_cmd_port_set_doit(struct sk_buff *skb,
 		struct nlattr *attr = info->attrs[DEVLINK_ATTR_PORT_FUNCTION];
 		struct netlink_ext_ack *extack = info->extack;
 
-		err = devlink_port_function_set(devlink, devlink_port, attr, extack);
+		err = devlink_port_function_set(devlink_port, attr, extack);
 		if (err)
 			return err;
 	}
@@ -4290,6 +4289,21 @@ static const struct devlink_param devlink_param_generic[] = {
 		.id = DEVLINK_PARAM_GENERIC_ID_ENABLE_REMOTE_DEV_RESET,
 		.name = DEVLINK_PARAM_GENERIC_ENABLE_REMOTE_DEV_RESET_NAME,
 		.type = DEVLINK_PARAM_GENERIC_ENABLE_REMOTE_DEV_RESET_TYPE,
+	},
+	{
+		.id = DEVLINK_PARAM_GENERIC_ID_ENABLE_ETH,
+		.name = DEVLINK_PARAM_GENERIC_ENABLE_ETH_NAME,
+		.type = DEVLINK_PARAM_GENERIC_ENABLE_ETH_TYPE,
+	},
+	{
+		.id = DEVLINK_PARAM_GENERIC_ID_ENABLE_RDMA,
+		.name = DEVLINK_PARAM_GENERIC_ENABLE_RDMA_NAME,
+		.type = DEVLINK_PARAM_GENERIC_ENABLE_RDMA_TYPE,
+	},
+	{
+		.id = DEVLINK_PARAM_GENERIC_ID_ENABLE_VNET,
+		.name = DEVLINK_PARAM_GENERIC_ENABLE_VNET_NAME,
+		.type = DEVLINK_PARAM_GENERIC_ENABLE_VNET_TYPE,
 	},
 };
 
@@ -9796,6 +9810,22 @@ static int devlink_param_verify(const struct devlink_param *param)
 		return devlink_param_driver_verify(param);
 }
 
+static int __devlink_param_register_one(struct devlink *devlink,
+					unsigned int port_index,
+					struct list_head *param_list,
+					const struct devlink_param *param,
+					enum devlink_command reg_cmd)
+{
+	int err;
+
+	err = devlink_param_verify(param);
+	if (err)
+		return err;
+
+	return devlink_param_register_one(devlink, port_index,
+					  param_list, param, reg_cmd);
+}
+
 static int __devlink_params_register(struct devlink *devlink,
 				     unsigned int port_index,
 				     struct list_head *param_list,
@@ -9810,12 +9840,8 @@ static int __devlink_params_register(struct devlink *devlink,
 
 	mutex_lock(&devlink->lock);
 	for (i = 0; i < params_count; i++, param++) {
-		err = devlink_param_verify(param);
-		if (err)
-			goto rollback;
-
-		err = devlink_param_register_one(devlink, port_index,
-						 param_list, param, reg_cmd);
+		err = __devlink_param_register_one(devlink, port_index,
+						   param_list, param, reg_cmd);
 		if (err)
 			goto rollback;
 	}
@@ -9888,6 +9914,43 @@ void devlink_params_unregister(struct devlink *devlink,
 EXPORT_SYMBOL_GPL(devlink_params_unregister);
 
 /**
+ * devlink_param_register - register one configuration parameter
+ *
+ * @devlink: devlink
+ * @param: one configuration parameter
+ *
+ * Register the configuration parameter supported by the driver.
+ * Return: returns 0 on successful registration or error code otherwise.
+ */
+int devlink_param_register(struct devlink *devlink,
+			   const struct devlink_param *param)
+{
+	int err;
+
+	mutex_lock(&devlink->lock);
+	err = __devlink_param_register_one(devlink, 0, &devlink->param_list,
+					   param, DEVLINK_CMD_PARAM_NEW);
+	mutex_unlock(&devlink->lock);
+	return err;
+}
+EXPORT_SYMBOL_GPL(devlink_param_register);
+
+/**
+ * devlink_param_unregister - unregister one configuration parameter
+ * @devlink: devlink
+ * @param: configuration parameter to unregister
+ */
+void devlink_param_unregister(struct devlink *devlink,
+			      const struct devlink_param *param)
+{
+	mutex_lock(&devlink->lock);
+	devlink_param_unregister_one(devlink, 0, &devlink->param_list, param,
+				     DEVLINK_CMD_PARAM_DEL);
+	mutex_unlock(&devlink->lock);
+}
+EXPORT_SYMBOL_GPL(devlink_param_unregister);
+
+/**
  *	devlink_params_publish - publish configuration parameters
  *
  *	@devlink: devlink
@@ -9928,6 +9991,54 @@ void devlink_params_unpublish(struct devlink *devlink)
 	}
 }
 EXPORT_SYMBOL_GPL(devlink_params_unpublish);
+
+/**
+ * devlink_param_publish - publish one configuration parameter
+ *
+ * @devlink: devlink
+ * @param: one configuration parameter
+ *
+ * Publish previously registered configuration parameter.
+ */
+void devlink_param_publish(struct devlink *devlink,
+			   const struct devlink_param *param)
+{
+	struct devlink_param_item *param_item;
+
+	list_for_each_entry(param_item, &devlink->param_list, list) {
+		if (param_item->param != param || param_item->published)
+			continue;
+		param_item->published = true;
+		devlink_param_notify(devlink, 0, param_item,
+				     DEVLINK_CMD_PARAM_NEW);
+		break;
+	}
+}
+EXPORT_SYMBOL_GPL(devlink_param_publish);
+
+/**
+ * devlink_param_unpublish - unpublish one configuration parameter
+ *
+ * @devlink: devlink
+ * @param: one configuration parameter
+ *
+ * Unpublish previously registered configuration parameter.
+ */
+void devlink_param_unpublish(struct devlink *devlink,
+			     const struct devlink_param *param)
+{
+	struct devlink_param_item *param_item;
+
+	list_for_each_entry(param_item, &devlink->param_list, list) {
+		if (param_item->param != param || !param_item->published)
+			continue;
+		param_item->published = false;
+		devlink_param_notify(devlink, 0, param_item,
+				     DEVLINK_CMD_PARAM_DEL);
+		break;
+	}
+}
+EXPORT_SYMBOL_GPL(devlink_param_unpublish);
 
 /**
  *	devlink_port_params_register - register port configuration parameters

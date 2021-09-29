@@ -2327,7 +2327,7 @@ mvneta_swbm_build_skb(struct mvneta_port *pp, struct page_pool *pool,
 	if (!skb)
 		return ERR_PTR(-ENOMEM);
 
-	skb_mark_for_recycle(skb, virt_to_page(xdp->data), pool);
+	skb_mark_for_recycle(skb);
 
 	skb_reserve(skb, xdp->data - xdp->data_hard_start);
 	skb_put(skb, xdp->data_end - xdp->data);
@@ -2339,10 +2339,6 @@ mvneta_swbm_build_skb(struct mvneta_port *pp, struct page_pool *pool,
 		skb_add_rx_frag(skb, skb_shinfo(skb)->nr_frags,
 				skb_frag_page(frag), skb_frag_off(frag),
 				skb_frag_size(frag), PAGE_SIZE);
-		/* We don't need to reset pp_recycle here. It's already set, so
-		 * just mark fragments for recycling.
-		 */
-		page_pool_store_mem_info(skb_frag_page(frag), pool);
 	}
 
 	return skb;
@@ -4496,8 +4492,11 @@ static int mvneta_ethtool_nway_reset(struct net_device *dev)
 }
 
 /* Set interrupt coalescing for ethtools */
-static int mvneta_ethtool_set_coalesce(struct net_device *dev,
-				       struct ethtool_coalesce *c)
+static int
+mvneta_ethtool_set_coalesce(struct net_device *dev,
+			    struct ethtool_coalesce *c,
+			    struct kernel_ethtool_coalesce *kernel_coal,
+			    struct netlink_ext_ack *extack)
 {
 	struct mvneta_port *pp = netdev_priv(dev);
 	int queue;
@@ -4520,8 +4519,11 @@ static int mvneta_ethtool_set_coalesce(struct net_device *dev,
 }
 
 /* get coalescing for ethtools */
-static int mvneta_ethtool_get_coalesce(struct net_device *dev,
-				       struct ethtool_coalesce *c)
+static int
+mvneta_ethtool_get_coalesce(struct net_device *dev,
+			    struct ethtool_coalesce *c,
+			    struct kernel_ethtool_coalesce *kernel_coal,
+			    struct netlink_ext_ack *extack)
 {
 	struct mvneta_port *pp = netdev_priv(dev);
 
