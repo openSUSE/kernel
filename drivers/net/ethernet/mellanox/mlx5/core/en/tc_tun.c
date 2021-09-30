@@ -104,6 +104,11 @@ static int mlx5e_route_lookup_ipv4(struct mlx5e_priv *priv,
 	if (IS_ERR(rt))
 		return PTR_ERR(rt);
 
+	if (rt->rt_type != RTN_UNICAST) {
+		ip_rt_put(rt);
+		return -ENETUNREACH;
+	}
+
 	if (mlx5_lag_is_multipath(mdev) && rt->rt_gw_family != AF_INET) {
 		ip_rt_put(rt);
 		return -ENETUNREACH;

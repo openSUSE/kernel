@@ -143,6 +143,12 @@ struct scsi_cmnd {
 	unsigned int extra_len;	/* length of alignment and padding */
 };
 
+/* Variant of blk_mq_rq_from_pdu() that verifies the type of its argument. */
+static inline struct request *scsi_cmd_to_rq(struct scsi_cmnd *scmd)
+{
+       return blk_mq_rq_from_pdu(scmd);
+}
+
 /*
  * Return the driver private allocation behind the command.
  * Only works if cmd_size is set in the host template.
@@ -214,6 +220,13 @@ static inline int scsi_sg_copy_to_buffer(struct scsi_cmnd *cmd,
 {
 	return sg_copy_to_buffer(scsi_sglist(cmd), scsi_sg_count(cmd),
 				 buf, buflen);
+}
+
+static inline unsigned int scsi_logical_block_count(struct scsi_cmnd *scmd)
+{
+	unsigned int shift = ilog2(scmd->device->sector_size) - SECTOR_SHIFT;
+
+	return blk_rq_bytes(scsi_cmd_to_rq(scmd)) >> shift;
 }
 
 /*
