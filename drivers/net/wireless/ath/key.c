@@ -581,7 +581,7 @@ EXPORT_SYMBOL(ath_key_config);
 /*
  * Delete Key.
  */
-void ath_key_delete(struct ath_common *common, u8 hw_key_idx)
+void __ath_key_delete(struct ath_common *common, u8 hw_key_idx)
 {
 	/* Leave CCMP and TKIP (main key) configured to avoid disabling
 	 * encryption for potentially pending frames already in a TXQ with the
@@ -614,5 +614,13 @@ void ath_key_delete(struct ath_common *common, u8 hw_key_idx)
 		clear_bit(hw_key_idx + 32, common->tkip_keymap);
 		clear_bit(hw_key_idx + 64 + 32, common->tkip_keymap);
 	}
+}
+EXPORT_SYMBOL(__ath_key_delete);
+
+/* XXX kABI compatibility */
+#undef ath_key_delete
+void ath_key_delete(struct ath_common *common, struct ieee80211_key_conf *key)
+{
+	__ath_key_delete(common, key->hw_key_idx);
 }
 EXPORT_SYMBOL(ath_key_delete);
