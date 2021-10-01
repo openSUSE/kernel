@@ -2567,6 +2567,7 @@ static int nfs_do_access(struct inode *inode, const struct cred *cred, int mask)
 		cache.mask |= NFS_ACCESS_DELETE | NFS_ACCESS_LOOKUP;
 	else
 		cache.mask |= NFS_ACCESS_EXECUTE;
+	cache.group_info = (void*)cred;
 	status = NFS_PROTO(inode)->access(inode, &cache);
 	if (status != 0) {
 		if (status == -ESTALE) {
@@ -2576,7 +2577,6 @@ static int nfs_do_access(struct inode *inode, const struct cred *cred, int mask)
 		}
 		goto out;
 	}
-	cache.group_info = (void*)cred;
 	nfs_access_add_cache(inode, &cache);
 out_cached:
 	cache_mask = nfs_access_calc_mask(cache.mask, inode->i_mode);
