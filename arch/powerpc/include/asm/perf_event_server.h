@@ -69,6 +69,7 @@ struct power_pmu {
 #define PPMU_HAS_SIER		0x00000040 /* Has SIER */
 #define PPMU_ARCH_207S		0x00000080 /* PMC is architecture v2.07S */
 #define PPMU_NO_SIAR		0x00000100 /* Do not use SIAR */
+#define PPMU_P10_DD1		0          /* P10 not supported, ignore */
 
 /*
  * Values for flags to get_alternatives()
