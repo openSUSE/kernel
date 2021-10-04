@@ -1103,7 +1103,7 @@ xfs_validate_stripe_geometry(
 		return false;
 	}
 
-	if (sunit > swidth) {
+	if (swidth && sunit > swidth) {
 		if (!silent)
 			xfs_notice(mp,
 "stripe unit (%lld) is larger than the stripe width (%lld)", sunit, swidth);
@@ -1115,13 +1115,6 @@ xfs_validate_stripe_geometry(
 			xfs_notice(mp,
 "stripe unit (%lld) must be a multiple of the sector size (%d)",
 				   sunit, sectorsize);
-		return false;
-	}
-
-	if (sunit && !swidth) {
-		if (!silent)
-			xfs_notice(mp,
-"invalid stripe unit (%lld) and stripe width of 0", sunit);
 		return false;
 	}
 

@@ -1301,7 +1301,8 @@ xfs_fs_parse_param(
 
 static int
 xfs_fs_validate_params(
-	struct xfs_mount	*mp)
+	struct xfs_mount	*mp,
+	struct xfs_sb		*sb)
 {
 	/*
 	 * no recovery flag requires a read-only mount
@@ -1327,7 +1328,8 @@ xfs_fs_validate_params(
 	if ((mp->m_dalign && !mp->m_swidth) ||
 	    (!mp->m_dalign && mp->m_swidth)) {
 		xfs_warn(mp, "sunit and swidth must be specified together");
-		return -EINVAL;
+		if (!sb->sb_unit)
+			return -EINVAL;
 	}
 
 	if (mp->m_dalign && (mp->m_swidth % mp->m_dalign != 0)) {
@@ -1379,7 +1381,7 @@ xfs_fs_fill_super(
 
 	mp->m_super = sb;
 
-	error = xfs_fs_validate_params(mp);
+	error = xfs_fs_validate_params(mp, &mp->m_sb);
 	if (error)
 		goto out_free_names;
 
@@ -1775,7 +1777,7 @@ xfs_fs_reconfigure(
 	if (XFS_SB_VERSION_NUM(&mp->m_sb) == XFS_SB_VERSION_5)
 		fc->sb_flags |= SB_I_VERSION;
 
-	error = xfs_fs_validate_params(new_mp);
+	error = xfs_fs_validate_params(new_mp, sbp);
 	if (error)
 		return error;
 
