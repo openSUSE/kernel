@@ -191,8 +191,12 @@ struct blk_mq_hw_ctx {
 struct blk_mq_queue_map {
 	unsigned int *mq_map;
 	unsigned int nr_queues;
+#ifndef __GENKSYMS__
 	unsigned int queue_offset:31;
 	unsigned int use_managed_irq:1;
+#else
+	unsigned int queue_offset;
+#endif
 };
 
 /**
