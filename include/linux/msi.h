@@ -20,9 +20,14 @@ struct platform_msi_priv_data;
 void __get_cached_msi_msg(struct msi_desc *entry, struct msi_msg *msg);
 #ifdef CONFIG_GENERIC_MSI_IRQ
 void get_cached_msi_msg(unsigned int irq, struct msi_msg *msg);
+bool device_has_managed_msi_irq(struct device *dev);
 #else
 static inline void get_cached_msi_msg(unsigned int irq, struct msi_msg *msg)
 {
+}
+static inline bool device_has_managed_msi_irq(struct device *dev)
+{
+	return false;
 }
 #endif
 
