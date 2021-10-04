@@ -7,7 +7,9 @@
 #include <linux/blk-mq-virtio.h>
 #include <linux/virtio_config.h>
 #include <linux/module.h>
+#ifndef __GENKSYMS__
 #include <linux/msi.h>
+#endif
 #include "blk-mq.h"
 
 /**

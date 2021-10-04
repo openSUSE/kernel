@@ -8,7 +8,9 @@
 #include <linux/blk-mq-pci.h>
 #include <linux/pci.h>
 #include <linux/module.h>
+#ifndef __GENKSYMS__
 #include <linux/msi.h>
+#endif
 
 #include "blk-mq.h"
 
