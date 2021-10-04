@@ -7,6 +7,7 @@
 #include <linux/blk-mq-virtio.h>
 #include <linux/virtio_config.h>
 #include <linux/module.h>
+#include <linux/msi.h>
 #include "blk-mq.h"
 
 /**
@@ -38,6 +39,7 @@ int blk_mq_virtio_map_queues(struct blk_mq_queue_map *qmap,
 		for_each_cpu(cpu, mask)
 			qmap->mq_map[cpu] = qmap->queue_offset + queue;
 	}
+	qmap->use_managed_irq = device_has_managed_msi_irq(&vdev->dev);
 
 	return 0;
 fallback:
