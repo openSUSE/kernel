@@ -557,6 +557,7 @@ struct lpfc_pc_sli4_params {
 	uint16_t mi_value;
 #define LPFC_DFLT_MIB_VAL	2
 	uint8_t mib_bde_cnt;
+	uint8_t cmf;
 	uint8_t cqv;
 	uint8_t mqv;
 	uint8_t wqv;
@@ -1115,6 +1116,8 @@ void lpfc_sli4_fcf_redisc_event_proc(struct lpfc_hba *);
 int lpfc_sli4_resume_rpi(struct lpfc_nodelist *,
 			void (*)(struct lpfc_hba *, LPFC_MBOXQ_t *), void *);
 void lpfc_sli4_els_xri_abort_event_proc(struct lpfc_hba *phba);
+void lpfc_sli4_nvme_pci_offline_aborted(struct lpfc_hba *phba,
+					struct lpfc_io_buf *lpfc_ncmd);
 void lpfc_sli4_nvme_xri_aborted(struct lpfc_hba *phba,
 				struct sli4_wcqe_xri_aborted *axri,
 				struct lpfc_io_buf *lpfc_ncmd);
