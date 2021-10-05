@@ -8,6 +8,9 @@
 #include <linux/blk-mq-pci.h>
 #include <linux/pci.h>
 #include <linux/module.h>
+#ifndef __GENKSYMS__
+#include <linux/msi.h>
+#endif
 
 #include "blk-mq.h"
 
@@ -37,6 +40,7 @@ int blk_mq_pci_map_queues(struct blk_mq_queue_map *qmap, struct pci_dev *pdev,
 		for_each_cpu(cpu, mask)
 			qmap->mq_map[cpu] = qmap->queue_offset + queue;
 	}
+	qmap->use_managed_irq = device_has_managed_msi_irq(&pdev->dev);
 
 	return 0;
 
