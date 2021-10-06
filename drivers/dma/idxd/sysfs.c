@@ -124,17 +124,11 @@ static void idxd_config_bus_remove(struct device *dev)
 	}
 }
 
-static void idxd_config_bus_shutdown(struct device *dev)
-{
-	dev_dbg(dev, "%s called\n", __func__);
-}
-
 struct bus_type dsa_bus_type = {
 	.name = "dsa",
 	.match = idxd_config_bus_match,
 	.probe = idxd_config_bus_probe,
 	.remove = idxd_config_bus_remove,
-	.shutdown = idxd_config_bus_shutdown,
 };
 
 static struct idxd_device_driver dsa_drv = {
