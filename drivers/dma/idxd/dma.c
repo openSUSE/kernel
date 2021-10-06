@@ -243,7 +243,7 @@ int idxd_register_dma_channel(struct idxd_wq *wq)
 
 	wq->idxd_chan = idxd_chan;
 	idxd_chan->wq = wq;
-	get_device(&wq->conf_dev);
+	get_device(wq_confdev(wq));
 
 	return 0;
 }
@@ -258,5 +258,5 @@ void idxd_unregister_dma_channel(struct idxd_wq *wq)
 	list_del(&chan->device_node);
 	kfree(wq->idxd_chan);
 	wq->idxd_chan = NULL;
-	put_device(&wq->conf_dev);
+	put_device(wq_confdev(wq));
 }
