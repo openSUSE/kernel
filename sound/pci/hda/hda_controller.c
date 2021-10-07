@@ -25,7 +25,9 @@
 #include <sound/core.h>
 #include <sound/initval.h>
 #include "hda_controller.h"
+#ifndef __GENKSYMS__
 #include "hda_local.h"
+#endif
 
 #define CREATE_TRACE_POINTS
 #include "hda_controller_trace.h"

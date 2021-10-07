@@ -225,7 +225,6 @@ struct hda_codec {
 #endif
 
 	/* misc flags */
-	unsigned int configured:1; /* codec was configured */
 	unsigned int in_freeing:1; /* being released */
 	unsigned int registered:1; /* codec was registered */
 	unsigned int display_power_control:1; /* needs display power */
@@ -256,6 +255,9 @@ struct hda_codec {
 	unsigned int relaxed_resume:1;	/* don't resume forcibly for jack */
 	unsigned int forced_resume:1; /* forced resume for jack */
 	unsigned int mst_no_extra_pcms:1; /* no backup PCMs for DP-MST */
+#ifndef __GENKSYMS__
+	unsigned int configured:1; /* codec was configured */
+#endif
 
 #ifdef CONFIG_PM
 	unsigned long power_on_acct;
