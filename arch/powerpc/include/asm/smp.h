@@ -31,6 +31,7 @@ extern u32 *cpu_to_phys_id;
 extern bool coregroup_enabled;
 
 extern int cpu_to_chip_id(int cpu);
+extern int *chip_id_lookup_table;
 
 DECLARE_PER_CPU(cpumask_var_t, thread_group_l1_cache_map);
 DECLARE_PER_CPU(cpumask_var_t, thread_group_l2_cache_map);
