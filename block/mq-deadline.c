@@ -494,7 +494,7 @@ static void dd_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 	 */
 	blk_req_zone_write_unlock(rq);
 
-	if (blk_mq_sched_try_insert_merge(q, rq, &free)) {
+	if (blk_mq_sched_try_insert_merge_list(q, rq, &free)) {
 		blk_mq_free_requests(&free);
 		return;
 	}
