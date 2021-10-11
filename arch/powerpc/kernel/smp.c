@@ -1107,6 +1107,20 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 				cpu_smallcore_mask(boot_cpuid));
 	}
 
+	if (cpu_to_chip_id(boot_cpuid) != -1) {
+		int idx = DIV_ROUND_UP(num_possible_cpus(), threads_per_core);
+
+		/*
+		 * All threads of a core will all belong to the same core,
+		 * chip_id_lookup_table will have one entry per core.
+		 * Assumption: if boot_cpuid doesn't have a chip-id, then no
+		 * other CPUs, will also not have chip-id.
+		 */
+		chip_id_lookup_table = kcalloc(idx, sizeof(int), GFP_KERNEL);
+		if (chip_id_lookup_table)
+			memset(chip_id_lookup_table, -1, sizeof(int) * idx);
+	}
+
 	if (smp_ops && smp_ops->probe)
 		smp_ops->probe();
 }
@@ -1385,7 +1399,7 @@ static bool update_mask_by_l2(int cpu, cpumask_var_t *mask)
 	l2_cache = cpu_to_l2cache(cpu);
 	if (!l2_cache || !*mask) {
 		/* Assume only core siblings share cache with this CPU */
-		for_each_cpu(i, submask_fn(cpu))
+		for_each_cpu(i, cpu_sibling_mask(cpu))
 			set_cpus_related(cpu, i, cpu_l2_cache_mask);
 
 		return false;
@@ -1426,6 +1440,8 @@ static void remove_cpu_from_masks(int cpu)
 {
 	struct cpumask *(*mask_fn)(int) = cpu_sibling_mask;
 	int i;
+
+	unmap_cpu_from_node(cpu);
 
 	if (shared_caches)
 		mask_fn = cpu_l2_cache_mask;
@@ -1502,8 +1518,8 @@ static void add_cpu_to_masks(int cpu)
 {
 	struct cpumask *(*submask_fn)(int) = cpu_sibling_mask;
 	int first_thread = cpu_first_thread_sibling(cpu);
-	int chip_id = cpu_to_chip_id(cpu);
 	cpumask_var_t mask;
+	int chip_id = -1;
 	bool ret;
 	int i;
 
@@ -1511,7 +1527,9 @@ static void add_cpu_to_masks(int cpu)
 	 * This CPU will not be in the online mask yet so we need to manually
 	 * add it to it's own thread sibling mask.
 	 */
+	map_cpu_to_node(cpu, cpu_to_node(cpu));
 	cpumask_set_cpu(cpu, cpu_sibling_mask(cpu));
+	cpumask_set_cpu(cpu, cpu_core_mask(cpu));
 
 	for (i = first_thread; i < first_thread + threads_per_core; i++)
 		if (cpu_online(i))
@@ -1526,10 +1544,8 @@ static void add_cpu_to_masks(int cpu)
 	if (has_coregroup_support())
 		update_coregroup_mask(cpu, &mask);
 
-	if (chip_id == -1 || !ret) {
-		cpumask_copy(per_cpu(cpu_core_map, cpu), cpu_cpu_mask(cpu));
-		goto out;
-	}
+	if (chip_id_lookup_table && ret)
+		chip_id = cpu_to_chip_id(cpu);
 
 	if (shared_caches)
 		submask_fn = cpu_l2_cache_mask;
@@ -1540,6 +1556,10 @@ static void add_cpu_to_masks(int cpu)
 	/* Skip all CPUs already part of current CPU core mask */
 	cpumask_andnot(mask, cpu_online_mask, cpu_core_mask(cpu));
 
+	/* If chip_id is -1; limit the cpu_core_mask to within DIE*/
+	if (chip_id == -1)
+		cpumask_and(mask, mask, cpu_cpu_mask(cpu));
+
 	for_each_cpu(i, mask) {
 		if (chip_id == cpu_to_chip_id(i)) {
 			or_cpumasks_related(cpu, i, submask_fn, cpu_core_mask);
@@ -1549,7 +1569,6 @@ static void add_cpu_to_masks(int cpu)
 		}
 	}
 
-out:
 	free_cpumask_var(mask);
 }
 
@@ -1579,6 +1598,9 @@ void start_secondary(void *unused)
 
 	vdso_getcpu_init();
 #endif
+	set_numa_node(numa_cpu_lookup_table[cpu]);
+	set_numa_mem(local_memory_node(numa_cpu_lookup_table[cpu]));
+
 	/* Update topology CPU masks */
 	add_cpu_to_masks(cpu);
 
@@ -1596,9 +1618,6 @@ void start_secondary(void *unused)
 		if (cpumask_weight(mask) > cpumask_weight(sibling_mask(cpu)))
 			shared_caches = true;
 	}
-
-	set_numa_node(numa_cpu_lookup_table[cpu]);
-	set_numa_mem(local_memory_node(numa_cpu_lookup_table[cpu]));
 
 	smp_wmb();
 	notify_cpu_starting(cpu);
@@ -1704,8 +1723,10 @@ void __cpu_die(unsigned int cpu)
 		smp_ops->cpu_die(cpu);
 }
 
-void cpu_die(void)
+void arch_cpu_idle_dead(void)
 {
+	sched_preempt_enable_no_resched();
+
 	/*
 	 * Disable on the down path. This will be re-enabled by
 	 * start_secondary() via start_secondary_resume() below
