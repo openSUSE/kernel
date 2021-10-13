@@ -33,6 +33,7 @@
 #define EMIT(instr)		PLANT_INSTR(image, ctx->idx, instr)
 
 #define PPC_NOP()		EMIT(PPC_INST_NOP)
+#define PPC_SYNC()		EMIT(PPC_INST_SYNC)
 #define PPC_BLR()		EMIT(PPC_INST_BLR)
 #define PPC_BLRL()		EMIT(PPC_INST_BLRL)
 #define PPC_MTLR(r)		EMIT(PPC_INST_MTLR | ___PPC_RT(r))
