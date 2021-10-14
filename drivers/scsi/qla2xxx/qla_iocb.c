@@ -1553,6 +1553,9 @@ qla24xx_start_scsi(srb_t *sp)
 	struct scsi_qla_host *vha = sp->vha;
 	struct qla_hw_data *ha = vha->hw;
 
+	if (sp->fcport->edif.enable  && (sp->fcport->flags & FCF_FCSP_DEVICE))
+		return qla28xx_start_scsi_edif(sp);
+
 	/* Setup device pointers. */
 	req = vha->req;
 	rsp = req->rsp;
@@ -1911,7 +1914,7 @@ qla2xxx_start_scsi_mq(srb_t *sp)
 	struct qla_hw_data *ha = vha->hw;
 	struct qla_qpair *qpair = sp->qpair;
 
-	if (sp->fcport->edif.enable)
+	if (sp->fcport->edif.enable && (sp->fcport->flags & FCF_FCSP_DEVICE))
 		return qla28xx_start_scsi_edif(sp);
 
 	/* Acquire qpair specific lock */
