@@ -302,6 +302,10 @@ static int pseries_eeh_init(void)
 	if (is_kdump_kernel() || reset_devices) {
 		pr_info("Issue PHB reset ...\n");
 		list_for_each_entry(phb, &hose_list, list_node) {
+			// Skip if the slot is empty
+			if (list_empty(&PCI_DN(phb->dn)->child_list))
+				continue;
+
 			pdn = list_first_entry(&PCI_DN(phb->dn)->child_list, struct pci_dn, list);
 			addr = (pdn->busno << 16) | (pdn->devfn << 8);
 			config_addr = pseries_eeh_get_config_addr(phb, addr);
