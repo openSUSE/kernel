@@ -28,7 +28,7 @@ int probe_user_read_inst(struct ppc_inst *inst,
 }
 
 int probe_kernel_read_inst(struct ppc_inst *inst,
-			   struct ppc_inst *src)
+			   u32 *src)
 {
 	unsigned int val, suffix;
 	int err;
@@ -37,7 +37,7 @@ int probe_kernel_read_inst(struct ppc_inst *inst,
 	if (err)
 		return err;
 	if (get_op(val) == OP_PREFIX) {
-		err = probe_kernel_read(&suffix, (void *)src + 4, 4);
+		err = probe_kernel_read(&suffix, src + 1, sizeof(suffix));
 		*inst = ppc_inst_prefix(val, suffix);
 	} else {
 		*inst = ppc_inst(val);
