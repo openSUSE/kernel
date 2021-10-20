@@ -546,31 +546,47 @@ qla_edif_app_start(scsi_qla_host_t *vha, struct bsg_job *bsg_job)
 		     __func__);
 	}
 
-	list_for_each_entry_safe(fcport, tf, &vha->vp_fcports, list) {
-		ql_dbg(ql_dbg_edif, vha, 0xf084,
-		    "%s: sess %p %8phC lid %#04x s_id %06x logout %d\n",
-		    __func__, fcport, fcport->port_name,
-		    fcport->loop_id, fcport->d_id.b24,
-		    fcport->logout_on_delete);
+	if (N2N_TOPO(vha->hw)) {
+		if (vha->hw->flags.n2n_fw_acc_sec)
+			set_bit(N2N_LINK_RESET, &vha->dpc_flags);
+		else
+			set_bit(ISP_ABORT_NEEDED, &vha->dpc_flags);
+		qla2xxx_wake_dpc(vha);
+	} else {
+		list_for_each_entry_safe(fcport, tf, &vha->vp_fcports, list) {
+			ql_dbg(ql_dbg_edif, vha, 0xf084,
+			       "%s: sess %p %8phC lid %#04x s_id %06x logout %d\n",
+			       __func__, fcport, fcport->port_name,
+			       fcport->loop_id, fcport->d_id.b24,
+			       fcport->logout_on_delete);
 
-		ql_dbg(ql_dbg_edif, vha, 0xf084,
-		    "keep %d els_logo %d disc state %d auth state %d stop state %d\n",
-		    fcport->keep_nport_handle,
-		    fcport->send_els_logo, fcport->disc_state,
-		    fcport->edif.auth_state, fcport->edif.app_stop);
+			ql_dbg(ql_dbg_edif, vha, 0xf084,
+			       "keep %d els_logo %d disc state %d auth state %d stop state %d\n",
+			       fcport->keep_nport_handle,
+			       fcport->send_els_logo, fcport->disc_state,
+			       fcport->edif.auth_state, fcport->edif.app_stop);
 
-		if (atomic_read(&vha->loop_state) == LOOP_DOWN)
-			break;
+			if (atomic_read(&vha->loop_state) == LOOP_DOWN)
+				break;
+			if (!(fcport->flags & FCF_FCSP_DEVICE))
+				continue;
 
-		fcport->edif.app_started = 1;
-		fcport->edif.app_stop = 0;
+			fcport->edif.app_started = 1;
+			if (fcport->edif.app_stop ||
+			    (fcport->disc_state != DSC_LOGIN_COMPLETE &&
+			     fcport->disc_state != DSC_LOGIN_PEND &&
+			     fcport->disc_state != DSC_DELETED)) {
+				/* no activity */
+				fcport->edif.app_stop = 0;
 
-		ql_dbg(ql_dbg_edif, vha, 0x911e,
-		    "%s wwpn %8phC calling qla_edif_reset_auth_wait\n",
-		    __func__, fcport->port_name);
-		fcport->edif.app_sess_online = 1;
-		qla_edif_reset_auth_wait(fcport, DSC_LOGIN_PEND, 0);
-		qla_edif_sa_ctl_init(vha, fcport);
+				ql_dbg(ql_dbg_edif, vha, 0x911e,
+				       "%s wwpn %8phC calling qla_edif_reset_auth_wait\n",
+				       __func__, fcport->port_name);
+				fcport->edif.app_sess_online = 1;
+				qla_edif_reset_auth_wait(fcport, DSC_LOGIN_PEND, 0);
+			}
+			qla_edif_sa_ctl_init(vha, fcport);
+		}
 	}
 
 	if (vha->pur_cinfo.enode_flags != ENODE_ACTIVE) {
@@ -612,7 +628,6 @@ qla_edif_app_start(scsi_qla_host_t *vha, struct bsg_job *bsg_job)
 static int
 qla_edif_app_stop(scsi_qla_host_t *vha, struct bsg_job *bsg_job)
 {
-	int32_t                 rval = 0;
 	struct app_stop         appstop;
 	struct fc_bsg_reply     *bsg_reply = bsg_job->reply;
 	struct fc_port  *fcport, *tf;
@@ -631,7 +646,7 @@ qla_edif_app_stop(scsi_qla_host_t *vha, struct bsg_job *bsg_job)
 	qla_edb_stop(vha);          /* stop db */
 
 	list_for_each_entry_safe(fcport, tf, &vha->vp_fcports, list) {
-		if (fcport->edif.non_secured_login)
+		if (!(fcport->flags & FCF_FCSP_DEVICE))
 			continue;
 
 		if (fcport->flags & FCF_FCSP_DEVICE) {
@@ -663,7 +678,7 @@ qla_edif_app_stop(scsi_qla_host_t *vha, struct bsg_job *bsg_job)
 
 	/* no return interface to app - it assumes we cleaned up ok */
 
-	return rval;
+	return 0;
 }
 
 static int
@@ -763,6 +778,7 @@ qla_edif_app_authok(scsi_qla_host_t *vha, struct bsg_job *bsg_job)
 
 	SET_DID_STATUS(bsg_reply->result, DID_OK);
 	appplogireply.prli_status = 1;
+	fcport->edif.authok = 1;
 	if (!(fcport->edif.rx_sa_set && fcport->edif.tx_sa_set)) {
 		ql_dbg(ql_dbg_edif, vha, 0x911e,
 		    "%s: wwpn %8phC Both SA indexes has not been SET TX %d, RX %d.\n",
@@ -929,8 +945,9 @@ qla_edif_app_getfcinfo(scsi_qla_host_t *vha, struct bsg_job *bsg_job)
 			app_reply->ports[pcnt].remote_pid = fcport->d_id;
 
 			ql_dbg(ql_dbg_edif, vha, 0x2058,
-			    "Found FC_SP fcport - nn %8phN pn %8phN pcnt %d portid=%06x\n",
-			    fcport->node_name, fcport->port_name, pcnt, fcport->d_id.b24);
+			    "Found FC_SP fcport - nn %8phN pn %8phN pcnt %d portid=%06x secure %d.\n",
+			    fcport->node_name, fcport->port_name, pcnt,
+			    fcport->d_id.b24, fcport->flags & FCF_FCSP_DEVICE);
 
 			switch (fcport->edif.auth_state) {
 			case VND_CMD_AUTH_STATE_ELS_RCVD:
@@ -2012,6 +2029,33 @@ qla_edb_getnext(scsi_qla_host_t *vha)
 	return edbnode;
 }
 
+void
+qla_edif_timer(scsi_qla_host_t *vha)
+{
+	struct qla_hw_data *ha = vha->hw;
+
+	if (!vha->vp_idx && N2N_TOPO(ha) && ha->flags.n2n_fw_acc_sec) {
+		if (vha->e_dbell.db_flags != EDB_ACTIVE &&
+		    ha->edif_post_stop_cnt_down) {
+			ha->edif_post_stop_cnt_down--;
+
+			/*
+			 * turn off auto 'Plogi Acc + secure=1' feature
+			 * Set Add FW option[3]
+			 * BIT_15, if.
+			 */
+			if (ha->edif_post_stop_cnt_down == 0) {
+				ql_dbg(ql_dbg_async, vha, 0x911d,
+				       "%s chip reset to turn off PLOGI ACC + secure\n",
+				       __func__);
+				set_bit(ISP_ABORT_NEEDED, &vha->dpc_flags);
+			}
+		} else {
+			ha->edif_post_stop_cnt_down = 60;
+		}
+	}
+}
+
 /*
  * app uses separate thread to read this. It'll wait until the doorbell
  * is rung by the driver or the max wait time has expired
@@ -2376,7 +2420,7 @@ void qla24xx_auth_els(scsi_qla_host_t *vha, void **pkt, struct rsp_que **rsp)
 	fcport = qla2x00_find_fcport_by_pid(host, &purex->pur_info.pur_sid);
 
 	if (host->e_dbell.db_flags != EDB_ACTIVE ||
-	    (fcport && fcport->loop_id == FC_NO_LOOP_ID)) {
+	    (fcport && EDIF_SESSION_DOWN(fcport))) {
 		ql_dbg(ql_dbg_edif, host, 0x0910c, "%s e_dbell.db_flags =%x %06x\n",
 		    __func__, host->e_dbell.db_flags,
 		    fcport ? fcport->d_id.b24 : 0);
@@ -2674,6 +2718,14 @@ qla28xx_sa_update_iocb_entry(scsi_qla_host_t *v, struct req_que *req,
 		    __func__, pkt->sa_index, nport_handle);
 		qla_edif_sadb_delete_sa_index(sp->fcport, nport_handle,
 		    le16_to_cpu(pkt->sa_index));
+		switch (le16_to_cpu(pkt->u.comp_sts)) {
+		case CS_PORT_EDIF_UNAVAIL:
+		case CS_PORT_EDIF_LOGOUT:
+			qlt_schedule_sess_for_deletion(sp->fcport);
+			break;
+		default:
+			break;
+		}
 	}
 
 	sp->done(sp, 0);

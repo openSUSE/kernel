@@ -865,6 +865,7 @@ blk_status_t nvme_setup_cmd(struct nvme_ns *ns, struct request *req,
 		struct nvme_command *cmd)
 {
 	blk_status_t ret = BLK_STS_OK;
+	struct nvme_ctrl *ctrl = nvme_req(req)->ctrl;
 
 	if (!(req->rq_flags & RQF_DONTPREP))
 		nvme_clear_nvme_request(req);
@@ -911,7 +912,8 @@ blk_status_t nvme_setup_cmd(struct nvme_ns *ns, struct request *req,
 		return BLK_STS_IOERR;
 	}
 
-	nvme_req(req)->genctr++;
+	if (!(ctrl->quirks & NVME_QUIRK_SKIP_CID_GEN))
+		nvme_req(req)->genctr++;
 	cmd->common.command_id = nvme_cid(req);
 	trace_nvme_setup_cmd(req, cmd);
 	return ret;
