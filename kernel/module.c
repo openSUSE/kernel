@@ -4559,8 +4559,10 @@ static void cfi_init(struct module *mod)
 	/* Fix init/exit functions to point to the CFI jump table */
 	if (init)
 		mod->init = *init;
+#ifdef CONFIG_MODULE_UNLOAD
 	if (exit)
 		mod->exit = *exit;
+#endif
 
 	cfi_module_add(mod, module_addr_min);
 #endif
