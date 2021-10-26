@@ -72,6 +72,24 @@ error:
 	return off ?: PCI_VPD_SZ_INVALID;
 }
 
+static bool pci_vpd_available(struct pci_dev *dev)
+{
+	struct pci_vpd *vpd = &dev->vpd;
+
+	if (!vpd->cap)
+		return false;
+
+	if (vpd->len == 0) {
+		vpd->len = pci_vpd_size(dev);
+		if (vpd->len == PCI_VPD_SZ_INVALID) {
+			vpd->cap = 0;
+			return false;
+		}
+	}
+
+	return true;
+}
+
 /*
  * Wait for last operation to complete.
  * This code has to spin since there is no other notification from the PCI
@@ -118,7 +136,7 @@ static ssize_t pci_vpd_read(struct pci_dev *dev, loff_t pos, size_t count,
 	loff_t end = pos + count;
 	u8 *buf = arg;
 
-	if (!vpd->cap)
+	if (!pci_vpd_available(dev))
 		return -ENODEV;
 
 	if (pos < 0)
@@ -179,7 +197,7 @@ static ssize_t pci_vpd_write(struct pci_dev *dev, loff_t pos, size_t count,
 	loff_t end = pos + count;
 	int ret = 0;
 
-	if (!vpd->cap)
+	if (!pci_vpd_available(dev))
 		return -ENODEV;
 
 	if (pos < 0 || (pos & 3) || (count & 3))
@@ -220,14 +238,11 @@ static ssize_t pci_vpd_write(struct pci_dev *dev, loff_t pos, size_t count,
 
 void pci_vpd_init(struct pci_dev *dev)
 {
+	if (dev->vpd.len == PCI_VPD_SZ_INVALID)
+		return;
+
 	dev->vpd.cap = pci_find_capability(dev, PCI_CAP_ID_VPD);
 	mutex_init(&dev->vpd.lock);
-
-	if (!dev->vpd.len)
-		dev->vpd.len = pci_vpd_size(dev);
-
-	if (dev->vpd.len == PCI_VPD_SZ_INVALID)
-		dev->vpd.cap = 0;
 }
 
 static ssize_t vpd_read(struct file *filp, struct kobject *kobj,
@@ -269,6 +284,33 @@ const struct attribute_group pci_dev_vpd_attr_group = {
 	.bin_attrs = vpd_attrs,
 	.is_bin_visible = vpd_attr_is_visible,
 };
+
+void *pci_vpd_alloc(struct pci_dev *dev, unsigned int *size)
+{
+	unsigned int len;
+	void *buf;
+	int cnt;
+
+	if (!pci_vpd_available(dev))
+		return ERR_PTR(-ENODEV);
+
+	len = dev->vpd.len;
+	buf = kmalloc(len, GFP_KERNEL);
+	if (!buf)
+		return ERR_PTR(-ENOMEM);
+
+	cnt = pci_read_vpd(dev, 0, len, buf);
+	if (cnt != len) {
+		kfree(buf);
+		return ERR_PTR(-EIO);
+	}
+
+	if (size)
+		*size = len;
+
+	return buf;
+}
+EXPORT_SYMBOL_GPL(pci_vpd_alloc);
 
 int pci_vpd_find_tag(const u8 *buf, unsigned int len, u8 rdt)
 {
@@ -353,6 +395,62 @@ ssize_t pci_write_vpd(struct pci_dev *dev, loff_t pos, size_t count, const void 
 	return pci_vpd_write(dev, pos, count, buf);
 }
 EXPORT_SYMBOL(pci_write_vpd);
+
+int pci_vpd_find_ro_info_keyword(const void *buf, unsigned int len,
+				 const char *kw, unsigned int *size)
+{
+	int ro_start, infokw_start;
+	unsigned int ro_len, infokw_size;
+
+	ro_start = pci_vpd_find_tag(buf, len, PCI_VPD_LRDT_RO_DATA);
+	if (ro_start < 0)
+		return ro_start;
+
+	ro_len = pci_vpd_lrdt_size(buf + ro_start);
+	ro_start += PCI_VPD_LRDT_TAG_SIZE;
+
+	if (ro_start + ro_len > len)
+		ro_len = len - ro_start;
+
+	infokw_start = pci_vpd_find_info_keyword(buf, ro_start, ro_len, kw);
+	if (infokw_start < 0)
+		return infokw_start;
+
+	infokw_size = pci_vpd_info_field_size(buf + infokw_start);
+	infokw_start += PCI_VPD_INFO_FLD_HDR_SIZE;
+
+	if (infokw_start + infokw_size > len)
+		return -EINVAL;
+
+	if (size)
+		*size = infokw_size;
+
+	return infokw_start;
+}
+EXPORT_SYMBOL_GPL(pci_vpd_find_ro_info_keyword);
+
+int pci_vpd_check_csum(const void *buf, unsigned int len)
+{
+	const u8 *vpd = buf;
+	unsigned int size;
+	u8 csum = 0;
+	int rv_start;
+
+	rv_start = pci_vpd_find_ro_info_keyword(buf, len, PCI_VPD_RO_KEYWORD_CHKSUM, &size);
+	if (rv_start == -ENOENT) /* no checksum in VPD */
+		return 1;
+	else if (rv_start < 0)
+		return rv_start;
+
+	if (!size)
+		return -EINVAL;
+
+	while (rv_start >= 0)
+		csum += vpd[rv_start--];
+
+	return csum ? -EILSEQ : 0;
+}
+EXPORT_SYMBOL_GPL(pci_vpd_check_csum);
 
 #ifdef CONFIG_PCI_QUIRKS
 /*
