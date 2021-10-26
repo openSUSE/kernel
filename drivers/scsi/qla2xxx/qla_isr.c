@@ -649,7 +649,7 @@ const char *
 qla2x00_get_link_speed_str(struct qla_hw_data *ha, uint16_t speed)
 {
 	static const char *const link_speeds[] = {
-		"1", "2", "?", "4", "8", "16", "32", "10"
+		"1", "2", "?", "4", "8", "16", "32", "64", "10"
 	};
 #define	QLA_LAST_SPEED (ARRAY_SIZE(link_speeds) - 1)
 
@@ -2236,6 +2236,7 @@ qla24xx_els_ct_entry(scsi_qla_host_t *v, struct req_que *req,
 			} else if (comp_status == CS_PORT_LOGGED_OUT) {
 				els->u.els_plogi.len = 0;
 				res = DID_IMM_RETRY << 16;
+				qlt_schedule_sess_for_deletion(sp->fcport);
 			} else {
 				els->u.els_plogi.len = 0;
 				res = DID_ERROR << 16;
@@ -2327,6 +2328,7 @@ qla24xx_logio_entry(scsi_qla_host_t *vha, struct req_que *req,
 	struct srb_iocb *lio;
 	uint16_t *data;
 	uint32_t iop[2];
+	int logit = 1;
 
 	sp = qla2x00_get_sp_from_handle(vha, func, req, logio);
 	if (!sp)
@@ -2404,9 +2406,11 @@ qla24xx_logio_entry(scsi_qla_host_t *vha, struct req_que *req,
 	case LSC_SCODE_PORTID_USED:
 		data[0] = MBS_PORT_ID_USED;
 		data[1] = LSW(iop[1]);
+		logit = 0;
 		break;
 	case LSC_SCODE_NPORT_USED:
 		data[0] = MBS_LOOP_ID_USED;
+		logit = 0;
 		break;
 	case LSC_SCODE_CMD_FAILED:
 		if (iop[1] == 0x0606) {
@@ -2439,12 +2443,20 @@ qla24xx_logio_entry(scsi_qla_host_t *vha, struct req_que *req,
 		break;
 	}
 
-	ql_log(ql_log_warn, sp->vha, 0x5037,
-	       "Async-%s failed: handle=%x pid=%06x wwpn=%8phC comp_status=%x iop0=%x iop1=%x\n",
-	       type, sp->handle, fcport->d_id.b24, fcport->port_name,
-	       le16_to_cpu(logio->comp_status),
-	       le32_to_cpu(logio->io_parameter[0]),
-	       le32_to_cpu(logio->io_parameter[1]));
+	if (logit)
+		ql_log(ql_log_warn, sp->vha, 0x5037, "Async-%s failed: "
+		       "handle=%x pid=%06x wwpn=%8phC comp_status=%x iop0=%x iop1=%x\n",
+		       type, sp->handle, fcport->d_id.b24, fcport->port_name,
+		       le16_to_cpu(logio->comp_status),
+		       le32_to_cpu(logio->io_parameter[0]),
+		       le32_to_cpu(logio->io_parameter[1]));
+	else
+		ql_dbg(ql_dbg_disc, sp->vha, 0x5037, "Async-%s failed: "
+		       "handle=%x pid=%06x wwpn=%8phC comp_status=%x iop0=%x iop1=%x\n",
+		       type, sp->handle, fcport->d_id.b24, fcport->port_name,
+		       le16_to_cpu(logio->comp_status),
+		       le32_to_cpu(logio->io_parameter[0]),
+		       le32_to_cpu(logio->io_parameter[1]));
 
 logio_done:
 	sp->done(sp, 0);
@@ -2623,7 +2635,7 @@ static void qla24xx_nvme_iocb_entry(scsi_qla_host_t *vha, struct req_que *req,
 	}
 
 	if (unlikely(logit))
-		ql_log(ql_log_warn, fcport->vha, 0x5060,
+		ql_log(ql_dbg_io, fcport->vha, 0x5060,
 		   "NVME-%s ERR Handling - hdl=%x status(%x) tr_len:%x resid=%x  ox_id=%x\n",
 		   sp->name, sp->handle, comp_status,
 		   fd->transferred_length, le32_to_cpu(sts->residual_len),
@@ -2641,6 +2653,15 @@ static void qla24xx_nvme_iocb_entry(scsi_qla_host_t *vha, struct req_que *req,
 	case CS_PORT_UNAVAILABLE:
 	case CS_PORT_LOGGED_OUT:
 		fcport->nvme_flag |= NVME_FLAG_RESETTING;
+		if (atomic_read(&fcport->state) == FCS_ONLINE) {
+			ql_dbg(ql_dbg_disc, fcport->vha, 0x3021,
+			       "Port to be marked lost on fcport=%06x, current "
+			       "port state= %s comp_status %x.\n",
+			       fcport->d_id.b24, port_state_str[FCS_ONLINE],
+			       comp_status);
+
+			qlt_schedule_sess_for_deletion(fcport);
+		}
 		/* fall through */
 	case CS_ABORTED:
 	case CS_PORT_BUSY:
@@ -3480,7 +3501,7 @@ check_scsi_status:
 
 out:
 	if (logit)
-		ql_log(ql_log_warn, fcport->vha, 0x3022,
+		ql_log(ql_dbg_io, fcport->vha, 0x3022,
 		       "FCP command status: 0x%x-0x%x (0x%x) nexus=%ld:%d:%llu portid=%02x%02x%02x oxid=0x%x cdb=%10phN len=0x%x rsp_info=0x%x resid=0x%x fw_resid=0x%x sp=%p cp=%p.\n",
 		       comp_status, scsi_status, res, vha->host_no,
 		       cp->device->id, cp->device->lun, fcport->d_id.b.domain,
@@ -4507,6 +4528,8 @@ skip_msi:
 		ql_dbg(ql_dbg_init, vha, 0x0125,
 		    "INTa mode: Enabled.\n");
 		ha->flags.mr_intr_valid = 1;
+		/* Set max_qpair to 0, as MSI-X and MSI in not enabled */
+		ha->max_qpairs = 0;
 	}
 
 clear_risc_ints:

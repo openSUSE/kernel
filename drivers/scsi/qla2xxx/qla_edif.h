@@ -63,6 +63,8 @@ struct sa_update_28xx {
 	union {
 		__le16 nport_handle;  /* in: N_PORT handle. */
 		__le16 comp_sts;              /* out: completion status */
+#define CS_PORT_EDIF_UNAVAIL	0x28
+#define CS_PORT_EDIF_LOGOUT	0x29
 #define CS_PORT_EDIF_SUPP_NOT_RDY 0x64
 #define CS_PORT_EDIF_INV_REQ      0x66
 	} u;
@@ -125,4 +127,10 @@ struct enode {
 		struct purexevent	purexinfo;
 	} u;
 };
+
+#define EDIF_SESSION_DOWN(_s) \
+	(qla_ini_mode_enabled(_s->vha) && (_s->disc_state == DSC_DELETE_PEND || \
+	 _s->disc_state == DSC_DELETED || \
+	 !_s->edif.app_sess_online))
+
 #endif	/* __QLA_EDIF_H */

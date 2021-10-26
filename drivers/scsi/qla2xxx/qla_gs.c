@@ -1538,7 +1538,8 @@ qla25xx_fdmi_port_speed_capability(struct qla_hw_data *ha)
 	}
 	if (IS_QLA2031(ha)) {
 		if ((ha->pdev->subsystem_vendor == 0x103C) &&
-		    (ha->pdev->subsystem_device == 0x8002)) {
+		    ((ha->pdev->subsystem_device == 0x8002) ||
+		    (ha->pdev->subsystem_device == 0x8086))) {
 			speeds = FDMI_PORT_SPEED_16GB;
 		} else {
 			speeds = FDMI_PORT_SPEED_16GB|FDMI_PORT_SPEED_8GB|
@@ -1731,8 +1732,6 @@ qla2x00_hba_attributes(scsi_qla_host_t *vha, void *entries,
 	size += alen;
 	ql_dbg(ql_dbg_disc, vha, 0x20a8,
 	    "FIRMWARE VERSION = %s.\n", eiter->a.fw_version);
-	if (callopt == CALLOPT_FDMI1)
-		goto done;
 	/* OS Name and Version */
 	eiter = entries + size;
 	eiter->type = cpu_to_be16(FDMI_HBA_OS_NAME_AND_VERSION);
@@ -1755,6 +1754,8 @@ qla2x00_hba_attributes(scsi_qla_host_t *vha, void *entries,
 	size += alen;
 	ql_dbg(ql_dbg_disc, vha, 0x20a9,
 	    "OS VERSION = %s.\n", eiter->a.os_version);
+	if (callopt == CALLOPT_FDMI1)
+		goto done;
 	/* MAX CT Payload Length */
 	eiter = entries + size;
 	eiter->type = cpu_to_be16(FDMI_HBA_MAXIMUM_CT_PAYLOAD_LENGTH);
@@ -3503,7 +3504,16 @@ void qla24xx_async_gnnft_done(scsi_qla_host_t *vha, srb_t *sp)
 				continue;
 			fcport->scan_state = QLA_FCPORT_FOUND;
 			fcport->last_rscn_gen = fcport->rscn_gen;
+			fcport->fc4_type = rp->fc4type;
 			found = true;
+
+			if (fcport->scan_needed) {
+				if (NVME_PRIORITY(vha->hw, fcport))
+					fcport->do_prli_nvme = 1;
+				else
+					fcport->do_prli_nvme = 0;
+			}
+
 			/*
 			 * If device was not a fabric device before.
 			 */

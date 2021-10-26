@@ -2429,11 +2429,9 @@ struct mbx_24xx_entry {
  */
 typedef enum {
 	FCT_UNKNOWN,
-	FCT_RSCN,
-	FCT_SWITCH,
-	FCT_BROADCAST,
-	FCT_INITIATOR,
-	FCT_TARGET,
+	FCT_BROADCAST = 0x01,
+	FCT_INITIATOR = 0x02,
+	FCT_TARGET    = 0x04,
 	FCT_NVME_INITIATOR = 0x10,
 	FCT_NVME_TARGET = 0x20,
 	FCT_NVME_DISCOVERY = 0x40,
@@ -2520,6 +2518,8 @@ typedef struct fc_port {
 	unsigned int n2n_flag:1;
 	unsigned int explicit_logout:1;
 	unsigned int prli_pend_timer:1;
+	unsigned int do_prli_nvme:1;
+
 	uint8_t nvme_flag;
 
 	uint8_t node_name[WWN_SIZE];
@@ -2623,7 +2623,6 @@ typedef struct fc_port {
 		uint32_t	enable:1;	/* device is edif enabled/req'd */
 		uint32_t	app_stop:2;
 		uint32_t	app_started:1;
-		uint32_t	secured_login:1;
 		uint32_t	aes_gmac:1;
 		uint32_t	app_sess_online:1;
 		uint32_t	tx_sa_set:1;
@@ -2634,8 +2633,8 @@ typedef struct fc_port {
 		uint32_t	rx_rekey_cnt;
 		uint64_t	tx_bytes;
 		uint64_t	rx_bytes;
-		uint8_t		non_secured_login;
 		uint8_t		auth_state;
+		uint16_t	authok:1;
 		uint16_t	rekey_cnt;
 		struct list_head edif_indx_list;
 		spinlock_t  indx_list_lock;
@@ -2791,7 +2790,7 @@ static const char * const port_dstate_str[] = {
 /*
  * FDMI HBA attribute types.
  */
-#define FDMI1_HBA_ATTR_COUNT			9
+#define FDMI1_HBA_ATTR_COUNT			10
 #define FDMI2_HBA_ATTR_COUNT			17
 
 #define FDMI_HBA_NODE_NAME			0x1
@@ -3752,6 +3751,7 @@ struct qla_qpair {
 	struct qla_fw_resources fwres ____cacheline_aligned;
 	u32	cmd_cnt;
 	u32	cmd_completion_cnt;
+	u32	prev_completion_cnt;
 };
 
 /* Place holder for FW buffer parameters */
@@ -4024,8 +4024,9 @@ struct qla_hw_data {
 		uint32_t	scm_supported_f:1;
 				/* Enabled in Driver */
 		uint32_t	scm_enabled:1;
+		uint32_t	edif_hw:1;
 		uint32_t	edif_enabled:1;
-		uint32_t	max_req_queue_warned:1;
+		uint32_t	n2n_fw_acc_sec:1;
 		uint32_t	plogi_template_valid:1;
 		uint32_t	port_isolated:1;
 	} flags;
@@ -4437,6 +4438,7 @@ struct qla_hw_data {
 	/* Cisco fabric attached */
 #define FW_ATTR_EXT0_SCM_CISCO		0x00002000
 #define FW_ATTR_EXT0_NVME2	BIT_13
+#define FW_ATTR_EXT0_EDIF	BIT_5
 	uint16_t	fw_attributes_ext[2];
 	uint32_t	fw_memory_size;
 	uint32_t	fw_transfer_size;
@@ -4607,6 +4609,7 @@ struct qla_hw_data {
 	struct qla_chip_state_84xx *cs84xx;
 	struct isp_operations *isp_ops;
 	struct workqueue_struct *wq;
+	struct work_struct heartbeat_work;
 	struct qlfc_fw fw_buf;
 
 	/* FCP_CMND priority support */
@@ -4708,7 +4711,6 @@ struct qla_hw_data {
 
 	struct qla_hw_data_stat stat;
 	pci_error_state_t pci_error_state;
-	u64 prev_cmd_cnt;
 	struct dma_pool *purex_dma_pool;
 	struct btree_head32 host_map;
 
@@ -4722,6 +4724,7 @@ struct qla_hw_data {
 	struct list_head sadb_rx_index_list;
 	spinlock_t sadb_lock;	/* protects list */
 	struct els_reject elsrej;
+	u8 edif_post_stop_cnt_down;
 };
 
 #define RX_ELS_SIZE (roundup(sizeof(struct enode) + ELS_MAX_PAYLOAD, SMP_CACHE_BYTES))
@@ -4853,7 +4856,6 @@ typedef struct scsi_qla_host {
 #define SET_ZIO_THRESHOLD_NEEDED 32
 #define ISP_ABORT_TO_ROM	33
 #define VPORT_DELETE		34
-#define HEARTBEAT_CHK		38
 
 #define PROCESS_PUREX_IOCB	63
 
@@ -5168,6 +5170,9 @@ struct secure_flash_update_block_pk {
 #define QLA_BUSY			0x107
 #define QLA_ALREADY_REGISTERED		0x109
 #define QLA_OS_TIMER_EXPIRED		0x10a
+#define QLA_ERR_NO_QPAIR		0x10b
+#define QLA_ERR_NOT_FOUND		0x10c
+#define QLA_ERR_FROM_FW			0x10d
 
 #define NVRAM_DELAY()		udelay(10)
 
@@ -5350,9 +5355,12 @@ struct sff_8247_a0 {
 #define NVME_FCP_TARGET(fcport) \
 	(FCP_TYPE(fcport) && NVME_TYPE(fcport)) \
 
+#define NVME_PRIORITY(ha, fcport) \
+	(NVME_FCP_TARGET(fcport) && \
+	 (ha->fc4_type_priority == FC4_PRIORITY_NVME))
+
 #define NVME_TARGET(ha, fcport) \
-	((NVME_FCP_TARGET(fcport) && \
-	(ha->fc4_type_priority == FC4_PRIORITY_NVME)) || \
+	(fcport->do_prli_nvme || \
 	NVME_ONLY_TARGET(fcport)) \
 
 #define PRLI_PHASE(_cls) \
