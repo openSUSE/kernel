@@ -268,22 +268,19 @@ end_copy:
 static void sctp_v4_from_skb(union sctp_addr *addr, struct sk_buff *skb,
 			     int is_saddr)
 {
-	void *from;
-	__be16 *port;
-	struct sctphdr *sh;
+	/* Always called on head skb, so this is safe */
+	struct sctphdr *sh = sctp_hdr(skb);
+	struct sockaddr_in *sa = &addr->v4;
 
-	port = &addr->v4.sin_port;
 	addr->v4.sin_family = AF_INET;
 
-	sh = sctp_hdr(skb);
 	if (is_saddr) {
-		*port  = sh->source;
-		from = &ip_hdr(skb)->saddr;
+		sa->sin_port = sh->source;
+		sa->sin_addr.s_addr = ip_hdr(skb)->saddr;
 	} else {
-		*port = sh->dest;
-		from = &ip_hdr(skb)->daddr;
+		sa->sin_port = sh->dest;
+		sa->sin_addr.s_addr = ip_hdr(skb)->daddr;
 	}
-	memcpy(&addr->v4.sin_addr.s_addr, from, sizeof(struct in_addr));
 }
 
 /* Initialize an sctp_addr from a socket. */
