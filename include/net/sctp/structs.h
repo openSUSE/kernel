@@ -466,9 +466,15 @@ struct sctp_af {
 					 int saddr);
 	void		(*from_sk)	(union sctp_addr *,
 					 struct sock *sk);
+#ifdef __GENKSYMS__
 	void		(*from_addr_param) (union sctp_addr *,
 					    union sctp_addr_param *,
 					    __be16 port, int iif);
+#else
+	bool		(*from_addr_param) (union sctp_addr *,
+					    union sctp_addr_param *,
+					    __be16 port, int iif);
+#endif
 	int		(*to_addr_param) (const union sctp_addr *,
 					  union sctp_addr_param *); 
 	int		(*addr_valid)	(union sctp_addr *,

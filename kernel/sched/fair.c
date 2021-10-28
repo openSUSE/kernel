@@ -3279,52 +3279,6 @@ static inline void cfs_rq_util_change(struct cfs_rq *cfs_rq, int flags)
 
 #ifdef CONFIG_SMP
 #ifdef CONFIG_FAIR_GROUP_SCHED
-/*
- * Because list_add_leaf_cfs_rq always places a child cfs_rq on the list
- * immediately before a parent cfs_rq, and cfs_rqs are removed from the list
- * bottom-up, we only have to test whether the cfs_rq before us on the list
- * is our child.
- * If cfs_rq is not on the list, test whether a child needs its to be added to
- * connect a branch to the tree  * (see list_add_leaf_cfs_rq() for details).
- */
-static inline bool child_cfs_rq_on_list(struct cfs_rq *cfs_rq)
-{
-	struct cfs_rq *prev_cfs_rq;
-	struct list_head *prev;
-
-	if (cfs_rq->on_list) {
-		prev = cfs_rq->leaf_cfs_rq_list.prev;
-	} else {
-		struct rq *rq = rq_of(cfs_rq);
-
-		prev = rq->tmp_alone_branch;
-	}
-
-	prev_cfs_rq = container_of(prev, struct cfs_rq, leaf_cfs_rq_list);
-
-	return (prev_cfs_rq->tg->parent == cfs_rq->tg);
-}
-
-static inline bool cfs_rq_is_decayed(struct cfs_rq *cfs_rq)
-{
-	if (cfs_rq->load.weight)
-		return false;
-
-	if (cfs_rq->avg.load_sum)
-		return false;
-
-	if (cfs_rq->avg.util_sum)
-		return false;
-
-	if (cfs_rq->avg.runnable_sum)
-		return false;
-
-	if (child_cfs_rq_on_list(cfs_rq))
-		return false;
-
-	return true;
-}
-
 /**
  * update_tg_load_avg - update the tg's load avg
  * @cfs_rq: the cfs_rq whose avg changed
@@ -4085,11 +4039,6 @@ static inline void update_misfit_status(struct task_struct *p, struct rq *rq)
 
 #else /* CONFIG_SMP */
 
-static inline bool cfs_rq_is_decayed(struct cfs_rq *cfs_rq)
-{
-	return true;
-}
-
 #define UPDATE_TG	0x0
 #define SKIP_AGE_LOAD	0x0
 #define DO_ATTACH	0x0
@@ -4746,8 +4695,8 @@ static int tg_unthrottle_up(struct task_group *tg, void *data)
 		cfs_rq->throttled_clock_task_time += rq_clock_task(rq) -
 					     cfs_rq->throttled_clock_task;
 
-		/* Add cfs_rq with load or one or more already running entities to the list */
-		if (!cfs_rq_is_decayed(cfs_rq) || cfs_rq->nr_running)
+		/* Add cfs_rq with already running entity in the list */
+		if (cfs_rq->nr_running >= 1)
 			list_add_leaf_cfs_rq(cfs_rq);
 	}
 
@@ -4855,12 +4804,8 @@ void unthrottle_cfs_rq(struct cfs_rq *cfs_rq)
 	/* update hierarchical throttle state */
 	walk_tg_tree_from(cfs_rq->tg, tg_nop, tg_unthrottle_up, (void *)rq);
 
-	/* Nothing to run but something to decay (on_list)? Complete the branch */
-	if (!cfs_rq->load.weight) {
-		if (cfs_rq->on_list)
-			goto unthrottle_throttle;
+	if (!cfs_rq->load.weight)
 		return;
-	}
 
 	task_delta = cfs_rq->h_nr_running;
 	idle_task_delta = cfs_rq->idle_h_nr_running;
@@ -7879,6 +7824,23 @@ static bool __update_blocked_others(struct rq *rq, bool *done)
 }
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
+
+static inline bool cfs_rq_is_decayed(struct cfs_rq *cfs_rq)
+{
+	if (cfs_rq->load.weight)
+		return false;
+
+	if (cfs_rq->avg.load_sum)
+		return false;
+
+	if (cfs_rq->avg.util_sum)
+		return false;
+
+	if (cfs_rq->avg.runnable_sum)
+		return false;
+
+	return true;
+}
 
 static bool __update_blocked_fair(struct rq *rq, bool *done)
 {
