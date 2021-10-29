@@ -1565,7 +1565,7 @@ struct task_numa_env {
 static unsigned long cpu_load(struct rq *rq);
 static unsigned long cpu_runnable(struct rq *rq);
 static unsigned long cpu_util(int cpu);
-static inline long adjust_numa_imbalance(int imbalance,
+static inline long adjust_numa_imbalance(int imbalance, int dst_cpu,
 					int dst_running, int dst_weight);
 
 static inline enum
@@ -1946,8 +1946,8 @@ static void task_numa_find_cpu(struct task_numa_env *env,
 		src_running = env->src_stats.nr_running - 1;
 		dst_running = env->dst_stats.nr_running + 1;
 		imbalance = max(0, dst_running - src_running);
-		imbalance = adjust_numa_imbalance(imbalance, dst_running,
-							env->dst_stats.weight);
+		imbalance = adjust_numa_imbalance(imbalance, env->dst_cpu,
+					dst_running, env->dst_stats.weight);
 
 		/* Use idle CPU if there is no imbalance */
 		if (!imbalance) {
@@ -5908,6 +5908,14 @@ static void record_wakee(struct task_struct *p)
 	}
 
 	if (current->last_wakee != p) {
+		int min = __this_cpu_read(sd_llc_size) << 1;
+		/*
+		 * Couple the wakee flips to the waker for the case where it
+		 * doesn't accrue flips, taking care to not push the wakee
+		 * high enough that the wake_wide() heuristic fails.
+		 */
+		if (current->wakee_flips > p->wakee_flips * min)
+			p->wakee_flips++;
 		current->last_wakee = p;
 		current->wakee_flips++;
 	}
@@ -5938,7 +5946,7 @@ static int wake_wide(struct task_struct *p)
 
 	if (master < slave)
 		swap(master, slave);
-	if (slave < factor || master < slave * factor)
+	if ((slave < factor && master < (factor>>1)*factor) || master < slave * factor)
 		return 0;
 	return 1;
 }
@@ -7082,9 +7090,22 @@ balance_fair(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 }
 #endif /* CONFIG_SMP */
 
-static unsigned long wakeup_gran(struct sched_entity *se)
+static unsigned long
+wakeup_gran(struct sched_entity *curr, struct sched_entity *se)
 {
 	unsigned long gran = sysctl_sched_wakeup_granularity;
+
+	if (sched_feat(SCALE_WAKEUP_GRAN)) {
+		unsigned long delta_exec;
+
+		/*
+		 * Increase the wakeup granularity if curr's runtime
+		 * is less than the minimum preemption granularity.
+		 */
+		delta_exec = curr->sum_exec_runtime - curr->prev_sum_exec_runtime;
+		if (delta_exec < sysctl_sched_min_granularity)
+			gran += sysctl_sched_min_granularity;
+	}
 
 	/*
 	 * Since its curr running now, convert the gran from real-time
@@ -7124,7 +7145,7 @@ wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
 	if (vdiff <= 0)
 		return -1;
 
-	gran = wakeup_gran(se);
+	gran = wakeup_gran(curr, se);
 	if (vdiff > gran)
 		return 1;
 
@@ -9120,9 +9141,13 @@ static bool update_pick_idlest(struct sched_group *idlest,
  * This is an approximation as the number of running tasks may not be
  * related to the number of busy CPUs due to sched_setaffinity.
  */
-static inline bool allow_numa_imbalance(int dst_running, int dst_weight)
+static inline bool
+allow_numa_imbalance(int dst_cpu, int dst_running, int dst_weight)
 {
-	return (dst_running < (dst_weight >> 2));
+	/* Allowed NUMA imbalance */
+	dst_weight >>= per_cpu(sd_numaimb_shift, dst_cpu);
+
+	return dst_running < dst_weight;
 }
 
 /*
@@ -9242,20 +9267,18 @@ find_idlest_group(struct sched_domain *sd, struct task_struct *p, int this_cpu)
 
 	case group_has_spare:
 		if (sd->flags & SD_NUMA) {
-#ifdef CONFIG_NUMA_BALANCING
-			if (static_branch_likely(&sched_numa_balancing)) {
-				int idlest_cpu;
-				/*
-				 * If there is spare capacity at NUMA, try to select
-				 * the preferred node
-				 */
-				if (cpu_to_node(this_cpu) == p->numa_preferred_nid)
-					return NULL;
+			int idlest_cpu = cpumask_first(sched_group_span(idlest));
 
-				idlest_cpu = cpumask_first(sched_group_span(idlest));
-				if (cpu_to_node(idlest_cpu) == p->numa_preferred_nid)
-					return idlest;
-			}
+#ifdef CONFIG_NUMA_BALANCING
+			/*
+			 * If there is spare capacity at NUMA, try to select
+			 * the preferred node
+			 */
+			if (cpu_to_node(this_cpu) == p->numa_preferred_nid)
+				return NULL;
+
+			if (cpu_to_node(idlest_cpu) == p->numa_preferred_nid)
+				return idlest;
 #endif
 			/*
 			 * Otherwise, keep the task on this node to stay close
@@ -9263,8 +9286,10 @@ find_idlest_group(struct sched_domain *sd, struct task_struct *p, int this_cpu)
 			 * a real need of migration, periodic load balance will
 			 * take care of it.
 			 */
-			if (allow_numa_imbalance(local_sgs.sum_nr_running, sd->span_weight))
+			if (allow_numa_imbalance(idlest_cpu,
+			    local_sgs.sum_nr_running, sd->span_weight)) {
 				return NULL;
+			}
 		}
 
 		/*
@@ -9354,10 +9379,10 @@ next_group:
 
 #define NUMA_IMBALANCE_MIN 2
 
-static inline long adjust_numa_imbalance(int imbalance,
+static inline long adjust_numa_imbalance(int imbalance, int dst_cpu,
 				int dst_running, int dst_weight)
 {
-	if (!allow_numa_imbalance(dst_running, dst_weight))
+	if (!allow_numa_imbalance(dst_cpu, dst_running, dst_weight))
 		return imbalance;
 
 	/*
@@ -9469,6 +9494,7 @@ static inline void calculate_imbalance(struct lb_env *env, struct sd_lb_stats *s
 		/* Consider allowing a small imbalance between NUMA groups */
 		if (env->sd->flags & SD_NUMA) {
 			env->imbalance = adjust_numa_imbalance(env->imbalance,
+				env->src_cpu,
 				busiest->sum_nr_running, busiest->group_weight);
 		}
 
