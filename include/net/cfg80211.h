@@ -5148,6 +5148,7 @@ struct wireless_dev {
 	u32 identifier;
 
 	struct list_head mgmt_registrations;
+	spinlock_t mgmt_registrations_lock; /* XXX SLE kABI placeholder */
 	u8 mgmt_registrations_need_update:1;
 
 	struct mutex mtx;
