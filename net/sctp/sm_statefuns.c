@@ -5877,6 +5877,7 @@ static struct sctp_packet *sctp_ootb_pkt_new(const struct sctp_association *asoc
 		 * yet.
 		 */
 		switch(chunk->chunk_hdr->type) {
+		case SCTP_CID_INIT:
 		case SCTP_CID_INIT_ACK:
 		{
 			sctp_initack_chunk_t *initack;
