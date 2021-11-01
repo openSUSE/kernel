@@ -1174,8 +1174,11 @@ struct btrfs_root {
 	 * protected by inode_lock
 	 */
 	struct radix_tree_root delayed_nodes_tree;
-
-	struct super_block_dev sbdev;
+	/*
+	 * right now this just gets used so that a root has its own devid
+	 * for stat.  It may be used for more later
+	 */
+	dev_t anon_dev;
 
 	spinlock_t root_item_lock;
 	refcount_t refs;

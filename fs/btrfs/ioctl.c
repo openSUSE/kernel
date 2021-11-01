@@ -796,11 +796,8 @@ static int create_snapshot(struct btrfs_root *root, struct inode *dir,
 	pending_snapshot->anon_dev = 0;
 fail:
 	/* Prevent double freeing of anon_dev */
-	if (ret && pending_snapshot->snap &&
-	    pending_snapshot->snap->sbdev.anon_dev) {
-		remove_anon_sbdev(&pending_snapshot->snap->sbdev);
-		pending_snapshot->anon_dev = 0;
-	}
+	if (ret && pending_snapshot->snap)
+		pending_snapshot->snap->anon_dev = 0;
 	btrfs_put_root(pending_snapshot->snap);
 	btrfs_subvolume_release_metadata(root, &pending_snapshot->block_rsv);
 free_pending:
