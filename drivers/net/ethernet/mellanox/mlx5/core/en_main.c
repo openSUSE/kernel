@@ -2127,6 +2127,15 @@ static u8 mlx5e_get_rq_log_wq_sz(void *rqc)
 	return MLX5_GET(wq, wq, log_wq_sz);
 }
 
+static u8 rq_end_pad_mode(struct mlx5_core_dev *mdev, struct mlx5e_params *params)
+{
+	bool ro = pcie_relaxed_ordering_enabled(mdev->pdev) &&
+		MLX5_CAP_GEN(mdev, relaxed_ordering_write);
+
+	return ro && params->lro_en ?
+		MLX5_WQ_END_PAD_MODE_NONE : MLX5_WQ_END_PAD_MODE_ALIGN;
+}
+
 void mlx5e_build_rq_param(struct mlx5e_priv *priv,
 			  struct mlx5e_params *params,
 			  struct mlx5e_xsk_param *xsk,
@@ -2154,7 +2163,7 @@ void mlx5e_build_rq_param(struct mlx5e_priv *priv,
 	}
 
 	MLX5_SET(wq, wq, wq_type,          params->rq_wq_type);
-	MLX5_SET(wq, wq, end_padding_mode, MLX5_WQ_END_PAD_MODE_ALIGN);
+	MLX5_SET(wq, wq, end_padding_mode, rq_end_pad_mode(mdev, params));
 	MLX5_SET(wq, wq, log_wq_stride,
 		 mlx5e_get_rqwq_log_stride(params->rq_wq_type, ndsegs));
 	MLX5_SET(wq, wq, pd,               mdev->mlx5e_res.pdn);
