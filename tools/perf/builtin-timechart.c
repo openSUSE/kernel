@@ -1016,15 +1016,8 @@ static void draw_c_p_states(struct timechart *tchart)
 	 * two pass drawing so that the P state bars are on top of the C state blocks
 	 */
 	while (pwr) {
-		if (pwr->type == CSTATE) {
-			/* If the first event is an _end event, start timestamp is zero
-			   -> ignore these */
-			if (pwr->start_time == 0 || pwr->end_time == 0) {
-				pwr = pwr->next;
-				continue;
-			}
+		if (pwr->type == CSTATE)
 			svg_cstate(pwr->cpu, pwr->start_time, pwr->end_time, pwr->state);
-		}
 		pwr = pwr->next;
 	}
 
@@ -1605,8 +1598,7 @@ static int __cmd_timechart(struct timechart *tchart, const char *output_name)
 		.force = tchart->force,
 	};
 
-	struct perf_session *session = perf_session__new(&data, false,
-							 &tchart->tool);
+	struct perf_session *session = perf_session__new(&data, &tchart->tool);
 	int ret = -EINVAL;
 
 	if (IS_ERR(session))

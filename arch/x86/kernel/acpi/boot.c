@@ -558,10 +558,10 @@ acpi_parse_nmi_src(union acpi_subtable_headers * header, const unsigned long end
  * If a PIC-mode SCI is not recognized or gives spurious IRQ7's
  * it may require Edge Trigger -- use "acpi_sci=edge"
  *
- * Port 0x4d0-4d1 are ECLR1 and ECLR2, the Edge/Level Control Registers
+ * Port 0x4d0-4d1 are ELCR1 and ELCR2, the Edge/Level Control Registers
  * for the 8259 PIC.  bit[n] = 1 means irq[n] is Level, otherwise Edge.
- * ECLR1 is IRQs 0-7 (IRQ 0, 1, 2 must be 0)
- * ECLR2 is IRQs 8-15 (IRQ 8, 13 must be 0)
+ * ELCR1 is IRQs 0-7 (IRQ 0, 1, 2 must be 0)
+ * ELCR2 is IRQs 8-15 (IRQ 8, 13 must be 0)
  */
 
 void __init acpi_pic_sci_set_trigger(unsigned int irq, u16 trigger)
@@ -570,7 +570,7 @@ void __init acpi_pic_sci_set_trigger(unsigned int irq, u16 trigger)
 	unsigned int old, new;
 
 	/* Real old ELCR mask */
-	old = inb(0x4d0) | (inb(0x4d1) << 8);
+	old = inb(PIC_ELCR1) | (inb(PIC_ELCR2) << 8);
 
 	/*
 	 * If we use ACPI to set PCI IRQs, then we should clear ELCR
@@ -596,8 +596,8 @@ void __init acpi_pic_sci_set_trigger(unsigned int irq, u16 trigger)
 		return;
 
 	pr_warn("setting ELCR to %04x (from %04x)\n", new, old);
-	outb(new, 0x4d0);
-	outb(new >> 8, 0x4d1);
+	outb(new, PIC_ELCR1);
+	outb(new >> 8, PIC_ELCR2);
 }
 
 int acpi_gsi_to_irq(u32 gsi, unsigned int *irqp)
@@ -1343,21 +1343,6 @@ static int __init dmi_ignore_irq0_timer_override(const struct dmi_system_id *d)
 	return 0;
 }
 
-static int __init force_acpi_rsdt(const struct dmi_system_id *d)
-{
-	if (!acpi_force) {
-		printk(KERN_NOTICE "%s detected: force use of acpi=rsdt\n",
-		       d->ident);
-		acpi_gbl_do_not_use_xsdt = TRUE;
-	} else {
-		printk(KERN_NOTICE
-		       "Warning: acpi=force overrules DMI blacklist: "
-		       "acpi=rsdt\n");
-	}
-	return 0;
-
-}
-
 /*
  * ACPI offers an alternative platform interface model that removes
  * ACPI hardware requirements for platforms that do not implement
@@ -1457,32 +1442,6 @@ static const struct dmi_system_id acpi_dmi_table[] __initconst = {
 		     DMI_MATCH(DMI_PRODUCT_NAME, "TravelMate 360"),
 		     },
 	 },
-
-	/*
-	 * Boxes that need RSDT as ACPI root table
-	 */
-	{
-	    .callback = force_acpi_rsdt,
-	    .ident = "ThinkPad ", /* R40e, broken C-states */
-	    .matches = {
-		DMI_MATCH(DMI_BIOS_VENDOR, "IBM"),
-		DMI_MATCH(DMI_BIOS_VERSION, "1SET")},
-	},
-	{
-	    .callback = force_acpi_rsdt,
-	    .ident = "ThinkPad ", /* R50e, slow booting */
-	    .matches = {
-		DMI_MATCH(DMI_BIOS_VENDOR, "IBM"),
-		DMI_MATCH(DMI_BIOS_VERSION, "1WET")},
-	},
-	{
-	    .callback = force_acpi_rsdt,
-	    .ident = "ThinkPad ", /* T40, T40p, T41, T41p, T42, T42p
-				     R50, R50p */
-	    .matches = {
-		DMI_MATCH(DMI_BIOS_VENDOR, "IBM"),
-		DMI_MATCH(DMI_BIOS_VERSION, "1RET")},
-	},
 	{}
 };
 
@@ -1696,18 +1655,6 @@ static int __init parse_acpi_bgrt(char *arg)
 	return 0;
 }
 early_param("bgrt_disable", parse_acpi_bgrt);
-
-/* Alias for acpi=rsdt for compatibility with openSUSE 11.1 and SLE11 */
-static int __init parse_acpi_root_table(char *opt)
-{
-	if (!strcmp(opt, "rsdt")) {
-		acpi_gbl_do_not_use_xsdt = TRUE;
-		printk(KERN_WARNING "acpi_root_table=rsdt is deprecated. "
-		       "Please use acpi=rsdt instead.\n");
-	}
-	return 0;
-}
-early_param("acpi_root_table", parse_acpi_root_table);
 
 /* FIXME: Using pci= for an ACPI parameter is a travesty. */
 static int __init parse_pci(char *arg)

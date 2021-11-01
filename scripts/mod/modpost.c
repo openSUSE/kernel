@@ -18,6 +18,7 @@
 #include <string.h>
 #include <fnmatch.h>
 #include <limits.h>
+#include <stdbool.h>
 #include <errno.h>
 #include "modpost.h"
 #include "../../include/generated/autoconf.h"
@@ -90,6 +91,14 @@ modpost_log(enum loglevel loglevel, const char *fmt, ...)
 		exit(1);
 	if (loglevel == LOG_ERROR)
 		error_occurred = true;
+}
+
+static inline bool strends(const char *str, const char *postfix)
+{
+	if (strlen(str) < strlen(postfix))
+		return false;
+
+	return strcmp(str + strlen(str) - strlen(postfix), postfix) == 0;
 }
 
 void *do_nofail(void *ptr, const char *expr)
@@ -968,7 +977,7 @@ static void check_section(const char *modname, struct elf_info *elf,
 		".kprobes.text", ".cpuidle.text", ".noinstr.text"
 #define OTHER_TEXT_SECTIONS ".ref.text", ".head.text", ".spinlock.text", \
 		".fixup", ".entry.text", ".exception.text", ".text.*", \
-		".coldtext"
+		".coldtext", ".softirqentry.text"
 
 #define INIT_SECTIONS      ".init.*"
 #define MEM_INIT_SECTIONS  ".meminit.*"
@@ -2190,7 +2199,7 @@ static void read_symbols(const char *modname)
 	if (!mod->is_vmlinux) {
 		version = get_modinfo(&info, "version");
 		if (version || all_versions)
-			get_src_version(modname, mod->srcversion,
+			get_src_version(mod->name, mod->srcversion,
 					sizeof(mod->srcversion) - 1);
 	}
 

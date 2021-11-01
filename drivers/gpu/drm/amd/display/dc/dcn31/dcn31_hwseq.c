@@ -76,10 +76,6 @@ void dcn31_init_hw(struct dc *dc)
 	if (dc->clk_mgr && dc->clk_mgr->funcs->init_clocks)
 		dc->clk_mgr->funcs->init_clocks(dc->clk_mgr);
 
-	// Initialize the dccg
-	if (res_pool->dccg->funcs->dccg_init)
-		res_pool->dccg->funcs->dccg_init(res_pool->dccg);
-
 	if (IS_FPGA_MAXIMUS_DC(dc->ctx->dce_environment)) {
 
 		REG_WRITE(REFCLK_CNTL, 0);
@@ -106,6 +102,9 @@ void dcn31_init_hw(struct dc *dc)
 		hws->funcs.bios_golden_init(dc);
 		hws->funcs.disable_vga(dc->hwseq);
 	}
+	// Initialize the dccg
+	if (res_pool->dccg->funcs->dccg_init)
+		res_pool->dccg->funcs->dccg_init(res_pool->dccg);
 
 	if (dc->debug.enable_mem_low_power.bits.dmcu) {
 		// Force ERAM to shutdown if DMCU is not enabled
@@ -609,21 +608,4 @@ bool dcn31_is_abm_supported(struct dc *dc,
 			return true;
 	}
 	return false;
-}
-
-static void apply_riommu_invalidation_wa(struct dc *dc)
-{
-	struct dce_hwseq *hws = dc->hwseq;
-
-	if (!hws->wa.early_riommu_invalidation)
-		return;
-
-	REG_UPDATE(DCHUBBUB_ARB_HOSTVM_CNTL, DISABLE_HOSTVM_FORCE_ALLOW_PSTATE, 0);
-}
-
-void dcn31_init_pipes(struct dc *dc, struct dc_state *context)
-{
-	dcn10_init_pipes(dc, context);
-	apply_riommu_invalidation_wa(dc);
-
 }
