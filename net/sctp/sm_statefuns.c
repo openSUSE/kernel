@@ -3483,12 +3483,6 @@ static sctp_disposition_t sctp_sf_shut_8_4_5(const struct sctp_endpoint *ep,
 
 		SCTP_INC_STATS(SCTP_MIB_OUTCTRLCHUNKS);
 
-		/* If the chunk length is invalid, we don't want to process
-		 * the reset of the packet.
-		 */
-		if (!sctp_chunk_length_valid(chunk, sizeof(sctp_chunkhdr_t)))
-			return sctp_sf_pdiscard(ep, asoc, type, arg, commands);
-
 		/* We need to discard the rest of the packet to prevent
 		 * potential bomming attacks from additional bundled chunks.
 		 * This is documented in SCTP Threats ID.
@@ -3517,6 +3511,9 @@ sctp_disposition_t sctp_sf_do_8_5_1_E_sa(const struct sctp_endpoint *ep,
 				      sctp_cmd_seq_t *commands)
 {
 	struct sctp_chunk *chunk = arg;
+
+	if (!sctp_vtag_verify(chunk, asoc))
+		asoc = NULL;
 
 	/* Make sure that the SHUTDOWN_ACK chunk has a valid length. */
 	if (!sctp_chunk_length_valid(chunk, sizeof(sctp_chunkhdr_t)))
