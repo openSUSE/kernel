@@ -3371,6 +3371,9 @@ sctp_disposition_t sctp_sf_ootb(const struct sctp_endpoint *ep,
 
 	SCTP_INC_STATS(SCTP_MIB_OUTOFBLUES);
 
+	if (asoc && !sctp_vtag_verify(chunk, asoc))
+		asoc = NULL;
+
 	ch = (sctp_chunkhdr_t *) chunk->chunk_hdr;
 	do {
 		/* Report violation if the chunk is less then minimal */
