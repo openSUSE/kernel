@@ -2099,7 +2099,7 @@ sctp_disposition_t sctp_sf_shutdown_pending_abort(
 	 */
 	if (SCTP_ADDR_DEL ==
 		    sctp_bind_addr_state(&asoc->base.bind_addr, &chunk->dest))
-		return sctp_sf_discard_chunk(ep, asoc, type, arg, commands);
+		return sctp_sf_pdiscard(ep, asoc, type, arg, commands);
 
 	return __sctp_sf_do_9_1_abort(ep, asoc, type, arg, commands);
 }
@@ -2140,7 +2140,7 @@ sctp_disposition_t sctp_sf_shutdown_sent_abort(const struct sctp_endpoint *ep,
 	 */
 	if (SCTP_ADDR_DEL ==
 		    sctp_bind_addr_state(&asoc->base.bind_addr, &chunk->dest))
-		return sctp_sf_discard_chunk(ep, asoc, type, arg, commands);
+		return sctp_sf_pdiscard(ep, asoc, type, arg, commands);
 
 	/* Stop the T2-shutdown timer. */
 	sctp_add_cmd_sf(commands, SCTP_CMD_TIMER_STOP,
@@ -2401,7 +2401,7 @@ sctp_disposition_t sctp_sf_do_9_1_abort(const struct sctp_endpoint *ep,
 	 */
 	if (SCTP_ADDR_DEL ==
 		    sctp_bind_addr_state(&asoc->base.bind_addr, &chunk->dest))
-		return sctp_sf_discard_chunk(ep, asoc, type, arg, commands);
+		return sctp_sf_pdiscard(ep, asoc, type, arg, commands);
 
 	return __sctp_sf_do_9_1_abort(ep, asoc, type, arg, commands);
 }
@@ -3547,6 +3547,11 @@ sctp_disposition_t sctp_sf_do_asconf(const struct sctp_endpoint *ep,
 		return sctp_sf_pdiscard(ep, asoc, type, arg, commands);
 	}
 
+	/* Make sure that the ASCONF ADDIP chunk has a valid length.  */
+	if (!sctp_chunk_length_valid(chunk, sizeof(sctp_addip_chunk_t)))
+		return sctp_sf_violation_chunklen(ep, asoc, type, arg,
+						  commands);
+
 	/* ADD-IP: Section 4.1.1
 	 * This chunk MUST be sent in an authenticated way by using
 	 * the mechanism defined in [I-D.ietf-tsvwg-sctp-auth]. If this chunk
@@ -3555,12 +3560,7 @@ sctp_disposition_t sctp_sf_do_asconf(const struct sctp_endpoint *ep,
 	 */
 	if (!asoc->peer.asconf_capable ||
 	    (!sctp_addip_noauth && !chunk->auth))
-		return sctp_sf_discard_chunk(ep, asoc, type, arg, commands);
-
-	/* Make sure that the ASCONF ADDIP chunk has a valid length.  */
-	if (!sctp_chunk_length_valid(chunk, sizeof(sctp_addip_chunk_t)))
-		return sctp_sf_violation_chunklen(ep, asoc, type, arg,
-						  commands);
+		return sctp_sf_pdiscard(ep, asoc, type, arg, commands);
 
 	hdr = (sctp_addiphdr_t *)chunk->skb->data;
 	serial = ntohl(hdr->serial);
@@ -3669,6 +3669,11 @@ sctp_disposition_t sctp_sf_do_asconf_ack(const struct sctp_endpoint *ep,
 		return sctp_sf_pdiscard(ep, asoc, type, arg, commands);
 	}
 
+	/* Make sure that the ADDIP chunk has a valid length.  */
+	if (!sctp_chunk_length_valid(asconf_ack, sizeof(sctp_addip_chunk_t)))
+		return sctp_sf_violation_chunklen(ep, asoc, type, arg,
+						  commands);
+
 	/* ADD-IP, Section 4.1.2:
 	 * This chunk MUST be sent in an authenticated way by using
 	 * the mechanism defined in [I-D.ietf-tsvwg-sctp-auth]. If this chunk
@@ -3677,12 +3682,7 @@ sctp_disposition_t sctp_sf_do_asconf_ack(const struct sctp_endpoint *ep,
 	 */
 	if (!asoc->peer.asconf_capable ||
 	    (!sctp_addip_noauth && !asconf_ack->auth))
-		return sctp_sf_discard_chunk(ep, asoc, type, arg, commands);
-
-	/* Make sure that the ADDIP chunk has a valid length.  */
-	if (!sctp_chunk_length_valid(asconf_ack, sizeof(sctp_addip_chunk_t)))
-		return sctp_sf_violation_chunklen(ep, asoc, type, arg,
-						  commands);
+		return sctp_sf_pdiscard(ep, asoc, type, arg, commands);
 
 	addip_hdr = (sctp_addiphdr_t *)asconf_ack->skb->data;
 	rcvd_serial = ntohl(addip_hdr->serial);
@@ -4195,6 +4195,9 @@ sctp_disposition_t sctp_sf_discard_chunk(const struct sctp_endpoint *ep,
 					 sctp_cmd_seq_t *commands)
 {
 	struct sctp_chunk *chunk = arg;
+
+	if (asoc && !sctp_vtag_verify(chunk, asoc))
+		return sctp_sf_pdiscard(ep, asoc, type, arg, commands);
 
 	/* Make sure that the chunk has a valid length.
 	 * Since we don't know the chunk type, we use a general
