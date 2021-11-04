@@ -758,8 +758,14 @@ static inline int dma_set_seg_boundary(struct device *dev, unsigned long mask)
 
 static inline unsigned int dma_get_min_align_mask(struct device *dev)
 {
+	/*
+	 * XXX SLE kABI workaround - only 64bit arch has a hole in struct
+	 * device_dma_parameters
+	 */
+#if IS_ENABLED(CONFIG_64BIT)
 	if (dev->dma_parms)
 		return dev->dma_parms->min_align_mask;
+#endif
 	return 0;
 }
 
@@ -768,7 +774,13 @@ static inline int dma_set_min_align_mask(struct device *dev,
 {
 	if (WARN_ON_ONCE(!dev->dma_parms))
 		return -EIO;
+	/*
+	 * XXX SLE kABI workaround - only 64bit arch has a hole in struct
+	 * device_dma_parameters
+	 */
+#if IS_ENABLED(CONFIG_64BIT)
 	dev->dma_parms->min_align_mask = min_align_mask;
+#endif
 	return 0;
 }
 
