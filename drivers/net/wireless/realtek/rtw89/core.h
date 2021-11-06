@@ -2309,7 +2309,8 @@ struct rtw89_fw_suit {
 	RTW89_FW_VER_CODE((s)->major_ver, (s)->minor_ver, (s)->sub_ver, (s)->sub_idex)
 
 struct rtw89_fw_info {
-	const struct firmware *firmware;
+	const void *firmware;
+	size_t firmware_size;
 	struct rtw89_dev *rtwdev;
 	struct completion completion;
 	u8 h2c_seq;
