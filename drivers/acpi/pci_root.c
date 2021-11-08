@@ -445,9 +445,8 @@ static void negotiate_os_control(struct acpi_pci_root *root, int *no_aspm,
 		if ((status == AE_NOT_FOUND) && !is_pcie)
 			return;
 
-		dev_info(&device->dev, "_OSC failed (%s)%s\n",
-			 acpi_format_exception(status),
-			 pcie_aspm_support_enabled() ? "; disabling ASPM" : "");
+		dev_info(&device->dev, "_OSC: platform retains control of PCIe features (%s)\n",
+			 acpi_format_exception(status));
 		return;
 	}
 
@@ -503,7 +502,7 @@ static void negotiate_os_control(struct acpi_pci_root *root, int *no_aspm,
 	} else {
 		decode_osc_control(root, "OS requested", requested);
 		decode_osc_control(root, "platform willing to grant", control);
-		dev_info(&device->dev, "_OSC failed (%s); disabling ASPM\n",
+		dev_info(&device->dev, "_OSC: platform retains control of PCIe features (%s)\n",
 			acpi_format_exception(status));
 
 		/*
