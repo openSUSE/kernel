@@ -948,6 +948,9 @@ struct device_dma_parameters {
 	 * sg limitations.
 	 */
 	unsigned int max_segment_size;
+#if !defined(__GENKSYMS__) && IS_ENABLED(CONFIG_64BIT)
+	unsigned int min_align_mask;
+#endif
 	unsigned long segment_boundary_mask;
 };
 
