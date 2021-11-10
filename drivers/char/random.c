@@ -751,35 +751,56 @@ static int credit_entropy_bits_safe(struct entropy_store *r, int nbits)
  *********************************************************************/
 static DEFINE_MUTEX(fips_init_mtx);
 
-static struct crypto_rng **fips_drbg_tfms;
+static unsigned int fips_do_drbg_algs_reset;
 
-static void __fips_drbg_tfm_free(struct crypto_rng *tfm)
+struct fips_drbg_tfm
 {
-	crypto_free_rng(tfm);
+	struct crypto_rng *tfm;
+	refcount_t ref;
+	struct list_head reset_list;
+};
+
+static struct fips_drbg_tfm __rcu **fips_drbg_tfms;
+
+static void __fips_drbg_tfm_free(struct fips_drbg_tfm *drbg_tfm)
+{
+	crypto_free_rng(drbg_tfm->tfm);
+	kfree(drbg_tfm);
 }
 
-static struct crypto_rng* __fips_drbg_tfm_alloc(void)
+static struct fips_drbg_tfm* __fips_drbg_tfm_alloc(void)
 {
+	struct fips_drbg_tfm *drbg_tfm;
 	struct crypto_rng *tfm;
 	int r;
 
+	drbg_tfm = kmalloc(sizeof(*drbg_tfm), GFP_KERNEL);
+	if (!drbg_tfm)
+		return ERR_PTR(-ENOMEM);
+
+	/* One for the reference from fips_drbg_tfms[]. */
+	refcount_set(&drbg_tfm->ref, 1);
+
 	tfm = crypto_alloc_rng("drbg_nopr_sha512", 0, 0);
-	if (IS_ERR(tfm))
-		return tfm;
+	if (IS_ERR(tfm)) {
+		kfree(drbg_tfm);
+		return (void *)tfm;
+	}
+	drbg_tfm->tfm = tfm;
 
 	r = crypto_rng_reset(tfm, NULL, crypto_rng_seedsize(tfm));
 	if (r) {
-		__fips_drbg_tfm_free(tfm);
+		__fips_drbg_tfm_free(drbg_tfm);
 		return ERR_PTR(r);
 	}
 
-	return tfm;
+	return drbg_tfm;
 }
 
 static int fips_drbgs_init(void)
 {
-	struct crypto_rng **drbg_tfms;
-	struct crypto_rng *drbg_tfm;
+	struct fips_drbg_tfm __rcu **drbg_tfms;
+	struct fips_drbg_tfm *drbg_tfm;
 
 	mutex_lock(&fips_init_mtx);
 	if (fips_drbg_tfms) {
@@ -803,21 +824,82 @@ static int fips_drbgs_init(void)
 				   PTR_ERR(drbg_tfm));
 		return PTR_ERR(drbg_tfm);
 	}
-
-	WRITE_ONCE(drbg_tfms[0], drbg_tfm);
+	rcu_assign_pointer(drbg_tfms[0], drbg_tfm);
 
 	pr_debug("random: FIPS drbg: init complete");
 	smp_store_release(&fips_drbg_tfms, drbg_tfms);
 
+	WRITE_ONCE(fips_do_drbg_algs_reset, 0);
 	mutex_unlock(&fips_init_mtx);
 
 	return 0;
 }
 
-static struct crypto_rng* fips_drbg_tfm_get(int node)
+static void fips_drbg_tfm_put(struct fips_drbg_tfm *drbg_tfm);
+
+static int fips_reset_drbg_algs(void)
 {
-	struct crypto_rng **drbg_tfms;
-	struct crypto_rng *drbg_tfm;
+	struct fips_drbg_tfm *new_node0_drbg_tfm, *drbg_tfm, *n;
+	LIST_HEAD(old_drbg_tfms);
+	int i;
+
+	mutex_lock(&fips_init_mtx);
+	if (!fips_do_drbg_algs_reset) {
+		mutex_unlock(&fips_init_mtx);
+		return 0;
+	}
+
+	new_node0_drbg_tfm = __fips_drbg_tfm_alloc();
+	if (IS_ERR(new_node0_drbg_tfm)) {
+		mutex_unlock(&fips_init_mtx);
+		pr_warn_ratelimited("random: FIPS drbg: drbg init failed at reset (%ld), performance degraded.",
+				    PTR_ERR(new_node0_drbg_tfm));
+		return PTR_ERR(new_node0_drbg_tfm);
+	}
+
+	for (i = 0; i < nr_node_ids; ++i) {
+		drbg_tfm = rcu_dereference_protected(fips_drbg_tfms[i], 1);
+		rcu_assign_pointer(fips_drbg_tfms[i], new_node0_drbg_tfm);
+		/* The remaining drbg's for i > 0 all get reset to NULL. */
+		new_node0_drbg_tfm = NULL;
+		list_add(&drbg_tfm->reset_list, &old_drbg_tfms);
+	}
+
+	pr_debug("random: FIPS drbg: reset complete");
+	WRITE_ONCE(fips_do_drbg_algs_reset, 0);
+	mutex_unlock(&fips_init_mtx);
+
+	synchronize_rcu();
+	list_for_each_entry_safe(drbg_tfm, n, &old_drbg_tfms, reset_list) {
+		list_del(&drbg_tfm->reset_list);
+		/* Drop the reference owned by fips_drbg_tfms[]. */
+		fips_drbg_tfm_put(drbg_tfm);
+	}
+
+	return 0;
+}
+
+static void fips_trigger_drbg_algs_reset(void)
+{
+	pr_debug("random: FIPS drbg: reset requested");
+	mutex_lock(&fips_init_mtx);
+	WRITE_ONCE(fips_do_drbg_algs_reset, 1);
+	mutex_unlock(&fips_init_mtx);
+}
+
+static void fips_drbg_tfm_put(struct fips_drbg_tfm *drbg_tfm)
+{
+	if (IS_ERR_OR_NULL(drbg_tfm))
+		return;
+
+	if (refcount_dec_and_test(&drbg_tfm->ref))
+		__fips_drbg_tfm_free(drbg_tfm);
+}
+
+static struct fips_drbg_tfm* fips_drbg_tfm_get(int node)
+{
+	struct fips_drbg_tfm __rcu **drbg_tfms;
+	struct fips_drbg_tfm *drbg_tfm;
 
 	drbg_tfms = smp_load_acquire(&fips_drbg_tfms);
 	if (unlikely(!drbg_tfms)) {
@@ -830,15 +912,25 @@ static struct crypto_rng* fips_drbg_tfm_get(int node)
 	}
 
 again:
-	drbg_tfm = smp_load_acquire(&drbg_tfms[node]);
-	if (likely(drbg_tfm))
+	if (READ_ONCE(fips_do_drbg_algs_reset) && fips_reset_drbg_algs()) {
+		/* Reset failed, resort to backup DRBG at node 0. */
+		node = 0;
+	}
+
+	rcu_read_lock();
+	drbg_tfm = rcu_dereference(drbg_tfms[node]);
+	if (likely(drbg_tfm)) {
+		refcount_inc(&drbg_tfm->ref);
+		rcu_read_unlock();
 		return drbg_tfm;
+	}
+	rcu_read_unlock();
 
 	if (WARN_ON_ONCE(!node))
 		return NULL;
 
 	mutex_lock(&fips_init_mtx);
-	if (drbg_tfms[node]) {
+	if (fips_do_drbg_algs_reset || drbg_tfms[node]) {
 		mutex_unlock(&fips_init_mtx);
 		goto again;
 	}
@@ -852,16 +944,43 @@ again:
 		goto again;
 	}
 
-	smp_store_release(&drbg_tfms[node], drbg_tfm);
+	refcount_inc(&drbg_tfm->ref);
+	rcu_assign_pointer(drbg_tfms[node], drbg_tfm);
 	mutex_unlock(&fips_init_mtx);
 
 	return drbg_tfm;
 }
 
+static int fips_crypto_notify(struct notifier_block *this,
+			      unsigned long msg, void *data)
+{
+	struct crypto_alg *alg = data;
+
+	if (msg != CRYPTO_MSG_ALG_LOADED)
+		return NOTIFY_DONE;
+
+	if (strcmp(alg->cra_name, "sha512"))
+		return NOTIFY_DONE;
+
+	fips_trigger_drbg_algs_reset();
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block fips_crypto_notifier = {
+	.notifier_call = fips_crypto_notify,
+	/*
+	 * Make sure this gets to run before cryptomgr_notify() so
+	 * that the final notifier chain result will be taken from
+	 * there.
+	 */
+	.priority = 100,
+};
+
 static ssize_t extract_fips_drbg_user(void __user *buf, size_t nbytes,
 				      __u8 __tmp[SHA512_DIGEST_SIZE])
 {
-	struct crypto_rng *drbg_tfm;
+	struct fips_drbg_tfm *drbg_tfm;
 	unsigned int block_size;
 	__u8 *tmp;
 	ssize_t ret = 0, i;
@@ -901,7 +1020,7 @@ static ssize_t extract_fips_drbg_user(void __user *buf, size_t nbytes,
 		}
 
 		i = min_t(size_t, nbytes, block_size);
-		r = crypto_rng_get_bytes(drbg_tfm, tmp, (unsigned int)i);
+		r = crypto_rng_get_bytes(drbg_tfm->tfm, tmp, (unsigned int)i);
 		if (r < 0) {
 			ret = r;
 			break;
@@ -921,6 +1040,8 @@ static ssize_t extract_fips_drbg_user(void __user *buf, size_t nbytes,
 	memzero_explicit(tmp, block_size);
 	if (likely(tmp != __tmp))
 		kfree(tmp);
+
+	fips_drbg_tfm_put(drbg_tfm);
 
 	return ret;
 }
@@ -1970,6 +2091,10 @@ int __init rand_initialize(void)
 		urandom_warning.interval = 0;
 		unseeded_warning.interval = 0;
 	}
+
+	if (fips_enabled)
+		crypto_register_notifier(&fips_crypto_notifier);
+
 	return 0;
 }
 
