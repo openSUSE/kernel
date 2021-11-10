@@ -473,7 +473,7 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 			 int *ptwrite, pfn_t pfn, bool map_writable,
 			 bool prefault)
 {
-	unsigned access;
+	unsigned access = 0;
 	struct kvm_mmu_page *sp = NULL;
 	bool dirty = is_dirty_gpte(gw->ptes[gw->level - 1]);
 	int top_level;
