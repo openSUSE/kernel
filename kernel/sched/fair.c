@@ -646,6 +646,70 @@ int sched_update_scaling(void)
 }
 #endif
 
+#define SCHED_NR_DEPRECATED 10
+static char *sched_proc_deprecated[SCHED_NR_DEPRECATED] = {
+	"sched_min_granularity_ns",
+	"sched_latency_ns",
+	"sched_wakeup_granularity_ns",
+	"sched_tunable_scaling",
+	"sched_migration_cost_ns",
+	"sched_nr_migrate",
+	"numa_balancing_scan_delay_ms",
+	"numa_balancing_scan_period_min_ms",
+	"numa_balancing_scan_period_max_ms",
+	"numa_balancing_scan_size_mb",
+};
+
+static bool sched_proc_deprecated_warned[SCHED_NR_DEPRECATED];
+
+static void warn_proc_deprecated(const char *procname)
+{
+	int i;
+
+	for (i = 0; i < SCHED_NR_DEPRECATED; i++) {
+		if (!strcmp(procname, sched_proc_deprecated[i]))
+			break;
+	}
+
+	/*
+	 * Warn once that the sysctl will be removed in a future SLE release.
+	 * Bugs in relation to this should gather details on what the workload
+	 * that requires this to be set to determine if the default scheduler
+	 * behaviour can be improved.
+	 */
+	if (i < SCHED_NR_DEPRECATED && !sched_proc_deprecated_warned[i]) {
+		pr_warn("The sched.%s sysctl was moved to debugfs in kernel "
+			"5.13 for CPU scheduler debugging only. This sysctl "
+			"will be removed in a future SLE release.\n",
+			procname);
+		sched_proc_deprecated_warned[i] = true;
+	}
+}
+
+int sched_deprecated_proc_update_handler(struct ctl_table *table, int write,
+		void *buffer, size_t *lenp, loff_t *ppos)
+{
+	int ret = proc_dointvec_minmax(table, write, buffer, lenp, ppos);
+
+	if (ret || !write)
+		return ret;
+
+	warn_proc_deprecated(table->procname);
+	return sched_update_scaling();
+}
+
+int sched_warn_deprecated_proc_uint_handler(struct ctl_table *table, int write,
+		void *buffer, size_t *lenp, loff_t *ppos)
+{
+	int ret = proc_dointvec_minmax(table, write, buffer, lenp, ppos);
+
+	if (ret || !write)
+		return 0;
+
+	warn_proc_deprecated(table->procname);
+	return ret;
+}
+
 /*
  * delta /= w
  */
@@ -5908,14 +5972,6 @@ static void record_wakee(struct task_struct *p)
 	}
 
 	if (current->last_wakee != p) {
-		int min = __this_cpu_read(sd_llc_size) << 1;
-		/*
-		 * Couple the wakee flips to the waker for the case where it
-		 * doesn't accrue flips, taking care to not push the wakee
-		 * high enough that the wake_wide() heuristic fails.
-		 */
-		if (current->wakee_flips > p->wakee_flips * min)
-			p->wakee_flips++;
 		current->last_wakee = p;
 		current->wakee_flips++;
 	}
@@ -5946,7 +6002,7 @@ static int wake_wide(struct task_struct *p)
 
 	if (master < slave)
 		swap(master, slave);
-	if ((slave < factor && master < (factor>>1)*factor) || master < slave * factor)
+	if (slave < factor || master < slave * factor)
 		return 0;
 	return 1;
 }

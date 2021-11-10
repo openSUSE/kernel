@@ -81,4 +81,22 @@ int sched_energy_aware_handler(struct ctl_table *table, int write,
 		void *buffer, size_t *lenp, loff_t *ppos);
 #endif
 
+#ifdef CONFIG_SCHED_DEBUG
+int sched_deprecated_proc_update_handler(struct ctl_table *table, int write,
+		void *buffer, size_t *lenp, loff_t *ppos);
+int sched_warn_deprecated_proc_uint_handler(struct ctl_table *table, int write,
+		void *buffer, size_t *lenp, loff_t *ppos);
+
+extern unsigned int sysctl_sched_min_granularity;
+extern unsigned int sysctl_sched_latency;
+extern unsigned int sysctl_sched_wakeup_granularity;
+extern unsigned int sysctl_sched_tunable_scaling;
+extern unsigned int sysctl_sched_migration_cost;
+extern unsigned int sysctl_sched_nr_migrate;
+extern unsigned int sysctl_numa_balancing_scan_delay;
+extern unsigned int sysctl_numa_balancing_scan_period_min;
+extern unsigned int sysctl_numa_balancing_scan_period_max;
+extern unsigned int sysctl_numa_balancing_scan_size;
+#endif
+
 #endif /* _LINUX_SCHED_SYSCTL_H */
