@@ -5972,14 +5972,6 @@ static void record_wakee(struct task_struct *p)
 	}
 
 	if (current->last_wakee != p) {
-		int min = __this_cpu_read(sd_llc_size) << 1;
-		/*
-		 * Couple the wakee flips to the waker for the case where it
-		 * doesn't accrue flips, taking care to not push the wakee
-		 * high enough that the wake_wide() heuristic fails.
-		 */
-		if (current->wakee_flips > p->wakee_flips * min)
-			p->wakee_flips++;
 		current->last_wakee = p;
 		current->wakee_flips++;
 	}
@@ -6010,7 +6002,7 @@ static int wake_wide(struct task_struct *p)
 
 	if (master < slave)
 		swap(master, slave);
-	if ((slave < factor && master < (factor>>1)*factor) || master < slave * factor)
+	if (slave < factor || master < slave * factor)
 		return 0;
 	return 1;
 }
