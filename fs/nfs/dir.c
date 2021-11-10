@@ -754,7 +754,7 @@ static bool nfs_readdir_dont_search_cache(nfs_readdir_descriptor_t *desc)
 	 * Default to uncached readdir if the page cache is empty, and
 	 * we're looking for a non-zero cookie in a large directory.
 	 */
-	return desc->dir_cookie != 0 && mapping->nrpages == 0 && size > dtsize;
+	return *desc->dir_cookie != 0 && mapping->nrpages == 0 && size > dtsize;
 }
 
 /* Search for desc->dir_cookie from the beginning of the page cache */
