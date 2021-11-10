@@ -8,7 +8,7 @@
 #include <linux/string.h>
 #include <linux/buffer_head.h>
 
-#include <linux/stdarg.h>
+#include <stdarg.h>
 
 static char error_buf[1024];
 static char fmt_buf[1024];

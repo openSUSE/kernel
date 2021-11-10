@@ -7,7 +7,7 @@
  * Copyright 2011 Intel Corporation; author Matt Fleming
  */
 
-#include <linux/stdarg.h>
+#include <stdarg.h>
 
 #include <linux/ctype.h>
 #include <linux/efi.h>

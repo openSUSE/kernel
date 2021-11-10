@@ -7,7 +7,7 @@
 #include "log.h"
 #include "main.h"
 
-#include <linux/stdarg.h>
+#include <stdarg.h>
 
 #include "trace.h"
 
