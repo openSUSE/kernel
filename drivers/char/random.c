@@ -337,6 +337,9 @@
 #include <linux/uuid.h>
 #include <crypto/chacha.h>
 #include <crypto/sha1.h>
+#include <crypto/rng.h>
+#include <crypto/sha2.h>
+#include <crypto/algapi.h>
 
 #include <asm/processor.h>
 #include <linux/uaccess.h>
@@ -743,6 +746,189 @@ static int credit_entropy_bits_safe(struct entropy_store *r, int nbits)
 
 /*********************************************************************
  *
+ * 800-90B compliant DRBG wired up to userspace interface only.
+ *
+ *********************************************************************/
+static DEFINE_MUTEX(fips_init_mtx);
+
+static struct crypto_rng **fips_drbg_tfms;
+
+static void __fips_drbg_tfm_free(struct crypto_rng *tfm)
+{
+	crypto_free_rng(tfm);
+}
+
+static struct crypto_rng* __fips_drbg_tfm_alloc(void)
+{
+	struct crypto_rng *tfm;
+	int r;
+
+	tfm = crypto_alloc_rng("drbg_nopr_sha512", 0, 0);
+	if (IS_ERR(tfm))
+		return tfm;
+
+	r = crypto_rng_reset(tfm, NULL, crypto_rng_seedsize(tfm));
+	if (r) {
+		__fips_drbg_tfm_free(tfm);
+		return ERR_PTR(r);
+	}
+
+	return tfm;
+}
+
+static int fips_drbgs_init(void)
+{
+	struct crypto_rng **drbg_tfms;
+	struct crypto_rng *drbg_tfm;
+
+	mutex_lock(&fips_init_mtx);
+	if (fips_drbg_tfms) {
+		mutex_unlock(&fips_init_mtx);
+		return 0;
+	}
+
+	drbg_tfms = kcalloc(nr_node_ids, sizeof(*fips_drbg_tfms),
+			    GFP_KERNEL);
+	if (!drbg_tfms) {
+		pr_err_ratelimited("random: FIPS drbg: drbg array allocation failure");
+		mutex_unlock(&fips_init_mtx);
+		return -ENOMEM;
+	}
+
+	drbg_tfm = __fips_drbg_tfm_alloc();
+	if (IS_ERR(drbg_tfm)) {
+		mutex_unlock(&fips_init_mtx);
+		kfree(drbg_tfms);
+		pr_err_ratelimited("random: FIPS drbg: drbg init failed, %ld",
+				   PTR_ERR(drbg_tfm));
+		return PTR_ERR(drbg_tfm);
+	}
+
+	WRITE_ONCE(drbg_tfms[0], drbg_tfm);
+
+	pr_debug("random: FIPS drbg: init complete");
+	smp_store_release(&fips_drbg_tfms, drbg_tfms);
+
+	mutex_unlock(&fips_init_mtx);
+
+	return 0;
+}
+
+static struct crypto_rng* fips_drbg_tfm_get(int node)
+{
+	struct crypto_rng **drbg_tfms;
+	struct crypto_rng *drbg_tfm;
+
+	drbg_tfms = smp_load_acquire(&fips_drbg_tfms);
+	if (unlikely(!drbg_tfms)) {
+		int r;
+
+		r = fips_drbgs_init();
+		if (r)
+			return ERR_PTR(r);
+		drbg_tfms = smp_load_acquire(&fips_drbg_tfms);
+	}
+
+again:
+	drbg_tfm = smp_load_acquire(&drbg_tfms[node]);
+	if (likely(drbg_tfm))
+		return drbg_tfm;
+
+	if (WARN_ON_ONCE(!node))
+		return NULL;
+
+	mutex_lock(&fips_init_mtx);
+	if (drbg_tfms[node]) {
+		mutex_unlock(&fips_init_mtx);
+		goto again;
+	}
+
+	drbg_tfm = __fips_drbg_tfm_alloc();
+	if (IS_ERR(drbg_tfm)) {
+		mutex_unlock(&fips_init_mtx);
+		pr_warn_ratelimited("random: FIPS drbg: per-node drbg init failed (%ld), performance degraded.",
+				    PTR_ERR(drbg_tfm));
+		node = 0;
+		goto again;
+	}
+
+	smp_store_release(&drbg_tfms[node], drbg_tfm);
+	mutex_unlock(&fips_init_mtx);
+
+	return drbg_tfm;
+}
+
+static ssize_t extract_fips_drbg_user(void __user *buf, size_t nbytes,
+				      __u8 __tmp[SHA512_DIGEST_SIZE])
+{
+	struct crypto_rng *drbg_tfm;
+	unsigned int block_size;
+	__u8 *tmp;
+	ssize_t ret = 0, i;
+	int large_request = (nbytes > 256);
+
+	if (!nbytes)
+		return 0;
+
+	drbg_tfm = fips_drbg_tfm_get(numa_node_id());
+	if (IS_ERR(drbg_tfm))
+		return PTR_ERR(drbg_tfm);
+
+	/*
+	 * Each drbg_generate() invocation involves backtracking
+	 * protection and it is desirable from a performance POV to
+	 * amortize that over a number of SHA512_DIGEST_SIZE DRBG
+	 * output blocks.
+	 */
+	block_size = min_t(size_t, nbytes, 4 * SHA512_DIGEST_SIZE);
+	tmp = kmalloc(block_size, GFP_KERNEL);
+	if (!tmp) {
+		/* Use the on-stack tmp buffer from the caller as a backup. */
+		tmp = __tmp;
+		block_size = SHA512_DIGEST_SIZE;
+	}
+
+	while (nbytes) {
+		int r;
+
+		if (large_request && need_resched()) {
+			if (signal_pending(current)) {
+				if (ret == 0)
+					ret = -ERESTARTSYS;
+				break;
+			}
+			schedule();
+		}
+
+		i = min_t(size_t, nbytes, block_size);
+		r = crypto_rng_get_bytes(drbg_tfm, tmp, (unsigned int)i);
+		if (r < 0) {
+			ret = r;
+			break;
+		}
+
+		if (copy_to_user(buf, tmp, i)) {
+			ret = -EFAULT;
+			break;
+		}
+
+		nbytes -= i;
+		buf += i;
+		ret += i;
+	}
+
+	/* Wipe data just written to memory */
+	memzero_explicit(tmp, block_size);
+	if (likely(tmp != __tmp))
+		kfree(tmp);
+
+	return ret;
+}
+
+
+
+/*********************************************************************
+ *
  * CRNG using CHACHA20
  *
  *********************************************************************/
@@ -1058,6 +1244,9 @@ static ssize_t extract_crng_user(void __user *buf, size_t nbytes)
 	ssize_t ret = 0, i = CHACHA_BLOCK_SIZE;
 	__u8 tmp[CHACHA_BLOCK_SIZE] __aligned(4);
 	int large_request = (nbytes > 256);
+
+	if (fips_enabled)
+		return extract_fips_drbg_user(buf, nbytes, tmp);
 
 	while (nbytes) {
 		if (large_request && need_resched()) {
