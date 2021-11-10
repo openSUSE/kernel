@@ -5,6 +5,8 @@
  * CONFIG_DEBUG_INFO_REDUCED. Please do not add actual code. However,
  * adding appropriate #includes is fine.
  */
+#include <stdarg.h>
+
 #include <linux/cred.h>
 #include <linux/crypto.h>
 #include <linux/dcache.h>
@@ -20,7 +22,6 @@
 #include <linux/net.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
-#include <linux/stdarg.h>
 #include <linux/types.h>
 #include <net/addrconf.h>
 #include <net/sock.h>

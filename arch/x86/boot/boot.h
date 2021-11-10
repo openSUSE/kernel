@@ -18,7 +18,7 @@
 
 #ifndef __ASSEMBLY__
 
-#include <linux/stdarg.h>
+#include <stdarg.h>
 #include <linux/types.h>
 #include <linux/edd.h>
 #include <asm/setup.h>

@@ -11,7 +11,7 @@
 
 #include <linux/spinlock.h>
 #include <linux/types.h>
-#include <linux/stdarg.h>
+#include <stdarg.h>
 
 struct string_stream_fragment {
 	struct kunit *test;
