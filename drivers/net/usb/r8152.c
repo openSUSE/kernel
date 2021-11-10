@@ -129,6 +129,7 @@
 #define USB_LPM_CTRL		0xd41a
 #define USB_BMU_RESET		0xd4b0
 #define USB_U1U2_TIMER		0xd4da
+#define USB_FW_TASK		0xd4e8  /* RTL8153B */
 #define USB_UPS_CTRL		0xd800
 #define USB_POWER_CUT		0xd80a
 #define USB_MISC_0		0xd81a
@@ -406,6 +407,9 @@
 /* USB_UPT_RXDMA_OWN */
 #define OWN_UPDATE		BIT(0)
 #define OWN_CLEAR		BIT(1)
+
+/* USB_FW_TASK */
+#define FC_PATCH_TASK		BIT(1)
 
 /* USB_UPS_CTRL */
 #define POWER_CUT		0x0100
@@ -2582,6 +2586,17 @@ static int rtl8153_enable(struct r8152 *tp)
 	rtl_set_eee_plus(tp);
 	r8153_set_rx_early_timeout(tp);
 	r8153_set_rx_early_size(tp);
+
+	if (tp->version == RTL_VER_09) {
+		u32 ocp_data;
+
+		ocp_data = ocp_read_word(tp, MCU_TYPE_USB, USB_FW_TASK);
+		ocp_data &= ~FC_PATCH_TASK;
+		ocp_write_word(tp, MCU_TYPE_USB, USB_FW_TASK, ocp_data);
+		usleep_range(1000, 2000);
+		ocp_data |= FC_PATCH_TASK;
+		ocp_write_word(tp, MCU_TYPE_USB, USB_FW_TASK, ocp_data);
+	}
 
 	return rtl_enable(tp);
 }
