@@ -210,6 +210,9 @@ void qeth_clear_working_pool_list(struct qeth_card *card)
 			list_del(&pool_entry->list);
 	}
 
+	if (!queue)
+		return;
+
 	for (i = 0; i < ARRAY_SIZE(queue->bufs); i++)
 		queue->bufs[i].pool_entry = NULL;
 }
