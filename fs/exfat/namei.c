@@ -595,6 +595,7 @@ static int exfat_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	inode_inc_iversion(inode);
 	inode->i_mtime = inode->i_atime = inode->i_ctime =
 		EXFAT_I(inode)->i_crtime = current_time(inode);
+	exfat_truncate_atime(&inode->i_atime);
 	/* timestamp is already written, so mark_inode_dirty() is unneeded. */
 
 	d_instantiate(dentry, inode);
@@ -855,6 +856,7 @@ static int exfat_unlink(struct inode *dir, struct dentry *dentry)
 
 	inode_inc_iversion(dir);
 	dir->i_mtime = dir->i_atime = current_time(dir);
+	exfat_truncate_atime(&dir->i_atime);
 	if (IS_DIRSYNC(dir))
 		exfat_sync_inode(dir);
 	else
@@ -862,6 +864,7 @@ static int exfat_unlink(struct inode *dir, struct dentry *dentry)
 
 	clear_nlink(inode);
 	inode->i_mtime = inode->i_atime = current_time(inode);
+	exfat_truncate_atime(&inode->i_atime);
 	exfat_unhash_inode(inode);
 	exfat_d_version_set(dentry, inode_query_iversion(dir));
 unlock:
@@ -904,6 +907,7 @@ static int exfat_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	inode_inc_iversion(inode);
 	inode->i_mtime = inode->i_atime = inode->i_ctime =
 		EXFAT_I(inode)->i_crtime = current_time(inode);
+	exfat_truncate_atime(&inode->i_atime);
 	/* timestamp is already written, so mark_inode_dirty() is unneeded. */
 
 	d_instantiate(dentry, inode);
@@ -1020,6 +1024,7 @@ static int exfat_rmdir(struct inode *dir, struct dentry *dentry)
 
 	inode_inc_iversion(dir);
 	dir->i_mtime = dir->i_atime = current_time(dir);
+	exfat_truncate_atime(&dir->i_atime);
 	if (IS_DIRSYNC(dir))
 		exfat_sync_inode(dir);
 	else
@@ -1028,6 +1033,7 @@ static int exfat_rmdir(struct inode *dir, struct dentry *dentry)
 
 	clear_nlink(inode);
 	inode->i_mtime = inode->i_atime = current_time(inode);
+	exfat_truncate_atime(&inode->i_atime);
 	exfat_unhash_inode(inode);
 	exfat_d_version_set(dentry, inode_query_iversion(dir));
 unlock:
@@ -1396,6 +1402,7 @@ static int exfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 	inode_inc_iversion(new_dir);
 	new_dir->i_ctime = new_dir->i_mtime = new_dir->i_atime =
 		EXFAT_I(new_dir)->i_crtime = current_time(new_dir);
+	exfat_truncate_atime(&new_dir->i_atime);
 	if (IS_DIRSYNC(new_dir))
 		exfat_sync_inode(new_dir);
 	else
