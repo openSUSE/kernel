@@ -893,6 +893,7 @@ static void qdio_shutdown_queues(struct qdio_irq *irq_ptr)
 static int qdio_cancel_ccw(struct qdio_irq *irq, int how)
 {
 	struct ccw_device *cdev = irq->cdev;
+	long timeout;
 	int rc;
 
 	spin_lock_irq(get_ccwdev_lock(cdev));
@@ -909,12 +910,14 @@ static int qdio_cancel_ccw(struct qdio_irq *irq, int how)
 		return rc;
 	}
 
-	wait_event_interruptible_timeout(cdev->private->wait_q,
-					 irq->state == QDIO_IRQ_STATE_INACTIVE ||
-					 irq->state == QDIO_IRQ_STATE_ERR,
-					 10 * HZ);
+	timeout = wait_event_interruptible_timeout(cdev->private->wait_q,
+						   irq->state == QDIO_IRQ_STATE_INACTIVE ||
+						   irq->state == QDIO_IRQ_STATE_ERR,
+						   10 * HZ);
+	if (timeout <= 0)
+		rc = (timeout == -ERESTARTSYS) ? -EINTR : -ETIME;
 
-	return 0;
+	return rc;
 }
 
 /**
@@ -1148,9 +1151,8 @@ int qdio_establish(struct ccw_device *cdev,
 	}
 
 	if (irq_ptr->state != QDIO_IRQ_STATE_ESTABLISHED) {
-		mutex_unlock(&irq_ptr->setup_mutex);
-		qdio_shutdown(cdev, QDIO_FLAG_CLEANUP_USING_CLEAR);
-		return -EIO;
+		rc = -EIO;
+		goto err_ccw_error;
 	}
 
 	qdio_setup_ssqd_info(irq_ptr);
@@ -1165,6 +1167,7 @@ int qdio_establish(struct ccw_device *cdev,
 
 err_ccw_timeout:
 	qdio_cancel_ccw(irq_ptr, QDIO_FLAG_CLEANUP_USING_CLEAR);
+err_ccw_error:
 err_ccw_start:
 	qdio_shutdown_thinint(irq_ptr);
 err_thinint:
