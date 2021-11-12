@@ -3123,21 +3123,6 @@ static inline void btrfs_io_bio_init(struct btrfs_io_bio *btrfs_bio)
 	memset(btrfs_bio, 0, offsetof(struct btrfs_io_bio, bio));
 }
 
-/*
- * The following helpers allocate a bio. As it's backed by a bioset, it'll
- * never fail.  We're returning a bio right now but you can call btrfs_io_bio
- * for the appropriate container_of magic
- */
-struct bio *btrfs_bio_alloc(u64 first_byte)
-{
-	struct bio *bio;
-
-	bio = bio_alloc_bioset(GFP_NOFS, BIO_MAX_VECS, &btrfs_bioset);
-	bio->bi_iter.bi_sector = first_byte >> 9;
-	btrfs_io_bio_init(btrfs_io_bio(bio));
-	return bio;
-}
-
 struct bio *btrfs_bio_clone(struct bio *bio)
 {
 	struct btrfs_io_bio *btrfs_bio;
@@ -3309,14 +3294,15 @@ static int alloc_new_bio(struct btrfs_inode *inode,
 	struct bio *bio;
 	int ret;
 
+	bio = btrfs_io_bio_alloc(BIO_MAX_VECS);
 	/*
 	 * For compressed page range, its disk_bytenr is always @disk_bytenr
 	 * passed in, no matter if we have added any range into previous bio.
 	 */
 	if (bio_flags & EXTENT_BIO_COMPRESSED)
-		bio = btrfs_bio_alloc(disk_bytenr);
+		bio->bi_iter.bi_sector = disk_bytenr >> SECTOR_SHIFT;
 	else
-		bio = btrfs_bio_alloc(disk_bytenr + offset);
+		bio->bi_iter.bi_sector = (disk_bytenr + offset) >> SECTOR_SHIFT;
 	bio_ctrl->bio = bio;
 	bio_ctrl->bio_flags = bio_flags;
 	ret = calc_bio_boundaries(bio_ctrl, inode);
