@@ -327,7 +327,7 @@ tcf_exts_exec(struct sk_buff *skb, struct tcf_exts *exts,
 
 int tcf_exts_validate(struct net *net, struct tcf_proto *tp,
 		      struct nlattr **tb, struct nlattr *rate_tlv,
-		      struct tcf_exts *exts, bool ovr, bool rtnl_held,
+		      struct tcf_exts *exts, u32 flags,
 		      struct netlink_ext_ack *extack);
 void tcf_exts_destroy(struct tcf_exts *exts);
 void tcf_exts_change(struct tcf_exts *dst, struct tcf_exts *src);
@@ -773,7 +773,7 @@ struct tc_cookie {
 };
 
 struct tc_qopt_offload_stats {
-	struct gnet_stats_basic_packed *bstats;
+	struct gnet_stats_basic_sync *bstats;
 	struct gnet_stats_queue *qstats;
 };
 
@@ -893,7 +893,7 @@ struct tc_gred_qopt_offload_params {
 };
 
 struct tc_gred_qopt_offload_stats {
-	struct gnet_stats_basic_packed bstats[MAX_DPs];
+	struct gnet_stats_basic_sync bstats[MAX_DPs];
 	struct gnet_stats_queue qstats[MAX_DPs];
 	struct red_stats *xstats[MAX_DPs];
 };
