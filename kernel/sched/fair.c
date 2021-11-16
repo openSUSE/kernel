@@ -646,6 +646,7 @@ int sched_update_scaling(void)
 }
 #endif
 
+#ifdef CONFIG_SCHED_DEBUG
 #define SCHED_NR_DEPRECATED 10
 static char *sched_proc_deprecated[SCHED_NR_DEPRECATED] = {
 	"sched_min_granularity_ns",
@@ -709,6 +710,7 @@ int sched_warn_deprecated_proc_uint_handler(struct ctl_table *table, int write,
 	warn_proc_deprecated(table->procname);
 	return ret;
 }
+#endif /* CONFIG_SCHED_DEBUG */
 
 /*
  * delta /= w
