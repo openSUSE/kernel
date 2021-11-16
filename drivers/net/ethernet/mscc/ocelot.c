@@ -404,6 +404,7 @@ static u32 ocelot_read_eq_avail(struct ocelot *ocelot, int port)
 
 int ocelot_port_flush(struct ocelot *ocelot, int port)
 {
+	unsigned int pause_ena;
 	int err, val;
 
 	/* Disable dequeuing from the egress queues */
@@ -412,6 +413,8 @@ int ocelot_port_flush(struct ocelot *ocelot, int port)
 		       QSYS_PORT_MODE, port);
 
 	/* Disable flow control */
+	pause_ena = ocelot_read_rix(ocelot, SYS_PAUSE_CFG, port) &
+							SYS_PAUSE_CFG_PAUSE_ENA;
 	ocelot_rmw_rix(ocelot, 0, SYS_PAUSE_CFG_PAUSE_ENA, SYS_PAUSE_CFG, port);
 
 	/* Disable priority flow control */
@@ -446,6 +449,9 @@ int ocelot_port_flush(struct ocelot *ocelot, int port)
 
 	/* Clear flushing again. */
 	ocelot_rmw_gix(ocelot, 0, REW_PORT_CFG_FLUSH_ENA, REW_PORT_CFG, port);
+
+	/* Re-enable flow control */
+	ocelot_rmw_rix(ocelot, pause_ena, SYS_PAUSE_CFG_PAUSE_ENA, SYS_PAUSE_CFG, port);
 
 	return err;
 }
