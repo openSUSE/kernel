@@ -2537,7 +2537,7 @@ static int btrfs_show_devname(struct seq_file *m, struct dentry *root)
 
 static dev_t btrfs_get_inode_dev(const struct inode *inode)
 {
-	return BTRFS_I(inode)->root->sbdev.anon_dev;
+	return BTRFS_I(inode)->root->anon_dev;
 }
 
 static const struct super_operations btrfs_super_ops = {

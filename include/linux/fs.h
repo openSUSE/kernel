@@ -1416,14 +1416,6 @@ struct sb_writers {
 	struct percpu_rw_semaphore	rw_sem[SB_FREEZE_LEVELS];
 };
 
-/* we can expand this to help the VFS layer with modern filesystems */
-/* To be used only used by btrfs */
-struct super_block_dev {
-	struct super_block	*sb;
-	struct list_head	entry;		/* For struct sb->s_sbdevs */
-	dev_t			anon_dev;
-};
-
 struct super_block {
 	struct list_head	s_list;		/* Keep this first */
 	dev_t			s_dev;		/* search index; _not_ kdev_t */
@@ -1458,7 +1450,6 @@ struct super_block {
 	__u16 s_encoding_flags;
 #endif
 	struct hlist_bl_head	s_roots;	/* alternate root dentries for NFS */
-	struct list_head	s_sbdevs;	/* internal fs dev_t */
 	struct list_head	s_mounts;	/* list of mounts; _not_ for fs use */
 	struct block_device	*s_bdev;
 	struct backing_dev_info *s_bdi;
@@ -2525,19 +2516,6 @@ int set_anon_super(struct super_block *s, void *data);
 int set_anon_super_fc(struct super_block *s, struct fs_context *fc);
 int get_anon_bdev(dev_t *);
 void free_anon_bdev(dev_t);
-
-/* These two are to be used only by btrfs */
-int insert_anon_sbdev(struct super_block *sb, struct super_block_dev *sbdev);
-void insert_prealloc_anon_sbdev(struct super_block *sb,
-		struct super_block_dev *sbdev, dev_t preallocated);
-void remove_anon_sbdev(struct super_block_dev *sbdev);
-static inline void init_anon_sbdev(struct super_block_dev *sbdev)
-{
-	sbdev->sb = NULL;
-	INIT_LIST_HEAD(&sbdev->entry);
-	sbdev->anon_dev = 0;
-}
-
 struct super_block *sget_fc(struct fs_context *fc,
 			    int (*test)(struct super_block *, struct fs_context *),
 			    int (*set)(struct super_block *, struct fs_context *));

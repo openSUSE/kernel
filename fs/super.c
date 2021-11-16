@@ -154,75 +154,6 @@ static unsigned long super_cache_count(struct shrinker *shrink,
 	return total_objects;
 }
 
-static bool super_dev_match(struct super_block *sb, dev_t dev)
-{
-	struct super_block_dev *sbdev;
-
-	if (sb->s_dev == dev)
-		return true;
-
-	if (list_empty(&sb->s_sbdevs))
-		return false;
-
-	list_for_each_entry(sbdev, &sb->s_sbdevs, entry)
-		if (sbdev->anon_dev == dev)
-			return true;
-
-	return false;
-}
-
-/* To be used only by btrfs */
-int insert_anon_sbdev(struct super_block *sb, struct super_block_dev *sbdev)
-{
-	int ret;
-
-	ret = get_anon_bdev(&sbdev->anon_dev);
-	if (ret)
-		return ret;
-
-	sbdev->sb = sb;
-
-	spin_lock(&sb_lock);
-	list_add_tail(&sbdev->entry, &sb->s_sbdevs);
-	spin_unlock(&sb_lock);
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(insert_anon_sbdev);
-
-/* To be used only by btrfs */
-void insert_prealloc_anon_sbdev(struct super_block *sb,
-		struct super_block_dev *sbdev, dev_t preallocated)
-{
-	sbdev->anon_dev = preallocated;
-
-	sbdev->sb = sb;
-
-	spin_lock(&sb_lock);
-	list_add_tail(&sbdev->entry, &sb->s_sbdevs);
-	spin_unlock(&sb_lock);
-}
-EXPORT_SYMBOL_GPL(insert_prealloc_anon_sbdev);
-
-/* To be used only by btrfs */
-void remove_anon_sbdev(struct super_block_dev *sbdev)
-{
-	bool remove = false;
-
-	spin_lock(&sb_lock);
-	if (!list_empty(&sbdev->entry)) {
-		remove = true;
-		list_del_init(&sbdev->entry);
-	}
-	spin_unlock(&sb_lock);
-
-	if (remove) {
-		free_anon_bdev(sbdev->anon_dev);
-		sbdev->anon_dev = 0;
-	}
-}
-EXPORT_SYMBOL_GPL(remove_anon_sbdev);
-
 static void destroy_super_work(struct work_struct *work)
 {
 	struct super_block *s = container_of(work, struct super_block,
@@ -250,7 +181,6 @@ static void destroy_unused_super(struct super_block *s)
 	list_lru_destroy(&s->s_dentry_lru);
 	list_lru_destroy(&s->s_inode_lru);
 	security_sb_free(s);
-	WARN_ON(!list_empty(&s->s_sbdevs));
 	put_user_ns(s->s_user_ns);
 	kfree(s->s_subtype);
 	free_prealloced_shrinker(&s->s_shrink);
@@ -319,7 +249,6 @@ static struct super_block *alloc_super(struct file_system_type *type, int flags,
 	spin_lock_init(&s->s_inode_list_lock);
 	INIT_LIST_HEAD(&s->s_inodes_wb);
 	spin_lock_init(&s->s_inode_wblist_lock);
-	INIT_LIST_HEAD(&s->s_sbdevs);
 
 	s->s_count = 1;
 	atomic_set(&s->s_active, 1);
@@ -889,7 +818,7 @@ rescan:
 	list_for_each_entry(sb, &super_blocks, s_list) {
 		if (hlist_unhashed(&sb->s_instances))
 			continue;
-		if (super_dev_match(sb, dev)) {
+		if (sb->s_dev ==  dev) {
 			sb->s_count++;
 			spin_unlock(&sb_lock);
 			if (excl)
