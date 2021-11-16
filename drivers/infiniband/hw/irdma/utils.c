@@ -768,17 +768,6 @@ struct ib_qp *irdma_get_qp(struct ib_device *device, int qpn)
 }
 
 /**
- * irdma_get_hw_addr - return hw addr
- * @par: points to shared dev
- */
-u8 __iomem *irdma_get_hw_addr(void *par)
-{
-	struct irdma_sc_dev *dev = par;
-
-	return dev->hw->hw_addr;
-}
-
-/**
  * irdma_remove_cqp_head - return head entry and remove
  * @dev: device
  */
@@ -2054,40 +2043,6 @@ irdma_cqp_ws_node_cmd(struct irdma_sc_dev *dev, u8 cmd,
 	}
 
 exit:
-	irdma_put_cqp_request(&rf->cqp, cqp_request);
-
-	return status;
-}
-
-/**
- * irdma_cqp_up_map_cmd - Set the up-up mapping
- * @dev: pointer to device structure
- * @cmd: map command
- * @map_info: pointer to up map info
- */
-enum irdma_status_code irdma_cqp_up_map_cmd(struct irdma_sc_dev *dev, u8 cmd,
-					    struct irdma_up_info *map_info)
-{
-	struct irdma_pci_f *rf = dev_to_rf(dev);
-	struct irdma_cqp *iwcqp = &rf->cqp;
-	struct irdma_sc_cqp *cqp = &iwcqp->sc_cqp;
-	struct irdma_cqp_request *cqp_request;
-	struct cqp_cmds_info *cqp_info;
-	enum irdma_status_code status;
-
-	cqp_request = irdma_alloc_and_get_cqp_request(iwcqp, false);
-	if (!cqp_request)
-		return IRDMA_ERR_NO_MEMORY;
-
-	cqp_info = &cqp_request->info;
-	memset(cqp_info, 0, sizeof(*cqp_info));
-	cqp_info->cqp_cmd = cmd;
-	cqp_info->post_sq = 1;
-	cqp_info->in.u.up_map.info = *map_info;
-	cqp_info->in.u.up_map.cqp = cqp;
-	cqp_info->in.u.up_map.scratch = (uintptr_t)cqp_request;
-
-	status = irdma_handle_cqp_op(rf, cqp_request);
 	irdma_put_cqp_request(&rf->cqp, cqp_request);
 
 	return status;

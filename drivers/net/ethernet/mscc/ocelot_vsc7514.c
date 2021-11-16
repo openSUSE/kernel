@@ -1103,7 +1103,8 @@ static int mscc_ocelot_probe(struct platform_device *pdev)
 	if (!np && !pdev->dev.platform_data)
 		return -ENODEV;
 
-	devlink = devlink_alloc(&ocelot_devlink_ops, sizeof(*ocelot));
+	devlink =
+		devlink_alloc(&ocelot_devlink_ops, sizeof(*ocelot), &pdev->dev);
 	if (!devlink)
 		return -ENOMEM;
 
@@ -1187,10 +1188,7 @@ static int mscc_ocelot_probe(struct platform_device *pdev)
 	if (err)
 		goto out_put_ports;
 
-	err = devlink_register(devlink, ocelot->dev);
-	if (err)
-		goto out_ocelot_deinit;
-
+	devlink_register(devlink);
 	err = mscc_ocelot_init_ports(pdev, ports);
 	if (err)
 		goto out_ocelot_devlink_unregister;
@@ -1223,7 +1221,6 @@ out_ocelot_release_ports:
 	mscc_ocelot_teardown_devlink_ports(ocelot);
 out_ocelot_devlink_unregister:
 	devlink_unregister(devlink);
-out_ocelot_deinit:
 	ocelot_deinit(ocelot);
 out_put_ports:
 	of_node_put(ports);

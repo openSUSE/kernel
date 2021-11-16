@@ -1420,19 +1420,14 @@ int rvu_register_dl(struct rvu *rvu)
 	struct devlink *dl;
 	int err;
 
-	dl = devlink_alloc(&rvu_devlink_ops, sizeof(struct rvu_devlink));
+	dl = devlink_alloc(&rvu_devlink_ops, sizeof(struct rvu_devlink),
+			   rvu->dev);
 	if (!dl) {
 		dev_warn(rvu->dev, "devlink_alloc failed\n");
 		return -ENOMEM;
 	}
 
-	err = devlink_register(dl, rvu->dev);
-	if (err) {
-		dev_err(rvu->dev, "devlink register failed with error %d\n", err);
-		devlink_free(dl);
-		return err;
-	}
-
+	devlink_register(dl);
 	rvu_dl = devlink_priv(dl);
 	rvu_dl->dl = dl;
 	rvu_dl->rvu = rvu;

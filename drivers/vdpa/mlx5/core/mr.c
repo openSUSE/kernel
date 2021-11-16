@@ -87,7 +87,7 @@ static int create_direct_mr(struct mlx5_vdpa_dev *mvdev, struct mlx5_vdpa_direct
 
 static void destroy_direct_mr(struct mlx5_vdpa_dev *mvdev, struct mlx5_vdpa_direct_mr *mr)
 {
-	mlx5_vdpa_destroy_mkey(mvdev, &mr->mr);
+	mlx5_vdpa_destroy_mkey(mvdev, mr->mr);
 }
 
 static u64 map_start(struct vhost_iotlb_map *map, struct mlx5_vdpa_direct_mr *mr)
@@ -161,7 +161,7 @@ again:
 		}
 
 		if (preve == dmr->start) {
-			klm->key = cpu_to_be32(dmr->mr.key);
+			klm->key = cpu_to_be32(dmr->mr);
 			klm->bcount = cpu_to_be32(klm_bcount(dmr->end - dmr->start));
 			preve = dmr->end;
 		} else {
@@ -216,7 +216,7 @@ static int create_indirect_key(struct mlx5_vdpa_dev *mvdev, struct mlx5_vdpa_mr 
 
 static void destroy_indirect_key(struct mlx5_vdpa_dev *mvdev, struct mlx5_vdpa_mr *mkey)
 {
-	mlx5_vdpa_destroy_mkey(mvdev, &mkey->mkey);
+	mlx5_vdpa_destroy_mkey(mvdev, mkey->mkey);
 }
 
 static int map_direct_mr(struct mlx5_vdpa_dev *mvdev, struct mlx5_vdpa_direct_mr *mr,
@@ -448,7 +448,7 @@ static int create_dma_mr(struct mlx5_vdpa_dev *mvdev, struct mlx5_vdpa_mr *mr)
 
 static void destroy_dma_mr(struct mlx5_vdpa_dev *mvdev, struct mlx5_vdpa_mr *mr)
 {
-	mlx5_vdpa_destroy_mkey(mvdev, &mr->mkey);
+	mlx5_vdpa_destroy_mkey(mvdev, mr->mkey);
 }
 
 static int _mlx5_vdpa_create_mr(struct mlx5_vdpa_dev *mvdev, struct vhost_iotlb *iotlb)
