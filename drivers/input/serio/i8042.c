@@ -47,7 +47,7 @@ MODULE_PARM_DESC(unlock, "Ignore keyboard lock.");
 
 static bool i8042_probe_defer;
 module_param_named(probe_defer, i8042_probe_defer, bool, 0);
-MODULE_PARM_DESC(unlock, "Allow deferred probing.");
+MODULE_PARM_DESC(probe_defer, "Allow deferred probing.");
 
 enum i8042_controller_reset_mode {
 	I8042_RESET_NEVER,
