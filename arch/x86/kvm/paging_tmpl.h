@@ -67,8 +67,8 @@ struct guest_walker {
 	pt_element_t ptes[PT_MAX_FULL_LEVELS];
 	pt_element_t prefetch_ptes[PTE_PREFETCH_NUM];
 	gpa_t pte_gpa[PT_MAX_FULL_LEVELS];
-	unsigned pt_access;
-	unsigned pte_access;
+	unsigned int pt_access[PT_MAX_FULL_LEVELS];
+	unsigned int pte_access;
 	gfn_t gfn;
 	struct x86_exception fault;
 };
@@ -234,6 +234,9 @@ walk:
 
 		walker->ptes[walker->level - 1] = pte;
 
+		/* Convert to ACC_*_MASK flags for struct guest_walker.  */
+		walker->pt_access[walker->level - 1] = pt_access;
+
 		if ((walker->level == PT_PAGE_TABLE_LEVEL) ||
 		    ((walker->level == PT_DIRECTORY_LEVEL) &&
 				is_large_pte(pte) &&
@@ -296,10 +299,10 @@ walk:
 		walker->ptes[walker->level - 1] = pte;
 	}
 
-	walker->pt_access = pt_access;
 	walker->pte_access = pte_access;
 	pgprintk("%s: pte %llx pte_access %x pt_access %x\n",
-		 __func__, (u64)pte, pte_access, pt_access);
+		 __func__, (u64)pte, pte_access,
+		 walker->pt_access[walker->level - 1]);
 	return 1;
 
 error:
@@ -477,7 +480,7 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 			 int *ptwrite, pfn_t pfn, bool map_writable,
 			 bool prefault, bool lpage_disallowed)
 {
-	unsigned access = gw->pt_access;
+	unsigned access = 0;
 	struct kvm_mmu_page *sp = NULL;
 	bool dirty = is_dirty_gpte(gw->ptes[gw->level - 1]);
 	int top_level;
@@ -488,7 +491,7 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 	if (!is_present_gpte(gw->ptes[gw->level - 1]))
 		return NULL;
 
-	direct_access = gw->pt_access & gw->pte_access;
+	direct_access = gw->pte_access;
 	if (!dirty)
 		direct_access &= ~ACC_WRITE_MASK;
 
@@ -514,6 +517,7 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 		sp = NULL;
 		if (!is_shadow_present_pte(*it.sptep)) {
 			table_gfn = gw->table_gfn[it.level - 2];
+			access = gw->pt_access[it.level - 2];
 			sp = kvm_mmu_get_page(vcpu, table_gfn, addr, it.level-1,
 					      false, access, it.sptep);
 		}
@@ -528,6 +532,7 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 		if (sp)
 			link_shadow_page(it.sptep, sp);
 	}
+
 
 	/*
 	 * FNAME(page_fault) might have clobbered the bottom bits of
@@ -546,7 +551,6 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 		base_gfn = gfn & ~(KVM_PAGES_PER_HPAGE(it.level) - 1);
 		if (it.level == hlevel)
 			break;
-
 		validate_direct_spte(vcpu, it.sptep, direct_access);
 
 		drop_large_spte(vcpu, it.sptep);
@@ -560,7 +564,7 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 		}
 	}
 
-	mmu_set_spte(vcpu, it.sptep, access, gw->pte_access & access,
+	mmu_set_spte(vcpu, it.sptep, access, gw->pte_access,
 		     user_fault, write_fault, dirty, ptwrite, it.level,
 		     base_gfn, pfn, prefault, map_writable);
 	FNAME(pte_prefetch)(vcpu, gw, it.sptep);
