@@ -118,11 +118,18 @@ static void nfs_block_buffered(struct nfs_inode *nfsi, struct inode *inode)
  * NFS_INO_ODIRECT.
  * Note that buffered writes and truncates both take a write lock on
  * inode->i_rwsem, meaning that those are serialised w.r.t. O_DIRECT.
+ *
+ * When inode IS_SWAPFILE we ignore the flag and don't take the rwsem
+ * as it triggers lockdep warnings and possible deadlocks.
+ * bufferred writes are forbidden anyway, and buffered reads will not
+ * be coherent.
  */
 void
 nfs_start_io_direct(struct inode *inode)
 {
 	struct nfs_inode *nfsi = NFS_I(inode);
+	if (IS_SWAPFILE(inode))
+		return;
 	/* Be an optimist! */
 	down_read(&inode->i_rwsem);
 	if (test_bit(NFS_INO_ODIRECT, &nfsi->flags) != 0)
@@ -144,5 +151,7 @@ nfs_start_io_direct(struct inode *inode)
 void
 nfs_end_io_direct(struct inode *inode)
 {
+	if (IS_SWAPFILE(inode))
+		return;
 	up_read(&inode->i_rwsem);
 }
