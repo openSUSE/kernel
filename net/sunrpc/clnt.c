@@ -1767,6 +1767,9 @@ call_refreshresult(struct rpc_task *task)
 		dprintk("RPC: %5u %s: retry refresh creds\n",
 				task->tk_pid, __func__);
 		return;
+	case -ENOMEM:
+		rpc_delay(task, HZ >> 4);
+		return;
 	}
 	dprintk("RPC: %5u %s: refresh creds failed with error %d\n",
 				task->tk_pid, __func__, status);
