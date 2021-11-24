@@ -379,7 +379,6 @@ i915_ttm_region(struct ttm_device *bdev, int ttm_mem_type)
 static struct sg_table *i915_ttm_tt_get_st(struct ttm_tt *ttm)
 {
 	struct i915_ttm_tt *i915_tt = container_of(ttm, typeof(*i915_tt), ttm);
-	struct scatterlist *sg;
 	struct sg_table *st;
 	int ret;
 
