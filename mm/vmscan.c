@@ -1396,7 +1396,9 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 			goto keep_locked;
 
 		may_enter_fs = (sc->gfp_mask & __GFP_FS) ||
-			(PageSwapCache(page) && (sc->gfp_mask & __GFP_IO));
+			(PageSwapCache(page) &&
+			 !(page_swap_info(page)->flags & SWP_FS_OPS) &&
+			 (sc->gfp_mask & __GFP_IO));
 
 		/*
 		 * The number of dirty pages determines if a node is marked
@@ -1553,7 +1555,9 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 						goto activate_locked_split;
 				}
 
-				may_enter_fs = true;
+				if ((sc->gfp_mask & __GFP_FS) ||
+				    !(page_swap_info(page)->flags & SWP_FS_OPS))
+					may_enter_fs = true;
 
 				/* Adding to swap updated mapping */
 				mapping = page_mapping(page);

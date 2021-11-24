@@ -1089,8 +1089,6 @@ void rpc_task_set_client(struct rpc_task *task, struct rpc_clnt *clnt)
 			task->tk_flags |= RPC_TASK_TIMEOUT;
 		if (clnt->cl_noretranstimeo)
 			task->tk_flags |= RPC_TASK_NO_RETRANS_TIMEOUT;
-		if (atomic_read(&clnt->cl_swapper))
-			task->tk_flags |= RPC_TASK_SWAPPER;
 		/* Add to the client's list of all tasks */
 		spin_lock(&clnt->cl_lock);
 		list_add_tail(&task->tk_task, &clnt->cl_tasks);
@@ -1749,6 +1747,9 @@ call_refreshresult(struct rpc_task *task)
 			break;
 		task->tk_cred_retry--;
 		trace_rpc_retry_refresh_status(task);
+		return;
+	case -ENOMEM:
+		rpc_delay(task, HZ >> 4);
 		return;
 	}
 	trace_rpc_refresh_status(task);
