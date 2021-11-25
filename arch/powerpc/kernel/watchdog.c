@@ -82,9 +82,35 @@ static DEFINE_PER_CPU(u64, wd_timer_tb);
 
 /* SMP checker bits */
 static unsigned long __wd_smp_lock;
+static unsigned long __wd_reporting;
 static cpumask_t wd_smp_cpus_pending;
 static cpumask_t wd_smp_cpus_stuck;
 static u64 wd_smp_last_reset_tb;
+
+/*
+ * Try to take the exclusive watchdog action / NMI IPI / printing lock.
+ * wd_smp_lock must be held. If this fails, we should return and wait
+ * for the watchdog to kick in again (or another CPU to trigger it).
+ *
+ * Importantly, if hardlockup_panic is set, wd_try_report failure should
+ * not delay the panic, because whichever other CPU is reporting will
+ * call panic.
+ */
+static bool wd_try_report(void)
+{
+	if (__wd_reporting)
+		return false;
+	__wd_reporting = 1;
+	return true;
+}
+
+/* End printing after successful wd_try_report. wd_smp_lock not required. */
+static void wd_end_reporting(void)
+{
+	smp_mb(); /* End printing "critical section" */
+	WARN_ON_ONCE(__wd_reporting == 0);
+	WRITE_ONCE(__wd_reporting, 0);
+}
 
 static inline void wd_smp_lock(unsigned long *flags)
 {
@@ -148,6 +174,7 @@ static bool set_cpu_stuck(int cpu, u64 tb)
 
 static void watchdog_smp_panic(int cpu, u64 tb)
 {
+	static cpumask_t wd_smp_cpus_ipi; // protected by reporting
 	unsigned long flags;
 	int c;
 
@@ -157,11 +184,26 @@ static void watchdog_smp_panic(int cpu, u64 tb)
 		goto out;
 	if (cpumask_test_cpu(cpu, &wd_smp_cpus_pending))
 		goto out;
-	if (cpumask_weight(&wd_smp_cpus_pending) == 0)
+	if (!wd_try_report())
 		goto out;
+	for_each_online_cpu(c) {
+		if (!cpumask_test_cpu(c, &wd_smp_cpus_pending))
+			continue;
+		if (c == cpu)
+			continue; // should not happen
+
+		__cpumask_set_cpu(c, &wd_smp_cpus_ipi);
+		if (set_cpu_stuck(c, tb))
+			break;
+	}
+	if (cpumask_empty(&wd_smp_cpus_ipi)) {
+		wd_end_reporting();
+		goto out;
+	}
+	wd_smp_unlock(&flags);
 
 	pr_emerg("CPU %d detected hard LOCKUP on other CPUs %*pbl\n",
-		 cpu, cpumask_pr_args(&wd_smp_cpus_pending));
+		 cpu, cpumask_pr_args(&wd_smp_cpus_ipi));
 	pr_emerg("CPU %d TB:%lld, last SMP heartbeat TB:%lld (%lldms ago)\n",
 		 cpu, tb, wd_smp_last_reset_tb,
 		 tb_to_ns(tb - wd_smp_last_reset_tb) / 1000000);
@@ -171,30 +213,26 @@ static void watchdog_smp_panic(int cpu, u64 tb)
 		 * Try to trigger the stuck CPUs, unless we are going to
 		 * get a backtrace on all of them anyway.
 		 */
-		for_each_cpu(c, &wd_smp_cpus_pending) {
-			bool empty;
-			if (c == cpu)
-				continue;
-			/* Take the stuck CPUs out of the watch group */
-			empty = set_cpu_stuck(c, tb);
+		for_each_cpu(c, &wd_smp_cpus_ipi) {
 			smp_send_nmi_ipi(c, wd_lockup_ipi, 1000000);
-			if (empty)
-				break;
+			__cpumask_clear_cpu(c, &wd_smp_cpus_ipi);
 		}
 	}
-
-	wd_smp_unlock(&flags);
 
 	printk_safe_flush();
 	/*
 	 * printk_safe_flush() seems to require another print
 	 * before anything actually goes out to console.
 	 */
-	if (sysctl_hardlockup_all_cpu_backtrace)
+	if (sysctl_hardlockup_all_cpu_backtrace) {
 		trigger_allbutself_cpu_backtrace();
+		cpumask_clear(&wd_smp_cpus_ipi);
+	}
 
 	if (hardlockup_panic)
 		nmi_panic(NULL, "Hard LOCKUP");
+
+	wd_end_reporting();
 
 	return;
 
@@ -209,8 +247,6 @@ static void wd_smp_clear_cpu_pending(int cpu, u64 tb)
 			struct pt_regs *regs = get_irq_regs();
 			unsigned long flags;
 
-			wd_smp_lock(&flags);
-
 			pr_emerg("CPU %d became unstuck TB:%lld\n",
 				 cpu, tb);
 			print_irqtrace_events(current);
@@ -219,6 +255,7 @@ static void wd_smp_clear_cpu_pending(int cpu, u64 tb)
 			else
 				dump_stack();
 
+			wd_smp_lock(&flags);
 			cpumask_clear_cpu(cpu, &wd_smp_cpus_stuck);
 			wd_smp_unlock(&flags);
 		} else {
@@ -313,12 +350,27 @@ void soft_nmi_interrupt(struct pt_regs *regs)
 
 	tb = get_tb();
 	if (tb - per_cpu(wd_timer_tb, cpu) >= wd_panic_timeout_tb) {
+		/*
+		 * Taking wd_smp_lock here means it is a soft-NMI lock, which
+		 * means we can't take any regular or irqsafe spin locks while
+		 * holding this lock. This is why timers can't printk while
+		 * holding the lock.
+		 */
 		wd_smp_lock(&flags);
 		if (cpumask_test_cpu(cpu, &wd_smp_cpus_stuck)) {
 			wd_smp_unlock(&flags);
 			goto out;
 		}
+		if (!wd_try_report()) {
+			wd_smp_unlock(&flags);
+			/* Couldn't report, try again in 100ms */
+			mtspr(SPRN_DEC, 100 * tb_ticks_per_usec * 1000);
+			goto out;
+		}
+
 		set_cpu_stuck(cpu, tb);
+
+		wd_smp_unlock(&flags);
 
 		pr_emerg("CPU %d self-detected hard LOCKUP @ %pS\n",
 			 cpu, (void *)regs->nip);
@@ -329,14 +381,19 @@ void soft_nmi_interrupt(struct pt_regs *regs)
 		print_irqtrace_events(current);
 		show_regs(regs);
 
-		wd_smp_unlock(&flags);
-
 		if (sysctl_hardlockup_all_cpu_backtrace)
 			trigger_allbutself_cpu_backtrace();
 
 		if (hardlockup_panic)
 			nmi_panic(regs, "Hard LOCKUP");
+
+		wd_end_reporting();
 	}
+	/*
+	 * We are okay to change DEC in soft_nmi_interrupt because the masked
+	 * handler has marked a DEC as pending, so the timer interrupt will be
+	 * replayed as soon as local irqs are enabled again.
+	 */
 	if (wd_panic_timeout_tb < 0x7fffffff)
 		mtspr(SPRN_DEC, wd_panic_timeout_tb);
 
