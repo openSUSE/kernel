@@ -1415,7 +1415,7 @@ static struct cifs_ses *find_root_ses(struct vol_info *vi,
 	int rc;
 	struct cache_entry *ce;
 	struct dfs_info3_param ref = {0};
-	char *mdata = NULL, *devname = NULL;
+	char *mdata = NULL;
 	struct TCP_Server_Info *server;
 	struct cifs_ses *ses;
 	struct smb3_fs_context ctx = {NULL};
@@ -1442,8 +1442,7 @@ static struct cifs_ses *find_root_ses(struct vol_info *vi,
 
 	up_read(&htable_rw_lock);
 
-	mdata = cifs_compose_mount_options(vi->mntdata, rpath, &ref,
-					   &devname);
+	mdata = cifs_compose_mount_options(vi->mntdata, rpath, &ref);
 	free_dfs_info_param(&ref);
 
 	if (IS_ERR(mdata)) {
@@ -1453,7 +1452,6 @@ static struct cifs_ses *find_root_ses(struct vol_info *vi,
 	}
 
 	rc = cifs_setup_volume_info(&ctx);
-	kfree(devname);
 
 	if (rc) {
 		ses = ERR_PTR(rc);

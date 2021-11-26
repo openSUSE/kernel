@@ -3029,11 +3029,8 @@ expand_dfs_referral(const unsigned int xid, struct cifs_ses *ses,
 	rc = dfs_cache_find(xid, ses, cifs_sb->local_nls, cifs_remap(cifs_sb),
 			    ref_path, &referral, NULL);
 	if (!rc) {
-		char *fake_devname = NULL;
-
 		mdata = cifs_compose_mount_options(cifs_sb->mountdata,
-						   full_path + 1, &referral,
-						   &fake_devname);
+						   full_path + 1, &referral);
 		free_dfs_info_param(&referral);
 
 		if (IS_ERR(mdata)) {
@@ -3043,7 +3040,6 @@ expand_dfs_referral(const unsigned int xid, struct cifs_ses *ses,
 			cifs_cleanup_volume_info_contents(ctx);
 			rc = cifs_setup_volume_info(ctx);
 		}
-		kfree(fake_devname);
 		kfree(cifs_sb->mountdata);
 		cifs_sb->mountdata = mdata;
 	}
@@ -3095,7 +3091,7 @@ static int setup_dfs_tgt_conn(const char *path, const char *full_path,
 {
 	int rc;
 	struct dfs_info3_param ref = {0};
-	char *mdata = NULL, *fake_devname = NULL;
+	char *mdata = NULL;
 	struct smb3_fs_context fake_ctx = {NULL};
 
 	cifs_dbg(FYI, "%s: dfs path: %s\n", __func__, path);
@@ -3104,7 +3100,7 @@ static int setup_dfs_tgt_conn(const char *path, const char *full_path,
 	if (rc)
 		return rc;
 
-	mdata = cifs_compose_mount_options(cifs_sb->mountdata, full_path + 1, &ref, &fake_devname);
+	mdata = cifs_compose_mount_options(cifs_sb->mountdata, full_path + 1, &ref);
 	free_dfs_info_param(&ref);
 
 	if (IS_ERR(mdata)) {
@@ -3114,7 +3110,6 @@ static int setup_dfs_tgt_conn(const char *path, const char *full_path,
 		rc = cifs_setup_volume_info(&fake_ctx);
 
 	kfree(mdata);
-	kfree(fake_devname);
 
 	if (!rc) {
 		/*
