@@ -2450,6 +2450,33 @@ smb2_is_status_io_timeout(char *buf)
 		return false;
 }
 
+static void
+smb2_is_network_name_deleted(char *buf, struct TCP_Server_Info *server)
+{
+	struct smb2_sync_hdr *shdr = (struct smb2_sync_hdr *)buf;
+	struct list_head *tmp, *tmp1;
+	struct cifs_ses *ses;
+	struct cifs_tcon *tcon;
+
+	if (shdr->Status == STATUS_NETWORK_NAME_DELETED) {
+		spin_lock(&cifs_tcp_ses_lock);
+		list_for_each(tmp, &server->smb_ses_list) {
+			ses = list_entry(tmp, struct cifs_ses, smb_ses_list);
+			list_for_each(tmp1, &ses->tcon_list) {
+				tcon = list_entry(tmp1, struct cifs_tcon, tcon_list);
+				if (tcon->tid == shdr->TreeId) {
+					tcon->need_reconnect = true;
+					spin_unlock(&cifs_tcp_ses_lock);
+					pr_warn_once("Server share %s deleted.\n",
+						     tcon->treeName);
+					return;
+				}
+			}
+		}
+		spin_unlock(&cifs_tcp_ses_lock);
+	}
+}
+
 static int
 smb2_oplock_response(struct cifs_tcon *tcon, struct cifs_fid *fid,
 		     struct cifsInodeInfo *cinode)
@@ -4636,6 +4663,10 @@ static void smb2_decrypt_offload(struct work_struct *work)
 #ifdef CONFIG_CIFS_STATS2
 			mid->when_received = jiffies;
 #endif
+			if (dw->server->ops->is_network_name_deleted)
+				dw->server->ops->is_network_name_deleted(dw->buf,
+									 dw->server);
+
 			mid->callback(mid);
 		} else {
 			spin_lock(&GlobalMid_Lock);
@@ -4754,6 +4785,12 @@ non_offloaded_decrypt:
 		rc = handle_read_data(server, *mid, buf,
 				      server->vals->read_rsp_size,
 				      pages, npages, len, false);
+		if (rc >= 0) {
+			if (server->ops->is_network_name_deleted) {
+				server->ops->is_network_name_deleted(buf,
+								server);
+			}
+		}
 	}
 
 free_pages:
@@ -5103,6 +5140,7 @@ struct smb_version_operations smb20_operations = {
 	.fiemap = smb3_fiemap,
 	.llseek = smb3_llseek,
 	.is_status_io_timeout = smb2_is_status_io_timeout,
+	.is_network_name_deleted = smb2_is_network_name_deleted,
 };
 
 struct smb_version_operations smb21_operations = {
@@ -5204,6 +5242,7 @@ struct smb_version_operations smb21_operations = {
 	.fiemap = smb3_fiemap,
 	.llseek = smb3_llseek,
 	.is_status_io_timeout = smb2_is_status_io_timeout,
+	.is_network_name_deleted = smb2_is_network_name_deleted,
 };
 
 struct smb_version_operations smb30_operations = {
@@ -5317,6 +5356,7 @@ struct smb_version_operations smb30_operations = {
 	.fiemap = smb3_fiemap,
 	.llseek = smb3_llseek,
 	.is_status_io_timeout = smb2_is_status_io_timeout,
+	.is_network_name_deleted = smb2_is_network_name_deleted,
 };
 
 struct smb_version_operations smb311_operations = {
@@ -5430,6 +5470,7 @@ struct smb_version_operations smb311_operations = {
 	.fiemap = smb3_fiemap,
 	.llseek = smb3_llseek,
 	.is_status_io_timeout = smb2_is_status_io_timeout,
+	.is_network_name_deleted = smb2_is_network_name_deleted,
 };
 
 struct smb_version_values smb20_values = {
