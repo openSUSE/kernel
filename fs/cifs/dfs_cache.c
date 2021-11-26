@@ -586,7 +586,7 @@ static void __vol_release(struct vol_info *vi)
 {
 	kfree(vi->fullpath);
 	kfree(vi->mntdata);
-	cifs_cleanup_volume_info_contents(&vi->ctx);
+	smb3_cleanup_fs_context_contents(&vi->ctx);
 	kfree(vi);
 }
 
@@ -1467,7 +1467,7 @@ static struct cifs_ses *find_root_ses(struct vol_info *vi,
 	ses = cifs_get_smb_ses(server, &ctx);
 
 out:
-	cifs_cleanup_volume_info_contents(&ctx);
+	smb3_cleanup_fs_context_contents(&ctx);
 	kfree(mdata);
 	kfree(rpath);
 
