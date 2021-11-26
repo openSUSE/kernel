@@ -155,11 +155,17 @@ cifs_nlink_fattr_to_inode(struct inode *inode, struct cifs_fattr *fattr)
 }
 
 /* populate an inode with info from a cifs_fattr struct */
-void
+int
 cifs_fattr_to_inode(struct inode *inode, struct cifs_fattr *fattr)
 {
 	struct cifsInodeInfo *cifs_i = CIFS_I(inode);
 	struct cifs_sb_info *cifs_sb = CIFS_SB(inode->i_sb);
+
+	if (!(inode->i_state & I_NEW) &&
+	    unlikely((inode->i_mode ^ fattr->cf_mode) & S_IFMT)) {
+		CIFS_I(inode)->time = 0; /* force reval */
+		return -ESTALE;
+	}
 
 	cifs_revalidate_cache(inode, fattr);
 
@@ -214,6 +220,7 @@ cifs_fattr_to_inode(struct inode *inode, struct cifs_fattr *fattr)
 		inode->i_flags |= S_AUTOMOUNT;
 	if (inode->i_state & I_NEW)
 		cifs_set_ops(inode);
+	return 0;
 }
 
 void
@@ -359,7 +366,7 @@ cifs_get_file_info_unix(struct file *filp)
 		rc = 0;
 	}
 
-	cifs_fattr_to_inode(inode, &fattr);
+	rc = cifs_fattr_to_inode(inode, &fattr);
 	free_xid(xid);
 	return rc;
 }
@@ -422,14 +429,7 @@ int cifs_get_inode_info_unix(struct inode **pinode,
 		}
 
 		/* if filetype is different, return error */
-		if (unlikely(((*pinode)->i_mode & S_IFMT) !=
-		    (fattr.cf_mode & S_IFMT))) {
-			CIFS_I(*pinode)->time = 0; /* force reval */
-			rc = -ESTALE;
-			goto cgiiu_exit;
-		}
-
-		cifs_fattr_to_inode(*pinode, &fattr);
+		rc = cifs_fattr_to_inode(*pinode, &fattr);
 	}
 
 cgiiu_exit:
@@ -781,7 +781,8 @@ cifs_get_file_info(struct file *filp)
 	 */
 	fattr.cf_uniqueid = CIFS_I(inode)->uniqueid;
 	fattr.cf_flags |= CIFS_FATTR_NEED_REVAL;
-	cifs_fattr_to_inode(inode, &fattr);
+	/* if filetype is different, return error */
+	rc = cifs_fattr_to_inode(inode, &fattr);
 cgfi_exit:
 	free_xid(xid);
 	return rc;
@@ -1098,16 +1099,8 @@ handle_mnt_opt:
 			rc = -ESTALE;
 			goto out;
 		}
-
 		/* if filetype is different, return error */
-		if (unlikely(((*inode)->i_mode & S_IFMT) !=
-		    (fattr.cf_mode & S_IFMT))) {
-			CIFS_I(*inode)->time = 0; /* force reval */
-			rc = -ESTALE;
-			goto out;
-		}
-
-		cifs_fattr_to_inode(*inode, &fattr);
+		rc = cifs_fattr_to_inode(*inode, &fattr);
 	}
 out:
 	cifs_buf_release(smb1_backup_rsp_buf);
@@ -1213,14 +1206,7 @@ smb311_posix_get_inode_info(struct inode **inode,
 		}
 
 		/* if filetype is different, return error */
-		if (unlikely(((*inode)->i_mode & S_IFMT) !=
-		    (fattr.cf_mode & S_IFMT))) {
-			CIFS_I(*inode)->time = 0; /* force reval */
-			rc = -ESTALE;
-			goto out;
-		}
-
-		cifs_fattr_to_inode(*inode, &fattr);
+		rc = cifs_fattr_to_inode(*inode, &fattr);
 	}
 out:
 	cifs_put_tlink(tlink);
@@ -1315,6 +1301,7 @@ retry_iget5_locked:
 			}
 		}
 
+		/* can't fail - see cifs_find_inode() */
 		cifs_fattr_to_inode(inode, fattr);
 		if (sb->s_flags & SB_NOATIME)
 			inode->i_flags |= S_NOATIME | S_NOCMTIME;
