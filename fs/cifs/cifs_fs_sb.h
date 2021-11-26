@@ -53,8 +53,6 @@
 #define CIFS_MOUNT_NO_HANDLE_CACHE 0x4000000 /* disable caching dir handles */
 #define CIFS_MOUNT_NO_DFS 0x8000000 /* disable DFS resolving */
 #define CIFS_MOUNT_MODE_FROM_SID 0x10000000 /* retrieve mode from special ACE */
-#define CIFS_MOUNT_RO_CACHE	0x20000000  /* assumes share will not change */
-#define CIFS_MOUNT_RW_CACHE	0x40000000  /* assumes only client accessing */
 
 struct cifs_sb_info {
 	struct rb_root tlink_tree;
@@ -81,12 +79,11 @@ struct cifs_sb_info {
 	char *prepath;
 
 	/*
-	 * Canonical DFS path initially provided by the mount call. We might connect to something
-	 * different via DFS but we want to keep it to do failover properly.
+	 * Path initially provided by the mount call. We might connect
+	 * to something different via DFS but we want to keep it to do
+	 * failover properly.
 	 */
 	char *origin_fullpath; /* \\HOST\SHARE\[OPTIONAL PATH] */
-	/* randomly generated 128-bit number for indexing dfs mount groups in referral cache */
-	uuid_t dfs_mount_id;
 	/*
 	 * Indicate whether serverino option was turned off later
 	 * (cifs_autodisable_serverino) in order to match new mounts.

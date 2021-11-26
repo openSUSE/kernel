@@ -169,16 +169,16 @@ static int cifs_debug_files_proc_show(struct seq_file *m, void *v)
 					cfile = list_entry(tmp2, struct cifsFileInfo,
 						     tlist);
 					seq_printf(m,
-						"0x%x 0x%llx 0x%x %d %d %d %pd",
+						"0x%x 0x%llx 0x%x %d %d %d %s",
 						tcon->tid,
 						cfile->fid.persistent_fid,
 						cfile->f_flags,
 						cfile->count,
 						cfile->pid,
 						from_kuid(&init_user_ns, cfile->uid),
-						cfile->dentry);
+						cfile->dentry->d_name.name);
 #ifdef CONFIG_CIFS_DEBUG2
-					seq_printf(m, " %llu\n", cfile->fid.mid);
+					seq_printf(m, " 0x%llx\n", cfile->fid.mid);
 #else
 					seq_printf(m, "\n");
 #endif /* CIFS_DEBUG2 */
@@ -255,11 +255,6 @@ static int cifs_debug_data_proc_show(struct seq_file *m, void *v)
 #ifdef CONFIG_CIFS_SMB_DIRECT
 		if (!server->rdma)
 			goto skip_rdma;
-
-		if (!server->smbd_conn) {
-			seq_printf(m, "\nSMBDirect transport not available");
-			goto skip_rdma;
-		}
 
 		seq_printf(m, "\nSMBDirect (in hex) protocol version: %x "
 			"transport status: %x",
@@ -365,10 +360,11 @@ skip_rdma:
 				   server->srv_count,
 				   server->sec_mode, in_flight(server));
 
+#ifdef CONFIG_CIFS_STATS2
 			seq_printf(m, " In Send: %d In MaxReq Wait: %d",
 				atomic_read(&server->in_send),
 				atomic_read(&server->num_waiters));
-
+#endif
 			/* dump session id helpful for use with network trace */
 			seq_printf(m, " SessionId: 0x%llx", ses->Suid);
 			if (ses->session_flags & SMB2_SESSION_FLAG_ENCRYPT_DATA)
@@ -456,7 +452,6 @@ static ssize_t cifs_stats_proc_write(struct file *file,
 		list_for_each(tmp1, &cifs_tcp_ses_list) {
 			server = list_entry(tmp1, struct TCP_Server_Info,
 					    tcp_ses_list);
-			server->max_in_flight = 0;
 #ifdef CONFIG_CIFS_STATS2
 			for (i = 0; i < NUMBER_OF_SMB2_COMMANDS; i++) {
 				atomic_set(&server->num_cmds[i], 0);
@@ -531,7 +526,6 @@ static int cifs_stats_proc_show(struct seq_file *m, void *v)
 	list_for_each(tmp1, &cifs_tcp_ses_list) {
 		server = list_entry(tmp1, struct TCP_Server_Info,
 				    tcp_ses_list);
-		seq_printf(m, "\nMax requests in flight: %d", server->max_in_flight);
 #ifdef CONFIG_CIFS_STATS2
 		seq_puts(m, "\nTotal time spent processing by command. Time ");
 		seq_printf(m, "units are jiffies (%d per second)\n", HZ);
