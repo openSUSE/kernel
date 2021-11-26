@@ -17,6 +17,7 @@
 #include "cifsproto.h"
 #include "cifs_debug.h"
 #include "cifsfs.h"
+#include "fs_context.h"
 #ifdef CONFIG_CIFS_DFS_UPCALL
 #include "dfs_cache.h"
 #endif
@@ -696,6 +697,7 @@ static const struct file_operations cifs_lookup_cache_proc_fops;
 static const struct file_operations traceSMB_proc_fops;
 static const struct file_operations cifs_security_flags_proc_fops;
 static const struct file_operations cifs_linux_ext_proc_fops;
+static const struct file_operations cifs_mount_params_proc_fops;
 
 void
 cifs_proc_init(void)
@@ -719,6 +721,8 @@ cifs_proc_init(void)
 		    &cifs_security_flags_proc_fops);
 	proc_create("LookupCacheEnabled", 0644, proc_fs_cifs,
 		    &cifs_lookup_cache_proc_fops);
+
+	proc_create("mount_params", 0444, proc_fs_cifs, &cifs_mount_params_proc_fops);
 
 #ifdef CONFIG_CIFS_DFS_UPCALL
 	proc_create("dfscache", 0644, proc_fs_cifs, &dfscache_proc_fops);
@@ -758,6 +762,7 @@ cifs_proc_clean(void)
 	remove_proc_entry("SecurityFlags", proc_fs_cifs);
 	remove_proc_entry("LinuxExtensionsEnabled", proc_fs_cifs);
 	remove_proc_entry("LookupCacheEnabled", proc_fs_cifs);
+	remove_proc_entry("mount_params", proc_fs_cifs);
 
 #ifdef CONFIG_CIFS_DFS_UPCALL
 	remove_proc_entry("dfscache", proc_fs_cifs);
@@ -1017,6 +1022,51 @@ static const struct file_operations cifs_security_flags_proc_fops = {
 	.release	= single_release,
 	.write		= cifs_security_flags_proc_write,
 };
+
+/* To make it easier to debug, can help to show mount params */
+static int cifs_mount_params_proc_show(struct seq_file *m, void *v)
+{
+	const struct fs_parameter_spec *p;
+	const char *type;
+
+	for (p = smb3_fs_parameters; p->name; p++) {
+		/* cannot use switch with pointers... */
+		if (!p->type) {
+			if (p->flags == fs_param_neg_with_no)
+				type = "noflag";
+			else
+				type = "flag";
+		} else if (p->type == fs_param_is_bool)
+			type = "bool";
+		else if (p->type == fs_param_is_u32)
+			type = "u32";
+		else if (p->type == fs_param_is_u64)
+			type = "u64";
+		else if (p->type == fs_param_is_string)
+			type = "string";
+		else
+			type = "unknown";
+
+		seq_printf(m, "%s:%s\n", p->name, type);
+	}
+
+	return 0;
+}
+
+static int cifs_mount_params_proc_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, cifs_mount_params_proc_show, NULL);
+}
+
+static const struct file_operations cifs_mount_params_proc_fops = {
+	.open	= cifs_mount_params_proc_open,
+	.read	= seq_read,
+	.llseek	= seq_lseek,
+	.release	= single_release,
+	/* No need for write for now */
+	/* .write	= cifs_mount_params_proc_write, */
+};
+
 #else
 inline void cifs_proc_init(void)
 {
