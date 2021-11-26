@@ -2922,7 +2922,7 @@ cifs_write_from_iter(loff_t offset, size_t len, struct iov_iter *from,
 					"direct_writev couldn't get user pages "
 					"(rc=%zd) iter type %d iov_offset %zd "
 					"count %zd\n",
-					result, from->type,
+					result, iov_iter_type(from),
 					from->iov_offset, from->count);
 				dump_stack();
 
@@ -3133,7 +3133,7 @@ static ssize_t __cifs_writev(
 	 * In this case, fall back to non-direct write function.
 	 * this could be improved by getting pages directly in ITER_KVEC
 	 */
-	if (direct && from->type & ITER_KVEC) {
+	if (direct && iov_iter_is_kvec(from)) {
 		cifs_dbg(FYI, "use non-direct cifs_writev for kvec I/O\n");
 		direct = false;
 	}
@@ -3653,7 +3653,7 @@ cifs_send_async_read(loff_t offset, size_t len, struct cifsFileInfo *open_file,
 					"couldn't get user pages (rc=%zd)"
 					" iter type %d"
 					" iov_offset %zd count %zd\n",
-					result, direct_iov.type,
+					result, iov_iter_type(&direct_iov),
 					direct_iov.iov_offset,
 					direct_iov.count);
 				dump_stack();
@@ -3864,7 +3864,7 @@ static ssize_t __cifs_readv(
 	 * fall back to data copy read path
 	 * this could be improved by getting pages directly in ITER_KVEC
 	 */
-	if (direct && to->type & ITER_KVEC) {
+	if (direct && iov_iter_is_kvec(to)) {
 		cifs_dbg(FYI, "use non-direct cifs_user_readv for kvec I/O\n");
 		direct = false;
 	}
