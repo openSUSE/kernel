@@ -1146,7 +1146,7 @@ smb311_posix_get_inode_info(struct inode **inode,
 
 
 	/*
-	 * 4. Tweak fattr based on mount options
+	 * 3. Tweak fattr based on mount options
 	 */
 
 	/* check for Minshall+French symlinks */
@@ -1158,7 +1158,7 @@ smb311_posix_get_inode_info(struct inode **inode,
 	}
 
 	/*
-	 * 5. Update inode with final fattr data
+	 * 4. Update inode with final fattr data
 	 */
 
 	if (!*inode) {
