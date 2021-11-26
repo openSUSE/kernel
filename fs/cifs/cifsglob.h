@@ -775,6 +775,7 @@ struct TCP_Server_Info {
 	 * reconnect.
 	 */
 	int nr_targets;
+	bool is_channel; /* if a session channel */
 };
 
 struct cifs_credits {
