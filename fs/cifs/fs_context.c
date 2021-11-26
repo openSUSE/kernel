@@ -539,7 +539,7 @@ static int smb3_fs_context_validate(struct fs_context *fc)
 
 	if (ctx->rdma && ctx->vals->protocol_id < SMB30_PROT_ID) {
 		cifs_dbg(VFS, "SMB Direct requires Version >=3.0\n");
-		return -1;
+		return -EOPNOTSUPP;
 	}
 
 #ifndef CONFIG_KEYS
@@ -562,7 +562,7 @@ static int smb3_fs_context_validate(struct fs_context *fc)
 	/* make sure UNC has a share name */
 	if (strlen(ctx->UNC) < 3 || !strchr(ctx->UNC + 3, '\\')) {
 		cifs_dbg(VFS, "Malformed UNC. Unable to find share name.\n");
-		return -1;
+		return -ENOENT;
 	}
 
 	if (!ctx->got_ip) {
@@ -576,7 +576,7 @@ static int smb3_fs_context_validate(struct fs_context *fc)
 		if (!cifs_convert_address((struct sockaddr *)&ctx->dstaddr,
 					  &ctx->UNC[2], len)) {
 			pr_err("Unable to determine destination address\n");
-			return -1;
+			return -EHOSTUNREACH;
 		}
 	}
 
@@ -1271,7 +1271,7 @@ static int smb3_fs_context_parse_param(struct fs_context *fc,
 	return 0;
 
  cifs_parse_mount_err:
-	return 1;
+	return -EINVAL;
 }
 
 int smb3_init_fs_context(struct fs_context *fc)
