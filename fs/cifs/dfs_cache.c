@@ -689,8 +689,7 @@ static int update_cache_entry(const char *path,
  * handle them properly.
  */
 static int __dfs_cache_find(const unsigned int xid, struct cifs_ses *ses,
-			    const struct nls_table *nls_codepage, int remap,
-			    const char *path, bool noreq)
+			    const struct nls_table *nls_codepage, int remap, const char *path)
 {
 	int rc;
 	unsigned int hash;
@@ -704,16 +703,6 @@ static int __dfs_cache_find(const unsigned int xid, struct cifs_ses *ses,
 	down_read(&htable_rw_lock);
 
 	ce = lookup_cache_entry(path, &hash);
-
-	/*
-	 * If @noreq is set, no requests will be sent to the server. Just return
-	 * the cache entry.
-	 */
-	if (noreq) {
-		up_read(&htable_rw_lock);
-		return PTR_ERR_OR_ZERO(ce);
-	}
-
 	if (!IS_ERR(ce)) {
 		if (!cache_entry_expired(ce)) {
 			dump_ce(ce);
@@ -878,7 +867,7 @@ int dfs_cache_find(const unsigned int xid, struct cifs_ses *ses,
 	if (rc)
 		return rc;
 
-	rc = __dfs_cache_find(xid, ses, nls_codepage, remap, npath, false);
+	rc = __dfs_cache_find(xid, ses, nls_codepage, remap, npath);
 	if (rc)
 		goto out_free_path;
 
@@ -990,7 +979,7 @@ int dfs_cache_update_tgthint(const unsigned int xid, struct cifs_ses *ses,
 
 	cifs_dbg(FYI, "%s: update target hint - path: %s\n", __func__, npath);
 
-	rc = __dfs_cache_find(xid, ses, nls_codepage, remap, npath, false);
+	rc = __dfs_cache_find(xid, ses, nls_codepage, remap, npath);
 	if (rc)
 		goto out_free_path;
 
