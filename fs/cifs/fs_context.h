@@ -101,6 +101,7 @@ enum cifs_param {
 	Opt_nosharesock,
 	Opt_persistent,
 	Opt_resilient,
+	Opt_tcp_nodelay,
 	Opt_domainauto,
 	Opt_rdma,
 	Opt_modesid,
