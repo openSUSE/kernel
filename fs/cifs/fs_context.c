@@ -329,6 +329,7 @@ smb3_fs_context_dup(struct smb3_fs_context *new_ctx, struct smb3_fs_context *ctx
 	new_ctx->username = NULL;
 	new_ctx->password = NULL;
 	new_ctx->domainname = NULL;
+	new_ctx->workstation_name = NULL;
 	new_ctx->UNC = NULL;
 	new_ctx->source = NULL;
 	new_ctx->iocharset = NULL;
@@ -343,6 +344,7 @@ smb3_fs_context_dup(struct smb3_fs_context *new_ctx, struct smb3_fs_context *ctx
 	DUP_CTX_STR(UNC);
 	DUP_CTX_STR(source);
 	DUP_CTX_STR(domainname);
+	DUP_CTX_STR(workstation_name);
 	DUP_CTX_STR(nodename);
 	DUP_CTX_STR(iocharset);
 
@@ -740,6 +742,11 @@ static int smb3_verify_reconfigure_ctx(struct fs_context *fc,
 		cifs_errorf(fc, "can not change domainname during remount\n");
 		return -EINVAL;
 	}
+	if (new_ctx->workstation_name &&
+	    (!old_ctx->workstation_name || strcmp(new_ctx->workstation_name, old_ctx->workstation_name))) {
+		cifs_errorf(fc, "can not change workstation_name during remount\n");
+		return -EINVAL;
+	}
 	if (new_ctx->nodename &&
 	    (!old_ctx->nodename || strcmp(new_ctx->nodename, old_ctx->nodename))) {
 		cifs_errorf(fc, "can not change nodename during remount\n");
@@ -773,7 +780,8 @@ static int smb3_reconfigure(struct fs_context *fc)
 		return rc;
 
 	/*
-	 * We can not change UNC/username/password/domainname/nodename/iocharset
+	 * We can not change UNC/username/password/domainname/
+	 * workstation_name/nodename/iocharset
 	 * during reconnect so ignore what we have in the new context and
 	 * just use what we already have in cifs_sb->ctx.
 	 */
@@ -782,6 +790,7 @@ static int smb3_reconfigure(struct fs_context *fc)
 	STEAL_STRING(cifs_sb, ctx, username);
 	STEAL_STRING(cifs_sb, ctx, password);
 	STEAL_STRING(cifs_sb, ctx, domainname);
+	STEAL_STRING(cifs_sb, ctx, workstation_name);
 	STEAL_STRING(cifs_sb, ctx, nodename);
 	STEAL_STRING(cifs_sb, ctx, iocharset);
 
@@ -1434,13 +1443,22 @@ static int smb3_fs_context_parse_param(struct fs_context *fc,
 
 int smb3_init_fs_context(struct fs_context *fc)
 {
+	int rc;
 	struct smb3_fs_context *ctx;
 	char *nodename = utsname()->nodename;
 	int i;
 
 	ctx = kzalloc(sizeof(struct smb3_fs_context), GFP_KERNEL);
-	if (unlikely(!ctx))
-		return -ENOMEM;
+	if (unlikely(!ctx)) {
+		rc = -ENOMEM;
+		goto err_exit;
+	}
+
+	ctx->workstation_name = kstrdup(nodename, GFP_KERNEL);
+	if (unlikely(!ctx->workstation_name)) {
+		rc = -ENOMEM;
+		goto err_exit;
+	}
 
 	/*
 	 * does not have to be perfect mapping since field is
@@ -1513,6 +1531,14 @@ int smb3_init_fs_context(struct fs_context *fc)
 	fc->fs_private = ctx;
 	fc->ops = &smb3_fs_context_ops;
 	return 0;
+
+err_exit:
+	if (ctx) {
+		kfree(ctx->workstation_name);
+		kfree(ctx);
+	}
+
+	return rc;
 }
 
 void
@@ -1538,6 +1564,8 @@ smb3_cleanup_fs_context_contents(struct smb3_fs_context *ctx)
 	ctx->source = NULL;
 	kfree(ctx->domainname);
 	ctx->domainname = NULL;
+	kfree(ctx->workstation_name);
+	ctx->workstation_name = NULL;
 	kfree(ctx->nodename);
 	ctx->nodename = NULL;
 	kfree(ctx->iocharset);
