@@ -567,7 +567,7 @@ wait_for_free_credits(struct TCP_Server_Info *server, const int num_credits,
 			cifs_num_waiters_dec(server);
 			if (!rc) {
 				trace_smb3_credit_timeout(server->CurrentMid,
-					server->hostname, num_credits);
+					server->hostname, num_credits, 0);
 				cifs_server_dbg(VFS, "wait timed out after %d ms\n",
 					 timeout);
 				return -ENOTSUPP;
@@ -608,7 +608,8 @@ wait_for_free_credits(struct TCP_Server_Info *server, const int num_credits,
 				if (!rc) {
 					trace_smb3_credit_timeout(
 						server->CurrentMid,
-						server->hostname, num_credits);
+						server->hostname, num_credits,
+						0);
 					cifs_server_dbg(VFS, "wait timed out after %d ms\n",
 						 timeout);
 					return -ENOTSUPP;
