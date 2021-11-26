@@ -769,6 +769,7 @@ cifs_get_file_info(struct file *filp)
 		 */
 		rc = 0;
 		CIFS_I(inode)->time = 0;
+		goto cgfi_exit;
 	default:
 		goto cgfi_exit;
 	}
