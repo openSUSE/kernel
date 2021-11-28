@@ -224,11 +224,6 @@ struct gve_tx_iovec {
 	u32 iov_padding; /* padding associated with this segment */
 };
 
-struct gve_tx_dma_buf {
-	DEFINE_DMA_UNMAP_ADDR(dma);
-	DEFINE_DMA_UNMAP_LEN(len);
-};
-
 /* Tracks the memory in the fifo occupied by the skb. Mapped 1:1 to a desc
  * ring entry but only used for a pkt_desc not a seg_desc
  */
@@ -236,7 +231,10 @@ struct gve_tx_buffer_state {
 	struct sk_buff *skb; /* skb for this pkt */
 	union {
 		struct gve_tx_iovec iov[GVE_TX_MAX_IOVEC]; /* segments of this pkt */
-		struct gve_tx_dma_buf buf;
+		struct {
+			DEFINE_DMA_UNMAP_ADDR(dma);
+			DEFINE_DMA_UNMAP_LEN(len);
+		};
 	};
 };
 
@@ -280,7 +278,8 @@ struct gve_tx_pending_packet_dqo {
 	 * All others correspond to `skb`'s frags and should be unmapped with
 	 * `dma_unmap_page`.
 	 */
-	struct gve_tx_dma_buf bufs[MAX_SKB_FRAGS + 1];
+	DEFINE_DMA_UNMAP_ADDR(dma[MAX_SKB_FRAGS + 1]);
+	DEFINE_DMA_UNMAP_LEN(len[MAX_SKB_FRAGS + 1]);
 	u16 num_bufs;
 
 	/* Linked list index to next element in the list, or -1 if none */
@@ -342,8 +341,8 @@ struct gve_tx_ring {
 	union {
 		/* GQI fields */
 		struct {
-			/* NIC tail pointer */
-			__be32 last_nic_done;
+			/* Spinlock for when cleanup in progress */
+			spinlock_t clean_lock;
 		};
 
 		/* DQO fields. */
@@ -822,15 +821,15 @@ netdev_tx_t gve_tx(struct sk_buff *skb, struct net_device *dev);
 bool gve_tx_poll(struct gve_notify_block *block, int budget);
 int gve_tx_alloc_rings(struct gve_priv *priv);
 void gve_tx_free_rings_gqi(struct gve_priv *priv);
-__be32 gve_tx_load_event_counter(struct gve_priv *priv,
-				 struct gve_tx_ring *tx);
+u32 gve_tx_load_event_counter(struct gve_priv *priv,
+			      struct gve_tx_ring *tx);
+bool gve_tx_clean_pending(struct gve_priv *priv, struct gve_tx_ring *tx);
 /* rx handling */
 void gve_rx_write_doorbell(struct gve_priv *priv, struct gve_rx_ring *rx);
-bool gve_rx_poll(struct gve_notify_block *block, int budget);
+int gve_rx_poll(struct gve_notify_block *block, int budget);
+bool gve_rx_work_pending(struct gve_rx_ring *rx);
 int gve_rx_alloc_rings(struct gve_priv *priv);
 void gve_rx_free_rings_gqi(struct gve_priv *priv);
-bool gve_clean_rx_done(struct gve_rx_ring *rx, int budget,
-		       netdev_features_t feat);
 /* Reset */
 void gve_schedule_reset(struct gve_priv *priv);
 int gve_reset(struct gve_priv *priv, bool attempt_teardown);

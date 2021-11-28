@@ -4281,8 +4281,6 @@ extern int		gro_normal_batch;
 bool netdev_has_upper_dev(struct net_device *dev, struct net_device *upper_dev);
 struct net_device *netdev_upper_get_next_dev_rcu(struct net_device *dev,
 						     struct list_head **iter);
-struct net_device *netdev_all_upper_get_next_dev_rcu(struct net_device *dev,
-						     struct list_head **iter);
 
 /* iterate through upper list, must be called under RCU read lock */
 #define netdev_for_each_upper_dev_rcu(dev, updev, iter) \
