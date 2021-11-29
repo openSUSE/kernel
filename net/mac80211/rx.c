@@ -2703,6 +2703,8 @@ static int prepare_for_handlers(struct ieee80211_rx_data *rx,
 	case NL80211_IFTYPE_STATION:
 		if (!bssid && !sdata->u.mgd.use_4addr)
 			return 0;
+		if (ieee80211_is_robust_mgmt_frame(hdr) && !rx->sta)
+			return 0;
 		if (!multicast &&
 		    compare_ether_addr(sdata->vif.addr, hdr->addr1) != 0) {
 			if (!(sdata->dev->flags & IFF_PROMISC) ||
