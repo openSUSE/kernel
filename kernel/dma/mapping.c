@@ -206,7 +206,8 @@ static int __dma_map_sg_attrs(struct device *dev, struct scatterlist *sg,
 /**
  * dma_map_sg_attrs - Map the given buffer for DMA
  * @dev:	The device for which to perform the DMA operation
- * @sg:	The sg_table object describing the buffer
+ * @sg:		The sg_table object describing the buffer
+ * @nents:	Number of entries to map
  * @dir:	DMA direction
  * @attrs:	Optional DMA attributes for the map operation
  *
@@ -248,12 +249,12 @@ EXPORT_SYMBOL(dma_map_sg_attrs);
  * Returns 0 on success or a negative error code on error. The following
  * error codes are supported with the given meaning:
  *
- *   -EINVAL - An invalid argument, unaligned access or other error
- *	       in usage. Will not succeed if retried.
- *   -ENOMEM - Insufficient resources (like memory or IOVA space) to
- *	       complete the mapping. Should succeed if retried later.
- *   -EIO    - Legacy error code with an unknown meaning. eg. this is
- *	       returned if a lower level call returned DMA_MAPPING_ERROR.
+ *   -EINVAL	An invalid argument, unaligned access or other error
+ *		in usage. Will not succeed if retried.
+ *   -ENOMEM	Insufficient resources (like memory or IOVA space) to
+ *		complete the mapping. Should succeed if retried later.
+ *   -EIO	Legacy error code with an unknown meaning. eg. this is
+ *		returned if a lower level call returned DMA_MAPPING_ERROR.
  */
 int dma_map_sgtable(struct device *dev, struct sg_table *sgt,
 		    enum dma_data_direction dir, unsigned long attrs)
