@@ -229,6 +229,8 @@ menuconfig CRYPTO_DH
 	select CRYPTO_KPP
 	select MPILIB
 	select CRYPTO_RNG_DEFAULT
+	imply CRYPTO_DH_GROUPS_RFC7919 if CRYPTO_FIPS
+	imply CRYPTO_DH_GROUPS_RFC3526 if CRYPTO_FIPS
 	help
 	  Generic implementation of the Diffie-Hellman algorithm.
 
