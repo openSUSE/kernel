@@ -19,6 +19,11 @@
  * the KPP API function call of crypto_kpp_set_secret.
  */
 
+/** enum dh_group_id - identify well-known domain parameter sets */
+enum dh_group_id {
+	DH_GROUP_ID_UNKNOWN = 0, /* Constants are used in test vectors. */
+};
+
 /**
  * struct dh - define a DH private key
  *
@@ -30,6 +35,7 @@
  * @g_size:	Size of DH generator G
  */
 struct dh {
+	enum dh_group_id group_id;
 	const void *key;
 	const void *p;
 	const void *g;
