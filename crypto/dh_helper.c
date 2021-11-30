@@ -470,6 +470,36 @@ get_safe_prime_group(enum dh_group_id group_id)
 	return NULL;
 }
 
+static enum dh_group_id lookup_group_id(const char *g, size_t g_size,
+					const char *p, size_t p_size)
+{
+	int i;
+
+	/* All safe-prime groups use a generator of g == 2. */
+	while (g_size && !*g) {
+		++g;
+		--g_size;
+	}
+
+	if (g_size != 1 || *g != 2)
+		return DH_GROUP_ID_UNKNOWN;
+
+	while (p_size && !*p) {
+		++p;
+		--p_size;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(safe_prime_groups); ++i) {
+		if (safe_prime_groups[i].p_size != p_size)
+			continue;
+
+		if (!memcmp(safe_prime_groups[i].p, p, p_size))
+			return safe_prime_groups[i].group_id;
+	}
+
+	return DH_GROUP_ID_UNKNOWN;
+}
+
 static inline u8 *dh_pack_data(u8 *dst, u8 *end, const void *src, size_t size)
 {
 	if (!dst || size > end - dst)
@@ -567,6 +597,9 @@ int crypto_dh_decode_key(const char *buf, unsigned int len, struct dh *params)
 		 */
 		if (memchr_inv(params->p, 0, params->p_size) == NULL)
 			return -EINVAL;
+
+		params->group_id = lookup_group_id(params->g, params->g_size,
+						   params->p, params->p_size);
 
 	} else {
 		const struct safe_prime_group *g;
