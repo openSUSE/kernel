@@ -228,6 +228,7 @@ menuconfig CRYPTO_DH
 	tristate "Diffie-Hellman algorithm"
 	select CRYPTO_KPP
 	select MPILIB
+	select CRYPTO_RNG_DEFAULT
 	help
 	  Generic implementation of the Diffie-Hellman algorithm.
 

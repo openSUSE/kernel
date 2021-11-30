@@ -9,6 +9,7 @@
 #include <linux/string.h>
 #include <crypto/dh.h>
 #include <crypto/kpp.h>
+#include <crypto/rng.h>
 
 #define DH_KPP_SECRET_MIN_SIZE (sizeof(struct kpp_secret) + 4 * sizeof(int))
 
@@ -594,3 +595,130 @@ int crypto_dh_decode_key(const char *buf, unsigned int len, struct dh *params)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(crypto_dh_decode_key);
+
+static u64 __add_u64_to_be(__be64 *dst, unsigned int n, u64 val)
+{
+	unsigned int i;
+
+	for (i = n; val && i > 0; --i) {
+		u64 tmp = be64_to_cpu(dst[i - 1]);
+
+		tmp += val;
+		val = tmp >= val ? 0 : 1;
+		dst[i - 1] = cpu_to_be64(tmp);
+	}
+
+	return val;
+}
+
+int crypto_dh_gen_privkey(enum dh_group_id group_id,
+			  char key[CRYPTO_DH_MAX_PRIVKEY_SIZE],
+			  unsigned int *key_size)
+{
+	const struct safe_prime_group *g;
+	unsigned int n, tmp_size;
+	__be64 *tmp;
+	int err;
+	u64 h, o;
+
+	/*
+	 * Generate a private key following NIST SP800-56Ar3,
+	 * sec. 5.6.1.1.1 and 5.6.1.1.3 resp.. This is supported only
+	 * for the (approved) safe-prime groups.
+	 */
+	g = get_safe_prime_group(group_id);
+	if (!g)
+		return -EINVAL;
+
+	/*
+	 * 5.6.1.1.1: choose key length N such that
+	 * 2 * ->max_strength <= N <= log2(q) + 1 = ->p_size * 8 - 1
+	 * with q = (p - 1) / 2 for the safe-prime groups.
+	 * Choose the lower bound's next power of two for N in order to
+	 * avoid excessively large private keys while still
+	 * maintaining some extra reserve beyond the bare minimum in
+	 * most cases. Note that for each entry in safe_prime_groups[],
+	 * the following holds for such N:
+	 * - N >= 256, in particular it is a multiple of 2^6 = 64
+	 *   bits and
+	 * - N < log2(q) + 1, i.e. N respects the upper bound.
+	 */
+	n = roundup_pow_of_two(2 * g->max_strength);
+	WARN_ON_ONCE(n & ((1u << 6) - 1));
+	n >>= 6; /* Convert N into units of u64. */
+
+	/*
+	 * Reserve one extra u64 to hold the extra random bits
+	 * required as per 5.6.1.1.3.
+	 */
+	tmp_size = (n + 1) * sizeof(__be64);
+	tmp = kmalloc(tmp_size, GFP_KERNEL);
+	if (!tmp)
+		return -ENOMEM;
+
+	/*
+	 * 5.6.1.1.3, step 3 (and implicitly step 4): obtain N + 64
+	 * random bits and interpret them as a big endian integer.
+	 */
+	err = -EFAULT;
+	if (crypto_get_default_rng())
+		goto out;
+
+	err = crypto_rng_get_bytes(crypto_default_rng, (u8 *)tmp, tmp_size);
+	crypto_put_default_rng();
+	if (err)
+		goto out;
+
+	/*
+	 * 5.6.1.1.3, step 5 is implicit: 2^N < q and thus,
+	 * M = min(2^N, q) = 2^N.
+	 *
+	 * For step 6, calculate
+	 * key = (tmp[] mod (M - 1)) + 1 = (tmp[] mod (2^N - 1)) + 1.
+	 *
+	 * In order to avoid expensive divisions, note that
+	 * 2^N mod (2^N - 1) = 1 and thus, for any integer h,
+	 * 2^N * h mod (2^N - 1) = h mod (2^N - 1) always holds.
+	 * The big endian integer tmp[] composed of n + 1 64bit words
+	 * may be written as tmp[] = h * 2^N + l, with h = tmp[0]
+	 * representing the 64 most significant bits and l
+	 * corresponding to the remaining 2^N bits. With the remark
+	 * from above,
+	 * h * 2^N + l mod (2^N - 1) = l + h mod (2^N - 1).
+	 * As both, l and h are less than 2^N, their sum after
+	 * this first reduction is guaranteed to be <= 2^(N + 1) - 2.
+	 * Or equivalently, that their sum can again be written as
+	 * h' * 2^N + l' with h' now either zero or one and if one,
+	 * then l' <= 2^N - 2. Thus, all bits at positions >= N will
+	 * be zero after a second reduction:
+	 * h' * 2^N + l' mod (2^N - 1) = l' + h' mod (2^N - 1).
+	 * At this point, it is still possible that
+	 * l' + h' = 2^N - 1, i.e. that l' + h' mod (2^N - 1)
+	 * is zero. This condition will be detected below by means of
+	 * the final increment overflowing in this case.
+	 */
+	h = be64_to_cpu(tmp[0]);
+	h = __add_u64_to_be(tmp + 1, n, h);
+	h = __add_u64_to_be(tmp + 1, n, h);
+	WARN_ON_ONCE(h);
+
+	/* Increment to obtain the final result. */
+	o = __add_u64_to_be(tmp + 1, n, 1);
+	/*
+	 * The overflow bit o from the increment is either zero or
+	 * one. If zero, tmp[1:n] holds the final result in big-endian
+	 * order. If one, tmp[1:n] is zero now, but needs to be set to
+	 * one, c.f. above.
+	 */
+	if (o)
+		tmp[n] = cpu_to_be64(1);
+
+	/* n is in units of u64, convert to bytes. */
+	*key_size = n << 3;
+	memcpy(key, &tmp[1], *key_size);
+
+out:
+	kfree_sensitive(tmp);
+	return err;
+}
+EXPORT_SYMBOL_GPL(crypto_dh_gen_privkey);

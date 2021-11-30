@@ -99,4 +99,26 @@ int crypto_dh_encode_key(char *buf, unsigned int len, const struct dh *params);
  */
 int crypto_dh_decode_key(const char *buf, unsigned int len, struct dh *params);
 
+/*
+ * The maximum key length is two times the max. sec. strength of the
+ * safe-prime groups, rounded up to the next power of two.
+ */
+#define CRYPTO_DH_MAX_PRIVKEY_SIZE (512 / 8)
+
+/**
+ * crypto_dh_gen_privkey() - generate a DH private key
+ * @buf:	The DH group to generate a key for
+ * @key:	Buffer provided by the caller to receive the generated
+ *		key
+ * @key_size:	Pointer to an unsigned integer the generated key's length
+ *		will be stored in
+ *
+ * This function is intended to generate an ephemeral DH key.
+ *
+ * Return:	Negative error code on failure, 0 on success
+ */
+int crypto_dh_gen_privkey(enum dh_group_id group_id,
+			  char key[CRYPTO_DH_MAX_PRIVKEY_SIZE],
+			  unsigned int *key_size);
+
 #endif
