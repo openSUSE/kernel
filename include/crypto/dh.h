@@ -22,6 +22,13 @@
 /** enum dh_group_id - identify well-known domain parameter sets */
 enum dh_group_id {
 	DH_GROUP_ID_UNKNOWN = 0, /* Constants are used in test vectors. */
+#ifdef CONFIG_CRYPTO_DH_GROUPS_RFC7919
+	DH_GROUP_ID_FFDHE2048 = 1,
+	DH_GROUP_ID_FFDHE3072 = 2,
+	DH_GROUP_ID_FFDHE4096 = 3,
+	DH_GROUP_ID_FFDHE6144 = 4,
+	DH_GROUP_ID_FFDHE8192 = 5,
+#endif
 };
 
 /**

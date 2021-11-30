@@ -224,12 +224,21 @@ config CRYPTO_RSA
 	help
 	  Generic implementation of the RSA public key algorithm.
 
-config CRYPTO_DH
+menuconfig CRYPTO_DH
 	tristate "Diffie-Hellman algorithm"
 	select CRYPTO_KPP
 	select MPILIB
 	help
 	  Generic implementation of the Diffie-Hellman algorithm.
+
+if CRYPTO_DH
+config CRYPTO_DH_GROUPS_RFC7919
+	bool "Support for RFC 7919 FFDHE group parameters"
+	help
+	  Enable to allow for the use of RFC 7919 DH parameters in FIPS mode,
+	  e.g. via keyctl(KEYCTL_DH_COMPUTE). Otherwise it's safe to say N.
+
+endif
 
 config CRYPTO_ECC
 	tristate
