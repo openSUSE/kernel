@@ -14,6 +14,7 @@
 #include <linux/mpi.h>
 
 struct dh_ctx {
+	enum dh_group_id group_id;
 	MPI p;	/* Value is guaranteed to be set. */
 	MPI q;	/* Value is optional. */
 	MPI g;	/* Value is guaranteed to be set. */
@@ -58,6 +59,8 @@ static int dh_set_params(struct dh_ctx *ctx, struct dh *params)
 {
 	if (dh_check_params_length(params->p_size << 3))
 		return -EINVAL;
+
+	ctx->group_id = params->group_id;
 
 	ctx->p = mpi_read_raw_data(params->p, params->p_size);
 	if (!ctx->p)
