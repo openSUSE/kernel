@@ -69,7 +69,10 @@ static cpumask_t cpu_group_map(struct mask_info *info, unsigned int cpu)
 {
 	cpumask_t mask;
 
-	cpumask_copy(&mask, cpumask_of(cpu));
+	cpumask_clear(&mask);
+	if (!cpu_online(cpu))
+		goto out;
+	cpumask_set_cpu(cpu, &mask);
 	switch (topology_mode) {
 	case TOPOLOGY_MODE_HW:
 		while (info) {
@@ -88,10 +91,10 @@ static cpumask_t cpu_group_map(struct mask_info *info, unsigned int cpu)
 	default:
 		/* fallthrough */
 	case TOPOLOGY_MODE_SINGLE:
-		cpumask_copy(&mask, cpumask_of(cpu));
 		break;
 	}
 	cpumask_and(&mask, &mask, cpu_online_mask);
+out:
 	return mask;
 }
 
@@ -100,7 +103,10 @@ static cpumask_t cpu_thread_map(unsigned int cpu)
 	cpumask_t mask;
 	int i;
 
-	cpumask_copy(&mask, cpumask_of(cpu));
+	cpumask_clear(&mask);
+	if (!cpu_online(cpu))
+		return mask;
+	cpumask_set_cpu(cpu, &mask);
 	if (topology_mode != TOPOLOGY_MODE_HW)
 		return mask;
 	cpu -= cpu % (smp_cpu_mtid + 1);

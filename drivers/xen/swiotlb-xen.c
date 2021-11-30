@@ -268,8 +268,6 @@ error:
 	pr_err("%s (rc:%d)\n", xen_swiotlb_error(m_ret), rc);
 	if (early)
 		panic("%s (rc:%d)", xen_swiotlb_error(m_ret), rc);
-	else
-		free_pages((unsigned long)xen_io_tlb_start, order);
 	return rc;
 }
 
