@@ -238,6 +238,12 @@ config CRYPTO_DH_GROUPS_RFC7919
 	  Enable to allow for the use of RFC 7919 DH parameters in FIPS mode,
 	  e.g. via keyctl(KEYCTL_DH_COMPUTE). Otherwise it's safe to say N.
 
+config CRYPTO_DH_GROUPS_RFC3526
+	bool "Support for RFC 3526 MODP group parameters"
+	help
+	  Enable to allow for the use of RFC 3526 DH parameters in FIPS mode,
+	  e.g. via keyctl(KEYCTL_DH_COMPUTE). Otherwise it's safe to say N.
+
 endif
 
 config CRYPTO_ECC
