@@ -1096,8 +1096,6 @@ void rpc_task_set_client(struct rpc_task *task, struct rpc_clnt *clnt)
 			task->tk_flags |= RPC_TASK_TIMEOUT;
 		if (clnt->cl_noretranstimeo)
 			task->tk_flags |= RPC_TASK_NO_RETRANS_TIMEOUT;
-		if (atomic_read(&clnt->cl_swapper))
-			task->tk_flags |= RPC_TASK_SWAPPER;
 		/* Add to the client's list of all tasks */
 		spin_lock(&clnt->cl_lock);
 		list_add_tail(&task->tk_task, &clnt->cl_tasks);
@@ -1766,6 +1764,9 @@ call_refreshresult(struct rpc_task *task)
 		task->tk_cred_retry--;
 		dprintk("RPC: %5u %s: retry refresh creds\n",
 				task->tk_pid, __func__);
+		return;
+	case -ENOMEM:
+		rpc_delay(task, HZ >> 4);
 		return;
 	}
 	dprintk("RPC: %5u %s: refresh creds failed with error %d\n",
