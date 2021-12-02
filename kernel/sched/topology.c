@@ -2242,6 +2242,26 @@ build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *att
 		}
 	}
 
+	/* Calculate allowed NUMA imbalance */
+	for_each_cpu(i, cpu_map) {
+		int imb_numa_nr = 0;
+
+		for (sd = *per_cpu_ptr(d.sd, i); sd; sd = sd->parent) {
+			struct sched_domain *child = sd->child;
+
+			if (!(sd->flags & SD_SHARE_PKG_RESOURCES) && child &&
+			    (child->flags & SD_SHARE_PKG_RESOURCES)) {
+				int nr_groups;
+
+				nr_groups = sd->span_weight / child->span_weight;
+				imb_numa_nr = max(1U, ((child->span_weight) >> 1) /
+						(nr_groups * num_online_nodes()));
+			}
+
+			sd->imb_numa_nr = imb_numa_nr;
+		}
+	}
+
 	/* Calculate CPU capacity for physical packages and nodes */
 	for (i = nr_cpumask_bits-1; i >= 0; i--) {
 		if (!cpumask_test_cpu(i, cpu_map))
