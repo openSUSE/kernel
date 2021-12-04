@@ -3312,8 +3312,10 @@ MODULE_PARM_DESC(reserved_bio_based_ios, "Reserved IOs in bio-based mempools");
 module_param(dm_numa_node, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(dm_numa_node, "NUMA node for DM device memory allocations");
 
+#ifndef __GENKSYMS__
 module_param(swap_bios, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(swap_bios, "Maximum allowed inflight swap IOs");
+#endif
 
 MODULE_DESCRIPTION(DM_NAME " driver");
 MODULE_AUTHOR("Joe Thornber <dm-devel@redhat.com>");
