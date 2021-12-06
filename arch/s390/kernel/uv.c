@@ -211,7 +211,7 @@ again:
 	if (IS_ERR_VALUE(uaddr))
 		goto out;
 	vma = find_vma(gmap->mm, uaddr);
-	if (!vma)
+	if (!vma || uaddr < vma->vm_start)
 		goto out;
 	/*
 	 * Secure pages cannot be huge and userspace should not combine both.
