@@ -3725,6 +3725,7 @@ static int nvme_init_ns_head(struct nvme_ns *ns, unsigned nsid,
 		}
 	}
 
+	list_add_tail_rcu(&ns->siblings, &head->list);
 	ns->head = head;
 	mutex_unlock(&ctrl->subsys->lock);
 	return 0;
@@ -3820,10 +3821,6 @@ static void nvme_alloc_ns(struct nvme_ctrl *ctrl, unsigned nsid,
 
 	if (nvme_update_ns_info(ns, id))
 		goto out_unlink_ns;
-
-	mutex_lock(&ctrl->subsys->lock);
-	list_add_tail_rcu(&ns->siblings, &ns->head->list);
-	mutex_unlock(&ctrl->subsys->lock);
 
 	down_write(&ctrl->namespaces_rwsem);
 	nvme_ns_add_to_ctrl_list(ns);
