@@ -664,6 +664,8 @@ rpcauth_bind_root_cred(struct rpc_task *task, int lookupflags)
 	};
 	struct rpc_cred *ret;
 
+	if (RPC_IS_ASYNC(task))
+		lookupflags |= RPCAUTH_LOOKUP_ASYNC;
 	ret = auth->au_ops->lookup_cred(auth, &acred, lookupflags);
 	put_cred(acred.cred);
 	return ret;
@@ -680,6 +682,8 @@ rpcauth_bind_machine_cred(struct rpc_task *task, int lookupflags)
 
 	if (!acred.principal)
 		return NULL;
+	if (RPC_IS_ASYNC(task))
+		lookupflags |= RPCAUTH_LOOKUP_ASYNC;
 	return auth->au_ops->lookup_cred(auth, &acred, lookupflags);
 }
 
@@ -703,7 +707,7 @@ rpcauth_bindcred(struct rpc_task *task, const struct cred *cred, int flags)
 	};
 
 	if (flags & RPC_TASK_ASYNC)
-		lookupflags |= RPCAUTH_LOOKUP_NEW;
+		lookupflags |= RPCAUTH_LOOKUP_NEW | RPCAUTH_LOOKUP_ASYNC;
 	if (task->tk_op_cred)
 		/* Task must use exactly this rpc_cred */
 		new = get_rpccred(task->tk_op_cred);

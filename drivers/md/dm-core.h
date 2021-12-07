@@ -113,6 +113,12 @@ struct mapped_device {
 	bool init_tio_pdu:1;
 
 	struct srcu_struct io_barrier;
+
+#ifndef __GENKSYMS__
+	int swap_bios;
+	struct semaphore swap_bios_semaphore;
+	struct mutex swap_bios_lock;
+#endif
 };
 
 void disable_discard(struct mapped_device *md);
