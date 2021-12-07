@@ -51,6 +51,7 @@
 #include <linux/start_kernel.h>
 #include <linux/hugetlb.h>
 #include <linux/kmemleak.h>
+#include <linux/security.h>
 
 #include <asm/boot_data.h>
 #include <asm/ipl.h>
@@ -1121,4 +1122,9 @@ void __init setup_arch(char **cmdline_p)
 
 	/* Add system specific data to the random pool */
 	setup_randomness();
+
+#ifdef CONFIG_LOCK_DOWN_IN_EFI_SECURE_BOOT
+	if (ipl_secure_flag)
+		security_lock_kernel_down("IPL Secure Boot mode", LOCKDOWN_INTEGRITY_MAX);
+#endif
 }
