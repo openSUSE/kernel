@@ -278,7 +278,9 @@ struct uv_info {
 	unsigned long max_sec_stor_addr;
 	unsigned int max_num_sec_conf;
 	unsigned short max_guest_cpus;
+#ifndef __GENKSYMS__
 	unsigned long uv_feature_indications;
+#endif
 };
 
 extern struct uv_info uv_info;
