@@ -439,7 +439,8 @@ static struct pci_driver nouveau_pci_driver = {
 		.probe = nouveau_pci_probe,
 		.remove = nouveau_pci_remove,
 		.suspend = nouveau_pci_suspend,
-		.resume = nouveau_pci_resume
+		.resume = nouveau_pci_resume,
+		.driver.suppress_bind_attrs = true,
 };
 
 static int __init nouveau_init(void)
