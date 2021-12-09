@@ -679,9 +679,9 @@ int qbman_swp_enqueue_multiple_direct(struct qbman_swp *s,
 	for (i = 0; i < num_enqueued; i++) {
 		p = (s->addr_cena + QBMAN_CENA_SWP_EQCR(eqcr_pi & half_mask));
 		/* Skip copying the verb */
-		memcpy(&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
-		memcpy(&p[EQ_DESC_SIZE_FD_START/sizeof(uint32_t)],
-		       &fd[i], sizeof(*fd));
+		memcpy_toio((__iomem void *)&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
+		memcpy_toio((__iomem void *)&p[EQ_DESC_SIZE_FD_START / sizeof(uint32_t)],
+			    &fd[i], sizeof(*fd));
 		eqcr_pi++;
 	}
 
@@ -761,9 +761,9 @@ int qbman_swp_enqueue_multiple_mem_back(struct qbman_swp *s,
 	for (i = 0; i < num_enqueued; i++) {
 		p = (s->addr_cena + QBMAN_CENA_SWP_EQCR(eqcr_pi & half_mask));
 		/* Skip copying the verb */
-		memcpy(&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
-		memcpy(&p[EQ_DESC_SIZE_FD_START/sizeof(uint32_t)],
-		       &fd[i], sizeof(*fd));
+		memcpy_toio((__iomem void *)&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
+		memcpy_toio((__iomem void *)&p[EQ_DESC_SIZE_FD_START / sizeof(uint32_t)],
+			    &fd[i], sizeof(*fd));
 		eqcr_pi++;
 	}
 
@@ -834,9 +834,9 @@ int qbman_swp_enqueue_multiple_desc_direct(struct qbman_swp *s,
 		p = (s->addr_cena + QBMAN_CENA_SWP_EQCR(eqcr_pi & half_mask));
 		cl = (uint32_t *)(&d[i]);
 		/* Skip copying the verb */
-		memcpy(&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
-		memcpy(&p[EQ_DESC_SIZE_FD_START/sizeof(uint32_t)],
-		       &fd[i], sizeof(*fd));
+		memcpy_toio((__iomem void *)&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
+		memcpy_toio((__iomem void *)&p[EQ_DESC_SIZE_FD_START / sizeof(uint32_t)],
+			    &fd[i], sizeof(*fd));
 		eqcr_pi++;
 	}
 
@@ -904,9 +904,9 @@ int qbman_swp_enqueue_multiple_desc_mem_back(struct qbman_swp *s,
 		p = (s->addr_cena + QBMAN_CENA_SWP_EQCR(eqcr_pi & half_mask));
 		cl = (uint32_t *)(&d[i]);
 		/* Skip copying the verb */
-		memcpy(&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
-		memcpy(&p[EQ_DESC_SIZE_FD_START/sizeof(uint32_t)],
-		       &fd[i], sizeof(*fd));
+		memcpy_toio((__iomem void *)&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
+		memcpy_toio((__iomem void *)&p[EQ_DESC_SIZE_FD_START / sizeof(uint32_t)],
+			    &fd[i], sizeof(*fd));
 		eqcr_pi++;
 	}
 
