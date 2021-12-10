@@ -5,6 +5,7 @@
  * Authors: Salvatore Benedetto <salvatore.benedetto@intel.com>
  */
 
+#include <linux/fips.h>
 #include <linux/module.h>
 #include <crypto/internal/kpp.h>
 #include <crypto/kpp.h>
@@ -13,8 +14,8 @@
 #include <linux/mpi.h>
 
 struct dh_ctx {
+	enum dh_group_id group_id;
 	MPI p;	/* Value is guaranteed to be set. */
-	MPI q;	/* Value is optional. */
 	MPI g;	/* Value is guaranteed to be set. */
 	MPI xa;	/* Value is guaranteed to be set. */
 };
@@ -22,7 +23,6 @@ struct dh_ctx {
 static void dh_clear_ctx(struct dh_ctx *ctx)
 {
 	mpi_free(ctx->p);
-	mpi_free(ctx->q);
 	mpi_free(ctx->g);
 	mpi_free(ctx->xa);
 	memset(ctx, 0, sizeof(*ctx));
@@ -47,6 +47,9 @@ static inline struct dh_ctx *dh_get_ctx(struct crypto_kpp *tfm)
 
 static int dh_check_params_length(unsigned int p_len)
 {
+	if (fips_enabled)
+		return (p_len < 2048) ? -EINVAL : 0;
+
 	return (p_len < 1536) ? -EINVAL : 0;
 }
 
@@ -55,15 +58,11 @@ static int dh_set_params(struct dh_ctx *ctx, struct dh *params)
 	if (dh_check_params_length(params->p_size << 3))
 		return -EINVAL;
 
+	ctx->group_id = params->group_id;
+
 	ctx->p = mpi_read_raw_data(params->p, params->p_size);
 	if (!ctx->p)
 		return -EINVAL;
-
-	if (params->q && params->q_size) {
-		ctx->q = mpi_read_raw_data(params->q, params->q_size);
-		if (!ctx->q)
-			return -EINVAL;
-	}
 
 	ctx->g = mpi_read_raw_data(params->g, params->g_size);
 	if (!ctx->g)
@@ -77,35 +76,52 @@ static int dh_set_secret(struct crypto_kpp *tfm, const void *buf,
 {
 	struct dh_ctx *ctx = dh_get_ctx(tfm);
 	struct dh params;
+	char key[CRYPTO_DH_MAX_PRIVKEY_SIZE];
+	int err;
 
 	/* Free the old MPI key if any */
 	dh_clear_ctx(ctx);
 
-	if (crypto_dh_decode_key(buf, len, &params) < 0)
+	err = crypto_dh_decode_key(buf, len, &params);
+	if (err)
 		goto err_clear_ctx;
 
-	if (dh_set_params(ctx, &params) < 0)
+	if (!params.key_size) {
+		err = crypto_dh_gen_privkey(params.group_id, key,
+					    &params.key_size);
+		if (err)
+			goto err_clear_ctx;
+		params.key = key;
+	}
+
+	err = dh_set_params(ctx, &params);
+	if (err)
 		goto err_clear_ctx;
 
 	ctx->xa = mpi_read_raw_data(params.key, params.key_size);
-	if (!ctx->xa)
+	if (!ctx->xa) {
+		err = -EINVAL;
 		goto err_clear_ctx;
+	}
+
+	memzero_explicit(key, sizeof(key));
 
 	return 0;
 
 err_clear_ctx:
 	dh_clear_ctx(ctx);
-	return -EINVAL;
+	return err;
 }
 
 /*
  * SP800-56A public key verification:
  *
- * * If Q is provided as part of the domain paramenters, a full validation
- *   according to SP800-56A section 5.6.2.3.1 is performed.
+ * * For safe-prime groups, Q can be computed trivially from P and a
+ *   full validation according to SP800-56A section 5.6.2.3.1 is
+ *   performed.
  *
- * * If Q is not provided, a partial validation according to SP800-56A section
- *   5.6.2.3.2 is performed.
+ * * For all other sets of group parameters, only a partial validation
+ *   according to SP800-56A section 5.6.2.3.2 is performed.
  */
 static int dh_is_pubkey_valid(struct dh_ctx *ctx, MPI y)
 {
@@ -116,21 +132,40 @@ static int dh_is_pubkey_valid(struct dh_ctx *ctx, MPI y)
 	 * Step 1: Verify that 2 <= y <= p - 2.
 	 *
 	 * The upper limit check is actually y < p instead of y < p - 1
-	 * as the mpi_sub_ui function is yet missing.
+	 * in order to save one mpi_sub_ui() invocation here. Note that
+	 * p - 1 is the non-trivial element of the subgroup of order 2 and
+	 * thus, the check on y^q below would fail if y == p - 1.
 	 */
 	if (mpi_cmp_ui(y, 1) < 1 || mpi_cmp(y, ctx->p) >= 0)
 		return -EINVAL;
 
-	/* Step 2: Verify that 1 = y^q mod p */
-	if (ctx->q) {
-		MPI val = mpi_alloc(0);
+	/*
+	 * Step 2: Verify that 1 = y^q mod p
+	 *
+	 * For the safe-prime groups q = (p - 1)/2.
+	 */
+	if (ctx->group_id != DH_GROUP_ID_UNKNOWN) {
+		MPI val, q;
 		int ret;
 
+		val = mpi_alloc(0);
 		if (!val)
 			return -ENOMEM;
 
-		ret = mpi_powm(val, y, ctx->q, ctx->p);
+		q = mpi_alloc(mpi_get_nlimbs(ctx->p));
+		if (!q) {
+			mpi_free(val);
+			return -ENOMEM;
+		}
 
+		/*
+		 * ->p is odd, so no need to explicitly subtract one
+		 * from it before shifting to the right.
+		 */
+		mpi_rshift(q, ctx->p, 1);
+
+		ret = mpi_powm(val, y, q, ctx->p);
+		mpi_free(q);
 		if (ret) {
 			mpi_free(val);
 			return ret;
@@ -210,10 +245,36 @@ static int dh_compute_value(struct kpp_request *req)
 
 		/* SP800-56A rev 3 5.6.2.1.3 key check */
 		} else {
+			MPI val_pct;
+
 			if (dh_is_pubkey_valid(ctx, val)) {
 				ret = -EAGAIN;
 				goto err_free_val;
 			}
+
+			/*
+			 * SP800-56Arev3, 5.6.2.1.4: ("Owner Assurance
+			 * of Pair-wise Consistency"): recompute the
+			 * public key and check if the results match.
+			 */
+			val_pct = mpi_alloc(0);
+			if (!val_pct) {
+				ret = -ENOMEM;
+				goto err_free_val;
+			}
+
+			ret = _compute_val(ctx, base, val_pct);
+			if (ret) {
+				mpi_free(val_pct);
+				goto err_free_val;
+			}
+
+			if (mpi_cmp(val, val_pct) != 0) {
+				ret = -EINVAL;
+				mpi_free(val_pct);
+				goto err_free_val;
+			}
+			mpi_free(val_pct);
 		}
 	}
 
@@ -270,7 +331,7 @@ static void dh_exit(void)
 	crypto_unregister_kpp(&dh);
 }
 
-subsys_initcall(dh_init);
+module_init(dh_init);
 module_exit(dh_exit);
 MODULE_ALIAS_CRYPTO("dh");
 MODULE_LICENSE("GPL");

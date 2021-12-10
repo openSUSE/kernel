@@ -701,10 +701,19 @@ static int hpre_dh_set_secret(struct crypto_kpp *tfm, const void *buf,
 {
 	struct hpre_ctx *ctx = kpp_tfm_ctx(tfm);
 	struct dh params;
+	char key[CRYPTO_DH_MAX_PRIVKEY_SIZE];
 	int ret;
 
 	if (crypto_dh_decode_key(buf, len, &params) < 0)
 		return -EINVAL;
+
+	if (!params.key_size) {
+		ret = crypto_dh_gen_privkey(params.group_id, key,
+					    &params.key_size);
+		if (ret)
+			return ret;
+		params.key = key;
+	}
 
 	/* Free old secret if any */
 	hpre_dh_clear_ctx(ctx, false);
@@ -715,6 +724,8 @@ static int hpre_dh_set_secret(struct crypto_kpp *tfm, const void *buf,
 
 	memcpy(ctx->dh.xa_p + (ctx->key_sz - params.key_size), params.key,
 	       params.key_size);
+
+	memzero_explicit(key, sizeof(key));
 
 	return 0;
 

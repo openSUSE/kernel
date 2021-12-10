@@ -4194,7 +4194,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "authenc(hmac(sha1),cbc(des3_ede))",
 		.test = alg_test_aead,
-		.fips_allowed = 1,
 		.suite = {
 			.aead = __VECS(hmac_sha1_des3_ede_cbc_tv_temp)
 		}
@@ -4221,7 +4220,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "authenc(hmac(sha224),cbc(des3_ede))",
 		.test = alg_test_aead,
-		.fips_allowed = 1,
 		.suite = {
 			.aead = __VECS(hmac_sha224_des3_ede_cbc_tv_temp)
 		}
@@ -4241,7 +4239,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "authenc(hmac(sha256),cbc(des3_ede))",
 		.test = alg_test_aead,
-		.fips_allowed = 1,
 		.suite = {
 			.aead = __VECS(hmac_sha256_des3_ede_cbc_tv_temp)
 		}
@@ -4262,7 +4259,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "authenc(hmac(sha384),cbc(des3_ede))",
 		.test = alg_test_aead,
-		.fips_allowed = 1,
 		.suite = {
 			.aead = __VECS(hmac_sha384_des3_ede_cbc_tv_temp)
 		}
@@ -4290,7 +4286,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "authenc(hmac(sha512),cbc(des3_ede))",
 		.test = alg_test_aead,
-		.fips_allowed = 1,
 		.suite = {
 			.aead = __VECS(hmac_sha512_des3_ede_cbc_tv_temp)
 		}
@@ -4400,7 +4395,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "cbc(des3_ede)",
 		.test = alg_test_skcipher,
-		.fips_allowed = 1,
 		.suite = {
 			.cipher = __VECS(des3_ede_cbc_tv_template)
 		},
@@ -4490,7 +4484,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "cmac(des3_ede)",
-		.fips_allowed = 1,
 		.test = alg_test_hash,
 		.suite = {
 			.hash = __VECS(des3_ede_cmac64_tv_template)
@@ -4559,7 +4552,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "ctr(des3_ede)",
 		.test = alg_test_skcipher,
-		.fips_allowed = 1,
 		.suite = {
 			.cipher = __VECS(des3_ede_ctr_tv_template)
 		}
@@ -4825,7 +4817,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "ecb(des3_ede)",
 		.test = alg_test_skcipher,
-		.fips_allowed = 1,
 		.suite = {
 			.cipher = __VECS(des3_ede_tv_template)
 		}
@@ -5569,6 +5560,50 @@ static void testmgr_onetime_init(void)
 #endif
 }
 
+#ifdef CONFIG_CRYPTO_FIPS
+static bool suse_fips_is_driver_unapproved(const char *driver)
+{
+	/*
+	 * unapproved_drivers[] contains a sorted list of
+	 * cra_driver_name's to reject in FIPS mode.
+	 */
+	static const char *unapproved_drivers[] = {
+#include "suse_fips_unapproved_drivers.h"
+	};
+	int start = 0;
+	int end = ARRAY_SIZE(unapproved_drivers);
+
+	if (!fips_enabled)
+		return false;
+
+	while (start < end) {
+		int i = (start + end) / 2;
+		int diff = strcmp(unapproved_drivers[i], driver);
+
+		if (diff > 0) {
+			end = i;
+			continue;
+		}
+
+		if (diff < 0) {
+			start = i + 1;
+			continue;
+		}
+
+		pr_info("alg: disabling driver '%s' in FIPS mode\n", driver);
+
+		return true;
+	}
+
+	return false;
+}
+#else /* !CONFIG_CRYPTO_FIPS */
+static bool suse_fips_is_driver_unapproved(const char *driver)
+{
+	return false;
+}
+#endif /* CONFIG_CRYPTO_FIPS */
+
 static int alg_find_test(const char *alg)
 {
 	int start = 0;
@@ -5620,6 +5655,8 @@ int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
 
 		if (fips_enabled && !alg_test_descs[i].fips_allowed)
 			goto non_fips_alg;
+		else if (suse_fips_is_driver_unapproved(driver))
+			goto non_fips_alg;
 
 		rc = alg_test_cipher(alg_test_descs + i, driver, type, mask);
 		goto test_done;
@@ -5632,6 +5669,8 @@ int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
 
 	if (fips_enabled && ((i >= 0 && !alg_test_descs[i].fips_allowed) ||
 			     (j >= 0 && !alg_test_descs[j].fips_allowed)))
+		goto non_fips_alg;
+	else if (suse_fips_is_driver_unapproved(driver))
 		goto non_fips_alg;
 
 	rc = 0;
@@ -5661,6 +5700,14 @@ test_done:
 	return rc;
 
 notest:
+	/*
+	 * Unapproved drivers can register constructions for which
+	 * there is no matching test with ->fips_allowed == 0, check
+	 * for this.
+	 */
+	if (suse_fips_is_driver_unapproved(driver))
+		goto non_fips_alg;
+
 	printk(KERN_INFO "alg: No test for %s (%s)\n", alg, driver);
 	return 0;
 non_fips_alg:
