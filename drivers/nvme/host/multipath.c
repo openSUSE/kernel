@@ -179,6 +179,8 @@ void nvme_mpath_revalidate_paths(struct nvme_ns *ns)
 	int node;
 
 	list_for_each_entry_rcu(ns, &head->list, siblings) {
+		if (!ns->disk)
+			continue;
 		if (capacity != get_capacity(ns->disk))
 			clear_bit(NVME_NS_READY, &ns->flags);
 	}
