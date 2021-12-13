@@ -1648,6 +1648,7 @@ void smb3_update_mnt_flags(struct cifs_sb_info *cifs_sb)
 			cifs_dbg(VFS, "mount options mfsymlinks and sfu both enabled\n");
 		}
 	}
+	cifs_sb->mnt_cifs_flags &= ~CIFS_MOUNT_SHUTDOWN;
 
 	return;
 }
