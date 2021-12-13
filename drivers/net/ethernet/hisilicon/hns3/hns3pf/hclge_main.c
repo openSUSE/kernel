@@ -55,8 +55,6 @@
 
 #define HCLGE_LINK_STATUS_MS	10
 
-#define HCLGE_VF_VPORT_START_NUM	1
-
 static int hclge_set_mac_mtu(struct hclge_dev *hdev, int new_mps);
 static int hclge_init_vlan_config(struct hclge_dev *hdev);
 static void hclge_sync_vlan_filter(struct hclge_dev *hdev);
@@ -1359,9 +1357,10 @@ static void hclge_init_kdump_kernel_config(struct hclge_dev *hdev)
 
 static int hclge_configure(struct hclge_dev *hdev)
 {
+	const struct cpumask *cpumask = cpu_online_mask;
 	struct hclge_cfg cfg;
 	unsigned int i;
-	int ret;
+	int node, ret;
 
 	ret = hclge_get_cfg(hdev, &cfg);
 	if (ret)
@@ -1422,11 +1421,12 @@ static int hclge_configure(struct hclge_dev *hdev)
 
 	hclge_init_kdump_kernel_config(hdev);
 
-	/* Set the init affinity based on pci func number */
-	i = cpumask_weight(cpumask_of_node(dev_to_node(&hdev->pdev->dev)));
-	i = i ? PCI_FUNC(hdev->pdev->devfn) % i : 0;
-	cpumask_set_cpu(cpumask_local_spread(i, dev_to_node(&hdev->pdev->dev)),
-			&hdev->affinity_mask);
+	/* Set the affinity based on numa node */
+	node = dev_to_node(&hdev->pdev->dev);
+	if (node != NUMA_NO_NODE)
+		cpumask = cpumask_of_node(node);
+
+	cpumask_copy(&hdev->affinity_mask, cpumask);
 
 	return ret;
 }
@@ -3308,7 +3308,8 @@ static int hclge_set_all_vf_rst(struct hclge_dev *hdev, bool reset)
 		if (ret) {
 			dev_err(&hdev->pdev->dev,
 				"set vf(%u) rst failed %d!\n",
-				vport->vport_id, ret);
+				vport->vport_id - HCLGE_VF_VPORT_START_NUM,
+				ret);
 			return ret;
 		}
 
@@ -3323,7 +3324,8 @@ static int hclge_set_all_vf_rst(struct hclge_dev *hdev, bool reset)
 		if (ret)
 			dev_warn(&hdev->pdev->dev,
 				 "inform reset to vf(%u) failed %d!\n",
-				 vport->vport_id, ret);
+				 vport->vport_id - HCLGE_VF_VPORT_START_NUM,
+				 ret);
 	}
 
 	return 0;
@@ -7989,36 +7991,6 @@ static int hclge_get_mac_ethertype_cmd_status(struct hclge_dev *hdev,
 	return return_status;
 }
 
-static bool hclge_check_vf_mac_exist(struct hclge_vport *vport, int vf_idx,
-				     u8 *mac_addr)
-{
-	struct hclge_mac_vlan_tbl_entry_cmd req;
-	struct hclge_dev *hdev = vport->back;
-	struct hclge_desc desc;
-	u16 egress_port = 0;
-	int i;
-
-	if (is_zero_ether_addr(mac_addr))
-		return false;
-
-	memset(&req, 0, sizeof(req));
-	hnae3_set_field(egress_port, HCLGE_MAC_EPORT_VFID_M,
-			HCLGE_MAC_EPORT_VFID_S, vport->vport_id);
-	req.egress_port = cpu_to_le16(egress_port);
-	hclge_prepare_mac_addr(&req, mac_addr, false);
-
-	if (hclge_lookup_mac_vlan_tbl(vport, &req, &desc, false) != -ENOENT)
-		return true;
-
-	vf_idx += HCLGE_VF_VPORT_START_NUM;
-	for (i = hdev->num_vmdq_vport + 1; i < hdev->num_alloc_vport; i++)
-		if (i != vf_idx &&
-		    ether_addr_equal(mac_addr, hdev->vport[i].vf_info.mac))
-			return true;
-
-	return false;
-}
-
 static int hclge_set_vf_mac(struct hnae3_handle *handle, int vf,
 			    u8 *mac_addr)
 {
@@ -8034,12 +8006,6 @@ static int hclge_set_vf_mac(struct hnae3_handle *handle, int vf,
 			 "Specified MAC(=%pM) is same as before, no change committed!\n",
 			 mac_addr);
 		return 0;
-	}
-
-	if (hclge_check_vf_mac_exist(vport, vf, mac_addr)) {
-		dev_err(&hdev->pdev->dev, "Specified MAC(=%pM) exists!\n",
-			mac_addr);
-		return -EEXIST;
 	}
 
 	ether_addr_copy(vport->vf_info.mac, mac_addr);
@@ -9914,11 +9880,11 @@ static void hclge_clear_resetting_state(struct hclge_dev *hdev)
 		struct hclge_vport *vport = &hdev->vport[i];
 		int ret;
 
-		 /* Send cmd to clear VF's FUNC_RST_ING */
+		 /* Send cmd to clear vport's FUNC_RST_ING */
 		ret = hclge_set_vf_rst(hdev, vport->vport_id, false);
 		if (ret)
 			dev_warn(&hdev->pdev->dev,
-				 "clear vf(%u) rst failed %d!\n",
+				 "clear vport(%u) rst failed %d!\n",
 				 vport->vport_id, ret);
 	}
 }
