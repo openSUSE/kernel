@@ -2255,26 +2255,38 @@ build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *att
 
 			if (!(sd->flags & SD_SHARE_PKG_RESOURCES) && child &&
 			    (child->flags & SD_SHARE_PKG_RESOURCES)) {
-				struct sched_domain *top = sd;
+				struct sched_domain *top, *top_p;
 				unsigned int llc_sq;
 
 				/*
-				 * nr_llcs = (top->span_weight / llc_weight);
-				 * imb = (child_weight / nr_llcs) >> 2
+				 * nr_llcs = (sd->span_weight / llc_weight);
+				 * imb = (llc_weight / nr_llcs) >> 2
 				 *
 				 * is equivalent to
 				 *
-				 * imb = (llc_weight^2 / top->span_weight) >> 2
+				 * imb = (llc_weight^2 / sd->span_weight) >> 2
 				 *
 				 */
 				llc_sq = child->span_weight * child->span_weight;
 
-				imb = max(2U, ((llc_sq / top->span_weight) >> 2));
-				imb_span = sd->span_weight;
-
+				imb = max(2U, ((llc_sq / sd->span_weight) >> 2));
 				sd->imb_numa_nr = imb;
+
+				/*
+				 * Set span based on top domain that places
+				 * tasks in sibling domains.
+				 */
+				top = sd;
+				top_p = top->parent;
+				while (top_p && (top_p->flags & SD_PREFER_SIBLING)) {
+					top = top->parent;
+					top_p = top->parent;
+				}
+				imb_span = top_p ? top_p->span_weight : sd->span_weight;
 			} else {
-				sd->imb_numa_nr = imb * (sd->span_weight / imb_span);
+				int factor = max(1U, (sd->span_weight / imb_span));
+
+				sd->imb_numa_nr = imb * factor;
 			}
 		}
 	}
