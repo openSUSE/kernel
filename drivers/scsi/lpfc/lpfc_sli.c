@@ -5608,7 +5608,39 @@ lpfc_sli_hba_setup(struct lpfc_hba *phba)
 
 	/* Enable ISR already does config_port because of config_msi mbx */
 	if (phba->hba_flag & HBA_NEEDS_CFG_PORT) {
-		rc = lpfc_sli_config_port(phba, LPFC_SLI_REV3);
+		int mode = 3;
+
+		switch (phba->cfg_sli_mode) {
+		case 2:
+			if (phba->cfg_enable_npiv) {
+				lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
+						"1824 NPIV enabled: Override sli_mode "
+						"parameter (%d) to auto (0).\n",
+						phba->cfg_sli_mode);
+				break;
+			}
+			mode = 2;
+			break;
+		case 0:
+		case 3:
+			break;
+		default:
+			lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
+					"1819 Unrecognized sli_mode parameter: %d.\n",
+					phba->cfg_sli_mode);
+			break;
+		}
+
+		rc = lpfc_sli_config_port(phba, mode);
+
+		if (rc && phba->cfg_sli_mode == 3)
+			lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
+					"1820 Unable to select SLI-3.  "
+					"Not supported by adapter.\n");
+		if (rc && mode != 2)
+			rc = lpfc_sli_config_port(phba, 2);
+		else if (rc && mode == 2)
+			rc = lpfc_sli_config_port(phba, 3);
 		if (rc)
 			return -EIO;
 		phba->hba_flag &= ~HBA_NEEDS_CFG_PORT;
