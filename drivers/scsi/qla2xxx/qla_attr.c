@@ -2700,7 +2700,7 @@ qla2x00_set_rport_loss_tmo(struct fc_rport *rport, uint32_t timeout)
 
 	rport->dev_loss_tmo = timeout ? timeout : 1;
 
-	if (IS_ENABLED(CONFIG_NVME_FC) && fcport->nvme_remote_port)
+	if (IS_ENABLED(CONFIG_NVME_FC) && fcport && fcport->nvme_remote_port)
 		nvme_fc_set_remoteport_devloss(fcport->nvme_remote_port,
 					       rport->dev_loss_tmo);
 }
