@@ -20,7 +20,7 @@
 #define SYNTH_SYSTEM		"synthetic"
 #define SYNTH_FIELDS_MAX	16
 
-#define STR_VAR_LEN_MAX		32 /* must be multiple of sizeof(u64) */
+#define STR_VAR_LEN_MAX		MAX_FILTER_STR_VAL /* must be multiple of sizeof(u64) */
 
 #define ERRORS								\
 	C(NONE,			"No error"),				\
@@ -2267,6 +2267,8 @@ static int hist_trigger_elt_data_alloc(struct tracing_map_elt *elt)
 		hist_elt_data_free(elt_data);
 		return -EINVAL;
 	}
+
+	BUILD_BUG_ON(STR_VAR_LEN_MAX & (sizeof(u64) - 1));
 
 	size = STR_VAR_LEN_MAX;
 
