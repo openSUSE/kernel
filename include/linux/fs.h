@@ -2574,8 +2574,6 @@ void free_anon_bdev(dev_t);
 
 /* These two are to be used only by btrfs */
 int insert_anon_sbdev(struct super_block *sb, struct super_block_dev *sbdev);
-void insert_prealloc_anon_sbdev(struct super_block *sb,
-		struct super_block_dev *sbdev, dev_t preallocated);
 void remove_anon_sbdev(struct super_block_dev *sbdev);
 static inline void init_anon_sbdev(struct super_block_dev *sbdev)
 {

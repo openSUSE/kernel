@@ -617,11 +617,13 @@ static noinline int create_subvol(struct user_namespace *mnt_userns,
 		 * Since we don't abort the transaction in this case, free the
 		 * tree block so that we don't leak space and leave the
 		 * filesystem in an inconsistent state (an extent item in the
-		 * extent tree without backreferences). Also no need to have
-		 * the tree block locked since it is not in any tree at this
-		 * point, so no other task can find it and use it.
+		 * extent tree with a backreference for a root that does not
+		 * exists).
 		 */
-		btrfs_free_tree_block(trans, root, leaf, 0, 1);
+		btrfs_tree_lock(leaf);
+		btrfs_clean_tree_block(leaf);
+		btrfs_tree_unlock(leaf);
+		btrfs_free_tree_block(trans, objectid, leaf, 0, 1);
 		free_extent_buffer(leaf);
 		goto fail;
 	}
@@ -805,11 +807,8 @@ static int create_snapshot(struct btrfs_root *root, struct inode *dir,
 	pending_snapshot->anon_dev = 0;
 fail:
 	/* Prevent double freeing of anon_dev */
-	if (ret && pending_snapshot->snap &&
-	    pending_snapshot->snap->sbdev.anon_dev) {
-		remove_anon_sbdev(&pending_snapshot->snap->sbdev);
-		pending_snapshot->anon_dev = 0;
-	}
+	if (ret && pending_snapshot->snap)
+		pending_snapshot->snap->anon_dev = 0;
 	btrfs_put_root(pending_snapshot->snap);
 	btrfs_subvolume_release_metadata(root, &pending_snapshot->block_rsv);
 free_pending:

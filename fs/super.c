@@ -191,20 +191,6 @@ int insert_anon_sbdev(struct super_block *sb, struct super_block_dev *sbdev)
 EXPORT_SYMBOL_GPL(insert_anon_sbdev);
 
 /* To be used only by btrfs */
-void insert_prealloc_anon_sbdev(struct super_block *sb,
-		struct super_block_dev *sbdev, dev_t preallocated)
-{
-	sbdev->anon_dev = preallocated;
-
-	sbdev->sb = sb;
-
-	spin_lock(&sb_lock);
-	list_add_tail(&sbdev->entry, &sb->s_sbdevs);
-	spin_unlock(&sb_lock);
-}
-EXPORT_SYMBOL_GPL(insert_prealloc_anon_sbdev);
-
-/* To be used only by btrfs */
 void remove_anon_sbdev(struct super_block_dev *sbdev)
 {
 	bool remove = false;
@@ -216,10 +202,8 @@ void remove_anon_sbdev(struct super_block_dev *sbdev)
 	}
 	spin_unlock(&sb_lock);
 
-	if (remove) {
+	if (remove)
 		free_anon_bdev(sbdev->anon_dev);
-		sbdev->anon_dev = 0;
-	}
 }
 EXPORT_SYMBOL_GPL(remove_anon_sbdev);
 
