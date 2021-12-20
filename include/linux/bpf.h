@@ -117,7 +117,11 @@ struct bpf_map {
 	atomic64_t usercnt;
 	struct work_struct work;
 	struct mutex freeze_mutex;
+#ifdef __GENKSYMS__
+	u64 writecnt;
+#else
 	atomic64_t writecnt;
+#endif
 };
 
 static inline bool map_value_has_spin_lock(const struct bpf_map *map)
