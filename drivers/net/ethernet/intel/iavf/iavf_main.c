@@ -677,6 +677,23 @@ static void iavf_del_vlan(struct iavf_adapter *adapter, u16 vlan)
 }
 
 /**
+ * iavf_restore_filters
+ * @adapter: board private structure
+ *
+ * Restore existing non MAC filters when VF netdev comes back up
+ **/
+static void iavf_restore_filters(struct iavf_adapter *adapter)
+{
+	/* re-add all VLAN filters */
+	if (VLAN_ALLOWED(adapter)) {
+		u16 vid;
+
+		for_each_set_bit(vid, adapter->vsi.active_vlans, VLAN_N_VID)
+			iavf_add_vlan(adapter, vid);
+	}
+}
+
+/**
  * iavf_vlan_rx_add_vid - Add a VLAN filter to a device
  * @netdev: network device struct
  * @proto: unused protocol data
@@ -689,8 +706,11 @@ static int iavf_vlan_rx_add_vid(struct net_device *netdev,
 
 	if (!VLAN_ALLOWED(adapter))
 		return -EIO;
+
 	if (iavf_add_vlan(adapter, vid) == NULL)
 		return -ENOMEM;
+
+	set_bit(vid, adapter->vsi.active_vlans);
 	return 0;
 }
 
@@ -705,11 +725,13 @@ static int iavf_vlan_rx_kill_vid(struct net_device *netdev,
 {
 	struct iavf_adapter *adapter = netdev_priv(netdev);
 
-	if (VLAN_ALLOWED(adapter)) {
-		iavf_del_vlan(adapter, vid);
-		return 0;
-	}
-	return -EIO;
+	if (!VLAN_ALLOWED(adapter))
+		return -EIO;
+
+	iavf_del_vlan(adapter, vid);
+	clear_bit(vid, adapter->vsi.active_vlans);
+
+	return 0;
 }
 
 /**
@@ -2988,8 +3010,10 @@ static int iavf_configure_clsflower(struct iavf_adapter *adapter,
 
 	while (test_and_set_bit(__IAVF_IN_CRITICAL_TASK,
 				&adapter->crit_section)) {
-		if (--count == 0)
-			goto err;
+		if (--count == 0) {
+			kfree(filter);
+			return err;
+		}
 		udelay(1);
 	}
 
@@ -3192,6 +3216,9 @@ static int iavf_open(struct net_device *netdev)
 	iavf_add_filter(adapter, adapter->hw.mac.addr);
 
 	spin_unlock_bh(&adapter->mac_vlan_list_lock);
+
+	/* Restore VLAN filters that were removed with IFF_DOWN */
+	iavf_restore_filters(adapter);
 
 	iavf_configure(adapter);
 
