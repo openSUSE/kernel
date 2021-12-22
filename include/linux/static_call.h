@@ -151,7 +151,7 @@ extern void arch_static_call_transform(void *site, void *tramp, void *func, bool
 
 #define static_call_update(name, func)					\
 ({									\
-	typeof(&STATIC_CALL_TRAMP(name)) __F = (func);			\
+	typeof(&STATIC_CALL_TYPE(name)) __F = (func);			\
 	__static_call_update(&STATIC_CALL_KEY(name),			\
 			     STATIC_CALL_TRAMP_ADDR(name), __F);	\
 })
@@ -306,7 +306,7 @@ static inline void __static_call_nop(void) { }
 	void *func = READ_ONCE(STATIC_CALL_KEY(name).func);		\
 	if (!func)							\
 		func = &__static_call_nop;				\
-	(typeof(STATIC_CALL_TRAMP(name))*)func;				\
+	(typeof(&STATIC_CALL_TYPE(name)))func;				\
 })
 
 #define static_call_cond(name)	(void)__static_call_cond(name)
