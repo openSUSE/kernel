@@ -1,22 +1,9 @@
+/* SPDX-License-Identifier: LGPL-2.1 */
 /*
- *   fs/cifs/cifsfs.h
  *
  *   Copyright (c) International Business Machines  Corp., 2002, 2007
  *   Author(s): Steve French (sfrench@us.ibm.com)
  *
- *   This library is free software; you can redistribute it and/or modify
- *   it under the terms of the GNU Lesser General Public License as published
- *   by the Free Software Foundation; either version 2.1 of the License, or
- *   (at your option) any later version.
- *
- *   This library is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
- *   the GNU Lesser General Public License for more details.
- *
- *   You should have received a copy of the GNU Lesser General Public License
- *   along with this library; if not, write to the Free Software
- *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
 #ifndef _CIFSFS_H
@@ -152,9 +139,13 @@ extern long cifs_ioctl(struct file *filep, unsigned int cmd, unsigned long arg);
 extern void cifs_setsize(struct inode *inode, loff_t offset);
 extern int cifs_truncate_page(struct address_space *mapping, loff_t from);
 
+struct smb3_fs_context;
+extern struct dentry *cifs_smb3_do_mount(struct file_system_type *fs_type,
+					 int flags, struct smb3_fs_context *ctx);
+
 #ifdef CONFIG_CIFS_NFSD_EXPORT
 extern const struct export_operations cifs_export_ops;
 #endif /* CONFIG_CIFS_NFSD_EXPORT */
 
-#define CIFS_VERSION   "2.22"
+#define CIFS_VERSION   "2.34"
 #endif				/* _CIFSFS_H */

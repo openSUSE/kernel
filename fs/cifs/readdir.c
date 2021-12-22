@@ -1,5 +1,5 @@
+// SPDX-License-Identifier: LGPL-2.1
 /*
- *   fs/cifs/readdir.c
  *
  *   Directory search handling
  *
@@ -7,19 +7,6 @@
  *   Copyright (C) Red Hat, Inc., 2011
  *   Author(s): Steve French (sfrench@us.ibm.com)
  *
- *   This library is free software; you can redistribute it and/or modify
- *   it under the terms of the GNU Lesser General Public License as published
- *   by the Free Software Foundation; either version 2.1 of the License, or
- *   (at your option) any later version.
- *
- *   This library is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
- *   the GNU Lesser General Public License for more details.
- *
- *   You should have received a copy of the GNU Lesser General Public License
- *   along with this library; if not, write to the Free Software
- *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 #include <linux/fs.h>
 #include <linux/pagemap.h>
@@ -33,6 +20,7 @@
 #include "cifs_fs_sb.h"
 #include "cifsfs.h"
 #include "smb2proto.h"
+#include "fs_context.h"
 
 /*
  * To be safe - for UCS to UTF-8 with strings loaded with the rare long
@@ -53,7 +41,7 @@ static void dump_cifs_file_struct(struct file *file, char *label)
 			return;
 		}
 		if (cf->invalidHandle)
-			cifs_dbg(FYI, "invalid handle\n");
+			cifs_dbg(FYI, "Invalid handle\n");
 		if (cf->srch_inf.endOfSearch)
 			cifs_dbg(FYI, "end of search\n");
 		if (cf->srch_inf.emptyDir)
@@ -118,9 +106,7 @@ retry:
 			/* update inode in place
 			 * if both i_ino and i_mode didn't change */
 			if (CIFS_I(inode)->uniqueid == fattr->cf_uniqueid &&
-			    (inode->i_mode & S_IFMT) ==
-			    (fattr->cf_mode & S_IFMT)) {
-				cifs_fattr_to_inode(inode, fattr);
+			    cifs_fattr_to_inode(inode, fattr) == 0) {
 				dput(dentry);
 				return;
 			}
@@ -165,14 +151,37 @@ static bool reparse_file_needs_reval(const struct cifs_fattr *fattr)
 static void
 cifs_fill_common_info(struct cifs_fattr *fattr, struct cifs_sb_info *cifs_sb)
 {
-	fattr->cf_uid = cifs_sb->mnt_uid;
-	fattr->cf_gid = cifs_sb->mnt_gid;
+	fattr->cf_uid = cifs_sb->ctx->linux_uid;
+	fattr->cf_gid = cifs_sb->ctx->linux_gid;
 
+	/*
+	 * The IO_REPARSE_TAG_LX_ tags originally were used by WSL but they
+	 * are preferred by the Linux client in some cases since, unlike
+	 * the NFS reparse tag (or EAs), they don't require an extra query
+	 * to determine which type of special file they represent.
+	 * TODO: go through all documented  reparse tags to see if we can
+	 * reasonably map some of them to directories vs. files vs. symlinks
+	 */
 	if (fattr->cf_cifsattrs & ATTR_DIRECTORY) {
-		fattr->cf_mode = S_IFDIR | cifs_sb->mnt_dir_mode;
+		fattr->cf_mode = S_IFDIR | cifs_sb->ctx->dir_mode;
 		fattr->cf_dtype = DT_DIR;
-	} else {
-		fattr->cf_mode = S_IFREG | cifs_sb->mnt_file_mode;
+	} else if (fattr->cf_cifstag == IO_REPARSE_TAG_LX_SYMLINK) {
+		fattr->cf_mode |= S_IFLNK | cifs_sb->ctx->file_mode;
+		fattr->cf_dtype = DT_LNK;
+	} else if (fattr->cf_cifstag == IO_REPARSE_TAG_LX_FIFO) {
+		fattr->cf_mode |= S_IFIFO | cifs_sb->ctx->file_mode;
+		fattr->cf_dtype = DT_FIFO;
+	} else if (fattr->cf_cifstag == IO_REPARSE_TAG_AF_UNIX) {
+		fattr->cf_mode |= S_IFSOCK | cifs_sb->ctx->file_mode;
+		fattr->cf_dtype = DT_SOCK;
+	} else if (fattr->cf_cifstag == IO_REPARSE_TAG_LX_CHR) {
+		fattr->cf_mode |= S_IFCHR | cifs_sb->ctx->file_mode;
+		fattr->cf_dtype = DT_CHR;
+	} else if (fattr->cf_cifstag == IO_REPARSE_TAG_LX_BLK) {
+		fattr->cf_mode |= S_IFBLK | cifs_sb->ctx->file_mode;
+		fattr->cf_dtype = DT_BLK;
+	} else { /* TODO: should we mark some other reparse points (like DFSR) as directories? */
+		fattr->cf_mode = S_IFREG | cifs_sb->ctx->file_mode;
 		fattr->cf_dtype = DT_REG;
 	}
 
@@ -246,7 +255,7 @@ cifs_posix_to_fattr(struct cifs_fattr *fattr, struct smb2_posix_info *info,
 	 */
 	fattr->cf_mode = le32_to_cpu(info->Mode) & ~S_IFMT;
 
-	cifs_dbg(VFS, "XXX dev %d, reparse %d, mode %o",
+	cifs_dbg(FYI, "posix fattr: dev %d, reparse %d, mode %o\n",
 		 le32_to_cpu(info->DeviceId),
 		 le32_to_cpu(info->ReparseTag),
 		 le32_to_cpu(info->Mode));
@@ -267,9 +276,8 @@ cifs_posix_to_fattr(struct cifs_fattr *fattr, struct smb2_posix_info *info,
 	if (reparse_file_needs_reval(fattr))
 		fattr->cf_flags |= CIFS_FATTR_NEED_REVAL;
 
-	/* TODO map SIDs */
-	fattr->cf_uid = cifs_sb->mnt_uid;
-	fattr->cf_gid = cifs_sb->mnt_gid;
+	sid_to_id(cifs_sb, &parsed.owner, fattr, SIDOWNER);
+	sid_to_id(cifs_sb, &parsed.group, fattr, SIDGROUP);
 }
 
 static void __dir_info_to_fattr(struct cifs_fattr *fattr, const void *info)
@@ -300,7 +308,7 @@ static void cifs_fulldir_info_to_fattr(struct cifs_fattr *fattr,
 {
 	__dir_info_to_fattr(fattr, info);
 
-	/* See MS-FSCC 2.4.18 FileIdFullDirectoryInformation */
+	/* See MS-FSCC 2.4.19 FileIdFullDirectoryInformation */
 	if (fattr->cf_cifsattrs & ATTR_REPARSE)
 		fattr->cf_cifstag = le32_to_cpu(info->EaSize);
 	cifs_fill_common_info(fattr, cifs_sb);
@@ -360,11 +368,11 @@ int get_symlink_reparse_path(char *full_path, struct cifs_sb_info *cifs_sb,
  */
 
 static int
-initiate_cifs_search(const unsigned int xid, struct file *file)
+_initiate_cifs_search(const unsigned int xid, struct file *file,
+		     const char *full_path)
 {
 	__u16 search_flags;
 	int rc = 0;
-	char *full_path = NULL;
 	struct cifsFileInfo *cifsFile;
 	struct cifs_sb_info *cifs_sb = CIFS_FILE_SB(file);
 	struct tcon_link *tlink = NULL;
@@ -399,12 +407,6 @@ initiate_cifs_search(const unsigned int xid, struct file *file)
 
 	cifsFile->invalidHandle = true;
 	cifsFile->srch_inf.endOfSearch = false;
-
-	full_path = build_path_from_dentry(file_dentry(file));
-	if (full_path == NULL) {
-		rc = -ENOMEM;
-		goto error_exit;
-	}
 
 	cifs_dbg(FYI, "Full path: %s start at: %lld\n", full_path, file->f_pos);
 
@@ -444,8 +446,28 @@ ffirst_retry:
 		goto ffirst_retry;
 	}
 error_exit:
-	kfree(full_path);
 	cifs_put_tlink(tlink);
+	return rc;
+}
+
+static int
+initiate_cifs_search(const unsigned int xid, struct file *file,
+		     const char *full_path)
+{
+	int rc, retry_count = 0;
+
+	do {
+		rc = _initiate_cifs_search(xid, file, full_path);
+		/*
+		 * If we don't have enough credits to start reading the
+		 * directory just try again after short wait.
+		 */
+		if (rc != -EDEADLK)
+			break;
+
+		usleep_range(512, 2048);
+	} while (retry_count++ < 5);
+
 	return rc;
 }
 
@@ -478,7 +500,7 @@ static char *nxt_dir_entry(char *old_entry, char *end_of_smb, int level)
 		u32 next_offset = le32_to_cpu(pDirInfo->NextEntryOffset);
 
 		if (old_entry + next_offset < old_entry) {
-			cifs_dbg(VFS, "invalid offset %u\n", next_offset);
+			cifs_dbg(VFS, "Invalid offset %u\n", next_offset);
 			return NULL;
 		}
 		new_entry = old_entry + next_offset;
@@ -515,7 +537,7 @@ static void cifs_fill_dirent_posix(struct cifs_dirent *de,
 
 	/* payload should have already been checked at this point */
 	if (posix_info_parse(info, NULL, &parsed) < 0) {
-		cifs_dbg(VFS, "invalid POSIX info payload");
+		cifs_dbg(VFS, "Invalid POSIX info payload\n");
 		return;
 	}
 
@@ -688,7 +710,8 @@ static int cifs_save_resume_key(const char *current_entry,
  */
 static int
 find_cifs_entry(const unsigned int xid, struct cifs_tcon *tcon, loff_t pos,
-		struct file *file, char **current_entry, int *num_to_ret)
+		struct file *file, const char *full_path,
+		char **current_entry, int *num_to_ret)
 {
 	__u16 search_flags;
 	int rc = 0;
@@ -741,7 +764,7 @@ find_cifs_entry(const unsigned int xid, struct cifs_tcon *tcon, loff_t pos,
 						ntwrk_buf_start);
 			cfile->srch_inf.ntwrk_buf_start = NULL;
 		}
-		rc = initiate_cifs_search(xid, file);
+		rc = initiate_cifs_search(xid, file, full_path);
 		if (rc) {
 			cifs_dbg(FYI, "error %d reinitiating a search on rewind\n",
 				 rc);
@@ -925,15 +948,23 @@ int cifs_readdir(struct file *file, struct dir_context *ctx)
 	char *tmp_buf = NULL;
 	char *end_of_smb;
 	unsigned int max_len;
+	const char *full_path;
+	void *page = alloc_dentry_path();
 
 	xid = get_xid();
+
+	full_path = build_path_from_dentry(file_dentry(file), page);
+	if (IS_ERR(full_path)) {
+		rc = PTR_ERR(full_path);
+		goto rddir2_exit;
+	}
 
 	/*
 	 * Ensure FindFirst doesn't fail before doing filldir() for '.' and
 	 * '..'. Otherwise we won't be able to notify VFS in case of failure.
 	 */
 	if (file->private_data == NULL) {
-		rc = initiate_cifs_search(xid, file);
+		rc = initiate_cifs_search(xid, file, full_path);
 		cifs_dbg(FYI, "initiate cifs search rc %d\n", rc);
 		if (rc)
 			goto rddir2_exit;
@@ -960,15 +991,15 @@ int cifs_readdir(struct file *file, struct dir_context *ctx)
 	} */
 
 	tcon = tlink_tcon(cifsFile->tlink);
-	rc = find_cifs_entry(xid, tcon, ctx->pos, file, &current_entry,
-			     &num_to_fill);
+	rc = find_cifs_entry(xid, tcon, ctx->pos, file, full_path,
+			     &current_entry, &num_to_fill);
 	if (rc) {
 		cifs_dbg(FYI, "fce error %d\n", rc);
 		goto rddir2_exit;
 	} else if (current_entry != NULL) {
 		cifs_dbg(FYI, "entry %lld found\n", ctx->pos);
 	} else {
-		cifs_dbg(FYI, "could not find entry\n");
+		cifs_dbg(FYI, "Could not find entry\n");
 		goto rddir2_exit;
 	}
 	cifs_dbg(FYI, "loop through %d times filling dir for net buf %p\n",
@@ -1019,6 +1050,7 @@ int cifs_readdir(struct file *file, struct dir_context *ctx)
 	kfree(tmp_buf);
 
 rddir2_exit:
+	free_dentry_path(page);
 	free_xid(xid);
 	return rc;
 }
