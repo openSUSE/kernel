@@ -3,6 +3,7 @@
 #include <linux/mm.h>
 #include <linux/smp.h>
 #include <linux/spinlock.h>
+#include <linux/static_call.h>
 #include <linux/stop_machine.h>
 #include <linux/uaccess.h>
 
@@ -66,7 +67,7 @@ int __kprobes aarch64_insn_read(void *addr, u32 *insnp)
 	return ret;
 }
 
-static int __kprobes __aarch64_insn_write(void *addr, __le32 insn)
+static int __kprobes __aarch64_insn_write(void *addr, void *insn, int size)
 {
 	void *waddr = addr;
 	unsigned long flags = 0;
@@ -75,7 +76,7 @@ static int __kprobes __aarch64_insn_write(void *addr, __le32 insn)
 	raw_spin_lock_irqsave(&patch_lock, flags);
 	waddr = patch_map(addr, FIX_TEXT_POKE0);
 
-	ret = copy_to_kernel_nofault(waddr, &insn, AARCH64_INSN_SIZE);
+	ret = copy_to_kernel_nofault(waddr, insn, size);
 
 	patch_unmap(FIX_TEXT_POKE0);
 	raw_spin_unlock_irqrestore(&patch_lock, flags);
@@ -85,7 +86,77 @@ static int __kprobes __aarch64_insn_write(void *addr, __le32 insn)
 
 int __kprobes aarch64_insn_write(void *addr, u32 insn)
 {
-	return __aarch64_insn_write(addr, cpu_to_le32(insn));
+	__le32 i = cpu_to_le32(insn);
+
+	return __aarch64_insn_write(addr, &i, AARCH64_INSN_SIZE);
+}
+
+static void *strip_cfi_jt(void *addr)
+{
+	if (IS_ENABLED(CONFIG_CFI_CLANG)) {
+		void *p = addr;
+		u32 insn;
+
+		/*
+		 * Taking the address of a function produces the address of the
+		 * jump table entry when Clang CFI is enabled. Such entries are
+		 * ordinary jump instructions, preceded by a BTI C instruction
+		 * if BTI is enabled for the kernel.
+		 */
+		if (IS_ENABLED(CONFIG_ARM64_BTI_KERNEL))
+			p += 4;
+
+		insn = le32_to_cpup(p);
+		if (aarch64_insn_is_b(insn))
+			return p + aarch64_get_branch_offset(insn);
+
+		WARN_ON(1);
+	}
+	return addr;
+}
+
+void arch_static_call_transform(void *site, void *tramp, void *func, bool tail)
+{
+	/*
+	 * -0x8	<literal>
+	 *  0x0	bti c		<--- trampoline entry point
+	 *  0x4	<branch or nop>
+	 *  0x8	ldr x16, <literal>
+	 *  0xc	cbz x16, 20
+	 * 0x10	br x16
+	 * 0x14	ret
+	 */
+	struct {
+		u64	literal;
+		__le32	insn[2];
+	} insns;
+	u32 insn;
+	int ret;
+
+	insn = aarch64_insn_gen_hint(AARCH64_INSN_HINT_BTIC);
+	insns.literal = (u64)func;
+	insns.insn[0] = cpu_to_le32(insn);
+
+	if (!func) {
+		insn = aarch64_insn_gen_branch_reg(AARCH64_INSN_REG_LR,
+						   AARCH64_INSN_BRANCH_RETURN);
+	} else {
+		insn = aarch64_insn_gen_branch_imm((u64)tramp + 4,
+						   (u64)strip_cfi_jt(func),
+						   AARCH64_INSN_BRANCH_NOLINK);
+
+		/*
+		 * Use a NOP if the branch target is out of range, and rely on
+		 * the indirect call instead.
+		 */
+		if (insn == AARCH64_BREAK_FAULT)
+			insn = aarch64_insn_gen_hint(AARCH64_INSN_HINT_NOP);
+	}
+	insns.insn[1] = cpu_to_le32(insn);
+
+	ret = __aarch64_insn_write(tramp - 8, &insns, sizeof(insns));
+	if (!WARN_ON(ret))
+		caches_clean_inval_pou((u64)tramp - 8, sizeof(insns));
 }
 
 int __kprobes aarch64_insn_patch_text_nosync(void *addr, u32 insn)
