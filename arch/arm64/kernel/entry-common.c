@@ -12,6 +12,7 @@
 #include <linux/sched.h>
 #include <linux/sched/debug.h>
 #include <linux/thread_info.h>
+#include <linux/static_call.h>
 
 #include <asm/cpufeature.h>
 #include <asm/daifflags.h>
@@ -121,7 +122,7 @@ static void noinstr exit_el1_irq_or_nmi(struct pt_regs *regs)
 		exit_to_kernel_mode(regs);
 }
 
-static void __sched arm64_preempt_schedule_irq(void)
+void __sched arm64_preempt_schedule_irq(void)
 {
 	lockdep_assert_irqs_disabled();
 
@@ -145,6 +146,9 @@ static void __sched arm64_preempt_schedule_irq(void)
 	if (system_capabilities_finalized())
 		preempt_schedule_irq();
 }
+#ifdef CONFIG_PREEMPT_DYNAMIC
+DEFINE_STATIC_CALL(irqentry_exit_cond_resched, arm64_preempt_schedule_irq);
+#endif
 
 static void do_interrupt_handler(struct pt_regs *regs,
 				 void (*handler)(struct pt_regs *))
@@ -356,8 +360,13 @@ static void noinstr el1_interrupt(struct pt_regs *regs,
 	 * preempt_count().
 	 */
 	if (IS_ENABLED(CONFIG_PREEMPTION) &&
-	    READ_ONCE(current_thread_info()->preempt_count) == 0)
-		arm64_preempt_schedule_irq();
+	    READ_ONCE(current_thread_info()->preempt_count) == 0) {
+#ifdef CONFIG_PREEMPT_DYNAMIC
+			static_call(irqentry_exit_cond_resched)();
+#else
+			arm64_preempt_schedule_irq();
+#endif
+	}
 
 	exit_el1_irq_or_nmi(regs);
 }

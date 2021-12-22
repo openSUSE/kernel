@@ -3,6 +3,7 @@
 #define __ASM_PREEMPT_H
 
 #include <linux/thread_info.h>
+#include <linux/static_call_types.h>
 
 #define PREEMPT_NEED_RESCHED	BIT(32)
 #define PREEMPT_ENABLED	(PREEMPT_NEED_RESCHED)
@@ -85,5 +86,11 @@ void preempt_schedule(void);
 void preempt_schedule_notrace(void);
 #define __preempt_schedule_notrace() preempt_schedule_notrace()
 #endif /* CONFIG_PREEMPTION */
+
+#ifdef CONFIG_PREEMPT_DYNAMIC
+void arm64_preempt_schedule_irq(void);
+#define __irqentry_exit_cond_resched_func arm64_preempt_schedule_irq
+DECLARE_STATIC_CALL(irqentry_exit_cond_resched, __irqentry_exit_cond_resched_func);
+#endif /* CONFIG_PREEMPT_DYNAMIC */
 
 #endif /* __ASM_PREEMPT_H */
