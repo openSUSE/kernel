@@ -6314,7 +6314,9 @@ EXPORT_STATIC_CALL_TRAMP(preempt_schedule_notrace);
 
 #ifdef CONFIG_PREEMPT_DYNAMIC
 
+#ifdef CONFIG_GENERIC_ENTRY
 #include <linux/entry-common.h>
+#endif
 
 /*
  * SC:cond_resched
@@ -6379,7 +6381,7 @@ void sched_dynamic_update(int mode)
 	static_call_update(might_resched, __cond_resched);
 	static_call_update(preempt_schedule, __preempt_schedule_func);
 	static_call_update(preempt_schedule_notrace, __preempt_schedule_notrace_func);
-	static_call_update(irqentry_exit_cond_resched, irqentry_exit_cond_resched);
+	static_call_update(irqentry_exit_cond_resched, __irqentry_exit_cond_resched_func);
 
 	switch (mode) {
 	case preempt_dynamic_none:
@@ -6405,7 +6407,7 @@ void sched_dynamic_update(int mode)
 		static_call_update(might_resched, (void *)&__static_call_return0);
 		static_call_update(preempt_schedule, __preempt_schedule_func);
 		static_call_update(preempt_schedule_notrace, __preempt_schedule_notrace_func);
-		static_call_update(irqentry_exit_cond_resched, irqentry_exit_cond_resched);
+		static_call_update(irqentry_exit_cond_resched, __irqentry_exit_cond_resched_func);
 		pr_info("Dynamic Preempt: full\n");
 		break;
 	}
