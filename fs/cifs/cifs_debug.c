@@ -361,6 +361,8 @@ skip_rdma:
 			seq_printf(m, " signed");
 		if (server->posix_ext_supported)
 			seq_printf(m, " posix");
+		if (server->nosharesock)
+			seq_printf(m, " nosharesock");
 
 		if (server->rdma)
 			seq_printf(m, "\nRDMA ");
