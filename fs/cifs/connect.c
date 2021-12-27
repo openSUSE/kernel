@@ -4171,7 +4171,7 @@ static int target_share_matches_server(struct TCP_Server_Info *server, const cha
 	return rc;
 }
 
-int __tree_connect_dfs_target(const unsigned int xid, struct cifs_tcon *tcon,
+static int __tree_connect_dfs_target(const unsigned int xid, struct cifs_tcon *tcon,
 			      struct cifs_sb_info *cifs_sb, char *tree,
 			      struct dfs_cache_tgt_list *tl, struct dfs_info3_param *ref)
 {
@@ -4270,7 +4270,7 @@ out:
 	return rc;
 }
 
-int tree_connect_dfs_target(const unsigned int xid, struct cifs_tcon *tcon,
+static int tree_connect_dfs_target(const unsigned int xid, struct cifs_tcon *tcon,
 			    struct cifs_sb_info *cifs_sb, char *tree,
 			    struct dfs_cache_tgt_list *tl, struct dfs_info3_param *ref)
 {
