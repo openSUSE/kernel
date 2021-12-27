@@ -161,6 +161,7 @@ SECTIONS
 			IDMAP_TEXT
 			HIBERNATE_TEXT
 			TRAMP_TEXT
+			STATIC_CALL_TEXT
 			*(.fixup)
 			*(.gnu.warning)
 		. = ALIGN(16);
