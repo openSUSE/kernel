@@ -25,7 +25,7 @@
 #include "cifsglob.h"
 #include "cifs_debug.h"
 #include "cifsproto.h"
-#include "../cifs_common/md4.h"
+#include "../smbfs_common/md4.h"
 
 #ifndef false
 #define false 0
