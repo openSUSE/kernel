@@ -12,7 +12,7 @@
 
 #include <net/sock.h>
 #include <asm/unaligned.h>
-#include "smbfsctl.h"
+#include "../smbfs_common/smbfsctl.h"
 
 #ifdef CONFIG_CIFS_WEAK_PW_HASH
 #define LANMAN_PROT 0
