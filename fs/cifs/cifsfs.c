@@ -1,24 +1,11 @@
+// SPDX-License-Identifier: LGPL-2.1
 /*
- *   fs/cifs/cifsfs.c
  *
  *   Copyright (C) International Business Machines  Corp., 2002,2008
  *   Author(s): Steve French (sfrench@us.ibm.com)
  *
  *   Common Internet FileSystem (CIFS) client
  *
- *   This library is free software; you can redistribute it and/or modify
- *   it under the terms of the GNU Lesser General Public License as published
- *   by the Free Software Foundation; either version 2.1 of the License, or
- *   (at your option) any later version.
- *
- *   This library is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
- *   the GNU Lesser General Public License for more details.
- *
- *   You should have received a copy of the GNU Lesser General Public License
- *   along with this library; if not, write to the Free Software
- *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
 /* Note that BB means BUGBUG (ie something to fix eventually) */
@@ -51,10 +38,13 @@
 #include <linux/key-type.h>
 #include "cifs_spnego.h"
 #include "fscache.h"
-#include "smb2pdu.h"
 #ifdef CONFIG_CIFS_DFS_UPCALL
 #include "dfs_cache.h"
 #endif
+#ifdef CONFIG_CIFS_SWN_UPCALL
+#include "netlink.h"
+#endif
+#include "fs_context.h"
 
 int cifsFYI = 0;
 bool traceSMB;
@@ -62,6 +52,9 @@ bool enable_oplocks = true;
 bool linuxExtEnabled = true;
 bool lookupCacheEnabled = true;
 bool disable_legacy_dialects; /* false by default */
+bool enable_gcm_256 = true;
+bool require_gcm_256; /* false by default */
+bool enable_negotiate_signing; /* false by default */
 unsigned int global_secflags = CIFSSEC_DEF;
 /* unsigned int ntlmv2_support = 0; */
 unsigned int sign_CIFS_PDUs = 1;
@@ -95,6 +88,15 @@ MODULE_PARM_DESC(slow_rsp_threshold, "Amount of time (in seconds) to wait "
 module_param(enable_oplocks, bool, 0644);
 MODULE_PARM_DESC(enable_oplocks, "Enable or disable oplocks. Default: y/Y/1");
 
+module_param(enable_gcm_256, bool, 0644);
+MODULE_PARM_DESC(enable_gcm_256, "Enable requesting strongest (256 bit) GCM encryption. Default: n/N/0");
+
+module_param(require_gcm_256, bool, 0644);
+MODULE_PARM_DESC(require_gcm_256, "Require strongest (256 bit) GCM encryption. Default: n/N/0");
+
+module_param(enable_negotiate_signing, bool, 0644);
+MODULE_PARM_DESC(enable_negotiate_signing, "Enable negotiating packet signing algorithm with server. Default: n/N/0");
+
 module_param(disable_legacy_dialects, bool, 0644);
 MODULE_PARM_DESC(disable_legacy_dialects, "To improve security it may be "
 				  "helpful to restrict the ability to "
@@ -109,8 +111,8 @@ extern mempool_t *cifs_req_poolp;
 extern mempool_t *cifs_mid_poolp;
 
 struct workqueue_struct	*cifsiod_wq;
-struct workqueue_struct	*fileinfo_put_wq;
 struct workqueue_struct	*decrypt_wq;
+struct workqueue_struct	*fileinfo_put_wq;
 struct workqueue_struct	*cifsoplockd_wq;
 __u32 cifs_lock_secret;
 
@@ -160,7 +162,13 @@ cifs_read_super(struct super_block *sb)
 	else
 		sb->s_maxbytes = MAX_NON_LFS;
 
-	/* Some very old servers like DOS and OS/2 used 2 second granularity */
+	/*
+	 * Some very old servers like DOS and OS/2 used 2 second granularity
+	 * (while all current servers use 100ns granularity - see MS-DTYP)
+	 * but 1 second is the maximum allowed granularity for the VFS
+	 * so for old servers set time granularity to 1 second while for
+	 * everything else (current servers) set it to 100ns.
+	 */
 	if ((tcon->ses->server->vals->protocol_id == SMB10_PROT_ID) &&
 	    ((tcon->ses->capabilities &
 	      tcon->ses->server->vals->cap_nt_find) == 0) &&
@@ -180,8 +188,11 @@ cifs_read_super(struct super_block *sb)
 	rc = super_setup_bdi(sb);
 	if (rc)
 		goto out_no_root;
-	/* tune readahead according to rsize */
-	sb->s_bdi->ra_pages = cifs_sb->rsize / PAGE_SIZE;
+	/* tune readahead according to rsize if readahead size not set on mount */
+	if (cifs_sb->ctx->rasize)
+		sb->s_bdi->ra_pages = cifs_sb->ctx->rasize / PAGE_SIZE;
+	else
+		sb->s_bdi->ra_pages = cifs_sb->ctx->rsize / PAGE_SIZE;
 
 	sb->s_blocksize = CIFS_MAX_MSGSIZE;
 	sb->s_blocksize_bits = 14;	/* default 2**14 = CIFS_MAX_MSGSIZE */
@@ -220,6 +231,29 @@ out_no_root:
 static void cifs_kill_sb(struct super_block *sb)
 {
 	struct cifs_sb_info *cifs_sb = CIFS_SB(sb);
+	struct cifs_tcon *tcon;
+	struct cached_fid *cfid;
+
+	/*
+	 * We ned to release all dentries for the cached directories
+	 * before we kill the sb.
+	 */
+	if (cifs_sb->root) {
+		dput(cifs_sb->root);
+		cifs_sb->root = NULL;
+	}
+	tcon = cifs_sb_master_tcon(cifs_sb);
+	if (tcon) {
+		cfid = &tcon->crfid;
+		mutex_lock(&cfid->fid_mutex);
+		if (cfid->dentry) {
+
+			dput(cfid->dentry);
+			cfid->dentry = NULL;
+		}
+		mutex_unlock(&cfid->fid_mutex);
+	}
+
 	kill_anon_super(sb);
 	cifs_umount(cifs_sb);
 }
@@ -425,16 +459,24 @@ cifs_show_cache_flavor(struct seq_file *s, struct cifs_sb_info *cifs_sb)
 		seq_puts(s, "loose");
 }
 
-static void
-cifs_show_nls(struct seq_file *s, struct nls_table *cur)
+/*
+ * cifs_show_devname() is used so we show the mount device name with correct
+ * format (e.g. forward slashes vs. back slashes) in /proc/mounts
+ */
+static int cifs_show_devname(struct seq_file *m, struct dentry *root)
 {
-	struct nls_table *def;
+	struct cifs_sb_info *cifs_sb = CIFS_SB(root->d_sb);
+	char *devname = kstrdup(cifs_sb->ctx->source, GFP_KERNEL);
 
-	/* Display iocharset= option if it's not default charset */
-	def = load_nls_default();
-	if (def != cur)
-		seq_printf(s, ",iocharset=%s", cur->charset);
-	unload_nls(def);
+	if (devname == NULL)
+		seq_puts(m, "none");
+	else {
+		convert_delimiter(devname, '/');
+		/* escape all spaces in share names */
+		seq_escape(m, devname, " \t");
+		kfree(devname);
+	}
+	return 0;
 }
 
 /*
@@ -456,7 +498,7 @@ cifs_show_options(struct seq_file *s, struct dentry *root)
 
 	if (tcon->no_lease)
 		seq_puts(s, ",nolease");
-	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_MULTIUSER)
+	if (cifs_sb->ctx->multiuser)
 		seq_puts(s, ",multiuser");
 	else if (tcon->ses->user_name)
 		seq_show_option(s, "username", tcon->ses->user_name);
@@ -481,14 +523,14 @@ cifs_show_options(struct seq_file *s, struct dentry *root)
 	}
 
 	seq_printf(s, ",uid=%u",
-		   from_kuid_munged(&init_user_ns, cifs_sb->mnt_uid));
+		   from_kuid_munged(&init_user_ns, cifs_sb->ctx->linux_uid));
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_OVERR_UID)
 		seq_puts(s, ",forceuid");
 	else
 		seq_puts(s, ",noforceuid");
 
 	seq_printf(s, ",gid=%u",
-		   from_kgid_munged(&init_user_ns, cifs_sb->mnt_gid));
+		   from_kgid_munged(&init_user_ns, cifs_sb->ctx->linux_gid));
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_OVERR_GID)
 		seq_puts(s, ",forcegid");
 	else
@@ -498,17 +540,18 @@ cifs_show_options(struct seq_file *s, struct dentry *root)
 
 	if (!tcon->unix_ext)
 		seq_printf(s, ",file_mode=0%ho,dir_mode=0%ho",
-					   cifs_sb->mnt_file_mode,
-					   cifs_sb->mnt_dir_mode);
-
-	cifs_show_nls(s, cifs_sb->local_nls);
-
+					   cifs_sb->ctx->file_mode,
+					   cifs_sb->ctx->dir_mode);
+	if (cifs_sb->ctx->iocharset)
+		seq_printf(s, ",iocharset=%s", cifs_sb->ctx->iocharset);
 	if (tcon->seal)
 		seq_puts(s, ",seal");
 	else if (tcon->ses->server->ignore_signature)
 		seq_puts(s, ",signloosely");
 	if (tcon->nocase)
 		seq_puts(s, ",nocase");
+	if (tcon->nodelete)
+		seq_puts(s, ",nodelete");
 	if (tcon->local_lease)
 		seq_puts(s, ",locallease");
 	if (tcon->retry)
@@ -570,15 +613,17 @@ cifs_show_options(struct seq_file *s, struct dentry *root)
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_CIFS_BACKUPUID)
 		seq_printf(s, ",backupuid=%u",
 			   from_kuid_munged(&init_user_ns,
-					    cifs_sb->mnt_backupuid));
+					    cifs_sb->ctx->backupuid));
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_CIFS_BACKUPGID)
 		seq_printf(s, ",backupgid=%u",
 			   from_kgid_munged(&init_user_ns,
-					    cifs_sb->mnt_backupgid));
+					    cifs_sb->ctx->backupgid));
 
-	seq_printf(s, ",rsize=%u", cifs_sb->rsize);
-	seq_printf(s, ",wsize=%u", cifs_sb->wsize);
-	seq_printf(s, ",bsize=%u", cifs_sb->bsize);
+	seq_printf(s, ",rsize=%u", cifs_sb->ctx->rsize);
+	seq_printf(s, ",wsize=%u", cifs_sb->ctx->wsize);
+	seq_printf(s, ",bsize=%u", cifs_sb->ctx->bsize);
+	if (cifs_sb->ctx->rasize)
+		seq_printf(s, ",rasize=%u", cifs_sb->ctx->rasize);
 	if (tcon->ses->server->min_offload)
 		seq_printf(s, ",esize=%u", tcon->ses->server->min_offload);
 	seq_printf(s, ",echo_interval=%lu",
@@ -592,8 +637,25 @@ cifs_show_options(struct seq_file *s, struct dentry *root)
 		seq_printf(s, ",snapshot=%llu", tcon->snapshot_time);
 	if (tcon->handle_timeout)
 		seq_printf(s, ",handletimeout=%u", tcon->handle_timeout);
-	/* convert actimeo and display it in seconds */
-	seq_printf(s, ",actimeo=%lu", cifs_sb->actimeo / HZ);
+
+	/*
+	 * Display file and directory attribute timeout in seconds.
+	 * If file and directory attribute timeout the same then actimeo
+	 * was likely specified on mount
+	 */
+	if (cifs_sb->ctx->acdirmax == cifs_sb->ctx->acregmax)
+		seq_printf(s, ",actimeo=%lu", cifs_sb->ctx->acregmax / HZ);
+	else {
+		seq_printf(s, ",acdirmax=%lu", cifs_sb->ctx->acdirmax / HZ);
+		seq_printf(s, ",acregmax=%lu", cifs_sb->ctx->acregmax / HZ);
+	}
+
+	if (tcon->ses->chan_max > 1)
+		seq_printf(s, ",multichannel,max_channels=%zu",
+			   tcon->ses->chan_max);
+
+	if (tcon->use_witness)
+		seq_puts(s, ",witness");
 
 	return 0;
 }
@@ -642,13 +704,6 @@ static int cifs_show_stats(struct seq_file *s, struct dentry *root)
 }
 #endif
 
-static int cifs_remount(struct super_block *sb, int *flags, char *data)
-{
-	sync_filesystem(sb);
-	*flags |= SB_NODIRATIME;
-	return 0;
-}
-
 static int cifs_drop_inode(struct inode *inode)
 {
 	struct cifs_sb_info *cifs_sb = CIFS_SB(inode->i_sb);
@@ -664,13 +719,14 @@ static const struct super_operations cifs_super_ops = {
 	.free_inode = cifs_free_inode,
 	.drop_inode	= cifs_drop_inode,
 	.evict_inode	= cifs_evict_inode,
+/*	.show_path	= cifs_show_path, */ /* Would we ever need show path? */
+	.show_devname   = cifs_show_devname,
 /*	.delete_inode	= cifs_delete_inode,  */  /* Do not need above
 	function unless later we add lazy close of inodes or unless the
 	kernel forgets to call us with the same number of releases (closes)
 	as opens */
 	.show_options = cifs_show_options,
 	.umount_begin   = cifs_umount_begin,
-	.remount_fs = cifs_remount,
 #ifdef CONFIG_CIFS_STATS2
 	.show_stats = cifs_show_stats,
 #endif
@@ -681,7 +737,7 @@ static const struct super_operations cifs_super_ops = {
  * Return dentry with refcount + 1 on success and NULL otherwise.
  */
 static struct dentry *
-cifs_get_root(struct smb_vol *vol, struct super_block *sb)
+cifs_get_root(struct smb3_fs_context *ctx, struct super_block *sb)
 {
 	struct dentry *dentry;
 	struct cifs_sb_info *cifs_sb = CIFS_SB(sb);
@@ -692,7 +748,7 @@ cifs_get_root(struct smb_vol *vol, struct super_block *sb)
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_USE_PREFIX_PATH)
 		return dget(sb->s_root);
 
-	full_path = cifs_build_path_to_root(vol, cifs_sb,
+	full_path = cifs_build_path_to_root(ctx, cifs_sb,
 				cifs_sb_master_tcon(cifs_sb), 0);
 	if (full_path == NULL)
 		return ERR_PTR(-ENOMEM);
@@ -738,14 +794,13 @@ static int cifs_set_super(struct super_block *sb, void *data)
 	return set_anon_super(sb, NULL);
 }
 
-static struct dentry *
+struct dentry *
 cifs_smb3_do_mount(struct file_system_type *fs_type,
-	      int flags, const char *dev_name, void *data, bool is_smb3)
+	      int flags, struct smb3_fs_context *old_ctx)
 {
 	int rc;
 	struct super_block *sb;
-	struct cifs_sb_info *cifs_sb;
-	struct smb_vol *volume_info;
+	struct cifs_sb_info *cifs_sb = NULL;
 	struct cifs_mnt_data mnt_data;
 	struct dentry *root;
 
@@ -754,42 +809,49 @@ cifs_smb3_do_mount(struct file_system_type *fs_type,
 	 *	If CIFS_DEBUG && cifs_FYI
 	 */
 	if (cifsFYI)
-		cifs_dbg(FYI, "Devname: %s flags: %d\n", dev_name, flags);
+		cifs_dbg(FYI, "Devname: %s flags: %d\n", old_ctx->UNC, flags);
 	else
-		cifs_info("Attempting to mount %s\n", dev_name);
-
-	volume_info = cifs_get_volume_info((char *)data, dev_name, is_smb3);
-	if (IS_ERR(volume_info))
-		return ERR_CAST(volume_info);
+		cifs_info("Attempting to mount %s\n", old_ctx->UNC);
 
 	cifs_sb = kzalloc(sizeof(struct cifs_sb_info), GFP_KERNEL);
 	if (cifs_sb == NULL) {
 		root = ERR_PTR(-ENOMEM);
-		goto out_nls;
+		goto out;
 	}
 
-	cifs_sb->mountdata = kstrndup(data, PAGE_SIZE, GFP_KERNEL);
-	if (cifs_sb->mountdata == NULL) {
+	cifs_sb->ctx = kzalloc(sizeof(struct smb3_fs_context), GFP_KERNEL);
+	if (!cifs_sb->ctx) {
 		root = ERR_PTR(-ENOMEM);
-		goto out_free;
+		goto out;
 	}
-
-	rc = cifs_setup_cifs_sb(volume_info, cifs_sb);
+	rc = smb3_fs_context_dup(cifs_sb->ctx, old_ctx);
 	if (rc) {
 		root = ERR_PTR(rc);
-		goto out_free;
+		goto out;
 	}
 
-	rc = cifs_mount(cifs_sb, volume_info);
+	rc = cifs_setup_volume_info(cifs_sb->ctx, NULL, NULL);
+	if (rc) {
+		root = ERR_PTR(rc);
+		goto out;
+	}
+
+	rc = cifs_setup_cifs_sb(cifs_sb);
+	if (rc) {
+		root = ERR_PTR(rc);
+		goto out;
+	}
+
+	rc = cifs_mount(cifs_sb, cifs_sb->ctx);
 	if (rc) {
 		if (!(flags & SB_SILENT))
 			cifs_dbg(VFS, "cifs_mount failed w/return code = %d\n",
 				 rc);
 		root = ERR_PTR(rc);
-		goto out_free;
+		goto out;
 	}
 
-	mnt_data.vol = volume_info;
+	mnt_data.ctx = cifs_sb->ctx;
 	mnt_data.cifs_sb = cifs_sb;
 	mnt_data.flags = flags;
 
@@ -800,12 +862,14 @@ cifs_smb3_do_mount(struct file_system_type *fs_type,
 	if (IS_ERR(sb)) {
 		root = ERR_CAST(sb);
 		cifs_umount(cifs_sb);
+		cifs_sb = NULL;
 		goto out;
 	}
 
 	if (sb->s_root) {
 		cifs_dbg(FYI, "Use existing superblock\n");
 		cifs_umount(cifs_sb);
+		cifs_sb = NULL;
 	} else {
 		rc = cifs_read_super(sb);
 		if (rc) {
@@ -816,41 +880,27 @@ cifs_smb3_do_mount(struct file_system_type *fs_type,
 		sb->s_flags |= SB_ACTIVE;
 	}
 
-	root = cifs_get_root(volume_info, sb);
+	root = cifs_get_root(cifs_sb ? cifs_sb->ctx : old_ctx, sb);
 	if (IS_ERR(root))
 		goto out_super;
 
+	if (cifs_sb)
+		cifs_sb->root = dget(root);
+
 	cifs_dbg(FYI, "dentry root is: %p\n", root);
-	goto out;
+	return root;
 
 out_super:
 	deactivate_locked_super(sb);
 out:
-	cifs_cleanup_volume_info(volume_info);
+	if (cifs_sb) {
+		kfree(cifs_sb->prepath);
+		smb3_cleanup_fs_context(cifs_sb->ctx);
+		kfree(cifs_sb);
+	}
 	return root;
-
-out_free:
-	kfree(cifs_sb->prepath);
-	kfree(cifs_sb->mountdata);
-	kfree(cifs_sb);
-out_nls:
-	unload_nls(volume_info->local_nls);
-	goto out;
 }
 
-static struct dentry *
-smb3_do_mount(struct file_system_type *fs_type,
-	      int flags, const char *dev_name, void *data)
-{
-	return cifs_smb3_do_mount(fs_type, flags, dev_name, data, true);
-}
-
-static struct dentry *
-cifs_do_mount(struct file_system_type *fs_type,
-	      int flags, const char *dev_name, void *data)
-{
-	return cifs_smb3_do_mount(fs_type, flags, dev_name, data, false);
-}
 
 static ssize_t
 cifs_loose_read_iter(struct kiocb *iocb, struct iov_iter *iter)
@@ -987,7 +1037,8 @@ cifs_setlease(struct file *file, long arg, struct file_lock **lease, void **priv
 struct file_system_type cifs_fs_type = {
 	.owner = THIS_MODULE,
 	.name = "cifs",
-	.mount = cifs_do_mount,
+	.init_fs_context = smb3_init_fs_context,
+	.parameters = &smb3_fs_parameters_desc,
 	.kill_sb = cifs_kill_sb,
 	.fs_flags = FS_RENAME_DOES_D_MOVE,
 };
@@ -996,7 +1047,8 @@ MODULE_ALIAS_FS("cifs");
 static struct file_system_type smb3_fs_type = {
 	.owner = THIS_MODULE,
 	.name = "smb3",
-	.mount = smb3_do_mount,
+	.init_fs_context = smb3_init_fs_context,
+	.parameters = &smb3_fs_parameters_desc,
 	.kill_sb = cifs_kill_sb,
 	.fs_flags = FS_RENAME_DOES_D_MOVE,
 };
@@ -1179,6 +1231,10 @@ static ssize_t cifs_copy_file_range(struct file *src_file, loff_t off,
 {
 	unsigned int xid = get_xid();
 	ssize_t rc;
+	struct cifsFileInfo *cfile = dst_file->private_data;
+
+	if (cfile->swapfile)
+		return -EOPNOTSUPP;
 
 	rc = cifs_file_copychunk_range(xid, src_file, off, dst_file, destoff,
 					len, flags);
@@ -1471,15 +1527,12 @@ init_cifs(void)
 	int rc = 0;
 	cifs_proc_init();
 	INIT_LIST_HEAD(&cifs_tcp_ses_list);
-#ifdef CONFIG_CIFS_DNOTIFY_EXPERIMENTAL /* unused temporarily */
-	INIT_LIST_HEAD(&GlobalDnotifyReqList);
-	INIT_LIST_HEAD(&GlobalDnotifyRsp_Q);
-#endif /* was needed for dnotify, and will be needed for inotify when VFS fix */
 /*
  *  Initialize Global counters
  */
 	atomic_set(&sesInfoAllocCount, 0);
 	atomic_set(&tconInfoAllocCount, 0);
+	atomic_set(&tcpSesNextId, 0);
 	atomic_set(&tcpSesAllocCount, 0);
 	atomic_set(&tcpSesReconnectCount, 0);
 	atomic_set(&tconInfoReconnectCount, 0);
@@ -1520,13 +1573,6 @@ init_cifs(void)
 		goto out_clean_proc;
 	}
 
-	fileinfo_put_wq = alloc_workqueue("cifsfileinfoput",
-				     WQ_UNBOUND|WQ_FREEZABLE|WQ_MEM_RECLAIM, 0);
-	if (!fileinfo_put_wq) {
-		rc = -ENOMEM;
-		goto out_destroy_cifsiod_wq;
-	}
-
 	/*
 	 * Consider in future setting limit!=0 maybe to min(num_of_cores - 1, 3)
 	 * so that we don't launch too many worker threads but
@@ -1538,14 +1584,21 @@ init_cifs(void)
 				     WQ_UNBOUND|WQ_FREEZABLE|WQ_MEM_RECLAIM, 0);
 	if (!decrypt_wq) {
 		rc = -ENOMEM;
-		goto out_destroy_fileinfo_put_wq;
+		goto out_destroy_cifsiod_wq;
+	}
+
+	fileinfo_put_wq = alloc_workqueue("cifsfileinfoput",
+				     WQ_UNBOUND|WQ_FREEZABLE|WQ_MEM_RECLAIM, 0);
+	if (!fileinfo_put_wq) {
+		rc = -ENOMEM;
+		goto out_destroy_decrypt_wq;
 	}
 
 	cifsoplockd_wq = alloc_workqueue("cifsoplockd",
 					 WQ_FREEZABLE|WQ_MEM_RECLAIM, 0);
 	if (!cifsoplockd_wq) {
 		rc = -ENOMEM;
-		goto out_destroy_decrypt_wq;
+		goto out_destroy_fileinfo_put_wq;
 	}
 
 	rc = cifs_fscache_register();
@@ -1574,10 +1627,15 @@ init_cifs(void)
 	if (rc)
 		goto out_destroy_dfs_cache;
 #endif /* CONFIG_CIFS_UPCALL */
+#ifdef CONFIG_CIFS_SWN_UPCALL
+	rc = cifs_genl_init();
+	if (rc)
+		goto out_register_key_type;
+#endif /* CONFIG_CIFS_SWN_UPCALL */
 
 	rc = init_cifs_idmap();
 	if (rc)
-		goto out_register_key_type;
+		goto out_cifs_swn_init;
 
 	rc = register_filesystem(&cifs_fs_type);
 	if (rc)
@@ -1593,7 +1651,11 @@ init_cifs(void)
 
 out_init_cifs_idmap:
 	exit_cifs_idmap();
+out_cifs_swn_init:
+#ifdef CONFIG_CIFS_SWN_UPCALL
+	cifs_genl_exit();
 out_register_key_type:
+#endif
 #ifdef CONFIG_CIFS_UPCALL
 	exit_cifs_spnego();
 out_destroy_dfs_cache:
@@ -1611,10 +1673,10 @@ out_unreg_fscache:
 	cifs_fscache_unregister();
 out_destroy_cifsoplockd_wq:
 	destroy_workqueue(cifsoplockd_wq);
-out_destroy_decrypt_wq:
-	destroy_workqueue(decrypt_wq);
 out_destroy_fileinfo_put_wq:
 	destroy_workqueue(fileinfo_put_wq);
+out_destroy_decrypt_wq:
+	destroy_workqueue(decrypt_wq);
 out_destroy_cifsiod_wq:
 	destroy_workqueue(cifsiod_wq);
 out_clean_proc:
@@ -1630,6 +1692,9 @@ exit_cifs(void)
 	unregister_filesystem(&smb3_fs_type);
 	cifs_dfs_release_automount_timer();
 	exit_cifs_idmap();
+#ifdef CONFIG_CIFS_SWN_UPCALL
+	cifs_genl_exit();
+#endif
 #ifdef CONFIG_CIFS_UPCALL
 	exit_cifs_spnego();
 #endif
@@ -1653,10 +1718,8 @@ MODULE_DESCRIPTION
 	("VFS to access SMB3 servers e.g. Samba, Macs, Azure and Windows (and "
 	"also older servers complying with the SNIA CIFS Specification)");
 MODULE_VERSION(CIFS_VERSION);
-MODULE_SOFTDEP("des");
 MODULE_SOFTDEP("ecb");
 MODULE_SOFTDEP("hmac");
-MODULE_SOFTDEP("md4");
 MODULE_SOFTDEP("md5");
 MODULE_SOFTDEP("nls");
 MODULE_SOFTDEP("aes");
