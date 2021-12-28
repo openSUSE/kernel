@@ -264,6 +264,21 @@ static int bpf_map_copy_value(struct bpf_map *map, void *key, void *value,
 	return err;
 }
 
+static void bpf_map_write_active_inc(struct bpf_map *map)
+{
+	atomic64_inc(&map->writecnt);
+}
+
+static void bpf_map_write_active_dec(struct bpf_map *map)
+{
+	atomic64_dec(&map->writecnt);
+}
+
+bool bpf_map_write_active(const struct bpf_map *map)
+{
+	return atomic64_read(&map->writecnt) != 0;
+}
+
 static void *__bpf_map_area_alloc(u64 size, int numa_node, bool mmapable)
 {
 	/* We really just want to fail instead of triggering OOM killer
@@ -583,11 +598,8 @@ static void bpf_map_mmap_open(struct vm_area_struct *vma)
 {
 	struct bpf_map *map = vma->vm_file->private_data;
 
-	if (vma->vm_flags & VM_MAYWRITE) {
-		mutex_lock(&map->freeze_mutex);
-		map->writecnt++;
-		mutex_unlock(&map->freeze_mutex);
-	}
+	if (vma->vm_flags & VM_MAYWRITE)
+		bpf_map_write_active_inc(map);
 }
 
 /* called for all unmapped memory region (including initial) */
@@ -595,11 +607,8 @@ static void bpf_map_mmap_close(struct vm_area_struct *vma)
 {
 	struct bpf_map *map = vma->vm_file->private_data;
 
-	if (vma->vm_flags & VM_MAYWRITE) {
-		mutex_lock(&map->freeze_mutex);
-		map->writecnt--;
-		mutex_unlock(&map->freeze_mutex);
-	}
+	if (vma->vm_flags & VM_MAYWRITE)
+		bpf_map_write_active_dec(map);
 }
 
 static const struct vm_operations_struct bpf_map_default_vmops = {
@@ -649,7 +658,7 @@ static int bpf_map_mmap(struct file *filp, struct vm_area_struct *vma)
 		goto out;
 
 	if (vma->vm_flags & VM_MAYWRITE)
-		map->writecnt++;
+		bpf_map_write_active_inc(map);
 out:
 	mutex_unlock(&map->freeze_mutex);
 	return err;
@@ -1080,6 +1089,7 @@ static int map_update_elem(union bpf_attr *attr)
 	map = __bpf_map_get(f);
 	if (IS_ERR(map))
 		return PTR_ERR(map);
+	bpf_map_write_active_inc(map);
 	if (!(map_get_sys_perms(map, f) & FMODE_CAN_WRITE)) {
 		err = -EPERM;
 		goto err_put;
@@ -1121,6 +1131,7 @@ free_value:
 free_key:
 	kfree(key);
 err_put:
+	bpf_map_write_active_dec(map);
 	fdput(f);
 	return err;
 }
@@ -1143,6 +1154,7 @@ static int map_delete_elem(union bpf_attr *attr)
 	map = __bpf_map_get(f);
 	if (IS_ERR(map))
 		return PTR_ERR(map);
+	bpf_map_write_active_inc(map);
 	if (!(map_get_sys_perms(map, f) & FMODE_CAN_WRITE)) {
 		err = -EPERM;
 		goto err_put;
@@ -1173,6 +1185,7 @@ static int map_delete_elem(union bpf_attr *attr)
 out:
 	kfree(key);
 err_put:
+	bpf_map_write_active_dec(map);
 	fdput(f);
 	return err;
 }
@@ -1476,6 +1489,7 @@ static int map_lookup_and_delete_elem(union bpf_attr *attr)
 	map = __bpf_map_get(f);
 	if (IS_ERR(map))
 		return PTR_ERR(map);
+	bpf_map_write_active_inc(map);
 	if (!(map_get_sys_perms(map, f) & FMODE_CAN_READ) ||
 	    !(map_get_sys_perms(map, f) & FMODE_CAN_WRITE)) {
 		err = -EPERM;
@@ -1517,6 +1531,7 @@ free_value:
 free_key:
 	kfree(key);
 err_put:
+	bpf_map_write_active_dec(map);
 	fdput(f);
 	return err;
 }
@@ -1543,8 +1558,7 @@ static int map_freeze(const union bpf_attr *attr)
 	}
 
 	mutex_lock(&map->freeze_mutex);
-
-	if (map->writecnt) {
+	if (bpf_map_write_active(map)) {
 		err = -EBUSY;
 		goto err_put;
 	}
