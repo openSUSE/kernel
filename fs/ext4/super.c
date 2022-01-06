@@ -4038,7 +4038,7 @@ static const char *ext4_quota_mode(struct super_block *sb)
 #endif
 }
 
-static void ext4_setup_csum_trigger(struct super_block *sb,
+static void __always_unused ext4_setup_csum_trigger(struct super_block *sb,
 				    enum ext4_journal_trigger_type type,
 				    void (*trigger)(
 					struct jbd2_buffer_trigger_type *type,
