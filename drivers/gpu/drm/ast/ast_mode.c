@@ -986,21 +986,45 @@ err_drm_gem_vram_put:
 static void ast_crtc_dpms(struct drm_crtc *crtc, int mode)
 {
 	struct ast_private *ast = to_ast_private(crtc->dev);
+	u8 ch = AST_DPMS_VSYNC_OFF | AST_DPMS_HSYNC_OFF;
 
 	/* TODO: Maybe control display signal generation with
 	 *       Sync Enable (bit CR17.7).
 	 */
 	switch (mode) {
 	case DRM_MODE_DPMS_ON:
-	case DRM_MODE_DPMS_STANDBY:
-	case DRM_MODE_DPMS_SUSPEND:
+		ast_set_index_reg_mask(ast, AST_IO_SEQ_PORT,  0x01, 0xdf, 0);
+		ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xb6, 0xfc, 0);
 		if (ast->tx_chip_type == AST_TX_DP501)
 			ast_set_dp501_video_output(crtc->dev, 1);
+
+		if (ast->tx_chip_type == AST_TX_ASTDP) {
+#ifdef DPControlPower
+			ast_dp_PowerOnOff(crtc->dev, AST_DP_POWER_ON);
+#endif
+			ast_wait_for_vretrace(ast);
+			ast_dp_SetOnOff(crtc->dev, 1);
+		}
+
+		ast_crtc_load_lut(ast, crtc);
 		break;
+	case DRM_MODE_DPMS_STANDBY:
+	case DRM_MODE_DPMS_SUSPEND:
 	case DRM_MODE_DPMS_OFF:
+		ch = mode;
 		if (ast->tx_chip_type == AST_TX_DP501)
 			ast_set_dp501_video_output(crtc->dev, 0);
 		break;
+
+		if (ast->tx_chip_type == AST_TX_ASTDP) {
+			ast_dp_SetOnOff(crtc->dev, 0);
+#ifdef DPControlPower
+			ast_dp_PowerOnOff(crtc->dev, AST_DP_POWER_OFF);
+#endif
+		}
+
+		ast_set_index_reg_mask(ast, AST_IO_SEQ_PORT,  0x01, 0xdf, 0x20);
+		ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xb6, 0xfc, ch);
 	}
 }
 
@@ -1043,6 +1067,7 @@ ast_crtc_helper_atomic_flush(struct drm_crtc *crtc,
 	struct ast_private *ast = to_ast_private(crtc->dev);
 	struct ast_crtc_state *ast_crtc_state = to_ast_crtc_state(crtc_state);
 	struct ast_crtc_state *old_ast_crtc_state = to_ast_crtc_state(old_crtc_state);
+	struct ast_vbios_mode_info *vbios_mode_info = &ast_crtc_state->vbios_mode_info;
 
 	/*
 	 * The gamma LUT has to be reloaded after changing the primary
@@ -1050,6 +1075,10 @@ ast_crtc_helper_atomic_flush(struct drm_crtc *crtc,
 	 */
 	if (old_ast_crtc_state->format != ast_crtc_state->format)
 		ast_crtc_load_lut(ast, crtc);
+
+	//Set Aspeed Display-Port
+	if (ast->tx_chip_type == AST_TX_ASTDP)
+		ast_dp_SetOutput(crtc, vbios_mode_info);
 }
 
 static void
@@ -1226,6 +1255,14 @@ static int ast_get_modes(struct drm_connector *connector)
 			ast->dp501_maxclk = ast_get_dp501_max_clk(connector->dev);
 		else
 			kfree(edid);
+	} else if (ast->tx_chip_type == AST_TX_ASTDP) {
+		edid = kmalloc(128, GFP_KERNEL);
+		if (!edid)
+			return -ENOMEM;
+
+		flags = ast_dp_read_edid(connector->dev, (u8 *)edid);
+		if (!flags)
+			kfree(edid);
 	}
 	if (!flags)
 		edid = drm_get_edid(connector, &ast_connector->i2c->adapter);
@@ -1260,7 +1297,7 @@ static enum drm_mode_status ast_mode_valid(struct drm_connector *connector,
 
 		if ((ast->chip == AST2100) || (ast->chip == AST2200) ||
 		    (ast->chip == AST2300) || (ast->chip == AST2400) ||
-		    (ast->chip == AST2500)) {
+		    (ast->chip == AST2500) || (ast->chip == AST2600)) {
 			if ((mode->hdisplay == 1920) && (mode->vdisplay == 1080))
 				return MODE_OK;
 
@@ -1381,7 +1418,8 @@ int ast_mode_config_init(struct ast_private *ast)
 	    ast->chip == AST2200 ||
 	    ast->chip == AST2300 ||
 	    ast->chip == AST2400 ||
-	    ast->chip == AST2500) {
+	    ast->chip == AST2500 ||
+	    ast->chip == AST2600) {
 		dev->mode_config.max_width = 1920;
 		dev->mode_config.max_height = 2048;
 	} else {

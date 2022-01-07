@@ -71,6 +71,7 @@ enum ast_tx_chip {
 	AST_TX_SIL164,
 	AST_TX_ITE66121,
 	AST_TX_DP501,
+	AST_TX_ASTDP,
 };
 
 #define AST_DRAM_512Mx16 0
@@ -177,6 +178,9 @@ struct ast_private {
 	u8 dp501_maxclk;
 	u8 *dp501_fw_addr;
 	const struct firmware *dp501_fw;	/* dp501 fw */
+
+    // ASTDP
+	u8 ASTDP_State;
 };
 
 static inline struct ast_private *to_ast_private(struct drm_device *dev)
@@ -338,9 +342,122 @@ int ast_mode_config_init(struct ast_private *ast);
 #define AST_DP501_EDID_DATA	0xf020
 
 /* Define for Soc scratched reg */
+#define COPROCESSOR_LAUNCH			BIT(5)
+
+#define TX_TYPE_MASK				GENMASK(3, 1)
+#define NO_TX						(0 << 1)
+#define ITE66121_VBIOS_TX			(1 << 1)
+#define SI164_VBIOS_TX				(2 << 1)
+#define CH7003_VBIOS_TX			(3 << 1)
+#define DP501_VBIOS_TX				(4 << 1)
+#define ANX9807_VBIOS_TX			(5 << 1)
+#define TX_FW_EMBEDDED_FW_TX		(6 << 1)
+#define ASTDP_DPMCU_TX				(7 << 1)
+
 #define AST_VRAM_INIT_STATUS_MASK	GENMASK(7, 6)
 //#define AST_VRAM_INIT_BY_BMC		BIT(7)
 //#define AST_VRAM_INIT_READY		BIT(6)
+
+/* Define for Soc scratched reg used on ASTDP */
+#define AST_DP_PHY_SLEEP			BIT(4)
+#define AST_DP_VIDEO_ENABLE		BIT(0)
+
+#define AST_DP_POWER_ON			true
+#define AST_DP_POWER_OFF			false
+
+/*
+ * CRD1[b5]: DP MCU FW is executing
+ * CRDC[b0]: DP link success
+ * CRDF[b0]: DP HPD
+ * CRE5[b0]: Host reading EDID process is done
+ */
+#define ASTDP_MCU_FW_EXECUTING			BIT(5)
+#define ASTDP_LINK_SUCCESS				BIT(0)
+#define ASTDP_HPD						BIT(0)
+#define ASTDP_HOST_EDID_READ_DONE		BIT(0)
+#define ASTDP_HOST_EDID_READ_DONE_MASK	GENMASK(0, 0)
+
+/*
+ * CRB8[b1]: Enable VSYNC off
+ * CRB8[b0]: Enable HSYNC off
+ */
+#define AST_DPMS_VSYNC_OFF				BIT(1)
+#define AST_DPMS_HSYNC_OFF				BIT(0)
+
+/*
+ * CRDF[b4]: Mirror of AST_DP_VIDEO_ENABLE
+ * Precondition:	A. ~AST_DP_PHY_SLEEP  &&
+ *			B. DP_HPD &&
+ *			C. DP_LINK_SUCCESS
+ */
+#define ASTDP_MIRROR_VIDEO_ENABLE		BIT(4)
+
+#define ASTDP_EDID_READ_POINTER_MASK	GENMASK(7, 0)
+#define ASTDP_EDID_VALID_FLAG_MASK		GENMASK(0, 0)
+#define ASTDP_EDID_READ_DATA_MASK		GENMASK(7, 0)
+
+/*
+ * Display Transmittor Type:
+ */
+#define TX_TYPE_MASK				GENMASK(3, 1)
+#define NO_TX						(0 << 1)
+#define ITE66121_VBIOS_TX			(1 << 1)
+#define SI164_VBIOS_TX				(2 << 1)
+#define CH7003_VBIOS_TX			(3 << 1)
+#define DP501_VBIOS_TX				(4 << 1)
+#define ANX9807_VBIOS_TX			(5 << 1)
+#define TX_FW_EMBEDDED_FW_TX		(6 << 1)
+#define ASTDP_DPMCU_TX				(7 << 1)
+
+/*
+ * ASTDP setmode registers:
+ * CRE0[7:0]: MISC0 ((0x00: 18-bpp) or (0x20: 24-bpp)
+ * CRE1[7:0]: MISC1 (default: 0x00)
+ * CRE2[7:0]: video format index (0x00 ~ 0x20 or 0x40 ~ 0x50)
+ */
+#define ASTDP_MISC0_24bpp			BIT(5)
+#define ASTDP_MISC1				0
+#define ASTDP_CLEAR_MASK			GENMASK(7, 0)
+
+/*
+ * ASTDP resoultion table:
+ * EX:	ASTDP_A_B_C:
+ *		A: Resolution
+ *		B: Refresh Rate
+ *		C: Misc information, such as CVT, Reduce Blanked
+ */
+#define ASTDP_640x480_60		0x00
+#define ASTDP_640x480_72		0x01
+#define ASTDP_640x480_75		0x02
+#define ASTDP_640x480_85		0x03
+#define ASTDP_800x600_56		0x04
+#define ASTDP_800x600_60		0x05
+#define ASTDP_800x600_72		0x06
+#define ASTDP_800x600_75		0x07
+#define ASTDP_800x600_85		0x08
+#define ASTDP_1024x768_60		0x09
+#define ASTDP_1024x768_70		0x0A
+#define ASTDP_1024x768_75		0x0B
+#define ASTDP_1024x768_85		0x0C
+#define ASTDP_1280x1024_60		0x0D
+#define ASTDP_1280x1024_75		0x0E
+#define ASTDP_1280x1024_85		0x0F
+#define ASTDP_1600x1200_60		0x10
+#define ASTDP_320x240_60		0x11
+#define ASTDP_400x300_60		0x12
+#define ASTDP_512x384_60		0x13
+#define ASTDP_1920x1200_60		0x14
+#define ASTDP_1920x1080_60		0x15
+#define ASTDP_1280x800_60		0x16
+#define ASTDP_1280x800_60_RB	0x17
+#define ASTDP_1440x900_60		0x18
+#define ASTDP_1440x900_60_RB	0x19
+#define ASTDP_1680x1050_60		0x1A
+#define ASTDP_1680x1050_60_RB	0x1B
+#define ASTDP_1600x900_60		0x1C
+#define ASTDP_1600x900_60_RB	0x1D
+#define ASTDP_1366x768_60		0x1E
+#define ASTDP_1152x864_75		0x1F
 
 int ast_mm_init(struct ast_private *ast);
 
@@ -358,5 +475,15 @@ bool ast_backup_fw(struct drm_device *dev, u8 *addr, u32 size);
 bool ast_dp501_read_edid(struct drm_device *dev, u8 *ediddata);
 u8 ast_get_dp501_max_clk(struct drm_device *dev);
 void ast_init_3rdtx(struct drm_device *dev);
+
+/* aspeed DP */
+#define DPControlPower
+bool ast_dp_read_edid(struct drm_device *dev, u8 *ediddata);
+bool ast_dp_launch(struct drm_device *dev, u8 bPower);
+#ifdef DPControlPower
+void ast_dp_PowerOnOff(struct drm_device *dev, u8 Mode);
+#endif
+void ast_dp_SetOnOff(struct drm_device *dev, u8 Mode);
+void ast_dp_SetOutput(struct drm_crtc *crtc, struct ast_vbios_mode_info *vbios_mode);
 
 #endif
