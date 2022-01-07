@@ -1373,8 +1373,8 @@ static int mlxbf_pmc_map_counters(struct device *dev)
 		pmc->block[i].counters = info[2];
 		pmc->block[i].type = info[3];
 
-		if (IS_ERR(pmc->block[i].mmio_base))
-			return PTR_ERR(pmc->block[i].mmio_base);
+		if (!pmc->block[i].mmio_base)
+			return -ENOMEM;
 
 		ret = mlxbf_pmc_create_groups(dev, i);
 		if (ret)
