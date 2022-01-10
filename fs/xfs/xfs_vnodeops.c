@@ -2968,7 +2968,8 @@ xfs_change_file_space(
 	case XFS_IOC_FREESP64:
 		if (startoffset > fsize) {
 			error = xfs_alloc_file_space(ip, fsize,
-					startoffset - fsize, 0, attr_flags);
+					startoffset - fsize, prealloc_type,
+					attr_flags);
 			if (error)
 				break;
 		}
