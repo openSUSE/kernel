@@ -5317,23 +5317,31 @@ int sctp_for_each_endpoint(int (*cb)(struct sctp_endpoint *, void *),
 }
 EXPORT_SYMBOL_GPL(sctp_for_each_endpoint);
 
-int sctp_transport_lookup_process(int (*cb)(struct sctp_transport *, void *),
-				  struct net *net,
+int sctp_transport_lookup_process(sctp_callback_t cb, struct net *net,
 				  const union sctp_addr *laddr,
 				  const union sctp_addr *paddr, void *p)
 {
 	struct sctp_transport *transport;
-	int err;
+	struct sctp_endpoint *ep;
+	int err = -ENOENT;
 
 	rcu_read_lock();
 	transport = sctp_addrs_lookup_transport(net, laddr, paddr);
+	if (!transport) {
+		rcu_read_unlock();
+		return err;
+	}
+	ep = transport->asoc->ep;
+	if (!sctp_endpoint_hold(ep)) { /* asoc can be peeled off */
+		sctp_transport_put(transport);
+		rcu_read_unlock();
+		return err;
+	}
 	rcu_read_unlock();
-	if (!transport)
-		return -ENOENT;
 
-	err = cb(transport, p);
+	err = cb(ep, transport, p);
+	sctp_endpoint_put(ep);
 	sctp_transport_put(transport);
-
 	return err;
 }
 EXPORT_SYMBOL_GPL(sctp_transport_lookup_process);
@@ -9419,7 +9427,6 @@ void sctp_copy_sock(struct sock *newsk, struct sock *sk,
 	struct inet_sock *inet = inet_sk(sk);
 	struct inet_sock *newinet;
 	struct sctp_sock *sp = sctp_sk(sk);
-	struct sctp_endpoint *ep = sp->ep;
 
 	newsk->sk_type = sk->sk_type;
 	newsk->sk_bound_dev_if = sk->sk_bound_dev_if;
@@ -9464,9 +9471,9 @@ void sctp_copy_sock(struct sock *newsk, struct sock *sk,
 		net_enable_timestamp();
 
 	/* Set newsk security attributes from original sk and connection
-	 * security attribute from ep.
+	 * security attribute from asoc.
 	 */
-	security_sctp_sk_clone(ep, sk, newsk);
+	security_sctp_sk_clone(asoc, sk, newsk);
 }
 
 static inline void sctp_copy_descendant(struct sock *sk_to,

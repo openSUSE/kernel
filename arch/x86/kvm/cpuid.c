@@ -53,8 +53,15 @@ static u32 xstate_required_size(u64 xstate_bv, bool compacted)
 	return ret;
 }
 
+/*
+ * This one is tied to SSB in the user API, and not
+ * visible in /proc/cpuinfo.
+ */
+#define KVM_X86_FEATURE_PSFD		(13*32+28) /* Predictive Store Forwarding Disable */
+
 #define F feature_bit
 #define SF(name) (boot_cpu_has(X86_FEATURE_##name) ? F(name) : 0)
+
 
 static inline struct kvm_cpuid_entry2 *cpuid_entry2_find(
 	struct kvm_cpuid_entry2 *entries, int nent, u32 function, u32 index)
@@ -92,11 +99,45 @@ static int kvm_check_cpuid(struct kvm_cpuid_entry2 *entries, int nent)
 	return 0;
 }
 
+static void kvm_update_kvm_cpuid_base(struct kvm_vcpu *vcpu)
+{
+	u32 function;
+	struct kvm_cpuid_entry2 *entry;
+
+	vcpu->arch.kvm_cpuid_base = 0;
+
+	for_each_possible_hypervisor_cpuid_base(function) {
+		entry = kvm_find_cpuid_entry(vcpu, function, 0);
+
+		if (entry) {
+			u32 signature[3];
+
+			signature[0] = entry->ebx;
+			signature[1] = entry->ecx;
+			signature[2] = entry->edx;
+
+			BUILD_BUG_ON(sizeof(signature) > sizeof(KVM_SIGNATURE));
+			if (!memcmp(signature, KVM_SIGNATURE, sizeof(signature))) {
+				vcpu->arch.kvm_cpuid_base = function;
+				break;
+			}
+		}
+	}
+}
+
+static struct kvm_cpuid_entry2 *kvm_find_kvm_cpuid_features(struct kvm_vcpu *vcpu)
+{
+	u32 base = vcpu->arch.kvm_cpuid_base;
+
+	if (!base)
+		return NULL;
+
+	return kvm_find_cpuid_entry(vcpu, base | KVM_CPUID_FEATURES, 0);
+}
+
 void kvm_update_pv_runtime(struct kvm_vcpu *vcpu)
 {
-	struct kvm_cpuid_entry2 *best;
-
-	best = kvm_find_cpuid_entry(vcpu, KVM_CPUID_FEATURES, 0);
+	struct kvm_cpuid_entry2 *best = kvm_find_kvm_cpuid_features(vcpu);
 
 	/*
 	 * save the feature bitmap to avoid cpuid lookup for every PV
@@ -135,7 +176,7 @@ void kvm_update_cpuid_runtime(struct kvm_vcpu *vcpu)
 		     cpuid_entry_has(best, X86_FEATURE_XSAVEC)))
 		best->ebx = xstate_required_size(vcpu->arch.xcr0, true);
 
-	best = kvm_find_cpuid_entry(vcpu, KVM_CPUID_FEATURES, 0);
+	best = kvm_find_kvm_cpuid_features(vcpu);
 	if (kvm_hlt_in_guest(vcpu->kvm) && best &&
 		(best->eax & (1 << KVM_FEATURE_PV_UNHALT)))
 		best->eax &= ~(1 << KVM_FEATURE_PV_UNHALT);
@@ -245,6 +286,7 @@ static int kvm_set_cpuid(struct kvm_vcpu *vcpu, struct kvm_cpuid_entry2 *e2,
     vcpu->arch.cpuid_entries = e2;
     vcpu->arch.cpuid_nent = nent;
 
+    kvm_update_kvm_cpuid_base(vcpu);
     kvm_update_cpuid_runtime(vcpu);
     kvm_vcpu_after_set_cpuid(vcpu);
 
@@ -501,7 +543,8 @@ void kvm_set_cpu_caps(void)
 	kvm_cpu_cap_mask(CPUID_8000_0008_EBX,
 		F(CLZERO) | F(XSAVEERPTR) |
 		F(WBNOINVD) | F(AMD_IBPB) | F(AMD_IBRS) | F(AMD_SSBD) | F(VIRT_SSBD) |
-		F(AMD_SSB_NO) | F(AMD_STIBP) | F(AMD_STIBP_ALWAYS_ON)
+		F(AMD_SSB_NO) | F(AMD_STIBP) | F(AMD_STIBP_ALWAYS_ON) |
+		__feature_bit(KVM_X86_FEATURE_PSFD)
 	);
 
 	/*
@@ -864,8 +907,7 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 		}
 		break;
 	case KVM_CPUID_SIGNATURE: {
-		static const char signature[12] = "KVMKVMKVM\0\0";
-		const u32 *sigptr = (const u32 *)signature;
+		const u32 *sigptr = (const u32 *)KVM_SIGNATURE;
 		entry->eax = KVM_CPUID_FEATURES;
 		entry->ebx = sigptr[0];
 		entry->ecx = sigptr[1];

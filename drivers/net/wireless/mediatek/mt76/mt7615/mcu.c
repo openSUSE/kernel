@@ -1698,6 +1698,19 @@ int mt7615_mcu_fw_log_2_host(struct mt7615_dev *dev, u8 ctrl)
 				 sizeof(data), true);
 }
 
+static int mt7615_mcu_cal_cache_apply(struct mt7615_dev *dev)
+{
+	struct {
+		bool cache_enable;
+		u8 pad[3];
+	} data = {
+		.cache_enable = true
+	};
+
+	return mt76_mcu_send_msg(&dev->mt76, MCU_EXT_CMD_CAL_CACHE, &data,
+				 sizeof(data), false);
+}
+
 static int mt7663_load_n9(struct mt7615_dev *dev, const char *name)
 {
 	u32 offset = 0, override_addr = 0, flag = FW_START_DLYCAL;
@@ -1906,9 +1919,14 @@ int mt7615_mcu_init(struct mt7615_dev *dev)
 	mt76_queue_tx_cleanup(dev, dev->mt76.q_mcu[MT_MCUQ_FWDL], false);
 	dev_dbg(dev->mt76.dev, "Firmware init done\n");
 	set_bit(MT76_STATE_MCU_RUNNING, &dev->mphy.state);
-	mt7615_mcu_fw_log_2_host(dev, 0);
 
-	return 0;
+	if (dev->dbdc_support) {
+		ret = mt7615_mcu_cal_cache_apply(dev);
+		if (ret)
+			return ret;
+	}
+
+	return mt7615_mcu_fw_log_2_host(dev, 0);
 }
 EXPORT_SYMBOL_GPL(mt7615_mcu_init);
 
@@ -2769,53 +2787,3 @@ int mt7615_mcu_set_roc(struct mt7615_phy *phy, struct ieee80211_vif *vif,
 	return mt76_mcu_send_msg(&dev->mt76, MCU_CMD_SET_ROC, &req,
 				 sizeof(req), false);
 }
-
-int mt7615_mcu_set_p2p_oppps(struct ieee80211_hw *hw,
-			     struct ieee80211_vif *vif)
-{
-	struct mt7615_vif *mvif = (struct mt7615_vif *)vif->drv_priv;
-	int ct_window = vif->bss_conf.p2p_noa_attr.oppps_ctwindow;
-	struct mt7615_dev *dev = mt7615_hw_dev(hw);
-	struct {
-		__le32 ct_win;
-		u8 bss_idx;
-		u8 rsv[3];
-	} __packed req = {
-		.ct_win = cpu_to_le32(ct_window),
-		.bss_idx = mvif->mt76.idx,
-	};
-
-	if (!mt7615_firmware_offload(dev))
-		return -ENOTSUPP;
-
-	return mt76_mcu_send_msg(&dev->mt76, MCU_CMD_SET_P2P_OPPPS, &req,
-				 sizeof(req), false);
-}
-
-u32 mt7615_mcu_reg_rr(struct mt76_dev *dev, u32 offset)
-{
-	struct {
-		__le32 addr;
-		__le32 val;
-	} __packed req = {
-		.addr = cpu_to_le32(offset),
-	};
-
-	return mt76_mcu_send_msg(dev, MCU_CMD_REG_READ, &req, sizeof(req),
-				 true);
-}
-EXPORT_SYMBOL_GPL(mt7615_mcu_reg_rr);
-
-void mt7615_mcu_reg_wr(struct mt76_dev *dev, u32 offset, u32 val)
-{
-	struct {
-		__le32 addr;
-		__le32 val;
-	} __packed req = {
-		.addr = cpu_to_le32(offset),
-		.val = cpu_to_le32(val),
-	};
-
-	mt76_mcu_send_msg(dev, MCU_CMD_REG_WRITE, &req, sizeof(req), false);
-}
-EXPORT_SYMBOL_GPL(mt7615_mcu_reg_wr);

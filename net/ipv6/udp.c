@@ -40,6 +40,7 @@
 #include <net/transp_v6.h>
 #include <net/ip6_route.h>
 #include <net/raw.h>
+#include <net/seg6.h>
 #include <net/tcp_states.h>
 #include <net/ip6_checksum.h>
 #include <net/ip6_tunnel.h>
@@ -561,7 +562,7 @@ int __udp6_lib_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 	struct ipv6_pinfo *np;
 	const struct ipv6hdr *hdr = (const struct ipv6hdr *)skb->data;
 	const struct in6_addr *saddr = &hdr->saddr;
-	const struct in6_addr *daddr = &hdr->daddr;
+	const struct in6_addr *daddr = seg6_get_daddr(skb, opt) ? : &hdr->daddr;
 	struct udphdr *uh = (struct udphdr *)(skb->data+offset);
 	bool tunnel = false;
 	struct sock *sk;
@@ -700,9 +701,9 @@ static int udpv6_queue_rcv_one_skb(struct sock *sk, struct sk_buff *skb)
 
 			ret = encap_rcv(sk, skb);
 			if (ret <= 0) {
-				__UDP_INC_STATS(sock_net(sk),
-						UDP_MIB_INDATAGRAMS,
-						is_udplite);
+				__UDP6_INC_STATS(sock_net(sk),
+						 UDP_MIB_INDATAGRAMS,
+						 is_udplite);
 				return -ret;
 			}
 		}
