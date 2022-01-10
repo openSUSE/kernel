@@ -2242,55 +2242,6 @@ build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *att
 		}
 	}
 
-	/*
-	 * Calculate an allowed NUMA imbalance such that LLCs do not get
-	 * imbalanced.
-	 */
-	for_each_cpu(i, cpu_map) {
-		unsigned int imb = 0;
-		unsigned int imb_span = 1;
-
-		for (sd = *per_cpu_ptr(d.sd, i); sd; sd = sd->parent) {
-			struct sched_domain *child = sd->child;
-
-			if (!(sd->flags & SD_SHARE_PKG_RESOURCES) && child &&
-			    (child->flags & SD_SHARE_PKG_RESOURCES)) {
-				struct sched_domain *top, *top_p;
-				unsigned int llc_sq;
-
-				/*
-				 * nr_llcs = (sd->span_weight / llc_weight);
-				 * imb = (llc_weight / nr_llcs) >> 2
-				 *
-				 * is equivalent to
-				 *
-				 * imb = (llc_weight^2 / sd->span_weight) >> 2
-				 *
-				 */
-				llc_sq = child->span_weight * child->span_weight;
-
-				imb = max(2U, ((llc_sq / sd->span_weight) >> 2));
-				sd->imb_numa_nr = imb;
-
-				/*
-				 * Set span based on top domain that places
-				 * tasks in sibling domains.
-				 */
-				top = sd;
-				top_p = top->parent;
-				while (top_p && (top_p->flags & SD_PREFER_SIBLING)) {
-					top = top->parent;
-					top_p = top->parent;
-				}
-				imb_span = top_p ? top_p->span_weight : sd->span_weight;
-			} else {
-				int factor = max(1U, (sd->span_weight / imb_span));
-
-				sd->imb_numa_nr = imb * factor;
-			}
-		}
-	}
-
 	/* Calculate CPU capacity for physical packages and nodes */
 	for (i = nr_cpumask_bits-1; i >= 0; i--) {
 		if (!cpumask_test_cpu(i, cpu_map))
