@@ -129,6 +129,15 @@ static struct crypto_alg *crypto_larval_add(const char *name, u32 type,
 	struct crypto_alg *alg;
 	struct crypto_larval *larval;
 
+	if (fips_enabled && !((type | mask) & CRYPTO_ALG_TESTED)) {
+		/*
+		 * Make sure the __crypto_alg_lookup() below won't return
+		 * any untested algorithm.
+		 */
+		mask |= CRYPTO_ALG_TESTED;
+		type |= CRYPTO_ALG_TESTED;
+	}
+
 	larval = crypto_larval_alloc(name, type, mask);
 	if (IS_ERR(larval))
 		return ERR_CAST(larval);
@@ -272,6 +281,8 @@ again:
 	 * Retry the search in this case.
 	 */
 	if (fips_enabled && IS_ERR(alg) && PTR_ERR(alg) == -EAGAIN) {
+		if (fatal_signal_pending(current))
+			return ERR_PTR(-EINTR);
 		cond_resched();
 		goto again;
 	}
