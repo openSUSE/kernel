@@ -2255,6 +2255,8 @@ static int dm_resume(void *handle)
 		if (dc_enable_dmub_notifications(adev->dm.dc))
 			amdgpu_dm_outbox_init(adev);
 
+		amdgpu_dm_outbox_init(adev);
+
 		r = dm_dmub_hw_init(adev);
 		if (r)
 			DRM_ERROR("DMUB interface failed to initialize: status=%d\n", r);
