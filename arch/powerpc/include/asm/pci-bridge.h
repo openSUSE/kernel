@@ -126,6 +126,7 @@ struct pci_controller {
 #endif	/* CONFIG_PPC64 */
 
 	void *private_data;
+	void* suse_kabi_padding;
 };
 
 /* These are used for config access before all the PCI probing
