@@ -174,6 +174,7 @@ static char *tomoyo_get_local_path(struct dentry *dentry, char * const buffer,
 		goto prepend_filesystem_name;
 	}
 	/* Use filesystem name for unnamed devices. */
+	/* NOTE: This will fail with the btrfs get_inode_dev patches */
 	if (!MAJOR(sb->s_dev))
 		goto prepend_filesystem_name;
 	{
