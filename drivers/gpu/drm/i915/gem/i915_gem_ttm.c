@@ -855,6 +855,11 @@ static u64 i915_ttm_mmap_offset(struct drm_i915_gem_object *obj)
 	return drm_vma_node_offset_addr(&obj->base.vma_node);
 }
 
+static void i915_ttm_unmap_virtual(struct drm_i915_gem_object *obj)
+{
+	ttm_bo_unmap_virtual(i915_gem_to_ttm(obj));
+}
+
 static const struct drm_i915_gem_object_ops i915_gem_ttm_obj_ops = {
 	.name = "i915_gem_object_ttm",
 
@@ -865,6 +870,7 @@ static const struct drm_i915_gem_object_ops i915_gem_ttm_obj_ops = {
 	.delayed_free = i915_ttm_delayed_free,
 	.migrate = i915_ttm_migrate,
 	.mmap_offset = i915_ttm_mmap_offset,
+	.unmap_virtual = i915_ttm_unmap_virtual,
 	.mmap_ops = &vm_ops_ttm,
 };
 
