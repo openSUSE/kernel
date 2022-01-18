@@ -50,7 +50,7 @@ void intel_snps_phy_update_psr_power_state(struct drm_i915_private *dev_priv,
 			 SNPS_PHY_TX_REQ_LN_DIS_PWR_STATE_PSR, val);
 }
 
-static const u32 dg2_ddi_translations[] = {
+static const u32 dg2_trans[] = {
 	/* VS 0, pre-emph 0 */
 	REG_FIELD_PREP(SNPS_PHY_TX_EQ_MAIN, 26),
 
@@ -95,13 +95,13 @@ void intel_snps_phy_ddi_vswing_sequence(struct intel_encoder *encoder,
 	enum phy phy = intel_port_to_phy(dev_priv, encoder->port);
 	int n_entries, ln;
 
-	n_entries = ARRAY_SIZE(dg2_ddi_translations);
+	n_entries = ARRAY_SIZE(dg2_trans);
 	if (level >= n_entries)
 		level = n_entries - 1;
 
 	for (ln = 0; ln < 4; ln++)
 		intel_de_write(dev_priv, SNPS_PHY_TX_EQ(ln, phy),
-			       dg2_ddi_translations[level]);
+			       dg2_trans[level]);
 }
 
 /*
