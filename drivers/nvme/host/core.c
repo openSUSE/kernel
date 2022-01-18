@@ -3682,6 +3682,8 @@ static umode_t nvme_dev_attrs_are_visible(struct kobject *kobj,
 #ifdef CONFIG_NVME_AUTH
 	if (a == &dev_attr_dhchap_secret.attr && !ctrl->opts)
 		return 0;
+	if (a == &dev_attr_dhchap_ctrl_secret.attr && !ctrl->opts)
+		return 0;
 #endif
 
 	return a->mode;
