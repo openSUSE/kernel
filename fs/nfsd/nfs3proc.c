@@ -204,8 +204,7 @@ nfsd3_proc_write(struct svc_rqst *rqstp)
 	resp->committed = argp->stable;
 	nvecs = svc_fill_write_vector(rqstp, rqstp->rq_arg.pages,
 				      &argp->first, cnt);
-	if (!nvecs)
-		RETURN_STATUS(nfserr_io);
+
 	nfserr = nfsd_write(rqstp, &resp->fh, argp->offset,
 			    rqstp->rq_vec, nvecs, &cnt,
 			    resp->committed);
