@@ -1339,7 +1339,7 @@ static int imx274_s_stream(struct v4l2_subdev *sd, int on)
 			goto fail;
 
 		/*
-		 * update frame rate & expsoure. if the last mode is different,
+		 * update frame rate & exposure. if the last mode is different,
 		 * HMAX could be changed. As the result, frame rate & exposure
 		 * are changed.
 		 * gain is not affected.
@@ -1379,7 +1379,7 @@ fail:
 /*
  * imx274_get_frame_length - Function for obtaining current frame length
  * @priv: Pointer to device structure
- * @val: Pointer to obainted value
+ * @val: Pointer to obtained value
  *
  * frame_length = vmax x (svr + 1), in unit of hmax.
  *
