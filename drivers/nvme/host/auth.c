@@ -1476,6 +1476,8 @@ void nvme_auth_init_ctrl(struct nvme_ctrl *ctrl)
 	INIT_LIST_HEAD(&ctrl->dhchap_auth_list);
 	INIT_WORK(&ctrl->dhchap_auth_work, nvme_dhchap_auth_work);
 	mutex_init(&ctrl->dhchap_auth_mutex);
+	if (!ctrl->opts)
+		return;
 	nvme_auth_generate_key(ctrl->opts->dhchap_secret, &ctrl->host_key);
 	nvme_auth_generate_key(ctrl->opts->dhchap_ctrl_secret, &ctrl->ctrl_key);
 }
