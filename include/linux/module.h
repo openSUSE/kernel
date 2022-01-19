@@ -352,7 +352,7 @@ struct mod_kallsyms {
 	char *typetab;
 };
 
-#ifdef CONFIG_LIVEPATCH
+#if defined(CONFIG_LIVEPATCH) || defined(__aarch64__)
 struct klp_modinfo {
 	Elf_Ehdr hdr;
 	Elf_Shdr *sechdrs;
@@ -503,7 +503,7 @@ struct module {
 	struct static_call_site *static_call_sites;
 #endif
 
-#ifdef CONFIG_LIVEPATCH
+#if defined(CONFIG_LIVEPATCH) || defined(__aarch64__)
 	bool klp; /* Is this a livepatch module? */
 	bool klp_alive;
 
