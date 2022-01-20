@@ -418,7 +418,7 @@ struct iwl_geo_tx_power_profiles_cmd_v1 {
  * struct iwl_geo_tx_power_profile_cmd_v2 - struct for GEO_TX_POWER_LIMIT cmd.
  * @ops: operations, value from &enum iwl_geo_per_chain_offset_operation
  * @table: offset profile per band.
- * @table_revision: BIOS table revision.
+ * @table_revision: 0 for not-South Korea, 1 for South Korea (the name is misleading)
  */
 struct iwl_geo_tx_power_profiles_cmd_v2 {
 	__le32 ops;
@@ -430,7 +430,7 @@ struct iwl_geo_tx_power_profiles_cmd_v2 {
  * struct iwl_geo_tx_power_profile_cmd_v3 - struct for GEO_TX_POWER_LIMIT cmd.
  * @ops: operations, value from &enum iwl_geo_per_chain_offset_operation
  * @table: offset profile per band.
- * @table_revision: BIOS table revision.
+ * @table_revision: 0 for not-South Korea, 1 for South Korea (the name is misleading)
  */
 struct iwl_geo_tx_power_profiles_cmd_v3 {
 	__le32 ops;
