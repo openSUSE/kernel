@@ -548,8 +548,6 @@ static int legacy_parse_param(struct fs_context *fc, struct fs_parameter *param)
 			      param->key);
 	}
 
-	// Subtracting 'size' from PAGE_SIZE can lead to integer underflow,
-	// so check bounds using addition instead
 	if (size + len + 2 > PAGE_SIZE)
 		return invalf(fc, "VFS: Legacy: Cumulative options too large");
 	if (strchr(param->key, ',') ||
