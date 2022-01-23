@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * xen-hcd.c
  *
@@ -5,42 +6,6 @@
  *
  * Copyright (C) 2009, FUJITSU LABORATORIES LTD.
  * Author: Noboru Iwamatsu <n_iwamatsu@jp.fujitsu.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, see <http://www.gnu.org/licenses/>.
- *
- * Or, by your choice:
- *
- * When distributed separately from the Linux kernel or incorporated into
- * other software packages, subject to the following license:
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to
- * deal in the Software without restriction, including without limitation the
- * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
- * sell copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
  */
 
 #include <linux/module.h>
@@ -64,14 +29,14 @@ struct urb_priv {
 	int req_id;		/* RING_REQUEST id for submitting */
 	int unlink_req_id;	/* RING_REQUEST id for unlinking */
 	int status;
-	unsigned unlinked:1;	/* dequeued marker */
+	bool unlinked;		/* dequeued marker */
 };
 
 /* virtual roothub port status */
 struct rhport_status {
 	__u32 status;
-	unsigned resuming:1;		/* in resuming */
-	unsigned c_connection:1;	/* connection changed */
+	bool resuming;		/* in resuming */
+	bool c_connection;	/* connection changed */
 	unsigned long timeout;
 };
 
@@ -116,7 +81,9 @@ struct xenhcd_info {
 	unsigned int evtchn;
 	unsigned int irq;
 	struct usb_shadow shadow[XENUSB_URB_RING_SIZE];
-	unsigned shadow_free;
+	unsigned int shadow_free;
+
+	bool error;
 };
 
 #define GRANT_INVALID_REF 0
@@ -139,6 +106,13 @@ static inline struct xenhcd_info *xenhcd_hcd_to_info(struct usb_hcd *hcd)
 static inline struct usb_hcd *xenhcd_info_to_hcd(struct xenhcd_info *info)
 {
 	return container_of((void *)info, struct usb_hcd, hcd_priv);
+}
+
+static void xenhcd_set_error(struct xenhcd_info *info, const char *msg)
+{
+	info->error = true;
+
+	pr_alert("xen-hcd: protocol error: %s!\n", msg);
 }
 
 static inline void xenhcd_timer_action_done(struct xenhcd_info *info,
@@ -208,13 +182,13 @@ static void xenhcd_set_connect_state(struct xenhcd_info *info, int portnum)
 /*
  * set virtual device connection status
  */
-static void xenhcd_rhport_connect(struct xenhcd_info *info, __u8 portnum,
-				  __u8 speed)
+static int xenhcd_rhport_connect(struct xenhcd_info *info, __u8 portnum,
+				 __u8 speed)
 {
 	int port;
 
 	if (portnum < 1 || portnum > info->rh_numports)
-		return; /* invalid port number */
+		return -EINVAL; /* invalid port number */
 
 	port = portnum - 1;
 	if (info->devices[port].speed != speed) {
@@ -228,13 +202,15 @@ static void xenhcd_rhport_connect(struct xenhcd_info *info, __u8 portnum,
 			info->devices[port].status = USB_STATE_ATTACHED;
 			break;
 		default: /* error */
-			return;
+			return -EINVAL;
 		}
 		info->devices[port].speed = speed;
-		info->ports[port].c_connection = 1;
+		info->ports[port].c_connection = true;
 
 		xenhcd_set_connect_state(info, portnum);
 	}
+
+	return 0;
 }
 
 /*
@@ -258,7 +234,7 @@ static void xenhcd_rhport_resume(struct xenhcd_info *info, int portnum)
 
 	port = portnum - 1;
 	if (info->ports[port].status & USB_PORT_STAT_SUSPEND) {
-		info->ports[port].resuming = 1;
+		info->ports[port].resuming = true;
 		info->ports[port].timeout = jiffies + msecs_to_jiffies(20);
 	}
 }
@@ -308,7 +284,7 @@ static void xenhcd_rhport_disable(struct xenhcd_info *info, int portnum)
 	port = portnum - 1;
 	info->ports[port].status &= ~USB_PORT_STAT_ENABLE;
 	info->ports[port].status &= ~USB_PORT_STAT_SUSPEND;
-	info->ports[port].resuming = 0;
+	info->ports[port].resuming = false;
 	if (info->devices[port].status != USB_STATE_NOTATTACHED)
 		info->devices[port].status = USB_STATE_POWERED;
 }
@@ -478,10 +454,10 @@ static int xenhcd_hub_control(struct usb_hcd *hcd, __u16 typeReq, __u16 wValue,
 			xenhcd_rhport_disable(info, wIndex);
 			break;
 		case USB_PORT_FEAT_C_CONNECTION:
-			info->ports[wIndex-1].c_connection = 0;
-			/* Fall through */
+			info->ports[wIndex - 1].c_connection = false;
+			fallthrough;
 		default:
-			info->ports[wIndex-1].status &= ~(1 << wValue);
+			info->ports[wIndex - 1].status &= ~(1 << wValue);
 			break;
 		}
 		break;
@@ -582,19 +558,18 @@ static void xenhcd_free_urb_priv(struct urb_priv *urbp)
 	kmem_cache_free(xenhcd_urbp_cachep, urbp);
 }
 
-static inline unsigned xenhcd_get_id_from_freelist(struct xenhcd_info *info)
+static inline unsigned int xenhcd_get_id_from_freelist(struct xenhcd_info *info)
 {
-	unsigned free;
+	unsigned int free;
 
 	free = info->shadow_free;
-	BUG_ON(free >= XENUSB_URB_RING_SIZE);
 	info->shadow_free = info->shadow[free].req.id;
 	info->shadow[free].req.id = 0x0fff; /* debug */
 	return free;
 }
 
 static inline void xenhcd_add_id_to_freelist(struct xenhcd_info *info,
-					     unsigned id)
+					     unsigned int id)
 {
 	info->shadow[id].req.id	= info->shadow_free;
 	info->shadow[id].urb = NULL;
@@ -621,8 +596,6 @@ static void xenhcd_gnttab_map(struct xenhcd_info *info, void *addr, int length,
 	int i;
 
 	for (i = 0; i < nr_pages; i++) {
-		BUG_ON(!len);
-
 		buffer_mfn = PFN_DOWN(arbitrary_virt_to_machine(addr).maddr);
 		offset = offset_in_page(addr);
 
@@ -631,7 +604,6 @@ static void xenhcd_gnttab_map(struct xenhcd_info *info, void *addr, int length,
 			bytes = len;
 
 		ref = gnttab_claim_grant_reference(gref_head);
-		BUG_ON(ref == -ENOSPC);
 		gnttab_grant_foreign_access_ref(ref, info->xbdev->otherend_id,
 						buffer_mfn, flags);
 		seg[i].gref = ref;
@@ -719,9 +691,6 @@ static int xenhcd_map_urb_for_request(struct xenhcd_info *info, struct urb *urb,
 		req->u.isoc.number_of_packets = urb->number_of_packets;
 		req->u.isoc.nr_frame_desc_segs = nr_isodesc_pages;
 
-		/* urb->number_of_packets must be > 0 */
-		BUG_ON(urb->number_of_packets <= 0);
-
 		xenhcd_gnttab_map(info, &urb->iso_frame_desc[0],
 				  sizeof(struct usb_iso_packet_descriptor) *
 				  urb->number_of_packets,
@@ -738,7 +707,7 @@ static int xenhcd_map_urb_for_request(struct xenhcd_info *info, struct urb *urb,
 	case PIPE_BULK:
 		break;
 	default:
-		BUG();
+		break;
 	}
 
 	if (nr_grants)
@@ -764,6 +733,26 @@ static void xenhcd_gnttab_done(struct usb_shadow *shadow)
 	shadow->req.u.isoc.nr_frame_desc_segs = 0;
 }
 
+static int xenhcd_translate_status(int status)
+{
+	switch (status) {
+	case XENUSB_STATUS_OK:
+		return 0;
+	case XENUSB_STATUS_NODEV:
+		return -ENODEV;
+	case XENUSB_STATUS_INVAL:
+		return -EINVAL;
+	case XENUSB_STATUS_STALL:
+		return -EPIPE;
+	case XENUSB_STATUS_IOERROR:
+		return -EPROTO;
+	case XENUSB_STATUS_BABBLE:
+		return -EOVERFLOW;
+	default:
+		return -ESHUTDOWN;
+	}
+}
+
 static void xenhcd_giveback_urb(struct xenhcd_info *info, struct urb *urb,
 				int status)
 {
@@ -774,7 +763,7 @@ static void xenhcd_giveback_urb(struct xenhcd_info *info, struct urb *urb,
 	xenhcd_free_urb_priv(urbp);
 
 	if (urb->status == -EINPROGRESS)
-		urb->status = status;
+		urb->status = xenhcd_translate_status(status);
 
 	spin_unlock(&info->lock);
 	usb_hcd_giveback_urb(xenhcd_info_to_hcd(info), urb,
@@ -786,12 +775,12 @@ static int xenhcd_do_request(struct xenhcd_info *info, struct urb_priv *urbp)
 {
 	struct xenusb_urb_request *req;
 	struct urb *urb = urbp->urb;
-	unsigned id;
+	unsigned int id;
 	int notify;
 	int ret;
 
-	req = RING_GET_REQUEST(&info->urb_ring, info->urb_ring.req_prod_pvt);
 	id = xenhcd_get_id_from_freelist(info);
+	req = &info->shadow[id].req;
 	req->id = id;
 
 	if (unlikely(urbp->unlinked)) {
@@ -808,9 +797,11 @@ static int xenhcd_do_request(struct xenhcd_info *info, struct urb_priv *urbp)
 		urbp->req_id = id;
 	}
 
+	req = RING_GET_REQUEST(&info->urb_ring, info->urb_ring.req_prod_pvt);
+	*req = info->shadow[id].req;
+
 	info->urb_ring.req_prod_pvt++;
 	info->shadow[id].urb = urb;
-	info->shadow[id].req = *req;
 
 	RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&info->urb_ring, notify);
 	if (notify)
@@ -908,7 +899,7 @@ static int xenhcd_unlink_urb(struct xenhcd_info *info, struct urb_priv *urbp)
 	if (urbp->unlinked)
 		return -EBUSY;
 
-	urbp->unlinked = 1;
+	urbp->unlinked = true;
 
 	/* the urb is still in pending_submit queue */
 	if (urbp->req_id == ~0) {
@@ -939,7 +930,7 @@ static int xenhcd_unlink_urb(struct xenhcd_info *info, struct urb_priv *urbp)
 
 static int xenhcd_urb_request_done(struct xenhcd_info *info)
 {
-	struct xenusb_urb_response *res;
+	struct xenusb_urb_response res;
 	struct urb *urb;
 	RING_IDX i, rp;
 	__u16 id;
@@ -949,20 +940,29 @@ static int xenhcd_urb_request_done(struct xenhcd_info *info)
 	spin_lock_irqsave(&info->lock, flags);
 
 	rp = info->urb_ring.sring->rsp_prod;
+	if (RING_RESPONSE_PROD_OVERFLOW(&info->urb_ring, rp)) {
+		xenhcd_set_error(info, "Illegal index on urb-ring");
+		spin_unlock_irqrestore(&info->lock, flags);
+		return 0;
+	}
 	rmb(); /* ensure we see queued responses up to "rp" */
 
 	for (i = info->urb_ring.rsp_cons; i != rp; i++) {
-		res = RING_GET_RESPONSE(&info->urb_ring, i);
-		id = res->id;
+		RING_COPY_RESPONSE(&info->urb_ring, i, &res);
+		id = res.id;
+		if (id >= XENUSB_URB_RING_SIZE) {
+			xenhcd_set_error(info, "Illegal data on urb-ring");
+			continue;
+		}
 
 		if (likely(xenusb_pipesubmit(info->shadow[id].req.pipe))) {
 			xenhcd_gnttab_done(&info->shadow[id]);
 			urb = info->shadow[id].urb;
 			if (likely(urb)) {
-				urb->actual_length = res->actual_length;
-				urb->error_count = res->error_count;
-				urb->start_frame = res->start_frame;
-				xenhcd_giveback_urb(info, urb, res->status);
+				urb->actual_length = res.actual_length;
+				urb->error_count = res.error_count;
+				urb->start_frame = res.start_frame;
+				xenhcd_giveback_urb(info, urb, res.status);
 			}
 		}
 
@@ -982,7 +982,7 @@ static int xenhcd_urb_request_done(struct xenhcd_info *info)
 
 static int xenhcd_conn_notify(struct xenhcd_info *info)
 {
-	struct xenusb_conn_response *res;
+	struct xenusb_conn_response res;
 	struct xenusb_conn_request *req;
 	RING_IDX rc, rp;
 	__u16 id;
@@ -996,16 +996,26 @@ static int xenhcd_conn_notify(struct xenhcd_info *info)
 
 	rc = info->conn_ring.rsp_cons;
 	rp = info->conn_ring.sring->rsp_prod;
+	if (RING_RESPONSE_PROD_OVERFLOW(&info->conn_ring, rp)) {
+		xenhcd_set_error(info, "Illegal index on conn-ring");
+		spin_unlock_irqrestore(&info->lock, flags);
+		return 0;
+	}
 	rmb(); /* ensure we see queued responses up to "rp" */
 
 	while (rc != rp) {
-		res = RING_GET_RESPONSE(&info->conn_ring, rc);
-		id = res->id;
-		portnum = res->portnum;
-		speed = res->speed;
+		RING_COPY_RESPONSE(&info->conn_ring, rc, &res);
+		id = res.id;
+		portnum = res.portnum;
+		speed = res.speed;
 		info->conn_ring.rsp_cons = ++rc;
 
-		xenhcd_rhport_connect(info, portnum, speed);
+		if (xenhcd_rhport_connect(info, portnum, speed)) {
+			xenhcd_set_error(info, "Illegal data on conn-ring");
+			spin_unlock_irqrestore(&info->lock, flags);
+			return 0;
+		}
+
 		if (info->ports[portnum - 1].c_connection)
 			port_changed = 1;
 
@@ -1037,6 +1047,9 @@ static int xenhcd_conn_notify(struct xenhcd_info *info)
 static irqreturn_t xenhcd_int(int irq, void *dev_id)
 {
 	struct xenhcd_info *info = (struct xenhcd_info *)dev_id;
+
+	if (unlikely(info->error))
+		return IRQ_HANDLED;
 
 	while (xenhcd_urb_request_done(info) | xenhcd_conn_notify(info))
 		/* Yield point for this unbounded loop. */
@@ -1312,6 +1325,8 @@ static int xenhcd_urb_enqueue(struct usb_hcd *hcd, struct urb *urb,
 	unsigned long flags;
 	int ret;
 
+	if (unlikely(info->error))
+		return -ESHUTDOWN;
 
 	urbp = kmem_cache_zalloc(xenhcd_urbp_cachep, mem_flags);
 	if (!urbp)
@@ -1325,7 +1340,7 @@ static int xenhcd_urb_enqueue(struct usb_hcd *hcd, struct urb *urb,
 	urbp->unlink_req_id = ~0;
 	INIT_LIST_HEAD(&urbp->list);
 	urbp->status = 1;
-	urb->unlinked = 0;
+	urb->unlinked = false;
 
 	ret = xenhcd_submit_urb(info, urbp);
 
@@ -1499,7 +1514,7 @@ static void xenhcd_backend_changed(struct xenbus_device *dev,
 	case XenbusStateClosed:
 		if (dev->state == XenbusStateClosed)
 			break;
-		/* Fall through -- Missed the backend's Closing state. */
+		fallthrough;	/* Missed the backend's Closing state. */
 	case XenbusStateClosing:
 		xenhcd_disconnect(dev);
 		break;

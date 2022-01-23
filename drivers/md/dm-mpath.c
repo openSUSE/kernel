@@ -551,7 +551,6 @@ static int multipath_clone_and_map(struct dm_target *ti, struct request *rq,
 		return DM_MAPIO_REQUEUE;
 	}
 	clone->bio = clone->biotail = NULL;
-	clone->rq_disk = bdev->bd_disk;
 	clone->cmd_flags |= REQ_FAILFAST_TRANSPORT;
 	*__clone = clone;
 
