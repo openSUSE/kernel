@@ -13,7 +13,7 @@ function do_one
 
     orig=$(cat "$mitigation")
 
-    start=$EPOCHSECONDS
+    start=$(date +%s)
     now=$start
 
     while [[ $((now-start)) -lt "$TIMEOUT" ]]
@@ -21,7 +21,7 @@ function do_one
         echo 0 > "$mitigation"
         echo 1 > "$mitigation"
 
-        now=$EPOCHSECONDS
+        now=$(date +%s)
     done
 
     echo "$orig" > "$mitigation"
@@ -70,8 +70,11 @@ wait
 
 tainted=$(cat /proc/sys/kernel/tainted)
 if [[ "$tainted" -ne 0 ]]; then
-    echo "Error: kernel became tainted!" >&2
-    exit 1
+    /* X flag when externally supported module loaded on SLE 15 */
+    if [[ "$tainted" -ne 65536 ]] ; then
+        echo "Error: kernel became tainted!" >&2
+        exit 1
+    fi
 fi
 
 echo "OK"
