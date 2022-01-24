@@ -502,6 +502,8 @@ struct scsi_host_template {
 
 	/* Delay for runtime autosuspend */
 	int rpm_autosuspend_delay;
+
+	void *suse_kabi_padding;
 };
 
 /*

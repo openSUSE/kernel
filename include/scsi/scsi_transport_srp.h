@@ -100,6 +100,8 @@ struct srp_function_template {
 	int (*reconnect)(struct srp_rport *rport);
 	void (*terminate_rport_io)(struct srp_rport *rport);
 	void (*rport_delete)(struct srp_rport *rport);
+
+	void *suse_kabi_padding;
 };
 
 extern struct scsi_transport_template *
