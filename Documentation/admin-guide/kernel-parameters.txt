@@ -586,14 +586,6 @@
 			loops can be debugged more effectively on production
 			systems.
 
-	clocksource.max_cswd_coarse_reads= [KNL]
-			Number of consecutive clocksource_watchdog()
-			coarse reads (that is, clocksource reads that
-			were unduly delayed) that are permitted before
-			the kernel complains (gently).	Set to a value
-			less than or equal to zero to suppress these
-			complaints.
-
 	clocksource.max_cswd_read_retries= [KNL]
 			Number of clocksource_watchdog() retries due to
 			external delays before the clock will be marked
