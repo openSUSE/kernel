@@ -112,6 +112,8 @@ struct bus_type {
 	struct lock_class_key lock_key;
 
 	bool need_parent_lock;
+
+	void *suse_kabi_padding;
 };
 
 extern int __must_check bus_register(struct bus_type *bus);
