@@ -526,6 +526,7 @@ struct sock {
 							struct sk_buff *skb);
 #endif
 	void                    (*sk_destruct)(struct sock *sk);
+	void			*suse_kabi_padding;
 	struct sock_reuseport __rcu	*sk_reuseport_cb;
 #ifdef CONFIG_BPF_SYSCALL
 	struct bpf_local_storage __rcu	*sk_bpf_storage;

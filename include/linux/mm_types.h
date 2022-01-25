@@ -386,6 +386,7 @@ struct vm_area_struct {
 	struct mempolicy *vm_policy;	/* NUMA policy for the VMA */
 #endif
 	struct vm_userfaultfd_ctx vm_userfaultfd_ctx;
+	void *suse_kabi_padding;
 } __randomize_layout;
 
 struct core_thread {
@@ -584,6 +585,7 @@ struct mm_struct {
 #ifdef CONFIG_IOMMU_SUPPORT
 		u32 pasid;
 #endif
+		void *suse_kabi_padding;
 	} __randomize_layout;
 
 	/*

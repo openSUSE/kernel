@@ -73,6 +73,7 @@ struct vfsmount {
 	struct super_block *mnt_sb;	/* pointer to superblock */
 	int mnt_flags;
 	struct user_namespace *mnt_userns;
+	void *suse_kabi_padding;
 } __randomize_layout;
 
 static inline struct user_namespace *mnt_user_ns(const struct vfsmount *mnt)
