@@ -960,7 +960,7 @@ static void handle_write_error(struct address_space *mapping,
 	unlock_page(page);
 }
 
-bool skip_throttle_noprogress(pg_data_t *pgdat)
+static bool skip_throttle_noprogress(pg_data_t *pgdat)
 {
 	int reclaimable = 0, write_pending = 0;
 	int i;

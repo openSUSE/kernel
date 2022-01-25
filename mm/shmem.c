@@ -2469,13 +2469,17 @@ shmem_write_begin(struct file *file, struct address_space *mapping,
 
 	ret = shmem_getpage(inode, index, pagep, SGP_WRITE);
 
-	if (*pagep && PageHWPoison(*pagep)) {
+	if (ret)
+		return ret;
+
+	if (PageHWPoison(*pagep)) {
 		unlock_page(*pagep);
 		put_page(*pagep);
-		ret = -EIO;
+		*pagep = NULL;
+		return -EIO;
 	}
 
-	return ret;
+	return 0;
 }
 
 static int
@@ -3138,7 +3142,9 @@ static const char *shmem_get_link(struct dentry *dentry,
 		error = shmem_getpage(inode, 0, &page, SGP_READ);
 		if (error)
 			return ERR_PTR(error);
-		if (page && PageHWPoison(page)) {
+		if (!page)
+			return ERR_PTR(-ECHILD);
+		if (PageHWPoison(page)) {
 			unlock_page(page);
 			put_page(page);
 			return ERR_PTR(-ECHILD);
@@ -4218,12 +4224,13 @@ struct page *shmem_read_mapping_page_gfp(struct address_space *mapping,
 	error = shmem_getpage_gfp(inode, index, &page, SGP_CACHE,
 				  gfp, NULL, NULL, NULL);
 	if (error)
-		page = ERR_PTR(error);
-	else
-		unlock_page(page);
+		return ERR_PTR(error);
 
-	if (PageHWPoison(page))
-		page = ERR_PTR(-EIO);
+	unlock_page(page);
+	if (PageHWPoison(page)) {
+		put_page(page);
+		return ERR_PTR(-EIO);
+	}
 
 	return page;
 #else
