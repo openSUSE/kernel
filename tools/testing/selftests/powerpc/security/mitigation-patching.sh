@@ -36,7 +36,7 @@ fi
 
 tainted=$(cat /proc/sys/kernel/tainted)
 if [[ "$tainted" -ne 0 ]]; then
-    /* X flag when externally supported module loaded on SLE 15 */
+    # X flag when externally supported module loaded on SLE 15
     if [[ "$tainted" -ne 65536 ]] ; then
         echo "Error: kernel already tainted!" >&2
         exit 1
@@ -70,7 +70,7 @@ wait
 
 tainted=$(cat /proc/sys/kernel/tainted)
 if [[ "$tainted" -ne 0 ]]; then
-    /* X flag when externally supported module loaded on SLE 15 */
+    # X flag when externally supported module loaded on SLE 15
     if [[ "$tainted" -ne 65536 ]] ; then
         echo "Error: kernel became tainted!" >&2
         exit 1
