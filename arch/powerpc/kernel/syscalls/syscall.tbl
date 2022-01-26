@@ -526,3 +526,4 @@
 444	common	landlock_create_ruleset		sys_landlock_create_ruleset
 445	common	landlock_add_rule		sys_landlock_add_rule
 446	common	landlock_restrict_self		sys_landlock_restrict_self
+450 	nospu	set_mempolicy_home_node		sys_set_mempolicy_home_node

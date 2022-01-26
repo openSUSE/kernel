@@ -300,6 +300,7 @@ COND_SYSCALL(migrate_pages);
 COND_SYSCALL_COMPAT(migrate_pages);
 COND_SYSCALL(move_pages);
 COND_SYSCALL_COMPAT(move_pages);
+COND_SYSCALL(set_mempolicy_home_node);
 
 COND_SYSCALL(perf_event_open);
 COND_SYSCALL(accept4);
