@@ -863,7 +863,8 @@ static int fips_reset_drbg_algs(void)
 		rcu_assign_pointer(fips_drbg_tfms[i], new_node0_drbg_tfm);
 		/* The remaining drbg's for i > 0 all get reset to NULL. */
 		new_node0_drbg_tfm = NULL;
-		list_add(&drbg_tfm->reset_list, &old_drbg_tfms);
+		if (drbg_tfm)
+			list_add(&drbg_tfm->reset_list, &old_drbg_tfms);
 	}
 
 	pr_debug("random: FIPS drbg: reset complete");
