@@ -312,6 +312,8 @@ struct drm_gem_object {
 	 *
 	 */
 	const struct drm_gem_object_funcs *funcs;
+
+	void *suse_kabi_padding;
 };
 
 /**
