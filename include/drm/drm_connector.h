@@ -786,6 +786,8 @@ struct drm_connector_state {
 	 * DRM blob property for HDR output metadata
 	 */
 	struct drm_property_blob *hdr_output_metadata;
+
+	void *suse_kabi_padding;
 };
 
 /**
