@@ -47,6 +47,8 @@ struct service_hndl {
 	unsigned long start_status[ADF_DEVS_ARRAY_SIZE];
 	char *name;
 	struct list_head list;
+
+	void *suse_kabi_padding;
 };
 
 static inline int get_current_node(void)
