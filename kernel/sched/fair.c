@@ -4198,7 +4198,8 @@ done:
 	trace_sched_util_est_se_tp(&p->se);
 }
 
-static inline int task_fits_capacity(struct task_struct *p, long capacity)
+static inline int task_fits_capacity(struct task_struct *p,
+				     unsigned long capacity)
 {
 	return fits_capacity(uclamp_task_util(p), capacity);
 }
@@ -6481,7 +6482,7 @@ select_idle_capacity(struct task_struct *p, struct sched_domain *sd, int target)
 	return best_cpu;
 }
 
-static inline bool asym_fits_capacity(int task_util, int cpu)
+static inline bool asym_fits_capacity(unsigned long task_util, int cpu)
 {
 	if (static_branch_unlikely(&sched_asym_cpucapacity))
 		return fits_capacity(task_util, capacity_of(cpu));
@@ -9187,14 +9188,8 @@ static bool update_pick_idlest(struct sched_group *idlest,
 
 	case group_has_spare:
 		/* Select group with most idle CPUs */
-		if (idlest_sgs->idle_cpus > sgs->idle_cpus)
+		if (idlest_sgs->idle_cpus >= sgs->idle_cpus)
 			return false;
-
-		/* Select group with lowest group_util */
-		if (idlest_sgs->idle_cpus == sgs->idle_cpus &&
-			idlest_sgs->group_util <= sgs->group_util)
-			return false;
-
 		break;
 	}
 
