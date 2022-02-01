@@ -708,16 +708,20 @@ out:
 void drop_slab_node(int nid)
 {
 	unsigned long freed;
+	int shift = 0;
 
 	do {
 		struct mem_cgroup *memcg = NULL;
+
+		if (fatal_signal_pending(current))
+			return;
 
 		freed = 0;
 		memcg = mem_cgroup_iter(NULL, NULL, NULL);
 		do {
 			freed += shrink_slab(GFP_KERNEL, nid, memcg, 0);
 		} while ((memcg = mem_cgroup_iter(NULL, memcg, NULL)) != NULL);
-	} while (freed > 10);
+	} while ((freed >> shift++) > 1);
 }
 
 void drop_slab(void)
@@ -1128,7 +1132,9 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			goto keep_locked;
 
 		may_enter_fs = (sc->gfp_mask & __GFP_FS) ||
-			(PageSwapCache(page) && (sc->gfp_mask & __GFP_IO));
+			(PageSwapCache(page) &&
+			 !(page_swap_info(page)->flags & SWP_FS) &&
+			 (sc->gfp_mask & __GFP_IO));
 
 		/*
 		 * The number of dirty pages determines if a node is marked
@@ -1284,7 +1290,9 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 						goto activate_locked_split;
 				}
 
-				may_enter_fs = 1;
+				if ((sc->gfp_mask & __GFP_FS) ||
+				    !(page_swap_info(page)->flags & SWP_FS))
+					may_enter_fs = 1;
 
 				/* Adding to swap updated mapping */
 				mapping = page_mapping(page);

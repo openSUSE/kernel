@@ -69,6 +69,24 @@ void get_cached_msi_msg(unsigned int irq, struct msi_msg *msg)
 }
 EXPORT_SYMBOL_GPL(get_cached_msi_msg);
 
+/**
+ * device_has_managed_msi_irq - Query if device has managed irq entry
+ * @dev:	Pointer to the device for which we want to query
+ *
+ * Return true if there is managed irq vector allocated on this device
+ */
+bool device_has_managed_msi_irq(struct device *dev)
+{
+	struct msi_desc *desc;
+
+	for_each_msi_entry(desc, dev) {
+		if (desc->affinity && desc->affinity->is_managed)
+			return true;
+	}
+	return false;
+}
+EXPORT_SYMBOL_GPL(device_has_managed_msi_irq);
+
 #ifdef CONFIG_GENERIC_MSI_IRQ_DOMAIN
 static inline void irq_chip_write_msi_msg(struct irq_data *data,
 					  struct msi_msg *msg)

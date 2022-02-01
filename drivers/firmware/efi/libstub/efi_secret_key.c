@@ -117,7 +117,8 @@ static efi_status_t create_secret_key(struct efi_skey_setup_data *skey_setup)
 	status = efi_get_random_bytes(SECRET_KEY_SIZE,
 				      (u8 *)skey_setup->secret_key);
 	if (status != EFI_SUCCESS) {
-		efi_printk_status("Failed to generate secret key: ", status);
+		efi_printk_status("EFI_RNG_PROTOCOL unavailable, hibernation secret key is not generated: ", status);
+		status = EFI_UNSUPPORTED;
 		goto err;
 	}
 

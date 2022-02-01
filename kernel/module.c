@@ -1209,12 +1209,6 @@ static size_t module_flags_taint(struct module *mod, char *buf)
 			buf[l++] = taint_flags[i].c_true;
 	}
 
-#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-	if (mod->taints & (1 << TAINT_NO_SUPPORT))
-		buf[l++] = 'N';
-	if (mod->taints & (1 << TAINT_EXTERNAL_SUPPORT))
-		buf[l++] = 'X';
-#endif
 	return l;
 }
 
@@ -4382,6 +4376,8 @@ int module_kallsyms_on_each_symbol(int (*fn)(void *, const char *,
 				 mod, kallsyms_symbol_value(sym));
 			if (ret != 0)
 				return ret;
+
+			cond_resched();
 		}
 	}
 	return 0;

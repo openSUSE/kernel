@@ -6,8 +6,9 @@
  */
 
 struct usbmix_dB_map {
-	u32 min;
-	u32 max;
+	int min;
+	int max;
+	bool min_mute;
 };
 
 struct usbmix_name_map {
@@ -337,6 +338,13 @@ static const struct usbmix_name_map bose_companion5_map[] = {
 	{ 0 }	/* terminator */
 };
 
+/* Bose Revolve+ SoundLink, correction of dB maps */
+static const struct usbmix_dB_map bose_soundlink_dB = {-8283, -0, true};
+static const struct usbmix_name_map bose_soundlink_map[] = {
+	{ 2, NULL, .dB = &bose_soundlink_dB },
+	{ 0 }	/* terminator */
+};
+
 /* Sennheiser Communications Headset [PC 8], the dB value is reported as -6 negative maximum  */
 static const struct usbmix_dB_map sennheiser_pc8_dB = {-9500, 0};
 static const struct usbmix_name_map sennheiser_pc8_map[] = {
@@ -529,6 +537,10 @@ static const struct usbmix_ctl_map usbmix_ctl_maps[] = {
 		.map = maya44_map,
 	},
 	{
+		.id = USB_ID(0x2708, 0x0002), /* Audient iD14 */
+		.ignore_ctl_error = 1,
+	},
+	{
 		/* KEF X300A */
 		.id = USB_ID(0x27ac, 0x1000),
 		.map = scms_usb3318_map,
@@ -539,9 +551,18 @@ static const struct usbmix_ctl_map usbmix_ctl_maps[] = {
 		.map = scms_usb3318_map,
 	},
 	{
+		.id = USB_ID(0x30be, 0x0101), /*  Schiit Hel */
+		.ignore_ctl_error = 1,
+	},
+	{
 		/* Bose Companion 5 */
 		.id = USB_ID(0x05a7, 0x1020),
 		.map = bose_companion5_map,
+	},
+	{
+		/* Bose Revolve+ SoundLink */
+		.id = USB_ID(0x05a7, 0x40fa),
+		.map = bose_soundlink_map,
 	},
 	{
 		/* Corsair Virtuoso SE (wired mode) */

@@ -412,7 +412,7 @@ int ast_driver_load(struct drm_device *dev, unsigned long flags)
 	dev->dev_private = ast;
 	ast->dev = dev;
 
-	ast->regs = pci_iomap(dev->pdev, 1, 0);
+	ast->regs = pcim_iomap(dev->pdev, 1, 0);
 	if (!ast->regs) {
 		ret = -EIO;
 		goto out_free;
@@ -430,7 +430,7 @@ int ast_driver_load(struct drm_device *dev, unsigned long flags)
 
 	/* "map" IO regs if the above hasn't done so already */
 	if (!ast->ioregs) {
-		ast->ioregs = pci_iomap(dev->pdev, 2, 0);
+		ast->ioregs = pcim_iomap(dev->pdev, 2, 0);
 		if (!ast->ioregs) {
 			ret = -EIO;
 			goto out_free;

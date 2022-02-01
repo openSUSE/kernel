@@ -33,28 +33,32 @@ void blk_mq_sched_free_hctx_data(struct request_queue *q,
 }
 EXPORT_SYMBOL_GPL(blk_mq_sched_free_hctx_data);
 
-void blk_mq_sched_assign_ioc(struct request *rq)
+struct io_cq *blk_mq_sched_get_icq(struct request_queue *q)
 {
-	struct request_queue *q = rq->q;
 	struct io_context *ioc;
 	struct io_cq *icq;
 
-	/*
-	 * May not have an IO context if it's a passthrough request
-	 */
+	/* May not have an IO context if context creation failed */
 	ioc = current->io_context;
 	if (!ioc)
-		return;
+		return NULL;
 
 	spin_lock_irq(&q->queue_lock);
 	icq = ioc_lookup_icq(ioc, q);
 	spin_unlock_irq(&q->queue_lock);
+	if (icq)
+		return icq;
+	return ioc_create_icq(ioc, q, GFP_ATOMIC);
+}
+EXPORT_SYMBOL(blk_mq_sched_get_icq);
 
-	if (!icq) {
-		icq = ioc_create_icq(ioc, q, GFP_ATOMIC);
-		if (!icq)
-			return;
-	}
+void blk_mq_sched_assign_ioc(struct request *rq)
+{
+	struct io_cq *icq;
+
+	icq = blk_mq_sched_get_icq(rq->q);
+	if (!icq)
+		return;
 	get_io_context(icq->ioc);
 	rq->elv.icq = icq;
 }
@@ -481,9 +485,23 @@ bool __blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
 	return ret;
 }
 
+bool blk_mq_sched_try_insert_merge_list(struct request_queue *q,
+					struct request *rq,
+					struct list_head *free)
+{
+	return rq_mergeable(rq) && elv_attempt_insert_merge(q, rq, free);
+}
+EXPORT_SYMBOL_GPL(blk_mq_sched_try_insert_merge_list);
+
 bool blk_mq_sched_try_insert_merge(struct request_queue *q, struct request *rq)
 {
-	return rq_mergeable(rq) && elv_attempt_insert_merge(q, rq);
+	LIST_HEAD(free);
+
+	if (blk_mq_sched_try_insert_merge_list(q, rq, &free)) {
+		blk_mq_free_requests(&free);
+		return true;
+	}
+	return false;
 }
 EXPORT_SYMBOL_GPL(blk_mq_sched_try_insert_merge);
 
@@ -612,19 +630,6 @@ void blk_mq_sched_insert_requests(struct blk_mq_hw_ctx *hctx,
 	percpu_ref_put(&q->q_usage_counter);
 }
 
-static void blk_mq_sched_free_tags(struct blk_mq_tag_set *set,
-				   struct blk_mq_hw_ctx *hctx,
-				   unsigned int hctx_idx)
-{
-	unsigned int flags = set->flags & ~BLK_MQ_F_TAG_HCTX_SHARED;
-
-	if (hctx->sched_tags) {
-		blk_mq_free_rqs(set, hctx->sched_tags, hctx_idx);
-		blk_mq_free_rq_map(hctx->sched_tags, flags);
-		hctx->sched_tags = NULL;
-	}
-}
-
 static int blk_mq_sched_alloc_tags(struct request_queue *q,
 				   struct blk_mq_hw_ctx *hctx,
 				   unsigned int hctx_idx)
@@ -640,8 +645,10 @@ static int blk_mq_sched_alloc_tags(struct request_queue *q,
 		return -ENOMEM;
 
 	ret = blk_mq_alloc_rqs(set, hctx->sched_tags, hctx_idx, q->nr_requests);
-	if (ret)
-		blk_mq_sched_free_tags(set, hctx, hctx_idx);
+	if (ret) {
+		blk_mq_free_rq_map(hctx->sched_tags, set->flags);
+		hctx->sched_tags = NULL;
+	}
 
 	return ret;
 }

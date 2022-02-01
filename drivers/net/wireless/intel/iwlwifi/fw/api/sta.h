@@ -83,6 +83,8 @@
  * @STA_FLG_MAX_AGG_SIZE_256K: maximal size for A-MPDU (256k supported)
  * @STA_FLG_MAX_AGG_SIZE_512K: maximal size for A-MPDU (512k supported)
  * @STA_FLG_MAX_AGG_SIZE_1024K: maximal size for A-MPDU (1024k supported)
+ * @STA_FLG_MAX_AGG_SIZE_2M: maximal size for A-MPDU (2M supported)
+ * @STA_FLG_MAX_AGG_SIZE_4M: maximal size for A-MPDU (4M supported)
  * @STA_FLG_AGG_MPDU_DENS_MSK: maximal MPDU density for Tx aggregation
  * @STA_FLG_FAT_EN_MSK: support for channel width (for Tx). This flag is
  *	initialised by driver and can be updated by fw upon reception of
@@ -380,7 +382,7 @@ struct iwl_mvm_add_sta_cmd {
 	u8 add_modify;
 	u8 awake_acs;
 	__le16 tid_disable_tx;
-	__le32 mac_id_n_color;
+	__le32 mac_id_n_color;  /* can be used for lmac id when using cmd v12 */
 	u8 addr[ETH_ALEN];	/* _STA_ID_MODIFY_INFO_API_S_VER_1 */
 	__le16 reserved2;
 	u8 sta_id;

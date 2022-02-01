@@ -715,7 +715,7 @@ enum amd_hw_ip_block_type {
 	MAX_HWIP
 };
 
-#define HWIP_MAX_INSTANCE	8
+#define HWIP_MAX_INSTANCE	10
 
 struct amd_powerplay {
 	void *pp_handle;
@@ -991,8 +991,6 @@ struct amdgpu_device {
 	char				product_number[16];
 	char				product_name[32];
 	char				serial[20];
-
-	struct amdgpu_autodump		autodump;
 
 	atomic_t			throttling_logging_enabled;
 	struct ratelimit_state		throttling_logging_rs;

@@ -631,6 +631,7 @@ static int moxart_probe(struct platform_device *pdev)
 			 host->dma_chan_tx, host->dma_chan_rx);
 		host->have_dma = true;
 
+		memset(&cfg, 0, sizeof(cfg));
 		cfg.src_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
 		cfg.dst_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
 
@@ -686,6 +687,7 @@ static int moxart_remove(struct platform_device *pdev)
 {
 	struct mmc_host *mmc = dev_get_drvdata(&pdev->dev);
 	struct moxart_host *host = mmc_priv(mmc);
+	void __iomem *base = host->base;
 
 	dev_set_drvdata(&pdev->dev, NULL);
 
@@ -697,10 +699,10 @@ static int moxart_remove(struct platform_device *pdev)
 		mmc_remove_host(mmc);
 		mmc_free_host(mmc);
 
-		writel(0, host->base + REG_INTERRUPT_MASK);
-		writel(0, host->base + REG_POWER_CONTROL);
-		writel(readl(host->base + REG_CLOCK_CONTROL) | CLK_OFF,
-		       host->base + REG_CLOCK_CONTROL);
+		writel(0, base + REG_INTERRUPT_MASK);
+		writel(0, base + REG_POWER_CONTROL);
+		writel(readl(base + REG_CLOCK_CONTROL) | CLK_OFF,
+		       base + REG_CLOCK_CONTROL);
 	}
 	return 0;
 }

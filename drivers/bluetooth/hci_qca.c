@@ -1811,8 +1811,6 @@ static void qca_power_shutdown(struct hci_uart *hu)
 	unsigned long flags;
 	enum qca_btsoc_type soc_type = qca_soc_type(hu);
 
-	qcadev = serdev_device_get_drvdata(hu->serdev);
-
 	/* From this point we go into power off state. But serial port is
 	 * still open, stop queueing the IBS data and flush all the buffered
 	 * data in skb's.
@@ -1827,6 +1825,8 @@ static void qca_power_shutdown(struct hci_uart *hu)
 	 */
 	if (!hu->serdev)
 		return;
+
+	qcadev = serdev_device_get_drvdata(hu->serdev);
 
 	if (qca_is_wcn399x(soc_type)) {
 		host_set_baudrate(hu, 2400);
@@ -1845,6 +1845,9 @@ static int qca_power_off(struct hci_dev *hdev)
 
 	hu->hdev->hw_error = NULL;
 	hu->hdev->cmd_timeout = NULL;
+
+	del_timer_sync(&qca->wake_retrans_timer);
+	del_timer_sync(&qca->tx_idle_timer);
 
 	/* Stop sending shutdown command if soc crashes. */
 	if (soc_type != QCA_ROME

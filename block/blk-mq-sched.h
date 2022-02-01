@@ -8,6 +8,7 @@
 void blk_mq_sched_free_hctx_data(struct request_queue *q,
 				 void (*exit)(struct blk_mq_hw_ctx *));
 
+struct io_cq *blk_mq_sched_get_icq(struct request_queue *q);
 void blk_mq_sched_assign_ioc(struct request *rq);
 
 void blk_mq_sched_request_inserted(struct request *rq);
@@ -16,6 +17,8 @@ bool blk_mq_sched_try_merge(struct request_queue *q, struct bio *bio,
 bool __blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
 		unsigned int nr_segs);
 bool blk_mq_sched_try_insert_merge(struct request_queue *q, struct request *rq);
+bool blk_mq_sched_try_insert_merge_list(struct request_queue *q,
+				   struct request *rq, struct list_head *free);
 void blk_mq_sched_mark_restart_hctx(struct blk_mq_hw_ctx *hctx);
 void blk_mq_sched_restart(struct blk_mq_hw_ctx *hctx);
 

@@ -51,9 +51,17 @@
 struct nfs_access_entry {
 	struct rb_node		rb_node;
 	struct list_head	lru;
-	const struct cred *	cred;
+#ifdef __GENKSYMS__
+	const struct cred	*cred;
+#else
+	struct group_info	*group_info;
+#endif
 	__u32			mask;
 	struct rcu_head		rcu_head;
+#ifndef __GENKSYMS__
+	kuid_t			fsuid;
+	kgid_t			fsgid;
+#endif
 };
 
 struct nfs_lock_context {
@@ -545,6 +553,7 @@ extern int nfs_wb_page_cancel(struct inode *inode, struct page* page);
 extern int  nfs_commit_inode(struct inode *, int);
 extern struct nfs_commit_data *nfs_commitdata_alloc(bool never_fail);
 extern void nfs_commit_free(struct nfs_commit_data *data);
+bool nfs_commit_end(struct nfs_mds_commit_info *cinfo);
 
 static inline int
 nfs_have_writebacks(struct inode *inode)

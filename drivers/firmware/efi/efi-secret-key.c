@@ -35,8 +35,6 @@ void __init parse_efi_secret_key_setup(u64 phys_addr, u32 data_len)
 static void __init
 print_efi_skey_setup_data(struct efi_skey_setup_data *skey_setup)
 {
-	int i;
-
 	pr_debug("EFI secret key detection status: %s 0x%lx\n",
 		efi_status_to_str(skey_setup->detect_status),
 		skey_setup->detect_status);
@@ -45,12 +43,10 @@ print_efi_skey_setup_data(struct efi_skey_setup_data *skey_setup)
 		skey_setup->final_status);
 	pr_debug("EFI secret key size: %ld\n", skey_setup->key_size);
 
-	if (skey_setup->final_status != EFI_SUCCESS) {
-		pr_warn("EFI secret key getting failed: %s 0x%lx\n",
-			efi_status_to_str(skey_setup->final_status),
-			skey_setup->final_status);
-	}
-	if (skey_setup->key_size < SECRET_KEY_SIZE) {
+	if (skey_setup->final_status == EFI_UNSUPPORTED)
+		pr_warn(KERN_CONT "EFI_RNG_PROTOCOL unavailable, hibernation will be lock-down.");
+	if (skey_setup->final_status == EFI_SUCCESS &&
+	    skey_setup->key_size < SECRET_KEY_SIZE) {
 		pr_warn(KERN_CONT "EFI secret key size %ld is less than %d.",
 			skey_setup->key_size, SECRET_KEY_SIZE);
 		pr_warn(KERN_CONT " Please regenerate secret key\n");

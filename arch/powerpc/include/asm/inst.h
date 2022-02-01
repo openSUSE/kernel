@@ -46,13 +46,13 @@ static inline struct ppc_inst ppc_inst_swab(struct ppc_inst x)
 			       swab32(ppc_inst_suffix(x)));
 }
 
-static inline struct ppc_inst ppc_inst_read(const struct ppc_inst *ptr)
+static inline struct ppc_inst ppc_inst_read(const u32 *ptr)
 {
 	u32 val, suffix;
 
-	val = *(u32 *)ptr;
+	val = *ptr;
 	if ((val >> 26) == OP_PREFIX) {
-		suffix = *((u32 *)ptr + 1);
+		suffix = *(ptr + 1);
 		return ppc_inst_prefix(val, suffix);
 	} else {
 		return ppc_inst(val);
@@ -83,9 +83,9 @@ static inline struct ppc_inst ppc_inst_swab(struct ppc_inst x)
 	return ppc_inst(swab32(ppc_inst_val(x)));
 }
 
-static inline struct ppc_inst ppc_inst_read(const struct ppc_inst *ptr)
+static inline struct ppc_inst ppc_inst_read(const u32 *ptr)
 {
-	return *ptr;
+	return ppc_inst(*ptr);
 }
 
 static inline bool ppc_inst_equal(struct ppc_inst x, struct ppc_inst y)
@@ -104,13 +104,13 @@ static inline int ppc_inst_len(struct ppc_inst x)
  * Return the address of the next instruction, if the instruction @value was
  * located at @location.
  */
-static inline struct ppc_inst *ppc_inst_next(void *location, struct ppc_inst *value)
+static inline u32 *ppc_inst_next(u32 *location, u32 *value)
 {
 	struct ppc_inst tmp;
 
 	tmp = ppc_inst_read(value);
 
-	return location + ppc_inst_len(tmp);
+	return (void *)location + ppc_inst_len(tmp);
 }
 
 static inline u64 ppc_inst_as_u64(struct ppc_inst x)
@@ -145,6 +145,6 @@ int probe_user_read_inst(struct ppc_inst *inst,
 			 struct ppc_inst __user *nip);
 
 int probe_kernel_read_inst(struct ppc_inst *inst,
-			   struct ppc_inst *src);
+			   u32 *src);
 
 #endif /* _ASM_POWERPC_INST_H */

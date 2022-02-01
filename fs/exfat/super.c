@@ -371,6 +371,7 @@ static int exfat_read_root(struct inode *inode)
 	exfat_save_attr(inode, ATTR_SUBDIR);
 	inode->i_mtime = inode->i_atime = inode->i_ctime = ei->i_crtime =
 		current_time(inode);
+	exfat_truncate_atime(&inode->i_atime);
 	return 0;
 }
 
@@ -560,7 +561,7 @@ static int exfat_fill_super(struct super_block *sb, struct fs_context *fc)
 	sb->s_magic = EXFAT_SUPER_MAGIC;
 	sb->s_op = &exfat_sops;
 
-	sb->s_time_gran = 1;
+	sb->s_time_gran = 10 * NSEC_PER_MSEC;
 
 	err = __exfat_fill_super(sb);
 	if (err) {

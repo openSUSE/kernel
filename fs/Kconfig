@@ -309,7 +309,14 @@ config NFS_COMMON
 
 source "net/sunrpc/Kconfig"
 source "fs/ceph/Kconfig"
+
 source "fs/cifs/Kconfig"
+
+config SMBFS_COMMON
+	tristate
+	default y if CIFS=y
+	default m if CIFS=m
+
 source "fs/coda/Kconfig"
 source "fs/afs/Kconfig"
 source "fs/9p/Kconfig"

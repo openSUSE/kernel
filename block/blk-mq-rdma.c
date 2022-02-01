@@ -36,6 +36,13 @@ int blk_mq_rdma_map_queues(struct blk_mq_queue_map *map,
 			map->mq_map[cpu] = map->queue_offset + queue;
 	}
 
+	/*
+	 * RDMA doesn't use managed irq, and nvme rdma driver can allocate
+	 * and submit requests on specified hctx via
+	 * blk_mq_alloc_request_hctx
+	 */
+	map->use_managed_irq = false;
+
 	return 0;
 
 fallback:

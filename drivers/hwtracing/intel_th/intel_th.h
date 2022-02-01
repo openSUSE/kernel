@@ -143,6 +143,7 @@ intel_th_output_assigned(struct intel_th_device *thdev)
  * @remove:	remove method
  * @assign:	match a given output type device against available outputs
  * @unassign:	deassociate an output type device from an output port
+ * @prepare:	prepare output port for tracing
  * @enable:	enable tracing for a given output device
  * @disable:	disable tracing for a given output device
  * @irq:	interrupt callback
@@ -183,6 +184,10 @@ struct intel_th_driver {
 	/* source ops */
 	int			(*set_output)(struct intel_th_device *thdev,
 					      unsigned int master);
+#ifndef __GENKSYMS__
+	void			(*prepare)(struct intel_th_device *thdev,
+					   struct intel_th_output *output);
+#endif
 };
 
 #define to_intel_th_driver(_d)					\

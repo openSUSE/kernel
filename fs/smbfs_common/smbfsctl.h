@@ -1,22 +1,10 @@
+/* SPDX-License-Identifier: LGPL-2.1+ */
 /*
- *   fs/cifs/smbfsctl.h: SMB, CIFS, SMB2 FSCTL definitions
+ *   SMB, CIFS, SMB2 FSCTL definitions
  *
  *   Copyright (c) International Business Machines  Corp., 2002,2013
  *   Author(s): Steve French (sfrench@us.ibm.com)
  *
- *   This library is free software; you can redistribute it and/or modify
- *   it under the terms of the GNU Lesser General Public License as published
- *   by the Free Software Foundation; either version 2.1 of the License, or
- *   (at your option) any later version.
- *
- *   This library is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
- *   the GNU Lesser General Public License for more details.
- *
- *   You should have received a copy of the GNU Lesser General Public License
- *   along with this library; if not, write to the Free Software
- *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
 /* IOCTL information */
@@ -31,10 +19,13 @@
  * could be invoked from tools via a specialized hook into the VFS rather
  * than via the standard vfs entry points
  *
- * See MS-SMB2 Section 2.2.31 (last checked June 2013, all of that list are
+ * See MS-SMB2 Section 2.2.31 (last checked September 2021, all of that list are
  * below). Additional detail on less common ones can be found in MS-FSCC
  * section 2.3.
  */
+
+#ifndef __SMBFSCTL_H
+#define __SMBFSCTL_H
 
 /*
  * FSCTL values are 32 bits and are constructed as
@@ -103,6 +94,9 @@
 #define FSCTL_SET_ZERO_ON_DEALLOC    0x00090194 /* BB add struct */
 #define FSCTL_SET_SHORT_NAME_BEHAVIOR 0x000901B4 /* BB add struct */
 #define FSCTL_GET_INTEGRITY_INFORMATION 0x0009027C
+#define FSCTL_GET_REFS_VOLUME_DATA   0x000902D8 /* See MS-FSCC 2.3.24 */
+#define FSCTL_GET_RETRIEVAL_POINTERS_AND_REFCOUNT 0x000903d3
+#define FSCTL_GET_RETRIEVAL_POINTER_COUNT 0x0009042b
 #define FSCTL_QUERY_ALLOCATED_RANGES 0x000940CF
 #define FSCTL_SET_DEFECT_MANAGEMENT  0x00098134 /* BB add struct */
 #define FSCTL_FILE_LEVEL_TRIM        0x00098208 /* BB add struct */
@@ -156,7 +150,13 @@
 #define IO_REPARSE_TAG_LX_CHR	     0x80000025
 #define IO_REPARSE_TAG_LX_BLK	     0x80000026
 
+#define IO_REPARSE_TAG_LX_SYMLINK_LE	cpu_to_le32(0xA000001D)
+#define IO_REPARSE_TAG_AF_UNIX_LE	cpu_to_le32(0x80000023)
+#define IO_REPARSE_TAG_LX_FIFO_LE	cpu_to_le32(0x80000024)
+#define IO_REPARSE_TAG_LX_CHR_LE	cpu_to_le32(0x80000025)
+#define IO_REPARSE_TAG_LX_BLK_LE	cpu_to_le32(0x80000026)
+
 /* fsctl flags */
 /* If Flags is set to this value, the request is an FSCTL not ioctl request */
 #define SMB2_0_IOCTL_IS_FSCTL		0x00000001
-
+#endif /* __SMBFSCTL_H */

@@ -215,6 +215,9 @@ int mpx_enable_management(void)
 	struct mm_struct *mm = current->mm;
 	int ret = 0;
 
+	if (!is_64bit_mm(mm))
+		return -EINVAL;
+
 	/*
 	 * runtime in the userspace will be responsible for allocation of
 	 * the bounds directory. Then, it will save the base of the bounds

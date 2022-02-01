@@ -223,7 +223,14 @@ struct max98373_priv {
 	/* variables to support soundwire */
 	struct sdw_slave *slave;
 	bool hw_init;
+#ifdef __GENKSYMS__
 	bool pm_init_once;
+#else
+	union {
+		bool first_hw_init;
+		bool pm_init_once;
+	};
+#endif
 	int slot;
 	unsigned int rx_mask;
 };

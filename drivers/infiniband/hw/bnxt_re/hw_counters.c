@@ -68,7 +68,7 @@ static const char * const bnxt_re_stat_name[] = {
 	[BNXT_RE_TX_PKTS]		=  "tx_pkts",
 	[BNXT_RE_TX_BYTES]		=  "tx_bytes",
 	[BNXT_RE_RECOVERABLE_ERRORS]	=  "recoverable_errors",
-	[BNXT_RE_RX_DROPS]		=  "rx_roce_drops",
+	[BNXT_RE_RX_ERRORS]		=  "rx_roce_errors",
 	[BNXT_RE_RX_DISCARDS]		=  "rx_roce_discards",
 	[BNXT_RE_TO_RETRANSMITS]        = "to_retransmits",
 	[BNXT_RE_SEQ_ERR_NAKS_RCVD]     = "seq_err_naks_rcvd",
@@ -131,7 +131,7 @@ int bnxt_re_ib_get_hw_stats(struct ib_device *ibdev,
 	if (bnxt_re_stats) {
 		stats->value[BNXT_RE_RECOVERABLE_ERRORS] =
 			le64_to_cpu(bnxt_re_stats->tx_bcast_pkts);
-		stats->value[BNXT_RE_RX_DROPS] =
+		stats->value[BNXT_RE_RX_ERRORS] =
 			le64_to_cpu(bnxt_re_stats->rx_error_pkts);
 		stats->value[BNXT_RE_RX_DISCARDS] =
 			le64_to_cpu(bnxt_re_stats->rx_discard_pkts);
