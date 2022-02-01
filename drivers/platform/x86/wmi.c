@@ -681,6 +681,11 @@ static struct wmi_device *dev_to_wdev(struct device *dev)
 	return container_of(dev, struct wmi_device, dev);
 }
 
+static inline struct wmi_driver *drv_to_wdrv(struct device_driver *drv)
+{
+	return container_of(drv, struct wmi_driver, driver);
+}
+
 /*
  * sysfs interface
  */
@@ -799,8 +804,7 @@ static void wmi_dev_release(struct device *dev)
 
 static int wmi_dev_match(struct device *dev, struct device_driver *driver)
 {
-	struct wmi_driver *wmi_driver =
-		container_of(driver, struct wmi_driver, driver);
+	struct wmi_driver *wmi_driver = drv_to_wdrv(driver);
 	struct wmi_block *wblock = dev_to_wblock(dev);
 	const struct wmi_device_id *id = wmi_driver->id_table;
 
@@ -897,8 +901,7 @@ static long wmi_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	}
 
 	/* let the driver do any filtering and do the call */
-	wdriver = container_of(wblock->dev.dev.driver,
-			       struct wmi_driver, driver);
+	wdriver = drv_to_wdrv(wblock->dev.dev.driver);
 	if (!try_module_get(wdriver->driver.owner)) {
 		ret = -EBUSY;
 		goto out_ioctl;
@@ -931,8 +934,7 @@ static const struct file_operations wmi_fops = {
 static int wmi_dev_probe(struct device *dev)
 {
 	struct wmi_block *wblock = dev_to_wblock(dev);
-	struct wmi_driver *wdriver =
-		container_of(dev->driver, struct wmi_driver, driver);
+	struct wmi_driver *wdriver = drv_to_wdrv(dev->driver);
 	int ret = 0;
 	char *buf;
 
@@ -995,8 +997,7 @@ probe_failure:
 static void wmi_dev_remove(struct device *dev)
 {
 	struct wmi_block *wblock = dev_to_wblock(dev);
-	struct wmi_driver *wdriver =
-		container_of(dev->driver, struct wmi_driver, driver);
+	struct wmi_driver *wdriver = drv_to_wdrv(dev->driver);
 
 	if (wdriver->filter_callback) {
 		misc_deregister(&wblock->char_dev);
@@ -1300,14 +1301,11 @@ static void acpi_wmi_notify_handler(acpi_handle handle, u32 event,
 
 	/* If a driver is bound, then notify the driver. */
 	if (wblock->dev.dev.driver) {
-		struct wmi_driver *driver;
+		struct wmi_driver *driver = drv_to_wdrv(wblock->dev.dev.driver);
 		struct acpi_object_list input;
 		union acpi_object params[1];
 		struct acpi_buffer evdata = { ACPI_ALLOCATE_BUFFER, NULL };
 		acpi_status status;
-
-		driver = container_of(wblock->dev.dev.driver,
-				      struct wmi_driver, driver);
 
 		input.count = 1;
 		input.pointer = params;
