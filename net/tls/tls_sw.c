@@ -2033,6 +2033,7 @@ ssize_t tls_sw_splice_read(struct socket *sock,  loff_t *ppos,
 
 splice_read_end:
 	release_sock(sk);
+	sk_defer_free_flush(sk);
 	return copied ? : err;
 }
 
