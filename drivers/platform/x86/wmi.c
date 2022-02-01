@@ -56,6 +56,10 @@ static_assert(sizeof(typeof_member(struct guid_block, guid)) == 16);
 static_assert(sizeof(struct guid_block) == 20);
 static_assert(__alignof__(struct guid_block) == 1);
 
+enum {	/* wmi_block flags */
+	WMI_READ_TAKES_NO_ARGS,
+};
+
 struct wmi_block {
 	struct wmi_device dev;
 	struct list_head list;
@@ -66,8 +70,7 @@ struct wmi_block {
 	wmi_notify_handler handler;
 	void *handler_data;
 	u64 req_buf_size;
-
-	bool read_takes_no_args;
+	unsigned long flags;
 };
 
 
@@ -328,7 +331,7 @@ static acpi_status __query_block(struct wmi_block *wblock, u8 instance,
 	wq_params[0].type = ACPI_TYPE_INTEGER;
 	wq_params[0].integer.value = instance;
 
-	if (instance == 0 && wblock->read_takes_no_args)
+	if (instance == 0 && test_bit(WMI_READ_TAKES_NO_ARGS, &wblock->flags))
 		input.count = 0;
 
 	/*
@@ -1087,7 +1090,7 @@ static int wmi_create_device(struct device *wmi_bus_dev,
 	 * laptops, WQxx may not be a method at all.)
 	 */
 	if (info->type != ACPI_TYPE_METHOD || info->param_count == 0)
-		wblock->read_takes_no_args = true;
+		set_bit(WMI_READ_TAKES_NO_ARGS, &wblock->flags);
 
 	kfree(info);
 
