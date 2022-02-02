@@ -239,7 +239,6 @@ static void sev_unbind_asid(struct kvm *kvm, unsigned int handle)
 static int sev_guest_init(struct kvm *kvm, struct kvm_sev_cmd *argp)
 {
 	struct kvm_sev_info *sev = &to_kvm_svm(kvm)->sev_info;
-	bool es_active = argp->id == KVM_SEV_ES_INIT;
 	int asid, ret;
 
 	if (kvm->created_vcpus)
@@ -249,7 +248,8 @@ static int sev_guest_init(struct kvm *kvm, struct kvm_sev_cmd *argp)
 	if (unlikely(sev->active))
 		return ret;
 
-	sev->es_active = es_active;
+	sev->active = true;
+	sev->es_active = argp->id == KVM_SEV_ES_INIT;
 	asid = sev_asid_new(sev);
 	if (asid < 0)
 		goto e_no_asid;
@@ -259,8 +259,6 @@ static int sev_guest_init(struct kvm *kvm, struct kvm_sev_cmd *argp)
 	if (ret)
 		goto e_free;
 
-	sev->active = true;
-	sev->asid = asid;
 	INIT_LIST_HEAD(&sev->regions_list);
 
 	return 0;
@@ -270,6 +268,7 @@ e_free:
 	sev->asid = 0;
 e_no_asid:
 	sev->es_active = false;
+	sev->active = false;
 	return ret;
 }
 
@@ -1531,7 +1530,7 @@ static int sev_receive_finish(struct kvm *kvm, struct kvm_sev_cmd *argp)
 	return sev_issue_cmd(kvm, SEV_CMD_RECEIVE_FINISH, &data, &argp->error);
 }
 
-static bool cmd_allowed_from_miror(u32 cmd_id)
+static bool is_cmd_allowed_from_mirror(u32 cmd_id)
 {
 	/*
 	 * Allow mirrors VM to call KVM_SEV_LAUNCH_UPDATE_VMSA to enable SEV-ES
@@ -1698,6 +1697,16 @@ int svm_vm_migrate_from(struct kvm *kvm, unsigned int source_fd)
 	}
 
 	src_sev = &to_kvm_svm(source_kvm)->sev_info;
+
+	/*
+	 * VMs mirroring src's encryption context rely on it to keep the
+	 * ASID allocated, but below we are clearing src_sev->asid.
+	 */
+	if (src_sev->num_mirrored_vms) {
+		ret = -EBUSY;
+		goto out_unlock;
+	}
+
 	dst_sev->misc_cg = get_current_misc_cg();
 	cg_cleanup_sev = dst_sev;
 	if (dst_sev->misc_cg != src_sev->misc_cg) {
@@ -1760,7 +1769,7 @@ int svm_mem_enc_op(struct kvm *kvm, void __user *argp)
 
 	/* Only the enc_context_owner handles some memory enc operations. */
 	if (is_mirroring_enc_context(kvm) &&
-	    !cmd_allowed_from_miror(sev_cmd.id)) {
+	    !is_cmd_allowed_from_mirror(sev_cmd.id)) {
 		r = -EINVAL;
 		goto out;
 	}
@@ -1957,72 +1966,60 @@ int svm_vm_copy_asid_from(struct kvm *kvm, unsigned int source_fd)
 {
 	struct file *source_kvm_file;
 	struct kvm *source_kvm;
-	struct kvm_sev_info source_sev, *mirror_sev;
+	struct kvm_sev_info *source_sev, *mirror_sev;
 	int ret;
 
 	source_kvm_file = fget(source_fd);
 	if (!file_is_kvm(source_kvm_file)) {
 		ret = -EBADF;
-		goto e_source_put;
+		goto e_source_fput;
 	}
 
 	source_kvm = source_kvm_file->private_data;
-	mutex_lock(&source_kvm->lock);
+	ret = sev_lock_two_vms(kvm, source_kvm);
+	if (ret)
+		goto e_source_fput;
 
-	if (!sev_guest(source_kvm)) {
+	/*
+	 * Mirrors of mirrors should work, but let's not get silly.  Also
+	 * disallow out-of-band SEV/SEV-ES init if the target is already an
+	 * SEV guest, or if vCPUs have been created.  KVM relies on vCPUs being
+	 * created after SEV/SEV-ES initialization, e.g. to init intercepts.
+	 */
+	if (sev_guest(kvm) || !sev_guest(source_kvm) ||
+	    is_mirroring_enc_context(source_kvm) || kvm->created_vcpus) {
 		ret = -EINVAL;
-		goto e_source_unlock;
+		goto e_unlock;
 	}
-
-	/* Mirrors of mirrors should work, but let's not get silly */
-	if (is_mirroring_enc_context(source_kvm) || source_kvm == kvm) {
-		ret = -EINVAL;
-		goto e_source_unlock;
-	}
-
-	memcpy(&source_sev, &to_kvm_svm(source_kvm)->sev_info,
-	       sizeof(source_sev));
 
 	/*
 	 * The mirror kvm holds an enc_context_owner ref so its asid can't
 	 * disappear until we're done with it
 	 */
+	source_sev = &to_kvm_svm(source_kvm)->sev_info;
 	kvm_get_kvm(source_kvm);
-
-	fput(source_kvm_file);
-	mutex_unlock(&source_kvm->lock);
-	mutex_lock(&kvm->lock);
-
-	if (sev_guest(kvm)) {
-		ret = -EINVAL;
-		goto e_mirror_unlock;
-	}
+	source_sev->num_mirrored_vms++;
 
 	/* Set enc_context_owner and copy its encryption context over */
 	mirror_sev = &to_kvm_svm(kvm)->sev_info;
 	mirror_sev->enc_context_owner = source_kvm;
 	mirror_sev->active = true;
-	mirror_sev->asid = source_sev.asid;
-	mirror_sev->fd = source_sev.fd;
-	mirror_sev->es_active = source_sev.es_active;
-	mirror_sev->handle = source_sev.handle;
+	mirror_sev->asid = source_sev->asid;
+	mirror_sev->fd = source_sev->fd;
+	mirror_sev->es_active = source_sev->es_active;
+	mirror_sev->handle = source_sev->handle;
 	INIT_LIST_HEAD(&mirror_sev->regions_list);
+	ret = 0;
+
 	/*
 	 * Do not copy ap_jump_table. Since the mirror does not share the same
 	 * KVM contexts as the original, and they may have different
 	 * memory-views.
 	 */
 
-	mutex_unlock(&kvm->lock);
-	return 0;
-
-e_mirror_unlock:
-	mutex_unlock(&kvm->lock);
-	kvm_put_kvm(source_kvm);
-	return ret;
-e_source_unlock:
-	mutex_unlock(&source_kvm->lock);
-e_source_put:
+e_unlock:
+	sev_unlock_two_vms(kvm, source_kvm);
+e_source_fput:
 	if (source_kvm_file)
 		fput(source_kvm_file);
 	return ret;
@@ -2034,12 +2031,21 @@ void sev_vm_destroy(struct kvm *kvm)
 	struct list_head *head = &sev->regions_list;
 	struct list_head *pos, *q;
 
+	WARN_ON(sev->num_mirrored_vms);
+
 	if (!sev_guest(kvm))
 		return;
 
 	/* If this is a mirror_kvm release the enc_context_owner and skip sev cleanup */
 	if (is_mirroring_enc_context(kvm)) {
-		kvm_put_kvm(sev->enc_context_owner);
+		struct kvm *owner_kvm = sev->enc_context_owner;
+		struct kvm_sev_info *owner_sev = &to_kvm_svm(owner_kvm)->sev_info;
+
+		mutex_lock(&owner_kvm->lock);
+		if (!WARN_ON(!owner_sev->num_mirrored_vms))
+			owner_sev->num_mirrored_vms--;
+		mutex_unlock(&owner_kvm->lock);
+		kvm_put_kvm(owner_kvm);
 		return;
 	}
 
