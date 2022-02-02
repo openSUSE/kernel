@@ -36,6 +36,7 @@
 #include <linux/splice.h>
 #include <linux/in6.h>
 #include <linux/if_packet.h>
+#include <linux/llist.h>
 #include <net/flow.h>
 #include <net/page_pool.h>
 #if IS_ENABLED(CONFIG_NF_CONNTRACK)
@@ -620,6 +621,7 @@ typedef unsigned char *sk_buff_data_t;
  *		for retransmit timer
  *	@rbnode: RB tree node, alternative to next/prev for netem/tcp
  *	@list: queue head
+ *	@ll_node: anchor in an llist (eg socket defer_list)
  *	@sk: Socket we are owned by
  *	@ip_defrag_offset: (aka @sk) alternate use of @sk, used in
  *		fragmentation management
@@ -735,6 +737,7 @@ struct sk_buff {
 		};
 		struct rb_node		rbnode; /* used in netem, ip4 defrag, and tcp stack */
 		struct list_head	list;
+		struct llist_node	ll_node;
 	};
 
 	union {
