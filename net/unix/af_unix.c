@@ -115,6 +115,8 @@
 #include <net/checksum.h>
 #include <linux/security.h>
 
+#include "scm.h"
+
 static struct hlist_head unix_socket_table[UNIX_HASH_SIZE + 1];
 static DEFINE_SPINLOCK(unix_table_lock);
 static atomic_long_t unix_nr_socks;
