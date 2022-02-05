@@ -1189,7 +1189,7 @@ static void elan_disable_regulator(void *_data)
 	regulator_disable(data->vcc);
 }
 
-static const struct dmi_system_id elan_i2c_denylist[] __initconst = {
+static const struct dmi_system_id elan_i2c_denylist[] = {
 #if IS_ENABLED(CONFIG_I2C_HID_ACPI)
 	{
 		/* Lenovo Yoga Slim 7 is better supported by i2c-hid */
