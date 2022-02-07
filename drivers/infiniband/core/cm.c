@@ -1522,6 +1522,7 @@ int ib_send_cm_req(struct ib_cm_id *cm_id,
 							    id.local_id);
 	if (IS_ERR(cm_id_priv->timewait_info)) {
 		ret = PTR_ERR(cm_id_priv->timewait_info);
+		cm_id_priv->timewait_info = NULL;
 		goto out;
 	}
 
@@ -2109,6 +2110,7 @@ static int cm_req_handler(struct cm_work *work)
 							    id.local_id);
 	if (IS_ERR(cm_id_priv->timewait_info)) {
 		ret = PTR_ERR(cm_id_priv->timewait_info);
+		cm_id_priv->timewait_info = NULL;
 		goto destroy;
 	}
 	cm_id_priv->timewait_info->work.remote_id = cm_id_priv->id.remote_id;
@@ -2131,20 +2133,17 @@ static int cm_req_handler(struct cm_work *work)
 		goto destroy;
 	}
 
-	cm_process_routed_req(req_msg, work->mad_recv_wc->wc);
-
 	memset(&work->path[0], 0, sizeof(work->path[0]));
 	if (cm_req_has_alt_path(req_msg))
 		memset(&work->path[1], 0, sizeof(work->path[1]));
 	grh = rdma_ah_read_grh(&cm_id_priv->av.ah_attr);
 	gid_attr = grh->sgid_attr;
 
-	if (gid_attr &&
-	    rdma_protocol_roce(work->port->cm_dev->ib_device,
-			       work->port->port_num)) {
+	if (cm_id_priv->av.ah_attr.type == RDMA_AH_ATTR_TYPE_ROCE) {
 		work->path[0].rec_type =
 			sa_conv_gid_to_pathrec_type(gid_attr->gid_type);
 	} else {
+		cm_process_routed_req(req_msg, work->mad_recv_wc->wc);
 		cm_path_set_rec_type(
 			work->port->cm_dev->ib_device, work->port->port_num,
 			&work->path[0],
@@ -4356,7 +4355,7 @@ static int cm_add_one(struct ib_device *ib_device)
 	unsigned long flags;
 	int ret;
 	int count = 0;
-	u8 i;
+	unsigned int i;
 
 	cm_dev = kzalloc(struct_size(cm_dev, port, ib_device->phys_port_cnt),
 			 GFP_KERNEL);
@@ -4368,7 +4367,7 @@ static int cm_add_one(struct ib_device *ib_device)
 	cm_dev->going_down = 0;
 
 	set_bit(IB_MGMT_METHOD_SEND, reg_req.method_mask);
-	for (i = 1; i <= ib_device->phys_port_cnt; i++) {
+	rdma_for_each_port (ib_device, i) {
 		if (!rdma_cap_ib_cm(ib_device, i))
 			continue;
 
@@ -4454,7 +4453,7 @@ static void cm_remove_one(struct ib_device *ib_device, void *client_data)
 		.clr_port_cap_mask = IB_PORT_CM_SUP
 	};
 	unsigned long flags;
-	int i;
+	unsigned int i;
 
 	write_lock_irqsave(&cm.device_lock, flags);
 	list_del(&cm_dev->list);
@@ -4464,7 +4463,7 @@ static void cm_remove_one(struct ib_device *ib_device, void *client_data)
 	cm_dev->going_down = 1;
 	spin_unlock_irq(&cm.lock);
 
-	for (i = 1; i <= ib_device->phys_port_cnt; i++) {
+	rdma_for_each_port (ib_device, i) {
 		if (!rdma_cap_ib_cm(ib_device, i))
 			continue;
 

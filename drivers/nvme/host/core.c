@@ -364,6 +364,21 @@ void nvme_complete_rq(struct request *req)
 }
 EXPORT_SYMBOL_GPL(nvme_complete_rq);
 
+/*
+ * Called to unwind from ->queue_rq on a failed command submission so that the
+ * multipathing code gets called to potentially failover to another path.
+ * The caller needs to unwind all transport specific resource allocations and
+ * must return propagate the return value.
+ */
+blk_status_t nvme_host_path_error(struct request *req)
+{
+	nvme_req(req)->status = NVME_SC_HOST_PATH_ERROR;
+	blk_mq_set_request_complete(req);
+	nvme_complete_rq(req);
+	return BLK_STS_OK;
+}
+EXPORT_SYMBOL_GPL(nvme_host_path_error);
+
 bool nvme_cancel_request(struct request *req, void *data, bool reserved)
 {
 	dev_dbg_ratelimited(((struct nvme_ctrl *) data)->device,
@@ -850,11 +865,11 @@ static inline blk_status_t nvme_setup_rw(struct nvme_ns *ns,
 void nvme_cleanup_cmd(struct request *req)
 {
 	if (req->rq_flags & RQF_SPECIAL_PAYLOAD) {
-		struct nvme_ns *ns = req->rq_disk->private_data;
+		struct nvme_ctrl *ctrl = nvme_req(req)->ctrl;
 		struct page *page = req->special_vec.bv_page;
 
-		if (page == ns->ctrl->discard_page)
-			clear_bit_unlock(0, &ns->ctrl->discard_page_busy);
+		if (page == ctrl->discard_page)
+			clear_bit_unlock(0, &ctrl->discard_page_busy);
 		else
 			kfree(page_address(page) + req->special_vec.bv_offset);
 	}
@@ -3874,7 +3889,7 @@ static int nvme_init_ns_head(struct nvme_ns *ns, unsigned nsid,
 		}
 	}
 
-	list_add_tail(&ns->siblings, &head->list);
+	list_add_tail_rcu(&ns->siblings, &head->list);
 	ns->head = head;
 	mutex_unlock(&ctrl->subsys->lock);
 	return 0;
