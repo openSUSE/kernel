@@ -387,7 +387,6 @@ static struct sk_buff *init_req_packet(struct rxe_qp *qp,
 	int			pad = (-payload) & 0x3;
 	int			paylen;
 	int			solicited;
-	u16			pkey;
 	u32			qp_num;
 	int			ack_req;
 
@@ -418,8 +417,6 @@ static struct sk_buff *init_req_packet(struct rxe_qp *qp,
 			(pkt->mask & (RXE_WRITE_MASK | RXE_IMMDT_MASK)) ==
 			(RXE_WRITE_MASK | RXE_IMMDT_MASK));
 
-	pkey = IB_DEFAULT_PKEY_FULL;
-
 	qp_num = (pkt->mask & RXE_DETH_MASK) ? ibwr->wr.ud.remote_qpn :
 					 qp->attr.dest_qp_num;
 
@@ -428,7 +425,7 @@ static struct sk_buff *init_req_packet(struct rxe_qp *qp,
 	if (ack_req)
 		qp->req.noack_pkts = 0;
 
-	bth_init(pkt, pkt->opcode, solicited, 0, pad, pkey, qp_num,
+	bth_init(pkt, pkt->opcode, solicited, 0, pad, IB_DEFAULT_PKEY_FULL, qp_num,
 		 ack_req, pkt->psn);
 
 	/* init optional headers */
@@ -661,7 +658,8 @@ next_wqe:
 	}
 
 	if (unlikely(qp_type(qp) == IB_QPT_RC &&
-		     qp->req.psn > (qp->comp.psn + RXE_MAX_UNACKED_PSNS))) {
+		psn_compare(qp->req.psn, (qp->comp.psn +
+				RXE_MAX_UNACKED_PSNS)) > 0)) {
 		qp->req.wait_psn = 1;
 		goto exit;
 	}

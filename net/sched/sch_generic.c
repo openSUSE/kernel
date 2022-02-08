@@ -35,6 +35,25 @@
 const struct Qdisc_ops *default_qdisc_ops = &pfifo_fast_ops;
 EXPORT_SYMBOL(default_qdisc_ops);
 
+static void qdisc_maybe_clear_missed(struct Qdisc *q,
+				     const struct netdev_queue *txq)
+{
+	clear_bit(__QDISC_STATE_MISSED, &q->state);
+
+	/* Make sure the below netif_xmit_frozen_or_stopped()
+	 * checking happens after clearing STATE_MISSED.
+	 */
+	smp_mb__after_atomic();
+
+	/* Checking netif_xmit_frozen_or_stopped() again to
+	 * make sure STATE_MISSED is set if the STATE_MISSED
+	 * set by netif_tx_wake_queue()'s rescheduling of
+	 * net_tx_action() is cleared by the above clear_bit().
+	 */
+	if (!netif_xmit_frozen_or_stopped(txq))
+		set_bit(__QDISC_STATE_MISSED, &q->state);
+}
+
 /* Main transmission queue. */
 
 /* Modifications to data participating in scheduling must be protected with
@@ -74,6 +93,7 @@ static inline struct sk_buff *__skb_dequeue_bad_txq(struct Qdisc *q)
 			}
 		} else {
 			skb = SKB_XOFF_MAGIC;
+			qdisc_maybe_clear_missed(q, txq);
 		}
 	}
 
@@ -242,6 +262,7 @@ static struct sk_buff *dequeue_skb(struct Qdisc *q, bool *validate,
 			}
 		} else {
 			skb = NULL;
+			qdisc_maybe_clear_missed(q, txq);
 		}
 		if (lock)
 			spin_unlock(lock);
@@ -251,8 +272,10 @@ validate:
 	*validate = true;
 
 	if ((q->flags & TCQ_F_ONETXQUEUE) &&
-	    netif_xmit_frozen_or_stopped(txq))
+	    netif_xmit_frozen_or_stopped(txq)) {
+		qdisc_maybe_clear_missed(q, txq);
 		return skb;
+	}
 
 	skb = qdisc_dequeue_skb_bad_txq(q);
 	if (unlikely(skb)) {
@@ -311,6 +334,8 @@ bool sch_direct_xmit(struct sk_buff *skb, struct Qdisc *q,
 		HARD_TX_LOCK(dev, txq, smp_processor_id());
 		if (!netif_xmit_frozen_or_stopped(txq))
 			skb = dev_hard_start_xmit(skb, dev, txq, &ret);
+		else
+			qdisc_maybe_clear_missed(q, txq);
 
 		HARD_TX_UNLOCK(dev, txq);
 	} else {
@@ -658,8 +683,10 @@ static struct sk_buff *pfifo_fast_dequeue(struct Qdisc *qdisc)
 {
 	struct pfifo_fast_priv *priv = qdisc_priv(qdisc);
 	struct sk_buff *skb = NULL;
+	bool need_retry = true;
 	int band;
 
+retry:
 	for (band = 0; band < PFIFO_FAST_BANDS && !skb; band++) {
 		struct skb_array *q = band2list(priv, band);
 
@@ -670,6 +697,23 @@ static struct sk_buff *pfifo_fast_dequeue(struct Qdisc *qdisc)
 	}
 	if (likely(skb)) {
 		qdisc_update_stats_at_dequeue(qdisc, skb);
+	} else if (need_retry &&
+		   test_bit(__QDISC_STATE_MISSED, &qdisc->state)) {
+		/* Delay clearing the STATE_MISSED here to reduce
+		 * the overhead of the second spin_trylock() in
+		 * qdisc_run_begin() and __netif_schedule() calling
+		 * in qdisc_run_end().
+		 */
+		clear_bit(__QDISC_STATE_MISSED, &qdisc->state);
+
+		/* Make sure dequeuing happens after clearing
+		 * STATE_MISSED.
+		 */
+		smp_mb__after_atomic();
+
+		need_retry = false;
+
+		goto retry;
 	} else {
 		WRITE_ONCE(qdisc->empty, true);
 	}
@@ -809,7 +853,7 @@ struct Qdisc_ops pfifo_fast_ops __read_mostly = {
 	.dump		=	pfifo_fast_dump,
 	.change_tx_queue_len =  pfifo_fast_change_tx_queue_len,
 	.owner		=	THIS_MODULE,
-	.static_flags	=	TCQ_F_CPUSTATS,
+	.static_flags	=	TCQ_F_NOLOCK | TCQ_F_CPUSTATS,
 };
 EXPORT_SYMBOL(pfifo_fast_ops);
 
@@ -1149,24 +1193,10 @@ EXPORT_SYMBOL(dev_activate);
 
 static void qdisc_deactivate(struct Qdisc *qdisc)
 {
-	bool nolock = qdisc->flags & TCQ_F_NOLOCK;
-
 	if (qdisc->flags & TCQ_F_BUILTIN)
 		return;
-	if (test_bit(__QDISC_STATE_DEACTIVATED, &qdisc->state))
-		return;
-
-	if (nolock)
-		spin_lock_bh(&qdisc->seqlock);
-	spin_lock_bh(qdisc_lock(qdisc));
 
 	set_bit(__QDISC_STATE_DEACTIVATED, &qdisc->state);
-
-	qdisc_reset(qdisc);
-
-	spin_unlock_bh(qdisc_lock(qdisc));
-	if (nolock)
-		spin_unlock_bh(&qdisc->seqlock);
 }
 
 static void dev_deactivate_queue(struct net_device *dev,
@@ -1180,6 +1210,32 @@ static void dev_deactivate_queue(struct net_device *dev,
 	if (qdisc) {
 		qdisc_deactivate(qdisc);
 		rcu_assign_pointer(dev_queue->qdisc, qdisc_default);
+	}
+}
+
+static void dev_reset_queue(struct net_device *dev,
+			    struct netdev_queue *dev_queue,
+			    void *_unused)
+{
+	struct Qdisc *qdisc;
+	bool nolock;
+
+	qdisc = dev_queue->qdisc_sleeping;
+	if (!qdisc)
+		return;
+
+	nolock = qdisc->flags & TCQ_F_NOLOCK;
+
+	if (nolock)
+		spin_lock_bh(&qdisc->seqlock);
+	spin_lock_bh(qdisc_lock(qdisc));
+
+	qdisc_reset(qdisc);
+
+	spin_unlock_bh(qdisc_lock(qdisc));
+	if (nolock) {
+		clear_bit(__QDISC_STATE_MISSED, &qdisc->state);
+		spin_unlock_bh(&qdisc->seqlock);
 	}
 }
 
@@ -1231,11 +1287,19 @@ void dev_deactivate_many(struct list_head *head)
 		dev_watchdog_down(dev);
 	}
 
-	/* Wait for outstanding qdisc-less dev_queue_xmit calls.
+	/* Wait for outstanding qdisc-less dev_queue_xmit calls or
+	 * outstanding qdisc enqueuing calls.
 	 * This is avoided if all devices are in dismantle phase :
 	 * Caller will call synchronize_net() for us
 	 */
 	synchronize_net();
+
+	list_for_each_entry(dev, head, close_list) {
+		netdev_for_each_tx_queue(dev, dev_reset_queue, NULL);
+
+		if (dev_ingress_queue(dev))
+			dev_reset_queue(dev, dev_ingress_queue(dev), NULL);
+	}
 
 	/* Wait for outstanding qdisc_run calls. */
 	list_for_each_entry(dev, head, close_list) {
