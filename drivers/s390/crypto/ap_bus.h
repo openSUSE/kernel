@@ -173,8 +173,10 @@ struct ap_card {
 	unsigned int functions;		/* AP device function bitfield. */
 	int queue_depth;		/* AP queue depth.*/
 	int id;				/* AP card number. */
-	unsigned int maxmsgsize;	/* AP msg limit for this card */
 	bool config;			/* configured state */
+#ifndef __GENKSYMS__
+	unsigned int maxmsgsize;	/* AP msg limit for this card */
+#endif
 	atomic64_t total_request_count;	/* # requests ever for this AP device.*/
 };
 
@@ -236,10 +238,12 @@ struct ap_message {
 	unsigned long long psmid;	/* Message id. */
 	void *msg;			/* Pointer to message buffer. */
 	unsigned int len;		/* actual msg len in msg buffer */
-	unsigned int bufsize;		/* allocated msg buffer size */
 	u16 flags;			/* Flags, see AP_MSG_FLAG_xxx */
 	struct ap_fi fi;		/* Failure Injection cmd */
 	int rc;				/* Return code for this message */
+#ifndef __GENKSYMS__
+	unsigned int bufsize;		/* allocated msg buffer size */
+#endif
 	void *private;			/* ap driver private pointer. */
 	/* receive is called from tasklet context */
 	void (*receive)(struct ap_queue *, struct ap_message *,
