@@ -1578,6 +1578,7 @@ static struct nfs4_stid *find_sb_stid(struct nfs4_client *clp,
 		stid = idr_get_next_ul(&clp->cl_stateids, &id);
 	} while (stid &&
 		 !((stid->sc_type & sc_types) &&
+		   stid->sc_client->cl_minorversion > 0 &&
 		   stid->sc_file->fi_sb == sb));
 	if (stid)
 		refcount_inc(&stid->sc_count);
