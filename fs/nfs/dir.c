@@ -78,6 +78,7 @@ static struct nfs_open_dir_context *alloc_nfs_open_dir_context(struct inode *dir
 		ctx->attr_gencount = nfsi->attr_gencount;
 		ctx->dir_cookie = 0;
 		ctx->dup_cookie = 0;
+		ctx->eof = false;
 		spin_lock(&dir->i_lock);
 		if (list_empty(&nfsi->open_files) &&
 		    (nfsi->cache_validity & NFS_INO_DATA_INVAL_DEFER))
@@ -165,6 +166,7 @@ struct nfs_readdir_descriptor {
 	unsigned int	cache_entry_index;
 	signed char duped;
 	bool plus;
+	bool eob;
 	bool eof;
 };
 
@@ -996,7 +998,7 @@ static void nfs_do_filldir(struct nfs_readdir_descriptor *desc,
 		ent = &array->array[i];
 		if (!dir_emit(desc->ctx, ent->name, ent->name_len,
 		    nfs_compat_user_ino64(ent->ino), ent->d_type)) {
-			desc->eof = true;
+			desc->eob = true;
 			break;
 		}
 		memcpy(desc->verf, verf, sizeof(desc->verf));
@@ -1012,7 +1014,7 @@ static void nfs_do_filldir(struct nfs_readdir_descriptor *desc,
 			desc->duped = 1;
 	}
 	if (array->page_is_eof)
-		desc->eof = true;
+		desc->eof = !desc->eob;
 
 	kunmap(desc->page);
 	dfprintk(DIRCACHE, "NFS: nfs_do_filldir() filling ended @ cookie %llu\n",
@@ -1055,7 +1057,7 @@ static int uncached_readdir(struct nfs_readdir_descriptor *desc)
 
 	status = nfs_readdir_xdr_to_array(desc, desc->verf, verf, arrays, sz);
 
-	for (i = 0; !desc->eof && i < sz && arrays[i]; i++) {
+	for (i = 0; !desc->eob && i < sz && arrays[i]; i++) {
 		desc->page = arrays[i];
 		nfs_do_filldir(desc, verf);
 	}
@@ -1112,8 +1114,14 @@ static int nfs_readdir(struct file *file, struct dir_context *ctx)
 	desc->dup_cookie = dir_ctx->dup_cookie;
 	desc->duped = dir_ctx->duped;
 	desc->attr_gencount = dir_ctx->attr_gencount;
+	desc->eof = dir_ctx->eof;
 	memcpy(desc->verf, dir_ctx->verf, sizeof(desc->verf));
 	spin_unlock(&file->f_lock);
+
+	if (desc->eof) {
+		res = 0;
+		goto out_free;
+	}
 
 	do {
 		res = readdir_search_pagecache(desc);
@@ -1144,16 +1152,17 @@ static int nfs_readdir(struct file *file, struct dir_context *ctx)
 
 		nfs_do_filldir(desc, nfsi->cookieverf);
 		nfs_readdir_page_unlock_and_put_cached(desc);
-	} while (!desc->eof);
+	} while (!desc->eob && !desc->eof);
 
 	spin_lock(&file->f_lock);
 	dir_ctx->dir_cookie = desc->dir_cookie;
 	dir_ctx->dup_cookie = desc->dup_cookie;
 	dir_ctx->duped = desc->duped;
 	dir_ctx->attr_gencount = desc->attr_gencount;
+	dir_ctx->eof = desc->eof;
 	memcpy(dir_ctx->verf, desc->verf, sizeof(dir_ctx->verf));
 	spin_unlock(&file->f_lock);
-
+out_free:
 	kfree(desc);
 
 out:
@@ -1195,6 +1204,7 @@ static loff_t nfs_llseek_dir(struct file *filp, loff_t offset, int whence)
 		if (offset == 0)
 			memset(dir_ctx->verf, 0, sizeof(dir_ctx->verf));
 		dir_ctx->duped = 0;
+		dir_ctx->eof = false;
 	}
 	spin_unlock(&filp->f_lock);
 	return offset;
