@@ -67,7 +67,9 @@ enum fc_port_state {
 	FC_PORTSTATE_ERROR,
 	FC_PORTSTATE_LOOPBACK,
 	FC_PORTSTATE_DELETED,
+#ifndef __GENKSYMS__
 	FC_PORTSTATE_MARGINAL,
+#endif
 };
 
 
