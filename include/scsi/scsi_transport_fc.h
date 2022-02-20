@@ -67,6 +67,9 @@ enum fc_port_state {
 	FC_PORTSTATE_ERROR,
 	FC_PORTSTATE_LOOPBACK,
 	FC_PORTSTATE_DELETED,
+#ifndef __GENKSYMS__
+	FC_PORTSTATE_MARGINAL,
+#endif
 };
 
 
@@ -707,7 +710,6 @@ struct fc_function_template {
 	unsigned long	disable_target_scan:1;
 };
 
-
 /**
  * fc_remote_port_chkready - called to validate the remote port state
  *   prior to initiating io to the port.
@@ -723,6 +725,7 @@ fc_remote_port_chkready(struct fc_rport *rport)
 
 	switch (rport->port_state) {
 	case FC_PORTSTATE_ONLINE:
+	case FC_PORTSTATE_MARGINAL:
 		if (rport->roles & FC_PORT_ROLE_FCP_TARGET)
 			result = 0;
 		else if (rport->flags & FC_RPORT_DEVLOSS_PENDING)
@@ -803,6 +806,7 @@ int fc_vport_terminate(struct fc_vport *vport);
 int fc_block_rport(struct fc_rport *rport);
 int fc_block_scsi_eh(struct scsi_cmnd *cmnd);
 enum blk_eh_timer_return fc_eh_timed_out(struct scsi_cmnd *scmd);
+bool fc_eh_should_retry_cmd(struct scsi_cmnd *scmd);
 
 static inline struct Scsi_Host *fc_bsg_to_shost(struct bsg_job *job)
 {
