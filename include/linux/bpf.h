@@ -952,6 +952,11 @@ int btf_distill_func_proto(struct bpf_verifier_log *log,
 
 int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog);
 
+static inline bool unprivileged_ebpf_enabled(void)
+{
+	return !sysctl_unprivileged_bpf_disabled;
+}
+
 #else /* !CONFIG_BPF_SYSCALL */
 static inline struct bpf_prog *bpf_prog_get(u32 ufd)
 {
@@ -1082,6 +1087,11 @@ static inline int bpf_prog_test_run_flow_dissector(struct bpf_prog *prog,
 
 static inline void bpf_map_put(struct bpf_map *map)
 {
+}
+
+static inline bool unprivileged_ebpf_enabled(void)
+{
+	return false;
 }
 #endif /* CONFIG_BPF_SYSCALL */
 
