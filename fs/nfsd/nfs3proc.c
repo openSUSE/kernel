@@ -161,6 +161,11 @@ nfsd3_proc_read(struct svc_rqst *rqstp)
 				(unsigned long) argp->count,
 				(unsigned long long) argp->offset);
 
+	if (argp->offset > (u64)OFFSET_MAX)
+		argp->offset = (u64)OFFSET_MAX;
+	if (argp->offset + cnt > (u64)OFFSET_MAX)
+		cnt = (u64)OFFSET_MAX - argp->offset;
+
 	/* Obtain buffer pointer for payload.
 	 * 1 (status) + 22 (post_op_attr) + 1 (count) + 1 (eof)
 	 * + 1 (xdr opaque byte count) = 26

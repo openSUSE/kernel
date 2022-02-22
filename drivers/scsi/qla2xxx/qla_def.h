@@ -640,9 +640,9 @@ struct qla_els_pt_arg {
 	u8 els_opcode;
 	u8 vp_idx;
 	__le16 nport_handle;
-	u16 control_flags;
+	u16 control_flags, ox_id;
 	__le32 rx_xchg_address;
-	port_id_t did;
+	port_id_t did, sid;
 	u32 tx_len, tx_byte_count, rx_len, rx_byte_count;
 	dma_addr_t tx_addr, rx_addr;
 
@@ -727,6 +727,11 @@ typedef struct srb {
 	 * code.
 	 */
 	void (*put_fn)(struct kref *kref);
+
+	/*
+	 * Report completion for asynchronous commands.
+	 */
+	void (*async_done)(struct srb *sp, int res);
 } srb_t;
 
 #define GET_CMD_SP(sp) (sp->u.scmd.cmd)
@@ -2887,7 +2892,11 @@ struct ct_fdmi2_hba_attributes {
 #define FDMI_PORT_SPEED_8GB		0x10
 #define FDMI_PORT_SPEED_16GB		0x20
 #define FDMI_PORT_SPEED_32GB		0x40
-#define FDMI_PORT_SPEED_64GB		0x80
+#define FDMI_PORT_SPEED_20GB		0x80
+#define FDMI_PORT_SPEED_40GB		0x100
+#define FDMI_PORT_SPEED_128GB		0x200
+#define FDMI_PORT_SPEED_64GB		0x400
+#define FDMI_PORT_SPEED_256GB		0x800
 #define FDMI_PORT_SPEED_UNKNOWN		0x8000
 
 #define FC_CLASS_2	0x04
@@ -4263,8 +4272,10 @@ struct qla_hw_data {
 #define QLA_ABTS_WAIT_ENABLED(_sp) \
 	(QLA_NVME_IOS(_sp) && QLA_ABTS_FW_ENABLED(_sp->fcport->vha->hw))
 
-#define IS_PI_UNINIT_CAPABLE(ha)	(IS_QLA83XX(ha) || IS_QLA27XX(ha))
-#define IS_PI_IPGUARD_CAPABLE(ha)	(IS_QLA83XX(ha) || IS_QLA27XX(ha))
+#define IS_PI_UNINIT_CAPABLE(ha)	(IS_QLA83XX(ha) || IS_QLA27XX(ha) || \
+					 IS_QLA28XX(ha))
+#define IS_PI_IPGUARD_CAPABLE(ha)	(IS_QLA83XX(ha) || IS_QLA27XX(ha) || \
+					 IS_QLA28XX(ha))
 #define IS_PI_DIFB_DIX0_CAPABLE(ha)	(0)
 #define IS_PI_SPLIT_DET_CAPABLE_HBA(ha)	(IS_QLA83XX(ha) || IS_QLA27XX(ha) || \
 					IS_QLA28XX(ha))
@@ -4907,7 +4918,6 @@ typedef struct scsi_qla_host {
 
 	/* list of commands waiting on workqueue */
 	struct list_head	qla_cmd_list;
-	struct list_head	qla_sess_op_cmd_list;
 	struct list_head	unknown_atio_list;
 	spinlock_t		cmd_list_lock;
 	struct delayed_work	unknown_atio_work;
