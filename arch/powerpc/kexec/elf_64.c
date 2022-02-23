@@ -179,7 +179,7 @@ int elf64_verify_sig(const char *kernel, unsigned long kernel_len)
 
 	return verify_pkcs7_signature(kernel, kernel_len,
 				      kernel + kernel_len, sig_len,
-				      VERIFY_USE_PLATFORM_KEYRING,
+				      VERIFY_USE_SECONDARY_KEYRING,
 				      VERIFYING_MODULE_SIGNATURE,
 				      NULL, NULL);
 }
