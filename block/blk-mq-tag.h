@@ -23,11 +23,13 @@ struct blk_mq_tags {
 	struct request **static_rqs;
 	struct list_head page_list;
 
+#ifndef __GENKSYMS__
 	/*
 	 * used to clear request reference in rqs[] before freeing one
 	 * request pool
 	 */
 	spinlock_t lock;
+#endif
 };
 
 extern struct blk_mq_tags *blk_mq_init_tags(unsigned int nr_tags,
