@@ -53,19 +53,32 @@ bool set_capacity_revalidate_and_notify(struct gendisk *disk, sector_t size,
 					bool update_bdev)
 {
 	sector_t capacity = get_capacity(disk);
+	char *envp[] = { "RESIZE=1", NULL };
 
 	set_capacity(disk, size);
 	if (update_bdev)
 		revalidate_disk_size(disk, true);
 
-	if (capacity != size && capacity != 0 && size != 0) {
-		char *envp[] = { "RESIZE=1", NULL };
+	/*
+	 * Only print a message and send a uevent if the gendisk is user visible
+	 * and alive.  This avoids spamming the log and udev when setting the
+	 * initial capacity during probing.
+	 */
+	if (size == capacity ||
+	    (disk->flags & (GENHD_FL_UP | GENHD_FL_HIDDEN)) != GENHD_FL_UP)
+		return false;
 
-		kobject_uevent_env(&disk_to_dev(disk)->kobj, KOBJ_CHANGE, envp);
-		return true;
-	}
+	pr_info("%s: detected capacity change from %lld to %lld\n",
+		disk->disk_name, capacity, size);
 
-	return false;
+	/*
+	 * Historically we did not send a uevent for changes to/from an empty
+	 * device.
+	 */
+	if (!capacity || !size)
+		return false;
+	kobject_uevent_env(&disk_to_dev(disk)->kobj, KOBJ_CHANGE, envp);
+	return true;
 }
 
 EXPORT_SYMBOL_GPL(set_capacity_revalidate_and_notify);
