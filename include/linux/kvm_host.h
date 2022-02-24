@@ -267,13 +267,15 @@ struct kvm_vcpu {
 #endif
 	int cpu;
 	int vcpu_id; /* id given by userspace at creation */
-	int vcpu_idx; /* index in kvm->vcpus array */
 	int srcu_idx;
 	int mode;
 	u64 requests;
 	unsigned long guest_debug;
 
 	int pre_pcpu;
+#ifndef __GENKSYMS__
+	int vcpu_idx; /* index in kvm->vcpus array */
+#endif
 	struct list_head blocked_vcpu_list;
 
 	struct mutex mutex;
