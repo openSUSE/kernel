@@ -1290,6 +1290,13 @@ static int cgroup_remount(struct super_block *sb, int *flags, char *data)
 		goto out_unlock;
 	}
 
+	/* See cgroup_mount release_agent handling */
+	if (opts.release_agent && !capable(CAP_SYS_ADMIN)) {
+		ret = -EINVAL;
+		drop_parsed_module_refcounts(opts.subsys_bits);
+		goto out_unlock;
+	}
+
 	ret = rebind_subsystems(root, opts.subsys_bits);
 	if (ret) {
 		drop_parsed_module_refcounts(opts.subsys_bits);
@@ -1495,6 +1502,15 @@ static struct dentry *cgroup_mount(struct file_system_type *fs_type,
 	mutex_unlock(&cgroup_mutex);
 	if (ret)
 		goto out_err;
+
+	/*
+	 * Release agent gets called with all capabilities,
+	 * require capabilities to set release agent.
+	 */
+	if (opts.release_agent && !capable(CAP_SYS_ADMIN)) {
+		ret = -EINVAL;
+		goto out_err;
+	}
 
 	/*
 	 * Allocate a new cgroup root. We may not need it if we're
@@ -2314,6 +2330,13 @@ static int cgroup_release_agent_write(struct cgroup *cgrp, struct cftype *cft,
 	BUILD_BUG_ON(sizeof(cgrp->root->release_agent_path) < PATH_MAX);
 	if (strlen(buffer) >= PATH_MAX)
 		return -EINVAL;
+	/*
+	 * Release agent gets called with all capabilities,
+	 * require capabilities to set release agent.
+	 */
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
 	if (!cgroup_lock_live_group(cgrp))
 		return -ENODEV;
 	strcpy(cgrp->root->release_agent_path, buffer);
