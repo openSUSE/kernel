@@ -465,6 +465,8 @@ void tipc_mon_rcv(struct net *net, void *data, u16 dlen, u32 addr,
 		return;
 	if ((dlen < new_dlen) || ntohs(arrv_dom->len) != new_dlen)
 		return;
+	if (new_member_cnt >= MAX_MON_DOMAIN)
+		return;
 
 	/* Synch generation numbers with peer if link just came up */
 	if (!state->synched) {
