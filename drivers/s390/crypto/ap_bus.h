@@ -25,8 +25,11 @@
 #define AP_RESET_TIMEOUT (HZ*0.7)	/* Time in ticks for reset timeouts. */
 #define AP_CONFIG_TIME 30	/* Time in seconds between AP bus rescans. */
 #define AP_POLL_TIME 1		/* Time in ticks between receive polls. */
+#define AP_DEFAULT_MAX_MSG_SIZE (12 * 1024)
+#define AP_TAPQ_ML_FIELD_CHUNK_SIZE (4096)
 
 extern int ap_domain_index;
+extern atomic_t ap_max_msg_size;
 
 extern DECLARE_HASHTABLE(ap_queues, 8);
 extern spinlock_t ap_queues_lock;
@@ -171,6 +174,9 @@ struct ap_card {
 	int queue_depth;		/* AP queue depth.*/
 	int id;				/* AP card number. */
 	bool config;			/* configured state */
+#ifndef __GENKSYMS__
+	unsigned int maxmsgsize;	/* AP msg limit for this card */
+#endif
 	atomic64_t total_request_count;	/* # requests ever for this AP device.*/
 };
 
@@ -231,10 +237,13 @@ struct ap_message {
 	struct list_head list;		/* Request queueing. */
 	unsigned long long psmid;	/* Message id. */
 	void *msg;			/* Pointer to message buffer. */
-	unsigned int len;		/* Message length. */
+	unsigned int len;		/* actual msg len in msg buffer */
 	u16 flags;			/* Flags, see AP_MSG_FLAG_xxx */
 	struct ap_fi fi;		/* Failure Injection cmd */
 	int rc;				/* Return code for this message */
+#ifndef __GENKSYMS__
+	unsigned int bufsize;		/* allocated msg buffer size */
+#endif
 	void *private;			/* ap driver private pointer. */
 	/* receive is called from tasklet context */
 	void (*receive)(struct ap_queue *, struct ap_message *,
@@ -295,8 +304,8 @@ void ap_queue_suspend(struct ap_device *ap_dev);
 void ap_queue_resume(struct ap_device *ap_dev);
 void ap_queue_init_state(struct ap_queue *aq);
 
-struct ap_card *ap_card_create(int id, int queue_depth, int raw_device_type,
-			       int comp_device_type, unsigned int functions);
+struct ap_card *ap_card_create(int id, int queue_depth, int raw_type,
+			       int comp_type, unsigned int functions, int ml);
 
 struct ap_perms {
 	unsigned long ioctlm[BITS_TO_LONGS(AP_IOCTLS)];

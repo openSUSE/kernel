@@ -928,6 +928,10 @@ nfs4_put_stid(struct nfs4_stid *s)
 		return;
 	}
 	idr_remove(&clp->cl_stateids, s->sc_stateid.si_opaque.so_id);
+	if (s->sc_type == NFS4_ADMIN_REVOKED_STID ||
+	    s->sc_type == NFS4_ADMIN_REVOKED_LOCK_STID)
+		atomic_dec(&clp->cl_admin_revoked);
+	s->sc_type = 0;
 	spin_unlock(&clp->cl_lock);
 	s->sc_free(s);
 	if (fp)
@@ -979,6 +983,10 @@ static void destroy_unhashed_deleg(struct nfs4_delegation *dp)
 
 void nfs4_unhash_stid(struct nfs4_stid *s)
 {
+	struct nfs4_client *clp = s->sc_client;
+	if (s->sc_type == NFS4_ADMIN_REVOKED_STID ||
+	    s->sc_type == NFS4_ADMIN_REVOKED_LOCK_STID)
+		atomic_dec(&clp->cl_admin_revoked);
 	s->sc_type = 0;
 }
 
@@ -1071,14 +1079,15 @@ static void destroy_delegation(struct nfs4_delegation *dp)
 		destroy_unhashed_deleg(dp);
 }
 
-static void revoke_delegation(struct nfs4_delegation *dp)
+static void revoke_delegation(struct nfs4_delegation *dp,
+			      unsigned short sc_type)
 {
 	struct nfs4_client *clp = dp->dl_stid.sc_client;
 
 	WARN_ON(!list_empty(&dp->dl_recall_lru));
 
-	if (clp->cl_minorversion) {
-		dp->dl_stid.sc_type = NFS4_REVOKED_DELEG_STID;
+	if (clp->cl_minorversion || sc_type == NFS4_ADMIN_REVOKED_DELEG_STID) {
+		dp->dl_stid.sc_type = sc_type;
 		refcount_inc(&dp->dl_stid.sc_count);
 		spin_lock(&clp->cl_lock);
 		list_add(&dp->dl_recall_lru, &clp->cl_revoked);
@@ -1339,6 +1348,10 @@ static void put_ol_stateid_locked(struct nfs4_ol_stateid *stp,
 	}
 
 	idr_remove(&clp->cl_stateids, s->sc_stateid.si_opaque.so_id);
+	if (s->sc_type == NFS4_ADMIN_REVOKED_STID ||
+	    s->sc_type == NFS4_ADMIN_REVOKED_LOCK_STID)
+		atomic_dec(&clp->cl_admin_revoked);
+	s->sc_type = 0;
 	list_add(&stp->st_locks, reaplist);
 }
 
@@ -1481,6 +1494,102 @@ static void release_openowner(struct nfs4_openowner *oo)
 	free_ol_stateid_reaplist(&reaplist);
 	release_last_closed_stateid(oo);
 	nfs4_put_stateowner(&oo->oo_owner);
+}
+
+static struct nfs4_stid *find_sb_stid(struct nfs4_client *clp,
+				      struct super_block *sb,
+				      unsigned short sc_types)
+{
+	unsigned long id = 0;
+	struct nfs4_stid *stid;
+
+	spin_lock(&clp->cl_lock);
+	do {
+		id += 1;
+		stid = idr_get_next_ul(&clp->cl_stateids, &id);
+	} while (stid &&
+		 !((stid->sc_type & sc_types) &&
+		   stid->sc_client->cl_minorversion > 0 &&
+		   stid->sc_file->fi_sb == sb));
+	if (stid)
+		refcount_inc(&stid->sc_count);
+	spin_unlock(&clp->cl_lock);
+	return stid;
+}
+
+void nfsd4_revoke_states(struct net *net, struct super_block *sb)
+{
+	struct nfsd_net *nn = net_generic(net, nfsd_net_id);
+	unsigned int idhashval;
+	unsigned short sc_types;
+
+	sc_types = NFS4_OPEN_STID | NFS4_LOCK_STID | NFS4_DELEG_STID;
+
+	spin_lock(&nn->client_lock);
+	for (idhashval = 0; idhashval < CLIENT_HASH_MASK; idhashval++) {
+		struct list_head *head = &nn->conf_id_hashtbl[idhashval];
+		struct nfs4_client *clp;
+	retry:
+		list_for_each_entry(clp, head, cl_idhash) {
+			struct nfs4_stid *stid = find_sb_stid(clp, sb, sc_types);
+			if (stid) {
+				struct nfs4_ol_stateid *stp;
+				struct nfs4_delegation *dp;
+
+				spin_unlock(&nn->client_lock);
+				switch (stid->sc_type) {
+				case NFS4_OPEN_STID:
+					stp = openlockstateid(stid);
+					mutex_lock_nested(&stp->st_mutex,
+							  OPEN_STATEID_MUTEX);
+					if (stid->sc_type == NFS4_OPEN_STID) {
+						release_all_access(stp);
+						stid->sc_type =
+							NFS4_ADMIN_REVOKED_STID;
+						atomic_inc(&clp->cl_admin_revoked);
+						/* FIXME revoke the locks */
+					}
+					mutex_unlock(&stp->st_mutex);
+					break;
+				case NFS4_LOCK_STID:
+					stp = openlockstateid(stid);
+					mutex_lock_nested(&stp->st_mutex,
+							  LOCK_STATEID_MUTEX);
+					if (stid->sc_type == NFS4_LOCK_STID) {
+						struct nfs4_lockowner *lo =
+							lockowner(stp->st_stateowner);
+						struct file *file;
+						file = find_any_file(stp->st_stid.sc_file);
+						if (file)
+							filp_close(file,
+								   (fl_owner_t)lo);
+						release_all_access(stp);
+						stid->sc_type =
+							NFS4_ADMIN_REVOKED_LOCK_STID;
+						atomic_inc(&clp->cl_admin_revoked);
+					}
+					mutex_unlock(&stp->st_mutex);
+					break;
+				case NFS4_DELEG_STID:
+					dp = delegstateid(stid);
+					spin_lock(&state_lock);
+					if (!unhash_delegation_locked(dp))
+						dp = NULL;
+					spin_unlock(&state_lock);
+					if (dp) {
+						list_del_init(&dp->dl_recall_lru);
+						revoke_delegation(
+							dp, NFS4_ADMIN_REVOKED_DELEG_STID);
+					}
+					break;
+				}
+				nfs4_put_stid(stid);
+				spin_lock(&nn->client_lock);
+				goto retry;
+			}
+		}
+	}
+	spin_unlock(&nn->client_lock);
 }
 
 static inline int
@@ -2238,7 +2347,8 @@ find_stateid_locked(struct nfs4_client *cl, stateid_t *t)
 }
 
 static struct nfs4_stid *
-find_stateid_by_type(struct nfs4_client *cl, stateid_t *t, char typemask)
+find_stateid_by_type(struct nfs4_client *cl, stateid_t *t,
+		     unsigned short typemask)
 {
 	struct nfs4_stid *s;
 
@@ -2294,6 +2404,8 @@ static int client_info_show(struct seq_file *m, void *v)
 		seq_printf(m, "\nImplementation time: [%ld, %ld]\n",
 			clp->cl_nii_time.tv_sec, clp->cl_nii_time.tv_nsec);
 	}
+	seq_printf(m, "admin-revoked states: %d\n",
+		   atomic_read(&clp->cl_admin_revoked));
 	drop_client(clp);
 
 	return 0;
@@ -3692,6 +3804,8 @@ out:
 	}
 	if (!list_empty(&clp->cl_revoked))
 		seq->status_flags |= SEQ4_STATUS_RECALLABLE_STATE_REVOKED;
+	if (atomic_read(&clp->cl_admin_revoked))
+		seq->status_flags |= SEQ4_STATUS_ADMIN_STATE_REVOKED;
 out_no_session:
 	if (conn)
 		free_conn(conn);
@@ -3943,7 +4057,7 @@ static struct nfs4_file *nfsd4_alloc_file(void)
 
 /* OPEN Share state helper functions */
 static void nfsd4_init_file(struct knfsd_fh *fh, unsigned int hashval,
-				struct nfs4_file *fp)
+			    struct nfs4_file *fp, struct super_block *sb)
 {
 	lockdep_assert_held(&state_lock);
 
@@ -3958,6 +4072,7 @@ static void nfsd4_init_file(struct knfsd_fh *fh, unsigned int hashval,
 	fp->fi_share_deny = 0;
 	memset(fp->fi_fds, 0, sizeof(fp->fi_fds));
 	memset(fp->fi_access, 0, sizeof(fp->fi_access));
+	fp->fi_sb = sb;
 #ifdef CONFIG_NFSD_PNFS
 	INIT_LIST_HEAD(&fp->fi_lo_states);
 	atomic_set(&fp->fi_lo_recalls, 0);
@@ -4140,6 +4255,11 @@ nfsd4_verify_open_stid(struct nfs4_stid *s)
 		break;
 	case NFS4_REVOKED_DELEG_STID:
 		ret = nfserr_deleg_revoked;
+		break;
+	case NFS4_ADMIN_REVOKED_STID:
+	case NFS4_ADMIN_REVOKED_DELEG_STID:
+		ret = nfserr_admin_revoked;
+		break;
 	}
 	return ret;
 }
@@ -4323,7 +4443,7 @@ find_file(struct knfsd_fh *fh)
 }
 
 static struct nfs4_file *
-find_or_add_file(struct nfs4_file *new, struct knfsd_fh *fh)
+find_or_add_file(struct nfs4_file *new, struct knfsd_fh *fh, struct super_block *sb)
 {
 	struct nfs4_file *fp;
 	unsigned int hashval = file_hashval(fh);
@@ -4337,7 +4457,7 @@ find_or_add_file(struct nfs4_file *new, struct knfsd_fh *fh)
 	spin_lock(&state_lock);
 	fp = find_file_locked(fh, hashval);
 	if (likely(fp == NULL)) {
-		nfsd4_init_file(fh, hashval, new);
+		nfsd4_init_file(fh, hashval, new, sb);
 		fp = new;
 	}
 	spin_unlock(&state_lock);
@@ -4395,8 +4515,9 @@ static int nfsd4_cb_recall_done(struct nfsd4_callback *cb,
 {
 	struct nfs4_delegation *dp = cb_to_delegation(cb);
 
-	if (dp->dl_stid.sc_type == NFS4_CLOSED_DELEG_STID)
-	        return 1;
+	if (dp->dl_stid.sc_type == NFS4_CLOSED_DELEG_STID ||
+	    dp->dl_stid.sc_type == NFS4_ADMIN_REVOKED_DELEG_STID)
+		return 1;
 
 	switch (task->tk_status) {
 	case 0:
@@ -4637,6 +4758,11 @@ nfs4_check_deleg(struct nfs4_client *cl, struct nfsd4_open *open,
 		nfs4_put_stid(&deleg->dl_stid);
 		if (cl->cl_minorversion)
 			status = nfserr_deleg_revoked;
+		goto out;
+	}
+	if (deleg->dl_stid.sc_type == NFS4_ADMIN_REVOKED_DELEG_STID) {
+		nfs4_put_stid(&deleg->dl_stid);
+		status = nfserr_admin_revoked;
 		goto out;
 	}
 	flags = share_access_to_flags(open->op_share_access);
@@ -5016,7 +5142,8 @@ nfsd4_process_open2(struct svc_rqst *rqstp, struct svc_fh *current_fh, struct nf
 	 * and check for delegations in the process of being recalled.
 	 * If not found, create the nfs4_file struct
 	 */
-	fp = find_or_add_file(open->op_file, &current_fh->fh_handle);
+	fp = find_or_add_file(open->op_file, &current_fh->fh_handle,
+			      current_fh->fh_dentry->d_sb);
 	if (fp != open->op_file) {
 		status = nfs4_check_deleg(cl, open, &dp);
 		if (status)
@@ -5270,7 +5397,7 @@ nfs4_laundromat(struct nfsd_net *nn)
 		dp = list_first_entry(&reaplist, struct nfs4_delegation,
 					dl_recall_lru);
 		list_del_init(&dp->dl_recall_lru);
-		revoke_delegation(dp);
+		revoke_delegation(dp, NFS4_REVOKED_DELEG_STID);
 	}
 
 	spin_lock(&nn->client_lock);
@@ -5491,6 +5618,11 @@ static __be32 nfsd4_validate_stateid(struct nfs4_client *cl, stateid_t *stateid)
 	case NFS4_REVOKED_DELEG_STID:
 		status = nfserr_deleg_revoked;
 		break;
+	case NFS4_ADMIN_REVOKED_STID:
+	case NFS4_ADMIN_REVOKED_LOCK_STID:
+	case NFS4_ADMIN_REVOKED_DELEG_STID:
+		status = nfserr_admin_revoked;
+		break;
 	case NFS4_OPEN_STID:
 	case NFS4_LOCK_STID:
 		status = nfsd4_check_openowner_confirmed(openlockstateid(s));
@@ -5509,7 +5641,7 @@ out_unlock:
 
 __be32
 nfsd4_lookup_stateid(struct nfsd4_compound_state *cstate,
-		     stateid_t *stateid, unsigned char typemask,
+		     stateid_t *stateid, unsigned short typemask,
 		     struct nfs4_stid **s, struct nfsd_net *nn)
 {
 	__be32 status;
@@ -5521,8 +5653,9 @@ nfsd4_lookup_stateid(struct nfsd4_compound_state *cstate,
 	 */
 	if (typemask & NFS4_REVOKED_DELEG_STID)
 		return_revoked = true;
-	else if (typemask & NFS4_DELEG_STID)
-		typemask |= NFS4_REVOKED_DELEG_STID;
+	if (typemask & NFS4_DELEG_STID)
+		typemask |= NFS4_REVOKED_DELEG_STID |
+			NFS4_ADMIN_REVOKED_DELEG_STID;;
 
 	if (ZERO_STATEID(stateid) || ONE_STATEID(stateid) ||
 		CLOSE_STATEID(stateid))
@@ -5543,6 +5676,10 @@ nfsd4_lookup_stateid(struct nfsd4_compound_state *cstate,
 		if (cstate->minorversion)
 			return nfserr_deleg_revoked;
 		return nfserr_bad_stateid;
+	}
+	if (((*s)->sc_type == NFS4_ADMIN_REVOKED_DELEG_STID) && !return_revoked) {
+		nfs4_put_stid(*s);
+		return nfserr_admin_revoked;
 	}
 	return nfs_ok;
 }
@@ -5728,6 +5865,9 @@ nfsd4_free_stateid(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	stateid_t *stateid = &free_stateid->fr_stateid;
 	struct nfs4_stid *s;
 	struct nfs4_delegation *dp;
+	struct nfs4_ol_stateid *stp;
+	LIST_HEAD(reaplist);
+	bool unhashed;
 	struct nfs4_client *cl = cstate->session->se_client;
 	__be32 ret = nfserr_bad_stateid;
 
@@ -5752,7 +5892,26 @@ nfsd4_free_stateid(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 		spin_unlock(&cl->cl_lock);
 		ret = nfsd4_free_lock_stateid(stateid, s);
 		goto out;
+	case NFS4_ADMIN_REVOKED_STID:
+		stp = openlockstateid(s);
+		spin_unlock(&s->sc_lock);
+		if (unhash_open_stateid(stp, &reaplist))
+			put_ol_stateid_locked(stp, &reaplist);
+		spin_unlock(&cl->cl_lock);
+		free_ol_stateid_reaplist(&reaplist);
+		ret = nfs_ok;
+		goto out;
+	case NFS4_ADMIN_REVOKED_LOCK_STID:
+		stp = openlockstateid(s);
+		spin_unlock(&s->sc_lock);
+		unhashed = unhash_lock_stateid(stp);
+		spin_unlock(&cl->cl_lock);
+		if (unhashed)
+			nfs4_put_stid(s);
+		ret = nfs_ok;
+		goto out;
 	case NFS4_REVOKED_DELEG_STID:
+	case NFS4_ADMIN_REVOKED_DELEG_STID:
 		spin_unlock(&s->sc_lock);
 		dp = delegstateid(s);
 		list_del_init(&dp->dl_recall_lru);
@@ -5801,7 +5960,7 @@ static __be32 nfs4_seqid_op_checks(struct nfsd4_compound_state *cstate, stateid_
  */
 static __be32
 nfs4_preprocess_seqid_op(struct nfsd4_compound_state *cstate, u32 seqid,
-			 stateid_t *stateid, char typemask,
+			 stateid_t *stateid, unsigned short typemask,
 			 struct nfs4_ol_stateid **stpp,
 			 struct nfsd_net *nn)
 {

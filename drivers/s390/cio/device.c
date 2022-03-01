@@ -1215,7 +1215,7 @@ static int io_subchannel_chp_event(struct subchannel *sch,
 			else
 				path_event[chpid] = PE_NONE;
 		}
-		if (cdev)
+		if (cdev && cdev->drv && cdev->drv->path_event)
 			cdev->drv->path_event(cdev, path_event);
 		break;
 	}
