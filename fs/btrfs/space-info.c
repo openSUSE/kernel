@@ -365,7 +365,8 @@ static inline u64 calc_reclaim_items_nr(struct btrfs_fs_info *fs_info,
  */
 static void shrink_delalloc(struct btrfs_fs_info *fs_info,
 			    struct btrfs_space_info *space_info,
-			    u64 to_reclaim, bool wait_ordered)
+			    u64 to_reclaim, bool wait_ordered,
+			    bool for_preempt)
 {
 	struct btrfs_trans_handle *trans;
 	u64 delalloc_bytes;
@@ -403,7 +404,7 @@ static void shrink_delalloc(struct btrfs_fs_info *fs_info,
 	 * ordered extents, otherwise we'll waste time trying to flush delalloc
 	 * that likely won't give us the space back we need.
 	 */
-	if (ordered_bytes > delalloc_bytes)
+	if (ordered_bytes > delalloc_bytes && !for_preempt)
 		wait_ordered = true;
 
 	loops = 0;
@@ -418,6 +419,14 @@ static void shrink_delalloc(struct btrfs_fs_info *fs_info,
 			if (time_left)
 				break;
 		}
+
+		/*
+		 * If we are for preemption we just want a one-shot of delalloc
+		 * flushing so we can stop flushing if we decide we don't need
+		 * to anymore.
+		 */
+		if (for_preempt)
+			break;
 
 		spin_lock(&space_info->lock);
 		if (list_empty(&space_info->tickets) &&
@@ -467,7 +476,7 @@ static void flush_space(struct btrfs_fs_info *fs_info,
 	case FLUSH_DELALLOC:
 	case FLUSH_DELALLOC_WAIT:
 		shrink_delalloc(fs_info, space_info, num_bytes,
-				state == FLUSH_DELALLOC_WAIT);
+				state == FLUSH_DELALLOC_WAIT, for_preempt);
 		break;
 	case FLUSH_DELAYED_REFS_NR:
 	case FLUSH_DELAYED_REFS:
@@ -555,12 +564,28 @@ btrfs_calc_reclaim_metadata_size(struct btrfs_fs_info *fs_info,
 static bool need_preemptive_reclaim(struct btrfs_fs_info *fs_info,
 				    struct btrfs_space_info *space_info)
 {
+	u64 global_rsv_size = fs_info->global_block_rsv.reserved;
 	u64 ordered, delalloc;
-	u64 thresh = div_factor_fine(space_info->total_bytes, 98);
+	u64 thresh = div_factor_fine(space_info->total_bytes, 90);
 	u64 used;
 
 	/* If we're just plain full then async reclaim just slows us down. */
-	if ((space_info->bytes_used + space_info->bytes_reserved) >= thresh)
+	if ((space_info->bytes_used + space_info->bytes_reserved +
+	     global_rsv_size) >= thresh)
+		return false;
+
+	used = space_info->bytes_may_use + space_info->bytes_pinned;
+
+	/* The total flushable belongs to the global rsv, don't flush. */
+	if (global_rsv_size >= used)
+		return false;
+
+	/*
+	 * 128MiB is 1/4 of the maximum global rsv size.  If we have less than
+	 * that devoted to other reservations then there's no sense in flushing,
+	 * we don't have a lot of things that need flushing.
+	 */
+	if (used - global_rsv_size <= SZ_128M)
 		return false;
 
 	/*
@@ -601,8 +626,10 @@ static bool need_preemptive_reclaim(struct btrfs_fs_info *fs_info,
 
 	thresh = calc_available_free_space(fs_info, space_info,
 					   BTRFS_RESERVE_FLUSH_ALL);
-	thresh += (space_info->total_bytes - space_info->bytes_used -
-		   space_info->bytes_reserved - space_info->bytes_readonly);
+	used = space_info->bytes_used + space_info->bytes_reserved +
+	       space_info->bytes_readonly + global_rsv_size;
+	if (used < space_info->total_bytes)
+		thresh += space_info->total_bytes - used;
 	thresh >>= space_info->clamp;
 
 	used = space_info->bytes_pinned;
@@ -623,14 +650,20 @@ static bool need_preemptive_reclaim(struct btrfs_fs_info *fs_info,
 	 * clearly be heavy enough to warrant preemptive flushing.  In the case
 	 * of heavy DIO or ordered reservations, preemptive flushing will just
 	 * waste time and cause us to slow down.
+	 *
+	 * We want to make sure we truly are maxed out on ordered however, so
+	 * cut ordered in half, and if it's still higher than delalloc then we
+	 * can keep flushing.  This is to avoid the case where we start
+	 * flushing, and now delalloc == ordered and we stop preemptively
+	 * flushing when we could still have several gigs of delalloc to flush.
 	 */
-	ordered = percpu_counter_sum_positive(&fs_info->ordered_bytes);
-	delalloc = percpu_counter_sum_positive(&fs_info->delalloc_bytes);
+	ordered = percpu_counter_read_positive(&fs_info->ordered_bytes) >> 1;
+	delalloc = percpu_counter_read_positive(&fs_info->delalloc_bytes);
 	if (ordered >= delalloc)
 		used += fs_info->delayed_refs_rsv.reserved +
 			fs_info->delayed_block_rsv.reserved;
 	else
-		used += space_info->bytes_may_use;
+		used += space_info->bytes_may_use - global_rsv_size;
 
 	return (used >= thresh && !btrfs_fs_closing(fs_info) &&
 		!test_bit(BTRFS_FS_STATE_REMOUNTING, &fs_info->fs_state));
@@ -1283,6 +1316,15 @@ static int __reserve_bytes(struct btrfs_fs_info *fs_info,
 		    flush == BTRFS_RESERVE_FLUSH_DATA) {
 			list_add_tail(&ticket.list, &space_info->tickets);
 			if (!space_info->flush) {
+				/*
+				 * We were forced to add a reserve ticket, so
+				 * our preemptive flushing is unable to keep
+				 * up.  Clamp down on the threshold for the
+				 * preemptive flushing in order to keep up with
+				 * the workload.
+				 */
+				maybe_clamp_preempt(fs_info, space_info);
+
 				space_info->flush = 1;
 				trace_btrfs_trigger_flush(fs_info,
 							  space_info->flags,
@@ -1294,14 +1336,6 @@ static int __reserve_bytes(struct btrfs_fs_info *fs_info,
 			list_add_tail(&ticket.list,
 				      &space_info->priority_tickets);
 		}
-
-		/*
-		 * We were forced to add a reserve ticket, so our preemptive
-		 * flushing is unable to keep up.  Clamp down on the threshold
-		 * for the preemptive flushing in order to keep up with the
-		 * workload.
-		 */
-		maybe_clamp_preempt(fs_info, space_info);
 	} else if (!ret && space_info->flags & BTRFS_BLOCK_GROUP_METADATA) {
 		used += orig_bytes;
 		/*
@@ -1310,8 +1344,8 @@ static int __reserve_bytes(struct btrfs_fs_info *fs_info,
 		 * the async reclaim as we will panic.
 		 */
 		if (!test_bit(BTRFS_FS_LOG_RECOVERING, &fs_info->flags) &&
-		    need_preemptive_reclaim(fs_info, space_info) &&
-		    !work_busy(&fs_info->preempt_reclaim_work)) {
+		    !work_busy(&fs_info->preempt_reclaim_work) &&
+		    need_preemptive_reclaim(fs_info, space_info)) {
 			trace_btrfs_trigger_flush(fs_info, space_info->flags,
 						  orig_bytes, flush, "preempt");
 			queue_work(system_unbound_wq,
