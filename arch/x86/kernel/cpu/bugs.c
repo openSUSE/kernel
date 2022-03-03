@@ -937,10 +937,6 @@ static enum spectre_v2_mitigation_cmd __init spectre_v2_parse_cmdline(void)
 			spec2_print_if_insecure("retpoline selected on command line.");
 			cmd = SPECTRE_V2_CMD_RETPOLINE;
 		} else if (match_option(arg, ret, "retpoline,amd")) {
-			if (boot_cpu_data.x86_vendor != X86_VENDOR_AMD) {
-				pr_err("retpoline,amd selected but CPU is not AMD. Switching to AUTO select\n");
-				cmd = SPECTRE_V2_CMD_AUTO;
-			}
 			spec2_print_if_insecure("AMD retpoline selected on command line.");
 			cmd = SPECTRE_V2_CMD_RETPOLINE_AMD;
 		} else if (match_option(arg, ret, "retpoline,generic")) {
