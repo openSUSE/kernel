@@ -200,7 +200,7 @@
 #define X86_FEATURE_AMD_SSBD     ( 7*32+27)  /* "" AMD SSBD implementation */
 #define X86_FEATURE_SPEC_STORE_BYPASS_DISABLE  ( 7*32+28) /* "" Disable Speculative Store Bypass. */
 #define X86_FEATURE_RETPOLINE	( 7*32+29) /* Generic Retpoline mitigation for Spectre variant 2 */
-#define X86_FEATURE_RETPOLINE_AMD ( 7*32+30) /* AMD Retpoline mitigation for Spectre variant 2 */
+#define X86_FEATURE_RETPOLINE_LFENCE ( 7*32+30) /* "" AMD Retpoline mitigation for Spectre variant 2 */
 /* Because the ALTERNATIVE scheme is for members of the X86_FEATURE club... */
 #define X86_FEATURE_KAISER	( 7*32+31) /* CONFIG_KAISER w/o nokaiser */
 

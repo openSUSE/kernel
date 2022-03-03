@@ -585,15 +585,15 @@ enum spectre_v2_mitigation_cmd {
 	SPECTRE_V2_CMD_FORCE,
 	SPECTRE_V2_CMD_RETPOLINE,
 	SPECTRE_V2_CMD_RETPOLINE_GENERIC,
-	SPECTRE_V2_CMD_RETPOLINE_AMD,
+	SPECTRE_V2_CMD_RETPOLINE_LFENCE,
 };
 
 static const char *spectre_v2_strings[] = {
 	[SPECTRE_V2_NONE]			= "Vulnerable",
 	[SPECTRE_V2_RETPOLINE_MINIMAL]		= "Vulnerable: Minimal generic ASM retpoline",
 	[SPECTRE_V2_RETPOLINE_MINIMAL_AMD]	= "Vulnerable: Minimal AMD ASM retpoline",
-	[SPECTRE_V2_RETPOLINE_GENERIC]		= "Mitigation: Full generic retpoline",
-	[SPECTRE_V2_RETPOLINE_AMD]		= "Mitigation: Full AMD retpoline",
+	[SPECTRE_V2_RETPOLINE]			= "Mitigation: Retpolines",
+	[SPECTRE_V2_LFENCE]			= "Mitigation: LFENCE",
 };
 
 #undef pr_fmt
@@ -937,14 +937,23 @@ static enum spectre_v2_mitigation_cmd __init spectre_v2_parse_cmdline(void)
 			spec2_print_if_insecure("retpoline selected on command line.");
 			cmd = SPECTRE_V2_CMD_RETPOLINE;
 		} else if (match_option(arg, ret, "retpoline,amd")) {
-			spec2_print_if_insecure("AMD retpoline selected on command line.");
-			cmd = SPECTRE_V2_CMD_RETPOLINE_AMD;
+			spec2_print_if_insecure("LFENCE retpoline selected on command line.");
+			cmd = SPECTRE_V2_CMD_RETPOLINE_LFENCE;
+		} else if (match_option(arg, ret, "retpoline,lfence")) {
+			spec2_print_if_insecure("LFENCE retpoline selected on command line.");
+			cmd = SPECTRE_V2_CMD_RETPOLINE_LFENCE;
 		} else if (match_option(arg, ret, "retpoline,generic")) {
 			spec2_print_if_insecure("generic retpoline selected on command line.");
 			cmd = SPECTRE_V2_CMD_RETPOLINE_GENERIC;
 		} else if (match_option(arg, ret, "auto")) {
 			cmd = SPECTRE_V2_CMD_AUTO;
 		}
+	}
+
+	if ((cmd == SPECTRE_V2_CMD_RETPOLINE_LFENCE) &&
+	    !boot_cpu_has(X86_FEATURE_LFENCE_RDTSC)) {
+		pr_err("retpoline,lfence selected, but CPU doesn't have a serializing LFENCE. Switching to AUTO select\n");
+		cmd = SPECTRE_V2_CMD_AUTO;
 	}
 
 done:
@@ -999,9 +1008,9 @@ static void __init spectre_v2_select_mitigation(void)
 	case SPECTRE_V2_CMD_AUTO:
 		goto retpoline_auto;
 
-	case SPECTRE_V2_CMD_RETPOLINE_AMD:
+	case SPECTRE_V2_CMD_RETPOLINE_LFENCE:
 #ifdef CONFIG_RETPOLINE
-			goto retpoline_amd;
+			goto retpoline_lfence;
 #endif
 		break;
 	case SPECTRE_V2_CMD_RETPOLINE_GENERIC:
@@ -1020,18 +1029,18 @@ static void __init spectre_v2_select_mitigation(void)
 
 retpoline_auto:
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD) {
-	retpoline_amd:
+	retpoline_lfence:
 		if (!boot_cpu_has(X86_FEATURE_LFENCE_RDTSC)) {
 			pr_err("LFENCE not serializing. Switching to generic retpoline\n");
 			goto retpoline_generic;
 		}
-		mode = retp_compiler() ? SPECTRE_V2_RETPOLINE_AMD :
+		mode = retp_compiler() ? SPECTRE_V2_LFENCE :
 					 SPECTRE_V2_RETPOLINE_MINIMAL_AMD;
-		setup_force_cpu_cap(X86_FEATURE_RETPOLINE_AMD);
+		setup_force_cpu_cap(X86_FEATURE_RETPOLINE_LFENCE);
 		setup_force_cpu_cap(X86_FEATURE_RETPOLINE);
 	} else {
 	retpoline_generic:
-		mode = retp_compiler() ? SPECTRE_V2_RETPOLINE_GENERIC :
+		mode = retp_compiler() ? SPECTRE_V2_RETPOLINE :
 					 SPECTRE_V2_RETPOLINE_MINIMAL;
 		setup_force_cpu_cap(X86_FEATURE_RETPOLINE);
 	}
