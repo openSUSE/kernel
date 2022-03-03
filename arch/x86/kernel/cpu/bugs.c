@@ -1006,7 +1006,7 @@ static void __init spectre_v2_select_mitigation(void)
 	case SPECTRE_V2_CMD_FORCE:
 		/* FALLTRHU */
 	case SPECTRE_V2_CMD_AUTO:
-		goto retpoline_auto;
+		goto retpoline_generic;
 
 	case SPECTRE_V2_CMD_RETPOLINE_LFENCE:
 #ifdef CONFIG_RETPOLINE
@@ -1020,14 +1020,13 @@ static void __init spectre_v2_select_mitigation(void)
 		break;
 	case SPECTRE_V2_CMD_RETPOLINE:
 #ifdef CONFIG_RETPOLINE
-			goto retpoline_auto;
+			goto retpoline_generic;
 #endif
 		break;
 	}
 	pr_err("kernel not compiled with retpoline; no mitigation available!");
 	return;
 
-retpoline_auto:
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD) {
 	retpoline_lfence:
 		if (!boot_cpu_has(X86_FEATURE_LFENCE_RDTSC)) {
