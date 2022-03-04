@@ -19,5 +19,17 @@ if X86_PLATFORM_DRIVERS_INTEL
 source "drivers/platform/x86/intel/int33fe/Kconfig"
 source "drivers/platform/x86/intel/int3472/Kconfig"
 source "drivers/platform/x86/intel/pmc/Kconfig"
+source "drivers/platform/x86/intel/pmt/Kconfig"
+
+config INTEL_VSEC
+	tristate "Intel Vendor Specific Extended Capabilities Driver"
+	depends on PCI
+	select AUXILIARY_BUS
+	help
+	  Adds support for feature drivers exposed using Intel PCIe VSEC and
+	  DVSEC.
+
+	  To compile this driver as a module, choose M here: the module will
+	  be called intel_vsec.
 
 endif # X86_PLATFORM_DRIVERS_INTEL
