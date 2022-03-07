@@ -61,6 +61,7 @@ struct nft_flow_rule {
 };
 
 #define NFT_OFFLOAD_F_ACTION	(1 << 0)
+#define NFT_OFFLOAD_F_VERDICT	(1 << 1)
 
 struct nft_rule;
 struct nft_flow_rule *nft_flow_rule_create(struct net *net, const struct nft_rule *rule);
