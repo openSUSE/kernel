@@ -12,6 +12,7 @@
 #include <asm/uv.h>
 #include "compressed/decompressor.h"
 #include "boot.h"
+#include "uv.h"
 
 extern char __boot_data_start[], __boot_data_end[];
 extern char __boot_data_preserved_start[], __boot_data_preserved_end[];
