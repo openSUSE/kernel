@@ -1694,6 +1694,9 @@ static int netlink_dump(struct sock *sk)
 	if (!skb)
 		goto errout;
 
+	/* Trim skb to allocated size to prevent MSG_TRUNC error */
+	skb_reserve(skb, skb_tailroom(skb) - alloc_size);
+
 	len = cb->dump(skb, cb);
 
 	if (len > 0) {
