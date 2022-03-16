@@ -59,7 +59,7 @@
 #define ARM64_HAS_AMU_EXTN			49
 #define ARM64_HAS_ARMv8_4_TTL			50
 #define ARM64_HAS_TLB_RANGE			51
-
+#define ARM64_SPECTRE_BHB			52
 
 /* kabi: reserve 52 - 65 for future cpu capabilities */
 #define ARM64_NCAPS				65
