@@ -55,6 +55,7 @@ MODULE_PARM_DESC (rndis_debug, "enable debugging");
 #define rndis_debug		0
 #endif
 
+static DEFINE_SPINLOCK(suse_rndis_params_lock);
 #ifdef CONFIG_USB_GADGET_DEBUG_FILES
 
 #define	NAME_TEMPLATE "driver/rndis-%03d"
@@ -1015,12 +1016,14 @@ void rndis_free_response(struct rndis_params *params, u8 *buf)
 {
 	rndis_resp_t *r, *n;
 
+	spin_lock(&suse_rndis_params_lock);
 	list_for_each_entry_safe(r, n, &params->resp_queue, list) {
 		if (r->buf == buf) {
 			list_del(&r->list);
 			kfree(r);
 		}
 	}
+	spin_unlock(&suse_rndis_params_lock);
 }
 EXPORT_SYMBOL_GPL(rndis_free_response);
 
@@ -1030,14 +1033,17 @@ u8 *rndis_get_next_response(struct rndis_params *params, u32 *length)
 
 	if (!length) return NULL;
 
+	spin_lock(&suse_rndis_params_lock);
 	list_for_each_entry_safe(r, n, &params->resp_queue, list) {
 		if (!r->send) {
 			r->send = 1;
 			*length = r->length;
+			spin_unlock(&suse_rndis_params_lock);
 			return r->buf;
 		}
 	}
 
+	spin_unlock(&suse_rndis_params_lock);
 	return NULL;
 }
 EXPORT_SYMBOL_GPL(rndis_get_next_response);
@@ -1054,7 +1060,9 @@ static rndis_resp_t *rndis_add_response(struct rndis_params *params, u32 length)
 	r->length = length;
 	r->send = 0;
 
+	spin_lock(&suse_rndis_params_lock);
 	list_add_tail(&r->list, &params->resp_queue);
+	spin_unlock(&suse_rndis_params_lock);
 	return r;
 }
 
