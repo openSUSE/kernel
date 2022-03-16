@@ -2097,6 +2097,7 @@ static void nvme_tcp_error_recovery_work(struct work_struct *work)
 
 	nvme_auth_stop(ctrl);
 	nvme_stop_keep_alive(ctrl);
+	flush_work(&ctrl->async_event_work);
 	nvme_tcp_teardown_io_queues(ctrl, false);
 	/* unquiesce to fail fast pending requests */
 	nvme_start_queues(ctrl);
