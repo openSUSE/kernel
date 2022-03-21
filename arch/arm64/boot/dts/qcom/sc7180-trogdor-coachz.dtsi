@@ -23,7 +23,7 @@ ap_h1_spi: &spi0 {};
 	adau7002: audio-codec-1 {
 		compatible = "adi,adau7002";
 		IOVDD-supply = <&pp1800_l15a>;
-		wakeup-delay-ms = <15>;
+		wakeup-delay-ms = <80>;
 		#sound-dai-cells = <0>;
 	};
 
@@ -33,7 +33,7 @@ ap_h1_spi: &spi0 {};
 			polling-delay = <0>;
 
 			thermal-sensors = <&pm6150_adc_tm 1>;
-			sustainable-power = <814>;
+			sustainable-power = <965>;
 
 			trips {
 				skin_temp_alert0: trip-point0 {

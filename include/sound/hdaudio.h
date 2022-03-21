@@ -92,6 +92,8 @@ struct hdac_device {
 	bool lazy_cache:1;	/* don't wake up for writes */
 	bool caps_overwriting:1; /* caps overwrite being in process */
 	bool cache_coef:1;	/* cache COEF read/write too */
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 /* device/driver type used for matching */
@@ -372,6 +374,8 @@ struct hdac_bus {
 
 	/* factor used to derive STRIPE control value */
 	unsigned int sdo_limit;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 int snd_hdac_bus_init(struct hdac_bus *bus, struct device *dev,
@@ -540,6 +544,8 @@ struct hdac_stream {
 	/* DSP access mutex */
 	struct mutex dsp_mutex;
 #endif
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 void snd_hdac_stream_init(struct hdac_bus *bus, struct hdac_stream *azx_dev,

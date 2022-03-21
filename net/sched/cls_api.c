@@ -634,6 +634,7 @@ static void tcf_block_offload_init(struct flow_block_offload *bo,
 	bo->block_shared = shared;
 	bo->extack = extack;
 	bo->sch = sch;
+	bo->cb_list_head = &flow_block->cb_list;
 	INIT_LIST_HEAD(&bo->cb_list);
 }
 
@@ -1962,6 +1963,7 @@ static int tc_new_tfilter(struct sk_buff *skb, struct nlmsghdr *n,
 	int err;
 	int tp_created;
 	bool rtnl_held = false;
+	u32 flags;
 
 	if (!netlink_ns_capable(skb, net->user_ns, CAP_NET_ADMIN))
 		return -EPERM;
@@ -1982,6 +1984,7 @@ replay:
 	tp = NULL;
 	cl = 0;
 	block = NULL;
+	flags = 0;
 
 	if (prio == 0) {
 		/* If no priority is provided by the user,
@@ -2125,9 +2128,12 @@ replay:
 		goto errout;
 	}
 
+	if (!(n->nlmsg_flags & NLM_F_CREATE))
+		flags |= TCA_ACT_FLAGS_REPLACE;
+	if (!rtnl_held)
+		flags |= TCA_ACT_FLAGS_NO_RTNL;
 	err = tp->ops->change(net, skb, tp, cl, t->tcm_handle, tca, &fh,
-			      n->nlmsg_flags & NLM_F_CREATE ? TCA_ACT_NOREPLACE : TCA_ACT_REPLACE,
-			      rtnl_held, extack);
+			      flags, extack);
 	if (err == 0) {
 		tfilter_notify(net, skb, n, tp, block, q, parent, fh,
 			       RTM_NEWTFILTER, false, rtnl_held);
@@ -3035,8 +3041,8 @@ void tcf_exts_destroy(struct tcf_exts *exts)
 EXPORT_SYMBOL(tcf_exts_destroy);
 
 int tcf_exts_validate(struct net *net, struct tcf_proto *tp, struct nlattr **tb,
-		      struct nlattr *rate_tlv, struct tcf_exts *exts, bool ovr,
-		      bool rtnl_held, struct netlink_ext_ack *extack)
+		      struct nlattr *rate_tlv, struct tcf_exts *exts,
+		      u32 flags, struct netlink_ext_ack *extack)
 {
 #ifdef CONFIG_NET_CLS_ACT
 	{
@@ -3047,13 +3053,15 @@ int tcf_exts_validate(struct net *net, struct tcf_proto *tp, struct nlattr **tb,
 		if (exts->police && tb[exts->police]) {
 			struct tc_action_ops *a_o;
 
-			a_o = tc_action_load_ops("police", tb[exts->police], rtnl_held, extack);
+			a_o = tc_action_load_ops(tb[exts->police], true,
+						 !(flags & TCA_ACT_FLAGS_NO_RTNL),
+						 extack);
 			if (IS_ERR(a_o))
 				return PTR_ERR(a_o);
+			flags |= TCA_ACT_FLAGS_POLICE | TCA_ACT_FLAGS_BIND;
 			act = tcf_action_init_1(net, tp, tb[exts->police],
-						rate_tlv, "police", ovr,
-						TCA_ACT_BIND, a_o, init_res,
-						rtnl_held, extack);
+						rate_tlv, a_o, init_res, flags,
+						extack);
 			module_put(a_o->owner);
 			if (IS_ERR(act))
 				return PTR_ERR(act);
@@ -3065,10 +3073,10 @@ int tcf_exts_validate(struct net *net, struct tcf_proto *tp, struct nlattr **tb,
 		} else if (exts->action && tb[exts->action]) {
 			int err;
 
+			flags |= TCA_ACT_FLAGS_BIND;
 			err = tcf_action_init(net, tp, tb[exts->action],
-					      rate_tlv, NULL, ovr, TCA_ACT_BIND,
-					      exts->actions, init_res,
-					      &attr_size, rtnl_held, extack);
+					      rate_tlv, exts->actions, init_res,
+					      &attr_size, flags, extack);
 			if (err < 0)
 				return err;
 			exts->nr_actions = err;
@@ -3694,6 +3702,7 @@ int tc_setup_flow_action(struct flow_action *flow_action,
 				entry->mpls_mangle.ttl = tcf_mpls_ttl(act);
 				break;
 			default:
+				err = -EOPNOTSUPP;
 				goto err_out_locked;
 			}
 		} else if (is_tcf_skbedit_ptype(act)) {

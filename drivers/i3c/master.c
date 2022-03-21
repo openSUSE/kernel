@@ -322,7 +322,7 @@ static int i3c_device_probe(struct device *dev)
 	return driver->probe(i3cdev);
 }
 
-static int i3c_device_remove(struct device *dev)
+static void i3c_device_remove(struct device *dev)
 {
 	struct i3c_device *i3cdev = dev_to_i3cdev(dev);
 	struct i3c_driver *driver = drv_to_i3cdrv(dev->driver);
@@ -331,8 +331,6 @@ static int i3c_device_remove(struct device *dev)
 		driver->remove(i3cdev);
 
 	i3c_device_free_ibi(i3cdev);
-
-	return 0;
 }
 
 struct bus_type i3c_bus_type = {
@@ -345,7 +343,8 @@ struct bus_type i3c_bus_type = {
 static enum i3c_addr_slot_status
 i3c_bus_get_addr_slot_status(struct i3c_bus *bus, u16 addr)
 {
-	int status, bitpos = addr * 2;
+	unsigned long status;
+	int bitpos = addr * 2;
 
 	if (addr > I2C_MAX_ADDR)
 		return I3C_ADDR_SLOT_RSVD;

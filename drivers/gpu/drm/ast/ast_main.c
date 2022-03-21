@@ -97,6 +97,11 @@ static void ast_detect_config_mode(struct drm_device *dev, u32 *scu_rev)
 	jregd0 = ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xd0, 0xff);
 	jregd1 = ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xd1, 0xff);
 	if (!(jregd0 & 0x80) || !(jregd1 & 0x10)) {
+		/* Patch AST2500 */
+		if (((pdev->revision & 0xF0) == 0x40)
+			&& ((jregd0 & AST_VRAM_INIT_STATUS_MASK) == 0))
+			ast_patch_ahb_2500(ast);
+
 		/* Double check it's actually working */
 		data = ast_read32(ast, 0xf004);
 		if ((data != 0xFFFFFFFF) && (data != 0x00)) {
@@ -204,6 +209,8 @@ static int ast_detect_chip(struct drm_device *dev, bool *need_post)
 			if (ast->chip == AST2500 &&
 			    scu_rev == 0x100)           /* ast2510 */
 				ast->support_wide_screen = true;
+			if (ast->chip == AST2600)		/* ast2600 */
+				ast->support_wide_screen = true;
 		}
 		break;
 	}
@@ -225,7 +232,7 @@ static int ast_detect_chip(struct drm_device *dev, bool *need_post)
 			ast->tx_chip_type = AST_TX_SIL164;
 	}
 
-	if ((ast->chip == AST2300) || (ast->chip == AST2400)) {
+	if ((ast->chip == AST2300) || (ast->chip == AST2400) || (ast->chip == AST2500)) {
 		/*
 		 * On AST2300 and 2400, look the configuration set by the SoC in
 		 * the SOC scratch register #1 bits 11:8 (interestingly marked
@@ -249,7 +256,8 @@ static int ast_detect_chip(struct drm_device *dev, bool *need_post)
 		case 0x0c:
 			ast->tx_chip_type = AST_TX_DP501;
 		}
-	}
+	} else if (ast->chip == AST2600)
+		ast_dp_launch(&ast->base, 0);
 
 	/* Print stuff for diagnostic purposes */
 	switch(ast->tx_chip_type) {

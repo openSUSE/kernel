@@ -1231,6 +1231,9 @@ config RELR
 config ARCH_HAS_MEM_ENCRYPT
 	bool
 
+config ARCH_HAS_CC_PLATFORM
+	bool
+
 config HAVE_SPARSE_SYSCALL_NR
        bool
        help
@@ -1252,7 +1255,6 @@ config HAVE_STATIC_CALL_INLINE
 config HAVE_PREEMPT_DYNAMIC
 	bool
 	depends on HAVE_STATIC_CALL
-	depends on GENERIC_ENTRY
 	help
 	   Select this if the architecture support boot time preempt setting
 	   on top of static calls. It is strongly advised to support inline
@@ -1280,6 +1282,9 @@ config ARCH_SPLIT_ARG64
 	   pairs of 32-bit arguments, select this option.
 
 config ARCH_HAS_ELFCORE_COMPAT
+	bool
+
+config DYNAMIC_SIGFRAME
 	bool
 
 source "kernel/gcov/Kconfig"

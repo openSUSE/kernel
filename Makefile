@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 VERSION = 5
 PATCHLEVEL = 14
-SUBLEVEL = 0
+SUBLEVEL = 21
 EXTRAVERSION =
 NAME = Opossums on Parade
 
@@ -409,6 +409,11 @@ ifeq ($(ARCH),sparc64)
        SRCARCH := sparc
 endif
 
+# Additional ARCH settings for parisc
+ifeq ($(ARCH),parisc64)
+       SRCARCH := parisc
+endif
+
 export cross_compiling :=
 ifneq ($(SRCARCH),$(SUBARCH))
 cross_compiling := 1
@@ -808,6 +813,8 @@ else
 # Disabled for clang while comment to attribute conversion happens and
 # https://github.com/ClangBuiltLinux/linux/issues/636 is discussed.
 KBUILD_CFLAGS += $(call cc-option,-Wimplicit-fallthrough=5,)
+# gcc inanely warns about local variables called 'main'
+KBUILD_CFLAGS += -Wno-main
 endif
 
 # These warnings generated too much noise in a regular build.
@@ -928,6 +935,10 @@ KBUILD_CFLAGS_KERNEL += -ffunction-sections -fdata-sections
 LDFLAGS_vmlinux += --gc-sections
 endif
 
+ifdef CONFIG_LIVEPATCH
+KBUILD_CFLAGS += $(call cc-option, -flive-patching=inline-clone)
+endif
+
 ifdef CONFIG_SHADOW_CALL_STACK
 CC_FLAGS_SCS	:= -fsanitize=shadow-call-stack
 KBUILD_CFLAGS	+= $(CC_FLAGS_SCS)
@@ -980,6 +991,12 @@ endif
 
 ifdef CONFIG_DEBUG_FORCE_FUNCTION_ALIGN_64B
 KBUILD_CFLAGS += -falign-functions=64
+endif
+
+ifdef CONFIG_LIVEPATCH_IPA_CLONES
+ifeq ($(KBUILD_EXTMOD),)
+KBUILD_CFLAGS += -fdump-ipa-clones
+endif
 endif
 
 # arch Makefile may override CC so keep this after arch Makefile is included

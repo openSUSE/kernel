@@ -8,7 +8,7 @@
 #ifndef __SOUND_HDA_CODEC_H
 #define __SOUND_HDA_CODEC_H
 
-#include <linux/kref.h>
+#include <linux/refcount.h>
 #include <linux/mod_devicetable.h>
 #include <sound/info.h>
 #include <sound/control.h>
@@ -114,7 +114,6 @@ struct hda_codec_ops {
 	int (*resume)(struct hda_codec *codec);
 	int (*check_power_status)(struct hda_codec *codec, hda_nid_t nid);
 #endif
-	void (*reboot_notify)(struct hda_codec *codec);
 	void (*stream_pm)(struct hda_codec *codec, hda_nid_t nid, bool on);
 };
 
@@ -167,8 +166,8 @@ struct hda_pcm {
 	bool own_chmap;		/* codec driver provides own channel maps */
 	/* private: */
 	struct hda_codec *codec;
-	struct kref kref;
 	struct list_head list;
+	unsigned int disconnected:1;
 };
 
 /* codec information */
@@ -188,6 +187,8 @@ struct hda_codec {
 
 	/* PCM to create, set by patch_ops.build_pcms callback */
 	struct list_head pcm_list_head;
+	refcount_t pcm_ref;
+	wait_queue_head_t remove_sleep;
 
 	/* codec specific info */
 	void *spec;
@@ -225,6 +226,7 @@ struct hda_codec {
 #endif
 
 	/* misc flags */
+	unsigned int configured:1; /* codec was configured */
 	unsigned int in_freeing:1; /* being released */
 	unsigned int registered:1; /* codec was registered */
 	unsigned int display_power_control:1; /* needs display power */
@@ -420,7 +422,7 @@ void snd_hda_codec_cleanup_for_unbind(struct hda_codec *codec);
 
 static inline void snd_hda_codec_pcm_get(struct hda_pcm *pcm)
 {
-	kref_get(&pcm->kref);
+	refcount_inc(&pcm->codec->pcm_ref);
 }
 void snd_hda_codec_pcm_put(struct hda_pcm *pcm);
 

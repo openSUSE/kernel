@@ -87,8 +87,8 @@ static const char *const pmic_models[] = {
 	[15] = "PM8901",
 	[16] = "PM8950/PM8027",
 	[17] = "PMI8950/ISL9519",
-	[18] = "PM8921",
-	[19] = "PM8018",
+	[18] = "PMK8001/PM8921",
+	[19] = "PMI8996/PM8018",
 	[20] = "PM8998/PM8015",
 	[21] = "PMI8998/PM8014",
 	[22] = "PM8821",
@@ -628,7 +628,7 @@ static int qcom_socinfo_probe(struct platform_device *pdev)
 	/* Feed the soc specific unique data into entropy pool */
 	add_device_randomness(info, item_size);
 
-	platform_set_drvdata(pdev, qs->soc_dev);
+	platform_set_drvdata(pdev, qs);
 
 	return 0;
 }

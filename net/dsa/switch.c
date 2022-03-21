@@ -148,7 +148,7 @@ static int dsa_switch_bridge_leave(struct dsa_switch *ds,
 		if (extack._msg)
 			dev_err(ds->dev, "port %d: %s\n", info->port,
 				extack._msg);
-		if (err && err != EOPNOTSUPP)
+		if (err && err != -EOPNOTSUPP)
 			return err;
 	}
 	return 0;
@@ -243,7 +243,7 @@ static int dsa_switch_do_mdb_del(struct dsa_switch *ds, int port,
 
 	err = ds->ops->port_mdb_del(ds, port, mdb);
 	if (err) {
-		refcount_inc(&a->refcount);
+		refcount_set(&a->refcount, 1);
 		return err;
 	}
 
@@ -308,7 +308,7 @@ static int dsa_switch_do_fdb_del(struct dsa_switch *ds, int port,
 
 	err = ds->ops->port_fdb_del(ds, port, addr, vid);
 	if (err) {
-		refcount_inc(&a->refcount);
+		refcount_set(&a->refcount, 1);
 		return err;
 	}
 

@@ -313,7 +313,7 @@ jme_load_macaddr(struct net_device *netdev)
 	val = jread32(jme, JME_RXUMA_HI);
 	macaddr[4] = (val >>  0) & 0xFF;
 	macaddr[5] = (val >>  8) & 0xFF;
-	memcpy(netdev->dev_addr, macaddr, ETH_ALEN);
+	eth_hw_addr_set(netdev, macaddr);
 	spin_unlock_bh(&jme->macaddr_lock);
 }
 
@@ -2269,7 +2269,7 @@ jme_set_macaddr(struct net_device *netdev, void *p)
 		return -EBUSY;
 
 	spin_lock_bh(&jme->macaddr_lock);
-	memcpy(netdev->dev_addr, addr->sa_data, netdev->addr_len);
+	eth_hw_addr_set(netdev, addr->sa_data);
 	jme_set_unicastaddr(netdev);
 	spin_unlock_bh(&jme->macaddr_lock);
 
@@ -2400,8 +2400,10 @@ jme_get_regs(struct net_device *netdev, struct ethtool_regs *regs, void *p)
 	mdio_memcpy(jme, p32, JME_PHY_REG_NR);
 }
 
-static int
-jme_get_coalesce(struct net_device *netdev, struct ethtool_coalesce *ecmd)
+static int jme_get_coalesce(struct net_device *netdev,
+			    struct ethtool_coalesce *ecmd,
+			    struct kernel_ethtool_coalesce *kernel_coal,
+			    struct netlink_ext_ack *extack)
 {
 	struct jme_adapter *jme = netdev_priv(netdev);
 
@@ -2437,8 +2439,10 @@ jme_get_coalesce(struct net_device *netdev, struct ethtool_coalesce *ecmd)
 	return 0;
 }
 
-static int
-jme_set_coalesce(struct net_device *netdev, struct ethtool_coalesce *ecmd)
+static int jme_set_coalesce(struct net_device *netdev,
+			    struct ethtool_coalesce *ecmd,
+			    struct kernel_ethtool_coalesce *kernel_coal,
+			    struct netlink_ext_ack *extack)
 {
 	struct jme_adapter *jme = netdev_priv(netdev);
 	struct dynpcc_info *dpi = &(jme->dpi);

@@ -10,6 +10,8 @@
 #include "i915_gem_lmem.h"
 #include "i915_gem_mman.h"
 
+#include "gt/intel_gt.h"
+
 void __i915_gem_object_set_pages(struct drm_i915_gem_object *obj,
 				 struct sg_table *pages,
 				 unsigned int sg_page_sizes)
@@ -160,7 +162,6 @@ retry:
 /* Immediately discard the backing storage */
 void i915_gem_object_truncate(struct drm_i915_gem_object *obj)
 {
-	drm_gem_free_mmap_offset(&obj->base);
 	if (obj->ops->truncate)
 		obj->ops->truncate(obj);
 }
@@ -217,6 +218,14 @@ __i915_gem_object_unset_pages(struct drm_i915_gem_object *obj)
 
 	__i915_gem_object_reset_page_iter(obj);
 	obj->mm.page_sizes.phys = obj->mm.page_sizes.sg = 0;
+
+	if (test_and_clear_bit(I915_BO_WAS_BOUND_BIT, &obj->flags)) {
+		struct drm_i915_private *i915 = to_i915(obj->base.dev);
+		intel_wakeref_t wakeref;
+
+		with_intel_runtime_pm_if_active(&i915->runtime_pm, wakeref)
+			intel_gt_invalidate_tlbs(&i915->gt);
+	}
 
 	return pages;
 }
@@ -321,8 +330,7 @@ static void *i915_gem_object_map_pfn(struct drm_i915_gem_object *obj,
 	dma_addr_t addr;
 	void *vaddr;
 
-	if (type != I915_MAP_WC)
-		return ERR_PTR(-ENODEV);
+	GEM_BUG_ON(type != I915_MAP_WC);
 
 	if (n_pfn > ARRAY_SIZE(stack)) {
 		/* Too big for stack -- allocate temporary array instead */
@@ -351,7 +359,7 @@ void *i915_gem_object_pin_map(struct drm_i915_gem_object *obj,
 	int err;
 
 	if (!i915_gem_object_has_struct_page(obj) &&
-	    !i915_gem_object_type_has(obj, I915_GEM_OBJECT_HAS_IOMEM))
+	    !i915_gem_object_has_iomem(obj))
 		return ERR_PTR(-ENXIO);
 
 	assert_object_held(obj);
@@ -373,6 +381,34 @@ void *i915_gem_object_pin_map(struct drm_i915_gem_object *obj,
 		pinned = false;
 	}
 	GEM_BUG_ON(!i915_gem_object_has_pages(obj));
+
+	/*
+	 * For discrete our CPU mappings needs to be consistent in order to
+	 * function correctly on !x86. When mapping things through TTM, we use
+	 * the same rules to determine the caching type.
+	 *
+	 * The caching rules, starting from DG1:
+	 *
+	 *	- If the object can be placed in device local-memory, then the
+	 *	  pages should be allocated and mapped as write-combined only.
+	 *
+	 *	- Everything else is always allocated and mapped as write-back,
+	 *	  with the guarantee that everything is also coherent with the
+	 *	  GPU.
+	 *
+	 * Internal users of lmem are already expected to get this right, so no
+	 * fudging needed there.
+	 */
+	if (i915_gem_object_placement_possible(obj, INTEL_MEMORY_LOCAL)) {
+		if (type != I915_MAP_WC && !obj->mm.n_placements) {
+			ptr = ERR_PTR(-ENODEV);
+			goto err_unpin;
+		}
+
+		type = I915_MAP_WC;
+	} else if (IS_DGFX(to_i915(obj->base.dev))) {
+		type = I915_MAP_WB;
+	}
 
 	ptr = page_unpack_bits(obj->mm.mapping, &has_type);
 	if (ptr && has_type != type) {
@@ -467,9 +503,8 @@ __i915_gem_object_get_sg(struct drm_i915_gem_object *obj,
 			 struct i915_gem_object_page_iter *iter,
 			 unsigned int n,
 			 unsigned int *offset,
-			 bool allow_alloc)
+			 bool dma)
 {
-	const bool dma = iter == &obj->mm.get_dma_page;
 	struct scatterlist *sg;
 	unsigned int idx, count;
 
@@ -489,9 +524,6 @@ __i915_gem_object_get_sg(struct drm_i915_gem_object *obj,
 	 */
 	if (n < READ_ONCE(iter->sg_idx))
 		goto lookup;
-
-	if (!allow_alloc)
-		goto manual_lookup;
 
 	mutex_lock(&iter->lock);
 
@@ -542,16 +574,7 @@ scan:
 	if (unlikely(n < idx)) /* insertion completed by another thread */
 		goto lookup;
 
-	goto manual_walk;
-
-manual_lookup:
-	idx = 0;
-	sg = obj->mm.pages->sgl;
-	count = __sg_page_count(sg);
-
-manual_walk:
-	/*
-	 * In case we failed to insert the entry into the radixtree, we need
+	/* In case we failed to insert the entry into the radixtree, we need
 	 * to look beyond the current sg.
 	 */
 	while (idx + count <= n) {
@@ -598,7 +621,7 @@ i915_gem_object_get_page(struct drm_i915_gem_object *obj, unsigned int n)
 
 	GEM_BUG_ON(!i915_gem_object_has_struct_page(obj));
 
-	sg = i915_gem_object_get_sg(obj, n, &offset, true);
+	sg = i915_gem_object_get_sg(obj, n, &offset);
 	return nth_page(sg_page(sg), offset);
 }
 
@@ -624,7 +647,7 @@ i915_gem_object_get_dma_address_len(struct drm_i915_gem_object *obj,
 	struct scatterlist *sg;
 	unsigned int offset;
 
-	sg = i915_gem_object_get_sg_dma(obj, n, &offset, true);
+	sg = i915_gem_object_get_sg_dma(obj, n, &offset);
 
 	if (len)
 		*len = sg_dma_len(sg) - (offset << PAGE_SHIFT);

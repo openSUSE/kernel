@@ -441,10 +441,19 @@ static int qat_dh_set_secret(struct crypto_kpp *tfm, const void *buf,
 	struct qat_dh_ctx *ctx = kpp_tfm_ctx(tfm);
 	struct device *dev = &GET_DEV(ctx->inst->accel_dev);
 	struct dh params;
+	char key[CRYPTO_DH_MAX_PRIVKEY_SIZE];
 	int ret;
 
 	if (crypto_dh_decode_key(buf, len, &params) < 0)
 		return -EINVAL;
+
+	if (!params.key_size) {
+		ret = crypto_dh_gen_privkey(params.group_id, key,
+					    &params.key_size);
+		if (ret)
+			return ret;
+		params.key = key;
+	}
 
 	/* Free old secret if any */
 	qat_dh_clear_ctx(dev, ctx);

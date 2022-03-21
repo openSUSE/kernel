@@ -561,6 +561,7 @@ struct drm_display_mode *
 intel_encoder_current_mode(struct intel_encoder *encoder);
 bool intel_phy_is_combo(struct drm_i915_private *dev_priv, enum phy phy);
 bool intel_phy_is_tc(struct drm_i915_private *dev_priv, enum phy phy);
+bool intel_phy_is_snps(struct drm_i915_private *dev_priv, enum phy phy);
 enum tc_port intel_port_to_tc(struct drm_i915_private *dev_priv,
 			      enum port port);
 int intel_get_pipe_from_crtc_id_ioctl(struct drm_device *dev, void *data,
@@ -628,6 +629,8 @@ void intel_plane_unpin_fb(struct intel_plane_state *old_plane_state);
 struct intel_encoder *
 intel_get_crtc_new_encoder(const struct intel_atomic_state *state,
 			   const struct intel_crtc_state *crtc_state);
+void intel_plane_disable_noatomic(struct intel_crtc *crtc,
+				  struct intel_plane *plane);
 
 unsigned int intel_surf_alignment(const struct drm_framebuffer *fb,
 				  int color_plane);

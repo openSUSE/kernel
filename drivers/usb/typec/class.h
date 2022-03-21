@@ -33,6 +33,8 @@ struct typec_partner {
 	int				num_altmodes;
 	u16				pd_revision; /* 0300H = "3.0" */
 	enum usb_pd_svdm_ver		svdm_version;
+
+	void				*suse_kabi_padding;
 };
 
 struct typec_port {
@@ -59,6 +61,8 @@ struct typec_port {
 	struct mutex			port_list_lock; /* Port list lock */
 
 	void				*pld;
+
+	void				*suse_kabi_padding;
 };
 
 #define to_typec_port(_dev_) container_of(_dev_, struct typec_port, dev)

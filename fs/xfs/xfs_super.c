@@ -165,7 +165,7 @@ xfs_fs_show_options(
 		{ XFS_MOUNT_GRPID,		",grpid" },
 		{ XFS_MOUNT_DISCARD,		",discard" },
 		{ XFS_MOUNT_LARGEIO,		",largeio" },
-		{ XFS_MOUNT_DAX_ALWAYS,		",dax,dax=always" },
+		{ XFS_MOUNT_DAX_ALWAYS,		",dax=always" },
 		{ XFS_MOUNT_DAX_NEVER,		",dax=never" },
 		{ 0, NULL }
 	};
@@ -709,8 +709,6 @@ xfs_fs_inode_init_once(
 	atomic_set(&ip->i_pincount, 0);
 	spin_lock_init(&ip->i_flags_lock);
 
-	mrlock_init(&ip->i_mmaplock, MRLOCK_ALLOW_EQUAL_PRI|MRLOCK_BARRIER,
-		     "xfsino", ip->i_ino);
 	mrlock_init(&ip->i_lock, MRLOCK_ALLOW_EQUAL_PRI|MRLOCK_BARRIER,
 		     "xfsino", ip->i_ino);
 }
@@ -1301,7 +1299,8 @@ xfs_fs_parse_param(
 
 static int
 xfs_fs_validate_params(
-	struct xfs_mount	*mp)
+	struct xfs_mount	*mp,
+	struct xfs_sb		*sb)
 {
 	/*
 	 * no recovery flag requires a read-only mount
@@ -1327,7 +1326,8 @@ xfs_fs_validate_params(
 	if ((mp->m_dalign && !mp->m_swidth) ||
 	    (!mp->m_dalign && mp->m_swidth)) {
 		xfs_warn(mp, "sunit and swidth must be specified together");
-		return -EINVAL;
+		if (!sb->sb_unit)
+			return -EINVAL;
 	}
 
 	if (mp->m_dalign && (mp->m_swidth % mp->m_dalign != 0)) {
@@ -1379,7 +1379,7 @@ xfs_fs_fill_super(
 
 	mp->m_super = sb;
 
-	error = xfs_fs_validate_params(mp);
+	error = xfs_fs_validate_params(mp, &mp->m_sb);
 	if (error)
 		goto out_free_names;
 
@@ -1689,15 +1689,6 @@ xfs_remount_rw(
 	 */
 	xfs_restore_resvblks(mp);
 	xfs_log_work_queue(mp);
-
-	/* Recover any CoW blocks that never got remapped. */
-	error = xfs_reflink_recover_cow(mp);
-	if (error) {
-		xfs_err(mp,
-			"Error %d recovering leftover CoW allocations.", error);
-		xfs_force_shutdown(mp, SHUTDOWN_CORRUPT_INCORE);
-		return error;
-	}
 	xfs_blockgc_start(mp);
 
 	/* Create the per-AG metadata reservation pool .*/
@@ -1712,7 +1703,10 @@ static int
 xfs_remount_ro(
 	struct xfs_mount	*mp)
 {
-	int error;
+	struct xfs_icwalk	icw = {
+		.icw_flags	= XFS_ICWALK_FLAG_SYNC,
+	};
+	int			error;
 
 	/*
 	 * Cancel background eofb scanning so it cannot race with the final
@@ -1720,8 +1714,13 @@ xfs_remount_ro(
 	 */
 	xfs_blockgc_stop(mp);
 
-	/* Get rid of any leftover CoW reservations... */
-	error = xfs_blockgc_free_space(mp, NULL);
+	/*
+	 * Clear out all remaining COW staging extents and speculative post-EOF
+	 * preallocations so that we don't leave inodes requiring inactivation
+	 * cleanups during reclaim on a read-only mount.  We must process every
+	 * cached inode, so this requires a synchronous cache scan.
+	 */
+	error = xfs_blockgc_free_space(mp, &icw);
 	if (error) {
 		xfs_force_shutdown(mp, SHUTDOWN_CORRUPT_INCORE);
 		return error;
@@ -1775,7 +1774,7 @@ xfs_fs_reconfigure(
 	if (XFS_SB_VERSION_NUM(&mp->m_sb) == XFS_SB_VERSION_5)
 		fc->sb_flags |= SB_I_VERSION;
 
-	error = xfs_fs_validate_params(new_mp);
+	error = xfs_fs_validate_params(new_mp, sbp);
 	if (error)
 		return error;
 

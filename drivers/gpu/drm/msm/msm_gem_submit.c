@@ -161,7 +161,8 @@ out:
 static int submit_lookup_cmds(struct msm_gem_submit *submit,
 		struct drm_msm_gem_submit *args, struct drm_file *file)
 {
-	unsigned i, sz;
+	unsigned i;
+	size_t sz;
 	int ret = 0;
 
 	for (i = 0; i < args->nr_cmds; i++) {
@@ -587,9 +588,7 @@ static struct msm_submit_post_dep *msm_parse_post_deps(struct drm_device *dev,
 				break;
 			}
 
-			post_deps[i].chain =
-				kmalloc(sizeof(*post_deps[i].chain),
-				        GFP_KERNEL);
+			post_deps[i].chain = dma_fence_chain_alloc();
 			if (!post_deps[i].chain) {
 				ret = -ENOMEM;
 				break;
@@ -606,7 +605,7 @@ static struct msm_submit_post_dep *msm_parse_post_deps(struct drm_device *dev,
 
 	if (ret) {
 		for (j = 0; j <= i; ++j) {
-			kfree(post_deps[j].chain);
+			dma_fence_chain_free(post_deps[j].chain);
 			if (post_deps[j].syncobj)
 				drm_syncobj_put(post_deps[j].syncobj);
 		}

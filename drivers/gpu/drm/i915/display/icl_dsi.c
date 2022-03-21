@@ -29,6 +29,7 @@
 #include <drm/drm_mipi_dsi.h>
 
 #include "intel_atomic.h"
+#include "intel_backlight.h"
 #include "intel_combo_phy.h"
 #include "intel_connector.h"
 #include "intel_crtc.h"
@@ -711,10 +712,7 @@ static void gen11_dsi_map_pll(struct intel_encoder *encoder,
 	intel_de_write(dev_priv, ICL_DPCLKA_CFGCR0, val);
 
 	for_each_dsi_phy(phy, intel_dsi->phys) {
-		if (DISPLAY_VER(dev_priv) >= 12)
-			val |= ICL_DPCLKA_CFGCR0_DDI_CLK_OFF(phy);
-		else
-			val &= ~ICL_DPCLKA_CFGCR0_DDI_CLK_OFF(phy);
+		val &= ~ICL_DPCLKA_CFGCR0_DDI_CLK_OFF(phy);
 	}
 	intel_de_write(dev_priv, ICL_DPCLKA_CFGCR0, val);
 
@@ -729,8 +727,8 @@ gen11_dsi_configure_transcoder(struct intel_encoder *encoder,
 {
 	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(encoder);
-	struct intel_crtc *intel_crtc = to_intel_crtc(pipe_config->uapi.crtc);
-	enum pipe pipe = intel_crtc->pipe;
+	struct intel_crtc *crtc = to_intel_crtc(pipe_config->uapi.crtc);
+	enum pipe pipe = crtc->pipe;
 	u32 tmp;
 	enum port port;
 	enum transcoder dsi_trans;
@@ -1150,8 +1148,6 @@ static void
 gen11_dsi_enable_port_and_phy(struct intel_encoder *encoder,
 			      const struct intel_crtc_state *crtc_state)
 {
-	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
-
 	/* step 4a: power up all lanes of the DDI used by DSI */
 	gen11_dsi_power_up_lanes(encoder);
 
@@ -1177,8 +1173,7 @@ gen11_dsi_enable_port_and_phy(struct intel_encoder *encoder,
 	gen11_dsi_configure_transcoder(encoder, crtc_state);
 
 	/* Step 4l: Gate DDI clocks */
-	if (DISPLAY_VER(dev_priv) == 11)
-		gen11_dsi_gate_clocks(encoder);
+	gen11_dsi_gate_clocks(encoder);
 }
 
 static void gen11_dsi_powerup_panel(struct intel_encoder *encoder)
@@ -1253,20 +1248,41 @@ static void gen11_dsi_pre_enable(struct intel_atomic_state *state,
 	gen11_dsi_set_transcoder_timings(encoder, pipe_config);
 }
 
+/*
+ * Wa_1409054076:icl,jsl,ehl
+ * When pipe A is disabled and MIPI DSI is enabled on pipe B,
+ * the AMT KVMR feature will incorrectly see pipe A as enabled.
+ * Set 0x42080 bit 23=1 before enabling DSI on pipe B and leave
+ * it set while DSI is enabled on pipe B
+ */
+static void icl_apply_kvmr_pipe_a_wa(struct intel_encoder *encoder,
+				     enum pipe pipe, bool enable)
+{
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
+
+	if (DISPLAY_VER(dev_priv) == 11 && pipe == PIPE_B)
+		intel_de_rmw(dev_priv, CHICKEN_PAR1_1,
+			     IGNORE_KVMR_PIPE_A,
+			     enable ? IGNORE_KVMR_PIPE_A : 0);
+}
 static void gen11_dsi_enable(struct intel_atomic_state *state,
 			     struct intel_encoder *encoder,
 			     const struct intel_crtc_state *crtc_state,
 			     const struct drm_connector_state *conn_state)
 {
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(encoder);
+	struct intel_crtc *crtc = to_intel_crtc(conn_state->crtc);
 
 	drm_WARN_ON(state->base.dev, crtc_state->has_pch_encoder);
+
+	/* Wa_1409054076:icl,jsl,ehl */
+	icl_apply_kvmr_pipe_a_wa(encoder, crtc->pipe, true);
 
 	/* step6d: enable dsi transcoder */
 	gen11_dsi_enable_transcoder(encoder);
 
 	/* step7: enable backlight */
-	intel_panel_enable_backlight(crtc_state, conn_state);
+	intel_backlight_enable(crtc_state, conn_state);
 	intel_dsi_vbt_exec_sequence(intel_dsi, MIPI_SEQ_BACKLIGHT_ON);
 
 	intel_crtc_vblank_on(crtc_state);
@@ -1415,13 +1431,17 @@ static void gen11_dsi_disable(struct intel_atomic_state *state,
 			      const struct drm_connector_state *old_conn_state)
 {
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(encoder);
+	struct intel_crtc *crtc = to_intel_crtc(old_conn_state->crtc);
 
 	/* step1: turn off backlight */
 	intel_dsi_vbt_exec_sequence(intel_dsi, MIPI_SEQ_BACKLIGHT_OFF);
-	intel_panel_disable_backlight(old_conn_state);
+	intel_backlight_disable(old_conn_state);
 
 	/* step2d,e: disable transcoder and wait */
 	gen11_dsi_disable_transcoder(encoder);
+
+	/* Wa_1409054076:icl,jsl,ehl */
+	icl_apply_kvmr_pipe_a_wa(encoder, crtc->pipe, false);
 
 	/* step2f,g: powerdown panel */
 	gen11_dsi_powerdown_panel(encoder);
@@ -1546,6 +1566,28 @@ static void gen11_dsi_get_config(struct intel_encoder *encoder,
 
 	if (gen11_dsi_is_periodic_cmd_mode(intel_dsi))
 		pipe_config->mode_flags |= I915_MODE_FLAG_DSI_PERIODIC_CMD_MODE;
+}
+
+static void gen11_dsi_sync_state(struct intel_encoder *encoder,
+				 const struct intel_crtc_state *crtc_state)
+{
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
+	struct intel_crtc *intel_crtc;
+	enum pipe pipe;
+
+	if (!crtc_state)
+		return;
+
+	intel_crtc = to_intel_crtc(crtc_state->uapi.crtc);
+	pipe = intel_crtc->pipe;
+
+	/* wa verify 1409054076:icl,jsl,ehl */
+	if (DISPLAY_VER(dev_priv) == 11 && pipe == PIPE_B &&
+	    !(intel_de_read(dev_priv, CHICKEN_PAR1_1) & IGNORE_KVMR_PIPE_A))
+		drm_dbg_kms(&dev_priv->drm,
+			    "[ENCODER:%d:%s] BIOS left IGNORE_KVMR_PIPE_A cleared with pipe B enabled\n",
+			    encoder->base.base.id,
+			    encoder->base.name);
 }
 
 static int gen11_dsi_dsc_compute_config(struct intel_encoder *encoder,
@@ -1966,7 +2008,8 @@ void icl_dsi_init(struct drm_i915_private *dev_priv)
 	encoder->post_disable = gen11_dsi_post_disable;
 	encoder->port = port;
 	encoder->get_config = gen11_dsi_get_config;
-	encoder->update_pipe = intel_panel_update_backlight;
+	encoder->sync_state = gen11_dsi_sync_state;
+	encoder->update_pipe = intel_backlight_update;
 	encoder->compute_config = gen11_dsi_compute_config;
 	encoder->get_hw_state = gen11_dsi_get_hw_state;
 	encoder->initial_fastset_check = gen11_dsi_initial_fastset_check;
@@ -2000,7 +2043,7 @@ void icl_dsi_init(struct drm_i915_private *dev_priv)
 	}
 
 	intel_panel_init(&intel_connector->panel, fixed_mode, NULL);
-	intel_panel_setup_backlight(connector, INVALID_PIPE);
+	intel_backlight_setup(intel_connector, INVALID_PIPE);
 
 	if (dev_priv->vbt.dsi.config->dual_link)
 		intel_dsi->ports = BIT(PORT_A) | BIT(PORT_B);

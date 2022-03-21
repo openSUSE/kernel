@@ -76,10 +76,6 @@ void dcn31_init_hw(struct dc *dc)
 	if (dc->clk_mgr && dc->clk_mgr->funcs->init_clocks)
 		dc->clk_mgr->funcs->init_clocks(dc->clk_mgr);
 
-	// Initialize the dccg
-	if (res_pool->dccg->funcs->dccg_init)
-		res_pool->dccg->funcs->dccg_init(res_pool->dccg);
-
 	if (IS_FPGA_MAXIMUS_DC(dc->ctx->dce_environment)) {
 
 		REG_WRITE(REFCLK_CNTL, 0);
@@ -106,6 +102,9 @@ void dcn31_init_hw(struct dc *dc)
 		hws->funcs.bios_golden_init(dc);
 		hws->funcs.disable_vga(dc->hwseq);
 	}
+	// Initialize the dccg
+	if (res_pool->dccg->funcs->dccg_init)
+		res_pool->dccg->funcs->dccg_init(res_pool->dccg);
 
 	if (dc->debug.enable_mem_low_power.bits.dmcu) {
 		// Force ERAM to shutdown if DMCU is not enabled
@@ -226,6 +225,7 @@ void dcn31_init_hw(struct dc *dc)
 	if (dc->config.power_down_display_on_boot) {
 		struct dc_link *edp_links[MAX_NUM_EDP];
 		struct dc_link *edp_link;
+		bool power_down = false;
 
 		get_edp_links(dc, edp_links, &edp_num);
 		if (edp_num) {
@@ -239,9 +239,11 @@ void dcn31_init_hw(struct dc *dc)
 					dc->hwss.edp_backlight_control(edp_link, false);
 					dc->hwss.power_down(dc);
 					dc->hwss.edp_power_control(edp_link, false);
+					power_down = true;
 				}
 			}
-		} else {
+		}
+		if (!power_down) {
 			for (i = 0; i < dc->link_count; i++) {
 				struct dc_link *link = dc->links[i];
 

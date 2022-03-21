@@ -1147,12 +1147,6 @@ static size_t module_flags_taint(struct module *mod, char *buf)
 			buf[l++] = taint_flags[i].c_true;
 	}
 
-#ifdef CONFIG_SUSE_KERNEL_SUPPORTED
-	if (mod->taints & (1 << TAINT_NO_SUPPORT))
-		buf[l++] = 'N';
-	if (mod->taints & (1 << TAINT_EXTERNAL_SUPPORT))
-		buf[l++] = 'X';
-#endif
 	return l;
 }
 
@@ -4538,6 +4532,8 @@ int module_kallsyms_on_each_symbol(int (*fn)(void *, const char *,
 				 mod, kallsyms_symbol_value(sym));
 			if (ret != 0)
 				goto out;
+
+			cond_resched();
 		}
 	}
 out:
@@ -4565,8 +4561,10 @@ static void cfi_init(struct module *mod)
 	/* Fix init/exit functions to point to the CFI jump table */
 	if (init)
 		mod->init = *init;
+#ifdef CONFIG_MODULE_UNLOAD
 	if (exit)
 		mod->exit = *exit;
+#endif
 
 	cfi_module_add(mod, module_addr_min);
 #endif

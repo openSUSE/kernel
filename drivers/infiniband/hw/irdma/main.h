@@ -346,7 +346,6 @@ struct irdma_device {
 	bool roce_mode:1;
 	bool roce_dcqcn_en:1;
 	bool dcb:1;
-	bool reset:1;
 	bool iw_ooo:1;
 	enum init_completion_state init_state;
 
@@ -542,6 +541,7 @@ int irdma_ah_cqp_op(struct irdma_pci_f *rf, struct irdma_sc_ah *sc_ah, u8 cmd,
 		    void (*callback_fcn)(struct irdma_cqp_request *cqp_request),
 		    void *cb_param);
 void irdma_gsi_ud_qp_ah_cb(struct irdma_cqp_request *cqp_request);
+bool irdma_cq_empty(struct irdma_cq *iwcq);
 int irdma_inetaddr_event(struct notifier_block *notifier, unsigned long event,
 			 void *ptr);
 int irdma_inet6addr_event(struct notifier_block *notifier, unsigned long event,

@@ -185,6 +185,7 @@ fault_type=%d		 Support configuring fault injection type, should be
 			 FAULT_KVMALLOC		  0x000000002
 			 FAULT_PAGE_ALLOC	  0x000000004
 			 FAULT_PAGE_GET		  0x000000008
+			 FAULT_ALLOC_BIO	  0x000000010 (obsolete)
 			 FAULT_ALLOC_NID	  0x000000020
 			 FAULT_ORPHAN		  0x000000040
 			 FAULT_BLOCK		  0x000000080
@@ -281,7 +282,7 @@ compress_extension=%s	 Support adding specified extension, so that f2fs can enab
 			 For other files, we can still enable compression via ioctl.
 			 Note that, there is one reserved special extension '*', it
 			 can be set to enable compression for all files.
-nocompress_extension=%s	   Support adding specified extension, so that f2fs can disable
+nocompress_extension=%s	 Support adding specified extension, so that f2fs can disable
 			 compression on those corresponding files, just contrary to compression extension.
 			 If you know exactly which files cannot be compressed, you can use this.
 			 The same extension name can't appear in both compress and nocompress

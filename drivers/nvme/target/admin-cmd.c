@@ -374,6 +374,11 @@ static void nvmet_execute_identify_ctrl(struct nvmet_req *req)
 
 	id->rab = 6;
 
+	if (nvmet_is_disc_subsys(ctrl->subsys))
+		id->cntrltype = NVME_CTRL_DISC;
+	else
+		id->cntrltype = NVME_CTRL_IO;
+
 	/*
 	 * XXX: figure out how we can assign a IEEE OUI, but until then
 	 * the safest is to leave it as zeroes.
@@ -1007,8 +1012,12 @@ u16 nvmet_parse_admin_cmd(struct nvmet_req *req)
 	u16 ret;
 
 	if (nvme_is_fabrics(cmd))
-		return nvmet_parse_fabrics_cmd(req);
-	if (nvmet_req_subsys(req)->type == NVME_NQN_DISC)
+		return nvmet_parse_fabrics_admin_cmd(req);
+
+	if (unlikely(!nvmet_check_auth_status(req)))
+		return NVME_SC_AUTH_REQUIRED | NVME_SC_DNR;
+
+	if (nvmet_is_disc_subsys(nvmet_req_subsys(req)))
 		return nvmet_parse_discovery_cmd(req);
 
 	ret = nvmet_check_ctrl_status(req);

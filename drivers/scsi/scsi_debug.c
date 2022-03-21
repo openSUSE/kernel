@@ -4313,7 +4313,7 @@ static int resp_report_zones(struct scsi_cmnd *scp,
 	rep_max_zones = min((alloc_len - 64) >> ilog2(RZONES_DESC_HD),
 			    max_zones);
 
-	arr = kcalloc(RZONES_DESC_HD, alloc_len, GFP_ATOMIC);
+	arr = kzalloc(alloc_len, GFP_ATOMIC);
 	if (!arr) {
 		mk_sense_buffer(scp, ILLEGAL_REQUEST, INSUFF_RES_ASC,
 				INSUFF_RES_ASCQ);
@@ -4628,6 +4628,7 @@ static void zbc_rwp_zone(struct sdebug_dev_info *devip,
 			 struct sdeb_zone_state *zsp)
 {
 	enum sdebug_z_cond zc;
+	struct sdeb_store_info *sip = devip2sip(devip, false);
 
 	if (zbc_zone_is_conv(zsp))
 		return;
@@ -4638,6 +4639,10 @@ static void zbc_rwp_zone(struct sdebug_dev_info *devip,
 
 	if (zsp->z_cond == ZC4_CLOSED)
 		devip->nr_closed--;
+
+	if (zsp->z_wp > zsp->z_start)
+		memset(sip->storep + zsp->z_start * sdebug_sector_size, 0,
+		       (zsp->z_wp - zsp->z_start) * sdebug_sector_size);
 
 	zsp->z_non_seq_resource = false;
 	zsp->z_wp = zsp->z_start;
@@ -7674,7 +7679,7 @@ static int sdebug_driver_probe(struct device *dev)
 	return error;
 }
 
-static int sdebug_driver_remove(struct device *dev)
+static void sdebug_driver_remove(struct device *dev)
 {
 	struct sdebug_host_info *sdbg_host;
 	struct sdebug_dev_info *sdbg_devinfo, *tmp;
@@ -7691,7 +7696,6 @@ static int sdebug_driver_remove(struct device *dev)
 	}
 
 	scsi_host_put(sdbg_host->shost);
-	return 0;
 }
 
 static int pseudo_lld_bus_match(struct device *dev,

@@ -2819,12 +2819,12 @@ static void dump_all_xives(void)
 {
 	int cpu;
 
-	if (num_possible_cpus() == 0) {
+	if (num_online_cpus() == 0) {
 		printf("No possible cpus, use 'dx #' to dump individual cpus\n");
 		return;
 	}
 
-	for_each_possible_cpu(cpu)
+	for_each_online_cpu(cpu)
 		dump_one_xive(cpu);
 }
 
@@ -3274,8 +3274,7 @@ static void show_task(struct task_struct *volatile tsk)
 	 * appropriate for calling from xmon. This could be moved
 	 * to a common, generic, routine used by both.
 	 */
-	state = (p_state == 0) ? 'R' :
-		(p_state < 0) ? 'U' :
+	state = (p_state == TASK_RUNNING) ? 'R' :
 		(p_state & TASK_UNINTERRUPTIBLE) ? 'D' :
 		(p_state & TASK_STOPPED) ? 'T' :
 		(p_state & TASK_TRACED) ? 'C' :

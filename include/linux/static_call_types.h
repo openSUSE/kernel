@@ -18,6 +18,9 @@
 #define STATIC_CALL_TRAMP(name)		__PASTE(STATIC_CALL_TRAMP_PREFIX, name)
 #define STATIC_CALL_TRAMP_STR(name)	__stringify(STATIC_CALL_TRAMP(name))
 
+#define STATIC_CALL_TYPE_PREFIX		__SCtype__
+#define STATIC_CALL_TYPE(name)		__PASTE(STATIC_CALL_TYPE_PREFIX, name)
+
 /*
  * Flags in the low bits of static_call_site::key.
  */
@@ -36,11 +39,13 @@ struct static_call_site {
 
 #define DECLARE_STATIC_CALL(name, func)					\
 	extern struct static_call_key STATIC_CALL_KEY(name);		\
-	extern typeof(func) STATIC_CALL_TRAMP(name);
+	extern struct static_call_tramp STATIC_CALL_TRAMP(name);	\
+	extern typeof(func) STATIC_CALL_TYPE(name)
 
 #ifdef CONFIG_HAVE_STATIC_CALL
 
-#define __raw_static_call(name)	(&STATIC_CALL_TRAMP(name))
+#define __raw_static_call(name)						\
+	((typeof(&STATIC_CALL_TYPE(name)))&STATIC_CALL_TRAMP(name))
 
 #ifdef CONFIG_HAVE_STATIC_CALL_INLINE
 
@@ -96,7 +101,7 @@ struct static_call_key {
 };
 
 #define static_call(name)						\
-	((typeof(STATIC_CALL_TRAMP(name))*)(STATIC_CALL_KEY(name).func))
+	((typeof(&STATIC_CALL_TYPE(name)))(STATIC_CALL_KEY(name).func))
 
 #endif /* CONFIG_HAVE_STATIC_CALL */
 

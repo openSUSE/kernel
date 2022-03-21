@@ -608,11 +608,13 @@ static noinline int create_subvol(struct inode *dir,
 		 * Since we don't abort the transaction in this case, free the
 		 * tree block so that we don't leak space and leave the
 		 * filesystem in an inconsistent state (an extent item in the
-		 * extent tree without backreferences). Also no need to have
-		 * the tree block locked since it is not in any tree at this
-		 * point, so no other task can find it and use it.
+		 * extent tree with a backreference for a root that does not
+		 * exists).
 		 */
-		btrfs_free_tree_block(trans, root, leaf, 0, 1);
+		btrfs_tree_lock(leaf);
+		btrfs_clean_tree_block(leaf);
+		btrfs_tree_unlock(leaf);
+		btrfs_free_tree_block(trans, objectid, leaf, 0, 1);
 		free_extent_buffer(leaf);
 		goto fail;
 	}
@@ -3077,10 +3079,8 @@ static noinline int btrfs_ioctl_snap_destroy(struct file *file,
 	btrfs_inode_lock(inode, 0);
 	err = btrfs_delete_subvolume(dir, dentry);
 	btrfs_inode_unlock(inode, 0);
-	if (!err) {
-		fsnotify_rmdir(dir, dentry);
-		d_delete(dentry);
-	}
+	if (!err)
+		d_delete_notify(dir, dentry);
 
 out_dput:
 	dput(dentry);
@@ -3112,6 +3112,12 @@ static int btrfs_ioctl_defrag(struct file *file, void __user *argp)
 
 	if (btrfs_root_readonly(root)) {
 		ret = -EROFS;
+		goto out;
+	}
+
+	/* Subpage defrag will be supported in later commits */
+	if (root->fs_info->sectorsize < PAGE_SIZE) {
+		ret = -ENOTTY;
 		goto out;
 	}
 
@@ -3205,6 +3211,8 @@ static long btrfs_ioctl_rm_dev_v2(struct file *file, void __user *arg)
 	struct inode *inode = file_inode(file);
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
 	struct btrfs_ioctl_vol_args_v2 *vol_args;
+	struct block_device *bdev = NULL;
+	fmode_t mode;
 	int ret;
 	bool cancel = false;
 
@@ -3237,9 +3245,9 @@ static long btrfs_ioctl_rm_dev_v2(struct file *file, void __user *arg)
 	/* Exclusive operation is now claimed */
 
 	if (vol_args->flags & BTRFS_DEVICE_SPEC_BY_ID)
-		ret = btrfs_rm_device(fs_info, NULL, vol_args->devid);
+		ret = btrfs_rm_device(fs_info, NULL, vol_args->devid, &bdev, &mode);
 	else
-		ret = btrfs_rm_device(fs_info, vol_args->name, 0);
+		ret = btrfs_rm_device(fs_info, vol_args->name, 0, &bdev, &mode);
 
 	btrfs_exclop_finish(fs_info);
 
@@ -3255,6 +3263,8 @@ out:
 	kfree(vol_args);
 err_drop:
 	mnt_drop_write_file(file);
+	if (bdev)
+		blkdev_put(bdev, mode);
 	return ret;
 }
 
@@ -3263,6 +3273,8 @@ static long btrfs_ioctl_rm_dev(struct file *file, void __user *arg)
 	struct inode *inode = file_inode(file);
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
 	struct btrfs_ioctl_vol_args *vol_args;
+	struct block_device *bdev = NULL;
+	fmode_t mode;
 	int ret;
 	bool cancel;
 
@@ -3284,7 +3296,7 @@ static long btrfs_ioctl_rm_dev(struct file *file, void __user *arg)
 	ret = exclop_start_or_cancel_reloc(fs_info, BTRFS_EXCLOP_DEV_REMOVE,
 					   cancel);
 	if (ret == 0) {
-		ret = btrfs_rm_device(fs_info, vol_args->name, 0);
+		ret = btrfs_rm_device(fs_info, vol_args->name, 0, &bdev, &mode);
 		if (!ret)
 			btrfs_info(fs_info, "disk deleted %s", vol_args->name);
 		btrfs_exclop_finish(fs_info);
@@ -3293,7 +3305,8 @@ static long btrfs_ioctl_rm_dev(struct file *file, void __user *arg)
 	kfree(vol_args);
 out_drop_write:
 	mnt_drop_write_file(file);
-
+	if (bdev)
+		blkdev_put(bdev, mode);
 	return ret;
 }
 

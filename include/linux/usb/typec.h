@@ -258,6 +258,8 @@ struct typec_capability {
 	void			*driver_data;
 
 	const struct typec_operations	*ops;
+
+	void *suse_kabi_padding;
 };
 
 /* Specific to try_role(). Indicates the user want's to clear the preference. */

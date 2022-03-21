@@ -17,8 +17,6 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/eeprom.h>
 #include <linux/property.h>
-#include <linux/of.h>
-#include <linux/of_device.h>
 #include <linux/math.h>
 
 /*
@@ -366,6 +364,13 @@ static const struct of_device_id at25_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, at25_of_match);
 
+static const struct spi_device_id at25_spi_ids[] = {
+	{ .name = "at25",},
+	{ .name = "fm25",},
+	{ }
+};
+MODULE_DEVICE_TABLE(spi, at25_spi_ids);
+
 static int at25_probe(struct spi_device *spi)
 {
 	struct at25_data	*at25 = NULL;
@@ -374,13 +379,14 @@ static int at25_probe(struct spi_device *spi)
 	int			sr;
 	u8 id[FM25_ID_LEN];
 	u8 sernum[FM25_SN_LEN];
+	bool is_fram;
 	int i;
-	const struct of_device_id *match;
-	bool is_fram = 0;
 
-	match = of_match_device(of_match_ptr(at25_of_match), &spi->dev);
-	if (match && !strcmp(match->compatible, "cypress,fm25"))
-		is_fram = 1;
+	err = device_property_match_string(&spi->dev, "compatible", "cypress,fm25");
+	if (err >= 0)
+		is_fram = true;
+	else
+		is_fram = false;
 
 	/* Chip description */
 	if (!spi->dev.platform_data) {
@@ -491,6 +497,7 @@ static struct spi_driver at25_driver = {
 		.dev_groups	= sernum_groups,
 	},
 	.probe		= at25_probe,
+	.id_table	= at25_spi_ids,
 };
 
 module_spi_driver(at25_driver);

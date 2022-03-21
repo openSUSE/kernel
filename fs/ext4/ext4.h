@@ -1088,15 +1088,6 @@ struct ext4_inode_info {
 	 * by other means, so we have i_data_sem.
 	 */
 	struct rw_semaphore i_data_sem;
-	/*
-	 * i_mmap_sem is for serializing page faults with truncate / punch hole
-	 * operations. We have to make sure that new page cannot be faulted in
-	 * a section of the inode that is being punched. We cannot easily use
-	 * i_data_sem for this since we need protection for the whole punch
-	 * operation and i_data_sem ranks below transaction start so we have
-	 * to occasionally drop it.
-	 */
-	struct rw_semaphore i_mmap_sem;
 	struct inode vfs_inode;
 	struct jbd2_inode *jinode;
 
@@ -1449,6 +1440,24 @@ struct ext4_super_block {
 
 #define EXT4_ENC_UTF8_12_1	1
 
+/* Types of ext4 journal triggers */
+enum ext4_journal_trigger_type {
+	EXT4_JTR_NONE	/* This must be the last entry for indexing to work! */
+};
+
+#define EXT4_JOURNAL_TRIGGER_COUNT EXT4_JTR_NONE
+
+struct ext4_journal_trigger {
+	struct jbd2_buffer_trigger_type tr_triggers;
+	struct super_block *sb;
+};
+
+static inline struct ext4_journal_trigger *EXT4_TRIGGER(
+				struct jbd2_buffer_trigger_type *trigger)
+{
+	return container_of(trigger, struct ext4_journal_trigger, tr_triggers);
+}
+
 /*
  * fourth extended-fs super-block data in memory
  */
@@ -1626,6 +1635,9 @@ struct ext4_sb_info {
 	struct mb_cache *s_ea_block_cache;
 	struct mb_cache *s_ea_inode_cache;
 	spinlock_t s_es_lock ____cacheline_aligned_in_smp;
+
+	/* Journal triggers for checksum computation */
+	struct ext4_journal_trigger s_journal_triggers[EXT4_JOURNAL_TRIGGER_COUNT];
 
 	/* Ratelimit ext4 messages. */
 	struct ratelimit_state s_err_ratelimit_state;
@@ -2922,13 +2934,14 @@ int ext4_get_block(struct inode *inode, sector_t iblock,
 int ext4_da_get_block_prep(struct inode *inode, sector_t iblock,
 			   struct buffer_head *bh, int create);
 int ext4_walk_page_buffers(handle_t *handle,
+			   struct inode *inode,
 			   struct buffer_head *head,
 			   unsigned from,
 			   unsigned to,
 			   int *partial,
-			   int (*fn)(handle_t *handle,
+			   int (*fn)(handle_t *handle, struct inode *inode,
 				     struct buffer_head *bh));
-int do_journal_get_write_access(handle_t *handle,
+int do_journal_get_write_access(handle_t *handle, struct inode *inode,
 				struct buffer_head *bh);
 #define FALL_BACK_TO_NONDELALLOC 1
 #define CONVERT_INLINE_DATA	 2
@@ -2974,7 +2987,6 @@ extern int ext4_chunk_trans_blocks(struct inode *, int nrblocks);
 extern int ext4_zero_partial_blocks(handle_t *handle, struct inode *inode,
 			     loff_t lstart, loff_t lend);
 extern vm_fault_t ext4_page_mkwrite(struct vm_fault *vmf);
-extern vm_fault_t ext4_filemap_fault(struct vm_fault *vmf);
 extern qsize_t *ext4_get_reserved_space(struct inode *inode);
 extern int ext4_get_projid(struct inode *inode, kprojid_t *projid);
 extern void ext4_da_release_space(struct inode *inode, int to_free);

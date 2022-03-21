@@ -33,6 +33,7 @@
 #include <linux/of_platform.h>
 #include <linux/hugetlb.h>
 #include <linux/pgtable.h>
+#include <linux/security.h>
 #include <asm/debugfs.h>
 #include <asm/io.h>
 #include <asm/paca.h>
@@ -66,6 +67,7 @@
 #include <asm/cpu_has_feature.h>
 #include <asm/kasan.h>
 #include <asm/mce.h>
+#include <asm/secure_boot.h>
 
 #include "setup.h"
 
@@ -864,6 +866,16 @@ void __init setup_arch(char **cmdline_p)
 	 * just cputable (on ppc32).
 	 */
 	initialize_cache_info();
+
+	/*
+	 * Lock down the kernel if booted in secure mode. This is required to
+	 * maintain kernel integrity.
+	 */
+	if (IS_ENABLED(CONFIG_LOCK_DOWN_IN_EFI_SECURE_BOOT)) {
+		if (is_ppc_secureboot_enabled())
+			security_lock_kernel_down("Power Secure Boot mode",
+						  LOCKDOWN_INTEGRITY_MAX);
+	}
 
 	/* Initialize RTAS if available. */
 	rtas_initialize();

@@ -31,7 +31,6 @@ config NVME_TARGET_PASSTHRU
 config NVME_TARGET_LOOP
 	tristate "NVMe loopback device support"
 	depends on NVME_TARGET
-	select NVME_CORE
 	select NVME_FABRICS
 	select SG_POOL
 	help
@@ -65,7 +64,6 @@ config NVME_TARGET_FC
 config NVME_TARGET_FCLOOP
 	tristate "NVMe over Fabrics FC Transport Loopback Test driver"
 	depends on NVME_TARGET
-	select NVME_CORE
 	select NVME_FABRICS
 	select SG_POOL
 	depends on NVME_FC
@@ -83,5 +81,18 @@ config NVME_TARGET_TCP
 	help
 	  This enables the NVMe TCP target support, which allows exporting NVMe
 	  devices over TCP.
+
+	  If unsure, say N.
+
+config NVME_TARGET_AUTH
+	bool "NVMe over Fabrics In-band Authentication support"
+	depends on NVME_TARGET
+	depends on NVME_AUTH
+	select CRYPTO_HMAC
+	select CRYPTO_SHA256
+	select CRYPTO_SHA512
+	select CRYPTO_DH_GROUPS_RFC7919
+	help
+	  This enables support for NVMe over Fabrics In-band Authentication
 
 	  If unsure, say N.

@@ -339,6 +339,7 @@ extern struct spi_device *spi_new_ancillary_device(struct spi_device *spi, u8 ch
  * @max_speed_hz: Highest supported transfer speed
  * @flags: other constraints relevant to this driver
  * @slave: indicates that this is an SPI slave controller
+ * @devm_allocated: whether the allocation of this struct is devres-managed
  * @max_transfer_size: function that returns the max transfer size for
  *	a &spi_device; may be %NULL, so the default %SIZE_MAX will be used.
  * @max_message_size: function that returns the max message size for
@@ -511,7 +512,7 @@ struct spi_controller {
 
 #define SPI_MASTER_GPIO_SS		BIT(5)	/* GPIO CS must select slave */
 
-	/* flag indicating this is a non-devres managed controller */
+	/* flag indicating if the allocation of this struct is devres-managed */
 	bool			devm_allocated;
 
 	/* flag indicating this is an SPI slave controller */
@@ -526,6 +527,9 @@ struct spi_controller {
 
 	/* I/O mutex */
 	struct mutex		io_mutex;
+
+	/* Used to avoid adding the same CS twice */
+	struct mutex		add_lock;
 
 	/* lock and mutex for SPI bus locking */
 	spinlock_t		bus_lock_spinlock;

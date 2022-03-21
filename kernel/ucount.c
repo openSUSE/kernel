@@ -184,6 +184,7 @@ struct ucounts *alloc_ucounts(struct user_namespace *ns, kuid_t uid)
 			kfree(new);
 		} else {
 			hlist_add_head(&new->node, hashent);
+			get_user_ns(new->ns);
 			spin_unlock_irq(&ucounts_lock);
 			return new;
 		}
@@ -204,6 +205,7 @@ void put_ucounts(struct ucounts *ucounts)
 	if (atomic_dec_and_lock_irqsave(&ucounts->count, &ucounts_lock, flags)) {
 		hlist_del_init(&ucounts->node);
 		spin_unlock_irqrestore(&ucounts_lock, flags);
+		put_user_ns(ucounts->ns);
 		kfree(ucounts);
 	}
 }
@@ -282,6 +284,55 @@ bool dec_rlimit_ucounts(struct ucounts *ucounts, enum ucount_type type, long v)
 			new = dec;
 	}
 	return (new == 0);
+}
+
+static void do_dec_rlimit_put_ucounts(struct ucounts *ucounts,
+				struct ucounts *last, enum ucount_type type)
+{
+	struct ucounts *iter, *next;
+	for (iter = ucounts; iter != last; iter = next) {
+		long dec = atomic_long_add_return(-1, &iter->ucount[type]);
+		WARN_ON_ONCE(dec < 0);
+		next = iter->ns->ucounts;
+		if (dec == 0)
+			put_ucounts(iter);
+	}
+}
+
+void dec_rlimit_put_ucounts(struct ucounts *ucounts, enum ucount_type type)
+{
+	do_dec_rlimit_put_ucounts(ucounts, NULL, type);
+}
+
+long inc_rlimit_get_ucounts(struct ucounts *ucounts, enum ucount_type type)
+{
+	/* Caller must hold a reference to ucounts */
+	struct ucounts *iter;
+	long dec, ret = 0;
+
+	for (iter = ucounts; iter; iter = iter->ns->ucounts) {
+		long max = READ_ONCE(iter->ns->ucount_max[type]);
+		long new = atomic_long_add_return(1, &iter->ucount[type]);
+		if (new < 0 || new > max)
+			goto unwind;
+		if (iter == ucounts)
+			ret = new;
+		/*
+		 * Grab an extra ucount reference for the caller when
+		 * the rlimit count was previously 0.
+		 */
+		if (new != 1)
+			continue;
+		if (!get_ucounts(iter))
+			goto dec_unwind;
+	}
+	return ret;
+dec_unwind:
+	dec = atomic_long_add_return(-1, &iter->ucount[type]);
+	WARN_ON_ONCE(dec < 0);
+unwind:
+	do_dec_rlimit_put_ucounts(ucounts, iter, type);
+	return 0;
 }
 
 bool is_ucounts_overlimit(struct ucounts *ucounts, enum ucount_type type, unsigned long max)

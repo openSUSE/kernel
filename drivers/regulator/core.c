@@ -145,7 +145,7 @@ static inline int regulator_lock_nested(struct regulator_dev *rdev,
 
 	mutex_lock(&regulator_nesting_mutex);
 
-	if (ww_ctx || !ww_mutex_trylock(&rdev->mutex)) {
+	if (!ww_mutex_trylock(&rdev->mutex, ww_ctx)) {
 		if (rdev->mutex_owner == current)
 			rdev->ref_cnt++;
 		else
@@ -4248,6 +4248,9 @@ int regulator_sync_voltage(struct regulator *regulator)
 	struct regulator_voltage *voltage = &regulator->voltage[PM_SUSPEND_ON];
 	int ret, min_uV, max_uV;
 
+	if (!regulator_ops_is_valid(rdev, REGULATOR_CHANGE_VOLTAGE))
+		return 0;
+
 	regulator_lock(rdev);
 
 	if (!rdev->desc->ops->set_voltage &&
@@ -6010,9 +6013,8 @@ core_initcall(regulator_init);
 static int regulator_late_cleanup(struct device *dev, void *data)
 {
 	struct regulator_dev *rdev = dev_to_rdev(dev);
-	const struct regulator_ops *ops = rdev->desc->ops;
 	struct regulation_constraints *c = rdev->constraints;
-	int enabled, ret;
+	int ret;
 
 	if (c && c->always_on)
 		return 0;
@@ -6025,14 +6027,8 @@ static int regulator_late_cleanup(struct device *dev, void *data)
 	if (rdev->use_count)
 		goto unlock;
 
-	/* If we can't read the status assume it's always on. */
-	if (ops->is_enabled)
-		enabled = ops->is_enabled(rdev);
-	else
-		enabled = 1;
-
-	/* But if reading the status failed, assume that it's off. */
-	if (enabled <= 0)
+	/* If reading the status failed, assume that it's off. */
+	if (_regulator_is_enabled(rdev) <= 0)
 		goto unlock;
 
 	if (have_full_constraints()) {

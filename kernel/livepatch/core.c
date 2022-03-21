@@ -227,7 +227,7 @@ static int klp_resolve_symbols(Elf64_Shdr *sechdrs, const char *strtab,
 
 		/* Format: .klp.sym.sym_objname.sym_name,sympos */
 		cnt = sscanf(strtab + sym->st_name,
-			     KLP_SYM_PREFIX "%55[^.].%127[^,],%lu",
+			     ".klp.sym.%55[^.].%127[^,],%lu",
 			     sym_objname, sym_name, &sympos);
 		if (cnt != 3) {
 			pr_err("symbol %s has an incorrectly formatted name\n",
@@ -298,7 +298,7 @@ int klp_apply_section_relocs(struct module *pmod, Elf_Shdr *sechdrs,
 	 * See comment in klp_resolve_symbols() for an explanation
 	 * of the selected field width value.
 	 */
-	cnt = sscanf(shstrtab + sec->sh_name, KLP_RELA_PREFIX "%55[^.]",
+	cnt = sscanf(shstrtab + sec->sh_name, ".klp.rela.%55[^.]",
 		     sec_objname);
 	if (cnt != 1) {
 		pr_err("section %s has an incorrectly formatted name\n",
@@ -862,13 +862,10 @@ static void klp_init_object_early(struct klp_patch *patch,
 	list_add_tail(&obj->node, &patch->obj_list);
 }
 
-static int klp_init_patch_early(struct klp_patch *patch)
+static void klp_init_patch_early(struct klp_patch *patch)
 {
 	struct klp_object *obj;
 	struct klp_func *func;
-
-	if (!patch->objs)
-		return -EINVAL;
 
 	INIT_LIST_HEAD(&patch->list);
 	INIT_LIST_HEAD(&patch->obj_list);
@@ -879,20 +876,12 @@ static int klp_init_patch_early(struct klp_patch *patch)
 	init_completion(&patch->finish);
 
 	klp_for_each_object_static(patch, obj) {
-		if (!obj->funcs)
-			return -EINVAL;
-
 		klp_init_object_early(patch, obj);
 
 		klp_for_each_func_static(obj, func) {
 			klp_init_func_early(obj, func);
 		}
 	}
-
-	if (!try_module_get(patch->mod))
-		return -ENODEV;
-
-	return 0;
 }
 
 static int klp_init_patch(struct klp_patch *patch)
@@ -1035,9 +1024,16 @@ err:
 int klp_enable_patch(struct klp_patch *patch)
 {
 	int ret;
+	struct klp_object *obj;
 
-	if (!patch || !patch->mod)
+	if (!patch || !patch->mod || !patch->objs)
 		return -EINVAL;
+
+	klp_for_each_object_static(patch, obj) {
+		if (!obj->funcs)
+			return -EINVAL;
+	}
+
 
 	if (!is_livepatch_module(patch->mod)) {
 		pr_err("module %s is not marked as a livepatch module\n",
@@ -1062,11 +1058,12 @@ int klp_enable_patch(struct klp_patch *patch)
 		return -EINVAL;
 	}
 
-	ret = klp_init_patch_early(patch);
-	if (ret) {
+	if (!try_module_get(patch->mod)) {
 		mutex_unlock(&klp_mutex);
-		return ret;
+		return -ENODEV;
 	}
+
+	klp_init_patch_early(patch);
 
 	ret = klp_init_patch(patch);
 	if (ret)

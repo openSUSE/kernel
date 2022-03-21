@@ -77,12 +77,13 @@ EXPORT_SYMBOL(ccwgroup_set_online);
 /**
  * ccwgroup_set_offline() - disable a ccwgroup device
  * @gdev: target ccwgroup device
+ * @call_gdrv: Call the registered gdrv set_offline function
  *
  * This function attempts to put the ccwgroup device into the offline state.
  * Returns:
  *  %0 on success and a negative error value on failure.
  */
-int ccwgroup_set_offline(struct ccwgroup_device *gdev)
+int ccwgroup_set_offline(struct ccwgroup_device *gdev, bool call_gdrv)
 {
 	struct ccwgroup_driver *gdrv = to_ccwgroupdrv(gdev->dev.driver);
 	int ret = -EINVAL;
@@ -91,11 +92,16 @@ int ccwgroup_set_offline(struct ccwgroup_device *gdev)
 		return -EAGAIN;
 	if (gdev->state == CCWGROUP_OFFLINE)
 		goto out;
+	if (!call_gdrv) {
+		ret = 0;
+		goto offline;
+	}
 	if (gdrv->set_offline)
 		ret = gdrv->set_offline(gdev);
 	if (ret)
 		goto out;
 
+offline:
 	gdev->state = CCWGROUP_OFFLINE;
 out:
 	atomic_set(&gdev->onoff, 0);
@@ -124,7 +130,7 @@ static ssize_t ccwgroup_online_store(struct device *dev,
 	if (value == 1)
 		ret = ccwgroup_set_online(gdev);
 	else if (value == 0)
-		ret = ccwgroup_set_offline(gdev);
+		ret = ccwgroup_set_offline(gdev, true);
 	else
 		ret = -EINVAL;
 out:
@@ -439,17 +445,13 @@ module_exit(cleanup_ccwgroup);
 
 /************************** driver stuff ******************************/
 
-static int ccwgroup_remove(struct device *dev)
+static void ccwgroup_remove(struct device *dev)
 {
 	struct ccwgroup_device *gdev = to_ccwgroupdev(dev);
 	struct ccwgroup_driver *gdrv = to_ccwgroupdrv(dev->driver);
 
-	if (!dev->driver)
-		return 0;
 	if (gdrv->remove)
 		gdrv->remove(gdev);
-
-	return 0;
 }
 
 static void ccwgroup_shutdown(struct device *dev)

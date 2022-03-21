@@ -793,6 +793,7 @@ void nvmet_sq_destroy(struct nvmet_sq *sq)
 	wait_for_completion(&sq->confirm_done);
 	wait_for_completion(&sq->free_done);
 	percpu_ref_exit(&sq->ref);
+	nvmet_auth_sq_free(sq);
 
 	if (ctrl) {
 		/*
@@ -862,7 +863,14 @@ static inline u16 nvmet_io_cmd_check_access(struct nvmet_req *req)
 
 static u16 nvmet_parse_io_cmd(struct nvmet_req *req)
 {
+	struct nvme_command *cmd = req->cmd;
 	u16 ret;
+
+	if (nvme_is_fabrics(cmd))
+		return nvmet_parse_fabrics_io_cmd(req);
+
+	if (unlikely(!nvmet_check_auth_status(req)))
+		return NVME_SC_AUTH_REQUIRED | NVME_SC_DNR;
 
 	ret = nvmet_check_ctrl_status(req);
 	if (unlikely(ret))
@@ -1139,7 +1147,7 @@ static void nvmet_start_ctrl(struct nvmet_ctrl *ctrl)
 	 * should verify iosqes,iocqes are zeroed, however that
 	 * would break backwards compatibility, so don't enforce it.
 	 */
-	if (ctrl->subsys->type != NVME_NQN_DISC &&
+	if (!nvmet_is_disc_subsys(ctrl->subsys) &&
 	    (nvmet_cc_iosqes(ctrl->cc) != NVME_NVM_IOSQES ||
 	     nvmet_cc_iocqes(ctrl->cc) != NVME_NVM_IOCQES)) {
 		ctrl->csts = NVME_CSTS_CFS;
@@ -1262,6 +1270,11 @@ u16 nvmet_check_ctrl_status(struct nvmet_req *req)
 		       req->cmd->common.opcode, req->sq->qid);
 		return NVME_SC_CMD_SEQ_ERROR | NVME_SC_DNR;
 	}
+
+	if (unlikely(!nvmet_check_auth_status(req))) {
+		pr_warn("qid %d not authenticated\n", req->sq->qid);
+		return NVME_SC_AUTH_REQUIRED | NVME_SC_DNR;
+	}
 	return 0;
 }
 
@@ -1274,7 +1287,7 @@ bool nvmet_host_allowed(struct nvmet_subsys *subsys, const char *hostnqn)
 	if (subsys->allow_any_host)
 		return true;
 
-	if (subsys->type == NVME_NQN_DISC) /* allow all access to disc subsys */
+	if (nvmet_is_disc_subsys(subsys)) /* allow all access to disc subsys */
 		return true;
 
 	list_for_each_entry(p, &subsys->hosts, entry) {
@@ -1408,7 +1421,7 @@ u16 nvmet_alloc_ctrl(const char *subsysnqn, const char *hostnqn,
 	 * Discovery controllers may use some arbitrary high value
 	 * in order to cleanup stale discovery sessions
 	 */
-	if ((ctrl->subsys->type == NVME_NQN_DISC) && !kato)
+	if (nvmet_is_disc_subsys(ctrl->subsys) && !kato)
 		kato = NVMET_DISC_KATO_MS;
 
 	/* keep-alive timeout in seconds */
@@ -1454,6 +1467,8 @@ static void nvmet_ctrl_free(struct kref *ref)
 	flush_work(&ctrl->async_event_work);
 	cancel_work_sync(&ctrl->fatal_err_work);
 
+	nvmet_destroy_auth(ctrl);
+
 	ida_simple_remove(&cntlid_ida, ctrl->cntlid);
 
 	nvmet_async_events_free(ctrl);
@@ -1488,7 +1503,8 @@ static struct nvmet_subsys *nvmet_find_get_subsys(struct nvmet_port *port,
 	if (!port)
 		return NULL;
 
-	if (!strcmp(NVME_DISC_SUBSYS_NAME, subsysnqn)) {
+	if (!strcmp(NVME_DISC_SUBSYS_NAME, subsysnqn) ||
+	    !strcmp(nvmet_disc_subsys->subsysnqn, subsysnqn)) {
 		if (!kref_get_unless_zero(&nvmet_disc_subsys->ref))
 			return NULL;
 		return nvmet_disc_subsys;
@@ -1535,6 +1551,7 @@ struct nvmet_subsys *nvmet_subsys_alloc(const char *subsysnqn,
 		subsys->max_qid = NVMET_NR_QUEUES;
 		break;
 	case NVME_NQN_DISC:
+	case NVME_NQN_CURR:
 		subsys->max_qid = 0;
 		break;
 	default:

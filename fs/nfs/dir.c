@@ -78,6 +78,7 @@ static struct nfs_open_dir_context *alloc_nfs_open_dir_context(struct inode *dir
 		ctx->attr_gencount = nfsi->attr_gencount;
 		ctx->dir_cookie = 0;
 		ctx->dup_cookie = 0;
+		ctx->eof = false;
 		spin_lock(&dir->i_lock);
 		if (list_empty(&nfsi->open_files) &&
 		    (nfsi->cache_validity & NFS_INO_DATA_INVAL_DEFER))
@@ -165,6 +166,7 @@ struct nfs_readdir_descriptor {
 	unsigned int	cache_entry_index;
 	signed char duped;
 	bool plus;
+	bool eob;
 	bool eof;
 };
 
@@ -870,7 +872,8 @@ static int nfs_readdir_xdr_to_array(struct nfs_readdir_descriptor *desc,
 
 		status = nfs_readdir_page_filler(desc, entry, pages, pglen,
 						 arrays, narrays);
-	} while (!status && nfs_readdir_page_needs_filling(page));
+	} while (!status && nfs_readdir_page_needs_filling(page) &&
+		page_mapping(page));
 
 	nfs_readdir_free_pages(pages, array_size);
 out_release_label:
@@ -995,7 +998,7 @@ static void nfs_do_filldir(struct nfs_readdir_descriptor *desc,
 		ent = &array->array[i];
 		if (!dir_emit(desc->ctx, ent->name, ent->name_len,
 		    nfs_compat_user_ino64(ent->ino), ent->d_type)) {
-			desc->eof = true;
+			desc->eob = true;
 			break;
 		}
 		memcpy(desc->verf, verf, sizeof(desc->verf));
@@ -1011,7 +1014,7 @@ static void nfs_do_filldir(struct nfs_readdir_descriptor *desc,
 			desc->duped = 1;
 	}
 	if (array->page_is_eof)
-		desc->eof = true;
+		desc->eof = !desc->eob;
 
 	kunmap(desc->page);
 	dfprintk(DIRCACHE, "NFS: nfs_do_filldir() filling ended @ cookie %llu\n",
@@ -1048,12 +1051,13 @@ static int uncached_readdir(struct nfs_readdir_descriptor *desc)
 		goto out;
 
 	desc->page_index = 0;
+	desc->cache_entry_index = 0;
 	desc->last_cookie = desc->dir_cookie;
 	desc->duped = 0;
 
 	status = nfs_readdir_xdr_to_array(desc, desc->verf, verf, arrays, sz);
 
-	for (i = 0; !desc->eof && i < sz && arrays[i]; i++) {
+	for (i = 0; !desc->eob && i < sz && arrays[i]; i++) {
 		desc->page = arrays[i];
 		nfs_do_filldir(desc, verf);
 	}
@@ -1110,8 +1114,14 @@ static int nfs_readdir(struct file *file, struct dir_context *ctx)
 	desc->dup_cookie = dir_ctx->dup_cookie;
 	desc->duped = dir_ctx->duped;
 	desc->attr_gencount = dir_ctx->attr_gencount;
+	desc->eof = dir_ctx->eof;
 	memcpy(desc->verf, dir_ctx->verf, sizeof(desc->verf));
 	spin_unlock(&file->f_lock);
+
+	if (desc->eof) {
+		res = 0;
+		goto out_free;
+	}
 
 	do {
 		res = readdir_search_pagecache(desc);
@@ -1142,16 +1152,17 @@ static int nfs_readdir(struct file *file, struct dir_context *ctx)
 
 		nfs_do_filldir(desc, nfsi->cookieverf);
 		nfs_readdir_page_unlock_and_put_cached(desc);
-	} while (!desc->eof);
+	} while (!desc->eob && !desc->eof);
 
 	spin_lock(&file->f_lock);
 	dir_ctx->dir_cookie = desc->dir_cookie;
 	dir_ctx->dup_cookie = desc->dup_cookie;
 	dir_ctx->duped = desc->duped;
 	dir_ctx->attr_gencount = desc->attr_gencount;
+	dir_ctx->eof = desc->eof;
 	memcpy(dir_ctx->verf, desc->verf, sizeof(dir_ctx->verf));
 	spin_unlock(&file->f_lock);
-
+out_free:
 	kfree(desc);
 
 out:
@@ -1193,6 +1204,7 @@ static loff_t nfs_llseek_dir(struct file *filp, loff_t offset, int whence)
 		if (offset == 0)
 			memset(dir_ctx->verf, 0, sizeof(dir_ctx->verf));
 		dir_ctx->duped = 0;
+		dir_ctx->eof = false;
 	}
 	spin_unlock(&filp->f_lock);
 	return offset;
@@ -1269,13 +1281,12 @@ static bool nfs_verifier_is_delegated(struct dentry *dentry)
 static void nfs_set_verifier_locked(struct dentry *dentry, unsigned long verf)
 {
 	struct inode *inode = d_inode(dentry);
+	struct inode *dir = d_inode(dentry->d_parent);
 
-	if (!nfs_verifier_is_delegated(dentry) &&
-	    !nfs_verify_change_attribute(d_inode(dentry->d_parent), verf))
-		goto out;
+	if (!nfs_verify_change_attribute(dir, verf))
+		return;
 	if (inode && NFS_PROTO(inode)->have_delegation(inode, FMODE_READ))
 		nfs_set_verifier_delegated(&verf);
-out:
 	dentry->d_time = verf;
 }
 
@@ -1413,7 +1424,7 @@ out_force:
 static void nfs_mark_dir_for_revalidate(struct inode *inode)
 {
 	spin_lock(&inode->i_lock);
-	nfs_set_cache_invalid(inode, NFS_INO_REVAL_PAGECACHE);
+	nfs_set_cache_invalid(inode, NFS_INO_INVALID_CHANGE);
 	spin_unlock(&inode->i_lock);
 }
 
@@ -1985,6 +1996,24 @@ out:
 
 no_open:
 	res = nfs_lookup(dir, dentry, lookup_flags);
+	if (!res) {
+		inode = d_inode(dentry);
+		if ((lookup_flags & LOOKUP_DIRECTORY) && inode &&
+		    !S_ISDIR(inode->i_mode))
+			res = ERR_PTR(-ENOTDIR);
+		else if (inode && S_ISREG(inode->i_mode))
+			res = ERR_PTR(-EOPENSTALE);
+	} else if (!IS_ERR(res)) {
+		inode = d_inode(res);
+		if ((lookup_flags & LOOKUP_DIRECTORY) && inode &&
+		    !S_ISDIR(inode->i_mode)) {
+			dput(res);
+			res = ERR_PTR(-ENOTDIR);
+		} else if (inode && S_ISREG(inode->i_mode)) {
+			dput(res);
+			res = ERR_PTR(-EOPENSTALE);
+		}
+	}
 	if (switched) {
 		d_lookup_done(dentry);
 		if (!res)
@@ -2385,6 +2414,8 @@ nfs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *dentry)
 
 	trace_nfs_link_enter(inode, dir, dentry);
 	d_drop(dentry);
+	if (S_ISREG(inode->i_mode))
+		nfs_sync_inode(inode);
 	error = NFS_PROTO(dir)->link(inode, dir, &dentry->d_name);
 	if (error == 0) {
 		ihold(inode);
@@ -2533,7 +2564,7 @@ MODULE_PARM_DESC(nfs_access_max_cachesize, "NFS access maximum total cache lengt
 
 static void nfs_access_free_entry(struct nfs_access_entry *entry)
 {
-	put_cred(entry->cred);
+	put_group_info(entry->group_info);
 	kfree_rcu(entry, rcu_head);
 	smp_mb__before_atomic();
 	atomic_long_dec(&nfs_access_nr_entries);
@@ -2659,6 +2690,43 @@ void nfs_access_zap_cache(struct inode *inode)
 }
 EXPORT_SYMBOL_GPL(nfs_access_zap_cache);
 
+static int access_cmp(const struct cred *a, const struct nfs_access_entry *b)
+{
+	struct group_info *ga, *gb;
+	int g;
+
+	if (uid_lt(a->fsuid, b->fsuid))
+		return -1;
+	if (uid_gt(a->fsuid, b->fsuid))
+		return 1;
+
+	if (gid_lt(a->fsgid, b->fsgid))
+		return -1;
+	if (gid_gt(a->fsgid, b->fsgid))
+		return 1;
+
+	ga = a->group_info;
+	gb = b->group_info;
+	if (ga == gb)
+		return 0;
+	if (ga == NULL)
+		return -1;
+	if (gb == NULL)
+		return 1;
+	if (ga->ngroups < gb->ngroups)
+		return -1;
+	if (ga->ngroups > gb->ngroups)
+		return 1;
+
+	for (g = 0; g < ga->ngroups; g++) {
+		if (gid_lt(ga->gid[g], gb->gid[g]))
+			return -1;
+		if (gid_gt(ga->gid[g], gb->gid[g]))
+			return 1;
+	}
+	return 0;
+}
+
 static struct nfs_access_entry *nfs_access_search_rbtree(struct inode *inode, const struct cred *cred)
 {
 	struct rb_node *n = NFS_I(inode)->access_cache.rb_node;
@@ -2666,7 +2734,7 @@ static struct nfs_access_entry *nfs_access_search_rbtree(struct inode *inode, co
 	while (n != NULL) {
 		struct nfs_access_entry *entry =
 			rb_entry(n, struct nfs_access_entry, rb_node);
-		int cmp = cred_fscmp(cred, entry->cred);
+		int cmp = access_cmp(cred, entry);
 
 		if (cmp < 0)
 			n = n->rb_left;
@@ -2708,7 +2776,6 @@ static int nfs_access_get_cached_locked(struct inode *inode, const struct cred *
 		spin_lock(&inode->i_lock);
 		retry = false;
 	}
-	res->cred = cache->cred;
 	res->mask = cache->mask;
 	list_move_tail(&cache->lru, &nfsi->access_cache_entry_lru);
 	err = 0;
@@ -2737,13 +2804,12 @@ static int nfs_access_get_cached_rcu(struct inode *inode, const struct cred *cre
 	lh = rcu_dereference(list_tail_rcu(&nfsi->access_cache_entry_lru));
 	cache = list_entry(lh, struct nfs_access_entry, lru);
 	if (lh == &nfsi->access_cache_entry_lru ||
-	    cred_fscmp(cred, cache->cred) != 0)
+	    access_cmp(cred, cache) != 0)
 		cache = NULL;
 	if (cache == NULL)
 		goto out;
 	if (nfs_check_cache_invalid(inode, NFS_INO_INVALID_ACCESS))
 		goto out;
-	res->cred = cache->cred;
 	res->mask = cache->mask;
 	err = 0;
 out:
@@ -2765,7 +2831,9 @@ nfs_access_entry *res, bool may_block)
 }
 EXPORT_SYMBOL_GPL(nfs_access_get_cached);
 
-static void nfs_access_add_rbtree(struct inode *inode, struct nfs_access_entry *set)
+static void nfs_access_add_rbtree(struct inode *inode,
+				  struct nfs_access_entry *set,
+				  const struct cred *cred)
 {
 	struct nfs_inode *nfsi = NFS_I(inode);
 	struct rb_root *root_node = &nfsi->access_cache;
@@ -2778,7 +2846,7 @@ static void nfs_access_add_rbtree(struct inode *inode, struct nfs_access_entry *
 	while (*p != NULL) {
 		parent = *p;
 		entry = rb_entry(parent, struct nfs_access_entry, rb_node);
-		cmp = cred_fscmp(set->cred, entry->cred);
+		cmp = access_cmp(cred, entry);
 
 		if (cmp < 0)
 			p = &parent->rb_left;
@@ -2803,10 +2871,14 @@ found:
 void nfs_access_add_cache(struct inode *inode, struct nfs_access_entry *set)
 {
 	struct nfs_access_entry *cache = kmalloc(sizeof(*cache), GFP_KERNEL);
+	struct cred *cred = (void*)set->group_info;
+
 	if (cache == NULL)
 		return;
 	RB_CLEAR_NODE(&cache->rb_node);
-	cache->cred = get_cred(set->cred);
+	cache->fsuid = cred->fsuid;
+	cache->fsgid = cred->fsgid;
+	cache->group_info = get_group_info(cred->group_info);
 	cache->mask = set->mask;
 
 	/* The above field assignments must be visible
@@ -2814,7 +2886,7 @@ void nfs_access_add_cache(struct inode *inode, struct nfs_access_entry *set)
 	 * use rcu_assign_pointer, so just force the memory barrier.
 	 */
 	smp_wmb();
-	nfs_access_add_rbtree(inode, cache);
+	nfs_access_add_rbtree(inode, cache, cred);
 
 	/* Update accounting */
 	smp_mb__before_atomic();
@@ -2899,7 +2971,7 @@ static int nfs_do_access(struct inode *inode, const struct cred *cred, int mask)
 		cache.mask |= NFS_ACCESS_DELETE | NFS_ACCESS_LOOKUP;
 	else
 		cache.mask |= NFS_ACCESS_EXECUTE;
-	cache.cred = cred;
+	cache.group_info = (void*)cred;
 	status = NFS_PROTO(inode)->access(inode, &cache);
 	if (status != 0) {
 		if (status == -ESTALE) {

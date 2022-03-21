@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: LGPL-2.1
 /*
- *   fs/cifs/cifsencrypt.c
  *
  *   Encryption and hashing operations relating to NTLM, NTLMv2.  See MS-NLMP
  *   for more detailed information
@@ -22,7 +21,7 @@
 #include <linux/random.h>
 #include <linux/highmem.h>
 #include <linux/fips.h>
-#include <crypto/arc4.h>
+#include "../smbfs_common/arc4.h"
 #include <crypto/aead.h>
 
 int __cifs_calc_signature(struct smb_rqst *rqst,
@@ -780,9 +779,9 @@ calc_seckey(struct cifs_ses *ses)
 		return -ENOMEM;
 	}
 
-	arc4_setkey(ctx_arc4, ses->auth_key.response, CIFS_SESS_KEY_SIZE);
-	arc4_crypt(ctx_arc4, ses->ntlmssp->ciphertext, sec_key,
-		   CIFS_CPHTXT_SIZE);
+	cifs_arc4_setkey(ctx_arc4, ses->auth_key.response, CIFS_SESS_KEY_SIZE);
+	cifs_arc4_crypt(ctx_arc4, ses->ntlmssp->ciphertext, sec_key,
+			CIFS_CPHTXT_SIZE);
 
 	/* make secondary_key/nonce as session key */
 	memcpy(ses->auth_key.response, sec_key, CIFS_SESS_KEY_SIZE);

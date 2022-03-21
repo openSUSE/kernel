@@ -82,12 +82,19 @@ static inline bool cpu_timer_enqueue(struct timerqueue_head *head,
 	return timerqueue_add(head, &ctmr->node);
 }
 
-static inline void cpu_timer_dequeue(struct cpu_timer *ctmr)
+static inline bool cpu_timer_queued(struct cpu_timer *ctmr)
 {
-	if (ctmr->head) {
+	return !!ctmr->head;
+}
+
+static inline bool cpu_timer_dequeue(struct cpu_timer *ctmr)
+{
+	if (cpu_timer_queued(ctmr)) {
 		timerqueue_del(ctmr->head, &ctmr->node);
 		ctmr->head = NULL;
+		return true;
 	}
+	return false;
 }
 
 static inline u64 cpu_timer_getexpires(struct cpu_timer *ctmr)
@@ -177,8 +184,10 @@ static inline void posix_cputimers_group_init(struct posix_cputimers *pct,
 #endif
 
 #ifdef CONFIG_POSIX_CPU_TIMERS_TASK_WORK
+void clear_posix_cputimers_work(struct task_struct *p);
 void posix_cputimers_init_work(void);
 #else
+static inline void clear_posix_cputimers_work(struct task_struct *p) { }
 static inline void posix_cputimers_init_work(void) { }
 #endif
 

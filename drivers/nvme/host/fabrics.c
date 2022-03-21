@@ -332,6 +332,10 @@ static void nvmf_log_connect_error(struct nvme_ctrl *ctrl,
 		dev_err(ctrl->device,
 			"Connect command failed: host path error\n");
 		break;
+	case NVME_SC_AUTH_REQUIRED:
+		dev_err(ctrl->device,
+			"Connect command failed: authentication required\n");
+		break;
 	default:
 		dev_err(ctrl->device,
 			"Connect command failed, error wo/DNR bit: %d\n",
@@ -366,6 +370,7 @@ int nvmf_connect_admin_queue(struct nvme_ctrl *ctrl)
 	union nvme_result res;
 	struct nvmf_connect_data *data;
 	int ret;
+	u32 result;
 
 	cmd.connect.opcode = nvme_fabrics_command;
 	cmd.connect.fctype = nvme_fabrics_type_connect;
@@ -398,8 +403,25 @@ int nvmf_connect_admin_queue(struct nvme_ctrl *ctrl)
 		goto out_free_data;
 	}
 
-	ctrl->cntlid = le16_to_cpu(res.u16);
-
+	result = le32_to_cpu(res.u32);
+	ctrl->cntlid = result & 0xFFFF;
+	if ((result >> 16) & 2) {
+		/* Authentication required */
+		ret = nvme_auth_negotiate(ctrl, NVME_QID_ANY);
+		if (ret) {
+			dev_warn(ctrl->device,
+				 "qid 0: authentication setup failed\n");
+			ret = NVME_SC_AUTH_REQUIRED;
+			goto out_free_data;
+		}
+		ret = nvme_auth_wait(ctrl, NVME_QID_ANY);
+		if (ret)
+			dev_warn(ctrl->device,
+				 "qid 0: authentication failed\n");
+		else
+			dev_info(ctrl->device,
+				 "qid 0: authenticated\n");
+	}
 out_free_data:
 	kfree(data);
 	return ret;
@@ -432,6 +454,7 @@ int nvmf_connect_io_queue(struct nvme_ctrl *ctrl, u16 qid)
 	struct nvmf_connect_data *data;
 	union nvme_result res;
 	int ret;
+	u32 result;
 
 	cmd.connect.opcode = nvme_fabrics_command;
 	cmd.connect.fctype = nvme_fabrics_type_connect;
@@ -456,6 +479,21 @@ int nvmf_connect_io_queue(struct nvme_ctrl *ctrl, u16 qid)
 	if (ret) {
 		nvmf_log_connect_error(ctrl, ret, le32_to_cpu(res.u32),
 				       &cmd, data);
+	}
+	result = le32_to_cpu(res.u32);
+	if ((result >> 16) & 2) {
+		/* Authentication required */
+		ret = nvme_auth_negotiate(ctrl, qid);
+		if (ret) {
+			dev_warn(ctrl->device,
+				 "qid %d: authentication setup failed\n", qid);
+			ret = NVME_SC_AUTH_REQUIRED;
+		} else {
+			ret = nvme_auth_wait(ctrl, qid);
+			if (ret)
+				dev_warn(ctrl->device,
+					 "qid %u: authentication failed\n", qid);
+		}
 	}
 	kfree(data);
 	return ret;
@@ -548,6 +586,9 @@ static const match_table_t opt_tokens = {
 	{ NVMF_OPT_NR_POLL_QUEUES,	"nr_poll_queues=%d"	},
 	{ NVMF_OPT_TOS,			"tos=%d"		},
 	{ NVMF_OPT_FAIL_FAST_TMO,	"fast_io_fail_tmo=%d"	},
+	{ NVMF_OPT_DISCOVERY,		"discovery"		},
+	{ NVMF_OPT_DHCHAP_SECRET,	"dhchap_secret=%s"	},
+	{ NVMF_OPT_DHCHAP_CTRL_SECRET,	"dhchap_ctrl_secret=%s"	},
 	{ NVMF_OPT_ERR,			NULL			}
 };
 
@@ -697,6 +738,9 @@ static int nvmf_parse_options(struct nvmf_ctrl_options *opts,
 			if (token >= 0)
 				pr_warn("I/O fail on reconnect controller after %d sec\n",
 					token);
+			else
+				token = -1;
+
 			opts->fast_io_fail_tmo = token;
 			break;
 		case NVMF_OPT_HOSTNQN:
@@ -719,7 +763,6 @@ static int nvmf_parse_options(struct nvmf_ctrl_options *opts,
 				ret = -EINVAL;
 				goto out;
 			}
-			nvmf_host_put(opts->host);
 			opts->host = nvmf_host_add(p);
 			kfree(p);
 			if (!opts->host) {
@@ -823,6 +866,37 @@ static int nvmf_parse_options(struct nvmf_ctrl_options *opts,
 				token = 255;
 			}
 			opts->tos = token;
+			break;
+		case NVMF_OPT_DISCOVERY:
+			opts->discovery_nqn = true;
+			break;
+		case NVMF_OPT_DHCHAP_SECRET:
+			p = match_strdup(args);
+			if (!p) {
+				ret = -ENOMEM;
+				goto out;
+			}
+			if (strlen(p) < 11 || strncmp(p, "DHHC-1:", 7)) {
+				pr_err("Invalid DH-CHAP secret %s\n", p);
+				ret = -EINVAL;
+				goto out;
+			}
+			kfree(opts->dhchap_secret);
+			opts->dhchap_secret = p;
+			break;
+		case NVMF_OPT_DHCHAP_CTRL_SECRET:
+			p = match_strdup(args);
+			if (!p) {
+				ret = -ENOMEM;
+				goto out;
+			}
+			if (strlen(p) < 11 || strncmp(p, "DHHC-1:", 7)) {
+				pr_err("Invalid DH-CHAP secret %s\n", p);
+				ret = -EINVAL;
+				goto out;
+			}
+			kfree(opts->dhchap_ctrl_secret);
+			opts->dhchap_ctrl_secret = p;
 			break;
 		default:
 			pr_warn("unknown parameter or missing value '%s' in ctrl creation request\n",
@@ -942,6 +1016,7 @@ void nvmf_free_options(struct nvmf_ctrl_options *opts)
 	kfree(opts->subsysnqn);
 	kfree(opts->host_traddr);
 	kfree(opts->host_iface);
+	kfree(opts->dhchap_secret);
 	kfree(opts);
 }
 EXPORT_SYMBOL_GPL(nvmf_free_options);
@@ -950,8 +1025,9 @@ EXPORT_SYMBOL_GPL(nvmf_free_options);
 #define NVMF_ALLOWED_OPTS	(NVMF_OPT_QUEUE_SIZE | NVMF_OPT_NR_IO_QUEUES | \
 				 NVMF_OPT_KATO | NVMF_OPT_HOSTNQN | \
 				 NVMF_OPT_HOST_ID | NVMF_OPT_DUP_CONNECT |\
-				 NVMF_OPT_DISABLE_SQFLOW |\
-				 NVMF_OPT_FAIL_FAST_TMO)
+				 NVMF_OPT_DISABLE_SQFLOW | NVMF_OPT_DISCOVERY |\
+				 NVMF_OPT_FAIL_FAST_TMO | NVMF_OPT_DHCHAP_SECRET |\
+				 NVMF_OPT_DHCHAP_CTRL_SECRET)
 
 static struct nvme_ctrl *
 nvmf_create_ctrl(struct device *dev, const char *buf)
@@ -1063,6 +1139,26 @@ out_unlock:
 	return ret ? ret : count;
 }
 
+static void __nvmf_concat_opt_tokens(struct seq_file *seq_file)
+{
+	const struct match_token *tok;
+	int idx;
+
+	/*
+	 * Add dummy entries for instance and cntlid to
+	 * signal an invalid/non-existing controller
+	 */
+	seq_puts(seq_file, "instance=-1,cntlid=-1");
+	for (idx = 0; idx < ARRAY_SIZE(opt_tokens); idx++) {
+		tok = &opt_tokens[idx];
+		if (tok->token == NVMF_OPT_ERR)
+			continue;
+		seq_puts(seq_file, ",");
+		seq_puts(seq_file, tok->pattern);
+	}
+	seq_puts(seq_file, "\n");
+}
+
 static int nvmf_dev_show(struct seq_file *seq_file, void *private)
 {
 	struct nvme_ctrl *ctrl;
@@ -1071,7 +1167,7 @@ static int nvmf_dev_show(struct seq_file *seq_file, void *private)
 	mutex_lock(&nvmf_dev_mutex);
 	ctrl = seq_file->private;
 	if (!ctrl) {
-		ret = -EINVAL;
+		__nvmf_concat_opt_tokens(seq_file);
 		goto out_unlock;
 	}
 
@@ -1168,7 +1264,14 @@ static void __exit nvmf_exit(void)
 	BUILD_BUG_ON(sizeof(struct nvmf_connect_command) != 64);
 	BUILD_BUG_ON(sizeof(struct nvmf_property_get_command) != 64);
 	BUILD_BUG_ON(sizeof(struct nvmf_property_set_command) != 64);
+	BUILD_BUG_ON(sizeof(struct nvmf_auth_send_command) != 64);
+	BUILD_BUG_ON(sizeof(struct nvmf_auth_receive_command) != 64);
 	BUILD_BUG_ON(sizeof(struct nvmf_connect_data) != 1024);
+	BUILD_BUG_ON(sizeof(struct nvmf_auth_dhchap_negotiate_data) != 8);
+	BUILD_BUG_ON(sizeof(struct nvmf_auth_dhchap_challenge_data) != 16);
+	BUILD_BUG_ON(sizeof(struct nvmf_auth_dhchap_reply_data) != 16);
+	BUILD_BUG_ON(sizeof(struct nvmf_auth_dhchap_success1_data) != 16);
+	BUILD_BUG_ON(sizeof(struct nvmf_auth_dhchap_success2_data) != 16);
 }
 
 MODULE_LICENSE("GPL v2");

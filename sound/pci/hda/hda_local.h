@@ -137,6 +137,7 @@ int __snd_hda_add_vmaster(struct hda_codec *codec, char *name,
 int snd_hda_codec_reset(struct hda_codec *codec);
 void snd_hda_codec_register(struct hda_codec *codec);
 void snd_hda_codec_cleanup_for_unbind(struct hda_codec *codec);
+void snd_hda_codec_disconnect_pcms(struct hda_codec *codec);
 
 #define snd_hda_regmap_sync(codec)	snd_hdac_regmap_sync(&(codec)->core)
 
@@ -438,6 +439,15 @@ int snd_hda_codec_set_pin_target(struct hda_codec *codec, hda_nid_t nid,
 #define for_each_hda_codec_node(nid, codec) \
 	for ((nid) = (codec)->core.start_nid; (nid) < (codec)->core.end_nid; (nid)++)
 
+/* Set the codec power_state flag to indicate to allow unsol event handling;
+ * see hda_codec_unsol_event() in hda_bind.c.  Calling this might confuse the
+ * state tracking, so use with care.
+ */
+static inline void snd_hda_codec_allow_unsol_events(struct hda_codec *codec)
+{
+	codec->core.dev.power.power_state = PMSG_ON;
+}
+
 /*
  * get widget capabilities
  */
@@ -614,6 +624,8 @@ static inline unsigned int snd_hda_sync_power_state(struct hda_codec *codec,
 unsigned int snd_hda_codec_eapd_power_filter(struct hda_codec *codec,
 					     hda_nid_t nid,
 					     unsigned int power_state);
+
+void snd_hda_codec_shutdown(struct hda_codec *codec);
 
 /*
  * AMP control callbacks

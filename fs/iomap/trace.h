@@ -24,7 +24,7 @@ DECLARE_EVENT_CLASS(iomap_readpage_class,
 		__field(int, nr_pages)
 	),
 	TP_fast_assign(
-		__entry->dev = inode->i_sb->s_dev;
+		__entry->dev = inode_get_dev(inode);
 		__entry->ino = inode->i_ino;
 		__entry->nr_pages = nr_pages;
 	),
@@ -52,7 +52,7 @@ DECLARE_EVENT_CLASS(iomap_range_class,
 		__field(unsigned int, length)
 	),
 	TP_fast_assign(
-		__entry->dev = inode->i_sb->s_dev;
+		__entry->dev = inode_get_dev(inode);
 		__entry->ino = inode->i_ino;
 		__entry->size = i_size_read(inode);
 		__entry->offset = off;
@@ -113,7 +113,7 @@ DECLARE_EVENT_CLASS(iomap_class,
 		__field(dev_t, bdev)
 	),
 	TP_fast_assign(
-		__entry->dev = inode->i_sb->s_dev;
+		__entry->dev = inode_get_dev(inode);
 		__entry->ino = inode->i_ino;
 		__entry->addr = iomap->addr;
 		__entry->offset = iomap->offset;
@@ -157,7 +157,7 @@ TRACE_EVENT(iomap_apply,
 		__field(unsigned long, caller)
 	),
 	TP_fast_assign(
-		__entry->dev = inode->i_sb->s_dev;
+		__entry->dev = inode_get_dev(inode);
 		__entry->ino = inode->i_ino;
 		__entry->pos = pos;
 		__entry->length = length;

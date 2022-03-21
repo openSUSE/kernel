@@ -656,7 +656,7 @@ static int hinic_set_mac_addr(struct net_device *netdev, void *addr)
 
 	err = change_mac_addr(netdev, new_mac);
 	if (!err)
-		memcpy(netdev->dev_addr, new_mac, ETH_ALEN);
+		eth_hw_addr_set(netdev, new_mac);
 
 	return err;
 }
@@ -1183,7 +1183,7 @@ static int nic_dev_init(struct pci_dev *pdev)
 	struct devlink *devlink;
 	int err, num_qps;
 
-	devlink = hinic_devlink_alloc();
+	devlink = hinic_devlink_alloc(&pdev->dev);
 	if (!devlink) {
 		dev_err(&pdev->dev, "Hinic devlink alloc failed\n");
 		return -ENOMEM;

@@ -373,6 +373,8 @@ struct drm_device {
 	/* Scatter gather memory */
 	struct drm_sg_mem *sg;
 #endif
+
+	void *suse_kabi_padding;
 };
 
 #endif

@@ -5,6 +5,7 @@
 
 #include <linux/backing-dev.h>
 #include <linux/moduleparam.h>
+#include <linux/vmalloc.h>
 #include <trace/events/block.h>
 #include "nvme.h"
 
@@ -12,6 +13,42 @@ static bool multipath = true;
 module_param(multipath, bool, 0444);
 MODULE_PARM_DESC(multipath,
 	"turn on native support for multiple controllers per subsystem");
+
+static const char *nvme_iopolicy_names[] = {
+	[NVME_IOPOLICY_NUMA]	= "numa",
+	[NVME_IOPOLICY_RR]	= "round-robin",
+};
+
+static int iopolicy = NVME_IOPOLICY_NUMA;
+
+static int nvme_set_iopolicy(const char *val, const struct kernel_param *kp)
+{
+	if (!val)
+		return -EINVAL;
+	if (!strncmp(val, "numa", 4))
+		iopolicy = NVME_IOPOLICY_NUMA;
+	else if (!strncmp(val, "round-robin", 11))
+		iopolicy = NVME_IOPOLICY_RR;
+	else
+		return -EINVAL;
+
+	return 0;
+}
+
+static int nvme_get_iopolicy(char *buf, const struct kernel_param *kp)
+{
+	return sprintf(buf, "%s\n", nvme_iopolicy_names[iopolicy]);
+}
+
+module_param_call(iopolicy, nvme_set_iopolicy, nvme_get_iopolicy,
+	&iopolicy, 0644);
+MODULE_PARM_DESC(iopolicy,
+	"Default multipath I/O policy; 'numa' (default) or 'round-robin'");
+
+void nvme_mpath_default_iopolicy(struct nvme_subsystem *subsys)
+{
+	subsys->iopolicy = iopolicy;
+}
 
 void nvme_mpath_unfreeze(struct nvme_subsystem *subsys)
 {
@@ -138,13 +175,29 @@ void nvme_mpath_clear_ctrl_paths(struct nvme_ctrl *ctrl)
 {
 	struct nvme_ns *ns;
 
-	mutex_lock(&ctrl->scan_lock);
 	down_read(&ctrl->namespaces_rwsem);
-	list_for_each_entry(ns, &ctrl->namespaces, list)
-		if (nvme_mpath_clear_current_path(ns))
-			kblockd_schedule_work(&ns->head->requeue_work);
+	list_for_each_entry(ns, &ctrl->namespaces, list) {
+		nvme_mpath_clear_current_path(ns);
+		kblockd_schedule_work(&ns->head->requeue_work);
+	}
 	up_read(&ctrl->namespaces_rwsem);
-	mutex_unlock(&ctrl->scan_lock);
+}
+
+void nvme_mpath_revalidate_paths(struct nvme_ns *ns)
+{
+	struct nvme_ns_head *head = ns->head;
+	sector_t capacity = get_capacity(head->disk);
+	int node;
+
+	list_for_each_entry_rcu(ns, &head->list, siblings) {
+		if (!ns->disk)
+			continue;
+		if (capacity != get_capacity(ns->disk))
+			clear_bit(NVME_NS_READY, &ns->flags);
+	}
+
+	for_each_node(node)
+		rcu_assign_pointer(head->current_path[node], NULL);
 }
 
 static bool nvme_path_is_disabled(struct nvme_ns *ns)
@@ -158,7 +211,7 @@ static bool nvme_path_is_disabled(struct nvme_ns *ns)
 	    ns->ctrl->state != NVME_CTRL_DELETING)
 		return true;
 	if (test_bit(NVME_NS_ANA_PENDING, &ns->flags) ||
-	    test_bit(NVME_NS_REMOVING, &ns->flags))
+	    !test_bit(NVME_NS_READY, &ns->flags))
 		return true;
 	return false;
 }
@@ -465,6 +518,8 @@ int nvme_mpath_alloc_disk(struct nvme_ctrl *ctrl, struct nvme_ns_head *head)
 			ctrl->subsys->instance, head->instance);
 
 	blk_queue_flag_set(QUEUE_FLAG_NONROT, head->disk->queue);
+	blk_queue_flag_set(QUEUE_FLAG_NOWAIT, head->disk->queue);
+
 	/* set to a default value of 512 until the disk is validated */
 	blk_queue_logical_block_size(head->disk->queue, 512);
 	blk_set_stacking_limits(&head->disk->queue->limits);
@@ -583,14 +638,17 @@ static int nvme_update_ana_state(struct nvme_ctrl *ctrl,
 
 	down_read(&ctrl->namespaces_rwsem);
 	list_for_each_entry(ns, &ctrl->namespaces, list) {
-		unsigned nsid = le32_to_cpu(desc->nsids[n]);
-
+		unsigned nsid;
+again:
+		nsid = le32_to_cpu(desc->nsids[n]);
 		if (ns->head->ns_id < nsid)
 			continue;
 		if (ns->head->ns_id == nsid)
 			nvme_update_ns_ana_state(desc, ns);
 		if (++n == nr_nsids)
 			break;
+		if (ns->head->ns_id > nsid)
+			goto again;
 	}
 	up_read(&ctrl->namespaces_rwsem);
 	return 0;
@@ -663,11 +721,6 @@ void nvme_mpath_stop(struct nvme_ctrl *ctrl)
 #define SUBSYS_ATTR_RW(_name, _mode, _show, _store)  \
 	struct device_attribute subsys_attr_##_name =	\
 		__ATTR(_name, _mode, _show, _store)
-
-static const char *nvme_iopolicy_names[] = {
-	[NVME_IOPOLICY_NUMA]	= "numa",
-	[NVME_IOPOLICY_RR]	= "round-robin",
-};
 
 static ssize_t nvme_subsys_iopolicy_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -824,8 +877,8 @@ int nvme_mpath_init_identify(struct nvme_ctrl *ctrl, struct nvme_id_ctrl *id)
 	}
 	if (ana_log_size > ctrl->ana_log_size) {
 		nvme_mpath_stop(ctrl);
-		kfree(ctrl->ana_log_buf);
-		ctrl->ana_log_buf = kmalloc(ana_log_size, GFP_KERNEL);
+		nvme_mpath_uninit(ctrl);
+		ctrl->ana_log_buf = kvmalloc(ana_log_size, GFP_KERNEL);
 		if (!ctrl->ana_log_buf)
 			return -ENOMEM;
 	}
@@ -842,6 +895,7 @@ out_uninit:
 
 void nvme_mpath_uninit(struct nvme_ctrl *ctrl)
 {
-	kfree(ctrl->ana_log_buf);
+	kvfree(ctrl->ana_log_buf);
 	ctrl->ana_log_buf = NULL;
+	ctrl->ana_log_size = 0;
 }

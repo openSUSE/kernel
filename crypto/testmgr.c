@@ -1061,14 +1061,14 @@ static void generate_random_testvec_config(struct testvec_config *cfg,
 
 static void crypto_disable_simd_for_test(void)
 {
-	preempt_disable();
+	migrate_disable();
 	__this_cpu_write(crypto_simd_disabled_for_test, true);
 }
 
 static void crypto_reenable_simd_for_test(void)
 {
 	__this_cpu_write(crypto_simd_disabled_for_test, false);
-	preempt_enable();
+	migrate_enable();
 }
 
 /*
@@ -1854,6 +1854,9 @@ static int __alg_test_hash(const struct hash_testvec *vecs,
 	}
 
 	for (i = 0; i < num_vecs; i++) {
+		if (fips_enabled && vecs[i].fips_skip)
+			continue;
+
 		err = test_hash_vec(&vecs[i], i, req, desc, tsgl, hashstate);
 		if (err)
 			goto out;
@@ -4168,7 +4171,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "ansi_cprng",
 		.test = alg_test_cprng,
-		.fips_allowed = 1,
 		.suite = {
 			.cprng = __VECS(ansi_cprng_aes_tv_template)
 		}
@@ -4194,7 +4196,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "authenc(hmac(sha1),cbc(des3_ede))",
 		.test = alg_test_aead,
-		.fips_allowed = 1,
 		.suite = {
 			.aead = __VECS(hmac_sha1_des3_ede_cbc_tv_temp)
 		}
@@ -4221,7 +4222,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "authenc(hmac(sha224),cbc(des3_ede))",
 		.test = alg_test_aead,
-		.fips_allowed = 1,
 		.suite = {
 			.aead = __VECS(hmac_sha224_des3_ede_cbc_tv_temp)
 		}
@@ -4241,7 +4241,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "authenc(hmac(sha256),cbc(des3_ede))",
 		.test = alg_test_aead,
-		.fips_allowed = 1,
 		.suite = {
 			.aead = __VECS(hmac_sha256_des3_ede_cbc_tv_temp)
 		}
@@ -4262,7 +4261,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "authenc(hmac(sha384),cbc(des3_ede))",
 		.test = alg_test_aead,
-		.fips_allowed = 1,
 		.suite = {
 			.aead = __VECS(hmac_sha384_des3_ede_cbc_tv_temp)
 		}
@@ -4290,7 +4288,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "authenc(hmac(sha512),cbc(des3_ede))",
 		.test = alg_test_aead,
-		.fips_allowed = 1,
 		.suite = {
 			.aead = __VECS(hmac_sha512_des3_ede_cbc_tv_temp)
 		}
@@ -4400,7 +4397,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "cbc(des3_ede)",
 		.test = alg_test_skcipher,
-		.fips_allowed = 1,
 		.suite = {
 			.cipher = __VECS(des3_ede_cbc_tv_template)
 		},
@@ -4446,7 +4442,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 #endif
 		.alg = "cbcmac(aes)",
-		.fips_allowed = 1,
 		.test = alg_test_hash,
 		.suite = {
 			.hash = __VECS(aes_cbcmac_tv_template)
@@ -4490,7 +4485,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "cmac(des3_ede)",
-		.fips_allowed = 1,
 		.test = alg_test_hash,
 		.suite = {
 			.hash = __VECS(des3_ede_cmac64_tv_template)
@@ -4559,7 +4553,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "ctr(des3_ede)",
 		.test = alg_test_skcipher,
-		.fips_allowed = 1,
 		.suite = {
 			.cipher = __VECS(des3_ede_ctr_tv_template)
 		}
@@ -4825,7 +4818,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "ecb(des3_ede)",
 		.test = alg_test_skcipher,
-		.fips_allowed = 1,
 		.suite = {
 			.cipher = __VECS(des3_ede_tv_template)
 		}
@@ -4971,7 +4963,6 @@ static const struct alg_test_desc alg_test_descs[] = {
 	}, {
 		.alg = "ghash",
 		.test = alg_test_hash,
-		.fips_allowed = 1,
 		.suite = {
 			.hash = __VECS(ghash_tv_template)
 		}
@@ -5569,6 +5560,50 @@ static void testmgr_onetime_init(void)
 #endif
 }
 
+#ifdef CONFIG_CRYPTO_FIPS
+static bool suse_fips_is_driver_unapproved(const char *driver)
+{
+	/*
+	 * unapproved_drivers[] contains a sorted list of
+	 * cra_driver_name's to reject in FIPS mode.
+	 */
+	static const char *unapproved_drivers[] = {
+#include "suse_fips_unapproved_drivers.h"
+	};
+	int start = 0;
+	int end = ARRAY_SIZE(unapproved_drivers);
+
+	if (!fips_enabled)
+		return false;
+
+	while (start < end) {
+		int i = (start + end) / 2;
+		int diff = strcmp(unapproved_drivers[i], driver);
+
+		if (diff > 0) {
+			end = i;
+			continue;
+		}
+
+		if (diff < 0) {
+			start = i + 1;
+			continue;
+		}
+
+		pr_info("alg: disabling driver '%s' in FIPS mode\n", driver);
+
+		return true;
+	}
+
+	return false;
+}
+#else /* !CONFIG_CRYPTO_FIPS */
+static bool suse_fips_is_driver_unapproved(const char *driver)
+{
+	return false;
+}
+#endif /* CONFIG_CRYPTO_FIPS */
+
 static int alg_find_test(const char *alg)
 {
 	int start = 0;
@@ -5592,6 +5627,13 @@ static int alg_find_test(const char *alg)
 	}
 
 	return -1;
+}
+
+static int alg_fips_disabled(const char *driver, const char *alg)
+{
+	pr_info("alg: %s (%s) is disabled due to FIPS\n", alg, driver);
+
+	return -ECANCELED;
 }
 
 int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
@@ -5618,6 +5660,9 @@ int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
 		if (i < 0)
 			goto notest;
 
+		if (suse_fips_is_driver_unapproved(driver))
+			return -EINVAL;
+
 		if (fips_enabled && !alg_test_descs[i].fips_allowed)
 			goto non_fips_alg;
 
@@ -5630,9 +5675,15 @@ int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
 	if (i < 0 && j < 0)
 		goto notest;
 
-	if (fips_enabled && ((i >= 0 && !alg_test_descs[i].fips_allowed) ||
-			     (j >= 0 && !alg_test_descs[j].fips_allowed)))
-		goto non_fips_alg;
+	if (fips_enabled) {
+		if (j >= 0 && !alg_test_descs[j].fips_allowed)
+			return -EINVAL;
+		else if (suse_fips_is_driver_unapproved(driver))
+			return -EINVAL;
+
+		if (i >= 0 && !alg_test_descs[i].fips_allowed)
+			goto non_fips_alg;
+	}
 
 	rc = 0;
 	if (i >= 0)
@@ -5661,10 +5712,22 @@ test_done:
 	return rc;
 
 notest:
+	/*
+	 * Unapproved drivers can register constructions for which
+	 * there is no matching test with ->fips_allowed == 0, check
+	 * for this.
+	 */
+	if (suse_fips_is_driver_unapproved(driver))
+		return -EINVAL;
+
 	printk(KERN_INFO "alg: No test for %s (%s)\n", alg, driver);
+
+	if (type & CRYPTO_ALG_FIPS_INTERNAL)
+		return alg_fips_disabled(driver, alg);
+
 	return 0;
 non_fips_alg:
-	return -EINVAL;
+	return alg_fips_disabled(driver, alg);
 }
 
 #endif /* CONFIG_CRYPTO_MANAGER_DISABLE_TESTS */

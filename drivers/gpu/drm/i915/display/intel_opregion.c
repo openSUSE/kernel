@@ -30,10 +30,9 @@
 #include <linux/firmware.h>
 #include <acpi/video.h>
 
-#include "display/intel_panel.h"
-
 #include "i915_drv.h"
 #include "intel_acpi.h"
+#include "intel_backlight.h"
 #include "intel_display_types.h"
 #include "intel_opregion.h"
 
@@ -361,6 +360,21 @@ int intel_opregion_notify_encoder(struct intel_encoder *intel_encoder,
 		port++;
 	}
 
+	/*
+	 * The port numbering and mapping here is bizarre. The now-obsolete
+	 * swsci spec supports ports numbered [0..4]. Port E is handled as a
+	 * special case, but port F and beyond are not. The functionality is
+	 * supposed to be obsolete for new platforms. Just bail out if the port
+	 * number is out of bounds after mapping.
+	 */
+	if (port > 4) {
+		drm_dbg_kms(&dev_priv->drm,
+			    "[ENCODER:%d:%s] port %c (index %u) out of bounds for display power state notification\n",
+			    intel_encoder->base.base.id, intel_encoder->base.name,
+			    port_name(intel_encoder->port), port);
+		return -EINVAL;
+	}
+
 	if (!enable)
 		parm |= 4 << 8;
 
@@ -450,7 +464,7 @@ static u32 asle_set_backlight(struct drm_i915_private *dev_priv, u32 bclp)
 		    bclp);
 	drm_connector_list_iter_begin(dev, &conn_iter);
 	for_each_intel_connector_iter(connector, &conn_iter)
-		intel_panel_set_backlight_acpi(connector->base.state, bclp, 255);
+		intel_backlight_set_acpi(connector->base.state, bclp, 255);
 	drm_connector_list_iter_end(&conn_iter);
 	asle->cblv = DIV_ROUND_UP(bclp * 100, 255) | ASLE_CBLV_VALID;
 
@@ -1077,6 +1091,9 @@ void intel_opregion_resume(struct drm_i915_private *i915)
 		opregion->asle->tche = ASLE_TCHE_BLC_EN;
 		opregion->asle->ardy = ASLE_ARDY_READY;
 	}
+
+	/* Some platforms abuse the _DSM to enable MUX */
+	intel_dsm_get_bios_data_funcs_supported(i915);
 
 	intel_opregion_notify_adapter(i915, PCI_D0);
 }

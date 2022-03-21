@@ -92,7 +92,8 @@ struct mlx5_ct_attr {
 struct mlx5_tc_ct_priv *
 mlx5_tc_ct_init(struct mlx5e_priv *priv, struct mlx5_fs_chains *chains,
 		struct mod_hdr_tbl *mod_hdr,
-		enum mlx5_flow_namespace_type ns_type);
+		enum mlx5_flow_namespace_type ns_type,
+		struct mlx5e_post_act *post_act);
 void
 mlx5_tc_ct_clean(struct mlx5_tc_ct_priv *ct_priv);
 
@@ -109,6 +110,7 @@ int mlx5_tc_ct_add_no_trk_match(struct mlx5_flow_spec *spec);
 int
 mlx5_tc_ct_parse_action(struct mlx5_tc_ct_priv *priv,
 			struct mlx5_flow_attr *attr,
+			struct mlx5e_tc_mod_hdr_acts *mod_acts,
 			const struct flow_action_entry *act,
 			struct netlink_ext_ack *extack);
 
@@ -132,7 +134,8 @@ mlx5e_tc_ct_restore_flow(struct mlx5_tc_ct_priv *ct_priv,
 static inline struct mlx5_tc_ct_priv *
 mlx5_tc_ct_init(struct mlx5e_priv *priv, struct mlx5_fs_chains *chains,
 		struct mod_hdr_tbl *mod_hdr,
-		enum mlx5_flow_namespace_type ns_type)
+		enum mlx5_flow_namespace_type ns_type,
+		struct mlx5e_post_act *post_act)
 {
 	return NULL;
 }
@@ -170,6 +173,7 @@ mlx5_tc_ct_add_no_trk_match(struct mlx5_flow_spec *spec)
 static inline int
 mlx5_tc_ct_parse_action(struct mlx5_tc_ct_priv *priv,
 			struct mlx5_flow_attr *attr,
+			struct mlx5e_tc_mod_hdr_acts *mod_acts,
 			const struct flow_action_entry *act,
 			struct netlink_ext_ack *extack)
 {

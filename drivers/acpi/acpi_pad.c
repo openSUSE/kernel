@@ -257,7 +257,7 @@ static void set_power_saving_task_num(unsigned int num)
  */
 #define SAMPLE_INTERVAL_JIF	20
 
-static u64 get_idle_time(int cpu)
+static u64 get_acpi_pad_idle_time(int cpu)
 {
 	u64 idle, idle_usecs = -1ULL;
 
@@ -283,11 +283,11 @@ static bool idle_nr_valid(unsigned int num_cpus)
 		unsigned int elapsed_delta, idle_delta, load;
 
 		wall_time = jiffies64_to_nsecs(get_jiffies_64());
-		idle_time = get_idle_time(i);
+		idle_time = get_acpi_pad_idle_time(i);
 		/* Wait and see... */
 		schedule_timeout_uninterruptible(SAMPLE_INTERVAL_JIF);
 
-		idle_delta = get_idle_time(i) - idle_time;
+		idle_delta = get_acpi_pad_idle_time(i) - idle_time;
 		elapsed_delta = jiffies64_to_nsecs(get_jiffies_64()) - wall_time;
 		idle_delta = (idle_delta > elapsed_delta) ? elapsed_delta : idle_delta;
 		load = 100 * (elapsed_delta - idle_delta) / elapsed_delta;
@@ -300,13 +300,13 @@ static bool idle_nr_valid(unsigned int num_cpus)
 
 static void acpi_pad_idle_cpus(unsigned int num_cpus)
 {
-	get_online_cpus();
+	cpus_read_lock();
 
 	num_cpus = min_t(unsigned int, num_cpus, num_online_cpus());
 	if (idle_nr_valid(num_cpus))
 		set_power_saving_task_num(num_cpus);
 
-	put_online_cpus();
+	cpus_read_unlock();
 }
 
 static uint32_t acpi_pad_idle_cpus_num(void)

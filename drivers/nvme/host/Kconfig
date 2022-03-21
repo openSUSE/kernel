@@ -33,12 +33,12 @@ config NVME_HWMON
 	  in the system.
 
 config NVME_FABRICS
+	select NVME_CORE
 	tristate
 
 config NVME_RDMA
 	tristate "NVM Express over Fabrics RDMA host driver"
 	depends on INFINIBAND && INFINIBAND_ADDR_TRANS && BLOCK
-	select NVME_CORE
 	select NVME_FABRICS
 	select SG_POOL
 	help
@@ -55,7 +55,6 @@ config NVME_FC
 	tristate "NVM Express over Fabrics FC host driver"
 	depends on BLOCK
 	depends on HAS_DMA
-	select NVME_CORE
 	select NVME_FABRICS
 	select SG_POOL
 	help
@@ -72,7 +71,6 @@ config NVME_TCP
 	tristate "NVM Express over Fabrics TCP host driver"
 	depends on INET
 	depends on BLOCK
-	select NVME_CORE
 	select NVME_FABRICS
 	select CRYPTO
 	select CRYPTO_CRC32C
@@ -83,5 +81,17 @@ config NVME_TCP
 
 	  To configure a NVMe over Fabrics controller use the nvme-cli tool
 	  from https://github.com/linux-nvme/nvme-cli.
+
+	  If unsure, say N.
+
+config NVME_AUTH
+	bool "NVM Express over Fabrics In-Band Authentication"
+	depends on NVME_CORE
+	select CRYPTO_HMAC
+	select CRYPTO_SHA256
+	select CRYPTO_SHA512
+	select CRYPTO_DH_GROUPS_RFC7919
+	help
+	  This provides support for NVMe over Fabrics In-Band Authentication.
 
 	  If unsure, say N.

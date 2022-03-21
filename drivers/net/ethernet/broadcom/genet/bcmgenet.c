@@ -828,7 +828,9 @@ static void bcmgenet_set_msglevel(struct net_device *dev, u32 level)
 }
 
 static int bcmgenet_get_coalesce(struct net_device *dev,
-				 struct ethtool_coalesce *ec)
+				 struct ethtool_coalesce *ec,
+				 struct kernel_ethtool_coalesce *kernel_coal,
+				 struct netlink_ext_ack *extack)
 {
 	struct bcmgenet_priv *priv = netdev_priv(dev);
 	struct bcmgenet_rx_ring *ring;
@@ -890,7 +892,9 @@ static void bcmgenet_set_ring_rx_coalesce(struct bcmgenet_rx_ring *ring,
 }
 
 static int bcmgenet_set_coalesce(struct net_device *dev,
-				 struct ethtool_coalesce *ec)
+				 struct ethtool_coalesce *ec,
+				 struct kernel_ethtool_coalesce *kernel_coal,
+				 struct netlink_ext_ack *extack)
 {
 	struct bcmgenet_priv *priv = netdev_priv(dev);
 	unsigned int i;
@@ -3588,7 +3592,7 @@ static int bcmgenet_set_mac_addr(struct net_device *dev, void *p)
 	if (netif_running(dev))
 		return -EBUSY;
 
-	ether_addr_copy(dev->dev_addr, addr->sa_data);
+	eth_hw_addr_set(dev, addr->sa_data);
 
 	return 0;
 }
@@ -4034,7 +4038,7 @@ static int bcmgenet_probe(struct platform_device *pdev)
 		bcmgenet_power_up(priv, GENET_POWER_PASSIVE);
 
 	if (pd && !IS_ERR_OR_NULL(pd->mac_address))
-		ether_addr_copy(dev->dev_addr, pd->mac_address);
+		eth_hw_addr_set(dev, pd->mac_address);
 	else
 		if (!device_get_mac_address(&pdev->dev, dev->dev_addr, ETH_ALEN))
 			if (has_acpi_companion(&pdev->dev))

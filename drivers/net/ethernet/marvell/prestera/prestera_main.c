@@ -137,7 +137,7 @@ static int prestera_port_set_mac_address(struct net_device *dev, void *p)
 	if (err)
 		return err;
 
-	ether_addr_copy(dev->dev_addr, addr->sa_data);
+	eth_hw_addr_set(dev, addr->sa_data);
 
 	return 0;
 }
@@ -904,7 +904,7 @@ int prestera_device_register(struct prestera_device *dev)
 	struct prestera_switch *sw;
 	int err;
 
-	sw = prestera_devlink_alloc();
+	sw = prestera_devlink_alloc(dev);
 	if (!sw)
 		return -ENOMEM;
 

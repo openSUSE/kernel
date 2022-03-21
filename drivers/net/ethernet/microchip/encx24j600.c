@@ -761,7 +761,7 @@ static int encx24j600_set_mac_address(struct net_device *dev, void *addr)
 	if (!is_valid_ether_addr(address->sa_data))
 		return -EADDRNOTAVAIL;
 
-	memcpy(dev->dev_addr, address->sa_data, dev->addr_len);
+	eth_hw_addr_set(dev, address->sa_data);
 	return encx24j600_set_hw_macaddr(dev);
 }
 
@@ -1023,9 +1023,12 @@ static int encx24j600_spi_probe(struct spi_device *spi)
 	priv->speed = SPEED_100;
 
 	priv->ctx.spi = spi;
-	devm_regmap_init_encx24j600(&spi->dev, &priv->ctx);
 	ndev->irq = spi->irq;
 	ndev->netdev_ops = &encx24j600_netdev_ops;
+
+	ret = devm_regmap_init_encx24j600(&spi->dev, &priv->ctx);
+	if (ret)
+		goto out_free;
 
 	mutex_init(&priv->lock);
 

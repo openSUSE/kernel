@@ -519,25 +519,36 @@ static int rpmsg_dev_probe(struct device *dev)
 	err = rpdrv->probe(rpdev);
 	if (err) {
 		dev_err(dev, "%s: failed: %d\n", __func__, err);
-		if (ept)
-			rpmsg_destroy_ept(ept);
-		goto out;
+		goto destroy_ept;
 	}
 
-	if (ept && rpdev->ops->announce_create)
+	if (ept && rpdev->ops->announce_create) {
 		err = rpdev->ops->announce_create(rpdev);
+		if (err) {
+			dev_err(dev, "failed to announce creation\n");
+			goto remove_rpdev;
+		}
+	}
+
+	return 0;
+
+remove_rpdev:
+	if (rpdrv->remove)
+		rpdrv->remove(rpdev);
+destroy_ept:
+	if (ept)
+		rpmsg_destroy_ept(ept);
 out:
 	return err;
 }
 
-static int rpmsg_dev_remove(struct device *dev)
+static void rpmsg_dev_remove(struct device *dev)
 {
 	struct rpmsg_device *rpdev = to_rpmsg_device(dev);
 	struct rpmsg_driver *rpdrv = to_rpmsg_driver(rpdev->dev.driver);
-	int err = 0;
 
 	if (rpdev->ops->announce_destroy)
-		err = rpdev->ops->announce_destroy(rpdev);
+		rpdev->ops->announce_destroy(rpdev);
 
 	if (rpdrv->remove)
 		rpdrv->remove(rpdev);
@@ -546,8 +557,6 @@ static int rpmsg_dev_remove(struct device *dev)
 
 	if (rpdev->ept)
 		rpmsg_destroy_ept(rpdev->ept);
-
-	return err;
 }
 
 static struct bus_type rpmsg_bus = {

@@ -83,6 +83,9 @@ struct tb {
 	int index;
 	enum tb_security_level security_level;
 	size_t nboot_acl;
+
+	void *suse_kabi_padding;
+
 	unsigned long privdata[];
 };
 
@@ -107,6 +110,7 @@ static inline unsigned int tb_phy_port_from_link(unsigned int link)
 struct tb_property_dir {
 	const uuid_t *uuid;
 	struct list_head properties;
+	void *suse_kabi_padding;
 };
 
 enum tb_property_type {
@@ -140,6 +144,7 @@ struct tb_property {
 		char *text;
 		u32 immediate;
 	} value;
+	void *suse_kabi_padding;
 };
 
 struct tb_property_dir *tb_property_parse_dir(const u32 *block,
@@ -468,6 +473,7 @@ static inline struct tb_xdomain *tb_service_parent(struct tb_service *svc)
  * @interrupt_work: Work scheduled to handle ring interrupt when no
  *		    MSI-X is used.
  * @hop_count: Number of rings (end point hops) supported by NHI.
+ * @quirks: NHI specific quirks if any
  */
 struct tb_nhi {
 	spinlock_t lock;
@@ -480,6 +486,9 @@ struct tb_nhi {
 	bool going_away;
 	struct work_struct interrupt_work;
 	u32 hop_count;
+	unsigned long quirks;
+
+	void *suse_kabi_padding;
 };
 
 /**
@@ -530,6 +539,7 @@ struct tb_ring {
 	u16 eof_mask;
 	void (*start_poll)(void *data);
 	void *poll_data;
+	void *suse_kabi_padding;
 };
 
 /* Leave ring interrupt enabled on suspend */

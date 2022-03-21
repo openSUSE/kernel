@@ -158,6 +158,12 @@ static void thrustmaster_interrupts(struct hid_device *hdev)
 		return;
 	}
 
+	if (usbif->cur_altsetting->desc.bNumEndpoints < 2) {
+		kfree(send_buf);
+		hid_err(hdev, "Wrong number of endpoints?\n");
+		return;
+	}
+
 	ep = &usbif->cur_altsetting->endpoint[1];
 	b_ep = ep->desc.bEndpointAddress;
 
@@ -271,6 +277,9 @@ static int thrustmaster_probe(struct hid_device *hdev, const struct hid_device_i
 {
 	int ret = 0;
 	struct tm_wheel *tm_wheel = 0;
+
+	if (!hid_is_usb(hdev))
+		return -EINVAL;
 
 	ret = hid_parse(hdev);
 	if (ret) {

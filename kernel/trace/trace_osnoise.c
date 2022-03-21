@@ -1196,6 +1196,26 @@ static int run_osnoise(void)
 		}
 
 		/*
+		 * In some cases, notably when running on a nohz_full CPU with
+		 * a stopped tick PREEMPT_RCU has no way to account for QSs.
+		 * This will eventually cause unwarranted noise as PREEMPT_RCU
+		 * will force preemption as the means of ending the current
+		 * grace period. We avoid this problem by calling
+		 * rcu_momentary_dyntick_idle(), which performs a zero duration
+		 * EQS allowing PREEMPT_RCU to end the current grace period.
+		 * This call shouldn't be wrapped inside an RCU critical
+		 * section.
+		 *
+		 * Note that in non PREEMPT_RCU kernels QSs are handled through
+		 * cond_resched()
+		 */
+		if (IS_ENABLED(CONFIG_PREEMPT_RCU)) {
+			local_irq_disable();
+			rcu_momentary_dyntick_idle();
+			local_irq_enable();
+		}
+
+		/*
 		 * For the non-preemptive kernel config: let threads runs, if
 		 * they so wish.
 		 */
@@ -1548,7 +1568,7 @@ static int start_kthread(unsigned int cpu)
 static int start_per_cpu_kthreads(struct trace_array *tr)
 {
 	struct cpumask *current_mask = &save_cpumask;
-	int retval;
+	int retval = 0;
 	int cpu;
 
 	get_online_cpus();
@@ -1568,13 +1588,13 @@ static int start_per_cpu_kthreads(struct trace_array *tr)
 		retval = start_kthread(cpu);
 		if (retval) {
 			stop_per_cpu_kthreads();
-			return retval;
+			break;
 		}
 	}
 
 	put_online_cpus();
 
-	return 0;
+	return retval;
 }
 
 #ifdef CONFIG_HOTPLUG_CPU
@@ -1835,6 +1855,13 @@ static const struct file_operations cpus_fops = {
 	.llseek		= generic_file_llseek,
 };
 
+static void osnoise_unhook_events(void)
+{
+	unhook_thread_events();
+	unhook_softirq_events();
+	unhook_irq_events();
+}
+
 /*
  * init_tracefs - A function to initialize the tracefs interface files
  *
@@ -1856,38 +1883,38 @@ static int init_tracefs(void)
 	if (!top_dir)
 		return 0;
 
-	tmp = tracefs_create_file("period_us", 0640, top_dir,
+	tmp = tracefs_create_file("period_us", TRACE_MODE_WRITE, top_dir,
 				  &osnoise_period, &trace_min_max_fops);
 	if (!tmp)
 		goto err;
 
-	tmp = tracefs_create_file("runtime_us", 0644, top_dir,
+	tmp = tracefs_create_file("runtime_us", TRACE_MODE_WRITE, top_dir,
 				  &osnoise_runtime, &trace_min_max_fops);
 	if (!tmp)
 		goto err;
 
-	tmp = tracefs_create_file("stop_tracing_us", 0640, top_dir,
+	tmp = tracefs_create_file("stop_tracing_us", TRACE_MODE_WRITE, top_dir,
 				  &osnoise_stop_tracing_in, &trace_min_max_fops);
 	if (!tmp)
 		goto err;
 
-	tmp = tracefs_create_file("stop_tracing_total_us", 0640, top_dir,
+	tmp = tracefs_create_file("stop_tracing_total_us", TRACE_MODE_WRITE, top_dir,
 				  &osnoise_stop_tracing_total, &trace_min_max_fops);
 	if (!tmp)
 		goto err;
 
-	tmp = trace_create_file("cpus", 0644, top_dir, NULL, &cpus_fops);
+	tmp = trace_create_file("cpus", TRACE_MODE_WRITE, top_dir, NULL, &cpus_fops);
 	if (!tmp)
 		goto err;
 #ifdef CONFIG_TIMERLAT_TRACER
 #ifdef CONFIG_STACKTRACE
-	tmp = tracefs_create_file("print_stack", 0640, top_dir,
+	tmp = tracefs_create_file("print_stack", TRACE_MODE_WRITE, top_dir,
 				  &osnoise_print_stack, &trace_min_max_fops);
 	if (!tmp)
 		goto err;
 #endif
 
-	tmp = tracefs_create_file("timerlat_period_us", 0640, top_dir,
+	tmp = tracefs_create_file("timerlat_period_us", TRACE_MODE_WRITE, top_dir,
 				  &timerlat_period, &trace_min_max_fops);
 	if (!tmp)
 		goto err;
@@ -1949,7 +1976,14 @@ static int __osnoise_tracer_start(struct trace_array *tr)
 
 	retval = start_per_cpu_kthreads(tr);
 	if (retval) {
-		unhook_irq_events();
+		trace_osnoise_callback_enabled = false;
+		/*
+		 * Make sure that ftrace_nmi_enter/exit() see
+		 * trace_osnoise_callback_enabled as false before continuing.
+		 */
+		barrier();
+
+		osnoise_unhook_events();
 		return retval;
 	}
 
@@ -1981,9 +2015,7 @@ static void osnoise_tracer_stop(struct trace_array *tr)
 
 	stop_per_cpu_kthreads();
 
-	unhook_irq_events();
-	unhook_softirq_events();
-	unhook_thread_events();
+	osnoise_unhook_events();
 
 	osnoise_busy = false;
 }

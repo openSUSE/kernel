@@ -513,6 +513,15 @@ static int amdgpu_bo_move(struct ttm_buffer_object *bo, bool evict,
 		goto out;
 	}
 
+	if (bo->type == ttm_bo_type_device &&
+	    new_mem->mem_type == TTM_PL_VRAM &&
+	    old_mem->mem_type != TTM_PL_VRAM) {
+		/* amdgpu_bo_fault_reserve_notify will re-set this if the CPU
+		 * accesses the BO after it's moved.
+		 */
+		abo->flags &= ~AMDGPU_GEM_CREATE_CPU_ACCESS_REQUIRED;
+	}
+
 	if (adev->mman.buffer_funcs_enabled) {
 		if (((old_mem->mem_type == TTM_PL_SYSTEM &&
 		      new_mem->mem_type == TTM_PL_VRAM) ||
@@ -541,15 +550,6 @@ static int amdgpu_bo_move(struct ttm_buffer_object *bo, bool evict,
 		r = ttm_bo_move_memcpy(bo, ctx, new_mem);
 		if (r)
 			return r;
-	}
-
-	if (bo->type == ttm_bo_type_device &&
-	    new_mem->mem_type == TTM_PL_VRAM &&
-	    old_mem->mem_type != TTM_PL_VRAM) {
-		/* amdgpu_bo_fault_reserve_notify will re-set this if the CPU
-		 * accesses the BO after it's moved.
-		 */
-		abo->flags &= ~AMDGPU_GEM_CREATE_CPU_ACCESS_REQUIRED;
 	}
 
 out:
@@ -1877,7 +1877,7 @@ int amdgpu_copy_buffer(struct amdgpu_ring *ring, uint64_t src_offset,
 	unsigned i;
 	int r;
 
-	if (direct_submit && !ring->sched.ready) {
+	if (!direct_submit && !ring->sched.ready) {
 		DRM_ERROR("Trying to move memory with ring turned off.\n");
 		return -EINVAL;
 	}

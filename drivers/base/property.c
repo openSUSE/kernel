@@ -1155,8 +1155,8 @@ EXPORT_SYMBOL_GPL(fwnode_graph_get_remote_node);
  * has not been found, look for the closest endpoint ID greater than the
  * specified one and return the endpoint that corresponds to it, if present.
  *
- * Do not return endpoints that belong to disabled devices, unless
- * FWNODE_GRAPH_DEVICE_DISABLED is passed in @flags.
+ * Does not return endpoints that belong to disabled devices or endpoints that
+ * are unconnected, unless FWNODE_GRAPH_DEVICE_DISABLED is passed in @flags.
  *
  * The returned endpoint needs to be released by calling fwnode_handle_put() on
  * it when it is not needed any more.
@@ -1257,8 +1257,10 @@ fwnode_graph_devcon_match(struct fwnode_handle *fwnode, const char *con_id,
 
 	fwnode_graph_for_each_endpoint(fwnode, ep) {
 		node = fwnode_graph_get_remote_port_parent(ep);
-		if (!fwnode_device_is_available(node))
+		if (!fwnode_device_is_available(node)) {
+			fwnode_handle_put(node);
 			continue;
+		}
 
 		ret = match(node, con_id, data);
 		fwnode_handle_put(node);

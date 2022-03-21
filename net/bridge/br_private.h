@@ -1002,9 +1002,7 @@ static inline unsigned long br_multicast_lmqt(const struct net_bridge *br)
 
 static inline unsigned long br_multicast_gmi(const struct net_bridge *br)
 {
-	/* use the RFC default of 2 for QRV */
-	return 2 * br->multicast_query_interval +
-	       br->multicast_query_response_interval;
+	return br->multicast_membership_interval;
 }
 #else
 static inline int br_multicast_rcv(struct net_bridge *br,
@@ -1596,11 +1594,13 @@ static inline int br_cfm_status_fill_info(struct sk_buff *skb,
 
 static inline int br_cfm_mep_count(struct net_bridge *br, u32 *count)
 {
+	*count = 0;
 	return -EOPNOTSUPP;
 }
 
 static inline int br_cfm_peer_mep_count(struct net_bridge *br, u32 *count)
 {
+	*count = 0;
 	return -EOPNOTSUPP;
 }
 #endif

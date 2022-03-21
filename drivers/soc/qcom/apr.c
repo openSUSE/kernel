@@ -217,7 +217,7 @@ static int apr_device_probe(struct device *dev)
 	return adrv->probe(adev);
 }
 
-static int apr_device_remove(struct device *dev)
+static void apr_device_remove(struct device *dev)
 {
 	struct apr_device *adev = to_apr_device(dev);
 	struct apr_driver *adrv;
@@ -231,8 +231,6 @@ static int apr_device_remove(struct device *dev)
 		idr_remove(&apr->svcs_idr, adev->svc_id);
 		spin_unlock(&apr->svcs_lock);
 	}
-
-	return 0;
 }
 
 static int apr_uevent(struct device *dev, struct kobj_uevent_env *env)
@@ -323,12 +321,14 @@ static int of_apr_add_pd_lookups(struct device *dev)
 						    1, &service_path);
 		if (ret < 0) {
 			dev_err(dev, "pdr service path missing: %d\n", ret);
+			of_node_put(node);
 			return ret;
 		}
 
 		pds = pdr_add_lookup(apr->pdr, service_name, service_path);
 		if (IS_ERR(pds) && PTR_ERR(pds) != -EALREADY) {
 			dev_err(dev, "pdr add lookup failed: %ld\n", PTR_ERR(pds));
+			of_node_put(node);
 			return PTR_ERR(pds);
 		}
 	}

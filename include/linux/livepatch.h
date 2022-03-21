@@ -13,7 +13,6 @@
 #include <linux/ftrace.h>
 #include <linux/completion.h>
 #include <linux/list.h>
-#include <uapi/linux/livepatch.h>
 
 #if IS_ENABLED(CONFIG_LIVEPATCH)
 
@@ -238,17 +237,6 @@ int klp_apply_section_relocs(struct module *pmod, Elf_Shdr *sechdrs,
 			     const char *shstrtab, const char *strtab,
 			     unsigned int symindex, unsigned int secindex,
 			     const char *objname);
-
-/* Used to annotate symbol relocations in live patches */
-#define KLP_MODULE_RELOC(obj)						\
-	struct klp_module_reloc						\
-	__attribute__((__section__(".klp.module_relocs." #obj)))
-
-#define KLP_SYMPOS(symbol, pos)						\
-	{								\
-		.sym = &symbol,						\
-		.sympos = pos,						\
-	},
 
 #else /* !CONFIG_LIVEPATCH */
 

@@ -12,6 +12,7 @@
 #include <asm/uv.h>
 #include "compressed/decompressor.h"
 #include "boot.h"
+#include "uv.h"
 
 extern char __boot_data_start[], __boot_data_end[];
 extern char __boot_data_preserved_start[], __boot_data_preserved_end[];
@@ -297,6 +298,7 @@ void startup_kernel(void)
 	sclp_early_read_info();
 	setup_boot_command_line();
 	parse_boot_command_line();
+	sanitize_prot_virt_host();
 	setup_ident_map_size(detect_memory());
 	setup_vmalloc_size();
 	setup_kernel_memory_layout();

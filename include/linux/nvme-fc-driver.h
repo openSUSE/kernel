@@ -7,6 +7,7 @@
 #define _NVME_FC_DRIVER_H 1
 
 #include <linux/scatterlist.h>
+#include <linux/blk-mq.h>
 
 
 /*
@@ -497,6 +498,8 @@ struct nvme_fc_port_template {
 	int	(*xmt_ls_rsp)(struct nvme_fc_local_port *localport,
 				struct nvme_fc_remote_port *rport,
 				struct nvmefc_ls_rsp *ls_rsp);
+	void	(*map_queues)(struct nvme_fc_local_port *localport,
+			      struct blk_mq_queue_map *map);
 
 	u32	max_hw_queues;
 	u16	max_sgl_segments;
@@ -508,6 +511,8 @@ struct nvme_fc_port_template {
 	u32	remote_priv_sz;
 	u32	lsrqst_priv_sz;
 	u32	fcprqst_priv_sz;
+
+	void *suse_kabi_padding;
 };
 
 
@@ -779,6 +784,10 @@ struct nvmet_fc_target_port {
  *       LS received.
  *       Entrypoint is Mandatory.
  *
+ * @map_queues: This functions lets the driver expose the queue mapping
+ *	 to the block layer.
+ *       Entrypoint is Optional.
+ *
  * @fcp_op:  Called to perform a data transfer or transmit a response.
  *       The nvmefc_tgt_fcp_req structure is the same LLDD-supplied
  *       exchange structure specified in the nvmet_fc_rcv_fcp_req() call
@@ -970,6 +979,8 @@ struct nvmet_fc_target_template {
 	/* sizes of additional private data for data structures */
 	u32	target_priv_sz;
 	u32	lsrqst_priv_sz;
+
+	void *suse_kabi_padding;
 };
 
 

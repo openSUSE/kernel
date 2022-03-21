@@ -352,7 +352,7 @@ struct mod_kallsyms {
 	char *typetab;
 };
 
-#ifdef CONFIG_LIVEPATCH
+#if defined(CONFIG_LIVEPATCH) || defined(__aarch64__)
 struct klp_modinfo {
 	Elf_Ehdr hdr;
 	Elf_Shdr *sechdrs;
@@ -470,7 +470,7 @@ struct module {
 	unsigned int num_bpf_raw_events;
 	struct bpf_raw_event_map *bpf_raw_events;
 #endif
-#ifdef CONFIG_DEBUG_INFO_BTF_MODULES
+#if 1
 	unsigned int btf_data_size;
 	void *btf_data;
 #endif
@@ -503,7 +503,7 @@ struct module {
 	struct static_call_site *static_call_sites;
 #endif
 
-#ifdef CONFIG_LIVEPATCH
+#if defined(CONFIG_LIVEPATCH) || defined(__aarch64__)
 	bool klp; /* Is this a livepatch module? */
 	bool klp_alive;
 
@@ -533,6 +533,7 @@ struct module {
 	struct error_injection_entry *ei_funcs;
 	unsigned int num_ei_funcs;
 #endif
+	void *suse_kabi_padding;
 } ____cacheline_aligned __randomize_layout;
 #ifndef MODULE_ARCH_INIT
 #define MODULE_ARCH_INIT {}

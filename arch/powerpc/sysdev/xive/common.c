@@ -228,6 +228,21 @@ static void xive_esb_write(struct xive_irq_data *xd, u32 offset, u64 data)
 		out_be64(xd->eoi_mmio + offset, data);
 }
 
+#if defined(CONFIG_XMON) || defined(CONFIG_DEBUG_FS)
+static void xive_irq_data_dump(struct xive_irq_data *xd, char *buffer, size_t size)
+{
+	u64 val = xive_esb_read(xd, XIVE_ESB_GET);
+
+	snprintf(buffer, size, "flags=%c%c%c PQ=%c%c 0x%016llx 0x%016llx",
+		 xd->flags & XIVE_IRQ_FLAG_STORE_EOI ? 'S' : ' ',
+		 xd->flags & XIVE_IRQ_FLAG_LSI ? 'L' : ' ',
+		 xd->flags & XIVE_IRQ_FLAG_H_INT_ESB ? 'H' : ' ',
+		 val & XIVE_ESB_VAL_P ? 'P' : '-',
+		 val & XIVE_ESB_VAL_Q ? 'Q' : '-',
+		 xd->trig_page, xd->eoi_page);
+}
+#endif
+
 #ifdef CONFIG_XMON
 static notrace void xive_dump_eq(const char *name, struct xive_q *q)
 {
@@ -253,11 +268,10 @@ notrace void xmon_xive_do_dump(int cpu)
 
 #ifdef CONFIG_SMP
 		{
-			u64 val = xive_esb_read(&xc->ipi_data, XIVE_ESB_GET);
+			char buffer[128];
 
-			xmon_printf("IPI=0x%08x PQ=%c%c ", xc->hw_ipi,
-				    val & XIVE_ESB_VAL_P ? 'P' : '-',
-				    val & XIVE_ESB_VAL_Q ? 'Q' : '-');
+			xive_irq_data_dump(&xc->ipi_data, buffer, sizeof(buffer));
+			xmon_printf("IPI=0x%08x %s", xc->hw_ipi, buffer);
 		}
 #endif
 		xive_dump_eq("EQ", &xc->queue[xive_irq_priority]);
@@ -292,15 +306,11 @@ int xmon_xive_get_irq_config(u32 hw_irq, struct irq_data *d)
 		d = xive_get_irq_data(hw_irq);
 
 	if (d) {
-		struct xive_irq_data *xd = irq_data_get_irq_handler_data(d);
-		u64 val = xive_esb_read(xd, XIVE_ESB_GET);
+		char buffer[128];
 
-		xmon_printf("flags=%c%c%c PQ=%c%c",
-			    xd->flags & XIVE_IRQ_FLAG_STORE_EOI ? 'S' : ' ',
-			    xd->flags & XIVE_IRQ_FLAG_LSI ? 'L' : ' ',
-			    xd->flags & XIVE_IRQ_FLAG_H_INT_ESB ? 'H' : ' ',
-			    val & XIVE_ESB_VAL_P ? 'P' : '-',
-			    val & XIVE_ESB_VAL_Q ? 'Q' : '-');
+		xive_irq_data_dump(irq_data_get_irq_handler_data(d),
+				   buffer, sizeof(buffer));
+		xmon_printf("%s", buffer);
 	}
 
 	xmon_printf("\n");
@@ -961,7 +971,8 @@ static int xive_get_irqchip_state(struct irq_data *data,
 		 * interrupt to be inactive in that case.
 		 */
 		*state = (pq != XIVE_ESB_INVALID) && !xd->stale_p &&
-			(xd->saved_p || !!(pq & XIVE_ESB_VAL_P));
+			(xd->saved_p || (!!(pq & XIVE_ESB_VAL_P) &&
+			 !irqd_irq_disabled(data)));
 		return 0;
 	default:
 		return -EINVAL;
@@ -1391,8 +1402,7 @@ static const struct irq_domain_ops xive_irq_domain_ops = {
 
 static void __init xive_init_host(struct device_node *np)
 {
-	xive_irq_domain = irq_domain_add_nomap(np, XIVE_MAX_IRQ,
-					       &xive_irq_domain_ops, NULL);
+	xive_irq_domain = irq_domain_add_tree(np, &xive_irq_domain_ops, NULL);
 	if (WARN_ON(xive_irq_domain == NULL))
 		return;
 	irq_set_default_host(xive_irq_domain);
@@ -1640,36 +1650,23 @@ static int __init xive_off(char *arg)
 }
 __setup("xive=off", xive_off);
 
-static void xive_debug_show_cpu(struct seq_file *m, int cpu)
+#ifdef CONFIG_DEBUG_FS
+static void xive_debug_show_ipi(struct seq_file *m, int cpu)
 {
 	struct xive_cpu *xc = per_cpu(xive_cpu, cpu);
 
-	seq_printf(m, "CPU %d:", cpu);
+	seq_printf(m, "CPU %d: ", cpu);
 	if (xc) {
 		seq_printf(m, "pp=%02x CPPR=%02x ", xc->pending_prio, xc->cppr);
 
 #ifdef CONFIG_SMP
 		{
-			u64 val = xive_esb_read(&xc->ipi_data, XIVE_ESB_GET);
+			char buffer[128];
 
-			seq_printf(m, "IPI=0x%08x PQ=%c%c ", xc->hw_ipi,
-				   val & XIVE_ESB_VAL_P ? 'P' : '-',
-				   val & XIVE_ESB_VAL_Q ? 'Q' : '-');
+			xive_irq_data_dump(&xc->ipi_data, buffer, sizeof(buffer));
+			seq_printf(m, "IPI=0x%08x %s", xc->hw_ipi, buffer);
 		}
 #endif
-		{
-			struct xive_q *q = &xc->queue[xive_irq_priority];
-			u32 i0, i1, idx;
-
-			if (q->qpage) {
-				idx = q->idx;
-				i0 = be32_to_cpup(q->qpage + idx);
-				idx = (idx + 1) & q->msk;
-				i1 = be32_to_cpup(q->qpage + idx);
-				seq_printf(m, "EQ idx=%d T=%d %08x %08x ...",
-					   q->idx, q->toggle, i0, i1);
-			}
-		}
 	}
 	seq_puts(m, "\n");
 }
@@ -1681,8 +1678,7 @@ static void xive_debug_show_irq(struct seq_file *m, struct irq_data *d)
 	u32 target;
 	u8 prio;
 	u32 lirq;
-	struct xive_irq_data *xd;
-	u64 val;
+	char buffer[128];
 
 	rc = xive_ops->get_irq_config(hw_irq, &target, &prio, &lirq);
 	if (rc) {
@@ -1693,28 +1689,15 @@ static void xive_debug_show_irq(struct seq_file *m, struct irq_data *d)
 	seq_printf(m, "IRQ 0x%08x : target=0x%x prio=%02x lirq=0x%x ",
 		   hw_irq, target, prio, lirq);
 
-	xd = irq_data_get_irq_handler_data(d);
-	val = xive_esb_read(xd, XIVE_ESB_GET);
-	seq_printf(m, "flags=%c%c%c PQ=%c%c",
-		   xd->flags & XIVE_IRQ_FLAG_STORE_EOI ? 'S' : ' ',
-		   xd->flags & XIVE_IRQ_FLAG_LSI ? 'L' : ' ',
-		   xd->flags & XIVE_IRQ_FLAG_H_INT_ESB ? 'H' : ' ',
-		   val & XIVE_ESB_VAL_P ? 'P' : '-',
-		   val & XIVE_ESB_VAL_Q ? 'Q' : '-');
+	xive_irq_data_dump(irq_data_get_irq_handler_data(d), buffer, sizeof(buffer));
+	seq_puts(m, buffer);
 	seq_puts(m, "\n");
 }
 
-static int xive_core_debug_show(struct seq_file *m, void *private)
+static int xive_irq_debug_show(struct seq_file *m, void *private)
 {
 	unsigned int i;
 	struct irq_desc *desc;
-	int cpu;
-
-	if (xive_ops->debug_show)
-		xive_ops->debug_show(m, private);
-
-	for_each_possible_cpu(cpu)
-		xive_debug_show_cpu(m, cpu);
 
 	for_each_irq_desc(i, desc) {
 		struct irq_data *d = irq_desc_get_irq_data(desc);
@@ -1724,12 +1707,79 @@ static int xive_core_debug_show(struct seq_file *m, void *private)
 	}
 	return 0;
 }
-DEFINE_SHOW_ATTRIBUTE(xive_core_debug);
+DEFINE_SHOW_ATTRIBUTE(xive_irq_debug);
+
+static int xive_ipi_debug_show(struct seq_file *m, void *private)
+{
+	int cpu;
+
+	if (xive_ops->debug_show)
+		xive_ops->debug_show(m, private);
+
+	for_each_online_cpu(cpu)
+		xive_debug_show_ipi(m, cpu);
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(xive_ipi_debug);
+
+static void xive_eq_debug_show_one(struct seq_file *m, struct xive_q *q, u8 prio)
+{
+	int i;
+
+	seq_printf(m, "EQ%d idx=%d T=%d\n", prio, q->idx, q->toggle);
+	if (q->qpage) {
+		for (i = 0; i < q->msk + 1; i++) {
+			if (!(i % 8))
+				seq_printf(m, "%05d ", i);
+			seq_printf(m, "%08x%s", be32_to_cpup(q->qpage + i),
+				   (i + 1) % 8 ? " " : "\n");
+		}
+	}
+	seq_puts(m, "\n");
+}
+
+static int xive_eq_debug_show(struct seq_file *m, void *private)
+{
+	int cpu = (long)m->private;
+	struct xive_cpu *xc = per_cpu(xive_cpu, cpu);
+
+	if (xc)
+		xive_eq_debug_show_one(m, &xc->queue[xive_irq_priority],
+				       xive_irq_priority);
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(xive_eq_debug);
+
+static void xive_core_debugfs_create(void)
+{
+	struct dentry *xive_dir;
+	struct dentry *xive_eq_dir;
+	long cpu;
+	char name[16];
+
+	xive_dir = debugfs_create_dir("xive", powerpc_debugfs_root);
+	if (IS_ERR(xive_dir))
+		return;
+
+	debugfs_create_file("ipis", 0400, xive_dir,
+			    NULL, &xive_ipi_debug_fops);
+	debugfs_create_file("interrupts", 0400, xive_dir,
+			    NULL, &xive_irq_debug_fops);
+	xive_eq_dir = debugfs_create_dir("eqs", xive_dir);
+	for_each_possible_cpu(cpu) {
+		snprintf(name, sizeof(name), "cpu%ld", cpu);
+		debugfs_create_file(name, 0400, xive_eq_dir, (void *)cpu,
+				    &xive_eq_debug_fops);
+	}
+}
+#else
+static inline void xive_core_debugfs_create(void) { }
+#endif /* CONFIG_DEBUG_FS */
 
 int xive_core_debug_init(void)
 {
-	if (xive_enabled())
-		debugfs_create_file("xive", 0400, powerpc_debugfs_root,
-				    NULL, &xive_core_debug_fops);
+	if (xive_enabled() && IS_ENABLED(CONFIG_DEBUG_FS))
+		xive_core_debugfs_create();
+
 	return 0;
 }

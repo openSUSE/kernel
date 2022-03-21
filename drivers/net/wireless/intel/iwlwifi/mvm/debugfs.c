@@ -5,6 +5,7 @@
  * Copyright (C) 2016-2017 Intel Deutschland GmbH
  */
 #include <linux/vmalloc.h>
+#include <linux/err.h>
 #include <linux/ieee80211.h>
 #include <linux/netdevice.h>
 
@@ -305,7 +306,6 @@ static ssize_t iwl_dbgfs_sar_geo_profile_read(struct file *file,
 	int pos = 0;
 	int bufsz = sizeof(buf);
 	int tbl_idx;
-	u8 *value;
 
 	if (!iwl_mvm_firmware_running(mvm))
 		return -EIO;
@@ -321,16 +321,18 @@ static ssize_t iwl_dbgfs_sar_geo_profile_read(struct file *file,
 		pos = scnprintf(buf, bufsz,
 				"SAR geographic profile disabled\n");
 	} else {
-		value = &mvm->fwrt.geo_profiles[tbl_idx - 1].values[0];
-
 		pos += scnprintf(buf + pos, bufsz - pos,
 				 "Use geographic profile %d\n", tbl_idx);
 		pos += scnprintf(buf + pos, bufsz - pos,
 				 "2.4GHz:\n\tChain A offset: %hhu dBm\n\tChain B offset: %hhu dBm\n\tmax tx power: %hhu dBm\n",
-				 value[1], value[2], value[0]);
+				 mvm->fwrt.geo_profiles[tbl_idx - 1].bands[0].chains[0],
+				 mvm->fwrt.geo_profiles[tbl_idx - 1].bands[0].chains[1],
+				 mvm->fwrt.geo_profiles[tbl_idx - 1].bands[0].max);
 		pos += scnprintf(buf + pos, bufsz - pos,
 				 "5.2GHz:\n\tChain A offset: %hhu dBm\n\tChain B offset: %hhu dBm\n\tmax tx power: %hhu dBm\n",
-				 value[4], value[5], value[3]);
+				 mvm->fwrt.geo_profiles[tbl_idx - 1].bands[1].chains[0],
+				 mvm->fwrt.geo_profiles[tbl_idx - 1].bands[1].chains[1],
+				 mvm->fwrt.geo_profiles[tbl_idx - 1].bands[1].max);
 	}
 	mutex_unlock(&mvm->mutex);
 
@@ -2043,7 +2045,6 @@ void iwl_mvm_sta_add_debugfs(struct ieee80211_hw *hw,
 void iwl_mvm_dbgfs_register(struct iwl_mvm *mvm)
 {
 	struct dentry *bcast_dir __maybe_unused;
-	char buf[100];
 
 	spin_lock_init(&mvm->drv_stats_lock);
 
@@ -2139,6 +2140,11 @@ void iwl_mvm_dbgfs_register(struct iwl_mvm *mvm)
 	 * Create a symlink with mac80211. It will be removed when mac80211
 	 * exists (before the opmode exists which removes the target.)
 	 */
-	snprintf(buf, 100, "../../%pd2", mvm->debugfs_dir->d_parent);
-	debugfs_create_symlink("iwlwifi", mvm->hw->wiphy->debugfsdir, buf);
+	if (!IS_ERR(mvm->debugfs_dir)) {
+		char buf[100];
+
+		snprintf(buf, 100, "../../%pd2", mvm->debugfs_dir->d_parent);
+		debugfs_create_symlink("iwlwifi", mvm->hw->wiphy->debugfsdir,
+				       buf);
+	}
 }

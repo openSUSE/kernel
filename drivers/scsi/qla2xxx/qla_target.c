@@ -620,7 +620,7 @@ static void qla2x00_async_nack_sp_done(srb_t *sp, int res)
 	}
 	spin_unlock_irqrestore(&vha->hw->tgt.sess_lock, flags);
 
-	sp->free(sp);
+	kref_put(&sp->cmd_kref, qla2x00_sp_release);
 }
 
 int qla24xx_async_notify_ack(scsi_qla_host_t *vha, fc_port_t *fcport,
@@ -636,9 +636,8 @@ int qla24xx_async_notify_ack(scsi_qla_host_t *vha, fc_port_t *fcport,
 		fcport->fw_login_state = DSC_LS_PLOGI_PEND;
 		c = "PLOGI";
 		if (vha->hw->flags.edif_enabled &&
-		    (le16_to_cpu(ntfy->u.isp24.flags) & NOTIFY24XX_FLAGS_FCSP)) {
+		    (le16_to_cpu(ntfy->u.isp24.flags) & NOTIFY24XX_FLAGS_FCSP))
 			fcport->flags |= FCF_FCSP_DEVICE;
-		}
 		break;
 	case SRB_NACK_PRLI:
 		fcport->fw_login_state = DSC_LS_PRLI_PEND;
@@ -657,12 +656,10 @@ int qla24xx_async_notify_ack(scsi_qla_host_t *vha, fc_port_t *fcport,
 
 	sp->type = type;
 	sp->name = "nack";
-
-	sp->u.iocb_cmd.timeout = qla2x00_async_iocb_timeout;
-	qla2x00_init_timer(sp, qla2x00_get_async_timeout(vha)+2);
+	qla2x00_init_async_sp(sp, qla2x00_get_async_timeout(vha) + 2,
+			      qla2x00_async_nack_sp_done);
 
 	sp->u.iocb_cmd.u.nack.ntfy = ntfy;
-	sp->done = qla2x00_async_nack_sp_done;
 
 	ql_dbg(ql_dbg_disc, vha, 0x20f4,
 	    "Async-%s %8phC hndl %x %s\n",
@@ -675,7 +672,7 @@ int qla24xx_async_notify_ack(scsi_qla_host_t *vha, fc_port_t *fcport,
 	return rval;
 
 done_free_sp:
-	sp->free(sp);
+	kref_put(&sp->cmd_kref, qla2x00_sp_release);
 done:
 	fcport->flags &= ~FCF_ASYNC_SENT;
 	return rval;
@@ -937,6 +934,11 @@ qlt_send_first_logo(struct scsi_qla_host *vha, qlt_port_logo_t *logo)
 	qlt_port_logo_t *tmp;
 	int res;
 
+	if (test_bit(PFLG_DRIVER_REMOVING, &vha->pci_flags)) {
+		res = 0;
+		goto out;
+	}
+
 	mutex_lock(&vha->vha_tgt.tgt_mutex);
 
 	list_for_each_entry(tmp, &vha->logo_list, list) {
@@ -957,6 +959,7 @@ qlt_send_first_logo(struct scsi_qla_host *vha, qlt_port_logo_t *logo)
 	list_del(&logo->list);
 	mutex_unlock(&vha->vha_tgt.tgt_mutex);
 
+out:
 	ql_dbg(ql_dbg_tgt_mgt, vha, 0xf098,
 	    "Finished LOGO to %02x:%02x:%02x, dropped %d cmds, res = %#x\n",
 	    logo->id.b.domain, logo->id.b.area, logo->id.b.al_pa,
@@ -987,6 +990,7 @@ void qlt_free_session_done(struct work_struct *work)
 	if (!IS_SW_RESV_ADDR(sess->d_id)) {
 		if (ha->flags.edif_enabled &&
 		    (!own || own->iocb.u.isp24.status_subcode == ELS_PLOGI)) {
+			sess->edif.authok = 0;
 			if (!ha->flags.host_shutting_down) {
 				ql_dbg(ql_dbg_edif, vha, 0x911e,
 					"%s wwpn %8phC calling qla2x00_release_all_sadb\n",
@@ -997,6 +1001,8 @@ void qlt_free_session_done(struct work_struct *work)
 					"%s bypassing release_all_sadb\n",
 					__func__);
 			}
+			qla_edif_clear_appdata(vha, sess);
+			qla_edif_sess_down(vha, sess);
 		}
 		qla2x00_mark_device_lost(vha, sess, 0);
 
@@ -2018,17 +2024,6 @@ static void abort_cmds_for_lun(struct scsi_qla_host *vha, u64 lun, be_id_t s_id)
 
 	key = sid_to_key(s_id);
 	spin_lock_irqsave(&vha->cmd_list_lock, flags);
-	list_for_each_entry(op, &vha->qla_sess_op_cmd_list, cmd_list) {
-		uint32_t op_key;
-		u64 op_lun;
-
-		op_key = sid_to_key(op->atio.u.isp24.fcp_hdr.s_id);
-		op_lun = scsilun_to_int(
-			(struct scsi_lun *)&op->atio.u.isp24.fcp_cmnd.lun);
-		if (op_key == key && op_lun == lun)
-			op->aborted = true;
-	}
-
 	list_for_each_entry(op, &vha->unknown_atio_list, cmd_list) {
 		uint32_t op_key;
 		u64 op_lun;
@@ -3312,8 +3307,8 @@ int qlt_xmit_response(struct qla_tgt_cmd *cmd, int xmit_type,
 			"RESET-RSP online/active/old-count/new-count = %d/%d/%d/%d.\n",
 			vha->flags.online, qla2x00_reset_active(vha),
 			cmd->reset_count, qpair->chip_reset);
-		spin_unlock_irqrestore(qpair->qp_lock_ptr, flags);
-		return 0;
+		res = 0;
+		goto out_unmap_unlock;
 	}
 
 	/* Does F/W have an IOCBs for this request */
@@ -3438,10 +3433,6 @@ int qlt_rdy_to_xfer(struct qla_tgt_cmd *cmd)
 	prm.sg = NULL;
 	prm.req_cnt = 1;
 
-	/* Calculate number of entries and segments required */
-	if (qlt_pci_map_calc_cnt(&prm) != 0)
-		return -EAGAIN;
-
 	if (!qpair->fw_started || (cmd->reset_count != qpair->chip_reset) ||
 	    (cmd->sess && cmd->sess->deleted)) {
 		/*
@@ -3458,6 +3449,10 @@ int qlt_rdy_to_xfer(struct qla_tgt_cmd *cmd)
 			cmd->reset_count, qpair->chip_reset);
 		return 0;
 	}
+
+	/* Calculate number of entries and segments required */
+	if (qlt_pci_map_calc_cnt(&prm) != 0)
+		return -EAGAIN;
 
 	spin_lock_irqsave(qpair->qp_lock_ptr, flags);
 	/* Does F/W have an IOCBs for this request */
@@ -3862,9 +3857,6 @@ void qlt_free_cmd(struct qla_tgt_cmd *cmd)
 	    be16_to_cpu(cmd->atio.u.isp24.fcp_hdr.ox_id));
 
 	BUG_ON(cmd->cmd_in_wq);
-
-	if (cmd->sg_mapped)
-		qlt_unmap_sg(cmd->vha, cmd);
 
 	if (!cmd->q_full)
 		qlt_decr_num_pend_cmds(cmd->vha);
@@ -4723,15 +4715,6 @@ static int abort_cmds_for_s_id(struct scsi_qla_host *vha, port_id_t *s_id)
 	       ((u32)s_id->b.al_pa));
 
 	spin_lock_irqsave(&vha->cmd_list_lock, flags);
-	list_for_each_entry(op, &vha->qla_sess_op_cmd_list, cmd_list) {
-		uint32_t op_key = sid_to_key(op->atio.u.isp24.fcp_hdr.s_id);
-
-		if (op_key == key) {
-			op->aborted = true;
-			count++;
-		}
-	}
-
 	list_for_each_entry(op, &vha->unknown_atio_list, cmd_list) {
 		uint32_t op_key = sid_to_key(op->atio.u.isp24.fcp_hdr.s_id);
 
@@ -4808,6 +4791,23 @@ static int qlt_handle_login(struct scsi_qla_host *vha,
 		goto out;
 	}
 
+	if (vha->hw->flags.edif_enabled) {
+		if (DBELL_INACTIVE(vha)) {
+			ql_dbg(ql_dbg_disc, vha, 0xffff,
+			       "%s %d Term INOT due to app not started lid=%d, NportID %06X ",
+			       __func__, __LINE__, loop_id, port_id.b24);
+			qlt_send_term_imm_notif(vha, iocb, 1);
+			goto out;
+		} else if (iocb->u.isp24.status_subcode == ELS_PLOGI &&
+			   !(le16_to_cpu(iocb->u.isp24.flags) & NOTIFY24XX_FLAGS_FCSP)) {
+			ql_dbg(ql_dbg_disc, vha, 0xffff,
+			       "%s %d Term INOT due to unsecure lid=%d, NportID %06X ",
+			       __func__, __LINE__, loop_id, port_id.b24);
+			qlt_send_term_imm_notif(vha, iocb, 1);
+			goto out;
+		}
+	}
+
 	pla = qlt_plogi_ack_find_add(vha, &port_id, iocb);
 	if (!pla) {
 		ql_dbg(ql_dbg_disc + ql_dbg_verbose, vha, 0xffff,
@@ -4876,6 +4876,10 @@ static int qlt_handle_login(struct scsi_qla_host *vha,
 	sess->loop_id = loop_id;
 
 	if (iocb->u.isp24.status_subcode == ELS_PLOGI) {
+		/* remote port has assigned Port ID */
+		if (N2N_TOPO(vha->hw) && fcport_is_bigger(sess))
+			vha->d_id = sess->d_id;
+
 		ql_dbg(ql_dbg_disc, vha, 0xffff,
 		    "%s %8phC - send port online\n",
 		    __func__, sess->port_name);
@@ -4995,6 +4999,16 @@ static int qlt_24xx_handle_els(struct scsi_qla_host *vha,
 			sess = qla2x00_find_fcport_by_wwpn(vha,
 			    iocb->u.isp24.port_name, 1);
 
+			if (vha->hw->flags.edif_enabled && sess &&
+			    (!(sess->flags & FCF_FCSP_DEVICE) ||
+			     !sess->edif.authok)) {
+				ql_dbg(ql_dbg_disc, vha, 0xffff,
+				       "%s %d %8phC Term PRLI due to unauthorize PRLI\n",
+				       __func__, __LINE__, iocb->u.isp24.port_name);
+				qlt_send_term_imm_notif(vha, iocb, 1);
+				break;
+			}
+
 			if (sess && sess->plogi_link[QLT_PLOGI_LINK_SAME_WWN]) {
 				ql_dbg(ql_dbg_disc, vha, 0xffff,
 				    "%s %d %8phC Term PRLI due to PLOGI ACK not completed\n",
@@ -5042,6 +5056,16 @@ static int qlt_24xx_handle_els(struct scsi_qla_host *vha,
 		if (sess != NULL) {
 			bool delete = false;
 			int sec;
+
+			if (vha->hw->flags.edif_enabled && sess &&
+			    (!(sess->flags & FCF_FCSP_DEVICE) ||
+			     !sess->edif.authok)) {
+				ql_dbg(ql_dbg_disc, vha, 0xffff,
+				       "%s %d %8phC Term PRLI due to unauthorize prli\n",
+				       __func__, __LINE__, iocb->u.isp24.port_name);
+				qlt_send_term_imm_notif(vha, iocb, 1);
+				break;
+			}
 
 			spin_lock_irqsave(&tgt->ha->tgt.sess_lock, flags);
 			switch (sess->fw_login_state) {
@@ -5232,7 +5256,8 @@ static int qlt_24xx_handle_els(struct scsi_qla_host *vha,
 }
 
 /*
- * ha->hardware_lock supposed to be held on entry. Might drop it, then reaquire
+ * ha->hardware_lock supposed to be held on entry.
+ * Might drop it, then reacquire.
  */
 static void qlt_handle_imm_notify(struct scsi_qla_host *vha,
 	struct imm_ntfy_from_isp *iocb)
@@ -7175,8 +7200,7 @@ qlt_probe_one_stage1(struct scsi_qla_host *base_vha, struct qla_hw_data *ha)
 	if (!QLA_TGT_MODE_ENABLED())
 		return;
 
-	if  ((ql2xenablemsix == 0) || IS_QLA83XX(ha) || IS_QLA27XX(ha) ||
-	    IS_QLA28XX(ha)) {
+	if  (ha->mqenable || IS_QLA83XX(ha) || IS_QLA27XX(ha) || IS_QLA28XX(ha)) {
 		ISP_ATIO_Q_IN(base_vha) = &ha->mqiobase->isp25mq.atio_q_in;
 		ISP_ATIO_Q_OUT(base_vha) = &ha->mqiobase->isp25mq.atio_q_out;
 	} else {

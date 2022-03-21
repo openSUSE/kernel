@@ -113,8 +113,8 @@ struct htb_class {
 	/*
 	 * Written often fields
 	 */
-	struct gnet_stats_basic_packed bstats;
-	struct gnet_stats_basic_packed bstats_bias;
+	struct gnet_stats_basic_sync bstats;
+	struct gnet_stats_basic_sync bstats_bias;
 	struct tc_htb_xstats	xstats;	/* our special stats */
 
 	/* token bucket parameters */
@@ -125,6 +125,7 @@ struct htb_class {
 		struct htb_class_leaf {
 			int		deficit[TC_HTB_MAXDEPTH];
 			struct Qdisc	*q;
+			struct netdev_queue *offload_queue;
 		} leaf;
 		struct htb_class_inner {
 			struct htb_prio clprio[TC_HTB_NUMPRIO];
@@ -1307,10 +1308,11 @@ nla_put_failure:
 static void htb_offload_aggregate_stats(struct htb_sched *q,
 					struct htb_class *cl)
 {
+	u64 bytes = 0, packets = 0;
 	struct htb_class *c;
 	unsigned int i;
 
-	memset(&cl->bstats, 0, sizeof(cl->bstats));
+	gnet_stats_basic_sync_init(&cl->bstats);
 
 	for (i = 0; i < q->clhash.hashsize; i++) {
 		hlist_for_each_entry(c, &q->clhash.hash[i], common.hnode) {
@@ -1322,14 +1324,15 @@ static void htb_offload_aggregate_stats(struct htb_sched *q,
 			if (p != cl)
 				continue;
 
-			cl->bstats.bytes += c->bstats_bias.bytes;
-			cl->bstats.packets += c->bstats_bias.packets;
+			bytes += u64_stats_read(&c->bstats_bias.bytes);
+			packets += u64_stats_read(&c->bstats_bias.packets);
 			if (c->level == 0) {
-				cl->bstats.bytes += c->leaf.q->bstats.bytes;
-				cl->bstats.packets += c->leaf.q->bstats.packets;
+				bytes += u64_stats_read(&c->leaf.q->bstats.bytes);
+				packets += u64_stats_read(&c->leaf.q->bstats.packets);
 			}
 		}
 	}
+	_bstats_update(&cl->bstats, bytes, packets);
 }
 
 static int
@@ -1356,16 +1359,16 @@ htb_dump_class_stats(struct Qdisc *sch, unsigned long arg, struct gnet_dump *d)
 			if (cl->leaf.q)
 				cl->bstats = cl->leaf.q->bstats;
 			else
-				memset(&cl->bstats, 0, sizeof(cl->bstats));
-			cl->bstats.bytes += cl->bstats_bias.bytes;
-			cl->bstats.packets += cl->bstats_bias.packets;
+				gnet_stats_basic_sync_init(&cl->bstats);
+			_bstats_update(&cl->bstats,
+				       u64_stats_read(&cl->bstats_bias.bytes),
+				       u64_stats_read(&cl->bstats_bias.packets));
 		} else {
 			htb_offload_aggregate_stats(q, cl);
 		}
 	}
 
-	if (gnet_stats_copy_basic(qdisc_root_sleeping_running(sch),
-				  d, NULL, &cl->bstats) < 0 ||
+	if (gnet_stats_copy_basic(d, NULL, &cl->bstats, true) < 0 ||
 	    gnet_stats_copy_rate_est(d, &cl->rate_est) < 0 ||
 	    gnet_stats_copy_queue(d, NULL, &qs, qlen) < 0)
 		return -1;
@@ -1411,24 +1414,47 @@ htb_graft_helper(struct netdev_queue *dev_queue, struct Qdisc *new_q)
 	return old_q;
 }
 
-static void htb_offload_move_qdisc(struct Qdisc *sch, u16 qid_old, u16 qid_new)
+static struct netdev_queue *htb_offload_get_queue(struct htb_class *cl)
+{
+	struct netdev_queue *queue;
+
+	queue = cl->leaf.offload_queue;
+	if (!(cl->leaf.q->flags & TCQ_F_BUILTIN))
+		WARN_ON(cl->leaf.q->dev_queue != queue);
+
+	return queue;
+}
+
+static void htb_offload_move_qdisc(struct Qdisc *sch, struct htb_class *cl_old,
+				   struct htb_class *cl_new, bool destroying)
 {
 	struct netdev_queue *queue_old, *queue_new;
 	struct net_device *dev = qdisc_dev(sch);
-	struct Qdisc *qdisc;
 
-	queue_old = netdev_get_tx_queue(dev, qid_old);
-	queue_new = netdev_get_tx_queue(dev, qid_new);
+	queue_old = htb_offload_get_queue(cl_old);
+	queue_new = htb_offload_get_queue(cl_new);
 
-	if (dev->flags & IFF_UP)
-		dev_deactivate(dev);
-	qdisc = dev_graft_qdisc(queue_old, NULL);
-	qdisc->dev_queue = queue_new;
-	qdisc = dev_graft_qdisc(queue_new, qdisc);
-	if (dev->flags & IFF_UP)
-		dev_activate(dev);
+	if (!destroying) {
+		struct Qdisc *qdisc;
 
-	WARN_ON(!(qdisc->flags & TCQ_F_BUILTIN));
+		if (dev->flags & IFF_UP)
+			dev_deactivate(dev);
+		qdisc = dev_graft_qdisc(queue_old, NULL);
+		WARN_ON(qdisc != cl_old->leaf.q);
+	}
+
+	if (!(cl_old->leaf.q->flags & TCQ_F_BUILTIN))
+		cl_old->leaf.q->dev_queue = queue_new;
+	cl_old->leaf.offload_queue = queue_new;
+
+	if (!destroying) {
+		struct Qdisc *qdisc;
+
+		qdisc = dev_graft_qdisc(queue_new, cl_old->leaf.q);
+		if (dev->flags & IFF_UP)
+			dev_activate(dev);
+		WARN_ON(!(qdisc->flags & TCQ_F_BUILTIN));
+	}
 }
 
 static int htb_graft(struct Qdisc *sch, unsigned long arg, struct Qdisc *new,
@@ -1442,10 +1468,8 @@ static int htb_graft(struct Qdisc *sch, unsigned long arg, struct Qdisc *new,
 	if (cl->level)
 		return -EINVAL;
 
-	if (q->offload) {
-		dev_queue = new->dev_queue;
-		WARN_ON(dev_queue != cl->leaf.q->dev_queue);
-	}
+	if (q->offload)
+		dev_queue = htb_offload_get_queue(cl);
 
 	if (!new) {
 		new = qdisc_create_dflt(dev_queue, &pfifo_qdisc_ops,
@@ -1514,6 +1538,8 @@ static void htb_parent_to_leaf(struct Qdisc *sch, struct htb_class *cl,
 	parent->ctokens = parent->cbuffer;
 	parent->t_c = ktime_get_ns();
 	parent->cmode = HTB_CAN_SEND;
+	if (q->offload)
+		parent->leaf.offload_queue = cl->leaf.offload_queue;
 }
 
 static void htb_parent_to_leaf_offload(struct Qdisc *sch,
@@ -1534,6 +1560,7 @@ static int htb_destroy_class_offload(struct Qdisc *sch, struct htb_class *cl,
 				     struct netlink_ext_ack *extack)
 {
 	struct tc_htb_qopt_offload offload_opt;
+	struct netdev_queue *dev_queue;
 	struct Qdisc *q = cl->leaf.q;
 	struct Qdisc *old = NULL;
 	int err;
@@ -1542,20 +1569,20 @@ static int htb_destroy_class_offload(struct Qdisc *sch, struct htb_class *cl,
 		return -EINVAL;
 
 	WARN_ON(!q);
-	if (!destroying) {
-		/* On destroy of HTB, two cases are possible:
-		 * 1. q is a normal qdisc, but q->dev_queue has noop qdisc.
-		 * 2. q is a noop qdisc (for nodes that were inner),
-		 *    q->dev_queue is noop_netdev_queue.
+	dev_queue = htb_offload_get_queue(cl);
+	old = htb_graft_helper(dev_queue, NULL);
+	if (destroying)
+		/* Before HTB is destroyed, the kernel grafts noop_qdisc to
+		 * all queues.
 		 */
-		old = htb_graft_helper(q->dev_queue, NULL);
-		WARN_ON(!old);
+		WARN_ON(!(old->flags & TCQ_F_BUILTIN));
+	else
 		WARN_ON(old != q);
-	}
 
 	if (cl->parent) {
-		cl->parent->bstats_bias.bytes += q->bstats.bytes;
-		cl->parent->bstats_bias.packets += q->bstats.packets;
+		_bstats_update(&cl->parent->bstats_bias,
+			       u64_stats_read(&q->bstats.bytes),
+			       u64_stats_read(&q->bstats.packets));
 	}
 
 	offload_opt = (struct tc_htb_qopt_offload) {
@@ -1570,18 +1597,17 @@ static int htb_destroy_class_offload(struct Qdisc *sch, struct htb_class *cl,
 	if (!err || destroying)
 		qdisc_put(old);
 	else
-		htb_graft_helper(q->dev_queue, old);
+		htb_graft_helper(dev_queue, old);
 
 	if (last_child)
 		return err;
 
-	if (!err && offload_opt.moved_qid != 0) {
-		if (destroying)
-			q->dev_queue = netdev_get_tx_queue(qdisc_dev(sch),
-							   offload_opt.qid);
-		else
-			htb_offload_move_qdisc(sch, offload_opt.moved_qid,
-					       offload_opt.qid);
+	if (!err && offload_opt.classid != TC_H_MIN(cl->common.classid)) {
+		u32 classid = TC_H_MAJ(sch->handle) |
+			      TC_H_MIN(offload_opt.classid);
+		struct htb_class *moved_cl = htb_find(classid, sch);
+
+		htb_offload_move_qdisc(sch, moved_cl, cl, destroying);
 	}
 
 	return err;
@@ -1704,9 +1730,11 @@ static int htb_delete(struct Qdisc *sch, unsigned long arg,
 	}
 
 	if (last_child) {
-		struct netdev_queue *dev_queue;
+		struct netdev_queue *dev_queue = sch->dev_queue;
 
-		dev_queue = q->offload ? cl->leaf.q->dev_queue : sch->dev_queue;
+		if (q->offload)
+			dev_queue = htb_offload_get_queue(cl);
+
 		new_q = qdisc_create_dflt(dev_queue, &pfifo_qdisc_ops,
 					  cl->parent->common.classid,
 					  NULL);
@@ -1778,6 +1806,26 @@ static int htb_change_class(struct Qdisc *sch, u32 classid,
 	if (!hopt->rate.rate || !hopt->ceil.rate)
 		goto failure;
 
+	if (q->offload) {
+		/* Options not supported by the offload. */
+		if (hopt->rate.overhead || hopt->ceil.overhead) {
+			NL_SET_ERR_MSG(extack, "HTB offload doesn't support the overhead parameter");
+			goto failure;
+		}
+		if (hopt->rate.mpu || hopt->ceil.mpu) {
+			NL_SET_ERR_MSG(extack, "HTB offload doesn't support the mpu parameter");
+			goto failure;
+		}
+		if (hopt->quantum) {
+			NL_SET_ERR_MSG(extack, "HTB offload doesn't support the quantum parameter");
+			goto failure;
+		}
+		if (hopt->prio) {
+			NL_SET_ERR_MSG(extack, "HTB offload doesn't support the prio parameter");
+			goto failure;
+		}
+	}
+
 	/* Keeping backward compatible with rate_table based iproute2 tc */
 	if (hopt->rate.linklayer == TC_LINKLAYER_UNAWARE)
 		qdisc_put_rtab(qdisc_get_rtab(&hopt->rate, tb[TCA_HTB_RTAB],
@@ -1824,6 +1872,9 @@ static int htb_change_class(struct Qdisc *sch, u32 classid,
 		if (!cl)
 			goto failure;
 
+		gnet_stats_basic_sync_init(&cl->bstats);
+		gnet_stats_basic_sync_init(&cl->bstats_bias);
+
 		err = tcf_block_get(&cl->block, &cl->filter_list, sch, extack);
 		if (err) {
 			kfree(cl);
@@ -1833,7 +1884,7 @@ static int htb_change_class(struct Qdisc *sch, u32 classid,
 			err = gen_new_estimator(&cl->bstats, NULL,
 						&cl->rate_est,
 						NULL,
-						qdisc_root_sleeping_running(sch),
+						true,
 						tca[TCA_RATE] ? : &est.nla);
 			if (err)
 				goto err_block_put;
@@ -1878,7 +1929,7 @@ static int htb_change_class(struct Qdisc *sch, u32 classid,
 			}
 			dev_queue = netdev_get_tx_queue(dev, offload_opt.qid);
 		} else { /* First child. */
-			dev_queue = parent->leaf.q->dev_queue;
+			dev_queue = htb_offload_get_queue(parent);
 			old_q = htb_graft_helper(dev_queue, NULL);
 			WARN_ON(old_q != parent->leaf.q);
 			offload_opt = (struct tc_htb_qopt_offload) {
@@ -1897,8 +1948,9 @@ static int htb_change_class(struct Qdisc *sch, u32 classid,
 				htb_graft_helper(dev_queue, old_q);
 				goto err_kill_estimator;
 			}
-			parent->bstats_bias.bytes += old_q->bstats.bytes;
-			parent->bstats_bias.packets += old_q->bstats.packets;
+			_bstats_update(&parent->bstats_bias,
+				       u64_stats_read(&old_q->bstats.bytes),
+				       u64_stats_read(&old_q->bstats.packets));
 			qdisc_put(old_q);
 		}
 		new_q = qdisc_create_dflt(dev_queue, &pfifo_qdisc_ops,
@@ -1935,6 +1987,8 @@ static int htb_change_class(struct Qdisc *sch, u32 classid,
 
 		/* leaf (we) needs elementary qdisc */
 		cl->leaf.q = new_q ? new_q : &noop_qdisc;
+		if (q->offload)
+			cl->leaf.offload_queue = dev_queue;
 
 		cl->parent = parent;
 
@@ -1956,7 +2010,7 @@ static int htb_change_class(struct Qdisc *sch, u32 classid,
 			err = gen_replace_estimator(&cl->bstats, NULL,
 						    &cl->rate_est,
 						    NULL,
-						    qdisc_root_sleeping_running(sch),
+						    true,
 						    tca[TCA_RATE]);
 			if (err)
 				return err;

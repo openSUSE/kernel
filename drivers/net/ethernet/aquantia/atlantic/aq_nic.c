@@ -332,7 +332,7 @@ int aq_nic_ndev_register(struct aq_nic_s *self)
 	{
 		static u8 mac_addr_permanent[] = AQ_CFG_MAC_ADDR_PERMANENT;
 
-		ether_addr_copy(self->ndev->dev_addr, mac_addr_permanent);
+		eth_hw_addr_set(self->ndev, mac_addr_permanent);
 	}
 #endif
 
@@ -903,8 +903,14 @@ u64 *aq_nic_get_stats(struct aq_nic_s *self, u64 *data)
 	data[++i] = stats->mbtc;
 	data[++i] = stats->bbrc;
 	data[++i] = stats->bbtc;
-	data[++i] = stats->ubrc + stats->mbrc + stats->bbrc;
-	data[++i] = stats->ubtc + stats->mbtc + stats->bbtc;
+	if (stats->brc)
+		data[++i] = stats->brc;
+	else
+		data[++i] = stats->ubrc + stats->mbrc + stats->bbrc;
+	if (stats->btc)
+		data[++i] = stats->btc;
+	else
+		data[++i] = stats->ubtc + stats->mbtc + stats->bbtc;
 	data[++i] = stats->dma_pkt_rc;
 	data[++i] = stats->dma_pkt_tc;
 	data[++i] = stats->dma_oct_rc;

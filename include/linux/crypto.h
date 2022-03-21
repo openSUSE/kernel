@@ -133,6 +133,15 @@
 #define CRYPTO_ALG_ALLOCATES_MEMORY	0x00010000
 
 /*
+ * Mark an algorithm as a service implementation only usable by a
+ * template and never by a normal user of the kernel crypto API.
+ * This is intended to be used by algorithms that are themselves
+ * not FIPS-approved but may instead be used to implement parts of
+ * a FIPS-approved algorithm (e.g., dh vs. ffdhe2048(dh)).
+ */
+#define CRYPTO_ALG_FIPS_INTERNAL	0x00020000
+
+/*
  * Transform masks and values (for crt_flags).
  */
 #define CRYPTO_TFM_NEED_KEY		0x00000001
@@ -141,6 +150,8 @@
 #define CRYPTO_TFM_REQ_FORBID_WEAK_KEYS	0x00000100
 #define CRYPTO_TFM_REQ_MAY_SLEEP	0x00000200
 #define CRYPTO_TFM_REQ_MAY_BACKLOG	0x00000400
+
+#define CRYPTO_TFM_FIPS_COMPLIANCE	0x80000000
 
 /*
  * Miscellaneous stuff.
@@ -246,6 +257,8 @@ struct cipher_alg {
 	                  unsigned int keylen);
 	void (*cia_encrypt)(struct crypto_tfm *tfm, u8 *dst, const u8 *src);
 	void (*cia_decrypt)(struct crypto_tfm *tfm, u8 *dst, const u8 *src);
+
+	void *suse_kabi_padding;
 };
 
 /**
@@ -264,6 +277,8 @@ struct compress_alg {
 			    unsigned int slen, u8 *dst, unsigned int *dlen);
 	int (*coa_decompress)(struct crypto_tfm *tfm, const u8 *src,
 			      unsigned int slen, u8 *dst, unsigned int *dlen);
+
+	void *suse_kabi_padding;
 };
 
 #ifdef CONFIG_CRYPTO_STATS
@@ -494,6 +509,7 @@ struct crypto_alg {
 	
 	struct module *cra_module;
 
+	void *suse_kabi_padding;
 #ifdef CONFIG_CRYPTO_STATS
 	union {
 		struct crypto_istat_aead aead;

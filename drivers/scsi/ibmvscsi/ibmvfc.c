@@ -58,7 +58,7 @@ MODULE_LICENSE("GPL");
 MODULE_VERSION(IBMVFC_DRIVER_VERSION);
 
 module_param_named(mq, mq_enabled, uint, S_IRUGO);
-MODULE_PARM_DESC(mq, "Enable (EXPERIMENTAL) multiqueue support. "
+MODULE_PARM_DESC(mq, "Enable multiqueue support. "
 		 "[Default=" __stringify(IBMVFC_MQ) "]");
 module_param_named(scsi_host_queues, nr_scsi_hw_queues, uint, S_IRUGO);
 MODULE_PARM_DESC(scsi_host_queues, "Number of SCSI Host submission queues. "
@@ -1696,6 +1696,7 @@ static int ibmvfc_send_event(struct ibmvfc_event *evt,
 
 	spin_lock_irqsave(&evt->queue->l_lock, flags);
 	list_add_tail(&evt->queue_list, &evt->queue->sent);
+	atomic_set(&evt->active, 1);
 
 	mb();
 
@@ -1710,6 +1711,7 @@ static int ibmvfc_send_event(struct ibmvfc_event *evt,
 				     be64_to_cpu(crq_as_u64[1]));
 
 	if (rc) {
+		atomic_set(&evt->active, 0);
 		list_del(&evt->queue_list);
 		spin_unlock_irqrestore(&evt->queue->l_lock, flags);
 		del_timer(&evt->timer);
@@ -1737,7 +1739,6 @@ static int ibmvfc_send_event(struct ibmvfc_event *evt,
 
 		evt->done(evt);
 	} else {
-		atomic_set(&evt->active, 1);
 		spin_unlock_irqrestore(&evt->queue->l_lock, flags);
 		ibmvfc_trc_start(evt);
 	}

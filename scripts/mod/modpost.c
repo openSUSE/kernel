@@ -2150,10 +2150,6 @@ static void read_symbols(const char *modname)
 		}
 	}
 
-	/* Livepatch modules have unresolved symbols resolved by klp-convert */
-	if (get_modinfo(&info, "livepatch"))
-		mod->livepatch = 1;
-
 	for (sym = info.symtab_start; sym < info.symtab_stop; sym++) {
 		symname = remove_dot(info.strtab + sym->st_name);
 
@@ -2280,8 +2276,7 @@ static void check_exports(struct module *mod)
 		const char *basename;
 		exp = find_symbol(s->name);
 		if (!exp || exp->module == mod) {
-			if (!s->weak && !mod->livepatch &&
-			    nr_unresolved++ < MAX_UNRESOLVED_REPORTS)
+			if (!s->weak && nr_unresolved++ < MAX_UNRESOLVED_REPORTS)
 				modpost_log(warn_unresolved ? LOG_WARN : LOG_ERROR,
 					    "\"%s\" [%s.ko] undefined!\n",
 					    s->name, mod->name);

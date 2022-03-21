@@ -1367,6 +1367,10 @@ static int imx274_s_frame_interval(struct v4l2_subdev *sd,
 	int min, max, def;
 	int ret;
 
+	ret = pm_runtime_resume_and_get(&imx274->client->dev);
+	if (ret < 0)
+		return ret;
+
 	mutex_lock(&imx274->lock);
 	ret = imx274_set_frame_interval(imx274, fi->interval);
 
@@ -1398,6 +1402,7 @@ static int imx274_s_frame_interval(struct v4l2_subdev *sd,
 
 unlock:
 	mutex_unlock(&imx274->lock);
+	pm_runtime_put(&imx274->client->dev);
 
 	return ret;
 }
@@ -1457,7 +1462,7 @@ static int imx274_s_stream(struct v4l2_subdev *sd, int on)
 			goto fail;
 
 		/*
-		 * update frame rate & expsoure. if the last mode is different,
+		 * update frame rate & exposure. if the last mode is different,
 		 * HMAX could be changed. As the result, frame rate & exposure
 		 * are changed.
 		 * gain is not affected.
@@ -1494,7 +1499,7 @@ fail:
 /*
  * imx274_get_frame_length - Function for obtaining current frame length
  * @priv: Pointer to device structure
- * @val: Pointer to obainted value
+ * @val: Pointer to obtained value
  *
  * frame_length = vmax x (svr + 1), in unit of hmax.
  *

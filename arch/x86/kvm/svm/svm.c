@@ -25,6 +25,7 @@
 #include <linux/pagemap.h>
 #include <linux/swap.h>
 #include <linux/rwsem.h>
+#include <linux/cc_platform.h>
 
 #include <asm/apic.h>
 #include <asm/perf_event.h>
@@ -36,6 +37,7 @@
 #include <asm/spec-ctrl.h>
 #include <asm/cpu_device_id.h>
 #include <asm/traps.h>
+#include <asm/fpu/api.h>
 
 #include <asm/virtext.h>
 #include "trace.h"
@@ -261,7 +263,7 @@ u32 svm_msrpm_offset(u32 msr)
 static int get_max_npt_level(void)
 {
 #ifdef CONFIG_X86_64
-	return PT64_ROOT_4LEVEL;
+	return pgtable_l5_enabled() ? PT64_ROOT_5LEVEL : PT64_ROOT_4LEVEL;
 #else
 	return PT32E_ROOT_LEVEL;
 #endif
@@ -457,13 +459,8 @@ static int has_svm(void)
 		return 0;
 	}
 
-	if (sev_active()) {
+	if (cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT)) {
 		pr_info("KVM is unsupported when running as an SEV guest\n");
-		return 0;
-	}
-
-	if (pgtable_l5_enabled()) {
-		pr_info("KVM doesn't yet support 5-level paging on AMD SVM\n");
 		return 0;
 	}
 
@@ -1015,7 +1012,9 @@ static __init int svm_hardware_setup(void)
 	if (!boot_cpu_has(X86_FEATURE_NPT))
 		npt_enabled = false;
 
-	kvm_configure_mmu(npt_enabled, get_max_npt_level(), PG_LEVEL_1G);
+	/* Force VM NPT level equal to the host's max NPT level */
+	kvm_configure_mmu(npt_enabled, get_max_npt_level(),
+			  get_max_npt_level(), PG_LEVEL_1G);
 	pr_info("kvm: Nested Paging %sabled\n", npt_enabled ? "en" : "dis");
 
 	/* Note, SEV setup consumes npt_enabled. */
@@ -1241,7 +1240,9 @@ static void init_vmcb(struct kvm_vcpu *vcpu)
 		SVM_SELECTOR_S_MASK | SVM_SELECTOR_CODE_MASK;
 	save->cs.limit = 0xffff;
 
+	save->gdtr.base = 0;
 	save->gdtr.limit = 0xffff;
+	save->idtr.base = 0;
 	save->idtr.limit = 0xffff;
 
 	init_sys_seg(&save->ldtr, SEG_TYPE_LDT);
@@ -1262,7 +1263,6 @@ static void init_vmcb(struct kvm_vcpu *vcpu)
 	kvm_mmu_reset_context(vcpu);
 
 	save->cr4 = X86_CR4_PAE;
-	/* rdx = ?? */
 
 	if (npt_enabled) {
 		/* Setup VMCB for Nested Paging */
@@ -1344,7 +1344,15 @@ static void svm_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	}
 	init_vmcb(vcpu);
 
-	kvm_cpuid(vcpu, &eax, &dummy, &dummy, &dummy, false);
+	/*
+	 * Fall back to KVM's default Family/Model/Stepping if no CPUID match
+	 * is found.  Note, it's impossible to get a match at RESET since KVM
+	 * emulates RESET before exposing the vCPU to userspace, i.e. it's
+	 * impossible for kvm_cpuid() to find a valid entry on RESET.  But, go
+	 * through the motions in case that's ever remedied, and to be pedantic.
+	 */
+	if (!kvm_cpuid(vcpu, &eax, &dummy, &dummy, &dummy, true))
+		eax = get_rdx_init_val();
 	kvm_rdx_write(vcpu, eax);
 
 	if (kvm_vcpu_apicv_active(vcpu) && !init_event)
@@ -1384,10 +1392,10 @@ static int svm_create_vcpu(struct kvm_vcpu *vcpu)
 		/*
 		 * SEV-ES guests maintain an encrypted version of their FPU
 		 * state which is restored and saved on VMRUN and VMEXIT.
-		 * Free the fpu structure to prevent KVM from attempting to
-		 * access the FPU state.
+		 * Mark vcpu->arch.guest_fpu->fpstate as scratch so it won't
+		 * do xsave/xrstor on it.
 		 */
-		kvm_free_guest_fpu(vcpu);
+		fpstate_set_confidential(&vcpu->arch.guest_fpu);
 	}
 
 	err = avic_init_vcpu(svm);
@@ -1410,7 +1418,7 @@ static int svm_create_vcpu(struct kvm_vcpu *vcpu)
 	svm->vmcb01.pa = __sme_set(page_to_pfn(vmcb01_page) << PAGE_SHIFT);
 
 	if (vmsa_page)
-		svm->vmsa = page_address(vmsa_page);
+		svm->sev_es.vmsa = page_address(vmsa_page);
 
 	svm->guest_state_loaded = false;
 
@@ -1560,7 +1568,7 @@ static void svm_cache_reg(struct kvm_vcpu *vcpu, enum kvm_reg reg)
 		load_pdptrs(vcpu, vcpu->arch.walk_mmu, kvm_read_cr3(vcpu));
 		break;
 	default:
-		WARN_ON_ONCE(1);
+		KVM_BUG_ON(1, vcpu->kvm);
 	}
 }
 
@@ -1601,6 +1609,8 @@ static void svm_clear_vintr(struct vcpu_svm *svm)
 
 		svm->vmcb->control.int_ctl |= svm->nested.ctl.int_ctl &
 			V_IRQ_INJECTION_BITS_MASK;
+
+		svm->vmcb->control.int_vector = svm->nested.ctl.int_vector;
 	}
 
 	vmcb_mark_dirty(svm->vmcb, VMCB_INTR);
@@ -2787,11 +2797,11 @@ static int svm_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 static int svm_complete_emulated_msr(struct kvm_vcpu *vcpu, int err)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
-	if (!err || !sev_es_guest(vcpu->kvm) || WARN_ON_ONCE(!svm->ghcb))
+	if (!err || !sev_es_guest(vcpu->kvm) || WARN_ON_ONCE(!svm->sev_es.ghcb))
 		return kvm_complete_insn_gp(vcpu, err);
 
-	ghcb_set_sw_exit_info_1(svm->ghcb, 1);
-	ghcb_set_sw_exit_info_2(svm->ghcb,
+	ghcb_set_sw_exit_info_1(svm->sev_es.ghcb, 1);
+	ghcb_set_sw_exit_info_2(svm->sev_es.ghcb,
 				X86_TRAP_GP |
 				SVM_EVTINJ_TYPE_EXEPT |
 				SVM_EVTINJ_VALID);
@@ -4659,6 +4669,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.mem_enc_unreg_region = svm_unregister_enc_region,
 
 	.vm_copy_enc_context_from = svm_vm_copy_asid_from,
+	.vm_move_enc_context_from = svm_vm_migrate_from,
 
 	.can_emulate_instruction = svm_can_emulate_instruction,
 

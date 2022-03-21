@@ -294,8 +294,8 @@ struct kvm_vcpu_arch {
 	/* Exception Information */
 	struct kvm_vcpu_fault_info fault;
 
-	/* State of various workarounds, see kvm_asm.h for bit assignment */
-	u64 workaround_flags;
+       /* State of various workarounds, see kvm_asm.h for bit assignment */
+       u64 workaround_flags;
 
 	/* Miscellaneous vcpu state flags */
 	u64 flags;
@@ -705,6 +705,11 @@ static inline void kvm_init_host_cpu_context(struct kvm_cpu_context *cpu_ctxt)
 {
 	/* The host's MPIDR is immutable, so let's set it up at boot time */
 	ctxt_sys_reg(cpu_ctxt, MPIDR_EL1) = read_cpuid_mpidr();
+}
+
+static inline bool kvm_system_needs_idmapped_vectors(void)
+{
+	return cpus_have_const_cap(ARM64_SPECTRE_V3A);
 }
 
 void kvm_arm_vcpu_ptrauth_trap(struct kvm_vcpu *vcpu);

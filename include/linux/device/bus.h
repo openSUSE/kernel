@@ -91,7 +91,7 @@ struct bus_type {
 	int (*uevent)(struct device *dev, struct kobj_uevent_env *env);
 	int (*probe)(struct device *dev);
 	void (*sync_state)(struct device *dev);
-	int (*remove)(struct device *dev);
+	void (*remove)(struct device *dev);
 	void (*shutdown)(struct device *dev);
 
 	int (*online)(struct device *dev);
@@ -112,6 +112,8 @@ struct bus_type {
 	struct lock_class_key lock_key;
 
 	bool need_parent_lock;
+
+	void *suse_kabi_padding;
 };
 
 extern int __must_check bus_register(struct bus_type *bus);

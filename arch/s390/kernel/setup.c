@@ -50,6 +50,8 @@
 #include <linux/compat.h>
 #include <linux/start_kernel.h>
 #include <linux/hugetlb.h>
+#include <linux/kmemleak.h>
+#include <linux/security.h>
 
 #include <asm/boot_data.h>
 #include <asm/ipl.h>
@@ -312,9 +314,12 @@ void *restart_stack;
 unsigned long stack_alloc(void)
 {
 #ifdef CONFIG_VMAP_STACK
-	return (unsigned long)__vmalloc_node(THREAD_SIZE, THREAD_SIZE,
-			THREADINFO_GFP, NUMA_NO_NODE,
-			__builtin_return_address(0));
+	void *ret;
+
+	ret = __vmalloc_node(THREAD_SIZE, THREAD_SIZE, THREADINFO_GFP,
+			     NUMA_NO_NODE, __builtin_return_address(0));
+	kmemleak_not_leak(ret);
+	return (unsigned long)ret;
 #else
 	return __get_free_pages(GFP_KERNEL, THREAD_SIZE_ORDER);
 #endif
@@ -421,7 +426,7 @@ static void __init setup_lowcore_dat_off(void)
 	lc->restart_stack = (unsigned long) restart_stack;
 	lc->restart_fn = (unsigned long) do_restart;
 	lc->restart_data = 0;
-	lc->restart_source = -1UL;
+	lc->restart_source = -1U;
 
 	mcck_stack = (unsigned long)memblock_alloc(THREAD_SIZE, THREAD_SIZE);
 	if (!mcck_stack)
@@ -450,12 +455,19 @@ static void __init setup_lowcore_dat_off(void)
 
 static void __init setup_lowcore_dat_on(void)
 {
+	struct lowcore *lc = lowcore_ptr[0];
+
 	__ctl_clear_bit(0, 28);
 	S390_lowcore.external_new_psw.mask |= PSW_MASK_DAT;
 	S390_lowcore.svc_new_psw.mask |= PSW_MASK_DAT;
 	S390_lowcore.program_new_psw.mask |= PSW_MASK_DAT;
 	S390_lowcore.io_new_psw.mask |= PSW_MASK_DAT;
+	__ctl_store(S390_lowcore.cregs_save_area, 0, 15);
 	__ctl_set_bit(0, 28);
+	mem_assign_absolute(S390_lowcore.restart_flags, RESTART_FLAG_CTLREGS);
+	mem_assign_absolute(S390_lowcore.program_new_psw, lc->program_new_psw);
+	memcpy_absolute(&S390_lowcore.cregs_save_area, lc->cregs_save_area,
+			sizeof(S390_lowcore.cregs_save_area));
 }
 
 static struct resource code_resource = {
@@ -854,17 +866,23 @@ static int __init setup_hwcaps(void)
 			elf_hwcap |= HWCAP_S390_VXRS_EXT2;
 		if (test_facility(152))
 			elf_hwcap |= HWCAP_S390_VXRS_PDE;
+		if (test_facility(192))
+			elf_hwcap |= HWCAP_S390_VXRS_PDE2;
 	}
 	if (test_facility(150))
 		elf_hwcap |= HWCAP_S390_SORT;
 	if (test_facility(151))
 		elf_hwcap |= HWCAP_S390_DFLT;
+	if (test_facility(165))
+		elf_hwcap |= HWCAP_S390_NNPA;
 
 	/*
 	 * Guarded storage support HWCAP_S390_GS is bit 12.
 	 */
 	if (MACHINE_HAS_GS)
 		elf_hwcap |= HWCAP_S390_GS;
+	if (MACHINE_HAS_PCI_MIO)
+		elf_hwcap |= HWCAP_S390_PCI_MIO;
 
 	get_cpu_id(&cpu_id);
 	add_device_randomness(&cpu_id, sizeof(cpu_id));
@@ -1110,4 +1128,9 @@ void __init setup_arch(char **cmdline_p)
 
 	/* Add system specific data to the random pool */
 	setup_randomness();
+
+#ifdef CONFIG_LOCK_DOWN_IN_EFI_SECURE_BOOT
+	if (ipl_secure_flag)
+		security_lock_kernel_down("IPL Secure Boot mode", LOCKDOWN_INTEGRITY_MAX);
+#endif
 }

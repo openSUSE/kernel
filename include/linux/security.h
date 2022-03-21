@@ -258,13 +258,13 @@ extern int security_init(void);
 extern int early_security_init(void);
 
 /* Security operations */
-int security_binder_set_context_mgr(struct task_struct *mgr);
-int security_binder_transaction(struct task_struct *from,
-				struct task_struct *to);
-int security_binder_transfer_binder(struct task_struct *from,
-				    struct task_struct *to);
-int security_binder_transfer_file(struct task_struct *from,
-				  struct task_struct *to, struct file *file);
+int security_binder_set_context_mgr(const struct cred *mgr);
+int security_binder_transaction(const struct cred *from,
+				const struct cred *to);
+int security_binder_transfer_binder(const struct cred *from,
+				    const struct cred *to);
+int security_binder_transfer_file(const struct cred *from,
+				  const struct cred *to, struct file *file);
 int security_ptrace_access_check(struct task_struct *child, unsigned int mode);
 int security_ptrace_traceme(struct task_struct *parent);
 int security_capget(struct task_struct *target,
@@ -472,6 +472,7 @@ int security_inode_notifysecctx(struct inode *inode, void *ctx, u32 ctxlen);
 int security_inode_setsecctx(struct dentry *dentry, void *ctx, u32 ctxlen);
 int security_inode_getsecctx(struct inode *inode, void **ctx, u32 *ctxlen);
 int security_locked_down(enum lockdown_reason what);
+int security_lock_kernel_down(const char *where, enum lockdown_reason level);
 #else /* CONFIG_SECURITY */
 
 static inline int call_blocking_lsm_notifier(enum lsm_event event, void *data)
@@ -508,25 +509,25 @@ static inline int early_security_init(void)
 	return 0;
 }
 
-static inline int security_binder_set_context_mgr(struct task_struct *mgr)
+static inline int security_binder_set_context_mgr(const struct cred *mgr)
 {
 	return 0;
 }
 
-static inline int security_binder_transaction(struct task_struct *from,
-					      struct task_struct *to)
+static inline int security_binder_transaction(const struct cred *from,
+					      const struct cred *to)
 {
 	return 0;
 }
 
-static inline int security_binder_transfer_binder(struct task_struct *from,
-						  struct task_struct *to)
+static inline int security_binder_transfer_binder(const struct cred *from,
+						  const struct cred *to)
 {
 	return 0;
 }
 
-static inline int security_binder_transfer_file(struct task_struct *from,
-						struct task_struct *to,
+static inline int security_binder_transfer_file(const struct cred *from,
+						const struct cred *to,
 						struct file *file)
 {
 	return 0;
@@ -1041,6 +1042,11 @@ static inline void security_transfer_creds(struct cred *new,
 {
 }
 
+static inline void security_cred_getsecid(const struct cred *c, u32 *secid)
+{
+	*secid = 0;
+}
+
 static inline int security_kernel_act_as(struct cred *cred, u32 secid)
 {
 	return 0;
@@ -1345,6 +1351,10 @@ static inline int security_inode_getsecctx(struct inode *inode, void **ctx, u32 
 	return -EOPNOTSUPP;
 }
 static inline int security_locked_down(enum lockdown_reason what)
+{
+	return 0;
+}
+static inline int security_lock_kernel_down(const char *where, enum lockdown_reason level)
 {
 	return 0;
 }
@@ -2037,5 +2047,33 @@ static inline int security_perf_event_write(struct perf_event *event)
 }
 #endif /* CONFIG_SECURITY */
 #endif /* CONFIG_PERF_EVENTS */
+
+#ifdef CONFIG_HIDDEN_AREA
+extern void __init hidden_area_init(void);
+extern void * memcpy_to_hidden_area(const void *source, unsigned long size);
+extern bool page_is_hidden(struct page *page);
+extern void clean_hidden_area(void);
+extern int encrypt_backup_hidden_area(void *key, unsigned long key_len);
+extern int decrypt_restore_hidden_area(void *key, unsigned long key_len);
+#else
+static inline void __init hidden_area_init(void) {}
+static inline void * memcpy_to_hidden_area(const void *source, unsigned long size)
+{
+	return NULL;
+}
+static inline bool page_is_hidden(struct page *page)
+{
+	return false;
+}
+static inline void clean_hidden_area(void) {}
+static inline int encrypt_backup_hidden_area(void *key, unsigned long key_len)
+{
+	return 0;
+}
+static inline int decrypt_restore_hidden_area(void *key, unsigned long key_len)
+{
+	return 0;
+}
+#endif
 
 #endif /* ! __LINUX_SECURITY_H */

@@ -244,7 +244,7 @@ asmlinkage long sys_oabi_fcntl64(unsigned int fd, unsigned int cmd,
 }
 
 struct oabi_epoll_event {
-	__u32 events;
+	__poll_t events;
 	__u64 data;
 } __attribute__ ((packed,aligned(4)));
 

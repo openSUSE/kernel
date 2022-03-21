@@ -634,6 +634,14 @@ int blkg_conf_prep(struct blkcg *blkcg, const struct blkcg_policy *pol,
 
 	q = bdev->bd_disk->queue;
 
+	/*
+	 * blkcg_deactivate_policy() requires queue to be frozen, we can grab
+	 * q_usage_counter to prevent concurrent with blkcg_deactivate_policy().
+	 */
+	ret = blk_queue_enter(q, 0);
+	if (ret)
+		return ret;
+
 	rcu_read_lock();
 	spin_lock_irq(&q->queue_lock);
 
@@ -703,6 +711,7 @@ int blkg_conf_prep(struct blkcg *blkcg, const struct blkcg_policy *pol,
 			goto success;
 	}
 success:
+	blk_queue_exit(q);
 	ctx->bdev = bdev;
 	ctx->blkg = blkg;
 	ctx->body = input;
@@ -715,6 +724,7 @@ fail_unlock:
 	rcu_read_unlock();
 fail:
 	blkdev_put_no_open(bdev);
+	blk_queue_exit(q);
 	/*
 	 * If queue was bypassing, we should retry.  Do so after a
 	 * short msleep().  It isn't strictly necessary but queue
@@ -1201,10 +1211,6 @@ int blkcg_init_queue(struct request_queue *q)
 	if (preloaded)
 		radix_tree_preload_end();
 
-	ret = blk_iolatency_init(q);
-	if (ret)
-		goto err_destroy_all;
-
 	ret = blk_ioprio_init(q);
 	if (ret)
 		goto err_destroy_all;
@@ -1212,6 +1218,12 @@ int blkcg_init_queue(struct request_queue *q)
 	ret = blk_throtl_init(q);
 	if (ret)
 		goto err_destroy_all;
+
+	ret = blk_iolatency_init(q);
+	if (ret) {
+		blk_throtl_exit(q);
+		goto err_destroy_all;
+	}
 
 	return 0;
 
@@ -1383,10 +1395,14 @@ enomem:
 	/* alloc failed, nothing's initialized yet, free everything */
 	spin_lock_irq(&q->queue_lock);
 	list_for_each_entry(blkg, &q->blkg_list, q_node) {
+		struct blkcg *blkcg = blkg->blkcg;
+
+		spin_lock(&blkcg->lock);
 		if (blkg->pd[pol->plid]) {
 			pol->pd_free_fn(blkg->pd[pol->plid]);
 			blkg->pd[pol->plid] = NULL;
 		}
+		spin_unlock(&blkcg->lock);
 	}
 	spin_unlock_irq(&q->queue_lock);
 	ret = -ENOMEM;
@@ -1418,12 +1434,16 @@ void blkcg_deactivate_policy(struct request_queue *q,
 	__clear_bit(pol->plid, q->blkcg_pols);
 
 	list_for_each_entry(blkg, &q->blkg_list, q_node) {
+		struct blkcg *blkcg = blkg->blkcg;
+
+		spin_lock(&blkcg->lock);
 		if (blkg->pd[pol->plid]) {
 			if (pol->pd_offline_fn)
 				pol->pd_offline_fn(blkg->pd[pol->plid]);
 			pol->pd_free_fn(blkg->pd[pol->plid]);
 			blkg->pd[pol->plid] = NULL;
 		}
+		spin_unlock(&blkcg->lock);
 	}
 
 	spin_unlock_irq(&q->queue_lock);
@@ -1906,10 +1926,11 @@ void blk_cgroup_bio_start(struct bio *bio)
 {
 	int rwd = blk_cgroup_io_type(bio), cpu;
 	struct blkg_iostat_set *bis;
+	unsigned long flags;
 
 	cpu = get_cpu();
 	bis = per_cpu_ptr(bio->bi_blkg->iostat_cpu, cpu);
-	u64_stats_update_begin(&bis->sync);
+	flags = u64_stats_update_begin_irqsave(&bis->sync);
 
 	/*
 	 * If the bio is flagged with BIO_CGROUP_ACCT it means this is a split
@@ -1921,7 +1942,7 @@ void blk_cgroup_bio_start(struct bio *bio)
 	}
 	bis->cur.ios[rwd]++;
 
-	u64_stats_update_end(&bis->sync);
+	u64_stats_update_end_irqrestore(&bis->sync, flags);
 	if (cgroup_subsys_on_dfl(io_cgrp_subsys))
 		cgroup_rstat_updated(bio->bi_blkg->blkcg->css.cgroup, cpu);
 	put_cpu();

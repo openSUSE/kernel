@@ -11,8 +11,13 @@
 #include <linux/ctype.h>
 #include <linux/pci.h>
 #include <linux/pci-p2pdma.h>
+#include <crypto/hash.h>
+#include <crypto/kpp.h>
 
 #include "nvmet.h"
+#ifdef CONFIG_NVME_TARGET_AUTH
+#include "../host/auth.h"
+#endif
 
 static const struct config_item_type nvmet_host_type;
 static const struct config_item_type nvmet_subsys_type;
@@ -1067,7 +1072,8 @@ static ssize_t nvmet_subsys_attr_serial_show(struct config_item *item,
 {
 	struct nvmet_subsys *subsys = to_subsys(item);
 
-	return snprintf(page, PAGE_SIZE, "%s\n", subsys->serial);
+	return snprintf(page, PAGE_SIZE, "%.*s\n",
+			NVMET_SN_MAX_SIZE, subsys->serial);
 }
 
 static ssize_t
@@ -1232,6 +1238,44 @@ static ssize_t nvmet_subsys_attr_model_store(struct config_item *item,
 }
 CONFIGFS_ATTR(nvmet_subsys_, attr_model);
 
+static ssize_t nvmet_subsys_attr_discovery_nqn_show(struct config_item *item,
+			char *page)
+{
+	return snprintf(page, PAGE_SIZE, "%s\n",
+			nvmet_disc_subsys->subsysnqn);
+}
+
+static ssize_t nvmet_subsys_attr_discovery_nqn_store(struct config_item *item,
+			const char *page, size_t count)
+{
+	struct nvmet_subsys *subsys = to_subsys(item);
+	char *subsysnqn;
+	int len;
+
+	len = strcspn(page, "\n");
+	if (!len)
+		return -EINVAL;
+
+	subsysnqn = kmemdup_nul(page, len, GFP_KERNEL);
+	if (!subsysnqn)
+		return -ENOMEM;
+
+	/*
+	 * The discovery NQN must be different from subsystem NQN.
+	 */
+	if (!strcmp(subsysnqn, subsys->subsysnqn)) {
+		kfree(subsysnqn);
+		return -EBUSY;
+	}
+	down_write(&nvmet_config_sem);
+	kfree(nvmet_disc_subsys->subsysnqn);
+	nvmet_disc_subsys->subsysnqn = subsysnqn;
+	up_write(&nvmet_config_sem);
+
+	return count;
+}
+CONFIGFS_ATTR(nvmet_subsys_, attr_discovery_nqn);
+
 #ifdef CONFIG_BLK_DEV_INTEGRITY
 static ssize_t nvmet_subsys_attr_pi_enable_show(struct config_item *item,
 						char *page)
@@ -1261,6 +1305,7 @@ static struct configfs_attribute *nvmet_subsys_attrs[] = {
 	&nvmet_subsys_attr_attr_cntlid_min,
 	&nvmet_subsys_attr_attr_cntlid_max,
 	&nvmet_subsys_attr_attr_model,
+	&nvmet_subsys_attr_attr_discovery_nqn,
 #ifdef CONFIG_BLK_DEV_INTEGRITY
 	&nvmet_subsys_attr_attr_pi_enable,
 #endif
@@ -1552,6 +1597,8 @@ static void nvmet_port_release(struct config_item *item)
 {
 	struct nvmet_port *port = to_nvmet_port(item);
 
+	/* Let inflight controllers teardown complete */
+	flush_scheduled_work();
 	list_del(&port->global_entry);
 
 	kfree(port->ana_state);
@@ -1656,10 +1703,133 @@ static const struct config_item_type nvmet_ports_type = {
 static struct config_group nvmet_subsystems_group;
 static struct config_group nvmet_ports_group;
 
+#ifdef CONFIG_NVME_TARGET_AUTH
+static ssize_t nvmet_host_dhchap_key_show(struct config_item *item,
+		char *page)
+{
+	u8 *dhchap_secret = to_host(item)->dhchap_secret;
+
+	if (!dhchap_secret)
+		return sprintf(page, "\n");
+	return sprintf(page, "%s\n", dhchap_secret);
+}
+
+static ssize_t nvmet_host_dhchap_key_store(struct config_item *item,
+		const char *page, size_t count)
+{
+	struct nvmet_host *host = to_host(item);
+	int ret;
+
+	ret = nvmet_auth_set_key(host, page, false);
+	/*
+	 * Re-authentication is a soft state, so keep the
+	 * current authentication valid until the host
+	 * requests re-authentication.
+	 */
+	return ret < 0 ? ret : count;
+}
+
+CONFIGFS_ATTR(nvmet_host_, dhchap_key);
+
+static ssize_t nvmet_host_dhchap_ctrl_key_show(struct config_item *item,
+		char *page)
+{
+	u8 *dhchap_secret = to_host(item)->dhchap_ctrl_secret;
+
+	if (!dhchap_secret)
+		return sprintf(page, "\n");
+	return sprintf(page, "%s\n", dhchap_secret);
+}
+
+static ssize_t nvmet_host_dhchap_ctrl_key_store(struct config_item *item,
+		const char *page, size_t count)
+{
+	struct nvmet_host *host = to_host(item);
+	int ret;
+
+	ret = nvmet_auth_set_key(host, page, true);
+	/*
+	 * Re-authentication is a soft state, so keep the
+	 * current authentication valid until the host
+	 * requests re-authentication.
+	 */
+	return ret < 0 ? ret : count;
+}
+
+CONFIGFS_ATTR(nvmet_host_, dhchap_ctrl_key);
+
+static ssize_t nvmet_host_dhchap_hash_show(struct config_item *item,
+		char *page)
+{
+	struct nvmet_host *host = to_host(item);
+	const char *hash_name = nvme_auth_hmac_name(host->dhchap_hash_id);
+
+	return sprintf(page, "%s\n", hash_name ? hash_name : "none");
+}
+
+static ssize_t nvmet_host_dhchap_hash_store(struct config_item *item,
+		const char *page, size_t count)
+{
+	struct nvmet_host *host = to_host(item);
+	u8 hmac_id;
+
+	hmac_id = nvme_auth_hmac_id(page);
+	if (hmac_id == NVME_AUTH_HASH_INVALID)
+		return -EINVAL;
+	if (!crypto_has_shash(nvme_auth_hmac_name(hmac_id), 0, 0))
+		return -ENOTSUPP;
+	host->dhchap_hash_id = hmac_id;
+	return count;
+}
+
+CONFIGFS_ATTR(nvmet_host_, dhchap_hash);
+
+static ssize_t nvmet_host_dhchap_dhgroup_show(struct config_item *item,
+		char *page)
+{
+	struct nvmet_host *host = to_host(item);
+	const char *dhgroup = nvme_auth_dhgroup_name(host->dhchap_dhgroup_id);
+
+	return sprintf(page, "%s\n", dhgroup ? dhgroup : "none");
+}
+
+static ssize_t nvmet_host_dhchap_dhgroup_store(struct config_item *item,
+		const char *page, size_t count)
+{
+	struct nvmet_host *host = to_host(item);
+	int dhgroup_id;
+
+	dhgroup_id = nvme_auth_dhgroup_id(page);
+	if (dhgroup_id == NVME_AUTH_DHGROUP_INVALID)
+		return -EINVAL;
+	if (dhgroup_id != NVME_AUTH_DHGROUP_NULL) {
+		const char *kpp = nvme_auth_dhgroup_kpp(dhgroup_id);
+
+		if (!crypto_has_kpp(kpp, 0, 0))
+			return -EINVAL;
+	}
+	host->dhchap_dhgroup_id = dhgroup_id;
+	return count;
+}
+
+CONFIGFS_ATTR(nvmet_host_, dhchap_dhgroup);
+
+static struct configfs_attribute *nvmet_host_attrs[] = {
+	&nvmet_host_attr_dhchap_key,
+	&nvmet_host_attr_dhchap_ctrl_key,
+	&nvmet_host_attr_dhchap_hash,
+	&nvmet_host_attr_dhchap_dhgroup,
+	NULL,
+};
+#endif /* CONFIG_NVME_TARGET_AUTH */
+
 static void nvmet_host_release(struct config_item *item)
 {
 	struct nvmet_host *host = to_host(item);
-
+#ifdef CONFIG_NVME_TARGET_AUTH
+	if (host->dhchap_secret)
+		kfree(host->dhchap_secret);
+#endif
 	kfree(host);
 }
 
@@ -1669,6 +1839,9 @@ static struct configfs_item_operations nvmet_host_item_ops = {
 
 static const struct config_item_type nvmet_host_type = {
 	.ct_item_ops		= &nvmet_host_item_ops,
+#ifdef CONFIG_NVME_TARGET_AUTH
+	.ct_attrs		= nvmet_host_attrs,
+#endif
 	.ct_owner		= THIS_MODULE,
 };
 
@@ -1680,6 +1853,11 @@ static struct config_group *nvmet_hosts_make_group(struct config_group *group,
 	host = kzalloc(sizeof(*host), GFP_KERNEL);
 	if (!host)
 		return ERR_PTR(-ENOMEM);
+
+#ifdef CONFIG_NVME_TARGET_AUTH
+	/* Default to SHA256 */
+	host->dhchap_hash_id = NVME_AUTH_HASH_SHA256;
+#endif
 
 	config_group_init_type_name(&host->group, name, &nvmet_host_type);
 

@@ -19,6 +19,7 @@
 #include <linux/if_arp.h>
 #include <net/net_namespace.h>
 #include <net/netlink.h>
+#include <net/dst.h>
 #include <net/pkt_sched.h>
 #include <net/pkt_cls.h>
 #include <linux/tc_act/tc_mirred.h>
@@ -91,11 +92,11 @@ static struct tc_action_ops act_mirred_ops;
 
 static int tcf_mirred_init(struct net *net, struct nlattr *nla,
 			   struct nlattr *est, struct tc_action **a,
-			   int ovr, int bind, bool rtnl_held,
 			   struct tcf_proto *tp,
 			   u32 flags, struct netlink_ext_ack *extack)
 {
 	struct tc_action_net *tn = net_generic(net, mirred_net_id);
+	bool bind = flags & TCA_ACT_FLAGS_BIND;
 	struct nlattr *tb[TCA_MIRRED_MAX + 1];
 	struct tcf_chain *goto_ch = NULL;
 	bool mac_header_xmit = false;
@@ -155,7 +156,7 @@ static int tcf_mirred_init(struct net *net, struct nlattr *nla,
 			return ret;
 		}
 		ret = ACT_P_CREATED;
-	} else if (!ovr) {
+	} else if (!(flags & TCA_ACT_FLAGS_REPLACE)) {
 		tcf_idr_release(*a, bind);
 		return -EEXIST;
 	}
@@ -230,6 +231,7 @@ static int tcf_mirred_act(struct sk_buff *skb, const struct tc_action *a,
 	bool want_ingress;
 	bool is_redirect;
 	bool expects_nh;
+	bool at_ingress;
 	int m_eaction;
 	int mac_len;
 	bool at_nh;
@@ -265,7 +267,8 @@ static int tcf_mirred_act(struct sk_buff *skb, const struct tc_action *a,
 	 * ingress - that covers the TC S/W datapath.
 	 */
 	is_redirect = tcf_mirred_is_act_redirect(m_eaction);
-	use_reinsert = skb_at_tc_ingress(skb) && is_redirect &&
+	at_ingress = skb_at_tc_ingress(skb);
+	use_reinsert = at_ingress && is_redirect &&
 		       tcf_mirred_can_reinsert(retval);
 	if (!use_reinsert) {
 		skb2 = skb_clone(skb, GFP_ATOMIC);
@@ -273,10 +276,12 @@ static int tcf_mirred_act(struct sk_buff *skb, const struct tc_action *a,
 			goto out;
 	}
 
+	want_ingress = tcf_mirred_act_wants_ingress(m_eaction);
+
 	/* All mirred/redirected skbs should clear previous ct info */
 	nf_reset_ct(skb2);
-
-	want_ingress = tcf_mirred_act_wants_ingress(m_eaction);
+	if (want_ingress && !at_ingress) /* drop dst for egress -> ingress */
+		skb_dst_drop(skb2);
 
 	expects_nh = want_ingress || !m_mac_header_xmit;
 	at_nh = skb->data == skb_network_header(skb);

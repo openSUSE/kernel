@@ -608,6 +608,7 @@ struct fc_vft_header {
 #define ELS_CMD_LIRR      0x7A000000
 #define ELS_CMD_LCB	  0x81000000
 #define ELS_CMD_FPIN	  0x16000000
+#define ELS_CMD_EDC	  0x17000000
 #define ELS_CMD_QFPA      0xB0000000
 #define ELS_CMD_UVEM      0xB1000000
 #else	/*  __LITTLE_ENDIAN_BITFIELD */
@@ -652,6 +653,7 @@ struct fc_vft_header {
 #define ELS_CMD_LIRR      0x7A
 #define ELS_CMD_LCB	  0x81
 #define ELS_CMD_FPIN	  ELS_FPIN
+#define ELS_CMD_EDC	  ELS_EDC
 #define ELS_CMD_QFPA      0xB0
 #define ELS_CMD_UVEM      0xB1
 #endif
@@ -3673,19 +3675,26 @@ union sli_var {
 };
 
 typedef struct {
+	struct_group_tagged(MAILBOX_word0, bits,
+		union {
+			struct {
 #ifdef __BIG_ENDIAN_BITFIELD
-	uint16_t mbxStatus;
-	uint8_t mbxCommand;
-	uint8_t mbxReserved:6;
-	uint8_t mbxHc:1;
-	uint8_t mbxOwner:1;	/* Low order bit first word */
+				uint16_t mbxStatus;
+				uint8_t mbxCommand;
+				uint8_t mbxReserved:6;
+				uint8_t mbxHc:1;
+				uint8_t mbxOwner:1;	/* Low order bit first word */
 #else	/*  __LITTLE_ENDIAN_BITFIELD */
-	uint8_t mbxOwner:1;	/* Low order bit first word */
-	uint8_t mbxHc:1;
-	uint8_t mbxReserved:6;
-	uint8_t mbxCommand;
-	uint16_t mbxStatus;
+				uint8_t mbxOwner:1;	/* Low order bit first word */
+				uint8_t mbxHc:1;
+				uint8_t mbxReserved:6;
+				uint8_t mbxCommand;
+				uint16_t mbxStatus;
 #endif
+			};
+			u32 word0;
+		};
+	);
 
 	MAILVARIANTS un;
 	union sli_var us;
@@ -3744,7 +3753,7 @@ typedef struct {
 #define IOERR_ILLEGAL_COMMAND         0x06
 #define IOERR_XCHG_DROPPED            0x07
 #define IOERR_ILLEGAL_FIELD           0x08
-#define IOERR_BAD_CONTINUE            0x09
+#define IOERR_RPI_SUSPENDED           0x09
 #define IOERR_TOO_MANY_BUFFERS        0x0A
 #define IOERR_RCV_BUFFER_WAITING      0x0B
 #define IOERR_NO_CONNECTION           0x0C

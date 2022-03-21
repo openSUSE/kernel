@@ -1122,6 +1122,9 @@ static bool wcd938x_readonly_register(struct device *dev, unsigned int reg)
 	case WCD938X_DIGITAL_INTR_STATUS_0:
 	case WCD938X_DIGITAL_INTR_STATUS_1:
 	case WCD938X_DIGITAL_INTR_STATUS_2:
+	case WCD938X_DIGITAL_INTR_CLEAR_0:
+	case WCD938X_DIGITAL_INTR_CLEAR_1:
+	case WCD938X_DIGITAL_INTR_CLEAR_2:
 	case WCD938X_DIGITAL_SWR_HM_TEST_0:
 	case WCD938X_DIGITAL_SWR_HM_TEST_1:
 	case WCD938X_DIGITAL_EFUSE_T_DATA_0:
@@ -1623,7 +1626,6 @@ static int wcd938x_codec_aux_dac_event(struct snd_soc_dapm_widget *w,
 {
 	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
 	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
-	int ret = 0;
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
@@ -1651,7 +1653,7 @@ static int wcd938x_codec_aux_dac_event(struct snd_soc_dapm_widget *w,
 				WCD938X_ANA_RX_DIV4_CLK_EN_MASK, 0);
 		break;
 	}
-	return ret;
+	return 0;
 
 }
 
@@ -1866,7 +1868,6 @@ static int wcd938x_codec_enable_aux_pa(struct snd_soc_dapm_widget *w,
 	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
 	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
 	int hph_mode = wcd938x->hph_mode;
-	int ret = 0;
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
@@ -1902,7 +1903,7 @@ static int wcd938x_codec_enable_aux_pa(struct snd_soc_dapm_widget *w,
 						      WCD938X_EN_CUR_DET_MASK, 1);
 		break;
 	}
-	return ret;
+	return 0;
 }
 
 static int wcd938x_codec_enable_ear_pa(struct snd_soc_dapm_widget *w,
@@ -2490,7 +2491,7 @@ static int wcd938x_ear_pa_put_gain(struct snd_kcontrol *kcontrol,
 				      WCD938X_EAR_GAIN_MASK,
 				      ucontrol->value.integer.value[0]);
 
-	return 0;
+	return 1;
 }
 
 static int wcd938x_get_compander(struct snd_kcontrol *kcontrol,
@@ -2538,7 +2539,7 @@ static int wcd938x_set_compander(struct snd_kcontrol *kcontrol,
 	else
 		wcd938x_connect_port(wcd, mc->reg, false);
 
-	return 0;
+	return 1;
 }
 
 static int wcd938x_ldoh_get(struct snd_kcontrol *kcontrol,
@@ -2841,7 +2842,7 @@ static int wcd938x_set_swr_port(struct snd_kcontrol *kcontrol,
 
 	wcd938x_connect_port(wcd, portidx, enable);
 
-	return 0;
+	return 1;
 
 }
 

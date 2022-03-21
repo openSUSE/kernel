@@ -4,6 +4,7 @@
 #include "setup.h"
 #include "en/params.h"
 #include "en/txrx.h"
+#include "en/health.h"
 
 /* It matches XDP_UMEM_MIN_CHUNK_SIZE, but as this constant is private and may
  * change unexpectedly, and mlx5e has a minimum valid stride size for striding
@@ -126,7 +127,7 @@ int mlx5e_open_xsk(struct mlx5e_priv *priv, struct mlx5e_params *params,
 	/* Create a separate SQ, so that when the buff pool is disabled, we could
 	 * close this SQ safely and stop receiving CQEs. In other case, e.g., if
 	 * the XDPSQ was used instead, we might run into trouble when the buff pool
-	 * is disabled and then reenabled, but the SQ continues receiving CQEs
+	 * is disabled and then re-enabled, but the SQ continues receiving CQEs
 	 * from the old buff pool.
 	 */
 	err = mlx5e_open_xdpsq(c, params, &cparam->xdp_sq, pool, &c->xsksq, true);
@@ -170,7 +171,13 @@ void mlx5e_close_xsk(struct mlx5e_channel *c)
 
 void mlx5e_activate_xsk(struct mlx5e_channel *c)
 {
+	/* ICOSQ recovery deactivates RQs. Suspend the recovery to avoid
+	 * activating XSKRQ in the middle of recovery.
+	 */
+	mlx5e_reporter_icosq_suspend_recovery(c);
 	set_bit(MLX5E_RQ_STATE_ENABLED, &c->xskrq.state);
+	mlx5e_reporter_icosq_resume_recovery(c);
+
 	/* TX queue is created active. */
 
 	spin_lock_bh(&c->async_icosq_lock);
@@ -180,76 +187,13 @@ void mlx5e_activate_xsk(struct mlx5e_channel *c)
 
 void mlx5e_deactivate_xsk(struct mlx5e_channel *c)
 {
-	mlx5e_deactivate_rq(&c->xskrq);
+	/* ICOSQ recovery may reactivate XSKRQ if clear_bit is called in the
+	 * middle of recovery. Suspend the recovery to avoid it.
+	 */
+	mlx5e_reporter_icosq_suspend_recovery(c);
+	clear_bit(MLX5E_RQ_STATE_ENABLED, &c->xskrq.state);
+	mlx5e_reporter_icosq_resume_recovery(c);
+	synchronize_net(); /* Sync with NAPI to prevent mlx5e_post_rx_wqes. */
+
 	/* TX queue is disabled on close. */
-}
-
-static int mlx5e_redirect_xsk_rqt(struct mlx5e_priv *priv, u16 ix, u32 rqn)
-{
-	struct mlx5e_redirect_rqt_param direct_rrp = {
-		.is_rss = false,
-		{
-			.rqn = rqn,
-		},
-	};
-
-	u32 rqtn = priv->xsk_tir[ix].rqt.rqtn;
-
-	return mlx5e_redirect_rqt(priv, rqtn, 1, direct_rrp);
-}
-
-int mlx5e_xsk_redirect_rqt_to_channel(struct mlx5e_priv *priv, struct mlx5e_channel *c)
-{
-	return mlx5e_redirect_xsk_rqt(priv, c->ix, c->xskrq.rqn);
-}
-
-int mlx5e_xsk_redirect_rqt_to_drop(struct mlx5e_priv *priv, u16 ix)
-{
-	return mlx5e_redirect_xsk_rqt(priv, ix, priv->drop_rq.rqn);
-}
-
-int mlx5e_xsk_redirect_rqts_to_channels(struct mlx5e_priv *priv, struct mlx5e_channels *chs)
-{
-	int err, i;
-
-	if (!priv->xsk.refcnt)
-		return 0;
-
-	for (i = 0; i < chs->num; i++) {
-		struct mlx5e_channel *c = chs->c[i];
-
-		if (!test_bit(MLX5E_CHANNEL_STATE_XSK, c->state))
-			continue;
-
-		err = mlx5e_xsk_redirect_rqt_to_channel(priv, c);
-		if (unlikely(err))
-			goto err_stop;
-	}
-
-	return 0;
-
-err_stop:
-	for (i--; i >= 0; i--) {
-		if (!test_bit(MLX5E_CHANNEL_STATE_XSK, chs->c[i]->state))
-			continue;
-
-		mlx5e_xsk_redirect_rqt_to_drop(priv, i);
-	}
-
-	return err;
-}
-
-void mlx5e_xsk_redirect_rqts_to_drop(struct mlx5e_priv *priv, struct mlx5e_channels *chs)
-{
-	int i;
-
-	if (!priv->xsk.refcnt)
-		return;
-
-	for (i = 0; i < chs->num; i++) {
-		if (!test_bit(MLX5E_CHANNEL_STATE_XSK, chs->c[i]->state))
-			continue;
-
-		mlx5e_xsk_redirect_rqt_to_drop(priv, i);
-	}
 }

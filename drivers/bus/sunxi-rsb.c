@@ -169,13 +169,11 @@ static int sunxi_rsb_device_probe(struct device *dev)
 	return drv->probe(rdev);
 }
 
-static int sunxi_rsb_device_remove(struct device *dev)
+static void sunxi_rsb_device_remove(struct device *dev)
 {
 	const struct sunxi_rsb_driver *drv = to_sunxi_rsb_driver(dev->driver);
 
 	drv->remove(to_sunxi_rsb_device(dev));
-
-	return 0;
 }
 
 static struct bus_type sunxi_rsb_bus = {
@@ -689,11 +687,11 @@ err_clk_disable:
 
 static void sunxi_rsb_hw_exit(struct sunxi_rsb *rsb)
 {
-	/* Keep the clock and PM reference counts consistent. */
-	if (pm_runtime_status_suspended(rsb->dev))
-		pm_runtime_resume(rsb->dev);
 	reset_control_assert(rsb->rstc);
-	clk_disable_unprepare(rsb->clk);
+
+	/* Keep the clock and PM reference counts consistent. */
+	if (!pm_runtime_status_suspended(rsb->dev))
+		clk_disable_unprepare(rsb->clk);
 }
 
 static int __maybe_unused sunxi_rsb_runtime_suspend(struct device *dev)

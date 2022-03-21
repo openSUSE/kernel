@@ -75,6 +75,8 @@ struct class {
 	const struct dev_pm_ops *pm;
 
 	struct subsys_private *p;
+
+	void *suse_kabi_padding;
 };
 
 struct class_dev_iter {

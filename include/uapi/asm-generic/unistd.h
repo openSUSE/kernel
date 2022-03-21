@@ -877,9 +877,12 @@ __SYSCALL(__NR_landlock_restrict_self, sys_landlock_restrict_self)
 #define __NR_memfd_secret 447
 __SYSCALL(__NR_memfd_secret, sys_memfd_secret)
 #endif
+#define __NR_set_mempolicy_home_node 450
+__SYSCALL(__NR_set_mempolicy_home_node, sys_set_mempolicy_home_node)
+
 
 #undef __NR_syscalls
-#define __NR_syscalls 448
+#define __NR_syscalls 451
 
 /*
  * 32 bit systems traditionally used different

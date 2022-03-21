@@ -4,11 +4,14 @@
 #include "health.h"
 #include "en/ptp.h"
 #include "en/devlink.h"
+#include "lib/tout.h"
 
 static int mlx5e_wait_for_sq_flush(struct mlx5e_txqsq *sq)
 {
-	unsigned long exp_time = jiffies +
-				 msecs_to_jiffies(MLX5E_REPORTER_FLUSH_TIMEOUT_MSEC);
+	struct mlx5_core_dev *dev = sq->mdev;
+	unsigned long exp_time;
+
+	exp_time = jiffies + msecs_to_jiffies(mlx5_tout_ms(dev, FLUSH_ON_ERROR));
 
 	while (time_before(jiffies, exp_time)) {
 		if (sq->cc == sq->pc)
@@ -372,7 +375,7 @@ static int mlx5e_tx_reporter_diagnose(struct devlink_health_reporter *reporter,
 	for (i = 0; i < priv->channels.num; i++) {
 		struct mlx5e_channel *c = priv->channels.c[i];
 
-		for (tc = 0; tc < priv->channels.params.num_tc; tc++) {
+		for (tc = 0; tc < mlx5e_get_dcb_num_tc(&priv->channels.params); tc++) {
 			struct mlx5e_txqsq *sq = &c->sq[tc];
 
 			err = mlx5e_tx_reporter_build_diagnose_output(fmsg, sq, tc);
@@ -384,7 +387,7 @@ static int mlx5e_tx_reporter_diagnose(struct devlink_health_reporter *reporter,
 	if (!ptp_ch || !test_bit(MLX5E_PTP_STATE_TX, ptp_ch->state))
 		goto close_sqs_nest;
 
-	for (tc = 0; tc < priv->channels.params.num_tc; tc++) {
+	for (tc = 0; tc < mlx5e_get_dcb_num_tc(&priv->channels.params); tc++) {
 		err = mlx5e_tx_reporter_build_diagnose_output_ptpsq(fmsg,
 								    &ptp_ch->ptpsq[tc],
 								    tc);
@@ -463,6 +466,14 @@ static int mlx5e_tx_reporter_dump_sq(struct mlx5e_priv *priv, struct devlink_fms
 	return mlx5e_health_fmsg_named_obj_nest_end(fmsg);
 }
 
+static int mlx5e_tx_reporter_timeout_dump(struct mlx5e_priv *priv, struct devlink_fmsg *fmsg,
+					  void *ctx)
+{
+	struct mlx5e_tx_timeout_ctx *to_ctx = ctx;
+
+	return mlx5e_tx_reporter_dump_sq(priv, fmsg, to_ctx->sq);
+}
+
 static int mlx5e_tx_reporter_dump_all_sqs(struct mlx5e_priv *priv,
 					  struct devlink_fmsg *fmsg)
 {
@@ -494,7 +505,7 @@ static int mlx5e_tx_reporter_dump_all_sqs(struct mlx5e_priv *priv,
 	for (i = 0; i < priv->channels.num; i++) {
 		struct mlx5e_channel *c = priv->channels.c[i];
 
-		for (tc = 0; tc < priv->channels.params.num_tc; tc++) {
+		for (tc = 0; tc < mlx5e_get_dcb_num_tc(&priv->channels.params); tc++) {
 			struct mlx5e_txqsq *sq = &c->sq[tc];
 
 			err = mlx5e_health_queue_dump(priv, fmsg, sq->sqn, "SQ");
@@ -504,7 +515,7 @@ static int mlx5e_tx_reporter_dump_all_sqs(struct mlx5e_priv *priv,
 	}
 
 	if (ptp_ch && test_bit(MLX5E_PTP_STATE_TX, ptp_ch->state)) {
-		for (tc = 0; tc < priv->channels.params.num_tc; tc++) {
+		for (tc = 0; tc < mlx5e_get_dcb_num_tc(&priv->channels.params); tc++) {
 			struct mlx5e_txqsq *sq = &ptp_ch->ptpsq[tc].txqsq;
 
 			err = mlx5e_health_queue_dump(priv, fmsg, sq->sqn, "PTP SQ");
@@ -558,7 +569,7 @@ int mlx5e_reporter_tx_timeout(struct mlx5e_txqsq *sq)
 	to_ctx.sq = sq;
 	err_ctx.ctx = &to_ctx;
 	err_ctx.recover = mlx5e_tx_reporter_timeout_recover;
-	err_ctx.dump = mlx5e_tx_reporter_dump_sq;
+	err_ctx.dump = mlx5e_tx_reporter_timeout_dump;
 	snprintf(err_str, sizeof(err_str),
 		 "TX timeout on queue: %d, SQ: 0x%x, CQ: 0x%x, SQ Cons: 0x%x SQ Prod: 0x%x, usecs since last trans: %u",
 		 sq->ch_ix, sq->sqn, sq->cq.mcq.cqn, sq->cc, sq->pc,

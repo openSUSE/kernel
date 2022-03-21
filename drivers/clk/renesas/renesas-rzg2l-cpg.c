@@ -175,7 +175,6 @@ rzg2l_cpg_pll_clk_register(const struct cpg_core_clk *core,
 	struct clk_init_data init;
 	const char *parent_name;
 	struct pll_clk *pll_clk;
-	struct clk *clk;
 
 	parent = clks[core->parent & 0xffff];
 	if (IS_ERR(parent))
@@ -200,11 +199,7 @@ rzg2l_cpg_pll_clk_register(const struct cpg_core_clk *core,
 	pll_clk->priv = priv;
 	pll_clk->type = core->type;
 
-	clk = clk_register(NULL, &pll_clk->hw);
-	if (IS_ERR(clk))
-		kfree(pll_clk);
-
-	return clk;
+	return clk_register(NULL, &pll_clk->hw);
 }
 
 static struct clk
@@ -229,7 +224,7 @@ static struct clk
 
 	case CPG_MOD:
 		type = "module";
-		if (clkidx > priv->num_mod_clks) {
+		if (clkidx >= priv->num_mod_clks) {
 			dev_err(dev, "Invalid %s clock index %u\n", type,
 				clkidx);
 			return ERR_PTR(-EINVAL);
@@ -398,7 +393,7 @@ static int rzg2l_mod_clock_is_enabled(struct clk_hw *hw)
 
 	value = readl(priv->base + CLK_MON_R(clock->off));
 
-	return !(value & bitmask);
+	return value & bitmask;
 }
 
 static const struct clk_ops rzg2l_mod_clock_ops = {
@@ -473,7 +468,6 @@ rzg2l_cpg_register_mod_clk(const struct rzg2l_mod_clk *mod,
 fail:
 	dev_err(dev, "Failed to register %s clock %s: %ld\n", "module",
 		mod->name, PTR_ERR(clk));
-	kfree(clock);
 }
 
 #define rcdev_to_priv(x)	container_of(x, struct rzg2l_cpg_priv, rcdev)

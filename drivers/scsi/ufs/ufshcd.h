@@ -780,6 +780,7 @@ struct ufs_hba {
 
 	struct blk_mq_tag_set tmf_tag_set;
 	struct request_queue *tmf_queue;
+	struct request **tmf_rqs;
 
 	struct uic_command *active_uic_cmd;
 	struct mutex uic_cmd_mutex;
@@ -814,15 +815,13 @@ struct ufs_hba {
 	/* Device management request data */
 	struct ufs_dev_cmd dev_cmd;
 	ktime_t last_dme_cmd_tstamp;
+	int nop_out_timeout;
 
 	/* Keeps information of the UFS device connected to this host */
 	struct ufs_dev_info dev_info;
 	bool auto_bkops_enabled;
 	struct ufs_vreg_info vreg_info;
 	struct list_head clk_list_head;
-
-	bool wlun_dev_clr_ua;
-	bool wlun_rpmb_clr_ua;
 
 	/* Number of requests aborts */
 	int req_abort_count;
@@ -866,7 +865,6 @@ struct ufs_hba {
 #endif
 	u32 luns_avail;
 	bool complete_put;
-	bool rpmb_complete_put;
 };
 
 /* Returns true if clocks can be gated. Otherwise false */
@@ -1160,11 +1158,6 @@ static inline u32 ufshcd_vops_get_ufs_hci_version(struct ufs_hba *hba)
 	return ufshcd_readl(hba, REG_UFS_VERSION);
 }
 
-static inline bool ufshcd_has_utrlcnr(struct ufs_hba *hba)
-{
-	return (hba->ufs_version >= ufshci_version(3, 0));
-}
-
 static inline int ufshcd_vops_clk_scale_notify(struct ufs_hba *hba,
 			bool up, enum ufs_notify_change_status status)
 {
@@ -1224,18 +1217,6 @@ static inline int ufshcd_vops_pwr_change_notify(struct ufs_hba *hba,
 					dev_max_params, dev_req_params);
 
 	return -ENOTSUPP;
-}
-
-static inline void ufshcd_vops_setup_xfer_req(struct ufs_hba *hba, int tag,
-					bool is_scsi_cmd)
-{
-	if (hba->vops && hba->vops->setup_xfer_req) {
-		unsigned long flags;
-
-		spin_lock_irqsave(hba->host->host_lock, flags);
-		hba->vops->setup_xfer_req(hba, tag, is_scsi_cmd);
-		spin_unlock_irqrestore(hba->host->host_lock, flags);
-	}
 }
 
 static inline void ufshcd_vops_setup_task_mgmt(struct ufs_hba *hba,
@@ -1356,16 +1337,6 @@ static inline int ufshcd_rpm_put_sync(struct ufs_hba *hba)
 static inline int ufshcd_rpm_put(struct ufs_hba *hba)
 {
 	return pm_runtime_put(&hba->sdev_ufs_device->sdev_gendev);
-}
-
-static inline int ufshcd_rpmb_rpm_get_sync(struct ufs_hba *hba)
-{
-	return pm_runtime_get_sync(&hba->sdev_rpmb->sdev_gendev);
-}
-
-static inline int ufshcd_rpmb_rpm_put(struct ufs_hba *hba)
-{
-	return pm_runtime_put(&hba->sdev_rpmb->sdev_gendev);
 }
 
 #endif /* End of Header */

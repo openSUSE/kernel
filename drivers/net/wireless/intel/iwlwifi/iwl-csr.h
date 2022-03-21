@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /*
- * Copyright (C) 2005-2014, 2018-2021 Intel Corporation
+ * Copyright (C) 2005-2014, 2018-2022 Intel Corporation
  * Copyright (C) 2013-2014 Intel Mobile Communications GmbH
  * Copyright (C) 2016 Intel Deutschland GmbH
  */
@@ -103,6 +103,11 @@
 
 /* GIO Chicken Bits (PCI Express bus link power management) */
 #define CSR_GIO_CHICKEN_BITS    (CSR_BASE+0x100)
+
+/* Doorbell - since Bz
+ * connected to UREG_DOORBELL_TO_ISR6 (lower 16 bits only)
+ */
+#define CSR_DOORBELL_VECTOR	(CSR_BASE + 0x130)
 
 /* host chicken bits */
 #define CSR_HOST_CHICKEN	(CSR_BASE + 0x204)
@@ -266,6 +271,14 @@
 #define CSR_GP_CNTRL_REG_FLAG_RFKILL_WAKE_L1A_EN     (0x04000000)
 #define CSR_GP_CNTRL_REG_FLAG_HW_RF_KILL_SW          (0x08000000)
 
+/* From Bz we use these instead during init/reset flow */
+#define CSR_GP_CNTRL_REG_FLAG_MAC_INIT			BIT(6)
+#define CSR_GP_CNTRL_REG_FLAG_ROM_START			BIT(7)
+#define CSR_GP_CNTRL_REG_FLAG_MAC_STATUS		BIT(20)
+#define CSR_GP_CNTRL_REG_FLAG_BZ_MAC_ACCESS_REQ		BIT(21)
+#define CSR_GP_CNTRL_REG_FLAG_BUS_MASTER_DISABLE_STATUS	BIT(28)
+#define CSR_GP_CNTRL_REG_FLAG_BUS_MASTER_DISABLE_REQ	BIT(29)
+#define CSR_GP_CNTRL_REG_FLAG_SW_RESET			BIT(31)
 
 /* HW REV */
 #define CSR_HW_REV_DASH(_val)          (((_val) & 0x0000003) >> 0)
@@ -306,6 +319,7 @@ enum {
 #define CSR_HW_REV_TYPE_2x00		(0x0000100)
 #define CSR_HW_REV_TYPE_105		(0x0000110)
 #define CSR_HW_REV_TYPE_135		(0x0000120)
+#define CSR_HW_REV_TYPE_3160		(0x0000164)
 #define CSR_HW_REV_TYPE_7265D		(0x0000210)
 #define CSR_HW_REV_TYPE_NONE		(0x00001F0)
 #define CSR_HW_REV_TYPE_QNJ		(0x0000360)
@@ -604,10 +618,10 @@ enum msix_hw_int_causes {
  *                     HW address related registers                          *
  *****************************************************************************/
 
-#define CSR_ADDR_BASE			(0x380)
-#define CSR_MAC_ADDR0_OTP		(CSR_ADDR_BASE)
-#define CSR_MAC_ADDR1_OTP		(CSR_ADDR_BASE + 4)
-#define CSR_MAC_ADDR0_STRAP		(CSR_ADDR_BASE + 8)
-#define CSR_MAC_ADDR1_STRAP		(CSR_ADDR_BASE + 0xC)
+#define CSR_ADDR_BASE(trans)			((trans)->cfg->mac_addr_from_csr)
+#define CSR_MAC_ADDR0_OTP(trans)		(CSR_ADDR_BASE(trans) + 0x00)
+#define CSR_MAC_ADDR1_OTP(trans)		(CSR_ADDR_BASE(trans) + 0x04)
+#define CSR_MAC_ADDR0_STRAP(trans)		(CSR_ADDR_BASE(trans) + 0x08)
+#define CSR_MAC_ADDR1_STRAP(trans)		(CSR_ADDR_BASE(trans) + 0x0c)
 
 #endif /* !__iwl_csr_h__ */

@@ -89,15 +89,6 @@
 /* Source PGIDs, one per physical port */
 #define PGID_SRC			80
 
-#define IFH_TAG_TYPE_C			0
-#define IFH_TAG_TYPE_S			1
-
-#define IFH_REW_OP_NOOP			0x0
-#define IFH_REW_OP_DSCP			0x1
-#define IFH_REW_OP_ONE_STEP_PTP		0x2
-#define IFH_REW_OP_TWO_STEP_PTP		0x3
-#define IFH_REW_OP_ORIGIN_PTP		0x5
-
 #define OCELOT_NUM_TC			8
 
 #define OCELOT_SPEED_2500		0
@@ -600,10 +591,10 @@ struct ocelot_port {
 	/* The VLAN ID that will be transmitted as untagged, on egress */
 	struct ocelot_vlan		native_vlan;
 
+	unsigned int			ptp_skbs_in_flight;
 	u8				ptp_cmd;
 	struct sk_buff_head		tx_skbs;
 	u8				ts_id;
-	spinlock_t			ts_id_lock;
 
 	phy_interface_t			phy_mode;
 
@@ -677,6 +668,9 @@ struct ocelot {
 	struct ptp_clock		*ptp_clock;
 	struct ptp_clock_info		ptp_info;
 	struct hwtstamp_config		hwtstamp_config;
+	unsigned int			ptp_skbs_in_flight;
+	/* Protects the 2-step TX timestamp ID logic */
+	spinlock_t			ts_id_lock;
 	/* Protects the PTP interface state */
 	struct mutex			ptp_lock;
 	/* Protects the PTP clock */
@@ -688,15 +682,6 @@ struct ocelot_policer {
 	u32 rate; /* kilobit per second */
 	u32 burst; /* bytes */
 };
-
-struct ocelot_skb_cb {
-	struct sk_buff *clone;
-	u8 ptp_cmd;
-	u8 ts_id;
-};
-
-#define OCELOT_SKB_CB(skb) \
-	((struct ocelot_skb_cb *)((skb)->cb))
 
 #define ocelot_read_ix(ocelot, reg, gi, ri) __ocelot_read_ix(ocelot, reg, reg##_GSZ * (gi) + reg##_RSZ * (ri))
 #define ocelot_read_gix(ocelot, reg, gi) __ocelot_read_ix(ocelot, reg, reg##_GSZ * (gi))
@@ -758,7 +743,6 @@ void ocelot_port_inject_frame(struct ocelot *ocelot, int port, int grp,
 int ocelot_xtr_poll_frame(struct ocelot *ocelot, int grp, struct sk_buff **skb);
 void ocelot_drain_cpu_queue(struct ocelot *ocelot, int grp);
 
-u32 ocelot_ptp_rew_op(struct sk_buff *skb);
 #else
 
 static inline bool ocelot_can_inject(struct ocelot *ocelot, int grp)
@@ -782,10 +766,6 @@ static inline void ocelot_drain_cpu_queue(struct ocelot *ocelot, int grp)
 {
 }
 
-static inline u32 ocelot_ptp_rew_op(struct sk_buff *skb)
-{
-	return 0;
-}
 #endif
 
 /* Hardware initialization */

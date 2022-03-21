@@ -49,12 +49,13 @@ struct mlx5e_ktls_offload_context_rx {
 	struct mlx5e_rq_stats *rq_stats;
 	struct mlx5e_tls_sw_stats *sw_stats;
 	struct completion add_ctx;
-	u32 tirn;
+	struct mlx5e_tir tir;
 	u32 key_id;
 	u32 rxq;
 	DECLARE_BITMAP(flags, MLX5E_NUM_PRIV_RX_FLAGS);
 
 	/* resync */
+	spinlock_t lock; /* protects resync fields */
 	struct mlx5e_ktls_rx_resync_ctx resync;
 	struct list_head list;
 };
@@ -99,34 +100,6 @@ mlx5e_ktls_rx_resync_create_resp_list(void)
 	return resp_list;
 }
 
-static int mlx5e_ktls_create_tir(struct mlx5_core_dev *mdev, u32 *tirn, u32 rqtn)
-{
-	int err, inlen;
-	void *tirc;
-	u32 *in;
-
-	inlen = MLX5_ST_SZ_BYTES(create_tir_in);
-	in = kvzalloc(inlen, GFP_KERNEL);
-	if (!in)
-		return -ENOMEM;
-
-	tirc = MLX5_ADDR_OF(create_tir_in, in, ctx);
-
-	MLX5_SET(tirc, tirc, transport_domain, mdev->mlx5e_res.hw_objs.td.tdn);
-	MLX5_SET(tirc, tirc, disp_type, MLX5_TIRC_DISP_TYPE_INDIRECT);
-	MLX5_SET(tirc, tirc, rx_hash_fn, MLX5_RX_HASH_FN_INVERTED_XOR8);
-	MLX5_SET(tirc, tirc, indirect_table, rqtn);
-	MLX5_SET(tirc, tirc, tls_en, 1);
-	MLX5_SET(tirc, tirc, self_lb_block,
-		 MLX5_TIRC_SELF_LB_BLOCK_BLOCK_UNICAST |
-		 MLX5_TIRC_SELF_LB_BLOCK_BLOCK_MULTICAST);
-
-	err = mlx5_core_create_tir(mdev, in, tirn);
-
-	kvfree(in);
-	return err;
-}
-
 static void accel_rule_handle_work(struct work_struct *work)
 {
 	struct mlx5e_ktls_offload_context_rx *priv_rx;
@@ -139,7 +112,8 @@ static void accel_rule_handle_work(struct work_struct *work)
 		goto out;
 
 	rule = mlx5e_accel_fs_add_sk(accel_rule->priv, priv_rx->sk,
-				     priv_rx->tirn, MLX5_FS_DEFAULT_FLOW_TAG);
+				     mlx5e_tir_get_tirn(&priv_rx->tir),
+				     MLX5_FS_DEFAULT_FLOW_TAG);
 	if (!IS_ERR_OR_NULL(rule))
 		accel_rule->rule = rule;
 out:
@@ -173,8 +147,8 @@ post_static_params(struct mlx5e_icosq *sq,
 	pi = mlx5e_icosq_get_next_pi(sq, num_wqebbs);
 	wqe = MLX5E_TLS_FETCH_SET_STATIC_PARAMS_WQE(sq, pi);
 	mlx5e_ktls_build_static_params(wqe, sq->pc, sq->sqn, &priv_rx->crypto_info,
-				       priv_rx->tirn, priv_rx->key_id,
-				       priv_rx->resync.seq, false,
+				       mlx5e_tir_get_tirn(&priv_rx->tir),
+				       priv_rx->key_id, priv_rx->resync.seq, false,
 				       TLS_OFFLOAD_CTX_DIR_RX);
 	wi = (struct mlx5e_icosq_wqe_info) {
 		.wqe_type = MLX5E_ICOSQ_WQE_UMR_TLS,
@@ -202,8 +176,9 @@ post_progress_params(struct mlx5e_icosq *sq,
 
 	pi = mlx5e_icosq_get_next_pi(sq, num_wqebbs);
 	wqe = MLX5E_TLS_FETCH_SET_PROGRESS_PARAMS_WQE(sq, pi);
-	mlx5e_ktls_build_progress_params(wqe, sq->pc, sq->sqn, priv_rx->tirn, false,
-					 next_record_tcp_sn,
+	mlx5e_ktls_build_progress_params(wqe, sq->pc, sq->sqn,
+					 mlx5e_tir_get_tirn(&priv_rx->tir),
+					 false, next_record_tcp_sn,
 					 TLS_OFFLOAD_CTX_DIR_RX);
 	wi = (struct mlx5e_icosq_wqe_info) {
 		.wqe_type = MLX5E_ICOSQ_WQE_SET_PSV_TLS,
@@ -325,7 +300,7 @@ resync_post_get_progress_params(struct mlx5e_icosq *sq,
 	psv = &wqe->psv;
 	psv->num_psv      = 1 << 4;
 	psv->l_key        = sq->channel->mkey_be;
-	psv->psv_index[0] = cpu_to_be32(priv_rx->tirn);
+	psv->psv_index[0] = cpu_to_be32(mlx5e_tir_get_tirn(&priv_rx->tir));
 	psv->va           = cpu_to_be64(buf->dma_addr);
 
 	wi = (struct mlx5e_icosq_wqe_info) {
@@ -393,14 +368,18 @@ static void resync_handle_seq_match(struct mlx5e_ktls_offload_context_rx *priv_r
 	struct mlx5e_icosq *sq;
 	bool trigger_poll;
 
-	memcpy(info->rec_seq, &priv_rx->resync.sw_rcd_sn_be, sizeof(info->rec_seq));
-
 	sq = &c->async_icosq;
 	ktls_resync = sq->ktls_resync;
+	trigger_poll = false;
 
 	spin_lock_bh(&ktls_resync->lock);
-	list_add_tail(&priv_rx->list, &ktls_resync->list);
-	trigger_poll = !test_and_set_bit(MLX5E_SQ_STATE_PENDING_TLS_RX_RESYNC, &sq->state);
+	spin_lock_bh(&priv_rx->lock);
+	memcpy(info->rec_seq, &priv_rx->resync.sw_rcd_sn_be, sizeof(info->rec_seq));
+	if (list_empty(&priv_rx->list)) {
+		list_add_tail(&priv_rx->list, &ktls_resync->list);
+		trigger_poll = !test_and_set_bit(MLX5E_SQ_STATE_PENDING_TLS_RX_RESYNC, &sq->state);
+	}
+	spin_unlock_bh(&priv_rx->lock);
 	spin_unlock_bh(&ktls_resync->lock);
 
 	if (!trigger_poll)
@@ -611,7 +590,6 @@ int mlx5e_ktls_add_rx(struct net_device *netdev, struct sock *sk,
 	struct mlx5_core_dev *mdev;
 	struct mlx5e_priv *priv;
 	int rxq, err;
-	u32 rqtn;
 
 	tls_ctx = tls_get_ctx(sk);
 	priv = netdev_priv(netdev);
@@ -624,6 +602,8 @@ int mlx5e_ktls_add_rx(struct net_device *netdev, struct sock *sk,
 	if (err)
 		goto err_create_key;
 
+	INIT_LIST_HEAD(&priv_rx->list);
+	spin_lock_init(&priv_rx->lock);
 	priv_rx->crypto_info  =
 		*(struct tls12_crypto_info_aes_gcm_128 *)crypto_info;
 
@@ -635,9 +615,7 @@ int mlx5e_ktls_add_rx(struct net_device *netdev, struct sock *sk,
 	priv_rx->sw_stats = &priv->tls->sw_stats;
 	mlx5e_set_ktls_rx_priv_ctx(tls_ctx, priv_rx);
 
-	rqtn = priv->direct_tir[rxq].rqt.rqtn;
-
-	err = mlx5e_ktls_create_tir(mdev, &priv_rx->tirn, rqtn);
+	err = mlx5e_rx_res_tls_tir_create(priv->rx_res, rxq, &priv_rx->tir);
 	if (err)
 		goto err_create_tir;
 
@@ -658,7 +636,7 @@ int mlx5e_ktls_add_rx(struct net_device *netdev, struct sock *sk,
 	return 0;
 
 err_post_wqes:
-	mlx5_core_destroy_tir(mdev, priv_rx->tirn);
+	mlx5e_tir_destroy(&priv_rx->tir);
 err_create_tir:
 	mlx5_ktls_destroy_key(mdev, priv_rx->key_id);
 err_create_key:
@@ -693,7 +671,7 @@ void mlx5e_ktls_del_rx(struct net_device *netdev, struct tls_context *tls_ctx)
 	if (priv_rx->rule.rule)
 		mlx5e_accel_fs_del_sk(priv_rx->rule.rule);
 
-	mlx5_core_destroy_tir(mdev, priv_rx->tirn);
+	mlx5e_tir_destroy(&priv_rx->tir);
 	mlx5_ktls_destroy_key(mdev, priv_rx->key_id);
 	/* priv_rx should normally be freed here, but if there is an outstanding
 	 * GET_PSV, deallocation will be delayed until the CQE for GET_PSV is
@@ -737,10 +715,14 @@ bool mlx5e_ktls_rx_handle_resync_list(struct mlx5e_channel *c, int budget)
 		priv_rx = list_first_entry(&local_list,
 					   struct mlx5e_ktls_offload_context_rx,
 					   list);
+		spin_lock(&priv_rx->lock);
 		cseg = post_static_params(sq, priv_rx);
-		if (IS_ERR(cseg))
+		if (IS_ERR(cseg)) {
+			spin_unlock(&priv_rx->lock);
 			break;
-		list_del(&priv_rx->list);
+		}
+		list_del_init(&priv_rx->list);
+		spin_unlock(&priv_rx->lock);
 		db_cseg = cseg;
 	}
 	if (db_cseg)

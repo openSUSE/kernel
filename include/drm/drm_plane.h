@@ -236,6 +236,8 @@ struct drm_plane_state {
 
 	/** @state: backpointer to global drm_atomic_state */
 	struct drm_atomic_state *state;
+
+	void *suse_kabi_padding;
 };
 
 static inline struct drm_rect

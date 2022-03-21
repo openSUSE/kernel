@@ -48,21 +48,6 @@ static inline void ima_appraise_parse_cmdline(void) {}
 extern void ima_add_kexec_buffer(struct kimage *image);
 #endif
 
-#ifdef CONFIG_IMA_SECURE_AND_OR_TRUSTED_BOOT
-extern bool arch_ima_get_secureboot(void);
-extern const char * const *arch_get_ima_policy(void);
-#else
-static inline bool arch_ima_get_secureboot(void)
-{
-	return false;
-}
-
-static inline const char * const *arch_get_ima_policy(void)
-{
-	return NULL;
-}
-#endif
-
 #else
 static inline int ima_bprm_check(struct linux_binprm *bprm)
 {
@@ -143,6 +128,21 @@ static inline void ima_measure_critical_data(const char *event_label,
 					     bool hash) {}
 
 #endif /* CONFIG_IMA */
+
+#ifdef CONFIG_IMA_SECURE_AND_OR_TRUSTED_BOOT
+extern bool arch_ima_get_secureboot(void);
+extern const char * const *arch_get_ima_policy(void);
+#else
+static inline bool arch_ima_get_secureboot(void)
+{
+	return false;
+}
+
+static inline const char * const *arch_get_ima_policy(void)
+{
+	return NULL;
+}
+#endif
 
 #ifndef CONFIG_IMA_KEXEC
 struct kimage;

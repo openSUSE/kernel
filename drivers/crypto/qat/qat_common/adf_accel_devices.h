@@ -18,8 +18,6 @@
 #define ADF_4XXX_DEVICE_NAME "4xxx"
 #define ADF_4XXX_PCI_DEVICE_ID 0x4940
 #define ADF_4XXXIOV_PCI_DEVICE_ID 0x4941
-#define ADF_ERRSOU3 (0x3A000 + 0x0C)
-#define ADF_ERRSOU5 (0x3A000 + 0xD8)
 #define ADF_DEVICE_FUSECTL_OFFSET 0x40
 #define ADF_DEVICE_LEGFUSE_OFFSET 0x4C
 #define ADF_DEVICE_FUSECTL_MASK 0x80000000
@@ -138,6 +136,8 @@ struct adf_hw_csr_ops {
 					   u32 bank, u32 value);
 	void (*write_csr_ring_srv_arb_en)(void __iomem *csr_base_addr, u32 bank,
 					  u32 value);
+
+	void *suse_kabi_padding;
 };
 
 struct adf_cfg_device_data;
@@ -169,12 +169,13 @@ struct adf_hw_device_data {
 	int (*init_arb)(struct adf_accel_dev *accel_dev);
 	void (*exit_arb)(struct adf_accel_dev *accel_dev);
 	const u32 *(*get_arb_mapping)(void);
+	int (*init_device)(struct adf_accel_dev *accel_dev);
 	void (*disable_iov)(struct adf_accel_dev *accel_dev);
 	void (*configure_iov_threads)(struct adf_accel_dev *accel_dev,
 				      bool enable);
 	void (*enable_ints)(struct adf_accel_dev *accel_dev);
 	void (*set_ssm_wdtimer)(struct adf_accel_dev *accel_dev);
-	int (*enable_vf2pf_comms)(struct adf_accel_dev *accel_dev);
+	int (*enable_pfvf_comms)(struct adf_accel_dev *accel_dev);
 	void (*reset_device)(struct adf_accel_dev *accel_dev);
 	void (*set_msix_rttable)(struct adf_accel_dev *accel_dev);
 	char *(*uof_get_name)(u32 obj_num);
@@ -227,7 +228,6 @@ struct adf_fw_loader_data {
 
 struct adf_accel_vf_info {
 	struct adf_accel_dev *accel_dev;
-	struct tasklet_struct vf2pf_bh_tasklet;
 	struct mutex pf2vf_lock; /* protect CSR access for PF2VF messages */
 	struct ratelimit_state vf2pf_ratelimit;
 	u32 vf_nr;
@@ -249,6 +249,8 @@ struct adf_accel_dev {
 	struct adf_accel_pci accel_pci_dev;
 	union {
 		struct {
+			/* protects VF2PF interrupts access */
+			spinlock_t vf2pf_ints_lock;
 			/* vf_info is non-zero when SR-IOV is init'ed */
 			struct adf_accel_vf_info *vf_info;
 		} pf;

@@ -763,13 +763,6 @@ DEFINE_EVENT(writeback_congest_waited_template, writeback_congestion_wait,
 	TP_ARGS(usec_timeout, usec_delayed)
 );
 
-DEFINE_EVENT(writeback_congest_waited_template, writeback_wait_iff_congested,
-
-	TP_PROTO(unsigned int usec_timeout, unsigned int usec_delayed),
-
-	TP_ARGS(usec_timeout, usec_delayed)
-);
-
 DECLARE_EVENT_CLASS(writeback_single_inode_template,
 
 	TP_PROTO(struct inode *inode,
@@ -844,7 +837,7 @@ DECLARE_EVENT_CLASS(writeback_inode_template,
 	),
 
 	TP_fast_assign(
-		__entry->dev	= inode->i_sb->s_dev;
+		__entry->dev	= inode_get_dev(inode);
 		__entry->ino	= inode->i_ino;
 		__entry->state	= inode->i_state;
 		__entry->mode	= inode->i_mode;

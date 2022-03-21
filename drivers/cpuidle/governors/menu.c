@@ -397,14 +397,28 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 		idx = 0; /* No states enabled. Must use 0. */
 
 	/*
-	 * Don't stop the tick if the selected state is a polling one or if the
-	 * expected idle duration is shorter than the tick period length.
+	 * Don't stop the tick if the selected state is a polling one, if the
+	 * expected idle duration is shorter than the tick period length or
+	 * there is an io-waiter that may receive an interrupt soon.
 	 */
 	if (((drv->states[idx].flags & CPUIDLE_FLAG_POLLING) ||
-	     predicted_ns < TICK_NSEC) && !tick_nohz_tick_stopped()) {
+	     predicted_ns < TICK_NSEC || nr_iowaiters) && !tick_nohz_tick_stopped()) {
+		s64 threshold = ktime_to_ns(delta_tick);
+
 		*stop_tick = false;
 
-		if (idx > 0 && drv->states[idx].target_residency_ns > delta_tick) {
+		/*
+		 * For io-waiters, use either the soonest of either the next
+		 * timer event or the predicted next wakeup event adjusted for
+		 * the number of io-waiters. At worst, a shallow c-state will
+		 * be used for too long as the IO takes longer than predicted
+		 * to complete but the nr_iowaiters value should not be lost as
+		 * it's tracked by the core scheduler.
+		 */
+		if (nr_iowaiters)
+			threshold = min(threshold, latency_req);
+
+		if (idx > 0 && drv->states[idx].target_residency_ns > threshold) {
 			/*
 			 * The tick is not going to be stopped and the target
 			 * residency of the state to be returned is not within
@@ -416,7 +430,7 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 					continue;
 
 				idx = i;
-				if (drv->states[i].target_residency_ns <= delta_tick)
+				if (drv->states[i].target_residency_ns <= threshold)
 					break;
 			}
 		}

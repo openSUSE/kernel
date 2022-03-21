@@ -1153,7 +1153,7 @@ static void update_mac_address(struct net_device *ndev)
 static void read_mac_address(struct net_device *ndev, unsigned char *mac)
 {
 	if (mac[0] || mac[1] || mac[2] || mac[3] || mac[4] || mac[5]) {
-		memcpy(ndev->dev_addr, mac, ETH_ALEN);
+		eth_hw_addr_set(ndev, mac);
 	} else {
 		u32 mahr = sh_eth_read(ndev, MAHR);
 		u32 malr = sh_eth_read(ndev, MALR);
@@ -2533,6 +2533,7 @@ static netdev_tx_t sh_eth_start_xmit(struct sk_buff *skb,
 	else
 		txdesc->status |= cpu_to_le32(TD_TACT);
 
+	wmb(); /* cur_tx must be incremented after TACT bit was set */
 	mdp->cur_tx++;
 
 	if (!(sh_eth_read(ndev, EDTRR) & mdp->cd->edtrr_trns))

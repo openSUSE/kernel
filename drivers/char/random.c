@@ -337,6 +337,9 @@
 #include <linux/uuid.h>
 #include <crypto/chacha.h>
 #include <crypto/sha1.h>
+#include <crypto/rng.h>
+#include <crypto/sha2.h>
+#include <crypto/algapi.h>
 
 #include <asm/processor.h>
 #include <linux/uaccess.h>
@@ -461,6 +464,7 @@ static struct crng_state primary_crng = {
  * its value (from 0->1->2).
  */
 static int crng_init = 0;
+static bool crng_need_final_init = false;
 #define crng_ready() (likely(crng_init > 1))
 static int crng_init_cnt = 0;
 static unsigned long crng_global_init_time = 0;
@@ -743,6 +747,311 @@ static int credit_entropy_bits_safe(struct entropy_store *r, int nbits)
 
 /*********************************************************************
  *
+ * 800-90B compliant DRBG wired up to userspace interface only.
+ *
+ *********************************************************************/
+static DEFINE_MUTEX(fips_init_mtx);
+
+static unsigned int fips_do_drbg_algs_reset;
+
+struct fips_drbg_tfm
+{
+	struct crypto_rng *tfm;
+	refcount_t ref;
+	struct list_head reset_list;
+};
+
+static struct fips_drbg_tfm __rcu **fips_drbg_tfms;
+
+static void __fips_drbg_tfm_free(struct fips_drbg_tfm *drbg_tfm)
+{
+	crypto_free_rng(drbg_tfm->tfm);
+	kfree(drbg_tfm);
+}
+
+static struct fips_drbg_tfm* __fips_drbg_tfm_alloc(void)
+{
+	struct fips_drbg_tfm *drbg_tfm;
+	struct crypto_rng *tfm;
+	int r;
+
+	drbg_tfm = kmalloc(sizeof(*drbg_tfm), GFP_KERNEL);
+	if (!drbg_tfm)
+		return ERR_PTR(-ENOMEM);
+
+	/* One for the reference from fips_drbg_tfms[]. */
+	refcount_set(&drbg_tfm->ref, 1);
+
+	tfm = crypto_alloc_rng("drbg_nopr_sha512", 0, 0);
+	if (IS_ERR(tfm)) {
+		kfree(drbg_tfm);
+		return (void *)tfm;
+	}
+	drbg_tfm->tfm = tfm;
+
+	r = crypto_rng_reset(tfm, NULL, crypto_rng_seedsize(tfm));
+	if (r) {
+		__fips_drbg_tfm_free(drbg_tfm);
+		return ERR_PTR(r);
+	}
+
+	return drbg_tfm;
+}
+
+static int fips_drbgs_init(void)
+{
+	struct fips_drbg_tfm __rcu **drbg_tfms;
+	struct fips_drbg_tfm *drbg_tfm;
+
+	mutex_lock(&fips_init_mtx);
+	if (fips_drbg_tfms) {
+		mutex_unlock(&fips_init_mtx);
+		return 0;
+	}
+
+	drbg_tfms = kcalloc(nr_node_ids, sizeof(*fips_drbg_tfms),
+			    GFP_KERNEL);
+	if (!drbg_tfms) {
+		pr_err_ratelimited("random: FIPS drbg: drbg array allocation failure");
+		mutex_unlock(&fips_init_mtx);
+		return -ENOMEM;
+	}
+
+	drbg_tfm = __fips_drbg_tfm_alloc();
+	if (IS_ERR(drbg_tfm)) {
+		mutex_unlock(&fips_init_mtx);
+		kfree(drbg_tfms);
+		pr_err_ratelimited("random: FIPS drbg: drbg init failed, %ld",
+				   PTR_ERR(drbg_tfm));
+		return PTR_ERR(drbg_tfm);
+	}
+	rcu_assign_pointer(drbg_tfms[0], drbg_tfm);
+
+	pr_debug("random: FIPS drbg: init complete");
+	smp_store_release(&fips_drbg_tfms, drbg_tfms);
+
+	WRITE_ONCE(fips_do_drbg_algs_reset, 0);
+	mutex_unlock(&fips_init_mtx);
+
+	return 0;
+}
+
+static void fips_drbg_tfm_put(struct fips_drbg_tfm *drbg_tfm);
+
+static int fips_reset_drbg_algs(void)
+{
+	struct fips_drbg_tfm *new_node0_drbg_tfm, *drbg_tfm, *n;
+	LIST_HEAD(old_drbg_tfms);
+	int i;
+
+	mutex_lock(&fips_init_mtx);
+	if (!fips_do_drbg_algs_reset) {
+		mutex_unlock(&fips_init_mtx);
+		return 0;
+	}
+
+	new_node0_drbg_tfm = __fips_drbg_tfm_alloc();
+	if (IS_ERR(new_node0_drbg_tfm)) {
+		mutex_unlock(&fips_init_mtx);
+		pr_warn_ratelimited("random: FIPS drbg: drbg init failed at reset (%ld), performance degraded.",
+				    PTR_ERR(new_node0_drbg_tfm));
+		return PTR_ERR(new_node0_drbg_tfm);
+	}
+
+	for (i = 0; i < nr_node_ids; ++i) {
+		drbg_tfm = rcu_dereference_protected(fips_drbg_tfms[i], 1);
+		rcu_assign_pointer(fips_drbg_tfms[i], new_node0_drbg_tfm);
+		/* The remaining drbg's for i > 0 all get reset to NULL. */
+		new_node0_drbg_tfm = NULL;
+		if (drbg_tfm)
+			list_add(&drbg_tfm->reset_list, &old_drbg_tfms);
+	}
+
+	pr_debug("random: FIPS drbg: reset complete");
+	WRITE_ONCE(fips_do_drbg_algs_reset, 0);
+	mutex_unlock(&fips_init_mtx);
+
+	synchronize_rcu();
+	list_for_each_entry_safe(drbg_tfm, n, &old_drbg_tfms, reset_list) {
+		list_del(&drbg_tfm->reset_list);
+		/* Drop the reference owned by fips_drbg_tfms[]. */
+		fips_drbg_tfm_put(drbg_tfm);
+	}
+
+	return 0;
+}
+
+static void fips_trigger_drbg_algs_reset(void)
+{
+	pr_debug("random: FIPS drbg: reset requested");
+	mutex_lock(&fips_init_mtx);
+	WRITE_ONCE(fips_do_drbg_algs_reset, 1);
+	mutex_unlock(&fips_init_mtx);
+}
+
+static void fips_drbg_tfm_put(struct fips_drbg_tfm *drbg_tfm)
+{
+	if (IS_ERR_OR_NULL(drbg_tfm))
+		return;
+
+	if (refcount_dec_and_test(&drbg_tfm->ref))
+		__fips_drbg_tfm_free(drbg_tfm);
+}
+
+static struct fips_drbg_tfm* fips_drbg_tfm_get(int node)
+{
+	struct fips_drbg_tfm __rcu **drbg_tfms;
+	struct fips_drbg_tfm *drbg_tfm;
+
+	drbg_tfms = smp_load_acquire(&fips_drbg_tfms);
+	if (unlikely(!drbg_tfms)) {
+		int r;
+
+		r = fips_drbgs_init();
+		if (r)
+			return ERR_PTR(r);
+		drbg_tfms = smp_load_acquire(&fips_drbg_tfms);
+	}
+
+again:
+	if (READ_ONCE(fips_do_drbg_algs_reset) && fips_reset_drbg_algs()) {
+		/* Reset failed, resort to backup DRBG at node 0. */
+		node = 0;
+	}
+
+	rcu_read_lock();
+	drbg_tfm = rcu_dereference(drbg_tfms[node]);
+	if (likely(drbg_tfm)) {
+		refcount_inc(&drbg_tfm->ref);
+		rcu_read_unlock();
+		return drbg_tfm;
+	}
+	rcu_read_unlock();
+
+	if (WARN_ON_ONCE(!node))
+		return NULL;
+
+	mutex_lock(&fips_init_mtx);
+	if (fips_do_drbg_algs_reset || drbg_tfms[node]) {
+		mutex_unlock(&fips_init_mtx);
+		goto again;
+	}
+
+	drbg_tfm = __fips_drbg_tfm_alloc();
+	if (IS_ERR(drbg_tfm)) {
+		mutex_unlock(&fips_init_mtx);
+		pr_warn_ratelimited("random: FIPS drbg: per-node drbg init failed (%ld), performance degraded.",
+				    PTR_ERR(drbg_tfm));
+		node = 0;
+		goto again;
+	}
+
+	refcount_inc(&drbg_tfm->ref);
+	rcu_assign_pointer(drbg_tfms[node], drbg_tfm);
+	mutex_unlock(&fips_init_mtx);
+
+	return drbg_tfm;
+}
+
+static int fips_crypto_notify(struct notifier_block *this,
+			      unsigned long msg, void *data)
+{
+	struct crypto_alg *alg = data;
+
+	if (msg != CRYPTO_MSG_ALG_LOADED)
+		return NOTIFY_DONE;
+
+	if (strcmp(alg->cra_name, "sha512"))
+		return NOTIFY_DONE;
+
+	fips_trigger_drbg_algs_reset();
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block fips_crypto_notifier = {
+	.notifier_call = fips_crypto_notify,
+	/*
+	 * Make sure this gets to run before cryptomgr_notify() so
+	 * that the final notifier chain result will be taken from
+	 * there.
+	 */
+	.priority = 100,
+};
+
+static ssize_t extract_fips_drbg_user(void __user *buf, size_t nbytes,
+				      __u8 __tmp[SHA512_DIGEST_SIZE])
+{
+	struct fips_drbg_tfm *drbg_tfm;
+	unsigned int block_size;
+	__u8 *tmp;
+	ssize_t ret = 0, i;
+	int large_request = (nbytes > 256);
+
+	if (!nbytes)
+		return 0;
+
+	drbg_tfm = fips_drbg_tfm_get(numa_node_id());
+	if (IS_ERR(drbg_tfm))
+		return PTR_ERR(drbg_tfm);
+
+	/*
+	 * Each drbg_generate() invocation involves backtracking
+	 * protection and it is desirable from a performance POV to
+	 * amortize that over a number of SHA512_DIGEST_SIZE DRBG
+	 * output blocks.
+	 */
+	block_size = min_t(size_t, nbytes, 4 * SHA512_DIGEST_SIZE);
+	tmp = kmalloc(block_size, GFP_KERNEL);
+	if (!tmp) {
+		/* Use the on-stack tmp buffer from the caller as a backup. */
+		tmp = __tmp;
+		block_size = SHA512_DIGEST_SIZE;
+	}
+
+	while (nbytes) {
+		int r;
+
+		if (large_request && need_resched()) {
+			if (signal_pending(current)) {
+				if (ret == 0)
+					ret = -ERESTARTSYS;
+				break;
+			}
+			schedule();
+		}
+
+		i = min_t(size_t, nbytes, block_size);
+		r = crypto_rng_get_bytes(drbg_tfm->tfm, tmp, (unsigned int)i);
+		if (r < 0) {
+			ret = r;
+			break;
+		}
+
+		if (copy_to_user(buf, tmp, i)) {
+			ret = -EFAULT;
+			break;
+		}
+
+		nbytes -= i;
+		buf += i;
+		ret += i;
+	}
+
+	/* Wipe data just written to memory */
+	memzero_explicit(tmp, block_size);
+	if (likely(tmp != __tmp))
+		kfree(tmp);
+
+	fips_drbg_tfm_put(drbg_tfm);
+
+	return ret;
+}
+
+
+
+/*********************************************************************
+ *
  * CRNG using CHACHA20
  *
  *********************************************************************/
@@ -828,6 +1137,36 @@ static void __init crng_initialize_primary(struct crng_state *crng)
 	crng->init_time = jiffies - CRNG_RESEED_INTERVAL - 1;
 }
 
+static void crng_finalize_init(struct crng_state *crng)
+{
+	if (crng != &primary_crng || crng_init >= 2)
+		return;
+	if (!system_wq) {
+		/* We can't call numa_crng_init until we have workqueues,
+		 * so mark this for processing later. */
+		crng_need_final_init = true;
+		return;
+	}
+
+	invalidate_batched_entropy();
+	numa_crng_init();
+	crng_init = 2;
+	process_random_ready_list();
+	wake_up_interruptible(&crng_init_wait);
+	kill_fasync(&fasync, SIGIO, POLL_IN);
+	pr_notice("crng init done\n");
+	if (unseeded_warning.missed) {
+		pr_notice("%d get_random_xx warning(s) missed due to ratelimiting\n",
+			  unseeded_warning.missed);
+		unseeded_warning.missed = 0;
+	}
+	if (urandom_warning.missed) {
+		pr_notice("%d urandom warning(s) missed due to ratelimiting\n",
+			  urandom_warning.missed);
+		urandom_warning.missed = 0;
+	}
+}
+
 #ifdef CONFIG_NUMA
 static void do_numa_crng_init(struct work_struct *work)
 {
@@ -843,8 +1182,8 @@ static void do_numa_crng_init(struct work_struct *work)
 		crng_initialize_secondary(crng);
 		pool[i] = crng;
 	}
-	mb();
-	if (cmpxchg(&crng_node_pool, NULL, pool)) {
+	/* pairs with READ_ONCE() in select_crng() */
+	if (cmpxchg_release(&crng_node_pool, NULL, pool) != NULL) {
 		for_each_node(i)
 			kfree(pool[i]);
 		kfree(pool);
@@ -857,8 +1196,26 @@ static void numa_crng_init(void)
 {
 	schedule_work(&numa_crng_init_work);
 }
+
+static struct crng_state *select_crng(void)
+{
+	struct crng_state **pool;
+	int nid = numa_node_id();
+
+	/* pairs with cmpxchg_release() in do_numa_crng_init() */
+	pool = READ_ONCE(crng_node_pool);
+	if (pool && pool[nid])
+		return pool[nid];
+
+	return &primary_crng;
+}
 #else
 static void numa_crng_init(void) {}
+
+static struct crng_state *select_crng(void)
+{
+	return &primary_crng;
+}
 #endif
 
 /*
@@ -962,38 +1319,23 @@ static void crng_reseed(struct crng_state *crng, struct entropy_store *r)
 		crng->state[i+4] ^= buf.key[i] ^ rv;
 	}
 	memzero_explicit(&buf, sizeof(buf));
-	crng->init_time = jiffies;
+	WRITE_ONCE(crng->init_time, jiffies);
 	spin_unlock_irqrestore(&crng->lock, flags);
-	if (crng == &primary_crng && crng_init < 2) {
-		invalidate_batched_entropy();
-		numa_crng_init();
-		crng_init = 2;
-		process_random_ready_list();
-		wake_up_interruptible(&crng_init_wait);
-		kill_fasync(&fasync, SIGIO, POLL_IN);
-		pr_notice("crng init done\n");
-		if (unseeded_warning.missed) {
-			pr_notice("%d get_random_xx warning(s) missed due to ratelimiting\n",
-				  unseeded_warning.missed);
-			unseeded_warning.missed = 0;
-		}
-		if (urandom_warning.missed) {
-			pr_notice("%d urandom warning(s) missed due to ratelimiting\n",
-				  urandom_warning.missed);
-			urandom_warning.missed = 0;
-		}
-	}
+	crng_finalize_init(crng);
 }
 
 static void _extract_crng(struct crng_state *crng,
 			  __u8 out[CHACHA_BLOCK_SIZE])
 {
-	unsigned long v, flags;
+	unsigned long v, flags, init_time;
 
-	if (crng_ready() &&
-	    (time_after(crng_global_init_time, crng->init_time) ||
-	     time_after(jiffies, crng->init_time + CRNG_RESEED_INTERVAL)))
-		crng_reseed(crng, crng == &primary_crng ? &input_pool : NULL);
+	if (crng_ready()) {
+		init_time = READ_ONCE(crng->init_time);
+		if (time_after(READ_ONCE(crng_global_init_time), init_time) ||
+		    time_after(jiffies, init_time + CRNG_RESEED_INTERVAL))
+			crng_reseed(crng, crng == &primary_crng ?
+				    &input_pool : NULL);
+	}
 	spin_lock_irqsave(&crng->lock, flags);
 	if (arch_get_random_long(&v))
 		crng->state[14] ^= v;
@@ -1005,15 +1347,7 @@ static void _extract_crng(struct crng_state *crng,
 
 static void extract_crng(__u8 out[CHACHA_BLOCK_SIZE])
 {
-	struct crng_state *crng = NULL;
-
-#ifdef CONFIG_NUMA
-	if (crng_node_pool)
-		crng = crng_node_pool[numa_node_id()];
-	if (crng == NULL)
-#endif
-		crng = &primary_crng;
-	_extract_crng(crng, out);
+	_extract_crng(select_crng(), out);
 }
 
 /*
@@ -1042,15 +1376,7 @@ static void _crng_backtrack_protect(struct crng_state *crng,
 
 static void crng_backtrack_protect(__u8 tmp[CHACHA_BLOCK_SIZE], int used)
 {
-	struct crng_state *crng = NULL;
-
-#ifdef CONFIG_NUMA
-	if (crng_node_pool)
-		crng = crng_node_pool[numa_node_id()];
-	if (crng == NULL)
-#endif
-		crng = &primary_crng;
-	_crng_backtrack_protect(crng, tmp, used);
+	_crng_backtrack_protect(select_crng(), tmp, used);
 }
 
 static ssize_t extract_crng_user(void __user *buf, size_t nbytes)
@@ -1058,6 +1384,9 @@ static ssize_t extract_crng_user(void __user *buf, size_t nbytes)
 	ssize_t ret = 0, i = CHACHA_BLOCK_SIZE;
 	__u8 tmp[CHACHA_BLOCK_SIZE] __aligned(4);
 	int large_request = (nbytes > 256);
+
+	if (fips_enabled)
+		return extract_fips_drbg_user(buf, nbytes, tmp);
 
 	while (nbytes) {
 		if (large_request && need_resched()) {
@@ -1763,8 +2092,8 @@ static void __init init_std_data(struct entropy_store *r)
 }
 
 /*
- * Note that setup_arch() may call add_device_randomness()
- * long before we get here. This allows seeding of the pools
+ * add_device_randomness() or add_bootloader_randomness() may be
+ * called long before we get here. This allows seeding of the pools
  * with some platform dependent data very early in the boot
  * process. But it limits our options here. We must use
  * statically allocated structures that already have all
@@ -1775,12 +2104,18 @@ static void __init init_std_data(struct entropy_store *r)
 int __init rand_initialize(void)
 {
 	init_std_data(&input_pool);
+	if (crng_need_final_init)
+		crng_finalize_init(&primary_crng);
 	crng_initialize_primary(&primary_crng);
 	crng_global_init_time = jiffies;
 	if (ratelimit_disable) {
 		urandom_warning.interval = 0;
 		unseeded_warning.interval = 0;
 	}
+
+	if (fips_enabled)
+		crypto_register_notifier(&fips_crypto_notifier);
+
 	return 0;
 }
 
@@ -1941,7 +2276,10 @@ static long random_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 		 */
 		if (!capable(CAP_SYS_ADMIN))
 			return -EPERM;
-		input_pool.entropy_count = 0;
+		if (xchg(&input_pool.entropy_count, 0) && random_write_wakeup_bits) {
+			wake_up_interruptible(&random_write_wait);
+			kill_fasync(&fasync, SIGIO, POLL_OUT);
+		}
 		return 0;
 	case RNDRESEEDCRNG:
 		if (!capable(CAP_SYS_ADMIN))
@@ -1949,7 +2287,7 @@ static long random_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 		if (crng_init < 2)
 			return -ENODATA;
 		crng_reseed(&primary_crng, &input_pool);
-		crng_global_init_time = jiffies - 1;
+		WRITE_ONCE(crng_global_init_time, jiffies - 1);
 		return 0;
 	default:
 		return -EINVAL;
@@ -2274,7 +2612,12 @@ void add_hwgenerator_randomness(const char *buffer, size_t count,
 {
 	struct entropy_store *poolp = &input_pool;
 
-	if (unlikely(crng_init == 0)) {
+	/* We cannot do much with the input pool until it is set up in
+	 * rand_initalize(); therefore just mix into the crng state.
+	 * As this does not affect the input pool, we cannot credit
+	 * entropy for this.
+	 */
+	if (unlikely(crng_init == 0 || crng_global_init_time == 0)) {
 		crng_fast_load(buffer, count);
 		return;
 	}
@@ -2283,7 +2626,8 @@ void add_hwgenerator_randomness(const char *buffer, size_t count,
 	 * We'll be woken up again once below random_write_wakeup_thresh,
 	 * or when the calling thread is about to terminate.
 	 */
-	wait_event_interruptible(random_write_wait, kthread_should_stop() ||
+	wait_event_interruptible(random_write_wait,
+			!system_wq || kthread_should_stop() ||
 			ENTROPY_BITS(&input_pool) <= random_write_wakeup_bits);
 	mix_pool_bytes(poolp, buffer, count);
 	credit_entropy_bits(poolp, entropy);

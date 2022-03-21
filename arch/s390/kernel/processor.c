@@ -115,7 +115,7 @@ static void show_cpu_summary(struct seq_file *m, void *v)
 	static const char *hwcap_str[] = {
 		"esan3", "zarch", "stfle", "msa", "ldisp", "eimm", "dfp",
 		"edat", "etf3eh", "highgprs", "te", "vx", "vxd", "vxe", "gs",
-		"vxe2", "vxp", "sort", "dflt"
+		"vxe2", "vxp", "sort", "dflt", "vxp2", "nnpa", "pcimio"
 	};
 	static const char * const int_hwcap_str[] = {
 		"sie"
@@ -210,7 +210,7 @@ static inline void *c_update(loff_t *pos)
 
 static void *c_start(struct seq_file *m, loff_t *pos)
 {
-	get_online_cpus();
+	cpus_read_lock();
 	return c_update(pos);
 }
 
@@ -222,7 +222,7 @@ static void *c_next(struct seq_file *m, void *v, loff_t *pos)
 
 static void c_stop(struct seq_file *m, void *v)
 {
-	put_online_cpus();
+	cpus_read_unlock();
 }
 
 const struct seq_operations cpuinfo_op = {

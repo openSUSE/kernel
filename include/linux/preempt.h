@@ -121,7 +121,12 @@
 /*
  * The preempt_count offset after spin_lock()
  */
-#define PREEMPT_LOCK_OFFSET	PREEMPT_DISABLE_OFFSET
+#if !defined(CONFIG_PREEMPT_RT)
+#define PREEMPT_LOCK_OFFSET		PREEMPT_DISABLE_OFFSET
+#else
+/* Locks on RT do not disable preemption */
+#define PREEMPT_LOCK_OFFSET		0
+#endif
 
 /*
  * The preempt_count offset needed for things like:
