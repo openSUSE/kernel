@@ -18,6 +18,7 @@
 #include <linux/acpi.h>
 #include <linux/delay.h>
 #include <linux/device.h>
+#include <linux/dmi.h>
 #include <linux/firmware.h>
 #include <linux/i2c.h>
 #include <linux/init.h>
@@ -1188,6 +1189,20 @@ static void elan_disable_regulator(void *_data)
 	regulator_disable(data->vcc);
 }
 
+static const struct dmi_system_id elan_i2c_denylist[] = {
+#if IS_ENABLED(CONFIG_I2C_HID_ACPI)
+	{
+		/* Lenovo Yoga Slim 7 is better supported by i2c-hid */
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "82A3"),
+			DMI_MATCH(DMI_PRODUCT_VERSION, "Yoga Slim 7 14ITL05"),
+		},
+	},
+#endif
+	{ }
+};
+
 static int elan_probe(struct i2c_client *client,
 		      const struct i2c_device_id *dev_id)
 {
@@ -1199,6 +1214,10 @@ static int elan_probe(struct i2c_client *client,
 
 	if (IS_ENABLED(CONFIG_MOUSE_ELAN_I2C_I2C) &&
 	    i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+		if (dmi_check_system(elan_i2c_denylist)) {
+			dev_info(dev, "Hits deny list, skipping\n");
+			return -ENODEV;
+		}
 		transport_ops = &elan_i2c_ops;
 	} else if (IS_ENABLED(CONFIG_MOUSE_ELAN_I2C_SMBUS) &&
 		   i2c_check_functionality(client->adapter,
