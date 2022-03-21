@@ -1,15 +1,24 @@
 #!/bin/bash
 
-if test -e include/config/auto.conf; then
-        . include/config/auto.conf
-else
+function get_config() {
+	local line
+
+	line=$(grep "^${1}=" include/config/auto.conf)
+	if [ -z "$line" ]; then
+		return
+	fi
+	echo "${line#*=}"
+}
+
+if [ ! -e include/config/auto.conf ]; then
         echo "Error: auto.conf not generated - run 'make prepare' to create it" >&2
 	exit 1
 fi
 
-VERSION="${CONFIG_SUSE_VERSION}"
-PATCHLEVEL="${CONFIG_SUSE_PATCHLEVEL}"
-AUXRELEASE="${CONFIG_SUSE_AUXRELEASE}"
+VERSION=$(get_config CONFIG_SUSE_VERSION)
+PATCHLEVEL=$(get_config CONFIG_SUSE_PATCHLEVEL)
+AUXRELEASE=$(get_config CONFIG_SUSE_AUXRELEASE)
+PRODUCT_CODE=$(get_config CONFIG_SUSE_PRODUCT_CODE)
 
 if [ -z "$VERSION" -o -z "$PATCHLEVEL" -o -z "$AUXRELEASE" ]; then
 	# This would be a bug in the Kconfig
@@ -31,7 +40,7 @@ if [ "$VERSION" = 255 -o "$PATCHLEVEL" = 255 ]; then
 fi
 
 
-case "$CONFIG_SUSE_PRODUCT_CODE" in
+case "$PRODUCT_CODE" in
 	1)
 		if [ "${PATCHLEVEL}" = "0" ]; then
 			SP=""
@@ -53,12 +62,12 @@ case "$CONFIG_SUSE_PRODUCT_CODE" in
 		SUSE_PRODUCT_FAMILY="Tumbleweed"
 		;;
 	*)
-		echo "Unknown SUSE_PRODUCT_CODE=${CONFIG_SUSE_PRODUCT_CODE}" >&2
+		echo "Unknown SUSE_PRODUCT_CODE=${PRODUCT_CODE}" >&2
 		exit 1
 		;;
 esac
 
-SUSE_PRODUCT_CODE=$(( (${CONFIG_SUSE_PRODUCT_CODE} << 24) + \
+SUSE_PRODUCT_CODE=$(( (${PRODUCT_CODE} << 24) + \
 		      (${VERSION} << 16) + (${PATCHLEVEL} << 8) + \
 		       ${AUXRELEASE} ))
 

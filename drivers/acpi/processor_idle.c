@@ -20,6 +20,7 @@
 #include <linux/tick.h>
 #include <linux/cpuidle.h>
 #include <linux/cpu.h>
+#include <linux/minmax.h>
 #include <acpi/processor.h>
 
 /*
@@ -405,13 +406,10 @@ static int acpi_cst_latency_cmp(const void *a, const void *b)
 static void acpi_cst_latency_swap(void *a, void *b, int n)
 {
 	struct acpi_processor_cx *x = a, *y = b;
-	u32 tmp;
 
 	if (!(x->valid && y->valid))
 		return;
-	tmp = x->latency;
-	x->latency = y->latency;
-	y->latency = tmp;
+	swap(x->latency, y->latency);
 }
 
 static int acpi_processor_power_verify(struct acpi_processor *pr)
@@ -572,7 +570,8 @@ static int acpi_idle_play_dead(struct cpuidle_device *dev, int index)
 {
 	struct acpi_processor_cx *cx = per_cpu(acpi_cstate[index], dev->cpu);
 
-	ACPI_FLUSH_CPU_CACHE();
+	if (cx->type == ACPI_STATE_C3)
+		ACPI_FLUSH_CPU_CACHE();
 
 	while (1) {
 
@@ -1106,7 +1105,7 @@ static int acpi_processor_get_lpi_info(struct acpi_processor *pr)
 
 	status = acpi_get_parent(handle, &pr_ahandle);
 	while (ACPI_SUCCESS(status)) {
-		acpi_bus_get_device(pr_ahandle, &d);
+		d = acpi_fetch_acpi_dev(pr_ahandle);
 		handle = pr_ahandle;
 
 		if (strcmp(acpi_device_hid(d), ACPI_PROCESSOR_CONTAINER_HID))
