@@ -2037,7 +2037,7 @@ static inline u32 printk_caller_id(void)
 }
 
 /**
- * parse_prefix - Parse level and control flags.
+ * printk_parse_prefix - Parse level and control flags.
  *
  * @text:     The terminated text message.
  * @level:    A pointer to the current level value, will be updated.
@@ -2053,7 +2053,7 @@ static inline u32 printk_caller_id(void)
  *
  * Return: The length of the parsed level and control flags.
  */
-static u16 parse_prefix(char *text, int *level,
+u16 printk_parse_prefix(const char *text, int *level,
 			enum printk_info_flags *flags)
 {
 	u16 prefix_len = 0;
@@ -2099,7 +2099,7 @@ static u16 printk_sprint(char *text, u16 size, int facility,
 	if (facility == 0) {
 		u16 prefix_len;
 
-		prefix_len = parse_prefix(text, NULL, NULL);
+		prefix_len = printk_parse_prefix(text, NULL, NULL);
 		if (prefix_len) {
 			text_len -= prefix_len;
 			memmove(text, text + prefix_len, text_len);
@@ -2154,7 +2154,7 @@ int vprintk_store(int facility, int level,
 
 	/* Extract log level or control flags. */
 	if (facility == 0)
-		parse_prefix(&prefix_buf[0], &level, &flags);
+		printk_parse_prefix(&prefix_buf[0], &level, &flags);
 
 	if (level == LOGLEVEL_DEFAULT)
 		level = default_message_loglevel;
