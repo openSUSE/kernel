@@ -845,6 +845,7 @@ int uncached_readdir(nfs_readdir_descriptor_t *desc)
 	}
 
 	desc->page_index = 0;
+	desc->cache_entry_index = 0;
 	desc->last_cookie = *desc->dir_cookie;
 	desc->page = page;
 	ctx->duped = 0;
