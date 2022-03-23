@@ -937,6 +937,14 @@ asmlinkage void do_notify_resume(struct pt_regs *regs,
 		} else {
 			local_daif_restore(DAIF_PROCCTX);
 
+#ifdef CONFIG_RT_DELAYED_SIGNALS
+			if (unlikely(current->forced_info.si_signo)) {
+				struct task_struct *t = current;
+				force_sig_info(&t->forced_info);
+				t->forced_info.si_signo = 0;
+			}
+#endif
+
 			if (thread_flags & _TIF_UPROBE)
 				uprobe_notify_resume(regs);
 
