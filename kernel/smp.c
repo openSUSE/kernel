@@ -694,10 +694,25 @@ void flush_smp_call_function_from_idle(void)
 	cfd_seq_store(this_cpu_ptr(&cfd_seq_local)->idle, CFD_SEQ_NOCPU,
 		      smp_processor_id(), CFD_SEQ_IDLE);
 	local_irq_save(flags);
-	flush_smp_call_function_queue(true);
-	if (local_softirq_pending())
-		do_softirq();
+	if (!IS_ENABLED(CONFIG_PREEMPT_RT)) {
+		flush_smp_call_function_queue(true);
+		if (local_softirq_pending())
+			do_softirq();
+	} else {
+		unsigned int pending_prev;
+		unsigned int pending_post;
 
+		pending_prev = local_softirq_pending();
+		flush_smp_call_function_queue(true);
+		pending_post = local_softirq_pending();
+
+		if (WARN_ON_ONCE(!pending_prev && pending_post)) {
+			struct task_struct *ksoftirqd = this_cpu_ksoftirqd();
+
+			if (ksoftirqd && !task_is_running(ksoftirqd))
+				wake_up_process(ksoftirqd);
+		}
+	}
 	local_irq_restore(flags);
 }
 
