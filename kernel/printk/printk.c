@@ -2604,11 +2604,11 @@ static int have_callable_console(void)
  *
  * Console drivers may assume that per-cpu resources have been allocated. So
  * unless they're explicitly marked as being able to cope (CON_ANYTIME) don't
- * call them until this CPU is officially up.
+ * call them until per-cpu resources have been allocated.
  */
 static inline int can_use_console(void)
 {
-	return cpu_online(raw_smp_processor_id()) || have_callable_console();
+	return (printk_percpu_data_ready() || have_callable_console());
 }
 
 /**
