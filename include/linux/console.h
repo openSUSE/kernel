@@ -138,6 +138,7 @@ static inline int con_debug_leave(void)
 #define CON_BRL		(32) /* Used for a braille device */
 #define CON_EXTENDED	(64) /* Use the extended output format a la /dev/kmsg */
 #define CON_PAUSED	(128) /* Sleep while console is locked */
+#define CON_MIGHT_SLEEP	(256) /* Can only be called from sleepable context */
 
 struct console {
 	char	name[16];

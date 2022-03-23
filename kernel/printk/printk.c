@@ -2863,6 +2863,8 @@ static bool console_flush_all(bool do_cond_resched, u64 *next_seq, bool *handove
 
 			if (!console_is_usable(con))
 				continue;
+			if ((con->flags & CON_MIGHT_SLEEP) && !do_cond_resched)
+				continue;
 			any_usable = true;
 
 			if (con->flags & CON_EXTENDED) {
