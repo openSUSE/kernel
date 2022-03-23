@@ -729,10 +729,17 @@ void __mod_memcg_lruvec_state(struct lruvec *lruvec, enum node_stat_item idx,
 	 */
 	__memcg_stats_lock();
 	if (IS_ENABLED(CONFIG_DEBUG_VM)) {
-		if (idx == NR_ANON_MAPPED || idx == NR_FILE_MAPPED)
+		switch (idx) {
+		case NR_ANON_MAPPED:
+		case NR_FILE_MAPPED:
+		case NR_ANON_THPS:
+		case NR_SHMEM_PMDMAPPED:
+		case NR_FILE_PMDMAPPED:
 			WARN_ON_ONCE(!in_task());
-		else
+			break;
+		default:
 			WARN_ON_ONCE(!irqs_disabled());
+		}
 	}
 
 	/* Update memcg */
