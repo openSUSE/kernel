@@ -348,6 +348,13 @@ static int console_msg_format = MSG_FORMAT_DEFAULT;
 /* syslog_lock protects syslog_* variables and write access to clear_seq. */
 static DEFINE_MUTEX(syslog_lock);
 
+/*
+ * A flag to signify if printk_late_init() has already started the kthread
+ * printers. If true, any later registered consoles must start their own
+ * kthread directly. The flag is write protected by the console_lock.
+ */
+static bool kthreads_started;
+
 #ifdef CONFIG_PRINTK
 static atomic_t printk_direct = ATOMIC_INIT(0);
 
@@ -372,6 +379,14 @@ void printk_direct_enter(void)
 void printk_direct_exit(void)
 {
 	atomic_dec(&printk_direct);
+}
+
+static inline bool allow_direct_printing(void)
+{
+	return (!kthreads_started ||
+		system_state != SYSTEM_RUNNING ||
+		oops_in_progress ||
+		atomic_read(&printk_direct));
 }
 
 DECLARE_WAIT_QUEUE_HEAD(log_wait);
@@ -2240,7 +2255,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 	printed_len = vprintk_store(facility, level, dev_info, fmt, args);
 
 	/* If called from the scheduler, we can not call up(). */
-	if (!in_sched) {
+	if (!in_sched && allow_direct_printing()) {
 		/*
 		 * Disable preemption to avoid being preempted while holding
 		 * console_sem which would prevent anyone from printing to
@@ -2305,6 +2320,8 @@ asmlinkage __visible int _printk(const char *fmt, ...)
 }
 EXPORT_SYMBOL(_printk);
 
+static void start_printk_kthread(struct console *con);
+
 #else /* CONFIG_PRINTK */
 
 #define CONSOLE_LOG_MAX		0
@@ -2338,6 +2355,8 @@ static void call_console_driver(struct console *con, const char *text, size_t le
 }
 static bool suppress_message_printing(int level) { return false; }
 static void printk_delay(int level) {}
+static void start_printk_kthread(struct console *con) {}
+static bool allow_direct_printing(void) { return true; }
 
 #endif /* CONFIG_PRINTK */
 
@@ -2514,6 +2533,10 @@ void resume_console(void)
 	down_console_sem();
 	console_suspended = 0;
 	console_unlock();
+
+	/* Wake the kthread printers. */
+	wake_up_klogd();
+
 	pr_flush(1000, true);
 }
 
@@ -2729,6 +2752,10 @@ static bool console_flush_all(bool do_cond_resched, u64 *next_seq, bool *handove
 	*handover = false;
 
 	do {
+		/* Let the kthread printers do the work if they can. */
+		if (!allow_direct_printing())
+			break;
+
 		any_progress = false;
 
 		for_each_console(con) {
@@ -2937,6 +2964,10 @@ void console_start(struct console *console)
 	console_lock();
 	console->flags |= CON_ENABLED;
 	console_unlock();
+
+	/* Wake the kthread printers. */
+	wake_up_klogd();
+
 	pr_flush(1000, true);
 }
 EXPORT_SYMBOL(console_start);
@@ -3128,6 +3159,8 @@ void register_console(struct console *newcon)
 		/* Begin with next message. */
 		newcon->seq = prb_next_seq(prb);
 	}
+	if (kthreads_started)
+		start_printk_kthread(newcon);
 	console_unlock();
 	console_sysfs_notify();
 
@@ -3182,6 +3215,11 @@ int unregister_console(struct console *console)
 				break;
 			}
 		}
+	}
+
+	if (console->thread) {
+		kthread_stop(console->thread);
+		console->thread = NULL;
 	}
 
 	if (res)
@@ -3290,6 +3328,13 @@ static int __init printk_late_init(void)
 					console_cpu_notify, NULL);
 	WARN_ON(ret < 0);
 	printk_sysctl_init();
+
+	console_lock();
+	for_each_console(con)
+		start_printk_kthread(con);
+	kthreads_started = true;
+	console_unlock();
+
 	return 0;
 }
 late_initcall(printk_late_init);
@@ -3360,6 +3405,116 @@ bool pr_flush(int timeout_ms, bool reset_on_progress)
 }
 EXPORT_SYMBOL(pr_flush);
 
+static bool printer_should_wake(struct console *con, u64 seq)
+{
+	short flags;
+
+	if (kthread_should_stop())
+		return true;
+
+	if (console_suspended)
+		return false;
+
+	/*
+	 * This is an unsafe read to con->flags, but false positives
+	 * are not an issue as long as they are rare.
+	 */
+	flags = data_race(READ_ONCE(con->flags));
+	if (!(flags & CON_ENABLED))
+		return false;
+
+	return prb_read_valid(prb, seq, NULL);
+}
+
+static int printk_kthread_func(void *data)
+{
+	struct console *con = data;
+	char *dropped_text = NULL;
+	char *ext_text = NULL;
+	bool progress;
+	bool handover;
+	u64 seq = 0;
+	char *text;
+	int error;
+
+	pr_info("%sconsole [%s%d]: printing thread started\n",
+		(con->flags & CON_BOOT) ? "boot" : "",
+		con->name, con->index);
+
+	text = kmalloc(CONSOLE_LOG_MAX, GFP_KERNEL);
+	if (!text)
+		goto out;
+
+	if (con->flags & CON_EXTENDED) {
+		ext_text = kmalloc(CONSOLE_EXT_LOG_MAX, GFP_KERNEL);
+		if (!ext_text)
+			goto out;
+	} else {
+		dropped_text = kmalloc(DROPPED_TEXT_MAX, GFP_KERNEL);
+		if (!dropped_text)
+			goto out;
+	}
+
+	for (;;) {
+		error = wait_event_interruptible(log_wait, printer_should_wake(con, seq));
+
+		if (kthread_should_stop())
+			break;
+
+		if (error)
+			continue;
+
+		do {
+			console_lock();
+			if (console_suspended) {
+				console_unlock();
+				break;
+			}
+
+			/*
+			 * Even though the printk kthread is always preemptible, it is
+			 * still not allowed to call cond_resched() from within
+			 * console drivers. The task may become non-preemptible in the
+			 * console driver call chain. For example, vt_console_print()
+			 * takes a spinlock and then can call into fbcon_redraw(),
+			 * which can conditionally invoke cond_resched().
+			 */
+			console_may_schedule = 0;
+			progress = console_emit_next_record(con, text, ext_text,
+							    dropped_text, &handover);
+			if (handover)
+				break;
+
+			seq = con->seq;
+
+			/* Unlock console without invoking direct printing. */
+			__console_unlock();
+		} while (progress);
+	}
+out:
+	kfree(dropped_text);
+	kfree(ext_text);
+	kfree(text);
+	pr_info("%sconsole [%s%d]: printing thread stopped\n",
+		(con->flags & CON_BOOT) ? "boot" : "",
+		con->name, con->index);
+	return 0;
+}
+
+/* Must be called within console_lock(). */
+static void start_printk_kthread(struct console *con)
+{
+	con->thread = kthread_run(printk_kthread_func, con,
+				  "pr/%s%d", con->name, con->index);
+	if (IS_ERR(con->thread)) {
+		con->thread = NULL;
+		pr_err("%sconsole [%s%d]: unable to start printing thread\n",
+			(con->flags & CON_BOOT) ? "boot" : "",
+			con->name, con->index);
+		return;
+	}
+}
+
 /*
  * Delayed printk version, for scheduler-internal messages:
  */
@@ -3386,7 +3541,7 @@ static void wake_up_klogd_work_func(struct irq_work *irq_work)
 	}
 
 	if (pending & PRINTK_PENDING_WAKEUP)
-		wake_up_interruptible(&log_wait);
+		wake_up_interruptible_all(&log_wait);
 }
 
 static DEFINE_PER_CPU(struct irq_work, wake_up_klogd_work) =
