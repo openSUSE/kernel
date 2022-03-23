@@ -876,6 +876,10 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	if (!tsk)
 		return NULL;
 
+	err = arch_dup_task_struct(tsk, orig);
+	if (err)
+		goto free_tsk;
+
 	stack = alloc_thread_stack_node(tsk, node);
 	if (!stack)
 		goto free_tsk;
@@ -884,8 +888,6 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 		goto free_stack;
 
 	stack_vm_area = task_stack_vm_area(tsk);
-
-	err = arch_dup_task_struct(tsk, orig);
 
 	/*
 	 * arch_dup_task_struct() clobbers the stack-related fields.  Make
@@ -899,9 +901,6 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 	refcount_set(&tsk->stack_refcount, 1);
 #endif
-
-	if (err)
-		goto free_stack;
 
 	err = scs_prepare(tsk, node);
 	if (err)
