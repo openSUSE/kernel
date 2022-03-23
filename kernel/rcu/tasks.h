@@ -630,12 +630,15 @@ static void rcu_tasks_wait_gp(struct rcu_tasks *rtp)
 	while (!list_empty(&holdouts)) {
 		bool firstreport;
 		bool needreport;
+		ktime_t exp;
 		int rtst;
 
 		/* Slowly back off waiting for holdouts */
 		set_tasks_gp_state(rtp, RTGS_WAIT_SCAN_HOLDOUTS);
-		schedule_timeout_idle(fract);
-
+		exp = jiffies_to_nsecs(fract);
+		__set_current_state(TASK_IDLE);
+		schedule_hrtimeout_range(&exp, jiffies_to_nsecs(HZ / 2),
+					 HRTIMER_MODE_REL_HARD);
 		if (fract < HZ)
 			fract++;
 
