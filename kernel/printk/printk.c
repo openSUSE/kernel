@@ -349,6 +349,31 @@ static int console_msg_format = MSG_FORMAT_DEFAULT;
 static DEFINE_MUTEX(syslog_lock);
 
 #ifdef CONFIG_PRINTK
+static atomic_t printk_direct = ATOMIC_INIT(0);
+
+/**
+ * printk_direct_enter - cause console printing to occur in the context of
+ *                       printk() callers
+ *
+ * This globally effects all printk() callers.
+ *
+ * Context: Any context.
+ */
+void printk_direct_enter(void)
+{
+	atomic_inc(&printk_direct);
+}
+
+/**
+ * printk_direct_exit - restore console printing behavior from direct
+ *
+ * Context: Any context.
+ */
+void printk_direct_exit(void)
+{
+	atomic_dec(&printk_direct);
+}
+
 DECLARE_WAIT_QUEUE_HEAD(log_wait);
 /* All 3 protected by @syslog_lock. */
 /* the next printk record to read by syslog(READ) or /proc/kmsg */
@@ -3340,6 +3365,7 @@ EXPORT_SYMBOL(pr_flush);
  */
 #define PRINTK_PENDING_WAKEUP	0x01
 #define PRINTK_PENDING_OUTPUT	0x02
+#define PRINTK_DIRECT_OUTPUT	0x04
 
 static DEFINE_PER_CPU(int, printk_pending);
 
@@ -3348,9 +3374,15 @@ static void wake_up_klogd_work_func(struct irq_work *irq_work)
 	int pending = __this_cpu_xchg(printk_pending, 0);
 
 	if (pending & PRINTK_PENDING_OUTPUT) {
+		if (pending & PRINTK_DIRECT_OUTPUT)
+			printk_direct_enter();
+
 		/* If trylock fails, someone else is doing the printing */
 		if (console_trylock())
 			console_unlock();
+
+		if (pending & PRINTK_DIRECT_OUTPUT)
+			printk_direct_exit();
 	}
 
 	if (pending & PRINTK_PENDING_WAKEUP)
@@ -3375,11 +3407,16 @@ void wake_up_klogd(void)
 
 void defer_console_output(void)
 {
+	int val = PRINTK_PENDING_OUTPUT;
+
 	if (!printk_percpu_data_ready())
 		return;
 
+	if (atomic_read(&printk_direct))
+		val |= PRINTK_DIRECT_OUTPUT;
+
 	preempt_disable();
-	this_cpu_or(printk_pending, PRINTK_PENDING_OUTPUT);
+	this_cpu_or(printk_pending, val);
 	irq_work_queue(this_cpu_ptr(&wake_up_klogd_work));
 	preempt_enable();
 }

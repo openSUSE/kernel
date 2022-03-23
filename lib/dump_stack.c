@@ -108,9 +108,11 @@ asmlinkage __visible void dump_stack_lvl(const char *log_lvl)
 	 * Permit this cpu to perform nested stack dumps while serialising
 	 * against other CPUs
 	 */
+	printk_direct_enter();
 	printk_cpu_sync_get_irqsave(flags);
 	__dump_stack(log_lvl);
 	printk_cpu_sync_put_irqrestore(flags);
+	printk_direct_exit();
 }
 EXPORT_SYMBOL(dump_stack_lvl);
 
