@@ -1527,7 +1527,7 @@ __be32 *xive_queue_page_alloc(unsigned int cpu, u32 queue_shift)
 static int __init xive_off(char *arg)
 {
 	xive_cmdline_disabled = true;
-	return 0;
+	return 1;
 }
 __setup("xive=off", xive_off);
 

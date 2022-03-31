@@ -32,6 +32,7 @@
 #include <linux/clk.h>
 #include <linux/component.h>
 #include <linux/of_device.h>
+#include <linux/pm_runtime.h>
 
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
@@ -42,6 +43,7 @@
 #include <drm/drm_vblank.h>
 
 #include "vc4_drv.h"
+#include "vc4_hdmi.h"
 #include "vc4_regs.h"
 
 #define HVS_FIFO_LATENCY_PIX	6
@@ -465,9 +467,12 @@ static int vc4_crtc_disable(struct drm_crtc *crtc, unsigned int channel)
 
 int vc4_crtc_disable_at_boot(struct drm_crtc *crtc)
 {
+	struct drm_encoder *encoder = vc4_get_crtc_encoder(crtc);
 	struct drm_device *drm = crtc->dev;
 	struct vc4_crtc *vc4_crtc = to_vc4_crtc(crtc);
+	struct vc4_hdmi *vc4_hdmi;
 	int channel;
+	int ret;
 
 	if (!(of_device_is_compatible(vc4_crtc->pdev->dev.of_node,
 				      "brcm,bcm2711-pixelvalve2") ||
@@ -485,7 +490,22 @@ int vc4_crtc_disable_at_boot(struct drm_crtc *crtc)
 	if (channel < 0)
 		return 0;
 
-	return vc4_crtc_disable(crtc, channel);
+	vc4_hdmi = encoder_to_vc4_hdmi(encoder);
+	ret = pm_runtime_resume_and_get(&vc4_hdmi->pdev->dev);
+	if (ret)
+		return ret;
+
+	ret = vc4_crtc_disable(crtc, channel);
+	if (ret)
+		return ret;
+
+	/*
+	 * post_crtc_powerdown will have called pm_runtime_put, so we
+	 * don't need it here otherwise we'll get the reference counting
+	 * wrong.
+	 */
+
+	return 0;
 }
 
 static void vc4_crtc_atomic_disable(struct drm_crtc *crtc,
