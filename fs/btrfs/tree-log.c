@@ -5456,11 +5456,10 @@ out_unlock:
 static bool btrfs_must_commit_transaction(struct btrfs_trans_handle *trans,
 					  struct btrfs_inode *inode)
 {
-	struct btrfs_fs_info *fs_info = inode->root->fs_info;
 	bool ret = false;
 
 	mutex_lock(&inode->log_mutex);
-	if (inode->last_unlink_trans > fs_info->last_trans_committed) {
+	if (inode->last_unlink_trans >= trans->transid) {
 		/*
 		 * Make sure any commits to the log are forced to be full
 		 * commits.
@@ -5482,8 +5481,7 @@ static bool btrfs_must_commit_transaction(struct btrfs_trans_handle *trans,
 static noinline int check_parent_dirs_for_sync(struct btrfs_trans_handle *trans,
 					       struct btrfs_inode *inode,
 					       struct dentry *parent,
-					       struct super_block *sb,
-					       u64 last_committed)
+					       struct super_block *sb)
 {
 	int ret = 0;
 	struct dentry *old_parent = NULL;
@@ -5495,8 +5493,8 @@ static noinline int check_parent_dirs_for_sync(struct btrfs_trans_handle *trans,
 	 * and other fun in this file.
 	 */
 	if (S_ISREG(inode->vfs_inode.i_mode) &&
-	    inode->generation <= last_committed &&
-	    inode->last_unlink_trans <= last_committed)
+	    inode->generation < trans->transid &&
+	    inode->last_unlink_trans < trans->transid)
 		goto out;
 
 	if (!S_ISDIR(inode->vfs_inode.i_mode)) {
@@ -6030,7 +6028,6 @@ static int btrfs_log_inode_parent(struct btrfs_trans_handle *trans,
 	struct btrfs_fs_info *fs_info = root->fs_info;
 	struct super_block *sb;
 	int ret = 0;
-	u64 last_committed = fs_info->last_trans_committed;
 	bool log_dentries = false;
 
 	sb = inode->vfs_inode.i_sb;
@@ -6055,8 +6052,7 @@ static int btrfs_log_inode_parent(struct btrfs_trans_handle *trans,
 		goto end_no_trans;
 	}
 
-	ret = check_parent_dirs_for_sync(trans, inode, parent, sb,
-			last_committed);
+	ret = check_parent_dirs_for_sync(trans, inode, parent, sb);
 	if (ret)
 		goto end_no_trans;
 
@@ -6086,8 +6082,8 @@ static int btrfs_log_inode_parent(struct btrfs_trans_handle *trans,
 	 * and other fun in this file.
 	 */
 	if (S_ISREG(inode->vfs_inode.i_mode) &&
-	    inode->generation <= last_committed &&
-	    inode->last_unlink_trans <= last_committed) {
+	    inode->generation < trans->transid &&
+	    inode->last_unlink_trans < trans->transid) {
 		ret = 0;
 		goto end_trans;
 	}
@@ -6136,7 +6132,7 @@ static int btrfs_log_inode_parent(struct btrfs_trans_handle *trans,
 	 * but the file inode does not have a matching BTRFS_INODE_REF_KEY item
 	 * and has a link count of 2.
 	 */
-	if (inode->last_unlink_trans > last_committed) {
+	if (inode->last_unlink_trans >= trans->transid) {
 		ret = btrfs_log_all_parents(trans, inode, ctx);
 		if (ret)
 			goto end_trans;
