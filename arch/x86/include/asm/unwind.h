@@ -16,7 +16,6 @@ struct unwind_state {
 	unsigned long stack_mask;
 	struct task_struct *task;
 	int graph_idx;
-	struct llist_node *kr_cur;
 	bool error;
 #if defined(CONFIG_UNWINDER_ORC)
 	bool signal, full_regs;
@@ -34,6 +33,9 @@ struct unwind_state {
 	struct pt_regs *regs;
 #else
 	unsigned long *sp;
+#endif
+#ifndef __GENKSYMS__
+	struct llist_node *kr_cur;
 #endif
 };
 
