@@ -3670,8 +3670,7 @@ static int flush_dir_items_batch(struct btrfs_trans_handle *trans,
 				 int count)
 {
 	char *ins_data = NULL;
-	struct btrfs_key *ins_keys;
-	u32 *ins_sizes;
+	struct btrfs_item_batch batch;
 	struct extent_buffer *dst;
 	struct btrfs_key key;
 	u32 item_size;
@@ -3679,13 +3678,18 @@ static int flush_dir_items_batch(struct btrfs_trans_handle *trans,
 	int i;
 
 	ASSERT(count > 0);
+	batch.nr = count;
 
 	if (count == 1) {
 		btrfs_item_key_to_cpu(src, &key, start_slot);
 		item_size = btrfs_item_size_nr(src, start_slot);
-		ins_keys = &key;
-		ins_sizes = &item_size;
+		batch.keys = &key;
+		batch.data_sizes = &item_size;
+		batch.total_data_size = item_size;
 	} else {
+		struct btrfs_key *ins_keys;
+		u32 *ins_sizes;
+
 		ins_data = kmalloc(count * sizeof(u32) +
 				   count * sizeof(struct btrfs_key), GFP_NOFS);
 		if (!ins_data)
@@ -3693,17 +3697,20 @@ static int flush_dir_items_batch(struct btrfs_trans_handle *trans,
 
 		ins_sizes = (u32 *)ins_data;
 		ins_keys = (struct btrfs_key *)(ins_data + count * sizeof(u32));
+		batch.keys = ins_keys;
+		batch.data_sizes = ins_sizes;
+		batch.total_data_size = 0;
 
 		for (i = 0; i < count; i++) {
 			const int slot = start_slot + i;
 
 			btrfs_item_key_to_cpu(src, &ins_keys[i], slot);
 			ins_sizes[i] = btrfs_item_size_nr(src, slot);
+			batch.total_data_size += ins_sizes[i];
 		}
 	}
 
-	ret = btrfs_insert_empty_items(trans, log, dst_path, ins_keys, ins_sizes,
-				       count);
+	ret = btrfs_insert_empty_items(trans, log, dst_path, &batch);
 	if (ret)
 		goto out;
 
@@ -3714,7 +3721,8 @@ static int flush_dir_items_batch(struct btrfs_trans_handle *trans,
 
 		dst_offset = btrfs_item_ptr_offset(dst, dst_path->slots[0]);
 		src_offset = btrfs_item_ptr_offset(src, start_slot + i);
-		copy_extent_buffer(dst, src, dst_offset, src_offset, ins_sizes[i]);
+		copy_extent_buffer(dst, src, dst_offset, src_offset,
+				   batch.data_sizes[i]);
 		dst_path->slots[0]++;
 	}
 	btrfs_release_path(dst_path);
@@ -4324,6 +4332,7 @@ static noinline int copy_items(struct btrfs_trans_handle *trans,
 	int ret;
 	struct btrfs_key *ins_keys;
 	u32 *ins_sizes;
+	struct btrfs_item_batch batch;
 	char *ins_data;
 	int i;
 	struct list_head ordered_sums;
@@ -4338,13 +4347,17 @@ static noinline int copy_items(struct btrfs_trans_handle *trans,
 
 	ins_sizes = (u32 *)ins_data;
 	ins_keys = (struct btrfs_key *)(ins_data + nr * sizeof(u32));
+	batch.keys = ins_keys;
+	batch.data_sizes = ins_sizes;
+	batch.total_data_size = 0;
+	batch.nr = nr;
 
 	for (i = 0; i < nr; i++) {
 		ins_sizes[i] = btrfs_item_size_nr(src, i + start_slot);
+		batch.total_data_size += ins_sizes[i];
 		btrfs_item_key_to_cpu(src, ins_keys + i, i + start_slot);
 	}
-	ret = btrfs_insert_empty_items(trans, log, dst_path,
-				       ins_keys, ins_sizes, nr);
+	ret = btrfs_insert_empty_items(trans, log, dst_path, &batch);
 	if (ret) {
 		kfree(ins_data);
 		return ret;
