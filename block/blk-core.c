@@ -397,8 +397,10 @@ void blk_cleanup_queue(struct request_queue *q)
 	del_timer_sync(&q->backing_dev_info->laptop_mode_wb_timer);
 	blk_sync_queue(q);
 
-	if (queue_is_mq(q))
+	if (queue_is_mq(q)) {
+		blk_mq_cancel_work_sync(q);
 		blk_mq_exit_queue(q);
+	}
 
 	/*
 	 * In theory, request pool of sched_tags belongs to request queue.
@@ -881,10 +883,8 @@ static noinline_for_stack bool submit_bio_checks(struct bio *bio)
 	if (unlikely(!current->io_context))
 		create_task_io_context(current, GFP_ATOMIC, q->node);
 
-	if (blk_throtl_bio(bio)) {
-		blkcg_bio_issue_init(bio);
+	if (blk_throtl_bio(bio))
 		return false;
-	}
 
 	blk_cgroup_bio_start(bio);
 	blkcg_bio_issue_init(bio);
@@ -1234,8 +1234,7 @@ unsigned int blk_rq_err_bytes(const struct request *rq)
 }
 EXPORT_SYMBOL_GPL(blk_rq_err_bytes);
 
-static void update_io_ticks(struct block_device *part, unsigned long now,
-		bool end)
+void update_io_ticks(struct block_device *part, unsigned long now, bool end)
 {
 	unsigned long stamp;
 again:
@@ -1583,6 +1582,7 @@ int blk_rq_prep_clone(struct request *rq, struct request *rq_src,
 		bio = bio_clone_fast(bio_src, gfp_mask, bs);
 		if (!bio)
 			goto free_and_out;
+		bio->bi_bdev = rq->rq_disk->part0;
 
 		if (bio_ctr && bio_ctr(bio, bio_src, data))
 			goto free_and_out;

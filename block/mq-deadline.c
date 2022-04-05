@@ -677,8 +677,10 @@ static void dd_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 	blk_req_zone_write_unlock(rq);
 
 	prio = ioprio_class_to_prio[ioprio_class];
-	dd_count(dd, inserted, prio);
-	rq->elv.priv[0] = (void *)(uintptr_t)1;
+	if (!rq->elv.priv[0]) {
+		dd_count(dd, inserted, prio);
+		rq->elv.priv[0] = (void *)(uintptr_t)1;
+	}
 
 	if (blk_mq_sched_try_insert_merge(q, rq, &free)) {
 		blk_mq_free_requests(&free);
@@ -759,12 +761,13 @@ static void dd_finish_request(struct request *rq)
 
 	/*
 	 * The block layer core may call dd_finish_request() without having
-	 * called dd_insert_requests(). Hence only update statistics for
-	 * requests for which dd_insert_requests() has been called. See also
-	 * blk_mq_request_bypass_insert().
+	 * called dd_insert_requests(). Skip requests that bypassed I/O
+	 * scheduling. See also blk_mq_request_bypass_insert().
 	 */
-	if (rq->elv.priv[0])
-		dd_count(dd, completed, prio);
+	if (!rq->elv.priv[0])
+		return;
+
+	dd_count(dd, completed, prio);
 
 	if (blk_queue_is_zoned(q)) {
 		unsigned long flags;
@@ -811,7 +814,7 @@ SHOW_JIFFIES(deadline_read_expire_show, dd->fifo_expire[DD_READ]);
 SHOW_JIFFIES(deadline_write_expire_show, dd->fifo_expire[DD_WRITE]);
 SHOW_INT(deadline_writes_starved_show, dd->writes_starved);
 SHOW_INT(deadline_front_merges_show, dd->front_merges);
-SHOW_INT(deadline_async_depth_show, dd->front_merges);
+SHOW_INT(deadline_async_depth_show, dd->async_depth);
 SHOW_INT(deadline_fifo_batch_show, dd->fifo_batch);
 #undef SHOW_INT
 #undef SHOW_JIFFIES
@@ -840,7 +843,7 @@ STORE_JIFFIES(deadline_read_expire_store, &dd->fifo_expire[DD_READ], 0, INT_MAX)
 STORE_JIFFIES(deadline_write_expire_store, &dd->fifo_expire[DD_WRITE], 0, INT_MAX);
 STORE_INT(deadline_writes_starved_store, &dd->writes_starved, INT_MIN, INT_MAX);
 STORE_INT(deadline_front_merges_store, &dd->front_merges, 0, 1);
-STORE_INT(deadline_async_depth_store, &dd->front_merges, 1, INT_MAX);
+STORE_INT(deadline_async_depth_store, &dd->async_depth, 1, INT_MAX);
 STORE_INT(deadline_fifo_batch_store, &dd->fifo_batch, 0, INT_MAX);
 #undef STORE_FUNCTION
 #undef STORE_INT
