@@ -886,7 +886,6 @@ static int iterate_inode_ref(struct btrfs_root *root, struct btrfs_path *path,
 			     iterate_inode_ref_t iterate, void *ctx)
 {
 	struct extent_buffer *eb = path->nodes[0];
-	struct btrfs_item *item;
 	struct btrfs_inode_ref *iref;
 	struct btrfs_inode_extref *extref;
 	struct btrfs_path *tmp_path;
@@ -918,12 +917,11 @@ static int iterate_inode_ref(struct btrfs_root *root, struct btrfs_path *path,
 	if (found_key->type == BTRFS_INODE_REF_KEY) {
 		ptr = (unsigned long)btrfs_item_ptr(eb, slot,
 						    struct btrfs_inode_ref);
-		item = btrfs_item_nr(slot);
-		total = btrfs_item_size(eb, item);
+		total = btrfs_item_size(eb, slot);
 		elem_size = sizeof(*iref);
 	} else {
 		ptr = btrfs_item_ptr_offset(eb, slot);
-		total = btrfs_item_size_nr(eb, slot);
+		total = btrfs_item_size(eb, slot);
 		elem_size = sizeof(*extref);
 	}
 
@@ -1006,7 +1004,6 @@ static int iterate_dir_item(struct btrfs_root *root, struct btrfs_path *path,
 {
 	int ret = 0;
 	struct extent_buffer *eb;
-	struct btrfs_item *item;
 	struct btrfs_dir_item *di;
 	struct btrfs_key di_key;
 	char *buf = NULL;
@@ -1035,11 +1032,10 @@ static int iterate_dir_item(struct btrfs_root *root, struct btrfs_path *path,
 
 	eb = path->nodes[0];
 	slot = path->slots[0];
-	item = btrfs_item_nr(slot);
 	di = btrfs_item_ptr(eb, slot, struct btrfs_dir_item);
 	cur = 0;
 	len = 0;
-	total = btrfs_item_size(eb, item);
+	total = btrfs_item_size(eb, slot);
 
 	num = 0;
 	while (cur < total) {
@@ -1198,7 +1194,7 @@ struct backref_ctx {
 static int __clone_root_cmp_bsearch(const void *key, const void *elt)
 {
 	u64 root = (u64)(uintptr_t)key;
-	struct clone_root *cr = (struct clone_root *)elt;
+	const struct clone_root *cr = elt;
 
 	if (root < cr->root->root_key.objectid)
 		return -1;
@@ -1209,8 +1205,8 @@ static int __clone_root_cmp_bsearch(const void *key, const void *elt)
 
 static int __clone_root_cmp_sort(const void *e1, const void *e2)
 {
-	struct clone_root *cr1 = (struct clone_root *)e1;
-	struct clone_root *cr2 = (struct clone_root *)e2;
+	const struct clone_root *cr1 = e1;
+	const struct clone_root *cr2 = e2;
 
 	if (cr1->root->root_key.objectid < cr2->root->root_key.objectid)
 		return -1;
@@ -3624,7 +3620,7 @@ static int is_ancestor(struct btrfs_root *root,
 		    key.type != BTRFS_INODE_EXTREF_KEY)
 			break;
 
-		item_size = btrfs_item_size_nr(leaf, slot);
+		item_size = btrfs_item_size(leaf, slot);
 		while (cur_offset < item_size) {
 			u64 parent;
 			u64 parent_gen;
@@ -6568,7 +6564,7 @@ static int compare_refs(struct send_ctx *sctx, struct btrfs_path *path,
 	}
 
 	leaf = path->nodes[0];
-	item_size = btrfs_item_size_nr(leaf, path->slots[0]);
+	item_size = btrfs_item_size(leaf, path->slots[0]);
 	ptr = btrfs_item_ptr_offset(leaf, path->slots[0]);
 	while (cur_offset < item_size) {
 		extref = (struct btrfs_inode_extref *)(ptr +
@@ -6793,8 +6789,8 @@ static int tree_compare_item(struct btrfs_path *left_path,
 	int len1, len2;
 	unsigned long off1, off2;
 
-	len1 = btrfs_item_size_nr(left_path->nodes[0], left_path->slots[0]);
-	len2 = btrfs_item_size_nr(right_path->nodes[0], right_path->slots[0]);
+	len1 = btrfs_item_size(left_path->nodes[0], left_path->slots[0]);
+	len2 = btrfs_item_size(right_path->nodes[0], right_path->slots[0]);
 	if (len1 != len2)
 		return 1;
 
