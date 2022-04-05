@@ -591,6 +591,20 @@ static inline bool dma_addressing_limited(struct device *dev)
 			    dma_get_required_mask(dev);
 }
 
+#ifdef CONFIG_ARCH_HAS_DMA_MAP_DIRECT
+bool arch_dma_map_page_direct(struct device *dev, phys_addr_t addr);
+bool arch_dma_unmap_page_direct(struct device *dev, dma_addr_t dma_handle);
+bool arch_dma_map_sg_direct(struct device *dev, struct scatterlist *sg,
+		int nents);
+bool arch_dma_unmap_sg_direct(struct device *dev, struct scatterlist *sg,
+		int nents);
+#else
+#define arch_dma_map_page_direct(d, a)		(false)
+#define arch_dma_unmap_page_direct(d, a)	(false)
+#define arch_dma_map_sg_direct(d, s, n)		(false)
+#define arch_dma_unmap_sg_direct(d, s, n)	(false)
+#endif
+
 #ifdef CONFIG_ARCH_HAS_SETUP_DMA_OPS
 void arch_setup_dma_ops(struct device *dev, u64 dma_base, u64 size,
 		const struct iommu_ops *iommu, bool coherent);

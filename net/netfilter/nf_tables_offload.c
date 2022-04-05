@@ -3,6 +3,7 @@
 #include <linux/module.h>
 #include <linux/netfilter.h>
 #include <net/flow_offload.h>
+#include <net/netfilter/nf_tables_core.h>
 #include <net/netfilter/nf_tables.h>
 #include <net/netfilter/nf_tables_offload.h>
 #include <net/pkt_cls.h>
@@ -41,6 +42,13 @@ struct nft_flow_rule *nft_flow_rule_create(struct net *net,
 		if (expr->ops->offload_flags & NFT_OFFLOAD_F_ACTION)
 			num_actions++;
 
+		if (expr->ops->offload_flags & NFT_OFFLOAD_F_VERDICT) {
+			const struct nft_immediate_expr *priv =
+							nft_expr_priv(expr);
+
+			if (priv->dreg == NFT_REG_VERDICT)
+				num_actions++;
+		}
 		expr = nft_expr_next(expr);
 	}
 

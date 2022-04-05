@@ -174,6 +174,9 @@ typedef struct rndis_params {
 	void			(*resp_avail)(void *v);
 	void			*v;
 	struct list_head	resp_queue;
+#ifndef __GENKSYMS__
+	spinlock_t		resp_lock;
+#endif
 } rndis_params;
 
 /* RNDIS Message parser and other useless functions */

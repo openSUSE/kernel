@@ -218,6 +218,7 @@ static const struct nft_expr_ops nft_fwd_netdev_ops = {
 	.dump		= nft_fwd_netdev_dump,
 	.validate	= nft_fwd_validate,
 	.offload	= nft_fwd_netdev_offload,
+	.offload_flags	= NFT_OFFLOAD_F_ACTION,
 };
 
 static const struct nft_expr_ops *

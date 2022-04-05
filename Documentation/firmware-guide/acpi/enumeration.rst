@@ -19,16 +19,17 @@ possible we decided to do following:
     platform devices.
 
   - Devices behind real busses where there is a connector resource
-    are represented as struct spi_device or struct i2c_device
-    (standard UARTs are not busses so there is no struct uart_device).
+    are represented as struct spi_device or struct i2c_device. Note
+    that standard UARTs are not busses so there is no struct uart_device,
+    although some of them may be represented by sturct serdev_device.
 
 As both ACPI and Device Tree represent a tree of devices (and their
 resources) this implementation follows the Device Tree way as much as
 possible.
 
-The ACPI implementation enumerates devices behind busses (platform, SPI and
-I2C), creates the physical devices and binds them to their ACPI handle in
-the ACPI namespace.
+The ACPI implementation enumerates devices behind busses (platform, SPI,
+I2C, and in some cases UART), creates the physical devices and binds them
+to their ACPI handle in the ACPI namespace.
 
 This means that when ACPI_HANDLE(dev) returns non-NULL the device was
 enumerated from ACPI namespace. This handle can be used to extract other
@@ -188,43 +189,37 @@ to at25 SPI eeprom driver (this is meant for the above ACPI snippet)::
 	};
 
 Note that this driver actually needs more information like page size of the
-eeprom etc. but at the time writing this there is no standard way of
-passing those. One idea is to return this in _DSM method like::
+eeprom, etc. This information can be passed via _DSD method like::
 
 	Device (EEP0)
 	{
 		...
-		Method (_DSM, 4, NotSerialized)
+		Name (_DSD, Package ()
 		{
-			Store (Package (6)
+			ToUUID("daffd814-6eba-4d8c-8a91-bc9bbf4aa301"),
+			Package ()
 			{
-				"byte-len", 1024,
-				"addr-mode", 2,
-				"page-size, 32
-			}, Local0)
+				Package () { "size", 1024 },
+				Package () { "pagesize", 32 },
+				Package () { "address-width", 16 },
+			}
+		})
+	}
 
-			// Check UUIDs etc.
+Then the at25 SPI driver can get this configuration by calling device property
+APIs during ->probe() phase like::
 
-			Return (Local0)
-		}
+	err = device_property_read_u32(dev, "size", &size);
+	if (err)
+		...error handling...
 
-Then the at25 SPI driver can get this configuration by calling _DSM on its
-ACPI handle like::
+	err = device_property_read_u32(dev, "pagesize", &page_size);
+	if (err)
+		...error handling...
 
-	struct acpi_buffer output = { ACPI_ALLOCATE_BUFFER, NULL };
-	struct acpi_object_list input;
-	acpi_status status;
-
-	/* Fill in the input buffer */
-
-	status = acpi_evaluate_object(ACPI_HANDLE(&spi->dev), "_DSM",
-				      &input, &output);
-	if (ACPI_FAILURE(status))
-		/* Handle the error */
-
-	/* Extract the data here */
-
-	kfree(output.pointer);
+	err = device_property_read_u32(dev, "address-width", &addr_width);
+	if (err)
+		...error handling...
 
 I2C serial bus support
 ======================
@@ -248,7 +243,6 @@ input driver::
 	static struct i2c_driver mpu3050_i2c_driver = {
 		.driver	= {
 			.name	= "mpu3050",
-			.owner	= THIS_MODULE,
 			.pm	= &mpu3050_pm,
 			.of_match_table = mpu3050_of_match,
 			.acpi_match_table = ACPI_PTR(mpu3050_acpi_match),
@@ -257,6 +251,7 @@ input driver::
 		.remove		= mpu3050_remove,
 		.id_table	= mpu3050_ids,
 	};
+	module_i2c_driver(mpu3050_i2c_driver);
 
 GPIO support
 ============

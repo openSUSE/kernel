@@ -3285,14 +3285,15 @@ static void kill_all_requests(struct dwc2_hsotg *hsotg,
 			      struct dwc2_hsotg_ep *ep,
 			      int result)
 {
-	struct dwc2_hsotg_req *req, *treq;
 	unsigned int size;
 
 	ep->req = NULL;
 
-	list_for_each_entry_safe(req, treq, &ep->queue, queue)
-		dwc2_hsotg_complete_request(hsotg, ep, req,
-					    result);
+	while (!list_empty(&ep->queue)) {
+		struct dwc2_hsotg_req *req = get_ep_head(ep);
+
+		dwc2_hsotg_complete_request(hsotg, ep, req, result);
+	}
 
 	if (!hsotg->dedicated_fifos)
 		return;
@@ -3844,14 +3845,25 @@ irq_retry:
 		for (idx = 1; idx < hsotg->num_of_eps; idx++) {
 			hs_ep = hsotg->eps_out[idx];
 			/* Proceed only unmasked ISOC EPs */
-			if ((BIT(idx) & ~daintmsk) || !hs_ep->isochronous)
+			if (BIT(idx) & ~daintmsk)
 				continue;
 
 			epctrl = dwc2_readl(hsotg, DOEPCTL(idx));
 
-			if (epctrl & DXEPCTL_EPENA) {
+			//ISOC Ep's only
+			if ((epctrl & DXEPCTL_EPENA) && hs_ep->isochronous) {
 				epctrl |= DXEPCTL_SNAK;
 				epctrl |= DXEPCTL_EPDIS;
+				dwc2_writel(hsotg, epctrl, DOEPCTL(idx));
+				continue;
+			}
+
+			//Non-ISOC EP's
+			if (hs_ep->halted) {
+				if (!(epctrl & DXEPCTL_EPENA))
+					epctrl |= DXEPCTL_EPENA;
+				epctrl |= DXEPCTL_EPDIS;
+				epctrl |= DXEPCTL_STALL;
 				dwc2_writel(hsotg, epctrl, DOEPCTL(idx));
 			}
 		}
@@ -3923,8 +3935,26 @@ static void dwc2_hsotg_ep_stop_xfr(struct dwc2_hsotg *hsotg,
 					 __func__);
 		}
 	} else {
+		/* Mask GINTSTS_GOUTNAKEFF interrupt */
+		dwc2_hsotg_disable_gsint(hsotg, GINTSTS_GOUTNAKEFF);
+
 		if (!(dwc2_readl(hsotg, GINTSTS) & GINTSTS_GOUTNAKEFF))
 			dwc2_set_bit(hsotg, DCTL, DCTL_SGOUTNAK);
+
+		if (!using_dma(hsotg)) {
+			/* Wait for GINTSTS_RXFLVL interrupt */
+			if (dwc2_hsotg_wait_bit_set(hsotg, GINTSTS,
+						    GINTSTS_RXFLVL, 100)) {
+				dev_warn(hsotg->dev, "%s: timeout GINTSTS.RXFLVL\n",
+					 __func__);
+			} else {
+				/*
+				 * Pop GLOBAL OUT NAK status packet from RxFIFO
+				 * to assert GOUTNAKEFF interrupt
+				 */
+				dwc2_readl(hsotg, GRXSTSP);
+			}
+		}
 
 		/* Wait for global nak to take effect */
 		if (dwc2_hsotg_wait_bit_set(hsotg, GINTSTS,
@@ -4372,19 +4402,23 @@ static int dwc2_hsotg_ep_sethalt(struct usb_ep *ep, int value, bool now)
 		epctl = dwc2_readl(hs, epreg);
 
 		if (value) {
-			epctl |= DXEPCTL_STALL;
+			/* Unmask GOUTNAKEFF interrupt */
+			dwc2_hsotg_en_gsint(hs, GINTSTS_GOUTNAKEFF);
+
+			if (!(dwc2_readl(hs, GINTSTS) & GINTSTS_GOUTNAKEFF))
+				dwc2_set_bit(hs, DCTL, DCTL_SGOUTNAK);
+			// STALL bit will be set in GOUTNAKEFF interrupt handler
 		} else {
 			epctl &= ~DXEPCTL_STALL;
 			xfertype = epctl & DXEPCTL_EPTYPE_MASK;
 			if (xfertype == DXEPCTL_EPTYPE_BULK ||
 			    xfertype == DXEPCTL_EPTYPE_INTERRUPT)
 				epctl |= DXEPCTL_SETD0PID;
+			dwc2_writel(hs, epctl, epreg);
 		}
-		dwc2_writel(hs, epctl, epreg);
 	}
 
 	hs_ep->halted = value;
-
 	return 0;
 }
 

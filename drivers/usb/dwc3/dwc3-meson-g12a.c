@@ -477,7 +477,7 @@ static int dwc3_meson_g12a_probe(struct platform_device *pdev)
 	for (i = 0 ; i < PHY_COUNT ; ++i) {
 		ret = phy_power_on(priv->phys[i]);
 		if (ret)
-			goto err_phys_exit;
+			goto err_disable_regulator;
 	}
 
 	ret = of_platform_populate(np, NULL, NULL, dev);
@@ -514,6 +514,9 @@ static int dwc3_meson_g12a_probe(struct platform_device *pdev)
 
 	return 0;
 
+err_disable_regulator:
+	if (priv->vbus)
+		regulator_disable(priv->vbus);
 err_phys_power:
 	for (i = 0 ; i < PHY_COUNT ; ++i)
 		phy_power_off(priv->phys[i]);

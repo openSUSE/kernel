@@ -555,10 +555,12 @@ static int smc_connect_decline_fallback(struct smc_sock *smc, int reason_code,
 
 static void smc_conn_abort(struct smc_sock *smc, int local_first)
 {
+	struct smc_connection *conn = &smc->conn;
+	struct smc_link_group *lgr = conn->lgr;
+
+	smc_conn_free(conn);
 	if (local_first)
-		smc_lgr_cleanup_early(&smc->conn);
-	else
-		smc_conn_free(&smc->conn);
+		smc_lgr_cleanup_early(lgr);
 }
 
 /* check if there is a rdma device available for this connection. */
@@ -1875,8 +1877,10 @@ static int smc_listen(struct socket *sock, int backlog)
 	smc->clcsock->sk->sk_user_data =
 		(void *)((uintptr_t)smc | SK_USER_DATA_NOCOPY);
 	rc = kernel_listen(smc->clcsock, backlog);
-	if (rc)
+	if (rc) {
+		smc->clcsock->sk->sk_data_ready = smc->clcsk_data_ready;
 		goto out;
+	}
 	sk->sk_max_ack_backlog = backlog;
 	sk->sk_ack_backlog = 0;
 	sk->sk_state = SMC_LISTEN;

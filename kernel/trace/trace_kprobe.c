@@ -31,7 +31,7 @@ static bool kprobe_boot_events_enabled __initdata;
 static int __init set_kprobe_boot_events(char *str)
 {
 	strlcpy(kprobe_boot_events_buf, str, COMMAND_LINE_SIZE);
-	return 0;
+	return 1;
 }
 __setup("kprobe_event=", set_kprobe_boot_events);
 
