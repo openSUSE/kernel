@@ -29,7 +29,7 @@
 #define DEBUGP(fmt , ...)
 #endif
 
-#define PLT_ENTRY_SIZE 20
+#define PLT_ENTRY_SIZE 22
 
 void *module_alloc(unsigned long size)
 {
@@ -320,25 +320,25 @@ static int apply_rela(Elf_Rela *rela, Elf_Addr base, Elf_Sym *symtab,
 	case R_390_PLTOFF32:	/* 32 bit offset from GOT to PLT. */
 	case R_390_PLTOFF64:	/* 16 bit offset from GOT to PLT. */
 		if (info->plt_initialized == 0) {
-			unsigned int *ip;
-			ip = me->core_layout.base + me->arch.plt_offset +
-				info->plt_offset;
-			ip[0] = 0x0d10e310;	/* basr 1,0  */
-			ip[1] = 0x100a0004;	/* lg	1,10(1) */
+			char *plt_base;
+			char *ip;
+
+			plt_base = me->core_layout.base + me->arch.plt_offset;
+			ip = plt_base + info->plt_offset;
+			*(int *)ip = 0x0d10e310;	/* basr 1,0  */
+			*(int *)&ip[4] = 0x100c0004;	/* lg	1,12(1) */
 			if (IS_ENABLED(CONFIG_EXPOLINE) && !nospec_disable) {
-				unsigned int *ij;
-				ij = me->core_layout.base +
-					me->arch.plt_offset +
-					me->arch.plt_size - PLT_ENTRY_SIZE;
-				ip[2] = 0xa7f40000 +	/* j __jump_r1 */
-					(unsigned int)(u16)
-					(((unsigned long) ij - 8 -
-					  (unsigned long) ip) / 2);
+				char *jump_r1;
+
+				jump_r1 = plt_base + me->arch.plt_size -
+					PLT_ENTRY_SIZE;
+				/* brcl	0xf,__jump_r1 */
+				*(short *)&ip[8] = 0xc0f4;
+				*(int *)&ip[10] = (jump_r1 - (ip + 8)) / 2;
 			} else {
-				ip[2] = 0x07f10000;	/* br %r1 */
+				*(int *)&ip[8] = 0x07f10000;	/* br %r1 */
 			}
-			ip[3] = (unsigned int) (val >> 32);
-			ip[4] = (unsigned int) val;
+			*(long *)&ip[14] = val;
 			info->plt_initialized = 1;
 		}
 		if (r_type == R_390_PLTOFF16 ||
