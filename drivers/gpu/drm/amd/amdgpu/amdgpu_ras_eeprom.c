@@ -615,7 +615,7 @@ free_buff:
 	return ret == num ? 0 : -EIO;
 }
 
-inline uint32_t amdgpu_ras_eeprom_get_record_max_length(void)
+uint32_t amdgpu_ras_eeprom_get_record_max_length(void)
 {
 	return EEPROM_MAX_RECORD_NUM;
 }

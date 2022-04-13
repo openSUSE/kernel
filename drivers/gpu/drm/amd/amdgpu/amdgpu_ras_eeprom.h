@@ -87,7 +87,7 @@ int amdgpu_ras_eeprom_process_recods(struct amdgpu_ras_eeprom_control *control,
 					    bool write,
 					    int num);
 
-inline uint32_t amdgpu_ras_eeprom_get_record_max_length(void);
+uint32_t amdgpu_ras_eeprom_get_record_max_length(void);
 
 void amdgpu_ras_eeprom_test(struct amdgpu_ras_eeprom_control *control);
 
