@@ -247,10 +247,12 @@ static void __up_console_sem(unsigned long ip)
 }
 #define up_console_sem() __up_console_sem(_RET_IP_)
 
+#ifndef CONFIG_PREEMPT_RT
 static bool panic_in_progress(void)
 {
 	return unlikely(atomic_read(&panic_cpu) != PANIC_CPU_INVALID);
 }
+#endif
 
 /*
  * This is used for debugging the mess that is the VT code by
