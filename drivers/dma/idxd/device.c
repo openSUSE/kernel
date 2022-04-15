@@ -703,8 +703,13 @@ static void idxd_groups_clear_state(struct idxd_device *idxd)
 		group->use_token_limit = false;
 		group->tokens_allowed = 0;
 		group->tokens_reserved = 0;
-		group->tc_a = -1;
-		group->tc_b = -1;
+		if (idxd->hw.version < DEVICE_VERSION_2 && !tc_override) {
+			group->tc_a = 1;
+			group->tc_b = 1;
+		} else {
+			group->tc_a = -1;
+			group->tc_b = -1;
+		}
 	}
 }
 
@@ -801,7 +806,7 @@ static int idxd_groups_config_write(struct idxd_device *idxd)
 	struct device *dev = &idxd->pdev->dev;
 
 	/* Setup bandwidth token limit */
-	if (idxd->token_limit) {
+	if (idxd->hw.gen_cap.config_en && idxd->token_limit) {
 		reg.bits = ioread32(idxd->reg_base + IDXD_GENCFG_OFFSET);
 		reg.token_limit = idxd->token_limit;
 		iowrite32(reg.bits, idxd->reg_base + IDXD_GENCFG_OFFSET);

@@ -246,6 +246,8 @@ static inline bool blk_do_io_stat(struct request *rq)
 	return rq->rq_disk && (rq->rq_flags & RQF_IO_STAT);
 }
 
+void update_io_ticks(struct block_device *part, unsigned long now, bool end);
+
 static inline void req_set_nomerge(struct request_queue *q, struct request *req)
 {
 	req->cmd_flags |= REQ_NOMERGE;

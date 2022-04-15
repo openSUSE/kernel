@@ -654,11 +654,8 @@ xlog_cil_push_work(
 	struct xfs_trans_header thdr;
 	struct xfs_log_iovec	lhdr;
 	struct xfs_log_vec	lvhdr = { NULL };
-	xfs_lsn_t		preflush_tail_lsn;
 	xfs_lsn_t		commit_lsn;
 	xfs_csn_t		push_seq;
-	struct bio		bio;
-	DECLARE_COMPLETION_ONSTACK(bdev_flush);
 
 	new_ctx = kmem_zalloc(sizeof(*new_ctx), KM_NOFS);
 	new_ctx->ticket = xlog_cil_ticket_alloc(log);
@@ -725,23 +722,6 @@ xlog_cil_push_work(
 	 */
 	list_add(&ctx->committing, &cil->xc_committing);
 	spin_unlock(&cil->xc_push_lock);
-
-	/*
-	 * The CIL is stable at this point - nothing new will be added to it
-	 * because we hold the flush lock exclusively. Hence we can now issue
-	 * a cache flush to ensure all the completed metadata in the journal we
-	 * are about to overwrite is on stable storage.
-	 *
-	 * Because we are issuing this cache flush before we've written the
-	 * tail lsn to the iclog, we can have metadata IO completions move the
-	 * tail forwards between the completion of this flush and the iclog
-	 * being written. In this case, we need to re-issue the cache flush
-	 * before the iclog write. To detect whether the log tail moves, sample
-	 * the tail LSN *before* we issue the flush.
-	 */
-	preflush_tail_lsn = atomic64_read(&log->l_tail_lsn);
-	xfs_flush_bdev_async(&bio, log->l_mp->m_ddev_targp->bt_bdev,
-				&bdev_flush);
 
 	/*
 	 * Pull all the log vectors off the items in the CIL, and remove the
@@ -815,7 +795,8 @@ xlog_cil_push_work(
 	 *
 	 * The LSN we need to pass to the log items on transaction commit is
 	 * the LSN reported by the first log vector write. If we use the commit
-	 * record lsn then we can move the tail beyond the grant write head.
+	 * record lsn then we can move the grant write head beyond the tail LSN
+	 * and overwrite it.
 	 */
 	tic = ctx->ticket;
 	thdr.th_magic = XFS_TRANS_HEADER_MAGIC;
@@ -830,12 +811,6 @@ xlog_cil_push_work(
 	lvhdr.lv_niovecs = 1;
 	lvhdr.lv_iovecp = &lhdr;
 	lvhdr.lv_next = ctx->lv_chain;
-
-	/*
-	 * Before we format and submit the first iclog, we have to ensure that
-	 * the metadata writeback ordering cache flush is complete.
-	 */
-	wait_for_completion(&bdev_flush);
 
 	error = xlog_write(log, &lvhdr, tic, &ctx->start_lsn, NULL,
 				XLOG_START_TRANS);
@@ -950,7 +925,7 @@ restart:
 	 * storage.
 	 */
 	commit_iclog->ic_flags |= XLOG_ICL_NEED_FUA;
-	xlog_state_release_iclog(log, commit_iclog, preflush_tail_lsn);
+	xlog_state_release_iclog(log, commit_iclog);
 	spin_unlock(&log->l_icloglock);
 	return;
 

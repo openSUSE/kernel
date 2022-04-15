@@ -341,6 +341,20 @@ static void i915_ttm_purge(struct drm_i915_gem_object *obj)
 	}
 }
 
+static void i915_ttm_truncate(struct drm_i915_gem_object *obj)
+{
+	struct ttm_buffer_object *bo = i915_gem_to_ttm(obj);
+	int err;
+
+	WARN_ON_ONCE(obj->mm.madv == I915_MADV_WILLNEED);
+
+	err = i915_ttm_move_notify(bo);
+	if (err)
+		return;
+
+	i915_ttm_purge(obj);
+}
+
 static void i915_ttm_swap_notify(struct ttm_buffer_object *bo)
 {
 	struct drm_i915_gem_object *obj = i915_ttm_to_gem(bo);
@@ -863,7 +877,7 @@ static const struct drm_i915_gem_object_ops i915_gem_ttm_obj_ops = {
 
 	.get_pages = i915_ttm_get_pages,
 	.put_pages = i915_ttm_put_pages,
-	.truncate = i915_ttm_purge,
+	.truncate = i915_ttm_truncate,
 	.adjust_lru = i915_ttm_adjust_lru,
 	.delayed_free = i915_ttm_delayed_free,
 	.migrate = i915_ttm_migrate,
