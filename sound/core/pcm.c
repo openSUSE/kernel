@@ -916,6 +916,8 @@ int snd_pcm_attach_substream(struct snd_pcm *pcm, int stream,
 	init_waitqueue_head(&runtime->tsleep);
 
 	runtime->status->state = SNDRV_PCM_STATE_OPEN;
+	mutex_init(&runtime->buffer_mutex);
+	runtime->buffer_accessing = 0;
 
 	substream->runtime = runtime;
 	substream->private_data = pcm->private_data;
@@ -945,6 +947,7 @@ void snd_pcm_detach_substream(struct snd_pcm_substream *substream)
 	if (runtime->hwptr_log)
 		kfree(runtime->hwptr_log);
 #endif
+	mutex_destroy(&runtime->buffer_mutex);
 	kfree(runtime);
 	substream->runtime = NULL;
 	put_pid(substream->pid);
