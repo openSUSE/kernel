@@ -526,14 +526,6 @@ out_put:
 	return r;
 }
 
-uint64_t amdgpu_amdkfd_get_vram_usage(struct kgd_dev *kgd)
-{
-	struct amdgpu_device *adev = (struct amdgpu_device *)kgd;
-	struct ttm_resource_manager *vram_man = ttm_manager_type(&adev->mman.bdev, TTM_PL_VRAM);
-
-	return amdgpu_vram_mgr_usage(vram_man);
-}
-
 uint64_t amdgpu_amdkfd_get_hive_id(struct kgd_dev *kgd)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)kgd;
