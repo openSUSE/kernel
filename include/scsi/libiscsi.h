@@ -52,8 +52,18 @@ enum {
 
 #define ISID_SIZE			6
 
+/*
+ * the "suspend" bit is used for the suspend_rx and
+ * suspend_tx fields, for kABI compatability, and
+ * the newer "bound" flag uses the newer "flags"
+ * field
+ */
+
 /* Connection suspend "bit" */
 #define ISCSI_SUSPEND_BIT		1
+
+/* Connection flags */
+#define ISCSI_CONN_FLAG_BOUND		BIT(2)
 
 #define ISCSI_ITT_MASK			0x1fff
 #define ISCSI_TOTAL_CMDS_MAX		4096
@@ -244,6 +254,9 @@ struct iscsi_conn {
 	/* custom statistics */
 	uint32_t		eh_abort_cnt;
 	uint32_t		fmr_unalign_cnt;
+#ifndef __GENKSYMS__
+	unsigned long		flags;		/* ISCSI_CONN_FLAGs */
+#endif
 };
 
 struct iscsi_pool {
