@@ -1480,7 +1480,6 @@ static irqreturn_t phy_up_v3_hw(int phy_no, struct hisi_hba *hisi_hba)
 	struct hisi_sas_phy *phy = &hisi_hba->phy[phy_no];
 	struct asd_sas_phy *sas_phy = &phy->sas_phy;
 	struct device *dev = hisi_hba->dev;
-	unsigned long flags;
 
 	del_timer(&phy->timer);
 	hisi_sas_phy_write32(hisi_hba, phy_no, PHYCTRL_PHY_ENA_MSK, 1);
@@ -1562,13 +1561,9 @@ static irqreturn_t phy_up_v3_hw(int phy_no, struct hisi_hba *hisi_hba)
 	phy->phy_attached = 1;
 	hisi_sas_notify_phy_event(phy, HISI_PHYE_PHY_UP);
 	res = IRQ_HANDLED;
-	spin_lock_irqsave(&phy->lock, flags);
-	if (phy->reset_completion) {
-		phy->in_reset = 0;
-		complete(phy->reset_completion);
-	}
-	spin_unlock_irqrestore(&phy->lock, flags);
 end:
+	if (phy->reset_completion)
+		complete(phy->reset_completion);
 	hisi_sas_phy_write32(hisi_hba, phy_no, CHL_INT0,
 			     CHL_INT0_SL_PHY_ENABLE_MSK);
 	hisi_sas_phy_write32(hisi_hba, phy_no, PHYCTRL_PHY_ENA_MSK, 0);
@@ -3155,7 +3150,7 @@ static struct scsi_host_template sht_v3_hw = {
 	.max_sectors		= SCSI_DEFAULT_MAX_SECTORS,
 	.eh_device_reset_handler = sas_eh_device_reset_handler,
 	.eh_target_reset_handler = sas_eh_target_reset_handler,
-	.slave_alloc		= sas_slave_alloc,
+	.slave_alloc		= hisi_sas_slave_alloc,
 	.target_destroy		= sas_target_destroy,
 	.ioctl			= sas_ioctl,
 #ifdef CONFIG_COMPAT
@@ -3686,7 +3681,6 @@ static void debugfs_snapshot_regs_v3_hw(struct hisi_hba *hisi_hba)
 
 	do_div(timestamp, NSEC_PER_MSEC);
 	hisi_hba->debugfs_timestamp[debugfs_dump_index] = timestamp;
-	hisi_hba->debugfs_dump_index++;
 
 	debugfs_snapshot_prepare_v3_hw(hisi_hba);
 
@@ -3702,6 +3696,7 @@ static void debugfs_snapshot_regs_v3_hw(struct hisi_hba *hisi_hba)
 	debugfs_create_files_v3_hw(hisi_hba);
 
 	debugfs_snapshot_restore_v3_hw(hisi_hba);
+	hisi_hba->debugfs_dump_index++;
 }
 
 static ssize_t debugfs_trigger_dump_v3_hw_write(struct file *file,
@@ -3954,6 +3949,54 @@ static const struct file_operations debugfs_bist_phy_v3_hw_fops = {
 	.open = debugfs_bist_phy_v3_hw_open,
 	.read = seq_read,
 	.write = debugfs_bist_phy_v3_hw_write,
+	.llseek = seq_lseek,
+	.release = single_release,
+	.owner = THIS_MODULE,
+};
+
+static ssize_t debugfs_bist_cnt_v3_hw_write(struct file *filp,
+					const char __user *buf,
+					size_t count, loff_t *ppos)
+{
+	struct seq_file *m = filp->private_data;
+	struct hisi_hba *hisi_hba = m->private;
+	unsigned int cnt;
+	int val;
+
+	if (hisi_hba->debugfs_bist_enable)
+		return -EPERM;
+
+	val = kstrtouint_from_user(buf, count, 0, &cnt);
+	if (val)
+		return val;
+
+	if (cnt)
+		return -EINVAL;
+
+	hisi_hba->debugfs_bist_cnt = 0;
+	return count;
+}
+
+static int debugfs_bist_cnt_v3_hw_show(struct seq_file *s, void *p)
+{
+	struct hisi_hba *hisi_hba = s->private;
+
+	seq_printf(s, "%u\n", hisi_hba->debugfs_bist_cnt);
+
+	return 0;
+}
+
+static int debugfs_bist_cnt_v3_hw_open(struct inode *inode,
+					  struct file *filp)
+{
+	return single_open(filp, debugfs_bist_cnt_v3_hw_show,
+			   inode->i_private);
+}
+
+static const struct file_operations debugfs_bist_cnt_v3_hw_ops = {
+	.open = debugfs_bist_cnt_v3_hw_open,
+	.read = seq_read,
+	.write = debugfs_bist_cnt_v3_hw_write,
 	.llseek = seq_lseek,
 	.release = single_release,
 	.owner = THIS_MODULE,
@@ -4596,8 +4639,8 @@ static void debugfs_bist_init_v3_hw(struct hisi_hba *hisi_hba)
 	debugfs_create_file("phy_id", 0600, hisi_hba->debugfs_bist_dentry,
 			    hisi_hba, &debugfs_bist_phy_v3_hw_fops);
 
-	debugfs_create_u32("cnt", 0600, hisi_hba->debugfs_bist_dentry,
-			   &hisi_hba->debugfs_bist_cnt);
+	debugfs_create_file("cnt", 0600, hisi_hba->debugfs_bist_dentry,
+			    hisi_hba, &debugfs_bist_cnt_v3_hw_ops);
 
 	debugfs_create_file("loopback_mode", 0600,
 			    hisi_hba->debugfs_bist_dentry,
@@ -4904,6 +4947,8 @@ static int _suspend_v3_hw(struct device *device)
 	if (test_and_set_bit(HISI_SAS_RESET_BIT, &hisi_hba->flags))
 		return -1;
 
+	dev_warn(dev, "entering suspend state\n");
+
 	scsi_block_requests(shost);
 	set_bit(HISI_SAS_REJECT_CMD_BIT, &hisi_hba->flags);
 	flush_workqueue(hisi_hba->wq);
@@ -4919,11 +4964,11 @@ static int _suspend_v3_hw(struct device *device)
 
 	hisi_sas_init_mem(hisi_hba);
 
-	dev_warn(dev, "entering suspend state\n");
-
 	hisi_sas_release_tasks(hisi_hba);
 
 	sas_suspend_ha(sha);
+
+	dev_warn(dev, "end of suspending controller\n");
 	return 0;
 }
 
@@ -4950,8 +4995,18 @@ static int _resume_v3_hw(struct device *device)
 		return rc;
 	}
 	phys_init_v3_hw(hisi_hba);
-	sas_resume_ha(sha);
+
+	/*
+	 * If a directly-attached disk is removed during suspend, a deadlock
+	 * may occur, as the PHYE_RESUME_TIMEOUT processing will require the
+	 * hisi_hba->device to be active, which can only happen when resume
+	 * completes. So don't wait for the HA event workqueue to drain upon
+	 * resume.
+	 */
+	sas_resume_ha_no_sync(sha);
 	clear_bit(HISI_SAS_RESET_BIT, &hisi_hba->flags);
+
+	dev_warn(dev, "end of resuming controller\n");
 
 	return 0;
 }
