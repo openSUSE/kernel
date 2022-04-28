@@ -1270,16 +1270,17 @@ DECLARE_EVENT_CLASS(svc_deferred_event,
 
 	TP_STRUCT__entry(
 		__field(u32, xid)
-		__string(addr, dr->xprt->xpt_remotebuf)
+		__array(__u8, addr, INET6_ADDRSTRLEN + 10)
 	),
 
 	TP_fast_assign(
 		__entry->xid = be32_to_cpu(*(__be32 *)(dr->args +
 						       (dr->xprt_hlen>>2)));
-		__assign_str(addr, dr->xprt->xpt_remotebuf);
+		snprintf(__entry->addr, sizeof(__entry->addr) - 1,
+			 "%pISpc", (struct sockaddr *)&dr->addr);
 	),
 
-	TP_printk("addr=%s xid=0x%08x", __get_str(addr), __entry->xid)
+	TP_printk("addr=%s xid=0x%08x", __entry->addr, __entry->xid)
 );
 #define DEFINE_SVC_DEFERRED_EVENT(name) \
 	DEFINE_EVENT(svc_deferred_event, svc_##name##_deferred, \
