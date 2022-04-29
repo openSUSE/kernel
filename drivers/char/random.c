@@ -1389,13 +1389,13 @@ static ssize_t extract_crng_user(void __user *buf, size_t nbytes)
 		return extract_fips_drbg_user(buf, nbytes, tmp);
 
 	while (nbytes) {
-		if (large_request && need_resched()) {
+		if (large_request) {
 			if (signal_pending(current)) {
 				if (ret == 0)
 					ret = -ERESTARTSYS;
 				break;
 			}
-			schedule();
+			cond_resched();
 		}
 
 		extract_crng(tmp);

@@ -1327,7 +1327,6 @@ static irqreturn_t int_phyup_v1_hw(int irq_no, void *p)
 	u32 *frame_rcvd = (u32 *)sas_phy->frame_rcvd;
 	struct sas_identify_frame *id = (struct sas_identify_frame *)frame_rcvd;
 	irqreturn_t res = IRQ_HANDLED;
-	unsigned long flags;
 
 	irq_value = hisi_sas_phy_read32(hisi_hba, phy_no, CHL_INT2);
 	if (!(irq_value & CHL_INT2_SL_PHY_ENA_MSK)) {
@@ -1380,15 +1379,9 @@ static irqreturn_t int_phyup_v1_hw(int irq_no, void *p)
 		phy->identify.target_port_protocols =
 			SAS_PROTOCOL_SMP;
 	hisi_sas_notify_phy_event(phy, HISI_PHYE_PHY_UP);
-
-	spin_lock_irqsave(&phy->lock, flags);
-	if (phy->reset_completion) {
-		phy->in_reset = 0;
-		complete(phy->reset_completion);
-	}
-	spin_unlock_irqrestore(&phy->lock, flags);
-
 end:
+	if (phy->reset_completion)
+		complete(phy->reset_completion);
 	hisi_sas_phy_write32(hisi_hba, phy_no, CHL_INT2,
 			     CHL_INT2_SL_PHY_ENA_MSK);
 
@@ -1771,7 +1764,7 @@ static struct scsi_host_template sht_v1_hw = {
 	.max_sectors		= SCSI_DEFAULT_MAX_SECTORS,
 	.eh_device_reset_handler = sas_eh_device_reset_handler,
 	.eh_target_reset_handler = sas_eh_target_reset_handler,
-	.slave_alloc		= sas_slave_alloc,
+	.slave_alloc		= hisi_sas_slave_alloc,
 	.target_destroy		= sas_target_destroy,
 	.ioctl			= sas_ioctl,
 #ifdef CONFIG_COMPAT

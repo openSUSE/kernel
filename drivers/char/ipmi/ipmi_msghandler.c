@@ -2932,7 +2932,7 @@ cleanup_bmc_device(struct kref *ref)
 	 * with removing the device attributes while reading a device
 	 * attribute.
 	 */
-	schedule_work(&bmc->remove_work);
+	queue_work(remove_work_wq, &bmc->remove_work);
 }
 
 /*
@@ -5148,7 +5148,9 @@ static int ipmi_init_msghandler(void)
 	if (initialized)
 		goto out;
 
-	init_srcu_struct(&ipmi_interfaces_srcu);
+	rv = init_srcu_struct(&ipmi_interfaces_srcu);
+	if (rv)
+		goto out;
 
 	timer_setup(&ipmi_timer, ipmi_timeout, 0);
 	mod_timer(&ipmi_timer, jiffies + IPMI_TIMEOUT_JIFFIES);
