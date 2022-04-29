@@ -422,9 +422,10 @@ static void require_hvs_enabled(struct drm_device *dev)
 		     SCALER_DISPCTRL_ENABLE);
 }
 
-static int vc4_crtc_disable(struct drm_crtc *crtc, unsigned int channel)
+static int vc4_crtc_disable(struct drm_crtc *crtc,
+			    struct drm_encoder *encoder,
+			    unsigned int channel)
 {
-	struct drm_encoder *encoder = vc4_get_crtc_encoder(crtc);
 	struct vc4_encoder *vc4_encoder = to_vc4_encoder(encoder);
 	struct vc4_crtc *vc4_crtc = to_vc4_crtc(crtc);
 	struct drm_device *dev = crtc->dev;
@@ -465,12 +466,30 @@ static int vc4_crtc_disable(struct drm_crtc *crtc, unsigned int channel)
 	return 0;
 }
 
+static struct drm_encoder *vc4_crtc_get_encoder_by_type(struct drm_crtc *crtc,
+							enum vc4_encoder_type type)
+{
+	struct drm_encoder *encoder;
+
+	drm_for_each_encoder(encoder, crtc->dev) {
+		struct vc4_encoder *vc4_encoder = to_vc4_encoder(encoder);
+
+		if (vc4_encoder->type == type)
+			return encoder;
+	}
+
+	return NULL;
+}
+
 int vc4_crtc_disable_at_boot(struct drm_crtc *crtc)
 {
-	struct drm_encoder *encoder = vc4_get_crtc_encoder(crtc);
 	struct drm_device *drm = crtc->dev;
 	struct vc4_crtc *vc4_crtc = to_vc4_crtc(crtc);
+	enum vc4_encoder_type encoder_type;
+	const struct vc4_pv_data *pv_data;
+	struct drm_encoder *encoder;
 	struct vc4_hdmi *vc4_hdmi;
+	unsigned encoder_sel;
 	int channel;
 	int ret;
 
@@ -490,12 +509,22 @@ int vc4_crtc_disable_at_boot(struct drm_crtc *crtc)
 	if (channel < 0)
 		return 0;
 
+	encoder_sel = VC4_GET_FIELD(CRTC_READ(PV_CONTROL), PV_CONTROL_CLK_SELECT);
+	if (WARN_ON(encoder_sel != 0))
+		return 0;
+
+	pv_data = vc4_crtc_to_vc4_pv_data(vc4_crtc);
+	encoder_type = pv_data->encoder_types[encoder_sel];
+	encoder = vc4_crtc_get_encoder_by_type(crtc, encoder_type);
+	if (WARN_ON(!encoder))
+		return 0;
+
 	vc4_hdmi = encoder_to_vc4_hdmi(encoder);
 	ret = pm_runtime_resume_and_get(&vc4_hdmi->pdev->dev);
 	if (ret)
 		return ret;
 
-	ret = vc4_crtc_disable(crtc, channel);
+	ret = vc4_crtc_disable(crtc, encoder, channel);
 	if (ret)
 		return ret;
 
@@ -512,6 +541,7 @@ static void vc4_crtc_atomic_disable(struct drm_crtc *crtc,
 				    struct drm_crtc_state *old_state)
 {
 	struct vc4_crtc_state *old_vc4_state = to_vc4_crtc_state(old_state);
+	struct drm_encoder *encoder = vc4_get_crtc_encoder(crtc);
 	struct drm_device *dev = crtc->dev;
 
 	require_hvs_enabled(dev);
@@ -519,7 +549,7 @@ static void vc4_crtc_atomic_disable(struct drm_crtc *crtc,
 	/* Disable vblank irq handling before crtc is disabled. */
 	drm_crtc_vblank_off(crtc);
 
-	vc4_crtc_disable(crtc, old_vc4_state->assigned_channel);
+	vc4_crtc_disable(crtc, encoder, old_vc4_state->assigned_channel);
 
 	/*
 	 * Make sure we issue a vblank event after disabling the CRTC if
