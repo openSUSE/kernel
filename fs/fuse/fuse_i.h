@@ -378,6 +378,10 @@ struct fuse_req {
 	/** refcount */
 	refcount_t count;
 
+#ifndef __GENKSYMS__
+	bool user_pages;
+#endif
+
 	/* Request flags, updated with test/set/clear_bit() */
 	unsigned long flags;
 
