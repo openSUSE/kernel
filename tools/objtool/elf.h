@@ -61,7 +61,7 @@ struct rela {
 	struct symbol *sym;
 	unsigned int type;
 	unsigned long offset;
-	int addend;
+	long addend;
 	bool jump_table_start;
 };
 
