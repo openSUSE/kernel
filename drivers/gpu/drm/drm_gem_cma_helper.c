@@ -277,6 +277,7 @@ static int drm_gem_cma_mmap_obj(struct drm_gem_cma_object *cma_obj,
 	 * the whole buffer.
 	 */
 	vma->vm_flags &= ~VM_PFNMAP;
+	vma->vm_flags |= VM_DONTEXPAND;
 	vma->vm_pgoff = 0;
 
 	ret = dma_mmap_wc(cma_obj->base.dev->dev, vma, cma_obj->vaddr,
