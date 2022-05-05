@@ -108,11 +108,11 @@ static s32 ixgbevf_reset_hw_vf(struct ixgbe_hw *hw)
 	 * to indicate that no MAC address has yet been assigned for
 	 * the VF.
 	 */
-	if (msgbuf[0] != (IXGBE_VF_RESET | IXGBE_VT_MSGTYPE_ACK) &&
-	    msgbuf[0] != (IXGBE_VF_RESET | IXGBE_VT_MSGTYPE_NACK))
+	if (msgbuf[0] != (IXGBE_VF_RESET | IXGBE_VT_MSGTYPE_SUCCESS) &&
+	    msgbuf[0] != (IXGBE_VF_RESET | IXGBE_VT_MSGTYPE_FAILURE))
 		return IXGBE_ERR_INVALID_MAC_ADDR;
 
-	if (msgbuf[0] == (IXGBE_VF_RESET | IXGBE_VT_MSGTYPE_ACK))
+	if (msgbuf[0] == (IXGBE_VF_RESET | IXGBE_VT_MSGTYPE_SUCCESS))
 		ether_addr_copy(hw->mac.perm_addr, addr);
 
 	hw->mac.mc_filter_type = msgbuf[IXGBE_VF_MC_TYPE_WORD];
@@ -269,7 +269,7 @@ static s32 ixgbevf_set_uc_addr_vf(struct ixgbe_hw *hw, u32 index, u8 *addr)
 	if (!ret_val) {
 		msgbuf[0] &= ~IXGBE_VT_MSGTYPE_CTS;
 
-		if (msgbuf[0] == (msgbuf_chk | IXGBE_VT_MSGTYPE_NACK))
+		if (msgbuf[0] == (msgbuf_chk | IXGBE_VT_MSGTYPE_FAILURE))
 			return -ENOMEM;
 	}
 
@@ -336,14 +336,14 @@ int ixgbevf_get_reta_locked(struct ixgbe_hw *hw, u32 *reta, int num_rx_queues)
 	msgbuf[0] &= ~IXGBE_VT_MSGTYPE_CTS;
 
 	/* If the operation has been refused by a PF return -EPERM */
-	if (msgbuf[0] == (IXGBE_VF_GET_RETA | IXGBE_VT_MSGTYPE_NACK))
+	if (msgbuf[0] == (IXGBE_VF_GET_RETA | IXGBE_VT_MSGTYPE_FAILURE))
 		return -EPERM;
 
 	/* If we didn't get an ACK there must have been
 	 * some sort of mailbox error so we should treat it
 	 * as such.
 	 */
-	if (msgbuf[0] != (IXGBE_VF_GET_RETA | IXGBE_VT_MSGTYPE_ACK))
+	if (msgbuf[0] != (IXGBE_VF_GET_RETA | IXGBE_VT_MSGTYPE_SUCCESS))
 		return IXGBE_ERR_MBX;
 
 	/* ixgbevf doesn't support more than 2 queues at the moment */
@@ -403,14 +403,14 @@ int ixgbevf_get_rss_key_locked(struct ixgbe_hw *hw, u8 *rss_key)
 	msgbuf[0] &= ~IXGBE_VT_MSGTYPE_CTS;
 
 	/* If the operation has been refused by a PF return -EPERM */
-	if (msgbuf[0] == (IXGBE_VF_GET_RSS_KEY | IXGBE_VT_MSGTYPE_NACK))
+	if (msgbuf[0] == (IXGBE_VF_GET_RSS_KEY | IXGBE_VT_MSGTYPE_FAILURE))
 		return -EPERM;
 
 	/* If we didn't get an ACK there must have been
 	 * some sort of mailbox error so we should treat it
 	 * as such.
 	 */
-	if (msgbuf[0] != (IXGBE_VF_GET_RSS_KEY | IXGBE_VT_MSGTYPE_ACK))
+	if (msgbuf[0] != (IXGBE_VF_GET_RSS_KEY | IXGBE_VT_MSGTYPE_SUCCESS))
 		return IXGBE_ERR_MBX;
 
 	memcpy(rss_key, msgbuf + 1, IXGBEVF_RSS_HASH_KEY_SIZE);
@@ -442,7 +442,7 @@ static s32 ixgbevf_set_rar_vf(struct ixgbe_hw *hw, u32 index, u8 *addr,
 
 	/* if nacked the address was rejected, use "perm_addr" */
 	if (!ret_val &&
-	    (msgbuf[0] == (IXGBE_VF_SET_MAC_ADDR | IXGBE_VT_MSGTYPE_NACK))) {
+	    (msgbuf[0] == (IXGBE_VF_SET_MAC_ADDR | IXGBE_VT_MSGTYPE_FAILURE))) {
 		ixgbevf_get_mac_addr_vf(hw, hw->mac.addr);
 		return IXGBE_ERR_MBX;
 	}
@@ -561,7 +561,7 @@ static s32 ixgbevf_update_xcast_mode(struct ixgbe_hw *hw, int xcast_mode)
 		return err;
 
 	msgbuf[0] &= ~IXGBE_VT_MSGTYPE_CTS;
-	if (msgbuf[0] == (IXGBE_VF_UPDATE_XCAST_MODE | IXGBE_VT_MSGTYPE_NACK))
+	if (msgbuf[0] == (IXGBE_VF_UPDATE_XCAST_MODE | IXGBE_VT_MSGTYPE_FAILURE))
 		return -EPERM;
 
 	return 0;
@@ -575,6 +575,46 @@ static s32 ixgbevf_update_xcast_mode(struct ixgbe_hw *hw, int xcast_mode)
  * Hyper-V variant - just a stub.
  */
 static s32 ixgbevf_hv_update_xcast_mode(struct ixgbe_hw *hw, int xcast_mode)
+{
+	return -EOPNOTSUPP;
+}
+
+/**
+ * ixgbevf_get_link_state_vf - Get VF link state from PF
+ * @hw: pointer to the HW structure
+ * @link_state: link state storage
+ *
+ * Returns state of the operation error or success.
+ */
+static s32 ixgbevf_get_link_state_vf(struct ixgbe_hw *hw, bool *link_state)
+{
+	u32 msgbuf[2];
+	s32 ret_val;
+	s32 err;
+
+	msgbuf[0] = IXGBE_VF_GET_LINK_STATE;
+	msgbuf[1] = 0x0;
+
+	err = ixgbevf_write_msg_read_ack(hw, msgbuf, msgbuf, 2);
+
+	if (err || (msgbuf[0] & IXGBE_VT_MSGTYPE_FAILURE)) {
+		ret_val = IXGBE_ERR_MBX;
+	} else {
+		ret_val = 0;
+		*link_state = msgbuf[1];
+	}
+
+	return ret_val;
+}
+
+/**
+ * ixgbevf_hv_get_link_state_vf - * Hyper-V variant - just a stub.
+ * @hw: unused
+ * @link_state: unused
+ *
+ * Hyper-V variant; there is no mailbox communication.
+ */
+static s32 ixgbevf_hv_get_link_state_vf(struct ixgbe_hw *hw, bool *link_state)
 {
 	return -EOPNOTSUPP;
 }
@@ -606,7 +646,7 @@ static s32 ixgbevf_set_vfta_vf(struct ixgbe_hw *hw, u32 vlan, u32 vind,
 	msgbuf[0] &= ~IXGBE_VT_MSGTYPE_CTS;
 	msgbuf[0] &= ~(0xFF << IXGBE_VT_MSGINFO_SHIFT);
 
-	if (msgbuf[0] != (IXGBE_VF_SET_VLAN | IXGBE_VT_MSGTYPE_ACK))
+	if (msgbuf[0] != (IXGBE_VF_SET_VLAN | IXGBE_VT_MSGTYPE_SUCCESS))
 		err = IXGBE_ERR_INVALID_ARGUMENT;
 
 mbx_err:
@@ -710,7 +750,7 @@ static s32 ixgbevf_check_mac_link_vf(struct ixgbe_hw *hw,
 
 	if (!(in_msg & IXGBE_VT_MSGTYPE_CTS)) {
 		/* msg is not CTS and is NACK we must have lost CTS status */
-		if (in_msg & IXGBE_VT_MSGTYPE_NACK)
+		if (in_msg & IXGBE_VT_MSGTYPE_FAILURE)
 			ret_val = -1;
 		goto out;
 	}
@@ -816,7 +856,7 @@ static s32 ixgbevf_set_rlpml_vf(struct ixgbe_hw *hw, u16 max_size)
 	if (ret_val)
 		return ret_val;
 	if ((msgbuf[0] & IXGBE_VF_SET_LPE) &&
-	    (msgbuf[0] & IXGBE_VT_MSGTYPE_NACK))
+	    (msgbuf[0] & IXGBE_VT_MSGTYPE_FAILURE))
 		return IXGBE_ERR_MBX;
 
 	return 0;
@@ -863,7 +903,8 @@ static int ixgbevf_negotiate_api_version_vf(struct ixgbe_hw *hw, int api)
 		msg[0] &= ~IXGBE_VT_MSGTYPE_CTS;
 
 		/* Store value and return 0 on success */
-		if (msg[0] == (IXGBE_VF_API_NEGOTIATE | IXGBE_VT_MSGTYPE_ACK)) {
+		if (msg[0] == (IXGBE_VF_API_NEGOTIATE |
+			      IXGBE_VT_MSGTYPE_SUCCESS)) {
 			hw->api_version = api;
 			return 0;
 		}
@@ -918,7 +959,7 @@ int ixgbevf_get_queues(struct ixgbe_hw *hw, unsigned int *num_tcs,
 		 * some sort of mailbox error so we should treat it
 		 * as such
 		 */
-		if (msg[0] != (IXGBE_VF_GET_QUEUE | IXGBE_VT_MSGTYPE_ACK))
+		if (msg[0] != (IXGBE_VF_GET_QUEUE | IXGBE_VT_MSGTYPE_SUCCESS))
 			return IXGBE_ERR_MBX;
 
 		/* record and validate values from message */
@@ -958,6 +999,7 @@ static const struct ixgbe_mac_operations ixgbevf_mac_ops = {
 	.set_rar		= ixgbevf_set_rar_vf,
 	.update_mc_addr_list	= ixgbevf_update_mc_addr_list_vf,
 	.update_xcast_mode	= ixgbevf_update_xcast_mode,
+	.get_link_state		= ixgbevf_get_link_state_vf,
 	.set_uc_addr		= ixgbevf_set_uc_addr_vf,
 	.set_vfta		= ixgbevf_set_vfta_vf,
 	.set_rlpml		= ixgbevf_set_rlpml_vf,
@@ -975,6 +1017,7 @@ static const struct ixgbe_mac_operations ixgbevf_hv_mac_ops = {
 	.set_rar		= ixgbevf_hv_set_rar_vf,
 	.update_mc_addr_list	= ixgbevf_hv_update_mc_addr_list_vf,
 	.update_xcast_mode	= ixgbevf_hv_update_xcast_mode,
+	.get_link_state		= ixgbevf_hv_get_link_state_vf,
 	.set_uc_addr		= ixgbevf_hv_set_uc_addr_vf,
 	.set_vfta		= ixgbevf_hv_set_vfta_vf,
 	.set_rlpml		= ixgbevf_hv_set_rlpml_vf,
