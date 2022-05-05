@@ -992,12 +992,17 @@ free_engines:
 void i915_gem_context_release(struct kref *ref)
 {
 	struct i915_gem_context *ctx = container_of(ref, typeof(*ctx), ref);
+	struct i915_address_space *vm;
 
 	trace_i915_context_free(ctx);
 	GEM_BUG_ON(!i915_gem_context_is_closed(ctx));
 
 	if (ctx->syncobj)
 		drm_syncobj_put(ctx->syncobj);
+
+	vm = i915_gem_context_vm(ctx);
+	if (vm)
+		i915_vm_put(vm);
 
 	mutex_destroy(&ctx->engines_mutex);
 	mutex_destroy(&ctx->lut_mutex);
@@ -1215,8 +1220,15 @@ static void context_close(struct i915_gem_context *ctx)
 	set_closed_name(ctx);
 
 	vm = i915_gem_context_vm(ctx);
-	if (vm)
+	if (vm) {
+		/* i915_vm_close drops the final reference, which is a bit too
+		 * early and could result in surprises with concurrent
+		 * operations racing with thist ctx close. Keep a full reference
+		 * until the end.
+		 */
+		i915_vm_get(vm);
 		i915_vm_close(vm);
+	}
 
 	ctx->file_priv = ERR_PTR(-EBADF);
 
