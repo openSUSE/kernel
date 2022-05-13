@@ -4408,21 +4408,21 @@ static int pm8001_chip_sata_req(struct pm8001_hba_info *pm8001_ha,
 	u32  opc = OPC_INB_SATA_HOST_OPSTART;
 	memset(&sata_cmd, 0, sizeof(sata_cmd));
 	circularQ = &pm8001_ha->inbnd_q_tbl[0];
-	if (task->data_dir == DMA_NONE) {
+
+	if (task->data_dir == DMA_NONE && !task->ata_task.use_ncq) {
 		ATAP = 0x04;  /* no data*/
 		PM8001_IO_DBG(pm8001_ha, pm8001_printk("no data\n"));
 	} else if (likely(!task->ata_task.device_control_reg_update)) {
-		if (task->ata_task.dma_xfer) {
+		if (task->ata_task.use_ncq &&
+		    dev->sata_dev.class != ATA_DEV_ATAPI) {
+			ATAP = 0x07; /* FPDMA */
+			PM8001_IO_DBG(pm8001_ha, pm8001_printk("FPDMA\n"));
+		} else if (task->ata_task.dma_xfer) {
 			ATAP = 0x06; /* DMA */
 			PM8001_IO_DBG(pm8001_ha, pm8001_printk("DMA\n"));
 		} else {
 			ATAP = 0x05; /* PIO*/
 			PM8001_IO_DBG(pm8001_ha, pm8001_printk("PIO\n"));
-		}
-		if (task->ata_task.use_ncq &&
-			dev->sata_dev.class != ATA_DEV_ATAPI) {
-			ATAP = 0x07; /* FPDMA */
-			PM8001_IO_DBG(pm8001_ha, pm8001_printk("FPDMA\n"));
 		}
 	}
 	if (task->ata_task.use_ncq && pm8001_get_ncq_tag(task, &hdr_tag)) {
