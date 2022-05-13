@@ -2254,7 +2254,8 @@ static int do_help(int argc, char **argv)
 		"                        flow_dissector }\n"
 		"       METRIC := { cycles | instructions | l1d_loads | llc_misses | itlb_misses | dtlb_misses }\n"
 		"       " HELP_SPEC_OPTIONS " |\n"
-		"                    {-f|--bpffs} | {-m|--mapcompat} | {-n|--nomount} }\n"
+		"                    {-f|--bpffs} | {-m|--mapcompat} | {-n|--nomount} |\n"
+		"                    {-L|--use-loader} }\n"
 		"",
 		bin_name, argv[-2]);
 
