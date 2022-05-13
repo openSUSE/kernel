@@ -1431,8 +1431,9 @@ static int pm80xx_encrypt_update(struct pm8001_hba_info *pm8001_ha)
 	/* Currently only one key is used. New KEK index is 1.
 	 * Current KEK index is 1. Store KEK to NVRAM is 1.
 	 */
-	payload.new_curidx_ksop = ((1 << 24) | (1 << 16) | (1 << 8) |
-					KEK_MGMT_SUBOP_KEYCARDUPDATE);
+	payload.new_curidx_ksop =
+	       	cpu_to_le32(((1 << 24) | (1 << 16) | (1 << 8) |
+			     KEK_MGMT_SUBOP_KEYCARDUPDATE));
 
 	PM8001_DEV_DBG(pm8001_ha, pm8001_printk(
 		"Saving Encryption info to flash. payload 0x%x\n",
