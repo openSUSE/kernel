@@ -2508,7 +2508,8 @@ mpi_sata_completion(struct pm8001_hba_info *pm8001_ha, void *piomb)
 				len = sizeof(struct pio_setup_fis);
 				PM8001_IO_DBG(pm8001_ha,
 				pm8001_printk("PIO read len = %d\n", len));
-			} else if (t->ata_task.use_ncq) {
+			} else if (t->ata_task.use_ncq &&
+				   t->data_dir != DMA_NONE) {
 				len = sizeof(struct set_dev_bits_fis);
 				PM8001_IO_DBG(pm8001_ha,
 					pm8001_printk("FPDMA len = %d\n", len));
