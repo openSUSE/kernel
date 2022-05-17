@@ -54,6 +54,9 @@ struct mlx5_lag {
 	struct notifier_block     nb;
 	struct lag_mp             lag_mp;
 	struct mlx5_lag_port_sel  port_sel;
+#ifndef __GENKSYMS__
+	struct lag_mp_fib         lag_mp_fib;
+#endif
 };
 
 static inline struct mlx5_lag *

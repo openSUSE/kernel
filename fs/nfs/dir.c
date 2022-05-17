@@ -2769,6 +2769,7 @@ static int nfs_access_get_cached_locked(struct inode *inode, const struct cred *
 		retry = false;
 	}
 	res->mask = cache->mask;
+	res->jiffies = cache->jiffies;
 	list_move_tail(&cache->lru, &nfsi->access_cache_entry_lru);
 	err = 0;
 out:
@@ -2803,6 +2804,7 @@ static int nfs_access_get_cached_rcu(struct inode *inode, const struct cred *cre
 	if (nfs_check_cache_invalid(inode, NFS_INO_INVALID_ACCESS))
 		goto out;
 	res->mask = cache->mask;
+	res->jiffies = cache->jiffies;
 	err = 0;
 out:
 	rcu_read_unlock();
@@ -2872,6 +2874,7 @@ void nfs_access_add_cache(struct inode *inode, struct nfs_access_entry *set)
 	cache->fsgid = cred->fsgid;
 	cache->group_info = get_group_info(cred->group_info);
 	cache->mask = set->mask;
+	cache->jiffies = jiffies;
 
 	/* The above field assignments must be visible
 	 * before this item appears on the lru.  We cannot easily
@@ -2944,8 +2947,15 @@ static int nfs_do_access(struct inode *inode, const struct cred *cred, int mask)
 	trace_nfs_access_enter(inode);
 
 	status = nfs_access_get_cached(inode, cred, &cache, may_block);
-	if (status == 0)
-		goto out_cached;
+	if (status == 0) {
+		if ((mask & ~cache.mask & (MAY_READ | MAY_WRITE | MAY_EXEC)) == 0)
+			/* if access is granted, trust the cache */
+			goto out_cached;
+		if (time_in_range_open(jiffies, cache.jiffies,
+				       cache.jiffies + NFS_MINATTRTIMEO(inode)))
+			/* If cache entry very new, trust even for negative */
+			goto out_cached;
+	}
 
 	status = -ECHILD;
 	if (!may_block)

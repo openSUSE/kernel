@@ -100,6 +100,17 @@ static void mlx5_lag_fib_event_flush(struct notifier_block *nb)
 	flush_workqueue(mp->wq);
 }
 
+static void mlx5_lag_fib_set(struct mlx5_lag *ldev, struct fib_info *fi, u32 dst, int dst_len)
+{
+	struct lag_mp *mp = &ldev->lag_mp;
+	struct lag_mp_fib *mp_fib = &ldev->lag_mp_fib;
+
+	mp->mfi = fi;
+	mp_fib->priority = fi->fib_priority;
+	mp_fib->dst = dst;
+	mp_fib->dst_len = dst_len;
+}
+
 struct mlx5_fib_event_work {
 	struct work_struct work;
 	struct mlx5_lag *ldev;
@@ -110,11 +121,12 @@ struct mlx5_fib_event_work {
 	};
 };
 
-static void mlx5_lag_fib_route_event(struct mlx5_lag *ldev,
-				     unsigned long event,
-				     struct fib_info *fi)
+static void mlx5_lag_fib_route_event(struct mlx5_lag *ldev, unsigned long event,
+				     struct fib_entry_notifier_info *fen_info)
 {
+	struct fib_info *fi = fen_info->fi;
 	struct lag_mp *mp = &ldev->lag_mp;
+	struct lag_mp_fib *mp_fib = &ldev->lag_mp_fib;
 	struct fib_nh *fib_nh0, *fib_nh1;
 	unsigned int nhs;
 
@@ -127,7 +139,9 @@ static void mlx5_lag_fib_route_event(struct mlx5_lag *ldev,
 	}
 
 	/* Handle multipath entry with lower priority value */
-	if (mp->mfi && mp->mfi != fi && fi->fib_priority >= mp->mfi->fib_priority)
+	if (mp->mfi && mp->mfi != fi &&
+	    (mp_fib->dst != fen_info->dst || mp_fib->dst_len != fen_info->dst_len) &&
+	    fi->fib_priority >= mp_fib->priority)
 		return;
 
 	/* Handle add/replace event */
@@ -143,9 +157,9 @@ static void mlx5_lag_fib_route_event(struct mlx5_lag *ldev,
 
 			i++;
 			mlx5_lag_set_port_affinity(ldev, i);
+			mlx5_lag_fib_set(ldev, fi, fen_info->dst, fen_info->dst_len);
 		}
 
-		mp->mfi = fi;
 		return;
 	}
 
@@ -173,7 +187,7 @@ static void mlx5_lag_fib_route_event(struct mlx5_lag *ldev,
 	}
 
 	mlx5_lag_set_port_affinity(ldev, MLX5_LAG_NORMAL_AFFINITY);
-	mp->mfi = fi;
+	mlx5_lag_fib_set(ldev, fi, fen_info->dst, fen_info->dst_len);
 }
 
 static void mlx5_lag_fib_nexthop_event(struct mlx5_lag *ldev,
@@ -214,7 +228,7 @@ static void mlx5_lag_fib_update(struct work_struct *work)
 	case FIB_EVENT_ENTRY_REPLACE:
 	case FIB_EVENT_ENTRY_DEL:
 		mlx5_lag_fib_route_event(ldev, fib_work->event,
-					 fib_work->fen_info.fi);
+					 &fib_work->fen_info);
 		fib_info_put(fib_work->fen_info.fi);
 		break;
 	case FIB_EVENT_NH_ADD:

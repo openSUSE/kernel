@@ -19,6 +19,14 @@ struct lag_mp {
 	struct workqueue_struct   *wq;
 };
 
+#ifndef __GENKSYMS__
+struct lag_mp_fib {
+	u32               priority;
+	u32               dst;
+	int               dst_len;
+};
+#endif
+
 #ifdef CONFIG_MLX5_ESWITCH
 
 void mlx5_lag_mp_reset(struct mlx5_lag *ldev);
