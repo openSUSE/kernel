@@ -66,6 +66,7 @@ struct nfs_access_entry {
 #ifndef __GENKSYMS__
 	kuid_t			fsuid;
 	kgid_t			fsgid;
+	unsigned long		jiffies;
 #endif
 };
 
