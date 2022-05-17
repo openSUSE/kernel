@@ -2406,7 +2406,8 @@ static struct nfs_access_entry *nfs_access_search_rbtree(struct inode *inode, co
 	return NULL;
 }
 
-static int nfs_access_get_cached(struct inode *inode, const struct cred *cred, u32 *mask, bool may_block)
+static int nfs_access_get_cached(struct inode *inode, const struct cred *cred,
+				 u32 *mask, unsigned long *cjiffies, bool may_block)
 {
 	struct nfs_inode *nfsi = NFS_I(inode);
 	struct nfs_access_entry *cache;
@@ -2437,6 +2438,7 @@ static int nfs_access_get_cached(struct inode *inode, const struct cred *cred, u
 		retry = false;
 	}
 	*mask = cache->mask;
+	*cjiffies = cache->jiffies;
 	list_move_tail(&cache->lru, &nfsi->access_cache_entry_lru);
 	err = 0;
 out:
@@ -2448,7 +2450,8 @@ out_zap:
 	return -ENOENT;
 }
 
-static int nfs_access_get_cached_rcu(struct inode *inode, const struct cred *cred, u32 *mask)
+static int nfs_access_get_cached_rcu(struct inode *inode, const struct cred *cred,
+				     u32 *mask, unsigned long *cjiffies)
 {
 	/* Only check the most recently returned cache entry,
 	 * but do it without locking.
@@ -2471,6 +2474,7 @@ static int nfs_access_get_cached_rcu(struct inode *inode, const struct cred *cre
 	if (nfs_check_cache_invalid(inode, NFS_INO_INVALID_ACCESS))
 		goto out;
 	*mask = cache->mask;
+	*cjiffies = cache->jiffies;
 	err = 0;
 out:
 	rcu_read_unlock();
@@ -2526,6 +2530,7 @@ void nfs_access_add_cache(struct inode *inode, struct nfs_access_entry *set)
 	cache->fsgid = cred->fsgid;
 	cache->group_info = get_group_info(cred->group_info);
 	cache->mask = set->mask;
+	cache->jiffies = jiffies;
 
 	/* The above field assignments must be visible
 	 * before this item appears on the lru.  We cannot easily
@@ -2597,11 +2602,18 @@ static int nfs_do_access(struct inode *inode, const struct cred *cred, int mask)
 
 	trace_nfs_access_enter(inode);
 
-	status = nfs_access_get_cached_rcu(inode, cred, &cache.mask);
+	status = nfs_access_get_cached_rcu(inode, cred, &cache.mask, &cache.jiffies);
 	if (status != 0)
-		status = nfs_access_get_cached(inode, cred, &cache.mask, may_block);
-	if (status == 0)
-		goto out_cached;
+		status = nfs_access_get_cached(inode, cred, &cache.mask, &cache.jiffies, may_block);
+	if (status == 0) {
+		if ((mask & ~cache.mask & (MAY_READ | MAY_WRITE | MAY_EXEC)) == 0)
+			/* if access is granted, trust the cache */
+			goto out_cached;
+		if (time_in_range_open(jiffies, cache.jiffies,
+				       cache.jiffies + NFS_MINATTRTIMEO(inode)))
+			/* If cache entry very new, trust even for negative */
+			goto out_cached;
+	}
 
 	status = -ECHILD;
 	if (!may_block)
