@@ -138,7 +138,8 @@ typedef uint32 SVGAMobId;
 #define SVGA_IRQFLAG_FENCE_GOAL           (1 << 2) /* SVGA_FIFO_FENCE_GOAL reached */
 #define SVGA_IRQFLAG_COMMAND_BUFFER       (1 << 3) /* Command buffer completed */
 #define SVGA_IRQFLAG_ERROR                (1 << 4) /* Error while processing commands */
-#define SVGA_IRQFLAG_MAX                  (1 << 5)
+#define SVGA_IRQFLAG_REG_FENCE_GOAL       (1 << 5)
+#define SVGA_IRQFLAG_MAX                  (1 << 6)
 
 /*
  * The byte-size is the size of the actual cursor data,
@@ -315,8 +316,9 @@ enum {
 
    SVGA_REG_IRQ_STATUS = 82,
    SVGA_REG_DIRTY_TRACKING = 83,
+   SVGA_REG_FENCE_GOAL = 84,
 
-   SVGA_REG_TOP = 84,               /* Must be 1 more than the last register */
+   SVGA_REG_TOP = 85,               /* Must be 1 more than the last register */
 
    SVGA_PALETTE_BASE = 1024,        /* Base of SVGA color map */
    /* Next 768 (== 256*3) registers exist for colormap */
@@ -1005,6 +1007,11 @@ SVGASignedPoint;
 #define SVGA_CAP2_CURSOR_MOB              0x00000080
 #define SVGA_CAP2_MSHINT                  0x00000100
 #define SVGA_CAP2_DX3                     0x00000400
+#define SVGA_CAP2_FRAME_TYPE              0x00000800
+#define SVGA_CAP2_COTABLE_COPY            0x00001000
+#define SVGA_CAP2_TRACE_FULL_FB           0x00002000
+#define SVGA_CAP2_EXTRA_REGS              0x00004000
+#define SVGA_CAP2_LO_STAGING              0x00008000
 #define SVGA_CAP2_RESERVED                0x80000000
 
 
