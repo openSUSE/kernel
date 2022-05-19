@@ -1214,7 +1214,6 @@ struct kvm_x86_ops {
 	int (*mem_enc_op)(struct kvm *kvm, void __user *argp);
 	int (*mem_enc_reg_region)(struct kvm *kvm, struct kvm_enc_region *argp);
 	int (*mem_enc_unreg_region)(struct kvm *kvm, struct kvm_enc_region *argp);
-	void (*guest_memory_reclaimed)(struct kvm *kvm);
 
 	int (*get_msr_feature)(struct kvm_msr_entry *entry);
 
@@ -1227,6 +1226,7 @@ struct kvm_x86_ops {
 
 #ifndef __GENKSYMS__
 	void (*update_emulated_instruction)(struct kvm_vcpu *vcpu);
+	void (*guest_memory_reclaimed)(struct kvm *kvm);
 #endif
 };
 
