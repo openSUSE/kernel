@@ -1461,6 +1461,10 @@ struct kvm_x86_ops {
 	int (*complete_emulated_msr)(struct kvm_vcpu *vcpu, int err);
 
 	void (*vcpu_deliver_sipi_vector)(struct kvm_vcpu *vcpu, u8 vector);
+
+#ifndef __GENKSYMS__
+	void (*guest_memory_reclaimed)(struct kvm *kvm);
+#endif
 };
 
 struct kvm_x86_nested_ops {
