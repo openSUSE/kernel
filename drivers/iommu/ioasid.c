@@ -2,7 +2,7 @@
 /*
  * I/O Address Space ID allocator. There is one global IOASID space, split into
  * subsets. Users create a subset with DECLARE_IOASID_SET, then allocate and
- * free IOASIDs with ioasid_alloc and ioasid_put.
+ * free IOASIDs with ioasid_alloc() and ioasid_free().
  */
 #include <linux/ioasid.h>
 #include <linux/module.h>
@@ -15,7 +15,6 @@ struct ioasid_data {
 	struct ioasid_set *set;
 	void *private;
 	struct rcu_head rcu;
-	refcount_t refs;
 };
 
 /*
@@ -315,7 +314,6 @@ ioasid_t ioasid_alloc(struct ioasid_set *set, ioasid_t min, ioasid_t max,
 
 	data->set = set;
 	data->private = private;
-	refcount_set(&data->refs, 1);
 
 	/*
 	 * Custom allocator needs allocator data to perform platform specific
@@ -347,35 +345,27 @@ exit_free:
 }
 EXPORT_SYMBOL_GPL(ioasid_alloc);
 
-/**
- * ioasid_get - obtain a reference to the IOASID
- */
+
 void ioasid_get(ioasid_t ioasid)
 {
-	struct ioasid_data *ioasid_data;
-
-	spin_lock(&ioasid_allocator_lock);
-	ioasid_data = xa_load(&active_allocator->xa, ioasid);
-	if (ioasid_data)
-		refcount_inc(&ioasid_data->refs);
-	else
-		WARN_ON(1);
-	spin_unlock(&ioasid_allocator_lock);
+	WARN_ONCE(1, "kABI workaround: you should not be using %s!\n", __func__);
 }
 EXPORT_SYMBOL_GPL(ioasid_get);
 
-/**
- * ioasid_put - Release a reference to an ioasid
- * @ioasid: the ID to remove
- *
- * Put a reference to the IOASID, free it when the number of references drops to
- * zero.
- *
- * Return: %true if the IOASID was freed, %false otherwise.
- */
 bool ioasid_put(ioasid_t ioasid)
 {
-	bool free = false;
+	WARN_ONCE(1, "kABI workaround: you should not be using %s!\n", __func__);
+
+	return false;
+}
+EXPORT_SYMBOL_GPL(ioasid_put);
+
+/**
+ * ioasid_free - Free an ioasid
+ * @ioasid: the ID to remove
+ */
+void ioasid_free(ioasid_t ioasid)
+{
 	struct ioasid_data *ioasid_data;
 
 	spin_lock(&ioasid_allocator_lock);
@@ -384,10 +374,6 @@ bool ioasid_put(ioasid_t ioasid)
 		pr_err("Trying to free unknown IOASID %u\n", ioasid);
 		goto exit_unlock;
 	}
-
-	free = refcount_dec_and_test(&ioasid_data->refs);
-	if (!free)
-		goto exit_unlock;
 
 	active_allocator->ops->free(ioasid, active_allocator->ops->pdata);
 	/* Custom allocator needs additional steps to free the xa element */
@@ -398,9 +384,8 @@ bool ioasid_put(ioasid_t ioasid)
 
 exit_unlock:
 	spin_unlock(&ioasid_allocator_lock);
-	return free;
 }
-EXPORT_SYMBOL_GPL(ioasid_put);
+EXPORT_SYMBOL_GPL(ioasid_free);
 
 /**
  * ioasid_find - Find IOASID data
