@@ -605,6 +605,8 @@ return_normal:
 
 	while (1) {
 cpu_master_loop:
+		if (secure_modules())
+			break;
 		if (dbg_kdb_mode) {
 			kgdb_connected = 1;
 			error = kdb_stub(ks);
