@@ -582,7 +582,7 @@ struct mm_struct {
 #endif
 		struct work_struct async_put_work;
 
-#ifdef CONFIG_IOMMU_SUPPORT
+#if defined(CONFIG_IOMMU_SUPPORT) || defined(CONFIG_IOMMU_SVA)
 		u32 pasid;
 #endif
 		void *suse_kabi_padding;
