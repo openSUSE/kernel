@@ -1226,6 +1226,7 @@ struct kvm_x86_ops {
 
 #ifndef __GENKSYMS__
 	void (*update_emulated_instruction)(struct kvm_vcpu *vcpu);
+	void (*guest_memory_reclaimed)(struct kvm *kvm);
 #endif
 };
 

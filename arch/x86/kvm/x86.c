@@ -7870,6 +7870,14 @@ static void vcpu_load_eoi_exitmap(struct kvm_vcpu *vcpu)
 	kvm_x86_ops->load_eoi_exitmap(vcpu, eoi_exit_bitmap);
 }
 
+void kvm_arch_guest_memory_reclaimed(struct kvm *kvm)
+{
+	if (!kvm_x86_ops->guest_memory_reclaimed)
+		return;
+
+	kvm_x86_ops->guest_memory_reclaimed(kvm);
+}
+
 void kvm_arch_mmu_notifier_invalidate_range(struct kvm *kvm,
 					    unsigned long start, unsigned long end)
 {
