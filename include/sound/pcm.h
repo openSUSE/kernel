@@ -356,6 +356,10 @@ struct snd_pcm_runtime {
 #ifdef CONFIG_SND_PCM_XRUN_DEBUG
 	struct snd_pcm_hwptr_log *hwptr_log;
 #endif
+#ifndef __GENKSYMS__
+	struct mutex buffer_mutex;	/* protect for buffer changes */
+	int buffer_accessing;		/* >0: in r/w operation, <0: blocked */
+#endif
 };
 
 struct snd_pcm_group {		/* keep linked substreams */
