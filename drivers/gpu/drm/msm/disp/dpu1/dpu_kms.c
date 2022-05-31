@@ -1138,6 +1138,8 @@ static int dpu_bind(struct device *dev, struct device *master, void *data)
 	struct msm_drm_private *priv = ddev->dev_private;
 	struct dpu_kms *dpu_kms;
 	struct dss_module_power *mp;
+	struct dev_pm_opp *opp;
+	unsigned long max_freq = ULONG_MAX;
 	int ret = 0;
 
 	dpu_kms = devm_kzalloc(&pdev->dev, sizeof(*dpu_kms), GFP_KERNEL);
@@ -1162,6 +1164,12 @@ static int dpu_bind(struct device *dev, struct device *master, void *data)
 	}
 
 	platform_set_drvdata(pdev, dpu_kms);
+
+	opp = dev_pm_opp_find_freq_floor(dev, &max_freq);
+	if (!IS_ERR(opp))
+		dev_pm_opp_put(opp);
+
+	dev_pm_opp_set_rate(dev, max_freq);
 
 	ret = msm_kms_init(&dpu_kms->base, &kms_funcs);
 	if (ret) {
