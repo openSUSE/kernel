@@ -16,6 +16,7 @@ struct hdmi_bridge {
 
 void msm_hdmi_bridge_destroy(struct drm_bridge *bridge)
 {
+	drm_bridge_remove(bridge);
 }
 
 static void msm_hdmi_power_on(struct drm_bridge *bridge)
@@ -286,6 +287,8 @@ struct drm_bridge *msm_hdmi_bridge_init(struct hdmi *hdmi)
 
 	bridge = &hdmi_bridge->base;
 	bridge->funcs = &msm_hdmi_bridge_funcs;
+
+	drm_bridge_add(bridge);
 
 	ret = drm_bridge_attach(hdmi->encoder, bridge, NULL, 0);
 	if (ret)
