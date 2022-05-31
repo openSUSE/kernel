@@ -232,11 +232,11 @@ static void kdb_check_for_lockdown(void)
 
 	if (kdb_cmd_enabled & (KDB_ENABLE_ALL | write_flags))
 		need_to_lockdown_write =
-			security_locked_down(LOCKDOWN_DBG_WRITE_KERNEL);
+			security_locked_down(LOCKDOWN_DEBUGFS);
 
 	if (kdb_cmd_enabled & (KDB_ENABLE_ALL | read_flags))
 		need_to_lockdown_read =
-			security_locked_down(LOCKDOWN_DBG_READ_KERNEL);
+			security_locked_down(LOCKDOWN_BPF_READ);
 
 	/* De-compose KDB_ENABLE_ALL if required */
 	if (need_to_lockdown_write || need_to_lockdown_read)
