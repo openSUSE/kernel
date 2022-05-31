@@ -4386,6 +4386,7 @@ static void vmx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	}
 
 	vmx_segment_cache_clear(vmx);
+	kvm_register_mark_available(vcpu, VCPU_EXREG_SEGMENTS);
 
 	seg_setup(VCPU_SREG_CS);
 	vmcs_write16(GUEST_CS_SELECTOR, 0xf000);

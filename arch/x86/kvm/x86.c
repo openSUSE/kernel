@@ -10777,9 +10777,9 @@ void kvm_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 		vcpu->arch.xcr0 = XFEATURE_MASK_FP;
 	}
 
+	/* All GPRs except RDX (handled below) are zeroed on RESET/INIT. */
 	memset(vcpu->arch.regs, 0, sizeof(vcpu->arch.regs));
-	vcpu->arch.regs_avail = ~0;
-	vcpu->arch.regs_dirty = ~0;
+	kvm_register_mark_dirty(vcpu, VCPU_REGS_RSP);
 
 	vcpu->arch.ia32_xss = 0;
 
