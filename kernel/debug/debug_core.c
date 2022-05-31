@@ -699,7 +699,7 @@ cpu_master_loop:
 			 * themselves, especially with help from the lockdown
 			 * message printed on the console!
 			 */
-			if (security_locked_down(LOCKDOWN_DBG_WRITE_KERNEL)) {
+			if (security_locked_down(LOCKDOWN_DEBUGFS)) {
 				if (IS_ENABLED(CONFIG_KGDB_KDB)) {
 					/* Switch back to kdb if possible... */
 					dbg_kdb_mode = 1;
