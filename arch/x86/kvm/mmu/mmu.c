@@ -5743,7 +5743,7 @@ void kvm_mmu_zap_collapsible_sptes(struct kvm *kvm,
 {
 	/* FIXME: const-ify all uses of struct kvm_memory_slot.  */
 	struct kvm_memory_slot *slot = (struct kvm_memory_slot *)memslot;
-	bool flush = false;
+	bool flush;
 
 	if (kvm_memslots_have_rmaps(kvm)) {
 		write_lock(&kvm->mmu_lock);
@@ -5755,7 +5755,7 @@ void kvm_mmu_zap_collapsible_sptes(struct kvm *kvm,
 
 	if (is_tdp_mmu_enabled(kvm)) {
 		read_lock(&kvm->mmu_lock);
-		flush = kvm_tdp_mmu_zap_collapsible_sptes(kvm, slot, flush);
+		flush = kvm_tdp_mmu_zap_collapsible_sptes(kvm, slot, false);
 		if (flush)
 			kvm_arch_flush_remote_tlbs_memslot(kvm, slot);
 		read_unlock(&kvm->mmu_lock);
