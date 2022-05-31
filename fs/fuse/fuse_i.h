@@ -230,10 +230,6 @@ struct fuse_req {
 	/** refcount */
 	atomic_t count;
 
-#ifndef __GENKSYMS__
-	bool user_pages;
-#endif
-
 	/** Unique ID for the interrupt request */
 	u64 intr_unique;
 
@@ -323,6 +319,10 @@ struct fuse_req {
 
 	/** Request is stolen from fuse_file->reserved_req */
 	struct file *stolen_file;
+
+#ifndef __GENKSYMS__
+	bool user_pages;
+#endif
 };
 
 /**
