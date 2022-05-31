@@ -62,13 +62,6 @@ struct msm_file_private {
 	int seqno;
 };
 
-enum msm_mdp_plane_property {
-	PLANE_PROP_ZPOS,
-	PLANE_PROP_ALPHA,
-	PLANE_PROP_PREMULTIPLIED,
-	PLANE_PROP_MAX_NUM
-};
-
 #define MSM_GPU_MAX_RINGS 4
 #define MAX_H_TILES_PER_DISPLAY 2
 
@@ -226,9 +219,6 @@ struct msm_drm_private {
 
 	unsigned int num_connectors;
 	struct drm_connector *connectors[MAX_CONNECTORS];
-
-	/* Properties */
-	struct drm_property *plane_property[PLANE_PROP_MAX_NUM];
 
 	/* VRAM carveout, used when no IOMMU: */
 	struct {
