@@ -1154,6 +1154,38 @@ static void svm_recalc_instruction_intercepts(struct kvm_vcpu *vcpu,
 	}
 }
 
+static inline void init_vmcb_after_set_cpuid(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+
+	if (guest_cpuid_is_intel(vcpu)) {
+		/*
+		 * We must intercept SYSENTER_EIP and SYSENTER_ESP
+		 * accesses because the processor only stores 32 bits.
+		 * For the same reason we cannot use virtual VMLOAD/VMSAVE.
+		 */
+		svm_set_intercept(svm, INTERCEPT_VMLOAD);
+		svm_set_intercept(svm, INTERCEPT_VMSAVE);
+		svm->vmcb->control.virt_ext &= ~VIRTUAL_VMLOAD_VMSAVE_ENABLE_MASK;
+
+		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SYSENTER_EIP, 0, 0);
+		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SYSENTER_ESP, 0, 0);
+	} else {
+		/*
+		 * If hardware supports Virtual VMLOAD VMSAVE then enable it
+		 * in VMCB and clear intercepts to avoid #VMEXIT.
+		 */
+		if (vls) {
+			svm_clr_intercept(svm, INTERCEPT_VMLOAD);
+			svm_clr_intercept(svm, INTERCEPT_VMSAVE);
+			svm->vmcb->control.virt_ext |= VIRTUAL_VMLOAD_VMSAVE_ENABLE_MASK;
+		}
+		/* No need to intercept these MSRs */
+		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SYSENTER_EIP, 1, 1);
+		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SYSENTER_ESP, 1, 1);
+	}
+}
+
 static void init_vmcb(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
@@ -1320,6 +1352,7 @@ static void init_vmcb(struct kvm_vcpu *vcpu)
 	}
 
 	svm_hv_init_vmcb(svm->vmcb);
+	init_vmcb_after_set_cpuid(vcpu);
 
 	vmcb_mark_all_dirty(svm->vmcb);
 
@@ -2088,11 +2121,15 @@ static int shutdown_interception(struct kvm_vcpu *vcpu)
 		return -EINVAL;
 
 	/*
-	 * VMCB is undefined after a SHUTDOWN intercept
-	 * so reinitialize it.
+	 * VMCB is undefined after a SHUTDOWN intercept.  INIT the vCPU to put
+	 * the VMCB in a known good state.  Unfortuately, KVM doesn't have
+	 * KVM_MP_STATE_SHUTDOWN and can't add it without potentially breaking
+	 * userspace.  At a platform view, INIT is acceptable behavior as
+	 * there exist bare metal platforms that automatically INIT the CPU
+	 * in response to shutdown.
 	 */
 	clear_page(svm->vmcb);
-	init_vmcb(vcpu);
+	kvm_vcpu_reset(vcpu, true);
 
 	kvm_run->exit_reason = KVM_EXIT_SHUTDOWN;
 	return 0;
@@ -2280,8 +2317,13 @@ static int gp_interception(struct kvm_vcpu *vcpu)
 		if (!is_guest_mode(vcpu))
 			return kvm_emulate_instruction(vcpu,
 				EMULTYPE_VMWARE_GP | EMULTYPE_NO_DECODE);
-	} else
+	} else {
+		/* All SVM instructions expect page aligned RAX */
+		if (svm->vmcb->save.rax & ~PAGE_MASK)
+			goto reinject;
+
 		return emulate_svm_instr(vcpu, opcode);
+	}
 
 reinject:
 	kvm_queue_exception_e(vcpu, GP_VECTOR, error_code);
@@ -4063,33 +4105,7 @@ static void svm_vcpu_after_set_cpuid(struct kvm_vcpu *vcpu)
 			kvm_request_apicv_update(vcpu->kvm, false,
 						 APICV_INHIBIT_REASON_NESTED);
 	}
-
-	if (guest_cpuid_is_intel(vcpu)) {
-		/*
-		 * We must intercept SYSENTER_EIP and SYSENTER_ESP
-		 * accesses because the processor only stores 32 bits.
-		 * For the same reason we cannot use virtual VMLOAD/VMSAVE.
-		 */
-		svm_set_intercept(svm, INTERCEPT_VMLOAD);
-		svm_set_intercept(svm, INTERCEPT_VMSAVE);
-		svm->vmcb->control.virt_ext &= ~VIRTUAL_VMLOAD_VMSAVE_ENABLE_MASK;
-
-		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SYSENTER_EIP, 0, 0);
-		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SYSENTER_ESP, 0, 0);
-	} else {
-		/*
-		 * If hardware supports Virtual VMLOAD VMSAVE then enable it
-		 * in VMCB and clear intercepts to avoid #VMEXIT.
-		 */
-		if (vls) {
-			svm_clr_intercept(svm, INTERCEPT_VMLOAD);
-			svm_clr_intercept(svm, INTERCEPT_VMSAVE);
-			svm->vmcb->control.virt_ext |= VIRTUAL_VMLOAD_VMSAVE_ENABLE_MASK;
-		}
-		/* No need to intercept these MSRs */
-		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SYSENTER_EIP, 1, 1);
-		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_SYSENTER_ESP, 1, 1);
-	}
+	init_vmcb_after_set_cpuid(vcpu);
 }
 
 static bool svm_has_wbinvd_exit(void)
@@ -4393,11 +4409,6 @@ static int svm_leave_smm(struct kvm_vcpu *vcpu, const char *smstate)
 			if (svm_allocate_nested(svm))
 				return 1;
 
-			vmcb12 = map.hva;
-
-			nested_load_control_from_vmcb12(svm, &vmcb12->control);
-
-			ret = enter_svm_guest_mode(vcpu, vmcb12_gpa, vmcb12);
 			kvm_vcpu_unmap(vcpu, &map, true);
 
 			/*
@@ -4410,6 +4421,13 @@ static int svm_leave_smm(struct kvm_vcpu *vcpu, const char *smstate)
 
 			svm_copy_vmrun_state(&svm->vmcb01.ptr->save,
 					     map_save.hva + 0x400);
+
+			/*
+			 * Enter the nested guest now
+			 */
+			vmcb12 = map.hva;
+			nested_load_control_from_vmcb12(svm, &vmcb12->control);
+			ret = enter_svm_guest_mode(vcpu, vmcb12_gpa, vmcb12);
 
 			kvm_vcpu_unmap(vcpu, &map_save, true);
 		}

@@ -680,8 +680,10 @@ static void _dpu_kms_hw_destroy(struct dpu_kms *dpu_kms)
 		for (i = 0; i < dpu_kms->catalog->vbif_count; i++) {
 			u32 vbif_idx = dpu_kms->catalog->vbif[i].id;
 
-			if ((vbif_idx < VBIF_MAX) && dpu_kms->hw_vbif[vbif_idx])
+			if ((vbif_idx < VBIF_MAX) && dpu_kms->hw_vbif[vbif_idx]) {
 				dpu_hw_vbif_destroy(dpu_kms->hw_vbif[vbif_idx]);
+				dpu_kms->hw_vbif[vbif_idx] = NULL;
+			}
 		}
 	}
 
@@ -987,7 +989,9 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 
 	dpu_kms_parse_data_bus_icc_path(dpu_kms);
 
-	pm_runtime_get_sync(&dpu_kms->pdev->dev);
+	rc = pm_runtime_resume_and_get(&dpu_kms->pdev->dev);
+	if (rc < 0)
+		goto error;
 
 	dpu_kms->core_rev = readl_relaxed(dpu_kms->mmio + 0x0);
 
@@ -1118,9 +1122,9 @@ struct msm_kms *dpu_kms_init(struct drm_device *dev)
 	dpu_kms = to_dpu_kms(priv->kms);
 
 	irq = irq_of_parse_and_map(dpu_kms->pdev->dev.of_node, 0);
-	if (irq < 0) {
-		DPU_ERROR("failed to get irq: %d\n", irq);
-		return ERR_PTR(irq);
+	if (!irq) {
+		DPU_ERROR("failed to get irq\n");
+		return -EINVAL;
 	}
 	dpu_kms->base.irq = irq;
 
@@ -1134,6 +1138,8 @@ static int dpu_bind(struct device *dev, struct device *master, void *data)
 	struct msm_drm_private *priv = ddev->dev_private;
 	struct dpu_kms *dpu_kms;
 	struct dss_module_power *mp;
+	struct dev_pm_opp *opp;
+	unsigned long max_freq = ULONG_MAX;
 	int ret = 0;
 
 	dpu_kms = devm_kzalloc(&pdev->dev, sizeof(*dpu_kms), GFP_KERNEL);
@@ -1158,6 +1164,12 @@ static int dpu_bind(struct device *dev, struct device *master, void *data)
 	}
 
 	platform_set_drvdata(pdev, dpu_kms);
+
+	opp = dev_pm_opp_find_freq_floor(dev, &max_freq);
+	if (!IS_ERR(opp))
+		dev_pm_opp_put(opp);
+
+	dev_pm_opp_set_rate(dev, max_freq);
 
 	ret = msm_kms_init(&dpu_kms->base, &kms_funcs);
 	if (ret) {
