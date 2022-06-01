@@ -88,6 +88,9 @@
 #define PROP_CURR(a)		((a) * 1000)
 
 #define AXP288_FG_INTR_NUM	6
+
+#define AXP288_QUIRK_NO_BATTERY			BIT(0)
+
 enum {
 	QWBTU_IRQ = 0,
 	WBTU_IRQ,
@@ -674,7 +677,7 @@ intr_failed:
  * detection reports one despite it not being there.
  * Please keep this listed sorted alphabetically.
  */
-static const struct dmi_system_id axp288_no_battery_list[] = {
+static const struct dmi_system_id axp288_quirks[] = {
 	{
 		/* ACEPC T8 Cherry Trail Z8350 mini PC */
 		.matches = {
@@ -684,6 +687,7 @@ static const struct dmi_system_id axp288_no_battery_list[] = {
 			/* also match on somewhat unique bios-version */
 			DMI_EXACT_MATCH(DMI_BIOS_VERSION, "1.000"),
 		},
+		.driver_data = (void *)AXP288_QUIRK_NO_BATTERY,
 	},
 	{
 		/* ACEPC T11 Cherry Trail Z8350 mini PC */
@@ -694,6 +698,7 @@ static const struct dmi_system_id axp288_no_battery_list[] = {
 			/* also match on somewhat unique bios-version */
 			DMI_EXACT_MATCH(DMI_BIOS_VERSION, "1.000"),
 		},
+		.driver_data = (void *)AXP288_QUIRK_NO_BATTERY,
 	},
 	{
 		/* ECS EF20EA */
@@ -707,6 +712,7 @@ static const struct dmi_system_id axp288_no_battery_list[] = {
 			DMI_MATCH(DMI_SYS_VENDOR, "Intel"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "STK1AW32SC"),
 		},
+		.driver_data = (void *)AXP288_QUIRK_NO_BATTERY,
 	},
 	{
 		/* Intel Cherry Trail Compute Stick, version without an OS */
@@ -714,34 +720,54 @@ static const struct dmi_system_id axp288_no_battery_list[] = {
 			DMI_MATCH(DMI_SYS_VENDOR, "Intel"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "STK1A32SC"),
 		},
+		.driver_data = (void *)AXP288_QUIRK_NO_BATTERY,
 	},
 	{
 		/* Meegopad T02 */
 		.matches = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "MEEGOPAD T02"),
 		},
+		.driver_data = (void *)AXP288_QUIRK_NO_BATTERY,
 	},
 	{	/* Mele PCG03 Mini PC */
 		.matches = {
 			DMI_EXACT_MATCH(DMI_BOARD_VENDOR, "Mini PC"),
 			DMI_EXACT_MATCH(DMI_BOARD_NAME, "Mini PC"),
 		},
+		.driver_data = (void *)AXP288_QUIRK_NO_BATTERY,
 	},
 	{
 		/* Minix Neo Z83-4 mini PC */
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "MINIX"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "Z83-4"),
-		}
+		},
+		.driver_data = (void *)AXP288_QUIRK_NO_BATTERY,
 	},
 	{
-		/* Various Ace PC/Meegopad/MinisForum/Wintel Mini-PCs/HDMI-sticks */
+		/*
+		 * One Mix 1, this uses the "T3 MRD" boardname used by
+		 * generic mini PCs, but it is a mini laptop so it does
+		 * actually have a battery!
+		 */
+		.matches = {
+			DMI_MATCH(DMI_BOARD_NAME, "T3 MRD"),
+			DMI_MATCH(DMI_BIOS_DATE, "06/14/2018"),
+		},
+		.driver_data = NULL,
+	},
+	{
+		/*
+		 * Various Ace PC/Meegopad/MinisForum/Wintel Mini-PCs/HDMI-sticks
+		 * This entry must be last because it is generic, this allows
+		 * adding more specifuc quirks overriding this generic entry.
+		 */
 		.matches = {
 			DMI_MATCH(DMI_BOARD_NAME, "T3 MRD"),
 			DMI_MATCH(DMI_CHASSIS_TYPE, "3"),
 			DMI_MATCH(DMI_BIOS_VENDOR, "American Megatrends Inc."),
-			DMI_MATCH(DMI_BIOS_VERSION, "5.11"),
 		},
+		.driver_data = (void *)AXP288_QUIRK_NO_BATTERY,
 	},
 	{}
 };
@@ -761,8 +787,14 @@ static int axp288_fuel_gauge_probe(struct platform_device *pdev)
 		[BAT_VOLT] = "axp288-batt-volt",
 	};
 	unsigned int val;
+	const struct dmi_system_id *dmi_id;
+	unsigned long quirks = 0;
 
-	if (dmi_check_system(axp288_no_battery_list))
+	dmi_id = dmi_first_match(axp288_quirks);
+	if (dmi_id)
+		quirks = (unsigned long)dmi_id->driver_data;
+
+	if (quirks & AXP288_QUIRK_NO_BATTERY)
 		return -ENODEV;
 
 	/*
