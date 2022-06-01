@@ -13,6 +13,7 @@ struct edp_bridge {
 
 void edp_bridge_destroy(struct drm_bridge *bridge)
 {
+	drm_bridge_remove(bridge);
 }
 
 static void edp_bridge_pre_enable(struct drm_bridge *bridge)
@@ -96,6 +97,8 @@ struct drm_bridge *msm_edp_bridge_init(struct msm_edp *edp)
 
 	bridge = &edp_bridge->base;
 	bridge->funcs = &edp_bridge_funcs;
+
+	drm_bridge_add(bridge);
 
 	ret = drm_bridge_attach(edp->encoder, bridge, NULL, 0);
 	if (ret)
