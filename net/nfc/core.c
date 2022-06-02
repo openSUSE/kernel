@@ -41,7 +41,7 @@ int nfc_fw_download(struct nfc_dev *dev, const char *firmware_name)
 	/* failures MUST be ignored */
 	pm_runtime_get_sync(&dev->dev);
 
-	if (!device_is_registered(&dev->dev)) {
+	if (dev->shutting_down) {
 		rc = -ENODEV;
 		goto error;
 	}
@@ -106,7 +106,7 @@ int nfc_dev_up(struct nfc_dev *dev)
 	/* errors MUST be ignored, we are using the child count */
 	pm_runtime_get_sync(&dev->dev);
 
-	if (!device_is_registered(&dev->dev)) {
+	if (dev->shutting_down) {
 		rc = -ENODEV;
 		goto error;
 	}
@@ -513,7 +513,7 @@ int nfc_data_exchange(struct nfc_dev *dev, u32 target_idx, struct sk_buff *skb,
 
 	device_lock(&dev->dev);
 
-	if (!device_is_registered(&dev->dev)) {
+	if (dev->shutting_down) {
 		rc = -ENODEV;
 		kfree_skb(skb);
 		goto error;
