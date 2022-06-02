@@ -1541,6 +1541,9 @@ static int vc4_hdmi_audio_init(struct vc4_hdmi *vc4_hdmi)
 	struct snd_soc_dai_link *dai_link = &vc4_hdmi->audio.link;
 	struct snd_soc_card *card = &vc4_hdmi->audio.card;
 	struct device *dev = &vc4_hdmi->pdev->dev;
+#ifdef CONFIG_DEBUG_FS
+	struct snd_soc_component *comp;
+#endif
 	const __be32 *addr;
 	int index;
 	int ret;
@@ -1594,6 +1597,16 @@ static int vc4_hdmi_audio_init(struct vc4_hdmi *vc4_hdmi)
 		dev_err(dev, "Could not register component: %d\n", ret);
 		return ret;
 	}
+
+#ifdef CONFIG_DEBUG_FS
+	comp = snd_soc_lookup_component(dev, vc4_hdmi_audio_cpu_dai_comp.name);
+	if (comp)
+		comp->debugfs_prefix = "cpu";
+
+	comp = snd_soc_lookup_component(dev, vc4_hdmi_audio_component_drv.name);
+	if (comp)
+		comp->debugfs_prefix = "codec";
+#endif
 
 	dai_link->cpus		= &vc4_hdmi->audio.cpu;
 	dai_link->codecs	= &vc4_hdmi->audio.codec;
