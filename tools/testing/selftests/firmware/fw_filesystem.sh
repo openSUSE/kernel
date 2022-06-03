@@ -11,6 +11,8 @@ TEST_REQS_FW_SET_CUSTOM_PATH="yes"
 TEST_DIR=$(dirname $0)
 source $TEST_DIR/fw_lib.sh
 
+RUN_XZ="xz -C crc32 --lzma2=dict=2MiB"
+
 check_mods
 check_setup
 verify_reqs
@@ -286,9 +288,9 @@ test_request_firmware_nowait_custom()
 	RANDOM_FILE_PATH=$(setup_random_file)
 	RANDOM_FILE="$(basename $RANDOM_FILE_PATH)"
 	if [ "$2" = "both" ]; then
-		xz -9 -C crc32 -k $RANDOM_FILE_PATH
+		$RUN_XZ -k $RANDOM_FILE_PATH
 	elif [ "$2" = "xzonly" ]; then
-		xz -9 -C crc32 $RANDOM_FILE_PATH
+		$RUN_XZ $RANDOM_FILE_PATH
 	fi
 	config_set_name $RANDOM_FILE
 	config_trigger_async
@@ -342,7 +344,7 @@ done
 test "$HAS_FW_LOADER_COMPRESS" != "yes" && exit 0
 
 # test with both files present
-xz -9 -C crc32 -k $FW
+$RUN_XZ -k $FW
 config_set_name $NAME
 echo
 echo "Testing with both plain and xz files present..."

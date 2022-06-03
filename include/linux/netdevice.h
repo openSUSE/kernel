@@ -4389,7 +4389,7 @@ void __hw_addr_init(struct netdev_hw_addr_list *list);
 
 /* Functions used for device addresses handling */
 static inline void
-__dev_addr_set(struct net_device *dev, const u8 *addr, size_t len)
+__dev_addr_set(struct net_device *dev, const void *addr, size_t len)
 {
 	memcpy(dev->dev_addr, addr, len);
 }
@@ -4401,7 +4401,7 @@ static inline void dev_addr_set(struct net_device *dev, const u8 *addr)
 
 static inline void
 dev_addr_mod(struct net_device *dev, unsigned int offset,
-	     const u8 *addr, size_t len)
+	     const void *addr, size_t len)
 {
 	memcpy(&dev->dev_addr[offset], addr, len);
 }

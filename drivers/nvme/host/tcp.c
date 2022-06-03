@@ -1474,6 +1474,45 @@ static int nvme_tcp_alloc_queue(struct nvme_ctrl *nctrl,
 		}
 	}
 
+	if (nctrl->opts->mask & NVMF_OPT_HOST_IFACE) {
+		char devname[IFNAMSIZ];
+		struct net_device *dev;
+		struct net *net;
+		int ifindex;
+		char *iface = nctrl->opts->host_iface;
+		int optlen = min_t(long, strlen(iface), IFNAMSIZ - 1);
+
+		strncpy(devname, iface, optlen);
+		devname[optlen] = 0;
+		if (devname[0] == '\0') {
+			ret = -EINVAL;
+			dev_err(nctrl->device,
+			  "failed to bind to interface %s queue %d err %d\n",
+			  iface, qid, ret);
+			goto err_sock;
+		}
+
+		net = sock_net(queue->sock->sk);
+		dev = dev_get_by_name(net, devname);
+		if (!dev) {
+			ret = -ENODEV;
+			dev_err(nctrl->device,
+			  "failed to bind to interface %s queue %d err %d\n",
+			  iface, qid, ret);
+			goto err_sock;
+		}
+		ifindex = dev->ifindex;
+		dev_put(dev);
+
+		ret = sock_bindtoindex(queue->sock->sk, ifindex, false);
+		if (ret) {
+			dev_err(nctrl->device,
+			  "failed to bind to interface %s queue %d err %d\n",
+			  iface, qid, ret);
+			goto err_sock;
+		}
+	}
+
 	queue->hdr_digest = nctrl->opts->hdr_digest;
 	queue->data_digest = nctrl->opts->data_digest;
 	if (queue->hdr_digest || queue->data_digest) {
@@ -2539,6 +2578,15 @@ static struct nvme_ctrl *nvme_tcp_create_ctrl(struct device *dev,
 		}
 	}
 
+	if (opts->mask & NVMF_OPT_HOST_IFACE) {
+		if (!__dev_get_by_name(&init_net, opts->host_iface)) {
+			pr_err("invalid interface passed: %s\n",
+			       opts->host_iface);
+			ret = -ENODEV;
+			goto out_free_ctrl;
+		}
+	}
+
 	if (!opts->duplicate_connect && nvme_tcp_existing_controller(opts)) {
 		ret = -EALREADY;
 		goto out_free_ctrl;
@@ -2595,7 +2643,7 @@ static struct nvmf_transport_ops nvme_tcp_transport = {
 			  NVMF_OPT_HOST_TRADDR | NVMF_OPT_CTRL_LOSS_TMO |
 			  NVMF_OPT_HDR_DIGEST | NVMF_OPT_DATA_DIGEST |
 			  NVMF_OPT_NR_WRITE_QUEUES | NVMF_OPT_NR_POLL_QUEUES |
-			  NVMF_OPT_TOS,
+			  NVMF_OPT_TOS | NVMF_OPT_HOST_IFACE,
 	.create_ctrl	= nvme_tcp_create_ctrl,
 };
 

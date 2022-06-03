@@ -2823,7 +2823,7 @@ static int pnv_pci_ioda_msi_setup(struct pnv_phb *phb, struct pci_dev *dev,
 	return 0;
 }
 
-static void pnv_pci_init_ioda_msis(struct pnv_phb *phb)
+static void __init pnv_pci_init_ioda_msis(struct pnv_phb *phb)
 {
 	unsigned int count;
 	const __be32 *prop = of_get_property(phb->hose->dn,
