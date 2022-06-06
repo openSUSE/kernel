@@ -51,6 +51,7 @@
 #include <linux/completion.h>
 #include <linux/uuid.h>
 #include <linux/uaccess.h>
+#include <linux/suspend.h>
 #include <linux/siphash.h>
 #include <crypto/chacha.h>
 #include <crypto/blake2s.h>
@@ -83,8 +84,6 @@ static DEFINE_STATIC_KEY_FALSE(crng_is_ready);
 /* Various types of waiters for crng_init->CRNG_READY transition. */
 static DECLARE_WAIT_QUEUE_HEAD(crng_init_wait);
 static struct fasync_struct *fasync;
-static DEFINE_SPINLOCK(random_ready_chain_lock);
-static RAW_NOTIFIER_HEAD(random_ready_chain);
 
 /* Control how we warn userspace. */
 static struct ratelimit_state urandom_warning =
@@ -140,51 +139,6 @@ int wait_for_random_bytes(void)
 	return 0;
 }
 EXPORT_SYMBOL(wait_for_random_bytes);
-
-/*
- * Add a callback function that will be invoked when the input
- * pool is initialised.
- *
- * returns: 0 if callback is successfully added
- *	    -EALREADY if pool is already initialised (callback not called)
- */
-int __cold register_random_ready_notifier(struct notifier_block *nb)
-{
-	unsigned long flags;
-	int ret = -EALREADY;
-
-	if (crng_ready())
-		return ret;
-
-	spin_lock_irqsave(&random_ready_chain_lock, flags);
-	if (!crng_ready())
-		ret = raw_notifier_chain_register(&random_ready_chain, nb);
-	spin_unlock_irqrestore(&random_ready_chain_lock, flags);
-	return ret;
-}
-
-/*
- * Delete a previously registered readiness callback function.
- */
-int __cold unregister_random_ready_notifier(struct notifier_block *nb)
-{
-	unsigned long flags;
-	int ret;
-
-	spin_lock_irqsave(&random_ready_chain_lock, flags);
-	ret = raw_notifier_chain_unregister(&random_ready_chain, nb);
-	spin_unlock_irqrestore(&random_ready_chain_lock, flags);
-	return ret;
-}
-
-static void __cold process_random_ready_list(void)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(&random_ready_chain_lock, flags);
-	raw_notifier_call_chain(&random_ready_chain, 0, NULL);
-	spin_unlock_irqrestore(&random_ready_chain_lock, flags);
-}
 
 #define warn_unseeded_randomness() \
 	if (IS_ENABLED(CONFIG_WARN_ALL_UNSEEDED_RANDOM) && !crng_ready()) \
@@ -432,12 +386,9 @@ static void _get_random_bytes(void *buf, size_t len)
 /*
  * This function is the exported kernel interface.  It returns some
  * number of good random numbers, suitable for key generation, seeding
- * TCP sequence numbers, etc.  It does not rely on the hardware random
- * number generator.  For random bytes direct from the hardware RNG
- * (when available), use get_random_bytes_arch(). In order to ensure
- * that the randomness provided by this function is okay, the function
- * wait_for_random_bytes() should be called and return 0 at least once
- * at any point prior.
+ * TCP sequence numbers, etc. In order to ensure that the randomness
+ * by this function is okay, the function wait_for_random_bytes()
+ * should be called and return 0 at least once at any point prior.
  */
 void get_random_bytes(void *buf, size_t len)
 {
@@ -577,33 +528,6 @@ int __cold random_prepare_cpu(unsigned int cpu)
 }
 #endif
 
-/*
- * This function will use the architecture-specific hardware random
- * number generator if it is available. It is not recommended for
- * use. Use get_random_bytes() instead. It returns the number of
- * bytes filled in.
- */
-size_t __must_check get_random_bytes_arch(void *buf, size_t len)
-{
-	size_t left = len;
-	u8 *p = buf;
-
-	while (left) {
-		unsigned long v;
-		size_t block_len = min_t(size_t, left, sizeof(unsigned long));
-
-		if (!arch_get_random_long(&v))
-			break;
-
-		memcpy(p, &v, block_len);
-		p += block_len;
-		left -= block_len;
-	}
-
-	return len - left;
-}
-EXPORT_SYMBOL(get_random_bytes_arch);
-
 
 /**********************************************************************
  *
@@ -727,7 +651,6 @@ static void __cold _credit_init_bits(size_t bits)
 	if (orig < POOL_READY_BITS && new >= POOL_READY_BITS) {
 		crng_reseed(); /* Sets crng_init to CRNG_READY under base_crng.lock. */
 		execute_in_process_context(crng_set_ready, &set_ready);
-		process_random_ready_list();
 		wake_up_interruptible(&crng_init_wait);
 		kill_fasync(&fasync, SIGIO, POLL_IN);
 		pr_notice("crng init done\n");
@@ -801,6 +724,7 @@ static void __cold _credit_init_bits(size_t bits)
  *
  **********************************************************************/
 
+static bool used_arch_random;
 static bool trust_cpu __ro_after_init = IS_ENABLED(CONFIG_RANDOM_TRUST_CPU);
 static bool trust_bootloader __ro_after_init = IS_ENABLED(CONFIG_RANDOM_TRUST_BOOTLOADER);
 static int __init parse_trust_cpu(char *arg)
@@ -813,6 +737,33 @@ static int __init parse_trust_bootloader(char *arg)
 }
 early_param("random.trust_cpu", parse_trust_cpu);
 early_param("random.trust_bootloader", parse_trust_bootloader);
+
+static int random_pm_notification(struct notifier_block *nb, unsigned long action, void *data)
+{
+	unsigned long flags, entropy = random_get_entropy();
+
+	/*
+	 * Encode a representation of how long the system has been suspended,
+	 * in a way that is distinct from prior system suspends.
+	 */
+	ktime_t stamps[] = { ktime_get(), ktime_get_boottime(), ktime_get_real() };
+
+	spin_lock_irqsave(&input_pool.lock, flags);
+	_mix_pool_bytes(&action, sizeof(action));
+	_mix_pool_bytes(stamps, sizeof(stamps));
+	_mix_pool_bytes(&entropy, sizeof(entropy));
+	spin_unlock_irqrestore(&input_pool.lock, flags);
+
+	if (crng_ready() && (action == PM_RESTORE_PREPARE ||
+	    (action == PM_POST_SUSPEND &&
+	     !IS_ENABLED(CONFIG_PM_AUTOSLEEP) && !IS_ENABLED(CONFIG_ANDROID)))) {
+		crng_reseed();
+		pr_notice("crng reseeded on system resumption\n");
+	}
+	return 0;
+}
+
+static struct notifier_block pm_notifier = { .notifier_call = random_pm_notification };
 
 /*
  * The first collection of entropy occurs at system boot while interrupts
@@ -851,8 +802,24 @@ int __init random_init(const char *command_line)
 		crng_reseed();
 	else if (trust_cpu)
 		credit_init_bits(arch_bytes * 8);
+	used_arch_random = arch_bytes * 8 >= POOL_READY_BITS;
 
+	WARN_ON(register_pm_notifier(&pm_notifier));
+
+	WARN(!random_get_entropy(), "Missing cycle counter and fallback timer; RNG "
+				    "entropy collection will consequently suffer.");
 	return 0;
+}
+
+/*
+ * Returns whether arch randomness has been mixed into the initial
+ * state of the RNG, regardless of whether or not that randomness
+ * was credited. Knowing this is only good for a very limited set
+ * of uses, such as early init printk pointer obfuscation.
+ */
+bool rng_has_arch_random(void)
+{
+	return used_arch_random;
 }
 
 /*
@@ -1177,6 +1144,12 @@ void __cold rand_initialize_disk(struct gendisk *disk)
 }
 #endif
 
+struct entropy_timer_state {
+	unsigned long entropy;
+	struct timer_list timer;
+	unsigned int samples, samples_per_bit;
+};
+
 /*
  * Each time the timer fires, we expect that we got an unpredictable
  * jump in the cycle counter. Even if the timer is running on another
@@ -1190,9 +1163,14 @@ void __cold rand_initialize_disk(struct gendisk *disk)
  *
  * So the re-arming always happens in the entropy loop itself.
  */
-static void __cold entropy_timer(struct timer_list *t)
+static void __cold entropy_timer(struct timer_list *timer)
 {
-	credit_init_bits(1);
+	struct entropy_timer_state *state = container_of(timer, struct entropy_timer_state, timer);
+
+	if (++state->samples == state->samples_per_bit) {
+		credit_init_bits(1);
+		state->samples = 0;
+	}
 }
 
 /*
@@ -1201,17 +1179,22 @@ static void __cold entropy_timer(struct timer_list *t)
  */
 static void __cold try_to_generate_entropy(void)
 {
-	struct {
-		unsigned long entropy;
-		struct timer_list timer;
-	} stack;
+	enum { NUM_TRIAL_SAMPLES = 8192, MAX_SAMPLES_PER_BIT = 32 };
+	struct entropy_timer_state stack;
+	unsigned int i, num_different = 0;
+	unsigned long last = random_get_entropy();
 
-	stack.entropy = random_get_entropy();
-
-	/* Slow counter - or none. Don't even bother */
-	if (stack.entropy == random_get_entropy())
+	for (i = 0; i < NUM_TRIAL_SAMPLES - 1; ++i) {
+		stack.entropy = random_get_entropy();
+		if (stack.entropy != last)
+			++num_different;
+		last = stack.entropy;
+	}
+	stack.samples_per_bit = DIV_ROUND_UP(NUM_TRIAL_SAMPLES, num_different + 1);
+	if (stack.samples_per_bit > MAX_SAMPLES_PER_BIT)
 		return;
 
+	stack.samples = 0;
 	timer_setup_on_stack(&stack.timer, entropy_timer, 0);
 	while (!crng_ready() && !signal_pending(current)) {
 		if (!timer_pending(&stack.timer))
