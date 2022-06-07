@@ -1081,6 +1081,11 @@ static int mtk_jpeg_clk_init(struct mtk_jpeg_dev *jpeg)
 	return PTR_ERR_OR_ZERO(jpeg->clk_jdec_smi);
 }
 
+static inline void mtk_jpeg_clk_release(struct mtk_jpeg_dev *jpeg)
+{
+	put_device(jpeg->larb);
+}
+
 static int mtk_jpeg_probe(struct platform_device *pdev)
 {
 	struct mtk_jpeg_dev *jpeg;
@@ -1184,6 +1189,7 @@ err_m2m_init:
 	v4l2_device_unregister(&jpeg->v4l2_dev);
 
 err_dev_register:
+	mtk_jpeg_clk_release(jpeg);
 
 err_clk_init:
 
@@ -1201,6 +1207,7 @@ static int mtk_jpeg_remove(struct platform_device *pdev)
 	video_device_release(jpeg->dec_vdev);
 	v4l2_m2m_release(jpeg->m2m_dev);
 	v4l2_device_unregister(&jpeg->v4l2_dev);
+	mtk_jpeg_clk_release(jpeg);
 
 	return 0;
 }

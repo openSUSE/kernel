@@ -54,6 +54,9 @@ struct cpu_hw_events {
 	struct	perf_branch_stack	bhrb_stack;
 	struct	perf_branch_entry	bhrb_entries[BHRB_MAX_ENTRIES];
 	u64				ic_init;
+
+	/* Store the PMC values */
+	unsigned long pmcs[MAX_HWEVENTS];
 };
 
 static DEFINE_PER_CPU(struct cpu_hw_events, cpu_hw_events);
@@ -145,6 +148,17 @@ bool is_sier_available(void)
 		return true;
 
 	return false;
+}
+
+/*
+ * Return PMC value corresponding to the
+ * index passed.
+ */
+unsigned long get_pmcs_ext_regs(int idx)
+{
+	struct cpu_hw_events *cpuhw = this_cpu_ptr(&cpu_hw_events);
+
+	return cpuhw->pmcs[idx];
 }
 
 static bool regs_use_siar(struct pt_regs *regs)
@@ -2317,7 +2331,6 @@ static void __perf_event_interrupt(struct pt_regs *regs)
 	int i, j;
 	struct cpu_hw_events *cpuhw = this_cpu_ptr(&cpu_hw_events);
 	struct perf_event *event;
-	unsigned long val[8];
 	int found, active;
 	int nmi;
 
@@ -2341,12 +2354,12 @@ static void __perf_event_interrupt(struct pt_regs *regs)
 
 	/* Read all the PMCs since we'll need them a bunch of times */
 	for (i = 0; i < ppmu->n_counter; ++i)
-		val[i] = read_pmc(i + 1);
+		cpuhw->pmcs[i] = read_pmc(i + 1);
 
 	/* Try to find what caused the IRQ */
 	found = 0;
 	for (i = 0; i < ppmu->n_counter; ++i) {
-		if (!pmc_overflow(val[i]))
+		if (!pmc_overflow(cpuhw->pmcs[i]))
 			continue;
 		if (is_limited_pmc(i + 1))
 			continue; /* these won't generate IRQs */
@@ -2361,7 +2374,7 @@ static void __perf_event_interrupt(struct pt_regs *regs)
 			event = cpuhw->event[j];
 			if (event->hw.idx == (i + 1)) {
 				active = 1;
-				record_and_restart(event, val[i], regs);
+				record_and_restart(event, cpuhw->pmcs[i], regs);
 				break;
 			}
 		}
@@ -2383,11 +2396,11 @@ static void __perf_event_interrupt(struct pt_regs *regs)
 			event = cpuhw->event[i];
 			if (!event->hw.idx || is_limited_pmc(event->hw.idx))
 				continue;
-			if (pmc_overflow_power7(val[event->hw.idx - 1])) {
+			if (pmc_overflow_power7(cpuhw->pmcs[event->hw.idx - 1])) {
 				/* event has overflowed in a buggy way*/
 				found = 1;
 				record_and_restart(event,
-						   val[event->hw.idx - 1],
+						   cpuhw->pmcs[event->hw.idx - 1],
 						   regs);
 			}
 		}
@@ -2410,6 +2423,9 @@ static void __perf_event_interrupt(struct pt_regs *regs)
 	 * we get back out of this interrupt.
 	 */
 	write_mmcr0(cpuhw, cpuhw->mmcr.mmcr0);
+
+	/* Clear the cpuhw->pmcs */
+	memset(&cpuhw->pmcs, 0, sizeof(cpuhw->pmcs));
 
 	if (nmi)
 		nmi_exit();

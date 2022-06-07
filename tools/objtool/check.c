@@ -358,12 +358,12 @@ static int add_dead_ends(struct objtool_file *file)
 			}
 
 			if (!found) {
-				WARN("can't find unreachable insn at %s+0x%x",
+				WARN("can't find unreachable insn at %s+0x%lx",
 				     rela->sym->sec->name, rela->addend);
 				return -1;
 			}
 		} else {
-			WARN("can't find unreachable insn at %s+0x%x",
+			WARN("can't find unreachable insn at %s+0x%lx",
 			     rela->sym->sec->name, rela->addend);
 			return -1;
 		}
@@ -400,12 +400,12 @@ reachable:
 			}
 
 			if (!found) {
-				WARN("can't find reachable insn at %s+0x%x",
+				WARN("can't find reachable insn at %s+0x%lx",
 				     rela->sym->sec->name, rela->addend);
 				return -1;
 			}
 		} else {
-			WARN("can't find reachable insn at %s+0x%x",
+			WARN("can't find reachable insn at %s+0x%lx",
 			     rela->sym->sec->name, rela->addend);
 			return -1;
 		}
@@ -700,7 +700,7 @@ static int add_call_destinations(struct objtool_file *file)
 								rela->addend+4);
 			if (!insn->call_dest ||
 			    insn->call_dest->type != STT_FUNC) {
-				WARN_FUNC("can't find call dest symbol at %s+0x%x",
+				WARN_FUNC("can't find call dest symbol at %s+0x%lx",
 					  insn->sec, insn->offset,
 					  rela->sym->sec->name,
 					  rela->addend + 4);

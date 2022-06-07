@@ -1998,20 +1998,19 @@ int amdgpu_ras_late_init(struct amdgpu_device *adev,
 	if (ih_info->cb) {
 		r = amdgpu_ras_interrupt_add_handler(adev, ih_info);
 		if (r)
-			goto interrupt;
+			goto cleanup;
 	}
 
 	r = amdgpu_ras_sysfs_create(adev, fs_info);
 	if (r)
-		goto sysfs;
+		goto interrupt;
 
 	return 0;
-cleanup:
-	amdgpu_ras_sysfs_remove(adev, ras_block);
-sysfs:
+
+interrupt:
 	if (ih_info->cb)
 		amdgpu_ras_interrupt_remove_handler(adev, ih_info);
-interrupt:
+cleanup:
 	amdgpu_ras_feature_enable(adev, ras_block, 0);
 	return r;
 }
