@@ -143,7 +143,8 @@ int pi_pre_block(struct kvm_vcpu *vcpu)
 
 	if (!kvm_arch_has_assigned_device(vcpu->kvm) ||
 		!irq_remapping_cap(IRQ_POSTING_CAP)  ||
-		!kvm_vcpu_apicv_active(vcpu))
+		!kvm_vcpu_apicv_active(vcpu) ||
+		vmx_interrupt_blocked(vcpu))
 		return 0;
 
 	WARN_ON(irqs_disabled());
