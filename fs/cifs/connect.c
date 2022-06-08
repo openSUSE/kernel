@@ -2049,18 +2049,7 @@ cifs_set_cifscreds(struct smb3_fs_context *ctx, struct cifs_ses *ses)
 		}
 	}
 
-	ctx->workstation_name = kstrdup(ses->workstation_name, GFP_KERNEL);
-	if (!ctx->workstation_name) {
-		cifs_dbg(FYI, "Unable to allocate memory for workstation_name\n");
-		rc = -ENOMEM;
-		kfree(ctx->username);
-		ctx->username = NULL;
-		kfree_sensitive(ctx->password);
-		ctx->password = NULL;
-		kfree(ctx->domainname);
-		ctx->domainname = NULL;
-		goto out_key_put;
-	}
+	strscpy(ctx->workstation_name, ses->workstation_name, sizeof(ctx->workstation_name));
 
 out_key_put:
 	up_read(&key->sem);
@@ -2169,12 +2158,9 @@ cifs_get_smb_ses(struct TCP_Server_Info *server, struct smb3_fs_context *ctx)
 		if (!ses->domainName)
 			goto get_ses_fail;
 	}
-	if (ctx->workstation_name) {
-		ses->workstation_name = kstrdup(ctx->workstation_name,
-						GFP_KERNEL);
-		if (!ses->workstation_name)
-			goto get_ses_fail;
-	}
+
+	strscpy(ses->workstation_name, ctx->workstation_name, sizeof(ses->workstation_name));
+
 	if (ctx->domainauto)
 		ses->domainAuto = ctx->domainauto;
 	ses->cred_uid = ctx->cred_uid;
@@ -4038,16 +4024,26 @@ cifs_setup_session(const unsigned int xid, struct cifs_ses *ses,
 	int rc = -ENOSYS;
 	bool is_binding = false;
 
-	/* only send once per connect */
-	spin_lock(&ses->chan_lock);
-	is_binding = !CIFS_ALL_CHANS_NEED_RECONNECT(ses);
-	spin_unlock(&ses->chan_lock);
 
 	spin_lock(&cifs_tcp_ses_lock);
-	if (ses->ses_status == SES_EXITING) {
+	if (ses->ses_status != SES_GOOD &&
+	    ses->ses_status != SES_NEW &&
+	    ses->ses_status != SES_NEED_RECON) {
 		spin_unlock(&cifs_tcp_ses_lock);
 		return 0;
 	}
+
+	/* only send once per connect */
+	spin_lock(&ses->chan_lock);
+	if (CIFS_ALL_CHANS_GOOD(ses) ||
+	    cifs_chan_in_reconnect(ses, server)) {
+		spin_unlock(&ses->chan_lock);
+		spin_unlock(&cifs_tcp_ses_lock);
+		return 0;
+	}
+	is_binding = !CIFS_ALL_CHANS_NEED_RECONNECT(ses);
+	cifs_chan_set_in_reconnect(ses, server);
+	spin_unlock(&ses->chan_lock);
 
 	if (!is_binding)
 		ses->ses_status = SES_IN_SETUP;
@@ -4078,16 +4074,19 @@ cifs_setup_session(const unsigned int xid, struct cifs_ses *ses,
 		spin_lock(&cifs_tcp_ses_lock);
 		if (ses->ses_status == SES_IN_SETUP)
 			ses->ses_status = SES_NEED_RECON;
+		spin_lock(&ses->chan_lock);
+		cifs_chan_clear_in_reconnect(ses, server);
+		spin_unlock(&ses->chan_lock);
 		spin_unlock(&cifs_tcp_ses_lock);
 	} else {
 		spin_lock(&cifs_tcp_ses_lock);
 		if (ses->ses_status == SES_IN_SETUP)
 			ses->ses_status = SES_GOOD;
-		spin_unlock(&cifs_tcp_ses_lock);
-
 		spin_lock(&ses->chan_lock);
+		cifs_chan_clear_in_reconnect(ses, server);
 		cifs_chan_clear_need_reconnect(ses, server);
 		spin_unlock(&ses->chan_lock);
+		spin_unlock(&cifs_tcp_ses_lock);
 	}
 
 	return rc;
