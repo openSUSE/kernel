@@ -3810,10 +3810,6 @@ CIFSTCon(const unsigned int xid, struct cifs_ses *ses,
 	if (rc == 0) {
 		bool is_unicode;
 
-		spin_lock(&cifs_tcp_ses_lock);
-		tcon->tidStatus = CifsGood;
-		spin_unlock(&cifs_tcp_ses_lock);
-		tcon->need_reconnect = false;
 		tcon->tid = smb_buffer_response->Tid;
 		bcc_ptr = pByteArea(smb_buffer_response);
 		bytes_left = get_bcc(smb_buffer_response);
@@ -3989,7 +3985,14 @@ cifs_setup_session(const unsigned int xid, struct cifs_ses *ses,
 		spin_lock(&cifs_tcp_ses_lock);
 		if (server->tcpStatus == CifsInSessSetup)
 			server->tcpStatus = CifsGood;
+		/* Even if one channel is active, session is in good state */
+		if (ses->status == CifsInSessSetup)
+			ses->status = CifsGood;
 		spin_unlock(&cifs_tcp_ses_lock);
+
+		spin_lock(&ses->chan_lock);
+		cifs_chan_clear_need_reconnect(ses, server);
+		spin_unlock(&ses->chan_lock);
 	}
 
 	return rc;
@@ -4501,8 +4504,15 @@ out:
 
 	if (rc) {
 		spin_lock(&cifs_tcp_ses_lock);
-		tcon->tidStatus = CifsNeedTcon;
+		if (tcon->tidStatus == CifsInTcon)
+			tcon->tidStatus = CifsNeedTcon;
 		spin_unlock(&cifs_tcp_ses_lock);
+	} else {
+		spin_lock(&cifs_tcp_ses_lock);
+		if (tcon->tidStatus == CifsInTcon)
+			tcon->tidStatus = CifsGood;
+		spin_unlock(&cifs_tcp_ses_lock);
+		tcon->need_reconnect = false;
 	}
 
 	return rc;
@@ -4527,8 +4537,15 @@ int cifs_tree_connect(const unsigned int xid, struct cifs_tcon *tcon, const stru
 	rc = ops->tree_connect(xid, tcon->ses, tcon->treeName, tcon, nlsc);
 	if (rc) {
 		spin_lock(&cifs_tcp_ses_lock);
-		tcon->tidStatus = CifsNeedTcon;
+		if (tcon->tidStatus == CifsInTcon)
+			tcon->tidStatus = CifsNeedTcon;
 		spin_unlock(&cifs_tcp_ses_lock);
+	} else {
+		spin_lock(&cifs_tcp_ses_lock);
+		if (tcon->tidStatus == CifsInTcon)
+			tcon->tidStatus = CifsGood;
+		spin_unlock(&cifs_tcp_ses_lock);
+		tcon->need_reconnect = false;
 	}
 
 	return rc;
