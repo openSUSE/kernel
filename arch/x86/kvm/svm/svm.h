@@ -264,11 +264,6 @@ static inline void vmcb_mark_all_clean(struct vmcb *vmcb)
 			       & ~VMCB_ALWAYS_DIRTY_MASK;
 }
 
-static inline bool vmcb_is_clean(struct vmcb *vmcb, int bit)
-{
-	return (vmcb->control.clean & (1 << bit));
-}
-
 static inline void vmcb_mark_dirty(struct vmcb *vmcb, int bit)
 {
 	vmcb->control.clean &= ~(1 << bit);
