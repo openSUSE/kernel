@@ -85,6 +85,12 @@ static int __init simpledrm_disable(char *opt)
 }
 early_param("nvidia-drm.modeset", simpledrm_disable);
 
+static int __init simpledrm_disable_nosimplefb(char *opt)
+{
+	return simpledrm_disable(opt);
+}
+early_param("nosimplefb", simpledrm_disable_nosimplefb);
+
 static __init int sysfb_init(void)
 {
 	struct screen_info *si = &screen_info;
