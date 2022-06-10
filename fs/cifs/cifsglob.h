@@ -927,6 +927,7 @@ struct cifs_server_iface {
 };
 
 struct cifs_chan {
+	unsigned int in_reconnect : 1; /* if session setup in progress for this channel */
 	struct TCP_Server_Info *server;
 	__u8 signkey[SMB3_SIGN_KEY_SIZE];
 };
@@ -956,7 +957,7 @@ struct cifs_ses {
 				   and after mount option parsing we fill it */
 	char *domainName;
 	char *password;
-	char *workstation_name;
+	char workstation_name[CIFS_MAX_WORKSTATION_LEN];
 	struct session_key auth_key;
 	struct ntlmssp_auth *ntlmssp; /* ciphertext, flags, server challenge */
 	enum securityEnum sectype; /* what security flavor was specified? */
@@ -989,12 +990,16 @@ struct cifs_ses {
 #define CIFS_MAX_CHANNELS 16
 #define CIFS_ALL_CHANNELS_SET(ses)	\
 	((1UL << (ses)->chan_count) - 1)
+#define CIFS_ALL_CHANS_GOOD(ses)		\
+	(!(ses)->chans_need_reconnect)
 #define CIFS_ALL_CHANS_NEED_RECONNECT(ses)	\
 	((ses)->chans_need_reconnect == CIFS_ALL_CHANNELS_SET(ses))
 #define CIFS_SET_ALL_CHANS_NEED_RECONNECT(ses)	\
 	((ses)->chans_need_reconnect = CIFS_ALL_CHANNELS_SET(ses))
 #define CIFS_CHAN_NEEDS_RECONNECT(ses, index)	\
 	test_bit((index), &(ses)->chans_need_reconnect)
+#define CIFS_CHAN_IN_RECONNECT(ses, index)	\
+	((ses)->chans[(index)].in_reconnect)
 
 	struct cifs_chan chans[CIFS_MAX_CHANNELS];
 	size_t chan_count;
@@ -1995,6 +2000,19 @@ static inline bool cifs_is_referral_server(struct cifs_tcon *tcon,
 static inline u64 cifs_flock_len(struct file_lock *fl)
 {
 	return fl->fl_end == OFFSET_MAX ? 0 : fl->fl_end - fl->fl_start + 1;
+}
+
+static inline size_t ntlmssp_workstation_name_size(const struct cifs_ses *ses)
+{
+	if (WARN_ON_ONCE(!ses || !ses->server))
+		return 0;
+	/*
+	 * Make workstation name no more than 15 chars when using insecure dialects as some legacy
+	 * servers do require it during NTLMSSP.
+	 */
+	if (ses->server->dialect <= SMB20_PROT_ID)
+		return min_t(size_t, sizeof(ses->workstation_name), RFC1001_NAME_LEN_WITH_NULL);
+	return sizeof(ses->workstation_name);
 }
 
 #endif	/* _CIFS_GLOB_H */

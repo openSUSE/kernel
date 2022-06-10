@@ -95,7 +95,6 @@ sesInfoFree(struct cifs_ses *buf_to_free)
 	kzfree(buf_to_free->password);
 	kfree(buf_to_free->user_name);
 	kfree(buf_to_free->domainName);
-	kfree(buf_to_free->workstation_name);
 	kzfree(buf_to_free->auth_key.response);
 	kfree(buf_to_free->iface_list);
 	kzfree(buf_to_free);
