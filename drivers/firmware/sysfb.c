@@ -69,6 +69,22 @@ void sysfb_disable(void)
 }
 EXPORT_SYMBOL_GPL(sysfb_disable);
 
+static int skip_simpledrm;
+
+static int __init simpledrm_disable(char *opt)
+{
+	if (!opt)
+                return -EINVAL;
+
+	get_option(&opt, &skip_simpledrm);
+
+	if (skip_simpledrm)
+		pr_info("The simpledrm driver will not be probed\n");
+
+	return 0;
+}
+early_param("nvidia-drm.modeset", simpledrm_disable);
+
 static __init int sysfb_init(void)
 {
 	struct screen_info *si = &screen_info;
@@ -83,7 +99,7 @@ static __init int sysfb_init(void)
 
 	/* try to create a simple-framebuffer device */
 	compatible = sysfb_parse_mode(si, &mode);
-	if (compatible) {
+	if (compatible && !skip_simpledrm) {
 		pd = sysfb_create_simplefb(si, &mode);
 		if (!IS_ERR(pd))
 			goto unlock_mutex;
