@@ -242,7 +242,7 @@ int verify_pkcs7_message_sig(const void *data, size_t len,
 			goto error;
 		}
 
-		ret = is_key_on_revocation_list(pkcs7);
+		ret = is_key_on_revocation_list(pkcs7, usage);
 		if (ret != -ENOKEY) {
 			pr_devel("PKCS#7 platform key is on revocation list\n");
 			goto error;
