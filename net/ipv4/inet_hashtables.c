@@ -505,9 +505,9 @@ static u64 inet_sk_port_offset(const struct sock *sk)
 {
 	const struct inet_sock *inet = inet_sk(sk);
 
-	return secure_ipv4_port_ephemeral(inet->inet_rcv_saddr,
-					  inet->inet_daddr,
-					  inet->inet_dport);
+	return secure_ipv4_port_ephemeral64(inet->inet_rcv_saddr,
+					    inet->inet_daddr,
+					    inet->inet_dport);
 }
 
 /* insert a socket into ehash, and eventually remove another one
