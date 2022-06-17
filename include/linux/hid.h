@@ -680,6 +680,15 @@ struct hid_ll_driver {
 	int (*parse)(struct hid_device *hdev);
 };
 
+extern struct hid_ll_driver hidp_hid_driver;
+extern struct hid_ll_driver usb_hid_driver;
+
+static inline bool hid_is_using_ll_driver(struct hid_device *hdev,
+		struct hid_ll_driver *driver)
+{
+	return hdev->ll_driver == driver;
+}
+
 #define	PM_HINT_FULLON	1<<5
 #define PM_HINT_NORMAL	1<<1
 
