@@ -57,6 +57,28 @@ static int ch_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 	return 1;
 }
 
+static int ch_probe(struct hid_device *hdev, const struct hid_device_id *id)
+{
+	int ret;
+
+	if (!hid_is_usb(hdev))
+		return -EINVAL;
+
+	ret = hid_parse(hdev);
+	if (ret) {
+		hid_err(hdev, "Chicony hid parse failed: %d\n", ret);
+		return ret;
+	}
+
+	ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
+	if (ret) {
+		hid_err(hdev, "Chicony hw start failed: %d\n", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
 static const struct hid_device_id ch_devices[] = {
 	{ HID_USB_DEVICE(USB_VENDOR_ID_CHICONY, USB_DEVICE_ID_CHICONY_TACTICAL_PAD) },
 	{ HID_USB_DEVICE(USB_VENDOR_ID_CHICONY, USB_DEVICE_ID_CHICONY_WIRELESS2) },
@@ -68,6 +90,7 @@ static struct hid_driver ch_driver = {
 	.name = "chicony",
 	.id_table = ch_devices,
 	.input_mapping = ch_input_mapping,
+	.probe = ch_probe,
 };
 
 static int __init ch_init(void)

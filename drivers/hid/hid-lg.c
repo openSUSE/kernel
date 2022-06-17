@@ -280,6 +280,9 @@ static int lg_probe(struct hid_device *hdev, const struct hid_device_id *id)
 	unsigned int connect_mask = HID_CONNECT_DEFAULT;
 	int ret;
 
+	if (!hid_is_usb(hdev))
+		return -EINVAL;
+
 	hid_set_drvdata(hdev, (void *)quirks);
 
 	if (quirks & LG_NOGET)
