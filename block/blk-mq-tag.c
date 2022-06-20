@@ -17,6 +17,21 @@
 #include "blk-mq-tag.h"
 
 /*
+ * Recalculate wakeup batch when tag is shared by hctx.
+ */
+static void blk_mq_update_wake_batch(struct blk_mq_tags *tags,
+		unsigned int users)
+{
+	if (!users)
+		return;
+
+	sbitmap_queue_recalculate_wake_batch(tags->bitmap_tags,
+			users);
+	sbitmap_queue_recalculate_wake_batch(tags->breserved_tags,
+			users);
+}
+
+/*
  * If a previously inactive queue goes active, bump the active user count.
  * We need to do this before try to allocate driver tag, then even if fail
  * to get tag when first time, the other shared-tag users could reserve
@@ -24,18 +39,24 @@
  */
 bool __blk_mq_tag_busy(struct blk_mq_hw_ctx *hctx)
 {
+	unsigned int users;
+
 	if (blk_mq_is_sbitmap_shared(hctx->flags)) {
 		struct request_queue *q = hctx->queue;
 		struct blk_mq_tag_set *set = q->tag_set;
 
-		if (!test_bit(QUEUE_FLAG_HCTX_ACTIVE, &q->queue_flags) &&
-		    !test_and_set_bit(QUEUE_FLAG_HCTX_ACTIVE, &q->queue_flags))
-			atomic_inc(&set->active_queues_shared_sbitmap);
+		if (test_bit(QUEUE_FLAG_HCTX_ACTIVE, &q->queue_flags) ||
+		    test_and_set_bit(QUEUE_FLAG_HCTX_ACTIVE, &q->queue_flags))
+			return true;
+		users = atomic_inc_return(&set->active_queues_shared_sbitmap);
 	} else {
-		if (!test_bit(BLK_MQ_S_TAG_ACTIVE, &hctx->state) &&
-		    !test_and_set_bit(BLK_MQ_S_TAG_ACTIVE, &hctx->state))
-			atomic_inc(&hctx->tags->active_queues);
+		if (test_bit(BLK_MQ_S_TAG_ACTIVE, &hctx->state) ||
+		    test_and_set_bit(BLK_MQ_S_TAG_ACTIVE, &hctx->state))
+			return true;
+		users = atomic_inc_return(&hctx->tags->active_queues);
 	}
+
+	blk_mq_update_wake_batch(hctx->tags, users);
 
 	return true;
 }
@@ -59,17 +80,20 @@ void __blk_mq_tag_idle(struct blk_mq_hw_ctx *hctx)
 	struct blk_mq_tags *tags = hctx->tags;
 	struct request_queue *q = hctx->queue;
 	struct blk_mq_tag_set *set = q->tag_set;
+	unsigned int users;
 
 	if (blk_mq_is_sbitmap_shared(hctx->flags)) {
 		if (!test_and_clear_bit(QUEUE_FLAG_HCTX_ACTIVE,
 					&q->queue_flags))
 			return;
-		atomic_dec(&set->active_queues_shared_sbitmap);
+		users = atomic_dec_return(&set->active_queues_shared_sbitmap);
 	} else {
 		if (!test_and_clear_bit(BLK_MQ_S_TAG_ACTIVE, &hctx->state))
 			return;
-		atomic_dec(&tags->active_queues);
+		users = atomic_dec_return(&tags->active_queues);
 	}
+
+	blk_mq_update_wake_batch(tags, users);
 
 	blk_mq_tag_wakeup_all(tags, false);
 }
