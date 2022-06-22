@@ -105,7 +105,8 @@ static bool blk_mq_check_inflight(struct blk_mq_hw_ctx *hctx,
 {
 	struct mq_inflight *mi = priv;
 
-	if (!mi->part->partno || rq->part == mi->part)
+	if (rq->part && blk_do_io_stat(rq) &&
+	    (!mi->part->partno || rq->part == mi->part))
 		mi->inflight[rq_data_dir(rq)]++;
 
 	return true;
