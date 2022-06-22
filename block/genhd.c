@@ -1084,8 +1084,6 @@ static void disk_release(struct device *dev)
 
 	might_sleep();
 
-	blk_mq_cancel_work_sync(disk->queue);
-
 	if (MAJOR(dev->devt) == BLOCK_EXT_MAJOR)
 		blk_free_ext_minor(MINOR(dev->devt));
 	disk_release_events(disk);
