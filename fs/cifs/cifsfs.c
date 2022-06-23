@@ -26,6 +26,7 @@
 #include <linux/random.h>
 #include <linux/uuid.h>
 #include <linux/xattr.h>
+#include <uapi/linux/magic.h>
 #include <net/ipv6.h>
 #include "cifsfs.h"
 #include "cifspdu.h"
@@ -202,13 +203,16 @@ cifs_read_super(struct super_block *sb)
 		sb->s_time_max = ts.tv_sec;
 	}
 
-	sb->s_magic = CIFS_MAGIC_NUMBER;
+	sb->s_magic = CIFS_SUPER_MAGIC;
 	sb->s_op = &cifs_super_ops;
 	sb->s_xattr = cifs_xattr_handlers;
 	rc = super_setup_bdi(sb);
 	if (rc)
 		goto out_no_root;
 	/* tune readahead according to rsize if readahead size not set on mount */
+	if (cifs_sb->ctx->rsize == 0)
+		cifs_sb->ctx->rsize =
+			tcon->ses->server->ops->negotiate_rsize(tcon, cifs_sb->ctx);
 	if (cifs_sb->ctx->rasize)
 		sb->s_bdi->ra_pages = cifs_sb->ctx->rasize / PAGE_SIZE;
 	else
@@ -253,25 +257,32 @@ static void cifs_kill_sb(struct super_block *sb)
 	struct cifs_sb_info *cifs_sb = CIFS_SB(sb);
 	struct cifs_tcon *tcon;
 	struct cached_fid *cfid;
+	struct rb_root *root = &cifs_sb->tlink_tree;
+	struct rb_node *node;
+	struct tcon_link *tlink;
 
 	/*
 	 * We ned to release all dentries for the cached directories
 	 * before we kill the sb.
 	 */
 	if (cifs_sb->root) {
+		for (node = rb_first(root); node; node = rb_next(node)) {
+			tlink = rb_entry(node, struct tcon_link, tl_rbnode);
+			tcon = tlink_tcon(tlink);
+			if (IS_ERR(tcon))
+				continue;
+			cfid = &tcon->crfid;
+			mutex_lock(&cfid->fid_mutex);
+			if (cfid->dentry) {
+				dput(cfid->dentry);
+				cfid->dentry = NULL;
+			}
+			mutex_unlock(&cfid->fid_mutex);
+		}
+
+		/* finally release root dentry */
 		dput(cifs_sb->root);
 		cifs_sb->root = NULL;
-	}
-	tcon = cifs_sb_master_tcon(cifs_sb);
-	if (tcon) {
-		cfid = &tcon->crfid;
-		mutex_lock(&cfid->fid_mutex);
-		if (cfid->dentry) {
-
-			dput(cfid->dentry);
-			cfid->dentry = NULL;
-		}
-		mutex_unlock(&cfid->fid_mutex);
 	}
 
 	kill_anon_super(sb);
@@ -575,6 +586,8 @@ cifs_show_options(struct seq_file *s, struct dentry *root)
 		seq_puts(s, ",nocase");
 	if (tcon->nodelete)
 		seq_puts(s, ",nodelete");
+	if (cifs_sb->ctx->no_sparse)
+		seq_puts(s, ",nosparse");
 	if (tcon->local_lease)
 		seq_puts(s, ",locallease");
 	if (tcon->retry)
@@ -694,14 +707,14 @@ static void cifs_umount_begin(struct super_block *sb)
 	tcon = cifs_sb_master_tcon(cifs_sb);
 
 	spin_lock(&cifs_tcp_ses_lock);
-	if ((tcon->tc_count > 1) || (tcon->tidStatus == CifsExiting)) {
+	if ((tcon->tc_count > 1) || (tcon->status == TID_EXITING)) {
 		/* we have other mounts to same share or we have
 		   already tried to force umount this and woken up
 		   all waiting network requests, nothing to do */
 		spin_unlock(&cifs_tcp_ses_lock);
 		return;
 	} else if (tcon->tc_count == 1)
-		tcon->tidStatus = CifsExiting;
+		tcon->status = TID_EXITING;
 	spin_unlock(&cifs_tcp_ses_lock);
 
 	/* cancel_brl_requests(tcon); */ /* BB mark all brl mids as exiting */
@@ -780,7 +793,7 @@ cifs_get_root(struct smb3_fs_context *ctx, struct super_block *sb)
 
 	sep = CIFS_DIR_SEP(cifs_sb);
 	dentry = dget(sb->s_root);
-	p = s = full_path;
+	s = full_path;
 
 	do {
 		struct inode *dir = d_inode(dentry);
@@ -822,7 +835,7 @@ cifs_smb3_do_mount(struct file_system_type *fs_type,
 	      int flags, struct smb3_fs_context *old_ctx)
 {
 	int rc;
-	struct super_block *sb;
+	struct super_block *sb = NULL;
 	struct cifs_sb_info *cifs_sb = NULL;
 	struct cifs_mnt_data mnt_data;
 	struct dentry *root;
@@ -915,11 +928,14 @@ cifs_smb3_do_mount(struct file_system_type *fs_type,
 
 out_super:
 	deactivate_locked_super(sb);
+	return root;
 out:
 	if (cifs_sb) {
-		kfree(cifs_sb->prepath);
-		smb3_cleanup_fs_context(cifs_sb->ctx);
-		kfree(cifs_sb);
+		if (!sb || IS_ERR(sb)) {  /* otherwise kill_sb will handle */
+			kfree(cifs_sb->prepath);
+			smb3_cleanup_fs_context(cifs_sb->ctx);
+			kfree(cifs_sb);
+		}
 	}
 	return root;
 }
@@ -931,7 +947,7 @@ cifs_loose_read_iter(struct kiocb *iocb, struct iov_iter *iter)
 	ssize_t rc;
 	struct inode *inode = file_inode(iocb->ki_filp);
 
-	if (iocb->ki_filp->f_flags & O_DIRECT)
+	if (iocb->ki_flags & IOCB_DIRECT)
 		return cifs_user_readv(iocb, iter);
 
 	rc = cifs_revalidate_mapping(inode);
