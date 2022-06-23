@@ -250,9 +250,13 @@ struct nvme_id_ctrl {
 	__le32			rtd3e;
 	__le32			oaes;
 	__le32			ctratt;
+#ifdef __GENKSYMS__
+	__u8			rsvd100[28];
+#else /* __GENKSYMS__ */
 	__u8			rsvd100[11];
 	__u8			cntrltype;
 	__u8			fguid[16];
+#endif /* !__GENKSYMS__ */
 	__le16			crdt1;
 	__le16			crdt2;
 	__le16			crdt3;
@@ -1305,8 +1309,12 @@ struct nvmf_disc_rsp_page_entry {
 	__le16		portid;
 	__le16		cntlid;
 	__le16		asqsz;
+#ifdef __GENKSYMS__
+	__u8		resv8[22];
+#else /* __GENKSYMS__ */
 	__le16		eflags;
 	__u8		resv10[20];
+#endif /* !__GENKSYMS__ */
 	char		trsvcid[NVMF_TRSVCID_SIZE];
 	__u8		resv64[192];
 	char		subnqn[NVMF_NQN_FIELD_LEN];
