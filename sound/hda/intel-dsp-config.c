@@ -190,6 +190,12 @@ static const struct config_entry config_table[] = {
 					DMI_MATCH(DMI_SYS_VENDOR, "Google"),
 				}
 			},
+			{
+				.ident = "UP-WHL",
+				.matches = {
+					DMI_MATCH(DMI_SYS_VENDOR, "AAEON"),
+				}
+			},
 			{}
 		}
 	},
@@ -328,6 +334,12 @@ static const struct config_entry config_table[] = {
 				.ident = "Google Chromebooks",
 				.matches = {
 					DMI_MATCH(DMI_SYS_VENDOR, "Google"),
+				}
+			},
+			{
+				.ident = "UPX-TGL",
+				.matches = {
+					DMI_MATCH(DMI_SYS_VENDOR, "AAEON"),
 				}
 			},
 			{}
