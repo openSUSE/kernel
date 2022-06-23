@@ -145,7 +145,7 @@ static size_t discovery_log_entries(struct nvmet_req *req)
 	struct nvmet_ctrl *ctrl = req->sq->ctrl;
 	struct nvmet_subsys_link *p;
 	struct nvmet_port *r;
-	size_t entries = 0;
+	size_t entries = 1;
 
 	list_for_each_entry(p, &req->port->subsystems, entry) {
 		if (!nvmet_host_allowed(p->subsys, ctrl->hostnqn))
@@ -170,6 +170,7 @@ static void nvmet_execute_disc_get_log_page(struct nvmet_req *req)
 	u32 numrec = 0;
 	u16 status = 0;
 	void *buffer;
+	char traddr[NVMF_TRADDR_SIZE];
 
 	if (!nvmet_check_transfer_len(req, data_len))
 		return;
@@ -200,15 +201,19 @@ static void nvmet_execute_disc_get_log_page(struct nvmet_req *req)
 		status = NVME_SC_INTERNAL;
 		goto out;
 	}
-
 	hdr = buffer;
-	list_for_each_entry(p, &req->port->subsystems, entry) {
-		char traddr[NVMF_TRADDR_SIZE];
 
+	nvmet_set_disc_traddr(req, req->port, traddr);
+
+	nvmet_format_discovery_entry(hdr, req->port,
+				     nvmet_disc_subsys->subsysnqn,
+				     traddr, NVME_NQN_CURR, numrec);
+	numrec++;
+
+	list_for_each_entry(p, &req->port->subsystems, entry) {
 		if (!nvmet_host_allowed(p->subsys, ctrl->hostnqn))
 			continue;
 
-		nvmet_set_disc_traddr(req, req->port, traddr);
 		nvmet_format_discovery_entry(hdr, req->port,
 				p->subsys->subsysnqn, traddr,
 				NVME_NQN_NVME, numrec);
@@ -266,6 +271,8 @@ static void nvmet_execute_disc_identify(struct nvmet_req *req)
 	memcpy_and_pad(id->mn, sizeof(id->mn), model, sizeof(model) - 1, ' ');
 	memcpy_and_pad(id->fr, sizeof(id->fr),
 		       UTS_RELEASE, strlen(UTS_RELEASE), ' ');
+
+	id->cntrltype = NVME_CTRL_DISC;
 
 	/* no limit on data transfer sizes for now */
 	id->mdts = 0;
@@ -386,7 +393,7 @@ u16 nvmet_parse_discovery_cmd(struct nvmet_req *req)
 int __init nvmet_init_discovery(void)
 {
 	nvmet_disc_subsys =
-		nvmet_subsys_alloc(NVME_DISC_SUBSYS_NAME, NVME_NQN_DISC);
+		nvmet_subsys_alloc(NVME_DISC_SUBSYS_NAME, NVME_NQN_CURR);
 	return PTR_ERR_OR_ZERO(nvmet_disc_subsys);
 }
 
