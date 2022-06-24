@@ -551,6 +551,7 @@ static inline unsigned int blk_rq_get_max_segments(struct request *rq)
 	return queue_max_segments(rq->q);
 }
 
+#ifdef CONFIG_BLK_CGROUP
 /**
  * blk_cgroup_mergeable - Determine whether to allow or disallow merges
  * @rq: request to merge into
@@ -565,6 +566,12 @@ static inline bool blk_cgroup_mergeable(struct request *rq, struct bio *bio)
 	return rq->bio->bi_blkg == bio->bi_blkg &&
 	       bio_issue_as_root_blkg(rq->bio) == bio_issue_as_root_blkg(bio);
 }
+#else
+static inline bool blk_cgroup_mergeable(struct request *rq, struct bio *bio)
+{
+	return true;
+}
+#endif
 
 static inline int ll_new_hw_segment(struct request *req, struct bio *bio,
 		unsigned int nr_phys_segs)
