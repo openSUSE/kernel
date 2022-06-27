@@ -934,7 +934,6 @@ struct netns_ipvs {
 	int			sysctl_conn_reuse_mode;
 	int			sysctl_schedule_icmp;
 	int			sysctl_ignore_tunneled;
-	int			sysctl_run_estimation;
 
 	/* ip_vs_lblc */
 	int			sysctl_lblc_expiration;
@@ -966,6 +965,9 @@ struct netns_ipvs {
 	 */
 	unsigned int		mixed_address_family_dests;
 	unsigned int		hooks_afmask;	/* &1=AF_INET, &2=AF_INET6 */
+#ifndef __GENKSYMS__
+	int			sysctl_run_estimation;
+#endif
 };
 
 #define DEFAULT_SYNC_THRESHOLD	3
