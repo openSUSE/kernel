@@ -359,6 +359,11 @@ static void nvmet_execute_identify_ctrl(struct nvmet_req *req)
 
 	id->rab = 6;
 
+	if (nvmet_is_disc_subsys(ctrl->subsys))
+		id->cntrltype = NVME_CTRL_DISC;
+	else
+		id->cntrltype = NVME_CTRL_IO;
+
 	/*
 	 * XXX: figure out how we can assign a IEEE OUI, but until then
 	 * the safest is to leave it as zeroes.
@@ -692,7 +697,7 @@ static u16 nvmet_write_protect_flush_sync(struct nvmet_req *req)
 static u16 nvmet_set_feat_write_protect(struct nvmet_req *req)
 {
 	u32 write_protect = le32_to_cpu(req->cmd->common.cdw11);
-	struct nvmet_subsys *subsys = req->sq->ctrl->subsys;
+	struct nvmet_subsys *subsys = nvmet_req_subsys(req);
 	u16 status = NVME_SC_FEATURE_NOT_CHANGEABLE;
 
 	req->ns = nvmet_find_namespace(req->sq->ctrl, req->cmd->rw.nsid);
@@ -751,7 +756,7 @@ u16 nvmet_set_feat_async_event(struct nvmet_req *req, u32 mask)
 
 void nvmet_execute_set_features(struct nvmet_req *req)
 {
-	struct nvmet_subsys *subsys = req->sq->ctrl->subsys;
+	struct nvmet_subsys *subsys = nvmet_req_subsys(req);
 	u32 cdw10 = le32_to_cpu(req->cmd->common.cdw10);
 	u32 cdw11 = le32_to_cpu(req->cmd->common.cdw11);
 	u16 status = 0;
@@ -795,7 +800,7 @@ void nvmet_execute_set_features(struct nvmet_req *req)
 
 static u16 nvmet_get_feat_write_protect(struct nvmet_req *req)
 {
-	struct nvmet_subsys *subsys = req->sq->ctrl->subsys;
+	struct nvmet_subsys *subsys = nvmet_req_subsys(req);
 	u32 result;
 
 	req->ns = nvmet_find_namespace(req->sq->ctrl, req->cmd->common.nsid);
@@ -826,7 +831,7 @@ void nvmet_get_feat_async_event(struct nvmet_req *req)
 
 void nvmet_execute_get_features(struct nvmet_req *req)
 {
-	struct nvmet_subsys *subsys = req->sq->ctrl->subsys;
+	struct nvmet_subsys *subsys = nvmet_req_subsys(req);
 	u32 cdw10 = le32_to_cpu(req->cmd->common.cdw10);
 	u16 status = 0;
 
@@ -933,7 +938,7 @@ u16 nvmet_parse_admin_cmd(struct nvmet_req *req)
 
 	if (nvme_is_fabrics(cmd))
 		return nvmet_parse_fabrics_cmd(req);
-	if (req->sq->ctrl->subsys->type == NVME_NQN_DISC)
+	if (nvmet_is_disc_subsys(nvmet_req_subsys(req)))
 		return nvmet_parse_discovery_cmd(req);
 
 	ret = nvmet_check_ctrl_status(req, cmd);

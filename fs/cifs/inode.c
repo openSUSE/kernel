@@ -950,6 +950,12 @@ cifs_get_inode_info(struct inode **inode,
 		rc = server->ops->query_path_info(xid, tcon, cifs_sb,
 						 full_path, tmp_data,
 						 &adjust_tz, &is_reparse_point);
+#ifdef CONFIG_CIFS_DFS_UPCALL
+		if (rc == -ENOENT && is_tcon_dfs(tcon))
+			rc = cifs_dfs_query_info_nonascii_quirk(xid, tcon,
+								cifs_sb,
+								full_path);
+#endif
 		data = tmp_data;
 	}
 
@@ -1354,11 +1360,6 @@ iget_no_retry:
 		goto out;
 	}
 
-#ifdef CONFIG_CIFS_FSCACHE
-	/* populate tcon->resource_id */
-	tcon->resource_id = CIFS_I(inode)->uniqueid;
-#endif
-
 	if (rc && tcon->pipe) {
 		cifs_dbg(FYI, "ipc connection - fake read inode\n");
 		spin_lock(&inode->i_lock);
@@ -1373,7 +1374,6 @@ iget_no_retry:
 		iget_failed(inode);
 		inode = ERR_PTR(rc);
 	}
-
 out:
 	kfree(path);
 	free_xid(xid);
