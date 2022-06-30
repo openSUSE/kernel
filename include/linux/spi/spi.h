@@ -500,7 +500,6 @@ struct spi_controller {
 #define SPI_MASTER_GPIO_SS		BIT(5)	/* GPIO CS must select slave */
 
 	/* flag indicating this is a non-devres managed controller */
-	bool			devm_allocated;
 
 	/* flag indicating this is an SPI slave controller */
 	bool			slave;
@@ -655,6 +654,9 @@ struct spi_controller {
 
 	/* Interrupt enable state during PTP system timestamping */
 	unsigned long		irq_flags;
+#ifndef __GENKSYMS__
+	bool			devm_allocated;
+#endif
 };
 
 static inline void *spi_controller_get_devdata(struct spi_controller *ctlr)
