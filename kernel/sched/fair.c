@@ -1077,6 +1077,33 @@ update_stats_curr_start(struct cfs_rq *cfs_rq, struct sched_entity *se)
  * Scheduling class queueing methods:
  */
 
+#ifdef CONFIG_NUMA
+#define NUMA_IMBALANCE_MIN 2
+
+static inline long
+adjust_numa_imbalance(int imbalance, int dst_running, int imb_numa_nr)
+{
+	/*
+	 * Allow a NUMA imbalance if busy CPUs is less than the maximum
+	 * threshold. Above this threshold, individual tasks may be contending
+	 * for both memory bandwidth and any shared HT resources.  This is an
+	 * approximation as the number of running tasks may not be related to
+	 * the number of busy CPUs due to sched_setaffinity.
+	 */
+	if (dst_running > imb_numa_nr)
+		return imbalance;
+
+	/*
+	 * Allow a small imbalance based on a simple pair of communicating
+	 * tasks that remain local when the destination is lightly loaded.
+	 */
+	if (imbalance <= NUMA_IMBALANCE_MIN)
+		return 0;
+
+	return imbalance;
+}
+#endif /* CONFIG_NUMA */
+
 #ifdef CONFIG_NUMA_BALANCING
 /*
  * Approximate time to scan a full NUMA task in ms. The task scan period is
@@ -1570,8 +1597,6 @@ struct task_numa_env {
 static unsigned long cpu_load(struct rq *rq);
 static unsigned long cpu_runnable(struct rq *rq);
 static unsigned long cpu_util(int cpu);
-static inline long adjust_numa_imbalance(int imbalance,
-					int dst_running, int imb_numa_nr);
 
 static inline enum
 numa_type numa_classify(unsigned int imbalance_pct,
@@ -1812,6 +1837,15 @@ static bool task_numa_compare(struct task_numa_env *env,
 	 */
 	cur_ng = rcu_dereference(cur->numa_group);
 	if (cur_ng == p_ng) {
+		/*
+		 * Do not swap within a group or between tasks that have
+		 * no group if there is spare capacity. Swapping does
+		 * not address the load imbalance and helps one task at
+		 * the cost of punishing another.
+		 */
+		if (env->dst_stats.node_type == node_has_spare)
+			goto unlock;
+
 		imp = taskimp + task_weight(cur, env->src_nid, dist) -
 		      task_weight(cur, env->dst_nid, dist);
 		/*
@@ -2892,6 +2926,7 @@ void init_numa_balancing(unsigned long clone_flags, struct task_struct *p)
 	p->node_stamp			= 0;
 	p->numa_scan_seq		= mm ? mm->numa_scan_seq : 0;
 	p->numa_scan_period		= sysctl_numa_balancing_scan_delay;
+	p->numa_migrate_retry		= 0;
 	/* Protect against double add, see task_tick_numa and task_numa_work */
 	p->numa_work.next		= &p->numa_work;
 	p->numa_faults			= NULL;
@@ -9131,16 +9166,6 @@ static bool update_pick_idlest(struct sched_group *idlest,
 }
 
 /*
- * Allow a NUMA imbalance if busy CPUs is less than 25% of the domain.
- * This is an approximation as the number of running tasks may not be
- * related to the number of busy CPUs due to sched_setaffinity.
- */
-static inline bool allow_numa_imbalance(int running, int imb_numa_nr)
-{
-	return running <= imb_numa_nr;
-}
-
-/*
  * find_idlest_group() finds and returns the least busy CPU group within the
  * domain.
  *
@@ -9256,7 +9281,9 @@ find_idlest_group(struct sched_domain *sd, struct task_struct *p, int this_cpu)
 		break;
 
 	case group_has_spare:
+#ifdef CONFIG_NUMA
 		if (sd->flags & SD_NUMA) {
+			int imb_numa_nr = sd->imb_numa_nr;
 #ifdef CONFIG_NUMA_BALANCING
 			int idlest_cpu;
 			/*
@@ -9269,17 +9296,31 @@ find_idlest_group(struct sched_domain *sd, struct task_struct *p, int this_cpu)
 			idlest_cpu = cpumask_first(sched_group_span(idlest));
 			if (cpu_to_node(idlest_cpu) == p->numa_preferred_nid)
 				return idlest;
-#endif
+#endif /* CONFIG_NUMA_BALANCING */
 			/*
 			 * Otherwise, keep the task close to the wakeup source
 			 * and improve locality if the number of running tasks
 			 * would remain below threshold where an imbalance is
-			 * allowed. If there is a real need of migration,
-			 * periodic load balance will take care of it.
+			 * allowed while accounting for the possibility the
+			 * task is pinned to a subset of CPUs. If there is a
+			 * real need of migration, periodic load balance will
+			 * take care of it.
 			 */
-			if (allow_numa_imbalance(local_sgs.sum_nr_running + 1, sd->imb_numa_nr))
+			if (p->nr_cpus_allowed != NR_CPUS) {
+				struct cpumask *cpus = this_cpu_cpumask_var_ptr(select_idle_mask);
+
+				cpumask_and(cpus, sched_group_span(local), p->cpus_ptr);
+				imb_numa_nr = min(cpumask_weight(cpus), sd->imb_numa_nr);
+			}
+
+			imbalance = abs(local_sgs.idle_cpus - idlest_sgs.idle_cpus);
+			if (!adjust_numa_imbalance(imbalance,
+						   local_sgs.sum_nr_running + 1,
+						   imb_numa_nr)) {
 				return NULL;
+			}
 		}
+#endif /* CONFIG_NUMA */
 
 		/*
 		 * Select group with highest number of idle CPUs. We could also
@@ -9366,24 +9407,6 @@ next_group:
 	}
 }
 
-#define NUMA_IMBALANCE_MIN 2
-
-static inline long adjust_numa_imbalance(int imbalance,
-				int dst_running, int imb_numa_nr)
-{
-	if (!allow_numa_imbalance(dst_running, imb_numa_nr))
-		return imbalance;
-
-	/*
-	 * Allow a small imbalance based on a simple pair of communicating
-	 * tasks that remain local when the destination is lightly loaded.
-	 */
-	if (imbalance <= NUMA_IMBALANCE_MIN)
-		return 0;
-
-	return imbalance;
-}
-
 /**
  * calculate_imbalance - Calculate the amount of imbalance present within the
  *			 groups of a given sched_domain during load balance.
@@ -9468,7 +9491,7 @@ static inline void calculate_imbalance(struct lb_env *env, struct sd_lb_stats *s
 			 */
 			env->migration_type = migrate_task;
 			lsub_positive(&nr_diff, local->sum_nr_running);
-			env->imbalance = nr_diff >> 1;
+			env->imbalance = nr_diff;
 		} else {
 
 			/*
@@ -9476,15 +9499,21 @@ static inline void calculate_imbalance(struct lb_env *env, struct sd_lb_stats *s
 			 * idle cpus.
 			 */
 			env->migration_type = migrate_task;
-			env->imbalance = max_t(long, 0, (local->idle_cpus -
-						 busiest->idle_cpus) >> 1);
+			env->imbalance = max_t(long, 0,
+					       (local->idle_cpus - busiest->idle_cpus));
 		}
 
+#ifdef CONFIG_NUMA
 		/* Consider allowing a small imbalance between NUMA groups */
 		if (env->sd->flags & SD_NUMA) {
 			env->imbalance = adjust_numa_imbalance(env->imbalance,
-				local->sum_nr_running + 1, env->sd->imb_numa_nr);
+							       local->sum_nr_running + 1,
+							       env->sd->imb_numa_nr);
 		}
+#endif
+
+		/* Number of tasks to move to restore balance */
+		env->imbalance >>= 1;
 
 		return;
 	}

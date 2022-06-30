@@ -962,6 +962,9 @@ struct netns_ipvs {
 	 */
 	unsigned int		mixed_address_family_dests;
 	unsigned int		hooks_afmask;	/* &1=AF_INET, &2=AF_INET6 */
+#ifndef __GENKSYMS__
+	int			sysctl_run_estimation;
+#endif
 };
 
 #define DEFAULT_SYNC_THRESHOLD	3
@@ -1071,6 +1074,11 @@ static inline int sysctl_cache_bypass(struct netns_ipvs *ipvs)
 	return ipvs->sysctl_cache_bypass;
 }
 
+static inline int sysctl_run_estimation(struct netns_ipvs *ipvs)
+{
+	return ipvs->sysctl_run_estimation;
+}
+
 #else
 
 static inline int sysctl_sync_threshold(struct netns_ipvs *ipvs)
@@ -1161,6 +1169,11 @@ static inline int sysctl_ignore_tunneled(struct netns_ipvs *ipvs)
 static inline int sysctl_cache_bypass(struct netns_ipvs *ipvs)
 {
 	return 0;
+}
+
+static inline int sysctl_run_estimation(struct netns_ipvs *ipvs)
+{
+	return 1;
 }
 
 #endif
