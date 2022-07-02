@@ -85,7 +85,7 @@
  */
 
 SYM_CODE_START(entry_SYSCALL_64)
-	UNWIND_HINT_EMPTY
+	UNWIND_HINT_ENTRY
 
 	swapgs
 	/* tss.sp2 is scratch space. */
@@ -1052,6 +1052,7 @@ SYM_CODE_START_LOCAL(error_entry)
 	 */
 .Lerror_entry_done_lfence:
 	FENCE_SWAPGS_KERNEL_ENTRY
+	ANNOTATE_UNRET_END
 	RET
 
 .Lbstep_iret:
