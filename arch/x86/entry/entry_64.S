@@ -1145,7 +1145,7 @@ ENTRY(native_load_gs_index)
 	TRACE_IRQS_FLAGS (%rsp)
 	popfq
 	FRAME_END
-	ret
+	RET
 ENDPROC(native_load_gs_index)
 EXPORT_SYMBOL(native_load_gs_index)
 
@@ -1358,7 +1358,7 @@ SYM_CODE_START_LOCAL(paranoid_entry)
 	 * mispredicted GSBASE. No extra FENCE required.
 	 */
 	SAVE_AND_SET_GSBASE scratch_reg=%rax save_reg=%rbx
-	ret
+	RET
 
 .Lparanoid_entry_checkgs:
 	/* EBX = 1 -> kernel GSBASE active, no restore required */
@@ -1379,7 +1379,7 @@ SYM_CODE_START_LOCAL(paranoid_entry)
 .Lparanoid_kernel_gsbase:
 
 	FENCE_SWAPGS_KERNEL_ENTRY
-	ret
+	RET
 SYM_CODE_END(paranoid_entry)
 
 /*
@@ -1462,12 +1462,12 @@ SYM_CODE_START_LOCAL(error_entry)
 	movq	%rax, %rsp			/* switch stack */
 	ENCODE_FRAME_POINTER
 	pushq	%r12
-	ret
+	RET
 
 .Lerror_entry_done_lfence:
 	FENCE_SWAPGS_KERNEL_ENTRY
 .Lerror_entry_done:
-	ret
+	RET
 
 	/*
 	 * There are two places in the kernel that can potentially fault with

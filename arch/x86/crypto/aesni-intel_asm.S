@@ -1599,7 +1599,7 @@ ENTRY(aesni_gcm_dec)
 	GCM_ENC_DEC dec
 	GCM_COMPLETE arg10, arg11
 	FUNC_RESTORE
-	ret
+	RET
 ENDPROC(aesni_gcm_dec)
 
 
@@ -1688,7 +1688,7 @@ ENTRY(aesni_gcm_enc)
 
 	GCM_COMPLETE arg10, arg11
 	FUNC_RESTORE
-	ret
+	RET
 ENDPROC(aesni_gcm_enc)
 
 /*****************************************************************************
@@ -1706,7 +1706,7 @@ ENTRY(aesni_gcm_init)
 	FUNC_SAVE
 	GCM_INIT %arg3, %arg4,%arg5, %arg6
 	FUNC_RESTORE
-	ret
+	RET
 ENDPROC(aesni_gcm_init)
 
 /*****************************************************************************
@@ -1721,7 +1721,7 @@ ENTRY(aesni_gcm_enc_update)
 	FUNC_SAVE
 	GCM_ENC_DEC enc
 	FUNC_RESTORE
-	ret
+	RET
 ENDPROC(aesni_gcm_enc_update)
 
 /*****************************************************************************
@@ -1736,7 +1736,7 @@ ENTRY(aesni_gcm_dec_update)
 	FUNC_SAVE
 	GCM_ENC_DEC dec
 	FUNC_RESTORE
-	ret
+	RET
 ENDPROC(aesni_gcm_dec_update)
 
 /*****************************************************************************
@@ -1751,7 +1751,7 @@ ENTRY(aesni_gcm_finalize)
 	FUNC_SAVE
 	GCM_COMPLETE %arg3 %arg4
 	FUNC_RESTORE
-	ret
+	RET
 ENDPROC(aesni_gcm_finalize)
 
 #endif
@@ -1767,7 +1767,7 @@ SYM_FUNC_START_LOCAL(_key_expansion_256a)
 	pxor %xmm1, %xmm0
 	movaps %xmm0, (TKEYP)
 	add $0x10, TKEYP
-	ret
+	RET
 SYM_FUNC_END(_key_expansion_256a)
 SYM_FUNC_END_ALIAS(_key_expansion_128)
 
@@ -1792,7 +1792,7 @@ SYM_FUNC_START_LOCAL(_key_expansion_192a)
 	shufps $0b01001110, %xmm2, %xmm1
 	movaps %xmm1, 0x10(TKEYP)
 	add $0x20, TKEYP
-	ret
+	RET
 SYM_FUNC_END(_key_expansion_192a)
 
 SYM_FUNC_START_LOCAL(_key_expansion_192b)
@@ -1811,7 +1811,7 @@ SYM_FUNC_START_LOCAL(_key_expansion_192b)
 
 	movaps %xmm0, (TKEYP)
 	add $0x10, TKEYP
-	ret
+	RET
 SYM_FUNC_END(_key_expansion_192b)
 
 SYM_FUNC_START_LOCAL(_key_expansion_256b)
@@ -1823,7 +1823,7 @@ SYM_FUNC_START_LOCAL(_key_expansion_256b)
 	pxor %xmm1, %xmm2
 	movaps %xmm2, (TKEYP)
 	add $0x10, TKEYP
-	ret
+	RET
 SYM_FUNC_END(_key_expansion_256b)
 
 /*
@@ -1938,7 +1938,7 @@ ENTRY(aesni_set_key)
 	popl KEYP
 #endif
 	FRAME_END
-	ret
+	RET
 ENDPROC(aesni_set_key)
 
 /*
@@ -1962,7 +1962,7 @@ ENTRY(aesni_enc)
 	popl KEYP
 #endif
 	FRAME_END
-	ret
+	RET
 ENDPROC(aesni_enc)
 
 /*
@@ -2019,7 +2019,7 @@ SYM_FUNC_START_LOCAL(_aesni_enc1)
 	AESENC KEY STATE
 	movaps 0x70(TKEYP), KEY
 	AESENCLAST KEY STATE
-	ret
+	RET
 SYM_FUNC_END(_aesni_enc1)
 
 /*
@@ -2127,7 +2127,7 @@ SYM_FUNC_START_LOCAL(_aesni_enc4)
 	AESENCLAST KEY STATE2
 	AESENCLAST KEY STATE3
 	AESENCLAST KEY STATE4
-	ret
+	RET
 SYM_FUNC_END(_aesni_enc4)
 
 /*
@@ -2152,7 +2152,7 @@ ENTRY(aesni_dec)
 	popl KEYP
 #endif
 	FRAME_END
-	ret
+	RET
 ENDPROC(aesni_dec)
 
 /*
@@ -2209,7 +2209,7 @@ SYM_FUNC_START_LOCAL(_aesni_dec1)
 	AESDEC KEY STATE
 	movaps 0x70(TKEYP), KEY
 	AESDECLAST KEY STATE
-	ret
+	RET
 SYM_FUNC_END(_aesni_dec1)
 
 /*
@@ -2317,7 +2317,7 @@ SYM_FUNC_START_LOCAL(_aesni_dec4)
 	AESDECLAST KEY STATE2
 	AESDECLAST KEY STATE3
 	AESDECLAST KEY STATE4
-	ret
+	RET
 SYM_FUNC_END(_aesni_dec4)
 
 /*
@@ -2377,7 +2377,7 @@ ENTRY(aesni_ecb_enc)
 	popl LEN
 #endif
 	FRAME_END
-	ret
+	RET
 ENDPROC(aesni_ecb_enc)
 
 /*
@@ -2438,7 +2438,7 @@ ENTRY(aesni_ecb_dec)
 	popl LEN
 #endif
 	FRAME_END
-	ret
+	RET
 ENDPROC(aesni_ecb_dec)
 
 /*
@@ -2482,7 +2482,7 @@ ENTRY(aesni_cbc_enc)
 	popl IVP
 #endif
 	FRAME_END
-	ret
+	RET
 ENDPROC(aesni_cbc_enc)
 
 /*
@@ -2575,7 +2575,7 @@ ENTRY(aesni_cbc_dec)
 	popl IVP
 #endif
 	FRAME_END
-	ret
+	RET
 ENDPROC(aesni_cbc_dec)
 
 #ifdef __x86_64__
@@ -2603,7 +2603,7 @@ SYM_FUNC_START_LOCAL(_aesni_inc_init)
 	mov $1, TCTR_LOW
 	MOVQ_R64_XMM TCTR_LOW INC
 	MOVQ_R64_XMM CTR TCTR_LOW
-	ret
+	RET
 SYM_FUNC_END(_aesni_inc_init)
 
 /*
@@ -2631,7 +2631,7 @@ SYM_FUNC_START_LOCAL(_aesni_inc)
 .Linc_low:
 	movaps CTR, IV
 	PSHUFB_XMM BSWAP_MASK IV
-	ret
+	RET
 SYM_FUNC_END(_aesni_inc)
 
 /*
@@ -2694,7 +2694,7 @@ ENTRY(aesni_ctr_enc)
 	movups IV, (IVP)
 .Lctr_enc_just_ret:
 	FRAME_END
-	ret
+	RET
 ENDPROC(aesni_ctr_enc)
 
 /*
