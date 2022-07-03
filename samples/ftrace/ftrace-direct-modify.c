@@ -25,13 +25,13 @@ asm (
 "	movq %rsp, %rbp\n"
 "	call my_direct_func1\n"
 "	leave\n"
-"	ret\n"
+	ASM_RET
 "   my_tramp2:"
 "	pushq %rbp\n"
 "	movq %rsp, %rbp\n"
 "	call my_direct_func2\n"
 "	leave\n"
-"	ret\n"
+	ASM_RET
 "	.popsection\n"
 );
 
