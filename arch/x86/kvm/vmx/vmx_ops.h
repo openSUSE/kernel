@@ -9,6 +9,7 @@
 
 #include "evmcs.h"
 #include "vmcs.h"
+#include "../x86.h"
 
 #define __ex(x) __kvm_handle_fault_on_reboot(x)
 
