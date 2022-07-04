@@ -157,6 +157,8 @@
 #ifdef CONFIG_RETPOLINE
 #ifdef CONFIG_X86_64
 
+extern void __x86_return_thunk(void);
+
 /*
  * Inline asm uses the %V modifier which is only in newer GCC
  * which is ensured when CONFIG_RETPOLINE is defined.
