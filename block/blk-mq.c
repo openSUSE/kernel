@@ -105,7 +105,8 @@ static bool blk_mq_check_inflight(struct blk_mq_hw_ctx *hctx,
 {
 	struct mq_inflight *mi = priv;
 
-	if (!mi->part->partno || rq->part == mi->part)
+	if (rq->part && blk_do_io_stat(rq) &&
+	    (!mi->part->partno || rq->part == mi->part))
 		mi->inflight[rq_data_dir(rq)]++;
 
 	return true;
@@ -1241,9 +1242,6 @@ static bool blk_mq_mark_tag_wait(struct blk_mq_hw_ctx *hctx,
 static void blk_mq_update_dispatch_busy(struct blk_mq_hw_ctx *hctx, bool busy)
 {
 	unsigned int ewma;
-
-	if (hctx->queue->elevator)
-		return;
 
 	ewma = hctx->dispatch_busy;
 
@@ -2931,10 +2929,12 @@ static void queue_set_hctx_shared(struct request_queue *q, bool shared)
 	int i;
 
 	queue_for_each_hw_ctx(q, hctx, i) {
-		if (shared)
+		if (shared) {
 			hctx->flags |= BLK_MQ_F_TAG_SHARED;
-		else
+		} else {
+			blk_mq_tag_idle(hctx);
 			hctx->flags &= ~BLK_MQ_F_TAG_SHARED;
+		}
 	}
 }
 

@@ -2025,12 +2025,11 @@ static void prepare_vmcs02_early(struct vcpu_vmx *vmx, struct vmcs12 *vmcs12)
 			 ~PIN_BASED_VMX_PREEMPTION_TIMER);
 
 	/* Posted interrupts setting is only taken from vmcs12.  */
-	if (nested_cpu_has_posted_intr(vmcs12)) {
+	vmx->nested.pi_pending = false;
+	if (nested_cpu_has_posted_intr(vmcs12))
 		vmx->nested.posted_intr_nv = vmcs12->posted_intr_nv;
-		vmx->nested.pi_pending = false;
-	} else {
+	else
 		exec_control &= ~PIN_BASED_POSTED_INTR;
-	}
 	pin_controls_set(vmx, exec_control);
 
 	/*
@@ -3923,6 +3922,10 @@ static void load_vmcs12_host_state(struct kvm_vcpu *vcpu,
 	};
 	vmx_set_segment(vcpu, &seg, VCPU_SREG_TR);
 
+	memset(&seg, 0, sizeof(seg));
+	seg.unusable = 1;
+	vmx_set_segment(vcpu, &seg, VCPU_SREG_LDTR);
+
 	kvm_set_dr(vcpu, 7, 0x400);
 	vmcs_write64(GUEST_IA32_DEBUGCTL, 0);
 
@@ -5022,6 +5025,20 @@ static int handle_invvpid(struct kvm_vcpu *vcpu)
 		WARN_ON_ONCE(1);
 		return kvm_skip_emulated_instruction(vcpu);
 	}
+
+	/*
+	 * Sync the shadow page tables if EPT is disabled, L1 is invalidating
+	 * linear mappings for L2 (tagged with L2's VPID).  Free all roots as
+	 * VPIDs are not tracked in the MMU role.
+	 *
+	 * Note, this operates on root_mmu, not guest_mmu, as L1 and L2 share
+	 * an MMU when EPT is disabled.
+	 *
+	 * TODO: sync only the affected SPTEs for INVDIVIDUAL_ADDR.
+	 */
+	if (!enable_ept)
+		kvm_mmu_free_roots(vcpu, &vcpu->arch.root_mmu,
+				   KVM_MMU_ROOTS_ALL);
 
 	return nested_vmx_succeed(vcpu);
 }

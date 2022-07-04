@@ -89,6 +89,15 @@ cifs_mark_open_files_invalid(struct cifs_tcon *tcon)
 	struct list_head *tmp;
 	struct list_head *tmp1;
 
+	/* only send once per connect */
+	spin_lock(&cifs_tcp_ses_lock);
+	if ((tcon->ses->ses_status != SES_GOOD) || (tcon->status != TID_NEED_RECON)) {
+		spin_unlock(&cifs_tcp_ses_lock);
+		return;
+	}
+	tcon->status = TID_IN_FILES_INVALIDATE;
+	spin_unlock(&cifs_tcp_ses_lock);
+
 	/* list all files open on tree connection and mark them invalid */
 	spin_lock(&tcon->open_file_lock);
 	list_for_each_safe(tmp, tmp1, &tcon->openFileList) {
@@ -104,6 +113,11 @@ cifs_mark_open_files_invalid(struct cifs_tcon *tcon)
 	close_cached_dir_lease_locked(&tcon->crfid);
 	memset(tcon->crfid.fid, 0, sizeof(struct cifs_fid));
 	mutex_unlock(&tcon->crfid.fid_mutex);
+
+	spin_lock(&cifs_tcp_ses_lock);
+	if (tcon->status == TID_IN_FILES_INVALIDATE)
+		tcon->status = TID_NEED_TCON;
+	spin_unlock(&cifs_tcp_ses_lock);
 
 	/*
 	 * BB Add call to invalidate_inodes(sb) for all superblocks mounted
@@ -136,15 +150,18 @@ cifs_reconnect_tcon(struct cifs_tcon *tcon, int smb_command)
 	 * only tree disconnect, open, and write, (and ulogoff which does not
 	 * have tcon) are allowed as we start force umount
 	 */
-	if (tcon->tidStatus == CifsExiting) {
+	spin_lock(&cifs_tcp_ses_lock);
+	if (tcon->status == TID_EXITING) {
 		if (smb_command != SMB_COM_WRITE_ANDX &&
 		    smb_command != SMB_COM_OPEN_ANDX &&
 		    smb_command != SMB_COM_TREE_DISCONNECT) {
+			spin_unlock(&cifs_tcp_ses_lock);
 			cifs_dbg(FYI, "can not send cmd %d while umounting\n",
 				 smb_command);
 			return -ENODEV;
 		}
 	}
+	spin_unlock(&cifs_tcp_ses_lock);
 
 	retries = server->nr_targets;
 
@@ -164,8 +181,12 @@ cifs_reconnect_tcon(struct cifs_tcon *tcon, int smb_command)
 		}
 
 		/* are we still trying to reconnect? */
-		if (server->tcpStatus != CifsNeedReconnect)
+		spin_lock(&cifs_tcp_ses_lock);
+		if (server->tcpStatus != CifsNeedReconnect) {
+			spin_unlock(&cifs_tcp_ses_lock);
 			break;
+		}
+		spin_unlock(&cifs_tcp_ses_lock);
 
 		if (retries && --retries)
 			continue;
@@ -182,31 +203,49 @@ cifs_reconnect_tcon(struct cifs_tcon *tcon, int smb_command)
 		retries = server->nr_targets;
 	}
 
-	if (!ses->need_reconnect && !tcon->need_reconnect)
+	spin_lock(&ses->chan_lock);
+	if (!cifs_chan_needs_reconnect(ses, server) && !tcon->need_reconnect) {
+		spin_unlock(&ses->chan_lock);
 		return 0;
+	}
+	spin_unlock(&ses->chan_lock);
 
 	nls_codepage = load_nls_default();
-
-	/*
-	 * need to prevent multiple threads trying to simultaneously
-	 * reconnect the same SMB session
-	 */
-	mutex_lock(&ses->session_mutex);
 
 	/*
 	 * Recheck after acquire mutex. If another thread is negotiating
 	 * and the server never sends an answer the socket will be closed
 	 * and tcpStatus set to reconnect.
 	 */
+	spin_lock(&cifs_tcp_ses_lock);
 	if (server->tcpStatus == CifsNeedReconnect) {
+		spin_unlock(&cifs_tcp_ses_lock);
 		rc = -EHOSTDOWN;
-		mutex_unlock(&ses->session_mutex);
 		goto out;
 	}
+	spin_unlock(&cifs_tcp_ses_lock);
 
-	rc = cifs_negotiate_protocol(0, ses);
-	if (rc == 0 && ses->need_reconnect)
-		rc = cifs_setup_session(0, ses, nls_codepage);
+	/*
+	 * need to prevent multiple threads trying to simultaneously
+	 * reconnect the same SMB session
+	 */
+	spin_lock(&ses->chan_lock);
+	if (!cifs_chan_needs_reconnect(ses, server)) {
+		spin_unlock(&ses->chan_lock);
+
+		/* this means that we only need to tree connect */
+		if (tcon->need_reconnect)
+			goto skip_sess_setup;
+
+		rc = -EHOSTDOWN;
+		goto out;
+	}
+	spin_unlock(&ses->chan_lock);
+
+	mutex_lock(&ses->session_mutex);
+	rc = cifs_negotiate_protocol(0, ses, server);
+	if (!rc)
+		rc = cifs_setup_session(0, ses, server, nls_codepage);
 
 	/* do we need to reconnect tcon? */
 	if (rc || !tcon->need_reconnect) {
@@ -214,6 +253,7 @@ cifs_reconnect_tcon(struct cifs_tcon *tcon, int smb_command)
 		goto out;
 	}
 
+skip_sess_setup:
 	cifs_mark_open_files_invalid(tcon);
 	rc = cifs_tree_connect(0, tcon, nls_codepage);
 	mutex_unlock(&ses->session_mutex);
@@ -353,8 +393,13 @@ static int
 smb_init_no_reconnect(int smb_command, int wct, struct cifs_tcon *tcon,
 			void **request_buf, void **response_buf)
 {
-	if (tcon->ses->need_reconnect || tcon->need_reconnect)
+	spin_lock(&tcon->ses->chan_lock);
+	if (cifs_chan_needs_reconnect(tcon->ses, tcon->ses->server) ||
+	    tcon->need_reconnect) {
+		spin_unlock(&tcon->ses->chan_lock);
 		return -EHOSTDOWN;
+	}
+	spin_unlock(&tcon->ses->chan_lock);
 
 	return __smb_init(smb_command, wct, tcon, request_buf, response_buf);
 }
@@ -575,14 +620,15 @@ should_set_ext_sec_flag(enum securityEnum sectype)
 }
 
 int
-CIFSSMBNegotiate(const unsigned int xid, struct cifs_ses *ses)
+CIFSSMBNegotiate(const unsigned int xid,
+		 struct cifs_ses *ses,
+		 struct TCP_Server_Info *server)
 {
 	NEGOTIATE_REQ *pSMB;
 	NEGOTIATE_RSP *pSMBr;
 	int rc = 0;
 	int bytes_returned;
 	int i;
-	struct TCP_Server_Info *server = ses->server;
 	u16 count;
 
 	if (!server) {
@@ -704,8 +750,12 @@ CIFSSMBTDis(const unsigned int xid, struct cifs_tcon *tcon)
 	 * the tcon is no longer on the list, so no need to take lock before
 	 * checking this.
 	 */
-	if ((tcon->need_reconnect) || (tcon->ses->need_reconnect))
-		return 0;
+	spin_lock(&tcon->ses->chan_lock);
+	if ((tcon->need_reconnect) || CIFS_ALL_CHANS_NEED_RECONNECT(tcon->ses)) {
+		spin_unlock(&tcon->ses->chan_lock);
+		return -EIO;
+	}
+	spin_unlock(&tcon->ses->chan_lock);
 
 	rc = small_smb_init(SMB_COM_TREE_DISCONNECT, 0, tcon,
 			    (void **)&smb_buffer);
@@ -800,9 +850,14 @@ CIFSSMBLogoff(const unsigned int xid, struct cifs_ses *ses)
 		return -EIO;
 
 	mutex_lock(&ses->session_mutex);
-	if (ses->need_reconnect)
+	spin_lock(&ses->chan_lock);
+	if (CIFS_ALL_CHANS_NEED_RECONNECT(ses)) {
+		spin_unlock(&ses->chan_lock);
 		goto session_already_dead; /* no need to send SMBlogoff if uid
 					      already closed due to reconnect */
+	}
+	spin_unlock(&ses->chan_lock);
+
 	rc = small_smb_init(SMB_COM_LOGOFF_ANDX, 2, NULL, (void **)&pSMB);
 	if (rc) {
 		mutex_unlock(&ses->session_mutex);
@@ -1505,7 +1560,7 @@ cifs_readv_receive(struct TCP_Server_Info *server, struct mid_q_entry *mid)
 
 	if (server->ops->is_session_expired &&
 	    server->ops->is_session_expired(buf)) {
-		cifs_reconnect(server);
+		cifs_reconnect(server, true);
 		return -1;
 	}
 
@@ -2606,7 +2661,8 @@ CIFSSMBPosixLock(const unsigned int xid, struct cifs_tcon *tcon,
 
 			pLockData->fl_start = le64_to_cpu(parm_data->start);
 			pLockData->fl_end = pLockData->fl_start +
-					le64_to_cpu(parm_data->length) - 1;
+				(le64_to_cpu(parm_data->length) ?
+				 le64_to_cpu(parm_data->length) - 1 : 0);
 			pLockData->fl_pid = -le32_to_cpu(parm_data->pid);
 		}
 	}
