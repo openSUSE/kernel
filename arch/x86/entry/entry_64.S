@@ -158,7 +158,6 @@ ENTRY(entry_SYSCALL_64)
 	movq	PER_CPU_VAR(cpu_current_top_of_stack), %rsp
 
 GLOBAL(entry_SYSCALL_64_safe_stack)
-	UNTRAIN_RET
 
 	/* Construct struct pt_regs on stack */
 	pushq	$__USER_DS				/* pt_regs->ss */
@@ -176,6 +175,11 @@ GLOBAL(entry_SYSCALL_64_after_hwframe)
 	/* IRQs are off. */
 	movq	%rax, %rdi
 	movq	%rsp, %rsi
+
+	/* clobbers %rax, make sure it is after saving the syscall nr */
+	IBRS_ENTER
+	UNTRAIN_RET
+
 	call	do_syscall_64		/* returns with IRQs disabled */
 
 	TRACE_IRQS_IRETQ		/* we're about to change IF */
@@ -252,6 +256,7 @@ GLOBAL(entry_SYSCALL_64_after_hwframe)
 	 * perf profiles. Nothing jumps here.
 	 */
 syscall_return_via_sysret:
+	IBRS_EXIT
 	/* rcx and r11 are already restored (see code above) */
 	POP_REGS pop_rdi=0 skip_r11rcx=1
 
@@ -713,6 +718,7 @@ ret_from_intr:
 	TRACE_IRQS_IRETQ
 
 GLOBAL(swapgs_restore_regs_and_return_to_usermode)
+	IBRS_EXIT
 #ifdef CONFIG_DEBUG_ENTRY
 	/* Assert that pt_regs indicates user mode. */
 	testb	$3, CS(%rsp)
@@ -1317,6 +1323,9 @@ idtentry_vc	X86_TRAP_VC	asm_vmm_communication	vmm_communication
  *              1 -> no SWAPGS on exit
  *
  *     Y        GSBASE value at entry, must be restored in paranoid_exit
+ *
+ * R14 - old CR3
+ * R15 - old SPEC_CTRL
  */
 SYM_CODE_START_LOCAL(paranoid_entry)
 	UNWIND_HINT_FUNC
@@ -1340,7 +1349,6 @@ SYM_CODE_START_LOCAL(paranoid_entry)
 	 * be retrieved from a kernel internal table.
 	 */
 	SAVE_AND_SWITCH_TO_KERNEL_CR3 scratch_reg=%rax save_reg=%r14
-	UNTRAIN_RET
 
 	/*
 	 * Handling GSBASE depends on the availability of FSGSBASE.
@@ -1361,7 +1369,7 @@ SYM_CODE_START_LOCAL(paranoid_entry)
 	 * mispredicted GSBASE. No extra FENCE required.
 	 */
 	SAVE_AND_SET_GSBASE scratch_reg=%rax save_reg=%rbx
-	RET
+	jmp .Lparanoid_gsbase_done
 
 .Lparanoid_entry_checkgs:
 	/* EBX = 1 -> kernel GSBASE active, no restore required */
@@ -1380,8 +1388,16 @@ SYM_CODE_START_LOCAL(paranoid_entry)
 	xorl	%ebx, %ebx
 	SWAPGS
 .Lparanoid_kernel_gsbase:
-
 	FENCE_SWAPGS_KERNEL_ENTRY
+.Lparanoid_gsbase_done:
+
+	/*
+	 * Once we have CR3 and %GS setup save and set SPEC_CTRL. Just like
+	 * CR3 above, keep the old value in a callee saved register.
+	 */
+	IBRS_ENTER save_reg=%r15
+	UNTRAIN_RET
+
 	RET
 SYM_CODE_END(paranoid_entry)
 
@@ -1403,12 +1419,22 @@ SYM_CODE_END(paranoid_entry)
  *              1 -> no SWAPGS on exit
  *
  *     Y        User space GSBASE, must be restored unconditionally
+ *
+ * R14 - old CR3
+ * R15 - old SPEC_CTRL
  */
 SYM_CODE_START_LOCAL(paranoid_exit)
 	UNWIND_HINT_REGS
 	DISABLE_INTERRUPTS(CLBR_ANY)
 	TRACE_IRQS_OFF_DEBUG
 	TRACE_IRQS_IRETQ
+
+	/*
+	 * Must restore IBRS state before both CR3 and %GS since we need access
+	 * to the per-CPU x86_spec_ctrl_shadow variable.
+	 */
+	IBRS_EXIT save_reg=%r15
+
 	/*
 	 * The order of operations is important. RESTORE_CR3 requires
 	 * kernel GSBASE.
@@ -1456,9 +1482,11 @@ SYM_CODE_START_LOCAL(error_entry)
 	FENCE_SWAPGS_USER_ENTRY
 	/* We have user CR3.  Change to kernel CR3. */
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rax
+	IBRS_ENTER
 	UNTRAIN_RET
 
 .Lerror_entry_from_usermode_after_swapgs:
+
 	/* Put us onto the real thread stack. */
 	popq	%r12				/* save return addr in %12 */
 	movq	%rsp, %rdi			/* arg0 = pt_regs pointer */
@@ -1607,7 +1635,6 @@ ENTRY(nmi)
 	movq	%rsp, %rdx
 	movq	PER_CPU_VAR(cpu_current_top_of_stack), %rsp
 	UNWIND_HINT_IRET_REGS base=%rdx offset=8
-	UNTRAIN_RET
 	pushq	5*8(%rdx)	/* pt_regs->ss */
 	pushq	4*8(%rdx)	/* pt_regs->rsp */
 	pushq	3*8(%rdx)	/* pt_regs->flags */
@@ -1617,6 +1644,9 @@ ENTRY(nmi)
 	pushq   $-1		/* pt_regs->orig_ax */
 	PUSH_AND_CLEAR_REGS rdx=(%rdx)
 	ENCODE_FRAME_POINTER
+
+	IBRS_ENTER
+	UNTRAIN_RET
 
 	/*
 	 * At this point we no longer need to worry about stack damage
@@ -1840,6 +1870,9 @@ end_repeat_nmi:
 	movq	%rsp, %rdi
 	movq	$-1, %rsi
 	call	do_nmi
+
+	/* Always restore stashed SPEC_CTRL value (see paranoid_entry) */
+	IBRS_EXIT save_reg=%r15
 
 	/* Always restore stashed CR3 value (see paranoid_entry) */
 	RESTORE_CR3 scratch_reg=%r15 save_reg=%r14

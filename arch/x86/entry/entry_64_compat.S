@@ -4,7 +4,6 @@
  *
  * Copyright 2000-2002 Andi Kleen, SuSE Labs.
  */
-#include "calling.h"
 #include <asm/asm-offsets.h>
 #include <asm/current.h>
 #include <asm/errno.h>
@@ -17,6 +16,8 @@
 #include <asm/nospec-branch.h>
 #include <linux/linkage.h>
 #include <linux/err.h>
+
+#include "calling.h"
 
 	.section .entry.text, "ax"
 
@@ -107,6 +108,8 @@ ENTRY(entry_SYSENTER_compat)
 	xorl	%r15d, %r15d		/* nospec   r15 */
 	cld
 
+
+	IBRS_ENTER
 	UNTRAIN_RET
 
 	/*
@@ -213,7 +216,6 @@ ENTRY(entry_SYSCALL_compat)
 	movq	PER_CPU_VAR(cpu_current_top_of_stack), %rsp
 
 SYM_INNER_LABEL(entry_SYSCALL_compat_safe_stack, SYM_L_GLOBAL)
-	UNTRAIN_RET
 
 	/* Construct struct pt_regs on stack */
 	pushq	$__USER32_DS		/* pt_regs->ss */
@@ -273,6 +275,8 @@ sysret32_from_system_call:
 	 */
 	STACKLEAK_ERASE
 	TRACE_IRQS_ON			/* User mode traces as IRQs on. */
+	IBRS_EXIT
+
 	movq	RBX(%rsp), %rbx		/* pt_regs->rbx */
 	movq	RBP(%rsp), %rbp		/* pt_regs->rbp */
 	movq	EFLAGS(%rsp), %r11	/* pt_regs->flags (in r11) */
