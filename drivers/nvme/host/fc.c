@@ -9,7 +9,9 @@
 #include <uapi/scsi/fc/fc_els.h>
 #include <linux/delay.h>
 #include <linux/overflow.h>
+#ifndef __GENKSYMS__
 #include <linux/blk-cgroup.h>
+#endif /* __GENKSYMS__ */
 #include "nvme.h"
 #include "fabrics.h"
 #include <linux/nvme-fc-driver.h>
