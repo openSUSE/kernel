@@ -705,7 +705,7 @@ static void nvmet_rdma_send_done(struct ib_cq *cq, struct ib_wc *wc)
 {
 	struct nvmet_rdma_rsp *rsp =
 		container_of(wc->wr_cqe, struct nvmet_rdma_rsp, send_cqe);
-	struct nvmet_rdma_queue *queue = cq->cq_context;
+	struct nvmet_rdma_queue *queue = wc->qp->qp_context;
 
 	nvmet_rdma_release_rsp(rsp);
 
@@ -791,7 +791,7 @@ static void nvmet_rdma_write_data_done(struct ib_cq *cq, struct ib_wc *wc)
 {
 	struct nvmet_rdma_rsp *rsp =
 		container_of(wc->wr_cqe, struct nvmet_rdma_rsp, write_cqe);
-	struct nvmet_rdma_queue *queue = cq->cq_context;
+	struct nvmet_rdma_queue *queue = wc->qp->qp_context;
 	struct rdma_cm_id *cm_id = rsp->queue->cm_id;
 	u16 status;
 
@@ -1225,6 +1225,14 @@ nvmet_rdma_find_get_device(struct rdma_cm_id *cm_id)
 	}
 	ndev->inline_data_size = nport->inline_data_size;
 	ndev->inline_page_count = inline_page_count;
+
+	if (nport->pi_enable && !(cm_id->device->attrs.device_cap_flags &
+				  IB_DEVICE_INTEGRITY_HANDOVER)) {
+		pr_warn("T10-PI is not supported by device %s. Disabling it\n",
+			cm_id->device->name);
+		nport->pi_enable = false;
+	}
+
 	ndev->device = cm_id->device;
 	kref_init(&ndev->ref);
 
@@ -1857,14 +1865,6 @@ static int nvmet_rdma_enable_port(struct nvmet_rdma_port *port)
 	ret = rdma_listen(cm_id, 128);
 	if (ret) {
 		pr_err("listening to %pISpcs failed (%d)\n", addr, ret);
-		goto out_destroy_id;
-	}
-
-	if (port->nport->pi_enable &&
-	    !(cm_id->device->attrs.device_cap_flags &
-	      IB_DEVICE_INTEGRITY_HANDOVER)) {
-		pr_err("T10-PI is not supported for %pISpcs\n", addr);
-		ret = -EINVAL;
 		goto out_destroy_id;
 	}
 
