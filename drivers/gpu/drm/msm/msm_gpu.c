@@ -779,11 +779,12 @@ static void retire_submit(struct msm_gpu *gpu, struct msm_ringbuffer *ring,
 	}
 
 	pm_runtime_mark_last_busy(&gpu->pdev->dev);
-	pm_runtime_put_autosuspend(&gpu->pdev->dev);
 
 	spin_lock(&ring->submit_lock);
 	list_del(&submit->node);
 	spin_unlock(&ring->submit_lock);
+
+	pm_runtime_put_autosuspend(&gpu->pdev->dev);
 
 	msm_gem_submit_put(submit);
 }
