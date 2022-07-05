@@ -48,6 +48,7 @@
 #include <asm/irq_remapping.h>
 #include <asm/spec-ctrl.h>
 #include <asm/cpu_device_id.h>
+#include <asm/nospec-branch.h>
 
 #include <asm/virtext.h>
 #include "trace.h"
@@ -5785,6 +5786,9 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
 		"mov %%r13, %c[r13](%[svm]) \n\t"
 		"mov %%r14, %c[r14](%[svm]) \n\t"
 		"mov %%r15, %c[r15](%[svm]) \n\t"
+
+		ALTERNATIVE("", "call zen_untrain_ret", X86_FEATURE_UNRET)
+
 		/*
 		* Clear host registers marked as clobbered to prevent
 		* speculative use.
