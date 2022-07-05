@@ -9,7 +9,9 @@
 
 #include "capabilities.h"
 #include "ops.h"
+#include "../kvm_cache_regs.h"
 #include "vmcs.h"
+#include "../cpuid.h"
 #include "run_flags.h"
 
 extern const u32 vmx_msr_index[];
