@@ -61,6 +61,7 @@ struct nfs_access_entry {
 #ifndef __GENKSYMS__
 	kuid_t			fsuid;
 	kgid_t			fsgid;
+	unsigned long		jiffies;
 #endif
 };
 
@@ -101,6 +102,7 @@ struct nfs_open_dir_context {
 	__u64 dir_cookie;
 	__u64 dup_cookie;
 	signed char duped;
+	bool eof;
 };
 
 /*

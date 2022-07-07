@@ -129,11 +129,29 @@ static int membarrier_global_expedited(void)
 	return 0;
 }
 
+static void ipi_sync_core(void *info)
+{
+	/*
+	 * The smp_mb() in membarrier after all the IPIs is supposed to
+	 * ensure that memory on remote CPUs that occur before the IPI
+	 * become visible to membarrier()'s caller -- see scenario B in
+	 * the big comment at the top of this file.
+	 *
+	 * A sync_core() would provide this guarantee, but
+	 * sync_core_before_usermode() might end up being deferred until
+	 * after membarrier()'s smp_mb().
+	 */
+	smp_mb();	/* IPIs should be serializing but paranoid. */
+
+	sync_core_before_usermode();
+}
+
 static int membarrier_private_expedited(int flags)
 {
 	int cpu;
 	cpumask_var_t tmpmask;
 	struct mm_struct *mm = current->mm;
+	smp_call_func_t ipi_func = ipi_mb;
 
 	if (flags & MEMBARRIER_FLAG_SYNC_CORE) {
 		if (!IS_ENABLED(CONFIG_ARCH_HAS_MEMBARRIER_SYNC_CORE))
@@ -141,13 +159,15 @@ static int membarrier_private_expedited(int flags)
 		if (!(atomic_read(&mm->membarrier_state) &
 		      MEMBARRIER_STATE_PRIVATE_EXPEDITED_SYNC_CORE_READY))
 			return -EPERM;
+		ipi_func = ipi_sync_core;
 	} else {
 		if (!(atomic_read(&mm->membarrier_state) &
 		      MEMBARRIER_STATE_PRIVATE_EXPEDITED_READY))
 			return -EPERM;
 	}
 
-	if (atomic_read(&mm->mm_users) == 1 || num_online_cpus() == 1)
+	if (flags != MEMBARRIER_FLAG_SYNC_CORE &&
+	    (atomic_read(&mm->mm_users) == 1 || num_online_cpus() == 1))
 		return 0;
 
 	/*
@@ -164,25 +184,32 @@ static int membarrier_private_expedited(int flags)
 	for_each_online_cpu(cpu) {
 		struct task_struct *p;
 
-		/*
-		 * Skipping the current CPU is OK even through we can be
-		 * migrated at any point. The current CPU, at the point
-		 * where we read raw_smp_processor_id(), is ensured to
-		 * be in program order with respect to the caller
-		 * thread. Therefore, we can skip this CPU from the
-		 * iteration.
-		 */
-		if (cpu == raw_smp_processor_id())
-			continue;
 		p = rcu_dereference(cpu_rq(cpu)->curr);
 		if (p && p->mm == mm)
 			__cpumask_set_cpu(cpu, tmpmask);
 	}
 	rcu_read_unlock();
 
-	preempt_disable();
-	smp_call_function_many(tmpmask, ipi_mb, NULL, 1);
-	preempt_enable();
+	/*
+	 * For regular membarrier, we can save a few cycles by
+	 * skipping the current cpu -- we're about to do smp_mb()
+	 * below, and if we migrate to a different cpu, this cpu
+	 * and the new cpu will execute a full barrier in the
+	 * scheduler.
+	 *
+	 * For SYNC_CORE, we do need a barrier on the current cpu --
+	 * otherwise, if we are migrated and replaced by a different
+	 * task in the same mm just before, during, or after
+	 * membarrier, we will end up with some thread in the mm
+	 * running without a core sync.
+	 */
+	if (flags != MEMBARRIER_FLAG_SYNC_CORE) {
+		preempt_disable();
+		smp_call_function_many(tmpmask, ipi_func, NULL, 1);
+		preempt_enable();
+	} else {
+		on_each_cpu_mask(tmpmask, ipi_func, NULL, true);
+	}
 
 	free_cpumask_var(tmpmask);
 	cpus_read_unlock();

@@ -153,7 +153,7 @@ struct iwl_fw_runtime;
 
 void *iwl_acpi_get_object(struct device *dev, acpi_string method);
 
-int iwl_acpi_get_dsm_u8(struct device *dev, int rev, int func);
+int iwl_acpi_get_dsm_u8(struct device *dev, int rev, int func, u8 *value);
 
 union acpi_object *iwl_acpi_get_wifi_pkg(struct device *dev,
 					 union acpi_object *data,
@@ -213,7 +213,8 @@ static inline void *iwl_acpi_get_dsm_object(struct device *dev, int rev,
 	return ERR_PTR(-ENOENT);
 }
 
-static inline int iwl_acpi_get_dsm_u8(struct device *dev, int rev, int func)
+static inline
+int iwl_acpi_get_dsm_u8(struct device *dev, int rev, int func, u8 *value)
 {
 	return -ENOENT;
 }

@@ -335,11 +335,17 @@ static struct i915_gem_engines *default_engines(struct i915_gem_context *ctx)
 
 static void i915_gem_context_free(struct i915_gem_context *ctx)
 {
+	struct i915_address_space *vm;
+
 	GEM_BUG_ON(!i915_gem_context_is_closed(ctx));
 
 	spin_lock(&ctx->i915->gem.contexts.lock);
 	list_del(&ctx->link);
 	spin_unlock(&ctx->i915->gem.contexts.lock);
+
+	vm = i915_gem_context_vm(ctx);
+	if (vm)
+		i915_vm_put(vm);
 
 	mutex_destroy(&ctx->engines_mutex);
 	mutex_destroy(&ctx->lut_mutex);
@@ -607,8 +613,15 @@ static void context_close(struct i915_gem_context *ctx)
 	set_closed_name(ctx);
 
 	vm = i915_gem_context_vm(ctx);
-	if (vm)
+	if (vm) {
+		/* i915_vm_close drops the final reference, which is a bit too
+		 * early and could result in surprises with concurrent
+		 * operations racing with thist ctx close. Keep a full reference
+		 * until the end.
+		 */
+		i915_vm_get(vm);
 		i915_vm_close(vm);
+	}
 
 	ctx->file_priv = ERR_PTR(-EBADF);
 

@@ -127,7 +127,7 @@ static long get_pfn(unsigned long user_addr, unsigned long access,
 
 	down_read(&current->mm->mmap_sem);
 	ret = -EINVAL;
-	vma = find_vma(current->mm, user_addr);
+	vma = vma_lookup(current->mm, user_addr);
 	if (!vma)
 		goto out;
 	ret = -EACCES;

@@ -61,7 +61,7 @@ static bool deepest_stop_found;
 
 static unsigned long power7_offline_type;
 
-static int pnv_save_sprs_for_deep_states(void)
+static int __init pnv_save_sprs_for_deep_states(void)
 {
 	int cpu;
 	int rc;
@@ -1156,7 +1156,7 @@ unsigned long pnv_cpu_offline(unsigned int cpu)
  *	stop instruction
  */
 
-int validate_psscr_val_mask(u64 *psscr_val, u64 *psscr_mask, u32 flags)
+int __init validate_psscr_val_mask(u64 *psscr_val, u64 *psscr_mask, u32 flags)
 {
 	int err = 0;
 
@@ -1350,7 +1350,7 @@ static void __init pnv_probe_idle_states(void)
  * which is the number of cpuidle states discovered through device-tree.
  */
 
-static int pnv_parse_cpuidle_dt(void)
+static int __init pnv_parse_cpuidle_dt(void)
 {
 	struct device_node *np;
 	int nr_idle_states, i;

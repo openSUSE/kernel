@@ -79,6 +79,7 @@ static struct nfs_open_dir_context *alloc_nfs_open_dir_context(struct inode *dir
 		ctx->dir_cookie = 0;
 		ctx->dup_cookie = 0;
 		ctx->cred = get_cred(cred);
+		ctx->eof = false;
 		spin_lock(&dir->i_lock);
 		if (list_empty(&nfsi->open_files) &&
 		    (nfsi->cache_validity & NFS_INO_DATA_INVAL_DEFER))
@@ -159,6 +160,7 @@ typedef struct {
 	unsigned long	gencount;
 	unsigned int	cache_entry_index;
 	bool plus;
+	bool eob;
 	bool eof;
 } nfs_readdir_descriptor_t;
 
@@ -795,7 +797,7 @@ int nfs_do_filldir(nfs_readdir_descriptor_t *desc)
 		ent = &array->array[i];
 		if (!dir_emit(desc->ctx, ent->string.name, ent->string.len,
 		    nfs_compat_user_ino64(ent->ino), ent->d_type)) {
-			desc->eof = true;
+			desc->eob = true;
 			break;
 		}
 		desc->ctx->pos++;
@@ -807,7 +809,7 @@ int nfs_do_filldir(nfs_readdir_descriptor_t *desc)
 			ctx->duped = 1;
 	}
 	if (array->eof_index >= 0)
-		desc->eof = true;
+		desc->eof = !desc->eob;
 
 	kunmap(desc->page);
 	dfprintk(DIRCACHE, "NFS: nfs_do_filldir() filling ended @ cookie %Lu; returning = %d\n",
@@ -845,6 +847,7 @@ int uncached_readdir(nfs_readdir_descriptor_t *desc)
 	}
 
 	desc->page_index = 0;
+	desc->cache_entry_index = 0;
 	desc->last_cookie = *desc->dir_cookie;
 	desc->page = page;
 	ctx->duped = 0;
@@ -892,8 +895,14 @@ static int nfs_readdir(struct file *file, struct dir_context *ctx)
 	desc->file = file;
 	desc->ctx = ctx;
 	desc->dir_cookie = &dir_ctx->dir_cookie;
+	desc->eof = dir_ctx->eof;
 	desc->decode = NFS_PROTO(inode)->decode_dirent;
 	desc->plus = nfs_use_readdirplus(inode, ctx);
+
+	if (desc->eof) {
+		res = 0;
+		goto out;
+	}
 
 	if (ctx->pos == 0 || nfs_attribute_cache_expired(inode))
 		res = nfs_revalidate_mapping(inode, file->f_mapping);
@@ -930,8 +939,9 @@ static int nfs_readdir(struct file *file, struct dir_context *ctx)
 		cache_page_release(desc);
 		if (res < 0)
 			break;
-	} while (!desc->eof);
+	} while (!desc->eob && !desc->eof);
 out:
+	dir_ctx->eof = desc->eof;
 	if (res > 0)
 		res = 0;
 	dfprintk(FILE, "NFS: readdir(%pD2) returns %d\n", file, res);
@@ -968,6 +978,7 @@ static loff_t nfs_llseek_dir(struct file *filp, loff_t offset, int whence)
 		filp->f_pos = offset;
 		dir_ctx->dir_cookie = 0;
 		dir_ctx->duped = 0;
+		dir_ctx->eof = false;
 	}
 	inode_unlock(inode);
 	return offset;
@@ -1508,16 +1519,6 @@ const struct dentry_operations nfs4_dentry_operations = {
 };
 EXPORT_SYMBOL_GPL(nfs4_dentry_operations);
 
-static fmode_t flags_to_mode(int flags)
-{
-	fmode_t res = (__force fmode_t)flags & FMODE_EXEC;
-	if ((flags & O_ACCMODE) != O_WRONLY)
-		res |= FMODE_READ;
-	if ((flags & O_ACCMODE) != O_RDONLY)
-		res |= FMODE_WRITE;
-	return res;
-}
-
 static struct nfs_open_context *create_nfs_open_context(struct dentry *dentry, int open_flags, struct file *filp)
 {
 	return alloc_nfs_open_context(dentry, flags_to_mode(open_flags), filp);
@@ -1660,14 +1661,14 @@ no_open:
 	if (!res) {
 		inode = d_inode(dentry);
 		if ((lookup_flags & LOOKUP_DIRECTORY) && inode &&
-		    !S_ISDIR(inode->i_mode))
+		    !(S_ISDIR(inode->i_mode) || S_ISLNK(inode->i_mode)))
 			res = ERR_PTR(-ENOTDIR);
 		else if (inode && S_ISREG(inode->i_mode))
 			res = ERR_PTR(-EOPENSTALE);
 	} else if (!IS_ERR(res)) {
 		inode = d_inode(res);
 		if ((lookup_flags & LOOKUP_DIRECTORY) && inode &&
-		    !S_ISDIR(inode->i_mode)) {
+		    !(S_ISDIR(inode->i_mode) || S_ISLNK(inode->i_mode))) {
 			dput(res);
 			res = ERR_PTR(-ENOTDIR);
 		} else if (inode && S_ISREG(inode->i_mode)) {
@@ -2071,6 +2072,8 @@ nfs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *dentry)
 
 	trace_nfs_link_enter(inode, dir, dentry);
 	d_drop(dentry);
+	if (S_ISREG(inode->i_mode))
+		nfs_sync_inode(inode);
 	error = NFS_PROTO(dir)->link(inode, dir, &dentry->d_name);
 	if (error == 0) {
 		ihold(inode);
@@ -2403,7 +2406,8 @@ static struct nfs_access_entry *nfs_access_search_rbtree(struct inode *inode, co
 	return NULL;
 }
 
-static int nfs_access_get_cached(struct inode *inode, const struct cred *cred, u32 *mask, bool may_block)
+static int nfs_access_get_cached(struct inode *inode, const struct cred *cred,
+				 u32 *mask, unsigned long *cjiffies, bool may_block)
 {
 	struct nfs_inode *nfsi = NFS_I(inode);
 	struct nfs_access_entry *cache;
@@ -2434,6 +2438,7 @@ static int nfs_access_get_cached(struct inode *inode, const struct cred *cred, u
 		retry = false;
 	}
 	*mask = cache->mask;
+	*cjiffies = cache->jiffies;
 	list_move_tail(&cache->lru, &nfsi->access_cache_entry_lru);
 	err = 0;
 out:
@@ -2445,7 +2450,8 @@ out_zap:
 	return -ENOENT;
 }
 
-static int nfs_access_get_cached_rcu(struct inode *inode, const struct cred *cred, u32 *mask)
+static int nfs_access_get_cached_rcu(struct inode *inode, const struct cred *cred,
+				     u32 *mask, unsigned long *cjiffies)
 {
 	/* Only check the most recently returned cache entry,
 	 * but do it without locking.
@@ -2468,6 +2474,7 @@ static int nfs_access_get_cached_rcu(struct inode *inode, const struct cred *cre
 	if (nfs_check_cache_invalid(inode, NFS_INO_INVALID_ACCESS))
 		goto out;
 	*mask = cache->mask;
+	*cjiffies = cache->jiffies;
 	err = 0;
 out:
 	rcu_read_unlock();
@@ -2523,6 +2530,7 @@ void nfs_access_add_cache(struct inode *inode, struct nfs_access_entry *set)
 	cache->fsgid = cred->fsgid;
 	cache->group_info = get_group_info(cred->group_info);
 	cache->mask = set->mask;
+	cache->jiffies = jiffies;
 
 	/* The above field assignments must be visible
 	 * before this item appears on the lru.  We cannot easily
@@ -2594,11 +2602,18 @@ static int nfs_do_access(struct inode *inode, const struct cred *cred, int mask)
 
 	trace_nfs_access_enter(inode);
 
-	status = nfs_access_get_cached_rcu(inode, cred, &cache.mask);
+	status = nfs_access_get_cached_rcu(inode, cred, &cache.mask, &cache.jiffies);
 	if (status != 0)
-		status = nfs_access_get_cached(inode, cred, &cache.mask, may_block);
-	if (status == 0)
-		goto out_cached;
+		status = nfs_access_get_cached(inode, cred, &cache.mask, &cache.jiffies, may_block);
+	if (status == 0) {
+		if ((mask & ~cache.mask & (MAY_READ | MAY_WRITE | MAY_EXEC)) == 0)
+			/* if access is granted, trust the cache */
+			goto out_cached;
+		if (time_in_range_open(jiffies, cache.jiffies,
+				       cache.jiffies + NFS_MINATTRTIMEO(inode)))
+			/* If cache entry very new, trust even for negative */
+			goto out_cached;
+	}
 
 	status = -ECHILD;
 	if (!may_block)

@@ -2852,7 +2852,7 @@ static void ilk_compute_wm_level(const struct drm_i915_private *dev_priv,
 }
 
 static void intel_read_wm_latency(struct drm_i915_private *dev_priv,
-				  u16 wm[8])
+				  u16 wm[])
 {
 	struct intel_uncore *uncore = &dev_priv->uncore;
 
@@ -2935,7 +2935,7 @@ static void intel_read_wm_latency(struct drm_i915_private *dev_priv,
 		 * any underrun. If not able to get Dimm info assume 16GB dimm
 		 * to avoid any underrun.
 		 */
-		if (dev_priv->dram_info.is_16gb_dimm)
+		if (dev_priv->dram_info.wm_lv_0_adjust_needed)
 			wm[0] += 1;
 
 	} else if (IS_HASWELL(dev_priv) || IS_BROADWELL(dev_priv)) {
@@ -4611,7 +4611,7 @@ static u8 compute_dbuf_slices(enum pipe pipe, u8 active_pipes,
 {
 	int i;
 
-	for (i = 0; i < dbuf_slices[i].active_pipes; i++) {
+	for (i = 0; dbuf_slices[i].active_pipes != 0; i++) {
 		if (dbuf_slices[i].active_pipes == active_pipes)
 			return dbuf_slices[i].dbuf_mask[pipe];
 	}

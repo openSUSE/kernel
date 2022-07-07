@@ -285,6 +285,8 @@ struct vcpu_vmx {
 	u64 msr_ia32_feature_control;
 	u64 msr_ia32_feature_control_valid_bits;
 	u64 ept_pointer;
+	u64 msr_ia32_mcu_opt_ctrl;
+	bool disable_fb_clear;
 
 	struct pt_desc pt_desc;
 };
@@ -501,7 +503,33 @@ static inline void __vmx_flush_tlb(struct kvm_vcpu *vcpu, int vpid,
 
 static inline void vmx_flush_tlb(struct kvm_vcpu *vcpu, bool invalidate_gpa)
 {
-	__vmx_flush_tlb(vcpu, to_vmx(vcpu)->vpid, invalidate_gpa);
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	/*
+	 * Flush all EPTP/VPID contexts if the TLB flush _may_ have been
+	 * invoked via kvm_flush_remote_tlbs(), which always passes %true for
+	 * @invalidate_gpa.  Flushing remote TLBs requires all contexts to be
+	 * flushed, not just the active context.
+	 *
+	 * Note, this also ensures a deferred TLB flush with VPID enabled and
+	 * EPT disabled invalidates the "correct" VPID, by nuking both L1 and
+	 * L2's VPIDs.
+	 */
+	if (invalidate_gpa) {
+		if (enable_ept) {
+			ept_sync_global();
+		} else if (enable_vpid) {
+			if (cpu_has_vmx_invvpid_global()) {
+				vpid_sync_vcpu_global();
+			} else {
+				WARN_ON_ONCE(!cpu_has_vmx_invvpid_single());
+				vpid_sync_vcpu_single(vmx->vpid);
+				vpid_sync_vcpu_single(vmx->nested.vpid02);
+			}
+		}
+	} else {
+		__vmx_flush_tlb(vcpu, vmx->vpid, false);
+	}
 }
 
 static inline void decache_tsc_multiplier(struct vcpu_vmx *vmx)
@@ -512,7 +540,7 @@ static inline void decache_tsc_multiplier(struct vcpu_vmx *vmx)
 
 static inline bool vmx_has_waitpkg(struct vcpu_vmx *vmx)
 {
-	return vmx->secondary_exec_control &
+	return secondary_exec_controls_get(vmx) &
 		SECONDARY_EXEC_ENABLE_USR_WAIT_PAUSE;
 }
 

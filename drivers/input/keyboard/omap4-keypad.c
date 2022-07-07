@@ -304,7 +304,7 @@ static int omap4_keypad_probe(struct platform_device *pdev)
 	 * revision register.
 	 */
 	error = pm_runtime_get_sync(&pdev->dev);
-	if (error) {
+	if (error < 0) {
 		dev_err(&pdev->dev, "pm_runtime_get_sync() failed\n");
 		pm_runtime_put_noidle(&pdev->dev);
 	} else {

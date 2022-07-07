@@ -1010,7 +1010,6 @@ __must_check media_devnode_create(struct media_device *mdev,
  * removed.
  */
 void media_devnode_remove(struct media_intf_devnode *devnode);
-struct media_link *
 
 /**
  * media_create_intf_link() - creates a link between an entity and an interface
@@ -1041,6 +1040,7 @@ struct media_link *
  *    the interface and media_device_register_entity() should be called for the
  *    interface that will be part of the link.
  */
+struct media_link *
 __must_check media_create_intf_link(struct media_entity *entity,
 				    struct media_interface *intf,
 				    u32 flags);

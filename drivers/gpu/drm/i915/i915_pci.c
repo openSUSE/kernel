@@ -1129,8 +1129,10 @@ static int __init i915_init(void)
 	}
 
 	err = pci_register_driver(&i915_pci_driver);
-	if (err)
+	if (err) {
+		i915_globals_exit();
 		return err;
+	}
 
 	i915_perf_sysctl_register();
 	return 0;

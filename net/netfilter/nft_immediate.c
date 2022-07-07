@@ -224,7 +224,7 @@ static const struct nft_expr_ops nft_imm_ops = {
 	.dump		= nft_immediate_dump,
 	.validate	= nft_immediate_validate,
 	.offload	= nft_immediate_offload,
-	.offload_flags	= NFT_OFFLOAD_F_ACTION,
+	.offload_flags	= NFT_OFFLOAD_F_VERDICT,
 };
 
 struct nft_expr_type nft_imm_type __read_mostly = {
