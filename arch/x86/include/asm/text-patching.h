@@ -25,14 +25,6 @@ static inline void apply_paravirt(struct paravirt_patch_site *start,
  */
 #define POKE_MAX_OPCODE_SIZE	5
 
-struct text_poke_loc {
-	void *addr;
-	int len;
-	s32 rel32;
-	u8 opcode;
-	const u8 text[POKE_MAX_OPCODE_SIZE];
-};
-
 extern void text_poke_early(void *addr, const void *opcode, size_t len);
 
 /*
@@ -53,21 +45,15 @@ extern void *text_poke(void *addr, const void *opcode, size_t len);
 extern void *text_poke_kgdb(void *addr, const void *opcode, size_t len);
 extern int poke_int3_handler(struct pt_regs *regs);
 extern void text_poke_bp(void *addr, const void *opcode, size_t len, const void *emulate);
-extern void text_poke_bp_batch(struct text_poke_loc *tp, unsigned int nr_entries);
-extern void text_poke_loc_init(struct text_poke_loc *tp, void *addr,
-			       const void *opcode, size_t len, const void *emulate);
-extern int after_bootmem;
-extern __ro_after_init struct mm_struct *poking_mm;
-extern __ro_after_init unsigned long poking_addr;
 
-#ifndef CONFIG_UML_X86
-static inline void int3_emulate_jmp(struct pt_regs *regs, unsigned long ip)
-{
-	regs->ip = ip;
-}
+extern void text_poke_queue(void *addr, const void *opcode, size_t len, const void *emulate);
+extern void text_poke_finish(void);
 
 #define INT3_INSN_SIZE		1
 #define INT3_INSN_OPCODE	0xCC
+
+#define RET_INSN_SIZE		1
+#define RET_INSN_OPCODE		0xC3
 
 #define CALL_INSN_SIZE		5
 #define CALL_INSN_OPCODE	0xE8
@@ -77,6 +63,38 @@ static inline void int3_emulate_jmp(struct pt_regs *regs, unsigned long ip)
 
 #define JMP8_INSN_SIZE		2
 #define JMP8_INSN_OPCODE	0xEB
+
+static inline int text_opcode_size(u8 opcode)
+{
+	int size = 0;
+
+#define __CASE(insn)	\
+	case insn##_INSN_OPCODE: size = insn##_INSN_SIZE; break
+
+	switch(opcode) {
+	__CASE(INT3);
+	__CASE(RET);
+	__CASE(CALL);
+	__CASE(JMP32);
+	__CASE(JMP8);
+	}
+
+#undef __CASE
+
+	return size;
+}
+
+extern void *text_gen_insn(u8 opcode, const void *addr, const void *dest);
+
+extern int after_bootmem;
+extern __ro_after_init struct mm_struct *poking_mm;
+extern __ro_after_init unsigned long poking_addr;
+
+#ifndef CONFIG_UML_X86
+static inline void int3_emulate_jmp(struct pt_regs *regs, unsigned long ip)
+{
+	regs->ip = ip;
+}
 
 static inline void int3_emulate_push(struct pt_regs *regs, unsigned long val)
 {
@@ -90,10 +108,25 @@ static inline void int3_emulate_push(struct pt_regs *regs, unsigned long val)
 	*(unsigned long *)regs->sp = val;
 }
 
+static __always_inline
+unsigned long int3_emulate_pop(struct pt_regs *regs)
+{
+	unsigned long val = *(unsigned long *)regs->sp;
+	regs->sp += sizeof(unsigned long);
+	return val;
+}
+
 static inline void int3_emulate_call(struct pt_regs *regs, unsigned long func)
 {
 	int3_emulate_push(regs, regs->ip - INT3_INSN_SIZE + CALL_INSN_SIZE);
 	int3_emulate_jmp(regs, func);
+}
+
+static __always_inline
+void int3_emulate_ret(struct pt_regs *regs)
+{
+	unsigned long ip = int3_emulate_pop(regs);
+	int3_emulate_jmp(regs, ip);
 }
 #endif /* !CONFIG_UML_X86 */
 

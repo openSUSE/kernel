@@ -58,7 +58,7 @@ ENTRY(get_sev_encryption_bit)
 
 #endif	/* CONFIG_AMD_MEM_ENCRYPT */
 
-	ret
+	RET
 ENDPROC(get_sev_encryption_bit)
 
 /**
@@ -92,7 +92,7 @@ ENTRY(sev_es_req_cpuid)
 	/* All good - return success */
 	xorl	%eax, %eax
 1:
-	ret
+	RET
 2:
 	movl	$-1, %eax
 	jmp	1b
@@ -221,7 +221,7 @@ ENTRY(set_sev_encryption_mask)
 #endif
 
 	xor	%rax, %rax
-	ret
+	RET
 ENDPROC(set_sev_encryption_mask)
 
 	.data

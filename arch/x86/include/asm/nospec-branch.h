@@ -115,7 +115,7 @@
 	ANNOTATE_NOSPEC_ALTERNATIVE
 	ALTERNATIVE_2 __stringify(ANNOTATE_RETPOLINE_SAFE; jmp *\reg),	\
 		__stringify(RETPOLINE_JMP \reg), X86_FEATURE_RETPOLINE,	\
-		__stringify(lfence; ANNOTATE_RETPOLINE_SAFE; jmp *\reg), X86_FEATURE_RETPOLINE_LFENCE
+		__stringify(lfence; ANNOTATE_RETPOLINE_SAFE; jmp *\reg; int3), X86_FEATURE_RETPOLINE_LFENCE
 #else
 	jmp	*\reg
 #endif
@@ -146,6 +146,25 @@
 #endif
 .endm
 
+/*
+ * Mitigate RETBleed for AMD/Hygon Zen uarch. Requires KERNEL CR3 because the
+ * return thunk isn't mapped into the userspace tables (then again, AMD
+ * typically has NO_MELTDOWN).
+ *
+ * While zen_untrain_ret() doesn't clobber anything but requires stack,
+ * entry_ibpb() will clobber AX, CX, DX.
+ *
+ * As such, this must be placed after every *SWITCH_TO_KERNEL_CR3 at a point
+ * where we have a stack but before any RET instruction.
+ */
+.macro UNTRAIN_RET
+#ifdef CONFIG_RETPOLINE
+	ALTERNATIVE_2 "",						\
+	              "call zen_untrain_ret", X86_FEATURE_UNRET,	\
+		      "call entry_ibpb", X86_FEATURE_ENTRY_IBPB
+#endif
+.endm
+
 #else /* __ASSEMBLY__ */
 
 #define ANNOTATE_RETPOLINE_SAFE					\
@@ -156,6 +175,10 @@
 
 #ifdef CONFIG_RETPOLINE
 #ifdef CONFIG_X86_64
+
+extern void __x86_return_thunk(void);
+extern void zen_untrain_ret(void);
+extern void entry_ibpb(void);
 
 /*
  * Inline asm uses the %V modifier which is only in newer GCC
@@ -218,6 +241,7 @@ enum spectre_v2_mitigation {
 	SPECTRE_V2_EIBRS,
 	SPECTRE_V2_EIBRS_RETPOLINE,
 	SPECTRE_V2_EIBRS_LFENCE,
+	SPECTRE_V2_IBRS,
 };
 
 /* The indirect branch speculation control variants */
@@ -281,6 +305,9 @@ static inline void indirect_branch_prediction_barrier(void)
 
 /* The Intel SPEC CTRL MSR base value cache */
 extern u64 x86_spec_ctrl_base;
+extern u64 x86_spec_ctrl_current;
+extern void write_spec_ctrl_current(u64 val, bool force);
+extern u64 spec_ctrl_current(void);
 
 /*
  * With retpoline, we must use IBRS to restrict branch prediction
@@ -290,18 +317,16 @@ extern u64 x86_spec_ctrl_base;
  */
 #define firmware_restrict_branch_speculation_start()			\
 do {									\
-	u64 val = x86_spec_ctrl_base | SPEC_CTRL_IBRS;			\
-									\
 	preempt_disable();						\
-	alternative_msr_write(MSR_IA32_SPEC_CTRL, val,			\
+	alternative_msr_write(MSR_IA32_SPEC_CTRL,			\
+			      spec_ctrl_current() | SPEC_CTRL_IBRS,	\
 			      X86_FEATURE_USE_IBRS_FW);			\
 } while (0)
 
 #define firmware_restrict_branch_speculation_end()			\
 do {									\
-	u64 val = x86_spec_ctrl_base;					\
-									\
-	alternative_msr_write(MSR_IA32_SPEC_CTRL, val,			\
+	alternative_msr_write(MSR_IA32_SPEC_CTRL,			\
+			      spec_ctrl_current(),			\
 			      X86_FEATURE_USE_IBRS_FW);			\
 	preempt_enable();						\
 } while (0)
