@@ -2588,6 +2588,29 @@ free_conn:
 
 EXPORT_SYMBOL_GPL(iscsi_create_conn);
 
+/**
+ * iscsi_destroy_conn - destroy iscsi class connection
+ * @conn: iscsi cls session
+ *
+ * This can be called from a LLD or iscsi_transport.
+ *
+ * NOTE: This is here for kABI compatability
+ */
+int iscsi_destroy_conn(struct iscsi_cls_conn *conn)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&connlock, flags);
+	list_del(&conn->conn_list);
+	spin_unlock_irqrestore(&connlock, flags);
+
+	transport_unregister_device(&conn->dev);
+	ISCSI_DBG_TRANS_CONN(conn, "Completing conn destruction\n");
+	device_unregister(&conn->dev);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(iscsi_destroy_conn);
+
 void iscsi_put_conn(struct iscsi_cls_conn *conn)
 {
 	put_device(&conn->dev);
