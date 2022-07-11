@@ -1558,6 +1558,8 @@ SYM_CODE_START_LOCAL(error_entry)
 	SWAPGS
 	FENCE_SWAPGS_USER_ENTRY
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rax
+        IBRS_ENTER
+        UNTRAIN_RET
 
 	/*
 	 * Pretend that the exception came from user mode: set up pt_regs

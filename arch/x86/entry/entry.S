@@ -10,10 +10,20 @@
 .pushsection .noinstr.text, "ax"
 
 SYM_FUNC_START(entry_ibpb)
+
+	push %rax
+	push %rcx
+	push %rdx
+
 	movl	$MSR_IA32_PRED_CMD, %ecx
 	movl	$PRED_CMD_IBPB, %eax
 	xorl	%edx, %edx
 	wrmsr
+
+	pop %rdx
+	pop %rcx
+	pop %rax
+
 	RET
 SYM_FUNC_END(entry_ibpb)
 /* For KVM */
