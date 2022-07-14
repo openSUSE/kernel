@@ -11,7 +11,8 @@
 #include <asm/pgtable_types.h>
 
 /*
- * Must be relocatable PIC code callable as a C function
+ * Must be relocatable PIC code callable as a C function, in particular
+ * there must be a plain RET and not jump to return thunk.
  */
 
 #define PTR(x) (x << 3)
@@ -103,6 +104,7 @@ relocate_kernel:
 	addq	$(identity_mapped - relocate_kernel), %r8
 	pushq	%r8
 	ret
+	int3
 
 identity_mapped:
 	/* set return address to 0 if not preserving context */
@@ -188,6 +190,7 @@ identity_mapped:
 	xorl	%r15d, %r15d
 
 	ret
+	int3
 
 1:
 	popq	%rdx
@@ -209,6 +212,7 @@ identity_mapped:
 	movq	$virtual_mapped, %rax
 	pushq	%rax
 	ret
+	int3
 
 virtual_mapped:
 	movq	RSP(%r8), %rsp
@@ -228,6 +232,7 @@ virtual_mapped:
 	popq	%rbp
 	popq	%rbx
 	ret
+	int3
 
 	/* Do the copies */
 swap_pages:
@@ -283,6 +288,7 @@ swap_pages:
 	jmp	0b
 3:
 	ret
+	int3
 
 	.globl kexec_control_code_size
 .set kexec_control_code_size, . - relocate_kernel

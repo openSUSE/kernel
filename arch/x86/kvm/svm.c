@@ -48,6 +48,7 @@
 #include <asm/irq_remapping.h>
 #include <asm/spec-ctrl.h>
 #include <asm/cpu_device_id.h>
+#include <asm/nospec-branch.h>
 
 #include <asm/virtext.h>
 #include "trace.h"
@@ -5230,8 +5231,11 @@ static void svm_load_eoi_exitmap(struct kvm_vcpu *vcpu, u64 *eoi_exit_bitmap)
 	return;
 }
 
-static void svm_deliver_avic_intr(struct kvm_vcpu *vcpu, int vec)
+static int svm_deliver_avic_intr(struct kvm_vcpu *vcpu, int vec)
 {
+	if (!vcpu->arch.apicv_active)
+		return -1;
+
 	kvm_lapic_set_irr(vec, vcpu->arch.apic);
 	smp_mb__after_atomic();
 
@@ -5243,6 +5247,8 @@ static void svm_deliver_avic_intr(struct kvm_vcpu *vcpu, int vec)
 		put_cpu();
 	} else
 		kvm_vcpu_wake_up(vcpu);
+
+	return 0;
 }
 
 static bool svm_dy_apicv_has_pending_interrupt(struct kvm_vcpu *vcpu)
@@ -5785,6 +5791,9 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
 		"mov %%r13, %c[r13](%[svm]) \n\t"
 		"mov %%r14, %c[r14](%[svm]) \n\t"
 		"mov %%r15, %c[r15](%[svm]) \n\t"
+
+		ALTERNATIVE("", "call zen_untrain_ret", X86_FEATURE_UNRET)
+
 		/*
 		* Clear host registers marked as clobbered to prevent
 		* speculative use.
