@@ -505,6 +505,39 @@ void tty_flip_buffer_push(struct tty_struct *tty)
 EXPORT_SYMBOL(tty_flip_buffer_push);
 
 /**
+ * tty_insert_flip_string_and_push_buffer - add characters to the tty buffer and
+ *	push
+ * @port: tty port
+ * @chars: characters
+ * @size: size
+ *
+ * The function combines tty_insert_flip_string() and tty_flip_buffer_push()
+ * with the exception of properly holding the @port->lock.
+ *
+ * To be used only internally (by pty currently).
+ *
+ * Returns: the number added.
+ */
+int tty_insert_flip_string_and_push_buffer(struct tty_struct *tty,
+		const unsigned char *chars, size_t size)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&tty->buf.lock, flags);
+	size = tty_insert_flip_string(tty, chars, size);
+	if (size)
+		tty_flip_buffer_commit(tty->buf.tail);
+	spin_unlock_irqrestore(&tty->buf.lock, flags);
+
+	if (tty->low_latency)
+		flush_to_ldisc(&tty->buf.work);
+	else
+		schedule_work(&tty->buf.work);
+
+	return size;
+}
+
+/**
  *	tty_buffer_init		-	prepare a tty buffer structure
  *	@tty: tty to initialise
  *
