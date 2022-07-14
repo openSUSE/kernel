@@ -1761,6 +1761,9 @@ global_port_update:
 		break;
 
 	case MBA_DPORT_DIAGNOSTICS:
+		if ((mb[1] & 0xF) == AEN_DONE_DIAG_TEST_WITH_NOERR ||
+		    (mb[1] & 0xF) == AEN_DONE_DIAG_TEST_WITH_ERR)
+			vha->dport_status &= ~DPORT_DIAG_IN_PROGRESS;
 		ql_dbg(ql_dbg_async, vha, 0x5052,
 		    "D-Port Diagnostics: %04x %04x %04x %04x\n",
 		    mb[0], mb[1], mb[2], mb[3]);
@@ -2245,9 +2248,9 @@ qla24xx_els_ct_entry(scsi_qla_host_t *v, struct req_que *req,
 				res = DID_ERROR << 16;
 			}
 
-			if (logit) {
-				if (sp->remap.remapped &&
-				    ((u8 *)sp->remap.rsp.buf)[0] == ELS_LS_RJT) {
+			if (sp->remap.remapped &&
+			    ((u8 *)sp->remap.rsp.buf)[0] == ELS_LS_RJT) {
+				if (logit) {
 					ql_dbg(ql_dbg_user, vha, 0x503f,
 					    "%s IOCB Done LS_RJT hdl=%x comp_status=0x%x\n",
 					    type, sp->handle, comp_status);
@@ -2259,18 +2262,24 @@ qla24xx_els_ct_entry(scsi_qla_host_t *v, struct req_que *req,
 						pkt)->total_byte_count),
 					    e->s_id[0], e->s_id[2], e->s_id[1],
 					    e->d_id[2], e->d_id[1], e->d_id[0]);
-				} else {
-					ql_log(ql_log_info, vha, 0x503f,
-					    "%s IOCB Done hdl=%x comp_status=0x%x\n",
-					    type, sp->handle, comp_status);
-					ql_log(ql_log_info, vha, 0x503f,
-					    "subcode 1=0x%x subcode 2=0x%x bytes=0x%x %02x%02x%02x -> %02x%02x%02x\n",
-					    fw_status[1], fw_status[2],
-					    le32_to_cpu(((struct els_sts_entry_24xx *)
-						pkt)->total_byte_count),
-					    e->s_id[0], e->s_id[2], e->s_id[1],
-					    e->d_id[2], e->d_id[1], e->d_id[0]);
 				}
+				if (sp->fcport && sp->fcport->flags & FCF_FCSP_DEVICE &&
+				    sp->type == SRB_ELS_CMD_HST_NOLOGIN) {
+					ql_dbg(ql_dbg_edif, vha, 0x911e,
+					    "%s rcv reject. Sched delete\n", __func__);
+					qlt_schedule_sess_for_deletion(sp->fcport);
+				}
+			} else if (logit) {
+				ql_log(ql_log_info, vha, 0x503f,
+				    "%s IOCB Done hdl=%x comp_status=0x%x\n",
+				    type, sp->handle, comp_status);
+				ql_log(ql_log_info, vha, 0x503f,
+				    "subcode 1=0x%x subcode 2=0x%x bytes=0x%x %02x%02x%02x -> %02x%02x%02x\n",
+				    fw_status[1], fw_status[2],
+				    le32_to_cpu(((struct els_sts_entry_24xx *)
+				    pkt)->total_byte_count),
+				    e->s_id[0], e->s_id[2], e->s_id[1],
+				    e->d_id[2], e->d_id[1], e->d_id[0]);
 			}
 		}
 		goto els_ct_done;
@@ -2639,7 +2648,7 @@ static void qla24xx_nvme_iocb_entry(scsi_qla_host_t *vha, struct req_que *req,
 	}
 
 	if (unlikely(logit))
-		ql_log(ql_dbg_io, fcport->vha, 0x5060,
+		ql_dbg(ql_dbg_io, fcport->vha, 0x5060,
 		   "NVME-%s ERR Handling - hdl=%x status(%x) tr_len:%x resid=%x  ox_id=%x\n",
 		   sp->name, sp->handle, comp_status,
 		   fd->transferred_length, le32_to_cpu(sts->residual_len),
@@ -3426,6 +3435,7 @@ check_scsi_status:
 	case CS_PORT_UNAVAILABLE:
 	case CS_TIMEOUT:
 	case CS_RESET:
+	case CS_EDIF_INV_REQ:
 
 		/*
 		 * We are going to have the fc class block the rport
@@ -3496,7 +3506,7 @@ check_scsi_status:
 
 out:
 	if (logit)
-		ql_log(ql_dbg_io, fcport->vha, 0x3022,
+		ql_dbg(ql_dbg_io, fcport->vha, 0x3022,
 		       "FCP command status: 0x%x-0x%x (0x%x) nexus=%ld:%d:%llu portid=%02x%02x%02x oxid=0x%x cdb=%10phN len=0x%x rsp_info=0x%x resid=0x%x fw_resid=0x%x sp=%p cp=%p.\n",
 		       comp_status, scsi_status, res, vha->host_no,
 		       cp->device->id, cp->device->lun, fcport->d_id.b.domain,
@@ -4420,16 +4430,12 @@ msix_register_fail:
 	}
 
 	/* Enable MSI-X vector for response queue update for queue 0 */
-	if (IS_QLA83XX(ha) || IS_QLA27XX(ha) || IS_QLA28XX(ha)) {
-		if (ha->msixbase && ha->mqiobase &&
-		    (ha->max_rsp_queues > 1 || ha->max_req_queues > 1 ||
-		     ql2xmqsupport))
-			ha->mqenable = 1;
-	} else
-		if (ha->mqiobase &&
-		    (ha->max_rsp_queues > 1 || ha->max_req_queues > 1 ||
-		     ql2xmqsupport))
-			ha->mqenable = 1;
+	if (IS_MQUE_CAPABLE(ha) &&
+	    (ha->msixbase && ha->mqiobase && ha->max_qpairs))
+		ha->mqenable = 1;
+	else
+		ha->mqenable = 0;
+
 	ql_dbg(ql_dbg_multiq, vha, 0xc005,
 	    "mqiobase=%p, max_rsp_queues=%d, max_req_queues=%d.\n",
 	    ha->mqiobase, ha->max_rsp_queues, ha->max_req_queues);
