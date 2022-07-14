@@ -2828,13 +2828,14 @@ static void iscsi_notify_host_removed(struct iscsi_cls_session *cls_session)
 }
 
 /**
- * iscsi_host_remove - remove host and sessions
+ * iscsi_host_remove_new - remove host and sessions
  * @shost: scsi host
+ * @is_shutdown: true if called from a driver shutdown callout
  *
  * If there are any sessions left, this will initiate the removal and wait
  * for the completion.
  */
-void iscsi_host_remove(struct Scsi_Host *shost)
+void iscsi_host_remove_new(struct Scsi_Host *shost, bool is_shutdown)
 {
 	struct iscsi_host *ihost = shost_priv(shost);
 	unsigned long flags;
@@ -2843,13 +2844,32 @@ void iscsi_host_remove(struct Scsi_Host *shost)
 	ihost->state = ISCSI_HOST_REMOVED;
 	spin_unlock_irqrestore(&ihost->lock, flags);
 
-	iscsi_host_for_each_session(shost, iscsi_notify_host_removed);
+	if (!is_shutdown)
+		iscsi_host_for_each_session(shost, iscsi_notify_host_removed);
+	else
+		iscsi_host_for_each_session(shost, iscsi_force_destroy_session);
+
 	wait_event_interruptible(ihost->session_removal_wq,
 				 ihost->num_sessions == 0);
 	if (signal_pending(current))
 		flush_signals(current);
 
 	scsi_remove_host(shost);
+}
+EXPORT_SYMBOL_GPL(iscsi_host_remove_new);
+
+/**
+ * iscsi_host_remove - remove host and sessions
+ * @shost: scsi host
+ *
+ * If there are any sessions left, this will initiate the removal and wait
+ * for the completion.
+ *
+ * keep this older version around, for kABI compatability
+ */
+void iscsi_host_remove(struct Scsi_Host *shost)
+{
+	iscsi_host_remove_new(shost, false);
 }
 EXPORT_SYMBOL_GPL(iscsi_host_remove);
 
@@ -3105,6 +3125,8 @@ void iscsi_conn_teardown(struct iscsi_cls_conn *cls_conn)
 	struct iscsi_conn *conn = cls_conn->dd_data;
 	struct iscsi_session *session = conn->session;
 
+	iscsi_remove_conn(cls_conn);
+
 	del_timer_sync(&conn->transport_timer);
 
 	mutex_lock(&session->eh_mutex);
@@ -3137,7 +3159,7 @@ void iscsi_conn_teardown(struct iscsi_cls_conn *cls_conn)
 	spin_unlock_bh(&session->frwd_lock);
 	mutex_unlock(&session->eh_mutex);
 
-	iscsi_destroy_conn(cls_conn);
+	iscsi_put_conn(cls_conn);
 }
 EXPORT_SYMBOL_GPL(iscsi_conn_teardown);
 
