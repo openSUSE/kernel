@@ -112,16 +112,19 @@ static int pty_space(struct tty_struct *to)
 static int pty_write(struct tty_struct *tty, const unsigned char *buf, int c)
 {
 	struct tty_struct *to = tty->link;
+	unsigned long flags;
 
 	if (tty->stopped)
 		return 0;
 
 	if (c > 0) {
+		spin_lock_irqsave(&to->buf.lock, flags);
 		/* Stuff the data into the input queue of the other end */
 		c = tty_insert_flip_string(to, buf, c);
 		/* And shovel */
 		if (c)
 			tty_flip_buffer_push(to);
+		spin_unlock_irqrestore(&to->buf.lock, flags);
 	}
 	return c;
 }
