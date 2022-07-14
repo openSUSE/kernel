@@ -304,6 +304,12 @@ int tty_insert_flip_string_flags(struct tty_struct *tty,
 }
 EXPORT_SYMBOL(tty_insert_flip_string_flags);
 
+static inline void tty_flip_buffer_commit(struct tty_buffer *tail)
+{
+	if (tail != NULL)
+		tail->commit = tail->used;
+}
+
 /**
  *	tty_schedule_flip	-	push characters to ldisc
  *	@tty: tty to push from
@@ -319,8 +325,7 @@ void tty_schedule_flip(struct tty_struct *tty)
 {
 	unsigned long flags;
 	spin_lock_irqsave(&tty->buf.lock, flags);
-	if (tty->buf.tail != NULL)
-		tty->buf.tail->commit = tty->buf.tail->used;
+	tty_flip_buffer_commit(tty->buf.tail);
 	spin_unlock_irqrestore(&tty->buf.lock, flags);
 	schedule_work(&tty->buf.work);
 }
@@ -489,8 +494,7 @@ void tty_flip_buffer_push(struct tty_struct *tty)
 {
 	unsigned long flags;
 	spin_lock_irqsave(&tty->buf.lock, flags);
-	if (tty->buf.tail != NULL)
-		tty->buf.tail->commit = tty->buf.tail->used;
+	tty_flip_buffer_commit(tty->buf.tail);
 	spin_unlock_irqrestore(&tty->buf.lock, flags);
 
 	if (tty->low_latency)
