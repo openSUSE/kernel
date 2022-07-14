@@ -121,10 +121,10 @@ static int pty_write(struct tty_struct *tty, const unsigned char *buf, int c)
 		spin_lock_irqsave(&to->buf.lock, flags);
 		/* Stuff the data into the input queue of the other end */
 		c = tty_insert_flip_string(to, buf, c);
+		spin_unlock_irqrestore(&to->buf.lock, flags);
 		/* And shovel */
 		if (c)
 			tty_flip_buffer_push(to);
-		spin_unlock_irqrestore(&to->buf.lock, flags);
 	}
 	return c;
 }
