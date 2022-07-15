@@ -150,14 +150,14 @@ static void qat_dh_cb(struct icp_qat_fw_pke_resp *resp)
 	if (areq->src) {
 		dma_unmap_single(dev, req->in.dh.in.b, req->ctx.dh->p_size,
 				 DMA_TO_DEVICE);
-		kfree_sensitive(req->src_align);
+		kzfree(req->src_align);
 	}
 
 	areq->dst_len = req->ctx.dh->p_size;
 	if (req->dst_align) {
 		scatterwalk_map_and_copy(req->dst_align, areq->dst, 0,
 					 areq->dst_len, 1);
-		kfree_sensitive(req->dst_align);
+		kzfree(req->dst_align);
 	}
 
 	dma_unmap_single(dev, req->out.dh.r, req->ctx.dh->p_size,
@@ -349,14 +349,14 @@ unmap_dst:
 	if (!dma_mapping_error(dev, qat_req->out.dh.r))
 		dma_unmap_single(dev, qat_req->out.dh.r, ctx->p_size,
 				 DMA_FROM_DEVICE);
-	kfree_sensitive(qat_req->dst_align);
+	kzfree(qat_req->dst_align);
 unmap_src:
 	if (req->src) {
 		if (!dma_mapping_error(dev, qat_req->in.dh.in.b))
 			dma_unmap_single(dev, qat_req->in.dh.in.b,
 					 ctx->p_size,
 					 DMA_TO_DEVICE);
-		kfree_sensitive(qat_req->src_align);
+		kzfree(qat_req->src_align);
 	}
 	return ret;
 }
@@ -498,7 +498,7 @@ static void qat_rsa_cb(struct icp_qat_fw_pke_resp *resp)
 
 	err = (err == ICP_QAT_FW_COMN_STATUS_FLAG_OK) ? 0 : -EINVAL;
 
-	kfree_sensitive(req->src_align);
+	kzfree(req->src_align);
 
 	dma_unmap_single(dev, req->in.rsa.enc.m, req->ctx.rsa->key_sz,
 			 DMA_TO_DEVICE);
@@ -508,7 +508,7 @@ static void qat_rsa_cb(struct icp_qat_fw_pke_resp *resp)
 		scatterwalk_map_and_copy(req->dst_align, areq->dst, 0,
 					 areq->dst_len, 1);
 
-		kfree_sensitive(req->dst_align);
+		kzfree(req->dst_align);
 	}
 
 	dma_unmap_single(dev, req->out.rsa.enc.c, req->ctx.rsa->key_sz,
@@ -737,12 +737,12 @@ unmap_dst:
 	if (!dma_mapping_error(dev, qat_req->out.rsa.enc.c))
 		dma_unmap_single(dev, qat_req->out.rsa.enc.c,
 				 ctx->key_sz, DMA_FROM_DEVICE);
-	kfree_sensitive(qat_req->dst_align);
+	kzfree(qat_req->dst_align);
 unmap_src:
 	if (!dma_mapping_error(dev, qat_req->in.rsa.enc.m))
 		dma_unmap_single(dev, qat_req->in.rsa.enc.m, ctx->key_sz,
 				 DMA_TO_DEVICE);
-	kfree_sensitive(qat_req->src_align);
+	kzfree(qat_req->src_align);
 	return ret;
 }
 
@@ -881,12 +881,12 @@ unmap_dst:
 	if (!dma_mapping_error(dev, qat_req->out.rsa.dec.m))
 		dma_unmap_single(dev, qat_req->out.rsa.dec.m,
 				 ctx->key_sz, DMA_FROM_DEVICE);
-	kfree_sensitive(qat_req->dst_align);
+	kzfree(qat_req->dst_align);
 unmap_src:
 	if (!dma_mapping_error(dev, qat_req->in.rsa.dec.c))
 		dma_unmap_single(dev, qat_req->in.rsa.dec.c, ctx->key_sz,
 				 DMA_TO_DEVICE);
-	kfree_sensitive(qat_req->src_align);
+	kzfree(qat_req->src_align);
 	return ret;
 }
 
