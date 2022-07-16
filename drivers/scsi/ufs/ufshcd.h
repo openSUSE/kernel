@@ -766,7 +766,6 @@ struct ufs_hba {
 	u32 capabilities;
 	int nutrs;
 	int nutmrs;
-	u32 reserved_slot;
 	u32 ufs_version;
 	const struct ufs_hba_variant_ops *vops;
 	struct ufs_hba_variant_params *vps;
@@ -867,6 +866,9 @@ struct ufs_hba {
 #endif
 	u32 luns_avail;
 	bool complete_put;
+#ifndef __GENKSYMS__
+	u32 reserved_slot;
+#endif
 };
 
 /* Returns true if clocks can be gated. Otherwise false */
