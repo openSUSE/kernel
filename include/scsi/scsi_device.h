@@ -208,6 +208,10 @@ struct scsi_device {
 	unsigned unmap_limit_for_ws:1;	/* Use the UNMAP limit for WRITE SAME */
 	unsigned rpm_autosuspend:1;	/* Enable runtime autosuspend at device
 					 * creation time */
+#ifndef __GENKSYMS__
+	/* kABI: there should be room for this single bit */
+	unsigned silence_suspend:1;	/* Do not print runtime PM related messages */
+#endif
 
 	bool offline_already;		/* Device offline message logged */
 

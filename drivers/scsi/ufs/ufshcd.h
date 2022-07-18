@@ -678,6 +678,7 @@ struct ufs_hba_monitor {
  * @capabilities: UFS Controller Capabilities
  * @nutrs: Transfer Request Queue depth supported by controller
  * @nutmrs: Task Management Queue depth supported by controller
+ * @reserved_slot: Used to submit device commands. Protected by @dev_cmd.lock.
  * @ufs_version: UFS Version to which controller complies
  * @vops: pointer to variant specific operations
  * @priv: pointer to variant specific private data
@@ -865,6 +866,9 @@ struct ufs_hba {
 #endif
 	u32 luns_avail;
 	bool complete_put;
+#ifndef __GENKSYMS__
+	u32 reserved_slot;
+#endif
 };
 
 /* Returns true if clocks can be gated. Otherwise false */
