@@ -594,8 +594,10 @@ struct phy_device {
 
 	/* Interrupts are enabled */
 	unsigned interrupts:1;
+#ifndef __GENKSYMS__
 	unsigned irq_suspended:1;
 	unsigned irq_rerun:1;
+#endif
 
 	enum phy_state state;
 
