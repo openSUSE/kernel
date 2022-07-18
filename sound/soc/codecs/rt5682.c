@@ -2556,7 +2556,7 @@ static int rt5682_set_bias_level(struct snd_soc_component *component,
 static bool rt5682_clk_check(struct rt5682_priv *rt5682)
 {
 	if (!rt5682->master[RT5682_AIF1]) {
-		dev_dbg(rt5682->component->dev, "sysclk/dai not set correctly\n");
+		dev_dbg(rt5682->i2c_dev, "sysclk/dai not set correctly\n");
 		return false;
 	}
 	return true;
@@ -2567,12 +2567,14 @@ static int rt5682_wclk_prepare(struct clk_hw *hw)
 	struct rt5682_priv *rt5682 =
 		container_of(hw, struct rt5682_priv,
 			     dai_clks_hw[RT5682_DAI_WCLK_IDX]);
-	struct snd_soc_component *component = rt5682->component;
-	struct snd_soc_dapm_context *dapm =
-			snd_soc_component_get_dapm(component);
+	struct snd_soc_component *component;
+	struct snd_soc_dapm_context *dapm;
 
 	if (!rt5682_clk_check(rt5682))
 		return -EINVAL;
+
+	component = rt5682->component;
+	dapm = snd_soc_component_get_dapm(component);
 
 	snd_soc_dapm_mutex_lock(dapm);
 
@@ -2603,12 +2605,14 @@ static void rt5682_wclk_unprepare(struct clk_hw *hw)
 	struct rt5682_priv *rt5682 =
 		container_of(hw, struct rt5682_priv,
 			     dai_clks_hw[RT5682_DAI_WCLK_IDX]);
-	struct snd_soc_component *component = rt5682->component;
-	struct snd_soc_dapm_context *dapm =
-			snd_soc_component_get_dapm(component);
+	struct snd_soc_component *component;
+	struct snd_soc_dapm_context *dapm;
 
 	if (!rt5682_clk_check(rt5682))
 		return;
+
+	component = rt5682->component;
+	dapm = snd_soc_component_get_dapm(component);
 
 	snd_soc_dapm_mutex_lock(dapm);
 
@@ -2633,7 +2637,6 @@ static unsigned long rt5682_wclk_recalc_rate(struct clk_hw *hw,
 	struct rt5682_priv *rt5682 =
 		container_of(hw, struct rt5682_priv,
 			     dai_clks_hw[RT5682_DAI_WCLK_IDX]);
-	struct snd_soc_component *component = rt5682->component;
 	const char * const clk_name = clk_hw_get_name(hw);
 
 	if (!rt5682_clk_check(rt5682))
@@ -2643,7 +2646,7 @@ static unsigned long rt5682_wclk_recalc_rate(struct clk_hw *hw,
 	 */
 	if (rt5682->lrck[RT5682_AIF1] != CLK_48 &&
 	    rt5682->lrck[RT5682_AIF1] != CLK_44) {
-		dev_warn(component->dev, "%s: clk %s only support %d or %d Hz output\n",
+		dev_warn(rt5682->i2c_dev, "%s: clk %s only support %d or %d Hz output\n",
 			__func__, clk_name, CLK_44, CLK_48);
 		return 0;
 	}
@@ -2657,7 +2660,6 @@ static long rt5682_wclk_round_rate(struct clk_hw *hw, unsigned long rate,
 	struct rt5682_priv *rt5682 =
 		container_of(hw, struct rt5682_priv,
 			     dai_clks_hw[RT5682_DAI_WCLK_IDX]);
-	struct snd_soc_component *component = rt5682->component;
 	const char * const clk_name = clk_hw_get_name(hw);
 
 	if (!rt5682_clk_check(rt5682))
@@ -2667,7 +2669,7 @@ static long rt5682_wclk_round_rate(struct clk_hw *hw, unsigned long rate,
 	 * It will force to 48kHz if not both.
 	 */
 	if (rate != CLK_48 && rate != CLK_44) {
-		dev_warn(component->dev, "%s: clk %s only support %d or %d Hz output\n",
+		dev_warn(rt5682->i2c_dev, "%s: clk %s only support %d or %d Hz output\n",
 			__func__, clk_name, CLK_44, CLK_48);
 		rate = CLK_48;
 	}
@@ -2681,7 +2683,7 @@ static int rt5682_wclk_set_rate(struct clk_hw *hw, unsigned long rate,
 	struct rt5682_priv *rt5682 =
 		container_of(hw, struct rt5682_priv,
 			     dai_clks_hw[RT5682_DAI_WCLK_IDX]);
-	struct snd_soc_component *component = rt5682->component;
+	struct snd_soc_component *component;
 	struct clk_hw *parent_hw;
 	const char * const clk_name = clk_hw_get_name(hw);
 	int pre_div;
@@ -2689,6 +2691,8 @@ static int rt5682_wclk_set_rate(struct clk_hw *hw, unsigned long rate,
 
 	if (!rt5682_clk_check(rt5682))
 		return -EINVAL;
+
+	component = rt5682->component;
 
 	/*
 	 * Whether the wclk's parent clk (mclk) exists or not, please ensure
@@ -2699,12 +2703,12 @@ static int rt5682_wclk_set_rate(struct clk_hw *hw, unsigned long rate,
 	 */
 	parent_hw = clk_hw_get_parent(hw);
 	if (!parent_hw)
-		dev_warn(component->dev,
+		dev_warn(rt5682->i2c_dev,
 			"Parent mclk of wclk not acquired in driver. Please ensure mclk was provided as %d Hz.\n",
 			CLK_PLL2_FIN);
 
 	if (parent_rate != CLK_PLL2_FIN)
-		dev_warn(component->dev, "clk %s only support %d Hz input\n",
+		dev_warn(rt5682->i2c_dev, "clk %s only support %d Hz input\n",
 			clk_name, CLK_PLL2_FIN);
 
 	/*
@@ -2736,10 +2740,9 @@ static unsigned long rt5682_bclk_recalc_rate(struct clk_hw *hw,
 	struct rt5682_priv *rt5682 =
 		container_of(hw, struct rt5682_priv,
 			     dai_clks_hw[RT5682_DAI_BCLK_IDX]);
-	struct snd_soc_component *component = rt5682->component;
 	unsigned int bclks_per_wclk;
 
-	bclks_per_wclk = snd_soc_component_read(component, RT5682_TDM_TCON_CTRL);
+	regmap_read(rt5682->regmap, RT5682_TDM_TCON_CTRL, &bclks_per_wclk);
 
 	switch (bclks_per_wclk & RT5682_TDM_BCLK_MS1_MASK) {
 	case RT5682_TDM_BCLK_MS1_256:
@@ -2800,12 +2803,14 @@ static int rt5682_bclk_set_rate(struct clk_hw *hw, unsigned long rate,
 	struct rt5682_priv *rt5682 =
 		container_of(hw, struct rt5682_priv,
 			     dai_clks_hw[RT5682_DAI_BCLK_IDX]);
-	struct snd_soc_component *component = rt5682->component;
+	struct snd_soc_component *component;
 	struct snd_soc_dai *dai;
 	unsigned long factor;
 
 	if (!rt5682_clk_check(rt5682))
 		return -EINVAL;
+
+	component = rt5682->component;
 
 	factor = rt5682_bclk_get_factor(rate, parent_rate);
 
@@ -2813,7 +2818,7 @@ static int rt5682_bclk_set_rate(struct clk_hw *hw, unsigned long rate,
 		if (dai->id == RT5682_AIF1)
 			break;
 	if (!dai) {
-		dev_err(component->dev, "dai %d not found in component\n",
+		dev_err(rt5682->i2c_dev, "dai %d not found in component\n",
 			RT5682_AIF1);
 		return -ENODEV;
 	}
@@ -2836,10 +2841,9 @@ static const struct clk_ops rt5682_dai_clk_ops[RT5682_DAI_NUM_CLKS] = {
 	},
 };
 
-static int rt5682_register_dai_clks(struct snd_soc_component *component)
+int rt5682_register_dai_clks(struct rt5682_priv *rt5682)
 {
-	struct device *dev = component->dev;
-	struct rt5682_priv *rt5682 = snd_soc_component_get_drvdata(component);
+	struct device *dev = rt5682->i2c_dev;
 	struct rt5682_platform_data *pdata = &rt5682->pdata;
 	struct clk_hw *dai_clk_hw;
 	int i, ret;
@@ -2899,6 +2903,7 @@ static int rt5682_register_dai_clks(struct snd_soc_component *component)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(rt5682_register_dai_clks);
 #endif /* CONFIG_COMMON_CLK */
 
 static int rt5682_probe(struct snd_soc_component *component)
@@ -2908,9 +2913,6 @@ static int rt5682_probe(struct snd_soc_component *component)
 	unsigned long time;
 	struct snd_soc_dapm_context *dapm = &component->dapm;
 
-#ifdef CONFIG_COMMON_CLK
-	int ret;
-#endif
 	rt5682->component = component;
 
 	if (rt5682->is_sdw) {
@@ -2922,26 +2924,6 @@ static int rt5682_probe(struct snd_soc_component *component)
 			dev_err(&slave->dev, "Initialization not complete, timed out\n");
 			return -ETIMEDOUT;
 		}
-	} else {
-#ifdef CONFIG_COMMON_CLK
-		/* Check if MCLK provided */
-		rt5682->mclk = devm_clk_get(component->dev, "mclk");
-		if (IS_ERR(rt5682->mclk)) {
-			if (PTR_ERR(rt5682->mclk) != -ENOENT) {
-				ret = PTR_ERR(rt5682->mclk);
-				return ret;
-			}
-			rt5682->mclk = NULL;
-		}
-
-		/* Register CCF DAI clock control */
-		ret = rt5682_register_dai_clks(component);
-		if (ret)
-			return ret;
-
-		/* Initial setup for CCF */
-		rt5682->lrck[RT5682_AIF1] = CLK_48;
-#endif
 	}
 
 	snd_soc_dapm_disable_pin(dapm, "MICBIAS");
