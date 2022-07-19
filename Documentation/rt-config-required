@@ -6,7 +6,7 @@ set:CONFIG_RCU_BOOST
 value:CONFIG_RCU_BOOST_DELAY:500
 unset:CONFIG_RT_GROUP_SCHED
 set:CONFIG_CMDLINE_BOOL
-value:CONFIG_CMDLINE:"processor.max_cstate=1 intel_idle.max_cstate=1 skew_tick=1"
+value:CONFIG_CMDLINE:"skew_tick=1"
 unset:CONFIG_BCACHE
 unset:CONFIG_PREEMPT_TRACER
 unset:CONFIG_DEBUG_PREEMPT
