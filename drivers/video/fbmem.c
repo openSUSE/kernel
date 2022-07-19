@@ -1080,7 +1080,12 @@ static long do_fb_ioctl(struct fb_info *info, unsigned int cmd,
 			return -ENODEV;
 		console_lock();
 		info->flags |= FBINFO_MISC_USEREVENT;
-		ret = fb_set_var(info, &var);
+		event.info = info;
+		event.data = &var;
+		ret = fb_notifier_call_chain(FB_EVENT_MODE_CHANGE_CHECK, &event);
+		ret = notifier_to_errno(ret);
+		if (!ret)
+			ret = fb_set_var(info, &var);
 		info->flags &= ~FBINFO_MISC_USEREVENT;
 		console_unlock();
 		unlock_fb_info(info);
