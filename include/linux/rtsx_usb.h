@@ -54,8 +54,8 @@ struct rtsx_ucr {
 	struct usb_device	*pusb_dev;
 	struct usb_interface	*pusb_intf;
 	struct usb_sg_request	current_sg;
-	unsigned char		*iobuf;
-	dma_addr_t		iobuf_dma;
+	unsigned char		*iobuf;		/* FIXME: SLE15-SP4 kABI placeholder */
+	dma_addr_t		iobuf_dma;	/* FIXME: SLE15-SP4 kABI placeholder */
 
 	struct timer_list	sg_timer;
 	struct mutex		dev_mutex;
