@@ -175,9 +175,6 @@ struct console_font {
 #define KD_FONT_OP_COPY		3	/* Copy from another console */
 
 #define KD_FONT_FLAG_DONT_RECALC 	1	/* Don't recalculate hw charcell size [compat] */
-#ifdef __KERNEL__
-#define KD_FONT_FLAG_OLD		0x80000000	/* Invoked via old interface [compat] */
-#endif
 
 /* note: 0x4B00-0x4B4E all have had a value at some time;
    don't reuse for the time being */
