@@ -244,6 +244,9 @@ struct scsi_device {
 	unsigned char		access_state;
 	struct mutex		state_mutex;
 	enum scsi_device_state sdev_state;
+#ifndef __GENKSYMS__
+	unsigned int queue_stopped;	/* request queue is quiesced */
+#endif
 	struct task_struct	*quiesced_by;
 	unsigned long		sdev_data[];
 } __attribute__((aligned(sizeof(unsigned long))));
