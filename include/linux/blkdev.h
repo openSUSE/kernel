@@ -581,7 +581,7 @@ struct request_queue {
 
 #ifndef __GENKSYMS__
 	int			quiesce_depth;
-#endif /* !__GENKSYMS__ */
+#endif
 };
 
 /* Keep blk_queue_flag_name[] in sync with the definitions below */
