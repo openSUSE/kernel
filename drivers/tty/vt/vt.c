@@ -767,6 +767,17 @@ static void visual_init(struct vc_data *vc, int num, int init)
 	vc->vc_screenbuf_size = vc->vc_rows * vc->vc_size_row;
 }
 
+static void vc_port_destruct(struct tty_port *port)
+{
+	struct vc_data *vc = container_of(port, struct vc_data, port);
+
+	kfree(vc);
+}
+
+static const struct tty_port_operations vc_port_ops = {
+	.destruct = vc_port_destruct,
+};
+
 int vc_allocate(unsigned int currcons)	/* return 0 on success */
 {
 	WARN_CONSOLE_UNLOCKED();
@@ -792,6 +803,7 @@ int vc_allocate(unsigned int currcons)	/* return 0 on success */
 		return -ENOMEM;
 	    vc_cons[currcons].d = vc;
 	    tty_port_init(&vc->port);
+	    vc->port.ops = &vc_port_ops;
 	    INIT_WORK(&vc_cons[currcons].SAK_work, vc_SAK);
 	    visual_init(vc, currcons, 1);
 	    if (!*vc->vc_uni_pagedir_loc)
@@ -1019,7 +1031,7 @@ void vc_deallocate(unsigned int currcons)
 		module_put(vc->vc_sw->owner);
 		kfree(vc->vc_screenbuf);
 		if (currcons >= MIN_NR_CONSOLES)
-			kfree(vc);
+			tty_port_put(&vc->port);
 		vc_cons[currcons].d = NULL;
 	}
 }
@@ -2806,6 +2818,7 @@ static int con_open(struct tty_struct *tty, struct file *filp)
 			}
 			tty->driver_data = vc;
 			vc->port.tty = tty;
+			tty_port_get(&vc->port);
 
 			if (!tty->winsize.ws_row && !tty->winsize.ws_col) {
 				tty->winsize.ws_row = vc_cons[currcons].d->vc_rows;
@@ -2836,6 +2849,13 @@ static void con_shutdown(struct tty_struct *tty)
 	vc->port.tty = NULL;
 	console_unlock();
 	tty_shutdown(tty);
+}
+
+static void con_cleanup(struct tty_struct *tty)
+{
+	struct vc_data *vc = tty->driver_data;
+
+	tty_port_put(&vc->port);
 }
 
 static int default_italic_color    = 2; // green (ASCII)
@@ -2960,7 +2980,8 @@ static const struct tty_operations con_ops = {
 	.throttle = con_throttle,
 	.unthrottle = con_unthrottle,
 	.resize = vt_resize,
-	.shutdown = con_shutdown
+	.shutdown = con_shutdown,
+	.cleanup = con_cleanup,
 };
 
 static struct cdev vc0_cdev;
