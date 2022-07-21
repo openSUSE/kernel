@@ -830,8 +830,6 @@ do_cmd_auto:
 		if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD ||
 		    boot_cpu_data.x86_vendor == X86_VENDOR_HYGON)
 			retbleed_mitigation = RETBLEED_MITIGATION_UNRET;
-		else if (boot_cpu_has(X86_FEATURE_IBPB))
-			retbleed_mitigation = RETBLEED_MITIGATION_IBPB;
 
 		/*
 		 * The Intel mitigation (IBRS or eIBRS) was already selected in
