@@ -1276,7 +1276,6 @@ static int temac_probe(struct platform_device *pdev)
 	struct device_node *temac_np = dev_of_node(&pdev->dev), *dma_np;
 	struct temac_local *lp;
 	struct net_device *ndev;
-	struct resource *res;
 	const void *addr;
 	__be32 *p;
 	bool little_endian;
@@ -1423,9 +1422,7 @@ static int temac_probe(struct platform_device *pdev)
 		of_node_put(dma_np);
 	} else if (pdata) {
 		/* 2nd memory resource specifies DMA registers */
-		res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
-		lp->sdma_regs = devm_ioremap_nocache(&pdev->dev, res->start,
-						     resource_size(res));
+		lp->sdma_regs = devm_platform_ioremap_resource(pdev, 1);
 		if (IS_ERR(lp->sdma_regs)) {
 			dev_err(&pdev->dev,
 				"could not map DMA registers\n");
