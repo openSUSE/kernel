@@ -1153,7 +1153,7 @@ static int usbhid_power(struct hid_device *hid, int lvl)
 	return r;
 }
 
-static struct hid_ll_driver usb_hid_driver = {
+struct hid_ll_driver usb_hid_driver = {
 	.parse = usbhid_parse,
 	.start = usbhid_start,
 	.stop = usbhid_stop,
@@ -1162,6 +1162,7 @@ static struct hid_ll_driver usb_hid_driver = {
 	.power = usbhid_power,
 	.hidinput_input_event = usb_hidinput_input_event,
 };
+EXPORT_SYMBOL_GPL(usb_hid_driver);
 
 static int usbhid_probe(struct usb_interface *intf, const struct usb_device_id *id)
 {

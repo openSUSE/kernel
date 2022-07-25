@@ -2470,6 +2470,11 @@ static int fbcon_set_font(struct vc_data *vc, struct console_font *font, unsigne
 	if (charcount != 256 && charcount != 512)
 		return -EINVAL;
 
+	/* font bigger than screen resolution ? */
+	if (w > FBCON_SWAP(info->var.rotate, info->var.xres, info->var.yres) ||
+	    h > FBCON_SWAP(info->var.rotate, info->var.yres, info->var.xres))
+		return -EINVAL;
+
 	/* Make sure drawing engine can handle the font */
 	if (!(info->pixmap.blit_x & (1 << (font->width - 1))) ||
 	    !(info->pixmap.blit_y & (1 << (font->height - 1))))
@@ -2724,6 +2729,32 @@ static void fbcon_set_all_vcs(struct fb_info *info)
 
 	if (fg != -1)
 		fbcon_modechanged(info);
+}
+
+/* let fbcon check if it supports a new screen resolution */
+static int fbcon_modechange_possible(struct fb_info *info,
+				     struct fb_var_screeninfo *var)
+{
+	struct fbcon_ops *ops = info->fbcon_par;
+	struct vc_data *vc;
+	unsigned int i;
+
+	if (!ops)
+		return 0;
+
+	/* prevent setting a screen size which is smaller than font size */
+	for (i = first_fb_vc; i <= last_fb_vc; i++) {
+		vc = vc_cons[i].d;
+		if (!vc || vc->vc_mode != KD_TEXT ||
+			   registered_fb[con2fb_map[i]] != info)
+			continue;
+
+		if (vc->vc_font.width  > FBCON_SWAP(var->rotate, var->xres, var->yres) ||
+		    vc->vc_font.height > FBCON_SWAP(var->rotate, var->yres, var->xres))
+			return notifier_from_errno(-EINVAL);
+	}
+
+	return 0;
 }
 
 static int fbcon_mode_deleted(struct fb_info *info,
@@ -3057,6 +3088,9 @@ static int fbcon_event_notify(struct notifier_block *self,
 	case FB_EVENT_REMAP_ALL_CONSOLE:
 		idx = info->node;
 		fbcon_remap_all(idx);
+		break;
+	case FB_EVENT_MODE_CHANGE_CHECK:
+		ret = fbcon_modechange_possible(event->info, event->data);
 		break;
 	}
 done:
