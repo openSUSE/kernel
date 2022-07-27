@@ -924,7 +924,6 @@ int nvme_auth_negotiate(struct nvme_ctrl *ctrl, int qid);
 int nvme_auth_wait(struct nvme_ctrl *ctrl, int qid);
 void nvme_auth_reset(struct nvme_ctrl *ctrl);
 void nvme_auth_free(struct nvme_ctrl *ctrl);
-int nvme_auth_generate_key(u8 *secret, struct nvme_dhchap_key **ret_key);
 #else
 static inline void nvme_auth_init_ctrl(struct nvme_ctrl *ctrl) {};
 static inline void nvme_auth_stop(struct nvme_ctrl *ctrl) {};

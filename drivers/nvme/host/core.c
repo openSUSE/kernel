@@ -23,7 +23,7 @@
 
 #include "nvme.h"
 #include "fabrics.h"
-#include "auth.h"
+#include <linux/nvme-auth.h>
 
 #define CREATE_TRACE_POINTS
 #include "trace.h"
@@ -3626,7 +3626,7 @@ static ssize_t nvme_ctrl_dhchap_secret_store(struct device *dev,
 
 	return count;
 }
-DEVICE_ATTR(dhchap_secret, S_IRUGO | S_IWUSR,
+static DEVICE_ATTR(dhchap_secret, S_IRUGO | S_IWUSR,
 	nvme_ctrl_dhchap_secret_show, nvme_ctrl_dhchap_secret_store);
 
 static ssize_t nvme_ctrl_dhchap_ctrl_secret_show(struct device *dev,
@@ -3676,7 +3676,7 @@ static ssize_t nvme_ctrl_dhchap_ctrl_secret_store(struct device *dev,
 
 	return count;
 }
-DEVICE_ATTR(dhchap_ctrl_secret, S_IRUGO | S_IWUSR,
+static DEVICE_ATTR(dhchap_ctrl_secret, S_IRUGO | S_IWUSR,
 	nvme_ctrl_dhchap_ctrl_secret_show, nvme_ctrl_dhchap_ctrl_secret_store);
 #endif
 

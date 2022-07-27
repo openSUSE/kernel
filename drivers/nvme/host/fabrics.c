@@ -405,16 +405,16 @@ int nvmf_connect_admin_queue(struct nvme_ctrl *ctrl)
 
 	result = le32_to_cpu(res.u32);
 	ctrl->cntlid = result & 0xFFFF;
-	if ((result >> 16) & 2) {
+	if ((result >> 16) & 0x3) {
 		/* Authentication required */
-		ret = nvme_auth_negotiate(ctrl, NVME_QID_ANY);
+		ret = nvme_auth_negotiate(ctrl, 0);
 		if (ret) {
 			dev_warn(ctrl->device,
 				 "qid 0: authentication setup failed\n");
 			ret = NVME_SC_AUTH_REQUIRED;
 			goto out_free_data;
 		}
-		ret = nvme_auth_wait(ctrl, NVME_QID_ANY);
+		ret = nvme_auth_wait(ctrl, 0);
 		if (ret)
 			dev_warn(ctrl->device,
 				 "qid 0: authentication failed\n");
@@ -1017,6 +1017,7 @@ void nvmf_free_options(struct nvmf_ctrl_options *opts)
 	kfree(opts->host_traddr);
 	kfree(opts->host_iface);
 	kfree(opts->dhchap_secret);
+	kfree(opts->dhchap_ctrl_secret);
 	kfree(opts);
 }
 EXPORT_SYMBOL_GPL(nvmf_free_options);
