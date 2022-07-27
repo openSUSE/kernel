@@ -1109,7 +1109,7 @@ ENTRY(camellia_ctr_16way)
 		     %xmm8, %rsi);
 
 	FRAME_END
-	ret;
+	RET;
 ENDPROC(camellia_ctr_16way)
 
 #define gf128mul_x_ble(iv, mask, tmp) \
@@ -1253,7 +1253,7 @@ SYM_FUNC_START_LOCAL(camellia_xts_crypt_16way)
 		     %xmm8, %rsi);
 
 	FRAME_END
-	ret;
+	RET;
 SYM_FUNC_END(camellia_xts_crypt_16way)
 
 ENTRY(camellia_xts_enc_16way)
