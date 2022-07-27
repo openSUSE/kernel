@@ -652,5 +652,8 @@ do {									\
 } while (0)
 
 
+int tty_insert_flip_string_and_push_buffer(struct tty_struct *tty,
+		const unsigned char *chars, size_t cnt);
+
 #endif /* __KERNEL__ */
 #endif

@@ -943,6 +943,16 @@ fb_set_var(struct fb_info *info, struct fb_var_screeninfo *var)
 	int flags = info->flags;
 	int ret = 0;
 
+	/* verify that virtual resolution >= physical resolution */
+	if (var->xres_virtual < var->xres ||
+	    var->yres_virtual < var->yres) {
+		pr_warn("WARNING: fbcon: Driver '%s' missed to adjust virtual screen size (%ux%u vs. %ux%u)\n",
+			info->fix.id,
+			var->xres_virtual, var->yres_virtual,
+			var->xres, var->yres);
+		return -EINVAL;
+	}
+
 	if (var->activate & FB_ACTIVATE_INV_MODE) {
 		struct fb_videomode mode1, mode2;
 
@@ -1084,7 +1094,12 @@ static long do_fb_ioctl(struct fb_info *info, unsigned int cmd,
 			return -ENODEV;
 		console_lock();
 		info->flags |= FBINFO_MISC_USEREVENT;
-		ret = fb_set_var(info, &var);
+		event.info = info;
+		event.data = &var;
+		ret = fb_notifier_call_chain(FB_EVENT_MODE_CHANGE_CHECK, &event);
+		ret = notifier_to_errno(ret);
+		if (!ret)
+			ret = fb_set_var(info, &var);
 		info->flags &= ~FBINFO_MISC_USEREVENT;
 		console_unlock();
 		unlock_fb_info(info);
