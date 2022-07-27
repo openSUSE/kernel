@@ -21,7 +21,9 @@
 #include <linux/mutex.h>
 #include <linux/limits.h>
 #include <asm/uaccess.h>
+#ifndef __GENKSYMS__
 #include <linux/mm.h>
+#endif
 
 #include "sysfs.h"
 
