@@ -68,7 +68,7 @@ static ssize_t node_read_meminfo(struct sys_device * dev,
 	struct sysinfo i;
 
 	si_meminfo_node(&i, nid);
-	n = sprintf(buf,
+	n = sysfs_emit(buf,
 		       "Node %d MemTotal:       %8lu kB\n"
 		       "Node %d MemFree:        %8lu kB\n"
 		       "Node %d MemUsed:        %8lu kB\n"
@@ -163,7 +163,7 @@ static SYSDEV_ATTR(meminfo, S_IRUGO, node_read_meminfo, NULL);
 static ssize_t node_read_numastat(struct sys_device * dev,
 				struct sysdev_attribute *attr, char * buf)
 {
-	return sprintf(buf,
+	return sysfs_emit(buf,
 		       "numa_hit %lu\n"
 		       "numa_miss %lu\n"
 		       "numa_foreign %lu\n"
