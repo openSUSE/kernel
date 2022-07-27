@@ -63,12 +63,12 @@ static SYSDEV_ATTR(cpulist, S_IRUGO, node_read_cpulist, NULL);
 static ssize_t node_read_meminfo(struct sys_device * dev,
 			struct sysdev_attribute *attr, char * buf)
 {
-	int n;
+	int len = 0;
 	int nid = dev->id;
 	struct sysinfo i;
 
 	si_meminfo_node(&i, nid);
-	n = sysfs_emit(buf,
+	len = sysfs_emit(buf,
 		       "Node %d MemTotal:       %8lu kB\n"
 		       "Node %d MemFree:        %8lu kB\n"
 		       "Node %d MemUsed:        %8lu kB\n"
@@ -95,7 +95,7 @@ static ssize_t node_read_meminfo(struct sys_device * dev,
 		       nid, K(node_page_state(nid, NR_MLOCK)));
 
 #ifdef CONFIG_HIGHMEM
-	n += sprintf(buf + n,
+	len += sysfs_emit_at(buf, len,
 		       "Node %d HighTotal:      %8lu kB\n"
 		       "Node %d HighFree:       %8lu kB\n"
 		       "Node %d LowTotal:       %8lu kB\n"
@@ -105,7 +105,7 @@ static ssize_t node_read_meminfo(struct sys_device * dev,
 		       nid, K(i.totalram - i.totalhigh),
 		       nid, K(i.freeram - i.freehigh));
 #endif
-	n += sprintf(buf + n,
+	len += sysfs_emit_at(buf, len,
 		       "Node %d Dirty:          %8lu kB\n"
 		       "Node %d Writeback:      %8lu kB\n"
 		       "Node %d FilePages:      %8lu kB\n"
@@ -153,8 +153,8 @@ static ssize_t node_read_meminfo(struct sys_device * dev,
 #else
 		       nid, K(node_page_state(nid, NR_SLAB_UNRECLAIMABLE)));
 #endif
-	n += hugetlb_report_node_meminfo(nid, buf + n);
-	return n;
+	len += hugetlb_report_node_meminfo(nid, buf + len);
+	return len;
 }
 
 #undef K
@@ -184,13 +184,13 @@ static ssize_t node_read_vmstat(struct sys_device *dev,
 {
 	int nid = dev->id;
 	int i;
-	int n = 0;
+	int len = 0;
 
 	for (i = 0; i < NR_VM_ZONE_STAT_ITEMS; i++)
-		n += sprintf(buf+n, "%s %lu\n", vmstat_text[i],
+		len += sysfs_emit_at(buf, len, "%s %lu\n", vmstat_text[i],
 			     node_page_state(nid, i));
 
-	return n;
+	return len;
 }
 static SYSDEV_ATTR(vmstat, S_IRUGO, node_read_vmstat, NULL);
 
@@ -207,10 +207,12 @@ static ssize_t node_read_distance(struct sys_device * dev,
 	 */
 	BUILD_BUG_ON(MAX_NUMNODES * 4 > PAGE_SIZE);
 
-	for_each_online_node(i)
-		len += sprintf(buf + len, "%s%d", i ? " " : "", node_distance(nid, i));
+	for_each_online_node(i) {
+		len += sysfs_emit_at(buf, len, "%s%d",
+				     i ? " " : "", node_distance(nid, i));
+	}
 
-	len += sprintf(buf + len, "\n");
+	len += sysfs_emit_at(buf, len, "\n");
 	return len;
 }
 static SYSDEV_ATTR(distance, S_IRUGO, node_read_distance, NULL);
@@ -596,14 +598,13 @@ void unregister_one_node(int nid)
 
 static ssize_t print_nodes_state(enum node_states state, char *buf)
 {
-	int n;
+	int len;
 
-	n = nodelist_scnprintf(buf, PAGE_SIZE, node_states[state]);
-	if (n > 0 && PAGE_SIZE > n + 1) {
-		*(buf + n++) = '\n';
-		*(buf + n++) = '\0';
-	}
-	return n;
+	len = nodelist_scnprintf(buf, PAGE_SIZE, node_states[state]);
+	if (len > 0)
+		len += sysfs_emit_at(buf, len, "\n");
+
+	return len;
 }
 
 struct node_attr {

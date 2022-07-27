@@ -572,9 +572,8 @@ static ssize_t modalias_show(struct device *dev, struct device_attribute *a,
 			     char *buf)
 {
 	struct platform_device	*pdev = to_platform_device(dev);
-	int len = snprintf(buf, PAGE_SIZE, "platform:%s\n", pdev->name);
 
-	return (len >= PAGE_SIZE) ? (PAGE_SIZE - 1) : len;
+	return sysfs_emit(buf, "platform:%s\n", pdev->name);
 }
 
 static struct device_attribute platform_dev_attrs[] = {
