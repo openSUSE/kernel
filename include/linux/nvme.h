@@ -1403,6 +1403,11 @@ struct nvmf_connect_command {
 	__u8		resv4[12];
 };
 
+enum {
+	NVME_CONNECT_AUTHREQ_ASCR	= (1 << 2),
+	NVME_CONNECT_AUTHREQ_ATR	= (1 << 1),
+};
+
 struct nvmf_connect_data {
 	uuid_t		hostid;
 	__le16		cntlid;
@@ -1434,6 +1439,21 @@ struct nvmf_property_get_command {
 	__u8		attrib;
 	__u8		resv3[3];
 	__le32		offset;
+	__u8		resv4[16];
+};
+
+struct nvmf_auth_common_command {
+	__u8		opcode;
+	__u8		resv1;
+	__u16		command_id;
+	__u8		fctype;
+	__u8		resv2[19];
+	union nvme_data_ptr dptr;
+	__u8		resv3;
+	__u8		spsp0;
+	__u8		spsp1;
+	__u8		secp;
+	__le32		al_tl;
 	__u8		resv4[16];
 };
 
@@ -1659,6 +1679,7 @@ struct nvme_command {
 		struct nvmf_connect_command connect;
 		struct nvmf_property_set_command prop_set;
 		struct nvmf_property_get_command prop_get;
+		struct nvmf_auth_common_command auth_common;
 		struct nvmf_auth_send_command auth_send;
 		struct nvmf_auth_receive_command auth_receive;
 		struct nvme_dbbuf dbbuf;
