@@ -188,9 +188,6 @@
 #define X8(x...) X4(x), X4(x)
 #define X16(x...) X8(x), X8(x)
 
-#define NR_FASTOP (ilog2(sizeof(ulong)) + 1)
-#define FASTOP_SIZE 8
-
 /*
  * fastop functions have a special calling convention:
  *
@@ -206,7 +203,13 @@
  *
  * fastop functions are declared as taking a never-defined fastop parameter,
  * so they can't be called from C directly.
+ *
+ * The 16 byte alignment, considering 5 bytes for the RET thunk, 3 for ENDBR
+ * and 1 for the straight line speculation INT3, leaves 7 bytes for the
+ * body of the function.  Currently none is larger than 4.
  */
+
+#define FASTOP_SIZE	16
 
 struct fastop;
 
@@ -443,11 +446,7 @@ static int fastop(struct x86_emulate_ctxt *ctxt, void (*fop)(struct fastop *));
  * RET | JMP __x86_return_thunk	[1,5 bytes; CONFIG_RETPOLINE]
  * INT3				[1 byte; CONFIG_SLS]
  */
-#define RET_LENGTH	(1 + (4 * IS_ENABLED(CONFIG_RETPOLINE)) + \
-			 IS_ENABLED(CONFIG_SLS))
-#define SETCC_LENGTH	(3 + RET_LENGTH)
-#define SETCC_ALIGN	(4 << ((SETCC_LENGTH > 4) & 1) << ((SETCC_LENGTH > 8) & 1))
-static_assert(SETCC_LENGTH <= SETCC_ALIGN);
+#define SETCC_ALIGN	16
 
 /* Special case for SETcc - 1 instruction per cc */
 #define FOP_SETCC(op) \
