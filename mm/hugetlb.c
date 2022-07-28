@@ -2122,10 +2122,10 @@ void hugetlb_report_meminfo(struct seq_file *m)
 			1UL << (huge_page_order(h) + PAGE_SHIFT - 10));
 }
 
-int hugetlb_report_node_meminfo(int nid, char *buf)
+int hugetlb_report_node_meminfo(char *buf, int len, int nid)
 {
 	struct hstate *h = &default_hstate;
-	return sprintf(buf,
+	return sysfs_emit_at(buf, len,
 		"Node %d HugePages_Total: %5u\n"
 		"Node %d HugePages_Free:  %5u\n"
 		"Node %d HugePages_Surp:  %5u\n",
