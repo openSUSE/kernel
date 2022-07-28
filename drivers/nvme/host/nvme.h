@@ -25,6 +25,8 @@ extern unsigned int nvme_io_timeout;
 extern unsigned int admin_timeout;
 #define NVME_ADMIN_TIMEOUT	(admin_timeout * HZ)
 
+extern u8 nvme_max_retries;
+
 #define NVME_DEFAULT_KATO	5
 
 #ifdef CONFIG_ARCH_NO_SG_CHAIN

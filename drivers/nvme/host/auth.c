@@ -53,7 +53,7 @@ static int nvme_auth_submit(struct nvme_ctrl *ctrl, int qid,
 	struct nvme_command cmd = {};
 	blk_mq_req_flags_t flags = nvme_auth_flags_from_qid(qid);
 	struct request_queue *q = nvme_auth_queue_from_qid(ctrl, qid);
-	int ret;
+	int ret, retries = nvme_max_retries;
 
 	cmd.auth_common.opcode = nvme_fabrics_command;
 	cmd.auth_common.secp = NVME_AUTH_DHCHAP_PROTOCOL_IDENTIFIER;
@@ -67,13 +67,16 @@ static int nvme_auth_submit(struct nvme_ctrl *ctrl, int qid,
 		cmd.auth_receive.al = cpu_to_le32(data_len);
 	}
 
+retry:
 	ret = __nvme_submit_sync_cmd(q, &cmd, NULL, data, data_len, 0,
 				     qid == 0 ? NVME_QID_ANY : qid,
 				     0, flags);
-	if (ret > 0)
+	if (ret > 0) {
+		if (!(ret & NVME_SC_DNR) && --retries)
+			goto retry;
 		dev_warn(ctrl->device,
 			"qid %d auth_send failed with status %d\n", qid, ret);
-	else if (ret < 0)
+	} else if (ret < 0)
 		dev_err(ctrl->device,
 			"qid %d auth_send failed with error %d\n", qid, ret);
 	return ret;
