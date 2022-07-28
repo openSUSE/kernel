@@ -830,8 +830,6 @@ do_cmd_auto:
 		if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD ||
 		    boot_cpu_data.x86_vendor == X86_VENDOR_HYGON)
 			retbleed_mitigation = RETBLEED_MITIGATION_UNRET;
-		else if (boot_cpu_has(X86_FEATURE_IBPB))
-			retbleed_mitigation = RETBLEED_MITIGATION_IBPB;
 
 		/*
 		 * The Intel mitigation (IBRS or eIBRS) was already selected in
@@ -1136,7 +1134,7 @@ spectre_v2_user_select_mitigation(void)
 	if (retbleed_mitigation == RETBLEED_MITIGATION_UNRET) {
 		if (mode != SPECTRE_V2_USER_STRICT &&
 		    mode != SPECTRE_V2_USER_STRICT_PREFERRED)
-			pr_info("Selecting STIBP always-on mode to complement retbleed mitigation'\n");
+			pr_info("Selecting STIBP always-on mode to complement retbleed mitigation\n");
 		mode = SPECTRE_V2_USER_STRICT_PREFERRED;
 	}
 

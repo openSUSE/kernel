@@ -1462,6 +1462,9 @@ struct rt5682_priv {
 
 	int jack_type;
 	int irq_work_delay_time;
+#ifndef __GENKSYMS__
+	struct device *i2c_dev;
+#endif
 };
 
 extern const char *rt5682_supply_names[RT5682_NUM_SUPPLIES];
@@ -1471,7 +1474,6 @@ int rt5682_sel_asrc_clk_src(struct snd_soc_component *component,
 
 void rt5682_apply_patch_list(struct rt5682_priv *rt5682, struct device *dev);
 
-int rt5682_headset_detect(struct snd_soc_component *component, int jack_insert);
 void rt5682_jack_detect_handler(struct work_struct *work);
 
 bool rt5682_volatile_register(struct device *dev, unsigned int reg);
@@ -1481,6 +1483,8 @@ int rt5682_register_component(struct device *dev);
 void rt5682_calibrate(struct rt5682_priv *rt5682);
 void rt5682_reset(struct rt5682_priv *rt5682);
 int rt5682_parse_dt(struct rt5682_priv *rt5682, struct device *dev);
+
+int rt5682_register_dai_clks(struct rt5682_priv *rt5682);
 
 #define RT5682_REG_NUM 318
 extern const struct reg_default rt5682_reg[RT5682_REG_NUM];

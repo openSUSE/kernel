@@ -499,26 +499,108 @@ per-port PHY specific details: interface connection, MDIO bus location etc..
 Driver development
 ==================
 
-DSA switch drivers need to implement a dsa_switch_ops structure which will
+DSA switch drivers need to implement a ``dsa_switch_ops`` structure which will
 contain the various members described below.
 
-``register_switch_driver()`` registers this dsa_switch_ops in its internal list
-of drivers to probe for. ``unregister_switch_driver()`` does the exact opposite.
+Probing, registration and device lifetime
+-----------------------------------------
 
-Unless requested differently by setting the priv_size member accordingly, DSA
-does not allocate any driver private context space.
+DSA switches are regular ``device`` structures on buses (be they platform, SPI,
+I2C, MDIO or otherwise). The DSA framework is not involved in their probing
+with the device core.
+
+Switch registration from the perspective of a driver means passing a valid
+``struct dsa_switch`` pointer to ``dsa_register_switch()``, usually from the
+switch driver's probing function. The following members must be valid in the
+provided structure:
+
+- ``ds->dev``: will be used to parse the switch's OF node or platform data.
+
+- ``ds->num_ports``: will be used to create the port list for this switch, and
+  to validate the port indices provided in the OF node.
+
+- ``ds->ops``: a pointer to the ``dsa_switch_ops`` structure holding the DSA
+  method implementations.
+
+- ``ds->priv``: backpointer to a driver-private data structure which can be
+  retrieved in all further DSA method callbacks.
+
+In addition, the following flags in the ``dsa_switch`` structure may optionally
+be configured to obtain driver-specific behavior from the DSA core. Their
+behavior when set is documented through comments in ``include/net/dsa.h``.
+
+- ``ds->vlan_filtering_is_global``
+
+- ``ds->needs_standalone_vlan_filtering``
+
+- ``ds->configure_vlan_while_not_filtering``
+
+- ``ds->untag_bridge_pvid``
+
+- ``ds->assisted_learning_on_cpu_port``
+
+- ``ds->mtu_enforcement_ingress``
+
+- ``ds->fdb_isolation``
+
+Internally, DSA keeps an array of switch trees (group of switches) global to
+the kernel, and attaches a ``dsa_switch`` structure to a tree on registration.
+The tree ID to which the switch is attached is determined by the first u32
+number of the ``dsa,member`` property of the switch's OF node (0 if missing).
+The switch ID within the tree is determined by the second u32 number of the
+same OF property (0 if missing). Registering multiple switches with the same
+switch ID and tree ID is illegal and will cause an error. Using platform data,
+a single switch and a single switch tree is permitted.
+
+In case of a tree with multiple switches, probing takes place asymmetrically.
+The first N-1 callers of ``dsa_register_switch()`` only add their ports to the
+port list of the tree (``dst->ports``), each port having a backpointer to its
+associated switch (``dp->ds``). Then, these switches exit their
+``dsa_register_switch()`` call early, because ``dsa_tree_setup_routing_table()``
+has determined that the tree is not yet complete (not all ports referenced by
+DSA links are present in the tree's port list). The tree becomes complete when
+the last switch calls ``dsa_register_switch()``, and this triggers the effective
+continuation of initialization (including the call to ``ds->ops->setup()``) for
+all switches within that tree, all as part of the calling context of the last
+switch's probe function.
+
+The opposite of registration takes place when calling ``dsa_unregister_switch()``,
+which removes a switch's ports from the port list of the tree. The entire tree
+is torn down when the first switch unregisters.
+
+It is mandatory for DSA switch drivers to implement the ``shutdown()`` callback
+of their respective bus, and call ``dsa_switch_shutdown()`` from it (a minimal
+version of the full teardown performed by ``dsa_unregister_switch()``).
+The reason is that DSA keeps a reference on the master net device, and if the
+driver for the master device decides to unbind on shutdown, DSA's reference
+will block that operation from finalizing.
+
+Either ``dsa_switch_shutdown()`` or ``dsa_unregister_switch()`` must be called,
+but not both, and the device driver model permits the bus' ``remove()`` method
+to be called even if ``shutdown()`` was already called. Therefore, drivers are
+expected to implement a mutual exclusion method between ``remove()`` and
+``shutdown()`` by setting their drvdata to NULL after any of these has run, and
+checking whether the drvdata is NULL before proceeding to take any action.
+
+After ``dsa_switch_shutdown()`` or ``dsa_unregister_switch()`` was called, no
+further callbacks via the provided ``dsa_switch_ops`` may take place, and the
+driver may free the data structures associated with the ``dsa_switch``.
 
 Switch configuration
 --------------------
 
-- ``tag_protocol``: this is to indicate what kind of tagging protocol is supported,
-  should be a valid value from the ``dsa_tag_protocol`` enum
+- ``get_tag_protocol``: this is to indicate what kind of tagging protocol is
+  supported, should be a valid value from the ``dsa_tag_protocol`` enum.
+  The returned information does not have to be static; the driver is passed the
+  CPU port number, as well as the tagging protocol of a possibly stacked
+  upstream switch, in case there are hardware limitations in terms of supported
+  tag formats.
 
-- ``probe``: probe routine which will be invoked by the DSA platform device upon
-  registration to test for the presence/absence of a switch device. For MDIO
-  devices, it is recommended to issue a read towards internal registers using
-  the switch pseudo-PHY and return whether this is a supported device. For other
-  buses, return a non-NULL string
+- ``change_tag_protocol``: when the default tagging protocol has compatibility
+  problems with the master or other issues, the driver may support changing it
+  at runtime, either through a device tree property or through sysfs. In that
+  case, further calls to ``get_tag_protocol`` should report the protocol in
+  current use.
 
 - ``setup``: setup function for the switch, this function is responsible for setting
   up the ``dsa_switch_ops`` private structure with all it needs: register maps,
@@ -531,7 +613,17 @@ Switch configuration
   fully configured and ready to serve any kind of request. It is recommended
   to issue a software reset of the switch during this setup function in order to
   avoid relying on what a previous software agent such as a bootloader/firmware
-  may have previously configured.
+  may have previously configured. The method responsible for undoing any
+  applicable allocations or operations done here is ``teardown``.
+
+- ``port_setup`` and ``port_teardown``: methods for initialization and
+  destruction of per-port data structures. It is mandatory for some operations
+  such as registering and unregistering devlink port regions to be done from
+  these methods, otherwise they are optional. A port will be torn down only if
+  it has been previously set up. It is possible for a port to be set up during
+  probing only to be torn down immediately afterwards, for example in case its
+  PHY cannot be found. In this case, probing of the DSA switch continues
+  without that particular port.
 
 PHY devices and link management
 -------------------------------
@@ -642,15 +734,11 @@ Bridge layer
 - ``port_bridge_leave``: bridge layer function invoked when a given switch port is
   removed from a bridge, this function should be doing the necessary at the
   switch level to deny the leaving port from ingress/egress traffic from the
-  remaining bridge members. When the port leaves the bridge, it should be aged
-  out at the switch hardware for the switch to (re) learn MAC addresses behind
-  this port.
+  remaining bridge members.
 
 - ``port_stp_state_set``: bridge layer function invoked when a given switch port STP
   state is computed by the bridge layer and should be propagated to switch
-  hardware to forward/block/learn traffic. The switch driver is responsible for
-  computing a STP state change based on current and asked parameters and perform
-  the relevant ageing based on the intersection results
+  hardware to forward/block/learn traffic.
 
 - ``port_bridge_flags``: bridge layer function invoked when a port must
   configure its settings for e.g. flooding of unknown traffic or source address
@@ -662,6 +750,12 @@ Bridge layer
   learning should be statically enabled (if supported by the hardware) on the
   CPU port, and flooding towards the CPU port should also be enabled, due to a
   lack of an explicit address filtering mechanism in the DSA core.
+
+- ``port_fast_age``: bridge layer function invoked when flushing the
+  dynamically learned FDB entries on the port is necessary. This is called when
+  transitioning from an STP state where learning should take place to an STP
+  state where it shouldn't, or when leaving a bridge, or when address learning
+  is turned off via ``port_bridge_flags``.
 
 Bridge VLAN filtering
 ---------------------
@@ -684,10 +778,6 @@ Bridge VLAN filtering
 - ``port_vlan_del``: bridge layer function invoked when a VLAN is removed from the
   given switch port
 
-- ``port_vlan_dump``: bridge layer function invoked with a switchdev callback
-  function that the driver has to call for each VLAN the given port is a member
-  of. A switchdev object is used to carry the VID and bridge flags.
-
 - ``port_fdb_add``: bridge layer function invoked when the bridge wants to install a
   Forwarding Database entry, the switch hardware should be programmed with the
   specified address in the specified VLAN Id in the forwarding database
@@ -703,9 +793,12 @@ Bridge VLAN filtering
   the specified MAC address from the specified VLAN ID if it was mapped into
   this port forwarding database
 
-- ``port_fdb_dump``: bridge layer function invoked with a switchdev callback
-  function that the driver has to call for each MAC address known to be behind
-  the given port. A switchdev object is used to carry the VID and FDB info.
+- ``port_fdb_dump``: bridge bypass function invoked by ``ndo_fdb_dump`` on the
+  physical DSA port interfaces. Since DSA does not attempt to keep in sync its
+  hardware FDB entries with the software bridge, this method is implemented as
+  a means to view the entries visible on user ports in the hardware database.
+  The entries reported by this function have the ``self`` flag in the output of
+  the ``bridge fdb show`` command.
 
 - ``port_mdb_add``: bridge layer function invoked when the bridge wants to install
   a multicast database entry. If the operation is not supported, this function
@@ -721,10 +814,6 @@ Bridge VLAN filtering
   multicast database entry, the switch hardware should be programmed to delete
   the specified MAC address from the specified VLAN ID if it was mapped into
   this port forwarding database.
-
-- ``port_mdb_dump``: bridge layer function invoked with a switchdev callback
-  function that the driver has to call for each MAC address known to be behind
-  the given port. A switchdev object is used to carry the VID and MDB info.
 
 Link aggregation
 ----------------
