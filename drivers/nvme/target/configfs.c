@@ -11,13 +11,13 @@
 #include <linux/ctype.h>
 #include <linux/pci.h>
 #include <linux/pci-p2pdma.h>
+#ifdef CONFIG_NVME_TARGET_AUTH
+#include <linux/nvme-auth.h>
+#endif
 #include <crypto/hash.h>
 #include <crypto/kpp.h>
 
 #include "nvmet.h"
-#ifdef CONFIG_NVME_TARGET_AUTH
-#include "../host/auth.h"
-#endif
 
 static const struct config_item_type nvmet_host_type;
 static const struct config_item_type nvmet_subsys_type;
