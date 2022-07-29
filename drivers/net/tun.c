@@ -76,8 +76,9 @@
 #include <uapi/linux/if_fc.h>
 #include <net/ax25.h>
 #include <net/rose.h>
+#ifndef __GENKSYMS__
 #include <net/6lowpan.h>
-
+#endif
 #include <linux/uaccess.h>
 #include <linux/proc_fs.h>
 
