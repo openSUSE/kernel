@@ -733,7 +733,7 @@ ENTRY(serpent_ctr_8way_avx)
 	store_ctr_8way(%rdx, %rsi, RA1, RB1, RC1, RD1, RA2, RB2, RC2, RD2);
 
 	FRAME_END
-	ret;
+	RET;
 ENDPROC(serpent_ctr_8way_avx)
 
 ENTRY(serpent_xts_enc_8way_avx)
@@ -755,7 +755,7 @@ ENTRY(serpent_xts_enc_8way_avx)
 	store_xts_8way(%rsi, RA1, RB1, RC1, RD1, RA2, RB2, RC2, RD2);
 
 	FRAME_END
-	ret;
+	RET;
 ENDPROC(serpent_xts_enc_8way_avx)
 
 ENTRY(serpent_xts_dec_8way_avx)
@@ -777,5 +777,5 @@ ENTRY(serpent_xts_dec_8way_avx)
 	store_xts_8way(%rsi, RC1, RD1, RB1, RE1, RC2, RD2, RB2, RE2);
 
 	FRAME_END
-	ret;
+	RET;
 ENDPROC(serpent_xts_dec_8way_avx)
