@@ -1874,7 +1874,6 @@ static void gsm_queue(struct gsm_mux *gsm)
 			}
 		}
 		break;
-	case UA:
 	case UA|PF:
 		if (cr == 0 || dlci == NULL)
 			break;
