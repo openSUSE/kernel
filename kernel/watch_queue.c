@@ -468,7 +468,7 @@ int add_watch_to_object(struct watch *watch, struct watch_list *wlist)
 	hlist_add_head(&watch->queue_node, &wqueue->watches);
 	spin_unlock_bh(&wqueue->lock);
 
-	hlist_add_head(&watch->list_node, &wlist->watchers);
+	hlist_add_head_rcu(&watch->list_node, &wlist->watchers);
 	return 0;
 }
 EXPORT_SYMBOL(add_watch_to_object);
