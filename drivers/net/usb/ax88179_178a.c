@@ -941,7 +941,7 @@ static int ax88179_set_mac_addr(struct net_device *net, void *p)
 	if (!is_valid_ether_addr(addr->sa_data))
 		return -EADDRNOTAVAIL;
 
-	memcpy(net->dev_addr, addr->sa_data, ETH_ALEN);
+	eth_hw_addr_set(net, addr->sa_data);
 
 	/* Set the MAC address */
 	ret = ax88179_write_cmd(dev, AX_ACCESS_MAC, AX_NODE_ID, ETH_ALEN,
