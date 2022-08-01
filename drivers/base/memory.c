@@ -387,17 +387,16 @@ static ssize_t phys_device_show(struct device *dev,
 }
 
 #ifdef CONFIG_MEMORY_HOTREMOVE
-static void print_allowed_zone(char *buf, int nid, unsigned long start_pfn,
-		unsigned long nr_pages, int online_type,
-		struct zone *default_zone)
+static int print_allowed_zone(char *buf, int len, int nid,
+			      unsigned long start_pfn, unsigned long nr_pages,
+			      int online_type, struct zone *default_zone)
 {
 	struct zone *zone;
 
 	zone = zone_for_pfn_range(online_type, nid, start_pfn, nr_pages);
-	if (zone != default_zone) {
-		strcat(buf, " ");
-		strcat(buf, zone->name);
-	}
+	if (zone == default_zone)
+		return 0;
+	return sysfs_emit_at(buf, len, " %s", zone->name);
 }
 
 static ssize_t valid_zones_show(struct device *dev,
@@ -408,6 +407,7 @@ static ssize_t valid_zones_show(struct device *dev,
 	unsigned long nr_pages = PAGES_PER_SECTION * sections_per_block;
 	unsigned long valid_start_pfn, valid_end_pfn;
 	struct zone *default_zone;
+	int len = 0;
 	int nid;
 
 	/*
@@ -421,24 +421,23 @@ static ssize_t valid_zones_show(struct device *dev,
 		 */
 		if (!test_pages_in_a_zone(start_pfn, start_pfn + nr_pages,
 					  &valid_start_pfn, &valid_end_pfn))
-			return sprintf(buf, "none\n");
+			return sysfs_emit(buf, "%s\n", "none");
 		start_pfn = valid_start_pfn;
-		strcat(buf, page_zone(pfn_to_page(start_pfn))->name);
+		len += sysfs_emit_at(buf, len, "%s", page_zone(pfn_to_page(start_pfn))->name);
 		goto out;
 	}
 
 	nid = mem->nid;
 	default_zone = zone_for_pfn_range(MMOP_ONLINE_KEEP, nid, start_pfn, nr_pages);
-	strcat(buf, default_zone->name);
 
-	print_allowed_zone(buf, nid, start_pfn, nr_pages, MMOP_ONLINE_KERNEL,
-			default_zone);
-	print_allowed_zone(buf, nid, start_pfn, nr_pages, MMOP_ONLINE_MOVABLE,
-			default_zone);
+	len += sysfs_emit_at(buf, len, "%s", default_zone->name);
+	len += print_allowed_zone(buf, len, nid, start_pfn, nr_pages, MMOP_ONLINE_KERNEL,
+				  default_zone);
+	len += print_allowed_zone(buf, len, nid, start_pfn, nr_pages, MMOP_ONLINE_MOVABLE,
+				  default_zone);
 out:
-	strcat(buf, "\n");
-
-	return strlen(buf);
+	len += sysfs_emit_at(buf, len, "%s", "\n");
+	return len;
 }
 static DEVICE_ATTR_RO(valid_zones);
 #endif
