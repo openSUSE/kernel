@@ -1268,7 +1268,7 @@ static ssize_t uevent_show(struct device *dev, struct device_attribute *attr,
 	struct kset *kset;
 	struct kobj_uevent_env *env = NULL;
 	int i;
-	size_t count = 0;
+	int len = 0;
 	int retval;
 
 	/* search the kset, the device belongs to */
@@ -1298,10 +1298,10 @@ static ssize_t uevent_show(struct device *dev, struct device_attribute *attr,
 
 	/* copy keys to file */
 	for (i = 0; i < env->envp_idx; i++)
-		count += sprintf(&buf[count], "%s\n", env->envp[i]);
+		len += sysfs_emit_at(buf, len, "%s\n", env->envp[i]);
 out:
 	kfree(env);
-	return count;
+	return len;
 }
 
 static ssize_t uevent_store(struct device *dev, struct device_attribute *attr,
