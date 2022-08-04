@@ -10,11 +10,7 @@
 #include "block-group.h"
 #include "btrfs_inode.h"
 
-/*
- * Block groups with more than this value (percents) of unusable space will be
- * scheduled for background reclaim.
- */
-#define BTRFS_DEFAULT_RECLAIM_THRESH		75
+#define BTRFS_DEFAULT_RECLAIM_THRESH           			(75)
 
 struct btrfs_zoned_device_info {
 	/*
@@ -80,6 +76,9 @@ void btrfs_schedule_zone_finish_bg(struct btrfs_block_group *bg,
 				   struct extent_buffer *eb);
 void btrfs_clear_data_reloc_bg(struct btrfs_block_group *bg);
 void btrfs_free_zone_cache(struct btrfs_fs_info *fs_info);
+bool btrfs_zoned_should_reclaim(struct btrfs_fs_info *fs_info);
+void btrfs_zoned_release_data_reloc_bg(struct btrfs_fs_info *fs_info, u64 logical,
+				       u64 length);
 #else /* CONFIG_BLK_DEV_ZONED */
 static inline int btrfs_get_dev_zone(struct btrfs_device *device, u64 pos,
 				     struct blk_zone *zone)
@@ -241,6 +240,14 @@ static inline void btrfs_schedule_zone_finish_bg(struct btrfs_block_group *bg,
 static inline void btrfs_clear_data_reloc_bg(struct btrfs_block_group *bg) { }
 
 static inline void btrfs_free_zone_cache(struct btrfs_fs_info *fs_info) { }
+
+static inline bool btrfs_zoned_should_reclaim(struct btrfs_fs_info *fs_info)
+{
+	return false;
+}
+
+static inline void btrfs_zoned_release_data_reloc_bg(struct btrfs_fs_info *fs_info,
+						     u64 logical, u64 length) { }
 #endif
 
 static inline bool btrfs_dev_is_sequential(struct btrfs_device *device, u64 pos)
@@ -373,6 +380,12 @@ static inline void btrfs_zoned_data_reloc_unlock(struct btrfs_inode *inode)
 
 	if (btrfs_is_data_reloc_root(root) && btrfs_is_zoned(root->fs_info))
 		mutex_unlock(&root->fs_info->zoned_data_reloc_io_lock);
+}
+
+static inline bool btrfs_zoned_bg_is_full(const struct btrfs_block_group *bg)
+{
+	ASSERT(btrfs_is_zoned(bg->fs_info));
+	return (bg->alloc_offset == bg->zone_capacity);
 }
 
 #endif
