@@ -1665,6 +1665,8 @@ static void gsm_dlci_close(struct gsm_dlci *dlci)
 		wake_up_interruptible(&dlci->port.open_wait);
 	} else
 		dlci->gsm->dead = true;
+	/* Unregister gsmtty driver,report gsmtty dev remove uevent for user */
+	tty_unregister_device(gsm_tty_driver, dlci->addr);
 	wake_up(&dlci->gsm->event);
 	/* A DLCI 0 close is a MUX termination so we need to kick that
 	   back to userspace somehow */
@@ -1687,6 +1689,8 @@ static void gsm_dlci_open(struct gsm_dlci *dlci)
 	dlci->constipated = false;
 	if (debug & 8)
 		pr_debug("DLCI %d goes open.\n", dlci->addr);
+	/* Register gsmtty driver,report gsmtty dev add uevent for user */
+	tty_register_device(gsm_tty_driver, dlci->addr, NULL);
 	/* Send current modem state */
 	if (dlci->addr)
 		gsm_modem_update(dlci, 0);
@@ -2652,7 +2656,7 @@ static int gsm_config(struct gsm_mux *gsm, struct gsm_config *c)
 	 * configuration. On the first time there is no DLCI[0]
 	 * and closing or cleaning up is not necessary.
 	 */
-	if (gsm->initiator && (need_close || need_restart))
+	if (need_close || need_restart)
 		gsm_cleanup_mux(gsm, true);
 
 	gsm->initiator = c->initiator;
