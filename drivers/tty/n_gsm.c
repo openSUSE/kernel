@@ -276,10 +276,6 @@ static DEFINE_SPINLOCK(gsm_mux_lock);
 
 static struct tty_driver *gsm_tty_driver;
 
-/* Save dlci open address */
-static int addr_open[256] = { 0 };
-/* Save dlci open count */
-static int addr_cnt;
 /*
  *	This section of the driver logic implements the GSM encodings
  *	both the basic and the 'advanced'. Reliable transport is not
@@ -1389,7 +1385,6 @@ static void gsm_control_rls(struct gsm_mux *gsm, const u8 *data, int clen)
 }
 
 static void gsm_dlci_begin_close(struct gsm_dlci *dlci);
-static void gsm_dlci_close(struct gsm_dlci *dlci);
 
 /**
  *	gsm_control_message	-	DLCI 0 control processing
@@ -1408,28 +1403,15 @@ static void gsm_control_message(struct gsm_mux *gsm, unsigned int command,
 {
 	u8 buf[1];
 	unsigned long flags;
-	struct gsm_dlci *dlci;
-	int i;
-	int address;
 
 	switch (command) {
 	case CMD_CLD: {
-		if (addr_cnt > 0) {
-			for (i = 0; i < addr_cnt; i++) {
-				address = addr_open[i];
-				dlci = gsm->dlci[address];
-				gsm_dlci_close(dlci);
-				addr_open[i] = 0;
-			}
-		}
+		struct gsm_dlci *dlci = gsm->dlci[0];
 		/* Modem wishes to close down */
-		dlci = gsm->dlci[0];
 		if (dlci) {
 			dlci->dead = true;
 			gsm->dead = true;
-			gsm_dlci_close(dlci);
-			addr_cnt = 0;
-			gsm_response(gsm, 0, UA|PF);
+			gsm_dlci_begin_close(dlci);
 		}
 		}
 		break;
@@ -1665,8 +1647,6 @@ static void gsm_dlci_close(struct gsm_dlci *dlci)
 		wake_up_interruptible(&dlci->port.open_wait);
 	} else
 		dlci->gsm->dead = true;
-	/* Unregister gsmtty driver,report gsmtty dev remove uevent for user */
-	tty_unregister_device(gsm_tty_driver, dlci->addr);
 	wake_up(&dlci->gsm->event);
 	/* A DLCI 0 close is a MUX termination so we need to kick that
 	   back to userspace somehow */
@@ -1689,8 +1669,6 @@ static void gsm_dlci_open(struct gsm_dlci *dlci)
 	dlci->constipated = false;
 	if (debug & 8)
 		pr_debug("DLCI %d goes open.\n", dlci->addr);
-	/* Register gsmtty driver,report gsmtty dev add uevent for user */
-	tty_register_device(gsm_tty_driver, dlci->addr, NULL);
 	/* Send current modem state */
 	if (dlci->addr)
 		gsm_modem_update(dlci, 0);
@@ -2048,7 +2026,6 @@ static void gsm_queue(struct gsm_mux *gsm)
 	struct gsm_dlci *dlci;
 	u8 cr;
 	int address;
-	int i, j, k, address_tmp;
 
 	if (gsm->fcs != GOOD_FCS) {
 		gsm->bad_fcs++;
@@ -2080,11 +2057,6 @@ static void gsm_queue(struct gsm_mux *gsm)
 		else {
 			gsm_response(gsm, address, UA|PF);
 			gsm_dlci_open(dlci);
-			/* Save dlci open address */
-			if (address) {
-				addr_open[addr_cnt] = address;
-				addr_cnt++;
-			}
 		}
 		break;
 	case DISC|PF:
@@ -2095,33 +2067,8 @@ static void gsm_queue(struct gsm_mux *gsm)
 			return;
 		}
 		/* Real close complete */
-		if (!address) {
-			if (addr_cnt > 0) {
-				for (i = 0; i < addr_cnt; i++) {
-					address = addr_open[i];
-					dlci = gsm->dlci[address];
-					gsm_dlci_close(dlci);
-					addr_open[i] = 0;
-				}
-			}
-			dlci = gsm->dlci[0];
-			gsm_dlci_close(dlci);
-			addr_cnt = 0;
-			gsm_response(gsm, 0, UA|PF);
-		} else {
-			gsm_response(gsm, address, UA|PF);
-			gsm_dlci_close(dlci);
-			/* clear dlci address */
-			for (j = 0; j < addr_cnt; j++) {
-				address_tmp = addr_open[j];
-				if (address_tmp == address) {
-					for (k = j; k < addr_cnt; k++)
-						addr_open[k] = addr_open[k+1];
-					addr_cnt--;
-					break;
-				}
-			}
-		}
+		gsm_response(gsm, address, UA|PF);
+		gsm_dlci_close(dlci);
 		break;
 	case UA|PF:
 		if (cr == 0 || dlci == NULL)
