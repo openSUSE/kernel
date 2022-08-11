@@ -37,7 +37,7 @@
 
 static int eeh_event_irq = -EINVAL;
 
-void pnv_pcibios_bus_add_device(struct pci_dev *pdev)
+static void pnv_pcibios_bus_add_device(struct pci_dev *pdev)
 {
 	struct pci_dn *pdn = pci_get_pdn(pdev);
 
