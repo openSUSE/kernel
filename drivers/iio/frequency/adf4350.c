@@ -48,10 +48,10 @@ struct adf4350_state {
 	unsigned long			regs_hw[6];
 	unsigned long long		freq_req;
 	/*
-	 * DMA (thus cache coherency maintenance) requires the
-	 * transfer buffers to live in their own cache lines.
+	 * DMA (thus cache coherency maintenance) may require that
+	 * transfer buffers live in their own cache lines.
 	 */
-	__be32				val ____cacheline_aligned;
+	__be32				val __aligned(IIO_DMA_MINALIGN);
 };
 
 static struct adf4350_platform_data default_pdata = {

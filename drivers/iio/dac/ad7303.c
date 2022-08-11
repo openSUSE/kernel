@@ -42,10 +42,10 @@ struct ad7303_state {
 	struct regulator *vref_reg;
 
 	/*
-	 * DMA (thus cache coherency maintenance) requires the
+	 * DMA (thus cache coherency maintenance) may require the
 	 * transfer buffers to live in their own cache lines.
 	 */
-	__be16 data ____cacheline_aligned;
+	__be16 data __aligned(IIO_DMA_MINALIGN);
 };
 
 static int ad7303_write(struct ad7303_state *st, unsigned int chan,

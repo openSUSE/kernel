@@ -209,7 +209,7 @@ struct max1027_state {
 	__be16				*buffer;
 	struct mutex			lock;
 
-	u8				reg ____cacheline_aligned;
+	u8				reg __aligned(IIO_DMA_MINALIGN);
 };
 
 static int max1027_read_single_value(struct iio_dev *indio_dev,

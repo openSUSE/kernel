@@ -93,7 +93,7 @@ static const u32 default_msg_level = (NETIF_MSG_DRV | NETIF_MSG_PROBE |
 static int eee_timer = STMMAC_DEFAULT_LPI_TIMER;
 module_param(eee_timer, int, 0644);
 MODULE_PARM_DESC(eee_timer, "LPI tx expiration time in msec");
-#define STMMAC_LPI_T(x) (jiffies + msecs_to_jiffies(x))
+#define STMMAC_LPI_T(x) (jiffies + usecs_to_jiffies(x))
 
 /* By default the driver will use the ring mode to manage tx and rx descriptors,
  * but allow user to force to use the chain instead of the ring
@@ -342,7 +342,7 @@ static void stmmac_eee_ctrl_timer(struct timer_list *t)
 	struct stmmac_priv *priv = from_timer(priv, t, eee_ctrl_timer);
 
 	stmmac_enable_eee_mode(priv);
-	mod_timer(&priv->eee_ctrl_timer, STMMAC_LPI_T(eee_timer));
+	mod_timer(&priv->eee_ctrl_timer, STMMAC_LPI_T(priv->tx_lpi_timer));
 }
 
 /**
@@ -355,7 +355,7 @@ static void stmmac_eee_ctrl_timer(struct timer_list *t)
  */
 bool stmmac_eee_init(struct stmmac_priv *priv)
 {
-	int tx_lpi_timer = priv->tx_lpi_timer;
+	int eee_tw_timer = priv->eee_tw_timer;
 
 	/* Using PCS we cannot dial with the phy registers at this stage
 	 * so we do not support extra feature like EEE.
@@ -376,7 +376,7 @@ bool stmmac_eee_init(struct stmmac_priv *priv)
 		if (priv->eee_enabled) {
 			netdev_dbg(priv->dev, "disable EEE\n");
 			del_timer_sync(&priv->eee_ctrl_timer);
-			stmmac_set_eee_timer(priv, priv->hw, 0, tx_lpi_timer);
+			stmmac_set_eee_timer(priv, priv->hw, 0, eee_tw_timer);
 		}
 		mutex_unlock(&priv->lock);
 		return false;
@@ -384,10 +384,11 @@ bool stmmac_eee_init(struct stmmac_priv *priv)
 
 	if (priv->eee_active && !priv->eee_enabled) {
 		timer_setup(&priv->eee_ctrl_timer, stmmac_eee_ctrl_timer, 0);
-		mod_timer(&priv->eee_ctrl_timer, STMMAC_LPI_T(eee_timer));
 		stmmac_set_eee_timer(priv, priv->hw, STMMAC_DEFAULT_LIT_LS,
-				     tx_lpi_timer);
+				     eee_tw_timer);
 	}
+
+	mod_timer(&priv->eee_ctrl_timer, STMMAC_LPI_T(priv->tx_lpi_timer));
 
 	mutex_unlock(&priv->lock);
 	netdev_dbg(priv->dev, "Energy-Efficient Ethernet initialized\n");
@@ -841,14 +842,40 @@ static int stmmac_mac_link_state(struct phylink_config *config,
 static void stmmac_mac_config(struct phylink_config *config, unsigned int mode,
 			      const struct phylink_link_state *state)
 {
+	/* Nothing for now. */
+}
+
+static void stmmac_mac_an_restart(struct phylink_config *config)
+{
+	/* Not Supported */
+}
+
+static void stmmac_mac_link_down(struct phylink_config *config,
+				 unsigned int mode, phy_interface_t interface)
+{
+	struct stmmac_priv *priv = netdev_priv(to_net_dev(config->dev));
+
+	stmmac_mac_set(priv, priv->ioaddr, false);
+	priv->eee_active = false;
+	priv->tx_lpi_enabled = false;
+	stmmac_eee_init(priv);
+	stmmac_set_eee_pls(priv, priv->hw, false);
+}
+
+static void stmmac_mac_link_up(struct phylink_config *config,
+			       struct phy_device *phy,
+			       unsigned int mode, phy_interface_t interface,
+			       int speed, int duplex,
+			       bool tx_pause, bool rx_pause)
+{
 	struct stmmac_priv *priv = netdev_priv(to_net_dev(config->dev));
 	u32 ctrl;
 
 	ctrl = readl(priv->ioaddr + MAC_CTRL_REG);
 	ctrl &= ~priv->hw->link.speed_mask;
 
-	if (state->interface == PHY_INTERFACE_MODE_USXGMII) {
-		switch (state->speed) {
+	if (interface == PHY_INTERFACE_MODE_USXGMII) {
+		switch (speed) {
 		case SPEED_10000:
 			ctrl |= priv->hw->link.xgmii.speed10000;
 			break;
@@ -862,7 +889,7 @@ static void stmmac_mac_config(struct phylink_config *config, unsigned int mode,
 			return;
 		}
 	} else {
-		switch (state->speed) {
+		switch (speed) {
 		case SPEED_2500:
 			ctrl |= priv->hw->link.speed2500;
 			break;
@@ -880,51 +907,27 @@ static void stmmac_mac_config(struct phylink_config *config, unsigned int mode,
 		}
 	}
 
-	priv->speed = state->speed;
+	priv->speed = speed;
 
 	if (priv->plat->fix_mac_speed)
-		priv->plat->fix_mac_speed(priv->plat->bsp_priv, state->speed);
+		priv->plat->fix_mac_speed(priv->plat->bsp_priv, speed);
 
-	if (!state->duplex)
+	if (!duplex)
 		ctrl &= ~priv->hw->link.duplex;
 	else
 		ctrl |= priv->hw->link.duplex;
 
 	/* Flow Control operation */
-	if (state->pause)
-		stmmac_mac_flow_ctrl(priv, state->duplex);
+	if (tx_pause && rx_pause)
+		stmmac_mac_flow_ctrl(priv, duplex);
 
 	writel(ctrl, priv->ioaddr + MAC_CTRL_REG);
-}
-
-static void stmmac_mac_an_restart(struct phylink_config *config)
-{
-	/* Not Supported */
-}
-
-static void stmmac_mac_link_down(struct phylink_config *config,
-				 unsigned int mode, phy_interface_t interface)
-{
-	struct stmmac_priv *priv = netdev_priv(to_net_dev(config->dev));
-
-	stmmac_mac_set(priv, priv->ioaddr, false);
-	priv->eee_active = false;
-	stmmac_eee_init(priv);
-	stmmac_set_eee_pls(priv, priv->hw, false);
-}
-
-static void stmmac_mac_link_up(struct phylink_config *config,
-			       struct phy_device *phy,
-			       unsigned int mode, phy_interface_t interface,
-			       int speed, int duplex,
-			       bool tx_pause, bool rx_pause)
-{
-	struct stmmac_priv *priv = netdev_priv(to_net_dev(config->dev));
 
 	stmmac_mac_set(priv, priv->ioaddr, true);
 	if (phy && priv->dma_cap.eee) {
 		priv->eee_active = phy_init_eee(phy, 1) >= 0;
 		priv->eee_enabled = stmmac_eee_init(priv);
+		priv->tx_lpi_enabled = priv->eee_enabled;
 		stmmac_set_eee_pls(priv, priv->hw, true);
 	}
 }
@@ -1936,7 +1939,7 @@ static int stmmac_tx_clean(struct stmmac_priv *priv, int budget, u32 queue)
 
 	if ((priv->eee_enabled) && (!priv->tx_path_in_lpi_mode)) {
 		stmmac_enable_eee_mode(priv);
-		mod_timer(&priv->eee_ctrl_timer, STMMAC_LPI_T(eee_timer));
+		mod_timer(&priv->eee_ctrl_timer, STMMAC_LPI_T(priv->tx_lpi_timer));
 	}
 
 	/* We still have pending packets, let's call for a new scheduling */
@@ -2548,7 +2551,11 @@ static int stmmac_hw_setup(struct net_device *dev, bool init_ptp)
 			netdev_warn(priv->dev, "PTP init failed\n");
 	}
 
-	priv->tx_lpi_timer = STMMAC_DEFAULT_TWT_LS;
+	priv->eee_tw_timer = STMMAC_DEFAULT_TWT_LS;
+
+	/* Convert the timer from msec to usec */
+	if (!priv->tx_lpi_timer)
+		priv->tx_lpi_timer = eee_timer * 1000;
 
 	if (priv->use_riwt) {
 		ret = stmmac_rx_watchdog(priv, priv->ioaddr, MIN_DMA_RIWT, rx_cnt);
@@ -4565,6 +4572,8 @@ static void stmmac_reset_queues_param(struct stmmac_priv *priv)
 		tx_q->cur_tx = 0;
 		tx_q->dirty_tx = 0;
 		tx_q->mss = 0;
+
+		netdev_tx_reset_queue(netdev_get_tx_queue(priv->dev, queue));
 	}
 }
 

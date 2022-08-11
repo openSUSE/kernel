@@ -404,7 +404,7 @@ ENTRY(twofish_ctr_8way)
 	popq %r12;
 
 	FRAME_END
-	ret;
+	RET;
 ENDPROC(twofish_ctr_8way)
 
 ENTRY(twofish_xts_enc_8way)
@@ -428,7 +428,7 @@ ENTRY(twofish_xts_enc_8way)
 	store_xts_8way(%r11, RC1, RD1, RA1, RB1, RC2, RD2, RA2, RB2);
 
 	FRAME_END
-	ret;
+	RET;
 ENDPROC(twofish_xts_enc_8way)
 
 ENTRY(twofish_xts_dec_8way)
@@ -452,5 +452,5 @@ ENTRY(twofish_xts_dec_8way)
 	store_xts_8way(%r11, RA1, RB1, RC1, RD1, RA2, RB2, RC2, RD2);
 
 	FRAME_END
-	ret;
+	RET;
 ENDPROC(twofish_xts_dec_8way)

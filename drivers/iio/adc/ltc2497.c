@@ -29,10 +29,10 @@ struct ltc2497_st {
 	ktime_t	time_prev;
 	u8 addr_prev;
 	/*
-	 * DMA (thus cache coherency maintenance) requires the
+	 * DMA (thus cache coherency maintenance) may require the
 	 * transfer buffers to live in their own cache lines.
 	 */
-	__be32 buf ____cacheline_aligned;
+	__be32 buf __aligned(IIO_DMA_MINALIGN);
 };
 
 static int ltc2497_wait_conv(struct ltc2497_st *st)
