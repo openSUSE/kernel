@@ -392,11 +392,35 @@ EXPORT_SYMBOL_GPL(nvme_auth_augmented_challenge);
 int nvme_auth_gen_privkey(struct crypto_kpp *dh_tfm, u8 dh_gid)
 {
 	int ret;
+	struct dh dh = {0};
+	size_t dh_secret_len;
+	u8 *dh_secret;
 
-	ret = crypto_kpp_set_secret(dh_tfm, NULL, 0);
+	dh.group_id = dh_gid;
+	if (!nvme_auth_dhgroup_name(dh.group_id) ||
+	    dh_gid == NVME_AUTH_DHGROUP_NULL) {
+		pr_warn("invalid dh group %u\n", dh_gid);
+		return -EINVAL;
+	}
+
+	dh_secret_len = crypto_dh_key_len(&dh);
+	dh_secret = kzalloc(dh_secret_len, GFP_KERNEL);
+	if (!dh_secret)
+		return -ENOMEM;
+
+	ret = crypto_dh_encode_key(dh_secret, dh_secret_len, &dh);
+	if (ret) {
+		pr_debug("failed to encode private key, error %d\n", ret);
+		goto out;
+	}
+
+	ret = crypto_kpp_set_secret(dh_tfm, dh_secret, dh_secret_len);
 	if (ret)
 		pr_debug("failed to set private key, error %d\n", ret);
 
+out:
+	kfree_sensitive(dh_secret);
+	dh_secret = NULL;
 	return ret;
 }
 EXPORT_SYMBOL_GPL(nvme_auth_gen_privkey);
