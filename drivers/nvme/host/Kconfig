@@ -101,7 +101,7 @@ config NVME_AUTH
 	select CRYPTO_SHA256
 	select CRYPTO_SHA512
 	select CRYPTO_DH
-	select CRYPTO_DH_RFC7919_GROUPS
+	select CRYPTO_DH_GROUPS_RFC7919
 	help
 	  This provides support for NVMe over Fabrics In-Band Authentication.
 
