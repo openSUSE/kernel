@@ -32,6 +32,12 @@
  * Using this limit prevents one virtqueue from starving others. */
 #define VHOST_NET_WEIGHT 0x80000
 
+/* Max number of packets transferred before requeueing the job.
+ * Using this limit prevents one virtqueue from starving others with small
+ * pkts.
+ */
+#define VHOST_NET_PKT_WEIGHT 256
+
 enum {
 	VHOST_NET_VQ_RX = 0,
 	VHOST_NET_VQ_TX = 1,
@@ -129,6 +135,7 @@ static void handle_tx(struct vhost_net *net)
 	int err, wmem;
 	size_t hdr_size;
 	struct socket *sock;
+	int sent_pkts = 0;
 
 	/* TODO: check that we are running from vhost_worker? */
 	sock = rcu_dereference_check(vq->private_data, 1);
@@ -168,7 +175,7 @@ static void handle_tx(struct vhost_net *net)
 			}
 			if (unlikely(vhost_enable_notify(&net->dev, vq))) {
 				vhost_disable_notify(&net->dev, vq);
-				continue;
+				goto next;
 			}
 			break;
 		}
@@ -200,7 +207,9 @@ static void handle_tx(struct vhost_net *net)
 				 " len %d != %zd\n", err, len);
 		vhost_add_used_and_signal(&net->dev, vq, head, 0);
 		total_len += len;
-		if (unlikely(total_len >= VHOST_NET_WEIGHT)) {
+next:
+		if (unlikely(total_len >= VHOST_NET_WEIGHT) ||
+		    unlikely(++sent_pkts >= VHOST_NET_PKT_WEIGHT)) {
 			vhost_poll_queue(&vq->poll);
 			break;
 		}
@@ -311,6 +320,7 @@ static void handle_rx(struct vhost_net *net)
 	size_t vhost_len, sock_len;
 	/* TODO: check that we are running from vhost_worker? */
 	struct socket *sock = rcu_dereference_check(vq->private_data, 1);
+	int recv_pkts = 0;
 
 	if (!sock)
 		return;
@@ -339,7 +349,7 @@ static void handle_rx(struct vhost_net *net)
 				/* They have slipped one in as we were
 				 * doing that: check again. */
 				vhost_disable_notify(&net->dev, vq);
-				continue;
+				goto next;
 			}
 			/* Nothing new?  Wait for eventfd to tell us
 			 * they refilled. */
@@ -363,7 +373,7 @@ static void handle_rx(struct vhost_net *net)
 			pr_debug("Discarded rx packet: "
 				 " len %d, expected %zd\n", err, sock_len);
 			vhost_discard_vq_desc(vq, headcount);
-			continue;
+			goto next;
 		}
 		if (unlikely(vhost_hlen) &&
 		    memcpy_toiovecend(vq->hdr, (unsigned char *)&hdr, 0,
@@ -386,7 +396,9 @@ static void handle_rx(struct vhost_net *net)
 		if (unlikely(vq_log))
 			vhost_log_write(vq, vq_log, log, vhost_len);
 		total_len += vhost_len;
-		if (unlikely(total_len >= VHOST_NET_WEIGHT)) {
+next:
+		if (unlikely(total_len >= VHOST_NET_WEIGHT) ||
+		    unlikely(++recv_pkts >= VHOST_NET_PKT_WEIGHT)) {
 			vhost_poll_queue(&vq->poll);
 			break;
 		}
