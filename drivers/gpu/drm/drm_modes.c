@@ -34,6 +34,7 @@
 #include <linux/list.h>
 #include <linux/list_sort.h>
 #include <linux/export.h>
+#include <linux/fb.h>
 
 #include <video/of_display_timing.h>
 #include <video/of_videomode.h>
@@ -41,6 +42,7 @@
 
 #include <drm/drm_crtc.h>
 #include <drm/drm_device.h>
+#include <drm/drm_edid.h>
 #include <drm/drm_modes.h>
 #include <drm/drm_print.h>
 
