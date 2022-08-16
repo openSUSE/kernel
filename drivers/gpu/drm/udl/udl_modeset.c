@@ -11,6 +11,7 @@
 
 #include <linux/dma-buf.h>
 
+#include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_damage_helper.h>
@@ -394,7 +395,7 @@ udl_simple_display_pipe_enable(struct drm_simple_display_pipe *pipe,
 
 	udl_handle_damage(fb, &shadow_plane_state->map[0], 0, 0, fb->width, fb->height);
 
-	if (!crtc_state->mode_changed)
+	if (!drm_atomic_crtc_needs_modeset(crtc_state))
 		return;
 
 	/* enable display */

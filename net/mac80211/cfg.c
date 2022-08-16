@@ -5,7 +5,7 @@
  * Copyright 2006-2010	Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2013-2015  Intel Mobile Communications GmbH
  * Copyright (C) 2015-2017 Intel Deutschland GmbH
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  */
 
 #include <linux/ieee80211.h>
@@ -1592,33 +1592,8 @@ static int sta_apply_parameters(struct ieee80211_local *local,
 		sta->sta.max_sp = params->max_sp;
 	}
 
-	/* The sender might not have sent the last bit, consider it to be 0 */
-	if (params->ext_capab_len >= 8) {
-		u8 val = (params->ext_capab[7] &
-			  WLAN_EXT_CAPA8_MAX_MSDU_IN_AMSDU_LSB) >> 7;
-
-		/* we did get all the bits, take the MSB as well */
-		if (params->ext_capab_len >= 9) {
-			u8 val_msb = params->ext_capab[8] &
-				WLAN_EXT_CAPA9_MAX_MSDU_IN_AMSDU_MSB;
-			val_msb <<= 1;
-			val |= val_msb;
-		}
-
-		switch (val) {
-		case 1:
-			sta->sta.max_amsdu_subframes = 32;
-			break;
-		case 2:
-			sta->sta.max_amsdu_subframes = 16;
-			break;
-		case 3:
-			sta->sta.max_amsdu_subframes = 8;
-			break;
-		default:
-			sta->sta.max_amsdu_subframes = 0;
-		}
-	}
+	ieee80211_sta_set_max_amsdu_subframes(sta, params->ext_capab,
+					      params->ext_capab_len);
 
 	/*
 	 * cfg80211 validates this (1-2007) and allows setting the AID
@@ -3151,6 +3126,18 @@ void ieee80211_csa_finish(struct ieee80211_vif *vif)
 			     &sdata->csa_finalize_work);
 }
 EXPORT_SYMBOL(ieee80211_csa_finish);
+
+void ieee80211_channel_switch_disconnect(struct ieee80211_vif *vif, bool block_tx)
+{
+	struct ieee80211_sub_if_data *sdata = vif_to_sdata(vif);
+	struct ieee80211_if_managed *ifmgd = &sdata->u.mgd;
+	struct ieee80211_local *local = sdata->local;
+
+	sdata->csa_block_tx = block_tx;
+	sdata_info(sdata, "channel switch failed, disconnecting\n");
+	ieee80211_queue_work(&local->hw, &ifmgd->csa_connection_drop_work);
+}
+EXPORT_SYMBOL(ieee80211_channel_switch_disconnect);
 
 static int ieee80211_set_after_csa_beacon(struct ieee80211_sub_if_data *sdata,
 					  u32 *changed)

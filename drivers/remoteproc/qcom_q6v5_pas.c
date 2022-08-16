@@ -87,6 +87,9 @@ static void adsp_minidump(struct rproc *rproc)
 {
 	struct qcom_adsp *adsp = rproc->priv;
 
+	if (rproc->dump_conf == RPROC_COREDUMP_DISABLED)
+		return;
+
 	qcom_minidump(rproc, adsp->minidump_id);
 }
 
@@ -442,7 +445,9 @@ static int adsp_probe(struct platform_device *pdev)
 	adsp->info_name = desc->sysmon_name;
 	platform_set_drvdata(pdev, adsp);
 
-	device_wakeup_enable(adsp->dev);
+	ret = device_init_wakeup(adsp->dev, true);
+	if (ret)
+		goto free_rproc;
 
 	ret = adsp_alloc_memory_region(adsp);
 	if (ret)

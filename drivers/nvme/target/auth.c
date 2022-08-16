@@ -14,10 +14,10 @@
 #include <linux/base64.h>
 #include <linux/ctype.h>
 #include <linux/random.h>
+#include <linux/nvme-auth.h>
 #include <asm/unaligned.h>
 
 #include "nvmet.h"
-#include "../host/auth.h"
 
 int nvmet_auth_set_key(struct nvmet_host *host, const char *secret,
 		       bool set_ctrl)

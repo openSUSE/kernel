@@ -1037,11 +1037,7 @@ udp_rmem_min - INTEGER
 	Default: 4K
 
 udp_wmem_min - INTEGER
-	Minimal size of send buffer used by UDP sockets in moderation.
-	Each UDP socket is able to use the size for sending data, even if
-	total pages of UDP sockets exceed udp_mem pressure. The unit is byte.
-
-	Default: 4K
+	UDP does not have tx memory accounting and this tunable has no effect.
 
 RAW variables
 =============
@@ -2798,7 +2794,14 @@ sctp_rmem - vector of 3 INTEGERs: min, default, max
 	Default: 4K
 
 sctp_wmem  - vector of 3 INTEGERs: min, default, max
-	Currently this tunable has no effect.
+	Only the first value ("min") is used, "default" and "max" are
+	ignored.
+
+	min: Minimum size of send buffer that can be used by SCTP sockets.
+	It is guaranteed to each SCTP socket (but not association) even
+	under moderate memory pressure.
+
+	Default: 4K
 
 addr_scope_policy - INTEGER
 	Control IPv4 address scoping - draft-stewart-tsvwg-sctp-ipv4-00
@@ -2852,6 +2855,43 @@ plpmtud_probe_interval - INTEGER
         must be >= 5000.
 
 	Default: 0
+
+reconf_enable - BOOLEAN
+        Enable or disable extension of Stream Reconfiguration functionality
+        specified in RFC6525. This extension provides the ability to "reset"
+        a stream, and it includes the Parameters of "Outgoing/Incoming SSN
+        Reset", "SSN/TSN Reset" and "Add Outgoing/Incoming Streams".
+
+	- 1: Enable extension.
+	- 0: Disable extension.
+
+	Default: 0
+
+intl_enable - BOOLEAN
+        Enable or disable extension of User Message Interleaving functionality
+        specified in RFC8260. This extension allows the interleaving of user
+        messages sent on different streams. With this feature enabled, I-DATA
+        chunk will replace DATA chunk to carry user messages if also supported
+        by the peer. Note that to use this feature, one needs to set this option
+        to 1 and also needs to set socket options SCTP_FRAGMENT_INTERLEAVE to 2
+        and SCTP_INTERLEAVING_SUPPORTED to 1.
+
+	- 1: Enable extension.
+	- 0: Disable extension.
+
+	Default: 0
+
+ecn_enable - BOOLEAN
+        Control use of Explicit Congestion Notification (ECN) by SCTP.
+        Like in TCP, ECN is used only when both ends of the SCTP connection
+        indicate support for it. This feature is useful in avoiding losses
+        due to congestion by allowing supporting routers to signal congestion
+        before having to drop packets.
+
+        1: Enable ecn.
+        0: Disable ecn.
+
+        Default: 1
 
 
 ``/proc/sys/net/core/*``

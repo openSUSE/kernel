@@ -70,6 +70,7 @@
 #include <linux/pci.h>
 #include <linux/firmware.h>
 #include <linux/component.h>
+#include <linux/dmi.h>
 
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_uapi.h>
@@ -1143,6 +1144,41 @@ static bool dm_should_disable_stutter(struct pci_dev *pdev)
 	return false;
 }
 
+static const struct dmi_system_id hpd_disconnect_quirk_table[] = {
+	{
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Precision 3660"),
+		},
+	},
+	{
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Precision 3260"),
+		},
+	},
+	{
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Precision 3460"),
+		},
+	},
+	{}
+};
+
+static void retrieve_dmi_info(struct amdgpu_display_manager *dm)
+{
+	const struct dmi_system_id *dmi_id;
+
+	dm->aux_hpd_discon_quirk = false;
+
+	dmi_id = dmi_first_match(hpd_disconnect_quirk_table);
+	if (dmi_id) {
+		dm->aux_hpd_discon_quirk = true;
+		DRM_INFO("aux_hpd_discon_quirk attached\n");
+	}
+}
+
 static int amdgpu_dm_init(struct amdgpu_device *adev)
 {
 	struct dc_init_data init_data;
@@ -1234,6 +1270,9 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
 	init_data.flags.power_down_display_on_boot = true;
 
 	INIT_LIST_HEAD(&adev->dm.da_list);
+
+	retrieve_dmi_info(&adev->dm);
+
 	/* Display Core create. */
 	adev->dm.dc = dc_create(&init_data);
 
@@ -2229,33 +2268,6 @@ cleanup:
 	return;
 }
 
-static void dm_set_dpms_off(struct dc_link *link)
-{
-	struct dc_stream_state *stream_state;
-	struct amdgpu_dm_connector *aconnector = link->priv;
-	struct amdgpu_device *adev = drm_to_adev(aconnector->base.dev);
-	struct dc_stream_update stream_update;
-	bool dpms_off = true;
-
-	memset(&stream_update, 0, sizeof(stream_update));
-	stream_update.dpms_off = &dpms_off;
-
-	mutex_lock(&adev->dm.dc_lock);
-	stream_state = dc_stream_find_from_link(link);
-
-	if (stream_state == NULL) {
-		DRM_DEBUG_DRIVER("Error finding stream state associated with link!\n");
-		mutex_unlock(&adev->dm.dc_lock);
-		return;
-	}
-
-	stream_update.stream = stream_state;
-	dc_commit_updates_for_stream(stream_state->ctx->dc, NULL, 0,
-				     stream_state, &stream_update,
-				     stream_state->ctx->dc->current_state);
-	mutex_unlock(&adev->dm.dc_lock);
-}
-
 static int dm_resume(void *handle)
 {
 	struct amdgpu_device *adev = handle;
@@ -2277,9 +2289,6 @@ static int dm_resume(void *handle)
 
 	if (amdgpu_in_reset(adev)) {
 		dc_state = dm->cached_dc_state;
-
-		if (dc_enable_dmub_notifications(adev->dm.dc))
-			amdgpu_dm_outbox_init(adev);
 
 		if (dc_enable_dmub_notifications(adev->dm.dc))
 			amdgpu_dm_outbox_init(adev);
@@ -2330,10 +2339,6 @@ static int dm_resume(void *handle)
 	dm_state->context = dc_create_state(dm->dc);
 	/* TODO: Remove dc_state->dccg, use dc->dccg directly. */
 	dc_resource_state_construct(dm->dc, dm_state->context);
-
-	/* Re-enable outbox interrupts for DPIA. */
-	if (dc_enable_dmub_notifications(adev->dm.dc))
-		amdgpu_dm_outbox_init(adev);
 
 	/* Re-enable outbox interrupts for DPIA. */
 	if (dc_enable_dmub_notifications(adev->dm.dc))
@@ -2744,10 +2749,6 @@ static void handle_hpd_irq(void *param)
 			drm_kms_helper_hotplug_event(dev);
 
 	} else if (dc_link_detect(aconnector->dc_link, DETECT_REASON_HPD)) {
-		if (new_connection_type == dc_connection_none &&
-		    aconnector->dc_link->type == dc_connection_none)
-			dm_set_dpms_off(aconnector->dc_link);
-
 		amdgpu_dm_update_connector_after_detect(aconnector);
 
 		drm_modeset_lock_all(dev);

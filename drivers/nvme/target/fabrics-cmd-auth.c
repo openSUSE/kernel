@@ -7,10 +7,10 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 #include <linux/blkdev.h>
 #include <linux/random.h>
+#include <linux/nvme-auth.h>
 #include <crypto/hash.h>
 #include <crypto/kpp.h>
 #include "nvmet.h"
-#include "../host/auth.h"
 
 static void nvmet_auth_expired_work(struct work_struct *work)
 {
@@ -25,12 +25,15 @@ static void nvmet_auth_expired_work(struct work_struct *work)
 
 void nvmet_init_auth(struct nvmet_ctrl *ctrl, struct nvmet_req *req)
 {
+	u32 result = le32_to_cpu(req->cqe->result.u32);
+
 	/* Initialize in-band authentication */
 	INIT_DELAYED_WORK(&req->sq->auth_expired_work,
 			  nvmet_auth_expired_work);
 	req->sq->authenticated = false;
 	req->sq->dhchap_step = NVME_AUTH_DHCHAP_MESSAGE_NEGOTIATE;
-	req->cqe->result.u32 |= 0x2 << 16;
+	result |= (u32)NVME_CONNECT_AUTHREQ_ATR << 16;
+	req->cqe->result.u32 = cpu_to_le32(result);
 }
 
 static u16 nvmet_auth_negotiate(struct nvmet_req *req, void *d)
@@ -115,7 +118,7 @@ static u16 nvmet_auth_reply(struct nvmet_req *req, void *d)
 {
 	struct nvmet_ctrl *ctrl = req->sq->ctrl;
 	struct nvmf_auth_dhchap_reply_data *data = d;
-	u32 dhvlen = le32_to_cpu(data->dhvlen);
+	u16 dhvlen = le16_to_cpu(data->dhvlen);
 	u8 *response;
 
 	pr_debug("%s: ctrl %d qid %d: data hl %d cvalid %d dhvlen %u\n",
@@ -166,8 +169,10 @@ static u16 nvmet_auth_reply(struct nvmet_req *req, void *d)
 			 __func__, ctrl->cntlid, req->sq->qid, data->hl,
 			 req->sq->dhchap_c2);
 		req->sq->dhchap_s2 = le32_to_cpu(data->seqnum);
-	} else
+	} else {
+		req->sq->authenticated = true;
 		req->sq->dhchap_c2 = NULL;
+	}
 
 	return 0;
 }
@@ -310,6 +315,7 @@ void nvmet_execute_auth_send(struct nvmet_req *req)
 			pr_warn("ctrl %d qid %d: authentication failed (%d)\n",
 				ctrl->cntlid, req->sq->qid, status);
 			req->sq->dhchap_status = status;
+			req->sq->authenticated = false;
 			status = 0;
 		}
 		goto done_kfree;
@@ -319,6 +325,7 @@ void nvmet_execute_auth_send(struct nvmet_req *req)
 			NVME_AUTH_DHCHAP_FAILURE_INCORRECT_MESSAGE;
 		req->sq->dhchap_step =
 			NVME_AUTH_DHCHAP_MESSAGE_FAILURE2;
+		req->sq->authenticated = false;
 		goto done_kfree;
 		break;
 	}
@@ -382,11 +389,11 @@ static int nvmet_auth_challenge(struct nvmet_req *req, void *d, int al)
 	memcpy(data->cval, req->sq->dhchap_c1, data->hl);
 	if (ctrl->dh_tfm) {
 		data->dhgid = ctrl->dh_gid;
-		data->dhvlen = cpu_to_le32(ctrl->dh_keysize);
+		data->dhvlen = cpu_to_le16(ctrl->dh_keysize);
 		ret = nvmet_auth_ctrl_exponential(req, data->cval + data->hl,
 						  ctrl->dh_keysize);
 	}
-	pr_debug("%s: ctrl %d qid %d seq %d transaction %d hl %d dhvlen %lu\n",
+	pr_debug("%s: ctrl %d qid %d seq %d transaction %d hl %d dhvlen %zu\n",
 		 __func__, ctrl->cntlid, req->sq->qid, req->sq->dhchap_s1,
 		 req->sq->dhchap_tid, data->hl, ctrl->dh_keysize);
 	return ret;
@@ -499,6 +506,7 @@ void nvmet_execute_auth_receive(struct nvmet_req *req)
 		status = nvmet_auth_success1(req, d, al);
 		if (status) {
 			req->sq->dhchap_status = status;
+			req->sq->authenticated = false;
 			nvmet_auth_failure1(req, d, al);
 			pr_warn("ctrl %d qid %d: success1 status (%x)\n",
 				ctrl->cntlid, req->sq->qid,
@@ -508,6 +516,7 @@ void nvmet_execute_auth_receive(struct nvmet_req *req)
 		req->sq->dhchap_step = NVME_AUTH_DHCHAP_MESSAGE_SUCCESS2;
 		break;
 	case NVME_AUTH_DHCHAP_MESSAGE_FAILURE1:
+		req->sq->authenticated = false;
 		nvmet_auth_failure1(req, d, al);
 		pr_warn("ctrl %d qid %d failure1 (%x)\n",
 			ctrl->cntlid, req->sq->qid, req->sq->dhchap_status);
@@ -527,7 +536,9 @@ void nvmet_execute_auth_receive(struct nvmet_req *req)
 done:
 	req->cqe->result.u64 = 0;
 	nvmet_req_complete(req, status);
-	if (req->sq->dhchap_step == NVME_AUTH_DHCHAP_MESSAGE_FAILURE1) {
+	if (req->sq->dhchap_step == NVME_AUTH_DHCHAP_MESSAGE_SUCCESS2)
+		nvmet_auth_sq_free(req->sq);
+	else if (req->sq->dhchap_step == NVME_AUTH_DHCHAP_MESSAGE_FAILURE1) {
 		nvmet_auth_sq_free(req->sq);
 		nvmet_ctrl_fatal_error(ctrl);
 	}

@@ -364,11 +364,11 @@ static int exfat_read_root(struct inode *inode)
 	inode->i_op = &exfat_dir_inode_operations;
 	inode->i_fop = &exfat_dir_operations;
 
-	inode->i_blocks = ((i_size_read(inode) + (sbi->cluster_size - 1))
-			& ~(sbi->cluster_size - 1)) >> inode->i_blkbits;
-	EXFAT_I(inode)->i_pos = ((loff_t)sbi->root_dir << 32) | 0xffffffff;
-	EXFAT_I(inode)->i_size_aligned = i_size_read(inode);
-	EXFAT_I(inode)->i_size_ondisk = i_size_read(inode);
+	inode->i_blocks = round_up(i_size_read(inode), sbi->cluster_size) >>
+				inode->i_blkbits;
+	ei->i_pos = ((loff_t)sbi->root_dir << 32) | 0xffffffff;
+	ei->i_size_aligned = i_size_read(inode);
+	ei->i_size_ondisk = i_size_read(inode);
 
 	exfat_save_attr(inode, ATTR_SUBDIR);
 	inode->i_mtime = inode->i_atime = inode->i_ctime = ei->i_crtime =
@@ -455,7 +455,7 @@ static int exfat_read_boot_sector(struct super_block *sb)
 	 */
 	if (p_boot->sect_size_bits < EXFAT_MIN_SECT_SIZE_BITS ||
 	    p_boot->sect_size_bits > EXFAT_MAX_SECT_SIZE_BITS) {
-		exfat_err(sb, "bogus sector size bits : %u\n",
+		exfat_err(sb, "bogus sector size bits : %u",
 				p_boot->sect_size_bits);
 		return -EINVAL;
 	}
@@ -464,7 +464,7 @@ static int exfat_read_boot_sector(struct super_block *sb)
 	 * sect_per_clus_bits could be at least 0 and at most 25 - sect_size_bits.
 	 */
 	if (p_boot->sect_per_clus_bits > EXFAT_MAX_SECT_PER_CLUS_BITS(p_boot)) {
-		exfat_err(sb, "bogus sectors bits per cluster : %u\n",
+		exfat_err(sb, "bogus sectors bits per cluster : %u",
 				p_boot->sect_per_clus_bits);
 		return -EINVAL;
 	}

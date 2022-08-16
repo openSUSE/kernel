@@ -405,16 +405,16 @@ int nvmf_connect_admin_queue(struct nvme_ctrl *ctrl)
 
 	result = le32_to_cpu(res.u32);
 	ctrl->cntlid = result & 0xFFFF;
-	if ((result >> 16) & 2) {
+	if ((result >> 16) & 0x3) {
 		/* Authentication required */
-		ret = nvme_auth_negotiate(ctrl, NVME_QID_ANY);
+		ret = nvme_auth_negotiate(ctrl, 0);
 		if (ret) {
 			dev_warn(ctrl->device,
 				 "qid 0: authentication setup failed\n");
 			ret = NVME_SC_AUTH_REQUIRED;
 			goto out_free_data;
 		}
-		ret = nvme_auth_wait(ctrl, NVME_QID_ANY);
+		ret = nvme_auth_wait(ctrl, 0);
 		if (ret)
 			dev_warn(ctrl->device,
 				 "qid 0: authentication failed\n");
@@ -966,13 +966,17 @@ bool nvmf_ip_options_match(struct nvme_ctrl *ctrl,
 		return false;
 
 	/*
-	 * Checking the local address is rough. In most cases, none is specified
-	 * and the host port is selected by the stack.
+	 * Checking the local address or host interfaces is rough.
+	 *
+	 * In most cases, none is specified and the host port or
+	 * host interface is selected by the stack.
 	 *
 	 * Assume no match if:
-	 * -  local address is specified and address is not the same
-	 * -  local address is not specified but remote is, or vice versa
-	 *    (admin using specific host_traddr when it matters).
+	 * -  local address or host interface is specified and address
+	 *    or host interface is not the same
+	 * -  local address or host interface is not specified but
+	 *    remote is, or vice versa (admin using specific
+	 *    host_traddr/host_iface when it matters).
 	 */
 	if ((opts->mask & NVMF_OPT_HOST_TRADDR) &&
 	    (ctrl->opts->mask & NVMF_OPT_HOST_TRADDR)) {
@@ -980,6 +984,15 @@ bool nvmf_ip_options_match(struct nvme_ctrl *ctrl,
 			return false;
 	} else if ((opts->mask & NVMF_OPT_HOST_TRADDR) ||
 		   (ctrl->opts->mask & NVMF_OPT_HOST_TRADDR)) {
+		return false;
+	}
+
+	if ((opts->mask & NVMF_OPT_HOST_IFACE) &&
+	    (ctrl->opts->mask & NVMF_OPT_HOST_IFACE)) {
+		if (strcmp(opts->host_iface, ctrl->opts->host_iface))
+			return false;
+	} else if ((opts->mask & NVMF_OPT_HOST_IFACE) ||
+		   (ctrl->opts->mask & NVMF_OPT_HOST_IFACE)) {
 		return false;
 	}
 
@@ -1017,6 +1030,7 @@ void nvmf_free_options(struct nvmf_ctrl_options *opts)
 	kfree(opts->host_traddr);
 	kfree(opts->host_iface);
 	kfree(opts->dhchap_secret);
+	kfree(opts->dhchap_ctrl_secret);
 	kfree(opts);
 }
 EXPORT_SYMBOL_GPL(nvmf_free_options);
