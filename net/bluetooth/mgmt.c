@@ -3635,7 +3635,7 @@ static int set_blocked_keys(struct sock *sk, struct hci_dev *hdev, void *data,
 
 	hci_blocked_keys_clear(hdev);
 
-	for (i = 0; i < keys->key_count; ++i) {
+	for (i = 0; i < key_count; ++i) {
 		struct blocked_key *b = kzalloc(sizeof(*b), GFP_KERNEL);
 
 		if (!b) {
@@ -4095,8 +4095,7 @@ static int set_device_flags(struct sock *sk, struct hci_dev *hdev, void *data,
 	u32 current_flags = __le32_to_cpu(cp->current_flags);
 
 	bt_dev_dbg(hdev, "Set device flags %pMR (type 0x%x) = 0x%x",
-		   &cp->addr.bdaddr, cp->addr.type,
-		   __le32_to_cpu(current_flags));
+		   &cp->addr.bdaddr, cp->addr.type, current_flags);
 
 	if ((supported_flags | current_flags) != supported_flags) {
 		bt_dev_warn(hdev, "Bad flag given (0x%x) vs supported (0x%0x)",
