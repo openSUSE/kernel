@@ -8,6 +8,8 @@
  * Copyright (C) 2009 Bernie Thompson <bernie@plugable.com>
  */
 
+#include <linux/moduleparam.h>
+
 #include <drm/drm.h>
 #include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
@@ -22,6 +24,9 @@
 #define MAX_TRANSFER (PAGE_SIZE*16 - BULK_SIZE)
 #define WRITES_IN_FLIGHT (20)
 #define MAX_VENDOR_DESCRIPTOR_SIZE 256
+
+static uint udl_num_urbs = WRITES_IN_FLIGHT;
+module_param_named(numurbs, udl_num_urbs, uint, 0600);
 
 static int udl_parse_vendor_descriptor(struct udl_device *udl)
 {
@@ -294,6 +299,8 @@ int udl_init(struct udl_device *udl)
 	struct drm_device *dev = &udl->drm;
 	int ret = -ENOMEM;
 
+	drm_info(dev, "pre-allocating %d URBs\n", udl_num_urbs);
+
 	DRM_DEBUG("\n");
 
 	udl->dmadev = usb_intf_get_dma_device(to_usb_interface(dev->dev));
@@ -311,7 +318,7 @@ int udl_init(struct udl_device *udl)
 	if (udl_select_std_channel(udl))
 		DRM_ERROR("Selecting channel failed\n");
 
-	if (!udl_alloc_urb_list(dev, WRITES_IN_FLIGHT, MAX_TRANSFER)) {
+	if (!udl_alloc_urb_list(dev, udl_num_urbs, MAX_TRANSFER)) {
 		DRM_ERROR("udl_alloc_urb_list failed\n");
 		goto err;
 	}
