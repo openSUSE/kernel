@@ -1549,25 +1549,11 @@ static irqreturn_t tc_irq_handler(int irq, void *arg)
 	return IRQ_HANDLED;
 }
 
-static void tc_clk_disable(void *data)
+static int tc_probe_edp_bridge_endpoint(struct tc_data *tc)
 {
-	struct clk *refclk = data;
-
-	clk_disable_unprepare(refclk);
-}
-
-static int tc_probe(struct i2c_client *client, const struct i2c_device_id *id)
-{
-	struct device *dev = &client->dev;
+	struct device *dev = tc->dev;
 	struct drm_panel *panel;
-	struct tc_data *tc;
 	int ret;
-
-	tc = devm_kzalloc(dev, sizeof(*tc), GFP_KERNEL);
-	if (!tc)
-		return -ENOMEM;
-
-	tc->dev = dev;
 
 	/* port@2 is the output port */
 	ret = drm_of_find_panel_or_bridge(dev->of_node, 2, 0, &panel, NULL);
@@ -1586,6 +1572,32 @@ static int tc_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	} else {
 		tc->bridge.type = DRM_MODE_CONNECTOR_DisplayPort;
 	}
+
+	return ret;
+}
+
+static void tc_clk_disable(void *data)
+{
+	struct clk *refclk = data;
+
+	clk_disable_unprepare(refclk);
+}
+
+static int tc_probe(struct i2c_client *client, const struct i2c_device_id *id)
+{
+	struct device *dev = &client->dev;
+	struct tc_data *tc;
+	int ret;
+
+	tc = devm_kzalloc(dev, sizeof(*tc), GFP_KERNEL);
+	if (!tc)
+		return -ENOMEM;
+
+	tc->dev = dev;
+
+	ret = tc_probe_edp_bridge_endpoint(tc);
+	if (ret)
+		return ret;
 
 	tc->refclk = devm_clk_get(dev, "ref");
 	if (IS_ERR(tc->refclk)) {
