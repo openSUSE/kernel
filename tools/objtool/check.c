@@ -276,6 +276,7 @@ static int decode_instructions(struct objtool_file *file)
 			}
 			memset(insn, 0, sizeof(*insn));
 			INIT_LIST_HEAD(&insn->alts);
+			INIT_LIST_HEAD(&insn->stack_ops);
 			init_cfi_state(&insn->cfi);
 
 			insn->sec = sec;
@@ -285,7 +286,7 @@ static int decode_instructions(struct objtool_file *file)
 						      sec->len - offset,
 						      &insn->len, &insn->type,
 						      &insn->immediate,
-						      &insn->stack_op);
+						      &insn->stack_ops);
 			if (ret)
 				goto err;
 
@@ -758,6 +759,7 @@ static int handle_group_alt(struct objtool_file *file,
 		}
 		memset(fake_jump, 0, sizeof(*fake_jump));
 		INIT_LIST_HEAD(&fake_jump->alts);
+		INIT_LIST_HEAD(&fake_jump->stack_ops);
 		init_cfi_state(&fake_jump->cfi);
 
 		fake_jump->sec = special_alt->new_sec;
@@ -1454,10 +1456,11 @@ static bool has_valid_stack_frame(struct insn_state *state)
 	return false;
 }
 
-static int update_cfi_state_regs(struct instruction *insn, struct cfi_state *cfi)
+static int update_cfi_state_regs(struct instruction *insn,
+				  struct cfi_state *cfi,
+				  struct stack_op *op)
 {
 	struct cfi_reg *cfa = &cfi->cfa;
-	struct stack_op *op = &insn->stack_op;
 
 	if (cfa->base != CFI_SP && cfa->base != CFI_SP_INDIRECT)
 		return 0;
@@ -1489,8 +1492,8 @@ static void save_reg(struct cfi_state *cfi, unsigned char reg, int base, int off
 
 static void restore_reg(struct cfi_state *cfi, unsigned char reg)
 {
-	cfi->regs[reg].base = CFI_UNDEFINED;
-	cfi->regs[reg].offset = 0;
+	cfi->regs[reg].base = initial_func_cfi.regs[reg].base;
+	cfi->regs[reg].offset = initial_func_cfi.regs[reg].offset;
 }
 
 /*
@@ -1546,9 +1549,9 @@ static void restore_reg(struct cfi_state *cfi, unsigned char reg)
  *   41 5d			pop    %r13
  *   c3				retq
  */
-static int update_cfi_state(struct instruction *insn, struct cfi_state *cfi)
+static int update_cfi_state(struct instruction *insn, struct cfi_state *cfi,
+			     struct stack_op *op)
 {
-	struct stack_op *op = &insn->stack_op;
 	struct cfi_reg *cfa = &cfi->cfa;
 	struct cfi_reg *regs = cfi->regs;
 
@@ -1562,7 +1565,7 @@ static int update_cfi_state(struct instruction *insn, struct cfi_state *cfi)
 	}
 
 	if (cfi->type == ORC_TYPE_REGS || cfi->type == ORC_TYPE_REGS_IRET)
-		return update_cfi_state_regs(insn, cfi);
+		return update_cfi_state_regs(insn, cfi, op);
 
 	switch (op->dest.type) {
 
@@ -1901,6 +1904,48 @@ static int update_cfi_state(struct instruction *insn, struct cfi_state *cfi)
 	return 0;
 }
 
+static int handle_insn_ops(struct instruction *insn, struct insn_state *state)
+{
+	struct stack_op *op;
+
+	list_for_each_entry(op, &insn->stack_ops, list) {
+		struct cfi_state old_cfi = state->cfi;
+		int res;
+
+		res = update_cfi_state(insn, &state->cfi, op);
+		if (res)
+			return res;
+
+		if (insn->alt_group && memcmp(&state->cfi, &old_cfi, sizeof(struct cfi_state))) {
+			WARN_FUNC("alternative modifies stack", insn->sec, insn->offset);
+			return -1;
+		}
+
+		if (op->dest.type == OP_DEST_PUSHF) {
+			if (!state->uaccess_stack) {
+				state->uaccess_stack = 1;
+			} else if (state->uaccess_stack >> 31) {
+				WARN_FUNC("PUSHF stack exhausted",
+					  insn->sec, insn->offset);
+				return 1;
+			}
+			state->uaccess_stack <<= 1;
+			state->uaccess_stack  |= state->uaccess;
+		}
+
+		if (op->src.type == OP_SRC_POPF) {
+			if (state->uaccess_stack) {
+				state->uaccess = state->uaccess_stack & 1;
+				state->uaccess_stack >>= 1;
+				if (state->uaccess_stack == 1)
+					state->uaccess_stack = 0;
+			}
+		}
+	}
+
+	return 0;
+}
+
 static bool insn_cfi_match(struct instruction *insn, struct cfi_state *cfi2)
 {
 	struct cfi_state *cfi1 = &insn->cfi;
@@ -2026,7 +2071,6 @@ static int validate_branch(struct objtool_file *file, struct symbol *func,
 	struct alternative *alt;
 	struct instruction *insn, *next_insn;
 	struct section *sec;
-	struct cfi_state old_cfi;
 	u8 visited;
 	int ret;
 
@@ -2218,36 +2262,8 @@ static int validate_branch(struct objtool_file *file, struct symbol *func,
 			return 0;
 
 		case INSN_STACK:
-			old_cfi = state.cfi;
-
-			if (update_cfi_state(insn, &state.cfi))
+			if (handle_insn_ops(insn, &state))
 				return 1;
-
-			if (insn->alt_group && memcmp(&state.cfi, &old_cfi, sizeof(struct cfi_state))) {
-				WARN_FUNC("alternative modifies stack", sec, insn->offset);
-				return -1;
-			}
-
-			if (insn->stack_op.dest.type == OP_DEST_PUSHF) {
-				if (!state.uaccess_stack) {
-					state.uaccess_stack = 1;
-				} else if (state.uaccess_stack >> 31) {
-					WARN_FUNC("PUSHF stack exhausted", sec, insn->offset);
-					return 1;
-				}
-				state.uaccess_stack <<= 1;
-				state.uaccess_stack  |= state.uaccess;
-			}
-
-			if (insn->stack_op.src.type == OP_SRC_POPF) {
-				if (state.uaccess_stack) {
-					state.uaccess = state.uaccess_stack & 1;
-					state.uaccess_stack >>= 1;
-					if (state.uaccess_stack == 1)
-						state.uaccess_stack = 0;
-				}
-			}
-
 			break;
 
 		case INSN_STAC:
