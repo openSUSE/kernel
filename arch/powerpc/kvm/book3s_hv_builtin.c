@@ -555,24 +555,6 @@ int kvmppc_rm_h_eoi(struct kvm_vcpu *vcpu, unsigned long xirr)
 }
 #endif /* CONFIG_KVM_XICS */
 
-void kvmppc_bad_interrupt(struct pt_regs *regs)
-{
-	/*
-	 * 100 could happen at any time, 200 can happen due to invalid real
-	 * address access for example (or any time due to a hardware problem).
-	 */
-	if (TRAP(regs) == 0x100) {
-		get_paca()->in_nmi++;
-		system_reset_exception(regs);
-		get_paca()->in_nmi--;
-	} else if (TRAP(regs) == 0x200) {
-		machine_check_exception(regs);
-	} else {
-		die("Bad interrupt in KVM entry/exit code", regs, SIGABRT);
-	}
-	panic("Bad KVM trap");
-}
-
 static void kvmppc_end_cede(struct kvm_vcpu *vcpu)
 {
 	vcpu->arch.ceded = 0;
@@ -696,6 +678,7 @@ static void flush_guest_tlb(struct kvm *kvm)
 				       "r" (0) : "memory");
 		}
 		asm volatile("ptesync": : :"memory");
+		// POWER9 congruence-class TLBIEL leaves ERAT. Flush it now.
 		asm volatile(PPC_RADIX_INVALIDATE_ERAT_GUEST : : :"memory");
 	} else {
 		for (set = 0; set < kvm->arch.tlb_sets; ++set) {
@@ -706,7 +689,9 @@ static void flush_guest_tlb(struct kvm *kvm)
 			rb += PPC_BIT(51);	/* increment set number */
 		}
 		asm volatile("ptesync": : :"memory");
-		asm volatile(PPC_ISA_3_0_INVALIDATE_ERAT : : :"memory");
+		// POWER9 congruence-class TLBIEL leaves ERAT. Flush it now.
+		if (cpu_has_feature(CPU_FTR_ARCH_300))
+			asm volatile(PPC_ISA_3_0_INVALIDATE_ERAT : : :"memory");
 	}
 }
 
