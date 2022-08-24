@@ -5110,7 +5110,8 @@ void lockdep_unregister_key(struct lock_class_key *key)
 		return;
 
 	raw_local_irq_save(flags);
-	lockdep_lock();
+	arch_spin_lock(&lockdep_lock);
+	current->lockdep_recursion++;
 
 	hlist_for_each_entry_rcu(k, hash_head, hash_entry) {
 		if (k == key) {
@@ -5125,7 +5126,8 @@ void lockdep_unregister_key(struct lock_class_key *key)
 		__lockdep_free_key_range(pf, key, 1);
 		call_rcu_zapped(pf);
 	}
-	lockdep_unlock();
+	current->lockdep_recursion--;
+	arch_spin_unlock(&lockdep_lock);
 	raw_local_irq_restore(flags);
 
 	/* Wait until is_dynamic_key() has finished accessing k->hash_entry. */
