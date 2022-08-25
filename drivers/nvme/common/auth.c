@@ -42,15 +42,15 @@ static struct nvme_auth_dhgroup_map {
 	[NVME_AUTH_DHGROUP_NULL] = {
 		.name = "null", .kpp = "null" },
 	[NVME_AUTH_DHGROUP_2048] = {
-		.name = "ffdhe2048", .kpp = "ffdhe2048(dh)" },
+		.name = "ffdhe2048", .kpp = "dh" },
 	[NVME_AUTH_DHGROUP_3072] = {
-		.name = "ffdhe3072", .kpp = "ffdhe3072(dh)" },
+		.name = "ffdhe3072", .kpp = "dh" },
 	[NVME_AUTH_DHGROUP_4096] = {
-		.name = "ffdhe4096", .kpp = "ffdhe4096(dh)" },
+		.name = "ffdhe4096", .kpp = "dh" },
 	[NVME_AUTH_DHGROUP_6144] = {
-		.name = "ffdhe6144", .kpp = "ffdhe6144(dh)" },
+		.name = "ffdhe6144", .kpp = "dh" },
 	[NVME_AUTH_DHGROUP_8192] = {
-		.name = "ffdhe8192", .kpp = "ffdhe8192(dh)" },
+		.name = "ffdhe8192", .kpp = "dh" },
 };
 
 const char *nvme_auth_dhgroup_name(u8 dhgroup_id)
