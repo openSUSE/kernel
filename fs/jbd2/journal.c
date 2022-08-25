@@ -48,10 +48,10 @@
 #include <linux/uaccess.h>
 #include <asm/page.h>
 
+#ifdef CONFIG_JBD2_DEBUG
 ushort jbd2_journal_enable_debug __read_mostly;
 EXPORT_SYMBOL(jbd2_journal_enable_debug);
 
-#ifdef CONFIG_JBD2_DEBUG
 module_param_named(jbd2_debug, jbd2_journal_enable_debug, ushort, 0644);
 MODULE_PARM_DESC(jbd2_debug, "Debugging level for jbd2");
 #endif
@@ -114,12 +114,6 @@ void __jbd2_debug(int level, const char *file, const char *func,
 	vaf.va = &args;
 	printk(KERN_DEBUG "%s: (%s, %u): %pV", file, func, line, &vaf);
 	va_end(args);
-}
-EXPORT_SYMBOL(__jbd2_debug);
-#else
-void __jbd2_debug(int level, const char *file, const char *func,
-		  unsigned int line, const char *fmt, ...)
-{
 }
 EXPORT_SYMBOL(__jbd2_debug);
 #endif

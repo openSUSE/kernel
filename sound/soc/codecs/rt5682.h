@@ -1428,6 +1428,7 @@ enum {
 
 struct rt5682_priv {
 	struct snd_soc_component *component;
+	struct device *i2c_dev;
 	struct rt5682_platform_data pdata;
 	struct regmap *regmap;
 	struct regmap *sdw_regmap;
@@ -1462,9 +1463,6 @@ struct rt5682_priv {
 
 	int jack_type;
 	int irq_work_delay_time;
-#ifndef __GENKSYMS__
-	struct device *i2c_dev;
-#endif
 };
 
 extern const char *rt5682_supply_names[RT5682_NUM_SUPPLIES];

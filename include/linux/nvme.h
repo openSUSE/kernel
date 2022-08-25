@@ -1679,13 +1679,11 @@ struct nvme_command {
 		struct nvmf_connect_command connect;
 		struct nvmf_property_set_command prop_set;
 		struct nvmf_property_get_command prop_get;
+		struct nvmf_auth_common_command auth_common;
 		struct nvmf_auth_send_command auth_send;
 		struct nvmf_auth_receive_command auth_receive;
 		struct nvme_dbbuf dbbuf;
 		struct nvme_directive_cmd directive;
-#ifndef __GENKSYMS__
-		struct nvmf_auth_common_command auth_common;
-#endif
 	};
 };
 

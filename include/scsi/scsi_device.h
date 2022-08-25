@@ -208,11 +208,9 @@ struct scsi_device {
 	unsigned unmap_limit_for_ws:1;	/* Use the UNMAP limit for WRITE SAME */
 	unsigned rpm_autosuspend:1;	/* Enable runtime autosuspend at device
 					 * creation time */
-#ifndef __GENKSYMS__
-	/* kABI: there should be room for this single bit */
 	unsigned silence_suspend:1;	/* Do not print runtime PM related messages */
-#endif
 
+	unsigned int queue_stopped;	/* request queue is quiesced */
 	bool offline_already;		/* Device offline message logged */
 
 	atomic_t disk_events_disable_depth; /* disable depth for disk events */
@@ -244,9 +242,6 @@ struct scsi_device {
 	unsigned char		access_state;
 	struct mutex		state_mutex;
 	enum scsi_device_state sdev_state;
-#ifndef __GENKSYMS__
-	unsigned int queue_stopped;	/* request queue is quiesced */
-#endif
 	struct task_struct	*quiesced_by;
 	unsigned long		sdev_data[];
 } __attribute__((aligned(sizeof(unsigned long))));

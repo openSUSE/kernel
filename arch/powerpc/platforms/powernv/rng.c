@@ -194,7 +194,3 @@ static int __init pnv_rng_late_init(void)
 	return 0;
 }
 machine_subsys_initcall(powernv, pnv_rng_late_init);
-
-#undef powernv_get_random_long
-int powernv_get_random_long(unsigned long *v) { return pnv_get_random_long(v); }
-EXPORT_SYMBOL_GPL(powernv_get_random_long);

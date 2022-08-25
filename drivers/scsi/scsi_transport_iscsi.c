@@ -174,7 +174,7 @@ static void iscsi_endpoint_release(struct device *dev)
 	struct iscsi_endpoint *ep = iscsi_dev_to_endpoint(dev);
 
 	mutex_lock(&iscsi_ep_idr_mutex);
-	idr_remove(&iscsi_ep_idr, (int)ep->id);
+	idr_remove(&iscsi_ep_idr, ep->id);
 	mutex_unlock(&iscsi_ep_idr_mutex);
 
 	kfree(ep);
@@ -189,7 +189,7 @@ static ssize_t
 show_ep_handle(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct iscsi_endpoint *ep = iscsi_dev_to_endpoint(dev);
-	return sysfs_emit(buf, "%llu\n", (unsigned long long)ep->id);
+	return sysfs_emit(buf, "%d\n", ep->id);
 }
 static ISCSI_ATTR(ep, handle, S_IRUGO, show_ep_handle, NULL);
 

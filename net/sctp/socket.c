@@ -5338,15 +5338,6 @@ int sctp_transport_lookup_process(int (*cb)(struct sctp_transport *, void *),
 }
 EXPORT_SYMBOL_GPL(sctp_transport_lookup_process);
 
-int sctp_for_each_transport(int (*cb)(struct sctp_transport *, void *),
-			    int (*cb_done)(struct sctp_transport *, void *),
-			    struct net *net, int *pos, void *p)
-{
-	return sctp_transport_traverse_process((sctp_callback_t)cb,
-			(sctp_callback_t)cb_done, net, pos, p);
-}
-EXPORT_SYMBOL_GPL(sctp_for_each_transport);
-
 int sctp_transport_traverse_process(sctp_callback_t cb, sctp_callback_t cb_done,
 				    struct net *net, int *pos, void *p)
 {

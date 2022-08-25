@@ -2662,8 +2662,7 @@ static int nfs4_opendata_access(const struct cred *cred,
 		mask = NFS4_ACCESS_READ;
 
 	nfs_access_set_mask(&cache, opendata->o_res.access_result);
-	cache.group_info = (void*)cred;
-	nfs_access_add_cache(state->inode, &cache);
+	nfs_access_add_cache(state->inode, &cache, cred);
 
 	flags = NFS4_ACCESS_READ | NFS4_ACCESS_EXECUTE | NFS4_ACCESS_LOOKUP;
 	if ((mask & ~cache.mask & flags) == 0)
@@ -4515,13 +4514,13 @@ static int _nfs4_proc_access(struct inode *inode, struct nfs_access_entry *entry
 	return status;
 }
 
-static int nfs4_proc_access(struct inode *inode, struct nfs_access_entry *entry)
+static int nfs4_proc_access(struct inode *inode, struct nfs_access_entry *entry,
+			    const struct cred *cred)
 {
 	struct nfs4_exception exception = {
 		.interruptible = true,
 	};
 	int err;
-	const struct cred *cred = (void*)entry->group_info;
 	do {
 		err = _nfs4_proc_access(inode, entry, cred);
 		trace_nfs4_access(inode, err);

@@ -96,8 +96,8 @@ u32 secure_tcpv6_seq(const __be32 *saddr, const __be32 *daddr,
 }
 EXPORT_SYMBOL(secure_tcpv6_seq);
 
-u64 secure_ipv6_port_ephemeral64(const __be32 *saddr, const __be32 *daddr,
-				 __be16 dport)
+u64 secure_ipv6_port_ephemeral(const __be32 *saddr, const __be32 *daddr,
+			       __be16 dport)
 {
 	const struct {
 		struct in6_addr saddr;
@@ -113,13 +113,6 @@ u64 secure_ipv6_port_ephemeral64(const __be32 *saddr, const __be32 *daddr,
 	net_secret_init();
 	return siphash(&combined, offsetofend(typeof(combined), dport),
 		       &net_secret);
-}
-EXPORT_SYMBOL(secure_ipv6_port_ephemeral64);
-
-u32 secure_ipv6_port_ephemeral(const __be32 *saddr, const __be32 *daddr,
-			       __be16 dport)
-{
-	return (u32)secure_ipv6_port_ephemeral64(saddr, daddr, dport);
 }
 EXPORT_SYMBOL(secure_ipv6_port_ephemeral);
 #endif
@@ -153,19 +146,13 @@ u32 secure_tcp_seq(__be32 saddr, __be32 daddr,
 }
 EXPORT_SYMBOL_GPL(secure_tcp_seq);
 
-u64 secure_ipv4_port_ephemeral64(__be32 saddr, __be32 daddr, __be16 dport)
+u64 secure_ipv4_port_ephemeral(__be32 saddr, __be32 daddr, __be16 dport)
 {
 	net_secret_init();
 	return siphash_4u32((__force u32)saddr, (__force u32)daddr,
 			    (__force u16)dport,
 			    jiffies / EPHEMERAL_PORT_SHUFFLE_PERIOD,
 			    &net_secret);
-}
-EXPORT_SYMBOL_GPL(secure_ipv4_port_ephemeral64);
-
-u32 secure_ipv4_port_ephemeral(__be32 saddr, __be32 daddr, __be16 dport)
-{
-	return (u32)secure_ipv4_port_ephemeral64(saddr, daddr, dport);
 }
 EXPORT_SYMBOL_GPL(secure_ipv4_port_ephemeral);
 #endif

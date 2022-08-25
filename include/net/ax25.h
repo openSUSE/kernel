@@ -236,9 +236,7 @@ typedef struct ax25_dev {
 #if defined(CONFIG_AX25_DAMA_SLAVE) || defined(CONFIG_AX25_DAMA_MASTER)
 	ax25_dama_info		dama;
 #endif
-#ifndef __GENKSYMS__
 	refcount_t		refcount;
-#endif
 } ax25_dev;
 
 typedef struct ax25_cb {

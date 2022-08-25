@@ -1674,12 +1674,6 @@ static unsigned short xs_sock_srcport(struct rpc_xprt *xprt)
 	return ret;
 }
 
-unsigned short get_srcport(struct rpc_xprt *xprt)
-{
-	return xs_sock_srcport(xprt);
-}
-EXPORT_SYMBOL(get_srcport);
-
 static int xs_sock_srcaddr(struct rpc_xprt *xprt, char *buf, size_t buflen)
 {
 	struct sock_xprt *sock = container_of(xprt, struct sock_xprt, xprt);

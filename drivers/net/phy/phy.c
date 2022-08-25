@@ -31,9 +31,7 @@
 #include <linux/io.h>
 #include <linux/uaccess.h>
 #include <linux/atomic.h>
-#ifndef __GENKSYMS__
 #include <linux/suspend.h>
-#endif
 #include <net/netlink.h>
 #include <net/genetlink.h>
 #include <net/sock.h>

@@ -302,9 +302,7 @@ struct x86_platform_ops {
 	struct x86_legacy_features legacy;
 	void (*set_legacy_features)(void);
 	struct x86_hyper_runtime hyper;
-#ifndef __GENKSYMS__
 	struct x86_guest guest;
-#endif
 };
 
 struct pci_dev;

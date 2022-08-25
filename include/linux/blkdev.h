@@ -561,6 +561,8 @@ struct request_queue {
 	 */
 	struct mutex		mq_freeze_lock;
 
+	int			quiesce_depth;
+
 	struct blk_mq_tag_set	*tag_set;
 	struct list_head	tag_set_list;
 	struct bio_set		bio_split;
@@ -578,10 +580,6 @@ struct request_queue {
 
 #define BLK_MAX_WRITE_HINTS	5
 	u64			write_hints[BLK_MAX_WRITE_HINTS];
-
-#ifndef __GENKSYMS__
-	int			quiesce_depth;
-#endif
 };
 
 /* Keep blk_queue_flag_name[] in sync with the definitions below */

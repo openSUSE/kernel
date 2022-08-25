@@ -2419,9 +2419,9 @@ static void __qedi_remove(struct pci_dev *pdev, int mode)
 	u16 retry = 10;
 
 	if (mode == QEDI_MODE_NORMAL)
-		iscsi_host_remove_new(qedi->shost, false);
+		iscsi_host_remove(qedi->shost, false);
 	else if (mode == QEDI_MODE_SHUTDOWN)
-		iscsi_host_remove_new(qedi->shost, true);
+		iscsi_host_remove(qedi->shost, true);
 
 	if (mode == QEDI_MODE_NORMAL || mode == QEDI_MODE_SHUTDOWN) {
 		if (qedi->tmf_thread) {
@@ -2800,7 +2800,7 @@ remove_host:
 #ifdef CONFIG_DEBUG_FS
 	qedi_dbg_host_exit(&qedi->dbg_ctx);
 #endif
-	iscsi_host_remove_new(qedi->shost, false);
+	iscsi_host_remove(qedi->shost, false);
 stop_iscsi_func:
 	qedi_ops->stop(qedi->cdev);
 stop_slowpath:

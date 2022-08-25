@@ -172,11 +172,8 @@ EXPORT_SYMBOL(blk_pre_runtime_resume);
  *
  *    This function should be called near the end of the device's
  *    runtime_resume callback.
- *
- *    For kABI-backwards compatability, we leave in the "errO argument,
- *    even though it's now unused.
  */
-void blk_post_runtime_resume(struct request_queue *q, int err_ignored __attribute__((unused)))
+void blk_post_runtime_resume(struct request_queue *q)
 {
 	blk_set_runtime_active(q);
 }

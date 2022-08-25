@@ -17,7 +17,6 @@ int fxls8962af_core_probe(struct device *dev, struct regmap *regmap, int irq);
 int fxls8962af_core_remove(struct device *dev);
 
 extern const struct dev_pm_ops fxls8962af_pm_ops;
-#define fxls8962af_i2c_regmap_conf fxls8962af_regmap_conf /* FIXME: SLE15-SP4 kABI compatibility */
 extern const struct regmap_config fxls8962af_i2c_regmap_conf;
 extern const struct regmap_config fxls8962af_spi_regmap_conf;
 

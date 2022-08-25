@@ -616,8 +616,8 @@ struct cfs_rq {
 	s64			runtime_remaining;
 
 	u64			throttled_clock;
-	u64			throttled_clock_task;		/* Different name upstream due to KABI */
-	u64			throttled_clock_task_time;	/* Different name upstream due to KABI */
+	u64			throttled_clock_pelt;
+	u64			throttled_clock_pelt_time;
 	int			throttled;
 	int			throttle_count;
 	struct list_head	throttled_list;
