@@ -38,7 +38,7 @@ struct instruction {
 	struct rela *jump_table;
 	struct list_head alts;
 	struct symbol *func;
-	struct stack_op stack_op;
+	struct list_head stack_ops;
 	struct cfi_state cfi;
 	struct orc_entry orc;
 };

@@ -4,6 +4,7 @@
 #define _ASM_X86_NOSPEC_BRANCH_H_
 
 #include <linux/static_key.h>
+#include <linux/frame.h>
 
 #include <asm/alternative.h>
 #include <asm/alternative-asm.h>
@@ -40,6 +41,23 @@
 #define RSB_FILL_LOOPS		16	/* To avoid underflow */
 
 /*
+ * UNWIND_HINT_EMPTY definition which can be used in __FILL_RETURN_BUFFER below
+ * and * stringified. Normally it should be in asm/unwind_hints.h, but keep it
+ * here, so it is easily found and due it is out-of-tree-ness.
+ */
+#define UNWIND_HINT_EMPTY_RSB				\
+987:							\
+	.pushsection .discard.unwind_hints;		\
+	/* struct unwind_hint */			\
+	.long 987b - .;					\
+	.short 0; /* sp_offset */			\
+	.byte 0; /* sp_reg */				\
+	.byte 0; /* type UNWIND_HINT_TYPE_CALL */	\
+	.byte 1; /* end */				\
+	.balign 4;					\
+	.popsection;
+
+/*
  * Google experimented with loop-unrolling and this turned out to be
  * the optimal version — two calls, each with their own speculation
  * trap should their return address end up getting used, in a loop.
@@ -47,21 +65,27 @@
 #define __FILL_RETURN_BUFFER(reg, nr, sp)	\
 	mov	$(nr/2), reg;			\
 771:						\
+	ANNOTATE_INTRA_FUNCTION_CALL;		\
 	call	772f;				\
 773:	/* speculation trap */			\
+	UNWIND_HINT_EMPTY_RSB;			\
 	pause;					\
 	lfence;					\
 	jmp	773b;				\
 772:						\
+	ANNOTATE_INTRA_FUNCTION_CALL;		\
 	call	774f;				\
 775:	/* speculation trap */			\
+	UNWIND_HINT_EMPTY_RSB;			\
 	pause;					\
 	lfence;					\
 	jmp	775b;				\
 774:						\
+	add	$(BITS_PER_LONG/8) * 2, sp;	\
 	dec	reg;				\
 	jnz	771b;				\
-	add	$(BITS_PER_LONG/8) * nr, sp;
+	/* barrier for jnz misprediction */	\
+	lfence;
 
 #ifdef __ASSEMBLY__
 
@@ -132,16 +156,29 @@
 #endif
 .endm
 
+.macro ISSUE_UNBALANCED_RET_GUARD
+	ANNOTATE_INTRA_FUNCTION_CALL
+	call .Lunbalanced_ret_guard_\@
+	int3
+.Lunbalanced_ret_guard_\@:
+	add $(BITS_PER_LONG/8), %_ASM_SP
+	lfence
+.endm
+
  /*
   * A simpler FILL_RETURN_BUFFER macro. Don't make people use the CPP
   * monstrosity above, manually.
   */
-.macro FILL_RETURN_BUFFER reg:req nr:req ftr:req
 #ifdef CONFIG_RETPOLINE
-	ANNOTATE_NOSPEC_ALTERNATIVE
-	ALTERNATIVE "jmp .Lskip_rsb_\@",				\
-		__stringify(__FILL_RETURN_BUFFER(\reg,\nr,%_ASM_SP))	\
-		\ftr
+.macro FILL_RETURN_BUFFER reg:req nr:req ftr:req ftr2
+.ifb \ftr2
+	ALTERNATIVE "jmp .Lskip_rsb_\@", "", \ftr
+.else
+	ALTERNATIVE_2 "jmp .Lskip_rsb_\@", "", \ftr, "jmp .Lunbalanced_\@", \ftr2
+.endif
+	__FILL_RETURN_BUFFER(\reg,\nr,%_ASM_SP)
+.Lunbalanced_\@:
+	ISSUE_UNBALANCED_RET_GUARD
 .Lskip_rsb_\@:
 #endif
 .endm
@@ -276,9 +313,8 @@ static inline void vmexit_fill_RSB(void)
 	unsigned long loops;
 
 	asm volatile (ANNOTATE_NOSPEC_ALTERNATIVE
-		      ALTERNATIVE("jmp 910f",
-				  __stringify(__FILL_RETURN_BUFFER(%0, RSB_CLEAR_LOOPS, %1)),
-				  X86_FEATURE_RETPOLINE)
+		      ALTERNATIVE("jmp 910f", "", X86_FEATURE_RETPOLINE)
+		      __stringify(__FILL_RETURN_BUFFER(%0, RSB_CLEAR_LOOPS, %1))
 		      "910:"
 		      : "=r" (loops), ASM_CALL_CONSTRAINT
 		      : : "memory" );

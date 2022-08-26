@@ -1045,7 +1045,7 @@ int kvmppc_pseries_do_hcall(struct kvm_vcpu *vcpu)
 		break;
 #endif
 	case H_RANDOM:
-		if (!powernv_get_random_long(&vcpu->arch.regs.gpr[4]))
+		if (!arch_get_random_seed_long(&vcpu->arch.regs.gpr[4]))
 			ret = H_HARDWARE;
 		break;
 
@@ -3395,8 +3395,9 @@ static noinline void kvmppc_run_core(struct kvmppc_vcore *vc)
 
 	kvmppc_set_host_core(pcpu);
 
+	guest_exit_irqoff();
+
 	local_irq_enable();
-	guest_exit();
 
 	/* Let secondaries go back to the offline loop */
 	for (i = 0; i < controlled_threads; ++i) {
@@ -4212,8 +4213,9 @@ int kvmhv_run_single_vcpu(struct kvm_run *kvm_run,
 
 	kvmppc_set_host_core(pcpu);
 
+	guest_exit_irqoff();
+
 	local_irq_enable();
-	guest_exit();
 
 	cpumask_clear_cpu(pcpu, &kvm->arch.cpu_in_guest);
 
