@@ -953,8 +953,10 @@ int rds_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg,
 	int queued = 0, allocated_mr = 0;
 	int nonblock = msg->msg_flags & MSG_DONTWAIT;
 	long timeo = sock_sndtimeo(sk, nonblock);
-	struct rds_iov_vector_arr vct = {0};
+	struct rds_iov_vector_arr vct;
 	int ind;
+
+	memset(&vct, 0, sizeof(vct));
 
 	/* expect 1 RDMA CMSG per rds_sendmsg. can still grow if more needed. */
 	vct.incr = 1;
