@@ -822,6 +822,9 @@ static int rds_rm_size(struct msghdr *msg, int data_len,
 	int retval;
 	struct rds_iov_vector *iov, *tmp_iov;
 
+	if (data_len < 0)
+		return -EINVAL;
+
 	for (cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
 		if (!CMSG_OK(msg, cmsg))
 			return -EINVAL;
@@ -1000,11 +1003,9 @@ int rds_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg,
 
 	/* Attach data to the rm */
 	if (payload_len) {
-		rm->data.op_sg = rds_message_alloc_sgs(rm, ceil(payload_len, PAGE_SIZE));
-		if (!rm->data.op_sg) {
-			ret = -ENOMEM;
+		rm->data.op_sg = rds_message_alloc_sgs(rm, ceil(payload_len, PAGE_SIZE), &ret);
+		if (!rm->data.op_sg)
 			goto out;
-		}
 		ret = rds_message_copy_from_user(rm, msg->msg_iov, payload_len);
 		if (ret)
 			goto out;
