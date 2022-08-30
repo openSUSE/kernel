@@ -1703,9 +1703,6 @@ static int dwc3_gadget_ep_dequeue(struct usb_ep *ep,
 			/* wait until it is processed */
 			dwc3_stop_active_transfer(dep, true, true);
 
-			if (!r->trb)
-				goto out0;
-
 			/*
 			 * Remove any started request if the transfer is
 			 * cancelled.
@@ -1714,10 +1711,7 @@ static int dwc3_gadget_ep_dequeue(struct usb_ep *ep,
 				dwc3_gadget_move_cancelled_request(r,
 						DWC3_REQUEST_STATUS_DEQUEUED);
 
-			if (dep->flags & DWC3_EP_TRANSFER_STARTED)
-				goto out0;
-			else
-				goto out1;
+			goto out0;
 		}
 		dev_err(dwc->dev, "request %pK was not queued to %s\n",
 				request, ep->name);
@@ -1725,7 +1719,6 @@ static int dwc3_gadget_ep_dequeue(struct usb_ep *ep,
 		goto out0;
 	}
 
-out1:
 	dwc3_gadget_giveback(dep, req, -ECONNRESET);
 
 out0:
