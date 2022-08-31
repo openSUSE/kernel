@@ -740,8 +740,11 @@ static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
 				copy_skb = skb_get(skb);
 				skb_head = skb->data;
 			}
-			if (copy_skb)
+			if (copy_skb) {
+				memset(&PACKET_SKB_CB(copy_skb)->sa.ll, 0,
+				       sizeof(PACKET_SKB_CB(copy_skb)->sa.ll));
 				skb_set_owner_r(copy_skb, sk);
+			}
 		}
 		snaplen = po->rx_ring.frame_size - macoff;
 		if ((int)snaplen < 0)
@@ -1711,18 +1714,33 @@ static int packet_recvmsg(struct kiocb *iocb, struct socket *sock,
 	sock_recv_ts_and_drops(msg, sk, skb);
 
 	if (msg->msg_name) {
+		const size_t max_len = min(sizeof(skb->cb),
+					   sizeof(struct sockaddr_storage));
+		int copy_len;
+
 		/* If the address length field is there to be filled
 		 * in, we fill it in now.
 		 */
 		if (sock->type == SOCK_PACKET) {
 			msg->msg_namelen = sizeof(struct sockaddr_pkt);
+			copy_len = msg->msg_namelen;
 		} else {
 			struct sockaddr_ll *sll = &PACKET_SKB_CB(skb)->sa.ll;
 			msg->msg_namelen = sll->sll_halen +
 				offsetof(struct sockaddr_ll, sll_addr);
+			copy_len = msg->msg_namelen;
+			if (msg->msg_namelen < sizeof(struct sockaddr_ll)) {
+				memset(msg->msg_name +
+				       offsetof(struct sockaddr_ll, sll_addr),
+				       0, sizeof(sll->sll_addr));
+				msg->msg_namelen = sizeof(struct sockaddr_ll);
+			}
 		}
-		memcpy(msg->msg_name, &PACKET_SKB_CB(skb)->sa,
-		       msg->msg_namelen);
+		if (WARN_ON_ONCE(copy_len > max_len)) {
+			copy_len = max_len;
+			msg->msg_namelen = copy_len;
+		}
+		memcpy(msg->msg_name, &PACKET_SKB_CB(skb)->sa, copy_len);
 	}
 
 	if (pkt_sk(sk)->auxdata) {
