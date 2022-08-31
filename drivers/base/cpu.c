@@ -180,30 +180,30 @@ unsigned int total_cpus;
 static ssize_t print_cpus_offline(struct sysdev_class *class,
 				  struct sysdev_class_attribute *attr, char *buf)
 {
-	int n = 0, len = PAGE_SIZE-2;
+	int len = 0;
 	cpumask_var_t offline;
 
 	/* display offline cpus < nr_cpu_ids */
 	if (!alloc_cpumask_var(&offline, GFP_KERNEL))
 		return -ENOMEM;
 	cpumask_andnot(offline, cpu_possible_mask, cpu_online_mask);
-	n = cpulist_scnprintf(buf, len, offline);
+	len = cpulist_scnprintf(buf, PAGE_SIZE, offline);
 	free_cpumask_var(offline);
 
 	/* display offline cpus >= nr_cpu_ids */
 	if (total_cpus && nr_cpu_ids < total_cpus) {
-		if (n && n < len)
-			buf[n++] = ',';
+		len += sysfs_emit_at(buf, len, ",");
 
 		if (nr_cpu_ids == total_cpus-1)
-			n += snprintf(&buf[n], len - n, "%d", nr_cpu_ids);
+			len += sysfs_emit_at(buf, len, "%d", nr_cpu_ids);
 		else
-			n += snprintf(&buf[n], len - n, "%d-%d",
+			len += sysfs_emit_at(buf, len, "%d-%d",
 						      nr_cpu_ids, total_cpus-1);
 	}
 
-	n += snprintf(&buf[n], len - n, "\n");
-	return n;
+	len += sysfs_emit_at(buf, len, "\n");
+
+	return len;
 }
 static SYSDEV_CLASS_ATTR(offline, 0444, print_cpus_offline, NULL);
 
