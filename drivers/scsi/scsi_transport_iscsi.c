@@ -2517,7 +2517,7 @@ void iscsi_remove_conn(struct iscsi_cls_conn *conn)
 }
 EXPORT_SYMBOL_GPL(iscsi_remove_conn);
 
-/**
+ /**
  * iscsi_create_conn - create iscsi class connection
  * @session: iscsi cls session
  * @dd_size: private driver data size
@@ -2531,6 +2531,8 @@ EXPORT_SYMBOL_GPL(iscsi_remove_conn);
  * for software iscsi we could be trying to preallocate a connection struct
  * in which case there could be two connection structs and cid would be
  * non-zero.
+ *
+ * NOTE: This is here for kABI compatability
  */
 struct iscsi_cls_conn *
 iscsi_create_conn(struct iscsi_cls_session *session, int dd_size, uint32_t cid)

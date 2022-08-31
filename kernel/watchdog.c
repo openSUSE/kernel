@@ -586,7 +586,7 @@ static __init void lockup_detector_setup(void)
 }
 
 #else /* CONFIG_SOFTLOCKUP_DETECTOR */
-void __lockup_detector_reconfigure(void)
+static void __lockup_detector_reconfigure(void)
 {
 	cpus_read_lock();
 	watchdog_nmi_stop();
@@ -594,7 +594,7 @@ void __lockup_detector_reconfigure(void)
 	watchdog_nmi_start();
 	cpus_read_unlock();
 }
-static inline void lockup_detector_reconfigure(void)
+void lockup_detector_reconfigure(void)
 {
 	__lockup_detector_reconfigure();
 }
