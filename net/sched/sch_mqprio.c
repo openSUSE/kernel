@@ -33,7 +33,7 @@ static void mqprio_destroy(struct Qdisc *sch)
 		for (ntx = 0;
 		     ntx < dev->num_tx_queues && priv->qdiscs[ntx];
 		     ntx++)
-			qdisc_destroy(priv->qdiscs[ntx]);
+			qdisc_put(priv->qdiscs[ntx]);
 		kfree(priv->qdiscs);
 	}
 
@@ -173,7 +173,7 @@ static void mqprio_attach(struct Qdisc *sch)
 		qdisc = priv->qdiscs[ntx];
 		qdisc = dev_graft_qdisc(qdisc->dev_queue, qdisc);
 		if (qdisc)
-			qdisc_destroy(qdisc);
+			qdisc_put(qdisc);
 	}
 	kfree(priv->qdiscs);
 	priv->qdiscs = NULL;

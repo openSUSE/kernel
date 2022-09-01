@@ -289,7 +289,7 @@ static int tbf_change(struct Qdisc *sch, struct nlattr *opt)
 	sch_tree_lock(sch);
 	if (child) {
 		qdisc_tree_decrease_qlen(q->qdisc, q->qdisc->q.qlen);
-		qdisc_destroy(q->qdisc);
+		qdisc_put(q->qdisc);
 		q->qdisc = child;
 	}
 	q->limit = qopt->limit;
@@ -337,7 +337,7 @@ static void tbf_destroy(struct Qdisc *sch)
 	if (q->R_tab)
 		qdisc_put_rtab(q->R_tab);
 
-	qdisc_destroy(q->qdisc);
+	qdisc_put(q->qdisc);
 }
 
 static int tbf_dump(struct Qdisc *sch, struct sk_buff *skb)

@@ -772,7 +772,7 @@ static int netem_init(struct Qdisc *sch, struct nlattr *opt)
 	ret = netem_change(sch, opt);
 	if (ret) {
 		pr_info("netem: change failed\n");
-		qdisc_destroy(q->qdisc);
+		qdisc_put(q->qdisc);
 	}
 	return ret;
 }
@@ -782,7 +782,7 @@ static void netem_destroy(struct Qdisc *sch)
 	struct netem_sched_data *q = qdisc_priv(sch);
 
 	qdisc_watchdog_cancel(&q->watchdog);
-	qdisc_destroy(q->qdisc);
+	qdisc_put(q->qdisc);
 	dist_free(q->delay_dist);
 }
 

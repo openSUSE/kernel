@@ -1112,7 +1112,7 @@ hfsc_destroy_class(struct Qdisc *sch, struct hfsc_class *cl)
 	struct hfsc_sched *q = qdisc_priv(sch);
 
 	tcf_destroy_chain(&cl->filter_list);
-	qdisc_destroy(cl->qdisc);
+	qdisc_put(cl->qdisc);
 	gen_kill_estimator(&cl->bstats, &cl->rate_est);
 	if (cl != &q->root)
 		kfree(cl);
