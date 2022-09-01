@@ -99,6 +99,19 @@ static inline bool qdisc_run_begin(struct Qdisc *qdisc)
 	return true;
 }
 
+/* Intended to be used by unlocked users, when concurrent qdisc release is
+ * possible.
+ */
+
+static inline struct Qdisc *qdisc_refcount_inc_nz(struct Qdisc *qdisc)
+{
+	if (qdisc->flags & TCQ_F_BUILTIN)
+		return qdisc;
+	if (atomic_inc_not_zero(&qdisc->refcnt))
+		return qdisc;
+	return NULL;
+}
+
 static inline void qdisc_run_end(struct Qdisc *qdisc)
 {
 	qdisc->__state &= ~__QDISC___STATE_RUNNING;
