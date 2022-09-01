@@ -511,7 +511,8 @@ static inline bool can_follow_write_pte(pte_t pte, struct page *page,
 		return false;
 
 	/* ... and a write-fault isn't required for other reasons. */
-	if (vma_soft_dirty_enabled(vma) && !pte_soft_dirty(pte))
+	if (IS_ENABLED(CONFIG_MEM_SOFT_DIRTY) &&
+	    !(vma->vm_flags & VM_SOFTDIRTY) && !pte_soft_dirty(pte))
 		return false;
 	return !userfaultfd_pte_wp(vma, pte);
 }

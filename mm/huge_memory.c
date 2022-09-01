@@ -1376,7 +1376,8 @@ static inline bool can_follow_write_pmd(pmd_t pmd, struct page *page,
 		return false;
 
 	/* ... and a write-fault isn't required for other reasons. */
-	if (vma_soft_dirty_enabled(vma) && !pmd_soft_dirty(pmd))
+	if (IS_ENABLED(CONFIG_MEM_SOFT_DIRTY) &&
+	    !(vma->vm_flags & VM_SOFTDIRTY) && !pmd_soft_dirty(pmd))
 		return false;
 	return !userfaultfd_huge_pmd_wp(vma, pmd);
 }
