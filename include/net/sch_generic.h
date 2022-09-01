@@ -357,6 +357,7 @@ extern struct Qdisc *dev_graft_qdisc(struct netdev_queue *dev_queue,
 extern void qdisc_reset(struct Qdisc *qdisc);
 extern void qdisc_destroy(struct Qdisc *qdisc);
 extern void qdisc_put(struct Qdisc *qdisc);
+extern void qdisc_put_unlocked(struct Qdisc *qdisc);
 extern void qdisc_tree_decrease_qlen(struct Qdisc *qdisc, unsigned int n);
 extern struct Qdisc *qdisc_alloc(struct netdev_queue *dev_queue,
 				 struct Qdisc_ops *ops);
