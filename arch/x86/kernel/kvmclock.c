@@ -80,9 +80,18 @@ static cycle_t kvm_clock_read(void)
 	return ret;
 }
 
+static struct clocksource kvm_clock;
+
+/*
+ * kvm_clock is TSC-based and a similar risk of underflow and a time-warp
+ * is present as with the tsc clocksource. See the description of read_tsc().
+ */
 static cycle_t kvm_clock_get_cycles(struct clocksource *cs)
 {
-	return kvm_clock_read();
+	cycle_t ret = kvm_clock_read();
+
+	return ret >= kvm_clock.cycle_last ?
+		ret : kvm_clock.cycle_last;
 }
 
 /*
