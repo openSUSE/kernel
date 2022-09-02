@@ -238,6 +238,7 @@ typedef struct ax25_dev {
 #endif
 #ifndef __GENKSYMS__
 	refcount_t		refcount;
+	bool device_up;
 #endif
 } ax25_dev;
 
