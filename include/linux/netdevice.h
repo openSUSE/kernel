@@ -4004,6 +4004,8 @@ static inline bool is_socket_ioctl_cmd(unsigned int cmd)
 {
 	return _IOC_TYPE(cmd) == SOCK_IOC_TYPE;
 }
+int get_user_ifreq(struct ifreq *ifr, void __user **ifrdata, void __user *arg);
+int put_user_ifreq(struct ifreq *ifr, void __user *arg);
 int dev_ioctl(struct net *net, unsigned int cmd, struct ifreq *ifr,
 		bool *need_copyout);
 int dev_ifconf(struct net *net, struct ifconf __user *ifc);
