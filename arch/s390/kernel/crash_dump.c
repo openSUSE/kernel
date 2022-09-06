@@ -200,7 +200,7 @@ static int copy_oldmem_user(void __user *dst, void *src, size_t count)
 			} else {
 				len = count;
 			}
-			rc = copy_to_user_real(dst, (void *) from, count);
+			rc = copy_to_user_real(dst, (void *) from, len);
 			if (rc)
 				return rc;
 		}
