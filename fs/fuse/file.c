@@ -2865,6 +2865,9 @@ long fuse_do_ioctl(struct file *file, unsigned int cmd, unsigned long arg,
 	ap.args.out_argvar = true;
 
 	transferred = fuse_simple_request(fc, &ap.args);
+	/* Translate ENOSYS, which shouldn't be returned from fs */
+	if (transferred == -ENOSYS)
+		transferred = -ENOTTY;
 	err = transferred;
 	if (transferred < 0)
 		goto out;
