@@ -4006,7 +4006,7 @@ static inline bool is_socket_ioctl_cmd(unsigned int cmd)
 }
 int dev_ioctl(struct net *net, unsigned int cmd, struct ifreq *ifr,
 		bool *need_copyout);
-int dev_ifconf(struct net *net, struct ifconf *, int);
+int dev_ifconf(struct net *net, struct ifconf __user *ifc);
 int dev_ethtool(struct net *net, struct ifreq *);
 unsigned int dev_get_flags(const struct net_device *);
 int __dev_change_flags(struct net_device *dev, unsigned int flags,
