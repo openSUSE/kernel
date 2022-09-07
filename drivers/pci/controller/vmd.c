@@ -11,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/msi.h>
 #include <linux/pci.h>
+#include <linux/pci-acpi.h>
 #include <linux/pci-ecam.h>
 #include <linux/srcu.h>
 #include <linux/rculist.h>
@@ -447,6 +448,90 @@ static struct pci_ops vmd_ops = {
 	.write		= vmd_pci_write,
 };
 
+#ifdef CONFIG_ACPI
+static struct acpi_device *vmd_acpi_find_companion(struct pci_dev *pci_dev)
+{
+	struct pci_host_bridge *bridge;
+	u32 busnr, addr;
+
+	if (pci_dev->bus->ops != &vmd_ops)
+		return NULL;
+
+	bridge = pci_find_host_bridge(pci_dev->bus);
+	busnr = pci_dev->bus->number - bridge->bus->number;
+	/*
+	 * The address computation below is only applicable to relative bus
+	 * numbers below 32.
+	 */
+	if (busnr > 31)
+		return NULL;
+
+	addr = (busnr << 24) | ((u32)pci_dev->devfn << 16) | 0x8000FFFFU;
+
+	dev_dbg(&pci_dev->dev, "Looking for ACPI companion (address 0x%x)\n",
+		addr);
+
+	return acpi_find_child_device(ACPI_COMPANION(bridge->dev.parent), addr,
+				      false);
+}
+
+static bool hook_installed;
+
+static void vmd_acpi_begin(void)
+{
+	if (pci_acpi_set_companion_lookup_hook(vmd_acpi_find_companion))
+		return;
+
+	hook_installed = true;
+}
+
+static void vmd_acpi_end(void)
+{
+	if (!hook_installed)
+		return;
+
+	pci_acpi_clear_companion_lookup_hook();
+	hook_installed = false;
+}
+#else
+static inline void vmd_acpi_begin(void) { }
+static inline void vmd_acpi_end(void) { }
+#endif /* CONFIG_ACPI */
+
+static void vmd_domain_reset(struct vmd_dev *vmd)
+{
+	u16 bus, max_buses = resource_size(&vmd->resources[0]);
+	u8 dev, functions, fn, hdr_type;
+	char __iomem *base;
+
+	for (bus = 0; bus < max_buses; bus++) {
+		for (dev = 0; dev < 32; dev++) {
+			base = vmd->cfgbar + PCIE_ECAM_OFFSET(bus,
+						PCI_DEVFN(dev, 0), 0);
+
+			hdr_type = readb(base + PCI_HEADER_TYPE) &
+					 PCI_HEADER_TYPE_MASK;
+
+			functions = (hdr_type & 0x80) ? 8 : 1;
+			for (fn = 0; fn < functions; fn++) {
+				base = vmd->cfgbar + PCIE_ECAM_OFFSET(bus,
+						PCI_DEVFN(dev, fn), 0);
+
+				hdr_type = readb(base + PCI_HEADER_TYPE) &
+						PCI_HEADER_TYPE_MASK;
+
+				if (hdr_type != PCI_HEADER_TYPE_BRIDGE ||
+				    (readw(base + PCI_CLASS_DEVICE) !=
+				     PCI_CLASS_BRIDGE_PCI))
+					continue;
+
+				memset_io(base + PCI_IO_BASE, 0,
+					  PCI_ROM_ADDRESS1 - PCI_IO_BASE);
+			}
+		}
+	}
+}
+
 static void vmd_attach_resources(struct vmd_dev *vmd)
 {
 	vmd->dev->resource[VMD_MEMBAR1].child = &vmd->resources[1];
@@ -607,6 +692,21 @@ static int vmd_alloc_irqs(struct vmd_dev *vmd)
 	return 0;
 }
 
+/*
+ * Since VMD is an aperture to regular PCIe root ports, only allow it to
+ * control features that the OS is allowed to control on the physical PCI bus.
+ */
+static void vmd_copy_host_bridge_flags(struct pci_host_bridge *root_bridge,
+				       struct pci_host_bridge *vmd_bridge)
+{
+	vmd_bridge->native_pcie_hotplug = root_bridge->native_pcie_hotplug;
+	vmd_bridge->native_shpc_hotplug = root_bridge->native_shpc_hotplug;
+	vmd_bridge->native_aer = root_bridge->native_aer;
+	vmd_bridge->native_pme = root_bridge->native_pme;
+	vmd_bridge->native_ltr = root_bridge->native_ltr;
+	vmd_bridge->native_dpc = root_bridge->native_dpc;
+}
+
 static int vmd_enable_domain(struct vmd_dev *vmd, unsigned long features)
 {
 	struct pci_sysdata *sd = &vmd->sysdata;
@@ -743,6 +843,9 @@ static int vmd_enable_domain(struct vmd_dev *vmd, unsigned long features)
 		return -ENODEV;
 	}
 
+	vmd_copy_host_bridge_flags(pci_find_host_bridge(vmd->dev->bus),
+				   to_pci_host_bridge(vmd->bus->bridge));
+
 	vmd_attach_resources(vmd);
 	if (vmd->irq_domain)
 		dev_set_msi_domain(&vmd->bus->dev, vmd->irq_domain);
@@ -750,7 +853,12 @@ static int vmd_enable_domain(struct vmd_dev *vmd, unsigned long features)
 		dev_set_msi_domain(&vmd->bus->dev,
 				   dev_get_msi_domain(&vmd->dev->dev));
 
+	vmd_acpi_begin();
+
 	pci_scan_child_bus(vmd->bus);
+	vmd_domain_reset(vmd);
+	list_for_each_entry(child, &vmd->bus->children, node)
+		pci_reset_bus(child->self);
 	pci_assign_unassigned_bus_resources(vmd->bus);
 
 	/*
@@ -762,6 +870,8 @@ static int vmd_enable_domain(struct vmd_dev *vmd, unsigned long features)
 		pcie_bus_configure_settings(child);
 
 	pci_bus_add_devices(vmd->bus);
+
+	vmd_acpi_end();
 
 	WARN(sysfs_create_link(&vmd->dev->dev.kobj, &vmd->bus->dev.kobj,
 			       "domain"), "Can't create symlink to domain\n");
@@ -873,6 +983,10 @@ static const struct pci_device_id vmd_ids[] = {
 				VMD_FEAT_HAS_BUS_RESTRICTIONS |
 				VMD_FEAT_OFFSET_FIRST_VECTOR,},
 	{PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x4c3d),
+		.driver_data = VMD_FEAT_HAS_MEMBAR_SHADOW_VSCAP |
+				VMD_FEAT_HAS_BUS_RESTRICTIONS |
+				VMD_FEAT_OFFSET_FIRST_VECTOR,},
+	{PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0xa77f),
 		.driver_data = VMD_FEAT_HAS_MEMBAR_SHADOW_VSCAP |
 				VMD_FEAT_HAS_BUS_RESTRICTIONS |
 				VMD_FEAT_OFFSET_FIRST_VECTOR,},
