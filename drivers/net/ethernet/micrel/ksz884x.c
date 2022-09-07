@@ -4033,7 +4033,7 @@ static void hw_set_add_addr(struct ksz_hw *hw)
 	}
 }
 
-static int hw_add_addr(struct ksz_hw *hw, u8 *mac_addr)
+static int hw_add_addr(struct ksz_hw *hw, const u8 *mac_addr)
 {
 	int i;
 	int j = ADDITIONAL_ENTRIES;
@@ -4054,7 +4054,7 @@ static int hw_add_addr(struct ksz_hw *hw, u8 *mac_addr)
 	return -1;
 }
 
-static int hw_del_addr(struct ksz_hw *hw, u8 *mac_addr)
+static int hw_del_addr(struct ksz_hw *hw, const u8 *mac_addr)
 {
 	int i;
 
@@ -6317,11 +6317,15 @@ static int netdev_set_pauseparam(struct net_device *dev,
  * netdev_get_ringparam - get tx/rx ring parameters
  * @dev:	Network device.
  * @ring:	Ethtool RING settings data structure.
+ * @kernel_ring:	Ethtool external RING settings data structure.
+ * @extack:	Netlink handle.
  *
  * This procedure returns the TX/RX ring settings.
  */
 static void netdev_get_ringparam(struct net_device *dev,
-	struct ethtool_ringparam *ring)
+				 struct ethtool_ringparam *ring,
+				 struct kernel_ethtool_ringparam *kernel_ring,
+				 struct netlink_ext_ack *extack)
 {
 	struct dev_priv *priv = netdev_priv(dev);
 	struct dev_info *hw_priv = priv->adapter;
@@ -6738,7 +6742,7 @@ static const struct net_device_ops netdev_ops = {
 	.ndo_set_features	= netdev_set_features,
 	.ndo_set_mac_address	= netdev_set_mac_address,
 	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_do_ioctl		= netdev_ioctl,
+	.ndo_eth_ioctl		= netdev_ioctl,
 	.ndo_set_rx_mode	= netdev_set_rx_mode,
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller	= netdev_netpoll,

@@ -3116,7 +3116,9 @@ static int macb_set_link_ksettings(struct net_device *netdev,
 }
 
 static void macb_get_ringparam(struct net_device *netdev,
-			       struct ethtool_ringparam *ring)
+			       struct ethtool_ringparam *ring,
+			       struct kernel_ethtool_ringparam *kernel_ring,
+			       struct netlink_ext_ack *extack)
 {
 	struct macb *bp = netdev_priv(netdev);
 
@@ -3128,7 +3130,9 @@ static void macb_get_ringparam(struct net_device *netdev,
 }
 
 static int macb_set_ringparam(struct net_device *netdev,
-			      struct ethtool_ringparam *ring)
+			      struct ethtool_ringparam *ring,
+			      struct kernel_ethtool_ringparam *kernel_ring,
+			      struct netlink_ext_ack *extack)
 {
 	struct macb *bp = netdev_priv(netdev);
 	u32 new_rx_size, new_tx_size;
@@ -3687,7 +3691,7 @@ static const struct net_device_ops macb_netdev_ops = {
 	.ndo_start_xmit		= macb_start_xmit,
 	.ndo_set_rx_mode	= macb_set_rx_mode,
 	.ndo_get_stats		= macb_get_stats,
-	.ndo_do_ioctl		= macb_ioctl,
+	.ndo_eth_ioctl		= macb_ioctl,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_change_mtu		= macb_change_mtu,
 	.ndo_set_mac_address	= eth_mac_addr,
@@ -4346,7 +4350,7 @@ static const struct net_device_ops at91ether_netdev_ops = {
 	.ndo_get_stats		= macb_get_stats,
 	.ndo_set_rx_mode	= macb_set_rx_mode,
 	.ndo_set_mac_address	= eth_mac_addr,
-	.ndo_do_ioctl		= macb_ioctl,
+	.ndo_eth_ioctl		= macb_ioctl,
 	.ndo_validate_addr	= eth_validate_addr,
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller	= at91ether_poll_controller,

@@ -2885,7 +2885,7 @@ static const struct net_device_ops atl1_netdev_ops = {
 	.ndo_change_mtu		= atl1_change_mtu,
 	.ndo_fix_features	= atlx_fix_features,
 	.ndo_set_features	= atlx_set_features,
-	.ndo_do_ioctl		= atlx_ioctl,
+	.ndo_eth_ioctl		= atlx_ioctl,
 	.ndo_tx_timeout		= atlx_tx_timeout,
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller	= atl1_poll_controller,
@@ -3438,7 +3438,9 @@ static void atl1_get_regs(struct net_device *netdev, struct ethtool_regs *regs,
 }
 
 static void atl1_get_ringparam(struct net_device *netdev,
-	struct ethtool_ringparam *ring)
+			       struct ethtool_ringparam *ring,
+			       struct kernel_ethtool_ringparam *kernel_ring,
+			       struct netlink_ext_ack *extack)
 {
 	struct atl1_adapter *adapter = netdev_priv(netdev);
 	struct atl1_tpd_ring *txdr = &adapter->tpd_ring;
@@ -3451,7 +3453,9 @@ static void atl1_get_ringparam(struct net_device *netdev,
 }
 
 static int atl1_set_ringparam(struct net_device *netdev,
-	struct ethtool_ringparam *ring)
+			      struct ethtool_ringparam *ring,
+			      struct kernel_ethtool_ringparam *kernel_ring,
+			      struct netlink_ext_ack *extack)
 {
 	struct atl1_adapter *adapter = netdev_priv(netdev);
 	struct atl1_tpd_ring *tpdr = &adapter->tpd_ring;

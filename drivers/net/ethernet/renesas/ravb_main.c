@@ -1184,7 +1184,9 @@ static void ravb_get_strings(struct net_device *ndev, u32 stringset, u8 *data)
 }
 
 static void ravb_get_ringparam(struct net_device *ndev,
-			       struct ethtool_ringparam *ring)
+			       struct ethtool_ringparam *ring,
+			       struct kernel_ethtool_ringparam *kernel_ring,
+			       struct netlink_ext_ack *extack)
 {
 	struct ravb_private *priv = netdev_priv(ndev);
 
@@ -1195,7 +1197,9 @@ static void ravb_get_ringparam(struct net_device *ndev,
 }
 
 static int ravb_set_ringparam(struct net_device *ndev,
-			      struct ethtool_ringparam *ring)
+			      struct ethtool_ringparam *ring,
+			      struct kernel_ethtool_ringparam *kernel_ring,
+			      struct netlink_ext_ack *extack)
 {
 	struct ravb_private *priv = netdev_priv(ndev);
 	int error;
@@ -1872,7 +1876,7 @@ static const struct net_device_ops ravb_netdev_ops = {
 	.ndo_get_stats		= ravb_get_stats,
 	.ndo_set_rx_mode	= ravb_set_rx_mode,
 	.ndo_tx_timeout		= ravb_tx_timeout,
-	.ndo_do_ioctl		= ravb_do_ioctl,
+	.ndo_eth_ioctl		= ravb_do_ioctl,
 	.ndo_change_mtu		= ravb_change_mtu,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_mac_address	= eth_mac_addr,

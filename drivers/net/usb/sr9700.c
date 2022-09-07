@@ -56,7 +56,8 @@ static int sr_write_reg(struct usbnet *dev, u8 reg, u8 value)
 				value, reg, NULL, 0);
 }
 
-static void sr_write_async(struct usbnet *dev, u8 reg, u16 length, void *data)
+static void sr_write_async(struct usbnet *dev, u8 reg, u16 length,
+			   const void *data)
 {
 	usbnet_write_cmd_async(dev, SR_WR_REGS, SR_REQ_WR_REG,
 			       0, reg, data, length);
@@ -310,7 +311,7 @@ static const struct net_device_ops sr9700_netdev_ops = {
 	.ndo_change_mtu		= usbnet_change_mtu,
 	.ndo_get_stats64	= dev_get_tstats64,
 	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_do_ioctl		= sr9700_ioctl,
+	.ndo_eth_ioctl		= sr9700_ioctl,
 	.ndo_set_rx_mode	= sr9700_set_multicast,
 	.ndo_set_mac_address	= sr9700_set_mac_address,
 };

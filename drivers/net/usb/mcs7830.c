@@ -140,7 +140,8 @@ static int mcs7830_hif_get_mac_address(struct usbnet *dev, unsigned char *addr)
 	return 0;
 }
 
-static int mcs7830_hif_set_mac_address(struct usbnet *dev, unsigned char *addr)
+static int mcs7830_hif_set_mac_address(struct usbnet *dev,
+				       const unsigned char *addr)
 {
 	int ret = mcs7830_set_reg(dev, HIF_REG_ETHERNET_ADDR, ETH_ALEN, addr);
 
@@ -472,7 +473,7 @@ static const struct net_device_ops mcs7830_netdev_ops = {
 	.ndo_change_mtu		= usbnet_change_mtu,
 	.ndo_get_stats64	= dev_get_tstats64,
 	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_do_ioctl 		= mcs7830_ioctl,
+	.ndo_eth_ioctl		= mcs7830_ioctl,
 	.ndo_set_rx_mode	= mcs7830_set_multicast,
 	.ndo_set_mac_address	= mcs7830_set_mac_address,
 };

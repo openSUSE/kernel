@@ -1638,7 +1638,9 @@ static int mv643xx_eth_set_coalesce(struct net_device *dev,
 }
 
 static void
-mv643xx_eth_get_ringparam(struct net_device *dev, struct ethtool_ringparam *er)
+mv643xx_eth_get_ringparam(struct net_device *dev, struct ethtool_ringparam *er,
+			  struct kernel_ethtool_ringparam *kernel_er,
+			  struct netlink_ext_ack *extack)
 {
 	struct mv643xx_eth_private *mp = netdev_priv(dev);
 
@@ -1650,7 +1652,9 @@ mv643xx_eth_get_ringparam(struct net_device *dev, struct ethtool_ringparam *er)
 }
 
 static int
-mv643xx_eth_set_ringparam(struct net_device *dev, struct ethtool_ringparam *er)
+mv643xx_eth_set_ringparam(struct net_device *dev, struct ethtool_ringparam *er,
+			  struct kernel_ethtool_ringparam *kernel_er,
+			  struct netlink_ext_ack *extack)
 {
 	struct mv643xx_eth_private *mp = netdev_priv(dev);
 
@@ -1770,7 +1774,7 @@ static void uc_addr_get(struct mv643xx_eth_private *mp, unsigned char *addr)
 	addr[5] = mac_l & 0xff;
 }
 
-static void uc_addr_set(struct mv643xx_eth_private *mp, unsigned char *addr)
+static void uc_addr_set(struct mv643xx_eth_private *mp, const u8 *addr)
 {
 	wrlp(mp, MAC_ADDR_HIGH,
 		(addr[0] << 24) | (addr[1] << 16) | (addr[2] << 8) | addr[3]);
@@ -3068,7 +3072,7 @@ static const struct net_device_ops mv643xx_eth_netdev_ops = {
 	.ndo_set_rx_mode	= mv643xx_eth_set_rx_mode,
 	.ndo_set_mac_address	= mv643xx_eth_set_mac_address,
 	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_do_ioctl		= mv643xx_eth_ioctl,
+	.ndo_eth_ioctl		= mv643xx_eth_ioctl,
 	.ndo_change_mtu		= mv643xx_eth_change_mtu,
 	.ndo_set_features	= mv643xx_eth_set_features,
 	.ndo_tx_timeout		= mv643xx_eth_tx_timeout,

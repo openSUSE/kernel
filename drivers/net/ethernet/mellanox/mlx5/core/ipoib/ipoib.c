@@ -50,7 +50,7 @@ static const struct net_device_ops mlx5i_netdev_ops = {
 	.ndo_init                = mlx5i_dev_init,
 	.ndo_uninit              = mlx5i_dev_cleanup,
 	.ndo_change_mtu          = mlx5i_change_mtu,
-	.ndo_do_ioctl            = mlx5i_ioctl,
+	.ndo_eth_ioctl            = mlx5i_ioctl,
 };
 
 /* IPoIB mlx5 netdev profile */
@@ -219,7 +219,7 @@ void mlx5i_uninit_underlay_qp(struct mlx5e_priv *priv)
 
 int mlx5i_create_underlay_qp(struct mlx5e_priv *priv)
 {
-	unsigned char *dev_addr = priv->netdev->dev_addr;
+	const unsigned char *dev_addr = priv->netdev->dev_addr;
 	u32 out[MLX5_ST_SZ_DW(create_qp_out)] = {};
 	u32 in[MLX5_ST_SZ_DW(create_qp_in)] = {};
 	struct mlx5i_priv *ipriv = priv->ppriv;

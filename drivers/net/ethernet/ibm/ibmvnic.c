@@ -3204,7 +3204,9 @@ static u32 ibmvnic_get_link(struct net_device *netdev)
 }
 
 static void ibmvnic_get_ringparam(struct net_device *netdev,
-				  struct ethtool_ringparam *ring)
+				  struct ethtool_ringparam *ring,
+				  struct kernel_ethtool_ringparam *kernel_ring,
+				  struct netlink_ext_ack *extack)
 {
 	struct ibmvnic_adapter *adapter = netdev_priv(netdev);
 
@@ -3219,7 +3221,9 @@ static void ibmvnic_get_ringparam(struct net_device *netdev,
 }
 
 static int ibmvnic_set_ringparam(struct net_device *netdev,
-				 struct ethtool_ringparam *ring)
+				 struct ethtool_ringparam *ring,
+				 struct kernel_ethtool_ringparam *kernel_ring,
+				 struct netlink_ext_ack *extack)
 {
 	struct ibmvnic_adapter *adapter = netdev_priv(netdev);
 

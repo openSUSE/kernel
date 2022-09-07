@@ -1497,8 +1497,11 @@ static int bcm_enet_set_link_ksettings(struct net_device *dev,
 	}
 }
 
-static void bcm_enet_get_ringparam(struct net_device *dev,
-				   struct ethtool_ringparam *ering)
+static void
+bcm_enet_get_ringparam(struct net_device *dev,
+		       struct ethtool_ringparam *ering,
+		       struct kernel_ethtool_ringparam *kernel_ering,
+		       struct netlink_ext_ack *extack)
 {
 	struct bcm_enet_priv *priv;
 
@@ -1512,7 +1515,9 @@ static void bcm_enet_get_ringparam(struct net_device *dev,
 }
 
 static int bcm_enet_set_ringparam(struct net_device *dev,
-				  struct ethtool_ringparam *ering)
+				  struct ethtool_ringparam *ering,
+				  struct kernel_ethtool_ringparam *kernel_ering,
+				  struct netlink_ext_ack *extack)
 {
 	struct bcm_enet_priv *priv;
 	int was_running;
@@ -1699,7 +1704,7 @@ static const struct net_device_ops bcm_enet_ops = {
 	.ndo_start_xmit		= bcm_enet_start_xmit,
 	.ndo_set_mac_address	= bcm_enet_set_mac_address,
 	.ndo_set_rx_mode	= bcm_enet_set_multicast_list,
-	.ndo_do_ioctl		= bcm_enet_ioctl,
+	.ndo_eth_ioctl		= bcm_enet_ioctl,
 	.ndo_change_mtu		= bcm_enet_change_mtu,
 };
 
@@ -2446,7 +2451,7 @@ static const struct net_device_ops bcm_enetsw_ops = {
 	.ndo_stop		= bcm_enetsw_stop,
 	.ndo_start_xmit		= bcm_enet_start_xmit,
 	.ndo_change_mtu		= bcm_enet_change_mtu,
-	.ndo_do_ioctl		= bcm_enetsw_ioctl,
+	.ndo_eth_ioctl		= bcm_enetsw_ioctl,
 };
 
 
@@ -2579,8 +2584,11 @@ static void bcm_enetsw_get_ethtool_stats(struct net_device *netdev,
 	}
 }
 
-static void bcm_enetsw_get_ringparam(struct net_device *dev,
-				     struct ethtool_ringparam *ering)
+static void
+bcm_enetsw_get_ringparam(struct net_device *dev,
+			 struct ethtool_ringparam *ering,
+			 struct kernel_ethtool_ringparam *kernel_ering,
+			 struct netlink_ext_ack *extack)
 {
 	struct bcm_enet_priv *priv;
 
@@ -2595,8 +2603,11 @@ static void bcm_enetsw_get_ringparam(struct net_device *dev,
 	ering->tx_pending = priv->tx_ring_size;
 }
 
-static int bcm_enetsw_set_ringparam(struct net_device *dev,
-				    struct ethtool_ringparam *ering)
+static int
+bcm_enetsw_set_ringparam(struct net_device *dev,
+			 struct ethtool_ringparam *ering,
+			 struct kernel_ethtool_ringparam *kernel_ering,
+			 struct netlink_ext_ack *extack)
 {
 	struct bcm_enet_priv *priv;
 	int was_running;

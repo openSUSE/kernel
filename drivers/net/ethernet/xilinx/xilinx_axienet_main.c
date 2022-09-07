@@ -1254,7 +1254,7 @@ static const struct net_device_ops axienet_netdev_ops = {
 	.ndo_change_mtu	= axienet_change_mtu,
 	.ndo_set_mac_address = netdev_set_mac_address,
 	.ndo_validate_addr = eth_validate_addr,
-	.ndo_do_ioctl = axienet_ioctl,
+	.ndo_eth_ioctl = axienet_ioctl,
 	.ndo_set_rx_mode = axienet_set_multicast_list,
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller = axienet_poll_controller,
@@ -1350,8 +1350,11 @@ static void axienet_ethtools_get_regs(struct net_device *ndev,
 	data[39] = axienet_dma_in32(lp, XAXIDMA_RX_TDESC_OFFSET);
 }
 
-static void axienet_ethtools_get_ringparam(struct net_device *ndev,
-					   struct ethtool_ringparam *ering)
+static void
+axienet_ethtools_get_ringparam(struct net_device *ndev,
+			       struct ethtool_ringparam *ering,
+			       struct kernel_ethtool_ringparam *kernel_ering,
+			       struct netlink_ext_ack *extack)
 {
 	struct axienet_local *lp = netdev_priv(ndev);
 
@@ -1365,8 +1368,11 @@ static void axienet_ethtools_get_ringparam(struct net_device *ndev,
 	ering->tx_pending = lp->tx_bd_num;
 }
 
-static int axienet_ethtools_set_ringparam(struct net_device *ndev,
-					  struct ethtool_ringparam *ering)
+static int
+axienet_ethtools_set_ringparam(struct net_device *ndev,
+			       struct ethtool_ringparam *ering,
+			       struct kernel_ethtool_ringparam *kernel_ering,
+			       struct netlink_ext_ack *extack)
 {
 	struct axienet_local *lp = netdev_priv(ndev);
 

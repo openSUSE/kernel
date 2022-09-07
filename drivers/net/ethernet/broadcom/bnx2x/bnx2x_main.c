@@ -8425,7 +8425,7 @@ alloc_mem_err:
  * Init service functions
  */
 
-int bnx2x_set_mac_one(struct bnx2x *bp, u8 *mac,
+int bnx2x_set_mac_one(struct bnx2x *bp, const u8 *mac,
 		      struct bnx2x_vlan_mac_obj *obj, bool set,
 		      int mac_type, unsigned long *ramrod_flags)
 {
@@ -9154,7 +9154,7 @@ u32 bnx2x_send_unload_req(struct bnx2x *bp, int unload_mode)
 
 	else if (bp->wol) {
 		u32 emac_base = port ? GRCBASE_EMAC1 : GRCBASE_EMAC0;
-		u8 *mac_addr = bp->dev->dev_addr;
+		const u8 *mac_addr = bp->dev->dev_addr;
 		struct pci_dev *pdev = bp->pdev;
 		u32 val;
 		u16 pmc;
@@ -13021,7 +13021,7 @@ static const struct net_device_ops bnx2x_netdev_ops = {
 	.ndo_set_rx_mode	= bnx2x_set_rx_mode,
 	.ndo_set_mac_address	= bnx2x_change_mac_addr,
 	.ndo_validate_addr	= bnx2x_validate_addr,
-	.ndo_do_ioctl		= bnx2x_ioctl,
+	.ndo_eth_ioctl		= bnx2x_ioctl,
 	.ndo_change_mtu		= bnx2x_change_mtu,
 	.ndo_fix_features	= bnx2x_fix_features,
 	.ndo_set_features	= bnx2x_set_features,

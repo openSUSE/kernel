@@ -95,7 +95,7 @@ static const struct net_device_ops netdev_ops = {
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_mac_address 	= eth_mac_addr,
 	.ndo_set_rx_mode	= set_multicast,
-	.ndo_do_ioctl		= rio_ioctl,
+	.ndo_eth_ioctl		= rio_ioctl,
 	.ndo_tx_timeout		= rio_tx_timeout,
 };
 
@@ -567,7 +567,7 @@ static void rio_hw_init(struct net_device *dev)
 	 */
 	for (i = 0; i < 3; i++)
 		dw16(StationAddr0 + 2 * i,
-		     cpu_to_le16(((u16 *)dev->dev_addr)[i]));
+		     cpu_to_le16(((const u16 *)dev->dev_addr)[i]));
 
 	set_multicast (dev);
 	if (np->coalesce) {

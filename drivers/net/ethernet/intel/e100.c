@@ -2557,7 +2557,9 @@ static int e100_set_eeprom(struct net_device *netdev,
 }
 
 static void e100_get_ringparam(struct net_device *netdev,
-	struct ethtool_ringparam *ring)
+			       struct ethtool_ringparam *ring,
+			       struct kernel_ethtool_ringparam *kernel_ring,
+			       struct netlink_ext_ack *extack)
 {
 	struct nic *nic = netdev_priv(netdev);
 	struct param_range *rfds = &nic->params.rfds;
@@ -2570,7 +2572,9 @@ static void e100_get_ringparam(struct net_device *netdev,
 }
 
 static int e100_set_ringparam(struct net_device *netdev,
-	struct ethtool_ringparam *ring)
+			      struct ethtool_ringparam *ring,
+			      struct kernel_ethtool_ringparam *kernel_ring,
+			      struct netlink_ext_ack *extack)
 {
 	struct nic *nic = netdev_priv(netdev);
 	struct param_range *rfds = &nic->params.rfds;
@@ -2817,7 +2821,7 @@ static const struct net_device_ops e100_netdev_ops = {
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_rx_mode	= e100_set_multicast_list,
 	.ndo_set_mac_address	= e100_set_mac_address,
-	.ndo_do_ioctl		= e100_do_ioctl,
+	.ndo_eth_ioctl		= e100_do_ioctl,
 	.ndo_tx_timeout		= e100_tx_timeout,
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller	= e100_netpoll,

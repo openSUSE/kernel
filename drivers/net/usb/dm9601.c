@@ -93,7 +93,8 @@ static int dm_write_reg(struct usbnet *dev, u8 reg, u8 value)
 				value, reg, NULL, 0);
 }
 
-static void dm_write_async(struct usbnet *dev, u8 reg, u16 length, void *data)
+static void dm_write_async(struct usbnet *dev, u8 reg, u16 length,
+			   const void *data)
 {
 	usbnet_write_cmd_async(dev, DM_WRITE_REGS,
 			       USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
@@ -345,7 +346,7 @@ static const struct net_device_ops dm9601_netdev_ops = {
 	.ndo_change_mtu		= usbnet_change_mtu,
 	.ndo_get_stats64	= dev_get_tstats64,
 	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_do_ioctl 		= dm9601_ioctl,
+	.ndo_eth_ioctl		= dm9601_ioctl,
 	.ndo_set_rx_mode	= dm9601_set_multicast,
 	.ndo_set_mac_address	= dm9601_set_mac_address,
 };

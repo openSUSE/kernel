@@ -1503,7 +1503,7 @@ static int smsc911x_soft_reset(struct smsc911x_data *pdata)
 
 /* Sets the device MAC address to dev_addr, called with mac_lock held */
 static void
-smsc911x_set_hw_mac_address(struct smsc911x_data *pdata, u8 dev_addr[6])
+smsc911x_set_hw_mac_address(struct smsc911x_data *pdata, const u8 dev_addr[6])
 {
 	u32 mac_high16 = (dev_addr[5] << 8) | dev_addr[4];
 	u32 mac_low32 = (dev_addr[3] << 24) | (dev_addr[2] << 16) |
@@ -2148,7 +2148,7 @@ static const struct net_device_ops smsc911x_netdev_ops = {
 	.ndo_start_xmit		= smsc911x_hard_start_xmit,
 	.ndo_get_stats		= smsc911x_get_stats,
 	.ndo_set_rx_mode	= smsc911x_set_multicast_list,
-	.ndo_do_ioctl		= phy_do_ioctl_running,
+	.ndo_eth_ioctl		= phy_do_ioctl_running,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_mac_address 	= smsc911x_set_mac_address,
 #ifdef CONFIG_NET_POLL_CONTROLLER

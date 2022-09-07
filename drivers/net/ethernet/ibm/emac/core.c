@@ -2137,8 +2137,11 @@ emac_ethtool_set_link_ksettings(struct net_device *ndev,
 	return 0;
 }
 
-static void emac_ethtool_get_ringparam(struct net_device *ndev,
-				       struct ethtool_ringparam *rp)
+static void
+emac_ethtool_get_ringparam(struct net_device *ndev,
+			   struct ethtool_ringparam *rp,
+			   struct kernel_ethtool_ringparam *kernel_rp,
+			   struct netlink_ext_ack *extack)
 {
 	rp->rx_max_pending = rp->rx_pending = NUM_RX_BUFF;
 	rp->tx_max_pending = rp->tx_pending = NUM_TX_BUFF;
@@ -3011,7 +3014,7 @@ static const struct net_device_ops emac_netdev_ops = {
 	.ndo_stop		= emac_close,
 	.ndo_get_stats		= emac_stats,
 	.ndo_set_rx_mode	= emac_set_multicast_list,
-	.ndo_do_ioctl		= emac_ioctl,
+	.ndo_eth_ioctl		= emac_ioctl,
 	.ndo_tx_timeout		= emac_tx_timeout,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_mac_address	= emac_set_mac_address,
@@ -3023,7 +3026,7 @@ static const struct net_device_ops emac_gige_netdev_ops = {
 	.ndo_stop		= emac_close,
 	.ndo_get_stats		= emac_stats,
 	.ndo_set_rx_mode	= emac_set_multicast_list,
-	.ndo_do_ioctl		= emac_ioctl,
+	.ndo_eth_ioctl		= emac_ioctl,
 	.ndo_tx_timeout		= emac_tx_timeout,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_mac_address	= emac_set_mac_address,

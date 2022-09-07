@@ -3224,7 +3224,7 @@ static void bcmgenet_umac_reset(struct bcmgenet_priv *priv)
 }
 
 static void bcmgenet_set_hw_addr(struct bcmgenet_priv *priv,
-				 unsigned char *addr)
+				 const unsigned char *addr)
 {
 	bcmgenet_umac_writel(priv, get_unaligned_be32(&addr[0]), UMAC_MAC0);
 	bcmgenet_umac_writel(priv, get_unaligned_be16(&addr[4]), UMAC_MAC1);
@@ -3521,7 +3521,7 @@ static void bcmgenet_timeout(struct net_device *dev, unsigned int txqueue)
 #define MAX_MDF_FILTER	17
 
 static inline void bcmgenet_set_mdf_addr(struct bcmgenet_priv *priv,
-					 unsigned char *addr,
+					 const unsigned char *addr,
 					 int *i)
 {
 	bcmgenet_umac_writel(priv, addr[0] << 8 | addr[1],
@@ -3665,7 +3665,7 @@ static const struct net_device_ops bcmgenet_netdev_ops = {
 	.ndo_tx_timeout		= bcmgenet_timeout,
 	.ndo_set_rx_mode	= bcmgenet_set_rx_mode,
 	.ndo_set_mac_address	= bcmgenet_set_mac_addr,
-	.ndo_do_ioctl		= phy_do_ioctl_running,
+	.ndo_eth_ioctl		= phy_do_ioctl_running,
 	.ndo_set_features	= bcmgenet_set_features,
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller	= bcmgenet_poll_controller,

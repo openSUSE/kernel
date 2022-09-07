@@ -1623,8 +1623,8 @@ static void mvneta_set_ucast_addr(struct mvneta_port *pp, u8 last_nibble,
 }
 
 /* Set mac address */
-static void mvneta_mac_addr_set(struct mvneta_port *pp, unsigned char *addr,
-				int queue)
+static void mvneta_mac_addr_set(struct mvneta_port *pp,
+				const unsigned char *addr, int queue)
 {
 	unsigned int mac_h;
 	unsigned int mac_l;
@@ -4547,8 +4547,11 @@ static void mvneta_ethtool_get_drvinfo(struct net_device *dev,
 }
 
 
-static void mvneta_ethtool_get_ringparam(struct net_device *netdev,
-					 struct ethtool_ringparam *ring)
+static void
+mvneta_ethtool_get_ringparam(struct net_device *netdev,
+			     struct ethtool_ringparam *ring,
+			     struct kernel_ethtool_ringparam *kernel_ring,
+			     struct netlink_ext_ack *extack)
 {
 	struct mvneta_port *pp = netdev_priv(netdev);
 
@@ -4558,8 +4561,11 @@ static void mvneta_ethtool_get_ringparam(struct net_device *netdev,
 	ring->tx_pending = pp->tx_ring_size;
 }
 
-static int mvneta_ethtool_set_ringparam(struct net_device *dev,
-					struct ethtool_ringparam *ring)
+static int
+mvneta_ethtool_set_ringparam(struct net_device *dev,
+			     struct ethtool_ringparam *ring,
+			     struct kernel_ethtool_ringparam *kernel_ring,
+			     struct netlink_ext_ack *extack)
 {
 	struct mvneta_port *pp = netdev_priv(dev);
 
@@ -4988,7 +4994,7 @@ static const struct net_device_ops mvneta_netdev_ops = {
 	.ndo_change_mtu      = mvneta_change_mtu,
 	.ndo_fix_features    = mvneta_fix_features,
 	.ndo_get_stats64     = mvneta_get_stats64,
-	.ndo_do_ioctl        = mvneta_ioctl,
+	.ndo_eth_ioctl        = mvneta_ioctl,
 	.ndo_bpf	     = mvneta_xdp,
 	.ndo_xdp_xmit        = mvneta_xdp_xmit,
 	.ndo_setup_tc	     = mvneta_setup_tc,

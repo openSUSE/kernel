@@ -1090,6 +1090,10 @@ struct netdev_net_notifier {
  *	the generic interface code. If not defined ioctls return
  *	not supported error code.
  *
+ * * int (*ndo_eth_ioctl)(struct net_device *dev, struct ifreq *ifr, int cmd);
+ *	Called for ethernet specific ioctls: SIOCGMIIPHY, SIOCGMIIREG,
+ *	SIOCSMIIREG, SIOCSHWTSTAMP and SIOCGHWTSTAMP.
+ *
  * int (*ndo_set_config)(struct net_device *dev, struct ifmap *map);
  *	Used to set network devices bus interface parameters. This interface
  *	is retained for legacy reasons; new devices should use the bus
@@ -1361,6 +1365,11 @@ struct net_device_ops {
 	int			(*ndo_validate_addr)(struct net_device *dev);
 	int			(*ndo_do_ioctl)(struct net_device *dev,
 					        struct ifreq *ifr, int cmd);
+	int			(*ndo_eth_ioctl)(struct net_device *dev,
+						 struct ifreq *ifr, int cmd);
+	int			(*ndo_siocdevprivate)(struct net_device *dev,
+						      struct ifreq *ifr,
+						      void __user *data, int cmd);
 	int			(*ndo_set_config)(struct net_device *dev,
 					          struct ifmap *map);
 	int			(*ndo_change_mtu)(struct net_device *dev,
@@ -3285,14 +3294,6 @@ static inline bool dev_has_header(const struct net_device *dev)
 	return dev->header_ops && dev->header_ops->create;
 }
 
-typedef int gifconf_func_t(struct net_device * dev, char __user * bufptr,
-			   int len, int size);
-int register_gifconf(unsigned int family, gifconf_func_t *gifconf);
-static inline int unregister_gifconf(unsigned int family)
-{
-	return register_gifconf(family, NULL);
-}
-
 #ifdef CONFIG_NET_FLOW_LIMIT
 #define FLOW_LIMIT_HISTORY	(1 << 7)  /* must be ^2 and !overflow buckets */
 struct sd_flow_limit {
@@ -4012,10 +4013,12 @@ static inline bool is_socket_ioctl_cmd(unsigned int cmd)
 {
 	return _IOC_TYPE(cmd) == SOCK_IOC_TYPE;
 }
+int get_user_ifreq(struct ifreq *ifr, void __user **ifrdata, void __user *arg);
+int put_user_ifreq(struct ifreq *ifr, void __user *arg);
 int dev_ioctl(struct net *net, unsigned int cmd, struct ifreq *ifr,
-		bool *need_copyout);
-int dev_ifconf(struct net *net, struct ifconf *, int);
-int dev_ethtool(struct net *net, struct ifreq *);
+		void __user *data, bool *need_copyout);
+int dev_ifconf(struct net *net, struct ifconf __user *ifc);
+int dev_ethtool(struct net *net, struct ifreq *ifr, void __user *userdata);
 unsigned int dev_get_flags(const struct net_device *);
 int __dev_change_flags(struct net_device *dev, unsigned int flags,
 		       struct netlink_ext_ack *extack);

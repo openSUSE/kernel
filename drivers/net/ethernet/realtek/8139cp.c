@@ -1388,7 +1388,9 @@ static void cp_get_drvinfo (struct net_device *dev, struct ethtool_drvinfo *info
 }
 
 static void cp_get_ringparam(struct net_device *dev,
-				struct ethtool_ringparam *ring)
+			     struct ethtool_ringparam *ring,
+			     struct kernel_ethtool_ringparam *kernel_ring,
+			     struct netlink_ext_ack *extack)
 {
 	ring->rx_max_pending = CP_RX_RING_SIZE;
 	ring->tx_max_pending = CP_TX_RING_SIZE;
@@ -1869,7 +1871,7 @@ static const struct net_device_ops cp_netdev_ops = {
 	.ndo_set_mac_address 	= cp_set_mac_address,
 	.ndo_set_rx_mode	= cp_set_rx_mode,
 	.ndo_get_stats		= cp_get_stats,
-	.ndo_do_ioctl		= cp_ioctl,
+	.ndo_eth_ioctl		= cp_ioctl,
 	.ndo_start_xmit		= cp_start_xmit,
 	.ndo_tx_timeout		= cp_tx_timeout,
 	.ndo_set_features	= cp_set_features,

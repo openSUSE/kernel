@@ -2704,7 +2704,7 @@ bnx2_alloc_bad_rbuf(struct bnx2 *bp)
 }
 
 static void
-bnx2_set_mac_addr(struct bnx2 *bp, u8 *mac_addr, u32 pos)
+bnx2_set_mac_addr(struct bnx2 *bp, const u8 *mac_addr, u32 pos)
 {
 	u32 val;
 
@@ -7318,7 +7318,9 @@ static int bnx2_set_coalesce(struct net_device *dev,
 }
 
 static void
-bnx2_get_ringparam(struct net_device *dev, struct ethtool_ringparam *ering)
+bnx2_get_ringparam(struct net_device *dev, struct ethtool_ringparam *ering,
+		   struct kernel_ethtool_ringparam *kernel_ering,
+		   struct netlink_ext_ack *extack)
 {
 	struct bnx2 *bp = netdev_priv(dev);
 
@@ -7389,7 +7391,9 @@ bnx2_change_ring_size(struct bnx2 *bp, u32 rx, u32 tx, bool reset_irq)
 }
 
 static int
-bnx2_set_ringparam(struct net_device *dev, struct ethtool_ringparam *ering)
+bnx2_set_ringparam(struct net_device *dev, struct ethtool_ringparam *ering,
+		   struct kernel_ethtool_ringparam *kernel_ering,
+		   struct netlink_ext_ack *extack)
 {
 	struct bnx2 *bp = netdev_priv(dev);
 	int rc;
@@ -8551,7 +8555,7 @@ static const struct net_device_ops bnx2_netdev_ops = {
 	.ndo_stop		= bnx2_close,
 	.ndo_get_stats64	= bnx2_get_stats64,
 	.ndo_set_rx_mode	= bnx2_set_rx_mode,
-	.ndo_do_ioctl		= bnx2_ioctl,
+	.ndo_eth_ioctl		= bnx2_ioctl,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_mac_address	= bnx2_change_mac_addr,
 	.ndo_change_mtu		= bnx2_change_mtu,

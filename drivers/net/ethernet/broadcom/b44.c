@@ -218,7 +218,8 @@ static inline void __b44_cam_read(struct b44 *bp, unsigned char *data, int index
 	data[1] = (val >> 0) & 0xFF;
 }
 
-static inline void __b44_cam_write(struct b44 *bp, unsigned char *data, int index)
+static inline void __b44_cam_write(struct b44 *bp,
+				   const unsigned char *data, int index)
 {
 	u32 val;
 
@@ -1507,7 +1508,8 @@ static void bwfilter_table(struct b44 *bp, u8 *pp, u32 bytes, u32 table_offset)
 	}
 }
 
-static int b44_magic_pattern(u8 *macaddr, u8 *ppattern, u8 *pmask, int offset)
+static int b44_magic_pattern(const u8 *macaddr, u8 *ppattern, u8 *pmask,
+			     int offset)
 {
 	int magicsync = 6;
 	int k, j, len = offset;
@@ -1959,7 +1961,9 @@ static int b44_set_link_ksettings(struct net_device *dev,
 }
 
 static void b44_get_ringparam(struct net_device *dev,
-			      struct ethtool_ringparam *ering)
+			      struct ethtool_ringparam *ering,
+			      struct kernel_ethtool_ringparam *kernel_ering,
+			      struct netlink_ext_ack *extack)
 {
 	struct b44 *bp = netdev_priv(dev);
 
@@ -1970,7 +1974,9 @@ static void b44_get_ringparam(struct net_device *dev,
 }
 
 static int b44_set_ringparam(struct net_device *dev,
-			     struct ethtool_ringparam *ering)
+			     struct ethtool_ringparam *ering,
+			     struct kernel_ethtool_ringparam *kernel_ering,
+			     struct netlink_ext_ack *extack)
 {
 	struct b44 *bp = netdev_priv(dev);
 
@@ -2198,7 +2204,7 @@ static const struct net_device_ops b44_netdev_ops = {
 	.ndo_set_rx_mode	= b44_set_rx_mode,
 	.ndo_set_mac_address	= b44_set_mac_addr,
 	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_do_ioctl		= b44_ioctl,
+	.ndo_eth_ioctl		= b44_ioctl,
 	.ndo_tx_timeout		= b44_tx_timeout,
 	.ndo_change_mtu		= b44_change_mtu,
 #ifdef CONFIG_NET_POLL_CONTROLLER

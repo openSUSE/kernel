@@ -860,7 +860,9 @@ static int pcnet32_nway_reset(struct net_device *dev)
 }
 
 static void pcnet32_get_ringparam(struct net_device *dev,
-				  struct ethtool_ringparam *ering)
+				  struct ethtool_ringparam *ering,
+				  struct kernel_ethtool_ringparam *kernel_ering,
+				  struct netlink_ext_ack *extack)
 {
 	struct pcnet32_private *lp = netdev_priv(dev);
 
@@ -871,7 +873,9 @@ static void pcnet32_get_ringparam(struct net_device *dev,
 }
 
 static int pcnet32_set_ringparam(struct net_device *dev,
-				 struct ethtool_ringparam *ering)
+				 struct ethtool_ringparam *ering,
+				 struct kernel_ethtool_ringparam *kernel_ering,
+				 struct netlink_ext_ack *extack)
 {
 	struct pcnet32_private *lp = netdev_priv(dev);
 	unsigned long flags;
@@ -1572,7 +1576,7 @@ static const struct net_device_ops pcnet32_netdev_ops = {
 	.ndo_tx_timeout		= pcnet32_tx_timeout,
 	.ndo_get_stats		= pcnet32_get_stats,
 	.ndo_set_rx_mode	= pcnet32_set_multicast_list,
-	.ndo_do_ioctl		= pcnet32_ioctl,
+	.ndo_eth_ioctl		= pcnet32_ioctl,
 	.ndo_set_mac_address 	= eth_mac_addr,
 	.ndo_validate_addr	= eth_validate_addr,
 #ifdef CONFIG_NET_POLL_CONTROLLER
