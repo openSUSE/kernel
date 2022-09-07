@@ -183,7 +183,8 @@ static int ch341_set_baudrate_lcr(struct usb_device *dev,
 	 * CH341A buffers data until a full endpoint-size packet (32 bytes)
 	 * has been received unless bit 7 is set.
 	 */
-	a |= BIT(7);
+	if (priv->version > 0x27)
+		a |= BIT(7);
 
 	if (priv->version < 0x30)
 		return 0;
