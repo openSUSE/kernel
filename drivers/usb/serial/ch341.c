@@ -65,7 +65,11 @@
 #define CH341_REQ_MODEM_CTRL   0xA4
 
 #define CH341_REG_BREAK        0x05
+#define CH341_REG_PRESCALER    0x12
+#define CH341_REG_DIVISOR      0x13
 #define CH341_REG_LCR          0x18
+#define CH341_REG_LCR2         0x25
+
 #define CH341_NBREAK_BITS      0x01
 
 #define CH341_LCR_ENABLE_RX    0x80
@@ -178,11 +182,14 @@ static int ch341_set_baudrate_lcr(struct usb_device *dev,
 	 */
 	a |= BIT(7);
 
-	r = ch341_control_out(dev, CH341_REQ_WRITE_REG, 0x1312, a);
+	r = ch341_control_out(dev, CH341_REQ_WRITE_REG,
+		       CH341_REG_DIVISOR << 8 | CH341_REG_PRESCALER,
+	       	       a);
 	if (r)
 		return r;
 
-	r = ch341_control_out(dev, CH341_REQ_WRITE_REG, 0x2518, lcr);
+	r = ch341_control_out(dev, CH341_REQ_WRITE_REG,
+			CH341_REG_LCR2 << 8 | CH341_REG_LCR, lcr);
 	if (r)
 		return r;
 
