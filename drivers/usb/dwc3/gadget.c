@@ -386,9 +386,12 @@ int dwc3_send_gadget_ep_cmd(struct dwc3_ep *dep, unsigned cmd,
 
 	trace_dwc3_gadget_ep_cmd(dep, cmd, params, cmd_status);
 
-	if (ret == 0 && DWC3_DEPCMD_CMD(cmd) == DWC3_DEPCMD_STARTTRANSFER) {
-		dep->flags |= DWC3_EP_TRANSFER_STARTED;
-		dwc3_gadget_ep_get_transfer_index(dep);
+	if (DWC3_DEPCMD_CMD(cmd) == DWC3_DEPCMD_STARTTRANSFER) {
+		if (ret == 0)
+			dep->flags |= DWC3_EP_TRANSFER_STARTED;
+
+		if (ret != -ETIMEDOUT)
+			dwc3_gadget_ep_get_transfer_index(dep);
 	}
 
 	if (saved_config) {
@@ -1684,27 +1687,22 @@ static int dwc3_gadget_ep_dequeue(struct usb_ep *ep,
 
 	list_for_each_entry(r, &dep->cancelled_list, list) {
 		if (r == req)
-			goto out0;
+			goto out;
 	}
 
 	list_for_each_entry(r, &dep->pending_list, list) {
-		if (r == req)
-			break;
+		if (r == req) {
+			dwc3_gadget_giveback(dep, req, -ECONNRESET);
+			goto out;
+		}
 	}
 
-	if (r != req) {
-		list_for_each_entry(r, &dep->started_list, list) {
-			if (r == req)
-				break;
-		}
+	list_for_each_entry(r, &dep->started_list, list) {
 		if (r == req) {
 			struct dwc3_request *t;
 
 			/* wait until it is processed */
 			dwc3_stop_active_transfer(dep, true, true);
-
-			if (!r->trb)
-				goto out0;
 
 			/*
 			 * Remove any started request if the transfer is
@@ -1714,21 +1712,14 @@ static int dwc3_gadget_ep_dequeue(struct usb_ep *ep,
 				dwc3_gadget_move_cancelled_request(r,
 						DWC3_REQUEST_STATUS_DEQUEUED);
 
-			if (dep->flags & DWC3_EP_TRANSFER_STARTED)
-				goto out0;
-			else
-				goto out1;
+			goto out;
 		}
-		dev_err(dwc->dev, "request %pK was not queued to %s\n",
-				request, ep->name);
-		ret = -EINVAL;
-		goto out0;
 	}
 
-out1:
-	dwc3_gadget_giveback(dep, req, -ECONNRESET);
-
-out0:
+	dev_err(dwc->dev, "request %pK was not queued to %s\n",
+		request, ep->name);
+	ret = -EINVAL;
+out:
 	spin_unlock_irqrestore(&dwc->lock, flags);
 
 	return ret;
@@ -2448,6 +2439,7 @@ static int dwc3_gadget_init_in_endpoint(struct dwc3_ep *dep)
 	struct dwc3 *dwc = dep->dwc;
 	int mdwidth;
 	int size;
+	int maxpacket;
 
 	mdwidth = DWC3_MDWIDTH(dwc->hwparams.hwparams0);
 	/* MDWIDTH is represented in bits, we need it in bytes */
@@ -2459,21 +2451,25 @@ static int dwc3_gadget_init_in_endpoint(struct dwc3_ep *dep)
 	else
 		size = DWC31_GTXFIFOSIZ_TXFDEP(size);
 
-	/* FIFO Depth is in MDWDITH bytes. Multiply */
-	size *= mdwidth;
 
 	/*
-	 * To meet performance requirement, a minimum TxFIFO size of 3x
-	 * MaxPacketSize is recommended for endpoints that support burst and a
-	 * minimum TxFIFO size of 2x MaxPacketSize for endpoints that don't
-	 * support burst. Use those numbers and we can calculate the max packet
-	 * limit as below.
+	 * maxpacket size is determined as part of the following, after assuming
+	 * a mult value of one maxpacket:
+	 * DWC3 revision 280A and prior:
+	 * fifo_size = mult * (max_packet / mdwidth) + 1;
+	 * maxpacket = mdwidth * (fifo_size - 1);
+	 *
+	 * DWC3 revision 290A and onwards:
+	 * fifo_size = mult * ((max_packet + mdwidth)/mdwidth + 1) + 1
+	 * maxpacket = mdwidth * ((fifo_size - 1) - 1) - mdwidth;
 	 */
-	if (dwc->maximum_speed >= USB_SPEED_SUPER)
-		size /= 3;
+	if (DWC3_VER_IS_PRIOR(DWC3, 290A))
+		maxpacket = mdwidth * (size - 1);
 	else
-		size /= 2;
+		maxpacket = mdwidth * ((size - 1) - 1) - mdwidth;
 
+	/* Functionally, space for one max packet is sufficient */
+	size = min_t(int, maxpacket, 1024);
 	usb_ep_set_maxpacket_limit(&dep->endpoint, size);
 
 	dep->endpoint.max_streams = 15;
@@ -2492,6 +2488,7 @@ static int dwc3_gadget_init_out_endpoint(struct dwc3_ep *dep)
 	struct dwc3 *dwc = dep->dwc;
 	int mdwidth;
 	int size;
+	int maxpacket;
 
 	mdwidth = DWC3_MDWIDTH(dwc->hwparams.hwparams0);
 
@@ -3646,14 +3643,14 @@ static int dwc3_gadget_get_irq(struct dwc3 *dwc)
 	struct platform_device *dwc3_pdev = to_platform_device(dwc->dev);
 	int irq;
 
-	irq = platform_get_irq_byname(dwc3_pdev, "peripheral");
+	irq = platform_get_irq_byname_optional(dwc3_pdev, "peripheral");
 	if (irq > 0)
 		goto out;
 
 	if (irq == -EPROBE_DEFER)
 		goto out;
 
-	irq = platform_get_irq_byname(dwc3_pdev, "dwc_usb3");
+	irq = platform_get_irq_byname_optional(dwc3_pdev, "dwc_usb3");
 	if (irq > 0)
 		goto out;
 
