@@ -2793,7 +2793,6 @@ static struct pci_driver azx_driver = {
 	.driver = {
 		.pm = AZX_PM_OPS,
 	},
-	.driver_managed_dma = true, // XXX: FIXME - just a workaround
 };
 
 module_pci_driver(azx_driver);
