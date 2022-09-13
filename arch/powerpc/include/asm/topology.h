@@ -64,6 +64,7 @@ static inline int early_cpu_to_node(int cpu)
 }
 
 int of_drconf_to_nid_single(struct drmem_lmb *lmb);
+void update_numa_distance(struct device_node *node);
 
 extern void map_cpu_to_node(int cpu, int node);
 #ifdef CONFIG_HOTPLUG_CPU
@@ -97,6 +98,8 @@ static inline int of_drconf_to_nid_single(struct drmem_lmb *lmb)
 {
 	return first_online_node;
 }
+
+static inline void update_numa_distance(struct device_node *node) {}
 
 #ifdef CONFIG_SMP
 static inline void map_cpu_to_node(int cpu, int node) {}
