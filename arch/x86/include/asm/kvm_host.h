@@ -906,6 +906,9 @@ struct kvm_vcpu_arch {
 #if IS_ENABLED(CONFIG_HYPERV)
 	hpa_t hv_root_tdp;
 #endif
+#ifndef __GENKSYMS__
+	bool at_instruction_boundary;
+#endif
 };
 
 struct kvm_lpage_info {
@@ -1250,6 +1253,10 @@ struct kvm_vcpu_stat {
 	u64 directed_yield_attempted;
 	u64 directed_yield_successful;
 	u64 guest_mode;
+#ifndef __GENKSYMS__
+	u64 preemption_reported;
+	u64 preemption_other;
+#endif
 };
 
 struct x86_instruction_info;
