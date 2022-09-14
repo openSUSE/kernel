@@ -11,7 +11,6 @@
 
 #include <linux/dma-buf.h>
 
-#include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_damage_helper.h>
@@ -258,20 +257,12 @@ static int udl_handle_damage(struct drm_framebuffer *fb, const struct dma_buf_ma
 	struct drm_rect clip;
 	int log_bpp;
 
-	if (width <= 0 || height <= 0)
-		return 0;
-
 	ret = udl_log_cpp(fb->format->cpp[0]);
 	if (ret < 0)
 		return ret;
 	log_bpp = ret;
 
-	clip.x1 = x;
-	clip.y1 = y;
-	clip.x2 = x + width;
-	clip.y2 = y + height;
-	if (clip.x2 > fb->width || clip.y2 > fb->height)
-		return -EINVAL;
+	drm_rect_init(&clip, x, y, width, height);
 
 	if (import_attach) {
 		ret = dma_buf_begin_cpu_access(import_attach->dmabuf,
@@ -376,9 +367,6 @@ udl_simple_display_pipe_enable(struct drm_simple_display_pipe *pipe,
 	udl->mode_buf_len = wrptr - buf;
 
 	udl_handle_damage(fb, &shadow_plane_state->map[0], 0, 0, fb->width, fb->height);
-
-	if (!drm_atomic_crtc_needs_modeset(crtc_state))
-		return;
 
 	/* enable display */
 	udl_crtc_write_mode_to_hw(crtc);
