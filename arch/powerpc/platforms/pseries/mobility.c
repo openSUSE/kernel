@@ -29,6 +29,7 @@
 #include <asm/machdep.h>
 #include <asm/rtas.h>
 #include "pseries.h"
+#include "vas.h"	/* vas_migration_handler() */
 #include "../../kernel/cacheinfo.h"
 
 static struct kobject *mobility_kobj;
@@ -760,6 +761,8 @@ static int pseries_migrate_partition(u64 handle)
 	if (ret)
 		return ret;
 
+	vas_migration_handler(VAS_SUSPEND);
+
 	if (factor)
 		watchdog_nmi_set_timeout_pct(factor);
 
@@ -778,6 +781,8 @@ static int pseries_migrate_partition(u64 handle)
 
 	if (factor)
 		watchdog_nmi_set_timeout_pct(0);
+
+	vas_migration_handler(VAS_RESUME);
 
 	return ret;
 }
