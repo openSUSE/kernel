@@ -13305,6 +13305,12 @@ S:	Maintained
 F:	drivers/video/fbdev/nvidia/
 F:	drivers/video/fbdev/riva/
 
+NVIDIA WMI EC BACKLIGHT DRIVER
+M:	Daniel Dadap <ddadap@nvidia.com>
+L:	platform-driver-x86@vger.kernel.org
+S:	Supported
+F:	drivers/platform/x86/nvidia-wmi-ec-backlight.c
+
 NVM EXPRESS DRIVER
 M:	Keith Busch <kbusch@kernel.org>
 M:	Jens Axboe <axboe@fb.com>
