@@ -8,8 +8,6 @@
  * Copyright (C) 2009 Bernie Thompson <bernie@plugable.com>
  */
 
-#include <linux/moduleparam.h>
-
 #include <drm/drm.h>
 #include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
@@ -25,10 +23,7 @@
 #define WRITES_IN_FLIGHT (20)
 #define MAX_VENDOR_DESCRIPTOR_SIZE 256
 
-static uint udl_num_urbs = WRITES_IN_FLIGHT;
-module_param_named(numurbs, udl_num_urbs, uint, 0600);
-
-static struct urb *__udl_get_urb(struct udl_device *udl, long timeout);
+static struct urb *udl_get_urb_locked(struct udl_device *udl, long timeout);
 
 static int udl_parse_vendor_descriptor(struct udl_device *udl)
 {
@@ -161,7 +156,7 @@ static void udl_free_urb_list(struct drm_device *dev)
 	/* keep waiting and freeing, until we've got 'em all */
 	while (udl->urbs.count) {
 		spin_lock_irq(&udl->urbs.lock);
-		urb = __udl_get_urb(udl, MAX_SCHEDULE_TIMEOUT);
+		urb = udl_get_urb_locked(udl, MAX_SCHEDULE_TIMEOUT);
 		udl->urbs.count--;
 		spin_unlock_irq(&udl->urbs.lock);
 		if (WARN_ON(!urb))
@@ -174,7 +169,7 @@ static void udl_free_urb_list(struct drm_device *dev)
 		kfree(unode);
 	}
 
-	wake_up(&udl->urbs.sleep);
+	wake_up_all(&udl->urbs.sleep);
 }
 
 static int udl_alloc_urb_list(struct drm_device *dev, int count, size_t size)
@@ -237,23 +232,24 @@ retry:
 	return udl->urbs.count;
 }
 
-static struct urb *__udl_get_urb(struct udl_device *udl, long timeout)
+static struct urb *udl_get_urb_locked(struct udl_device *udl, long timeout)
 {
 	struct urb_node *unode;
 
 	assert_spin_locked(&udl->urbs.lock);
 
-	if (!udl->urbs.count)
-		return NULL;
-
 	/* Wait for an in-flight buffer to complete and get re-queued */
 	if (!wait_event_lock_irq_timeout(udl->urbs.sleep,
+					 !udl->urbs.count ||
 					 !list_empty(&udl->urbs.list),
 					 udl->urbs.lock, timeout)) {
 		DRM_INFO("wait for urb interrupted: available: %d\n",
 			 udl->urbs.available);
 		return NULL;
 	}
+
+	if (!udl->urbs.count)
+		return NULL;
 
 	unode = list_first_entry(&udl->urbs.list, struct urb_node, entry);
 	list_del_init(&unode->entry);
@@ -269,7 +265,7 @@ struct urb *udl_get_urb(struct drm_device *dev)
 	struct urb *urb;
 
 	spin_lock_irq(&udl->urbs.lock);
-	urb = __udl_get_urb(udl, GET_URB_TIMEOUT);
+	urb = udl_get_urb_locked(udl, GET_URB_TIMEOUT);
 	spin_unlock_irq(&udl->urbs.lock);
 	return urb;
 }
@@ -313,8 +309,6 @@ int udl_init(struct udl_device *udl)
 	struct drm_device *dev = &udl->drm;
 	int ret = -ENOMEM;
 
-	drm_info(dev, "pre-allocating %d URBs\n", udl_num_urbs);
-
 	DRM_DEBUG("\n");
 
 	udl->dmadev = usb_intf_get_dma_device(to_usb_interface(dev->dev));
@@ -332,7 +326,7 @@ int udl_init(struct udl_device *udl)
 	if (udl_select_std_channel(udl))
 		DRM_ERROR("Selecting channel failed\n");
 
-	if (!udl_alloc_urb_list(dev, udl_num_urbs, MAX_TRANSFER)) {
+	if (!udl_alloc_urb_list(dev, WRITES_IN_FLIGHT, MAX_TRANSFER)) {
 		DRM_ERROR("udl_alloc_urb_list failed\n");
 		goto err;
 	}

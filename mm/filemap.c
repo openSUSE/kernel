@@ -2334,6 +2334,8 @@ static void filemap_get_read_batch(struct address_space *mapping,
 			continue;
 		if (xas.xa_index > max || xa_is_value(head))
 			break;
+		if (xa_is_sibling(head))
+			break;
 		if (!page_cache_get_speculative(head))
 			goto retry;
 

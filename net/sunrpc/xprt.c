@@ -772,13 +772,14 @@ void xprt_force_disconnect(struct rpc_xprt *xprt)
 	/* Don't race with the test_bit() in xprt_clear_locked() */
 	spin_lock(&xprt->transport_lock);
 	if (test_and_set_bit(XPRT_CLOSE_WAIT, &xprt->state))
-		return;
+		goto out;
 	/* Try to schedule an autoclose RPC call */
 	if (test_and_set_bit(XPRT_LOCKED, &xprt->state) == 0)
 		queue_work(xprtiod_workqueue, &xprt->task_cleanup);
 	else if (xprt->snd_task && !test_bit(XPRT_SND_IS_COOKIE, &xprt->state))
 		rpc_wake_up_queued_task_set_status(&xprt->pending,
 						   xprt->snd_task, -ENOTCONN);
+out:
 	spin_unlock(&xprt->transport_lock);
 }
 EXPORT_SYMBOL_GPL(xprt_force_disconnect);
