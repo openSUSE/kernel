@@ -1103,7 +1103,7 @@ static long sock_do_ioctl(struct net *net, struct socket *sock,
 	if (err != -ENOIOCTLCMD)
 		return err;
 
-	if (is_socket_ioctl_cmd(cmd))
+	if (!is_socket_ioctl_cmd(cmd))
 		return -ENOTTY;
 
 	if (get_user_ifreq(&ifr, &data, argp))
