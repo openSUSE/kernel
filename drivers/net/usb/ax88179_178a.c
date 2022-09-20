@@ -347,9 +347,6 @@ static void ax88179_status(struct usbnet *dev, struct urb *urb)
 		usbnet_link_change(dev, link, 1);
 		netdev_info(dev->net, "ax88179 - Link status is: %d\n", link);
 	}
-
-	ax88179_write_cmd(dev, AX_ACCESS_MAC, AX_NODE_ID, ETH_ALEN, ETH_ALEN,
-			  dev->net->dev_addr);
 }
 
 static int ax88179_mdio_read(struct net_device *netdev, int phy_id, int loc)
