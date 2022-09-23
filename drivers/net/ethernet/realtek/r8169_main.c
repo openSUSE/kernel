@@ -5233,8 +5233,8 @@ static int rtl_get_ether_clk(struct rtl8169_private *tp)
 
 static void rtl_init_mac_address(struct rtl8169_private *tp)
 {
+	u8 mac_addr[ETH_ALEN] __aligned(2) = {};
 	struct net_device *dev = tp->dev;
-	u8 *mac_addr = dev->dev_addr;
 	int rc;
 
 	rc = eth_platform_get_mac_address(tp_to_dev(tp), mac_addr);
@@ -5249,9 +5249,11 @@ static void rtl_init_mac_address(struct rtl8169_private *tp)
 	if (is_valid_ether_addr(mac_addr))
 		goto done;
 
-	eth_hw_addr_random(dev);
+	eth_random_addr(mac_addr);
+	dev->addr_assign_type = NET_ADDR_RANDOM;
 	dev_warn(tp_to_dev(tp), "can't read MAC address, setting random one\n");
 done:
+	eth_hw_addr_set(dev, mac_addr);
 	rtl_rar_set(tp, mac_addr);
 }
 
@@ -5390,12 +5392,12 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	 */
 	if (rtl_chip_supports_csum_v2(tp)) {
 		dev->hw_features |= NETIF_F_SG | NETIF_F_TSO | NETIF_F_TSO6;
-		dev->gso_max_size = RTL_GSO_MAX_SIZE_V2;
-		dev->gso_max_segs = RTL_GSO_MAX_SEGS_V2;
+		netif_set_tso_max_size(dev, RTL_GSO_MAX_SIZE_V2);
+		netif_set_tso_max_segs(dev, RTL_GSO_MAX_SEGS_V2);
 	} else {
 		dev->hw_features |= NETIF_F_SG | NETIF_F_TSO;
-		dev->gso_max_size = RTL_GSO_MAX_SIZE_V1;
-		dev->gso_max_segs = RTL_GSO_MAX_SEGS_V1;
+		netif_set_tso_max_size(dev, RTL_GSO_MAX_SIZE_V1);
+		netif_set_tso_max_segs(dev, RTL_GSO_MAX_SEGS_V1);
 	}
 
 	dev->hw_features |= NETIF_F_RXALL;

@@ -649,7 +649,7 @@ static struct xdp_frame *veth_xdp_rcv_one(struct veth_rq *rq,
 			rcu_read_unlock();
 			goto xdp_xmit;
 		default:
-			bpf_warn_invalid_xdp_action(act);
+			bpf_warn_invalid_xdp_action(rq->dev, xdp_prog, act);
 			fallthrough;
 		case XDP_ABORTED:
 			trace_xdp_exception(rq->dev, xdp_prog, act);
@@ -799,7 +799,7 @@ static struct sk_buff *veth_xdp_rcv_skb(struct veth_rq *rq,
 		rcu_read_unlock();
 		goto xdp_xmit;
 	default:
-		bpf_warn_invalid_xdp_action(act);
+		bpf_warn_invalid_xdp_action(rq->dev, xdp_prog, act);
 		fallthrough;
 	case XDP_ABORTED:
 		trace_xdp_exception(rq->dev, xdp_prog, act);
@@ -1516,8 +1516,7 @@ static int veth_newlink(struct net *src_net, struct net_device *dev,
 	if (ifmp && (dev->ifindex != 0))
 		peer->ifindex = ifmp->ifi_index;
 
-	peer->gso_max_size = dev->gso_max_size;
-	peer->gso_max_segs = dev->gso_max_segs;
+	netif_inherit_tso_max(peer, dev);
 
 	err = register_netdevice(peer);
 	put_net(net);

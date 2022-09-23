@@ -2933,10 +2933,14 @@ static void set_params(struct mv643xx_eth_private *mp,
 	struct net_device *dev = mp->dev;
 	unsigned int tx_ring_size;
 
-	if (is_valid_ether_addr(pd->mac_addr))
+	if (is_valid_ether_addr(pd->mac_addr)) {
 		eth_hw_addr_set(dev, pd->mac_addr);
-	else
-		uc_addr_get(mp, dev->dev_addr);
+	} else {
+		u8 addr[ETH_ALEN];
+
+		uc_addr_get(mp, addr);
+		eth_hw_addr_set(dev, addr);
+	}
 
 	mp->rx_ring_size = DEFAULT_RX_QUEUE_SIZE;
 	if (pd->rx_queue_size)
@@ -3201,7 +3205,7 @@ static int mv643xx_eth_probe(struct platform_device *pdev)
 	dev->hw_features = dev->features;
 
 	dev->priv_flags |= IFF_UNICAST_FLT;
-	dev->gso_max_segs = MV643XX_MAX_TSO_SEGS;
+	netif_set_tso_max_segs(dev, MV643XX_MAX_TSO_SEGS);
 
 	/* MTU range: 64 - 9500 */
 	dev->min_mtu = 64;

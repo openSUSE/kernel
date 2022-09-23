@@ -5,6 +5,7 @@
  * Copyright 2005-2013 Solarflare Communications Inc.
  */
 
+#include <linux/filter.h>
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/netdevice.h>
@@ -104,14 +105,6 @@ static int efx_xdp_setup_prog(struct efx_nic *efx, struct bpf_prog *prog);
 static int efx_xdp(struct net_device *dev, struct netdev_bpf *xdp);
 static int efx_xdp_xmit(struct net_device *dev, int n, struct xdp_frame **xdpfs,
 			u32 flags);
-
-#define EFX_ASSERT_RESET_SERIALISED(efx)		\
-	do {						\
-		if ((efx->state == STATE_READY) ||	\
-		    (efx->state == STATE_RECOVERY) ||	\
-		    (efx->state == STATE_DISABLED))	\
-			ASSERT_RTNL();			\
-	} while (0)
 
 /**************************************************************************
  *
@@ -377,6 +370,8 @@ static int efx_probe_all(struct efx_nic *efx)
 	if (rc)
 		goto fail5;
 
+	efx->state = STATE_NET_DOWN;
+
 	return 0;
 
  fail5:
@@ -497,7 +492,7 @@ void efx_get_irq_moderation(struct efx_nic *efx, unsigned int *tx_usecs,
  */
 static int efx_ioctl(struct net_device *net_dev, struct ifreq *ifr, int cmd)
 {
-	struct efx_nic *efx = netdev_priv(net_dev);
+	struct efx_nic *efx = efx_netdev_priv(net_dev);
 	struct mii_ioctl_data *data = if_mii(ifr);
 
 	if (cmd == SIOCSHWTSTAMP)
@@ -522,7 +517,7 @@ static int efx_ioctl(struct net_device *net_dev, struct ifreq *ifr, int cmd)
 /* Context: process, rtnl_lock() held. */
 int efx_net_open(struct net_device *net_dev)
 {
-	struct efx_nic *efx = netdev_priv(net_dev);
+	struct efx_nic *efx = efx_netdev_priv(net_dev);
 	int rc;
 
 	netif_dbg(efx, ifup, efx->net_dev, "opening device on CPU %d\n",
@@ -543,6 +538,9 @@ int efx_net_open(struct net_device *net_dev)
 	efx_start_all(efx);
 	if (efx->state == STATE_DISABLED || efx->reset_pending)
 		netif_device_detach(efx->net_dev);
+	else
+		efx->state = STATE_NET_UP;
+
 	efx_selftest_async_start(efx);
 	return 0;
 }
@@ -553,7 +551,7 @@ int efx_net_open(struct net_device *net_dev)
  */
 int efx_net_stop(struct net_device *net_dev)
 {
-	struct efx_nic *efx = netdev_priv(net_dev);
+	struct efx_nic *efx = efx_netdev_priv(net_dev);
 
 	netif_dbg(efx, ifdown, efx->net_dev, "closing on CPU %d\n",
 		  raw_smp_processor_id());
@@ -566,7 +564,7 @@ int efx_net_stop(struct net_device *net_dev)
 
 static int efx_vlan_rx_add_vid(struct net_device *net_dev, __be16 proto, u16 vid)
 {
-	struct efx_nic *efx = netdev_priv(net_dev);
+	struct efx_nic *efx = efx_netdev_priv(net_dev);
 
 	if (efx->type->vlan_rx_add_vid)
 		return efx->type->vlan_rx_add_vid(efx, proto, vid);
@@ -576,7 +574,7 @@ static int efx_vlan_rx_add_vid(struct net_device *net_dev, __be16 proto, u16 vid
 
 static int efx_vlan_rx_kill_vid(struct net_device *net_dev, __be16 proto, u16 vid)
 {
-	struct efx_nic *efx = netdev_priv(net_dev);
+	struct efx_nic *efx = efx_netdev_priv(net_dev);
 
 	if (efx->type->vlan_rx_kill_vid)
 		return efx->type->vlan_rx_kill_vid(efx, proto, vid);
@@ -645,7 +643,7 @@ static int efx_xdp_setup_prog(struct efx_nic *efx, struct bpf_prog *prog)
 /* Context: process, rtnl_lock() held. */
 static int efx_xdp(struct net_device *dev, struct netdev_bpf *xdp)
 {
-	struct efx_nic *efx = netdev_priv(dev);
+	struct efx_nic *efx = efx_netdev_priv(dev);
 
 	switch (xdp->command) {
 	case XDP_SETUP_PROG:
@@ -658,7 +656,7 @@ static int efx_xdp(struct net_device *dev, struct netdev_bpf *xdp)
 static int efx_xdp_xmit(struct net_device *dev, int n, struct xdp_frame **xdpfs,
 			u32 flags)
 {
-	struct efx_nic *efx = netdev_priv(dev);
+	struct efx_nic *efx = efx_netdev_priv(dev);
 
 	if (!netif_running(dev))
 		return -EINVAL;
@@ -680,7 +678,7 @@ static int efx_netdev_event(struct notifier_block *this,
 
 	if ((net_dev->netdev_ops == &efx_netdev_ops) &&
 	    event == NETDEV_CHANGENAME)
-		efx_update_name(netdev_priv(net_dev));
+		efx_update_name(efx_netdev_priv(net_dev));
 
 	return NOTIFY_DONE;
 }
@@ -709,7 +707,7 @@ static int efx_register_netdev(struct efx_nic *efx)
 	if (efx_nic_rev(efx) >= EFX_REV_HUNT_A0)
 		net_dev->priv_flags |= IFF_UNICAST_FLT;
 	net_dev->ethtool_ops = &efx_ethtool_ops;
-	net_dev->gso_max_segs = EFX_TSO_MAX_SEGS;
+	netif_set_tso_max_segs(net_dev, EFX_TSO_MAX_SEGS);
 	net_dev->min_mtu = EFX_MIN_MTU;
 	net_dev->max_mtu = EFX_MAX_MTU;
 
@@ -719,8 +717,6 @@ static int efx_register_netdev(struct efx_nic *efx)
 	 * already requested.  If so, the NIC is probably hosed so we
 	 * abort.
 	 */
-	efx->state = STATE_READY;
-	smp_mb(); /* ensure we change state before checking reset_pending */
 	if (efx->reset_pending) {
 		pci_err(efx->pci_dev, "aborting probe due to scheduled reset\n");
 		rc = -EIO;
@@ -746,6 +742,8 @@ static int efx_register_netdev(struct efx_nic *efx)
 	}
 
 	efx_associate(efx);
+
+	efx->state = STATE_NET_DOWN;
 
 	rtnl_unlock();
 
@@ -776,7 +774,8 @@ static void efx_unregister_netdev(struct efx_nic *efx)
 	if (!efx->net_dev)
 		return;
 
-	BUG_ON(netdev_priv(efx->net_dev) != efx);
+	if (WARN_ON(efx_netdev_priv(efx->net_dev) != efx))
+		return;
 
 	if (efx_dev_registered(efx)) {
 		strlcpy(efx->name, pci_name(efx->pci_dev), sizeof(efx->name));
@@ -794,10 +793,6 @@ static void efx_unregister_netdev(struct efx_nic *efx)
 
 /* PCI device ID table */
 static const struct pci_device_id efx_pci_table[] = {
-	{PCI_DEVICE(PCI_VENDOR_ID_SOLARFLARE, 0x0803),	/* SFC9020 */
-	 .driver_data = (unsigned long) &siena_a0_nic_type},
-	{PCI_DEVICE(PCI_VENDOR_ID_SOLARFLARE, 0x0813),	/* SFL9021 */
-	 .driver_data = (unsigned long) &siena_a0_nic_type},
 	{PCI_DEVICE(PCI_VENDOR_ID_SOLARFLARE, 0x0903),  /* SFC9120 PF */
 	 .driver_data = (unsigned long) &efx_hunt_a0_nic_type},
 	{PCI_DEVICE(PCI_VENDOR_ID_SOLARFLARE, 0x1903),  /* SFC9120 VF */
@@ -848,7 +843,7 @@ static void efx_pci_remove_main(struct efx_nic *efx)
 	/* Flush reset_work. It can no longer be scheduled since we
 	 * are not READY.
 	 */
-	BUG_ON(efx->state == STATE_READY);
+	WARN_ON(efx_net_active(efx->state));
 	efx_flush_reset_workqueue(efx);
 
 	efx_disable_interrupts(efx);
@@ -866,6 +861,7 @@ static void efx_pci_remove_main(struct efx_nic *efx)
  */
 static void efx_pci_remove(struct pci_dev *pci_dev)
 {
+	struct efx_probe_data *probe_data;
 	struct efx_nic *efx;
 
 	efx = pci_get_drvdata(pci_dev);
@@ -890,84 +886,48 @@ static void efx_pci_remove(struct pci_dev *pci_dev)
 	efx_pci_remove_main(efx);
 
 	efx_fini_io(efx);
-	netif_dbg(efx, drv, efx->net_dev, "shutdown successful\n");
+	pci_dbg(efx->pci_dev, "shutdown successful\n");
 
 	efx_fini_struct(efx);
 	free_netdev(efx->net_dev);
+	probe_data = container_of(efx, struct efx_probe_data, efx);
+	kfree(probe_data);
 
 	pci_disable_pcie_error_reporting(pci_dev);
 };
 
 /* NIC VPD information
  * Called during probe to display the part number of the
- * installed NIC.  VPD is potentially very large but this should
- * always appear within the first 512 bytes.
+ * installed NIC.
  */
-#define SFC_VPD_LEN 512
 static void efx_probe_vpd_strings(struct efx_nic *efx)
 {
 	struct pci_dev *dev = efx->pci_dev;
-	char vpd_data[SFC_VPD_LEN];
-	ssize_t vpd_size;
-	int ro_start, ro_size, i, j;
+	unsigned int vpd_size, kw_len;
+	u8 *vpd_data;
+	int start;
 
-	/* Get the vpd data from the device */
-	vpd_size = pci_read_vpd(dev, 0, sizeof(vpd_data), vpd_data);
-	if (vpd_size <= 0) {
-		netif_err(efx, drv, efx->net_dev, "Unable to read VPD\n");
+	vpd_data = pci_vpd_alloc(dev, &vpd_size);
+	if (IS_ERR(vpd_data)) {
+		pci_warn(dev, "Unable to read VPD\n");
 		return;
 	}
 
-	/* Get the Read only section */
-	ro_start = pci_vpd_find_tag(vpd_data, vpd_size, PCI_VPD_LRDT_RO_DATA);
-	if (ro_start < 0) {
-		netif_err(efx, drv, efx->net_dev, "VPD Read-only not found\n");
-		return;
-	}
+	start = pci_vpd_find_ro_info_keyword(vpd_data, vpd_size,
+					     PCI_VPD_RO_KEYWORD_PARTNO, &kw_len);
+	if (start < 0)
+		pci_err(dev, "Part number not found or incomplete\n");
+	else
+		pci_info(dev, "Part Number : %.*s\n", kw_len, vpd_data + start);
 
-	ro_size = pci_vpd_lrdt_size(&vpd_data[ro_start]);
-	j = ro_size;
-	i = ro_start + PCI_VPD_LRDT_TAG_SIZE;
-	if (i + j > vpd_size)
-		j = vpd_size - i;
+	start = pci_vpd_find_ro_info_keyword(vpd_data, vpd_size,
+					     PCI_VPD_RO_KEYWORD_SERIALNO, &kw_len);
+	if (start < 0)
+		pci_err(dev, "Serial number not found or incomplete\n");
+	else
+		efx->vpd_sn = kmemdup_nul(vpd_data + start, kw_len, GFP_KERNEL);
 
-	/* Get the Part number */
-	i = pci_vpd_find_info_keyword(vpd_data, i, j, "PN");
-	if (i < 0) {
-		netif_err(efx, drv, efx->net_dev, "Part number not found\n");
-		return;
-	}
-
-	j = pci_vpd_info_field_size(&vpd_data[i]);
-	i += PCI_VPD_INFO_FLD_HDR_SIZE;
-	if (i + j > vpd_size) {
-		netif_err(efx, drv, efx->net_dev, "Incomplete part number\n");
-		return;
-	}
-
-	netif_info(efx, drv, efx->net_dev,
-		   "Part Number : %.*s\n", j, &vpd_data[i]);
-
-	i = ro_start + PCI_VPD_LRDT_TAG_SIZE;
-	j = ro_size;
-	i = pci_vpd_find_info_keyword(vpd_data, i, j, "SN");
-	if (i < 0) {
-		netif_err(efx, drv, efx->net_dev, "Serial number not found\n");
-		return;
-	}
-
-	j = pci_vpd_info_field_size(&vpd_data[i]);
-	i += PCI_VPD_INFO_FLD_HDR_SIZE;
-	if (i + j > vpd_size) {
-		netif_err(efx, drv, efx->net_dev, "Incomplete serial number\n");
-		return;
-	}
-
-	efx->vpd_sn = kmalloc(j + 1, GFP_KERNEL);
-	if (!efx->vpd_sn)
-		return;
-
-	snprintf(efx->vpd_sn, j + 1, "%s", &vpd_data[i]);
+	kfree(vpd_data);
 }
 
 
@@ -1085,24 +1045,34 @@ static int efx_pci_probe_post_io(struct efx_nic *efx)
 static int efx_pci_probe(struct pci_dev *pci_dev,
 			 const struct pci_device_id *entry)
 {
+	struct efx_probe_data *probe_data, **probe_ptr;
 	struct net_device *net_dev;
 	struct efx_nic *efx;
 	int rc;
 
-	/* Allocate and initialise a struct net_device and struct efx_nic */
-	net_dev = alloc_etherdev_mqs(sizeof(*efx), EFX_MAX_CORE_TX_QUEUES,
-				     EFX_MAX_RX_QUEUES);
+	/* Allocate probe data and struct efx_nic */
+	probe_data = kzalloc(sizeof(*probe_data), GFP_KERNEL);
+	if (!probe_data)
+		return -ENOMEM;
+	probe_data->pci_dev = pci_dev;
+	efx = &probe_data->efx;
+
+	/* Allocate and initialise a struct net_device */
+	net_dev = alloc_etherdev_mq(sizeof(probe_data), EFX_MAX_CORE_TX_QUEUES);
 	if (!net_dev)
 		return -ENOMEM;
-	efx = netdev_priv(net_dev);
+	probe_ptr = netdev_priv(net_dev);
+	*probe_ptr = probe_data;
+	efx->net_dev = net_dev;
 	efx->type = (const struct efx_nic_type *) entry->driver_data;
 	efx->fixed_features |= NETIF_F_HIGHDMA;
 
 	pci_set_drvdata(pci_dev, efx);
 	SET_NETDEV_DEV(net_dev, &pci_dev->dev);
-	rc = efx_init_struct(efx, pci_dev, net_dev);
+	rc = efx_init_struct(efx, pci_dev);
 	if (rc)
 		goto fail1;
+	efx->mdio.dev = net_dev;
 
 	pci_info(pci_dev, "Solarflare NIC detected\n");
 
@@ -1191,13 +1161,13 @@ static int efx_pm_freeze(struct device *dev)
 
 	rtnl_lock();
 
-	if (efx->state != STATE_DISABLED) {
-		efx->state = STATE_UNINIT;
-
+	if (efx_net_active(efx->state)) {
 		efx_device_detach_sync(efx);
 
 		efx_stop_all(efx);
 		efx_disable_interrupts(efx);
+
+		efx->state = efx_freeze(efx->state);
 	}
 
 	rtnl_unlock();
@@ -1212,7 +1182,7 @@ static int efx_pm_thaw(struct device *dev)
 
 	rtnl_lock();
 
-	if (efx->state != STATE_DISABLED) {
+	if (efx_frozen(efx->state)) {
 		rc = efx_enable_interrupts(efx);
 		if (rc)
 			goto fail;
@@ -1225,7 +1195,7 @@ static int efx_pm_thaw(struct device *dev)
 
 		efx_device_attach_if_not_resetting(efx);
 
-		efx->state = STATE_READY;
+		efx->state = efx_thaw(efx->state);
 
 		efx->type->resume_wol(efx);
 	}
@@ -1331,12 +1301,6 @@ static int __init efx_init_module(void)
 	if (rc)
 		goto err_notifier;
 
-#ifdef CONFIG_SFC_SRIOV
-	rc = efx_init_sriov();
-	if (rc)
-		goto err_sriov;
-#endif
-
 	rc = efx_create_reset_workqueue();
 	if (rc)
 		goto err_reset;
@@ -1356,10 +1320,6 @@ static int __init efx_init_module(void)
  err_pci:
 	efx_destroy_reset_workqueue();
  err_reset:
-#ifdef CONFIG_SFC_SRIOV
-	efx_fini_sriov();
- err_sriov:
-#endif
 	unregister_netdevice_notifier(&efx_netdev_notifier);
  err_notifier:
 	return rc;
@@ -1372,9 +1332,6 @@ static void __exit efx_exit_module(void)
 	pci_unregister_driver(&ef100_pci_driver);
 	pci_unregister_driver(&efx_pci_driver);
 	efx_destroy_reset_workqueue();
-#ifdef CONFIG_SFC_SRIOV
-	efx_fini_sriov();
-#endif
 	unregister_netdevice_notifier(&efx_netdev_notifier);
 
 }

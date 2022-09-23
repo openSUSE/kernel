@@ -373,7 +373,7 @@ static int rtw_usb_if1_init(struct usb_interface *pusb_intf)
 	netif_carrier_off(pnetdev);
 
 	rtw_macaddr_cfg(padapter->eeprompriv.mac_addr);
-	memcpy(pnetdev->dev_addr, padapter->eeprompriv.mac_addr, ETH_ALEN);
+	eth_hw_addr_set(pnetdev, padapter->eeprompriv.mac_addr);
 	pr_debug("MAC Address from pnetdev->dev_addr =  %pM\n",
 		 pnetdev->dev_addr);
 

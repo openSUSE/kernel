@@ -1155,15 +1155,19 @@ static int ethoc_probe(struct platform_device *pdev)
 		eth_hw_addr_set(netdev, pdata->hwaddr);
 		priv->phy_id = pdata->phy_id;
 	} else {
-		of_get_mac_address(pdev->dev.of_node, netdev->dev_addr);
+		of_get_ethdev_address(pdev->dev.of_node, netdev);
 		priv->phy_id = -1;
 	}
 
 	/* Check that the given MAC address is valid. If it isn't, read the
 	 * current MAC from the controller.
 	 */
-	if (!is_valid_ether_addr(netdev->dev_addr))
-		ethoc_get_mac_address(netdev, netdev->dev_addr);
+	if (!is_valid_ether_addr(netdev->dev_addr)) {
+		u8 addr[ETH_ALEN];
+
+		ethoc_get_mac_address(netdev, addr);
+		eth_hw_addr_set(netdev, addr);
+	}
 
 	/* Check the MAC again for validity, if it still isn't choose and
 	 * program a random one.

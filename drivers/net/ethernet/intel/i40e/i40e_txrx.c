@@ -371,7 +371,6 @@ static void i40e_change_filter_num(bool ipv4, bool add, u16 *ipv4_filter_num,
 	}
 }
 
-#define IP_HEADER_OFFSET		14
 #define I40E_UDPIP_DUMMY_PACKET_LEN	42
 #define I40E_UDPIP6_DUMMY_PACKET_LEN	62
 /**
@@ -2322,7 +2321,7 @@ static int i40e_run_xdp(struct i40e_ring *rx_ring, struct xdp_buff *xdp)
 		result = I40E_XDP_REDIR;
 		break;
 	default:
-		bpf_warn_invalid_xdp_action(act);
+		bpf_warn_invalid_xdp_action(rx_ring->netdev, xdp_prog, act);
 		fallthrough;
 	case XDP_ABORTED:
 out_failure:

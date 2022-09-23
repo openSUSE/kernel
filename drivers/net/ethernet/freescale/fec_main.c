@@ -1731,11 +1731,8 @@ static int fec_get_mac(struct net_device *ndev)
 		return 0;
 	}
 
-	eth_hw_addr_set(ndev, iap);
-
 	/* Adjust MAC if using macaddr */
-	if (iap == macaddr)
-		 ndev->dev_addr[ETH_ALEN-1] = macaddr[ETH_ALEN-1] + fep->dev_id;
+	eth_hw_addr_gen(ndev, iap, iap == macaddr ? fep->dev_id : 0);
 
 	return 0;
 }
@@ -3400,7 +3397,7 @@ static int fec_enet_init(struct net_device *ndev)
 		ndev->features |= NETIF_F_HW_VLAN_CTAG_RX;
 
 	if (fep->quirks & FEC_QUIRK_HAS_CSUM) {
-		ndev->gso_max_segs = FEC_MAX_TSO_SEGS;
+		netif_set_tso_max_segs(ndev, FEC_MAX_TSO_SEGS);
 
 		/* enable hw accelerator */
 		ndev->features |= (NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM

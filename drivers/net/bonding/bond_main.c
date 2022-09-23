@@ -35,6 +35,7 @@
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/fcntl.h>
+#include <linux/filter.h>
 #include <linux/interrupt.h>
 #include <linux/ptrace.h>
 #include <linux/ioport.h>
@@ -904,7 +905,7 @@ static int bond_set_dev_addr(struct net_device *bond_dev,
 	if (err)
 		return err;
 
-	memcpy(bond_dev->dev_addr, slave_dev->dev_addr, slave_dev->addr_len);
+	__dev_addr_set(bond_dev, slave_dev->dev_addr, slave_dev->addr_len);
 	bond_dev->addr_assign_type = NET_ADDR_STOLEN;
 	call_netdevice_notifiers(NETDEV_CHANGEADDR, bond_dev);
 	return 0;
@@ -1397,8 +1398,8 @@ static void bond_compute_features(struct bonding *bond)
 	struct list_head *iter;
 	struct slave *slave;
 	unsigned short max_hard_header_len = ETH_HLEN;
-	unsigned int gso_max_size = GSO_MAX_SIZE;
-	u16 gso_max_segs = GSO_MAX_SEGS;
+	unsigned int tso_max_size = TSO_MAX_SIZE;
+	u16 tso_max_segs = TSO_MAX_SEGS;
 
 	if (!bond_has_slaves(bond))
 		goto done;
@@ -1427,8 +1428,8 @@ static void bond_compute_features(struct bonding *bond)
 		if (slave->dev->hard_header_len > max_hard_header_len)
 			max_hard_header_len = slave->dev->hard_header_len;
 
-		gso_max_size = min(gso_max_size, slave->dev->gso_max_size);
-		gso_max_segs = min(gso_max_segs, slave->dev->gso_max_segs);
+		tso_max_size = min(tso_max_size, slave->dev->tso_max_size);
+		tso_max_segs = min(tso_max_segs, slave->dev->tso_max_segs);
 	}
 	bond_dev->hard_header_len = max_hard_header_len;
 
@@ -1441,8 +1442,8 @@ done:
 	bond_dev->hw_enc_features |= xfrm_features;
 #endif /* CONFIG_XFRM_OFFLOAD */
 	bond_dev->mpls_features = mpls_features;
-	bond_dev->gso_max_segs = gso_max_segs;
-	netif_set_gso_max_size(bond_dev, gso_max_size);
+	netif_set_tso_max_segs(bond_dev, tso_max_segs);
+	netif_set_tso_max_size(bond_dev, tso_max_size);
 
 	bond_dev->priv_flags &= ~IFF_XMIT_DST_RELEASE;
 	if ((bond_dev->priv_flags & IFF_XMIT_DST_RELEASE_PERM) &&
@@ -4289,7 +4290,7 @@ static int bond_set_mac_address(struct net_device *bond_dev, void *addr)
 	}
 
 	/* success */
-	memcpy(bond_dev->dev_addr, ss->__data, bond_dev->addr_len);
+	dev_addr_set(bond_dev, ss->__data);
 	return 0;
 
 unwind:

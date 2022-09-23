@@ -2212,7 +2212,7 @@ mvneta_run_xdp(struct mvneta_port *pp, struct mvneta_rx_queue *rxq,
 			mvneta_xdp_put_buff(pp, rxq, xdp, sinfo, sync);
 		break;
 	default:
-		bpf_warn_invalid_xdp_action(act);
+		bpf_warn_invalid_xdp_action(pp->dev, prog, act);
 		fallthrough;
 	case XDP_ABORTED:
 		trace_xdp_exception(pp->dev, prog, act);
@@ -5240,7 +5240,7 @@ static int mvneta_probe(struct platform_device *pdev)
 		goto err_free_ports;
 	}
 
-	err = of_get_mac_address(dn, dev->dev_addr);
+	err = of_get_ethdev_address(dn, dev);
 	if (!err) {
 		mac_from = "device tree";
 	} else {
@@ -5344,7 +5344,7 @@ static int mvneta_probe(struct platform_device *pdev)
 	dev->hw_features |= dev->features;
 	dev->vlan_features |= dev->features;
 	dev->priv_flags |= IFF_LIVE_ADDR_CHANGE;
-	dev->gso_max_segs = MVNETA_MAX_TSO_SEGS;
+	netif_set_tso_max_segs(dev, MVNETA_MAX_TSO_SEGS);
 
 	/* MTU range: 68 - 9676 */
 	dev->min_mtu = ETH_MIN_MTU;

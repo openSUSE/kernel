@@ -47,6 +47,8 @@
 #include <uapi/linux/if_bonding.h>
 #include <uapi/linux/pkt_cls.h>
 #include <linux/hashtable.h>
+#include <linux/rbtree.h>
+#include <linux/ref_tracker.h>
 
 struct netpoll_info;
 struct device;
@@ -208,6 +210,7 @@ struct sk_buff;
 
 struct netdev_hw_addr {
 	struct list_head	list;
+	struct rb_node		node;
 	unsigned char		addr[MAX_ADDR_LEN];
 	unsigned char		type;
 #define NETDEV_HW_ADDR_T_LAN		1
@@ -224,6 +227,9 @@ struct netdev_hw_addr {
 struct netdev_hw_addr_list {
 	struct list_head	list;
 	int			count;
+
+	/* Auxiliary tree for faster lookup on addition and deletion */
+	struct rb_root		tree;
 };
 
 #define netdev_hw_addr_list_count(l) ((l)->count)
@@ -295,17 +301,11 @@ enum netdev_state_t {
 };
 
 
-/*
- * This structure holds boot-time configured netdevice settings. They
- * are then used in the device probing.
- */
-struct netdev_boot_setup {
-	char name[IFNAMSIZ];
-	struct ifmap map;
-};
-#define NETDEV_BOOT_SETUP_MAX 8
-
-int __init netdev_boot_setup(char *str);
+#ifdef CONFIG_NET_DEV_REFCNT_TRACKER
+typedef struct ref_tracker *netdevice_tracker;
+#else
+typedef struct {} netdevice_tracker;
+#endif
 
 struct gro_list {
 	struct list_head	list;
@@ -1861,6 +1861,7 @@ enum netdev_ml_priv_type {
  *	@proto_down_reason:	reason a netdev interface is held down
  *	@pcpu_refcnt:		Number of references to this device
  *	@dev_refcnt:		Number of references to this device
+ *	@refcnt_tracker:	Tracker directory for tracked references to this device
  *	@todo_list:		Delayed register/unregister
  *	@link_watch_list:	XXX: need comments on this one
  *
@@ -1892,8 +1893,10 @@ enum netdev_ml_priv_type {
  *	@rtnl_link_ops:	Rtnl_link_ops
  *
  *	@gso_max_size:	Maximum size of generic segmentation offload
+ *	@tso_max_size:	Device (as in HW) limit on the max TSO request size
  *	@gso_max_segs:	Maximum number of segments that can be passed to the
  *			NIC for GSO
+ *	@tso_max_segs:	Device (as in HW) limit on the max TSO segment count
  *
  *	@dcbnl_ops:	Data Center Bridging netlink ops
  *	@num_tc:	Number of traffic classes in the net device
@@ -1932,6 +1935,11 @@ enum netdev_ml_priv_type {
  *			dev->addr_list_lock.
  *	@unlink_list:	As netif_addr_lock() can be called recursively,
  *			keep a list of interfaces to be deleted.
+ *	@gro_max_size:	Maximum size of aggregated packet in generic
+ *			receive offload (GRO)
+ *
+ *	@dev_addr_shadow:	Copy of @dev_addr to catch direct writes.
+ *	@linkwatch_dev_tracker:	refcount tracker used by linkwatch.
  *
  *	FIXME: cleanup struct net_device such that network protocol info
  *	moves out.
@@ -2105,7 +2113,7 @@ struct net_device {
  * Cache lines mostly used on receive path (including eth_type_trans())
  */
 	/* Interface address info used in eth_type_trans() */
-	unsigned char		*dev_addr;
+	const unsigned char	*dev_addr;
 
 	struct netdev_rx_queue	*_rx;
 	unsigned int		num_rx_queues;
@@ -2114,6 +2122,8 @@ struct net_device {
 	struct bpf_prog __rcu	*xdp_prog;
 	unsigned long		gro_flush_timeout;
 	int			napi_defer_hard_irqs;
+#define GRO_MAX_SIZE		65536
+	unsigned int		gro_max_size;
 	rx_handler_func_t __rcu	*rx_handler;
 	void __rcu		*rx_handler_data;
 
@@ -2166,6 +2176,7 @@ struct net_device {
 #else
 	refcount_t		dev_refcnt;
 #endif
+	struct ref_tracker_dir	refcnt_tracker;
 
 	struct list_head	link_watch_list;
 
@@ -2219,8 +2230,13 @@ struct net_device {
 	/* for setting kernel sock attribute on TCP connection setup */
 #define GSO_MAX_SIZE		65536
 	unsigned int		gso_max_size;
+#define TSO_LEGACY_MAX_SIZE	65536
+#define TSO_MAX_SIZE		UINT_MAX
+	unsigned int		tso_max_size;
 #define GSO_MAX_SEGS		65535
 	u16			gso_max_segs;
+#define TSO_MAX_SEGS		U16_MAX
+	u16			tso_max_segs;
 
 #ifdef CONFIG_DCB
 	const struct dcbnl_rtnl_ops *dcbnl_ops;
@@ -2253,6 +2269,9 @@ struct net_device {
 
 	/* protected by rtnl_lock */
 	struct bpf_xdp_entity	xdp_state[__MAX_XDP_MODE];
+
+	u8 dev_addr_shadow[MAX_ADDR_LEN];
+	netdevice_tracker	linkwatch_dev_tracker;
 };
 #define to_net_dev(d) container_of(d, struct net_device, dev)
 
@@ -2450,37 +2469,53 @@ static inline void *netdev_priv(const struct net_device *dev)
  */
 #define NAPI_POLL_WEIGHT 64
 
+void netif_napi_add_weight(struct net_device *dev, struct napi_struct *napi,
+			   int (*poll)(struct napi_struct *, int), int weight);
+
 /**
- *	netif_napi_add - initialize a NAPI context
- *	@dev:  network device
- *	@napi: NAPI context
- *	@poll: polling function
- *	@weight: default weight
+ * netif_napi_add() - initialize a NAPI context
+ * @dev:  network device
+ * @napi: NAPI context
+ * @poll: polling function
+ * @weight: default weight
  *
  * netif_napi_add() must be used to initialize a NAPI context prior to calling
  * *any* of the other NAPI-related functions.
  */
-void netif_napi_add(struct net_device *dev, struct napi_struct *napi,
-		    int (*poll)(struct napi_struct *, int), int weight);
+static inline void
+netif_napi_add(struct net_device *dev, struct napi_struct *napi,
+	       int (*poll)(struct napi_struct *, int), int weight)
+{
+	netif_napi_add_weight(dev, napi, poll, weight);
+}
+
+static inline void
+netif_napi_add_tx_weight(struct net_device *dev,
+			 struct napi_struct *napi,
+			 int (*poll)(struct napi_struct *, int),
+			 int weight)
+{
+	set_bit(NAPI_STATE_NO_BUSY_POLL, &napi->state);
+	netif_napi_add_weight(dev, napi, poll, weight);
+}
+
+#define netif_tx_napi_add netif_napi_add_tx_weight
 
 /**
- *	netif_tx_napi_add - initialize a NAPI context
- *	@dev:  network device
- *	@napi: NAPI context
- *	@poll: polling function
- *	@weight: default weight
+ * netif_napi_add_tx() - initialize a NAPI context to be used for Tx only
+ * @dev:  network device
+ * @napi: NAPI context
+ * @poll: polling function
  *
  * This variant of netif_napi_add() should be used from drivers using NAPI
  * to exclusively poll a TX queue.
  * This will avoid we add it into napi_hash[], thus polluting this hash table.
  */
-static inline void netif_tx_napi_add(struct net_device *dev,
+static inline void netif_napi_add_tx(struct net_device *dev,
 				     struct napi_struct *napi,
-				     int (*poll)(struct napi_struct *, int),
-				     int weight)
+				     int (*poll)(struct napi_struct *, int))
 {
-	set_bit(NAPI_STATE_NO_BUSY_POLL, &napi->state);
-	netif_napi_add(dev, napi, poll, weight);
+	netif_napi_add_tx_weight(dev, napi, poll, NAPI_POLL_WEIGHT);
 }
 
 /**
@@ -2819,7 +2854,6 @@ static inline struct net_device *first_net_device_rcu(struct net *net)
 }
 
 int netdev_boot_setup_check(struct net_device *dev);
-unsigned long netdev_boot_base(const char *prefix, int unit);
 struct net_device *dev_getbyhwaddr_rcu(struct net *net, unsigned short type,
 				       const char *hwaddr);
 struct net_device *dev_getfirstbyhwtype(struct net *net, unsigned short type);
@@ -2887,8 +2921,6 @@ struct net_device *dev_get_by_index_rcu(struct net *net, int ifindex);
 struct net_device *dev_get_by_napi_id(unsigned int napi_id);
 int netdev_get_name(struct net *net, char *name, int ifindex);
 int dev_restart(struct net_device *dev);
-int skb_gro_receive(struct sk_buff *p, struct sk_buff *skb);
-int skb_gro_receive_list(struct sk_buff *p, struct sk_buff *skb);
 
 
 static inline int dev_hard_header(struct sk_buff *skb, struct net_device *dev,
@@ -3564,6 +3596,8 @@ static inline int netif_set_real_num_rx_queues(struct net_device *dev,
 	return 0;
 }
 #endif
+int netif_set_real_num_queues(struct net_device *dev,
+			      unsigned int txq, unsigned int rxq);
 
 static inline struct netdev_rx_queue *
 __netif_get_rx_queue(struct net_device *dev, unsigned int rxq)
@@ -3633,6 +3667,8 @@ static inline void dev_consume_skb_any(struct sk_buff *skb)
 	__dev_kfree_skb_any(skb, SKB_REASON_CONSUMED);
 }
 
+u32 bpf_prog_run_generic_xdp(struct sk_buff *skb, struct xdp_buff *xdp,
+			     struct bpf_prog *xdp_prog);
 void generic_xdp_tx(struct sk_buff *skb, struct bpf_prog *xdp_prog);
 int do_xdp_generic(struct bpf_prog *xdp_prog, struct sk_buff *skb);
 int netif_rx(struct sk_buff *skb);
@@ -3640,6 +3676,7 @@ int netif_rx_ni(struct sk_buff *skb);
 int netif_rx_any_context(struct sk_buff *skb);
 int netif_receive_skb(struct sk_buff *skb);
 int netif_receive_skb_core(struct sk_buff *skb);
+void netif_receive_skb_list_internal(struct list_head *head);
 void netif_receive_skb_list(struct list_head *head);
 gro_result_t napi_gro_receive(struct napi_struct *napi, struct sk_buff *skb);
 void napi_gro_flush(struct napi_struct *napi, bool flush_old);
@@ -3788,6 +3825,7 @@ void netdev_run_todo(void);
  *	@dev: network device
  *
  * Release reference to device to allow it to be freed.
+ * Try using dev_put_track() instead.
  */
 static inline void dev_put(struct net_device *dev)
 {
@@ -3803,6 +3841,7 @@ static inline void dev_put(struct net_device *dev)
  *	@dev: network device
  *
  * Hold reference to device to keep it from being freed.
+ * Try using dev_hold_track() instead.
  */
 static inline void dev_hold(struct net_device *dev)
 {
@@ -3811,6 +3850,40 @@ static inline void dev_hold(struct net_device *dev)
 #else
 	refcount_inc(&dev->dev_refcnt);
 #endif
+}
+
+static inline void netdev_tracker_alloc(struct net_device *dev,
+					netdevice_tracker *tracker, gfp_t gfp)
+{
+#ifdef CONFIG_NET_DEV_REFCNT_TRACKER
+	ref_tracker_alloc(&dev->refcnt_tracker, tracker, gfp);
+#endif
+}
+
+static inline void netdev_tracker_free(struct net_device *dev,
+				       netdevice_tracker *tracker)
+{
+#ifdef CONFIG_NET_DEV_REFCNT_TRACKER
+	ref_tracker_free(&dev->refcnt_tracker, tracker);
+#endif
+}
+
+static inline void dev_hold_track(struct net_device *dev,
+				  netdevice_tracker *tracker, gfp_t gfp)
+{
+	if (dev) {
+		dev_hold(dev);
+		netdev_tracker_alloc(dev, tracker, gfp);
+	}
+}
+
+static inline void dev_put_track(struct net_device *dev,
+				 netdevice_tracker *tracker)
+{
+	if (dev) {
+		netdev_tracker_free(dev, tracker);
+		dev_put(dev);
+	}
 }
 
 /* Carrier loss detection, dial on demand. The functions netif_carrier_on
@@ -4277,22 +4350,18 @@ void __hw_addr_unsync_dev(struct netdev_hw_addr_list *list,
 void __hw_addr_init(struct netdev_hw_addr_list *list);
 
 /* Functions used for device addresses handling */
+void dev_addr_mod(struct net_device *dev, unsigned int offset,
+		  const void *addr, size_t len);
+
 static inline void
-__dev_addr_set(struct net_device *dev, const u8 *addr, size_t len)
+__dev_addr_set(struct net_device *dev, const void *addr, size_t len)
 {
-	memcpy(dev->dev_addr, addr, len);
+	dev_addr_mod(dev, 0, addr, len);
 }
 
 static inline void dev_addr_set(struct net_device *dev, const u8 *addr)
 {
 	__dev_addr_set(dev, addr, dev->addr_len);
-}
-
-static inline void
-dev_addr_mod(struct net_device *dev, unsigned int offset,
-	     const u8 *addr, size_t len)
-{
-	memcpy(&dev->dev_addr[offset], addr, len);
 }
 
 int dev_addr_add(struct net_device *dev, const unsigned char *addr,
@@ -4301,6 +4370,7 @@ int dev_addr_del(struct net_device *dev, const unsigned char *addr,
 		 unsigned char addr_type);
 void dev_addr_flush(struct net_device *dev);
 int dev_addr_init(struct net_device *dev);
+void dev_addr_check(struct net_device *dev);
 
 /* Functions used for unicast addresses handling */
 int dev_uc_add(struct net_device *dev, const unsigned char *addr);
@@ -4741,8 +4811,28 @@ static inline bool netif_needs_gso(struct sk_buff *skb,
 static inline void netif_set_gso_max_size(struct net_device *dev,
 					  unsigned int size)
 {
-	dev->gso_max_size = size;
+	/* dev->gso_max_size is read locklessly from sk_setup_caps() */
+	WRITE_ONCE(dev->gso_max_size, size);
 }
+
+static inline void netif_set_gso_max_segs(struct net_device *dev,
+					  unsigned int segs)
+{
+	/* dev->gso_max_segs is read locklessly from sk_setup_caps() */
+	WRITE_ONCE(dev->gso_max_segs, segs);
+}
+
+static inline void netif_set_gro_max_size(struct net_device *dev,
+					  unsigned int size)
+{
+	/* This pairs with the READ_ONCE() in skb_gro_receive() */
+	WRITE_ONCE(dev->gro_max_size, size);
+}
+
+void netif_set_tso_max_size(struct net_device *dev, unsigned int size);
+void netif_set_tso_max_segs(struct net_device *dev, unsigned int segs);
+void netif_inherit_tso_max(struct net_device *to,
+			   const struct net_device *from);
 
 static inline void skb_gso_error_unwind(struct sk_buff *skb, __be16 protocol,
 					int pulled_hlen, u16 mac_offset,

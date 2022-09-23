@@ -605,6 +605,11 @@ config DEBUG_MISC
 	  Say Y here if you need to enable miscellaneous debug code that should
 	  be under a more specific debug option but isn't.
 
+menu "Networking Debugging"
+
+source "net/Kconfig.debug"
+
+endmenu # "Networking Debugging"
 
 menu "Memory Debugging"
 
@@ -2474,6 +2479,17 @@ config RATIONAL_KUNIT_TEST
 	default KUNIT_ALL_TESTS
 	help
 	  This builds the rational math unit test.
+	  For more information on KUnit and unit tests in general please refer
+	  to the KUnit documentation in Documentation/dev-tools/kunit/.
+
+	  If unsure, say N.
+
+config MEMCPY_KUNIT_TEST
+	tristate "Test memcpy(), memmove(), and memset() functions at runtime" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  Builds unit tests for memcpy(), memmove(), and memset() functions.
 	  For more information on KUnit and unit tests in general please refer
 	  to the KUnit documentation in Documentation/dev-tools/kunit/.
 

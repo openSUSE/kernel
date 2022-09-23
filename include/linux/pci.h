@@ -2368,28 +2368,14 @@ static inline u8 pci_vpd_info_field_size(const u8 *info_field)
 void *pci_vpd_alloc(struct pci_dev *dev, unsigned int *size);
 
 /**
- * pci_vpd_find_tag - Locates the Resource Data Type tag provided
- * @buf: Pointer to buffered vpd data
- * @len: The length of the vpd buffer
- * @rdt: The Resource Data Type to search for
+ * pci_vpd_find_id_string - Locate id string in VPD
+ * @buf: Pointer to buffered VPD data
+ * @len: The length of the buffer area in which to search
+ * @size: Pointer to field where length of id string is returned
  *
- * Returns the index where the Resource Data Type was found or
- * -ENOENT otherwise.
+ * Returns the index of the id string or -ENOENT if not found.
  */
-int pci_vpd_find_tag(const u8 *buf, unsigned int len, u8 rdt);
-
-/**
- * pci_vpd_find_info_keyword - Locates an information field keyword in the VPD
- * @buf: Pointer to buffered vpd data
- * @off: The offset into the buffer at which to begin the search
- * @len: The length of the buffer area, relative to off, in which to search
- * @kw: The keyword to search for
- *
- * Returns the index where the information field keyword was found or
- * -ENOENT otherwise.
- */
-int pci_vpd_find_info_keyword(const u8 *buf, unsigned int off,
-			      unsigned int len, const char *kw);
+int pci_vpd_find_id_string(const u8 *buf, unsigned int len, unsigned int *size);
 
 /**
  * pci_vpd_find_ro_info_keyword - Locate info field keyword in VPD RO section

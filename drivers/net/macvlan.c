@@ -702,7 +702,8 @@ hash_del:
 	return 0;
 }
 
-static int macvlan_sync_address(struct net_device *dev, unsigned char *addr)
+static int macvlan_sync_address(struct net_device *dev,
+				const unsigned char *addr)
 {
 	struct macvlan_dev *vlan = netdev_priv(dev);
 	struct net_device *lowerdev = vlan->lowerdev;
@@ -711,7 +712,7 @@ static int macvlan_sync_address(struct net_device *dev, unsigned char *addr)
 
 	if (!(dev->flags & IFF_UP)) {
 		/* Just copy in the new address */
-		ether_addr_copy(dev->dev_addr, addr);
+		eth_hw_addr_set(dev, addr);
 	} else {
 		/* Rehash and update the device filters */
 		if (macvlan_addr_busy(vlan->port, addr))
@@ -903,8 +904,7 @@ static int macvlan_init(struct net_device *dev)
 	dev->vlan_features	= lowerdev->vlan_features & MACVLAN_FEATURES;
 	dev->vlan_features	|= ALWAYS_ON_OFFLOADS;
 	dev->hw_enc_features    |= dev->features;
-	dev->gso_max_size	= lowerdev->gso_max_size;
-	dev->gso_max_segs	= lowerdev->gso_max_segs;
+	netif_inherit_tso_max(dev, lowerdev);
 	dev->hard_header_len	= lowerdev->hard_header_len;
 	macvlan_set_lockdep_class(dev);
 
@@ -1751,8 +1751,7 @@ static int macvlan_device_event(struct notifier_block *unused,
 		break;
 	case NETDEV_FEAT_CHANGE:
 		list_for_each_entry(vlan, &port->vlans, list) {
-			vlan->dev->gso_max_size = dev->gso_max_size;
-			vlan->dev->gso_max_segs = dev->gso_max_segs;
+			netif_inherit_tso_max(vlan->dev, dev);
 			netdev_update_features(vlan->dev);
 		}
 		break;

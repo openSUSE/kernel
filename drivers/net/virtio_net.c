@@ -822,7 +822,7 @@ static struct sk_buff *receive_small(struct net_device *dev,
 			rcu_read_unlock();
 			goto xdp_xmit;
 		default:
-			bpf_warn_invalid_xdp_action(act);
+			bpf_warn_invalid_xdp_action(vi->dev, xdp_prog, act);
 			fallthrough;
 		case XDP_ABORTED:
 			trace_xdp_exception(vi->dev, xdp_prog, act);
@@ -1049,7 +1049,7 @@ static struct sk_buff *receive_mergeable(struct net_device *dev,
 			rcu_read_unlock();
 			goto xdp_xmit;
 		default:
-			bpf_warn_invalid_xdp_action(act);
+			bpf_warn_invalid_xdp_action(vi->dev, xdp_prog, act);
 			fallthrough;
 		case XDP_ABORTED:
 			trace_xdp_exception(vi->dev, xdp_prog, act);
@@ -3182,12 +3182,16 @@ static int virtnet_probe(struct virtio_device *vdev)
 	dev->max_mtu = MAX_MTU;
 
 	/* Configuration may specify what MAC to use.  Otherwise random. */
-	if (virtio_has_feature(vdev, VIRTIO_NET_F_MAC))
+	if (virtio_has_feature(vdev, VIRTIO_NET_F_MAC)) {
+		u8 addr[ETH_ALEN];
+
 		virtio_cread_bytes(vdev,
 				   offsetof(struct virtio_net_config, mac),
-				   dev->dev_addr, dev->addr_len);
-	else
+				   addr, ETH_ALEN);
+		eth_hw_addr_set(dev, addr);
+	} else {
 		eth_hw_addr_random(dev);
+	}
 
 	/* Set up our device-specific information */
 	vi = netdev_priv(dev);

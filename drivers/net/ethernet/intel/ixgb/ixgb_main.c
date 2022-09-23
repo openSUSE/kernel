@@ -362,6 +362,7 @@ ixgb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	struct ixgb_adapter *adapter;
 	static int cards_found = 0;
 	int pci_using_dac;
+	u8 addr[ETH_ALEN];
 	int i;
 	int err;
 
@@ -461,7 +462,8 @@ ixgb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		goto err_eeprom;
 	}
 
-	ixgb_get_ee_mac_addr(&adapter->hw, netdev->dev_addr);
+	ixgb_get_ee_mac_addr(&adapter->hw, addr);
+	eth_hw_addr_set(netdev, addr);
 
 	if (!is_valid_ether_addr(netdev->dev_addr)) {
 		netif_err(adapter, probe, adapter->netdev, "Invalid MAC Address\n");
@@ -1711,7 +1713,6 @@ ixgb_update_stats(struct ixgb_adapter *adapter)
 	netdev->stats.tx_window_errors = 0;
 }
 
-#define IXGB_MAX_INTR 10
 /**
  * ixgb_intr - Interrupt Handler
  * @irq: interrupt number
@@ -2227,6 +2228,7 @@ static pci_ers_result_t ixgb_io_slot_reset(struct pci_dev *pdev)
 {
 	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct ixgb_adapter *adapter = netdev_priv(netdev);
+	u8 addr[ETH_ALEN];
 
 	if (pci_enable_device(pdev)) {
 		netif_err(adapter, probe, adapter->netdev,
@@ -2250,7 +2252,8 @@ static pci_ers_result_t ixgb_io_slot_reset(struct pci_dev *pdev)
 			  "After reset, the EEPROM checksum is not valid\n");
 		return PCI_ERS_RESULT_DISCONNECT;
 	}
-	ixgb_get_ee_mac_addr(&adapter->hw, netdev->dev_addr);
+	ixgb_get_ee_mac_addr(&adapter->hw, addr);
+	eth_hw_addr_set(netdev, addr);
 	memcpy(netdev->perm_addr, netdev->dev_addr, netdev->addr_len);
 
 	if (!is_valid_ether_addr(netdev->perm_addr)) {

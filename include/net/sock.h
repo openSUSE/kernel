@@ -56,7 +56,6 @@
 #include <linux/wait.h>
 #include <linux/cgroup-defs.h>
 #include <linux/rbtree.h>
-#include <linux/filter.h>
 #include <linux/rculist_nulls.h>
 #include <linux/poll.h>
 #include <linux/sockptr.h>
@@ -248,6 +247,7 @@ struct sock_common {
 };
 
 struct bpf_local_storage;
+struct sk_filter;
 
 /**
   *	struct sock - network layer representation of sockets
@@ -2284,6 +2284,15 @@ static inline __must_check bool skb_set_owner_sk_safe(struct sk_buff *skb, struc
 		return true;
 	}
 	return false;
+}
+
+static inline void skb_prepare_for_gro(struct sk_buff *skb)
+{
+	if (skb->destructor != sock_wfree) {
+		skb_orphan(skb);
+		return;
+	}
+	skb->slow_gro = 1;
 }
 
 void sk_reset_timer(struct sock *sk, struct timer_list *timer,

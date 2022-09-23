@@ -1037,6 +1037,7 @@ static noinline size_t if_nlmsg_size(const struct net_device *dev,
 	       + nla_total_size(4) /* IFLA_NUM_RX_QUEUES */
 	       + nla_total_size(4) /* IFLA_GSO_MAX_SEGS */
 	       + nla_total_size(4) /* IFLA_GSO_MAX_SIZE */
+	       + nla_total_size(4) /* IFLA_GRO_MAX_SIZE */
 	       + nla_total_size(1) /* IFLA_OPERSTATE */
 	       + nla_total_size(1) /* IFLA_LINKMODE */
 	       + nla_total_size(4) /* IFLA_CARRIER_CHANGES */
@@ -1739,6 +1740,7 @@ static int rtnl_fill_ifinfo(struct sk_buff *skb,
 	    nla_put_u32(skb, IFLA_NUM_TX_QUEUES, dev->num_tx_queues) ||
 	    nla_put_u32(skb, IFLA_GSO_MAX_SEGS, dev->gso_max_segs) ||
 	    nla_put_u32(skb, IFLA_GSO_MAX_SIZE, dev->gso_max_size) ||
+	    nla_put_u32(skb, IFLA_GRO_MAX_SIZE, dev->gro_max_size) ||
 #ifdef CONFIG_RPS
 	    nla_put_u32(skb, IFLA_NUM_RX_QUEUES, dev->num_rx_queues) ||
 #endif
@@ -1891,6 +1893,7 @@ static const struct nla_policy ifla_policy[IFLA_MAX+1] = {
 	[IFLA_PROTO_DOWN_REASON] = { .type = NLA_NESTED },
 	[IFLA_NEW_IFINDEX]	= NLA_POLICY_MIN(NLA_S32, 1),
 	[IFLA_PARENT_DEV_NAME]	= { .type = NLA_NUL_STRING },
+	[IFLA_GRO_MAX_SIZE]	= { .type = NLA_U32 },
 };
 
 static const struct nla_policy ifla_info_policy[IFLA_INFO_MAX+1] = {
@@ -2268,7 +2271,8 @@ invalid_attr:
 	return -EINVAL;
 }
 
-static int validate_linkmsg(struct net_device *dev, struct nlattr *tb[])
+static int validate_linkmsg(struct net_device *dev, struct nlattr *tb[],
+			    struct netlink_ext_ack *extack)
 {
 	if (dev) {
 		if (tb[IFLA_ADDRESS] &&
@@ -2295,13 +2299,21 @@ static int validate_linkmsg(struct net_device *dev, struct nlattr *tb[])
 				return -EOPNOTSUPP;
 
 			if (af_ops->validate_link_af) {
-				err = af_ops->validate_link_af(dev, af);
+				err = af_ops->validate_link_af(dev, af, extack);
 				if (err < 0)
 					return err;
 			}
 		}
 	}
 
+	if (tb[IFLA_GRO_MAX_SIZE]) {
+		u32 gro_max_size = nla_get_u32(tb[IFLA_GRO_MAX_SIZE]);
+
+		if (gro_max_size > GRO_MAX_SIZE) {
+			NL_SET_ERR_MSG(extack, "too big gro_max_size");
+			return -EINVAL;
+		}
+	}
 	return 0;
 }
 
@@ -2603,7 +2615,7 @@ static int do_setlink(const struct sk_buff *skb,
 	const struct net_device_ops *ops = dev->netdev_ops;
 	int err;
 
-	err = validate_linkmsg(dev, tb);
+	err = validate_linkmsg(dev, tb, extack);
 	if (err < 0)
 		return err;
 
@@ -2751,7 +2763,7 @@ static int do_setlink(const struct sk_buff *skb,
 	if (tb[IFLA_GSO_MAX_SIZE]) {
 		u32 max_size = nla_get_u32(tb[IFLA_GSO_MAX_SIZE]);
 
-		if (max_size > GSO_MAX_SIZE) {
+		if (max_size > GSO_MAX_SIZE || max_size > dev->tso_max_size) {
 			err = -EINVAL;
 			goto errout;
 		}
@@ -2765,13 +2777,22 @@ static int do_setlink(const struct sk_buff *skb,
 	if (tb[IFLA_GSO_MAX_SEGS]) {
 		u32 max_segs = nla_get_u32(tb[IFLA_GSO_MAX_SEGS]);
 
-		if (max_segs > GSO_MAX_SEGS) {
+		if (max_segs > GSO_MAX_SEGS || max_segs > dev->tso_max_segs) {
 			err = -EINVAL;
 			goto errout;
 		}
 
 		if (dev->gso_max_segs ^ max_segs) {
-			dev->gso_max_segs = max_segs;
+			netif_set_gso_max_segs(dev, max_segs);
+			status |= DO_SETLINK_MODIFIED;
+		}
+	}
+
+	if (tb[IFLA_GRO_MAX_SIZE]) {
+		u32 gro_max_size = nla_get_u32(tb[IFLA_GRO_MAX_SIZE]);
+
+		if (dev->gro_max_size ^ gro_max_size) {
+			netif_set_gro_max_size(dev, gro_max_size);
 			status |= DO_SETLINK_MODIFIED;
 		}
 	}
@@ -3207,8 +3228,8 @@ struct net_device *rtnl_create_link(struct net *net, const char *ifname,
 		dev->mtu = mtu;
 	}
 	if (tb[IFLA_ADDRESS]) {
-		memcpy(dev->dev_addr, nla_data(tb[IFLA_ADDRESS]),
-				nla_len(tb[IFLA_ADDRESS]));
+		__dev_addr_set(dev, nla_data(tb[IFLA_ADDRESS]),
+			       nla_len(tb[IFLA_ADDRESS]));
 		dev->addr_assign_type = NET_ADDR_SET;
 	}
 	if (tb[IFLA_BROADCAST])
@@ -3225,7 +3246,9 @@ struct net_device *rtnl_create_link(struct net *net, const char *ifname,
 	if (tb[IFLA_GSO_MAX_SIZE])
 		netif_set_gso_max_size(dev, nla_get_u32(tb[IFLA_GSO_MAX_SIZE]));
 	if (tb[IFLA_GSO_MAX_SEGS])
-		dev->gso_max_segs = nla_get_u32(tb[IFLA_GSO_MAX_SEGS]);
+		netif_set_gso_max_segs(dev, nla_get_u32(tb[IFLA_GSO_MAX_SEGS]));
+	if (tb[IFLA_GRO_MAX_SIZE])
+		netif_set_gro_max_size(dev, nla_get_u32(tb[IFLA_GRO_MAX_SIZE]));
 
 	return dev;
 }
@@ -3302,7 +3325,7 @@ replay:
 			m_ops = master_dev->rtnl_link_ops;
 	}
 
-	err = validate_linkmsg(dev, tb);
+	err = validate_linkmsg(dev, tb, extack);
 	if (err < 0)
 		return err;
 
