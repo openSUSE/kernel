@@ -22,7 +22,9 @@
 
 #include <linux/string.h>
 #include <linux/kernel.h>
+#ifndef __GENKSYMS__
 #include <linux/module.h>
+#endif
 
 #include <asm/page.h>
 #include <asm/ptrace.h>
