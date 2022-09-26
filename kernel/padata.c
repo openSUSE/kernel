@@ -36,6 +36,9 @@
 #define MAX_OBJ_NUM 1000
 
 static void padata_free_pd(struct parallel_data *pd);
+static inline void padata_get_pd(struct parallel_data *pd);
+static void padata_put_pd_many(struct parallel_data *pd, int cnt);
+static inline void padata_put_pd(struct parallel_data *pd);
 
 static int padata_index_to_cpu(struct parallel_data *pd, int cpu_index)
 {
@@ -140,7 +143,7 @@ int padata_do_parallel(struct padata_shell *ps,
 		goto out;
 
 	err = 0;
-	atomic_inc(&pd->refcnt);
+	padata_get_pd(pd);
 	padata->pd = pd;
 	padata->cb_cpu = *cb_cpu;
 
@@ -311,8 +314,7 @@ static void padata_serial_worker(struct work_struct *serial_work)
 	}
 	local_bh_enable();
 
-	if (atomic_sub_and_test(cnt, &pd->refcnt))
-		padata_free_pd(pd);
+	padata_put_pd_many(pd, cnt);
 }
 
 /**
@@ -491,6 +493,22 @@ static void padata_free_pd(struct parallel_data *pd)
 	kfree(pd);
 }
 
+static inline void padata_get_pd(struct parallel_data *pd)
+{
+	atomic_inc(&pd->refcnt);
+}
+
+static void padata_put_pd_many(struct parallel_data *pd, int cnt)
+{
+	if (atomic_sub_and_test(cnt, &pd->refcnt))
+		padata_free_pd(pd);
+}
+
+static inline void padata_put_pd(struct parallel_data *pd)
+{
+	padata_put_pd_many(pd, 1);
+}
+
 static void __padata_start(struct padata_instance *pinst)
 {
 	pinst->flags |= PADATA_INIT;
@@ -550,8 +568,7 @@ static int padata_replace(struct padata_instance *pinst)
 	synchronize_rcu();
 
 	list_for_each_entry_continue_reverse(ps, &pinst->pslist, list)
-		if (atomic_dec_and_test(&ps->opd->refcnt))
-			padata_free_pd(ps->opd);
+		padata_put_pd(ps->opd);
 
 	if (notification_mask)
 		blocking_notifier_call_chain(&pinst->cpumask_change_notifier,
