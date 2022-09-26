@@ -607,7 +607,7 @@ static u64 __init get_snp_jump_table_addr(void)
 	return addr;
 }
 
-static u64 get_jump_table_addr(void)
+static u64 __init get_jump_table_addr(void)
 {
 	struct ghcb_state state;
 	unsigned long flags;
@@ -1129,7 +1129,7 @@ void snp_set_wakeup_secondary_cpu(void)
 	apic->wakeup_secondary_cpu = wakeup_cpu_via_vmgexit;
 }
 
-int sev_es_setup_ap_jump_table(struct real_mode_header *rmh)
+int __init sev_es_setup_ap_jump_table(struct real_mode_header *rmh)
 {
 	u16 startup_cs, startup_ip;
 	phys_addr_t jump_table_pa;
