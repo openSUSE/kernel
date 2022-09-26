@@ -1158,7 +1158,7 @@ void padata_free_shell(struct padata_shell *ps)
 
 	mutex_lock(&pinst->lock);
 	list_del(&ps->list);
-	padata_free_pd(rcu_dereference_protected(ps->pd, 1));
+	padata_put_pd(rcu_dereference_protected(ps->pd, 1));
 	mutex_unlock(&pinst->lock);
 
 	kfree(ps);
