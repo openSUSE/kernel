@@ -2084,7 +2084,7 @@ static netdev_tx_t ibmvnic_xmit(struct sk_buff *skb, struct net_device *netdev)
 
 	tx_packets++;
 	tx_bytes += skb->len;
-	txq->trans_start = jiffies;
+	txq_trans_cond_update(txq);
 	ret = NETDEV_TX_OK;
 	goto out;
 
