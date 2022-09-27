@@ -2862,6 +2862,9 @@ int rpc_clnt_test_and_add_xprt(struct rpc_clnt *clnt,
 			RPC_TASK_SOFT|RPC_TASK_SOFTCONN|RPC_TASK_ASYNC|RPC_TASK_NULLCREDS,
 			&rpc_cb_add_xprt_call_ops, data);
 
+	if (IS_ERR(task))
+		return PTR_ERR(task);
+
 	rpc_put_task(task);
 success:
 	return 1;
