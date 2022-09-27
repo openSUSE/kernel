@@ -2267,6 +2267,7 @@ static void ixgbevf_negotiate_api(struct ixgbevf_adapter *adapter)
 {
 	struct ixgbe_hw *hw = &adapter->hw;
 	static const int api[] = {
+		ixgbe_mbox_api_15,
 		ixgbe_mbox_api_14,
 		ixgbe_mbox_api_13,
 		ixgbe_mbox_api_12,
@@ -2283,6 +2284,12 @@ static void ixgbevf_negotiate_api(struct ixgbevf_adapter *adapter)
 		if (!err)
 			break;
 		idx++;
+	}
+
+	if (hw->api_version >= ixgbe_mbox_api_15) {
+		hw->mbx.ops.init_params(hw);
+		memcpy(&hw->mbx.ops, &ixgbevf_mbx_ops,
+		       sizeof(struct ixgbe_mbx_operations));
 	}
 
 	spin_unlock_bh(&adapter->mbx_lock);
@@ -2635,6 +2642,7 @@ static void ixgbevf_set_num_queues(struct ixgbevf_adapter *adapter)
 		case ixgbe_mbox_api_12:
 		case ixgbe_mbox_api_13:
 		case ixgbe_mbox_api_14:
+		case ixgbe_mbox_api_15:
 			if (adapter->xdp_prog &&
 			    hw->mac.max_tx_queues == rss)
 				rss = rss > 3 ? 2 : 1;
@@ -4635,6 +4643,7 @@ static int ixgbevf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	case ixgbe_mbox_api_12:
 	case ixgbe_mbox_api_13:
 	case ixgbe_mbox_api_14:
+	case ixgbe_mbox_api_15:
 		netdev->max_mtu = IXGBE_MAX_JUMBO_FRAME_SIZE -
 				  (ETH_HLEN + ETH_FCS_LEN);
 		break;
