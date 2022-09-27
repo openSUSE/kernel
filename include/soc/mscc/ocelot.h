@@ -573,6 +573,12 @@ struct ocelot_vlan {
 	u16 vid;
 };
 
+struct ocelot_psfp_list {
+	struct list_head stream_list;
+	struct list_head sfi_list;
+	struct list_head sgi_list;
+};
+
 enum ocelot_sb {
 	OCELOT_SB_BUF,
 	OCELOT_SB_REF,
@@ -660,6 +666,8 @@ struct ocelot {
 	struct list_head		dummy_rules;
 	struct ocelot_vcap_block	block[3];
 	struct vcap_props		*vcap;
+
+	struct ocelot_psfp_list		psfp;
 
 	/* Workqueue to check statistics for overflow with its lock */
 	struct mutex			stats_lock;
