@@ -3736,6 +3736,7 @@ static int __mlx4_init_one(struct pci_dev *pdev, int pci_dev_data,
 	int prb_vf[MLX4_MAX_PORTS + 1] = {0, 0, 0};
 	const int param_map[MLX4_MAX_PORTS + 1][MLX4_MAX_PORTS + 1] = {
 		{2, 0, 0}, {0, 1, 2}, {0, 1, 2} };
+	struct devlink *devlink = priv_to_devlink(priv);
 	unsigned total_vfs = 0;
 	unsigned int i;
 
@@ -3848,7 +3849,9 @@ static int __mlx4_init_one(struct pci_dev *pdev, int pci_dev_data,
 		}
 	}
 
+	devl_lock(devlink);
 	err = mlx4_crdump_init(&priv->dev);
+	devl_unlock(devlink);
 	if (err)
 		goto err_release_regions;
 
@@ -3866,7 +3869,9 @@ err_catas:
 	mlx4_catas_end(&priv->dev);
 
 err_crdump:
+	devl_lock(devlink);
 	mlx4_crdump_end(&priv->dev);
+	devl_unlock(devlink);
 
 err_release_regions:
 	pci_release_regions(pdev);
@@ -4169,7 +4174,9 @@ static void mlx4_remove_one(struct pci_dev *pdev)
 	else
 		mlx4_info(dev, "%s: interface is down\n", __func__);
 	mlx4_catas_end(dev);
+	devl_lock(devlink);
 	mlx4_crdump_end(dev);
+	devl_unlock(devlink);
 	if (dev->flags & MLX4_FLAG_SRIOV && !active_vfs) {
 		mlx4_warn(dev, "Disabling SR-IOV\n");
 		pci_disable_sriov(pdev);
