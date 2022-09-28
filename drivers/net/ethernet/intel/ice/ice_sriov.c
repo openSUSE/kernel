@@ -2325,16 +2325,21 @@ static int ice_vc_cfg_promiscuous_mode_msg(struct ice_vf *vf, u8 *msg)
 		    !test_and_set_bit(ICE_VF_STATE_MC_PROMISC, vf->vf_states))
 			dev_info(dev, "VF %u successfully set multicast promiscuous mode\n",
 				 vf->vf_id);
-		else if (!allmulti && test_and_clear_bit(ICE_VF_STATE_MC_PROMISC, vf->vf_states))
+		else if (!allmulti &&
+			 test_and_clear_bit(ICE_VF_STATE_MC_PROMISC,
+					    vf->vf_states))
 			dev_info(dev, "VF %u successfully unset multicast promiscuous mode\n",
 				 vf->vf_id);
 	}
 
 	if (!ucast_err) {
-		if (alluni && !test_and_set_bit(ICE_VF_STATE_UC_PROMISC, vf->vf_states))
+		if (alluni &&
+		    !test_and_set_bit(ICE_VF_STATE_UC_PROMISC, vf->vf_states))
 			dev_info(dev, "VF %u successfully set unicast promiscuous mode\n",
 				 vf->vf_id);
-		else if (!alluni && test_and_clear_bit(ICE_VF_STATE_UC_PROMISC, vf->vf_states))
+		else if (!alluni &&
+			 test_and_clear_bit(ICE_VF_STATE_UC_PROMISC,
+					    vf->vf_states))
 			dev_info(dev, "VF %u successfully unset unicast promiscuous mode\n",
 				 vf->vf_id);
 	}
@@ -2910,8 +2915,9 @@ static int ice_vc_cfg_qs_msg(struct ice_vf *vf, u8 *msg)
 			}
 
 			vsi->max_frame = qpi->rxq.max_pkt_size;
-			/* add space for the port VLAN since the VF driver is not
-			 * expected to account for it in the MTU calculation
+			/* add space for the port VLAN since the VF driver is
+			 * not expected to account for it in the MTU
+			 * calculation
 			 */
 			if (ice_vf_is_port_vlan_ena(vf))
 				vsi->max_frame += VLAN_HLEN;
@@ -3697,8 +3703,11 @@ static u16 ice_vc_get_max_vlan_fltrs(struct ice_vf *vf)
 }
 
 /**
- * ice_vf_outer_vlan_not_allowed - check outer VLAN can be used when the device is in DVM
+ * ice_vf_outer_vlan_not_allowed - check if outer VLAN can be used
  * @vf: VF that being checked for
+ *
+ * When the device is in double VLAN mode, check whether or not the outer VLAN
+ * is allowed.
  */
 static bool ice_vf_outer_vlan_not_allowed(struct ice_vf *vf)
 {
@@ -3976,9 +3985,11 @@ ice_vc_validate_vlan_filter_list(struct virtchnl_vlan_filtering_caps *vfc,
 			return false;
 
 		if ((ice_vc_is_valid_vlan(outer) &&
-		     !ice_vc_validate_vlan_tpid(filtering_support->outer, outer->tpid)) ||
+		     !ice_vc_validate_vlan_tpid(filtering_support->outer,
+						outer->tpid)) ||
 		    (ice_vc_is_valid_vlan(inner) &&
-		     !ice_vc_validate_vlan_tpid(filtering_support->inner, inner->tpid)))
+		     !ice_vc_validate_vlan_tpid(filtering_support->inner,
+						inner->tpid)))
 			return false;
 	}
 
@@ -4453,7 +4464,8 @@ static int ice_vc_ena_vlan_stripping_v2_msg(struct ice_vf *vf, u8 *msg)
 	}
 
 out:
-	return ice_vc_send_msg_to_vf(vf, VIRTCHNL_OP_ENABLE_VLAN_STRIPPING_V2, v_ret, NULL, 0);
+	return ice_vc_send_msg_to_vf(vf, VIRTCHNL_OP_ENABLE_VLAN_STRIPPING_V2,
+				     v_ret, NULL, 0);
 }
 
 /**
@@ -4522,7 +4534,8 @@ static int ice_vc_dis_vlan_stripping_v2_msg(struct ice_vf *vf, u8 *msg)
 	}
 
 out:
-	return ice_vc_send_msg_to_vf(vf, VIRTCHNL_OP_DISABLE_VLAN_STRIPPING_V2, v_ret, NULL, 0);
+	return ice_vc_send_msg_to_vf(vf, VIRTCHNL_OP_DISABLE_VLAN_STRIPPING_V2,
+				     v_ret, NULL, 0);
 }
 
 /**
@@ -4580,7 +4593,8 @@ static int ice_vc_ena_vlan_insertion_v2_msg(struct ice_vf *vf, u8 *msg)
 	}
 
 out:
-	return ice_vc_send_msg_to_vf(vf, VIRTCHNL_OP_ENABLE_VLAN_INSERTION_V2, v_ret, NULL, 0);
+	return ice_vc_send_msg_to_vf(vf, VIRTCHNL_OP_ENABLE_VLAN_INSERTION_V2,
+				     v_ret, NULL, 0);
 }
 
 /**
@@ -4634,7 +4648,8 @@ static int ice_vc_dis_vlan_insertion_v2_msg(struct ice_vf *vf, u8 *msg)
 	}
 
 out:
-	return ice_vc_send_msg_to_vf(vf, VIRTCHNL_OP_DISABLE_VLAN_INSERTION_V2, v_ret, NULL, 0);
+	return ice_vc_send_msg_to_vf(vf, VIRTCHNL_OP_DISABLE_VLAN_INSERTION_V2,
+				     v_ret, NULL, 0);
 }
 
 static const struct ice_virtchnl_ops ice_virtchnl_dflt_ops = {
