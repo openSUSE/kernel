@@ -413,7 +413,7 @@ ice_devlink_flash_update(struct devlink *devlink,
 		return -EOPNOTSUPP;
 	}
 
-	err = ice_check_for_pending_update(pf, NULL, extack);
+	err = ice_cancel_pending_update(pf, NULL, extack);
 	if (err)
 		return err;
 
