@@ -3730,11 +3730,8 @@ static void ice_set_pf_caps(struct ice_pf *pf)
 	struct ice_hw_func_caps *func_caps = &pf->hw.func_caps;
 
 	clear_bit(ICE_FLAG_RDMA_ENA, pf->flags);
-	clear_bit(ICE_FLAG_AUX_ENA, pf->flags);
-	if (func_caps->common_cap.rdma) {
+	if (func_caps->common_cap.rdma)
 		set_bit(ICE_FLAG_RDMA_ENA, pf->flags);
-		set_bit(ICE_FLAG_AUX_ENA, pf->flags);
-	}
 	clear_bit(ICE_FLAG_DCB_CAPABLE, pf->flags);
 	if (func_caps->common_cap.dcb)
 		set_bit(ICE_FLAG_DCB_CAPABLE, pf->flags);
@@ -3825,7 +3822,7 @@ static void ice_reduce_msix_usage(struct ice_pf *pf, int v_remain)
 {
 	int v_rdma;
 
-	if (!test_bit(ICE_FLAG_RDMA_ENA, pf->flags)) {
+	if (!ice_is_rdma_ena(pf)) {
 		pf->num_lan_msix = v_remain;
 		return;
 	}
@@ -3887,7 +3884,7 @@ static int ice_ena_msix_range(struct ice_pf *pf)
 	v_wanted += pf->num_lan_msix;
 
 	/* RDMA auxiliary driver */
-	if (test_bit(ICE_FLAG_RDMA_ENA, pf->flags)) {
+	if (ice_is_rdma_ena(pf)) {
 		pf->num_rdma_msix = num_cpus + ICE_RDMA_NUM_AEQ_MSIX;
 		v_wanted += pf->num_rdma_msix;
 	}
@@ -3914,7 +3911,7 @@ static int ice_ena_msix_range(struct ice_pf *pf)
 
 		dev_notice(dev, "Reducing request to %d MSI-X vectors for LAN traffic.\n",
 			   pf->num_lan_msix);
-		if (test_bit(ICE_FLAG_RDMA_ENA, pf->flags))
+		if (ice_is_rdma_ena(pf))
 			dev_notice(dev, "Reducing request to %d MSI-X vectors for RDMA.\n",
 				   pf->num_rdma_msix);
 	}
@@ -3958,7 +3955,7 @@ static int ice_ena_msix_range(struct ice_pf *pf)
 			dev_notice(dev, "Enabled %d MSI-X vectors for LAN traffic.\n",
 				   pf->num_lan_msix);
 
-			if (test_bit(ICE_FLAG_RDMA_ENA, pf->flags))
+			if (ice_is_rdma_ena(pf))
 				dev_notice(dev, "Enabled %d MSI-X vectors for RDMA.\n",
 					   pf->num_rdma_msix);
 		}
@@ -4779,7 +4776,7 @@ probe_done:
 
 	/* ready to go, so clear down state bit */
 	clear_bit(ICE_DOWN, pf->state);
-	if (ice_is_aux_ena(pf)) {
+	if (ice_is_rdma_ena(pf)) {
 		pf->aux_idx = ida_alloc(&ice_aux_ida, GFP_KERNEL);
 		if (pf->aux_idx < 0) {
 			dev_err(dev, "Failed to allocate device ID for AUX driver\n");
