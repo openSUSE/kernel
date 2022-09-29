@@ -6701,6 +6701,7 @@ static void cs35l41_generic_fixup(struct hda_codec *cdc, int action, const char 
 					      "%s-%s:00-cs35l41-hda.%d", bus, hid, i);
 			if (!name)
 				return;
+			spec->comps[i].codec = cdc;
 			component_match_add(dev, &spec->match, comp_match_dev_name, name);
 		}
 		ret = component_master_add_with_match(dev, &comp_master_ops, spec->match);
