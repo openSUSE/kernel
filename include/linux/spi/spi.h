@@ -17,7 +17,9 @@
 #include <linux/ptp_clock_kernel.h>
 
 #include <uapi/linux/spi/spi.h>
+#ifndef __GENKSYMS__
 #include <linux/acpi.h>
+#endif
 
 struct dma_chan;
 struct software_node;
