@@ -16,6 +16,9 @@
 #include <asm/kexec.h>
 #include <asm/svm.h>
 #include <asm/ultravisor.h>
+#ifdef __GENKSYMS__
+#include <asm/rtas.h>
+#endif
 
 #include "setup.h"
 
