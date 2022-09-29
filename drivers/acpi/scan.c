@@ -2601,11 +2601,11 @@ void __init acpi_scan_init(void)
 	 * Enumerate devices in the ACPI namespace.
 	 */
 	if (acpi_bus_scan(ACPI_ROOT_OBJECT))
-		goto out;
+		goto unlock;
 
 	acpi_root = acpi_fetch_acpi_dev(ACPI_ROOT_OBJECT);
 	if (!acpi_root)
-		goto out;
+		goto unlock;
 
 	/* Fixed feature devices do not exist on HW-reduced platform */
 	if (!acpi_gbl_reduced_hardware)
@@ -2615,7 +2615,7 @@ void __init acpi_scan_init(void)
 
 	acpi_scan_initialized = true;
 
- out:
+unlock:
 	mutex_unlock(&acpi_scan_lock);
 }
 
