@@ -6020,9 +6020,13 @@ struct cgroup *cgroup_get_from_id(u64 id)
 	if (!kn)
 		goto out_unlock;
 
+	if (kernfs_type(kn) != KERNFS_DIR)
+		goto put;
+
 	cgrp = kn->priv;
 	if (cgroup_is_dead(cgrp) || !cgroup_tryget(cgrp))
 		cgrp = NULL;
+put:
 	kernfs_put(kn);
 out_unlock:
 	mutex_unlock(&cgroup_mutex);
