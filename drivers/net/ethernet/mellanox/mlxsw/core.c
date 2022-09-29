@@ -47,7 +47,7 @@ static struct workqueue_struct *mlxsw_owq;
 struct mlxsw_core_port {
 	struct devlink_port devlink_port;
 	void *port_driver_priv;
-	u8 local_port;
+	u16 local_port;
 };
 
 void *mlxsw_core_port_driver_priv(struct mlxsw_core_port *mlxsw_core_port)
@@ -77,7 +77,7 @@ struct mlxsw_core {
 		bool enable_string_tlv;
 	} emad;
 	struct {
-		u8 *mapping; /* lag_id+port_index to local_port mapping */
+		u16 *mapping; /* lag_id+port_index to local_port mapping */
 	} lag;
 	struct mlxsw_res res;
 	struct mlxsw_hwmon *hwmon;
@@ -114,11 +114,11 @@ static int mlxsw_core_resources_ports_register(struct mlxsw_core *mlxsw_core)
 					  max_ports, 1,
 					  DEVLINK_RESOURCE_UNIT_ENTRY);
 
-	return devlink_resource_register(devlink,
-					 DEVLINK_RESOURCE_GENERIC_NAME_PORTS,
-					 max_ports, MLXSW_CORE_RESOURCE_PORTS,
-					 DEVLINK_RESOURCE_ID_PARENT_TOP,
-					 &ports_num_params);
+	return devl_resource_register(devlink,
+				      DEVLINK_RESOURCE_GENERIC_NAME_PORTS,
+				      max_ports, MLXSW_CORE_RESOURCE_PORTS,
+				      DEVLINK_RESOURCE_ID_PARENT_TOP,
+				      &ports_num_params);
 }
 
 static int mlxsw_ports_init(struct mlxsw_core *mlxsw_core, bool reload)
@@ -144,8 +144,8 @@ static int mlxsw_ports_init(struct mlxsw_core *mlxsw_core, bool reload)
 			goto err_resources_ports_register;
 	}
 	atomic_set(&mlxsw_core->active_ports_count, 0);
-	devlink_resource_occ_get_register(devlink, MLXSW_CORE_RESOURCE_PORTS,
-					  mlxsw_ports_occ_get, mlxsw_core);
+	devl_resource_occ_get_register(devlink, MLXSW_CORE_RESOURCE_PORTS,
+				       mlxsw_ports_occ_get, mlxsw_core);
 
 	return 0;
 
@@ -158,9 +158,9 @@ static void mlxsw_ports_fini(struct mlxsw_core *mlxsw_core, bool reload)
 {
 	struct devlink *devlink = priv_to_devlink(mlxsw_core);
 
-	devlink_resource_occ_get_unregister(devlink, MLXSW_CORE_RESOURCE_PORTS);
+	devl_resource_occ_get_unregister(devlink, MLXSW_CORE_RESOURCE_PORTS);
 	if (!reload)
-		devlink_resources_unregister(priv_to_devlink(mlxsw_core), NULL);
+		devl_resources_unregister(priv_to_devlink(mlxsw_core));
 
 	kfree(mlxsw_core->ports);
 }
@@ -718,7 +718,7 @@ static void mlxsw_emad_process_response(struct mlxsw_core *mlxsw_core,
 }
 
 /* called with rcu read lock held */
-static void mlxsw_emad_rx_listener_func(struct sk_buff *skb, u8 local_port,
+static void mlxsw_emad_rx_listener_func(struct sk_buff *skb, u16 local_port,
 					void *priv)
 {
 	struct mlxsw_core *mlxsw_core = priv;
@@ -1208,36 +1208,37 @@ static void mlxsw_core_fw_params_unregister(struct mlxsw_core *mlxsw_core)
 				  ARRAY_SIZE(mlxsw_core_fw_devlink_params));
 }
 
+static void *__dl_port(struct devlink_port *devlink_port)
+{
+	return container_of(devlink_port, struct mlxsw_core_port, devlink_port);
+}
+
 static int mlxsw_devlink_port_split(struct devlink *devlink,
-				    unsigned int port_index,
+				    struct devlink_port *port,
 				    unsigned int count,
 				    struct netlink_ext_ack *extack)
 {
+	struct mlxsw_core_port *mlxsw_core_port = __dl_port(port);
 	struct mlxsw_core *mlxsw_core = devlink_priv(devlink);
 
-	if (port_index >= mlxsw_core->max_ports) {
-		NL_SET_ERR_MSG_MOD(extack, "Port index exceeds maximum number of ports");
-		return -EINVAL;
-	}
 	if (!mlxsw_core->driver->port_split)
 		return -EOPNOTSUPP;
-	return mlxsw_core->driver->port_split(mlxsw_core, port_index, count,
-					      extack);
+	return mlxsw_core->driver->port_split(mlxsw_core,
+					      mlxsw_core_port->local_port,
+					      count, extack);
 }
 
 static int mlxsw_devlink_port_unsplit(struct devlink *devlink,
-				      unsigned int port_index,
+				      struct devlink_port *port,
 				      struct netlink_ext_ack *extack)
 {
+	struct mlxsw_core_port *mlxsw_core_port = __dl_port(port);
 	struct mlxsw_core *mlxsw_core = devlink_priv(devlink);
 
-	if (port_index >= mlxsw_core->max_ports) {
-		NL_SET_ERR_MSG_MOD(extack, "Port index exceeds maximum number of ports");
-		return -EINVAL;
-	}
 	if (!mlxsw_core->driver->port_unsplit)
 		return -EOPNOTSUPP;
-	return mlxsw_core->driver->port_unsplit(mlxsw_core, port_index,
+	return mlxsw_core->driver->port_unsplit(mlxsw_core,
+						mlxsw_core_port->local_port,
 						extack);
 }
 
@@ -1269,11 +1270,6 @@ mlxsw_devlink_sb_pool_set(struct devlink *devlink,
 	return mlxsw_driver->sb_pool_set(mlxsw_core, sb_index,
 					 pool_index, size, threshold_type,
 					 extack);
-}
-
-static void *__dl_port(struct devlink_port *devlink_port)
-{
-	return container_of(devlink_port, struct mlxsw_core_port, devlink_port);
 }
 
 static int mlxsw_devlink_port_type_set(struct devlink_port *devlink_port,
@@ -1480,13 +1476,15 @@ mlxsw_devlink_core_bus_device_reload_up(struct devlink *devlink, enum devlink_re
 					struct netlink_ext_ack *extack)
 {
 	struct mlxsw_core *mlxsw_core = devlink_priv(devlink);
+	int err;
 
 	*actions_performed = BIT(DEVLINK_RELOAD_ACTION_DRIVER_REINIT) |
 			     BIT(DEVLINK_RELOAD_ACTION_FW_ACTIVATE);
-	return mlxsw_core_bus_device_register(mlxsw_core->bus_info,
-					      mlxsw_core->bus,
-					      mlxsw_core->bus_priv, true,
-					      devlink, extack);
+	err = mlxsw_core_bus_device_register(mlxsw_core->bus_info,
+					     mlxsw_core->bus,
+					     mlxsw_core->bus_priv, true,
+					     devlink, extack);
+	return err;
 }
 
 static int mlxsw_devlink_flash_update(struct devlink *devlink,
@@ -1932,6 +1930,7 @@ __mlxsw_core_bus_device_register(const struct mlxsw_bus_info *mlxsw_bus_info,
 			err = -ENOMEM;
 			goto err_devlink_alloc;
 		}
+		devl_lock(devlink);
 	}
 
 	mlxsw_core = devlink_priv(devlink);
@@ -1959,7 +1958,7 @@ __mlxsw_core_bus_device_register(const struct mlxsw_bus_info *mlxsw_bus_info,
 
 	if (MLXSW_CORE_RES_VALID(mlxsw_core, MAX_LAG) &&
 	    MLXSW_CORE_RES_VALID(mlxsw_core, MAX_LAG_MEMBERS)) {
-		alloc_size = sizeof(u8) *
+		alloc_size = sizeof(*mlxsw_core->lag.mapping) *
 			MLXSW_CORE_RES_GET(mlxsw_core, MAX_LAG) *
 			MLXSW_CORE_RES_GET(mlxsw_core, MAX_LAG_MEMBERS);
 		mlxsw_core->lag.mapping = kzalloc(alloc_size, GFP_KERNEL);
@@ -2009,6 +2008,7 @@ __mlxsw_core_bus_device_register(const struct mlxsw_bus_info *mlxsw_bus_info,
 
 	if (!reload) {
 		devlink_set_features(devlink, DEVLINK_F_RELOAD);
+		devl_unlock(devlink);
 		devlink_register(devlink);
 	}
 	return 0;
@@ -2033,12 +2033,14 @@ err_alloc_lag_mapping:
 	mlxsw_ports_fini(mlxsw_core, reload);
 err_ports_init:
 	if (!reload)
-		devlink_resources_unregister(devlink, NULL);
+		devl_resources_unregister(devlink);
 err_register_resources:
 	mlxsw_bus->fini(bus_priv);
 err_bus_init:
-	if (!reload)
+	if (!reload) {
+		devl_unlock(devlink);
 		devlink_free(devlink);
+	}
 err_devlink_alloc:
 	return err;
 }
@@ -2074,8 +2076,10 @@ void mlxsw_core_bus_device_unregister(struct mlxsw_core *mlxsw_core,
 {
 	struct devlink *devlink = priv_to_devlink(mlxsw_core);
 
-	if (!reload)
+	if (!reload) {
 		devlink_unregister(devlink);
+		devl_lock(devlink);
+	}
 
 	if (devlink_is_reload_failed(devlink)) {
 		if (!reload)
@@ -2099,16 +2103,19 @@ void mlxsw_core_bus_device_unregister(struct mlxsw_core *mlxsw_core,
 	kfree(mlxsw_core->lag.mapping);
 	mlxsw_ports_fini(mlxsw_core, reload);
 	if (!reload)
-		devlink_resources_unregister(devlink, NULL);
+		devl_resources_unregister(devlink);
 	mlxsw_core->bus->fini(mlxsw_core->bus_priv);
-	if (!reload)
+	if (!reload) {
+		devl_unlock(devlink);
 		devlink_free(devlink);
+	}
 
 	return;
 
 reload_fail_deinit:
 	mlxsw_core_params_unregister(mlxsw_core);
-	devlink_resources_unregister(devlink, NULL);
+	devl_resources_unregister(devlink);
+	devl_unlock(devlink);
 	devlink_free(devlink);
 }
 EXPORT_SYMBOL(mlxsw_core_bus_device_unregister);
@@ -2130,7 +2137,7 @@ int mlxsw_core_skb_transmit(struct mlxsw_core *mlxsw_core, struct sk_buff *skb,
 EXPORT_SYMBOL(mlxsw_core_skb_transmit);
 
 void mlxsw_core_ptp_transmitted(struct mlxsw_core *mlxsw_core,
-				struct sk_buff *skb, u8 local_port)
+				struct sk_buff *skb, u16 local_port)
 {
 	if (mlxsw_core->driver->ptp_transmitted)
 		mlxsw_core->driver->ptp_transmitted(mlxsw_core, skb,
@@ -2208,7 +2215,7 @@ mlxsw_core_rx_listener_state_set(struct mlxsw_core *mlxsw_core,
 	rxl_item->enabled = enabled;
 }
 
-static void mlxsw_core_event_listener_func(struct sk_buff *skb, u8 local_port,
+static void mlxsw_core_event_listener_func(struct sk_buff *skb, u16 local_port,
 					   void *priv)
 {
 	struct mlxsw_event_listener_item *event_listener_item = priv;
@@ -2641,7 +2648,7 @@ void mlxsw_core_skb_receive(struct mlxsw_core *mlxsw_core, struct sk_buff *skb,
 {
 	struct mlxsw_rx_listener_item *rxl_item;
 	const struct mlxsw_rx_listener *rxl;
-	u8 local_port;
+	u16 local_port;
 	bool found = false;
 
 	if (rx_info->is_lag) {
@@ -2699,7 +2706,7 @@ static int mlxsw_core_lag_mapping_index(struct mlxsw_core *mlxsw_core,
 }
 
 void mlxsw_core_lag_mapping_set(struct mlxsw_core *mlxsw_core,
-				u16 lag_id, u8 port_index, u8 local_port)
+				u16 lag_id, u8 port_index, u16 local_port)
 {
 	int index = mlxsw_core_lag_mapping_index(mlxsw_core,
 						 lag_id, port_index);
@@ -2708,8 +2715,8 @@ void mlxsw_core_lag_mapping_set(struct mlxsw_core *mlxsw_core,
 }
 EXPORT_SYMBOL(mlxsw_core_lag_mapping_set);
 
-u8 mlxsw_core_lag_mapping_get(struct mlxsw_core *mlxsw_core,
-			      u16 lag_id, u8 port_index)
+u16 mlxsw_core_lag_mapping_get(struct mlxsw_core *mlxsw_core,
+			       u16 lag_id, u8 port_index)
 {
 	int index = mlxsw_core_lag_mapping_index(mlxsw_core,
 						 lag_id, port_index);
@@ -2719,7 +2726,7 @@ u8 mlxsw_core_lag_mapping_get(struct mlxsw_core *mlxsw_core,
 EXPORT_SYMBOL(mlxsw_core_lag_mapping_get);
 
 void mlxsw_core_lag_mapping_clear(struct mlxsw_core *mlxsw_core,
-				  u16 lag_id, u8 local_port)
+				  u16 lag_id, u16 local_port)
 {
 	int i;
 
@@ -2747,7 +2754,7 @@ u64 mlxsw_core_res_get(struct mlxsw_core *mlxsw_core,
 }
 EXPORT_SYMBOL(mlxsw_core_res_get);
 
-static int __mlxsw_core_port_init(struct mlxsw_core *mlxsw_core, u8 local_port,
+static int __mlxsw_core_port_init(struct mlxsw_core *mlxsw_core, u16 local_port,
 				  enum devlink_port_flavour flavour,
 				  u32 port_number, bool split,
 				  u32 split_port_subnumber,
@@ -2772,23 +2779,23 @@ static int __mlxsw_core_port_init(struct mlxsw_core *mlxsw_core, u8 local_port,
 	attrs.switch_id.id_len = switch_id_len;
 	mlxsw_core_port->local_port = local_port;
 	devlink_port_attrs_set(devlink_port, &attrs);
-	err = devlink_port_register(devlink, devlink_port, local_port);
+	err = devl_port_register(devlink, devlink_port, local_port);
 	if (err)
 		memset(mlxsw_core_port, 0, sizeof(*mlxsw_core_port));
 	return err;
 }
 
-static void __mlxsw_core_port_fini(struct mlxsw_core *mlxsw_core, u8 local_port)
+static void __mlxsw_core_port_fini(struct mlxsw_core *mlxsw_core, u16 local_port)
 {
 	struct mlxsw_core_port *mlxsw_core_port =
 					&mlxsw_core->ports[local_port];
 	struct devlink_port *devlink_port = &mlxsw_core_port->devlink_port;
 
-	devlink_port_unregister(devlink_port);
+	devl_port_unregister(devlink_port);
 	memset(mlxsw_core_port, 0, sizeof(*mlxsw_core_port));
 }
 
-int mlxsw_core_port_init(struct mlxsw_core *mlxsw_core, u8 local_port,
+int mlxsw_core_port_init(struct mlxsw_core *mlxsw_core, u16 local_port,
 			 u32 port_number, bool split,
 			 u32 split_port_subnumber,
 			 bool splittable, u32 lanes,
@@ -2810,7 +2817,7 @@ int mlxsw_core_port_init(struct mlxsw_core *mlxsw_core, u8 local_port,
 }
 EXPORT_SYMBOL(mlxsw_core_port_init);
 
-void mlxsw_core_port_fini(struct mlxsw_core *mlxsw_core, u8 local_port)
+void mlxsw_core_port_fini(struct mlxsw_core *mlxsw_core, u16 local_port)
 {
 	atomic_dec(&mlxsw_core->active_ports_count);
 
@@ -2845,7 +2852,7 @@ void mlxsw_core_cpu_port_fini(struct mlxsw_core *mlxsw_core)
 }
 EXPORT_SYMBOL(mlxsw_core_cpu_port_fini);
 
-void mlxsw_core_port_eth_set(struct mlxsw_core *mlxsw_core, u8 local_port,
+void mlxsw_core_port_eth_set(struct mlxsw_core *mlxsw_core, u16 local_port,
 			     void *port_driver_priv, struct net_device *dev)
 {
 	struct mlxsw_core_port *mlxsw_core_port =
@@ -2857,7 +2864,7 @@ void mlxsw_core_port_eth_set(struct mlxsw_core *mlxsw_core, u8 local_port,
 }
 EXPORT_SYMBOL(mlxsw_core_port_eth_set);
 
-void mlxsw_core_port_ib_set(struct mlxsw_core *mlxsw_core, u8 local_port,
+void mlxsw_core_port_ib_set(struct mlxsw_core *mlxsw_core, u16 local_port,
 			    void *port_driver_priv)
 {
 	struct mlxsw_core_port *mlxsw_core_port =
@@ -2869,7 +2876,7 @@ void mlxsw_core_port_ib_set(struct mlxsw_core *mlxsw_core, u8 local_port,
 }
 EXPORT_SYMBOL(mlxsw_core_port_ib_set);
 
-void mlxsw_core_port_clear(struct mlxsw_core *mlxsw_core, u8 local_port,
+void mlxsw_core_port_clear(struct mlxsw_core *mlxsw_core, u16 local_port,
 			   void *port_driver_priv)
 {
 	struct mlxsw_core_port *mlxsw_core_port =
@@ -2882,7 +2889,7 @@ void mlxsw_core_port_clear(struct mlxsw_core *mlxsw_core, u8 local_port,
 EXPORT_SYMBOL(mlxsw_core_port_clear);
 
 enum devlink_port_type mlxsw_core_port_type_get(struct mlxsw_core *mlxsw_core,
-						u8 local_port)
+						u16 local_port)
 {
 	struct mlxsw_core_port *mlxsw_core_port =
 					&mlxsw_core->ports[local_port];
@@ -2895,7 +2902,7 @@ EXPORT_SYMBOL(mlxsw_core_port_type_get);
 
 struct devlink_port *
 mlxsw_core_port_devlink_port_get(struct mlxsw_core *mlxsw_core,
-				 u8 local_port)
+				 u16 local_port)
 {
 	struct mlxsw_core_port *mlxsw_core_port =
 					&mlxsw_core->ports[local_port];
@@ -2905,7 +2912,7 @@ mlxsw_core_port_devlink_port_get(struct mlxsw_core *mlxsw_core,
 }
 EXPORT_SYMBOL(mlxsw_core_port_devlink_port_get);
 
-bool mlxsw_core_port_is_xm(const struct mlxsw_core *mlxsw_core, u8 local_port)
+bool mlxsw_core_port_is_xm(const struct mlxsw_core *mlxsw_core, u16 local_port)
 {
 	const struct mlxsw_bus_info *bus_info = mlxsw_core->bus_info;
 	int i;

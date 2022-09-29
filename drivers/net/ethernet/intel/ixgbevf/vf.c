@@ -13,13 +13,12 @@
 static inline s32 ixgbevf_write_msg_read_ack(struct ixgbe_hw *hw, u32 *msg,
 					     u32 *retmsg, u16 size)
 {
-	struct ixgbe_mbx_info *mbx = &hw->mbx;
-	s32 retval = mbx->ops.write_posted(hw, msg, size);
+	s32 retval = ixgbevf_write_mbx(hw, msg, size);
 
 	if (retval)
 		return retval;
 
-	return mbx->ops.read_posted(hw, retmsg, size);
+	return ixgbevf_poll_mbx(hw, retmsg, size);
 }
 
 /**
@@ -75,6 +74,9 @@ static s32 ixgbevf_reset_hw_vf(struct ixgbe_hw *hw)
 
 	/* reset the api version */
 	hw->api_version = ixgbe_mbox_api_10;
+	hw->mbx.ops.init_params(hw);
+	memcpy(&hw->mbx.ops, &ixgbevf_mbx_ops_legacy,
+	       sizeof(struct ixgbe_mbx_operations));
 
 	IXGBE_WRITE_REG(hw, IXGBE_VFCTRL, IXGBE_CTRL_RST);
 	IXGBE_WRITE_FLUSH(hw);
@@ -92,7 +94,7 @@ static s32 ixgbevf_reset_hw_vf(struct ixgbe_hw *hw)
 	mbx->timeout = IXGBE_VF_MBX_INIT_TIMEOUT;
 
 	msgbuf[0] = IXGBE_VF_RESET;
-	mbx->ops.write_posted(hw, msgbuf, 1);
+	ixgbevf_write_mbx(hw, msgbuf, 1);
 
 	mdelay(10);
 
@@ -100,7 +102,7 @@ static s32 ixgbevf_reset_hw_vf(struct ixgbe_hw *hw)
 	 * also set up the mc_filter_type which is piggy backed
 	 * on the mac address in word 3
 	 */
-	ret_val = mbx->ops.read_posted(hw, msgbuf, IXGBE_VF_PERMADDR_MSG_LEN);
+	ret_val = ixgbevf_poll_mbx(hw, msgbuf, IXGBE_VF_PERMADDR_MSG_LEN);
 	if (ret_val)
 		return ret_val;
 
@@ -311,6 +313,7 @@ int ixgbevf_get_reta_locked(struct ixgbe_hw *hw, u32 *reta, int num_rx_queues)
 	 * is not supported for this device type.
 	 */
 	switch (hw->api_version) {
+	case ixgbe_mbox_api_15:
 	case ixgbe_mbox_api_14:
 	case ixgbe_mbox_api_13:
 	case ixgbe_mbox_api_12:
@@ -323,12 +326,12 @@ int ixgbevf_get_reta_locked(struct ixgbe_hw *hw, u32 *reta, int num_rx_queues)
 
 	msgbuf[0] = IXGBE_VF_GET_RETA;
 
-	err = hw->mbx.ops.write_posted(hw, msgbuf, 1);
+	err = ixgbevf_write_mbx(hw, msgbuf, 1);
 
 	if (err)
 		return err;
 
-	err = hw->mbx.ops.read_posted(hw, msgbuf, dwords + 1);
+	err = ixgbevf_poll_mbx(hw, msgbuf, dwords + 1);
 
 	if (err)
 		return err;
@@ -379,6 +382,7 @@ int ixgbevf_get_rss_key_locked(struct ixgbe_hw *hw, u8 *rss_key)
 	 * or if the operation is not supported for this device type.
 	 */
 	switch (hw->api_version) {
+	case ixgbe_mbox_api_15:
 	case ixgbe_mbox_api_14:
 	case ixgbe_mbox_api_13:
 	case ixgbe_mbox_api_12:
@@ -390,12 +394,12 @@ int ixgbevf_get_rss_key_locked(struct ixgbe_hw *hw, u8 *rss_key)
 	}
 
 	msgbuf[0] = IXGBE_VF_GET_RSS_KEY;
-	err = hw->mbx.ops.write_posted(hw, msgbuf, 1);
+	err = ixgbevf_write_mbx(hw, msgbuf, 1);
 
 	if (err)
 		return err;
 
-	err = hw->mbx.ops.read_posted(hw, msgbuf, 11);
+	err = ixgbevf_poll_mbx(hw, msgbuf, 11);
 
 	if (err)
 		return err;
@@ -545,8 +549,9 @@ static s32 ixgbevf_update_xcast_mode(struct ixgbe_hw *hw, int xcast_mode)
 		if (xcast_mode == IXGBEVF_XCAST_MODE_PROMISC)
 			return -EOPNOTSUPP;
 		fallthrough;
-	case ixgbe_mbox_api_14:
 	case ixgbe_mbox_api_13:
+	case ixgbe_mbox_api_14:
+	case ixgbe_mbox_api_15:
 		break;
 	default:
 		return -EOPNOTSUPP;
@@ -745,8 +750,11 @@ static s32 ixgbevf_check_mac_link_vf(struct ixgbe_hw *hw,
 	/* if the read failed it could just be a mailbox collision, best wait
 	 * until we are called again and don't report an error
 	 */
-	if (mbx->ops.read(hw, &in_msg, 1))
+	if (mbx->ops.read(hw, &in_msg, 1)) {
+		if (hw->api_version >= ixgbe_mbox_api_15)
+			mac->get_link_status = false;
 		goto out;
+	}
 
 	if (!(in_msg & IXGBE_VT_MSGTYPE_CTS)) {
 		/* msg is not CTS and is NACK we must have lost CTS status */
@@ -942,6 +950,7 @@ int ixgbevf_get_queues(struct ixgbe_hw *hw, unsigned int *num_tcs,
 	case ixgbe_mbox_api_12:
 	case ixgbe_mbox_api_13:
 	case ixgbe_mbox_api_14:
+	case ixgbe_mbox_api_15:
 		break;
 	default:
 		return 0;
@@ -955,7 +964,7 @@ int ixgbevf_get_queues(struct ixgbe_hw *hw, unsigned int *num_tcs,
 	if (!err) {
 		msg[0] &= ~IXGBE_VT_MSGTYPE_CTS;
 
-		/* if we we didn't get an ACK there must have been
+		/* if we didn't get an ACK there must have been
 		 * some sort of mailbox error so we should treat it
 		 * as such
 		 */

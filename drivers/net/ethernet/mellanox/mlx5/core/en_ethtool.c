@@ -30,6 +30,8 @@
  * SOFTWARE.
  */
 
+#include <linux/ethtool_netlink.h>
+
 #include "en.h"
 #include "en/port.h"
 #include "en/params.h"
@@ -305,12 +307,18 @@ static void mlx5e_get_ethtool_stats(struct net_device *dev,
 }
 
 void mlx5e_ethtool_get_ringparam(struct mlx5e_priv *priv,
-				 struct ethtool_ringparam *param)
+				 struct ethtool_ringparam *param,
+				 struct kernel_ethtool_ringparam *kernel_param)
 {
 	param->rx_max_pending = 1 << MLX5E_PARAMS_MAXIMUM_LOG_RQ_SIZE;
 	param->tx_max_pending = 1 << MLX5E_PARAMS_MAXIMUM_LOG_SQ_SIZE;
 	param->rx_pending     = 1 << priv->channels.params.log_rq_mtu_frames;
 	param->tx_pending     = 1 << priv->channels.params.log_sq_size;
+
+	kernel_param->tcp_data_split =
+		(priv->channels.params.packet_merge.type == MLX5E_PACKET_MERGE_SHAMPO) ?
+		ETHTOOL_TCP_DATA_SPLIT_ENABLED :
+		ETHTOOL_TCP_DATA_SPLIT_DISABLED;
 }
 
 static void mlx5e_get_ringparam(struct net_device *dev,
@@ -320,7 +328,7 @@ static void mlx5e_get_ringparam(struct net_device *dev,
 {
 	struct mlx5e_priv *priv = netdev_priv(dev);
 
-	mlx5e_ethtool_get_ringparam(priv, param);
+	mlx5e_ethtool_get_ringparam(priv, param, kernel_param);
 }
 
 int mlx5e_ethtool_set_ringparam(struct mlx5e_priv *priv,
@@ -451,7 +459,7 @@ int mlx5e_ethtool_set_channels(struct mlx5e_priv *priv,
 	 * because the numeration of the QoS SQs will change, while per-queue
 	 * qdiscs are attached.
 	 */
-	if (priv->htb.maj_id) {
+	if (mlx5e_selq_is_htb_enabled(&priv->selq)) {
 		err = -EINVAL;
 		netdev_err(priv->netdev, "%s: HTB offload is active, cannot change the number of channels\n",
 			   __func__);
@@ -515,7 +523,8 @@ static int mlx5e_set_channels(struct net_device *dev,
 }
 
 int mlx5e_ethtool_get_coalesce(struct mlx5e_priv *priv,
-			       struct ethtool_coalesce *coal)
+			       struct ethtool_coalesce *coal,
+			       struct kernel_ethtool_coalesce *kernel_coal)
 {
 	struct dim_cq_moder *rx_moder, *tx_moder;
 
@@ -532,6 +541,11 @@ int mlx5e_ethtool_get_coalesce(struct mlx5e_priv *priv,
 	coal->tx_max_coalesced_frames	= tx_moder->pkts;
 	coal->use_adaptive_tx_coalesce	= priv->channels.params.tx_dim_enabled;
 
+	kernel_coal->use_cqe_mode_rx =
+		MLX5E_GET_PFLAG(&priv->channels.params, MLX5E_PFLAG_RX_CQE_BASED_MODER);
+	kernel_coal->use_cqe_mode_tx =
+		MLX5E_GET_PFLAG(&priv->channels.params, MLX5E_PFLAG_TX_CQE_BASED_MODER);
+
 	return 0;
 }
 
@@ -542,7 +556,7 @@ static int mlx5e_get_coalesce(struct net_device *netdev,
 {
 	struct mlx5e_priv *priv = netdev_priv(netdev);
 
-	return mlx5e_ethtool_get_coalesce(priv, coal);
+	return mlx5e_ethtool_get_coalesce(priv, coal, kernel_coal);
 }
 
 #define MLX5E_MAX_COAL_TIME		MLX5_MAX_CQ_PERIOD
@@ -582,14 +596,26 @@ mlx5e_set_priv_channels_rx_coalesce(struct mlx5e_priv *priv, struct ethtool_coal
 	}
 }
 
+/* convert a boolean value of cq_mode to mlx5 period mode
+ * true  : MLX5_CQ_PERIOD_MODE_START_FROM_CQE
+ * false : MLX5_CQ_PERIOD_MODE_START_FROM_EQE
+ */
+static int cqe_mode_to_period_mode(bool val)
+{
+	return val ? MLX5_CQ_PERIOD_MODE_START_FROM_CQE : MLX5_CQ_PERIOD_MODE_START_FROM_EQE;
+}
+
 int mlx5e_ethtool_set_coalesce(struct mlx5e_priv *priv,
-			       struct ethtool_coalesce *coal)
+			       struct ethtool_coalesce *coal,
+			       struct kernel_ethtool_coalesce *kernel_coal,
+			       struct netlink_ext_ack *extack)
 {
 	struct dim_cq_moder *rx_moder, *tx_moder;
 	struct mlx5_core_dev *mdev = priv->mdev;
 	struct mlx5e_params new_params;
 	bool reset_rx, reset_tx;
 	bool reset = true;
+	u8 cq_period_mode;
 	int err = 0;
 
 	if (!MLX5_CAP_GEN(mdev, cq_moderation))
@@ -609,6 +635,12 @@ int mlx5e_ethtool_set_coalesce(struct mlx5e_priv *priv,
 		return -ERANGE;
 	}
 
+	if ((kernel_coal->use_cqe_mode_rx || kernel_coal->use_cqe_mode_tx) &&
+	    !MLX5_CAP_GEN(priv->mdev, cq_period_start_from_cqe)) {
+		NL_SET_ERR_MSG_MOD(extack, "cqe_mode_rx/tx is not supported on this device");
+		return -EOPNOTSUPP;
+	}
+
 	mutex_lock(&priv->state_lock);
 	new_params = priv->channels.params;
 
@@ -624,6 +656,18 @@ int mlx5e_ethtool_set_coalesce(struct mlx5e_priv *priv,
 
 	reset_rx = !!coal->use_adaptive_rx_coalesce != priv->channels.params.rx_dim_enabled;
 	reset_tx = !!coal->use_adaptive_tx_coalesce != priv->channels.params.tx_dim_enabled;
+
+	cq_period_mode = cqe_mode_to_period_mode(kernel_coal->use_cqe_mode_rx);
+	if (cq_period_mode != rx_moder->cq_period_mode) {
+		mlx5e_set_rx_cq_mode_params(&new_params, cq_period_mode);
+		reset_rx = true;
+	}
+
+	cq_period_mode = cqe_mode_to_period_mode(kernel_coal->use_cqe_mode_tx);
+	if (cq_period_mode != tx_moder->cq_period_mode) {
+		mlx5e_set_tx_cq_mode_params(&new_params, cq_period_mode);
+		reset_tx = true;
+	}
 
 	if (reset_rx) {
 		u8 mode = MLX5E_GET_PFLAG(&new_params,
@@ -660,9 +704,9 @@ static int mlx5e_set_coalesce(struct net_device *netdev,
 			      struct kernel_ethtool_coalesce *kernel_coal,
 			      struct netlink_ext_ack *extack)
 {
-	struct mlx5e_priv *priv    = netdev_priv(netdev);
+	struct mlx5e_priv *priv = netdev_priv(netdev);
 
-	return mlx5e_ethtool_set_coalesce(priv, coal);
+	return mlx5e_ethtool_set_coalesce(priv, coal, kernel_coal, extack);
 }
 
 static void ptys2ethtool_supported_link(struct mlx5_core_dev *mdev,
@@ -1847,24 +1891,19 @@ static int set_pflag_cqe_based_moder(struct net_device *netdev, bool enable,
 				     bool is_rx_cq)
 {
 	struct mlx5e_priv *priv = netdev_priv(netdev);
-	struct mlx5_core_dev *mdev = priv->mdev;
-	struct mlx5e_params new_params;
-	bool mode_changed;
 	u8 cq_period_mode, current_cq_period_mode;
+	struct mlx5e_params new_params;
 
-	cq_period_mode = enable ?
-		MLX5_CQ_PERIOD_MODE_START_FROM_CQE :
-		MLX5_CQ_PERIOD_MODE_START_FROM_EQE;
+	if (enable && !MLX5_CAP_GEN(priv->mdev, cq_period_start_from_cqe))
+		return -EOPNOTSUPP;
+
+	cq_period_mode = cqe_mode_to_period_mode(enable);
+
 	current_cq_period_mode = is_rx_cq ?
 		priv->channels.params.rx_cq_moderation.cq_period_mode :
 		priv->channels.params.tx_cq_moderation.cq_period_mode;
-	mode_changed = cq_period_mode != current_cq_period_mode;
 
-	if (cq_period_mode == MLX5_CQ_PERIOD_MODE_START_FROM_CQE &&
-	    !MLX5_CAP_GEN(mdev, cq_period_start_from_cqe))
-		return -EOPNOTSUPP;
-
-	if (!mode_changed)
+	if (cq_period_mode == current_cq_period_mode)
 		return 0;
 
 	new_params = priv->channels.params;
@@ -1898,7 +1937,7 @@ int mlx5e_modify_rx_cqe_compression_locked(struct mlx5e_priv *priv, bool new_val
 	if (curr_val == new_val)
 		return 0;
 
-	if (new_val && !priv->profile->rx_ptp_support && rx_filter) {
+	if (new_val && !mlx5e_profile_feature_cap(priv->profile, PTP_RX) && rx_filter) {
 		netdev_err(priv->netdev,
 			   "Profile doesn't support enabling of CQE compression while hardware time-stamping is enabled.\n");
 		return -EINVAL;
@@ -2036,7 +2075,7 @@ static int set_pflag_tx_port_ts(struct net_device *netdev, bool enable)
 	 * the numeration of the QoS SQs will change, while per-queue qdiscs are
 	 * attached.
 	 */
-	if (priv->htb.maj_id) {
+	if (mlx5e_selq_is_htb_enabled(&priv->selq)) {
 		netdev_err(priv->netdev, "%s: HTB offload is active, cannot change the PTP state\n",
 			   __func__);
 		return -EINVAL;
@@ -2362,7 +2401,8 @@ static void mlx5e_get_rmon_stats(struct net_device *netdev,
 const struct ethtool_ops mlx5e_ethtool_ops = {
 	.supported_coalesce_params = ETHTOOL_COALESCE_USECS |
 				     ETHTOOL_COALESCE_MAX_FRAMES |
-				     ETHTOOL_COALESCE_USE_ADAPTIVE,
+				     ETHTOOL_COALESCE_USE_ADAPTIVE |
+				     ETHTOOL_COALESCE_USE_CQE,
 	.get_drvinfo       = mlx5e_get_drvinfo,
 	.get_link          = ethtool_op_get_link,
 	.get_link_ext_state  = mlx5e_get_link_ext_state,

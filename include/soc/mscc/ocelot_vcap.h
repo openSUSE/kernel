@@ -576,6 +576,16 @@ enum ocelot_mask_mode {
 	OCELOT_MASK_MODE_REDIRECT,
 };
 
+enum ocelot_es0_vid_sel {
+	OCELOT_ES0_VID_PLUS_CLASSIFIED_VID = 0,
+	OCELOT_ES0_VID = 1,
+};
+
+enum ocelot_es0_pcp_sel {
+	OCELOT_CLASSIFIED_PCP = 0,
+	OCELOT_ES0_PCP = 1,
+};
+
 enum ocelot_es0_tag {
 	OCELOT_NO_ES0_TAG,
 	OCELOT_ES0_TAG,
@@ -646,6 +656,7 @@ enum ocelot_vcap_filter_type {
 	OCELOT_VCAP_FILTER_DUMMY,
 	OCELOT_VCAP_FILTER_PAG,
 	OCELOT_VCAP_FILTER_OFFLOAD,
+	OCELOT_PSFP_FILTER_OFFLOAD,
 };
 
 struct ocelot_vcap_id {

@@ -11,7 +11,7 @@
 
 static bool __mlx5_lag_is_multipath(struct mlx5_lag *ldev)
 {
-	return !!(ldev->flags & MLX5_LAG_FLAG_MULTIPATH);
+	return ldev->mode == MLX5_LAG_MODE_MULTIPATH;
 }
 
 static bool mlx5_lag_multipath_check_prereq(struct mlx5_lag *ldev)
@@ -50,7 +50,7 @@ bool mlx5_lag_is_multipath(struct mlx5_core_dev *dev)
 static void mlx5_lag_set_port_affinity(struct mlx5_lag *ldev,
 				       enum mlx5_lag_port_affinity port)
 {
-	struct lag_tracker tracker;
+	struct lag_tracker tracker = {};
 
 	if (!__mlx5_lag_is_multipath(ldev))
 		return;
@@ -179,7 +179,7 @@ static void mlx5_lag_fib_route_event(struct mlx5_lag *ldev, unsigned long event,
 		struct lag_tracker tracker;
 
 		tracker = ldev->tracker;
-		mlx5_activate_lag(ldev, &tracker, MLX5_LAG_FLAG_MULTIPATH, false);
+		mlx5_activate_lag(ldev, &tracker, MLX5_LAG_MODE_MULTIPATH, false);
 	}
 
 	mlx5_lag_set_port_affinity(ldev, MLX5_LAG_NORMAL_AFFINITY);

@@ -22,6 +22,7 @@
 #include <linux/ppp_defs.h>
 #include <linux/stddef.h>
 #include <linux/if_ether.h>
+#include <linux/if_hsr.h>
 #include <linux/mpls.h>
 #include <linux/tcp.h>
 #include <linux/ptp_classify.h>
@@ -239,7 +240,7 @@ void
 skb_flow_dissect_ct(const struct sk_buff *skb,
 		    struct flow_dissector *flow_dissector,
 		    void *target_container, u16 *ctinfo_map,
-		    size_t mapsize, bool post_ct)
+		    size_t mapsize, bool post_ct, u16 zone)
 {
 #if IS_ENABLED(CONFIG_NF_CONNTRACK)
 	struct flow_dissector_key_ct *key;
@@ -261,6 +262,7 @@ skb_flow_dissect_ct(const struct sk_buff *skb,
 	if (!ct) {
 		key->ct_state = TCA_FLOWER_KEY_CT_FLAGS_TRACKED |
 				TCA_FLOWER_KEY_CT_FLAGS_INVALID;
+		key->ct_zone = zone;
 		return;
 	}
 
@@ -893,6 +895,11 @@ bool bpf_flow_dissect(struct bpf_prog *prog, struct bpf_flow_dissector *ctx,
 	return result == BPF_OK;
 }
 
+static bool is_pppoe_ses_hdr_valid(struct pppoe_hdr hdr)
+{
+	return hdr.ver == 1 && hdr.type == 1 && hdr.code == 0;
+}
+
 /**
  * __skb_flow_dissect - extract the flow_keys struct and return it
  * @net: associated network namespace, derived from @skb if NULL
@@ -1030,7 +1037,17 @@ bool __skb_flow_dissect(const struct net *net,
 		key_eth_addrs = skb_flow_dissector_target(flow_dissector,
 							  FLOW_DISSECTOR_KEY_ETH_ADDRS,
 							  target_container);
-		memcpy(key_eth_addrs, &eth->h_dest, sizeof(*key_eth_addrs));
+		memcpy(key_eth_addrs, eth, sizeof(*key_eth_addrs));
+	}
+
+	if (dissector_uses_key(flow_dissector,
+			       FLOW_DISSECTOR_KEY_NUM_OF_VLANS)) {
+		struct flow_dissector_key_num_of_vlans *key_num_of_vlans;
+
+		key_num_of_vlans = skb_flow_dissector_target(flow_dissector,
+							     FLOW_DISSECTOR_KEY_NUM_OF_VLANS,
+							     target_container);
+		key_num_of_vlans->num_of_vlans = 0;
 	}
 
 proto_again:
@@ -1156,6 +1173,16 @@ proto_again:
 			nhoff += sizeof(*vlan);
 		}
 
+		if (dissector_uses_key(flow_dissector,
+				       FLOW_DISSECTOR_KEY_NUM_OF_VLANS)) {
+			struct flow_dissector_key_num_of_vlans *key_nvs;
+
+			key_nvs = skb_flow_dissector_target(flow_dissector,
+							    FLOW_DISSECTOR_KEY_NUM_OF_VLANS,
+							    target_container);
+			key_nvs->num_of_vlans++;
+		}
+
 		if (dissector_vlan == FLOW_DISSECTOR_KEY_MAX) {
 			dissector_vlan = FLOW_DISSECTOR_KEY_VLAN;
 		} else if (dissector_vlan == FLOW_DISSECTOR_KEY_VLAN) {
@@ -1181,6 +1208,7 @@ proto_again:
 					 VLAN_PRIO_MASK) >> VLAN_PRIO_SHIFT;
 			}
 			key_vlan->vlan_tpid = saved_vlan_tpid;
+			key_vlan->vlan_eth_type = proto;
 		}
 
 		fdret = FLOW_DISSECT_RET_PROTO_AGAIN;
@@ -1191,26 +1219,59 @@ proto_again:
 			struct pppoe_hdr hdr;
 			__be16 proto;
 		} *hdr, _hdr;
+		u16 ppp_proto;
+
 		hdr = __skb_header_pointer(skb, nhoff, sizeof(_hdr), data, hlen, &_hdr);
 		if (!hdr) {
 			fdret = FLOW_DISSECT_RET_OUT_BAD;
 			break;
 		}
 
-		proto = hdr->proto;
-		nhoff += PPPOE_SES_HLEN;
-		switch (proto) {
-		case htons(PPP_IP):
-			proto = htons(ETH_P_IP);
-			fdret = FLOW_DISSECT_RET_PROTO_AGAIN;
-			break;
-		case htons(PPP_IPV6):
-			proto = htons(ETH_P_IPV6);
-			fdret = FLOW_DISSECT_RET_PROTO_AGAIN;
-			break;
-		default:
+		if (!is_pppoe_ses_hdr_valid(hdr->hdr)) {
 			fdret = FLOW_DISSECT_RET_OUT_BAD;
 			break;
+		}
+
+		/* least significant bit of the most significant octet
+		 * indicates if protocol field was compressed
+		 */
+		ppp_proto = ntohs(hdr->proto);
+		if (ppp_proto & 0x0100) {
+			ppp_proto = ppp_proto >> 8;
+			nhoff += PPPOE_SES_HLEN - 1;
+		} else {
+			nhoff += PPPOE_SES_HLEN;
+		}
+
+		if (ppp_proto == PPP_IP) {
+			proto = htons(ETH_P_IP);
+			fdret = FLOW_DISSECT_RET_PROTO_AGAIN;
+		} else if (ppp_proto == PPP_IPV6) {
+			proto = htons(ETH_P_IPV6);
+			fdret = FLOW_DISSECT_RET_PROTO_AGAIN;
+		} else if (ppp_proto == PPP_MPLS_UC) {
+			proto = htons(ETH_P_MPLS_UC);
+			fdret = FLOW_DISSECT_RET_PROTO_AGAIN;
+		} else if (ppp_proto == PPP_MPLS_MC) {
+			proto = htons(ETH_P_MPLS_MC);
+			fdret = FLOW_DISSECT_RET_PROTO_AGAIN;
+		} else if (ppp_proto_is_valid(ppp_proto)) {
+			fdret = FLOW_DISSECT_RET_OUT_GOOD;
+		} else {
+			fdret = FLOW_DISSECT_RET_OUT_BAD;
+			break;
+		}
+
+		if (dissector_uses_key(flow_dissector,
+				       FLOW_DISSECTOR_KEY_PPPOE)) {
+			struct flow_dissector_key_pppoe *key_pppoe;
+
+			key_pppoe = skb_flow_dissector_target(flow_dissector,
+							      FLOW_DISSECTOR_KEY_PPPOE,
+							      target_container);
+			key_pppoe->session_id = hdr->hdr.sid;
+			key_pppoe->ppp_proto = htons(ppp_proto);
+			key_pppoe->type = htons(ETH_P_PPP_SES);
 		}
 		break;
 	}
@@ -1282,6 +1343,23 @@ proto_again:
 		break;
 	}
 
+	case htons(ETH_P_PRP):
+	case htons(ETH_P_HSR): {
+		struct hsr_tag *hdr, _hdr;
+
+		hdr = __skb_header_pointer(skb, nhoff, sizeof(_hdr), data, hlen,
+					   &_hdr);
+		if (!hdr) {
+			fdret = FLOW_DISSECT_RET_OUT_BAD;
+			break;
+		}
+
+		proto = hdr->encap_proto;
+		nhoff += HSR_HLEN;
+		fdret = FLOW_DISSECT_RET_PROTO_AGAIN;
+		break;
+	}
+
 	default:
 		fdret = FLOW_DISSECT_RET_OUT_BAD;
 		break;
@@ -1308,6 +1386,11 @@ ip_proto_again:
 
 	switch (ip_proto) {
 	case IPPROTO_GRE:
+		if (flags & FLOW_DISSECTOR_F_STOP_BEFORE_ENCAP) {
+			fdret = FLOW_DISSECT_RET_OUT_GOOD;
+			break;
+		}
+
 		fdret = __skb_flow_dissect_gre(skb, key_control, flow_dissector,
 					       target_container, data,
 					       &proto, &nhoff, &hlen, flags);
@@ -1365,6 +1448,11 @@ ip_proto_again:
 		break;
 	}
 	case IPPROTO_IPIP:
+		if (flags & FLOW_DISSECTOR_F_STOP_BEFORE_ENCAP) {
+			fdret = FLOW_DISSECT_RET_OUT_GOOD;
+			break;
+		}
+
 		proto = htons(ETH_P_IP);
 
 		key_control->flags |= FLOW_DIS_ENCAPSULATION;
@@ -1377,6 +1465,11 @@ ip_proto_again:
 		break;
 
 	case IPPROTO_IPV6:
+		if (flags & FLOW_DISSECTOR_F_STOP_BEFORE_ENCAP) {
+			fdret = FLOW_DISSECT_RET_OUT_GOOD;
+			break;
+		}
+
 		proto = htons(ETH_P_IPV6);
 
 		key_control->flags |= FLOW_DIS_ENCAPSULATION;

@@ -110,14 +110,14 @@ void mlx5i_cleanup(struct mlx5e_priv *priv)
 
 static void mlx5i_grp_sw_update_stats(struct mlx5e_priv *priv)
 {
-	struct mlx5e_sw_stats s = { 0 };
+	struct rtnl_link_stats64 s = {};
 	int i, j;
 
 	for (i = 0; i < priv->stats_nch; i++) {
 		struct mlx5e_channel_stats *channel_stats;
 		struct mlx5e_rq_stats *rq_stats;
 
-		channel_stats = &priv->channel_stats[i];
+		channel_stats = priv->channel_stats[i];
 		rq_stats = &channel_stats->rq;
 
 		s.rx_packets += rq_stats->packets;
@@ -128,11 +128,17 @@ static void mlx5i_grp_sw_update_stats(struct mlx5e_priv *priv)
 
 			s.tx_packets           += sq_stats->packets;
 			s.tx_bytes             += sq_stats->bytes;
-			s.tx_queue_dropped     += sq_stats->dropped;
+			s.tx_dropped           += sq_stats->dropped;
 		}
 	}
 
-	memcpy(&priv->stats.sw, &s, sizeof(s));
+	memset(&priv->stats.sw, 0, sizeof(s));
+
+	priv->stats.sw.rx_packets = s.rx_packets;
+	priv->stats.sw.rx_bytes = s.rx_bytes;
+	priv->stats.sw.tx_packets = s.tx_packets;
+	priv->stats.sw.tx_bytes = s.tx_bytes;
+	priv->stats.sw.tx_queue_dropped = s.tx_dropped;
 }
 
 void mlx5i_get_stats(struct net_device *dev, struct rtnl_link_stats64 *stats)
@@ -316,10 +322,10 @@ static int mlx5i_create_flow_steering(struct mlx5e_priv *priv)
 {
 	int err;
 
-	priv->fs.ns = mlx5_get_flow_namespace(priv->mdev,
+	priv->fs->ns = mlx5_get_flow_namespace(priv->mdev,
 					       MLX5_FLOW_NAMESPACE_KERNEL);
 
-	if (!priv->fs.ns)
+	if (!priv->fs->ns)
 		return -EINVAL;
 
 	err = mlx5e_arfs_create_tables(priv);
@@ -358,9 +364,18 @@ static int mlx5i_init_rx(struct mlx5e_priv *priv)
 	struct mlx5_core_dev *mdev = priv->mdev;
 	int err;
 
-	priv->rx_res = mlx5e_rx_res_alloc();
-	if (!priv->rx_res)
+	priv->fs = mlx5e_fs_init(priv->profile, mdev,
+				 !test_bit(MLX5E_STATE_DESTROYING, &priv->state));
+	if (!priv->fs) {
+		netdev_err(priv->netdev, "FS allocation failed\n");
 		return -ENOMEM;
+	}
+
+	priv->rx_res = mlx5e_rx_res_alloc();
+	if (!priv->rx_res) {
+		err = -ENOMEM;
+		goto err_free_fs;
+	}
 
 	mlx5e_create_q_counters(priv);
 
@@ -391,6 +406,8 @@ err_destroy_q_counters:
 	mlx5e_destroy_q_counters(priv);
 	mlx5e_rx_res_free(priv->rx_res);
 	priv->rx_res = NULL;
+err_free_fs:
+	mlx5e_fs_cleanup(priv->fs);
 	return err;
 }
 
@@ -402,6 +419,7 @@ static void mlx5i_cleanup_rx(struct mlx5e_priv *priv)
 	mlx5e_destroy_q_counters(priv);
 	mlx5e_rx_res_free(priv->rx_res);
 	priv->rx_res = NULL;
+	mlx5e_fs_cleanup(priv->fs);
 }
 
 /* The stats groups order is opposite to the update_stats() order calls */
@@ -443,7 +461,6 @@ static const struct mlx5e_profile mlx5i_nic_profile = {
 	.rq_groups	   = MLX5E_NUM_RQ_GROUPS(REGULAR),
 	.stats_grps        = mlx5i_stats_grps,
 	.stats_grps_num    = mlx5i_stats_grps_num,
-	.rx_ptp_support    = false,
 };
 
 /* mlx5i netdev NDos */

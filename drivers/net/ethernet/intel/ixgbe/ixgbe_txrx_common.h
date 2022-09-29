@@ -8,6 +8,7 @@
 #define IXGBE_XDP_CONSUMED	BIT(0)
 #define IXGBE_XDP_TX		BIT(1)
 #define IXGBE_XDP_REDIR		BIT(2)
+#define IXGBE_XDP_EXIT		BIT(3)
 
 #define IXGBE_TXD_CMD (IXGBE_TXD_CMD_EOP | \
 		       IXGBE_TXD_CMD_RS)
@@ -34,8 +35,6 @@ struct xsk_buff_pool *ixgbe_xsk_pool(struct ixgbe_adapter *adapter,
 int ixgbe_xsk_pool_setup(struct ixgbe_adapter *adapter,
 			 struct xsk_buff_pool *pool,
 			 u16 qid);
-
-void ixgbe_zca_free(struct zero_copy_allocator *alloc, unsigned long handle);
 
 bool ixgbe_alloc_rx_buffers_zc(struct ixgbe_ring *rx_ring, u16 cleaned_count);
 int ixgbe_clean_rx_irq_zc(struct ixgbe_q_vector *q_vector,
