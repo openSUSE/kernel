@@ -34,7 +34,7 @@ static char *mps_inti_flags_trigger[] = { "dfl", "edge", "res", "level" };
 
 static struct acpi_table_desc initial_tables[ACPI_MAX_TABLES] __initdata;
 
-static int acpi_apic_instance __initdata;
+static int acpi_apic_instance __initdata_or_acpilib;
 
 enum acpi_subtable_type {
 	ACPI_SUBTABLE_COMMON,
@@ -51,7 +51,7 @@ struct acpi_subtable_entry {
  * Disable table checksum verification for the early stage due to the size
  * limitation of the current x86 early mapping implementation.
  */
-static bool acpi_verify_table_checksum __initdata = false;
+static bool acpi_verify_table_checksum __initdata_or_acpilib = false;
 
 void acpi_table_print_madt_entry(struct acpi_subtable_header *header)
 {
@@ -215,7 +215,7 @@ void acpi_table_print_madt_entry(struct acpi_subtable_header *header)
 	}
 }
 
-static unsigned long __init
+static unsigned long __init_or_acpilib
 acpi_get_entry_type(struct acpi_subtable_entry *entry)
 {
 	switch (entry->type) {
@@ -229,7 +229,7 @@ acpi_get_entry_type(struct acpi_subtable_entry *entry)
 	return 0;
 }
 
-static unsigned long __init
+static unsigned long __init_or_acpilib
 acpi_get_entry_length(struct acpi_subtable_entry *entry)
 {
 	switch (entry->type) {
@@ -243,7 +243,7 @@ acpi_get_entry_length(struct acpi_subtable_entry *entry)
 	return 0;
 }
 
-static unsigned long __init
+static unsigned long __init_or_acpilib
 acpi_get_subtable_header_length(struct acpi_subtable_entry *entry)
 {
 	switch (entry->type) {
@@ -257,7 +257,7 @@ acpi_get_subtable_header_length(struct acpi_subtable_entry *entry)
 	return 0;
 }
 
-static enum acpi_subtable_type __init
+static enum acpi_subtable_type __init_or_acpilib
 acpi_get_subtable_type(char *id)
 {
 	if (strncmp(id, ACPI_SIG_HMAT, 4) == 0)
@@ -290,10 +290,10 @@ acpi_get_subtable_type(char *id)
  * On success returns sum of all matching entries for all proc handlers.
  * Otherwise, -ENODEV or -EINVAL is returned.
  */
-static int __init acpi_parse_entries_array(char *id, unsigned long table_size,
-		struct acpi_table_header *table_header,
-		struct acpi_subtable_proc *proc, int proc_num,
-		unsigned int max_entries)
+static int __init_or_acpilib acpi_parse_entries_array(
+	char *id, unsigned long table_size,
+	struct acpi_table_header *table_header, struct acpi_subtable_proc *proc,
+	int proc_num, unsigned int max_entries)
 {
 	struct acpi_subtable_entry entry;
 	unsigned long table_end, subtable_len, entry_len;
@@ -351,10 +351,9 @@ static int __init acpi_parse_entries_array(char *id, unsigned long table_size,
 	return errs ? -EINVAL : count;
 }
 
-int __init acpi_table_parse_entries_array(char *id,
-			 unsigned long table_size,
-			 struct acpi_subtable_proc *proc, int proc_num,
-			 unsigned int max_entries)
+int __init_or_acpilib acpi_table_parse_entries_array(
+	char *id, unsigned long table_size, struct acpi_subtable_proc *proc,
+	int proc_num, unsigned int max_entries)
 {
 	struct acpi_table_header *table_header = NULL;
 	int count;
