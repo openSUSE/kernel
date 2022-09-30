@@ -6795,7 +6795,6 @@ struct scsi_host_template lpfc_template = {
 	.track_queue_depth	= 1,
 };
 
-/* Template for all vports this physical port creates */
 struct scsi_host_template lpfc_vport_template = {
 	.module			= THIS_MODULE,
 	.name			= LPFC_DRIVER_NAME,
@@ -6803,11 +6802,12 @@ struct scsi_host_template lpfc_vport_template = {
 	.info			= lpfc_info,
 	.queuecommand		= lpfc_queuecommand,
 	.eh_timed_out		= fc_eh_timed_out,
+	.eh_should_retry_cmd    = fc_eh_should_retry_cmd,
 	.eh_abort_handler	= lpfc_abort_handler,
 	.eh_device_reset_handler = lpfc_device_reset_handler,
 	.eh_target_reset_handler = lpfc_target_reset_handler,
 	.eh_bus_reset_handler	= NULL,
-	.eh_host_reset_handler  = NULL,
+	.eh_host_reset_handler	= NULL,
 	.slave_alloc		= lpfc_slave_alloc,
 	.slave_configure	= lpfc_slave_configure,
 	.slave_destroy		= lpfc_slave_destroy,
@@ -6815,7 +6815,7 @@ struct scsi_host_template lpfc_vport_template = {
 	.this_id		= -1,
 	.sg_tablesize		= LPFC_DEFAULT_SG_SEG_CNT,
 	.cmd_per_lun		= LPFC_CMD_PER_LUN,
-	.shost_attrs		= lpfc_vport_attrs,
+	.shost_attrs		= lpfc_hba_attrs,
 	.max_sectors		= 0xFFFFFFFF,
 	.vendor_id		= 0,
 	.change_queue_depth	= scsi_change_queue_depth,
