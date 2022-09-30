@@ -136,7 +136,7 @@ __maybe_unused struct page *try_grab_compound_head(struct page *page,
 		 * path.
 		 */
 		if (unlikely((flags & FOLL_LONGTERM) &&
-			     !is_pinnable_page(page)))
+			     !is_longterm_pinnable_page(page)))
 			return NULL;
 
 		/*
@@ -1838,7 +1838,7 @@ static long check_and_migrate_movable_pages(unsigned long nr_pages,
 			continue;
 		prev_head = head;
 
-		if (is_pinnable_page(head))
+		if (is_longterm_pinnable_page(head))
 			continue;
 
 		/*
