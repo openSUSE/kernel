@@ -4613,6 +4613,17 @@ lpfc_get_wwpn(struct lpfc_hba *phba)
 		return rol64(wwn, 32);
 }
 
+static unsigned short lpfc_get_sg_tablesize(struct lpfc_hba *phba)
+{
+	if (phba->sli_rev == LPFC_SLI_REV4)
+		if (phba->cfg_xpsgl && !phba->nvmet_support)
+			return LPFC_MAX_SG_TABLESIZE;
+		else
+			return phba->cfg_scsi_seg_cnt;
+	else
+		return phba->cfg_sg_seg_cnt;
+}
+
 /**
  * lpfc_vmid_res_alloc - Allocates resources for VMID
  * @phba: pointer to lpfc hba data structure.
@@ -4683,7 +4694,7 @@ lpfc_create_port(struct lpfc_hba *phba, int instance, struct device *dev)
 {
 	struct lpfc_vport *vport;
 	struct Scsi_Host  *shost = NULL;
-	struct scsi_host_template *template, *vport_template;
+	struct scsi_host_template *template;
 	int error = 0;
 	int i;
 	uint64_t wwn;
@@ -4723,26 +4734,18 @@ lpfc_create_port(struct lpfc_hba *phba, int instance, struct device *dev)
 				/* template is for a no reset SCSI Host */
 				template->eh_host_reset_handler = NULL;
 
-			/* Template for all vports this physical port creates */
-			vport_template = &lpfc_vport_template;
-
-			/* Initialize the host templates with updated value */
-			if (phba->sli_rev == LPFC_SLI_REV4) {
-				template->sg_tablesize = phba->cfg_scsi_seg_cnt;
-				vport_template->sg_tablesize =
-					phba->cfg_scsi_seg_cnt;
-			} else {
-				template->sg_tablesize = phba->cfg_sg_seg_cnt;
-				vport_template->sg_tablesize =
-					phba->cfg_sg_seg_cnt;
-			}
-
+			/* Seed updated value of sg_tablesize */
+			template->sg_tablesize = lpfc_get_sg_tablesize(phba);
 		} else {
 			/* NVMET is for physical port only */
 			template = &lpfc_template_nvme;
 		}
 	} else {
+		/* Seed vport template */
 		template = &lpfc_vport_template;
+
+		/* Seed updated value of sg_tablesize */
+		template->sg_tablesize = lpfc_get_sg_tablesize(phba);
 	}
 
 	shost = scsi_host_alloc(template, sizeof(struct lpfc_vport));
@@ -4775,11 +4778,6 @@ lpfc_create_port(struct lpfc_hba *phba, int instance, struct device *dev)
 
 		shost->dma_boundary =
 			phba->sli4_hba.pc_sli4_params.sge_supp_len-1;
-
-		if (phba->cfg_xpsgl && !phba->nvmet_support)
-			shost->sg_tablesize = LPFC_MAX_SG_TABLESIZE;
-		else
-			shost->sg_tablesize = phba->cfg_scsi_seg_cnt;
 	} else
 		/* SLI-3 has a limited number of hardware queues (3),
 		 * thus there is only one for FCP processing.
