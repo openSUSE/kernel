@@ -2301,6 +2301,7 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 
 	is_on = !!is_on;
 
+	dwc->softconnect = is_on;
 	/*
 	 * Per databook, when we want to stop the gadget, if a control transfer
 	 * is still in process, complete it and get the core into setup phase.
@@ -2336,6 +2337,11 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 		return 0;
 	}
 
+	if (dwc->pullups_connected == is_on) {
+		pm_runtime_put(dwc->dev);
+		return 0;
+	}
+
 	/*
 	 * Synchronize and disable any further event handling while controller
 	 * is being enabled/disabled.
@@ -2343,11 +2349,6 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 	disable_irq(dwc->irq_gadget);
 
 	spin_lock_irqsave(&dwc->lock, flags);
-
-	if (dwc->pullups_connected == is_on) {
-		pm_runtime_put(dwc->dev);
-		return 0;
-	}
 
 	if (!is_on) {
 		u32 count;
@@ -4233,7 +4234,7 @@ int dwc3_gadget_resume(struct dwc3 *dwc)
 {
 	int			ret;
 
-	if (!dwc->gadget_driver)
+	if (!dwc->gadget_driver || !dwc->softconnect)
 		return 0;
 
 	ret = __dwc3_gadget_start(dwc);
