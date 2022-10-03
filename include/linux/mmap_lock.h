@@ -54,4 +54,9 @@ static inline void mmap_read_unlock(struct mm_struct *mm)
 	up_read(&mm->mmap_sem);
 }
 
+static inline int mmap_sem_is_contended(struct mm_struct *mm)
+{
+	return rwsem_is_contended(&mm->mmap_sem);
+}
+
 #endif /* _LINUX_MMAP_LOCK_H */

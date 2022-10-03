@@ -779,10 +779,7 @@ static void spi_set_cs(struct spi_device *spi, bool enable)
 {
 	bool enable1 = enable;
 
-	if (!spi->controller->set_cs_timing) {
-		if (enable1)
-			spi_delay_exec(&spi->controller->cs_setup, NULL);
-		else
+	if (!spi->controller->set_cs_timing && !enable1) {
 			spi_delay_exec(&spi->controller->cs_hold, NULL);
 	}
 
@@ -813,7 +810,9 @@ static void spi_set_cs(struct spi_device *spi, bool enable)
 	}
 
 	if (!spi->controller->set_cs_timing) {
-		if (!enable1)
+		if (enable1)
+			spi_delay_exec(&spi->controller->cs_setup, NULL);
+		else
 			spi_delay_exec(&spi->controller->cs_inactive, NULL);
 	}
 }

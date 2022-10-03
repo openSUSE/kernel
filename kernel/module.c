@@ -108,6 +108,36 @@ static void do_free_init(struct work_struct *w);
 static DECLARE_WORK(init_free_wq, do_free_init);
 static LLIST_HEAD(init_free_list);
 
+struct module_kabi_data {
+#ifdef CONFIG_DEBUG_INFO_BTF_MODULES
+	struct module_btf_info btf_info;
+#endif
+};
+
+#ifdef CONFIG_DEBUG_INFO_BTF_MODULES
+struct module_btf_info *get_module_btf_info(struct module *mod)
+{
+	return &mod->kabi_data->btf_info;
+}
+#endif
+
+static int alloc_module_kabi(struct module *mod)
+{
+	if (sizeof(*mod->kabi_data)) {
+		mod->kabi_data = kzalloc(sizeof(*mod->kabi_data), GFP_KERNEL);
+		if (!mod->kabi_data)
+			return -ENOMEM;
+
+	}
+	return 0;
+}
+
+static void free_module_kabi(struct module *mod)
+{
+	kfree(mod->kabi_data);
+	mod->kabi_data = NULL;
+}
+
 #ifdef CONFIG_MODULES_TREE_LOOKUP
 
 /*
@@ -389,6 +419,35 @@ static void *section_objs(const struct load_info *info,
 			  unsigned int *num)
 {
 	unsigned int sec = find_sec(info, name);
+
+	/* Section 0 has sh_addr 0 and sh_size 0. */
+	*num = info->sechdrs[sec].sh_size / object_size;
+	return (void *)info->sechdrs[sec].sh_addr;
+}
+
+/* Find a module section: 0 means not found. Ignores SHF_ALLOC flag. */
+static unsigned int find_any_sec(const struct load_info *info, const char *name)
+{
+	unsigned int i;
+
+	for (i = 1; i < info->hdr->e_shnum; i++) {
+		Elf_Shdr *shdr = &info->sechdrs[i];
+		if (strcmp(info->secstrings + shdr->sh_name, name) == 0)
+			return i;
+	}
+	return 0;
+}
+
+/*
+ * Find a module section, or NULL. Fill in number of "objects" in section.
+ * Ignores SHF_ALLOC flag.
+ */
+static __maybe_unused void *any_section_objs(const struct load_info *info,
+					     const char *name,
+					     size_t object_size,
+					     unsigned int *num)
+{
+	unsigned int sec = find_any_sec(info, name);
 
 	/* Section 0 has sh_addr 0 and sh_size 0. */
 	*num = info->sechdrs[sec].sh_size / object_size;
@@ -2326,6 +2385,8 @@ static void free_module(struct module *mod)
 	kfree(mod->args);
 	percpu_modfree(mod);
 
+	free_module_kabi(mod);
+
 	/* Free lock-classes; relies on the preceding sync_rcu(). */
 	lockdep_free_key_range(mod->core_layout.base, mod->core_layout.size);
 
@@ -2387,6 +2448,21 @@ static int verify_exported_symbols(struct module *mod)
 	return 0;
 }
 
+static bool ignore_undef_symbol(Elf_Half emachine, const char *name)
+{
+	/*
+	 * On x86, PIC code and Clang non-PIC code may have call foo@PLT. GNU as
+	 * before 2.37 produces an unreferenced _GLOBAL_OFFSET_TABLE_ on x86-64.
+	 * i386 has a similar problem but may not deserve a fix.
+	 *
+	 * If we ever have to ignore many symbols, consider refactoring the code to
+	 * only warn if referenced by a relocation.
+	 */
+	if (emachine == EM_386 || emachine == EM_X86_64)
+		return !strcmp(name, "_GLOBAL_OFFSET_TABLE_");
+	return false;
+}
+
 /* Change all symbols so that st_value encodes the pointer directly. */
 static int simplify_symbols(struct module *mod, const struct load_info *info)
 {
@@ -2432,8 +2508,10 @@ static int simplify_symbols(struct module *mod, const struct load_info *info)
 				break;
 			}
 
-			/* Ok if weak.  */
-			if (!ksym && ELF_ST_BIND(sym[i].st_info) == STB_WEAK)
+			/* Ok if weak or ignored.  */
+			if (!ksym &&
+			    (ELF_ST_BIND(sym[i].st_info) == STB_WEAK ||
+			     ignore_undef_symbol(info->hdr->e_machine, name)))
 				break;
 
 			ret = PTR_ERR(ksym) ?: -ENOENT;
@@ -3305,6 +3383,10 @@ static int find_module_sections(struct module *mod, struct load_info *info)
 					   sizeof(*mod->bpf_raw_events),
 					   &mod->num_bpf_raw_events);
 #endif
+#ifdef CONFIG_DEBUG_INFO_BTF_MODULES
+	mod->kabi_data->btf_info.btf_data = any_section_objs(info, ".BTF", 1,
+				   &mod->kabi_data->btf_info.btf_data_size);
+#endif
 #ifdef CONFIG_JUMP_LABEL
 	mod->jump_entries = section_objs(info, "__jump_table",
 					sizeof(*mod->jump_entries),
@@ -3711,6 +3793,10 @@ static noinline int do_init_module(struct module *mod)
 	mod->init_layout.ro_size = 0;
 	mod->init_layout.ro_after_init_size = 0;
 	mod->init_layout.text_size = 0;
+#ifdef CONFIG_DEBUG_INFO_BTF_MODULES
+	/* .BTF is not SHF_ALLOC and will get removed, so sanitize pointer */
+	mod->kabi_data->btf_info.btf_data = NULL;
+#endif
 	/*
 	 * We want to free module_init, but be aware that kallsyms may be
 	 * walking this with preempt disabled.  In all the failure paths, we
@@ -3902,10 +3988,14 @@ static int load_module(struct load_info *info, const char __user *uargs,
 
 	audit_log_kern_module(mod->name);
 
+	err = alloc_module_kabi(mod);
+	if (err)
+		goto free_module;
+
 	/* Reserve our place in the list. */
 	err = add_unformed_module(mod);
 	if (err)
-		goto free_module;
+		goto free_kabi;
 
 #ifdef CONFIG_MODULE_SIG
 	mod->sig_ok = info->sig_ok;
@@ -4043,6 +4133,8 @@ static int load_module(struct load_info *info, const char __user *uargs,
 	/* Wait for RCU-sched synchronizing before releasing mod->list. */
 	synchronize_rcu();
 	mutex_unlock(&module_mutex);
+ free_kabi:
+	free_module_kabi(mod);
  free_module:
 	/* Free lock-classes; relies on the preceding sync_rcu() */
 	lockdep_free_key_range(mod->core_layout.base, mod->core_layout.size);

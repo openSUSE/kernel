@@ -313,12 +313,10 @@ extern void __init minsigstksz_setup(void);
  * of header definitions for the use of task_stack_page.
  */
 
-#define current_top_of_stack()							\
-({										\
-	struct stack_info _info;						\
-	BUG_ON(!on_accessible_stack(current, current_stack_pointer, &_info));	\
-	_info.high;								\
-})
+/*
+ * The top of the current task's task stack
+ */
+#define current_top_of_stack()	((unsigned long)current->stack + THREAD_SIZE)
 #define on_thread_stack()	(on_task_stack(current, current_stack_pointer, NULL))
 
 #endif /* __ASSEMBLY__ */

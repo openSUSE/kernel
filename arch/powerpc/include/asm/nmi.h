@@ -4,8 +4,10 @@
 
 #ifdef CONFIG_PPC_WATCHDOG
 extern void arch_touch_nmi_watchdog(void);
+void watchdog_nmi_set_timeout_pct(u64 pct);
 #else
 static inline void arch_touch_nmi_watchdog(void) {}
+static inline void watchdog_nmi_set_timeout_pct(u64 pct) {}
 #endif
 
 #if defined(CONFIG_NMI_IPI) && defined(CONFIG_STACKTRACE)
