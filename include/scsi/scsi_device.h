@@ -144,6 +144,7 @@ struct scsi_device {
 	const char * model;		/* ... after scan; point to static string */
 	const char * rev;		/* ... "nullnullnullnull" before scan */
 
+#define SCSI_VPD_PG_LEN	255	/* default SCSI VPD page size (max) */
 	struct scsi_vpd __rcu *vpd_pg0;
 	struct scsi_vpd __rcu *vpd_pg83;
 	struct scsi_vpd __rcu *vpd_pg80;
@@ -209,8 +210,9 @@ struct scsi_device {
 	unsigned rpm_autosuspend:1;	/* Enable runtime autosuspend at device
 					 * creation time */
 #ifndef __GENKSYMS__
-	/* kABI: there should be room for this single bit */
+	/* kABI: there should be room for 2 more bits here */
 	unsigned silence_suspend:1;	/* Do not print runtime PM related messages */
+	unsigned no_ask_vpd_sz_first:1;	/* Do not ask for VPD size first */
 #endif
 
 	bool offline_already;		/* Device offline message logged */

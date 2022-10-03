@@ -5816,8 +5816,6 @@ qla2x00_reg_remote_port(scsi_qla_host_t *vha, fc_port_t *fcport)
 	if (atomic_read(&fcport->state) == FCS_ONLINE)
 		return;
 
-	qla2x00_set_fcport_state(fcport, FCS_ONLINE);
-
 	rport_ids.node_name = wwn_to_u64(fcport->node_name);
 	rport_ids.port_name = wwn_to_u64(fcport->port_name);
 	rport_ids.port_id = fcport->d_id.b.domain << 16 |
@@ -5918,7 +5916,6 @@ qla2x00_update_fcport(scsi_qla_host_t *vha, fc_port_t *fcport)
 		qla2x00_reg_remote_port(vha, fcport);
 		break;
 	case MODE_TARGET:
-		qla2x00_set_fcport_state(fcport, FCS_ONLINE);
 		if (!vha->vha_tgt.qla_tgt->tgt_stop &&
 			!vha->vha_tgt.qla_tgt->tgt_stopped)
 			qlt_fc_port_added(vha, fcport);
@@ -5935,6 +5932,8 @@ qla2x00_update_fcport(scsi_qla_host_t *vha, fc_port_t *fcport)
 
 	if (NVME_TARGET(vha->hw, fcport))
 		qla_nvme_register_remote(vha, fcport);
+
+	qla2x00_set_fcport_state(fcport, FCS_ONLINE);
 
 	if (IS_IIDMA_CAPABLE(vha->hw) && vha->hw->flags.gpsc_supported) {
 		if (fcport->id_changed) {
@@ -7926,6 +7925,9 @@ qla28xx_component_status(
 
 	active_regions->aux.npiv_config_2_3 =
 	    qla28xx_component_bitmask(aux, QLA28XX_AUX_IMG_NPIV_CONFIG_2_3);
+
+	active_regions->aux.nvme_params =
+	    qla28xx_component_bitmask(aux, QLA28XX_AUX_IMG_NVME_PARAMS);
 }
 
 static int
@@ -8034,11 +8036,12 @@ check_valid_image:
 	}
 
 	ql_dbg(ql_dbg_init, vha, 0x018f,
-	    "aux images active: BCFG=%u VPD/NVR=%u NPIV0/1=%u NPIV2/3=%u\n",
+	    "aux images active: BCFG=%u VPD/NVR=%u NPIV0/1=%u NPIV2/3=%u, NVME=%u\n",
 	    active_regions->aux.board_config,
 	    active_regions->aux.vpd_nvram,
 	    active_regions->aux.npiv_config_0_1,
-	    active_regions->aux.npiv_config_2_3);
+	    active_regions->aux.npiv_config_2_3,
+	    active_regions->aux.nvme_params);
 }
 
 void

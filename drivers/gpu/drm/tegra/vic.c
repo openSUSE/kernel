@@ -53,7 +53,7 @@ static void vic_writel(struct vic *vic, u32 value, unsigned int offset)
 	writel(value, vic->regs + offset);
 }
 
-static int vic_runtime_resume(struct device *dev)
+static int __maybe_unused vic_runtime_resume(struct device *dev)
 {
 	struct vic *vic = dev_get_drvdata(dev);
 	int err;
@@ -77,7 +77,7 @@ disable:
 	return err;
 }
 
-static int vic_runtime_suspend(struct device *dev)
+static int __maybe_unused vic_runtime_suspend(struct device *dev)
 {
 	struct vic *vic = dev_get_drvdata(dev);
 	int err;

@@ -4348,7 +4348,6 @@ static void __dmar_remove_one_dev_info(struct device_domain_info *info)
 {
 	struct dmar_domain *domain;
 	struct intel_iommu *iommu;
-	unsigned long flags;
 
 	assert_spin_locked(&device_domain_lock);
 
@@ -4370,9 +4369,7 @@ static void __dmar_remove_one_dev_info(struct device_domain_info *info)
 
 	unlink_domain_info(info);
 
-	spin_lock_irqsave(&iommu->lock, flags);
 	domain_detach_iommu(domain, iommu);
-	spin_unlock_irqrestore(&iommu->lock, flags);
 
 	free_devinfo_mem(info);
 }
@@ -4614,11 +4611,9 @@ static void aux_domain_remove_dev(struct dmar_domain *domain,
 	iommu = info->iommu;
 
 	if (!auxiliary_unlink_device(domain, dev)) {
-		spin_lock(&iommu->lock);
 		intel_pasid_tear_down_entry(iommu, dev,
 					    domain->default_pasid, false);
 		domain_detach_iommu(domain, iommu);
-		spin_unlock(&iommu->lock);
 	}
 
 	spin_unlock_irqrestore(&device_domain_lock, flags);
