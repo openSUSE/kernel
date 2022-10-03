@@ -193,6 +193,8 @@ extern int ql2xsecenable;
 extern int ql2xenforce_iocb_limit;
 extern int ql2xabts_wait_nvme;
 extern u32 ql2xnvme_queues;
+extern int ql2xrspq_follow_inptr;
+extern int ql2xrspq_follow_inptr_legacy;
 
 extern int qla2x00_loop_reset(scsi_qla_host_t *);
 extern void qla2x00_abort_all_cmds(scsi_qla_host_t *, int);
@@ -555,6 +557,10 @@ qla2x00_dump_mctp_data(scsi_qla_host_t *, dma_addr_t, uint32_t, uint32_t);
 
 extern int
 qla26xx_dport_diagnostics(scsi_qla_host_t *, void *, uint, uint);
+
+extern int
+qla26xx_dport_diagnostics_v2(scsi_qla_host_t *,
+			     struct qla_dport_diag_v2 *,  mbx_cmd_t *);
 
 int qla24xx_send_mb_cmd(struct scsi_qla_host *, mbx_cmd_t *);
 int qla24xx_gpdb_wait(struct scsi_qla_host *, fc_port_t *, u8);
@@ -991,7 +997,6 @@ fc_port_t *qla2x00_find_fcport_by_pid(scsi_qla_host_t *vha, port_id_t *id);
 void qla_edb_eventcreate(scsi_qla_host_t *vha, uint32_t dbtype, uint32_t data, uint32_t data2,
 		fc_port_t *fcport);
 void qla_edb_stop(scsi_qla_host_t *vha);
-ssize_t edif_doorbell_show(struct device *dev, struct device_attribute *attr, char *buf);
 int32_t qla_edif_app_mgmt(struct bsg_job *bsg_job);
 void qla_enode_init(scsi_qla_host_t *vha);
 void qla_enode_stop(scsi_qla_host_t *vha);

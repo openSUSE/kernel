@@ -290,6 +290,13 @@ static int ocelot_port_num_untagged_vlans(struct ocelot *ocelot, int port)
 		if (!(vlan->portmask & BIT(port)))
 			continue;
 
+		/* Ignore the VLAN added by ocelot_add_vlan_unaware_pvid(),
+		 * because this is never active in hardware at the same time as
+		 * the bridge VLANs, which only matter in VLAN-aware mode.
+		 */
+		if (vlan->vid >= OCELOT_RSV_VLAN_RANGE_START)
+			continue;
+
 		if (vlan->untagged & BIT(port))
 			num_untagged++;
 	}
@@ -1881,9 +1888,8 @@ static int ocelot_port_update_stats(struct ocelot *ocelot, int port)
 	ocelot_write(ocelot, SYS_STAT_CFG_STAT_VIEW(port), SYS_STAT_CFG);
 
 	list_for_each_entry(region, &ocelot->stats_regions, node) {
-		err = ocelot_bulk_read_rix(ocelot, SYS_COUNT_RX_OCTETS,
-					   region->offset, region->buf,
-					   region->count);
+		err = ocelot_bulk_read(ocelot, region->base, region->buf,
+				       region->count);
 		if (err)
 			return err;
 
@@ -1978,7 +1984,7 @@ static int ocelot_prepare_stats_regions(struct ocelot *ocelot)
 		if (ocelot->stats_layout[i].name[0] == '\0')
 			continue;
 
-		if (region && ocelot->stats_layout[i].offset == last + 1) {
+		if (region && ocelot->stats_layout[i].reg == last + 4) {
 			region->count++;
 		} else {
 			region = devm_kzalloc(ocelot->dev, sizeof(*region),
@@ -1986,12 +1992,12 @@ static int ocelot_prepare_stats_regions(struct ocelot *ocelot)
 			if (!region)
 				return -ENOMEM;
 
-			region->offset = ocelot->stats_layout[i].offset;
+			region->base = ocelot->stats_layout[i].reg;
 			region->count = 1;
 			list_add_tail(&region->node, &ocelot->stats_regions);
 		}
 
-		last = ocelot->stats_layout[i].offset;
+		last = ocelot->stats_layout[i].reg;
 	}
 
 	list_for_each_entry(region, &ocelot->stats_regions, node) {

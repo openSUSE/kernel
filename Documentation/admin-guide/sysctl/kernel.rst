@@ -38,8 +38,8 @@ acct
 
 If BSD-style process accounting is enabled these values control
 its behaviour. If free space on filesystem where the log lives
-goes below ``lowwater``% accounting suspends. If free space gets
-above ``highwater``% accounting resumes. ``frequency`` determines
+goes below ``lowwater``\ % accounting suspends. If free space gets
+above ``highwater``\ % accounting resumes. ``frequency`` determines
 how often do we check the amount of free space (value is in
 seconds). Default:
 
@@ -1361,7 +1361,7 @@ ORed together. The letters are seen in "Tainted" line of Oops reports.
      32768  `(K)`  kernel has been live patched
      65536  `(X)`  A kernel module with external support was loaded
     131072  `(T)`  The kernel was built with the struct randomization plugin
-2147483648  `(N)`  An unsupported kernel module was loaded
+2147483648  `(n)`  An unsupported kernel module was loaded
 ==========  =====  ==========================================================
 
 See Documentation/admin-guide/tainted-kernels.rst for more information.

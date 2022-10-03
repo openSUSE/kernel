@@ -292,6 +292,7 @@ static const struct joycon_rumble_amp_data joycon_rumble_amplitudes[] = {
 };
 static const u16 JC_RUMBLE_DFLT_LOW_FREQ = 160;
 static const u16 JC_RUMBLE_DFLT_HIGH_FREQ = 320;
+static const unsigned short JC_RUMBLE_ZERO_AMP_PKT_CNT = 5;
 #endif /* IS_ENABLED(CONFIG_NINTENDO_FF) */
 static const u16 JC_RUMBLE_PERIOD_MS = 50;
 
@@ -401,8 +402,6 @@ struct joycon_input_report {
 #define JC_MAX_RESP_SIZE	(sizeof(struct joycon_input_report) + 35)
 #define JC_RUMBLE_DATA_SIZE	8
 #define JC_RUMBLE_QUEUE_SIZE	8
-
-static const unsigned short JC_RUMBLE_ZERO_AMP_PKT_CNT = 5;
 
 static const char * const joycon_player_led_names[] = {
 	LED_FUNCTION_PLAYER1,
@@ -1637,6 +1636,7 @@ static int joycon_input_create(struct joycon_ctlr *ctlr)
 	ctlr->input->id.version = hdev->version;
 	ctlr->input->uniq = ctlr->mac_addr_str;
 	ctlr->input->name = name;
+	ctlr->input->phys = hdev->phys;
 	input_set_drvdata(ctlr->input, ctlr);
 
 	/* set up sticks and buttons */
@@ -1716,6 +1716,7 @@ static int joycon_input_create(struct joycon_ctlr *ctlr)
 	ctlr->imu_input->id.version = hdev->version;
 	ctlr->imu_input->uniq = ctlr->mac_addr_str;
 	ctlr->imu_input->name = imu_name;
+	ctlr->imu_input->phys = hdev->phys;
 	input_set_drvdata(ctlr->imu_input, ctlr);
 
 	/* configure imu axes */

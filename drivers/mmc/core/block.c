@@ -2505,10 +2505,11 @@ static struct mmc_blk_data *mmc_blk_alloc_req(struct mmc_card *card,
 		dev_set_drvdata(&card->dev, md);
 	ret = device_add_disk(md->parent, md->disk, mmc_disk_attr_groups);
 	if (ret)
-		goto err_cleanup_queue;
+		goto err_put_disk;
 	return md;
 
- err_cleanup_queue:
+ err_put_disk:
+	put_disk(md->disk);
 	blk_mq_free_tag_set(&md->queue.tag_set);
  err_kfree:
 	kfree(md);
@@ -2987,7 +2988,7 @@ static int mmc_blk_probe(struct mmc_card *card)
 	 * Don't enable runtime PM for SD-combo cards here. Leave that
 	 * decision to be taken during the SDIO init sequence instead.
 	 */
-	if (card->type != MMC_TYPE_SD_COMBO) {
+	if (!mmc_card_sd_combo(card)) {
 		pm_runtime_set_active(&card->dev);
 		pm_runtime_enable(&card->dev);
 	}
@@ -3014,7 +3015,7 @@ static void mmc_blk_remove(struct mmc_card *card)
 		mmc_blk_part_switch(card, md->part_type);
 		mmc_release_host(card->host);
 	}
-	if (card->type != MMC_TYPE_SD_COMBO)
+	if (!mmc_card_sd_combo(card))
 		pm_runtime_disable(&card->dev);
 	pm_runtime_put_noidle(&card->dev);
 	mmc_blk_remove_req(md);
