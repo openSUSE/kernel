@@ -197,6 +197,9 @@ struct otg_fsm {
 	u8 *host_req_flag;
 	struct delayed_work hnp_polling_work;
 	bool state_changed;
+#ifndef __GENKSYMS__
+	bool hnp_work_inited;
+#endif
 };
 
 struct otg_fsm_ops {
