@@ -339,16 +339,6 @@ module_param(ql2xdelay_before_pci_error_handling, uint, 0644);
 MODULE_PARM_DESC(ql2xdelay_before_pci_error_handling,
 	"Number of seconds delayed before qla begin PCI error self-handling (default: 5).\n");
 
-int ql2xrspq_follow_inptr = 1;
-module_param(ql2xrspq_follow_inptr, int, 0644);
-MODULE_PARM_DESC(ql2xrspq_follow_inptr,
-		 "Follow RSP IN pointer for RSP updates for HBAs 27xx and newer (default: 1).");
-
-int ql2xrspq_follow_inptr_legacy = 1;
-module_param(ql2xrspq_follow_inptr_legacy, int, 0644);
-MODULE_PARM_DESC(ql2xrspq_follow_inptr_legacy,
-		 "Follow RSP IN pointer for RSP updates for HBAs older than 27XX. (default: 1).");
-
 static void qla2x00_clear_drv_active(struct qla_hw_data *);
 static void qla2x00_free_device(scsi_qla_host_t *);
 static int qla2xxx_map_queues(struct Scsi_Host *shost);
@@ -3531,7 +3521,7 @@ skip_dpc:
 		qla_dual_mode_enabled(base_vha))
 		scsi_scan_host(host);
 	else
-		ql_dbg(ql_dbg_init, base_vha, 0x0122,
+		ql_log(ql_log_info, base_vha, 0x0122,
 			"skipping scsi_scan_host() for non-initiator port\n");
 
 	qla2x00_alloc_sysfs_attr(base_vha);
