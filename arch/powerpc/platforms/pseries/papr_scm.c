@@ -19,6 +19,7 @@
 #include <asm/papr_pdsm.h>
 #include <asm/mce.h>
 #include <asm/unaligned.h>
+#include <linux/perf_event.h>
 
 #define BIND_ANY_ADDR (~0ul)
 
@@ -339,6 +340,191 @@ static ssize_t drc_pmem_query_stats(struct papr_scm_priv *p,
 		be32_to_cpu(buff_stats->num_statistics));
 	return 0;
 }
+
+#ifdef CONFIG_PERF_EVENTS
+#define to_nvdimm_pmu(_pmu)	container_of(_pmu, struct nvdimm_pmu, pmu)
+
+static const char * const nvdimm_events_map[] = {
+	[1] = "CtlResCt",
+	[2] = "CtlResTm",
+	[3] = "PonSecs ",
+	[4] = "MemLife ",
+	[5] = "CritRscU",
+	[6] = "HostLCnt",
+	[7] = "HostSCnt",
+	[8] = "HostSDur",
+	[9] = "HostLDur",
+	[10] = "MedRCnt ",
+	[11] = "MedWCnt ",
+	[12] = "MedRDur ",
+	[13] = "MedWDur ",
+	[14] = "CchRHCnt",
+	[15] = "CchWHCnt",
+	[16] = "FastWCnt",
+};
+
+static int papr_scm_pmu_get_value(struct perf_event *event, struct device *dev, u64 *count)
+{
+	struct papr_scm_perf_stat *stat;
+	struct papr_scm_perf_stats *stats;
+	struct papr_scm_priv *p = (struct papr_scm_priv *)dev->driver_data;
+	int rc, size;
+
+	/* Invalid eventcode */
+	if (event->attr.config == 0 || event->attr.config >= ARRAY_SIZE(nvdimm_events_map))
+		return -EINVAL;
+
+	/* Allocate request buffer enough to hold single performance stat */
+	size = sizeof(struct papr_scm_perf_stats) +
+		sizeof(struct papr_scm_perf_stat);
+
+	if (!p)
+		return -EINVAL;
+
+	stats = kzalloc(size, GFP_KERNEL);
+	if (!stats)
+		return -ENOMEM;
+
+	stat = &stats->scm_statistic[0];
+	memcpy(&stat->stat_id,
+	       nvdimm_events_map[event->attr.config],
+		sizeof(stat->stat_id));
+	stat->stat_val = 0;
+
+	rc = drc_pmem_query_stats(p, stats, 1);
+	if (rc < 0) {
+		kfree(stats);
+		return rc;
+	}
+
+	*count = be64_to_cpu(stat->stat_val);
+	kfree(stats);
+	return 0;
+}
+
+static int papr_scm_pmu_event_init(struct perf_event *event)
+{
+	struct nvdimm_pmu *nd_pmu = to_nvdimm_pmu(event->pmu);
+	struct papr_scm_priv *p;
+
+	if (!nd_pmu)
+		return -EINVAL;
+
+	/* test the event attr type for PMU enumeration */
+	if (event->attr.type != event->pmu->type)
+		return -ENOENT;
+
+	/* it does not support event sampling mode */
+	if (is_sampling_event(event))
+		return -EOPNOTSUPP;
+
+	/* no branch sampling */
+	if (has_branch_stack(event))
+		return -EOPNOTSUPP;
+
+	p = (struct papr_scm_priv *)nd_pmu->dev->driver_data;
+	if (!p)
+		return -EINVAL;
+
+	/* Invalid eventcode */
+	if (event->attr.config == 0 || event->attr.config > 16)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int papr_scm_pmu_add(struct perf_event *event, int flags)
+{
+	u64 count;
+	int rc;
+	struct nvdimm_pmu *nd_pmu = to_nvdimm_pmu(event->pmu);
+
+	if (!nd_pmu)
+		return -EINVAL;
+
+	if (flags & PERF_EF_START) {
+		rc = papr_scm_pmu_get_value(event, nd_pmu->dev, &count);
+		if (rc)
+			return rc;
+
+		local64_set(&event->hw.prev_count, count);
+	}
+
+	return 0;
+}
+
+static void papr_scm_pmu_read(struct perf_event *event)
+{
+	u64 prev, now;
+	int rc;
+	struct nvdimm_pmu *nd_pmu = to_nvdimm_pmu(event->pmu);
+
+	if (!nd_pmu)
+		return;
+
+	rc = papr_scm_pmu_get_value(event, nd_pmu->dev, &now);
+	if (rc)
+		return;
+
+	prev = local64_xchg(&event->hw.prev_count, now);
+	local64_add(now - prev, &event->count);
+}
+
+static void papr_scm_pmu_del(struct perf_event *event, int flags)
+{
+	papr_scm_pmu_read(event);
+}
+
+static void papr_scm_pmu_register(struct papr_scm_priv *p)
+{
+	struct nvdimm_pmu *nd_pmu;
+	int rc, nodeid;
+
+	nd_pmu = kzalloc(sizeof(*nd_pmu), GFP_KERNEL);
+	if (!nd_pmu) {
+		rc = -ENOMEM;
+		goto pmu_err_print;
+	}
+
+	if (!p->stat_buffer_len) {
+		rc = -ENOENT;
+		goto pmu_check_events_err;
+	}
+
+	nd_pmu->pmu.task_ctx_nr = perf_invalid_context;
+	nd_pmu->pmu.name = nvdimm_name(p->nvdimm);
+	nd_pmu->pmu.event_init = papr_scm_pmu_event_init;
+	nd_pmu->pmu.read = papr_scm_pmu_read;
+	nd_pmu->pmu.add = papr_scm_pmu_add;
+	nd_pmu->pmu.del = papr_scm_pmu_del;
+
+	nd_pmu->pmu.capabilities = PERF_PMU_CAP_NO_INTERRUPT |
+				PERF_PMU_CAP_NO_EXCLUDE;
+
+	/*updating the cpumask variable */
+	nodeid = numa_map_to_online_node(dev_to_node(&p->pdev->dev));
+	nd_pmu->arch_cpumask = *cpumask_of_node(nodeid);
+
+	rc = register_nvdimm_pmu(nd_pmu, p->pdev);
+	if (rc)
+		goto pmu_check_events_err;
+
+	/*
+	 * Set archdata.priv value to nvdimm_pmu structure, to handle the
+	 * unregistering of pmu device.
+	 */
+	p->pdev->archdata.priv = nd_pmu;
+	return;
+
+pmu_check_events_err:
+	kfree(nd_pmu);
+pmu_err_print:
+	dev_info(&p->pdev->dev, "nvdimm pmu didn't register rc=%d\n", rc);
+}
+
+#else
+static void papr_scm_pmu_register(struct papr_scm_priv *p) { }
+#endif
 
 /*
  * Issue hcall to retrieve dimm health info and populate papr_scm_priv with the
@@ -1236,6 +1422,7 @@ static int papr_scm_probe(struct platform_device *pdev)
 		goto err2;
 
 	platform_set_drvdata(pdev, p);
+	papr_scm_pmu_register(p);
 
 	return 0;
 
@@ -1254,6 +1441,11 @@ static int papr_scm_remove(struct platform_device *pdev)
 
 	nvdimm_bus_unregister(p->bus);
 	drc_pmem_unbind(p);
+
+	if (pdev->archdata.priv)
+		unregister_nvdimm_pmu(pdev->archdata.priv);
+
+	pdev->archdata.priv = NULL;
 	kfree(p->bus_desc.provider_name);
 	kfree(p);
 
