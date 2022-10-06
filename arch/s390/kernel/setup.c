@@ -463,8 +463,8 @@ static void __init setup_lowcore_dat_on(void)
 	S390_lowcore.svc_new_psw.mask |= PSW_MASK_DAT;
 	S390_lowcore.program_new_psw.mask |= PSW_MASK_DAT;
 	S390_lowcore.io_new_psw.mask |= PSW_MASK_DAT;
-	__ctl_store(S390_lowcore.cregs_save_area, 0, 15);
 	__ctl_set_bit(0, 28);
+	__ctl_store(S390_lowcore.cregs_save_area, 0, 15);
 	mem_assign_absolute(S390_lowcore.restart_flags, RESTART_FLAG_CTLREGS);
 	mem_assign_absolute(S390_lowcore.program_new_psw, lc->program_new_psw);
 	memcpy_absolute(&S390_lowcore.cregs_save_area, lc->cregs_save_area,
