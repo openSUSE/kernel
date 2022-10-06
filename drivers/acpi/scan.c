@@ -1747,6 +1747,11 @@ static bool acpi_device_enumeration_by_parent(struct acpi_device *device)
 		{"INT33FE", },
 		{"INT3515", },
 	/*
+	 * Some ACPI devs contain SerialBus resources even though they are not
+	 * attached to a serial bus at all.
+	 */
+		{"MSHW0028", },
+	/*
 	 * HIDs of device with an UartSerialBusV2 resource for which userspace
 	 * expects a regular tty cdev to be created (instead of the in kernel
 	 * serdev) and which have a kernel driver which expects a platform_dev
