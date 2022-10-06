@@ -15,6 +15,7 @@
 #include <linux/uio.h>
 #include <linux/dax.h>
 #include <linux/fs.h>
+#include <linux/memremap.h>
 #include "dax-private.h"
 
 static dev_t dax_devt;
