@@ -12,6 +12,8 @@
 #include "xfs_trans.h"
 #include "xfs_trans_priv.h"
 #include "xfs_inode_item.h"
+#include "xfs_trans_resv.h"
+#include "xfs_mount.h"
 
 #include <linux/iversion.h>
 
@@ -100,6 +102,17 @@ xfs_trans_log_inode(
 		spin_lock(&inode->i_lock);
 		inode->i_state &= ~I_DIRTY_TIME;
 		spin_unlock(&inode->i_lock);
+	}
+
+	/*
+	 * If we're updating the inode core or the timestamps and it's possible
+	 * to upgrade this inode to bigtime format, do so now.
+	 */
+	if ((flags & (XFS_ILOG_CORE | XFS_ILOG_TIMESTAMP)) &&
+	    xfs_sb_version_hasbigtime(&ip->i_mount->m_sb) &&
+	    !xfs_inode_has_bigtime(ip)) {
+		ip->i_d.di_flags2 |= XFS_DIFLAG2_BIGTIME;
+		flags |= XFS_ILOG_CORE;
 	}
 
 	/*
