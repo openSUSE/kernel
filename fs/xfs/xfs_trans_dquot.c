@@ -54,6 +54,12 @@ xfs_trans_log_dquot(
 {
 	ASSERT(XFS_DQ_IS_LOCKED(dqp));
 
+	/* Upgrade the dquot to bigtime format if possible. */
+	if (be32_to_cpu(dqp->q_core.d_id) != 0 &&
+	    xfs_sb_version_hasbigtime(&tp->t_mountp->m_sb) &&
+	    !(dqp->dq_flags & XFS_DQTYPE_BIGTIME))
+		dqp->dq_flags |= XFS_DQTYPE_BIGTIME;
+
 	tp->t_flags |= XFS_TRANS_DIRTY;
 	set_bit(XFS_LI_DIRTY, &dqp->q_logitem.qli_item.li_flags);
 }
@@ -600,7 +606,7 @@ xfs_trans_dqresv(
 		softlimit = be64_to_cpu(dqp->q_core.d_blk_softlimit);
 		if (!softlimit)
 			softlimit = defq->bsoftlimit;
-		timer = be32_to_cpu(dqp->q_core.d_btimer);
+		timer = dqp->q_blk_timer;
 		warns = be16_to_cpu(dqp->q_core.d_bwarns);
 		warnlimit = dqp->q_mount->m_quotainfo->qi_bwarnlimit;
 		resbcountp = &dqp->q_res_bcount;
@@ -612,7 +618,7 @@ xfs_trans_dqresv(
 		softlimit = be64_to_cpu(dqp->q_core.d_rtb_softlimit);
 		if (!softlimit)
 			softlimit = defq->rtbsoftlimit;
-		timer = be32_to_cpu(dqp->q_core.d_rtbtimer);
+		timer = dqp->q_rtb_timer;
 		warns = be16_to_cpu(dqp->q_core.d_rtbwarns);
 		warnlimit = dqp->q_mount->m_quotainfo->qi_rtbwarnlimit;
 		resbcountp = &dqp->q_res_rtbcount;
@@ -648,7 +654,7 @@ xfs_trans_dqresv(
 		}
 		if (ninos > 0) {
 			total_count = be64_to_cpu(dqp->q_core.d_icount) + ninos;
-			timer = be32_to_cpu(dqp->q_core.d_itimer);
+			timer = dqp->q_ino_timer;
 			warns = be16_to_cpu(dqp->q_core.d_iwarns);
 			warnlimit = dqp->q_mount->m_quotainfo->qi_iwarnlimit;
 			hardlimit = be64_to_cpu(dqp->q_core.d_ino_hardlimit);

@@ -1253,13 +1253,108 @@ static inline bool xfs_dinode_has_bigtime(const struct xfs_dinode *dip)
 #define XFS_DQUOT_MAGIC		0x4451		/* 'DQ' */
 #define XFS_DQUOT_VERSION	(uint8_t)0x01	/* latest version number */
 
+#define XFS_DQTYPE_USER		0x01		/* user dquot record */
+#define XFS_DQTYPE_PROJ		0x02		/* project dquot record */
+#define XFS_DQTYPE_GROUP	0x04		/* group dquot record */
+#define XFS_DQTYPE_BIGTIME	0x80		/* large expiry timestamps */
+
+/* bitmask to determine if this is a user/group/project dquot */
+#define XFS_DQTYPE_REC_MASK	(XFS_DQTYPE_USER | \
+				 XFS_DQTYPE_PROJ | \
+				 XFS_DQTYPE_GROUP)
+
+#define XFS_DQTYPE_ANY		(XFS_DQTYPE_REC_MASK | \
+				 XFS_DQTYPE_BIGTIME)
+
 /*
- * This is the main portion of the on-disk representation of quota
- * information for a user. This is the q_core of the xfs_dquot_t that
- * is kept in kernel memory. We pad this with some more expansion room
- * to construct the on disk structure.
+ * XFS Quota Timers
+ * ================
+ *
+ * Traditional quota grace period expiration timers are an unsigned 32-bit
+ * seconds counter; time zero is the Unix epoch, Jan  1 00:00:01 UTC 1970.
+ * Note that an expiration value of zero means that the quota limit has not
+ * been reached, and therefore no expiration has been set.  Therefore, the
+ * ondisk min and max defined here can be used directly to constrain the incore
+ * quota expiration timestamps on a Unix system.
+ *
+ * When bigtime is enabled, we trade two bits of precision to expand the
+ * expiration timeout range to match that of big inode timestamps.  The min and
+ * max recorded here are the on-disk limits, not a Unix timestamp.
+ *
+ * The grace period for each quota type is stored in the root dquot (id = 0)
+ * and is applied to a non-root dquot when it exceeds the soft or hard limits.
+ * The length of quota grace periods are unsigned 32-bit quantities measured in
+ * units of seconds.  A value of zero means to use the default period.
  */
-typedef struct	xfs_disk_dquot {
+
+/*
+ * Smallest possible ondisk quota expiration value with traditional timestamps.
+ * This corresponds exactly with the incore expiration Jan  1 00:00:01 UTC 1970.
+ */
+#define XFS_DQ_LEGACY_EXPIRY_MIN	((int64_t)1)
+
+/*
+ * Largest possible ondisk quota expiration value with traditional timestamps.
+ * This corresponds exactly with the incore expiration Feb  7 06:28:15 UTC 2106.
+ */
+#define XFS_DQ_LEGACY_EXPIRY_MAX	((int64_t)U32_MAX)
+
+/*
+ * Smallest possible ondisk quota expiration value with bigtime timestamps.
+ * This corresponds (after conversion to a Unix timestamp) with the incore
+ * expiration of Jan  1 00:00:04 UTC 1970.
+ */
+#define XFS_DQ_BIGTIME_EXPIRY_MIN	(XFS_DQ_LEGACY_EXPIRY_MIN)
+
+/*
+ * Largest supported ondisk quota expiration value with bigtime timestamps.
+ * This corresponds (after conversion to a Unix timestamp) with an incore
+ * expiration of Jul  2 20:20:24 UTC 2486.
+ *
+ * The ondisk field supports values up to -1U, which corresponds to an incore
+ * expiration in 2514.  This is beyond the maximum the bigtime inode timestamp,
+ * so we cap the maximum bigtime quota expiration to the max inode timestamp.
+ */
+#define XFS_DQ_BIGTIME_EXPIRY_MAX	((int64_t)4074815106U)
+
+/*
+ * The following conversion factors assist in converting a quota expiration
+ * timestamp between the incore and ondisk formats.
+ */
+#define XFS_DQ_BIGTIME_SHIFT	(2)
+#define XFS_DQ_BIGTIME_SLACK	((int64_t)(1ULL << XFS_DQ_BIGTIME_SHIFT) - 1)
+
+/* Convert an incore quota expiration timestamp to an ondisk bigtime value. */
+static inline uint32_t xfs_dq_unix_to_bigtime(time64_t unix_seconds)
+{
+	/*
+	 * Round the expiration timestamp up to the nearest bigtime timestamp
+	 * that we can store, to give users the most time to fix problems.
+	 */
+	return ((uint64_t)unix_seconds + XFS_DQ_BIGTIME_SLACK) >>
+			XFS_DQ_BIGTIME_SHIFT;
+}
+
+/* Convert an ondisk bigtime quota expiration value to an incore timestamp. */
+static inline time64_t xfs_dq_bigtime_to_unix(uint32_t ondisk_seconds)
+{
+	return (time64_t)ondisk_seconds << XFS_DQ_BIGTIME_SHIFT;
+}
+
+/*
+ * Default quota grace periods, ranging from zero (use the compiled defaults)
+ * to ~136 years.  These are applied to a non-root dquot that has exceeded
+ * either limit.
+ */
+#define XFS_DQ_GRACE_MIN		((int64_t)0)
+#define XFS_DQ_GRACE_MAX		((int64_t)U32_MAX)
+
+/*
+ * This is the main portion of the on-disk representation of quota information
+ * for a user.  We pad this with some more expansion room to construct the on
+ * disk structure.
+ */
+typedef struct xfs_disk_dquot {
 	__be16		d_magic;	/* dquot magic = XFS_DQUOT_MAGIC */
 	__u8		d_version;	/* dquot version */
 	__u8		d_flags;	/* XFS_DQ_USER/PROJ/GROUP */

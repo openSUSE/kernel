@@ -84,7 +84,7 @@ xfs_dquot_tree(
 	struct xfs_quotainfo	*qi,
 	int			type)
 {
-	switch (type) {
+	switch (type & XFS_DQ_ALLTYPES) {
 	case XFS_DQ_USER:
 		return &qi->qi_uquota_tree;
 	case XFS_DQ_GROUP:

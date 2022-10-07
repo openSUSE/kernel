@@ -40,6 +40,9 @@ typedef struct xfs_dquot {
 	xfs_fileoff_t	 q_fileoffset;	/* offset in quotas file */
 
 	xfs_disk_dquot_t q_core;	/* actual usage & quotas */
+	time64_t	 q_blk_timer;
+	time64_t	 q_ino_timer;
+	time64_t	 q_rtb_timer;
 	xfs_dq_logitem_t q_logitem;	/* dquot log item */
 	xfs_qcnt_t	 q_res_bcount;	/* total regular nblks used+reserved */
 	xfs_qcnt_t	 q_res_icount;	/* total inos allocd+reserved */
