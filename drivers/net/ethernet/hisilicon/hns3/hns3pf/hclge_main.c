@@ -10569,6 +10569,7 @@ int hclge_update_port_base_vlan_cfg(struct hclge_vport *vport, u16 state,
 		if (ret)
 			return ret;
 
+		vport->port_base_vlan_cfg.tbl_sta = false;
 		/* remove old VLAN tag */
 		if (old_vlan_info->vlan_tag == 0)
 			ret = hclge_set_vf_vlan_common(hdev, vport->vport_id,
