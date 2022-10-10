@@ -183,7 +183,14 @@ struct nfs_inode {
 
 	/* Readers: in-flight sillydelete RPC calls */
 	/* Writers: rmdir */
+#ifndef __GENKSYMS__
+	union {
+#endif
 	struct rw_semaphore	rmdir_sem;
+#ifndef __GENKSYMS__
+	atomic_long_t	redirtied_pages;
+	};
+#endif
 	struct mutex		commit_mutex;
 
 	/* track last access to cached pages */
