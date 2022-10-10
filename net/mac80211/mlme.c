@@ -3883,10 +3883,11 @@ static void ieee80211_rx_mgmt_beacon(struct ieee80211_sub_if_data *sdata,
 	ieee80211_sta_reset_beacon_monitor(sdata);
 
 	ncrc = crc32_be(0, (void *)&mgmt->u.beacon.beacon_int, 4);
-	ncrc = ieee802_11_parse_elems_crc(mgmt->u.beacon.variable,
-					  len - baselen, false, &elems,
-					  care_about_ies, ncrc,
-					  mgmt->bssid, bssid);
+	ieee802_11_parse_elems_crc(mgmt->u.beacon.variable,
+				   len - baselen, false, &elems,
+				   care_about_ies, ncrc,
+				   mgmt->bssid, bssid);
+	ncrc = elems.crc;
 
 	if (ieee80211_hw_check(&local->hw, PS_NULLFUNC_STACK) &&
 	    ieee80211_check_tim(elems.tim, elems.tim_len, ifmgd->aid)) {
