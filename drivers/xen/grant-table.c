@@ -118,13 +118,12 @@ struct gnttab_ops {
 			     unsigned long frame, unsigned flags);
 	/*
 	 * Stop granting a grant entry to domain for accessing. Ref parameter is
-	 * reference of a grant entry whose grant access will be stopped,
-	 * readonly is not in use in this function. If the grant entry is
-	 * currently mapped for reading or writing, just return failure(==0)
-	 * directly and don't tear down the grant access. Otherwise, stop grant
-	 * access for this entry and return success(==1).
+	 * reference of a grant entry whose grant access will be stopped.
+	 * If the grant entry is currently mapped for reading or writing, just
+	 * return failure(==0) directly and don't tear down the grant access.
+	 * Otherwise, stop grant access for this entry and return success(==1).
 	 */
-	int (*end_foreign_access_ref)(grant_ref_t ref, int readonly);
+	int (*end_foreign_access_ref)(grant_ref_t ref);
 	/*
 	 * Stop granting a grant entry to domain for transfer. Ref parameter is
 	 * reference of a grant entry whose grant transfer will be stopped. If
@@ -304,7 +303,7 @@ int gnttab_query_foreign_access(grant_ref_t ref)
 }
 EXPORT_SYMBOL_GPL(gnttab_query_foreign_access);
 
-static int gnttab_end_foreign_access_ref_v1(grant_ref_t ref, int readonly)
+static int gnttab_end_foreign_access_ref_v1(grant_ref_t ref)
 {
 	u16 flags, nflags;
 	u16 *pflags;
@@ -320,7 +319,7 @@ static int gnttab_end_foreign_access_ref_v1(grant_ref_t ref, int readonly)
 	return 1;
 }
 
-static int gnttab_end_foreign_access_ref_v2(grant_ref_t ref, int readonly)
+static int gnttab_end_foreign_access_ref_v2(grant_ref_t ref)
 {
 	gnttab_shared.v2[ref].hdr.flags = 0;
 	mb();	/* Concurrent access by hypervisor. */
@@ -343,14 +342,14 @@ static int gnttab_end_foreign_access_ref_v2(grant_ref_t ref, int readonly)
 	return 1;
 }
 
-static inline int _gnttab_end_foreign_access_ref(grant_ref_t ref, int readonly)
+static inline int _gnttab_end_foreign_access_ref(grant_ref_t ref)
 {
-	return gnttab_interface->end_foreign_access_ref(ref, readonly);
+	return gnttab_interface->end_foreign_access_ref(ref);
 }
 
-int gnttab_end_foreign_access_ref(grant_ref_t ref, int readonly)
+int gnttab_end_foreign_access_ref(grant_ref_t ref)
 {
-	if (_gnttab_end_foreign_access_ref(ref, readonly))
+	if (_gnttab_end_foreign_access_ref(ref))
 		return 1;
 	pr_warn("WARNING: g.e. %#x still in use!\n", ref);
 	return 0;
@@ -370,7 +369,6 @@ static unsigned long gnttab_read_frame_v2(grant_ref_t ref)
 struct deferred_entry {
 	struct list_head list;
 	grant_ref_t ref;
-	bool ro;
 	uint16_t warn_delay;
 	struct page *page;
 };
@@ -394,7 +392,7 @@ static void gnttab_handle_deferred(struct timer_list *unused)
 			break;
 		list_del(&entry->list);
 		spin_unlock_irqrestore(&gnttab_list_lock, flags);
-		if (_gnttab_end_foreign_access_ref(entry->ref, entry->ro)) {
+		if (_gnttab_end_foreign_access_ref(entry->ref)) {
 			put_free_entry(entry->ref);
 			pr_debug("freeing g.e. %#x (pfn %#lx)\n",
 				 entry->ref, page_to_pfn(entry->page));
@@ -420,8 +418,7 @@ static void gnttab_handle_deferred(struct timer_list *unused)
 	spin_unlock_irqrestore(&gnttab_list_lock, flags);
 }
 
-static void gnttab_add_deferred(grant_ref_t ref, bool readonly,
-				struct page *page)
+static void gnttab_add_deferred(grant_ref_t ref, struct page *page)
 {
 	struct deferred_entry *entry;
 	gfp_t gfp = (in_atomic() || irqs_disabled()) ? GFP_ATOMIC : GFP_KERNEL;
@@ -439,7 +436,6 @@ static void gnttab_add_deferred(grant_ref_t ref, bool readonly,
 		unsigned long flags;
 
 		entry->ref = ref;
-		entry->ro = readonly;
 		entry->page = page;
 		entry->warn_delay = 60;
 		spin_lock_irqsave(&gnttab_list_lock, flags);
@@ -457,7 +453,7 @@ static void gnttab_add_deferred(grant_ref_t ref, bool readonly,
 
 int gnttab_try_end_foreign_access(grant_ref_t ref)
 {
-	int ret = _gnttab_end_foreign_access_ref(ref, 0);
+	int ret = _gnttab_end_foreign_access_ref(ref);
 
 	if (ret)
 		put_free_entry(ref);
@@ -466,15 +462,13 @@ int gnttab_try_end_foreign_access(grant_ref_t ref)
 }
 EXPORT_SYMBOL_GPL(gnttab_try_end_foreign_access);
 
-void gnttab_end_foreign_access(grant_ref_t ref, int readonly,
-			       unsigned long page)
+void gnttab_end_foreign_access(grant_ref_t ref, unsigned long page)
 {
 	if (gnttab_try_end_foreign_access(ref)) {
 		if (page != 0)
 			put_page(virt_to_page(page));
 	} else
-		gnttab_add_deferred(ref, readonly,
-				    page ? virt_to_page(page) : NULL);
+		gnttab_add_deferred(ref, page ? virt_to_page(page) : NULL);
 }
 EXPORT_SYMBOL_GPL(gnttab_end_foreign_access);
 
