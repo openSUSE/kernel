@@ -2685,7 +2685,7 @@ mcp251xfd_register_get_dev_id(const struct mcp251xfd_priv *priv,
 	xfer[0].tx_buf = buf_tx;
 	xfer[0].len = sizeof(buf_tx->cmd);
 	xfer[1].rx_buf = buf_rx->data;
-	xfer[1].len = sizeof(dev_id);
+	xfer[1].len = sizeof(*dev_id);
 
 	mcp251xfd_spi_cmd_read_nocrc(&buf_tx->cmd, MCP251XFD_REG_DEVID);
 	err = spi_sync_transfer(priv->spi, xfer, ARRAY_SIZE(xfer));
