@@ -1068,6 +1068,12 @@ int acpi_bus_for_each_dev(int (*fn)(struct device *, void *), void *data)
 }
 EXPORT_SYMBOL_GPL(acpi_bus_for_each_dev);
 
+int acpi_dev_for_each_child(struct acpi_device *adev,
+			    int (*fn)(struct device *, void *), void *data)
+{
+	return device_for_each_child(&adev->dev, data, fn);
+}
+
 /* --------------------------------------------------------------------------
                              Initialization/Cleanup
    -------------------------------------------------------------------------- */
