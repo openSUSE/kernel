@@ -1894,8 +1894,8 @@ static long check_and_migrate_movable_pages(unsigned long nr_pages,
 				    thp_nr_pages(head));
 	}
 
-	if (!list_empty(&movable_page_list) || isolation_error_count
-		|| coherent_pages)
+	if (!list_empty(&movable_page_list) || isolation_error_count ||
+	    coherent_pages)
 		goto unpin_pages;
 
 	/*
