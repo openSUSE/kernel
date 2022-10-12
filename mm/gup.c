@@ -1828,7 +1828,7 @@ static long check_and_migrate_movable_pages(unsigned long nr_pages,
 	unsigned long isolation_error_count = 0, i;
 	struct page *prev_head = NULL;
 	LIST_HEAD(movable_page_list);
-	bool drain_allow = true;
+	bool drain_allow = true, coherent_pages = false;
 	int ret = 0;
 
 	for (i = 0; i < nr_pages; i++) {
@@ -1838,9 +1838,38 @@ static long check_and_migrate_movable_pages(unsigned long nr_pages,
 			continue;
 		prev_head = head;
 
+		/*
+		 * Device coherent pages are managed by a driver and should not
+		 * be pinned indefinitely as it prevents the driver moving the
+		 * page. So when trying to pin with FOLL_LONGTERM instead try
+		 * to migrate the page out of device memory.
+		 */
+		if (is_device_coherent_page(head)) {
+			/*
+			 * We always want a new GUP lookup with device coherent
+			 * pages.
+			 */
+			pages[i] = 0;
+			coherent_pages = true;
+
+			/*
+			 * Migration will fail if the page is pinned, so convert
+			 * the pin on the source page to a normal reference.
+			 */
+			if (gup_flags & FOLL_PIN) {
+				get_page(head);
+				unpin_user_page(head);
+			}
+
+			ret = migrate_device_coherent_page(head);
+			if (ret)
+				goto unpin_pages;
+
+			continue;
+		}
+
 		if (is_longterm_pinnable_page(head))
 			continue;
-
 		/*
 		 * Try to move out any movable page before pinning the range.
 		 */
@@ -1865,7 +1894,8 @@ static long check_and_migrate_movable_pages(unsigned long nr_pages,
 				    thp_nr_pages(head));
 	}
 
-	if (!list_empty(&movable_page_list) || isolation_error_count)
+	if (!list_empty(&movable_page_list) || isolation_error_count
+		|| coherent_pages)
 		goto unpin_pages;
 
 	/*
@@ -1875,10 +1905,16 @@ static long check_and_migrate_movable_pages(unsigned long nr_pages,
 	return nr_pages;
 
 unpin_pages:
-	if (gup_flags & FOLL_PIN) {
-		unpin_user_pages(pages, nr_pages);
-	} else {
-		for (i = 0; i < nr_pages; i++)
+	/*
+	 * pages[i] might be NULL if any device coherent pages were found.
+	 */
+	for (i = 0; i < nr_pages; i++) {
+		if (!pages[i])
+			continue;
+
+		if (gup_flags & FOLL_PIN)
+			unpin_user_page(pages[i]);
+		else
 			put_page(pages[i]);
 	}
 
