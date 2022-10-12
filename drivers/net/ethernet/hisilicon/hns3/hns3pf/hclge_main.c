@@ -3471,6 +3471,12 @@ static int hclge_set_vf_link_state(struct hnae3_handle *handle, int vf,
 	link_state_old = vport->vf_info.link_state;
 	vport->vf_info.link_state = link_state;
 
+	/* return success directly if the VF is unalive, VF will
+	 * query link state itself when it starts work.
+	 */
+	if (!test_bit(HCLGE_VPORT_STATE_ALIVE, &vport->state))
+		return 0;
+
 	ret = hclge_push_vf_link_status(vport);
 	if (ret) {
 		vport->vf_info.link_state = link_state_old;
@@ -10569,6 +10575,7 @@ int hclge_update_port_base_vlan_cfg(struct hclge_vport *vport, u16 state,
 		if (ret)
 			return ret;
 
+		vport->port_base_vlan_cfg.tbl_sta = false;
 		/* remove old VLAN tag */
 		if (old_vlan_info->vlan_tag == 0)
 			ret = hclge_set_vf_vlan_common(hdev, vport->vport_id,

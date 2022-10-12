@@ -170,6 +170,7 @@ struct nfs_inode {
 	__be32			cookieverf[NFS_DIR_VERIFIER_SIZE];
 
 	atomic_long_t		nrequests;
+	atomic_long_t	redirtied_pages;
 	struct nfs_mds_commit_info commit_info;
 
 	/* Open contexts for shared mmap writes */
@@ -573,7 +574,9 @@ bool nfs_commit_end(struct nfs_mds_commit_info *cinfo);
 static inline int
 nfs_have_writebacks(struct inode *inode)
 {
-	return atomic_long_read(&NFS_I(inode)->nrequests) != 0;
+	if (S_ISREG(inode->i_mode))
+		return atomic_long_read(&NFS_I(inode)->nrequests) != 0;
+	return 0;
 }
 
 /*
