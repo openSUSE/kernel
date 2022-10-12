@@ -605,6 +605,9 @@ static void pcie_aspm_cap_init(struct pcie_link_state *link, int blacklist)
 	link->latency_up.l1 = calc_l1_latency(parent_lnkcap);
 	link->latency_dw.l1 = calc_l1_latency(child_lnkcap);
 
+	if (!parent->l1ss || !child->l1ss)
+		return;
+
 	/* Setup L1 substate */
 	pci_read_config_dword(parent, parent->l1ss + PCI_L1SS_CAP,
 			      &parent_l1ss_cap);
