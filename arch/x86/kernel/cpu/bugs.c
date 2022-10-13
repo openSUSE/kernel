@@ -198,6 +198,7 @@ void ssb_select_mitigation(void);
 static void x86_amd_ssbd_disable(void);
 static void __init l1tf_select_mitigation(void);
 static void __init mds_select_mitigation(void);
+static void __init md_clear_update_mitigation(void);
 static void __init taa_select_mitigation(void);
 static void __init srbds_select_mitigation(void);
 
@@ -257,6 +258,12 @@ void __init check_bugs(void)
 
 	mds_select_mitigation();
 	taa_select_mitigation();
+
+	/*
+	 * As MDS and TAA mitigations are inter-related, update and print their
+	 * mitigation after TAA mitigation selection is done.
+	 */
+	md_clear_update_mitigation();
 
 	arch_smt_update();
 
@@ -404,7 +411,7 @@ static void __init taa_select_mitigation(void)
 	/* TSX previously disabled by tsx=off */
 	if (!boot_cpu_has(X86_FEATURE_RTM)) {
 		taa_mitigation = TAA_MITIGATION_TSX_DISABLED;
-		goto out;
+		return;
 	}
 
 	if (cpu_mitigations_off()) {
@@ -418,7 +425,7 @@ static void __init taa_select_mitigation(void)
 	 */
 	if (taa_mitigation == TAA_MITIGATION_OFF &&
 	    mds_mitigation == MDS_MITIGATION_OFF)
-		goto out;
+		return;
 
 	if (boot_cpu_has(X86_FEATURE_MD_CLEAR))
 		taa_mitigation = TAA_MITIGATION_VERW;
@@ -450,18 +457,6 @@ static void __init taa_select_mitigation(void)
 
 	if (taa_nosmt || cpu_mitigations_auto_nosmt())
 		cpu_smt_disable(false);
-
-	/*
-	 * Update MDS mitigation, if necessary, as the mds_user_clear is
-	 * now enabled for TAA mitigation.
-	 */
-	if (mds_mitigation == MDS_MITIGATION_OFF &&
-	    x86_bug_mds) {
-		mds_mitigation = MDS_MITIGATION_FULL;
-		mds_select_mitigation();
-	}
-out:
-	pr_info("%s\n", taa_strings[taa_mitigation]);
 }
 
 static int __init tsx_async_abort_parse_cmdline(char *str)
@@ -486,6 +481,33 @@ static int __init tsx_async_abort_parse_cmdline(char *str)
 early_param("tsx_async_abort", tsx_async_abort_parse_cmdline);
 
 static bool x86_bug_mmio;
+
+#undef pr_fmt
+#define pr_fmt(fmt)     "" fmt
+
+static void __init md_clear_update_mitigation(void)
+{
+	if (cpu_mitigations_off())
+		return;
+
+	if (!mds_user_clear)
+		goto out;
+
+	/*
+	 * mds_user_clear is now enabled. Update MDS mitigation, if
+	 * necessary.
+	 */
+	if (mds_mitigation == MDS_MITIGATION_OFF &&
+	    x86_bug_mds) {
+		mds_mitigation = MDS_MITIGATION_FULL;
+		mds_select_mitigation();
+	}
+out:
+	if (x86_bug_mds)
+		pr_info("MDS: %s\n", mds_strings[mds_mitigation]);
+	if (x86_bug_taa)
+		pr_info("TAA: %s\n", taa_strings[taa_mitigation]);
+}
 
 static bool x86_bug_srbds;
 
