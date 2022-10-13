@@ -500,12 +500,14 @@ struct kvm {
 	long tlbs_dirty;
 	struct list_head devices;
 	bool manual_dirty_log_protect;
+#ifndef __GENKSYMS__
+	bool vm_bugged;
+#endif
 	struct dentry *debugfs_dentry;
 	struct kvm_stat_data **debugfs_stat_data;
 	struct srcu_struct srcu;
 	struct srcu_struct irq_srcu;
 	pid_t userspace_pid;
-	bool vm_bugged;
 };
 
 #define kvm_err(fmt, ...) \
