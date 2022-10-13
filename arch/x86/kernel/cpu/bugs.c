@@ -485,6 +485,8 @@ static int __init tsx_async_abort_parse_cmdline(char *str)
 }
 early_param("tsx_async_abort", tsx_async_abort_parse_cmdline);
 
+static bool x86_bug_mmio;
+
 static bool x86_bug_srbds;
 
 #undef pr_fmt
@@ -792,18 +794,31 @@ static const __initconst struct x86_cpu_id cpu_vuln_whitelist[] = {
 					    X86_FEATURE_ANY, issues)
 
 #define SRBDS		BIT(0)
+/* CPU is affected by X86_BUG_MMIO_STALE_DATA */
+#define MMIO		BIT(1)
 
 static const struct x86_cpu_id cpu_vuln_blacklist[] __initconst = {
 	VULNBL_INTEL_STEPPINGS(IVYBRIDGE,	X86_STEPPING_ANY,		SRBDS),
 	VULNBL_INTEL_STEPPINGS(HASWELL_CORE,	X86_STEPPING_ANY,		SRBDS),
 	VULNBL_INTEL_STEPPINGS(HASWELL_ULT,	X86_STEPPING_ANY,		SRBDS),
 	VULNBL_INTEL_STEPPINGS(HASWELL_GT3E,	X86_STEPPING_ANY,		SRBDS),
+	VULNBL_INTEL_STEPPINGS(HASWELL_X,		BIT(2) | BIT(4),		MMIO),
+	VULNBL_INTEL_STEPPINGS(BROADWELL_XEON_D,	X86_STEPPINGS(0x3, 0x5),	MMIO),
 	VULNBL_INTEL_STEPPINGS(BROADWELL_GT3E,	X86_STEPPING_ANY,		SRBDS),
+	VULNBL_INTEL_STEPPINGS(BROADWELL_X,	X86_STEPPING_ANY,		MMIO),
 	VULNBL_INTEL_STEPPINGS(BROADWELL_CORE,	X86_STEPPING_ANY,		SRBDS),
+	VULNBL_INTEL_STEPPINGS(SKYLAKE_MOBILE,	X86_STEPPINGS(0x3, 0x3),	SRBDS | MMIO),
 	VULNBL_INTEL_STEPPINGS(SKYLAKE_MOBILE,	X86_STEPPING_ANY,		SRBDS),
+	VULNBL_INTEL_STEPPINGS(SKYLAKE_X,	BIT(3) | BIT(4) | BIT(6) |
+						BIT(7) | BIT(0xB),              MMIO),
+	VULNBL_INTEL_STEPPINGS(SKYLAKE_DESKTOP,	X86_STEPPINGS(0x3, 0x3),	SRBDS | MMIO),
 	VULNBL_INTEL_STEPPINGS(SKYLAKE_DESKTOP,	X86_STEPPING_ANY,		SRBDS),
-	VULNBL_INTEL_STEPPINGS(KABYLAKE_MOBILE,	X86_STEPPINGS(0x0, 0xC),	SRBDS),
-	VULNBL_INTEL_STEPPINGS(KABYLAKE_DESKTOP, X86_STEPPINGS(0x0, 0xD),	SRBDS),
+
+	VULNBL_INTEL_STEPPINGS(KABYLAKE_MOBILE,	X86_STEPPINGS(0x9, 0xC),	SRBDS | MMIO),
+	VULNBL_INTEL_STEPPINGS(KABYLAKE_MOBILE,	X86_STEPPINGS(0x0, 0x8),	SRBDS),
+	VULNBL_INTEL_STEPPINGS(KABYLAKE_DESKTOP, X86_STEPPINGS(0x9, 0xD),	SRBDS | MMIO),
+	VULNBL_INTEL_STEPPINGS(KABYLAKE_DESKTOP, X86_STEPPINGS(0x0, 0x8),	SRBDS),
+	VULNBL_INTEL_STEPPINGS(ATOM_TREMONT_X,	X86_STEPPING_ANY,		MMIO),
 	{}
 };
 
@@ -829,6 +844,13 @@ bool has_bug_itlb_multihit(void)
 	return x86_bug_itlb_multihit;
 }
 EXPORT_SYMBOL_GPL(has_bug_itlb_multihit);
+
+static bool arch_cap_mmio_immune(u64 ia32_cap)
+{
+	return (ia32_cap & ARCH_CAP_FBSDP_NO &&
+		ia32_cap & ARCH_CAP_PSDP_NO &&
+		ia32_cap & ARCH_CAP_SBDR_SSDP_NO);
+}
 
 void setup_force_cpu_bugs(unsigned long __unused)
 {
@@ -883,6 +905,17 @@ void setup_force_cpu_bugs(unsigned long __unused)
 	if (boot_cpu_has(X86_FEATURE_RDRAND) &&
 	    cpu_matches(cpu_vuln_blacklist, SRBDS))
 		    x86_bug_srbds = true;
+
+	/*
+	 * Processor MMIO Stale Data bug enumeration
+	 *
+	 * Affected CPU list is generally enough to enumerate the vulnerability,
+	 * but for virtualization case check for ARCH_CAP MSR bits also, VMM may
+	 * not want the guest to enumerate the bug.
+	 */
+	if (cpu_matches(cpu_vuln_blacklist, MMIO) &&
+	    !arch_cap_mmio_immune(ia32_cap))
+		x86_bug_mmio = true;
 }
 
 static void __init spec2_print_if_insecure(const char *reason)
