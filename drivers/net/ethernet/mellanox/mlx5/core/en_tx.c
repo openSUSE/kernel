@@ -137,14 +137,14 @@ mlx5e_tx_get_gso_ihs(struct mlx5e_txqsq *sq, struct sk_buff *skb)
 	u16 ihs;
 
 	if (skb->encapsulation) {
-		ihs = skb_inner_transport_offset(skb) + inner_tcp_hdrlen(skb);
+		ihs = skb_tcp_all_headers(skb);
 		stats->tso_inner_packets++;
 		stats->tso_inner_bytes += skb->len - ihs;
 	} else {
 		if (skb_shinfo(skb)->gso_type & SKB_GSO_UDP_L4)
 			ihs = skb_transport_offset(skb) + sizeof(struct udphdr);
 		else
-			ihs = skb_transport_offset(skb) + tcp_hdrlen(skb);
+			ihs = skb_tcp_all_headers(skb);
 		stats->tso_packets++;
 		stats->tso_bytes += skb->len - ihs;
 	}
