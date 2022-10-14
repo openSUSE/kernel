@@ -1192,7 +1192,7 @@ static int qeth_l2_setup_netdev(struct qeth_card *card)
 	}
 
 add_napi:
-	netif_napi_add(card->dev, &card->napi, qeth_poll, QETH_NAPI_WEIGHT);
+	netif_napi_add(card->dev, &card->napi, qeth_poll, NAPI_POLL_WEIGHT);
 	return register_netdev(card->dev);
 }
 
