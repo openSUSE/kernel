@@ -3942,12 +3942,14 @@ EXPORT_SYMBOL_GPL(qeth_count_elements);
 
 /**
  * qeth_add_hw_header() - add a HW header to an skb.
+ * @queue: TX queue that the skb will be placed on.
  * @skb: skb that the HW header should be added to.
  * @hdr: double pointer to a qeth_hdr. When returning with >= 0,
  *	 it contains a valid pointer to a qeth_hdr.
  * @hdr_len: length of the HW header.
  * @proto_len: length of protocol headers that need to be in same page as the
  *	       HW header.
+ * @elements: returns the required number of buffer elements for this skb.
  *
  * Returns the pushed length. If the header can't be pushed on
  * (eg. because it would cross a page boundary), it is allocated from
