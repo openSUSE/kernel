@@ -200,6 +200,7 @@ static void __init l1tf_select_mitigation(void);
 static void __init mds_select_mitigation(void);
 static void __init md_clear_update_mitigation(void);
 static void __init taa_select_mitigation(void);
+static void __init mmio_select_mitigation(void);
 static void __init srbds_select_mitigation(void);
 
 /* The base value of the SPEC_CTRL MSR that always has to be preserved. */
@@ -218,6 +219,10 @@ static u64 x86_spec_ctrl_mask = ~SPEC_CTRL_IBRS;
  */
 u64 x86_amd_ls_cfg_base;
 u64 x86_amd_ls_cfg_ssbd_mask;
+
+/* Controls CPU Fill buffer clear before KVM guest MMIO accesses */
+bool mmio_stale_data_clear;
+EXPORT_SYMBOL_GPL(mmio_stale_data_clear);
 
 void __init check_bugs(void)
 {
@@ -258,10 +263,12 @@ void __init check_bugs(void)
 
 	mds_select_mitigation();
 	taa_select_mitigation();
+	mmio_select_mitigation();
 
 	/*
-	 * As MDS and TAA mitigations are inter-related, update and print their
-	 * mitigation after TAA mitigation selection is done.
+	 * As MDS, TAA and MMIO Stale Data mitigations are inter-related, update
+	 * and print their mitigation after MDS, TAA and MMIO Stale Data
+	 * mitigation selection is done.
 	 */
 	md_clear_update_mitigation();
 
@@ -483,6 +490,88 @@ early_param("tsx_async_abort", tsx_async_abort_parse_cmdline);
 static bool x86_bug_mmio;
 
 #undef pr_fmt
+#define pr_fmt(fmt)	"MMIO Stale Data: " fmt
+
+enum mmio_mitigations {
+	MMIO_MITIGATION_OFF,
+	MMIO_MITIGATION_UCODE_NEEDED,
+	MMIO_MITIGATION_VERW,
+};
+
+/* Default mitigation for Processor MMIO Stale Data vulnerabilities */
+static enum mmio_mitigations mmio_mitigation = MMIO_MITIGATION_VERW;
+static bool mmio_nosmt = false;
+
+static const char * const mmio_strings[] = {
+	[MMIO_MITIGATION_OFF]		= "Vulnerable",
+	[MMIO_MITIGATION_UCODE_NEEDED]	= "Vulnerable: Clear CPU buffers attempted, no microcode",
+	[MMIO_MITIGATION_VERW]		= "Mitigation: Clear CPU buffers",
+};
+
+static void __init mmio_select_mitigation(void)
+{
+	u64 ia32_cap;
+
+	if (!x86_bug_mmio || cpu_mitigations_off()) {
+		mmio_mitigation = MMIO_MITIGATION_OFF;
+		return;
+	}
+
+	if (mmio_mitigation == MMIO_MITIGATION_OFF)
+		return;
+
+	ia32_cap = x86_read_arch_cap_msr();
+
+	/*
+	 * Enable CPU buffer clear mitigation for host and VMM, if also affected
+	 * by MDS or TAA. Otherwise, enable mitigation for VMM only.
+	 */
+	if (x86_bug_mds || (x86_bug_taa && boot_cpu_has(X86_FEATURE_RTM)))
+		mds_user_clear = true;
+	else
+		mmio_stale_data_clear = true;
+
+	/*
+	 * Check if the system has the right microcode.
+	 *
+	 * CPU Fill buffer clear mitigation is enumerated by either an explicit
+	 * FB_CLEAR or by the presence of both MD_CLEAR and L1D_FLUSH on MDS
+	 * affected systems.
+	 */
+	if ((ia32_cap & ARCH_CAP_FB_CLEAR) ||
+	    (boot_cpu_has(X86_FEATURE_MD_CLEAR) &&
+	     boot_cpu_has(X86_FEATURE_FLUSH_L1D) &&
+	     !(ia32_cap & ARCH_CAP_MDS_NO)))
+		mmio_mitigation = MMIO_MITIGATION_VERW;
+	else
+		mmio_mitigation = MMIO_MITIGATION_UCODE_NEEDED;
+
+	if (mmio_nosmt || cpu_mitigations_auto_nosmt())
+		cpu_smt_disable(false);
+}
+
+static int __init mmio_stale_data_parse_cmdline(char *str)
+{
+	if (!x86_bug_mmio)
+		return 0;
+
+	if (!str)
+		return -EINVAL;
+
+	if (!strcmp(str, "off")) {
+		mmio_mitigation = MMIO_MITIGATION_OFF;
+	} else if (!strcmp(str, "full")) {
+		mmio_mitigation = MMIO_MITIGATION_VERW;
+	} else if (!strcmp(str, "full,nosmt")) {
+		mmio_mitigation = MMIO_MITIGATION_VERW;
+		mmio_nosmt = true;
+	}
+
+	return 0;
+}
+early_param("mmio_stale_data", mmio_stale_data_parse_cmdline);
+
+#undef pr_fmt
 #define pr_fmt(fmt)     "" fmt
 
 static void __init md_clear_update_mitigation(void)
@@ -494,19 +583,29 @@ static void __init md_clear_update_mitigation(void)
 		goto out;
 
 	/*
-	 * mds_user_clear is now enabled. Update MDS mitigation, if
-	 * necessary.
+	 * mds_user_clear is now enabled. Update MDS, TAA and MMIO Stale Data
+	 * mitigation, if necessary.
 	 */
 	if (mds_mitigation == MDS_MITIGATION_OFF &&
 	    x86_bug_mds) {
 		mds_mitigation = MDS_MITIGATION_FULL;
 		mds_select_mitigation();
 	}
+	if (taa_mitigation == TAA_MITIGATION_OFF && x86_bug_taa) {
+		taa_mitigation = TAA_MITIGATION_VERW;
+		taa_select_mitigation();
+	}
+	if (mmio_mitigation == MMIO_MITIGATION_OFF && x86_bug_mmio) {
+		mmio_mitigation = MMIO_MITIGATION_VERW;
+		mmio_select_mitigation();
+	}
 out:
 	if (x86_bug_mds)
 		pr_info("MDS: %s\n", mds_strings[mds_mitigation]);
 	if (x86_bug_taa)
 		pr_info("TAA: %s\n", taa_strings[taa_mitigation]);
+	if (x86_bug_mmio)
+		pr_info("MMIO Stale Data: %s\n", mmio_strings[mmio_mitigation]);
 }
 
 static bool x86_bug_srbds;
