@@ -12,6 +12,7 @@
 // Copyright (c) 2019 Martin Sperl <kernel@martin.sperl.org>
 //
 
+#include <asm/unaligned.h>
 #include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/device.h>
@@ -2685,14 +2686,14 @@ mcp251xfd_register_get_dev_id(const struct mcp251xfd_priv *priv,
 	xfer[0].tx_buf = buf_tx;
 	xfer[0].len = sizeof(buf_tx->cmd);
 	xfer[1].rx_buf = buf_rx->data;
-	xfer[1].len = sizeof(dev_id);
+	xfer[1].len = sizeof(*dev_id);
 
 	mcp251xfd_spi_cmd_read_nocrc(&buf_tx->cmd, MCP251XFD_REG_DEVID);
 	err = spi_sync_transfer(priv->spi, xfer, ARRAY_SIZE(xfer));
 	if (err)
 		goto out_kfree_buf_tx;
 
-	*dev_id = be32_to_cpup((__be32 *)buf_rx->data);
+	*dev_id = get_unaligned_le32(buf_rx->data);
 	*effective_speed_hz = xfer->effective_speed_hz;
 
  out_kfree_buf_tx:
