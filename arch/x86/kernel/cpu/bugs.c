@@ -524,6 +524,14 @@ static void __init mmio_select_mitigation(void)
 		mmio_stale_data_clear = true;
 
 	/*
+	 * If Processor-MMIO-Stale-Data bug is present and Fill Buffer data can
+	 * be propagated to uncore buffers, clearing the Fill buffers on idle
+	 * is required irrespective of SMT state.
+	 */
+	if (!(ia32_cap & ARCH_CAP_FBSDP_NO))
+		mds_idle_clear = true;
+
+	/*
 	 * Check if the system has the right microcode.
 	 *
 	 * CPU Fill buffer clear mitigation is enumerated by either an explicit
@@ -1129,6 +1137,8 @@ done:
 /* Update the static key controlling the MDS CPU buffer clear in idle */
 static void update_mds_branch_idle(void)
 {
+	u64 ia32_cap = x86_read_arch_cap_msr();
+
 	/*
 	 * Enable the idle clearing if SMT is active on CPUs which are
 	 * affected only by MSBDS and not any other MDS variant.
@@ -1140,10 +1150,12 @@ static void update_mds_branch_idle(void)
 	if (!x86_bug_msbds_only)
 		return;
 
-	if (sched_smt_active())
+	if (sched_smt_active()) {
 		mds_idle_clear = true;
-	else
+	} else if (mmio_mitigation == MMIO_MITIGATION_OFF ||
+		   (ia32_cap & ARCH_CAP_FBSDP_NO)) {
 		mds_idle_clear = false;
+	}
 }
 
 static void __init spectre_v2_select_mitigation(void)
