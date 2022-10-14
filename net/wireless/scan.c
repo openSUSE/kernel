@@ -2125,8 +2125,6 @@ static void cfg80211_parse_mbssid_data(struct wiphy *wiphy,
 			continue;
 		if (elem->data[0] < 1 || (int)elem->data[0] > 8)
 			continue;
-		if (elem->data[0] < 1 || (int)elem->data[0] > 8)
-			continue;
 		for_each_element(sub, elem->data + 1, elem->datalen - 1) {
 			u8 profile_len;
 
