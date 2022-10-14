@@ -6254,13 +6254,8 @@ void qeth_remove_discipline(struct qeth_card *card)
 	card->discipline = NULL;
 }
 
-const struct device_type qeth_generic_devtype = {
+static const struct device_type qeth_generic_devtype = {
 	.name = "qeth_generic",
-};
-EXPORT_SYMBOL_GPL(qeth_generic_devtype);
-
-static const struct device_type qeth_osn_devtype = {
-	.name = "qeth_osn",
 };
 
 #define DBF_NAME_LEN	20
@@ -6457,8 +6452,6 @@ static int qeth_core_probe_device(struct ccwgroup_device *gdev)
 		if (rc)
 			goto err_setup_disc;
 
-		gdev->dev.type = IS_OSN(card) ? &qeth_osn_devtype :
-						card->discipline->devtype;
 		break;
 	}
 
