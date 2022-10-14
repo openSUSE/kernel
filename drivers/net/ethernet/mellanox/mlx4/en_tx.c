@@ -642,9 +642,9 @@ static int get_real_size(const struct sk_buff *skb,
 	if (shinfo->gso_size) {
 		*inline_ok = false;
 		if (skb->encapsulation)
-			*lso_header_size = (skb_inner_transport_header(skb) - skb->data) + inner_tcp_hdrlen(skb);
+			*lso_header_size = skb_inner_tcp_all_headers(skb);
 		else
-			*lso_header_size = skb_transport_offset(skb) + tcp_hdrlen(skb);
+			*lso_header_size = skb_tcp_all_headers(skb);
 		real_size = CTRL_SIZE + shinfo->nr_frags * DS_SIZE +
 			ALIGN(*lso_header_size + 4, DS_SIZE);
 		if (unlikely(*lso_header_size != skb_headlen(skb))) {

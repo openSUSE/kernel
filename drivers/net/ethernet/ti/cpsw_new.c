@@ -1151,9 +1151,9 @@ static void cpsw_get_drvinfo(struct net_device *ndev,
 	struct platform_device *pdev;
 
 	pdev = to_platform_device(cpsw->dev);
-	strlcpy(info->driver, "cpsw-switch", sizeof(info->driver));
-	strlcpy(info->version, "2.0", sizeof(info->version));
-	strlcpy(info->bus_info, pdev->name, sizeof(info->bus_info));
+	strscpy(info->driver, "cpsw-switch", sizeof(info->driver));
+	strscpy(info->version, "2.0", sizeof(info->version));
+	strscpy(info->bus_info, pdev->name, sizeof(info->bus_info));
 }
 
 static int cpsw_set_pauseparam(struct net_device *ndev,
@@ -1425,10 +1425,9 @@ static int cpsw_create_ports(struct cpsw_common *cpsw)
 				       cpsw->quirk_irq ?
 				       cpsw_rx_poll : cpsw_rx_mq_poll,
 				       CPSW_POLL_WEIGHT);
-			netif_tx_napi_add(ndev, &cpsw->napi_tx,
+			netif_napi_add_tx(ndev, &cpsw->napi_tx,
 					  cpsw->quirk_irq ?
-					  cpsw_tx_poll : cpsw_tx_mq_poll,
-					  CPSW_POLL_WEIGHT);
+					  cpsw_tx_poll : cpsw_tx_mq_poll);
 		}
 
 		napi_ndev = ndev;
