@@ -1784,6 +1784,26 @@ ssize_t cpu_show_srbds(struct device *dev, struct device_attribute *attr, char *
 	return sprintf(buf, "%s\n", srbds_strings[srbds_mitigation]);
 }
 
+ssize_t cpu_show_mmio_stale_data(struct device *dev, struct device_attribute *attr, char *buf)
+{
+
+	if (!x86_bug_mmio)
+		return sprintf(buf, "Not affected\n");
+
+	if (mmio_mitigation == MMIO_MITIGATION_OFF)
+		return sprintf(buf, "%s\n", mmio_strings[mmio_mitigation]);
+
+#ifndef CONFIG_XEN
+	if (x86_hyper) {
+		return sprintf(buf, "%s; SMT Host state unknown\n",
+				  mmio_strings[mmio_mitigation]);
+	}
+#endif
+
+	return sprintf(buf, "%s; SMT %s\n", mmio_strings[mmio_mitigation],
+			  sched_smt_active() ? "vulnerable" : "disabled");
+}
+
 void x86_spec_ctrl_set(u64 val)
 {
 	if (val & x86_spec_ctrl_mask)
