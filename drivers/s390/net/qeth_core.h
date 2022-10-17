@@ -558,7 +558,6 @@ static inline bool qeth_out_queue_is_empty(struct qeth_qdio_out_q *queue)
 struct qeth_qdio_info {
 	atomic_t state;
 	/* input */
-	int no_in_queues;
 	struct qeth_qdio_q *in_q;
 	struct qeth_qdio_q *c_q;
 	struct qeth_qdio_buffer_pool in_buf_pool;
@@ -785,13 +784,10 @@ struct qeth_osn_info {
 };
 
 struct qeth_discipline {
-	const struct device_type *devtype;
 	int (*setup) (struct ccwgroup_device *);
 	void (*remove) (struct ccwgroup_device *);
 	int (*set_online)(struct qeth_card *card, bool carrier_ok);
 	void (*set_offline)(struct qeth_card *card);
-	int (*do_ioctl)(struct net_device *dev, struct ifreq *rq,
-			void __user *data, int cmd);
 	int (*control_event_handler)(struct qeth_card *card,
 					struct qeth_ipa_cmd *cmd);
 };
@@ -822,8 +818,6 @@ struct qeth_priv {
 	u32 brport_hw_features;
 	u32 brport_features;
 };
-
-#define QETH_NAPI_WEIGHT NAPI_POLL_WEIGHT
 
 struct qeth_card {
 	enum qeth_card_states state;
@@ -1053,15 +1047,12 @@ static inline int qeth_send_simple_setassparms_v6(struct qeth_card *card,
 						 data, QETH_PROT_IPV6);
 }
 
-int qeth_get_priority_queue(struct qeth_card *card, struct sk_buff *skb);
-
 extern const struct qeth_discipline qeth_l2_discipline;
 extern const struct qeth_discipline qeth_l3_discipline;
 extern const struct ethtool_ops qeth_ethtool_ops;
 extern const struct ethtool_ops qeth_osn_ethtool_ops;
 extern const struct attribute_group *qeth_dev_groups[];
 extern const struct attribute_group *qeth_osn_dev_groups[];
-extern const struct device_type qeth_generic_devtype;
 
 const char *qeth_get_cardname_short(struct qeth_card *);
 int qeth_resize_buffer_pool(struct qeth_card *card, unsigned int count);
@@ -1126,6 +1117,7 @@ int qeth_do_send_packet(struct qeth_card *card, struct qeth_qdio_out_q *queue,
 int qeth_do_ioctl(struct net_device *dev, struct ifreq *rq, int cmd);
 int qeth_siocdevprivate(struct net_device *dev, struct ifreq *rq,
 			void __user *data, int cmd);
+__printf(3, 4)
 void qeth_dbf_longtext(debug_info_t *id, int level, char *text, ...);
 int qeth_configure_cq(struct qeth_card *, enum qeth_cq);
 int qeth_hw_trap(struct qeth_card *, enum qeth_diags_trap_action);
@@ -1140,6 +1132,8 @@ void qeth_get_stats64(struct net_device *dev, struct rtnl_link_stats64 *stats);
 int qeth_set_real_num_tx_queues(struct qeth_card *card, unsigned int count);
 u16 qeth_iqd_select_queue(struct net_device *dev, struct sk_buff *skb,
 			  u8 cast_type, struct net_device *sb_dev);
+u16 qeth_osa_select_queue(struct net_device *dev, struct sk_buff *skb,
+			  struct net_device *sb_dev);
 int qeth_open(struct net_device *dev);
 int qeth_stop(struct net_device *dev);
 
