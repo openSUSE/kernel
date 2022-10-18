@@ -28,6 +28,7 @@ struct pci_ecam_ops {
 struct pci_config_window {
 	struct resource			res;
 	struct resource			busr;
+	unsigned int			bus_shift;
 	void				*priv;
 	const struct pci_ecam_ops	*ops;
 	union {
