@@ -79,6 +79,9 @@
 #define SMB_DNS_RESOLVE_INTERVAL_MIN     120
 #define SMB_DNS_RESOLVE_INTERVAL_DEFAULT 600
 
+/* smb multichannel query server interfaces interval in seconds */
+#define SMB_INTERFACE_POLL_INTERVAL	600
+
 /* maximum number of PDUs in one compound */
 #define MAX_COMPOUND 5
 
@@ -1260,6 +1263,7 @@ struct cifs_tcon {
 #ifdef CONFIG_CIFS_DFS_UPCALL
 	struct list_head ulist; /* cache update list */
 #endif
+	struct delayed_work	query_interfaces; /* query interfaces workqueue job */
 };
 
 /*
