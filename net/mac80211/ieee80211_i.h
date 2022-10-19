@@ -1463,6 +1463,7 @@ struct ieee80211_csa_ie {
 struct ieee802_11_elems {
 	const u8 *ie_start;
 	size_t total_len;
+	u32 crc;
 
 	/* pointers to IEs */
 	const struct ieee80211_tdls_lnkie *lnk_id;
@@ -1472,7 +1473,6 @@ struct ieee802_11_elems {
 	const u8 *supp_rates;
 	const u8 *ds_params;
 	const struct ieee80211_tim_ie *tim;
-	const u8 *challenge;
 	const u8 *rsn;
 	const u8 *rsnx;
 	const u8 *erp_info;
@@ -1521,7 +1521,6 @@ struct ieee802_11_elems {
 	u8 ssid_len;
 	u8 supp_rates_len;
 	u8 tim_len;
-	u8 challenge_len;
 	u8 rsn_len;
 	u8 rsnx_len;
 	u8 ext_supp_rates_len;
@@ -1538,6 +1537,14 @@ struct ieee802_11_elems {
 
 	/* whether a parse error occurred while retrieving these elements */
 	bool parse_error;
+
+	/*
+	 * scratch buffer that can be used for various element parsing related
+	 * tasks, e.g., element de-fragmentation etc.
+	 */
+	size_t scratch_len;
+	u8 *scratch_pos;
+	u8 scratch[];
 };
 
 static inline struct ieee80211_local *hw_to_local(
@@ -2005,18 +2012,58 @@ static inline void ieee80211_tx_skb(struct ieee80211_sub_if_data *sdata,
 	ieee80211_tx_skb_tid(sdata, skb, 7);
 }
 
-u32 ieee802_11_parse_elems_crc(const u8 *start, size_t len, bool action,
-			       struct ieee802_11_elems *elems,
-			       u64 filter, u32 crc, u8 *transmitter_bssid,
-			       u8 *bss_bssid);
-static inline void ieee802_11_parse_elems(const u8 *start, size_t len,
-					  bool action,
-					  struct ieee802_11_elems *elems,
-					  u8 *transmitter_bssid,
-					  u8 *bss_bssid)
+/**
+ * struct ieee80211_elems_parse_params - element parsing parameters
+ * @start: pointer to the elements
+ * @len: length of the elements
+ * @action: %true if the elements came from an action frame
+ * @filter: bitmap of element IDs to filter out while calculating
+ *	the element CRC
+ * @crc: CRC starting value
+ * @transmitter_bssid: transmitter BSSID to parse the multi-BSSID
+ *	element
+ * @bss_bssid: BSSID of the BSS we want to obtain elements for
+ *	when parsing the multi-BSSID element
+ */
+struct ieee80211_elems_parse_params {
+	const u8 *start;
+	size_t len;
+	bool action;
+	u64 filter;
+	u32 crc;
+	const u8 *transmitter_bssid;
+	const u8 *bss_bssid;
+};
+
+struct ieee802_11_elems *
+ieee802_11_parse_elems_full(struct ieee80211_elems_parse_params *params);
+
+static inline struct ieee802_11_elems *
+ieee802_11_parse_elems_crc(const u8 *start, size_t len, bool action,
+			   u64 filter, u32 crc,
+			   const u8 *transmitter_bssid,
+			   const u8 *bss_bssid)
 {
-	ieee802_11_parse_elems_crc(start, len, action, elems, 0, 0,
-				   transmitter_bssid, bss_bssid);
+	struct ieee80211_elems_parse_params params = {
+		.start = start,
+		.len = len,
+		.action = action,
+		.filter = filter,
+		.crc = crc,
+		.transmitter_bssid = transmitter_bssid,
+		.bss_bssid = bss_bssid,
+	};
+
+	return ieee802_11_parse_elems_full(&params);
+}
+
+static inline struct ieee802_11_elems *
+ieee802_11_parse_elems(const u8 *start, size_t len, bool action,
+		       const u8 *transmitter_bssid,
+		       const u8 *bss_bssid)
+{
+	return ieee802_11_parse_elems_crc(start, len, action, 0, 0,
+					  transmitter_bssid, bss_bssid);
 }
 
 
