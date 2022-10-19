@@ -237,7 +237,9 @@ static struct qp_list qp_guest_endpoints = {
 #define QPE_NUM_PAGES(_QPE) ((u32) \
 			     (DIV_ROUND_UP(_QPE.produce_size, PAGE_SIZE) + \
 			      DIV_ROUND_UP(_QPE.consume_size, PAGE_SIZE) + 2))
-
+#define QP_SIZES_ARE_VALID(_prod_qsize, _cons_qsize) \
+	((_prod_qsize) + (_cons_qsize) >= max(_prod_qsize, _cons_qsize) && \
+	 (_prod_qsize) + (_cons_qsize) <= VMCI_MAX_GUEST_QP_MEMORY)
 
 /*
  * Frees kernel VA space for a given queue and its queue header, and
@@ -528,7 +530,7 @@ static struct vmci_queue *qp_host_alloc_queue(u64 size)
 	u64 num_pages;
 	const size_t queue_size = sizeof(*queue) + sizeof(*(queue->kernel_if));
 
-	if (size > SIZE_MAX - PAGE_SIZE)
+	if (size > min_t(size_t, VMCI_MAX_GUEST_QP_MEMORY, SIZE_MAX - PAGE_SIZE))
 		return NULL;
 	num_pages = DIV_ROUND_UP(size, PAGE_SIZE) + 1;
 	if (num_pages > (SIZE_MAX - queue_size) /
@@ -1932,6 +1934,9 @@ int vmci_qp_broker_alloc(struct vmci_handle handle,
 			 struct vmci_qp_page_store *page_store,
 			 struct vmci_ctx *context)
 {
+	if (!QP_SIZES_ARE_VALID(produce_size, consume_size))
+		return VMCI_ERROR_NO_RESOURCES;
+
 	return qp_broker_alloc(handle, peer, flags, priv_flags,
 			       produce_size, consume_size,
 			       page_store, context, NULL, NULL, NULL, NULL);
@@ -2572,6 +2577,12 @@ static ssize_t qp_enqueue_locked(struct vmci_queue *produce_q,
 	if (result < VMCI_SUCCESS)
 		return result;
 
+	/*
+	 * This virt_wmb() ensures that data written to the queue
+	 * is observable before the new producer_tail is.
+	 */
+	virt_wmb();
+
 	vmci_q_header_add_producer_tail(produce_q->q_header, written,
 					produce_q_size);
 	return written;
@@ -2614,6 +2625,12 @@ static ssize_t qp_dequeue_locked(struct vmci_queue *produce_q,
 
 	if (buf_ready < VMCI_SUCCESS)
 		return (ssize_t) buf_ready;
+
+	/*
+	 * This virt_rmb() ensures that data from the queue will be read
+	 * after we have determined how much is ready to be consumed.
+	 */
+	virt_rmb();
 
 	read = (size_t) (buf_ready > buf_size ? buf_size : buf_ready);
 	head = vmci_q_header_consumer_head(produce_q->q_header);
@@ -2690,8 +2707,7 @@ int vmci_qpair_alloc(struct vmci_qp **qpair,
 	 * used by the device is NO_RESOURCES, so use that here too.
 	 */
 
-	if (produce_qsize + consume_qsize < max(produce_qsize, consume_qsize) ||
-	    produce_qsize + consume_qsize > VMCI_MAX_GUEST_QP_MEMORY)
+	if (!QP_SIZES_ARE_VALID(produce_qsize, consume_qsize))
 		return VMCI_ERROR_NO_RESOURCES;
 
 	retval = vmci_route(&src, &dst, false, &route);

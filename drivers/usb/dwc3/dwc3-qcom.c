@@ -327,9 +327,9 @@ static int dwc3_qcom_get_irq(struct platform_device *pdev,
 	int ret;
 
 	if (np)
-		ret = platform_get_irq_byname(pdev, name);
+		ret = platform_get_irq_byname_optional(pdev, name);
 	else
-		ret = platform_get_irq(pdev, num);
+		ret = platform_get_irq_optional(pdev, num);
 
 	return ret;
 }

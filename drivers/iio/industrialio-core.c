@@ -1437,11 +1437,11 @@ struct iio_dev *iio_device_alloc(int sizeof_priv)
 
 	alloc_size = sizeof(struct iio_dev);
 	if (sizeof_priv) {
-		alloc_size = ALIGN(alloc_size, IIO_ALIGN);
+		alloc_size = ALIGN(alloc_size, IIO_DMA_MINALIGN);
 		alloc_size += sizeof_priv;
 	}
 	/* ensure 32-byte alignment of whole construct ? */
-	alloc_size += IIO_ALIGN - 1;
+	alloc_size += IIO_DMA_MINALIGN - 1;
 
 	dev = kzalloc(alloc_size, GFP_KERNEL);
 

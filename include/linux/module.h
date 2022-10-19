@@ -507,10 +507,23 @@ struct module {
 	struct error_injection_entry *ei_funcs;
 	unsigned int num_ei_funcs;
 #endif
+#ifdef __GENKSYMS__
 	void *suse_kabi_padding;
+#else
+	/* Opaque to anything outside of the module code */
+	struct module_kabi_data *kabi_data;
+#endif
 } ____cacheline_aligned __randomize_layout;
 #ifndef MODULE_ARCH_INIT
 #define MODULE_ARCH_INIT {}
+#endif
+
+#ifdef CONFIG_DEBUG_INFO_BTF_MODULES
+struct module_btf_info {
+	unsigned int btf_data_size;
+	void *btf_data;
+};
+struct module_btf_info *get_module_btf_info(struct module *mod);
 #endif
 
 #ifndef HAVE_ARCH_KALLSYMS_SYMBOL_VALUE

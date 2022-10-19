@@ -2769,7 +2769,7 @@ static int rockchip_pinctrl_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, info);
 
-	ret = of_platform_populate(np, rockchip_bank_match, NULL, NULL);
+	ret = of_platform_populate(np, NULL, NULL, &pdev->dev);
 	if (ret) {
 		dev_err(&pdev->dev, "failed to register gpio device\n");
 		return ret;

@@ -438,7 +438,7 @@ ENTRY(cast6_ctr_8way)
 	popq %r15;
 	popq %r12;
 	FRAME_END
-	ret;
+	RET;
 ENDPROC(cast6_ctr_8way)
 
 ENTRY(cast6_xts_enc_8way)
@@ -465,7 +465,7 @@ ENTRY(cast6_xts_enc_8way)
 
 	popq %r15;
 	FRAME_END
-	ret;
+	RET;
 ENDPROC(cast6_xts_enc_8way)
 
 ENTRY(cast6_xts_dec_8way)
@@ -492,5 +492,5 @@ ENTRY(cast6_xts_dec_8way)
 
 	popq %r15;
 	FRAME_END
-	ret;
+	RET;
 ENDPROC(cast6_xts_dec_8way)

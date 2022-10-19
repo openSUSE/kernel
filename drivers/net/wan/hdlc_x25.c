@@ -154,7 +154,8 @@ static int x25_open(struct net_device *dev)
 
 	result = lapb_register(dev, &cb);
 	if (result != LAPB_OK)
-		return result;
+		return -ENOMEM;
+
 	return 0;
 }
 

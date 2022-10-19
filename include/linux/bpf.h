@@ -34,9 +34,11 @@ struct btf_type;
 struct exception_table_entry;
 struct seq_operations;
 struct bpf_iter_aux_info;
+struct kobject;
 
 extern struct idr btf_idr;
 extern spinlock_t btf_idr_lock;
+extern struct kobject *btf_kobj;
 
 typedef int (*bpf_iter_init_seq_priv_t)(void *private_data,
 					struct bpf_iter_aux_info *aux);
@@ -1302,6 +1304,8 @@ int bpf_check(struct bpf_prog **fp, union bpf_attr *attr,
 #ifndef CONFIG_BPF_JIT_ALWAYS_ON
 void bpf_patch_call_args(struct bpf_insn *insn, u32 stack_depth);
 #endif
+
+struct btf *bpf_get_btf_vmlinux(void);
 
 /* Map specifics */
 struct xdp_buff;

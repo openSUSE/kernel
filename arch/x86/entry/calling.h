@@ -149,27 +149,19 @@ For 32-bit we have the following conventions - kernel is built with
 
 .endm
 
-.macro POP_REGS pop_rdi=1 skip_r11rcx=0
+.macro POP_REGS pop_rdi=1
 	popq %r15
 	popq %r14
 	popq %r13
 	popq %r12
 	popq %rbp
 	popq %rbx
-	.if \skip_r11rcx
-	popq %rsi
-	.else
 	popq %r11
-	.endif
 	popq %r10
 	popq %r9
 	popq %r8
 	popq %rax
-	.if \skip_r11rcx
-	popq %rsi
-	.else
 	popq %rcx
-	.endif
 	popq %rdx
 	popq %rsi
 	.if \pop_rdi
@@ -333,11 +325,6 @@ For 32-bit we have the following conventions - kernel is built with
  */
 .macro IBRS_ENTER save_reg
 	ALTERNATIVE "jmp .Lend_\@", "", X86_FEATURE_KERNEL_IBRS
-
-	push %rax
-	push %rcx
-	push %rdx
-
 	movl	$MSR_IA32_SPEC_CTRL, %ecx
 
 .ifnb \save_reg
@@ -356,11 +343,6 @@ For 32-bit we have the following conventions - kernel is built with
 	movl	%edx, %eax
 	shr	$32, %rdx
 	wrmsr
-
-	pop %rdx
-	pop %rcx
-	pop %rax
-
 .Lend_\@:
 .endm
 
@@ -370,11 +352,6 @@ For 32-bit we have the following conventions - kernel is built with
  */
 .macro IBRS_EXIT save_reg
 	ALTERNATIVE "jmp .Lend_\@", "", X86_FEATURE_KERNEL_IBRS
-
-	push %rax
-	push %rcx
-	push %rdx
-
 	movl	$MSR_IA32_SPEC_CTRL, %ecx
 
 .ifnb \save_reg
@@ -387,11 +364,6 @@ For 32-bit we have the following conventions - kernel is built with
 	movl	%edx, %eax
 	shr	$32, %rdx
 	wrmsr
-
-	pop %rdx
-	pop %rcx
-	pop %rax
-
 .Lend_\@:
 .endm
 

@@ -20,6 +20,7 @@
 #include <linux/vmalloc.h>
 #include <linux/rtnetlink.h>
 #include <linux/prefetch.h>
+#include <linux/filter.h>
 
 #include <asm/sync_bitops.h>
 
@@ -124,6 +125,7 @@ static void free_netvsc_device(struct rcu_head *head)
 
 	for (i = 0; i < VRSS_CHANNEL_MAX; i++) {
 		xdp_rxq_info_unreg(&nvdev->chan_table[i].xdp_rxq);
+		kfree(nvdev->chan_table[i].recv_buf);
 		vfree(nvdev->chan_table[i].mrc.slots);
 	}
 
@@ -705,7 +707,7 @@ static void netvsc_send_tx_complete(struct net_device *ndev,
 		const struct hv_netvsc_packet *packet
 			= (struct hv_netvsc_packet *)skb->cb;
 		u32 send_index = packet->send_buf_index;
-		struct netvsc_stats *tx_stats;
+		struct netvsc_stats_tx *tx_stats;
 
 		if (send_index != NETVSC_INVALID_INDEX)
 			netvsc_free_send_slot(net_device, send_index);
@@ -878,6 +880,7 @@ static inline int netvsc_send_pkt(
 	int ret;
 	u32 ring_avail = hv_get_avail_to_write_percent(&out_channel->outbound);
 
+	memset(&nvmsg, 0, sizeof(struct nvsp_message));
 	nvmsg.hdr.msg_type = NVSP_MSG1_TYPE_SEND_RNDIS_PKT;
 	if (skb)
 		rpkt->channel_type = 0;		/* 0 is RMC_DATA */
@@ -1243,6 +1246,19 @@ static int netvsc_receive(struct net_device *ndev,
 			continue;
 		}
 
+		/* We're going to copy (sections of) the packet into nvchan->recv_buf;
+		 * make sure that nvchan->recv_buf is large enough to hold the packet.
+		 */
+		if (unlikely(buflen > net_device->recv_section_size)) {
+			nvchan->rsc.cnt = 0;
+			status = NVSP_STAT_FAIL;
+			netif_err(net_device_ctx, rx_err, ndev,
+				  "Packet too big: buflen=%u recv_section_size=%u\n",
+				  buflen, net_device->recv_section_size);
+
+			continue;
+		}
+
 		data = recv_buf + offset;
 
 		nvchan->rsc.is_last = (i == count - 1);
@@ -1300,7 +1316,7 @@ static void netvsc_send_table(struct net_device *ndev,
 			 sizeof(union nvsp_6_message_uber);
 
 	/* Boundary check for all versions */
-	if (offset > msglen - count * sizeof(u32)) {
+	if (msglen < count * sizeof(u32) || offset > msglen - count * sizeof(u32)) {
 		netdev_err(ndev, "Received send-table offset too big:%u\n",
 			   offset);
 		return;
@@ -1416,11 +1432,16 @@ int netvsc_poll(struct napi_struct *napi, int budget)
 	if (!nvchan->desc)
 		nvchan->desc = hv_pkt_iter_first(channel);
 
+	nvchan->xdp_flush = false;
+
 	while (nvchan->desc && work_done < budget) {
 		work_done += netvsc_process_raw_pkt(device, nvchan, net_device,
 						    ndev, nvchan->desc, budget);
 		nvchan->desc = hv_pkt_iter_next(channel, nvchan->desc);
 	}
+
+	if (nvchan->xdp_flush)
+		xdp_do_flush();
 
 	/* Send any pending receive completions */
 	ret = send_recv_completions(ndev, net_device, nvchan);
@@ -1496,6 +1517,12 @@ struct netvsc_device *netvsc_device_add(struct hv_device *device,
 
 	for (i = 0; i < VRSS_CHANNEL_MAX; i++) {
 		struct netvsc_channel *nvchan = &net_device->chan_table[i];
+
+		nvchan->recv_buf = kzalloc(device_info->recv_section_size, GFP_KERNEL);
+		if (nvchan->recv_buf == NULL) {
+			ret = -ENOMEM;
+			goto cleanup2;
+		}
 
 		nvchan->channel = device->channel;
 		nvchan->net_device = net_device;

@@ -1544,6 +1544,13 @@ static irqreturn_t tc_irq_handler(int irq, void *arg)
 	return IRQ_HANDLED;
 }
 
+static void tc_clk_disable(void *data)
+{
+	struct clk *refclk = data;
+
+	clk_disable_unprepare(refclk);
+}
+
 static int tc_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct device *dev = &client->dev;
@@ -1560,6 +1567,24 @@ static int tc_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	ret = drm_of_find_panel_or_bridge(dev->of_node, 2, 0, &tc->panel, NULL);
 	if (ret && ret != -ENODEV)
 		return ret;
+
+	tc->refclk = devm_clk_get(dev, "ref");
+	if (IS_ERR(tc->refclk)) {
+		ret = PTR_ERR(tc->refclk);
+		dev_err(dev, "Failed to get refclk: %d\n", ret);
+		return ret;
+	}
+
+	ret = clk_prepare_enable(tc->refclk);
+	if (ret)
+		return ret;
+
+	ret = devm_add_action_or_reset(dev, tc_clk_disable, tc->refclk);
+	if (ret)
+		return ret;
+
+	/* tRSTW = 100 cycles , at 13 MHz that is ~7.69 us */
+	usleep_range(10, 15);
 
 	/* Shut down GPIO is optional */
 	tc->sd_gpio = devm_gpiod_get_optional(dev, "shutdown", GPIOD_OUT_HIGH);
@@ -1579,13 +1604,6 @@ static int tc_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	if (tc->reset_gpio) {
 		gpiod_set_value_cansleep(tc->reset_gpio, 1);
 		usleep_range(5000, 10000);
-	}
-
-	tc->refclk = devm_clk_get(dev, "ref");
-	if (IS_ERR(tc->refclk)) {
-		ret = PTR_ERR(tc->refclk);
-		dev_err(dev, "Failed to get refclk: %d\n", ret);
-		return ret;
 	}
 
 	tc->regmap = devm_regmap_init_i2c(client, &tc_regmap_config);

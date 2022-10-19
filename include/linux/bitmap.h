@@ -9,6 +9,8 @@
 #include <linux/string.h>
 #include <linux/kernel.h>
 
+struct device;
+
 /*
  * bitmaps provide bit arrays that consume one or more unsigned
  * longs.  The bitmap interface and available operations are listed
@@ -115,6 +117,12 @@
 extern unsigned long *bitmap_alloc(unsigned int nbits, gfp_t flags);
 extern unsigned long *bitmap_zalloc(unsigned int nbits, gfp_t flags);
 extern void bitmap_free(const unsigned long *bitmap);
+
+/* Managed variants of the above. */
+unsigned long *devm_bitmap_alloc(struct device *dev,
+				 unsigned int nbits, gfp_t flags);
+unsigned long *devm_bitmap_zalloc(struct device *dev,
+				  unsigned int nbits, gfp_t flags);
 
 /*
  * lib/bitmap.c provides these functions:

@@ -1242,6 +1242,8 @@ lpfc_linkdown(struct lpfc_hba *phba)
 			phba->trunk_link.link1.state = 0;
 			phba->trunk_link.link2.state = 0;
 			phba->trunk_link.link3.state = 0;
+			phba->trunk_link.phy_lnk_speed =
+						LPFC_LINK_SPEED_UNKNOWN;
 			phba->sli4_hba.link_state.logical_speed =
 						LPFC_LINK_SPEED_UNKNOWN;
 		}
@@ -1353,9 +1355,13 @@ lpfc_linkup_port(struct lpfc_vport *vport)
 				   FCH_EVT_LINKUP, 0);
 
 	spin_lock_irq(shost->host_lock);
-	vport->fc_flag &= ~(FC_PT2PT | FC_PT2PT_PLOGI | FC_ABORT_DISCOVERY |
-			    FC_RSCN_MEMENTO | FC_RSCN_MODE |
-			    FC_NLP_MORE | FC_RSCN_DISCOVERY);
+	if (phba->defer_flogi_acc_flag)
+		vport->fc_flag &= ~(FC_ABORT_DISCOVERY | FC_RSCN_MODE |
+				    FC_NLP_MORE | FC_RSCN_DISCOVERY);
+	else
+		vport->fc_flag &= ~(FC_PT2PT | FC_PT2PT_PLOGI |
+				    FC_ABORT_DISCOVERY | FC_RSCN_MODE |
+				    FC_NLP_MORE | FC_RSCN_DISCOVERY);
 	vport->fc_flag |= FC_NDISC_ACTIVE;
 	vport->fc_ns_retry = 0;
 	spin_unlock_irq(shost->host_lock);
@@ -1393,7 +1399,6 @@ lpfc_linkup(struct lpfc_hba *phba)
 
 	/* reinitialize initial HBA flag */
 	phba->hba_flag &= ~(HBA_FLOGI_ISSUED | HBA_RHBA_CMPL);
-	phba->defer_flogi_acc_flag = false;
 
 	return 0;
 }
@@ -2965,7 +2970,7 @@ lpfc_mbx_cmpl_fcf_rr_read_fcf_rec(struct lpfc_hba *phba, LPFC_MBOXQ_t *mboxq)
 	uint32_t boot_flag, addr_mode;
 	uint16_t next_fcf_index, fcf_index;
 	uint16_t current_fcf_index;
-	uint16_t vlan_id;
+	uint16_t vlan_id = LPFC_FCOE_NULL_VID;
 	int rc;
 
 	/* If link state is not up, stop the roundrobin failover process */
@@ -3070,7 +3075,7 @@ lpfc_mbx_cmpl_read_fcf_rec(struct lpfc_hba *phba, LPFC_MBOXQ_t *mboxq)
 	struct fcf_record *new_fcf_record;
 	uint32_t boot_flag, addr_mode;
 	uint16_t fcf_index, next_fcf_index;
-	uint16_t vlan_id;
+	uint16_t vlan_id =  LPFC_FCOE_NULL_VID;
 	int rc;
 
 	/* If link state is not up, no need to proceed */
@@ -3763,18 +3768,8 @@ lpfc_mbx_cmpl_read_topology(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmb)
 	}
 
 	phba->fc_eventTag = la->eventTag;
-	if (phba->sli_rev < LPFC_SLI_REV4) {
-		spin_lock_irqsave(&phba->hbalock, iflags);
-		if (bf_get(lpfc_mbx_read_top_mm, la))
-			phba->sli.sli_flag |= LPFC_MENLO_MAINT;
-		else
-			phba->sli.sli_flag &= ~LPFC_MENLO_MAINT;
-		spin_unlock_irqrestore(&phba->hbalock, iflags);
-	}
-
 	phba->link_events++;
-	if ((attn_type == LPFC_ATT_LINK_UP) &&
-	    !(phba->sli.sli_flag & LPFC_MENLO_MAINT)) {
+	if (attn_type == LPFC_ATT_LINK_UP) {
 		phba->fc_stat.LinkUp++;
 		if (phba->link_flag & LS_LOOPBACK_MODE) {
 			lpfc_printf_log(phba, KERN_ERR, LOG_LINK_EVENT,
@@ -3788,20 +3783,21 @@ lpfc_mbx_cmpl_read_topology(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmb)
 		} else {
 			lpfc_printf_log(phba, KERN_ERR, LOG_LINK_EVENT,
 					"1303 Link Up Event x%x received "
-					"Data: x%x x%x x%x x%x x%x x%x %d\n",
+					"Data: x%x x%x x%x x%x x%x\n",
 					la->eventTag, phba->fc_eventTag,
 					bf_get(lpfc_mbx_read_top_alpa_granted,
 					       la),
 					bf_get(lpfc_mbx_read_top_link_spd, la),
 					phba->alpa_map[0],
-					bf_get(lpfc_mbx_read_top_mm, la),
-					bf_get(lpfc_mbx_read_top_fa, la),
-					phba->wait_4_mlo_maint_flg);
+					bf_get(lpfc_mbx_read_top_fa, la));
 		}
 		lpfc_mbx_process_link_up(phba, la);
 
 		if (phba->cmf_active_mode != LPFC_CFG_OFF)
 			lpfc_cmf_signal_init(phba);
+
+		if (phba->lmt & LMT_64Gb)
+			lpfc_read_lds_params(phba);
 
 	} else if (attn_type == LPFC_ATT_LINK_DOWN ||
 		   attn_type == LPFC_ATT_UNEXP_WWPN) {
@@ -3816,58 +3812,25 @@ lpfc_mbx_cmpl_read_topology(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmb)
 		else if (attn_type == LPFC_ATT_UNEXP_WWPN)
 			lpfc_printf_log(phba, KERN_ERR, LOG_LINK_EVENT,
 				"1313 Link Down Unexpected FA WWPN Event x%x "
-				"received Data: x%x x%x x%x x%x x%x\n",
+				"received Data: x%x x%x x%x x%x\n",
 				la->eventTag, phba->fc_eventTag,
 				phba->pport->port_state, vport->fc_flag,
-				bf_get(lpfc_mbx_read_top_mm, la),
 				bf_get(lpfc_mbx_read_top_fa, la));
 		else
 			lpfc_printf_log(phba, KERN_ERR, LOG_LINK_EVENT,
 				"1305 Link Down Event x%x received "
-				"Data: x%x x%x x%x x%x x%x\n",
+				"Data: x%x x%x x%x x%x\n",
 				la->eventTag, phba->fc_eventTag,
 				phba->pport->port_state, vport->fc_flag,
-				bf_get(lpfc_mbx_read_top_mm, la),
 				bf_get(lpfc_mbx_read_top_fa, la));
 		lpfc_mbx_issue_link_down(phba);
 	}
-	if (phba->sli.sli_flag & LPFC_MENLO_MAINT &&
-	    attn_type == LPFC_ATT_LINK_UP) {
-		if (phba->link_state != LPFC_LINK_DOWN) {
-			phba->fc_stat.LinkDown++;
-			lpfc_printf_log(phba, KERN_ERR, LOG_LINK_EVENT,
-				"1312 Link Down Event x%x received "
-				"Data: x%x x%x x%x\n",
-				la->eventTag, phba->fc_eventTag,
-				phba->pport->port_state, vport->fc_flag);
-			lpfc_mbx_issue_link_down(phba);
-		} else
-			lpfc_enable_la(phba);
-
-		lpfc_printf_log(phba, KERN_ERR, LOG_LINK_EVENT,
-				"1310 Menlo Maint Mode Link up Event x%x rcvd "
-				"Data: x%x x%x x%x\n",
-				la->eventTag, phba->fc_eventTag,
-				phba->pport->port_state, vport->fc_flag);
-		/*
-		 * The cmnd that triggered this will be waiting for this
-		 * signal.
-		 */
-		/* WAKEUP for MENLO_SET_MODE or MENLO_RESET command. */
-		if (phba->wait_4_mlo_maint_flg) {
-			phba->wait_4_mlo_maint_flg = 0;
-			wake_up_interruptible(&phba->wait_4_mlo_m_q);
-		}
-	}
 
 	if ((phba->sli_rev < LPFC_SLI_REV4) &&
-	    bf_get(lpfc_mbx_read_top_fa, la)) {
-		if (phba->sli.sli_flag & LPFC_MENLO_MAINT)
-			lpfc_issue_clear_la(phba, vport);
+	    bf_get(lpfc_mbx_read_top_fa, la))
 		lpfc_printf_log(phba, KERN_INFO, LOG_LINK_EVENT,
 				"1311 fa %d\n",
 				bf_get(lpfc_mbx_read_top_fa, la));
-	}
 
 lpfc_mbx_cmpl_read_topology_free_mbuf:
 	lpfc_mbox_rsrc_cleanup(phba, pmb, MBOX_THD_UNLOCKED);
@@ -4435,8 +4398,11 @@ out:
 			rc = lpfc_issue_els_edc(vport, 0);
 			lpfc_printf_log(phba, KERN_INFO,
 					LOG_INIT | LOG_ELS | LOG_DISCOVERY,
-					"4220 EDC issue error x%x, Data: x%x\n",
+					"4220 Issue EDC status x%x Data x%x\n",
 					rc, phba->cgn_init_reg_signal);
+		} else if (phba->lmt & LMT_64Gb) {
+			/* may send link fault capability descriptor */
+			lpfc_issue_els_edc(vport, 0);
 		} else {
 			lpfc_issue_els_rdf(vport, 0);
 		}
@@ -4834,22 +4800,6 @@ lpfc_nlp_state_cleanup(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp,
 	    new_state == NLP_STE_UNMAPPED_NODE)
 		lpfc_nlp_reg_node(vport, ndlp);
 
-	if ((new_state ==  NLP_STE_MAPPED_NODE) &&
-		(vport->stat_data_enabled)) {
-		/*
-		 * A new target is discovered, if there is no buffer for
-		 * statistical data collection allocate buffer.
-		 */
-		ndlp->lat_data = kcalloc(LPFC_MAX_BUCKET_COUNT,
-					 sizeof(struct lpfc_scsicmd_bkt),
-					 GFP_KERNEL);
-
-		if (!ndlp->lat_data)
-			lpfc_printf_vlog(vport, KERN_ERR, LOG_TRACE_EVENT,
-				"0286 lpfc_nlp_state_cleanup failed to "
-				"allocate statistical data buffer DID "
-				"0x%x\n", ndlp->nlp_DID);
-	}
 	/*
 	 * If the node just added to Mapped list was an FCP target,
 	 * but the remote port registration failed or assigned a target
@@ -6695,7 +6645,6 @@ lpfc_nlp_release(struct kref *kref)
 	ndlp->fc4_xpt_flags = 0;
 
 	/* free ndlp memory for final ndlp release */
-	kfree(ndlp->lat_data);
 	if (ndlp->phba->sli_rev == LPFC_SLI_REV4)
 		mempool_free(ndlp->active_rrqs_xri_bitmap,
 				ndlp->phba->active_rrq_pool);
