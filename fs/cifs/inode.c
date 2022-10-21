@@ -335,6 +335,7 @@ cifs_create_dfs_fattr(struct cifs_fattr *fattr, struct super_block *sb)
 	fattr->cf_flags = CIFS_FATTR_DFS_REFERRAL;
 }
 
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 static int
 cifs_get_file_info_unix(struct file *filp)
 {
@@ -428,6 +429,14 @@ int cifs_get_inode_info_unix(struct inode **pinode,
 cgiiu_exit:
 	return rc;
 }
+#else
+int cifs_get_inode_info_unix(struct inode **pinode,
+			     const unsigned char *full_path,
+			     struct super_block *sb, unsigned int xid)
+{
+	return -EOPNOTSUPP;
+}
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 
 static int
 cifs_sfu_type(struct cifs_fattr *fattr, const char *path,
@@ -791,6 +800,7 @@ static __u64 simple_hashstr(const char *str)
 	return hash;
 }
 
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 /**
  * cifs_backup_query_path_info - SMB1 fallback code to get ino
  *
@@ -843,6 +853,7 @@ cifs_backup_query_path_info(int xid,
 	*data = (FILE_ALL_INFO *)info.srch_entries_start;
 	return 0;
 }
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 
 static void
 cifs_set_fattr_ino(int xid,
@@ -987,6 +998,7 @@ cifs_get_inode_info(struct inode **inode,
 		rc = 0;
 		break;
 	case -EACCES:
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 		/*
 		 * perm errors, try again with backup flags if possible
 		 *
@@ -1018,6 +1030,9 @@ cifs_get_inode_info(struct inode **inode,
 			/* nothing we can do, bail out */
 			goto out;
 		}
+#else
+		goto out;
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 		break;
 	default:
 		cifs_dbg(FYI, "%s: unhandled err rc %d\n", __func__, rc);
@@ -1033,8 +1048,9 @@ cifs_get_inode_info(struct inode **inode,
 	/*
 	 * 4. Tweak fattr based on mount options
 	 */
-
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 handle_mnt_opt:
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 	/* query for SFU type info if supported and needed */
 	if (fattr.cf_cifsattrs & ATTR_SYSTEM &&
 	    cifs_sb->mnt_cifs_flags & CIFS_MOUNT_UNX_EMUL) {
@@ -1433,6 +1449,7 @@ cifs_set_file_info(struct inode *inode, struct iattr *attrs, unsigned int xid,
 	return server->ops->set_file_info(inode, full_path, &info_buf, xid);
 }
 
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 /*
  * Open the given file (if it isn't already), set the DELETE_ON_CLOSE bit
  * and rename it to a random name that hopefully won't conflict with
@@ -1563,6 +1580,7 @@ undo_setattr:
 
 	goto out_close;
 }
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 
 /* copied from fs/nfs/dir.c with small changes */
 static void
@@ -1625,6 +1643,7 @@ int cifs_unlink(struct inode *dir, struct dentry *dentry)
 	}
 
 	cifs_close_deferred_file_under_dentry(tcon, full_path);
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 	if (cap_unix(tcon->ses) && (CIFS_UNIX_POSIX_PATH_OPS_CAP &
 				le64_to_cpu(tcon->fsUnixInfo.Capability))) {
 		rc = CIFSPOSIXDelFile(xid, tcon, full_path,
@@ -1634,6 +1653,7 @@ int cifs_unlink(struct inode *dir, struct dentry *dentry)
 		if ((rc == 0) || (rc == -ENOENT))
 			goto psx_del_no_retry;
 	}
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 
 retry_std_delete:
 	if (!server->ops->unlink) {
@@ -1712,9 +1732,11 @@ cifs_mkdir_qinfo(struct inode *parent, struct dentry *dentry, umode_t mode,
 
 	if (tcon->posix_extensions)
 		rc = smb311_posix_get_inode_info(&inode, full_path, parent->i_sb, xid);
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 	else if (tcon->unix_ext)
 		rc = cifs_get_inode_info_unix(&inode, full_path, parent->i_sb,
 					      xid);
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 	else
 		rc = cifs_get_inode_info(&inode, full_path, NULL, parent->i_sb,
 					 xid, NULL);
@@ -1744,6 +1766,7 @@ cifs_mkdir_qinfo(struct inode *parent, struct dentry *dentry, umode_t mode,
 	if (parent->i_mode & S_ISGID)
 		mode |= S_ISGID;
 
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 	if (tcon->unix_ext) {
 		struct cifs_unix_set_info_args args = {
 			.mode	= mode,
@@ -1766,6 +1789,9 @@ cifs_mkdir_qinfo(struct inode *parent, struct dentry *dentry, umode_t mode,
 				       cifs_sb->local_nls,
 				       cifs_remap(cifs_sb));
 	} else {
+#else
+	{
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 		struct TCP_Server_Info *server = tcon->ses->server;
 		if (!(cifs_sb->mnt_cifs_flags & CIFS_MOUNT_CIFS_ACL) &&
 		    (mode & S_IWUGO) == 0 && server->ops->mkdir_setinfo)
@@ -1786,6 +1812,7 @@ cifs_mkdir_qinfo(struct inode *parent, struct dentry *dentry, umode_t mode,
 	return 0;
 }
 
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 static int
 cifs_posix_mkdir(struct inode *inode, struct dentry *dentry, umode_t mode,
 		 const char *full_path, struct cifs_sb_info *cifs_sb,
@@ -1848,6 +1875,7 @@ posix_mkdir_get_info:
 			      xid);
 	goto posix_mkdir_out;
 }
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 
 int cifs_mkdir(struct user_namespace *mnt_userns, struct inode *inode,
 	       struct dentry *direntry, umode_t mode)
@@ -1890,6 +1918,7 @@ int cifs_mkdir(struct user_namespace *mnt_userns, struct inode *inode,
 		goto mkdir_out;
 	}
 
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 	if (cap_unix(tcon->ses) && (CIFS_UNIX_POSIX_PATH_OPS_CAP &
 				le64_to_cpu(tcon->fsUnixInfo.Capability))) {
 		rc = cifs_posix_mkdir(inode, direntry, mode, full_path, cifs_sb,
@@ -1897,6 +1926,7 @@ int cifs_mkdir(struct user_namespace *mnt_userns, struct inode *inode,
 		if (rc != -EOPNOTSUPP)
 			goto mkdir_out;
 	}
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 
 	if (!server->ops->mkdir) {
 		rc = -ENOSYS;
@@ -2013,9 +2043,12 @@ cifs_do_rename(const unsigned int xid, struct dentry *from_dentry,
 	struct tcon_link *tlink;
 	struct cifs_tcon *tcon;
 	struct TCP_Server_Info *server;
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 	struct cifs_fid fid;
 	struct cifs_open_parms oparms;
-	int oplock, rc;
+	int oplock;
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
+	int rc;
 
 	tlink = cifs_sb_tlink(cifs_sb);
 	if (IS_ERR(tlink))
@@ -2041,6 +2074,7 @@ cifs_do_rename(const unsigned int xid, struct dentry *from_dentry,
 	if (server->vals->protocol_id != 0)
 		goto do_rename_exit;
 
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 	/* open-file renames don't work across directories */
 	if (to_dentry->d_parent != from_dentry->d_parent)
 		goto do_rename_exit;
@@ -2062,6 +2096,7 @@ cifs_do_rename(const unsigned int xid, struct dentry *from_dentry,
 				cifs_sb->local_nls, cifs_remap(cifs_sb));
 		CIFSSMBClose(xid, tcon, fid.netfid);
 	}
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 do_rename_exit:
 	if (rc == 0)
 		d_move(from_dentry, to_dentry);
@@ -2079,11 +2114,13 @@ cifs_rename2(struct user_namespace *mnt_userns, struct inode *source_dir,
 	struct cifs_sb_info *cifs_sb;
 	struct tcon_link *tlink;
 	struct cifs_tcon *tcon;
-	FILE_UNIX_BASIC_INFO *info_buf_source = NULL;
-	FILE_UNIX_BASIC_INFO *info_buf_target;
 	unsigned int xid;
 	int rc, tmprc;
 	int retry_count = 0;
+	FILE_UNIX_BASIC_INFO *info_buf_source = NULL;
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
+	FILE_UNIX_BASIC_INFO *info_buf_target;
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 
 	if (flags & ~RENAME_NOREPLACE)
 		return -EINVAL;
@@ -2137,6 +2174,7 @@ cifs_rename2(struct user_namespace *mnt_userns, struct inode *source_dir,
 	if (flags & RENAME_NOREPLACE)
 		goto cifs_rename_exit;
 
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 	if (rc == -EEXIST && tcon->unix_ext) {
 		/*
 		 * Are src and dst hardlinks of same inode? We can only tell
@@ -2176,6 +2214,8 @@ cifs_rename2(struct user_namespace *mnt_userns, struct inode *source_dir,
 	 */
 
 unlink_target:
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
+
 	/* Try unlinking the target dentry if it's not negative */
 	if (d_really_is_positive(target_dentry) && (rc == -EACCES || rc == -EEXIST)) {
 		if (d_is_dir(target_dentry))
@@ -2330,14 +2370,18 @@ int cifs_revalidate_file_attr(struct file *filp)
 {
 	int rc = 0;
 	struct dentry *dentry = file_dentry(filp);
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 	struct cifsFileInfo *cfile = (struct cifsFileInfo *) filp->private_data;
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 
 	if (!cifs_dentry_needs_reval(dentry))
 		return rc;
 
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 	if (tlink_tcon(cfile->tlink)->unix_ext)
 		rc = cifs_get_file_info_unix(filp);
 	else
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 		rc = cifs_get_file_info(filp);
 
 	return rc;
@@ -2646,6 +2690,7 @@ set_size_out:
 	return rc;
 }
 
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 static int
 cifs_setattr_unix(struct dentry *direntry, struct iattr *attrs)
 {
@@ -2791,6 +2836,7 @@ out:
 	free_xid(xid);
 	return rc;
 }
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 
 static int
 cifs_setattr_nounix(struct dentry *direntry, struct iattr *attrs)
@@ -2984,16 +3030,20 @@ cifs_setattr(struct user_namespace *mnt_userns, struct dentry *direntry,
 	     struct iattr *attrs)
 {
 	struct cifs_sb_info *cifs_sb = CIFS_SB(direntry->d_sb);
-	struct cifs_tcon *pTcon = cifs_sb_master_tcon(cifs_sb);
 	int rc, retries = 0;
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
+	struct cifs_tcon *pTcon = cifs_sb_master_tcon(cifs_sb);
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 
 	if (unlikely(cifs_forced_shutdown(cifs_sb)))
 		return -EIO;
 
 	do {
+#ifdef CONFIG_CIFS_ALLOW_INSECURE_LEGACY
 		if (pTcon->unix_ext)
 			rc = cifs_setattr_unix(direntry, attrs);
 		else
+#endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 			rc = cifs_setattr_nounix(direntry, attrs);
 		retries++;
 	} while (is_retryable_error(rc) && retries < 2);
