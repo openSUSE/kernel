@@ -753,7 +753,7 @@ void qla2x00_sp_compl(srb_t *sp, int res)
 	kref_put(&sp->cmd_kref, qla2x00_sp_release);
 	cmd->result = res;
 	sp->type = 0;
-	cmd->scsi_done(cmd);
+	scsi_done(cmd);
 	if (comp)
 		complete(comp);
 }
@@ -845,7 +845,7 @@ void qla2xxx_qpair_sp_compl(srb_t *sp, int res)
 	kref_put(&sp->cmd_kref, qla2x00_sp_release);
 	cmd->result = res;
 	sp->type = 0;
-	cmd->scsi_done(cmd);
+	scsi_done(cmd);
 	if (comp)
 		complete(comp);
 }
@@ -967,7 +967,7 @@ qc24_target_busy:
 	return SCSI_MLQUEUE_TARGET_BUSY;
 
 qc24_fail_command:
-	cmd->scsi_done(cmd);
+	scsi_done(cmd);
 
 	return 0;
 }
@@ -1056,7 +1056,7 @@ qc24_target_busy:
 	return SCSI_MLQUEUE_TARGET_BUSY;
 
 qc24_fail_command:
-	cmd->scsi_done(cmd);
+	scsi_done(cmd);
 
 	return 0;
 }
