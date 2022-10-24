@@ -35,6 +35,9 @@ struct pci_config_window {
 		void __iomem		**winp; /* 32-bit per-bus mapping */
 	};
 	struct device			*parent;/* ECAM res was from this dev */
+#ifndef __GENKSYMS__
+	unsigned int			bus_shift;
+#endif
 };
 
 /* create and free pci_config_window */
