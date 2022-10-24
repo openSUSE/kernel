@@ -121,5 +121,6 @@ struct pseries_vas_window {
 	u64 flags;
 	char *name;
 	int fault_virq;
+	atomic_t pending_faults; /* Number of pending faults */
 };
 #endif /* _VAS_H */
