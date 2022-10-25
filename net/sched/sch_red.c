@@ -161,7 +161,7 @@ static void red_reset(struct Qdisc *sch)
 static void red_destroy(struct Qdisc *sch)
 {
 	struct red_sched_data *q = qdisc_priv(sch);
-	qdisc_destroy(q->qdisc);
+	qdisc_put(q->qdisc);
 }
 
 static const struct nla_policy red_policy[TCA_RED_MAX + 1] = {
@@ -201,7 +201,7 @@ static int red_change(struct Qdisc *sch, struct nlattr *opt)
 	q->limit = ctl->limit;
 	if (child) {
 		qdisc_tree_decrease_qlen(q->qdisc, q->qdisc->q.qlen);
-		qdisc_destroy(q->qdisc);
+		qdisc_put(q->qdisc);
 		q->qdisc = child;
 	}
 

@@ -1686,7 +1686,7 @@ static void cbq_destroy_class(struct Qdisc *sch, struct cbq_class *cl)
 	WARN_ON(cl->filters);
 
 	tcf_destroy_chain(&cl->filter_list);
-	qdisc_destroy(cl->q);
+	qdisc_put(cl->q);
 	qdisc_put_rtab(cl->R_tab);
 	gen_kill_estimator(&cl->bstats, &cl->rate_est);
 	if (cl != &q->link)

@@ -189,23 +189,14 @@ static struct tty_buffer *tty_buffer_find(struct tty_struct *tty, size_t size)
 	   have queued and recycle that ? */
 }
 
-/**
- *	tty_buffer_request_room		-	grow tty buffer if needed
- *	@tty: tty structure
- *	@size: size desired
- *
- *	Make at least size bytes of linear space available for the tty
- *	buffer. If we fail return the size we managed to find.
- *
- *	Locking: Takes tty->buf.lock
- */
-int tty_buffer_request_room(struct tty_struct *tty, size_t size)
+int __tty_buffer_request_room(struct tty_struct *tty, size_t size, bool locked)
 {
 	struct tty_buffer *b, *n;
 	int left;
 	unsigned long flags;
 
-	spin_lock_irqsave(&tty->buf.lock, flags);
+	if (!locked)
+		spin_lock_irqsave(&tty->buf.lock, flags);
 
 	/* OPTIMISATION: We could keep a per tty "zero" sized buffer to
 	   remove this conditional if its worth it. This would be invisible
@@ -228,31 +219,34 @@ int tty_buffer_request_room(struct tty_struct *tty, size_t size)
 			size = left;
 	}
 
-	spin_unlock_irqrestore(&tty->buf.lock, flags);
+	if (!locked)
+		spin_unlock_irqrestore(&tty->buf.lock, flags);
 	return size;
+}
+
+/**
+ *	tty_buffer_request_room		-	grow tty buffer if needed
+ *	@tty: tty structure
+ *	@size: size desired
+ *
+ *	Make at least size bytes of linear space available for the tty
+ *	buffer. If we fail return the size we managed to find.
+ *
+ *	Locking: Takes tty->buf.lock
+ */
+int tty_buffer_request_room(struct tty_struct *tty, size_t size)
+{
+	return __tty_buffer_request_room(tty, size, false);
 }
 EXPORT_SYMBOL_GPL(tty_buffer_request_room);
 
-/**
- *	tty_insert_flip_string_fixed_flag - Add characters to the tty buffer
- *	@tty: tty structure
- *	@chars: characters
- *	@flag: flag value for each character
- *	@size: size
- *
- *	Queue a series of bytes to the tty buffering. All the characters
- *	passed are marked with the supplied flag. Returns the number added.
- *
- *	Locking: Called functions may take tty->buf.lock
- */
-
-int tty_insert_flip_string_fixed_flag(struct tty_struct *tty,
-		const unsigned char *chars, char flag, size_t size)
+int __tty_insert_flip_string_fixed_flag(struct tty_struct *tty,
+		const unsigned char *chars, char flag, size_t size, bool locked)
 {
 	int copied = 0;
 	do {
 		int goal = min_t(size_t, size - copied, TTY_BUFFER_PAGE);
-		int space = tty_buffer_request_room(tty, goal);
+		int space = __tty_buffer_request_room(tty, goal, locked);
 		struct tty_buffer *tb = tty->buf.tail;
 		/* If there is no space then tb may be NULL */
 		if (unlikely(space == 0))
@@ -266,6 +260,25 @@ int tty_insert_flip_string_fixed_flag(struct tty_struct *tty,
 		   several buffers. If this is the case we must loop */
 	} while (unlikely(size > copied));
 	return copied;
+}
+
+/**
+ *	tty_insert_flip_string_fixed_flag - Add characters to the tty buffer
+ *	@tty: tty structure
+ *	@chars: characters
+ *	@flag: flag value for each character
+ *	@size: size
+ *
+ *	Queue a series of bytes to the tty buffering. All the characters
+ *	passed are marked with the supplied flag. Returns the number added.
+ *
+ *	Locking: Called functions may take tty->buf.lock
+ */
+int tty_insert_flip_string_fixed_flag(struct tty_struct *tty,
+		const unsigned char *chars, char flag, size_t size)
+{
+	return __tty_insert_flip_string_fixed_flag(tty, chars, flag, size,
+			false);
 }
 EXPORT_SYMBOL(tty_insert_flip_string_fixed_flag);
 
@@ -527,7 +540,8 @@ int tty_insert_flip_string_and_push_buffer(struct tty_struct *tty,
 	unsigned long flags;
 
 	spin_lock_irqsave(&tty->buf.lock, flags);
-	size = tty_insert_flip_string(tty, chars, size);
+	size = __tty_insert_flip_string_fixed_flag(tty, chars, TTY_NORMAL,
+			size, true);
 	if (size)
 		tty_flip_buffer_commit(tty->buf.tail);
 	spin_unlock_irqrestore(&tty->buf.lock, flags);

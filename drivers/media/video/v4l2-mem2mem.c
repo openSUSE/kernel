@@ -300,6 +300,23 @@ int v4l2_m2m_reqbufs(struct file *file, struct v4l2_m2m_ctx *m2m_ctx,
 }
 EXPORT_SYMBOL_GPL(v4l2_m2m_reqbufs);
 
+static void v4l2_m2m_adjust_mem_offset(struct vb2_queue *vq,
+				       struct v4l2_buffer *buf)
+{
+	/* Adjust MMAP memory offsets for the CAPTURE queue */
+	if (buf->memory == V4L2_MEMORY_MMAP && !V4L2_TYPE_IS_OUTPUT(vq->type)) {
+		if (V4L2_TYPE_IS_MULTIPLANAR(vq->type)) {
+			unsigned int i;
+
+			for (i = 0; i < buf->length; ++i)
+				buf->m.planes[i].m.mem_offset
+					+= DST_QUEUE_OFF_BASE;
+		} else {
+			buf->m.offset += DST_QUEUE_OFF_BASE;
+		}
+	}
+}
+
 /**
  * v4l2_m2m_querybuf() - multi-queue-aware QUERYBUF multiplexer
  *
@@ -309,24 +326,17 @@ int v4l2_m2m_querybuf(struct file *file, struct v4l2_m2m_ctx *m2m_ctx,
 		      struct v4l2_buffer *buf)
 {
 	struct vb2_queue *vq;
-	int ret = 0;
-	unsigned int i;
+	int ret;
 
 	vq = v4l2_m2m_get_vq(m2m_ctx, buf->type);
 	ret = vb2_querybuf(vq, buf);
+	if (ret)
+		return ret;
 
 	/* Adjust MMAP memory offsets for the CAPTURE queue */
-	if (buf->memory == V4L2_MEMORY_MMAP && !V4L2_TYPE_IS_OUTPUT(vq->type)) {
-		if (V4L2_TYPE_IS_MULTIPLANAR(vq->type)) {
-			for (i = 0; i < buf->length; ++i)
-				buf->m.planes[i].m.mem_offset
-					+= DST_QUEUE_OFF_BASE;
-		} else {
-			buf->m.offset += DST_QUEUE_OFF_BASE;
-		}
-	}
+	v4l2_m2m_adjust_mem_offset(vq, buf);
 
-	return ret;
+	return 0;
 }
 EXPORT_SYMBOL_GPL(v4l2_m2m_querybuf);
 
@@ -342,10 +352,15 @@ int v4l2_m2m_qbuf(struct file *file, struct v4l2_m2m_ctx *m2m_ctx,
 
 	vq = v4l2_m2m_get_vq(m2m_ctx, buf->type);
 	ret = vb2_qbuf(vq, buf);
-	if (!ret)
-		v4l2_m2m_try_schedule(m2m_ctx);
+	if (ret)
+		return ret;
 
-	return ret;
+	/* Adjust MMAP memory offsets for the CAPTURE queue */
+	v4l2_m2m_adjust_mem_offset(vq, buf);
+
+	v4l2_m2m_try_schedule(m2m_ctx);
+
+	return 0;
 }
 EXPORT_SYMBOL_GPL(v4l2_m2m_qbuf);
 
@@ -357,9 +372,17 @@ int v4l2_m2m_dqbuf(struct file *file, struct v4l2_m2m_ctx *m2m_ctx,
 		   struct v4l2_buffer *buf)
 {
 	struct vb2_queue *vq;
+	int ret;
 
 	vq = v4l2_m2m_get_vq(m2m_ctx, buf->type);
-	return vb2_dqbuf(vq, buf, file->f_flags & O_NONBLOCK);
+	ret = vb2_dqbuf(vq, buf, file->f_flags & O_NONBLOCK);
+	if (ret)
+		return ret;
+
+	/* Adjust MMAP memory offsets for the CAPTURE queue */
+	v4l2_m2m_adjust_mem_offset(vq, buf);
+
+	return 0;
 }
 EXPORT_SYMBOL_GPL(v4l2_m2m_dqbuf);
 

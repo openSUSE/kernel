@@ -408,7 +408,7 @@ static void dsmark_destroy(struct Qdisc *sch)
 	pr_debug("dsmark_destroy(sch %p,[qdisc %p])\n", sch, p);
 
 	tcf_destroy_chain(&p->filter_list);
-	qdisc_destroy(p->q);
+	qdisc_put(p->q);
 	kfree(p->mask);
 }
 
