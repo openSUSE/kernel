@@ -133,6 +133,7 @@ enum iommu_resv_type {
  * @length: Length of the region in bytes
  * @prot: IOMMU Protection flags (READ/WRITE/...)
  * @type: Type of the reserved region
+ * @free: Callback to free associated memory allocations
  */
 struct iommu_resv_region {
 	struct list_head	list;
@@ -140,6 +141,15 @@ struct iommu_resv_region {
 	size_t			length;
 	int			prot;
 	enum iommu_resv_type	type;
+	void (*free)(struct device *dev, struct iommu_resv_region *region);
+};
+
+struct iommu_iort_rmr_data {
+	struct iommu_resv_region rr;
+
+	/* Stream IDs associated with IORT RMR entry */
+	const u32 *sids;
+	u32 num_sids;
 };
 
 /**

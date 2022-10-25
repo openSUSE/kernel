@@ -728,11 +728,10 @@ static void __init drv_acpi_handle_init(const char *name,
 static acpi_status __init tpacpi_acpi_handle_locate_callback(acpi_handle handle,
 			u32 level, void *context, void **return_value)
 {
-	struct acpi_device *dev;
 	if (!strcmp(context, "video")) {
-		if (acpi_bus_get_device(handle, &dev))
-			return AE_OK;
-		if (strcmp(ACPI_VIDEO_HID, acpi_device_hid(dev)))
+		struct acpi_device *dev = acpi_fetch_acpi_dev(handle);
+
+		if (!dev || strcmp(ACPI_VIDEO_HID, acpi_device_hid(dev)))
 			return AE_OK;
 	}
 
@@ -786,7 +785,6 @@ static void dispatch_acpi_notify(acpi_handle handle, u32 event, void *data)
 static int __init setup_acpi_notify(struct ibm_struct *ibm)
 {
 	acpi_status status;
-	int rc;
 
 	BUG_ON(!ibm->acpi);
 
@@ -796,9 +794,9 @@ static int __init setup_acpi_notify(struct ibm_struct *ibm)
 	vdbg_printk(TPACPI_DBG_INIT,
 		"setting up ACPI notify for %s\n", ibm->name);
 
-	rc = acpi_bus_get_device(*ibm->acpi->handle, &ibm->acpi->device);
-	if (rc < 0) {
-		pr_err("acpi_bus_get_device(%s) failed: %d\n", ibm->name, rc);
+	ibm->acpi->device = acpi_fetch_acpi_dev(*ibm->acpi->handle);
+	if (!ibm->acpi->device) {
+		pr_err("acpi_fetch_acpi_dev(%s) failed\n", ibm->name);
 		return -ENODEV;
 	}
 
@@ -6881,6 +6879,31 @@ static const struct backlight_ops ibm_backlight_data = {
 
 /* --------------------------------------------------------------------- */
 
+static int __init tpacpi_evaluate_bcl(struct acpi_device *adev, void *not_used)
+{
+	struct acpi_buffer buffer = { ACPI_ALLOCATE_BUFFER, NULL };
+	union acpi_object *obj;
+	acpi_status status;
+	int rc;
+
+	status = acpi_evaluate_object(adev->handle, "_BCL", NULL, &buffer);
+	if (ACPI_FAILURE(status))
+		return 0;
+
+	obj = buffer.pointer;
+	if (!obj || obj->type != ACPI_TYPE_PACKAGE) {
+		acpi_handle_info(adev->handle,
+				 "Unknown _BCL data, please report this to %s\n",
+				 TPACPI_MAIL);
+		rc = 0;
+	} else {
+		rc = obj->package.count;
+	}
+	kfree(obj);
+
+	return rc;
+}
+
 /*
  * Call _BCL method of video device.  On some ThinkPads this will
  * switch the firmware to the ACPI brightness control mode.
@@ -6888,36 +6911,13 @@ static const struct backlight_ops ibm_backlight_data = {
 
 static int __init tpacpi_query_bcl_levels(acpi_handle handle)
 {
-	struct acpi_buffer buffer = { ACPI_ALLOCATE_BUFFER, NULL };
-	union acpi_object *obj;
-	struct acpi_device *device, *child;
-	int rc;
+	struct acpi_device *device;
 
-	if (acpi_bus_get_device(handle, &device))
+	device = acpi_fetch_acpi_dev(handle);
+	if (!device)
 		return 0;
 
-	rc = 0;
-	list_for_each_entry(child, &device->children, node) {
-		acpi_status status = acpi_evaluate_object(child->handle, "_BCL",
-							  NULL, &buffer);
-		if (ACPI_FAILURE(status)) {
-			buffer.length = ACPI_ALLOCATE_BUFFER;
-			continue;
-		}
-
-		obj = (union acpi_object *)buffer.pointer;
-		if (!obj || (obj->type != ACPI_TYPE_PACKAGE)) {
-			pr_err("Unknown _BCL data, please report this to %s\n",
-				TPACPI_MAIL);
-			rc = 0;
-		} else {
-			rc = obj->package.count;
-		}
-		break;
-	}
-
-	kfree(buffer.pointer);
-	return rc;
+	return acpi_dev_for_each_child(device, tpacpi_evaluate_bcl, NULL);
 }
 
 
