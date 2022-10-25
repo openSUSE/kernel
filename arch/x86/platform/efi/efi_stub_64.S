@@ -96,7 +96,7 @@ ENTRY(efi_call5)
 	call *%rdi
 	addq $48, %rsp
 	RESTORE_XMM
-	ret
+	RET
 ENDPROC(efi_call5)
 
 ENTRY(efi_call6)

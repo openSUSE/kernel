@@ -423,7 +423,7 @@ DST(	movb %cl, (%edi)	)
 	popl_cfi %edi
 	CFI_RESTORE edi
 	popl_cfi %ecx			# equivalent to addl $4,%esp
-	ret	
+	RET
 	CFI_ENDPROC
 ENDPROC(csum_partial_copy_generic)
 

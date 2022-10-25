@@ -72,7 +72,7 @@
 #ifdef CONFIG_FUNCTION_TRACER
 #ifdef CONFIG_DYNAMIC_FTRACE
 ENTRY(mcount)
-	retq
+	RET
 END(mcount)
 
 ENTRY(ftrace_caller)
@@ -96,7 +96,7 @@ GLOBAL(ftrace_graph_call)
 #endif
 
 GLOBAL(ftrace_stub)
-	retq
+	RET
 END(ftrace_caller)
 
 #else /* ! CONFIG_DYNAMIC_FTRACE */
@@ -116,7 +116,7 @@ ENTRY(mcount)
 #endif
 
 GLOBAL(ftrace_stub)
-	retq
+	RET
 
 trace:
 	MCOUNT_SAVE_FRAME
@@ -151,7 +151,7 @@ ENTRY(ftrace_graph_caller)
 
 	MCOUNT_RESTORE_FRAME
 
-	retq
+	RET
 END(ftrace_graph_caller)
 
 GLOBAL(return_to_handler)
@@ -375,7 +375,7 @@ ENTRY(save_args)
 	 * We entered an interrupt context - irqs are off:
 	 */
 2:	TRACE_IRQS_OFF
-	ret
+	RET
 	CFI_ENDPROC
 END(save_args)
 	.popsection
@@ -391,7 +391,7 @@ ENTRY(save_rest)
 	movq %r15, R15+16(%rsp)
 	movq %r11, 8(%rsp)	/* return address */
 	FIXUP_TOP_OF_STACK %r11, 16
-	ret
+	RET
 	CFI_ENDPROC
 END(save_rest)
 
@@ -426,7 +426,7 @@ ENTRY(save_paranoid)
 	SAVE_AND_SWITCH_TO_KERNEL_CR3 scratch_reg=%rax save_reg=%r14
 	FENCE_SWAPGS_KERNEL_ENTRY
 	ENABLE_IBRS
-	ret
+	RET
 	CFI_ENDPROC
 END(save_paranoid)
 	.popsection
@@ -781,6 +781,9 @@ END(ptregscall_common)
 
 ENTRY(stub_execve)
 	CFI_STARTPROC
+
+	ENABLE_IBRS
+
 	addq $8, %rsp
 	PARTIAL_FRAME 0
 	SAVE_REST
@@ -790,6 +793,9 @@ ENTRY(stub_execve)
 	RESTORE_TOP_OF_STACK %r11
 	movq %rax,RAX(%rsp)
 	RESTORE_REST
+
+	DISABLE_IBRS
+
 	jmp int_ret_from_sys_call
 	CFI_ENDPROC
 END(stub_execve)
@@ -800,6 +806,9 @@ END(stub_execve)
  */
 ENTRY(stub_rt_sigreturn)
 	CFI_STARTPROC
+
+	ENABLE_IBRS
+
 	addq $8, %rsp
 	PARTIAL_FRAME 0
 	SAVE_REST
@@ -808,6 +817,9 @@ ENTRY(stub_rt_sigreturn)
 	call sys_rt_sigreturn
 	movq %rax,RAX(%rsp) # fixme, this could be done at the higher layer
 	RESTORE_REST
+
+	DISABLE_IBRS
+
 	jmp int_ret_from_sys_call
 	CFI_ENDPROC
 END(stub_rt_sigreturn)

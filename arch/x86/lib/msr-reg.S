@@ -37,7 +37,7 @@ ENTRY(native_\op\()_safe_regs)
 	movl    %edi, 28(%r10)
 	popq_cfi %rbp
 	popq_cfi %rbx
-	ret
+	RET
 3:
 	CFI_RESTORE_STATE
 	movl    $-EIO, %r11d
@@ -84,7 +84,7 @@ ENTRY(native_\op\()_safe_regs)
 	popl_cfi %esi
 	popl_cfi %ebp
 	popl_cfi %ebx
-	ret
+	RET
 3:
 	CFI_RESTORE_STATE
 	movl    $-EIO, 4(%esp)

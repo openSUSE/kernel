@@ -342,6 +342,18 @@ config RETPOLINE
 	  code are eliminated. Since this includes the syscall entry path,
 	  it is not entirely pointless.
 
+config SLS
+	bool "Mitigate Straight-Line-Speculation"
+	depends on X86_64
+	default n
+	help
+	  Compile the kernel with straight-line-speculation options to guard
+	  against straight line speculation. The kernel image might be slightly
+	  larger.
+
+config CC_HAS_RETURN_THUNK
+	bool
+
 if X86_32 && !XEN
 config X86_EXTENDED_PLATFORM
 	bool "Support for extended (non-PC) x86 platforms"

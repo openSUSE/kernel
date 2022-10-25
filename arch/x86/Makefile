@@ -131,6 +131,10 @@ ifdef CONFIG_RETPOLINE
     endif
 endif
 
+ifdef CONFIG_SLS
+  KBUILD_CFLAGS += $(call cc-option,-mharden-sls=all)
+endif
+
 ###
 # Kernel objects
 

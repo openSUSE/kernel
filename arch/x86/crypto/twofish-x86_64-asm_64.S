@@ -269,7 +269,7 @@ twofish_enc_blk:
 
 	popq	R1
 	movq	$1,%rax
-	ret
+	RET
 
 twofish_dec_blk:
 	pushq    R1
@@ -321,4 +321,4 @@ twofish_dec_blk:
 
 	popq	R1
 	movq	$1,%rax
-	ret
+	RET

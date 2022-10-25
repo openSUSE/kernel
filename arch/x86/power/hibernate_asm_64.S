@@ -50,7 +50,7 @@ ENTRY(swsusp_arch_suspend)
 	movq	%rax, restore_cr3(%rip)
 
 	call swsusp_save
-	ret
+	RET
 
 ENTRY(restore_image)
 	/* switch to temporary page tables */
@@ -144,4 +144,4 @@ ENTRY(restore_registers)
 	/* tell the hibernation core that we've just restored the memory */
 	movq	%rax, in_suspend(%rip)
 
-	ret
+	RET

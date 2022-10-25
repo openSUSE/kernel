@@ -276,7 +276,7 @@ twofish_enc_blk:
 	pop	%ebx
 	pop	%ebp
 	mov	$1,	%eax
-	ret
+	RET
 
 twofish_dec_blk:
 	push	%ebp			/* save registers according to calling convention*/
@@ -332,4 +332,4 @@ twofish_dec_blk:
 	pop	%ebx
 	pop	%ebp
 	mov	$1,	%eax
-	ret
+	RET

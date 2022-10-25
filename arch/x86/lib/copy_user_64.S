@@ -179,7 +179,7 @@ ENTRY(copy_user_generic_unrolled)
 	decl %ecx
 	jnz 21b
 23:	xor %eax,%eax
-	ret
+	RET
 
 	.section .fixup,"ax"
 30:	shll $6,%ecx
@@ -251,7 +251,7 @@ ENTRY(copy_user_generic_string)
 3:	rep
 	movsb
 4:	xorl %eax,%eax
-	ret
+	RET
 
 	.section .fixup,"ax"
 11:	lea (%rdx,%rcx,8),%rcx
@@ -287,7 +287,7 @@ ENTRY(copy_user_enhanced_fast_string)
 1:	rep
 	movsb
 2:	xorl %eax,%eax
-	ret
+	RET
 
 	.section .fixup,"ax"
 12:	movl %ecx,%edx		/* ecx is zerorest also */

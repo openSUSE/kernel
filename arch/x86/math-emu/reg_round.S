@@ -436,7 +436,7 @@ fpu_Arith_exit:
 	popl	%edi
 	popl	%esi
 	leave
-	ret
+	RET
 
 
 /*

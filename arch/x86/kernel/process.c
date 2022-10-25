@@ -205,7 +205,7 @@ static __always_inline void __speculative_store_bypass_update(int rds)
 		wrmsrl(MSR_AMD64_LS_CFG, msr);
 	} else {
 		msr = x86_spec_ctrl_base | ssbd_tif_to_spec_ctrl(rds);
-		wrmsrl(MSR_IA32_SPEC_CTRL, msr);
+		write_spec_ctrl_current(msr, false);
 	}
 }
 

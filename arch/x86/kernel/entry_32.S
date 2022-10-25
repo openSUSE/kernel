@@ -1115,7 +1115,7 @@ ptregs_##name: \
 	call sys_##name; \
 	addl $4,%esp; \
 	CFI_ADJUST_CFA_OFFSET -4; \
-	ret; \
+	RET; \
 	CFI_ENDPROC; \
 ENDPROC(ptregs_##name)
 

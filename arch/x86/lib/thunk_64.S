@@ -50,5 +50,5 @@
 	SAVE_ARGS
 restore:
 	RESTORE_ARGS
-	ret	
+	RET
 	CFI_ENDPROC

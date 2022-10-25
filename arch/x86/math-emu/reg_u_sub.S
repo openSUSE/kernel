@@ -269,4 +269,4 @@ L_exit:
 	popl	%edi
 	popl	%esi
 	leave
-	ret
+	RET

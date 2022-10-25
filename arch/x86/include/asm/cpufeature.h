@@ -333,6 +333,7 @@ extern const char * const x86_power_flags[32];
 
 enum x86_cpu_bugs {
 	X86_BUG_TAA,
+	X86_BUG_RETBLEED,
 };
 
 extern bool boot_cpu_has_bug(enum x86_cpu_bugs bug);

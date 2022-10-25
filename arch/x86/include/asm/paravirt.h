@@ -848,7 +848,7 @@ static __always_inline void arch_spin_unlock(struct arch_spinlock *lock)
 	    PV_SAVE_ALL_CALLER_REGS					\
 	    "call " #func ";"						\
 	    PV_RESTORE_ALL_CALLER_REGS					\
-	    "ret;"							\
+	    ASM_RET							\
 	    ".popsection")
 
 /* Get a reference to a callee-save function */

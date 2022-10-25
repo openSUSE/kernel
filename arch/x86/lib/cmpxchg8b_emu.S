@@ -43,7 +43,7 @@ cmpxchg8b_emu:
 	movl %ecx, 4(%esi)
 
 	popfl
-	ret
+	RET
 
  not_same:
 	movl  (%esi), %eax
@@ -51,7 +51,7 @@ cmpxchg8b_emu:
 	movl 4(%esi), %edx
 
 	popfl
-	ret
+	RET
 
 CFI_ENDPROC
 ENDPROC(cmpxchg8b_emu)

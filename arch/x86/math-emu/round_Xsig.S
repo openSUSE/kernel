@@ -77,7 +77,7 @@ L_exit:
 	popl	%esi
 	popl	%ebx
 	leave
-	ret
+	RET
 
 
 
@@ -137,5 +137,5 @@ L_n_exit:
 	popl	%esi
 	popl	%ebx
 	leave
-	ret
+	RET
 

@@ -51,6 +51,7 @@
 
 #define MSR_MTRRcap			0x000000fe
 #define MSR_IA32_ARCH_CAPABILITIES      0x0000010a
+#define ARCH_CAP_RSBA			(1 << 2)   /* RET may use alternative branch predictors */
 #define ARCH_CAP_MDS_NO			(1 << 5)   /*
 						  * Not susceptible to
 						  * Microarchitectural Data

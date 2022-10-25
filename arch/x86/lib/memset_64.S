@@ -30,7 +30,7 @@
 	movl %edx,%ecx
 	rep stosb
 	movq %r9,%rax
-	ret
+	RET
 .Lmemset_e:
 	.previous
 
@@ -52,7 +52,7 @@
 	movq %rdx,%rcx
 	rep stosb
 	movq %r9,%rax
-	ret
+	RET
 .Lmemset_e_e:
 	.previous
 
@@ -118,7 +118,7 @@ ENTRY(__memset)
 
 .Lende:
 	movq	%r10,%rax
-	ret
+	RET
 
 	CFI_RESTORE_STATE
 .Lbad_alignment:

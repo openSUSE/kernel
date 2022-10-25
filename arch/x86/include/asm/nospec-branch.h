@@ -91,7 +91,7 @@
 #ifdef CONFIG_RETPOLINE
 	ALTERNATIVE_2 __stringify(jmp *\reg; _ASM_NOP8; _ASM_NOP6),	\
 		__stringify(RETPOLINE_JMP \reg), X86_FEATURE_RETPOLINE,	\
-		__stringify(lfence; jmp *\reg), X86_FEATURE_RETPOLINE_LFENCE
+		__stringify(lfence; jmp *\reg; int3), X86_FEATURE_RETPOLINE_LFENCE
 #else
 	jmp	*\reg
 #endif
@@ -184,6 +184,7 @@ extern char __indirect_thunk_end[];
  */
 extern void x86_spec_ctrl_set(u64);
 extern u64 x86_spec_ctrl_get_default(void);
+extern void write_spec_ctrl_current(u64 val, bool force);
 
 /* The Speculative Store Bypass disable variants */
 enum ssb_mitigation {

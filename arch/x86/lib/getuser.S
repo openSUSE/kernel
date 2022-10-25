@@ -44,7 +44,7 @@ ENTRY(__get_user_1)
 	and %_ASM_DX, %_ASM_AX
 1:	movzb (%_ASM_AX),%edx
 	xor %eax,%eax
-	ret
+	RET
 	CFI_ENDPROC
 ENDPROC(__get_user_1)
 
@@ -59,7 +59,7 @@ ENTRY(__get_user_2)
 	and %_ASM_DX, %_ASM_AX
 2:	movzwl -1(%_ASM_AX),%edx
 	xor %eax,%eax
-	ret
+	RET
 	CFI_ENDPROC
 ENDPROC(__get_user_2)
 
@@ -74,7 +74,7 @@ ENTRY(__get_user_4)
 	and %_ASM_DX, %_ASM_AX
 3:	mov -3(%_ASM_AX),%edx
 	xor %eax,%eax
-	ret
+	RET
 	CFI_ENDPROC
 ENDPROC(__get_user_4)
 
@@ -90,7 +90,7 @@ ENTRY(__get_user_8)
 	and %_ASM_DX, %_ASM_AX
 4:	movq -7(%_ASM_AX),%_ASM_DX
 	xor %eax,%eax
-	ret
+	RET
 	CFI_ENDPROC
 ENDPROC(__get_user_8)
 #endif
@@ -99,7 +99,7 @@ bad_get_user:
 	CFI_STARTPROC
 	xor %edx,%edx
 	mov $(-EFAULT),%_ASM_AX
-	ret
+	RET
 	CFI_ENDPROC
 END(bad_get_user)
 

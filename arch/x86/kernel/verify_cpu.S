@@ -132,8 +132,8 @@ verify_cpu_sse_test:
 verify_cpu_no_longmode:
 	popfl				# Restore caller passed flags
 	movl $1,%eax
-	ret
+	RET
 verify_cpu_sse_ok:
 	popfl				# Restore caller passed flags
 	xorl %eax, %eax
-	ret
+	RET

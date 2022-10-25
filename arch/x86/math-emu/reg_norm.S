@@ -71,7 +71,7 @@ L_exit_valid:
 L_exit:
 	popl	%ebx
 	leave
-	ret
+	RET
 
 
 L_zero:
@@ -136,7 +136,7 @@ L_exit_nuo_valid:
 
 	popl	%ebx
 	leave
-	ret
+	RET
 
 L_exit_nuo_zero:
 	movl	TAG_Zero,%eax
@@ -144,4 +144,4 @@ L_exit_nuo_zero:
 
 	popl	%ebx
 	leave
-	ret
+	RET

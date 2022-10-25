@@ -201,7 +201,7 @@ ENTRY(memmove)
 	movb (%rsi), %r11b
 	movb %r11b, (%rdi)
 13:
-	retq
+	RET
 	CFI_ENDPROC
 
 	.section .altinstr_replacement,"ax"
