@@ -175,9 +175,9 @@ static int __init csdlock_debug(char *str)
 	if (val)
 		static_branch_enable(&csdlock_debug_enabled);
 
-	return 0;
+	return 1;
 }
-early_param("csdlock_debug", csdlock_debug);
+__setup("csdlock_debug=", csdlock_debug);
 
 static int csdlock_timeout = 5000;
 core_param(csdlock_timeout, csdlock_timeout, int, 0644);
