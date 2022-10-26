@@ -608,15 +608,15 @@ EXPORT_SYMBOL(migrate_page_copy);
  *
  * Pages are locked upon entry and exit.
  */
-int migrate_page(struct address_space *mapping,
+int migrate_page_extra(struct address_space *mapping,
 		struct page *newpage, struct page *page,
-		enum migrate_mode mode)
+		enum migrate_mode mode, int extra_count)
 {
 	int rc;
 
 	BUG_ON(PageWriteback(page));	/* Writeback must be complete */
 
-	rc = migrate_page_move_mapping(mapping, newpage, page, 0);
+	rc = migrate_page_move_mapping(mapping, newpage, page, extra_count);
 
 	if (rc != MIGRATEPAGE_SUCCESS)
 		return rc;
@@ -626,6 +626,13 @@ int migrate_page(struct address_space *mapping,
 	else
 		migrate_page_states(newpage, page);
 	return MIGRATEPAGE_SUCCESS;
+}
+
+int migrate_page(struct address_space *mapping,
+		struct page *newpage, struct page *page,
+		enum migrate_mode mode)
+{
+	return migrate_page_extra(mapping, newpage, page, mode, 0);
 }
 EXPORT_SYMBOL(migrate_page);
 

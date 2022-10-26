@@ -294,14 +294,14 @@ static void migrate_vma_collect(struct migrate_vma *migrate)
  * migrate_device_move_mapping(), except that here we allow migration of a
  * ZONE_DEVICE page.
  */
-static bool migrate_vma_check_page(struct page *page)
+static bool migrate_vma_check_page(struct page *page, struct page *fault_page)
 {
 	/*
 	 * One extra ref because caller holds an extra reference, either from
 	 * isolate_lru_page() for a regular page, or migrate_vma_collect() for
 	 * a device page.
 	 */
-	int extra = 1;
+	int extra = 1 + (page == fault_page);
 
 	/*
 	 * FIXME support THP (transparent huge page), it is bit more complex to
@@ -372,7 +372,8 @@ static void migrate_vma_unmap(struct migrate_vma *migrate)
 		if (page_mapped(page))
 			try_to_migrate(page, 0);
 
-		if (page_mapped(page) || !migrate_vma_check_page(page)) {
+		if (page_mapped(page) ||
+		    !migrate_vma_check_page(page, migrate->fault_page)) {
 			if (!is_zone_device_page(page)) {
 				get_page(page);
 				putback_lru_page(page);
@@ -481,6 +482,8 @@ int migrate_vma_setup(struct migrate_vma *args)
 	if (args->end <= args->vma->vm_start || args->end > args->vma->vm_end)
 		return -EINVAL;
 	if (!args->src || !args->dst)
+		return -EINVAL;
+	if (args->fault_page && !is_device_private_page(args->fault_page))
 		return -EINVAL;
 
 	memset(args->src, 0, sizeof(*args->src) * nr_pages);
@@ -712,7 +715,12 @@ void migrate_vma_pages(struct migrate_vma *migrate)
 			continue;
 		}
 
-		r = migrate_page(mapping, newpage, page, MIGRATE_SYNC_NO_COPY);
+		if (migrate->fault_page == page)
+			r = migrate_page_extra(mapping, newpage, page,
+						MIGRATE_SYNC_NO_COPY, 1);
+		else
+			r = migrate_page(mapping, newpage, page,
+						MIGRATE_SYNC_NO_COPY);
 		if (r != MIGRATEPAGE_SUCCESS)
 			migrate->src[i] &= ~MIGRATE_PFN_MIGRATE;
 	}
