@@ -2197,7 +2197,7 @@ no_command:
 }
 
 /**
- * fas216_queue_command - queue a command for adapter to process.
+ * fas216_queue_command_internal - queue a command for the adapter to process
  * @SCpnt: Command to queue
  * @done: done function to call once command is complete
  *
@@ -2205,8 +2205,8 @@ no_command:
  * Returns: 0 on success, else error.
  * Notes: io_request_lock is held, interrupts are disabled.
  */
-static int fas216_queue_command_lck(struct scsi_cmnd *SCpnt,
-			 void (*done)(struct scsi_cmnd *))
+static int fas216_queue_command_internal(struct scsi_cmnd *SCpnt,
+					 void (*done)(struct scsi_cmnd *))
 {
 	FAS216_Info *info = (FAS216_Info *)SCpnt->device->host->hostdata;
 	int result;
@@ -2247,6 +2247,11 @@ static int fas216_queue_command_lck(struct scsi_cmnd *SCpnt,
 	return result;
 }
 
+static int fas216_queue_command_lck(struct scsi_cmnd *SCpnt)
+{
+	return fas216_queue_command_internal(SCpnt, scsi_done);
+}
+
 DEF_SCSI_QCMD(fas216_queue_command)
 
 /**
@@ -2272,8 +2277,7 @@ static void fas216_internal_done(struct scsi_cmnd *SCpnt)
  * Returns: scsi result code.
  * Notes: io_request_lock is held, interrupts are disabled.
  */
-static int fas216_noqueue_command_lck(struct scsi_cmnd *SCpnt,
-			   void (*done)(struct scsi_cmnd *))
+static int fas216_noqueue_command_lck(struct scsi_cmnd *SCpnt)
 {
 	FAS216_Info *info = (FAS216_Info *)SCpnt->device->host->hostdata;
 
@@ -2286,7 +2290,7 @@ static int fas216_noqueue_command_lck(struct scsi_cmnd *SCpnt,
 	BUG_ON(info->scsi.irq);
 
 	info->internal_done = 0;
-	fas216_queue_command_lck(SCpnt, fas216_internal_done);
+	fas216_queue_command_internal(SCpnt, fas216_internal_done);
 
 	/*
 	 * This wastes time, since we can't return until the command is
@@ -2314,7 +2318,7 @@ static int fas216_noqueue_command_lck(struct scsi_cmnd *SCpnt,
 
 	spin_lock_irq(info->host->host_lock);
 
-	done(SCpnt);
+	scsi_done(SCpnt);
 
 	return 0;
 }
