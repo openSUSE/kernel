@@ -371,4 +371,15 @@ static inline size_t __must_check size_sub(size_t minuend, size_t subtrahend)
 #define struct_size(p, member, count)					\
 	size_add(sizeof(*(p)), flex_array_size(p, member, count))
 
+static inline __must_check size_t __ab_c_size(size_t a, size_t b, size_t c)
+{
+	size_t bytes;
+
+	if (check_mul_overflow(a, b, &bytes))
+		return SIZE_MAX;
+	if (check_add_overflow(bytes, c, &bytes))
+		return SIZE_MAX;
+
+	return bytes;
+}
 #endif /* __LINUX_OVERFLOW_H */
