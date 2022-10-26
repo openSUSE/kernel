@@ -486,6 +486,7 @@ struct kvm_pmc {
 	 * ctrl value for fixed counters.
 	 */
 	u64 current_config;
+	bool intr;
 };
 
 struct kvm_pmu {
