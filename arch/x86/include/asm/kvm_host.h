@@ -477,6 +477,9 @@ enum pmc_type {
 struct kvm_pmc {
 	enum pmc_type type;
 	u8 idx;
+#ifndef __GENKSYMS__
+	bool intr;
+#endif
 	u64 counter;
 	u64 eventsel;
 	struct perf_event *perf_event;
@@ -486,7 +489,6 @@ struct kvm_pmc {
 	 * ctrl value for fixed counters.
 	 */
 	u64 current_config;
-	bool intr;
 };
 
 struct kvm_pmu {
