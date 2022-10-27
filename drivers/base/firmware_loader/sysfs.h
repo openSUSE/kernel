@@ -47,10 +47,12 @@ static inline void __fw_fallback_set_timeout(int timeout)
 {
 	fw_fallback_config.loading_timeout = timeout;
 }
+#endif
 
+#ifdef CONFIG_FW_LOADER_SYSFS
 int register_sysfs_loader(void);
 void unregister_sysfs_loader(void);
-#ifdef CONFIG_SYSCTL
+#if defined(CONFIG_FW_LOADER_USER_HELPER) && defined(CONFIG_SYSCTL)
 int register_firmware_config_sysctl(void);
 void unregister_firmware_config_sysctl(void);
 #else
@@ -60,8 +62,8 @@ static inline int register_firmware_config_sysctl(void)
 }
 
 static inline void unregister_firmware_config_sysctl(void) { }
-#endif /* CONFIG_SYSCTL */
-#else /* CONFIG_FW_LOADER_USER_HELPER */
+#endif /* CONFIG_FW_LOADER_USER_HELPER && CONFIG_SYSCTL */
+#else /* CONFIG_FW_LOADER_SYSFS */
 static inline int register_sysfs_loader(void)
 {
 	return 0;
@@ -70,7 +72,7 @@ static inline int register_sysfs_loader(void)
 static inline void unregister_sysfs_loader(void)
 {
 }
-#endif /* CONFIG_FW_LOADER_USER_HELPER */
+#endif /* CONFIG_FW_LOADER_SYSFS */
 
 struct fw_sysfs {
 	bool nowait;
