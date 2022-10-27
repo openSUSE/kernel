@@ -46,6 +46,12 @@ static inline int fpga_mgr_write(struct fpga_manager *mgr, const char *buf, size
 	return -EOPNOTSUPP;
 }
 
+static inline void fpga_mgr_fpga_remove(struct fpga_manager *mgr)
+{
+	if (mgr->mops->fpga_remove)
+		mgr->mops->fpga_remove(mgr);
+}
+
 /*
  * After all the FPGA image has been written, do the device specific steps to
  * finish and set the FPGA into operating mode.
@@ -745,8 +751,7 @@ void fpga_mgr_unregister(struct fpga_manager *mgr)
 	 * If the low level driver provides a method for putting fpga into
 	 * a desired state upon unregister, do it.
 	 */
-	if (mgr->mops->fpga_remove)
-		mgr->mops->fpga_remove(mgr);
+	fpga_mgr_fpga_remove(mgr);
 
 	device_unregister(&mgr->dev);
 }
