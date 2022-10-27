@@ -315,6 +315,9 @@ struct x86_emulate_ctxt {
 	bool tf;	/* TF value before instruction (after for syscall/sysret) */
 
 	bool have_exception;
+#ifndef __GENKSYMS__
+	bool is_branch;
+#endif
 	struct x86_exception exception;
 
 	/* GPA available */
@@ -369,7 +372,6 @@ struct x86_emulate_ctxt {
 	struct fetch_cache fetch;
 	struct read_cache io_read;
 	struct read_cache mem_read;
-	bool is_branch;
 };
 
 /* Repeat String Operation Prefix */
