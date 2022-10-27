@@ -477,6 +477,9 @@ enum pmc_type {
 struct kvm_pmc {
 	enum pmc_type type;
 	u8 idx;
+#ifndef __GENKSYMS__
+	bool intr;
+#endif
 	u64 counter;
 	u64 eventsel;
 	struct perf_event *perf_event;
@@ -1474,6 +1477,7 @@ struct kvm_x86_ops {
 
 #ifndef __GENKSYMS__
 	void (*guest_memory_reclaimed)(struct kvm *kvm);
+	bool (*get_if_flag)(struct kvm_vcpu *vcpu);
 #endif
 };
 
@@ -1493,6 +1497,9 @@ struct kvm_x86_nested_ops {
 	int (*enable_evmcs)(struct kvm_vcpu *vcpu,
 			    uint16_t *vmcs_version);
 	uint16_t (*get_evmcs_version)(struct kvm_vcpu *vcpu);
+#ifndef __GENKSYMS__
+	void (*leave_nested)(struct kvm_vcpu *vcpu);
+#endif
 };
 
 struct kvm_x86_init_ops {
