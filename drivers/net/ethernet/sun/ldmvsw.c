@@ -63,8 +63,8 @@ static struct vio_version vsw_versions[] = {
 static void vsw_get_drvinfo(struct net_device *dev,
 			    struct ethtool_drvinfo *info)
 {
-	strlcpy(info->driver, DRV_MODULE_NAME, sizeof(info->driver));
-	strlcpy(info->version, DRV_MODULE_VERSION, sizeof(info->version));
+	strscpy(info->driver, DRV_MODULE_NAME, sizeof(info->driver));
+	strscpy(info->version, DRV_MODULE_VERSION, sizeof(info->version));
 }
 
 static u32 vsw_get_msglevel(struct net_device *dev)
@@ -230,7 +230,6 @@ static struct net_device *vsw_alloc_netdev(u8 hwaddr[],
 {
 	struct net_device *dev;
 	struct vnet_port *port;
-	int i;
 
 	dev = alloc_etherdev_mqs(sizeof(*port), VNET_MAX_TXQS, 1);
 	if (!dev)
@@ -238,10 +237,8 @@ static struct net_device *vsw_alloc_netdev(u8 hwaddr[],
 	dev->needed_headroom = VNET_PACKET_SKIP + 8;
 	dev->needed_tailroom = 8;
 
-	for (i = 0; i < ETH_ALEN; i++) {
-		dev->dev_addr[i] = hwaddr[i];
-		dev->perm_addr[i] = dev->dev_addr[i];
-	}
+	eth_hw_addr_set(dev, hwaddr);
+	ether_addr_copy(dev->perm_addr, dev->dev_addr);
 
 	sprintf(dev->name, "vif%d.%d", (int)handle, (int)port_id);
 

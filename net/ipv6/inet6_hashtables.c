@@ -312,9 +312,9 @@ static u64 inet6_sk_port_offset(const struct sock *sk)
 {
 	const struct inet_sock *inet = inet_sk(sk);
 
-	return secure_ipv6_port_ephemeral64(sk->sk_v6_rcv_saddr.s6_addr32,
-					    sk->sk_v6_daddr.s6_addr32,
-					    inet->inet_dport);
+	return secure_ipv6_port_ephemeral(sk->sk_v6_rcv_saddr.s6_addr32,
+					  sk->sk_v6_daddr.s6_addr32,
+					  inet->inet_dport);
 }
 
 int inet6_hash_connect(struct inet_timewait_death_row *death_row,

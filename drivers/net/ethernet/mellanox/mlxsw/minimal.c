@@ -38,7 +38,7 @@ struct mlxsw_m {
 struct mlxsw_m_port {
 	struct net_device *dev;
 	struct mlxsw_m *mlxsw_m;
-	u8 local_port;
+	u16 local_port;
 	u8 module;
 };
 
@@ -54,8 +54,20 @@ static int mlxsw_m_base_mac_get(struct mlxsw_m *mlxsw_m)
 	return 0;
 }
 
-static int mlxsw_m_port_dummy_open_stop(struct net_device *dev)
+static int mlxsw_m_port_open(struct net_device *dev)
 {
+	struct mlxsw_m_port *mlxsw_m_port = netdev_priv(dev);
+	struct mlxsw_m *mlxsw_m = mlxsw_m_port->mlxsw_m;
+
+	return mlxsw_env_module_port_up(mlxsw_m->core, mlxsw_m_port->module);
+}
+
+static int mlxsw_m_port_stop(struct net_device *dev)
+{
+	struct mlxsw_m_port *mlxsw_m_port = netdev_priv(dev);
+	struct mlxsw_m *mlxsw_m = mlxsw_m_port->mlxsw_m;
+
+	mlxsw_env_module_port_down(mlxsw_m->core, mlxsw_m_port->module);
 	return 0;
 }
 
@@ -70,8 +82,8 @@ mlxsw_m_port_get_devlink_port(struct net_device *dev)
 }
 
 static const struct net_device_ops mlxsw_m_port_netdev_ops = {
-	.ndo_open		= mlxsw_m_port_dummy_open_stop,
-	.ndo_stop		= mlxsw_m_port_dummy_open_stop,
+	.ndo_open		= mlxsw_m_port_open,
+	.ndo_stop		= mlxsw_m_port_stop,
 	.ndo_get_devlink_port	= mlxsw_m_port_get_devlink_port,
 };
 
@@ -81,14 +93,14 @@ static void mlxsw_m_module_get_drvinfo(struct net_device *dev,
 	struct mlxsw_m_port *mlxsw_m_port = netdev_priv(dev);
 	struct mlxsw_m *mlxsw_m = mlxsw_m_port->mlxsw_m;
 
-	strlcpy(drvinfo->driver, mlxsw_m->bus_info->device_kind,
+	strscpy(drvinfo->driver, mlxsw_m->bus_info->device_kind,
 		sizeof(drvinfo->driver));
 	snprintf(drvinfo->fw_version, sizeof(drvinfo->fw_version),
 		 "%d.%d.%d",
 		 mlxsw_m->bus_info->fw_rev.major,
 		 mlxsw_m->bus_info->fw_rev.minor,
 		 mlxsw_m->bus_info->fw_rev.subminor);
-	strlcpy(drvinfo->bus_info, mlxsw_m->bus_info->device_name,
+	strscpy(drvinfo->bus_info, mlxsw_m->bus_info->device_name,
 		sizeof(drvinfo->bus_info));
 }
 
@@ -132,7 +144,7 @@ static const struct ethtool_ops mlxsw_m_port_ethtool_ops = {
 };
 
 static int
-mlxsw_m_port_module_info_get(struct mlxsw_m *mlxsw_m, u8 local_port,
+mlxsw_m_port_module_info_get(struct mlxsw_m *mlxsw_m, u16 local_port,
 			     u8 *p_module, u8 *p_width)
 {
 	char pmlp_pl[MLXSW_REG_PMLP_LEN];
@@ -152,25 +164,21 @@ static int
 mlxsw_m_port_dev_addr_get(struct mlxsw_m_port *mlxsw_m_port)
 {
 	struct mlxsw_m *mlxsw_m = mlxsw_m_port->mlxsw_m;
-	struct net_device *dev = mlxsw_m_port->dev;
 	char ppad_pl[MLXSW_REG_PPAD_LEN];
+	u8 addr[ETH_ALEN];
 	int err;
 
 	mlxsw_reg_ppad_pack(ppad_pl, false, 0);
 	err = mlxsw_reg_query(mlxsw_m->core, MLXSW_REG(ppad), ppad_pl);
 	if (err)
 		return err;
-	mlxsw_reg_ppad_mac_memcpy_from(ppad_pl, dev->dev_addr);
-	/* The last byte value in base mac address is guaranteed
-	 * to be such it does not overflow when adding local_port
-	 * value.
-	 */
-	dev->dev_addr[ETH_ALEN - 1] += mlxsw_m_port->module + 1;
+	mlxsw_reg_ppad_mac_memcpy_from(ppad_pl, addr);
+	eth_hw_addr_gen(mlxsw_m_port->dev, addr, mlxsw_m_port->module + 1);
 	return 0;
 }
 
 static int
-mlxsw_m_port_create(struct mlxsw_m *mlxsw_m, u8 local_port, u8 module)
+mlxsw_m_port_create(struct mlxsw_m *mlxsw_m, u16 local_port, u8 module)
 {
 	struct mlxsw_m_port *mlxsw_m_port;
 	struct net_device *dev;
@@ -233,7 +241,7 @@ err_alloc_etherdev:
 	return err;
 }
 
-static void mlxsw_m_port_remove(struct mlxsw_m *mlxsw_m, u8 local_port)
+static void mlxsw_m_port_remove(struct mlxsw_m *mlxsw_m, u16 local_port)
 {
 	struct mlxsw_m_port *mlxsw_m_port = mlxsw_m->ports[local_port];
 
@@ -244,7 +252,7 @@ static void mlxsw_m_port_remove(struct mlxsw_m *mlxsw_m, u8 local_port)
 	mlxsw_core_port_fini(mlxsw_m->core, local_port);
 }
 
-static int mlxsw_m_port_module_map(struct mlxsw_m *mlxsw_m, u8 local_port,
+static int mlxsw_m_port_module_map(struct mlxsw_m *mlxsw_m, u16 local_port,
 				   u8 *last_module)
 {
 	unsigned int max_ports = mlxsw_core_max_ports(mlxsw_m->core);
@@ -266,6 +274,7 @@ static int mlxsw_m_port_module_map(struct mlxsw_m *mlxsw_m, u8 local_port,
 
 	if (WARN_ON_ONCE(module >= max_ports))
 		return -EINVAL;
+	mlxsw_env_module_port_map(mlxsw_m->core, module);
 	mlxsw_m->module_to_port[module] = ++mlxsw_m->max_ports;
 
 	return 0;
@@ -274,11 +283,13 @@ static int mlxsw_m_port_module_map(struct mlxsw_m *mlxsw_m, u8 local_port,
 static void mlxsw_m_port_module_unmap(struct mlxsw_m *mlxsw_m, u8 module)
 {
 	mlxsw_m->module_to_port[module] = -1;
+	mlxsw_env_module_port_unmap(mlxsw_m->core, module);
 }
 
 static int mlxsw_m_ports_create(struct mlxsw_m *mlxsw_m)
 {
 	unsigned int max_ports = mlxsw_core_max_ports(mlxsw_m->core);
+	struct devlink *devlink = priv_to_devlink(mlxsw_m->core);
 	u8 last_module = max_ports;
 	int i;
 	int err;
@@ -307,6 +318,7 @@ static int mlxsw_m_ports_create(struct mlxsw_m *mlxsw_m)
 	}
 
 	/* Create port objects for each valid entry */
+	devl_lock(devlink);
 	for (i = 0; i < mlxsw_m->max_ports; i++) {
 		if (mlxsw_m->module_to_port[i] > 0 &&
 		    !mlxsw_core_port_is_xm(mlxsw_m->core, i)) {
@@ -317,6 +329,7 @@ static int mlxsw_m_ports_create(struct mlxsw_m *mlxsw_m)
 				goto err_module_to_port_create;
 		}
 	}
+	devl_unlock(devlink);
 
 	return 0;
 
@@ -326,6 +339,7 @@ err_module_to_port_create:
 			mlxsw_m_port_remove(mlxsw_m,
 					    mlxsw_m->module_to_port[i]);
 	}
+	devl_unlock(devlink);
 	i = max_ports;
 err_module_to_port_map:
 	for (i--; i > 0; i--)
@@ -338,8 +352,10 @@ err_module_to_port_alloc:
 
 static void mlxsw_m_ports_remove(struct mlxsw_m *mlxsw_m)
 {
+	struct devlink *devlink = priv_to_devlink(mlxsw_m->core);
 	int i;
 
+	devl_lock(devlink);
 	for (i = 0; i < mlxsw_m->max_ports; i++) {
 		if (mlxsw_m->module_to_port[i] > 0) {
 			mlxsw_m_port_remove(mlxsw_m,
@@ -347,6 +363,7 @@ static void mlxsw_m_ports_remove(struct mlxsw_m *mlxsw_m)
 			mlxsw_m_port_module_unmap(mlxsw_m, i);
 		}
 	}
+	devl_unlock(devlink);
 
 	kfree(mlxsw_m->module_to_port);
 	kfree(mlxsw_m->ports);

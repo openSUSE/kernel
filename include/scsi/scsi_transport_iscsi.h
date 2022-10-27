@@ -213,15 +213,13 @@ struct iscsi_cls_conn {
 	struct mutex ep_mutex;
 	struct iscsi_endpoint *ep;
 
+	/* Used when accessing flags and queueing work. */
+	spinlock_t lock;
 	unsigned long flags;
 	struct work_struct cleanup_work;
 
 	struct device dev;		/* sysfs transport/container device */
 	enum iscsi_connection_state state;
-#ifndef __GENKSYMS__
-	/* Used when accessing flags and queueing work. */
-	spinlock_t lock;
-#endif
 };
 
 #define iscsi_dev_to_conn(_dev) \
@@ -300,7 +298,7 @@ extern void iscsi_host_for_each_session(struct Scsi_Host *shost,
 struct iscsi_endpoint {
 	void *dd_data;			/* LLD private data */
 	struct device dev;
-	uint64_t id;
+	int id;
 	struct iscsi_cls_conn *conn;
 };
 
@@ -454,10 +452,6 @@ extern int iscsi_add_conn(struct iscsi_cls_conn *conn);
 extern void iscsi_remove_conn(struct iscsi_cls_conn *conn);
 extern void iscsi_put_conn(struct iscsi_cls_conn *conn);
 extern void iscsi_get_conn(struct iscsi_cls_conn *conn);
-
-/* this is here for kABI compatability */
-extern int iscsi_destroy_conn(struct iscsi_cls_conn *conn);
-
 extern void iscsi_unblock_session(struct iscsi_cls_session *session);
 extern void iscsi_block_session(struct iscsi_cls_session *session);
 extern int iscsi_scan_finished(struct Scsi_Host *shost, unsigned long time);

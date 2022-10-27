@@ -5217,7 +5217,7 @@ static int s2io_set_mac_addr(struct net_device *dev, void *p)
  *  as defined in errno.h file on failure.
  */
 
-static int do_s2io_prog_unicast(struct net_device *dev, u8 *addr)
+static int do_s2io_prog_unicast(struct net_device *dev, const u8 *addr)
 {
 	struct s2io_nic *sp = netdev_priv(dev);
 	register u64 mac_addr = 0, perm_addr = 0;
@@ -5348,9 +5348,9 @@ static void s2io_ethtool_gdrvinfo(struct net_device *dev,
 {
 	struct s2io_nic *sp = netdev_priv(dev);
 
-	strlcpy(info->driver, s2io_driver_name, sizeof(info->driver));
-	strlcpy(info->version, s2io_driver_version, sizeof(info->version));
-	strlcpy(info->bus_info, pci_name(sp->pdev), sizeof(info->bus_info));
+	strscpy(info->driver, s2io_driver_name, sizeof(info->driver));
+	strscpy(info->version, s2io_driver_version, sizeof(info->version));
+	strscpy(info->bus_info, pci_name(sp->pdev), sizeof(info->bus_info));
 }
 
 /**
@@ -5461,8 +5461,11 @@ static int s2io_ethtool_set_led(struct net_device *dev,
 	return 0;
 }
 
-static void s2io_ethtool_gringparam(struct net_device *dev,
-				    struct ethtool_ringparam *ering)
+static void
+s2io_ethtool_gringparam(struct net_device *dev,
+			struct ethtool_ringparam *ering,
+			struct kernel_ethtool_ringparam *kernel_ering,
+			struct netlink_ext_ack *extack)
 {
 	struct s2io_nic *sp = netdev_priv(dev);
 	int i, tx_desc_count = 0, rx_desc_count = 0;
@@ -7625,7 +7628,7 @@ static const struct net_device_ops s2io_netdev_ops = {
 	.ndo_start_xmit    	= s2io_xmit,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_rx_mode	= s2io_ndo_set_multicast,
-	.ndo_do_ioctl	   	= s2io_ioctl,
+	.ndo_eth_ioctl		= s2io_ioctl,
 	.ndo_set_mac_address    = s2io_set_mac_addr,
 	.ndo_change_mtu	   	= s2io_change_mtu,
 	.ndo_set_features	= s2io_set_features,
@@ -7954,7 +7957,7 @@ s2io_init_nic(struct pci_dev *pdev, const struct pci_device_id *pre)
 
 	/*  Set the factory defined MAC address initially   */
 	dev->addr_len = ETH_ALEN;
-	memcpy(dev->dev_addr, sp->def_mac_addr, ETH_ALEN);
+	eth_hw_addr_set(dev, sp->def_mac_addr[0].mac_addr);
 
 	/* initialize number of multicast & unicast MAC entries variables */
 	if (sp->device_type == XFRAME_I_DEVICE) {

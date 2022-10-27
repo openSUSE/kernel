@@ -209,12 +209,10 @@ struct scsi_device {
 	unsigned unmap_limit_for_ws:1;	/* Use the UNMAP limit for WRITE SAME */
 	unsigned rpm_autosuspend:1;	/* Enable runtime autosuspend at device
 					 * creation time */
-#ifndef __GENKSYMS__
-	/* kABI: there should be room for 2 more bits here */
 	unsigned silence_suspend:1;	/* Do not print runtime PM related messages */
 	unsigned no_ask_vpd_sz_first:1;	/* Do not ask for VPD size first */
-#endif
 
+	unsigned int queue_stopped;	/* request queue is quiesced */
 	bool offline_already;		/* Device offline message logged */
 
 	atomic_t disk_events_disable_depth; /* disable depth for disk events */
@@ -233,6 +231,13 @@ struct scsi_device {
 
 	struct device		sdev_gendev,
 				sdev_dev;
+	struct attribute_group	lld_attr_group;
+	/*
+	 * The array size 6 provides space for one attribute group for the
+	 * SCSI core, four attribute groups defined by SCSI LLDs and one
+	 * terminating NULL pointer.
+	 */
+	const struct attribute_group *gendev_attr_groups[6];
 
 	struct execute_work	ew; /* used to get process context on put */
 	struct work_struct	requeue_work;
@@ -246,9 +251,6 @@ struct scsi_device {
 	unsigned char		access_state;
 	struct mutex		state_mutex;
 	enum scsi_device_state sdev_state;
-#ifndef __GENKSYMS__
-	unsigned int queue_stopped;	/* request queue is quiesced */
-#endif
 	struct task_struct	*quiesced_by;
 	unsigned long		sdev_data[];
 } __attribute__((aligned(sizeof(unsigned long))));

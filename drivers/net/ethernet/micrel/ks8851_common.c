@@ -165,6 +165,7 @@ static void ks8851_read_mac_addr(struct net_device *dev)
 {
 	struct ks8851_net *ks = netdev_priv(dev);
 	unsigned long flags;
+	u8 addr[ETH_ALEN];
 	u16 reg;
 	int i;
 
@@ -172,9 +173,10 @@ static void ks8851_read_mac_addr(struct net_device *dev)
 
 	for (i = 0; i < ETH_ALEN; i += 2) {
 		reg = ks8851_rdreg16(ks, KS_MAR(i));
-		dev->dev_addr[i] = reg >> 8;
-		dev->dev_addr[i + 1] = reg & 0xff;
+		addr[i] = reg >> 8;
+		addr[i + 1] = reg & 0xff;
 	}
+	eth_hw_addr_set(dev, addr);
 
 	ks8851_unlock(ks, &flags);
 }
@@ -195,7 +197,7 @@ static void ks8851_init_mac(struct ks8851_net *ks, struct device_node *np)
 	struct net_device *dev = ks->netdev;
 	int ret;
 
-	ret = of_get_mac_address(np, dev->dev_addr);
+	ret = of_get_ethdev_address(np, dev);
 	if (!ret) {
 		ks8851_write_mac_addr(dev);
 		return;
@@ -689,7 +691,7 @@ static int ks8851_net_ioctl(struct net_device *dev, struct ifreq *req, int cmd)
 static const struct net_device_ops ks8851_netdev_ops = {
 	.ndo_open		= ks8851_net_open,
 	.ndo_stop		= ks8851_net_stop,
-	.ndo_do_ioctl		= ks8851_net_ioctl,
+	.ndo_eth_ioctl		= ks8851_net_ioctl,
 	.ndo_start_xmit		= ks8851_start_xmit,
 	.ndo_set_mac_address	= ks8851_set_mac_address,
 	.ndo_set_rx_mode	= ks8851_set_rx_mode,
@@ -701,9 +703,9 @@ static const struct net_device_ops ks8851_netdev_ops = {
 static void ks8851_get_drvinfo(struct net_device *dev,
 			       struct ethtool_drvinfo *di)
 {
-	strlcpy(di->driver, "KS8851", sizeof(di->driver));
-	strlcpy(di->version, "1.00", sizeof(di->version));
-	strlcpy(di->bus_info, dev_name(dev->dev.parent), sizeof(di->bus_info));
+	strscpy(di->driver, "KS8851", sizeof(di->driver));
+	strscpy(di->version, "1.00", sizeof(di->version));
+	strscpy(di->bus_info, dev_name(dev->dev.parent), sizeof(di->bus_info));
 }
 
 static u32 ks8851_get_msglevel(struct net_device *dev)

@@ -163,9 +163,7 @@ struct ath11k_hw_params {
 	bool supports_suspend;
 	u32 hal_desc_sz;
 	bool fix_l1ss;
-#ifndef __GENKSYMS__
 	bool supports_dynamic_smps_6ghz;
-#endif
 };
 
 struct ath11k_hw_ops {

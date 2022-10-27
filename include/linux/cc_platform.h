@@ -73,7 +73,6 @@ enum cc_attr {
 	 */
 	CC_ATTR_GUEST_UNROLL_STRING_IO,
 
-#ifndef __GENKSYMS__
 	/**
 	 * @CC_ATTR_SEV_SNP: Guest SNP is active.
 	 *
@@ -81,7 +80,6 @@ enum cc_attr {
 	 * using AMD SEV-SNP features.
 	 */
 	CC_ATTR_GUEST_SEV_SNP,
-#endif
 };
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM

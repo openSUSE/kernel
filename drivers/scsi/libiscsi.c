@@ -468,7 +468,7 @@ static void iscsi_free_task(struct iscsi_task *task)
 		 * it will decide how to return sc to scsi-ml.
 		 */
 		if (oldstate != ISCSI_TASK_REQUEUE_SCSIQ)
-			sc->scsi_done(sc);
+			scsi_done(sc);
 	}
 }
 
@@ -1808,7 +1808,7 @@ fault:
 	ISCSI_DBG_SESSION(session, "iscsi: cmd 0x%x is not queued (%d)\n",
 			  sc->cmnd[0], reason);
 	scsi_set_resid(sc, scsi_bufflen(sc));
-	sc->scsi_done(sc);
+	scsi_done(sc);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(iscsi_queuecommand);
@@ -2828,14 +2828,14 @@ static void iscsi_notify_host_removed(struct iscsi_cls_session *cls_session)
 }
 
 /**
- * iscsi_host_remove_new - remove host and sessions
+ * iscsi_host_remove - remove host and sessions
  * @shost: scsi host
  * @is_shutdown: true if called from a driver shutdown callout
  *
  * If there are any sessions left, this will initiate the removal and wait
  * for the completion.
  */
-void iscsi_host_remove_new(struct Scsi_Host *shost, bool is_shutdown)
+void iscsi_host_remove(struct Scsi_Host *shost, bool is_shutdown)
 {
 	struct iscsi_host *ihost = shost_priv(shost);
 	unsigned long flags;
@@ -2855,21 +2855,6 @@ void iscsi_host_remove_new(struct Scsi_Host *shost, bool is_shutdown)
 		flush_signals(current);
 
 	scsi_remove_host(shost);
-}
-EXPORT_SYMBOL_GPL(iscsi_host_remove_new);
-
-/**
- * iscsi_host_remove - remove host and sessions
- * @shost: scsi host
- *
- * If there are any sessions left, this will initiate the removal and wait
- * for the completion.
- *
- * keep this older version around, for kABI compatability
- */
-void iscsi_host_remove(struct Scsi_Host *shost)
-{
-	iscsi_host_remove_new(shost, false);
 }
 EXPORT_SYMBOL_GPL(iscsi_host_remove);
 

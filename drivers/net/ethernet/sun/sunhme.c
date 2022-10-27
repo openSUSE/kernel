@@ -1419,13 +1419,13 @@ force_link:
 /* hp->happy_lock must be held */
 static int happy_meal_init(struct happy_meal *hp)
 {
+	const unsigned char *e = &hp->dev->dev_addr[0];
 	void __iomem *gregs        = hp->gregs;
 	void __iomem *etxregs      = hp->etxregs;
 	void __iomem *erxregs      = hp->erxregs;
 	void __iomem *bregs        = hp->bigmacregs;
 	void __iomem *tregs        = hp->tcvregs;
 	u32 regtmp, rxcfg;
-	unsigned char *e = &hp->dev->dev_addr[0];
 
 	/* If auto-negotiation timer is running, kill it. */
 	del_timer(&hp->happy_timer);
@@ -2510,11 +2510,11 @@ static void hme_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info
 {
 	struct happy_meal *hp = netdev_priv(dev);
 
-	strlcpy(info->driver, "sunhme", sizeof(info->driver));
-	strlcpy(info->version, "2.02", sizeof(info->version));
+	strscpy(info->driver, "sunhme", sizeof(info->driver));
+	strscpy(info->version, "2.02", sizeof(info->version));
 	if (hp->happy_flags & HFLAG_PCI) {
 		struct pci_dev *pdev = hp->happy_dev;
-		strlcpy(info->bus_info, pci_name(pdev), sizeof(info->bus_info));
+		strscpy(info->bus_info, pci_name(pdev), sizeof(info->bus_info));
 	}
 #ifdef CONFIG_SBUS
 	else {
@@ -2685,6 +2685,7 @@ static int happy_meal_sbus_probe_one(struct platform_device *op, int is_qfe)
 	struct happy_meal *hp;
 	struct net_device *dev;
 	int i, qfe_slot = -1;
+	u8 addr[ETH_ALEN];
 	int err = -ENODEV;
 
 	sbus_dp = op->dev.parent->of_node;
@@ -2722,7 +2723,8 @@ static int happy_meal_sbus_probe_one(struct platform_device *op, int is_qfe)
 	}
 	if (i < 6) { /* a mac address was given */
 		for (i = 0; i < 6; i++)
-			dev->dev_addr[i] = macaddr[i];
+			addr[i] = macaddr[i];
+		eth_hw_addr_set(dev, addr);
 		macaddr[5]++;
 	} else {
 		const unsigned char *addr;
@@ -2993,6 +2995,7 @@ static int happy_meal_pci_probe(struct pci_dev *pdev,
 	unsigned long hpreg_res;
 	int i, qfe_slot = -1;
 	char prom_name[64];
+	u8 addr[ETH_ALEN];
 	int err;
 
 	/* Now make sure pci_dev cookie is there. */
@@ -3068,7 +3071,8 @@ static int happy_meal_pci_probe(struct pci_dev *pdev,
 	}
 	if (i < 6) { /* a mac address was given */
 		for (i = 0; i < 6; i++)
-			dev->dev_addr[i] = macaddr[i];
+			addr[i] = macaddr[i];
+		eth_hw_addr_set(dev, addr);
 		macaddr[5]++;
 	} else {
 #ifdef CONFIG_SPARC
@@ -3084,7 +3088,10 @@ static int happy_meal_pci_probe(struct pci_dev *pdev,
 			eth_hw_addr_set(dev, idprom->id_ethaddr);
 		}
 #else
-		get_hme_mac_nonsparc(pdev, &dev->dev_addr[0]);
+		u8 addr[ETH_ALEN];
+
+		get_hme_mac_nonsparc(pdev, addr);
+		eth_hw_addr_set(dev, addr);
 #endif
 	}
 

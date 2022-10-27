@@ -432,7 +432,7 @@ static int ipoctal_inst_slot(struct ipoctal *ipoctal, unsigned int bus_nr,
 err_free_name:
 	kfree(tty->name);
 err_put_driver:
-	put_tty_driver(tty);
+	tty_driver_kref_put(tty);
 
 	return res;
 }
@@ -728,7 +728,7 @@ static void __ipoctal_remove(struct ipoctal *ipoctal)
 
 	tty_unregister_driver(ipoctal->tty_drv);
 	kfree(ipoctal->tty_drv->name);
-	put_tty_driver(ipoctal->tty_drv);
+	tty_driver_kref_put(ipoctal->tty_drv);
 	kfree(ipoctal);
 }
 

@@ -143,6 +143,8 @@ static const struct net_device_ops mon_netdev_ops = {
 
 static void mon_setup(struct net_device *dev)
 {
+	u8 addr[ETH_ALEN];
+
 	dev->netdev_ops = &mon_netdev_ops;
 	dev->needs_free_netdev = true;
 	ether_setup(dev);
@@ -152,8 +154,9 @@ static void mon_setup(struct net_device *dev)
 	 * Use a locally administered address (IEEE 802)
 	 * XXX: Copied from mac80211_hwsim driver. Revisit.
 	 */
-	eth_zero_addr(dev->dev_addr);
-	dev->dev_addr[0] = 0x12;
+	eth_zero_addr(addr);
+	addr[0] = 0x12;
+	eth_hw_addr_set(dev, addr);
 }
 
 struct net_device *rtl88eu_mon_init(void)

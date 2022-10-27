@@ -2237,8 +2237,8 @@ rocker_port_set_link_ksettings(struct net_device *dev,
 static void rocker_port_get_drvinfo(struct net_device *dev,
 				    struct ethtool_drvinfo *drvinfo)
 {
-	strlcpy(drvinfo->driver, rocker_driver_name, sizeof(drvinfo->driver));
-	strlcpy(drvinfo->version, UTS_RELEASE, sizeof(drvinfo->version));
+	strscpy(drvinfo->driver, rocker_driver_name, sizeof(drvinfo->driver));
+	strscpy(drvinfo->version, UTS_RELEASE, sizeof(drvinfo->version));
 }
 
 static struct rocker_port_stats {
@@ -2544,11 +2544,13 @@ static void rocker_port_dev_addr_init(struct rocker_port *rocker_port)
 {
 	const struct rocker *rocker = rocker_port->rocker;
 	const struct pci_dev *pdev = rocker->pdev;
+	u8 addr[ETH_ALEN];
 	int err;
 
-	err = rocker_cmd_get_port_settings_macaddr(rocker_port,
-						   rocker_port->dev->dev_addr);
-	if (err) {
+	err = rocker_cmd_get_port_settings_macaddr(rocker_port, addr);
+	if (!err) {
+		eth_hw_addr_set(rocker_port->dev, addr);
+	} else {
 		dev_warn(&pdev->dev, "failed to get mac address, using random\n");
 		eth_hw_addr_random(rocker_port->dev);
 	}
@@ -2582,8 +2584,7 @@ static int rocker_probe_port(struct rocker *rocker, unsigned int port_number)
 	rocker_port_dev_addr_init(rocker_port);
 	dev->netdev_ops = &rocker_port_netdev_ops;
 	dev->ethtool_ops = &rocker_port_ethtool_ops;
-	netif_tx_napi_add(dev, &rocker_port->napi_tx, rocker_port_poll_tx,
-			  NAPI_POLL_WEIGHT);
+	netif_napi_add_tx(dev, &rocker_port->napi_tx, rocker_port_poll_tx);
 	netif_napi_add(dev, &rocker_port->napi_rx, rocker_port_poll_rx,
 		       NAPI_POLL_WEIGHT);
 	rocker_carrier_init(rocker_port);

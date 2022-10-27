@@ -1285,7 +1285,7 @@ config IT87_WDT
 config HP_WATCHDOG
 	tristate "HP ProLiant iLO2+ Hardware Watchdog Timer"
 	select WATCHDOG_CORE
-	depends on X86 && PCI
+	depends on (ARM64 || X86) && PCI
 	help
 	  A software monitoring watchdog and NMI handling driver. This driver
 	  will detect lockups and provide a stack trace. This is a driver that
@@ -1295,7 +1295,7 @@ config HP_WATCHDOG
 
 config HPWDT_NMI_DECODING
 	bool "NMI support for the HP ProLiant iLO2+ Hardware Watchdog Timer"
-	depends on HP_WATCHDOG
+	depends on X86 && HP_WATCHDOG
 	default y
 	help
 	  Enables the NMI handler for the watchdog pretimeout NMI and the iLO
@@ -1918,6 +1918,14 @@ config MEN_A21_WDT
 	  If unsure select N here.
 
 # PPC64 Architecture
+
+config PSERIES_WDT
+	tristate "POWER Architecture Platform Watchdog Timer"
+	depends on PPC_PSERIES
+	select WATCHDOG_CORE
+	help
+	  Driver for virtual watchdog timers provided by PAPR
+	  hypervisors (e.g. PowerVM, KVM).
 
 config WATCHDOG_RTAS
 	tristate "RTAS watchdog"

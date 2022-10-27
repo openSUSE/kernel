@@ -492,7 +492,7 @@ out:
 
 idle_out:
 	curSC->SCp.phase = idle;
-	curSC->scsi_done(curSC);
+	scsi_done(curSC);
 	goto out;
 }
 
@@ -537,8 +537,7 @@ SYM53C500_info(struct Scsi_Host *SChost)
 	return (info_msg);
 }
 
-static int 
-SYM53C500_queue_lck(struct scsi_cmnd *SCpnt, void (*done)(struct scsi_cmnd *))
+static int SYM53C500_queue_lck(struct scsi_cmnd *SCpnt)
 {
 	int i;
 	int port_base = SCpnt->device->host->io_port;
@@ -556,7 +555,6 @@ SYM53C500_queue_lck(struct scsi_cmnd *SCpnt, void (*done)(struct scsi_cmnd *))
 	VDEB(printk("\n"));
 
 	data->current_SC = SCpnt;
-	data->current_SC->scsi_done = done;
 	data->current_SC->SCp.phase = command_ph;
 	data->current_SC->SCp.Status = 0;
 	data->current_SC->SCp.Message = 0;

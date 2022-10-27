@@ -721,13 +721,4 @@ int i2c_setup_smbus_alert(struct i2c_adapter *adapter)
 	return PTR_ERR_OR_ZERO(i2c_new_smbus_alert_device(adapter, NULL));
 }
 EXPORT_SYMBOL_GPL(i2c_setup_smbus_alert);
-
-#if IS_ENABLED(CONFIG_OF)
-int of_i2c_setup_smbus_alert(struct i2c_adapter *adapter)
-{
-	return i2c_setup_smbus_alert(adapter);
-}
-EXPORT_SYMBOL_GPL(of_i2c_setup_smbus_alert);
 #endif
-#endif
-

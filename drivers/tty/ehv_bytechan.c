@@ -790,7 +790,7 @@ static int __init ehv_bc_init(void)
 	ret = tty_register_driver(ehv_bc_driver);
 	if (ret) {
 		pr_err("ehv-bc: could not register tty driver (ret=%i)\n", ret);
-		goto err_put_tty_driver;
+		goto err_tty_driver_kref_put;
 	}
 
 	ret = platform_driver_register(&ehv_bc_tty_driver);
@@ -804,8 +804,8 @@ static int __init ehv_bc_init(void)
 
 err_deregister_tty_driver:
 	tty_unregister_driver(ehv_bc_driver);
-err_put_tty_driver:
-	put_tty_driver(ehv_bc_driver);
+err_tty_driver_kref_put:
+	tty_driver_kref_put(driver);
 err_free_bcs:
 	kfree(bcs);
 

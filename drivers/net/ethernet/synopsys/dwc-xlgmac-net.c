@@ -81,7 +81,7 @@ static int xlgmac_prep_tso(struct sk_buff *skb,
 	if (ret)
 		return ret;
 
-	pkt_info->header_len = skb_transport_offset(skb) + tcp_hdrlen(skb);
+	pkt_info->header_len = skb_tcp_all_headers(skb);
 	pkt_info->tcp_header_len = tcp_hdrlen(skb);
 	pkt_info->tcp_payload_len = skb->len - pkt_info->header_len;
 	pkt_info->mss = skb_shinfo(skb)->gso_size;
@@ -933,7 +933,7 @@ static const struct net_device_ops xlgmac_netdev_ops = {
 	.ndo_change_mtu		= xlgmac_change_mtu,
 	.ndo_set_mac_address	= xlgmac_set_mac_address,
 	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_do_ioctl		= xlgmac_ioctl,
+	.ndo_eth_ioctl		= xlgmac_ioctl,
 	.ndo_vlan_rx_add_vid	= xlgmac_vlan_rx_add_vid,
 	.ndo_vlan_rx_kill_vid	= xlgmac_vlan_rx_kill_vid,
 #ifdef CONFIG_NET_POLL_CONTROLLER

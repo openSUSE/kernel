@@ -113,9 +113,7 @@ static ssize_t rpc_sysfs_xprt_info_show(struct kobject *kobj,
 		return -ENOTCONN;
 	}
 
-	if ((xprt->xprt_class->ident == XPRT_TRANSPORT_TCP ||
-	     xprt->xprt_class->ident == XPRT_TRANSPORT_TCP) &&
-	    xprt->ops->get_srcport)
+	if (xprt->ops->get_srcport)
 		srcport = xprt->ops->get_srcport(xprt);
 
 	ret = snprintf(buf, buflen,

@@ -174,7 +174,7 @@ static void iscsi_endpoint_release(struct device *dev)
 	struct iscsi_endpoint *ep = iscsi_dev_to_endpoint(dev);
 
 	mutex_lock(&iscsi_ep_idr_mutex);
-	idr_remove(&iscsi_ep_idr, (int)ep->id);
+	idr_remove(&iscsi_ep_idr, ep->id);
 	mutex_unlock(&iscsi_ep_idr_mutex);
 
 	kfree(ep);
@@ -189,7 +189,7 @@ static ssize_t
 show_ep_handle(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct iscsi_endpoint *ep = iscsi_dev_to_endpoint(dev);
-	return sysfs_emit(buf, "%llu\n", (unsigned long long)ep->id);
+	return sysfs_emit(buf, "%d\n", ep->id);
 }
 static ISCSI_ATTR(ep, handle, S_IRUGO, show_ep_handle, NULL);
 
@@ -2516,107 +2516,6 @@ void iscsi_remove_conn(struct iscsi_cls_conn *conn)
 	device_del(&conn->dev);
 }
 EXPORT_SYMBOL_GPL(iscsi_remove_conn);
-
- /**
- * iscsi_create_conn - create iscsi class connection
- * @session: iscsi cls session
- * @dd_size: private driver data size
- * @cid: connection id
- *
- * This can be called from a LLD or iscsi_transport. The connection
- * is child of the session so cid must be unique for all connections
- * on the session.
- *
- * Since we do not support MCS, cid will normally be zero. In some cases
- * for software iscsi we could be trying to preallocate a connection struct
- * in which case there could be two connection structs and cid would be
- * non-zero.
- *
- * NOTE: This is here for kABI compatability
- */
-struct iscsi_cls_conn *
-iscsi_create_conn(struct iscsi_cls_session *session, int dd_size, uint32_t cid)
-{
-	struct iscsi_transport *transport = session->transport;
-	struct iscsi_cls_conn *conn;
-	unsigned long flags;
-	int err;
-
-	conn = kzalloc(sizeof(*conn) + dd_size, GFP_KERNEL);
-	if (!conn)
-		return NULL;
-	if (dd_size)
-		conn->dd_data = &conn[1];
-
-	mutex_init(&conn->ep_mutex);
-	INIT_LIST_HEAD(&conn->conn_list);
-	INIT_WORK(&conn->cleanup_work, iscsi_cleanup_conn_work_fn);
-	conn->transport = transport;
-	conn->cid = cid;
-	conn->state = ISCSI_CONN_DOWN;
-
-	/* this is released in the dev's release function */
-	if (!get_device(&session->dev))
-		goto free_conn;
-
-	dev_set_name(&conn->dev, "connection%d:%u", session->sid, cid);
-	conn->dev.parent = &session->dev;
-	conn->dev.release = iscsi_conn_release;
-	err = device_register(&conn->dev);
-	if (err) {
-		iscsi_cls_session_printk(KERN_ERR, session, "could not "
-					 "register connection's dev\n");
-		goto release_parent_ref;
-	}
-	err = transport_register_device(&conn->dev);
-	if (err) {
-		iscsi_cls_session_printk(KERN_ERR, session, "could not "
-					 "register transport's dev\n");
-		goto release_conn_ref;
-	}
-
-	spin_lock_irqsave(&connlock, flags);
-	list_add(&conn->conn_list, &connlist);
-	spin_unlock_irqrestore(&connlock, flags);
-
-	ISCSI_DBG_TRANS_CONN(conn, "Completed conn creation\n");
-	return conn;
-
-release_conn_ref:
-	device_unregister(&conn->dev);
-	put_device(&session->dev);
-	return NULL;
-release_parent_ref:
-	put_device(&session->dev);
-free_conn:
-	kfree(conn);
-	return NULL;
-}
-
-EXPORT_SYMBOL_GPL(iscsi_create_conn);
-
-/**
- * iscsi_destroy_conn - destroy iscsi class connection
- * @conn: iscsi cls session
- *
- * This can be called from a LLD or iscsi_transport.
- *
- * NOTE: This is here for kABI compatability
- */
-int iscsi_destroy_conn(struct iscsi_cls_conn *conn)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(&connlock, flags);
-	list_del(&conn->conn_list);
-	spin_unlock_irqrestore(&connlock, flags);
-
-	transport_unregister_device(&conn->dev);
-	ISCSI_DBG_TRANS_CONN(conn, "Completing conn destruction\n");
-	device_unregister(&conn->dev);
-	return 0;
-}
-EXPORT_SYMBOL_GPL(iscsi_destroy_conn);
 
 void iscsi_put_conn(struct iscsi_cls_conn *conn)
 {
