@@ -1725,6 +1725,8 @@ int blk_rq_prep_clone(struct request *rq, struct request *rq_src,
 		bio = bio_clone_fast(bio_src, gfp_mask, bs);
 		if (!bio)
 			goto free_and_out;
+		/* Partition is not set by multipath target for cloned rq */
+		bio_set_disk(bio, rq->rq_disk, 0);
 
 		if (bio_ctr && bio_ctr(bio, bio_src, data))
 			goto free_and_out;
