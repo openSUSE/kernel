@@ -98,10 +98,10 @@ SYM_FUNC_START(__vmx_vcpu_run)
 	lea (%_ASM_SP), %_ASM_ARG2
 	call vmx_update_host_rsp
 
-	ALTERNATIVE "jmp .Lspec_ctrl_done", "", X86_FEATURE_MSR_SPEC_CTRL
-
 	/* Reload @vmx, _ASM_ARG1 may be modified by vmx_update_host_rsp().  */
 	mov WORD_SIZE(%_ASM_SP), %_ASM_DI
+
+	ALTERNATIVE "jmp .Lspec_ctrl_done", "", X86_FEATURE_MSR_SPEC_CTRL
 
 	/*
 	 * SPEC_CTRL handling: if the guest's SPEC_CTRL value differs from the
@@ -122,9 +122,9 @@ SYM_FUNC_START(__vmx_vcpu_run)
 	mov PER_CPU_VAR(x86_spec_ctrl_current), %ecx
 	xor %eax, %ecx
 	mov VMX_spec_ctrl + 4(%edi), %edx
-	mov PER_CPU_VAR(x86_spec_ctrl_current + 4), %edi
-	xor %edx, %edi
-	or %edi, %ecx
+	mov PER_CPU_VAR(x86_spec_ctrl_current + 4), %esi
+	xor %edx, %esi
+	or %esi, %ecx
 	je .Lspec_ctrl_done
 #endif
 	mov $MSR_IA32_SPEC_CTRL, %ecx
@@ -137,28 +137,25 @@ SYM_FUNC_START(__vmx_vcpu_run)
 	 * an LFENCE to stop speculation from skipping the wrmsr.
 	 */
 
-	/* Load @vmx to RAX. */
-	mov WORD_SIZE(%_ASM_SP), %_ASM_AX
-
 	/* Load guest registers.  Don't clobber flags. */
-	mov VCPU_RCX(%_ASM_AX), %_ASM_CX
-	mov VCPU_RDX(%_ASM_AX), %_ASM_DX
-	mov VCPU_RBX(%_ASM_AX), %_ASM_BX
-	mov VCPU_RBP(%_ASM_AX), %_ASM_BP
-	mov VCPU_RSI(%_ASM_AX), %_ASM_SI
-	mov VCPU_RDI(%_ASM_AX), %_ASM_DI
+	mov VCPU_RAX(%_ASM_DI), %_ASM_AX
+	mov VCPU_RCX(%_ASM_DI), %_ASM_CX
+	mov VCPU_RDX(%_ASM_DI), %_ASM_DX
+	mov VCPU_RBX(%_ASM_DI), %_ASM_BX
+	mov VCPU_RBP(%_ASM_DI), %_ASM_BP
+	mov VCPU_RSI(%_ASM_DI), %_ASM_SI
 #ifdef CONFIG_X86_64
-	mov VCPU_R8 (%_ASM_AX),  %r8
-	mov VCPU_R9 (%_ASM_AX),  %r9
-	mov VCPU_R10(%_ASM_AX), %r10
-	mov VCPU_R11(%_ASM_AX), %r11
-	mov VCPU_R12(%_ASM_AX), %r12
-	mov VCPU_R13(%_ASM_AX), %r13
-	mov VCPU_R14(%_ASM_AX), %r14
-	mov VCPU_R15(%_ASM_AX), %r15
+	mov VCPU_R8 (%_ASM_DI),  %r8
+	mov VCPU_R9 (%_ASM_DI),  %r9
+	mov VCPU_R10(%_ASM_DI), %r10
+	mov VCPU_R11(%_ASM_DI), %r11
+	mov VCPU_R12(%_ASM_DI), %r12
+	mov VCPU_R13(%_ASM_DI), %r13
+	mov VCPU_R14(%_ASM_DI), %r14
+	mov VCPU_R15(%_ASM_DI), %r15
 #endif
-	/* Load guest RAX.  This kills the @vmx pointer! */
-	mov VCPU_RAX(%_ASM_AX), %_ASM_AX
+	/* Load guest RDI.  This kills the @vmx pointer! */
+	mov VCPU_RDI(%_ASM_DI), %_ASM_DI
 
 	/*
 	 * Note, ALTERNATIVE_2 works in reverse order.  If CLEAR_CPU_BUF_VM is
@@ -207,29 +204,29 @@ SYM_INNER_LABEL_ALIGN(vmx_vmexit, SYM_L_GLOBAL)
 	UNWIND_HINT_RESTORE
 	ENDBR
 
-	/* Temporarily save guest's RAX. */
-	push %_ASM_AX
+	/* Temporarily save guest's RDI. */
+	push %_ASM_DI
 
-	/* Reload @vmx to RAX. */
-	mov 2*WORD_SIZE(%_ASM_SP), %_ASM_AX
+	/* Reload @vmx to RDI. */
+	mov 2*WORD_SIZE(%_ASM_SP), %_ASM_DI
 
-	/* Save all guest registers, including RAX from the stack */
-	pop           VCPU_RAX(%_ASM_AX)
-	mov %_ASM_CX, VCPU_RCX(%_ASM_AX)
-	mov %_ASM_DX, VCPU_RDX(%_ASM_AX)
-	mov %_ASM_BX, VCPU_RBX(%_ASM_AX)
-	mov %_ASM_BP, VCPU_RBP(%_ASM_AX)
-	mov %_ASM_SI, VCPU_RSI(%_ASM_AX)
-	mov %_ASM_DI, VCPU_RDI(%_ASM_AX)
+	/* Save all guest registers, including RDI from the stack */
+	mov %_ASM_AX, VCPU_RAX(%_ASM_DI)
+	mov %_ASM_CX, VCPU_RCX(%_ASM_DI)
+	mov %_ASM_DX, VCPU_RDX(%_ASM_DI)
+	mov %_ASM_BX, VCPU_RBX(%_ASM_DI)
+	mov %_ASM_BP, VCPU_RBP(%_ASM_DI)
+	mov %_ASM_SI, VCPU_RSI(%_ASM_DI)
+	pop           VCPU_RDI(%_ASM_DI)
 #ifdef CONFIG_X86_64
-	mov %r8,  VCPU_R8 (%_ASM_AX)
-	mov %r9,  VCPU_R9 (%_ASM_AX)
-	mov %r10, VCPU_R10(%_ASM_AX)
-	mov %r11, VCPU_R11(%_ASM_AX)
-	mov %r12, VCPU_R12(%_ASM_AX)
-	mov %r13, VCPU_R13(%_ASM_AX)
-	mov %r14, VCPU_R14(%_ASM_AX)
-	mov %r15, VCPU_R15(%_ASM_AX)
+	mov %r8,  VCPU_R8 (%_ASM_DI)
+	mov %r9,  VCPU_R9 (%_ASM_DI)
+	mov %r10, VCPU_R10(%_ASM_DI)
+	mov %r11, VCPU_R11(%_ASM_DI)
+	mov %r12, VCPU_R12(%_ASM_DI)
+	mov %r13, VCPU_R13(%_ASM_DI)
+	mov %r14, VCPU_R14(%_ASM_DI)
+	mov %r15, VCPU_R15(%_ASM_DI)
 #endif
 
 	/* Clear return value to indicate VM-Exit (as opposed to VM-Fail). */
