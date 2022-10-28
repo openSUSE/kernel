@@ -788,6 +788,7 @@ struct vmbus_requestor {
 
 #define VMBUS_NO_RQSTOR U64_MAX
 #define VMBUS_RQST_ERROR (U64_MAX - 1)
+#define VMBUS_RQST_ADDR_ANY U64_MAX
 /* NetVSC-specific */
 #define VMBUS_RQST_ID_NO_RESPONSE (U64_MAX - 2)
 /* StorVSC-specific */
@@ -1041,7 +1042,26 @@ struct vmbus_channel {
 	u32 max_pkt_size;
 };
 
+#define lock_requestor(channel, flags)					\
+do {									\
+	struct vmbus_requestor *rqstor = &(channel)->requestor;		\
+									\
+	spin_lock_irqsave(&rqstor->req_lock, flags);			\
+} while (0)
+
+static __always_inline void unlock_requestor(struct vmbus_channel *channel,
+					     unsigned long flags)
+{
+	struct vmbus_requestor *rqstor = &channel->requestor;
+
+	spin_unlock_irqrestore(&rqstor->req_lock, flags);
+}
+
 u64 vmbus_next_request_id(struct vmbus_channel *channel, u64 rqst_addr);
+u64 __vmbus_request_addr_match(struct vmbus_channel *channel, u64 trans_id,
+			       u64 rqst_addr);
+u64 vmbus_request_addr_match(struct vmbus_channel *channel, u64 trans_id,
+			     u64 rqst_addr);
 u64 vmbus_request_addr(struct vmbus_channel *channel, u64 trans_id);
 
 static inline bool is_hvsock_channel(const struct vmbus_channel *c)
@@ -1161,6 +1181,13 @@ extern int vmbus_open(struct vmbus_channel *channel,
 
 extern void vmbus_close(struct vmbus_channel *channel);
 
+extern int vmbus_sendpacket_getid(struct vmbus_channel *channel,
+				  void *buffer,
+				  u32 bufferLen,
+				  u64 requestid,
+				  u64 *trans_id,
+				  enum vmbus_packet_type type,
+				  u32 flags);
 extern int vmbus_sendpacket(struct vmbus_channel *channel,
 				  void *buffer,
 				  u32 bufferLen,
