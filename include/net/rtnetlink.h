@@ -204,7 +204,8 @@ struct net_device *rtnl_create_link(struct net *net, const char *ifname,
 				    struct nlattr *tb[],
 				    struct netlink_ext_ack *extack);
 int rtnl_delete_link(struct net_device *dev);
-int rtnl_configure_link(struct net_device *dev, const struct ifinfomsg *ifm);
+int rtnl_configure_link(struct net_device *dev, const struct ifinfomsg *ifm,
+			u32 portid, const struct nlmsghdr *nlh);
 
 int rtnl_nla_parse_ifinfomsg(struct nlattr **tb, const struct nlattr *nla_peer,
 			     struct netlink_ext_ack *exterr);
