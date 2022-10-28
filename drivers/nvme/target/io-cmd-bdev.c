@@ -5,6 +5,7 @@
  */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 #include <linux/blkdev.h>
+#include <linux/memremap.h>
 #include <linux/module.h>
 #include "nvmet.h"
 

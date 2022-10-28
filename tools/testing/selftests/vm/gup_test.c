@@ -8,7 +8,7 @@
 #include <sys/types.h>
 #include <pthread.h>
 #include <assert.h>
-#include "../../../../mm/gup_test.h"
+#include <mm/gup_test.h>
 
 #define MB (1UL << 20)
 #define PAGE_SIZE sysconf(_SC_PAGESIZE)
