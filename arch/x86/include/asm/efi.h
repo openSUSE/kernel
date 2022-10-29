@@ -204,8 +204,6 @@ static inline void efi_setup_secret_key(struct boot_params *params) {}
 static inline void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len) {}
 #endif /* CONFIG_EFI_SECRET_KEY */
 
-extern void efifb_setup_from_dmi(struct screen_info *si, const char *opt);
-
 extern void efi_thunk_runtime_setup(void);
 efi_status_t efi_set_virtual_address_map(unsigned long memory_map_size,
 					 unsigned long descriptor_size,
