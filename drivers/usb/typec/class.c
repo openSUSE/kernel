@@ -2257,9 +2257,13 @@ static int __init typec_init(void)
 	if (ret)
 		goto err_unregister_bus;
 
-	ret = class_register(&typec_class);
+	ret = class_register(&retimer_class);
 	if (ret)
 		goto err_unregister_mux_class;
+
+	ret = class_register(&typec_class);
+	if (ret)
+		goto err_unregister_retimer_class;
 
 	ret = usb_power_delivery_init();
 	if (ret)
@@ -2269,6 +2273,9 @@ static int __init typec_init(void)
 
 err_unregister_class:
 	class_unregister(&typec_class);
+
+err_unregister_retimer_class:
+	class_unregister(&retimer_class);
 
 err_unregister_mux_class:
 	class_unregister(&typec_mux_class);
