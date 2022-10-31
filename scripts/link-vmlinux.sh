@@ -122,6 +122,9 @@ gen_btf()
 		# pahole 1.18 through 1.21 can't handle zero-sized per-CPU vars
 		extra_paholeopt="${extra_paholeopt} --skip_encoding_btf_vars"
 	fi
+	if [ "${pahole_ver}" -ge "124" ]; then
+		extra_paholeopt="${extra_paholeopt} --skip_encoding_btf_enum64"
+	fi
 
 	info "BTF" ${2}
 	LLVM_OBJCOPY=${OBJCOPY} ${PAHOLE} -J ${extra_paholeopt} ${1}
