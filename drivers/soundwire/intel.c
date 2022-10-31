@@ -1830,6 +1830,9 @@ static int __maybe_unused intel_resume_runtime(struct device *dev)
 		return 0;
 	}
 
+	/* unconditionally disable WAKEEN interrupt */
+	intel_shim_wake(sdw, false);
+
 	link_flags = md_flags >> (bus->link_id * 8);
 	multi_link = !(link_flags & SDW_INTEL_MASTER_DISABLE_MULTI_LINK);
 
