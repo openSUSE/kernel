@@ -6,7 +6,7 @@
  * Copyright 2014, Intel Corporation
  * Copyright 2014  Intel Mobile Communications GmbH
  * Copyright 2015 - 2016 Intel Deutschland GmbH
- * Copyright (C) 2019 Intel Corporation
+ * Copyright (C) 2019, 2021 Intel Corporation
  */
 
 #include <linux/ieee80211.h>
@@ -1681,7 +1681,7 @@ ieee80211_process_tdls_channel_switch_resp(struct ieee80211_sub_if_data *sdata,
 					   struct sk_buff *skb)
 {
 	struct ieee80211_local *local = sdata->local;
-	struct ieee802_11_elems elems;
+	struct ieee802_11_elems *elems = NULL;
 	struct sta_info *sta;
 	struct ieee80211_tdls_data *tf = (void *)skb->data;
 	bool local_initiator;
@@ -1715,16 +1715,20 @@ ieee80211_process_tdls_channel_switch_resp(struct ieee80211_sub_if_data *sdata,
 		goto call_drv;
 	}
 
-	ieee802_11_parse_elems(tf->u.chan_switch_resp.variable,
-			       skb->len - baselen, false, &elems,
-			       NULL, NULL);
-	if (elems.parse_error) {
+	elems = ieee802_11_parse_elems(tf->u.chan_switch_resp.variable,
+				       skb->len - baselen, false, NULL, NULL);
+	if (!elems) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	if (elems->parse_error) {
 		tdls_dbg(sdata, "Invalid IEs in TDLS channel switch resp\n");
 		ret = -EINVAL;
 		goto out;
 	}
 
-	if (!elems.ch_sw_timing || !elems.lnk_id) {
+	if (!elems->ch_sw_timing || !elems->lnk_id) {
 		tdls_dbg(sdata, "TDLS channel switch resp - missing IEs\n");
 		ret = -EINVAL;
 		goto out;
@@ -1732,15 +1736,15 @@ ieee80211_process_tdls_channel_switch_resp(struct ieee80211_sub_if_data *sdata,
 
 	/* validate the initiator is set correctly */
 	local_initiator =
-		!memcmp(elems.lnk_id->init_sta, sdata->vif.addr, ETH_ALEN);
+		!memcmp(elems->lnk_id->init_sta, sdata->vif.addr, ETH_ALEN);
 	if (local_initiator == sta->sta.tdls_initiator) {
 		tdls_dbg(sdata, "TDLS chan switch invalid lnk-id initiator\n");
 		ret = -EINVAL;
 		goto out;
 	}
 
-	params.switch_time = le16_to_cpu(elems.ch_sw_timing->switch_time);
-	params.switch_timeout = le16_to_cpu(elems.ch_sw_timing->switch_timeout);
+	params.switch_time = le16_to_cpu(elems->ch_sw_timing->switch_time);
+	params.switch_timeout = le16_to_cpu(elems->ch_sw_timing->switch_timeout);
 
 	params.tmpl_skb =
 		ieee80211_tdls_ch_sw_resp_tmpl_get(sta, &params.ch_sw_tm_ie);
@@ -1760,6 +1764,7 @@ call_drv:
 out:
 	mutex_unlock(&local->sta_mtx);
 	dev_kfree_skb_any(params.tmpl_skb);
+	kfree(elems);
 	return ret;
 }
 
@@ -1768,7 +1773,7 @@ ieee80211_process_tdls_channel_switch_req(struct ieee80211_sub_if_data *sdata,
 					  struct sk_buff *skb)
 {
 	struct ieee80211_local *local = sdata->local;
-	struct ieee802_11_elems elems;
+	struct ieee802_11_elems *elems;
 	struct cfg80211_chan_def chandef;
 	struct ieee80211_channel *chan;
 	enum nl80211_channel_type chan_type;
@@ -1828,22 +1833,27 @@ ieee80211_process_tdls_channel_switch_req(struct ieee80211_sub_if_data *sdata,
 		return -EINVAL;
 	}
 
-	ieee802_11_parse_elems(tf->u.chan_switch_req.variable,
-			       skb->len - baselen, false, &elems, NULL, NULL);
-	if (elems.parse_error) {
+	elems = ieee802_11_parse_elems(tf->u.chan_switch_req.variable,
+				       skb->len - baselen, false, NULL, NULL);
+	if (!elems)
+		return -ENOMEM;
+
+	if (elems->parse_error) {
 		tdls_dbg(sdata, "Invalid IEs in TDLS channel switch req\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto free;
 	}
 
-	if (!elems.ch_sw_timing || !elems.lnk_id) {
+	if (!elems->ch_sw_timing || !elems->lnk_id) {
 		tdls_dbg(sdata, "TDLS channel switch req - missing IEs\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto free;
 	}
 
-	if (!elems.sec_chan_offs) {
+	if (!elems->sec_chan_offs) {
 		chan_type = NL80211_CHAN_HT20;
 	} else {
-		switch (elems.sec_chan_offs->sec_chan_offs) {
+		switch (elems->sec_chan_offs->sec_chan_offs) {
 		case IEEE80211_HT_PARAM_CHA_SEC_ABOVE:
 			chan_type = NL80211_CHAN_HT40PLUS;
 			break;
@@ -1862,7 +1872,8 @@ ieee80211_process_tdls_channel_switch_req(struct ieee80211_sub_if_data *sdata,
 	if (!cfg80211_reg_can_beacon_relax(sdata->local->hw.wiphy, &chandef,
 					   sdata->wdev.iftype)) {
 		tdls_dbg(sdata, "TDLS chan switch to forbidden channel\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto free;
 	}
 
 	mutex_lock(&local->sta_mtx);
@@ -1878,7 +1889,7 @@ ieee80211_process_tdls_channel_switch_req(struct ieee80211_sub_if_data *sdata,
 
 	/* validate the initiator is set correctly */
 	local_initiator =
-		!memcmp(elems.lnk_id->init_sta, sdata->vif.addr, ETH_ALEN);
+		!memcmp(elems->lnk_id->init_sta, sdata->vif.addr, ETH_ALEN);
 	if (local_initiator == sta->sta.tdls_initiator) {
 		tdls_dbg(sdata, "TDLS chan switch invalid lnk-id initiator\n");
 		ret = -EINVAL;
@@ -1886,16 +1897,16 @@ ieee80211_process_tdls_channel_switch_req(struct ieee80211_sub_if_data *sdata,
 	}
 
 	/* peer should have known better */
-	if (!sta->sta.ht_cap.ht_supported && elems.sec_chan_offs &&
-	    elems.sec_chan_offs->sec_chan_offs) {
+	if (!sta->sta.ht_cap.ht_supported && elems->sec_chan_offs &&
+	    elems->sec_chan_offs->sec_chan_offs) {
 		tdls_dbg(sdata, "TDLS chan switch - wide chan unsupported\n");
 		ret = -ENOTSUPP;
 		goto out;
 	}
 
 	params.chandef = &chandef;
-	params.switch_time = le16_to_cpu(elems.ch_sw_timing->switch_time);
-	params.switch_timeout = le16_to_cpu(elems.ch_sw_timing->switch_timeout);
+	params.switch_time = le16_to_cpu(elems->ch_sw_timing->switch_time);
+	params.switch_timeout = le16_to_cpu(elems->ch_sw_timing->switch_timeout);
 
 	params.tmpl_skb =
 		ieee80211_tdls_ch_sw_resp_tmpl_get(sta,
@@ -1914,6 +1925,8 @@ ieee80211_process_tdls_channel_switch_req(struct ieee80211_sub_if_data *sdata,
 out:
 	mutex_unlock(&local->sta_mtx);
 	dev_kfree_skb_any(params.tmpl_skb);
+free:
+	kfree(elems);
 	return ret;
 }
 
