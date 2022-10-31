@@ -2765,9 +2765,6 @@ static int sof_set_dai_config_multi(struct snd_sof_dev *sdev, u32 size,
 			if (!dai->dai_config)
 				return -ENOMEM;
 
-			/* set cpu_dai_name */
-			dai->cpu_dai_name = link->cpus->dai_name;
-
 			found = 1;
 		}
 	}
