@@ -590,11 +590,14 @@ static enum irdma_status_code irdma_wait_event(struct irdma_pci_f *rf,
 	cqp_error = cqp_request->compl_info.error;
 	if (cqp_error) {
 		err_code = IRDMA_ERR_CQP_COMPL_ERROR;
-		if (cqp_request->compl_info.maj_err_code == 0xFFFF &&
-		    cqp_request->compl_info.min_err_code == 0x8029) {
-			if (!rf->reset) {
-				rf->reset = true;
-				rf->gen_ops.request_reset(rf);
+		if (cqp_request->compl_info.maj_err_code == 0xFFFF) {
+			if (cqp_request->compl_info.min_err_code == 0x8002)
+				err_code = -EBUSY;
+			else if (cqp_request->compl_info.min_err_code == 0x8029) {
+				if (!rf->reset) {
+					rf->reset = true;
+					rf->gen_ops.request_reset(rf);
+				}
 			}
 		}
 	}
