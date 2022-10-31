@@ -794,6 +794,10 @@ struct kvm_vcpu_arch {
 
 	/* AMD MSRC001_0015 Hardware Configuration */
 	u64 msr_hwcr;
+
+#ifndef __GENKSYMS__
+	bool at_instruction_boundary;
+#endif
 };
 
 struct kvm_lpage_info {
@@ -992,6 +996,10 @@ struct kvm_vcpu_stat {
 	u64 irq_injections;
 	u64 nmi_injections;
 	u64 req_event;
+#ifndef __GENKSYMS__
+	u64 preemption_reported;
+	u64 preemption_other;
+#endif
 };
 
 struct x86_instruction_info;
