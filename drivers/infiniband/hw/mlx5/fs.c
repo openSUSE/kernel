@@ -1198,7 +1198,6 @@ static struct ib_flow *mlx5_ib_create_flow(struct ib_qp *qp,
 	}
 
 	if (domain != IB_FLOW_DOMAIN_USER ||
-	    flow_attr->port > dev->num_ports ||
 	    (flow_attr->flags & ~(IB_FLOW_ATTR_FLAGS_DONT_TRAP |
 				  IB_FLOW_ATTR_FLAGS_EGRESS))) {
 		err = -EINVAL;
@@ -2061,12 +2060,10 @@ static int mlx5_ib_matcher_ns(struct uverbs_attr_bundle *attrs,
 		if (err)
 			return err;
 
-		if (flags) {
-			mlx5_ib_ft_type_to_namespace(
+		if (flags)
+			return mlx5_ib_ft_type_to_namespace(
 				MLX5_IB_UAPI_FLOW_TABLE_TYPE_NIC_TX,
 				&obj->ns_type);
-			return 0;
-		}
 	}
 
 	obj->ns_type = MLX5_FLOW_NAMESPACE_BYPASS;
@@ -2115,6 +2112,12 @@ static int UVERBS_HANDLER(MLX5_IB_METHOD_FLOW_MATCHER_CREATE)(
 	err = mlx5_ib_matcher_ns(attrs, obj);
 	if (err)
 		goto end;
+
+	if (obj->ns_type == MLX5_FLOW_NAMESPACE_FDB &&
+	    mlx5_eswitch_mode(dev->mdev->priv.eswitch) != MLX5_ESWITCH_OFFLOADS) {
+		err = -EINVAL;
+		goto end;
+	}
 
 	uobj->object = obj;
 	obj->mdev = dev->mdev;
