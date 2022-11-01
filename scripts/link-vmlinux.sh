@@ -243,6 +243,9 @@ gen_btf()
 	if [ "${pahole_ver}" -ge "121" ]; then
 		extra_paholeopt="${extra_paholeopt} --btf_gen_floats"
 	fi
+	if [ "${pahole_ver}" -ge "124" ]; then
+		extra_paholeopt="${extra_paholeopt} --skip_encoding_btf_enum64"
+	fi
 
 	info "BTF" ${2}
 	LLVM_OBJCOPY="${OBJCOPY}" ${PAHOLE} -J ${extra_paholeopt} ${1}
