@@ -31,11 +31,13 @@
 
 extern bool efi_nochunk;
 extern bool efi_nokaslr;
-extern bool efi_noinitrd;
 extern int efi_loglevel;
 extern bool efi_novamap;
 
 extern const efi_system_table_t *efi_system_table;
+
+typedef union efi_dxe_services_table efi_dxe_services_table_t;
+extern const efi_dxe_services_table_t *efi_dxe_table;
 
 efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
 				   efi_system_table_t *sys_table_arg);
@@ -45,6 +47,7 @@ efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
 #define efi_is_native()		(true)
 #define efi_bs_call(func, ...)	efi_system_table->boottime->func(__VA_ARGS__)
 #define efi_rt_call(func, ...)	efi_system_table->runtime->func(__VA_ARGS__)
+#define efi_dxe_call(func, ...)	efi_dxe_table->func(__VA_ARGS__)
 #define efi_table_attr(inst, attr)	(inst->attr)
 #define efi_call_proto(inst, func, ...) inst->func(inst, ##__VA_ARGS__)
 
@@ -327,6 +330,76 @@ union efi_boot_services {
 		u32 copy_mem;
 		u32 set_mem;
 		u32 create_event_ex;
+	} mixed_mode;
+};
+
+typedef enum {
+	EfiGcdMemoryTypeNonExistent,
+	EfiGcdMemoryTypeReserved,
+	EfiGcdMemoryTypeSystemMemory,
+	EfiGcdMemoryTypeMemoryMappedIo,
+	EfiGcdMemoryTypePersistent,
+	EfiGcdMemoryTypeMoreReliable,
+	EfiGcdMemoryTypeMaximum
+} efi_gcd_memory_type_t;
+
+typedef struct {
+	efi_physical_addr_t base_address;
+	u64 length;
+	u64 capabilities;
+	u64 attributes;
+	efi_gcd_memory_type_t gcd_memory_type;
+	void *image_handle;
+	void *device_handle;
+} efi_gcd_memory_space_desc_t;
+
+/*
+ * EFI DXE Services table
+ */
+union efi_dxe_services_table {
+	struct {
+		efi_table_hdr_t hdr;
+		void *add_memory_space;
+		void *allocate_memory_space;
+		void *free_memory_space;
+		void *remove_memory_space;
+		efi_status_t (__efiapi *get_memory_space_descriptor)(efi_physical_addr_t,
+								     efi_gcd_memory_space_desc_t *);
+		efi_status_t (__efiapi *set_memory_space_attributes)(efi_physical_addr_t,
+								     u64, u64);
+		void *get_memory_space_map;
+		void *add_io_space;
+		void *allocate_io_space;
+		void *free_io_space;
+		void *remove_io_space;
+		void *get_io_space_descriptor;
+		void *get_io_space_map;
+		void *dispatch;
+		void *schedule;
+		void *trust;
+		void *process_firmware_volume;
+		void *set_memory_space_capabilities;
+	};
+	struct {
+		efi_table_hdr_t hdr;
+		u32 add_memory_space;
+		u32 allocate_memory_space;
+		u32 free_memory_space;
+		u32 remove_memory_space;
+		u32 get_memory_space_descriptor;
+		u32 set_memory_space_attributes;
+		u32 get_memory_space_map;
+		u32 add_io_space;
+		u32 allocate_io_space;
+		u32 free_io_space;
+		u32 remove_io_space;
+		u32 get_io_space_descriptor;
+		u32 get_io_space_map;
+		u32 dispatch;
+		u32 schedule;
+		u32 trust;
+		u32 process_firmware_volume;
+		u32 set_memory_space_capabilities;
 	} mixed_mode;
 };
 
@@ -667,6 +740,29 @@ union apple_properties_protocol {
 
 typedef u32 efi_tcg2_event_log_format;
 
+#define INITRD_EVENT_TAG_ID 0x8F3B22ECU
+#define EV_EVENT_TAG 0x00000006U
+#define EFI_TCG2_EVENT_HEADER_VERSION	0x1
+
+struct efi_tcg2_event {
+	u32		event_size;
+	struct {
+		u32	header_size;
+		u16	header_version;
+		u32	pcr_index;
+		u32	event_type;
+	} __packed event_header;
+	/* u8[] event follows here */
+} __packed;
+
+struct efi_tcg2_tagged_event {
+	u32 tagged_event_id;
+	u32 tagged_event_data_size;
+	/* u8  tagged event data follows here */
+} __packed;
+
+typedef struct efi_tcg2_event efi_tcg2_event_t;
+typedef struct efi_tcg2_tagged_event efi_tcg2_tagged_event_t;
 typedef union efi_tcg2_protocol efi_tcg2_protocol_t;
 
 union efi_tcg2_protocol {
@@ -677,7 +773,11 @@ union efi_tcg2_protocol {
 						       efi_physical_addr_t *,
 						       efi_physical_addr_t *,
 						       efi_bool_t *);
-		void *hash_log_extend_event;
+		efi_status_t (__efiapi *hash_log_extend_event)(efi_tcg2_protocol_t *,
+							       u64,
+							       efi_physical_addr_t,
+							       u64,
+							       const efi_tcg2_event_t *);
 		void *submit_command;
 		void *get_active_pcr_banks;
 		void *set_active_pcr_banks;
@@ -839,7 +939,8 @@ efi_status_t handle_kernel_image(unsigned long *image_addr,
 				 unsigned long *image_size,
 				 unsigned long *reserve_addr,
 				 unsigned long *reserve_size,
-				 efi_loaded_image_t *image);
+				 efi_loaded_image_t *image,
+				 efi_handle_t image_handle);
 
 asmlinkage void __noreturn efi_enter_kernel(unsigned long entrypoint,
 					    unsigned long fdt_addr,

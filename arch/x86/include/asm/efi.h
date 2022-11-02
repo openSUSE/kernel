@@ -46,13 +46,14 @@ extern unsigned long efi_mixed_mode_stack_pa;
 
 #define __efi_nargs(...) __efi_nargs_(__VA_ARGS__)
 #define __efi_nargs_(...) __efi_nargs__(0, ##__VA_ARGS__,	\
+	__efi_arg_sentinel(9), __efi_arg_sentinel(8),		\
 	__efi_arg_sentinel(7), __efi_arg_sentinel(6),		\
 	__efi_arg_sentinel(5), __efi_arg_sentinel(4),		\
 	__efi_arg_sentinel(3), __efi_arg_sentinel(2),		\
 	__efi_arg_sentinel(1), __efi_arg_sentinel(0))
-#define __efi_nargs__(_0, _1, _2, _3, _4, _5, _6, _7, n, ...)	\
+#define __efi_nargs__(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, n, ...)	\
 	__take_second_arg(n,					\
-		({ BUILD_BUG_ON_MSG(1, "__efi_nargs limit exceeded"); 8; }))
+		({ BUILD_BUG_ON_MSG(1, "__efi_nargs limit exceeded"); 10; }))
 #define __efi_arg_sentinel(n) , n
 
 /*
@@ -175,8 +176,9 @@ extern u64 efi_setup;
 extern efi_status_t __efi64_thunk(u32, ...);
 
 #define efi64_thunk(...) ({						\
-	__efi_nargs_check(efi64_thunk, 6, __VA_ARGS__);			\
-	__efi64_thunk(__VA_ARGS__);					\
+	u64 __pad[3]; /* must have space for 3 args on the stack */	\
+	__efi_nargs_check(efi64_thunk, 9, __VA_ARGS__);			\
+	__efi64_thunk(__VA_ARGS__, __pad);				\
 })
 
 static inline bool efi_is_mixed(void)
@@ -203,8 +205,6 @@ extern void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len);
 static inline void efi_setup_secret_key(struct boot_params *params) {}
 static inline void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len) {}
 #endif /* CONFIG_EFI_SECRET_KEY */
-
-extern void efifb_setup_from_dmi(struct screen_info *si, const char *opt);
 
 extern void efi_thunk_runtime_setup(void);
 efi_status_t efi_set_virtual_address_map(unsigned long memory_map_size,
@@ -272,6 +272,8 @@ static inline u32 efi64_convert_status(efi_status_t status)
 	return (u32)(status | (u64)status >> 32);
 }
 
+#define __efi64_split(val)		(val) & U32_MAX, (u64)(val) >> 32
+
 #define __efi64_argmap_free_pages(addr, size)				\
 	((addr), 0, (size))
 
@@ -315,6 +317,17 @@ static inline u32 efi64_convert_status(efi_status_t status)
 #define __efi64_argmap_query_mode(gop, mode, size, info)		\
 	((gop), (mode), efi64_zero_upper(size), efi64_zero_upper(info))
 
+/* TCG2 protocol */
+#define __efi64_argmap_hash_log_extend_event(prot, fl, addr, size, ev)	\
+	((prot), (fl), 0ULL, (u64)(addr), 0ULL, (u64)(size), 0ULL, ev)
+
+/* DXE services */
+#define __efi64_argmap_get_memory_space_descriptor(phys, desc) \
+	(__efi64_split(phys), (desc))
+
+#define __efi64_argmap_set_memory_space_descriptor(phys, size, flags) \
+	(__efi64_split(phys), __efi64_split(size), __efi64_split(flags))
+
 /*
  * The macros below handle the plumbing for the argument mapping. To add a
  * mapping for a specific EFI method, simply define a macro
@@ -354,6 +367,11 @@ static inline u32 efi64_convert_status(efi_status_t status)
 		: __efi64_thunk_map(efi_table_attr(efi_system_table,	\
 						   runtime),		\
 				    func, __VA_ARGS__))
+
+#define efi_dxe_call(func, ...)						\
+	(efi_is_native()						\
+		? efi_dxe_table->func(__VA_ARGS__)			\
+		: __efi64_thunk_map(efi_dxe_table, func, __VA_ARGS__))
 
 #else /* CONFIG_EFI_MIXED */
 
