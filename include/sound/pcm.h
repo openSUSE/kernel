@@ -604,7 +604,7 @@ snd_pcm_debug_name(struct snd_pcm_substream *substream, char *buf, size_t size)
  * snd_pcm_stream_linked - Check whether the substream is linked with others
  * @substream: substream to check
  *
- * Returns true if the given substream is being linked with others.
+ * Return: true if the given substream is being linked with others
  */
 static inline int snd_pcm_stream_linked(struct snd_pcm_substream *substream)
 {
@@ -670,7 +670,7 @@ void snd_pcm_stream_unlock_irqrestore(struct snd_pcm_substream *substream,
  * snd_pcm_running - Check whether the substream is in a running state
  * @substream: substream to check
  *
- * Returns true if the given substream is in the state RUNNING, or in the
+ * Return: true if the given substream is in the state RUNNING, or in the
  * state DRAINING for playback.
  */
 static inline int snd_pcm_running(struct snd_pcm_substream *substream)
@@ -684,6 +684,8 @@ static inline int snd_pcm_running(struct snd_pcm_substream *substream)
  * bytes_to_samples - Unit conversion of the size from bytes to samples
  * @runtime: PCM runtime instance
  * @size: size in bytes
+ *
+ * Return: the size in samples
  */
 static inline ssize_t bytes_to_samples(struct snd_pcm_runtime *runtime, ssize_t size)
 {
@@ -694,6 +696,8 @@ static inline ssize_t bytes_to_samples(struct snd_pcm_runtime *runtime, ssize_t 
  * bytes_to_frames - Unit conversion of the size from bytes to frames
  * @runtime: PCM runtime instance
  * @size: size in bytes
+ *
+ * Return: the size in frames
  */
 static inline snd_pcm_sframes_t bytes_to_frames(struct snd_pcm_runtime *runtime, ssize_t size)
 {
@@ -704,6 +708,8 @@ static inline snd_pcm_sframes_t bytes_to_frames(struct snd_pcm_runtime *runtime,
  * samples_to_bytes - Unit conversion of the size from samples to bytes
  * @runtime: PCM runtime instance
  * @size: size in samples
+ *
+ * Return: the byte size
  */
 static inline ssize_t samples_to_bytes(struct snd_pcm_runtime *runtime, ssize_t size)
 {
@@ -714,6 +720,8 @@ static inline ssize_t samples_to_bytes(struct snd_pcm_runtime *runtime, ssize_t 
  * frames_to_bytes - Unit conversion of the size from frames to bytes
  * @runtime: PCM runtime instance
  * @size: size in frames
+ *
+ * Return: the byte size
  */
 static inline ssize_t frames_to_bytes(struct snd_pcm_runtime *runtime, snd_pcm_sframes_t size)
 {
@@ -724,6 +732,8 @@ static inline ssize_t frames_to_bytes(struct snd_pcm_runtime *runtime, snd_pcm_s
  * frame_aligned - Check whether the byte size is aligned to frames
  * @runtime: PCM runtime instance
  * @bytes: size in bytes
+ *
+ * Return: true if aligned, or false if not
  */
 static inline int frame_aligned(struct snd_pcm_runtime *runtime, ssize_t bytes)
 {
@@ -733,6 +743,8 @@ static inline int frame_aligned(struct snd_pcm_runtime *runtime, ssize_t bytes)
 /**
  * snd_pcm_lib_buffer_bytes - Get the buffer size of the current PCM in bytes
  * @substream: PCM substream
+ *
+ * Return: buffer byte size
  */
 static inline size_t snd_pcm_lib_buffer_bytes(struct snd_pcm_substream *substream)
 {
@@ -743,6 +755,8 @@ static inline size_t snd_pcm_lib_buffer_bytes(struct snd_pcm_substream *substrea
 /**
  * snd_pcm_lib_period_bytes - Get the period size of the current PCM in bytes
  * @substream: PCM substream
+ *
+ * Return: period byte size
  */
 static inline size_t snd_pcm_lib_period_bytes(struct snd_pcm_substream *substream)
 {
@@ -755,6 +769,8 @@ static inline size_t snd_pcm_lib_period_bytes(struct snd_pcm_substream *substrea
  * @runtime: PCM runtime instance
  *
  * Result is between 0 ... (boundary - 1)
+ *
+ * Return: available frame size
  */
 static inline snd_pcm_uframes_t snd_pcm_playback_avail(struct snd_pcm_runtime *runtime)
 {
@@ -771,6 +787,8 @@ static inline snd_pcm_uframes_t snd_pcm_playback_avail(struct snd_pcm_runtime *r
  * @runtime: PCM runtime instance
  *
  * Result is between 0 ... (boundary - 1)
+ *
+ * Return: available frame size
  */
 static inline snd_pcm_uframes_t snd_pcm_capture_avail(struct snd_pcm_runtime *runtime)
 {
@@ -783,6 +801,8 @@ static inline snd_pcm_uframes_t snd_pcm_capture_avail(struct snd_pcm_runtime *ru
 /**
  * snd_pcm_playback_hw_avail - Get the queued space for playback
  * @runtime: PCM runtime instance
+ *
+ * Return: available frame size
  */
 static inline snd_pcm_sframes_t snd_pcm_playback_hw_avail(struct snd_pcm_runtime *runtime)
 {
@@ -792,6 +812,8 @@ static inline snd_pcm_sframes_t snd_pcm_playback_hw_avail(struct snd_pcm_runtime
 /**
  * snd_pcm_capture_hw_avail - Get the free space for capture
  * @runtime: PCM runtime instance
+ *
+ * Return: available frame size
  */
 static inline snd_pcm_sframes_t snd_pcm_capture_hw_avail(struct snd_pcm_runtime *runtime)
 {
@@ -931,6 +953,8 @@ static inline const struct snd_interval *hw_param_interval_c(const struct snd_pc
 /**
  * params_channels - Get the number of channels from the hw params
  * @p: hw params
+ *
+ * Return: the number of channels
  */
 static inline unsigned int params_channels(const struct snd_pcm_hw_params *p)
 {
@@ -940,6 +964,8 @@ static inline unsigned int params_channels(const struct snd_pcm_hw_params *p)
 /**
  * params_rate - Get the sample rate from the hw params
  * @p: hw params
+ *
+ * Return: the sample rate
  */
 static inline unsigned int params_rate(const struct snd_pcm_hw_params *p)
 {
@@ -949,6 +975,8 @@ static inline unsigned int params_rate(const struct snd_pcm_hw_params *p)
 /**
  * params_period_size - Get the period size (in frames) from the hw params
  * @p: hw params
+ *
+ * Return: the period size in frames
  */
 static inline unsigned int params_period_size(const struct snd_pcm_hw_params *p)
 {
@@ -958,6 +986,8 @@ static inline unsigned int params_period_size(const struct snd_pcm_hw_params *p)
 /**
  * params_periods - Get the number of periods from the hw params
  * @p: hw params
+ *
+ * Return: the number of periods
  */
 static inline unsigned int params_periods(const struct snd_pcm_hw_params *p)
 {
@@ -967,6 +997,8 @@ static inline unsigned int params_periods(const struct snd_pcm_hw_params *p)
 /**
  * params_buffer_size - Get the buffer size (in frames) from the hw params
  * @p: hw params
+ *
+ * Return: the buffer size in frames
  */
 static inline unsigned int params_buffer_size(const struct snd_pcm_hw_params *p)
 {
@@ -976,6 +1008,8 @@ static inline unsigned int params_buffer_size(const struct snd_pcm_hw_params *p)
 /**
  * params_buffer_bytes - Get the buffer size (in bytes) from the hw params
  * @p: hw params
+ *
+ * Return: the buffer size in bytes
  */
 static inline unsigned int params_buffer_bytes(const struct snd_pcm_hw_params *p)
 {
@@ -1238,6 +1272,8 @@ int snd_pcm_set_managed_buffer_all(struct snd_pcm *pcm, int type,
  * only the given sized buffer and doesn't allow re-allocation nor dynamic
  * allocation of a larger buffer unlike the standard one.
  * The function may return -ENOMEM error, hence the caller must check it.
+ *
+ * Return: zero if successful, or a negative error code
  */
 static inline int __must_check
 snd_pcm_set_fixed_buffer(struct snd_pcm_substream *substream, int type,
@@ -1256,6 +1292,8 @@ snd_pcm_set_fixed_buffer(struct snd_pcm_substream *substream, int type,
  * Apply the set up of the fixed buffer via snd_pcm_set_fixed_buffer() for
  * all substream.  If any of allocation fails, it returns -ENOMEM, hence the
  * caller must check the return value.
+ *
+ * Return: zero if successful, or a negative error code
  */
 static inline int __must_check
 snd_pcm_set_fixed_buffer_all(struct snd_pcm *pcm, int type,
@@ -1312,6 +1350,8 @@ static inline int snd_pcm_lib_alloc_vmalloc_32_buffer
  * snd_pcm_sgbuf_get_addr - Get the DMA address at the corresponding offset
  * @substream: PCM substream
  * @ofs: byte offset
+ *
+ * Return: DMA address
  */
 static inline dma_addr_t
 snd_pcm_sgbuf_get_addr(struct snd_pcm_substream *substream, unsigned int ofs)
@@ -1325,6 +1365,8 @@ snd_pcm_sgbuf_get_addr(struct snd_pcm_substream *substream, unsigned int ofs)
  * @substream: PCM substream
  * @ofs: byte offset
  * @size: byte size to examine
+ *
+ * Return: chunk size
  */
 static inline unsigned int
 snd_pcm_sgbuf_get_chunk_size(struct snd_pcm_substream *substream,
@@ -1438,6 +1480,8 @@ struct snd_pcm_chmap {
  * snd_pcm_chmap_substream - get the PCM substream assigned to the given chmap info
  * @info: chmap information
  * @idx: the substream number index
+ *
+ * Return: the matched PCM substream, or NULL if not found
  */
 static inline struct snd_pcm_substream *
 snd_pcm_chmap_substream(struct snd_pcm_chmap *info, unsigned int idx)
@@ -1468,6 +1512,8 @@ int snd_pcm_add_chmap_ctls(struct snd_pcm *pcm, int stream,
 /**
  * pcm_format_to_bits - Strong-typed conversion of pcm_format to bitwise
  * @pcm_format: PCM format
+ *
+ * Return: 64bit mask corresponding to the given PCM format
  */
 static inline u64 pcm_format_to_bits(snd_pcm_format_t pcm_format)
 {
