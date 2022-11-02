@@ -896,8 +896,18 @@ static ssize_t devkmsg_read(struct file *file, char __user *buf,
 		}
 
 		logbuf_unlock_irq();
+		/*
+		 * Guarantee this task is visible on the waitqueue before
+		 * checking the wake condition.
+		 *
+		 * The full memory barrier within set_current_state() of
+		 * prepare_to_wait_event() pairs with the full memory barrier
+		 * within wq_has_sleeper().
+		 *
+		 * This pairs with wake_up_klogd:A.
+		 */
 		ret = wait_event_interruptible(log_wait,
-					       user->seq != log_next_seq);
+					       user->seq != log_next_seq); /* LMM(devkmsg_read:A) */
 		if (ret)
 			goto out;
 		logbuf_lock_irq();
@@ -1545,8 +1555,18 @@ int do_syslog(int type, char __user *buf, int len, int source)
 			return 0;
 		if (!access_ok(buf, len))
 			return -EFAULT;
+		/*
+		 * Guarantee this task is visible on the waitqueue before
+		 * checking the wake condition.
+		 *
+		 * The full memory barrier within set_current_state() of
+		 * prepare_to_wait_event() pairs with the full memory barrier
+		 * within wq_has_sleeper().
+		 *
+		 * This pairs with wake_up_klogd:A.
+		 */
 		error = wait_event_interruptible(log_wait,
-						 syslog_seq != log_next_seq);
+						 syslog_seq != log_next_seq); /* LMM(syslog_print:A) */
 		if (error)
 			return error;
 		error = syslog_print(buf, len);
@@ -3070,7 +3090,18 @@ void wake_up_klogd(void)
 		return;
 
 	preempt_disable();
-	if (waitqueue_active(&log_wait)) {
+	/*
+	 * Guarantee any new records can be seen by tasks preparing to wait
+	 * before this context checks if the wait queue is empty.
+	 *
+	 * The full memory barrier within wq_has_sleeper() pairs with the full
+	 * memory barrier within set_current_state() of
+	 * prepare_to_wait_event(), which is called after ___wait_event() adds
+	 * the waiter but before it has checked the wait condition.
+	 *
+	 * This pairs with devkmsg_read:A and syslog_print:A.
+	 */
+	if (wq_has_sleeper(&log_wait)) { /* LMM(wake_up_klogd:A) */
 		this_cpu_or(printk_pending, PRINTK_PENDING_WAKEUP);
 		irq_work_queue(this_cpu_ptr(&wake_up_klogd_work));
 	}
