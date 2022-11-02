@@ -878,6 +878,7 @@ static inline bool efi_rt_services_supported(unsigned int mask)
 {
 	return (efi.runtime_supported_mask & mask) == mask;
 }
+extern void efi_find_mirror(void);
 
 extern void __init efi_set_secure_boot(enum efi_secureboot_mode mode);
 #else
@@ -897,6 +898,8 @@ static inline bool efi_rt_services_supported(unsigned int mask)
 {
 	return false;
 }
+
+static inline void efi_find_mirror(void) {}
 
 static inline void efi_set_secure_boot(enum efi_secureboot_mode mode) {}
 #endif
