@@ -234,10 +234,8 @@ struct snd_soc_component {
 	struct snd_compr_stream  *mark_compr_open;
 	void *mark_pm;
 
-#ifdef CONFIG_DEBUG_FS
 	struct dentry *debugfs_root;
 	const char *debugfs_prefix;
-#endif
 
 	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
