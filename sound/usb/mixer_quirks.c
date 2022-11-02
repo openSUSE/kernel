@@ -2042,7 +2042,7 @@ err:
 }
 
 static const struct snd_kcontrol_new realtek_connector_ctl_ro = {
-	.iface = SNDRV_CTL_ELEM_IFACE_CARD,
+	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name = "", /* will be filled later manually */
 	.access = SNDRV_CTL_ELEM_ACCESS_READ,
 	.info = snd_ctl_boolean_mono_info,
