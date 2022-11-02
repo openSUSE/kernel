@@ -284,7 +284,11 @@ struct sock {
 	struct socket_wq __rcu	*sk_wq;
 
 #ifdef CONFIG_NET_DMA
+#ifdef __GENKSYMS__
 	struct sk_buff_head	sk_async_wait_queue;
+#else
+	struct sk_buff_head	__unused_sk_async_wait_queue;
+#endif
 #endif
 
 #ifdef CONFIG_XFRM
@@ -1805,22 +1809,11 @@ extern int sock_tx_timestamp(struct sock *sk, __u8 *tx_flags);
  * This routine must be called with interrupts disabled or with the socket
  * locked so that the sk_buff queue operation is ok.
 */
-#ifdef CONFIG_NET_DMA
-static inline void sk_eat_skb(struct sock *sk, struct sk_buff *skb, int copied_early)
-{
-	__skb_unlink(skb, &sk->sk_receive_queue);
-	if (!copied_early)
-		__kfree_skb(skb);
-	else
-		__skb_queue_tail(&sk->sk_async_wait_queue, skb);
-}
-#else
 static inline void sk_eat_skb(struct sock *sk, struct sk_buff *skb, int copied_early)
 {
 	__skb_unlink(skb, &sk->sk_receive_queue);
 	__kfree_skb(skb);
 }
-#endif
 
 static inline
 struct net *sock_net(const struct sock *sk)

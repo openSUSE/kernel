@@ -325,10 +325,17 @@ struct tcp_sock {
 		int			len;
 #ifdef CONFIG_NET_DMA
 		/* members for async copy */
+#ifdef __GENKSYMS__
 		struct dma_chan		*dma_chan;
 		int			wakeup;
 		struct dma_pinned_list	*pinned_list;
 		dma_cookie_t		dma_cookie;
+#else
+		struct dma_chan		*__unused_dma_chan;
+		int			__unused_wakeup;
+		struct dma_pinned_list	*__unused_pinned_list;
+		dma_cookie_t		__unused_dma_cookie;
+#endif
 #endif
 	} ucopy;
 
