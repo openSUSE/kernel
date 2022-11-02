@@ -1182,7 +1182,7 @@ int klp_module_coming(struct module *mod)
 		return -EINVAL;
 
 	if (!strcmp(mod->name, "vmlinux")) {
-		pr_err("vmlinux.ko: invalid module name");
+		pr_err("vmlinux.ko: invalid module name\n");
 		return -EINVAL;
 	}
 
