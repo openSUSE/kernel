@@ -288,6 +288,34 @@ static int handle_sigp_dst(struct kvm_vcpu *vcpu, u8 order_code,
 	if (!dst_vcpu)
 		return SIGP_CC_NOT_OPERATIONAL;
 
+	/*
+	 * SIGP RESTART, SIGP STOP, and SIGP STOP AND STORE STATUS orders
+	 * are processed asynchronously. Until the affected VCPU finishes
+	 * its work and calls back into KVM to clear the (RESTART or STOP)
+	 * interrupt, we need to return any new non-reset orders "busy".
+	 *
+	 * This is important because a single VCPU could issue:
+	 *  1) SIGP STOP $DESTINATION
+	 *  2) SIGP SENSE $DESTINATION
+	 *
+	 * If the SIGP SENSE would not be rejected as "busy", it could
+	 * return an incorrect answer as to whether the VCPU is STOPPED
+	 * or OPERATING.
+	 */
+	if (order_code != SIGP_INITIAL_CPU_RESET &&
+	    order_code != SIGP_CPU_RESET) {
+		/*
+		 * Lockless check. Both SIGP STOP and SIGP (RE)START
+		 * properly synchronize everything while processing
+		 * their orders, while the guest cannot observe a
+		 * difference when issuing other orders from two
+		 * different VCPUs.
+		 */
+		if (kvm_s390_is_stop_irq_pending(dst_vcpu) ||
+		    kvm_s390_is_restart_irq_pending(dst_vcpu))
+			return SIGP_CC_BUSY;
+	}
+
 	switch (order_code) {
 	case SIGP_SENSE:
 		vcpu->stat.instruction_sigp_sense++;
@@ -464,9 +492,9 @@ int kvm_s390_handle_sigp_pei(struct kvm_vcpu *vcpu)
 	struct kvm_vcpu *dest_vcpu;
 	u8 order_code = kvm_s390_get_base_disp_rs(vcpu, NULL);
 
-	trace_kvm_s390_handle_sigp_pei(vcpu, order_code, cpu_addr);
-
 	if (order_code == SIGP_EXTERNAL_CALL) {
+		trace_kvm_s390_handle_sigp_pei(vcpu, order_code, cpu_addr);
+
 		dest_vcpu = kvm_get_vcpu_by_id(vcpu->kvm, cpu_addr);
 		BUG_ON(dest_vcpu == NULL);
 

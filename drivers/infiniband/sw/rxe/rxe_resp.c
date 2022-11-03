@@ -319,6 +319,7 @@ static enum resp_states get_srq_wqe(struct rxe_qp *qp)
 	struct rxe_queue *q = srq->rq.queue;
 	struct rxe_recv_wqe *wqe;
 	struct ib_event ev;
+	size_t size;
 
 	if (srq->error)
 		return RESPST_ERR_RNR;
@@ -331,8 +332,13 @@ static enum resp_states get_srq_wqe(struct rxe_qp *qp)
 		return RESPST_ERR_RNR;
 	}
 
-	/* note kernel and user space recv wqes have same size */
-	memcpy(&qp->resp.srq_wqe, wqe, sizeof(qp->resp.srq_wqe));
+	/* don't trust user space data */
+	if (unlikely(wqe->dma.num_sge > srq->rq.max_sge)) {
+		pr_warn("%s: invalid num_sge in SRQ entry\n", __func__);
+		return RESPST_ERR_MALFORMED_WQE;
+	}
+	size = sizeof(wqe) + wqe->dma.num_sge*sizeof(struct rxe_sge);
+	memcpy(&qp->resp.srq_wqe, wqe, size);
 
 	qp->resp.wqe = &qp->resp.srq_wqe.wqe;
 	advance_consumer(q);
@@ -612,19 +618,11 @@ static struct sk_buff *prepare_ack_packet(struct rxe_qp *qp,
 	ack->qp = qp;
 	ack->opcode = opcode;
 	ack->mask = rxe_opcode[opcode].mask;
-	ack->offset = pkt->offset;
 	ack->paylen = paylen;
-
-	/* fill in bth using the request packet headers */
-	memcpy(ack->hdr, pkt->hdr, pkt->offset + RXE_BTH_BYTES);
-
-	bth_set_opcode(ack, opcode);
-	bth_set_qpn(ack, qp->attr.dest_qp_num);
-	bth_set_pad(ack, pad);
-	bth_set_se(ack, 0);
-	bth_set_psn(ack, psn);
-	bth_set_ack(ack, 0);
 	ack->psn = psn;
+
+	bth_init(ack, opcode, 0, 0, pad, IB_DEFAULT_PKEY_FULL,
+		 qp->attr.dest_qp_num, 0, psn);
 
 	if (ack->mask & RXE_AETH_MASK) {
 		aeth_set_syn(ack, syndrome);
@@ -766,34 +764,29 @@ static enum resp_states read_reply(struct rxe_qp *qp,
 	return state;
 }
 
-static void build_rdma_network_hdr(union rdma_network_hdr *hdr,
-				   struct rxe_pkt_info *pkt)
-{
-	struct sk_buff *skb = PKT_TO_SKB(pkt);
-
-	memset(hdr, 0, sizeof(*hdr));
-	if (skb->protocol == htons(ETH_P_IP))
-		memcpy(&hdr->roce4grh, ip_hdr(skb), sizeof(hdr->roce4grh));
-	else if (skb->protocol == htons(ETH_P_IPV6))
-		memcpy(&hdr->ibgrh, ipv6_hdr(skb), sizeof(hdr->ibgrh));
-}
-
 /* Executes a new request. A retried request never reach that function (send
  * and writes are discarded, and reads and atomics are retried elsewhere.
  */
 static enum resp_states execute(struct rxe_qp *qp, struct rxe_pkt_info *pkt)
 {
 	enum resp_states err;
+	struct sk_buff *skb = PKT_TO_SKB(pkt);
+	union rdma_network_hdr hdr;
 
 	if (pkt->mask & RXE_SEND_MASK) {
 		if (qp_type(qp) == IB_QPT_UD ||
 		    qp_type(qp) == IB_QPT_SMI ||
 		    qp_type(qp) == IB_QPT_GSI) {
-			union rdma_network_hdr hdr;
-
-			build_rdma_network_hdr(&hdr, pkt);
-
-			err = send_data_in(qp, &hdr, sizeof(hdr));
+			if (skb->protocol == htons(ETH_P_IP)) {
+				memset(&hdr.reserved, 0,
+						sizeof(hdr.reserved));
+				memcpy(&hdr.roce4grh, ip_hdr(skb),
+						sizeof(hdr.roce4grh));
+				err = send_data_in(qp, &hdr, sizeof(hdr));
+			} else {
+				err = send_data_in(qp, ipv6_hdr(skb),
+						sizeof(hdr));
+			}
 			if (err)
 				return err;
 		}

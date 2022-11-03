@@ -2781,10 +2781,9 @@ int nilfs_attach_log_writer(struct super_block *sb, struct nilfs_root *root)
 		return -ENOMEM;
 
 	err = nilfs_segctor_start_thread(nilfs->ns_writer);
-	if (err) {
-		kfree(nilfs->ns_writer);
-		nilfs->ns_writer = NULL;
-	}
+	if (unlikely(err))
+		nilfs_detach_log_writer(sb);
+
 	return err;
 }
 

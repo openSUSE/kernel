@@ -48,7 +48,7 @@ static int signalfd_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static __poll_t signalfd_poll(struct file *file, poll_table *wait)
+__poll_t signalfd_poll(struct file *file, poll_table *wait)
 {
 	struct signalfd_ctx *ctx = file->private_data;
 	__poll_t events = 0;

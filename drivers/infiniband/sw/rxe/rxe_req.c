@@ -125,7 +125,11 @@ void rnr_nak_timer(struct timer_list *t)
 {
 	struct rxe_qp *qp = from_timer(qp, t, rnr_nak_timer);
 
-	pr_debug("qp#%d rnr nak timer fired\n", qp_num(qp));
+	pr_debug("%s: fired for qp#%d\n", __func__, qp_num(qp));
+
+	/* request a send queue retry */
+	qp->req.need_retry = 1;
+	qp->req.wait_for_rnr_timer = 0;
 	rxe_run_task(&qp->req.task, 1);
 }
 
@@ -401,7 +405,6 @@ static struct sk_buff *init_req_packet(struct rxe_qp *qp,
 	pkt->psn	= qp->req.psn;
 	pkt->mask	= rxe_opcode[opcode].mask;
 	pkt->paylen	= paylen;
-	pkt->offset	= 0;
 	pkt->wqe	= wqe;
 
 	/* init skb */
@@ -606,10 +609,17 @@ next_wqe:
 		qp->req.need_rd_atomic = 0;
 		qp->req.wait_psn = 0;
 		qp->req.need_retry = 0;
+		qp->req.wait_for_rnr_timer = 0;
 		goto exit;
 	}
 
-	if (unlikely(qp->req.need_retry)) {
+	/* we come here if the retransmot timer has fired
+	 * or if the rnr timer has fired. If the retransmit
+	 * timer fires while we are processing an RNR NAK wait
+	 * until the rnr timer has fired before starting the
+	 * retry flow
+	 */
+	if (unlikely(qp->req.need_retry && !qp->req.wait_for_rnr_timer)) {
 		req_retry(qp);
 		qp->req.need_retry = 0;
 	}
@@ -674,7 +684,7 @@ next_wqe:
 	opcode = next_opcode(qp, wqe, wqe->wr.opcode);
 	if (unlikely(opcode < 0)) {
 		wqe->status = IB_WC_LOC_QP_OP_ERR;
-		goto exit;
+		goto err;
 	}
 
 	mask = rxe_opcode[opcode].mask;

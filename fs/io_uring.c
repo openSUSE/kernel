@@ -1752,6 +1752,13 @@ static int io_poll_add(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	bool cancel = false;
 	__poll_t mask;
 	u16 events;
+#ifdef CONFIG_SIGNALFD
+	extern __poll_t signalfd_poll(struct file *file, poll_table *wait);
+
+	/* unhandled pollfree: Binder (SLE-disabled) and signalfd only */
+	if (req->file->f_op->poll == &signalfd_poll)
+		return -EOPNOTSUPP;
+#endif
 
 	if (unlikely(req->ctx->flags & IORING_SETUP_IOPOLL))
 		return -EINVAL;
