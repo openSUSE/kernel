@@ -878,6 +878,7 @@ static inline bool efi_rt_services_supported(unsigned int mask)
 {
 	return (efi.runtime_supported_mask & mask) == mask;
 }
+extern void efi_find_mirror(void);
 
 extern void __init efi_set_secure_boot(enum efi_secureboot_mode mode);
 #else
@@ -897,6 +898,8 @@ static inline bool efi_rt_services_supported(unsigned int mask)
 {
 	return false;
 }
+
+static inline void efi_find_mirror(void) {}
 
 static inline void efi_set_secure_boot(enum efi_secureboot_mode mode) {}
 #endif
@@ -1037,29 +1040,6 @@ struct efivars {
 
 #define EFI_VAR_NAME_LEN	1024
 
-struct efi_variable {
-	efi_char16_t  VariableName[EFI_VAR_NAME_LEN/sizeof(efi_char16_t)];
-	efi_guid_t    VendorGuid;
-	unsigned long DataSize;
-	__u8          Data[1024];
-	efi_status_t  Status;
-	__u32         Attributes;
-} __attribute__((packed));
-
-struct efivar_entry {
-	struct efi_variable var;
-	struct list_head list;
-	struct kobject kobj;
-	bool scanning;
-	bool deleting;
-};
-
-static inline void
-efivar_unregister(struct efivar_entry *var)
-{
-	kobject_put(&var->kobj);
-}
-
 int efivars_register(struct efivars *efivars,
 		     const struct efivar_operations *ops,
 		     struct kobject *kobject);
@@ -1067,43 +1047,26 @@ int efivars_unregister(struct efivars *efivars);
 struct kobject *efivars_kobject(void);
 
 int efivar_supports_writes(void);
-int efivar_init(int (*func)(efi_char16_t *, efi_guid_t, unsigned long, void *),
-		void *data, bool duplicates, struct list_head *head);
 
-int efivar_entry_add(struct efivar_entry *entry, struct list_head *head);
-int efivar_entry_remove(struct efivar_entry *entry);
+int efivar_lock(void);
+int efivar_trylock(void);
+void efivar_unlock(void);
 
-int __efivar_entry_delete(struct efivar_entry *entry);
-int efivar_entry_delete(struct efivar_entry *entry);
+efi_status_t efivar_get_variable(efi_char16_t *name, efi_guid_t *vendor,
+				 u32 *attr, unsigned long *size, void *data);
 
-int efivar_entry_size(struct efivar_entry *entry, unsigned long *size);
-int __efivar_entry_get(struct efivar_entry *entry, u32 *attributes,
-		       unsigned long *size, void *data);
-int efivar_entry_get(struct efivar_entry *entry, u32 *attributes,
-		     unsigned long *size, void *data);
-int efivar_entry_set(struct efivar_entry *entry, u32 attributes,
-		     unsigned long size, void *data, struct list_head *head);
-int efivar_entry_set_get_size(struct efivar_entry *entry, u32 attributes,
-			      unsigned long *size, void *data, bool *set);
-int efivar_entry_set_safe(efi_char16_t *name, efi_guid_t vendor, u32 attributes,
-			  bool block, unsigned long size, void *data);
+efi_status_t efivar_get_next_variable(unsigned long *name_size,
+				      efi_char16_t *name, efi_guid_t *vendor);
 
-int efivar_entry_iter_begin(void);
-void efivar_entry_iter_end(void);
+efi_status_t efivar_set_variable_locked(efi_char16_t *name, efi_guid_t *vendor,
+					u32 attr, unsigned long data_size,
+					void *data, bool nonblocking);
 
-int __efivar_entry_iter(int (*func)(struct efivar_entry *, void *),
-			struct list_head *head, void *data,
-			struct efivar_entry **prev);
-int efivar_entry_iter(int (*func)(struct efivar_entry *, void *),
-		      struct list_head *head, void *data);
+efi_status_t efivar_set_variable(efi_char16_t *name, efi_guid_t *vendor,
+				 u32 attr, unsigned long data_size, void *data);
 
-struct efivar_entry *efivar_entry_find(efi_char16_t *name, efi_guid_t guid,
-				       struct list_head *head, bool remove);
-
-bool efivar_validate(efi_guid_t vendor, efi_char16_t *var_name, u8 *data,
-		     unsigned long data_size);
-bool efivar_variable_is_removable(efi_guid_t vendor, const char *name,
-				  size_t len);
+efi_status_t check_var_size(u32 attributes, unsigned long size);
+efi_status_t check_var_size_nonblocking(u32 attributes, unsigned long size);
 
 #if IS_ENABLED(CONFIG_EFI_CAPSULE_LOADER)
 extern bool efi_capsule_pending(int *reset_type);

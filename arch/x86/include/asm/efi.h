@@ -385,7 +385,6 @@ static inline bool efi_is_64bit(void)
 extern bool efi_reboot_required(void);
 extern bool efi_is_table_address(unsigned long phys_addr);
 
-extern void efi_find_mirror(void);
 extern void efi_reserve_boot_services(void);
 #else
 static inline void parse_efi_setup(u64 phys_addr, u32 data_len) {}
@@ -399,9 +398,6 @@ static inline bool efi_reboot_required(void)
 static inline  bool efi_is_table_address(unsigned long phys_addr)
 {
 	return false;
-}
-static inline void efi_find_mirror(void)
-{
 }
 static inline void efi_reserve_boot_services(void)
 {

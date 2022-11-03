@@ -121,55 +121,37 @@ late_initcall(init_efi_secret_key);
 
 static int set_regen_flag(void)
 {
-	struct efivar_entry *entry = NULL;
+	efi_status_t status = EFI_UNSUPPORTED;
 	bool regen = true;
-	int err = 0;
 
 	if (!efi_enabled(EFI_RUNTIME_SERVICES))
 		return 0;
 
-	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
-	if (!entry)
-		return -ENOMEM;
+	if (efi_rt_services_supported(EFI_RT_SUPPORTED_SET_VARIABLE))
+		status = efi.set_variable(EFI_SECRET_KEY_REGEN, &EFI_SECRET_GUID,
+					  EFI_SECRET_KEY_REGEN_ATTRIBUTE,
+					  sizeof(bool), &regen);
+	if (status != EFI_SUCCESS)
+		pr_warn("Create EFI secret key regen failed: 0x%lx\n", status);
 
-	memcpy(entry->var.VariableName,
-	       EFI_SECRET_KEY_REGEN, sizeof(EFI_SECRET_KEY_REGEN));
-	memcpy(&(entry->var.VendorGuid),
-	       &EFI_SECRET_GUID, sizeof(efi_guid_t));
-	err = efivar_entry_set(entry, EFI_SECRET_KEY_REGEN_ATTRIBUTE,
-			       sizeof(bool), &regen, NULL);
-	if (err)
-		pr_warn("Create EFI secret key regen failed: %d\n", err);
-
-	kfree(entry);
-
-	return err;
+	return efi_status_to_err(status);
 }
 
 static int clean_regen_flag(void)
 {
-	struct efivar_entry *entry = NULL;
-	int err = 0;
+	efi_status_t status = EFI_UNSUPPORTED;
 
 	if (!efi_enabled(EFI_RUNTIME_SERVICES))
 		return 0;
 
-	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
-	if (!entry)
-		return -ENOMEM;
+	if (efi_rt_services_supported(EFI_RT_SUPPORTED_SET_VARIABLE))
+		status = efi.set_variable(EFI_SECRET_KEY_REGEN, &EFI_SECRET_GUID,
+					  EFI_SECRET_KEY_REGEN_ATTRIBUTE,
+				          0, NULL);
+	if (status != EFI_SUCCESS && status != EFI_NOT_FOUND)
+		pr_warn("Clean EFI secret key regen failed: 0x%lx\n", status);
 
-	memcpy(entry->var.VariableName,
-	       EFI_SECRET_KEY_REGEN, sizeof(EFI_SECRET_KEY_REGEN));
-	memcpy(&(entry->var.VendorGuid),
-	       &EFI_SECRET_GUID, sizeof(efi_guid_t));
-	err = efivar_entry_set(entry, EFI_SECRET_KEY_REGEN_ATTRIBUTE,
-			       0, NULL, NULL);
-	if (err && err != -ENOENT)
-		pr_warn("Clean EFI secret key regen failed: %d\n", err);
-
-	kfree(entry);
-
-	return err;
+	return efi_status_to_err(status);
 }
 
 void efi_skey_stop_regen(void)
