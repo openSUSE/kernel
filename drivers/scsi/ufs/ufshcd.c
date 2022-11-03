@@ -25,7 +25,6 @@
 #include "ufs_bsg.h"
 #include "ufshcd-crypto.h"
 #include <asm/unaligned.h>
-#include "../sd.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/ufs.h>
