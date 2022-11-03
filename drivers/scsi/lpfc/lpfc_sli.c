@@ -1848,6 +1848,18 @@ lpfc_cmf_sync_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *cmdiocb,
 				  phba->cmf_link_byte_count);
 		bwpcent = div64_u64(bw * 100 + slop,
 				    phba->cmf_link_byte_count);
+
+		if (phba->cmf_max_bytes_per_interval < bw &&
+		    bwpcent > 95)
+			lpfc_printf_log(phba, KERN_INFO, LOG_CGN_MGMT,
+					"6208 Congestion bandwidth "
+					"limits removed\n");
+		else if ((phba->cmf_max_bytes_per_interval > bw) &&
+			 ((bwpcent + pcent) <= 100) && ((bwpcent + pcent) > 95))
+			lpfc_printf_log(phba, KERN_INFO, LOG_CGN_MGMT,
+					"6209 Congestion bandwidth "
+					"limits in effect\n");
+
 		if (asig) {
 			lpfc_printf_log(phba, KERN_INFO, LOG_CGN_MGMT,
 					"6237 BW Threshold %lld%% (%lld): "
@@ -8182,10 +8194,10 @@ u32 lpfc_rx_monitor_report(struct lpfc_hba *phba,
 					"IO_cnt", "Info", "BWutil(ms)");
 	}
 
-	/* Needs to be _bh because record is called from timer interrupt
+	/* Needs to be _irq because record is called from timer interrupt
 	 * context
 	 */
-	spin_lock_bh(ring_lock);
+	spin_lock_irq(ring_lock);
 	while (*head_idx != *tail_idx) {
 		entry = &ring[*head_idx];
 
@@ -8229,7 +8241,7 @@ u32 lpfc_rx_monitor_report(struct lpfc_hba *phba,
 		if (cnt >= max_read_entries)
 			break;
 	}
-	spin_unlock_bh(ring_lock);
+	spin_unlock_irq(ring_lock);
 
 	return cnt;
 }
@@ -8386,6 +8398,7 @@ no_cmf:
 			phba->cgn_i = NULL;
 			/* Ensure CGN Mode is off */
 			phba->cmf_active_mode = LPFC_CFG_OFF;
+			sli4_params->cmf = 0;
 			return 0;
 		}
 	}

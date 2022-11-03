@@ -590,11 +590,14 @@ static int irdma_wait_event(struct irdma_pci_f *rf,
 	cqp_error = cqp_request->compl_info.error;
 	if (cqp_error) {
 		err_code = -EIO;
-		if (cqp_request->compl_info.maj_err_code == 0xFFFF &&
-		    cqp_request->compl_info.min_err_code == 0x8029) {
-			if (!rf->reset) {
-				rf->reset = true;
-				rf->gen_ops.request_reset(rf);
+		if (cqp_request->compl_info.maj_err_code == 0xFFFF) {
+			if (cqp_request->compl_info.min_err_code == 0x8002)
+				err_code = -EBUSY;
+			else if (cqp_request->compl_info.min_err_code == 0x8029) {
+				if (!rf->reset) {
+					rf->reset = true;
+					rf->gen_ops.request_reset(rf);
+				}
 			}
 		}
 	}
@@ -2475,6 +2478,9 @@ void irdma_ib_qp_event(struct irdma_qp *iwqp, enum irdma_qp_event_type event)
 		break;
 	case IRDMA_QP_EVENT_ACCESS_ERR:
 		ibevent.event = IB_EVENT_QP_ACCESS_ERR;
+		break;
+	case IRDMA_QP_EVENT_REQ_ERR:
+		ibevent.event = IB_EVENT_QP_REQ_ERR;
 		break;
 	}
 	ibevent.device = iwqp->ibqp.device;

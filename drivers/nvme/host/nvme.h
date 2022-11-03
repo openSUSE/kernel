@@ -957,23 +957,4 @@ struct nvme_ctrl *nvme_ctrl_from_file(struct file *file);
 struct nvme_ns *nvme_find_get_ns(struct nvme_ctrl *ctrl, unsigned nsid);
 void nvme_put_ns(struct nvme_ns *ns);
 
-#ifdef CONFIG_NVME_VERBOSE_ERRORS
-const unsigned char *nvme_get_error_status_str(u16 status);
-const unsigned char *nvme_get_opcode_str(u8 opcode);
-const unsigned char *nvme_get_admin_opcode_str(u8 opcode);
-#else /* CONFIG_NVME_VERBOSE_ERRORS */
-static inline const unsigned char *nvme_get_error_status_str(u16 status)
-{
-	return "I/O Error";
-}
-static inline const unsigned char *nvme_get_opcode_str(u8 opcode)
-{
-	return "I/O Cmd";
-}
-static inline const unsigned char *nvme_get_admin_opcode_str(u8 opcode)
-{
-	return "Admin Cmd";
-}
-#endif /* CONFIG_NVME_VERBOSE_ERRORS */
-
 #endif /* _NVME_H */
