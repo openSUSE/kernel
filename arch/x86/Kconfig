@@ -325,9 +325,6 @@ config GENERIC_CALIBRATE_DELAY
 config ARCH_HAS_CPU_RELAX
 	def_bool y
 
-config ARCH_HAS_FILTER_PGPROT
-	def_bool y
-
 config HAVE_SETUP_PER_CPU_AREA
 	def_bool y
 
