@@ -499,7 +499,7 @@ static ssize_t lio_target_nacl_info_show(struct config_item *item, char *page)
 {
 	struct se_node_acl *se_nacl = acl_to_nacl(item);
 	struct iscsi_session *sess;
-	struct iscsi_conn *conn;
+	struct iscsit_conn *conn;
 	struct se_session *se_sess;
 	ssize_t rb = 0;
 	u32 max_cmd_sn;
@@ -1127,8 +1127,40 @@ static ssize_t lio_target_wwn_lio_version_show(struct config_item *item,
 
 CONFIGFS_ATTR_RO(lio_target_wwn_, lio_version);
 
+static ssize_t lio_target_wwn_cpus_allowed_list_show(
+		struct config_item *item, char *page)
+{
+	return sprintf(page, "%*pbl\n",
+		       cpumask_pr_args(iscsit_global->allowed_cpumask));
+}
+
+static ssize_t lio_target_wwn_cpus_allowed_list_store(
+		struct config_item *item, const char *page, size_t count)
+{
+	int ret;
+	char *orig;
+	cpumask_t new_allowed_cpumask;
+
+	orig = kstrdup(page, GFP_KERNEL);
+	if (!orig)
+		return -ENOMEM;
+
+	cpumask_clear(&new_allowed_cpumask);
+	ret = cpulist_parse(orig, &new_allowed_cpumask);
+
+	kfree(orig);
+	if (ret != 0)
+		return ret;
+
+	cpumask_copy(iscsit_global->allowed_cpumask, &new_allowed_cpumask);
+	return count;
+}
+
+CONFIGFS_ATTR(lio_target_wwn_, cpus_allowed_list);
+
 static struct configfs_attribute *lio_target_wwn_attrs[] = {
 	&lio_target_wwn_attr_lio_version,
+	&lio_target_wwn_attr_cpus_allowed_list,
 	NULL,
 };
 
@@ -1308,7 +1340,7 @@ static struct configfs_attribute *lio_target_discovery_auth_attrs[] = {
 
 static int iscsi_get_cmd_state(struct se_cmd *se_cmd)
 {
-	struct iscsi_cmd *cmd = container_of(se_cmd, struct iscsi_cmd, se_cmd);
+	struct iscsit_cmd *cmd = container_of(se_cmd, struct iscsit_cmd, se_cmd);
 
 	return cmd->i_state;
 }
@@ -1334,8 +1366,8 @@ static u32 lio_sess_get_initiator_sid(
 
 static int lio_queue_data_in(struct se_cmd *se_cmd)
 {
-	struct iscsi_cmd *cmd = container_of(se_cmd, struct iscsi_cmd, se_cmd);
-	struct iscsi_conn *conn = cmd->conn;
+	struct iscsit_cmd *cmd = container_of(se_cmd, struct iscsit_cmd, se_cmd);
+	struct iscsit_conn *conn = cmd->conn;
 
 	cmd->i_state = ISTATE_SEND_DATAIN;
 	return conn->conn_transport->iscsit_queue_data_in(conn, cmd);
@@ -1343,8 +1375,8 @@ static int lio_queue_data_in(struct se_cmd *se_cmd)
 
 static int lio_write_pending(struct se_cmd *se_cmd)
 {
-	struct iscsi_cmd *cmd = container_of(se_cmd, struct iscsi_cmd, se_cmd);
-	struct iscsi_conn *conn = cmd->conn;
+	struct iscsit_cmd *cmd = container_of(se_cmd, struct iscsit_cmd, se_cmd);
+	struct iscsit_conn *conn = cmd->conn;
 
 	if (!cmd->immediate_data && !cmd->unsolicited_data)
 		return conn->conn_transport->iscsit_get_dataout(conn, cmd, false);
@@ -1354,8 +1386,8 @@ static int lio_write_pending(struct se_cmd *se_cmd)
 
 static int lio_queue_status(struct se_cmd *se_cmd)
 {
-	struct iscsi_cmd *cmd = container_of(se_cmd, struct iscsi_cmd, se_cmd);
-	struct iscsi_conn *conn = cmd->conn;
+	struct iscsit_cmd *cmd = container_of(se_cmd, struct iscsit_cmd, se_cmd);
+	struct iscsit_conn *conn = cmd->conn;
 
 	cmd->i_state = ISTATE_SEND_STATUS;
 
@@ -1367,7 +1399,7 @@ static int lio_queue_status(struct se_cmd *se_cmd)
 
 static void lio_queue_tm_rsp(struct se_cmd *se_cmd)
 {
-	struct iscsi_cmd *cmd = container_of(se_cmd, struct iscsi_cmd, se_cmd);
+	struct iscsit_cmd *cmd = container_of(se_cmd, struct iscsit_cmd, se_cmd);
 
 	cmd->i_state = ISTATE_SEND_TASKMGTRSP;
 	iscsit_add_cmd_to_response_queue(cmd, cmd->conn, cmd->i_state);
@@ -1375,7 +1407,7 @@ static void lio_queue_tm_rsp(struct se_cmd *se_cmd)
 
 static void lio_aborted_task(struct se_cmd *se_cmd)
 {
-	struct iscsi_cmd *cmd = container_of(se_cmd, struct iscsi_cmd, se_cmd);
+	struct iscsit_cmd *cmd = container_of(se_cmd, struct iscsit_cmd, se_cmd);
 
 	cmd->conn->conn_transport->iscsit_aborted_task(cmd->conn, cmd);
 }
@@ -1490,7 +1522,7 @@ static int lio_check_stop_free(struct se_cmd *se_cmd)
 
 static void lio_release_cmd(struct se_cmd *se_cmd)
 {
-	struct iscsi_cmd *cmd = container_of(se_cmd, struct iscsi_cmd, se_cmd);
+	struct iscsit_cmd *cmd = container_of(se_cmd, struct iscsit_cmd, se_cmd);
 
 	pr_debug("Entering lio_release_cmd for se_cmd: %p\n", se_cmd);
 	iscsit_release_cmd(cmd);
