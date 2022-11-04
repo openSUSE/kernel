@@ -1987,7 +1987,7 @@ enum scsi_disposition scsi_decide_disposition(struct scsi_cmnd *scmd)
 			sdev_printk(KERN_INFO, scmd->device,
 				    "reservation conflict\n");
 		else
-			scmd->request->rq_flags |= RQF_QUIET;
+			scsi_cmd_to_rq(scmd)->rq_flags |= RQF_QUIET;
 		set_host_byte(scmd, DID_NEXUS_FAILURE);
 		return SUCCESS; /* causes immediate i/o error */
 	default:
@@ -2406,7 +2406,6 @@ scsi_ioctl_reset(struct scsi_device *dev, int __user *arg)
 
 	scmd = (struct scsi_cmnd *)(rq + 1);
 	scsi_init_command(dev, scmd);
-	scmd->request = rq;
 	scmd->cmnd = scsi_req(rq)->cmd;
 
 	scmd->submitter = SUBMITTED_BY_SCSI_RESET_IOCTL;
