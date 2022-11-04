@@ -761,6 +761,9 @@ config ARCH_HAS_CACHE_LINE_SIZE
 config ARCH_HAS_FILTER_PGPROT
 	bool
 
+config ARCH_HAS_VM_GET_PAGE_PROT
+	bool
+
 config ARCH_HAS_PTE_DEVMAP
 	bool
 
