@@ -982,10 +982,11 @@ static int __init debug_vm_pgtable(void)
 	}
 
 	/*
-	 * __P000 (or even __S000) will help create page table entries with
-	 * PROT_NONE permission as required for pxx_protnone_tests().
+	 * protection_map[0] (or even protection_map[8]) will help create page
+	 * table entries with PROT_NONE permission as required for
+	 * pxx_protnone_tests().
 	 */
-	protnone = __P000;
+	protnone = protection_map[0];
 
 	vma = vm_area_alloc(mm);
 	if (!vma) {
