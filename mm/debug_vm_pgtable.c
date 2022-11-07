@@ -60,7 +60,7 @@
 
 static void __init pte_basic_tests(unsigned long pfn, int idx)
 {
-	pgprot_t prot = protection_map[idx];
+	pgprot_t prot = vm_get_page_prot(idx);
 	pte_t pte = pfn_pte(pfn, prot);
 	unsigned long val = idx, *ptr = &val;
 
@@ -68,7 +68,7 @@ static void __init pte_basic_tests(unsigned long pfn, int idx)
 
 	/*
 	 * This test needs to be executed after the given page table entry
-	 * is created with pfn_pte() to make sure that protection_map[idx]
+	 * is created with pfn_pte() to make sure that vm_get_page_prot(idx)
 	 * does not have the dirty bit enabled from the beginning. This is
 	 * important for platforms like arm64 where (!PTE_RDONLY) indicate
 	 * dirty bit being set.
@@ -145,7 +145,7 @@ static void __init pte_savedwrite_tests(unsigned long pfn, pgprot_t prot)
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 static void __init pmd_basic_tests(unsigned long pfn, int idx)
 {
-	pgprot_t prot = protection_map[idx];
+	pgprot_t prot = vm_get_page_prot(idx);
 	unsigned long val = idx, *ptr = &val;
 	pmd_t pmd;
 
@@ -157,7 +157,7 @@ static void __init pmd_basic_tests(unsigned long pfn, int idx)
 
 	/*
 	 * This test needs to be executed after the given page table entry
-	 * is created with pfn_pmd() to make sure that protection_map[idx]
+	 * is created with pfn_pmd() to make sure that vm_get_page_prot(idx)
 	 * does not have the dirty bit enabled from the beginning. This is
 	 * important for platforms like arm64 where (!PTE_RDONLY) indicate
 	 * dirty bit being set.
@@ -267,7 +267,7 @@ static void __init pmd_savedwrite_tests(unsigned long pfn, pgprot_t prot)
 #ifdef CONFIG_HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD
 static void __init pud_basic_tests(struct mm_struct *mm, unsigned long pfn, int idx)
 {
-	pgprot_t prot = protection_map[idx];
+	pgprot_t prot = vm_get_page_prot(idx);
 	unsigned long val = idx, *ptr = &val;
 	pud_t pud;
 
@@ -279,7 +279,7 @@ static void __init pud_basic_tests(struct mm_struct *mm, unsigned long pfn, int 
 
 	/*
 	 * This test needs to be executed after the given page table entry
-	 * is created with pfn_pud() to make sure that protection_map[idx]
+	 * is created with pfn_pud() to make sure that vm_get_page_prot(idx)
 	 * does not have the dirty bit enabled from the beginning. This is
 	 * important for platforms like arm64 where (!PTE_RDONLY) indicate
 	 * dirty bit being set.
@@ -982,11 +982,12 @@ static int __init debug_vm_pgtable(void)
 	}
 
 	/*
-	 * protection_map[0] (or even protection_map[8]) will help create page
-	 * table entries with PROT_NONE permission as required for
+	 * vm_get_page_prot(VM_NONE) (or even
+	 * vm_get_page_prot(VM_SHARED|VM_NONE)) will help create page table
+	 * entries with PROT_NONE permission as required for
 	 * pxx_protnone_tests().
 	 */
-	protnone = protection_map[0];
+	protnone = vm_get_page_prot(VM_NONE);
 
 	vma = vm_area_alloc(mm);
 	if (!vma) {
@@ -1037,12 +1038,19 @@ static int __init debug_vm_pgtable(void)
 	saved_ptep = pmd_pgtable(pmd);
 
 	/*
-	 * Iterate over the protection_map[] to make sure that all
+	 * Iterate over each possible vm_flags to make sure that all
 	 * the basic page table transformation validations just hold
 	 * true irrespective of the starting protection value for a
 	 * given page table entry.
+	 *
+	 * Protection based vm_flags combinatins are always linear
+	 * and increasing i.e starting from VM_NONE and going upto
+	 * (VM_SHARED | READ | WRITE | EXEC).
 	 */
-	for (idx = 0; idx < ARRAY_SIZE(protection_map); idx++) {
+#define VM_FLAGS_START	(VM_NONE)
+#define VM_FLAGS_END	(VM_SHARED | VM_EXEC | VM_WRITE | VM_READ)
+
+	for (idx = VM_FLAGS_START; idx <= VM_FLAGS_END; idx++) {
 		pte_basic_tests(pte_aligned, idx);
 		pmd_basic_tests(pmd_aligned, idx);
 		pud_basic_tests(mm, pud_aligned, idx);
