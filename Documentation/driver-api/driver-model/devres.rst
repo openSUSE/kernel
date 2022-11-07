@@ -280,6 +280,7 @@ GPIO
   devm_gpio_free()
 
 I2C
+  devm_i2c_add_adapter()
   devm_i2c_new_dummy_device()
 
 IIO
