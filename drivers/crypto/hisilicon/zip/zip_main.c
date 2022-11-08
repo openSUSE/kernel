@@ -949,6 +949,12 @@ static struct pci_driver hisi_zip_pci_driver = {
 	.shutdown		= hisi_qm_dev_shutdown,
 };
 
+struct pci_driver *hisi_zip_get_pf_driver(void)
+{
+	return &hisi_zip_pci_driver;
+}
+EXPORT_SYMBOL_GPL(hisi_zip_get_pf_driver);
+
 static void hisi_zip_register_debugfs(void)
 {
 	if (!debugfs_initialized())
