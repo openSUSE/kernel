@@ -2863,6 +2863,9 @@ static void dwc3_gadget_endpoint_transfer_in_progress(struct dwc3_ep *dep,
 	unsigned		status = 0;
 	bool			stop = false;
 
+	if (!dep->endpoint.desc)
+		return;
+
 	dwc3_gadget_endpoint_frame_from_event(dep, event);
 
 	if (event->status & DEPEVT_STATUS_BUSERR)
@@ -2874,6 +2877,9 @@ static void dwc3_gadget_endpoint_transfer_in_progress(struct dwc3_ep *dep,
 		if (list_empty(&dep->started_list))
 			stop = true;
 	}
+
+	if (!dep->endpoint.desc)
+		return;
 
 	dwc3_gadget_ep_cleanup_completed_requests(dep, event, status);
 
