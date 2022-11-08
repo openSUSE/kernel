@@ -77,6 +77,9 @@ struct trace_iterator {
 	struct trace_buffer	*trace_buffer;
 	void			*private;
 	int			cpu_file;
+#ifndef __GENKSYMS__
+	int			wait_index;
+#endif
 	struct mutex		mutex;
 	struct ring_buffer_iter	**buffer_iter;
 	unsigned long		iter_flags;
