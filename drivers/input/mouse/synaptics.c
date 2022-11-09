@@ -416,7 +416,7 @@ static int synaptics_resolution(struct psmouse *psmouse,
 	return 0;
 }
 
-static int __synaptics_query_hardware(struct psmouse *psmouse,
+static int synaptics_query_hardware(struct psmouse *psmouse,
 				    struct synaptics_device_info *info)
 {
 	int error;
@@ -448,21 +448,6 @@ static int __synaptics_query_hardware(struct psmouse *psmouse,
 		return error;
 
 	return 0;
-}
-
-static int synaptics_query_hardware(struct psmouse *psmouse,
-				    struct synaptics_device_info *info)
-{
-	int err;
-
-	err = __synaptics_query_hardware(psmouse, info);
-	if (err) {
-		psmouse_info(psmouse, "Query error (%d), retrying...\n", err);
-		msleep(100);
-		err = __synaptics_query_hardware(psmouse, info);
-	}
-
-	return err;
 }
 
 #endif /* CONFIG_MOUSE_PS2_SYNAPTICS || CONFIG_MOUSE_PS2_SYNAPTICS_SMBUS */
