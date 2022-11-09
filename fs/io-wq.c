@@ -329,8 +329,10 @@ static bool io_queue_worker_create(struct io_worker *worker,
 
 	init_task_work(&worker->create_work, func);
 	worker->create_index = acct->index;
-	if (!task_work_add(wq->task, &worker->create_work, TWA_SIGNAL))
+	if (!task_work_add(wq->task, &worker->create_work, TWA_SIGNAL)) {
+		clear_bit_unlock(0, &worker->create_state);
 		return true;
+	}
 	clear_bit_unlock(0, &worker->create_state);
 fail_release:
 	io_worker_release(worker);
@@ -680,6 +682,13 @@ static bool io_wq_work_match_all(struct io_wq_work *work, void *data)
 
 static inline bool io_should_retry_thread(long err)
 {
+	/*
+	 * Prevent perpetual task_work retry, if the task (or its group) is
+	 * exiting.
+	 */
+	if (fatal_signal_pending(current))
+		return false;
+
 	switch (err) {
 	case -EAGAIN:
 	case -ERESTARTSYS:
@@ -735,10 +744,8 @@ static void io_workqueue_create(struct work_struct *work)
 	struct io_worker *worker = container_of(work, struct io_worker, work);
 	struct io_wqe_acct *acct = io_wqe_get_acct(worker);
 
-	if (!io_queue_worker_create(worker, acct, create_worker_cont)) {
-		clear_bit_unlock(0, &worker->create_state);
-		io_worker_release(worker);
-	}
+	if (!io_queue_worker_create(worker, acct, create_worker_cont))
+		kfree(worker);
 }
 
 static bool create_io_worker(struct io_wq *wq, struct io_wqe *wqe, int index)
@@ -845,6 +852,11 @@ append:
 	wq_list_add_after(&work->list, &tail->list, &acct->work_list);
 }
 
+static bool io_wq_work_match_item(struct io_wq_work *work, void *data)
+{
+	return work == data;
+}
+
 static void io_wqe_enqueue(struct io_wqe *wqe, struct io_wq_work *work)
 {
 	struct io_wqe_acct *acct = io_work_get_acct(wqe, work);
@@ -857,7 +869,6 @@ static void io_wqe_enqueue(struct io_wqe *wqe, struct io_wq_work *work)
 	 */
 	if (test_bit(IO_WQ_BIT_EXIT, &wqe->wq->state) ||
 	    (work->flags & IO_WQ_WORK_CANCEL)) {
-run_cancel:
 		io_run_cancel(work, wqe);
 		return;
 	}
@@ -877,15 +888,22 @@ run_cancel:
 		bool did_create;
 
 		did_create = io_wqe_create_worker(wqe, acct);
-		if (unlikely(!did_create)) {
-			raw_spin_lock(&wqe->lock);
-			/* fatal condition, failed to create the first worker */
-			if (!acct->nr_workers) {
-				raw_spin_unlock(&wqe->lock);
-				goto run_cancel;
-			}
-			raw_spin_unlock(&wqe->lock);
+		if (likely(did_create))
+			return;
+
+		raw_spin_lock(&wqe->lock);
+		/* fatal condition, failed to create the first worker */
+		if (!acct->nr_workers) {
+			struct io_cb_cancel_data match = {
+				.fn		= io_wq_work_match_item,
+				.data		= work,
+				.cancel_all	= false,
+			};
+
+			if (io_acct_cancel_pending_work(wqe, acct, &match))
+				raw_spin_lock(&wqe->lock);
 		}
+		raw_spin_unlock(&wqe->lock);
 	}
 }
 
@@ -1135,7 +1153,7 @@ static bool io_task_work_match(struct callback_head *cb, void *data)
 {
 	struct io_worker *worker;
 
-	if (cb->func != create_worker_cb || cb->func != create_worker_cont)
+	if (cb->func != create_worker_cb && cb->func != create_worker_cont)
 		return false;
 	worker = container_of(cb, struct io_worker, create_work);
 	return worker->wqe->wq == data;
@@ -1156,9 +1174,14 @@ static void io_wq_exit_workers(struct io_wq *wq)
 
 	while ((cb = task_work_cancel_match(wq->task, io_task_work_match, wq)) != NULL) {
 		struct io_worker *worker;
+		struct io_wqe_acct *acct;
 
 		worker = container_of(cb, struct io_worker, create_work);
-		atomic_dec(&worker->wqe->acct[worker->create_index].nr_running);
+		acct = io_wqe_get_acct(worker);
+		atomic_dec(&acct->nr_running);
+		raw_spin_lock(&worker->wqe->lock);
+		acct->nr_workers--;
+		raw_spin_unlock(&worker->wqe->lock);
 		io_worker_ref_put(wq);
 		clear_bit_unlock(0, &worker->create_state);
 		io_worker_release(worker);
