@@ -30,6 +30,8 @@
 #include <asm/switch_to.h>
 #include <asm/ctl_reg.h>
 #include <asm/asm-offsets.h>
+#include <asm/pai.h>
+
 #include <linux/kvm_host.h>
 
 struct mcck_struct {
@@ -179,10 +181,12 @@ void __s390_handle_mcck(void)
 	}
 }
 
-void noinstr s390_handle_mcck(void)
+void noinstr s390_handle_mcck(struct pt_regs *regs)
 {
 	trace_hardirqs_off();
+	pai_kernel_enter(regs);
 	__s390_handle_mcck();
+	pai_kernel_exit(regs);
 	trace_hardirqs_on();
 }
 /*

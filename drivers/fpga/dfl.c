@@ -379,6 +379,7 @@ dfl_dev_add(struct dfl_feature_platform_data *pdata,
 
 	ddev->type = feature_dev_id_type(pdev);
 	ddev->feature_id = feature->id;
+	ddev->revision = feature->revision;
 	ddev->cdev = pdata->dfl_cdev;
 
 	/* add mmio resource */
@@ -715,6 +716,7 @@ struct build_feature_devs_info {
  */
 struct dfl_feature_info {
 	u16 fid;
+	u8 revision;
 	struct resource mmio_res;
 	void __iomem *ioaddr;
 	struct list_head node;
@@ -794,6 +796,7 @@ static int build_info_commit_dev(struct build_feature_devs_info *binfo)
 		/* save resource information for each feature */
 		feature->dev = fdev;
 		feature->id = finfo->fid;
+		feature->revision = finfo->revision;
 
 		/*
 		 * the FIU header feature has some fundamental functions (sriov
@@ -908,19 +911,17 @@ static void build_info_free(struct build_feature_devs_info *binfo)
 	devm_kfree(binfo->dev, binfo);
 }
 
-static inline u32 feature_size(void __iomem *start)
+static inline u32 feature_size(u64 value)
 {
-	u64 v = readq(start + DFH);
-	u32 ofst = FIELD_GET(DFH_NEXT_HDR_OFST, v);
+	u32 ofst = FIELD_GET(DFH_NEXT_HDR_OFST, value);
 	/* workaround for private features with invalid size, use 4K instead */
 	return ofst ? ofst : 4096;
 }
 
-static u16 feature_id(void __iomem *start)
+static u16 feature_id(u64 value)
 {
-	u64 v = readq(start + DFH);
-	u16 id = FIELD_GET(DFH_ID, v);
-	u8 type = FIELD_GET(DFH_TYPE, v);
+	u16 id = FIELD_GET(DFH_ID, value);
+	u8 type = FIELD_GET(DFH_TYPE, value);
 
 	if (type == DFH_TYPE_FIU)
 		return FEATURE_ID_FIU_HEADER;
@@ -939,8 +940,11 @@ static int parse_feature_irqs(struct build_feature_devs_info *binfo,
 {
 	void __iomem *base = binfo->ioaddr + ofst;
 	unsigned int i, ibase, inr = 0;
+	enum dfl_id_type type;
 	int virq;
 	u64 v;
+
+	type = feature_dev_id_type(binfo->feature_dev);
 
 	/*
 	 * Ideally DFL framework should only read info from DFL header, but
@@ -956,22 +960,25 @@ static int parse_feature_irqs(struct build_feature_devs_info *binfo,
 	 * code will be added. But in order to be compatible to old version
 	 * DFL, the driver may still fall back to these quirks.
 	 */
-	switch (fid) {
-	case PORT_FEATURE_ID_UINT:
-		v = readq(base + PORT_UINT_CAP);
-		ibase = FIELD_GET(PORT_UINT_CAP_FST_VECT, v);
-		inr = FIELD_GET(PORT_UINT_CAP_INT_NUM, v);
-		break;
-	case PORT_FEATURE_ID_ERROR:
-		v = readq(base + PORT_ERROR_CAP);
-		ibase = FIELD_GET(PORT_ERROR_CAP_INT_VECT, v);
-		inr = FIELD_GET(PORT_ERROR_CAP_SUPP_INT, v);
-		break;
-	case FME_FEATURE_ID_GLOBAL_ERR:
-		v = readq(base + FME_ERROR_CAP);
-		ibase = FIELD_GET(FME_ERROR_CAP_INT_VECT, v);
-		inr = FIELD_GET(FME_ERROR_CAP_SUPP_INT, v);
-		break;
+	if (type == PORT_ID) {
+		switch (fid) {
+		case PORT_FEATURE_ID_UINT:
+			v = readq(base + PORT_UINT_CAP);
+			ibase = FIELD_GET(PORT_UINT_CAP_FST_VECT, v);
+			inr = FIELD_GET(PORT_UINT_CAP_INT_NUM, v);
+			break;
+		case PORT_FEATURE_ID_ERROR:
+			v = readq(base + PORT_ERROR_CAP);
+			ibase = FIELD_GET(PORT_ERROR_CAP_INT_VECT, v);
+			inr = FIELD_GET(PORT_ERROR_CAP_SUPP_INT, v);
+			break;
+		}
+	} else if (type == FME_ID) {
+		if (fid == FME_FEATURE_ID_GLOBAL_ERR) {
+			v = readq(base + FME_ERROR_CAP);
+			ibase = FIELD_GET(FME_ERROR_CAP_INT_VECT, v);
+			inr = FIELD_GET(FME_ERROR_CAP_SUPP_INT, v);
+		}
 	}
 
 	if (!inr) {
@@ -1018,11 +1025,18 @@ create_feature_instance(struct build_feature_devs_info *binfo,
 {
 	unsigned int irq_base, nr_irqs;
 	struct dfl_feature_info *finfo;
+	u8 revision = 0;
 	int ret;
+	u64 v;
 
-	/* read feature size and id if inputs are invalid */
-	size = size ? size : feature_size(binfo->ioaddr + ofst);
-	fid = fid ? fid : feature_id(binfo->ioaddr + ofst);
+	if (fid != FEATURE_ID_AFU) {
+		v = readq(binfo->ioaddr + ofst);
+		revision = FIELD_GET(DFH_REVISION, v);
+
+		/* read feature size and id if inputs are invalid */
+		size = size ? size : feature_size(v);
+		fid = fid ? fid : feature_id(v);
+	}
 
 	if (binfo->len - ofst < size)
 		return -EINVAL;
@@ -1036,6 +1050,7 @@ create_feature_instance(struct build_feature_devs_info *binfo,
 		return -ENOMEM;
 
 	finfo->fid = fid;
+	finfo->revision = revision;
 	finfo->mmio_res.start = binfo->start + ofst;
 	finfo->mmio_res.end = finfo->mmio_res.start + size - 1;
 	finfo->mmio_res.flags = IORESOURCE_MEM;
@@ -1164,7 +1179,7 @@ static int parse_feature_private(struct build_feature_devs_info *binfo,
 {
 	if (!is_feature_dev_detected(binfo)) {
 		dev_err(binfo->dev, "the private feature 0x%x does not belong to any AFU.\n",
-			feature_id(binfo->ioaddr + ofst));
+			feature_id(readq(binfo->ioaddr + ofst)));
 		return -EINVAL;
 	}
 
@@ -1398,19 +1413,15 @@ dfl_fpga_feature_devs_enumerate(struct dfl_fpga_enum_info *info)
 	if (!cdev)
 		return ERR_PTR(-ENOMEM);
 
-	cdev->region = devm_fpga_region_create(info->dev, NULL, NULL);
-	if (!cdev->region) {
-		ret = -ENOMEM;
-		goto free_cdev_exit;
-	}
-
 	cdev->parent = info->dev;
 	mutex_init(&cdev->lock);
 	INIT_LIST_HEAD(&cdev->port_dev_list);
 
-	ret = fpga_region_register(cdev->region);
-	if (ret)
+	cdev->region = fpga_region_register(info->dev, NULL, NULL);
+	if (IS_ERR(cdev->region)) {
+		ret = PTR_ERR(cdev->region);
 		goto free_cdev_exit;
+	}
 
 	/* create and init build info for enumeration */
 	binfo = devm_kzalloc(info->dev, sizeof(*binfo), GFP_KERNEL);

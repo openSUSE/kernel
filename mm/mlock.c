@@ -377,7 +377,8 @@ static unsigned long __munlock_pagevec_fill(struct pagevec *pvec,
 		 * Break if page could not be obtained or the page's node+zone does not
 		 * match
 		 */
-		if (!page || page_zone(page) != zone)
+		if (!page || is_zone_device_page(page) ||
+		    page_zone(page) != zone)
 			break;
 
 		/*
@@ -440,7 +441,7 @@ void munlock_vma_pages_range(struct vm_area_struct *vma,
 		 */
 		page = follow_page(vma, start, FOLL_GET | FOLL_DUMP);
 
-		if (page && !IS_ERR(page)) {
+		if (page && !IS_ERR(page) && !is_zone_device_page(page)) {
 			if (PageTransTail(page)) {
 				VM_BUG_ON_PAGE(PageMlocked(page), page);
 				put_page(page); /* follow_page_mask() */

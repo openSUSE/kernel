@@ -6,6 +6,7 @@
 #include <linux/sched.h>
 #include <linux/mm_types.h>
 #include <linux/memblock.h>
+#include <linux/memremap.h>
 #include <misc/cxl-base.h>
 
 #include <asm/debugfs.h>
