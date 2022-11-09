@@ -6,7 +6,7 @@
 #include "blk-mq.h"
 #include "blk-mq-tag.h"
 
-#define MAX_SCHED_RQ (16 * BLKDEV_MAX_RQ)
+#define MAX_SCHED_RQ (16 * BLKDEV_DEFAULT_RQ)
 
 struct io_cq *blk_mq_sched_get_icq(struct request_queue *q);
 void blk_mq_sched_assign_ioc(struct request *rq);
