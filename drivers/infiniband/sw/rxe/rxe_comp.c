@@ -114,7 +114,7 @@ void retransmit_timer(struct timer_list *t)
 {
 	struct rxe_qp *qp = from_timer(qp, t, retrans_timer);
 
-	pr_debug("%s: fired for qp#%d\n", __func__, qp->pelem.index);
+	pr_debug("%s: fired for qp#%d\n", __func__, qp->elem.index);
 
 	if (qp->valid) {
 		qp->comp.timeout = 1;
