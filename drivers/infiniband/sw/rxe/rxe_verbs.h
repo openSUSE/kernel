@@ -363,7 +363,6 @@ struct rxe_mcg {
 };
 
 struct rxe_mca {
-	struct rxe_pool_elem	elem;
 	struct list_head	qp_list;
 	struct rxe_qp		*qp;
 };
@@ -397,7 +396,6 @@ struct rxe_dev {
 	struct rxe_pool		mr_pool;
 	struct rxe_pool		mw_pool;
 	struct rxe_pool		mc_grp_pool;
-	struct rxe_pool		mc_elem_pool;
 
 	spinlock_t		mcg_lock;
 
