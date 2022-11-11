@@ -21,6 +21,7 @@
 #include <linux/seq_file.h>
 #include <linux/radix-tree.h>
 #include <linux/blkdev.h>
+#include <linux/blk-mq.h>
 #include <linux/atomic.h>
 #include <linux/kthread.h>
 #include <linux/fs.h>
