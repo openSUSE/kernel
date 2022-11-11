@@ -51,7 +51,7 @@ void netvsc_switch_datapath(struct net_device *ndev, bool vf)
 
 	vmbus_sendpacket(dev->channel, init_pkt,
 			       sizeof(struct nvsp_message),
-			       (unsigned long)init_pkt,
+			       VMBUS_RQST_ID_NO_RESPONSE,
 			       VM_PKT_DATA_INBAND, 0);
 }
 
@@ -165,7 +165,7 @@ static void netvsc_revoke_recv_buf(struct hv_device *device,
 		ret = vmbus_sendpacket(device->channel,
 				       revoke_packet,
 				       sizeof(struct nvsp_message),
-				       (unsigned long)revoke_packet,
+				       VMBUS_RQST_ID_NO_RESPONSE,
 				       VM_PKT_DATA_INBAND, 0);
 		/* If the failure is because the channel is rescinded;
 		 * ignore the failure since we cannot send on a rescinded
@@ -215,7 +215,7 @@ static void netvsc_revoke_send_buf(struct hv_device *device,
 		ret = vmbus_sendpacket(device->channel,
 				       revoke_packet,
 				       sizeof(struct nvsp_message),
-				       (unsigned long)revoke_packet,
+				       VMBUS_RQST_ID_NO_RESPONSE,
 				       VM_PKT_DATA_INBAND, 0);
 
 		/* If the failure is because the channel is rescinded;
@@ -559,7 +559,7 @@ static int negotiate_nvsp_ver(struct hv_device *device,
 
 	ret = vmbus_sendpacket(device->channel, init_packet,
 				sizeof(struct nvsp_message),
-				(unsigned long)init_packet,
+				VMBUS_RQST_ID_NO_RESPONSE,
 				VM_PKT_DATA_INBAND, 0);
 
 	return ret;
@@ -616,7 +616,7 @@ static int netvsc_connect_vsp(struct hv_device *device,
 	/* Send the init request */
 	ret = vmbus_sendpacket(device->channel, init_packet,
 				sizeof(struct nvsp_message),
-				(unsigned long)init_packet,
+				VMBUS_RQST_ID_NO_RESPONSE,
 				VM_PKT_DATA_INBAND, 0);
 	if (ret != 0)
 		goto cleanup;
@@ -697,10 +697,19 @@ static void netvsc_send_tx_complete(struct net_device *ndev,
 				    const struct vmpacket_descriptor *desc,
 				    int budget)
 {
-	struct sk_buff *skb = (struct sk_buff *)(unsigned long)desc->trans_id;
 	struct net_device_context *ndev_ctx = netdev_priv(ndev);
+	struct sk_buff *skb;
 	u16 q_idx = 0;
 	int queue_sends;
+	u64 cmd_rqst;
+
+	cmd_rqst = vmbus_request_addr(&channel->requestor, (u64)desc->trans_id);
+	if (cmd_rqst == VMBUS_RQST_ERROR) {
+		netdev_err(ndev, "Incorrect transaction id\n");
+		return;
+	}
+
+	skb = (struct sk_buff *)(unsigned long)cmd_rqst;
 
 	/* Notify the layer above us */
 	if (likely(skb)) {
@@ -1550,6 +1559,7 @@ struct netvsc_device *netvsc_device_add(struct hv_device *device,
 		       netvsc_poll, NAPI_POLL_WEIGHT);
 
 	/* Open the channel */
+	device->channel->rqstor_size = netvsc_rqstor_size(netvsc_ring_bytes);
 	ret = vmbus_open(device->channel, netvsc_ring_bytes,
 			 netvsc_ring_bytes,  NULL, 0,
 			 netvsc_channel_cb, net_device->chan_table);
