@@ -664,7 +664,7 @@ static int rt1308_set_component_pll(struct snd_soc_component *component,
 
 	ret = rl6231_pll_calc(freq_in, freq_out, &pll_code);
 	if (ret < 0) {
-		dev_err(component->dev, "Unsupport input clock %d\n", freq_in);
+		dev_err(component->dev, "Unsupported input clock %d\n", freq_in);
 		return ret;
 	}
 
@@ -814,8 +814,7 @@ static void rt1308_efuse(struct rt1308_priv *rt1308)
 	regmap_write(rt1308->regmap, RT1308_PVDD_OFFSET_CTL, 0x10000000);
 }
 
-static int rt1308_i2c_probe(struct i2c_client *i2c,
-		    const struct i2c_device_id *id)
+static int rt1308_i2c_probe(struct i2c_client *i2c)
 {
 	struct rt1308_priv *rt1308;
 	int ret;
@@ -864,7 +863,7 @@ static struct i2c_driver rt1308_i2c_driver = {
 		.of_match_table = of_match_ptr(rt1308_of_match),
 		.acpi_match_table = ACPI_PTR(rt1308_acpi_match),
 	},
-	.probe = rt1308_i2c_probe,
+	.probe_new = rt1308_i2c_probe,
 	.shutdown = rt1308_i2c_shutdown,
 	.id_table = rt1308_i2c_id,
 };

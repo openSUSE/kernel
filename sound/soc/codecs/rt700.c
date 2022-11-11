@@ -818,8 +818,13 @@ static const struct snd_soc_dapm_route rt700_audio_map[] = {
 static int rt700_probe(struct snd_soc_component *component)
 {
 	struct rt700_priv *rt700 = snd_soc_component_get_drvdata(component);
+	int ret;
 
 	rt700->component = component;
+
+	ret = pm_runtime_resume(component->dev);
+	if (ret < 0 && ret != -EACCES)
+		return ret;
 
 	return 0;
 }
@@ -863,6 +868,7 @@ static const struct snd_soc_component_driver soc_codec_dev_rt700 = {
 	.dapm_routes = rt700_audio_map,
 	.num_dapm_routes = ARRAY_SIZE(rt700_audio_map),
 	.set_jack = rt700_set_jack_detect,
+	.endianness = 1,
 };
 
 static int rt700_set_sdw_stream(struct snd_soc_dai *dai, void *sdw_stream,
@@ -1015,7 +1021,7 @@ static int rt700_pcm_hw_free(struct snd_pcm_substream *substream,
 static const struct snd_soc_dai_ops rt700_ops = {
 	.hw_params	= rt700_pcm_hw_params,
 	.hw_free	= rt700_pcm_hw_free,
-	.set_sdw_stream	= rt700_set_sdw_stream,
+	.set_stream	= rt700_set_sdw_stream,
 	.shutdown	= rt700_shutdown,
 };
 

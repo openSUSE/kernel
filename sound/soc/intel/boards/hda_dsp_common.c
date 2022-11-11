@@ -62,13 +62,13 @@ int hda_dsp_hdmi_build_controls(struct snd_soc_card *card,
 			hpcm->pcm = spcm;
 			hpcm->device = spcm->device;
 			dev_dbg(card->dev,
-				"%s: mapping HDMI converter %d to PCM %d (%p)\n",
-				__func__, i, hpcm->device, spcm);
+				"mapping HDMI converter %d to PCM %d (%p)\n",
+				i, hpcm->device, spcm);
 		} else {
 			hpcm->pcm = NULL;
 			hpcm->device = SNDRV_PCM_INVALID_DEVICE;
 			dev_warn(card->dev,
-				 "%s: no PCM in topology for HDMI converter %d\n\n",
+				 "%s: no PCM in topology for HDMI converter %d\n",
 				 __func__, i);
 		}
 		i++;

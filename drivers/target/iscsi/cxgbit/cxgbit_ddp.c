@@ -227,14 +227,14 @@ rel_ppods:
 }
 
 void
-cxgbit_get_r2t_ttt(struct iscsi_conn *conn, struct iscsi_cmd *cmd,
+cxgbit_get_r2t_ttt(struct iscsit_conn *conn, struct iscsit_cmd *cmd,
 		   struct iscsi_r2t *r2t)
 {
 	struct cxgbit_sock *csk = conn->context;
 	struct cxgbit_device *cdev = csk->com.cdev;
 	struct cxgbit_cmd *ccmd = iscsit_priv_cmd(cmd);
 	struct cxgbi_task_tag_info *ttinfo = &ccmd->ttinfo;
-	int ret = -EINVAL;
+	int ret;
 
 	if ((!ccmd->setup_ddp) ||
 	    (!test_bit(CSK_DDP_ENABLE, &csk->com.flags)))
@@ -260,7 +260,7 @@ out:
 	r2t->targ_xfer_tag = ttinfo->tag;
 }
 
-void cxgbit_unmap_cmd(struct iscsi_conn *conn, struct iscsi_cmd *cmd)
+void cxgbit_unmap_cmd(struct iscsit_conn *conn, struct iscsit_cmd *cmd)
 {
 	struct cxgbit_cmd *ccmd = iscsit_priv_cmd(cmd);
 

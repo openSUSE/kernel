@@ -556,7 +556,7 @@ void blk_mq_free_request(struct request *rq)
 		__blk_mq_dec_active_requests(hctx);
 
 	if (unlikely(laptop_mode && !blk_rq_is_passthrough(rq)))
-		laptop_io_completion(q->backing_dev_info);
+		laptop_io_completion(queue_to_disk(q)->bdi);
 
 	rq_qos_done(q, rq);
 
@@ -3323,8 +3323,6 @@ int blk_mq_init_allocated_queue(struct blk_mq_tag_set *set,
 	if (set->nr_maps > HCTX_TYPE_POLL &&
 	    set->map[HCTX_TYPE_POLL].nr_queues)
 		blk_queue_flag_set(QUEUE_FLAG_POLL, q);
-
-	q->sg_reserved_size = INT_MAX;
 
 	INIT_DELAYED_WORK(&q->requeue_work, blk_mq_requeue_work);
 	INIT_LIST_HEAD(&q->requeue_list);

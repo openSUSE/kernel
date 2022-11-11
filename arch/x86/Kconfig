@@ -74,7 +74,6 @@ config X86
 	select ARCH_HAS_EARLY_DEBUG		if KGDB
 	select ARCH_HAS_ELF_RANDOMIZE
 	select ARCH_HAS_FAST_MULTIPLIER
-	select ARCH_HAS_FILTER_PGPROT
 	select ARCH_HAS_FORTIFY_SOURCE
 	select ARCH_HAS_GCOV_PROFILE_ALL
 	select ARCH_HAS_KCOV			if X86_64 && STACK_VALIDATION
@@ -326,9 +325,6 @@ config GENERIC_CALIBRATE_DELAY
 	def_bool y
 
 config ARCH_HAS_CPU_RELAX
-	def_bool y
-
-config ARCH_HAS_FILTER_PGPROT
 	def_bool y
 
 config HAVE_SETUP_PER_CPU_AREA
@@ -883,6 +879,21 @@ config ACRN_GUEST
 	  real-time and safety-criticality in mind. It is built for embedded
 	  IOT with small footprint and real-time features. More details can be
 	  found in https://projectacrn.org/.
+
+config INTEL_TDX_GUEST
+	bool "Intel TDX (Trust Domain Extensions) - Guest Support"
+	depends on X86_64 && CPU_SUP_INTEL
+	depends on X86_X2APIC
+	select ARCH_HAS_CC_PLATFORM
+	select X86_MEM_ENCRYPT
+	select X86_MCE
+	help
+	  Support running as a guest under Intel TDX.  Without this support,
+	  the guest kernel can not boot or run under TDX.
+	  TDX includes memory encryption and integrity capabilities
+	  which protect the confidentiality and integrity of guest
+	  memory contents and CPU state. TDX guests are protected from
+	  some attacks from the VMM.
 
 endif #HYPERVISOR_GUEST
 

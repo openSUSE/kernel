@@ -208,8 +208,7 @@ int snd_soc_dai_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 {
 	int ret = -ENOTSUPP;
 
-	if (dai->driver->ops &&
-	    dai->driver->ops->set_fmt)
+	if (dai->driver->ops && dai->driver->ops->set_fmt)
 		ret = dai->driver->ops->set_fmt(dai, fmt);
 
 	return soc_dai_ret(dai, ret);
@@ -453,18 +452,6 @@ void snd_soc_dai_shutdown(struct snd_soc_dai *dai,
 	soc_dai_mark_pop(dai, substream, startup);
 }
 
-snd_pcm_sframes_t snd_soc_dai_delay(struct snd_soc_dai *dai,
-				    struct snd_pcm_substream *substream)
-{
-	int delay = 0;
-
-	if (dai->driver->ops &&
-	    dai->driver->ops->delay)
-		delay = dai->driver->ops->delay(substream, dai);
-
-	return delay;
-}
-
 int snd_soc_dai_compress_new(struct snd_soc_dai *dai,
 			     struct snd_soc_pcm_runtime *rtd, int num)
 {
@@ -492,18 +479,16 @@ bool snd_soc_dai_stream_valid(struct snd_soc_dai *dai, int dir)
  */
 void snd_soc_dai_link_set_capabilities(struct snd_soc_dai_link *dai_link)
 {
-	struct snd_soc_dai_link_component *cpu;
-	struct snd_soc_dai_link_component *codec;
-	struct snd_soc_dai *dai;
 	bool supported[SNDRV_PCM_STREAM_LAST + 1];
-	bool supported_cpu;
-	bool supported_codec;
 	int direction;
-	int i;
 
 	for_each_pcm_streams(direction) {
-		supported_cpu = false;
-		supported_codec = false;
+		struct snd_soc_dai_link_component *cpu;
+		struct snd_soc_dai_link_component *codec;
+		struct snd_soc_dai *dai;
+		bool supported_cpu = false;
+		bool supported_codec = false;
+		int i;
 
 		for_each_link_cpus(dai_link, i, cpu) {
 			dai = snd_soc_find_dai_with_mutex(cpu);
@@ -597,11 +582,11 @@ int snd_soc_pcm_dai_remove(struct snd_soc_pcm_runtime *rtd, int order)
 int snd_soc_pcm_dai_new(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_dai *dai;
-	int i, ret = 0;
+	int i;
 
 	for_each_rtd_dais(rtd, i, dai) {
 		if (dai->driver->pcm_new) {
-			ret = dai->driver->pcm_new(rtd, dai);
+			int ret = dai->driver->pcm_new(rtd, dai);
 			if (ret < 0)
 				return soc_dai_ret(dai, ret);
 		}
@@ -693,6 +678,34 @@ int snd_soc_pcm_dai_bespoke_trigger(struct snd_pcm_substream *substream,
 	}
 
 	return 0;
+}
+
+void snd_soc_pcm_dai_delay(struct snd_pcm_substream *substream,
+			   snd_pcm_sframes_t *cpu_delay,
+			   snd_pcm_sframes_t *codec_delay)
+{
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
+	struct snd_soc_dai *dai;
+	int i;
+
+	/*
+	 * We're looking for the delay through the full audio path so it needs to
+	 * be the maximum of the DAIs doing transmit and the maximum of the DAIs
+	 * doing receive (ie, all CPUs and all CODECs) rather than just the maximum
+	 * of all DAIs.
+	 */
+
+	/* for CPU */
+	for_each_rtd_cpu_dais(rtd, i, dai)
+		if (dai->driver->ops &&
+		    dai->driver->ops->delay)
+			*cpu_delay = max(*cpu_delay, dai->driver->ops->delay(substream, dai));
+
+	/* for Codec */
+	for_each_rtd_codec_dais(rtd, i, dai)
+		if (dai->driver->ops &&
+		    dai->driver->ops->delay)
+			*codec_delay = max(*codec_delay, dai->driver->ops->delay(substream, dai));
 }
 
 int snd_soc_dai_compr_startup(struct snd_soc_dai *dai,

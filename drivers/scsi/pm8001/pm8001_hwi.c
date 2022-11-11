@@ -1323,7 +1323,7 @@ int pm8001_mpi_build_cmd(struct pm8001_hba_info *pm8001_ha,
 	void *pMessage;
 	unsigned long flags;
 	int q_index = circularQ - pm8001_ha->inbnd_q_tbl;
-	int rv = -1;
+	int rv;
 
 	if (WARN_ON(q_index >= pm8001_ha->max_q_num))
 		return -EINVAL;
