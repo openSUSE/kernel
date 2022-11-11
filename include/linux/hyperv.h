@@ -1016,6 +1016,21 @@ struct vmbus_channel {
 #endif
 };
 
+#define lock_requestor(channel, flags)					\
+do {									\
+	struct vmbus_requestor *rqstor = &(channel)->requestor;		\
+									\
+	spin_lock_irqsave(&rqstor->req_lock, flags);			\
+} while (0)
+
+static __always_inline void unlock_requestor(struct vmbus_channel *channel,
+					     unsigned long flags)
+{
+	struct vmbus_requestor *rqstor = &channel->requestor;
+
+	spin_unlock_irqrestore(&rqstor->req_lock, flags);
+}
+
 u64 vmbus_next_request_id(struct vmbus_channel *channel, u64 rqst_addr);
 u64 __vmbus_request_addr_match(struct vmbus_channel *channel, u64 trans_id,
 			       u64 rqst_addr);
