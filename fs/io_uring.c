@@ -5512,6 +5512,13 @@ static int io_poll_add(struct io_kiocb *req, unsigned int issue_flags)
 	struct io_ring_ctx *ctx = req->ctx;
 	struct io_poll_table ipt;
 	__poll_t mask;
+#ifdef CONFIG_SIGNALFD
+	extern __poll_t signalfd_poll(struct file *file, poll_table *wait);
+
+	/* unhandled pollfree: Binder (SLE-disabled) and signalfd only */
+	if (req->file->f_op->poll == &signalfd_poll)
+		return -EOPNOTSUPP;
+#endif
 
 	ipt.pt._qproc = io_poll_queue_proc;
 
