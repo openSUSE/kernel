@@ -2921,15 +2921,15 @@ static bool __blk_mq_alloc_map_and_rqs(struct blk_mq_tag_set *set,
 	return set->tags[hctx_idx];
 }
 
-static void blk_mq_free_map_and_requests(struct blk_mq_tag_set *set,
-					 unsigned int hctx_idx)
+void blk_mq_free_map_and_rqs(struct blk_mq_tag_set *set,
+			     struct blk_mq_tags *tags,
+			     unsigned int hctx_idx)
 {
 	unsigned int flags = set->flags;
 
-	if (set->tags && set->tags[hctx_idx]) {
-		blk_mq_free_rqs(set, set->tags[hctx_idx], hctx_idx);
-		blk_mq_free_rq_map(set->tags[hctx_idx], flags);
-		set->tags[hctx_idx] = NULL;
+	if (tags) {
+		blk_mq_free_rqs(set, tags, hctx_idx);
+		blk_mq_free_rq_map(tags, flags);
 	}
 }
 
@@ -3010,8 +3010,10 @@ static void blk_mq_map_swqueue(struct request_queue *q)
 			 * fallback in case of a new remap fails
 			 * allocation
 			 */
-			if (i && set->tags[i])
-				blk_mq_free_map_and_requests(set, i);
+			if (i && set->tags[i]) {
+				blk_mq_free_map_and_rqs(set, set->tags[i], i);
+				set->tags[i] = NULL;
+			}
 
 			hctx->tags = NULL;
 			continue;
@@ -3402,8 +3404,10 @@ static int __blk_mq_alloc_rq_maps(struct blk_mq_tag_set *set)
 	return 0;
 
 out_unwind:
-	while (--i >= 0)
-		blk_mq_free_map_and_requests(set, i);
+	while (--i >= 0) {
+		blk_mq_free_map_and_rqs(set, set->tags[i], i);
+		set->tags[i] = NULL;
+	}
 
 	return -ENOMEM;
 }
@@ -3598,8 +3602,10 @@ int blk_mq_alloc_tag_set(struct blk_mq_tag_set *set)
 	return 0;
 
 out_free_mq_rq_maps:
-	for (i = 0; i < set->nr_hw_queues; i++)
-		blk_mq_free_map_and_requests(set, i);
+	for (i = 0; i < set->nr_hw_queues; i++) {
+		blk_mq_free_map_and_rqs(set, set->tags[i], i);
+		set->tags[i] = NULL;
+	}
 out_free_mq_map:
 	for (i = 0; i < set->nr_maps; i++) {
 		kfree(set->map[i].mq_map);
@@ -3631,8 +3637,10 @@ void blk_mq_free_tag_set(struct blk_mq_tag_set *set)
 {
 	int i, j;
 
-	for (i = 0; i < set->nr_hw_queues; i++)
-		blk_mq_free_map_and_requests(set, i);
+	for (i = 0; i < set->nr_hw_queues; i++) {
+		blk_mq_free_map_and_rqs(set, set->tags[i], i);
+		set->tags[i] = NULL;
+	}
 
 	if (blk_mq_is_sbitmap_shared(set->flags))
 		blk_mq_exit_shared_sbitmap(set);
@@ -3822,7 +3830,7 @@ fallback:
 			pr_warn("Increasing nr_hw_queues to %d fails, fallback to %d\n",
 					nr_hw_queues, prev_nr_hw_queues);
 			for (; i < set->nr_hw_queues; i++)
-				blk_mq_free_map_and_requests(set, i);
+				blk_mq_free_map_and_rqs(set, set->tags[i], i);
 
 			set->nr_hw_queues = prev_nr_hw_queues;
 			blk_mq_map_queues(&set->map[HCTX_TYPE_DEFAULT]);
