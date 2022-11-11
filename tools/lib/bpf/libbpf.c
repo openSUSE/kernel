@@ -9162,12 +9162,18 @@ static int determine_uprobe_retprobe_bit(void)
 	return parse_uint_from_file(file, "config:%d\n");
 }
 
+#define PERF_UPROBE_REF_CTR_OFFSET_BITS 32
+#define PERF_UPROBE_REF_CTR_OFFSET_SHIFT 32
+
 static int perf_event_open_probe(bool uprobe, bool retprobe, const char *name,
-				 uint64_t offset, int pid)
+				 uint64_t offset, int pid, size_t ref_ctr_off)
 {
 	struct perf_event_attr attr = {};
 	char errmsg[STRERR_BUFSIZE];
 	int type, pfd, err;
+
+	if (ref_ctr_off >= (1ULL << PERF_UPROBE_REF_CTR_OFFSET_BITS))
+		return -EINVAL;
 
 	type = uprobe ? determine_uprobe_perf_type()
 		      : determine_kprobe_perf_type();
@@ -9191,6 +9197,7 @@ static int perf_event_open_probe(bool uprobe, bool retprobe, const char *name,
 	}
 	attr.size = sizeof(attr);
 	attr.type = type;
+	attr.config |= (__u64)ref_ctr_off << PERF_UPROBE_REF_CTR_OFFSET_SHIFT;
 	attr.config1 = ptr_to_u64(name); /* kprobe_func or uprobe_path */
 	attr.config2 = offset;		 /* kprobe_addr or probe_offset */
 
@@ -9229,7 +9236,7 @@ bpf_program__attach_kprobe_opts(struct bpf_program *prog,
 	pe_opts.bpf_cookie = OPTS_GET(opts, bpf_cookie, 0);
 
 	pfd = perf_event_open_probe(false /* uprobe */, retprobe, func_name,
-				    offset, -1 /* pid */);
+				    offset, -1 /* pid */, 0 /* ref_ctr_off */);
 	if (pfd < 0) {
 		pr_warn("prog '%s': failed to create %s '%s' perf event: %s\n",
 			prog->name, retprobe ? "kretprobe" : "kprobe", func_name,
@@ -9299,6 +9306,7 @@ bpf_program__attach_uprobe_opts(struct bpf_program *prog, pid_t pid,
 	DECLARE_LIBBPF_OPTS(bpf_perf_event_opts, pe_opts);
 	char errmsg[STRERR_BUFSIZE];
 	struct bpf_link *link;
+	size_t ref_ctr_off;
 	int pfd, err;
 	bool retprobe;
 
@@ -9306,10 +9314,11 @@ bpf_program__attach_uprobe_opts(struct bpf_program *prog, pid_t pid,
 		return libbpf_err_ptr(-EINVAL);
 
 	retprobe = OPTS_GET(opts, retprobe, false);
+	ref_ctr_off = OPTS_GET(opts, ref_ctr_offset, 0);
 	pe_opts.bpf_cookie = OPTS_GET(opts, bpf_cookie, 0);
 
-	pfd = perf_event_open_probe(true /* uprobe */, retprobe,
-				    binary_path, func_offset, pid);
+	pfd = perf_event_open_probe(true /* uprobe */, retprobe, binary_path,
+				    func_offset, pid, ref_ctr_off);
 	if (pfd < 0) {
 		pr_warn("prog '%s': failed to create %s '%s:0x%zx' perf event: %s\n",
 			prog->name, retprobe ? "uretprobe" : "uprobe",
