@@ -166,13 +166,14 @@ int rxe_mem_init_user(struct rxe_pd *pd, u64 start,
 	int			num_buf;
 	void			*vaddr;
 	int err;
+	int i;
 
 	umem = ib_umem_get(pd->ibpd.device, start, length, access);
 	if (IS_ERR(umem)) {
-		pr_warn("err %d from rxe_umem_get\n",
-			(int)PTR_ERR(umem));
+		pr_warn("%s: Unable to pin memory region err = %d\n",
+			__func__, (int)PTR_ERR(umem));
 		err = PTR_ERR(umem);
-		goto err1;
+		goto err_out;
 	}
 
 	mem->umem = umem;
@@ -182,9 +183,9 @@ int rxe_mem_init_user(struct rxe_pd *pd, u64 start,
 
 	err = rxe_mem_alloc(mem, num_buf);
 	if (err) {
-		pr_warn("err %d from rxe_mem_alloc\n", err);
-		ib_umem_release(umem);
-		goto err1;
+		pr_warn("%s: Unable to allocate memory for map\n",
+				__func__);
+		goto err_release_umem;
 	}
 
 	mem->page_shift		= PAGE_SHIFT;
@@ -204,10 +205,10 @@ int rxe_mem_init_user(struct rxe_pd *pd, u64 start,
 
 			vaddr = page_address(sg_page_iter_page(&sg_iter));
 			if (!vaddr) {
-				pr_warn("null vaddr\n");
-				ib_umem_release(umem);
+				pr_warn("%s: Unable to get virtual address\n",
+						__func__);
 				err = -ENOMEM;
-				goto err1;
+				goto err_cleanup_map;
 			}
 
 			buf->addr = (uintptr_t)vaddr;
@@ -230,7 +231,13 @@ int rxe_mem_init_user(struct rxe_pd *pd, u64 start,
 
 	return 0;
 
-err1:
+err_cleanup_map:
+	for (i = 0; i < mem->num_map; i++)
+		kfree(mem->map[i]);
+	kfree(mem->map);
+err_release_umem:
+	ib_umem_release(umem);
+err_out:
 	return err;
 }
 

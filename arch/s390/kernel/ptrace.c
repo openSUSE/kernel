@@ -849,14 +849,13 @@ asmlinkage long do_syscall_trace_enter(struct pt_regs *regs)
 		 * Tracing decided this syscall should not happen. Skip
 		 * the system call and the system call restart handling.
 		 */
-		clear_pt_regs_flag(regs, PIF_SYSCALL);
-		return -1;
+		goto skip;
 	}
 
 	/* Do the secure computing check after ptrace. */
 	if (secure_computing(NULL)) {
 		/* seccomp failures shouldn't expose any additional code. */
-		return -1;
+		goto skip;
 	}
 
 	if (unlikely(test_thread_flag(TIF_SYSCALL_TRACEPOINT)))
@@ -869,7 +868,12 @@ asmlinkage long do_syscall_trace_enter(struct pt_regs *regs)
 			    regs->gprs[3] &mask, regs->gprs[4] &mask,
 			    regs->gprs[5] &mask);
 
+	if ((signed long)regs->gprs[2] >= NR_syscalls)
+		regs->gprs[2] = -ENOSYS;
 	return regs->gprs[2];
+skip:
+	clear_pt_regs_flag(regs, PIF_SYSCALL);
+	return -1;
 }
 
 asmlinkage void do_syscall_trace_exit(struct pt_regs *regs)
