@@ -41,6 +41,7 @@
 #include <linux/bio.h>
 #include <linux/gfp.h>
 #include <linux/uaccess.h>
+#include <linux/major.h>
 
 #define XPRAM_NAME	"xpram"
 #define XPRAM_DEVS	1	/* one partition */
