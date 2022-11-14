@@ -34,6 +34,13 @@
  *   - Gyroscope supported full-scale [dps]: +-125/+-245/+-500/+-1000/+-2000
  *   - FIFO size: 3KB
  *
+ * - LSM6DSV/LSM6DSV16X:
+ *   - Accelerometer/Gyroscope supported ODR [Hz]: 7.5, 15, 30, 60, 120, 240,
+ *     480, 960
+ *   - Accelerometer supported full-scale [g]: +-2/+-4/+-8/+-16
+ *   - Gyroscope supported full-scale [dps]: +-125/+-250/+-500/+-1000/+-2000
+ *   - FIFO size: 3KB
+ *
  * - LSM9DS1/LSM6DS0:
  *   - Accelerometer supported ODR [Hz]: 10, 50, 119, 238, 476, 952
  *   - Accelerometer supported full-scale [g]: +-2/+-4/+-8/+-16
