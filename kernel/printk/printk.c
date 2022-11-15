@@ -340,15 +340,7 @@ static void console_kthreads_unblock(void)
 	console_kthreads_blocked = false;
 }
 
-/*
- * This is used for debugging the mess that is the VT code by
- * keeping track if we have the console semaphore held. It's
- * definitely not the perfect debug tool (we don't know if _WE_
- * hold it and are racing, but it helps tracking those weird code
- * paths in the console code where we end up in places I want
- * locked without the console semaphore held).
- */
-static int console_locked, console_suspended;
+static int console_suspended;
 
 /*
  *	Array of consoles built from command line options (console=)
@@ -2716,7 +2708,6 @@ void console_lock(void)
 	if (console_suspended)
 		return;
 	console_kthreads_block();
-	console_locked = 1;
 	console_may_schedule = 1;
 }
 EXPORT_SYMBOL(console_lock);
@@ -2731,13 +2722,11 @@ static void console_lock_single_hold(struct console *con)
 	might_sleep();
 	down_console_sem();
 	mutex_lock(&con->lock);
-	console_locked = 1;
 	console_may_schedule = 1;
 }
 
 static void console_unlock_single_release(struct console *con)
 {
-	console_locked = 0;
 	mutex_unlock(&con->lock);
 	up_console_sem();
 }
@@ -2762,15 +2751,26 @@ int console_trylock(void)
 		up_console_sem();
 		return 0;
 	}
-	console_locked = 1;
 	console_may_schedule = 0;
 	return 1;
 }
 EXPORT_SYMBOL(console_trylock);
 
+/*
+ * This is used to help to make sure that certain paths within the VT code are
+ * running with the console lock held. It is definitely not the perfect debug
+ * tool (it is not known if the VT code is the task holding the console lock),
+ * but it helps tracking those weird code paths in the console code such as
+ * when the console is suspended: where the console is not locked but no
+ * console printing may occur.
+ *
+ * Note: This returns true when the console is suspended but is not locked.
+ *       This is intentional because the VT code must consider that situation
+ *       the same as if the console was locked.
+ */
 int is_console_locked(void)
 {
-	return (console_locked || atomic_read(&console_kthreads_active));
+	return (console_kthreads_blocked || atomic_read(&console_kthreads_active));
 }
 EXPORT_SYMBOL(is_console_locked);
 
@@ -2826,8 +2826,6 @@ static inline bool console_is_usable(struct console *con)
 
 static void __console_unlock(void)
 {
-	console_locked = 0;
-
 	/*
 	 * Depending on whether console_lock() or console_trylock() was used,
 	 * appropriately allow the kthread printers to continue.
@@ -3144,7 +3142,6 @@ void console_unblank(void)
 	} else
 		console_lock();
 
-	console_locked = 1;
 	console_may_schedule = 0;
 	for_each_console(c)
 		if ((c->flags & CON_ENABLED) && c->unblank)
