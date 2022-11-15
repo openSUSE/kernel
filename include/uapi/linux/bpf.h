@@ -5625,6 +5625,7 @@ struct bpf_prog_info {
 	__u64 run_time_ns;
 	__u64 run_cnt;
 	__u64 recursion_misses;
+	__u32 verified_insns;
 } __attribute__((aligned(8)));
 
 struct bpf_map_info {
