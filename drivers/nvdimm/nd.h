@@ -334,14 +334,6 @@ struct nd_region {
 	struct nd_mapping mapping[];
 };
 
-struct nd_blk_region {
-	int (*enable)(struct nvdimm_bus *nvdimm_bus, struct device *dev);
-	int (*do_io)(struct nd_blk_region *ndbr, resource_size_t dpa,
-			void *iobuf, u64 len, int rw);
-	void *blk_provider_data;
-	struct nd_region nd_region;
-};
-
 /*
  * Lookup next in the repeating sequence of 01, 10, and 11.
  */
@@ -569,7 +561,6 @@ static inline int nvdimm_setup_pfn(struct nd_pfn *nd_pfn,
 	return -ENXIO;
 }
 #endif
-int nd_blk_region_init(struct nd_region *nd_region);
 int nd_region_activate(struct nd_region *nd_region);
 static inline bool is_bad_pmem(struct badblocks *bb, sector_t sector,
 		unsigned int len)
