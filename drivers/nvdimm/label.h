@@ -138,9 +138,6 @@ u32 nd_label_nfree(struct nvdimm_drvdata *ndd);
 enum nvdimm_claim_class to_nvdimm_cclass(guid_t *guid);
 struct nd_region;
 struct nd_namespace_pmem;
-struct nd_namespace_blk;
 int nd_pmem_namespace_label_update(struct nd_region *nd_region,
 		struct nd_namespace_pmem *nspm, resource_size_t size);
-int nd_blk_namespace_label_update(struct nd_region *nd_region,
-		struct nd_namespace_blk *nsblk, resource_size_t size);
 #endif /* __LABEL_H__ */
