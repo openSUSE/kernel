@@ -9676,10 +9676,11 @@ bpf_program__attach_kprobe_opts(const struct bpf_program *prog,
 						    offset, -1 /* pid */);
 	}
 	if (pfd < 0) {
+		err = pfd;
 		pr_warn("prog '%s': failed to create %s '%s' perf event: %s\n",
 			prog->name, retprobe ? "kretprobe" : "kprobe", func_name,
-			libbpf_strerror_r(pfd, errmsg, sizeof(errmsg)));
-		return libbpf_err_ptr(pfd);
+			libbpf_strerror_r(err, errmsg, sizeof(errmsg)));
+		goto err_out;
 	}
 	link = bpf_program__attach_perf_event_opts(prog, pfd, &pe_opts);
 	err = libbpf_get_error(link);
@@ -9688,7 +9689,7 @@ bpf_program__attach_kprobe_opts(const struct bpf_program *prog,
 		pr_warn("prog '%s': failed to attach to %s '%s': %s\n",
 			prog->name, retprobe ? "kretprobe" : "kprobe", func_name,
 			libbpf_strerror_r(err, errmsg, sizeof(errmsg)));
-		return libbpf_err_ptr(err);
+		goto err_out;
 	}
 	if (legacy) {
 		struct bpf_link_perf *perf_link = container_of(link, struct bpf_link_perf, link);
@@ -9698,6 +9699,9 @@ bpf_program__attach_kprobe_opts(const struct bpf_program *prog,
 	}
 
 	return link;
+err_out:
+	free(legacy_probe);
+	return libbpf_err_ptr(err);
 }
 
 struct bpf_link *bpf_program__attach_kprobe(const struct bpf_program *prog,
