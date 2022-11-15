@@ -3264,8 +3264,8 @@ static bool btf_equal_common(struct btf_type *t1, struct btf_type *t2)
 	       t1->size == t2->size;
 }
 
-/* Calculate type signature hash of INT. */
-static long btf_hash_int(struct btf_type *t)
+/* Calculate type signature hash of INT or TAG. */
+static long btf_hash_int_tag(struct btf_type *t)
 {
 	__u32 info = *(__u32 *)(t + 1);
 	long h;
@@ -3275,8 +3275,8 @@ static long btf_hash_int(struct btf_type *t)
 	return h;
 }
 
-/* Check structural equality of two INTs. */
-static bool btf_equal_int(struct btf_type *t1, struct btf_type *t2)
+/* Check structural equality of two INTs or TAGs. */
+static bool btf_equal_int_tag(struct btf_type *t1, struct btf_type *t2)
 {
 	__u32 info1, info2;
 
@@ -3543,7 +3543,7 @@ static int btf_dedup_prep(struct btf_dedup *d)
 			h = btf_hash_common(t);
 			break;
 		case BTF_KIND_INT:
-			h = btf_hash_int(t);
+			h = btf_hash_int_tag(t);
 			break;
 		case BTF_KIND_ENUM:
 			h = btf_hash_enum(t);
@@ -3601,11 +3601,11 @@ static int btf_dedup_prim_type(struct btf_dedup *d, __u32 type_id)
 		return 0;
 
 	case BTF_KIND_INT:
-		h = btf_hash_int(t);
+		h = btf_hash_int_tag(t);
 		for_each_dedup_cand(d, hash_entry, h) {
 			cand_id = (__u32)(long)hash_entry->value;
 			cand = btf_type_by_id(d->btf, cand_id);
-			if (btf_equal_int(t, cand)) {
+			if (btf_equal_int_tag(t, cand)) {
 				new_id = cand_id;
 				break;
 			}
@@ -3889,7 +3889,7 @@ static int btf_dedup_is_equiv(struct btf_dedup *d, __u32 cand_id,
 
 	switch (cand_kind) {
 	case BTF_KIND_INT:
-		return btf_equal_int(cand_type, canon_type);
+		return btf_equal_int_tag(cand_type, canon_type);
 
 	case BTF_KIND_ENUM:
 		if (d->opts.dont_resolve_fwds)
