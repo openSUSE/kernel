@@ -177,6 +177,38 @@ static inline void nsl_set_lbasize(struct nvdimm_drvdata *ndd,
 	nd_label->lbasize = __cpu_to_le64(lbasize);
 }
 
+static inline const uuid_t *nsl_get_uuid(struct nvdimm_drvdata *ndd,
+					 struct nd_namespace_label *nd_label,
+					 uuid_t *uuid)
+{
+	import_uuid(uuid, nd_label->uuid);
+	return uuid;
+}
+
+static inline const uuid_t *nsl_set_uuid(struct nvdimm_drvdata *ndd,
+					 struct nd_namespace_label *nd_label,
+					 const uuid_t *uuid)
+{
+	export_uuid(nd_label->uuid, uuid);
+	return uuid;
+}
+
+static inline bool nsl_uuid_equal(struct nvdimm_drvdata *ndd,
+				  struct nd_namespace_label *nd_label,
+				  const uuid_t *uuid)
+{
+	uuid_t tmp;
+
+	import_uuid(&tmp, nd_label->uuid);
+	return uuid_equal(&tmp, uuid);
+}
+
+static inline const u8 *nsl_uuid_raw(struct nvdimm_drvdata *ndd,
+				     struct nd_namespace_label *nd_label)
+{
+	return nd_label->uuid;
+}
+
 struct nd_region_data {
 	int ns_count;
 	int ns_active;
@@ -327,7 +359,7 @@ struct nd_btt {
 	struct btt *btt;
 	unsigned long lbasize;
 	u64 size;
-	u8 *uuid;
+	uuid_t *uuid;
 	int id;
 	int initial_offset;
 	u16 version_major;
@@ -342,7 +374,7 @@ enum nd_pfn_mode {
 
 struct nd_pfn {
 	int id;
-	u8 *uuid;
+	uuid_t *uuid;
 	struct device dev;
 	unsigned long align;
 	unsigned long npfns;
@@ -370,7 +402,7 @@ void wait_nvdimm_bus_probe_idle(struct device *dev);
 void nd_device_register(struct device *dev);
 void nd_device_unregister(struct device *dev, enum nd_async_mode mode);
 void nd_device_notify(struct device *dev, enum nvdimm_event event);
-int nd_uuid_store(struct device *dev, u8 **uuid_out, const char *buf,
+int nd_uuid_store(struct device *dev, uuid_t **uuid_out, const char *buf,
 		size_t len);
 ssize_t nd_size_select_show(unsigned long current_size,
 		const unsigned long *supported, char *buf);
@@ -553,6 +585,6 @@ static inline bool is_bad_pmem(struct badblocks *bb, sector_t sector,
 	return false;
 }
 resource_size_t nd_namespace_blk_validate(struct nd_namespace_blk *nsblk);
-const u8 *nd_dev_to_uuid(struct device *dev);
+const uuid_t *nd_dev_to_uuid(struct device *dev);
 bool pmem_should_map_pages(struct device *dev);
 #endif /* __ND_H__ */

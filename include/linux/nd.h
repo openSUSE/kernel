@@ -140,7 +140,7 @@ struct nd_namespace_pmem {
 	struct nd_namespace_io nsio;
 	unsigned long lbasize;
 	char *alt_name;
-	u8 *uuid;
+	uuid_t *uuid;
 	int id;
 };
 
@@ -157,7 +157,7 @@ struct nd_namespace_pmem {
 struct nd_namespace_blk {
 	struct nd_namespace_common common;
 	char *alt_name;
-	u8 *uuid;
+	uuid_t *uuid;
 	int id;
 	unsigned long lbasize;
 	resource_size_t size;
