@@ -176,12 +176,21 @@ static int transport_add_class_device(struct attribute_container *cont,
  * routine is simply a trigger point used to add the device to the
  * system and register attributes for it.
  */
+#ifndef __GENKSYMS__
 int transport_add_device(struct device *dev)
 {
 	return attribute_container_device_trigger_safe(dev,
 					transport_add_class_device,
 					transport_remove_classdev);
 }
+#else	/* __GENKSYMS__ */
+void transport_add_device(struct device *dev)
+{
+	attribute_container_device_trigger_safe(dev,
+					transport_add_class_device,
+					transport_remove_classdev);
+}
+#endif	/* __GENKSYMS__ */
 EXPORT_SYMBOL_GPL(transport_add_device);
 
 static int transport_configure(struct attribute_container *cont,
