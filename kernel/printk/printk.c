@@ -285,7 +285,6 @@ static struct console *exclusive_console;
 static struct console_cmdline console_cmdline[MAX_CMDLINECONSOLES];
 
 static int preferred_console = -1;
-static bool need_default_console = true;
 int console_set_on_cmdline;
 EXPORT_SYMBOL(console_set_on_cmdline);
 
@@ -2985,10 +2984,8 @@ static void try_enable_default_console(struct console *newcon)
 
 	newcon->flags |= CON_ENABLED;
 
-	if (newcon->device) {
+	if (newcon->device)
 		newcon->flags |= CON_CONSDEV;
-		need_default_console = false;
-	}
 }
 
 /*
@@ -3038,16 +3035,24 @@ void register_console(struct console *newcon)
 	if (console_drivers && console_drivers->flags & CON_BOOT)
 		bcon = console_drivers;
 
-	if (need_default_console || bcon || !console_drivers)
-		need_default_console = preferred_console < 0;
-
 	/*
-	 *	See if we want to use this console driver. If we
-	 *	didn't select a console we take the first one
-	 *	that registers here.
+	 * See if we want to enable this console driver by default.
+	 *
+	 * Nope when a console is preferred by the command line, device
+	 * tree, or SPCR.
+	 *
+	 * The first real console with tty binding (driver) wins. More
+	 * consoles might get enabled before the right one is found.
+	 *
+	 * Note that a console with tty binding will have CON_CONSDEV
+	 * flag set and will be first in the list.
 	 */
-	if (need_default_console)
-		try_enable_default_console(newcon);
+	if (preferred_console < 0) {
+		if (!console_drivers || !console_drivers->device ||
+		    console_drivers->flags & CON_BOOT) {
+			try_enable_default_console(newcon);
+		}
+	}
 
 	/* See if this console matches one we selected on the command line */
 	err = try_enable_preferred_console(newcon, true);
