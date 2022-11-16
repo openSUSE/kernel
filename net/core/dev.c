@@ -3896,14 +3896,6 @@ static void net_rx_action(struct softirq_action *h)
 out:
 	net_rps_action_and_irq_enable(sd);
 
-#ifdef CONFIG_NET_DMA
-	/*
-	 * There may not be any more sk_buffs coming right now, so push
-	 * any pending DMA copies to hardware
-	 */
-	dma_issue_pending_all();
-#endif
-
 	return;
 
 softnet_break:
