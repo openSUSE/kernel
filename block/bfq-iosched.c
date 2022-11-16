@@ -117,7 +117,6 @@
 #include <linux/slab.h>
 #include <linux/blkdev.h>
 #include <linux/cgroup.h>
-#include <linux/elevator.h>
 #include <linux/ktime.h>
 #include <linux/rbtree.h>
 #include <linux/ioprio.h>
@@ -127,6 +126,7 @@
 
 #include <trace/events/block.h>
 
+#include "elevator.h"
 #include "blk.h"
 #include "blk-mq.h"
 #include "blk-mq-tag.h"
@@ -5406,7 +5406,7 @@ bfq_set_next_ioprio_data(struct bfq_queue *bfqq, struct bfq_io_cq *bic)
 	switch (ioprio_class) {
 	default:
 		pr_err("bdi %s: bfq: bad prio class %d\n",
-			bdi_dev_name(queue_to_disk(bfqq->bfqd->queue)->bdi),
+			bdi_dev_name(bfqq->bfqd->queue->disk->bdi),
 			ioprio_class);
 		fallthrough;
 	case IOPRIO_CLASS_NONE:
@@ -6979,8 +6979,8 @@ static void bfq_depth_updated(struct blk_mq_hw_ctx *hctx)
 	struct bfq_data *bfqd = hctx->queue->elevator->elevator_data;
 	struct blk_mq_tags *tags = hctx->sched_tags;
 
-	bfq_update_depths(bfqd, tags->bitmap_tags);
-	sbitmap_queue_min_shallow_depth(tags->bitmap_tags, 1);
+	bfq_update_depths(bfqd, &tags->bitmap_tags);
+	sbitmap_queue_min_shallow_depth(&tags->bitmap_tags, 1);
 }
 
 static int bfq_init_hctx(struct blk_mq_hw_ctx *hctx, unsigned int index)

@@ -41,6 +41,7 @@
 #include <linux/sched/signal.h>
 #include <linux/kthread.h>
 #include <linux/blkdev.h>
+#include <linux/blk-integrity.h>
 #include <linux/badblocks.h>
 #include <linux/sysctl.h>
 #include <linux/seq_file.h>
@@ -51,6 +52,7 @@
 #include <linux/hdreg.h>
 #include <linux/proc_fs.h>
 #include <linux/random.h>
+#include <linux/major.h>
 #include <linux/module.h>
 #include <linux/reboot.h>
 #include <linux/file.h>
