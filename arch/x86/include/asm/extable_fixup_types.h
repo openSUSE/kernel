@@ -44,4 +44,6 @@
 
 #define	EX_TYPE_IMM_REG			15 /* reg := (long)imm */
 
+#define	EX_TYPE_EFAULT_REG		(EX_TYPE_IMM_REG | EX_DATA_IMM(-EFAULT))
+
 #endif
