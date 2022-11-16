@@ -17,6 +17,7 @@
 #include "blk-mq.h"
 #include "blk-mq-debugfs.h"
 #include "blk-wbt.h"
+#include "blk-throttle.h"
 
 struct queue_sysfs_entry {
 	struct attribute attr;
@@ -90,9 +91,9 @@ static ssize_t queue_ra_show(struct request_queue *q, char *page)
 {
 	unsigned long ra_kb;
 
-	if (!queue_has_disk(q))
+	if (!q->disk)
 		return -EINVAL;
-	ra_kb = queue_to_disk(q)->bdi->ra_pages << (PAGE_SHIFT - 10);
+	ra_kb = q->disk->bdi->ra_pages << (PAGE_SHIFT - 10);
 	return queue_var_show(ra_kb, page);
 }
 
@@ -102,12 +103,12 @@ queue_ra_store(struct request_queue *q, const char *page, size_t count)
 	unsigned long ra_kb;
 	ssize_t ret;
 
-	if (!queue_has_disk(q))
+	if (!q->disk)
 		return -EINVAL;
 	ret = queue_var_store(&ra_kb, page, count);
 	if (ret < 0)
 		return ret;
-	queue_to_disk(q)->bdi->ra_pages = ra_kb >> (PAGE_SHIFT - 10);
+	q->disk->bdi->ra_pages = ra_kb >> (PAGE_SHIFT - 10);
 	return ret;
 }
 
@@ -254,9 +255,8 @@ queue_max_sectors_store(struct request_queue *q, const char *page, size_t count)
 
 	spin_lock_irq(&q->queue_lock);
 	q->limits.max_sectors = max_sectors_kb << 1;
-	if (queue_has_disk(q))
-		queue_to_disk(q)->bdi->io_pages =
-			max_sectors_kb >> (PAGE_SHIFT - 10);
+	if (q->disk)
+		q->disk->bdi->io_pages = max_sectors_kb >> (PAGE_SHIFT - 10);
 	spin_unlock_irq(&q->queue_lock);
 
 	return ret;
@@ -856,15 +856,6 @@ int blk_register_queue(struct gendisk *disk)
 	int ret;
 	struct device *dev = disk_to_dev(disk);
 	struct request_queue *q = disk->queue;
-
-	if (WARN_ON(!q))
-		return -ENXIO;
-
-	WARN_ONCE(blk_queue_registered(q),
-		  "%s is registering an already registered queue\n",
-		  kobject_name(&dev->kobj));
-
-	disk_update_readahead(disk);
 
 	ret = blk_trace_init_sysfs(dev);
 	if (ret)

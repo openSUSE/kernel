@@ -140,29 +140,8 @@ struct nd_namespace_pmem {
 	struct nd_namespace_io nsio;
 	unsigned long lbasize;
 	char *alt_name;
-	u8 *uuid;
+	uuid_t *uuid;
 	int id;
-};
-
-/**
- * struct nd_namespace_blk - namespace for dimm-bounded persistent memory
- * @alt_name: namespace name supplied in the dimm label
- * @uuid: namespace name supplied in the dimm label
- * @id: ida allocated id
- * @lbasize: blk namespaces have a native sector size when btt not present
- * @size: sum of all the resource ranges allocated to this namespace
- * @num_resources: number of dpa extents to claim
- * @res: discontiguous dpa extents for given dimm
- */
-struct nd_namespace_blk {
-	struct nd_namespace_common common;
-	char *alt_name;
-	u8 *uuid;
-	int id;
-	unsigned long lbasize;
-	resource_size_t size;
-	int num_resources;
-	struct resource **res;
 };
 
 static inline struct nd_namespace_io *to_nd_namespace_io(const struct device *dev)
@@ -175,11 +154,6 @@ static inline struct nd_namespace_pmem *to_nd_namespace_pmem(const struct device
 	struct nd_namespace_io *nsio = to_nd_namespace_io(dev);
 
 	return container_of(nsio, struct nd_namespace_pmem, nsio);
-}
-
-static inline struct nd_namespace_blk *to_nd_namespace_blk(const struct device *dev)
-{
-	return container_of(dev, struct nd_namespace_blk, common.dev);
 }
 
 /**

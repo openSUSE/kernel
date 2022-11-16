@@ -19,6 +19,7 @@
 #include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/kmod.h>
+#include <linux/major.h>
 #include <linux/mutex.h>
 #include <linux/idr.h>
 #include <linux/log2.h>
@@ -26,6 +27,7 @@
 #include <linux/badblocks.h>
 
 #include "blk.h"
+#include "blk-rq-qos.h"
 
 static struct kobject *block_depr;
 
@@ -318,54 +320,19 @@ void unregister_blkdev(unsigned int major, const char *name)
 
 EXPORT_SYMBOL(unregister_blkdev);
 
-/**
- * blk_mangle_minor - scatter minor numbers apart
- * @minor: minor number to mangle
- *
- * Scatter consecutively allocated @minor number apart if MANGLE_DEVT
- * is enabled.  Mangling twice gives the original value.
- *
- * RETURNS:
- * Mangled value.
- *
- * CONTEXT:
- * Don't care.
- */
-static int blk_mangle_minor(int minor)
-{
-#ifdef CONFIG_DEBUG_BLOCK_EXT_DEVT
-	int i;
-
-	for (i = 0; i < MINORBITS / 2; i++) {
-		int low = minor & (1 << i);
-		int high = minor & (1 << (MINORBITS - 1 - i));
-		int distance = MINORBITS - 1 - 2 * i;
-
-		minor ^= low | high;	/* clear both bits */
-		low <<= distance;	/* swap the positions */
-		high >>= distance;
-		minor |= low | high;	/* and set */
-	}
-#endif
-	return minor;
-}
-
 int blk_alloc_ext_minor(void)
 {
 	int idx;
 
 	idx = ida_alloc_range(&ext_devt_ida, 0, NR_EXT_DEVT - 1, GFP_KERNEL);
-	if (idx < 0) {
-		if (idx == -ENOSPC)
-			return -EBUSY;
-		return idx;
-	}
-	return blk_mangle_minor(idx);
+	if (idx == -ENOSPC)
+		return -EBUSY;
+	return idx;
 }
 
 void blk_free_ext_minor(unsigned int minor)
 {
-	ida_free(&ext_devt_ida, blk_mangle_minor(minor));
+	ida_free(&ext_devt_ida, minor);
 }
 
 static char *bdevt_str(dev_t devt, char *buf)
@@ -414,71 +381,6 @@ static void disk_scan_partitions(struct gendisk *disk)
 		blkdev_put(bdev, FMODE_READ);
 }
 
-static void register_disk(struct device *parent, struct gendisk *disk,
-			  const struct attribute_group **groups)
-{
-	struct device *ddev = disk_to_dev(disk);
-	int err;
-
-	ddev->parent = parent;
-
-	dev_set_name(ddev, "%s", disk->disk_name);
-
-	/* delay uevents, until we scanned partition table */
-	dev_set_uevent_suppress(ddev, 1);
-
-	if (groups) {
-		WARN_ON(ddev->groups);
-		ddev->groups = groups;
-	}
-	if (device_add(ddev))
-		return;
-	if (!sysfs_deprecated) {
-		err = sysfs_create_link(block_depr, &ddev->kobj,
-					kobject_name(&ddev->kobj));
-		if (err) {
-			device_del(ddev);
-			return;
-		}
-	}
-
-	/*
-	 * avoid probable deadlock caused by allocating memory with
-	 * GFP_KERNEL in runtime_resume callback of its all ancestor
-	 * devices
-	 */
-	pm_runtime_set_memalloc_noio(ddev, true);
-
-	disk->part0->bd_holder_dir =
-		kobject_create_and_add("holders", &ddev->kobj);
-	disk->slave_dir = kobject_create_and_add("slaves", &ddev->kobj);
-
-	/*
-	 * XXX: this is a mess, can't wait for real error handling in add_disk.
-	 * Make sure ->slave_dir is NULL if we failed some of the registration
-	 * so that the cleanup in bd_unlink_disk_holder works properly.
-	 */
-	if (bd_register_pending_holders(disk) < 0) {
-		kobject_put(disk->slave_dir);
-		disk->slave_dir = NULL;
-	}
-
-	if (disk->flags & GENHD_FL_HIDDEN)
-		return;
-
-	disk_scan_partitions(disk);
-
-	/* announce the disk and partitions after all partitions are created */
-	dev_set_uevent_suppress(ddev, 0);
-	disk_uevent(disk, KOBJ_ADD);
-
-	if (disk->bdi->dev) {
-		err = sysfs_create_link(&ddev->kobj, &disk->bdi->dev->kobj,
-					"bdi");
-		WARN_ON(err);
-	}
-}
-
 /**
  * device_add_disk - add disk information to kernel list
  * @parent: parent device for the disk
@@ -487,14 +389,12 @@ static void register_disk(struct device *parent, struct gendisk *disk,
  *
  * This function registers the partitioning information in @disk
  * with the kernel.
- *
- * FIXME: error handling
  */
-
-void device_add_disk(struct device *parent, struct gendisk *disk,
+int device_add_disk(struct device *parent, struct gendisk *disk,
 		     const struct attribute_group **groups)
 
 {
+	struct device *ddev = disk_to_dev(disk);
 	int ret;
 
 	/*
@@ -513,7 +413,8 @@ void device_add_disk(struct device *parent, struct gendisk *disk,
 	 * and all partitions from the extended dev_t space.
 	 */
 	if (disk->major) {
-		WARN_ON(!disk->minors);
+		if (WARN_ON(!disk->minors))
+			return -EINVAL;
 
 		if (disk->minors > DISK_MAX_PARTS) {
 			pr_err("block: can't allocate more than %d partitions\n",
@@ -521,19 +422,65 @@ void device_add_disk(struct device *parent, struct gendisk *disk,
 			disk->minors = DISK_MAX_PARTS;
 		}
 	} else {
-		WARN_ON(disk->minors);
+		if (WARN_ON(disk->minors))
+			return -EINVAL;
 
 		ret = blk_alloc_ext_minor();
-		if (ret < 0) {
-			WARN_ON(1);
-			return;
-		}
+		if (ret < 0)
+			return ret;
 		disk->major = BLOCK_EXT_MAJOR;
-		disk->first_minor = MINOR(ret);
+		disk->first_minor = ret;
 		disk->flags |= GENHD_FL_EXT_DEVT;
 	}
 
-	disk_alloc_events(disk);
+	ret = disk_alloc_events(disk);
+	if (ret)
+		goto out_free_ext_minor;
+
+	/* delay uevents, until we scanned partition table */
+	dev_set_uevent_suppress(ddev, 1);
+
+	ddev->parent = parent;
+	ddev->groups = groups;
+	dev_set_name(ddev, "%s", disk->disk_name);
+	if (!(disk->flags & GENHD_FL_HIDDEN))
+		ddev->devt = MKDEV(disk->major, disk->first_minor);
+	ret = device_add(ddev);
+	if (ret)
+		goto out_disk_release_events;
+	if (!sysfs_deprecated) {
+		ret = sysfs_create_link(block_depr, &ddev->kobj,
+					kobject_name(&ddev->kobj));
+		if (ret)
+			goto out_device_del;
+	}
+
+	/*
+	 * avoid probable deadlock caused by allocating memory with
+	 * GFP_KERNEL in runtime_resume callback of its all ancestor
+	 * devices
+	 */
+	pm_runtime_set_memalloc_noio(ddev, true);
+
+	ret = blk_integrity_add(disk);
+	if (ret)
+		goto out_del_block_link;
+
+	disk->part0->bd_holder_dir =
+		kobject_create_and_add("holders", &ddev->kobj);
+	if (!disk->part0->bd_holder_dir)
+		goto out_del_integrity;
+	disk->slave_dir = kobject_create_and_add("slaves", &ddev->kobj);
+	if (!disk->slave_dir)
+		goto out_put_holder_dir;
+
+	ret = bd_register_pending_holders(disk);
+	if (ret < 0)
+		goto out_put_slave_dir;
+
+	ret = blk_register_queue(disk);
+	if (ret)
+		goto out_put_slave_dir;
 
 	if (disk->flags & GENHD_FL_HIDDEN) {
 		/*
@@ -543,30 +490,53 @@ void device_add_disk(struct device *parent, struct gendisk *disk,
 		disk->flags |= GENHD_FL_SUPPRESS_PARTITION_INFO;
 		disk->flags |= GENHD_FL_NO_PART_SCAN;
 	} else {
-		struct device *dev = disk_to_dev(disk);
-
-		/* Register BDI before referencing it from bdev */
-		dev->devt = MKDEV(disk->major, disk->first_minor);
 		ret = bdi_register(disk->bdi, "%u:%u",
 				   disk->major, disk->first_minor);
-		WARN_ON(ret);
-		bdi_set_owner(disk->bdi, dev);
-		bdev_add(disk->part0, dev->devt);
+		if (ret)
+			goto out_unregister_queue;
+		bdi_set_owner(disk->bdi, ddev);
+		ret = sysfs_create_link(&ddev->kobj,
+					&disk->bdi->dev->kobj, "bdi");
+		if (ret)
+			goto out_unregister_bdi;
+
+		bdev_add(disk->part0, ddev->devt);
+		disk_scan_partitions(disk);
+
+		/*
+		 * Announce the disk and partitions after all partitions are
+		 * created. (for hidden disks uevents remain suppressed forever)
+		 */
+		dev_set_uevent_suppress(ddev, 0);
+		disk_uevent(disk, KOBJ_ADD);
 	}
-	register_disk(parent, disk, groups);
-	blk_register_queue(disk);
 
-	/*
-	 * Take an extra ref on queue which will be put on disk_release()
-	 * so that it sticks around as long as @disk is there.
-	 */
-	if (blk_get_queue(disk->queue))
-		set_bit(GD_QUEUE_REF, &disk->state);
-	else
-		WARN_ON_ONCE(1);
-
+	disk_update_readahead(disk);
 	disk_add_events(disk);
-	blk_integrity_add(disk);
+	return 0;
+
+out_unregister_bdi:
+	if (!(disk->flags & GENHD_FL_HIDDEN))
+		bdi_unregister(disk->bdi);
+out_unregister_queue:
+	blk_unregister_queue(disk);
+out_put_slave_dir:
+	kobject_put(disk->slave_dir);
+out_put_holder_dir:
+	kobject_put(disk->part0->bd_holder_dir);
+out_del_integrity:
+	blk_integrity_del(disk);
+out_del_block_link:
+	if (!sysfs_deprecated)
+		sysfs_remove_link(block_depr, dev_name(ddev));
+out_device_del:
+	device_del(ddev);
+out_disk_release_events:
+	disk_release_events(disk);
+out_free_ext_minor:
+	if (disk->major == BLOCK_EXT_MAJOR)
+		blk_free_ext_minor(disk->first_minor);
+	return WARN_ON_ONCE(ret); /* keep until all callers handle errors */
 }
 EXPORT_SYMBOL(device_add_disk);
 
@@ -591,9 +561,11 @@ EXPORT_SYMBOL(device_add_disk);
  */
 void del_gendisk(struct gendisk *disk)
 {
+	struct request_queue *q = disk->queue;
+
 	might_sleep();
 
-	if (WARN_ON_ONCE(!disk->queue))
+	if (WARN_ON_ONCE(!disk_live(disk) && !(disk->flags & GENHD_FL_HIDDEN)))
 		return;
 
 	blk_integrity_del(disk);
@@ -607,7 +579,26 @@ void del_gendisk(struct gendisk *disk)
 	fsync_bdev(disk->part0);
 	__invalidate_device(disk->part0, true);
 
+	/*
+	 * Fail any new I/O.
+	 */
+	set_bit(GD_DEAD, &disk->state);
 	set_capacity(disk, 0);
+
+	/*
+	 * Prevent new I/O from crossing bio_queue_enter().
+	 */
+	blk_queue_start_drain(q);
+	blk_mq_freeze_queue_wait(q);
+
+	rq_qos_exit(q);
+	blk_sync_queue(q);
+	blk_flush_integrity();
+	/*
+	 * Allow using passthrough request again after the queue is torn down.
+	 */
+	blk_queue_flag_clear(QUEUE_FLAG_INIT_DONE, q);
+	__blk_mq_unfreeze_queue(q, true);
 
 	if (!(disk->flags & GENHD_FL_HIDDEN)) {
 		sysfs_remove_link(&disk_to_dev(disk)->kobj, "bdi");
@@ -1093,12 +1084,13 @@ static void disk_release(struct device *dev)
 	struct gendisk *disk = dev_to_disk(dev);
 
 	might_sleep();
+	WARN_ON_ONCE(disk_live(disk));
 
 	disk_release_events(disk);
 	kfree(disk->random);
 	xa_destroy(&disk->part_tbl);
-	if (test_bit(GD_QUEUE_REF, &disk->state) && disk->queue)
-		blk_put_queue(disk->queue);
+	disk->queue->disk = NULL;
+	blk_put_queue(disk->queue);
 	iput(disk->part0->bd_inode);	/* frees the disk */
 }
 
@@ -1269,13 +1261,17 @@ dev_t blk_lookup_devt(const char *name, int partno)
 	return devt;
 }
 
-struct gendisk *__alloc_disk_node(int minors, int node_id)
+struct gendisk *__alloc_disk_node(struct request_queue *q, int node_id,
+		struct lock_class_key *lkclass)
 {
 	struct gendisk *disk;
 
+	if (!blk_get_queue(q))
+		return NULL;
+
 	disk = kzalloc_node(sizeof(struct gendisk), GFP_KERNEL, node_id);
 	if (!disk)
-		return NULL;
+		goto out_put_queue;
 
 	disk->bdi = bdi_alloc(node_id);
 	if (!disk->bdi)
@@ -1291,12 +1287,14 @@ struct gendisk *__alloc_disk_node(int minors, int node_id)
 	if (xa_insert(&disk->part_tbl, 0, disk->part0, GFP_KERNEL))
 		goto out_destroy_part_tbl;
 
-	disk->minors = minors;
 	rand_initialize_disk(disk);
 	disk_to_dev(disk)->class = &block_class;
 	disk_to_dev(disk)->type = &disk_type;
 	device_initialize(disk_to_dev(disk));
 	inc_diskseq(disk);
+	disk->queue = q;
+	q->disk = disk;
+	lockdep_init_map(&disk->lockdep_map, "(bio completion)", lkclass, 0);
 #ifdef CONFIG_BLOCK_HOLDER_DEPRECATED
 	INIT_LIST_HEAD(&disk->slave_bdevs);
 #endif
@@ -1304,16 +1302,19 @@ struct gendisk *__alloc_disk_node(int minors, int node_id)
 
 out_destroy_part_tbl:
 	xa_destroy(&disk->part_tbl);
+	disk->part0->bd_disk = NULL;
 	iput(disk->part0->bd_inode);
 out_free_bdi:
 	bdi_put(disk->bdi);
 out_free_disk:
 	kfree(disk);
+out_put_queue:
+	blk_put_queue(q);
 	return NULL;
 }
 EXPORT_SYMBOL(__alloc_disk_node);
 
-struct gendisk *__blk_alloc_disk(int node)
+struct gendisk *__blk_alloc_disk(int node, struct lock_class_key *lkclass)
 {
 	struct request_queue *q;
 	struct gendisk *disk;
@@ -1322,12 +1323,11 @@ struct gendisk *__blk_alloc_disk(int node)
 	if (!q)
 		return NULL;
 
-	disk = __alloc_disk_node(0, node);
+	disk = __alloc_disk_node(q, node, lkclass);
 	if (!disk) {
 		blk_cleanup_queue(q);
 		return NULL;
 	}
-	disk->queue = q;
 	return disk;
 }
 EXPORT_SYMBOL(__blk_alloc_disk);

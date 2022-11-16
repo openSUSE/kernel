@@ -2,10 +2,11 @@
 #ifndef BLK_MQ_SCHED_H
 #define BLK_MQ_SCHED_H
 
+#include "elevator.h"
 #include "blk-mq.h"
 #include "blk-mq-tag.h"
 
-#define MAX_SCHED_RQ (16 * BLKDEV_MAX_RQ)
+#define MAX_SCHED_RQ (16 * BLKDEV_DEFAULT_RQ)
 
 struct io_cq *blk_mq_sched_get_icq(struct request_queue *q);
 void blk_mq_sched_assign_ioc(struct request *rq);
@@ -17,7 +18,7 @@ bool __blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
 bool blk_mq_sched_try_insert_merge(struct request_queue *q, struct request *rq,
 				   struct list_head *free);
 void blk_mq_sched_mark_restart_hctx(struct blk_mq_hw_ctx *hctx);
-void blk_mq_sched_restart(struct blk_mq_hw_ctx *hctx);
+void __blk_mq_sched_restart(struct blk_mq_hw_ctx *hctx);
 
 void blk_mq_sched_insert_request(struct request *rq, bool at_head,
 				 bool run_queue, bool async);
@@ -29,7 +30,18 @@ void blk_mq_sched_dispatch_requests(struct blk_mq_hw_ctx *hctx);
 
 int blk_mq_init_sched(struct request_queue *q, struct elevator_type *e);
 void blk_mq_exit_sched(struct request_queue *q, struct elevator_queue *e);
-void blk_mq_sched_free_requests(struct request_queue *q);
+void blk_mq_sched_free_rqs(struct request_queue *q);
+
+static inline void blk_mq_sched_restart(struct blk_mq_hw_ctx *hctx)
+{
+	if (test_bit(BLK_MQ_S_SCHED_RESTART, &hctx->state))
+		__blk_mq_sched_restart(hctx);
+}
+
+static inline bool bio_mergeable(struct bio *bio)
+{
+	return !(bio->bi_opf & REQ_NOMERGE_FLAGS);
+}
 
 static inline bool
 blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
