@@ -32,6 +32,7 @@ static const char *verstr = "20160209";
 #include <linux/slab.h>
 #include <linux/errno.h>
 #include <linux/mtio.h>
+#include <linux/major.h>
 #include <linux/cdrom.h>
 #include <linux/ioctl.h>
 #include <linux/fcntl.h>
@@ -309,13 +310,8 @@ static char * st_incompatible(struct scsi_device* SDp)
 }
 
 
-static inline char *tape_name(struct scsi_tape *tape)
-{
-	return tape->disk->disk_name;
-}
-
 #define st_printk(prefix, t, fmt, a...) \
-	sdev_prefix_printk(prefix, (t)->device, tape_name(t), fmt, ##a)
+	sdev_prefix_printk(prefix, (t)->device, (t)->name, fmt, ##a)
 #ifdef DEBUG
 #define DEBC_printk(t, fmt, a...) \
 	if (debugging) { st_printk(ST_DEB_MSG, t, fmt, ##a ); }
@@ -363,7 +359,7 @@ static int st_chk_result(struct scsi_tape *STp, struct st_request * SRpnt)
 	int result = SRpnt->result;
 	u8 scode;
 	DEB(const char *stp;)
-	char *name = tape_name(STp);
+	char *name = STp->name;
 	struct st_cmdstatus *cmdstatp;
 
 	if (!result)
@@ -3832,7 +3828,7 @@ static long st_ioctl(struct file *file, unsigned int cmd_in, unsigned long arg)
 		break;
 	}
 
-	retval = scsi_ioctl(STp->device, STp->disk, file->f_mode, cmd_in, p);
+	retval = scsi_ioctl(STp->device, NULL, file->f_mode, cmd_in, p);
 	if (!retval && cmd_in == SCSI_IOCTL_STOP_UNIT) {
 		/* unload */
 		STp->rew_at_close = 0;
@@ -4188,7 +4184,7 @@ static int create_one_cdev(struct scsi_tape *tape, int mode, int rew)
 
 	i = mode << (4 - ST_NBR_MODE_BITS);
 	snprintf(name, 10, "%s%s%s", rew ? "n" : "",
-		 tape->disk->disk_name, st_formats[i]);
+		 tape->name, st_formats[i]);
 
 	dev = device_create(&st_sysfs_class, &tape->device->sdev_gendev,
 			    cdev_devno, &tape->modes[mode], "%s", name);
@@ -4243,7 +4239,6 @@ static void remove_cdevs(struct scsi_tape *tape)
 static int st_probe(struct device *dev)
 {
 	struct scsi_device *SDp = to_scsi_device(dev);
-	struct gendisk *disk = NULL;
 	struct scsi_tape *tpnt = NULL;
 	struct st_modedef *STm;
 	struct st_partstat *STps;
@@ -4273,27 +4268,13 @@ static int st_probe(struct device *dev)
 		goto out;
 	}
 
-	disk = alloc_disk(1);
-	if (!disk) {
-		sdev_printk(KERN_ERR, SDp,
-			    "st: out of memory. Device not attached.\n");
-		goto out_buffer_free;
-	}
-
 	tpnt = kzalloc(sizeof(struct scsi_tape), GFP_KERNEL);
 	if (tpnt == NULL) {
 		sdev_printk(KERN_ERR, SDp,
 			    "st: Can't allocate device descriptor.\n");
-		goto out_put_disk;
+		goto out_buffer_free;
 	}
 	kref_init(&tpnt->kref);
-	tpnt->disk = disk;
-	disk->private_data = &tpnt->driver;
-	/* SCSI tape doesn't register this gendisk via add_disk().  Manually
-	 * take queue reference that release_disk() expects. */
-	if (!blk_get_queue(SDp->request_queue))
-		goto out_put_disk;
-	disk->queue = SDp->request_queue;
 	tpnt->driver = &st_template;
 
 	tpnt->device = SDp;
@@ -4366,10 +4347,10 @@ static int st_probe(struct device *dev)
 	idr_preload_end();
 	if (error < 0) {
 		pr_warn("st: idr allocation failed: %d\n", error);
-		goto out_put_queue;
+		goto out_free_tape;
 	}
 	tpnt->index = error;
-	sprintf(disk->disk_name, "st%d", tpnt->index);
+	sprintf(tpnt->name, "st%d", tpnt->index);
 	tpnt->stats = kzalloc(sizeof(struct scsi_tape_stats), GFP_KERNEL);
 	if (tpnt->stats == NULL) {
 		sdev_printk(KERN_ERR, SDp,
@@ -4386,9 +4367,9 @@ static int st_probe(struct device *dev)
 	scsi_autopm_put_device(SDp);
 
 	sdev_printk(KERN_NOTICE, SDp,
-		    "Attached scsi tape %s\n", tape_name(tpnt));
+		    "Attached scsi tape %s\n", tpnt->name);
 	sdev_printk(KERN_INFO, SDp, "%s: try direct i/o: %s (alignment %d B)\n",
-		    tape_name(tpnt), tpnt->try_dio ? "yes" : "no",
+		    tpnt->name, tpnt->try_dio ? "yes" : "no",
 		    queue_dma_alignment(SDp->request_queue) + 1);
 
 	return 0;
@@ -4400,10 +4381,7 @@ out_idr_remove:
 	spin_lock(&st_index_lock);
 	idr_remove(&st_index_idr, tpnt->index);
 	spin_unlock(&st_index_lock);
-out_put_queue:
-	blk_put_queue(disk->queue);
-out_put_disk:
-	put_disk(disk);
+out_free_tape:
 	kfree(tpnt);
 out_buffer_free:
 	kfree(buffer);
@@ -4442,7 +4420,6 @@ static int st_remove(struct device *dev)
 static void scsi_tape_release(struct kref *kref)
 {
 	struct scsi_tape *tpnt = to_scsi_tape(kref);
-	struct gendisk *disk = tpnt->disk;
 
 	tpnt->device = NULL;
 
@@ -4452,8 +4429,6 @@ static void scsi_tape_release(struct kref *kref)
 		kfree(tpnt->buffer);
 	}
 
-	disk->private_data = NULL;
-	put_disk(disk);
 	kfree(tpnt->stats);
 	kfree(tpnt);
 	return;
