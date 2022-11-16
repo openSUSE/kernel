@@ -175,6 +175,7 @@ void reprogram_gp_counter(struct kvm_pmc *pmc, u64 eventsel)
 	u32 type = PERF_TYPE_RAW;
 	struct kvm *kvm = pmc->vcpu->kvm;
 	struct kvm_pmu_event_filter *filter;
+	struct kvm_pmu *pmu = vcpu_to_pmu(pmc->vcpu);
 	int i;
 	bool allow_event = true;
 
@@ -215,7 +216,7 @@ void reprogram_gp_counter(struct kvm_pmc *pmc, u64 eventsel)
 	}
 
 	if (type == PERF_TYPE_RAW)
-		config = eventsel & AMD64_RAW_EVENT_MASK;
+		config = eventsel & pmu->raw_event_mask;
 
 	if (pmc->current_config == eventsel && pmc_resume_counter(pmc))
 		return;
