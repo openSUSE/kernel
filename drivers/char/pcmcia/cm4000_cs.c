@@ -55,6 +55,7 @@
 	} while (0)
 
 static DEFINE_MUTEX(cmm_mutex);
+static DEFINE_MUTEX(remove_mutex);
 
 #define	T_1SEC		(HZ)
 #define	T_10MSEC	msecs_to_jiffies(10)
@@ -103,7 +104,8 @@ static int major;		/* major number we get from the kernel */
 #define REG_STOPBITS(x)		(x + 7)
 
 struct cm4000_dev {
-	struct pcmcia_device *p_dev;
+	struct pcmcia_device	*p_dev;
+	struct kref		refcnt;
 
 	unsigned char atr[MAX_ATR];
 	unsigned char rbuf[512];
@@ -146,6 +148,9 @@ struct cm4000_dev {
 	memset(&dev->atr_csum,0,				\
 		sizeof(struct cm4000_dev) - 			\
 		offsetof(struct cm4000_dev, atr_csum))
+
+static void stop_monitor(struct cm4000_dev *dev);
+static void cm4000_delete(struct kref *kref);
 
 static struct pcmcia_device *dev_table[CM4000_MAX_DEV];
 static struct class *cmm_class;
@@ -416,6 +421,30 @@ static struct card_fixup card_fixups[] = {
 		.stopbits = 0x04,
 	},
 };
+
+
+static void cm4000_delete(struct kref *kref)
+{
+	struct cm4000_dev *dev = container_of(kref, struct cm4000_dev, refcnt);
+	struct pcmcia_device *link = dev->p_dev;
+	int devno;
+
+	/* find device */
+	for (devno = 0; devno < CM4000_MAX_DEV; devno++)
+		if (dev_table[devno] == link)
+			break;
+	if (devno == CM4000_MAX_DEV)
+		return;
+
+	stop_monitor(dev);
+
+	cm4000_release(link);
+
+	dev_table[devno] = NULL;
+	kfree(dev);
+
+	device_destroy(cmm_class, MKDEV(major, devno));
+}
 
 static void set_cardparameter(struct cm4000_dev *dev)
 {
@@ -1639,6 +1668,7 @@ static int cmm_open(struct inode *inode, struct file *filp)
 	if (minor >= CM4000_MAX_DEV)
 		return -ENODEV;
 
+	mutex_lock(&remove_mutex);
 	mutex_lock(&cmm_mutex);
 	link = dev_table[minor];
 	if (link == NULL || !pcmcia_dev_present(link)) {
@@ -1683,8 +1713,12 @@ static int cmm_open(struct inode *inode, struct file *filp)
 
 	DEBUGP(2, dev, "<- cmm_open\n");
 	ret = nonseekable_open(inode, filp);
+
+	kref_get(&dev->refcnt);
 out:
 	mutex_unlock(&cmm_mutex);
+	mutex_unlock(&remove_mutex);
+
 	return ret;
 }
 
@@ -1712,6 +1746,8 @@ static int cmm_close(struct inode *inode, struct file *filp)
 
 	link->open = 0;		/* only one open per device */
 	wake_up(&dev->devq);	/* socket removed? */
+
+	kref_put(&dev->refcnt, cm4000_delete);
 
 	DEBUGP(2, dev, "cmm_close\n");
 	return 0;
@@ -1822,6 +1858,7 @@ static int cm4000_probe(struct pcmcia_device *link)
 	init_waitqueue_head(&dev->ioq);
 	init_waitqueue_head(&dev->atrq);
 	init_waitqueue_head(&dev->readq);
+	kref_init(&dev->refcnt);
 
 	ret = cm4000_config(link, i);
 	if (ret) {
@@ -1838,23 +1875,10 @@ static int cm4000_probe(struct pcmcia_device *link)
 static void cm4000_detach(struct pcmcia_device *link)
 {
 	struct cm4000_dev *dev = link->priv;
-	int devno;
 
-	/* find device */
-	for (devno = 0; devno < CM4000_MAX_DEV; devno++)
-		if (dev_table[devno] == link)
-			break;
-	if (devno == CM4000_MAX_DEV)
-		return;
-
-	stop_monitor(dev);
-
-	cm4000_release(link);
-
-	dev_table[devno] = NULL;
-	kfree(dev);
-
-	device_destroy(cmm_class, MKDEV(major, devno));
+	mutex_lock(&remove_mutex);
+	kref_put(&dev->refcnt, cm4000_delete);
+	mutex_unlock(&remove_mutex);
 
 	return;
 }
