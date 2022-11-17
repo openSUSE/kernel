@@ -117,6 +117,7 @@ static const char * const bit_desc_ss[] = {
 };
 
 DEFINE_MUTEX(suse_big_usbip_lock);
+EXPORT_SYMBOL(suse_big_usbip_lock);
 
 static void dump_port_status_diff(u32 prev_status, u32 new_status, bool usb3)
 {

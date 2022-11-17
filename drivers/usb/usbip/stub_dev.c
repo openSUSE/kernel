@@ -63,7 +63,7 @@ static ssize_t usbip_sockfd_store(struct device *dev, struct device_attribute *a
 
 		dev_info(dev, "stub up\n");
 
-		mutex_lock(&sdev->ud.sysfs_lock);
+		mutex_lock(&suse_big_usbip_lock);
 		spin_lock_irq(&sdev->ud.lock);
 
 		if (sdev->ud.status != SDEV_ST_AVAILABLE) {
@@ -113,7 +113,7 @@ static ssize_t usbip_sockfd_store(struct device *dev, struct device_attribute *a
 		wake_up_process(sdev->ud.tcp_rx);
 		wake_up_process(sdev->ud.tcp_tx);
 
-		mutex_unlock(&sdev->ud.sysfs_lock);
+		mutex_unlock(&suse_big_usbip_lock);
 
 	} else {
 		dev_info(dev, "stub down\n");
@@ -125,7 +125,7 @@ static ssize_t usbip_sockfd_store(struct device *dev, struct device_attribute *a
 		spin_unlock_irq(&sdev->ud.lock);
 
 		usbip_event_add(&sdev->ud, SDEV_EVENT_DOWN);
-		mutex_unlock(&sdev->ud.sysfs_lock);
+		mutex_unlock(&suse_big_usbip_lock);
 	}
 
 	return count;
@@ -135,7 +135,7 @@ sock_err:
 err:
 	spin_unlock_irq(&sdev->ud.lock);
 unlock_mutex:
-	mutex_unlock(&sdev->ud.sysfs_lock);
+	mutex_unlock(&suse_big_usbip_lock);
 	return -EINVAL;
 }
 static DEVICE_ATTR_WO(usbip_sockfd);
@@ -301,7 +301,6 @@ static struct stub_device *stub_device_alloc(struct usb_device *udev)
 	sdev->ud.side		= USBIP_STUB;
 	sdev->ud.status		= SDEV_ST_AVAILABLE;
 	spin_lock_init(&sdev->ud.lock);
-	mutex_init(&sdev->ud.sysfs_lock);
 	sdev->ud.tcp_socket	= NULL;
 	sdev->ud.sockfd		= -1;
 
