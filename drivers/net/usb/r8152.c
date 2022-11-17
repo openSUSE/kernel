@@ -651,6 +651,10 @@ enum rtl8152_flags {
 #define VENDOR_ID_NVIDIA		0x0955
 #define VENDOR_ID_TPLINK		0x2357
 
+#define DEVICE_ID_THINKPAD_ONELINK_PLUS_DOCK		0x3054
+#define DEVICE_ID_THINKPAD_THUNDERBOLT3_DOCK_GEN2	0x3082
+#define DEVICE_ID_THINKPAD_USB_C_DOCK_GEN2		0xa387
+
 #define MCU_TYPE_PLA			0x0100
 #define MCU_TYPE_USB			0x0000
 
@@ -1749,29 +1753,6 @@ drop:
 	}
 }
 
-/* msdn_giant_send_check()
- * According to the document of microsoft, the TCP Pseudo Header excludes the
- * packet length for IPv6 TCP large packets.
- */
-static int msdn_giant_send_check(struct sk_buff *skb)
-{
-	const struct ipv6hdr *ipv6h;
-	struct tcphdr *th;
-	int ret;
-
-	ret = skb_cow_head(skb, 0);
-	if (ret)
-		return ret;
-
-	ipv6h = ipv6_hdr(skb);
-	th = tcp_hdr(skb);
-
-	th->check = 0;
-	th->check = ~tcp_v6_check(0, &ipv6h->saddr, &ipv6h->daddr, 0);
-
-	return ret;
-}
-
 static inline void rtl_tx_vlan_tag(struct tx_desc *desc, struct sk_buff *skb)
 {
 	if (skb_vlan_tag_present(skb)) {
@@ -1817,10 +1798,11 @@ static int r8152_tx_csum(struct r8152 *tp, struct tx_desc *desc,
 			break;
 
 		case htons(ETH_P_IPV6):
-			if (msdn_giant_send_check(skb)) {
+			if (skb_cow_head(skb, 0)) {
 				ret = TX_CSUM_TSO;
 				goto unavailable;
 			}
+			tcp_v6_gso_csum_prep(skb);
 			opts1 |= GTSENDV6;
 			break;
 
@@ -5498,9 +5480,14 @@ static int rtl8152_probe(struct usb_interface *intf,
 		netdev->hw_features &= ~NETIF_F_RXCSUM;
 	}
 
-	if (le16_to_cpu(udev->descriptor.idVendor) == VENDOR_ID_LENOVO &&
-	    le16_to_cpu(udev->descriptor.idProduct) == 0x3082)
-		set_bit(LENOVO_MACPASSTHRU, &tp->flags);
+	if (le16_to_cpu(udev->descriptor.idVendor) == VENDOR_ID_LENOVO) {
+		switch (le16_to_cpu(udev->descriptor.idProduct)) {
+		case DEVICE_ID_THINKPAD_ONELINK_PLUS_DOCK:
+		case DEVICE_ID_THINKPAD_THUNDERBOLT3_DOCK_GEN2:
+		case DEVICE_ID_THINKPAD_USB_C_DOCK_GEN2:
+			set_bit(LENOVO_MACPASSTHRU, &tp->flags);
+		}
+	}
 
 	if (le16_to_cpu(udev->descriptor.bcdDevice) == 0x3011 && udev->serial &&
 	    (!strcmp(udev->serial, "000001000000") || !strcmp(udev->serial, "000002000000"))) {
@@ -5613,6 +5600,7 @@ static const struct usb_device_id rtl8152_table[] = {
 	{REALTEK_USB_DEVICE(VENDOR_ID_MICROSOFT, 0x0927)},
 	{REALTEK_USB_DEVICE(VENDOR_ID_SAMSUNG, 0xa101)},
 	{REALTEK_USB_DEVICE(VENDOR_ID_LENOVO,  0x304f)},
+	{REALTEK_USB_DEVICE(VENDOR_ID_LENOVO,  0x3054)},
 	{REALTEK_USB_DEVICE(VENDOR_ID_LENOVO,  0x3062)},
 	{REALTEK_USB_DEVICE(VENDOR_ID_LENOVO,  0x3069)},
 	{REALTEK_USB_DEVICE(VENDOR_ID_LENOVO,  0x3082)},
