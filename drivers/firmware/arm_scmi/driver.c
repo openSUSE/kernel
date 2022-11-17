@@ -867,6 +867,7 @@ static int scmi_probe(struct platform_device *pdev)
 static struct platform_driver scmi_driver = {
 	.driver = {
 		   .name = "arm-scmi",
+		   .suppress_bind_attrs = true,
 		   .of_match_table = scmi_of_match,
 		   },
 	.probe = scmi_probe,
