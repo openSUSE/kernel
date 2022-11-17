@@ -452,7 +452,7 @@ int blk_queue_enter(struct request_queue *q, blk_mq_req_flags_t flags)
 			return 0;
 
 		if (flags & BLK_MQ_REQ_NOWAIT)
-			return -EBUSY;
+			return -EAGAIN;
 
 		/*
 		 * read pair of barrier in blk_freeze_queue_start(),
