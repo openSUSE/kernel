@@ -263,9 +263,6 @@ struct usbip_device {
 	/* lock for status */
 	spinlock_t lock;
 
-	/* mutex for synchronizing sysfs store paths */
-	struct mutex sysfs_lock;
-
 	int sockfd;
 	struct socket *tcp_socket;
 
@@ -339,5 +336,7 @@ static inline int interface_to_devnum(struct usb_interface *interface)
 
 	return udev->devnum;
 }
+
+extern struct mutex suse_big_usbip_lock;
 
 #endif /* __USBIP_COMMON_H */

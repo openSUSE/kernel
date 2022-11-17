@@ -116,6 +116,8 @@ static const char * const bit_desc_ss[] = {
 	"R31",			/*31*/
 };
 
+DEFINE_MUTEX(suse_big_usbip_lock);
+
 static void dump_port_status_diff(u32 prev_status, u32 new_status, bool usb3)
 {
 	int i = 0;
@@ -1126,7 +1128,6 @@ static void vhci_device_init(struct vhci_device *vdev)
 	vdev->ud.side   = USBIP_VHCI;
 	vdev->ud.status = VDEV_ST_NULL;
 	spin_lock_init(&vdev->ud.lock);
-	mutex_init(&vdev->ud.sysfs_lock);
 
 	INIT_LIST_HEAD(&vdev->priv_rx);
 	INIT_LIST_HEAD(&vdev->priv_tx);

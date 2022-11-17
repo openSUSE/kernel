@@ -185,7 +185,7 @@ static int vhci_port_disconnect(struct vhci_hcd *vhci_hcd, __u32 rhport)
 
 	usbip_dbg_vhci_sysfs("enter\n");
 
-	mutex_lock(&vdev->ud.sysfs_lock);
+	mutex_lock(&suse_big_usbip_lock);
 
 	/* lock */
 	spin_lock_irqsave(&vhci->lock, flags);
@@ -197,7 +197,7 @@ static int vhci_port_disconnect(struct vhci_hcd *vhci_hcd, __u32 rhport)
 		/* unlock */
 		spin_unlock(&vdev->ud.lock);
 		spin_unlock_irqrestore(&vhci->lock, flags);
-		mutex_unlock(&vdev->ud.sysfs_lock);
+		mutex_unlock(&suse_big_usbip_lock);
 
 		return -EINVAL;
 	}
@@ -208,7 +208,7 @@ static int vhci_port_disconnect(struct vhci_hcd *vhci_hcd, __u32 rhport)
 
 	usbip_event_add(&vdev->ud, VDEV_EVENT_DOWN);
 
-	mutex_unlock(&vdev->ud.sysfs_lock);
+	mutex_unlock(&suse_big_usbip_lock);
 
 	return 0;
 }
@@ -354,7 +354,7 @@ static ssize_t attach_store(struct device *dev, struct device_attribute *attr,
 	else
 		vdev = &vhci->vhci_hcd_hs->vdev[rhport];
 
-	mutex_lock(&vdev->ud.sysfs_lock);
+	mutex_lock(&suse_big_usbip_lock);
 
 	/* Extract socket from fd. */
 	socket = sockfd_lookup(sockfd, &err);
@@ -436,12 +436,12 @@ static ssize_t attach_store(struct device *dev, struct device_attribute *attr,
 
 	dev_info(dev, "Device attached\n");
 
-	mutex_unlock(&vdev->ud.sysfs_lock);
+	mutex_unlock(&suse_big_usbip_lock);
 
 	return count;
 
 unlock_mutex:
-	mutex_unlock(&vdev->ud.sysfs_lock);
+	mutex_unlock(&suse_big_usbip_lock);
 	return err;
 }
 static DEVICE_ATTR_WO(attach);
