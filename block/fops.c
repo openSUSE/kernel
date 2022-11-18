@@ -191,7 +191,6 @@ static ssize_t __blkdev_direct_IO(struct kiocb *iocb, struct iov_iter *iter,
 	struct blk_plug plug;
 	struct blkdev_dio *dio;
 	struct bio *bio;
-	bool do_poll = (iocb->ki_flags & IOCB_HIPRI);
 	bool is_read = (iov_iter_rw(iter) == READ), is_sync;
 	loff_t pos = iocb->ki_pos;
 	int ret = 0;
@@ -217,12 +216,7 @@ static ssize_t __blkdev_direct_IO(struct kiocb *iocb, struct iov_iter *iter,
 	if (is_read && iter_is_iovec(iter))
 		dio->flags |= DIO_SHOULD_DIRTY;
 
-	/*
-	 * Don't plug for HIPRI/polled IO, as those should go straight
-	 * to issue
-	 */
-	if (!(iocb->ki_flags & IOCB_HIPRI))
-		blk_start_plug(&plug);
+	blk_start_plug(&plug);
 
 	for (;;) {
 		bio_set_dev(bio, bdev);
@@ -255,11 +249,7 @@ static ssize_t __blkdev_direct_IO(struct kiocb *iocb, struct iov_iter *iter,
 
 		nr_pages = bio_iov_vecs_to_alloc(iter, BIO_MAX_VECS);
 		if (!nr_pages) {
-			if (do_poll)
-				bio_set_polled(bio, iocb);
 			submit_bio(bio);
-			if (do_poll)
-				WRITE_ONCE(iocb->private, bio);
 			break;
 		}
 		if (!(dio->flags & DIO_MULTI_BIO)) {
@@ -272,7 +262,6 @@ static ssize_t __blkdev_direct_IO(struct kiocb *iocb, struct iov_iter *iter,
 				bio_get(bio);
 			dio->flags |= DIO_MULTI_BIO;
 			atomic_set(&dio->ref, 2);
-			do_poll = false;
 		} else {
 			atomic_inc(&dio->ref);
 		}
@@ -281,8 +270,7 @@ static ssize_t __blkdev_direct_IO(struct kiocb *iocb, struct iov_iter *iter,
 		bio = bio_alloc(GFP_KERNEL, nr_pages);
 	}
 
-	if (!(iocb->ki_flags & IOCB_HIPRI))
-		blk_finish_plug(&plug);
+	blk_finish_plug(&plug);
 
 	if (!is_sync)
 		return -EIOCBQUEUED;
@@ -291,9 +279,7 @@ static ssize_t __blkdev_direct_IO(struct kiocb *iocb, struct iov_iter *iter,
 		set_current_state(TASK_UNINTERRUPTIBLE);
 		if (!READ_ONCE(dio->waiter))
 			break;
-
-		if (!do_poll || !bio_poll(bio, NULL, 0))
-			blk_io_schedule();
+		blk_io_schedule();
 	}
 	__set_current_state(TASK_RUNNING);
 
