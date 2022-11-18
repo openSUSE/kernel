@@ -4147,7 +4147,8 @@ int blk_poll(struct request_queue *q, blk_qc_t cookie, unsigned int flags)
 	if (current->plug)
 		blk_flush_plug_list(current->plug, false);
 
-	if (q->poll_nsec != BLK_MQ_POLL_CLASSIC) {
+	if (!(flags & BLK_POLL_NOSLEEP) &&
+	    q->poll_nsec != BLK_MQ_POLL_CLASSIC) {
 		if (blk_mq_poll_hybrid(q, cookie))
 			return 1;
 	}
