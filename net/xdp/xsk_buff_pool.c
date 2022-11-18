@@ -90,6 +90,7 @@ struct xsk_buff_pool *xp_create_and_assign_umem(struct xdp_sock *xs,
 		xskb = &pool->heads[i];
 		xskb->pool = pool;
 		xskb->xdp.frame_sz = umem->chunk_size - umem->headroom;
+		INIT_LIST_HEAD(&xskb->free_list_node);
 		if (pool->unaligned)
 			pool->free_heads[i] = xskb;
 		else
@@ -469,7 +470,6 @@ static struct xdp_buff_xsk *__xp_alloc(struct xsk_buff_pool *pool)
 	for (;;) {
 		if (!xskq_cons_peek_addr_unchecked(pool->fq, &addr)) {
 			pool->fq->queue_empty_descs++;
-			xp_release(xskb);
 			return NULL;
 		}
 
