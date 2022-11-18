@@ -4920,8 +4920,12 @@ static int handle_invept(struct kvm_vcpu *vcpu)
 	}
 
 	switch (type) {
-	case VMX_EPT_EXTENT_GLOBAL:
 	case VMX_EPT_EXTENT_CONTEXT:
+		if (!valid_ept_address(vcpu, operand.eptp))
+			return nested_vmx_failValid(vcpu,
+				VMXERR_INVALID_OPERAND_TO_INVEPT_INVVPID);
+		fallthrough;
+	case VMX_EPT_EXTENT_GLOBAL:
 	/*
 	 * TODO: Sync the necessary shadow EPT roots here, rather than
 	 * at the next emulated VM-entry.
