@@ -4924,12 +4924,16 @@ static int handle_invept(struct kvm_vcpu *vcpu)
 		if (!valid_ept_address(vcpu, operand.eptp))
 			return nested_vmx_failValid(vcpu,
 				VMXERR_INVALID_OPERAND_TO_INVEPT_INVVPID);
+
+		/* TODO: sync only the target EPTP context. */
 		fallthrough;
 	case VMX_EPT_EXTENT_GLOBAL:
-	/*
-	 * TODO: Sync the necessary shadow EPT roots here, rather than
-	 * at the next emulated VM-entry.
-	 */
+		/*
+		 * Nested EPT roots are always held through guest_mmu,
+		 * not root_mmu.
+		 */
+		kvm_mmu_free_roots(vcpu, &vcpu->arch.guest_mmu,
+				   KVM_MMU_ROOTS_ALL);
 		break;
 	default:
 		BUG_ON(1);
