@@ -729,6 +729,7 @@ static inline int kvm_vcpu_get_idx(struct kvm_vcpu *vcpu)
 		} else
 
 void kvm_vcpu_destroy(struct kvm_vcpu *vcpu);
+void kvm_destroy_vcpus(struct kvm *kvm);
 
 void vcpu_load(struct kvm_vcpu *vcpu);
 void vcpu_put(struct kvm_vcpu *vcpu);
