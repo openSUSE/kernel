@@ -75,7 +75,10 @@ static inline void smc_wr_tx_link_put(struct smc_link *link)
 
 static inline void smc_wr_drain_cq(struct smc_link *lnk)
 {
-	wait_event(lnk->wr_rx_empty_wait, lnk->wr_rx_id_compl == lnk->wr_rx_id);
+	struct smc_link_kabi_fixup *lnk_fixup =
+		&lnk->lgr->lnk_kabi_fixup[lnk->link_idx];
+	wait_event(lnk_fixup->wr_rx_empty_wait,
+		   lnk_fixup->wr_rx_id_compl == lnk->wr_rx_id);
 }
 
 static inline void smc_wr_wakeup_tx_wait(struct smc_link *lnk)
