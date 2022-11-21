@@ -152,6 +152,7 @@ static const struct {
 	{ HV_AVMA1_GUID },
 	{ HV_AVMA2_GUID },
 	{ HV_RDV_GUID	},
+	{ HV_IMC_GUID	},
 };
 
 /*
@@ -442,7 +443,7 @@ void hv_process_channel_removal(struct vmbus_channel *channel)
 	/*
 	 * Upon suspend, an in-use hv_sock channel is removed from the array of
 	 * channels and the relid is invalidated.  After hibernation, when the
-	 * user-space appplication destroys the channel, it's unnecessary and
+	 * user-space application destroys the channel, it's unnecessary and
 	 * unsafe to remove the channel from the array of channels.  See also
 	 * the inline comments before the call of vmbus_release_relid() below.
 	 */
@@ -637,6 +638,7 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 		 */
 		if (newchannel->offermsg.offer.sub_channel_index == 0) {
 			mutex_unlock(&vmbus_connection.channel_mutex);
+			cpus_read_unlock();
 			/*
 			 * Don't call free_channel(), because newchannel->kobj
 			 * is not initialized yet.
@@ -975,11 +977,15 @@ find_primary_channel_by_offer(const struct vmbus_channel_offer_channel *offer)
 	return channel;
 }
 
-static bool vmbus_is_valid_device(const guid_t *guid)
+static bool vmbus_is_valid_offer(const struct vmbus_channel_offer_channel *offer)
 {
+	const guid_t *guid = &offer->offer.if_type;
 	u16 i;
 
 	if (!hv_is_isolation_supported())
+		return true;
+
+	if (is_hvsock_offer(offer))
 		return true;
 
 	for (i = 0; i < ARRAY_SIZE(vmbus_devs); i++) {
@@ -1003,7 +1009,7 @@ static void vmbus_onoffer(struct vmbus_channel_message_header *hdr)
 
 	trace_vmbus_onoffer(offer);
 
-	if (!vmbus_is_valid_device(&offer->offer.if_type)) {
+	if (!vmbus_is_valid_offer(offer)) {
 		pr_err_ratelimited("Invalid offer %d from the host supporting isolation\n",
 				   offer->child_relid);
 		atomic_dec(&vmbus_connection.offer_in_progress);

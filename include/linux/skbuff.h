@@ -689,6 +689,7 @@ typedef unsigned char *sk_buff_data_t;
  *	@csum_level: indicates the number of consecutive checksums found in
  *		the packet minus one that have been verified as
  *		CHECKSUM_UNNECESSARY (max 3)
+ *	@scm_io_uring: SKB holds io_uring registered files
  *	@dst_pending_confirm: need to confirm neighbour
  *	@decrypted: Decrypted SKB
  *	@napi_id: id of the NAPI struct this skb came from
@@ -872,6 +873,9 @@ struct sk_buff {
 #endif
 #ifdef CONFIG_TLS_DEVICE
 	__u8			decrypted:1;
+#endif
+#ifndef __GENKSYMS__
+	__u8                    scm_io_uring:1;
 #endif
 
 #ifdef CONFIG_NET_SCHED

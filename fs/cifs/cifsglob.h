@@ -79,6 +79,9 @@
 #define SMB_DNS_RESOLVE_INTERVAL_MIN     120
 #define SMB_DNS_RESOLVE_INTERVAL_DEFAULT 600
 
+/* smb multichannel query server interfaces interval in seconds */
+#define SMB_INTERFACE_POLL_INTERVAL	600
+
 /* maximum number of PDUs in one compound */
 #define MAX_COMPOUND 5
 
@@ -151,26 +154,16 @@ struct session_key {
 	char *response;
 };
 
-/* crypto security descriptor definition */
-struct sdesc {
-	struct shash_desc shash;
-	char ctx[];
-};
-
 /* crypto hashing related structure/fields, not specific to a sec mech */
 struct cifs_secmech {
-	struct crypto_shash *hmacmd5; /* hmac-md5 hash function */
-	struct crypto_shash *md5; /* md5 hash function */
-	struct crypto_shash *hmacsha256; /* hmac-sha256 hash function */
-	struct crypto_shash *cmacaes; /* block-cipher based MAC function */
-	struct crypto_shash *sha512; /* sha512 hash function */
-	struct sdesc *sdeschmacmd5;  /* ctxt to generate ntlmv2 hash, CR1 */
-	struct sdesc *sdescmd5; /* ctxt to generate cifs/smb signature */
-	struct sdesc *sdeschmacsha256;  /* ctxt to generate smb2 signature */
-	struct sdesc *sdesccmacaes;  /* ctxt to generate smb3 signature */
-	struct sdesc *sdescsha512; /* ctxt to generate smb3.11 signing key */
-	struct crypto_aead *ccmaesencrypt; /* smb3 encryption aead */
-	struct crypto_aead *ccmaesdecrypt; /* smb3 decryption aead */
+	struct shash_desc *hmacmd5; /* hmacmd5 hash function, for NTLMv2/CR1 hashes */
+	struct shash_desc *md5; /* md5 hash function, for CIFS/SMB1 signatures */
+	struct shash_desc *hmacsha256; /* hmac-sha256 hash function, for SMB2 signatures */
+	struct shash_desc *sha512; /* sha512 hash function, for SMB3.1.1 preauth hash */
+	struct shash_desc *aes_cmac; /* block-cipher based MAC function, for SMB3 signatures */
+
+	struct crypto_aead *enc; /* smb3 encryption AEAD TFM (AES-CCM and AES-GCM) */
+	struct crypto_aead *dec; /* smb3 decryption AEAD TFM (AES-CCM and AES-GCM) */
 };
 
 /* per smb session structure/fields */
@@ -192,6 +185,19 @@ struct cifs_cred {
 	struct cifs_ntace *ntaces;
 	struct cifs_ace *aces;
 };
+
+struct cifs_open_info_data {
+	char *symlink_target;
+	union {
+		struct smb2_file_all_info fi;
+		struct smb311_posix_qinfo posix_fi;
+	};
+};
+
+static inline void cifs_free_open_info(struct cifs_open_info_data *data)
+{
+	kfree(data->symlink_target);
+}
 
 /*
  *****************************************************************
@@ -315,20 +321,20 @@ struct smb_version_operations {
 	int (*is_path_accessible)(const unsigned int, struct cifs_tcon *,
 				  struct cifs_sb_info *, const char *);
 	/* query path data from the server */
-	int (*query_path_info)(const unsigned int, struct cifs_tcon *,
-			       struct cifs_sb_info *, const char *,
-			       FILE_ALL_INFO *, bool *, bool *);
+	int (*query_path_info)(const unsigned int xid, struct cifs_tcon *tcon,
+			       struct cifs_sb_info *cifs_sb, const char *full_path,
+			       struct cifs_open_info_data *data, bool *adjust_tz, bool *reparse);
 	/* query file data from the server */
-	int (*query_file_info)(const unsigned int, struct cifs_tcon *,
-			       struct cifs_fid *, FILE_ALL_INFO *);
+	int (*query_file_info)(const unsigned int xid, struct cifs_tcon *tcon,
+			       struct cifsFileInfo *cfile, struct cifs_open_info_data *data);
 	/* query reparse tag from srv to determine which type of special file */
 	int (*query_reparse_tag)(const unsigned int xid, struct cifs_tcon *tcon,
 				struct cifs_sb_info *cifs_sb, const char *path,
 				__u32 *reparse_tag);
 	/* get server index number */
-	int (*get_srv_inum)(const unsigned int, struct cifs_tcon *,
-			    struct cifs_sb_info *, const char *,
-			    u64 *uniqueid, FILE_ALL_INFO *);
+	int (*get_srv_inum)(const unsigned int xid, struct cifs_tcon *tcon,
+			    struct cifs_sb_info *cifs_sb, const char *full_path, u64 *uniqueid,
+			    struct cifs_open_info_data *data);
 	/* set size by path */
 	int (*set_path_size)(const unsigned int, struct cifs_tcon *,
 			     const char *, __u64, struct cifs_sb_info *, bool);
@@ -377,8 +383,8 @@ struct smb_version_operations {
 			     struct cifs_sb_info *, const char *,
 			     char **, bool);
 	/* open a file for non-posix mounts */
-	int (*open)(const unsigned int, struct cifs_open_parms *,
-		    __u32 *, FILE_ALL_INFO *);
+	int (*open)(const unsigned int xid, struct cifs_open_parms *oparms, __u32 *oplock,
+		    void *buf);
 	/* set fid protocol-specific info */
 	void (*set_fid)(struct cifsFileInfo *, struct cifs_fid *, __u32);
 	/* close a file */
@@ -415,7 +421,7 @@ struct smb_version_operations {
 	int (*close_dir)(const unsigned int, struct cifs_tcon *,
 			 struct cifs_fid *);
 	/* calculate a size of SMB message */
-	unsigned int (*calc_smb_size)(void *buf, struct TCP_Server_Info *ptcpi);
+	unsigned int (*calc_smb_size)(void *buf);
 	/* check for STATUS_PENDING and process the response if yes */
 	bool (*is_status_pending)(char *buf, struct TCP_Server_Info *server);
 	/* check for STATUS_NETWORK_SESSION_EXPIRED */
@@ -449,7 +455,7 @@ struct smb_version_operations {
 	int (*enum_snapshots)(const unsigned int xid, struct cifs_tcon *tcon,
 			     struct cifsFileInfo *src_file, void __user *);
 	int (*notify)(const unsigned int xid, struct file *pfile,
-			     void __user *pbuf);
+			     void __user *pbuf, bool return_changes);
 	int (*query_mf_symlink)(unsigned int, struct cifs_tcon *,
 				struct cifs_sb_info *, const unsigned char *,
 				char *, unsigned int *);
@@ -555,6 +561,8 @@ struct smb_version_values {
 
 #define HEADER_SIZE(server) (server->vals->header_size)
 #define MAX_HEADER_SIZE(server) (server->vals->max_header_size)
+#define HEADER_PREAMBLE_SIZE(server) (server->vals->header_preamble_size)
+#define MID_HEADER_SIZE(server) (HEADER_SIZE(server) - 1 - HEADER_PREAMBLE_SIZE(server))
 
 /**
  * CIFS superblock mount flags (mnt_cifs_flags) to consider when
@@ -603,6 +611,7 @@ inc_rfc1001_len(void *buf, int count)
 struct TCP_Server_Info {
 	struct list_head tcp_ses_list;
 	struct list_head smb_ses_list;
+	spinlock_t srv_lock;  /* protect anything here that is not protected */
 	__u64 conn_id; /* connection identifier (useful for debugging) */
 	int srv_count; /* reference counter */
 	/* 15 character server name + 0x20 16th byte indicating type = srv */
@@ -620,6 +629,7 @@ struct TCP_Server_Info {
 #endif
 	wait_queue_head_t response_q;
 	wait_queue_head_t request_q; /* if more than maxmpx to srvr must block*/
+	spinlock_t mid_lock;  /* protect mid queue and it's entries */
 	struct list_head pending_mid_q;
 	bool noblocksnd;		/* use blocking sendmsg */
 	bool noautotune;		/* do not autotune send buf sizes */
@@ -749,6 +759,11 @@ struct TCP_Server_Info {
 	char *origin_fullpath, *leaf_fullpath, *current_fullpath;
 #endif
 };
+
+static inline bool is_smb1(struct TCP_Server_Info *server)
+{
+	return HEADER_PREAMBLE_SIZE(server) != 0;
+}
 
 static inline void cifs_server_lock(struct TCP_Server_Info *server)
 {
@@ -938,15 +953,67 @@ static inline void cifs_set_net_ns(struct TCP_Server_Info *srv, struct net *net)
 #endif
 
 struct cifs_server_iface {
+	struct list_head iface_head;
+	struct kref refcount;
 	size_t speed;
 	unsigned int rdma_capable : 1;
 	unsigned int rss_capable : 1;
+	unsigned int is_active : 1; /* unset if non existent */
 	struct sockaddr_storage sockaddr;
 };
+
+/* release iface when last ref is dropped */
+static inline void
+release_iface(struct kref *ref)
+{
+	struct cifs_server_iface *iface = container_of(ref,
+						       struct cifs_server_iface,
+						       refcount);
+	list_del_init(&iface->iface_head);
+	kfree(iface);
+}
+
+/*
+ * compare two interfaces a and b
+ * return 0 if everything matches.
+ * return 1 if a has higher link speed, or rdma capable, or rss capable
+ * return -1 otherwise.
+ */
+static inline int
+iface_cmp(struct cifs_server_iface *a, struct cifs_server_iface *b)
+{
+	int cmp_ret = 0;
+
+	WARN_ON(!a || !b);
+	if (a->speed == b->speed) {
+		if (a->rdma_capable == b->rdma_capable) {
+			if (a->rss_capable == b->rss_capable) {
+				cmp_ret = memcmp(&a->sockaddr, &b->sockaddr,
+						 sizeof(a->sockaddr));
+				if (!cmp_ret)
+					return 0;
+				else if (cmp_ret > 0)
+					return 1;
+				else
+					return -1;
+			} else if (a->rss_capable > b->rss_capable)
+				return 1;
+			else
+				return -1;
+		} else if (a->rdma_capable > b->rdma_capable)
+			return 1;
+		else
+			return -1;
+	} else if (a->speed > b->speed)
+		return 1;
+	else
+		return -1;
+}
 
 struct cifs_chan {
 	unsigned int in_reconnect : 1; /* if session setup in progress for this channel */
 	struct TCP_Server_Info *server;
+	struct cifs_server_iface *iface; /* interface in use */
 	__u8 signkey[SMB3_SIGN_KEY_SIZE];
 };
 
@@ -958,6 +1025,7 @@ struct cifs_ses {
 	struct list_head rlist; /* reconnect list */
 	struct list_head tcon_list;
 	struct cifs_tcon *tcon_ipc;
+	spinlock_t ses_lock;  /* protect anything here that is not protected */
 	struct mutex session_mutex;
 	struct TCP_Server_Info *server;	/* pointer to server info */
 	int ses_count;		/* reference counter */
@@ -998,7 +1066,7 @@ struct cifs_ses {
 	 */
 	spinlock_t iface_lock;
 	/* ========= begin: protected by iface_lock ======== */
-	struct cifs_server_iface *iface_list;
+	struct list_head iface_list;
 	size_t iface_count;
 	unsigned long iface_last_update; /* jiffies */
 	/* ========= end: protected by iface_lock ======== */
@@ -1073,20 +1141,7 @@ struct cifs_fattr {
 	struct timespec64 cf_mtime;
 	struct timespec64 cf_ctime;
 	u32             cf_cifstag;
-};
-
-struct cached_fid {
-	bool is_valid:1;	/* Do we have a useable root fid */
-	bool file_all_info_is_valid:1;
-	bool has_lease:1;
-	unsigned long time; /* jiffies of when lease was taken */
-	struct kref refcount;
-	struct cifs_fid *fid;
-	struct mutex fid_mutex;
-	struct cifs_tcon *tcon;
-	struct dentry *dentry;
-	struct work_struct lease_break;
-	struct smb2_file_all_info file_all_info;
+	char            *cf_symlink_target;
 };
 
 /*
@@ -1097,12 +1152,13 @@ struct cifs_tcon {
 	struct list_head tcon_list;
 	int tc_count;
 	struct list_head rlist; /* reconnect list */
+	spinlock_t tc_lock;  /* protect anything here that is not protected */
 	atomic_t num_local_opens;  /* num of all opens including disconnected */
 	atomic_t num_remote_opens; /* num of all network opens on server */
 	struct list_head openFileList;
 	spinlock_t open_file_lock; /* protects list above */
 	struct cifs_ses *ses;	/* pointer to session associated with */
-	char treeName[MAX_TREE_SIZE + 1]; /* UNC name of resource in ASCII */
+	char tree_name[MAX_TREE_SIZE + 1]; /* UNC name of resource in ASCII */
 	char *nativeFileSystem;
 	char *password;		/* for share-level security */
 	__u32 tid;		/* The 4 byte tree id */
@@ -1181,11 +1237,12 @@ struct cifs_tcon {
 	struct fscache_cookie *fscache;	/* cookie for share */
 #endif
 	struct list_head pending_opens;	/* list of incomplete opens */
-	struct cached_fid crfid; /* Cached root fid */
+	struct cached_fids *cfids;
 	/* BB add field for back pointer to sb struct(s)? */
 #ifdef CONFIG_CIFS_DFS_UPCALL
 	struct list_head ulist; /* cache update list */
 #endif
+	struct delayed_work	query_interfaces; /* query interfaces workqueue job */
 };
 
 /*
@@ -1347,6 +1404,7 @@ struct cifsFileInfo {
 	struct work_struct put; /* work for the final part of _put */
 	struct delayed_work deferred;
 	bool deferred_close_scheduled; /* Flag to indicate close is scheduled */
+	char *symlink_target;
 };
 
 struct cifs_io_parms {
@@ -1508,6 +1566,7 @@ struct cifsInodeInfo {
 	struct list_head deferred_closes; /* list of deferred closes */
 	spinlock_t deferred_lock; /* protection on deferred list */
 	bool lease_granted; /* Flag to indicate whether lease or oplock is granted. */
+	char *symlink_target;
 };
 
 static inline struct cifsInodeInfo *
@@ -1850,33 +1909,78 @@ require use of the stronger protocol */
  */
 
 /****************************************************************************
- *  Locking notes.  All updates to global variables and lists should be
- *                  protected by spinlocks or semaphores.
+ * Here are all the locks (spinlock, mutex, semaphore) in cifs.ko, arranged according
+ * to the locking order. i.e. if two locks are to be held together, the lock that
+ * appears higher in this list needs to be taken before the other.
  *
- *  Spinlocks
- *  ---------
- *  GlobalMid_Lock protects:
- *	list operations on pending_mid_q and oplockQ
- *      updates to XID counters, multiplex id  and SMB sequence numbers
- *      list operations on global DnotifyReqList
- *      updates to ses->status and TCP_Server_Info->tcpStatus
- *      updates to server->CurrentMid
- *  tcp_ses_lock protects:
- *	list operations on tcp and SMB session lists
- *  tcon->open_file_lock protects the list of open files hanging off the tcon
- *  inode->open_file_lock protects the openFileList hanging off the inode
- *  cfile->file_info_lock protects counters and fields in cifs file struct
- *  f_owner.lock protects certain per file struct operations
- *  mapping->page_lock protects certain per page operations
+ * If you hold a lock that is lower in this list, and you need to take a higher lock
+ * (or if you think that one of the functions that you're calling may need to), first
+ * drop the lock you hold, pick up the higher lock, then the lower one. This will
+ * ensure that locks are picked up only in one direction in the below table
+ * (top to bottom).
  *
- *  Note that the cifs_tcon.open_file_lock should be taken before
- *  not after the cifsInodeInfo.open_file_lock
+ * Also, if you expect a function to be called with a lock held, explicitly document
+ * this in the comments on top of your function definition.
  *
- *  Semaphores
- *  ----------
- *  cifsInodeInfo->lock_sem protects:
- *	the list of locks held by the inode
+ * And also, try to keep the critical sections (lock hold time) to be as minimal as
+ * possible. Blocking / calling other functions with a lock held always increase
+ * the risk of a possible deadlock.
  *
+ * Following this rule will avoid unnecessary deadlocks, which can get really hard to
+ * debug. Also, any new lock that you introduce, please add to this list in the correct
+ * order.
+ *
+ * Please populate this list whenever you introduce new locks in your changes. Or in
+ * case I've missed some existing locks. Please ensure that it's added in the list
+ * based on the locking order expected.
+ *
+ * =====================================================================================
+ * Lock				Protects			Initialization fn
+ * =====================================================================================
+ * vol_list_lock
+ * vol_info->ctx_lock		vol_info->ctx
+ * cifs_sb_info->tlink_tree_lock	cifs_sb_info->tlink_tree	cifs_setup_cifs_sb
+ * TCP_Server_Info->		TCP_Server_Info			cifs_get_tcp_session
+ * reconnect_mutex
+ * TCP_Server_Info->srv_mutex	TCP_Server_Info			cifs_get_tcp_session
+ * cifs_ses->session_mutex		cifs_ses		sesInfoAlloc
+ *				cifs_tcon
+ * cifs_tcon->open_file_lock	cifs_tcon->openFileList		tconInfoAlloc
+ *				cifs_tcon->pending_opens
+ * cifs_tcon->stat_lock		cifs_tcon->bytes_read		tconInfoAlloc
+ *				cifs_tcon->bytes_written
+ * cifs_tcp_ses_lock		cifs_tcp_ses_list		sesInfoAlloc
+ * GlobalMid_Lock		GlobalMaxActiveXid		init_cifs
+ *				GlobalCurrentXid
+ *				GlobalTotalActiveXid
+ * TCP_Server_Info->srv_lock	(anything in struct not protected by another lock and can change)
+ * TCP_Server_Info->mid_lock	TCP_Server_Info->pending_mid_q	cifs_get_tcp_session
+ *				->CurrentMid
+ *				(any changes in mid_q_entry fields)
+ * TCP_Server_Info->req_lock	TCP_Server_Info->in_flight	cifs_get_tcp_session
+ *				->credits
+ *				->echo_credits
+ *				->oplock_credits
+ *				->reconnect_instance
+ * cifs_ses->ses_lock		(anything that is not protected by another lock and can change)
+ * cifs_ses->iface_lock		cifs_ses->iface_list		sesInfoAlloc
+ *				->iface_count
+ *				->iface_last_update
+ * cifs_ses->chan_lock		cifs_ses->chans
+ *				->chans_need_reconnect
+ *				->chans_in_reconnect
+ * cifs_tcon->tc_lock		(anything that is not protected by another lock and can change)
+ * cifsInodeInfo->open_file_lock	cifsInodeInfo->openFileList	cifs_alloc_inode
+ * cifsInodeInfo->writers_lock	cifsInodeInfo->writers		cifsInodeInfo_alloc
+ * cifsInodeInfo->lock_sem	cifsInodeInfo->llist		cifs_init_once
+ *				->can_cache_brlcks
+ * cifsInodeInfo->deferred_lock	cifsInodeInfo->deferred_closes	cifsInodeInfo_alloc
+ * cached_fid->fid_mutex		cifs_tcon->crfid		tconInfoAlloc
+ * cifsFileInfo->fh_mutex		cifsFileInfo			cifs_new_fileinfo
+ * cifsFileInfo->file_info_lock	cifsFileInfo->count		cifs_new_fileinfo
+ *				->invalidHandle			initiate_cifs_search
+ *				->oplock_break_cancelled
+ * cifs_aio_ctx->aio_mutex		cifs_aio_ctx			cifs_aio_ctx_alloc
  ****************************************************************************/
 
 #ifdef DECLARE_GLOBALS_HERE
@@ -1892,47 +1996,44 @@ require use of the stronger protocol */
  * sessions (and from that the tree connections) can be found
  * by iterating over cifs_tcp_ses_list
  */
-GLOBAL_EXTERN struct list_head		cifs_tcp_ses_list;
+extern struct list_head		cifs_tcp_ses_list;
 
 /*
  * This lock protects the cifs_tcp_ses_list, the list of smb sessions per
  * tcp session, and the list of tcon's per smb session. It also protects
- * the reference counters for the server, smb session, and tcon. It also
- * protects some fields in the TCP_Server_Info struct such as dstaddr. Finally,
- * changes to the tcon->tidStatus should be done while holding this lock.
+ * the reference counters for the server, smb session, and tcon.
  * generally the locks should be taken in order tcp_ses_lock before
  * tcon->open_file_lock and that before file->file_info_lock since the
  * structure order is cifs_socket-->cifs_ses-->cifs_tcon-->cifs_file
  */
-GLOBAL_EXTERN spinlock_t		cifs_tcp_ses_lock;
+extern spinlock_t		cifs_tcp_ses_lock;
 
 /*
  * Global transaction id (XID) information
  */
-GLOBAL_EXTERN unsigned int GlobalCurrentXid;	/* protected by GlobalMid_Sem */
-GLOBAL_EXTERN unsigned int GlobalTotalActiveXid; /* prot by GlobalMid_Sem */
-GLOBAL_EXTERN unsigned int GlobalMaxActiveXid;	/* prot by GlobalMid_Sem */
-GLOBAL_EXTERN spinlock_t GlobalMid_Lock;  /* protects above & list operations */
-					  /* on midQ entries */
+extern unsigned int GlobalCurrentXid;	/* protected by GlobalMid_Sem */
+extern unsigned int GlobalTotalActiveXid; /* prot by GlobalMid_Sem */
+extern unsigned int GlobalMaxActiveXid;	/* prot by GlobalMid_Sem */
+extern spinlock_t GlobalMid_Lock; /* protects above & list operations on midQ entries */
+
 /*
  *  Global counters, updated atomically
  */
-GLOBAL_EXTERN atomic_t sesInfoAllocCount;
-GLOBAL_EXTERN atomic_t tconInfoAllocCount;
-GLOBAL_EXTERN atomic_t tcpSesNextId;
-GLOBAL_EXTERN atomic_t tcpSesAllocCount;
-GLOBAL_EXTERN atomic_t tcpSesReconnectCount;
-GLOBAL_EXTERN atomic_t tconInfoReconnectCount;
+extern atomic_t sesInfoAllocCount;
+extern atomic_t tconInfoAllocCount;
+extern atomic_t tcpSesNextId;
+extern atomic_t tcpSesAllocCount;
+extern atomic_t tcpSesReconnectCount;
+extern atomic_t tconInfoReconnectCount;
 
 /* Various Debug counters */
-GLOBAL_EXTERN atomic_t bufAllocCount;    /* current number allocated  */
+extern atomic_t buf_alloc_count;	/* current number allocated  */
+extern atomic_t small_buf_alloc_count;
 #ifdef CONFIG_CIFS_STATS2
-GLOBAL_EXTERN atomic_t totBufAllocCount; /* total allocated over all time */
-GLOBAL_EXTERN atomic_t totSmBufAllocCount;
+extern atomic_t total_buf_alloc_count; /* total allocated over all time */
+extern atomic_t total_small_buf_alloc_count;
 extern unsigned int slow_rsp_threshold; /* number of secs before logging */
 #endif
-GLOBAL_EXTERN atomic_t smBufAllocCount;
-GLOBAL_EXTERN atomic_t midCount;
 
 /* Misc globals */
 extern bool enable_oplocks; /* enable or disable oplocks */
@@ -1949,6 +2050,7 @@ extern unsigned int cifs_min_rcv;    /* min size of big ntwrk buf pool */
 extern unsigned int cifs_min_small;  /* min size of small buf pool */
 extern unsigned int cifs_max_pending; /* MAX requests at once to server*/
 extern bool disable_legacy_dialects;  /* forbid vers=1.0 and vers=2.0 mounts */
+extern atomic_t mid_count;
 
 void cifs_oplock_break(struct work_struct *work);
 void cifs_queue_oplock_break(struct cifsFileInfo *cfile);
@@ -2040,9 +2142,9 @@ static inline bool cifs_is_referral_server(struct cifs_tcon *tcon,
 	return is_tcon_dfs(tcon) || (ref && (ref->flags & DFSREF_REFERRAL_SERVER));
 }
 
-static inline u64 cifs_flock_len(struct file_lock *fl)
+static inline u64 cifs_flock_len(const struct file_lock *fl)
 {
-	return fl->fl_end == OFFSET_MAX ? 0 : fl->fl_end - fl->fl_start + 1;
+	return (u64)fl->fl_end - fl->fl_start + 1;
 }
 
 static inline size_t ntlmssp_workstation_name_size(const struct cifs_ses *ses)
@@ -2056,6 +2158,16 @@ static inline size_t ntlmssp_workstation_name_size(const struct cifs_ses *ses)
 	if (ses->server->dialect <= SMB20_PROT_ID)
 		return min_t(size_t, sizeof(ses->workstation_name), RFC1001_NAME_LEN_WITH_NULL);
 	return sizeof(ses->workstation_name);
+}
+
+static inline void move_cifs_info_to_smb2(struct smb2_file_all_info *dst, const FILE_ALL_INFO *src)
+{
+	memcpy(dst, src, (size_t)((u8 *)&src->AccessFlags - (u8 *)src));
+	dst->AccessFlags = src->AccessFlags;
+	dst->CurrentByteOffset = src->CurrentByteOffset;
+	dst->Mode = src->Mode;
+	dst->AlignmentRequirement = src->AlignmentRequirement;
+	dst->FileNameLength = src->FileNameLength;
 }
 
 #endif	/* _CIFS_GLOB_H */

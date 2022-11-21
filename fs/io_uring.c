@@ -2138,7 +2138,7 @@ static void io_req_free_batch(struct req_batch *rb, struct io_kiocb *req,
 }
 
 static void io_submit_flush_completions(struct io_ring_ctx *ctx)
-	__must_hold(&req->ctx->uring_lock)
+	__must_hold(&ctx->uring_lock)
 {
 	struct io_submit_state *state = &ctx->submit_state;
 	int i, nr = state->compl_nr;
@@ -5463,6 +5463,13 @@ static int io_poll_add(struct io_kiocb *req, unsigned int issue_flags)
 	struct io_ring_ctx *ctx = req->ctx;
 	struct io_poll_table ipt;
 	__poll_t mask;
+#ifdef CONFIG_SIGNALFD
+	extern __poll_t signalfd_poll(struct file *file, poll_table *wait);
+
+	/* unhandled pollfree: Binder (SLE-disabled) and signalfd only */
+	if (req->file->f_op->poll == &signalfd_poll)
+		return -EOPNOTSUPP;
+#endif
 
 	ipt.pt._qproc = io_poll_queue_proc;
 
@@ -5602,6 +5609,7 @@ static struct io_kiocb *io_timeout_extract(struct io_ring_ctx *ctx,
 }
 
 static int io_timeout_cancel(struct io_ring_ctx *ctx, __u64 user_data)
+	__must_hold(&ctx->completion_lock)
 	__must_hold(&ctx->timeout_lock)
 {
 	struct io_kiocb *req = io_timeout_extract(ctx, user_data);
@@ -5676,13 +5684,18 @@ static int io_timeout_remove(struct io_kiocb *req, unsigned int issue_flags)
 	struct io_ring_ctx *ctx = req->ctx;
 	int ret;
 
-	spin_lock_irq(&ctx->timeout_lock);
-	if (!(req->timeout_rem.flags & IORING_TIMEOUT_UPDATE))
+	if (!(req->timeout_rem.flags & IORING_TIMEOUT_UPDATE)) {
+		spin_lock(&ctx->completion_lock);
+		spin_lock_irq(&ctx->timeout_lock);
 		ret = io_timeout_cancel(ctx, tr->addr);
-	else
+		spin_unlock_irq(&ctx->timeout_lock);
+		spin_unlock(&ctx->completion_lock);
+	} else {
+		spin_lock_irq(&ctx->timeout_lock);
 		ret = io_timeout_update(ctx, tr->addr, &tr->ts,
 					io_translate_timeout_mode(tr->flags));
-	spin_unlock_irq(&ctx->timeout_lock);
+		spin_unlock_irq(&ctx->timeout_lock);
+	}
 
 	spin_lock(&ctx->completion_lock);
 	io_cqring_fill_event(ctx, req->user_data, ret, 0);
@@ -7582,6 +7595,7 @@ static int __io_sqe_files_scm(struct io_ring_ctx *ctx, int nr, int offset)
 	}
 
 	skb->sk = sk;
+	skb->scm_io_uring = 1;
 
 	nr_files = 0;
 	fpl->user = get_uid(current_user());

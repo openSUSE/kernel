@@ -495,6 +495,9 @@ struct kvm_pmu {
 	unsigned nr_arch_gp_counters;
 	unsigned nr_arch_fixed_counters;
 	unsigned available_event_types;
+#ifndef __GENKSYMS__
+	u8 version;
+#endif
 	u64 fixed_ctr_ctrl;
 	u64 global_ctrl;
 	u64 global_status;
@@ -503,7 +506,11 @@ struct kvm_pmu {
 	u64 global_ctrl_mask;
 	u64 global_ovf_ctrl_mask;
 	u64 reserved_bits;
+#ifndef __GENKSYMS__
+	u64 raw_event_mask;
+#else
 	u8 version;
+#endif
 	struct kvm_pmc gp_counters[INTEL_PMC_MAX_GENERIC];
 	struct kvm_pmc fixed_counters[INTEL_PMC_MAX_FIXED];
 	struct irq_work irq_work;
