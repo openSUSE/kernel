@@ -18,12 +18,12 @@
  */
 
 #include <uapi/linux/btf.h>
+#include <linux/bpf.h>
 #include <linux/filter.h>
 #include <linux/skbuff.h>
 #include <linux/vmalloc.h>
 #include <linux/random.h>
 #include <linux/moduleloader.h>
-#include <linux/bpf.h>
 #include <linux/btf.h>
 #include <linux/objtool.h>
 #include <linux/rbtree_latch.h>
