@@ -414,7 +414,6 @@ void hisi_sas_task_deliver(struct hisi_hba *hisi_hba,
 	struct hisi_sas_cmd_hdr *cmd_hdr_base;
 	int dlvry_queue_slot, dlvry_queue;
 	struct sas_task *task = slot->task;
-	unsigned long flags;
 	int wr_q_index;
 
 	spin_lock(&dq->lock);
@@ -467,10 +466,6 @@ void hisi_sas_task_deliver(struct hisi_hba *hisi_hba,
 			task->task_proto);
 		break;
 	}
-
-	spin_lock_irqsave(&task->task_state_lock, flags);
-	task->task_state_flags |= SAS_TASK_AT_INITIATOR;
-	spin_unlock_irqrestore(&task->task_state_lock, flags);
 
 	WRITE_ONCE(slot->ready, 1);
 
@@ -1027,8 +1022,7 @@ static void hisi_sas_do_release_task(struct hisi_hba *hisi_hba, struct sas_task 
 		ts->resp = SAS_TASK_COMPLETE;
 		ts->stat = SAS_ABORTED_TASK;
 		spin_lock_irqsave(&task->task_state_lock, flags);
-		task->task_state_flags &=
-			~(SAS_TASK_STATE_PENDING | SAS_TASK_AT_INITIATOR);
+		task->task_state_flags &= ~SAS_TASK_STATE_PENDING;
 		if (!slot->is_internal && task->task_proto != SAS_PROTOCOL_SMP)
 			task->task_state_flags |= SAS_TASK_STATE_DONE;
 		spin_unlock_irqrestore(&task->task_state_lock, flags);
