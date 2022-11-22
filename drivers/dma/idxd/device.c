@@ -977,7 +977,7 @@ static int idxd_wqs_setup(struct idxd_device *idxd)
 		if (!wq->group)
 			continue;
 
-		if (wq_shared(wq) && !device_swq_supported(idxd)) {
+		if (wq_shared(wq) && !wq_shared_supported(wq)) {
 			idxd->cmd_status = IDXD_SCMD_WQ_NO_SWQ_SUPPORT;
 			dev_warn(dev, "No shared wq support but configured.\n");
 			return -EINVAL;
@@ -1271,7 +1271,7 @@ int __drv_enable_wq(struct idxd_wq *wq)
 
 	/* Shared WQ checks */
 	if (wq_shared(wq)) {
-		if (!device_swq_supported(idxd)) {
+		if (!wq_shared_supported(wq)) {
 			idxd->cmd_status = IDXD_SCMD_WQ_NO_SVM;
 			dev_dbg(dev, "PASID not enabled and shared wq.\n");
 			goto err;
@@ -1301,7 +1301,7 @@ int __drv_enable_wq(struct idxd_wq *wq)
 	if (test_bit(IDXD_FLAG_CONFIGURABLE, &idxd->flags)) {
 		int priv = 0;
 
-		if (device_pasid_enabled(idxd)) {
+		if (wq_pasid_enabled(wq)) {
 			if (is_idxd_wq_kernel(wq) || wq_shared(wq)) {
 				u32 pasid = wq_dedicated(wq) ? idxd->pasid : 0;
 
