@@ -5932,7 +5932,7 @@ static int io_try_cancel_userdata(struct io_kiocb *req, u64 sqe_addr)
 	struct io_ring_ctx *ctx = req->ctx;
 	int ret;
 
-	WARN_ON_ONCE(req->task != current);
+	WARN_ON_ONCE(!io_wq_current_is_worker() && req->task != current);
 
 	ret = io_async_cancel_one(req->task->io_uring, sqe_addr, ctx);
 	if (ret != -ENOENT)
