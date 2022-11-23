@@ -271,11 +271,11 @@ static void hisi_sas_task_prep_ata(struct hisi_hba *hisi_hba,
 }
 
 static void hisi_sas_task_prep_abort(struct hisi_hba *hisi_hba,
-		struct hisi_sas_slot *slot,
-		int device_id, int abort_flag, int tag_to_abort)
+		struct hisi_sas_internal_abort *abort,
+		struct hisi_sas_slot *slot, int device_id)
 {
 	hisi_hba->hw->prep_abort(hisi_hba, slot,
-			device_id, abort_flag, tag_to_abort);
+			device_id, abort->flag, abort->tag);
 }
 
 static void hisi_sas_dma_unmap(struct hisi_hba *hisi_hba,
@@ -1958,8 +1958,9 @@ static int hisi_sas_query_task(struct sas_task *task)
 
 static int
 hisi_sas_internal_abort_task_exec(struct hisi_hba *hisi_hba, int device_id,
-				  struct sas_task *task, int abort_flag,
-				  int task_tag, struct hisi_sas_dq *dq)
+				  struct hisi_sas_internal_abort *abort,
+				  struct sas_task *task,
+				  struct hisi_sas_dq *dq)
 {
 	struct domain_device *device = task->dev;
 	struct hisi_sas_device *sas_dev = device->lldd_dev;
@@ -2017,9 +2018,12 @@ _hisi_sas_internal_task_abort(struct hisi_hba *hisi_hba,
 {
 	struct sas_task *task;
 	struct hisi_sas_device *sas_dev = device->lldd_dev;
+	struct hisi_sas_internal_abort abort = {
+		.flag = abort_flag,
+		.tag = tag,
+	};
 	struct device *dev = hisi_hba->dev;
 	int res;
-
 	/*
 	 * The interface is not realized means this HW don't support internal
 	 * abort, or don't need to do internal abort. Then here, we return
@@ -2044,7 +2048,7 @@ _hisi_sas_internal_task_abort(struct hisi_hba *hisi_hba,
 	add_timer(&task->slow_task->timer);
 
 	res = hisi_sas_internal_abort_task_exec(hisi_hba, sas_dev->device_id,
-						task, abort_flag, tag, dq);
+						&abort, task, dq);
 	if (res) {
 		del_timer(&task->slow_task->timer);
 		dev_err(dev, "internal task abort: executing internal task failed: %d\n",
