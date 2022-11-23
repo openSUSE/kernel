@@ -281,31 +281,33 @@ static void __unix_remove_socket(struct sock *sk)
 	sk_del_node_init(sk);
 }
 
-static void __unix_insert_socket(struct hlist_head *list, struct sock *sk)
+static void __unix_insert_socket(struct sock *sk)
 {
 	WARN_ON(!sk_unhashed(sk));
-	sk_add_node(sk, list);
+	sk_add_node(sk, &unix_socket_table[sk->sk_hash]);
 }
 
-static void __unix_set_addr(struct sock *sk, struct unix_address *addr,
-			    unsigned hash)
+static void __unix_set_addr_hash(struct sock *sk, struct unix_address *addr,
+				 unsigned int hash)
 {
 	__unix_remove_socket(sk);
 	smp_store_release(&unix_sk(sk)->addr, addr);
-	__unix_insert_socket(&unix_socket_table[hash], sk);
+
+	sk->sk_hash = hash;
+	__unix_insert_socket(sk);
 }
 
-static inline void unix_remove_socket(struct sock *sk)
+static void unix_remove_socket(struct sock *sk)
 {
 	spin_lock(&unix_table_lock);
 	__unix_remove_socket(sk);
 	spin_unlock(&unix_table_lock);
 }
 
-static inline void unix_insert_socket(struct hlist_head *list, struct sock *sk)
+static void unix_insert_unbound_socket(struct sock *sk)
 {
 	spin_lock(&unix_table_lock);
-	__unix_insert_socket(list, sk);
+	__unix_insert_socket(sk);
 	spin_unlock(&unix_table_lock);
 }
 
@@ -885,6 +887,7 @@ static struct sock *unix_create1(struct net *net, struct socket *sock, int kern,
 
 	sock_init_data(sock, sk);
 
+	sk->sk_hash		= unix_unbound_hash(sk);
 	sk->sk_allocation	= GFP_KERNEL_ACCOUNT;
 	sk->sk_write_space	= unix_write_space;
 	sk->sk_max_ack_backlog	= net->unx.sysctl_max_dgram_qlen;
@@ -900,7 +903,7 @@ static struct sock *unix_create1(struct net *net, struct socket *sock, int kern,
 	init_waitqueue_head(&u->peer_wait);
 	init_waitqueue_func_entry(&u->peer_wake, unix_dgram_peer_wake_relay);
 	memset(&u->scm_stat, 0, sizeof(struct scm_stat));
-	unix_insert_socket(&unix_socket_table[unix_unbound_hash(sk)], sk);
+	unix_insert_unbound_socket(sk);
 out:
 	if (sk == NULL)
 		atomic_long_dec(&unix_nr_socks);
@@ -1041,6 +1044,7 @@ static int unix_autobind(struct sock *sk)
 	struct unix_address *addr;
 	unsigned int retries = 0;
 	static u32 ordernum = 1;
+	unsigned int new_hash;
 	int err;
 
 	err = mutex_lock_interruptible(&u->bindlock);
@@ -1062,13 +1066,13 @@ static int unix_autobind(struct sock *sk)
 retry:
 	addr->len = sprintf(addr->name->sun_path + 1, "%05x", ordernum) +
 		offsetof(struct sockaddr_un, sun_path) + 1;
-	addr->hash = unix_abstract_hash(addr->name, addr->len, sk->sk_type);
 
+	new_hash = unix_abstract_hash(addr->name, addr->len, sk->sk_type);
 	spin_lock(&unix_table_lock);
 	ordernum = (ordernum+1)&0xFFFFF;
 
 	if (__unix_find_socket_byname(sock_net(sk), addr->name, addr->len,
-				      addr->hash)) {
+				      new_hash)) {
 		spin_unlock(&unix_table_lock);
 		/*
 		 * __unix_find_socket_byname() may take long time if many names
@@ -1084,7 +1088,7 @@ retry:
 		goto retry;
 	}
 
-	__unix_set_addr(sk, addr, addr->hash);
+	__unix_set_addr_hash(sk, addr, new_hash);
 	spin_unlock(&unix_table_lock);
 	err = 0;
 
@@ -1100,9 +1104,9 @@ static int unix_bind_bsd(struct sock *sk, struct sockaddr_un *sunaddr,
 	struct unix_sock *u = unix_sk(sk);
 	struct user_namespace *ns; // barf...
 	struct unix_address *addr;
+	unsigned int new_hash;
 	struct dentry *dentry;
 	struct path parent;
-	unsigned int hash;
 	int err;
 
 	unix_mkname_bsd(sunaddr, addr_len);
@@ -1138,12 +1142,11 @@ static int unix_bind_bsd(struct sock *sk, struct sockaddr_un *sunaddr,
 	if (u->addr)
 		goto out_unlock;
 
-	addr->hash = UNIX_HASH_SIZE;
-	hash = unix_bsd_hash(d_backing_inode(dentry));
+	new_hash = unix_bsd_hash(d_backing_inode(dentry));
 	spin_lock(&unix_table_lock);
 	u->path.mnt = mntget(parent.mnt);
 	u->path.dentry = dget(dentry);
-	__unix_set_addr(sk, addr, hash);
+	__unix_set_addr_hash(sk, addr, new_hash);
 	spin_unlock(&unix_table_lock);
 	mutex_unlock(&u->bindlock);
 	done_path_create(&parent, dentry);
@@ -1167,6 +1170,7 @@ static int unix_bind_abstract(struct sock *sk, struct sockaddr_un *sunaddr,
 {
 	struct unix_sock *u = unix_sk(sk);
 	struct unix_address *addr;
+	unsigned int new_hash;
 	int err;
 
 	addr = unix_create_addr(sunaddr, addr_len);
@@ -1182,14 +1186,14 @@ static int unix_bind_abstract(struct sock *sk, struct sockaddr_un *sunaddr,
 		goto out_mutex;
 	}
 
-	addr->hash = unix_abstract_hash(addr->name, addr->len, sk->sk_type);
+	new_hash = unix_abstract_hash(addr->name, addr->len, sk->sk_type);
 	spin_lock(&unix_table_lock);
 
 	if (__unix_find_socket_byname(sock_net(sk), addr->name, addr->len,
-				      addr->hash))
+				      new_hash))
 		goto out_spin;
 
-	__unix_set_addr(sk, addr, addr->hash);
+	__unix_set_addr_hash(sk, addr, new_hash);
 	spin_unlock(&unix_table_lock);
 	mutex_unlock(&u->bindlock);
 	return 0;
