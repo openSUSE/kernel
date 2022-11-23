@@ -1413,7 +1413,7 @@ u16 nvmet_alloc_ctrl(const char *subsysnqn, const char *hostnqn,
 	if (subsys->cntlid_min > subsys->cntlid_max)
 		goto out_free_sqs;
 
-	ret = ida_simple_get(&cntlid_ida,
+	ret = ida_alloc_range(&cntlid_ida,
 			     subsys->cntlid_min, subsys->cntlid_max,
 			     GFP_KERNEL);
 	if (ret < 0) {
@@ -1474,7 +1474,7 @@ static void nvmet_ctrl_free(struct kref *ref)
 
 	nvmet_destroy_auth(ctrl);
 
-	ida_simple_remove(&cntlid_ida, ctrl->cntlid);
+	ida_free(&cntlid_ida, ctrl->cntlid);
 
 	nvmet_async_events_free(ctrl);
 	kfree(ctrl->sqs);
