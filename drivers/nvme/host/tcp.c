@@ -2485,7 +2485,7 @@ static blk_status_t nvme_tcp_queue_rq(struct blk_mq_hw_ctx *hctx,
 	return BLK_STS_OK;
 }
 
-static int nvme_tcp_map_queues(struct blk_mq_tag_set *set)
+static void nvme_tcp_map_queues(struct blk_mq_tag_set *set)
 {
 	struct nvme_tcp_ctrl *ctrl = set->driver_data;
 	struct nvmf_ctrl_options *opts = ctrl->ctrl.opts;
@@ -2526,8 +2526,6 @@ static int nvme_tcp_map_queues(struct blk_mq_tag_set *set)
 		ctrl->io_queues[HCTX_TYPE_DEFAULT],
 		ctrl->io_queues[HCTX_TYPE_READ],
 		ctrl->io_queues[HCTX_TYPE_POLL]);
-
-	return 0;
 }
 
 static int nvme_tcp_poll(struct blk_mq_hw_ctx *hctx, struct io_comp_batch *iob)
