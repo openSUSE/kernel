@@ -1717,7 +1717,7 @@ static void nvme_tcp_stop_io_queues(struct nvme_ctrl *ctrl)
 static int nvme_tcp_start_io_queues(struct nvme_ctrl *ctrl,
 				    int first, int last)
 {
-	int i, ret = 0;
+	int i, ret;
 
 	for (i = first; i < last; i++) {
 		ret = nvme_tcp_start_queue(ctrl, i);
