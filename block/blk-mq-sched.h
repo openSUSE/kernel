@@ -13,7 +13,7 @@ void blk_mq_sched_assign_ioc(struct request *rq);
 
 bool blk_mq_sched_try_merge(struct request_queue *q, struct bio *bio,
 		unsigned int nr_segs, struct request **merged_request);
-bool __blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
+bool blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
 		unsigned int nr_segs);
 bool blk_mq_sched_try_insert_merge(struct request_queue *q, struct request *rq,
 				   struct list_head *free);
@@ -44,42 +44,37 @@ static inline bool bio_mergeable(struct bio *bio)
 }
 
 static inline bool
-blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
-		unsigned int nr_segs)
-{
-	if (blk_queue_nomerges(q) || !bio_mergeable(bio))
-		return false;
-
-	return __blk_mq_sched_bio_merge(q, bio, nr_segs);
-}
-
-static inline bool
 blk_mq_sched_allow_merge(struct request_queue *q, struct request *rq,
 			 struct bio *bio)
 {
-	struct elevator_queue *e = q->elevator;
+	if (rq->rq_flags & RQF_ELV) {
+		struct elevator_queue *e = q->elevator;
 
-	if (e && e->type->ops.allow_merge)
-		return e->type->ops.allow_merge(q, rq, bio);
-
+		if (e->type->ops.allow_merge)
+			return e->type->ops.allow_merge(q, rq, bio);
+	}
 	return true;
 }
 
 static inline void blk_mq_sched_completed_request(struct request *rq, u64 now)
 {
-	struct elevator_queue *e = rq->q->elevator;
+	if (rq->rq_flags & RQF_ELV) {
+		struct elevator_queue *e = rq->q->elevator;
 
-	if (e && e->type->ops.completed_request)
-		e->type->ops.completed_request(rq, now);
+		if (e->type->ops.completed_request)
+			e->type->ops.completed_request(rq, now);
+	}
 }
 
 static inline void blk_mq_sched_requeue_request(struct request *rq)
 {
-	struct request_queue *q = rq->q;
-	struct elevator_queue *e = q->elevator;
+	if (rq->rq_flags & RQF_ELV) {
+		struct request_queue *q = rq->q;
+		struct elevator_queue *e = q->elevator;
 
-	if ((rq->rq_flags & RQF_ELVPRIV) && e && e->type->ops.requeue_request)
-		e->type->ops.requeue_request(rq);
+		if ((rq->rq_flags & RQF_ELVPRIV) && e->type->ops.requeue_request)
+			e->type->ops.requeue_request(rq);
+	}
 }
 
 static inline bool blk_mq_sched_has_work(struct blk_mq_hw_ctx *hctx)

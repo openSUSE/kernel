@@ -1169,7 +1169,7 @@ static void quit_max_writeback_rate(struct cache_set *c,
 
 /* Cached devices - read & write stuff */
 
-blk_qc_t cached_dev_submit_bio(struct bio *bio)
+void cached_dev_submit_bio(struct bio *bio)
 {
 	struct search *s;
 	struct block_device *orig_bdev = bio->bi_bdev;
@@ -1182,7 +1182,7 @@ blk_qc_t cached_dev_submit_bio(struct bio *bio)
 		     dc->io_disable)) {
 		bio->bi_status = BLK_STS_IOERR;
 		bio_endio(bio);
-		return BLK_QC_T_NONE;
+		return;
 	}
 
 	if (likely(d->c)) {
@@ -1228,8 +1228,6 @@ blk_qc_t cached_dev_submit_bio(struct bio *bio)
 	} else
 		/* I/O request sent to backing device */
 		detached_dev_do_request(d, bio, orig_bdev, start_time);
-
-	return BLK_QC_T_NONE;
 }
 
 static int cached_dev_ioctl(struct bcache_device *d, fmode_t mode,
@@ -1279,7 +1277,7 @@ static void flash_dev_nodata(struct closure *cl)
 	continue_at(cl, search_free, NULL);
 }
 
-blk_qc_t flash_dev_submit_bio(struct bio *bio)
+void flash_dev_submit_bio(struct bio *bio)
 {
 	struct search *s;
 	struct closure *cl;
@@ -1288,7 +1286,7 @@ blk_qc_t flash_dev_submit_bio(struct bio *bio)
 	if (unlikely(d->c && test_bit(CACHE_SET_IO_DISABLE, &d->c->flags))) {
 		bio->bi_status = BLK_STS_IOERR;
 		bio_endio(bio);
-		return BLK_QC_T_NONE;
+		return;
 	}
 
 	s = search_alloc(bio, d, bio->bi_bdev, bio_start_io_acct(bio));
@@ -1304,7 +1302,7 @@ blk_qc_t flash_dev_submit_bio(struct bio *bio)
 		continue_at_nobarrier(&s->cl,
 				      flash_dev_nodata,
 				      bcache_wq);
-		return BLK_QC_T_NONE;
+		return;
 	} else if (bio_data_dir(bio)) {
 		bch_keybuf_check_overlapping(&s->iop.c->moving_gc_keys,
 					&KEY(d->id, bio->bi_iter.bi_sector, 0),
@@ -1320,7 +1318,6 @@ blk_qc_t flash_dev_submit_bio(struct bio *bio)
 	}
 
 	continue_at(cl, search_free, NULL);
-	return BLK_QC_T_NONE;
 }
 
 static int flash_dev_ioctl(struct bcache_device *d, fmode_t mode,

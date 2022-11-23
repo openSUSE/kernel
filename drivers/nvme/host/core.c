@@ -333,15 +333,19 @@ static inline enum nvme_disposition nvme_decide_disposition(struct request *req)
 	return RETRY;
 }
 
-static inline void nvme_end_req(struct request *req)
+static inline void nvme_end_req_zoned(struct request *req)
 {
-	blk_status_t status = nvme_error_status(nvme_req(req)->status);
-
 	if (IS_ENABLED(CONFIG_BLK_DEV_ZONED) &&
 	    req_op(req) == REQ_OP_ZONE_APPEND)
 		req->__sector = nvme_lba_to_sect(req->q->queuedata,
 			le64_to_cpu(nvme_req(req)->result.u64));
+}
 
+static inline void nvme_end_req(struct request *req)
+{
+	blk_status_t status = nvme_error_status(nvme_req(req)->status);
+
+	nvme_end_req_zoned(req);
 	nvme_trace_bio_complete(req);
 	blk_mq_end_request(req, status);
 }
@@ -377,6 +381,13 @@ void nvme_complete_rq(struct request *req)
 	}
 }
 EXPORT_SYMBOL_GPL(nvme_complete_rq);
+
+void nvme_complete_batch_req(struct request *req)
+{
+	nvme_cleanup_cmd(req);
+	nvme_end_req_zoned(req);
+}
+EXPORT_SYMBOL_GPL(nvme_complete_batch_req);
 
 /*
  * Called to unwind from ->queue_rq on a failed command submission so that the
@@ -629,7 +640,7 @@ static inline void nvme_init_request(struct request *req,
 
 	req->cmd_flags |= REQ_FAILFAST_DRIVER;
 	if (req->mq_hctx->type == HCTX_TYPE_POLL)
-		req->cmd_flags |= REQ_HIPRI;
+		req->cmd_flags |= REQ_POLLED;
 	nvme_clear_nvme_request(req);
 	memcpy(nvme_req(req)->cmd, cmd, sizeof(*cmd));
 }
@@ -823,6 +834,7 @@ static void nvme_assign_write_stream(struct nvme_ctrl *ctrl,
 static inline void nvme_setup_flush(struct nvme_ns *ns,
 		struct nvme_command *cmnd)
 {
+	memset(cmnd, 0, sizeof(*cmnd));
 	cmnd->common.opcode = nvme_cmd_flush;
 	cmnd->common.nsid = cpu_to_le32(ns->head->ns_id);
 }
@@ -874,6 +886,7 @@ static blk_status_t nvme_setup_discard(struct nvme_ns *ns, struct request *req,
 		return BLK_STS_IOERR;
 	}
 
+	memset(cmnd, 0, sizeof(*cmnd));
 	cmnd->dsm.opcode = nvme_cmd_dsm;
 	cmnd->dsm.nsid = cpu_to_le32(ns->head->ns_id);
 	cmnd->dsm.nr = cpu_to_le32(segments - 1);
@@ -890,6 +903,8 @@ static blk_status_t nvme_setup_discard(struct nvme_ns *ns, struct request *req,
 static inline blk_status_t nvme_setup_write_zeroes(struct nvme_ns *ns,
 		struct request *req, struct nvme_command *cmnd)
 {
+	memset(cmnd, 0, sizeof(*cmnd));
+
 	if (ns->ctrl->quirks & NVME_QUIRK_DEALLOCATE_ZEROES)
 		return nvme_setup_discard(ns, req, cmnd);
 
@@ -923,9 +938,15 @@ static inline blk_status_t nvme_setup_rw(struct nvme_ns *ns,
 		dsmgmt |= NVME_RW_DSM_FREQ_PREFETCH;
 
 	cmnd->rw.opcode = op;
+	cmnd->rw.flags = 0;
 	cmnd->rw.nsid = cpu_to_le32(ns->head->ns_id);
+	cmnd->rw.rsvd2 = 0;
+	cmnd->rw.metadata = 0;
 	cmnd->rw.slba = cpu_to_le64(nvme_sect_to_lba(ns, blk_rq_pos(req)));
 	cmnd->rw.length = cpu_to_le16((blk_rq_bytes(req) >> ns->lba_shift) - 1);
+	cmnd->rw.reftag = 0;
+	cmnd->rw.apptag = 0;
+	cmnd->rw.appmask = 0;
 
 	if (req_op(req) == REQ_OP_WRITE && ctrl->nr_streams)
 		nvme_assign_write_stream(ctrl, req, &control, &dsmgmt);
@@ -982,10 +1003,8 @@ blk_status_t nvme_setup_cmd(struct nvme_ns *ns, struct request *req)
 	struct nvme_ctrl *ctrl = nvme_req(req)->ctrl;
 	blk_status_t ret = BLK_STS_OK;
 
-	if (!(req->rq_flags & RQF_DONTPREP)) {
+	if (!(req->rq_flags & RQF_DONTPREP))
 		nvme_clear_nvme_request(req);
-		memset(cmd, 0, sizeof(*cmd));
-	}
 
 	switch (req_op(req)) {
 	case REQ_OP_DRV_IN:

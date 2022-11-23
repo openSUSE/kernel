@@ -372,7 +372,7 @@ void blk_mq_sched_dispatch_requests(struct blk_mq_hw_ctx *hctx)
 	}
 }
 
-bool __blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
+bool blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
 		unsigned int nr_segs)
 {
 	struct elevator_queue *e = q->elevator;
@@ -398,13 +398,10 @@ bool __blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
 	 * potentially merge with. Currently includes a hand-wavy stop
 	 * count of 8, to not spend too much time checking for merges.
 	 */
-	if (blk_bio_list_merge(q, &ctx->rq_lists[type], bio, nr_segs)) {
-		ctx->rq_merged++;
+	if (blk_bio_list_merge(q, &ctx->rq_lists[type], bio, nr_segs))
 		ret = true;
-	}
 
 	spin_unlock(&ctx->lock);
-
 	return ret;
 }
 
@@ -555,7 +552,7 @@ static void blk_mq_sched_tags_teardown(struct request_queue *q, unsigned int fla
 
 	queue_for_each_hw_ctx(q, hctx, i) {
 		if (hctx->sched_tags) {
-			if (!blk_mq_is_shared_tags(q->tag_set->flags))
+			if (!blk_mq_is_shared_tags(flags))
 				blk_mq_free_rq_map(hctx->sched_tags);
 			hctx->sched_tags = NULL;
 		}

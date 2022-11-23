@@ -1460,8 +1460,7 @@ static int floppy_revalidate(struct gendisk *disk)
 	unsigned int drive = p - unit;
 
 	if (test_bit(drive, &changed_floppies) ||
-	    test_bit(drive, &fake_change) ||
-	    p->disktype == 0) {
+	    test_bit(drive, &fake_change) || !p->disktype) {
 		if (UD.flags & FTD_MSG)
 			printk(KERN_ERR "floppy: clear format %p!\n", UDT);
 		BufferDrive = -1;
@@ -2114,7 +2113,9 @@ static int __init atari_floppy_init (void)
 	for (i = 0; i < FD_MAX_UNITS; i++) {
 		unit[i].track = -1;
 		unit[i].flags = 0;
-		add_disk(unit[i].disk[0]);
+		ret = add_disk(unit[i].disk[0]);
+		if (ret)
+			goto err_out_dma;
 		unit[i].registered[0] = true;
 	}
 
@@ -2130,6 +2131,8 @@ static int __init atari_floppy_init (void)
 	}
 	return ret;
 
+err_out_dma:
+	atari_stram_free(DMABuffer);
 err:
 	while (--i >= 0)
 		atari_cleanup_floppy_disk(&unit[i]);

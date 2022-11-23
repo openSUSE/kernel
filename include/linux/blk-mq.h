@@ -7,6 +7,7 @@
 #include <linux/srcu.h>
 #include <linux/lockdep.h>
 #include <linux/scatterlist.h>
+#include <linux/prefetch.h>
 
 struct blk_mq_tags;
 struct blk_flush_queue;
@@ -55,6 +56,8 @@ typedef __u32 __bitwise req_flags_t;
 #define RQF_MQ_POLL_SLEPT	((__force req_flags_t)(1 << 20))
 /* ->timeout has been called, don't expire again */
 #define RQF_TIMED_OUT		((__force req_flags_t)(1 << 21))
+/* queue has elevator attached */
+#define RQF_ELV			((__force req_flags_t)(1 << 22))
 
 /* flags that prevent us from merging requests: */
 #define RQF_NOMERGE_FLAGS \
@@ -83,6 +86,8 @@ struct request {
 	int tag;
 	int internal_tag;
 
+	unsigned int timeout;
+
 	/* the following two fields are internal, NEVER access directly */
 	unsigned int __data_len;	/* total data len */
 	sector_t __sector;		/* sector cursor */
@@ -93,49 +98,6 @@ struct request {
 	union {
 		struct list_head queuelist;
 		struct request *rq_next;
-	};
-
-	/*
-	 * The hash is used inside the scheduler, and killed once the
-	 * request reaches the dispatch list. The ipi_list is only used
-	 * to queue the request for softirq completion, which is long
-	 * after the request has been unhashed (and even removed from
-	 * the dispatch list).
-	 */
-	union {
-		struct hlist_node hash;	/* merge hash */
-		struct llist_node ipi_list;
-	};
-
-	/*
-	 * The rb_node is only used inside the io scheduler, requests
-	 * are pruned when moved to the dispatch queue. So let the
-	 * completion_data share space with the rb_node.
-	 */
-	union {
-		struct rb_node rb_node;	/* sort/lookup */
-		struct bio_vec special_vec;
-		void *completion_data;
-		int error_count; /* for legacy drivers, don't use */
-	};
-
-	/*
-	 * Three pointers are available for the IO schedulers, if they need
-	 * more they have to dynamically allocate it.  Flush requests are
-	 * never put on the IO scheduler. So let the flush fields share
-	 * space with the elevator data.
-	 */
-	union {
-		struct {
-			struct io_cq		*icq;
-			void			*priv[2];
-		} elv;
-
-		struct {
-			unsigned int		seq;
-			struct list_head	list;
-			rq_end_io_fn		*saved_end_io;
-		} flush;
 	};
 
 	struct gendisk *rq_disk;
@@ -171,7 +133,7 @@ struct request {
 
 #ifdef CONFIG_BLK_INLINE_ENCRYPTION
 	struct bio_crypt_ctx *crypt_ctx;
-	struct blk_ksm_keyslot *crypt_keyslot;
+	struct blk_crypto_keyslot *crypt_keyslot;
 #endif
 
 	unsigned short write_hint;
@@ -180,8 +142,51 @@ struct request {
 	enum mq_rq_state state;
 	refcount_t ref;
 
-	unsigned int timeout;
 	unsigned long deadline;
+
+	/*
+	 * The hash is used inside the scheduler, and killed once the
+	 * request reaches the dispatch list. The ipi_list is only used
+	 * to queue the request for softirq completion, which is long
+	 * after the request has been unhashed (and even removed from
+	 * the dispatch list).
+	 */
+	union {
+		struct hlist_node hash;	/* merge hash */
+		struct llist_node ipi_list;
+	};
+
+	/*
+	 * The rb_node is only used inside the io scheduler, requests
+	 * are pruned when moved to the dispatch queue. So let the
+	 * completion_data share space with the rb_node.
+	 */
+	union {
+		struct rb_node rb_node;	/* sort/lookup */
+		struct bio_vec special_vec;
+		void *completion_data;
+		int error_count; /* for legacy drivers, don't use */
+	};
+
+
+	/*
+	 * Three pointers are available for the IO schedulers, if they need
+	 * more they have to dynamically allocate it.  Flush requests are
+	 * never put on the IO scheduler. So let the flush fields share
+	 * space with the elevator data.
+	 */
+	union {
+		struct {
+			struct io_cq		*icq;
+			void			*priv[2];
+		} elv;
+
+		struct {
+			unsigned int		seq;
+			struct list_head	list;
+			rq_end_io_fn		*saved_end_io;
+		} flush;
+	};
 
 	union {
 		struct __call_single_data csd;
@@ -337,9 +342,6 @@ struct blk_mq_hw_ctx {
 	unsigned long		queued;
 	/** @run: Number of dispatched requests. */
 	unsigned long		run;
-#define BLK_MQ_MAX_DISPATCH_ORDER	7
-	/** @dispatched: Number of dispatch requests by queue. */
-	unsigned long		dispatched[BLK_MQ_MAX_DISPATCH_ORDER];
 
 	/** @numa_node: NUMA node the storage adapter has been connected to. */
 	unsigned int		numa_node;
@@ -358,13 +360,6 @@ struct blk_mq_hw_ctx {
 	struct hlist_node	cpuhp_dead;
 	/** @kobj: Kernel object for sysfs. */
 	struct kobject		kobj;
-
-	/** @poll_considered: Count times blk_poll() was called. */
-	unsigned long		poll_considered;
-	/** @poll_invoked: Count how many requests blk_poll() polled. */
-	unsigned long		poll_invoked;
-	/** @poll_success: Count how many polled requests were completed. */
-	unsigned long		poll_success;
 
 #ifdef CONFIG_BLK_DEBUG_FS
 	/**
@@ -538,7 +533,7 @@ struct blk_mq_ops {
 	/**
 	 * @poll: Called to poll for completion of a specific tag.
 	 */
-	int (*poll)(struct blk_mq_hw_ctx *);
+	int (*poll)(struct blk_mq_hw_ctx *, struct io_comp_batch *);
 
 	/**
 	 * @complete: Mark the request as complete.
@@ -570,11 +565,6 @@ struct blk_mq_ops {
 	 */
 	void (*exit_request)(struct blk_mq_tag_set *set, struct request *,
 			     unsigned int);
-
-	/**
-	 * @initialize_rq_fn: Called from inside blk_get_request().
-	 */
-	void (*initialize_rq_fn)(struct request *rq);
 
 	/**
 	 * @cleanup_rq: Called before freeing one request which isn't completed
@@ -661,8 +651,6 @@ int blk_mq_alloc_sq_tag_set(struct blk_mq_tag_set *set,
 		unsigned int set_flags);
 void blk_mq_free_tag_set(struct blk_mq_tag_set *set);
 
-void blk_mq_flush_plug_list(struct blk_plug *plug, bool from_schedule);
-
 void blk_mq_free_request(struct request *rq);
 
 bool blk_mq_queue_inflight(struct request_queue *q);
@@ -681,7 +669,40 @@ struct request *blk_mq_alloc_request(struct request_queue *q, unsigned int op,
 struct request *blk_mq_alloc_request_hctx(struct request_queue *q,
 		unsigned int op, blk_mq_req_flags_t flags,
 		unsigned int hctx_idx);
-struct request *blk_mq_tag_to_rq(struct blk_mq_tags *tags, unsigned int tag);
+
+/*
+ * Tag address space map.
+ */
+struct blk_mq_tags {
+	unsigned int nr_tags;
+	unsigned int nr_reserved_tags;
+
+	atomic_t active_queues;
+
+	struct sbitmap_queue bitmap_tags;
+	struct sbitmap_queue breserved_tags;
+
+	struct request **rqs;
+	struct request **static_rqs;
+	struct list_head page_list;
+
+	/*
+	 * used to clear request reference in rqs[] before freeing one
+	 * request pool
+	 */
+	spinlock_t lock;
+};
+
+static inline struct request *blk_mq_tag_to_rq(struct blk_mq_tags *tags,
+					       unsigned int tag)
+{
+	if (tag < tags->nr_tags) {
+		prefetch(tags->rqs[tag]);
+		return tags->rqs[tag];
+	}
+
+	return NULL;
+}
 
 enum {
 	BLK_MQ_UNIQUE_TAG_BITS = 16,
@@ -734,6 +755,35 @@ static inline void blk_mq_set_request_complete(struct request *rq)
 void blk_mq_start_request(struct request *rq);
 void blk_mq_end_request(struct request *rq, blk_status_t error);
 void __blk_mq_end_request(struct request *rq, blk_status_t error);
+void blk_mq_end_request_batch(struct io_comp_batch *ib);
+
+/*
+ * Only need start/end time stamping if we have iostat or
+ * blk stats enabled, or using an IO scheduler.
+ */
+static inline bool blk_mq_need_time_stamp(struct request *rq)
+{
+	return (rq->rq_flags & (RQF_IO_STAT | RQF_STATS | RQF_ELV));
+}
+
+/*
+ * Batched completions only work when there is no I/O error and no special
+ * ->end_io handler.
+ */
+static inline bool blk_mq_add_to_batch(struct request *req,
+				       struct io_comp_batch *iob, int ioerror,
+				       void (*complete)(struct io_comp_batch *))
+{
+	if (!iob || (req->rq_flags & RQF_ELV) || req->end_io || ioerror)
+		return false;
+	if (!iob->complete)
+		iob->complete = complete;
+	else if (iob->complete != complete)
+		return false;
+	iob->need_ts |= blk_mq_need_time_stamp(req);
+	rq_list_add(&iob->req_list, req);
+	return true;
+}
 
 void blk_mq_requeue_request(struct request *rq, bool kick_requeue_list);
 void blk_mq_kick_requeue_list(struct request_queue *q);
@@ -816,16 +866,6 @@ static inline void *blk_mq_rq_to_pdu(struct request *rq)
 	for ((i) = 0; (i) < (hctx)->nr_ctx &&				\
 	     ({ ctx = (hctx)->ctxs[(i)]; 1; }); (i)++)
 
-static inline blk_qc_t request_to_qc_t(struct blk_mq_hw_ctx *hctx,
-		struct request *rq)
-{
-	if (rq->tag != -1)
-		return rq->tag | (hctx->queue_num << BLK_QC_T_SHIFT);
-
-	return rq->internal_tag | (hctx->queue_num << BLK_QC_T_SHIFT) |
-			BLK_QC_T_INTERNAL;
-}
-
 static inline void blk_mq_cleanup_rq(struct request *rq)
 {
 	if (rq->q->mq_ops->cleanup_rq)
@@ -844,7 +884,6 @@ static inline void blk_rq_bio_prep(struct request *rq, struct bio *bio,
 		rq->rq_disk = bio->bi_bdev->bd_disk;
 }
 
-blk_qc_t blk_mq_submit_bio(struct bio *bio);
 void blk_mq_hctx_set_fq_lock_class(struct blk_mq_hw_ctx *hctx,
 		struct lock_class_key *key);
 

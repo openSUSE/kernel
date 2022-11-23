@@ -215,9 +215,10 @@ static inline void blk_integrity_del(struct gendisk *disk)
 
 unsigned long blk_rq_timeout(unsigned long timeout);
 void blk_add_timer(struct request *req);
+void blk_print_req_error(struct request *req, blk_status_t status);
 
 bool blk_attempt_plug_merge(struct request_queue *q, struct bio *bio,
-		unsigned int nr_segs, struct request **same_queue_rq);
+		unsigned int nr_segs, bool *same_queue_rq);
 bool blk_bio_list_merge(struct request_queue *q, struct list_head *list,
 			struct bio *bio, unsigned int nr_segs);
 
@@ -235,7 +236,7 @@ void __blk_account_io_done(struct request *req, u64 now);
  */
 #define ELV_ON_HASH(rq) ((rq)->rq_flags & RQF_HASHED)
 
-void blk_insert_flush(struct request *rq);
+bool blk_insert_flush(struct request *rq);
 
 int elevator_switch_mq(struct request_queue *q,
 			      struct elevator_type *new_e);
@@ -266,7 +267,32 @@ ssize_t part_timeout_show(struct device *, struct device_attribute *, char *);
 ssize_t part_timeout_store(struct device *, struct device_attribute *,
 				const char *, size_t);
 
-void __blk_queue_split(struct bio **bio, unsigned int *nr_segs);
+static inline bool blk_may_split(struct request_queue *q, struct bio *bio)
+{
+	switch (bio_op(bio)) {
+	case REQ_OP_DISCARD:
+	case REQ_OP_SECURE_ERASE:
+	case REQ_OP_WRITE_ZEROES:
+	case REQ_OP_WRITE_SAME:
+		return true; /* non-trivial splitting decisions */
+	default:
+		break;
+	}
+
+	/*
+	 * All drivers must accept single-segments bios that are <= PAGE_SIZE.
+	 * This is a quick and dirty check that relies on the fact that
+	 * bi_io_vec[0] is always valid if a bio has data.  The check might
+	 * lead to occasional false negatives when bios are cloned, but compared
+	 * to the performance impact of cloned bios themselves the loop below
+	 * doesn't matter anyway.
+	 */
+	return q->limits.chunk_sectors || bio->bi_vcnt != 1 ||
+		bio->bi_io_vec->bv_len + bio->bi_io_vec->bv_offset > PAGE_SIZE;
+}
+
+void __blk_queue_split(struct request_queue *q, struct bio **bio,
+			unsigned int *nr_segs);
 int ll_back_merge_fn(struct request *req, struct bio *bio,
 		unsigned int nr_segs);
 bool blk_attempt_req_merge(struct request_queue *q, struct request *rq,
@@ -418,16 +444,20 @@ extern struct device_attribute dev_attr_events;
 extern struct device_attribute dev_attr_events_async;
 extern struct device_attribute dev_attr_events_poll_msecs;
 
-static inline void bio_clear_hipri(struct bio *bio)
+static inline void bio_clear_polled(struct bio *bio)
 {
 	/* can't support alloc cache if we turn off polling */
 	bio_clear_flag(bio, BIO_PERCPU_CACHE);
-	bio->bi_opf &= ~REQ_HIPRI;
+	bio->bi_opf &= ~REQ_POLLED;
 }
 
 long blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg);
 long compat_blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg);
 
 extern const struct address_space_operations def_blk_aops;
+
+int disk_register_independent_access_ranges(struct gendisk *disk,
+				struct blk_independent_access_ranges *new_iars);
+void disk_unregister_independent_access_ranges(struct gendisk *disk);
 
 #endif /* BLK_INTERNAL_H */

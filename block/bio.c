@@ -87,7 +87,8 @@ static struct bio_slab *create_bio_slab(unsigned int size)
 
 	snprintf(bslab->name, sizeof(bslab->name), "bio-%d", size);
 	bslab->slab = kmem_cache_create(bslab->name, size,
-			ARCH_KMALLOC_MINALIGN, SLAB_HWCACHE_ALIGN, NULL);
+			ARCH_KMALLOC_MINALIGN,
+			SLAB_HWCACHE_ALIGN | SLAB_TYPESAFE_BY_RCU, NULL);
 	if (!bslab->slab)
 		goto fail_alloc_slab;
 
@@ -281,6 +282,7 @@ void bio_init(struct bio *bio, struct bio_vec *table,
 
 	atomic_set(&bio->__bi_remaining, 1);
 	atomic_set(&bio->__bi_cnt, 1);
+	bio->bi_cookie = BLK_QC_T_NONE;
 
 	bio->bi_max_vecs = max_vecs;
 	bio->bi_io_vec = table;
@@ -964,7 +966,7 @@ EXPORT_SYMBOL(bio_add_pc_page);
 int bio_add_zone_append_page(struct bio *bio, struct page *page,
 			     unsigned int len, unsigned int offset)
 {
-	struct request_queue *q = bio->bi_bdev->bd_disk->queue;
+	struct request_queue *q = bdev_get_queue(bio->bi_bdev);
 	bool same_page = false;
 
 	if (WARN_ON_ONCE(bio_op(bio) != REQ_OP_ZONE_APPEND))
@@ -1032,13 +1034,10 @@ int bio_add_page(struct bio *bio, struct page *page,
 }
 EXPORT_SYMBOL(bio_add_page);
 
-void bio_release_pages(struct bio *bio, bool mark_dirty)
+void __bio_release_pages(struct bio *bio, bool mark_dirty)
 {
 	struct bvec_iter_all iter_all;
 	struct bio_vec *bvec;
-
-	if (bio_flagged(bio, BIO_NO_PAGE_REF))
-		return;
 
 	bio_for_each_segment_all(bvec, bio, iter_all) {
 		if (mark_dirty && !PageCompound(bvec->bv_page))
@@ -1046,36 +1045,27 @@ void bio_release_pages(struct bio *bio, bool mark_dirty)
 		put_page(bvec->bv_page);
 	}
 }
-EXPORT_SYMBOL_GPL(bio_release_pages);
+EXPORT_SYMBOL_GPL(__bio_release_pages);
 
-static void __bio_iov_bvec_set(struct bio *bio, struct iov_iter *iter)
+void bio_iov_bvec_set(struct bio *bio, struct iov_iter *iter)
 {
+	size_t size = iov_iter_count(iter);
+
 	WARN_ON_ONCE(bio->bi_max_vecs);
+
+	if (bio_op(bio) == REQ_OP_ZONE_APPEND) {
+		struct request_queue *q = bdev_get_queue(bio->bi_bdev);
+		size_t max_sectors = queue_max_zone_append_sectors(q);
+
+		size = min(size, max_sectors << SECTOR_SHIFT);
+	}
 
 	bio->bi_vcnt = iter->nr_segs;
 	bio->bi_io_vec = (struct bio_vec *)iter->bvec;
 	bio->bi_iter.bi_bvec_done = iter->iov_offset;
-	bio->bi_iter.bi_size = iter->count;
+	bio->bi_iter.bi_size = size;
 	bio_set_flag(bio, BIO_NO_PAGE_REF);
 	bio_set_flag(bio, BIO_CLONED);
-}
-
-static int bio_iov_bvec_set(struct bio *bio, struct iov_iter *iter)
-{
-	__bio_iov_bvec_set(bio, iter);
-	iov_iter_advance(iter, iter->count);
-	return 0;
-}
-
-static int bio_iov_bvec_set_append(struct bio *bio, struct iov_iter *iter)
-{
-	struct request_queue *q = bio->bi_bdev->bd_disk->queue;
-	struct iov_iter i = *iter;
-
-	iov_iter_truncate(&i, queue_max_zone_append_sectors(q) << 9);
-	__bio_iov_bvec_set(bio, &i);
-	iov_iter_advance(iter, i.count);
-	return 0;
 }
 
 static void bio_put_pages(struct page **pages, size_t size, size_t off)
@@ -1147,7 +1137,7 @@ static int __bio_iov_append_get_pages(struct bio *bio, struct iov_iter *iter)
 {
 	unsigned short nr_pages = bio->bi_max_vecs - bio->bi_vcnt;
 	unsigned short entries_left = bio->bi_max_vecs - bio->bi_vcnt;
-	struct request_queue *q = bio->bi_bdev->bd_disk->queue;
+	struct request_queue *q = bdev_get_queue(bio->bi_bdev);
 	unsigned int max_append_sectors = queue_max_zone_append_sectors(q);
 	struct bio_vec *bv = bio->bi_io_vec + bio->bi_vcnt;
 	struct page **pages = (struct page **)bv;
@@ -1219,9 +1209,9 @@ int bio_iov_iter_get_pages(struct bio *bio, struct iov_iter *iter)
 	int ret = 0;
 
 	if (iov_iter_is_bvec(iter)) {
-		if (bio_op(bio) == REQ_OP_ZONE_APPEND)
-			return bio_iov_bvec_set_append(bio, iter);
-		return bio_iov_bvec_set(bio, iter);
+		bio_iov_bvec_set(bio, iter);
+		iov_iter_advance(iter, bio->bi_iter.bi_size);
+		return 0;
 	}
 
 	do {
@@ -1277,18 +1267,7 @@ int submit_bio_wait(struct bio *bio)
 }
 EXPORT_SYMBOL(submit_bio_wait);
 
-/**
- * bio_advance - increment/complete a bio by some number of bytes
- * @bio:	bio to advance
- * @bytes:	number of bytes to complete
- *
- * This updates bi_sector, bi_size and bi_idx; if the number of bytes to
- * complete doesn't align with a bvec boundary, then bv_len and bv_offset will
- * be updated on the last bvec as well.
- *
- * @bio will then represent the remaining, uncompleted portion of the io.
- */
-void bio_advance(struct bio *bio, unsigned bytes)
+void __bio_advance(struct bio *bio, unsigned bytes)
 {
 	if (bio_integrity(bio))
 		bio_integrity_advance(bio, bytes);
@@ -1296,7 +1275,7 @@ void bio_advance(struct bio *bio, unsigned bytes)
 	bio_crypt_advance(bio, bytes);
 	bio_advance_iter(bio, &bio->bi_iter, bytes);
 }
-EXPORT_SYMBOL(bio_advance);
+EXPORT_SYMBOL(__bio_advance);
 
 void bio_copy_data_iter(struct bio *dst, struct bvec_iter *dst_iter,
 			struct bio *src, struct bvec_iter *src_iter)
@@ -1488,7 +1467,7 @@ again:
 	rq_qos_done_bio(bio);
 
 	if (bio->bi_bdev && bio_flagged(bio, BIO_TRACE_COMPLETION)) {
-		trace_block_bio_complete(bio->bi_bdev->bd_disk->queue, bio);
+		trace_block_bio_complete(bdev_get_queue(bio->bi_bdev), bio);
 		bio_clear_flag(bio, BIO_TRACE_COMPLETION);
 	}
 

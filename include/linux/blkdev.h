@@ -25,11 +25,12 @@ struct request;
 struct sg_io_hdr;
 struct blkcg_gq;
 struct blk_flush_queue;
+struct kiocb;
 struct pr_ops;
 struct rq_qos;
 struct blk_queue_stats;
 struct blk_stat_callback;
-struct blk_keyslot_manager;
+struct blk_crypto_profile;
 
 /* Must be consistent with blk_mq_poll_stats_bkt() */
 #define BLK_MQ_POLL_STATS_BKTS 16
@@ -157,6 +158,34 @@ static inline int blkdev_zone_mgmt_ioctl(struct block_device *bdev,
 
 #endif /* CONFIG_BLK_DEV_ZONED */
 
+/*
+ * Independent access ranges: struct blk_independent_access_range describes
+ * a range of contiguous sectors that can be accessed using device command
+ * execution resources that are independent from the resources used for
+ * other access ranges. This is typically found with single-LUN multi-actuator
+ * HDDs where each access range is served by a different set of heads.
+ * The set of independent ranges supported by the device is defined using
+ * struct blk_independent_access_ranges. The independent ranges must not overlap
+ * and must include all sectors within the disk capacity (no sector holes
+ * allowed).
+ * For a device with multiple ranges, requests targeting sectors in different
+ * ranges can be executed in parallel. A request can straddle an access range
+ * boundary.
+ */
+struct blk_independent_access_range {
+	struct kobject		kobj;
+	struct request_queue	*queue;
+	sector_t		sector;
+	sector_t		nr_sectors;
+};
+
+struct blk_independent_access_ranges {
+	struct kobject				kobj;
+	bool					sysfs_registered;
+	unsigned int				nr_ia_ranges;
+	struct blk_independent_access_range	ia_range[];
+};
+
 struct request_queue {
 	struct request		*last_merge;
 	struct elevator_queue	*elevator;
@@ -231,8 +260,7 @@ struct request_queue {
 	unsigned int		dma_alignment;
 
 #ifdef CONFIG_BLK_INLINE_ENCRYPTION
-	/* Inline crypto capabilities */
-	struct blk_keyslot_manager *ksm;
+	struct blk_crypto_profile *crypto_profile;
 #endif
 
 	unsigned int		rq_timeout;
@@ -339,6 +367,12 @@ struct request_queue {
 
 #define BLK_MAX_WRITE_HINTS	5
 	u64			write_hints[BLK_MAX_WRITE_HINTS];
+
+	/*
+	 * Independent sector access ranges. This is always NULL for
+	 * devices that do not have multiple independent access ranges.
+	 */
+	struct blk_independent_access_ranges *ia_ranges;
 };
 
 /* Keep blk_queue_flag_name[] in sync with the definitions below */
@@ -365,7 +399,6 @@ struct request_queue {
 #define QUEUE_FLAG_STATS	20	/* track IO start and completion times */
 #define QUEUE_FLAG_POLL_STATS	21	/* collecting stats for hybrid polling */
 #define QUEUE_FLAG_REGISTERED	22	/* queue has been registered to a disk */
-#define QUEUE_FLAG_SCSI_PASSTHROUGH 23	/* queue supports SCSI commands */
 #define QUEUE_FLAG_QUIESCED	24	/* queue has been quiesced */
 #define QUEUE_FLAG_PCI_P2PDMA	25	/* device supports PCI p2p requests */
 #define QUEUE_FLAG_ZONE_RESETALL 26	/* supports Zone Reset All */
@@ -399,8 +432,6 @@ bool blk_queue_flag_test_and_set(unsigned int flag, struct request_queue *q);
 #define blk_queue_secure_erase(q) \
 	(test_bit(QUEUE_FLAG_SECERASE, &(q)->queue_flags))
 #define blk_queue_dax(q)	test_bit(QUEUE_FLAG_DAX, &(q)->queue_flags)
-#define blk_queue_scsi_passthrough(q)	\
-	test_bit(QUEUE_FLAG_SCSI_PASSTHROUGH, &(q)->queue_flags)
 #define blk_queue_pci_p2pdma(q)	\
 	test_bit(QUEUE_FLAG_PCI_P2PDMA, &(q)->queue_flags)
 #ifdef CONFIG_BLK_RQ_ALLOC_TIME
@@ -560,7 +591,7 @@ static inline unsigned int blk_queue_depth(struct request_queue *q)
 
 extern int blk_register_queue(struct gendisk *disk);
 extern void blk_unregister_queue(struct gendisk *disk);
-blk_qc_t submit_bio_noacct(struct bio *bio);
+void submit_bio_noacct(struct bio *bio);
 
 extern int blk_lld_busy(struct request_queue *q);
 extern void blk_queue_split(struct bio **);
@@ -574,11 +605,17 @@ extern const char *blk_op_str(unsigned int op);
 int blk_status_to_errno(blk_status_t status);
 blk_status_t errno_to_blk_status(int errno);
 
-int blk_poll(struct request_queue *q, blk_qc_t cookie, bool spin);
+/* only poll the hardware once, don't continue until a completion was found */
+#define BLK_POLL_ONESHOT		(1 << 0)
+/* do not sleep to wait for the expected completion time */
+#define BLK_POLL_NOSLEEP		(1 << 1)
+int bio_poll(struct bio *bio, struct io_comp_batch *iob, unsigned int flags);
+int iocb_bio_iopoll(struct kiocb *kiocb, struct io_comp_batch *iob,
+			unsigned int flags);
 
 static inline struct request_queue *bdev_get_queue(struct block_device *bdev)
 {
-	return bdev->bd_disk->queue;	/* this is never NULL */
+	return bdev->bd_queue;	/* this is never NULL */
 }
 
 #ifdef CONFIG_BLK_DEV_ZONED
@@ -683,6 +720,11 @@ extern void blk_queue_update_dma_alignment(struct request_queue *, int);
 extern void blk_queue_rq_timeout(struct request_queue *, unsigned int);
 extern void blk_queue_write_cache(struct request_queue *q, bool enabled, bool fua);
 
+struct blk_independent_access_ranges *
+disk_alloc_independent_access_ranges(struct gendisk *disk, int nr_ia_ranges);
+void disk_set_independent_access_ranges(struct gendisk *disk,
+				struct blk_independent_access_ranges *iars);
+
 /*
  * Elevator features for blk_queue_required_elevator_features:
  */
@@ -709,12 +751,11 @@ extern void blk_set_queue_dying(struct request_queue *);
  * as the lock contention for request_queue lock is reduced.
  *
  * It is ok not to disable preemption when adding the request to the plug list
- * or when attempting a merge, because blk_schedule_flush_list() will only flush
- * the plug list when the task sleeps by itself. For details, please see
- * schedule() where blk_schedule_flush_plug() is called.
+ * or when attempting a merge. For details, please see schedule() where
+ * blk_flush_plug() is called.
  */
 struct blk_plug {
-	struct list_head mq_list; /* blk-mq requests */
+	struct request *mq_list; /* blk-mq requests */
 
 	/* if ios_left is > 1, we can batch tag/rq allocations */
 	struct request *cached_rq;
@@ -723,6 +764,7 @@ struct blk_plug {
 	unsigned short rq_count;
 
 	bool multiple_queues;
+	bool has_elevator;
 	bool nowait;
 
 	struct list_head cb_list; /* md requires an unplug callback */
@@ -740,31 +782,15 @@ extern struct blk_plug_cb *blk_check_plugged(blk_plug_cb_fn unplug,
 extern void blk_start_plug(struct blk_plug *);
 extern void blk_start_plug_nr_ios(struct blk_plug *, unsigned short);
 extern void blk_finish_plug(struct blk_plug *);
-extern void blk_flush_plug_list(struct blk_plug *, bool);
 
-static inline void blk_flush_plug(struct task_struct *tsk)
-{
-	struct blk_plug *plug = tsk->plug;
-
-	if (plug)
-		blk_flush_plug_list(plug, false);
-}
-
-static inline void blk_schedule_flush_plug(struct task_struct *tsk)
-{
-	struct blk_plug *plug = tsk->plug;
-
-	if (plug)
-		blk_flush_plug_list(plug, true);
-}
+void blk_flush_plug(struct blk_plug *plug, bool from_schedule);
 
 static inline bool blk_needs_flush_plug(struct task_struct *tsk)
 {
 	struct blk_plug *plug = tsk->plug;
 
 	return plug &&
-		 (!list_empty(&plug->mq_list) ||
-		 !list_empty(&plug->cb_list));
+		 (plug->mq_list || !list_empty(&plug->cb_list));
 }
 
 int blkdev_issue_flush(struct block_device *bdev);
@@ -786,14 +812,9 @@ static inline void blk_finish_plug(struct blk_plug *plug)
 {
 }
 
-static inline void blk_flush_plug(struct task_struct *task)
+static inline void blk_flush_plug(struct blk_plug *plug, bool async)
 {
 }
-
-static inline void blk_schedule_flush_plug(struct task_struct *task)
-{
-}
-
 
 static inline bool blk_needs_flush_plug(struct task_struct *tsk)
 {
@@ -1147,25 +1168,34 @@ int kblockd_mod_delayed_work_on(int cpu, struct delayed_work *dwork, unsigned lo
 
 #ifdef CONFIG_BLK_INLINE_ENCRYPTION
 
-bool blk_ksm_register(struct blk_keyslot_manager *ksm, struct request_queue *q);
+bool blk_crypto_register(struct blk_crypto_profile *profile,
+			 struct request_queue *q);
 
-void blk_ksm_unregister(struct request_queue *q);
+void blk_crypto_unregister(struct request_queue *q);
 
 #else /* CONFIG_BLK_INLINE_ENCRYPTION */
 
-static inline bool blk_ksm_register(struct blk_keyslot_manager *ksm,
-				    struct request_queue *q)
+static inline bool blk_crypto_register(struct blk_crypto_profile *profile,
+				       struct request_queue *q)
 {
 	return true;
 }
 
-static inline void blk_ksm_unregister(struct request_queue *q) { }
+static inline void blk_crypto_unregister(struct request_queue *q) { }
 
 #endif /* CONFIG_BLK_INLINE_ENCRYPTION */
 
+enum blk_unique_id {
+	/* these match the Designator Types specified in SPC */
+	BLK_UID_T10	= 1,
+	BLK_UID_EUI64	= 2,
+	BLK_UID_NAA	= 3,
+};
+
+#define NFL4_UFLG_MASK			0x0000003F
 
 struct block_device_operations {
-	blk_qc_t (*submit_bio) (struct bio *bio);
+	void (*submit_bio)(struct bio *bio);
 	int (*open) (struct block_device *, fmode_t);
 	void (*release) (struct gendisk *, fmode_t);
 	int (*rw_page)(struct block_device *, sector_t, struct page *, unsigned int);
@@ -1181,6 +1211,9 @@ struct block_device_operations {
 	int (*report_zones)(struct gendisk *, sector_t sector,
 			unsigned int nr_zones, report_zones_cb cb, void *data);
 	char *(*devnode)(struct gendisk *disk, umode_t *mode);
+	/* returns the length of the identifier or a negative errno: */
+	int (*get_unique_id)(struct gendisk *disk, u8 id[16],
+			enum blk_unique_id id_type);
 	struct module *owner;
 	const struct pr_ops *pr_ops;
 
@@ -1285,5 +1318,42 @@ int fsync_bdev(struct block_device *bdev);
 
 int freeze_bdev(struct block_device *bdev);
 int thaw_bdev(struct block_device *bdev);
+
+struct io_comp_batch {
+	struct request *req_list;
+	bool need_ts;
+	void (*complete)(struct io_comp_batch *);
+};
+
+#define DEFINE_IO_COMP_BATCH(name)	struct io_comp_batch name = { }
+
+#define rq_list_add(listptr, rq)	do {		\
+	(rq)->rq_next = *(listptr);			\
+	*(listptr) = rq;				\
+} while (0)
+
+#define rq_list_pop(listptr)				\
+({							\
+	struct request *__req = NULL;			\
+	if ((listptr) && *(listptr))	{		\
+		__req = *(listptr);			\
+		*(listptr) = __req->rq_next;		\
+	}						\
+	__req;						\
+})
+
+#define rq_list_peek(listptr)				\
+({							\
+	struct request *__req = NULL;			\
+	if ((listptr) && *(listptr))			\
+		__req = *(listptr);			\
+	__req;						\
+})
+
+#define rq_list_for_each(listptr, pos)			\
+	for (pos = rq_list_peek((listptr)); pos; pos = rq_list_next(pos)) \
+
+#define rq_list_next(rq)	(rq)->rq_next
+#define rq_list_empty(list)	((list) == (struct request *) NULL)
 
 #endif /* _LINUX_BLKDEV_H */

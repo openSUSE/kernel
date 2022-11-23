@@ -230,6 +230,12 @@ void blk_mq_put_tag(struct blk_mq_tags *tags, struct blk_mq_ctx *ctx,
 	}
 }
 
+void blk_mq_put_tags(struct blk_mq_tags *tags, int *tag_array, int nr_tags)
+{
+	sbitmap_queue_clear_batch(&tags->bitmap_tags, tags->nr_reserved_tags,
+					tag_array, nr_tags);
+}
+
 struct bt_iter_data {
 	struct blk_mq_hw_ctx *hctx;
 	busy_iter_fn *fn;
@@ -416,9 +422,12 @@ void blk_mq_all_tag_iter(struct blk_mq_tags *tags, busy_tag_iter_fn *fn,
 void blk_mq_tagset_busy_iter(struct blk_mq_tag_set *tagset,
 		busy_tag_iter_fn *fn, void *priv)
 {
-	int i;
+	unsigned int flags = tagset->flags;
+	int i, nr_tags;
 
-	for (i = 0; i < tagset->nr_hw_queues; i++) {
+	nr_tags = blk_mq_is_shared_tags(flags) ? 1 : tagset->nr_hw_queues;
+
+	for (i = 0; i < nr_tags; i++) {
 		if (tagset->tags && tagset->tags[i])
 			__blk_mq_all_tag_iter(tagset->tags[i], fn, priv,
 					      BT_TAG_ITER_STARTED);

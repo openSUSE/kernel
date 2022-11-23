@@ -327,12 +327,12 @@ int bdev_read_page(struct block_device *bdev, sector_t sector,
 	if (!ops->rw_page || bdev_get_integrity(bdev))
 		return result;
 
-	result = blk_queue_enter(bdev->bd_disk->queue, 0);
+	result = blk_queue_enter(bdev_get_queue(bdev), 0);
 	if (result)
 		return result;
 	result = ops->rw_page(bdev, sector + get_start_sect(bdev), page,
 			      REQ_OP_READ);
-	blk_queue_exit(bdev->bd_disk->queue);
+	blk_queue_exit(bdev_get_queue(bdev));
 	return result;
 }
 
@@ -363,7 +363,7 @@ int bdev_write_page(struct block_device *bdev, sector_t sector,
 
 	if (!ops->rw_page || bdev_get_integrity(bdev))
 		return -EOPNOTSUPP;
-	result = blk_queue_enter(bdev->bd_disk->queue, 0);
+	result = blk_queue_enter(bdev_get_queue(bdev), 0);
 	if (result)
 		return result;
 
@@ -376,7 +376,7 @@ int bdev_write_page(struct block_device *bdev, sector_t sector,
 		clean_page_buffers(page);
 		unlock_page(page);
 	}
-	blk_queue_exit(bdev->bd_disk->queue);
+	blk_queue_exit(bdev_get_queue(bdev));
 	return result;
 }
 
@@ -493,6 +493,7 @@ struct block_device *bdev_alloc(struct gendisk *disk, u8 partno)
 	spin_lock_init(&bdev->bd_size_lock);
 	bdev->bd_partno = partno;
 	bdev->bd_inode = inode;
+	bdev->bd_queue = disk->queue;
 	bdev->bd_stats = alloc_percpu(struct disk_stats);
 	if (!bdev->bd_stats) {
 		iput(inode);
