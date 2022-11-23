@@ -3570,7 +3570,6 @@ static int sd_probe(struct device *dev)
 
 	sd_revalidate_disk(gd);
 
-	gd->flags = GENHD_FL_EXT_DEVT;
 	if (sdp->removable) {
 		gd->flags |= GENHD_FL_REMOVABLE;
 		gd->events |= DISK_EVENT_MEDIA_CHANGE;
