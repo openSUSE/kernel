@@ -277,7 +277,7 @@ static void nvmf_log_connect_error(struct nvme_ctrl *ctrl,
 	}
 
 	switch (err_sctype) {
-	case (NVME_SC_CONNECT_INVALID_PARAM):
+	case NVME_SC_CONNECT_INVALID_PARAM:
 		if (offset >> 16) {
 			char *inv_data = "Connect Invalid Data Parameter";
 
