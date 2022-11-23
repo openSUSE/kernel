@@ -99,7 +99,7 @@ static int idxd_cdev_open(struct inode *inode, struct file *filp)
 	ctx->wq = wq;
 	filp->private_data = ctx;
 
-	if (device_pasid_enabled(idxd)) {
+	if (device_user_pasid_enabled(idxd)) {
 		sva = iommu_sva_bind_device(dev, current->mm, NULL);
 		if (IS_ERR(sva)) {
 			rc = PTR_ERR(sva);
@@ -152,7 +152,7 @@ static int idxd_cdev_release(struct inode *node, struct file *filep)
 	if (wq_shared(wq)) {
 		idxd_device_drain_pasid(idxd, ctx->pasid);
 	} else {
-		if (device_pasid_enabled(idxd)) {
+		if (device_user_pasid_enabled(idxd)) {
 			/* The wq disable in the disable pasid function will drain the wq */
 			rc = idxd_wq_disable_pasid(wq);
 			if (rc < 0)
@@ -311,6 +311,24 @@ static int idxd_user_drv_probe(struct idxd_dev *idxd_dev)
 
 	if (idxd->state != IDXD_DEV_ENABLED)
 		return -ENXIO;
+
+	/*
+	 * User type WQ is enabled only when SVA is enabled for two reasons:
+	 *   - If no IOMMU or IOMMU Passthrough without SVA, userspace
+	 *     can directly access physical address through the WQ.
+	 *   - The IDXD cdev driver does not provide any ways to pin
+	 *     user pages and translate the address from user VA to IOVA or
+	 *     PA without IOMMU SVA. Therefore the application has no way
+	 *     to instruct the device to perform DMA function. This makes
+	 *     the cdev not usable for normal application usage.
+	 */
+	if (!device_user_pasid_enabled(idxd)) {
+		idxd->cmd_status = IDXD_SCMD_WQ_USER_NO_IOMMU;
+		dev_dbg(&idxd->pdev->dev,
+			"User type WQ cannot be enabled without SVA.\n");
+
+		return -EOPNOTSUPP;
+	}
 
 	mutex_lock(&wq->wq_lock);
 	wq->type = IDXD_WQT_USER;
