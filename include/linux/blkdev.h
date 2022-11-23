@@ -1056,14 +1056,6 @@ extern void blk_finish_plug(struct blk_plug *);
 
 void blk_flush_plug(struct blk_plug *plug, bool from_schedule);
 
-static inline bool blk_needs_flush_plug(struct task_struct *tsk)
-{
-	struct blk_plug *plug = tsk->plug;
-
-	return plug &&
-		 (plug->mq_list || !list_empty(&plug->cb_list));
-}
-
 int blkdev_issue_flush(struct block_device *bdev);
 long nr_blockdev_pages(void);
 #else /* CONFIG_BLOCK */
@@ -1085,11 +1077,6 @@ static inline void blk_finish_plug(struct blk_plug *plug)
 
 static inline void blk_flush_plug(struct blk_plug *plug, bool async)
 {
-}
-
-static inline bool blk_needs_flush_plug(struct task_struct *tsk)
-{
-	return false;
 }
 
 static inline int blkdev_issue_flush(struct block_device *bdev)
