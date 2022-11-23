@@ -474,8 +474,7 @@ void hisi_sas_task_deliver(struct hisi_hba *hisi_hba,
 	spin_unlock(&dq->lock);
 }
 
-static int hisi_sas_task_exec(struct sas_task *task, gfp_t gfp_flags,
-			      struct sas_tmf_task *tmf)
+static int hisi_sas_queue_command(struct sas_task *task, gfp_t gfp_flags)
 {
 	int n_elem = 0, n_elem_dif = 0, n_elem_req = 0;
 	struct domain_device *device = task->dev;
@@ -586,8 +585,8 @@ static int hisi_sas_task_exec(struct sas_task *task, gfp_t gfp_flags,
 	slot->task = task;
 	slot->port = port;
 
-	slot->tmf = tmf;
-	slot->is_internal = tmf;
+	slot->tmf = task->tmf;
+	slot->is_internal = task->tmf;
 
 	/* protect task_prep and start_delivery sequence */
 	hisi_sas_task_deliver(hisi_hba, slot, dq, sas_dev, NULL, tmf);
@@ -1098,11 +1097,6 @@ static void hisi_sas_dev_gone(struct domain_device *device)
 	up(&hisi_hba->sem);
 }
 
-static int hisi_sas_queue_command(struct sas_task *task, gfp_t gfp_flags)
-{
-	return hisi_sas_task_exec(task, gfp_flags, NULL);
-}
-
 static int hisi_sas_phy_set_linkrate(struct hisi_hba *hisi_hba, int phy_no,
 			struct sas_phy_linkrates *r)
 {
@@ -1254,7 +1248,9 @@ static int hisi_sas_exec_internal_tmf_task(struct domain_device *device,
 		task->slow_task->timer.expires = jiffies + TASK_TIMEOUT;
 		add_timer(&task->slow_task->timer);
 
-		res = hisi_sas_task_exec(task, GFP_KERNEL, tmf);
+		task->tmf = tmf;
+
+		res = hisi_sas_queue_command(task, GFP_KERNEL);
 		if (res) {
 			del_timer(&task->slow_task->timer);
 			dev_err(dev, "abort tmf: executing internal task failed: %d\n",
