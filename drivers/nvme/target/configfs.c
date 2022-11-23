@@ -98,10 +98,9 @@ CONFIGFS_ATTR(nvmet_, addr_adrfam);
 static ssize_t nvmet_addr_portid_show(struct config_item *item,
 		char *page)
 {
-	struct nvmet_port *port = to_nvmet_port(item);
+	__le16 portid = to_nvmet_port(item)->disc_addr.portid;
 
-	return snprintf(page, PAGE_SIZE, "%d\n",
-			le16_to_cpu(port->disc_addr.portid));
+	return snprintf(page, PAGE_SIZE, "%d\n", le16_to_cpu(portid));
 }
 
 static ssize_t nvmet_addr_portid_store(struct config_item *item,
@@ -129,8 +128,7 @@ static ssize_t nvmet_addr_traddr_show(struct config_item *item,
 {
 	struct nvmet_port *port = to_nvmet_port(item);
 
-	return snprintf(page, PAGE_SIZE, "%s\n",
-			port->disc_addr.traddr);
+	return snprintf(page, PAGE_SIZE, "%s\n", port->disc_addr.traddr);
 }
 
 static ssize_t nvmet_addr_traddr_store(struct config_item *item,
@@ -204,8 +202,7 @@ static ssize_t nvmet_addr_trsvcid_show(struct config_item *item,
 {
 	struct nvmet_port *port = to_nvmet_port(item);
 
-	return snprintf(page, PAGE_SIZE, "%s\n",
-			port->disc_addr.trsvcid);
+	return snprintf(page, PAGE_SIZE, "%s\n", port->disc_addr.trsvcid);
 }
 
 static ssize_t nvmet_addr_trsvcid_store(struct config_item *item,
