@@ -192,6 +192,9 @@ void elevator_exit(struct request_queue *q)
 {
 	struct elevator_queue *e = q->elevator;
 
+	ioc_clear_queue(q);
+	blk_mq_sched_free_rqs(q);
+
 	mutex_lock(&e->sysfs_lock);
 	blk_mq_exit_sched(q, e);
 	mutex_unlock(&e->sysfs_lock);
@@ -594,8 +597,6 @@ int elevator_switch_mq(struct request_queue *q,
 
 	if (q->elevator) {
 		elv_unregister_queue(q);
-		ioc_clear_queue(q);
-		blk_mq_sched_free_rqs(q);
 		elevator_exit(q);
 	}
 
@@ -606,7 +607,6 @@ int elevator_switch_mq(struct request_queue *q,
 	if (new_e) {
 		ret = elv_register_queue(q, true);
 		if (ret) {
-			blk_mq_sched_free_rqs(q);
 			elevator_exit(q);
 			goto out;
 		}
