@@ -139,6 +139,12 @@ enum smc_urg_state {
 	SMC_URG_READ	= 3,			/* data was already read */
 };
 
+struct smc_mark_woken {
+	bool woken;
+	void *key;
+	wait_queue_entry_t wait_entry;
+};
+
 struct smc_connection {
 	struct rb_node		alert_node;
 	struct smc_link_group	*lgr;		/* link group of connection */
@@ -227,8 +233,14 @@ struct smc_connection {
 struct smc_sock {				/* smc sock container */
 	struct sock		sk;
 	struct socket		*clcsock;	/* internal tcp socket */
+	void			(*clcsk_state_change)(struct sock *sk);
+						/* original stat_change fct. */
 	void			(*clcsk_data_ready)(struct sock *sk);
-						/* original data_ready fct. **/
+						/* original data_ready fct. */
+	void			(*clcsk_write_space)(struct sock *sk);
+						/* original write_space fct. */
+	void			(*clcsk_error_report)(struct sock *sk);
+						/* original error_report fct. */
 	struct smc_connection	conn;		/* smc connection */
 	struct smc_sock		*listen_smc;	/* listen parent */
 	struct work_struct	connect_work;	/* handle non-blocking connect*/
@@ -261,6 +273,41 @@ struct smc_sock {				/* smc sock container */
 static inline struct smc_sock *smc_sk(const struct sock *sk)
 {
 	return (struct smc_sock *)sk;
+}
+
+static inline void smc_init_saved_callbacks(struct smc_sock *smc)
+{
+	smc->clcsk_state_change	= NULL;
+	smc->clcsk_data_ready	= NULL;
+	smc->clcsk_write_space	= NULL;
+	smc->clcsk_error_report	= NULL;
+}
+
+static inline struct smc_sock *smc_clcsock_user_data(struct sock *clcsk)
+{
+	return (struct smc_sock *)
+	       ((uintptr_t)clcsk->sk_user_data & ~SK_USER_DATA_NOCOPY);
+}
+
+/* save target_cb in saved_cb, and replace target_cb with new_cb */
+static inline void smc_clcsock_replace_cb(void (**target_cb)(struct sock *),
+					  void (*new_cb)(struct sock *),
+					  void (**saved_cb)(struct sock *))
+{
+	/* only save once */
+	if (!*saved_cb)
+		*saved_cb = *target_cb;
+	*target_cb = new_cb;
+}
+
+/* restore target_cb to saved_cb, and reset saved_cb to NULL */
+static inline void smc_clcsock_restore_cb(void (**target_cb)(struct sock *),
+					  void (**saved_cb)(struct sock *))
+{
+	if (!*saved_cb)
+		return;
+	*target_cb = *saved_cb;
+	*saved_cb = NULL;
 }
 
 extern struct workqueue_struct	*smc_hs_wq;	/* wq for handshake work */

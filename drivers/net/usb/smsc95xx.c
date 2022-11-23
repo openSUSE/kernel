@@ -864,24 +864,6 @@ static int smsc95xx_reset(struct usbnet *dev)
 		return ret;
 	}
 
-	ret = smsc95xx_write_reg(dev, PM_CTRL, PM_CTL_PHY_RST_);
-	if (ret < 0)
-		return ret;
-
-	timeout = 0;
-	do {
-		msleep(10);
-		ret = smsc95xx_read_reg(dev, PM_CTRL, &read_buf);
-		if (ret < 0)
-			return ret;
-		timeout++;
-	} while ((read_buf & PM_CTL_PHY_RST_) && (timeout < 100));
-
-	if (timeout >= 100) {
-		netdev_warn(dev->net, "timeout waiting for PHY Reset\n");
-		return ret;
-	}
-
 	ret = smsc95xx_set_mac_address(dev);
 	if (ret < 0)
 		return ret;
@@ -2071,6 +2053,11 @@ static const struct usb_device_id products[] = {
 		/* SMSC LAN89530 USB Ethernet Device */
 		USB_DEVICE(0x0424, 0x9E08),
 		.driver_info = (unsigned long) &smsc95xx_info,
+	},
+	{
+		/* Microchip's EVB-LAN8670-USB 10BASE-T1S Ethernet Device */
+		USB_DEVICE(0x184F, 0x0051),
+		.driver_info = (unsigned long)&smsc95xx_info,
 	},
 	{ },		/* END */
 };
