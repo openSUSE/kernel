@@ -778,7 +778,7 @@ xfs_log_mount_finish(
 		mp->m_flags |= XFS_MOUNT_RDONLY;
 
 	/* Make sure the log is dead if we're returning failure. */
-	ASSERT(!error || XLOG_FORCED_SHUTDOWN(log));
+	ASSERT(!error || xlog_is_shutdown(log));
 
 	return error;
 }
