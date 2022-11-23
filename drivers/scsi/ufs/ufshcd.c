@@ -6509,9 +6509,9 @@ static int __ufshcd_issue_tm_cmd(struct ufs_hba *hba,
 	int task_tag, err;
 
 	/*
-	 * blk_get_request() is used here only to get a free tag.
+	 * blk_mq_alloc_request() is used here only to get a free tag.
 	 */
-	req = blk_get_request(q, REQ_OP_DRV_OUT, 0);
+	req = blk_mq_alloc_request(q, REQ_OP_DRV_OUT, 0);
 	if (IS_ERR(req))
 		return PTR_ERR(req);
 
@@ -6562,7 +6562,7 @@ static int __ufshcd_issue_tm_cmd(struct ufs_hba *hba,
 	spin_unlock_irqrestore(hba->host->host_lock, flags);
 
 	ufshcd_release(hba);
-	blk_put_request(req);
+	blk_mq_free_request(req);
 
 	return err;
 }
