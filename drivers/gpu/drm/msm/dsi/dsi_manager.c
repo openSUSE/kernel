@@ -464,7 +464,7 @@ static void dsi_mgr_bridge_enable(struct drm_bridge *bridge)
 	if (!msm_dsi_device_connected(msm_dsi))
 		return;
 
-	/* Do nothing with the host if it is slave-DSI in case of bonded DSI */
+	/* Do nothing with the host if it is slave-DSI in case of dual DSI */
 	if (is_bonded_dsi && !IS_MASTER_DSI_LINK(id))
 		return;
 
