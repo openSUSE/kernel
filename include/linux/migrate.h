@@ -28,6 +28,7 @@ enum migrate_reason {
 	MR_NUMA_MISPLACED,
 	MR_CONTIG_RANGE,
 	MR_LONGTERM_PIN,
+	MR_DEMOTION,
 	MR_TYPES
 };
 
@@ -184,6 +185,14 @@ void migrate_device_pages(unsigned long *src_pfns, unsigned long *dst_pfns,
 			unsigned long npages);
 void migrate_device_finalize(unsigned long *src_pfns,
 			unsigned long *dst_pfns, unsigned long npages);
+int next_demotion_node(int node);
+
+#else /* CONFIG_MIGRATION disabled: */
+
+static inline int next_demotion_node(int node)
+{
+	return NUMA_NO_NODE;
+}
 
 #endif /* CONFIG_MIGRATION */
 
