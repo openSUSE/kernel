@@ -906,10 +906,10 @@ static void ti_sn_bridge_pre_enable(struct drm_bridge *bridge)
 	if (!pdata->refclk)
 		ti_sn65dsi86_enable_comms(pdata);
 
-	drm_panel_prepare(pdata->panel);
-
 	/* td7: min 100 us after enable before DSI data */
 	usleep_range(100, 110);
+
+	drm_panel_prepare(pdata->panel);
 }
 
 static void ti_sn_bridge_post_disable(struct drm_bridge *bridge)
