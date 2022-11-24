@@ -46,16 +46,7 @@ extern int migrate_page_move_mapping(struct address_space *mapping,
 void migration_entry_wait_on_locked(swp_entry_t entry, pte_t *ptep,
 				spinlock_t *ptl);
 
-extern bool numa_demotion_enabled;
-extern void migrate_on_reclaim_init(void);
-#ifdef CONFIG_HOTPLUG_CPU
-extern void set_migration_target_nodes(void);
 #else
-static inline void set_migration_target_nodes(void) {}
-#endif
-#else
-
-static inline void set_migration_target_nodes(void) {}
 
 static inline void putback_movable_pages(struct list_head *l) {}
 static inline int migrate_pages(struct list_head *l, new_page_t new,
@@ -81,8 +72,22 @@ static inline int migrate_huge_page_move_mapping(struct address_space *mapping,
 	return -ENOSYS;
 }
 
-#define numa_demotion_enabled	false
 #endif /* CONFIG_MIGRATION */
+
+#if defined(CONFIG_MIGRATION) && defined(CONFIG_NUMA)
+extern void set_migration_target_nodes(void);
+extern void migrate_on_reclaim_init(void);
+extern bool numa_demotion_enabled;
+extern int next_demotion_node(int node);
+#else
+static inline void set_migration_target_nodes(void) {}
+static inline void migrate_on_reclaim_init(void) {}
+static inline int next_demotion_node(int node)
+{
+        return NUMA_NO_NODE;
+}
+#define numa_demotion_enabled  false
+#endif
 
 #ifdef CONFIG_COMPACTION
 extern int PageMovable(struct page *page);
@@ -184,14 +189,6 @@ void migrate_device_pages(unsigned long *src_pfns, unsigned long *dst_pfns,
 			unsigned long npages);
 void migrate_device_finalize(unsigned long *src_pfns,
 			unsigned long *dst_pfns, unsigned long npages);
-int next_demotion_node(int node);
-
-#else /* CONFIG_MIGRATION disabled: */
-
-static inline int next_demotion_node(int node)
-{
-	return NUMA_NO_NODE;
-}
 
 #endif /* CONFIG_MIGRATION */
 
