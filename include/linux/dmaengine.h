@@ -641,17 +641,12 @@ static inline void dmaengine_put(void)
 }
 #endif
 
-#ifdef CONFIG_NET_DMA
-#define net_dmaengine_get()	dmaengine_get()
-#define net_dmaengine_put()	dmaengine_put()
-#else
 static inline void net_dmaengine_get(void)
 {
 }
 static inline void net_dmaengine_put(void)
 {
 }
-#endif
 
 #ifdef CONFIG_ASYNC_TX_DMA
 #define async_dmaengine_get()	dmaengine_get()

@@ -317,6 +317,7 @@ struct inode *nilfs_new_inode(struct inode *dir, int mode)
 	struct inode *inode;
 	struct nilfs_inode_info *ii;
 	struct nilfs_root *root;
+	struct buffer_head *bh;
 	int err = -ENOMEM;
 	ino_t ino;
 
@@ -332,10 +333,23 @@ struct inode *nilfs_new_inode(struct inode *dir, int mode)
 	ii->i_state = 1 << NILFS_I_NEW;
 	ii->i_root = root;
 
-	err = nilfs_ifile_create_inode(root->ifile, &ino, &ii->i_bh);
+	err = nilfs_ifile_create_inode(root->ifile, &ino, &bh);
 	if (unlikely(err))
 		goto failed_ifile_create_inode;
 	/* reference count of i_bh inherits from nilfs_mdt_read_block() */
+
+	if (unlikely(ino < NILFS_USER_INO)) {
+		pr_warn("nilfs: inode bitmap is inconsistent for reserved inodes");
+		do {
+			brelse(bh);
+			err = nilfs_ifile_create_inode(root->ifile, &ino, &bh);
+			if (unlikely(err))
+				goto failed_ifile_create_inode;
+		} while (ino < NILFS_USER_INO);
+
+		pr_info("nilfs: repaired inode bitmap for reserved inodes");
+	}
+	ii->i_bh = bh;
 
 	atomic_inc(&root->inodes_count);
 	inode_init_owner(inode, dir, mode);
@@ -423,6 +437,8 @@ int nilfs_read_inode_common(struct inode *inode,
 	inode->i_atime.tv_nsec = le32_to_cpu(raw_inode->i_mtime_nsec);
 	inode->i_ctime.tv_nsec = le32_to_cpu(raw_inode->i_ctime_nsec);
 	inode->i_mtime.tv_nsec = le32_to_cpu(raw_inode->i_mtime_nsec);
+	if (inode->i_private && !S_ISREG(inode->i_mode))
+		return -EIO; /* this inode is for metadata and corrupted */
 	if (inode->i_nlink == 0 && inode->i_mode == 0)
 		return -EINVAL; /* this inode is deleted */
 

@@ -1244,7 +1244,11 @@ static const struct vm_operations_struct mon_bin_vm_ops = {
 
 static int mon_bin_mmap(struct file *filp, struct vm_area_struct *vma)
 {
+	if (vma->vm_flags & VM_WRITE)
+		return -EPERM;
+
 	/* don't do anything here: "fault" will set up page table entries */
+	vma->vm_flags &= ~VM_MAYWRITE;
 	vma->vm_ops = &mon_bin_vm_ops;
 	vma->vm_flags |= VM_RESERVED;
 	vma->vm_private_data = filp->private_data;
