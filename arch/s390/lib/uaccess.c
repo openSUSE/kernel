@@ -261,7 +261,7 @@ static inline unsigned long copy_in_user_mvcos(void __user *to, const void __use
 	/* FIXME: copy with reduced length. */
 	asm volatile(
 		"0: .insn ss,0xc80000000000,0(%0,%1),0(%2),0\n"
-		"   jz	  2f\n"
+		"4: jz	  2f\n"
 		"1: algr  %0,%3\n"
 		"   slgr  %1,%3\n"
 		"   slgr  %2,%3\n"
@@ -269,6 +269,7 @@ static inline unsigned long copy_in_user_mvcos(void __user *to, const void __use
 		"2:slgr  %0,%0\n"
 		"3: \n"
 		EX_TABLE(0b,3b)
+		EX_TABLE(4b,3b)
 		: "+a" (size), "+a" (to), "+a" (from), "+a" (tmp1), "=a" (tmp2)
 		: "d" (reg0) : "cc", "memory");
 	return size;
@@ -288,13 +289,13 @@ static inline unsigned long copy_in_user_mvc(void __user *to, const void __user 
 		"   bras  %3,3f\n"
 		"0: aghi  %0,257\n"
 		"1: mvc	  0(1,%1),0(%2)\n"
-		"   la	  %1,1(%1)\n"
+		"7: la	  %1,1(%1)\n"
 		"   la	  %2,1(%2)\n"
 		"   aghi  %0,-1\n"
 		"   jnz	  1b\n"
 		"   j	  5f\n"
 		"2: mvc	  0(256,%1),0(%2)\n"
-		"   la	  %1,256(%1)\n"
+		"8: la	  %1,256(%1)\n"
 		"   la	  %2,256(%2)\n"
 		"3: aghi  %0,-256\n"
 		"   jnm	  2b\n"
@@ -302,6 +303,7 @@ static inline unsigned long copy_in_user_mvc(void __user *to, const void __user 
 		"5: slgr  %0,%0\n"
 		"6: sacf  768\n"
 		EX_TABLE(1b,6b) EX_TABLE(2b,0b) EX_TABLE(4b,0b)
+		EX_TABLE(7b,6b) EX_TABLE(8b,0b)
 		: "+a" (size), "+a" (to), "+a" (from), "=a" (tmp1)
 		: : "cc", "memory");
 	disable_sacf_uaccess(old_fs);
@@ -324,7 +326,7 @@ static inline unsigned long clear_user_mvcos(void __user *to, unsigned long size
 	tmp1 = -4096UL;
 	asm volatile(
 		"0: .insn ss,0xc80000000000,0(%0,%1),0(%4),0\n"
-		"   jz	  4f\n"
+		"6: jz	  4f\n"
 		"1: algr  %0,%2\n"
 		"   slgr  %1,%2\n"
 		"   j	  0b\n"
@@ -334,11 +336,11 @@ static inline unsigned long clear_user_mvcos(void __user *to, unsigned long size
 		"   clgr  %0,%3\n"	/* copy crosses next page boundary? */
 		"   jnh	  5f\n"
 		"3: .insn ss,0xc80000000000,0(%3,%1),0(%4),0\n"
-		"   slgr  %0,%3\n"
+		"7: slgr  %0,%3\n"
 		"   j	  5f\n"
 		"4: slgr  %0,%0\n"
 		"5:\n"
-		EX_TABLE(0b,2b) EX_TABLE(3b,5b)
+		EX_TABLE(0b,2b) EX_TABLE(6b,2b) EX_TABLE(3b,5b) EX_TABLE(7b,5b)
 		: "+a" (size), "+a" (to), "+a" (tmp1), "=a" (tmp2)
 		: "a" (empty_zero_page), "d" (reg0) : "cc", "memory");
 	return size;
@@ -369,13 +371,14 @@ static inline unsigned long clear_user_xc(void __user *to, unsigned long size)
 		"   slgr  %0,%2\n"
 		"   j     5f\n"
 		"2: xc    0(256,%1),0(%1)\n"
-		"   la    %1,256(%1)\n"
+		"7: la    %1,256(%1)\n"
 		"3: aghi  %0,-256\n"
 		"   jnm   2b\n"
 		"4: ex    %0,0(%3)\n"
 		"5: slgr  %0,%0\n"
 		"6: sacf  768\n"
 		EX_TABLE(1b,6b) EX_TABLE(2b,0b) EX_TABLE(4b,0b)
+		EX_TABLE(7b,0b)
 		: "+a" (size), "+a" (to), "=a" (tmp1), "=a" (tmp2)
 		: : "cc", "memory");
 	disable_sacf_uaccess(old_fs);
@@ -402,11 +405,12 @@ static inline unsigned long strnlen_user_srst(const char __user *src,
 		"   slgr  %0,%0\n"
 		"   sacf  256\n"
 		"0: srst  %3,%2\n"
-		"   jo    0b\n"
+		"2: jo    0b\n"
 		"   la    %0,1(%3)\n"	/* strnlen_user results includes \0 */
 		"   slgr  %0,%1\n"
 		"1: sacf  768\n"
 		EX_TABLE(0b,1b)
+		EX_TABLE(2b,1b)
 		: "+a" (size), "+a" (src), "=a" (tmp1), "=a" (tmp2)
 		: "d" (reg0) : "cc", "memory");
 	return size;

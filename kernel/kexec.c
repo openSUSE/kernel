@@ -244,12 +244,10 @@ SYSCALL_DEFINE4(kexec_load, unsigned long, entry, unsigned long, nr_segments,
 		return -EINVAL;
 
 	/* Because we write directly to the reserved memory
-	 * region when loading crash kernels we need a mutex here to
-	 * prevent multiple crash  kernels from attempting to load
-	 * simultaneously, and to prevent a crash kernel from loading
-	 * over the top of a in use crash kernel.
-	 *
-	 * KISS: always take the mutex.
+	 * region when loading crash kernels we need a serialization
+	 * here to prevent multiple crash kernels from attempting to
+	 * load simultaneously, and to prevent a crash kernel from
+	 * loading over the top of a in use crash kernel.
 	 */
 	if (!kexec_trylock())
 		return -EBUSY;
@@ -298,12 +296,10 @@ COMPAT_SYSCALL_DEFINE4(kexec_load, compat_ulong_t, entry,
 	}
 
 	/* Because we write directly to the reserved memory
-	 * region when loading crash kernels we need a mutex here to
-	 * prevent multiple crash  kernels from attempting to load
-	 * simultaneously, and to prevent a crash kernel from loading
-	 * over the top of a in use crash kernel.
-	 *
-	 * KISS: always take the mutex.
+	 * region when loading crash kernels we need a serialization
+	 * here to prevent multiple crash kernels from attempting to
+	 * load simultaneously, and to prevent a crash kernel from
+	 * loading over the top of a in use crash kernel.
 	 */
 	if (!kexec_trylock())
 		return -EBUSY;
