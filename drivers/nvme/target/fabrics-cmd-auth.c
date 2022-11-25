@@ -160,10 +160,10 @@ static u16 nvmet_auth_reply(struct nvmet_req *req, void *d)
 	pr_debug("%s: ctrl %d qid %d host authenticated\n",
 		 __func__, ctrl->cntlid, req->sq->qid);
 	if (data->cvalid) {
-		req->sq->dhchap_c2 = kmalloc(data->hl, GFP_KERNEL);
+		req->sq->dhchap_c2 = kmemdup(data->rval + data->hl, data->hl,
+					     GFP_KERNEL);
 		if (!req->sq->dhchap_c2)
 			return NVME_AUTH_DHCHAP_FAILURE_FAILED;
-		memcpy(req->sq->dhchap_c2, data->rval + data->hl, data->hl);
 
 		pr_debug("%s: ctrl %d qid %d challenge %*ph\n",
 			 __func__, ctrl->cntlid, req->sq->qid, data->hl,
@@ -247,8 +247,8 @@ void nvmet_execute_auth_send(struct nvmet_req *req)
 			pr_debug("%s: ctrl %d qid %d reset negotiation\n", __func__,
 				 ctrl->cntlid, req->sq->qid);
 			if (!req->sq->qid) {
-				status = nvmet_setup_auth(ctrl);
-				if (status < 0) {
+				if (nvmet_setup_auth(ctrl) < 0) {
+					status = NVME_SC_INTERNAL;
 					pr_err("ctrl %d qid 0 failed to setup"
 					       "re-authentication",
 					       ctrl->cntlid);
@@ -484,8 +484,7 @@ void nvmet_execute_auth_receive(struct nvmet_req *req)
 		 ctrl->cntlid, req->sq->qid, req->sq->dhchap_step);
 	switch (req->sq->dhchap_step) {
 	case NVME_AUTH_DHCHAP_MESSAGE_CHALLENGE:
-		status = nvmet_auth_challenge(req, d, al);
-		if (status < 0) {
+		if (nvmet_auth_challenge(req, d, al) < 0) {
 			pr_warn("ctrl %d qid %d: challenge error (%d)\n",
 				ctrl->cntlid, req->sq->qid, status);
 			status = NVME_SC_INTERNAL;

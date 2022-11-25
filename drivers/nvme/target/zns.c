@@ -101,6 +101,7 @@ void nvmet_execute_identify_cns_cs_ns(struct nvmet_req *req)
 	struct nvme_id_ns_zns *id_zns;
 	u64 zsze;
 	u16 status;
+	u32 mar, mor;
 
 	if (le32_to_cpu(req->cmd->identify.nsid) == NVME_NSID_ALL) {
 		req->error_loc = offsetof(struct nvme_identify, nsid);
@@ -115,23 +116,36 @@ void nvmet_execute_identify_cns_cs_ns(struct nvmet_req *req)
 	}
 
 	status = nvmet_req_find_ns(req);
-	if (status) {
-		status = NVME_SC_INTERNAL;
+	if (status)
 		goto done;
-	}
 
 	if (!bdev_is_zoned(req->ns->bdev)) {
 		req->error_loc = offsetof(struct nvme_identify, nsid);
-		status = NVME_SC_INVALID_NS | NVME_SC_DNR;
 		goto done;
 	}
 
-	nvmet_ns_revalidate(req->ns);
+	if (nvmet_ns_revalidate(req->ns)) {
+		mutex_lock(&req->ns->subsys->lock);
+		nvmet_ns_changed(req->ns->subsys, req->ns->nsid);
+		mutex_unlock(&req->ns->subsys->lock);
+	}
 	zsze = (bdev_zone_sectors(req->ns->bdev) << 9) >>
 					req->ns->blksize_shift;
 	id_zns->lbafe[0].zsze = cpu_to_le64(zsze);
-	id_zns->mor = cpu_to_le32(bdev_max_open_zones(req->ns->bdev));
-	id_zns->mar = cpu_to_le32(bdev_max_active_zones(req->ns->bdev));
+
+	mor = bdev_max_open_zones(req->ns->bdev);
+	if (!mor)
+		mor = U32_MAX;
+	else
+		mor--;
+	id_zns->mor = cpu_to_le32(mor);
+
+	mar = bdev_max_active_zones(req->ns->bdev);
+	if (!mar)
+		mar = U32_MAX;
+	else
+		mar--;
+	id_zns->mar = cpu_to_le32(mar);
 
 done:
 	status = nvmet_copy_to_sgl(req, 0, id_zns, sizeof(*id_zns));
@@ -413,7 +427,7 @@ static u16 nvmet_bdev_zone_mgmt_emulate_all(struct nvmet_req *req)
 		ret = 0;
 	}
 
-	while (sector < get_capacity(bdev->bd_disk)) {
+	while (sector < bdev_nr_sectors(bdev)) {
 		if (test_bit(blk_queue_zone_no(q, sector), d.zbitmap)) {
 			bio = blk_next_bio(bio, 0, GFP_KERNEL);
 			bio->bi_opf = zsa_req_op(req->cmd->zms.zsa) | REQ_SYNC;
@@ -422,7 +436,7 @@ static u16 nvmet_bdev_zone_mgmt_emulate_all(struct nvmet_req *req)
 			/* This may take a while, so be nice to others */
 			cond_resched();
 		}
-		sector += blk_queue_zone_sectors(q);
+		sector += bdev_zone_sectors(bdev);
 	}
 
 	if (bio) {

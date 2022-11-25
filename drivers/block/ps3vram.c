@@ -742,6 +742,7 @@ static int ps3vram_probe(struct ps3_system_bus_device *dev)
 	priv->gendisk = gendisk;
 	gendisk->major = ps3vram_major;
 	gendisk->minors = 1;
+	gendisk->flags |= GENHD_FL_NO_PART;
 	gendisk->fops = &ps3vram_fops;
 	gendisk->private_data = dev;
 	strlcpy(gendisk->disk_name, DEVICE_NAME, sizeof(gendisk->disk_name));
@@ -753,9 +754,14 @@ static int ps3vram_probe(struct ps3_system_bus_device *dev)
 	dev_info(&dev->core, "%s: Using %llu MiB of GPU memory\n",
 		 gendisk->disk_name, get_capacity(gendisk) >> 11);
 
-	device_add_disk(&dev->core, gendisk, NULL);
+	error = device_add_disk(&dev->core, gendisk, NULL);
+	if (error)
+		goto out_cleanup_disk;
+
 	return 0;
 
+out_cleanup_disk:
+	blk_cleanup_disk(gendisk);
 out_cache_cleanup:
 	remove_proc_entry(DEVICE_NAME, NULL);
 	ps3vram_cache_cleanup(dev);

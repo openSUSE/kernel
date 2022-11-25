@@ -18,36 +18,6 @@
 #include "blk-mq-tag.h"
 #include "blk-wbt.h"
 
-struct io_cq *blk_mq_sched_get_icq(struct request_queue *q)
-{
-	struct io_context *ioc;
-	struct io_cq *icq;
-
-	/* May not have an IO context if context creation failed */
-	ioc = current->io_context;
-	if (!ioc)
-		return NULL;
-
-	spin_lock_irq(&q->queue_lock);
-	icq = ioc_lookup_icq(ioc, q);
-	spin_unlock_irq(&q->queue_lock);
-	if (icq)
-		return icq;
-	return ioc_create_icq(ioc, q, GFP_ATOMIC);
-}
-EXPORT_SYMBOL(blk_mq_sched_get_icq);
-
-void blk_mq_sched_assign_ioc(struct request *rq)
-{
-	struct io_cq *icq;
-
-	icq = blk_mq_sched_get_icq(rq->q);
-	if (!icq)
-		return;
-	get_io_context(icq->ioc);
-	rq->elv.icq = icq;
-}
-
 /*
  * Mark a hardware queue as needing a restart. For shared queues, maintain
  * a count of how many hardware queues are marked for restart.
@@ -381,15 +351,17 @@ bool blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
 	bool ret = false;
 	enum hctx_type type;
 
-	if (e && e->type->ops.bio_merge)
-		return e->type->ops.bio_merge(q, bio, nr_segs);
+	if (e && e->type->ops.bio_merge) {
+		ret = e->type->ops.bio_merge(q, bio, nr_segs);
+		goto out_put;
+	}
 
 	ctx = blk_mq_get_ctx(q);
 	hctx = blk_mq_map_queue(q, bio->bi_opf, ctx);
 	type = hctx->type;
 	if (!(hctx->flags & BLK_MQ_F_SHOULD_MERGE) ||
 	    list_empty_careful(&ctx->rq_lists[type]))
-		return false;
+		goto out_put;
 
 	/* default per sw-queue merge */
 	spin_lock(&ctx->lock);
@@ -402,6 +374,7 @@ bool blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
 		ret = true;
 
 	spin_unlock(&ctx->lock);
+out_put:
 	return ret;
 }
 
@@ -508,8 +481,9 @@ void blk_mq_sched_insert_requests(struct blk_mq_hw_ctx *hctx,
 		 * busy in case of 'none' scheduler, and this way may save
 		 * us one extra enqueue & dequeue to sw queue.
 		 */
-		if (!hctx->dispatch_busy && !e && !run_queue_async) {
-			blk_mq_try_issue_list_directly(hctx, list);
+		if (!hctx->dispatch_busy && !run_queue_async) {
+			blk_mq_run_dispatch_ops(hctx->queue,
+				blk_mq_try_issue_list_directly(hctx, list));
 			if (list_empty(list))
 				goto out;
 		}

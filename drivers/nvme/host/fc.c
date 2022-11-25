@@ -259,7 +259,7 @@ nvme_fc_free_lport(struct kref *ref)
 		complete(&nvme_fc_unload_proceed);
 	spin_unlock_irqrestore(&nvme_fc_lock, flags);
 
-	ida_simple_remove(&nvme_fc_local_port_cnt, lport->localport.port_num);
+	ida_free(&nvme_fc_local_port_cnt, lport->localport.port_num);
 	ida_destroy(&lport->endp_cnt);
 
 	put_device(lport->dev);
@@ -399,7 +399,7 @@ nvme_fc_register_localport(struct nvme_fc_port_info *pinfo,
 		goto out_reghost_failed;
 	}
 
-	idx = ida_simple_get(&nvme_fc_local_port_cnt, 0, 0, GFP_KERNEL);
+	idx = ida_alloc(&nvme_fc_local_port_cnt, GFP_KERNEL);
 	if (idx < 0) {
 		ret = -ENOSPC;
 		goto out_fail_kfree;
@@ -439,7 +439,7 @@ nvme_fc_register_localport(struct nvme_fc_port_info *pinfo,
 	return 0;
 
 out_ida_put:
-	ida_simple_remove(&nvme_fc_local_port_cnt, idx);
+	ida_free(&nvme_fc_local_port_cnt, idx);
 out_fail_kfree:
 	kfree(newrec);
 out_reghost_failed:
@@ -535,7 +535,7 @@ nvme_fc_free_rport(struct kref *ref)
 	spin_unlock_irqrestore(&nvme_fc_lock, flags);
 
 	WARN_ON(!list_empty(&rport->disc_list));
-	ida_simple_remove(&lport->endp_cnt, rport->remoteport.port_num);
+	ida_free(&lport->endp_cnt, rport->remoteport.port_num);
 
 	kfree(rport);
 
@@ -713,7 +713,7 @@ nvme_fc_register_remoteport(struct nvme_fc_local_port *localport,
 		goto out_lport_put;
 	}
 
-	idx = ida_simple_get(&lport->endp_cnt, 0, 0, GFP_KERNEL);
+	idx = ida_alloc(&lport->endp_cnt, GFP_KERNEL);
 	if (idx < 0) {
 		ret = -ENOSPC;
 		goto out_kfree_rport;
@@ -2411,7 +2411,7 @@ nvme_fc_ctrl_free(struct kref *ref)
 	put_device(ctrl->dev);
 	nvme_fc_rport_put(ctrl->rport);
 
-	ida_simple_remove(&nvme_fc_ctrl_cnt, ctrl->cnum);
+	ida_free(&nvme_fc_ctrl_cnt, ctrl->cnum);
 	if (ctrl->ctrl.opts)
 		nvmf_free_options(ctrl->ctrl.opts);
 	kfree(ctrl);
@@ -2534,6 +2534,8 @@ __nvme_fc_abort_outstanding_ios(struct nvme_fc_ctrl *ctrl, bool start_queues)
 	blk_mq_tagset_busy_iter(&ctrl->admin_tag_set,
 				nvme_fc_terminate_exchange, &ctrl->ctrl);
 	blk_mq_tagset_wait_completed_request(&ctrl->admin_tag_set);
+	if (start_queues)
+		nvme_start_admin_queue(&ctrl->ctrl);
 }
 
 static void
@@ -2934,11 +2936,9 @@ nvme_fc_create_io_queues(struct nvme_fc_ctrl *ctrl)
 
 	ctrl->ctrl.tagset = &ctrl->tag_set;
 
-	ctrl->ctrl.connect_q = blk_mq_init_queue(&ctrl->tag_set);
-	if (IS_ERR(ctrl->ctrl.connect_q)) {
-		ret = PTR_ERR(ctrl->ctrl.connect_q);
+	ret = nvme_ctrl_init_connect_q(&(ctrl->ctrl));
+	if (ret)
 		goto out_free_tag_set;
-	}
 
 	ret = nvme_fc_create_hw_io_queues(ctrl, ctrl->ctrl.sqsize + 1);
 	if (ret)
@@ -3490,7 +3490,7 @@ nvme_fc_init_ctrl(struct device *dev, struct nvmf_ctrl_options *opts,
 		goto out_fail;
 	}
 
-	idx = ida_simple_get(&nvme_fc_ctrl_cnt, 0, 0, GFP_KERNEL);
+	idx = ida_alloc(&nvme_fc_ctrl_cnt, GFP_KERNEL);
 	if (idx < 0) {
 		ret = -ENOSPC;
 		goto out_free_ctrl;
@@ -3653,7 +3653,7 @@ out_free_queues:
 	kfree(ctrl->queues);
 out_free_ida:
 	put_device(ctrl->dev);
-	ida_simple_remove(&nvme_fc_ctrl_cnt, ctrl->cnum);
+	ida_free(&nvme_fc_ctrl_cnt, ctrl->cnum);
 out_free_ctrl:
 	kfree(ctrl);
 out_fail:
@@ -3851,6 +3851,9 @@ process_local_list:
 	return count;
 }
 
+static DEVICE_ATTR(nvme_discovery, 0200, NULL, nvme_fc_nvme_discovery_store);
+
+#ifdef CONFIG_BLK_CGROUP_FC_APPID
 /* Parse the cgroup id from a buf and return the length of cgrpid */
 static int fc_parse_cgrpid(const char *buf, u64 *id)
 {
@@ -3874,13 +3877,12 @@ static int fc_parse_cgrpid(const char *buf, u64 *id)
 }
 
 /*
- * fc_update_appid: Parse and update the appid in the blkcg associated with
- * cgroupid.
- * @buf: buf contains both cgrpid and appid info
- * @count: size of the buffer
+ * Parse and update the appid in the blkcg associated with the cgroupid.
  */
-static int fc_update_appid(const char *buf, size_t count)
+static ssize_t fc_appid_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
 {
+	size_t orig_count = count;
 	u64 cgrp_id;
 	int appid_len = 0;
 	int cgrpid_len = 0;
@@ -3905,25 +3907,16 @@ static int fc_update_appid(const char *buf, size_t count)
 	ret = blkcg_set_fc_appid(app_id, cgrp_id, sizeof(app_id));
 	if (ret < 0)
 		return ret;
-	return count;
+	return orig_count;
 }
-
-static ssize_t fc_appid_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	int ret  = 0;
-
-	ret = fc_update_appid(buf, count);
-	if (ret < 0)
-		return -EINVAL;
-	return count;
-}
-static DEVICE_ATTR(nvme_discovery, 0200, NULL, nvme_fc_nvme_discovery_store);
 static DEVICE_ATTR(appid_store, 0200, NULL, fc_appid_store);
+#endif /* CONFIG_BLK_CGROUP_FC_APPID */
 
 static struct attribute *nvme_fc_attrs[] = {
 	&dev_attr_nvme_discovery.attr,
+#ifdef CONFIG_BLK_CGROUP_FC_APPID
 	&dev_attr_appid_store.attr,
+#endif
 	NULL
 };
 

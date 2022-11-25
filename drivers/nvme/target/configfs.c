@@ -65,10 +65,11 @@ static ssize_t nvmet_addr_adrfam_show(struct config_item *item, char *page)
 
 	for (i = 1; i < ARRAY_SIZE(nvmet_addr_family); i++) {
 		if (nvmet_addr_family[i].type == adrfam)
-			return sprintf(page, "%s\n", nvmet_addr_family[i].name);
+			return snprintf(page, PAGE_SIZE, "%s\n",
+					nvmet_addr_family[i].name);
 	}
 
-	return sprintf(page, "\n");
+	return snprintf(page, PAGE_SIZE, "\n");
 }
 
 static ssize_t nvmet_addr_adrfam_store(struct config_item *item,
@@ -98,10 +99,9 @@ CONFIGFS_ATTR(nvmet_, addr_adrfam);
 static ssize_t nvmet_addr_portid_show(struct config_item *item,
 		char *page)
 {
-	struct nvmet_port *port = to_nvmet_port(item);
+	__le16 portid = to_nvmet_port(item)->disc_addr.portid;
 
-	return snprintf(page, PAGE_SIZE, "%d\n",
-			le16_to_cpu(port->disc_addr.portid));
+	return snprintf(page, PAGE_SIZE, "%d\n", le16_to_cpu(portid));
 }
 
 static ssize_t nvmet_addr_portid_store(struct config_item *item,
@@ -129,8 +129,7 @@ static ssize_t nvmet_addr_traddr_show(struct config_item *item,
 {
 	struct nvmet_port *port = to_nvmet_port(item);
 
-	return snprintf(page, PAGE_SIZE, "%s\n",
-			port->disc_addr.traddr);
+	return snprintf(page, PAGE_SIZE, "%s\n", port->disc_addr.traddr);
 }
 
 static ssize_t nvmet_addr_traddr_store(struct config_item *item,
@@ -167,10 +166,11 @@ static ssize_t nvmet_addr_treq_show(struct config_item *item, char *page)
 
 	for (i = 0; i < ARRAY_SIZE(nvmet_addr_treq); i++) {
 		if (treq == nvmet_addr_treq[i].type)
-			return sprintf(page, "%s\n", nvmet_addr_treq[i].name);
+			return snprintf(page, PAGE_SIZE, "%s\n",
+					nvmet_addr_treq[i].name);
 	}
 
-	return sprintf(page, "\n");
+	return snprintf(page, PAGE_SIZE, "\n");
 }
 
 static ssize_t nvmet_addr_treq_store(struct config_item *item,
@@ -204,8 +204,7 @@ static ssize_t nvmet_addr_trsvcid_show(struct config_item *item,
 {
 	struct nvmet_port *port = to_nvmet_port(item);
 
-	return snprintf(page, PAGE_SIZE, "%s\n",
-			port->disc_addr.trsvcid);
+	return snprintf(page, PAGE_SIZE, "%s\n", port->disc_addr.trsvcid);
 }
 
 static ssize_t nvmet_addr_trsvcid_store(struct config_item *item,
@@ -289,7 +288,8 @@ static ssize_t nvmet_addr_trtype_show(struct config_item *item,
 
 	for (i = 0; i < ARRAY_SIZE(nvmet_transport); i++) {
 		if (port->disc_addr.trtype == nvmet_transport[i].type)
-			return sprintf(page, "%s\n", nvmet_transport[i].name);
+			return snprintf(page, PAGE_SIZE,
+					"%s\n", nvmet_transport[i].name);
 	}
 
 	return sprintf(page, "\n");
@@ -591,7 +591,8 @@ static ssize_t nvmet_ns_revalidate_size_store(struct config_item *item,
 		mutex_unlock(&ns->subsys->lock);
 		return -EINVAL;
 	}
-	nvmet_ns_revalidate(ns);
+	if (nvmet_ns_revalidate(ns))
+		nvmet_ns_changed(ns->subsys, ns->nsid);
 	mutex_unlock(&ns->subsys->lock);
 	return count;
 }
@@ -777,11 +778,31 @@ static ssize_t nvmet_passthru_io_timeout_store(struct config_item *item,
 }
 CONFIGFS_ATTR(nvmet_passthru_, io_timeout);
 
+static ssize_t nvmet_passthru_clear_ids_show(struct config_item *item,
+		char *page)
+{
+	return sprintf(page, "%u\n", to_subsys(item->ci_parent)->clear_ids);
+}
+
+static ssize_t nvmet_passthru_clear_ids_store(struct config_item *item,
+		const char *page, size_t count)
+{
+	struct nvmet_subsys *subsys = to_subsys(item->ci_parent);
+	unsigned int clear_ids;
+
+	if (kstrtouint(page, 0, &clear_ids))
+		return -EINVAL;
+	subsys->clear_ids = clear_ids;
+	return count;
+}
+CONFIGFS_ATTR(nvmet_passthru_, clear_ids);
+
 static struct configfs_attribute *nvmet_passthru_attrs[] = {
 	&nvmet_passthru_attr_device_path,
 	&nvmet_passthru_attr_enable,
 	&nvmet_passthru_attr_admin_timeout,
 	&nvmet_passthru_attr_io_timeout,
+	&nvmet_passthru_attr_clear_ids,
 	NULL,
 };
 
@@ -1033,7 +1054,7 @@ nvmet_subsys_attr_version_store_locked(struct nvmet_subsys *subsys,
 	}
 
 	/* passthru subsystems use the underlying controller's version */
-	if (nvmet_passthru_ctrl(subsys))
+	if (nvmet_is_passthru_subsys(subsys))
 		return -EINVAL;
 
 	ret = sscanf(page, "%d.%d.%d\n", &major, &minor, &tertiary);
@@ -1238,44 +1259,6 @@ static ssize_t nvmet_subsys_attr_model_store(struct config_item *item,
 }
 CONFIGFS_ATTR(nvmet_subsys_, attr_model);
 
-static ssize_t nvmet_subsys_attr_discovery_nqn_show(struct config_item *item,
-			char *page)
-{
-	return snprintf(page, PAGE_SIZE, "%s\n",
-			nvmet_disc_subsys->subsysnqn);
-}
-
-static ssize_t nvmet_subsys_attr_discovery_nqn_store(struct config_item *item,
-			const char *page, size_t count)
-{
-	struct nvmet_subsys *subsys = to_subsys(item);
-	char *subsysnqn;
-	int len;
-
-	len = strcspn(page, "\n");
-	if (!len)
-		return -EINVAL;
-
-	subsysnqn = kmemdup_nul(page, len, GFP_KERNEL);
-	if (!subsysnqn)
-		return -ENOMEM;
-
-	/*
-	 * The discovery NQN must be different from subsystem NQN.
-	 */
-	if (!strcmp(subsysnqn, subsys->subsysnqn)) {
-		kfree(subsysnqn);
-		return -EBUSY;
-	}
-	down_write(&nvmet_config_sem);
-	kfree(nvmet_disc_subsys->subsysnqn);
-	nvmet_disc_subsys->subsysnqn = subsysnqn;
-	up_write(&nvmet_config_sem);
-
-	return count;
-}
-CONFIGFS_ATTR(nvmet_subsys_, attr_discovery_nqn);
-
 #ifdef CONFIG_BLK_DEV_INTEGRITY
 static ssize_t nvmet_subsys_attr_pi_enable_show(struct config_item *item,
 						char *page)
@@ -1333,7 +1316,6 @@ static struct configfs_attribute *nvmet_subsys_attrs[] = {
 	&nvmet_subsys_attr_attr_cntlid_min,
 	&nvmet_subsys_attr_attr_cntlid_max,
 	&nvmet_subsys_attr_attr_model,
-	&nvmet_subsys_attr_attr_discovery_nqn,
 	&nvmet_subsys_attr_attr_qid_max,
 #ifdef CONFIG_BLK_DEV_INTEGRITY
 	&nvmet_subsys_attr_attr_pi_enable,
@@ -1627,7 +1609,7 @@ static void nvmet_port_release(struct config_item *item)
 	struct nvmet_port *port = to_nvmet_port(item);
 
 	/* Let inflight controllers teardown complete */
-	flush_scheduled_work();
+	flush_workqueue(nvmet_wq);
 	list_del(&port->global_entry);
 
 	kfree(port->ana_state);
@@ -1855,9 +1837,9 @@ static struct configfs_attribute *nvmet_host_attrs[] = {
 static void nvmet_host_release(struct config_item *item)
 {
 	struct nvmet_host *host = to_host(item);
+
 #ifdef CONFIG_NVME_TARGET_AUTH
-	if (host->dhchap_secret)
-		kfree(host->dhchap_secret);
+	kfree(host->dhchap_secret);
 #endif
 	kfree(host);
 }
