@@ -609,6 +609,9 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 	case KVM_CAP_S390_PROTECTED:
 		r = is_prot_virt_host();
 		break;
+	case KVM_CAP_S390_CPU_TOPOLOGY:
+		r = test_facility(11);
+		break;
 	default:
 		r = 0;
 	}
@@ -819,6 +822,20 @@ int kvm_vm_ioctl_enable_cap(struct kvm *kvm, struct kvm_enable_cap *cap)
 		kvm->arch.user_instr0 = 1;
 		icpt_operexc_on_all_vcpus(kvm);
 		r = 0;
+		break;
+	case KVM_CAP_S390_CPU_TOPOLOGY:
+		r = -EINVAL;
+		mutex_lock(&kvm->lock);
+		if (kvm->created_vcpus) {
+			r = -EBUSY;
+		} else if (test_facility(11)) {
+			set_kvm_facility(kvm->arch.model.fac_mask, 11);
+			set_kvm_facility(kvm->arch.model.fac_list, 11);
+			r = 0;
+		}
+		mutex_unlock(&kvm->lock);
+		VM_EVENT(kvm, 3, "ENABLE: CAP_S390_CPU_TOPOLOGY %s",
+			 r ? "(not available)" : "(success)");
 		break;
 	default:
 		r = -EINVAL;
@@ -1699,6 +1716,57 @@ static int kvm_s390_get_cpu_model(struct kvm *kvm, struct kvm_device_attr *attr)
 	return ret;
 }
 
+/**
+ * kvm_s390_update_topology_change_report - update CPU topology change report
+ * @kvm: guest KVM description
+ * @val: set or clear the MTCR bit
+ *
+ * Updates the Multiprocessor Topology-Change-Report bit to signal
+ * the guest with a topology change.
+ * This is only relevant if the topology facility is present.
+ *
+ * The SCA version, bsca or esca, doesn't matter as offset is the same.
+ */
+static void kvm_s390_update_topology_change_report(struct kvm *kvm, bool val)
+{
+	union sca_utility new, old;
+	struct bsca_block *sca;
+
+	read_lock(&kvm->arch.sca_lock);
+	sca = kvm->arch.sca;
+	do {
+		old = READ_ONCE(sca->utility);
+		new = old;
+		new.mtcr = val;
+	} while (cmpxchg(&sca->utility.val, old.val, new.val) != old.val);
+	read_unlock(&kvm->arch.sca_lock);
+}
+
+static int kvm_s390_set_topo_change_indication(struct kvm *kvm,
+					       struct kvm_device_attr *attr)
+{
+	if (!test_kvm_facility(kvm, 11))
+		return -ENXIO;
+
+	kvm_s390_update_topology_change_report(kvm, !!attr->attr);
+	return 0;
+}
+
+static int kvm_s390_get_topo_change_indication(struct kvm *kvm,
+					       struct kvm_device_attr *attr)
+{
+	u8 topo;
+
+	if (!test_kvm_facility(kvm, 11))
+		return -ENXIO;
+
+	read_lock(&kvm->arch.sca_lock);
+	topo = ((struct bsca_block *)kvm->arch.sca)->utility.mtcr;
+	read_unlock(&kvm->arch.sca_lock);
+
+	return put_user(topo, (u8 __user *)attr->addr);
+}
+
 static int kvm_s390_vm_set_attr(struct kvm *kvm, struct kvm_device_attr *attr)
 {
 	int ret;
@@ -1718,6 +1786,9 @@ static int kvm_s390_vm_set_attr(struct kvm *kvm, struct kvm_device_attr *attr)
 		break;
 	case KVM_S390_VM_MIGRATION:
 		ret = kvm_s390_vm_set_migration(kvm, attr);
+		break;
+	case KVM_S390_VM_CPU_TOPOLOGY:
+		ret = kvm_s390_set_topo_change_indication(kvm, attr);
 		break;
 	default:
 		ret = -ENXIO;
@@ -1743,6 +1814,9 @@ static int kvm_s390_vm_get_attr(struct kvm *kvm, struct kvm_device_attr *attr)
 		break;
 	case KVM_S390_VM_MIGRATION:
 		ret = kvm_s390_vm_get_migration(kvm, attr);
+		break;
+	case KVM_S390_VM_CPU_TOPOLOGY:
+		ret = kvm_s390_get_topo_change_indication(kvm, attr);
 		break;
 	default:
 		ret = -ENXIO;
@@ -1816,6 +1890,9 @@ static int kvm_s390_vm_has_attr(struct kvm *kvm, struct kvm_device_attr *attr)
 		break;
 	case KVM_S390_VM_MIGRATION:
 		ret = 0;
+		break;
+	case KVM_S390_VM_CPU_TOPOLOGY:
+		ret = test_kvm_facility(kvm, 11) ? 0 : -ENXIO;
 		break;
 	default:
 		ret = -ENXIO;
@@ -2883,6 +2960,7 @@ void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
 	kvm_clear_async_pf_completion_queue(vcpu);
 	if (!kvm_is_ucontrol(vcpu->kvm))
 		sca_del_vcpu(vcpu);
+	kvm_s390_update_topology_change_report(vcpu->kvm, 1);
 
 	if (kvm_is_ucontrol(vcpu->kvm))
 		gmap_remove(vcpu->arch.gmap);
@@ -3278,6 +3356,8 @@ static int kvm_s390_vcpu_setup(struct kvm_vcpu *vcpu)
 		vcpu->arch.sie_block->ecb |= ECB_HOSTPROTINT;
 	if (test_kvm_facility(vcpu->kvm, 9))
 		vcpu->arch.sie_block->ecb |= ECB_SRSI;
+	if (test_kvm_facility(vcpu->kvm, 11))
+		vcpu->arch.sie_block->ecb |= ECB_PTF;
 	if (test_kvm_facility(vcpu->kvm, 73))
 		vcpu->arch.sie_block->ecb |= ECB_TE;
 	if (!kvm_is_ucontrol(vcpu->kvm))
@@ -3411,6 +3491,8 @@ int kvm_arch_vcpu_create(struct kvm_vcpu *vcpu)
 	rc = kvm_s390_vcpu_setup(vcpu);
 	if (rc)
 		goto out_ucontrol_uninit;
+
+	kvm_s390_update_topology_change_report(vcpu->kvm, 1);
 	return 0;
 
 out_ucontrol_uninit:
