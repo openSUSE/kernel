@@ -19,19 +19,7 @@ struct migration_target_control;
  */
 #define MIGRATEPAGE_SUCCESS		0
 
-enum migrate_reason {
-	MR_COMPACTION,
-	MR_MEMORY_FAILURE,
-	MR_MEMORY_HOTPLUG,
-	MR_SYSCALL,		/* also applies to cpusets */
-	MR_MEMPOLICY_MBIND,
-	MR_NUMA_MISPLACED,
-	MR_CONTIG_RANGE,
-	MR_LONGTERM_PIN,
-	MR_TYPES
-};
-
-/* In mm/debug.c; also keep sync with include/trace/events/migrate.h */
+/* Defined in mm/debug.c: */
 extern const char *migrate_reason_names[MR_TYPES];
 
 #ifdef CONFIG_MIGRATION
@@ -44,7 +32,8 @@ extern int migrate_page(struct address_space *mapping,
 			struct page *newpage, struct page *page,
 			enum migrate_mode mode);
 extern int migrate_pages(struct list_head *l, new_page_t new, free_page_t free,
-		unsigned long private, enum migrate_mode mode, int reason);
+		unsigned long private, enum migrate_mode mode, int reason,
+		unsigned int *ret_succeeded);
 extern struct page *alloc_migration_target(struct page *page, unsigned long private);
 extern int isolate_movable_page(struct page *page, isolate_mode_t mode);
 
@@ -56,12 +45,13 @@ extern int migrate_page_move_mapping(struct address_space *mapping,
 		struct page *newpage, struct page *page, int extra_count);
 void migration_entry_wait_on_locked(swp_entry_t entry, pte_t *ptep,
 				spinlock_t *ptl);
+
 #else
 
 static inline void putback_movable_pages(struct list_head *l) {}
 static inline int migrate_pages(struct list_head *l, new_page_t new,
 		free_page_t free, unsigned long private, enum migrate_mode mode,
-		int reason)
+		int reason, unsigned int *ret_succeeded)
 	{ return -ENOSYS; }
 static inline struct page *alloc_migration_target(struct page *page,
 		unsigned long private)
@@ -81,7 +71,23 @@ static inline int migrate_huge_page_move_mapping(struct address_space *mapping,
 {
 	return -ENOSYS;
 }
+
 #endif /* CONFIG_MIGRATION */
+
+#if defined(CONFIG_MIGRATION) && defined(CONFIG_NUMA)
+extern void set_migration_target_nodes(void);
+extern void migrate_on_reclaim_init(void);
+extern bool numa_demotion_enabled;
+extern int next_demotion_node(int node);
+#else
+static inline void set_migration_target_nodes(void) {}
+static inline void migrate_on_reclaim_init(void) {}
+static inline int next_demotion_node(int node)
+{
+        return NUMA_NO_NODE;
+}
+#define numa_demotion_enabled  false
+#endif
 
 #ifdef CONFIG_COMPACTION
 extern int PageMovable(struct page *page);

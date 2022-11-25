@@ -1938,7 +1938,7 @@ unpin_pages:
 
 		ret = migrate_pages(&movable_page_list, alloc_migration_target,
 				    NULL, (unsigned long)&mtc, MIGRATE_SYNC,
-				    MR_LONGTERM_PIN);
+				    MR_LONGTERM_PIN, NULL);
 		if (ret > 0) /* number of pages not migrated */
 			ret = -ENOMEM;
 	}
