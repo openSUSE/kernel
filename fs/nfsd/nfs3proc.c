@@ -156,6 +156,8 @@ nfsd3_proc_read(struct svc_rqst *rqstp)
 	u32	max_blocksize = svc_max_payload(rqstp);
 	unsigned long cnt = min(argp->count, max_blocksize);
 
+	cnt = min_t(unsigned long, cnt, rqstp->rq_res.buflen);
+
 	dprintk("nfsd: READ(3) %s %lu bytes at %Lu\n",
 				SVCFH_fmt(&argp->fh),
 				(unsigned long) argp->count,
@@ -166,6 +168,8 @@ nfsd3_proc_read(struct svc_rqst *rqstp)
 	 * + 1 (xdr opaque byte count) = 26
 	 */
 	resp->count = cnt;
+	if (argp->offset > (u64)OFFSET_MAX)
+		argp->offset = (u64)OFFSET_MAX;
 	svc_reserve_auth(rqstp, ((1 + NFS3_POST_OP_ATTR_WORDS + 3)<<2) + resp->count +4);
 
 	fh_copy(&resp->fh, &argp->fh);
@@ -450,9 +454,17 @@ nfsd3_proc_readdir(struct svc_rqst *rqstp)
 				SVCFH_fmt(&argp->fh),
 				argp->count, (u32) argp->cookie);
 
+	count = argp->count;
+	if (count > rqstp->rq_res.buflen)
+		count = rqstp->rq_res.buflen;
+	if (count > svc_max_payload(rqstp))
+		count = svc_max_payload(rqstp);
 	/* Make sure we've room for the NULL ptr & eof flag, and shrink to
 	 * client read size */
-	count = (argp->count >> 2) - 2;
+	count = count >> 2;
+	if (count < 2)
+		count = 2;
+	count -= 2;
 
 	/* Read directory and encode entries on the fly */
 	fh_copy(&resp->fh, &argp->fh);
@@ -503,7 +515,7 @@ nfsd3_proc_readdirplus(struct svc_rqst *rqstp)
 	struct nfsd3_readdirargs *argp = rqstp->rq_argp;
 	struct nfsd3_readdirres  *resp = rqstp->rq_resp;
 	__be32	nfserr;
-	int	count = 0;
+	int	count;
 	loff_t	offset;
 	struct page **p;
 	caddr_t	page_addr = NULL;
@@ -512,9 +524,17 @@ nfsd3_proc_readdirplus(struct svc_rqst *rqstp)
 				SVCFH_fmt(&argp->fh),
 				argp->count, (u32) argp->cookie);
 
+	count = argp->count;
+	if (count > rqstp->rq_res.buflen)
+		count = rqstp->rq_res.buflen;
+	if (count > svc_max_payload(rqstp))
+		count = svc_max_payload(rqstp);
 	/* Convert byte count to number of words (i.e. >> 2),
 	 * and reserve room for the NULL ptr & eof flag (-2 words) */
-	resp->count = (argp->count >> 2) - 2;
+	count = argp->count >> 2;
+	if (count < 2)
+		count = 2;
+	resp->count = count - 2;
 
 	/* Read directory and encode entries on the fly */
 	fh_copy(&resp->fh, &argp->fh);
@@ -537,6 +557,7 @@ nfsd3_proc_readdirplus(struct svc_rqst *rqstp)
 				     &resp->common,
 				     nfs3svc_encode_entry_plus);
 	memcpy(resp->verf, argp->verf, 8);
+	count = 0;
 	for (p = rqstp->rq_respages + 1; p < rqstp->rq_next_page; p++) {
 		page_addr = page_address(*p);
 
