@@ -7111,7 +7111,7 @@ bpf_object__open_buffer(const void *obj_buf, size_t obj_buf_sz,
 	return libbpf_ptr(bpf_object_open(NULL, obj_buf, obj_buf_sz, &opts));
 }
 
-int bpf_object__unload(struct bpf_object *obj)
+static int bpf_object_unload(struct bpf_object *obj)
 {
 	size_t i;
 
@@ -7129,6 +7129,8 @@ int bpf_object__unload(struct bpf_object *obj)
 
 	return 0;
 }
+
+int bpf_object__unload(struct bpf_object *obj) __attribute__((alias("bpf_object_unload")));
 
 static int bpf_object__sanitize_maps(struct bpf_object *obj)
 {
@@ -7522,7 +7524,7 @@ out:
 		if (obj->maps[i].pinned && !obj->maps[i].reused)
 			bpf_map__unpin(&obj->maps[i], NULL);
 
-	bpf_object__unload(obj);
+	bpf_object_unload(obj);
 	pr_warn("failed to load object '%s'\n", obj->path);
 	return libbpf_err(err);
 }
@@ -8140,7 +8142,7 @@ void bpf_object__close(struct bpf_object *obj)
 
 	bpf_gen__free(obj->gen_loader);
 	bpf_object__elf_finish(obj);
-	bpf_object__unload(obj);
+	bpf_object_unload(obj);
 	btf__free(obj->btf);
 	btf_ext__free(obj->btf_ext);
 
@@ -8584,6 +8586,8 @@ static const struct bpf_sec_def section_defs[] = {
 	SEC_DEF("tp/",			TRACEPOINT, 0, SEC_NONE, attach_tp),
 	SEC_DEF("raw_tracepoint/",	RAW_TRACEPOINT, 0, SEC_NONE, attach_raw_tp),
 	SEC_DEF("raw_tp/",		RAW_TRACEPOINT, 0, SEC_NONE, attach_raw_tp),
+	SEC_DEF("raw_tracepoint.w/",	RAW_TRACEPOINT_WRITABLE, 0, SEC_NONE, attach_raw_tp),
+	SEC_DEF("raw_tp.w/",		RAW_TRACEPOINT_WRITABLE, 0, SEC_NONE, attach_raw_tp),
 	SEC_DEF("tp_btf/",		TRACING, BPF_TRACE_RAW_TP, SEC_ATTACH_BTF, attach_trace),
 	SEC_DEF("fentry/",		TRACING, BPF_TRACE_FENTRY, SEC_ATTACH_BTF, attach_trace),
 	SEC_DEF("fmod_ret/",		TRACING, BPF_MODIFY_RETURN, SEC_ATTACH_BTF, attach_trace),
@@ -8966,28 +8970,27 @@ int libbpf_find_vmlinux_btf_id(const char *name,
 
 static int libbpf_find_prog_btf_id(const char *name, __u32 attach_prog_fd)
 {
-	struct bpf_prog_info_linear *info_linear;
-	struct bpf_prog_info *info;
+	struct bpf_prog_info info = {};
+	__u32 info_len = sizeof(info);
 	struct btf *btf;
 	int err;
 
-	info_linear = bpf_program__get_prog_info_linear(attach_prog_fd, 0);
-	err = libbpf_get_error(info_linear);
+	err = bpf_obj_get_info_by_fd(attach_prog_fd, &info, &info_len);
 	if (err) {
-		pr_warn("failed get_prog_info_linear for FD %d\n",
-			attach_prog_fd);
+		pr_warn("failed bpf_obj_get_info_by_fd for FD %d: %d\n",
+			attach_prog_fd, err);
 		return err;
 	}
 
 	err = -EINVAL;
-	info = &info_linear->info;
-	if (!info->btf_id) {
+	if (!info.btf_id) {
 		pr_warn("The target program doesn't have BTF\n");
 		goto out;
 	}
-	btf = btf__load_from_kernel_by_id(info->btf_id);
-	if (libbpf_get_error(btf)) {
-		pr_warn("Failed to get BTF of the program\n");
+	btf = btf__load_from_kernel_by_id(info.btf_id);
+	err = libbpf_get_error(btf);
+	if (err) {
+		pr_warn("Failed to get BTF %d of the program: %d\n", info.btf_id, err);
 		goto out;
 	}
 	err = btf__find_by_name_kind(btf, name, BTF_KIND_FUNC);
@@ -8997,7 +9000,6 @@ static int libbpf_find_prog_btf_id(const char *name, __u32 attach_prog_fd)
 		goto out;
 	}
 out:
-	free(info_linear);
 	return err;
 }
 
@@ -10413,12 +10415,26 @@ struct bpf_link *bpf_program__attach_raw_tracepoint(const struct bpf_program *pr
 
 static struct bpf_link *attach_raw_tp(const struct bpf_program *prog, long cookie)
 {
-	const char *tp_name;
+	static const char *const prefixes[] = {
+		"raw_tp/",
+		"raw_tracepoint/",
+		"raw_tp.w/",
+		"raw_tracepoint.w/",
+	};
+	size_t i;
+	const char *tp_name = NULL;
 
-	if (str_has_pfx(prog->sec_name, "raw_tp/"))
-		tp_name = prog->sec_name + sizeof("raw_tp/") - 1;
-	else
-		tp_name = prog->sec_name + sizeof("raw_tracepoint/") - 1;
+	for (i = 0; i < ARRAY_SIZE(prefixes); i++) {
+		if (str_has_pfx(prog->sec_name, prefixes[i])) {
+			tp_name = prog->sec_name + strlen(prefixes[i]);
+			break;
+		}
+	}
+	if (!tp_name) {
+		pr_warn("prog '%s': invalid section name '%s'\n",
+			prog->name, prog->sec_name);
+		return libbpf_err_ptr(-EINVAL);
+	}
 
 	return bpf_program__attach_raw_tracepoint(prog, tp_name);
 }
