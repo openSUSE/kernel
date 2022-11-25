@@ -553,6 +553,9 @@ struct sas_ata_task {
 	u8     stp_affil_pol:1;
 
 	u8     device_control_reg_update:1;
+
+	bool   force_phy;
+	int    force_phy_id;
 };
 
 /* LLDDs rely on these values */
@@ -592,10 +595,6 @@ struct sas_ssp_task {
 struct sas_tmf_task {
 	u8 tmf;
 	u16 tag_of_task_to_be_managed;
-
-	/* Temp */
-	int force_phy;
-	int phy_id;
 };
 
 struct sas_task {
