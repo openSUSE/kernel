@@ -28,7 +28,6 @@
 #include <linux/gfp.h>
 #include <linux/syscore_ops.h>
 #include <linux/ctype.h>
-#include <linux/genhd.h>
 #include <linux/ktime.h>
 #include <linux/efi.h>
 #include <linux/security.h>
