@@ -1504,7 +1504,7 @@ static int a6xx_pm_resume(struct msm_gpu *gpu)
 	if (ret)
 		return ret;
 
-	msm_gpu_resume_devfreq(gpu);
+	msm_devfreq_resume(gpu);
 
 	a6xx_llc_activate(a6xx_gpu);
 
@@ -1521,7 +1521,7 @@ static int a6xx_pm_suspend(struct msm_gpu *gpu)
 
 	a6xx_llc_deactivate(a6xx_gpu);
 
-	devfreq_suspend_device(gpu->devfreq.devfreq);
+	msm_devfreq_suspend(gpu);
 
 	mutex_lock(&a6xx_gpu->gmu.lock);
 	ret = a6xx_gmu_stop(a6xx_gpu);
