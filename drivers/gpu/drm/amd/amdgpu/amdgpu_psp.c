@@ -2377,7 +2377,7 @@ static int psp_prep_load_ip_fw_cmd_buf(struct amdgpu_firmware_info *ucode,
 	return ret;
 }
 
-static int psp_execute_np_fw_load(struct psp_context *psp,
+static int psp_execute_non_psp_fw_load(struct psp_context *psp,
 			          struct amdgpu_firmware_info *ucode)
 {
 	int ret = 0;
@@ -2413,7 +2413,7 @@ static int psp_load_smu_fw(struct psp_context *psp)
 		}
 	}
 
-	ret = psp_execute_np_fw_load(psp, ucode);
+	ret = psp_execute_non_psp_fw_load(psp, ucode);
 
 	if (ret)
 		DRM_ERROR("PSP load smu failed!\n");
@@ -2468,14 +2468,14 @@ int psp_load_fw_list(struct psp_context *psp,
 	for (i = 0; i < ucode_count; ++i) {
 		ucode = ucode_list[i];
 		psp_print_fw_hdr(psp, ucode);
-		ret = psp_execute_np_fw_load(psp, ucode);
+		ret = psp_execute_non_psp_fw_load(psp, ucode);
 		if (ret)
 			return ret;
 	}
 	return ret;
 }
 
-static int psp_np_fw_load(struct psp_context *psp)
+static int psp_load_non_psp_fw(struct psp_context *psp)
 {
 	int i, ret;
 	struct amdgpu_firmware_info *ucode;
@@ -2514,7 +2514,7 @@ static int psp_np_fw_load(struct psp_context *psp)
 
 		psp_print_fw_hdr(psp, ucode);
 
-		ret = psp_execute_np_fw_load(psp, ucode);
+		ret = psp_execute_non_psp_fw_load(psp, ucode);
 		if (ret)
 			return ret;
 
@@ -2591,7 +2591,7 @@ skip_memalloc:
 	if (ret)
 		goto failed;
 
-	ret = psp_np_fw_load(psp);
+	ret = psp_load_non_psp_fw(psp);
 	if (ret)
 		goto failed;
 
@@ -2794,7 +2794,7 @@ static int psp_resume(void *handle)
 	if (ret)
 		goto failed;
 
-	ret = psp_np_fw_load(psp);
+	ret = psp_load_non_psp_fw(psp);
 	if (ret)
 		goto failed;
 
@@ -2892,7 +2892,7 @@ int psp_update_vcn_sram(struct amdgpu_device *adev, int inst_idx,
 	ucode.mc_addr = cmd_gpu_addr;
 	ucode.ucode_size = cmd_size;
 
-	return psp_execute_np_fw_load(&adev->psp, &ucode);
+	return psp_execute_non_psp_fw_load(&adev->psp, &ucode);
 }
 
 int psp_ring_cmd_submit(struct psp_context *psp,
