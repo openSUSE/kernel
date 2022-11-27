@@ -353,7 +353,7 @@ udl_simple_display_pipe_enable(struct drm_simple_display_pipe *pipe,
 
 	udl->mode_buf_len = wrptr - buf;
 
-	udl_handle_damage(fb, &shadow_plane_state->map[0], 0, 0, fb->width, fb->height);
+	udl_handle_damage(fb, &shadow_plane_state->data[0], 0, 0, fb->width, fb->height);
 
 	/* enable display */
 	udl_crtc_write_mode_to_hw(crtc);
@@ -393,7 +393,7 @@ udl_simple_display_pipe_update(struct drm_simple_display_pipe *pipe,
 		return;
 
 	if (drm_atomic_helper_damage_merged(old_plane_state, state, &rect))
-		udl_handle_damage(fb, &shadow_plane_state->map[0], rect.x1, rect.y1,
+		udl_handle_damage(fb, &shadow_plane_state->data[0], rect.x1, rect.y1,
 				  rect.x2 - rect.x1, rect.y2 - rect.y1);
 }
 
