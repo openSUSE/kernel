@@ -492,9 +492,9 @@ static void mtk_drm_crtc_update_config(struct mtk_drm_crtc *mtk_crtc,
 		mtk_crtc_ddp_config(crtc, cmdq_handle);
 		cmdq_pkt_finalize(cmdq_handle);
 		dma_sync_single_for_device(mtk_crtc->cmdq_client.chan->mbox->dev,
-					   cmdq_handle->pa_base,
-					   cmdq_handle->cmd_buf_size,
-					   DMA_TO_DEVICE);
+					    cmdq_handle->pa_base,
+					    cmdq_handle->cmd_buf_size,
+					    DMA_TO_DEVICE);
 		/*
 		 * CMDQ command should execute in next 3 vblank.
 		 * One vblank interrupt before send message (occasionally)
