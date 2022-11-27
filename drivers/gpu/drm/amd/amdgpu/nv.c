@@ -667,6 +667,9 @@ legacy_init:
 	case CHIP_YELLOW_CARP:
 		yellow_carp_reg_base_init(adev);
 		break;
+	case CHIP_CYAN_SKILLFISH:
+		cyan_skillfish_reg_base_init(adev);
+		break;
 	default:
 		return -EINVAL;
 	}
