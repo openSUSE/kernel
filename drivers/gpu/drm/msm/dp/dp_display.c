@@ -78,7 +78,6 @@ struct dp_display_private {
 
 	/* state variables */
 	bool core_initialized;
-	bool phy_initialized;
 	bool hpd_irq_on;
 	bool audio_supported;
 
@@ -98,8 +97,6 @@ struct dp_display_private {
 	struct dp_usbpd_cb usbpd_cb;
 	struct dp_display_mode dp_mode;
 	struct msm_dp dp_display;
-
-	bool encoder_mode_set;
 
 	/* wait for audio signaling */
 	struct completion audio_comp;
@@ -299,20 +296,6 @@ static void dp_display_send_hpd_event(struct msm_dp *dp_display)
 }
 
 
-static void dp_display_set_encoder_mode(struct dp_display_private *dp)
-{
-	struct msm_drm_private *priv = dp->dp_display.drm_dev->dev_private;
-	struct msm_kms *kms = priv->kms;
-
-	if (!dp->encoder_mode_set && dp->dp_display.encoder &&
-				kms->funcs->set_encoder_mode) {
-		kms->funcs->set_encoder_mode(kms,
-				dp->dp_display.encoder, false);
-
-		dp->encoder_mode_set = true;
-	}
-}
-
 static int dp_display_send_hpd_notification(struct dp_display_private *dp,
 					    bool hpd)
 {
@@ -373,47 +356,35 @@ end:
 	return rc;
 }
 
-static void dp_display_host_phy_init(struct dp_display_private *dp)
+static void dp_display_host_init(struct dp_display_private *dp, int reset)
 {
-	DRM_DEBUG_DP("core_init=%d phy_init=%d\n",
-			dp->core_initialized, dp->phy_initialized);
+	bool flip = false;
 
-	if (!dp->phy_initialized) {
-		dp_ctrl_phy_init(dp->ctrl);
-		dp->phy_initialized = true;
+	if (dp->core_initialized) {
+		DRM_DEBUG_DP("DP core already initialized\n");
+		return;
 	}
-}
 
-static void dp_display_host_phy_exit(struct dp_display_private *dp)
-{
-	DRM_DEBUG_DP("core_init=%d phy_init=%d\n",
-			dp->core_initialized, dp->phy_initialized);
+	if (dp->usbpd->orientation == ORIENTATION_CC2)
+		flip = true;
 
-	if (dp->phy_initialized) {
-		dp_ctrl_phy_exit(dp->ctrl);
-		dp->phy_initialized = false;
-	}
-}
-
-static void dp_display_host_init(struct dp_display_private *dp)
-{
-	DRM_DEBUG_DP("core_initialized=%d\n", dp->core_initialized);
-
-	dp_display_set_encoder_mode(dp);
-
-	dp_power_init(dp->power, false);
-	dp_ctrl_reset_irq_ctrl(dp->ctrl, true);
+	dp_power_init(dp->power, flip);
+	dp_ctrl_host_init(dp->ctrl, flip, reset);
 	dp_aux_init(dp->aux);
 	dp->core_initialized = true;
 }
 
 static void dp_display_host_deinit(struct dp_display_private *dp)
 {
-	DRM_DEBUG_DP("core_initialized=%d\n", dp->core_initialized);
+	if (!dp->core_initialized) {
+		DRM_DEBUG_DP("DP core not initialized\n");
+		return;
+	}
 
-	dp_ctrl_reset_irq_ctrl(dp->ctrl, false);
+	dp_ctrl_host_deinit(dp->ctrl);
 	dp_aux_deinit(dp->aux);
 	dp_power_deinit(dp->power);
+
 	dp->core_initialized = false;
 }
 
@@ -431,7 +402,7 @@ static int dp_display_usbpd_configure_cb(struct device *dev)
 	dp = container_of(g_dp_display,
 			struct dp_display_private, dp_display);
 
-	dp_display_host_phy_init(dp);
+	dp_display_host_init(dp, false);
 
 	rc = dp_display_process_hpd_high(dp);
 end:
@@ -573,6 +544,11 @@ static int dp_hpd_plug_handle(struct dp_display_private *dp, u32 data)
 	if (ret) {	/* link train failed */
 		hpd->hpd_high = 0;
 		dp->hpd_state = ST_DISCONNECTED;
+
+		if (ret == -ECONNRESET) { /* cable unplugged */
+			dp->core_initialized = false;
+		}
+
 	} else {
 		dp->hpd_state = ST_MAINLINK_READY;
 	}
@@ -626,8 +602,9 @@ static int dp_hpd_unplug_handle(struct dp_display_private *dp, u32 data)
 	if (state == ST_DISCONNECTED) {
 		/* triggered by irq_hdp with sink_count = 0 */
 		if (dp->link->sink_count == 0) {
+			dp_ctrl_off_phy(dp->ctrl);
 			hpd->hpd_high = 0;
-			dp_display_host_phy_exit(dp);
+			dp->core_initialized = false;
 		}
 		dp_display_notify_disconnect(&dp->pdev->dev);
 		mutex_unlock(&dp->event_mutex);
@@ -849,7 +826,7 @@ static int dp_display_enable(struct dp_display_private *dp, u32 data)
 		return 0;
 	}
 
-	rc = dp_ctrl_on_stream(dp->ctrl, data);
+	rc = dp_ctrl_on_stream(dp->ctrl);
 	if (!rc)
 		dp_display->power_on = true;
 
@@ -895,19 +872,12 @@ static int dp_display_disable(struct dp_display_private *dp, u32 data)
 
 	dp_display->audio_enabled = false;
 
+	/* triggered by irq_hpd with sink_count = 0 */
 	if (dp->link->sink_count == 0) {
-		/*
-		 * irq_hpd with sink_count = 0
-		 * hdmi unplugged out of dongle
-		 */
 		dp_ctrl_off_link_stream(dp->ctrl);
 	} else {
-		/*
-		 * unplugged interrupt
-		 * dongle unplugged out of DUT
-		 */
 		dp_ctrl_off(dp->ctrl);
-		dp_display_host_phy_exit(dp);
+		dp->core_initialized = false;
 	}
 
 	dp_display->power_on = false;
@@ -1038,7 +1008,7 @@ void msm_dp_snapshot(struct msm_disp_state *disp_state, struct msm_dp *dp)
 static void dp_display_config_hpd(struct dp_display_private *dp)
 {
 
-	dp_display_host_init(dp);
+	dp_display_host_init(dp, true);
 	dp_catalog_ctrl_hpd_config(dp->catalog);
 
 	/* Enable interrupt first time
@@ -1291,23 +1261,20 @@ static int dp_pm_resume(struct device *dev)
 	dp->hpd_state = ST_DISCONNECTED;
 
 	/* turn on dp ctrl/phy */
-	dp_display_host_init(dp);
+	dp_display_host_init(dp, true);
 
 	dp_catalog_ctrl_hpd_config(dp->catalog);
 
+	/*
+	 * set sink to normal operation mode -- D0
+	 * before dpcd read
+	 */
+	dp_link_psm_config(dp->link, &dp->panel->link_info, false);
 
 	if (dp_catalog_link_is_connected(dp->catalog)) {
-		/*
-		 * set sink to normal operation mode -- D0
-		 * before dpcd read
-		 */
-		dp_display_host_phy_init(dp);
-		dp_link_psm_config(dp->link, &dp->panel->link_info, false);
 		sink_count = drm_dp_read_sink_count(dp->aux);
 		if (sink_count < 0)
 			sink_count = 0;
-
-		dp_display_host_phy_exit(dp);
 	}
 
 	dp->link->sink_count = sink_count;
@@ -1340,16 +1307,18 @@ static int dp_pm_suspend(struct device *dev)
 
 	mutex_lock(&dp->event_mutex);
 
-	/* mainlink enabled */
-	if (dp_power_clk_status(dp->power, DP_CTRL_PM))
-		dp_ctrl_off_link_stream(dp->ctrl);
+	if (dp->core_initialized == true) {
+		/* mainlink enabled */
+		if (dp_power_clk_status(dp->power, DP_CTRL_PM))
+			dp_ctrl_off_link_stream(dp->ctrl);
 
-	dp_display_host_phy_exit(dp);
-
-	/* host_init will be called at pm_resume */
-	dp_display_host_deinit(dp);
+		dp_display_host_deinit(dp);
+	}
 
 	dp->hpd_state = ST_SUSPENDED;
+
+	/* host_init will be called at pm_resume */
+	dp->core_initialized = false;
 
 	mutex_unlock(&dp->event_mutex);
 
@@ -1474,7 +1443,6 @@ int msm_dp_display_enable(struct msm_dp *dp, struct drm_encoder *encoder)
 	int rc = 0;
 	struct dp_display_private *dp_display;
 	u32 state;
-	bool force_link_train = false;
 
 	dp_display = container_of(dp, struct dp_display_private, dp_display);
 	if (!dp_display->dp_mode.drm_mode.clock) {
@@ -1506,12 +1474,10 @@ int msm_dp_display_enable(struct msm_dp *dp, struct drm_encoder *encoder)
 
 	state =  dp_display->hpd_state;
 
-	if (state == ST_DISPLAY_OFF) {
-		dp_display_host_phy_init(dp_display);
-		force_link_train = true;
-	}
+	if (state == ST_DISPLAY_OFF)
+		dp_display_host_init(dp_display, true);
 
-	dp_display_enable(dp_display, force_link_train);
+	dp_display_enable(dp_display, 0);
 
 	rc = dp_display_post_enable(dp);
 	if (rc) {
@@ -1519,6 +1485,10 @@ int msm_dp_display_enable(struct msm_dp *dp, struct drm_encoder *encoder)
 		dp_display_disable(dp_display, 0);
 		dp_display_unprepare(dp);
 	}
+
+	/* manual kick off plug event to train link */
+	if (state == ST_DISPLAY_OFF)
+		dp_add_event(dp_display, EV_IRQ_HPD_INT, 0, 0);
 
 	/* completed connection */
 	dp_display->hpd_state = ST_CONNECTED;
