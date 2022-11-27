@@ -182,8 +182,6 @@ struct mga_device {
 
 	enum mga_type			type;
 
-	int bpp_shifts[4];
-
 	int fb_mtrr;
 
 	union {
