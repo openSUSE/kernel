@@ -25,6 +25,7 @@
  *
  **************************************************************************/
 
+#include <linux/pci.h>
 #include <linux/sched/signal.h>
 
 #include "vmwgfx_drv.h"
@@ -297,6 +298,7 @@ static void vmw_irq_preinstall(struct drm_device *dev)
 void vmw_irq_uninstall(struct drm_device *dev)
 {
 	struct vmw_private *dev_priv = vmw_priv(dev);
+	struct pci_dev *pdev = to_pci_dev(dev->dev);
 	uint32_t status;
 
 	if (!(dev_priv->capabilities & SVGA_CAP_IRQMASK))
@@ -307,7 +309,7 @@ void vmw_irq_uninstall(struct drm_device *dev)
 	status = vmw_irq_status_read(dev_priv);
 	vmw_irq_status_write(dev_priv, status);
 
-	free_irq(dev->irq, dev);
+	free_irq(pdev->irq, dev);
 }
 
 /**
@@ -319,16 +321,8 @@ void vmw_irq_uninstall(struct drm_device *dev)
  */
 int vmw_irq_install(struct drm_device *dev, int irq)
 {
-	int ret;
-
 	vmw_irq_preinstall(dev);
 
-	ret = request_threaded_irq(irq, vmw_irq_handler, vmw_thread_fn,
-				   IRQF_SHARED, VMWGFX_DRIVER_NAME, dev);
-	if (ret < 0)
-		return ret;
-
-	dev->irq = irq;
-
-	return ret;
+	return request_threaded_irq(irq, vmw_irq_handler, vmw_thread_fn,
+				    IRQF_SHARED, VMWGFX_DRIVER_NAME, dev);
 }
