@@ -1485,7 +1485,7 @@ static const struct hdmi_codec_ops vc4_hdmi_codec_ops = {
 	.audio_startup = vc4_hdmi_audio_startup,
 };
 
-struct hdmi_codec_pdata vc4_hdmi_codec_pdata = {
+static struct hdmi_codec_pdata vc4_hdmi_codec_pdata = {
 	.ops = &vc4_hdmi_codec_ops,
 	.max_i2s_channels = 8,
 	.i2s = 1,
