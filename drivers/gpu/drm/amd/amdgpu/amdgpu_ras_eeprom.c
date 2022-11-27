@@ -775,7 +775,7 @@ amdgpu_ras_debugfs_eeprom_size_read(struct file *f, char __user *buf,
 	res = min_t(size_t, res, size);
 
 	if (copy_to_user(buf, &data[*pos], res))
-		return -EINVAL;
+		return -EFAULT;
 
 	*pos += res;
 
@@ -954,7 +954,7 @@ amdgpu_ras_debugfs_eeprom_table_read(struct file *f, char __user *buf,
 		res = min_t(size_t, res, size);
 
 		if (copy_to_user(buf, &data[*pos], res))
-			return -EINVAL;
+			return -EFAULT;
 
 		*pos += res;
 
