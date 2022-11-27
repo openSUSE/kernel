@@ -997,7 +997,8 @@ static const struct hubbub_funcs hubbub31_funcs = {
 	.verify_allow_pstate_change_high = hubbub31_verify_allow_pstate_change_high,
 	.program_det_size = dcn31_program_det_size,
 	.program_compbuf_size = dcn31_program_compbuf_size,
-	.init_crb = dcn31_init_crb
+	.init_crb = dcn31_init_crb,
+	.hubbub_read_state = hubbub2_read_state,
 };
 
 void hubbub31_construct(struct dcn20_hubbub *hubbub31,
