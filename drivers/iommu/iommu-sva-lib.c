@@ -50,12 +50,6 @@ out:
 }
 EXPORT_SYMBOL_GPL(iommu_sva_alloc_pasid);
 
-void iommu_sva_free_pasid(struct mm_struct *mm)
-{
-	WARN_ONCE(1, "kABI workaround: you should not be using %s!\n", __func__);
-}
-EXPORT_SYMBOL_GPL(iommu_sva_free_pasid);
-
 /* ioasid_find getter() requires a void * argument */
 static bool __mmget_not_zero(void *mm)
 {
