@@ -848,7 +848,7 @@ int intel_pasid_setup_nested(struct intel_iommu *iommu, struct device *dev,
 	pasid_set_slptr(pte, pgd_val);
 	pasid_set_fault_enable(pte);
 
-	did = domain_id_iommu(domain, iommu);
+	did = domain->iommu_did[iommu->seq_id];
 	pasid_set_domain_id(pte, did);
 
 	pasid_set_address_width(pte, agaw);
