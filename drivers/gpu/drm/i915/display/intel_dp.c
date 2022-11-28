@@ -253,6 +253,11 @@ bool intel_dp_can_bigjoiner(struct intel_dp *intel_dp)
 		 encoder->port != PORT_A);
 }
 
+static int dg2_max_source_rate(struct intel_dp *intel_dp)
+{
+	return intel_dp_is_edp(intel_dp) ? 810000 : 1350000;
+}
+
 static bool is_low_voltage_sku(struct drm_i915_private *i915, enum phy phy)
 {
 	u32 voltage;
@@ -304,7 +309,8 @@ intel_dp_set_source_rates(struct intel_dp *intel_dp)
 {
 	/* The values must be in increasing order */
 	static const int icl_rates[] = {
-		162000, 216000, 270000, 324000, 432000, 540000, 648000, 810000
+		162000, 216000, 270000, 324000, 432000, 540000, 648000, 810000,
+		1000000, 1350000,
 	};
 	static const int bxt_rates[] = {
 		162000, 216000, 243000, 270000, 324000, 432000, 540000
@@ -331,6 +337,8 @@ intel_dp_set_source_rates(struct intel_dp *intel_dp)
 	if (DISPLAY_VER(dev_priv) >= 11) {
 		source_rates = icl_rates;
 		size = ARRAY_SIZE(icl_rates);
+		if (IS_DG2(dev_priv))
+			max_rate = dg2_max_source_rate(intel_dp);
 		if (IS_JSL_EHL(dev_priv))
 			max_rate = ehl_max_source_rate(intel_dp);
 		else if (IS_ALDERLAKE_P(dev_priv) || IS_ALDERLAKE_S(dev_priv) ||
