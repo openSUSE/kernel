@@ -116,6 +116,12 @@ bool intel_dp_is_edp(struct intel_dp *intel_dp)
 static void intel_dp_unset_edid(struct intel_dp *intel_dp);
 static int intel_dp_dsc_compute_bpp(struct intel_dp *intel_dp, u8 dsc_max_bpc);
 
+/* Is link rate UHBR and thus 128b/132b? */
+bool intel_dp_is_uhbr(const struct intel_crtc_state *crtc_state)
+{
+	return crtc_state->port_clock >= 1000000;
+}
+
 static void intel_dp_set_default_sink_rates(struct intel_dp *intel_dp)
 {
 	intel_dp->sink_rates[0] = 162000;
