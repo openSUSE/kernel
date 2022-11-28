@@ -739,21 +739,23 @@ static int apple_dart_def_domain_type(struct device *dev)
 
 static const struct iommu_ops apple_dart_iommu_ops = {
 	.domain_alloc = apple_dart_domain_alloc,
-	.domain_free = apple_dart_domain_free,
-	.attach_dev = apple_dart_attach_dev,
-	.detach_dev = apple_dart_detach_dev,
-	.map_pages = apple_dart_map_pages,
-	.unmap_pages = apple_dart_unmap_pages,
-	.flush_iotlb_all = apple_dart_flush_iotlb_all,
-	.iotlb_sync = apple_dart_iotlb_sync,
-	.iotlb_sync_map = apple_dart_iotlb_sync_map,
-	.iova_to_phys = apple_dart_iova_to_phys,
 	.probe_device = apple_dart_probe_device,
 	.release_device = apple_dart_release_device,
 	.device_group = apple_dart_device_group,
 	.of_xlate = apple_dart_of_xlate,
 	.def_domain_type = apple_dart_def_domain_type,
 	.pgsize_bitmap = -1UL, /* Restricted during dart probe */
+	.default_domain_ops = &(const struct iommu_domain_ops) {
+		.attach_dev	= apple_dart_attach_dev,
+		.detach_dev	= apple_dart_detach_dev,
+		.map_pages	= apple_dart_map_pages,
+		.unmap_pages	= apple_dart_unmap_pages,
+		.flush_iotlb_all = apple_dart_flush_iotlb_all,
+		.iotlb_sync	= apple_dart_iotlb_sync,
+		.iotlb_sync_map	= apple_dart_iotlb_sync_map,
+		.iova_to_phys	= apple_dart_iova_to_phys,
+		.free		= apple_dart_domain_free,
+	}
 	.owner = THIS_MODULE,
 };
 
