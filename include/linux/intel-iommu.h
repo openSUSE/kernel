@@ -526,12 +526,6 @@ struct context_entry {
  */
 #define DOMAIN_FLAG_USE_FIRST_LEVEL		BIT(1)
 
-/*
- * Domain represents a virtual machine which demands iommu nested
- * translation mode support.
- */
-#define DOMAIN_FLAG_NESTING_MODE		BIT(2)
-
 struct iommu_domain_info {
 	struct intel_iommu *iommu;
 	unsigned int refcnt;            /* Refcount of devices per iommu */
@@ -772,9 +766,6 @@ struct intel_iommu *device_to_iommu(struct device *dev, u8 *bus, u8 *devfn);
 extern void intel_svm_check(struct intel_iommu *iommu);
 extern int intel_svm_enable_prq(struct intel_iommu *iommu);
 extern int intel_svm_finish_prq(struct intel_iommu *iommu);
-int intel_svm_bind_gpasid(struct iommu_domain *domain, struct device *dev,
-			  struct iommu_gpasid_bind_data *data);
-int intel_svm_unbind_gpasid(struct device *dev, u32 pasid);
 struct iommu_sva *intel_svm_bind(struct device *dev, struct mm_struct *mm,
 				 void *drvdata);
 void intel_svm_unbind(struct iommu_sva *handle);
@@ -802,7 +793,6 @@ struct intel_svm {
 
 	unsigned int flags;
 	u32 pasid;
-	int gpasid; /* In case that guest PASID is different from host PASID */
 	struct list_head devs;
 };
 #else
