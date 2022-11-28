@@ -630,9 +630,6 @@ intel_get_crtc_new_encoder(const struct intel_atomic_state *state,
 void intel_plane_disable_noatomic(struct intel_crtc *crtc,
 				  struct intel_plane *plane);
 
-unsigned int intel_surf_alignment(const struct drm_framebuffer *fb,
-				  int color_plane);
-
 void intel_display_driver_register(struct drm_i915_private *i915);
 void intel_display_driver_unregister(struct drm_i915_private *i915);
 
