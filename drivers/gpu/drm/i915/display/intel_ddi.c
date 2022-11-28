@@ -1372,7 +1372,8 @@ static int translate_signal_level(struct intel_dp *intel_dp,
 	return 0;
 }
 
-static int intel_ddi_dp_level(struct intel_dp *intel_dp)
+static int intel_ddi_dp_level(struct intel_dp *intel_dp,
+			      const struct intel_crtc_state *crtc_state)
 {
 	u8 train_set = intel_dp->train_set[0];
 	u8 signal_levels = train_set & (DP_TRAIN_VOLTAGE_SWING_MASK |
@@ -1386,7 +1387,7 @@ dg2_set_signal_levels(struct intel_dp *intel_dp,
 		      const struct intel_crtc_state *crtc_state)
 {
 	struct intel_encoder *encoder = &dp_to_dig_port(intel_dp)->base;
-	int level = intel_ddi_dp_level(intel_dp);
+	int level = intel_ddi_dp_level(intel_dp, crtc_state);
 
 	intel_snps_phy_ddi_vswing_sequence(encoder, level);
 }
@@ -1396,7 +1397,7 @@ tgl_set_signal_levels(struct intel_dp *intel_dp,
 		      const struct intel_crtc_state *crtc_state)
 {
 	struct intel_encoder *encoder = &dp_to_dig_port(intel_dp)->base;
-	int level = intel_ddi_dp_level(intel_dp);
+	int level = intel_ddi_dp_level(intel_dp, crtc_state);
 
 	tgl_ddi_vswing_sequence(encoder, crtc_state, level);
 }
@@ -1406,7 +1407,7 @@ icl_set_signal_levels(struct intel_dp *intel_dp,
 		      const struct intel_crtc_state *crtc_state)
 {
 	struct intel_encoder *encoder = &dp_to_dig_port(intel_dp)->base;
-	int level = intel_ddi_dp_level(intel_dp);
+	int level = intel_ddi_dp_level(intel_dp, crtc_state);
 
 	icl_ddi_vswing_sequence(encoder, crtc_state, level);
 }
@@ -1416,7 +1417,7 @@ bxt_set_signal_levels(struct intel_dp *intel_dp,
 		      const struct intel_crtc_state *crtc_state)
 {
 	struct intel_encoder *encoder = &dp_to_dig_port(intel_dp)->base;
-	int level = intel_ddi_dp_level(intel_dp);
+	int level = intel_ddi_dp_level(intel_dp, crtc_state);
 
 	bxt_ddi_vswing_sequence(encoder, crtc_state, level);
 }
@@ -1427,7 +1428,7 @@ hsw_set_signal_levels(struct intel_dp *intel_dp,
 {
 	struct intel_encoder *encoder = &dp_to_dig_port(intel_dp)->base;
 	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
-	int level = intel_ddi_dp_level(intel_dp);
+	int level = intel_ddi_dp_level(intel_dp, crtc_state);
 	enum port port = encoder->port;
 	u32 signal_levels;
 
@@ -2333,7 +2334,7 @@ static void dg2_ddi_pre_enable_dp(struct intel_atomic_state *state,
 	enum phy phy = intel_port_to_phy(dev_priv, encoder->port);
 	struct intel_digital_port *dig_port = enc_to_dig_port(encoder);
 	bool is_mst = intel_crtc_has_type(crtc_state, INTEL_OUTPUT_DP_MST);
-	int level = intel_ddi_dp_level(intel_dp);
+	int level = intel_ddi_dp_level(intel_dp, crtc_state);
 
 	intel_dp_set_link_params(intel_dp, crtc_state->port_clock,
 				 crtc_state->lane_count);
@@ -2446,7 +2447,7 @@ static void tgl_ddi_pre_enable_dp(struct intel_atomic_state *state,
 	enum phy phy = intel_port_to_phy(dev_priv, encoder->port);
 	struct intel_digital_port *dig_port = enc_to_dig_port(encoder);
 	bool is_mst = intel_crtc_has_type(crtc_state, INTEL_OUTPUT_DP_MST);
-	int level = intel_ddi_dp_level(intel_dp);
+	int level = intel_ddi_dp_level(intel_dp, crtc_state);
 
 	intel_dp_set_link_params(intel_dp,
 				 crtc_state->port_clock,
@@ -2589,7 +2590,7 @@ static void hsw_ddi_pre_enable_dp(struct intel_atomic_state *state,
 	enum phy phy = intel_port_to_phy(dev_priv, port);
 	struct intel_digital_port *dig_port = enc_to_dig_port(encoder);
 	bool is_mst = intel_crtc_has_type(crtc_state, INTEL_OUTPUT_DP_MST);
-	int level = intel_ddi_dp_level(intel_dp);
+	int level = intel_ddi_dp_level(intel_dp, crtc_state);
 
 	if (DISPLAY_VER(dev_priv) < 11)
 		drm_WARN_ON(&dev_priv->drm,
