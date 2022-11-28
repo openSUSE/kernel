@@ -363,7 +363,6 @@ nouveau_fence_sync(struct nouveau_bo *nvbo, struct nouveau_channel *chan, bool e
 	 * under some circumstances. So manually wait for the shared ones first.
 	 */
 	for (i = 0; i < (fobj ? fobj->shared_count : 0) && !ret; ++i) {
-
 		struct nouveau_channel *prev = NULL;
 		bool must_wait = true;
 
