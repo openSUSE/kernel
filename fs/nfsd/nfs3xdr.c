@@ -377,6 +377,7 @@ nfs3svc_decode_readargs(struct svc_rqst *rqstp, __be32 *p)
 
 	args->count = ntohl(*p++);
 	len = min(args->count, max_blocksize);
+	len = min(len, rqstp->rq_res.buflen);
 
 	/* set up the kvec */
 	v=0;

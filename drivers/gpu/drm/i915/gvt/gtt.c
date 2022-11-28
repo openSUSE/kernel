@@ -935,6 +935,7 @@ static inline int ppgtt_put_spt(struct intel_vgpu_ppgtt_spt *spt)
 	return atomic_dec_return(&spt->refcount);
 }
 
+static int ppgtt_invalidate_and_free_spt(struct intel_vgpu_ppgtt_spt *spt);
 static int ppgtt_invalidate_spt(struct intel_vgpu_ppgtt_spt *spt);
 
 static int ppgtt_invalidate_spt_by_shadow_entry(struct intel_vgpu *vgpu,
@@ -968,7 +969,7 @@ static int ppgtt_invalidate_spt_by_shadow_entry(struct intel_vgpu *vgpu,
 				ops->get_pfn(e));
 		return -ENXIO;
 	}
-	return ppgtt_invalidate_spt(s);
+	return ppgtt_invalidate_and_free_spt(s);
 }
 
 static inline void ppgtt_invalidate_pte(struct intel_vgpu_ppgtt_spt *spt,
@@ -989,18 +990,30 @@ static inline void ppgtt_invalidate_pte(struct intel_vgpu_ppgtt_spt *spt,
 	intel_gvt_hypervisor_dma_unmap_guest_page(vgpu, pfn << PAGE_SHIFT);
 }
 
+static int ppgtt_invalidate_and_free_spt(struct intel_vgpu_ppgtt_spt *spt)
+{
+	int ret;
+
+	trace_spt_change(spt->vgpu->id, "die", spt,
+		spt->guest_page.gfn, spt->shadow_page.type);
+	if (ppgtt_put_spt(spt) > 0)
+		return 0;
+	ret = ppgtt_invalidate_spt(spt);
+	if (!ret) {
+		trace_spt_change(spt->vgpu->id, "release", spt,
+			 spt->guest_page.gfn, spt->shadow_page.type);
+		ppgtt_free_spt(spt);
+	}
+
+	return ret;
+}
+
 static int ppgtt_invalidate_spt(struct intel_vgpu_ppgtt_spt *spt)
 {
 	struct intel_vgpu *vgpu = spt->vgpu;
 	struct intel_gvt_gtt_entry e;
 	unsigned long index;
 	int ret;
-
-	trace_spt_change(spt->vgpu->id, "die", spt,
-			spt->guest_page.gfn, spt->shadow_page.type);
-
-	if (ppgtt_put_spt(spt) > 0)
-		return 0;
 
 	for_each_present_shadow_entry(spt, &e, index) {
 		switch (e.type) {
@@ -1032,9 +1045,6 @@ static int ppgtt_invalidate_spt(struct intel_vgpu_ppgtt_spt *spt)
 		}
 	}
 
-	trace_spt_change(spt->vgpu->id, "release", spt,
-			 spt->guest_page.gfn, spt->shadow_page.type);
-	ppgtt_free_spt(spt);
 	return 0;
 fail:
 	gvt_vgpu_err("fail: shadow page %p shadow entry 0x%llx type %d\n",
@@ -1366,7 +1376,7 @@ static int ppgtt_handle_guest_entry_removal(struct intel_vgpu_ppgtt_spt *spt,
 			ret = -ENXIO;
 			goto fail;
 		}
-		ret = ppgtt_invalidate_spt(s);
+		ret = ppgtt_invalidate_and_free_spt(s);
 		if (ret)
 			goto fail;
 	} else {
