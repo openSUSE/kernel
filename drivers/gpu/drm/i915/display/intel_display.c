@@ -7533,12 +7533,7 @@ encoder_retry:
 	ret = intel_crtc_compute_config(to_intel_crtc(crtc), pipe_config);
 	if (ret == -EDEADLK)
 		return ret;
-	if (ret < 0) {
-		drm_dbg_kms(&i915->drm, "CRTC fixup failed\n");
-		return ret;
-	}
-
-	if (ret == I915_DISPLAY_CONFIG_RETRY) {
+	if (ret == -EAGAIN) {
 		if (drm_WARN(&i915->drm, !retry,
 			     "loop in pipe configuration computation\n"))
 			return -EINVAL;
@@ -7546,6 +7541,10 @@ encoder_retry:
 		drm_dbg_kms(&i915->drm, "CRTC bw constrained, retrying\n");
 		retry = false;
 		goto encoder_retry;
+	}
+	if (ret < 0) {
+		drm_dbg_kms(&i915->drm, "CRTC fixup failed\n");
+		return ret;
 	}
 
 	/* Dithering seems to not pass-through bits correctly when it should, so
