@@ -1996,7 +1996,8 @@ void net_dec_egress_queue(void)
 EXPORT_SYMBOL_GPL(net_dec_egress_queue);
 #endif
 
-static DEFINE_STATIC_KEY_FALSE(netstamp_needed_key);
+DEFINE_STATIC_KEY_FALSE(netstamp_needed_key);
+EXPORT_SYMBOL(netstamp_needed_key);
 #ifdef CONFIG_JUMP_LABEL
 static atomic_t netstamp_needed_deferred;
 static atomic_t netstamp_wanted;
@@ -2057,14 +2058,15 @@ EXPORT_SYMBOL(net_disable_timestamp);
 static inline void net_timestamp_set(struct sk_buff *skb)
 {
 	skb->tstamp = 0;
+	skb->mono_delivery_time = 0;
 	if (static_branch_unlikely(&netstamp_needed_key))
-		__net_timestamp(skb);
+		skb->tstamp = ktime_get_real();
 }
 
 #define net_timestamp_check(COND, SKB)				\
 	if (static_branch_unlikely(&netstamp_needed_key)) {	\
 		if ((COND) && !(SKB)->tstamp)			\
-			__net_timestamp(SKB);			\
+			(SKB)->tstamp = ktime_get_real();	\
 	}							\
 
 bool is_skb_forwardable(const struct net_device *dev, const struct sk_buff *skb)
@@ -5215,8 +5217,10 @@ another_round:
 			goto out;
 	}
 
-	if (skb_skip_tc_classify(skb))
+	if (skb_skip_tc_classify(skb)) {
+		skb_clear_delivery_time(skb);
 		goto skip_classify;
+	}
 
 	if (pfmemalloc)
 		goto skip_taps;
@@ -5244,11 +5248,13 @@ skip_taps:
 			goto another_round;
 		if (!skb)
 			goto out;
+		skb_clear_delivery_time(skb);
 
 		if (nf_ingress(skb, &pt_prev, &ret, orig_dev) < 0)
 			goto out;
-	}
+	} else
 #endif
+		skb_clear_delivery_time(skb);
 	skb_reset_redirect(skb);
 skip_classify:
 	if (pfmemalloc && !skb_pfmemalloc_protocol(skb))

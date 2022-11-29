@@ -24,6 +24,7 @@ TEST_PROGS += vrf_route_leaking.sh
 TEST_PROGS += bareudp.sh
 TEST_PROGS += unicast_extensions.sh
 TEST_PROGS += udpgro_fwd.sh
+TEST_PROGS += udpgro_frglist.sh
 TEST_PROGS += veth.sh
 TEST_PROGS_EXTENDED := in_netns.sh
 TEST_GEN_FILES =  socket nettest
@@ -43,6 +44,8 @@ TEST_FILES := settings
 
 KSFT_KHDR_INSTALL := 1
 include ../lib.mk
+
+include bpf/Makefile
 
 $(OUTPUT)/reuseport_bpf_numa: LDLIBS += -lnuma
 $(OUTPUT)/tcp_mmap: LDLIBS += -lpthread

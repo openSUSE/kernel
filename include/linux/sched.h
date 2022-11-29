@@ -1482,6 +1482,9 @@ struct task_struct {
 #ifdef CONFIG_KRETPROBES
 	struct llist_head               kretprobe_instances;
 #endif
+#ifdef CONFIG_RETHOOK
+	struct llist_head               rethooks;
+#endif
 
 	void				*suse_kabi_padding;
 

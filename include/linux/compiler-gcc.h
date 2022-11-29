@@ -132,6 +132,9 @@
 #define COMPILER_HAS_GENERIC_BUILTIN_OVERFLOW 1
 #endif
 
+#define __diag_ignore_all(option, comment) \
+	__diag_GCC(8, ignore, option)
+
 /*
  * Turn individual warnings and errors on and off locally, depending
  * on version.

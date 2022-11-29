@@ -464,7 +464,7 @@ static inline int ip6_forward_finish(struct net *net, struct sock *sk,
 	}
 #endif
 
-	skb->tstamp = 0;
+	skb_clear_tstamp(skb);
 	return dst_output(net, sk, skb);
 }
 
@@ -837,6 +837,7 @@ int ip6_fragment(struct net *net, struct sock *sk, struct sk_buff *skb,
 	struct rt6_info *rt = (struct rt6_info *)skb_dst(skb);
 	struct ipv6_pinfo *np = skb->sk && !dev_recursion_level() ?
 				inet6_sk(skb->sk) : NULL;
+	bool mono_delivery_time = skb->mono_delivery_time;
 	struct ip6_frag_state state;
 	unsigned int mtu, hlen, nexthdr_offset;
 	ktime_t tstamp = skb->tstamp;
@@ -927,7 +928,7 @@ int ip6_fragment(struct net *net, struct sock *sk, struct sk_buff *skb,
 			if (iter.frag)
 				ip6_fraglist_prepare(skb, &iter);
 
-			skb->tstamp = tstamp;
+			skb_set_delivery_time(skb, tstamp, mono_delivery_time);
 			err = output(net, sk, skb);
 			if (!err)
 				IP6_INC_STATS(net, ip6_dst_idev(&rt->dst),
@@ -986,7 +987,7 @@ slow_path:
 		/*
 		 *	Put this fragment into the sending queue.
 		 */
-		frag->tstamp = tstamp;
+		skb_set_delivery_time(frag, tstamp, mono_delivery_time);
 		err = output(net, sk, frag);
 		if (err)
 			goto fail;

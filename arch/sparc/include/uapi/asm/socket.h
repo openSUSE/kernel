@@ -124,6 +124,8 @@
 
 #if !defined(__KERNEL__)
 
+#define SO_TXREHASH              0x0053
+
 
 #if __BITS_PER_LONG == 64
 #define SO_TIMESTAMP		SO_TIMESTAMP_OLD
