@@ -12,12 +12,12 @@
 
 #ifndef va_arg
 #ifdef __KERNEL__
-#include <stdarg.h>
+#include <linux/stdarg.h>
 #else
 #include <stdarg.h>
 #endif /* __KERNEL__ */
 #endif /* ! va_arg */
-
+ 
 #define ACPI_INLINE             __inline__
 
 /* Function name is used for debug output. Non-ANSI, compiler-dependent */

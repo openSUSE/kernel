@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 Advanced Micro Devices, Inc.
+ * Copyright 2021 Advanced Micro Devices, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -21,10 +21,17 @@
  *
  */
 
-#ifndef __DCE_VIRTUAL_H__
-#define __DCE_VIRTUAL_H__
+#ifndef _AMDGPU_EEPROM_H
+#define _AMDGPU_EEPROM_H
 
-extern const struct amdgpu_ip_block_version dce_virtual_ip_block;
+#include <linux/i2c.h>
+
+int amdgpu_eeprom_read(struct i2c_adapter *i2c_adap,
+		       u32 eeprom_addr, u8 *eeprom_buf,
+		       u16 bytes);
+
+int amdgpu_eeprom_write(struct i2c_adapter *i2c_adap,
+			u32 eeprom_addr, u8 *eeprom_buf,
+			u16 bytes);
 
 #endif
-

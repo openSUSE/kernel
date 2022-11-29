@@ -32,6 +32,7 @@
 #include <drm/ttm/ttm_placement.h>
 #include "vmwgfx_so.h"
 #include "vmwgfx_binding.h"
+#include "vmwgfx_mksstat.h"
 
 #define VMW_RES_HT_ORDER 12
 
@@ -2364,7 +2365,7 @@ static int vmw_cmd_dx_set_rendertargets(struct vmw_private *dev_priv,
 		sizeof(SVGA3dRenderTargetViewId);
 	int ret;
 
-	if (num_rt_view > SVGA3D_MAX_SIMULTANEOUS_RENDER_TARGETS) {
+	if (num_rt_view > SVGA3D_DX_MAX_RENDER_TARGETS) {
 		VMW_DEBUG_USER("Invalid DX Rendertarget binding.\n");
 		return -EINVAL;
 	}
@@ -4409,6 +4410,9 @@ int vmw_execbuf_ioctl(struct drm_device *dev, void *data,
 	int ret;
 	struct dma_fence *in_fence = NULL;
 
+	MKS_STAT_TIME_DECL(MKSSTAT_KERN_EXECBUF);
+	MKS_STAT_TIME_PUSH(MKSSTAT_KERN_EXECBUF);
+
 	/*
 	 * Extend the ioctl argument while maintaining backwards compatibility:
 	 * We take different code paths depending on the value of arg->version.
@@ -4418,7 +4422,8 @@ int vmw_execbuf_ioctl(struct drm_device *dev, void *data,
 	if (unlikely(arg->version > DRM_VMW_EXECBUF_VERSION ||
 		     arg->version == 0)) {
 		VMW_DEBUG_USER("Incorrect execbuf version.\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto mksstats_out;
 	}
 
 	switch (arg->version) {
@@ -4438,7 +4443,8 @@ int vmw_execbuf_ioctl(struct drm_device *dev, void *data,
 
 		if (!in_fence) {
 			VMW_DEBUG_USER("Cannot get imported fence\n");
-			return -EINVAL;
+			ret = -EINVAL;
+			goto mksstats_out;
 		}
 
 		ret = vmw_wait_dma_fence(dev_priv->fman, in_fence);
@@ -4461,5 +4467,8 @@ int vmw_execbuf_ioctl(struct drm_device *dev, void *data,
 out:
 	if (in_fence)
 		dma_fence_put(in_fence);
+
+mksstats_out:
+	MKS_STAT_TIME_POP(MKSSTAT_KERN_EXECBUF);
 	return ret;
 }
