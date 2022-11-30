@@ -82,7 +82,6 @@
 #include <drm/drm_edid.h>
 #include <drm/drm_vblank.h>
 #include <drm/drm_audio_component.h>
-#include <drm/drm_drv.h>
 
 #if defined(CONFIG_DRM_AMD_DC_DCN)
 #include "ivsrcid/dcn/irqsrcs_dcn_1_0.h"
@@ -2995,8 +2994,6 @@ static void handle_hpd_irq_helper(struct amdgpu_dm_connector *aconnector)
 	struct amdgpu_device *adev = drm_to_adev(dev);
 	struct dm_connector_state *dm_con_state = to_dm_connector_state(connector->state);
 	struct dm_crtc_state *dm_crtc_state = NULL;
-	struct drm_modeset_acquire_ctx ctx;
-	int ret;
 
 	if (adev->dm.disable_hpd_irq)
 		return;
@@ -3036,18 +3033,13 @@ static void handle_hpd_irq_helper(struct amdgpu_dm_connector *aconnector)
 	} else if (dc_link_detect(aconnector->dc_link, DETECT_REASON_HPD)) {
 		amdgpu_dm_update_connector_after_detect(aconnector);
 
-	} else {
-		goto out;
+		drm_modeset_lock_all(dev);
+		dm_restore_drm_connector_state(dev, connector);
+		drm_modeset_unlock_all(dev);
+
+		if (aconnector->base.force == DRM_FORCE_UNSPECIFIED)
+			drm_kms_helper_hotplug_event(dev);
 	}
-
-	DRM_MODESET_LOCK_ALL_BEGIN(dev, ctx, 0, ret);
-	dm_restore_drm_connector_state(dev, connector);
-	DRM_MODESET_LOCK_ALL_END(dev, ctx, ret);
-
-	if (aconnector->base.force == DRM_FORCE_UNSPECIFIED)
-		drm_kms_helper_hotplug_event(dev);
-
-out:
 	mutex_unlock(&aconnector->hpd_lock);
 
 }
@@ -3163,7 +3155,6 @@ static void handle_hpd_rx_irq(void *param)
 	struct drm_connector *connector = &aconnector->base;
 	struct drm_device *dev = connector->dev;
 	struct dc_link *dc_link = aconnector->dc_link;
-	struct drm_modeset_acquire_ctx ctx;
 	bool is_mst_root_connector = aconnector->mst_mgr.mst_state;
 	bool result = false;
 	enum dc_connection_type new_connection_type = dc_connection_none;
@@ -3173,7 +3164,6 @@ static void handle_hpd_rx_irq(void *param)
 	bool has_left_work = false;
 	int idx = aconnector->base.index;
 	struct hpd_rx_irq_offload_work_queue *offload_wq = &adev->dm.hpd_rx_offload_wq[idx];
-	int ret;
 
 	memset(&hpd_irq_data, 0, sizeof(hpd_irq_data));
 
@@ -3237,6 +3227,12 @@ out:
 
 			amdgpu_dm_update_connector_after_detect(aconnector);
 
+
+			drm_modeset_lock_all(dev);
+			dm_restore_drm_connector_state(dev, connector);
+			drm_modeset_unlock_all(dev);
+
+			drm_kms_helper_hotplug_event(dev);
 		} else if (dc_link_detect(dc_link, DETECT_REASON_HPDRX)) {
 
 			if (aconnector->fake_enable)
@@ -3244,17 +3240,14 @@ out:
 
 			amdgpu_dm_update_connector_after_detect(aconnector);
 
-		} else {
-			goto finish;
+
+			drm_modeset_lock_all(dev);
+			dm_restore_drm_connector_state(dev, connector);
+			drm_modeset_unlock_all(dev);
+
+			drm_kms_helper_hotplug_event(dev);
 		}
-
-		DRM_MODESET_LOCK_ALL_BEGIN(dev, ctx, 0, ret);
-		dm_restore_drm_connector_state(dev, connector);
-		DRM_MODESET_LOCK_ALL_END(dev, ctx, ret);
-
-		drm_kms_helper_hotplug_event(dev);
 	}
-finish:
 #ifdef CONFIG_DRM_AMD_DC_HDCP
 	if (hpd_irq_data.bytes.device_service_irq.bits.CP_IRQ) {
 		if (adev->dm.hdcp_workqueue)
