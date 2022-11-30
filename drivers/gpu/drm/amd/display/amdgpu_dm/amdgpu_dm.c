@@ -1461,7 +1461,7 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
 				init_data.flags.disable_dmcu = false;
 				break;
 			default:
-				init_data.flags.disable_dmcu = true;
+ 				init_data.flags.disable_dmcu = true;
 			}
 			break;
 		case IP_VERSION(1, 0, 0):
