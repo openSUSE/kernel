@@ -4316,11 +4316,12 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
 			}
 			break;
 		default:
-			break;
+			DRM_ERROR("Unsupported DCE IP versions: 0x%X\n",
+					adev->ip_versions[DCE_HWIP]);
+			goto fail;
 		}
 #endif
-		DRM_ERROR("Unsupported ASIC type: 0x%X\n", adev->asic_type);
-		goto fail;
+		break;
 	}
 
 	return 0;
@@ -4499,11 +4500,12 @@ static int dm_early_init(void *handle)
 			adev->mode_info.num_dig = 4;
 			break;
 		default:
-			break;
+			DRM_ERROR("Unsupported DCE IP versions: 0x%x\n",
+					adev->ip_versions[DCE_HWIP]);
+			return -EINVAL;
 		}
 #endif
-		DRM_ERROR("Unsupported ASIC type: 0x%X\n", adev->asic_type);
-		return -EINVAL;
+		break;
 	}
 
 	amdgpu_dm_set_irq_funcs(adev);
