@@ -904,7 +904,7 @@ DECLARE_EVENT_CLASS(intel_context,
 			     ),
 
 		    TP_fast_assign(
-			   __entry->guc_id = ce->guc_id;
+			   __entry->guc_id = ce->guc_id.id;
 			   __entry->pin_count = atomic_read(&ce->pin_count);
 			   __entry->sched_state = ce->guc_state.sched_state;
 			   __entry->guc_prio = ce->guc_active.prio;
