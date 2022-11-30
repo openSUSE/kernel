@@ -686,7 +686,7 @@ int intel_gt_init(struct intel_gt *gt)
 		goto err_pm;
 	}
 
-	set_mocs_index(gt);
+	intel_set_mocs_index(gt);
 
 	err = intel_engines_init(gt);
 	if (err)
