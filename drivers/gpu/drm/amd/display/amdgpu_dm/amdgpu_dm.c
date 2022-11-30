@@ -10856,7 +10856,7 @@ static int amdgpu_dm_atomic_check(struct drm_device *dev,
 
 		ret = drm_atomic_add_affected_connectors(state, crtc);
 		if (ret)
-			return ret;
+			goto fail;
 
 		ret = drm_atomic_add_affected_planes(state, crtc);
 		if (ret)
