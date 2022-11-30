@@ -963,6 +963,7 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 		adev->ip_versions[OSSSYS_HWIP][0] = IP_VERSION(4, 0, 0);
 		adev->ip_versions[HDP_HWIP][0] = IP_VERSION(4, 0, 0);
 		adev->ip_versions[SDMA0_HWIP][0] = IP_VERSION(4, 0, 0);
+		adev->ip_versions[SDMA1_HWIP][0] = IP_VERSION(4, 0, 0);
 		adev->ip_versions[DF_HWIP][0] = IP_VERSION(2, 1, 0);
 		adev->ip_versions[NBIO_HWIP][0] = IP_VERSION(6, 1, 0);
 		adev->ip_versions[UMC_HWIP][0] = IP_VERSION(6, 0, 0);
@@ -983,6 +984,7 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 		adev->ip_versions[OSSSYS_HWIP][0] = IP_VERSION(4, 0, 1);
 		adev->ip_versions[HDP_HWIP][0] = IP_VERSION(4, 0, 1);
 		adev->ip_versions[SDMA0_HWIP][0] = IP_VERSION(4, 0, 1);
+		adev->ip_versions[SDMA1_HWIP][0] = IP_VERSION(4, 0, 1);
 		adev->ip_versions[DF_HWIP][0] = IP_VERSION(2, 5, 0);
 		adev->ip_versions[NBIO_HWIP][0] = IP_VERSION(6, 2, 0);
 		adev->ip_versions[UMC_HWIP][0] = IP_VERSION(6, 1, 0);
@@ -1041,6 +1043,7 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 		adev->ip_versions[OSSSYS_HWIP][0] = IP_VERSION(4, 2, 0);
 		adev->ip_versions[HDP_HWIP][0] = IP_VERSION(4, 2, 0);
 		adev->ip_versions[SDMA0_HWIP][0] = IP_VERSION(4, 2, 0);
+		adev->ip_versions[SDMA1_HWIP][0] = IP_VERSION(4, 2, 0);
 		adev->ip_versions[DF_HWIP][0] = IP_VERSION(3, 6, 0);
 		adev->ip_versions[NBIO_HWIP][0] = IP_VERSION(7, 4, 0);
 		adev->ip_versions[UMC_HWIP][0] = IP_VERSION(6, 1, 1);
@@ -1063,6 +1066,13 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 		adev->ip_versions[OSSSYS_HWIP][0] = IP_VERSION(4, 2, 1);
 		adev->ip_versions[HDP_HWIP][0] = IP_VERSION(4, 2, 1);
 		adev->ip_versions[SDMA0_HWIP][0] = IP_VERSION(4, 2, 2);
+		adev->ip_versions[SDMA1_HWIP][0] = IP_VERSION(4, 2, 2);
+		adev->ip_versions[SDMA1_HWIP][1] = IP_VERSION(4, 2, 2);
+		adev->ip_versions[SDMA1_HWIP][2] = IP_VERSION(4, 2, 2);
+		adev->ip_versions[SDMA1_HWIP][3] = IP_VERSION(4, 2, 2);
+		adev->ip_versions[SDMA1_HWIP][4] = IP_VERSION(4, 2, 2);
+		adev->ip_versions[SDMA1_HWIP][5] = IP_VERSION(4, 2, 2);
+		adev->ip_versions[SDMA1_HWIP][6] = IP_VERSION(4, 2, 2);
 		adev->ip_versions[DF_HWIP][0] = IP_VERSION(3, 6, 1);
 		adev->ip_versions[NBIO_HWIP][0] = IP_VERSION(7, 4, 1);
 		adev->ip_versions[UMC_HWIP][0] = IP_VERSION(6, 1, 2);
@@ -1083,6 +1093,10 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 		adev->ip_versions[OSSSYS_HWIP][0] = IP_VERSION(4, 4, 0);
 		adev->ip_versions[HDP_HWIP][0] = IP_VERSION(4, 4, 0);
 		adev->ip_versions[SDMA0_HWIP][0] = IP_VERSION(4, 4, 0);
+		adev->ip_versions[SDMA0_HWIP][1] = IP_VERSION(4, 4, 0);
+		adev->ip_versions[SDMA0_HWIP][2] = IP_VERSION(4, 4, 0);
+		adev->ip_versions[SDMA0_HWIP][3] = IP_VERSION(4, 4, 0);
+		adev->ip_versions[SDMA0_HWIP][4] = IP_VERSION(4, 4, 0);
 		adev->ip_versions[DF_HWIP][0] = IP_VERSION(3, 6, 2);
 		adev->ip_versions[NBIO_HWIP][0] = IP_VERSION(7, 4, 4);
 		adev->ip_versions[UMC_HWIP][0] = IP_VERSION(6, 7, 0);
