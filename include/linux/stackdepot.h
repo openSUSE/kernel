@@ -21,6 +21,8 @@ unsigned int stack_depot_fetch(depot_stack_handle_t handle,
 
 unsigned int filter_irq_stacks(unsigned long *entries, unsigned int nr_entries);
 
+void stack_depot_print(depot_stack_handle_t stack);
+
 #ifdef CONFIG_STACKDEPOT
 int stack_depot_init(void);
 #else
