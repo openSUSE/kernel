@@ -1046,8 +1046,6 @@ struct drm_i915_private {
 	 */
 	u8 active_pipes;
 
-	struct i915_wa_list gt_wa_list;
-
 	struct i915_frontbuffer_tracking fb_tracking;
 
 	struct intel_atomic_helper {
