@@ -894,7 +894,7 @@ static const struct intel_device_info rkl_info = {
 	.has_snoop = 1, \
 	.is_dgfx = 1
 
-static const struct intel_device_info dg1_info __maybe_unused = {
+static const struct intel_device_info dg1_info = {
 	GEN12_FEATURES,
 	DGFX_FEATURES,
 	.graphics_rel = 10,
