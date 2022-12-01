@@ -250,7 +250,7 @@ static struct ppl_io_unit *ppl_new_iounit(struct ppl_log *log,
 	INIT_LIST_HEAD(&io->stripe_list);
 	atomic_set(&io->pending_stripes, 0);
 	atomic_set(&io->pending_flushes, 0);
-	bio_init(&io->bio, io->biovec, PPL_IO_INLINE_BVECS);
+	bio_init(&io->bio, NULL, io->biovec, PPL_IO_INLINE_BVECS, 0);
 
 	pplhdr = page_address(io->header_page);
 	clear_page(pplhdr);
@@ -496,11 +496,10 @@ static void ppl_submit_iounit(struct ppl_io_unit *io)
 		if (!bio_add_page(bio, sh->ppl_page, PAGE_SIZE, 0)) {
 			struct bio *prev = bio;
 
-			bio = bio_alloc_bioset(GFP_NOIO, BIO_MAX_VECS,
+			bio = bio_alloc_bioset(prev->bi_bdev, BIO_MAX_VECS,
+					       prev->bi_opf, GFP_NOIO,
 					       &ppl_conf->bs);
-			bio->bi_opf = prev->bi_opf;
 			bio->bi_write_hint = prev->bi_write_hint;
-			bio_copy_dev(bio, prev);
 			bio->bi_iter.bi_sector = bio_end_sector(prev);
 			bio_add_page(bio, sh->ppl_page, PAGE_SIZE, 0);
 
@@ -637,10 +636,10 @@ static void ppl_do_flush(struct ppl_io_unit *io)
 			struct bio *bio;
 			char b[BDEVNAME_SIZE];
 
-			bio = bio_alloc_bioset(GFP_NOIO, 0, &ppl_conf->flush_bs);
-			bio_set_dev(bio, bdev);
+			bio = bio_alloc_bioset(bdev, 0, GFP_NOIO,
+					       REQ_OP_WRITE | REQ_PREFLUSH,
+					       &ppl_conf->flush_bs);
 			bio->bi_private = io;
-			bio->bi_opf = REQ_OP_WRITE | REQ_PREFLUSH;
 			bio->bi_end_io = ppl_flush_endio;
 
 			pr_debug("%s: dev: %s\n", __func__,

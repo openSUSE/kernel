@@ -29,7 +29,6 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/bio.h>
-#include <linux/genhd.h>
 #include <linux/file.h>
 #include <linux/module.h>
 #include <scsi/scsi_proto.h>

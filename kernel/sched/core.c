@@ -6220,8 +6220,7 @@ static inline void sched_submit_work(struct task_struct *tsk)
 	 * If we are going to sleep and we have plugged IO queued,
 	 * make sure to submit it to avoid deadlocks.
 	 */
-	if (blk_needs_flush_plug(tsk))
-		blk_flush_plug(tsk->plug, true);
+	blk_flush_plug(tsk->plug, true);
 }
 
 static void sched_update_worker(struct task_struct *tsk)
@@ -8223,9 +8222,7 @@ int io_schedule_prepare(void)
 	int old_iowait = current->in_iowait;
 
 	current->in_iowait = 1;
-	if (current->plug)
-		blk_flush_plug(current->plug, true);
-
+	blk_flush_plug(current->plug, true);
 	return old_iowait;
 }
 

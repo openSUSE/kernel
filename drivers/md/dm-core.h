@@ -11,7 +11,6 @@
 
 #include <linux/kthread.h>
 #include <linux/ktime.h>
-#include <linux/genhd.h>
 #include <linux/blk-mq.h>
 #include <linux/blk-crypto-profile.h>
 
@@ -143,7 +142,6 @@ struct mapped_device {
 #define DMF_EMULATE_ZONE_APPEND 9
 
 void disable_discard(struct mapped_device *md);
-void disable_write_same(struct mapped_device *md);
 void disable_write_zeroes(struct mapped_device *md);
 
 static inline sector_t dm_get_size(struct mapped_device *md)

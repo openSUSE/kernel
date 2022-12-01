@@ -18,7 +18,6 @@
 #ifndef _SR_H
 #define _SR_H
 
-#include <linux/genhd.h>
 #include <linux/kref.h>
 #include <linux/mutex.h>
 
@@ -33,7 +32,6 @@ struct scsi_device;
 
 
 typedef struct scsi_cd {
-	struct scsi_driver *driver;
 	unsigned capacity;	/* size in blocks                       */
 	struct scsi_device *device;
 	unsigned int vendor;	/* vendor code, see sr_vendor.c         */
