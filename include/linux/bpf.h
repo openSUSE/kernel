@@ -726,7 +726,7 @@ struct btf_func_model {
 #define BPF_TRAMP_F_IP_ARG		BIT(3)
 
 /* Each call __bpf_prog_enter + call bpf_func + call __bpf_prog_exit is ~50
- * bytes on x86.  Pick a number to fit into BPF_IMAGE_SIZE / 2
+ * bytes on x86.
  */
 #define BPF_MAX_TRAMP_LINKS 38
 
