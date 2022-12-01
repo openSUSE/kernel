@@ -119,6 +119,10 @@ struct mapped_device {
 	unsigned int nr_zones;
 	unsigned int *zwp_offset;
 #endif
+
+#ifndef __GENKSYMS__
+	unsigned long __percpu *pending_io;
+#endif
 };
 
 /*

@@ -1467,8 +1467,11 @@ static void io_cqring_ev_posted(struct io_ring_ctx *ctx)
 
 static void io_cqring_ev_posted_iopoll(struct io_ring_ctx *ctx)
 {
+	/* see waitqueue_active() comment */
+	smp_mb();
+
 	if (ctx->flags & IORING_SETUP_SQPOLL) {
-		if (wq_has_sleeper(&ctx->cq_wait))
+		if (waitqueue_active(&ctx->cq_wait))
 			wake_up_all(&ctx->cq_wait);
 	}
 	if (io_should_trigger_evfd(ctx))
@@ -4962,7 +4965,7 @@ static void io_poll_remove_double(struct io_kiocb *req)
 	}
 }
 
-static bool io_poll_complete(struct io_kiocb *req, __poll_t mask)
+static bool __io_poll_complete(struct io_kiocb *req, __poll_t mask)
 	__must_hold(&req->ctx->completion_lock)
 {
 	struct io_ring_ctx *ctx = req->ctx;
@@ -4984,8 +4987,17 @@ static bool io_poll_complete(struct io_kiocb *req, __poll_t mask)
 	if (flags & IORING_CQE_F_MORE)
 		ctx->cq_extra++;
 
-	io_commit_cqring(ctx);
 	return !(flags & IORING_CQE_F_MORE);
+}
+
+static inline bool io_poll_complete(struct io_kiocb *req, __poll_t mask)
+	__must_hold(&req->ctx->completion_lock)
+{
+	bool done;
+
+	done = __io_poll_complete(req, mask);
+	io_commit_cqring(req->ctx);
+	return done;
 }
 
 static void io_poll_task_func(struct io_kiocb *req)
@@ -4998,7 +5010,7 @@ static void io_poll_task_func(struct io_kiocb *req)
 	} else {
 		bool done;
 
-		done = io_poll_complete(req, req->result);
+		done = __io_poll_complete(req, req->result);
 		if (done) {
 			io_poll_remove_double(req);
 			hash_del(&req->hash_node);
@@ -5007,6 +5019,7 @@ static void io_poll_task_func(struct io_kiocb *req)
 			req->result = 0;
 			add_wait_queue(req->poll.head, &req->poll.wait);
 		}
+		io_commit_cqring(ctx);
 		spin_unlock(&ctx->completion_lock);
 		io_cqring_ev_posted(ctx);
 
@@ -7137,6 +7150,14 @@ static int io_cqring_wait(struct io_ring_ctx *ctx, int min_events,
 			break;
 	} while (1);
 
+	if (uts) {
+		struct timespec64 ts;
+
+		if (get_timespec64(&ts, uts))
+			return -EFAULT;
+		timeout = timespec64_to_jiffies(&ts);
+	}
+
 	if (sig) {
 #ifdef CONFIG_COMPAT
 		if (in_compat_syscall())
@@ -7148,14 +7169,6 @@ static int io_cqring_wait(struct io_ring_ctx *ctx, int min_events,
 
 		if (ret)
 			return ret;
-	}
-
-	if (uts) {
-		struct timespec64 ts;
-
-		if (get_timespec64(&ts, uts))
-			return -EFAULT;
-		timeout = timespec64_to_jiffies(&ts);
 	}
 
 	init_waitqueue_func_entry(&iowq.wq, io_wake_function);
@@ -10118,26 +10131,59 @@ static int io_unregister_iowq_aff(struct io_ring_ctx *ctx)
 static int io_register_iowq_max_workers(struct io_ring_ctx *ctx,
 					void __user *arg)
 {
-	struct io_uring_task *tctx = current->io_uring;
+	struct io_uring_task *tctx = NULL;
+	struct io_sq_data *sqd = NULL;
 	__u32 new_count[2];
 	int i, ret;
 
-	if (!tctx || !tctx->io_wq)
-		return -EINVAL;
 	if (copy_from_user(new_count, arg, sizeof(new_count)))
 		return -EFAULT;
 	for (i = 0; i < ARRAY_SIZE(new_count); i++)
 		if (new_count[i] > INT_MAX)
 			return -EINVAL;
 
+	if (ctx->flags & IORING_SETUP_SQPOLL) {
+		sqd = ctx->sq_data;
+		if (sqd) {
+			/*
+			 * Observe the correct sqd->lock -> ctx->uring_lock
+			 * ordering. Fine to drop uring_lock here, we hold
+			 * a ref to the ctx.
+			 */
+			refcount_inc(&sqd->refs);
+			mutex_unlock(&ctx->uring_lock);
+			mutex_lock(&sqd->lock);
+			mutex_lock(&ctx->uring_lock);
+			if (sqd->thread)
+				tctx = sqd->thread->io_uring;
+		}
+	} else {
+		tctx = current->io_uring;
+	}
+
+	ret = -EINVAL;
+	if (!tctx || !tctx->io_wq)
+		goto err;
+
 	ret = io_wq_max_workers(tctx->io_wq, new_count);
 	if (ret)
-		return ret;
+		goto err;
+
+	if (sqd) {
+		mutex_unlock(&sqd->lock);
+		io_put_sq_data(sqd);
+	}
 
 	if (copy_to_user(arg, new_count, sizeof(new_count)))
 		return -EFAULT;
 
 	return 0;
+err:
+	if (sqd) {
+		mutex_unlock(&sqd->lock);
+		io_put_sq_data(sqd);
+	}
+	return ret;
 }
 
 static bool io_register_op_must_quiesce(int op)

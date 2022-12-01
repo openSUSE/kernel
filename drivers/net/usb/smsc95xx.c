@@ -765,6 +765,8 @@ static int smsc95xx_ioctl(struct net_device *netdev, struct ifreq *rq, int cmd)
 
 static void smsc95xx_init_mac_address(struct usbnet *dev)
 {
+	u8 addr[ETH_ALEN];
+
 	/* maybe the boot loader passed the MAC address in devicetree */
 	if (!eth_platform_get_mac_address(&dev->udev->dev,
 			dev->net->dev_addr)) {
@@ -776,8 +778,8 @@ static void smsc95xx_init_mac_address(struct usbnet *dev)
 	}
 
 	/* try reading mac address from EEPROM */
-	if (smsc95xx_read_eeprom(dev, EEPROM_MAC_OFFSET, ETH_ALEN,
-			dev->net->dev_addr) == 0) {
+	if (smsc95xx_read_eeprom(dev, EEPROM_MAC_OFFSET, ETH_ALEN, addr) == 0) {
+		eth_hw_addr_set(dev->net, addr);
 		if (is_valid_ether_addr(dev->net->dev_addr)) {
 			/* eeprom values are valid so use them */
 			netif_dbg(dev, ifup, dev->net, "MAC address read from EEPROM\n");
@@ -860,24 +862,6 @@ static int smsc95xx_reset(struct usbnet *dev)
 
 	if (timeout >= 100) {
 		netdev_warn(dev->net, "timeout waiting for completion of Lite Reset\n");
-		return ret;
-	}
-
-	ret = smsc95xx_write_reg(dev, PM_CTRL, PM_CTL_PHY_RST_);
-	if (ret < 0)
-		return ret;
-
-	timeout = 0;
-	do {
-		msleep(10);
-		ret = smsc95xx_read_reg(dev, PM_CTRL, &read_buf);
-		if (ret < 0)
-			return ret;
-		timeout++;
-	} while ((read_buf & PM_CTL_PHY_RST_) && (timeout < 100));
-
-	if (timeout >= 100) {
-		netdev_warn(dev->net, "timeout waiting for PHY Reset\n");
 		return ret;
 	}
 
@@ -2070,6 +2054,11 @@ static const struct usb_device_id products[] = {
 		/* SMSC LAN89530 USB Ethernet Device */
 		USB_DEVICE(0x0424, 0x9E08),
 		.driver_info = (unsigned long) &smsc95xx_info,
+	},
+	{
+		/* Microchip's EVB-LAN8670-USB 10BASE-T1S Ethernet Device */
+		USB_DEVICE(0x184F, 0x0051),
+		.driver_info = (unsigned long)&smsc95xx_info,
 	},
 	{ },		/* END */
 };
