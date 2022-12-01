@@ -886,7 +886,6 @@ void disable_discard(struct mapped_device *md)
 
 	/* device doesn't really support DISCARD, disable it */
 	limits->max_discard_sectors = 0;
-	blk_queue_flag_clear(QUEUE_FLAG_DISCARD, md->queue);
 }
 
 void disable_write_zeroes(struct mapped_device *md)
@@ -913,7 +912,7 @@ static void clone_endio(struct bio *bio)
 
 	if (unlikely(error == BLK_STS_TARGET)) {
 		if (bio_op(bio) == REQ_OP_DISCARD &&
-		    !q->limits.max_discard_sectors)
+		    !bdev_max_discard_sectors(bio->bi_bdev))
 			disable_discard(md);
 		else if (bio_op(bio) == REQ_OP_WRITE_ZEROES &&
 			 !q->limits.max_write_zeroes_sectors)
