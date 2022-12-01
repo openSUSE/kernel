@@ -789,7 +789,7 @@ static ssize_t tcm_rbd_show_configfs_dev_params(struct se_device *dev, char *b)
 	if (bd) {
 		bl += sprintf(b + bl, "Major: %d Minor: %d  %s\n",
 			      MAJOR(bd->bd_dev), MINOR(bd->bd_dev),
-			      (!bd->bd_openers) ?
+			      (!atomic_read(&bd->bd_openers)) ?
 			      "" : (bd->bd_holder == tcm_rbd_dev) ?
 			      "CLAIMED: RBD" : "CLAIMED: OS");
 	} else {
