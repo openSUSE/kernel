@@ -156,6 +156,22 @@ static void blkg_async_bio_workfn(struct work_struct *work)
 }
 
 /**
+ * bio_blkcg_css - return the blkcg CSS associated with a bio
+ * @bio: target bio
+ *
+ * This returns the CSS for the blkcg associated with a bio, or %NULL if not
+ * associated. Callers are expected to either handle %NULL or know association
+ * has been done prior to calling this.
+ */
+struct cgroup_subsys_state *bio_blkcg_css(struct bio *bio)
+{
+	if (!bio || !bio->bi_blkg)
+		return NULL;
+	return &bio->bi_blkg->blkcg->css;
+}
+EXPORT_SYMBOL_GPL(bio_blkcg_css);
+
+/**
  * blkcg_parent - get the parent of a blkcg
  * @blkcg: blkcg of interest
  *
@@ -1938,7 +1954,7 @@ void bio_associate_blkg(struct bio *bio)
 	rcu_read_lock();
 
 	if (bio->bi_blkg)
-		css = &bio_blkcg(bio)->css;
+		css = bio_blkcg_css(bio);
 	else
 		css = blkcg_css();
 
@@ -1956,7 +1972,7 @@ EXPORT_SYMBOL_GPL(bio_associate_blkg);
 void bio_clone_blkg_association(struct bio *dst, struct bio *src)
 {
 	if (src->bi_blkg)
-		bio_associate_blkg_from_css(dst, &bio_blkcg(src)->css);
+		bio_associate_blkg_from_css(dst, bio_blkcg_css(src));
 }
 EXPORT_SYMBOL_GPL(bio_clone_blkg_association);
 
