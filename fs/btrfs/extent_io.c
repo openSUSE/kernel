@@ -3310,7 +3310,6 @@ static int alloc_new_bio(struct btrfs_inode *inode,
 		goto error;
 	bio->bi_end_io = end_io_func;
 	bio->bi_private = &inode->io_tree;
-	bio->bi_write_hint = inode->vfs_inode.i_write_hint;
 	bio->bi_opf = opf;
 	if (wbc) {
 		struct block_device *bdev;
