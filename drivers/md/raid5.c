@@ -7742,7 +7742,6 @@ static int raid5_run(struct mddev *mddev)
 		 * currently assumes that */
 		while ((stripe-1) & stripe)
 			stripe = (stripe | (stripe-1)) + 1;
-		mddev->queue->limits.discard_alignment = stripe;
 		mddev->queue->limits.discard_granularity = stripe;
 
 		blk_queue_max_write_zeroes_sectors(mddev->queue, 0);
