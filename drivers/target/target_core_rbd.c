@@ -108,7 +108,7 @@ static int tcm_rbd_configure_device(struct se_device *dev)
 	dev->dev_attrib.hw_max_sectors = queue_max_hw_sectors(q);
 	dev->dev_attrib.hw_queue_depth = q->nr_requests;
 
-	if (target_configure_unmap_from_queue(&dev->dev_attrib, q))
+	if (target_configure_unmap_from_queue(&dev->dev_attrib, bd))
 		pr_debug("RBD: BLOCK Discard support available,"
 			 " disabled by default\n");
 
@@ -789,7 +789,7 @@ static ssize_t tcm_rbd_show_configfs_dev_params(struct se_device *dev, char *b)
 	if (bd) {
 		bl += sprintf(b + bl, "Major: %d Minor: %d  %s\n",
 			      MAJOR(bd->bd_dev), MINOR(bd->bd_dev),
-			      (!bd->bd_openers) ?
+			      (!atomic_read(&bd->bd_openers)) ?
 			      "" : (bd->bd_holder == tcm_rbd_dev) ?
 			      "CLAIMED: RBD" : "CLAIMED: OS");
 	} else {

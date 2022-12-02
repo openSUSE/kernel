@@ -1564,14 +1564,10 @@ xfs_fs_fill_super(
 		}
 	}
 
-	if (mp->m_flags & XFS_MOUNT_DISCARD) {
-		struct request_queue *q = bdev_get_queue(sb->s_bdev);
-
-		if (!blk_queue_discard(q)) {
-			xfs_warn(mp, "mounting with \"discard\" option, but "
-					"the device does not support discard");
-			mp->m_flags &= ~XFS_MOUNT_DISCARD;
-		}
+	if ((mp->m_flags & XFS_MOUNT_DISCARD) && !bdev_max_discard_sectors(sb->s_bdev)) {
+		xfs_warn(mp,
+	"mounting with \"discard\" option, but the device does not support discard");
+		mp->m_flags &= ~XFS_MOUNT_DISCARD;
 	}
 
 	if (xfs_sb_version_hasreflink(&mp->m_sb)) {
