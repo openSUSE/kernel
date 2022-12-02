@@ -37,13 +37,42 @@
 #include "intel_display_types.h"
 #include "intel_panel.h"
 
-void
-intel_fixed_panel_mode(const struct drm_display_mode *fixed_mode,
-		       struct drm_display_mode *adjusted_mode)
+bool intel_panel_use_ssc(struct drm_i915_private *i915)
 {
+	if (i915->params.panel_use_ssc >= 0)
+		return i915->params.panel_use_ssc != 0;
+	return i915->vbt.lvds_use_ssc
+		&& !(i915->quirks & QUIRK_LVDS_SSC_DISABLE);
+}
+
+int intel_panel_compute_config(struct intel_connector *connector,
+			       struct drm_display_mode *adjusted_mode)
+{
+	const struct drm_display_mode *fixed_mode = connector->panel.fixed_mode;
+
+	if (!fixed_mode)
+		return 0;
+
+	/*
+	 * We don't want to lie too much to the user about the refresh
+	 * rate they're going to get. But we have to allow a bit of latitude
+	 * for Xorg since it likes to automagically cook up modes with slightly
+	 * off refresh rates.
+	 */
+	if (abs(drm_mode_vrefresh(adjusted_mode) - drm_mode_vrefresh(fixed_mode)) > 1) {
+		drm_dbg_kms(connector->base.dev,
+			    "[CONNECTOR:%d:%s] Requested mode vrefresh (%d Hz) does not match fixed mode vrefresh (%d Hz)\n",
+			    connector->base.base.id, connector->base.name,
+			    drm_mode_vrefresh(adjusted_mode), drm_mode_vrefresh(fixed_mode));
+
+		return -EINVAL;
+	}
+
 	drm_mode_copy(adjusted_mode, fixed_mode);
 
 	drm_mode_set_crtcinfo(adjusted_mode, 0);
+
+	return 0;
 }
 
 static bool is_downclock_mode(const struct drm_display_mode *downclock_mode,
@@ -171,8 +200,8 @@ intel_panel_vbt_fixed_mode(struct intel_connector *connector)
 }
 
 /* adjusted_mode has been preset to be the panel's fixed mode */
-int intel_pch_panel_fitting(struct intel_crtc_state *crtc_state,
-			    const struct drm_connector_state *conn_state)
+static int pch_panel_fitting(struct intel_crtc_state *crtc_state,
+			     const struct drm_connector_state *conn_state)
 {
 	const struct drm_display_mode *adjusted_mode =
 		&crtc_state->hw.adjusted_mode;
@@ -377,8 +406,8 @@ static void i9xx_scale_aspect(struct intel_crtc_state *crtc_state,
 	}
 }
 
-int intel_gmch_panel_fitting(struct intel_crtc_state *crtc_state,
-			     const struct drm_connector_state *conn_state)
+static int gmch_panel_fitting(struct intel_crtc_state *crtc_state,
+			      const struct drm_connector_state *conn_state)
 {
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
 	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
@@ -452,6 +481,18 @@ out:
 	return 0;
 }
 
+int intel_panel_fitting(struct intel_crtc_state *crtc_state,
+			const struct drm_connector_state *conn_state)
+{
+	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
+	struct drm_i915_private *i915 = to_i915(crtc->base.dev);
+
+	if (HAS_GMCH(i915))
+		return gmch_panel_fitting(crtc_state, conn_state);
+	else
+		return pch_panel_fitting(crtc_state, conn_state);
+}
+
 enum drm_connector_status
 intel_panel_detect(struct drm_connector *connector, bool force)
 {
@@ -461,6 +502,27 @@ intel_panel_detect(struct drm_connector *connector, bool force)
 		return connector_status_disconnected;
 
 	return connector_status_connected;
+}
+
+enum drm_mode_status
+intel_panel_mode_valid(struct intel_connector *connector,
+		       const struct drm_display_mode *mode)
+{
+	const struct drm_display_mode *fixed_mode = connector->panel.fixed_mode;
+
+	if (!fixed_mode)
+		return MODE_OK;
+
+	if (mode->hdisplay != fixed_mode->hdisplay)
+		return MODE_PANEL;
+
+	if (mode->vdisplay != fixed_mode->vdisplay)
+		return MODE_PANEL;
+
+	if (drm_mode_vrefresh(mode) != drm_mode_vrefresh(fixed_mode))
+		return MODE_PANEL;
+
+	return MODE_OK;
 }
 
 int intel_panel_init(struct intel_panel *panel,
