@@ -345,21 +345,6 @@ exit_free:
 }
 EXPORT_SYMBOL_GPL(ioasid_alloc);
 
-
-void ioasid_get(ioasid_t ioasid)
-{
-	WARN_ONCE(1, "kABI workaround: you should not be using %s!\n", __func__);
-}
-EXPORT_SYMBOL_GPL(ioasid_get);
-
-bool ioasid_put(ioasid_t ioasid)
-{
-	WARN_ONCE(1, "kABI workaround: you should not be using %s!\n", __func__);
-
-	return false;
-}
-EXPORT_SYMBOL_GPL(ioasid_put);
-
 /**
  * ioasid_free - Free an ioasid
  * @ioasid: the ID to remove
