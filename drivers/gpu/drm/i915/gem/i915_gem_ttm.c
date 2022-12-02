@@ -352,7 +352,7 @@ static void i915_ttm_purge(struct drm_i915_gem_object *obj)
 	}
 }
 
-static void i915_ttm_truncate(struct drm_i915_gem_object *obj)
+static int i915_ttm_truncate(struct drm_i915_gem_object *obj)
 {
 	struct ttm_buffer_object *bo = i915_gem_to_ttm(obj);
 	int err;
@@ -361,9 +361,9 @@ static void i915_ttm_truncate(struct drm_i915_gem_object *obj)
 
 	err = i915_ttm_move_notify(bo);
 	if (err)
-		return;
+		return err;
 
-	i915_ttm_purge(obj);
+	return i915_ttm_purge(obj);
 }
 
 static void i915_ttm_swap_notify(struct ttm_buffer_object *bo)
