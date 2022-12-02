@@ -41,6 +41,7 @@
 #include <linux/swiotlb.h>
 #include <linux/dma-buf.h>
 #include <linux/sizes.h>
+#include <linux/module.h>
 
 #include <drm/ttm/ttm_bo_api.h>
 #include <drm/ttm/ttm_bo_driver.h>
@@ -58,6 +59,8 @@
 #include "amdgpu_atomfirmware.h"
 #include "amdgpu_res_cursor.h"
 #include "bif/bif_4_1_d.h"
+
+MODULE_IMPORT_NS(DMA_BUF);
 
 #define AMDGPU_TTM_VRAM_MAX_DW_READ	(size_t)128
 
@@ -696,6 +699,9 @@ int amdgpu_ttm_tt_get_user_pages(struct amdgpu_bo *bo, struct page **pages)
 				       true, NULL);
 out_unlock:
 	mmap_read_unlock(mm);
+	if (r)
+		pr_debug("failed %d to get user pages 0x%lx\n", r, start);
+
 	mmput(mm);
 
 	return r;
@@ -894,7 +900,7 @@ static int amdgpu_ttm_backend_bind(struct ttm_device *bdev,
 			DRM_ERROR("failed to pin userptr\n");
 			return r;
 		}
-	} else if (ttm->page_flags & TTM_PAGE_FLAG_SG) {
+	} else if (ttm->page_flags & TTM_TT_FLAG_EXTERNAL) {
 		if (!ttm->sg) {
 			struct dma_buf_attachment *attach;
 			struct sg_table *sgt;
@@ -1066,8 +1072,6 @@ static void amdgpu_ttm_backend_destroy(struct ttm_device *bdev,
 {
 	struct amdgpu_ttm_tt *gtt = (void *)ttm;
 
-	amdgpu_ttm_backend_unbind(bdev, ttm);
-	ttm_tt_destroy_common(bdev, ttm);
 	if (gtt->usertask)
 		put_task_struct(gtt->usertask);
 
@@ -1121,6 +1125,8 @@ static int amdgpu_ttm_tt_populate(struct ttm_device *bdev,
 {
 	struct amdgpu_device *adev = amdgpu_ttm_adev(bdev);
 	struct amdgpu_ttm_tt *gtt = (void *)ttm;
+	pgoff_t i;
+	int ret;
 
 	/* user pages are bound by amdgpu_ttm_tt_pin_userptr() */
 	if (gtt->userptr) {
@@ -1130,10 +1136,17 @@ static int amdgpu_ttm_tt_populate(struct ttm_device *bdev,
 		return 0;
 	}
 
-	if (ttm->page_flags & TTM_PAGE_FLAG_SG)
+	if (ttm->page_flags & TTM_TT_FLAG_EXTERNAL)
 		return 0;
 
-	return ttm_pool_alloc(&adev->mman.bdev.pool, ttm, ctx);
+	ret = ttm_pool_alloc(&adev->mman.bdev.pool, ttm, ctx);
+	if (ret)
+		return ret;
+
+	for (i = 0; i < ttm->num_pages; ++i)
+		ttm->pages[i]->mapping = bdev->dev_mapping;
+
+	return 0;
 }
 
 /*
@@ -1147,6 +1160,9 @@ static void amdgpu_ttm_tt_unpopulate(struct ttm_device *bdev,
 {
 	struct amdgpu_ttm_tt *gtt = (void *)ttm;
 	struct amdgpu_device *adev;
+	pgoff_t i;
+
+	amdgpu_ttm_backend_unbind(bdev, ttm);
 
 	if (gtt->userptr) {
 		amdgpu_ttm_tt_set_user_pages(ttm, NULL);
@@ -1155,8 +1171,11 @@ static void amdgpu_ttm_tt_unpopulate(struct ttm_device *bdev,
 		return;
 	}
 
-	if (ttm->page_flags & TTM_PAGE_FLAG_SG)
+	if (ttm->page_flags & TTM_TT_FLAG_EXTERNAL)
 		return;
+
+	for (i = 0; i < ttm->num_pages; ++i)
+		ttm->pages[i]->mapping = NULL;
 
 	adev = amdgpu_ttm_adev(bdev);
 	return ttm_pool_free(&adev->mman.bdev.pool, ttm);
@@ -1185,8 +1204,8 @@ int amdgpu_ttm_tt_set_userptr(struct ttm_buffer_object *bo,
 			return -ENOMEM;
 	}
 
-	/* Set TTM_PAGE_FLAG_SG before populate but after create. */
-	bo->ttm->page_flags |= TTM_PAGE_FLAG_SG;
+	/* Set TTM_TT_FLAG_EXTERNAL before populate but after create. */
+	bo->ttm->page_flags |= TTM_TT_FLAG_EXTERNAL;
 
 	gtt = (void *)bo->ttm;
 	gtt->userptr = addr;

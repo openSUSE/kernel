@@ -806,7 +806,7 @@ static int amdgpu_vm_clear_bo(struct amdgpu_device *adev,
 	struct amdgpu_bo *bo = &vmbo->bo;
 	unsigned entries, ats_entries;
 	uint64_t addr;
-	int r;
+	int r, idx;
 
 	/* Figure out our place in the hierarchy */
 	if (ancestor->parent) {
@@ -851,9 +851,12 @@ static int amdgpu_vm_clear_bo(struct amdgpu_device *adev,
 			return r;
 	}
 
+	if (!drm_dev_enter(adev_to_drm(adev), &idx))
+		return -ENODEV;
+
 	r = vm->update_funcs->map_table(vmbo);
 	if (r)
-		return r;
+		goto exit;
 
 	memset(&params, 0, sizeof(params));
 	params.adev = adev;
@@ -862,7 +865,7 @@ static int amdgpu_vm_clear_bo(struct amdgpu_device *adev,
 
 	r = vm->update_funcs->prepare(&params, NULL, AMDGPU_SYNC_EXPLICIT);
 	if (r)
-		return r;
+		goto exit;
 
 	addr = 0;
 	if (ats_entries) {
@@ -878,7 +881,7 @@ static int amdgpu_vm_clear_bo(struct amdgpu_device *adev,
 		r = vm->update_funcs->update(&params, vmbo, addr, 0, ats_entries,
 					     value, flags);
 		if (r)
-			return r;
+			goto exit;
 
 		addr += ats_entries * 8;
 	}
@@ -901,10 +904,13 @@ static int amdgpu_vm_clear_bo(struct amdgpu_device *adev,
 		r = vm->update_funcs->update(&params, vmbo, addr, 0, entries,
 					     value, flags);
 		if (r)
-			return r;
+			goto exit;
 	}
 
-	return vm->update_funcs->commit(&params, NULL);
+	r = vm->update_funcs->commit(&params, NULL);
+exit:
+	drm_dev_exit(idx);
+	return r;
 }
 
 /**
@@ -1390,10 +1396,13 @@ int amdgpu_vm_update_pdes(struct amdgpu_device *adev,
 			  struct amdgpu_vm *vm, bool immediate)
 {
 	struct amdgpu_vm_update_params params;
-	int r;
+	int r, idx;
 
 	if (list_empty(&vm->relocated))
 		return 0;
+
+	if (!drm_dev_enter(adev_to_drm(adev), &idx))
+		return -ENODEV;
 
 	memset(&params, 0, sizeof(params));
 	params.adev = adev;
@@ -1402,7 +1411,7 @@ int amdgpu_vm_update_pdes(struct amdgpu_device *adev,
 
 	r = vm->update_funcs->prepare(&params, NULL, AMDGPU_SYNC_EXPLICIT);
 	if (r)
-		return r;
+		goto exit;
 
 	while (!list_empty(&vm->relocated)) {
 		struct amdgpu_vm_bo_base *entry;
@@ -1420,10 +1429,13 @@ int amdgpu_vm_update_pdes(struct amdgpu_device *adev,
 	r = vm->update_funcs->commit(&params, &vm->last_update);
 	if (r)
 		goto error;
+	drm_dev_exit(idx);
 	return 0;
 
 error:
 	amdgpu_vm_invalidate_pds(adev, vm);
+exit:
+	drm_dev_exit(idx);
 	return r;
 }
 
@@ -1712,7 +1724,7 @@ int amdgpu_vm_bo_update_mapping(struct amdgpu_device *adev,
 	enum amdgpu_sync_mode sync_mode;
 	int r, idx;
 
-	if (!drm_dev_enter(&adev->ddev, &idx))
+	if (!drm_dev_enter(adev_to_drm(adev), &idx))
 		return -ENODEV;
 
 	memset(&params, 0, sizeof(params));

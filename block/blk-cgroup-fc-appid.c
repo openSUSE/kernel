@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
-#include <linux/blk-cgroup.h>
+#include "blk-cgroup.h"
 
 /**
  * blkcg_set_fc_appid - set the fc_app_id field associted to blkcg

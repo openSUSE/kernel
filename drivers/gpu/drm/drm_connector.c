@@ -1406,6 +1406,8 @@ EXPORT_SYMBOL(drm_connector_attach_dp_subconnector_property);
  *	Game:
  *		Content type is game
  *
+ *	The meaning of each content type is defined in CTA-861-G table 15.
+ *
  *	Drivers can set up this property by calling
  *	drm_connector_attach_content_type_property(). Decoding to
  *	infoframe values is done through drm_hdmi_avi_infoframe_content_type().
@@ -1637,7 +1639,7 @@ EXPORT_SYMBOL(drm_mode_create_tv_properties);
  * connectors.
  *
  * Atomic drivers should use drm_connector_attach_scaling_mode_property()
- * instead to correctly assign &drm_connector_state.picture_aspect_ratio
+ * instead to correctly assign &drm_connector_state.scaling_mode
  * in the atomic state.
  *
  * Returns: %0
@@ -1759,7 +1761,7 @@ EXPORT_SYMBOL(drm_connector_attach_vrr_capable_property);
  * @scaling_mode_mask: or'ed mask of BIT(%DRM_MODE_SCALE_\*).
  *
  * This is used to add support for scaling mode to atomic drivers.
- * The scaling mode will be set to &drm_connector_state.picture_aspect_ratio
+ * The scaling mode will be set to &drm_connector_state.scaling_mode
  * and can be used from &drm_connector_helper_funcs->atomic_check for validation.
  *
  * This is the atomic version of drm_mode_create_scaling_mode_property().

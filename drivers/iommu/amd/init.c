@@ -122,8 +122,10 @@ struct ivhd_entry {
 	u8 type;
 	u16 devid;
 	u8 flags;
-	u32 ext;
-	u32 hidh;
+	struct_group(ext_hid,
+		u32 ext;
+		u32 hidh;
+	);
 	u64 cid;
 	u8 uidf;
 	u8 uidl;
@@ -669,7 +671,7 @@ void amd_iommu_restart_event_logging(struct amd_iommu *iommu)
  * This function resets the command buffer if the IOMMU stopped fetching
  * commands from it.
  */
-void amd_iommu_reset_cmd_buffer(struct amd_iommu *iommu)
+static void amd_iommu_reset_cmd_buffer(struct amd_iommu *iommu)
 {
 	iommu_feature_disable(iommu, CONTROL_CMDBUF_EN);
 
@@ -983,6 +985,7 @@ static bool copy_device_table(void)
 				get_order(dev_table_size));
 	if (old_dev_tbl_cpy == NULL) {
 		pr_err("Failed to allocate memory for copying old device table!\n");
+		memunmap(old_devtb);
 		return false;
 	}
 
@@ -1013,6 +1016,7 @@ static bool copy_device_table(void)
 			if ((int_ctl != DTE_IRQ_REMAP_INTCTL) ||
 			    (int_tab_len != DTE_INTTABLEN)) {
 				pr_err("Wrong old irq remapping flag: %#x\n", devid);
+				memunmap(old_devtb);
 				return false;
 			}
 
@@ -1383,7 +1387,8 @@ static int __init init_iommu_from_acpi(struct amd_iommu *iommu,
 				break;
 			}
 
-			memcpy(hid, (u8 *)(&e->ext), ACPIHID_HID_LEN - 1);
+			BUILD_BUG_ON(sizeof(e->ext_hid) != ACPIHID_HID_LEN - 1);
+			memcpy(hid, &e->ext_hid, ACPIHID_HID_LEN - 1);
 			hid[ACPIHID_HID_LEN - 1] = '\0';
 
 			if (!(*hid)) {
@@ -1526,7 +1531,7 @@ static void amd_iommu_ats_write_check_workaround(struct amd_iommu *iommu)
 }
 
 /*
- * This function clues the initialization function for one IOMMU
+ * This function glues the initialization function for one IOMMU
  * together and also allocates the command buffer and programs the
  * hardware. It does NOT enable the IOMMU. This is done afterwards.
  */
@@ -1938,9 +1943,11 @@ static int __init amd_iommu_init_pci(void)
 
 	for_each_iommu(iommu) {
 		ret = iommu_init_pci(iommu);
-		if (ret)
-			break;
-
+		if (ret) {
+			pr_err("IOMMU%d: Failed to initialize IOMMU Hardware (error=%d)!\n",
+			       iommu->index, ret);
+			goto out;
+		}
 		/* Need to setup range after PCI init */
 		iommu_set_cwwb_range(iommu);
 	}
@@ -1956,6 +1963,11 @@ static int __init amd_iommu_init_pci(void)
 	 * active.
 	 */
 	ret = amd_iommu_init_api();
+	if (ret) {
+		pr_err("IOMMU: Failed to initialize IOMMU-API interface (error=%d)!\n",
+		       ret);
+		goto out;
+	}
 
 	init_device_table_dma();
 
@@ -1965,6 +1977,7 @@ static int __init amd_iommu_init_pci(void)
 	if (!ret)
 		print_iommu_info();
 
+out:
 	return ret;
 }
 

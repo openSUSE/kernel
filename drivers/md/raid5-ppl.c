@@ -416,12 +416,10 @@ static void ppl_log_endio(struct bio *bio)
 
 static void ppl_submit_iounit_bio(struct ppl_io_unit *io, struct bio *bio)
 {
-	char b[BDEVNAME_SIZE];
-
-	pr_debug("%s: seq: %llu size: %u sector: %llu dev: %s\n",
+	pr_debug("%s: seq: %llu size: %u sector: %llu dev: %pg\n",
 		 __func__, io->seq, bio->bi_iter.bi_size,
 		 (unsigned long long)bio->bi_iter.bi_sector,
-		 bio_devname(bio, b));
+		 bio->bi_bdev);
 
 	submit_bio(bio);
 }
@@ -469,7 +467,6 @@ static void ppl_submit_iounit(struct ppl_io_unit *io)
 	bio_set_dev(bio, log->rdev->bdev);
 	bio->bi_iter.bi_sector = log->next_io_sector;
 	bio_add_page(bio, io->header_page, PAGE_SIZE, 0);
-	bio->bi_write_hint = ppl_conf->write_hint;
 
 	pr_debug("%s: log->current_io_sector: %llu\n", __func__,
 	    (unsigned long long)log->next_io_sector);
@@ -499,7 +496,6 @@ static void ppl_submit_iounit(struct ppl_io_unit *io)
 			bio = bio_alloc_bioset(prev->bi_bdev, BIO_MAX_VECS,
 					       prev->bi_opf, GFP_NOIO,
 					       &ppl_conf->bs);
-			bio->bi_write_hint = prev->bi_write_hint;
 			bio->bi_iter.bi_sector = bio_end_sector(prev);
 			bio_add_page(bio, sh->ppl_page, PAGE_SIZE, 0);
 
@@ -589,9 +585,8 @@ static void ppl_flush_endio(struct bio *bio)
 	struct ppl_log *log = io->log;
 	struct ppl_conf *ppl_conf = log->ppl_conf;
 	struct r5conf *conf = ppl_conf->mddev->private;
-	char b[BDEVNAME_SIZE];
 
-	pr_debug("%s: dev: %s\n", __func__, bio_devname(bio, b));
+	pr_debug("%s: dev: %pg\n", __func__, bio->bi_bdev);
 
 	if (bio->bi_status) {
 		struct md_rdev *rdev;
@@ -634,7 +629,6 @@ static void ppl_do_flush(struct ppl_io_unit *io)
 
 		if (bdev) {
 			struct bio *bio;
-			char b[BDEVNAME_SIZE];
 
 			bio = bio_alloc_bioset(bdev, 0, GFP_NOIO,
 					       REQ_OP_WRITE | REQ_PREFLUSH,
@@ -642,8 +636,7 @@ static void ppl_do_flush(struct ppl_io_unit *io)
 			bio->bi_private = io;
 			bio->bi_end_io = ppl_flush_endio;
 
-			pr_debug("%s: dev: %s\n", __func__,
-				 bio_devname(bio, b));
+			pr_debug("%s: dev: %ps\n", __func__, bio->bi_bdev);
 
 			submit_bio(bio);
 			flushed_disks++;
@@ -1404,7 +1397,6 @@ int ppl_init_log(struct r5conf *conf)
 	atomic64_set(&ppl_conf->seq, 0);
 	INIT_LIST_HEAD(&ppl_conf->no_mem_stripes);
 	spin_lock_init(&ppl_conf->no_mem_stripes_lock);
-	ppl_conf->write_hint = RWH_WRITE_LIFE_NOT_SET;
 
 	if (!mddev->external) {
 		ppl_conf->signature = ~crc32c_le(~0, mddev->uuid, sizeof(mddev->uuid));
@@ -1503,25 +1495,13 @@ int ppl_modify_log(struct r5conf *conf, struct md_rdev *rdev, bool add)
 static ssize_t
 ppl_write_hint_show(struct mddev *mddev, char *buf)
 {
-	size_t ret = 0;
-	struct r5conf *conf;
-	struct ppl_conf *ppl_conf = NULL;
-
-	spin_lock(&mddev->lock);
-	conf = mddev->private;
-	if (conf && raid5_has_ppl(conf))
-		ppl_conf = conf->log_private;
-	ret = sprintf(buf, "%d\n", ppl_conf ? ppl_conf->write_hint : 0);
-	spin_unlock(&mddev->lock);
-
-	return ret;
+	return sprintf(buf, "%d\n", 0);
 }
 
 static ssize_t
 ppl_write_hint_store(struct mddev *mddev, const char *page, size_t len)
 {
 	struct r5conf *conf;
-	struct ppl_conf *ppl_conf;
 	int err = 0;
 	unsigned short new;
 
@@ -1535,17 +1515,10 @@ ppl_write_hint_store(struct mddev *mddev, const char *page, size_t len)
 		return err;
 
 	conf = mddev->private;
-	if (!conf) {
+	if (!conf)
 		err = -ENODEV;
-	} else if (raid5_has_ppl(conf)) {
-		ppl_conf = conf->log_private;
-		if (!ppl_conf)
-			err = -EINVAL;
-		else
-			ppl_conf->write_hint = new;
-	} else {
+	else if (!raid5_has_ppl(conf) || !conf->log_private)
 		err = -EINVAL;
-	}
 
 	mddev_unlock(mddev);
 

@@ -8,6 +8,7 @@
 #include "intel_ddi_buf_trans.h"
 #include "intel_de.h"
 #include "intel_display_types.h"
+#include "intel_dp.h"
 
 /* HDMI/DVI modes ignore everything but the last 2 items. So we share
  * them for both DP and FDI transports, allowing those ports to
@@ -983,6 +984,49 @@ static const struct intel_ddi_buf_trans adlp_dkl_phy_trans_dp_hbr2_hbr3 = {
 	.num_entries = ARRAY_SIZE(_adlp_dkl_phy_trans_dp_hbr2_hbr3),
 };
 
+static const union intel_ddi_buf_trans_entry _dg2_snps_translations[] = {
+	{ .snps = { 26, 0, 0 } },	/* VS 0, pre-emph 0 */
+	{ .snps = { 33, 0, 6 } },	/* VS 0, pre-emph 1 */
+	{ .snps = { 38, 0, 12 } },	/* VS 0, pre-emph 2 */
+	{ .snps = { 43, 0, 19 } },	/* VS 0, pre-emph 3 */
+	{ .snps = { 39, 0, 0 } },	/* VS 1, pre-emph 0 */
+	{ .snps = { 44, 0, 8 } },	/* VS 1, pre-emph 1 */
+	{ .snps = { 47, 0, 15 } },	/* VS 1, pre-emph 2 */
+	{ .snps = { 52, 0, 0 } },	/* VS 2, pre-emph 0 */
+	{ .snps = { 51, 0, 10 } },	/* VS 2, pre-emph 1 */
+	{ .snps = { 62, 0, 0 } },	/* VS 3, pre-emph 0 */
+};
+
+static const struct intel_ddi_buf_trans dg2_snps_translations = {
+	.entries = _dg2_snps_translations,
+	.num_entries = ARRAY_SIZE(_dg2_snps_translations),
+	.hdmi_default_entry = ARRAY_SIZE(_dg2_snps_translations) - 1,
+};
+
+static const union intel_ddi_buf_trans_entry _dg2_snps_translations_uhbr[] = {
+	{ .snps = { 62, 0, 0 } },	/* preset 0 */
+	{ .snps = { 56, 0, 6 } },	/* preset 1 */
+	{ .snps = { 51, 0, 11 } },	/* preset 2 */
+	{ .snps = { 48, 0, 14 } },	/* preset 3 */
+	{ .snps = { 43, 0, 19 } },	/* preset 4 */
+	{ .snps = { 59, 3, 0 } },	/* preset 5 */
+	{ .snps = { 53, 3, 6 } },	/* preset 6 */
+	{ .snps = { 49, 3, 10 } },	/* preset 7 */
+	{ .snps = { 45, 3, 14 } },	/* preset 8 */
+	{ .snps = { 42, 3, 17 } },	/* preset 9 */
+	{ .snps = { 56, 6, 0 } },	/* preset 10 */
+	{ .snps = { 50, 6, 6 } },	/* preset 11 */
+	{ .snps = { 47, 6, 9 } },	/* preset 12 */
+	{ .snps = { 42, 6, 14 } },	/* preset 13 */
+	{ .snps = { 46, 8, 8 } },	/* preset 14 */
+	{ .snps = { 56, 3, 3 } },	/* preset 15 */
+};
+
+static const struct intel_ddi_buf_trans dg2_snps_translations_uhbr = {
+	.entries = _dg2_snps_translations_uhbr,
+	.num_entries = ARRAY_SIZE(_dg2_snps_translations_uhbr),
+};
+
 bool is_hobl_buf_trans(const struct intel_ddi_buf_trans *table)
 {
 	return table == &tgl_combo_phy_trans_edp_hbr2_hobl;
@@ -1563,24 +1607,16 @@ adlp_get_dkl_buf_trans(struct intel_encoder *encoder,
 		return adlp_get_dkl_buf_trans_dp(encoder, crtc_state, n_entries);
 }
 
-int intel_ddi_hdmi_num_entries(struct intel_encoder *encoder,
-			       const struct intel_crtc_state *crtc_state,
-			       int *default_entry)
+static const struct intel_ddi_buf_trans *
+dg2_get_snps_buf_trans(struct intel_encoder *encoder,
+		       const struct intel_crtc_state *crtc_state,
+		       int *n_entries)
 {
-	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
-	const struct intel_ddi_buf_trans *trans;
-	int n_entries;
-
-	trans = encoder->get_buf_trans(encoder, crtc_state, &n_entries);
-
-	if (drm_WARN_ON(&dev_priv->drm, !trans)) {
-		*default_entry = 0;
-		return 0;
-	}
-
-	*default_entry = trans->hdmi_default_entry;
-
-	return n_entries;
+	if (intel_crtc_has_dp_encoder(crtc_state) &&
+	    intel_dp_is_uhbr(crtc_state))
+		return intel_get_buf_trans(&dg2_snps_translations_uhbr, n_entries);
+	else
+		return intel_get_buf_trans(&dg2_snps_translations, n_entries);
 }
 
 void intel_ddi_buf_trans_init(struct intel_encoder *encoder)
@@ -1588,7 +1624,9 @@ void intel_ddi_buf_trans_init(struct intel_encoder *encoder)
 	struct drm_i915_private *i915 = to_i915(encoder->base.dev);
 	enum phy phy = intel_port_to_phy(i915, encoder->port);
 
-	if (IS_ALDERLAKE_P(i915)) {
+	if (IS_DG2(i915)) {
+		encoder->get_buf_trans = dg2_get_snps_buf_trans;
+	} else if (IS_ALDERLAKE_P(i915)) {
 		if (intel_phy_is_combo(i915, phy))
 			encoder->get_buf_trans = adlp_get_combo_buf_trans;
 		else

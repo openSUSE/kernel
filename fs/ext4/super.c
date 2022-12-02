@@ -5157,13 +5157,9 @@ no_journal:
 	} else
 		descr = "out journal";
 
-	if (test_opt(sb, DISCARD)) {
-		struct request_queue *q = bdev_get_queue(sb->s_bdev);
-		if (!blk_queue_discard(q))
-			ext4_msg(sb, KERN_WARNING,
-				 "mounting with \"discard\" option, but "
-				 "the device does not support discard");
-	}
+	if (test_opt(sb, DISCARD) && !bdev_max_discard_sectors(sb->s_bdev))
+		ext4_msg(sb, KERN_WARNING,
+			 "mounting with \"discard\" option, but the device does not support discard");
 
 	if (___ratelimit(&ext4_mount_msg_ratelimit, "EXT4-fs mount"))
 		ext4_msg(sb, KERN_INFO, "mounted filesystem with%s. "

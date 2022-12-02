@@ -26,6 +26,7 @@
 #include "intel_rps_types.h"
 #include "intel_migrate_types.h"
 #include "intel_wakeref.h"
+#include "pxp/intel_pxp_types.h"
 
 struct drm_i915_private;
 struct i915_ggtt;
@@ -71,6 +72,8 @@ struct intel_gt {
 	struct i915_ggtt *ggtt;
 
 	struct intel_uc uc;
+
+	struct i915_wa_list wa_list;
 
 	struct mutex tlb_invalidate_lock;
 
@@ -186,6 +189,9 @@ struct intel_gt {
 
 		u8 num_engines;
 
+		/* General presence of SFC units */
+		u8 sfc_mask;
+
 		/* Media engine access to SFC per instance */
 		u8 vdbox_sfc_access;
 
@@ -194,6 +200,12 @@ struct intel_gt {
 
 		unsigned long mslice_mask;
 	} info;
+
+	struct {
+		u8 uc_index;
+	} mocs;
+
+	struct intel_pxp pxp;
 };
 
 enum intel_gt_scratch_field {
