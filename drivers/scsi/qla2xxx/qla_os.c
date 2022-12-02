@@ -349,7 +349,7 @@ MODULE_PARM_DESC(ql2xdelay_before_pci_error_handling,
 
 static void qla2x00_clear_drv_active(struct qla_hw_data *);
 static void qla2x00_free_device(scsi_qla_host_t *);
-static int qla2xxx_map_queues(struct Scsi_Host *shost);
+static void qla2xxx_map_queues(struct Scsi_Host *shost);
 static void qla2x00_destroy_deferred_work(struct qla_hw_data *);
 
 u32 ql2xnvme_queues = DEF_NVME_HW_QUEUES;
@@ -8004,17 +8004,15 @@ qla_pci_reset_done(struct pci_dev *pdev)
 	clear_bit(ABORT_ISP_ACTIVE, &base_vha->dpc_flags);
 }
 
-static int qla2xxx_map_queues(struct Scsi_Host *shost)
+static void qla2xxx_map_queues(struct Scsi_Host *shost)
 {
-	int rc;
 	scsi_qla_host_t *vha = (scsi_qla_host_t *)shost->hostdata;
 	struct blk_mq_queue_map *qmap = &shost->tag_set.map[HCTX_TYPE_DEFAULT];
 
 	if (USER_CTRL_IRQ(vha->hw) || !vha->hw->mqiobase)
-		rc = blk_mq_map_queues(qmap);
+		blk_mq_map_queues(qmap);
 	else
-		rc = blk_mq_pci_map_queues(qmap, vha->hw->pdev, vha->irq_offset);
-	return rc;
+		blk_mq_pci_map_queues(qmap, vha->hw->pdev, vha->irq_offset);
 }
 
 struct scsi_host_template qla2xxx_driver_template = {
