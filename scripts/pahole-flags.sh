@@ -16,6 +16,9 @@ fi
 if [ "${pahole_ver}" -ge "121" ]; then
 	extra_paholeopt="${extra_paholeopt} --btf_gen_floats"
 fi
+if [ "${pahole_ver}" -ge "122" ]; then
+	extra_paholeopt="${extra_paholeopt} -j"
+fi
 if [ "${pahole_ver}" -ge "124" ]; then
 	extra_paholeopt="${extra_paholeopt} --skip_encoding_btf_enum64"
 fi
