@@ -354,10 +354,10 @@ struct hns_roce_mr {
 	u64			size; /* Address range of MR */
 	u32			key; /* Key of MR */
 	u32			pd;   /* PD num of MR */
-	u32			access;	/* Access permission of MR */
+	u32			access; /* Access permission of MR */
 	int			enabled; /* MR's active status */
-	int			type;	/* MR's register type */
-	u32			pbl_hop_num;	/* multi-hop number */
+	int			type; /* MR's register type */
+	u32			pbl_hop_num; /* multi-hop number */
 	struct hns_roce_mtr	pbl_mtr;
 	u32			npages;
 	dma_addr_t		*page_list;
@@ -374,17 +374,17 @@ struct hns_roce_wq {
 	u32		wqe_cnt;  /* WQE num */
 	u32		max_gs;
 	u32		rsv_sge;
-	int		offset;
-	int		wqe_shift;	/* WQE size */
+	u32		offset;
+	u32		wqe_shift; /* WQE size */
 	u32		head;
 	u32		tail;
 	void __iomem	*db_reg;
 };
 
 struct hns_roce_sge {
-	unsigned int	sge_cnt;	/* SGE num */
-	int		offset;
-	int		sge_shift;	/* SGE size */
+	unsigned int	sge_cnt; /* SGE num */
+	u32		offset;
+	u32		sge_shift; /* SGE size */
 };
 
 struct hns_roce_buf_list {
@@ -468,7 +468,7 @@ struct hns_roce_cq {
 
 struct hns_roce_idx_que {
 	struct hns_roce_mtr		mtr;
-	int				entry_shift;
+	u32				entry_shift;
 	unsigned long			*bitmap;
 	u32				head;
 	u32				tail;
@@ -480,7 +480,7 @@ struct hns_roce_srq {
 	u32			wqe_cnt;
 	int			max_gs;
 	u32			rsv_sge;
-	int			wqe_shift;
+	u32			wqe_shift;
 	u32			cqn;
 	u32			xrcdn;
 	void __iomem		*db_reg;
@@ -678,9 +678,9 @@ struct hns_roce_qp {
 	unsigned long		flush_flag;
 	struct hns_roce_work	flush_work;
 	struct hns_roce_rinl_buf rq_inl_buf;
-	struct list_head	node;		/* all qps are on a list */
-	struct list_head	rq_node;	/* all recv qps are on a list */
-	struct list_head	sq_node;	/* all send qps are on a list */
+	struct list_head	node; /* all qps are on a list */
+	struct list_head	rq_node; /* all recv qps are on a list */
+	struct list_head	sq_node; /* all send qps are on a list */
 };
 
 struct hns_roce_ib_iboe {
@@ -771,9 +771,7 @@ struct hns_roce_caps {
 	u32		num_qps;
 	u32		num_pi_qps;
 	u32		reserved_qps;
-	int		num_qpc_timer;
-	int		num_cqc_timer;
-	int		num_srqs;
+	u32		num_srqs;
 	u32		max_wqes;
 	u32		max_srq_wrs;
 	u32		max_srq_sges;
@@ -787,7 +785,7 @@ struct hns_roce_caps {
 	u32		min_cqes;
 	u32		min_wqes;
 	u32		reserved_cqs;
-	int		reserved_srqs;
+	u32		reserved_srqs;
 	int		num_aeq_vectors;
 	int		num_comp_vectors;
 	int		num_other_vectors;
@@ -861,7 +859,7 @@ struct hns_roce_caps {
 	u32		cqc_timer_ba_pg_sz;
 	u32		cqc_timer_buf_pg_sz;
 	u32		cqc_timer_hop_num;
-	u32             cqe_ba_pg_sz;	/* page_size = 4K*(2^cqe_ba_pg_sz) */
+	u32		cqe_ba_pg_sz; /* page_size = 4K*(2^cqe_ba_pg_sz) */
 	u32		cqe_buf_pg_sz;
 	u32		cqe_hop_num;
 	u32		srqwqe_ba_pg_sz;
@@ -880,7 +878,7 @@ struct hns_roce_caps {
 	u32		gmv_hop_num;
 	u32		sl_num;
 	u32		llm_buf_pg_sz;
-	u32		chunk_sz;	/* chunk size in non multihop mode */
+	u32		chunk_sz; /* chunk size in non multihop mode */
 	u64		flags;
 	u16		default_ceq_max_cnt;
 	u16		default_ceq_period;
@@ -1007,8 +1005,8 @@ struct hns_roce_dev {
 	int			loop_idc;
 	u32			sdb_offset;
 	u32			odb_offset;
-	dma_addr_t		tptr_dma_addr;	/* only for hw v1 */
-	u32			tptr_size;	/* only for hw v1 */
+	dma_addr_t		tptr_dma_addr; /* only for hw v1 */
+	u32			tptr_size; /* only for hw v1 */
 	const struct hns_roce_hw *hw;
 	void			*priv;
 	struct workqueue_struct *irq_workq;
@@ -1164,7 +1162,7 @@ void hns_roce_cmd_use_polling(struct hns_roce_dev *hr_dev);
 /* hns roce hw need current block and next block addr from mtt */
 #define MTT_MIN_COUNT	 2
 int hns_roce_mtr_find(struct hns_roce_dev *hr_dev, struct hns_roce_mtr *mtr,
-		      int offset, u64 *mtt_buf, int mtt_max, u64 *base_addr);
+		      u32 offset, u64 *mtt_buf, int mtt_max, u64 *base_addr);
 int hns_roce_mtr_create(struct hns_roce_dev *hr_dev, struct hns_roce_mtr *mtr,
 			struct hns_roce_buf_attr *buf_attr,
 			unsigned int page_shift, struct ib_udata *udata,

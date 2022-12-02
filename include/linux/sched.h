@@ -1166,10 +1166,8 @@ struct task_struct {
 	/* Stacked block device info: */
 	struct bio_list			*bio_list;
 
-#ifdef CONFIG_BLOCK
 	/* Stack plugging: */
 	struct blk_plug			*plug;
-#endif
 
 	/* VM state: */
 	struct reclaim_state		*reclaim_state;
@@ -1482,6 +1480,9 @@ struct task_struct {
 
 #ifdef CONFIG_KRETPROBES
 	struct llist_head               kretprobe_instances;
+#endif
+#ifdef CONFIG_RETHOOK
+	struct llist_head               rethooks;
 #endif
 
 	void				*suse_kabi_padding;

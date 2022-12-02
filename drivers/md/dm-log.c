@@ -446,7 +446,7 @@ static int create_log_context(struct dm_dirty_log *log, struct dm_target *ti,
 				bdev_logical_block_size(lc->header_location.
 							    bdev));
 
-		if (buf_size > i_size_read(dev->bdev->bd_inode)) {
+		if (buf_size > bdev_nr_bytes(dev->bdev)) {
 			DMWARN("log device %s too small: need %llu bytes",
 				dev->name, (unsigned long long)buf_size);
 			kfree(lc);
@@ -615,7 +615,7 @@ static int disk_resume(struct dm_dirty_log *log)
 			log_clear_bit(lc, lc->clean_bits, i);
 
 	/* clear any old bits -- device has shrunk */
-	for (i = lc->region_count; i % (sizeof(*lc->clean_bits) << BYTE_SHIFT); i++)
+	for (i = lc->region_count; i % BITS_PER_LONG; i++)
 		log_clear_bit(lc, lc->clean_bits, i);
 
 	/* copy clean across to sync */

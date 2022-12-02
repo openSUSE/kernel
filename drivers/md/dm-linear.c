@@ -60,7 +60,6 @@ static int linear_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	ti->num_flush_bios = 1;
 	ti->num_discard_bios = 1;
 	ti->num_secure_erase_bios = 1;
-	ti->num_write_same_bios = 1;
 	ti->num_write_zeroes_bios = 1;
 	ti->private = lc;
 	return 0;
@@ -129,8 +128,7 @@ static int linear_prepare_ioctl(struct dm_target *ti, struct block_device **bdev
 	/*
 	 * Only pass ioctls through if the device sizes match exactly.
 	 */
-	if (lc->start ||
-	    ti->len != i_size_read(dev->bdev->bd_inode) >> SECTOR_SHIFT)
+	if (lc->start || ti->len != bdev_nr_sectors(dev->bdev))
 		return 1;
 	return 0;
 }

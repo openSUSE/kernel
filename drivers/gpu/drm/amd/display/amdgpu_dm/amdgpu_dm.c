@@ -619,6 +619,7 @@ static void dm_dcn_vertical_interrupt0_high_irq(void *interrupt_params)
 }
 #endif
 
+#define DMUB_TRACE_MAX_READ 64
 /**
  * dm_dmub_outbox1_low_irq() - Handles Outbox interrupt
  * @interrupt_params: used for determining the Outbox instance
@@ -626,7 +627,6 @@ static void dm_dcn_vertical_interrupt0_high_irq(void *interrupt_params)
  * Handles the Outbox Interrupt
  * event handler.
  */
-#define DMUB_TRACE_MAX_READ 64
 static void dm_dmub_outbox1_low_irq(void *interrupt_params)
 {
 	struct dmub_notification notify;
@@ -1078,10 +1078,10 @@ static void mmhub_read_system_context(struct amdgpu_device *adev, struct dc_phy_
 }
 #endif
 #if defined(CONFIG_DRM_AMD_DC_DCN)
-static void event_mall_stutter(struct work_struct *work)
+static void vblank_control_worker(struct work_struct *work)
 {
-
-	struct vblank_workqueue *vblank_work = container_of(work, struct vblank_workqueue, mall_work);
+	struct vblank_control_work *vblank_work =
+		container_of(work, struct vblank_control_work, work);
 	struct amdgpu_display_manager *dm = vblank_work->dm;
 
 	mutex_lock(&dm->dc_lock);
@@ -1095,27 +1095,25 @@ static void event_mall_stutter(struct work_struct *work)
 
 	DRM_DEBUG_KMS("Allow idle optimizations (MALL): %d\n", dm->active_vblank_irq_count == 0);
 
-	mutex_unlock(&dm->dc_lock);
-}
-
-static struct vblank_workqueue *vblank_create_workqueue(struct amdgpu_device *adev, struct dc *dc)
-{
-
-	int max_caps = dc->caps.max_links;
-	struct vblank_workqueue *vblank_work;
-	int i = 0;
-
-	vblank_work = kcalloc(max_caps, sizeof(*vblank_work), GFP_KERNEL);
-	if (ZERO_OR_NULL_PTR(vblank_work)) {
-		kfree(vblank_work);
-		return NULL;
+	/* Control PSR based on vblank requirements from OS */
+	if (vblank_work->stream && vblank_work->stream->link) {
+		if (vblank_work->enable) {
+			if (vblank_work->stream->link->psr_settings.psr_allow_active)
+				amdgpu_dm_psr_disable(vblank_work->stream);
+		} else if (vblank_work->stream->link->psr_settings.psr_feature_enabled &&
+			   !vblank_work->stream->link->psr_settings.psr_allow_active &&
+			   vblank_work->acrtc->dm_irq_params.allow_psr_entry) {
+			amdgpu_dm_psr_enable(vblank_work->stream);
+		}
 	}
 
-	for (i = 0; i < max_caps; i++)
-		INIT_WORK(&vblank_work[i].mall_work, event_mall_stutter);
+	mutex_unlock(&dm->dc_lock);
 
-	return vblank_work;
+	dc_stream_release(vblank_work->stream);
+
+	kfree(vblank_work);
 }
+
 #endif
 
 struct amdgpu_stutter_quirk {
@@ -1338,12 +1336,10 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
 
 #if defined(CONFIG_DRM_AMD_DC_DCN)
 	if (adev->dm.dc->caps.max_links > 0) {
-		adev->dm.vblank_workqueue = vblank_create_workqueue(adev, adev->dm.dc);
-
-		if (!adev->dm.vblank_workqueue)
+		adev->dm.vblank_control_workqueue =
+			create_singlethread_workqueue("dm_vblank_control_workqueue");
+		if (!adev->dm.vblank_control_workqueue)
 			DRM_ERROR("amdgpu: failed to initialize vblank_workqueue.\n");
-		else
-			DRM_DEBUG_DRIVER("amdgpu: vblank_workqueue init done %p.\n", adev->dm.vblank_workqueue);
 	}
 #endif
 
@@ -1416,6 +1412,13 @@ static void amdgpu_dm_fini(struct amdgpu_device *adev)
 {
 	int i;
 
+#if defined(CONFIG_DRM_AMD_DC_DCN)
+	if (adev->dm.vblank_control_workqueue) {
+		destroy_workqueue(adev->dm.vblank_control_workqueue);
+		adev->dm.vblank_control_workqueue = NULL;
+	}
+#endif
+
 	for (i = 0; i < adev->dm.display_indexes_num; i++) {
 		drm_encoder_cleanup(&adev->dm.mst_encoders[i].base);
 	}
@@ -1437,14 +1440,6 @@ static void amdgpu_dm_fini(struct amdgpu_device *adev)
 
 	if (adev->dm.dc)
 		dc_deinit_callbacks(adev->dm.dc);
-#endif
-
-#if defined(CONFIG_DRM_AMD_DC_DCN)
-	if (adev->dm.vblank_workqueue) {
-		adev->dm.vblank_workqueue->dm = NULL;
-		kfree(adev->dm.vblank_workqueue);
-		adev->dm.vblank_workqueue = NULL;
-	}
 #endif
 
 	dc_dmub_srv_destroy(&adev->dm.dc->ctx->dmub_srv);
@@ -4869,7 +4864,7 @@ fill_gfx9_plane_attributes_from_modifiers(struct amdgpu_device *adev,
 					  const bool force_disable_dcc)
 {
 	const uint64_t modifier = afb->base.modifier;
-	int ret;
+	int ret = 0;
 
 	fill_gfx9_tiling_info_from_modifier(adev, tiling_info, modifier);
 	tiling_info->gfx9.swizzle = modifier_gfx9_swizzle_mode(modifier);
@@ -4887,9 +4882,9 @@ fill_gfx9_plane_attributes_from_modifiers(struct amdgpu_device *adev,
 
 	ret = validate_dcc(adev, format, rotation, tiling_info, dcc, address, plane_size);
 	if (ret)
-		return ret;
+		drm_dbg_kms(adev_to_drm(adev), "validate_dcc: returned error: %d\n", ret);
 
-	return 0;
+	return ret;
 }
 
 static int
@@ -6117,7 +6112,7 @@ static inline int dm_set_vblank(struct drm_crtc *crtc, bool enable)
 	struct dm_crtc_state *acrtc_state = to_dm_crtc_state(crtc->state);
 #if defined(CONFIG_DRM_AMD_DC_DCN)
 	struct amdgpu_display_manager *dm = &adev->dm;
-	unsigned long flags;
+	struct vblank_control_work *work;
 #endif
 	int rc = 0;
 
@@ -6142,12 +6137,23 @@ static inline int dm_set_vblank(struct drm_crtc *crtc, bool enable)
 		return 0;
 
 #if defined(CONFIG_DRM_AMD_DC_DCN)
-	spin_lock_irqsave(&dm->vblank_lock, flags);
-	dm->vblank_workqueue->dm = dm;
-	dm->vblank_workqueue->otg_inst = acrtc->otg_inst;
-	dm->vblank_workqueue->enable = enable;
-	spin_unlock_irqrestore(&dm->vblank_lock, flags);
-	schedule_work(&dm->vblank_workqueue->mall_work);
+	if (dm->vblank_control_workqueue) {
+		work = kzalloc(sizeof(*work), GFP_ATOMIC);
+		if (!work)
+			return -ENOMEM;
+
+		INIT_WORK(&work->work, vblank_control_worker);
+		work->dm = dm;
+		work->acrtc = acrtc;
+		work->enable = enable;
+
+		if (acrtc_state->stream) {
+			dc_stream_retain(acrtc_state->stream);
+			work->stream = acrtc_state->stream;
+		}
+
+		queue_work(dm->vblank_control_workqueue, &work->work);
+	}
 #endif
 
 	return 0;
@@ -7731,8 +7737,10 @@ static uint add_fs_modes(struct amdgpu_dm_connector *aconnector)
 	 * 60 	    - Commonly used
 	 * 48,72,96 - Multiples of 24
 	 */
-	const uint32_t common_rates[] = { 23976, 24000, 25000, 29970, 30000,
-					 48000, 50000, 60000, 72000, 96000 };
+	static const uint32_t common_rates[] = {
+		23976, 24000, 25000, 29970, 30000,
+		48000, 50000, 60000, 72000, 96000
+	};
 
 	/*
 	 * Find mode with highest refresh rate with the same resolution
@@ -8806,6 +8814,15 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_state *state,
 	/* Update the planes if changed or disable if we don't have any. */
 	if ((planes_count || acrtc_state->active_planes == 0) &&
 		acrtc_state->stream) {
+#if defined(CONFIG_DRM_AMD_DC_DCN)
+		/*
+		 * If PSR or idle optimizations are enabled then flush out
+		 * any pending work before hardware programming.
+		 */
+		if (dm->vblank_control_workqueue)
+			flush_workqueue(dm->vblank_control_workqueue);
+#endif
+
 		bundle->stream_update.stream = acrtc_state->stream;
 		if (new_pcrtc_state->mode_changed) {
 			bundle->stream_update.src = acrtc_state->stream->src;
@@ -8874,16 +8891,20 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_state *state,
 				acrtc_state->stream->link->psr_settings.psr_version != DC_PSR_VERSION_UNSUPPORTED &&
 				!acrtc_state->stream->link->psr_settings.psr_feature_enabled)
 			amdgpu_dm_link_setup_psr(acrtc_state->stream);
-		else if ((acrtc_state->update_type == UPDATE_TYPE_FAST) &&
-				acrtc_state->stream->link->psr_settings.psr_feature_enabled &&
-				!acrtc_state->stream->link->psr_settings.psr_allow_active) {
-			struct amdgpu_dm_connector *aconn = (struct amdgpu_dm_connector *)
-					acrtc_state->stream->dm_stream_context;
+
+		/* Decrement skip count when PSR is enabled and we're doing fast updates. */
+		if (acrtc_state->update_type == UPDATE_TYPE_FAST &&
+		    acrtc_state->stream->link->psr_settings.psr_feature_enabled) {
+			struct amdgpu_dm_connector *aconn =
+				(struct amdgpu_dm_connector *)acrtc_state->stream->dm_stream_context;
 
 			if (aconn->psr_skip_count > 0)
 				aconn->psr_skip_count--;
-			else
-				amdgpu_dm_psr_enable(acrtc_state->stream);
+
+			/* Allow PSR when skip count is 0. */
+			acrtc_attach->dm_irq_params.allow_psr_entry = !aconn->psr_skip_count;
+		} else {
+			acrtc_attach->dm_irq_params.allow_psr_entry = false;
 		}
 
 		mutex_unlock(&dm->dc_lock);
@@ -9132,8 +9153,13 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
 
 	if (dc_state) {
 		/* if there mode set or reset, disable eDP PSR */
-		if (mode_set_reset_required)
+		if (mode_set_reset_required) {
+#if defined(CONFIG_DRM_AMD_DC_DCN)
+			if (dm->vblank_control_workqueue)
+				flush_workqueue(dm->vblank_control_workqueue);
+#endif
 			amdgpu_dm_psr_disable_all(dm);
+		}
 
 		dm_enable_per_frame_crtc_master_sync(dc_state);
 		mutex_lock(&dm->dc_lock);
@@ -10697,13 +10723,68 @@ static bool is_dp_capable_without_timing_msa(struct dc *dc,
 	return capable;
 }
 
-static bool parse_edid_cea(struct amdgpu_dm_connector *aconnector,
+static bool dm_edid_parser_send_cea(struct amdgpu_display_manager *dm,
+		unsigned int offset,
+		unsigned int total_length,
+		uint8_t *data,
+		unsigned int length,
+		struct amdgpu_hdmi_vsdb_info *vsdb)
+{
+	bool res;
+	union dmub_rb_cmd cmd;
+	struct dmub_cmd_send_edid_cea *input;
+	struct dmub_cmd_edid_cea_output *output;
+
+	if (length > DMUB_EDID_CEA_DATA_CHUNK_BYTES)
+		return false;
+
+	memset(&cmd, 0, sizeof(cmd));
+
+	input = &cmd.edid_cea.data.input;
+
+	cmd.edid_cea.header.type = DMUB_CMD__EDID_CEA;
+	cmd.edid_cea.header.sub_type = 0;
+	cmd.edid_cea.header.payload_bytes =
+		sizeof(cmd.edid_cea) - sizeof(cmd.edid_cea.header);
+	input->offset = offset;
+	input->length = length;
+	input->total_length = total_length;
+	memcpy(input->payload, data, length);
+
+	res = dc_dmub_srv_cmd_with_reply_data(dm->dc->ctx->dmub_srv, &cmd);
+	if (!res) {
+		DRM_ERROR("EDID CEA parser failed\n");
+		return false;
+	}
+
+	output = &cmd.edid_cea.data.output;
+
+	if (output->type == DMUB_CMD__EDID_CEA_ACK) {
+		if (!output->ack.success) {
+			DRM_ERROR("EDID CEA ack failed at offset %d\n",
+					output->ack.offset);
+		}
+	} else if (output->type == DMUB_CMD__EDID_CEA_AMD_VSDB) {
+		if (!output->amd_vsdb.vsdb_found)
+			return false;
+
+		vsdb->freesync_supported = output->amd_vsdb.freesync_supported;
+		vsdb->amd_vsdb_version = output->amd_vsdb.amd_vsdb_version;
+		vsdb->min_refresh_rate_hz = output->amd_vsdb.min_frame_rate;
+		vsdb->max_refresh_rate_hz = output->amd_vsdb.max_frame_rate;
+	} else {
+		DRM_WARN("Unknown EDID CEA parser results\n");
+		return false;
+	}
+
+	return true;
+}
+
+static bool parse_edid_cea_dmcu(struct amdgpu_display_manager *dm,
 		uint8_t *edid_ext, int len,
 		struct amdgpu_hdmi_vsdb_info *vsdb_info)
 {
 	int i;
-	struct amdgpu_device *adev = drm_to_adev(aconnector->base.dev);
-	struct dc *dc = adev->dm.dc;
 
 	/* send extension block to DMCU for parsing */
 	for (i = 0; i < len; i += 8) {
@@ -10711,14 +10792,14 @@ static bool parse_edid_cea(struct amdgpu_dm_connector *aconnector,
 		int offset;
 
 		/* send 8 bytes a time */
-		if (!dc_edid_parser_send_cea(dc, i, len, &edid_ext[i], 8))
+		if (!dc_edid_parser_send_cea(dm->dc, i, len, &edid_ext[i], 8))
 			return false;
 
 		if (i+8 == len) {
 			/* EDID block sent completed, expect result */
 			int version, min_rate, max_rate;
 
-			res = dc_edid_parser_recv_amd_vsdb(dc, &version, &min_rate, &max_rate);
+			res = dc_edid_parser_recv_amd_vsdb(dm->dc, &version, &min_rate, &max_rate);
 			if (res) {
 				/* amd vsdb found */
 				vsdb_info->freesync_supported = 1;
@@ -10732,12 +10813,40 @@ static bool parse_edid_cea(struct amdgpu_dm_connector *aconnector,
 		}
 
 		/* check for ack*/
-		res = dc_edid_parser_recv_cea_ack(dc, &offset);
+		res = dc_edid_parser_recv_cea_ack(dm->dc, &offset);
 		if (!res)
 			return false;
 	}
 
 	return false;
+}
+
+static bool parse_edid_cea_dmub(struct amdgpu_display_manager *dm,
+		uint8_t *edid_ext, int len,
+		struct amdgpu_hdmi_vsdb_info *vsdb_info)
+{
+	int i;
+
+	/* send extension block to DMCU for parsing */
+	for (i = 0; i < len; i += 8) {
+		/* send 8 bytes a time */
+		if (!dm_edid_parser_send_cea(dm, i, len, &edid_ext[i], 8, vsdb_info))
+			return false;
+	}
+
+	return vsdb_info->freesync_supported;
+}
+
+static bool parse_edid_cea(struct amdgpu_dm_connector *aconnector,
+		uint8_t *edid_ext, int len,
+		struct amdgpu_hdmi_vsdb_info *vsdb_info)
+{
+	struct amdgpu_device *adev = drm_to_adev(aconnector->base.dev);
+
+	if (adev->dm.dmub_srv)
+		return parse_edid_cea_dmub(&adev->dm, edid_ext, len, vsdb_info);
+	else
+		return parse_edid_cea_dmcu(&adev->dm, edid_ext, len, vsdb_info);
 }
 
 static int parse_hdmi_amd_vsdb(struct amdgpu_dm_connector *aconnector,

@@ -23,14 +23,14 @@
 #include <linux/blkdev.h>
 #include <linux/backing-dev.h>
 #include <linux/slab.h>
-#include <linux/genhd.h>
 #include <linux/delay.h>
 #include <linux/atomic.h>
 #include <linux/ctype.h>
-#include <linux/blk-cgroup.h>
 #include <linux/tracehook.h>
 #include <linux/psi.h>
+#include <linux/part_stat.h>
 #include "blk.h"
+#include "blk-cgroup.h"
 #include "blk-ioprio.h"
 #include "blk-throttle.h"
 
@@ -65,6 +65,23 @@ static bool blkcg_policy_enabled(struct request_queue *q,
 	return pol && test_bit(pol->plid, q->blkcg_pols);
 }
 
+static void blkg_free_workfn(struct work_struct *work)
+{
+	struct blkcg_gq *blkg = container_of(work, struct blkcg_gq,
+					     free_work);
+	int i;
+
+	for (i = 0; i < BLKCG_MAX_POLS; i++)
+		if (blkg->pd[i])
+			blkcg_policy[i]->pd_free_fn(blkg->pd[i]);
+
+	if (blkg->q)
+		blk_put_queue(blkg->q);
+	free_percpu(blkg->iostat_cpu);
+	percpu_ref_exit(&blkg->refcnt);
+	kfree(blkg);
+}
+
 /**
  * blkg_free - free a blkg
  * @blkg: blkg to free
@@ -73,18 +90,15 @@ static bool blkcg_policy_enabled(struct request_queue *q,
  */
 static void blkg_free(struct blkcg_gq *blkg)
 {
-	int i;
-
 	if (!blkg)
 		return;
 
-	for (i = 0; i < BLKCG_MAX_POLS; i++)
-		if (blkg->pd[i])
-			blkcg_policy[i]->pd_free_fn(blkg->pd[i]);
-
-	free_percpu(blkg->iostat_cpu);
-	percpu_ref_exit(&blkg->refcnt);
-	kfree(blkg);
+	/*
+	 * Both ->pd_free_fn() and request queue's release handler may
+	 * sleep, so free us by scheduling one work func
+	 */
+	INIT_WORK(&blkg->free_work, blkg_free_workfn);
+	schedule_work(&blkg->free_work);
 }
 
 static void __blkg_release(struct rcu_head *rcu)
@@ -165,6 +179,9 @@ static struct blkcg_gq *blkg_alloc(struct blkcg *blkcg, struct request_queue *q,
 
 	blkg->iostat_cpu = alloc_percpu_gfp(struct blkg_iostat_set, gfp_mask);
 	if (!blkg->iostat_cpu)
+		goto err_free;
+
+	if (!blk_get_queue(q))
 		goto err_free;
 
 	blkg->q = q;
@@ -621,7 +638,7 @@ struct block_device *blkcg_conf_open_bdev(char **inputp)
  */
 int blkg_conf_prep(struct blkcg *blkcg, const struct blkcg_policy *pol,
 		   char *input, struct blkg_conf_ctx *ctx)
-	__acquires(rcu) __acquires(&bdev->bd_disk->queue->queue_lock)
+	__acquires(rcu) __acquires(&bdev->bd_queue->queue_lock)
 {
 	struct block_device *bdev;
 	struct request_queue *q;
@@ -632,7 +649,7 @@ int blkg_conf_prep(struct blkcg *blkcg, const struct blkcg_policy *pol,
 	if (IS_ERR(bdev))
 		return PTR_ERR(bdev);
 
-	q = bdev->bd_disk->queue;
+	q = bdev_get_queue(bdev);
 
 	/*
 	 * blkcg_deactivate_policy() requires queue to be frozen, we can grab
@@ -640,7 +657,7 @@ int blkg_conf_prep(struct blkcg *blkcg, const struct blkcg_policy *pol,
 	 */
 	ret = blk_queue_enter(q, 0);
 	if (ret)
-		return ret;
+		goto fail;
 
 	rcu_read_lock();
 	spin_lock_irq(&q->queue_lock);
@@ -676,13 +693,13 @@ int blkg_conf_prep(struct blkcg *blkcg, const struct blkcg_policy *pol,
 		new_blkg = blkg_alloc(pos, q, GFP_KERNEL);
 		if (unlikely(!new_blkg)) {
 			ret = -ENOMEM;
-			goto fail;
+			goto fail_exit_queue;
 		}
 
 		if (radix_tree_preload(GFP_KERNEL)) {
 			blkg_free(new_blkg);
 			ret = -ENOMEM;
-			goto fail;
+			goto fail_exit_queue;
 		}
 
 		rcu_read_lock();
@@ -722,9 +739,10 @@ fail_preloaded:
 fail_unlock:
 	spin_unlock_irq(&q->queue_lock);
 	rcu_read_unlock();
+fail_exit_queue:
+	blk_queue_exit(q);
 fail:
 	blkdev_put_no_open(bdev);
-	blk_queue_exit(q);
 	/*
 	 * If queue was bypassing, we should retry.  Do so after a
 	 * short msleep().  It isn't strictly necessary but queue
@@ -747,9 +765,9 @@ EXPORT_SYMBOL_GPL(blkg_conf_prep);
  * with blkg_conf_prep().
  */
 void blkg_conf_finish(struct blkg_conf_ctx *ctx)
-	__releases(&ctx->bdev->bd_disk->queue->queue_lock) __releases(rcu)
+	__releases(&ctx->bdev->bd_queue->queue_lock) __releases(rcu)
 {
-	spin_unlock_irq(&ctx->bdev->bd_disk->queue->queue_lock);
+	spin_unlock_irq(&bdev_get_queue(ctx->bdev)->queue_lock);
 	rcu_read_unlock();
 	blkdev_put_no_open(ctx->bdev);
 }
@@ -852,7 +870,7 @@ static void blkcg_fill_root_iostats(void)
 	while ((dev = class_dev_iter_next(&iter))) {
 		struct block_device *bdev = dev_to_bdev(dev);
 		struct blkcg_gq *blkg =
-			blk_queue_root_blkg(bdev->bd_disk->queue);
+			blk_queue_root_blkg(bdev_get_queue(bdev));
 		struct blkg_iostat tmp;
 		int cpu;
 		unsigned long flags;
@@ -1173,6 +1191,8 @@ int blkcg_init_queue(struct request_queue *q)
 	struct blkcg_gq *new_blkg, *blkg;
 	bool preloaded;
 	int ret;
+
+	INIT_LIST_HEAD(&q->blkg_list);
 
 	new_blkg = blkg_alloc(&blkcg_root, q, GFP_KERNEL);
 	if (!new_blkg)
@@ -1811,7 +1831,7 @@ static inline struct blkcg_gq *blkg_tryget_closest(struct bio *bio,
 
 	rcu_read_lock();
 	blkg = blkg_lookup_create(css_to_blkcg(css),
-				  bio->bi_bdev->bd_disk->queue);
+				  bdev_get_queue(bio->bi_bdev));
 	while (blkg) {
 		if (blkg_tryget(blkg)) {
 			ret_blkg = blkg;
@@ -1847,8 +1867,8 @@ void bio_associate_blkg_from_css(struct bio *bio,
 	if (css && css->parent) {
 		bio->bi_blkg = blkg_tryget_closest(bio, css);
 	} else {
-		blkg_get(bio->bi_bdev->bd_disk->queue->root_blkg);
-		bio->bi_blkg = bio->bi_bdev->bd_disk->queue->root_blkg;
+		blkg_get(bdev_get_queue(bio->bi_bdev)->root_blkg);
+		bio->bi_blkg = bdev_get_queue(bio->bi_bdev)->root_blkg;
 	}
 }
 EXPORT_SYMBOL_GPL(bio_associate_blkg_from_css);

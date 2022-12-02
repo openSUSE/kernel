@@ -2,6 +2,8 @@
 /* Copyright (c) 2011-2014 PLUMgrid, http://plumgrid.com
  */
 #include <linux/bpf.h>
+#include <linux/btf.h>
+#include <linux/bpf-cgroup.h>
 #include <linux/rcupdate.h>
 #include <linux/random.h>
 #include <linux/smp.h>
@@ -15,6 +17,7 @@
 #include <linux/pid_namespace.h>
 #include <linux/proc_ns.h>
 #include <linux/security.h>
+#include <linux/btf_ids.h>
 
 #include "../../lib/kstrtox.h"
 
@@ -222,13 +225,8 @@ BPF_CALL_2(bpf_get_current_comm, char *, buf, u32, size)
 	if (unlikely(!task))
 		goto err_clear;
 
-	strncpy(buf, task->comm, size);
-
-	/* Verifier guarantees that size > 0. For task->comm exceeding
-	 * size, guarantee that buf is %NUL-terminated. Unconditionally
-	 * done here to save the size test.
-	 */
-	buf[size - 1] = 0;
+	/* Verifier guarantees that size > 0 */
+	strscpy(buf, task->comm, size);
 	return 0;
 err_clear:
 	memset(buf, 0, size);
@@ -565,6 +563,20 @@ const struct bpf_func_proto bpf_strtoul_proto = {
 };
 #endif
 
+BPF_CALL_3(bpf_strncmp, const char *, s1, u32, s1_sz, const char *, s2)
+{
+	return strncmp(s1, s2, s1_sz);
+}
+
+const struct bpf_func_proto bpf_strncmp_proto = {
+	.func		= bpf_strncmp,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_MEM,
+	.arg2_type	= ARG_CONST_SIZE,
+	.arg3_type	= ARG_PTR_TO_CONST_STR,
+};
+
 BPF_CALL_4(bpf_get_ns_current_pid_tgid, u64, dev, u64, ino,
 	   struct bpf_pidns_info *, nsdata, u32, size)
 {
@@ -654,6 +666,39 @@ const struct bpf_func_proto bpf_copy_from_user_proto = {
 	.arg1_type	= ARG_PTR_TO_UNINIT_MEM,
 	.arg2_type	= ARG_CONST_SIZE_OR_ZERO,
 	.arg3_type	= ARG_ANYTHING,
+};
+
+BPF_CALL_5(bpf_copy_from_user_task, void *, dst, u32, size,
+	   const void __user *, user_ptr, struct task_struct *, tsk, u64, flags)
+{
+	int ret;
+
+	/* flags is not used yet */
+	if (unlikely(flags))
+		return -EINVAL;
+
+	if (unlikely(!size))
+		return 0;
+
+	ret = access_process_vm(tsk, (unsigned long)user_ptr, dst, size, 0);
+	if (ret == size)
+		return 0;
+
+	memset(dst, 0, size);
+	/* Return -EFAULT for partial read */
+	return ret < 0 ? ret : -EFAULT;
+}
+
+const struct bpf_func_proto bpf_copy_from_user_task_proto = {
+	.func		= bpf_copy_from_user_task,
+	.gpl_only	= true,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_UNINIT_MEM,
+	.arg2_type	= ARG_CONST_SIZE_OR_ZERO,
+	.arg3_type	= ARG_ANYTHING,
+	.arg4_type	= ARG_PTR_TO_BTF_ID,
+	.arg4_btf_id	= &btf_tracing_ids[BTF_TRACING_TYPE_TASK],
+	.arg5_type	= ARG_ANYTHING
 };
 
 BPF_CALL_2(bpf_per_cpu_ptr, const void *, ptr, u32, cpu)
@@ -979,15 +1024,13 @@ out:
 	return err;
 }
 
-#define MAX_SNPRINTF_VARARGS		12
-
 BPF_CALL_5(bpf_snprintf, char *, str, u32, str_size, char *, fmt,
 	   const void *, data, u32, data_len)
 {
 	int err, num_args;
 	u32 *bin_args;
 
-	if (data_len % 8 || data_len > MAX_SNPRINTF_VARARGS * 8 ||
+	if (data_len % 8 || data_len > MAX_BPRINTF_VARARGS * 8 ||
 	    (data_len && !data))
 		return -EINVAL;
 	num_args = data_len / 8;
@@ -1045,7 +1088,7 @@ struct bpf_hrtimer {
 struct bpf_timer_kern {
 	struct bpf_hrtimer *timer;
 	/* bpf_spin_lock is used here instead of spinlock_t to make
-	 * sure that it always fits into space resereved by struct bpf_timer
+	 * sure that it always fits into space reserved by struct bpf_timer
 	 * regardless of LOCKDEP and spinlock debug flags.
 	 */
 	struct bpf_spin_lock lock;
@@ -1058,10 +1101,11 @@ static enum hrtimer_restart bpf_timer_cb(struct hrtimer *hrtimer)
 	struct bpf_hrtimer *t = container_of(hrtimer, struct bpf_hrtimer, timer);
 	struct bpf_map *map = t->map;
 	void *value = t->value;
-	void *callback_fn;
+	bpf_callback_t callback_fn;
 	void *key;
 	u32 idx;
 
+	BTF_TYPE_EMIT(struct bpf_timer);
 	callback_fn = rcu_dereference_check(t->callback_fn, rcu_read_lock_bh_held());
 	if (!callback_fn)
 		goto out;
@@ -1083,8 +1127,7 @@ static enum hrtimer_restart bpf_timer_cb(struct hrtimer *hrtimer)
 		key = value - round_up(map->key_size, 8);
 	}
 
-	BPF_CAST_CALL(callback_fn)((u64)(long)map, (u64)(long)key,
-				   (u64)(long)value, 0, 0);
+	callback_fn((u64)(long)map, (u64)(long)key, (u64)(long)value, 0, 0);
 	/* The verifier checked that return value is zero. */
 
 	this_cpu_write(hrtimer_running, NULL);
@@ -1367,8 +1410,6 @@ bpf_base_func_proto(enum bpf_func_id func_id)
 		return &bpf_ktime_get_ns_proto;
 	case BPF_FUNC_ktime_get_boot_ns:
 		return &bpf_ktime_get_boot_ns_proto;
-	case BPF_FUNC_ktime_get_coarse_ns:
-		return &bpf_ktime_get_coarse_ns_proto;
 	case BPF_FUNC_ringbuf_output:
 		return &bpf_ringbuf_output_proto;
 	case BPF_FUNC_ringbuf_reserve:
@@ -1381,6 +1422,10 @@ bpf_base_func_proto(enum bpf_func_id func_id)
 		return &bpf_ringbuf_query_proto;
 	case BPF_FUNC_for_each_map_elem:
 		return &bpf_for_each_map_elem_proto;
+	case BPF_FUNC_loop:
+		return &bpf_loop_proto;
+	case BPF_FUNC_strncmp:
+		return &bpf_strncmp_proto;
 	default:
 		break;
 	}
@@ -1437,6 +1482,8 @@ bpf_base_func_proto(enum bpf_func_id func_id)
 		return &bpf_snprintf_proto;
 	case BPF_FUNC_task_pt_regs:
 		return &bpf_task_pt_regs_proto;
+	case BPF_FUNC_trace_vprintk:
+		return bpf_get_trace_vprintk_proto();
 	default:
 		return NULL;
 	}

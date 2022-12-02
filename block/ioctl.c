@@ -82,31 +82,6 @@ static int compat_blkpg_ioctl(struct block_device *bdev,
 }
 #endif
 
-static int blkdev_reread_part(struct block_device *bdev, fmode_t mode)
-{
-	struct block_device *tmp;
-
-	if (!disk_part_scan_enabled(bdev->bd_disk) || bdev_is_partition(bdev))
-		return -EINVAL;
-	if (!capable(CAP_SYS_ADMIN))
-		return -EACCES;
-	if (bdev->bd_disk->open_partitions)
-		return -EBUSY;
-
-	/*
-	 * Reopen the device to revalidate the driver state and force a
-	 * partition rescan.
-	 */
-	mode &= ~FMODE_EXCL;
-	set_bit(GD_NEED_PART_SCAN, &bdev->bd_disk->state);
-
-	tmp = blkdev_get_by_dev(bdev->bd_dev, mode, NULL);
-	if (IS_ERR(tmp))
-		return PTR_ERR(tmp);
-	blkdev_put(tmp, mode);
-	return 0;
-}
-
 static int blk_ioctl_discard(struct block_device *bdev, fmode_t mode,
 		unsigned long arg, unsigned long flags)
 {
@@ -133,7 +108,7 @@ static int blk_ioctl_discard(struct block_device *bdev, fmode_t mode,
 	if (len & 511)
 		return -EINVAL;
 
-	if (start + len > i_size_read(bdev->bd_inode))
+	if (start + len > bdev_nr_bytes(bdev))
 		return -EINVAL;
 
 	filemap_invalidate_lock(inode->i_mapping);
@@ -171,7 +146,7 @@ static int blk_ioctl_zeroout(struct block_device *bdev, fmode_t mode,
 		return -EINVAL;
 	if (len & 511)
 		return -EINVAL;
-	if (end >= (uint64_t)i_size_read(bdev->bd_inode))
+	if (end >= (uint64_t)bdev_nr_bytes(bdev))
 		return -EINVAL;
 	if (end < start)
 		return -EINVAL;
@@ -522,7 +497,11 @@ static int blkdev_common_ioctl(struct block_device *bdev, fmode_t mode,
 		bdev->bd_disk->bdi->ra_pages = (arg * 512) / PAGE_SIZE;
 		return 0;
 	case BLKRRPART:
-		return blkdev_reread_part(bdev, mode);
+		if (!capable(CAP_SYS_ADMIN))
+			return -EACCES;
+		if (bdev_is_partition(bdev))
+			return -EINVAL;
+		return disk_scan_partitions(bdev->bd_disk, mode & ~FMODE_EXCL);
 	case BLKTRACESTART:
 	case BLKTRACESTOP:
 	case BLKTRACETEARDOWN:
@@ -555,7 +534,6 @@ long blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	struct block_device *bdev = I_BDEV(file->f_mapping->host);
 	void __user *argp = (void __user *)arg;
 	fmode_t mode = file->f_mode;
-	loff_t size;
 	int ret;
 
 	/*
@@ -582,10 +560,9 @@ long blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 		return put_long(argp,
 			(bdev->bd_disk->bdi->ra_pages * PAGE_SIZE) / 512);
 	case BLKGETSIZE:
-		size = i_size_read(bdev->bd_inode);
-		if ((size >> 9) > ~0UL)
+		if (bdev_nr_sectors(bdev) > ~0UL)
 			return -EFBIG;
-		return put_ulong(argp, size >> 9);
+		return put_ulong(argp, bdev_nr_sectors(bdev));
 
 	/* The data is compatible, but the command number is different */
 	case BLKBSZGET: /* get block device soft block size (cf. BLKSSZGET) */
@@ -593,7 +570,7 @@ long blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	case BLKBSZSET:
 		return blkdev_bszset(bdev, mode, argp);
 	case BLKGETSIZE64:
-		return put_u64(argp, i_size_read(bdev->bd_inode));
+		return put_u64(argp, bdev_nr_bytes(bdev));
 
 	/* Incompatible alignment on i386 */
 	case BLKTRACESETUP:
@@ -627,7 +604,6 @@ long compat_blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	struct block_device *bdev = I_BDEV(file->f_mapping->host);
 	struct gendisk *disk = bdev->bd_disk;
 	fmode_t mode = file->f_mode;
-	loff_t size;
 
 	/*
 	 * O_NDELAY can be altered using fcntl(.., F_SETFL, ..), so we have
@@ -653,10 +629,9 @@ long compat_blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 		return compat_put_long(argp,
 			(bdev->bd_disk->bdi->ra_pages * PAGE_SIZE) / 512);
 	case BLKGETSIZE:
-		size = i_size_read(bdev->bd_inode);
-		if ((size >> 9) > ~0UL)
+		if (bdev_nr_sectors(bdev) > ~(compat_ulong_t)0)
 			return -EFBIG;
-		return compat_put_ulong(argp, size >> 9);
+		return compat_put_ulong(argp, bdev_nr_sectors(bdev));
 
 	/* The data is compatible, but the command number is different */
 	case BLKBSZGET_32: /* get the logical block size (cf. BLKSSZGET) */
@@ -664,7 +639,7 @@ long compat_blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	case BLKBSZSET_32:
 		return blkdev_bszset(bdev, mode, argp);
 	case BLKGETSIZE64_32:
-		return put_u64(argp, i_size_read(bdev->bd_inode));
+		return put_u64(argp, bdev_nr_bytes(bdev));
 
 	/* Incompatible alignment on i386 */
 	case BLKTRACESETUP32:

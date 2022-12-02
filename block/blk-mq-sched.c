@@ -18,36 +18,6 @@
 #include "blk-mq-tag.h"
 #include "blk-wbt.h"
 
-struct io_cq *blk_mq_sched_get_icq(struct request_queue *q)
-{
-	struct io_context *ioc;
-	struct io_cq *icq;
-
-	/* May not have an IO context if context creation failed */
-	ioc = current->io_context;
-	if (!ioc)
-		return NULL;
-
-	spin_lock_irq(&q->queue_lock);
-	icq = ioc_lookup_icq(ioc, q);
-	spin_unlock_irq(&q->queue_lock);
-	if (icq)
-		return icq;
-	return ioc_create_icq(ioc, q, GFP_ATOMIC);
-}
-EXPORT_SYMBOL(blk_mq_sched_get_icq);
-
-void blk_mq_sched_assign_ioc(struct request *rq)
-{
-	struct io_cq *icq;
-
-	icq = blk_mq_sched_get_icq(rq->q);
-	if (!icq)
-		return;
-	get_io_context(icq->ioc);
-	rq->elv.icq = icq;
-}
-
 /*
  * Mark a hardware queue as needing a restart. For shared queues, maintain
  * a count of how many hardware queues are marked for restart.
@@ -372,7 +342,7 @@ void blk_mq_sched_dispatch_requests(struct blk_mq_hw_ctx *hctx)
 	}
 }
 
-bool __blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
+bool blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
 		unsigned int nr_segs)
 {
 	struct elevator_queue *e = q->elevator;
@@ -381,15 +351,17 @@ bool __blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
 	bool ret = false;
 	enum hctx_type type;
 
-	if (e && e->type->ops.bio_merge)
-		return e->type->ops.bio_merge(q, bio, nr_segs);
+	if (e && e->type->ops.bio_merge) {
+		ret = e->type->ops.bio_merge(q, bio, nr_segs);
+		goto out_put;
+	}
 
 	ctx = blk_mq_get_ctx(q);
 	hctx = blk_mq_map_queue(q, bio->bi_opf, ctx);
 	type = hctx->type;
 	if (!(hctx->flags & BLK_MQ_F_SHOULD_MERGE) ||
 	    list_empty_careful(&ctx->rq_lists[type]))
-		return false;
+		goto out_put;
 
 	/* default per sw-queue merge */
 	spin_lock(&ctx->lock);
@@ -398,13 +370,11 @@ bool __blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio,
 	 * potentially merge with. Currently includes a hand-wavy stop
 	 * count of 8, to not spend too much time checking for merges.
 	 */
-	if (blk_bio_list_merge(q, &ctx->rq_lists[type], bio, nr_segs)) {
-		ctx->rq_merged++;
+	if (blk_bio_list_merge(q, &ctx->rq_lists[type], bio, nr_segs))
 		ret = true;
-	}
 
 	spin_unlock(&ctx->lock);
-
+out_put:
 	return ret;
 }
 
@@ -511,8 +481,9 @@ void blk_mq_sched_insert_requests(struct blk_mq_hw_ctx *hctx,
 		 * busy in case of 'none' scheduler, and this way may save
 		 * us one extra enqueue & dequeue to sw queue.
 		 */
-		if (!hctx->dispatch_busy && !e && !run_queue_async) {
-			blk_mq_try_issue_list_directly(hctx, list);
+		if (!hctx->dispatch_busy && !run_queue_async) {
+			blk_mq_run_dispatch_ops(hctx->queue,
+				blk_mq_try_issue_list_directly(hctx, list));
 			if (list_empty(list))
 				goto out;
 		}
@@ -551,11 +522,11 @@ static void blk_mq_exit_sched_shared_tags(struct request_queue *queue)
 static void blk_mq_sched_tags_teardown(struct request_queue *q, unsigned int flags)
 {
 	struct blk_mq_hw_ctx *hctx;
-	int i;
+	unsigned long i;
 
 	queue_for_each_hw_ctx(q, hctx, i) {
 		if (hctx->sched_tags) {
-			if (!blk_mq_is_shared_tags(q->tag_set->flags))
+			if (!blk_mq_is_shared_tags(flags))
 				blk_mq_free_rq_map(hctx->sched_tags);
 			hctx->sched_tags = NULL;
 		}
@@ -586,9 +557,10 @@ static int blk_mq_init_sched_shared_tags(struct request_queue *queue)
 
 int blk_mq_init_sched(struct request_queue *q, struct elevator_type *e)
 {
-	unsigned int i, flags = q->tag_set->flags;
+	unsigned int flags = q->tag_set->flags;
 	struct blk_mq_hw_ctx *hctx;
 	struct elevator_queue *eq;
+	unsigned long i;
 	int ret;
 
 	if (!e) {
@@ -654,7 +626,7 @@ err_free_map_and_rqs:
 void blk_mq_sched_free_rqs(struct request_queue *q)
 {
 	struct blk_mq_hw_ctx *hctx;
-	int i;
+	unsigned long i;
 
 	if (blk_mq_is_shared_tags(q->tag_set->flags)) {
 		blk_mq_free_rqs(q->tag_set, q->sched_shared_tags,
@@ -671,7 +643,7 @@ void blk_mq_sched_free_rqs(struct request_queue *q)
 void blk_mq_exit_sched(struct request_queue *q, struct elevator_queue *e)
 {
 	struct blk_mq_hw_ctx *hctx;
-	unsigned int i;
+	unsigned long i;
 	unsigned int flags = 0;
 
 	queue_for_each_hw_ctx(q, hctx, i) {

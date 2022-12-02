@@ -1460,8 +1460,7 @@ static int floppy_revalidate(struct gendisk *disk)
 	unsigned int drive = p - unit;
 
 	if (test_bit(drive, &changed_floppies) ||
-	    test_bit(drive, &fake_change) ||
-	    p->disktype == 0) {
+	    test_bit(drive, &fake_change) || !p->disktype) {
 		if (UD.flags & FTD_MSG)
 			printk(KERN_ERR "floppy: clear format %p!\n", UDT);
 		BufferDrive = -1;
@@ -1503,7 +1502,7 @@ static void setup_req_params( int drive )
 static blk_status_t ataflop_queue_rq(struct blk_mq_hw_ctx *hctx,
 				     const struct blk_mq_queue_data *bd)
 {
-	struct atari_floppy_struct *floppy = bd->rq->rq_disk->private_data;
+	struct atari_floppy_struct *floppy = bd->rq->q->disk->private_data;
 	int drive = floppy - unit;
 	int type = floppy->type;
 
@@ -1539,7 +1538,7 @@ static blk_status_t ataflop_queue_rq(struct blk_mq_hw_ctx *hctx,
 		if (!UDT) {
 			Probing = 1;
 			UDT = atari_disk_type + StartDiskType[DriveType];
-			set_capacity(bd->rq->rq_disk, UDT->blocks);
+			set_capacity(bd->rq->q->disk, UDT->blocks);
 			UD.autoprobe = 1;
 		}
 	} 
@@ -1559,7 +1558,7 @@ static blk_status_t ataflop_queue_rq(struct blk_mq_hw_ctx *hctx,
 		}
 		type = minor2disktype[type].index;
 		UDT = &atari_disk_type[type];
-		set_capacity(bd->rq->rq_disk, UDT->blocks);
+		set_capacity(bd->rq->q->disk, UDT->blocks);
 		UD.autoprobe = 0;
 	}
 
@@ -2001,6 +2000,7 @@ static int ataflop_alloc_disk(unsigned int drive, unsigned int type)
 	disk->minors = 1;
 	sprintf(disk->disk_name, "fd%d", drive);
 	disk->fops = &floppy_fops;
+	disk->flags |= GENHD_FL_NO_PART;
 	disk->events = DISK_EVENT_MEDIA_CHANGE;
 	disk->private_data = &unit[drive];
 	set_capacity(disk, MAX_DISK_SIZE * 2);
@@ -2019,12 +2019,18 @@ static void ataflop_probe(dev_t dev)
 
 	if (drive >= FD_MAX_UNITS || type >= NUM_DISK_MINORS)
 		return;
-	if (!unit[drive].disk[type]) {
-		if (ataflop_alloc_disk(drive, type) == 0) {
-			add_disk(unit[drive].disk[type]);
-			unit[drive].registered[type] = true;
-		}
-	}
+	if (unit[drive].disk[type])
+		return;
+	if (ataflop_alloc_disk(drive, type))
+		return;
+	if (add_disk(unit[drive].disk[type]))
+		goto cleanup_disk;
+	unit[drive].registered[type] = true;
+	return;
+
+cleanup_disk:
+	blk_cleanup_disk(unit[drive].disk[type]);
+	unit[drive].disk[type] = NULL;
 }
 
 static void atari_floppy_cleanup(void)
@@ -2114,7 +2120,9 @@ static int __init atari_floppy_init (void)
 	for (i = 0; i < FD_MAX_UNITS; i++) {
 		unit[i].track = -1;
 		unit[i].flags = 0;
-		add_disk(unit[i].disk[0]);
+		ret = add_disk(unit[i].disk[0]);
+		if (ret)
+			goto err_out_dma;
 		unit[i].registered[0] = true;
 	}
 
@@ -2130,6 +2138,8 @@ static int __init atari_floppy_init (void)
 	}
 	return ret;
 
+err_out_dma:
+	atari_stram_free(DMABuffer);
 err:
 	while (--i >= 0)
 		atari_cleanup_floppy_disk(&unit[i]);

@@ -82,7 +82,6 @@ static int rnbd_clt_set_dev_attr(struct rnbd_clt_dev *dev,
 	dev->nsectors		    = le64_to_cpu(rsp->nsectors);
 	dev->logical_block_size	    = le16_to_cpu(rsp->logical_block_size);
 	dev->physical_block_size    = le16_to_cpu(rsp->physical_block_size);
-	dev->max_write_same_sectors = le32_to_cpu(rsp->max_write_same_sectors);
 	dev->max_discard_sectors    = le32_to_cpu(rsp->max_discard_sectors);
 	dev->discard_granularity    = le32_to_cpu(rsp->discard_granularity);
 	dev->discard_alignment	    = le32_to_cpu(rsp->discard_alignment);
@@ -393,7 +392,7 @@ static void rnbd_put_iu(struct rnbd_clt_session *sess, struct rnbd_iu *iu)
 
 static void rnbd_softirq_done_fn(struct request *rq)
 {
-	struct rnbd_clt_dev *dev	= rq->rq_disk->private_data;
+	struct rnbd_clt_dev *dev	= rq->q->disk->private_data;
 	struct rnbd_clt_session *sess	= dev->sess;
 	struct rnbd_iu *iu;
 
@@ -1133,7 +1132,7 @@ static blk_status_t rnbd_queue_rq(struct blk_mq_hw_ctx *hctx,
 				   const struct blk_mq_queue_data *bd)
 {
 	struct request *rq = bd->rq;
-	struct rnbd_clt_dev *dev = rq->rq_disk->private_data;
+	struct rnbd_clt_dev *dev = rq->q->disk->private_data;
 	struct rnbd_iu *iu = blk_mq_rq_to_pdu(rq);
 	int err;
 	blk_status_t ret = BLK_STS_IOERR;
@@ -1176,7 +1175,7 @@ static blk_status_t rnbd_queue_rq(struct blk_mq_hw_ctx *hctx,
 	return ret;
 }
 
-static int rnbd_rdma_poll(struct blk_mq_hw_ctx *hctx)
+static int rnbd_rdma_poll(struct blk_mq_hw_ctx *hctx, struct io_comp_batch *iob)
 {
 	struct rnbd_queue *q = hctx->driver_data;
 	struct rnbd_clt_dev *dev = q->dev;
@@ -1343,7 +1342,7 @@ static inline void rnbd_init_hw_queue(struct rnbd_clt_dev *dev,
 
 static void rnbd_init_mq_hw_queues(struct rnbd_clt_dev *dev)
 {
-	int i;
+	unsigned long i;
 	struct blk_mq_hw_ctx *hctx;
 	struct rnbd_queue *q;
 
@@ -1359,8 +1358,6 @@ static void setup_request_queue(struct rnbd_clt_dev *dev)
 	blk_queue_logical_block_size(dev->queue, dev->logical_block_size);
 	blk_queue_physical_block_size(dev->queue, dev->physical_block_size);
 	blk_queue_max_hw_sectors(dev->queue, dev->max_hw_sectors);
-	blk_queue_max_write_same_sectors(dev->queue,
-					 dev->max_write_same_sectors);
 
 	/*
 	 * we don't support discards to "discontiguous" segments
@@ -1384,8 +1381,10 @@ static void setup_request_queue(struct rnbd_clt_dev *dev)
 	blk_queue_write_cache(dev->queue, dev->wc, dev->fua);
 }
 
-static void rnbd_clt_setup_gen_disk(struct rnbd_clt_dev *dev, int idx)
+static int rnbd_clt_setup_gen_disk(struct rnbd_clt_dev *dev, int idx)
 {
+	int err;
+
 	dev->gd->major		= rnbd_client_major;
 	dev->gd->first_minor	= idx << RNBD_PART_BITS;
 	dev->gd->minors		= 1 << RNBD_PART_BITS;
@@ -1410,7 +1409,11 @@ static void rnbd_clt_setup_gen_disk(struct rnbd_clt_dev *dev, int idx)
 
 	if (!dev->rotational)
 		blk_queue_flag_set(QUEUE_FLAG_NONROT, dev->queue);
-	add_disk(dev->gd);
+	err = add_disk(dev->gd);
+	if (err)
+		blk_cleanup_disk(dev->gd);
+
+	return err;
 }
 
 static int rnbd_client_setup_device(struct rnbd_clt_dev *dev)
@@ -1426,8 +1429,7 @@ static int rnbd_client_setup_device(struct rnbd_clt_dev *dev)
 	rnbd_init_mq_hw_queues(dev);
 
 	setup_request_queue(dev);
-	rnbd_clt_setup_gen_disk(dev, idx);
-	return 0;
+	return rnbd_clt_setup_gen_disk(dev, idx);
 }
 
 static struct rnbd_clt_dev *init_dev(struct rnbd_clt_session *sess,
@@ -1605,10 +1607,10 @@ struct rnbd_clt_dev *rnbd_clt_map_device(const char *sessname,
 	}
 
 	rnbd_clt_info(dev,
-		       "map_device: Device mapped as %s (nsectors: %zu, logical_block_size: %d, physical_block_size: %d, max_write_same_sectors: %d, max_discard_sectors: %d, discard_granularity: %d, discard_alignment: %d, secure_discard: %d, max_segments: %d, max_hw_sectors: %d, rotational: %d, wc: %d, fua: %d)\n",
+		       "map_device: Device mapped as %s (nsectors: %zu, logical_block_size: %d, physical_block_size: %d, max_discard_sectors: %d, discard_granularity: %d, discard_alignment: %d, secure_discard: %d, max_segments: %d, max_hw_sectors: %d, rotational: %d, wc: %d, fua: %d)\n",
 		       dev->gd->disk_name, dev->nsectors,
 		       dev->logical_block_size, dev->physical_block_size,
-		       dev->max_write_same_sectors, dev->max_discard_sectors,
+		       dev->max_discard_sectors,
 		       dev->discard_granularity, dev->discard_alignment,
 		       dev->secure_discard, dev->max_segments,
 		       dev->max_hw_sectors, dev->rotational, dev->wc, dev->fua);

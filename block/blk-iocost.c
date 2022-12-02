@@ -178,12 +178,12 @@
 #include <linux/time64.h>
 #include <linux/parser.h>
 #include <linux/sched/signal.h>
-#include <linux/blk-cgroup.h>
 #include <asm/local.h>
 #include <asm/local64.h>
 #include "blk-rq-qos.h"
 #include "blk-stat.h"
 #include "blk-wbt.h"
+#include "blk-cgroup.h"
 
 #ifdef CONFIG_TRACEPOINTS
 
@@ -3182,12 +3182,12 @@ static ssize_t ioc_qos_write(struct kernfs_open_file *of, char *input,
 	if (IS_ERR(bdev))
 		return PTR_ERR(bdev);
 
-	ioc = q_to_ioc(bdev->bd_disk->queue);
+	ioc = q_to_ioc(bdev_get_queue(bdev));
 	if (!ioc) {
-		ret = blk_iocost_init(bdev->bd_disk->queue);
+		ret = blk_iocost_init(bdev_get_queue(bdev));
 		if (ret)
 			goto err;
-		ioc = q_to_ioc(bdev->bd_disk->queue);
+		ioc = q_to_ioc(bdev_get_queue(bdev));
 	}
 
 	spin_lock_irq(&ioc->lock);
@@ -3349,12 +3349,12 @@ static ssize_t ioc_cost_model_write(struct kernfs_open_file *of, char *input,
 	if (IS_ERR(bdev))
 		return PTR_ERR(bdev);
 
-	ioc = q_to_ioc(bdev->bd_disk->queue);
+	ioc = q_to_ioc(bdev_get_queue(bdev));
 	if (!ioc) {
-		ret = blk_iocost_init(bdev->bd_disk->queue);
+		ret = blk_iocost_init(bdev_get_queue(bdev));
 		if (ret)
 			goto err;
-		ioc = q_to_ioc(bdev->bd_disk->queue);
+		ioc = q_to_ioc(bdev_get_queue(bdev));
 	}
 
 	spin_lock_irq(&ioc->lock);

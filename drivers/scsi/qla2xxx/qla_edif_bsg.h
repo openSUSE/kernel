@@ -121,7 +121,7 @@ struct app_pinfo_reply {
 	uint8_t		version;
 	uint8_t		pad[VND_CMD_PAD_SIZE];
 	uint8_t		reserved[VND_CMD_APP_RESERVED_SIZE];
-	struct app_pinfo ports[0];
+	struct app_pinfo ports[];
 } __packed;
 
 struct app_sinfo_req {
@@ -145,7 +145,7 @@ struct app_stats_reply {
 	uint8_t		version;
 	uint8_t		pad[VND_CMD_PAD_SIZE];
 	uint8_t		reserved[VND_CMD_APP_RESERVED_SIZE];
-	struct app_sinfo elem[0];
+	struct app_sinfo elem[];
 } __packed;
 
 struct qla_sa_update_frame {

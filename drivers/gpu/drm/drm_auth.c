@@ -52,7 +52,7 @@
  *
  * In addition only one &drm_master can be the current master for a &drm_device.
  * It can be switched through the DROP_MASTER and SET_MASTER IOCTL, or
- * implicitly through closing/openeing the primary device node. See also
+ * implicitly through closing/opening the primary device node. See also
  * drm_is_current_master().
  *
  * Clients can authenticate against the current master (if it matches their own)
@@ -63,9 +63,9 @@
 
 static bool drm_is_current_master_locked(struct drm_file *fpriv)
 {
-	/* Either drm_device.master_mutex or drm_file.master_lookup_lock
-	 * should be held here.
-	 */
+	lockdep_assert_once(lockdep_is_held(&fpriv->master_lookup_lock) ||
+			    lockdep_is_held(&fpriv->minor->dev->master_mutex));
+
 	return fpriv->is_master && drm_lease_owner(fpriv->master) == fpriv->minor->dev->master;
 }
 

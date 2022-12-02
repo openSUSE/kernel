@@ -201,13 +201,12 @@ submit_bio_retry:
 			nblocks = DIV_ROUND_UP(map.m_plen, PAGE_SIZE);
 
 		*eblks = bio_max_segs(nblocks);
-		bio = bio_alloc(GFP_NOIO, *eblks);
+		bio = bio_alloc(sb->s_bdev, *eblks, GFP_NOIO,
+				REQ_OP_READ | (ra ? REQ_RAHEAD : 0));
 
 		bio->bi_end_io = erofs_readendio;
-		bio_set_dev(bio, sb->s_bdev);
 		bio->bi_iter.bi_sector = (sector_t)blknr <<
 			LOG_SECTORS_PER_BLOCK;
-		bio->bi_opf = REQ_OP_READ | (ra ? REQ_RAHEAD : 0);
 	}
 
 	err = bio_add_page(bio, page, PAGE_SIZE, 0);

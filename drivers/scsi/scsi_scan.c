@@ -280,7 +280,6 @@ static struct scsi_device *scsi_alloc_sdev(struct scsi_target *starget,
 	sdev->request_queue = q;
 	q->queuedata = sdev;
 	__scsi_init_queue(sdev->host, q);
-	blk_queue_flag_set(QUEUE_FLAG_SCSI_PASSTHROUGH, q);
 	WARN_ON_ONCE(!blk_get_queue(q));
 
 	depth = sdev->host->cmd_per_lun ?: 1;
@@ -638,6 +637,18 @@ static int scsi_probe_lun(struct scsi_device *sdev, unsigned char *inq_result,
 				    (sshdr.ascq == 0))
 					continue;
 			}
+			/*
+			 * The retry count 3 in scsi_execute_req() above has no
+			 * effect, because the mid layer doesn't retry
+			 * REQ_OP_SCSI commands, relying on callers.
+			 * So retry here.
+			 */
+			if (host_byte(result) == DID_TIME_OUT) {
+				SCSI_LOG_SCAN_BUS(3, sdev_printk(KERN_INFO, sdev,
+								 "scsi scan: retry after timeout\n"));
+				continue;
+			}
+
 		} else if (result == 0) {
 			/*
 			 * if nothing was transferred, we try

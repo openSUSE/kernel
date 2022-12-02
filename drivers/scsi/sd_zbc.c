@@ -244,7 +244,7 @@ out:
 static blk_status_t sd_zbc_cmnd_checks(struct scsi_cmnd *cmd)
 {
 	struct request *rq = scsi_cmd_to_rq(cmd);
-	struct scsi_disk *sdkp = scsi_disk(rq->rq_disk);
+	struct scsi_disk *sdkp = scsi_disk(rq->q->disk);
 	sector_t sector = blk_rq_pos(rq);
 
 	if (!sd_is_zoned(sdkp))
@@ -322,7 +322,7 @@ blk_status_t sd_zbc_prepare_zone_append(struct scsi_cmnd *cmd, sector_t *lba,
 					unsigned int nr_blocks)
 {
 	struct request *rq = scsi_cmd_to_rq(cmd);
-	struct scsi_disk *sdkp = scsi_disk(rq->rq_disk);
+	struct scsi_disk *sdkp = scsi_disk(rq->q->disk);
 	unsigned int wp_offset, zno = blk_rq_zone_no(rq);
 	unsigned long flags;
 	blk_status_t ret;
@@ -388,7 +388,7 @@ blk_status_t sd_zbc_setup_zone_mgmt_cmnd(struct scsi_cmnd *cmd,
 {
 	struct request *rq = scsi_cmd_to_rq(cmd);
 	sector_t sector = blk_rq_pos(rq);
-	struct scsi_disk *sdkp = scsi_disk(rq->rq_disk);
+	struct scsi_disk *sdkp = scsi_disk(rq->q->disk);
 	sector_t block = sectors_to_logical(sdkp->device, sector);
 	blk_status_t ret;
 
@@ -423,7 +423,6 @@ static bool sd_zbc_need_zone_wp_update(struct request *rq)
 		return true;
 	case REQ_OP_WRITE:
 	case REQ_OP_WRITE_ZEROES:
-	case REQ_OP_WRITE_SAME:
 		return blk_rq_zone_is_seq(rq);
 	default:
 		return false;
@@ -443,7 +442,7 @@ static unsigned int sd_zbc_zone_wp_update(struct scsi_cmnd *cmd,
 {
 	int result = cmd->result;
 	struct request *rq = scsi_cmd_to_rq(cmd);
-	struct scsi_disk *sdkp = scsi_disk(rq->rq_disk);
+	struct scsi_disk *sdkp = scsi_disk(rq->q->disk);
 	unsigned int zno = blk_rq_zone_no(rq);
 	enum req_opf op = req_op(rq);
 	unsigned long flags;
@@ -477,7 +476,6 @@ static unsigned int sd_zbc_zone_wp_update(struct scsi_cmnd *cmd,
 		rq->__sector += sdkp->zones_wp_offset[zno];
 		fallthrough;
 	case REQ_OP_WRITE_ZEROES:
-	case REQ_OP_WRITE_SAME:
 	case REQ_OP_WRITE:
 		if (sdkp->zones_wp_offset[zno] < sd_zbc_zone_sectors(sdkp))
 			sdkp->zones_wp_offset[zno] +=

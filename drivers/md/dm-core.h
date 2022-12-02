@@ -11,9 +11,8 @@
 
 #include <linux/kthread.h>
 #include <linux/ktime.h>
-#include <linux/genhd.h>
 #include <linux/blk-mq.h>
-#include <linux/keyslot-manager.h>
+#include <linux/blk-crypto-profile.h>
 
 #include <trace/events/block.h>
 
@@ -64,6 +63,8 @@ struct mapped_device {
 	char name[16];
 	struct gendisk *disk;
 	struct dax_device *dax_dev;
+
+	unsigned long __percpu *pending_io;
 
 	/*
 	 * A list of ios that arrived while we were suspended.
@@ -141,7 +142,6 @@ struct mapped_device {
 #define DMF_EMULATE_ZONE_APPEND 9
 
 void disable_discard(struct mapped_device *md);
-void disable_write_same(struct mapped_device *md);
 void disable_write_zeroes(struct mapped_device *md);
 
 static inline sector_t dm_get_size(struct mapped_device *md)
@@ -200,7 +200,7 @@ struct dm_table {
 	struct dm_md_mempools *mempools;
 
 #ifdef CONFIG_BLK_INLINE_ENCRYPTION
-	struct blk_keyslot_manager *ksm;
+	struct blk_crypto_profile *crypto_profile;
 #endif
 };
 

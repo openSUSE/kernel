@@ -2,15 +2,10 @@
 #ifndef BLK_INTERNAL_H
 #define BLK_INTERNAL_H
 
-#include <linux/idr.h>
-#include <linux/blk-mq.h>
-#include <linux/part_stat.h>
 #include <linux/blk-crypto.h>
 #include <linux/memblock.h>	/* for max_pfn/max_low_pfn */
 #include <xen/xen.h>
 #include "blk-crypto-internal.h"
-#include "blk-mq.h"
-#include "blk-mq-sched.h"
 
 struct elevator_type;
 
@@ -32,14 +27,9 @@ struct blk_flush_queue {
 };
 
 extern struct kmem_cache *blk_requestq_cachep;
+extern struct kmem_cache *blk_requestq_srcu_cachep;
 extern struct kobj_type blk_queue_ktype;
 extern struct ida blk_queue_ida;
-
-static inline struct blk_flush_queue *
-blk_get_flush_queue(struct request_queue *q, struct blk_mq_ctx *ctx)
-{
-	return blk_mq_map_queue(q, REQ_OP_FLUSH, ctx)->fq;
-}
 
 static inline void __blk_get_queue(struct request_queue *q)
 {
@@ -55,6 +45,41 @@ void blk_free_flush_queue(struct blk_flush_queue *q);
 void blk_freeze_queue(struct request_queue *q);
 void __blk_mq_unfreeze_queue(struct request_queue *q, bool force_atomic);
 void blk_queue_start_drain(struct request_queue *q);
+int __bio_queue_enter(struct request_queue *q, struct bio *bio);
+void submit_bio_noacct_nocheck(struct bio *bio);
+
+static inline bool blk_try_enter_queue(struct request_queue *q, bool pm)
+{
+	rcu_read_lock();
+	if (!percpu_ref_tryget_live_rcu(&q->q_usage_counter))
+		goto fail;
+
+	/*
+	 * The code that increments the pm_only counter must ensure that the
+	 * counter is globally visible before the queue is unfrozen.
+	 */
+	if (blk_queue_pm_only(q) &&
+	    (!pm || queue_rpm_status(q) == RPM_SUSPENDED))
+		goto fail_put;
+
+	rcu_read_unlock();
+	return true;
+
+fail_put:
+	blk_queue_exit(q);
+fail:
+	rcu_read_unlock();
+	return false;
+}
+
+static inline int bio_queue_enter(struct bio *bio)
+{
+	struct request_queue *q = bdev_get_queue(bio->bi_bdev);
+
+	if (blk_try_enter_queue(q, false))
+		return 0;
+	return __bio_queue_enter(q, bio);
+}
 
 #define BIO_INLINE_VECS 4
 struct bio_vec *bvec_alloc(mempool_t *pool, unsigned short *nr_vecs,
@@ -215,14 +240,12 @@ static inline void blk_integrity_del(struct gendisk *disk)
 
 unsigned long blk_rq_timeout(unsigned long timeout);
 void blk_add_timer(struct request *req);
+const char *blk_status_to_str(blk_status_t status);
 
 bool blk_attempt_plug_merge(struct request_queue *q, struct bio *bio,
-		unsigned int nr_segs, struct request **same_queue_rq);
+		unsigned int nr_segs);
 bool blk_bio_list_merge(struct request_queue *q, struct list_head *list,
 			struct bio *bio, unsigned int nr_segs);
-
-void __blk_account_io_start(struct request *req);
-void __blk_account_io_done(struct request *req, u64 now);
 
 /*
  * Plug flush limits
@@ -239,18 +262,9 @@ void blk_insert_flush(struct request *rq);
 
 int elevator_switch_mq(struct request_queue *q,
 			      struct elevator_type *new_e);
-void __elevator_exit(struct request_queue *, struct elevator_queue *);
+void elevator_exit(struct request_queue *q);
 int elv_register_queue(struct request_queue *q, bool uevent);
 void elv_unregister_queue(struct request_queue *q);
-
-static inline void elevator_exit(struct request_queue *q,
-		struct elevator_queue *e)
-{
-	lockdep_assert_held(&q->sysfs_lock);
-
-	blk_mq_sched_free_rqs(q);
-	__elevator_exit(q, e);
-}
 
 ssize_t part_size_show(struct device *dev, struct device_attribute *attr,
 		char *buf);
@@ -266,7 +280,31 @@ ssize_t part_timeout_show(struct device *, struct device_attribute *, char *);
 ssize_t part_timeout_store(struct device *, struct device_attribute *,
 				const char *, size_t);
 
-void __blk_queue_split(struct bio **bio, unsigned int *nr_segs);
+static inline bool blk_may_split(struct request_queue *q, struct bio *bio)
+{
+	switch (bio_op(bio)) {
+	case REQ_OP_DISCARD:
+	case REQ_OP_SECURE_ERASE:
+	case REQ_OP_WRITE_ZEROES:
+		return true; /* non-trivial splitting decisions */
+	default:
+		break;
+	}
+
+	/*
+	 * All drivers must accept single-segments bios that are <= PAGE_SIZE.
+	 * This is a quick and dirty check that relies on the fact that
+	 * bi_io_vec[0] is always valid if a bio has data.  The check might
+	 * lead to occasional false negatives when bios are cloned, but compared
+	 * to the performance impact of cloned bios themselves the loop below
+	 * doesn't matter anyway.
+	 */
+	return q->limits.chunk_sectors || bio->bi_vcnt != 1 ||
+		bio->bi_io_vec->bv_len + bio->bi_io_vec->bv_offset > PAGE_SIZE;
+}
+
+void __blk_queue_split(struct request_queue *q, struct bio **bio,
+			unsigned int *nr_segs);
 int ll_back_merge_fn(struct request *req, struct bio *bio,
 		unsigned int nr_segs);
 bool blk_attempt_req_merge(struct request_queue *q, struct request *rq,
@@ -286,25 +324,7 @@ int blk_dev_init(void);
  */
 static inline bool blk_do_io_stat(struct request *rq)
 {
-	return (rq->rq_flags & RQF_IO_STAT) && rq->rq_disk;
-}
-
-static inline void blk_account_io_done(struct request *req, u64 now)
-{
-	/*
-	 * Account IO completion.  flush_rq isn't accounted as a
-	 * normal IO on queueing nor completion.  Accounting the
-	 * containing request is enough.
-	 */
-	if (blk_do_io_stat(req) && req->part &&
-	    !(req->rq_flags & RQF_FLUSH_SEQ))
-		__blk_account_io_done(req, now);
-}
-
-static inline void blk_account_io_start(struct request *req)
-{
-	if (blk_do_io_stat(req))
-		__blk_account_io_start(req);
+	return (rq->rq_flags & RQF_IO_STAT) && !blk_rq_is_passthrough(rq);
 }
 
 void update_io_ticks(struct block_device *part, unsigned long now, bool end);
@@ -343,13 +363,15 @@ static inline unsigned int bio_aligned_discard_max_sectors(
 /*
  * Internal io_context interface
  */
-void get_io_context(struct io_context *ioc);
-struct io_cq *ioc_lookup_icq(struct io_context *ioc, struct request_queue *q);
-struct io_cq *ioc_create_icq(struct io_context *ioc, struct request_queue *q,
-			     gfp_t gfp_mask);
+struct io_cq *ioc_find_get_icq(struct request_queue *q);
+struct io_cq *ioc_lookup_icq(struct request_queue *q);
+#ifdef CONFIG_BLK_ICQ
 void ioc_clear_queue(struct request_queue *q);
-
-int create_task_io_context(struct task_struct *task, gfp_t gfp_mask, int node);
+#else
+static inline void ioc_clear_queue(struct request_queue *q)
+{
+}
+#endif /* CONFIG_BLK_ICQ */
 
 #ifdef CONFIG_BLK_DEV_THROTTLING_LOW
 extern ssize_t blk_throtl_sample_time_show(struct request_queue *q, char *page);
@@ -383,8 +405,6 @@ extern int blk_iolatency_init(struct request_queue *q);
 static inline int blk_iolatency_init(struct request_queue *q) { return 0; }
 #endif
 
-struct bio *blk_next_bio(struct bio *bio, unsigned int nr_pages, gfp_t gfp);
-
 #ifdef CONFIG_BLK_DEV_ZONED
 void blk_queue_free_zone_bitmaps(struct request_queue *q);
 void blk_queue_clear_zone_settings(struct request_queue *q);
@@ -403,31 +423,88 @@ int bdev_add_partition(struct gendisk *disk, int partno, sector_t start,
 int bdev_del_partition(struct gendisk *disk, int partno);
 int bdev_resize_partition(struct gendisk *disk, int partno, sector_t start,
 		sector_t length);
+void blk_drop_partitions(struct gendisk *disk);
 
 int bio_add_hw_page(struct request_queue *q, struct bio *bio,
 		struct page *page, unsigned int len, unsigned int offset,
 		unsigned int max_sectors, bool *same_page);
 
-struct request_queue *blk_alloc_queue(int node_id);
+static inline struct kmem_cache *blk_get_queue_kmem_cache(bool srcu)
+{
+	if (srcu)
+		return blk_requestq_srcu_cachep;
+	return blk_requestq_cachep;
+}
+struct request_queue *blk_alloc_queue(int node_id, bool alloc_srcu);
+
+int disk_scan_partitions(struct gendisk *disk, fmode_t mode);
 
 int disk_alloc_events(struct gendisk *disk);
 void disk_add_events(struct gendisk *disk);
 void disk_del_events(struct gendisk *disk);
 void disk_release_events(struct gendisk *disk);
+void disk_block_events(struct gendisk *disk);
+void disk_unblock_events(struct gendisk *disk);
+void disk_flush_events(struct gendisk *disk, unsigned int mask);
 extern struct device_attribute dev_attr_events;
 extern struct device_attribute dev_attr_events_async;
 extern struct device_attribute dev_attr_events_poll_msecs;
 
-static inline void bio_clear_hipri(struct bio *bio)
+static inline void bio_clear_polled(struct bio *bio)
 {
 	/* can't support alloc cache if we turn off polling */
 	bio_clear_flag(bio, BIO_PERCPU_CACHE);
-	bio->bi_opf &= ~REQ_HIPRI;
+	bio->bi_opf &= ~REQ_POLLED;
 }
 
 long blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg);
 long compat_blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg);
 
 extern const struct address_space_operations def_blk_aops;
+
+int disk_register_independent_access_ranges(struct gendisk *disk,
+				struct blk_independent_access_ranges *new_iars);
+void disk_unregister_independent_access_ranges(struct gendisk *disk);
+
+#ifdef CONFIG_FAIL_MAKE_REQUEST
+bool should_fail_request(struct block_device *part, unsigned int bytes);
+#else /* CONFIG_FAIL_MAKE_REQUEST */
+static inline bool should_fail_request(struct block_device *part,
+					unsigned int bytes)
+{
+	return false;
+}
+#endif /* CONFIG_FAIL_MAKE_REQUEST */
+
+/*
+ * Optimized request reference counting. Ideally we'd make timeouts be more
+ * clever, as that's the only reason we need references at all... But until
+ * this happens, this is faster than using refcount_t. Also see:
+ *
+ * abc54d634334 ("io_uring: switch to atomic_t for io_kiocb reference count")
+ */
+#define req_ref_zero_or_close_to_overflow(req)	\
+	((unsigned int) atomic_read(&(req->ref)) + 127u <= 127u)
+
+static inline bool req_ref_inc_not_zero(struct request *req)
+{
+	return atomic_inc_not_zero(&req->ref);
+}
+
+static inline bool req_ref_put_and_test(struct request *req)
+{
+	WARN_ON_ONCE(req_ref_zero_or_close_to_overflow(req));
+	return atomic_dec_and_test(&req->ref);
+}
+
+static inline void req_ref_set(struct request *req, int value)
+{
+	atomic_set(&req->ref, value);
+}
+
+static inline int req_ref_read(struct request *req)
+{
+	return atomic_read(&req->ref);
+}
 
 #endif /* BLK_INTERNAL_H */

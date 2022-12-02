@@ -443,19 +443,19 @@ check_suspended:
 }
 EXPORT_SYMBOL(md_handle_request);
 
-static blk_qc_t md_submit_bio(struct bio *bio)
+static void md_submit_bio(struct bio *bio)
 {
 	const int rw = bio_data_dir(bio);
 	struct mddev *mddev = bio->bi_bdev->bd_disk->private_data;
 
 	if (mddev == NULL || mddev->pers == NULL) {
 		bio_io_error(bio);
-		return BLK_QC_T_NONE;
+		return;
 	}
 
 	if (unlikely(test_bit(MD_BROKEN, &mddev->flags)) && (rw == WRITE)) {
 		bio_io_error(bio);
-		return BLK_QC_T_NONE;
+		return;
 	}
 
 	blk_queue_split(&bio);
@@ -464,15 +464,13 @@ static blk_qc_t md_submit_bio(struct bio *bio)
 		if (bio_sectors(bio) != 0)
 			bio->bi_status = BLK_STS_IOERR;
 		bio_endio(bio);
-		return BLK_QC_T_NONE;
+		return;
 	}
 
 	/* bio could be mergeable after passing to underlayer */
 	bio->bi_opf &= ~REQ_NOMERGE;
 
 	md_handle_request(mddev, bio);
-
-	return BLK_QC_T_NONE;
 }
 
 /* mddev_suspend makes sure no new requests are submitted
@@ -558,11 +556,11 @@ static void submit_flushes(struct work_struct *ws)
 			atomic_inc(&rdev->nr_pending);
 			atomic_inc(&rdev->nr_pending);
 			rcu_read_unlock();
-			bi = bio_alloc_bioset(GFP_NOIO, 0, &mddev->bio_set);
+			bi = bio_alloc_bioset(rdev->bdev, 0,
+					      REQ_OP_WRITE | REQ_PREFLUSH,
+					      GFP_NOIO, &mddev->bio_set);
 			bi->bi_end_io = md_end_flush;
 			bi->bi_private = rdev;
-			bio_set_dev(bi, rdev->bdev);
-			bi->bi_opf = REQ_OP_WRITE | REQ_PREFLUSH;
 			atomic_inc(&mddev->flush_pending);
 			submit_bio(bi);
 			rcu_read_lock();
@@ -890,8 +888,7 @@ static struct md_personality *find_pers(int level, char *clevel)
 /* return the offset of the super block in 512byte sectors */
 static inline sector_t calc_dev_sboffset(struct md_rdev *rdev)
 {
-	sector_t num_sectors = i_size_read(rdev->bdev->bd_inode) / 512;
-	return MD_NEW_SIZE_SECTORS(num_sectors);
+	return MD_NEW_SIZE_SECTORS(bdev_nr_sectors(rdev->bdev));
 }
 
 static int alloc_disk_sb(struct md_rdev *rdev)
@@ -954,7 +951,6 @@ void md_super_write(struct mddev *mddev, struct md_rdev *rdev,
 	 * If an error occurred, call md_error
 	 */
 	struct bio *bio;
-	int ff = 0;
 
 	if (!page)
 		return;
@@ -962,11 +958,13 @@ void md_super_write(struct mddev *mddev, struct md_rdev *rdev,
 	if (test_bit(Faulty, &rdev->flags))
 		return;
 
-	bio = bio_alloc_bioset(GFP_NOIO, 1, &mddev->sync_set);
+	bio = bio_alloc_bioset(rdev->meta_bdev ? rdev->meta_bdev : rdev->bdev,
+			       1,
+			       REQ_OP_WRITE | REQ_SYNC | REQ_PREFLUSH | REQ_FUA,
+			       GFP_NOIO, &mddev->sync_set);
 
 	atomic_inc(&rdev->nr_pending);
 
-	bio_set_dev(bio, rdev->meta_bdev ? rdev->meta_bdev : rdev->bdev);
 	bio->bi_iter.bi_sector = sector;
 	bio_add_page(bio, page, size, 0);
 	bio->bi_private = rdev;
@@ -975,8 +973,7 @@ void md_super_write(struct mddev *mddev, struct md_rdev *rdev,
 	if (test_bit(MD_FAILFAST_SUPPORTED, &mddev->flags) &&
 	    test_bit(FailFast, &rdev->flags) &&
 	    !test_bit(LastDev, &rdev->flags))
-		ff = MD_FAILFAST;
-	bio->bi_opf = REQ_OP_WRITE | REQ_SYNC | REQ_PREFLUSH | REQ_FUA | ff;
+		bio->bi_opf |= MD_FAILFAST;
 
 	atomic_inc(&mddev->pending_writes);
 	submit_bio(bio);
@@ -997,13 +994,11 @@ int sync_page_io(struct md_rdev *rdev, sector_t sector, int size,
 	struct bio bio;
 	struct bio_vec bvec;
 
-	bio_init(&bio, &bvec, 1);
-
 	if (metadata_op && rdev->meta_bdev)
-		bio_set_dev(&bio, rdev->meta_bdev);
+		bio_init(&bio, rdev->meta_bdev, &bvec, 1, op | op_flags);
 	else
-		bio_set_dev(&bio, rdev->bdev);
-	bio.bi_opf = op | op_flags;
+		bio_init(&bio, rdev->bdev, &bvec, 1, op | op_flags);
+
 	if (metadata_op)
 		bio.bi_iter.bi_sector = sector + rdev->sb_start;
 	else if (rdev->mddev->reshape_position != MaxSector &&
@@ -1636,8 +1631,7 @@ static int super_1_load(struct md_rdev *rdev, struct md_rdev *refdev, int minor_
 	 */
 	switch(minor_version) {
 	case 0:
-		sb_start = i_size_read(rdev->bdev->bd_inode) >> 9;
-		sb_start -= 8*2;
+		sb_start = bdev_nr_sectors(rdev->bdev) - 8 * 2;
 		sb_start &= ~(sector_t)(4*2-1);
 		break;
 	case 1:
@@ -1792,10 +1786,9 @@ static int super_1_load(struct md_rdev *rdev, struct md_rdev *refdev, int minor_
 		else
 			ret = 0;
 	}
-	if (minor_version) {
-		sectors = (i_size_read(rdev->bdev->bd_inode) >> 9);
-		sectors -= rdev->data_offset;
-	} else
+	if (minor_version)
+		sectors = bdev_nr_sectors(rdev->bdev) - rdev->data_offset;
+	else
 		sectors = rdev->sb_start;
 	if (sectors < le64_to_cpu(sb->data_size))
 		return -EINVAL;
@@ -2185,8 +2178,7 @@ super_1_rdev_size_change(struct md_rdev *rdev, sector_t num_sectors)
 		return 0; /* too confusing */
 	if (rdev->sb_start < rdev->data_offset) {
 		/* minor versions 1 and 2; superblock before data */
-		max_sectors = i_size_read(rdev->bdev->bd_inode) >> 9;
-		max_sectors -= rdev->data_offset;
+		max_sectors = bdev_nr_sectors(rdev->bdev) - rdev->data_offset;
 		if (!num_sectors || num_sectors > max_sectors)
 			num_sectors = max_sectors;
 	} else if (rdev->mddev->bitmap_info.offset) {
@@ -2195,7 +2187,7 @@ super_1_rdev_size_change(struct md_rdev *rdev, sector_t num_sectors)
 	} else {
 		/* minor version 0; superblock after data */
 		sector_t sb_start, bm_space;
-		sector_t dev_size = i_size_read(rdev->bdev->bd_inode) >> 9;
+		sector_t dev_size = bdev_nr_sectors(rdev->bdev);
 
 		/* 8K is for superblock */
 		sb_start = dev_size - 8*2;
@@ -3419,7 +3411,7 @@ rdev_size_store(struct md_rdev *rdev, const char *buf, size_t len)
 			if (!sectors)
 				return -EBUSY;
 		} else if (!sectors)
-			sectors = (i_size_read(rdev->bdev->bd_inode) >> 9) -
+			sectors = bdev_nr_sectors(rdev->bdev) -
 				rdev->data_offset;
 		if (!my_mddev->pers->resize)
 			/* Cannot change size for RAID0 or Linear etc */
@@ -3746,7 +3738,7 @@ static struct md_rdev *md_import_device(dev_t newdev, int super_format, int supe
 
 	kobject_init(&rdev->kobj, &rdev_ktype);
 
-	size = i_size_read(rdev->bdev->bd_inode) >> BLOCK_SIZE_BITS;
+	size = bdev_nr_bytes(rdev->bdev) >> BLOCK_SIZE_BITS;
 	if (!size) {
 		pr_warn("md: %s has zero or unknown size, marking faulty!\n",
 			bdevname(rdev->bdev,b));
@@ -5540,6 +5532,10 @@ static struct attribute *md_default_attrs[] = {
 	NULL,
 };
 
+static const struct attribute_group md_default_group = {
+	.attrs = md_default_attrs,
+};
+
 static struct attribute *md_redundancy_attrs[] = {
 	&md_scan_mode.attr,
 	&md_last_scan_mode.attr,
@@ -5560,6 +5556,12 @@ static struct attribute *md_redundancy_attrs[] = {
 static const struct attribute_group md_redundancy_group = {
 	.name = NULL,
 	.attrs = md_redundancy_attrs,
+};
+
+static const struct attribute_group *md_attr_groups[] = {
+	&md_default_group,
+	&md_bitmap_group,
+	NULL,
 };
 
 static ssize_t
@@ -5635,7 +5637,7 @@ static const struct sysfs_ops md_sysfs_ops = {
 static struct kobj_type md_ktype = {
 	.release	= md_free,
 	.sysfs_ops	= &md_sysfs_ops,
-	.default_attrs	= md_default_attrs,
+	.default_groups	= md_attr_groups,
 };
 
 int mdp_major = 0;
@@ -5644,7 +5646,6 @@ static void mddev_delayed_delete(struct work_struct *ws)
 {
 	struct mddev *mddev = container_of(ws, struct mddev, del_work);
 
-	sysfs_remove_group(&mddev->kobj, &md_bitmap_group);
 	kobject_del(&mddev->kobj);
 	kobject_put(&mddev->kobj);
 }
@@ -5711,7 +5712,7 @@ static int md_alloc(dev_t dev, char *name)
 			    strcmp(mddev2->gendisk->disk_name, name) == 0) {
 				spin_unlock(&all_mddevs_lock);
 				error = -EEXIST;
-				goto abort;
+				goto out_unlock_disks_mutex;
 			}
 		spin_unlock(&all_mddevs_lock);
 	}
@@ -5724,7 +5725,7 @@ static int md_alloc(dev_t dev, char *name)
 	error = -ENOMEM;
 	disk = blk_alloc_disk(NUMA_NO_NODE);
 	if (!disk)
-		goto abort;
+		goto out_unlock_disks_mutex;
 
 	disk->major = MAJOR(mddev->unit);
 	disk->first_minor = unit << shift;
@@ -5741,34 +5742,27 @@ static int md_alloc(dev_t dev, char *name)
 	mddev->queue = disk->queue;
 	blk_set_stacking_limits(&mddev->queue->limits);
 	blk_queue_write_cache(mddev->queue, true, true);
-	/* Allow extended partitions.  This makes the
-	 * 'mdp' device redundant, but we can't really
-	 * remove it now.
-	 */
-	disk->flags |= GENHD_FL_EXT_DEVT;
 	disk->events |= DISK_EVENT_MEDIA_CHANGE;
 	mddev->gendisk = disk;
-	add_disk(disk);
+	error = add_disk(disk);
+	if (error)
+		goto out_cleanup_disk;
 
 	error = kobject_add(&mddev->kobj, &disk_to_dev(disk)->kobj, "%s", "md");
-	if (error) {
-		/* This isn't possible, but as kobject_init_and_add is marked
-		 * __must_check, we must do something with the result
-		 */
-		pr_debug("md: cannot register %s/md - name in use\n",
-			 disk->disk_name);
-		error = 0;
-	}
-	if (mddev->kobj.sd &&
-	    sysfs_create_group(&mddev->kobj, &md_bitmap_group))
-		pr_debug("pointless warning\n");
- abort:
+	if (error)
+		goto out_del_gendisk;
+
+	kobject_uevent(&mddev->kobj, KOBJ_ADD);
+	mddev->sysfs_state = sysfs_get_dirent_safe(mddev->kobj.sd, "array_state");
+	mddev->sysfs_level = sysfs_get_dirent_safe(mddev->kobj.sd, "level");
+	goto out_unlock_disks_mutex;
+
+out_del_gendisk:
+	del_gendisk(disk);
+out_cleanup_disk:
+	blk_cleanup_disk(disk);
+out_unlock_disks_mutex:
 	mutex_unlock(&disks_mutex);
-	if (!error && mddev->kobj.sd) {
-		kobject_uevent(&mddev->kobj, KOBJ_ADD);
-		mddev->sysfs_state = sysfs_get_dirent_safe(mddev->kobj.sd, "array_state");
-		mddev->sysfs_level = sysfs_get_dirent_safe(mddev->kobj.sd, "level");
-	}
 	mddev_put(mddev);
 	return error;
 }
@@ -6920,7 +6914,7 @@ int md_add_new_disk(struct mddev *mddev, struct mdu_disk_info_s *info)
 
 		if (!mddev->persistent) {
 			pr_debug("md: nonpersistent superblock ...\n");
-			rdev->sb_start = i_size_read(rdev->bdev->bd_inode) / 512;
+			rdev->sb_start = bdev_nr_sectors(rdev->bdev);
 		} else
 			rdev->sb_start = calc_dev_sboffset(rdev);
 		rdev->sectors = rdev->sb_start;
@@ -7007,7 +7001,7 @@ static int hot_add_disk(struct mddev *mddev, dev_t dev)
 	if (mddev->persistent)
 		rdev->sb_start = calc_dev_sboffset(rdev);
 	else
-		rdev->sb_start = i_size_read(rdev->bdev->bd_inode) / 512;
+		rdev->sb_start = bdev_nr_sectors(rdev->bdev);
 
 	rdev->sectors = rdev->sb_start;
 
@@ -8658,13 +8652,14 @@ static void md_end_io_acct(struct bio *bio)
  */
 void md_account_bio(struct mddev *mddev, struct bio **bio)
 {
+	struct block_device *bdev = (*bio)->bi_bdev;
 	struct md_io_acct *md_io_acct;
 	struct bio *clone;
 
-	if (!blk_queue_io_stat((*bio)->bi_bdev->bd_disk->queue))
+	if (!blk_queue_io_stat(bdev->bd_disk->queue))
 		return;
 
-	clone = bio_clone_fast(*bio, GFP_NOIO, &mddev->io_acct_set);
+	clone = bio_alloc_clone(bdev, *bio, GFP_NOIO, &mddev->io_acct_set);
 	md_io_acct = container_of(clone, struct md_io_acct, bio_clone);
 	md_io_acct->orig_bio = *bio;
 	md_io_acct->start_time = bio_start_io_acct(*bio);

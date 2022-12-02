@@ -11,7 +11,6 @@
 #include <linux/device.h>
 #include <linux/mutex.h>
 #include <linux/hdreg.h>
-#include <linux/genhd.h>
 #include <linux/sizes.h>
 #include <linux/ndctl.h>
 #include <linux/fs.h>
@@ -1440,7 +1439,7 @@ static int btt_do_bvec(struct btt *btt, struct bio_integrity_payload *bip,
 	return ret;
 }
 
-static blk_qc_t btt_submit_bio(struct bio *bio)
+static void btt_submit_bio(struct bio *bio)
 {
 	struct bio_integrity_payload *bip = bio_integrity(bio);
 	struct btt *btt = bio->bi_bdev->bd_disk->private_data;
@@ -1451,7 +1450,7 @@ static blk_qc_t btt_submit_bio(struct bio *bio)
 	bool do_acct;
 
 	if (!bio_integrity_prep(bio))
-		return BLK_QC_T_NONE;
+		return;
 
 	do_acct = blk_queue_io_stat(bio->bi_bdev->bd_disk->queue);
 	if (do_acct)
@@ -1483,7 +1482,6 @@ static blk_qc_t btt_submit_bio(struct bio *bio)
 		bio_end_io_acct(bio, start);
 
 	bio_endio(bio);
-	return BLK_QC_T_NONE;
 }
 
 static int btt_rw_page(struct block_device *bdev, sector_t sector,
@@ -1520,6 +1518,7 @@ static int btt_blk_init(struct btt *btt)
 {
 	struct nd_btt *nd_btt = btt->nd_btt;
 	struct nd_namespace_common *ndns = nd_btt->ndns;
+	int rc = -ENOMEM;
 
 	btt->btt_disk = blk_alloc_disk(NUMA_NO_NODE);
 	if (!btt->btt_disk)
@@ -1535,19 +1534,24 @@ static int btt_blk_init(struct btt *btt)
 	blk_queue_flag_set(QUEUE_FLAG_NONROT, btt->btt_disk->queue);
 
 	if (btt_meta_size(btt)) {
-		int rc = nd_integrity_init(btt->btt_disk, btt_meta_size(btt));
-
-		if (rc) {
-			blk_cleanup_disk(btt->btt_disk);
-			return rc;
-		}
+		rc = nd_integrity_init(btt->btt_disk, btt_meta_size(btt));
+		if (rc)
+			goto out_cleanup_disk;
 	}
+
 	set_capacity(btt->btt_disk, btt->nlba * btt->sector_size >> 9);
-	device_add_disk(&btt->nd_btt->dev, btt->btt_disk, NULL);
+	rc = device_add_disk(&btt->nd_btt->dev, btt->btt_disk, NULL);
+	if (rc)
+		goto out_cleanup_disk;
+
 	btt->nd_btt->size = btt->nlba * (u64)btt->sector_size;
 	nvdimm_check_and_set_ro(btt->btt_disk);
 
 	return 0;
+
+out_cleanup_disk:
+	blk_cleanup_disk(btt->btt_disk);
+	return rc;
 }
 
 static void btt_blk_cleanup(struct btt *btt)

@@ -6,6 +6,8 @@
 #include "kvm_cache_regs.h"
 #include "cpuid.h"
 
+extern bool __read_mostly enable_mmio_caching;
+
 #define PT64_PT_BITS 9
 #define PT64_ENT_PER_PAGE (1 << PT64_PT_BITS)
 #define PT32_PT_BITS 10

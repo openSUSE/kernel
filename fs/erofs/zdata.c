@@ -1316,14 +1316,13 @@ submit_bio_retry:
 			}
 
 			if (!bio) {
-				bio = bio_alloc(GFP_NOIO, BIO_MAX_VECS);
+				bio = bio_alloc(sb->s_bdev, BIO_MAX_VECS,
+						REQ_OP_READ, GFP_NOIO);
 
 				bio->bi_end_io = z_erofs_decompressqueue_endio;
-				bio_set_dev(bio, sb->s_bdev);
 				bio->bi_iter.bi_sector = (sector_t)cur <<
 					LOG_SECTORS_PER_BLOCK;
 				bio->bi_private = bi_private;
-				bio->bi_opf = REQ_OP_READ;
 				if (f->readahead)
 					bio->bi_opf |= REQ_RAHEAD;
 				++nr_bios;

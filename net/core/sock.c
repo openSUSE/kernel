@@ -1357,6 +1357,14 @@ set_sndbuf:
 		ret = sock_bindtoindex_locked(sk, val);
 		break;
 
+	case SO_TXREHASH:
+		if (val < -1 || val > 1) {
+			ret = -EINVAL;
+			break;
+		}
+		sk->sk_txrehash = (u8)val;
+		break;
+
 	default:
 		ret = -ENOPROTOOPT;
 		break;
@@ -1734,6 +1742,10 @@ int sock_getsockopt(struct socket *sock, int level, int optname,
 		if (len != lv)
 			return -EINVAL;
 		v.val64 = sock_net(sk)->net_cookie;
+		break;
+
+	case SO_TXREHASH:
+		v.val = sk->sk_txrehash;
 		break;
 
 	default:
@@ -3168,6 +3180,7 @@ void sock_init_data(struct socket *sock, struct sock *sk)
 	sk->sk_pacing_rate = ~0UL;
 	WRITE_ONCE(sk->sk_pacing_shift, 10);
 	sk->sk_incoming_cpu = -1;
+	sk->sk_txrehash = SOCK_TXREHASH_DEFAULT;
 
 	sk_rx_queue_clear(sk);
 	/*
@@ -3349,7 +3362,8 @@ int sock_common_getsockopt(struct socket *sock, int level, int optname,
 {
 	struct sock *sk = sock->sk;
 
-	return sk->sk_prot->getsockopt(sk, level, optname, optval, optlen);
+	/* IPV6_ADDRFORM can change sk->sk_prot under us. */
+	return READ_ONCE(sk->sk_prot)->getsockopt(sk, level, optname, optval, optlen);
 }
 EXPORT_SYMBOL(sock_common_getsockopt);
 
@@ -3376,7 +3390,8 @@ int sock_common_setsockopt(struct socket *sock, int level, int optname,
 {
 	struct sock *sk = sock->sk;
 
-	return sk->sk_prot->setsockopt(sk, level, optname, optval, optlen);
+	/* IPV6_ADDRFORM can change sk->sk_prot under us. */
+	return READ_ONCE(sk->sk_prot)->setsockopt(sk, level, optname, optval, optlen);
 }
 EXPORT_SYMBOL(sock_common_setsockopt);
 

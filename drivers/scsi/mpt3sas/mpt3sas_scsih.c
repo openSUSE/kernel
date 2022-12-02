@@ -5156,6 +5156,19 @@ scsih_qcmd(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 
 	/* invalid device handle */
 	handle = sas_target_priv_data->handle;
+
+	/*
+	 * Avoid error handling escallation when device is disconnected
+	 */
+	if (handle == MPT3SAS_INVALID_DEVICE_HANDLE || sas_device_priv_data->block) {
+		if (scmd->device->host->shost_state == SHOST_RECOVERY &&
+		    scmd->cmnd[0] == TEST_UNIT_READY) {
+			scsi_build_sense(scmd, 0, UNIT_ATTENTION, 0x29, 0x07);
+			scsi_done(scmd);
+			return 0;
+		}
+	}
+
 	if (handle == MPT3SAS_INVALID_DEVICE_HANDLE) {
 		scmd->result = DID_NO_CONNECT << 16;
 		scsi_done(scmd);
@@ -5294,7 +5307,7 @@ _scsih_normalize_sense(char *sense_buffer, struct sense_info *data)
 }
 
 /**
- * _scsih_scsi_ioc_info - translated non-succesfull SCSI_IO request
+ * _scsih_scsi_ioc_info - translated non-successful SCSI_IO request
  * @ioc: per adapter object
  * @scmd: pointer to scsi command object
  * @mpi_reply: reply mf payload returned from firmware
@@ -10926,20 +10939,20 @@ mpt3sas_scsih_event_callback(struct MPT3SAS_ADAPTER *ioc, u8 msix_index,
 	case MPI2_EVENT_LOG_ENTRY_ADDED:
 	{
 		Mpi2EventDataLogEntryAdded_t *log_entry;
-		u32 *log_code;
+		u32 log_code;
 
 		if (!ioc->is_warpdrive)
 			break;
 
 		log_entry = (Mpi2EventDataLogEntryAdded_t *)
 		    mpi_reply->EventData;
-		log_code = (u32 *)log_entry->LogData;
+		log_code = le32_to_cpu(*(__le32 *)log_entry->LogData);
 
 		if (le16_to_cpu(log_entry->LogEntryQualifier)
 		    != MPT2_WARPDRIVE_LOGENTRY)
 			break;
 
-		switch (le32_to_cpu(*log_code)) {
+		switch (log_code) {
 		case MPT2_WARPDRIVE_LC_SSDT:
 			ioc_warn(ioc, "WarpDrive Warning: IO Throttling has occurred in the WarpDrive subsystem. Check WarpDrive documentation for additional details.\n");
 			break;
@@ -11975,7 +11988,7 @@ static struct scsi_host_template mpt3sas_driver_template = {
 	.sg_tablesize			= MPT3SAS_SG_DEPTH,
 	.max_sectors			= 32767,
 	.max_segment_size		= 0xffffffff,
-	.cmd_per_lun			= 7,
+	.cmd_per_lun			= 128,
 	.shost_groups			= mpt3sas_host_groups,
 	.sdev_groups			= mpt3sas_dev_groups,
 	.track_queue_depth		= 1,
@@ -12410,7 +12423,6 @@ scsih_suspend(struct device *dev)
 		return rc;
 
 	mpt3sas_base_stop_watchdog(ioc);
-	flush_scheduled_work();
 	scsi_block_requests(shost);
 	_scsih_nvme_shutdown(ioc);
 	ioc_info(ioc, "pdev=0x%p, slot=%s, entering operating state\n",
@@ -12731,6 +12743,12 @@ static const struct pci_device_id mpt3sas_pci_table[] = {
 	{ MPI2_MFGPAGE_VENDORID_LSI, MPI26_MFGPAGE_DEVID_CFG_SEC_3816,
 		PCI_ANY_ID, PCI_ANY_ID },
 	{ MPI2_MFGPAGE_VENDORID_LSI, MPI26_MFGPAGE_DEVID_HARD_SEC_3816,
+		PCI_ANY_ID, PCI_ANY_ID },
+
+	/*
+	 * ATTO Branded ExpressSAS H12xx GT
+	 */
+	{ MPI2_MFGPAGE_VENDORID_ATTO, MPI26_MFGPAGE_DEVID_HARD_SEC_3816,
 		PCI_ANY_ID, PCI_ANY_ID },
 
 	/*

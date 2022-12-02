@@ -5,9 +5,8 @@
 #ifndef __LINUX_FILTER_H__
 #define __LINUX_FILTER_H__
 
-#include <stdarg.h>
-
 #include <linux/atomic.h>
+#include <linux/bpf.h>
 #include <linux/refcount.h>
 #include <linux/compat.h>
 #include <linux/skbuff.h>
@@ -28,7 +27,6 @@
 
 #include <asm/byteorder.h>
 #include <uapi/linux/filter.h>
-#include <uapi/linux/bpf.h>
 
 struct sk_buff;
 struct sock;
@@ -362,10 +360,9 @@ static inline bool insn_is_zext(const struct bpf_insn *insn)
 		.off   = 0,					\
 		.imm   = TGT })
 
-/* Function call */
+/* Convert function address to BPF immediate */
 
-#define BPF_CAST_CALL(x)					\
-		((u64 (*)(u64, u64, u64, u64, u64))(x))
+#define BPF_CALL_IMM(x)	((void *)(x) - (void *)__bpf_call_base)
 
 #define BPF_EMIT_CALL(FUNC)					\
 	((struct bpf_insn) {					\
@@ -373,7 +370,7 @@ static inline bool insn_is_zext(const struct bpf_insn *insn)
 		.dst_reg = 0,					\
 		.src_reg = 0,					\
 		.off   = 0,					\
-		.imm   = ((FUNC) - __bpf_call_base) })
+		.imm   = BPF_CALL_IMM(FUNC) })
 
 /* Raw code statement block */
 
@@ -551,14 +548,14 @@ struct sock_fprog_kern {
 #define BPF_IMAGE_ALIGNMENT 8
 
 struct bpf_binary_header {
-	u32 pages;
+	u32 size;
 	u8 image[] __aligned(BPF_IMAGE_ALIGNMENT);
 };
 
 struct bpf_prog_stats {
-	u64 cnt;
-	u64 nsecs;
-	u64 misses;
+	u64_stats_t cnt;
+	u64_stats_t nsecs;
+	u64_stats_t misses;
 	struct u64_stats_sync syncp;
 } __aligned(2 * sizeof(u64));
 
@@ -569,13 +566,15 @@ struct bpf_prog {
 				gpl_compatible:1, /* Is filter GPL compatible? */
 				cb_access:1,	/* Is control block accessed? */
 				dst_needed:1,	/* Do we need dst entry? */
+				blinding_requested:1, /* needs constant blinding */
 				blinded:1,	/* Was blinded */
 				is_func:1,	/* program is a bpf function */
 				kprobe_override:1, /* Do we override a kprobe? */
 				has_callchain_buf:1, /* callchain buffer allocated? */
 				enforce_expected_attach_type:1, /* Enforce expected_attach_type checking at attach time */
 				call_get_stack:1, /* Do we call bpf_get_stack() or bpf_get_stackid() */
-				call_get_func_ip:1; /* Do we call get_func_ip() */
+				call_get_func_ip:1, /* Do we call get_func_ip() */
+				tstamp_type_access:1; /* Accessed __sk_buff->tstamp_type */
 	enum bpf_prog_type	type;		/* Type of BPF program */
 	enum bpf_attach_type	expected_attach_type; /* For some prog types */
 	u32			len;		/* Number of filter blocks */
@@ -621,8 +620,8 @@ static __always_inline u32 __bpf_prog_run(const struct bpf_prog *prog,
 		ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
 		stats = this_cpu_ptr(prog->stats);
 		flags = u64_stats_update_begin_irqsave(&stats->syncp);
-		stats->cnt++;
-		stats->nsecs += sched_clock() - start;
+		u64_stats_inc(&stats->cnt);
+		u64_stats_add(&stats->nsecs, sched_clock() - start);
 		u64_stats_update_end_irqrestore(&stats->syncp, flags);
 	} else {
 		ret = dfunc(ctx, prog->insnsi, prog->bpf_func);
@@ -888,17 +887,8 @@ static inline void bpf_prog_lock_ro(struct bpf_prog *fp)
 static inline void bpf_jit_binary_lock_ro(struct bpf_binary_header *hdr)
 {
 	set_vm_flush_reset_perms(hdr);
-	set_memory_ro((unsigned long)hdr, hdr->pages);
-	set_memory_x((unsigned long)hdr, hdr->pages);
-}
-
-static inline struct bpf_binary_header *
-bpf_jit_binary_hdr(const struct bpf_prog *fp)
-{
-	unsigned long real_start = (unsigned long)fp->bpf_func;
-	unsigned long addr = real_start & PAGE_MASK;
-
-	return (void *)addr;
+	set_memory_ro((unsigned long)hdr, hdr->size >> PAGE_SHIFT);
+	set_memory_x((unsigned long)hdr, hdr->size >> PAGE_SHIFT);
 }
 
 int sk_filter_trim_cap(struct sock *sk, struct sk_buff *skb, unsigned int cap);
@@ -1021,6 +1011,10 @@ int xdp_do_generic_redirect(struct net_device *dev, struct sk_buff *skb,
 int xdp_do_redirect(struct net_device *dev,
 		    struct xdp_buff *xdp,
 		    struct bpf_prog *prog);
+int xdp_do_redirect_frame(struct net_device *dev,
+			  struct xdp_buff *xdp,
+			  struct xdp_frame *xdpf,
+			  struct bpf_prog *prog);
 void xdp_do_flush(void);
 
 /* The xdp_do_flush_map() helper has been renamed to drop the _map suffix, as
@@ -1065,6 +1059,18 @@ u64 bpf_jit_alloc_exec_limit(void);
 void *bpf_jit_alloc_exec(unsigned long size);
 void bpf_jit_free_exec(void *addr);
 void bpf_jit_free(struct bpf_prog *fp);
+
+struct bpf_binary_header *
+bpf_jit_binary_pack_alloc(unsigned int proglen, u8 **ro_image,
+			  unsigned int alignment,
+			  struct bpf_binary_header **rw_hdr,
+			  u8 **rw_image,
+			  bpf_jit_fill_hole_t bpf_fill_ill_insns);
+int bpf_jit_binary_pack_finalize(struct bpf_prog *prog,
+				 struct bpf_binary_header *ro_header,
+				 struct bpf_binary_header *rw_header);
+void bpf_jit_binary_pack_free(struct bpf_binary_header *ro_header,
+			      struct bpf_binary_header *rw_header);
 
 int bpf_jit_add_poke_descriptor(struct bpf_prog *prog,
 				struct bpf_jit_poke_descriptor *poke);
@@ -1354,7 +1360,10 @@ struct bpf_sockopt_kern {
 	s32		level;
 	s32		optname;
 	s32		optlen;
-	s32		retval;
+	/* for retval in struct bpf_cg_run_ctx */
+	struct task_struct *current_task;
+	/* Temporary "register" for indirect stores to ppos. */
+	u64		tmp_reg;
 };
 
 int copy_bpf_fprog_from_user(struct sock_fprog *dst, sockptr_t src, int len);
@@ -1373,6 +1382,7 @@ struct bpf_sk_lookup_kern {
 		const struct in6_addr *daddr;
 	} v6;
 	struct sock	*selected_sk;
+	u32		ingress_ifindex;
 	bool		no_reuseport;
 };
 
@@ -1435,7 +1445,7 @@ extern struct static_key_false bpf_sk_lookup_enabled;
 static inline bool bpf_sk_lookup_run_v4(struct net *net, int protocol,
 					const __be32 saddr, const __be16 sport,
 					const __be32 daddr, const u16 dport,
-					struct sock **psk)
+					const int ifindex, struct sock **psk)
 {
 	struct bpf_prog_array *run_array;
 	struct sock *selected_sk = NULL;
@@ -1451,6 +1461,7 @@ static inline bool bpf_sk_lookup_run_v4(struct net *net, int protocol,
 			.v4.daddr	= daddr,
 			.sport		= sport,
 			.dport		= dport,
+			.ingress_ifindex	= ifindex,
 		};
 		u32 act;
 
@@ -1473,7 +1484,7 @@ static inline bool bpf_sk_lookup_run_v6(struct net *net, int protocol,
 					const __be16 sport,
 					const struct in6_addr *daddr,
 					const u16 dport,
-					struct sock **psk)
+					const int ifindex, struct sock **psk)
 {
 	struct bpf_prog_array *run_array;
 	struct sock *selected_sk = NULL;
@@ -1489,6 +1500,7 @@ static inline bool bpf_sk_lookup_run_v6(struct net *net, int protocol,
 			.v6.daddr	= daddr,
 			.sport		= sport,
 			.dport		= dport,
+			.ingress_ifindex	= ifindex,
 		};
 		u32 act;
 

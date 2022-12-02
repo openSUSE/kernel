@@ -311,24 +311,46 @@ void idxd_wqs_unmap_portal(struct idxd_device *idxd)
 	}
 }
 
-int idxd_wq_set_pasid(struct idxd_wq *wq, int pasid)
+static void __idxd_wq_set_priv_locked(struct idxd_wq *wq, int priv)
 {
 	struct idxd_device *idxd = wq->idxd;
-	int rc;
 	union wqcfg wqcfg;
 	unsigned int offset;
 
-	rc = idxd_wq_disable(wq, false);
-	if (rc < 0)
-		return rc;
+	offset = WQCFG_OFFSET(idxd, wq->id, WQCFG_PRIVL_IDX);
+	spin_lock(&idxd->dev_lock);
+	wqcfg.bits[WQCFG_PRIVL_IDX] = ioread32(idxd->reg_base + offset);
+	wqcfg.priv = priv;
+	wq->wqcfg->bits[WQCFG_PRIVL_IDX] = wqcfg.bits[WQCFG_PRIVL_IDX];
+	iowrite32(wqcfg.bits[WQCFG_PRIVL_IDX], idxd->reg_base + offset);
+	spin_unlock(&idxd->dev_lock);
+}
+
+static void __idxd_wq_set_pasid_locked(struct idxd_wq *wq, int pasid)
+{
+	struct idxd_device *idxd = wq->idxd;
+	union wqcfg wqcfg;
+	unsigned int offset;
 
 	offset = WQCFG_OFFSET(idxd, wq->id, WQCFG_PASID_IDX);
 	spin_lock(&idxd->dev_lock);
 	wqcfg.bits[WQCFG_PASID_IDX] = ioread32(idxd->reg_base + offset);
 	wqcfg.pasid_en = 1;
 	wqcfg.pasid = pasid;
+	wq->wqcfg->bits[WQCFG_PASID_IDX] = wqcfg.bits[WQCFG_PASID_IDX];
 	iowrite32(wqcfg.bits[WQCFG_PASID_IDX], idxd->reg_base + offset);
 	spin_unlock(&idxd->dev_lock);
+}
+
+int idxd_wq_set_pasid(struct idxd_wq *wq, int pasid)
+{
+	int rc;
+
+	rc = idxd_wq_disable(wq, false);
+	if (rc < 0)
+		return rc;
+
+	__idxd_wq_set_pasid_locked(wq, pasid);
 
 	rc = idxd_wq_enable(wq);
 	if (rc < 0)
@@ -808,7 +830,7 @@ static int idxd_wq_config_write(struct idxd_wq *wq)
 	 */
 	for (i = 0; i < WQCFG_STRIDES(idxd); i++) {
 		wq_offset = WQCFG_OFFSET(idxd, wq->id, i);
-		wq->wqcfg->bits[i] = ioread32(idxd->reg_base + wq_offset);
+		wq->wqcfg->bits[i] |= ioread32(idxd->reg_base + wq_offset);
 	}
 
 	if (wq->size == 0 && wq->type != IDXD_WQT_NONE)
@@ -824,14 +846,8 @@ static int idxd_wq_config_write(struct idxd_wq *wq)
 	if (wq_dedicated(wq))
 		wq->wqcfg->mode = 1;
 
-	if (device_pasid_enabled(idxd)) {
-		wq->wqcfg->pasid_en = 1;
-		if (wq->type == IDXD_WQT_KERNEL && wq_dedicated(wq))
-			wq->wqcfg->pasid = idxd->pasid;
-	}
-
 	/*
-	 * Here the priv bit is set depending on the WQ type. priv = 1 if the
+	 * The WQ priv bit is set depending on the WQ type. priv = 1 if the
 	 * WQ type is kernel to indicate privileged access. This setting only
 	 * matters for dedicated WQ. According to the DSA spec:
 	 * If the WQ is in dedicated mode, WQ PASID Enable is 1, and the
@@ -841,7 +857,6 @@ static int idxd_wq_config_write(struct idxd_wq *wq)
 	 * In the case of a dedicated kernel WQ that is not able to support
 	 * the PASID cap, then the configuration will be rejected.
 	 */
-	wq->wqcfg->priv = !!(wq->type == IDXD_WQT_KERNEL);
 	if (wq_dedicated(wq) && wq->wqcfg->pasid_en &&
 	    !idxd_device_pasid_priv_enabled(idxd) &&
 	    wq->type == IDXD_WQT_KERNEL) {
@@ -962,7 +977,7 @@ static int idxd_wqs_setup(struct idxd_device *idxd)
 		if (!wq->group)
 			continue;
 
-		if (wq_shared(wq) && !device_swq_supported(idxd)) {
+		if (wq_shared(wq) && !wq_shared_supported(wq)) {
 			idxd->cmd_status = IDXD_SCMD_WQ_NO_SWQ_SUPPORT;
 			dev_warn(dev, "No shared wq support but configured.\n");
 			return -EINVAL;
@@ -1256,7 +1271,7 @@ int __drv_enable_wq(struct idxd_wq *wq)
 
 	/* Shared WQ checks */
 	if (wq_shared(wq)) {
-		if (!device_swq_supported(idxd)) {
+		if (!wq_shared_supported(wq)) {
 			idxd->cmd_status = IDXD_SCMD_WQ_NO_SVM;
 			dev_dbg(dev, "PASID not enabled and shared wq.\n");
 			goto err;
@@ -1274,6 +1289,29 @@ int __drv_enable_wq(struct idxd_wq *wq)
 			dev_dbg(dev, "Shared wq and threshold 0.\n");
 			goto err;
 		}
+	}
+
+	/*
+	 * In the event that the WQ is configurable for pasid and priv bits.
+	 * For kernel wq, the driver should setup the pasid, pasid_en, and priv bit.
+	 * However, for non-kernel wq, the driver should only set the pasid_en bit for
+	 * shared wq. A dedicated wq that is not 'kernel' type will configure pasid and
+	 * pasid_en later on so there is no need to setup.
+	 */
+	if (test_bit(IDXD_FLAG_CONFIGURABLE, &idxd->flags)) {
+		int priv = 0;
+
+		if (wq_pasid_enabled(wq)) {
+			if (is_idxd_wq_kernel(wq) || wq_shared(wq)) {
+				u32 pasid = wq_dedicated(wq) ? idxd->pasid : 0;
+
+				__idxd_wq_set_pasid_locked(wq, pasid);
+			}
+		}
+
+		if (is_idxd_wq_kernel(wq))
+			priv = 1;
+		__idxd_wq_set_priv_locked(wq, priv);
 	}
 
 	rc = 0;

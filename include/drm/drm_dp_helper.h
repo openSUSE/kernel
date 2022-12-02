@@ -30,6 +30,7 @@
 
 struct drm_device;
 struct drm_dp_aux;
+struct drm_panel;
 
 /*
  * Unless otherwise noted, all values are from the DP 1.1a spec.  Note that
@@ -1876,35 +1877,6 @@ struct drm_dp_aux_cec {
 
 /**
  * struct drm_dp_aux - DisplayPort AUX channel
- * @name: user-visible name of this AUX channel and the I2C-over-AUX adapter
- * @ddc: I2C adapter that can be used for I2C-over-AUX communication
- * @dev: pointer to struct device that is the parent for this AUX channel
- * @drm_dev: pointer to the &drm_device that owns this AUX channel. Beware, this
- * may be %NULL before drm_dp_aux_register() has been called.
- * @crtc: backpointer to the crtc that is currently using this AUX channel
- * @hw_mutex: internal mutex used for locking transfers
- * @crc_work: worker that captures CRCs for each frame
- * @crc_count: counter of captured frame CRCs
- * @transfer: transfers a message representing a single AUX transaction
- *
- * The @dev field should be set to a pointer to the device that implements the
- * AUX channel. As well, the @drm_dev field should be set to the &drm_device
- * that will be using this AUX channel as early as possible. For many graphics
- * drivers this should happen before drm_dp_aux_init(), however it's perfectly
- * fine to set this field later so long as it's assigned before calling
- * drm_dp_aux_register().
- *
- * The @name field may be used to specify the name of the I2C adapter. If set to
- * %NULL, dev_name() of @dev will be used.
- *
- * Drivers provide a hardware-specific implementation of how transactions are
- * executed via the @transfer() function. A pointer to a &drm_dp_aux_msg
- * structure describing the transaction is passed into this function. Upon
- * success, the implementation should return the number of payload bytes that
- * were transferred, or a negative error-code on failure. Helpers propagate
- * errors from the @transfer() function, with the exception of the %-EBUSY
- * error, which causes a transaction to be retried. On a short, helpers will
- * return %-EPROTO to make it simpler to check for failure.
  *
  * An AUX channel can also be used to transport I2C messages to a sink. A
  * typical application of that is to access an EDID that's present in the sink
@@ -1915,22 +1887,96 @@ struct drm_dp_aux_cec {
  * transfers by default; if a partial response is received, the adapter will
  * drop down to the size given by the partial response for this transaction
  * only.
- *
- * Note that the aux helper code assumes that the @transfer() function only
- * modifies the reply field of the &drm_dp_aux_msg structure. The retry logic
- * and i2c helpers assume this is the case.
  */
 struct drm_dp_aux {
+	/**
+	 * @name: user-visible name of this AUX channel and the
+	 * I2C-over-AUX adapter.
+	 *
+	 * It's also used to specify the name of the I2C adapter. If set
+	 * to %NULL, dev_name() of @dev will be used.
+	 */
 	const char *name;
+
+	/**
+	 * @ddc: I2C adapter that can be used for I2C-over-AUX
+	 * communication
+	 */
 	struct i2c_adapter ddc;
+
+	/**
+	 * @dev: pointer to struct device that is the parent for this
+	 * AUX channel.
+	 */
 	struct device *dev;
+
+	/**
+	 * @drm_dev: pointer to the &drm_device that owns this AUX channel.
+	 * Beware, this may be %NULL before drm_dp_aux_register() has been
+	 * called.
+	 *
+	 * It should be set to the &drm_device that will be using this AUX
+	 * channel as early as possible. For many graphics drivers this should
+	 * happen before drm_dp_aux_init(), however it's perfectly fine to set
+	 * this field later so long as it's assigned before calling
+	 * drm_dp_aux_register().
+	 */
 	struct drm_device *drm_dev;
+
+	/**
+	 * @crtc: backpointer to the crtc that is currently using this
+	 * AUX channel
+	 */
 	struct drm_crtc *crtc;
+
+	/**
+	 * @hw_mutex: internal mutex used for locking transfers.
+	 *
+	 * Note that if the underlying hardware is shared among multiple
+	 * channels, the driver needs to do additional locking to
+	 * prevent concurrent access.
+	 */
 	struct mutex hw_mutex;
+
+	/**
+	 * @crc_work: worker that captures CRCs for each frame
+	 */
 	struct work_struct crc_work;
+
+	/**
+	 * @crc_count: counter of captured frame CRCs
+	 */
 	u8 crc_count;
+
+	/**
+	 * @transfer: transfers a message representing a single AUX
+	 * transaction.
+	 *
+	 * This is a hardware-specific implementation of how
+	 * transactions are executed that the drivers must provide.
+	 *
+	 * A pointer to a &drm_dp_aux_msg structure describing the
+	 * transaction is passed into this function. Upon success, the
+	 * implementation should return the number of payload bytes that
+	 * were transferred, or a negative error-code on failure.
+	 *
+	 * Helpers will propagate these errors, with the exception of
+	 * the %-EBUSY error, which causes a transaction to be retried.
+	 * On a short, helpers will return %-EPROTO to make it simpler
+	 * to check for failure.
+	 *
+	 * The @transfer() function must only modify the reply field of
+	 * the &drm_dp_aux_msg structure. The retry logic and i2c
+	 * helpers assume this is the case.
+	 *
+	 * Also note that this callback can be called no matter the
+	 * state @dev is in. Drivers that need that device to be powered
+	 * to perform this operation will first need to make sure it's
+	 * been properly enabled.
+	 */
 	ssize_t (*transfer)(struct drm_dp_aux *aux,
 			    struct drm_dp_aux_msg *msg);
+
 	/**
 	 * @i2c_nack_count: Counts I2C NACKs, used for DP validation.
 	 */
@@ -2171,6 +2217,21 @@ int drm_edp_backlight_set_level(struct drm_dp_aux *aux, const struct drm_edp_bac
 int drm_edp_backlight_enable(struct drm_dp_aux *aux, const struct drm_edp_backlight_info *bl,
 			     u16 level);
 int drm_edp_backlight_disable(struct drm_dp_aux *aux, const struct drm_edp_backlight_info *bl);
+
+#if IS_ENABLED(CONFIG_DRM_KMS_HELPER) && (IS_BUILTIN(CONFIG_BACKLIGHT_CLASS_DEVICE) || \
+	(IS_MODULE(CONFIG_DRM_KMS_HELPER) && IS_MODULE(CONFIG_BACKLIGHT_CLASS_DEVICE)))
+
+int drm_panel_dp_aux_backlight(struct drm_panel *panel, struct drm_dp_aux *aux);
+
+#else
+
+static inline int drm_panel_dp_aux_backlight(struct drm_panel *panel,
+					     struct drm_dp_aux *aux)
+{
+	return 0;
+}
+
+#endif
 
 #ifdef CONFIG_DRM_DP_CEC
 void drm_dp_cec_irq(struct drm_dp_aux *aux);
