@@ -1440,7 +1440,9 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 
 		may_enter_fs = (sc->gfp_mask & __GFP_FS) ||
 			(PageSwapCache(page) &&
+#ifdef CONFIG_SWAP
 			 !(page_swap_info(page)->flags & SWP_FS_OPS) &&
+#endif
 			 (sc->gfp_mask & __GFP_IO));
 
 		/*
@@ -1598,8 +1600,11 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 						goto activate_locked_split;
 				}
 
-				if ((sc->gfp_mask & __GFP_FS) ||
-				    !(page_swap_info(page)->flags & SWP_FS_OPS))
+				if ((sc->gfp_mask & __GFP_FS) 
+#ifdef CONFIG_SWAP
+				    || !(page_swap_info(page)->flags & SWP_FS_OPS)
+#endif
+				    )
 					may_enter_fs = true;
 
 				/* Adding to swap updated mapping */
