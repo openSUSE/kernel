@@ -1341,11 +1341,6 @@ static void io_req_track_inflight(struct io_kiocb *req)
 	}
 }
 
-static inline void io_unprep_linked_timeout(struct io_kiocb *req)
-{
-	req->flags &= ~REQ_F_LINK_TIMEOUT;
-}
-
 static struct io_kiocb *__io_prep_linked_timeout(struct io_kiocb *req)
 {
 	if (WARN_ON_ONCE(!req->link))
@@ -6796,7 +6791,7 @@ issue_sqe:
 		switch (io_arm_poll_handler(req)) {
 		case IO_APOLL_READY:
 			if (linked_timeout)
-				io_unprep_linked_timeout(req);
+				io_queue_linked_timeout(linked_timeout);
 			goto issue_sqe;
 		case IO_APOLL_ABORTED:
 			/*
