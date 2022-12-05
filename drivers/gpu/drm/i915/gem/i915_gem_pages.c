@@ -228,7 +228,7 @@ __i915_gem_object_unset_pages(struct drm_i915_gem_object *obj)
 		intel_wakeref_t wakeref;
 
 		with_intel_runtime_pm_if_active(&i915->runtime_pm, wakeref)
-			intel_gt_invalidate_tlbs(&i915->gt);
+			intel_gt_invalidate_tlbs(to_gt(i915));
 	}
 
 	return pages;
