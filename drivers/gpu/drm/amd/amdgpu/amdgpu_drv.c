@@ -1931,11 +1931,6 @@ static int amdgpu_pci_probe(struct pci_dev *pdev,
 			return -ENODEV;
 	}
 
-	if (flags == CHIP_IP_DISCOVERY) {
-		DRM_INFO("Unsupported asic.  Remove me when IP discovery init is in place.\n");
-		return -ENODEV;
-	}
-
 	if (amdgpu_aspm == -1 && !pcie_aspm_enabled(pdev))
 		amdgpu_aspm = 0;
 
