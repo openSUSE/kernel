@@ -249,6 +249,7 @@ nfssvc_decode_readargs(struct svc_rqst *rqstp, __be32 *p)
 	p++; /* totalcount - unused */
 
 	len = min_t(unsigned int, len, NFSSVC_MAXBLKSIZE_V2);
+	len = min_t(unsigned int, len, rqstp->rq_res.buflen);
 
 	/* set up somewhere to store response.
 	 * We take pages, put them on reslist and include in iovec
