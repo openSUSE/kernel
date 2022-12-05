@@ -1033,6 +1033,7 @@ static const struct dc_debug_options debug_defaults_drv = {
 	.disable_z10 = true,
 	.optimize_edp_link_rate = true,
 	.enable_sw_cntl_psr = true,
+	.apply_vendor_specific_lttpr_wa = true,
 };
 
 static const struct dc_debug_options debug_defaults_diags = {
