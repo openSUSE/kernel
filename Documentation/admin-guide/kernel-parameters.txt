@@ -4387,6 +4387,7 @@
 			Speculative Code Execution with Return Instructions)
 			vulnerability.
 
+			off          - no mitigation
 			auto         - automatically select a migitation
 			auto,nosmt   - automatically select a mitigation,
 				       disabling SMT if necessary for

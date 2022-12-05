@@ -798,7 +798,7 @@ static void __init retbleed_select_mitigation(void)
 {
 	bool mitigate_smt = false;
 
-	if (!boot_cpu_has_bug(X86_BUG_RETBLEED))
+	if (!boot_cpu_has_bug(X86_BUG_RETBLEED) || cpu_mitigations_off())
 		return;
 
 	switch (retbleed_cmd) {
