@@ -213,7 +213,7 @@ static void pata_s3c_tf_read(struct ata_port *ap, struct ata_taskfile *tf)
 {
 	struct ata_ioports *ioaddr = &ap->ioaddr;
 
-	tf->feature = ata_inb(ap->host, ioaddr->error_addr);
+	tf->error = ata_inb(ap->host, ioaddr->error_addr);
 	tf->nsect = ata_inb(ap->host, ioaddr->nsect_addr);
 	tf->lbal = ata_inb(ap->host, ioaddr->lbal_addr);
 	tf->lbam = ata_inb(ap->host, ioaddr->lbam_addr);
@@ -608,7 +608,8 @@ static int pata_s3c_suspend(struct device *dev)
 {
 	struct ata_host *host = dev_get_drvdata(dev);
 
-	return ata_host_suspend(host, PMSG_SUSPEND);
+	ata_host_suspend(host, PMSG_SUSPEND);
+	return 0;
 }
 
 static int pata_s3c_resume(struct device *dev)
