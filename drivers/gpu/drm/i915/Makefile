@@ -164,6 +164,7 @@ i915-y += \
 	  i915_active.o \
 	  i915_buddy.o \
 	  i915_cmd_parser.o \
+	  i915_deps.o \
 	  i915_gem_evict.o \
 	  i915_gem_gtt.o \
 	  i915_gem_ww.o \
