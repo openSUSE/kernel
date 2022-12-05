@@ -236,13 +236,10 @@ static int dp_display_bind(struct device *dev, struct device *master,
 {
 	int rc = 0;
 	struct dp_display_private *dp = dev_get_dp_display_private(dev);
-	struct msm_drm_private *priv;
-	struct drm_device *drm;
-
-	drm = dev_get_drvdata(master);
+	struct msm_drm_private *priv = dev_get_drvdata(master);
+	struct drm_device *drm = priv->dev;
 
 	dp->dp_display.drm_dev = drm;
-	priv = drm->dev_private;
 	priv->dp[dp->id] = &dp->dp_display;
 
 	rc = dp->parser->parse(dp->parser, dp->dp_display.connector_type);
@@ -287,8 +284,7 @@ static void dp_display_unbind(struct device *dev, struct device *master,
 			      void *data)
 {
 	struct dp_display_private *dp = dev_get_dp_display_private(dev);
-	struct drm_device *drm = dev_get_drvdata(master);
-	struct msm_drm_private *priv = drm->dev_private;
+	struct msm_drm_private *priv = dev_get_drvdata(master);
 
 	/* disable all HPD interrupts */
 	if (dp->core_initialized)
