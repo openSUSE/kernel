@@ -1686,8 +1686,7 @@ out:
  */
 static int lookup_dir_item_inode(struct btrfs_root *root,
 				 u64 dir, const char *name, int name_len,
-				 u64 *found_inode,
-				 u8 *found_type)
+				 u64 *found_inode)
 {
 	int ret = 0;
 	struct btrfs_dir_item *di;
@@ -1710,7 +1709,6 @@ static int lookup_dir_item_inode(struct btrfs_root *root,
 		goto out;
 	}
 	*found_inode = key.objectid;
-	*found_type = btrfs_dir_type(path->nodes[0], di);
 
 out:
 	btrfs_free_path(path);
@@ -1833,7 +1831,6 @@ static int will_overwrite_ref(struct send_ctx *sctx, u64 dir, u64 dir_gen,
 	int ret = 0;
 	u64 gen;
 	u64 other_inode = 0;
-	u8 other_type = 0;
 
 	if (!sctx->parent_root)
 		goto out;
@@ -1861,7 +1858,7 @@ static int will_overwrite_ref(struct send_ctx *sctx, u64 dir, u64 dir_gen,
 	}
 
 	ret = lookup_dir_item_inode(sctx->parent_root, dir, name, name_len,
-			&other_inode, &other_type);
+				    &other_inode);
 	if (ret < 0 && ret != -ENOENT)
 		goto out;
 	if (ret) {
@@ -1906,7 +1903,6 @@ static int did_overwrite_ref(struct send_ctx *sctx,
 	int ret = 0;
 	u64 gen;
 	u64 ow_inode;
-	u8 other_type;
 
 	if (!sctx->parent_root)
 		goto out;
@@ -1930,7 +1926,7 @@ static int did_overwrite_ref(struct send_ctx *sctx,
 
 	/* check if the ref was overwritten by another ref */
 	ret = lookup_dir_item_inode(sctx->send_root, dir, name, name_len,
-			&ow_inode, &other_type);
+				    &ow_inode);
 	if (ret < 0 && ret != -ENOENT)
 		goto out;
 	if (ret) {
