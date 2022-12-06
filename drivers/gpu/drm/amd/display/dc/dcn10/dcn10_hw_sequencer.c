@@ -1509,8 +1509,7 @@ void dcn10_init_hw(struct dc *dc)
 		dmub_enable_outbox_notification(dc);
 
 	/* we want to turn off all dp displays before doing detection */
-	if (dc->config.power_down_display_on_boot)
-		dc_link_blank_all_dp_displays(dc);
+	dc_link_blank_all_dp_displays(dc);
 
 	if (hws->funcs.enable_power_gating_plane)
 		hws->funcs.enable_power_gating_plane(dc->hwseq, true);
@@ -1521,7 +1520,7 @@ void dcn10_init_hw(struct dc *dc)
 	 * Otherwise, if taking control is not possible, we need to power
 	 * everything down.
 	 */
-	if (dcb->funcs->is_accelerated_mode(dcb) || dc->config.power_down_display_on_boot) {
+	if (dcb->funcs->is_accelerated_mode(dcb) || !dc->config.seamless_boot_edp_requested) {
 		if (!is_optimized_init_done) {
 			hws->funcs.init_pipes(dc, dc->current_state);
 			if (dc->res_pool->hubbub->funcs->allow_self_refresh_control)
