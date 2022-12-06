@@ -2085,6 +2085,8 @@ sd_spinup_disk(struct scsi_disk *sdkp)
 		retries = 0;
 
 		do {
+			bool media_was_present = sdkp->media_present;
+
 			cmd[0] = TEST_UNIT_READY;
 			memset((void *) &cmd[1], 0, 9);
 
@@ -2099,7 +2101,8 @@ sd_spinup_disk(struct scsi_disk *sdkp)
 			 * with any more polling.
 			 */
 			if (media_not_present(sdkp, &sshdr)) {
-				sd_printk(KERN_NOTICE, sdkp, "Media removed, stopped polling\n");
+				if (media_was_present)
+					sd_printk(KERN_NOTICE, sdkp, "Media removed, stopped polling\n");
 				return;
 			}
 
