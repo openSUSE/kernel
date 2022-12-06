@@ -1584,7 +1584,6 @@ static blk_status_t scsi_prepare_cmd(struct request *req)
 	if (!shost->hostt->init_cmd_priv)
 		memset(cmd + 1, 0, shost->hostt->cmd_size);
 
-	cmd->tag = req->tag;
 	cmd->prot_op = SCSI_PROT_NORMAL;
 	if (blk_rq_bytes(req))
 		cmd->sc_data_direction = rq_dma_dir(req);
