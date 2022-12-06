@@ -134,6 +134,7 @@
 struct chipone {
 	struct device *dev;
 	struct drm_bridge bridge;
+	struct drm_display_mode mode;
 	struct drm_bridge *panel_bridge;
 	struct gpio_desc *enable_gpio;
 	struct regulator *vdd1;
@@ -144,11 +145,6 @@ struct chipone {
 static inline struct chipone *bridge_to_chipone(struct drm_bridge *bridge)
 {
 	return container_of(bridge, struct chipone, bridge);
-}
-
-static struct drm_display_mode *bridge_to_mode(struct drm_bridge *bridge)
-{
-	return &bridge->encoder->crtc->state->adjusted_mode;
 }
 
 static inline int chipone_dsi_write(struct chipone *icn,  const void *seq,
@@ -169,7 +165,7 @@ static void chipone_atomic_enable(struct drm_bridge *bridge,
 				  struct drm_bridge_state *old_bridge_state)
 {
 	struct chipone *icn = bridge_to_chipone(bridge);
-	struct drm_display_mode *mode = bridge_to_mode(bridge);
+	struct drm_display_mode *mode = &icn->mode;
 	u16 hfp, hbp, hsync;
 
 	ICN6211_DSI(icn, MIPI_CFG_PW, MIPI_CFG_PW_CONFIG_DSI);
@@ -274,6 +270,15 @@ static void chipone_atomic_post_disable(struct drm_bridge *bridge,
 	gpiod_set_value(icn->enable_gpio, 0);
 }
 
+static void chipone_mode_set(struct drm_bridge *bridge,
+			     const struct drm_display_mode *mode,
+			     const struct drm_display_mode *adjusted_mode)
+{
+	struct chipone *icn = bridge_to_chipone(bridge);
+
+	drm_mode_copy(&icn->mode, adjusted_mode);
+}
+
 static int chipone_attach(struct drm_bridge *bridge, enum drm_bridge_attach_flags flags)
 {
 	struct chipone *icn = bridge_to_chipone(bridge);
@@ -288,6 +293,7 @@ static const struct drm_bridge_funcs chipone_bridge_funcs = {
 	.atomic_pre_enable	= chipone_atomic_pre_enable,
 	.atomic_enable		= chipone_atomic_enable,
 	.atomic_post_disable	= chipone_atomic_post_disable,
+	.mode_set		= chipone_mode_set,
 	.attach			= chipone_attach,
 };
 
