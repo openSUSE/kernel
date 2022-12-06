@@ -577,6 +577,8 @@ static int i915_driver_hw_probe(struct drm_i915_private *dev_priv)
 
 	i915_perf_init(dev_priv);
 
+	intel_gt_init_hw_early(to_gt(dev_priv), &dev_priv->ggtt);
+
 	ret = i915_ggtt_probe_hw(dev_priv);
 	if (ret)
 		goto err_perf;
@@ -592,8 +594,6 @@ static int i915_driver_hw_probe(struct drm_i915_private *dev_priv)
 	ret = intel_memory_regions_hw_probe(dev_priv);
 	if (ret)
 		goto err_ggtt;
-
-	intel_gt_init_hw_early(to_gt(dev_priv), &dev_priv->ggtt);
 
 	ret = intel_gt_probe_lmem(to_gt(dev_priv));
 	if (ret)
