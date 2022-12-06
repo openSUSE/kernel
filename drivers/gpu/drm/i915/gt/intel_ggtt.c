@@ -143,7 +143,7 @@ void i915_ggtt_suspend_vm(struct i915_address_space *vm)
 			continue;
 
 		if (!i915_vma_is_bound(vma, I915_VMA_GLOBAL_BIND)) {
-			__i915_vma_evict(vma);
+			__i915_vma_evict(vma, false);
 			drm_mm_remove_node(&vma->node);
 		}
 	}
