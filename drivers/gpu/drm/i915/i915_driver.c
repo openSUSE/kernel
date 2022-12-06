@@ -1152,7 +1152,7 @@ static int i915_drm_suspend(struct drm_device *dev)
 
 	/* Must be called before GGTT is suspended. */
 	intel_dpt_suspend(dev_priv);
-	i915_ggtt_suspend(&dev_priv->ggtt);
+	i915_ggtt_suspend(to_gt(dev_priv)->ggtt);
 
 	i915_save_display(dev_priv);
 
@@ -1276,7 +1276,7 @@ static int i915_drm_resume(struct drm_device *dev)
 	if (ret)
 		drm_err(&dev_priv->drm, "failed to re-enable GGTT\n");
 
-	i915_ggtt_resume(&dev_priv->ggtt);
+	i915_ggtt_resume(to_gt(dev_priv)->ggtt);
 	/* Must be called after GGTT is resumed. */
 	intel_dpt_resume(dev_priv);
 
