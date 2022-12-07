@@ -1628,6 +1628,7 @@ retry_flush_work:
 static void svm_range_restore_work(struct work_struct *work)
 {
 	struct delayed_work *dwork = to_delayed_work(work);
+	struct amdkfd_process_info *process_info;
 	struct svm_range_list *svms;
 	struct svm_range *prange;
 	struct kfd_process *p;
@@ -1644,6 +1645,7 @@ static void svm_range_restore_work(struct work_struct *work)
 	pr_debug("restore svm ranges\n");
 
 	p = container_of(svms, struct kfd_process, svms);
+	process_info = p->kgd_process_info;
 
 	/* Keep mm reference when svm_range_validate_and_map ranges */
 	mm = get_task_mm(p->lead_thread);
@@ -1652,6 +1654,7 @@ static void svm_range_restore_work(struct work_struct *work)
 		return;
 	}
 
+	mutex_lock(&process_info->lock);
 	svm_range_list_lock_and_flush_work(svms, mm);
 	mutex_lock(&svms->lock);
 
@@ -1704,6 +1707,7 @@ static void svm_range_restore_work(struct work_struct *work)
 out_reschedule:
 	mutex_unlock(&svms->lock);
 	mmap_write_unlock(mm);
+	mutex_unlock(&process_info->lock);
 	mmput(mm);
 
 	/* If validation failed, reschedule another attempt */
@@ -3213,6 +3217,7 @@ svm_range_set_attr(struct kfd_process *p, struct mm_struct *mm,
 		   uint64_t start, uint64_t size, uint32_t nattr,
 		   struct kfd_ioctl_svm_attribute *attrs)
 {
+	struct amdkfd_process_info *process_info = p->kgd_process_info;
 	struct list_head update_list;
 	struct list_head insert_list;
 	struct list_head remove_list;
@@ -3229,6 +3234,8 @@ svm_range_set_attr(struct kfd_process *p, struct mm_struct *mm,
 		return r;
 
 	svms = &p->svms;
+
+	mutex_lock(&process_info->lock);
 
 	svm_range_list_lock_and_flush_work(svms, mm);
 
@@ -3304,6 +3311,8 @@ out_unlock_range:
 	mutex_unlock(&svms->lock);
 	mmap_read_unlock(mm);
 out:
+	mutex_unlock(&process_info->lock);
+
 	pr_debug("pasid 0x%x svms 0x%p [0x%llx 0x%llx] done, r=%d\n", p->pasid,
 		 &p->svms, start, start + size - 1, r);
 
