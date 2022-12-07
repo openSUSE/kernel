@@ -506,33 +506,9 @@ uint32_t amdgpu_display_supported_domains(struct amdgpu_device *adev,
 	 */
 	if ((bo_flags & AMDGPU_GEM_CREATE_CPU_GTT_USWC) &&
 	    amdgpu_bo_support_uswc(bo_flags) &&
-	    amdgpu_device_asic_has_dc_support(adev->asic_type)) {
-		switch (adev->asic_type) {
-		case CHIP_CARRIZO:
-		case CHIP_STONEY:
-			domain |= AMDGPU_GEM_DOMAIN_GTT;
-			break;
-		default:
-			switch (adev->ip_versions[DCE_HWIP][0]) {
-			case IP_VERSION(1, 0, 0):
-			case IP_VERSION(1, 0, 1):
-				/* enable S/G on PCO and RV2 */
-				if ((adev->apu_flags & AMD_APU_IS_RAVEN2) ||
-				    (adev->apu_flags & AMD_APU_IS_PICASSO))
-					domain |= AMDGPU_GEM_DOMAIN_GTT;
-				break;
-			case IP_VERSION(2, 1, 0):
-			case IP_VERSION(3, 0, 1):
-			case IP_VERSION(3, 1, 2):
-			case IP_VERSION(3, 1, 3):
-				domain |= AMDGPU_GEM_DOMAIN_GTT;
-				break;
-			default:
-				break;
-			}
-			break;
-		}
-	}
+	    amdgpu_device_asic_has_dc_support(adev->asic_type) &&
+	    adev->mode_info.gpu_vm_support)
+		domain |= AMDGPU_GEM_DOMAIN_GTT;
 #endif
 
 	return domain;
@@ -1078,7 +1054,6 @@ int amdgpu_display_gem_fb_init(struct drm_device *dev,
 		goto err;
 
 	ret = drm_framebuffer_init(dev, &rfb->base, &amdgpu_fb_funcs);
-
 	if (ret)
 		goto err;
 
@@ -1114,6 +1089,7 @@ int amdgpu_display_gem_fb_verify_and_init(
 		goto err;
 
 	ret = drm_framebuffer_init(dev, &rfb->base, &amdgpu_fb_funcs);
+
 	if (ret)
 		goto err;
 
