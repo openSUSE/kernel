@@ -383,7 +383,7 @@ static void gr3d_del_link(void *link)
 
 static int gr3d_init_power(struct device *dev, struct gr3d *gr3d)
 {
-	static const char * const opp_genpd_names[] = { "3d0", "3d1", NULL };
+	static const char *opp_genpd_names[] = { "3d0", "3d1", NULL };
 	const u32 link_flags = DL_FLAG_STATELESS | DL_FLAG_PM_RUNTIME;
 	struct device **opp_virt_devs, *pd_dev;
 	struct device_link *link;
