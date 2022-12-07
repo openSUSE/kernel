@@ -545,9 +545,7 @@ mt7921_mcu_tx_done_event(struct mt7921_dev *dev, struct sk_buff *skb)
 		mt7921_mcu_tx_rate_parse(mphy->mt76, &peer,
 					 &msta->stats.tx_rate,
 					 le16_to_cpu(event->tx_rate));
-
-		spin_lock_bh(&dev->sta_poll_lock);
-		break;
+		return;
 	}
 	spin_unlock_bh(&dev->sta_poll_lock);
 }
@@ -1205,8 +1203,9 @@ int mt7921_mcu_uni_bss_ps(struct mt7921_dev *dev, struct ieee80211_vif *vif)
 				 &ps_req, sizeof(ps_req), true);
 }
 
-int mt7921_mcu_uni_bss_bcnft(struct mt7921_dev *dev, struct ieee80211_vif *vif,
-			     bool enable)
+static int
+mt7921_mcu_uni_bss_bcnft(struct mt7921_dev *dev, struct ieee80211_vif *vif,
+			 bool enable)
 {
 	struct mt7921_vif *mvif = (struct mt7921_vif *)vif->drv_priv;
 	struct {
@@ -1240,8 +1239,9 @@ int mt7921_mcu_uni_bss_bcnft(struct mt7921_dev *dev, struct ieee80211_vif *vif,
 				 &bcnft_req, sizeof(bcnft_req), true);
 }
 
-int mt7921_mcu_set_bss_pm(struct mt7921_dev *dev, struct ieee80211_vif *vif,
-			  bool enable)
+static int
+mt7921_mcu_set_bss_pm(struct mt7921_dev *dev, struct ieee80211_vif *vif,
+		      bool enable)
 {
 	struct mt7921_vif *mvif = (struct mt7921_vif *)vif->drv_priv;
 	struct {
@@ -1400,31 +1400,34 @@ out:
 	return err;
 }
 
-void
-mt7921_pm_interface_iter(void *priv, u8 *mac, struct ieee80211_vif *vif)
+int mt7921_mcu_set_beacon_filter(struct mt7921_dev *dev,
+				 struct ieee80211_vif *vif,
+				 bool enable)
 {
-	struct mt7921_phy *phy = priv;
-	struct mt7921_dev *dev = phy->dev;
 	struct ieee80211_hw *hw = mt76_hw(dev);
-	int ret;
+	int err;
 
-	if (dev->pm.enable)
-		ret = mt7921_mcu_uni_bss_bcnft(dev, vif, true);
-	else
-		ret = mt7921_mcu_set_bss_pm(dev, vif, false);
+	if (enable) {
+		err = mt7921_mcu_uni_bss_bcnft(dev, vif, true);
+		if (err)
+			return err;
 
-	if (ret)
-		return;
-
-	if (dev->pm.enable) {
 		vif->driver_flags |= IEEE80211_VIF_BEACON_FILTER;
 		ieee80211_hw_set(hw, CONNECTION_MONITOR);
 		mt76_set(dev, MT_WF_RFCR(0), MT_WF_RFCR_DROP_OTHER_BEACON);
-	} else {
-		vif->driver_flags &= ~IEEE80211_VIF_BEACON_FILTER;
-		__clear_bit(IEEE80211_HW_CONNECTION_MONITOR, hw->flags);
-		mt76_clear(dev, MT_WF_RFCR(0), MT_WF_RFCR_DROP_OTHER_BEACON);
+
+		return 0;
 	}
+
+	err = mt7921_mcu_set_bss_pm(dev, vif, false);
+	if (err)
+		return err;
+
+	vif->driver_flags &= ~IEEE80211_VIF_BEACON_FILTER;
+	__clear_bit(IEEE80211_HW_CONNECTION_MONITOR, hw->flags);
+	mt76_clear(dev, MT_WF_RFCR(0), MT_WF_RFCR_DROP_OTHER_BEACON);
+
+	return 0;
 }
 
 int mt7921_get_txpwr_info(struct mt7921_dev *dev, struct mt7921_txpwr *txpwr)
