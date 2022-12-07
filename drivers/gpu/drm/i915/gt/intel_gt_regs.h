@@ -322,6 +322,9 @@
 
 #define GEN12_PAT_INDEX(index)			_MMIO(0x4800 + (index) * 4)
 
+#define XEHPSDV_FLAT_CCS_BASE_ADDR		_MMIO(0x4910)
+#define   XEHPSDV_CCS_BASE_SHIFT		8
+
 #define GAMTARBMODE				_MMIO(0x4a08)
 #define   ARB_MODE_BWGTLB_DISABLE		(1 << 9)
 #define   ARB_MODE_SWIZZLE_BDW			(1 << 1)
