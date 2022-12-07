@@ -48,6 +48,9 @@
 
 #include "usb.h"
 
+DEFINE_MUTEX(suse_big_usbip_lock);
+EXPORT_SYMBOL(suse_big_usbip_lock);
+
 /* Define ALLOW_SERIAL_NUMBER if you want to see the serial number of devices */
 #define ALLOW_SERIAL_NUMBER
 
