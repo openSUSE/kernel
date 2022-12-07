@@ -370,7 +370,8 @@ static int smc_pnet_add_eth(struct smc_pnettable *pnettable, struct net *net,
 	memcpy(new_pe->pnet_name, pnet_name, SMC_MAX_PNETID_LEN);
 	strncpy(new_pe->eth_name, eth_name, IFNAMSIZ);
 	new_pe->ndev = ndev;
-	netdev_tracker_alloc(ndev, &new_pe->dev_tracker, GFP_KERNEL);
+	if (ndev)
+		netdev_tracker_alloc(ndev, &new_pe->dev_tracker, GFP_KERNEL);
 	rc = -EEXIST;
 	new_netdev = true;
 	mutex_lock(&pnettable->lock);
