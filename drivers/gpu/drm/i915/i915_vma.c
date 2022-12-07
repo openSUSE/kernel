@@ -1610,7 +1610,6 @@ static void __i915_vma_remove_closed(struct i915_vma *vma)
 
 void i915_vma_reopen(struct i915_vma *vma)
 {
-
 	struct intel_gt *gt = vma->vm->gt;
 
 	spin_lock_irq(&gt->closed_lock);
@@ -1622,16 +1621,28 @@ void i915_vma_reopen(struct i915_vma *vma)
 void i915_vma_release(struct kref *ref)
 {
 	struct i915_vma *vma = container_of(ref, typeof(*vma), ref);
+
+	i915_vm_put(vma->vm);
+	i915_active_fini(&vma->active);
+	GEM_WARN_ON(vma->resource);
+	i915_vma_free(vma);
+}
+
+static void force_unbind(struct i915_vma *vma)
+{
+	if (!drm_mm_node_allocated(&vma->node))
+		return;
+
+	atomic_and(~I915_VMA_PIN_MASK, &vma->flags);
+	WARN_ON(__i915_vma_unbind(vma));
+	GEM_BUG_ON(drm_mm_node_allocated(&vma->node));
+}
+
+static void release_references(struct i915_vma *vma)
+{
 	struct drm_i915_gem_object *obj = vma->obj;
 	struct intel_gt *gt = vma->vm->gt;
 
-	if (drm_mm_node_allocated(&vma->node)) {
-		mutex_lock(&vma->vm->mutex);
-		atomic_and(~I915_VMA_PIN_MASK, &vma->flags);
-		WARN_ON(__i915_vma_unbind(vma));
-		mutex_unlock(&vma->vm->mutex);
-		GEM_BUG_ON(drm_mm_node_allocated(&vma->node));
-	}
 	GEM_BUG_ON(i915_vma_is_active(vma));
 
 	spin_lock(&obj->vma.lock);
@@ -1643,11 +1654,49 @@ void i915_vma_release(struct kref *ref)
 	spin_lock_irq(&gt->closed_lock);
 	__i915_vma_remove_closed(vma);
 	spin_unlock_irq(&gt->closed_lock);
-	i915_vm_put(vma->vm);
 
-	i915_active_fini(&vma->active);
-	GEM_WARN_ON(vma->resource);
-	i915_vma_free(vma);
+	__i915_vma_put(vma);
+}
+
+/**
+ * i915_vma_destroy_locked - Remove all weak reference to the vma and put
+ * the initial reference.
+ *
+ * This function should be called when it's decided the vma isn't needed
+ * anymore. The caller must assure that it doesn't race with another lookup
+ * plus destroy, typically by taking an appropriate reference.
+ *
+ * Current callsites are
+ * - __i915_gem_object_pages_fini()
+ * - __i915_vm_close() - Blocks the above function by taking a reference on
+ * the object.
+ * - __i915_vma_parked() - Blocks the above functions by taking an open-count on
+ * the vm and a reference on the object.
+ *
+ * Because of locks taken during destruction, a vma is also guaranteed to
+ * stay alive while the following locks are held if it was looked up while
+ * holding one of the locks:
+ * - vm->mutex
+ * - obj->vma.lock
+ * - gt->closed_lock
+ *
+ * A vma user can also temporarily keep the vma alive while holding a vma
+ * reference.
+ */
+void i915_vma_destroy_locked(struct i915_vma *vma)
+{
+	lockdep_assert_held(&vma->vm->mutex);
+
+	force_unbind(vma);
+	release_references(vma);
+}
+
+void i915_vma_destroy(struct i915_vma *vma)
+{
+	mutex_lock(&vma->vm->mutex);
+	force_unbind(vma);
+	mutex_unlock(&vma->vm->mutex);
+	release_references(vma);
 }
 
 void i915_vma_parked(struct intel_gt *gt)
@@ -1681,7 +1730,7 @@ void i915_vma_parked(struct intel_gt *gt)
 
 		if (i915_gem_object_trylock(obj, NULL)) {
 			INIT_LIST_HEAD(&vma->closed_link);
-			__i915_vma_put(vma);
+			i915_vma_destroy(vma);
 			i915_gem_object_unlock(obj);
 		} else {
 			/* back you go.. */
