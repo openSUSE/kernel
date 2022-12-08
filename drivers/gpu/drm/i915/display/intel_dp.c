@@ -4700,9 +4700,7 @@ intel_dp_connector_register(struct drm_connector *connector)
 	if (lspcon_init(dig_port)) {
 		lspcon_detect_hdr_capability(lspcon);
 		if (lspcon->hdr_supported)
-			drm_object_attach_property(&connector->base,
-						   connector->dev->mode_config.hdr_output_metadata_property,
-						   0);
+			drm_connector_attach_hdr_output_metadata_property(connector);
 	}
 
 	return ret;
@@ -5017,9 +5015,7 @@ intel_dp_add_properties(struct intel_dp *intel_dp, struct drm_connector *connect
 	}
 
 	if (has_gamut_metadata_dip(dev_priv, port))
-		drm_object_attach_property(&connector->base,
-					   connector->dev->mode_config.hdr_output_metadata_property,
-					   0);
+		drm_connector_attach_hdr_output_metadata_property(connector);
 
 	if (intel_dp_is_edp(intel_dp)) {
 		u32 allowed_scalers;
