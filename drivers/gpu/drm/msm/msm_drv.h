@@ -46,10 +46,7 @@ struct msm_gem_vma;
 struct msm_disp_state;
 
 #define MAX_CRTCS      8
-#define MAX_PLANES     20
-#define MAX_ENCODERS   8
 #define MAX_BRIDGES    8
-#define MAX_CONNECTORS 8
 
 #define FRAC_16_16(mult, div)    (((mult) << 16) / (div))
 
@@ -175,22 +172,13 @@ struct msm_drm_private {
 
 	struct workqueue_struct *wq;
 
-	unsigned int num_planes;
-	struct drm_plane *planes[MAX_PLANES];
-
 	unsigned int num_crtcs;
 	struct drm_crtc *crtcs[MAX_CRTCS];
 
 	struct msm_drm_thread event_thread[MAX_CRTCS];
 
-	unsigned int num_encoders;
-	struct drm_encoder *encoders[MAX_ENCODERS];
-
 	unsigned int num_bridges;
 	struct drm_bridge *bridges[MAX_BRIDGES];
-
-	unsigned int num_connectors;
-	struct drm_connector *connectors[MAX_CONNECTORS];
 
 	/* VRAM carveout, used when no IOMMU: */
 	struct {
