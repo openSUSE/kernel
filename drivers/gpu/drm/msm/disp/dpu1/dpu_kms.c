@@ -1179,6 +1179,8 @@ struct msm_kms *dpu_kms_init(struct drm_device *dev)
 	struct msm_drm_private *priv;
 	struct dpu_kms *dpu_kms;
 	int irq;
+	struct dev_pm_opp *opp;
+	unsigned long max_freq = ULONG_MAX;
 
 	if (!dev) {
 		DPU_ERROR("drm device node invalid\n");
@@ -1191,7 +1193,7 @@ struct msm_kms *dpu_kms_init(struct drm_device *dev)
 	irq = irq_of_parse_and_map(dpu_kms->pdev->dev.of_node, 0);
 	if (!irq) {
 		DPU_ERROR("failed to get irq\n");
-		return -EINVAL;
+		return ERR_PTR(-EINVAL);
 	}
 	dpu_kms->base.irq = irq;
 
@@ -1204,8 +1206,6 @@ static int dpu_bind(struct device *dev, struct device *master, void *data)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct drm_device *ddev = priv->dev;
 	struct dpu_kms *dpu_kms;
-	struct dev_pm_opp *opp;
-	unsigned long max_freq = ULONG_MAX;
 	int ret = 0;
 
 	dpu_kms = devm_kzalloc(&pdev->dev, sizeof(*dpu_kms), GFP_KERNEL);
