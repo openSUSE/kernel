@@ -86,6 +86,7 @@ struct dp_display_private {
 	bool hpd_irq_on;
 	bool audio_supported;
 
+	struct drm_device *drm_dev;
 	struct platform_device *pdev;
 	struct dentry *root;
 
@@ -273,6 +274,7 @@ static int dp_display_bind(struct device *dev, struct device *master,
 
 	dp->dp_display.next_bridge = dp->parser->next_bridge;
 
+	dp->drm_dev = drm;
 	dp->aux->drm_dev = drm;
 	rc = dp_aux_register(dp->aux);
 	if (rc) {
@@ -333,7 +335,8 @@ static bool dp_display_is_ds_bridge(struct dp_panel *panel)
 
 static bool dp_display_is_sink_count_zero(struct dp_display_private *dp)
 {
-	DRM_DEBUG_DP("present=%#x sink_count=%d\n", dp->panel->dpcd[DP_DOWNSTREAMPORT_PRESENT],
+	drm_dbg_dp(dp->drm_dev, "present=%#x sink_count=%d\n",
+			dp->panel->dpcd[DP_DOWNSTREAMPORT_PRESENT],
 		dp->link->sink_count);
 	return dp_display_is_ds_bridge(dp->panel) &&
 		(dp->link->sink_count == 0);
@@ -356,7 +359,8 @@ static int dp_display_send_hpd_notification(struct dp_display_private *dp,
 {
 	if ((hpd && dp->dp_display.is_connected) ||
 			(!hpd && !dp->dp_display.is_connected)) {
-		DRM_DEBUG_DP("HPD already %s\n", (hpd ? "on" : "off"));
+		drm_dbg_dp(dp->drm_dev, "HPD already %s\n",
+				(hpd ? "on" : "off"));
 		return 0;
 	}
 
@@ -366,7 +370,8 @@ static int dp_display_send_hpd_notification(struct dp_display_private *dp,
 
 	dp->dp_display.is_connected = hpd;
 
-	DRM_DEBUG_DP("hpd=%d\n", hpd);
+	drm_dbg_dp(dp->drm_dev, "type=%d hpd=%d\n",
+			dp->dp_display.connector_type, hpd);
 	dp_display_send_hpd_event(&dp->dp_display);
 
 	return 0;
@@ -414,7 +419,7 @@ end:
 
 static void dp_display_host_phy_init(struct dp_display_private *dp)
 {
-	DRM_DEBUG_DP("type=%d core_init=%d phy_init=%d\n",
+	drm_dbg_dp(dp->drm_dev, "type=%d core_init=%d phy_init=%d\n",
 		dp->dp_display.connector_type, dp->core_initialized,
 		dp->phy_initialized);
 
@@ -426,7 +431,7 @@ static void dp_display_host_phy_init(struct dp_display_private *dp)
 
 static void dp_display_host_phy_exit(struct dp_display_private *dp)
 {
-	DRM_DEBUG_DP("type=%d core_init=%d phy_init=%d\n",
+	drm_dbg_dp(dp->drm_dev, "type=%d core_init=%d phy_init=%d\n",
 		dp->dp_display.connector_type, dp->core_initialized,
 		dp->phy_initialized);
 
@@ -438,7 +443,7 @@ static void dp_display_host_phy_exit(struct dp_display_private *dp)
 
 static void dp_display_host_init(struct dp_display_private *dp)
 {
-	DRM_DEBUG_DP("type=%d core_init=%d phy_init=%d\n",
+	drm_dbg_dp(dp->drm_dev, "type=%d core_init=%d phy_init=%d\n",
 		dp->dp_display.connector_type, dp->core_initialized,
 		dp->phy_initialized);
 
@@ -450,7 +455,7 @@ static void dp_display_host_init(struct dp_display_private *dp)
 
 static void dp_display_host_deinit(struct dp_display_private *dp)
 {
-	DRM_DEBUG_DP("type=%d core_init=%d phy_init=%d\n",
+	drm_dbg_dp(dp->drm_dev, "type=%d core_init=%d phy_init=%d\n",
 		dp->dp_display.connector_type, dp->core_initialized,
 		dp->phy_initialized);
 
@@ -491,7 +496,7 @@ static int dp_display_handle_port_ststus_changed(struct dp_display_private *dp)
 	int rc = 0;
 
 	if (dp_display_is_sink_count_zero(dp)) {
-		DRM_DEBUG_DP("sink count is zero, nothing to do\n");
+		drm_dbg_dp(dp->drm_dev, "sink count is zero, nothing to do\n");
 		if (dp->hpd_state != ST_DISCONNECTED) {
 			dp->hpd_state = ST_DISCONNECT_PENDING;
 			dp_add_event(dp, EV_USER_NOTIFICATION, false, 0);
@@ -512,10 +517,11 @@ static int dp_display_handle_irq_hpd(struct dp_display_private *dp)
 {
 	u32 sink_request = dp->link->sink_request;
 
-	DRM_DEBUG_DP("%d\n", sink_request);
+	drm_dbg_dp(dp->drm_dev, "%d\n", sink_request);
 	if (dp->hpd_state == ST_DISCONNECTED) {
 		if (sink_request & DP_LINK_STATUS_UPDATED) {
-			DRM_DEBUG_DP("Disconnected sink_request: %d\n", sink_request);
+			drm_dbg_dp(dp->drm_dev, "Disconnected sink_request: %d\n",
+							sink_request);
 			DRM_ERROR("Disconnected, no DP_LINK_STATUS_UPDATED\n");
 			return -EINVAL;
 		}
@@ -539,7 +545,8 @@ static int dp_display_usbpd_attention_cb(struct device *dev)
 	rc = dp_link_process_request(dp->link);
 	if (!rc) {
 		sink_request = dp->link->sink_request;
-		DRM_DEBUG_DP("hpd_state=%d sink_request=%d\n", dp->hpd_state, sink_request);
+		drm_dbg_dp(dp->drm_dev, "hpd_state=%d sink_request=%d\n",
+					dp->hpd_state, sink_request);
 		if (sink_request & DS_PORT_STATUS_CHANGED)
 			rc = dp_display_handle_port_ststus_changed(dp);
 		else
@@ -562,7 +569,7 @@ static int dp_hpd_plug_handle(struct dp_display_private *dp, u32 data)
 	mutex_lock(&dp->event_mutex);
 
 	state =  dp->hpd_state;
-	DRM_DEBUG_DP("Before, type=%d hpd_state=%d\n",
+	drm_dbg_dp(dp->drm_dev, "Before, type=%d hpd_state=%d\n",
 			dp->dp_display.connector_type, state);
 
 	if (state == ST_DISPLAY_OFF || state == ST_SUSPENDED) {
@@ -596,7 +603,7 @@ static int dp_hpd_plug_handle(struct dp_display_private *dp, u32 data)
 	dp_catalog_hpd_config_intr(dp->catalog,
 		DP_DP_IRQ_HPD_INT_MASK | DP_DP_HPD_REPLUG_INT_MASK, true);
 
-	DRM_DEBUG_DP("After, type=%d hpd_state=%d\n",
+	drm_dbg_dp(dp->drm_dev, "After, type=%d hpd_state=%d\n",
 			dp->dp_display.connector_type, state);
 	mutex_unlock(&dp->event_mutex);
 
@@ -616,7 +623,7 @@ static int dp_connect_pending_timeout(struct dp_display_private *dp, u32 data)
 	state = dp->hpd_state;
 	if (state == ST_CONNECT_PENDING) {
 		dp->hpd_state = ST_CONNECTED;
-		DRM_DEBUG_DP("type=%d\n", dp->dp_display.connector_type);
+		drm_dbg_dp(dp->drm_dev, "type=%d\n", dp->dp_display.connector_type);
 	}
 
 	mutex_unlock(&dp->event_mutex);
@@ -650,7 +657,7 @@ static int dp_hpd_unplug_handle(struct dp_display_private *dp, u32 data)
 
 	state = dp->hpd_state;
 
-	DRM_DEBUG_DP("Before, type=%d hpd_state=%d\n",
+	drm_dbg_dp(dp->drm_dev, "Before, type=%d hpd_state=%d\n",
 			dp->dp_display.connector_type, state);
 
 	/* disable irq_hpd/replug interrupts */
@@ -701,7 +708,7 @@ static int dp_hpd_unplug_handle(struct dp_display_private *dp, u32 data)
 	/* enable HDP plug interrupt to prepare for next plugin */
 	dp_catalog_hpd_config_intr(dp->catalog, DP_DP_HPD_PLUG_INT_MASK, true);
 
-	DRM_DEBUG_DP("After, type=%d hpd_state=%d\n",
+	drm_dbg_dp(dp->drm_dev, "After, type=%d hpd_state=%d\n",
 			dp->dp_display.connector_type, state);
 
 	/* uevent will complete disconnection part */
@@ -718,7 +725,7 @@ static int dp_disconnect_pending_timeout(struct dp_display_private *dp, u32 data
 	state =  dp->hpd_state;
 	if (state == ST_DISCONNECT_PENDING) {
 		dp->hpd_state = ST_DISCONNECTED;
-		DRM_DEBUG_DP("type=%d\n", dp->dp_display.connector_type);
+		drm_dbg_dp(dp->drm_dev, "type=%d\n", dp->dp_display.connector_type);
 	}
 
 	mutex_unlock(&dp->event_mutex);
@@ -734,7 +741,7 @@ static int dp_irq_hpd_handle(struct dp_display_private *dp, u32 data)
 
 	/* irq_hpd can happen at either connected or disconnected state */
 	state =  dp->hpd_state;
-	DRM_DEBUG_DP("Before, type=%d hpd_state=%d\n",
+	drm_dbg_dp(dp->drm_dev, "Before, type=%d hpd_state=%d\n",
 			dp->dp_display.connector_type, state);
 
 	if (state == ST_DISPLAY_OFF || state == ST_SUSPENDED) {
@@ -758,7 +765,7 @@ static int dp_irq_hpd_handle(struct dp_display_private *dp, u32 data)
 
 	dp_display_usbpd_attention_cb(&dp->pdev->dev);
 
-	DRM_DEBUG_DP("After, type=%d hpd_state=%d\n",
+	drm_dbg_dp(dp->drm_dev, "After, type=%d hpd_state=%d\n",
 			dp->dp_display.connector_type, state);
 
 	mutex_unlock(&dp->event_mutex);
@@ -903,9 +910,9 @@ static int dp_display_enable(struct dp_display_private *dp, u32 data)
 	int rc = 0;
 	struct msm_dp *dp_display = &dp->dp_display;
 
-	DRM_DEBUG_DP("sink_count=%d\n", dp->link->sink_count);
+	drm_dbg_dp(dp->drm_dev, "sink_count=%d\n", dp->link->sink_count);
 	if (dp_display->power_on) {
-		DRM_DEBUG_DP("Link already setup, return\n");
+		drm_dbg_dp(dp->drm_dev, "Link already setup, return\n");
 		return 0;
 	}
 
@@ -970,7 +977,7 @@ static int dp_display_disable(struct dp_display_private *dp, u32 data)
 
 	dp_display->power_on = false;
 
-	DRM_DEBUG_DP("sink count: %d\n", dp->link->sink_count);
+	drm_dbg_dp(dp->drm_dev, "sink count: %d\n", dp->link->sink_count);
 	return 0;
 }
 
@@ -1242,7 +1249,7 @@ static irqreturn_t dp_display_irq_handler(int irq, void *dev_id)
 	hpd_isr_status = dp_catalog_hpd_get_intr_status(dp->catalog);
 
 	if (hpd_isr_status & 0x0F) {
-		DRM_DEBUG_DP("type=%d isr=0x%x\n",
+		drm_dbg_dp(dp->drm_dev, "type=%d isr=0x%x\n",
 			dp->dp_display.connector_type, hpd_isr_status);
 		/* hpd related interrupts */
 		if (hpd_isr_status & DP_DP_HPD_PLUG_INT_MASK)
@@ -1399,7 +1406,8 @@ static int dp_pm_resume(struct device *dev)
 
 	mutex_lock(&dp->event_mutex);
 
-	DRM_DEBUG_DP("Before, type=%d core_inited=%d phy_inited=%d power_on=%d\n",
+	drm_dbg_dp(dp->drm_dev,
+		"Before, type=%d core_inited=%d phy_inited=%d power_on=%d\n",
 		dp->dp_display.connector_type, dp->core_initialized,
 		dp->phy_initialized, dp_display->power_on);
 
@@ -1440,8 +1448,8 @@ static int dp_pm_resume(struct device *dev)
 		dp_display_handle_plugged_change(dp_display, false);
 	}
 
-	DRM_DEBUG_DP("After, type=%d sink_count=%d is_connected=%d \
-			core_inited=%d phy_inited=%d power_on=%d\n",
+	drm_dbg_dp(dp->drm_dev,
+		"After, type=%d sink=%d conn=%d core_init=%d phy_init=%d power=%d\n",
 		dp->dp_display.connector_type, dp->link->sink_count,
 		dp->dp_display.is_connected, dp->core_initialized,
 		dp->phy_initialized, dp_display->power_on);
@@ -1461,7 +1469,8 @@ static int dp_pm_suspend(struct device *dev)
 
 	mutex_lock(&dp->event_mutex);
 
-	DRM_DEBUG_DP("Before, type=%d core_inited=%d phy_inited=%d power_on=%d\n",
+	drm_dbg_dp(dp->drm_dev,
+		"Before, type=%d core_inited=%d  phy_inited=%d power_on=%d\n",
 		dp->dp_display.connector_type, dp->core_initialized,
 		dp->phy_initialized, dp_display->power_on);
 
@@ -1476,7 +1485,8 @@ static int dp_pm_suspend(struct device *dev)
 
 	dp->hpd_state = ST_SUSPENDED;
 
-	DRM_DEBUG_DP("After, type=%d core_inited=%d phy_inited=%d power_on=%d\n",
+	drm_dbg_dp(dp->drm_dev,
+		"After, type=%d core_inited=%d phy_inited=%d power_on=%d\n",
 		dp->dp_display.connector_type, dp->core_initialized,
 		dp->phy_initialized, dp_display->power_on);
 
@@ -1671,6 +1681,7 @@ void dp_bridge_enable(struct drm_bridge *drm_bridge)
 	/* completed connection */
 	dp_display->hpd_state = ST_CONNECTED;
 
+	drm_dbg_dp(dp->drm_dev, "type=%d Done\n", dp->connector_type);
 	mutex_unlock(&dp_display->event_mutex);
 }
 
@@ -1714,6 +1725,7 @@ void dp_bridge_post_disable(struct drm_bridge *drm_bridge)
 		dp_display->hpd_state = ST_DISPLAY_OFF;
 	}
 
+	drm_dbg_dp(dp->drm_dev, "type=%d Done\n", dp->connector_type);
 	mutex_unlock(&dp_display->event_mutex);
 }
 
