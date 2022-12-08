@@ -1948,6 +1948,37 @@ out_no_pagelock:
 }
 
 /*
+ * Create buffers under a dirty page. This is a hack for the case when someone
+ * pinned the page, the page got cleaned and buffers released, and then the
+ * pinning process dirtied the page
+ */
+static void ext4_restore_page_buffers(struct inode *inode, struct page *page)
+{
+	int bsize = 1 << inode->i_blkbits;
+	struct buffer_head *bh, *head;
+	loff_t isize = i_size_read(inode);
+	unsigned int off, end;
+	ext4_lblk_t iblock = page->index << (PAGE_SHIFT - inode->i_blkbits);
+
+	if (page->index == isize >> PAGE_SHIFT)
+		end = isize & (PAGE_SIZE - 1);
+	else
+		end = PAGE_SIZE;
+
+	create_empty_buffers(page, bsize, 0);
+	bh = head = page_buffers(page);
+	off = 0;
+	do {
+		if (off > end)
+			break;
+		ext4_get_block(inode, iblock, bh, 0);
+		off += bsize;
+		iblock++;
+		bh = bh->b_this_page;
+	} while (bh != head);
+}
+
+/*
  * Note that we don't need to start a transaction unless we're journaling data
  * because we should have holes filled from ext4_page_mkwrite(). We even don't
  * need to file the inode to the transaction's list in ordered mode because if
@@ -2013,6 +2044,8 @@ static int ext4_writepage(struct page *page,
 	else
 		len = PAGE_SIZE;
 
+	if (!page_has_buffers(page))
+		ext4_restore_page_buffers(inode, page);
 	page_bufs = page_buffers(page);
 	/*
 	 * We cannot do block allocation or other extent handling in this
@@ -2616,6 +2649,8 @@ static int mpage_prepare_extent_to_map(struct mpage_da_data *mpd)
 			wait_on_page_writeback(page);
 			BUG_ON(PageWriteback(page));
 
+			if (!page_has_buffers(page))
+				ext4_restore_page_buffers(mpd->inode, page);
 			if (mpd->map.m_len == 0)
 				mpd->first_page = page->index;
 			mpd->next_page = page->index + 1;
