@@ -5326,6 +5326,10 @@ static void io_poll_task_func(struct io_kiocb *req, bool *locked)
 	} else {
 		bool done;
 
+		if (req->poll.done) {
+			spin_unlock(&ctx->completion_lock);
+			return;
+		}
 		done = __io_poll_complete(req, req->result);
 		if (done) {
 			io_poll_remove_double(req);
@@ -5795,14 +5799,14 @@ static int io_poll_add(struct io_kiocb *req, unsigned int issue_flags)
 	struct io_ring_ctx *ctx = req->ctx;
 	struct io_poll_table ipt;
 	__poll_t mask;
+	bool done;
 #ifdef CONFIG_SIGNALFD
-	extern __poll_t signalfd_poll(struct file *file, poll_table *wait);
+       extern __poll_t signalfd_poll(struct file *file, poll_table *wait);
 
-	/* unhandled pollfree: Binder (SLE-disabled) and signalfd only */
-	if (req->file->f_op->poll == &signalfd_poll)
-		return -EOPNOTSUPP;
+       /* unhandled pollfree: Binder (SLE-disabled) and signalfd only */
+       if (req->file->f_op->poll == &signalfd_poll)
+               return -EOPNOTSUPP;
 #endif
-
 	ipt.pt._qproc = io_poll_queue_proc;
 
 	mask = __io_arm_poll_handler(req, &req->poll, &ipt, poll->events,
@@ -5810,13 +5814,13 @@ static int io_poll_add(struct io_kiocb *req, unsigned int issue_flags)
 
 	if (mask) { /* no async, we'd stolen it */
 		ipt.error = 0;
-		io_poll_complete(req, mask);
+		done = io_poll_complete(req, mask);
 	}
 	spin_unlock(&ctx->completion_lock);
 
 	if (mask) {
 		io_cqring_ev_posted(ctx);
-		if (poll->events & EPOLLONESHOT)
+		if (done)
 			io_put_req(req);
 	}
 	return ipt.error;
