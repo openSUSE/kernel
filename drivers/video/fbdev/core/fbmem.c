@@ -1598,7 +1598,7 @@ static void do_remove_conflicting_framebuffers(struct apertures_struct *a,
 				 * framebuffer as before without warning.
 				 */
 				do_unregister_framebuffer(registered_fb[i]);
-			} else if (dev_is_platform(device)) {
+			} else if (device && dev_is_platform(device)) {
 				registered_fb[i]->forced_out = true;
 				platform_device_unregister(to_platform_device(device));
 			} else {
