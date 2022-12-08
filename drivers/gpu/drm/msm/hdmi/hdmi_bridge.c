@@ -161,7 +161,6 @@ static void msm_hdmi_bridge_pre_enable(struct drm_bridge *bridge)
 
 static void msm_hdmi_bridge_enable(struct drm_bridge *bridge)
 {
-	drm_bridge_remove(bridge);
 }
 
 static void msm_hdmi_bridge_disable(struct drm_bridge *bridge)
