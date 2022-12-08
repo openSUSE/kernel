@@ -1191,7 +1191,7 @@ struct msm_kms *dpu_kms_init(struct drm_device *dev)
 	irq = irq_of_parse_and_map(dpu_kms->pdev->dev.of_node, 0);
 	if (!irq) {
 		DPU_ERROR("failed to get irq\n");
-		return ERR_PTR(-EINVAL);
+		return -EINVAL;
 	}
 	dpu_kms->base.irq = irq;
 
