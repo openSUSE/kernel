@@ -3243,7 +3243,7 @@ static ssize_t show_rotate(struct device *device,
 	rotate = fbcon_get_rotate(info);
 err:
 	console_unlock();
-	return snprintf(buf, PAGE_SIZE, "%d\n", rotate);
+	return sysfs_emit(buf, "%d\n", rotate);
 }
 
 static ssize_t show_cursor_blink(struct device *device,
@@ -3268,7 +3268,7 @@ static ssize_t show_cursor_blink(struct device *device,
 	blink = delayed_work_pending(&ops->cursor_work);
 err:
 	console_unlock();
-	return snprintf(buf, PAGE_SIZE, "%d\n", blink);
+	return sysfs_emit(buf, "%d\n", blink);
 }
 
 static ssize_t store_cursor_blink(struct device *device,
