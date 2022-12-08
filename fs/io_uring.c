@@ -896,12 +896,12 @@ struct io_defer_entry {
 struct io_op_def {
 	/* needs req->file assigned */
 	unsigned		needs_file : 1;
+	/* should block plug */
+	unsigned		plug : 1;
 	/* hash wq insertion if file is a regular file */
 	unsigned		hash_reg_file : 1;
 	/* unbound wq insertion if file is a non-regular file */
 	unsigned		unbound_nonreg_file : 1;
-	/* opcode is not supported by this kernel */
-	unsigned		not_supported : 1;
 	/* set if opcode supports polled "wait" */
 	unsigned		pollin : 1;
 	unsigned		pollout : 1;
@@ -909,8 +909,8 @@ struct io_op_def {
 	unsigned		buffer_select : 1;
 	/* do prep async if is going to be punted */
 	unsigned		needs_async_setup : 1;
-	/* should block plug */
-	unsigned		plug : 1;
+	/* opcode is not supported by this kernel */
+	unsigned		not_supported : 1;
 	/* size of async data needed, if any */
 	unsigned short		async_size;
 };
@@ -6990,7 +6990,6 @@ static int io_init_req(struct io_ring_ctx *ctx, struct io_kiocb *req,
 		       const struct io_uring_sqe *sqe)
 	__must_hold(&ctx->uring_lock)
 {
-	struct io_submit_state *state;
 	unsigned int sqe_flags;
 	int personality;
 
@@ -7037,19 +7036,20 @@ static int io_init_req(struct io_ring_ctx *ctx, struct io_kiocb *req,
 		get_cred(req->creds);
 		req->flags |= REQ_F_CREDS;
 	}
-	state = &ctx->submit_state;
-
-	/*
-	 * Plug now if we have more than 1 IO left after this, and the target
-	 * is potentially a read/write to block based storage.
-	 */
-	if (state->need_plug && io_op_defs[req->opcode].plug) {
-		blk_start_plug(&state->plug);
-		state->plug_started = true;
-		state->need_plug = false;
-	}
 
 	if (io_op_defs[req->opcode].needs_file) {
+		struct io_submit_state *state = &ctx->submit_state;
+
+		/*
+		 * Plug now if we have more than 2 IO left after this, and the
+		 * target is potentially a read/write to block based storage.
+		 */
+		if (state->need_plug && io_op_defs[req->opcode].plug) {
+			state->plug_started = true;
+			state->need_plug = false;
+			blk_start_plug(&state->plug);
+		}
+
 		req->file = io_file_get(ctx, req, READ_ONCE(sqe->fd),
 					(sqe_flags & IOSQE_FIXED_FILE));
 		if (unlikely(!req->file))
