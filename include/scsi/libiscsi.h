@@ -208,9 +208,14 @@ struct iscsi_conn {
 	struct list_head	cmdqueue;	/* data-path cmd queue */
 	struct list_head	requeue;	/* tasks needing another run */
 	struct work_struct	xmitwork;	/* per-conn. xmit workqueue */
-	/* recv */
-	struct work_struct	recvwork;
-	unsigned long		flags;		/* ISCSI_CONN_FLAGs */
+
+	/*
+	 * these two fields have been removed since the "flags" field replaces
+	 * them, but are kept here for kABI compatability
+	 */
+	unsigned long		suspend_tx;	/* suspend Tx */
+	unsigned long		suspend_rx;	/* suspend Rx */
+
 
 	/* negotiated params */
 	unsigned		max_recv_dlength; /* initiator_max_recv_dsl*/
@@ -254,6 +259,12 @@ struct iscsi_conn {
 	/* custom statistics */
 	uint32_t		eh_abort_cnt;
 	uint32_t		fmr_unalign_cnt;
+#ifndef __GENKSYMS__
+	unsigned long		flags;		/* ISCSI_CONN_FLAGs */
+
+	/* recv */
+	struct work_struct	recvwork;
+#endif
 };
 
 struct iscsi_pool {
