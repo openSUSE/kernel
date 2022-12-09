@@ -312,25 +312,16 @@ int dm_deleting_md(struct mapped_device *md)
 static int dm_blk_open(struct block_device *bdev, fmode_t mode)
 {
 	struct mapped_device *md;
-	int retval = 0;
 
 	spin_lock(&_minor_lock);
 
 	md = bdev->bd_disk->private_data;
-	if (!md) {
-		retval = -ENXIO;
+	if (!md)
 		goto out;
-	}
 
 	if (test_bit(DMF_FREEING, &md->flags) ||
 	    dm_deleting_md(md)) {
 		md = NULL;
-		retval = -ENXIO;
-		goto out;
-	}
-	if (get_disk_ro(md->disk) && (mode & FMODE_WRITE)) {
-		md = NULL;
-		retval = -EROFS;
 		goto out;
 	}
 
@@ -339,7 +330,7 @@ static int dm_blk_open(struct block_device *bdev, fmode_t mode)
 out:
 	spin_unlock(&_minor_lock);
 
-	return retval;
+	return md ? 0 : -ENXIO;
 }
 
 static void dm_blk_close(struct gendisk *disk, fmode_t mode)
@@ -810,12 +801,7 @@ int dm_get_table_device(struct mapped_device *md, dev_t dev, fmode_t mode,
 		td->dm_dev.mode = mode;
 		td->dm_dev.bdev = NULL;
 
-		r = open_table_device(td, dev, md);
-		if (r == -EROFS) {
-			td->dm_dev.mode &= ~FMODE_WRITE;
-			r = open_table_device(td, dev, md);
-		}
-		if (r) {
+		if ((r = open_table_device(td, dev, md))) {
 			mutex_unlock(&md->table_devices_lock);
 			kfree(td);
 			return r;
@@ -2226,10 +2212,6 @@ static struct dm_table *__bind(struct mapped_device *md, struct dm_table *t,
 		old_map = ERR_PTR(ret);
 		goto out;
 	}
-	if (!(dm_table_get_mode(t) & FMODE_WRITE))
-		set_disk_ro(md->disk, 1);
-	else
-		set_disk_ro(md->disk, 0);
 
 	old_map = rcu_dereference_protected(md->map, lockdep_is_held(&md->suspend_lock));
 	rcu_assign_pointer(md->map, (void *)t);
