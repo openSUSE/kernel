@@ -172,12 +172,7 @@ drm_sched_rq_select_entity(struct drm_sched_rq *rq)
 static void drm_sched_job_done(struct drm_sched_job *s_job)
 {
 	struct drm_sched_fence *s_fence = s_job->s_fence;
-	struct drm_gpu_scheduler *sched;
-
-	if (!s_fence)
-		return;
-
-	sched = s_fence->sched;
+	struct drm_gpu_scheduler *sched = s_fence->sched;
 
 	atomic_dec(&sched->hw_rq_count);
 	atomic_dec(sched->score);
