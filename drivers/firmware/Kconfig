@@ -155,6 +155,7 @@ config DMI_SYSFS
 
 config DMI_SCAN_MACHINE_NON_EFI_FALLBACK
 	bool
+	select BOOT_VESA_SUPPORT
 
 config ISCSI_IBFT_FIND
 	bool "iSCSI Boot Firmware Table Attributes"
