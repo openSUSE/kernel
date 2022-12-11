@@ -1888,6 +1888,7 @@ static int
 write_pool(struct entropy_store *r, const char __user *buffer, size_t count)
 {
 	size_t bytes;
+	int ret = 0;
 	__u32 t, buf[16];
 	const char __user *p = buffer;
 
@@ -1895,8 +1896,10 @@ write_pool(struct entropy_store *r, const char __user *buffer, size_t count)
 		int b, i = 0;
 
 		bytes = min(count, sizeof(buf));
-		if (copy_from_user(&buf, p, bytes))
-			return -EFAULT;
+		if (copy_from_user(&buf, p, bytes)) {
+			ret = -EFAULT;
+			goto out;
+		}
 
 		for (b = bytes ; b > 0 ; b -= sizeof(__u32), i++) {
 			if (!arch_get_random_int(&t))
@@ -1911,7 +1914,9 @@ write_pool(struct entropy_store *r, const char __user *buffer, size_t count)
 		cond_resched();
 	}
 
-	return 0;
+out:
+	memzero_explicit(buf, sizeof(buf));
+	return ret;
 }
 
 static ssize_t random_write(struct file *file, const char __user *buffer,
