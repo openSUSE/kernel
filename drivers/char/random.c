@@ -1884,58 +1884,46 @@ random_poll(struct file *file, poll_table * wait)
 	return mask;
 }
 
-static int
-write_pool(struct entropy_store *r, const char __user *buffer, size_t count)
+static ssize_t write_pool(struct entropy_store *r, struct iov_iter *iter)
 {
-	size_t bytes;
-	int ret = 0;
 	__u32 t, buf[16];
-	const char __user *p = buffer;
+	ssize_t ret = 0;
+	size_t copied;
 
-	while (count > 0) {
+	if (unlikely(!iov_iter_count(iter)))
+		return 0;
+
+	for (;;) {
 		int b, i = 0;
 
-		bytes = min(count, sizeof(buf));
-		if (copy_from_user(&buf, p, bytes)) {
-			ret = -EFAULT;
-			goto out;
-		}
+		copied = copy_from_iter(buf, sizeof(buf), iter);
+		ret += copied;
 
-		for (b = bytes ; b > 0 ; b -= sizeof(__u32), i++) {
+		for (b = copied; b > 0 ; b -= sizeof(__u32), i++) {
 			if (!arch_get_random_int(&t))
 				break;
 			buf[i] ^= t;
 		}
 
-		count -= bytes;
-		p += bytes;
-
-		mix_pool_bytes(r, buf, bytes);
+		mix_pool_bytes(r, buf, copied);
+		if (!iov_iter_count(iter) || copied != sizeof(buf))
+			break;
 		cond_resched();
 	}
 
-out:
 	memzero_explicit(buf, sizeof(buf));
-	return ret;
+	return ret ? ret : -EFAULT;
 }
 
-static ssize_t random_write(struct file *file, const char __user *buffer,
-			    size_t count, loff_t *ppos)
+static ssize_t random_write_iter(struct kiocb *kiocb, struct iov_iter *iter)
 {
-	size_t ret;
-
-	ret = write_pool(&input_pool, buffer, count);
-	if (ret)
-		return ret;
-
-	return (ssize_t)count;
+	return write_pool(&input_pool, iter);
 }
 
 static long random_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 {
-	int size, ent_count;
 	int __user *p = (int __user *)arg;
-	int retval;
+	int ent_count;
 
 	switch (cmd) {
 	case RNDGETENTCNT:
@@ -1950,20 +1938,31 @@ static long random_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 		if (get_user(ent_count, p))
 			return -EFAULT;
 		return credit_entropy_bits_safe(&input_pool, ent_count);
-	case RNDADDENTROPY:
+	case RNDADDENTROPY: {
+		struct iov_iter iter;
+		struct iovec iov;
+		ssize_t ret;
+		int len;
+
 		if (!capable(CAP_SYS_ADMIN))
 			return -EPERM;
 		if (get_user(ent_count, p++))
 			return -EFAULT;
 		if (ent_count < 0)
 			return -EINVAL;
-		if (get_user(size, p++))
+		if (get_user(len, p++))
 			return -EFAULT;
-		retval = write_pool(&input_pool, (const char __user *)p,
-				    size);
-		if (retval < 0)
-			return retval;
+		ret = import_single_range(WRITE, p, len, &iov, &iter);
+		if (unlikely(ret))
+			return ret;
+		ret = write_pool(&input_pool, &iter);
+		if (unlikely(ret < 0))
+			return ret;
+		/* Since we're crediting, enforce that it was all written into the pool. */
+		if (unlikely(ret != len))
+			return -EFAULT;
 		return credit_entropy_bits_safe(&input_pool, ent_count);
+	}
 	case RNDZAPENTCNT:
 	case RNDCLEARPOOL:
 		/*
@@ -1997,7 +1996,7 @@ static int random_fasync(int fd, struct file *filp, int on)
 
 const struct file_operations random_fops = {
 	.read_iter  = random_read_iter,
-	.write = random_write,
+	.write_iter = random_write_iter,
 	.poll  = random_poll,
 	.unlocked_ioctl = random_ioctl,
 	.compat_ioctl = compat_ptr_ioctl,
@@ -2009,7 +2008,7 @@ const struct file_operations random_fops = {
 
 const struct file_operations urandom_fops = {
 	.read_iter  = urandom_read_iter,
-	.write = random_write,
+	.write_iter = random_write_iter,
 	.unlocked_ioctl = random_ioctl,
 	.compat_ioctl = compat_ptr_ioctl,
 	.fasync = random_fasync,
