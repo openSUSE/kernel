@@ -1082,27 +1082,20 @@ static void crng_backtrack_protect(__u8 tmp[CHACHA_BLOCK_SIZE], int used)
 	_crng_backtrack_protect(select_crng(), tmp, used);
 }
 
-static ssize_t extract_crng_user(void __user *buf, size_t nbytes)
+static ssize_t extract_crng_user(struct iov_iter *iter)
 {
-	size_t i, left, ret = 0;
 	__u8 tmp[CHACHA_BLOCK_SIZE] __aligned(4);
+	size_t ret = 0, copied;
 
-	if (!nbytes)
+	if (unlikely(!iov_iter_count(iter)))
 		return 0;
 
 	for (;;) {
 		extract_crng(tmp);
-		i = min_t(size_t, nbytes, CHACHA_BLOCK_SIZE);
-		left = copy_to_user(buf, tmp, i);
-		if (left) {
-			ret += i - left;
-			break;
-		}
 
-		buf += i;
-		ret += i;
-		nbytes -= i;
-		if (!nbytes)
+		copied = copy_to_iter(tmp, sizeof(tmp), iter);
+		ret += copied;
+		if (!iov_iter_count(iter) || copied != sizeof(tmp))
 			break;
 
 		BUILD_BUG_ON(PAGE_SIZE % CHACHA_BLOCK_SIZE != 0);
@@ -1112,7 +1105,7 @@ static ssize_t extract_crng_user(void __user *buf, size_t nbytes)
 			cond_resched();
 		}
 	}
-	crng_backtrack_protect(tmp, i);
+	crng_backtrack_protect(tmp, copied);
 
 	/* Wipe data just written to memory */
 	memzero_explicit(tmp, sizeof(tmp));
@@ -1836,18 +1829,18 @@ void rand_initialize_disk(struct gendisk *disk)
 #endif
 
 static ssize_t
-urandom_read_nowarn(struct file *file, char __user *buf, size_t nbytes,
-		    loff_t *ppos)
+urandom_read_nowarn(struct iov_iter *iter)
 {
 	ssize_t ret;
+	size_t nbytes = iov_iter_count(iter);
 
-	ret = extract_crng_user(buf, nbytes);
+	ret = extract_crng_user(iter);
 	trace_urandom_read(8 * nbytes, 0, ENTROPY_BITS(&input_pool));
 	return ret;
 }
 
 static ssize_t
-urandom_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos)
+urandom_read_iter(struct kiocb *kiocb, struct iov_iter *iter)
 {
 	unsigned long flags;
 	static int maxwarn = 10;
@@ -1855,25 +1848,25 @@ urandom_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos)
 	if (!crng_ready() && maxwarn > 0) {
 		maxwarn--;
 		if (__ratelimit(&urandom_warning))
-			pr_notice("%s: uninitialized urandom read (%zd bytes read)\n",
-				  current->comm, nbytes);
+			pr_notice("%s: uninitialized urandom read (%zu bytes read)\n",
+				  current->comm, iov_iter_count(iter));
 		spin_lock_irqsave(&primary_crng.lock, flags);
 		crng_init_cnt = 0;
 		spin_unlock_irqrestore(&primary_crng.lock, flags);
 	}
 
-	return urandom_read_nowarn(file, buf, nbytes, ppos);
+	return urandom_read_nowarn(iter);
 }
 
 static ssize_t
-random_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos)
+random_read_iter(struct kiocb *kiocb, struct iov_iter *iter)
 {
 	int ret;
 
 	ret = wait_for_random_bytes();
 	if (ret != 0)
 		return ret;
-	return urandom_read_nowarn(file, buf, nbytes, ppos);
+	return urandom_read_nowarn(iter);
 }
 
 static __poll_t
@@ -1998,7 +1991,7 @@ static int random_fasync(int fd, struct file *filp, int on)
 }
 
 const struct file_operations random_fops = {
-	.read  = random_read,
+	.read_iter  = random_read_iter,
 	.write = random_write,
 	.poll  = random_poll,
 	.unlocked_ioctl = random_ioctl,
@@ -2010,7 +2003,7 @@ const struct file_operations random_fops = {
 };
 
 const struct file_operations urandom_fops = {
-	.read  = urandom_read,
+	.read_iter  = urandom_read_iter,
 	.write = random_write,
 	.unlocked_ioctl = random_ioctl,
 	.compat_ioctl = compat_ptr_ioctl,
@@ -2023,6 +2016,8 @@ const struct file_operations urandom_fops = {
 SYSCALL_DEFINE3(getrandom, char __user *, buf, size_t, count,
 		unsigned int, flags)
 {
+	struct iov_iter iter;
+	struct iovec iov;
 	int ret;
 
 	if (flags & ~(GRND_NONBLOCK|GRND_RANDOM|GRND_INSECURE))
@@ -2035,9 +2030,6 @@ SYSCALL_DEFINE3(getrandom, char __user *, buf, size_t, count,
 	if ((flags & (GRND_INSECURE|GRND_RANDOM)) == (GRND_INSECURE|GRND_RANDOM))
 		return -EINVAL;
 
-	if (count > INT_MAX)
-		count = INT_MAX;
-
 	if (!(flags & GRND_INSECURE) && !crng_ready()) {
 		if (flags & GRND_NONBLOCK)
 			return -EAGAIN;
@@ -2045,7 +2037,11 @@ SYSCALL_DEFINE3(getrandom, char __user *, buf, size_t, count,
 		if (unlikely(ret))
 			return ret;
 	}
-	return urandom_read_nowarn(NULL, buf, count, NULL);
+
+	ret = import_single_range(READ, buf, count, &iov, &iter);
+	if (unlikely(ret))
+		return ret;
+	return urandom_read_nowarn(&iter);
 }
 
 /********************************************************************
