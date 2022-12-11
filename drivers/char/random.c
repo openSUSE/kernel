@@ -1084,23 +1084,29 @@ static void crng_backtrack_protect(__u8 tmp[CHACHA_BLOCK_SIZE], int used)
 
 static ssize_t extract_crng_user(void __user *buf, size_t nbytes)
 {
-	ssize_t ret = 0, i = CHACHA_BLOCK_SIZE;
+	size_t i, left, ret = 0;
 	__u8 tmp[CHACHA_BLOCK_SIZE] __aligned(4);
 
-	while (nbytes) {
+	if (!nbytes)
+		return 0;
+
+	for (;;) {
 		extract_crng(tmp);
-		i = min_t(int, nbytes, CHACHA_BLOCK_SIZE);
-		if (copy_to_user(buf, tmp, i)) {
-			ret = -EFAULT;
+		i = min_t(size_t, nbytes, CHACHA_BLOCK_SIZE);
+		left = copy_to_user(buf, tmp, i);
+		if (left) {
+			ret += i - left;
 			break;
 		}
 
-		nbytes -= i;
 		buf += i;
 		ret += i;
+		nbytes -= i;
+		if (!nbytes)
+			break;
 
 		BUILD_BUG_ON(PAGE_SIZE % CHACHA_BLOCK_SIZE != 0);
-		if (!(ret % PAGE_SIZE) && nbytes) {
+		if (ret % PAGE_SIZE == 0) {
 			if (signal_pending(current))
 				break;
 			cond_resched();
@@ -1111,7 +1117,7 @@ static ssize_t extract_crng_user(void __user *buf, size_t nbytes)
 	/* Wipe data just written to memory */
 	memzero_explicit(tmp, sizeof(tmp));
 
-	return ret;
+	return ret ? ret : -EFAULT;
 }
 
 
