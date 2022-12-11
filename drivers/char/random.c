@@ -1086,18 +1086,8 @@ static ssize_t extract_crng_user(void __user *buf, size_t nbytes)
 {
 	ssize_t ret = 0, i = CHACHA_BLOCK_SIZE;
 	__u8 tmp[CHACHA_BLOCK_SIZE] __aligned(4);
-	int large_request = (nbytes > 256);
 
 	while (nbytes) {
-		if (large_request) {
-			if (signal_pending(current)) {
-				if (ret == 0)
-					ret = -ERESTARTSYS;
-				break;
-			}
-			cond_resched();
-		}
-
 		extract_crng(tmp);
 		i = min_t(int, nbytes, CHACHA_BLOCK_SIZE);
 		if (copy_to_user(buf, tmp, i)) {
@@ -1108,6 +1098,13 @@ static ssize_t extract_crng_user(void __user *buf, size_t nbytes)
 		nbytes -= i;
 		buf += i;
 		ret += i;
+
+		BUILD_BUG_ON(PAGE_SIZE % CHACHA_BLOCK_SIZE != 0);
+		if (!(ret % PAGE_SIZE) && nbytes) {
+			if (signal_pending(current))
+				break;
+			cond_resched();
+		}
 	}
 	crng_backtrack_protect(tmp, i);
 
