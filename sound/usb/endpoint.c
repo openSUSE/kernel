@@ -32,6 +32,7 @@ struct snd_usb_iface_ref {
 	unsigned char iface;
 	bool need_setup;
 	int opened;
+	int altset;
 	struct list_head list;
 };
 
@@ -41,6 +42,7 @@ struct snd_usb_clock_ref {
 	atomic_t locked;
 	int opened;
 	int rate;
+	bool need_setup;
 	struct list_head list;
 };
 
@@ -760,7 +762,8 @@ bool snd_usb_endpoint_compatible(struct snd_usb_audio *chip,
  * The endpoint needs to be closed via snd_usb_endpoint_close() later.
  *
  * Note that this function doesn't configure the endpoint.  The substream
- * needs to set it up later via snd_usb_endpoint_configure().
+ * needs to set it up later via snd_usb_endpoint_set_params() and
+ * snd_usb_endpoint_prepare().
  */
 struct snd_usb_endpoint *
 snd_usb_endpoint_open(struct snd_usb_audio *chip,
@@ -821,6 +824,7 @@ snd_usb_endpoint_open(struct snd_usb_audio *chip,
 
 		ep->implicit_fb_sync = fp->implicit_fb;
 		ep->need_setup = true;
+		ep->need_prepare = true;
 
 		usb_audio_dbg(chip, "  channels=%d, rate=%d, format=%s, period_bytes=%d, periods=%d, implicit_fb=%d\n",
 			      ep->cur_channels, ep->cur_rate,
@@ -897,6 +901,9 @@ static int endpoint_set_interface(struct snd_usb_audio *chip,
 	int altset = set ? ep->altsetting : 0;
 	int err;
 
+	if (ep->iface_ref->altset == altset)
+		return 0;
+
 	usb_audio_dbg(chip, "Setting usb interface %d:%d for EP 0x%x\n",
 		      ep->iface, altset, ep->ep_num);
 	err = usb_set_interface(chip->dev, ep->iface, altset);
@@ -908,6 +915,7 @@ static int endpoint_set_interface(struct snd_usb_audio *chip,
 
 	if (chip->quirk_flags & QUIRK_FLAG_IFACE_DELAY)
 		msleep(50);
+	ep->iface_ref->altset = altset;
 	return 0;
 }
 
@@ -946,7 +954,7 @@ void snd_usb_endpoint_close(struct snd_usb_audio *chip,
 /* Prepare for suspening EP, called from the main suspend handler */
 void snd_usb_endpoint_suspend(struct snd_usb_endpoint *ep)
 {
-	ep->need_setup = true;
+	ep->need_prepare = true;
 	if (ep->iface_ref)
 		ep->iface_ref->need_setup = true;
 	if (ep->clock_ref)
@@ -1294,23 +1302,51 @@ out_of_memory:
 	return -ENOMEM;
 }
 
+/* update the rate of the referred clock; return the actual rate */
+static int update_clock_ref_rate(struct snd_usb_audio *chip,
+				 struct snd_usb_endpoint *ep)
+{
+	struct snd_usb_clock_ref *clock = ep->clock_ref;
+	int rate = ep->cur_rate;
+
+	if (!clock || clock->rate == rate)
+		return rate;
+	if (clock->rate) {
+		if (atomic_read(&clock->locked))
+			return clock->rate;
+		if (clock->rate != rate) {
+			usb_audio_err(chip, "Mismatched sample rate %d vs %d for EP 0x%x\n",
+				      clock->rate, rate, ep->ep_num);
+			return clock->rate;
+		}
+	}
+	clock->rate = rate;
+	clock->need_setup = true;
+	return rate;
+}
+
 /*
  * snd_usb_endpoint_set_params: configure an snd_usb_endpoint
  *
+ * It's called either from hw_params callback.
  * Determine the number of URBs to be used on this endpoint.
  * An endpoint must be configured before it can be started.
  * An endpoint that is already running can not be reconfigured.
  */
-static int snd_usb_endpoint_set_params(struct snd_usb_audio *chip,
-				       struct snd_usb_endpoint *ep)
+int snd_usb_endpoint_set_params(struct snd_usb_audio *chip,
+				struct snd_usb_endpoint *ep)
 {
 	const struct audioformat *fmt = ep->cur_audiofmt;
-	int err;
+	int err = 0;
+
+	mutex_lock(&chip->mutex);
+	if (!ep->need_setup)
+		goto unlock;
 
 	/* release old buffers, if any */
 	err = release_urbs(ep, false);
 	if (err < 0)
-		return err;
+		goto unlock;
 
 	ep->datainterval = fmt->datainterval;
 	ep->maxpacksize = fmt->maxpacksize;
@@ -1348,55 +1384,60 @@ static int snd_usb_endpoint_set_params(struct snd_usb_audio *chip,
 	usb_audio_dbg(chip, "Set up %d URBS, ret=%d\n", ep->nurbs, err);
 
 	if (err < 0)
-		return err;
+		goto unlock;
 
 	/* some unit conversions in runtime */
 	ep->maxframesize = ep->maxpacksize / ep->cur_frame_bytes;
 	ep->curframesize = ep->curpacksize / ep->cur_frame_bytes;
 
-	return 0;
+	err = update_clock_ref_rate(chip, ep);
+	if (err >= 0) {
+		ep->need_setup = false;
+		err = 0;
+	}
+
+ unlock:
+	mutex_unlock(&chip->mutex);
+	return err;
 }
 
 static int init_sample_rate(struct snd_usb_audio *chip,
 			    struct snd_usb_endpoint *ep)
 {
 	struct snd_usb_clock_ref *clock = ep->clock_ref;
-	int err;
+	int rate, err;
 
-	if (clock) {
-		if (atomic_read(&clock->locked))
-			return 0;
-		if (clock->rate == ep->cur_rate)
-			return 0;
-		if (clock->rate && clock->rate != ep->cur_rate) {
-			usb_audio_dbg(chip, "Mismatched sample rate %d vs %d for EP 0x%x\n",
-				      clock->rate, ep->cur_rate, ep->ep_num);
-			return -EINVAL;
-		}
+	rate = update_clock_ref_rate(chip, ep);
+	if (rate < 0)
+		return rate;
+	if (clock && !clock->need_setup)
+		return 0;
+
+	err = snd_usb_init_sample_rate(chip, ep->cur_audiofmt, rate);
+	if (err < 0) {
+		if (clock)
+			clock->rate = 0; /* reset rate */
+		return err;
 	}
 
-	err = snd_usb_init_sample_rate(chip, ep->cur_audiofmt, ep->cur_rate);
-	if (err < 0)
-		return err;
-
 	if (clock)
-		clock->rate = ep->cur_rate;
+		clock->need_setup = false;
 	return 0;
 }
 
 /*
- * snd_usb_endpoint_configure: Configure the endpoint
+ * snd_usb_endpoint_prepare: Prepare the endpoint
  *
  * This function sets up the EP to be fully usable state.
- * It's called either from hw_params or prepare callback.
+ * It's called either from prepare callback.
  * The function checks need_setup flag, and performs nothing unless needed,
  * so it's safe to call this multiple times.
  *
  * This returns zero if unchanged, 1 if the configuration has changed,
  * or a negative error code.
  */
-int snd_usb_endpoint_configure(struct snd_usb_audio *chip,
-			       struct snd_usb_endpoint *ep)
+int snd_usb_endpoint_prepare(struct snd_usb_audio *chip,
+			     struct snd_usb_endpoint *ep)
 {
 	bool iface_first;
 	int err = 0;
@@ -1404,7 +1445,7 @@ int snd_usb_endpoint_configure(struct snd_usb_audio *chip,
 	mutex_lock(&chip->mutex);
 	if (WARN_ON(!ep->iface_ref))
 		goto unlock;
-	if (!ep->need_setup)
+	if (!ep->need_prepare)
 		goto unlock;
 
 	/* If the interface has been already set up, just set EP parameters */
@@ -1417,9 +1458,6 @@ int snd_usb_endpoint_configure(struct snd_usb_audio *chip,
 			if (err < 0)
 				goto unlock;
 		}
-		err = snd_usb_endpoint_set_params(chip, ep);
-		if (err < 0)
-			goto unlock;
 		goto done;
 	}
 
@@ -1447,10 +1485,6 @@ int snd_usb_endpoint_configure(struct snd_usb_audio *chip,
 	if (err < 0)
 		goto unlock;
 
-	err = snd_usb_endpoint_set_params(chip, ep);
-	if (err < 0)
-		goto unlock;
-
 	err = snd_usb_select_mode_quirk(chip, ep->cur_audiofmt);
 	if (err < 0)
 		goto unlock;
@@ -1465,7 +1499,7 @@ int snd_usb_endpoint_configure(struct snd_usb_audio *chip,
 	ep->iface_ref->need_setup = false;
 
  done:
-	ep->need_setup = false;
+	ep->need_prepare = false;
 	err = 1;
 
 unlock:
