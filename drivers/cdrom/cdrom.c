@@ -286,7 +286,6 @@
 #include <linux/uaccess.h>
 #include <linux/sched/signal.h>
 #include <scsi/scsi_common.h>
-#include <scsi/scsi_request.h>
 
 #define poll_event_interruptible(event, interval) ({ \
 	int ret = 0; \
