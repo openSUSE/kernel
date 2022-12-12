@@ -26,8 +26,8 @@
 #include <scsi/scsi_driver.h>
 #include <scsi/scsi_eh.h>
 #include "ufshcd-priv.h"
-#include "ufs_quirks.h"
-#include "unipro.h"
+#include <ufs/ufs_quirks.h>
+#include <ufs/unipro.h>
 #include "ufs-sysfs.h"
 #include "ufs-debugfs.h"
 #include "ufs-fault-injection.h"
@@ -6160,8 +6160,8 @@ static bool ufshcd_is_pwr_mode_restore_needed(struct ufs_hba *hba)
  */
 static void ufshcd_err_handler(struct work_struct *work)
 {
-	struct ufs_hba *hba;
 	int retries = MAX_ERR_HANDLER_RETRIES;
+	struct ufs_hba *hba;
 	unsigned long flags;
 	bool needs_restore;
 	bool needs_reset;
@@ -7108,6 +7108,7 @@ static int ufshcd_abort(struct scsi_cmnd *cmd)
 	struct ufshcd_lrb *lrbp = &hba->lrb[tag];
 	unsigned long flags;
 	int err = FAILED;
+	bool outstanding;
 	u32 reg;
 
 	WARN_ONCE(tag < 0, "Invalid tag %d\n", tag);
@@ -7185,7 +7186,17 @@ static int ufshcd_abort(struct scsi_cmnd *cmd)
 		goto release;
 	}
 
-	lrbp->cmd = NULL;
+	/*
+	 * Clear the corresponding bit from outstanding_reqs since the command
+	 * has been aborted successfully.
+	 */
+	spin_lock_irqsave(&hba->outstanding_lock, flags);
+	outstanding = __test_and_clear_bit(tag, &hba->outstanding_reqs);
+	spin_unlock_irqrestore(&hba->outstanding_lock, flags);
+
+	if (outstanding)
+		ufshcd_release_scsi_cmd(hba, lrbp);
+
 	err = SUCCESS;
 
 release:
