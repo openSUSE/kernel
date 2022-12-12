@@ -9,7 +9,7 @@
  *	Vinayak Holikatti <h.vinayak@samsung.com>
  */
 
-#include "ufshcd.h"
+#include <ufs/ufshcd.h>
 #include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -463,18 +463,6 @@ static struct ufs_hba_variant_ops ufs_intel_lkf_hba_vops = {
 	.device_reset		= ufs_intel_device_reset,
 };
 
-#ifdef CONFIG_PM_SLEEP
-static int ufshcd_pci_restore(struct device *dev)
-{
-	struct ufs_hba *hba = dev_get_drvdata(dev);
-
-	/* Force a full reset and restore */
-	ufshcd_set_link_off(hba);
-
-	return ufshcd_system_resume(dev);
-}
-#endif
-
 static struct ufs_hba_variant_ops ufs_intel_adl_hba_vops = {
 	.name			= "intel-pci",
 	.init			= ufs_intel_adl_init,
@@ -493,6 +481,18 @@ static struct ufs_hba_variant_ops ufs_intel_mtl_hba_vops = {
 	.resume			= ufs_intel_resume,
 	.device_reset		= ufs_intel_device_reset,
 };
+
+#ifdef CONFIG_PM_SLEEP
+static int ufshcd_pci_restore(struct device *dev)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+
+	/* Force a full reset and restore */
+	ufshcd_set_link_off(hba);
+
+	return ufshcd_system_resume(dev);
+}
+#endif
 
 /**
  * ufshcd_pci_shutdown - main function to put the controller in reset state
