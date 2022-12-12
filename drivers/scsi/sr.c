@@ -114,7 +114,7 @@ static int sr_open(struct cdrom_device_info *, int);
 static void sr_release(struct cdrom_device_info *);
 
 static void get_sectorsize(struct scsi_cd *);
-static void get_capabilities(struct scsi_cd *);
+static int get_capabilities(struct scsi_cd *);
 
 static unsigned int sr_check_events(struct cdrom_device_info *cdi,
 				    unsigned int clearing, int slot);
@@ -670,8 +670,9 @@ static int sr_probe(struct device *dev)
 
 	sdev->sector_size = 2048;	/* A guess, just in case */
 
-	/* FIXME: need to handle a get_capabilities failure properly ?? */
-	get_capabilities(cd);
+	error = -ENOMEM;
+	if (get_capabilities(cd))
+		goto fail_minor;
 	sr_vendor_init(cd);
 
 	set_capacity(disk, cd->capacity);
@@ -795,7 +796,7 @@ static void get_sectorsize(struct scsi_cd *cd)
 	return;
 }
 
-static void get_capabilities(struct scsi_cd *cd)
+static int get_capabilities(struct scsi_cd *cd)
 {
 	unsigned char *buffer;
 	struct scsi_mode_data data;
@@ -820,7 +821,7 @@ static void get_capabilities(struct scsi_cd *cd)
 	buffer = kmalloc(512, GFP_KERNEL | GFP_DMA);
 	if (!buffer) {
 		sr_printk(KERN_ERR, cd, "out of memory.\n");
-		return;
+		return -ENOMEM;
 	}
 
 	/* eat unit attentions */
@@ -840,7 +841,7 @@ static void get_capabilities(struct scsi_cd *cd)
 				 CDC_MRW | CDC_MRW_W | CDC_RAM);
 		kfree(buffer);
 		sr_printk(KERN_INFO, cd, "scsi-1 drive");
-		return;
+		return 0;
 	}
 
 	n = data.header_length + data.block_descriptor_length;
@@ -904,6 +905,7 @@ static void get_capabilities(struct scsi_cd *cd)
 	}
 
 	kfree(buffer);
+	return 0;
 }
 
 /*
