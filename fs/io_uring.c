@@ -6925,10 +6925,6 @@ static void io_queue_sqe_arm_apoll(struct io_kiocb *req)
 
 	switch (io_arm_poll_handler(req)) {
 	case IO_APOLL_READY:
-		if (linked_timeout) {
-			io_queue_linked_timeout(req);
-			linked_timeout = NULL;
-		}
 		io_req_task_queue(req);
 		break;
 	case IO_APOLL_ABORTED:
