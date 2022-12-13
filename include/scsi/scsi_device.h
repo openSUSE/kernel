@@ -150,6 +150,10 @@ struct scsi_device {
 	struct scsi_vpd __rcu *vpd_pg83;
 	struct scsi_vpd __rcu *vpd_pg80;
 	struct scsi_vpd __rcu *vpd_pg89;
+	struct scsi_vpd __rcu *vpd_pgb0;
+	struct scsi_vpd __rcu *vpd_pgb1;
+	struct scsi_vpd __rcu *vpd_pgb2;
+
 	unsigned char current_tag;	/* current tag */
 	struct scsi_target      *sdev_target;
 
@@ -422,9 +426,8 @@ extern int scsi_mode_sense(struct scsi_device *sdev, int dbd, int modepage,
 			   int retries, struct scsi_mode_data *data,
 			   struct scsi_sense_hdr *);
 extern int scsi_mode_select(struct scsi_device *sdev, int pf, int sp,
-			    int modepage, unsigned char *buffer, int len,
-			    int timeout, int retries,
-			    struct scsi_mode_data *data,
+			    unsigned char *buffer, int len, int timeout,
+			    int retries, struct scsi_mode_data *data,
 			    struct scsi_sense_hdr *);
 extern int scsi_test_unit_ready(struct scsi_device *sdev, int timeout,
 				int retries, struct scsi_sense_hdr *sshdr);

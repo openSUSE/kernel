@@ -213,7 +213,6 @@ int __scsi_execute(struct scsi_device *sdev, const unsigned char *cmd,
 		 int *resid)
 {
 	struct request *req;
-	struct scsi_request *rq;
 	struct scsi_cmnd *scmd;
 	int ret;
 
@@ -224,8 +223,6 @@ int __scsi_execute(struct scsi_device *sdev, const unsigned char *cmd,
 	if (IS_ERR(req))
 		return PTR_ERR(req);
 
-	rq = scsi_req(req);
-
 	if (bufflen) {
 		ret = blk_rq_map_kern(sdev->request_queue, req,
 				      buffer, bufflen, GFP_NOIO);
@@ -235,7 +232,7 @@ int __scsi_execute(struct scsi_device *sdev, const unsigned char *cmd,
 	scmd = blk_mq_rq_to_pdu(req);
 	scmd->cmd_len = COMMAND_SIZE(cmd[0]);
 	memcpy(scmd->cmnd, cmd, scmd->cmd_len);
-	rq->retries = retries;
+	scmd->allowed = retries;
 	req->timeout = timeout;
 	req->cmd_flags |= flags;
 	req->rq_flags |= rq_flags | RQF_QUIET;
@@ -251,16 +248,17 @@ int __scsi_execute(struct scsi_device *sdev, const unsigned char *cmd,
 	 * is invalid.  Prevent the garbage from being misinterpreted
 	 * and prevent security leaks by zeroing out the excess data.
 	 */
-	if (unlikely(rq->resid_len > 0 && rq->resid_len <= bufflen))
-		memset(buffer + (bufflen - rq->resid_len), 0, rq->resid_len);
+	if (unlikely(scmd->resid_len > 0 && scmd->resid_len <= bufflen))
+		memset(buffer + bufflen - scmd->resid_len, 0, scmd->resid_len);
 
 	if (resid)
-		*resid = rq->resid_len;
-	if (sense && rq->sense_len)
-		memcpy(sense, rq->sense, SCSI_SENSE_BUFFERSIZE);
+		*resid = scmd->resid_len;
+	if (sense && scmd->sense_len)
+		memcpy(sense, scmd->sense_buffer, SCSI_SENSE_BUFFERSIZE);
 	if (sshdr)
-		scsi_normalize_sense(rq->sense, rq->sense_len, sshdr);
-	ret = rq->result;
+		scsi_normalize_sense(scmd->sense_buffer, scmd->sense_len,
+				     sshdr);
+	ret = scmd->result;
  out:
 	blk_mq_free_request(req);
 
@@ -781,7 +779,7 @@ static void scsi_io_completion_action(struct scsi_cmnd *cmd, int result)
 					action = ACTION_DELAYED_RETRY;
 					break;
 				case 0x0a: /* ALUA state transition */
-					blk_stat = BLK_STS_AGAIN;
+					blk_stat = BLK_STS_TRANSPORT;
 					fallthrough;
 				default:
 					action = ACTION_FAIL;
@@ -876,9 +874,8 @@ static int scsi_io_completion_nz_result(struct scsi_cmnd *cmd, int result,
 			/*
 			 * SG_IO wants current and deferred errors
 			 */
-			scsi_req(req)->sense_len =
-				min(8 + cmd->sense_buffer[7],
-				    SCSI_SENSE_BUFFERSIZE);
+			cmd->sense_len = min(8 + cmd->sense_buffer[7],
+					     SCSI_SENSE_BUFFERSIZE);
 		}
 		if (sense_current)
 			*blk_statp = scsi_result_to_blk_status(cmd, result);
@@ -958,13 +955,6 @@ void scsi_io_completion(struct scsi_cmnd *cmd, unsigned int good_bytes)
 
 	if (unlikely(result))	/* a nz result may or may not be an error */
 		result = scsi_io_completion_nz_result(cmd, result, &blk_stat);
-
-	if (unlikely(blk_rq_is_passthrough(req))) {
-		/*
-		 * scsi_result_to_blk_status may have reset the host_byte
-		 */
-		scsi_req(req)->result = cmd->result;
-	}
 
 	/*
 	 * Next deal with any sectors which we were able to correctly
@@ -1126,13 +1116,10 @@ EXPORT_SYMBOL(scsi_alloc_sgtables);
 static void scsi_initialize_rq(struct request *rq)
 {
 	struct scsi_cmnd *cmd = blk_mq_rq_to_pdu(rq);
-	struct scsi_request *req = &cmd->req;
 
 	memset(cmd->cmnd, 0, sizeof(cmd->cmnd));
 	cmd->cmd_len = MAX_COMMAND_SIZE;
-
-	req->sense_len = 0;
-
+	cmd->sense_len = 0;
 	init_rcu_head(&cmd->rcu);
 	cmd->jiffies_at_alloc = jiffies;
 	cmd->retries = 0;
@@ -1199,7 +1186,6 @@ static blk_status_t scsi_setup_scsi_cmnd(struct scsi_device *sdev,
 	}
 
 	cmd->transfersize = blk_rq_bytes(req);
-	cmd->allowed = scsi_req(req)->retries;
 	return BLK_STS_OK;
 }
 
@@ -1584,7 +1570,6 @@ static blk_status_t scsi_prepare_cmd(struct request *req)
 	if (!shost->hostt->init_cmd_priv)
 		memset(cmd + 1, 0, shost->hostt->cmd_size);
 
-	cmd->tag = req->tag;
 	cmd->prot_op = SCSI_PROT_NORMAL;
 	if (blk_rq_bytes(req))
 		cmd->sc_data_direction = rq_dma_dir(req);
@@ -1619,8 +1604,10 @@ static blk_status_t scsi_prepare_cmd(struct request *req)
 	return scsi_cmd_to_driver(cmd)->init_command(cmd);
 }
 
-void scsi_done(struct scsi_cmnd *cmd)
+static void scsi_done_internal(struct scsi_cmnd *cmd, bool complete_directly)
 {
+	struct request *req = scsi_cmd_to_rq(cmd);
+
 	switch (cmd->submitter) {
 	case SUBMITTED_BY_BLOCK_LAYER:
 		break;
@@ -1635,9 +1622,24 @@ void scsi_done(struct scsi_cmnd *cmd)
 	if (unlikely(test_and_set_bit(SCMD_STATE_COMPLETE, &cmd->state)))
 		return;
 	trace_scsi_dispatch_cmd_done(cmd);
-	blk_mq_complete_request(scsi_cmd_to_rq(cmd));
+
+	if (complete_directly)
+		blk_mq_complete_request_direct(req, scsi_complete);
+	else
+		blk_mq_complete_request(req);
+}
+
+void scsi_done(struct scsi_cmnd *cmd)
+{
+	scsi_done_internal(cmd, false);
 }
 EXPORT_SYMBOL(scsi_done);
+
+void scsi_done_direct(struct scsi_cmnd *cmd)
+{
+	scsi_done_internal(cmd, true);
+}
+EXPORT_SYMBOL(scsi_done_direct);
 
 static void scsi_mq_put_budget(struct request_queue *q, int budget_token)
 {
@@ -1766,15 +1768,15 @@ out_put_budget:
 			ret = BLK_STS_DEV_RESOURCE;
 		break;
 	case BLK_STS_AGAIN:
-		scsi_req(req)->result = DID_BUS_BUSY << 16;
+		cmd->result = DID_BUS_BUSY << 16;
 		if (req->rq_flags & RQF_DONTPREP)
 			scsi_mq_uninit_cmd(cmd);
 		break;
 	default:
 		if (unlikely(!scsi_device_online(sdev)))
-			scsi_req(req)->result = DID_NO_CONNECT << 16;
+			cmd->result = DID_NO_CONNECT << 16;
 		else
-			scsi_req(req)->result = DID_ERROR << 16;
+			cmd->result = DID_ERROR << 16;
 		/*
 		 * Make sure to release all allocated resources when
 		 * we hit an error, as we will never see this command
@@ -1808,7 +1810,6 @@ static int scsi_mq_init_request(struct blk_mq_tag_set *set, struct request *rq,
 		kmem_cache_alloc_node(scsi_sense_cache, GFP_KERNEL, numa_node);
 	if (!cmd->sense_buffer)
 		return -ENOMEM;
-	cmd->req.sense = cmd->sense_buffer;
 
 	if (scsi_host_get_prot(shost)) {
 		sg = (void *)cmd + sizeof(struct scsi_cmnd) +
@@ -1976,7 +1977,7 @@ int scsi_mq_setup_tags(struct Scsi_Host *shost)
 	tag_set->nr_maps = shost->nr_maps ? : 1;
 	tag_set->queue_depth = shost->can_queue;
 	tag_set->cmd_size = cmd_size;
-	tag_set->numa_node = NUMA_NO_NODE;
+	tag_set->numa_node = dev_to_node(shost->dma_dev);
 	tag_set->flags = BLK_MQ_F_SHOULD_MERGE;
 	tag_set->flags |=
 		BLK_ALLOC_POLICY_TO_MQ_FLAG(shost->hostt->tag_alloc_policy);
@@ -2061,7 +2062,6 @@ void scsi_exit_queue(void)
  *	@sdev:	SCSI device to be queried
  *	@pf:	Page format bit (1 == standard, 0 == vendor specific)
  *	@sp:	Save page bit (0 == don't save, 1 == save)
- *	@modepage: mode page being requested
  *	@buffer: request buffer (may not be smaller than eight bytes)
  *	@len:	length of request buffer.
  *	@timeout: command timeout
@@ -2074,10 +2074,9 @@ void scsi_exit_queue(void)
  *	status on error
  *
  */
-int
-scsi_mode_select(struct scsi_device *sdev, int pf, int sp, int modepage,
-		 unsigned char *buffer, int len, int timeout, int retries,
-		 struct scsi_mode_data *data, struct scsi_sense_hdr *sshdr)
+int scsi_mode_select(struct scsi_device *sdev, int pf, int sp,
+		     unsigned char *buffer, int len, int timeout, int retries,
+		     struct scsi_mode_data *data, struct scsi_sense_hdr *sshdr)
 {
 	unsigned char cmd[10];
 	unsigned char *real_buffer;
@@ -2086,8 +2085,15 @@ scsi_mode_select(struct scsi_device *sdev, int pf, int sp, int modepage,
 	memset(cmd, 0, sizeof(cmd));
 	cmd[1] = (pf ? 0x10 : 0) | (sp ? 0x01 : 0);
 
-	if (sdev->use_10_for_ms) {
-		if (len > 65535)
+	/*
+	 * Use MODE SELECT(10) if the device asked for it or if the mode page
+	 * and the mode select header cannot fit within the maximumm 255 bytes
+	 * of the MODE SELECT(6) command.
+	 */
+	if (sdev->use_10_for_ms ||
+	    len + 4 > 255 ||
+	    data->block_descriptor_length > 255) {
+		if (len > 65535 - 8)
 			return -EINVAL;
 		real_buffer = kmalloc(8 + len, GFP_KERNEL);
 		if (!real_buffer)
@@ -2100,15 +2106,13 @@ scsi_mode_select(struct scsi_device *sdev, int pf, int sp, int modepage,
 		real_buffer[3] = data->device_specific;
 		real_buffer[4] = data->longlba ? 0x01 : 0;
 		real_buffer[5] = 0;
-		real_buffer[6] = data->block_descriptor_length >> 8;
-		real_buffer[7] = data->block_descriptor_length;
+		put_unaligned_be16(data->block_descriptor_length,
+				   &real_buffer[6]);
 
 		cmd[0] = MODE_SELECT_10;
-		cmd[7] = len >> 8;
-		cmd[8] = len;
+		put_unaligned_be16(len, &cmd[7]);
 	} else {
-		if (len > 255 || data->block_descriptor_length > 255 ||
-		    data->longlba)
+		if (data->longlba)
 			return -EINVAL;
 
 		real_buffer = kmalloc(4 + len, GFP_KERNEL);
@@ -2135,7 +2139,7 @@ EXPORT_SYMBOL_GPL(scsi_mode_select);
 /**
  *	scsi_mode_sense - issue a mode sense, falling back from 10 to six bytes if necessary.
  *	@sdev:	SCSI device to be queried
- *	@dbd:	set if mode sense will allow block descriptors to be returned
+ *	@dbd:	set to prevent mode sense from returning block descriptors
  *	@modepage: mode page being requested
  *	@buffer: request buffer (may not be smaller than eight bytes)
  *	@len:	length of request buffer.
@@ -2170,18 +2174,18 @@ scsi_mode_sense(struct scsi_device *sdev, int dbd, int modepage,
 		sshdr = &my_sshdr;
 
  retry:
-	use_10_for_ms = sdev->use_10_for_ms;
+	use_10_for_ms = sdev->use_10_for_ms || len > 255;
 
 	if (use_10_for_ms) {
-		if (len < 8)
-			len = 8;
+		if (len < 8 || len > 65535)
+			return -EINVAL;
 
 		cmd[0] = MODE_SENSE_10;
-		cmd[8] = len;
+		put_unaligned_be16(len, &cmd[7]);
 		header_length = 8;
 	} else {
 		if (len < 4)
-			len = 4;
+			return -EINVAL;
 
 		cmd[0] = MODE_SENSE;
 		cmd[4] = len;
@@ -2205,9 +2209,15 @@ scsi_mode_sense(struct scsi_device *sdev, int dbd, int modepage,
 			if ((sshdr->sense_key == ILLEGAL_REQUEST) &&
 			    (sshdr->asc == 0x20) && (sshdr->ascq == 0)) {
 				/*
-				 * Invalid command operation code
+				 * Invalid command operation code: retry using
+				 * MODE SENSE(6) if this was a MODE SENSE(10)
+				 * request, except if the request mode page is
+				 * too large for MODE SENSE single byte
+				 * allocation length field.
 				 */
 				if (use_10_for_ms) {
+					if (len > 255)
+						return -EIO;
 					sdev->use_10_for_ms = 0;
 					goto retry;
 				}
@@ -2231,12 +2241,11 @@ scsi_mode_sense(struct scsi_device *sdev, int dbd, int modepage,
 		data->longlba = 0;
 		data->block_descriptor_length = 0;
 	} else if (use_10_for_ms) {
-		data->length = buffer[0]*256 + buffer[1] + 2;
+		data->length = get_unaligned_be16(&buffer[0]) + 2;
 		data->medium_type = buffer[2];
 		data->device_specific = buffer[3];
 		data->longlba = buffer[4] & 0x01;
-		data->block_descriptor_length = buffer[6]*256
-			+ buffer[7];
+		data->block_descriptor_length = get_unaligned_be16(&buffer[6]);
 	} else {
 		data->length = buffer[0] + 1;
 		data->medium_type = buffer[1];

@@ -829,7 +829,6 @@ int
 mpt_device_driver_register(struct mpt_pci_driver * dd_cbfunc, u8 cb_idx)
 {
 	MPT_ADAPTER	*ioc;
-	const struct pci_device_id *id;
 
 	if (!cb_idx || cb_idx >= MPT_MAX_PROTOCOL_DRIVERS)
 		return -EINVAL;
@@ -838,10 +837,8 @@ mpt_device_driver_register(struct mpt_pci_driver * dd_cbfunc, u8 cb_idx)
 
 	/* call per pci device probe entry point */
 	list_for_each_entry(ioc, &ioc_list, list) {
-		id = ioc->pcidev->driver ?
-		    ioc->pcidev->driver->id_table : NULL;
 		if (dd_cbfunc->probe)
-			dd_cbfunc->probe(ioc->pcidev, id);
+			dd_cbfunc->probe(ioc->pcidev);
 	 }
 
 	return 0;
@@ -2032,7 +2029,7 @@ mpt_attach(struct pci_dev *pdev, const struct pci_device_id *id)
 	for(cb_idx = 0; cb_idx < MPT_MAX_PROTOCOL_DRIVERS; cb_idx++) {
 		if(MptDeviceDriverHandlers[cb_idx] &&
 		  MptDeviceDriverHandlers[cb_idx]->probe) {
-			MptDeviceDriverHandlers[cb_idx]->probe(pdev,id);
+			MptDeviceDriverHandlers[cb_idx]->probe(pdev);
 		}
 	}
 
@@ -6644,13 +6641,13 @@ static int mpt_summary_proc_show(struct seq_file *m, void *v)
 static int mpt_version_proc_show(struct seq_file *m, void *v)
 {
 	u8	 cb_idx;
-	int	 scsi, fc, sas, lan, ctl, targ, dmp;
+	int	 scsi, fc, sas, lan, ctl, targ;
 	char	*drvname;
 
 	seq_printf(m, "%s-%s\n", "mptlinux", MPT_LINUX_VERSION_COMMON);
 	seq_printf(m, "  Fusion MPT base driver\n");
 
-	scsi = fc = sas = lan = ctl = targ = dmp = 0;
+	scsi = fc = sas = lan = ctl = targ = 0;
 	for (cb_idx = MPT_MAX_PROTOCOL_DRIVERS-1; cb_idx; cb_idx--) {
 		drvname = NULL;
 		if (MptCallbacks[cb_idx]) {

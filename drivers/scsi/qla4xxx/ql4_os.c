@@ -3640,7 +3640,6 @@ static int qla4xxx_copy_to_fwddb_param(struct iscsi_bus_flash_session *sess,
 				       struct dev_db_entry *fw_ddb_entry)
 {
 	uint16_t options;
-	int rc = 0;
 
 	options = le16_to_cpu(fw_ddb_entry->options);
 	SET_BITVAL(conn->is_fw_assigned_ipv6,  options, BIT_11);
@@ -3739,7 +3738,7 @@ static int qla4xxx_copy_to_fwddb_param(struct iscsi_bus_flash_session *sess,
 
 	COPY_ISID(fw_ddb_entry->isid, sess->isid);
 
-	return rc;
+	return 0;
 }
 
 static void qla4xxx_copy_to_sess_conn_params(struct iscsi_conn *conn,
@@ -5097,7 +5096,7 @@ int qla4xxx_unblock_flash_ddb(struct iscsi_cls_session *cls_session)
 		ql4_printk(KERN_INFO, ha, "scsi%ld: %s: ddb[%d]"
 			   " start scan\n", ha->host_no, __func__,
 			   ddb_entry->fw_ddb_index);
-		scsi_queue_work(ha->host, &ddb_entry->sess->scan_work);
+		queue_work(ddb_entry->sess->workq, &ddb_entry->sess->scan_work);
 	}
 	return QLA_SUCCESS;
 }

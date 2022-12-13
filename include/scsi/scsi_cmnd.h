@@ -11,7 +11,6 @@
 #include <linux/scatterlist.h>
 #include <scsi/scsi_device.h>
 #include <scsi/scsi_host.h>
-#include <scsi/scsi_request.h>
 
 struct Scsi_Host;
 
@@ -68,7 +67,6 @@ enum scsi_cmnd_submitter {
 } __packed;
 
 struct scsi_cmnd {
-	struct scsi_request req;
 	struct scsi_device *device;
 	struct list_head eh_entry; /* entry for the host eh_abort_list/eh_cmd_q */
 	struct delayed_work abort_work;
@@ -111,18 +109,23 @@ struct scsi_cmnd {
 				   (ie, between disconnect / 
 				   reconnects.   Probably == sector
 				   size */
-
+	unsigned resid_len;	/* residual count */
+	unsigned sense_len;
 	unsigned char *sense_buffer;
 				/* obtained by REQUEST SENSE when
 				 * CHECK CONDITION is received on original
 				 * command (auto-sense). Length must be
 				 * SCSI_SENSE_BUFFERSIZE bytes. */
 
+	int flags;		/* Command flags */
+	unsigned long state;	/* Command completion state */
+
+	unsigned int extra_len;	/* length of alignment and padding */
+
 	/*
-	 * The following fields can be written to by the host specific code. 
-	 * Everything else should be left alone. 
+	 * The fields below can be modified by the LLD but the fields above
+	 * must not be modified.
 	 */
-	struct scsi_pointer SCp;	/* Scratchpad used by some host adapters */
 
 	unsigned char *host_scribble;	/* The host adapter is allowed to
 					 * call scsi_malloc and get some memory
@@ -133,11 +136,6 @@ struct scsi_cmnd {
 					 * to be at an address < 16Mb). */
 
 	int result;		/* Status code from lower level driver */
-	int flags;		/* Command flags */
-	unsigned long state;	/* Command completion state */
-
-	unsigned char tag;	/* SCSI-II queued command tag */
-	unsigned int extra_len;	/* length of alignment and padding */
 };
 
 /* Variant of blk_mq_rq_from_pdu() that verifies the type of its argument. */
@@ -156,6 +154,7 @@ static inline void *scsi_cmd_priv(struct scsi_cmnd *cmd)
 }
 
 void scsi_done(struct scsi_cmnd *cmd);
+void scsi_done_direct(struct scsi_cmnd *cmd);
 
 extern void scsi_finish_command(struct scsi_cmnd *cmd);
 
@@ -191,12 +190,12 @@ static inline unsigned scsi_bufflen(struct scsi_cmnd *cmd)
 
 static inline void scsi_set_resid(struct scsi_cmnd *cmd, unsigned int resid)
 {
-	cmd->req.resid_len = resid;
+	cmd->resid_len = resid;
 }
 
 static inline unsigned int scsi_get_resid(struct scsi_cmnd *cmd)
 {
-	return cmd->req.resid_len;
+	return cmd->resid_len;
 }
 
 #define scsi_for_each_sg(cmd, sg, nseg, __i)			\

@@ -2838,11 +2838,9 @@ struct Scsi_Host *iscsi_host_alloc(struct scsi_host_template *sht,
 	ihost = shost_priv(shost);
 
 	if (xmit_can_sleep) {
-		snprintf(ihost->workq_name, sizeof(ihost->workq_name),
-			"iscsi_q_%d", shost->host_no);
-		ihost->workq = alloc_workqueue("%s",
+		ihost->workq = alloc_workqueue("iscsi_q_%d",
 			WQ_SYSFS | __WQ_LEGACY | WQ_MEM_RECLAIM | WQ_UNBOUND,
-			1, ihost->workq_name);
+			1, shost->host_no);
 		if (!ihost->workq)
 			goto free_host;
 	}
@@ -2995,6 +2993,7 @@ iscsi_session_setup(struct iscsi_transport *iscsit, struct Scsi_Host *shost,
 	session->tmf_state = TMF_INITIAL;
 	timer_setup(&session->tmf_timer, iscsi_tmf_timedout, 0);
 	mutex_init(&session->eh_mutex);
+	init_waitqueue_head(&session->ehwait);
 
 	spin_lock_init(&session->frwd_lock);
 	spin_lock_init(&session->back_lock);
@@ -3122,8 +3121,6 @@ iscsi_conn_setup(struct iscsi_cls_session *cls_session, int dd_size,
 	if (!data)
 		goto login_task_data_alloc_fail;
 	conn->login_task->data = conn->data = data;
-
-	init_waitqueue_head(&session->ehwait);
 
 	err = iscsi_add_conn(cls_conn);
 	if (err)

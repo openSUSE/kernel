@@ -55,7 +55,6 @@
 #include <linux/notifier.h>
 #include <linux/cpu.h>
 #include <linux/mutex.h>
-#include <linux/async.h>
 #include <asm/unaligned.h>
 
 #include <scsi/scsi.h>
@@ -85,14 +84,6 @@ unsigned int scsi_logging_level;
 #if defined(CONFIG_SCSI_LOGGING)
 EXPORT_SYMBOL(scsi_logging_level);
 #endif
-
-/*
- * Domain for asynchronous system resume operations.  It is marked 'exclusive'
- * to avoid being included in the async_synchronize_full() that is invoked by
- * dpm_resume().
- */
-ASYNC_DOMAIN_EXCLUSIVE(scsi_sd_pm_domain);
-EXPORT_SYMBOL(scsi_sd_pm_domain);
 
 #ifdef CONFIG_SCSI_LOGGING
 void scsi_log_send(struct scsi_cmnd *cmd)
@@ -209,11 +200,11 @@ void scsi_finish_command(struct scsi_cmnd *cmd)
 
 
 /*
- * 1024 is big enough for saturating fast SCSI LUNs.
+ * 4096 is big enough for saturating fast SCSI LUNs.
  */
 int scsi_device_max_queue_depth(struct scsi_device *sdev)
 {
-	return min_t(int, sdev->host->can_queue, 1024);
+	return min_t(int, sdev->host->can_queue, 4096);
 }
 
 /**
@@ -500,6 +491,12 @@ void scsi_attach_vpd(struct scsi_device *sdev)
 			scsi_update_vpd_page(sdev, 0x83, &sdev->vpd_pg83);
 		if (vpd_buf->data[i] == 0x89)
 			scsi_update_vpd_page(sdev, 0x89, &sdev->vpd_pg89);
+		if (vpd_buf->data[i] == 0xb0)
+			scsi_update_vpd_page(sdev, 0xb0, &sdev->vpd_pgb0);
+		if (vpd_buf->data[i] == 0xb1)
+			scsi_update_vpd_page(sdev, 0xb1, &sdev->vpd_pgb1);
+		if (vpd_buf->data[i] == 0xb2)
+			scsi_update_vpd_page(sdev, 0xb2, &sdev->vpd_pgb2);
 	}
 	kfree(vpd_buf);
 }
@@ -520,21 +517,30 @@ int scsi_report_opcode(struct scsi_device *sdev, unsigned char *buffer,
 {
 	unsigned char cmd[16];
 	struct scsi_sense_hdr sshdr;
-	int result;
+	int result, request_len;
 
 	if (sdev->no_report_opcodes || sdev->scsi_level < SCSI_SPC_3)
 		return -EINVAL;
+
+	/* RSOC header + size of command we are asking about */
+	request_len = 4 + COMMAND_SIZE(opcode);
+	if (request_len > len) {
+		dev_warn_once(&sdev->sdev_gendev,
+			      "%s: len %u bytes, opcode 0x%02x needs %u\n",
+			      __func__, len, opcode, request_len);
+		return -EINVAL;
+	}
 
 	memset(cmd, 0, 16);
 	cmd[0] = MAINTENANCE_IN;
 	cmd[1] = MI_REPORT_SUPPORTED_OPERATION_CODES;
 	cmd[2] = 1;		/* One command format */
 	cmd[3] = opcode;
-	put_unaligned_be32(len, &cmd[6]);
+	put_unaligned_be32(request_len, &cmd[6]);
 	memset(buffer, 0, len);
 
-	result = scsi_execute_req(sdev, cmd, DMA_FROM_DEVICE, buffer, len,
-				  &sshdr, 30 * HZ, 3, NULL);
+	result = scsi_execute_req(sdev, cmd, DMA_FROM_DEVICE, buffer,
+				  request_len, &sshdr, 30 * HZ, 3, NULL);
 
 	if (result < 0)
 		return result;

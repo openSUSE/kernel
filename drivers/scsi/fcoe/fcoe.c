@@ -277,6 +277,7 @@ static struct scsi_host_template fcoe_shost_template = {
 	.sg_tablesize = SG_ALL,
 	.max_sectors = 1024,
 	.track_queue_depth = 1,
+	.cmd_size = sizeof(struct libfc_cmd_priv),
 };
 
 /**
@@ -307,7 +308,7 @@ static int fcoe_interface_setup(struct fcoe_interface *fcoe,
 	}
 
 	/* Do not support for bonding device */
-	if (netdev->priv_flags & IFF_BONDING && netdev->flags & IFF_MASTER) {
+	if (netif_is_bond_master(netdev)) {
 		FCOE_NETDEV_DBG(netdev, "Bonded interfaces not supported\n");
 		return -EOPNOTSUPP;
 	}
@@ -1451,9 +1452,10 @@ static int fcoe_alloc_paged_crc_eof(struct sk_buff *skb, int tlen)
 	struct fcoe_percpu_s *fps;
 	int rc;
 
-	fps = &get_cpu_var(fcoe_percpu);
+	local_lock(&fcoe_percpu.lock);
+	fps = this_cpu_ptr(&fcoe_percpu);
 	rc = fcoe_get_paged_crc_eof(skb, tlen, fps);
-	put_cpu_var(fcoe_percpu);
+	local_unlock(&fcoe_percpu.lock);
 
 	return rc;
 }
@@ -2475,6 +2477,7 @@ static int __init fcoe_init(void)
 		p = per_cpu_ptr(&fcoe_percpu, cpu);
 		INIT_WORK(&p->work, fcoe_receive_work);
 		skb_queue_head_init(&p->fcoe_rx_list);
+		local_lock_init(&p->lock);
 	}
 
 	/* Setup link change notification */
@@ -2567,7 +2570,7 @@ static void fcoe_flogi_resp(struct fc_seq *seq, struct fc_frame *fp, void *arg)
 	/* pre-FIP */
 	if (is_zero_ether_addr(mac))
 		fcoe_ctlr_recv_flogi(fip, lport, fp);
-	if (!is_zero_ether_addr(mac))
+	else
 		fcoe_update_src_mac(lport, mac);
 done:
 	fc_lport_flogi_resp(seq, fp, lport);
