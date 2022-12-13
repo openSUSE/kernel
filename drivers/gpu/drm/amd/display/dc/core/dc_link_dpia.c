@@ -34,6 +34,7 @@
 #include "dm_helpers.h"
 #include "dmub/inc/dmub_cmd.h"
 #include "inc/link_dpcd.h"
+#include "dc_dmub_srv.h"
 
 #define DC_LOGGER \
 	link->ctx->logger
@@ -69,6 +70,24 @@ enum dc_status dpcd_get_tunneling_device_data(struct dc_link *link)
 	return status;
 }
 
+bool dc_link_dpia_query_hpd_status(struct dc_link *link)
+{
+	union dmub_rb_cmd cmd = {0};
+	struct dc_dmub_srv *dmub_srv = link->ctx->dmub_srv;
+	bool is_hpd_high = false;
+
+	/* prepare QUERY_HPD command */
+	cmd.query_hpd.header.type = DMUB_CMD__QUERY_HPD_STATE;
+	cmd.query_hpd.data.instance = link->link_id.enum_id - ENUM_ID_1;
+	cmd.query_hpd.data.ch_type = AUX_CHANNEL_DPIA;
+
+	/* Return HPD status reported by DMUB if query successfully executed. */
+	if (dc_dmub_srv_cmd_with_reply_data(dmub_srv, &cmd) && cmd.query_hpd.data.status == AUX_RET_SUCCESS)
+		is_hpd_high = cmd.query_hpd.data.result;
+
+	return is_hpd_high;
+}
+
 /* Configure link as prescribed in link_setting; set LTTPR mode; and
  * Initialize link training settings.
  * Abort link training if sink unplug detected.
@@ -77,7 +96,9 @@ enum dc_status dpcd_get_tunneling_device_data(struct dc_link *link)
  * @param[in] link_setting Lane count, link rate and downspread control.
  * @param[out] lt_settings Link settings and drive settings (voltage swing and pre-emphasis).
  */
-static enum link_training_result dpia_configure_link(struct dc_link *link,
+static enum link_training_result dpia_configure_link(
+		struct dc_link *link,
+		const struct link_resource *link_res,
 		const struct dc_link_settings *link_setting,
 		struct link_training_settings *lt_settings)
 {
@@ -94,25 +115,25 @@ static enum link_training_result dpia_configure_link(struct dc_link *link,
 		lt_settings);
 
 	status = dpcd_configure_channel_coding(link, lt_settings);
-	if (status != DC_OK && !link->hpd_status)
+	if (status != DC_OK && link->is_hpd_pending)
 		return LINK_TRAINING_ABORT;
 
 	/* Configure lttpr mode */
 	status = dpcd_configure_lttpr_mode(link, lt_settings);
-	if (status != DC_OK && !link->hpd_status)
+	if (status != DC_OK && link->is_hpd_pending)
 		return LINK_TRAINING_ABORT;
 
 	/* Set link rate, lane count and spread. */
 	status = dpcd_set_link_settings(link, lt_settings);
-	if (status != DC_OK && !link->hpd_status)
+	if (status != DC_OK && link->is_hpd_pending)
 		return LINK_TRAINING_ABORT;
 
 	if (link->preferred_training_settings.fec_enable)
 		fec_enable = *link->preferred_training_settings.fec_enable;
 	else
 		fec_enable = true;
-	status = dp_set_fec_ready(link, fec_enable);
-	if (status != DC_OK && !link->hpd_status)
+	status = dp_set_fec_ready(link, link_res, fec_enable);
+	if (status != DC_OK && link->is_hpd_pending)
 		return LINK_TRAINING_ABORT;
 
 	return LINK_TRAINING_SUCCESS;
@@ -252,7 +273,9 @@ static enum dc_status dpcd_set_lt_pattern(struct dc_link *link,
  * @param lt_settings link_setting and drive settings (voltage swing and pre-emphasis).
  * @param hop The Hop in display path. DPRX = 0.
  */
-static enum link_training_result dpia_training_cr_non_transparent(struct dc_link *link,
+static enum link_training_result dpia_training_cr_non_transparent(
+		struct dc_link *link,
+		const struct link_resource *link_res,
 		struct link_training_settings *lt_settings,
 		uint32_t hop)
 {
@@ -388,7 +411,7 @@ static enum link_training_result dpia_training_cr_non_transparent(struct dc_link
 	}
 
 	/* Abort link training if clock recovery failed due to HPD unplug. */
-	if (!link->hpd_status)
+	if (link->is_hpd_pending)
 		result = LINK_TRAINING_ABORT;
 
 	DC_LOG_HW_LINK_TRAINING("%s\n DPIA(%d) clock recovery\n"
@@ -411,7 +434,9 @@ static enum link_training_result dpia_training_cr_non_transparent(struct dc_link
  * @param link DPIA link being trained.
  * @param lt_settings link_setting and drive settings (voltage swing and pre-emphasis).
  */
-static enum link_training_result dpia_training_cr_transparent(struct dc_link *link,
+static enum link_training_result dpia_training_cr_transparent(
+		struct dc_link *link,
+		const struct link_resource *link_res,
 		struct link_training_settings *lt_settings)
 {
 	enum link_training_result result = LINK_TRAINING_CR_FAIL_LANE0;
@@ -490,7 +515,7 @@ static enum link_training_result dpia_training_cr_transparent(struct dc_link *li
 	}
 
 	/* Abort link training if clock recovery failed due to HPD unplug. */
-	if (!link->hpd_status)
+	if (link->is_hpd_pending)
 		result = LINK_TRAINING_ABORT;
 
 	DC_LOG_HW_LINK_TRAINING("%s\n DPIA(%d) clock recovery\n"
@@ -511,16 +536,18 @@ static enum link_training_result dpia_training_cr_transparent(struct dc_link *li
  * @param lt_settings link_setting and drive settings (voltage swing and pre-emphasis).
  * @param hop The Hop in display path. DPRX = 0.
  */
-static enum link_training_result dpia_training_cr_phase(struct dc_link *link,
+static enum link_training_result dpia_training_cr_phase(
+		struct dc_link *link,
+		const struct link_resource *link_res,
 		struct link_training_settings *lt_settings,
 		uint32_t hop)
 {
 	enum link_training_result result = LINK_TRAINING_CR_FAIL_LANE0;
 
 	if (link->lttpr_mode == LTTPR_MODE_NON_TRANSPARENT)
-		result = dpia_training_cr_non_transparent(link, lt_settings, hop);
+		result = dpia_training_cr_non_transparent(link, link_res, lt_settings, hop);
 	else
-		result = dpia_training_cr_transparent(link, lt_settings);
+		result = dpia_training_cr_transparent(link, link_res, lt_settings);
 
 	return result;
 }
@@ -539,11 +566,9 @@ static uint32_t dpia_get_eq_aux_rd_interval(const struct dc_link *link,
 				dp_translate_training_aux_read_interval(
 					link->dpcd_caps.lttpr_caps.aux_rd_interval[hop - 1]);
 
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 	/* Check debug option for extending aux read interval. */
 	if (link->dc->debug.dpia_debug.bits.extend_aux_rd_interval)
 		wait_time_microsec = DPIA_DEBUG_EXTENDED_AUX_RD_INTERVAL_US;
-#endif
 
 	return wait_time_microsec;
 }
@@ -561,7 +586,9 @@ static uint32_t dpia_get_eq_aux_rd_interval(const struct dc_link *link,
  * @param lt_settings link_setting and drive settings (voltage swing and pre-emphasis).
  * @param hop The Hop in display path. DPRX = 0.
  */
-static enum link_training_result dpia_training_eq_non_transparent(struct dc_link *link,
+static enum link_training_result dpia_training_eq_non_transparent(
+		struct dc_link *link,
+		const struct link_resource *link_res,
 		struct link_training_settings *lt_settings,
 		uint32_t hop)
 {
@@ -675,7 +702,7 @@ static enum link_training_result dpia_training_eq_non_transparent(struct dc_link
 	}
 
 	/* Abort link training if equalization failed due to HPD unplug. */
-	if (!link->hpd_status)
+	if (link->is_hpd_pending)
 		result = LINK_TRAINING_ABORT;
 
 	DC_LOG_HW_LINK_TRAINING("%s\n DPIA(%d) equalization\n"
@@ -700,7 +727,9 @@ static enum link_training_result dpia_training_eq_non_transparent(struct dc_link
  * @param lt_settings link_setting and drive settings (voltage swing and pre-emphasis).
  * @param hop The Hop in display path. DPRX = 0.
  */
-static enum link_training_result dpia_training_eq_transparent(struct dc_link *link,
+static enum link_training_result dpia_training_eq_transparent(
+		struct dc_link *link,
+		const struct link_resource *link_res,
 		struct link_training_settings *lt_settings)
 {
 	enum link_training_result result = LINK_TRAINING_EQ_FAIL_EQ;
@@ -758,7 +787,7 @@ static enum link_training_result dpia_training_eq_transparent(struct dc_link *li
 	}
 
 	/* Abort link training if equalization failed due to HPD unplug. */
-	if (!link->hpd_status)
+	if (link->is_hpd_pending)
 		result = LINK_TRAINING_ABORT;
 
 	DC_LOG_HW_LINK_TRAINING("%s\n DPIA(%d) equalization\n"
@@ -779,16 +808,18 @@ static enum link_training_result dpia_training_eq_transparent(struct dc_link *li
  * @param lt_settings link_setting and drive settings (voltage swing and pre-emphasis).
  * @param hop The Hop in display path. DPRX = 0.
  */
-static enum link_training_result dpia_training_eq_phase(struct dc_link *link,
+static enum link_training_result dpia_training_eq_phase(
+		struct dc_link *link,
+		const struct link_resource *link_res,
 		struct link_training_settings *lt_settings,
 		uint32_t hop)
 {
 	enum link_training_result result;
 
 	if (link->lttpr_mode == LTTPR_MODE_NON_TRANSPARENT)
-		result = dpia_training_eq_non_transparent(link, lt_settings, hop);
+		result = dpia_training_eq_non_transparent(link, link_res, lt_settings, hop);
 	else
-		result = dpia_training_eq_transparent(link, lt_settings);
+		result = dpia_training_eq_transparent(link, link_res, lt_settings);
 
 	return result;
 }
@@ -892,10 +923,10 @@ static void dpia_training_abort(struct dc_link *link, uint32_t hop)
 				__func__,
 				link->link_id.enum_id - ENUM_ID_1,
 				link->lttpr_mode,
-				link->hpd_status);
+				link->is_hpd_pending);
 
 	/* Abandon clean-up if sink unplugged. */
-	if (!link->hpd_status)
+	if (link->is_hpd_pending)
 		return;
 
 	if (hop != DPRX)
@@ -908,7 +939,9 @@ static void dpia_training_abort(struct dc_link *link, uint32_t hop)
 	core_link_send_set_config(link, DPIA_SET_CFG_SET_LINK, data);
 }
 
-enum link_training_result dc_link_dpia_perform_link_training(struct dc_link *link,
+enum link_training_result dc_link_dpia_perform_link_training(
+	struct dc_link *link,
+	const struct link_resource *link_res,
 	const struct dc_link_settings *link_setting,
 	bool skip_video_pattern)
 {
@@ -918,7 +951,7 @@ enum link_training_result dc_link_dpia_perform_link_training(struct dc_link *lin
 	int8_t repeater_id; /* Current hop. */
 
 	/* Configure link as prescribed in link_setting and set LTTPR mode. */
-	result = dpia_configure_link(link, link_setting, &lt_settings);
+	result = dpia_configure_link(link, link_res, link_setting, &lt_settings);
 	if (result != LINK_TRAINING_SUCCESS)
 		return result;
 
@@ -930,12 +963,12 @@ enum link_training_result dc_link_dpia_perform_link_training(struct dc_link *lin
 	 */
 	for (repeater_id = repeater_cnt; repeater_id >= 0; repeater_id--) {
 		/* Clock recovery. */
-		result = dpia_training_cr_phase(link, &lt_settings, repeater_id);
+		result = dpia_training_cr_phase(link, link_res, &lt_settings, repeater_id);
 		if (result != LINK_TRAINING_SUCCESS)
 			break;
 
 		/* Equalization. */
-		result = dpia_training_eq_phase(link, &lt_settings, repeater_id);
+		result = dpia_training_eq_phase(link, link_res, &lt_settings, repeater_id);
 		if (result != LINK_TRAINING_SUCCESS)
 			break;
 

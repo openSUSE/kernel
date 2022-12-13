@@ -79,7 +79,8 @@ static int intel_context_active_acquire(struct intel_context *ce)
 
 	__i915_active_acquire(&ce->active);
 
-	if (intel_context_is_barrier(ce) || intel_engine_uses_guc(ce->engine))
+	if (intel_context_is_barrier(ce) || intel_engine_uses_guc(ce->engine) ||
+	    intel_context_is_parallel(ce))
 		return 0;
 
 	/* Preallocate tracking nodes */
@@ -219,7 +220,7 @@ int __intel_context_do_pin_ww(struct intel_context *ce,
 	 */
 
 	err = i915_gem_object_lock(ce->timeline->hwsp_ggtt->obj, ww);
-	if (!err && ce->ring->vma->obj)
+	if (!err)
 		err = i915_gem_object_lock(ce->ring->vma->obj, ww);
 	if (!err && ce->state)
 		err = i915_gem_object_lock(ce->state->obj, ww);
@@ -228,17 +229,17 @@ int __intel_context_do_pin_ww(struct intel_context *ce,
 	if (err)
 		return err;
 
-	err = i915_active_acquire(&ce->active);
+	err = ce->ops->pre_pin(ce, ww, &vaddr);
 	if (err)
 		goto err_ctx_unpin;
 
-	err = ce->ops->pre_pin(ce, ww, &vaddr);
+	err = i915_active_acquire(&ce->active);
 	if (err)
-		goto err_release;
+		goto err_post_unpin;
 
 	err = mutex_lock_interruptible(&ce->pin_mutex);
 	if (err)
-		goto err_post_unpin;
+		goto err_release;
 
 	intel_engine_pm_might_get(ce->engine);
 
@@ -273,11 +274,11 @@ int __intel_context_do_pin_ww(struct intel_context *ce,
 
 err_unlock:
 	mutex_unlock(&ce->pin_mutex);
+err_release:
+	i915_active_release(&ce->active);
 err_post_unpin:
 	if (!handoff)
 		ce->ops->post_unpin(ce);
-err_release:
-	i915_active_release(&ce->active);
 err_ctx_unpin:
 	intel_context_post_unpin(ce);
 
@@ -364,7 +365,7 @@ static int __intel_context_active(struct i915_active *active)
 	return 0;
 }
 
-static int __i915_sw_fence_call
+static int
 sw_fence_dummy_notify(struct i915_sw_fence *sf,
 		      enum i915_sw_fence_notify state)
 {
@@ -385,7 +386,7 @@ intel_context_init(struct intel_context *ce, struct intel_engine_cs *engine)
 	ce->ring = NULL;
 	ce->ring_size = SZ_4K;
 
-	ewma_runtime_init(&ce->runtime.avg);
+	ewma_runtime_init(&ce->stats.runtime.avg);
 
 	ce->vm = i915_vm_get(engine->gt->vm);
 
@@ -399,7 +400,7 @@ intel_context_init(struct intel_context *ce, struct intel_engine_cs *engine)
 	INIT_LIST_HEAD(&ce->guc_state.fences);
 	INIT_LIST_HEAD(&ce->guc_state.requests);
 
-	ce->guc_id.id = GUC_INVALID_LRC_ID;
+	ce->guc_id.id = GUC_INVALID_CONTEXT_ID;
 	INIT_LIST_HEAD(&ce->guc_id.link);
 
 	INIT_LIST_HEAD(&ce->destroyed_link);
@@ -563,7 +564,6 @@ void intel_context_bind_parent_child(struct intel_context *parent,
 	 * Callers responsibility to validate that this function is used
 	 * correctly but we use GEM_BUG_ON here ensure that they do.
 	 */
-	GEM_BUG_ON(!intel_engine_uses_guc(parent->engine));
 	GEM_BUG_ON(intel_context_is_pinned(parent));
 	GEM_BUG_ON(intel_context_is_child(parent));
 	GEM_BUG_ON(intel_context_is_pinned(child));
@@ -574,6 +574,31 @@ void intel_context_bind_parent_child(struct intel_context *parent,
 	list_add_tail(&child->parallel.child_link,
 		      &parent->parallel.child_list);
 	child->parallel.parent = parent;
+}
+
+u64 intel_context_get_total_runtime_ns(const struct intel_context *ce)
+{
+	u64 total, active;
+
+	total = ce->stats.runtime.total;
+	if (ce->ops->flags & COPS_RUNTIME_CYCLES)
+		total *= ce->engine->gt->clock_period_ns;
+
+	active = READ_ONCE(ce->stats.active);
+	if (active)
+		active = intel_context_clock() - active;
+
+	return total + active;
+}
+
+u64 intel_context_get_avg_runtime_ns(struct intel_context *ce)
+{
+	u64 avg = ewma_runtime_read(&ce->stats.runtime.avg);
+
+	if (ce->ops->flags & COPS_RUNTIME_CYCLES)
+		avg *= ce->engine->gt->clock_period_ns;
+
+	return avg;
 }
 
 #if IS_ENABLED(CONFIG_DRM_I915_SELFTEST)

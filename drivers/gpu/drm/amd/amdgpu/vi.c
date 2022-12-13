@@ -1155,8 +1155,8 @@ static void vi_program_aspm(struct amdgpu_device *adev)
 	bool bL1SS = false;
 	bool bClkReqSupport = true;
 
-	if (!amdgpu_aspm || !aspm_support_quirk_check())
- 		return;
+	if (!amdgpu_device_should_use_aspm(adev) || !aspm_support_quirk_check())
+		return;
 
 	if (adev->flags & AMD_IS_APU ||
 	    adev->asic_type < CHIP_POLARIS10)
@@ -2048,7 +2048,7 @@ static int vi_common_set_powergating_state(void *handle,
 	return 0;
 }
 
-static void vi_common_get_clockgating_state(void *handle, u32 *flags)
+static void vi_common_get_clockgating_state(void *handle, u64 *flags)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 	int data;

@@ -33,6 +33,8 @@
 #include "mp/mp_12_0_0_offset.h"
 #include "mp/mp_12_0_0_sh_mask.h"
 
+#include "rn_clk_mgr_vbios_smu.h"
+
 #define REG(reg_name) \
 	(MP0_BASE.instance[0].segment[mm ## reg_name ## _BASE_IDX] + mm ## reg_name)
 
@@ -86,9 +88,14 @@ static uint32_t rn_smu_wait_for_response(struct clk_mgr_internal *clk_mgr, unsig
 }
 
 
-int rn_vbios_smu_send_msg_with_param(struct clk_mgr_internal *clk_mgr, unsigned int msg_id, unsigned int param)
+static int rn_vbios_smu_send_msg_with_param(struct clk_mgr_internal *clk_mgr,
+					    unsigned int msg_id,
+					    unsigned int param)
 {
 	uint32_t result;
+
+	result = rn_smu_wait_for_response(clk_mgr, 10, 200000);
+	ASSERT(result == VBIOSSMC_Result_OK);
 
 	/* First clear response register */
 	REG_WRITE(MP1_SMN_C2PMSG_91, VBIOSSMC_Status_BUSY);

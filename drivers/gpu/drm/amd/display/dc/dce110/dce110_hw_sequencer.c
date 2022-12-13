@@ -49,9 +49,7 @@
 #include "link_enc_cfg.h"
 #include "link_hwss.h"
 #include "dc_link_dp.h"
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 #include "dccg.h"
-#endif
 #include "clock_source.h"
 #include "clk_mgr.h"
 #include "abm.h"
@@ -68,6 +66,9 @@
 #include "atomfirmware.h"
 
 #include "dcn10/dcn10_hw_sequencer.h"
+
+#include "link/link_dp_trace.h"
+#include "dce110_hw_sequencer.h"
 
 #define GAMMA_HW_POINTS_NUM 256
 
@@ -667,17 +668,12 @@ void dce110_enable_stream(struct pipe_ctx *pipe_ctx)
 	struct dc_crtc_timing *timing = &pipe_ctx->stream->timing;
 	struct dc_link *link = pipe_ctx->stream->link;
 	const struct dc *dc = link->dc;
-
+	const struct link_hwss *link_hwss = get_link_hwss(link, &pipe_ctx->link_res);
 	uint32_t active_total_with_borders;
 	uint32_t early_control = 0;
 	struct timing_generator *tg = pipe_ctx->stream_res.tg;
 
-	/* For MST, there are multiply stream go to only one link.
-	 * connect DIG back_end to front_end while enable_stream and
-	 * disconnect them during disable_stream
-	 * BY this, it is logic clean to separate stream and link */
-	link->link_enc->funcs->connect_dig_be_to_fe(link->link_enc,
-						    pipe_ctx->stream_res.stream_enc->id, true);
+	link_hwss->setup_stream_encoder(pipe_ctx);
 
 	dc->hwss.update_info_frame(pipe_ctx);
 
@@ -793,7 +789,7 @@ void dce110_edp_wait_for_hpd_ready(
 	dal_gpio_destroy_irq(&hpd);
 
 	if (false == edp_hpd_high) {
-		DC_LOG_ERROR(
+		DC_LOG_WARNING(
 				"%s: wait timed out!\n", __func__);
 	}
 }
@@ -824,19 +820,19 @@ void dce110_edp_power_control(
 				div64_u64(dm_get_elapse_time_in_ns(
 						ctx,
 						current_ts,
-						link->link_trace.time_stamp.edp_poweroff), 1000000);
+						dp_trace_get_edp_poweroff_timestamp(link)), 1000000);
 		unsigned long long time_since_edp_poweron_ms =
 				div64_u64(dm_get_elapse_time_in_ns(
 						ctx,
 						current_ts,
-						link->link_trace.time_stamp.edp_poweron), 1000000);
+						dp_trace_get_edp_poweron_timestamp(link)), 1000000);
 		DC_LOG_HW_RESUME_S3(
 				"%s: transition: power_up=%d current_ts=%llu edp_poweroff=%llu edp_poweron=%llu time_since_edp_poweroff_ms=%llu time_since_edp_poweron_ms=%llu",
 				__func__,
 				power_up,
 				current_ts,
-				link->link_trace.time_stamp.edp_poweroff,
-				link->link_trace.time_stamp.edp_poweron,
+				dp_trace_get_edp_poweroff_timestamp(link),
+				dp_trace_get_edp_poweron_timestamp(link),
 				time_since_edp_poweroff_ms,
 				time_since_edp_poweron_ms);
 
@@ -851,7 +847,7 @@ void dce110_edp_power_control(
 					link->local_sink->edid_caps.panel_patch.extra_t12_ms;
 
 			/* Adjust remaining_min_edp_poweroff_time_ms if this is not the first time. */
-			if (link->link_trace.time_stamp.edp_poweroff != 0) {
+			if (dp_trace_get_edp_poweroff_timestamp(link) != 0) {
 				if (time_since_edp_poweroff_ms < remaining_min_edp_poweroff_time_ms)
 					remaining_min_edp_poweroff_time_ms =
 						remaining_min_edp_poweroff_time_ms - time_since_edp_poweroff_ms;
@@ -909,17 +905,13 @@ void dce110_edp_power_control(
 				__func__, (power_up ? "On":"Off"),
 				bp_result);
 
-		if (!power_up)
-			/*save driver power off time stamp*/
-			link->link_trace.time_stamp.edp_poweroff = dm_get_timestamp(ctx);
-		else
-			link->link_trace.time_stamp.edp_poweron = dm_get_timestamp(ctx);
+		dp_trace_set_edp_power_timestamp(link, power_up);
 
 		DC_LOG_HW_RESUME_S3(
 				"%s: updated values: edp_poweroff=%llu edp_poweron=%llu\n",
 				__func__,
-				link->link_trace.time_stamp.edp_poweroff,
-				link->link_trace.time_stamp.edp_poweron);
+				dp_trace_get_edp_poweroff_timestamp(link),
+				dp_trace_get_edp_poweron_timestamp(link));
 
 		if (bp_result != BP_RESULT_OK)
 			DC_LOG_ERROR(
@@ -947,14 +939,14 @@ void dce110_edp_wait_for_T12(
 		return;
 
 	if (!link->panel_cntl->funcs->is_panel_powered_on(link->panel_cntl) &&
-			link->link_trace.time_stamp.edp_poweroff != 0) {
+			dp_trace_get_edp_poweroff_timestamp(link) != 0) {
 		unsigned int t12_duration = 500; // Default T12 as per spec
 		unsigned long long current_ts = dm_get_timestamp(ctx);
 		unsigned long long time_since_edp_poweroff_ms =
 				div64_u64(dm_get_elapse_time_in_ns(
 						ctx,
 						current_ts,
-						link->link_trace.time_stamp.edp_poweroff), 1000000);
+						dp_trace_get_edp_poweroff_timestamp(link)), 1000000);
 
 		t12_duration += link->local_sink->edid_caps.panel_patch.extra_t12_ms; // Add extra T12
 
@@ -1110,17 +1102,12 @@ void dce110_enable_audio_stream(struct pipe_ctx *pipe_ctx)
 			clk_mgr->funcs->enable_pme_wa(clk_mgr);
 		/* un-mute audio */
 		/* TODO: audio should be per stream rather than per link */
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 		if (is_dp_128b_132b_signal(pipe_ctx))
 			pipe_ctx->stream_res.hpo_dp_stream_enc->funcs->audio_mute_control(
 					pipe_ctx->stream_res.hpo_dp_stream_enc, false);
 		else
 			pipe_ctx->stream_res.stream_enc->funcs->audio_mute_control(
 					pipe_ctx->stream_res.stream_enc, false);
-#else
-		pipe_ctx->stream_res.stream_enc->funcs->audio_mute_control(
-				pipe_ctx->stream_res.stream_enc, false);
-#endif
 		if (pipe_ctx->stream_res.audio)
 			pipe_ctx->stream_res.audio->enabled = true;
 	}
@@ -1143,32 +1130,22 @@ void dce110_disable_audio_stream(struct pipe_ctx *pipe_ctx)
 	if (pipe_ctx->stream_res.audio && pipe_ctx->stream_res.audio->enabled == false)
 		return;
 
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 	if (is_dp_128b_132b_signal(pipe_ctx))
 		pipe_ctx->stream_res.hpo_dp_stream_enc->funcs->audio_mute_control(
 				pipe_ctx->stream_res.hpo_dp_stream_enc, true);
 	else
 		pipe_ctx->stream_res.stream_enc->funcs->audio_mute_control(
 				pipe_ctx->stream_res.stream_enc, true);
-#else
-	pipe_ctx->stream_res.stream_enc->funcs->audio_mute_control(
-			pipe_ctx->stream_res.stream_enc, true);
-#endif
 	if (pipe_ctx->stream_res.audio) {
 		pipe_ctx->stream_res.audio->enabled = false;
 
 		if (dc_is_dp_signal(pipe_ctx->stream->signal))
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 			if (is_dp_128b_132b_signal(pipe_ctx))
 				pipe_ctx->stream_res.hpo_dp_stream_enc->funcs->dp_audio_disable(
 						pipe_ctx->stream_res.hpo_dp_stream_enc);
 			else
 				pipe_ctx->stream_res.stream_enc->funcs->dp_audio_disable(
 						pipe_ctx->stream_res.stream_enc);
-#else
-			pipe_ctx->stream_res.stream_enc->funcs->dp_audio_disable(
-					pipe_ctx->stream_res.stream_enc);
-#endif
 		else
 			pipe_ctx->stream_res.stream_enc->funcs->hdmi_audio_disable(
 					pipe_ctx->stream_res.stream_enc);
@@ -1193,7 +1170,7 @@ void dce110_disable_stream(struct pipe_ctx *pipe_ctx)
 	struct dc_stream_state *stream = pipe_ctx->stream;
 	struct dc_link *link = stream->link;
 	struct dc *dc = pipe_ctx->stream->ctx->dc;
-	struct link_encoder *link_enc = NULL;
+	const struct link_hwss *link_hwss = get_link_hwss(link, &pipe_ctx->link_res);
 
 	if (dc_is_hdmi_tmds_signal(pipe_ctx->stream->signal)) {
 		pipe_ctx->stream_res.stream_enc->funcs->stop_hdmi_info_packets(
@@ -1202,54 +1179,26 @@ void dce110_disable_stream(struct pipe_ctx *pipe_ctx)
 			pipe_ctx->stream_res.stream_enc);
 	}
 
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 	if (is_dp_128b_132b_signal(pipe_ctx)) {
 		pipe_ctx->stream_res.hpo_dp_stream_enc->funcs->stop_dp_info_packets(
 					pipe_ctx->stream_res.hpo_dp_stream_enc);
 	} else if (dc_is_dp_signal(pipe_ctx->stream->signal))
-#else
-	if (dc_is_dp_signal(pipe_ctx->stream->signal))
-#endif
 		pipe_ctx->stream_res.stream_enc->funcs->stop_dp_info_packets(
 			pipe_ctx->stream_res.stream_enc);
 
 	dc->hwss.disable_audio_stream(pipe_ctx);
 
-	/* Link encoder may have been dynamically assigned to non-physical display endpoint. */
-	if (link->ep_type == DISPLAY_ENDPOINT_PHY)
-		link_enc = link->link_enc;
-	else if (dc->res_pool->funcs->link_encs_assign)
-		link_enc = link_enc_cfg_get_link_enc_used_by_link(link->ctx->dc, link);
-	ASSERT(link_enc);
+	link_hwss->reset_stream_encoder(pipe_ctx);
 
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 	if (is_dp_128b_132b_signal(pipe_ctx)) {
-		pipe_ctx->stream_res.hpo_dp_stream_enc->funcs->disable(
-				pipe_ctx->stream_res.hpo_dp_stream_enc);
-		setup_dp_hpo_stream(pipe_ctx, false);
-	/* TODO - DP2.0 HW: unmap stream from link encoder here */
-	} else {
-		if (link_enc)
-			link_enc->funcs->connect_dig_be_to_fe(
-				link_enc,
-				pipe_ctx->stream_res.stream_enc->id,
-				false);
+		/* TODO: This looks like a bug to me as we are disabling HPO IO when
+		 * we are just disabling a single HPO stream. Shouldn't we disable HPO
+		 * HW control only when HPOs for all streams are disabled?
+		 */
+		if (pipe_ctx->stream->ctx->dc->hwseq->funcs.setup_hpo_hw_control)
+			pipe_ctx->stream->ctx->dc->hwseq->funcs.setup_hpo_hw_control(
+					pipe_ctx->stream->ctx->dc->hwseq, false);
 	}
-#else
-	if (link_enc)
-		link_enc->funcs->connect_dig_be_to_fe(
-			link->link_enc,
-			pipe_ctx->stream_res.stream_enc->id,
-			false);
-#endif
-	if (dc_is_dp_signal(pipe_ctx->stream->signal))
-		dp_source_sequence_trace(link, DPCD_SOURCE_SEQ_AFTER_DISCONNECT_DIG_FE_BE);
-
-#if defined(CONFIG_DRM_AMD_DC_DCN)
-	if (dc->hwseq->funcs.setup_hpo_hw_control && is_dp_128b_132b_signal(pipe_ctx))
-		dc->hwseq->funcs.setup_hpo_hw_control(dc->hwseq, false);
-#endif
-
 }
 
 void dce110_unblank_stream(struct pipe_ctx *pipe_ctx,
@@ -1283,15 +1232,11 @@ void dce110_blank_stream(struct pipe_ctx *pipe_ctx)
 		link->dc->hwss.set_abm_immediate_disable(pipe_ctx);
 	}
 
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 	if (is_dp_128b_132b_signal(pipe_ctx)) {
 		/* TODO - DP2.0 HW: Set ODM mode in dp hpo encoder here */
 		pipe_ctx->stream_res.hpo_dp_stream_enc->funcs->dp_blank(
 				pipe_ctx->stream_res.hpo_dp_stream_enc);
 	} else if (dc_is_dp_signal(pipe_ctx->stream->signal)) {
-#else
-	if (dc_is_dp_signal(pipe_ctx->stream->signal)) {
-#endif
 		pipe_ctx->stream_res.stream_enc->funcs->dp_blank(link, pipe_ctx->stream_res.stream_enc);
 
 		if (!dc_is_embedded_signal(pipe_ctx->stream->signal)) {
@@ -1420,11 +1365,9 @@ static void program_scaler(const struct dc *dc,
 {
 	struct tg_color color = {0};
 
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 	/* TOFPGA */
 	if (pipe_ctx->plane_res.xfm->funcs->transform_set_pixel_storage_depth == NULL)
 		return;
-#endif
 
 	if (dc->debug.visual_confirm == VISUAL_CONFIRM_SURFACE)
 		get_surface_visual_confirm_color(pipe_ctx, &color);
@@ -1533,7 +1476,6 @@ static enum dc_status apply_single_controller_ctx_to_hw(
 		build_audio_output(context, pipe_ctx, &audio_output);
 
 		if (dc_is_dp_signal(pipe_ctx->stream->signal))
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 			if (is_dp_128b_132b_signal(pipe_ctx))
 				pipe_ctx->stream_res.hpo_dp_stream_enc->funcs->dp_audio_setup(
 						pipe_ctx->stream_res.hpo_dp_stream_enc,
@@ -1544,12 +1486,6 @@ static enum dc_status apply_single_controller_ctx_to_hw(
 						pipe_ctx->stream_res.stream_enc,
 						pipe_ctx->stream_res.audio->inst,
 						&pipe_ctx->stream->audio_info);
-#else
-			pipe_ctx->stream_res.stream_enc->funcs->dp_audio_setup(
-					pipe_ctx->stream_res.stream_enc,
-					pipe_ctx->stream_res.audio->inst,
-					&pipe_ctx->stream->audio_info);
-#endif
 		else
 			pipe_ctx->stream_res.stream_enc->funcs->hdmi_audio_setup(
 					pipe_ctx->stream_res.stream_enc,
@@ -1564,14 +1500,41 @@ static enum dc_status apply_single_controller_ctx_to_hw(
 				&pipe_ctx->stream->audio_info);
 	}
 
-#if defined(CONFIG_DRM_AMD_DC_DCN)
+	/* make sure no pipes syncd to the pipe being enabled */
+	if (!pipe_ctx->stream->apply_seamless_boot_optimization && dc->config.use_pipe_ctx_sync_logic)
+		check_syncd_pipes_for_disabled_master_pipe(dc, context, pipe_ctx->pipe_idx);
+
+	pipe_ctx->stream_res.opp->funcs->opp_program_fmt(
+		pipe_ctx->stream_res.opp,
+		&stream->bit_depth_params,
+		&stream->clamping);
+
+	pipe_ctx->stream_res.opp->funcs->opp_set_dyn_expansion(
+			pipe_ctx->stream_res.opp,
+			COLOR_SPACE_YCBCR601,
+			stream->timing.display_color_depth,
+			stream->signal);
+
+	while (odm_pipe) {
+		odm_pipe->stream_res.opp->funcs->opp_set_dyn_expansion(
+				odm_pipe->stream_res.opp,
+				COLOR_SPACE_YCBCR601,
+				stream->timing.display_color_depth,
+				stream->signal);
+
+		odm_pipe->stream_res.opp->funcs->opp_program_fmt(
+				odm_pipe->stream_res.opp,
+				&stream->bit_depth_params,
+				&stream->clamping);
+		odm_pipe = odm_pipe->next_odm_pipe;
+	}
+
 	/* DCN3.1 FPGA Workaround
 	 * Need to enable HPO DP Stream Encoder before setting OTG master enable.
 	 * To do so, move calling function enable_stream_timing to only be done AFTER calling
 	 * function core_link_enable_stream
 	 */
 	if (!(hws->wa.dp_hpo_and_otg_sequence && is_dp_128b_132b_signal(pipe_ctx)))
-#endif
 		/*  */
 		/* Do not touch stream timing on seamless boot optimization. */
 		if (!pipe_ctx->stream->apply_seamless_boot_optimization)
@@ -1605,34 +1568,9 @@ static enum dc_status apply_single_controller_ctx_to_hw(
 	if (dc_is_dp_signal(pipe_ctx->stream->signal))
 		dp_source_sequence_trace(link, DPCD_SOURCE_SEQ_AFTER_CONNECT_DIG_FE_OTG);
 
-	pipe_ctx->stream_res.opp->funcs->opp_set_dyn_expansion(
-			pipe_ctx->stream_res.opp,
-			COLOR_SPACE_YCBCR601,
-			stream->timing.display_color_depth,
-			stream->signal);
-
-	pipe_ctx->stream_res.opp->funcs->opp_program_fmt(
-		pipe_ctx->stream_res.opp,
-		&stream->bit_depth_params,
-		&stream->clamping);
-	while (odm_pipe) {
-		odm_pipe->stream_res.opp->funcs->opp_set_dyn_expansion(
-				odm_pipe->stream_res.opp,
-				COLOR_SPACE_YCBCR601,
-				stream->timing.display_color_depth,
-				stream->signal);
-
-		odm_pipe->stream_res.opp->funcs->opp_program_fmt(
-				odm_pipe->stream_res.opp,
-				&stream->bit_depth_params,
-				&stream->clamping);
-		odm_pipe = odm_pipe->next_odm_pipe;
-	}
-
 	if (!stream->dpms_off)
 		core_link_enable_stream(context, pipe_ctx);
 
-#if defined(CONFIG_DRM_AMD_DC_DCN)
 	/* DCN3.1 FPGA Workaround
 	 * Need to enable HPO DP Stream Encoder before setting OTG master enable.
 	 * To do so, move calling function enable_stream_timing to only be done AFTER calling
@@ -1642,9 +1580,8 @@ static enum dc_status apply_single_controller_ctx_to_hw(
 		if (!pipe_ctx->stream->apply_seamless_boot_optimization)
 			hws->funcs.enable_stream_timing(pipe_ctx, context, dc);
 	}
-#endif
 
-	pipe_ctx->plane_res.scl_data.lb_params.alpha_en = pipe_ctx->bottom_pipe != 0;
+	pipe_ctx->plane_res.scl_data.lb_params.alpha_en = pipe_ctx->bottom_pipe != NULL;
 
 	pipe_ctx->stream->link->psr_settings.psr_feature_enabled = false;
 
@@ -1655,30 +1592,12 @@ static enum dc_status apply_single_controller_ctx_to_hw(
 
 static void power_down_encoders(struct dc *dc)
 {
-	int i, j;
+	int i;
 
 	for (i = 0; i < dc->link_count; i++) {
 		enum signal_type signal = dc->links[i]->connector_signal;
 
-		if ((signal == SIGNAL_TYPE_EDP) ||
-			(signal == SIGNAL_TYPE_DISPLAY_PORT)) {
-			if (dc->links[i]->link_enc->funcs->get_dig_frontend &&
-				dc->links[i]->link_enc->funcs->is_dig_enabled(dc->links[i]->link_enc)) {
-				unsigned int fe = dc->links[i]->link_enc->funcs->get_dig_frontend(
-									dc->links[i]->link_enc);
-
-				for (j = 0; j < dc->res_pool->stream_enc_count; j++) {
-					if (fe == dc->res_pool->stream_enc[j]->id) {
-						dc->res_pool->stream_enc[j]->funcs->dp_blank(dc->links[i],
-									dc->res_pool->stream_enc[j]);
-						break;
-					}
-				}
-			}
-
-			if (!dc->links[i]->wa_flags.dp_keep_receiver_powered)
-				dp_receiver_power_ctrl(dc->links[i], false);
-		}
+		dc_link_blank_dp_stream(dc->links[i], false);
 
 		if (signal != SIGNAL_TYPE_EDP)
 			signal = SIGNAL_TYPE_NONE;
@@ -1805,7 +1724,6 @@ void dce110_enable_accelerated_mode(struct dc *dc, struct dc_state *context)
 	struct dc_stream_state *edp_streams[MAX_NUM_EDP];
 	struct dc_link *edp_link_with_sink = NULL;
 	struct dc_link *edp_link = NULL;
-	struct dc_stream_state *edp_stream = NULL;
 	struct dce_hwseq *hws = dc->hwseq;
 	int edp_with_sink_num;
 	int edp_num;
@@ -1826,27 +1744,30 @@ void dce110_enable_accelerated_mode(struct dc *dc, struct dc_state *context)
 	get_edp_streams(context, edp_streams, &edp_stream_num);
 
 	// Check fastboot support, disable on DCE8 because of blank screens
-	if (edp_num && dc->ctx->dce_version != DCE_VERSION_8_0 &&
+	if (edp_num && edp_stream_num && dc->ctx->dce_version != DCE_VERSION_8_0 &&
 		    dc->ctx->dce_version != DCE_VERSION_8_1 &&
 		    dc->ctx->dce_version != DCE_VERSION_8_3) {
 		for (i = 0; i < edp_num; i++) {
 			edp_link = edp_links[i];
+			if (edp_link != edp_streams[0]->link)
+				continue;
 			// enable fastboot if backend is enabled on eDP
-			if (edp_link->link_enc->funcs->is_dig_enabled(edp_link->link_enc)) {
-				/* Set optimization flag on eDP stream*/
-				if (edp_stream_num && edp_link->link_status.link_active) {
-					edp_stream = edp_streams[0];
-					can_apply_edp_fast_boot = !is_edp_ilr_optimization_required(edp_stream->link, &edp_stream->timing);
-					edp_stream->apply_edp_fast_boot_optimization = can_apply_edp_fast_boot;
-					if (can_apply_edp_fast_boot)
-						DC_LOG_EVENT_LINK_TRAINING("eDP fast boot disabled to optimize link rate\n");
+			if (edp_link->link_enc->funcs->is_dig_enabled &&
+			    edp_link->link_enc->funcs->is_dig_enabled(edp_link->link_enc) &&
+			    edp_link->link_status.link_active) {
+				struct dc_stream_state *edp_stream = edp_streams[0];
 
-					break;
-				}
+				can_apply_edp_fast_boot = dc_validate_boot_timing(dc,
+					edp_stream->sink, &edp_stream->timing);
+				edp_stream->apply_edp_fast_boot_optimization = can_apply_edp_fast_boot;
+				if (can_apply_edp_fast_boot)
+					DC_LOG_EVENT_LINK_TRAINING("eDP fast boot disabled to optimize link rate\n");
+
+				break;
 			}
 		}
 		// We are trying to enable eDP, don't power down VDD
-		if (edp_stream_num)
+		if (can_apply_edp_fast_boot)
 			keep_edp_vdd_on = true;
 	}
 
@@ -2240,8 +2161,6 @@ static void dce110_setup_audio_dto(
 
 			build_audio_output(context, pipe_ctx, &audio_output);
 
-#if defined(CONFIG_DRM_AMD_DC_DCN)
-			/* For DCN3.1, audio to HPO FRL encoder is using audio DTBCLK DTO */
 			if (dc->res_pool->dccg && dc->res_pool->dccg->funcs->set_audio_dtbclk_dto) {
 				/* disable audio DTBCLK DTO */
 				dc->res_pool->dccg->funcs->set_audio_dtbclk_dto(
@@ -2258,13 +2177,6 @@ static void dce110_setup_audio_dto(
 					pipe_ctx->stream->signal,
 					&audio_output.crtc_info,
 					&audio_output.pll_info);
-#else
-			pipe_ctx->stream_res.audio->funcs->wall_dto_setup(
-				pipe_ctx->stream_res.audio,
-				pipe_ctx->stream->signal,
-				&audio_output.crtc_info,
-				&audio_output.pll_info);
-#endif
 			break;
 		}
 	}
@@ -2308,6 +2220,10 @@ enum dc_status dce110_apply_ctx_to_hw(
 	struct dc_bios *dcb = dc->ctx->dc_bios;
 	enum dc_status status;
 	int i;
+
+	/* reset syncd pipes from disabled pipes */
+	if (dc->config.use_pipe_ctx_sync_logic)
+		reset_syncd_pipes_from_disabled_pipes(dc, context);
 
 	/* Reset old context */
 	/* look up the targets that have been removed since last commit */
@@ -2784,7 +2700,7 @@ static void dce110_program_front_end_for_pipe(
 
 	pipe_ctx->plane_res.xfm->funcs->transform_set_gamut_remap(pipe_ctx->plane_res.xfm, &adjust);
 
-	pipe_ctx->plane_res.scl_data.lb_params.alpha_en = pipe_ctx->bottom_pipe != 0;
+	pipe_ctx->plane_res.scl_data.lb_params.alpha_en = pipe_ctx->bottom_pipe != NULL;
 
 	program_scaler(dc, pipe_ctx);
 

@@ -2608,7 +2608,7 @@ static void dce_v11_0_crtc_dpms(struct drm_crtc *crtc, int mode)
 		break;
 	}
 	/* adjust pm to dpms */
-	amdgpu_pm_compute_clocks(adev);
+	amdgpu_dpm_compute_clocks(adev);
 }
 
 static void dce_v11_0_crtc_prepare(struct drm_crtc *crtc)
@@ -2914,7 +2914,10 @@ static int dce_v11_0_sw_init(void *handle)
 	adev_to_drm(adev)->mode_config.max_height = 16384;
 
 	adev_to_drm(adev)->mode_config.preferred_depth = 24;
-	adev_to_drm(adev)->mode_config.prefer_shadow = 1;
+	/* disable prefer shadow for now due to hibernation issues */
+	adev_to_drm(adev)->mode_config.prefer_shadow = 0;
+
+	adev_to_drm(adev)->mode_config.fb_modifiers_not_supported = true;
 
 	adev_to_drm(adev)->mode_config.fb_base = adev->gmc.aper_base;
 

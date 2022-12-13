@@ -957,15 +957,15 @@ static int ov6650_get_mbus_config(struct v4l2_subdev *sd,
 	if (ret)
 		return ret;
 
-	cfg->flags = V4L2_MBUS_MASTER | V4L2_MBUS_DATA_ACTIVE_HIGH
-		   | ((comj & COMJ_VSYNC_HIGH)  ? V4L2_MBUS_VSYNC_ACTIVE_HIGH
-						: V4L2_MBUS_VSYNC_ACTIVE_LOW)
-		   | ((comf & COMF_HREF_LOW)    ? V4L2_MBUS_HSYNC_ACTIVE_LOW
-						: V4L2_MBUS_HSYNC_ACTIVE_HIGH)
-		   | ((comj & COMJ_PCLK_RISING) ? V4L2_MBUS_PCLK_SAMPLE_RISING
-						: V4L2_MBUS_PCLK_SAMPLE_FALLING);
 	cfg->type = V4L2_MBUS_PARALLEL;
 
+	cfg->bus.parallel.flags = V4L2_MBUS_MASTER | V4L2_MBUS_DATA_ACTIVE_HIGH
+		| ((comj & COMJ_VSYNC_HIGH)  ? V4L2_MBUS_VSYNC_ACTIVE_HIGH
+					     : V4L2_MBUS_VSYNC_ACTIVE_LOW)
+		| ((comf & COMF_HREF_LOW)    ? V4L2_MBUS_HSYNC_ACTIVE_LOW
+					     : V4L2_MBUS_HSYNC_ACTIVE_HIGH)
+		| ((comj & COMJ_PCLK_RISING) ? V4L2_MBUS_PCLK_SAMPLE_RISING
+					     : V4L2_MBUS_PCLK_SAMPLE_FALLING);
 	return 0;
 }
 
@@ -977,23 +977,23 @@ static int ov6650_set_mbus_config(struct v4l2_subdev *sd,
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	int ret = 0;
 
-	if (cfg->flags & V4L2_MBUS_PCLK_SAMPLE_RISING)
+	if (cfg->bus.parallel.flags & V4L2_MBUS_PCLK_SAMPLE_RISING)
 		ret = ov6650_reg_rmw(client, REG_COMJ, COMJ_PCLK_RISING, 0);
-	else if (cfg->flags & V4L2_MBUS_PCLK_SAMPLE_FALLING)
+	else if (cfg->bus.parallel.flags & V4L2_MBUS_PCLK_SAMPLE_FALLING)
 		ret = ov6650_reg_rmw(client, REG_COMJ, 0, COMJ_PCLK_RISING);
 	if (ret)
 		return ret;
 
-	if (cfg->flags & V4L2_MBUS_HSYNC_ACTIVE_LOW)
+	if (cfg->bus.parallel.flags & V4L2_MBUS_HSYNC_ACTIVE_LOW)
 		ret = ov6650_reg_rmw(client, REG_COMF, COMF_HREF_LOW, 0);
-	else if (cfg->flags & V4L2_MBUS_HSYNC_ACTIVE_HIGH)
+	else if (cfg->bus.parallel.flags & V4L2_MBUS_HSYNC_ACTIVE_HIGH)
 		ret = ov6650_reg_rmw(client, REG_COMF, 0, COMF_HREF_LOW);
 	if (ret)
 		return ret;
 
-	if (cfg->flags & V4L2_MBUS_VSYNC_ACTIVE_HIGH)
+	if (cfg->bus.parallel.flags & V4L2_MBUS_VSYNC_ACTIVE_HIGH)
 		ret = ov6650_reg_rmw(client, REG_COMJ, COMJ_VSYNC_HIGH, 0);
-	else if (cfg->flags & V4L2_MBUS_VSYNC_ACTIVE_LOW)
+	else if (cfg->bus.parallel.flags & V4L2_MBUS_VSYNC_ACTIVE_LOW)
 		ret = ov6650_reg_rmw(client, REG_COMJ, 0, COMJ_VSYNC_HIGH);
 	if (ret)
 		return ret;

@@ -952,6 +952,7 @@ F:	drivers/gpu/drm/amd/include/kgd_kfd_interface.h
 F:	drivers/gpu/drm/amd/include/v9_structs.h
 F:	drivers/gpu/drm/amd/include/vi_structs.h
 F:	include/uapi/linux/kfd_ioctl.h
+F:	include/uapi/linux/kfd_sysfs.h
 
 AMD SPI DRIVER
 M:	Sanjay R Mehta <sanju.mehta@amd.com>
@@ -3391,6 +3392,7 @@ F:	net/sched/act_bpf.c
 F:	net/sched/cls_bpf.c
 F:	samples/bpf/
 F:	scripts/bpf_doc.py
+F:	scripts/pahole-version.sh
 F:	tools/bpf/
 F:	tools/lib/bpf/
 F:	tools/testing/selftests/bpf/
@@ -5556,7 +5558,7 @@ T:	git git://anongit.freedesktop.org/drm/drm-misc
 F:	Documentation/driver-api/dma-buf.rst
 F:	drivers/dma-buf/
 F:	include/linux/*fence.h
-F:	include/linux/dma-buf*
+F:	include/linux/dma-buf.h
 F:	include/linux/dma-resv.h
 K:	\bdma_(?:buf|fence|resv)\b
 
@@ -9499,6 +9501,7 @@ S:	Supported
 F:	Documentation/driver-api/mei/*
 F:	drivers/misc/mei/
 F:	drivers/watchdog/mei_wdt.c
+F:	include/linux/mei_aux.h
 F:	include/linux/mei_cl_bus.h
 F:	include/uapi/linux/mei.h
 F:	samples/mei/*
@@ -9763,6 +9766,13 @@ F:	include/linux/iommu.h
 F:	include/linux/iova.h
 F:	include/linux/of_iommu.h
 F:	include/uapi/linux/iommu.h
+
+IOSYS-MAP HELPERS
+M:	Thomas Zimmermann <tzimmermann@suse.de>
+L:	dri-devel@lists.freedesktop.org
+S:	Maintained
+T:	git git://anongit.freedesktop.org/drm/drm-misc
+F:	include/linux/iosys-map.h
 
 IO_URING
 M:	Jens Axboe <axboe@kernel.dk>
@@ -13094,6 +13104,7 @@ F:	include/net/mptcp.h
 F:	include/trace/events/mptcp.h
 F:	include/uapi/linux/mptcp.h
 F:	net/mptcp/
+F:	tools/testing/selftests/bpf/*/*mptcp*.c
 F:	tools/testing/selftests/net/mptcp/
 
 NETWORKING [TCP]

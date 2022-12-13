@@ -7,21 +7,10 @@
 #include <drm/drm_print.h>
 #include "ast_drv.h"
 
-bool ast_dp_read_edid(struct drm_device *dev, u8 *ediddata)
+int ast_astdp_read_edid(struct drm_device *dev, u8 *ediddata)
 {
 	struct ast_private *ast = to_ast_private(dev);
 	u8 i = 0, j = 0;
-
-#ifdef DPControlPower
-	u8 bDPState_Change = false;
-
-	// Check DP power off or not.
-	if (ast->ASTDP_State & AST_DP_PHY_SLEEP) {
-		// DP power on
-		ast_dp_PowerOnOff(dev, AST_DP_POWER_ON);
-		bDPState_Change = true;
-	}
-#endif
 
 	/*
 	 * CRD1[b5]: DP MCU FW is executing
@@ -34,12 +23,7 @@ bool ast_dp_read_edid(struct drm_device *dev, u8 *ediddata)
 		ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xDF, ASTDP_HPD) &&
 		ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xE5,
 								ASTDP_HOST_EDID_READ_DONE_MASK))) {
-#ifdef DPControlPower
-		// Set back power off
-		if (bDPState_Change)
-			ast_dp_PowerOnOff(dev, AST_DP_POWER_OFF);
-#endif
-		return false;
+		goto err_astdp_edid_not_ready;
 	}
 
 	ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xE5, (u8) ~ASTDP_HOST_EDID_READ_DONE_MASK,
@@ -61,6 +45,12 @@ bool ast_dp_read_edid(struct drm_device *dev, u8 *ediddata)
 				ASTDP_EDID_VALID_FLAG_MASK) != 0x01) ||
 			(ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xD6,
 						ASTDP_EDID_READ_POINTER_MASK) != i)) {
+			/*
+			 * Delay are getting longer with each retry.
+			 * 1. The Delays are often 2 loops when users request "Display Settings"
+			 *	  of right-click of mouse.
+			 * 2. The Delays are often longer a lot when system resume from S3/S4.
+			 */
 			mdelay(j+1);
 
 			if (!(ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xD1,
@@ -68,19 +58,12 @@ bool ast_dp_read_edid(struct drm_device *dev, u8 *ediddata)
 				ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xDC,
 							ASTDP_LINK_SUCCESS) &&
 				ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xDF, ASTDP_HPD))) {
-				ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xE5,
-							(u8) ~ASTDP_HOST_EDID_READ_DONE_MASK,
-							ASTDP_HOST_EDID_READ_DONE);
-				return false;
+				goto err_astdp_jump_out_loop_of_edid;
 			}
 
 			j++;
-			if (j > 200) {
-				ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xE5,
-							(u8) ~ASTDP_HOST_EDID_READ_DONE_MASK,
-							ASTDP_HOST_EDID_READ_DONE);
-				return false;
-			}
+			if (j > 200)
+				goto err_astdp_jump_out_loop_of_edid;
 		}
 
 		*(ediddata) = ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT,
@@ -112,19 +95,31 @@ bool ast_dp_read_edid(struct drm_device *dev, u8 *ediddata)
 	ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xE5, (u8) ~ASTDP_HOST_EDID_READ_DONE_MASK,
 							ASTDP_HOST_EDID_READ_DONE);
 
-#ifdef DPControlPower
-	// Set back power off
-	if (bDPState_Change)
-		ast_dp_PowerOnOff(dev, AST_DP_POWER_OFF);
-#endif
+	return 0;
 
-	return true;
+err_astdp_jump_out_loop_of_edid:
+	ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xE5,
+							(u8) ~ASTDP_HOST_EDID_READ_DONE_MASK,
+							ASTDP_HOST_EDID_READ_DONE);
+	return (~(j+256) + 1);
+
+err_astdp_edid_not_ready:
+	if (!(ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xD1, ASTDP_MCU_FW_EXECUTING)))
+		return (~0xD1 + 1);
+	if (!(ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xDC, ASTDP_LINK_SUCCESS)))
+		return (~0xDC + 1);
+	if (!(ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xDF, ASTDP_HPD)))
+		return (~0xDF + 1);
+	if (!(ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xE5, ASTDP_HOST_EDID_READ_DONE_MASK)))
+		return (~0xE5 + 1);
+
+	return	0;
 }
 
 /*
  * Launch Aspeed DP
  */
-bool ast_dp_launch(struct drm_device *dev, u8 bPower)
+void ast_dp_launch(struct drm_device *dev, u8 bPower)
 {
 	u32 i = 0, j = 0, WaitCount = 1;
 	u8 bDPTX = 0;
@@ -135,11 +130,8 @@ bool ast_dp_launch(struct drm_device *dev, u8 bPower)
 	if (bPower)
 		WaitCount = 300;
 
-	// Fill
-	ast->tx_chip_type = AST_TX_NONE;
 
 	// Wait total count by different condition.
-	// This is a temp solution for DP check
 	for (j = 0; j < WaitCount; j++) {
 		bDPTX = ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xD1, TX_TYPE_MASK);
 
@@ -168,56 +160,53 @@ bool ast_dp_launch(struct drm_device *dev, u8 bPower)
 		}
 
 		if (bDPExecute)
-			ast->tx_chip_type = AST_TX_ASTDP;
-	}
+			ast->tx_chip_types |= BIT(AST_TX_ASTDP);
 
-	return true;
+		ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xE5,
+							(u8) ~ASTDP_HOST_EDID_READ_DONE_MASK,
+							ASTDP_HOST_EDID_READ_DONE);
+	}
 }
 
-#ifdef DPControlPower
 
-void ast_dp_PowerOnOff(struct drm_device *dev, u8 Mode)
+
+void ast_dp_power_on_off(struct drm_device *dev, bool on)
 {
 	struct ast_private *ast = to_ast_private(dev);
 	// Read and Turn off DP PHY sleep
 	u8 bE3 = ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xE3, AST_DP_VIDEO_ENABLE);
 
 	// Turn on DP PHY sleep
-	if (!Mode)
+	if (!on)
 		bE3 |= AST_DP_PHY_SLEEP;
 
 	// DP Power on/off
 	ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xE3, (u8) ~AST_DP_PHY_SLEEP, bE3);
-
-	// Save ASTDP power state
-	ast->ASTDP_State = bE3;
 }
 
-#endif
 
-void ast_dp_SetOnOff(struct drm_device *dev, u8 Mode)
+
+void ast_dp_set_on_off(struct drm_device *dev, bool on)
 {
 	struct ast_private *ast = to_ast_private(dev);
+	u8 video_on_off = on;
 
 	// Video On/Off
-	ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xE3, (u8) ~AST_DP_VIDEO_ENABLE, Mode);
-
-	// Save ASTDP power state
-	ast->ASTDP_State = Mode;
+	ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xE3, (u8) ~AST_DP_VIDEO_ENABLE, on);
 
 	// If DP plug in and link successful then check video on / off status
 	if (ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xDC, ASTDP_LINK_SUCCESS) &&
 		ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xDF, ASTDP_HPD)) {
-		Mode <<= 4;
+		video_on_off <<= 4;
 		while (ast_get_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xDF,
-						ASTDP_MIRROR_VIDEO_ENABLE) != Mode) {
+						ASTDP_MIRROR_VIDEO_ENABLE) != video_on_off) {
 			// wait 1 ms
 			mdelay(1);
 		}
 	}
 }
 
-void ast_dp_SetOutput(struct drm_crtc *crtc, struct ast_vbios_mode_info *vbios_mode)
+void ast_dp_set_mode(struct drm_crtc *crtc, struct ast_vbios_mode_info *vbios_mode)
 {
 	struct ast_private *ast = to_ast_private(crtc->dev);
 

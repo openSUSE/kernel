@@ -525,14 +525,9 @@ static int vega10_ih_sw_fini(void *handle)
 
 static int vega10_ih_hw_init(void *handle)
 {
-	int r;
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 
-	r = vega10_ih_irq_init(adev);
-	if (r)
-		return r;
-
-	return 0;
+	return vega10_ih_irq_init(adev);
 }
 
 static int vega10_ih_hw_fini(void *handle)
@@ -644,6 +639,7 @@ const struct amd_ip_funcs vega10_ih_ip_funcs = {
 static const struct amdgpu_ih_funcs vega10_ih_funcs = {
 	.get_wptr = vega10_ih_get_wptr,
 	.decode_iv = amdgpu_ih_decode_iv_helper,
+	.decode_iv_ts = amdgpu_ih_decode_iv_ts_helper,
 	.set_rptr = vega10_ih_set_rptr
 };
 

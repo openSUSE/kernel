@@ -237,7 +237,7 @@ static bool xgene_ahci_is_memram_inited(struct xgene_ahci_context *ctx)
  * does not support DEVSLP.
  */
 static unsigned int xgene_ahci_read_id(struct ata_device *dev,
-				       struct ata_taskfile *tf, u16 *id)
+				       struct ata_taskfile *tf, __le16 *id)
 {
 	u32 err_mask;
 
@@ -365,7 +365,7 @@ static int xgene_ahci_do_hardreset(struct ata_link *link,
 	do {
 		/* clear D2H reception area to properly wait for D2H FIS */
 		ata_tf_init(link->device, &tf);
-		tf.command = ATA_BUSY;
+		tf.status = ATA_BUSY;
 		ata_tf_to_fis(&tf, 0, 0, d2h_fis);
 		rc = sata_link_hardreset(link, timing, deadline, online,
 				 ahci_check_ready);
@@ -588,8 +588,6 @@ static irqreturn_t xgene_ahci_irq_intr(int irq, void *dev_instance)
 	void __iomem *mmio;
 	u32 irq_stat, irq_masked;
 
-	VPRINTK("ENTER\n");
-
 	hpriv = host->private_data;
 	mmio = hpriv->mmio;
 
@@ -611,8 +609,6 @@ static irqreturn_t xgene_ahci_irq_intr(int irq, void *dev_instance)
 	rc = xgene_ahci_handle_broken_edge_irq(host, irq_masked);
 
 	spin_unlock(&host->lock);
-
-	VPRINTK("EXIT\n");
 
 	return IRQ_RETVAL(rc);
 }

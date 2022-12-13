@@ -16,6 +16,7 @@
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/module.h>
+#include <linux/sysfs.h>
 
 #include <linux/omap-dma.h>
 
@@ -1303,7 +1304,7 @@ static ssize_t omapfb_show_panel_name(struct device *dev,
 {
 	struct omapfb_device *fbdev = dev_get_drvdata(dev);
 
-	return snprintf(buf, PAGE_SIZE, "%s\n", fbdev->panel->name);
+	return sysfs_emit(buf, "%s\n", fbdev->panel->name);
 }
 
 static ssize_t omapfb_show_bklight_level(struct device *dev,
@@ -1314,8 +1315,8 @@ static ssize_t omapfb_show_bklight_level(struct device *dev,
 	int r;
 
 	if (fbdev->panel->get_bklight_level) {
-		r = snprintf(buf, PAGE_SIZE, "%d\n",
-			     fbdev->panel->get_bklight_level(fbdev->panel));
+		r = sysfs_emit(buf, "%d\n",
+			       fbdev->panel->get_bklight_level(fbdev->panel));
 	} else
 		r = -ENODEV;
 	return r;
@@ -1348,8 +1349,8 @@ static ssize_t omapfb_show_bklight_max(struct device *dev,
 	int r;
 
 	if (fbdev->panel->get_bklight_level) {
-		r = snprintf(buf, PAGE_SIZE, "%d\n",
-			     fbdev->panel->get_bklight_max(fbdev->panel));
+		r = sysfs_emit(buf, "%d\n",
+			       fbdev->panel->get_bklight_max(fbdev->panel));
 	} else
 		r = -ENODEV;
 	return r;
@@ -1379,7 +1380,7 @@ static ssize_t omapfb_show_ctrl_name(struct device *dev,
 {
 	struct omapfb_device *fbdev = dev_get_drvdata(dev);
 
-	return snprintf(buf, PAGE_SIZE, "%s\n", fbdev->ctrl->name);
+	return sysfs_emit(buf, "%s\n", fbdev->ctrl->name);
 }
 
 static struct device_attribute dev_attr_ctrl_name =
@@ -1555,6 +1556,7 @@ static void omapfb_free_resources(struct omapfb_device *fbdev, int state)
 	case 1:
 		dev_set_drvdata(fbdev->dev, NULL);
 		kfree(fbdev);
+		break;
 	case 0:
 		/* nothing to free */
 		break;
@@ -1622,7 +1624,7 @@ static int omapfb_do_probe(struct platform_device *pdev,
 
 	init_state = 0;
 
-	if (pdev->num_resources != 0) {
+	if (pdev->num_resources != 2) {
 		dev_err(&pdev->dev, "probed for an unknown device\n");
 		r = -ENODEV;
 		goto cleanup;
@@ -1641,6 +1643,20 @@ static int omapfb_do_probe(struct platform_device *pdev,
 		r = -ENOMEM;
 		goto cleanup;
 	}
+	fbdev->int_irq = platform_get_irq(pdev, 0);
+	if (!fbdev->int_irq) {
+		dev_err(&pdev->dev, "unable to get irq\n");
+		r = ENXIO;
+		goto cleanup;
+	}
+
+	fbdev->ext_irq = platform_get_irq(pdev, 1);
+	if (!fbdev->ext_irq) {
+		dev_err(&pdev->dev, "unable to get irq\n");
+		r = ENXIO;
+		goto cleanup;
+	}
+
 	init_state++;
 
 	fbdev->dev = &pdev->dev;

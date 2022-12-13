@@ -41,8 +41,7 @@
 	dpp->tf_shift->field_name, dpp->tf_mask->field_name
 
 
-void dpp30_read_state(struct dpp *dpp_base,
-		struct dcn_dpp_state *s)
+static void dpp30_read_state(struct dpp *dpp_base, struct dcn_dpp_state *s)
 {
 	struct dcn20_dpp *dpp = TO_DCN20_DPP(dpp_base);
 
@@ -295,6 +294,9 @@ static void dpp3_cnv_setup (
 		break;
 	}
 
+	/* Set default color space based on format if none is given. */
+	color_space = input_color_space ? input_color_space : color_space;
+
 	if (is_2bit == 1 && alpha_2bit_lut != NULL) {
 		REG_UPDATE(ALPHA_2BIT_LUT, ALPHA_2BIT_LUT0, alpha_2bit_lut->lut0);
 		REG_UPDATE(ALPHA_2BIT_LUT, ALPHA_2BIT_LUT1, alpha_2bit_lut->lut1);
@@ -373,7 +375,7 @@ void dpp3_set_cursor_attributes(
 }
 
 
-bool dpp3_get_optimal_number_of_taps(
+static bool dpp3_get_optimal_number_of_taps(
 		struct dpp *dpp,
 		struct scaler_data *scl_data,
 		const struct scaling_taps *in_taps)
@@ -474,22 +476,7 @@ bool dpp3_get_optimal_number_of_taps(
 	return true;
 }
 
-void dpp3_cnv_set_bias_scale(
-		struct dpp *dpp_base,
-		struct  dc_bias_and_scale *bias_and_scale)
-{
-	struct dcn3_dpp *dpp = TO_DCN30_DPP(dpp_base);
-
-	REG_UPDATE(FCNV_FP_BIAS_R, FCNV_FP_BIAS_R, bias_and_scale->bias_red);
-	REG_UPDATE(FCNV_FP_BIAS_G, FCNV_FP_BIAS_G, bias_and_scale->bias_green);
-	REG_UPDATE(FCNV_FP_BIAS_B, FCNV_FP_BIAS_B, bias_and_scale->bias_blue);
-	REG_UPDATE(FCNV_FP_SCALE_R, FCNV_FP_SCALE_R, bias_and_scale->scale_red);
-	REG_UPDATE(FCNV_FP_SCALE_G, FCNV_FP_SCALE_G, bias_and_scale->scale_green);
-	REG_UPDATE(FCNV_FP_SCALE_B, FCNV_FP_SCALE_B, bias_and_scale->scale_blue);
-}
-
-void dpp3_deferred_update(
-	struct dpp *dpp_base)
+static void dpp3_deferred_update(struct dpp *dpp_base)
 {
 	int bypass_state;
 	struct dcn3_dpp *dpp = TO_DCN30_DPP(dpp_base);
@@ -751,8 +738,8 @@ static enum dc_lut_mode dpp3_get_blndgam_current(struct dpp *dpp_base)
 		return mode;
 }
 
-bool dpp3_program_blnd_lut(
-	struct dpp *dpp_base, const struct pwl_params *params)
+static bool dpp3_program_blnd_lut(struct dpp *dpp_base,
+				  const struct pwl_params *params)
 {
 	enum dc_lut_mode current_mode;
 	enum dc_lut_mode next_mode;
@@ -1164,9 +1151,8 @@ static void dpp3_program_shaper_lutb_settings(
 }
 
 
-bool dpp3_program_shaper(
-		struct dpp *dpp_base,
-		const struct pwl_params *params)
+static bool dpp3_program_shaper(struct dpp *dpp_base,
+				const struct pwl_params *params)
 {
 	enum dc_lut_mode current_mode;
 	enum dc_lut_mode next_mode;
@@ -1355,9 +1341,8 @@ static void dpp3_select_3dlut_ram_mask(
 	REG_SET(CM_3DLUT_INDEX, 0, CM_3DLUT_INDEX, 0);
 }
 
-bool dpp3_program_3dlut(
-		struct dpp *dpp_base,
-		struct tetrahedral_params *params)
+static bool dpp3_program_3dlut(struct dpp *dpp_base,
+			       struct tetrahedral_params *params)
 {
 	enum dc_lut_mode mode;
 	bool is_17x17x17;

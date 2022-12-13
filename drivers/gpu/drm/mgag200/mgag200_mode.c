@@ -9,7 +9,7 @@
  */
 
 #include <linux/delay.h>
-#include <linux/dma-buf-map.h>
+#include <linux/iosys-map.h>
 
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_atomic_state_helper.h>
@@ -848,11 +848,13 @@ mgag200_simple_display_pipe_mode_valid(struct drm_simple_display_pipe *pipe,
 
 static void
 mgag200_handle_damage(struct mga_device *mdev, struct drm_framebuffer *fb,
-		      struct drm_rect *clip, const struct dma_buf_map *map)
+		      struct drm_rect *clip, const struct iosys_map *map)
 {
+	void __iomem *dst = mdev->vram;
 	void *vmap = map->vaddr; /* TODO: Use mapping abstraction properly */
 
-	drm_fb_memcpy_dstclip(mdev->vram, fb->pitches[0], vmap, fb, clip);
+	dst += drm_fb_clip_offset(fb->pitches[0], fb->format, clip);
+	drm_fb_memcpy_toio(dst, fb->pitches[0], vmap, fb, clip);
 
 	/* Always scanout image at VRAM offset 0 */
 	mgag200_set_startadd(mdev, (u32)0);
@@ -879,6 +881,14 @@ mgag200_simple_display_pipe_enable(struct drm_simple_display_pipe *pipe,
 		.y2 = fb->height,
 	};
 
+	/*
+	 * Concurrent operations could possibly trigger a call to
+	 * drm_connector_helper_funcs.get_modes by trying to read the
+	 * display modes. Protect access to I/O registers by acquiring
+	 * the I/O-register lock.
+	 */
+	mutex_lock(&mdev->rmmio_lock);
+
 	if (mdev->type == G200_WB || mdev->type == G200_EW3)
 		mgag200_g200wb_hold_bmc(mdev);
 
@@ -902,6 +912,8 @@ mgag200_simple_display_pipe_enable(struct drm_simple_display_pipe *pipe,
 	mgag200_enable_display(mdev);
 
 	mgag200_handle_damage(mdev, fb, &fullscreen, &shadow_plane_state->data[0]);
+
+	mutex_unlock(&mdev->rmmio_lock);
 }
 
 static void
@@ -961,8 +973,12 @@ mgag200_simple_display_pipe_update(struct drm_simple_display_pipe *pipe,
 	if (!fb)
 		return;
 
+	mutex_lock(&mdev->rmmio_lock);
+
 	if (drm_atomic_helper_damage_merged(old_state, state, &damage))
 		mgag200_handle_damage(mdev, fb, &damage, &shadow_plane_state->data[0]);
+
+	mutex_unlock(&mdev->rmmio_lock);
 }
 
 static struct drm_crtc_state *

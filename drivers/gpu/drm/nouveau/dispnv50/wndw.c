@@ -32,6 +32,7 @@
 
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_gem_atomic_helper.h>
 #include <drm/drm_fourcc.h>
 
 #include "nouveau_bo.h"
@@ -403,10 +404,7 @@ nv50_wndw_atomic_check_lut(struct nv50_wndw *wndw,
 	/* Recalculate LUT state. */
 	memset(&asyw->xlut, 0x00, sizeof(asyw->xlut));
 	if ((asyw->ilut = wndw->func->ilut ? ilut : NULL)) {
-		if (!wndw->func->ilut(wndw, asyw, drm_color_lut_size(ilut))) {
-			DRM_DEBUG_KMS("Invalid ilut\n");
-			return -EINVAL;
-		}
+		wndw->func->ilut(wndw, asyw, drm_color_lut_size(ilut));
 		asyw->xlut.handle = wndw->wndw.vram.handle;
 		asyw->xlut.i.buffer = !asyw->xlut.i.buffer;
 		asyw->set.xlut = true;
@@ -561,7 +559,10 @@ nv50_wndw_prepare_fb(struct drm_plane *plane, struct drm_plane_state *state)
 			asyw->image.handle[0] = ctxdma->object.handle;
 	}
 
-	asyw->state.fence = dma_resv_get_excl_unlocked(nvbo->bo.base.resv);
+	ret = drm_gem_plane_helper_prepare_fb(plane, state);
+	if (ret)
+		return ret;
+
 	asyw->image.offset[0] = nvbo->offset;
 
 	if (wndw->func->prepare) {
@@ -630,8 +631,6 @@ nv50_wndw_reset(struct drm_plane *plane)
 		plane->funcs->atomic_destroy_state(plane, plane->state);
 
 	__drm_atomic_helper_plane_reset(plane, &asyw->state);
-	plane->state->zpos = nv50_wndw_zpos_default(plane);
-	plane->state->normalized_zpos = nv50_wndw_zpos_default(plane);
 }
 
 static void

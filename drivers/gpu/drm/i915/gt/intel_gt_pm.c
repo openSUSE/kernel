@@ -3,6 +3,7 @@
  * Copyright © 2019 Intel Corporation
  */
 
+#include <linux/string_helpers.h>
 #include <linux/suspend.h>
 
 #include "i915_drv.h"
@@ -86,6 +87,7 @@ static int __gt_unpark(struct intel_wakeref *wf)
 	intel_rc6_unpark(&gt->rc6);
 	intel_rps_unpark(&gt->rps);
 	i915_pmu_gt_unparked(i915);
+	intel_guc_busyness_unpark(gt);
 
 	intel_gt_unpark_requests(gt);
 	runtime_begin(gt);
@@ -104,6 +106,7 @@ static int __gt_park(struct intel_wakeref *wf)
 	runtime_end(gt);
 	intel_gt_park_requests(gt);
 
+	intel_guc_busyness_park(gt);
 	i915_vma_parked(gt);
 	i915_pmu_gt_parked(i915);
 	intel_rps_park(&gt->rps);
@@ -126,7 +129,14 @@ static const struct intel_wakeref_ops wf_ops = {
 
 void intel_gt_pm_init_early(struct intel_gt *gt)
 {
-	intel_wakeref_init(&gt->wakeref, gt->uncore->rpm, &wf_ops);
+	/*
+	 * We access the runtime_pm structure via gt->i915 here rather than
+	 * gt->uncore as we do elsewhere in the file because gt->uncore is not
+	 * yet initialized for all tiles at this point in the driver startup.
+	 * runtime_pm is per-device rather than per-tile, so this is still the
+	 * correct structure.
+	 */
+	intel_wakeref_init(&gt->wakeref, &gt->i915->runtime_pm, &wf_ops);
 	seqcount_mutex_init(&gt->stats.lock, &gt->wakeref.mutex);
 }
 
@@ -155,7 +165,7 @@ static void gt_sanitize(struct intel_gt *gt, bool force)
 	enum intel_engine_id id;
 	intel_wakeref_t wakeref;
 
-	GT_TRACE(gt, "force:%s", yesno(force));
+	GT_TRACE(gt, "force:%s", str_yes_no(force));
 
 	/* Use a raw wakeref to avoid calling intel_display_power_get early */
 	wakeref = intel_runtime_pm_get(gt->uncore->rpm);
@@ -172,15 +182,16 @@ static void gt_sanitize(struct intel_gt *gt, bool force)
 	if (intel_gt_is_wedged(gt))
 		intel_gt_unset_wedged(gt);
 
-	for_each_engine(engine, gt, id)
+	/* For GuC mode, ensure submission is disabled before stopping ring */
+	intel_uc_reset_prepare(&gt->uc);
+
+	for_each_engine(engine, gt, id) {
 		if (engine->reset.prepare)
 			engine->reset.prepare(engine);
 
-	intel_uc_reset_prepare(&gt->uc);
-
-	for_each_engine(engine, gt, id)
 		if (engine->sanitize)
 			engine->sanitize(engine);
+	}
 
 	if (reset_engines(gt) || force) {
 		for_each_engine(engine, gt, id)

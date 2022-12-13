@@ -374,7 +374,7 @@ u32 dpu_hw_get_scaler3_ver(struct dpu_hw_blk_reg_map *c,
 
 void dpu_hw_csc_setup(struct dpu_hw_blk_reg_map *c,
 		u32 csc_reg_off,
-		struct dpu_csc_cfg *data, bool csc10)
+		const struct dpu_csc_cfg *data, bool csc10)
 {
 	static const u32 matrix_shift = 7;
 	u32 clamp_shift = csc10 ? 16 : 8;
@@ -421,4 +421,29 @@ void dpu_hw_csc_setup(struct dpu_hw_blk_reg_map *c,
 	DPU_REG_WRITE(c, csc_reg_off + 0x38, data->csc_post_bv[0]);
 	DPU_REG_WRITE(c, csc_reg_off + 0x3c, data->csc_post_bv[1]);
 	DPU_REG_WRITE(c, csc_reg_off + 0x40, data->csc_post_bv[2]);
+}
+
+/**
+ * _dpu_hw_get_qos_lut - get LUT mapping based on fill level
+ * @tbl:		Pointer to LUT table
+ * @total_fl:		fill level
+ * Return: LUT setting corresponding to the fill level
+ */
+u64 _dpu_hw_get_qos_lut(const struct dpu_qos_lut_tbl *tbl,
+		u32 total_fl)
+{
+	int i;
+
+	if (!tbl || !tbl->nentry || !tbl->entries)
+		return 0;
+
+	for (i = 0; i < tbl->nentry; i++)
+		if (total_fl <= tbl->entries[i].fl)
+			return tbl->entries[i].lut;
+
+	/* if last fl is zero, use as default */
+	if (!tbl->entries[i-1].fl)
+		return tbl->entries[i-1].lut;
+
+	return 0;
 }

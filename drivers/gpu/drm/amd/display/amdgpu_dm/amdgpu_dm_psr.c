@@ -26,6 +26,32 @@
 #include "amdgpu_dm_psr.h"
 #include "dc.h"
 #include "dm_helpers.h"
+#include "amdgpu_dm.h"
+#include "modules/power/power_helpers.h"
+
+static bool link_supports_psrsu(struct dc_link *link)
+{
+	struct dc *dc = link->ctx->dc;
+
+	if (!dc->caps.dmcub_support)
+		return false;
+
+	if (dc->ctx->dce_version < DCN_VERSION_3_1)
+		return false;
+
+	if (!is_psr_su_specific_panel(link))
+		return false;
+
+	if (!link->dpcd_caps.alpm_caps.bits.AUX_WAKE_ALPM_CAP ||
+	    !link->dpcd_caps.psr_info.psr_dpcd_caps.bits.Y_COORDINATE_REQUIRED)
+		return false;
+
+	if (link->dpcd_caps.psr_info.psr_dpcd_caps.bits.SU_GRANULARITY_REQUIRED &&
+	    !link->dpcd_caps.psr_info.psr2_su_y_granularity_cap)
+		return false;
+
+	return true;
+}
 
 /*
  * amdgpu_dm_set_psr_caps() - set link psr capabilities
@@ -34,26 +60,30 @@
  */
 void amdgpu_dm_set_psr_caps(struct dc_link *link)
 {
-	uint8_t dpcd_data[EDP_PSR_RECEIVER_CAP_SIZE];
-
 	if (!(link->connector_signal & SIGNAL_TYPE_EDP))
 		return;
+
 	if (link->type == dc_connection_none)
 		return;
-	if (dm_helpers_dp_read_dpcd(NULL, link, DP_PSR_SUPPORT,
-					dpcd_data, sizeof(dpcd_data))) {
-		link->dpcd_caps.psr_caps.psr_version = dpcd_data[0];
 
-		if (dpcd_data[0] == 0) {
-			link->psr_settings.psr_version = DC_PSR_VERSION_UNSUPPORTED;
-			link->psr_settings.psr_feature_enabled = false;
-		} else {
+	if (link->dpcd_caps.psr_info.psr_version == 0) {
+		link->psr_settings.psr_version = DC_PSR_VERSION_UNSUPPORTED;
+		link->psr_settings.psr_feature_enabled = false;
+
+	} else {
+		if (link_supports_psrsu(link))
+			link->psr_settings.psr_version = DC_PSR_VERSION_SU_1;
+		else
 			link->psr_settings.psr_version = DC_PSR_VERSION_1;
-			link->psr_settings.psr_feature_enabled = true;
-		}
 
-		DRM_INFO("PSR support:%d\n", link->psr_settings.psr_feature_enabled);
+		link->psr_settings.psr_feature_enabled = true;
 	}
+
+	DRM_INFO("PSR support %d, DC PSR ver %d, sink PSR ver %d\n",
+		link->psr_settings.psr_feature_enabled,
+		link->psr_settings.psr_version,
+		link->dpcd_caps.psr_info.psr_version);
+
 }
 
 /*

@@ -15,6 +15,7 @@ static cpumask_var_t sched_domains_tmpmask2;
 static int __init sched_debug_setup(char *str)
 {
 	sched_debug_verbose = true;
+	sched_domain_expose_debugfs = true;
 
 	return 0;
 }
@@ -153,6 +154,7 @@ static void sched_domain_debug(struct sched_domain *sd, int cpu)
 #else /* !CONFIG_SCHED_DEBUG */
 
 # define sched_debug_verbose 0
+# define sched_domain_expose_debugfs 1
 # define sched_domain_debug(sd, cpu) do { } while (0)
 static inline bool sched_debug(void)
 {
@@ -2614,7 +2616,8 @@ match3:
 	dattr_cur = dattr_new;
 	ndoms_cur = ndoms_new;
 
-	update_sched_domain_debugfs();
+	if (sched_domain_expose_debugfs)
+		update_sched_domain_debugfs();
 }
 
 /*

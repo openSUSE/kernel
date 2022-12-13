@@ -3,14 +3,6 @@
 #include <linux/module.h>
 #include <linux/random.h>
 
-int __next_node_in(int node, const nodemask_t *srcp)
-{
-	int ret = __next_node(node, srcp);
-
-	if (ret == MAX_NUMNODES)
-		ret = __first_node(srcp);
-	return ret;
-}
 EXPORT_SYMBOL(__next_node_in);
 
 #ifdef CONFIG_NUMA

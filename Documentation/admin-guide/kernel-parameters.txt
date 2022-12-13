@@ -5090,6 +5090,10 @@
 
 	sched_verbose	[KNL] Enables verbose scheduler debug messages.
 
+			On ppc64, the domains debugfs files are not created by
+			default due to bnc#1205653. sched_verbose also creates
+			the debugfs files.
+
 	schedstats=	[KNL,X86] Enable or disable scheduled statistics.
 			Allowed values are enable and disable. This feature
 			incurs a small amount of overhead in the scheduler

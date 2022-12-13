@@ -88,11 +88,13 @@ static uint32_t dcn301_smu_wait_for_response(struct clk_mgr_internal *clk_mgr, u
 	return res_val;
 }
 
-int dcn301_smu_send_msg_with_param(
-		struct clk_mgr_internal *clk_mgr,
-		unsigned int msg_id, unsigned int param)
+static int dcn301_smu_send_msg_with_param(struct clk_mgr_internal *clk_mgr,
+					  unsigned int msg_id,
+					  unsigned int param)
 {
 	uint32_t result;
+
+	result = dcn301_smu_wait_for_response(clk_mgr, 10, 200000);
 
 	/* First clear response register */
 	REG_WRITE(MP1_SMN_C2PMSG_91, VBIOSSMC_Status_BUSY);

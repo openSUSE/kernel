@@ -12,6 +12,7 @@
 #include <drm/drm_plane_helper.h>
 
 #include "framebuffer.h"
+#include "gem.h"
 #include "gma_display.h"
 #include "power.h"
 #include "psb_drv.h"
@@ -105,7 +106,7 @@ static int psb_intel_crtc_mode_set(struct drm_crtc *crtc,
 	u32 dpll = 0, fp = 0, dspcntr, pipeconf;
 	bool ok, is_sdvo = false;
 	bool is_lvds = false, is_tv = false;
-	struct drm_mode_config *mode_config = &dev->mode_config;
+	struct drm_connector_list_iter conn_iter;
 	struct drm_connector *connector;
 	const struct gma_limit_t *limit;
 
@@ -115,7 +116,8 @@ static int psb_intel_crtc_mode_set(struct drm_crtc *crtc,
 		return 0;
 	}
 
-	list_for_each_entry(connector, &mode_config->connector_list, head) {
+	drm_connector_list_iter_begin(dev, &conn_iter);
+	drm_for_each_connector_iter(connector, &conn_iter) {
 		struct gma_encoder *gma_encoder = gma_attached_encoder(connector);
 
 		if (!connector->encoder
@@ -133,7 +135,10 @@ static int psb_intel_crtc_mode_set(struct drm_crtc *crtc,
 			is_tv = true;
 			break;
 		}
+
+		break;
 	}
+	drm_connector_list_iter_end(&conn_iter);
 
 	refclk = 96000;
 
@@ -426,18 +431,6 @@ const struct drm_crtc_helper_funcs psb_intel_helper_funcs = {
 	.disable = gma_crtc_disable,
 };
 
-const struct drm_crtc_funcs gma_intel_crtc_funcs = {
-	.cursor_set = gma_crtc_cursor_set,
-	.cursor_move = gma_crtc_cursor_move,
-	.gamma_set = gma_crtc_gamma_set,
-	.set_config = gma_crtc_set_config,
-	.destroy = gma_crtc_destroy,
-	.page_flip = gma_crtc_page_flip,
-	.enable_vblank = psb_enable_vblank,
-	.disable_vblank = psb_disable_vblank,
-	.get_vblank_counter = psb_get_vblank_counter,
-};
-
 const struct gma_clock_funcs psb_clock_funcs = {
 	.clock = psb_intel_clock,
 	.limit = psb_intel_limit,
@@ -454,23 +447,21 @@ static void psb_intel_cursor_init(struct drm_device *dev,
 	struct drm_psb_private *dev_priv = to_drm_psb_private(dev);
 	u32 control[3] = { CURACNTR, CURBCNTR, CURCCNTR };
 	u32 base[3] = { CURABASE, CURBBASE, CURCBASE };
-	struct gtt_range *cursor_gt;
+	struct psb_gem_object *cursor_pobj;
 
 	if (dev_priv->ops->cursor_needs_phys) {
 		/* Allocate 4 pages of stolen mem for a hardware cursor. That
 		 * is enough for the 64 x 64 ARGB cursors we support.
 		 */
-		cursor_gt = psb_gtt_alloc_range(dev, 4 * PAGE_SIZE, "cursor", 1,
-						PAGE_SIZE);
-		if (!cursor_gt) {
-			gma_crtc->cursor_gt = NULL;
+		cursor_pobj = psb_gem_create(dev, 4 * PAGE_SIZE, "cursor", true, PAGE_SIZE);
+		if (IS_ERR(cursor_pobj)) {
+			gma_crtc->cursor_pobj = NULL;
 			goto out;
 		}
-		gma_crtc->cursor_gt = cursor_gt;
-		gma_crtc->cursor_addr = dev_priv->stolen_base +
-							cursor_gt->offset;
+		gma_crtc->cursor_pobj = cursor_pobj;
+		gma_crtc->cursor_addr = dev_priv->stolen_base + cursor_pobj->offset;
 	} else {
-		gma_crtc->cursor_gt = NULL;
+		gma_crtc->cursor_pobj = NULL;
 	}
 
 out:
@@ -501,8 +492,7 @@ void psb_intel_crtc_init(struct drm_device *dev, int pipe,
 		return;
 	}
 
-	/* Set the CRTC operations from the chip specific data */
-	drm_crtc_init(dev, &gma_crtc->base, dev_priv->ops->crtc_funcs);
+	drm_crtc_init(dev, &gma_crtc->base, &gma_crtc_funcs);
 
 	/* Set the CRTC clock functions from chip specific data */
 	gma_crtc->clock_funcs = dev_priv->ops->clock_funcs;
@@ -549,16 +539,19 @@ struct drm_crtc *psb_intel_get_crtc_from_pipe(struct drm_device *dev, int pipe)
 
 int gma_connector_clones(struct drm_device *dev, int type_mask)
 {
-	int index_mask = 0;
+	struct drm_connector_list_iter conn_iter;
 	struct drm_connector *connector;
+	int index_mask = 0;
 	int entry = 0;
 
-	list_for_each_entry(connector, &dev->mode_config.connector_list,
-			    head) {
+	drm_connector_list_iter_begin(dev, &conn_iter);
+	drm_for_each_connector_iter(connector, &conn_iter) {
 		struct gma_encoder *gma_encoder = gma_attached_encoder(connector);
 		if (type_mask & (1 << gma_encoder->type))
 			index_mask |= (1 << entry);
 		entry++;
 	}
+	drm_connector_list_iter_end(&conn_iter);
+
 	return index_mask;
 }

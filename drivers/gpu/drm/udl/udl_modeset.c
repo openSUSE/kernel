@@ -242,7 +242,8 @@ static long udl_log_cpp(unsigned int cpp)
 	return __ffs(cpp);
 }
 
-static int udl_handle_damage(struct drm_framebuffer *fb, const struct dma_buf_map *map,
+static int udl_handle_damage(struct drm_framebuffer *fb,
+			     const struct iosys_map *map,
 			     int x, int y, int width, int height)
 {
 	struct drm_device *dev = fb->dev;

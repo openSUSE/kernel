@@ -74,6 +74,7 @@ struct intel_uc_fw {
 		const enum intel_uc_fw_status status;
 		enum intel_uc_fw_status __status; /* no accidental overwrites */
 	};
+	const char *wanted_path;
 	const char *path;
 	bool user_overridden;
 	size_t size;
@@ -85,7 +86,8 @@ struct intel_uc_fw {
 	 * threaded as it done during driver load (inherently single threaded)
 	 * or during a GT reset (mutex guarantees single threaded).
 	 */
-	struct i915_vma dummy;
+	struct i915_vma_resource dummy;
+	struct i915_vma *rsa_data;
 
 	/*
 	 * The firmware build process will generate a version header file with major and
@@ -96,6 +98,12 @@ struct intel_uc_fw {
 	u16 minor_ver_wanted;
 	u16 major_ver_found;
 	u16 minor_ver_found;
+
+	struct {
+		const char *path;
+		u16 major_ver;
+		u16 minor_ver;
+	} fallback;
 
 	u32 rsa_size;
 	u32 ucode_size;

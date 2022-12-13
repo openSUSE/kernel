@@ -69,10 +69,14 @@ enum ast_chip {
 enum ast_tx_chip {
 	AST_TX_NONE,
 	AST_TX_SIL164,
-	AST_TX_ITE66121,
 	AST_TX_DP501,
 	AST_TX_ASTDP,
 };
+
+#define AST_TX_NONE_BIT		BIT(AST_TX_NONE)
+#define AST_TX_SIL164_BIT	BIT(AST_TX_SIL164)
+#define AST_TX_DP501_BIT	BIT(AST_TX_DP501)
+#define AST_TX_ASTDP_BIT	BIT(AST_TX_ASTDP)
 
 #define AST_DRAM_512Mx16 0
 #define AST_DRAM_1Gx16   1
@@ -108,7 +112,7 @@ struct ast_cursor_plane {
 
 	struct {
 		struct drm_gem_vram_object *gbo;
-		struct dma_buf_map map;
+		struct iosys_map map;
 		u64 off;
 	} hwc[AST_DEFAULT_HWC_NUM];
 
@@ -131,15 +135,26 @@ struct ast_i2c_chan {
 	struct i2c_algo_bit_data bit;
 };
 
-struct ast_connector {
+struct ast_vga_connector {
 	struct drm_connector base;
 	struct ast_i2c_chan *i2c;
 };
 
-static inline struct ast_connector *
-to_ast_connector(struct drm_connector *connector)
+static inline struct ast_vga_connector *
+to_ast_vga_connector(struct drm_connector *connector)
 {
-	return container_of(connector, struct ast_connector, base);
+	return container_of(connector, struct ast_vga_connector, base);
+}
+
+struct ast_sil164_connector {
+	struct drm_connector base;
+	struct ast_i2c_chan *i2c;
+};
+
+static inline struct ast_sil164_connector *
+to_ast_sil164_connector(struct drm_connector *connector)
+{
+	return container_of(connector, struct ast_sil164_connector, base);
 }
 
 /*
@@ -149,6 +164,7 @@ to_ast_connector(struct drm_connector *connector)
 struct ast_private {
 	struct drm_device base;
 
+	struct mutex ioregs_lock; /* Protects access to I/O registers in ioregs */
 	void __iomem *regs;
 	void __iomem *ioregs;
 	void __iomem *dp501_fw_buf;
@@ -162,8 +178,24 @@ struct ast_private {
 	struct drm_plane primary_plane;
 	struct ast_cursor_plane cursor_plane;
 	struct drm_crtc crtc;
-	struct drm_encoder encoder;
-	struct ast_connector connector;
+	struct {
+		struct {
+			struct drm_encoder encoder;
+			struct ast_vga_connector vga_connector;
+		} vga;
+		struct {
+			struct drm_encoder encoder;
+			struct ast_sil164_connector sil164_connector;
+		} sil164;
+		struct {
+			struct drm_encoder encoder;
+			struct drm_connector connector;
+		} dp501;
+		struct {
+			struct drm_encoder encoder;
+			struct drm_connector connector;
+		} astdp;
+	} output;
 
 	bool support_wide_screen;
 	enum {
@@ -172,13 +204,9 @@ struct ast_private {
 		ast_use_defaults
 	} config_mode;
 
-	enum ast_tx_chip tx_chip_type;
-	u8 dp501_maxclk;
+	unsigned long tx_chip_types;		/* bitfield of enum ast_chip_type */
 	u8 *dp501_fw_addr;
 	const struct firmware *dp501_fw;	/* dp501 fw */
-
-    // ASTDP
-	u8 ASTDP_State;
 };
 
 static inline struct ast_private *to_ast_private(struct drm_device *dev)
@@ -342,6 +370,9 @@ int ast_mode_config_init(struct ast_private *ast);
 /* Define for Soc scratched reg */
 #define COPROCESSOR_LAUNCH			BIT(5)
 
+/*
+ * Display Transmitter Type:
+ */
 #define TX_TYPE_MASK				GENMASK(3, 1)
 #define NO_TX						(0 << 1)
 #define ITE66121_VBIOS_TX			(1 << 1)
@@ -393,19 +424,6 @@ int ast_mode_config_init(struct ast_private *ast);
 #define ASTDP_EDID_READ_POINTER_MASK	GENMASK(7, 0)
 #define ASTDP_EDID_VALID_FLAG_MASK		GENMASK(0, 0)
 #define ASTDP_EDID_READ_DATA_MASK		GENMASK(7, 0)
-
-/*
- * Display Transmittor Type:
- */
-#define TX_TYPE_MASK				GENMASK(3, 1)
-#define NO_TX						(0 << 1)
-#define ITE66121_VBIOS_TX			(1 << 1)
-#define SI164_VBIOS_TX				(2 << 1)
-#define CH7003_VBIOS_TX			(3 << 1)
-#define DP501_VBIOS_TX				(4 << 1)
-#define ANX9807_VBIOS_TX			(5 << 1)
-#define TX_FW_EMBEDDED_FW_TX		(6 << 1)
-#define ASTDP_DPMCU_TX				(7 << 1)
 
 /*
  * ASTDP setmode registers:
@@ -474,14 +492,14 @@ bool ast_dp501_read_edid(struct drm_device *dev, u8 *ediddata);
 u8 ast_get_dp501_max_clk(struct drm_device *dev);
 void ast_init_3rdtx(struct drm_device *dev);
 
+/* ast_i2c.c */
+struct ast_i2c_chan *ast_i2c_create(struct drm_device *dev);
+
 /* aspeed DP */
-#define DPControlPower
-bool ast_dp_read_edid(struct drm_device *dev, u8 *ediddata);
-bool ast_dp_launch(struct drm_device *dev, u8 bPower);
-#ifdef DPControlPower
-void ast_dp_PowerOnOff(struct drm_device *dev, u8 Mode);
-#endif
-void ast_dp_SetOnOff(struct drm_device *dev, u8 Mode);
-void ast_dp_SetOutput(struct drm_crtc *crtc, struct ast_vbios_mode_info *vbios_mode);
+int ast_astdp_read_edid(struct drm_device *dev, u8 *ediddata);
+void ast_dp_launch(struct drm_device *dev, u8 bPower);
+void ast_dp_power_on_off(struct drm_device *dev, bool no);
+void ast_dp_set_on_off(struct drm_device *dev, bool no);
+void ast_dp_set_mode(struct drm_crtc *crtc, struct ast_vbios_mode_info *vbios_mode);
 
 #endif

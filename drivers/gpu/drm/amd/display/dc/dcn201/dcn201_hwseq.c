@@ -95,8 +95,6 @@ static void gpu_addr_to_uma(struct dce_hwseq *hwseq,
 	} else if (hwseq->fb_offset.quad_part <= addr->quad_part &&
 			addr->quad_part <= hwseq->uma_top.quad_part) {
 		is_in_uma = true;
-	} else if (addr->quad_part == 0) {
-		is_in_uma = false;
 	} else {
 		is_in_uma = false;
 	}
@@ -134,11 +132,12 @@ void dcn201_update_plane_addr(const struct dc *dc, struct pipe_ctx *pipe_ctx)
 	PHYSICAL_ADDRESS_LOC addr;
 	struct dc_plane_state *plane_state = pipe_ctx->plane_state;
 	struct dce_hwseq *hws = dc->hwseq;
-	struct dc_plane_address uma = plane_state->address;
+	struct dc_plane_address uma;
 
 	if (plane_state == NULL)
 		return;
 
+	uma = plane_state->address;
 	addr_patched = patch_address_for_sbs_tb_stereo(pipe_ctx, &addr);
 
 	plane_address_in_gpu_space_to_uma(hws, &uma);

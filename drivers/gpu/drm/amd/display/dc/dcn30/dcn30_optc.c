@@ -28,6 +28,8 @@
 #include "dc.h"
 #include "dcn_calc_math.h"
 
+#include "dml/dcn30/dcn30_fpu.h"
+
 #define REG(reg)\
 	optc1->tg_regs->reg
 
@@ -184,6 +186,14 @@ void optc3_set_dsc_config(struct timing_generator *optc,
 
 }
 
+void optc3_set_vrr_m_const(struct timing_generator *optc,
+		double vtotal_avg)
+{
+	DC_FP_START();
+	optc3_fpu_set_vrr_m_const(optc, vtotal_avg);
+	DC_FP_END();
+}
+
 void optc3_set_odm_bypass(struct timing_generator *optc,
 		const struct dc_crtc_timing *dc_crtc_timing)
 {
@@ -332,6 +342,7 @@ static struct timing_generator_funcs dcn30_tg_funcs = {
 		.get_crc = optc1_get_crc,
 		.configure_crc = optc2_configure_crc,
 		.set_dsc_config = optc3_set_dsc_config,
+		.get_dsc_status = optc2_get_dsc_status,
 		.set_dwb_source = NULL,
 		.set_odm_bypass = optc3_set_odm_bypass,
 		.set_odm_combine = optc3_set_odm_combine,

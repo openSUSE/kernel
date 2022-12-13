@@ -178,8 +178,7 @@ static void io_worker_exit(struct io_worker *worker)
 {
 	struct io_wqe *wqe = worker->wqe;
 
-	if (refcount_dec_and_test(&worker->ref))
-		complete(&worker->ref_done);
+	io_worker_release(worker);
 	wait_for_completion(&worker->ref_done);
 
 	raw_spin_lock(&wqe->lock);
@@ -253,7 +252,7 @@ static bool io_wqe_create_worker(struct io_wqe *wqe, struct io_wqe_acct *acct)
 		pr_warn_once("io-wq is not configured for unbound workers");
 
 	raw_spin_lock(&wqe->lock);
-	if (acct->nr_workers == acct->max_workers) {
+	if (acct->nr_workers >= acct->max_workers) {
 		raw_spin_unlock(&wqe->lock);
 		return true;
 	}
@@ -599,10 +598,7 @@ loop:
 
 			if (!get_signal(&ksig))
 				continue;
-			if (fatal_signal_pending(current) ||
-			    signal_group_exit(current->signal))
-				break;
-			continue;
+			break;
 		}
 		last_timeout = !ret;
 	}
@@ -1313,15 +1309,18 @@ int io_wq_max_workers(struct io_wq *wq, int *new_count)
 
 	rcu_read_lock();
 	for_each_node(node) {
+		struct io_wqe *wqe = wq->wqes[node];
 		struct io_wqe_acct *acct;
 
+		raw_spin_lock(&wqe->lock);
 		for (i = 0; i < IO_WQ_ACCT_NR; i++) {
-			acct = &wq->wqes[node]->acct[i];
+			acct = &wqe->acct[i];
 			prev = max_t(int, acct->max_workers, prev);
 			if (new_count[i])
 				acct->max_workers = new_count[i];
 			new_count[i] = prev;
 		}
+		raw_spin_unlock(&wqe->lock);
 	}
 	rcu_read_unlock();
 	return 0;

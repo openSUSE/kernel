@@ -308,7 +308,6 @@ static int lo_fallocate(struct loop_device *lo, struct request *rq, loff_t pos,
 	 * a.k.a. discard/zerorange.
 	 */
 	struct file *file = lo->lo_backing_file;
-	struct request_queue *q = lo->lo_queue;
 	int ret;
 
 	mode |= FALLOC_FL_KEEP_SIZE;
