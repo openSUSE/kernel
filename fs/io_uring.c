@@ -1244,6 +1244,7 @@ static void io_refs_resurrect(struct percpu_ref *ref, struct completion *compl)
 
 static bool io_match_task(struct io_kiocb *head, struct task_struct *task,
 			  bool cancel_all)
+	__must_hold(&req->ctx->timeout_lock)
 {
 	struct io_kiocb *req;
 
@@ -1257,6 +1258,44 @@ static bool io_match_task(struct io_kiocb *head, struct task_struct *task,
 			return true;
 	}
 	return false;
+}
+
+static bool io_match_linked(struct io_kiocb *head)
+{
+	struct io_kiocb *req;
+
+	io_for_each_link(req, head) {
+		if (req->flags & REQ_F_INFLIGHT)
+			return true;
+	}
+	return false;
+}
+
+/*
+ * As io_match_task() but protected against racing with linked timeouts.
+ * User must not hold timeout_lock.
+ */
+static bool io_match_task_safe(struct io_kiocb *head, struct task_struct *task,
+			       bool cancel_all)
+{
+	bool matched;
+
+	if (task && head->task != task)
+		return false;
+	if (cancel_all)
+		return true;
+
+	if (head->flags & REQ_F_LINK_TIMEOUT) {
+		struct io_ring_ctx *ctx = head->ctx;
+
+		/* protect against races with linked timeouts */
+		spin_lock_irq(&ctx->timeout_lock);
+		matched = io_match_linked(head);
+		spin_unlock_irq(&ctx->timeout_lock);
+	} else {
+		matched = io_match_linked(head);
+	}
+	return matched;
 }
 
 static inline bool req_has_async_data(struct io_kiocb *req)
@@ -1468,10 +1507,10 @@ static void io_prep_async_link(struct io_kiocb *req)
 	if (req->flags & REQ_F_LINK_TIMEOUT) {
 		struct io_ring_ctx *ctx = req->ctx;
 
-		spin_lock(&ctx->completion_lock);
+		spin_lock_irq(&ctx->timeout_lock);
 		io_for_each_link(cur, req)
 			io_prep_async_work(cur);
-		spin_unlock(&ctx->completion_lock);
+		spin_unlock_irq(&ctx->timeout_lock);
 	} else {
 		io_for_each_link(cur, req)
 			io_prep_async_work(cur);
@@ -2816,9 +2855,13 @@ static int io_prep_rw(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 		req->flags |= io_file_get_flags(file) << REQ_F_SUPPORT_NOWAIT_BIT;
 
 	kiocb->ki_pos = READ_ONCE(sqe->off);
-	if (kiocb->ki_pos == -1 && !(file->f_mode & FMODE_STREAM)) {
-		req->flags |= REQ_F_CUR_POS;
-		kiocb->ki_pos = file->f_pos;
+	if (kiocb->ki_pos == -1) {
+		if (!(file->f_mode & FMODE_STREAM)) {
+			req->flags |= REQ_F_CUR_POS;
+			kiocb->ki_pos = file->f_pos;
+		} else {
+			kiocb->ki_pos = 0;
+		}
 	}
 	kiocb->ki_flags = iocb_flags(file);
 	ret = kiocb_set_rw_flags(kiocb, READ_ONCE(sqe->rw_flags));
@@ -4294,6 +4337,7 @@ static int __io_remove_buffers(struct io_ring_ctx *ctx, struct io_buffer *buf,
 		kfree(nxt);
 		if (++i == nbufs)
 			return i;
+		cond_resched();
 	}
 	i++;
 	kfree(buf);
@@ -5675,7 +5719,7 @@ static __cold bool io_poll_remove_all(struct io_ring_ctx *ctx,
 
 		list = &ctx->cancel_hash[i];
 		hlist_for_each_entry_safe(req, tmp, list, hash_node) {
-			if (io_match_task(req, tsk, cancel_all))
+			if (io_match_task_safe(req, tsk, cancel_all))
 				posted += io_poll_remove_one(req);
 		}
 	}
@@ -6855,10 +6899,11 @@ static inline struct file *io_file_get(struct io_ring_ctx *ctx,
 static void io_req_task_link_timeout(struct io_kiocb *req, bool *locked)
 {
 	struct io_kiocb *prev = req->timeout.prev;
-	int ret;
+	int ret = -ENOENT;
 
 	if (prev) {
-		ret = io_try_cancel_userdata(req, prev->user_data);
+		if (!(req->task->flags & PF_EXITING))
+			ret = io_try_cancel_userdata(req, prev->user_data);
 		io_req_complete_post(req, ret ?: -ETIME, 0);
 		io_put_req(prev);
 	} else {
@@ -6925,10 +6970,6 @@ static void io_queue_sqe_arm_apoll(struct io_kiocb *req)
 
 	switch (io_arm_poll_handler(req)) {
 	case IO_APOLL_READY:
-		if (linked_timeout) {
-			io_queue_linked_timeout(req);
-			linked_timeout = NULL;
-		}
 		io_req_task_queue(req);
 		break;
 	case IO_APOLL_ABORTED:
@@ -9219,10 +9260,8 @@ static void io_destroy_buffers(struct io_ring_ctx *ctx)
 	struct io_buffer *buf;
 	unsigned long index;
 
-	xa_for_each(&ctx->io_buffers, index, buf) {
+	xa_for_each(&ctx->io_buffers, index, buf)
 		__io_remove_buffers(ctx, buf, index, -1U);
-		cond_resched();
-	}
 }
 
 static void io_req_caches_free(struct io_ring_ctx *ctx)
@@ -9526,19 +9565,8 @@ static bool io_cancel_task_cb(struct io_wq_work *work, void *data)
 {
 	struct io_kiocb *req = container_of(work, struct io_kiocb, work);
 	struct io_task_cancel *cancel = data;
-	bool ret;
 
-	if (!cancel->all && (req->flags & REQ_F_LINK_TIMEOUT)) {
-		struct io_ring_ctx *ctx = req->ctx;
-
-		/* protect against races with linked timeouts */
-		spin_lock(&ctx->completion_lock);
-		ret = io_match_task(req, cancel->task, cancel->all);
-		spin_unlock(&ctx->completion_lock);
-	} else {
-		ret = io_match_task(req, cancel->task, cancel->all);
-	}
-	return ret;
+	return io_match_task_safe(req, cancel->task, cancel->all);
 }
 
 static __cold bool io_cancel_defer_files(struct io_ring_ctx *ctx,
@@ -9550,7 +9578,7 @@ static __cold bool io_cancel_defer_files(struct io_ring_ctx *ctx,
 
 	spin_lock(&ctx->completion_lock);
 	list_for_each_entry_reverse(de, &ctx->defer_list, list) {
-		if (io_match_task(de->req, task, cancel_all)) {
+		if (io_match_task_safe(de->req, task, cancel_all)) {
 			list_cut_position(&list, &ctx->defer_list, &de->list);
 			break;
 		}
@@ -9728,7 +9756,7 @@ static __cold void io_uring_clean_tctx(struct io_uring_task *tctx)
 	}
 	if (wq) {
 		/*
-		 * Must be after io_uring_del_task_file() (removes nodes under
+		 * Must be after io_uring_del_tctx_node() (removes nodes under
 		 * uring_lock) to avoid race with io_uring_try_cancel_iowq().
 		 */
 		io_wq_put_and_exit(wq);
@@ -9757,7 +9785,7 @@ static __cold void io_uring_drop_tctx_refs(struct task_struct *task)
 
 /*
  * Find any io_uring ctx that this task has registered or done IO on, and cancel
- * requests. @sqd should be not-null IIF it's an SQPOLL thread cancellation.
+ * requests. @sqd should be not-null IFF it's an SQPOLL thread cancellation.
  */
 static __cold void io_uring_cancel_generic(bool cancel_all,
 					   struct io_sq_data *sqd)
@@ -9799,8 +9827,10 @@ static __cold void io_uring_cancel_generic(bool cancel_all,
 							     cancel_all);
 		}
 
-		prepare_to_wait(&tctx->wait, &wait, TASK_UNINTERRUPTIBLE);
+		prepare_to_wait(&tctx->wait, &wait, TASK_INTERRUPTIBLE);
+		io_run_task_work();
 		io_uring_drop_tctx_refs(current);
+
 		/*
 		 * If we've seen completions, retry without waiting. This
 		 * avoids a race where a completion comes in before we did
@@ -10104,7 +10134,7 @@ static __cold void __io_uring_show_fdinfo(struct io_ring_ctx *ctx,
 	for (i = 0; i < sq_entries; i++) {
 		unsigned int entry = i + sq_head;
 		unsigned int sq_idx = READ_ONCE(ctx->sq_array[entry & sq_mask]);
-		struct io_uring_sqe *sqe = &ctx->sq_sqes[sq_idx];
+		struct io_uring_sqe *sqe;
 
 		if (sq_idx > sq_mask)
 			continue;
@@ -10755,10 +10785,11 @@ static __cold int io_register_iowq_max_workers(struct io_ring_ctx *ctx,
 
 	BUILD_BUG_ON(sizeof(new_count) != sizeof(ctx->iowq_limits));
 
-	memcpy(ctx->iowq_limits, new_count, sizeof(new_count));
+	for (i = 0; i < ARRAY_SIZE(new_count); i++)
+		if (new_count[i])
+			ctx->iowq_limits[i] = new_count[i];
 	ctx->iowq_limits_set = true;
 
-	ret = -EINVAL;
 	if (tctx && tctx->io_wq) {
 		ret = io_wq_max_workers(tctx->io_wq, new_count);
 		if (ret)
