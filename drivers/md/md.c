@@ -354,7 +354,7 @@ static bool create_on_open = true;
  */
 static DECLARE_WAIT_QUEUE_HEAD(md_event_waiters);
 static atomic_t md_event_count;
-void md_new_event(struct mddev *mddev)
+void md_new_event(void)
 {
 	atomic_inc(&md_event_count);
 	wake_up(&md_event_waiters);
@@ -2898,7 +2898,7 @@ static int add_bound_rdev(struct md_rdev *rdev)
 	if (mddev->degraded)
 		set_bit(MD_RECOVERY_RECOVER, &mddev->recovery);
 	set_bit(MD_RECOVERY_NEEDED, &mddev->recovery);
-	md_new_event(mddev);
+	md_new_event();
 	md_wakeup_thread(mddev->thread);
 	return 0;
 }
@@ -3024,7 +3024,7 @@ state_store(struct md_rdev *rdev, const char *buf, size_t len)
 					set_bit(MD_SB_CHANGE_DEVS, &mddev->sb_flags);
 					md_wakeup_thread(mddev->thread);
 				}
-				md_new_event(mddev);
+				md_new_event();
 			}
 		}
 	} else if (cmd_match(buf, "writemostly")) {
@@ -4128,7 +4128,7 @@ level_store(struct mddev *mddev, const char *buf, size_t len)
 	if (!mddev->thread)
 		md_update_sb(mddev, 1);
 	sysfs_notify_dirent_safe(mddev->sysfs_level);
-	md_new_event(mddev);
+	md_new_event();
 	rv = len;
 out_unlock:
 	mddev_unlock(mddev);
@@ -4649,7 +4649,7 @@ new_dev_store(struct mddev *mddev, const char *buf, size_t len)
 		export_rdev(rdev);
 	mddev_unlock(mddev);
 	if (!err)
-		md_new_event(mddev);
+		md_new_event();
 	return err ? err : len;
 }
 
@@ -6068,7 +6068,7 @@ int md_run(struct mddev *mddev)
 	if (mddev->sb_flags)
 		md_update_sb(mddev, 0);
 
-	md_new_event(mddev);
+	md_new_event();
 	return 0;
 
 bitmap_abort:
@@ -6455,7 +6455,7 @@ static int do_md_stop(struct mddev *mddev, int mode,
 		if (mddev->hold_active == UNTIL_STOP)
 			mddev->hold_active = 0;
 	}
-	md_new_event(mddev);
+	md_new_event();
 	sysfs_notify_dirent_safe(mddev->sysfs_state);
 	return 0;
 }
@@ -6961,7 +6961,7 @@ kick_rdev:
 		md_wakeup_thread(mddev->thread);
 	else
 		md_update_sb(mddev, 1);
-	md_new_event(mddev);
+	md_new_event();
 
 	return 0;
 busy:
@@ -7034,7 +7034,7 @@ static int hot_add_disk(struct mddev *mddev, dev_t dev)
 	 */
 	set_bit(MD_RECOVERY_NEEDED, &mddev->recovery);
 	md_wakeup_thread(mddev->thread);
-	md_new_event(mddev);
+	md_new_event();
 	return 0;
 
 abort_export:
@@ -8008,7 +8008,7 @@ void md_error(struct mddev *mddev, struct md_rdev *rdev)
 	md_wakeup_thread(mddev->thread);
 	if (mddev->event_work.func)
 		queue_work(md_misc_wq, &mddev->event_work);
-	md_new_event(mddev);
+	md_new_event();
 }
 EXPORT_SYMBOL(md_error);
 
@@ -8913,7 +8913,7 @@ void md_do_sync(struct md_thread *thread)
 		mddev->curr_resync = 3; /* no longer delayed */
 	mddev->curr_resync_completed = j;
 	sysfs_notify_dirent_safe(mddev->sysfs_completed);
-	md_new_event(mddev);
+	md_new_event();
 	update_time = jiffies;
 
 	blk_start_plug(&plug);
@@ -8984,7 +8984,7 @@ void md_do_sync(struct md_thread *thread)
 			/* this is the earliest that rebuild will be
 			 * visible in /proc/mdstat
 			 */
-			md_new_event(mddev);
+			md_new_event();
 
 		if (last_check + window > io_sectors || j == max_sectors)
 			continue;
@@ -9208,7 +9208,7 @@ static int remove_and_add_spares(struct mddev *mddev,
 			sysfs_link_rdev(mddev, rdev);
 			if (!test_bit(Journal, &rdev->flags))
 				spares++;
-			md_new_event(mddev);
+			md_new_event();
 			set_bit(MD_SB_CHANGE_DEVS, &mddev->sb_flags);
 		}
 	}
@@ -9242,7 +9242,7 @@ static void md_start_sync(struct work_struct *ws)
 	} else
 		md_wakeup_thread(mddev->sync_thread);
 	sysfs_notify_dirent_safe(mddev->sysfs_action);
-	md_new_event(mddev);
+	md_new_event();
 }
 
 /*
@@ -9502,7 +9502,7 @@ void md_reap_sync_thread(struct mddev *mddev)
 	/* flag recovery needed just to double check */
 	set_bit(MD_RECOVERY_NEEDED, &mddev->recovery);
 	sysfs_notify_dirent_safe(mddev->sysfs_action);
-	md_new_event(mddev);
+	md_new_event();
 	if (mddev->event_work.func)
 		queue_work(md_misc_wq, &mddev->event_work);
 }
