@@ -1933,8 +1933,6 @@ static struct dm_table *__bind(struct mapped_device *md, struct dm_table *t,
 			       struct queue_limits *limits)
 {
 	struct dm_table *old_map;
-	struct request_queue *q = md->queue;
-	bool request_based = dm_table_request_based(t);
 	sector_t size;
 	int ret;
 
@@ -1955,7 +1953,7 @@ static struct dm_table *__bind(struct mapped_device *md, struct dm_table *t,
 
 	dm_table_event_callback(t, event_callback, md);
 
-	if (request_based) {
+	if (dm_table_request_based(t)) {
 		/*
 		 * Leverage the fact that request-based DM targets are
 		 * immutable singletons - used to optimize dm_mq_queue_rq.
@@ -1969,7 +1967,7 @@ static struct dm_table *__bind(struct mapped_device *md, struct dm_table *t,
 		goto out;
 	}
 
-	ret = dm_table_set_restrictions(t, q, limits);
+	ret = dm_table_set_restrictions(t, md->queue, limits);
 	if (ret) {
 		old_map = ERR_PTR(ret);
 		goto out;
@@ -1986,7 +1984,6 @@ static struct dm_table *__bind(struct mapped_device *md, struct dm_table *t,
 
 	if (old_map)
 		dm_sync_table(md);
-
 out:
 	return old_map;
 }
