@@ -596,6 +596,10 @@ void dm_destroy_crypto_profile(struct blk_crypto_profile *profile);
 #define DMEMIT(x...) sz += ((sz >= maxlen) ? \
 			  0 : scnprintf(result + sz, maxlen - sz, x))
 
+#define DMEMIT_TARGET_NAME_VERSION(y) \
+		DMEMIT("target_name=%s,target_version=%u.%u.%u", \
+		       (y)->name, (y)->version[0], (y)->version[1], (y)->version[2])
+
 /*
  * Definitions of return values from target end_io function.
  */
