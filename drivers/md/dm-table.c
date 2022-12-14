@@ -596,7 +596,7 @@ static int validate_hardware_logical_block_alignment(struct dm_table *table,
 	/*
 	 * Check each entry in the table in turn.
 	 */
-	for (i = 0; i < dm_table_get_num_targets(table); i++) {
+	for (i = 0; i < table->num_targets; i++) {
 		ti = dm_table_get_target(table, i);
 
 		blk_set_stacking_limits(&ti_limits);
@@ -838,7 +838,7 @@ bool dm_table_supports_dax(struct dm_table *t,
 	unsigned i;
 
 	/* Ensure that all targets support DAX. */
-	for (i = 0; i < dm_table_get_num_targets(t); i++) {
+	for (i = 0; i < t->num_targets; i++) {
 		ti = dm_table_get_target(t, i);
 
 		if (!ti->type->direct_access)
@@ -994,7 +994,7 @@ struct dm_target *dm_table_get_wildcard_target(struct dm_table *t)
 	struct dm_target *ti;
 	unsigned i;
 
-	for (i = 0; i < dm_table_get_num_targets(t); i++) {
+	for (i = 0; i < t->num_targets; i++) {
 		ti = dm_table_get_target(t, i);
 		if (dm_target_is_wildcard(ti->type))
 			return ti;
@@ -1134,7 +1134,7 @@ static struct gendisk * dm_table_get_integrity_disk(struct dm_table *t)
 	struct gendisk *prev_disk = NULL, *template_disk = NULL;
 	unsigned i;
 
-	for (i = 0; i < dm_table_get_num_targets(t); i++) {
+	for (i = 0; i < t->num_targets; i++) {
 		struct dm_target *ti = dm_table_get_target(t, i);
 		if (!dm_target_passes_integrity(ti->type))
 			goto no_integrity;
@@ -1255,7 +1255,7 @@ static int dm_keyslot_evict(struct blk_crypto_profile *profile,
 	t = dm_get_live_table(md, &srcu_idx);
 	if (!t)
 		return 0;
-	for (i = 0; i < dm_table_get_num_targets(t); i++) {
+	for (i = 0; i < t->num_targets; i++) {
 		ti = dm_table_get_target(t, i);
 		if (!ti->type->iterate_devices)
 			continue;
@@ -1325,7 +1325,7 @@ static int dm_table_construct_crypto_profile(struct dm_table *t)
 	memset(profile->modes_supported, 0xFF,
 	       sizeof(profile->modes_supported));
 
-	for (i = 0; i < dm_table_get_num_targets(t); i++) {
+	for (i = 0; i < t->num_targets; i++) {
 		ti = dm_table_get_target(t, i);
 
 		if (!dm_target_passes_crypto(ti->type)) {
@@ -1547,7 +1547,7 @@ static bool dm_table_any_dev_attr(struct dm_table *t,
 	struct dm_target *ti;
 	unsigned int i;
 
-	for (i = 0; i < dm_table_get_num_targets(t); i++) {
+	for (i = 0; i < t->num_targets; i++) {
 		ti = dm_table_get_target(t, i);
 
 		if (ti->type->iterate_devices &&
@@ -1573,7 +1573,7 @@ static bool dm_table_supports_poll(struct dm_table *t)
 	struct dm_target *ti;
 	unsigned i = 0;
 
-	while (i < dm_table_get_num_targets(t)) {
+	while (i < t->num_targets) {
 		ti = dm_table_get_target(t, i++);
 
 		if (!ti->type->iterate_devices ||
@@ -1595,7 +1595,7 @@ bool dm_table_has_no_data_devices(struct dm_table *table)
 	struct dm_target *ti;
 	unsigned i, num_devices;
 
-	for (i = 0; i < dm_table_get_num_targets(table); i++) {
+	for (i = 0; i < table->num_targets; i++) {
 		ti = dm_table_get_target(table, i);
 
 		if (!ti->type->iterate_devices)
@@ -1632,7 +1632,7 @@ static bool dm_table_supports_zoned_model(struct dm_table *t,
 	struct dm_target *ti;
 	unsigned i;
 
-	for (i = 0; i < dm_table_get_num_targets(t); i++) {
+	for (i = 0; i < t->num_targets; i++) {
 		ti = dm_table_get_target(t, i);
 
 		if (dm_target_supports_zoned_hm(ti->type)) {
@@ -1706,7 +1706,7 @@ int dm_calculate_queue_limits(struct dm_table *table,
 
 	blk_set_stacking_limits(limits);
 
-	for (i = 0; i < dm_table_get_num_targets(table); i++) {
+	for (i = 0; i < table->num_targets; i++) {
 		blk_set_stacking_limits(&ti_limits);
 
 		ti = dm_table_get_target(table, i);
@@ -1826,7 +1826,7 @@ static bool dm_table_supports_flush(struct dm_table *t, unsigned long flush)
 	 * so we need to use iterate_devices here, which targets
 	 * supporting flushes must provide.
 	 */
-	for (i = 0; i < dm_table_get_num_targets(t); i++) {
+	for (i = 0; i < t->num_targets; i++) {
 		ti = dm_table_get_target(t, i);
 
 		if (!ti->num_flush_bios)
@@ -1884,7 +1884,7 @@ static bool dm_table_supports_write_zeroes(struct dm_table *t)
 	struct dm_target *ti;
 	unsigned i = 0;
 
-	while (i < dm_table_get_num_targets(t)) {
+	while (i < t->num_targets) {
 		ti = dm_table_get_target(t, i++);
 
 		if (!ti->num_write_zeroes_bios)
@@ -1911,7 +1911,7 @@ static bool dm_table_supports_nowait(struct dm_table *t)
 	struct dm_target *ti;
 	unsigned i = 0;
 
-	while (i < dm_table_get_num_targets(t)) {
+	while (i < t->num_targets) {
 		ti = dm_table_get_target(t, i++);
 
 		if (!dm_target_supports_nowait(ti->type))
@@ -1936,7 +1936,7 @@ static bool dm_table_supports_discards(struct dm_table *t)
 	struct dm_target *ti;
 	unsigned i;
 
-	for (i = 0; i < dm_table_get_num_targets(t); i++) {
+	for (i = 0; i < t->num_targets; i++) {
 		ti = dm_table_get_target(t, i);
 
 		if (!ti->num_discard_bios)
@@ -1968,7 +1968,7 @@ static bool dm_table_supports_secure_erase(struct dm_table *t)
 	struct dm_target *ti;
 	unsigned int i;
 
-	for (i = 0; i < dm_table_get_num_targets(t); i++) {
+	for (i = 0; i < t->num_targets; i++) {
 		ti = dm_table_get_target(t, i);
 
 		if (!ti->num_secure_erase_bios)
@@ -2098,11 +2098,6 @@ int dm_table_set_restrictions(struct dm_table *t, struct request_queue *q,
 	}
 
 	return 0;
-}
-
-unsigned int dm_table_get_num_targets(struct dm_table *t)
-{
-	return t->num_targets;
 }
 
 struct list_head *dm_table_get_devices(struct dm_table *t)
