@@ -5871,8 +5871,11 @@ struct stripe_request_ctx {
 	/* last sector in the request */
 	sector_t last_sector;
 
-	/* bitmap to track stripe sectors that have been added to stripes */
-	DECLARE_BITMAP(sectors_to_do, RAID5_MAX_REQ_STRIPES);
+	/*
+	 * bitmap to track stripe sectors that have been added to stripes
+	 * add one to account for unaligned requests
+	 */
+	DECLARE_BITMAP(sectors_to_do, RAID5_MAX_REQ_STRIPES + 1);
 
 	/* the request had REQ_PREFLUSH, cleared after the first stripe_head */
 	bool do_flush;
@@ -6045,7 +6048,7 @@ static bool raid5_make_request(struct mddev *mddev, struct bio * bi)
 	const int rw = bio_data_dir(bi);
 	enum stripe_result res;
 	DEFINE_WAIT(w);
-	int s;
+	int s, stripe_cnt;
 
 	if (unlikely(bi->bi_opf & REQ_PREFLUSH)) {
 		int ret = log_handle_flush_request(conf, bi);
@@ -6089,9 +6092,9 @@ static bool raid5_make_request(struct mddev *mddev, struct bio * bi)
 	ctx.last_sector = bio_end_sector(bi);
 	bi->bi_next = NULL;
 
-	bitmap_set(ctx.sectors_to_do, 0,
-		   DIV_ROUND_UP_SECTOR_T(ctx.last_sector - logical_sector,
-					 RAID5_STRIPE_SECTORS(conf)));
+	stripe_cnt = DIV_ROUND_UP_SECTOR_T(ctx.last_sector - logical_sector,
+					   RAID5_STRIPE_SECTORS(conf));
+	bitmap_set(ctx.sectors_to_do, 0, stripe_cnt);
 
 	pr_debug("raid456: %s, logical %llu to %llu\n", __func__,
 		 bi->bi_iter.bi_sector, ctx.last_sector);
@@ -6136,8 +6139,8 @@ static bool raid5_make_request(struct mddev *mddev, struct bio * bi)
 			continue;
 		}
 
-		s = find_first_bit(ctx.sectors_to_do, RAID5_MAX_REQ_STRIPES);
-		if (s == RAID5_MAX_REQ_STRIPES)
+		s = find_first_bit(ctx.sectors_to_do, stripe_cnt);
+		if (s == stripe_cnt)
 			break;
 
 		logical_sector = ctx.first_sector +
