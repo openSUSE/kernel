@@ -257,6 +257,7 @@ struct md_cluster_info;
  * @MD_NOT_READY: do_md_run() is active, so 'array_state', ust not report that
  *		   array is ready yet.
  * @MD_BROKEN: This is used to stop writes and mark array as failed.
+ * @MD_DELETED: This device is being deleted
  *
  * change UNSUPPORTED_MDDEV_FLAGS for each array type if new flag is added
  */
@@ -273,6 +274,7 @@ enum mddev_flags {
 	MD_UPDATING_SB,
 	MD_NOT_READY,
 	MD_BROKEN,
+	MD_DELETED,
 };
 
 enum mddev_sb_flags {
