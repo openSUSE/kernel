@@ -2082,3 +2082,9 @@ void __sched usleep_range_state(unsigned long min, unsigned long max,
 	}
 }
 EXPORT_SYMBOL(usleep_range_state);
+
+void usleep_range(unsigned long min, unsigned long max)
+{
+	usleep_range_state(min, max, TASK_UNINTERRUPTIBLE);
+}
+EXPORT_SYMBOL(usleep_range);
