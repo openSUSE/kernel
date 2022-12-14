@@ -7738,10 +7738,7 @@ static int raid5_run(struct mddev *mddev)
 		 * discard data disk but write parity disk
 		 */
 		stripe = stripe * PAGE_SIZE;
-		/* Round up to power of 2, as discard handling
-		 * currently assumes that */
-		while ((stripe-1) & stripe)
-			stripe = (stripe | (stripe-1)) + 1;
+		stripe = roundup_pow_of_two(stripe);
 		mddev->queue->limits.discard_granularity = stripe;
 
 		blk_queue_max_write_zeroes_sectors(mddev->queue, 0);
