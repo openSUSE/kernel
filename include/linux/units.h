@@ -4,6 +4,10 @@
 
 #include <linux/math.h>
 
+#define HZ_PER_KHZ		1000UL
+#define KHZ_PER_MHZ		1000UL
+#define HZ_PER_MHZ		1000000UL
+
 /* Metric prefixes in accordance with Système international (d'unités) */
 #define PETA	1000000000000000ULL
 #define TERA	1000000000000ULL
