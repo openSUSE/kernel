@@ -3531,8 +3531,6 @@ static int add_stripe_bio(struct stripe_head *sh, struct bio *bi, int dd_idx,
 	}
 	spin_unlock_irq(&sh->stripe_lock);
 
-	if (stripe_can_batch(sh))
-		stripe_add_to_batch_list(conf, sh);
 	return 1;
 
  overlap:
@@ -5948,6 +5946,9 @@ static bool raid5_make_request(struct mddev *mddev, struct bio * bi)
 			do_prepare = true;
 			goto retry;
 		}
+
+		if (stripe_can_batch(sh))
+			stripe_add_to_batch_list(conf, sh);
 
 		if (do_flush) {
 			set_bit(STRIPE_R5C_PREFLUSH, &sh->state);
