@@ -1802,6 +1802,7 @@ static inline void retain_hpo_dp_link_enc(
 	res_ctx->hpo_dp_link_enc_ref_cnts[enc_index]++;
 }
 
+#if defined(CONFIG_DRM_AMD_DC_DCN)
 static inline void release_hpo_dp_link_enc(
 		struct resource_context *res_ctx,
 		int enc_index)
@@ -1809,6 +1810,7 @@ static inline void release_hpo_dp_link_enc(
 	ASSERT(res_ctx->hpo_dp_link_enc_ref_cnts[enc_index] > 0);
 	res_ctx->hpo_dp_link_enc_ref_cnts[enc_index]--;
 }
+#endif
 
 static bool add_hpo_dp_link_enc_to_ctx(struct resource_context *res_ctx,
 		const struct resource_pool *pool,
@@ -1833,6 +1835,7 @@ static bool add_hpo_dp_link_enc_to_ctx(struct resource_context *res_ctx,
 	return pipe_ctx->link_res.hpo_dp_link_enc != NULL;
 }
 
+#if defined(CONFIG_DRM_AMD_DC_DCN)
 static void remove_hpo_dp_link_enc_from_ctx(struct resource_context *res_ctx,
 		struct pipe_ctx *pipe_ctx,
 		struct dc_stream_state *stream)
@@ -1846,6 +1849,7 @@ static void remove_hpo_dp_link_enc_from_ctx(struct resource_context *res_ctx,
 		pipe_ctx->link_res.hpo_dp_link_enc = NULL;
 	}
 }
+#endif
 
 /* TODO: release audio object */
 void update_audio_usage(
