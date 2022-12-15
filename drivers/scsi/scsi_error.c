@@ -133,23 +133,6 @@ static bool scsi_eh_should_retry_cmd(struct scsi_cmnd *cmd)
 	return true;
 }
 
-static void scsi_eh_complete_abort(struct scsi_cmnd *scmd, struct Scsi_Host *shost)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(shost->host_lock, flags);
-	list_del_init(&scmd->eh_entry);
-	/*
-	 * If the abort succeeds, and there is no further
-	 * EH action, clear the ->last_reset time.
-	 */
-	if (list_empty(&shost->eh_abort_list) &&
-	    list_empty(&shost->eh_cmd_q))
-		if (shost->eh_deadline != -1)
-			shost->last_reset = 0;
-	spin_unlock_irqrestore(shost->host_lock, flags);
-}
-
 /**
  * scmd_eh_abort_handler - Handle command aborts
  * @work:	command to be aborted.
@@ -166,54 +149,72 @@ scmd_eh_abort_handler(struct work_struct *work)
 	struct scsi_cmnd *scmd =
 		container_of(work, struct scsi_cmnd, abort_work.work);
 	struct scsi_device *sdev = scmd->device;
+	struct Scsi_Host *shost = sdev->host;
 	enum scsi_disposition rtn;
 	unsigned long flags;
 
-	if (scsi_host_eh_past_deadline(sdev->host)) {
+	if (scsi_host_eh_past_deadline(shost)) {
 		SCSI_LOG_ERROR_RECOVERY(3,
 			scmd_printk(KERN_INFO, scmd,
 				    "eh timeout, not aborting\n"));
-	} else {
-		SCSI_LOG_ERROR_RECOVERY(3,
-			scmd_printk(KERN_INFO, scmd,
-				    "aborting command\n"));
-		rtn = scsi_try_to_abort_cmd(sdev->host->hostt, scmd);
-		if (rtn == SUCCESS) {
-			set_host_byte(scmd, DID_TIME_OUT);
-			if (scsi_host_eh_past_deadline(sdev->host)) {
-				SCSI_LOG_ERROR_RECOVERY(3,
-					scmd_printk(KERN_INFO, scmd,
-						    "eh timeout, not retrying "
-						    "aborted command\n"));
-			} else if (!scsi_noretry_cmd(scmd) &&
-				   scsi_cmd_retry_allowed(scmd) &&
-				scsi_eh_should_retry_cmd(scmd)) {
-				SCSI_LOG_ERROR_RECOVERY(3,
-					scmd_printk(KERN_WARNING, scmd,
-						    "retry aborted command\n"));
-				scsi_eh_complete_abort(scmd, sdev->host);
-				scsi_queue_insert(scmd, SCSI_MLQUEUE_EH_RETRY);
-				return;
-			} else {
-				SCSI_LOG_ERROR_RECOVERY(3,
-					scmd_printk(KERN_WARNING, scmd,
-						    "finish aborted command\n"));
-				scsi_eh_complete_abort(scmd, sdev->host);
-				scsi_finish_command(scmd);
-				return;
-			}
-		} else {
-			SCSI_LOG_ERROR_RECOVERY(3,
-				scmd_printk(KERN_INFO, scmd,
-					    "cmd abort %s\n",
-					    (rtn == FAST_IO_FAIL) ?
-					    "not send" : "failed"));
-		}
+		goto out;
 	}
 
-	spin_lock_irqsave(sdev->host->host_lock, flags);
+	SCSI_LOG_ERROR_RECOVERY(3,
+			scmd_printk(KERN_INFO, scmd,
+				    "aborting command\n"));
+	rtn = scsi_try_to_abort_cmd(shost->hostt, scmd);
+	if (rtn != SUCCESS) {
+		SCSI_LOG_ERROR_RECOVERY(3,
+			scmd_printk(KERN_INFO, scmd,
+				    "cmd abort %s\n",
+				    (rtn == FAST_IO_FAIL) ?
+				    "not send" : "failed"));
+		goto out;
+	}
+	set_host_byte(scmd, DID_TIME_OUT);
+	if (scsi_host_eh_past_deadline(shost)) {
+		SCSI_LOG_ERROR_RECOVERY(3,
+			scmd_printk(KERN_INFO, scmd,
+				    "eh timeout, not retrying "
+				    "aborted command\n"));
+		goto out;
+	}
+
+	spin_lock_irqsave(shost->host_lock, flags);
 	list_del_init(&scmd->eh_entry);
-	spin_unlock_irqrestore(sdev->host->host_lock, flags);
+
+	/*
+	 * If the abort succeeds, and there is no further
+	 * EH action, clear the ->last_reset time.
+	 */
+	if (list_empty(&shost->eh_abort_list) &&
+	    list_empty(&shost->eh_cmd_q))
+		if (shost->eh_deadline != -1)
+			shost->last_reset = 0;
+
+	spin_unlock_irqrestore(shost->host_lock, flags);
+
+	if (!scsi_noretry_cmd(scmd) &&
+	    scsi_cmd_retry_allowed(scmd) &&
+	    scsi_eh_should_retry_cmd(scmd)) {
+		SCSI_LOG_ERROR_RECOVERY(3,
+			scmd_printk(KERN_WARNING, scmd,
+				    "retry aborted command\n"));
+		scsi_queue_insert(scmd, SCSI_MLQUEUE_EH_RETRY);
+	} else {
+		SCSI_LOG_ERROR_RECOVERY(3,
+			scmd_printk(KERN_WARNING, scmd,
+				    "finish aborted command\n"));
+		scsi_finish_command(scmd);
+	}
+	return;
+
+out:
+	spin_lock_irqsave(shost->host_lock, flags);
+	list_del_init(&scmd->eh_entry);
+	spin_unlock_irqrestore(shost->host_lock, flags);
+
 	scsi_eh_scmd_add(scmd);
 }
 
@@ -1010,7 +1011,7 @@ void scsi_eh_prep_cmnd(struct scsi_cmnd *scmd, struct scsi_eh_save *ses,
 	ses->data_direction = scmd->sc_data_direction;
 	ses->sdb = scmd->sdb;
 	ses->result = scmd->result;
-	ses->resid_len = scmd->req.resid_len;
+	ses->resid_len = scmd->resid_len;
 	ses->underflow = scmd->underflow;
 	ses->prot_op = scmd->prot_op;
 	ses->eh_eflags = scmd->eh_eflags;
@@ -1021,7 +1022,7 @@ void scsi_eh_prep_cmnd(struct scsi_cmnd *scmd, struct scsi_eh_save *ses,
 	memset(scmd->cmnd, 0, sizeof(scmd->cmnd));
 	memset(&scmd->sdb, 0, sizeof(scmd->sdb));
 	scmd->result = 0;
-	scmd->req.resid_len = 0;
+	scmd->resid_len = 0;
 
 	if (sense_bytes) {
 		scmd->sdb.length = min_t(unsigned, SCSI_SENSE_BUFFERSIZE,
@@ -1074,7 +1075,7 @@ void scsi_eh_restore_cmnd(struct scsi_cmnd* scmd, struct scsi_eh_save *ses)
 	scmd->sc_data_direction = ses->data_direction;
 	scmd->sdb = ses->sdb;
 	scmd->result = ses->result;
-	scmd->req.resid_len = ses->resid_len;
+	scmd->resid_len = ses->resid_len;
 	scmd->underflow = ses->underflow;
 	scmd->prot_op = ses->prot_op;
 	scmd->eh_eflags = ses->eh_eflags;
@@ -1434,7 +1435,8 @@ static int scsi_eh_try_stu(struct scsi_cmnd *scmd)
 		enum scsi_disposition rtn = NEEDS_RETRY;
 
 		for (i = 0; rtn == NEEDS_RETRY && i < 2; i++)
-			rtn = scsi_send_eh_cmnd(scmd, stu_command, 6, scmd->device->request_queue->rq_timeout, 0);
+			rtn = scsi_send_eh_cmnd(scmd, stu_command, 6,
+						scmd->device->eh_timeout, 0);
 
 		if (rtn == SUCCESS)
 			return 0;
@@ -1989,8 +1991,6 @@ enum scsi_disposition scsi_decide_disposition(struct scsi_cmnd *scmd)
 			scsi_cmd_to_rq(scmd)->rq_flags |= RQF_QUIET;
 		set_host_byte(scmd, DID_NEXUS_FAILURE);
 		return SUCCESS; /* causes immediate i/o error */
-	default:
-		return FAILED;
 	}
 	return FAILED;
 
@@ -2030,12 +2030,10 @@ static void scsi_eh_lock_door(struct scsi_device *sdev)
 {
 	struct scsi_cmnd *scmd;
 	struct request *req;
-	struct scsi_request *rq;
 
 	req = scsi_alloc_request(sdev->request_queue, REQ_OP_DRV_IN, 0);
 	if (IS_ERR(req))
 		return;
-	rq = scsi_req(req);
 	scmd = blk_mq_rq_to_pdu(req);
 
 	scmd->cmnd[0] = ALLOW_MEDIUM_REMOVAL;
@@ -2048,7 +2046,7 @@ static void scsi_eh_lock_door(struct scsi_device *sdev)
 
 	req->rq_flags |= RQF_QUIET;
 	req->timeout = 10 * HZ;
-	rq->retries = 5;
+	scmd->allowed = 5;
 
 	blk_execute_rq_nowait(req, true, eh_lock_door_done);
 }
