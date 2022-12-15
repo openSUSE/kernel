@@ -3105,16 +3105,13 @@ static void handle_hpd_irq_helper(struct amdgpu_dm_connector *aconnector)
 	struct drm_device *dev = connector->dev;
 	enum dc_connection_type new_connection_type = dc_connection_none;
 	struct amdgpu_device *adev = drm_to_adev(dev);
+#ifdef CONFIG_DRM_AMD_DC_HDCP
 	struct dm_connector_state *dm_con_state = to_dm_connector_state(connector->state);
-	struct dm_crtc_state *dm_crtc_state = NULL;
+#endif
 
 	if (adev->dm.disable_hpd_irq)
 		return;
 
-	if (dm_con_state->base.state && dm_con_state->base.crtc)
-		dm_crtc_state = to_dm_crtc_state(drm_atomic_get_crtc_state(
-					dm_con_state->base.state,
-					dm_con_state->base.crtc));
 	/*
 	 * In case of failure or MST no need to update connector status or notify the OS
 	 * since (for MST case) MST does this in its own context.
@@ -6876,7 +6873,6 @@ dm_crtc_duplicate_state(struct drm_crtc *crtc)
 	state->freesync_config = cur->freesync_config;
 	state->cm_has_degamma = cur->cm_has_degamma;
 	state->cm_is_degamma_srgb = cur->cm_is_degamma_srgb;
-	state->force_dpms_off = cur->force_dpms_off;
 	state->mpo_requested = cur->mpo_requested;
 	/* TODO Duplicate dc_stream after objects are stream object is flattened */
 
@@ -9610,8 +9606,7 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_state *state,
 		 * and rely on sending it from software.
 		 */
 		if (acrtc_attach->base.state->event &&
-		    acrtc_state->active_planes > 0 &&
-		    !acrtc_state->force_dpms_off) {
+		    acrtc_state->active_planes > 0) {
 			drm_crtc_vblank_get(pcrtc);
 
 			spin_lock_irqsave(&pcrtc->dev->event_lock, flags);
@@ -9628,7 +9623,6 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_state *state,
 					&acrtc_state->stream->vrr_infopacket;
 		}
 	} else if (cursor_update && acrtc_state->active_planes > 0 &&
-		   !acrtc_state->force_dpms_off &&
 		   acrtc_attach->base.state->event) {
 		drm_crtc_vblank_get(pcrtc);
 
