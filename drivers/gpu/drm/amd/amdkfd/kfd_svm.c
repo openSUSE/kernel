@@ -2821,7 +2821,8 @@ retry_write_locked:
 	if (prange->actual_loc != best_loc) {
 		migration = true;
 		if (best_loc) {
-			r = svm_migrate_to_vram(prange, best_loc, mm);
+			r = svm_migrate_to_vram(prange, best_loc, mm,
+					KFD_MIGRATE_TRIGGER_PAGEFAULT_GPU);
 			if (r) {
 				pr_debug("svm_migrate_to_vram failed (%d) at %llx, falling back to system memory\n",
 					 r, addr);
@@ -2830,12 +2831,15 @@ retry_write_locked:
 				 */
 				if (prange->actual_loc)
 					r = svm_migrate_vram_to_ram(prange, mm,
-					    NULL);
+					   KFD_MIGRATE_TRIGGER_PAGEFAULT_GPU,
+					   NULL);
 				else
 					r = 0;
 			}
 		} else {
-			r = svm_migrate_vram_to_ram(prange, mm, NULL);
+			r = svm_migrate_vram_to_ram(prange, mm,
+					KFD_MIGRATE_TRIGGER_PAGEFAULT_GPU,
+					NULL);
 		}
 		if (r) {
 			pr_debug("failed %d to migrate svms %p [0x%lx 0x%lx]\n",
@@ -3158,12 +3162,13 @@ svm_range_trigger_migration(struct mm_struct *mm, struct svm_range *prange,
 		return 0;
 
 	if (!best_loc) {
-		r = svm_migrate_vram_to_ram(prange, mm, NULL);
+		r = svm_migrate_vram_to_ram(prange, mm,
+				KFD_MIGRATE_TRIGGER_PREFETCH, NULL);
 		*migrated = !r;
 		return r;
 	}
 
-	r = svm_migrate_to_vram(prange, best_loc, mm);
+	r = svm_migrate_to_vram(prange, best_loc, mm, KFD_MIGRATE_TRIGGER_PREFETCH);
 	*migrated = !r;
 
 	return r;
@@ -3222,6 +3227,7 @@ static void svm_range_evict_svm_bo_worker(struct work_struct *work)
 		do {
 			r = svm_migrate_vram_to_ram(prange,
 						svm_bo->eviction_fence->mm,
+						KFD_MIGRATE_TRIGGER_TTM_EVICTION,
 						NULL);
 		} while (!r && prange->actual_loc && --retries);
 
