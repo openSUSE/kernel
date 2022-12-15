@@ -234,11 +234,9 @@ static void gvt_unpin_guest_page(struct intel_vgpu *vgpu, unsigned long gfn,
 		unsigned long size)
 {
 	struct drm_i915_private *i915 = vgpu->gvt->gt->i915;
-	int total_pages;
+	int total_pages = DIV_ROUND_UP(size, PAGE_SIZE);
 	int npage;
 	int ret;
-
-	total_pages = roundup(size, PAGE_SIZE) / PAGE_SIZE;
 
 	for (npage = 0; npage < total_pages; npage++) {
 		unsigned long cur_gfn = gfn + npage;
@@ -252,12 +250,11 @@ static void gvt_unpin_guest_page(struct intel_vgpu *vgpu, unsigned long gfn,
 static int gvt_pin_guest_page(struct intel_vgpu *vgpu, unsigned long gfn,
 		unsigned long size, struct page **page)
 {
+	int total_pages = DIV_ROUND_UP(size, PAGE_SIZE);
 	unsigned long base_pfn = 0;
-	int total_pages;
 	int npage;
 	int ret;
 
-	total_pages = roundup(size, PAGE_SIZE) / PAGE_SIZE;
 	/*
 	 * We pin the pages one-by-one to avoid allocating a big arrary
 	 * on stack to hold pfns.
