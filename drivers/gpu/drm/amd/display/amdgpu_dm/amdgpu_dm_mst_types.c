@@ -687,7 +687,7 @@ static int bpp_x16_from_pbn(struct dsc_mst_fairness_params param, int pbn)
 	return dsc_config.bits_per_pixel;
 }
 
-static void increase_dsc_bpp(struct drm_atomic_state *state,
+static bool increase_dsc_bpp(struct drm_atomic_state *state,
 			     struct dc_link *dc_link,
 			     struct dsc_mst_fairness_params *params,
 			     struct dsc_mst_fairness_vars *vars,
@@ -747,7 +747,7 @@ static void increase_dsc_bpp(struct drm_atomic_state *state,
 							  params[next_index].port,
 							  vars[next_index].pbn,
 							  pbn_per_timeslot) < 0)
-				return;
+				return false;
 			if (!drm_dp_mst_atomic_check(state)) {
 				vars[next_index].bpp_x16 = bpp_x16_from_pbn(params[next_index], vars[next_index].pbn);
 			} else {
@@ -757,7 +757,7 @@ static void increase_dsc_bpp(struct drm_atomic_state *state,
 								  params[next_index].port,
 								  vars[next_index].pbn,
 								  pbn_per_timeslot) < 0)
-					return;
+					return false;
 			}
 		} else {
 			vars[next_index].pbn += initial_slack[next_index];
@@ -766,7 +766,7 @@ static void increase_dsc_bpp(struct drm_atomic_state *state,
 							  params[next_index].port,
 							  vars[next_index].pbn,
 							  pbn_per_timeslot) < 0)
-				return;
+				return false;
 			if (!drm_dp_mst_atomic_check(state)) {
 				vars[next_index].bpp_x16 = params[next_index].bw_range.max_target_bpp_x16;
 			} else {
@@ -776,16 +776,17 @@ static void increase_dsc_bpp(struct drm_atomic_state *state,
 								  params[next_index].port,
 								  vars[next_index].pbn,
 								  pbn_per_timeslot) < 0)
-					return;
+					return false;
 			}
 		}
 
 		bpp_increased[next_index] = true;
 		remaining_to_increase--;
 	}
+	return true;
 }
 
-static void try_disable_dsc(struct drm_atomic_state *state,
+static bool try_disable_dsc(struct drm_atomic_state *state,
 			    struct dc_link *dc_link,
 			    struct dsc_mst_fairness_params *params,
 			    struct dsc_mst_fairness_vars *vars,
@@ -833,7 +834,7 @@ static void try_disable_dsc(struct drm_atomic_state *state,
 						  params[next_index].port,
 						  vars[next_index].pbn,
 						  dm_mst_get_pbn_divider(dc_link)) < 0)
-			return;
+			return false;
 
 		if (!drm_dp_mst_atomic_check(state)) {
 			vars[next_index].dsc_enabled = false;
@@ -845,12 +846,13 @@ static void try_disable_dsc(struct drm_atomic_state *state,
 							  params[next_index].port,
 							  vars[next_index].pbn,
 							  dm_mst_get_pbn_divider(dc_link)) < 0)
-				return;
+				return false;
 		}
 
 		tried[next_index] = true;
 		remaining_to_try--;
 	}
+	return true;
 }
 
 static bool compute_mst_dsc_configs_for_link(struct drm_atomic_state *state,
@@ -966,9 +968,11 @@ static bool compute_mst_dsc_configs_for_link(struct drm_atomic_state *state,
 		return false;
 
 	/* Optimize degree of compression */
-	increase_dsc_bpp(state, dc_link, params, vars, count, k);
+	if (!increase_dsc_bpp(state, dc_link, params, vars, count, k))
+		return false;
 
-	try_disable_dsc(state, dc_link, params, vars, count, k);
+	if (!try_disable_dsc(state, dc_link, params, vars, count, k))
+		return false;
 
 	set_dsc_configs_from_fairness_vars(params, vars, count, k);
 
@@ -1240,21 +1244,22 @@ static bool is_dsc_precompute_needed(struct drm_atomic_state *state)
 	return ret;
 }
 
-void pre_validate_dsc(struct drm_atomic_state *state,
+bool pre_validate_dsc(struct drm_atomic_state *state,
 		      struct dm_atomic_state **dm_state_ptr,
 		      struct dsc_mst_fairness_vars *vars)
 {
 	int i;
 	struct dm_atomic_state *dm_state;
 	struct dc_state *local_dc_state = NULL;
+	int ret = 0;
 
 	if (!is_dsc_precompute_needed(state)) {
 		DRM_INFO_ONCE("DSC precompute is not needed.\n");
-		return;
+		return true;
 	}
 	if (dm_atomic_get_state(state, dm_state_ptr)) {
 		DRM_INFO_ONCE("dm_atomic_get_state() failed\n");
-		return;
+		return false;
 	}
 	dm_state = *dm_state_ptr;
 
@@ -1266,7 +1271,7 @@ void pre_validate_dsc(struct drm_atomic_state *state,
 
 	local_dc_state = kmemdup(dm_state->context, sizeof(struct dc_state), GFP_KERNEL);
 	if (!local_dc_state)
-		return;
+		return false;
 
 	for (i = 0; i < local_dc_state->stream_count; i++) {
 		struct dc_stream_state *stream = dm_state->context->streams[i];
@@ -1292,11 +1297,19 @@ void pre_validate_dsc(struct drm_atomic_state *state,
 								&state->crtcs[ind].new_state->mode,
 								dm_new_conn_state,
 								dm_old_crtc_state->stream);
+			if (local_dc_state->streams[i] == NULL) {
+				ret = -EINVAL;
+				break;
+			}
 		}
 	}
 
+	if (ret != 0)
+		goto clean_exit;
+
 	if (!pre_compute_mst_dsc_configs_for_state(state, local_dc_state, vars)) {
 		DRM_INFO_ONCE("pre_compute_mst_dsc_configs_for_state() failed\n");
+		ret = -EINVAL;
 		goto clean_exit;
 	}
 
@@ -1326,5 +1339,7 @@ clean_exit:
 	}
 
 	kfree(local_dc_state);
+
+	return (ret == 0);
 }
 #endif
