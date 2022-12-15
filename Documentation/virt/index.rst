@@ -14,6 +14,7 @@ Linux Virtualization Support
    ne_overview
    acrn/index
    coco/sevguest
+   coco/tdx-guest
 
 .. only:: html and subproject
 
