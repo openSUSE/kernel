@@ -1748,6 +1748,9 @@ static void hl_release_dmabuf(struct dma_buf *dmabuf)
 {
 	struct hl_dmabuf_priv *hl_dmabuf = dmabuf->priv;
 
+	if (!hl_dmabuf)
+		return;
+
 	hl_ctx_put(hl_dmabuf->ctx);
 	kfree(hl_dmabuf);
 }
@@ -1780,7 +1783,7 @@ static int export_dmabuf(struct hl_ctx *ctx,
 
 	fd = dma_buf_fd(hl_dmabuf->dmabuf, flags);
 	if (fd < 0) {
-		dev_err(hdev->dev, "failed to get a file descriptor for a dma-buf\n");
+		dev_err(hdev->dev, "failed to get a file descriptor for a dma-buf, %d\n", fd);
 		rc = fd;
 		goto err_dma_buf_put;
 	}
@@ -1793,6 +1796,7 @@ static int export_dmabuf(struct hl_ctx *ctx,
 	return 0;
 
 err_dma_buf_put:
+	hl_dmabuf->dmabuf->priv = NULL;
 	dma_buf_put(hl_dmabuf->dmabuf);
 	return rc;
 }
