@@ -304,6 +304,7 @@ void set_capacity(struct gendisk *disk, sector_t size);
 
 /* for drivers/char/raw.c: */
 int blkdev_ioctl(struct block_device *, fmode_t, unsigned, unsigned long);
+int blkdev_file_ioctl(struct file *, fmode_t, unsigned, unsigned long);
 long compat_blkdev_ioctl(struct file *, unsigned, unsigned long);
 
 #ifdef CONFIG_SYSFS

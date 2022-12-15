@@ -403,10 +403,10 @@ static int c_can_read_msg_object(struct net_device *dev, int iface, u32 ctrl)
 				frame->data[i + 1] = data >> 8;
 			}
 		}
-	}
 
+		stats->rx_bytes += frame->len;
+	}
 	stats->rx_packets++;
-	stats->rx_bytes += frame->len;
 
 	netif_receive_skb(skb);
 	return 0;
@@ -875,7 +875,6 @@ static int c_can_handle_state_change(struct net_device *dev,
 	unsigned int reg_err_counter;
 	unsigned int rx_err_passive;
 	struct c_can_priv *priv = netdev_priv(dev);
-	struct net_device_stats *stats = &dev->stats;
 	struct can_frame *cf;
 	struct sk_buff *skb;
 	struct can_berr_counter bec;
@@ -951,8 +950,6 @@ static int c_can_handle_state_change(struct net_device *dev,
 		break;
 	}
 
-	stats->rx_packets++;
-	stats->rx_bytes += cf->len;
 	netif_receive_skb(skb);
 
 	return 1;
@@ -1019,8 +1016,6 @@ static int c_can_handle_bus_err(struct net_device *dev,
 		break;
 	}
 
-	stats->rx_packets++;
-	stats->rx_bytes += cf->len;
 	netif_receive_skb(skb);
 	return 1;
 }
