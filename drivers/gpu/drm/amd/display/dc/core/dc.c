@@ -2658,6 +2658,9 @@ static void copy_stream_update_to_stream(struct dc *dc,
 	if (update->hfvsif_infopacket)
 		stream->hfvsif_infopacket = *update->hfvsif_infopacket;
 
+	if (update->vtem_infopacket)
+		stream->vtem_infopacket = *update->vtem_infopacket;
+
 	if (update->vsc_infopacket)
 		stream->vsc_infopacket = *update->vsc_infopacket;
 
@@ -2728,7 +2731,8 @@ static void commit_planes_do_stream_update(struct dc *dc,
 					stream_update->vrr_infopacket ||
 					stream_update->vsc_infopacket ||
 					stream_update->vsp_infopacket ||
-					stream_update->hfvsif_infopacket) {
+					stream_update->hfvsif_infopacket ||
+					stream_update->vtem_infopacket) {
 				resource_build_info_frame(pipe_ctx);
 				dc->hwss.update_info_frame(pipe_ctx);
 
