@@ -2166,7 +2166,7 @@ static int acquire_resource_from_hw_enabled_state(
 
 		if (pipe_ctx->stream_res.tg->funcs->get_optc_source)
 			pipe_ctx->stream_res.tg->funcs->get_optc_source(pipe_ctx->stream_res.tg,
-					&numPipes, &id_src[0], &id_src[1]);
+						&numPipes, &id_src[0], &id_src[1]);
 
 		if (id_src[0] == 0xf && id_src[1] == 0xf) {
 			id_src[0] = tg_inst;
@@ -2177,6 +2177,8 @@ static int acquire_resource_from_hw_enabled_state(
 			//Check if src id invalid
 			if (id_src[i] == 0xf)
 				return -1;
+
+			pipe_ctx = &res_ctx->pipe_ctx[id_src[i]];
 
 			pipe_ctx->stream_res.tg = pool->timing_generators[tg_inst];
 			pipe_ctx->plane_res.mi = pool->mis[id_src[i]];
@@ -2191,13 +2193,17 @@ static int acquire_resource_from_hw_enabled_state(
 
 				if (pool->mpc->funcs->read_mpcc_state) {
 					struct mpcc_state s = {0};
+
 					pool->mpc->funcs->read_mpcc_state(pool->mpc, pipe_ctx->plane_res.mpcc_inst, &s);
+
 					if (s.dpp_id < MAX_MPCC)
 						pool->mpc->mpcc_array[pipe_ctx->plane_res.mpcc_inst].dpp_id =
 								s.dpp_id;
+
 					if (s.bot_mpcc_id < MAX_MPCC)
 						pool->mpc->mpcc_array[pipe_ctx->plane_res.mpcc_inst].mpcc_bot =
 								&pool->mpc->mpcc_array[s.bot_mpcc_id];
+
 					if (s.opp_id < MAX_OPP)
 						pipe_ctx->stream_res.opp->mpc_tree_params.opp_id = s.opp_id;
 				}
@@ -2206,6 +2212,7 @@ static int acquire_resource_from_hw_enabled_state(
 
 			if (id_src[i] >= pool->timing_generator_count) {
 				id_src[i] = pool->timing_generator_count - 1;
+
 				pipe_ctx->stream_res.tg = pool->timing_generators[id_src[i]];
 				pipe_ctx->stream_res.opp = pool->opps[id_src[i]];
 			}
