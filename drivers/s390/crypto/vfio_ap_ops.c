@@ -390,10 +390,12 @@ static int handle_pqap(struct kvm_vcpu *vcpu)
 		return -EOPNOTSUPP;
 	}
 
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
+
 	if (!vcpu->kvm->arch.crypto.pqap_hook) {
 		VFIO_AP_DBF_WARN("%s: PQAP(AQIC) hook not registered with the vfio_ap driver: apqn=0x%04x\n",
 				 __func__, apqn);
+
 		goto out_unlock;
 	}
 
@@ -428,7 +430,7 @@ static int handle_pqap(struct kvm_vcpu *vcpu)
 out_unlock:
 	memcpy(&vcpu->run->s.regs.gprs[1], &qstatus, sizeof(qstatus));
 	vcpu->run->s.regs.gprs[1] >>= 32;
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 	return 0;
 }
 
@@ -524,9 +526,9 @@ static int vfio_ap_mdev_probe(struct mdev_device *mdev)
 	vfio_ap_matrix_init(&matrix_dev->info, &matrix_mdev->shadow_apcb);
 	hash_init(matrix_mdev->qtable.queues);
 	dev_set_drvdata(&mdev->dev, matrix_mdev);
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
 	list_add(&matrix_mdev->node, &matrix_dev->mdev_list);
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 
 	ret = vfio_register_group_dev(&matrix_mdev->vdev);
 	if (ret)
@@ -535,9 +537,9 @@ static int vfio_ap_mdev_probe(struct mdev_device *mdev)
 	return 0;
 
 err_list:
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
 	list_del(&matrix_mdev->node);
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 	vfio_uninit_group_dev(&matrix_mdev->vdev);
 	kfree(matrix_mdev);
 err_dec_available:
@@ -600,11 +602,11 @@ static void vfio_ap_mdev_remove(struct mdev_device *mdev)
 
 	vfio_unregister_group_dev(&matrix_mdev->vdev);
 
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
 	vfio_ap_mdev_reset_queues(matrix_mdev);
 	vfio_ap_mdev_unlink_fr_queues(matrix_mdev);
 	list_del(&matrix_mdev->node);
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 	vfio_uninit_group_dev(&matrix_mdev->vdev);
 	kfree(matrix_mdev);
 	atomic_inc(&matrix_dev->available_instances);
@@ -780,7 +782,7 @@ static ssize_t assign_adapter_store(struct device *dev,
 
 	struct ap_matrix_mdev *matrix_mdev = dev_get_drvdata(dev);
 
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
 
 	/* If the KVM guest is running, disallow assignment of adapter */
 	if (matrix_mdev->kvm) {
@@ -812,7 +814,7 @@ static ssize_t assign_adapter_store(struct device *dev,
 				   matrix_mdev->matrix.aqm, matrix_mdev);
 	ret = count;
 done:
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 
 	return ret;
 }
@@ -855,7 +857,7 @@ static ssize_t unassign_adapter_store(struct device *dev,
 	unsigned long apid;
 	struct ap_matrix_mdev *matrix_mdev = dev_get_drvdata(dev);
 
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
 
 	/* If the KVM guest is running, disallow unassignment of adapter */
 	if (matrix_mdev->kvm) {
@@ -880,7 +882,7 @@ static ssize_t unassign_adapter_store(struct device *dev,
 
 	ret = count;
 done:
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 	return ret;
 }
 static DEVICE_ATTR_WO(unassign_adapter);
@@ -935,7 +937,7 @@ static ssize_t assign_domain_store(struct device *dev,
 	struct ap_matrix_mdev *matrix_mdev = dev_get_drvdata(dev);
 	unsigned long max_apqi = matrix_mdev->matrix.aqm_max;
 
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
 
 	/* If the KVM guest is running, disallow assignment of domain */
 	if (matrix_mdev->kvm) {
@@ -966,7 +968,7 @@ static ssize_t assign_domain_store(struct device *dev,
 				   matrix_mdev);
 	ret = count;
 done:
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 
 	return ret;
 }
@@ -1009,7 +1011,7 @@ static ssize_t unassign_domain_store(struct device *dev,
 	unsigned long apqi;
 	struct ap_matrix_mdev *matrix_mdev = dev_get_drvdata(dev);
 
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
 
 	/* If the KVM guest is running, disallow unassignment of domain */
 	if (matrix_mdev->kvm) {
@@ -1035,7 +1037,7 @@ static ssize_t unassign_domain_store(struct device *dev,
 	ret = count;
 
 done:
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 	return ret;
 }
 static DEVICE_ATTR_WO(unassign_domain);
@@ -1062,7 +1064,7 @@ static ssize_t assign_control_domain_store(struct device *dev,
 	unsigned long id;
 	struct ap_matrix_mdev *matrix_mdev = dev_get_drvdata(dev);
 
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
 
 	/* If the KVM guest is running, disallow assignment of control domain */
 	if (matrix_mdev->kvm) {
@@ -1088,7 +1090,7 @@ static ssize_t assign_control_domain_store(struct device *dev,
 	vfio_ap_mdev_filter_cdoms(matrix_mdev);
 	ret = count;
 done:
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 	return ret;
 }
 static DEVICE_ATTR_WO(assign_control_domain);
@@ -1116,7 +1118,7 @@ static ssize_t unassign_control_domain_store(struct device *dev,
 	struct ap_matrix_mdev *matrix_mdev = dev_get_drvdata(dev);
 	unsigned long max_domid =  matrix_mdev->matrix.adm_max;
 
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
 
 	/* If a KVM guest is running, disallow unassignment of control domain */
 	if (matrix_mdev->kvm) {
@@ -1139,7 +1141,7 @@ static ssize_t unassign_control_domain_store(struct device *dev,
 
 	ret = count;
 done:
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 	return ret;
 }
 static DEVICE_ATTR_WO(unassign_control_domain);
@@ -1155,13 +1157,13 @@ static ssize_t control_domains_show(struct device *dev,
 	struct ap_matrix_mdev *matrix_mdev = dev_get_drvdata(dev);
 	unsigned long max_domid = matrix_mdev->matrix.adm_max;
 
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
 	for_each_set_bit_inv(id, matrix_mdev->matrix.adm, max_domid + 1) {
 		n = sprintf(bufpos, "%04lx\n", id);
 		bufpos += n;
 		nchars += n;
 	}
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 
 	return nchars;
 }
@@ -1184,7 +1186,7 @@ static ssize_t matrix_show(struct device *dev, struct device_attribute *attr,
 	apid1 = find_first_bit_inv(matrix_mdev->matrix.apm, napm_bits);
 	apqi1 = find_first_bit_inv(matrix_mdev->matrix.aqm, naqm_bits);
 
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
 
 	if ((apid1 < napm_bits) && (apqi1 < naqm_bits)) {
 		for_each_set_bit_inv(apid, matrix_mdev->matrix.apm, napm_bits) {
@@ -1210,7 +1212,7 @@ static ssize_t matrix_show(struct device *dev, struct device_attribute *attr,
 		}
 	}
 
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 
 	return nchars;
 }
@@ -1258,12 +1260,12 @@ static int vfio_ap_mdev_set_kvm(struct ap_matrix_mdev *matrix_mdev,
 		up_write(&kvm->arch.crypto.pqap_hook_rwsem);
 
 		mutex_lock(&kvm->lock);
-		mutex_lock(&matrix_dev->lock);
+		mutex_lock(&matrix_dev->mdevs_lock);
 
 		list_for_each_entry(m, &matrix_dev->mdev_list, node) {
 			if (m != matrix_mdev && m->kvm == kvm) {
 				mutex_unlock(&kvm->lock);
-				mutex_unlock(&matrix_dev->lock);
+				mutex_unlock(&matrix_dev->mdevs_lock);
 				return -EPERM;
 			}
 		}
@@ -1275,7 +1277,7 @@ static int vfio_ap_mdev_set_kvm(struct ap_matrix_mdev *matrix_mdev,
 					  matrix_mdev->shadow_apcb.adm);
 
 		mutex_unlock(&kvm->lock);
-		mutex_unlock(&matrix_dev->lock);
+		mutex_unlock(&matrix_dev->mdevs_lock);
 	}
 
 	return 0;
@@ -1306,7 +1308,7 @@ static void vfio_ap_mdev_unset_kvm(struct ap_matrix_mdev *matrix_mdev)
 		up_write(&kvm->arch.crypto.pqap_hook_rwsem);
 
 		mutex_lock(&kvm->lock);
-		mutex_lock(&matrix_dev->lock);
+		mutex_lock(&matrix_dev->mdevs_lock);
 
 		kvm_arch_crypto_clear_masks(kvm);
 		vfio_ap_mdev_reset_queues(matrix_mdev);
@@ -1314,7 +1316,7 @@ static void vfio_ap_mdev_unset_kvm(struct ap_matrix_mdev *matrix_mdev)
 		matrix_mdev->kvm = NULL;
 
 		mutex_unlock(&kvm->lock);
-		mutex_unlock(&matrix_dev->lock);
+		mutex_unlock(&matrix_dev->mdevs_lock);
 	}
 }
 
@@ -1451,7 +1453,7 @@ static ssize_t vfio_ap_mdev_ioctl(struct vfio_device *vdev,
 		container_of(vdev, struct ap_matrix_mdev, vdev);
 	int ret;
 
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
 	switch (cmd) {
 	case VFIO_DEVICE_GET_INFO:
 		ret = vfio_ap_mdev_get_device_info(arg);
@@ -1463,7 +1465,7 @@ static ssize_t vfio_ap_mdev_ioctl(struct vfio_device *vdev,
 		ret = -EOPNOTSUPP;
 		break;
 	}
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 
 	return ret;
 }
@@ -1492,7 +1494,7 @@ static ssize_t status_show(struct device *dev,
 	struct ap_matrix_mdev *matrix_mdev;
 	struct ap_device *apdev = to_ap_dev(dev);
 
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
 	q = dev_get_drvdata(&apdev->device);
 	matrix_mdev = vfio_ap_mdev_for_queue(q);
 
@@ -1508,7 +1510,7 @@ static ssize_t status_show(struct device *dev,
 				   AP_QUEUE_UNASSIGNED);
 	}
 
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 
 	return nchars;
 }
@@ -1604,7 +1606,7 @@ int vfio_ap_mdev_probe_queue(struct ap_device *apdev)
 	if (!q)
 		return -ENOMEM;
 
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
 	q->apqn = to_ap_queue(&apdev->device)->qid;
 	q->saved_isc = VFIO_AP_ISC_INVALID;
 	vfio_ap_queue_link_mdev(q);
@@ -1614,7 +1616,7 @@ int vfio_ap_mdev_probe_queue(struct ap_device *apdev)
 					   q->matrix_mdev);
 	}
 	dev_set_drvdata(&apdev->device, q);
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 
 	return 0;
 }
@@ -1624,7 +1626,7 @@ void vfio_ap_mdev_remove_queue(struct ap_device *apdev)
 	unsigned long apid;
 	struct vfio_ap_queue *q;
 
-	mutex_lock(&matrix_dev->lock);
+	mutex_lock(&matrix_dev->mdevs_lock);
 	sysfs_remove_group(&apdev->device.kobj, &vfio_queue_attr_group);
 	q = dev_get_drvdata(&apdev->device);
 
@@ -1639,5 +1641,5 @@ void vfio_ap_mdev_remove_queue(struct ap_device *apdev)
 	vfio_ap_mdev_reset_queue(q, 1);
 	dev_set_drvdata(&apdev->device, NULL);
 	kfree(q);
-	mutex_unlock(&matrix_dev->lock);
+	mutex_unlock(&matrix_dev->mdevs_lock);
 }
