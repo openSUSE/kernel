@@ -607,7 +607,6 @@ static unsigned long domain_super_pgsize_bitmap(struct dmar_domain *domain)
 static void domain_update_iommu_cap(struct dmar_domain *domain)
 {
 	domain_update_iommu_coherency(domain);
-	domain->iommu_snooping = domain_update_iommu_snooping(NULL);
 	domain->iommu_superpage = domain_update_iommu_superpage(domain, NULL);
 
 	/*
@@ -4246,7 +4245,6 @@ static int md_domain_init(struct dmar_domain *domain, int guest_width)
 	domain->agaw = width_to_agaw(adjust_width);
 
 	domain->iommu_coherency = false;
-	domain->iommu_snooping = false;
 	domain->iommu_superpage = 0;
 	domain->max_addr = 0;
 
@@ -4385,8 +4383,7 @@ static int intel_iommu_map(struct iommu_domain *domain,
 		prot |= DMA_PTE_READ;
 	if (iommu_prot & IOMMU_WRITE)
 		prot |= DMA_PTE_WRITE;
-	if (((iommu_prot & IOMMU_CACHE) && dmar_domain->iommu_snooping) ||
-	    dmar_domain->force_snooping)
+	if (dmar_domain->force_snooping)
 		prot |= DMA_PTE_SNP;
 
 	max_addr = iova + size;
@@ -4514,7 +4511,7 @@ static bool intel_iommu_enforce_cache_coherency(struct iommu_domain *domain)
 {
 	struct dmar_domain *dmar_domain = to_dmar_domain(domain);
 
-	if (!dmar_domain->iommu_snooping)
+	if (!domain_update_iommu_snooping(NULL))
 		return false;
 	dmar_domain->force_snooping = true;
 	return true;
