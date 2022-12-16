@@ -6,8 +6,10 @@
 #define pr_fmt(fmt) "drm_plane_helper: " fmt
 
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_framebuffer.h>
 #include <drm/drm_plane_helper.h>
 #include <drm/drm_modes.h>
+#include <linux/slab.h>
 
 #include "test-drm_modeset_common.h"
 
