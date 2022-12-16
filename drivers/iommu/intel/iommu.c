@@ -17,7 +17,6 @@
 #include <linux/dma-direct.h>
 #include <linux/dma-iommu.h>
 #include <linux/dmi.h>
-#include <linux/intel-iommu.h>
 #include <linux/intel-svm.h>
 #include <linux/memory.h>
 #include <linux/pci.h>
@@ -26,6 +25,7 @@
 #include <linux/syscore_ops.h>
 #include <linux/tboot.h>
 
+#include "iommu.h"
 #include "../irq_remapping.h"
 #include "../iommu-sva-lib.h"
 #include "pasid.h"
@@ -445,19 +445,19 @@ int iommu_calculate_agaw(struct intel_iommu *iommu)
 /* This functionin only returns single iommu in a domain */
 struct intel_iommu *domain_get_iommu(struct dmar_domain *domain)
 {
-	struct iommu_domain_info *info;
-	unsigned long i;
+	int iommu_id;
 
 	/* si_domain and vm domain should not get here. */
 	if (WARN_ON(!iommu_is_dma_domain(&domain->domain)))
 		return NULL;
 
-	xa_for_each(&domain->iommu_array, i, info) {
-		if (info->refcnt)
-			break;
-	}
+	for_each_domain_iommu(iommu_id, domain)
+		break;
 
-	return info->iommu;
+	if (iommu_id < 0 || iommu_id >= g_num_of_iommus)
+		return NULL;
+
+	return g_iommus[iommu_id];
 }
 
 static inline bool iommu_paging_structure_coherency(struct intel_iommu *iommu)
@@ -1781,6 +1781,7 @@ static struct dmar_domain *alloc_domain(unsigned int type)
 		domain->flags |= DOMAIN_FLAG_USE_FIRST_LEVEL;
 	domain->has_iotlb_device = false;
 	INIT_LIST_HEAD(&domain->devices);
+	xa_init(&domain->iommu_array);
 
 	return domain;
 }
