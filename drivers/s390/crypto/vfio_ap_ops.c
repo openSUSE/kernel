@@ -598,10 +598,25 @@ static void vfio_ap_matrix_init(struct ap_config_info *info,
 	matrix->adm_max = info->apxa ? info->Nd : 15;
 }
 
-static void vfio_ap_mdev_filter_cdoms(struct ap_matrix_mdev *matrix_mdev)
+static void vfio_ap_mdev_update_guest_apcb(struct ap_matrix_mdev *matrix_mdev)
 {
+	if (matrix_mdev->kvm)
+		kvm_arch_crypto_set_masks(matrix_mdev->kvm,
+					  matrix_mdev->shadow_apcb.apm,
+					  matrix_mdev->shadow_apcb.aqm,
+					  matrix_mdev->shadow_apcb.adm);
+}
+
+static bool vfio_ap_mdev_filter_cdoms(struct ap_matrix_mdev *matrix_mdev)
+{
+	DECLARE_BITMAP(prev_shadow_adm, AP_DOMAINS);
+
+	bitmap_copy(prev_shadow_adm, matrix_mdev->shadow_apcb.adm, AP_DOMAINS);
 	bitmap_and(matrix_mdev->shadow_apcb.adm, matrix_mdev->matrix.adm,
 		   (unsigned long *)matrix_dev->info.adm, AP_DOMAINS);
+
+	return !bitmap_equal(prev_shadow_adm, matrix_mdev->shadow_apcb.adm,
+			     AP_DOMAINS);
 }
 
 /*
@@ -616,17 +631,24 @@ static void vfio_ap_mdev_filter_cdoms(struct ap_matrix_mdev *matrix_mdev)
  *	 driver, its APID will be filtered from the guest's APCB. The matrix
  *	 structure precludes filtering an individual APQN, so its APID will be
  *	 filtered.
+ *
+ * Return: a boolean value indicating whether the KVM guest's APCB was changed
+ *	   by the filtering or not.
  */
-static void vfio_ap_mdev_filter_matrix(unsigned long *apm, unsigned long *aqm,
+static bool vfio_ap_mdev_filter_matrix(unsigned long *apm, unsigned long *aqm,
 				       struct ap_matrix_mdev *matrix_mdev)
 {
 	int ret;
 	unsigned long apid, apqi, apqn;
+	DECLARE_BITMAP(prev_shadow_apm, AP_DEVICES);
+	DECLARE_BITMAP(prev_shadow_aqm, AP_DOMAINS);
 
 	ret = ap_qci(&matrix_dev->info);
 	if (ret)
-		return;
+		return false;
 
+	bitmap_copy(prev_shadow_apm, matrix_mdev->shadow_apcb.apm, AP_DEVICES);
+	bitmap_copy(prev_shadow_aqm, matrix_mdev->shadow_apcb.aqm, AP_DOMAINS);
 	vfio_ap_matrix_init(&matrix_dev->info, &matrix_mdev->shadow_apcb);
 
 	/*
@@ -658,6 +680,11 @@ static void vfio_ap_mdev_filter_matrix(unsigned long *apm, unsigned long *aqm,
 			}
 		}
 	}
+
+	return !bitmap_equal(prev_shadow_apm, matrix_mdev->shadow_apcb.apm,
+			     AP_DEVICES) ||
+	       !bitmap_equal(prev_shadow_aqm, matrix_mdev->shadow_apcb.aqm,
+			     AP_DOMAINS);
 }
 
 static int vfio_ap_mdev_probe(struct mdev_device *mdev)
@@ -933,16 +960,9 @@ static ssize_t assign_adapter_store(struct device *dev,
 	int ret;
 	unsigned long apid;
 	DECLARE_BITMAP(apm_delta, AP_DEVICES);
-
 	struct ap_matrix_mdev *matrix_mdev = dev_get_drvdata(dev);
 
 	get_update_locks_for_mdev(matrix_mdev);
-
-	/* If the KVM guest is running, disallow assignment of adapter */
-	if (matrix_mdev->kvm) {
-		ret = -EBUSY;
-		goto done;
-	}
 
 	ret = kstrtoul(buf, 0, &apid);
 	if (ret)
@@ -964,8 +984,11 @@ static ssize_t assign_adapter_store(struct device *dev,
 	vfio_ap_mdev_link_adapter(matrix_mdev, apid);
 	memset(apm_delta, 0, sizeof(apm_delta));
 	set_bit_inv(apid, apm_delta);
-	vfio_ap_mdev_filter_matrix(apm_delta,
-				   matrix_mdev->matrix.aqm, matrix_mdev);
+
+	if (vfio_ap_mdev_filter_matrix(apm_delta,
+				       matrix_mdev->matrix.aqm, matrix_mdev))
+		vfio_ap_mdev_update_guest_apcb(matrix_mdev);
+
 	ret = count;
 done:
 	release_update_locks_for_mdev(matrix_mdev);
@@ -1013,12 +1036,6 @@ static ssize_t unassign_adapter_store(struct device *dev,
 
 	get_update_locks_for_mdev(matrix_mdev);
 
-	/* If the KVM guest is running, disallow unassignment of adapter */
-	if (matrix_mdev->kvm) {
-		ret = -EBUSY;
-		goto done;
-	}
-
 	ret = kstrtoul(buf, 0, &apid);
 	if (ret)
 		goto done;
@@ -1031,8 +1048,10 @@ static ssize_t unassign_adapter_store(struct device *dev,
 	clear_bit_inv((unsigned long)apid, matrix_mdev->matrix.apm);
 	vfio_ap_mdev_unlink_adapter(matrix_mdev, apid);
 
-	if (test_bit_inv(apid, matrix_mdev->shadow_apcb.apm))
+	if (test_bit_inv(apid, matrix_mdev->shadow_apcb.apm)) {
 		clear_bit_inv(apid, matrix_mdev->shadow_apcb.apm);
+		vfio_ap_mdev_update_guest_apcb(matrix_mdev);
+	}
 
 	ret = count;
 done:
@@ -1089,20 +1108,14 @@ static ssize_t assign_domain_store(struct device *dev,
 	unsigned long apqi;
 	DECLARE_BITMAP(aqm_delta, AP_DOMAINS);
 	struct ap_matrix_mdev *matrix_mdev = dev_get_drvdata(dev);
-	unsigned long max_apqi = matrix_mdev->matrix.aqm_max;
 
 	get_update_locks_for_mdev(matrix_mdev);
-
-	/* If the KVM guest is running, disallow assignment of domain */
-	if (matrix_mdev->kvm) {
-		ret = -EBUSY;
-		goto done;
-	}
 
 	ret = kstrtoul(buf, 0, &apqi);
 	if (ret)
 		goto done;
-	if (apqi > max_apqi) {
+
+	if (apqi > matrix_mdev->matrix.aqm_max) {
 		ret = -ENODEV;
 		goto done;
 	}
@@ -1118,8 +1131,11 @@ static ssize_t assign_domain_store(struct device *dev,
 	vfio_ap_mdev_link_domain(matrix_mdev, apqi);
 	memset(aqm_delta, 0, sizeof(aqm_delta));
 	set_bit_inv(apqi, aqm_delta);
-	vfio_ap_mdev_filter_matrix(matrix_mdev->matrix.apm, aqm_delta,
-				   matrix_mdev);
+
+	if (vfio_ap_mdev_filter_matrix(matrix_mdev->matrix.apm, aqm_delta,
+				       matrix_mdev))
+		vfio_ap_mdev_update_guest_apcb(matrix_mdev);
+
 	ret = count;
 done:
 	release_update_locks_for_mdev(matrix_mdev);
@@ -1167,12 +1183,6 @@ static ssize_t unassign_domain_store(struct device *dev,
 
 	get_update_locks_for_mdev(matrix_mdev);
 
-	/* If the KVM guest is running, disallow unassignment of domain */
-	if (matrix_mdev->kvm) {
-		ret = -EBUSY;
-		goto done;
-	}
-
 	ret = kstrtoul(buf, 0, &apqi);
 	if (ret)
 		goto done;
@@ -1185,8 +1195,10 @@ static ssize_t unassign_domain_store(struct device *dev,
 	clear_bit_inv((unsigned long)apqi, matrix_mdev->matrix.aqm);
 	vfio_ap_mdev_unlink_domain(matrix_mdev, apqi);
 
-	if (test_bit_inv(apqi, matrix_mdev->shadow_apcb.aqm))
+	if (test_bit_inv(apqi, matrix_mdev->shadow_apcb.aqm)) {
 		clear_bit_inv(apqi, matrix_mdev->shadow_apcb.aqm);
+		vfio_ap_mdev_update_guest_apcb(matrix_mdev);
+	}
 
 	ret = count;
 
@@ -1220,12 +1232,6 @@ static ssize_t assign_control_domain_store(struct device *dev,
 
 	get_update_locks_for_mdev(matrix_mdev);
 
-	/* If the KVM guest is running, disallow assignment of control domain */
-	if (matrix_mdev->kvm) {
-		ret = -EBUSY;
-		goto done;
-	}
-
 	ret = kstrtoul(buf, 0, &id);
 	if (ret)
 		goto done;
@@ -1241,7 +1247,9 @@ static ssize_t assign_control_domain_store(struct device *dev,
 	 * number of control domains that can be assigned.
 	 */
 	set_bit_inv(id, matrix_mdev->matrix.adm);
-	vfio_ap_mdev_filter_cdoms(matrix_mdev);
+	if (vfio_ap_mdev_filter_cdoms(matrix_mdev))
+		vfio_ap_mdev_update_guest_apcb(matrix_mdev);
+
 	ret = count;
 done:
 	release_update_locks_for_mdev(matrix_mdev);
@@ -1270,28 +1278,24 @@ static ssize_t unassign_control_domain_store(struct device *dev,
 	int ret;
 	unsigned long domid;
 	struct ap_matrix_mdev *matrix_mdev = dev_get_drvdata(dev);
-	unsigned long max_domid =  matrix_mdev->matrix.adm_max;
 
 	get_update_locks_for_mdev(matrix_mdev);
-
-	/* If a KVM guest is running, disallow unassignment of control domain */
-	if (matrix_mdev->kvm) {
-		ret = -EBUSY;
-		goto done;
-	}
 
 	ret = kstrtoul(buf, 0, &domid);
 	if (ret)
 		goto done;
-	if (domid > max_domid) {
+
+	if (domid > matrix_mdev->matrix.adm_max) {
 		ret = -ENODEV;
 		goto done;
 	}
 
 	clear_bit_inv(domid, matrix_mdev->matrix.adm);
 
-	if (test_bit_inv(domid, matrix_mdev->shadow_apcb.adm))
+	if (test_bit_inv(domid, matrix_mdev->shadow_apcb.adm)) {
 		clear_bit_inv(domid, matrix_mdev->shadow_apcb.adm);
+		vfio_ap_mdev_update_guest_apcb(matrix_mdev);
+	}
 
 	ret = count;
 done:
@@ -1424,9 +1428,7 @@ static int vfio_ap_mdev_set_kvm(struct ap_matrix_mdev *matrix_mdev,
 
 		kvm_get_kvm(kvm);
 		matrix_mdev->kvm = kvm;
-		kvm_arch_crypto_set_masks(kvm, matrix_mdev->shadow_apcb.apm,
-					  matrix_mdev->shadow_apcb.aqm,
-					  matrix_mdev->shadow_apcb.adm);
+		vfio_ap_mdev_update_guest_apcb(matrix_mdev);
 
 		release_update_locks_for_kvm(kvm);
 	}
