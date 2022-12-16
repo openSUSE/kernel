@@ -970,7 +970,7 @@ static struct iommu_device *viommu_probe_device(struct device *dev)
 	return &viommu->iommu;
 
 err_free_dev:
-	generic_iommu_put_resv_regions(dev, &vdev->resv_regions);
+	iommu_put_resv_regions(dev, &vdev->resv_regions);
 	kfree(vdev);
 
 	return ERR_PTR(ret);
@@ -989,7 +989,7 @@ static void viommu_release_device(struct device *dev)
 {
 	struct viommu_endpoint *vdev = dev_iommu_priv_get(dev);
 
-	generic_iommu_put_resv_regions(dev, &vdev->resv_regions);
+	iommu_put_resv_regions(dev, &vdev->resv_regions);
 	kfree(vdev);
 }
 
@@ -1013,7 +1013,6 @@ static struct iommu_ops viommu_ops = {
 	.release_device		= viommu_release_device,
 	.device_group		= viommu_device_group,
 	.get_resv_regions	= viommu_get_resv_regions,
-	.put_resv_regions	= generic_iommu_put_resv_regions,
 	.of_xlate		= viommu_of_xlate,
 	.owner			= THIS_MODULE,
 	.default_domain_ops = &(const struct iommu_domain_ops) {
