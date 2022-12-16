@@ -554,7 +554,7 @@ static struct vfio_group *vfio_group_find_or_alloc(struct device *dev)
 	 * restore cache coherency. It has to be checked here because it is only
 	 * valid for cases where we are using iommu groups.
 	 */
-	if (!iommu_capable(dev->bus, IOMMU_CAP_CACHE_COHERENCY)) {
+	if (!device_iommu_capable(dev, IOMMU_CAP_CACHE_COHERENCY)) {
 		iommu_group_put(iommu_group);
 		return ERR_PTR(-EINVAL);
 	}
