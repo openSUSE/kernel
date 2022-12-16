@@ -1976,8 +1976,7 @@ static int __init amd_iommu_init_pci(void)
 	for_each_iommu(iommu)
 		iommu_flush_all_caches(iommu);
 
-	if (!ret)
-		print_iommu_info();
+	print_iommu_info();
 
 out:
 	return ret;
