@@ -740,6 +740,12 @@ int gru_check_context_placement(struct gru_thread_state *gts)
 	 * references. Pthread apps use non-owner references to the CBRs.
 	 */
 	gru = gts->ts_gru;
+	/*
+	 * If gru or gts->ts_tgid_owner isn't initialized properly, return
+	 * success to indicate that the caller does not need to unload the
+	 * gru context.The caller is responsible for their inspection and
+	 * reinitialization if needed.
+	 */
 	if (!gru || gts->ts_tgid_owner != current->tgid)
 		return ret;
 
@@ -933,7 +939,6 @@ int gru_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
 	struct gru_thread_state *gts;
 	unsigned long paddr, vaddr;
-	int ret;
 
 	vaddr = (unsigned long)vmf->virtual_address;
 	gru_dbg(grudev, "vma %p, vaddr 0x%lx (0x%lx)\n",
@@ -949,11 +954,11 @@ again:
 	mutex_lock(&gts->ts_ctxlock);
 	preempt_disable();
 
-	ret = gru_check_context_placement(gts);
-	if (ret) {
+	if (gru_check_context_placement(gts)) {
+		preempt_enable();
 		mutex_unlock(&gts->ts_ctxlock);
 		gru_unload_context(gts, 1);
-		return ret;
+		return VM_FAULT_NOPAGE;
 	}
 
 	if (!gts->ts_gru) {
