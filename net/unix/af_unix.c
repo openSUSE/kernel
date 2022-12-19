@@ -539,7 +539,7 @@ static void unix_dgram_disconnected(struct sock *sk, struct sock *other)
 			sk_error_report(other);
 		}
 	}
-	sk->sk_state = other->sk_state = TCP_CLOSE;
+	other->sk_state = TCP_CLOSE;
 }
 
 static void unix_sock_destructor(struct sock *sk)
@@ -1325,6 +1325,7 @@ restart:
 		if (err)
 			goto out_unlock;
 
+		sk->sk_state = other->sk_state = TCP_ESTABLISHED;
 	} else {
 		/*
 		 *	1003.1g breaking connected state with AF_UNSPEC
@@ -1338,7 +1339,10 @@ restart:
 	 */
 	if (unix_peer(sk)) {
 		struct sock *old_peer = unix_peer(sk);
+
 		unix_peer(sk) = other;
+		if (!other)
+			sk->sk_state = TCP_CLOSE;
 		unix_dgram_peer_wake_disconnect_wakeup(sk, old_peer);
 
 		unix_state_double_unlock(sk, other);
@@ -1351,8 +1355,6 @@ restart:
 		unix_state_double_unlock(sk, other);
 	}
 
-	if (unix_peer(sk))
-		sk->sk_state = other->sk_state = TCP_ESTABLISHED;
 	return 0;
 
 out_unlock:
@@ -1939,6 +1941,7 @@ restart_locked:
 
 			unix_state_unlock(sk);
 
+			sk->sk_state = TCP_CLOSE;
 			unix_dgram_disconnected(sk, other);
 			sock_put(other);
 			err = -ECONNREFUSED;
