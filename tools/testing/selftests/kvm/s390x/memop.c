@@ -769,7 +769,7 @@ int main(int argc, char *argv[])
 	ksft_set_plan(ARRAY_SIZE(testlist));
 
 	for (idx = 0; idx < ARRAY_SIZE(testlist); idx++) {
-		if (testlist[idx].extension >= extension_cap) {
+		if (extension_cap >= testlist[idx].extension) {
 			testlist[idx].test();
 			ksft_test_result_pass("%s\n", testlist[idx].name);
 		} else {
