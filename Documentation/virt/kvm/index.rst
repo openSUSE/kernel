@@ -20,6 +20,7 @@ KVM
    s390-diag
    s390-pv
    s390-pv-boot
+   s390-pv-dump
    timekeeping
    vcpu-requests
 
