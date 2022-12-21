@@ -670,8 +670,8 @@ static void ufshpb_execute_umap_req(struct ufshpb_lu *hpb,
 	struct scsi_cmnd *scmd = blk_mq_rq_to_pdu(req);
 
 	req->timeout = 0;
-	req->end_io = ufshpb_umap_req_compl_fn;
 	req->end_io_data = umap_req;
+	req->end_io = ufshpb_umap_req_compl_fn;
 
 	ufshpb_set_unmap_cmd(scmd->cmnd, rgn);
 	scmd->cmd_len = HPB_WRITE_BUFFER_CMD_LENGTH;
@@ -707,8 +707,8 @@ static int ufshpb_execute_map_req(struct ufshpb_lu *hpb,
 
 	blk_rq_append_bio(req, map_req->bio);
 
-	req->end_io = ufshpb_map_req_compl_fn;
 	req->end_io_data = map_req;
+	req->end_io = ufshpb_map_req_compl_fn;
 
 	if (unlikely(last))
 		mem_size = hpb->last_srgn_entries * HPB_ENTRY_SIZE;
