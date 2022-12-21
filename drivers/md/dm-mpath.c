@@ -105,6 +105,7 @@ struct multipath {
 struct dm_mpath_io {
 	struct pgpath *pgpath;
 	size_t nr_bytes;
+	u64 start_time_ns;
 };
 
 typedef int (*action_fn) (struct pgpath *pgpath);
@@ -296,6 +297,7 @@ static void multipath_init_per_bio_data(struct bio *bio, struct dm_mpath_io **mp
 
 	mpio->nr_bytes = bio->bi_iter.bi_size;
 	mpio->pgpath = NULL;
+	mpio->start_time_ns = 0;
 	*mpio_p = mpio;
 
 	dm_bio_record(bio_details, bio);
@@ -648,6 +650,9 @@ static int __multipath_map_bio(struct multipath *m, struct bio *bio,
 
 	mpio->pgpath = pgpath;
 
+	if (dm_ps_use_hr_timer(pgpath->pg->ps.type))
+		mpio->start_time_ns = ktime_get_ns();
+
 	bio->bi_status = 0;
 	bio_set_dev(bio, pgpath->path.dev->bdev);
 	bio->bi_opf |= REQ_FAILFAST_TRANSPORT;
@@ -900,10 +905,7 @@ retain:
 	if (m->hw_handler_name) {
 		r = scsi_dh_attach(q, m->hw_handler_name);
 		if (r == -EBUSY) {
-			char b[BDEVNAME_SIZE];
-
-			printk(KERN_INFO "dm-mpath: retaining handler on device %s\n",
-			       bdevname(bdev, b));
+			DMINFO("retaining handler on device %pg", bdev);
 			goto retain;
 		}
 		if (r < 0) {
@@ -1721,7 +1723,8 @@ done:
 
 		if (ps->type->end_io)
 			ps->type->end_io(ps, &pgpath->path, mpio->nr_bytes,
-					 dm_start_time_ns_from_clone(clone));
+					 (mpio->start_time_ns ?:
+					  dm_start_time_ns_from_clone(clone)));
 	}
 
 	return r;
@@ -1793,7 +1796,7 @@ static void multipath_resume(struct dm_target *ti)
 static void multipath_status(struct dm_target *ti, status_type_t type,
 			     unsigned status_flags, char *result, unsigned maxlen)
 {
-	int sz = 0;
+	int sz = 0, pg_counter, pgpath_counter;
 	unsigned long flags;
 	struct multipath *m = ti->private;
 	struct priority_group *pg;
@@ -1909,6 +1912,44 @@ static void multipath_status(struct dm_target *ti, status_type_t type,
 					      maxlen - sz);
 			}
 		}
+		break;
+
+	case STATUSTYPE_IMA:
+		sz = 0; /*reset the result pointer*/
+
+		DMEMIT_TARGET_NAME_VERSION(ti->type);
+		DMEMIT(",nr_priority_groups=%u", m->nr_priority_groups);
+
+		pg_counter = 0;
+		list_for_each_entry(pg, &m->priority_groups, list) {
+			if (pg->bypassed)
+				state = 'D';	/* Disabled */
+			else if (pg == m->current_pg)
+				state = 'A';	/* Currently Active */
+			else
+				state = 'E';	/* Enabled */
+			DMEMIT(",pg_state_%d=%c", pg_counter, state);
+			DMEMIT(",nr_pgpaths_%d=%u", pg_counter, pg->nr_pgpaths);
+			DMEMIT(",path_selector_name_%d=%s", pg_counter, pg->ps.type->name);
+
+			pgpath_counter = 0;
+			list_for_each_entry(p, &pg->pgpaths, list) {
+				DMEMIT(",path_name_%d_%d=%s,is_active_%d_%d=%c,fail_count_%d_%d=%u",
+				       pg_counter, pgpath_counter, p->path.dev->name,
+				       pg_counter, pgpath_counter, p->is_active ? 'A' : 'F',
+				       pg_counter, pgpath_counter, p->fail_count);
+				if (pg->ps.type->status) {
+					DMEMIT(",path_selector_status_%d_%d=",
+					       pg_counter, pgpath_counter);
+					sz += pg->ps.type->status(&pg->ps, &p->path,
+								  type, result + sz,
+								  maxlen - sz);
+				}
+				pgpath_counter++;
+			}
+			pg_counter++;
+		}
+		DMEMIT(";");
 		break;
 	}
 
