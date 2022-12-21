@@ -1103,15 +1103,16 @@ ok:
 	/* Head lock still held and bh's disabled */
 	inet_bind_hash(sk, tb, tb2, port);
 
-	spin_unlock(&head2->lock);
-
 	if (sk_unhashed(sk)) {
 		inet_sk(sk)->inet_sport = htons(port);
 		inet_ehash_nolisten(sk, (struct sock *)tw, NULL);
 	}
 	if (tw)
 		inet_twsk_bind_unhash(tw, hinfo);
+
+	spin_unlock(&head2->lock);
 	spin_unlock(&head->lock);
+
 	if (tw)
 		inet_twsk_deschedule_put(tw);
 	local_bh_enable();
