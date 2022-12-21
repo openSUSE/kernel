@@ -40,3 +40,4 @@ x86-specific Documentation
    features
    elf_auxvec
    xstate
+   amd_hsmp
