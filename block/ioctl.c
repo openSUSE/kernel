@@ -90,7 +90,7 @@ static int compat_blkpg_ioctl(struct block_device *bdev,
 }
 #endif
 
-static int blkdev_reread_part(struct block_device *bdev)
+static int blkdev_reread_part(struct block_device *bdev, void *owner)
 {
 	int ret;
 
@@ -98,6 +98,8 @@ static int blkdev_reread_part(struct block_device *bdev)
 		return -EINVAL;
 	if (!capable(CAP_SYS_ADMIN))
 		return -EACCES;
+	if (bdev->bd_holder && bdev->bd_holder != owner)
+		return -EBUSY;
 
 	mutex_lock(&bdev->bd_mutex);
 	ret = bdev_disk_changed(bdev, false);
@@ -492,7 +494,8 @@ static int blkdev_bszset(struct block_device *bdev, fmode_t mode,
  * to deal with the compat_ptr() conversion.
  */
 static int blkdev_common_ioctl(struct block_device *bdev, fmode_t mode,
-				unsigned cmd, unsigned long arg, void __user *argp)
+				unsigned cmd, unsigned long arg,
+				void __user *argp, void *owner)
 {
 	unsigned int max_sectors;
 
@@ -546,7 +549,7 @@ static int blkdev_common_ioctl(struct block_device *bdev, fmode_t mode,
 		bdev->bd_bdi->ra_pages = (arg * 512) / PAGE_SIZE;
 		return 0;
 	case BLKRRPART:
-		return blkdev_reread_part(bdev);
+		return blkdev_reread_part(bdev, owner);
 	case BLKTRACESTART:
 	case BLKTRACESTOP:
 	case BLKTRACETEARDOWN:
@@ -574,8 +577,8 @@ static int blkdev_common_ioctl(struct block_device *bdev, fmode_t mode,
  *
  * New commands must be compatible and go into blkdev_common_ioctl
  */
-int blkdev_ioctl(struct block_device *bdev, fmode_t mode, unsigned cmd,
-			unsigned long arg)
+static int blkdev_do_ioctl(struct block_device *bdev, fmode_t mode,
+			unsigned cmd, unsigned long arg, void *owner)
 {
 	int ret;
 	loff_t size;
@@ -615,11 +618,25 @@ int blkdev_ioctl(struct block_device *bdev, fmode_t mode, unsigned cmd,
 		break;
 	}
 
-	ret = blkdev_common_ioctl(bdev, mode, cmd, arg, argp);
+	ret = blkdev_common_ioctl(bdev, mode, cmd, arg, argp, owner);
 	if (ret == -ENOIOCTLCMD)
 		return __blkdev_driver_ioctl(bdev, mode, cmd, arg);
 
 	return ret;
+}
+
+int blkdev_file_ioctl(struct file *file, fmode_t mode, unsigned cmd,
+			unsigned long arg)
+{
+	struct block_device *bdev = I_BDEV(file->f_mapping->host);
+
+	return blkdev_do_ioctl(bdev, mode, cmd, arg, file);
+}
+
+int blkdev_ioctl(struct block_device *bdev, fmode_t mode, unsigned cmd,
+			unsigned long arg)
+{
+	return blkdev_do_ioctl(bdev, mode, cmd, arg, NULL);
 }
 EXPORT_SYMBOL_GPL(blkdev_ioctl); /* for /dev/raw */
 
@@ -686,7 +703,7 @@ long compat_blkdev_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 		break;
 	}
 
-	ret = blkdev_common_ioctl(bdev, mode, cmd, arg, argp);
+	ret = blkdev_common_ioctl(bdev, mode, cmd, arg, argp, file);
 	if (ret == -ENOIOCTLCMD && disk->fops->compat_ioctl)
 		ret = disk->fops->compat_ioctl(bdev, mode, cmd, arg);
 

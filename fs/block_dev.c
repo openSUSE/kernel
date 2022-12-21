@@ -1886,7 +1886,6 @@ static int blkdev_close(struct inode * inode, struct file * filp)
 
 static long block_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 {
-	struct block_device *bdev = I_BDEV(bdev_file_inode(file));
 	fmode_t mode = file->f_mode;
 
 	/*
@@ -1898,7 +1897,7 @@ static long block_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	else
 		mode &= ~FMODE_NDELAY;
 
-	return blkdev_ioctl(bdev, mode, cmd, arg);
+	return blkdev_file_ioctl(file, mode, cmd, arg);
 }
 
 /*
