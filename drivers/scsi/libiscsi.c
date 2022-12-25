@@ -93,6 +93,14 @@ inline void iscsi_conn_queue_xmit(struct iscsi_conn *conn)
 }
 EXPORT_SYMBOL_GPL(iscsi_conn_queue_xmit);
 
+/* for kABI, add back old version of iscsi_conn_queue_xmit */
+inline void iscsi_conn_queue_work(struct iscsi_conn *conn)
+{
+	iscsi_conn_queue_xmit(conn);
+}
+EXPORT_SYMBOL_GPL(iscsi_conn_queue_work);
+
+
 inline void iscsi_conn_queue_recv(struct iscsi_conn *conn)
 {
 	struct Scsi_Host *shost = conn->session->host;
