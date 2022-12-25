@@ -59,11 +59,10 @@ enum {
  * field
  */
 
-/* Connection suspend "bit" */
-#define ISCSI_SUSPEND_BIT		1
-
 /* Connection flags */
-#define ISCSI_CONN_FLAG_BOUND		BIT(2)
+#define ISCSI_CONN_FLAG_SUSPEND_TX	0
+#define ISCSI_CONN_FLAG_SUSPEND_RX	1
+#define ISCSI_CONN_FLAG_BOUND		2
 
 #define ISCSI_ITT_MASK			0x1fff
 #define ISCSI_TOTAL_CMDS_MAX		4096
@@ -209,8 +208,14 @@ struct iscsi_conn {
 	struct list_head	cmdqueue;	/* data-path cmd queue */
 	struct list_head	requeue;	/* tasks needing another run */
 	struct work_struct	xmitwork;	/* per-conn. xmit workqueue */
+
+	/*
+	 * these two fields have been removed since the "flags" field replaces
+	 * them, but are kept here for kABI compatability
+	 */
 	unsigned long		suspend_tx;	/* suspend Tx */
 	unsigned long		suspend_rx;	/* suspend Rx */
+
 
 	/* negotiated params */
 	unsigned		max_recv_dlength; /* initiator_max_recv_dsl*/
@@ -256,6 +261,9 @@ struct iscsi_conn {
 	uint32_t		fmr_unalign_cnt;
 #ifndef __GENKSYMS__
 	unsigned long		flags;		/* ISCSI_CONN_FLAGs */
+
+	/* recv */
+	struct work_struct	recvwork;
 #endif
 };
 
@@ -459,7 +467,12 @@ extern int iscsi_conn_get_param(struct iscsi_cls_conn *cls_conn,
 extern int iscsi_conn_get_addr_param(struct sockaddr_storage *addr,
 				     enum iscsi_param param, char *buf);
 extern void iscsi_suspend_tx(struct iscsi_conn *conn);
+extern void iscsi_suspend_rx(struct iscsi_conn *conn);
 extern void iscsi_suspend_queue(struct iscsi_conn *conn);
+extern void iscsi_conn_queue_xmit(struct iscsi_conn *conn);
+extern void iscsi_conn_queue_recv(struct iscsi_conn *conn);
+
+/* for kABI */
 extern void iscsi_conn_queue_work(struct iscsi_conn *conn);
 
 #define iscsi_conn_printk(prefix, _c, fmt, a...) \
