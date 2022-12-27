@@ -200,12 +200,15 @@ int amvdec_set_canvases(struct amvdec_session *sess,
 }
 EXPORT_SYMBOL_GPL(amvdec_set_canvases);
 
-void amvdec_add_ts_reorder(struct amvdec_session *sess, u64 ts, u32 offset)
+int amvdec_add_ts_reorder(struct amvdec_session *sess, u64 ts, u32 offset)
 {
 	struct amvdec_timestamp *new_ts, *tmp;
 	unsigned long flags;
 
-	new_ts = kmalloc(sizeof(*new_ts), GFP_KERNEL);
+	new_ts = kzalloc(sizeof(*new_ts), GFP_KERNEL);
+	if (!new_ts)
+		return -ENOMEM;
+
 	new_ts->ts = ts;
 	new_ts->offset = offset;
 
@@ -225,6 +228,7 @@ add_tail:
 	list_add_tail(&new_ts->list, &sess->timestamps);
 unlock:
 	spin_unlock_irqrestore(&sess->ts_spinlock, flags);
+	return 0;
 }
 EXPORT_SYMBOL_GPL(amvdec_add_ts_reorder);
 
