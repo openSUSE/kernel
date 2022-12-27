@@ -959,6 +959,7 @@ struct io_op_def {
 	/* set if opcode supports polled "wait" */
 	unsigned		pollin : 1;
 	unsigned		pollout : 1;
+	unsigned		poll_exclusive : 1;
 	/* op supports buffer selection */
 	unsigned		buffer_select : 1;
 	/* do prep async if is going to be punted */
@@ -1040,6 +1041,7 @@ static const struct io_op_def io_op_defs[] = {
 		.needs_file		= 1,
 		.unbound_nonreg_file	= 1,
 		.pollin			= 1,
+		.poll_exclusive		= 1,
 	},
 	[IORING_OP_ASYNC_CANCEL] = {},
 	[IORING_OP_LINK_TIMEOUT] = {
@@ -6131,7 +6133,8 @@ static int io_arm_poll_handler(struct io_kiocb *req, unsigned issue_flags)
 	} else {
 		mask |= POLLOUT | POLLWRNORM;
 	}
-
+	if (def->poll_exclusive)
+		mask |= EPOLLEXCLUSIVE;
 	if (!(issue_flags & IO_URING_F_UNLOCKED) &&
 	    !list_empty(&ctx->apoll_cache)) {
 		apoll = list_first_entry(&ctx->apoll_cache, struct async_poll,
