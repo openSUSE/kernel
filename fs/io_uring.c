@@ -2337,8 +2337,6 @@ static inline struct io_kiocb *io_req_find_next(struct io_kiocb *req)
 {
 	struct io_kiocb *nxt;
 
-	if (likely(!(req->flags & (REQ_F_LINK|REQ_F_HARDLINK))))
-		return NULL;
 	/*
 	 * If LINK is set, we have dependent requests in this chain. If we
 	 * didn't fail this request, queue the first one up, moving any other
@@ -2565,10 +2563,12 @@ static void io_req_task_queue_reissue(struct io_kiocb *req)
 
 static inline void io_queue_next(struct io_kiocb *req)
 {
-	struct io_kiocb *nxt = io_req_find_next(req);
+	if (unlikely(req->flags & (REQ_F_LINK|REQ_F_HARDLINK))) {
+		struct io_kiocb *nxt = io_req_find_next(req);
 
-	if (nxt)
-		io_req_task_queue(nxt);
+		if (nxt)
+			io_req_task_queue(nxt);
+	}
 }
 
 static void io_free_req(struct io_kiocb *req)
@@ -2662,7 +2662,8 @@ static inline struct io_kiocb *io_put_req_find_next(struct io_kiocb *req)
 	struct io_kiocb *nxt = NULL;
 
 	if (req_ref_put_and_test(req)) {
-		nxt = io_req_find_next(req);
+		if (unlikely(req->flags & (REQ_F_LINK|REQ_F_HARDLINK)))
+			nxt = io_req_find_next(req);
 		__io_free_req(req);
 	}
 	return nxt;
