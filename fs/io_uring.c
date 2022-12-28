@@ -3802,8 +3802,10 @@ static int io_read(struct io_kiocb *req, unsigned int issue_flags)
 		iovec = NULL;
 	}
 	ret = io_rw_init_file(req, FMODE_READ);
-	if (unlikely(ret))
+	if (unlikely(ret)) {
+		kfree(iovec);
 		return ret;
+	}
 	req->result = iov_iter_count(&s->iter);
 
 	if (force_nonblock) {
@@ -3928,8 +3930,10 @@ static int io_write(struct io_kiocb *req, unsigned int issue_flags)
 		iovec = NULL;
 	}
 	ret = io_rw_init_file(req, FMODE_WRITE);
-	if (unlikely(ret))
+	if (unlikely(ret)) {
+		kfree(iovec);
 		return ret;
+	}
 	req->result = iov_iter_count(&s->iter);
 
 	if (force_nonblock) {
