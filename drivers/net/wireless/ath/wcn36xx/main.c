@@ -1301,6 +1301,16 @@ static void wcn36xx_ipv6_addr_change(struct ieee80211_hw *hw,
 }
 #endif
 
+static void wcn36xx_flush(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+			  u32 queues, bool drop)
+{
+	struct wcn36xx *wcn = hw->priv;
+
+	if (wcn36xx_dxe_tx_flush(wcn)) {
+		wcn36xx_err("Failed to flush hardware tx queues\n");
+	}
+}
+
 static const struct ieee80211_ops wcn36xx_ops = {
 	.start			= wcn36xx_start,
 	.stop			= wcn36xx_stop,
@@ -1328,6 +1338,7 @@ static const struct ieee80211_ops wcn36xx_ops = {
 #if IS_ENABLED(CONFIG_IPV6)
 	.ipv6_addr_change	= wcn36xx_ipv6_addr_change,
 #endif
+	.flush			= wcn36xx_flush,
 
 	CFG80211_TESTMODE_CMD(wcn36xx_tm_cmd)
 };
