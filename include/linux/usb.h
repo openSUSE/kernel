@@ -670,7 +670,6 @@ struct usb_device {
 
 	unsigned can_submit:1;
 	unsigned persist_enabled:1;
-	unsigned reset_in_progress:1;
 	unsigned have_langid:1;
 	unsigned authorized:1;
 	unsigned authenticated:1;
@@ -682,6 +681,9 @@ struct usb_device {
 	unsigned usb2_hw_lpm_allowed:1;
 	unsigned usb3_lpm_u1_enabled:1;
 	unsigned usb3_lpm_u2_enabled:1;
+#ifndef __GENKSYMS__
+	unsigned reset_in_progress:1;
+#endif
 	int string_langid;
 
 	/* static strings from the device */
