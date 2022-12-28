@@ -1475,6 +1475,11 @@ static inline void req_fail_link_node(struct io_kiocb *req, int res)
 	req->cqe.res = res;
 }
 
+static inline void io_req_add_to_cache(struct io_kiocb *req, struct io_ring_ctx *ctx)
+{
+	wq_stack_add_head(&req->comp_list, &ctx->submit_state.free_list);
+}
+
 static __cold void io_ring_ctx_ref_free(struct percpu_ref *ref)
 {
 	struct io_ring_ctx *ctx = container_of(ref, struct io_ring_ctx, refs);
@@ -2205,7 +2210,6 @@ static inline bool io_req_cache_empty(struct io_ring_ctx *ctx)
 static __cold bool __io_alloc_req_refill(struct io_ring_ctx *ctx)
 	__must_hold(&ctx->uring_lock)
 {
-	struct io_submit_state *state = &ctx->submit_state;
 	gfp_t gfp = GFP_KERNEL | __GFP_NOWARN;
 	void *reqs[IO_REQ_ALLOC_BATCH];
 	int ret, i;
@@ -2239,7 +2243,7 @@ static __cold bool __io_alloc_req_refill(struct io_ring_ctx *ctx)
 		struct io_kiocb *req = reqs[i];
 
 		io_preinit_req(req, ctx);
-		wq_stack_add_head(&req->comp_list, &state->free_list);
+		io_req_add_to_cache(req, ctx);
 	}
 	return true;
 }
@@ -2682,7 +2686,7 @@ static void io_free_batch_list(struct io_ring_ctx *ctx,
 		}
 		task_refs++;
 		node = req->comp_list.next;
-		wq_stack_add_head(&req->comp_list, &ctx->submit_state.free_list);
+		io_req_add_to_cache(req, ctx);
 	} while (node);
 
 	if (task)
@@ -7831,7 +7835,7 @@ static int io_submit_sqes(struct io_ring_ctx *ctx, unsigned int nr)
 		req = io_alloc_req(ctx);
 		sqe = io_get_sqe(ctx);
 		if (unlikely(!sqe)) {
-			wq_stack_add_head(&req->comp_list, &ctx->submit_state.free_list);
+			io_req_add_to_cache(req, ctx);
 			break;
 		}
 		/* will complete beyond this point, count as submitted */
