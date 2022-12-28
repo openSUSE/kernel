@@ -8562,7 +8562,7 @@ static struct io_sq_data *io_get_sq_data(struct io_uring_params *p,
  * files because otherwise they can't form a loop and so are not interesting
  * for GC.
  */
-static int io_sqe_file_register(struct io_ring_ctx *ctx, struct file *file)
+static int io_scm_file_account(struct io_ring_ctx *ctx, struct file *file)
 {
 #if defined(CONFIG_UNIX)
 	struct sock *sk = ctx->ring_sock->sk;
@@ -8795,7 +8795,7 @@ static int io_sqe_files_register(struct io_ring_ctx *ctx, void __user *arg,
 			fput(file);
 			goto fail;
 		}
-		ret = io_sqe_file_register(ctx, file);
+		ret = io_scm_file_account(ctx, file);
 		if (ret) {
 			fput(file);
 			goto fail;
@@ -8865,7 +8865,7 @@ static int io_install_fixed_file(struct io_kiocb *req, struct file *file,
 		needs_switch = true;
 	}
 
-	ret = io_sqe_file_register(ctx, file);
+	ret = io_scm_file_account(ctx, file);
 	if (!ret) {
 		*io_get_tag_slot(ctx->file_data, slot_index) = 0;
 		io_fixed_file_set(file_slot, file);
@@ -8980,7 +8980,7 @@ static int __io_sqe_files_update(struct io_ring_ctx *ctx,
 				err = -EBADF;
 				break;
 			}
-			err = io_sqe_file_register(ctx, file);
+			err = io_scm_file_account(ctx, file);
 			if (err) {
 				fput(file);
 				break;
