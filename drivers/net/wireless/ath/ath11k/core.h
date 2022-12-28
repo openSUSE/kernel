@@ -200,6 +200,9 @@ enum ath11k_dev_flags {
 
 enum ath11k_monitor_flags {
 	ATH11K_FLAG_MONITOR_ENABLED,
+	ATH11K_FLAG_MONITOR_CONF_ENABLED,
+	ATH11K_FLAG_MONITOR_STARTED,
+	ATH11K_FLAG_MONITOR_VDEV_CREATED,
 };
 
 struct ath11k_vif {
@@ -494,7 +497,6 @@ struct ath11k {
 	u32 chan_tx_pwr;
 	u32 num_stations;
 	u32 max_num_stations;
-	bool monitor_present;
 	/* To synchronize concurrent synchronous mac80211 callback operations,
 	 * concurrent debugfs configuration and concurrent FW statistics events.
 	 */
@@ -569,6 +571,7 @@ struct ath11k {
 	struct ath11k_per_peer_tx_stats cached_stats;
 	u32 last_ppdu_id;
 	u32 cached_ppdu_id;
+	int monitor_vdev_id;
 #ifdef CONFIG_ATH11K_DEBUGFS
 	struct ath11k_debug debug;
 #endif
