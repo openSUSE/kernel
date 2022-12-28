@@ -787,6 +787,10 @@ static void kvaser_usb_leaf_rx_error(const struct kvaser_usb *dev,
 	priv = dev->nets[es->channel];
 	stats = &priv->netdev->stats;
 
+	/* Ignore e.g. state change to bus-off reported just after stopping */
+	if (!netif_running(priv->netdev))
+		return;
+
 	/* Update all of the CAN interface's state and error counters before
 	 * trying any memory allocation that can actually fail with -ENOMEM.
 	 *
