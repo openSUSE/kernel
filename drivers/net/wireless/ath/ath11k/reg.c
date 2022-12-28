@@ -86,6 +86,9 @@ ath11k_reg_notifier(struct wiphy *wiphy, struct regulatory_request *request)
 	if (ret)
 		ath11k_warn(ar->ab,
 			    "INIT Country code set to fw failed : %d\n", ret);
+
+	ath11k_mac_11d_scan_stop(ar);
+	ar->regdom_set_by_user = true;
 }
 
 int ath11k_reg_update_chan_list(struct ath11k *ar)
@@ -178,6 +181,11 @@ int ath11k_reg_update_chan_list(struct ath11k *ar)
 
 	ret = ath11k_wmi_send_scan_chan_list_cmd(ar, params);
 	kfree(params);
+
+	if (ar->pending_11d) {
+		complete(&ar->finish_11d_ch_list);
+		ar->pending_11d = false;
+	}
 
 	return ret;
 }
