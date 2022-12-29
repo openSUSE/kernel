@@ -987,6 +987,11 @@ struct io_defer_entry {
 	u32			seq;
 };
 
+struct io_cancel_data {
+	struct io_ring_ctx *ctx;
+	u64 data;
+};
+
 struct io_op_def {
 	/* needs req->file assigned */
 	unsigned		needs_file : 1;
@@ -6263,16 +6268,16 @@ static __cold bool io_poll_remove_all(struct io_ring_ctx *ctx,
 	return found;
 }
 
-static struct io_kiocb *io_poll_find(struct io_ring_ctx *ctx, __u64 sqe_addr,
-				     bool poll_only)
+static struct io_kiocb *io_poll_find(struct io_ring_ctx *ctx, bool poll_only,
+				     struct io_cancel_data *cd)
 	__must_hold(&ctx->completion_lock)
 {
 	struct hlist_head *list;
 	struct io_kiocb *req;
 
-	list = &ctx->cancel_hash[hash_long(sqe_addr, ctx->cancel_hash_bits)];
+	list = &ctx->cancel_hash[hash_long(cd->data, ctx->cancel_hash_bits)];
 	hlist_for_each_entry(req, list, hash_node) {
-		if (sqe_addr != req->cqe.user_data)
+		if (cd->data != req->cqe.user_data)
 			continue;
 		if (poll_only && req->opcode != IORING_OP_POLL_ADD)
 			continue;
@@ -6291,10 +6296,10 @@ static bool io_poll_disarm(struct io_kiocb *req)
 	return true;
 }
 
-static int io_poll_cancel(struct io_ring_ctx *ctx, __u64 sqe_addr)
+static int io_poll_cancel(struct io_ring_ctx *ctx, struct io_cancel_data *cd)
 	__must_hold(&ctx->completion_lock)
 {
-	struct io_kiocb *req = io_poll_find(ctx, sqe_addr, false);
+	struct io_kiocb *req = io_poll_find(ctx, false, cd);
 
 	if (!req)
 		return -ENOENT;
@@ -6392,13 +6397,14 @@ static int io_poll_add(struct io_kiocb *req, unsigned int issue_flags)
 
 static int io_poll_update(struct io_kiocb *req, unsigned int issue_flags)
 {
+	struct io_cancel_data cd = { .data = req->poll_update.old_user_data, };
 	struct io_ring_ctx *ctx = req->ctx;
 	struct io_kiocb *preq;
 	int ret2, ret = 0;
 	bool locked;
 
 	spin_lock(&ctx->completion_lock);
-	preq = io_poll_find(ctx, req->poll_update.old_user_data, true);
+	preq = io_poll_find(ctx, true, &cd);
 	if (!preq || !io_poll_disarm(preq)) {
 		spin_unlock(&ctx->completion_lock);
 		ret = preq ? -EALREADY : -ENOENT;
@@ -6458,7 +6464,7 @@ static enum hrtimer_restart io_timeout_fn(struct hrtimer *timer)
 }
 
 static struct io_kiocb *io_timeout_extract(struct io_ring_ctx *ctx,
-					   __u64 user_data)
+					   struct io_cancel_data *cd)
 	__must_hold(&ctx->timeout_lock)
 {
 	struct io_timeout_data *io;
@@ -6466,7 +6472,7 @@ static struct io_kiocb *io_timeout_extract(struct io_ring_ctx *ctx,
 	bool found = false;
 
 	list_for_each_entry(req, &ctx->timeout_list, timeout.list) {
-		found = user_data == req->cqe.user_data;
+		found = cd->data == req->cqe.user_data;
 		if (found)
 			break;
 	}
@@ -6480,13 +6486,13 @@ static struct io_kiocb *io_timeout_extract(struct io_ring_ctx *ctx,
 	return req;
 }
 
-static int io_timeout_cancel(struct io_ring_ctx *ctx, __u64 user_data)
+static int io_timeout_cancel(struct io_ring_ctx *ctx, struct io_cancel_data *cd)
 	__must_hold(&ctx->completion_lock)
 {
 	struct io_kiocb *req;
 
 	spin_lock_irq(&ctx->timeout_lock);
-	req = io_timeout_extract(ctx, user_data);
+	req = io_timeout_extract(ctx, cd);
 	spin_unlock_irq(&ctx->timeout_lock);
 
 	if (IS_ERR(req))
@@ -6540,7 +6546,8 @@ static int io_timeout_update(struct io_ring_ctx *ctx, __u64 user_data,
 			     struct timespec64 *ts, enum hrtimer_mode mode)
 	__must_hold(&ctx->timeout_lock)
 {
-	struct io_kiocb *req = io_timeout_extract(ctx, user_data);
+	struct io_cancel_data cd = { .data = user_data, };
+	struct io_kiocb *req = io_timeout_extract(ctx, &cd);
 	struct io_timeout_data *data;
 
 	if (IS_ERR(req))
@@ -6605,8 +6612,10 @@ static int io_timeout_remove(struct io_kiocb *req, unsigned int issue_flags)
 	int ret;
 
 	if (!(req->timeout_rem.flags & IORING_TIMEOUT_UPDATE)) {
+		struct io_cancel_data cd = { .data = tr->addr, };
+
 		spin_lock(&ctx->completion_lock);
-		ret = io_timeout_cancel(ctx, tr->addr);
+		ret = io_timeout_cancel(ctx, &cd);
 		spin_unlock(&ctx->completion_lock);
 	} else {
 		enum hrtimer_mode mode = io_translate_timeout_mode(tr->flags);
@@ -6734,30 +6743,24 @@ add:
 	return 0;
 }
 
-struct io_cancel_data {
-	struct io_ring_ctx *ctx;
-	u64 user_data;
-};
-
 static bool io_cancel_cb(struct io_wq_work *work, void *data)
 {
 	struct io_kiocb *req = container_of(work, struct io_kiocb, work);
 	struct io_cancel_data *cd = data;
 
-	return req->ctx == cd->ctx && req->cqe.user_data == cd->user_data;
+	return req->ctx == cd->ctx && req->cqe.user_data == cd->data;
 }
 
-static int io_async_cancel_one(struct io_uring_task *tctx, u64 user_data,
-			       struct io_ring_ctx *ctx)
+static int io_async_cancel_one(struct io_uring_task *tctx,
+			       struct io_cancel_data *cd)
 {
-	struct io_cancel_data data = { .ctx = ctx, .user_data = user_data, };
 	enum io_wq_cancel cancel_ret;
 	int ret = 0;
 
 	if (!tctx || !tctx->io_wq)
 		return -ENOENT;
 
-	cancel_ret = io_wq_cancel_cb(tctx->io_wq, io_cancel_cb, &data, false);
+	cancel_ret = io_wq_cancel_cb(tctx->io_wq, io_cancel_cb, cd, false);
 	switch (cancel_ret) {
 	case IO_WQ_CANCEL_OK:
 		ret = 0;
@@ -6773,14 +6776,14 @@ static int io_async_cancel_one(struct io_uring_task *tctx, u64 user_data,
 	return ret;
 }
 
-static int io_try_cancel_userdata(struct io_kiocb *req, u64 sqe_addr)
+static int io_try_cancel(struct io_kiocb *req, struct io_cancel_data *cd)
 {
 	struct io_ring_ctx *ctx = req->ctx;
 	int ret;
 
 	WARN_ON_ONCE(!io_wq_current_is_worker() && req->task != current);
 
-	ret = io_async_cancel_one(req->task->io_uring, sqe_addr, ctx);
+	ret = io_async_cancel_one(req->task->io_uring, cd);
 	/*
 	 * Fall-through even for -EALREADY, as we may have poll armed
 	 * that need unarming.
@@ -6789,10 +6792,10 @@ static int io_try_cancel_userdata(struct io_kiocb *req, u64 sqe_addr)
 		return 0;
 
 	spin_lock(&ctx->completion_lock);
-	ret = io_poll_cancel(ctx, sqe_addr);
+	ret = io_poll_cancel(ctx, cd);
 	if (ret != -ENOENT)
 		goto out;
-	ret = io_timeout_cancel(ctx, sqe_addr);
+	ret = io_timeout_cancel(ctx, cd);
 out:
 	spin_unlock(&ctx->completion_lock);
 	return ret;
@@ -6816,11 +6819,14 @@ static int io_async_cancel_prep(struct io_kiocb *req,
 static int io_async_cancel(struct io_kiocb *req, unsigned int issue_flags)
 {
 	struct io_ring_ctx *ctx = req->ctx;
-	u64 sqe_addr = req->cancel.addr;
+	struct io_cancel_data cd = {
+		.ctx		= ctx,
+		.data		= req->cancel.addr,
+	};
 	struct io_tctx_node *node;
 	int ret;
 
-	ret = io_try_cancel_userdata(req, sqe_addr);
+	ret = io_try_cancel(req, &cd);
 	if (ret != -ENOENT)
 		goto done;
 
@@ -6830,7 +6836,7 @@ static int io_async_cancel(struct io_kiocb *req, unsigned int issue_flags)
 	list_for_each_entry(node, &ctx->tctx_list, ctx_node) {
 		struct io_uring_task *tctx = node->task->io_uring;
 
-		ret = io_async_cancel_one(tctx, req->cancel.addr, ctx);
+		ret = io_async_cancel_one(tctx, &cd);
 		if (ret != -ENOENT)
 			break;
 	}
@@ -7421,8 +7427,14 @@ static void io_req_task_link_timeout(struct io_kiocb *req, bool *locked)
 	int ret = -ENOENT;
 
 	if (prev) {
-		if (!(req->task->flags & PF_EXITING))
-			ret = io_try_cancel_userdata(req, prev->cqe.user_data);
+		if (!(req->task->flags & PF_EXITING)) {
+			struct io_cancel_data cd = {
+				.ctx		= req->ctx,
+				.data		= prev->cqe.user_data,
+			};
+
+			ret = io_try_cancel(req, &cd);
+		}
 		io_req_complete_post(req, ret ?: -ETIME, 0);
 		io_put_req(prev);
 	} else {
