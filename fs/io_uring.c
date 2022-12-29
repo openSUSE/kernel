@@ -904,6 +904,7 @@ struct io_cqe {
 
 enum {
 	IO_CHECK_CQ_OVERFLOW_BIT,
+	IO_CHECK_CQ_DROPPED_BIT,
 };
 
 /*
@@ -2086,6 +2087,7 @@ static bool io_cqring_event_overflow(struct io_ring_ctx *ctx, u64 user_data,
 		 * on the floor.
 		 */
 		io_account_cq_overflow(ctx);
+		set_bit(IO_CHECK_CQ_DROPPED_BIT, &ctx->check_cq);
 		return false;
 	}
 	if (list_empty(&ctx->cq_overflow_list)) {
@@ -2923,16 +2925,26 @@ static int io_iopoll_check(struct io_ring_ctx *ctx, long min)
 {
 	unsigned int nr_events = 0;
 	int ret = 0;
+	unsigned long check_cq;
 
 	/*
 	 * Don't enter poll loop if we already have events pending.
 	 * If we do, we can potentially be spinning for commands that
 	 * already triggered a CQE (eg in error).
 	 */
-	if (test_bit(IO_CHECK_CQ_OVERFLOW_BIT, &ctx->check_cq))
+	check_cq = READ_ONCE(ctx->check_cq);
+	if (check_cq & BIT(IO_CHECK_CQ_OVERFLOW_BIT))
 		__io_cqring_overflow_flush(ctx, false);
 	if (io_cqring_events(ctx))
 		return 0;
+
+	/*
+	 * Similarly do not spin if we have not informed the user of any
+	 * dropped CQE.
+	 */
+	if (unlikely(check_cq & BIT(IO_CHECK_CQ_DROPPED_BIT)))
+		return -EBADR;
+
 	do {
 		/*
 		 * If a submit got punted to a workqueue, we can have the
@@ -8282,15 +8294,18 @@ static inline int io_cqring_wait_schedule(struct io_ring_ctx *ctx,
 					  ktime_t timeout)
 {
 	int ret;
+	unsigned long check_cq;
 
 	/* make sure we run task_work before checking for signals */
 	ret = io_run_task_work_sig();
 	if (ret || io_should_wake(iowq))
 		return ret;
+	check_cq = READ_ONCE(ctx->check_cq);
 	/* let the caller flush overflows, retry */
-	if (test_bit(IO_CHECK_CQ_OVERFLOW_BIT, &ctx->check_cq))
+	if (check_cq & BIT(IO_CHECK_CQ_OVERFLOW_BIT))
 		return 1;
-
+	if (unlikely(check_cq & BIT(IO_CHECK_CQ_DROPPED_BIT)))
+		return -EBADR;
 	if (!schedule_hrtimeout(&timeout, HRTIMER_MODE_ABS))
 		return -ETIME;
 	return 1;
@@ -10938,9 +10953,18 @@ iopoll_locked:
 			}
 		}
 
-		if (!ret)
+		if (!ret) {
 			ret = ret2;
 
+			/*
+			 * EBADR indicates that one or more CQE were dropped.
+			 * Once the user has been informed we can clear the bit
+			 * as they are obviously ok with those drops.
+			 */
+			if (unlikely(ret2 == -EBADR))
+				clear_bit(IO_CHECK_CQ_DROPPED_BIT,
+					  &ctx->check_cq);
+		}
 	}
 
 out:
