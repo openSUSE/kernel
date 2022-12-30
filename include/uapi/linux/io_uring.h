@@ -22,6 +22,7 @@ struct io_uring_sqe {
 	union {
 		__u64	off;	/* offset into file */
 		__u64	addr2;
+		__u32	cmd_op;
 	};
 	union {
 		__u64	addr;	/* pointer to buffer or iovecs */
@@ -60,13 +61,18 @@ struct io_uring_sqe {
 		__s32	splice_fd_in;
 		__u32	file_index;
 	};
-	__u64	__pad2[2];
 
-	/*
-	 * If the ring is initialized with IORING_SETUP_SQE128, then this field
-	 * contains 64-bytes of padding, doubling the size of the SQE.
-	 */
-	__u64   __big_sqe_pad[0];
+	 union {
+		 struct {
+			 __u64   addr3;
+			 __u64   __pad2[1];
+		 };
+		 /*
+		  * If the ring is initialized with IORING_SETUP_SQE128, then
+		  * this field is used for 80 bytes of arbitrary command data
+		  */
+		 __u8    cmd[0];
+	 };
 };
 
 enum {
@@ -154,6 +160,7 @@ enum io_uring_op {
 	IORING_OP_SYMLINKAT,
 	IORING_OP_LINKAT,
 	IORING_OP_MSG_RING,
+	IORING_OP_URING_CMD,
 
 	/* this goes last, obviously */
 	IORING_OP_LAST,
