@@ -1150,6 +1150,7 @@ static const struct io_op_def io_op_defs[] = {
 		.unbound_nonreg_file	= 1,
 		.pollout		= 1,
 		.needs_async_setup	= 1,
+		.ioprio			= 1,
 		.async_size		= sizeof(struct io_async_msghdr),
 	},
 	[IORING_OP_RECVMSG] = {
@@ -1158,6 +1159,7 @@ static const struct io_op_def io_op_defs[] = {
 		.pollin			= 1,
 		.buffer_select		= 1,
 		.needs_async_setup	= 1,
+		.ioprio			= 1,
 		.async_size		= sizeof(struct io_async_msghdr),
 	},
 	[IORING_OP_TIMEOUT] = {
@@ -1221,12 +1223,14 @@ static const struct io_op_def io_op_defs[] = {
 		.needs_file		= 1,
 		.unbound_nonreg_file	= 1,
 		.pollout		= 1,
+		.ioprio			= 1,
 	},
 	[IORING_OP_RECV] = {
 		.needs_file		= 1,
 		.unbound_nonreg_file	= 1,
 		.pollin			= 1,
 		.buffer_select		= 1,
+		.ioprio			= 1,
 	},
 	[IORING_OP_OPENAT2] = {
 	},
@@ -5777,14 +5781,12 @@ static int io_sendmsg_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
 	struct io_sr_msg *sr = &req->sr_msg;
 
-	if (unlikely(sqe->file_index))
-		return -EINVAL;
-	if (unlikely(sqe->addr2 || sqe->file_index))
+	if (unlikely(sqe->file_index || sqe->addr2))
 		return -EINVAL;
 
 	sr->umsg = u64_to_user_ptr(READ_ONCE(sqe->addr));
 	sr->len = READ_ONCE(sqe->len);
-	sr->flags = READ_ONCE(sqe->addr2);
+	sr->flags = READ_ONCE(sqe->ioprio);
 	if (sr->flags & ~IORING_RECVSEND_POLL_FIRST)
 		return -EINVAL;
 	sr->msg_flags = READ_ONCE(sqe->msg_flags) | MSG_NOSIGNAL;
@@ -6015,12 +6017,12 @@ static int io_recvmsg_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
 	struct io_sr_msg *sr = &req->sr_msg;
 
-	if (unlikely(sqe->file_index))
+	if (unlikely(sqe->file_index || sqe->addr2))
 		return -EINVAL;
 
 	sr->umsg = u64_to_user_ptr(READ_ONCE(sqe->addr));
 	sr->len = READ_ONCE(sqe->len);
-	sr->flags = READ_ONCE(sqe->addr2);
+	sr->flags = READ_ONCE(sqe->ioprio);
 	if (sr->flags & ~IORING_RECVSEND_POLL_FIRST)
 		return -EINVAL;
 	sr->msg_flags = READ_ONCE(sqe->msg_flags) | MSG_NOSIGNAL;
