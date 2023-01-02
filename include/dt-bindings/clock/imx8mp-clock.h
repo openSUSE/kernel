@@ -319,7 +319,6 @@
 #define IMX8MP_CLK_HSIO_AXI			311
 #define IMX8MP_CLK_MEDIA_ISP			312
 
-#define IMX8MP_CLK_END				313
 #define IMX8MP_CLK_USB_SUSP			320
 
 #define IMX8MP_CLK_END				321
