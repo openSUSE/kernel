@@ -1162,7 +1162,7 @@ static int ast_crtc_helper_atomic_check(struct drm_crtc *crtc,
 		return ret;
 
 	if (!crtc_state->enable)
-		goto out;
+		return 0;
 
 	ast_state = to_ast_crtc_state(crtc_state);
 
@@ -1192,8 +1192,7 @@ static int ast_crtc_helper_atomic_check(struct drm_crtc *crtc,
 	if (!succ)
 		return -EINVAL;
 
-out:
-	return drm_atomic_add_affected_planes(state, crtc);
+	return 0;
 }
 
 static void
