@@ -73,6 +73,7 @@ static void pseries_mach_cpu_die(void)
 		xics_teardown_cpu();
 
 	unregister_slb_shadow(hwcpu);
+	unregister_vpa(hwcpu);
 	rtas_stop_self();
 
 	/* Should never get here... */
