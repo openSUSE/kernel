@@ -771,12 +771,6 @@ struct io_msg {
 	u32 len;
 };
 
-struct io_nop {
-	struct file			*file;
-	u64				extra1;
-	u64				extra2;
-};
-
 struct io_async_connect {
 	struct sockaddr_storage		address;
 };
@@ -973,7 +967,6 @@ struct io_kiocb {
 		struct io_symlink	symlink;
 		struct io_hardlink	hardlink;
 		struct io_msg		msg;
-		struct io_nop           nop;
 		struct io_uring_cmd     uring_cmd;
 	};
 
@@ -4963,14 +4956,6 @@ done:
 
 static int io_nop_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
-	/*
-	 * If the ring is setup with CQE32, relay back addr/addr
-	 */
-	if (req->ctx->flags & IORING_SETUP_CQE32) {
-		req->nop.extra1 = READ_ONCE(sqe->addr);
-		req->nop.extra2 = READ_ONCE(sqe->addr2);
-	}
-
 	return 0;
 }
 
@@ -4979,6 +4964,7 @@ static int io_nop_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
  */
 static int io_nop(struct io_kiocb *req, unsigned int issue_flags)
 {
+	unsigned int cflags;
 	void __user *buf;
 
 	if (req->flags & REQ_F_BUFFER_SELECT) {
@@ -4989,12 +4975,8 @@ static int io_nop(struct io_kiocb *req, unsigned int issue_flags)
 			return -ENOBUFS;
 	}
 
-	__io_req_complete(req, issue_flags, 0, io_put_kbuf(req, issue_flags));
-	if (!(req->ctx->flags & IORING_SETUP_CQE32))
-		__io_req_complete(req, issue_flags, 0, 0);
-	else
-		__io_req_complete32(req, issue_flags, 0, 0, req->nop.extra1,
-				    req->nop.extra2);
+        cflags = io_put_kbuf(req, issue_flags);
+	__io_req_complete(req, issue_flags, 0, cflags);
 	return 0;
 }
 
