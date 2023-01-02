@@ -425,6 +425,13 @@ static const struct dmi_system_id lenovo_82ra[] = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "82RA"),
 		},
 	},
+	{
+		.ident = "Asus Vivobook S5602ZA",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "ASUSTeK COMPUTER INC."),
+			DMI_MATCH(DMI_BOARD_NAME, "S5602ZA"),
+		},
+	},
 	{ }
 };
 
