@@ -348,9 +348,6 @@
 #include <linux/uuid.h>
 #include <crypto/chacha.h>
 #include <crypto/sha1.h>
-#include <crypto/rng.h>
-#include <crypto/sha2.h>
-#include <crypto/algapi.h>
 
 #include <asm/processor.h>
 #include <linux/uaccess.h>
@@ -758,311 +755,6 @@ static int credit_entropy_bits_safe(struct entropy_store *r, int nbits)
 
 /*********************************************************************
  *
- * 800-90B compliant DRBG wired up to userspace interface only.
- *
- *********************************************************************/
-static DEFINE_MUTEX(fips_init_mtx);
-
-static unsigned int fips_do_drbg_algs_reset;
-
-struct fips_drbg_tfm
-{
-	struct crypto_rng *tfm;
-	refcount_t ref;
-	struct list_head reset_list;
-};
-
-static struct fips_drbg_tfm __rcu **fips_drbg_tfms;
-
-static void __fips_drbg_tfm_free(struct fips_drbg_tfm *drbg_tfm)
-{
-	crypto_free_rng(drbg_tfm->tfm);
-	kfree(drbg_tfm);
-}
-
-static struct fips_drbg_tfm* __fips_drbg_tfm_alloc(void)
-{
-	struct fips_drbg_tfm *drbg_tfm;
-	struct crypto_rng *tfm;
-	int r;
-
-	drbg_tfm = kmalloc(sizeof(*drbg_tfm), GFP_KERNEL);
-	if (!drbg_tfm)
-		return ERR_PTR(-ENOMEM);
-
-	/* One for the reference from fips_drbg_tfms[]. */
-	refcount_set(&drbg_tfm->ref, 1);
-
-	tfm = crypto_alloc_rng("drbg_nopr_sha512", 0, 0);
-	if (IS_ERR(tfm)) {
-		kfree(drbg_tfm);
-		return (void *)tfm;
-	}
-	drbg_tfm->tfm = tfm;
-
-	r = crypto_rng_reset(tfm, NULL, crypto_rng_seedsize(tfm));
-	if (r) {
-		__fips_drbg_tfm_free(drbg_tfm);
-		return ERR_PTR(r);
-	}
-
-	return drbg_tfm;
-}
-
-static int fips_drbgs_init(void)
-{
-	struct fips_drbg_tfm __rcu **drbg_tfms;
-	struct fips_drbg_tfm *drbg_tfm;
-
-	mutex_lock(&fips_init_mtx);
-	if (fips_drbg_tfms) {
-		mutex_unlock(&fips_init_mtx);
-		return 0;
-	}
-
-	drbg_tfms = kcalloc(nr_node_ids, sizeof(*fips_drbg_tfms),
-			    GFP_KERNEL);
-	if (!drbg_tfms) {
-		pr_err_ratelimited("random: FIPS drbg: drbg array allocation failure");
-		mutex_unlock(&fips_init_mtx);
-		return -ENOMEM;
-	}
-
-	drbg_tfm = __fips_drbg_tfm_alloc();
-	if (IS_ERR(drbg_tfm)) {
-		mutex_unlock(&fips_init_mtx);
-		kfree(drbg_tfms);
-		pr_err_ratelimited("random: FIPS drbg: drbg init failed, %ld",
-				   PTR_ERR(drbg_tfm));
-		return PTR_ERR(drbg_tfm);
-	}
-	rcu_assign_pointer(drbg_tfms[0], drbg_tfm);
-
-	pr_debug("random: FIPS drbg: init complete");
-	smp_store_release(&fips_drbg_tfms, drbg_tfms);
-
-	WRITE_ONCE(fips_do_drbg_algs_reset, 0);
-	mutex_unlock(&fips_init_mtx);
-
-	return 0;
-}
-
-static void fips_drbg_tfm_put(struct fips_drbg_tfm *drbg_tfm);
-
-static int fips_reset_drbg_algs(void)
-{
-	struct fips_drbg_tfm *new_node0_drbg_tfm, *drbg_tfm, *n;
-	LIST_HEAD(old_drbg_tfms);
-	int i;
-
-	mutex_lock(&fips_init_mtx);
-	if (!fips_do_drbg_algs_reset) {
-		mutex_unlock(&fips_init_mtx);
-		return 0;
-	}
-
-	new_node0_drbg_tfm = __fips_drbg_tfm_alloc();
-	if (IS_ERR(new_node0_drbg_tfm)) {
-		mutex_unlock(&fips_init_mtx);
-		pr_warn_ratelimited("random: FIPS drbg: drbg init failed at reset (%ld), performance degraded.",
-				    PTR_ERR(new_node0_drbg_tfm));
-		return PTR_ERR(new_node0_drbg_tfm);
-	}
-
-	for (i = 0; i < nr_node_ids; ++i) {
-		drbg_tfm = rcu_dereference_protected(fips_drbg_tfms[i], 1);
-		rcu_assign_pointer(fips_drbg_tfms[i], new_node0_drbg_tfm);
-		/* The remaining drbg's for i > 0 all get reset to NULL. */
-		new_node0_drbg_tfm = NULL;
-		if (drbg_tfm)
-			list_add(&drbg_tfm->reset_list, &old_drbg_tfms);
-	}
-
-	pr_debug("random: FIPS drbg: reset complete");
-	WRITE_ONCE(fips_do_drbg_algs_reset, 0);
-	mutex_unlock(&fips_init_mtx);
-
-	synchronize_rcu();
-	list_for_each_entry_safe(drbg_tfm, n, &old_drbg_tfms, reset_list) {
-		list_del(&drbg_tfm->reset_list);
-		/* Drop the reference owned by fips_drbg_tfms[]. */
-		fips_drbg_tfm_put(drbg_tfm);
-	}
-
-	return 0;
-}
-
-static void fips_trigger_drbg_algs_reset(void)
-{
-	pr_debug("random: FIPS drbg: reset requested");
-	mutex_lock(&fips_init_mtx);
-	WRITE_ONCE(fips_do_drbg_algs_reset, 1);
-	mutex_unlock(&fips_init_mtx);
-}
-
-static void fips_drbg_tfm_put(struct fips_drbg_tfm *drbg_tfm)
-{
-	if (IS_ERR_OR_NULL(drbg_tfm))
-		return;
-
-	if (refcount_dec_and_test(&drbg_tfm->ref))
-		__fips_drbg_tfm_free(drbg_tfm);
-}
-
-static struct fips_drbg_tfm* fips_drbg_tfm_get(int node)
-{
-	struct fips_drbg_tfm __rcu **drbg_tfms;
-	struct fips_drbg_tfm *drbg_tfm;
-
-	drbg_tfms = smp_load_acquire(&fips_drbg_tfms);
-	if (unlikely(!drbg_tfms)) {
-		int r;
-
-		r = fips_drbgs_init();
-		if (r)
-			return ERR_PTR(r);
-		drbg_tfms = smp_load_acquire(&fips_drbg_tfms);
-	}
-
-again:
-	if (READ_ONCE(fips_do_drbg_algs_reset) && fips_reset_drbg_algs()) {
-		/* Reset failed, resort to backup DRBG at node 0. */
-		node = 0;
-	}
-
-	rcu_read_lock();
-	drbg_tfm = rcu_dereference(drbg_tfms[node]);
-	if (likely(drbg_tfm)) {
-		refcount_inc(&drbg_tfm->ref);
-		rcu_read_unlock();
-		return drbg_tfm;
-	}
-	rcu_read_unlock();
-
-	if (WARN_ON_ONCE(!node))
-		return NULL;
-
-	mutex_lock(&fips_init_mtx);
-	if (fips_do_drbg_algs_reset || drbg_tfms[node]) {
-		mutex_unlock(&fips_init_mtx);
-		goto again;
-	}
-
-	drbg_tfm = __fips_drbg_tfm_alloc();
-	if (IS_ERR(drbg_tfm)) {
-		mutex_unlock(&fips_init_mtx);
-		pr_warn_ratelimited("random: FIPS drbg: per-node drbg init failed (%ld), performance degraded.",
-				    PTR_ERR(drbg_tfm));
-		node = 0;
-		goto again;
-	}
-
-	refcount_inc(&drbg_tfm->ref);
-	rcu_assign_pointer(drbg_tfms[node], drbg_tfm);
-	mutex_unlock(&fips_init_mtx);
-
-	return drbg_tfm;
-}
-
-static int fips_crypto_notify(struct notifier_block *this,
-			      unsigned long msg, void *data)
-{
-	struct crypto_alg *alg = data;
-
-	if (msg != CRYPTO_MSG_ALG_LOADED)
-		return NOTIFY_DONE;
-
-	if (strcmp(alg->cra_name, "sha512"))
-		return NOTIFY_DONE;
-
-	fips_trigger_drbg_algs_reset();
-
-	return NOTIFY_OK;
-}
-
-static struct notifier_block fips_crypto_notifier = {
-	.notifier_call = fips_crypto_notify,
-	/*
-	 * Make sure this gets to run before cryptomgr_notify() so
-	 * that the final notifier chain result will be taken from
-	 * there.
-	 */
-	.priority = 100,
-};
-
-static ssize_t extract_fips_drbg_user(void __user *buf, size_t nbytes,
-				      __u8 __tmp[SHA512_DIGEST_SIZE])
-{
-	struct fips_drbg_tfm *drbg_tfm;
-	unsigned int block_size;
-	__u8 *tmp;
-	ssize_t ret = 0, i;
-	int large_request = (nbytes > 256);
-
-	if (!nbytes)
-		return 0;
-
-	drbg_tfm = fips_drbg_tfm_get(numa_node_id());
-	if (IS_ERR(drbg_tfm))
-		return PTR_ERR(drbg_tfm);
-
-	/*
-	 * Each drbg_generate() invocation involves backtracking
-	 * protection and it is desirable from a performance POV to
-	 * amortize that over a number of SHA512_DIGEST_SIZE DRBG
-	 * output blocks.
-	 */
-	block_size = min_t(size_t, nbytes, 4 * SHA512_DIGEST_SIZE);
-	tmp = kmalloc(block_size, GFP_KERNEL);
-	if (!tmp) {
-		/* Use the on-stack tmp buffer from the caller as a backup. */
-		tmp = __tmp;
-		block_size = SHA512_DIGEST_SIZE;
-	}
-
-	while (nbytes) {
-		int r;
-
-		if (large_request && need_resched()) {
-			if (signal_pending(current)) {
-				if (ret == 0)
-					ret = -ERESTARTSYS;
-				break;
-			}
-			schedule();
-		}
-
-		i = min_t(size_t, nbytes, block_size);
-		r = crypto_rng_get_bytes(drbg_tfm->tfm, tmp, (unsigned int)i);
-		if (r < 0) {
-			ret = r;
-			break;
-		}
-
-		if (copy_to_user(buf, tmp, i)) {
-			ret = -EFAULT;
-			break;
-		}
-
-		nbytes -= i;
-		buf += i;
-		ret += i;
-	}
-
-	/* Wipe data just written to memory */
-	memzero_explicit(tmp, block_size);
-	if (likely(tmp != __tmp))
-		kfree(tmp);
-
-	fips_drbg_tfm_put(drbg_tfm);
-
-	return ret;
-}
-
-
-
-/*********************************************************************
- *
  * CRNG using CHACHA20
  *
  *********************************************************************/
@@ -1390,42 +1082,35 @@ static void crng_backtrack_protect(__u8 tmp[CHACHA_BLOCK_SIZE], int used)
 	_crng_backtrack_protect(select_crng(), tmp, used);
 }
 
-static ssize_t extract_crng_user(void __user *buf, size_t nbytes)
+static ssize_t extract_crng_user(struct iov_iter *iter)
 {
-	ssize_t ret = 0, i = CHACHA_BLOCK_SIZE;
 	__u8 tmp[CHACHA_BLOCK_SIZE] __aligned(4);
-	int large_request = (nbytes > 256);
+	size_t ret = 0, copied;
 
-	if (fips_enabled)
-		return extract_fips_drbg_user(buf, nbytes, tmp);
+	if (unlikely(!iov_iter_count(iter)))
+		return 0;
 
-	while (nbytes) {
-		if (large_request) {
-			if (signal_pending(current)) {
-				if (ret == 0)
-					ret = -ERESTARTSYS;
+	for (;;) {
+		extract_crng(tmp);
+
+		copied = copy_to_iter(tmp, sizeof(tmp), iter);
+		ret += copied;
+		if (!iov_iter_count(iter) || copied != sizeof(tmp))
+			break;
+
+		BUILD_BUG_ON(PAGE_SIZE % CHACHA_BLOCK_SIZE != 0);
+		if (ret % PAGE_SIZE == 0) {
+			if (signal_pending(current))
 				break;
-			}
 			cond_resched();
 		}
-
-		extract_crng(tmp);
-		i = min_t(int, nbytes, CHACHA_BLOCK_SIZE);
-		if (copy_to_user(buf, tmp, i)) {
-			ret = -EFAULT;
-			break;
-		}
-
-		nbytes -= i;
-		buf += i;
-		ret += i;
 	}
-	crng_backtrack_protect(tmp, i);
+	crng_backtrack_protect(tmp, copied);
 
 	/* Wipe data just written to memory */
 	memzero_explicit(tmp, sizeof(tmp));
 
-	return ret;
+	return ret ? ret : -EFAULT;
 }
 
 
@@ -2123,10 +1808,6 @@ int __init rand_initialize(void)
 		urandom_warning.interval = 0;
 		unseeded_warning.interval = 0;
 	}
-
-	if (fips_enabled)
-		crypto_register_notifier(&fips_crypto_notifier);
-
 	return 0;
 }
 
@@ -2148,19 +1829,18 @@ void rand_initialize_disk(struct gendisk *disk)
 #endif
 
 static ssize_t
-urandom_read_nowarn(struct file *file, char __user *buf, size_t nbytes,
-		    loff_t *ppos)
+urandom_read_nowarn(struct iov_iter *iter)
 {
-	int ret;
+	ssize_t ret;
+	size_t nbytes = iov_iter_count(iter);
 
-	nbytes = min_t(size_t, nbytes, INT_MAX >> (ENTROPY_SHIFT + 3));
-	ret = extract_crng_user(buf, nbytes);
+	ret = extract_crng_user(iter);
 	trace_urandom_read(8 * nbytes, 0, ENTROPY_BITS(&input_pool));
 	return ret;
 }
 
 static ssize_t
-urandom_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos)
+urandom_read_iter(struct kiocb *kiocb, struct iov_iter *iter)
 {
 	unsigned long flags;
 	static int maxwarn = 10;
@@ -2168,25 +1848,25 @@ urandom_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos)
 	if (!crng_ready() && maxwarn > 0) {
 		maxwarn--;
 		if (__ratelimit(&urandom_warning))
-			pr_notice("%s: uninitialized urandom read (%zd bytes read)\n",
-				  current->comm, nbytes);
+			pr_notice("%s: uninitialized urandom read (%zu bytes read)\n",
+				  current->comm, iov_iter_count(iter));
 		spin_lock_irqsave(&primary_crng.lock, flags);
 		crng_init_cnt = 0;
 		spin_unlock_irqrestore(&primary_crng.lock, flags);
 	}
 
-	return urandom_read_nowarn(file, buf, nbytes, ppos);
+	return urandom_read_nowarn(iter);
 }
 
 static ssize_t
-random_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos)
+random_read_iter(struct kiocb *kiocb, struct iov_iter *iter)
 {
 	int ret;
 
 	ret = wait_for_random_bytes();
 	if (ret != 0)
 		return ret;
-	return urandom_read_nowarn(file, buf, nbytes, ppos);
+	return urandom_read_nowarn(iter);
 }
 
 static __poll_t
@@ -2204,53 +1884,46 @@ random_poll(struct file *file, poll_table * wait)
 	return mask;
 }
 
-static int
-write_pool(struct entropy_store *r, const char __user *buffer, size_t count)
+static ssize_t write_pool(struct entropy_store *r, struct iov_iter *iter)
 {
-	size_t bytes;
 	__u32 t, buf[16];
-	const char __user *p = buffer;
+	ssize_t ret = 0;
+	size_t copied;
 
-	while (count > 0) {
+	if (unlikely(!iov_iter_count(iter)))
+		return 0;
+
+	for (;;) {
 		int b, i = 0;
 
-		bytes = min(count, sizeof(buf));
-		if (copy_from_user(&buf, p, bytes))
-			return -EFAULT;
+		copied = copy_from_iter(buf, sizeof(buf), iter);
+		ret += copied;
 
-		for (b = bytes ; b > 0 ; b -= sizeof(__u32), i++) {
+		for (b = copied; b > 0 ; b -= sizeof(__u32), i++) {
 			if (!arch_get_random_int(&t))
 				break;
 			buf[i] ^= t;
 		}
 
-		count -= bytes;
-		p += bytes;
-
-		mix_pool_bytes(r, buf, bytes);
+		mix_pool_bytes(r, buf, copied);
+		if (!iov_iter_count(iter) || copied != sizeof(buf))
+			break;
 		cond_resched();
 	}
 
-	return 0;
+	memzero_explicit(buf, sizeof(buf));
+	return ret ? ret : -EFAULT;
 }
 
-static ssize_t random_write(struct file *file, const char __user *buffer,
-			    size_t count, loff_t *ppos)
+static ssize_t random_write_iter(struct kiocb *kiocb, struct iov_iter *iter)
 {
-	size_t ret;
-
-	ret = write_pool(&input_pool, buffer, count);
-	if (ret)
-		return ret;
-
-	return (ssize_t)count;
+	return write_pool(&input_pool, iter);
 }
 
 static long random_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 {
-	int size, ent_count;
 	int __user *p = (int __user *)arg;
-	int retval;
+	int ent_count;
 
 	switch (cmd) {
 	case RNDGETENTCNT:
@@ -2265,20 +1938,31 @@ static long random_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 		if (get_user(ent_count, p))
 			return -EFAULT;
 		return credit_entropy_bits_safe(&input_pool, ent_count);
-	case RNDADDENTROPY:
+	case RNDADDENTROPY: {
+		struct iov_iter iter;
+		struct iovec iov;
+		ssize_t ret;
+		int len;
+
 		if (!capable(CAP_SYS_ADMIN))
 			return -EPERM;
 		if (get_user(ent_count, p++))
 			return -EFAULT;
 		if (ent_count < 0)
 			return -EINVAL;
-		if (get_user(size, p++))
+		if (get_user(len, p++))
 			return -EFAULT;
-		retval = write_pool(&input_pool, (const char __user *)p,
-				    size);
-		if (retval < 0)
-			return retval;
+		ret = import_single_range(WRITE, p, len, &iov, &iter);
+		if (unlikely(ret))
+			return ret;
+		ret = write_pool(&input_pool, &iter);
+		if (unlikely(ret < 0))
+			return ret;
+		/* Since we're crediting, enforce that it was all written into the pool. */
+		if (unlikely(ret != len))
+			return -EFAULT;
 		return credit_entropy_bits_safe(&input_pool, ent_count);
+	}
 	case RNDZAPENTCNT:
 	case RNDCLEARPOOL:
 		/*
@@ -2311,8 +1995,8 @@ static int random_fasync(int fd, struct file *filp, int on)
 }
 
 const struct file_operations random_fops = {
-	.read  = random_read,
-	.write = random_write,
+	.read_iter  = random_read_iter,
+	.write_iter = random_write_iter,
 	.poll  = random_poll,
 	.unlocked_ioctl = random_ioctl,
 	.compat_ioctl = compat_ptr_ioctl,
@@ -2323,8 +2007,8 @@ const struct file_operations random_fops = {
 };
 
 const struct file_operations urandom_fops = {
-	.read  = urandom_read,
-	.write = random_write,
+	.read_iter  = urandom_read_iter,
+	.write_iter = random_write_iter,
 	.unlocked_ioctl = random_ioctl,
 	.compat_ioctl = compat_ptr_ioctl,
 	.fasync = random_fasync,
@@ -2336,6 +2020,8 @@ const struct file_operations urandom_fops = {
 SYSCALL_DEFINE3(getrandom, char __user *, buf, size_t, count,
 		unsigned int, flags)
 {
+	struct iov_iter iter;
+	struct iovec iov;
 	int ret;
 
 	if (flags & ~(GRND_NONBLOCK|GRND_RANDOM|GRND_INSECURE))
@@ -2348,9 +2034,6 @@ SYSCALL_DEFINE3(getrandom, char __user *, buf, size_t, count,
 	if ((flags & (GRND_INSECURE|GRND_RANDOM)) == (GRND_INSECURE|GRND_RANDOM))
 		return -EINVAL;
 
-	if (count > INT_MAX)
-		count = INT_MAX;
-
 	if (!(flags & GRND_INSECURE) && !crng_ready()) {
 		if (flags & GRND_NONBLOCK)
 			return -EAGAIN;
@@ -2358,7 +2041,11 @@ SYSCALL_DEFINE3(getrandom, char __user *, buf, size_t, count,
 		if (unlikely(ret))
 			return ret;
 	}
-	return urandom_read_nowarn(NULL, buf, count, NULL);
+
+	ret = import_single_range(READ, buf, count, &iov, &iter);
+	if (unlikely(ret))
+		return ret;
+	return urandom_read_nowarn(&iter);
 }
 
 /********************************************************************
