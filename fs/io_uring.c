@@ -1068,6 +1068,7 @@ struct io_op_def {
 static const struct io_op_def io_op_defs[] = {
 	[IORING_OP_NOP] = {
 		.iopoll			= 1,
+		.buffer_select		= 1,
 	},
 	[IORING_OP_READV] = {
 		.needs_file		= 1,
@@ -4850,11 +4851,22 @@ static int io_nop_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
  */
 static int io_nop(struct io_kiocb *req, unsigned int issue_flags)
 {
+	void __user *buf;
+
+	if (req->flags & REQ_F_BUFFER_SELECT) {
+		size_t len = 1;
+
+		buf = io_buffer_select(req, &len, issue_flags);
+		if (IS_ERR(buf))
+			return PTR_ERR(buf);
+	}
+
+	__io_req_complete(req, issue_flags, 0, io_put_kbuf(req, issue_flags));
 	if (!(req->ctx->flags & IORING_SETUP_CQE32))
 		__io_req_complete(req, issue_flags, 0, 0);
 	else
 		__io_req_complete32(req, issue_flags, 0, 0, req->nop.extra1,
-					req->nop.extra2);
+				    req->nop.extra2);
 	return 0;
 }
 
