@@ -44,7 +44,6 @@ struct inet_timewait_sock {
 #define tw_bound_dev_if		__tw_common.skc_bound_dev_if
 #define tw_node			__tw_common.skc_nulls_node
 #define tw_bind_node		__tw_common.skc_bind_node
-#define tw_bind2_node		__tw_common.skc_bind2_node
 #define tw_refcnt		__tw_common.skc_refcnt
 #define tw_hash			__tw_common.skc_hash
 #define tw_prot			__tw_common.skc_prot
@@ -75,8 +74,12 @@ struct inet_timewait_sock {
 	struct timer_list	tw_timer;
 	struct inet_bind_bucket	*tw_tb;
 	struct inet_bind2_bucket	*tw_tb2;
+	struct hlist_node		tw_bind2_node;
 };
 #define tw_tclass tw_tos
+
+#define twsk_for_each_bound_bhash2(__tw, list) \
+	hlist_for_each_entry(__tw, list, tw_bind2_node)
 
 static inline struct inet_timewait_sock *inet_twsk(const struct sock *sk)
 {
