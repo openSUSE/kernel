@@ -140,7 +140,7 @@ void inet_twsk_hashdance(struct inet_timewait_sock *tw, struct sock *sk,
 
 	tw->tw_tb2 = icsk->icsk_bind2_hash;
 	WARN_ON(!icsk->icsk_bind2_hash);
-	inet_twsk_add_bind2_node(tw, &tw->tw_tb2->owners);
+	inet_twsk_add_bind2_node(tw, &tw->tw_tb2->deathrow);
 
 	spin_unlock(&bhead2->lock);
 	spin_unlock(&bhead->lock);

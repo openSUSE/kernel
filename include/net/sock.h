@@ -156,7 +156,6 @@ typedef __u64 __bitwise __addrpair;
  *	@skc_tw_rcv_nxt: (aka tw_rcv_nxt) TCP window next expected seq number
  *		[union with @skc_incoming_cpu]
  *	@skc_refcnt: reference count
- *	@skc_bind2_node: bind node in the bhash2 table
  *
  *	This is the minimal network layer representation of sockets, the header
  *	for struct sock and struct inet_timewait_sock.
@@ -242,7 +241,6 @@ struct sock_common {
 		u32		skc_window_clamp;
 		u32		skc_tw_snd_nxt; /* struct tcp_timewait_sock */
 	};
-	struct hlist_node	skc_bind2_node;
 	/* public: */
 };
 
@@ -353,6 +351,7 @@ struct sk_filter;
   *	@sk_txtime_report_errors: set report errors mode for SO_TXTIME
   *	@sk_txtime_unused: unused txtime flags
   *	@ns_tracker: tracker for netns reference
+  *	@sk_bind2_node: bind node in the bhash2 table
   */
 struct sock {
 	/*
@@ -385,7 +384,6 @@ struct sock {
 #define sk_net_refcnt		__sk_common.skc_net_refcnt
 #define sk_bound_dev_if		__sk_common.skc_bound_dev_if
 #define sk_bind_node		__sk_common.skc_bind_node
-#define sk_bind2_node		__sk_common.skc_bind2_node
 #define sk_prot			__sk_common.skc_prot
 #define sk_net			__sk_common.skc_net
 #define sk_v6_daddr		__sk_common.skc_v6_daddr
@@ -544,6 +542,7 @@ struct sock {
 #endif
 	struct rcu_head		sk_rcu;
 	netns_tracker		ns_tracker;
+	struct hlist_node	sk_bind2_node;
 };
 
 enum sk_pacing {
