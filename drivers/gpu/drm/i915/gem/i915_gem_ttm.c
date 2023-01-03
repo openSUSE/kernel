@@ -644,7 +644,7 @@ static int i915_ttm_truncate(struct drm_i915_gem_object *obj)
 
 	err = ttm_bo_wait(bo, true, false);
 	if (err)
-		return;
+		return err;
 
 	err = i915_ttm_move_notify(bo);
 	if (err)
