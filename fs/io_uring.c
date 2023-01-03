@@ -7950,7 +7950,6 @@ static bool io_assign_file(struct io_kiocb *req, unsigned int issue_flags)
 
 static int io_issue_sqe(struct io_kiocb *req, unsigned int issue_flags)
 {
-	const struct io_op_def *def = &io_op_defs[req->opcode];
 	const struct cred *creds = NULL;
 	int ret;
 
