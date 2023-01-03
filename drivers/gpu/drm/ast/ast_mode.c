@@ -826,12 +826,12 @@ ast_cursor_plane_helper_atomic_update(struct drm_plane *plane,
 				      struct drm_atomic_state *state)
 {
 	struct ast_plane *ast_plane = to_ast_plane(plane);
-	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(state,
-									   plane);
-	struct drm_plane_state *new_state = drm_atomic_get_new_plane_state(state,
-									   plane);
-	struct drm_shadow_plane_state *shadow_plane_state = to_drm_shadow_plane_state(new_state);
-	struct drm_framebuffer *fb = new_state->fb;
+	struct drm_plane_state *old_plane_state = drm_atomic_get_old_plane_state(state,
+										 plane);
+	struct drm_plane_state *plane_state = drm_atomic_get_new_plane_state(state,
+									     plane);
+	struct drm_shadow_plane_state *shadow_plane_state = to_drm_shadow_plane_state(plane_state);
+	struct drm_framebuffer *fb = plane_state->fb;
 	struct ast_private *ast = to_ast_private(plane->dev);
 	struct iosys_map dst_map = ast_plane->map;
 	u64 dst_off = ast_plane->off;
@@ -854,7 +854,7 @@ ast_cursor_plane_helper_atomic_update(struct drm_plane *plane,
 
 	ast_update_cursor_image(dst, src, fb->width, fb->height);
 
-	if (fb != old_fb)
+	if (fb != old_plane_state->fb)
 		ast_set_cursor_base(ast, dst_off);
 
 	/*
