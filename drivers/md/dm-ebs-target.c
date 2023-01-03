@@ -312,7 +312,8 @@ static int ebs_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 		goto bad;
 	}
 
-	ec->bufio = dm_bufio_client_create(ec->dev->bdev, to_bytes(ec->u_bs), 1, 0, NULL, NULL);
+	ec->bufio = dm_bufio_client_create(ec->dev->bdev, to_bytes(ec->u_bs), 1,
+					   0, NULL, NULL, 0);
 	if (IS_ERR(ec->bufio)) {
 		ti->error = "Cannot create dm bufio client";
 		r = PTR_ERR(ec->bufio);
@@ -399,6 +400,9 @@ static void ebs_status(struct dm_target *ti, status_type_t type,
 	case STATUSTYPE_TABLE:
 		snprintf(result, maxlen, ec->u_bs_set ? "%s %llu %u %u" : "%s %llu %u",
 			 ec->dev->name, (unsigned long long) ec->start, ec->e_bs, ec->u_bs);
+		break;
+	case STATUSTYPE_IMA:
+		*result = '\0';
 		break;
 	}
 }

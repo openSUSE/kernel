@@ -40,17 +40,24 @@ void set_dio_throttled_vcp_size(struct pipe_ctx *pipe_ctx,
 void setup_dio_stream_encoder(struct pipe_ctx *pipe_ctx)
 {
 	struct link_encoder *link_enc = link_enc_cfg_get_link_enc(pipe_ctx->stream->link);
+	struct stream_encoder *stream_enc = pipe_ctx->stream_res.stream_enc;
 
 	link_enc->funcs->connect_dig_be_to_fe(link_enc,
 			pipe_ctx->stream_res.stream_enc->id, true);
 	if (dc_is_dp_signal(pipe_ctx->stream->signal))
 		dp_source_sequence_trace(pipe_ctx->stream->link,
 				DPCD_SOURCE_SEQ_AFTER_CONNECT_DIG_FE_BE);
+	if (stream_enc->funcs->enable_fifo)
+		stream_enc->funcs->enable_fifo(stream_enc);
 }
 
 void reset_dio_stream_encoder(struct pipe_ctx *pipe_ctx)
 {
 	struct link_encoder *link_enc = link_enc_cfg_get_link_enc(pipe_ctx->stream->link);
+	struct stream_encoder *stream_enc = pipe_ctx->stream_res.stream_enc;
+
+	if (stream_enc && stream_enc->funcs->disable_fifo)
+		stream_enc->funcs->disable_fifo(stream_enc);
 
 	link_enc->funcs->connect_dig_be_to_fe(
 			link_enc,
@@ -123,7 +130,7 @@ void enable_dio_dp_link_output(struct dc_link *link,
 	dp_source_sequence_trace(link, DPCD_SOURCE_SEQ_AFTER_ENABLE_LINK_PHY);
 }
 
-void disable_dio_dp_link_output(struct dc_link *link,
+void disable_dio_link_output(struct dc_link *link,
 		const struct link_resource *link_res,
 		enum signal_type signal)
 {
@@ -167,10 +174,10 @@ static const struct link_hwss dio_link_hwss = {
 	.setup_stream_encoder = setup_dio_stream_encoder,
 	.reset_stream_encoder = reset_dio_stream_encoder,
 	.setup_stream_attribute = setup_dio_stream_attribute,
+	.disable_link_output = disable_dio_link_output,
 	.ext = {
 		.set_throttled_vcp_size = set_dio_throttled_vcp_size,
 		.enable_dp_link_output = enable_dio_dp_link_output,
-		.disable_dp_link_output = disable_dio_dp_link_output,
 		.set_dp_link_test_pattern = set_dio_dp_link_test_pattern,
 		.set_dp_lane_settings = set_dio_dp_lane_settings,
 		.update_stream_allocation_table = update_dio_stream_allocation_table,

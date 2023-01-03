@@ -23,9 +23,6 @@
  *
  */
 
-#include <linux/mm.h>
-#include <linux/slab.h>
-
 #include "dc.h"
 #include "opp.h"
 #include "color_gamma.h"
@@ -1695,7 +1692,7 @@ static void apply_degamma_for_user_regamma(struct pwl_float_data_ex *rgb_regamma
 	struct pwl_float_data_ex *rgb = rgb_regamma;
 	const struct hw_x_point *coord_x = coordinates_x;
 
-	build_coefficients(&coeff, true);
+	build_coefficients(&coeff, TRANSFER_FUNCTION_SRGB);
 
 	i = 0;
 	while (i != hw_points_num + 1) {

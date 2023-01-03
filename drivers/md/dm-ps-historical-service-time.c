@@ -256,6 +256,9 @@ static int hst_status(struct path_selector *ps, struct dm_path *path,
 		case STATUSTYPE_TABLE:
 			DMEMIT("0 ");
 			break;
+		case STATUSTYPE_IMA:
+			*result = '\0';
+			break;
 		}
 	}
 
@@ -521,6 +524,7 @@ static int hst_end_io(struct path_selector *ps, struct dm_path *path,
 static struct path_selector_type hst_ps = {
 	.name		= "historical-service-time",
 	.module		= THIS_MODULE,
+	.features	= DM_PS_USE_HR_TIMER,
 	.table_args	= 1,
 	.info_args	= 3,
 	.create		= hst_create,

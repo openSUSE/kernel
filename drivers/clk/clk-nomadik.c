@@ -135,7 +135,7 @@ static void __init nomadik_src_init(void)
 }
 
 /**
- * struct clk_pll1 - Nomadik PLL1 clock
+ * struct clk_pll - Nomadik PLL clock
  * @hw: corresponding clock hardware entry
  * @id: PLL instance: 1 or 2
  */

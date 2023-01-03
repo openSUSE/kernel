@@ -1434,9 +1434,10 @@ static enum blk_eh_timer_return nvme_timeout(struct request *req, bool reserved)
 	}
 	nvme_init_request(abort_req, &cmd);
 
+	abort_req->end_io = abort_endio;
 	abort_req->end_io_data = NULL;
 	abort_req->rq_flags |= RQF_QUIET;
-	blk_execute_rq_nowait(abort_req, false, abort_endio);
+	blk_execute_rq_nowait(abort_req, false);
 
 	/*
 	 * The aborted req will be completed on receiving the abort req.
@@ -2479,12 +2480,15 @@ static int nvme_delete_queue(struct nvme_queue *nvmeq, u8 opcode)
 		return PTR_ERR(req);
 	nvme_init_request(req, &cmd);
 
+	if (opcode == nvme_admin_delete_cq)
+		req->end_io = nvme_del_cq_end;
+	else
+		req->end_io = nvme_del_queue_end;
 	req->end_io_data = nvmeq;
 
 	init_completion(&nvmeq->delete_done);
 	req->rq_flags |= RQF_QUIET;
-	blk_execute_rq_nowait(req, false, opcode == nvme_admin_delete_cq ?
-			nvme_del_cq_end : nvme_del_queue_end);
+	blk_execute_rq_nowait(req, false);
 	return 0;
 }
 
@@ -2975,7 +2979,6 @@ static int nvme_pci_get_address(struct nvme_ctrl *ctrl, char *buf, int size)
 	return snprintf(buf, size, "%s\n", dev_name(&pdev->dev));
 }
 
-
 static void nvme_pci_print_device_info(struct nvme_ctrl *ctrl)
 {
 	struct pci_dev *pdev = to_pci_dev(to_nvme_dev(ctrl)->dev);
@@ -2990,11 +2993,17 @@ static void nvme_pci_print_device_info(struct nvme_ctrl *ctrl)
 		subsys->firmware_rev);
 }
 
+static bool nvme_pci_supports_pci_p2pdma(struct nvme_ctrl *ctrl)
+{
+	struct nvme_dev *dev = to_nvme_dev(ctrl);
+
+	return dma_pci_p2pdma_supported(dev->dev);
+}
+
 static const struct nvme_ctrl_ops nvme_pci_ctrl_ops = {
 	.name			= "pcie",
 	.module			= THIS_MODULE,
-	.flags			= NVME_F_METADATA_SUPPORTED |
-				  NVME_F_PCI_P2PDMA,
+	.flags			= NVME_F_METADATA_SUPPORTED,
 	.reg_read32		= nvme_pci_reg_read32,
 	.reg_write32		= nvme_pci_reg_write32,
 	.reg_read64		= nvme_pci_reg_read64,
@@ -3002,6 +3011,7 @@ static const struct nvme_ctrl_ops nvme_pci_ctrl_ops = {
 	.submit_async_event	= nvme_pci_submit_async_event,
 	.get_address		= nvme_pci_get_address,
 	.print_device_info	= nvme_pci_print_device_info,
+	.supports_pci_p2pdma	= nvme_pci_supports_pci_p2pdma,
 };
 
 static int nvme_dev_map(struct nvme_dev *dev)

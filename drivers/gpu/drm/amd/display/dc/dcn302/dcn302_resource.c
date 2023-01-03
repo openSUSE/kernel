@@ -93,7 +93,8 @@ static const struct dc_debug_options debug_defaults_drv = {
 		.underflow_assert_delay_us = 0xFFFFFFFF,
 		.dwb_fi_phase = -1, // -1 = disable,
 		.dmub_command_table = true,
-		.use_max_lb = true
+		.use_max_lb = true,
+		.exit_idle_opt_for_cursor_updates = true
 };
 
 static const struct dc_debug_options debug_defaults_diags = {
@@ -891,7 +892,9 @@ static const struct dcn10_link_enc_hpd_registers link_enc_hpd_regs[] = {
 		hpd_regs(4)
 };
 
-static struct link_encoder *dcn302_link_encoder_create(const struct encoder_init_data *enc_init_data)
+static struct link_encoder *dcn302_link_encoder_create(
+	struct dc_context *ctx,
+	const struct encoder_init_data *enc_init_data)
 {
 	struct dcn20_link_encoder *enc20 = kzalloc(sizeof(struct dcn20_link_encoder), GFP_KERNEL);
 

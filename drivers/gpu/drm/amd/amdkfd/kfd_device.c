@@ -75,7 +75,6 @@ static void kfd_device_info_set_sdma_info(struct kfd_dev *kfd)
 	case IP_VERSION(5, 2, 3):/* YELLOW_CARP */
 	case IP_VERSION(5, 2, 6):/* GC 10.3.6 */
 	case IP_VERSION(5, 2, 7):/* GC 10.3.7 */
-	case IP_VERSION(6, 0, 1):
 		kfd->device_info.num_sdma_queues_per_engine = 2;
 		break;
 	case IP_VERSION(4, 2, 0):/* VEGA20 */
@@ -90,7 +89,9 @@ static void kfd_device_info_set_sdma_info(struct kfd_dev *kfd)
 	case IP_VERSION(5, 2, 4):/* DIMGREY_CAVEFISH */
 	case IP_VERSION(5, 2, 5):/* BEIGE_GOBY */
 	case IP_VERSION(6, 0, 0):
+	case IP_VERSION(6, 0, 1):
 	case IP_VERSION(6, 0, 2):
+	case IP_VERSION(6, 0, 3):
 		kfd->device_info.num_sdma_queues_per_engine = 8;
 		break;
 	default:
@@ -102,12 +103,18 @@ static void kfd_device_info_set_sdma_info(struct kfd_dev *kfd)
 
 	switch (sdma_version) {
 	case IP_VERSION(6, 0, 0):
-	case IP_VERSION(6, 0, 1):
 	case IP_VERSION(6, 0, 2):
+	case IP_VERSION(6, 0, 3):
 		/* Reserve 1 for paging and 1 for gfx */
 		kfd->device_info.num_reserved_sdma_queues_per_engine = 2;
 		/* BIT(0)=engine-0 queue-0; BIT(1)=engine-1 queue-0; BIT(2)=engine-0 queue-1; ... */
 		kfd->device_info.reserved_sdma_queues_bitmap = 0xFULL;
+		break;
+	case IP_VERSION(6, 0, 1):
+		/* Reserve 1 for paging and 1 for gfx */
+		kfd->device_info.num_reserved_sdma_queues_per_engine = 2;
+		/* BIT(0)=engine-0 queue-0; BIT(1)=engine-0 queue-1; ... */
+		kfd->device_info.reserved_sdma_queues_bitmap = 0x3ULL;
 		break;
 	default:
 		break;
@@ -145,6 +152,7 @@ static void kfd_device_info_set_event_interrupt_class(struct kfd_dev *kfd)
 	case IP_VERSION(11, 0, 0):
 	case IP_VERSION(11, 0, 1):
 	case IP_VERSION(11, 0, 2):
+	case IP_VERSION(11, 0, 3):
 		kfd->device_info.event_interrupt_class = &event_interrupt_class_v11;
 		break;
 	default:
@@ -377,12 +385,8 @@ struct kfd_dev *kgd2kfd_probe(struct amdgpu_device *adev, bool vf)
 				f2g = &gfx_v10_3_kfd2kgd;
 			break;
 		case IP_VERSION(10, 3, 6):
-			gfx_target_version = 100306;
-			if (!vf)
-				f2g = &gfx_v10_3_kfd2kgd;
-			break;
 		case IP_VERSION(10, 3, 7):
-			gfx_target_version = 100307;
+			gfx_target_version = 100306;
 			if (!vf)
 				f2g = &gfx_v10_3_kfd2kgd;
 			break;
@@ -396,6 +400,11 @@ struct kfd_dev *kgd2kfd_probe(struct amdgpu_device *adev, bool vf)
 			break;
 		case IP_VERSION(11, 0, 2):
 			gfx_target_version = 110002;
+			f2g = &gfx_v11_kfd2kgd;
+			break;
+		case IP_VERSION(11, 0, 3):
+			/* Note: Compiler version is 11.0.1 while HW version is 11.0.3 */
+			gfx_target_version = 110001;
 			f2g = &gfx_v11_kfd2kgd;
 			break;
 		default:
@@ -839,7 +848,7 @@ void kgd2kfd_interrupt(struct kfd_dev *kfd, const void *ih_ring_entry)
 	spin_unlock_irqrestore(&kfd->interrupt_lock, flags);
 }
 
-int kgd2kfd_quiesce_mm(struct mm_struct *mm)
+int kgd2kfd_quiesce_mm(struct mm_struct *mm, uint32_t trigger)
 {
 	struct kfd_process *p;
 	int r;
@@ -853,7 +862,7 @@ int kgd2kfd_quiesce_mm(struct mm_struct *mm)
 		return -ESRCH;
 
 	WARN(debug_evictions, "Evicting pid %d", p->lead_thread->pid);
-	r = kfd_process_evict_queues(p);
+	r = kfd_process_evict_queues(p, trigger);
 
 	kfd_unref_process(p);
 	return r;

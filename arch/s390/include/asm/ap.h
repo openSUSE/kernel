@@ -12,6 +12,8 @@
 #ifndef _ASM_S390_AP_H_
 #define _ASM_S390_AP_H_
 
+#include <linux/io.h>
+
 /**
  * The ap_qid_t identifier of an ap queue.
  * If the AP facilities test (APFT) facility is available,
@@ -224,13 +226,13 @@ struct ap_qirq_ctrl {
  * ap_aqic(): Control interruption for a specific AP.
  * @qid: The AP queue number
  * @qirqctrl: struct ap_qirq_ctrl (64 bit value)
- * @ind: The notification indicator byte
+ * @pa_ind: Physical address of the notification indicator byte
  *
  * Returns AP queue status.
  */
 static inline struct ap_queue_status ap_aqic(ap_qid_t qid,
 					     struct ap_qirq_ctrl qirqctrl,
-					     void *ind)
+					     phys_addr_t pa_ind)
 {
 	unsigned long reg0 = qid | (3UL << 24);  /* fc 3UL is AQIC */
 	union {
@@ -238,7 +240,7 @@ static inline struct ap_queue_status ap_aqic(ap_qid_t qid,
 		struct ap_qirq_ctrl qirqctrl;
 		struct ap_queue_status status;
 	} reg1;
-	void *reg2 = ind;
+	unsigned long reg2 = pa_ind;
 
 	reg1.qirqctrl = qirqctrl;
 

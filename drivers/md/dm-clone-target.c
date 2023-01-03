@@ -161,7 +161,7 @@ static const char *clone_device_name(struct clone *clone)
 
 static void __set_clone_mode(struct clone *clone, enum clone_metadata_mode new_mode)
 {
-	const char *descs[] = {
+	static const char * const descs[] = {
 		"read-write",
 		"read-only",
 		"fail"
@@ -1499,6 +1499,11 @@ static void clone_status(struct dm_target *ti, status_type_t type,
 
 		for (i = 0; i < clone->nr_ctr_args; i++)
 			DMEMIT(" %s", clone->ctr_args[i]);
+		break;
+
+	case STATUSTYPE_IMA:
+		*result = '\0';
+		break;
 	}
 
 	return;
@@ -1677,7 +1682,6 @@ static int parse_metadata_dev(struct clone *clone, struct dm_arg_set *as, char *
 {
 	int r;
 	sector_t metadata_dev_size;
-	char b[BDEVNAME_SIZE];
 
 	r = dm_get_device(clone->ti, dm_shift_arg(as), FMODE_READ | FMODE_WRITE,
 			  &clone->metadata_dev);
@@ -1688,8 +1692,8 @@ static int parse_metadata_dev(struct clone *clone, struct dm_arg_set *as, char *
 
 	metadata_dev_size = get_dev_size(clone->metadata_dev);
 	if (metadata_dev_size > DM_CLONE_METADATA_MAX_SECTORS_WARNING)
-		DMWARN("Metadata device %s is larger than %u sectors: excess space will not be used.",
-		       bdevname(clone->metadata_dev->bdev, b), DM_CLONE_METADATA_MAX_SECTORS);
+		DMWARN("Metadata device %pg is larger than %u sectors: excess space will not be used.",
+		       clone->metadata_dev->bdev, DM_CLONE_METADATA_MAX_SECTORS);
 
 	return 0;
 }
@@ -2021,7 +2025,6 @@ static void disable_passdown_if_not_supported(struct clone *clone)
 	struct block_device *dest_dev = clone->dest_dev->bdev;
 	struct queue_limits *dest_limits = &bdev_get_queue(dest_dev)->limits;
 	const char *reason = NULL;
-	char buf[BDEVNAME_SIZE];
 
 	if (!test_bit(DM_CLONE_DISCARD_PASSDOWN, &clone->flags))
 		return;
@@ -2032,8 +2035,8 @@ static void disable_passdown_if_not_supported(struct clone *clone)
 		reason = "max discard sectors smaller than a region";
 
 	if (reason) {
-		DMWARN("Destination device (%s) %s: Disabling discard passdown.",
-		       bdevname(dest_dev, buf), reason);
+		DMWARN("Destination device (%pg) %s: Disabling discard passdown.",
+		       dest_dev, reason);
 		clear_bit(DM_CLONE_DISCARD_PASSDOWN, &clone->flags);
 	}
 }

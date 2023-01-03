@@ -28,10 +28,11 @@
 #define SMU13_DRIVER_IF_VERSION_INV 0xFFFFFFFF
 #define SMU13_DRIVER_IF_VERSION_YELLOW_CARP 0x04
 #define SMU13_DRIVER_IF_VERSION_ALDE 0x08
-#define SMU13_DRIVER_IF_VERSION_SMU_V13_0_4 0x04
+#define SMU13_DRIVER_IF_VERSION_SMU_V13_0_4 0x07
 #define SMU13_DRIVER_IF_VERSION_SMU_V13_0_5 0x04
-#define SMU13_DRIVER_IF_VERSION_SMU_V13_0_0 0x28
-#define SMU13_DRIVER_IF_VERSION_SMU_V13_0_7 0x28
+#define SMU13_DRIVER_IF_VERSION_SMU_V13_0_0_10 0x32
+#define SMU13_DRIVER_IF_VERSION_SMU_V13_0_7 0x35
+#define SMU13_DRIVER_IF_VERSION_SMU_V13_0_10 0x1D
 
 #define SMU13_MODE1_RESET_WAIT_TIME_IN_MS 500  //500ms
 
@@ -43,6 +44,7 @@
 
 /* address block */
 #define smnMP1_FIRMWARE_FLAGS		0x3010024
+#define smnMP1_V13_0_4_FIRMWARE_FLAGS	0x3010028
 #define smnMP0_FW_INTF			0x30101c0
 #define smnMP1_PUB_CTRL			0x3010b14
 
@@ -120,14 +122,6 @@ struct smu_13_0_power_context {
 	uint32_t	power_source;
 	uint8_t		in_power_limit_boost_mode;
 	enum smu_13_0_power_state power_state;
-};
-
-enum smu_v13_0_baco_seq {
-	BACO_SEQ_BACO = 0,
-	BACO_SEQ_MSR,
-	BACO_SEQ_BAMACO,
-	BACO_SEQ_ULPS,
-	BACO_SEQ_COUNT,
 };
 
 #if defined(SWSMU_CODE_LAYER_L2) || defined(SWSMU_CODE_LAYER_L3)
@@ -216,6 +210,9 @@ int smu_v13_0_set_azalia_d3_pme(struct smu_context *smu);
 int smu_v13_0_get_max_sustainable_clocks_by_dc(struct smu_context *smu,
 					       struct pp_smu_nv_clock_table *max_clocks);
 
+int smu_v13_0_baco_set_armd3_sequence(struct smu_context *smu,
+				      enum smu_baco_seq baco_seq);
+
 bool smu_v13_0_baco_is_support(struct smu_context *smu);
 
 enum smu_baco_state smu_v13_0_baco_get_state(struct smu_context *smu);
@@ -278,19 +275,7 @@ int smu_v13_0_run_btc(struct smu_context *smu);
 int smu_v13_0_deep_sleep_control(struct smu_context *smu,
 				 bool enablement);
 
-int smu_v13_0_gfx_ulv_control(struct smu_context *smu,
-			      bool enablement);
-
-bool smu_v13_0_baco_is_support(struct smu_context *smu);
-
-enum smu_baco_state smu_v13_0_baco_get_state(struct smu_context *smu);
-
-int smu_v13_0_baco_set_state(struct smu_context *smu,
-			     enum smu_baco_state state);
-
-int smu_v13_0_baco_enter(struct smu_context *smu);
-
-int smu_v13_0_baco_exit(struct smu_context *smu);
+int smu_v13_0_set_gfx_power_up_by_imu(struct smu_context *smu);
 
 int smu_v13_0_od_edit_dpm_table(struct smu_context *smu,
 				enum PP_OD_DPM_TABLE_COMMAND type,
@@ -298,5 +283,15 @@ int smu_v13_0_od_edit_dpm_table(struct smu_context *smu,
 				uint32_t size);
 
 int smu_v13_0_set_default_dpm_tables(struct smu_context *smu);
+
+void smu_v13_0_set_smu_mailbox_registers(struct smu_context *smu);
+
+int smu_v13_0_mode1_reset(struct smu_context *smu);
+
+int smu_v13_0_get_pptable_from_firmware(struct smu_context *smu,
+					void **table,
+					uint32_t *size,
+					uint32_t pptable_id);
+
 #endif
 #endif

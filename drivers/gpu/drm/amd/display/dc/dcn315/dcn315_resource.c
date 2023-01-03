@@ -885,8 +885,6 @@ static const struct dc_debug_options debug_defaults_drv = {
 			.afmt = true,
 		}
 	},
-	.optimize_edp_link_rate = true,
-	.enable_sw_cntl_psr = true,
 	.psr_power_use_phy_fsm = 0,
 };
 
@@ -906,6 +904,12 @@ static const struct dc_debug_options debug_defaults_diags = {
 	.dmub_command_table = true,
 	.enable_tri_buf = true,
 	.use_max_lb = true
+};
+
+static const struct dc_panel_config panel_config_defaults = {
+	.ilr = {
+		.optimize_edp_link_rate = true,
+	},
 };
 
 static void dcn31_dpp_destroy(struct dpp **dpp)
@@ -1089,6 +1093,7 @@ static const struct encoder_feature_support link_enc_feature = {
 };
 
 static struct link_encoder *dcn31_link_encoder_create(
+	struct dc_context *ctx,
 	const struct encoder_init_data *enc_init_data)
 {
 	struct dcn20_link_encoder *enc20 =
@@ -1658,11 +1663,12 @@ static int dcn315_populate_dml_pipes_from_context(
 
 		pipes[pipe_cnt].pipe.src.unbounded_req_mode = false;
 		pipes[pipe_cnt].pipe.src.gpuvm = true;
-		pipes[pipe_cnt].pipe.src.dcc_fraction_of_zs_req_luma = 0;
-		pipes[pipe_cnt].pipe.src.dcc_fraction_of_zs_req_chroma = 0;
 		pipes[pipe_cnt].pipe.dest.vfront_porch = timing->v_front_porch;
 		pipes[pipe_cnt].pipe.src.dcc_rate = 3;
 		pipes[pipe_cnt].dout.dsc_input_bpc = 0;
+		DC_FP_START();
+		dcn31_zero_pipe_dcc_fraction(pipes, pipe_cnt);
+		DC_FP_END();
 
 		if (pipes[pipe_cnt].dout.dsc_enable) {
 			switch (timing->display_color_depth) {
@@ -1707,6 +1713,11 @@ static int dcn315_populate_dml_pipes_from_context(
 	return pipe_cnt;
 }
 
+static void dcn315_get_panel_config_defaults(struct dc_panel_config *panel_config)
+{
+	*panel_config = panel_config_defaults;
+}
+
 static struct dc_cap_funcs cap_funcs = {
 	.get_dcc_compression_cap = dcn20_get_dcc_compression_cap
 };
@@ -1720,7 +1731,7 @@ static struct resource_funcs dcn315_res_pool_funcs = {
 	.panel_cntl_create = dcn31_panel_cntl_create,
 	.validate_bandwidth = dcn31_validate_bandwidth,
 	.calculate_wm_and_dlg = dcn31_calculate_wm_and_dlg,
-	.update_soc_for_wm_a = dcn31_update_soc_for_wm_a,
+	.update_soc_for_wm_a = dcn315_update_soc_for_wm_a,
 	.populate_dml_pipes = dcn315_populate_dml_pipes_from_context,
 	.acquire_idle_pipe_for_layer = dcn20_acquire_idle_pipe_for_layer,
 	.add_stream_to_ctx = dcn30_add_stream_to_ctx,
@@ -1733,6 +1744,7 @@ static struct resource_funcs dcn315_res_pool_funcs = {
 	.release_post_bldn_3dlut = dcn30_release_post_bldn_3dlut,
 	.update_bw_bounding_box = dcn315_update_bw_bounding_box,
 	.patch_unknown_plane_state = dcn20_patch_unknown_plane_state,
+	.get_panel_config_defaults = dcn315_get_panel_config_defaults,
 };
 
 static bool dcn315_resource_construct(
@@ -1762,12 +1774,13 @@ static bool dcn315_resource_construct(
 	dc->caps.max_cursor_size = 256;
 	dc->caps.min_horizontal_blanking_period = 80;
 	dc->caps.dmdata_alloc_size = 2048;
-	dc->caps.max_slave_planes = 1;
-	dc->caps.max_slave_yuv_planes = 1;
-	dc->caps.max_slave_rgb_planes = 1;
+	dc->caps.max_slave_planes = 2;
+	dc->caps.max_slave_yuv_planes = 2;
+	dc->caps.max_slave_rgb_planes = 2;
 	dc->caps.post_blend_color_processing = true;
 	dc->caps.force_dp_tps4_for_cp2520 = true;
 	dc->caps.dp_hpo = true;
+	dc->caps.dp_hdmi21_pcon_support = true;
 	dc->caps.edp_dsc_support = true;
 	dc->caps.extended_aux_timeout_support = true;
 	dc->caps.dmcub_support = true;

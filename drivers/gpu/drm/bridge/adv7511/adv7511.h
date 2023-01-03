@@ -226,18 +226,6 @@
 #define ADV7511_REG_CEC_CLK_DIV		0x4e
 #define ADV7511_REG_CEC_SOFT_RESET	0x50
 
-static const u8 ADV7511_REG_CEC_RX_FRAME_HDR[] = {
-	ADV7511_REG_CEC_RX1_FRAME_HDR,
-	ADV7511_REG_CEC_RX2_FRAME_HDR,
-	ADV7511_REG_CEC_RX3_FRAME_HDR,
-};
-
-static const u8 ADV7511_REG_CEC_RX_FRAME_LEN[] = {
-	ADV7511_REG_CEC_RX1_FRAME_LEN,
-	ADV7511_REG_CEC_RX2_FRAME_LEN,
-	ADV7511_REG_CEC_RX3_FRAME_LEN,
-};
-
 #define ADV7533_REG_CEC_OFFSET		0x70
 
 enum adv7511_input_clock {
@@ -414,7 +402,8 @@ static inline int adv7511_cec_init(struct device *dev, struct adv7511 *adv7511)
 
 void adv7533_dsi_power_on(struct adv7511 *adv);
 void adv7533_dsi_power_off(struct adv7511 *adv);
-void adv7533_mode_set(struct adv7511 *adv, const struct drm_display_mode *mode);
+enum drm_mode_status adv7533_mode_valid(struct adv7511 *adv,
+					const struct drm_display_mode *mode);
 int adv7533_patch_registers(struct adv7511 *adv);
 int adv7533_patch_cec_registers(struct adv7511 *adv);
 int adv7533_attach_dsi(struct adv7511 *adv);

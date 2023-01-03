@@ -57,15 +57,6 @@
 #define _THIS_IP_  ({ __label__ __here; __here: (unsigned long)&&__here; })
 
 /**
- * lower_48_bits() - return bits 0-47 of a number
- * @n: the number we're accessing
- */
-static inline u64 lower_48_bits(u64 n)
-{
-	return n & ((1ull << 48) - 1);
-}
-
-/**
  * upper_32_bits - return bits 32-63 of a number
  * @n: the number we're accessing
  *

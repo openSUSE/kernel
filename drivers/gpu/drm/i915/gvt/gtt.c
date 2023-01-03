@@ -51,7 +51,7 @@ static int preallocated_oos_pages = 8192;
 
 static bool intel_gvt_is_valid_gfn(struct intel_vgpu *vgpu, unsigned long gfn)
 {
-	struct kvm *kvm = vgpu->kvm;
+	struct kvm *kvm = vgpu->vfio_device.kvm;
 	int idx;
 	bool ret;
 
@@ -1195,7 +1195,7 @@ static int is_2MB_gtt_possible(struct intel_vgpu *vgpu,
 
 	if (!vgpu->attached)
 		return -EINVAL;
-	pfn = gfn_to_pfn(vgpu->kvm, ops->get_pfn(entry));
+	pfn = gfn_to_pfn(vgpu->vfio_device.kvm, ops->get_pfn(entry));
 	if (is_error_noslot_pfn(pfn))
 		return -EINVAL;
 	return PageTransHuge(pfn_to_page(pfn));
@@ -2351,7 +2351,7 @@ static int emulate_ggtt_mmio_write(struct intel_vgpu *vgpu, unsigned int off,
 			gvt_vgpu_err("fail to populate guest ggtt entry\n");
 			/* guest driver may read/write the entry when partial
 			 * update the entry in this situation p2m will fail
-			 * settting the shadow entry to point to a scratch page
+			 * setting the shadow entry to point to a scratch page
 			 */
 			ops->set_pfn(&m, gvt->gtt.scratch_mfn);
 		} else

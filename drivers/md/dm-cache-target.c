@@ -803,7 +803,7 @@ static void accounted_complete(struct cache *cache, struct bio *bio)
 static void accounted_request(struct cache *cache, struct bio *bio)
 {
 	accounted_begin(cache, bio);
-	submit_bio_noacct(bio);
+	dm_submit_bio_remap(bio, NULL);
 }
 
 static void issue_op(struct bio *bio, void *context)
@@ -1708,7 +1708,7 @@ static bool process_bio(struct cache *cache, struct bio *bio)
 	bool commit_needed;
 
 	if (map_bio(cache, bio, get_bio_block(cache, bio), &commit_needed) == DM_MAPIO_REMAPPED)
-		submit_bio_noacct(bio);
+		dm_submit_bio_remap(bio, NULL);
 
 	return commit_needed;
 }
@@ -1774,7 +1774,7 @@ static bool process_discard_bio(struct cache *cache, struct bio *bio)
 
 	if (cache->features.discard_passdown) {
 		remap_to_origin(cache, bio);
-		submit_bio_noacct(bio);
+		dm_submit_bio_remap(bio, NULL);
 	} else
 		bio_endio(bio);
 
@@ -2015,7 +2015,6 @@ static int parse_metadata_dev(struct cache_args *ca, struct dm_arg_set *as,
 {
 	int r;
 	sector_t metadata_dev_size;
-	char b[BDEVNAME_SIZE];
 
 	if (!at_least_one_arg(as, error))
 		return -EINVAL;
@@ -2029,8 +2028,8 @@ static int parse_metadata_dev(struct cache_args *ca, struct dm_arg_set *as,
 
 	metadata_dev_size = get_dev_size(ca->metadata_dev);
 	if (metadata_dev_size > DM_CACHE_METADATA_MAX_SECTORS_WARNING)
-		DMWARN("Metadata device %s is larger than %u sectors: excess space will not be used.",
-		       bdevname(ca->metadata_dev->bdev, b), THIN_METADATA_MAX_SECTORS);
+		DMWARN("Metadata device %pg is larger than %u sectors: excess space will not be used.",
+		       ca->metadata_dev->bdev, THIN_METADATA_MAX_SECTORS);
 
 	return 0;
 }
@@ -2357,6 +2356,7 @@ static int cache_create(struct cache_args *ca, struct cache **result)
 
 	cache->ti = ca->ti;
 	ti->private = cache;
+	ti->accounts_remapped_io = true;
 	ti->num_flush_bios = 2;
 	ti->flush_supported = true;
 
@@ -2775,7 +2775,7 @@ static int load_mapping(void *context, dm_oblock_t oblock, dm_cblock_t cblock,
 
 /*
  * The discard block size in the on disk metadata is not
- * neccessarily the same as we're currently using.  So we have to
+ * necessarily the same as we're currently using.  So we have to
  * be careful to only set the discarded attribute if we know it
  * covers a complete block of the new size.
  */
@@ -3114,6 +3114,30 @@ static void cache_status(struct dm_target *ti, status_type_t type,
 			DMEMIT(" %s", cache->ctr_args[i]);
 		if (cache->nr_ctr_args)
 			DMEMIT(" %s", cache->ctr_args[cache->nr_ctr_args - 1]);
+		break;
+
+	case STATUSTYPE_IMA:
+		DMEMIT_TARGET_NAME_VERSION(ti->type);
+		if (get_cache_mode(cache) == CM_FAIL)
+			DMEMIT(",metadata_mode=fail");
+		else if (get_cache_mode(cache) == CM_READ_ONLY)
+			DMEMIT(",metadata_mode=ro");
+		else
+			DMEMIT(",metadata_mode=rw");
+
+		format_dev_t(buf, cache->metadata_dev->bdev->bd_dev);
+		DMEMIT(",cache_metadata_device=%s", buf);
+		format_dev_t(buf, cache->cache_dev->bdev->bd_dev);
+		DMEMIT(",cache_device=%s", buf);
+		format_dev_t(buf, cache->origin_dev->bdev->bd_dev);
+		DMEMIT(",cache_origin_device=%s", buf);
+		DMEMIT(",writethrough=%c", writethrough_mode(cache) ? 'y' : 'n');
+		DMEMIT(",writeback=%c", writeback_mode(cache) ? 'y' : 'n');
+		DMEMIT(",passthrough=%c", passthrough_mode(cache) ? 'y' : 'n');
+		DMEMIT(",metadata2=%c", cache->features.metadata_version == 2 ? 'y' : 'n');
+		DMEMIT(",no_discard_passdown=%c", cache->features.discard_passdown ? 'n' : 'y');
+		DMEMIT(";");
+		break;
 	}
 
 	return;
@@ -3314,7 +3338,6 @@ static void disable_passdown_if_not_supported(struct cache *cache)
 	struct block_device *origin_bdev = cache->origin_dev->bdev;
 	struct queue_limits *origin_limits = &bdev_get_queue(origin_bdev)->limits;
 	const char *reason = NULL;
-	char buf[BDEVNAME_SIZE];
 
 	if (!cache->features.discard_passdown)
 		return;
@@ -3326,8 +3349,8 @@ static void disable_passdown_if_not_supported(struct cache *cache)
 		reason = "max discard sectors smaller than a block";
 
 	if (reason) {
-		DMWARN("Origin device (%s) %s: Disabling discard passdown.",
-		       bdevname(origin_bdev, buf), reason);
+		DMWARN("Origin device (%pg) %s: Disabling discard passdown.",
+		       origin_bdev, reason);
 		cache->features.discard_passdown = false;
 	}
 }

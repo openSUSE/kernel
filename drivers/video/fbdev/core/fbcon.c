@@ -416,7 +416,7 @@ static int __init fb_console_setup(char *this_opt)
 
 	while ((options = strsep(&this_opt, ",")) != NULL) {
 		if (!strncmp(options, "font:", 5)) {
-			strlcpy(fontname, options + 5, sizeof(fontname));
+			strscpy(fontname, options + 5, sizeof(fontname));
 			continue;
 		}
 		
@@ -581,7 +581,7 @@ static void fbcon_prepare_logo(struct vc_data *vc, struct fb_info *info,
 		if (scr_readw(r) != vc->vc_video_erase_char)
 			break;
 	if (r != q && new_rows >= rows + logo_lines) {
-		save = kmalloc(array3_size(logo_lines, new_cols, 2),
+		save = kzalloc(array3_size(logo_lines, new_cols, 2),
 			       GFP_KERNEL);
 		if (save) {
 			int i = min(cols, new_cols);
@@ -2184,7 +2184,6 @@ static int fbcon_switch(struct vc_data *vc)
 	if (logo_shown == FBCON_LOGO_DRAW) {
 
 		logo_shown = fg_console;
-		/* This is protected above by initmem_freed */
 		fb_show_logo(info, ops->rotate);
 		update_region(vc,
 			      vc->vc_origin + vc->vc_size_row * vc->vc_top,
@@ -2455,7 +2454,8 @@ err_out:
 
 	if (userfont) {
 		p->userfont = old_userfont;
-		REFCOUNT(data)--;
+		if (--REFCOUNT(data) == 0)
+			kfree(data - FONT_EXTRA_WORDS * sizeof(int));
 	}
 
 	vc->vc_font.width = old_width;

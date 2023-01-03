@@ -154,6 +154,7 @@ static struct cmn2asic_msg_mapping sienna_cichlid_message_map[SMU_MSG_MAX_COUNT]
 	MSG_MAP(SetGpoFeaturePMask,		PPSMC_MSG_SetGpoFeaturePMask,          0),
 	MSG_MAP(DisallowGpo,			PPSMC_MSG_DisallowGpo,                 0),
 	MSG_MAP(Enable2ndUSB20Port,		PPSMC_MSG_Enable2ndUSB20Port,          0),
+	MSG_MAP(DriverMode2Reset,		PPSMC_MSG_DriverMode2Reset,	       0),
 };
 
 static struct cmn2asic_mapping sienna_cichlid_clk_map[SMU_CLK_COUNT] = {
@@ -378,6 +379,10 @@ static void sienna_cichlid_check_bxco_support(struct smu_context *smu)
 		    ((adev->pdev->device == 0x73BF) &&
 		    (adev->pdev->revision == 0xCF)) ||
 		    ((adev->pdev->device == 0x7422) &&
+		    (adev->pdev->revision == 0x00)) ||
+		    ((adev->pdev->device == 0x73A3) &&
+		    (adev->pdev->revision == 0x00)) ||
+		    ((adev->pdev->device == 0x73E3) &&
 		    (adev->pdev->revision == 0x00)))
 			smu_baco->platform_support = false;
 
@@ -899,6 +904,7 @@ static void sienna_cichlid_stb_init(struct smu_context *smu);
 
 static int sienna_cichlid_init_smc_tables(struct smu_context *smu)
 {
+	struct amdgpu_device *adev = smu->adev;
 	int ret = 0;
 
 	ret = sienna_cichlid_tables_init(smu);
@@ -909,7 +915,8 @@ static int sienna_cichlid_init_smc_tables(struct smu_context *smu)
 	if (ret)
 		return ret;
 
-	sienna_cichlid_stb_init(smu);
+	if (!amdgpu_sriov_vf(adev))
+		sienna_cichlid_stb_init(smu);
 
 	return smu_v11_0_init_smc_tables(smu);
 }
@@ -1477,19 +1484,19 @@ static int sienna_cichlid_populate_umd_state_clk(struct smu_context *smu)
 	pstate_table->socclk_pstate.min = soc_table->min;
 	pstate_table->socclk_pstate.peak = soc_table->max;
 
-	switch (adev->asic_type) {
-	case CHIP_SIENNA_CICHLID:
-	case CHIP_NAVY_FLOUNDER:
+	switch (adev->ip_versions[MP1_HWIP][0]) {
+	case IP_VERSION(11, 0, 7):
+	case IP_VERSION(11, 0, 11):
 		pstate_table->gfxclk_pstate.standard = SIENNA_CICHLID_UMD_PSTATE_PROFILING_GFXCLK;
 		pstate_table->uclk_pstate.standard = SIENNA_CICHLID_UMD_PSTATE_PROFILING_MEMCLK;
 		pstate_table->socclk_pstate.standard = SIENNA_CICHLID_UMD_PSTATE_PROFILING_SOCCLK;
 		break;
-	case CHIP_DIMGREY_CAVEFISH:
+	case IP_VERSION(11, 0, 12):
 		pstate_table->gfxclk_pstate.standard = DIMGREY_CAVEFISH_UMD_PSTATE_PROFILING_GFXCLK;
 		pstate_table->uclk_pstate.standard = DIMGREY_CAVEFISH_UMD_PSTATE_PROFILING_MEMCLK;
 		pstate_table->socclk_pstate.standard = DIMGREY_CAVEFISH_UMD_PSTATE_PROFILING_SOCCLK;
 		break;
-	case CHIP_BEIGE_GOBY:
+	case IP_VERSION(11, 0, 13):
 		pstate_table->gfxclk_pstate.standard = BEIGE_GOBY_UMD_PSTATE_PROFILING_GFXCLK;
 		pstate_table->uclk_pstate.standard = BEIGE_GOBY_UMD_PSTATE_PROFILING_MEMCLK;
 		pstate_table->socclk_pstate.standard = BEIGE_GOBY_UMD_PSTATE_PROFILING_SOCCLK;
@@ -4205,7 +4212,7 @@ static int sienna_cichlid_get_default_config_table_settings(struct smu_context *
 	table->gfx_activity_average_tau = 10;
 	table->mem_activity_average_tau = 10;
 	table->socket_power_average_tau = 100;
-	if (adev->asic_type != CHIP_SIENNA_CICHLID)
+	if (adev->ip_versions[MP1_HWIP][0] != IP_VERSION(11, 0, 7))
 		table->apu_socket_power_average_tau = 100;
 
 	return 0;
@@ -4263,6 +4270,57 @@ static int sienna_cichlid_stb_get_data_direct(struct smu_context *smu,
 	spin_unlock(&smu->stb_context.lock);
 
 	return 0;
+}
+
+static bool sienna_cichlid_is_mode2_reset_supported(struct smu_context *smu)
+{
+	return true;
+}
+
+static int sienna_cichlid_mode2_reset(struct smu_context *smu)
+{
+	u32 smu_version;
+	int ret = 0, index;
+	struct amdgpu_device *adev = smu->adev;
+	int timeout = 100;
+
+	smu_cmn_get_smc_version(smu, NULL, &smu_version);
+
+	index = smu_cmn_to_asic_specific_index(smu, CMN2ASIC_MAPPING_MSG,
+						SMU_MSG_DriverMode2Reset);
+
+	mutex_lock(&smu->message_lock);
+
+	ret = smu_cmn_send_msg_without_waiting(smu, (uint16_t)index,
+					       SMU_RESET_MODE_2);
+
+	ret = smu_cmn_wait_for_response(smu);
+	while (ret != 0 && timeout) {
+		ret = smu_cmn_wait_for_response(smu);
+		/* Wait a bit more time for getting ACK */
+		if (ret != 0) {
+			--timeout;
+			usleep_range(500, 1000);
+			continue;
+		} else {
+			break;
+		}
+	}
+
+	if (!timeout) {
+		dev_err(adev->dev,
+			"failed to send mode2 message \tparam: 0x%08x response %#x\n",
+			SMU_RESET_MODE_2, ret);
+		goto out;
+	}
+
+	dev_info(smu->adev->dev, "restore config space...\n");
+	/* Restore the config space saved during init */
+	amdgpu_device_load_pci_state(adev->pdev);
+out:
+	mutex_unlock(&smu->message_lock);
+
+	return ret;
 }
 
 static const struct pptable_funcs sienna_cichlid_ppt_funcs = {
@@ -4360,6 +4418,8 @@ static const struct pptable_funcs sienna_cichlid_ppt_funcs = {
 	.get_default_config_table_settings = sienna_cichlid_get_default_config_table_settings,
 	.set_config_table = sienna_cichlid_set_config_table,
 	.get_unique_id = sienna_cichlid_get_unique_id,
+	.mode2_reset_is_support = sienna_cichlid_is_mode2_reset_supported,
+	.mode2_reset = sienna_cichlid_mode2_reset,
 };
 
 void sienna_cichlid_set_ppt_funcs(struct smu_context *smu)
@@ -4371,4 +4431,5 @@ void sienna_cichlid_set_ppt_funcs(struct smu_context *smu)
 	smu->table_map = sienna_cichlid_table_map;
 	smu->pwr_src_map = sienna_cichlid_pwr_src_map;
 	smu->workload_map = sienna_cichlid_workload_map;
+	smu_v11_0_set_smu_mailbox_registers(smu);
 }

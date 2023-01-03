@@ -382,7 +382,7 @@ void __init early_gart_iommu_check(void)
 
 static int __initdata printed_gart_size_msg;
 
-int __init gart_iommu_hole_init(void)
+void __init gart_iommu_hole_init(void)
 {
 	u32 agp_aper_base = 0, agp_aper_order = 0;
 	u32 aper_size, aper_alloc = 0, aper_order = 0, last_aper_order = 0;
@@ -391,11 +391,11 @@ int __init gart_iommu_hole_init(void)
 	int i, node;
 
 	if (!amd_gart_present())
-		return -ENODEV;
+		return;
 
 	if (gart_iommu_aperture_disabled || !fix_aperture ||
 	    !early_pci_allowed())
-		return -ENODEV;
+		return;
 
 	pr_info("Checking aperture...\n");
 
@@ -481,10 +481,8 @@ out:
 			 * and fixed up the northbridge
 			 */
 			exclude_from_core(last_aper_base, last_aper_order);
-
-			return 1;
 		}
-		return 0;
+		return;
 	}
 
 	if (!fallback_aper_force) {
@@ -517,7 +515,7 @@ out:
 			panic("Not enough memory for aperture");
 		}
 	} else {
-		return 0;
+		return;
 	}
 
 	/*
@@ -551,6 +549,4 @@ out:
 	}
 
 	set_up_gart_resume(aper_order, aper_alloc);
-
-	return 1;
 }

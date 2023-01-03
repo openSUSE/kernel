@@ -1576,7 +1576,7 @@ int smu_v11_0_set_azalia_d3_pme(struct smu_context *smu)
 }
 
 int smu_v11_0_baco_set_armd3_sequence(struct smu_context *smu,
-				      enum smu_v11_0_baco_seq baco_seq)
+				      enum smu_baco_seq baco_seq)
 {
 	return smu_cmn_send_smc_msg_with_param(smu, SMU_MSG_ArmD3, baco_seq, NULL);
 }
@@ -1587,6 +1587,10 @@ bool smu_v11_0_baco_is_support(struct smu_context *smu)
 
 	if (amdgpu_sriov_vf(smu->adev) || !smu_baco->platform_support)
 		return false;
+
+	/* return true if ASIC is in BACO state already */
+	if (smu_v11_0_baco_get_state(smu) == SMU_BACO_STATE_ENTER)
+		return true;
 
 	/* Arcturus does not support this bit mask */
 	if (smu_cmn_feature_is_supported(smu, SMU_FEATURE_BACO_BIT) &&
@@ -2198,4 +2202,13 @@ int smu_v11_0_restore_user_od_settings(struct smu_context *smu)
 		dev_err(smu->adev->dev, "Failed to import overdrive table!\n");
 
 	return ret;
+}
+
+void smu_v11_0_set_smu_mailbox_registers(struct smu_context *smu)
+{
+	struct amdgpu_device *adev = smu->adev;
+
+	smu->param_reg = SOC15_REG_OFFSET(MP1, 0, mmMP1_SMN_C2PMSG_82);
+	smu->msg_reg = SOC15_REG_OFFSET(MP1, 0, mmMP1_SMN_C2PMSG_66);
+	smu->resp_reg = SOC15_REG_OFFSET(MP1, 0, mmMP1_SMN_C2PMSG_90);
 }

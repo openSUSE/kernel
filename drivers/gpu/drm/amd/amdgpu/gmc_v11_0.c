@@ -22,10 +22,13 @@
  */
 #include <linux/firmware.h>
 #include <linux/pci.h>
+
+#include <drm/drm_cache.h>
+
 #include "amdgpu.h"
 #include "amdgpu_atomfirmware.h"
 #include "gmc_v11_0.h"
-#include "umc_v8_7.h"
+#include "umc_v8_10.h"
 #include "athub/athub_3_0_0_sh_mask.h"
 #include "athub/athub_3_0_0_offset.h"
 #include "oss/osssys_6_0_0_offset.h"
@@ -36,7 +39,9 @@
 #include "soc15_common.h"
 #include "nbio_v4_3.h"
 #include "gfxhub_v3_0.h"
+#include "gfxhub_v3_0_3.h"
 #include "mmhub_v3_0.h"
+#include "mmhub_v3_0_1.h"
 #include "mmhub_v3_0_2.h"
 #include "athub_v3_0.h"
 
@@ -181,6 +186,10 @@ static void gmc_v11_0_flush_vm_hub(struct amdgpu_device *adev, uint32_t vmid,
 	/* Use register 17 for GART */
 	const unsigned eng = 17;
 	unsigned int i;
+	unsigned char hub_ip = 0;
+
+	hub_ip = (vmhub == AMDGPU_GFXHUB_0) ?
+		   GC_HWIP : MMHUB_HWIP;
 
 	spin_lock(&adev->gmc.invalidate_lock);
 	/*
@@ -194,8 +203,8 @@ static void gmc_v11_0_flush_vm_hub(struct amdgpu_device *adev, uint32_t vmid,
 	if (use_semaphore) {
 		for (i = 0; i < adev->usec_timeout; i++) {
 			/* a read return value of 1 means semaphore acuqire */
-			tmp = RREG32_NO_KIQ(hub->vm_inv_eng0_sem +
-					    hub->eng_distance * eng);
+			tmp = RREG32_RLC_NO_KIQ(hub->vm_inv_eng0_sem +
+					    hub->eng_distance * eng, hub_ip);
 			if (tmp & 0x1)
 				break;
 			udelay(1);
@@ -205,12 +214,12 @@ static void gmc_v11_0_flush_vm_hub(struct amdgpu_device *adev, uint32_t vmid,
 			DRM_ERROR("Timeout waiting for sem acquire in VM flush!\n");
 	}
 
-	WREG32_NO_KIQ(hub->vm_inv_eng0_req + hub->eng_distance * eng, inv_req);
+	WREG32_RLC_NO_KIQ(hub->vm_inv_eng0_req + hub->eng_distance * eng, inv_req, hub_ip);
 
 	/* Wait for ACK with a delay.*/
 	for (i = 0; i < adev->usec_timeout; i++) {
-		tmp = RREG32_NO_KIQ(hub->vm_inv_eng0_ack +
-				    hub->eng_distance * eng);
+		tmp = RREG32_RLC_NO_KIQ(hub->vm_inv_eng0_ack +
+				    hub->eng_distance * eng, hub_ip);
 		tmp &= 1 << vmid;
 		if (tmp)
 			break;
@@ -224,12 +233,13 @@ static void gmc_v11_0_flush_vm_hub(struct amdgpu_device *adev, uint32_t vmid,
 		 * add semaphore release after invalidation,
 		 * write with 0 means semaphore release
 		 */
-		WREG32_NO_KIQ(hub->vm_inv_eng0_sem +
-			      hub->eng_distance * eng, 0);
+		WREG32_RLC_NO_KIQ(hub->vm_inv_eng0_sem +
+			      hub->eng_distance * eng, 0, hub_ip);
 
 	/* Issue additional private vm invalidation to MMHUB */
 	if ((vmhub != AMDGPU_GFXHUB_0) &&
-	    (hub->vm_l2_bank_select_reserved_cid2)) {
+	    (hub->vm_l2_bank_select_reserved_cid2) &&
+		!amdgpu_sriov_vf(adev)) {
 		inv_req = RREG32_NO_KIQ(hub->vm_l2_bank_select_reserved_cid2);
 		/* bit 25: RSERVED_CACHE_PRIVATE_INVALIDATION */
 		inv_req |= (1 << 25);
@@ -267,7 +277,7 @@ static void gmc_v11_0_flush_gpu_tlb(struct amdgpu_device *adev, uint32_t vmid,
 	/* For SRIOV run time, driver shouldn't access the register through MMIO
 	 * Directly use kiq to do the vm invalidation instead
 	 */
-	if (adev->gfx.kiq.ring.sched.ready && !adev->enable_mes &&
+	if ((adev->gfx.kiq.ring.sched.ready || adev->mes.ring.sched.ready) &&
 	    (amdgpu_sriov_runtime(adev) || !amdgpu_sriov_vf(adev))) {
 		struct amdgpu_vmhub *hub = &adev->vmhub[vmhub];
 		const unsigned eng = 17;
@@ -343,7 +353,6 @@ static int gmc_v11_0_flush_gpu_tlb_pasid(struct amdgpu_device *adev,
 				gmc_v11_0_flush_gpu_tlb(adev, vmid,
 						AMDGPU_GFXHUB_0, flush_type);
 			}
-			break;
 		}
 	}
 
@@ -537,10 +546,35 @@ static void gmc_v11_0_set_umc_funcs(struct amdgpu_device *adev)
 {
 	switch (adev->ip_versions[UMC_HWIP][0]) {
 	case IP_VERSION(8, 10, 0):
+		adev->umc.channel_inst_num = UMC_V8_10_CHANNEL_INSTANCE_NUM;
+		adev->umc.umc_inst_num = UMC_V8_10_UMC_INSTANCE_NUM;
+		adev->umc.node_inst_num = adev->gmc.num_umc;
+		adev->umc.max_ras_err_cnt_per_query = UMC_V8_10_TOTAL_CHANNEL_NUM(adev);
+		adev->umc.channel_offs = UMC_V8_10_PER_CHANNEL_OFFSET;
+		adev->umc.channel_idx_tbl = &umc_v8_10_channel_idx_tbl[0][0][0];
+		adev->umc.ras = &umc_v8_10_ras;
+		break;
 	case IP_VERSION(8, 11, 0):
 		break;
 	default:
 		break;
+	}
+
+	if (adev->umc.ras) {
+		amdgpu_ras_register_ras_block(adev, &adev->umc.ras->ras_block);
+
+		strcpy(adev->umc.ras->ras_block.ras_comm.name, "umc");
+		adev->umc.ras->ras_block.ras_comm.block = AMDGPU_RAS_BLOCK__UMC;
+		adev->umc.ras->ras_block.ras_comm.type = AMDGPU_RAS_ERROR__MULTI_UNCORRECTABLE;
+		adev->umc.ras_if = &adev->umc.ras->ras_block.ras_comm;
+
+		/* If don't define special ras_late_init function, use default ras_late_init */
+		if (!adev->umc.ras->ras_block.ras_late_init)
+			adev->umc.ras->ras_block.ras_late_init = amdgpu_umc_ras_late_init;
+
+		/* If not define special ras_cb function, use default ras_cb */
+		if (!adev->umc.ras->ras_block.ras_cb)
+			adev->umc.ras->ras_block.ras_cb = amdgpu_umc_process_ras_data_cb;
 	}
 }
 
@@ -548,6 +582,9 @@ static void gmc_v11_0_set_umc_funcs(struct amdgpu_device *adev)
 static void gmc_v11_0_set_mmhub_funcs(struct amdgpu_device *adev)
 {
 	switch (adev->ip_versions[MMHUB_HWIP][0]) {
+	case IP_VERSION(3, 0, 1):
+		adev->mmhub.funcs = &mmhub_v3_0_1_funcs;
+		break;
 	case IP_VERSION(3, 0, 2):
 		adev->mmhub.funcs = &mmhub_v3_0_2_funcs;
 		break;
@@ -559,7 +596,14 @@ static void gmc_v11_0_set_mmhub_funcs(struct amdgpu_device *adev)
 
 static void gmc_v11_0_set_gfxhub_funcs(struct amdgpu_device *adev)
 {
-	adev->gfxhub.funcs = &gfxhub_v3_0_funcs;
+	switch (adev->ip_versions[GC_HWIP][0]) {
+	case IP_VERSION(11, 0, 3):
+		adev->gfxhub.funcs = &gfxhub_v3_0_3_funcs;
+		break;
+	default:
+		adev->gfxhub.funcs = &gfxhub_v3_0_funcs;
+		break;
+	}
 }
 
 static int gmc_v11_0_early_init(void *handle)
@@ -609,7 +653,10 @@ static void gmc_v11_0_vram_gtt_location(struct amdgpu_device *adev,
 	amdgpu_gmc_gart_location(adev, mc);
 
 	/* base offset of vram pages */
-	adev->vm_manager.vram_base_offset = adev->mmhub.funcs->get_mc_fb_offset(adev);
+	if (amdgpu_sriov_vf(adev))
+		adev->vm_manager.vram_base_offset = 0;
+	else
+		adev->vm_manager.vram_base_offset = adev->mmhub.funcs->get_mc_fb_offset(adev);
 }
 
 /**
@@ -701,6 +748,7 @@ static int gmc_v11_0_sw_init(void *handle)
 	case IP_VERSION(11, 0, 0):
 	case IP_VERSION(11, 0, 1):
 	case IP_VERSION(11, 0, 2):
+	case IP_VERSION(11, 0, 3):
 		adev->num_vmhubs = 2;
 		/*
 		 * To fulfill 4-level page support,
@@ -746,6 +794,8 @@ static int gmc_v11_0_sw_init(void *handle)
 		printk(KERN_WARNING "amdgpu: No suitable DMA available.\n");
 		return r;
 	}
+
+	adev->need_swiotlb = drm_need_swiotlb(44);
 
 	r = gmc_v11_0_mc_init(adev);
 	if (r)
