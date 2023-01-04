@@ -199,7 +199,6 @@ config ARM64
 	# https://github.com/ClangBuiltLinux/linux/issues/1354
 	select HAVE_STATIC_CALL if !LTO_CLANG_THIN || CLANG_VERSION >= 130000
 	select HAVE_FUNCTION_ARG_ACCESS_API
-	select HAVE_FUTEX_CMPXCHG if FUTEX
 	select MMU_GATHER_RCU_TABLE_FREE
 	select HAVE_RSEQ
 	select HAVE_STACKPROTECTOR

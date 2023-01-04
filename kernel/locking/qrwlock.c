@@ -14,10 +14,10 @@
 #include <linux/spinlock.h>
 
 /**
- * queued_read_lock_slowpath - acquire read lock of a queue rwlock
- * @lock: Pointer to queue rwlock structure
+ * queued_read_lock_slowpath - acquire read lock of a queued rwlock
+ * @lock: Pointer to queued rwlock structure
  */
-void queued_read_lock_slowpath(struct qrwlock *lock)
+void __lockfunc queued_read_lock_slowpath(struct qrwlock *lock)
 {
 	/*
 	 * Readers come here when they cannot get the lock without waiting
@@ -55,10 +55,10 @@ void queued_read_lock_slowpath(struct qrwlock *lock)
 EXPORT_SYMBOL(queued_read_lock_slowpath);
 
 /**
- * queued_write_lock_slowpath - acquire write lock of a queue rwlock
- * @lock : Pointer to queue rwlock structure
+ * queued_write_lock_slowpath - acquire write lock of a queued rwlock
+ * @lock : Pointer to queued rwlock structure
  */
-void queued_write_lock_slowpath(struct qrwlock *lock)
+void __lockfunc queued_write_lock_slowpath(struct qrwlock *lock)
 {
 	int cnts;
 
