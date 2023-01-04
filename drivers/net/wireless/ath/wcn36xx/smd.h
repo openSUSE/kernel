@@ -137,7 +137,9 @@ int wcn36xx_smd_add_ba_session(struct wcn36xx *wcn,
 		u8 sta_index);
 int wcn36xx_smd_add_ba(struct wcn36xx *wcn, u8 session_id);
 int wcn36xx_smd_del_ba(struct wcn36xx *wcn, u16 tid, u8 direction, u8 sta_index);
-int wcn36xx_smd_trigger_ba(struct wcn36xx *wcn, u8 sta_index, u16 tid, u8 session_id);
+int wcn36xx_smd_trigger_ba(struct wcn36xx *wcn, u8 sta_index, u16 tid, u16 *ssn);
+int wcn36xx_smd_get_stats(struct wcn36xx *wcn, u8 sta_index, u32 stats_mask,
+			  struct station_info *sinfo);
 
 int wcn36xx_smd_update_cfg(struct wcn36xx *wcn, u32 cfg_id, u32 value);
 
@@ -163,5 +165,11 @@ int wcn36xx_smd_gtk_offload_get_info(struct wcn36xx *wcn,
 int wcn36xx_smd_wlan_host_suspend_ind(struct wcn36xx *wcn);
 
 int wcn36xx_smd_host_resume(struct wcn36xx *wcn);
+
+int wcn36xx_smd_enter_imps(struct wcn36xx *wcn);
+int wcn36xx_smd_exit_imps(struct wcn36xx *wcn);
+
+int wcn36xx_smd_add_beacon_filter(struct wcn36xx *wcn,
+				  struct ieee80211_vif *vif);
 
 #endif	/* _SMD_H_ */
