@@ -59,11 +59,10 @@ ifneq ($(KBUILD_MODPOST_WARN)$(missing-input),)
 modpost-args += -w
 endif
 
-MODVERDIR := $(if $(KBUILD_EXTMOD),$(firstword $(KBUILD_EXTMOD))/).tmp_versions
-
-MODPOST += $(if $(CONFIG_SUSE_KERNEL_SUPPORTED),				\
-		-S $(firstword $(wildcard $(dir $(MODVERDIR))/Module.supported \
-		$(if $(KBUILD_EXTMOD),,$(srctree)/Module.supported) /dev/null)))
+ifdef CONFIG_SUSE_KERNEL_SUPPORTED
+modpost-args += -S $(firstword $(wildcard $(extmod-Module.supported) \
+		                          Module.supported /dev/null))
+endif
 
 # Read out modules.order to pass in modpost.
 # Otherwise, allmodconfig would fail with "Argument list too long".
@@ -128,6 +127,7 @@ endif
 
 modpost-args += -e $(addprefix -i , $(KBUILD_EXTRA_SYMBOLS))
 
+extmod-Module.supported := $(KBUILD_EXTMOD)/Module.supported
 endif # ($(KBUILD_EXTMOD),)
 
 quiet_cmd_modpost = MODPOST $@
