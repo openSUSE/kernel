@@ -2016,10 +2016,20 @@ nfs4_opendata_get_inode(struct nfs4_opendata *data)
 	case NFS4_OPEN_CLAIM_NULL:
 	case NFS4_OPEN_CLAIM_DELEGATE_CUR:
 	case NFS4_OPEN_CLAIM_DELEGATE_PREV:
-		if (!(data->f_attr.valid & NFS_ATTR_FATTR))
-			return ERR_PTR(-EAGAIN);
-		inode = nfs_fhget(data->dir->d_sb, &data->o_res.fh,
-				&data->f_attr, data->f_label);
+		if (data->f_attr.valid & NFS_ATTR_FATTR) {
+			inode = nfs_fhget(data->dir->d_sb, &data->o_res.fh,
+					  &data->f_attr, data->f_label);
+		} else {
+			/* We don't have the fileid and so cannot do inode
+			 * lookup.  If we already have this state open we MUST
+			 * update the seqid to match the server, so we need to
+			 * find it if possible.
+			 */
+			inode = nfs4_get_inode_by_stateid(&data->o_res.stateid,
+							  data->owner);
+			if (!inode)
+				inode = ERR_PTR(-EAGAIN);
+		}
 		break;
 	default:
 		inode = d_inode(data->dentry);

@@ -752,6 +752,23 @@ out:
 	return state;
 }
 
+struct inode *
+nfs4_get_inode_by_stateid(nfs4_stateid *stateid, struct nfs4_state_owner *owner)
+{
+	struct nfs4_state *state;
+	struct inode *inode = NULL;
+
+	spin_lock(&owner->so_lock);
+	list_for_each_entry(state, &owner->so_states, open_states)
+		if (nfs4_stateid_match_other(stateid, &state->open_stateid)) {
+			inode = state->inode;
+			ihold(inode);
+			break;
+		}
+	spin_unlock(&owner->so_lock);
+	return inode;
+}
+
 void nfs4_put_open_state(struct nfs4_state *state)
 {
 	struct inode *inode = state->inode;
