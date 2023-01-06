@@ -506,15 +506,26 @@ find_any_file(struct nfs4_file *f)
 	return ret;
 }
 
-static struct file *find_deleg_file(struct nfs4_file *f)
+static struct file *find_any_file_locked(struct nfs4_file *f)
 {
-	struct file *ret = NULL;
+	lockdep_assert_held(&f->fi_lock);
 
-	spin_lock(&f->fi_lock);
+	if (f->fi_fds[O_RDWR])
+		return f->fi_fds[O_RDWR];
+	if (f->fi_fds[O_WRONLY])
+		return f->fi_fds[O_WRONLY];
+	if (f->fi_fds[O_RDONLY])
+		return f->fi_fds[O_RDONLY];
+	return NULL;
+}
+
+static struct file *find_deleg_file_locked(struct nfs4_file *f)
+{
+	lockdep_assert_held(&f->fi_lock);
+
 	if (f->fi_deleg_file)
-		ret = get_file(f->fi_deleg_file);
-	spin_unlock(&f->fi_lock);
-	return ret;
+		return f->fi_deleg_file;
+	return NULL;
 }
 
 static atomic_long_t num_delegations;
@@ -853,7 +864,6 @@ static int delegation_blocked(struct knfsd_fh *fh)
 	    test_bit((hash>>8)&255, bd->set[1]) &&
 	    test_bit((hash>>16)&255, bd->set[1]))
 		return 1;
-
 	return 0;
 }
 
@@ -2491,9 +2501,10 @@ static int nfs4_show_open(struct seq_file *s, struct nfs4_stid *st)
 	ols = openlockstateid(st);
 	oo = ols->st_stateowner;
 	nf = st->sc_file;
-	file = find_any_file(nf);
+	spin_lock(&nf->fi_lock);
+	file = find_any_file_locked(nf);
 	if (!file)
-		return 0;
+		goto out;
 
 	seq_printf(s, "- 0x%16phN: { type: open, ", &st->sc_stateid);
 
@@ -2511,8 +2522,8 @@ static int nfs4_show_open(struct seq_file *s, struct nfs4_stid *st)
 	seq_printf(s, ", ");
 	nfs4_show_owner(s, oo);
 	seq_printf(s, " }\n");
-	fput(file);
-
+out:
+	spin_unlock(&nf->fi_lock);
 	return 0;
 }
 
@@ -2526,9 +2537,11 @@ static int nfs4_show_lock(struct seq_file *s, struct nfs4_stid *st)
 	ols = openlockstateid(st);
 	oo = ols->st_stateowner;
 	nf = st->sc_file;
-	file = find_any_file(nf);
+
+	spin_lock(&nf->fi_lock);
+	file = find_any_file_locked(nf);
 	if (!file)
-		return 0;
+		goto out;
 
 	seq_printf(s, "- 0x%16phN: { type: lock, ", &st->sc_stateid);
 
@@ -2544,8 +2557,8 @@ static int nfs4_show_lock(struct seq_file *s, struct nfs4_stid *st)
 	seq_printf(s, ", ");
 	nfs4_show_owner(s, oo);
 	seq_printf(s, " }\n");
-	fput(file);
-
+out:
+	spin_unlock(&nf->fi_lock);
 	return 0;
 }
 
@@ -2557,9 +2570,10 @@ static int nfs4_show_deleg(struct seq_file *s, struct nfs4_stid *st)
 
 	ds = delegstateid(st);
 	nf = st->sc_file;
-	file = find_deleg_file(nf);
+	spin_lock(&nf->fi_lock);
+	file = find_deleg_file_locked(nf);
 	if (!file)
-		return 0;
+		goto out;
 
 	seq_printf(s, "- 0x%16phN: { type: deleg, ", &st->sc_stateid);
 
@@ -2571,7 +2585,8 @@ static int nfs4_show_deleg(struct seq_file *s, struct nfs4_stid *st)
 
 	nfs4_show_superblock(s, file);
 	seq_printf(s, " }\n");
-	fput(file);
+out:
+	spin_unlock(&nf->fi_lock);
 
 	return 0;
 }
