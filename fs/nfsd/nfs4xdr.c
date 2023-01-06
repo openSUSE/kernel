@@ -1909,18 +1909,13 @@ nfsd4_decode_compound(struct nfsd4_compoundargs *argp)
 	SAVEMEM(argp->tag, argp->taglen);
 	READ_BUF(8);
 	argp->minorversion = be32_to_cpup(p++);
-	argp->opcnt = be32_to_cpup(p++);
+	argp->client_opcnt = be32_to_cpup(p++);
 	max_reply += 4 + (XDR_QUADLEN(argp->taglen) << 2);
 
 	if (argp->taglen > NFSD4_MAX_TAGLEN)
 		goto xdr_error;
-	/*
-	 * NFS4ERR_RESOURCE is a more helpful error than GARBAGE_ARGS
-	 * here, so we return success at the xdr level so that
-	 * nfsd4_proc can handle this is an NFS-level error.
-	 */
-	if (argp->opcnt > NFSD_MAX_OPS_PER_COMPOUND)
-		return 0;
+	argp->opcnt = min_t(u32, argp->client_opcnt,
+			    NFSD_MAX_OPS_PER_COMPOUND);
 
 	if (argp->opcnt > ARRAY_SIZE(argp->iops)) {
 		argp->ops = kzalloc(argp->opcnt * sizeof(*argp->ops), GFP_KERNEL);
