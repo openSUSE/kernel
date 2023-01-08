@@ -106,6 +106,7 @@ int amdgpu_job_alloc(struct amdgpu_device *adev, struct amdgpu_vm *vm,
 	(*job)->base.sched = &adev->rings[0]->sched;
 	(*job)->vm = vm;
 
+	amdgpu_sync_create(&(*job)->sync);
 	amdgpu_sync_create(&(*job)->explicit_sync);
 	(*job)->vram_lost_counter = atomic_read(&adev->vram_lost_counter);
 	(*job)->vm_pd_addr = AMDGPU_BO_INVALID_OFFSET;
@@ -174,7 +175,6 @@ static void amdgpu_job_free_cb(struct drm_sched_job *s_job)
 	drm_sched_job_cleanup(s_job);
 
 	amdgpu_sync_free(&job->explicit_sync);
-
 	/* only put the hw fence if has embedded fence */
 	if (!job->hw_fence.ops)
 		kfree(job);
@@ -204,6 +204,7 @@ void amdgpu_job_free(struct amdgpu_job *job)
 		drm_sched_job_cleanup(&job->base);
 
 	amdgpu_job_free_resources(job);
+	amdgpu_sync_free(&job->sync);
 	amdgpu_sync_free(&job->explicit_sync);
 	if (job->gang_submit != &job->base.s_fence->scheduled)
 		dma_fence_put(job->gang_submit);
@@ -247,9 +248,10 @@ amdgpu_job_prepare_job(struct drm_sched_job *sched_job,
 {
 	struct amdgpu_ring *ring = to_amdgpu_ring(s_entity->rq->sched);
 	struct amdgpu_job *job = to_amdgpu_job(sched_job);
-	struct dma_fence *fence = NULL;
+	struct dma_fence *fence;
 	int r;
 
+	fence = amdgpu_sync_get_fence(&job->sync);
 	if (!fence && job->gang_submit)
 		fence = amdgpu_device_switch_gang(ring->adev, job->gang_submit);
 
@@ -272,6 +274,8 @@ static struct dma_fence *amdgpu_job_run(struct drm_sched_job *sched_job)
 
 	job = to_amdgpu_job(sched_job);
 	finished = &job->base.s_fence->finished;
+
+	BUG_ON(amdgpu_sync_peek_fence(&job->sync, NULL));
 
 	trace_amdgpu_sched_run_job(job);
 
