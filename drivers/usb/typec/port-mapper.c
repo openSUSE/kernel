@@ -60,6 +60,8 @@ int typec_link_ports(struct typec_port *con)
 		return 0;
 
 	acpi_bus_for_each_dev(typec_port_match, &arg);
+	if (!arg.match)
+		return 0;
 
 	/*
 	 * REVISIT: Now each connector can have only a single component master.
