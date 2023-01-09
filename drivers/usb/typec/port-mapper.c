@@ -56,6 +56,9 @@ int typec_link_ports(struct typec_port *con)
 {
 	struct each_port_arg arg = { .port = con, .match = NULL };
 
+	if (!has_acpi_companion(&con->dev))
+		return 0;
+
 	acpi_bus_for_each_dev(typec_port_match, &arg);
 
 	/*
@@ -74,5 +77,6 @@ int typec_link_ports(struct typec_port *con)
 
 void typec_unlink_ports(struct typec_port *con)
 {
-	component_master_del(&con->dev, &typec_aggregate_ops);
+	if (has_acpi_companion(&con->dev))
+		component_master_del(&con->dev, &typec_aggregate_ops);
 }
