@@ -104,7 +104,7 @@ static void ar5523_cmd_rx_cb(struct urb *urb)
 	}
 
 	if (urb->actual_length < sizeof(struct ar5523_cmd_hdr)) {
-		ar5523_err(ar, "RX USB to short.\n");
+		ar5523_err(ar, "RX USB too short.\n");
 		goto skip;
 	}
 
@@ -1506,7 +1506,7 @@ static int ar5523_load_firmware(struct usb_device *dev)
 		return -ENOENT;
 	}
 
-	txblock = kmalloc(sizeof(*txblock), GFP_KERNEL);
+	txblock = kzalloc(sizeof(*txblock), GFP_KERNEL);
 	if (!txblock)
 		goto out;
 
@@ -1518,7 +1518,6 @@ static int ar5523_load_firmware(struct usb_device *dev)
 	if (!fwbuf)
 		goto out_free_rxblock;
 
-	memset(txblock, 0, sizeof(struct ar5523_fwblock));
 	txblock->flags = cpu_to_be32(AR5523_WRITE_BLOCK);
 	txblock->total = cpu_to_be32(fw->size);
 
@@ -1782,9 +1781,8 @@ static const struct usb_device_id ar5523_id_table[] = {
 	AR5523_DEVICE_UG(0x0846, 0x5f00),	/* Netgear / WPN111 */
 	AR5523_DEVICE_UG(0x083a, 0x4506),	/* SMC / EZ Connect
 						   SMCWUSBT-G2 */
-	AR5523_DEVICE_UG(0x157e, 0x3006),	/* Umedia / AR5523_1 */
+	AR5523_DEVICE_UG(0x157e, 0x3006),	/* Umedia / AR5523_1, TEW444UBEU*/
 	AR5523_DEVICE_UX(0x157e, 0x3205),	/* Umedia / AR5523_2 */
-	AR5523_DEVICE_UG(0x157e, 0x3006),	/* Umedia / TEW444UBEU */
 	AR5523_DEVICE_UG(0x1435, 0x0826),	/* Wistronneweb / AR5523_1 */
 	AR5523_DEVICE_UX(0x1435, 0x0828),	/* Wistronneweb / AR5523_2 */
 	AR5523_DEVICE_UG(0x0cde, 0x0012),	/* Zcom / AR5523 */

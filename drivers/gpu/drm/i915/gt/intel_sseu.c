@@ -865,10 +865,10 @@ void intel_sseu_print_ss_info(const char *type,
 	int s;
 
 	if (sseu->has_xehp_dss) {
-		seq_printf(m, "  %s Geometry DSS: %u\n", type,
+		seq_printf(m, "  %s Geometry DSS: %lu\n", type,
 			   bitmap_weight(sseu->geometry_subslice_mask.xehp,
 					 XEHP_BITMAP_BITS(sseu->geometry_subslice_mask)));
-		seq_printf(m, "  %s Compute DSS: %u\n", type,
+		seq_printf(m, "  %s Compute DSS: %lu\n", type,
 			   bitmap_weight(sseu->compute_subslice_mask.xehp,
 					 XEHP_BITMAP_BITS(sseu->compute_subslice_mask)));
 	} else {
