@@ -3929,7 +3929,6 @@ static int log_inode_item(struct btrfs_trans_handle *trans,
 		 */
 		ret = btrfs_insert_empty_item(trans, log, path, &inode->location,
 					      sizeof(*inode_item));
-		ASSERT(ret != -EEXIST);
 	}
 	if (ret)
 		return ret;
