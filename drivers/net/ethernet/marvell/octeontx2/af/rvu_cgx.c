@@ -833,6 +833,22 @@ u32 rvu_cgx_get_fifolen(struct rvu *rvu)
 	return fifo_len;
 }
 
+u32 rvu_cgx_get_lmac_fifolen(struct rvu *rvu, int cgx, int lmac)
+{
+	struct mac_ops *mac_ops;
+	void *cgxd;
+
+	cgxd = rvu_cgx_pdata(cgx, rvu);
+	if (!cgxd)
+		return 0;
+
+	mac_ops = get_mac_ops(cgxd);
+	if (!mac_ops->lmac_fifo_len)
+		return 0;
+
+	return mac_ops->lmac_fifo_len(cgxd, lmac);
+}
+
 static int rvu_cgx_config_intlbk(struct rvu *rvu, u16 pcifunc, bool en)
 {
 	int pf = rvu_get_pf(pcifunc);
@@ -1059,7 +1075,7 @@ int rvu_mbox_handler_cgx_get_aux_link_info(struct rvu *rvu, struct msg_req *req,
 	u8 cgx_id, lmac_id;
 
 	if (!rvu->fwdata)
-		return -ENXIO;
+		return LMAC_AF_ERR_FIRMWARE_DATA_NOT_MAPPED;
 
 	if (!is_pf_cgxmapped(rvu, pf))
 		return -EPERM;
@@ -1088,7 +1104,7 @@ int rvu_mbox_handler_cgx_set_link_mode(struct rvu *rvu,
 	return 0;
 }
 
-int rvu_mbox_handler_cgx_mac_addr_reset(struct rvu *rvu, struct msg_req *req,
+int rvu_mbox_handler_cgx_mac_addr_reset(struct rvu *rvu, struct cgx_mac_addr_reset_req *req,
 					struct msg_rsp *rsp)
 {
 	int pf = rvu_get_pf(req->hdr.pcifunc);
@@ -1103,7 +1119,7 @@ int rvu_mbox_handler_cgx_mac_addr_reset(struct rvu *rvu, struct msg_req *req,
 
 int rvu_mbox_handler_cgx_mac_addr_update(struct rvu *rvu,
 					 struct cgx_mac_addr_update_req *req,
-					 struct msg_rsp *rsp)
+					 struct cgx_mac_addr_update_rsp *rsp)
 {
 	int pf = rvu_get_pf(req->hdr.pcifunc);
 	u8 cgx_id, lmac_id;
