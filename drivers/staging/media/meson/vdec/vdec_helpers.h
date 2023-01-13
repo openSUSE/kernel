@@ -50,7 +50,7 @@ void amvdec_dst_buf_done_offset(struct amvdec_session *sess,
  * @ts: timestamp to add
  * @offset: offset in the VIFIFO where the associated packet was written
  */
-void amvdec_add_ts_reorder(struct amvdec_session *sess, u64 ts, u32 offset);
+int amvdec_add_ts_reorder(struct amvdec_session *sess, u64 ts, u32 offset);
 void amvdec_remove_ts(struct amvdec_session *sess, u64 ts);
 
 /**
