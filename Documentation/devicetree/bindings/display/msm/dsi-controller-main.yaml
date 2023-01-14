@@ -120,7 +120,6 @@ required:
   - phys
   - phy-names
   - power-domains
-  - operating-points-v2
   - ports
 
 additionalProperties: false
