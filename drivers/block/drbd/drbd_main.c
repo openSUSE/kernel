@@ -2263,6 +2263,8 @@ void drbd_destroy_device(struct kref *kref)
 		kfree(peer_device);
 	}
 	memset(device, 0xfd, sizeof(*device));
+	if (device->submit.wq)
+		destroy_workqueue(device->submit.wq);
 	kfree(device);
 	kref_put(&resource->kref, drbd_destroy_resource);
 }
