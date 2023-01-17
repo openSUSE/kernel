@@ -142,7 +142,8 @@ static struct usb_endpoint_descriptor uvc_fs_streaming_ep = {
 	.bEndpointAddress	= USB_DIR_IN,
 	.bmAttributes		= USB_ENDPOINT_SYNC_ASYNC
 				| USB_ENDPOINT_XFER_ISOC,
-	/* The wMaxPacketSize and bInterval values will be initialized from
+	/*
+	 * The wMaxPacketSize and bInterval values will be initialized from
 	 * module parameters.
 	 */
 };
@@ -153,7 +154,8 @@ static struct usb_endpoint_descriptor uvc_hs_streaming_ep = {
 	.bEndpointAddress	= USB_DIR_IN,
 	.bmAttributes		= USB_ENDPOINT_SYNC_ASYNC
 				| USB_ENDPOINT_XFER_ISOC,
-	/* The wMaxPacketSize and bInterval values will be initialized from
+	/*
+	 * The wMaxPacketSize and bInterval values will be initialized from
 	 * module parameters.
 	 */
 };
@@ -165,7 +167,8 @@ static struct usb_endpoint_descriptor uvc_ss_streaming_ep = {
 	.bEndpointAddress	= USB_DIR_IN,
 	.bmAttributes		= USB_ENDPOINT_SYNC_ASYNC
 				| USB_ENDPOINT_XFER_ISOC,
-	/* The wMaxPacketSize and bInterval values will be initialized from
+	/*
+	 * The wMaxPacketSize and bInterval values will be initialized from
 	 * module parameters.
 	 */
 };
@@ -173,7 +176,8 @@ static struct usb_endpoint_descriptor uvc_ss_streaming_ep = {
 static struct usb_ss_ep_comp_descriptor uvc_ss_streaming_comp = {
 	.bLength		= sizeof(uvc_ss_streaming_comp),
 	.bDescriptorType	= USB_DT_SS_ENDPOINT_COMP,
-	/* The bMaxBurst, bmAttributes and wBytesPerInterval values will be
+	/*
+	 * The bMaxBurst, bmAttributes and wBytesPerInterval values will be
 	 * initialized from module parameters.
 	 */
 };
@@ -236,7 +240,8 @@ uvc_function_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 	if (le16_to_cpu(ctrl->wLength) > UVC_MAX_REQUEST_SIZE)
 		return -EINVAL;
 
-	/* Tell the complete callback to generate an event for the next request
+	/*
+	 * Tell the complete callback to generate an event for the next request
 	 * that will be enqueued by UVCIOC_SEND_RESPONSE.
 	 */
 	uvc->event_setup_out = !(ctrl->bRequestType & USB_DIR_IN);
@@ -500,7 +505,8 @@ uvc_copy_descriptors(struct uvc_device *uvc, enum usb_device_speed speed)
 	if (!uvc_control_desc || !uvc_streaming_cls)
 		return ERR_PTR(-ENODEV);
 
-	/* Descriptors layout
+	/*
+	 * Descriptors layout
 	 *
 	 * uvc_iad
 	 * uvc_control_intf
@@ -597,8 +603,7 @@ uvc_function_bind(struct usb_configuration *c, struct usb_function *f)
 	uvcg_info(f, "%s()\n", __func__);
 
 	opts = fi_to_f_uvc_opts(f->fi);
-	/* Sanity check the streaming endpoint module parameters.
-	 */
+	/* Sanity check the streaming endpoint module parameters. */
 	opts->streaming_interval = clamp(opts->streaming_interval, 1U, 16U);
 	opts->streaming_maxpacket = clamp(opts->streaming_maxpacket, 1U, 3072U);
 	opts->streaming_maxburst = min(opts->streaming_maxburst, 15U);
@@ -611,7 +616,8 @@ uvc_function_bind(struct usb_configuration *c, struct usb_function *f)
 			  opts->streaming_maxpacket);
 	}
 
-	/* Fill in the FS/HS/SS Video Streaming specific descriptors from the
+	/*
+	 * Fill in the FS/HS/SS Video Streaming specific descriptors from the
 	 * module parameters.
 	 *
 	 * NOTE: We assume that the user knows what they are doing and won't
@@ -893,7 +899,8 @@ static void uvc_function_unbind(struct usb_configuration *c,
 
 	uvcg_info(f, "%s()\n", __func__);
 
-	/* If we know we're connected via v4l2, then there should be a cleanup
+	/*
+	 * If we know we're connected via v4l2, then there should be a cleanup
 	 * of the device from userspace either via UVC_EVENT_DISCONNECT or
 	 * though the video device removal uevent. Allow some time for the
 	 * application to close out before things get deleted.
@@ -910,7 +917,8 @@ static void uvc_function_unbind(struct usb_configuration *c,
 	v4l2_device_unregister(&uvc->v4l2_dev);
 
 	if (uvc->func_connected) {
-		/* Wait for the release to occur to ensure there are no longer any
+		/*
+		 * Wait for the release to occur to ensure there are no longer any
 		 * pending operations that may cause panics when resources are cleaned
 		 * up.
 		 */
