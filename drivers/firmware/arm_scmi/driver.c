@@ -37,6 +37,8 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/scmi.h>
 
+static DEFINE_IDA(scmi_id);
+
 static DEFINE_IDR(scmi_protocols);
 static DEFINE_SPINLOCK(protocol_lock);
 
@@ -96,6 +98,7 @@ struct scmi_protocol_instance {
 /**
  * struct scmi_info - Structure representing a SCMI instance
  *
+ * @id: A sequence number starting from zero identifying this instance
  * @dev: Device pointer
  * @desc: SoC description for this instance
  * @version: SCMI revision information containing protocol version,
@@ -128,6 +131,7 @@ struct scmi_protocol_instance {
  *		bus
  */
 struct scmi_info {
+	int id;
 	struct device *dev;
 	const struct scmi_desc *desc;
 	struct scmi_revision_info version;
@@ -2102,6 +2106,7 @@ static int scmi_chan_setup(struct scmi_info *info, struct device_node *of_node,
 	}
 	of_node_get(of_node);
 
+	cinfo->id = prot_id;
 	cinfo->dev = &tdev->dev;
 	cinfo->handle = &info->handle;
 	ret = info->desc->ops->chan_setup(cinfo, info->dev, tx);
@@ -2314,6 +2319,10 @@ static int scmi_probe(struct platform_device *pdev)
 	if (!info)
 		return -ENOMEM;
 
+	info->id = ida_alloc_min(&scmi_id, 0, GFP_KERNEL);
+	if (info->id < 0)
+		return info->id;
+
 	info->dev = dev;
 	info->desc = desc;
 	info->bus_nb.notifier_call = scmi_bus_notifier;
@@ -2345,13 +2354,13 @@ static int scmi_probe(struct platform_device *pdev)
 	if (desc->ops->link_supplier) {
 		ret = desc->ops->link_supplier(dev);
 		if (ret)
-			return ret;
+			goto clear_ida;
 	}
 
 	/* Setup all channels described in the DT at first */
 	ret = scmi_channels_setup(info);
 	if (ret)
-		return ret;
+		goto clear_ida;
 
 	ret = bus_register_notifier(&scmi_bus_type, &info->bus_nb);
 	if (ret)
@@ -2429,6 +2438,8 @@ clear_bus_notifier:
 	bus_unregister_notifier(&scmi_bus_type, &info->bus_nb);
 clear_txrx_setup:
 	scmi_cleanup_txrx_channels(info);
+clear_ida:
+	ida_free(&scmi_id, info->id);
 	return ret;
 }
 
@@ -2461,6 +2472,8 @@ static int scmi_remove(struct platform_device *pdev)
 
 	/* Safe to free channels since no more users */
 	scmi_cleanup_txrx_channels(info);
+
+	ida_free(&scmi_id, info->id);
 
 	return 0;
 }
