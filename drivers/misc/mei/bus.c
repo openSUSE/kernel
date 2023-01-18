@@ -31,7 +31,7 @@
  *
  * Return: written size bytes or < 0 on error
  */
-ssize_t __mei_cl_send(struct mei_cl *cl, u8 *buf, size_t length, u8 vtag,
+ssize_t __mei_cl_send(struct mei_cl *cl, const u8 *buf, size_t length, u8 vtag,
 		      unsigned int mode)
 {
 	struct mei_device *bus;
@@ -232,8 +232,8 @@ out:
  *  * < 0 on error
  */
 
-ssize_t mei_cldev_send_vtag(struct mei_cl_device *cldev, u8 *buf, size_t length,
-			    u8 vtag)
+ssize_t mei_cldev_send_vtag(struct mei_cl_device *cldev, const u8 *buf,
+			    size_t length, u8 vtag)
 {
 	struct mei_cl *cl = cldev->cl;
 
@@ -296,7 +296,7 @@ EXPORT_SYMBOL_GPL(mei_cldev_recv_nonblock_vtag);
  *  * written size in bytes
  *  * < 0 on error
  */
-ssize_t mei_cldev_send(struct mei_cl_device *cldev, u8 *buf, size_t length)
+ssize_t mei_cldev_send(struct mei_cl_device *cldev, const u8 *buf, size_t length)
 {
 	return mei_cldev_send_vtag(cldev, buf, length, 0);
 }
@@ -552,7 +552,7 @@ EXPORT_SYMBOL_GPL(mei_cldev_ver);
  *
  * Return: true if me client is initialized and connected
  */
-bool mei_cldev_enabled(struct mei_cl_device *cldev)
+bool mei_cldev_enabled(const struct mei_cl_device *cldev)
 {
 	return mei_cl_is_connected(cldev->cl);
 }
@@ -642,6 +642,64 @@ static void mei_cl_bus_vtag_free(struct mei_cl_device *cldev)
 	list_del(&cl_vtag->list);
 	kfree(cl_vtag);
 }
+
+void *mei_cldev_dma_map(struct mei_cl_device *cldev, u8 buffer_id, size_t size)
+{
+	struct mei_device *bus;
+	struct mei_cl *cl;
+	int ret;
+
+	if (!cldev || !buffer_id || !size)
+		return ERR_PTR(-EINVAL);
+
+	if (!IS_ALIGNED(size, MEI_FW_PAGE_SIZE)) {
+		dev_err(&cldev->dev, "Map size should be aligned to %lu\n",
+			MEI_FW_PAGE_SIZE);
+		return ERR_PTR(-EINVAL);
+	}
+
+	cl = cldev->cl;
+	bus = cldev->bus;
+
+	mutex_lock(&bus->device_lock);
+	if (cl->state == MEI_FILE_UNINITIALIZED) {
+		ret = mei_cl_link(cl);
+		if (ret)
+			goto out;
+		/* update pointers */
+		cl->cldev = cldev;
+	}
+
+	ret = mei_cl_dma_alloc_and_map(cl, NULL, buffer_id, size);
+out:
+	mutex_unlock(&bus->device_lock);
+	if (ret)
+		return ERR_PTR(ret);
+	return cl->dma.vaddr;
+}
+EXPORT_SYMBOL_GPL(mei_cldev_dma_map);
+
+int mei_cldev_dma_unmap(struct mei_cl_device *cldev)
+{
+	struct mei_device *bus;
+	struct mei_cl *cl;
+	int ret;
+
+	if (!cldev)
+		return -EINVAL;
+
+	cl = cldev->cl;
+	bus = cldev->bus;
+
+	mutex_lock(&bus->device_lock);
+	ret = mei_cl_dma_unmap(cl, NULL);
+
+	mei_cl_flush_queues(cl, NULL);
+	mei_cl_unlink(cl);
+	mutex_unlock(&bus->device_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(mei_cldev_dma_unmap);
 
 /**
  * mei_cldev_enable - enable me client device
@@ -753,9 +811,11 @@ int mei_cldev_disable(struct mei_cl_device *cldev)
 		dev_err(bus->dev, "Could not disconnect from the ME client\n");
 
 out:
-	/* Flush queues and remove any pending read */
-	mei_cl_flush_queues(cl, NULL);
-	mei_cl_unlink(cl);
+	/* Flush queues and remove any pending read unless we have mapped DMA */
+	if (!cl->dma_mapped) {
+		mei_cl_flush_queues(cl, NULL);
+		mei_cl_unlink(cl);
+	}
 
 	mutex_unlock(&bus->device_lock);
 	return err;
@@ -771,8 +831,8 @@ EXPORT_SYMBOL_GPL(mei_cldev_disable);
  * Return: id on success; NULL if no id is matching
  */
 static const
-struct mei_cl_device_id *mei_cl_device_find(struct mei_cl_device *cldev,
-					    struct mei_cl_driver *cldrv)
+struct mei_cl_device_id *mei_cl_device_find(const struct mei_cl_device *cldev,
+					    const struct mei_cl_driver *cldrv)
 {
 	const struct mei_cl_device_id *id;
 	const uuid_le *uuid;
@@ -815,8 +875,8 @@ struct mei_cl_device_id *mei_cl_device_find(struct mei_cl_device *cldev,
  */
 static int mei_cl_device_match(struct device *dev, struct device_driver *drv)
 {
-	struct mei_cl_device *cldev = to_mei_cl_device(dev);
-	struct mei_cl_driver *cldrv = to_mei_cl_driver(drv);
+	const struct mei_cl_device *cldev = to_mei_cl_device(dev);
+	const struct mei_cl_driver *cldrv = to_mei_cl_driver(drv);
 	const struct mei_cl_device_id *found_id;
 
 	if (!cldev)
@@ -1052,6 +1112,7 @@ static void mei_cl_bus_dev_release(struct device *dev)
 	if (!cldev)
 		return;
 
+	mei_cl_flush_queues(cldev->cl, NULL);
 	mei_me_cl_put(cldev->me_cl);
 	mei_dev_bus_put(cldev->bus);
 	mei_cl_unlink(cldev->cl);
