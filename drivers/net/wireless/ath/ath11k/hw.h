@@ -152,7 +152,6 @@ struct ath11k_hw_params {
 	bool rx_mac_buf_ring;
 	bool vdev_start_delay;
 	bool htt_peer_map_v2;
-	bool tcl_0_only;
 
 	struct {
 		u8 fft_sz;
@@ -171,6 +170,7 @@ struct ath11k_hw_params {
 	u32 hal_desc_sz;
 	bool fix_l1ss;
 #ifndef __GENKSYMS__
+	u8 max_tx_ring;
 	bool supports_dynamic_smps_6ghz;
 #endif
 };
