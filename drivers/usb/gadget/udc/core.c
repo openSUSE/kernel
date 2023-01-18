@@ -734,10 +734,13 @@ int usb_gadget_disconnect(struct usb_gadget *gadget)
 	}
 
 	ret = gadget->ops->pullup(gadget, 0);
-	if (!ret) {
+	if (!ret)
 		gadget->connected = 0;
+
+	mutex_lock(&udc_lock);
+	if (gadget->udc->driver)
 		gadget->udc->driver->disconnect(gadget);
-	}
+	mutex_unlock(&udc_lock);
 
 out:
 	trace_usb_gadget_disconnect(gadget, ret);
@@ -1476,7 +1479,7 @@ static int gadget_bind_driver(struct device *dev)
 			struct usb_gadget_driver, driver);
 	int ret = 0;
 
-	mutex_unlock(&udc_lock);
+	mutex_lock(&udc_lock);
 	if (driver->is_bound) {
 		mutex_unlock(&udc_lock);
 		return -ENXIO;		/* Driver binds to only one gadget */
@@ -1493,6 +1496,7 @@ static int gadget_bind_driver(struct device *dev)
 	ret = driver->bind(udc->gadget, driver);
 	if (ret)
 		goto err_bind;
+
 	ret = usb_gadget_udc_start(udc);
 	if (ret)
 		goto err_start;
@@ -1503,10 +1507,10 @@ static int gadget_bind_driver(struct device *dev)
 	kobject_uevent(&udc->dev.kobj, KOBJ_CHANGE);
 	return 0;
 
-err_start:
+ err_start:
 	driver->unbind(udc->gadget);
 
-err_bind:
+ err_bind:
 	if (ret != -EISNAM)
 		dev_err(&udc->dev, "failed to start %s: %d\n",
 			driver->function, ret);
@@ -1550,6 +1554,7 @@ int usb_gadget_register_driver_owner(struct usb_gadget_driver *driver,
 
 	if (!driver || !driver->bind || !driver->setup)
 		return -EINVAL;
+
 	driver->driver.bus = &gadget_bus_type;
 	driver->driver.owner = owner;
 	driver->driver.mod_name = mod_name;
@@ -1559,7 +1564,6 @@ int usb_gadget_register_driver_owner(struct usb_gadget_driver *driver,
 				driver->function, ret);
 		return ret;
 	}
-
 
 	mutex_lock(&udc_lock);
 	if (!driver->is_bound) {
