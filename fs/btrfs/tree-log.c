@@ -4933,7 +4933,6 @@ process:
 	WARN_ON(!list_empty(&extents));
 	write_unlock(&tree->lock);
 
-	btrfs_release_path(path);
 	if (!ret)
 		ret = btrfs_log_prealloc_extents(trans, inode, path);
 	if (ret)
