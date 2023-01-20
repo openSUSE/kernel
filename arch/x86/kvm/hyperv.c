@@ -902,8 +902,11 @@ static void stimer_init(struct kvm_vcpu_hv_stimer *stimer, int timer_index)
 
 int kvm_hv_vcpu_init(struct kvm_vcpu *vcpu)
 {
-	struct kvm_vcpu_hv *hv_vcpu;
+	struct kvm_vcpu_hv *hv_vcpu = to_hv_vcpu(vcpu);
 	int i;
+
+	if (hv_vcpu)
+		return 0;
 
 	hv_vcpu = kzalloc(sizeof(struct kvm_vcpu_hv), GFP_KERNEL_ACCOUNT);
 	if (!hv_vcpu)
@@ -928,11 +931,9 @@ int kvm_hv_activate_synic(struct kvm_vcpu *vcpu, bool dont_zero_synic_pages)
 	struct kvm_vcpu_hv_synic *synic;
 	int r;
 
-	if (!to_hv_vcpu(vcpu)) {
-		r = kvm_hv_vcpu_init(vcpu);
-		if (r)
-			return r;
-	}
+	r = kvm_hv_vcpu_init(vcpu);
+	if (r)
+		return r;
 
 	synic = to_hv_synic(vcpu);
 
@@ -1657,10 +1658,8 @@ int kvm_hv_set_msr_common(struct kvm_vcpu *vcpu, u32 msr, u64 data, bool host)
 	if (!host && !vcpu->arch.hyperv_enabled)
 		return 1;
 
-	if (!to_hv_vcpu(vcpu)) {
-		if (kvm_hv_vcpu_init(vcpu))
-			return 1;
-	}
+	if (kvm_hv_vcpu_init(vcpu))
+		return 1;
 
 	if (kvm_hv_msr_partition_wide(msr)) {
 		int r;
@@ -1680,10 +1679,8 @@ int kvm_hv_get_msr_common(struct kvm_vcpu *vcpu, u32 msr, u64 *pdata, bool host)
 	if (!host && !vcpu->arch.hyperv_enabled)
 		return 1;
 
-	if (!to_hv_vcpu(vcpu)) {
-		if (kvm_hv_vcpu_init(vcpu))
-			return 1;
-	}
+	if (kvm_hv_vcpu_init(vcpu))
+		return 1;
 
 	if (kvm_hv_msr_partition_wide(msr)) {
 		int r;
