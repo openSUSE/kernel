@@ -169,6 +169,8 @@ struct gendisk {
 	struct badblocks *bb;
 	struct lockdep_map lockdep_map;
 	u64 diskseq;
+
+	void *suse_kabi_padding;
 };
 
 static inline bool disk_live(struct gendisk *disk)
@@ -544,6 +546,8 @@ struct request_queue {
 	 * devices that do not have multiple independent access ranges.
 	 */
 	struct blk_independent_access_ranges *ia_ranges;
+
+	void *suse_kabi_padding;
 
 	/**
 	 * @srcu: Sleepable RCU. Use as lock when type of the request queue
