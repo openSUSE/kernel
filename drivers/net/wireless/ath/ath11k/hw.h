@@ -157,6 +157,8 @@ struct ath11k_hw_params {
 	bool rx_mac_buf_ring;
 	bool vdev_start_delay;
 	bool htt_peer_map_v2;
+	bool tcl_0_only;
+	u8 spectral_fft_sz;
 
 	u16 interface_modes;
 	bool supports_monitor;
