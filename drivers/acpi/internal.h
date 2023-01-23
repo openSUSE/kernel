@@ -168,7 +168,6 @@ static inline void acpi_early_processor_osc(void) {}
    -------------------------------------------------------------------------- */
 struct acpi_ec {
 	acpi_handle handle;
-	acpi_handle address_space_handler_holder;
 	int gpe;
 	int irq;
 	unsigned long command_addr;
@@ -188,6 +187,9 @@ struct acpi_ec {
 	unsigned int queries_in_progress;	/* FIXME: for kABI */
 	bool busy_polling;
 	unsigned int polling_guard;
+#ifndef __GENKSYMS__
+	acpi_handle address_space_handler_holder;
+#endif
 };
 
 extern struct acpi_ec *first_ec;
