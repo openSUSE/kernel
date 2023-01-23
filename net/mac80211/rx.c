@@ -4082,11 +4082,15 @@ ieee80211_rx_is_valid_sta_link_id(struct ieee80211_sta *sta, u8 link_id)
 static bool ieee80211_rx_data_set_link(struct ieee80211_rx_data *rx,
 				       u8 link_id)
 {
+	rx->link_id = link_id;
+	rx->link = rcu_dereference(rx->sdata->link[link_id]);
+
+	if (!rx->sta)
+		return rx->link;
+
 	if (!ieee80211_rx_is_valid_sta_link_id(&rx->sta->sta, link_id))
 		return false;
 
-	rx->link_id = link_id;
-	rx->link = rcu_dereference(rx->sdata->link[link_id]);
 	rx->link_sta = rcu_dereference(rx->sta->link[link_id]);
 
 	return rx->link && rx->link_sta;
@@ -4108,14 +4112,12 @@ static bool ieee80211_rx_data_set_sta(struct ieee80211_rx_data *rx,
 		if (!rx->sdata)
 			rx->sdata = sta->sdata;
 		rx->link_sta = &sta->deflink;
-
-		if (link_id >= 0 &&
-		    !ieee80211_rx_data_set_link(rx, link_id))
-			return false;
 	}
 
 	if (link_id < 0)
 		rx->link = &rx->sdata->deflink;
+	else if (!ieee80211_rx_data_set_link(rx, link_id))
+		return false;
 
 	return true;
 }
@@ -5059,6 +5061,7 @@ static void __ieee80211_rx_handle_packet(struct ieee80211_hw *hw,
 				continue;
 			}
 
+			rx.sdata = prev_sta->sdata;
 			if (!ieee80211_rx_data_set_sta(&rx, &prev_sta->sta,
 						       link_id))
 				goto out;
@@ -5072,6 +5075,7 @@ static void __ieee80211_rx_handle_packet(struct ieee80211_hw *hw,
 		}
 
 		if (prev_sta) {
+			rx.sdata = prev_sta->sdata;
 			if (!ieee80211_rx_data_set_sta(&rx, &prev_sta->sta,
 						       link_id))
 				goto out;
