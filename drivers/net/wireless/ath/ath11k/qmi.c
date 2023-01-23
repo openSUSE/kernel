@@ -1953,7 +1953,7 @@ ath11k_qmi_prepare_bdf_download(struct ath11k_base *ab, int type,
 		fw_size = min_t(u32, ab->hw_params.fw.board_size,
 				fw_entry->size);
 
-		memcpy_toio(bdf_addr + ab->hw_params.fw.cal_offset,
+		memcpy_toio(bdf_addr + ab->hw_params.fw.cal_size,
 			    fw_entry->data, fw_size);
 
 		release_firmware(fw_entry);

@@ -37,7 +37,7 @@ static const struct ath11k_hw_params ath11k_hw_params[] = {
 		.fw = {
 			.dir = "IPQ8074/hw2.0",
 			.board_size = 256 * 1024,
-			.cal_offset = 128 * 1024,
+			.cal_size = 128 * 1024,
 		},
 		.max_radios = 3,
 		.bdf_addr = 0x4B0C0000,
@@ -90,7 +90,7 @@ static const struct ath11k_hw_params ath11k_hw_params[] = {
 		.fw = {
 			.dir = "IPQ6018/hw1.0",
 			.board_size = 256 * 1024,
-			.cal_offset = 128 * 1024,
+			.cal_size = 128 * 1024,
 		},
 		.max_radios = 2,
 		.bdf_addr = 0x4ABC0000,
@@ -140,7 +140,7 @@ static const struct ath11k_hw_params ath11k_hw_params[] = {
 		.fw = {
 			.dir = "QCA6390/hw2.0",
 			.board_size = 256 * 1024,
-			.cal_offset = 128 * 1024,
+			.cal_size = 128 * 1024,
 		},
 		.max_radios = 3,
 		.bdf_addr = 0x4B0C0000,
@@ -189,7 +189,7 @@ static const struct ath11k_hw_params ath11k_hw_params[] = {
 		.fw = {
 			.dir = "QCN9074/hw1.0",
 			.board_size = 256 * 1024,
-			.cal_offset = 128 * 1024,
+			.cal_size = 128 * 1024,
 		},
 		.max_radios = 1,
 		.single_pdev_only = false,
@@ -238,7 +238,7 @@ static const struct ath11k_hw_params ath11k_hw_params[] = {
 		.fw = {
 			.dir = "WCN6855/hw2.0",
 			.board_size = 256 * 1024,
-			.cal_offset = 128 * 1024,
+			.cal_size = 128 * 1024,
 		},
 		.max_radios = 3,
 		.bdf_addr = 0x4B0C0000,

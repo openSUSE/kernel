@@ -133,7 +133,7 @@ struct ath11k_hw_params {
 	struct {
 		const char *dir;
 		size_t board_size;
-		size_t cal_offset;
+		size_t cal_size;
 	} fw;
 
 	const struct ath11k_hw_ops *hw_ops;
