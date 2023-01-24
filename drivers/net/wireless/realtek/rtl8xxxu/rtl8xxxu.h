@@ -1351,6 +1351,8 @@ struct rtl8xxxu_priv {
 
 	struct mutex h2c_mutex;
 
+	void *suse_kabi_padding;
+
 	struct usb_anchor rx_anchor;
 	struct usb_anchor tx_anchor;
 	struct usb_anchor int_anchor;
