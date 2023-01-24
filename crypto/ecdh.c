@@ -104,6 +104,9 @@ static int ecdh_compute_value(struct kpp_request *req)
 		if (fips_enabled) {
 			u64 *public_key_pct;
 
+			if (ret < 0)
+				goto free_all;
+
 			public_key_pct = kmalloc(public_key_sz, GFP_KERNEL);
 			if (!public_key_pct) {
 				ret = -ENOMEM;
@@ -118,9 +121,8 @@ static int ecdh_compute_value(struct kpp_request *req)
 				goto free_all;
 			}
 
-			ret = 0;
 			if (memcmp(public_key, public_key_pct, public_key_sz))
-				ret = -EINVAL;
+				panic("ECDH PCT failed in FIPS mode");
 			kfree(public_key_pct);
 		}
 	}
