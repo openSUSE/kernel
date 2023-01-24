@@ -209,6 +209,7 @@ int adf_init_pf_wq(void);
 void adf_exit_pf_wq(void);
 int adf_init_vf_wq(void);
 void adf_exit_vf_wq(void);
+void adf_flush_vf_wq(struct adf_accel_dev *accel_dev);
 #else
 #define adf_sriov_configure NULL
 
@@ -248,6 +249,10 @@ static inline int adf_init_vf_wq(void)
 }
 
 static inline void adf_exit_vf_wq(void)
+{
+}
+
+static inline void adf_flush_vf_wq(struct adf_accel_dev *accel_dev)
 {
 }
 
