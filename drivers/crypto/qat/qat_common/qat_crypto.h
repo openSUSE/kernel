@@ -9,9 +9,17 @@
 #include "adf_accel_devices.h"
 #include "icp_qat_fw_la.h"
 
+struct qat_instance_backlog {
+	struct list_head list;
+	spinlock_t lock; /* protects backlog list */
+};
+
 struct qat_alg_req {
 	u32 *fw_req;
 	struct adf_etr_ring_data *tx_ring;
+	struct crypto_async_request *base;
+	struct list_head list;
+	struct qat_instance_backlog *backlog;
 };
 
 struct qat_crypto_instance {
@@ -24,6 +32,7 @@ struct qat_crypto_instance {
 	unsigned long state;
 	int id;
 	atomic_t refctr;
+	struct qat_instance_backlog backlog;
 
 	void *suse_kabi_padding;
 };
@@ -84,6 +93,7 @@ struct qat_crypto_request {
 		u8 iv[AES_BLOCK_SIZE];
 	};
 	bool encryption;
+	struct qat_alg_req alg_req;
 
 	void *suse_kabi_padding;
 };
