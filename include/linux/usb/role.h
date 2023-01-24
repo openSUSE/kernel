@@ -45,6 +45,8 @@ struct usb_role_switch_desc {
 	bool allow_userspace_control;
 	void *driver_data;
 	const char *name;
+
+	void *suse_kabi_padding;
 };
 
 
