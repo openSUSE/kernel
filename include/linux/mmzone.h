@@ -909,6 +909,12 @@ typedef struct pglist_data {
 	/* Per-node vmstats */
 	struct per_cpu_nodestat __percpu *per_cpu_nodestats;
 	atomic_long_t		vm_stat[NR_VM_NODE_STAT_ITEMS];
+
+#ifdef CONFIG_COMPACTION
+#ifndef __GENKSYMS__
+	bool proactive_compact_trigger;
+#endif
+#endif
 } pg_data_t;
 
 #define node_present_pages(nid)	(NODE_DATA(nid)->node_present_pages)

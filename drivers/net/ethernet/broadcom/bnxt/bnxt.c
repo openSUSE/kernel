@@ -2073,6 +2073,9 @@ static int bnxt_async_event_process(struct bnxt *bp,
 	u32 data1 = le32_to_cpu(cmpl->event_data1);
 	u32 data2 = le32_to_cpu(cmpl->event_data2);
 
+	netdev_dbg(bp->dev, "hwrm event 0x%x {0x%x, 0x%x}\n",
+		   event_id, data1, data2);
+
 	/* TODO CHIMP_FW: Define event id's for link change, error etc */
 	switch (event_id) {
 	case ASYNC_EVENT_CMPL_EVENT_ID_LINK_SPEED_CFG_CHANGE: {
@@ -9775,17 +9778,12 @@ static int bnxt_try_recover_fw(struct bnxt *bp)
 	return -ENODEV;
 }
 
-int bnxt_cancel_reservations(struct bnxt *bp, bool fw_reset)
+static void bnxt_clear_reservations(struct bnxt *bp, bool fw_reset)
 {
 	struct bnxt_hw_resc *hw_resc = &bp->hw_resc;
-	int rc;
 
 	if (!BNXT_NEW_RM(bp))
-		return 0; /* no resource reservations required */
-
-	rc = bnxt_hwrm_func_resc_qcaps(bp, true);
-	if (rc)
-		netdev_err(bp->dev, "resc_qcaps failed\n");
+		return; /* no resource reservations required */
 
 	hw_resc->resv_cp_rings = 0;
 	hw_resc->resv_stat_ctxs = 0;
@@ -9798,6 +9796,20 @@ int bnxt_cancel_reservations(struct bnxt *bp, bool fw_reset)
 		bp->tx_nr_rings = 0;
 		bp->rx_nr_rings = 0;
 	}
+}
+
+int bnxt_cancel_reservations(struct bnxt *bp, bool fw_reset)
+{
+	int rc;
+
+	if (!BNXT_NEW_RM(bp))
+		return 0; /* no resource reservations required */
+
+	rc = bnxt_hwrm_func_resc_qcaps(bp, true);
+	if (rc)
+		netdev_err(bp->dev, "resc_qcaps failed\n");
+
+	bnxt_clear_reservations(bp, fw_reset);
 
 	return rc;
 }
@@ -12664,8 +12676,8 @@ static int bnxt_rx_flow_steer(struct net_device *dev, const struct sk_buff *skb,
 	rcu_read_lock();
 	hlist_for_each_entry_rcu(fltr, head, hash) {
 		if (bnxt_fltr_match(fltr, new_fltr)) {
+			rc = fltr->sw_id;
 			rcu_read_unlock();
-			rc = 0;
 			goto err_free;
 		}
 	}
@@ -13675,7 +13687,9 @@ static pci_ers_result_t bnxt_io_slot_reset(struct pci_dev *pdev)
 	pci_ers_result_t result = PCI_ERS_RESULT_DISCONNECT;
 	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct bnxt *bp = netdev_priv(netdev);
-	int err = 0, off;
+	int retry = 0;
+	int err = 0;
+	int off;
 
 	netdev_info(bp->dev, "PCI Slot Reset\n");
 
@@ -13703,11 +13717,36 @@ static pci_ers_result_t bnxt_io_slot_reset(struct pci_dev *pdev)
 		pci_restore_state(pdev);
 		pci_save_state(pdev);
 
+		bnxt_inv_fw_health_reg(bp);
+		bnxt_try_map_fw_health_reg(bp);
+
+		/* In some PCIe AER scenarios, firmware may take up to
+		 * 10 seconds to become ready in the worst case.
+		 */
+		do {
+			err = bnxt_try_recover_fw(bp);
+			if (!err)
+				break;
+			retry++;
+		} while (retry < BNXT_FW_SLOT_RESET_RETRY);
+
+		if (err) {
+			dev_err(&pdev->dev, "Firmware not ready\n");
+			goto reset_exit;
+		}
+
 		err = bnxt_hwrm_func_reset(bp);
 		if (!err)
 			result = PCI_ERS_RESULT_RECOVERED;
+
+		bnxt_ulp_irq_stop(bp);
+		bnxt_clear_int_mode(bp);
+		err = bnxt_init_int_mode(bp);
+		bnxt_ulp_irq_restart(bp, err);
 	}
 
+reset_exit:
+	bnxt_clear_reservations(bp, true);
 	rtnl_unlock();
 
 	return result;
@@ -13763,8 +13802,16 @@ static struct pci_driver bnxt_pci_driver = {
 
 static int __init bnxt_init(void)
 {
+	int err;
+
 	bnxt_debug_init();
-	return pci_register_driver(&bnxt_pci_driver);
+	err = pci_register_driver(&bnxt_pci_driver);
+	if (err) {
+		bnxt_debug_exit();
+		return err;
+	}
+
+	return 0;
 }
 
 static void __exit bnxt_exit(void)
