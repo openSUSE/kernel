@@ -134,6 +134,8 @@ static void v9fs_vfs_readahead(struct readahead_control *ractl)
 
 static int v9fs_release_page(struct page *page, gfp_t gfp)
 {
+	struct inode *inode = page->mapping->host;
+
 	if (PagePrivate(page))
 		return 0;
 #ifdef CONFIG_9P_FSCACHE
@@ -143,6 +145,7 @@ static int v9fs_release_page(struct page *page, gfp_t gfp)
 		wait_on_page_fscache(page);
 	}
 #endif
+	fscache_note_page_release(v9fs_inode_cookie(V9FS_I(inode)));
 	return 1;
 }
 
@@ -159,10 +162,25 @@ static void v9fs_invalidate_page(struct page *page, unsigned int offset,
 	wait_on_page_fscache(page);
 }
 
+static void v9fs_write_to_cache_done(void *priv, ssize_t transferred_or_error,
+				     bool was_async)
+{
+	struct v9fs_inode *v9inode = priv;
+	__le32 version;
+
+	if (IS_ERR_VALUE(transferred_or_error) &&
+	    transferred_or_error != -ENOBUFS) {
+		version = cpu_to_le32(v9inode->qid.version);
+		fscache_invalidate(v9fs_inode_cookie(v9inode), &version,
+				   i_size_read(&v9inode->vfs_inode), 0);
+	}
+}
+
 static int v9fs_vfs_writepage_locked(struct page *page)
 {
 	struct inode *inode = page->mapping->host;
 	struct v9fs_inode *v9inode = V9FS_I(inode);
+	struct fscache_cookie *cookie = v9fs_inode_cookie(v9inode);
 	loff_t start = page_offset(page);
 	loff_t size = i_size_read(inode);
 	struct iov_iter from;
@@ -178,9 +196,20 @@ static int v9fs_vfs_writepage_locked(struct page *page)
 	/* We should have writeback_fid always set */
 	BUG_ON(!v9inode->writeback_fid);
 
+	wait_on_page_fscache(page);
 	set_page_writeback(page);
 
 	p9_client_write(v9inode->writeback_fid, start, &from, &err);
+
+	if (err == 0 &&
+	    fscache_cookie_enabled(cookie) &&
+	    test_bit(FSCACHE_COOKIE_IS_CACHING, &cookie->flags)) {
+		set_page_fscache(page);
+		fscache_write_to_cache(v9fs_inode_cookie(v9inode),
+				       page->mapping, start, len, size,
+				       v9fs_write_to_cache_done, v9inode,
+				       true);
+	}
 
 	end_page_writeback(page);
 	return err;
@@ -293,6 +322,7 @@ static int v9fs_write_end(struct file *filp, struct address_space *mapping,
 {
 	loff_t last_pos = pos + copied;
 	struct inode *inode = page->mapping->host;
+	struct v9fs_inode *v9inode = V9FS_I(inode);
 
 	p9_debug(P9_DEBUG_VFS, "filp %p, mapping %p\n", filp, mapping);
 
@@ -312,6 +342,7 @@ static int v9fs_write_end(struct file *filp, struct address_space *mapping,
 	if (last_pos > inode->i_size) {
 		inode_add_bytes(inode, last_pos - inode->i_size);
 		i_size_write(inode, last_pos);
+		fscache_update_cookie(v9fs_inode_cookie(v9inode), NULL, &last_pos);
 	}
 	set_page_dirty(page);
 out:
@@ -321,11 +352,25 @@ out:
 	return copied;
 }
 
+#ifdef CONFIG_9P_FSCACHE
+/*
+ * Mark a page as having been made dirty and thus needing writeback.  We also
+ * need to pin the cache object to write back to.
+ */
+static int v9fs_set_page_dirty(struct page *page)
+{
+	struct v9fs_inode *v9inode = V9FS_I(page->mapping->host);
+
+	return fscache_set_page_dirty(page, v9fs_inode_cookie(v9inode));
+}
+#else
+#define v9fs_set_page_dirty __set_page_dirty_nobuffers
+#endif
 
 const struct address_space_operations v9fs_addr_operations = {
 	.readpage = v9fs_vfs_readpage,
 	.readahead = v9fs_vfs_readahead,
-	.set_page_dirty = __set_page_dirty_nobuffers,
+	.set_page_dirty = v9fs_set_page_dirty,
 	.writepage = v9fs_vfs_writepage,
 	.write_begin = v9fs_write_begin,
 	.write_end = v9fs_write_end,
