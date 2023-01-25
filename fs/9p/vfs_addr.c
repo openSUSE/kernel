@@ -18,6 +18,7 @@
 #include <linux/pagemap.h>
 #include <linux/idr.h>
 #include <linux/sched.h>
+#include <linux/swap.h>
 #include <linux/uio.h>
 #include <linux/netfs.h>
 #include <net/9p/9p.h>
@@ -140,7 +141,7 @@ static int v9fs_release_page(struct page *page, gfp_t gfp)
 		return 0;
 #ifdef CONFIG_9P_FSCACHE
 	if (PageFsCache(page)) {
-		if (!gfpflags_allow_blocking(gfp) || !(gfp & __GFP_FS))
+		if (current_is_kswapd() || !(gfp & __GFP_FS))
 			return 0;
 		wait_on_page_fscache(page);
 	}
