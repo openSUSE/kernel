@@ -127,7 +127,6 @@ menu "Caches"
 
 source "fs/netfs/Kconfig"
 source "fs/fscache/Kconfig"
-source "fs/cachefiles/Kconfig"
 
 endmenu
 
