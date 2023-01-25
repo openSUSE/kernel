@@ -12,6 +12,7 @@
 #include <crypto/scatterwalk.h>
 #include "icp_qat_fw_pke.h"
 #include "adf_accel_devices.h"
+#include "qat_algs_send.h"
 #include "adf_transport.h"
 #include "adf_common_drv.h"
 #include "qat_crypto.h"
@@ -135,7 +136,22 @@ struct qat_asym_request {
 	} areq;
 	int err;
 	void (*cb)(struct icp_qat_fw_pke_resp *resp);
+	struct qat_alg_req alg_req;
 } __aligned(64);
+
+static int qat_alg_send_asym_message(struct qat_asym_request *qat_req,
+				     struct qat_crypto_instance *inst,
+				     struct crypto_async_request *base)
+{
+	struct qat_alg_req *alg_req = &qat_req->alg_req;
+
+	alg_req->fw_req = (u32 *)&qat_req->req;
+	alg_req->tx_ring = inst->pke_tx;
+	alg_req->base = base;
+	alg_req->backlog = &inst->backlog;
+
+	return qat_alg_send_message(alg_req);
+}
 
 static void qat_dh_cb(struct icp_qat_fw_pke_resp *resp)
 {
@@ -208,9 +224,10 @@ static int qat_dh_compute_value(struct kpp_request *req)
 	struct qat_asym_request *qat_req =
 			PTR_ALIGN(kpp_request_ctx(req), 64);
 	struct icp_qat_fw_pke_request *msg = &qat_req->req;
-	int ret, ctr = 0;
+	gfp_t flags = qat_algs_alloc_flags(&req->base);
 	int n_input_params = 0;
 	u8 *vaddr;
+	int ret;
 
 	if (unlikely(!ctx->xa))
 		return -EINVAL;
@@ -219,6 +236,10 @@ static int qat_dh_compute_value(struct kpp_request *req)
 		req->dst_len = ctx->p_size;
 		return -EOVERFLOW;
 	}
+
+	if (req->src_len > ctx->p_size)
+		return -EINVAL;
+
 	memset(msg, '\0', sizeof(*msg));
 	ICP_QAT_FW_PKE_HDR_VALID_FLAG_SET(msg->pke_hdr,
 					  ICP_QAT_FW_COMN_REQ_FLAG_SET);
@@ -271,7 +292,7 @@ static int qat_dh_compute_value(struct kpp_request *req)
 		} else {
 			int shift = ctx->p_size - req->src_len;
 
-			qat_req->src_align = kzalloc(ctx->p_size, GFP_KERNEL);
+			qat_req->src_align = kzalloc(ctx->p_size, flags);
 			if (unlikely(!qat_req->src_align))
 				return ret;
 
@@ -297,7 +318,7 @@ static int qat_dh_compute_value(struct kpp_request *req)
 		qat_req->dst_align = NULL;
 		vaddr = sg_virt(req->dst);
 	} else {
-		qat_req->dst_align = kzalloc(ctx->p_size, GFP_KERNEL);
+		qat_req->dst_align = kzalloc(ctx->p_size, flags);
 		if (unlikely(!qat_req->dst_align))
 			goto unmap_src;
 
@@ -311,13 +332,13 @@ static int qat_dh_compute_value(struct kpp_request *req)
 	qat_req->in.dh.in_tab[n_input_params] = 0;
 	qat_req->out.dh.out_tab[1] = 0;
 	/* Mapping in.in.b or in.in_g2.xa is the same */
-	qat_req->phy_in = dma_map_single(dev, &qat_req->in.dh.in.b,
+	qat_req->phy_in = dma_map_single(dev, &qat_req->in.dh,
 					 sizeof(struct qat_dh_input_params),
 					 DMA_TO_DEVICE);
 	if (unlikely(dma_mapping_error(dev, qat_req->phy_in)))
 		goto unmap_dst;
 
-	qat_req->phy_out = dma_map_single(dev, &qat_req->out.dh.r,
+	qat_req->phy_out = dma_map_single(dev, &qat_req->out.dh,
 					  sizeof(struct qat_dh_output_params),
 					  DMA_TO_DEVICE);
 	if (unlikely(dma_mapping_error(dev, qat_req->phy_out)))
@@ -329,13 +350,13 @@ static int qat_dh_compute_value(struct kpp_request *req)
 	msg->input_param_count = n_input_params;
 	msg->output_param_count = 1;
 
-	do {
-		ret = adf_send_message(ctx->inst->pke_tx, (u32 *)msg);
-	} while (ret == -EBUSY && ctr++ < 100);
+	ret = qat_alg_send_asym_message(qat_req, inst, &req->base);
+	if (ret == -ENOSPC)
+		goto unmap_all;
 
-	if (!ret)
-		return -EINPROGRESS;
+	return ret;
 
+unmap_all:
 	if (!dma_mapping_error(dev, qat_req->phy_out))
 		dma_unmap_single(dev, qat_req->phy_out,
 				 sizeof(struct qat_dh_output_params),
@@ -477,7 +498,7 @@ static int qat_dh_init_tfm(struct crypto_kpp *tfm)
 {
 	struct qat_dh_ctx *ctx = kpp_tfm_ctx(tfm);
 	struct qat_crypto_instance *inst =
-			qat_crypto_get_instance_node(get_current_node());
+			qat_crypto_get_instance_node(numa_node_id());
 
 	if (!inst)
 		return -EINVAL;
@@ -536,8 +557,11 @@ void qat_alg_asym_callback(void *_resp)
 {
 	struct icp_qat_fw_pke_resp *resp = _resp;
 	struct qat_asym_request *areq = (void *)(__force long)resp->opaque;
+	struct qat_instance_backlog *backlog = areq->alg_req.backlog;
 
 	areq->cb(resp);
+
+	qat_alg_send_backlog(backlog);
 }
 
 #define PKE_RSA_EP_512 0x1c161b21
@@ -636,8 +660,9 @@ static int qat_rsa_enc(struct akcipher_request *req)
 	struct qat_asym_request *qat_req =
 			PTR_ALIGN(akcipher_request_ctx(req), 64);
 	struct icp_qat_fw_pke_request *msg = &qat_req->req;
+	gfp_t flags = qat_algs_alloc_flags(&req->base);
 	u8 *vaddr;
-	int ret, ctr = 0;
+	int ret;
 
 	if (unlikely(!ctx->n || !ctx->e))
 		return -EINVAL;
@@ -646,6 +671,10 @@ static int qat_rsa_enc(struct akcipher_request *req)
 		req->dst_len = ctx->key_sz;
 		return -EOVERFLOW;
 	}
+
+	if (req->src_len > ctx->key_sz)
+		return -EINVAL;
+
 	memset(msg, '\0', sizeof(*msg));
 	ICP_QAT_FW_PKE_HDR_VALID_FLAG_SET(msg->pke_hdr,
 					  ICP_QAT_FW_COMN_REQ_FLAG_SET);
@@ -678,7 +707,7 @@ static int qat_rsa_enc(struct akcipher_request *req)
 	} else {
 		int shift = ctx->key_sz - req->src_len;
 
-		qat_req->src_align = kzalloc(ctx->key_sz, GFP_KERNEL);
+		qat_req->src_align = kzalloc(ctx->key_sz, flags);
 		if (unlikely(!qat_req->src_align))
 			return ret;
 
@@ -696,7 +725,7 @@ static int qat_rsa_enc(struct akcipher_request *req)
 		qat_req->dst_align = NULL;
 		vaddr = sg_virt(req->dst);
 	} else {
-		qat_req->dst_align = kzalloc(ctx->key_sz, GFP_KERNEL);
+		qat_req->dst_align = kzalloc(ctx->key_sz, flags);
 		if (unlikely(!qat_req->dst_align))
 			goto unmap_src;
 		vaddr = qat_req->dst_align;
@@ -709,13 +738,13 @@ static int qat_rsa_enc(struct akcipher_request *req)
 
 	qat_req->in.rsa.in_tab[3] = 0;
 	qat_req->out.rsa.out_tab[1] = 0;
-	qat_req->phy_in = dma_map_single(dev, &qat_req->in.rsa.enc.m,
+	qat_req->phy_in = dma_map_single(dev, &qat_req->in.rsa,
 					 sizeof(struct qat_rsa_input_params),
 					 DMA_TO_DEVICE);
 	if (unlikely(dma_mapping_error(dev, qat_req->phy_in)))
 		goto unmap_dst;
 
-	qat_req->phy_out = dma_map_single(dev, &qat_req->out.rsa.enc.c,
+	qat_req->phy_out = dma_map_single(dev, &qat_req->out.rsa,
 					  sizeof(struct qat_rsa_output_params),
 					  DMA_TO_DEVICE);
 	if (unlikely(dma_mapping_error(dev, qat_req->phy_out)))
@@ -726,13 +755,14 @@ static int qat_rsa_enc(struct akcipher_request *req)
 	msg->pke_mid.opaque = (u64)(__force long)qat_req;
 	msg->input_param_count = 3;
 	msg->output_param_count = 1;
-	do {
-		ret = adf_send_message(ctx->inst->pke_tx, (u32 *)msg);
-	} while (ret == -EBUSY && ctr++ < 100);
 
-	if (!ret)
-		return -EINPROGRESS;
+	ret = qat_alg_send_asym_message(qat_req, inst, &req->base);
+	if (ret == -ENOSPC)
+		goto unmap_all;
 
+	return ret;
+
+unmap_all:
 	if (!dma_mapping_error(dev, qat_req->phy_out))
 		dma_unmap_single(dev, qat_req->phy_out,
 				 sizeof(struct qat_rsa_output_params),
@@ -764,8 +794,9 @@ static int qat_rsa_dec(struct akcipher_request *req)
 	struct qat_asym_request *qat_req =
 			PTR_ALIGN(akcipher_request_ctx(req), 64);
 	struct icp_qat_fw_pke_request *msg = &qat_req->req;
+	gfp_t flags = qat_algs_alloc_flags(&req->base);
 	u8 *vaddr;
-	int ret, ctr = 0;
+	int ret;
 
 	if (unlikely(!ctx->n || !ctx->d))
 		return -EINVAL;
@@ -774,6 +805,10 @@ static int qat_rsa_dec(struct akcipher_request *req)
 		req->dst_len = ctx->key_sz;
 		return -EOVERFLOW;
 	}
+
+	if (req->src_len > ctx->key_sz)
+		return -EINVAL;
+
 	memset(msg, '\0', sizeof(*msg));
 	ICP_QAT_FW_PKE_HDR_VALID_FLAG_SET(msg->pke_hdr,
 					  ICP_QAT_FW_COMN_REQ_FLAG_SET);
@@ -816,7 +851,7 @@ static int qat_rsa_dec(struct akcipher_request *req)
 	} else {
 		int shift = ctx->key_sz - req->src_len;
 
-		qat_req->src_align = kzalloc(ctx->key_sz, GFP_KERNEL);
+		qat_req->src_align = kzalloc(ctx->key_sz, flags);
 		if (unlikely(!qat_req->src_align))
 			return ret;
 
@@ -834,7 +869,7 @@ static int qat_rsa_dec(struct akcipher_request *req)
 		qat_req->dst_align = NULL;
 		vaddr = sg_virt(req->dst);
 	} else {
-		qat_req->dst_align = kzalloc(ctx->key_sz, GFP_KERNEL);
+		qat_req->dst_align = kzalloc(ctx->key_sz, flags);
 		if (unlikely(!qat_req->dst_align))
 			goto unmap_src;
 		vaddr = qat_req->dst_align;
@@ -849,13 +884,13 @@ static int qat_rsa_dec(struct akcipher_request *req)
 	else
 		qat_req->in.rsa.in_tab[3] = 0;
 	qat_req->out.rsa.out_tab[1] = 0;
-	qat_req->phy_in = dma_map_single(dev, &qat_req->in.rsa.dec.c,
+	qat_req->phy_in = dma_map_single(dev, &qat_req->in.rsa,
 					 sizeof(struct qat_rsa_input_params),
 					 DMA_TO_DEVICE);
 	if (unlikely(dma_mapping_error(dev, qat_req->phy_in)))
 		goto unmap_dst;
 
-	qat_req->phy_out = dma_map_single(dev, &qat_req->out.rsa.dec.m,
+	qat_req->phy_out = dma_map_single(dev, &qat_req->out.rsa,
 					  sizeof(struct qat_rsa_output_params),
 					  DMA_TO_DEVICE);
 	if (unlikely(dma_mapping_error(dev, qat_req->phy_out)))
@@ -870,13 +905,14 @@ static int qat_rsa_dec(struct akcipher_request *req)
 		msg->input_param_count = 3;
 
 	msg->output_param_count = 1;
-	do {
-		ret = adf_send_message(ctx->inst->pke_tx, (u32 *)msg);
-	} while (ret == -EBUSY && ctr++ < 100);
 
-	if (!ret)
-		return -EINPROGRESS;
+	ret = qat_alg_send_asym_message(qat_req, inst, &req->base);
+	if (ret == -ENOSPC)
+		goto unmap_all;
 
+	return ret;
+
+unmap_all:
 	if (!dma_mapping_error(dev, qat_req->phy_out))
 		dma_unmap_single(dev, qat_req->phy_out,
 				 sizeof(struct qat_rsa_output_params),
@@ -1198,7 +1234,7 @@ static int qat_rsa_init_tfm(struct crypto_akcipher *tfm)
 {
 	struct qat_rsa_ctx *ctx = akcipher_tfm_ctx(tfm);
 	struct qat_crypto_instance *inst =
-			qat_crypto_get_instance_node(get_current_node());
+			qat_crypto_get_instance_node(numa_node_id());
 
 	if (!inst)
 		return -EINVAL;
