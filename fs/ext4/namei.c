@@ -3997,6 +3997,9 @@ static int ext4_rename(struct user_namespace *mnt_userns, struct inode *old_dir,
 	retval = dquot_initialize(old.dir);
 	if (retval)
 		return retval;
+	retval = dquot_initialize(old.inode);
+	if (retval)
+		return retval;
 	retval = dquot_initialize(new.dir);
 	if (retval)
 		return retval;
