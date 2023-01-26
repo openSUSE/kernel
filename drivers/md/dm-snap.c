@@ -2433,10 +2433,11 @@ static void snapshot_io_hints(struct dm_target *ti, struct queue_limits *limits)
 	}
 }
 
-/*-----------------------------------------------------------------
+/*
+ *---------------------------------------------------------------
  * Origin methods
- *---------------------------------------------------------------*/
-
+ *---------------------------------------------------------------
+ */
 /*
  * If no exceptions need creating, DM_MAPIO_REMAPPED is returned and any
  * supplied bio was ignored.  The caller may submit it immediately.

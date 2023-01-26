@@ -530,9 +530,11 @@ static unsigned int lock_level(struct bio *bio)
 		READ_WRITE_LOCK_LEVEL;
 }
 
-/*----------------------------------------------------------------
+/*
+ *--------------------------------------------------------------
  * Per bio data
- *--------------------------------------------------------------*/
+ *--------------------------------------------------------------
+ */
 
 static struct per_bio_data *get_per_bio_data(struct bio *bio)
 {
@@ -714,9 +716,11 @@ static bool is_discarded_oblock(struct cache *cache, dm_oblock_t b)
 	return r;
 }
 
-/*----------------------------------------------------------------
+/*
+ * -------------------------------------------------------------
  * Remapping
- *--------------------------------------------------------------*/
+ *--------------------------------------------------------------
+ */
 static void remap_to_origin(struct cache *cache, struct bio *bio)
 {
 	bio_set_dev(bio, cache->origin_dev->bdev);
@@ -843,9 +847,11 @@ static void remap_to_origin_and_cache(struct cache *cache, struct bio *bio,
 	remap_to_cache(cache, bio, cblock);
 }
 
-/*----------------------------------------------------------------
+/*
+ *--------------------------------------------------------------
  * Failure modes
- *--------------------------------------------------------------*/
+ *--------------------------------------------------------------
+ */
 static enum cache_metadata_mode get_cache_mode(struct cache *cache)
 {
 	return cache->features.mode;
@@ -982,13 +988,14 @@ static void update_stats(struct cache_stats *stats, enum policy_operation op)
 	}
 }
 
-/*----------------------------------------------------------------
+/*
+ *---------------------------------------------------------------------
  * Migration processing
  *
  * Migration covers moving data from the origin device to the cache, or
  * vice versa.
- *--------------------------------------------------------------*/
-
+ *---------------------------------------------------------------------
+ */
 static void inc_io_migrations(struct cache *cache)
 {
 	atomic_inc(&cache->nr_io_migrations);
@@ -1443,9 +1450,11 @@ static int mg_start(struct cache *cache, struct policy_work *op, struct bio *bio
 	return mg_lock_writes(mg);
 }
 
-/*----------------------------------------------------------------
+/*
+ *--------------------------------------------------------------
  * invalidation processing
- *--------------------------------------------------------------*/
+ *--------------------------------------------------------------
+ */
 
 static void invalidate_complete(struct dm_cache_migration *mg, bool success)
 {
@@ -1602,9 +1611,11 @@ static int invalidate_start(struct cache *cache, dm_cblock_t cblock,
 	return invalidate_lock(mg);
 }
 
-/*----------------------------------------------------------------
+/*
+ *--------------------------------------------------------------
  * bio processing
- *--------------------------------------------------------------*/
+ *--------------------------------------------------------------
+ */
 
 enum busy {
 	IDLE,
@@ -1813,9 +1824,11 @@ static bool process_discard_bio(struct cache *cache, struct bio *bio)
 {
 	dm_dblock_t b, e;
 
-	// FIXME: do we need to lock the region?  Or can we just assume the
-	// user wont be so foolish as to issue discard concurrently with
-	// other IO?
+	/*
+	 * FIXME: do we need to lock the region?  Or can we just assume the
+	 * user wont be so foolish as to issue discard concurrently with
+	 * other IO?
+	 */
 	calc_discard_block_range(cache, bio, &b, &e);
 	while (b != e) {
 		set_discard(cache, b);
@@ -1862,10 +1875,11 @@ static void process_deferred_bios(struct work_struct *ws)
 		schedule_commit(&cache->committer);
 }
 
-/*----------------------------------------------------------------
+/*
+ *--------------------------------------------------------------
  * Main worker loop
- *--------------------------------------------------------------*/
-
+ *--------------------------------------------------------------
+ */
 static void requeue_deferred_bios(struct cache *cache)
 {
 	struct bio *bio;
@@ -1924,9 +1938,11 @@ static void check_migrations(struct work_struct *ws)
 	}
 }
 
-/*----------------------------------------------------------------
+/*
+ *--------------------------------------------------------------
  * Target methods
- *--------------------------------------------------------------*/
+ *--------------------------------------------------------------
+ */
 
 /*
  * This function gets called on the error paths of the constructor, so we
