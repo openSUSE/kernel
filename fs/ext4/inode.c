@@ -1294,7 +1294,8 @@ static int ext4_write_end(struct file *file,
 	loff_t old_size = inode->i_size;
 	int ret = 0, ret2;
 	int i_size_changed = 0;
-	int inline_data = ext4_has_inline_data(inode);
+	int inline_data = ext4_has_inline_data(inode) &&
+		ext4_test_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
 	bool verity = ext4_verity_in_progress(inode);
 
 	trace_ext4_write_end(inode, pos, len, copied);
