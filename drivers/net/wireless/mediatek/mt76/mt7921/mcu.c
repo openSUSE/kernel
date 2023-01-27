@@ -1076,6 +1076,8 @@ int mt7921_mcu_init(struct mt7921_dev *dev)
 
 	dev->mt76.mcu_ops = &mt7921_mcu_ops;
 
+	mt76_rmw_field(dev, MT_PCIE_MAC_PM, MT_PCIE_MAC_PM_L0S_DIS, 1);
+
 	return mt7921_run_firmware(dev);
 }
 
