@@ -986,9 +986,8 @@ static ssize_t ceph_sync_read(struct kiocb *iocb, struct iov_iter *to,
 
 		osd_req_op_extent_osd_data_pages(req, 0, pages, len, page_off,
 						 false, false);
-		ret = ceph_osdc_start_request(osdc, req, false);
-		if (!ret)
-			ret = ceph_osdc_wait_request(osdc, req);
+		ceph_osdc_start_request(osdc, req);
+		ret = ceph_osdc_wait_request(osdc, req);
 
 		ceph_update_read_metrics(&fsc->mdsc->metric,
 					 req->r_start_latency,
@@ -1251,7 +1250,7 @@ static void ceph_aio_retry_work(struct work_struct *work)
 	req->r_inode = inode;
 	req->r_priv = aio_req;
 
-	ret = ceph_osdc_start_request(req->r_osdc, req, false);
+	ceph_osdc_start_request(req->r_osdc, req);
 out:
 	if (ret < 0) {
 		req->r_result = ret;
@@ -1388,9 +1387,8 @@ ceph_direct_read_write(struct kiocb *iocb, struct iov_iter *iter,
 			continue;
 		}
 
-		ret = ceph_osdc_start_request(req->r_osdc, req, false);
-		if (!ret)
-			ret = ceph_osdc_wait_request(&fsc->client->osdc, req);
+		ceph_osdc_start_request(req->r_osdc, req);
+		ret = ceph_osdc_wait_request(&fsc->client->osdc, req);
 
 		if (write)
 			ceph_update_write_metrics(metric, req->r_start_latency,
@@ -1453,8 +1451,7 @@ ceph_direct_read_write(struct kiocb *iocb, struct iov_iter *iter,
 					       r_private_item);
 			list_del_init(&req->r_private_item);
 			if (ret >= 0)
-				ret = ceph_osdc_start_request(req->r_osdc,
-							      req, false);
+				ceph_osdc_start_request(req->r_osdc, req);
 			if (ret < 0) {
 				req->r_result = ret;
 				ceph_aio_complete_req(req);
@@ -1567,9 +1564,8 @@ ceph_sync_write(struct kiocb *iocb, struct iov_iter *from, loff_t pos,
 						false, true);
 
 		req->r_mtime = mtime;
-		ret = ceph_osdc_start_request(&fsc->client->osdc, req, false);
-		if (!ret)
-			ret = ceph_osdc_wait_request(&fsc->client->osdc, req);
+		ceph_osdc_start_request(&fsc->client->osdc, req);
+		ret = ceph_osdc_wait_request(&fsc->client->osdc, req);
 
 		ceph_update_write_metrics(&fsc->mdsc->metric, req->r_start_latency,
 					  req->r_end_latency, len, ret);
@@ -2033,12 +2029,10 @@ static int ceph_zero_partial_object(struct inode *inode,
 	}
 
 	req->r_mtime = inode->i_mtime;
-	ret = ceph_osdc_start_request(&fsc->client->osdc, req, false);
-	if (!ret) {
-		ret = ceph_osdc_wait_request(&fsc->client->osdc, req);
-		if (ret == -ENOENT)
-			ret = 0;
-	}
+	ceph_osdc_start_request(&fsc->client->osdc, req);
+	ret = ceph_osdc_wait_request(&fsc->client->osdc, req);
+	if (ret == -ENOENT)
+		ret = 0;
 	ceph_osdc_put_request(req);
 
 out:
@@ -2340,7 +2334,7 @@ static ssize_t ceph_do_objects_copy(struct ceph_inode_info *src_ci, u64 *src_off
 		if (IS_ERR(req))
 			ret = PTR_ERR(req);
 		else {
-			ceph_osdc_start_request(osdc, req, false);
+			ceph_osdc_start_request(osdc, req);
 			ret = ceph_osdc_wait_request(osdc, req);
 			ceph_update_copyfrom_metrics(&fsc->mdsc->metric,
 						     req->r_start_latency,

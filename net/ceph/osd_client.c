@@ -4586,15 +4586,12 @@ bad:
 /*
  * Register request, send initial attempt.
  */
-int ceph_osdc_start_request(struct ceph_osd_client *osdc,
-			    struct ceph_osd_request *req,
-			    bool nofail)
+void ceph_osdc_start_request(struct ceph_osd_client *osdc,
+			     struct ceph_osd_request *req)
 {
 	down_read(&osdc->lock);
 	submit_request(req, false);
 	up_read(&osdc->lock);
-
-	return 0;
 }
 EXPORT_SYMBOL(ceph_osdc_start_request);
 
@@ -4764,7 +4761,7 @@ int ceph_osdc_unwatch(struct ceph_osd_client *osdc,
 	if (ret)
 		goto out_put_req;
 
-	ceph_osdc_start_request(osdc, req, false);
+	ceph_osdc_start_request(osdc, req);
 	linger_cancel(lreq);
 	linger_put(lreq);
 	ret = wait_request_timeout(req, opts->mount_timeout);
@@ -4835,7 +4832,7 @@ int ceph_osdc_notify_ack(struct ceph_osd_client *osdc,
 	if (ret)
 		goto out_put_req;
 
-	ceph_osdc_start_request(osdc, req, false);
+	ceph_osdc_start_request(osdc, req);
 	ret = ceph_osdc_wait_request(osdc, req);
 
 out_put_req:
@@ -5051,7 +5048,7 @@ int ceph_osdc_list_watchers(struct ceph_osd_client *osdc,
 	if (ret)
 		goto out_put_req;
 
-	ceph_osdc_start_request(osdc, req, false);
+	ceph_osdc_start_request(osdc, req);
 	ret = ceph_osdc_wait_request(osdc, req);
 	if (ret >= 0) {
 		void *p = page_address(pages[0]);
@@ -5128,7 +5125,7 @@ int ceph_osdc_call(struct ceph_osd_client *osdc,
 	if (ret)
 		goto out_put_req;
 
-	ceph_osdc_start_request(osdc, req, false);
+	ceph_osdc_start_request(osdc, req);
 	ret = ceph_osdc_wait_request(osdc, req);
 	if (ret >= 0) {
 		ret = req->r_ops[0].rval;
