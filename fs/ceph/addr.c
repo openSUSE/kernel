@@ -63,7 +63,7 @@
 	 (CONGESTION_ON_THRESH(congestion_kb) >> 2))
 
 static int ceph_netfs_check_write_begin(struct file *file, loff_t pos, unsigned int len,
-					struct page *page, void **_fsdata);
+					struct page **pagep, void **_fsdata);
 
 static inline struct ceph_snap_context *page_snap_context(struct page *page)
 {
@@ -1278,18 +1278,19 @@ ceph_find_incompatible(struct page *page)
 }
 
 static int ceph_netfs_check_write_begin(struct file *file, loff_t pos, unsigned int len,
-					struct page *page, void **_fsdata)
+					struct page **pagep, void **_fsdata)
 {
 	struct inode *inode = file_inode(file);
 	struct ceph_inode_info *ci = ceph_inode(inode);
 	struct ceph_snap_context *snapc;
 
-	snapc = ceph_find_incompatible(page);
+	snapc = ceph_find_incompatible(*pagep);
 	if (snapc) {
 		int r;
 
-		unlock_page(page);
-		put_page(page);
+		unlock_page(*pagep);
+		put_page(*pagep);
+		*pagep = NULL;
 		if (IS_ERR(snapc))
 			return PTR_ERR(snapc);
 

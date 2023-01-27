@@ -302,7 +302,7 @@ through which it can issue requests and negotiate::
 		void (*issue_read)(struct netfs_io_subrequest *subreq);
 		bool (*is_still_valid)(struct netfs_io_request *rreq);
 		int (*check_write_begin)(struct file *file, loff_t pos, unsigned len,
-					 struct page *page, void **_fsdata);
+					 struct page **pagep, void **_fsdata);
 		void (*done)(struct netfs_io_request *rreq);
 	};
 
@@ -381,8 +381,10 @@ The operations are as follows:
    allocated/grabbed the page to be modified to allow the filesystem to flush
    conflicting state before allowing it to be modified.
 
-   It should return 0 if everything is now fine, -EAGAIN if the page should be
-   regrabbed and any other error code to abort the operation.
+   It may unlock and discard the page it was given and set the caller's page
+   pointer to NULL.  It should return 0 if everything is now fine (``*pagep``
+   left set) or the op should be retried (``*pagep`` cleared) and any other
+   error code to abort the operation.
 
  * ``done``
 

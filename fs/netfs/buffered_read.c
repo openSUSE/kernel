@@ -322,8 +322,9 @@ zero_out:
  * conflicting writes once the page is grabbed and locked.  It is passed a
  * pointer to the fsdata cookie that gets returned to the VM to be passed to
  * write_end.  It is permitted to sleep.  It should return 0 if the request
- * should go ahead; unlock the page and return -EAGAIN to cause the page to be
- * regot; or return an error.
+ * should go ahead or it may return an error.  It may also unlock and put the
+ * page, provided it sets ``*pagep`` to NULL, in which case a return of 0
+ * will cause the page to be re-got and the process to be retried.
  *
  * The calling netfs must initialise a netfs context contiguous to the vfs
  * inode before calling this.
@@ -349,13 +350,13 @@ retry:
 
 	if (ctx->ops->check_write_begin) {
 		/* Allow the netfs (eg. ceph) to flush conflicts. */
-		ret = ctx->ops->check_write_begin(file, pos, len, page, _fsdata);
+		ret = ctx->ops->check_write_begin(file, pos, len, &page, _fsdata);
 		if (ret < 0) {
 			trace_netfs_failure(NULL, NULL, ret, netfs_fail_check_write_begin);
-			if (ret == -EAGAIN)
-				goto retry;
 			goto error;
 		}
+		if (!page)
+			goto retry;
 	}
 
 	if (PageUptodate(page))
@@ -417,8 +418,10 @@ have_page_no_wait:
 error_put:
 	netfs_put_request(rreq, false, netfs_rreq_trace_put_failed);
 error:
-	unlock_page(page);
-	put_page(page);
+	if (page) {
+		unlock_page(page);
+		put_page(page);
+	}
 	_leave(" = %d", ret);
 	return ret;
 }

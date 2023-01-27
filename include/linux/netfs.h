@@ -192,7 +192,7 @@ struct netfs_request_ops {
 	void (*issue_read)(struct netfs_io_subrequest *subreq);
 	bool (*is_still_valid)(struct netfs_io_request *rreq);
 	int (*check_write_begin)(struct file *file, loff_t pos, unsigned len,
-				 struct page *page, void **_fsdata);
+				 struct page **pagep, void **_fsdata);
 	void (*done)(struct netfs_io_request *rreq);
 };
 
