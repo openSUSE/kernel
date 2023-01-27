@@ -270,9 +270,8 @@ static int dh_compute_value(struct kpp_request *req)
 			}
 
 			if (mpi_cmp(val, val_pct) != 0) {
-				ret = -EINVAL;
 				mpi_free(val_pct);
-				goto err_free_val;
+				panic("DH PCT failed in FIPS mode");
 			}
 			mpi_free(val_pct);
 		}

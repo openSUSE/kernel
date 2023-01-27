@@ -121,6 +121,9 @@ struct rtl8180_priv {
 	struct ieee80211_supported_band band;
 	struct ieee80211_tx_queue_params queue_param[4];
 	struct pci_dev *pdev;
+
+	void *suse_kabi_padding;
+
 	u32 rx_conf;
 	u8 slot_time;
 	u16 ack_time;

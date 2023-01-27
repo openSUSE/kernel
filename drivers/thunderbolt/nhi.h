@@ -46,6 +46,8 @@ struct tb_nhi_ops {
 	int (*runtime_suspend)(struct tb_nhi *nhi);
 	int (*runtime_resume)(struct tb_nhi *nhi);
 	void (*shutdown)(struct tb_nhi *nhi);
+
+	void *suse_kabi_padding;
 };
 
 extern const struct tb_nhi_ops icl_nhi_ops;

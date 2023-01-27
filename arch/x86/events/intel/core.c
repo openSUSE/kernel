@@ -2241,7 +2241,6 @@ intel_pmu_snapshot_branch_stack(struct perf_branch_entry *entries, unsigned int 
 	/* must not have branches... */
 	local_irq_save(flags);
 	__intel_pmu_disable_all(false); /* we don't care about BTS */
-	__intel_pmu_pebs_disable_all();
 	__intel_pmu_lbr_disable();
 	/*            ... until here */
 	return __intel_pmu_snapshot_branch_stack(entries, cnt, flags);
@@ -2255,7 +2254,6 @@ intel_pmu_snapshot_arch_branch_stack(struct perf_branch_entry *entries, unsigned
 	/* must not have branches... */
 	local_irq_save(flags);
 	__intel_pmu_disable_all(false); /* we don't care about BTS */
-	__intel_pmu_pebs_disable_all();
 	__intel_pmu_arch_lbr_disable();
 	/*            ... until here */
 	return __intel_pmu_snapshot_branch_stack(entries, cnt, flags);

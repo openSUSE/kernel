@@ -120,6 +120,8 @@ struct usb_request {
 
 	int			status;
 	unsigned		actual;
+
+	void *suse_kabi_padding;
 };
 
 /*-------------------------------------------------------------------------*/
@@ -150,6 +152,8 @@ struct usb_ep_ops {
 
 	int (*fifo_status) (struct usb_ep *ep);
 	void (*fifo_flush) (struct usb_ep *ep);
+
+	void *suse_kabi_padding;
 };
 
 /**
@@ -238,6 +242,8 @@ struct usb_ep {
 	u8			address;
 	const struct usb_endpoint_descriptor	*desc;
 	const struct usb_ss_ep_comp_descriptor	*comp_desc;
+
+	void *suse_kabi_padding;
 };
 
 /*-------------------------------------------------------------------------*/
@@ -328,6 +334,8 @@ struct usb_gadget_ops {
 			struct usb_endpoint_descriptor *,
 			struct usb_ss_ep_comp_descriptor *);
 	int	(*check_config)(struct usb_gadget *gadget);
+
+	void *suse_kabi_padding;
 };
 
 /**
@@ -446,6 +454,8 @@ struct usb_gadget {
 	unsigned			lpm_capable:1;
 	int				irq;
 	int				id_number;
+
+	void *suse_kabi_padding;
 };
 #define work_to_gadget(w)	(container_of((w), struct usb_gadget, work))
 
@@ -731,6 +741,8 @@ struct usb_gadget_driver {
 	char			*udc_name;
 	unsigned                match_existing_only:1;
 	bool			is_bound:1;
+
+	void *suse_kabi_padding;
 };
 
 
