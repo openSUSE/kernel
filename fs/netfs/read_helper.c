@@ -771,7 +771,7 @@ void netfs_readahead(struct readahead_control *ractl,
 				   readahead_pos(ractl),
 				   readahead_length(ractl),
 				   NETFS_READAHEAD);
-	if (!rreq)
+	if (IS_ERR(rreq))
 		goto cleanup;
 
 	if (ops->begin_cache_operation) {
@@ -845,11 +845,9 @@ int netfs_readpage(struct file *file,
 	rreq = netfs_alloc_request(page_file_mapping(page), file, ops, netfs_priv,
 				   page_file_offset(page), thp_size(page),
 				   NETFS_READPAGE);
-	if (!rreq) {
-		if (netfs_priv)
-			ops->cleanup(page_file_mapping(page), netfs_priv);
-		unlock_page(page);
-		return -ENOMEM;
+	if (IS_ERR(rreq)) {
+		ret = PTR_ERR(rreq);
+		goto alloc_error;
 	}
 
 	if (ops->begin_cache_operation) {
@@ -889,6 +887,11 @@ int netfs_readpage(struct file *file,
 	}
 out:
 	netfs_put_request(rreq, false, netfs_rreq_trace_put_hold);
+	return ret;
+alloc_error:
+	if (netfs_priv)
+		ops->cleanup(page_file_mapping(page), netfs_priv);
+	unlock_page(page);
 	return ret;
 }
 EXPORT_SYMBOL(netfs_readpage);
@@ -1006,12 +1009,13 @@ retry:
 		goto have_page_no_wait;
 	}
 
-	ret = -ENOMEM;
 	rreq = netfs_alloc_request(mapping, file, ops, netfs_priv,
 				   page_offset(page), thp_size(page),
 				   NETFS_READ_FOR_WRITE);
-	if (!rreq)
+	if (IS_ERR(rreq)) {
+		ret = PTR_ERR(rreq);
 		goto error;
+	}
 	rreq->no_unlock_page	= page->index;
 	__set_bit(NETFS_RREQ_NO_UNLOCK_PAGE, &rreq->flags);
 	netfs_priv = NULL;
