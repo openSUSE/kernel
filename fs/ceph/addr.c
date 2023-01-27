@@ -1315,16 +1315,13 @@ static int ceph_write_begin(struct file *file, struct address_space *mapping,
 	int r;
 
 	r = netfs_write_begin(file, inode->i_mapping, pos, len, 0, &page, NULL);
-	if (r == 0)
-		wait_on_page_fscache(page);
-	if (r < 0) {
-		if (page)
-			put_page(page);
-	} else {
-		WARN_ON_ONCE(!PageLocked(page));
-		*pagep = page;
-	}
-	return r;
+	if (r < 0)
+		return r;
+
+	wait_on_page_fscache(page);
+	WARN_ON_ONCE(!PageLocked(page));
+	*pagep = page;
+	return 0;
 }
 
 /*
