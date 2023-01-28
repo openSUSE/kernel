@@ -1761,7 +1761,6 @@ static int nbd_dev_add(int index)
 	disk->major = NBD_MAJOR;
 
 	disk->first_minor = index << part_shift;
-
 	disk->fops = &nbd_fops;
 	disk->private_data = nbd;
 	sprintf(disk->disk_name, "nbd%d", index);
