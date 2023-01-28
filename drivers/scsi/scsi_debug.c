@@ -5555,8 +5555,12 @@ static int sdebug_add_adapter(void)
 
 	error = device_register(&sdbg_host->dev);
 
-	if (error)
+	if (error) {
+		spin_lock(&sdebug_host_list_lock);
+		list_del(&sdbg_host->host_list);
+		spin_unlock(&sdebug_host_list_lock);
 		goto clean;
+	}
 
 	++sdebug_add_host;
 	return error;
