@@ -5572,7 +5572,10 @@ clean:
 		kfree(sdbg_devinfo);
 	}
 
-	kfree(sdbg_host);
+	if (sdbg_host->dev.release)
+		put_device(&sdbg_host->dev);
+	else
+		kfree(sdbg_host);
 	return error;
 }
 
