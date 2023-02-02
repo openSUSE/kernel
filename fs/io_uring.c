@@ -9784,8 +9784,6 @@ static int io_install_fixed_file(struct io_kiocb *req, struct file *file,
 err:
 	if (needs_switch)
 		io_rsrc_node_switch(ctx, ctx->file_data);
-	if (ret)
-		fput(file);
 	return ret;
 }
 
