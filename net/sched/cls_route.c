@@ -381,6 +381,9 @@ static int route4_set_parms(struct tcf_proto *tp, unsigned long base,
 			goto errout;
 	}
 
+	if (!nhandle)
+		return -EINVAL;
+
 	h1 = to_hash(nhandle);
 	b = head->table[h1];
 	if (!b) {
@@ -440,6 +443,9 @@ static int route4_change(struct tcf_proto *tp, unsigned long base,
 	unsigned int h, th;
 	u32 old_handle = 0;
 	int err;
+
+	if (!handle)
+		return -EINVAL;
 
 	if (opt == NULL)
 		return handle ? -EINVAL : 0;
