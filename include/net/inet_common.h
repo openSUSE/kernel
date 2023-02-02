@@ -19,6 +19,7 @@ extern int inet_stream_connect(struct socket *sock, struct sockaddr * uaddr,
 extern int inet_dgram_connect(struct socket *sock, struct sockaddr * uaddr,
 			      int addr_len, int flags);
 extern int inet_accept(struct socket *sock, struct socket *newsock, int flags);
+extern int inet_send_prepare(struct sock *sk);
 extern int inet_sendmsg(struct kiocb *iocb, struct socket *sock,
 			struct msghdr *msg, size_t size);
 extern ssize_t inet_sendpage(struct socket *sock, struct page *page, int offset,
