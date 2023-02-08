@@ -2061,7 +2061,6 @@ static int omap_udc_start(struct usb_gadget *g,
 	udc->softconnect = 1;
 
 	/* hook up the driver */
-	driver->driver.bus = NULL;
 	udc->driver = driver;
 	spin_unlock_irqrestore(&udc->lock, flags);
 
