@@ -410,6 +410,7 @@ static int nd_pfn_clear_memmap_errors(struct nd_pfn *nd_pfn)
 				dev_err(&nd_pfn->dev,
 					"error clearing %x badblocks at %llx\n",
 					num_bad, first_bad);
+				devm_namespace_disable(&nd_pfn->dev, ndns);
 				return rc;
 			}
 		}
