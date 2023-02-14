@@ -193,6 +193,9 @@ struct acpi_ec {
 	unsigned int queries_in_progress;
 	bool busy_polling;
 	unsigned int polling_guard;
+#ifndef __GENKSYMS__
+	acpi_handle address_space_handler_holder;
+#endif
 };
 
 extern struct acpi_ec *first_ec;

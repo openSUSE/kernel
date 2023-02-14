@@ -22,6 +22,7 @@ static inline int arch_is_kernel_initmem_freed(unsigned long addr)
 }
 
 extern char __head_end[];
+extern char __srwx_boundary[];
 
 #ifdef __powerpc64__
 
