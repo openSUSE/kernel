@@ -1694,13 +1694,16 @@ int nvdimm_namespace_attach_btt(struct nd_namespace_common *ndns)
 		dev_dbg(&nd_btt->dev, "%s must be at least %ld bytes\n",
 				dev_name(&ndns->dev),
 				ARENA_MIN_SIZE + nd_btt->initial_offset);
+		devm_namespace_disable(&nd_btt->dev, ndns);
 		return -ENXIO;
 	}
 	nd_region = to_nd_region(nd_btt->dev.parent);
 	btt = btt_init(nd_btt, rawsize, nd_btt->lbasize, nd_btt->uuid,
 		       nd_region);
-	if (!btt)
+	if (!btt) {
+		devm_namespace_disable(&nd_btt->dev, ndns);
 		return -ENOMEM;
+	}
 	nd_btt->btt = btt;
 
 	return 0;
