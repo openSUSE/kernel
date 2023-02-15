@@ -6805,6 +6805,7 @@ struct scsi_host_template lpfc_template = {
 	.vendor_id		= LPFC_NL_VENDOR_ID,
 	.change_queue_depth	= scsi_change_queue_depth,
 	.track_queue_depth	= 1,
+	.template_has_eh_should_retry_cmd = 1,
 };
 
 struct scsi_host_template lpfc_vport_template = {
@@ -6832,4 +6833,5 @@ struct scsi_host_template lpfc_vport_template = {
 	.vendor_id		= 0,
 	.change_queue_depth	= scsi_change_queue_depth,
 	.track_queue_depth	= 1,
+	.template_has_eh_should_retry_cmd = 1,
 };

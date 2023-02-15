@@ -129,7 +129,7 @@ static bool scsi_eh_should_retry_cmd(struct scsi_cmnd *cmd)
 	struct scsi_device *sdev = cmd->device;
 	struct Scsi_Host *host = sdev->host;
 
-	if (host->hostt->eh_should_retry_cmd)
+	if (host->hostt->template_has_eh_should_retry_cmd &&  host->hostt->eh_should_retry_cmd)
 		return  host->hostt->eh_should_retry_cmd(cmd);
 
 	return true;

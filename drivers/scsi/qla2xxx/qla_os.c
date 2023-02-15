@@ -8016,6 +8016,7 @@ struct scsi_host_template qla2xxx_driver_template = {
 	.supported_mode		= MODE_INITIATOR,
 	.track_queue_depth	= 1,
 	.cmd_size		= sizeof(srb_t),
+	.template_has_eh_should_retry_cmd = 1,
 };
 
 static const struct pci_error_handlers qla2xxx_err_handler = {
