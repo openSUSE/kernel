@@ -35,6 +35,7 @@ extern bool panic_on_taint_nousertaint;
 extern int sysctl_panic_on_rcu_stall;
 extern int sysctl_max_rcu_stall_to_panic;
 extern int sysctl_panic_on_stackoverflow;
+extern unsigned int warn_limit;
 
 extern bool crash_kexec_post_notifiers;
 
