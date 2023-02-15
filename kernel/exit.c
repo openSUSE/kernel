@@ -893,6 +893,7 @@ void __noreturn make_task_dead(int signr)
 	 * Then do everything else.
 	 */
 	struct task_struct *tsk = current;
+	static atomic_t oops_count = ATOMIC_INIT(0);
 
 	if (unlikely(in_interrupt()))
 		panic("Aiee, killing interrupt handler!");
@@ -905,6 +906,19 @@ void __noreturn make_task_dead(int signr)
 			preempt_count());
 		preempt_count_set(PREEMPT_ENABLED);
 	}
+
+	/*
+	 * Every time the system oopses, if the oops happens while a reference
+	 * to an object was held, the reference leaks.
+	 * If the oops doesn't also leak memory, repeated oopsing can cause
+	 * reference counters to wrap around (if they're not using refcount_t).
+	 * This means that repeated oopsing can make unexploitable-looking bugs
+	 * exploitable through repeated oopsing.
+	 * To make sure this can't happen, place an upper bound on how often the
+	 * kernel may oops without panic().
+	 */
+	if (atomic_inc_return(&oops_count) >= READ_ONCE(oops_limit))
+		panic("Oopsed too often (kernel.oops_limit is %d)", oops_limit);
 
 	/*
 	 * We're taking recursive faults here in make_task_dead. Safest is to just
@@ -1324,8 +1338,6 @@ static int wait_task_continued(struct wait_opts *wo, struct task_struct *p)
 static int wait_consider_task(struct wait_opts *wo, int ptrace,
 				struct task_struct *p)
 {
-	static atomic_t oops_count = ATOMIC_INIT(0);
-
 	/*
 	 * We can race with wait_task_zombie() from another thread.
 	 * Ensure that EXIT_ZOMBIE -> EXIT_DEAD/EXIT_TRACE transition
@@ -1409,19 +1421,6 @@ static int wait_consider_task(struct wait_opts *wo, int ptrace,
 		 */
 		wo->notask_error = 0;
 	}
-
-	/*
-	 * Every time the system oopses, if the oops happens while a reference
-	 * to an object was held, the reference leaks.
-	 * If the oops doesn't also leak memory, repeated oopsing can cause
-	 * reference counters to wrap around (if they're not using refcount_t).
-	 * This means that repeated oopsing can make unexploitable-looking bugs
-	 * exploitable through repeated oopsing.
-	 * To make sure this can't happen, place an upper bound on how often the
-	 * kernel may oops without panic().
-	 */
-	if (atomic_inc_return(&oops_count) >= READ_ONCE(oops_limit))
-		panic("Oopsed too often (kernel.oops_limit is %d)", oops_limit);
 
 	/*
 	 * Wait for stopped.  Depending on @ptrace, different stopped state
