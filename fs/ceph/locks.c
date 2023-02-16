@@ -370,7 +370,7 @@ void ceph_count_locks(struct inode *inode, int *fcntl_count, int *flock_count)
 	*fcntl_count = 0;
 	*flock_count = 0;
 
-	ctx = inode->i_flctx;
+	ctx = smp_load_acquire(&inode->i_flctx);
 	if (ctx) {
 		spin_lock(&ctx->flc_lock);
 		list_for_each_entry(lock, &ctx->flc_posix, fl_list)
@@ -424,7 +424,7 @@ int ceph_encode_locks_to_buffer(struct inode *inode,
 				int num_fcntl_locks, int num_flock_locks)
 {
 	struct file_lock *lock;
-	struct file_lock_context *ctx = inode->i_flctx;
+	struct file_lock_context *ctx = smp_load_acquire(&inode->i_flctx);
 	int err = 0;
 	int seen_fcntl = 0;
 	int seen_flock = 0;
