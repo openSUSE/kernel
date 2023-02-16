@@ -314,7 +314,7 @@ int ceph_renew_caps(struct inode *inode, int fmode)
 		spin_unlock(&ci->i_ceph_lock);
 		dout("renew caps %p want %s issued %s updating mds_wanted\n",
 		     inode, ceph_cap_string(wanted), ceph_cap_string(issued));
-		ceph_check_caps(ci, 0, NULL);
+		ceph_check_caps(ci, 0);
 		return 0;
 	}
 	spin_unlock(&ci->i_ceph_lock);
@@ -409,7 +409,7 @@ int ceph_open(struct inode *inode, struct file *file)
 		if ((issued & wanted) != wanted &&
 		    (mds_wanted & wanted) != wanted &&
 		    ceph_snap(inode) != CEPH_SNAPDIR)
-			ceph_check_caps(ci, 0, NULL);
+			ceph_check_caps(ci, 0);
 
 		return ceph_init_file(inode, file, fmode);
 	} else if (ceph_snap(inode) != CEPH_NOSNAP &&
@@ -1098,7 +1098,7 @@ static void ceph_aio_complete(struct inode *inode,
 		loff_t endoff = aio_req->iocb->ki_pos + aio_req->total_len;
 		if (endoff > i_size_read(inode)) {
 			if (ceph_inode_set_size(inode, endoff))
-				ceph_check_caps(ci, CHECK_CAPS_AUTHONLY, NULL);
+				ceph_check_caps(ci, CHECK_CAPS_AUTHONLY);
 		}
 
 		spin_lock(&ci->i_ceph_lock);
@@ -1427,8 +1427,7 @@ ceph_direct_read_write(struct kiocb *iocb, struct iov_iter *iter,
 		if (write && pos > size) {
 			if (ceph_inode_set_size(inode, pos))
 				ceph_check_caps(ceph_inode(inode),
-						CHECK_CAPS_AUTHONLY,
-						NULL);
+						CHECK_CAPS_AUTHONLY);
 		}
 	}
 
@@ -1583,8 +1582,7 @@ out:
 			check_caps = ceph_inode_set_size(inode, pos);
 			if (check_caps)
 				ceph_check_caps(ceph_inode(inode),
-						CHECK_CAPS_AUTHONLY,
-						NULL);
+						CHECK_CAPS_AUTHONLY);
 		}
 
 	}
@@ -1912,7 +1910,7 @@ retry_snap:
 		if (dirty)
 			__mark_inode_dirty(inode, dirty);
 		if (ceph_quota_is_max_bytes_approaching(inode, iocb->ki_pos))
-			ceph_check_caps(ci, CHECK_CAPS_FLUSH, NULL);
+			ceph_check_caps(ci, CHECK_CAPS_FLUSH);
 	}
 
 	dout("aio_write %p %llx.%llx %llu~%u  dropping cap refs on %s\n",
@@ -2527,8 +2525,7 @@ static ssize_t __ceph_copy_file_range(struct file *src_file, loff_t src_off,
 		/* Let the MDS know about dst file size change */
 		if (ceph_inode_set_size(dst_inode, dst_off) ||
 		    ceph_quota_is_max_bytes_approaching(dst_inode, dst_off))
-			ceph_check_caps(dst_ci, CHECK_CAPS_AUTHONLY | CHECK_CAPS_FLUSH,
-					NULL);
+			ceph_check_caps(dst_ci, CHECK_CAPS_AUTHONLY | CHECK_CAPS_FLUSH);
 	}
 	/* Mark Fw dirty */
 	spin_lock(&dst_ci->i_ceph_lock);
