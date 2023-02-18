@@ -324,9 +324,12 @@ struct gdma_queue_spec {
 	};
 };
 
+#define MANA_IRQ_NAME_SZ 32
+
 struct gdma_irq_context {
 	void (*handler)(void *arg);
 	void *arg;
+	char name[MANA_IRQ_NAME_SZ];
 };
 
 struct gdma_context {
@@ -353,6 +356,7 @@ struct gdma_context {
 	void __iomem		*shm_base;
 	void __iomem		*db_page_base;
 	u32 db_page_size;
+	int                     numa_node;
 
 	/* Shared memory chanenl (used to bootstrap HWC) */
 	struct shm_channel	shm_channel;

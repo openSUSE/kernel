@@ -309,6 +309,7 @@ int devm_nsio_enable(struct device *dev, struct nd_namespace_io *nsio,
 		.start = nsio->res.start,
 		.end = nsio->res.end,
 	};
+	int ret;
 
 	nsio->size = size;
 	if (!devm_request_mem_region(dev, range.start, size,
@@ -318,14 +319,21 @@ int devm_nsio_enable(struct device *dev, struct nd_namespace_io *nsio,
 	}
 
 	ndns->rw_bytes = nsio_rw_bytes;
-	if (devm_init_badblocks(dev, &nsio->bb))
+	if (devm_init_badblocks(dev, &nsio->bb)) {
+		devm_release_mem_region(dev, range.start, size);
 		return -ENOMEM;
+	}
 	nvdimm_badblocks_populate(to_nd_region(ndns->dev.parent), &nsio->bb,
 			&range);
 
 	nsio->addr = devm_memremap(dev, range.start, size, ARCH_MEMREMAP_PMEM);
+	ret = PTR_ERR_OR_ZERO(nsio->addr);
+	if (ret) {
+		devm_exit_badblocks(dev, &nsio->bb);
+		devm_release_mem_region(dev, range.start, size);
+	}
 
-	return PTR_ERR_OR_ZERO(nsio->addr);
+	return ret;
 }
 
 void devm_nsio_disable(struct device *dev, struct nd_namespace_io *nsio)
