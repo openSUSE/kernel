@@ -1259,7 +1259,7 @@ static int vmw_cmd_dx_define_query(struct vmw_private *dev_priv,
 	struct vmw_resource *cotable_res;
 	int ret;
 
-	if (!ctx_node)
+	if (!ctx_node || !ctx_node->ctx)
 		return -EINVAL;
 
 	cmd = container_of(header, typeof(*cmd), header);
