@@ -199,8 +199,14 @@ static unsigned long htb_search(struct Qdisc *sch, u32 handle)
 {
 	return (unsigned long)htb_find(handle, sch);
 }
+
+#define HTB_DIRECT ((struct htb_class *)-1L)
+
 /**
  * htb_classify - classify a packet into class
+ * @skb: the socket buffer
+ * @sch: the active queue discipline
+ * @qerr: pointer for returned status code
  *
  * It returns NULL if the packet should be dropped or -1 if the packet
  * should be passed directly thru. In all other cases leaf class is returned.
@@ -211,8 +217,6 @@ static unsigned long htb_search(struct Qdisc *sch, u32 handle)
  * have no valid leaf we try to use MAJOR:default leaf. It still unsuccessful
  * then finish and return direct queue.
  */
-#define HTB_DIRECT ((struct htb_class *)-1L)
-
 static struct htb_class *htb_classify(struct sk_buff *skb, struct Qdisc *sch,
 				      int *qerr)
 {
@@ -427,7 +431,10 @@ static void htb_activate_prios(struct htb_sched *q, struct htb_class *cl)
 	while (cl->cmode == HTB_MAY_BORROW && p && mask) {
 		m = mask;
 		while (m) {
-			int prio = ffz(~m);
+			unsigned int prio = ffz(~m);
+
+			if (WARN_ON_ONCE(prio >= ARRAY_SIZE(p->inner.clprio)))
+				break;
 			m &= ~(1 << prio);
 
 			if (p->inner.clprio[prio].feed.rb_node)
