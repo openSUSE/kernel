@@ -13,7 +13,7 @@ Linux Virtualization Support
    guest-halt-polling
    ne_overview
    acrn/index
-   coco/sevguest
+   coco/sev-guest
    coco/tdx-guest
 
 .. only:: html and subproject

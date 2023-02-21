@@ -39,7 +39,7 @@ source "drivers/virt/acrn/Kconfig"
 
 source "drivers/virt/coco/efi_secret/Kconfig"
 
-source "drivers/virt/coco/sevguest/Kconfig"
+source "drivers/virt/coco/sev-guest/Kconfig"
 
 source "drivers/virt/coco/tdx-guest/Kconfig"
 
