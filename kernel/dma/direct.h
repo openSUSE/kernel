@@ -97,7 +97,7 @@ static inline dma_addr_t dma_direct_map_page(struct device *dev,
 	if (unlikely(!dma_capable(dev, dma_addr, size, true))) {
 		if (is_pci_p2pdma_page(page))
 			return DMA_MAPPING_ERROR;
-		if (swiotlb_force != SWIOTLB_NO_FORCE)
+		if (is_swiotlb_active(dev))
 			return swiotlb_map(dev, phys, size, dir, attrs);
 
 		dev_WARN_ONCE(dev, 1,
