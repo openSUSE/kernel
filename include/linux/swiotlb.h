@@ -95,18 +95,22 @@ struct io_tlb_mem {
 	void *vaddr;
 	unsigned long nslabs;
 	unsigned long used;
+	unsigned int index;
+	spinlock_t lock;
 	struct dentry *debugfs;
 	bool late_alloc;
 	bool force_bounce;
 	bool for_alloc;
-	unsigned int nareas;
-	unsigned int area_nslabs;
-	struct io_tlb_area *areas;
 	struct io_tlb_slot {
 		phys_addr_t orig_addr;
 		size_t alloc_size;
 		unsigned int list;
 	} *slots;
+#ifndef __GENKSYMS__
+	unsigned int nareas;
+	unsigned int area_nslabs;
+	struct io_tlb_area *areas;
+#endif
 };
 extern struct io_tlb_mem io_tlb_default_mem;
 
