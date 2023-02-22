@@ -706,7 +706,7 @@ static int vfio_ap_mdev_probe(struct mdev_device *mdev)
 	vfio_ap_matrix_init(&matrix_dev->info, &matrix_mdev->shadow_apcb);
 	hash_init(matrix_mdev->qtable.queues);
 
-	ret = vfio_register_group_dev(&matrix_mdev->vdev);
+	ret = vfio_register_emulated_iommu_dev(&matrix_mdev->vdev);
 	if (ret)
 		goto err_list;
 	dev_set_drvdata(&mdev->dev, matrix_mdev);
