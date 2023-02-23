@@ -424,6 +424,9 @@ static void
 cifs_evict_inode(struct inode *inode)
 {
 	truncate_inode_pages_final(&inode->i_data);
+	if (inode->i_state & I_PINNING_FSCACHE_WB)
+		cifs_fscache_unuse_inode_cookie(inode, true);
+	cifs_fscache_release_inode_cookie(inode);
 	clear_inode(inode);
 	cifs_fscache_release_inode_cookie(inode);
 }
@@ -767,6 +770,12 @@ static int cifs_show_stats(struct seq_file *s, struct dentry *root)
 }
 #endif
 
+static int cifs_write_inode(struct inode *inode, struct writeback_control *wbc)
+{
+	fscache_unpin_writeback(wbc, cifs_inode_cookie(inode));
+	return 0;
+}
+
 static int cifs_drop_inode(struct inode *inode)
 {
 	struct cifs_sb_info *cifs_sb = CIFS_SB(inode->i_sb);
@@ -779,6 +788,7 @@ static int cifs_drop_inode(struct inode *inode)
 static const struct super_operations cifs_super_ops = {
 	.statfs = cifs_statfs,
 	.alloc_inode = cifs_alloc_inode,
+	.write_inode	= cifs_write_inode,
 	.free_inode = cifs_free_inode,
 	.drop_inode	= cifs_drop_inode,
 	.evict_inode	= cifs_evict_inode,
@@ -1701,13 +1711,9 @@ init_cifs(void)
 		goto out_destroy_cifsoplockd_wq;
 	}
 
-	rc = cifs_fscache_register();
-	if (rc)
-		goto out_destroy_deferredclose_wq;
-
 	rc = cifs_init_inodecache();
 	if (rc)
-		goto out_unreg_fscache;
+		goto out_destroy_deferredclose_wq;
 
 	rc = init_mids();
 	if (rc)
@@ -1769,8 +1775,6 @@ out_destroy_mids:
 	destroy_mids();
 out_destroy_inodecache:
 	cifs_destroy_inodecache();
-out_unreg_fscache:
-	cifs_fscache_unregister();
 out_destroy_deferredclose_wq:
 	destroy_workqueue(deferredclose_wq);
 out_destroy_cifsoplockd_wq:
@@ -1806,7 +1810,6 @@ exit_cifs(void)
 	cifs_destroy_request_bufs();
 	destroy_mids();
 	cifs_destroy_inodecache();
-	cifs_fscache_unregister();
 	destroy_workqueue(deferredclose_wq);
 	destroy_workqueue(cifsoplockd_wq);
 	destroy_workqueue(decrypt_wq);
