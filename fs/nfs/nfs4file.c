@@ -88,7 +88,6 @@ nfs4_file_open(struct inode *inode, struct file *filp)
 	if (inode != d_inode(dentry))
 		goto out_drop;
 
-	nfs_set_verifier(dentry, nfs_save_change_attribute(dir));
 	nfs_file_set_open_context(filp, ctx);
 	nfs_fscache_open_file(inode, filp);
 	err = 0;
@@ -141,7 +140,8 @@ static ssize_t __nfs4_copy_file_range(struct file *file_in, loff_t pos_in,
 	/* Only offload copy if superblock is the same */
 	if (file_inode(file_in)->i_sb != file_inode(file_out)->i_sb)
 		return -EXDEV;
-	if (!nfs_server_capable(file_inode(file_out), NFS_CAP_COPY))
+	if (!nfs_server_capable(file_inode(file_out), NFS_CAP_COPY) ||
+	    !nfs_server_capable(file_inode(file_in), NFS_CAP_COPY))
 		return -EOPNOTSUPP;
 	if (file_inode(file_in) == file_inode(file_out))
 		return -EOPNOTSUPP;
@@ -215,6 +215,9 @@ static loff_t nfs42_remap_file_range(struct file *src_file, loff_t src_off,
 
 	if (remap_flags & ~REMAP_FILE_ADVISORY)
 		return -EINVAL;
+
+	if (IS_SWAPFILE(dst_inode) || IS_SWAPFILE(src_inode))
+		return -ETXTBSY;
 
 	/* check alignment w.r.t. clone_blksize */
 	ret = -EINVAL;

@@ -86,7 +86,8 @@ Brief summary of control files.
  memory.numa_stat		     show the number of memory usage per numa
 				     node
 
- memory.kmem.limit_in_bytes          set/show hard limit for kernel memory
+ memory.kmem.limit_in_bytes          This knob is deprecated and writing to
+                                     it will return -ENOTSUPP.
  memory.kmem.usage_in_bytes          show current kernel memory allocation
  memory.kmem.failcnt                 show the number of kernel memory usage
 				     hits limits
@@ -524,11 +525,6 @@ About use_hierarchy, see Section 6.
   Though rmdir() offlines memcg, but the memcg may still stay there due to
   charged file caches. Some out-of-use page caches may keep charged until
   memory pressure happens. If you want to avoid that, force_empty will be useful.
-
-  Also, note that when memory.kmem.limit_in_bytes is set the charges due to
-  kernel pages will still be seen. This is not considered a failure and the
-  write will still return success. In this case, it is expected that
-  memory.kmem.usage_in_bytes == memory.usage_in_bytes.
 
   About use_hierarchy, see Section 6.
 
