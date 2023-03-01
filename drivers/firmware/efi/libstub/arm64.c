@@ -16,16 +16,16 @@
 
 static bool system_needs_vamap(void)
 {
-	const u8 *type1_family = efi_get_smbios_string(1, family);
+	const struct efi_smbios_type4_record *record;
 
 	/*
 	 * Ampere eMAG, Altra, and Altra Max machines crash in SetTime() if
-	 * SetVirtualAddressMap() has not been called prior.
+	 * SetVirtualAddressMap() has not been called prior. These systems can
+	 * be identified by the SMCCC soc ID, which is conveniently exposed via
+	 * the type 4 SMBIOS records.
 	 */
-	if (!type1_family || (
-	    strcmp(type1_family, "eMAG") &&
-	    strcmp(type1_family, "Altra") &&
-	    strcmp(type1_family, "Altra Max")))
+	record = (struct efi_smbios_type4_record *)efi_get_smbios_record(4);
+	if (!record || memcmp(record->processor_id, "\x1\0\x16\xA\xA1\0\0\0", 8))
 		return false;
 
 	efi_warn("Working around broken SetVirtualAddressMap()\n");
