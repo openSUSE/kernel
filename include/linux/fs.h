@@ -1134,6 +1134,11 @@ struct file_lock {
 			int state;		/* state of grant or error if -ve */
 			unsigned int	debug_id;
 		} afs;
+#ifndef __GENKSYMS__
+		struct {
+			struct inode *inode;
+		} ceph;
+#endif
 	} fl_u;
 } __randomize_layout;
 
