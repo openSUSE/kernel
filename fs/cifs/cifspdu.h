@@ -2611,7 +2611,7 @@ struct fea {
 	unsigned char EA_flags;
 	__u8 name_len;
 	__le16 value_len;
-	char name[1];
+	char name[];
 	/* optionally followed by value */
 } __attribute__((packed));
 /* flags for _FEA.fEA */
@@ -2619,7 +2619,7 @@ struct fea {
 
 struct fealist {
 	__le32 list_len;
-	struct fea list[1];
+	struct fea list;
 } __attribute__((packed));
 
 /* used to hold an arbitrary blob of data */
