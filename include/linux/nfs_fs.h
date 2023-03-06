@@ -196,6 +196,29 @@ struct nfs_inode {
 	/* track last access to cached pages */
 	unsigned long		page_index;
 
+#if IS_ENABLED(CONFIG_NFS_V4)
+	struct nfs4_cached_acl	*nfs4_acl;
+        /* NFSv4 state */
+	struct list_head	open_states;
+	struct nfs_delegation __rcu *delegation;
+	struct rw_semaphore	rwsem;
+
+	/* pNFS layout information */
+	struct pnfs_layout_hdr *layout;
+#endif /* CONFIG_NFS_V4*/
+	/* how many bytes have been written/read and how many bytes queued up */
+	__u64 write_io;
+	__u64 read_io;
+#ifdef CONFIG_NFS_FSCACHE
+	struct fscache_cookie	*fscache;
+#endif
+	struct inode		vfs_inode;
+
+#ifdef CONFIG_NFS_V4_2
+	struct nfs4_xattr_cache *xattr_cache;
+#endif
+
+#ifndef __GENKSYMS__
 	/* Keep track of out-of-order replies.
 	 * The ooo array contains start/end pairs of
 	 * numbers from the changeid sequence when
@@ -228,27 +251,6 @@ struct nfs_inode {
 			u64 start, end;
 		} gap[16];
 	} *ooo;
-
-#if IS_ENABLED(CONFIG_NFS_V4)
-	struct nfs4_cached_acl	*nfs4_acl;
-        /* NFSv4 state */
-	struct list_head	open_states;
-	struct nfs_delegation __rcu *delegation;
-	struct rw_semaphore	rwsem;
-
-	/* pNFS layout information */
-	struct pnfs_layout_hdr *layout;
-#endif /* CONFIG_NFS_V4*/
-	/* how many bytes have been written/read and how many bytes queued up */
-	__u64 write_io;
-	__u64 read_io;
-#ifdef CONFIG_NFS_FSCACHE
-	struct fscache_cookie	*fscache;
-#endif
-	struct inode		vfs_inode;
-
-#ifdef CONFIG_NFS_V4_2
-	struct nfs4_xattr_cache *xattr_cache;
 #endif
 };
 
