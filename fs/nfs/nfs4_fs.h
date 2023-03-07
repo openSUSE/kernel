@@ -261,8 +261,13 @@ struct nfs4_state_maintenance_ops {
 };
 
 struct nfs4_mig_recovery_ops {
+#ifdef __GENKSYMS__
+	int (*get_locations)(struct inode *, struct nfs4_fs_locations *,
+		struct page *, const struct cred *);
+#else
 	int (*get_locations)(struct nfs_server *, struct nfs_fh *,
 		struct nfs4_fs_locations *, struct page *, const struct cred *);
+#endif
 	int (*fsid_present)(struct inode *, const struct cred *);
 };
 

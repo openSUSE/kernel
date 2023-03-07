@@ -10597,6 +10597,7 @@ const struct nfs_rpc_ops nfs_v4_clientops = {
 	.create_server	= nfs4_create_server,
 	.clone_server	= nfs_clone_server,
 	.discover_trunking = nfs4_discover_trunking,
+	.trunking_cookie = NFS_TRUNKING_COOKIE,
 };
 
 static const struct xattr_handler nfs4_xattr_nfs4_acl_handler = {
