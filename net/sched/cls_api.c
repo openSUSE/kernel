@@ -172,7 +172,7 @@ replay:
 
 	/* Find qdisc */
 	if (!parent) {
-		q = dev->qdisc;
+		q = rtnl_dereference(dev->qdisc);
 		parent = q->handle;
 	} else {
 		q = qdisc_lookup_rcu(dev, TC_H_MAJ(t->tcm_parent));
@@ -460,7 +460,7 @@ static int tc_dump_tfilter(struct sk_buff *skb, struct netlink_callback *cb)
 		return skb->len;
 
 	if (!tcm->tcm_parent)
-		q = dev->qdisc;
+		q = rtnl_dereference(dev->qdisc);
 	else
 		q = qdisc_lookup(dev, TC_H_MAJ(tcm->tcm_parent));
 	if (!q)

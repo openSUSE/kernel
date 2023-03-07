@@ -890,6 +890,7 @@ static int rtnl_fill_ifinfo(struct sk_buff *skb, struct net_device *dev,
 	const struct rtnl_link_stats64 *stats;
 	struct nlattr *attr, *af_spec;
 	struct rtnl_af_ops *af_ops;
+	struct Qdisc *qdisc;
 
 	ASSERT_RTNL();
 	nlh = nlmsg_put(skb, pid, seq, type, sizeof(*ifm), flags);
@@ -904,6 +905,7 @@ static int rtnl_fill_ifinfo(struct sk_buff *skb, struct net_device *dev,
 	ifm->ifi_flags = dev_get_flags(dev);
 	ifm->ifi_change = change;
 
+	qdisc = rtnl_dereference(dev->qdisc);
 	NLA_PUT_STRING(skb, IFLA_IFNAME, dev->name);
 	NLA_PUT_U32(skb, IFLA_TXQLEN, dev->tx_queue_len);
 	NLA_PUT_U8(skb, IFLA_OPERSTATE,
@@ -919,7 +921,7 @@ static int rtnl_fill_ifinfo(struct sk_buff *skb, struct net_device *dev,
 		NLA_PUT_U32(skb, IFLA_MASTER, dev->master->ifindex);
 
 	if (dev->qdisc)
-		NLA_PUT_STRING(skb, IFLA_QDISC, dev->qdisc->ops->id);
+		NLA_PUT_STRING(skb, IFLA_QDISC, qdisc->ops->id);
 
 	if (dev->ifalias)
 		NLA_PUT_STRING(skb, IFLA_IFALIAS, dev->ifalias);
