@@ -1646,7 +1646,7 @@ static int hisi_sas_abort_task(struct sas_task *task)
 			 */
 			if ((sas_dev->dev_status == HISI_SAS_DEV_NCQ_ERR) &&
 			    qc && qc->scsicmd) {
-				hisi_sas_do_release_task(hisi_hba, task, slot);
+				hisi_sas_do_release_task(hisi_hba, task, slot, true);
 				rc = TMF_RESP_FUNC_COMPLETE;
 			} else {
 				rc = hisi_sas_softreset_ata_disk(device);
