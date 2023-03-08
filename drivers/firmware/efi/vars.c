@@ -21,7 +21,7 @@ static struct efivars *__efivars;
 
 static DEFINE_SEMAPHORE(efivars_lock);
 
-static efi_status_t check_var_size(bool nonblocking, u32 attributes,
+static efi_status_t __check_var_size(bool nonblocking, u32 attributes,
 				   unsigned long size)
 {
 	const struct efivar_operations *fops;
@@ -38,6 +38,19 @@ static efi_status_t check_var_size(bool nonblocking, u32 attributes,
 		return (size <= SZ_64K) ? EFI_SUCCESS : EFI_OUT_OF_RESOURCES;
 	return status;
 }
+
+/* FIXME: exported just for kABI compatibility with SLE15-SP5 */
+efi_status_t check_var_size(u32 attributes, unsigned long size)
+{
+	return __check_var_size(false, attributes, size);
+}
+EXPORT_SYMBOL_NS_GPL(check_var_size, EFIVAR);
+
+efi_status_t check_var_size_nonblocking(u32 attributes, unsigned long size)
+{
+	return __check_var_size(true, attributes, size);
+}
+EXPORT_SYMBOL_NS_GPL(check_var_size_nonblocking, EFIVAR);
 
 /**
  * efivars_kobject - get the kobject for the registered efivars
@@ -202,7 +215,7 @@ efi_status_t efivar_set_variable_locked(efi_char16_t *name, efi_guid_t *vendor,
 	efi_status_t status;
 
 	if (data_size > 0) {
-		status = check_var_size(nonblocking, attr,
+		status = __check_var_size(nonblocking, attr,
 					data_size + ucs2_strsize(name, 1024));
 		if (status != EFI_SUCCESS)
 			return status;
