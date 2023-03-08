@@ -1584,11 +1584,30 @@ struct nfs_fattr *nfs_alloc_fattr(void)
 	struct nfs_fattr *fattr;
 
 	fattr = kmalloc(sizeof(*fattr), GFP_NOFS);
-	if (fattr != NULL)
+	if (fattr != NULL) {
 		nfs_fattr_init(fattr);
+		fattr->label = NULL;
+	}
 	return fattr;
 }
 EXPORT_SYMBOL_GPL(nfs_alloc_fattr);
+
+struct nfs_fattr *nfs_alloc_fattr_with_label(struct nfs_server *server)
+{
+	struct nfs_fattr *fattr = nfs_alloc_fattr();
+
+	if (!fattr)
+		return NULL;
+
+	fattr->label = nfs4_label_alloc(server, GFP_NOFS);
+	if (IS_ERR(fattr->label)) {
+		kfree(fattr);
+		return NULL;
+	}
+
+	return fattr;
+}
+EXPORT_SYMBOL_GPL(nfs_alloc_fattr_with_label);
 
 struct nfs_fh *nfs_alloc_fhandle(void)
 {

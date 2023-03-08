@@ -1805,6 +1805,15 @@ struct nfs_rpc_ops {
 	struct nfs_server *(*create_server)(struct fs_context *);
 	struct nfs_server *(*clone_server)(struct nfs_server *, struct nfs_fh *,
 					   struct nfs_fattr *, rpc_authflavor_t);
+#ifndef __GENKSYMS__
+	int	(*discover_trunking)(struct nfs_server *, struct nfs_fh *);
+	/* If trunking_cookie is not correct, this might
+	 * be in an external modules and discover_trunking
+	 * cannot be trusted.
+	 */
+	unsigned long long trunking_cookie;
+#define NFS_TRUNKING_COOKIE 0xbf18046af9c4dc73ULL
+#endif
 };
 
 /*
