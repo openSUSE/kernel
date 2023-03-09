@@ -665,6 +665,9 @@ struct pci_bus {
 	struct bin_attribute	*legacy_io;	/* Legacy I/O for this bus */
 	struct bin_attribute	*legacy_mem;	/* Legacy mem */
 	unsigned int		is_added:1;
+#ifndef __GENKSYMS__
+	unsigned int		unsafe_warn:1;	/* warned about RW1C config write */
+#endif
 
 	void* suse_kabi_padding;
 };
