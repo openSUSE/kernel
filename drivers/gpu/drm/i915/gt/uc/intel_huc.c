@@ -52,10 +52,12 @@
  * guaranteed for this to happen during boot, so the big timeout is a safety net
  * that we never expect to need.
  * MEI-PXP + HuC load usually takes ~300ms, but if the GSC needs to be resumed
- * and/or reset, this can take longer.
+ * and/or reset, this can take longer. Note that the kernel might schedule
+ * other work between the i915 init/resume and the MEI one, which can add to
+ * the delay.
  */
 #define GSC_INIT_TIMEOUT_MS 10000
-#define PXP_INIT_TIMEOUT_MS 2000
+#define PXP_INIT_TIMEOUT_MS 5000
 
 static int sw_fence_dummy_notify(struct i915_sw_fence *sf,
 				 enum i915_sw_fence_notify state)
@@ -104,8 +106,14 @@ static enum hrtimer_restart huc_delayed_load_timer_callback(struct hrtimer *hrti
 	struct intel_huc *huc = container_of(hrtimer, struct intel_huc, delayed_load.timer);
 
 	if (!intel_huc_is_authenticated(huc)) {
-		drm_err(&huc_to_gt(huc)->i915->drm,
-			"timed out waiting for GSC init to load HuC\n");
+		if (huc->delayed_load.status == INTEL_HUC_WAITING_ON_GSC)
+			drm_notice(&huc_to_gt(huc)->i915->drm,
+				   "timed out waiting for MEI GSC init to load HuC\n");
+		else if (huc->delayed_load.status == INTEL_HUC_WAITING_ON_PXP)
+			drm_notice(&huc_to_gt(huc)->i915->drm,
+				   "timed out waiting for MEI PXP init to load HuC\n");
+		else
+			MISSING_CASE(huc->delayed_load.status);
 
 		__gsc_init_error(huc);
 	}
@@ -203,11 +211,44 @@ void intel_huc_unregister_gsc_notifier(struct intel_huc *huc, struct bus_type *b
 	huc->delayed_load.nb.notifier_call = NULL;
 }
 
+static void delayed_huc_load_init(struct intel_huc *huc)
+{
+	/*
+	 * Initialize fence to be complete as this is expected to be complete
+	 * unless there is a delayed HuC load in progress.
+	 */
+	i915_sw_fence_init(&huc->delayed_load.fence,
+			   sw_fence_dummy_notify);
+	i915_sw_fence_commit(&huc->delayed_load.fence);
+
+	hrtimer_init(&huc->delayed_load.timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	huc->delayed_load.timer.function = huc_delayed_load_timer_callback;
+}
+
+static void delayed_huc_load_fini(struct intel_huc *huc)
+{
+	/*
+	 * the fence is initialized in init_early, so we need to clean it up
+	 * even if HuC loading is off.
+	 */
+	delayed_huc_load_complete(huc);
+	i915_sw_fence_fini(&huc->delayed_load.fence);
+}
+
 void intel_huc_init_early(struct intel_huc *huc)
 {
 	struct drm_i915_private *i915 = huc_to_gt(huc)->i915;
 
 	intel_uc_fw_init_early(&huc->fw, INTEL_UC_FW_TYPE_HUC);
+
+	/*
+	 * we always init the fence as already completed, even if HuC is not
+	 * supported. This way we don't have to distinguish between HuC not
+	 * supported/disabled or already loaded, and can focus on if the load
+	 * is currently in progress (fence not complete) or not, which is what
+	 * we care about for stalling userspace submissions.
+	 */
+	delayed_huc_load_init(huc);
 
 	if (GRAPHICS_VER(i915) >= 11) {
 		huc->status.reg = GEN11_HUC_KERNEL_LOAD_INFO;
@@ -218,17 +259,6 @@ void intel_huc_init_early(struct intel_huc *huc)
 		huc->status.mask = HUC_FW_VERIFIED;
 		huc->status.value = HUC_FW_VERIFIED;
 	}
-
-	/*
-	 * Initialize fence to be complete as this is expected to be complete
-	 * unless there is a delayed HuC reload in progress.
-	 */
-	i915_sw_fence_init(&huc->delayed_load.fence,
-			   sw_fence_dummy_notify);
-	i915_sw_fence_commit(&huc->delayed_load.fence);
-
-	hrtimer_init(&huc->delayed_load.timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-	huc->delayed_load.timer.function = huc_delayed_load_timer_callback;
 }
 
 #define HUC_LOAD_MODE_STRING(x) (x ? "GSC" : "legacy")
@@ -292,13 +322,14 @@ out:
 
 void intel_huc_fini(struct intel_huc *huc)
 {
-	if (!intel_uc_fw_is_loadable(&huc->fw))
-		return;
+	/*
+	 * the fence is initialized in init_early, so we need to clean it up
+	 * even if HuC loading is off.
+	 */
+	delayed_huc_load_fini(huc);
 
-	delayed_huc_load_complete(huc);
-
-	i915_sw_fence_fini(&huc->delayed_load.fence);
-	intel_uc_fw_fini(&huc->fw);
+	if (intel_uc_fw_is_loadable(&huc->fw))
+		intel_uc_fw_fini(&huc->fw);
 }
 
 void intel_huc_suspend(struct intel_huc *huc)
