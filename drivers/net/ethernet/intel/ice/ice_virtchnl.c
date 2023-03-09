@@ -1426,9 +1426,9 @@ static int ice_vc_dis_qs_msg(struct ice_vf *vf, u8 *msg)
 				goto error_param;
 			}
 
+			/* Skip queue if not enabled */
 			if (!test_bit(vf_q_id, vf->rxq_ena))
-				dev_dbg(ice_pf_to_dev(vsi->back), "Queue %u on VSI %u is not enabled, but stopping it anyway\n",
-				        vf_q_id, vsi->vsi_num);
+				continue;
 
 			if (ice_vsi_ctrl_one_rx_ring(vsi, false, vf_q_id,
 						     true)) {
