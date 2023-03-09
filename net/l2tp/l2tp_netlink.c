@@ -480,7 +480,7 @@ static int l2tp_nl_cmd_session_create(struct sk_buff *skb, struct genl_info *inf
 		break;
 	}
 
-	ret = l2tp_nl_cmd_ops[cfg.pw_type]->session_create(net, tunnel,
+	ret = l2tp_nl_cmd_ops[cfg.pw_type]->__session_create(net, tunnel,
 							   session_id,
 							   peer_session_id,
 							   &cfg);

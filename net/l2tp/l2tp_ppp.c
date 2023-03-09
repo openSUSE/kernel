@@ -810,6 +810,12 @@ end:
 
 #ifdef CONFIG_L2TP_V3
 
+static int __unused_session_create(struct net *net, u32 tunnel_id, u32 session_id,
+		                   u32 peer_session_id, struct l2tp_session_cfg *cfg)
+{
+	return 0;
+}
+
 /* Called when creating sessions via the netlink interface. */
 static int pppol2tp_session_create(struct net *net, struct l2tp_tunnel *tunnel,
 				   u32 session_id, u32 peer_session_id,
@@ -1771,7 +1777,8 @@ static const struct pppox_proto pppol2tp_proto = {
 #ifdef CONFIG_L2TP_V3
 
 static const struct l2tp_nl_cmd_ops pppol2tp_nl_cmd_ops = {
-	.session_create	= pppol2tp_session_create,
+	.session_create	= __unused_session_create,
+	.__session_create = pppol2tp_session_create,
 	.session_delete	= pppol2tp_session_delete,
 };
 

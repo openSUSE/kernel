@@ -190,9 +190,12 @@ struct l2tp_tunnel {
 };
 
 struct l2tp_nl_cmd_ops {
-	int (*session_create)(struct net *net, struct l2tp_tunnel *tunnel,
+	int (*session_create)(struct net *net, u32 tunnel_id, u32 session_id, u32 peer_session_id, struct l2tp_session_cfg *cfg);
+#ifndef __GENKSYMS__
+	int (*__session_create)(struct net *net, struct l2tp_tunnel *tunnel,
 			      u32 session_id, u32 peer_session_id,
 			      struct l2tp_session_cfg *cfg);
+#endif
 	int (*session_delete)(struct l2tp_session *session);
 };
 
