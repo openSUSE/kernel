@@ -843,6 +843,14 @@ static int mtk_pcie_setup(struct mtk_pcie_port *port)
 	if (err)
 		return err;
 
+	/*
+	 * The controller may have been left out of reset by the bootloader
+	 * so make sure that we get a clean start by asserting resets here.
+	 */
+	reset_control_assert(port->phy_reset);
+	reset_control_assert(port->mac_reset);
+	usleep_range(10, 20);
+
 	/* Don't touch the hardware registers before power up */
 	err = mtk_pcie_power_up(port);
 	if (err)
