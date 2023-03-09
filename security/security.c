@@ -5167,20 +5167,6 @@ int security_locked_down(enum lockdown_reason what)
 }
 EXPORT_SYMBOL(security_locked_down);
 
-/**
- * @security_lock_kernel_down
- *     Put the kernel into lock-down mode.
- *
- *     @where: Where the lock-down is originating from (e.g. command line option)
- *     @level: The lock-down level (can only increase)
- *
- */
-int security_lock_kernel_down(const char *where, enum lockdown_reason level)
-{
-	return call_int_hook(lock_kernel_down, 0, where, level);
-}
-EXPORT_SYMBOL(security_lock_kernel_down);
-
 #ifdef CONFIG_PERF_EVENTS
 /**
  * security_perf_event_open() - Check if a perf event open is allowed

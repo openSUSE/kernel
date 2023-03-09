@@ -25,7 +25,6 @@
 #include <linux/static_call.h>
 #include <linux/swiotlb.h>
 #include <linux/random.h>
-#include <linux/security.h>
 
 #include <uapi/linux/mount.h>
 
@@ -1033,13 +1032,6 @@ void __init setup_arch(char **cmdline_p)
 	if (efi_enabled(EFI_BOOT))
 		efi_init();
 
-	efi_set_secure_boot(boot_params.secure_boot);
-
-#ifdef CONFIG_LOCK_DOWN_IN_EFI_SECURE_BOOT
-	if (efi_enabled(EFI_SECURE_BOOT))
-		security_lock_kernel_down("EFI Secure Boot mode", LOCKDOWN_INTEGRITY_MAX);
-#endif
-
 	dmi_setup();
 
 	/*
@@ -1198,7 +1190,19 @@ void __init setup_arch(char **cmdline_p)
 	/* Allocate bigger log buffer */
 	setup_log_buf(1);
 
-	efi_set_secure_boot(boot_params.secure_boot);
+	if (efi_enabled(EFI_BOOT)) {
+		switch (boot_params.secure_boot) {
+		case efi_secureboot_mode_disabled:
+			pr_info("Secure boot disabled\n");
+			break;
+		case efi_secureboot_mode_enabled:
+			pr_info("Secure boot enabled\n");
+			break;
+		default:
+			pr_info("Secure boot could not be determined\n");
+			break;
+		}
+	}
 
 	reserve_initrd();
 
