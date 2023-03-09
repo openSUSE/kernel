@@ -1581,7 +1581,9 @@ static void advk_pcie_handle_int(struct advk_pcie *pcie)
 			    PCIE_ISR1_REG);
 
 		virq = irq_find_mapping(pcie->irq_domain, i);
-		generic_handle_irq(virq);
+		if (generic_handle_irq(virq) == -EINVAL)
+			dev_err_ratelimited(&pcie->pdev->dev, "unexpected INT%c IRQ\n",
+					    (char)i + 'A');
 	}
 }
 
