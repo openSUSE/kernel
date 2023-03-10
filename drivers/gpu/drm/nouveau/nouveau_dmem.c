@@ -192,7 +192,8 @@ static vm_fault_t nouveau_dmem_migrate_to_ram(struct vm_fault *vmf)
 		.src		= &src,
 		.dst		= &dst,
 		.pgmap_owner	= drm->dev,
-		.flags		= MIGRATE_VMA_SELECT_DEVICE_PRIVATE,
+		.__fault_page	= vmf->page,
+		.flags		= MIGRATE_VMA_SELECT_DEVICE_PRIVATE | MIGRATE_VMA_FAULT_PAGE,
 	};
 
 	/*
@@ -253,6 +254,7 @@ nouveau_dmem_chunk_alloc(struct nouveau_drm *drm, struct page **ppage)
 	chunk->pagemap.range.end = res->end;
 	chunk->pagemap.nr_range = 1;
 	chunk->pagemap.ops = &nouveau_dmem_pagemap_ops;
+	chunk->pagemap.flags = PGMAP_MIGRATE_VMA_FAULT_PAGE;
 	chunk->pagemap.owner = drm->dev;
 
 	ret = nouveau_bo_new(&drm->client, DMEM_CHUNK_SIZE, 0,

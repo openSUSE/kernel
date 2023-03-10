@@ -710,6 +710,9 @@ struct uvc_device {
 	} async_ctrl;
 
 	struct uvc_entity *gpio_unit;
+#ifndef __GENKSYMS__
+	bool flush_status;
+#endif
 };
 
 enum uvc_handle_state {

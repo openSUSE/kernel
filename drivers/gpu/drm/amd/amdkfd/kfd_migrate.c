@@ -380,7 +380,7 @@ svm_migrate_vma_to_vram(struct amdgpu_device *adev, struct svm_range *prange,
 	uint64_t npages = (end - start) >> PAGE_SHIFT;
 	struct kfd_process_device *pdd;
 	struct dma_fence *mfence = NULL;
-	struct migrate_vma migrate;
+	struct migrate_vma migrate = { 0 };
 	dma_addr_t *scratch;
 	size_t size;
 	void *buf;
@@ -601,12 +601,13 @@ out_oom:
 
 static int
 svm_migrate_vma_to_ram(struct amdgpu_device *adev, struct svm_range *prange,
-		       struct vm_area_struct *vma, uint64_t start, uint64_t end)
+		       struct vm_area_struct *vma, uint64_t start, uint64_t end,
+		       struct page *fault_page)
 {
 	uint64_t npages = (end - start) >> PAGE_SHIFT;
 	struct kfd_process_device *pdd;
 	struct dma_fence *mfence = NULL;
-	struct migrate_vma migrate;
+	struct migrate_vma migrate = { 0 };
 	dma_addr_t *scratch;
 	size_t size;
 	void *buf;
@@ -616,7 +617,7 @@ svm_migrate_vma_to_ram(struct amdgpu_device *adev, struct svm_range *prange,
 	migrate.vma = vma;
 	migrate.start = start;
 	migrate.end = end;
-	migrate.flags = MIGRATE_VMA_SELECT_DEVICE_PRIVATE;
+	migrate.flags = MIGRATE_VMA_SELECT_DEVICE_PRIVATE | MIGRATE_VMA_FAULT_PAGE;
 	migrate.pgmap_owner = SVM_ADEV_PGMAP_OWNER(adev);
 
 	size = 2 * sizeof(*migrate.src) + sizeof(uint64_t) + sizeof(dma_addr_t);
@@ -627,6 +628,7 @@ svm_migrate_vma_to_ram(struct amdgpu_device *adev, struct svm_range *prange,
 
 	migrate.src = buf;
 	migrate.dst = migrate.src + npages;
+	migrate.__fault_page = fault_page;
 	scratch = (dma_addr_t *)(migrate.dst + npages);
 
 	r = migrate_vma_setup(&migrate);
@@ -673,7 +675,8 @@ out:
  * Return:
  * 0 - OK, otherwise error code
  */
-int svm_migrate_vram_to_ram(struct svm_range *prange, struct mm_struct *mm)
+int svm_migrate_vram_to_ram(struct svm_range *prange, struct mm_struct *mm,
+			    struct page *fault_page)
 {
 	struct amdgpu_device *adev;
 	struct vm_area_struct *vma;
@@ -710,7 +713,8 @@ int svm_migrate_vram_to_ram(struct svm_range *prange, struct mm_struct *mm)
 			break;
 
 		next = min(vma->vm_end, end);
-		r = svm_migrate_vma_to_ram(adev, prange, vma, addr, next);
+		r = svm_migrate_vma_to_ram(adev, prange, vma, addr, next,
+			fault_page);
 		if (r) {
 			pr_debug("failed %d to migrate\n", r);
 			break;
@@ -749,7 +753,7 @@ svm_migrate_vram_to_vram(struct svm_range *prange, uint32_t best_loc,
 
 	pr_debug("from gpu 0x%x to gpu 0x%x\n", prange->actual_loc, best_loc);
 
-	r = svm_migrate_vram_to_ram(prange, mm);
+	r = svm_migrate_vram_to_ram(prange, mm, NULL);
 	if (r)
 		return r;
 
@@ -845,7 +849,7 @@ static vm_fault_t svm_migrate_to_ram(struct vm_fault *vmf)
 		goto out_unlock_prange;
 	}
 
-	r = svm_migrate_vram_to_ram(prange, vmf->vma->vm_mm);
+	r = svm_migrate_vram_to_ram(prange, vmf->vma->vm_mm, vmf->page);
 	if (r)
 		pr_debug("failed %d migrate svms 0x%p range 0x%p [0x%lx 0x%lx]\n",
 			 r, prange->svms, prange, prange->start, prange->last);
@@ -909,7 +913,7 @@ int svm_migrate_init(struct amdgpu_device *adev)
 	pgmap->range.end = res->end;
 	pgmap->ops = &svm_migrate_pgmap_ops;
 	pgmap->owner = SVM_ADEV_PGMAP_OWNER(adev);
-	pgmap->flags = MIGRATE_VMA_SELECT_DEVICE_PRIVATE;
+	pgmap->flags = PGMAP_MIGRATE_VMA_FAULT_PAGE;
 
 	/* Device manager releases device-specific resources, memory region and
 	 * pgmap when driver disconnects from device.

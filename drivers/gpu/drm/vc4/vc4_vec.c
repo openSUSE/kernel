@@ -402,7 +402,7 @@ static void vc4_vec_encoder_enable(struct drm_encoder *encoder)
 	struct vc4_vec *vec = vc4_vec_encoder->vec;
 	int ret;
 
-	ret = pm_runtime_get_sync(&vec->pdev->dev);
+	ret = pm_runtime_resume_and_get(&vec->pdev->dev);
 	if (ret < 0) {
 		DRM_ERROR("Failed to retain power domain: %d\n", ret);
 		return;

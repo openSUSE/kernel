@@ -37,6 +37,9 @@ extern const char *migrate_reason_names[MR_TYPES];
 #ifdef CONFIG_MIGRATION
 
 extern void putback_movable_pages(struct list_head *l);
+int migrate_page_extra(struct address_space *mapping, struct page *newpage,
+			struct page *page, enum migrate_mode mode,
+			int extra_count);
 extern int migrate_page(struct address_space *mapping,
 			struct page *newpage, struct page *page,
 			enum migrate_mode mode);
@@ -132,6 +135,9 @@ static inline unsigned long migrate_pfn(unsigned long pfn)
 enum migrate_vma_direction {
 	MIGRATE_VMA_SELECT_SYSTEM = 1 << 0,
 	MIGRATE_VMA_SELECT_DEVICE_PRIVATE = 1 << 1,
+#ifndef __GENKSYMS__
+	MIGRATE_VMA_FAULT_PAGE = 1 << 2,
+#endif
 };
 
 struct migrate_vma {
@@ -161,7 +167,28 @@ struct migrate_vma {
 	 */
 	void			*pgmap_owner;
 	unsigned long		flags;
+
+	/*
+	 * Set to vmf->page if this is being called to migrate a page as part of
+	 * a migrate_to_ram() callback.
+	 */
+#ifndef __GENKSYMS__
+	struct page		*__fault_page;
+#endif
 };
+
+/*
+ * KABI workaround for third-party modules built with struct migrate_vma
+ * definition without the new fault_page field. Only touch the field if it's
+ */
+static inline struct page *
+migrate_vma_fault_page(struct migrate_vma *migrate_vma)
+{
+	if (migrate_vma->flags & MIGRATE_VMA_FAULT_PAGE)
+		return migrate_vma->__fault_page;
+
+	return NULL;
+}
 
 int migrate_vma_setup(struct migrate_vma *args);
 void migrate_vma_pages(struct migrate_vma *migrate);
