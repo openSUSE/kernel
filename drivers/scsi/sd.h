@@ -150,6 +150,26 @@ struct scsi_disk {
 	unsigned	urswrz : 1;
 	unsigned	security : 1;
 	unsigned	ignore_medium_access_errors : 1;
+
+	/*
+	 * these 4 fields have been removed when commit
+	 * 785538bfdd682c8e was backported, but are being
+	 * added back in for (1) kABI checking, and
+	 * (2) so that the struct doesn't change size, but
+	 * they are added with name changes, in case some
+	 * module tries to use them.
+	 */
+#ifdef __GENKSYMS__
+	int		start_result;
+	u32		start_sense_len;
+	u8		start_sense_buffer[SCSI_SENSE_BUFFERSIZE];
+	struct work_struct start_done_work;
+#else
+	int		start_result_not_used;
+	u32		start_sense_len_not_used;
+	u8		start_sense_buffer_not_used[SCSI_SENSE_BUFFERSIZE];
+	struct work_struct start_done_work_not_used;
+#endif
 };
 #define to_scsi_disk(obj) container_of(obj, struct scsi_disk, disk_dev)
 
