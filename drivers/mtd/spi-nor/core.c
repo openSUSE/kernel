@@ -15,6 +15,7 @@
 #include <linux/math64.h>
 #include <linux/sizes.h>
 #include <linux/slab.h>
+#include <linux/delay.h>
 
 #include <linux/mtd/mtd.h>
 #include <linux/of_platform.h>
@@ -2244,6 +2245,15 @@ void spi_nor_set_erase_type(struct spi_nor_erase_type *erase, u32 size,
 	/* JEDEC JESD216B Standard imposes erase sizes to be power of 2. */
 	erase->size_shift = ffs(erase->size) - 1;
 	erase->size_mask = (1 << erase->size_shift) - 1;
+}
+
+/**
+ * spi_nor_mask_erase_type() - mask out a SPI NOR erase type
+ * @erase:	pointer to a structure that describes a SPI NOR erase type
+ */
+void spi_nor_mask_erase_type(struct spi_nor_erase_type *erase)
+{
+	erase->size = 0;
 }
 
 /**
