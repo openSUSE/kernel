@@ -1219,7 +1219,16 @@ struct nfs4_fs_location {
 
 #define NFS4_FS_LOCATIONS_MAXENTRIES 10
 struct nfs4_fs_locations {
+#ifndef __GENKSYMS__
 	struct nfs_fattr *fattr;
+#else
+	/* This structure is entirely private to nfsv4 module.
+	 * pnfs handler can see a pointer to it, but never access it.
+	 * They must (and do) only treat it like a void*.
+	 * So we can change the structure with impunity.
+	 */
+	struct nfs_fattr fattr;
+#endif
 	const struct nfs_server *server;
 	struct nfs4_pathname fs_path;
 	int nlocations;
