@@ -70,7 +70,7 @@ static mempool_t *nfs_wdata_mempool;
 static struct kmem_cache *nfs_cdata_cachep;
 static mempool_t *nfs_commit_mempool;
 
-struct nfs_commit_data *nfs_commitdata_alloc(void)
+struct nfs_commit_data *nfs_commitdata_alloc(bool never_fail)
 {
 	struct nfs_commit_data *p;
 
@@ -1772,7 +1772,7 @@ nfs_commit_list(struct inode *inode, struct list_head *head, int how,
 	if (list_empty(head))
 		return 0;
 
-	data = nfs_commitdata_alloc();
+	data = nfs_commitdata_alloc(false);
 	if (!data) {
 		nfs_retry_commit(head, NULL, cinfo, -1);
 		return -ENOMEM;

@@ -419,7 +419,7 @@ static struct nfs_commit_data *
 pnfs_bucket_fetch_commitdata(struct pnfs_commit_bucket *bucket,
 			     struct nfs_commit_info *cinfo)
 {
-	struct nfs_commit_data *data = nfs_commitdata_alloc();
+	struct nfs_commit_data *data = nfs_commitdata_alloc(false);
 
 	if (!data)
 		return NULL;
@@ -515,7 +515,7 @@ pnfs_generic_commit_pagelist(struct inode *inode, struct list_head *mds_pages,
 	unsigned int nreq = 0;
 
 	if (!list_empty(mds_pages)) {
-		data = nfs_commitdata_alloc();
+		data = nfs_commitdata_alloc(false);
 		if (!data) {
 			nfs_retry_commit(mds_pages, NULL, cinfo, -1);
 			return -ENOMEM;
