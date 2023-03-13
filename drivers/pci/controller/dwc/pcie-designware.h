@@ -174,6 +174,9 @@ enum dw_pcie_device_mode {
 
 struct dw_pcie_host_ops {
 	int (*host_init)(struct pcie_port *pp);
+#ifndef __GENKSYMS__
+	void (*host_deinit)(struct pcie_port *pp);
+#endif
 	int (*msi_host_init)(struct pcie_port *pp);
 };
 
