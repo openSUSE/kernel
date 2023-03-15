@@ -36,6 +36,11 @@ struct trace_eval_map {
 extern struct srcu_struct tracepoint_srcu;
 
 extern int
+__tracepoint_probe_register(struct tracepoint *tp, void *probe, void *data, bool checked);
+extern int
+__tracepoint_probe_register_prio(struct tracepoint *tp, void *probe, void *data, int prio,
+				 bool checked);
+extern int
 tracepoint_probe_register(struct tracepoint *tp, void *probe, void *data);
 extern int
 tracepoint_probe_register_prio(struct tracepoint *tp, void *probe, void *data,
@@ -43,6 +48,9 @@ tracepoint_probe_register_prio(struct tracepoint *tp, void *probe, void *data,
 extern int
 tracepoint_probe_register_prio_may_exist(struct tracepoint *tp, void *probe, void *data,
 					 int prio);
+extern int
+__tracepoint_probe_unregister(struct tracepoint *tp, void *probe, void *data,
+			      bool checked);
 extern int
 tracepoint_probe_unregister(struct tracepoint *tp, void *probe, void *data);
 static inline int
@@ -256,21 +264,21 @@ static inline struct tracepoint *tracepoint_ptr_deref(tracepoint_ptr_t *p)
 	static inline int						\
 	register_trace_##name(void (*probe)(data_proto), void *data)	\
 	{								\
-		return tracepoint_probe_register(&__tracepoint_##name,	\
-						(void *)probe, data);	\
+		return __tracepoint_probe_register(&__tracepoint_##name,	\
+						(void *)probe, data, true);	\
 	}								\
 	static inline int						\
 	register_trace_prio_##name(void (*probe)(data_proto), void *data,\
 				   int prio)				\
 	{								\
-		return tracepoint_probe_register_prio(&__tracepoint_##name, \
-					      (void *)probe, data, prio); \
+		return __tracepoint_probe_register_prio(&__tracepoint_##name, \
+					      (void *)probe, data, prio, true); \
 	}								\
 	static inline int						\
 	unregister_trace_##name(void (*probe)(data_proto), void *data)	\
 	{								\
-		return tracepoint_probe_unregister(&__tracepoint_##name,\
-						(void *)probe, data);	\
+		return __tracepoint_probe_unregister(&__tracepoint_##name,\
+						(void *)probe, data, true);	\
 	}								\
 	static inline void						\
 	check_trace_callback_type_##name(void (*cb)(data_proto))	\
