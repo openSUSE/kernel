@@ -2357,7 +2357,7 @@ static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
 		netoff = TPACKET_ALIGN(po->tp_hdrlen +
 				       (maclen < 16 ? 16 : maclen)) +
 				       po->tp_reserve;
-		if (po->has_vnet_hdr) {
+		if (packet_sock_flag(po, PACKET_SOCK_HAS_VNET_HDR)) {
 			netoff += sizeof(struct virtio_net_hdr);
 			do_vnet = true;
 		}
@@ -2831,7 +2831,8 @@ static int tpacket_snd(struct packet_sock *po, struct msghdr *msg)
 	size_max = po->tx_ring.frame_size
 		- (po->tp_hdrlen - sizeof(struct sockaddr_ll));
 
-	if ((size_max > dev->mtu + reserve + VLAN_HLEN) && !po->has_vnet_hdr)
+	if ((size_max > dev->mtu + reserve + VLAN_HLEN) &&
+	    !packet_sock_flag(po, PACKET_SOCK_HAS_VNET_HDR))
 		size_max = dev->mtu + reserve + VLAN_HLEN;
 
 	timeo = sock_sndtimeo(&po->sk, msg->msg_flags & MSG_DONTWAIT);
@@ -2866,7 +2867,7 @@ static int tpacket_snd(struct packet_sock *po, struct msghdr *msg)
 		status = TP_STATUS_SEND_REQUEST;
 		hlen = LL_RESERVED_SPACE(dev);
 		tlen = dev->needed_tailroom;
-		if (po->has_vnet_hdr) {
+		if (packet_sock_flag(po, PACKET_SOCK_HAS_VNET_HDR)) {
 			vnet_hdr = data;
 			data += sizeof(*vnet_hdr);
 			tp_len -= sizeof(*vnet_hdr);
@@ -2894,7 +2895,7 @@ static int tpacket_snd(struct packet_sock *po, struct msghdr *msg)
 					  addr, hlen, copylen, &sockc);
 		if (likely(tp_len >= 0) &&
 		    tp_len > dev->mtu + reserve &&
-		    !po->has_vnet_hdr &&
+		    !packet_sock_flag(po, PACKET_SOCK_HAS_VNET_HDR) &&
 		    !packet_extra_vlan_len_allowed(dev, skb))
 			tp_len = -EMSGSIZE;
 
@@ -2913,7 +2914,7 @@ tpacket_error:
 			}
 		}
 
-		if (po->has_vnet_hdr) {
+		if (packet_sock_flag(po, PACKET_SOCK_HAS_VNET_HDR)) {
 			if (virtio_net_hdr_to_skb(skb, vnet_hdr, vio_le())) {
 				tp_len = -EINVAL;
 				goto tpacket_error;
@@ -3041,7 +3042,7 @@ static int packet_snd(struct socket *sock, struct msghdr *msg, size_t len)
 
 	if (sock->type == SOCK_RAW)
 		reserve = dev->hard_header_len;
-	if (po->has_vnet_hdr) {
+	if (packet_sock_flag(po, PACKET_SOCK_HAS_VNET_HDR)) {
 		err = packet_snd_vnet_parse(msg, &len, &vnet_hdr);
 		if (err)
 			goto out_unlock;
@@ -3506,7 +3507,7 @@ static int packet_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
 
 	packet_rcv_try_clear_pressure(pkt_sk(sk));
 
-	if (pkt_sk(sk)->has_vnet_hdr) {
+	if (packet_sock_flag(pkt_sk(sk), PACKET_SOCK_HAS_VNET_HDR)) {
 		err = packet_rcv_vnet(msg, skb, &len);
 		if (err)
 			goto out_free;
@@ -4002,7 +4003,7 @@ packet_setsockopt(struct socket *sock, int level, int optname, sockptr_t optval,
 		if (po->rx_ring.pg_vec || po->tx_ring.pg_vec) {
 			ret = -EBUSY;
 		} else {
-			po->has_vnet_hdr = !!val;
+			packet_sock_flag_set(po, PACKET_SOCK_HAS_VNET_HDR, val);
 			ret = 0;
 		}
 		release_sock(sk);
@@ -4136,7 +4137,7 @@ static int packet_getsockopt(struct socket *sock, int level, int optname,
 		val = packet_sock_flag(po, PACKET_SOCK_ORIGDEV);
 		break;
 	case PACKET_VNET_HDR:
-		val = po->has_vnet_hdr;
+		val = packet_sock_flag(po, PACKET_SOCK_HAS_VNET_HDR);
 		break;
 	case PACKET_VERSION:
 		val = po->tp_version;
