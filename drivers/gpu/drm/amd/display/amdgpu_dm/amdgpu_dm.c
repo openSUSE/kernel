@@ -1414,8 +1414,6 @@ static int amdgpu_dm_early_fini(void *handle)
 
 static void amdgpu_dm_fini(struct amdgpu_device *adev)
 {
-	int i;
-
 	amdgpu_dm_destroy_drm_device(&adev->dm);
 
 #if defined(CONFIG_DRM_AMD_SECURE_DISPLAY)
