@@ -668,7 +668,7 @@ nfs_fileid_to_ino_t(u64 fileid)
 
 static inline void nfs_ooo_clear(struct nfs_inode *nfsi)
 {
-	nfsi->cache_validity &= ~NFS_INO_INVALID_DATA;
+	nfsi->cache_validity &= ~NFS_INO_DATA_INVAL_DEFER;
 	kfree(nfsi->ooo);
 	nfsi->ooo = NULL;
 }
