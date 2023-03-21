@@ -1823,6 +1823,8 @@ struct nfs_rpc_ops {
 	unsigned long long trunking_cookie;
 #define NFS_TRUNKING_COOKIE 0xbf18046af9c4dc73ULL
 #endif
+	void	(*enable_swap)(struct inode *inode);
+	void	(*disable_swap)(struct inode *inode);
 };
 
 /*
