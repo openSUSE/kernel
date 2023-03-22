@@ -10628,7 +10628,7 @@ const struct nfs_rpc_ops nfs_v4_clientops = {
 	.create_server	= nfs4_create_server,
 	.clone_server	= nfs_clone_server,
 	.discover_trunking = nfs4_discover_trunking,
-	.trunking_cookie = NFS_TRUNKING_COOKIE,
+	.rpc_ops_cookie = NFS_RPC_OPS_COOKIE_2,
 	.enable_swap	= nfs4_enable_swap,
 	.disable_swap	= nfs4_disable_swap,
 };

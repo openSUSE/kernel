@@ -859,8 +859,9 @@ int nfs_probe_fsinfo(struct nfs_server *server, struct nfs_fh *mntfh, struct nfs
 	}
 
 	if (clp->rpc_ops->discover_trunking != NULL &&
-	    clp->rpc_ops->trunking_cookie == NFS_TRUNKING_COOKIE &&
-			(server->caps & NFS_CAP_FS_LOCATIONS)) {
+	    (clp->rpc_ops->rpc_ops_cookie == NFS_RPC_OPS_COOKIE_1 ||
+	     clp->rpc_ops->rpc_ops_cookie == NFS_RPC_OPS_COOKIE_2) &&
+	    (server->caps & NFS_CAP_FS_LOCATIONS)) {
 		error = clp->rpc_ops->discover_trunking(server, mntfh);
 		if (error < 0)
 			return error;
