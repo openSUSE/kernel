@@ -1290,6 +1290,9 @@ struct dwc3 {
 	unsigned		async_callbacks:1;
 
 	u16			imod_interval;
+#ifndef __GENKSYMS
+	struct dentry		*debug_root;
+#endif
 };
 
 #define INCRX_BURST_MODE 0
