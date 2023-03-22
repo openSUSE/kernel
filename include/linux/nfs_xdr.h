@@ -1816,12 +1816,15 @@ struct nfs_rpc_ops {
 					   struct nfs_fattr *, rpc_authflavor_t);
 #ifndef __GENKSYMS__
 	int	(*discover_trunking)(struct nfs_server *, struct nfs_fh *);
-	/* If trunking_cookie is not correct, this might
-	 * be in an external modules and discover_trunking
+	/* If rpc_ops_cookie is not correct, this might
+	 * be in an external modules and added fields
 	 * cannot be trusted.
 	 */
-	unsigned long long trunking_cookie;
-#define NFS_TRUNKING_COOKIE 0xbf18046af9c4dc73ULL
+	unsigned long long rpc_ops_cookie;
+#define NFS_RPC_OPS_COOKIE_1 0xbf18046af9c4dc73ULL
+	void	(*enable_swap)(struct inode *inode);
+	void	(*disable_swap)(struct inode *inode);
+#define NFS_RPC_OPS_COOKIE_2 0x8ba619aa70e05960ULL
 #endif
 };
 
