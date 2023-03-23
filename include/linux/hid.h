@@ -629,6 +629,9 @@ struct hid_device {							/* device report descriptor */
 	struct list_head debug_list;
 	spinlock_t  debug_list_lock;
 	wait_queue_head_t debug_wait;
+#ifndef __GENKSYMS__
+	unsigned initial_quirks;					/* Initial set of quirks supplied when creating device */
+#endif
 };
 
 #define to_hid_device(pdev) \
