@@ -5106,6 +5106,9 @@ static int io_file_bitmap_get(struct io_ring_ctx *ctx)
 	unsigned long nr = ctx->nr_user_files;
 	int ret;
 
+	if (!table->bitmap)
+		return -ENFILE;
+
 	do {
 		ret = find_next_zero_bit(table->bitmap, nr, table->alloc_hint);
 		if (ret != nr)
@@ -9378,6 +9381,7 @@ static void __io_sqe_files_unregister(struct io_ring_ctx *ctx)
 	}
 #endif
 	io_free_file_tables(&ctx->file_table);
+	ctx->file_table.alloc_hint = 0;
 	io_rsrc_data_free(ctx->file_data);
 	ctx->file_data = NULL;
 	ctx->nr_user_files = 0;
