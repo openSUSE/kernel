@@ -1032,6 +1032,7 @@
 			power-domains = <&gcc UFS_PHY_GDSC>;
 
 			iommus = <&apps_smmu 0xe0 0x0>;
+			dma-coherent;
 
 			clock-names =
 				"ref_clk",
