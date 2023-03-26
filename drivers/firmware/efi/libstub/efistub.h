@@ -1062,6 +1062,7 @@ efi_enable_reset_attack_mitigation(void) { }
 void efi_retrieve_tpm2_eventlog(void);
 
 struct screen_info *alloc_screen_info(void);
+struct screen_info *__alloc_screen_info(void);
 void free_screen_info(struct screen_info *si);
 
 void efi_cache_sync_image(unsigned long image_base,
@@ -1121,14 +1122,14 @@ struct efi_smbios_type4_record {
 	u16				thread_enabled;
 };
 
-#define efi_get_smbios_string(__type, __name) ({			\
-	int size = sizeof(struct efi_smbios_type ## __type ## _record);	\
+#define efi_get_smbios_string(__record, __type, __name) ({		\
 	int off = offsetof(struct efi_smbios_type ## __type ## _record,	\
 			   __name);					\
-	__efi_get_smbios_string(__type, off, size);			\
+	__efi_get_smbios_string((__record), __type, off);		\
 })
 
-const u8 *__efi_get_smbios_string(u8 type, int offset, int recsize);
+const u8 *__efi_get_smbios_string(const struct efi_smbios_record *record,
+				  u8 type, int offset);
 
 void efi_remap_image(unsigned long image_base, unsigned alloc_size,
 		     unsigned long code_size);

@@ -37,16 +37,15 @@ const struct efi_smbios_record *efi_get_smbios_record(u8 type)
 	return record;
 }
 
-const u8 *__efi_get_smbios_string(u8 type, int offset, int recsize)
+const u8 *__efi_get_smbios_string(const struct efi_smbios_record *record,
+				  u8 type, int offset)
 {
-	const struct efi_smbios_record *record;
 	const u8 *strtable;
 
-	record = efi_get_smbios_record(type);
 	if (!record)
 		return NULL;
 
-	strtable = (u8 *)record + recsize;
+	strtable = (u8 *)record + record->length;
 	for (int i = 1; i < ((u8 *)record)[offset]; i++) {
 		int len = strlen(strtable);
 
