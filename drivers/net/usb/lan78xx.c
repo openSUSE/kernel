@@ -3415,10 +3415,20 @@ static int lan78xx_rx(struct lan78xx_net *dev, struct sk_buff *skb)
 		size = (rx_cmd_a & RX_CMD_A_LEN_MASK_);
 		align_count = (4 - ((size + RXW_PADDING) % 4)) % 4;
 
+		if (unlikely(size > skb->len)) {
+			netif_dbg(dev, rx_err, dev->net,
+					"size err rx_cmd_a=0x%08x\n",
+					rx_cmd_a);
+			return 0;
+		}
+
 		if (unlikely(rx_cmd_a & RX_CMD_A_RED_)) {
 			netif_dbg(dev, rx_err, dev->net,
 				  "Error rx_cmd_a=0x%08x", rx_cmd_a);
 		} else {
+			if (unlikely(size < ETH_FCS_LEN))
+				return 0;
+
 			/* last frame in this batch */
 			if (skb->len == size) {
 				lan78xx_rx_csum_offload(dev, skb,
