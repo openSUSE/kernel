@@ -395,7 +395,6 @@ struct lan78xx_net {
 	unsigned char		suspend_count;
 
 	unsigned int		maxpacket;
-	struct timer_list	delay;
 	struct timer_list	stat_monitor;
 
 	unsigned long		data[5];
@@ -3439,8 +3438,7 @@ static void lan78xx_bh(struct tasklet_struct *t)
 		if (!skb_queue_empty(&dev->txq_pend))
 			lan78xx_tx_bh(dev);
 
-		if (!timer_pending(&dev->delay) &&
-		    !test_bit(EVENT_RX_HALT, &dev->flags))
+		if (!test_bit(EVENT_RX_HALT, &dev->flags))
 			lan78xx_rx_bh(dev);
 	}
 }
