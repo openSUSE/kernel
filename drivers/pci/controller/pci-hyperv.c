@@ -3321,6 +3321,19 @@ static int hv_pci_query_relations(struct hv_device *hdev)
 	if (!ret)
 		ret = wait_for_response(hdev, &comp);
 
+	/*
+	 * In the case of fast device addition/removal, it's possible that
+	 * vmbus_sendpacket() or wait_for_response() returns -ENODEV but we
+	 * already got a PCI_BUS_RELATIONS* message from the host and the
+	 * channel callback already scheduled a work to hbus->wq, which can be
+	 * running survey_child_resources() -> complete(&hbus->survey_event),
+	 * even after hv_pci_query_relations() exits and the stack variable
+	 * 'comp' is no longer valid. This can cause a strange hang issue
+	 * or sometimes a page fault. Flush hbus->wq before we exit from
+	 * hv_pci_query_relations() to avoid the issues.
+	 */
+	flush_workqueue(hbus->wq);
+
 	return ret;
 }
 
