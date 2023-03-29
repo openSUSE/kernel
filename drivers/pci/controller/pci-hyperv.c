@@ -2325,12 +2325,16 @@ static int create_root_hv_pci_bus(struct hv_pcibus_device *hbus)
 	if (error)
 		return error;
 
-	pci_lock_rescan_remove();
+	/*
+	 * pci_lock_rescan_remove() and pci_unlock_rescan_remove() are
+	 * unnecessary here, because we hold the hbus->state_lock, meaning
+	 * hv_eject_device_work() and pci_devices_present_work() can't race
+	 * with create_root_hv_pci_bus().
+	 */
 	hv_pci_assign_numa_node(hbus);
 	pci_bus_assign_resources(bridge->bus);
 	hv_pci_assign_slots(hbus);
 	pci_bus_add_devices(bridge->bus);
-	pci_unlock_rescan_remove();
 	hbus->state = hv_pcibus_installed;
 	return 0;
 }
@@ -4015,6 +4019,9 @@ static struct hv_driver hv_pci_drv = {
 	.remove		= hv_pci_remove,
 	.suspend	= hv_pci_suspend,
 	.resume		= hv_pci_resume,
+	.driver = {
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
+	},
 };
 
 static void __exit exit_hv_pci_drv(void)
