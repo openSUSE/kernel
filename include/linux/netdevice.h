@@ -3836,11 +3836,13 @@ void netdev_run_todo(void);
  */
 static inline void dev_put(struct net_device *dev)
 {
+	if (dev) {
 #ifdef CONFIG_PCPU_DEV_REFCNT
-	this_cpu_dec(*dev->pcpu_refcnt);
+		this_cpu_dec(*dev->pcpu_refcnt);
 #else
-	refcount_dec(&dev->dev_refcnt);
+		refcount_dec(&dev->dev_refcnt);
 #endif
+	}
 }
 
 /**
@@ -3852,11 +3854,13 @@ static inline void dev_put(struct net_device *dev)
  */
 static inline void dev_hold(struct net_device *dev)
 {
+	if (dev) {
 #ifdef CONFIG_PCPU_DEV_REFCNT
-	this_cpu_inc(*dev->pcpu_refcnt);
+		this_cpu_inc(*dev->pcpu_refcnt);
 #else
-	refcount_inc(&dev->dev_refcnt);
+		refcount_inc(&dev->dev_refcnt);
 #endif
+	}
 }
 
 static inline void netdev_tracker_alloc(struct net_device *dev,
