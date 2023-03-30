@@ -3982,7 +3982,7 @@ static int hv_pci_resume(struct hv_device *hdev)
 
 	ret = hv_pci_enter_d0(hdev);
 	if (ret)
-		goto out;
+		goto release_state_lock;
 
 	ret = hv_send_resources_allocated(hdev);
 	if (ret)
