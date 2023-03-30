@@ -40,6 +40,7 @@
 
 #include <asm/fb.h>
 
+#include <video/nomodeset.h>
 #include <video/vga.h>
 
     /*
@@ -1453,6 +1454,10 @@ __releases(&info->lock)
 	struct fb_info * const info = file->private_data;
 
 	lock_fb_info(info);
+#if IS_ENABLED(CONFIG_FB_DEFERRED_IO)
+	if (info->fbdefio)
+		fb_deferred_io_release(info);
+#endif
 	if (info->fbops->fb_release)
 		info->fbops->fb_release(info,1);
 	module_put(info->fbops->owner);
@@ -1843,5 +1848,19 @@ int fb_new_modelist(struct fb_info *info)
 
 	return 0;
 }
+
+#if defined(CONFIG_VIDEO_NOMODESET)
+bool fb_modesetting_disabled(const char *drvname)
+{
+	bool fwonly = video_firmware_drivers_only();
+
+	if (fwonly)
+		pr_warn("Driver %s not loading because of nomodeset parameter\n",
+			drvname);
+
+	return fwonly;
+}
+EXPORT_SYMBOL(fb_modesetting_disabled);
+#endif
 
 MODULE_LICENSE("GPL");

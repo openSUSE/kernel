@@ -1029,7 +1029,7 @@ static int vmw_query_bo_switch_prepare(struct vmw_private *dev_priv,
 
 	if (unlikely(new_query_bo != sw_context->cur_query_bo)) {
 
-		if (unlikely(new_query_bo->base.resource->num_pages > 4)) {
+		if (unlikely(PFN_UP(new_query_bo->base.resource->size) > 4)) {
 			VMW_DEBUG_USER("Query buffer too large.\n");
 			return -EINVAL;
 		}
@@ -1160,6 +1160,7 @@ static int vmw_translate_mob_ptr(struct vmw_private *dev_priv,
 	}
 	ret = vmw_validation_add_bo(sw_context->ctx, vmw_bo, true, false);
 	ttm_bo_put(&vmw_bo->base);
+	drm_gem_object_put(&vmw_bo->base.base);
 	if (unlikely(ret != 0))
 		return ret;
 
@@ -1214,6 +1215,7 @@ static int vmw_translate_guest_ptr(struct vmw_private *dev_priv,
 	}
 	ret = vmw_validation_add_bo(sw_context->ctx, vmw_bo, false, false);
 	ttm_bo_put(&vmw_bo->base);
+	drm_gem_object_put(&vmw_bo->base.base);
 	if (unlikely(ret != 0))
 		return ret;
 
@@ -3853,7 +3855,6 @@ int vmw_execbuf_fence_commands(struct drm_file *file_priv,
  * @fence: Pointer to the fenc object.
  * @fence_handle: User-space fence handle.
  * @out_fence_fd: exported file descriptor for the fence.  -1 if not used
- * @sync_file:  Only used to clean up in case of an error in this function.
  *
  * This function copies fence information to user-space. If copying fails, the
  * user-space struct drm_vmw_fence_rep::error member is hopefully left

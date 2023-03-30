@@ -3,6 +3,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/device.h>
+#include <linux/kstrtox.h>
 #include <linux/nls.h>
 #include <linux/usb/composite.h>
 #include <linux/usb/gadget_configfs.h>
@@ -429,6 +430,12 @@ static int config_usb_cfg_link(
 	 * from another gadget or a random directory.
 	 * Also a function instance can only be linked once.
 	 */
+
+	if (gi->composite.gadget_driver.udc_name) {
+		ret = -EINVAL;
+		goto out;
+	}
+
 	list_for_each_entry(iter, &gi->available_func, cfs_list) {
 		if (iter != fi)
 			continue;
@@ -801,7 +808,7 @@ static ssize_t os_desc_use_store(struct config_item *item, const char *page,
 	bool use;
 
 	mutex_lock(&gi->lock);
-	ret = strtobool(page, &use);
+	ret = kstrtobool(page, &use);
 	if (!ret) {
 		gi->use_os_desc = use;
 		ret = len;

@@ -465,7 +465,7 @@ void __i2c_dw_disable(struct dw_i2c_dev *dev)
 	dev_warn(dev->dev, "timeout in disabling adapter\n");
 }
 
-unsigned long i2c_dw_clk_rate(struct dw_i2c_dev *dev)
+u32 i2c_dw_clk_rate(struct dw_i2c_dev *dev)
 {
 	/*
 	 * Clock is not necessary if we got LCNT/HCNT values directly from
@@ -626,11 +626,6 @@ void i2c_dw_disable(struct dw_i2c_dev *dev)
 	regmap_read(dev->map, DW_IC_CLR_INTR, &dummy);
 
 	i2c_dw_release_lock(dev);
-}
-
-void i2c_dw_disable_int(struct dw_i2c_dev *dev)
-{
-	regmap_write(dev->map, DW_IC_INTR_MASK, 0);
 }
 
 MODULE_DESCRIPTION("Synopsys DesignWare I2C bus adapter core");

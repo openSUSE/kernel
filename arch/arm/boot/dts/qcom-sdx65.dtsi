@@ -441,8 +441,8 @@
 			interrupt-controller;
 		};
 
-		imem@1468f000 {
-			compatible = "simple-mfd";
+		sram@1468f000 {
+			compatible = "qcom,sdx65-imem", "syscon", "simple-mfd";
 			reg = <0x1468f000 0x1000>;
 			ranges = <0x0 0x1468f000 0x1000>;
 			#address-cells = <1>;
@@ -455,7 +455,7 @@
 		};
 
 		apps_smmu: iommu@15000000 {
-			compatible = "qcom,sdx65-smmu-500", "arm,mmu-500";
+			compatible = "qcom,sdx65-smmu-500", "qcom,smmu-500", "arm,mmu-500";
 			reg = <0x15000000 0x40000>;
 			#iommu-cells = <2>;
 			#global-interrupts = <1>;

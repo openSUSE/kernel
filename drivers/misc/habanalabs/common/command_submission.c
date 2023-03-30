@@ -742,13 +742,11 @@ static void cs_do_release(struct kref *ref)
 		 */
 		if (hl_cs_cmpl->encaps_signals)
 			kref_put(&hl_cs_cmpl->encaps_sig_hdl->refcount,
-						hl_encaps_handle_do_release);
+					hl_encaps_release_handle_and_put_ctx);
 	}
 
-	if ((cs->type == CS_TYPE_WAIT || cs->type == CS_TYPE_COLLECTIVE_WAIT)
-			&& cs->encaps_signals)
-		kref_put(&cs->encaps_sig_hdl->refcount,
-					hl_encaps_handle_do_release);
+	if ((cs->type == CS_TYPE_WAIT || cs->type == CS_TYPE_COLLECTIVE_WAIT) && cs->encaps_signals)
+		kref_put(&cs->encaps_sig_hdl->refcount, hl_encaps_release_handle_and_put_ctx);
 
 out:
 	/* Must be called before hl_ctx_put because inside we use ctx to get
@@ -798,7 +796,7 @@ out:
 static void cs_timedout(struct work_struct *work)
 {
 	struct hl_device *hdev;
-	u64 event_mask;
+	u64 event_mask = 0x0;
 	int rc;
 	struct hl_cs *cs = container_of(work, struct hl_cs,
 						 work_tdr.work);
@@ -830,11 +828,7 @@ static void cs_timedout(struct work_struct *work)
 	if (rc) {
 		hdev->captured_err_info.cs_timeout.timestamp = ktime_get();
 		hdev->captured_err_info.cs_timeout.seq = cs->sequence;
-
-		event_mask = device_reset ? (HL_NOTIFIER_EVENT_CS_TIMEOUT |
-				HL_NOTIFIER_EVENT_DEVICE_RESET) : HL_NOTIFIER_EVENT_CS_TIMEOUT;
-
-		hl_notifier_event_send_all(hdev, event_mask);
+		event_mask |= HL_NOTIFIER_EVENT_CS_TIMEOUT;
 	}
 
 	switch (cs->type) {
@@ -869,8 +863,12 @@ static void cs_timedout(struct work_struct *work)
 
 	cs_put(cs);
 
-	if (device_reset)
-		hl_device_reset(hdev, HL_DRV_RESET_TDR);
+	if (device_reset) {
+		event_mask |= HL_NOTIFIER_EVENT_DEVICE_RESET;
+		hl_device_cond_reset(hdev, HL_DRV_RESET_TDR, event_mask);
+	} else if (event_mask) {
+		hl_notifier_event_send_all(hdev, event_mask);
+	}
 }
 
 static int allocate_cs(struct hl_device *hdev, struct hl_ctx *ctx,
@@ -1011,6 +1009,34 @@ static void cs_rollback(struct hl_device *hdev, struct hl_cs *cs)
 		hl_complete_job(hdev, job);
 }
 
+/*
+ * release_reserved_encaps_signals() - release reserved encapsulated signals.
+ * @hdev: pointer to habanalabs device structure
+ *
+ * Release reserved encapsulated signals which weren't un-reserved, or for which a CS with
+ * encapsulated signals wasn't submitted and thus weren't released as part of CS roll-back.
+ * For these signals need also to put the refcount of the H/W SOB which was taken at the
+ * reservation.
+ */
+static void release_reserved_encaps_signals(struct hl_device *hdev)
+{
+	struct hl_ctx *ctx = hl_get_compute_ctx(hdev);
+	struct hl_cs_encaps_sig_handle *handle;
+	struct hl_encaps_signals_mgr *mgr;
+	u32 id;
+
+	if (!ctx)
+		return;
+
+	mgr = &ctx->sig_mgr;
+
+	idr_for_each_entry(&mgr->handles, handle, id)
+		if (handle->cs_seq == ULLONG_MAX)
+			kref_put(&handle->refcount, hl_encaps_release_handle_and_put_sob_ctx);
+
+	hl_ctx_put(ctx);
+}
+
 void hl_cs_rollback_all(struct hl_device *hdev, bool skip_wq_flush)
 {
 	int i;
@@ -1039,6 +1065,8 @@ void hl_cs_rollback_all(struct hl_device *hdev, bool skip_wq_flush)
 	}
 
 	force_complete_multi_cs(hdev);
+
+	release_reserved_encaps_signals(hdev);
 }
 
 static void
@@ -2001,6 +2029,8 @@ static int cs_ioctl_reserve_signals(struct hl_fpriv *hpriv,
 	 */
 	handle->pre_sob_val = prop->next_sob_val - handle->count;
 
+	handle->cs_seq = ULLONG_MAX;
+
 	*signals_count = prop->next_sob_val;
 	hdev->asic_funcs->hw_queues_unlock(hdev);
 
@@ -2350,10 +2380,8 @@ put_cs:
 	/* We finished with the CS in this function, so put the ref */
 	cs_put(cs);
 free_cs_chunk_array:
-	if (!wait_cs_submitted && cs_encaps_signals && handle_found &&
-							is_wait_cs)
-		kref_put(&encaps_sig_hdl->refcount,
-				hl_encaps_handle_do_release);
+	if (!wait_cs_submitted && cs_encaps_signals && handle_found && is_wait_cs)
+		kref_put(&encaps_sig_hdl->refcount, hl_encaps_release_handle_and_put_ctx);
 	kfree(cs_chunk_array);
 out:
 	return rc;
@@ -3091,18 +3119,17 @@ start_over:
 			goto start_over;
 		}
 	} else {
+		/* Fill up the new registration node info */
+		requested_offset_record->ts_reg_info.buf = buf;
+		requested_offset_record->ts_reg_info.cq_cb = cq_cb;
+		requested_offset_record->ts_reg_info.timestamp_kernel_addr =
+				(u64 *) ts_buff->user_buff_address + ts_offset;
+		requested_offset_record->cq_kernel_addr =
+				(u64 *) cq_cb->kernel_address + cq_offset;
+		requested_offset_record->cq_target_value = target_value;
+
 		spin_unlock_irqrestore(wait_list_lock, flags);
 	}
-
-	/* Fill up the new registration node info */
-	requested_offset_record->ts_reg_info.in_use = 1;
-	requested_offset_record->ts_reg_info.buf = buf;
-	requested_offset_record->ts_reg_info.cq_cb = cq_cb;
-	requested_offset_record->ts_reg_info.timestamp_kernel_addr =
-			(u64 *) ts_buff->user_buff_address + ts_offset;
-	requested_offset_record->cq_kernel_addr =
-			(u64 *) cq_cb->kernel_address + cq_offset;
-	requested_offset_record->cq_target_value = target_value;
 
 	*pend = requested_offset_record;
 
@@ -3151,7 +3178,7 @@ static int _hl_interrupt_wait_ioctl(struct hl_device *hdev, struct hl_ctx *ctx,
 			goto put_cq_cb;
 		}
 
-		/* Find first available record */
+		/* get ts buffer record */
 		rc = ts_buff_get_kernel_ts_record(buf, cq_cb, ts_offset,
 						cq_counters_offset, target_value,
 						&interrupt->wait_list_lock, &pend);
@@ -3199,7 +3226,19 @@ static int _hl_interrupt_wait_ioctl(struct hl_device *hdev, struct hl_ctx *ctx,
 	 * Note that we cannot have sorted list by target value,
 	 * in order to shorten the list pass loop, since
 	 * same list could have nodes for different cq counter handle.
+	 * Note:
+	 * Mark ts buff offset as in use here in the spinlock protection area
+	 * to avoid getting in the re-use section in ts_buff_get_kernel_ts_record
+	 * before adding the node to the list. this scenario might happen when
+	 * multiple threads are racing on same offset and one thread could
+	 * set the ts buff in ts_buff_get_kernel_ts_record then the other thread
+	 * takes over and get to ts_buff_get_kernel_ts_record and then we will try
+	 * to re-use the same ts buff offset, and will try to delete a non existing
+	 * node from the list.
 	 */
+	if (register_ts_record)
+		pend->ts_reg_info.in_use = 1;
+
 	list_add_tail(&pend->wait_list_node, &interrupt->wait_list_head);
 	spin_unlock_irqrestore(&interrupt->wait_list_lock, flags);
 

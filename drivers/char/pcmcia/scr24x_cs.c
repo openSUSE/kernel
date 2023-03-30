@@ -33,7 +33,6 @@
 
 struct scr24x_dev {
 	struct device *dev;
-	struct pcmcia_device *p_dev;
 	struct cdev c_dev;
 	unsigned char buf[CCID_MAX_LEN];
 	int devno;
@@ -43,31 +42,15 @@ struct scr24x_dev {
 };
 
 #define SCR24X_DEVS 8
-static struct pcmcia_device *dev_table[SCR24X_DEVS];
-static DEFINE_MUTEX(remove_mutex);
+static DECLARE_BITMAP(scr24x_minors, SCR24X_DEVS);
 
 static struct class *scr24x_class;
 static dev_t scr24x_devt;
 
 static void scr24x_delete(struct kref *kref)
 {
-	struct scr24x_dev *dev = container_of(kref, struct scr24x_dev, refcnt);
-	struct pcmcia_device *link = dev->p_dev;
-	int devno;
-
-	for (devno = 0; devno < SCR24X_DEVS; devno++) {
-		if (dev_table[devno] == link)
-			break;
-	}
-	if (devno == SCR24X_DEVS)
-		return;
-
-	device_destroy(scr24x_class, MKDEV(MAJOR(scr24x_devt), dev->devno));
-	mutex_lock(&dev->lock);
-	pcmcia_disable_device(link);
-	cdev_del(&dev->c_dev);
-	dev->dev = NULL;
-	mutex_unlock(&dev->lock);
+	struct scr24x_dev *dev = container_of(kref, struct scr24x_dev,
+								refcnt);
 
 	kfree(dev);
 }
@@ -90,24 +73,11 @@ static int scr24x_wait_ready(struct scr24x_dev *dev)
 
 static int scr24x_open(struct inode *inode, struct file *filp)
 {
-	struct scr24x_dev *dev;
-	struct pcmcia_device *link;
-	int minor = iminor(inode);
+	struct scr24x_dev *dev = container_of(inode->i_cdev,
+				struct scr24x_dev, c_dev);
 
-	if (minor >= SCR24X_DEVS)
-		return -ENODEV;
-
-	mutex_lock(&remove_mutex);
-	link = dev_table[minor];
-	if (link == NULL) {
-		mutex_unlock(&remove_mutex);
-		return -ENODEV;
-	}
-
-	dev = link->priv;
 	kref_get(&dev->refcnt);
 	filp->private_data = dev;
-	mutex_unlock(&remove_mutex);
 
 	return stream_open(inode, filp);
 }
@@ -262,30 +232,23 @@ static int scr24x_config_check(struct pcmcia_device *link, void *priv_data)
 static int scr24x_probe(struct pcmcia_device *link)
 {
 	struct scr24x_dev *dev;
-	int i, ret;
-
-	for (i = 0; i < SCR24X_DEVS; i++) {
-		if (dev_table[i] == NULL)
-			break;
-	}
-
-	if (i == SCR24X_DEVS)
-		return -ENODEV;
+	int ret;
 
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (!dev)
 		return -ENOMEM;
 
-	dev->devno = i;
+	dev->devno = find_first_zero_bit(scr24x_minors, SCR24X_DEVS);
+	if (dev->devno >= SCR24X_DEVS) {
+		ret = -EBUSY;
+		goto err;
+	}
 
 	mutex_init(&dev->lock);
 	kref_init(&dev->refcnt);
 
 	link->priv = dev;
-	dev->p_dev = link;
 	link->config_flags |= CONF_ENABLE_IRQ | CONF_AUTO_SET_IO;
-
-	dev_table[i] = link;
 
 	ret = pcmcia_loop_config(link, scr24x_config_check, NULL);
 	if (ret < 0)
@@ -319,8 +282,8 @@ static int scr24x_probe(struct pcmcia_device *link)
 	return 0;
 
 err:
-	dev_table[i] = NULL;
-
+	if (dev->devno < SCR24X_DEVS)
+		clear_bit(dev->devno, scr24x_minors);
 	kfree (dev);
 	return ret;
 }
@@ -329,9 +292,15 @@ static void scr24x_remove(struct pcmcia_device *link)
 {
 	struct scr24x_dev *dev = (struct scr24x_dev *)link->priv;
 
-	mutex_lock(&remove_mutex);
+	device_destroy(scr24x_class, MKDEV(MAJOR(scr24x_devt), dev->devno));
+	mutex_lock(&dev->lock);
+	pcmcia_disable_device(link);
+	cdev_del(&dev->c_dev);
+	clear_bit(dev->devno, scr24x_minors);
+	dev->dev = NULL;
+	mutex_unlock(&dev->lock);
+
 	kref_put(&dev->refcnt, scr24x_delete);
-	mutex_unlock(&remove_mutex);
 }
 
 static const struct pcmcia_device_id scr24x_ids[] = {

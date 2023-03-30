@@ -372,6 +372,14 @@ skip_rdma:
 		seq_printf(m, "\nIn Send: %d In MaxReq Wait: %d",
 				atomic_read(&server->in_send),
 				atomic_read(&server->num_waiters));
+		if (IS_ENABLED(CONFIG_CIFS_DFS_UPCALL)) {
+			if (server->origin_fullpath)
+				seq_printf(m, "\nDFS origin full path: %s",
+					   server->origin_fullpath);
+			if (server->leaf_fullpath)
+				seq_printf(m, "\nDFS leaf full path:   %s",
+					   server->leaf_fullpath);
+		}
 
 		seq_printf(m, "\n\n\tSessions: ");
 		i = 0;
@@ -410,6 +418,11 @@ skip_rdma:
 			seq_printf(m, "\n\tUser: %d Cred User: %d",
 				   from_kuid(&init_user_ns, ses->linux_uid),
 				   from_kuid(&init_user_ns, ses->cred_uid));
+
+			if (ses->dfs_root_ses) {
+				seq_printf(m, "\n\tDFS root session id: 0x%llx",
+					   ses->dfs_root_ses->Suid);
+			}
 
 			spin_lock(&ses->chan_lock);
 			if (CIFS_CHAN_NEEDS_RECONNECT(ses, 0))

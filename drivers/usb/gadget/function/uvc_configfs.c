@@ -483,10 +483,67 @@ UVC_ATTR_RO(uvcg_default_output_, cname, aname)
 UVCG_DEFAULT_OUTPUT_ATTR(b_terminal_id, bTerminalID, 8);
 UVCG_DEFAULT_OUTPUT_ATTR(w_terminal_type, wTerminalType, 16);
 UVCG_DEFAULT_OUTPUT_ATTR(b_assoc_terminal, bAssocTerminal, 8);
-UVCG_DEFAULT_OUTPUT_ATTR(b_source_id, bSourceID, 8);
 UVCG_DEFAULT_OUTPUT_ATTR(i_terminal, iTerminal, 8);
 
 #undef UVCG_DEFAULT_OUTPUT_ATTR
+
+static ssize_t uvcg_default_output_b_source_id_show(struct config_item *item,
+						    char *page)
+{
+	struct config_group *group = to_config_group(item);
+	struct f_uvc_opts *opts;
+	struct config_item *opts_item;
+	struct mutex *su_mutex = &group->cg_subsys->su_mutex;
+	struct uvc_output_terminal_descriptor *cd;
+	int result;
+
+	mutex_lock(su_mutex); /* for navigating configfs hierarchy */
+
+	opts_item = group->cg_item.ci_parent->ci_parent->
+			ci_parent->ci_parent;
+	opts = to_f_uvc_opts(opts_item);
+	cd = &opts->uvc_output_terminal;
+
+	mutex_lock(&opts->lock);
+	result = sprintf(page, "%u\n", le8_to_cpu(cd->bSourceID));
+	mutex_unlock(&opts->lock);
+
+	mutex_unlock(su_mutex);
+
+	return result;
+}
+
+static ssize_t uvcg_default_output_b_source_id_store(struct config_item *item,
+						     const char *page, size_t len)
+{
+	struct config_group *group = to_config_group(item);
+	struct f_uvc_opts *opts;
+	struct config_item *opts_item;
+	struct mutex *su_mutex = &group->cg_subsys->su_mutex;
+	struct uvc_output_terminal_descriptor *cd;
+	int result;
+	u8 num;
+
+	result = kstrtou8(page, 0, &num);
+	if (result)
+		return result;
+
+	mutex_lock(su_mutex); /* for navigating configfs hierarchy */
+
+	opts_item = group->cg_item.ci_parent->ci_parent->
+			ci_parent->ci_parent;
+	opts = to_f_uvc_opts(opts_item);
+	cd = &opts->uvc_output_terminal;
+
+	mutex_lock(&opts->lock);
+	cd->bSourceID = num;
+	mutex_unlock(&opts->lock);
+
+	mutex_unlock(su_mutex);
+
+	return len;
+}
+UVC_ATTR(uvcg_default_output_, b_source_id, bSourceID);
 
 static struct configfs_attribute *uvcg_default_output_attrs[] = {
 	&uvcg_default_output_attr_b_terminal_id,
@@ -1512,7 +1569,7 @@ UVCG_UNCOMPRESSED_ATTR(b_bits_per_pixel, bBitsPerPixel, 8);
 UVCG_UNCOMPRESSED_ATTR(b_default_frame_index, bDefaultFrameIndex, 8);
 UVCG_UNCOMPRESSED_ATTR_RO(b_aspect_ratio_x, bAspectRatioX, 8);
 UVCG_UNCOMPRESSED_ATTR_RO(b_aspect_ratio_y, bAspectRatioY, 8);
-UVCG_UNCOMPRESSED_ATTR_RO(bm_interface_flags, bmInterfaceFlags, 8);
+UVCG_UNCOMPRESSED_ATTR_RO(bm_interlace_flags, bmInterlaceFlags, 8);
 
 #undef UVCG_UNCOMPRESSED_ATTR
 #undef UVCG_UNCOMPRESSED_ATTR_RO
@@ -1541,7 +1598,7 @@ static struct configfs_attribute *uvcg_uncompressed_attrs[] = {
 	&uvcg_uncompressed_attr_b_default_frame_index,
 	&uvcg_uncompressed_attr_b_aspect_ratio_x,
 	&uvcg_uncompressed_attr_b_aspect_ratio_y,
-	&uvcg_uncompressed_attr_bm_interface_flags,
+	&uvcg_uncompressed_attr_bm_interlace_flags,
 	&uvcg_uncompressed_attr_bma_controls,
 	NULL,
 };
@@ -1574,7 +1631,7 @@ static struct config_group *uvcg_uncompressed_make(struct config_group *group,
 	h->desc.bDefaultFrameIndex	= 1;
 	h->desc.bAspectRatioX		= 0;
 	h->desc.bAspectRatioY		= 0;
-	h->desc.bmInterfaceFlags	= 0;
+	h->desc.bmInterlaceFlags	= 0;
 	h->desc.bCopyProtect		= 0;
 
 	INIT_LIST_HEAD(&h->fmt.frames);
@@ -1700,7 +1757,7 @@ UVCG_MJPEG_ATTR(b_default_frame_index, bDefaultFrameIndex, 8);
 UVCG_MJPEG_ATTR_RO(bm_flags, bmFlags, 8);
 UVCG_MJPEG_ATTR_RO(b_aspect_ratio_x, bAspectRatioX, 8);
 UVCG_MJPEG_ATTR_RO(b_aspect_ratio_y, bAspectRatioY, 8);
-UVCG_MJPEG_ATTR_RO(bm_interface_flags, bmInterfaceFlags, 8);
+UVCG_MJPEG_ATTR_RO(bm_interlace_flags, bmInterlaceFlags, 8);
 
 #undef UVCG_MJPEG_ATTR
 #undef UVCG_MJPEG_ATTR_RO
@@ -1728,7 +1785,7 @@ static struct configfs_attribute *uvcg_mjpeg_attrs[] = {
 	&uvcg_mjpeg_attr_bm_flags,
 	&uvcg_mjpeg_attr_b_aspect_ratio_x,
 	&uvcg_mjpeg_attr_b_aspect_ratio_y,
-	&uvcg_mjpeg_attr_bm_interface_flags,
+	&uvcg_mjpeg_attr_bm_interlace_flags,
 	&uvcg_mjpeg_attr_bma_controls,
 	NULL,
 };
@@ -1755,7 +1812,7 @@ static struct config_group *uvcg_mjpeg_make(struct config_group *group,
 	h->desc.bDefaultFrameIndex	= 1;
 	h->desc.bAspectRatioX		= 0;
 	h->desc.bAspectRatioY		= 0;
-	h->desc.bmInterfaceFlags	= 0;
+	h->desc.bmInterlaceFlags	= 0;
 	h->desc.bCopyProtect		= 0;
 
 	INIT_LIST_HEAD(&h->fmt.frames);

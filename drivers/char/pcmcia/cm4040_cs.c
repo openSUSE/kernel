@@ -59,7 +59,6 @@ static DEFINE_MUTEX(cm4040_mutex);
 /* how often to poll for fifo status change */
 #define POLL_PERIOD 				msecs_to_jiffies(10)
 
-static void cm4040_delete(struct kref *kref);
 static void reader_release(struct pcmcia_device *link);
 
 static int major;
@@ -74,7 +73,6 @@ struct reader_dev {
 	wait_queue_head_t	poll_wait;
 	wait_queue_head_t	read_wait;
 	wait_queue_head_t	write_wait;
-	struct kref		refcnt;
 	unsigned long 	  	buffer_status;
 	unsigned long     	timeout;
 	unsigned char     	s_buf[READ_WRITE_BUFFER_SIZE];
@@ -103,28 +101,6 @@ static inline unsigned char xinb(unsigned short port)
 	return val;
 }
 #endif
-
-static void cm4040_delete(struct kref *kref)
-{
-	struct reader_dev *dev = container_of(kref, struct reader_dev, refcnt);
-	struct pcmcia_device *link = dev->p_dev;
-	int devno;
-
-	/* find device */
-	for (devno = 0; devno < CM_MAX_DEV; devno++) {
-		if (dev_table[devno] == link)
-			break;
-	}
-	if (devno == CM_MAX_DEV)
-		return;
-
-	reader_release(link);
-
-	dev_table[devno] = NULL;
-	kfree(dev);
-
-	device_destroy(cmx_class, MKDEV(major, devno));
-}
 
 /* poll the device fifo status register.  not to be confused with
  * the poll syscall. */
@@ -466,7 +442,6 @@ static int cm4040_open(struct inode *inode, struct file *filp)
 		return -ENODEV;
 
 	mutex_lock(&cm4040_mutex);
-
 	link = dev_table[minor];
 	if (link == NULL || !pcmcia_dev_present(link)) {
 		ret = -ENODEV;
@@ -493,11 +468,8 @@ static int cm4040_open(struct inode *inode, struct file *filp)
 
 	DEBUGP(2, dev, "<- cm4040_open (successfully)\n");
 	ret = nonseekable_open(inode, filp);
-
-	kref_get(&dev->refcnt);
 out:
 	mutex_unlock(&cm4040_mutex);
-
 	return ret;
 }
 
@@ -523,9 +495,6 @@ static int cm4040_close(struct inode *inode, struct file *filp)
 	wake_up(&dev->devq);
 
 	DEBUGP(2, dev, "<- cm4040_close\n");
-
-	kref_put(&dev->refcnt, cm4040_delete);
-
 	return 0;
 }
 
@@ -615,7 +584,6 @@ static int reader_probe(struct pcmcia_device *link)
 	init_waitqueue_head(&dev->read_wait);
 	init_waitqueue_head(&dev->write_wait);
 	timer_setup(&dev->poll_timer, cm4040_do_poll, 0);
-	kref_init(&dev->refcnt);
 
 	ret = reader_config(link, i);
 	if (ret) {
@@ -632,10 +600,22 @@ static int reader_probe(struct pcmcia_device *link)
 static void reader_detach(struct pcmcia_device *link)
 {
 	struct reader_dev *dev = link->priv;
+	int devno;
 
-	mutex_lock(&cm4040_mutex);
-	kref_put(&dev->refcnt, cm4040_delete);
-	mutex_unlock(&cm4040_mutex);
+	/* find device */
+	for (devno = 0; devno < CM_MAX_DEV; devno++) {
+		if (dev_table[devno] == link)
+			break;
+	}
+	if (devno == CM_MAX_DEV)
+		return;
+
+	reader_release(link);
+
+	dev_table[devno] = NULL;
+	kfree(dev);
+
+	device_destroy(cmx_class, MKDEV(major, devno));
 
 	return;
 }

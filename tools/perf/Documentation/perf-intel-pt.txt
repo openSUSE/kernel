@@ -189,8 +189,16 @@ There is also script intel-pt-events.py which provides an example of how to
 unpack the raw data for power events and PTWRITE. The script also displays
 branches, and supports 2 additional modes selected by option:
 
- --insn-trace - instruction trace
- --src-trace - source trace
+ - --insn-trace - instruction trace
+ - --src-trace - source trace
+
+The intel-pt-events.py script also has options:
+
+ - --all-switch-events - display all switch events, not only the last consecutive.
+ - --interleave [<n>] - interleave sample output for the same timestamp so that
+ no more than n samples for a CPU are displayed in a row. 'n' defaults to 4.
+ Note this only affects the order of output, and only when the timestamp is the
+ same.
 
 As mentioned above, it is easy to capture too much data.  One way to limit the
 data captured is to use 'snapshot' mode which is explained further below.
@@ -1811,6 +1819,36 @@ Can be compiled and traced:
  $ perf script --itrace=ew
            eg_ptw 19875 [007]  8061.235912:     ptwrite:  IP: 0 payload: 0x1234567890abcdef      55701249a196 perf_emulate_ptwrite+0x16 (/home/user/eg_ptw)
  $
+
+
+Pipe mode
+---------
+Pipe mode is a problem for Intel PT and possibly other auxtrace users.
+It's not recommended to use a pipe as data output with Intel PT because
+of the following reason.
+
+Essentially the auxtrace buffers do not behave like the regular perf
+event buffers.  That is because the head and tail are updated by
+software, but in the auxtrace case the data is written by hardware.
+So the head and tail do not get updated as data is written.
+
+In the Intel PT case, the head and tail are updated only when the trace
+is disabled by software, for example:
+    - full-trace, system wide : when buffer passes watermark
+    - full-trace, not system-wide : when buffer passes watermark or
+                                    context switches
+    - snapshot mode : as above but also when a snapshot is made
+    - sample mode : as above but also when a sample is made
+
+That means finished-round ordering doesn't work.  An auxtrace buffer
+can turn up that has data that extends back in time, possibly to the
+very beginning of tracing.
+
+For a perf.data file, that problem is solved by going through the trace
+and queuing up the auxtrace buffers in advance.
+
+For pipe mode, the order of events and timestamps can presumably
+be messed up.
 
 
 EXAMPLE

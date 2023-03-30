@@ -435,7 +435,7 @@ As of kernel 2.6.22, the following members are defined:
 		const char *(*get_link) (struct dentry *, struct inode *,
 					 struct delayed_call *);
 		int (*permission) (struct user_namespace *, struct inode *, int);
-		struct posix_acl * (*get_acl)(struct inode *, int, bool);
+		struct posix_acl * (*get_inode_acl)(struct inode *, int, bool);
 		int (*setattr) (struct user_namespace *, struct dentry *, struct iattr *);
 		int (*getattr) (struct user_namespace *, const struct path *, struct kstat *, u32, unsigned int);
 		ssize_t (*listxattr) (struct dentry *, char *, size_t);
@@ -443,7 +443,8 @@ As of kernel 2.6.22, the following members are defined:
 		int (*atomic_open)(struct inode *, struct dentry *, struct file *,
 				   unsigned open_flag, umode_t create_mode);
 		int (*tmpfile) (struct user_namespace *, struct inode *, struct file *, umode_t);
-	        int (*set_acl)(struct user_namespace *, struct inode *, struct posix_acl *, int);
+		struct posix_acl * (*get_acl)(struct user_namespace *, struct dentry *, int);
+	        int (*set_acl)(struct user_namespace *, struct dentry *, struct posix_acl *, int);
 		int (*fileattr_set)(struct user_namespace *mnt_userns,
 				    struct dentry *dentry, struct fileattr *fa);
 		int (*fileattr_get)(struct dentry *dentry, struct fileattr *fa);
@@ -1221,7 +1222,7 @@ defined:
 	return
 	-ECHILD and it will be called again in ref-walk mode.
 
-``_weak_revalidate``
+``d_weak_revalidate``
 	called when the VFS needs to revalidate a "jumped" dentry.  This
 	is called when a path-walk ends at dentry that was not acquired
 	by doing a lookup in the parent directory.  This includes "/",
