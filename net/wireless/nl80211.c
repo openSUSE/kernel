@@ -764,6 +764,7 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_COLOR_CHANGE_COUNT] = { .type = NLA_U8 },
 	[NL80211_ATTR_COLOR_CHANGE_COLOR] = { .type = NLA_U8 },
 	[NL80211_ATTR_COLOR_CHANGE_ELEMS] = NLA_POLICY_NESTED(nl80211_policy),
+	[NL80211_ATTR_RADAR_OFFCHAN] = { .type = NLA_FLAG },
 };
 
 /* policy for the key attributes */
@@ -9102,12 +9103,6 @@ static int nl80211_start_radar_detection(struct sk_buff *skb,
 	if (err)
 		return err;
 
-	if (netif_carrier_ok(dev))
-		return -EBUSY;
-
-	if (wdev->cac_started)
-		return -EBUSY;
-
 	err = cfg80211_chandef_dfs_required(wiphy, &chandef, wdev->iftype);
 	if (err < 0)
 		return err;
@@ -9117,6 +9112,16 @@ static int nl80211_start_radar_detection(struct sk_buff *skb,
 
 	if (!cfg80211_chandef_dfs_usable(wiphy, &chandef))
 		return -EINVAL;
+
+	if (nla_get_flag(info->attrs[NL80211_ATTR_RADAR_OFFCHAN]))
+		return cfg80211_start_offchan_radar_detection(rdev, wdev,
+							      &chandef);
+
+	if (netif_carrier_ok(dev))
+		return -EBUSY;
+
+	if (wdev->cac_started)
+		return -EBUSY;
 
 	/* CAC start is offloaded to HW and can't be started manually */
 	if (wiphy_ext_feature_isset(wiphy, NL80211_EXT_FEATURE_DFS_OFFLOAD))
