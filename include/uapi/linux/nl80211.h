@@ -2593,10 +2593,10 @@ enum nl80211_commands {
  * @NL80211_ATTR_COLOR_CHANGE_ELEMS: Nested set of attributes containing the IE
  *	information for the time while performing a color switch.
  *
- * @NL80211_ATTR_RADAR_OFFCHAN: Configure dedicated offchannel chain available for
- *	radar/CAC detection on some hw. This chain can't be used to transmit
- *	or receive frames and it is bounded to a running wdev.
- *	Offchannel radar/CAC detection allows to avoid the CAC downtime
+ * @NL80211_ATTR_RADAR_BACKGROUND: Configure dedicated offchannel chain
+ *	available for radar/CAC detection on some hw. This chain can't be used
+ *	to transmit or receive frames and it is bounded to a running wdev.
+ *	Background radar/CAC detection allows to avoid the CAC downtime
  *	switching on a different channel during CAC detection on the selected
  *	radar channel.
  *
@@ -3103,7 +3103,7 @@ enum nl80211_attrs {
 	NL80211_ATTR_COLOR_CHANGE_COLOR,
 	NL80211_ATTR_COLOR_CHANGE_ELEMS,
 
-	NL80211_ATTR_RADAR_OFFCHAN,
+	NL80211_ATTR_RADAR_BACKGROUND,
 
 	/* add attributes here, update the policy in nl80211.c */
 
@@ -6004,7 +6004,7 @@ enum nl80211_feature_flags {
  * @NL80211_EXT_FEATURE_BSS_COLOR: The driver supports BSS color collision
  *	detection and change announcemnts.
  *
- * @NL80211_EXT_FEATURE_RADAR_OFFCHAN: Device supports offchannel radar/CAC
+ * @NL80211_EXT_FEATURE_RADAR_BACKGROUND: Device supports background radar/CAC
  *	detection.
  *
  * @NUM_NL80211_EXT_FEATURES: number of extended features.
@@ -6072,7 +6072,7 @@ enum nl80211_ext_feature_index {
 	NL80211_EXT_FEATURE_SECURE_RTT,
 	NL80211_EXT_FEATURE_PROT_RANGE_NEGO_AND_MEASURE,
 	NL80211_EXT_FEATURE_BSS_COLOR,
-	NL80211_EXT_FEATURE_RADAR_OFFCHAN,
+	NL80211_EXT_FEATURE_RADAR_BACKGROUND,
 
 	/* add new features before the definition below */
 	NUM_NL80211_EXT_FEATURES,
