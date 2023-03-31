@@ -43,6 +43,8 @@ static __init int sysfb_init(void)
 	bool compatible;
 	int ret;
 
+	sysfb_apply_efi_quirks();
+
 	/* try to create a simple-framebuffer device */
 	compatible = sysfb_parse_mode(si, &mode);
 	if (compatible) {
@@ -63,7 +65,7 @@ static __init int sysfb_init(void)
 	if (!pd)
 		return -ENOMEM;
 
-	sysfb_apply_efi_quirks(pd);
+	sysfb_set_efifb_fwnode(pd);
 
 	ret = platform_device_add_data(pd, si, sizeof(*si));
 	if (ret)
