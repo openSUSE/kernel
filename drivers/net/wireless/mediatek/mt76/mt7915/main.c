@@ -1094,7 +1094,7 @@ static void mt7915_sta_set_4addr(struct ieee80211_hw *hw,
 	else
 		clear_bit(MT_WCID_FLAG_4ADDR, &msta->wcid.flags);
 
-	mt7915_mcu_sta_update_hdr_trans(dev, vif, sta);
+	mt76_connac_mcu_wtbl_update_hdr_trans(&dev->mt76, vif, sta);
 }
 
 static void mt7915_sta_set_decap_offload(struct ieee80211_hw *hw,
@@ -1110,7 +1110,7 @@ static void mt7915_sta_set_decap_offload(struct ieee80211_hw *hw,
 	else
 		clear_bit(MT_WCID_FLAG_HDR_TRANS, &msta->wcid.flags);
 
-	mt7915_mcu_sta_update_hdr_trans(dev, vif, sta);
+	mt76_connac_mcu_wtbl_update_hdr_trans(&dev->mt76, vif, sta);
 }
 
 static const char mt7915_gstrings_stats[][ETH_GSTRING_LEN] = {
