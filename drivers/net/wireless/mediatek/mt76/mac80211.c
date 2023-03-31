@@ -512,6 +512,7 @@ int mt76_register_phy(struct mt76_phy *phy, bool vht,
 	if (ret)
 		return ret;
 
+	set_bit(MT76_STATE_REGISTERED, &phy->state);
 	phy->dev->phy2 = phy;
 
 	return 0;
@@ -521,6 +522,9 @@ EXPORT_SYMBOL_GPL(mt76_register_phy);
 void mt76_unregister_phy(struct mt76_phy *phy)
 {
 	struct mt76_dev *dev = phy->dev;
+
+	if (!test_bit(MT76_STATE_REGISTERED, &phy->state))
+		return;
 
 	mt76_tx_status_check(dev, true);
 	ieee80211_unregister_hw(phy->hw);
@@ -640,6 +644,7 @@ int mt76_register_device(struct mt76_dev *dev, bool vht,
 		return ret;
 
 	WARN_ON(mt76_worker_setup(hw, &dev->tx_worker, NULL, "tx"));
+	set_bit(MT76_STATE_REGISTERED, &phy->state);
 	sched_set_fifo_low(dev->tx_worker.task);
 
 	return 0;
@@ -649,6 +654,9 @@ EXPORT_SYMBOL_GPL(mt76_register_device);
 void mt76_unregister_device(struct mt76_dev *dev)
 {
 	struct ieee80211_hw *hw = dev->hw;
+
+	if (!test_bit(MT76_STATE_REGISTERED, &dev->phy.state))
+		return;
 
 	if (IS_ENABLED(CONFIG_MT76_LEDS))
 		mt76_led_cleanup(dev);
