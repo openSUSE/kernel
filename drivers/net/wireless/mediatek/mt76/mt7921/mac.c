@@ -1501,8 +1501,7 @@ void mt7921_reset(struct mt76_dev *mdev)
 }
 EXPORT_SYMBOL_GPL(mt7921_reset);
 
-static void
-mt7921_mac_update_mib_stats(struct mt7921_phy *phy)
+void mt7921_mac_update_mib_stats(struct mt7921_phy *phy)
 {
 	struct mt7921_dev *dev = phy->dev;
 	struct mib_stats *mib = &phy->mib;
