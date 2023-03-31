@@ -512,7 +512,7 @@ void mt76_unregister_phy(struct mt76_phy *phy)
 {
 	struct mt76_dev *dev = phy->dev;
 
-	mt76_tx_status_check(dev, NULL, true);
+	mt76_tx_status_check(dev, true);
 	ieee80211_unregister_hw(phy->hw);
 	dev->phy2 = NULL;
 }
@@ -640,7 +640,7 @@ void mt76_unregister_device(struct mt76_dev *dev)
 
 	if (IS_ENABLED(CONFIG_MT76_LEDS))
 		mt76_led_cleanup(dev);
-	mt76_tx_status_check(dev, NULL, true);
+	mt76_tx_status_check(dev, true);
 	ieee80211_unregister_hw(hw);
 }
 EXPORT_SYMBOL_GPL(mt76_unregister_device);
