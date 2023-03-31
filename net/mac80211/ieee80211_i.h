@@ -1220,6 +1220,9 @@ struct ieee80211_local {
 	/* protects active_txqs and txqi->schedule_order */
 	struct airtime_sched_info airtime[IEEE80211_NUM_ACS];
 	u16 airtime_flags;
+#ifndef __GENKSYMS__
+	u8 ops_revision; /* filled at padding; for kABI compatibility check */
+#endif
 	u32 aql_threshold;
 	atomic_t aql_total_pending_airtime;
 

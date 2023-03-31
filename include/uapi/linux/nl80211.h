@@ -3103,7 +3103,9 @@ enum nl80211_attrs {
 	NL80211_ATTR_COLOR_CHANGE_COLOR,
 	NL80211_ATTR_COLOR_CHANGE_ELEMS,
 
+#ifndef __GENKSYMS__
 	NL80211_ATTR_RADAR_BACKGROUND,
+#endif
 
 	/* add attributes here, update the policy in nl80211.c */
 
@@ -6072,7 +6074,9 @@ enum nl80211_ext_feature_index {
 	NL80211_EXT_FEATURE_SECURE_RTT,
 	NL80211_EXT_FEATURE_PROT_RANGE_NEGO_AND_MEASURE,
 	NL80211_EXT_FEATURE_BSS_COLOR,
+#ifndef __GENKSYMS__
 	NL80211_EXT_FEATURE_RADAR_BACKGROUND,
+#endif
 
 	/* add new features before the definition below */
 	NUM_NL80211_EXT_FEATURES,

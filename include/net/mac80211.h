@@ -4274,6 +4274,7 @@ struct ieee80211_ops {
 	void (*sta_set_decap_offload)(struct ieee80211_hw *hw,
 				      struct ieee80211_vif *vif,
 				      struct ieee80211_sta *sta, bool enabled);
+#ifndef __GENKSYMS__
 	void (*add_twt_setup)(struct ieee80211_hw *hw,
 			      struct ieee80211_sta *sta,
 			      struct ieee80211_twt_setup *twt);
@@ -4281,6 +4282,7 @@ struct ieee80211_ops {
 				     struct ieee80211_sta *sta, u8 flowid);
 	int (*set_radar_background)(struct ieee80211_hw *hw,
 				    struct cfg80211_chan_def *chandef);
+#endif
 };
 
 /**
@@ -4299,9 +4301,20 @@ struct ieee80211_ops {
  *
  * Return: A pointer to the new hardware device, or %NULL on error.
  */
-struct ieee80211_hw *ieee80211_alloc_hw_nm(size_t priv_data_len,
-					   const struct ieee80211_ops *ops,
-					   const char *requested_name);
+struct ieee80211_hw *__ieee80211_alloc_hw_nm(size_t priv_data_len,
+					     const struct ieee80211_ops *ops,
+					     const char *requested_name,
+					     unsigned char revision);
+
+/* FIXME: for SLE kABI compatibility */
+static inline struct ieee80211_hw *
+ieee80211_alloc_hw_nm_v2(size_t priv_data_len,
+			 const struct ieee80211_ops *ops,
+			 const char *requested_name)
+{
+	return __ieee80211_alloc_hw_nm(priv_data_len, ops, requested_name, 2);
+}
+#define ieee80211_alloc_hw_nm ieee80211_alloc_hw_nm_v2
 
 /**
  * ieee80211_alloc_hw - Allocate a new hardware device

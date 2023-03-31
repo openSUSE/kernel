@@ -1296,10 +1296,12 @@ struct ieee80211_mgmt {
 					__le16 toa_error;
 					u8 variable[0];
 				} __packed ftm;
+#ifndef __GENKSYMS__
 				struct {
 					u8 action_code;
 					u8 variable[];
 				} __packed s1g;
+#endif
 			} u;
 		} __packed action;
 	} u;

@@ -4357,8 +4357,10 @@ struct cfg80211_ops {
 	int	(*color_change)(struct wiphy *wiphy,
 				struct net_device *dev,
 				struct cfg80211_color_change_settings *params);
+#ifndef __GENKSYMS__
 	int	(*set_radar_background)(struct wiphy *wiphy,
 					struct cfg80211_chan_def *chandef);
+#endif
 };
 
 /*
@@ -7551,13 +7553,9 @@ void __cfg80211_radar_event(struct wiphy *wiphy,
 			    struct cfg80211_chan_def *chandef,
 			    bool offchan, gfp_t gfp);
 
-static inline void
-cfg80211_radar_event(struct wiphy *wiphy,
-		     struct cfg80211_chan_def *chandef,
-		     gfp_t gfp)
-{
-	__cfg80211_radar_event(wiphy, chandef, false, gfp);
-}
+void cfg80211_radar_event(struct wiphy *wiphy,
+			  struct cfg80211_chan_def *chandef,
+			  gfp_t gfp);
 
 static inline void
 cfg80211_background_radar_event(struct wiphy *wiphy,

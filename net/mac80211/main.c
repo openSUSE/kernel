@@ -540,9 +540,10 @@ static const struct ieee80211_vht_cap mac80211_vht_capa_mod_mask = {
 	},
 };
 
-struct ieee80211_hw *ieee80211_alloc_hw_nm(size_t priv_data_len,
-					   const struct ieee80211_ops *ops,
-					   const char *requested_name)
+struct ieee80211_hw *__ieee80211_alloc_hw_nm(size_t priv_data_len,
+					     const struct ieee80211_ops *ops,
+					     const char *requested_name,
+					     unsigned char revision)
 {
 	struct ieee80211_local *local;
 	int priv_size, i;
@@ -650,6 +651,7 @@ struct ieee80211_hw *ieee80211_alloc_hw_nm(size_t priv_data_len,
 
 	local->hw.priv = (char *)local + ALIGN(sizeof(*local), NETDEV_ALIGN);
 
+	local->ops_revision = revision; // FIXME: SLE kABI compatibility
 	local->ops = ops;
 	local->use_chanctx = use_chanctx;
 
@@ -771,6 +773,16 @@ struct ieee80211_hw *ieee80211_alloc_hw_nm(size_t priv_data_len,
  err_free:
 	wiphy_free(wiphy);
 	return NULL;
+}
+EXPORT_SYMBOL(__ieee80211_alloc_hw_nm);
+
+/* FIXME: define ieee80211_alloc_hw_nm for kABI compatibility with GA version */
+#undef ieee80211_alloc_hw_nm
+struct ieee80211_hw *ieee80211_alloc_hw_nm(size_t priv_data_len,
+					   const struct ieee80211_ops *ops,
+					   const char *requested_name)
+{
+	return __ieee80211_alloc_hw_nm(priv_data_len, ops, requested_name, 0);
 }
 EXPORT_SYMBOL(ieee80211_alloc_hw_nm);
 

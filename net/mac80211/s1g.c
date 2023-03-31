@@ -153,6 +153,10 @@ void ieee80211_s1g_rx_twt_action(struct ieee80211_sub_if_data *sdata,
 	struct ieee80211_local *local = sdata->local;
 	struct sta_info *sta;
 
+	/* FIXME: SLE kABI compatibility check */
+	if (local->ops_revision < 2)
+		return;
+
 	mutex_lock(&local->sta_mtx);
 
 	sta = sta_info_get_bss(sdata, mgmt->sa);
@@ -180,6 +184,10 @@ void ieee80211_s1g_status_twt_action(struct ieee80211_sub_if_data *sdata,
 	struct ieee80211_mgmt *mgmt = (struct ieee80211_mgmt *)skb->data;
 	struct ieee80211_local *local = sdata->local;
 	struct sta_info *sta;
+
+	/* FIXME: SLE kABI compatibility check */
+	if (local->ops_revision < 2)
+		return;
 
 	mutex_lock(&local->sta_mtx);
 

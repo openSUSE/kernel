@@ -4335,6 +4335,10 @@ ieee80211_set_radar_background(struct wiphy *wiphy,
 {
 	struct ieee80211_local *local = wiphy_priv(wiphy);
 
+	/* FIXME: SLE kABI compatibility check */
+	if (local->ops_revision < 2)
+		return -EOPNOTSUPP;
+
 	if (!local->ops->set_radar_background)
 		return -EOPNOTSUPP;
 
