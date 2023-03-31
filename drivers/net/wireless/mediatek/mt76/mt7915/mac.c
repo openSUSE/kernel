@@ -1313,7 +1313,6 @@ mt7915_mac_tx_free(struct mt7915_dev *dev, struct sk_buff *skb)
 		 */
 		if (info & MT_TX_FREE_PAIR) {
 			struct mt7915_sta *msta;
-			struct mt7915_phy *phy;
 			struct mt76_wcid *wcid;
 			u16 idx;
 
