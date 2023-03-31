@@ -1555,7 +1555,8 @@ void mt7921_pm_power_save_work(struct work_struct *work)
 
 	delta = dev->pm.idle_timeout;
 	if (test_bit(MT76_HW_SCANNING, &mphy->state) ||
-	    test_bit(MT76_HW_SCHED_SCANNING, &mphy->state))
+	    test_bit(MT76_HW_SCHED_SCANNING, &mphy->state) ||
+	    dev->fw_assert)
 		goto out;
 
 	if (mutex_is_locked(&dev->mt76.mutex))
