@@ -1594,6 +1594,10 @@ config PRINTK
 	  very difficult to diagnose system problems, saying N here is
 	  strongly discouraged.
 
+config HAVE_ATOMIC_CONSOLE
+	bool
+	default n
+
 config BUG
 	bool "BUG() support" if EXPERT
 	default y
