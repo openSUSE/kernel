@@ -259,6 +259,7 @@ static void panic_other_cpus_shutdown(bool crash_kexec)
 	 * bits in addition to stopping other CPUs, hence we rely on
 	 * crash_smp_send_stop() for that.
 	 */
+	try_block_console_kthreads(10000);
 	if (!crash_kexec)
 		smp_send_stop();
 	else
@@ -660,6 +661,8 @@ void __warn(const char *file, int line, void *caller, unsigned taint,
 {
 	disable_trace_on_warning();
 
+	printk_prefer_direct_enter();
+
 	if (file)
 		pr_warn("WARNING: CPU: %d PID: %d at %s:%d %pS\n",
 			raw_smp_processor_id(), current->pid, file, line,
@@ -688,6 +691,8 @@ void __warn(const char *file, int line, void *caller, unsigned taint,
 
 	/* Just a warning, don't kill lockdep. */
 	add_taint(taint, LOCKDEP_STILL_OK);
+
+	printk_prefer_direct_exit();
 }
 
 #ifndef __WARN_FLAGS
