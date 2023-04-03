@@ -95,6 +95,11 @@ MODULE_PARM_DESC(runpm, "disable (0), force enable (1), optimus only default (-1
 static int nouveau_runtime_pm = -1;
 module_param_named(runpm, nouveau_runtime_pm, int, 0400);
 
+/* XXX: SLE-specific option for controlling blacklist */
+MODULE_PARM_DESC(force_probe, "Force probe the driver for specified device");
+static bool nouveau_force_probe;
+module_param_named(force_probe, nouveau_force_probe, bool, 0400);
+
 static struct drm_driver driver_stub;
 static struct drm_driver driver_pci;
 static struct drm_driver driver_platform;
@@ -741,12 +746,42 @@ static void quirk_broken_nv_runpm(struct pci_dev *pdev)
 	}
 }
 
+/* XXX: SLE-specific device blacklisting */
+#include "nouveau_blacklist.c"
+static bool nouveau_probe_is_blacklisted(struct pci_dev *pdev)
+{
+	const u16 *p;
+	u16 val;
+
+	if (pdev->vendor != PCI_VENDOR_ID_NVIDIA)
+		return false;
+	for (p = nouveau_probe_blacklist; *p; p++) {
+		if (pdev->device == *p)
+			goto check_option;
+	}
+	return false;
+
+ check_option:
+	if (nouveau_force_probe)
+		return false; /* forced probe */
+
+	dev_info(&pdev->dev,
+		 "Probe of device %04x skipped due to experimental state of this driver.\n"
+		 "You can enable nouveau driver via force_probe=1 option (kernel boot parameter 'nouveau.force_probe=1')\n"
+		 "However we recommend the usage of nVidia's openGPU driver meanwhile. See our Release Notes for more details.\n",
+		 pdev->device);
+	return true;
+}
+
 static int nouveau_drm_probe(struct pci_dev *pdev,
 			     const struct pci_device_id *pent)
 {
 	struct nvkm_device *device;
 	struct drm_device *drm_dev;
 	int ret;
+
+	if (nouveau_probe_is_blacklisted(pdev))
+		return -ENODEV;
 
 	if (vga_switcheroo_client_probe_defer(pdev))
 		return -EPROBE_DEFER;
