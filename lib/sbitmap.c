@@ -577,6 +577,7 @@ EXPORT_SYMBOL_GPL(sbitmap_queue_min_shallow_depth);
 static struct sbq_wait_state *sbq_wake_ptr(struct sbitmap_queue *sbq)
 {
 	int i, wake_index;
+	struct sbq_wait_state *active_ws = NULL;
 
 	if (!atomic_read(&sbq->ws_active))
 		return NULL;
@@ -585,14 +586,27 @@ static struct sbq_wait_state *sbq_wake_ptr(struct sbitmap_queue *sbq)
 	for (i = 0; i < SBQ_WAIT_QUEUES; i++) {
 		struct sbq_wait_state *ws = &sbq->ws[wake_index];
 
-		if (waitqueue_active(&ws->wait) && atomic_read(&ws->wait_cnt) > 0) {
-			if (wake_index != atomic_read(&sbq->wake_index))
-				atomic_set(&sbq->wake_index, wake_index);
-			return ws;
+		if (waitqueue_active(&ws->wait)) {
+			if (atomic_read(&ws->wait_cnt) > 0) {
+				if (wake_index != atomic_read(&sbq->wake_index))
+					atomic_set(&sbq->wake_index, wake_index);
+				return ws;
+			}
+			active_ws = ws;
 		}
 
 		wake_index = sbq_index_inc(wake_index);
 	}
+
+	/*
+	 * There are active waitqueues but all are in the process of being
+	 * woken. Perform wakeup on some waitqueue to avoid loosing the wakeup.
+	 * This is actually important in case task performing wakeup gets
+	 * preempted and lots of other wakeup events happen before it gets
+	 * scheduled again.
+	 */
+	if (active_ws)
+		wake_up_nr(&active_ws->wait, READ_ONCE(sbq->wake_batch));
 
 	return NULL;
 }
