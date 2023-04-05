@@ -10,11 +10,7 @@
 #include "fw/api/txq.h"
 
 /* Highest firmware API version supported */
-/* FIXME: Intel never released *-72.ucode but only *-71.ucode (as of 2022 Aug).
- *        For fixing a spurious kernel error and initrd creation,
- *        set to 71 instead of non-existing 72
- */
-#define IWL_22000_UCODE_API_MAX	71
+#define IWL_22000_UCODE_API_MAX	72
 
 /* Lowest firmware API version supported */
 #define IWL_22000_UCODE_API_MIN	39
