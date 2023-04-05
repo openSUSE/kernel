@@ -967,6 +967,7 @@ struct ieee80211_sub_if_data {
 
 	struct work_struct work;
 	struct sk_buff_head skb_queue;
+	struct sk_buff_head status_queue;
 
 	u8 needed_rx_chains;
 	enum ieee80211_smps_mode smps_mode;
@@ -1219,6 +1220,9 @@ struct ieee80211_local {
 	/* protects active_txqs and txqi->schedule_order */
 	struct airtime_sched_info airtime[IEEE80211_NUM_ACS];
 	u16 airtime_flags;
+#ifndef __GENKSYMS__
+	u8 ops_revision; /* filled at padding; for kABI compatibility check */
+#endif
 	u32 aql_threshold;
 	atomic_t aql_total_pending_airtime;
 
@@ -2113,6 +2117,11 @@ ieee80211_he_op_ie_to_bss_conf(struct ieee80211_vif *vif,
 
 /* S1G */
 void ieee80211_s1g_sta_rate_init(struct sta_info *sta);
+bool ieee80211_s1g_is_twt_setup(struct sk_buff *skb);
+void ieee80211_s1g_rx_twt_action(struct ieee80211_sub_if_data *sdata,
+				 struct sk_buff *skb);
+void ieee80211_s1g_status_twt_action(struct ieee80211_sub_if_data *sdata,
+				     struct sk_buff *skb);
 
 /* Spectrum management */
 void ieee80211_process_measurement_req(struct ieee80211_sub_if_data *sdata,

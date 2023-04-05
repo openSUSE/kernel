@@ -4018,6 +4018,15 @@ struct mgmt_frame_regs {
  * @set_sar_specs: Update the SAR (TX power) settings.
  *
  * @color_change: Initiate a color change.
+ *
+ * @set_radar_background: Configure dedicated offchannel chain available for
+ *	radar/CAC detection on some hw. This chain can't be used to transmit
+ *	or receive frames and it is bounded to a running wdev.
+ *	Background radar/CAC detection allows to avoid the CAC downtime
+ *	switching to a different channel during CAC detection on the selected
+ *	radar channel.
+ *	The caller is expected to set chandef pointer to NULL in order to
+ *	disable background CAC/radar detection.
  */
 struct cfg80211_ops {
 	int	(*suspend)(struct wiphy *wiphy, struct cfg80211_wowlan *wow);
@@ -4348,6 +4357,10 @@ struct cfg80211_ops {
 	int	(*color_change)(struct wiphy *wiphy,
 				struct net_device *dev,
 				struct cfg80211_color_change_settings *params);
+#ifndef __GENKSYMS__
+	int	(*set_radar_background)(struct wiphy *wiphy,
+					struct cfg80211_chan_def *chandef);
+#endif
 };
 
 /*
@@ -7528,15 +7541,29 @@ void cfg80211_cqm_txe_notify(struct net_device *dev, const u8 *peer,
 void cfg80211_cqm_beacon_loss_notify(struct net_device *dev, gfp_t gfp);
 
 /**
- * cfg80211_radar_event - radar detection event
+ * __cfg80211_radar_event - radar detection event
  * @wiphy: the wiphy
  * @chandef: chandef for the current channel
+ * @offchan: the radar has been detected on the offchannel chain
  * @gfp: context flags
  *
  * This function is called when a radar is detected on the current chanenl.
  */
+void __cfg80211_radar_event(struct wiphy *wiphy,
+			    struct cfg80211_chan_def *chandef,
+			    bool offchan, gfp_t gfp);
+
 void cfg80211_radar_event(struct wiphy *wiphy,
-			  struct cfg80211_chan_def *chandef, gfp_t gfp);
+			  struct cfg80211_chan_def *chandef,
+			  gfp_t gfp);
+
+static inline void
+cfg80211_background_radar_event(struct wiphy *wiphy,
+				struct cfg80211_chan_def *chandef,
+				gfp_t gfp)
+{
+	__cfg80211_radar_event(wiphy, chandef, true, gfp);
+}
 
 /**
  * cfg80211_sta_opmode_change_notify - STA's ht/vht operation mode change event
@@ -7567,6 +7594,14 @@ void cfg80211_cac_event(struct net_device *netdev,
 			const struct cfg80211_chan_def *chandef,
 			enum nl80211_radar_event event, gfp_t gfp);
 
+/**
+ * cfg80211_background_cac_abort - Channel Availability Check offchan abort event
+ * @wiphy: the wiphy
+ *
+ * This function is called by the driver when a Channel Availability Check
+ * (CAC) is aborted by a offchannel dedicated chain.
+ */
+void cfg80211_background_cac_abort(struct wiphy *wiphy);
 
 /**
  * cfg80211_gtk_rekey_notify - notify userspace about driver rekeying
