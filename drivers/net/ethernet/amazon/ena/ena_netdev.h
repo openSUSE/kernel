@@ -141,12 +141,12 @@ struct ena_irq {
 };
 
 struct ena_napi {
-	struct napi_struct napi ____cacheline_aligned;
+	u8 first_interrupt ____cacheline_aligned;
+	u8 interrupts_masked;
+	struct napi_struct napi;
 	struct ena_ring *tx_ring;
 	struct ena_ring *rx_ring;
 	struct ena_ring *xdp_ring;
-	bool first_interrupt;
-	bool interrupts_masked;
 	u32 qid;
 	struct dim dim;
 };
@@ -269,6 +269,10 @@ struct ena_ring {
 	struct ena_com_io_sq *ena_com_io_sq;
 	struct bpf_prog *xdp_bpf_prog;
 	struct xdp_rxq_info xdp_rxq;
+	/* Used for rx queues only to point to the xdp tx ring, to
+	 * which traffic should be redirected from this rx ring.
+	 */
+	struct ena_ring *xdp_ring;
 
 	u16 next_to_use;
 	u16 next_to_clean;
@@ -281,7 +285,6 @@ struct ena_ring {
 	/* The maximum header length the device can handle */
 	u8 tx_max_header_size;
 
-	bool first_interrupt;
 	bool disable_meta_caching;
 	u16 no_interrupt_event_cnt;
 
