@@ -114,9 +114,9 @@ sed -i -e 's@^CONFIG_LD_VERSION=.*@CONFIG_LD_VERSION=25000@'			config/$CONFIG_AR
 sed -i -e 's@.*CONFIG_TOOLS_SUPPORT_RELR.*@CONFIG_TOOLS_SUPPORT_RELR=y@'	config/$CONFIG_ARCH/rt
 
 if [ "$CONFIG_ARCH" = "arm64" ]; then
-	sed -i -e '/CONFIG_RELR/d'							config/$CONFIG_ARCH/rt
-	sed -i -e '/^CONFIG_ARCH_HAS_RELR=y/a CONFIG_RELR=y'				config/$CONFIG_ARCH/rt
-	sed -i -e 's/.*ERRATUM_843419.*/CONFIG_ARM64_LD_HAS_FIX_ERRATUM_843419=y/'	config/$CONFIG_ARCH/rt
+	sed -i -e '/CONFIG_RELR/d'								config/$CONFIG_ARCH/rt
+	sed -i -e '/^CONFIG_ARCH_HAS_RELR=y/a CONFIG_RELR=y'					config/$CONFIG_ARCH/rt
+	sed -i -e 's/.*LD_HAS_FIX_ERRATUM_843419.*/CONFIG_ARM64_LD_HAS_FIX_ERRATUM_843419=y/'	config/$CONFIG_ARCH/rt
 fi
 
 echo Copying rt config
