@@ -139,7 +139,6 @@ SECTIONS
 	/DISCARD/ : {
 		*(.interp .dynamic)
 		*(.dynsym .dynstr .hash .gnu.hash)
-		*(.note.GNU-stack)
 	}
 
 	. = KIMAGE_VADDR;
