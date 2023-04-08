@@ -369,15 +369,21 @@ nfs3svc_decode_readargs(struct svc_rqst *rqstp, __be32 *p)
 	unsigned int len;
 	int v;
 	u32 max_blocksize = svc_max_payload(rqstp);
+	unsigned int pages;
+
+	/* calculate available pages for reply body */
+	pages = (rqstp->rq_server->sv_max_mesg / PAGE_SIZE + 1);
+	pages -= (rqstp->rq_next_page - rqstp->rq_pages);
 
 	p = decode_fh(p, &args->fh);
 	if (!p)
 		return 0;
 	p = xdr_decode_hyper(p, &args->offset);
 
-	args->count = ntohl(*p++);
-	len = min(args->count, max_blocksize);
-	len = min(len, rqstp->rq_res.buflen);
+	len = ntohl(*p++);
+	len = min(len, max_blocksize);
+	len = min_t(unsigned int, len, pages * PAGE_SIZE);
+	args->count = len;
 
 	/* set up the kvec */
 	v=0;
@@ -603,6 +609,11 @@ nfs3svc_decode_readdirplusargs(struct svc_rqst *rqstp, __be32 *p)
 	struct nfsd3_readdirargs *args = rqstp->rq_argp;
 	int len;
 	u32 max_blocksize = svc_max_payload(rqstp);
+	unsigned int pages;
+
+	/* calculate available pages for reply body */
+	pages = (rqstp->rq_server->sv_max_mesg / PAGE_SIZE + 1);
+	pages -= (rqstp->rq_next_page - rqstp->rq_pages);
 
 	p = decode_fh(p, &args->fh);
 	if (!p)
@@ -612,7 +623,8 @@ nfs3svc_decode_readdirplusargs(struct svc_rqst *rqstp, __be32 *p)
 	args->dircount = ntohl(*p++);
 	args->count    = ntohl(*p++);
 
-	len = args->count = min(args->count, max_blocksize);
+	args->count = min(args->count, max_blocksize);
+	len = args->count = min_t(unsigned int, args->count, pages * PAGE_SIZE);
 	while (len > 0) {
 		struct page *p = *(rqstp->rq_next_page++);
 		if (!args->buffer)
