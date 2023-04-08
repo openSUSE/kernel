@@ -6,6 +6,7 @@
 
 #include <linux/scatterlist.h>
 #include <linux/slab.h>
+#include <linux/swiotlb.h>
 
 #include "i915_drv.h"
 #include "i915_gem.h"

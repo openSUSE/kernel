@@ -10,6 +10,7 @@
 #include <linux/pfn.h>
 #include <linux/scatterlist.h>
 #include <linux/dma-mapping.h>
+#include <linux/swiotlb.h>
 #include <xen/xen.h>
 
 #include "i915_gem.h"
