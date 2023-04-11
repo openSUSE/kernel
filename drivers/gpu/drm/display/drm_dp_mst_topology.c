@@ -5432,6 +5432,8 @@ int drm_dp_mst_topology_mgr_init(struct drm_dp_mst_topology_mgr *mgr,
 	mgr->max_dpcd_transaction_bytes = max_dpcd_transaction_bytes;
 	mgr->max_payloads = max_payloads;
 	mgr->conn_base_id = conn_base_id;
+	/* FIXME: only for kABI compatibility */
+	mutex_init(&mgr->payload_lock);
 
 	mst_state = kzalloc(sizeof(*mst_state), GFP_KERNEL);
 	if (mst_state == NULL)
@@ -5855,3 +5857,99 @@ struct drm_dp_aux *drm_dp_mst_dsc_aux_for_port(struct drm_dp_mst_port *port)
 	return NULL;
 }
 EXPORT_SYMBOL(drm_dp_mst_dsc_aux_for_port);
+
+/* FIXME: dummy entries for SLE kABI compatibility */
+int drm_dp_find_vcpi_slots(struct drm_dp_mst_topology_mgr *mgr, int pbn)
+{
+	WARN_ONCE(1, "%s is deprecated\n", __func__);
+	return -ENOSPC;
+}
+EXPORT_SYMBOL(drm_dp_find_vcpi_slots);
+
+int __must_check
+drm_dp_atomic_find_vcpi_slots(struct drm_atomic_state *state,
+			      struct drm_dp_mst_topology_mgr *mgr,
+			      struct drm_dp_mst_port *port, int pbn,
+			      int pbn_div)
+{
+	WARN_ONCE(1, "%s is deprecated\n", __func__);
+	return -ENOSPC;
+}
+EXPORT_SYMBOL(drm_dp_atomic_find_vcpi_slots);
+
+int __must_check
+drm_dp_atomic_release_vcpi_slots(struct drm_atomic_state *state,
+				 struct drm_dp_mst_topology_mgr *mgr,
+				 struct drm_dp_mst_port *port)
+{
+	WARN_ONCE(1, "%s is deprecated\n", __func__);
+	return -EINVAL;
+}
+EXPORT_SYMBOL(drm_dp_atomic_release_vcpi_slots);
+
+bool drm_dp_mst_allocate_vcpi(struct drm_dp_mst_topology_mgr *mgr,
+			      struct drm_dp_mst_port *port, int pbn, int slots)
+{
+	WARN_ONCE(1, "%s is deprecated\n", __func__);
+	return false;
+}
+EXPORT_SYMBOL(drm_dp_mst_allocate_vcpi);
+
+int drm_dp_mst_get_vcpi_slots(struct drm_dp_mst_topology_mgr *mgr,
+			      struct drm_dp_mst_port *port)
+{
+	WARN_ONCE(1, "%s is deprecated\n", __func__);
+	return 0;
+}
+EXPORT_SYMBOL(drm_dp_mst_get_vcpi_slots);
+
+void drm_dp_mst_reset_vcpi_slots(struct drm_dp_mst_topology_mgr *mgr,
+				 struct drm_dp_mst_port *port)
+{
+	WARN_ONCE(1, "%s is deprecated\n", __func__);
+}
+EXPORT_SYMBOL(drm_dp_mst_reset_vcpi_slots);
+
+void drm_dp_mst_deallocate_vcpi(struct drm_dp_mst_topology_mgr *mgr,
+				struct drm_dp_mst_port *port)
+{
+	WARN_ONCE(1, "%s is deprecated\n", __func__);
+}
+EXPORT_SYMBOL(drm_dp_mst_deallocate_vcpi);
+
+int drm_dp_update_payload_part1(struct drm_dp_mst_topology_mgr *mgr,
+				int start_slot)
+{
+	WARN_ONCE(1, "%s is deprecated\n", __func__);
+	return -ENXIO;
+}
+EXPORT_SYMBOL(drm_dp_update_payload_part1);
+
+int drm_dp_update_payload_part2(struct drm_dp_mst_topology_mgr *mgr)		{
+	WARN_ONCE(1, "%s is deprecated\n", __func__);
+	return -ENXIO;
+}
+EXPORT_SYMBOL(drm_dp_update_payload_part2);
+
+#undef drm_dp_mst_atomic_enable_dsc
+int drm_dp_mst_atomic_enable_dsc(struct drm_atomic_state *state,
+				 struct drm_dp_mst_port *port,
+				 int pbn, int pbn_div,
+				 bool enable)
+{
+	return __drm_dp_mst_atomic_enable_dsc(state, port, pbn, enable);
+}
+EXPORT_SYMBOL(drm_dp_mst_atomic_enable_dsc);
+
+#undef drm_dp_mst_topology_mgr_init
+int drm_dp_mst_topology_mgr_init(struct drm_dp_mst_topology_mgr *mgr,
+				 struct drm_device *dev, struct drm_dp_aux *aux,
+				 int max_dpcd_transaction_bytes, int max_payloads,
+				 int max_lane_count, int max_link_rate,
+				 int conn_base_id)
+{
+	return __drm_dp_mst_topology_mgr_init(mgr, dev, aux,
+					      max_dpcd_transaction_bytes,
+					      max_payloads, conn_base_id);
+}
+EXPORT_SYMBOL(drm_dp_mst_topology_mgr_init);
