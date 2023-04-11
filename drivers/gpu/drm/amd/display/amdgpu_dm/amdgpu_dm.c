@@ -2868,7 +2868,8 @@ static const struct drm_mode_config_funcs amdgpu_dm_mode_funcs = {
 };
 
 static struct drm_mode_config_helper_funcs amdgpu_dm_mode_config_helperfuncs = {
-	.atomic_commit_tail = amdgpu_dm_atomic_commit_tail
+	.atomic_commit_tail = amdgpu_dm_atomic_commit_tail,
+	.atomic_commit_setup = drm_dp_mst_atomic_setup_commit,
 };
 
 static void update_connector_ext_caps(struct amdgpu_dm_connector *aconnector)
@@ -8041,6 +8042,7 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
 		DRM_ERROR("Waiting for fences timed out!");
 
 	drm_atomic_helper_update_legacy_modeset_state(dev, state);
+	drm_dp_mst_atomic_wait_for_dependencies(state);
 
 	dm_state = dm_atomic_get_new_state(state);
 	if (dm_state && dm_state->context) {
@@ -8435,7 +8437,6 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
 	if (dc_state_temp)
 		dc_release_state(dc_state_temp);
 }
-
 
 static int dm_force_atomic_commit(struct drm_connector *connector)
 {

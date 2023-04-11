@@ -563,6 +563,20 @@ struct drm_dp_mst_topology_state {
 	struct drm_private_state base;
 	struct list_head payloads;
 	struct drm_dp_mst_topology_mgr *mgr;
+
+	/**
+	 * @pending_crtc_mask: A bitmask of all CRTCs this topology state touches, drivers may
+	 * modify this to add additional dependencies if needed.
+	 */
+	u32 pending_crtc_mask;
+	/**
+	 * @commit_deps: A list of all CRTC commits affecting this topology, this field isn't
+	 * populated until drm_dp_mst_atomic_wait_for_dependencies() is called.
+	 */
+	struct drm_crtc_commit **commit_deps;
+	/** @num_commit_deps: The number of CRTC commits in @commit_deps */
+	size_t num_commit_deps;
+
 	u8 total_avail_slots;
 	u8 start_slot;
 };
@@ -870,6 +884,8 @@ int __must_check
 drm_dp_atomic_release_time_slots(struct drm_atomic_state *state,
 				 struct drm_dp_mst_topology_mgr *mgr,
 				 struct drm_dp_mst_port *port);
+void drm_dp_mst_atomic_wait_for_dependencies(struct drm_atomic_state *state);
+int __must_check drm_dp_mst_atomic_setup_commit(struct drm_atomic_state *state);
 int drm_dp_send_power_updown_phy(struct drm_dp_mst_topology_mgr *mgr,
 				 struct drm_dp_mst_port *port, bool power_up);
 int drm_dp_send_query_stream_enc_status(struct drm_dp_mst_topology_mgr *mgr,
