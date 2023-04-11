@@ -555,7 +555,12 @@ struct drm_dp_mst_atomic_payload {
 	 */
 	int time_slots;
 	int pbn;
-	bool dsc_enabled;
+
+	/** @delete: Whether or not we intend to delete this payload during this atomic commit */
+	bool delete : 1;
+	/** @dsc_enabled: Whether or not this payload has DSC enabled */
+	bool dsc_enabled : 1;
+
 	struct list_head next;
 };
 
