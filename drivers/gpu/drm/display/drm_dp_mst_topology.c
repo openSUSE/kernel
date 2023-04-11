@@ -4328,6 +4328,9 @@ int drm_dp_atomic_release_time_slots(struct drm_atomic_state *state,
 		return -EINVAL;
 	}
 
+	if (new_conn_state->crtc)
+		return 0;
+
 	drm_dbg_atomic(mgr->dev, "[MST PORT:%p] TU %d -> 0\n", port, payload->time_slots);
 	if (!payload->delete) {
 		payload->pbn = 0;
