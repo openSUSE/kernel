@@ -751,7 +751,6 @@ static void quirk_broken_nv_runpm(struct pci_dev *pdev)
 static bool nouveau_probe_is_blacklisted(struct pci_dev *pdev)
 {
 	const u16 *p;
-	u16 val;
 
 	if (pdev->vendor != PCI_VENDOR_ID_NVIDIA)
 		return false;
