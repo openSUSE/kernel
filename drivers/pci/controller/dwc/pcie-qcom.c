@@ -1537,7 +1537,7 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, pcie);
 
-	ret = dw_pcie_host_init(pp);
+	ret = dw_pcie_host_init2(pp);
 	if (ret) {
 		dev_err(dev, "cannot initialize host\n");
 		goto err_phy_exit;
