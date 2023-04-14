@@ -5980,3 +5980,12 @@ int drm_dp_mst_topology_mgr_init(struct drm_dp_mst_topology_mgr *mgr,
 					      max_payloads, conn_base_id);
 }
 EXPORT_SYMBOL(drm_dp_mst_topology_mgr_init);
+
+#undef drm_dp_remove_payload
+void drm_dp_remove_payload(struct drm_dp_mst_topology_mgr *mgr,
+                           struct drm_dp_mst_topology_state *mst_state,
+                           struct drm_dp_mst_atomic_payload *payload)
+{
+	__drm_dp_remove_payload(mgr, mst_state, payload, payload);
+}
+EXPORT_SYMBOL(drm_dp_remove_payload);
