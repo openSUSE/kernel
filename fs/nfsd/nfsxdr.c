@@ -239,17 +239,24 @@ nfssvc_decode_readargs(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd_readargs *args = rqstp->rq_argp;
 	unsigned int len;
+	unsigned int pages;
 	int v;
+
 	p = decode_fh(p, &args->fh);
 	if (!p)
 		return 0;
+
+	/* calculate available pages for reply body */
+	pages = (rqstp->rq_server->sv_max_mesg / PAGE_SIZE + 1);
+	pages -= (rqstp->rq_next_page - rqstp->rq_pages);
 
 	args->offset    = ntohl(*p++);
 	len = args->count     = ntohl(*p++);
 	p++; /* totalcount - unused */
 
 	len = min_t(unsigned int, len, NFSSVC_MAXBLKSIZE_V2);
-	len = min_t(unsigned int, len, rqstp->rq_res.buflen);
+	len = min_t(unsigned int, len, pages * PAGE_SIZE);
+	args->count = len;
 
 	/* set up somewhere to store response.
 	 * We take pages, put them on reslist and include in iovec
