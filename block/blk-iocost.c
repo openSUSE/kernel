@@ -3309,11 +3309,13 @@ static ssize_t ioc_qos_write(struct kernfs_open_file *of, char *input,
 	ioc_refresh_params(ioc, true);
 	spin_unlock_irq(&ioc->lock);
 
+	mutex_unlock(&bdev->bd_queue->rq_qos_mutex);
 	blkdev_put_no_open(bdev);
 	return nbytes;
 einval:
 	ret = -EINVAL;
 err:
+	mutex_unlock(&bdev->bd_queue->rq_qos_mutex);
 	blkdev_put_no_open(bdev);
 	return ret;
 }
@@ -3434,12 +3436,14 @@ static ssize_t ioc_cost_model_write(struct kernfs_open_file *of, char *input,
 	ioc_refresh_params(ioc, true);
 	spin_unlock_irq(&ioc->lock);
 
+	mutex_unlock(&bdev->bd_queue->rq_qos_mutex);
 	blkdev_put_no_open(bdev);
 	return nbytes;
 
 einval:
 	ret = -EINVAL;
 err:
+	mutex_unlock(&bdev->bd_queue->rq_qos_mutex);
 	blkdev_put_no_open(bdev);
 	return ret;
 }

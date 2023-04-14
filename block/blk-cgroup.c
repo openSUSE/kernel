@@ -656,6 +656,13 @@ struct block_device *blkcg_conf_open_bdev(char **inputp)
 		return ERR_PTR(-ENODEV);
 	}
 
+	mutex_lock(&bdev->bd_queue->rq_qos_mutex);
+	if (!disk_live(bdev->bd_disk)) {
+		mutex_unlock(&bdev->bd_queue->rq_qos_mutex);
+		blkdev_put_no_open(bdev);
+		return ERR_PTR(-ENODEV);
+	}
+
 	*inputp = input;
 	return bdev;
 }
@@ -779,6 +786,7 @@ fail_unlock:
 fail_exit_queue:
 	blk_queue_exit(q);
 fail:
+	mutex_unlock(&q->rq_qos_mutex);
 	blkdev_put_no_open(bdev);
 	/*
 	 * If queue was bypassing, we should retry.  Do so after a
@@ -803,9 +811,11 @@ EXPORT_SYMBOL_GPL(blkg_conf_prep);
  */
 void blkg_conf_finish(struct blkg_conf_ctx *ctx)
 	__releases(&ctx->bdev->bd_queue->queue_lock) __releases(rcu)
+	__releases(&ctx->bdev->bd_queue->rq_qos_mutex)
 {
 	spin_unlock_irq(&bdev_get_queue(ctx->bdev)->queue_lock);
 	rcu_read_unlock();
+	mutex_unlock(&ctx->bdev->bd_queue->rq_qos_mutex);
 	blkdev_put_no_open(ctx->bdev);
 }
 EXPORT_SYMBOL_GPL(blkg_conf_finish);
@@ -1297,7 +1307,9 @@ int blkcg_init_disk(struct gendisk *disk)
 	if (ret)
 		goto err_ioprio_exit;
 
+	mutex_lock(&q->rq_qos_mutex);
 	ret = blk_iolatency_init(disk);
+	mutex_unlock(&q->rq_qos_mutex);
 	if (ret)
 		goto err_throtl_exit;
 
