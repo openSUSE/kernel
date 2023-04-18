@@ -490,6 +490,11 @@ struct drm_i915_gem_object {
 	 */
 	unsigned int cache_dirty:1;
 
+#ifndef __GENKSYMS__
+	/* @is_dpt: Object houses a display page table (DPT) */
+	unsigned int is_dpt:1;
+#endif
+
 	/**
 	 * @read_domains: Read memory domains.
 	 *

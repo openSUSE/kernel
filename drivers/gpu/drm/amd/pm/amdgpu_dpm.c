@@ -1369,17 +1369,6 @@ int amdgpu_dpm_is_cclk_dpm_supported(struct amdgpu_device *adev)
 
 	if (!is_support_sw_smu(adev))
 		return false;
-	/* Don't use baco for reset in S3.
-	 * This is a workaround for some platforms
-	 * where entering BACO during suspend
-	 * seems to cause reboots or hangs.
-	 * This might be related to the fact that BACO controls
-	 * power to the whole GPU including devices like audio and USB.
-	 * Powering down/up everything may adversely affect these other
-	 * devices.  Needs more investigation.
-	 */
-	if (adev->in_s3)
-		return false;
 
 	mutex_lock(&adev->pm.mutex);
 	cclk_dpm_supported = is_support_cclk_dpm(adev);
