@@ -740,8 +740,14 @@ static void amd_pmc_s2idle_prepare(void)
 static void amd_pmc_s2idle_restore(void)
 {
 	struct amd_pmc_dev *pdev = &pmc;
+	struct smu_metrics table;
 	int rc;
 	u8 msg;
+
+	/* CZN: Ensure that future s0i3 entry attempts at least 10ms passed */
+	if (pdev->cpu_id == AMD_CPU_ID_CZN && !get_metrics_table(pdev, &table) &&
+	    table.s0i3_last_entry_status)
+		usleep_range(10000, 20000);
 
 	msg = amd_pmc_get_os_hint(pdev);
 	rc = amd_pmc_send_cmd(pdev, 0, NULL, msg, 0);
