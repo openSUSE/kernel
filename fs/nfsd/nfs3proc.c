@@ -156,8 +156,6 @@ nfsd3_proc_read(struct svc_rqst *rqstp)
 	u32	max_blocksize = svc_max_payload(rqstp);
 	unsigned long cnt = min(argp->count, max_blocksize);
 
-	cnt = min_t(unsigned long, cnt, rqstp->rq_res.buflen);
-
 	dprintk("nfsd: READ(3) %s %lu bytes at %Lu\n",
 				SVCFH_fmt(&argp->fh),
 				(unsigned long) argp->count,
@@ -464,8 +462,6 @@ nfsd3_proc_readdir(struct svc_rqst *rqstp)
 				argp->count, (u32) argp->cookie);
 
 	count = argp->count;
-	if (count > rqstp->rq_res.buflen)
-		count = rqstp->rq_res.buflen;
 	if (count > svc_max_payload(rqstp))
 		count = svc_max_payload(rqstp);
 	/* Make sure we've room for the NULL ptr & eof flag, and shrink to
@@ -534,8 +530,6 @@ nfsd3_proc_readdirplus(struct svc_rqst *rqstp)
 				argp->count, (u32) argp->cookie);
 
 	count = argp->count;
-	if (count > rqstp->rq_res.buflen)
-		count = rqstp->rq_res.buflen;
 	if (count > svc_max_payload(rqstp))
 		count = svc_max_payload(rqstp);
 	/* Convert byte count to number of words (i.e. >> 2),
