@@ -989,9 +989,11 @@ static int mlx5e_modify_rq_state(struct mlx5e_rq *rq, int curr_state, int next_s
 	return err;
 }
 
-static int mlx5e_rq_to_ready(struct mlx5e_rq *rq, int curr_state)
+int mlx5e_flush_rq(struct mlx5e_rq *rq, int curr_state)
 {
+	struct mlx5_cqwq *cqwq = &rq->cq.wq;
 	struct net_device *dev = rq->netdev;
+	struct mlx5_cqe64 *cqe;
 	int err;
 
 	err = mlx5e_modify_rq_state(rq, curr_state, MLX5_RQC_STATE_RST);
@@ -999,6 +1001,14 @@ static int mlx5e_rq_to_ready(struct mlx5e_rq *rq, int curr_state)
 		netdev_err(dev, "Failed to move rq 0x%x to reset\n", rq->rqn);
 		return err;
 	}
+
+	mlx5e_free_rx_descs(rq);
+
+	while ((cqe = mlx5_cqwq_get_cqe(cqwq)))
+		mlx5_cqwq_pop(cqwq);
+
+	mlx5_cqwq_update_db_record(cqwq);
+
 	err = mlx5e_modify_rq_state(rq, MLX5_RQC_STATE_RST, MLX5_RQC_STATE_RDY);
 	if (err) {
 		netdev_err(dev, "Failed to move rq 0x%x to ready\n", rq->rqn);
@@ -1006,13 +1016,6 @@ static int mlx5e_rq_to_ready(struct mlx5e_rq *rq, int curr_state)
 	}
 
 	return 0;
-}
-
-int mlx5e_flush_rq(struct mlx5e_rq *rq, int curr_state)
-{
-	mlx5e_free_rx_descs(rq);
-
-	return mlx5e_rq_to_ready(rq, curr_state);
 }
 
 static int mlx5e_modify_rq_vsd(struct mlx5e_rq *rq, bool vsd)
