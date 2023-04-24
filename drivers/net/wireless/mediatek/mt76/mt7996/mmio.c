@@ -318,7 +318,7 @@ struct mt7996_dev *mt7996_mmio_probe(struct device *pdev,
 {
 	static const struct mt76_driver_ops drv_ops = {
 		/* txwi_size = txd size + txp size */
-		.txwi_size = MT_TXD_SIZE + sizeof(struct mt7996_txp),
+		.txwi_size = MT_TXD_SIZE + sizeof(struct mt76_connac_fw_txp),
 		.drv_flags = MT_DRV_TXWI_NO_FREE |
 			     MT_DRV_HW_MGMT_TXQ,
 		.survey_flags = SURVEY_INFO_TIME_TX |
@@ -326,7 +326,7 @@ struct mt7996_dev *mt7996_mmio_probe(struct device *pdev,
 				SURVEY_INFO_TIME_BSS_RX,
 		.token_size = MT7996_TOKEN_SIZE,
 		.tx_prepare_skb = mt7996_tx_prepare_skb,
-		.tx_complete_skb = mt7996_tx_complete_skb,
+		.tx_complete_skb = mt76_connac_tx_complete_skb,
 		.rx_skb = mt7996_queue_rx_skb,
 		.rx_check = mt7996_rx_check,
 		.rx_poll_complete = mt7996_rx_poll_complete,
