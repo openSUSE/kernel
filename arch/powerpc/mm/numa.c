@@ -325,6 +325,7 @@ void update_numa_distance(struct device_node *node)
 		return;
 	}
 }
+EXPORT_SYMBOL_GPL(update_numa_distance);
 
 static int __init find_primary_domain_index(void)
 {
