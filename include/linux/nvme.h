@@ -232,8 +232,8 @@ enum {
 };
 
 enum {
-	NVME_CAP_CRMS_CRIMS	= 1ULL << 59,
-	NVME_CAP_CRMS_CRWMS	= 1ULL << 60,
+	NVME_CAP_CRMS_CRWMS	= 1ULL << 59,
+	NVME_CAP_CRMS_CRIMS	= 1ULL << 60,
 };
 
 struct nvme_id_power_state {
