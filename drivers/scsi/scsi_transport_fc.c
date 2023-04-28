@@ -889,7 +889,7 @@ fc_fpin_congn_stats_update(struct Scsi_Host *shost,
 }
 
 /**
- * fc_host_fpin_rcv - routine to process a received FPIN.
+ * fc_host_fpin_rcv_ack - routine to process a received FPIN.
  * @shost:		host the FPIN was received on
  * @fpin_len:		length of FPIN payload, in bytes
  * @fpin_buf:		pointer to FPIN payload
@@ -898,8 +898,8 @@ fc_fpin_congn_stats_update(struct Scsi_Host *shost,
  *	This routine assumes no locks are held on entry.
  */
 void
-fc_host_fpin_rcv(struct Scsi_Host *shost, u32 fpin_len, char *fpin_buf,
-		u8 event_acknowledge)
+fc_host_fpin_rcv_ack(struct Scsi_Host *shost, u32 fpin_len, char *fpin_buf,
+		     u8 event_acknowledge)
 {
 	struct fc_els_fpin *fpin = (struct fc_els_fpin *)fpin_buf;
 	struct fc_tlv_desc *tlv;
@@ -938,8 +938,15 @@ fc_host_fpin_rcv(struct Scsi_Host *shost, u32 fpin_len, char *fpin_buf,
 	fc_host_post_fc_event(shost, fc_get_event_number(),
 				event_code, fpin_len, fpin_buf, 0);
 }
-EXPORT_SYMBOL(fc_host_fpin_rcv);
+EXPORT_SYMBOL(fc_host_fpin_rcv_ack);
 
+
+void
+fc_host_fpin_rcv(struct Scsi_Host *shost, u32 fpin_len, char *fpin_buf)
+{
+	fc_host_fpin_rcv_ack(shost, fpin_len, fpin_buf, 0);
+}
+EXPORT_SYMBOL(fc_host_fpin_rcv);
 
 static __init int fc_transport_init(void)
 {
