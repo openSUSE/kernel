@@ -21,9 +21,6 @@ ssize_t fb_sys_read(struct fb_info *info, char __user *buf, size_t count,
 	int err = 0;
 	unsigned long total_size;
 
-	if (info->state != FBINFO_STATE_RUNNING)
-		return -EPERM;
-
 	total_size = info->screen_size;
 
 	if (total_size == 0)
@@ -60,9 +57,6 @@ ssize_t fb_sys_write(struct fb_info *info, const char __user *buf,
 	void *dst;
 	int err = 0;
 	unsigned long total_size;
-
-	if (info->state != FBINFO_STATE_RUNNING)
-		return -EPERM;
 
 	total_size = info->screen_size;
 
