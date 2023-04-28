@@ -286,7 +286,7 @@ static void dw_pcie_msi_init(struct pcie_port *pp)
 	dw_pcie_writel_dbi(pci, PCIE_MSI_ADDR_HI, upper_32_bits(msi_target));
 }
 
-int dw_pcie_host_init(struct pcie_port *pp)
+int __dw_pcie_host_init(struct pcie_port *pp, bool v2)
 {
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 	struct device *dev = pci->dev;
@@ -432,14 +432,25 @@ err_free_msi:
 		dw_pcie_free_msi(pp);
 
 err_deinit_host:
-	if (pp->ops->host_deinit)
+	if (v2 && pp->ops->host_deinit)
 		pp->ops->host_deinit(pp);
 
 	return ret;
 }
+
+int dw_pcie_host_init(struct pcie_port *pp)
+{
+	return __dw_pcie_host_init(pp, false);
+}
 EXPORT_SYMBOL_GPL(dw_pcie_host_init);
 
-void dw_pcie_host_deinit(struct pcie_port *pp)
+int dw_pcie_host_init2(struct pcie_port *pp)
+{
+	return __dw_pcie_host_init(pp, true);
+}
+EXPORT_SYMBOL_GPL(dw_pcie_host_init2);
+
+void __dw_pcie_host_deinit(struct pcie_port *pp, bool v2)
 {
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 
@@ -452,8 +463,13 @@ void dw_pcie_host_deinit(struct pcie_port *pp)
 	if (pp->has_msi_ctrl)
 		dw_pcie_free_msi(pp);
 
-	if (pp->ops->host_deinit)
+	if (v2 && pp->ops->host_deinit)
 		pp->ops->host_deinit(pp);
+}
+
+void dw_pcie_host_deinit(struct pcie_port *pp)
+{
+	return __dw_pcie_host_deinit(pp, false);
 }
 EXPORT_SYMBOL_GPL(dw_pcie_host_deinit);
 

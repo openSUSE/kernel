@@ -321,18 +321,13 @@ static int scsi_vpd_inquiry(struct scsi_device *sdev, unsigned char *buffer,
 	return get_unaligned_be16(&buffer[2]) + 4;
 }
 
-static int scsi_get_vpd_size(struct scsi_device *sdev, u8 page, int buf_len)
+static int scsi_get_vpd_size(struct scsi_device *sdev, u8 page)
 {
 	unsigned char vpd_header[SCSI_VPD_HEADER_SIZE] __aligned(4);
 	int result;
 
-	/*
-	 * if this hardware is blacklisted then don't bother asking
-	 * the page size, since it will repy with zero -- just assume it
-	 * is the buffer size
-	 */
-	if (sdev->no_ask_vpd_sz_first)
-		return buf_len;
+	if (sdev->no_vpd_size)
+		return SCSI_DEFAULT_VPD_LEN;
 
 	/*
 	 * Fetch the VPD page header to find out how big the page
@@ -375,7 +370,7 @@ int scsi_get_vpd_page(struct scsi_device *sdev, u8 page, unsigned char *buf,
 	if (!scsi_device_supports_vpd(sdev))
 		return -EINVAL;
 
-	vpd_len = scsi_get_vpd_size(sdev, page, buf_len);
+	vpd_len = scsi_get_vpd_size(sdev, page);
 	if (vpd_len <= 0)
 		return -EINVAL;
 
@@ -410,7 +405,7 @@ static struct scsi_vpd *scsi_get_vpd_buf(struct scsi_device *sdev, u8 page)
 	struct scsi_vpd *vpd_buf;
 	int vpd_len, result;
 
-	vpd_len = scsi_get_vpd_size(sdev, page, SCSI_VPD_PG_LEN);
+	vpd_len = scsi_get_vpd_size(sdev, page);
 	if (vpd_len <= 0)
 		return NULL;
 
