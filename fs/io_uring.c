@@ -2242,7 +2242,15 @@ static void io_submit_sqe(struct io_ring_ctx *ctx, struct sqe_submit *s,
 		goto err;
 	}
 
+	/*
+	 * SLE15-SP3: Guard file table insertion from racing with
+	 * io_sqe_files_unregister.  The SQPOLL path can get here unlocked.
+	 */
+	if (s->needs_lock)
+		mutex_lock(&ctx->uring_lock);
 	ret = io_req_set_file(ctx, s, state, req);
+	if (s->needs_lock)
+		mutex_unlock(&ctx->uring_lock);
 	if (unlikely(ret)) {
 err_req:
 		io_free_req(req);
