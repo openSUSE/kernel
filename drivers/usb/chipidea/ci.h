@@ -256,7 +256,9 @@ struct ci_hdrc {
 	bool				in_lpm;
 	bool				wakeup_int;
 	enum ci_revision		rev;
+#ifndef __GENKSYMS__
 	struct mutex                    mutex;
+#endif
 };
 
 static inline struct ci_role_driver *ci_role(struct ci_hdrc *ci)
