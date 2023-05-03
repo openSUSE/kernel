@@ -274,13 +274,13 @@ static void nvmet_passthru_execute_cmd(struct nvmet_req *req)
 	 * If a command needs post-execution fixups, or there are any
 	 * non-trivial effects, make sure to execute the command synchronously
 	 * in a workqueue so that nvme_passthru_end gets called.
- 	 */
+	 */
 	effects = nvme_command_effects(ctrl, ns, req->cmd->common.opcode);
 	if (req->p.use_workqueue ||
 	    (effects & ~(NVME_CMD_EFFECTS_CSUPP | NVME_CMD_EFFECTS_LBCC))) {
 		INIT_WORK(&req->p.work, nvmet_passthru_execute_cmd_work);
 		req->p.rq = rq;
-		schedule_work(&req->p.work);
+		queue_work(nvmet_wq, &req->p.work);
 	} else {
 		rq->end_io_data = req;
 		blk_execute_rq_nowait(ns ? ns->disk : NULL, rq, 0,

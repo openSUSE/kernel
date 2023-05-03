@@ -1660,6 +1660,9 @@ static void nvme_config_discard(struct gendisk *disk, struct nvme_ns *ns)
 	struct request_queue *queue = disk->queue;
 	u32 size = queue_logical_block_size(queue);
 
+	if (ctrl->dmrsl && ctrl->dmrsl <= nvme_sect_to_lba(ns, UINT_MAX))
+		ctrl->max_discard_sectors = nvme_lba_to_sect(ns, ctrl->dmrsl);
+
 	if (ctrl->max_discard_sectors == 0) {
 		blk_queue_flag_clear(QUEUE_FLAG_DISCARD, queue);
 		return;
@@ -1677,6 +1680,7 @@ static void nvme_config_discard(struct gendisk *disk, struct nvme_ns *ns)
 	/* If discard is already enabled, don't reset queue limits */
 	if (blk_queue_flag_test_and_set(QUEUE_FLAG_DISCARD, queue))
 		return;
+
 
 	blk_queue_max_discard_sectors(queue, ctrl->max_discard_sectors);
 	blk_queue_max_discard_segments(queue, ctrl->max_discard_segments);
@@ -2900,8 +2904,7 @@ static int nvme_init_non_mdts_limits(struct nvme_ctrl *ctrl)
 
 	if (id->dmrl)
 		ctrl->max_discard_segments = id->dmrl;
-	if (id->dmrsl)
-		ctrl->max_discard_sectors = le32_to_cpu(id->dmrsl);
+	ctrl->dmrsl = le32_to_cpu(id->dmrsl);
 	if (id->wzsl)
 		ctrl->max_zeroes_sectors = nvme_mps_to_sectors(ctrl, id->wzsl);
 
@@ -4152,13 +4155,19 @@ out:
 		nvme_ns_remove(ns);
 }
 
-static void nvme_validate_or_alloc_ns(struct nvme_ctrl *ctrl, unsigned nsid)
+static void nvme_scan_ns(struct nvme_ctrl *ctrl, unsigned nsid)
 {
 	struct nvme_ns_ids ids = { };
 	struct nvme_ns *ns;
 
 	if (nvme_identify_ns_descs(ctrl, nsid, &ids))
 		return;
+
+	if (ids.csi != NVME_CSI_NVM && !nvme_multi_css(ctrl)) {
+		dev_warn(ctrl->device,
+			"command set not reported for nsid: %d\n", nsid);
+		return;
+	}
 
 	ns = nvme_find_get_ns(ctrl, nsid);
 	if (ns) {
@@ -4175,12 +4184,6 @@ static void nvme_validate_or_alloc_ns(struct nvme_ctrl *ctrl, unsigned nsid)
 		if (!IS_ENABLED(CONFIG_BLK_DEV_ZONED)) {
 			dev_warn(ctrl->device,
 				"nsid %u not supported without CONFIG_BLK_DEV_ZONED\n",
-				nsid);
-			break;
-		}
-		if (!nvme_multi_css(ctrl)) {
-			dev_warn(ctrl->device,
-				"command set not reported for nsid: %d\n",
 				nsid);
 			break;
 		}
@@ -4245,7 +4248,7 @@ static int nvme_scan_ns_list(struct nvme_ctrl *ctrl)
 
 			if (!nsid)	/* end of the list? */
 				goto out;
-			nvme_validate_or_alloc_ns(ctrl, nsid);
+			nvme_scan_ns(ctrl, nsid);
 			while (++prev < nsid)
 				nvme_ns_remove_by_nsid(ctrl, prev);
 		}
@@ -4268,7 +4271,7 @@ static void nvme_scan_ns_sequential(struct nvme_ctrl *ctrl)
 	kfree(id);
 
 	for (i = 1; i <= nn; i++)
-		nvme_validate_or_alloc_ns(ctrl, i);
+		nvme_scan_ns(ctrl, i);
 
 	nvme_remove_invalid_namespaces(ctrl, nn);
 }
