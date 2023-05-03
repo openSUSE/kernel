@@ -384,7 +384,7 @@ static int amdgpu_cs_p2_dependencies(struct amdgpu_cs_parser *p,
 {
 	struct drm_amdgpu_cs_chunk_dep *deps = chunk->kdata;
 	struct amdgpu_fpriv *fpriv = p->filp->driver_priv;
-	unsigned num_deps;
+	unsigned int num_deps;
 	int i, r;
 
 	num_deps = chunk->length_dw * 4 /
@@ -456,7 +456,7 @@ static int amdgpu_cs_p2_syncobj_in(struct amdgpu_cs_parser *p,
 				   struct amdgpu_cs_chunk *chunk)
 {
 	struct drm_amdgpu_cs_chunk_sem *deps = chunk->kdata;
-	unsigned num_deps;
+	unsigned int num_deps;
 	int i, r;
 
 	num_deps = chunk->length_dw * 4 /
@@ -474,7 +474,7 @@ static int amdgpu_cs_p2_syncobj_timeline_wait(struct amdgpu_cs_parser *p,
 					      struct amdgpu_cs_chunk *chunk)
 {
 	struct drm_amdgpu_cs_chunk_syncobj *syncobj_deps = chunk->kdata;
-	unsigned num_deps;
+	unsigned int num_deps;
 	int i, r;
 
 	num_deps = chunk->length_dw * 4 /
@@ -494,7 +494,7 @@ static int amdgpu_cs_p2_syncobj_out(struct amdgpu_cs_parser *p,
 				    struct amdgpu_cs_chunk *chunk)
 {
 	struct drm_amdgpu_cs_chunk_sem *deps = chunk->kdata;
-	unsigned num_deps;
+	unsigned int num_deps;
 	int i;
 
 	num_deps = chunk->length_dw * 4 /
@@ -528,7 +528,7 @@ static int amdgpu_cs_p2_syncobj_timeline_signal(struct amdgpu_cs_parser *p,
 						struct amdgpu_cs_chunk *chunk)
 {
 	struct drm_amdgpu_cs_chunk_syncobj *syncobj_deps = chunk->kdata;
-	unsigned num_deps;
+	unsigned int num_deps;
 	int i;
 
 	num_deps = chunk->length_dw * 4 /
@@ -721,6 +721,7 @@ static void amdgpu_cs_get_threshold_for_moves(struct amdgpu_device *adev,
 
 		if (used_vis_vram < total_vis_vram) {
 			u64 free_vis_vram = total_vis_vram - used_vis_vram;
+
 			adev->mm_stats.accum_us_vis = min(adev->mm_stats.accum_us_vis +
 							  increment_us, us_upper_bound);
 
@@ -1043,9 +1044,8 @@ static int amdgpu_cs_patch_ibs(struct amdgpu_cs_parser *p,
 
 		/* the IB should be reserved at this point */
 		r = amdgpu_bo_kmap(aobj, (void **)&kptr);
-		if (r) {
+		if (r)
 			return r;
-		}
 
 		kptr += va_start - (m->start * AMDGPU_GPU_PAGE_SIZE);
 
@@ -1318,7 +1318,7 @@ static void amdgpu_cs_parser_fini(struct amdgpu_cs_parser *parser)
 {
 	struct amdgpu_device *adev = parser->adev;
 	struct amdgpu_bo_list_entry *e;
-	unsigned i;
+	unsigned int i;
 
 	for (i = 0; i < parser->num_post_deps; i++) {
 		drm_syncobj_put(parser->post_deps[i].syncobj);
