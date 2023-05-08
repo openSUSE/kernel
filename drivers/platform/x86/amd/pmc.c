@@ -93,6 +93,7 @@
 #define AMD_CPU_ID_YC			0x14B5
 #define AMD_CPU_ID_CB			0x14D8
 #define AMD_CPU_ID_PS			0x14E8
+#define AMD_CPU_ID_SP			0x14A4
 
 #define PMC_MSG_DELAY_MIN_US		50
 #define RESPONSE_REGISTER_LOOP_MAX	20000
@@ -264,6 +265,7 @@ static int amd_pmc_stb_debugfs_open_v2(struct inode *inode, struct file *filp)
 	dev->msg_port = 0;
 	if (ret) {
 		dev_err(dev->dev, "error: S2D_NUM_SAMPLES not supported : %d\n", ret);
+		kfree(buf);
 		return ret;
 	}
 
@@ -849,7 +851,7 @@ static struct acpi_s2idle_dev_ops amd_pmc_s2idle_dev_ops = {
 	.restore = amd_pmc_s2idle_restore,
 };
 
-static int __maybe_unused amd_pmc_suspend_handler(struct device *dev)
+static int amd_pmc_suspend_handler(struct device *dev)
 {
 	struct amd_pmc_dev *pdev = dev_get_drvdata(dev);
 
@@ -875,6 +877,7 @@ static const struct pci_device_id pmc_pci_ids[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, AMD_CPU_ID_RN) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, AMD_CPU_ID_PCO) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, AMD_CPU_ID_RV) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, AMD_CPU_ID_SP) },
 	{ }
 };
 
@@ -953,6 +956,13 @@ static int amd_pmc_probe(struct platform_device *pdev)
 	}
 
 	dev->cpu_id = rdev->device;
+
+	if (dev->cpu_id == AMD_CPU_ID_SP) {
+		dev_warn_once(dev->dev, "S0i3 is not supported on this hardware\n");
+		err = -ENODEV;
+		goto err_pci_dev_put;
+	}
+
 	dev->rdev = rdev;
 	err = amd_smn_read(0, AMD_PMC_BASE_ADDR_LO, &val);
 	if (err) {
