@@ -4879,10 +4879,16 @@ void show_workqueue_state(void)
 	for_each_pool(pool, pi) {
 		struct worker *worker;
 		bool first = true;
+		unsigned long hung = 0;
 
 		raw_spin_lock_irqsave(&pool->lock, flags);
 		if (pool->nr_workers == pool->nr_idle)
 			goto next_pool;
+
+		/* How long the first pending work is waiting for a worker. */
+		if (!list_empty(&pool->worklist))
+			hung = jiffies_to_msecs(jiffies - pool->watchdog_ts) / 1000;
+
 		/*
 		 * Defer printing to avoid deadlocks in console drivers that
 		 * queue work while holding locks also taken in their write
@@ -4891,9 +4897,7 @@ void show_workqueue_state(void)
 		printk_deferred_enter();
 		pr_info("pool %d:", pool->id);
 		pr_cont_pool_info(pool);
-		pr_cont(" hung=%us workers=%d",
-			jiffies_to_msecs(jiffies - pool->watchdog_ts) / 1000,
-			pool->nr_workers);
+		pr_cont(" hung=%lus workers=%d", hung, pool->nr_workers);
 		if (pool->manager)
 			pr_cont(" manager: %d",
 				task_pid_nr(pool->manager->task));
