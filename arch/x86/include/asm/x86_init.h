@@ -285,6 +285,8 @@ struct x86_hyper_runtime {
  * 				possible in x86_early_init_platform_quirks() by
  * 				only using the current x86_hardware_subarch
  * 				semantics.
+ * @realmode_reserve:		reserve memory for realmode trampoline
+ * @realmode_init:		initialize realmode trampoline
  * @hyper:			x86 hypervisor specific runtime callbacks
  */
 struct x86_platform_ops {
@@ -303,7 +305,9 @@ struct x86_platform_ops {
 	void (*set_legacy_features)(void);
 	struct x86_hyper_runtime hyper;
 #ifndef __GENKSYMS__
-	struct x86_guest guest;
+ 	struct x86_guest guest;
+	void (*realmode_reserve)(void);
+	void (*realmode_init)(void);
 #endif
 };
 
