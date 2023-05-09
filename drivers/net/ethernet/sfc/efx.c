@@ -543,7 +543,6 @@ int efx_net_open(struct net_device *net_dev)
 	efx_start_all(efx);
 	if (efx->state == STATE_DISABLED || efx->reset_pending)
 		netif_device_detach(efx->net_dev);
-	efx_selftest_async_start(efx);
 	return 0;
 }
 
