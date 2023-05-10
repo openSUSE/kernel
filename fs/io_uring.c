@@ -2441,6 +2441,19 @@ static int io_submit_sqes(struct io_ring_ctx *ctx, unsigned int nr,
 	return submitted;
 }
 
+static int __io_uring_fd(const void *arg, struct file *file,
+			 unsigned int fd)
+{
+	return file->f_op == &io_uring_fops;
+}
+
+bool current_has_io_workers(void)
+{
+	if (iterate_fd(current->files, 0, __io_uring_fd, NULL))
+		return true;
+	return false;
+}
+
 static int io_sq_thread(void *data)
 {
 	struct io_ring_ctx *ctx = data;
