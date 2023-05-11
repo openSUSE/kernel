@@ -90,8 +90,6 @@ struct qat_alg_aead_ctx {
 	};
 	char ipad[SHA512_BLOCK_SIZE]; /* sufficient for SHA-1/SHA-256 as well */
 	char opad[SHA512_BLOCK_SIZE];
-
-	void *suse_kabi_padding;
 };
 
 struct qat_alg_skcipher_ctx {
@@ -106,8 +104,6 @@ struct qat_alg_skcipher_ctx {
 	struct crypto_cipher *tweak;
 	bool fallback;
 	int mode;
-
-	void *suse_kabi_padding;
 };
 
 static int qat_get_inter_state_size(enum icp_qat_hw_auth_algo qat_hash_alg)

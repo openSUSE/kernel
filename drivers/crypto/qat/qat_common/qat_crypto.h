@@ -19,8 +19,6 @@ struct qat_crypto_instance {
 	unsigned long state;
 	int id;
 	atomic_t refctr;
-
-	void *suse_kabi_padding;
 };
 
 struct qat_crypto_request_buffs {
@@ -55,8 +53,6 @@ struct qat_crypto_request {
 		u8 iv[AES_BLOCK_SIZE];
 	};
 	bool encryption;
-
-	void *suse_kabi_padding;
 };
 
 static inline bool adf_hw_dev_has_crypto(struct adf_accel_dev *accel_dev)
