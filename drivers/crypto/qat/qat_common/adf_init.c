@@ -69,7 +69,8 @@ int adf_dev_init(struct adf_accel_dev *accel_dev)
 		return -EFAULT;
 	}
 
-	if (!test_bit(ADF_STATUS_CONFIGURED, &accel_dev->status)) {
+	if (!test_bit(ADF_STATUS_CONFIGURED, &accel_dev->status) &&
+	    !accel_dev->is_vf) {
 		dev_err(&GET_DEV(accel_dev), "Device not configured\n");
 		return -EFAULT;
 	}
@@ -117,9 +118,15 @@ int adf_dev_init(struct adf_accel_dev *accel_dev)
 	hw_data->enable_ints(accel_dev);
 	hw_data->enable_error_correction(accel_dev);
 
-	ret = hw_data->enable_pfvf_comms(accel_dev);
+	ret = hw_data->pfvf_ops.enable_comms(accel_dev);
 	if (ret)
 		return ret;
+
+	if (!test_bit(ADF_STATUS_CONFIGURED, &accel_dev->status) &&
+	    accel_dev->is_vf) {
+		if (qat_crypto_vf_dev_config(accel_dev))
+			return -EFAULT;
+	}
 
 	/*
 	 * Subservice initialisation is divided into two stages: init and start.
@@ -174,6 +181,12 @@ int adf_dev_start(struct adf_accel_dev *accel_dev)
 	if (hw_data->set_ssm_wdtimer)
 		hw_data->set_ssm_wdtimer(accel_dev);
 
+	/* Enable Power Management */
+	if (hw_data->enable_pm && hw_data->enable_pm(accel_dev)) {
+		dev_err(&GET_DEV(accel_dev), "Failed to configure Power Management\n");
+		return -EFAULT;
+	}
+
 	list_for_each(list_itr, &service_table) {
 		service = list_entry(list_itr, struct service_hndl, list);
 		if (service->event_hld(accel_dev, ADF_EVENT_START)) {
@@ -192,6 +205,14 @@ int adf_dev_start(struct adf_accel_dev *accel_dev)
 	    (qat_algs_register() || qat_asym_algs_register())) {
 		dev_err(&GET_DEV(accel_dev),
 			"Failed to register crypto algs\n");
+		set_bit(ADF_STATUS_STARTING, &accel_dev->status);
+		clear_bit(ADF_STATUS_STARTED, &accel_dev->status);
+		return -EFAULT;
+	}
+
+	if (!list_empty(&accel_dev->compression_list) && qat_comp_algs_register()) {
+		dev_err(&GET_DEV(accel_dev),
+			"Failed to register compression algs\n");
 		set_bit(ADF_STATUS_STARTING, &accel_dev->status);
 		clear_bit(ADF_STATUS_STARTED, &accel_dev->status);
 		return -EFAULT;
@@ -228,6 +249,9 @@ void adf_dev_stop(struct adf_accel_dev *accel_dev)
 		qat_algs_unregister();
 		qat_asym_algs_unregister();
 	}
+
+	if (!list_empty(&accel_dev->compression_list))
+		qat_comp_algs_unregister();
 
 	list_for_each(list_itr, &service_table) {
 		service = list_entry(list_itr, struct service_hndl, list);
@@ -348,5 +372,31 @@ int adf_dev_restarted_notify(struct adf_accel_dev *accel_dev)
 				"Failed to restart service %s.\n",
 				service->name);
 	}
+	return 0;
+}
+
+int adf_dev_shutdown_cache_cfg(struct adf_accel_dev *accel_dev)
+{
+	char services[ADF_CFG_MAX_VAL_LEN_IN_BYTES] = {0};
+	int ret;
+
+	ret = adf_cfg_get_param_value(accel_dev, ADF_GENERAL_SEC,
+				      ADF_SERVICES_ENABLED, services);
+
+	adf_dev_stop(accel_dev);
+	adf_dev_shutdown(accel_dev);
+
+	if (!ret) {
+		ret = adf_cfg_section_add(accel_dev, ADF_GENERAL_SEC);
+		if (ret)
+			return ret;
+
+		ret = adf_cfg_add_key_value_param(accel_dev, ADF_GENERAL_SEC,
+						  ADF_SERVICES_ENABLED,
+						  services, ADF_STR);
+		if (ret)
+			return ret;
+	}
+
 	return 0;
 }
