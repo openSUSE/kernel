@@ -6164,6 +6164,11 @@ static s32 brcmf_get_assoc_ies(struct brcmf_cfg80211_info *cfg,
 		(struct brcmf_cfg80211_assoc_ielen_le *)cfg->extra_buf;
 	req_len = le32_to_cpu(assoc_info->req_len);
 	resp_len = le32_to_cpu(assoc_info->resp_len);
+	if (req_len > WL_EXTRA_BUF_MAX || resp_len > WL_EXTRA_BUF_MAX) {
+		bphy_err(drvr, "invalid lengths in assoc info: req %u resp %u\n",
+			 req_len, resp_len);
+		return -EINVAL;
+	}
 	if (req_len) {
 		err = brcmf_fil_iovar_data_get(ifp, "assoc_req_ies",
 					       cfg->extra_buf,
@@ -7928,13 +7933,10 @@ exit:
 }
 
 static s32
-cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
-		     struct ieee80211_channel *chan,
-		     enum nl80211_channel_type channel_type)
+brcmf_set_channel(struct brcmf_cfg80211_info *cfg, struct ieee80211_channel *chan)
 {
 	u16 chspec = 0;
 	int err = 0;
-	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(wiphy);
 	struct brcmf_if *ifp = netdev_priv(cfg_to_ndev(cfg));
 
 	if (chan->flags & IEEE80211_CHAN_DISABLED)
@@ -7994,7 +7996,7 @@ brcmf_cfg80211_dump_survey(struct wiphy *wiphy, struct net_device *ndev,
 
 	/* Setting current channel to the requested channel */
 	info->filled = 0;
-	if (cfg80211_set_channel(wiphy, ndev, info->channel, NL80211_CHAN_HT20))
+	if (brcmf_set_channel(cfg, info->channel))
 		return 0;
 
 	/* Disable mpc */
