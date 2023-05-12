@@ -234,6 +234,9 @@ struct x86_emulate_ops {
 	int (*leave_smm)(struct x86_emulate_ctxt *ctxt, const char *smstate);
 	void (*triple_fault)(struct x86_emulate_ctxt *ctxt);
 	int (*set_xcr)(struct x86_emulate_ctxt *ctxt, u32 index, u64 xcr);
+#ifndef __GENKSYMS__
+	bool (*guest_has_rdpid)(struct x86_emulate_ctxt *ctxt);
+#endif
 };
 
 /* Type, address-of, and value of an instruction's operand. */
