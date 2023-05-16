@@ -243,7 +243,7 @@ int mana_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		}
 
 		if (skb->encapsulation) {
-			ihs = skb_transport_offset(skb) + tcp_hdrlen(skb);
+			ihs = skb_inner_transport_offset(skb) + inner_tcp_hdrlen(skb);
 			u64_stats_update_begin(&tx_stats->syncp);
 			tx_stats->tso_inner_packets++;
 			tx_stats->tso_inner_bytes += skb->len - ihs;
