@@ -532,16 +532,19 @@ ice_devlink_enable_iw_validate(struct devlink *devlink, u32 id,
 	return 0;
 }
 
+#define ICE_DEVLINK_PARAM_ENABLE_IWARP	(DEVLINK_PARAM_GENERIC_ID_MAX + 1)
+
 static const struct devlink_param ice_devlink_params[] = {
 	DEVLINK_PARAM_GENERIC(ENABLE_ROCE, BIT(DEVLINK_PARAM_CMODE_RUNTIME),
 			      ice_devlink_enable_roce_get,
 			      ice_devlink_enable_roce_set,
 			      ice_devlink_enable_roce_validate),
-	DEVLINK_PARAM_GENERIC(ENABLE_IWARP, BIT(DEVLINK_PARAM_CMODE_RUNTIME),
-			      ice_devlink_enable_iw_get,
-			      ice_devlink_enable_iw_set,
-			      ice_devlink_enable_iw_validate),
-
+	DEVLINK_PARAM_DRIVER(ICE_DEVLINK_PARAM_ENABLE_IWARP,
+			     "enable_iwarp", DEVLINK_PARAM_TYPE_BOOL,
+			      BIT(DEVLINK_PARAM_CMODE_RUNTIME),
+			     ice_devlink_enable_iw_get,
+			     ice_devlink_enable_iw_set,
+			     ice_devlink_enable_iw_validate),
 };
 
 static void ice_devlink_free(void *devlink_ptr)
@@ -611,7 +614,7 @@ int ice_devlink_register_params(struct ice_pf *pf)
 
 	value.vbool = false;
 	devlink_param_driverinit_value_set(devlink,
-					   DEVLINK_PARAM_GENERIC_ID_ENABLE_IWARP,
+					   ICE_DEVLINK_PARAM_ENABLE_IWARP,
 					   value);
 
 	value.vbool = test_bit(ICE_FLAG_RDMA_ENA, pf->flags) ? true : false;
