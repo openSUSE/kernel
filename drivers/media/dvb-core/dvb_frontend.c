@@ -89,6 +89,8 @@ MODULE_PARM_DESC(dvb_mfe_wait_time, "Wait up to <mfe_wait_time> seconds on open(
 
 static DEFINE_MUTEX(frontend_mutex);
 
+static DEFINE_MUTEX(remove_mutex);
+
 struct dvb_frontend_private {
 	/* thread/frontend values */
 	struct dvb_device *dvbdev;
@@ -812,20 +814,20 @@ static void dvb_frontend_stop(struct dvb_frontend *fe)
 
 	dev_dbg(fe->dvb->device, "%s:\n", __func__);
 
-	mutex_lock(&fe->remove_mutex);
+	mutex_lock(&remove_mutex);
 
 	if (fe->exit != DVB_FE_DEVICE_REMOVED)
 		fe->exit = DVB_FE_NORMAL_EXIT;
 	mb();
 
 	if (!fepriv->thread) {
-		mutex_unlock(&fe->remove_mutex);
+		mutex_unlock(&remove_mutex);
 		return;
 	}
 
 	kthread_stop(fepriv->thread);
 
-	mutex_unlock(&fe->remove_mutex);
+	mutex_unlock(&remove_mutex);
 
 	if (fepriv->dvbdev->users < -1) {
 		wait_event(fepriv->dvbdev->wait_queue,
@@ -2748,7 +2750,7 @@ static int dvb_frontend_open(struct inode *inode, struct file *file)
 	struct dvb_adapter *adapter = fe->dvb;
 	int ret;
 
-	mutex_lock(&fe->remove_mutex);
+	mutex_lock(&remove_mutex);
 
 	dev_dbg(fe->dvb->device, "%s:\n", __func__);
 	if (fe->exit == DVB_FE_DEVICE_REMOVED) {
@@ -2851,7 +2853,7 @@ static int dvb_frontend_open(struct inode *inode, struct file *file)
 	if (adapter->mfe_shared)
 		mutex_unlock(&adapter->mfe_lock);
 
-	mutex_unlock(&fe->remove_mutex);
+	mutex_unlock(&remove_mutex);
 	return ret;
 
 err3:
@@ -2875,7 +2877,7 @@ err0:
 		mutex_unlock(&adapter->mfe_lock);
 
 err_remove_mutex:
-	mutex_unlock(&fe->remove_mutex);
+	mutex_unlock(&remove_mutex);
 	return ret;
 }
 
@@ -2886,7 +2888,7 @@ static int dvb_frontend_release(struct inode *inode, struct file *file)
 	struct dvb_frontend_private *fepriv = fe->frontend_priv;
 	int ret;
 
-	mutex_lock(&fe->remove_mutex);
+	mutex_lock(&remove_mutex);
 
 	dev_dbg(fe->dvb->device, "%s:\n", __func__);
 
@@ -2913,14 +2915,14 @@ static int dvb_frontend_release(struct inode *inode, struct file *file)
 			fe->ops.ts_bus_ctrl(fe, 0);
 
 		if (fe->exit != DVB_FE_NO_EXIT) {
-			mutex_unlock(&fe->remove_mutex);
+			mutex_unlock(&remove_mutex);
 			wake_up(&dvbdev->wait_queue);
 		} else {
-			mutex_unlock(&fe->remove_mutex);
+			mutex_unlock(&remove_mutex);
 		}
 
 	} else {
-		mutex_unlock(&fe->remove_mutex);
+		mutex_unlock(&remove_mutex);
 	}
 
 	dvb_frontend_put(fe);
@@ -3016,7 +3018,6 @@ int dvb_register_frontend(struct dvb_adapter *dvb,
 	fepriv = fe->frontend_priv;
 
 	kref_init(&fe->refcount);
-	mutex_init(&fe->remove_mutex);
 
 	/*
 	 * After initialization, there need to be two references: one
