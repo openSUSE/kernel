@@ -64,9 +64,7 @@ struct rxe_cq {
 	struct rxe_queue	*queue;
 	spinlock_t		cq_lock;
 	u8			notify;
-	bool			is_dying;
 	bool			is_user;
-	struct tasklet_struct	comp_task;
 };
 
 enum wqe_state {
