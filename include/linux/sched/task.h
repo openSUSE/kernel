@@ -176,4 +176,13 @@ static inline void task_unlock(struct task_struct *p)
 	spin_unlock(&p->alloc_lock);
 }
 
+#if defined(CONFIG_IO_URING)
+extern bool current_has_io_workers(void);
+#else
+static inline bool current_has_io_workers(void)
+{
+	return false;
+}
+#endif
+
 #endif /* _LINUX_SCHED_TASK_H */
