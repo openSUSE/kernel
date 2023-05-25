@@ -595,6 +595,7 @@ static void acpi_device_remove_notify_handler(struct acpi_device *device)
 	else
 		acpi_remove_notify_handler(device->handle, ACPI_DEVICE_NOTIFY,
 					   acpi_notify_device);
+	acpi_os_wait_events_complete();
 }
 
 /* Handle events targeting \_SB device (at present only graceful shutdown) */
