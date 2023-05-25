@@ -172,7 +172,7 @@ replay:
 
 	/* Find qdisc */
 	if (!parent) {
-		q = rtnl_dereference(dev->qdisc);
+		q = rcu_dereference(dev->qdisc);
 		parent = q->handle;
 	} else {
 		q = qdisc_lookup_rcu(dev, TC_H_MAJ(t->tcm_parent));
