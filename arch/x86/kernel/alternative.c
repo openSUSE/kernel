@@ -37,11 +37,23 @@ EXPORT_SYMBOL_GPL(alternatives_patched);
 
 #define MAX_PATCH_LEN (255-1)
 
-static int __initdata_or_module debug_alternative;
+#define DA_ALL		(~0)
+#define DA_ALT		0x01
+#define DA_RET		0x02
+#define DA_RETPOLINE	0x04
+#define DA_ENDBR	0x08
+#define DA_SMP		0x10
+
+static unsigned int __initdata_or_module debug_alternative;
 
 static int __init debug_alt(char *str)
 {
-	debug_alternative = 1;
+	if (str && *str == '=')
+		str++;
+
+	if (!str || kstrtouint(str, 0, &debug_alternative))
+		debug_alternative = DA_ALL;
+
 	return 1;
 }
 __setup("debug-alternative", debug_alt);
@@ -55,15 +67,15 @@ static int __init setup_noreplace_smp(char *str)
 }
 __setup("noreplace-smp", setup_noreplace_smp);
 
-#define DPRINTK(fmt, args...)						\
+#define DPRINTK(type, fmt, args...)					\
 do {									\
-	if (debug_alternative)						\
+	if (debug_alternative & DA_##type)				\
 		printk(KERN_DEBUG pr_fmt(fmt) "\n", ##args);		\
 } while (0)
 
-#define DUMP_BYTES(buf, len, fmt, args...)				\
+#define DUMP_BYTES(type, buf, len, fmt, args...)			\
 do {									\
-	if (unlikely(debug_alternative)) {				\
+	if (unlikely(debug_alternative & DA_##type)) {			\
 		int j;							\
 									\
 		if (!(len))						\
@@ -121,71 +133,6 @@ extern s32 __smp_locks[], __smp_locks_end[];
 void text_poke_early(void *addr, const void *opcode, size_t len);
 
 /*
- * Are we looking at a near JMP with a 1 or 4-byte displacement.
- */
-static inline bool is_jmp(const u8 opcode)
-{
-	return opcode == 0xeb || opcode == 0xe9;
-}
-
-static void __init_or_module
-recompute_jump(struct alt_instr *a, u8 *orig_insn, u8 *repl_insn, u8 *insn_buff)
-{
-	u8 *next_rip, *tgt_rip;
-	s32 n_dspl, o_dspl;
-	int repl_len;
-
-	if (a->replacementlen != 5)
-		return;
-
-	o_dspl = *(s32 *)(insn_buff + 1);
-
-	/* next_rip of the replacement JMP */
-	next_rip = repl_insn + a->replacementlen;
-	/* target rip of the replacement JMP */
-	tgt_rip  = next_rip + o_dspl;
-	n_dspl = tgt_rip - orig_insn;
-
-	DPRINTK("target RIP: %px, new_displ: 0x%x", tgt_rip, n_dspl);
-
-	if (tgt_rip - orig_insn >= 0) {
-		if (n_dspl - 2 <= 127)
-			goto two_byte_jmp;
-		else
-			goto five_byte_jmp;
-	/* negative offset */
-	} else {
-		if (((n_dspl - 2) & 0xff) == (n_dspl - 2))
-			goto two_byte_jmp;
-		else
-			goto five_byte_jmp;
-	}
-
-two_byte_jmp:
-	n_dspl -= 2;
-
-	insn_buff[0] = 0xeb;
-	insn_buff[1] = (s8)n_dspl;
-	add_nops(insn_buff + 2, 3);
-
-	repl_len = 2;
-	goto done;
-
-five_byte_jmp:
-	n_dspl -= 5;
-
-	insn_buff[0] = 0xe9;
-	*(s32 *)&insn_buff[1] = n_dspl;
-
-	repl_len = 5;
-
-done:
-
-	DPRINTK("final displ: 0x%08x, JMP 0x%lx",
-		n_dspl, (unsigned long)orig_insn + n_dspl + repl_len);
-}
-
-/*
  * optimize_nops_range() - Optimize a sequence of single byte NOPs (0x90)
  *
  * @instr: instruction byte stream
@@ -215,7 +162,7 @@ static __always_inline int optimize_nops_range(u8 *instr, u8 instrlen, int off)
 	add_nops(instr + off, nnops);
 	local_irq_restore(flags);
 
-	DUMP_BYTES(instr, instrlen, "%px: [%d:%d) optimized NOPs: ", instr, off, i);
+	DUMP_BYTES(ALT, instr, instrlen, "%px: [%d:%d) optimized NOPs: ", instr, off, i);
 
 	return nnops;
 }
@@ -252,6 +199,140 @@ static void __init_or_module noinline optimize_nops(u8 *instr, size_t len)
 }
 
 /*
+ * In this context, "source" is where the instructions are placed in the
+ * section .altinstr_replacement, for example during kernel build by the
+ * toolchain.
+ * "Destination" is where the instructions are being patched in by this
+ * machinery.
+ *
+ * The source offset is:
+ *
+ *   src_imm = target - src_next_ip                  (1)
+ *
+ * and the target offset is:
+ *
+ *   dst_imm = target - dst_next_ip                  (2)
+ *
+ * so rework (1) as an expression for target like:
+ *
+ *   target = src_imm + src_next_ip                  (1a)
+ *
+ * and substitute in (2) to get:
+ *
+ *   dst_imm = (src_imm + src_next_ip) - dst_next_ip (3)
+ *
+ * Now, since the instruction stream is 'identical' at src and dst (it
+ * is being copied after all) it can be stated that:
+ *
+ *   src_next_ip = src + ip_offset
+ *   dst_next_ip = dst + ip_offset                   (4)
+ *
+ * Substitute (4) in (3) and observe ip_offset being cancelled out to
+ * obtain:
+ *
+ *   dst_imm = src_imm + (src + ip_offset) - (dst + ip_offset)
+ *           = src_imm + src - dst + ip_offset - ip_offset
+ *           = src_imm + src - dst                   (5)
+ *
+ * IOW, only the relative displacement of the code block matters.
+ */
+
+#define apply_reloc_n(n_, p_, d_)				\
+	do {							\
+		s32 v = *(s##n_ *)(p_);				\
+		v += (d_);					\
+		BUG_ON((v >> 31) != (v >> (n_-1)));		\
+		*(s##n_ *)(p_) = (s##n_)v;			\
+	} while (0)
+
+
+static __always_inline
+void apply_reloc(int n, void *ptr, uintptr_t diff)
+{
+	switch (n) {
+	case 1: apply_reloc_n(8, ptr, diff); break;
+	case 2: apply_reloc_n(16, ptr, diff); break;
+	case 4: apply_reloc_n(32, ptr, diff); break;
+	default: BUG();
+	}
+}
+
+static __always_inline
+bool need_reloc(unsigned long offset, u8 *src, size_t src_len)
+{
+	u8 *target = src + offset;
+	/*
+	 * If the target is inside the patched block, it's relative to the
+	 * block itself and does not need relocation.
+	 */
+	return (target < src || target > src + src_len);
+}
+
+static void __init_or_module noinline
+apply_relocation(u8 *buf, size_t len, u8 *dest, u8 *src, size_t src_len)
+{
+	int next, i = 0;
+	for (; i < len; i = next) {
+		struct insn insn;
+
+		if (WARN_ON_ONCE(insn_decode_kernel(&insn, &buf[i])))
+			return;
+
+		next = i + insn.length;
+
+		switch (insn.opcode.bytes[0]) {
+		case 0x0f:
+			if (insn.opcode.bytes[1] < 0x80 ||
+			    insn.opcode.bytes[1] > 0x8f)
+				break;
+
+			fallthrough;	/* Jcc.d32 */
+		case 0x70 ... 0x7f:	/* Jcc.d8 */
+		case JMP8_INSN_OPCODE:
+		case JMP32_INSN_OPCODE:
+		case CALL_INSN_OPCODE:
+			if (need_reloc(next + insn.immediate.value, src, src_len)) {
+				apply_reloc(insn.immediate.nbytes,
+					    buf + i + insn_offset_immediate(&insn),
+					    src - dest);
+			}
+
+			/*
+			 * Where possible, convert JMP.d32 into JMP.d8.
+			 */
+			if (insn.opcode.bytes[0] == JMP32_INSN_OPCODE) {
+				s32 imm = insn.immediate.value;
+				imm += src - dest;
+				imm += JMP32_INSN_SIZE - JMP8_INSN_SIZE;
+				if ((imm >> 31) == (imm >> 7)) {
+					buf[i+0] = JMP8_INSN_OPCODE;
+					buf[i+1] = (s8)imm;
+
+					memset(&buf[i+2], INT3_INSN_OPCODE, insn.length - 2);
+				}
+			}
+			break;
+		}
+
+		if (insn_rip_relative(&insn)) {
+			if (need_reloc(next + insn.displacement.value, src, src_len)) {
+				apply_reloc(insn.displacement.nbytes,
+					    buf + i + insn_offset_displacement(&insn),
+					    src - dest);
+			}
+		}
+
+
+		/*
+		 * See if this and any potentially following NOPs can be
+		 * optimized.
+		 */
+		if (insn.length == 1 && insn.opcode.bytes[0] == 0x90)
+			next = i + optimize_nops_range(buf, len, i);
+	}
+}
+
+/*
  * Replace instructions with better alternatives for this CPU type. This runs
  * before SMP is initialized to avoid SMP problems with self modifying code.
  * This implies that asymmetric systems where APs have less capabilities than
@@ -268,7 +349,7 @@ void __init_or_module noinline apply_alternatives(struct alt_instr *start,
 	u8 *instr, *replacement;
 	u8 insn_buff[MAX_PATCH_LEN];
 
-	DPRINTK("alt table %px, -> %px", start, end);
+	DPRINTK(ALT, "alt table %px, -> %px", start, end);
 	/*
 	 * The scan order should be from start to end. A later scanned
 	 * alternative code can overwrite previously scanned alternative code.
@@ -294,47 +375,31 @@ void __init_or_module noinline apply_alternatives(struct alt_instr *start,
 		 * - feature not present but ALTINSTR_FLAG_INV is set to mean,
 		 *   patch if feature is *NOT* present.
 		 */
-		if (!boot_cpu_has(feature) == !(a->cpuid & ALTINSTR_FLAG_INV))
-			goto next;
+		if (!boot_cpu_has(feature) == !(a->cpuid & ALTINSTR_FLAG_INV)) {
+			optimize_nops(instr, a->instrlen);
+			continue;
+		}
 
-		DPRINTK("feat: %s%d*32+%d, old: (%pS (%px) len: %d), repl: (%px, len: %d)",
+		DPRINTK(ALT, "feat: %s%d*32+%d, old: (%pS (%px) len: %d), repl: (%px, len: %d)",
 			(a->cpuid & ALTINSTR_FLAG_INV) ? "!" : "",
 			feature >> 5,
 			feature & 0x1f,
 			instr, instr, a->instrlen,
 			replacement, a->replacementlen);
 
-		DUMP_BYTES(instr, a->instrlen, "%px:   old_insn: ", instr);
-		DUMP_BYTES(replacement, a->replacementlen, "%px:   rpl_insn: ", replacement);
-
 		memcpy(insn_buff, replacement, a->replacementlen);
 		insn_buff_sz = a->replacementlen;
-
-		/*
-		 * 0xe8 is a relative jump; fix the offset.
-		 *
-		 * Instruction length is checked before the opcode to avoid
-		 * accessing uninitialized bytes for zero-length replacements.
-		 */
-		if (a->replacementlen == 5 && *insn_buff == 0xe8) {
-			*(s32 *)(insn_buff + 1) += replacement - instr;
-			DPRINTK("Fix CALL offset: 0x%x, CALL 0x%lx",
-				*(s32 *)(insn_buff + 1),
-				(unsigned long)instr + *(s32 *)(insn_buff + 1) + 5);
-		}
-
-		if (a->replacementlen && is_jmp(replacement[0]))
-			recompute_jump(a, instr, replacement, insn_buff);
 
 		for (; insn_buff_sz < a->instrlen; insn_buff_sz++)
 			insn_buff[insn_buff_sz] = 0x90;
 
-		DUMP_BYTES(insn_buff, insn_buff_sz, "%px: final_insn: ", instr);
+		apply_relocation(insn_buff, a->instrlen, instr, replacement, a->replacementlen);
+
+		DUMP_BYTES(ALT, instr, a->instrlen, "%px:   old_insn: ", instr);
+		DUMP_BYTES(ALT, replacement, a->replacementlen, "%px:   rpl_insn: ", replacement);
+		DUMP_BYTES(ALT, insn_buff, insn_buff_sz, "%px: final_insn: ", instr);
 
 		text_poke_early(instr, insn_buff, insn_buff_sz);
-
-next:
-		optimize_nops(instr, a->instrlen);
 	}
 }
 
@@ -493,15 +558,15 @@ void __init_or_module noinline apply_retpolines(s32 *start, s32 *end)
 			continue;
 		}
 
-		DPRINTK("retpoline at: %pS (%px) len: %d to: %pS",
+		DPRINTK(RETPOLINE, "retpoline at: %pS (%px) len: %d to: %pS",
 			addr, addr, insn.length,
 			addr + insn.length + insn.immediate.value);
 
 		len = patch_retpoline(addr, &insn, bytes);
 		if (len == insn.length) {
 			optimize_nops(bytes, len);
-			DUMP_BYTES(((u8*)addr),  len, "%px: orig: ", addr);
-			DUMP_BYTES(((u8*)bytes), len, "%px: repl: ", addr);
+			DUMP_BYTES(RETPOLINE, ((u8*)addr),  len, "%px: orig: ", addr);
+			DUMP_BYTES(RETPOLINE, ((u8*)bytes), len, "%px: repl: ", addr);
 			text_poke_early(addr, bytes, len);
 		}
 	}
@@ -553,17 +618,19 @@ void __init_or_module noinline apply_returns(s32 *start, s32 *end)
 			dest = addr + insn.length + insn.immediate.value;
 
 		if (__static_call_fixup(addr, op, dest) ||
-		    WARN_ON_ONCE(dest != &__x86_return_thunk))
+		    WARN_ONCE(dest != &__x86_return_thunk,
+			      "missing return thunk: %pS-%pS: %*ph",
+			      addr, dest, 5, addr))
 			continue;
 
-		DPRINTK("return thunk at: %pS (%px) len: %d to: %pS",
+		DPRINTK(RET, "return thunk at: %pS (%px) len: %d to: %pS",
 			addr, addr, insn.length,
 			addr + insn.length + insn.immediate.value);
 
 		len = patch_return(addr, &insn, bytes);
 		if (len == insn.length) {
-			DUMP_BYTES(((u8*)addr),  len, "%px: orig: ", addr);
-			DUMP_BYTES(((u8*)bytes), len, "%px: repl: ", addr);
+			DUMP_BYTES(RET, ((u8*)addr),  len, "%px: orig: ", addr);
+			DUMP_BYTES(RET, ((u8*)bytes), len, "%px: repl: ", addr);
 			text_poke_early(addr, bytes, len);
 		}
 	}
@@ -652,7 +719,7 @@ void __init_or_module alternatives_smp_module_add(struct module *mod,
 	smp->locks_end	= locks_end;
 	smp->text	= text;
 	smp->text_end	= text_end;
-	DPRINTK("locks %p -> %p, text %p -> %p, name %s\n",
+	DPRINTK(SMP, "locks %p -> %p, text %p -> %p, name %s\n",
 		smp->locks, smp->locks_end,
 		smp->text, smp->text_end, smp->name);
 
@@ -837,6 +904,35 @@ static void __init int3_selftest(void)
 	unregister_die_notifier(&int3_exception_nb);
 }
 
+static __initdata int __alt_reloc_selftest_addr;
+
+__visible noinline void __init __alt_reloc_selftest(void *arg)
+{
+	WARN_ON(arg != &__alt_reloc_selftest_addr);
+}
+
+static noinline void __init alt_reloc_selftest(void)
+{
+	/*
+	 * Tests apply_relocation().
+	 *
+	 * This has a relative immediate (CALL) in a place other than the first
+	 * instruction and additionally on x86_64 we get a RIP-relative LEA:
+	 *
+	 *   lea    0x0(%rip),%rdi  # 5d0: R_X86_64_PC32    .init.data+0x5566c
+	 *   call   +0              # 5d5: R_X86_64_PLT32   __alt_reloc_selftest-0x4
+	 *
+	 * Getting this wrong will either crash and burn or tickle the WARN
+	 * above.
+	 */
+	asm_inline volatile (
+		ALTERNATIVE("", "lea %[mem], %%" _ASM_ARG1 "; call __alt_reloc_selftest;", X86_FEATURE_ALWAYS)
+		: /* output */
+		: [mem] "m" (__alt_reloc_selftest_addr)
+		: _ASM_ARG1
+	);
+}
+
 void __init alternative_instructions(void)
 {
 	int3_selftest();
@@ -913,6 +1009,8 @@ void __init alternative_instructions(void)
 
 	restart_nmi();
 	alternatives_patched = 1;
+
+	alt_reloc_selftest();
 }
 
 /**

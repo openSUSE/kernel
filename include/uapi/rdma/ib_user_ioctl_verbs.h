@@ -250,6 +250,10 @@ enum rdma_driver_id {
 	RDMA_DRIVER_QIB,
 	RDMA_DRIVER_EFA,
 	RDMA_DRIVER_SIW,
+#ifndef __GENKSYMS__
+	RDMA_DRIVER_ERDMA,
+	RDMA_DRIVER_MANA,
+#endif
 };
 
 enum ib_uverbs_gid_type {
