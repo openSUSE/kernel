@@ -183,22 +183,23 @@ static void l2tp_eth_show(struct seq_file *m, void *arg)
 }
 #endif
 
-static int l2tp_eth_create(struct net *net, u32 tunnel_id, u32 session_id, u32 peer_session_id, struct l2tp_session_cfg *cfg)
+static int __unused_session_create(struct net *net, u32 tunnel_id, u32 session_id,
+                                  u32 peer_session_id, struct l2tp_session_cfg *cfg)
+{
+       return 0;
+}
+
+static int l2tp_eth_create(struct net *net, struct l2tp_tunnel *tunnel,
+                          u32 session_id, u32 peer_session_id,
+                          struct l2tp_session_cfg *cfg)
 {
 	struct net_device *dev;
 	char name[IFNAMSIZ];
-	struct l2tp_tunnel *tunnel;
 	struct l2tp_session *session;
 	struct l2tp_eth *priv;
 	struct l2tp_eth_sess *spriv;
 	int rc;
 	struct l2tp_eth_net *pn;
-
-	tunnel = l2tp_tunnel_find(net, tunnel_id);
-	if (!tunnel) {
-		rc = -ENODEV;
-		goto out;
-	}
 
 	session = l2tp_session_find(net, tunnel, session_id);
 	if (session) {
@@ -294,7 +295,8 @@ static struct pernet_operations l2tp_eth_net_ops = {
 
 
 static const struct l2tp_nl_cmd_ops l2tp_eth_nl_cmd_ops = {
-	.session_create	= l2tp_eth_create,
+	.session_create = __unused_session_create, 
+	.__session_create	= l2tp_eth_create,
 	.session_delete	= l2tp_session_delete,
 };
 

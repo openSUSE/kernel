@@ -205,7 +205,7 @@ static int do_ipv6_setsockopt(struct sock *sk, int level, int optname,
 				sock_prot_inuse_add(net, &tcp_prot, 1);
 				local_bh_enable();
 
-				/* Paired with ACCESS_ONCE(sk->sk_prot) in net/ipv6/af_inet6.c */
+				/* Paired with ACCESS_ONCE(sk->sk_prot) in inet6_stream_ops */
 				ACCESS_ONCE(sk->sk_prot) = &tcp_prot;
 				/* Paired with ACCESS_ONCE() in tcp_(get|set)sockopt() */
 				ACCESS_ONCE(icsk->icsk_af_ops) = &ipv4_specific;
@@ -222,7 +222,7 @@ static int do_ipv6_setsockopt(struct sock *sk, int level, int optname,
 				sock_prot_inuse_add(net, prot, 1);
 				local_bh_enable();
 
-				/* Paired with ACCESS_ONCE(sk->sk_prot) in net/ipv6/af_inet6.c */
+				/* Paired with ACCESS_ONCE(sk->sk_prot) in inet6_dgram_ops */
 				ACCESS_ONCE(sk->sk_prot) = prot;
 				sk->sk_socket->ops = &inet_dgram_ops;
 				sk->sk_family = PF_INET;
