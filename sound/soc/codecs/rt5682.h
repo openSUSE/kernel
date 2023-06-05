@@ -1464,6 +1464,7 @@ struct rt5682_priv {
 	int irq_work_delay_time;
 #ifndef __GENKSYMS__
 	struct device *i2c_dev;
+	int irq;
 #endif
 };
 
