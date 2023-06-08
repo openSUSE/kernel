@@ -11,6 +11,7 @@
 #include <linux/fs.h>
 #include "nvmet.h"
 
+#define NVMET_MAX_MPOOL_BVEC		16
 #define NVMET_MIN_MPOOL_OBJ		16
 
 void nvmet_file_ns_revalidate(struct nvmet_ns *ns)
