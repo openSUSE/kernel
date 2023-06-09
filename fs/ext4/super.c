@@ -1670,7 +1670,7 @@ enum {
 	Opt_usrjquota, Opt_grpjquota, Opt_offusrjquota, Opt_offgrpjquota,
 	Opt_jqfmt_vfsold, Opt_jqfmt_vfsv0, Opt_jqfmt_vfsv1, Opt_quota,
 	Opt_noquota, Opt_barrier, Opt_nobarrier, Opt_err,
-	Opt_usrquota, Opt_grpquota, Opt_prjquota, Opt_i_version,
+	Opt_usrquota, Opt_grpquota, Opt_prjquota,
 	Opt_dax, Opt_dax_always, Opt_dax_inode, Opt_dax_never,
 	Opt_stripe, Opt_delalloc, Opt_nodelalloc, Opt_warn_on_error,
 	Opt_nowarn_on_error, Opt_mblk_io_submit,
@@ -1740,7 +1740,7 @@ static const match_table_t tokens = {
 	{Opt_barrier, "barrier=%u"},
 	{Opt_barrier, "barrier"},
 	{Opt_nobarrier, "nobarrier"},
-	{Opt_i_version, "i_version"},
+	{Opt_removed, "i_version"},
 	{Opt_dax, "dax"},
 	{Opt_dax_always, "dax=always"},
 	{Opt_dax_inode, "dax=inode"},
@@ -2126,9 +2126,6 @@ static int handle_mount_opt(struct super_block *sb, char *opt, int token,
 		return 1;
 	case Opt_abort:
 		ext4_set_mount_flag(sb, EXT4_MF_FS_ABORTED);
-		return 1;
-	case Opt_i_version:
-		sb->s_flags |= SB_I_VERSION;
 		return 1;
 	case Opt_lazytime:
 		sb->s_flags |= SB_LAZYTIME;
@@ -2601,8 +2598,6 @@ static int _ext4_show_options(struct seq_file *seq, struct super_block *sb,
 		SEQ_OPTS_PRINT("min_batch_time=%u", sbi->s_min_batch_time);
 	if (nodefs || sbi->s_max_batch_time != EXT4_DEF_MAX_BATCH_TIME)
 		SEQ_OPTS_PRINT("max_batch_time=%u", sbi->s_max_batch_time);
-	if (sb->s_flags & SB_I_VERSION)
-		SEQ_OPTS_PUTS("i_version");
 	if (nodefs || sbi->s_stripe)
 		SEQ_OPTS_PRINT("stripe=%lu", sbi->s_stripe);
 	if (nodefs || EXT4_MOUNT_DATA_FLAGS &
@@ -4409,6 +4404,9 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 	sb->s_flags = (sb->s_flags & ~SB_POSIXACL) |
 		(test_opt(sb, POSIX_ACL) ? SB_POSIXACL : 0);
 
+	/* i_version is always enabled now */
+	sb->s_flags |= SB_I_VERSION;
+
 	if (le32_to_cpu(es->s_rev_level) == EXT4_GOOD_OLD_REV &&
 	    (ext4_has_compat_features(sb) ||
 	     ext4_has_ro_compat_features(sb) ||
@@ -5959,7 +5957,7 @@ static int ext4_remount(struct super_block *sb, int *flags, char *data)
 	 * either way we need to make sure it matches in both *flags and
 	 * s_flags. Copy those selected flags from *flags to s_flags
 	 */
-	vfs_flags = SB_LAZYTIME | SB_I_VERSION;
+	vfs_flags = SB_LAZYTIME;
 	sb->s_flags = (sb->s_flags & ~vfs_flags) | (*flags & vfs_flags);
 
 	if (!parse_options(data, sb, &parsed_opts, 1)) {
