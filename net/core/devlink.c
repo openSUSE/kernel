@@ -6350,8 +6350,10 @@ devlink_nl_cmd_region_new(struct sk_buff *skb, struct genl_info *info)
 
 		snapshot = devlink_region_snapshot_get_by_id(region,
 							     snapshot_id);
-		if (WARN_ON(!snapshot))
-			return -EINVAL;
+		if (WARN_ON(!snapshot)) {
+			err = -EINVAL;
+			goto unlock;
+		}
 
 		msg = devlink_nl_region_notify_build(region, snapshot,
 						     DEVLINK_CMD_REGION_NEW,
@@ -11414,8 +11416,10 @@ void devl_region_destroy(struct devlink_region *region)
 	devl_assert_locked(devlink);
 
 	/* Free all snapshots of region */
+	mutex_lock(&region->snapshot_lock);
 	list_for_each_entry_safe(snapshot, ts, &region->snapshot_list, list)
 		devlink_region_snapshot_del(region, snapshot);
+	mutex_unlock(&region->snapshot_lock);
 
 	list_del(&region->list);
 	mutex_destroy(&region->snapshot_lock);
