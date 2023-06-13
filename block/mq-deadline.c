@@ -827,7 +827,6 @@ static void dd_finish_request(struct request *rq)
 	struct deadline_data *dd = q->elevator->elevator_data;
 	const u8 ioprio_class = dd_rq_ioclass(rq);
 	const enum dd_prio prio = ioprio_class_to_prio[ioprio_class];
-	struct dd_per_prio *per_prio = &dd->per_prio[prio];
 
 	/*
 	 * The block layer core may call dd_finish_request() without having
