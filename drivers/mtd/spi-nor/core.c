@@ -15,6 +15,7 @@
 #include <linux/math64.h>
 #include <linux/sizes.h>
 #include <linux/slab.h>
+#include <linux/delay.h>
 
 #include <linux/mtd/mtd.h>
 #include <linux/of_platform.h>
@@ -2247,6 +2248,15 @@ void spi_nor_set_erase_type(struct spi_nor_erase_type *erase, u32 size,
 }
 
 /**
+ * spi_nor_mask_erase_type() - mask out a SPI NOR erase type
+ * @erase:	pointer to a structure that describes a SPI NOR erase type
+ */
+void spi_nor_mask_erase_type(struct spi_nor_erase_type *erase)
+{
+	erase->size = 0;
+}
+
+/**
  * spi_nor_init_uniform_erase_map() - Initialize uniform erase map
  * @map:		the erase map of the SPI NOR
  * @erase_mask:		bitmask encoding erase types that can erase the entire
@@ -3071,7 +3081,7 @@ static const struct flash_info *spi_nor_get_flash_info(struct spi_nor *nor,
 			 * JEDEC knows better, so overwrite platform ID. We
 			 * can't trust partitions any longer, but we'll let
 			 * mtd apply them anyway, since some partitions may be
-			 * marked read-only, and we don't want to lose that
+			 * marked read-only, and we don't want to loose that
 			 * information, even if it's not 100% accurate.
 			 */
 			dev_warn(nor->dev, "found %s, expected %s\n",

@@ -764,6 +764,7 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_COLOR_CHANGE_COUNT] = { .type = NLA_U8 },
 	[NL80211_ATTR_COLOR_CHANGE_COLOR] = { .type = NLA_U8 },
 	[NL80211_ATTR_COLOR_CHANGE_ELEMS] = NLA_POLICY_NESTED(nl80211_policy),
+	[NL80211_ATTR_RADAR_BACKGROUND] = { .type = NLA_FLAG },
 };
 
 /* policy for the key attributes */
@@ -9092,38 +9093,60 @@ static int nl80211_start_radar_detection(struct sk_buff *skb,
 	struct cfg80211_chan_def chandef;
 	enum nl80211_dfs_regions dfs_region;
 	unsigned int cac_time_ms;
-	int err;
+	int err = -EINVAL;
+
+	flush_delayed_work(&rdev->dfs_update_channels_wk);
+
+	wiphy_lock(wiphy);
 
 	dfs_region = reg_get_dfs_region(wiphy);
 	if (dfs_region == NL80211_DFS_UNSET)
-		return -EINVAL;
+		goto unlock;
 
 	err = nl80211_parse_chandef(rdev, info, &chandef);
 	if (err)
-		return err;
-
-	if (netif_carrier_ok(dev))
-		return -EBUSY;
-
-	if (wdev->cac_started)
-		return -EBUSY;
+		goto unlock;
 
 	err = cfg80211_chandef_dfs_required(wiphy, &chandef, wdev->iftype);
 	if (err < 0)
-		return err;
+		goto unlock;
 
-	if (err == 0)
-		return -EINVAL;
+	if (err == 0) {
+		err = -EINVAL;
+		goto unlock;
+	}
 
-	if (!cfg80211_chandef_dfs_usable(wiphy, &chandef))
-		return -EINVAL;
+	if (!cfg80211_chandef_dfs_usable(wiphy, &chandef)) {
+		err = -EINVAL;
+		goto unlock;
+	}
+
+	if (nla_get_flag(info->attrs[NL80211_ATTR_RADAR_BACKGROUND])) {
+		err = cfg80211_start_background_radar_detection(rdev, wdev,
+								&chandef);
+		goto unlock;
+	}
+
+	if (netif_carrier_ok(dev)) {
+		err = -EBUSY;
+		goto unlock;
+	}
+
+	if (wdev->cac_started) {
+		err = -EBUSY;
+		goto unlock;
+	}
 
 	/* CAC start is offloaded to HW and can't be started manually */
-	if (wiphy_ext_feature_isset(wiphy, NL80211_EXT_FEATURE_DFS_OFFLOAD))
-		return -EOPNOTSUPP;
+	if (wiphy_ext_feature_isset(wiphy, NL80211_EXT_FEATURE_DFS_OFFLOAD)) {
+		err = -EOPNOTSUPP;
+		goto unlock;
+	}
 
-	if (!rdev->ops->start_radar_detection)
-		return -EOPNOTSUPP;
+	if (!rdev->ops->start_radar_detection) {
+		err = -EOPNOTSUPP;
+		goto unlock;
+	}
 
 	cac_time_ms = cfg80211_chandef_dfs_cac_time(&rdev->wiphy, &chandef);
 	if (WARN_ON(!cac_time_ms))
@@ -9136,6 +9159,9 @@ static int nl80211_start_radar_detection(struct sk_buff *skb,
 		wdev->cac_start_time = jiffies;
 		wdev->cac_time_ms = cac_time_ms;
 	}
+unlock:
+	wiphy_unlock(wiphy);
+
 	return err;
 }
 
@@ -12925,7 +12951,7 @@ static int nl80211_set_rekey_data(struct sk_buff *skb, struct genl_info *info)
 		return -ERANGE;
 	if (nla_len(tb[NL80211_REKEY_DATA_KCK]) != NL80211_KCK_LEN &&
 	    !(rdev->wiphy.flags & WIPHY_FLAG_SUPPORTS_EXT_KEK_KCK &&
-	      nla_len(tb[NL80211_REKEY_DATA_KEK]) == NL80211_KCK_EXT_LEN))
+	      nla_len(tb[NL80211_REKEY_DATA_KCK]) == NL80211_KCK_EXT_LEN))
 		return -ERANGE;
 
 	rekey_data.kek = nla_data(tb[NL80211_REKEY_DATA_KEK]);
@@ -15763,7 +15789,8 @@ static const struct genl_small_ops nl80211_small_ops[] = {
 		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
 		.doit = nl80211_start_radar_detection,
 		.flags = GENL_UNS_ADMIN_PERM,
-		.internal_flags = NL80211_FLAG_NEED_NETDEV_UP,
+		.internal_flags = NL80211_FLAG_NEED_NETDEV_UP |
+				  NL80211_FLAG_NO_WIPHY_MTX,
 	},
 	{
 		.cmd = NL80211_CMD_GET_PROTOCOL_FEATURES,

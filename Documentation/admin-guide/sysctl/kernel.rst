@@ -694,6 +694,15 @@ This is the default behavior.
 an oops event is detected.
 
 
+oops_limit
+==========
+
+Number of kernel oopses after which the kernel should panic when
+``panic_on_oops`` is not set. Setting this to 0 disables checking
+the count. Setting this to  1 has the same effect as setting
+``panic_on_oops=1``. The default value is 10000.
+
+
 osrelease, ostype & version
 ===========================
 
@@ -1375,7 +1384,7 @@ ORed together. The letters are seen in "Tainted" line of Oops reports.
 ==========  =====  ==========================================================
          1  `(P)`  proprietary module was loaded
          2  `(F)`  module was force loaded
-	  4  `(S)`  kernel running on an out of specification system
+         4  `(S)`  kernel running on an out of specification system
          8  `(R)`  module was force unloaded
         16  `(M)`  processor reported a Machine Check Exception (MCE)
         32  `(B)`  bad page referenced or some unexpected page flags
@@ -1514,6 +1523,16 @@ entry will default to 2 instead of 0.
 1 Unprivileged calls to ``bpf()`` are disabled without recovery
 2 Unprivileged calls to ``bpf()`` are disabled
 = =============================================================
+
+
+warn_limit
+==========
+
+Number of kernel warnings after which the kernel should panic when
+``panic_on_warn`` is not set. Setting this to 0 disables checking
+the warning count. Setting this to 1 has the same effect as setting
+``panic_on_warn=1``. The default value is 0.
+
 
 watchdog
 ========

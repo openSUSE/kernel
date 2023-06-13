@@ -1194,6 +1194,7 @@ static struct cache_deferred_req *svc_defer(struct cache_req *req)
 	if (rqstp->rq_deferred) {
 		dr = rqstp->rq_deferred;
 		rqstp->rq_deferred = NULL;
+		rqstp->rq_xprt_ctxt = NULL;
 	} else {
 		size_t skip;
 		size_t size;

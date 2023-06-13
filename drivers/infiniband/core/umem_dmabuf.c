@@ -18,6 +18,7 @@ int ib_umem_dmabuf_map_pages(struct ib_umem_dmabuf *umem_dmabuf)
 	struct scatterlist *sg;
 	unsigned long start, end, cur = 0;
 	unsigned int nmap = 0;
+	long ret;
 	int i;
 
 	dma_resv_assert_held(umem_dmabuf->attach->dmabuf->resv);
@@ -67,8 +68,13 @@ wait_fence:
 	 * may be not up-to-date. Wait for the exporter to finish
 	 * the migration.
 	 */
-	return dma_resv_wait_timeout(umem_dmabuf->attach->dmabuf->resv, false,
+	ret = dma_resv_wait_timeout(umem_dmabuf->attach->dmabuf->resv, false,
 				     false, MAX_SCHEDULE_TIMEOUT);
+	if (ret < 0)
+		return ret;
+	if (ret == 0)
+		return -ETIMEDOUT;
+	return 0;
 }
 EXPORT_SYMBOL(ib_umem_dmabuf_map_pages);
 

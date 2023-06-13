@@ -77,10 +77,6 @@
 #define SMB_ECHO_INTERVAL_MAX 600
 #define SMB_ECHO_INTERVAL_DEFAULT 60
 
-/* dns resolution intervals in seconds */
-#define SMB_DNS_RESOLVE_INTERVAL_MIN     120
-#define SMB_DNS_RESOLVE_INTERVAL_DEFAULT 600
-
 /* smb multichannel query server interfaces interval in seconds */
 #define SMB_INTERFACE_POLL_INTERVAL	600
 
@@ -431,8 +427,8 @@ struct smb_version_operations {
 	/* check for STATUS_NETWORK_SESSION_EXPIRED */
 	bool (*is_session_expired)(char *);
 	/* send oplock break response */
-	int (*oplock_response)(struct cifs_tcon *, struct cifs_fid *,
-			       struct cifsInodeInfo *);
+	int (*oplock_response)(struct cifs_tcon *tcon, __u64 persistent_fid, __u64 volatile_fid,
+			__u16 net_fid, struct cifsInodeInfo *cifs_inode);
 	/* query remote filesystem */
 	int (*queryfs)(const unsigned int, struct cifs_tcon *,
 		       struct cifs_sb_info *, struct kstatfs *);
@@ -694,7 +690,6 @@ struct TCP_Server_Info {
 	/* point to the SMBD connection if RDMA is used instead of socket */
 	struct smbd_connection *smbd_conn;
 	struct delayed_work	echo; /* echo ping workqueue job */
-	struct delayed_work	resolve; /* dns resolution workqueue job */
 	char	*smallbuf;	/* pointer to current "small" buffer */
 	char	*bigbuf;	/* pointer to current "big" buffer */
 	/* Total size of this PDU. Only valid from cifs_demultiplex_thread */
@@ -745,17 +740,23 @@ struct TCP_Server_Info {
 #endif
 	struct mutex refpath_lock; /* protects leaf_fullpath */
 	/*
-	 * Canonical DFS full paths that were used to chase referrals in mount and reconnect.
+	 * origin_fullpath: Canonical copy of smb3_fs_context::source.
+	 *                  It is used for matching existing DFS tcons.
 	 *
-	 * origin_fullpath: first or original referral path
-	 * leaf_fullpath: last referral path (might be changed due to nested links in reconnect)
+	 * leaf_fullpath: Canonical DFS referral path related to this
+	 *                connection.
+	 *                It is used in DFS cache refresher, reconnect and may
+	 *                change due to nested DFS links.
 	 *
-	 * current_fullpath: pointer to either origin_fullpath or leaf_fullpath
-	 * NOTE: cannot be accessed outside cifs_reconnect() and smb2_reconnect()
+	 * Both protected by @refpath_lock and @srv_lock.  The @refpath_lock is
+	 * mosly used for not requiring a copy of @leaf_fullpath when getting
+	 * cached or new DFS referrals (which might also sleep during I/O).
+	 * While @srv_lock is held for making string and NULL comparions against
+	 * both fields as in mount(2) and cache refresh.
 	 *
-	 * format: \\HOST\SHARE\[OPTIONAL PATH]
+	 * format: \\HOST\SHARE[\OPTIONAL PATH]
 	 */
-	char *origin_fullpath, *leaf_fullpath, *current_fullpath;
+	char *origin_fullpath, *leaf_fullpath;
 };
 
 static inline bool is_smb1(struct TCP_Server_Info *server)
@@ -1241,7 +1242,8 @@ struct cifs_tcon {
 	struct cached_fids *cfids;
 	/* BB add field for back pointer to sb struct(s)? */
 #ifdef CONFIG_CIFS_DFS_UPCALL
-	struct list_head ulist; /* cache update list */
+	struct list_head dfs_ses_list;
+	struct delayed_work dfs_cache_work;
 #endif
 	struct delayed_work	query_interfaces; /* query interfaces workqueue job */
 };
@@ -1774,9 +1776,7 @@ struct cifs_mount_ctx {
 	struct TCP_Server_Info *server;
 	struct cifs_ses *ses;
 	struct cifs_tcon *tcon;
-	struct cifs_ses *root_ses;
-	uuid_t mount_id;
-	char *origin_fullpath, *leaf_fullpath;
+	struct list_head dfs_ses_list;
 };
 
 static inline void free_dfs_info_param(struct dfs_info3_param *param)
@@ -2194,6 +2194,12 @@ static inline unsigned int cifs_get_num_sgs(const struct smb_rqst *rqst,
 	unsigned long addr;
 	int i, j;
 
+	/*
+	 * The first rqst has a transform header where the first 20 bytes are
+	 * not part of the encrypted blob.
+	 */
+	skip = 20;
+
 	/* Assumes the first rqst has a transform header as the first iov.
 	 * I.e.
 	 * rqst[0].rq_iov[0]  is transform header
@@ -2201,14 +2207,9 @@ static inline unsigned int cifs_get_num_sgs(const struct smb_rqst *rqst,
 	 * rqst[1+].rq_iov[0+] data to be encrypted/decrypted
 	 */
 	for (i = 0; i < num_rqst; i++) {
-		/*
-		 * The first rqst has a transform header where the
-		 * first 20 bytes are not part of the encrypted blob.
-		 */
 		for (j = 0; j < rqst[i].rq_nvec; j++) {
 			struct kvec *iov = &rqst[i].rq_iov[j];
 
-			skip = (i == 0) && (j == 0) ? 20 : 0;
 			addr = (unsigned long)iov->iov_base + skip;
 			if (unlikely(is_vmalloc_addr((void *)addr))) {
 				len = iov->iov_len - skip;
@@ -2217,6 +2218,7 @@ static inline unsigned int cifs_get_num_sgs(const struct smb_rqst *rqst,
 			} else {
 				nents++;
 			}
+			skip = 0;
 		}
 		nents += rqst[i].rq_npages;
 	}

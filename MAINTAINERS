@@ -971,7 +971,7 @@ AMD PMC DRIVER
 M:	Shyam Sundar S K <Shyam-sundar.S-k@amd.com>
 L:	platform-driver-x86@vger.kernel.org
 S:	Maintained
-F:	drivers/platform/x86/amd-pmc.*
+F:	drivers/platform/x86/amd/pmc.c
 
 AMD HSMP DRIVER
 M:	Naveen Krishna Chatradhi <naveenkrishna.chatradhi@amd.com>
@@ -981,7 +981,7 @@ S:	Maintained
 F:	Documentation/x86/amd_hsmp.rst
 F:	arch/x86/include/asm/amd_hsmp.h
 F:	arch/x86/include/uapi/asm/amd_hsmp.h
-F:	drivers/platform/x86/amd_hsmp.c
+F:	drivers/platform/x86/amd/hsmp.c
 
 AMD POWERPLAY
 M:	Evan Quan <evan.quan@amd.com>
@@ -3112,7 +3112,7 @@ F:	drivers/net/ieee802154/atusb.h
 AUDIT SUBSYSTEM
 M:	Paul Moore <paul@paul-moore.com>
 M:	Eric Paris <eparis@redhat.com>
-L:	linux-audit@redhat.com (moderated for non-subscribers)
+L:	audit@vger.kernel.org
 S:	Supported
 W:	https://github.com/linux-audit
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/pcmoore/audit.git
@@ -8697,6 +8697,7 @@ F:	include/asm-generic/hyperv-tlfs.h
 F:	include/asm-generic/mshyperv.h
 F:	include/clocksource/hyperv_timer.h
 F:	include/linux/hyperv.h
+F:	include/net/mana
 F:	include/uapi/linux/hyperv.h
 F:	net/vmw_vsock/hyperv_transport.c
 F:	tools/hv/
@@ -12401,7 +12402,20 @@ F:	drivers/scsi/smartpqi/smartpqi*.[ch]
 F:	include/linux/cciss*.h
 F:	include/uapi/linux/cciss*.h
 
+<<<<<<<
 MICROSOFT SURFACE BATTERY AND AC DRIVERS
+=======
+MICROSOFT MANA RDMA DRIVER
+M:	Long Li <longli@microsoft.com>
+M:	Ajay Sharma <sharmaajay@microsoft.com>
+L:	linux-rdma@vger.kernel.org
+S:	Supported
+F:	drivers/infiniband/hw/mana/
+F:	include/net/mana
+F:	include/uapi/rdma/mana-abi.h
+
+MICROSOFT SURFACE AGGREGATOR TABLET-MODE SWITCH
+>>>>>>>
 M:	Maximilian Luz <luzmaximilian@gmail.com>
 L:	linux-pm@vger.kernel.org
 L:	platform-driver-x86@vger.kernel.org

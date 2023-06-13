@@ -2703,7 +2703,7 @@ static void it6505_extcon_work(struct work_struct *work)
 		 * pm_runtime_force_resume re-enables runtime power management.
 		 * Handling the error here to make sure the bridge is powered on.
 		 */
-		if (ret)
+		if (ret < 0)
 			it6505_poweron(it6505);
 	} else {
 		DRM_DEV_DEBUG_DRIVER(dev, "start to power off");

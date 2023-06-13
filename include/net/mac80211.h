@@ -3936,6 +3936,21 @@ struct ieee80211_prep_tx_info {
  * @set_sar_specs: Update the SAR (TX power) settings.
  * @sta_set_decap_offload: Called to notify the driver when a station is allowed
  *	to use rx decapsulation offload
+ * @add_twt_setup: Update hw with TWT agreement parameters received from the peer.
+ *	This callback allows the hw to check if requested parameters
+ *	are supported and if there is enough room for a new agreement.
+ *	The hw is expected to set agreement result in the req_type field of
+ *	twt structure.
+ * @twt_teardown_request: Update the hw with TWT teardown request received
+ *	from the peer.
+ * @set_radar_background: Configure dedicated offchannel chain available for
+ *	radar/CAC detection on some hw. This chain can't be used to transmit
+ *	or receive frames and it is bounded to a running wdev.
+ *	Background radar/CAC detection allows to avoid the CAC downtime
+ *	switching to a different channel during CAC detection on the selected
+ *	radar channel.
+ *	The caller is expected to set chandef pointer to NULL in order to
+ *	disable background CAC/radar detection.
  */
 struct ieee80211_ops {
 	void (*tx)(struct ieee80211_hw *hw,
@@ -4259,6 +4274,15 @@ struct ieee80211_ops {
 	void (*sta_set_decap_offload)(struct ieee80211_hw *hw,
 				      struct ieee80211_vif *vif,
 				      struct ieee80211_sta *sta, bool enabled);
+#ifndef __GENKSYMS__
+	void (*add_twt_setup)(struct ieee80211_hw *hw,
+			      struct ieee80211_sta *sta,
+			      struct ieee80211_twt_setup *twt);
+	void (*twt_teardown_request)(struct ieee80211_hw *hw,
+				     struct ieee80211_sta *sta, u8 flowid);
+	int (*set_radar_background)(struct ieee80211_hw *hw,
+				    struct cfg80211_chan_def *chandef);
+#endif
 };
 
 /**
@@ -4277,9 +4301,20 @@ struct ieee80211_ops {
  *
  * Return: A pointer to the new hardware device, or %NULL on error.
  */
-struct ieee80211_hw *ieee80211_alloc_hw_nm(size_t priv_data_len,
-					   const struct ieee80211_ops *ops,
-					   const char *requested_name);
+struct ieee80211_hw *__ieee80211_alloc_hw_nm(size_t priv_data_len,
+					     const struct ieee80211_ops *ops,
+					     const char *requested_name,
+					     unsigned char revision);
+
+/* FIXME: for SLE kABI compatibility */
+static inline struct ieee80211_hw *
+ieee80211_alloc_hw_nm_v2(size_t priv_data_len,
+			 const struct ieee80211_ops *ops,
+			 const char *requested_name)
+{
+	return __ieee80211_alloc_hw_nm(priv_data_len, ops, requested_name, 2);
+}
+#define ieee80211_alloc_hw_nm ieee80211_alloc_hw_nm_v2
 
 /**
  * ieee80211_alloc_hw - Allocate a new hardware device

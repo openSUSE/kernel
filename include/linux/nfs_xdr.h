@@ -1219,7 +1219,16 @@ struct nfs4_fs_location {
 
 #define NFS4_FS_LOCATIONS_MAXENTRIES 10
 struct nfs4_fs_locations {
+#ifndef __GENKSYMS__
+	struct nfs_fattr *fattr;
+#else
+	/* This structure is entirely private to nfsv4 module.
+	 * pnfs handler can see a pointer to it, but never access it.
+	 * They must (and do) only treat it like a void*.
+	 * So we can change the structure with impunity.
+	 */
 	struct nfs_fattr fattr;
+#endif
 	const struct nfs_server *server;
 	struct nfs4_pathname fs_path;
 	int nlocations;
@@ -1805,6 +1814,18 @@ struct nfs_rpc_ops {
 	struct nfs_server *(*create_server)(struct fs_context *);
 	struct nfs_server *(*clone_server)(struct nfs_server *, struct nfs_fh *,
 					   struct nfs_fattr *, rpc_authflavor_t);
+#ifndef __GENKSYMS__
+	int	(*discover_trunking)(struct nfs_server *, struct nfs_fh *);
+	/* If rpc_ops_cookie is not correct, this might
+	 * be in an external modules and added fields
+	 * cannot be trusted.
+	 */
+	unsigned long long rpc_ops_cookie;
+#define NFS_RPC_OPS_COOKIE_1 0xbf18046af9c4dc73ULL
+	void	(*enable_swap)(struct inode *inode);
+	void	(*disable_swap)(struct inode *inode);
+#define NFS_RPC_OPS_COOKIE_2 0x8ba619aa70e05960ULL
+#endif
 };
 
 /*

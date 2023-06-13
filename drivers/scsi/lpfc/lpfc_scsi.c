@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2022 Broadcom. All Rights Reserved. The term *
+ * Copyright (C) 2017-2023 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -1689,7 +1689,7 @@ lpfc_bg_setup_bpl_prot(struct lpfc_hba *phba, struct scsi_cmnd *sc,
 	struct lpfc_pde6 *pde6 = NULL;
 	struct lpfc_pde7 *pde7 = NULL;
 	dma_addr_t dataphysaddr, protphysaddr;
-	unsigned short curr_data = 0, curr_prot = 0;
+	unsigned short curr_prot = 0;
 	unsigned int split_offset;
 	unsigned int protgroup_len, protgroup_offset = 0, protgroup_remainder;
 	unsigned int protgrp_blks, protgrp_bytes;
@@ -1858,7 +1858,6 @@ lpfc_bg_setup_bpl_prot(struct lpfc_hba *phba, struct scsi_cmnd *sc,
 			bpl->tus.w = le32_to_cpu(bpl->tus.w);
 
 			num_bde++;
-			curr_data++;
 
 			if (split_offset)
 				break;
@@ -2119,7 +2118,7 @@ lpfc_bg_setup_sgl_prot(struct lpfc_hba *phba, struct scsi_cmnd *sc,
 	struct scatterlist *sgpe = NULL; /* s/g prot entry */
 	struct sli4_sge_diseed *diseed = NULL;
 	dma_addr_t dataphysaddr, protphysaddr;
-	unsigned short curr_data = 0, curr_prot = 0;
+	unsigned short curr_prot = 0;
 	unsigned int split_offset;
 	unsigned int protgroup_len, protgroup_offset = 0, protgroup_remainder;
 	unsigned int protgrp_blks, protgrp_bytes;
@@ -2364,7 +2363,6 @@ lpfc_bg_setup_sgl_prot(struct lpfc_hba *phba, struct scsi_cmnd *sc,
 				dma_offset += dma_len;
 
 				num_sge++;
-				curr_data++;
 
 				if (split_offset) {
 					sgl++;
@@ -4275,7 +4273,8 @@ lpfc_fcp_io_cmd_wqe_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *pwqeIn,
 				 "x%x SNS x%x x%x LBA x%llx Data: x%x x%x\n",
 				 cmd->device->id, cmd->device->lun, cmd,
 				 cmd->result, *lp, *(lp + 3),
-				 (u64)scsi_get_lba(cmd),
+				 (cmd->device->sector_size) ?
+				 (u64)scsi_get_lba(cmd) : 0,
 				 cmd->retries, scsi_get_resid(cmd));
 	}
 

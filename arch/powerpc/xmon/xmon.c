@@ -1289,7 +1289,7 @@ static int xmon_batch_next_cpu(void)
 	while (!cpumask_empty(&xmon_batch_cpus)) {
 		cpu = cpumask_next_wrap(smp_processor_id(), &xmon_batch_cpus,
 					xmon_batch_start_cpu, true);
-		if (cpu == nr_cpumask_bits)
+		if (cpu >= nr_cpu_ids)
 			break;
 		if (xmon_batch_start_cpu == -1)
 			xmon_batch_start_cpu = cpu;
@@ -1538,9 +1538,9 @@ bpt_cmds(void)
 	cmd = inchar();
 
 	switch (cmd) {
-	static const char badaddr[] = "Only kernel addresses are permitted for breakpoints\n";
-	int mode;
-	case 'd':	/* bd - hardware data breakpoint */
+	case 'd': {	/* bd - hardware data breakpoint */
+		static const char badaddr[] = "Only kernel addresses are permitted for breakpoints\n";
+		int mode;
 		if (xmon_is_ro) {
 			printf(xmon_ro_msg);
 			break;
@@ -1573,6 +1573,7 @@ bpt_cmds(void)
 
 		force_enable_xmon();
 		break;
+	}
 
 	case 'i':	/* bi - hardware instr breakpoint */
 		if (xmon_is_ro) {

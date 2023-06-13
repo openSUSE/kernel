@@ -158,36 +158,20 @@ static blk_status_t pmem_do_write(struct pmem_device *pmem,
 			struct page *page, unsigned int page_off,
 			sector_t sector, unsigned int len)
 {
-	blk_status_t rc = BLK_STS_OK;
-	bool bad_pmem = false;
 	phys_addr_t pmem_off = sector * 512 + pmem->data_offset;
 	void *pmem_addr = pmem->virt_addr + pmem_off;
 
-	if (unlikely(is_bad_pmem(&pmem->bb, sector, len)))
-		bad_pmem = true;
+	if (unlikely(is_bad_pmem(&pmem->bb, sector, len))) {
+		blk_status_t rc = pmem_clear_poison(pmem, pmem_off, len);
 
-	/*
-	 * Note that we write the data both before and after
-	 * clearing poison.  The write before clear poison
-	 * handles situations where the latest written data is
-	 * preserved and the clear poison operation simply marks
-	 * the address range as valid without changing the data.
-	 * In this case application software can assume that an
-	 * interrupted write will either return the new good
-	 * data or an error.
-	 *
-	 * However, if pmem_clear_poison() leaves the data in an
-	 * indeterminate state we need to perform the write
-	 * after clear poison.
-	 */
-	flush_dcache_page(page);
-	write_pmem(pmem_addr, page, page_off, len);
-	if (unlikely(bad_pmem)) {
-		rc = pmem_clear_poison(pmem, pmem_off, len);
-		write_pmem(pmem_addr, page, page_off, len);
+		if (rc != BLK_STS_OK)
+			return rc;
 	}
 
-	return rc;
+	flush_dcache_page(page);
+	write_pmem(pmem_addr, page, page_off, len);
+
+	return BLK_STS_OK;
 }
 
 static void pmem_submit_bio(struct bio *bio)
@@ -373,8 +357,10 @@ static int pmem_attach_disk(struct device *dev,
 	if (is_nd_pfn(dev)) {
 		nd_pfn = to_nd_pfn(dev);
 		rc = nvdimm_setup_pfn(nd_pfn, &pmem->pgmap);
-		if (rc)
+		if (rc) {
+			devm_namespace_disable(dev, ndns);
 			return rc;
+		}
 	}
 
 	/* we're attaching a block device, disable raw namespace access */
@@ -504,8 +490,10 @@ static int nd_pmem_probe(struct device *dev)
 		return ret;
 
 	ret = nd_btt_probe(dev, ndns);
-	if (ret == 0)
-		return -ENXIO;
+	if (ret == 0) {
+		ret = -ENXIO;
+		goto out_disable;
+	}
 
 	/*
 	 * We have two failure conditions here, there is no
@@ -519,21 +507,26 @@ static int nd_pmem_probe(struct device *dev)
 	 * seed.
 	 */
 	ret = nd_pfn_probe(dev, ndns);
-	if (ret == 0)
-		return -ENXIO;
-	else if (ret == -EOPNOTSUPP)
-		return ret;
+	if (ret == 0) {
+		ret = -ENXIO;
+		goto out_disable;
+	} else if (ret == -EOPNOTSUPP)
+		goto out_disable;
 
 	ret = nd_dax_probe(dev, ndns);
-	if (ret == 0)
-		return -ENXIO;
-	else if (ret == -EOPNOTSUPP)
-		return ret;
+	if (ret == 0) {
+		ret = -ENXIO;
+		goto out_disable;
+	} else if (ret == -EOPNOTSUPP)
+		goto out_disable;
 
 	/* probe complete, attach handles namespace enabling */
 	devm_namespace_disable(dev, ndns);
 
 	return pmem_attach_disk(dev, ndns);
+out_disable:
+	devm_namespace_disable(dev, ndns);
+	return ret;
 }
 
 static void nd_pmem_remove(struct device *dev)

@@ -1247,9 +1247,8 @@ static int __create_synth_event(const char *name, const char *raw_fields)
 						  argv + consumed, &consumed,
 						  &field_version);
 			if (IS_ERR(field)) {
-				argv_free(argv);
 				ret = PTR_ERR(field);
-				goto err;
+				goto err_free_arg;
 			}
 
 			/*
@@ -1272,18 +1271,19 @@ static int __create_synth_event(const char *name, const char *raw_fields)
 			if (cmd_version > 1 && n_fields_this_loop >= 1) {
 				synth_err(SYNTH_ERR_INVALID_CMD, errpos(field_str));
 				ret = -EINVAL;
-				goto err;
+				goto err_free_arg;
 			}
 
-			fields[n_fields++] = field;
 			if (n_fields == SYNTH_FIELDS_MAX) {
 				synth_err(SYNTH_ERR_TOO_MANY_FIELDS, 0);
 				ret = -EINVAL;
-				goto err;
+				goto err_free_arg;
 			}
+			fields[n_fields++] = field;
 
 			n_fields_this_loop++;
 		}
+		argv_free(argv);
 
 		if (consumed < argc) {
 			synth_err(SYNTH_ERR_INVALID_CMD, 0);
@@ -1291,7 +1291,6 @@ static int __create_synth_event(const char *name, const char *raw_fields)
 			goto err;
 		}
 
-		argv_free(argv);
 	}
 
 	if (n_fields == 0) {
@@ -1308,7 +1307,7 @@ static int __create_synth_event(const char *name, const char *raw_fields)
 	}
 	ret = register_synth_event(event);
 	if (!ret)
-		dyn_event_add(&event->devent);
+		dyn_event_add(&event->devent, &event->call);
 	else
 		free_synth_event(event);
  out:
@@ -1317,6 +1316,8 @@ static int __create_synth_event(const char *name, const char *raw_fields)
 	kfree(saved_fields);
 
 	return ret;
+ err_free_arg:
+	argv_free(argv);
  err:
 	for (i = 0; i < n_fields; i++)
 		free_synth_field(fields[i]);

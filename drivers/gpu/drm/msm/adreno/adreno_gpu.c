@@ -733,7 +733,12 @@ static char *adreno_gpu_ascii85_encode(u32 *src, size_t len)
 	return buf;
 }
 
-/* len is expected to be in bytes */
+/* len is expected to be in bytes
+ *
+ * WARNING: *ptr should be allocated with kvmalloc or friends.  It can be free'd
+ * with kvfree() and replaced with a newly kvmalloc'd buffer on the first call
+ * when the unencoded raw data is encoded
+ */
 void adreno_show_object(struct drm_printer *p, void **ptr, int len,
 		bool *encoded)
 {
@@ -1077,13 +1082,13 @@ int adreno_gpu_init(struct drm_device *drm, struct platform_device *pdev,
 void adreno_gpu_cleanup(struct adreno_gpu *adreno_gpu)
 {
 	struct msm_gpu *gpu = &adreno_gpu->base;
-	struct msm_drm_private *priv = gpu->dev->dev_private;
+	struct msm_drm_private *priv = gpu->dev ? gpu->dev->dev_private : NULL;
 	unsigned int i;
 
 	for (i = 0; i < ARRAY_SIZE(adreno_gpu->info->fw); i++)
 		release_firmware(adreno_gpu->fw[i]);
 
-	if (pm_runtime_enabled(&priv->gpu_pdev->dev))
+	if (priv && pm_runtime_enabled(&priv->gpu_pdev->dev))
 		pm_runtime_disable(&priv->gpu_pdev->dev);
 
 	msm_gpu_cleanup(&adreno_gpu->base);

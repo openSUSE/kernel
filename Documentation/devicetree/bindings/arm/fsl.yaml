@@ -88,12 +88,18 @@ properties:
         items:
           - enum:
               - armadeus,imx28-apf28      # APF28 SoM
-              - armadeus,imx28-apf28dev   # APF28 SoM on APF28Dev board
               - fsl,imx28-evk
               - i2se,duckbill
               - i2se,duckbill-2
               - technologic,imx28-ts4600
           - const: fsl,imx28
+
+      - description: i.MX28 Armadeus Systems APF28Dev Board
+        items:
+          - const: armadeus,imx28-apf28dev
+          - const: armadeus,imx28-apf28
+          - const: fsl,imx28
+
       - description: i.MX28 Duckbill 2 based Boards
         items:
           - enum:
@@ -389,7 +395,7 @@ properties:
               - udoo,imx6dl-udoo          # Udoo i.MX6 Dual-lite Board
               - vdl,lanmcu                # Van der Laan LANMCU board
               - wand,imx6dl-wandboard     # Wandboard i.MX6 Dual Lite Board
-              - ysoft,imx6dl-yapp4-draco  # i.MX6 DualLite Y Soft IOTA Draco board
+              - ysoft,imx6dl-yapp4-draco  # i.MX6 Solo Y Soft IOTA Draco board
               - ysoft,imx6dl-yapp4-hydra  # i.MX6 DualLite Y Soft IOTA Hydra board
               - ysoft,imx6dl-yapp4-orion  # i.MX6 DualLite Y Soft IOTA Orion board
               - ysoft,imx6dl-yapp4-ursa   # i.MX6 Solo Y Soft IOTA Ursa board

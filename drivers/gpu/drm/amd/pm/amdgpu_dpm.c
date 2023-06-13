@@ -1369,17 +1369,6 @@ int amdgpu_dpm_is_cclk_dpm_supported(struct amdgpu_device *adev)
 
 	if (!is_support_sw_smu(adev))
 		return false;
-	/* Don't use baco for reset in S3.
-	 * This is a workaround for some platforms
-	 * where entering BACO during suspend
-	 * seems to cause reboots or hangs.
-	 * This might be related to the fact that BACO controls
-	 * power to the whole GPU including devices like audio and USB.
-	 * Powering down/up everything may adversely affect these other
-	 * devices.  Needs more investigation.
-	 */
-	if (adev->in_s3)
-		return false;
 
 	mutex_lock(&adev->pm.mutex);
 	cclk_dpm_supported = is_support_cclk_dpm(adev);
@@ -1425,15 +1414,21 @@ int amdgpu_dpm_get_smu_prv_buf_details(struct amdgpu_device *adev,
 
 int amdgpu_dpm_is_overdrive_supported(struct amdgpu_device *adev)
 {
-	struct pp_hwmgr *hwmgr = adev->powerplay.pp_handle;
-	struct smu_context *smu = adev->powerplay.pp_handle;
+	if (is_support_sw_smu(adev)) {
+		struct smu_context *smu = adev->powerplay.pp_handle;
 
-	if ((is_support_sw_smu(adev) && smu->od_enabled) ||
-	    (is_support_sw_smu(adev) && smu->is_apu) ||
-		(!is_support_sw_smu(adev) && hwmgr->od_enabled))
-		return true;
+		return (smu->od_enabled || smu->is_apu);
+	} else {
+		struct pp_hwmgr *hwmgr;
 
-	return false;
+		/* SI asic does not carry od_enabled */
+		if (adev->family == AMDGPU_FAMILY_SI)
+			return false;
+
+		hwmgr = (struct pp_hwmgr *)adev->powerplay.pp_handle;
+
+		return hwmgr->od_enabled;
+	}
 }
 
 int amdgpu_dpm_set_pp_table(struct amdgpu_device *adev,

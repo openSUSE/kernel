@@ -1112,7 +1112,6 @@ static const struct intel_device_info pvc_info = {
 	.display.ver = 14,	\
 	.display.has_cdclk_crawl = 1
 
-__maybe_unused
 static const struct intel_device_info mtl_info = {
 	XE_HP_FEATURES,
 	XE_LPDP_FEATURES,

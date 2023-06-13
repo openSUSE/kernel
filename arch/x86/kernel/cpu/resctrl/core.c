@@ -69,7 +69,6 @@ struct rdt_resource rdt_resources_all[] = {
 		.msr_update		= cat_wrmsr,
 		.cache_level		= 3,
 		.cache = {
-			.min_cbm_bits	= 1,
 			.cbm_idx_mult	= 1,
 			.cbm_idx_offset	= 0,
 		},
@@ -120,7 +119,6 @@ struct rdt_resource rdt_resources_all[] = {
 		.msr_update		= cat_wrmsr,
 		.cache_level		= 2,
 		.cache = {
-			.min_cbm_bits	= 1,
 			.cbm_idx_mult	= 1,
 			.cbm_idx_offset	= 0,
 		},
@@ -932,6 +930,7 @@ static __init void rdt_init_res_defs_intel(void)
 			r->cache.arch_has_sparse_bitmaps = false;
 			r->cache.arch_has_empty_bitmaps = false;
 			r->cache.arch_has_per_cpu_cfg = false;
+			r->cache.min_cbm_bits = 1;
 		} else if (r->rid == RDT_RESOURCE_MBA) {
 			r->msr_base = MSR_IA32_MBA_THRTL_BASE;
 			r->msr_update = mba_wrmsr_intel;
@@ -953,6 +952,7 @@ static __init void rdt_init_res_defs_amd(void)
 			r->cache.arch_has_sparse_bitmaps = true;
 			r->cache.arch_has_empty_bitmaps = true;
 			r->cache.arch_has_per_cpu_cfg = true;
+			r->cache.min_cbm_bits = 0;
 		} else if (r->rid == RDT_RESOURCE_MBA) {
 			r->msr_base = MSR_IA32_MBA_BW_BASE;
 			r->msr_update = mba_wrmsr_amd;

@@ -28,14 +28,14 @@ static int sgx_get_encls_gva(struct kvm_vcpu *vcpu, unsigned long offset,
 
 	/* Skip vmcs.GUEST_DS retrieval for 64-bit mode to avoid VMREADs. */
 	*gva = offset;
-	if (!is_long_mode(vcpu)) {
+	if (!is_64_bit_mode(vcpu)) {
 		vmx_get_segment(vcpu, &s, VCPU_SREG_DS);
 		*gva += s.base;
 	}
 
 	if (!IS_ALIGNED(*gva, alignment)) {
 		fault = true;
-	} else if (likely(is_long_mode(vcpu))) {
+	} else if (likely(is_64_bit_mode(vcpu))) {
 		fault = is_noncanonical_address(*gva, vcpu);
 	} else {
 		*gva &= 0xffffffff;
@@ -188,8 +188,10 @@ static int __handle_encls_ecreate(struct kvm_vcpu *vcpu,
 	/* Enforce CPUID restriction on max enclave size. */
 	max_size_log2 = (attributes & SGX_ATTR_MODE64BIT) ? sgx_12_0->edx >> 8 :
 							    sgx_12_0->edx;
-	if (size >= BIT_ULL(max_size_log2))
+	if (size >= BIT_ULL(max_size_log2)) {
 		kvm_inject_gp(vcpu, 0);
+		return 1;
+	}
 
 	/*
 	 * sgx_virt_ecreate() returns:

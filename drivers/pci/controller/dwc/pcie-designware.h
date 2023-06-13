@@ -194,6 +194,9 @@ enum dw_pcie_device_mode {
 struct dw_pcie_host_ops {
 	int (*host_init)(struct pcie_port *pp);
 	int (*msi_host_init)(struct pcie_port *pp);
+#ifndef __GENKSYMS__
+	void (*host_deinit)(struct pcie_port *pp);
+#endif
 };
 
 struct pcie_port {
@@ -388,6 +391,7 @@ static inline void dw_pcie_dbi_ro_wr_dis(struct dw_pcie *pci)
 irqreturn_t dw_handle_msi_irq(struct pcie_port *pp);
 void dw_pcie_setup_rc(struct pcie_port *pp);
 int dw_pcie_host_init(struct pcie_port *pp);
+int dw_pcie_host_init2(struct pcie_port *pp);
 void dw_pcie_host_deinit(struct pcie_port *pp);
 int dw_pcie_allocate_domains(struct pcie_port *pp);
 void __iomem *dw_pcie_own_conf_map_bus(struct pci_bus *bus, unsigned int devfn,

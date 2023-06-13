@@ -1241,7 +1241,6 @@ static int mv_u3d_start(struct usb_gadget *g,
 	}
 
 	/* hook up the driver ... */
-	driver->driver.bus = NULL;
 	u3d->driver = driver;
 
 	u3d->ep0_dir = USB_DIR_OUT;

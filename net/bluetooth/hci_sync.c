@@ -12,6 +12,7 @@
 #include <net/bluetooth/mgmt.h>
 
 #include "hci_request.h"
+#include "hci_codec.h"
 #include "hci_debugfs.h"
 #include "smp.h"
 #include "eir.h"
@@ -336,6 +337,7 @@ void hci_cmd_sync_clear(struct hci_dev *hdev)
 
 	cancel_work_sync(&hdev->cmd_sync_work);
 
+	mutex_lock(&hdev->cmd_sync_work_lock);
 	list_for_each_entry_safe(entry, tmp, &hdev->cmd_sync_work_list, list) {
 		if (entry->destroy)
 			entry->destroy(hdev, entry->data, -ECANCELED);
@@ -343,6 +345,7 @@ void hci_cmd_sync_clear(struct hci_dev *hdev)
 		list_del(&entry->list);
 		kfree(entry);
 	}
+	mutex_unlock(&hdev->cmd_sync_work_lock);
 }
 
 void __hci_cmd_sync_cancel(struct hci_dev *hdev, int err)
@@ -2979,6 +2982,7 @@ static const struct hci_init_stage amp_init1[] = {
 	HCI_INIT(hci_read_flow_control_mode_sync),
 	/* HCI_OP_READ_LOCATION_DATA */
 	HCI_INIT(hci_read_location_data_sync),
+	{}
 };
 
 static int hci_init1_sync(struct hci_dev *hdev)
@@ -3013,6 +3017,7 @@ static int hci_init1_sync(struct hci_dev *hdev)
 static const struct hci_init_stage amp_init2[] = {
 	/* HCI_OP_READ_LOCAL_FEATURES */
 	HCI_INIT(hci_read_local_features_sync),
+	{}
 };
 
 /* Read Buffer Size (ACL mtu, max pkt, etc.) */
@@ -3232,7 +3237,7 @@ static const struct hci_init_stage hci_init2[] = {
 static int hci_le_read_buffer_size_sync(struct hci_dev *hdev)
 {
 	/* Use Read LE Buffer Size V2 if supported */
-	if (hdev->commands[41] & 0x20)
+	if (iso_capable(hdev) && hdev->commands[41] & 0x20)
 		return __hci_cmd_sync_status(hdev,
 					     HCI_OP_LE_READ_BUFFER_SIZE_V2,
 					     0, NULL, HCI_CMD_TIMEOUT);
@@ -3257,10 +3262,10 @@ static int hci_le_read_supported_states_sync(struct hci_dev *hdev)
 
 /* LE Controller init stage 2 command sequence */
 static const struct hci_init_stage le_init2[] = {
-	/* HCI_OP_LE_READ_BUFFER_SIZE */
-	HCI_INIT(hci_le_read_buffer_size_sync),
 	/* HCI_OP_LE_READ_LOCAL_FEATURES */
 	HCI_INIT(hci_le_read_local_features_sync),
+	/* HCI_OP_LE_READ_BUFFER_SIZE */
+	HCI_INIT(hci_le_read_buffer_size_sync),
 	/* HCI_OP_LE_READ_SUPPORTED_STATES */
 	HCI_INIT(hci_le_read_supported_states_sync),
 	{}
@@ -3918,11 +3923,12 @@ static int hci_set_event_mask_page_2_sync(struct hci_dev *hdev)
 /* Read local codec list if the HCI command is supported */
 static int hci_read_local_codecs_sync(struct hci_dev *hdev)
 {
-	if (!(hdev->commands[29] & 0x20))
-		return 0;
+	if (hdev->commands[45] & 0x04)
+		hci_read_supported_codecs_v2(hdev);
+	else if (hdev->commands[29] & 0x20)
+		hci_read_supported_codecs(hdev);
 
-	return __hci_cmd_sync_status(hdev, HCI_OP_READ_LOCAL_CODECS, 0, NULL,
-				     HCI_CMD_TIMEOUT);
+	return 0;
 }
 
 /* Read local pairing options if the HCI command is supported */
@@ -4360,6 +4366,7 @@ int hci_dev_open_sync(struct hci_dev *hdev)
 		    hci_dev_test_flag(hdev, HCI_MGMT) &&
 		    hdev->dev_type == HCI_PRIMARY) {
 			ret = hci_powered_update_sync(hdev);
+			mgmt_power_on(hdev, ret);
 		}
 	} else {
 		/* Init failed, cleanup */
@@ -4379,6 +4386,7 @@ int hci_dev_open_sync(struct hci_dev *hdev)
 			hdev->flush(hdev);
 
 		if (hdev->sent_cmd) {
+			cancel_delayed_work_sync(&hdev->cmd_timer);
 			kfree_skb(hdev->sent_cmd);
 			hdev->sent_cmd = NULL;
 		}

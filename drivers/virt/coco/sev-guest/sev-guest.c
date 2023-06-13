@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * AMD Secure Encrypted Virtualization Nested Paging (SEV-SNP) guest request interface
+ * AMD Secure Encrypted Virtualization (SEV) guest driver interface
  *
  * Copyright (C) 2021 Advanced Micro Devices, Inc.
  *
  * Author: Brijesh Singh <brijesh.singh@amd.com>
  */
-
-#define pr_fmt(fmt) "SNP: GUEST: " fmt
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -27,11 +25,14 @@
 #include <asm/svm.h>
 #include <asm/sev.h>
 
-#include "sevguest.h"
+#include "sev-guest.h"
 
 #define DEVICE_NAME	"sev-guest"
 #define AAD_LEN		48
 #define MSG_HDR_VER	1
+
+#define SNP_REQ_MAX_RETRY_DURATION	(60*HZ)
+#define SNP_REQ_RETRY_DELAY		(2*HZ)
 
 struct snp_guest_crypto {
 	struct crypto_aead *tfm;
@@ -69,8 +70,27 @@ static bool is_vmpck_empty(struct snp_guest_dev *snp_dev)
 	return true;
 }
 
+/*
+ * If an error is received from the host or AMD Secure Processor (ASP) there
+ * are two options. Either retry the exact same encrypted request or discontinue
+ * using the VMPCK.
+ *
+ * This is because in the current encryption scheme GHCB v2 uses AES-GCM to
+ * encrypt the requests. The IV for this scheme is the sequence number. GCM
+ * cannot tolerate IV reuse.
+ *
+ * The ASP FW v1.51 only increments the sequence numbers on a successful
+ * guest<->ASP back and forth and only accepts messages at its exact sequence
+ * number.
+ *
+ * So if the sequence number were to be reused the encryption scheme is
+ * vulnerable. If the sequence number were incremented for a fresh IV the ASP
+ * will reject the request.
+ */
 static void snp_disable_vmpck(struct snp_guest_dev *snp_dev)
 {
+	dev_alert(snp_dev->dev, "Disabling vmpck_id %d to prevent IV reuse.\n",
+		  vmpck_id);
 	memzero_explicit(snp_dev->vmpck, VMPCK_KEY_LEN);
 	snp_dev->vmpck = NULL;
 }
@@ -154,12 +174,10 @@ static struct snp_guest_crypto *init_crypto(struct snp_guest_dev *snp_dev, u8 *k
 	crypto->a_len = crypto_aead_authsize(crypto->tfm);
 	crypto->authtag = kmalloc(crypto->a_len, GFP_KERNEL_ACCOUNT);
 	if (!crypto->authtag)
-		goto e_free_auth;
+		goto e_free_iv;
 
 	return crypto;
 
-e_free_auth:
-	kfree(crypto->authtag);
 e_free_iv:
 	kfree(crypto->iv);
 e_free_crypto:
@@ -303,11 +321,94 @@ static int enc_payload(struct snp_guest_dev *snp_dev, u64 seqno, int version, u8
 	return __enc_payload(snp_dev, req, payload, sz);
 }
 
+static int __handle_guest_request(struct snp_guest_dev *snp_dev, u64 exit_code, __u64 *fw_err)
+{
+	unsigned long err = 0xff, override_err = 0;
+	unsigned long req_start = jiffies;
+	unsigned int override_npages = 0;
+	int rc;
+
+retry_request:
+	/*
+	 * Call firmware to process the request. In this function the encrypted
+	 * message enters shared memory with the host. So after this call the
+	 * sequence number must be incremented or the VMPCK must be deleted to
+	 * prevent reuse of the IV.
+	 */
+	rc = snp_issue_guest_request(exit_code, &snp_dev->input, &err);
+	switch (rc) {
+	case -ENOSPC:
+		/*
+		 * If the extended guest request fails due to having too
+		 * small of a certificate data buffer, retry the same
+		 * guest request without the extended data request in
+		 * order to increment the sequence number and thus avoid
+		 * IV reuse.
+		 */
+		override_npages = snp_dev->input.data_npages;
+		exit_code	= SVM_VMGEXIT_GUEST_REQUEST;
+
+		/*
+		 * Override the error to inform callers the given extended
+		 * request buffer size was too small and give the caller the
+		 * required buffer size.
+		 */
+		override_err	= SNP_GUEST_REQ_INVALID_LEN;
+
+		/*
+		 * If this call to the firmware succeeds, the sequence number can
+		 * be incremented allowing for continued use of the VMPCK. If
+		 * there is an error reflected in the return value, this value
+		 * is checked further down and the result will be the deletion
+		 * of the VMPCK and the error code being propagated back to the
+		 * user as an ioctl() return code.
+		 */
+		goto retry_request;
+
+	/*
+	 * The host may return SNP_GUEST_REQ_ERR_EBUSY if the request has been
+	 * throttled. Retry in the driver to avoid returning and reusing the
+	 * message sequence number on a different message.
+	 */
+	case -EAGAIN:
+		if (jiffies - req_start > SNP_REQ_MAX_RETRY_DURATION) {
+			rc = -ETIMEDOUT;
+			break;
+		}
+		schedule_timeout_killable(SNP_REQ_RETRY_DELAY);
+		goto retry_request;
+	}
+
+	/*
+	 * Increment the message sequence number. There is no harm in doing
+	 * this now because decryption uses the value stored in the response
+	 * structure and any failure will wipe the VMPCK, preventing further
+	 * use anyway.
+	 */
+	snp_inc_msg_seqno(snp_dev);
+
+	if (fw_err)
+		*fw_err = override_err ?: err;
+
+	if (override_npages)
+		snp_dev->input.data_npages = override_npages;
+
+	/*
+	 * If an extended guest request was issued and the supplied certificate
+	 * buffer was not large enough, a standard guest request was issued to
+	 * prevent IV reuse. If the standard request was successful, return -EIO
+	 * back to the caller as would have originally been returned.
+	 */
+	if (!rc && override_err == SNP_GUEST_REQ_INVALID_LEN)
+		return -EIO;
+
+	return rc;
+}
+
 static int handle_guest_request(struct snp_guest_dev *snp_dev, u64 exit_code, int msg_ver,
 				u8 type, void *req_buf, size_t req_sz, void *resp_buf,
 				u32 resp_sz, __u64 *fw_err)
 {
-	unsigned long err;
 	u64 seqno;
 	int rc;
 
@@ -323,32 +424,22 @@ static int handle_guest_request(struct snp_guest_dev *snp_dev, u64 exit_code, in
 	if (rc)
 		return rc;
 
-	/* Call firmware to process the request */
-	rc = snp_issue_guest_request(exit_code, &snp_dev->input, &err);
-	if (fw_err)
-		*fw_err = err;
-
-	if (rc)
-		return rc;
-
-	/*
-	 * The verify_and_dec_payload() will fail only if the hypervisor is
-	 * actively modifying the message header or corrupting the encrypted payload.
-	 * This hints that hypervisor is acting in a bad faith. Disable the VMPCK so that
-	 * the key cannot be used for any communication. The key is disabled to ensure
-	 * that AES-GCM does not use the same IV while encrypting the request payload.
-	 */
-	rc = verify_and_dec_payload(snp_dev, resp_buf, resp_sz);
+	rc = __handle_guest_request(snp_dev, exit_code, fw_err);
 	if (rc) {
-		dev_alert(snp_dev->dev,
-			  "Detected unexpected decode failure, disabling the vmpck_id %d\n",
-			  vmpck_id);
+		if (rc == -EIO && *fw_err == SNP_GUEST_REQ_INVALID_LEN)
+			return rc;
+
+		dev_alert(snp_dev->dev, "Detected error from ASP request. rc: %d, fw_err: %llu\n", rc, *fw_err);
 		snp_disable_vmpck(snp_dev);
 		return rc;
 	}
 
-	/* Increment to new message sequence after payload decryption was successful. */
-	snp_inc_msg_seqno(snp_dev);
+	rc = verify_and_dec_payload(snp_dev, resp_buf, resp_sz);
+	if (rc) {
+		dev_alert(snp_dev->dev, "Detected unexpected decode failure from ASP. rc: %d\n", rc);
+		snp_disable_vmpck(snp_dev);
+		return rc;
+	}
 
 	return 0;
 }
@@ -574,7 +665,7 @@ static void free_shared_pages(void *buf, size_t sz)
 	__free_pages(virt_to_page(buf), get_order(sz));
 }
 
-static void *alloc_shared_pages(size_t sz)
+static void *alloc_shared_pages(struct device *dev, size_t sz)
 {
 	unsigned int npages = PAGE_ALIGN(sz) >> PAGE_SHIFT;
 	struct page *page;
@@ -586,7 +677,7 @@ static void *alloc_shared_pages(size_t sz)
 
 	ret = set_memory_decrypted((unsigned long)page_address(page), npages);
 	if (ret) {
-		pr_err("failed to mark page shared, ret=%d\n", ret);
+		dev_err(dev, "failed to mark page shared, ret=%d\n", ret);
 		__free_pages(page, get_order(sz));
 		return NULL;
 	}
@@ -627,22 +718,28 @@ static u8 *get_vmpck(int id, struct snp_secrets_page_layout *layout, u32 **seqno
 	return key;
 }
 
-static int __init snp_guest_probe(struct platform_device *pdev)
+static int __init sev_guest_probe(struct platform_device *pdev)
 {
 	struct snp_secrets_page_layout *layout;
-	struct snp_guest_platform_data *data;
+	struct sev_guest_platform_data *data;
 	struct device *dev = &pdev->dev;
 	struct snp_guest_dev *snp_dev;
 	struct miscdevice *misc;
+	void __iomem *mapping;
 	int ret;
+
+	if (!cc_platform_has(CC_ATTR_GUEST_SEV_SNP))
+		return -ENODEV;
 
 	if (!dev->platform_data)
 		return -ENODEV;
 
-	data = (struct snp_guest_platform_data *)dev->platform_data;
-	layout = (__force void *)ioremap_encrypted(data->secrets_gpa, PAGE_SIZE);
-	if (!layout)
+	data = (struct sev_guest_platform_data *)dev->platform_data;
+	mapping = ioremap_encrypted(data->secrets_gpa, PAGE_SIZE);
+	if (!mapping)
 		return -ENODEV;
+
+	layout = (__force void *)mapping;
 
 	ret = -ENOMEM;
 	snp_dev = devm_kzalloc(&pdev->dev, sizeof(struct snp_guest_dev), GFP_KERNEL);
@@ -667,15 +764,15 @@ static int __init snp_guest_probe(struct platform_device *pdev)
 	snp_dev->layout = layout;
 
 	/* Allocate the shared page used for the request and response message. */
-	snp_dev->request = alloc_shared_pages(sizeof(struct snp_guest_msg));
+	snp_dev->request = alloc_shared_pages(dev, sizeof(struct snp_guest_msg));
 	if (!snp_dev->request)
 		goto e_unmap;
 
-	snp_dev->response = alloc_shared_pages(sizeof(struct snp_guest_msg));
+	snp_dev->response = alloc_shared_pages(dev, sizeof(struct snp_guest_msg));
 	if (!snp_dev->response)
 		goto e_free_request;
 
-	snp_dev->certs_data = alloc_shared_pages(SEV_FW_BLOB_MAX_SIZE);
+	snp_dev->certs_data = alloc_shared_pages(dev, SEV_FW_BLOB_MAX_SIZE);
 	if (!snp_dev->certs_data)
 		goto e_free_response;
 
@@ -698,7 +795,7 @@ static int __init snp_guest_probe(struct platform_device *pdev)
 	if (ret)
 		goto e_free_cert_data;
 
-	dev_info(dev, "Initialized SNP guest driver (using vmpck_id %d)\n", vmpck_id);
+	dev_info(dev, "Initialized SEV guest driver (using vmpck_id %d)\n", vmpck_id);
 	return 0;
 
 e_free_cert_data:
@@ -708,11 +805,11 @@ e_free_response:
 e_free_request:
 	free_shared_pages(snp_dev->request, sizeof(struct snp_guest_msg));
 e_unmap:
-	iounmap(layout);
+	iounmap(mapping);
 	return ret;
 }
 
-static int __exit snp_guest_remove(struct platform_device *pdev)
+static int __exit sev_guest_remove(struct platform_device *pdev)
 {
 	struct snp_guest_dev *snp_dev = platform_get_drvdata(pdev);
 
@@ -725,16 +822,22 @@ static int __exit snp_guest_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static struct platform_driver snp_guest_driver = {
-	.remove		= __exit_p(snp_guest_remove),
+/*
+ * This driver is meant to be a common SEV guest interface driver and to
+ * support any SEV guest API. As such, even though it has been introduced
+ * with the SEV-SNP support, it is named "sev-guest".
+ */
+static struct platform_driver sev_guest_driver = {
+	.remove		= __exit_p(sev_guest_remove),
 	.driver		= {
-		.name = "snp-guest",
+		.name = "sev-guest",
 	},
 };
 
-module_platform_driver_probe(snp_guest_driver, snp_guest_probe);
+module_platform_driver_probe(sev_guest_driver, sev_guest_probe);
 
 MODULE_AUTHOR("Brijesh Singh <brijesh.singh@amd.com>");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("1.0.0");
-MODULE_DESCRIPTION("AMD SNP Guest Driver");
+MODULE_DESCRIPTION("AMD SEV Guest Driver");
+MODULE_ALIAS("platform:sev-guest");

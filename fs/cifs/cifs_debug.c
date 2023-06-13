@@ -8,6 +8,7 @@
 #include <linux/fs.h>
 #include <linux/string.h>
 #include <linux/ctype.h>
+#include <linux/kstrtox.h>
 #include <linux/module.h>
 #include <linux/proc_fs.h>
 #include <linux/uaccess.h>
@@ -107,7 +108,7 @@ static void cifs_debug_tcon(struct seq_file *m, struct cifs_tcon *tcon)
 	if ((tcon->seal) ||
 	    (tcon->ses->session_flags & SMB2_SESSION_FLAG_ENCRYPT_DATA) ||
 	    (tcon->share_flags & SHI1005_FLAGS_ENCRYPT_DATA))
-		seq_printf(m, " Encrypted");
+		seq_puts(m, " encrypted");
 	if (tcon->nocase)
 		seq_printf(m, " nocase");
 	if (tcon->unix_ext)
@@ -175,7 +176,7 @@ static int cifs_debug_files_proc_show(struct seq_file *m, void *v)
 
 	seq_puts(m, "# Version:1\n");
 	seq_puts(m, "# Format:\n");
-	seq_puts(m, "# <tree id> <persistent fid> <flags> <count> <pid> <uid>");
+	seq_puts(m, "# <tree id> <ses id> <persistent fid> <flags> <count> <pid> <uid>");
 #ifdef CONFIG_CIFS_DEBUG2
 	seq_printf(m, " <filename> <mid>\n");
 #else
@@ -188,8 +189,9 @@ static int cifs_debug_files_proc_show(struct seq_file *m, void *v)
 				spin_lock(&tcon->open_file_lock);
 				list_for_each_entry(cfile, &tcon->openFileList, tlist) {
 					seq_printf(m,
-						"0x%x 0x%llx 0x%x %d %d %d %pd",
+						"0x%x 0x%llx 0x%llx 0x%x %d %d %d %pd",
 						tcon->tid,
+						ses->Suid,
 						cfile->fid.persistent_fid,
 						cfile->f_flags,
 						cfile->count,
@@ -215,6 +217,7 @@ static int cifs_debug_data_proc_show(struct seq_file *m, void *v)
 {
 	struct mid_q_entry *mid_entry;
 	struct TCP_Server_Info *server;
+	struct TCP_Server_Info *chan_server;
 	struct cifs_ses *ses;
 	struct cifs_tcon *tcon;
 	struct cifs_server_iface *iface;
@@ -280,8 +283,10 @@ static int cifs_debug_data_proc_show(struct seq_file *m, void *v)
 		seq_printf(m, "\n%d) ConnectionId: 0x%llx ",
 			c, server->conn_id);
 
+		spin_lock(&server->srv_lock);
 		if (server->hostname)
 			seq_printf(m, "Hostname: %s ", server->hostname);
+		spin_unlock(&server->srv_lock);
 #ifdef CONFIG_CIFS_SMB_DIRECT
 		if (!server->rdma)
 			goto skip_rdma;
@@ -413,14 +418,23 @@ skip_rdma:
 
 			/* dump session id helpful for use with network trace */
 			seq_printf(m, " SessionId: 0x%llx", ses->Suid);
-			if (ses->session_flags & SMB2_SESSION_FLAG_ENCRYPT_DATA)
+			if (ses->session_flags & SMB2_SESSION_FLAG_ENCRYPT_DATA) {
 				seq_puts(m, " encrypted");
+				/* can help in debugging to show encryption type */
+				if (server->cipher_type == SMB2_ENCRYPTION_AES256_GCM)
+					seq_puts(m, "(gcm256)");
+			}
 			if (ses->sign)
 				seq_puts(m, " signed");
 
 			seq_printf(m, "\n\tUser: %d Cred User: %d",
 				   from_kuid(&init_user_ns, ses->linux_uid),
 				   from_kuid(&init_user_ns, ses->cred_uid));
+
+			if (ses->dfs_root_ses) {
+				seq_printf(m, "\n\tDFS root session id: 0x%llx",
+					   ses->dfs_root_ses->Suid);
+			}
 
 			spin_lock(&ses->chan_lock);
 			if (CIFS_CHAN_NEEDS_RECONNECT(ses, 0))
@@ -458,8 +472,10 @@ skip_rdma:
 
 			spin_lock(&ses->iface_lock);
 			if (ses->iface_count)
-				seq_printf(m, "\n\n\tServer interfaces: %zu",
-					   ses->iface_count);
+				seq_printf(m, "\n\n\tServer interfaces: %zu"
+					   "\tLast updated: %lu seconds ago",
+					   ses->iface_count,
+					   (jiffies - ses->iface_last_update) / HZ);
 			j = 0;
 			list_for_each_entry(iface, &ses->iface_list,
 						 iface_head) {
@@ -469,23 +485,35 @@ skip_rdma:
 					seq_puts(m, "\t\t[CONNECTED]\n");
 			}
 			spin_unlock(&ses->iface_lock);
+
+			seq_puts(m, "\n\n\tMIDs: ");
+			spin_lock(&ses->chan_lock);
+			for (j = 0; j < ses->chan_count; j++) {
+				chan_server = ses->chans[j].server;
+				if (!chan_server)
+					continue;
+
+				if (list_empty(&chan_server->pending_mid_q))
+					continue;
+
+				seq_printf(m, "\n\tServer ConnectionId: 0x%llx",
+					   chan_server->conn_id);
+				spin_lock(&chan_server->mid_lock);
+				list_for_each_entry(mid_entry, &chan_server->pending_mid_q, qhead) {
+					seq_printf(m, "\n\t\tState: %d com: %d pid: %d cbdata: %p mid %llu",
+						   mid_entry->mid_state,
+						   le16_to_cpu(mid_entry->command),
+						   mid_entry->pid,
+						   mid_entry->callback_data,
+						   mid_entry->mid);
+				}
+				spin_unlock(&chan_server->mid_lock);
+			}
+			spin_unlock(&ses->chan_lock);
+			seq_puts(m, "\n--\n");
 		}
 		if (i == 0)
 			seq_printf(m, "\n\t\t[NONE]");
-
-		seq_puts(m, "\n\n\tMIDs: ");
-		spin_lock(&server->mid_lock);
-		list_for_each_entry(mid_entry, &server->pending_mid_q, qhead) {
-			seq_printf(m, "\n\tState: %d com: %d pid:"
-					" %d cbdata: %p mid %llu\n",
-					mid_entry->mid_state,
-					le16_to_cpu(mid_entry->command),
-					mid_entry->pid,
-					mid_entry->callback_data,
-					mid_entry->mid);
-		}
-		spin_unlock(&server->mid_lock);
-		seq_printf(m, "\n--\n");
 	}
 	if (c == 0)
 		seq_printf(m, "\n\t[NONE]");
@@ -604,10 +632,13 @@ static int cifs_stats_proc_show(struct seq_file *m, void *v)
 				server->fastest_cmd[j],
 				server->slowest_cmd[j]);
 		for (j = 0; j < NUMBER_OF_SMB2_COMMANDS; j++)
-			if (atomic_read(&server->smb2slowcmd[j]))
+			if (atomic_read(&server->smb2slowcmd[j])) {
+				spin_lock(&server->srv_lock);
 				seq_printf(m, "  %d slow responses from %s for command %d\n",
 					atomic_read(&server->smb2slowcmd[j]),
 					server->hostname, j);
+				spin_unlock(&server->srv_lock);
+			}
 #endif /* STATS2 */
 		list_for_each_entry(ses, &server->smb_ses_list, smb_ses_list) {
 			list_for_each_entry(tcon, &ses->tcon_list, tcon_list) {
@@ -790,7 +821,7 @@ static ssize_t cifsFYI_proc_write(struct file *file, const char __user *buffer,
 	rc = get_user(c[0], buffer);
 	if (rc)
 		return rc;
-	if (strtobool(c, &bv) == 0)
+	if (kstrtobool(c, &bv) == 0)
 		cifsFYI = bv;
 	else if ((c[0] > '1') && (c[0] <= '9'))
 		cifsFYI = (int) (c[0] - '0'); /* see cifs_debug.h for meanings */
@@ -958,7 +989,7 @@ static ssize_t cifs_security_flags_proc_write(struct file *file,
 
 	if (count < 3) {
 		/* single char or single char followed by null */
-		if (strtobool(flags_string, &bv) == 0) {
+		if (kstrtobool(flags_string, &bv) == 0) {
 			global_secflags = bv ? CIFSSEC_MAX : CIFSSEC_DEF;
 			return count;
 		} else if (!isdigit(flags_string[0])) {

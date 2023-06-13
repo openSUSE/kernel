@@ -801,7 +801,6 @@ static void qeth_l2_br2dev_worker(struct work_struct *work)
 	struct list_head *iter;
 	int err = 0;
 
-	kfree(br2dev_event_work);
 	QETH_CARD_TEXT_(card, 4, "b2dw%04lx", event);
 	QETH_CARD_TEXT_(card, 4, "ma%012llx", ether_addr_to_u64(addr));
 
@@ -858,6 +857,7 @@ unlock:
 	dev_put(brdev);
 	dev_put(lsyncdev);
 	dev_put(dstdev);
+	kfree(br2dev_event_work);
 }
 
 static int qeth_l2_br2dev_queue_work(struct net_device *brdev,
@@ -1105,6 +1105,8 @@ static const struct net_device_ops qeth_l2_iqd_netdev_ops = {
 	.ndo_tx_timeout		= qeth_tx_timeout,
 	.ndo_fix_features	= qeth_fix_features,
 	.ndo_set_features	= qeth_set_features,
+	.ndo_bridge_getlink	= qeth_l2_bridge_getlink,
+	.ndo_bridge_setlink	= qeth_l2_bridge_setlink,
 };
 
 static const struct net_device_ops qeth_l2_osa_netdev_ops = {
@@ -1124,8 +1126,6 @@ static const struct net_device_ops qeth_l2_osa_netdev_ops = {
 	.ndo_tx_timeout		= qeth_tx_timeout,
 	.ndo_fix_features	= qeth_fix_features,
 	.ndo_set_features	= qeth_set_features,
-	.ndo_bridge_getlink	= qeth_l2_bridge_getlink,
-	.ndo_bridge_setlink	= qeth_l2_bridge_setlink,
 };
 
 static const struct net_device_ops qeth_osn_netdev_ops = {

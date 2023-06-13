@@ -360,7 +360,7 @@ __be32 nfs4_callback_devicenotify(void *argp, void *resp,
 {
 	struct cb_devicenotifyargs *args = argp;
 	const struct pnfs_layoutdriver_type *ld = NULL;
-	int i;
+	uint32_t i;
 	__be32 res = 0;
 
 	if (!cps->clp) {

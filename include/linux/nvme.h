@@ -7,6 +7,7 @@
 #ifndef _LINUX_NVME_H
 #define _LINUX_NVME_H
 
+#include <linux/bits.h>
 #include <linux/types.h>
 #include <linux/uuid.h>
 
@@ -232,8 +233,8 @@ enum {
 };
 
 enum {
-	NVME_CAP_CRMS_CRIMS	= 1ULL << 59,
-	NVME_CAP_CRMS_CRWMS	= 1ULL << 60,
+	NVME_CAP_CRMS_CRWMS	= 1ULL << 59,
+	NVME_CAP_CRMS_CRIMS	= 1ULL << 60,
 };
 
 struct nvme_id_power_state {
@@ -637,7 +638,7 @@ enum {
 	NVME_CMD_EFFECTS_NCC		= 1 << 2,
 	NVME_CMD_EFFECTS_NIC		= 1 << 3,
 	NVME_CMD_EFFECTS_CCC		= 1 << 4,
-	NVME_CMD_EFFECTS_CSE_MASK	= 3 << 16,
+	NVME_CMD_EFFECTS_CSE_MASK	= GENMASK(18, 16),
 	NVME_CMD_EFFECTS_UUID_SEL	= 1 << 19,
 };
 
@@ -1483,8 +1484,8 @@ struct nvmf_connect_command {
 };
 
 enum {
-	NVME_CONNECT_AUTHREQ_ASCR	= (1 << 2),
-	NVME_CONNECT_AUTHREQ_ATR	= (1 << 1),
+	NVME_CONNECT_AUTHREQ_ASCR	= (1U << 18),
+	NVME_CONNECT_AUTHREQ_ATR	= (1U << 17),
 };
 
 struct nvmf_connect_data {

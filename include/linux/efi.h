@@ -1065,6 +1065,7 @@ efi_status_t efivar_set_variable_locked(efi_char16_t *name, efi_guid_t *vendor,
 efi_status_t efivar_set_variable(efi_char16_t *name, efi_guid_t *vendor,
 				 u32 attr, unsigned long data_size, void *data);
 
+/* exported for kABI compatibility */
 efi_status_t check_var_size(u32 attributes, unsigned long size);
 efi_status_t check_var_size_nonblocking(u32 attributes, unsigned long size);
 

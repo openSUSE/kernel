@@ -22,6 +22,7 @@
 #include <linux/xattr.h>
 #include <linux/export.h>
 #include <linux/user_namespace.h>
+#include <linux/mnt_idmapping.h>
 #include <linux/magic.h>
 
 static struct posix_acl **acl_by_type(struct inode *inode, int type)

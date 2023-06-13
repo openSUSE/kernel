@@ -1671,8 +1671,13 @@ static void io_kbuf_recycle(struct io_kiocb *req, unsigned issue_flags)
 	 * buffer data. However if that buffer is recycled the original request
 	 * data stored in addr is lost. Therefore forbid recycling for now.
 	 */
-	if (req->opcode == IORING_OP_READV)
+	if (req->opcode == IORING_OP_READV) {
+		if ((req->flags & REQ_F_BUFFER_RING) && req->buf_list) {
+			req->buf_list->head++;
+			req->buf_list = NULL;
+		}
 		return;
+	}
 
 	/*
 	 * We don't need to recycle for REQ_F_BUFFER_RING, we can just clear
@@ -5101,6 +5106,9 @@ static int io_file_bitmap_get(struct io_ring_ctx *ctx)
 	unsigned long nr = ctx->nr_user_files;
 	int ret;
 
+	if (!table->bitmap)
+		return -ENFILE;
+
 	do {
 		ret = find_next_zero_bit(table->bitmap, nr, table->alloc_hint);
 		if (ret != nr)
@@ -7833,7 +7841,7 @@ static int io_req_prep_async(struct io_kiocb *req)
 	const struct io_op_def *def = &io_op_defs[req->opcode];
 
 	/* assign early for deferred execution for non-fixed file */
-	if (def->needs_file && !(req->flags & REQ_F_FIXED_FILE))
+	if (def->needs_file && !(req->flags & REQ_F_FIXED_FILE) && !req->file)
 		req->file = io_file_get_normal(req, req->cqe.fd);
 	if (!def->needs_async_setup)
 		return 0;
@@ -8367,6 +8375,7 @@ static void io_queue_async(struct io_kiocb *req, int ret)
 
 	switch (io_arm_poll_handler(req, 0)) {
 	case IO_APOLL_READY:
+		io_kbuf_recycle(req, 0);
 		io_req_task_queue(req);
 		break;
 	case IO_APOLL_ABORTED:
@@ -8992,7 +9001,7 @@ static int io_run_task_work_sig(void)
 /* when returns >0, the caller should retry */
 static inline int io_cqring_wait_schedule(struct io_ring_ctx *ctx,
 					  struct io_wait_queue *iowq,
-					  ktime_t timeout)
+					  ktime_t *timeout)
 {
 	int ret;
 	unsigned long check_cq;
@@ -9007,7 +9016,7 @@ static inline int io_cqring_wait_schedule(struct io_ring_ctx *ctx,
 		return 1;
 	if (unlikely(check_cq & BIT(IO_CHECK_CQ_DROPPED_BIT)))
 		return -EBADR;
-	if (!schedule_hrtimeout(&timeout, HRTIMER_MODE_ABS))
+	if (!schedule_hrtimeout(timeout, HRTIMER_MODE_ABS))
 		return -ETIME;
 	return 1;
 }
@@ -9070,7 +9079,7 @@ static int io_cqring_wait(struct io_ring_ctx *ctx, int min_events,
 		}
 		prepare_to_wait_exclusive(&ctx->cq_wait, &iowq.wq,
 						TASK_INTERRUPTIBLE);
-		ret = io_cqring_wait_schedule(ctx, &iowq, timeout);
+		ret = io_cqring_wait_schedule(ctx, &iowq, &timeout);
 		cond_resched();
 	} while (ret > 0);
 
@@ -9372,6 +9381,7 @@ static void __io_sqe_files_unregister(struct io_ring_ctx *ctx)
 	}
 #endif
 	io_free_file_tables(&ctx->file_table);
+	ctx->file_table.alloc_hint = 0;
 	io_rsrc_data_free(ctx->file_data);
 	ctx->file_data = NULL;
 	ctx->nr_user_files = 0;
@@ -9842,8 +9852,6 @@ static int io_install_fixed_file(struct io_kiocb *req, struct file *file,
 err:
 	if (needs_switch)
 		io_rsrc_node_switch(ctx, ctx->file_data);
-	if (ret)
-		fput(file);
 	return ret;
 }
 
@@ -11038,6 +11046,9 @@ static __cold void io_ring_ctx_wait_and_kill(struct io_ring_ctx *ctx)
 		io_poll_remove_all(ctx, NULL, true);
 		/* if we failed setting up the ctx, we might not have any rings */
 		io_iopoll_try_reap_events(ctx);
+		/* drop cached put refs after potentially doing completions */
+		if (current->io_uring)
+			io_uring_drop_tctx_refs(current);
 	}
 
 	INIT_WORK(&ctx->exit_work, io_ring_exit_work);
@@ -11804,6 +11815,7 @@ static __cold void __io_uring_show_fdinfo(struct io_ring_ctx *ctx,
 	unsigned int cq_head = READ_ONCE(r->cq.head);
 	unsigned int cq_tail = READ_ONCE(r->cq.tail);
 	unsigned int cq_shift = 0;
+	unsigned int sq_shift = 0;
 	unsigned int sq_entries, cq_entries;
 	bool has_lock;
 	bool is_cqe32 = (ctx->flags & IORING_SETUP_CQE32);
@@ -11811,6 +11823,8 @@ static __cold void __io_uring_show_fdinfo(struct io_ring_ctx *ctx,
 
 	if (is_cqe32)
 		cq_shift = 1;
+	if (ctx->flags & IORING_SETUP_SQE128)
+		sq_shift = 1;
 
 	/*
 	 * we may get imprecise sqe and cqe info if uring is actively running
@@ -11826,19 +11840,36 @@ static __cold void __io_uring_show_fdinfo(struct io_ring_ctx *ctx,
 	seq_printf(m, "CqHead:\t%u\n", cq_head);
 	seq_printf(m, "CqTail:\t%u\n", cq_tail);
 	seq_printf(m, "CachedCqTail:\t%u\n", ctx->cached_cq_tail);
-	seq_printf(m, "SQEs:\t%u\n", sq_tail - ctx->cached_sq_head);
+	seq_printf(m, "SQEs:\t%u\n", sq_tail - sq_head);
 	sq_entries = min(sq_tail - sq_head, ctx->sq_entries);
 	for (i = 0; i < sq_entries; i++) {
 		unsigned int entry = i + sq_head;
-		unsigned int sq_idx = READ_ONCE(ctx->sq_array[entry & sq_mask]);
 		struct io_uring_sqe *sqe;
+		unsigned int sq_idx;
 
+		sq_idx = READ_ONCE(ctx->sq_array[entry & sq_mask]);
 		if (sq_idx > sq_mask)
 			continue;
-		sqe = &ctx->sq_sqes[sq_idx];
-		seq_printf(m, "%5u: opcode:%d, fd:%d, flags:%x, user_data:%llu\n",
-			   sq_idx, sqe->opcode, sqe->fd, sqe->flags,
-			   sqe->user_data);
+		sqe = &ctx->sq_sqes[sq_idx << 1];
+		seq_printf(m, "%5u: opcode:%s, fd:%d, flags:%x, off:%llu, "
+			      "addr:0x%llx, rw_flags:0x%x, buf_index:%d "
+			      "user_data:%llu",
+			   sq_idx, io_uring_get_opcode(sqe->opcode), sqe->fd,
+			   sqe->flags, (unsigned long long) sqe->off,
+			   (unsigned long long) sqe->addr, sqe->rw_flags,
+			   sqe->buf_index, sqe->user_data);
+		if (sq_shift) {
+			u64 *sqeb = (void *) (sqe + 1);
+			int size = sizeof(struct io_uring_sqe) / sizeof(u64);
+			int j;
+
+			for (j = 0; j < size; j++) {
+				seq_printf(m, ", e%d:0x%llx", j,
+						(unsigned long long) *sqeb);
+				sqeb++;
+			}
+		}
+		seq_printf(m, "\n");
 	}
 	seq_printf(m, "CQEs:\t%u\n", cq_tail - cq_head);
 	cq_entries = min(cq_tail - cq_head, ctx->cq_entries);

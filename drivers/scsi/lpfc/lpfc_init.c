@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2022 Broadcom. All Rights Reserved. The term *
+ * Copyright (C) 2017-2023 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.  *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -31,7 +31,6 @@
 #include <linux/pci.h>
 #include <linux/spinlock.h>
 #include <linux/ctype.h>
-#include <linux/aer.h>
 #include <linux/slab.h>
 #include <linux/firmware.h>
 #include <linux/miscdevice.h>
@@ -1279,7 +1278,7 @@ lpfc_hb_mbox_cmpl(struct lpfc_hba * phba, LPFC_MBOXQ_t * pmboxq)
 /*
  * lpfc_idle_stat_delay_work - idle_stat tracking
  *
- * This routine tracks per-cq idle_stat and determines polling decisions.
+ * This routine tracks per-eq idle_stat and determines polling decisions.
  *
  * Return codes:
  *   None
@@ -1290,7 +1289,7 @@ lpfc_idle_stat_delay_work(struct work_struct *work)
 	struct lpfc_hba *phba = container_of(to_delayed_work(work),
 					     struct lpfc_hba,
 					     idle_stat_delay_work);
-	struct lpfc_queue *cq;
+	struct lpfc_queue *eq;
 	struct lpfc_sli4_hdw_queue *hdwq;
 	struct lpfc_idle_stat *idle_stat;
 	u32 i, idle_percent;
@@ -1306,10 +1305,10 @@ lpfc_idle_stat_delay_work(struct work_struct *work)
 
 	for_each_present_cpu(i) {
 		hdwq = &phba->sli4_hba.hdwq[phba->sli4_hba.cpu_map[i].hdwq];
-		cq = hdwq->io_cq;
+		eq = hdwq->hba_eq;
 
-		/* Skip if we've already handled this cq's primary CPU */
-		if (cq->chann != i)
+		/* Skip if we've already handled this eq's primary CPU */
+		if (eq->chann != i)
 			continue;
 
 		idle_stat = &phba->sli4_hba.idle_stat[i];
@@ -1333,9 +1332,9 @@ lpfc_idle_stat_delay_work(struct work_struct *work)
 		idle_percent = 100 - idle_percent;
 
 		if (idle_percent < 15)
-			cq->poll_mode = LPFC_QUEUE_WORK;
+			eq->poll_mode = LPFC_QUEUE_WORK;
 		else
-			cq->poll_mode = LPFC_IRQ_POLL;
+			eq->poll_mode = LPFC_THREADED_IRQ;
 
 		idle_stat->prev_idle = wall_idle;
 		idle_stat->prev_wall = wall;
@@ -2147,7 +2146,7 @@ lpfc_handle_eratt_s4(struct lpfc_hba *phba)
 		/* fall through for not able to recover */
 		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
 				"3152 Unrecoverable error\n");
-		phba->link_state = LPFC_HBA_ERROR;
+		lpfc_sli4_offline_eratt(phba);
 		break;
 	case LPFC_SLI_INTF_IF_TYPE_1:
 	default:
@@ -4373,6 +4372,7 @@ lpfc_io_buf_replenish(struct lpfc_hba *phba, struct list_head *cbuf)
 	struct lpfc_sli4_hdw_queue *qp;
 	struct lpfc_io_buf *lpfc_cmd;
 	int idx, cnt;
+	unsigned long iflags;
 
 	qp = phba->sli4_hba.hdwq;
 	cnt = 0;
@@ -4387,12 +4387,13 @@ lpfc_io_buf_replenish(struct lpfc_hba *phba, struct list_head *cbuf)
 			lpfc_cmd->hdwq_no = idx;
 			lpfc_cmd->hdwq = qp;
 			lpfc_cmd->cur_iocbq.cmd_cmpl = NULL;
-			spin_lock(&qp->io_buf_list_put_lock);
+			spin_lock_irqsave(&qp->io_buf_list_put_lock, iflags);
 			list_add_tail(&lpfc_cmd->list,
 				      &qp->lpfc_io_buf_list_put);
 			qp->put_io_bufs++;
 			qp->total_io_bufs++;
-			spin_unlock(&qp->io_buf_list_put_lock);
+			spin_unlock_irqrestore(&qp->io_buf_list_put_lock,
+					       iflags);
 		}
 	}
 	return cnt;
@@ -5205,16 +5206,25 @@ static void
 lpfc_sli4_parse_latt_fault(struct lpfc_hba *phba,
 			   struct lpfc_acqe_link *acqe_link)
 {
-	switch (bf_get(lpfc_acqe_link_fault, acqe_link)) {
-	case LPFC_ASYNC_LINK_FAULT_NONE:
-	case LPFC_ASYNC_LINK_FAULT_LOCAL:
-	case LPFC_ASYNC_LINK_FAULT_REMOTE:
-	case LPFC_ASYNC_LINK_FAULT_LR_LRR:
+	switch (bf_get(lpfc_acqe_fc_la_att_type, acqe_link)) {
+	case LPFC_FC_LA_TYPE_LINK_DOWN:
+	case LPFC_FC_LA_TYPE_TRUNKING_EVENT:
+	case LPFC_FC_LA_TYPE_ACTIVATE_FAIL:
+	case LPFC_FC_LA_TYPE_LINK_RESET_PRTCL_EVT:
 		break;
 	default:
-		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
-				"0398 Unknown link fault code: x%x\n",
-				bf_get(lpfc_acqe_link_fault, acqe_link));
+		switch (bf_get(lpfc_acqe_link_fault, acqe_link)) {
+		case LPFC_ASYNC_LINK_FAULT_NONE:
+		case LPFC_ASYNC_LINK_FAULT_LOCAL:
+		case LPFC_ASYNC_LINK_FAULT_REMOTE:
+		case LPFC_ASYNC_LINK_FAULT_LR_LRR:
+			break;
+		default:
+			lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
+					"0398 Unknown link fault code: x%x\n",
+					bf_get(lpfc_acqe_link_fault, acqe_link));
+			break;
+		}
 		break;
 	}
 }
@@ -5508,7 +5518,7 @@ lpfc_sli4_async_link_evt(struct lpfc_hba *phba,
 	bf_set(lpfc_mbx_read_top_link_spd, la,
 	       (bf_get(lpfc_acqe_link_speed, acqe_link)));
 
-	/* Fake the the following irrelvant fields */
+	/* Fake the following irrelevant fields */
 	bf_set(lpfc_mbx_read_top_topology, la, LPFC_TOPOLOGY_PT_PT);
 	bf_set(lpfc_mbx_read_top_alpa_granted, la, 0);
 	bf_set(lpfc_mbx_read_top_il, la, 0);
@@ -6297,6 +6307,7 @@ lpfc_sli4_async_fc_evt(struct lpfc_hba *phba, struct lpfc_acqe_fc_la *acqe_fc)
 	LPFC_MBOXQ_t *pmb;
 	MAILBOX_t *mb;
 	struct lpfc_mbx_read_top *la;
+	char *log_level;
 	int rc;
 
 	if (bf_get(lpfc_trailer_type, acqe_fc) !=
@@ -6328,25 +6339,70 @@ lpfc_sli4_async_fc_evt(struct lpfc_hba *phba, struct lpfc_acqe_fc_la *acqe_fc)
 				bf_get(lpfc_acqe_fc_la_port_number, acqe_fc);
 	phba->sli4_hba.link_state.fault =
 				bf_get(lpfc_acqe_link_fault, acqe_fc);
+	phba->sli4_hba.link_state.link_status =
+				bf_get(lpfc_acqe_fc_la_link_status, acqe_fc);
 
-	if (bf_get(lpfc_acqe_fc_la_att_type, acqe_fc) ==
-	    LPFC_FC_LA_TYPE_LINK_DOWN)
-		phba->sli4_hba.link_state.logical_speed = 0;
-	else if (!phba->sli4_hba.conf_trunk)
-		phba->sli4_hba.link_state.logical_speed =
+	/*
+	 * Only select attention types need logical speed modification to what
+	 * was previously set.
+	 */
+	if (phba->sli4_hba.link_state.status >= LPFC_FC_LA_TYPE_LINK_UP &&
+	    phba->sli4_hba.link_state.status < LPFC_FC_LA_TYPE_ACTIVATE_FAIL) {
+		if (bf_get(lpfc_acqe_fc_la_att_type, acqe_fc) ==
+		    LPFC_FC_LA_TYPE_LINK_DOWN)
+			phba->sli4_hba.link_state.logical_speed = 0;
+		else if (!phba->sli4_hba.conf_trunk)
+			phba->sli4_hba.link_state.logical_speed =
 				bf_get(lpfc_acqe_fc_la_llink_spd, acqe_fc) * 10;
+	}
 
 	lpfc_printf_log(phba, KERN_INFO, LOG_SLI,
 			"2896 Async FC event - Speed:%dGBaud Topology:x%x "
 			"LA Type:x%x Port Type:%d Port Number:%d Logical speed:"
-			"%dMbps Fault:%d\n",
+			"%dMbps Fault:x%x Link Status:x%x\n",
 			phba->sli4_hba.link_state.speed,
 			phba->sli4_hba.link_state.topology,
 			phba->sli4_hba.link_state.status,
 			phba->sli4_hba.link_state.type,
 			phba->sli4_hba.link_state.number,
 			phba->sli4_hba.link_state.logical_speed,
-			phba->sli4_hba.link_state.fault);
+			phba->sli4_hba.link_state.fault,
+			phba->sli4_hba.link_state.link_status);
+
+	/*
+	 * The following attention types are informational only, providing
+	 * further details about link status.  Overwrite the value of
+	 * link_state.status appropriately.  No further action is required.
+	 */
+	if (phba->sli4_hba.link_state.status >= LPFC_FC_LA_TYPE_ACTIVATE_FAIL) {
+		switch (phba->sli4_hba.link_state.status) {
+		case LPFC_FC_LA_TYPE_ACTIVATE_FAIL:
+			log_level = KERN_WARNING;
+			phba->sli4_hba.link_state.status =
+					LPFC_FC_LA_TYPE_LINK_DOWN;
+			break;
+		case LPFC_FC_LA_TYPE_LINK_RESET_PRTCL_EVT:
+			/*
+			 * During bb credit recovery establishment, receiving
+			 * this attention type is normal.  Link Up attention
+			 * type is expected to occur before this informational
+			 * attention type so keep the Link Up status.
+			 */
+			log_level = KERN_INFO;
+			phba->sli4_hba.link_state.status =
+					LPFC_FC_LA_TYPE_LINK_UP;
+			break;
+		default:
+			log_level = KERN_INFO;
+			break;
+		}
+		lpfc_log_msg(phba, log_level, LOG_SLI,
+			     "2992 Async FC event - Informational Link "
+			     "Attention Type x%x\n",
+			     bf_get(lpfc_acqe_fc_la_att_type, acqe_fc));
+		return;
+	}
+
 	pmb = (LPFC_MBOXQ_t *)mempool_alloc(phba->mbox_mem_pool, GFP_KERNEL);
 	if (!pmb) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
@@ -7251,6 +7307,8 @@ lpfc_sli4_cgn_params_read(struct lpfc_hba *phba)
 	/* Find out if the FW has a new set of congestion parameters. */
 	len = sizeof(struct lpfc_cgn_param);
 	pdata = kzalloc(len, GFP_KERNEL);
+	if (!pdata)
+		return -ENOMEM;
 	ret = lpfc_read_object(phba, (char *)LPFC_PORT_CFG_NAME,
 			       pdata, len);
 
@@ -9527,8 +9585,7 @@ lpfc_sli4_post_status_check(struct lpfc_hba *phba)
 			/* Final checks.  The port status should be clean. */
 			if (lpfc_readl(phba->sli4_hba.u.if_type2.STATUSregaddr,
 				&reg_data.word0) ||
-				(bf_get(lpfc_sliport_status_err, &reg_data) &&
-				 !bf_get(lpfc_sliport_status_rn, &reg_data))) {
+				lpfc_sli4_unrecoverable_port(&reg_data)) {
 				phba->work_status[0] =
 					readl(phba->sli4_hba.u.if_type2.
 					      ERR1regaddr);
@@ -11984,7 +12041,7 @@ lpfc_sli4_pci_mem_setup(struct lpfc_hba *phba)
 				goto out_iounmap_all;
 		} else {
 			error = -ENOMEM;
-			goto out_iounmap_all;
+			goto out_iounmap_ctrl;
 		}
 	}
 
@@ -12002,7 +12059,7 @@ lpfc_sli4_pci_mem_setup(struct lpfc_hba *phba)
 			dev_err(&pdev->dev,
 			   "ioremap failed for SLI4 HBA dpp registers.\n");
 			error = -ENOMEM;
-			goto out_iounmap_ctrl;
+			goto out_iounmap_all;
 		}
 		phba->pci_bar4_memmap_p = phba->sli4_hba.dpp_regs_memmap_p;
 	}
@@ -12027,9 +12084,11 @@ lpfc_sli4_pci_mem_setup(struct lpfc_hba *phba)
 	return 0;
 
 out_iounmap_all:
-	iounmap(phba->sli4_hba.drbl_regs_memmap_p);
+	if (phba->sli4_hba.drbl_regs_memmap_p)
+		iounmap(phba->sli4_hba.drbl_regs_memmap_p);
 out_iounmap_ctrl:
-	iounmap(phba->sli4_hba.ctrl_regs_memmap_p);
+	if (phba->sli4_hba.ctrl_regs_memmap_p)
+		iounmap(phba->sli4_hba.ctrl_regs_memmap_p);
 out_iounmap_conf:
 	iounmap(phba->sli4_hba.conf_regs_memmap_p);
 
@@ -12065,6 +12124,7 @@ lpfc_sli4_pci_mem_unset(struct lpfc_hba *phba)
 			iounmap(phba->sli4_hba.dpp_regs_memmap_p);
 		break;
 	case LPFC_SLI_INTF_IF_TYPE_1:
+		break;
 	default:
 		dev_printk(KERN_ERR, &phba->pcidev->dev,
 			   "FATAL - unsupported SLI4 interface type - %d\n",
@@ -12513,7 +12573,7 @@ lpfc_cpu_affinity_check(struct lpfc_hba *phba, int vectors)
 			/* Mark CPU as IRQ not assigned by the kernel */
 			cpup->flag |= LPFC_CPU_MAP_UNASSIGN;
 
-			/* If so, find a new_cpup thats on the the SAME
+			/* If so, find a new_cpup that is on the SAME
 			 * phys_id as cpup. start_cpu will start where we
 			 * left off so all unassigned entries don't get assgined
 			 * the IRQ of the first entry.
@@ -12527,7 +12587,7 @@ lpfc_cpu_affinity_check(struct lpfc_hba *phba, int vectors)
 					goto found_same;
 				new_cpu = cpumask_next(
 					new_cpu, cpu_present_mask);
-				if (new_cpu == nr_cpumask_bits)
+				if (new_cpu >= nr_cpu_ids)
 					new_cpu = first_cpu;
 			}
 			/* At this point, we leave the CPU as unassigned */
@@ -12541,7 +12601,7 @@ found_same:
 			 * selecting the same IRQ.
 			 */
 			start_cpu = cpumask_next(new_cpu, cpu_present_mask);
-			if (start_cpu == nr_cpumask_bits)
+			if (start_cpu >= nr_cpu_ids)
 				start_cpu = first_cpu;
 
 			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
@@ -12577,7 +12637,7 @@ found_same:
 					goto found_any;
 				new_cpu = cpumask_next(
 					new_cpu, cpu_present_mask);
-				if (new_cpu == nr_cpumask_bits)
+				if (new_cpu >= nr_cpu_ids)
 					new_cpu = first_cpu;
 			}
 			/* We should never leave an entry unassigned */
@@ -12595,7 +12655,7 @@ found_any:
 			 * selecting the same IRQ.
 			 */
 			start_cpu = cpumask_next(new_cpu, cpu_present_mask);
-			if (start_cpu == nr_cpumask_bits)
+			if (start_cpu >= nr_cpu_ids)
 				start_cpu = first_cpu;
 
 			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
@@ -12668,7 +12728,7 @@ found_any:
 				goto found_hdwq;
 			}
 			new_cpu = cpumask_next(new_cpu, cpu_present_mask);
-			if (new_cpu == nr_cpumask_bits)
+			if (new_cpu >= nr_cpu_ids)
 				new_cpu = first_cpu;
 		}
 
@@ -12683,7 +12743,7 @@ found_any:
 				goto found_hdwq;
 
 			new_cpu = cpumask_next(new_cpu, cpu_present_mask);
-			if (new_cpu == nr_cpumask_bits)
+			if (new_cpu >= nr_cpu_ids)
 				new_cpu = first_cpu;
 		}
 
@@ -12694,7 +12754,7 @@ found_any:
  found_hdwq:
 		/* We found an available entry, copy the IRQ info */
 		start_cpu = cpumask_next(new_cpu, cpu_present_mask);
-		if (start_cpu == nr_cpumask_bits)
+		if (start_cpu >= nr_cpu_ids)
 			start_cpu = first_cpu;
 		cpup->hdwq = new_cpup->hdwq;
  logit:
@@ -13078,8 +13138,10 @@ lpfc_sli4_enable_msix(struct lpfc_hba *phba)
 		}
 		eqhdl->irq = rc;
 
-		rc = request_irq(eqhdl->irq, &lpfc_sli4_hba_intr_handler, 0,
-				 name, eqhdl);
+		rc = request_threaded_irq(eqhdl->irq,
+					  &lpfc_sli4_hba_intr_handler,
+					  &lpfc_sli4_hba_intr_handler_th,
+					  IRQF_ONESHOT, name, eqhdl);
 		if (rc) {
 			lpfc_printf_log(phba, KERN_WARNING, LOG_INIT,
 					"0486 MSI-X fast-path (%d) "
@@ -13936,6 +13998,13 @@ fcponly:
 	/* Make sure that sge_supp_len can be handled by the driver */
 	if (sli4_params->sge_supp_len > LPFC_MAX_SGE_SIZE)
 		sli4_params->sge_supp_len = LPFC_MAX_SGE_SIZE;
+
+	rc = dma_set_max_seg_size(&phba->pcidev->dev, sli4_params->sge_supp_len);
+	if (unlikely(rc)) {
+		lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
+				"6400 Can't set dma maximum segment size\n");
+		return rc;
+	}
 
 	/*
 	 * Check whether the adapter supports an embedded copy of the

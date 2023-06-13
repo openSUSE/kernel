@@ -22,8 +22,7 @@
 #define	nlm4_fbig		cpu_to_be32(NLM_FBIG)
 #define	nlm4_failed		cpu_to_be32(NLM_FAILED)
 
-
-
+void	nlm4svc_set_file_lock_range(struct file_lock *fl, u64 off, u64 len);
 int	nlm4svc_decode_testargs(struct svc_rqst *, __be32 *);
 int	nlm4svc_encode_testres(struct svc_rqst *, __be32 *);
 int	nlm4svc_decode_lockargs(struct svc_rqst *, __be32 *);

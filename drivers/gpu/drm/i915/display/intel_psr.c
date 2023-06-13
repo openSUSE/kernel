@@ -116,34 +116,56 @@ static bool psr2_global_enabled(struct intel_dp *intel_dp)
 	}
 }
 
+static u32 psr_irq_psr_error_bit_get(struct intel_dp *intel_dp)
+{
+	struct drm_i915_private *dev_priv = dp_to_i915(intel_dp);
+
+	return DISPLAY_VER(dev_priv) >= 12 ? TGL_PSR_ERROR :
+		EDP_PSR_ERROR(intel_dp->psr.transcoder);
+}
+
+static u32 psr_irq_post_exit_bit_get(struct intel_dp *intel_dp)
+{
+	struct drm_i915_private *dev_priv = dp_to_i915(intel_dp);
+
+	return DISPLAY_VER(dev_priv) >= 12 ? TGL_PSR_POST_EXIT :
+		EDP_PSR_POST_EXIT(intel_dp->psr.transcoder);
+}
+
+static u32 psr_irq_pre_entry_bit_get(struct intel_dp *intel_dp)
+{
+	struct drm_i915_private *dev_priv = dp_to_i915(intel_dp);
+
+	return DISPLAY_VER(dev_priv) >= 12 ? TGL_PSR_PRE_ENTRY :
+		EDP_PSR_PRE_ENTRY(intel_dp->psr.transcoder);
+}
+
+static u32 psr_irq_mask_get(struct intel_dp *intel_dp)
+{
+	struct drm_i915_private *dev_priv = dp_to_i915(intel_dp);
+
+	return DISPLAY_VER(dev_priv) >= 12 ? TGL_PSR_MASK :
+		EDP_PSR_MASK(intel_dp->psr.transcoder);
+}
+
 static void psr_irq_control(struct intel_dp *intel_dp)
 {
 	struct drm_i915_private *dev_priv = dp_to_i915(intel_dp);
-	enum transcoder trans_shift;
 	i915_reg_t imr_reg;
 	u32 mask, val;
 
-	/*
-	 * gen12+ has registers relative to transcoder and one per transcoder
-	 * using the same bit definition: handle it as TRANSCODER_EDP to force
-	 * 0 shift in bit definition
-	 */
-	if (DISPLAY_VER(dev_priv) >= 12) {
-		trans_shift = 0;
+	if (DISPLAY_VER(dev_priv) >= 12)
 		imr_reg = TRANS_PSR_IMR(intel_dp->psr.transcoder);
-	} else {
-		trans_shift = intel_dp->psr.transcoder;
+	else
 		imr_reg = EDP_PSR_IMR;
-	}
 
-	mask = EDP_PSR_ERROR(trans_shift);
+	mask = psr_irq_psr_error_bit_get(intel_dp);
 	if (intel_dp->psr.debug & I915_PSR_DEBUG_IRQ)
-		mask |= EDP_PSR_POST_EXIT(trans_shift) |
-			EDP_PSR_PRE_ENTRY(trans_shift);
+		mask |= psr_irq_post_exit_bit_get(intel_dp) |
+			psr_irq_pre_entry_bit_get(intel_dp);
 
-	/* Warning: it is masking/setting reserved bits too */
 	val = intel_de_read(dev_priv, imr_reg);
-	val &= ~EDP_PSR_TRANS_MASK(trans_shift);
+	val &= ~psr_irq_mask_get(intel_dp);
 	val |= ~mask;
 	intel_de_write(dev_priv, imr_reg, val);
 }
@@ -191,25 +213,21 @@ void intel_psr_irq_handler(struct intel_dp *intel_dp, u32 psr_iir)
 	enum transcoder cpu_transcoder = intel_dp->psr.transcoder;
 	struct drm_i915_private *dev_priv = dp_to_i915(intel_dp);
 	ktime_t time_ns =  ktime_get();
-	enum transcoder trans_shift;
 	i915_reg_t imr_reg;
 
-	if (DISPLAY_VER(dev_priv) >= 12) {
-		trans_shift = 0;
+	if (DISPLAY_VER(dev_priv) >= 12)
 		imr_reg = TRANS_PSR_IMR(intel_dp->psr.transcoder);
-	} else {
-		trans_shift = intel_dp->psr.transcoder;
+	else
 		imr_reg = EDP_PSR_IMR;
-	}
 
-	if (psr_iir & EDP_PSR_PRE_ENTRY(trans_shift)) {
+	if (psr_iir & psr_irq_pre_entry_bit_get(intel_dp)) {
 		intel_dp->psr.last_entry_attempt = time_ns;
 		drm_dbg_kms(&dev_priv->drm,
 			    "[transcoder %s] PSR entry attempt in 2 vblanks\n",
 			    transcoder_name(cpu_transcoder));
 	}
 
-	if (psr_iir & EDP_PSR_POST_EXIT(trans_shift)) {
+	if (psr_iir & psr_irq_post_exit_bit_get(intel_dp)) {
 		intel_dp->psr.last_exit = time_ns;
 		drm_dbg_kms(&dev_priv->drm,
 			    "[transcoder %s] PSR exit completed\n",
@@ -226,7 +244,7 @@ void intel_psr_irq_handler(struct intel_dp *intel_dp, u32 psr_iir)
 		}
 	}
 
-	if (psr_iir & EDP_PSR_ERROR(trans_shift)) {
+	if (psr_iir & psr_irq_psr_error_bit_get(intel_dp)) {
 		u32 val;
 
 		drm_warn(&dev_priv->drm, "[transcoder %s] PSR aux error\n",
@@ -243,7 +261,7 @@ void intel_psr_irq_handler(struct intel_dp *intel_dp, u32 psr_iir)
 		 * or unset irq_aux_error.
 		 */
 		val = intel_de_read(dev_priv, imr_reg);
-		val |= EDP_PSR_ERROR(trans_shift);
+		val |= psr_irq_psr_error_bit_get(intel_dp);
 		intel_de_write(dev_priv, imr_reg, val);
 
 		schedule_work(&intel_dp->psr.work);
@@ -524,6 +542,14 @@ static void hsw_activate_psr2(struct intel_dp *intel_dp)
 	val |= EDP_PSR2_FRAME_BEFORE_SU(max_t(u8, intel_dp->psr.sink_sync_latency + 1, 2));
 	val |= intel_psr2_get_tp_time(intel_dp);
 
+	if (DISPLAY_VER(dev_priv) >= 12) {
+		if (intel_dp->psr.io_wake_lines < 9 &&
+		    intel_dp->psr.fast_wake_lines < 9)
+			val |= TGL_EDP_PSR2_BLOCK_COUNT_NUM_2;
+		else
+			val |= TGL_EDP_PSR2_BLOCK_COUNT_NUM_3;
+	}
+
 	/* Wa_22012278275:adl-p */
 	if (IS_ADLP_DISPLAY_STEP(dev_priv, STEP_A0, STEP_E0)) {
 		static const u8 map[] = {
@@ -540,31 +566,21 @@ static void hsw_activate_psr2(struct intel_dp *intel_dp)
 		 * Still using the default IO_BUFFER_WAKE and FAST_WAKE, see
 		 * comments bellow for more information
 		 */
-		u32 tmp, lines = 7;
+		u32 tmp;
 
-		val |= TGL_EDP_PSR2_BLOCK_COUNT_NUM_2;
-
-		tmp = map[lines - TGL_EDP_PSR2_IO_BUFFER_WAKE_MIN_LINES];
+		tmp = map[intel_dp->psr.io_wake_lines - TGL_EDP_PSR2_IO_BUFFER_WAKE_MIN_LINES];
 		tmp = tmp << TGL_EDP_PSR2_IO_BUFFER_WAKE_SHIFT;
 		val |= tmp;
 
-		tmp = map[lines - TGL_EDP_PSR2_FAST_WAKE_MIN_LINES];
+		tmp = map[intel_dp->psr.fast_wake_lines - TGL_EDP_PSR2_FAST_WAKE_MIN_LINES];
 		tmp = tmp << TGL_EDP_PSR2_FAST_WAKE_MIN_SHIFT;
 		val |= tmp;
 	} else if (DISPLAY_VER(dev_priv) >= 12) {
-		/*
-		 * TODO: 7 lines of IO_BUFFER_WAKE and FAST_WAKE are default
-		 * values from BSpec. In order to setting an optimal power
-		 * consumption, lower than 4k resolution mode needs to decrease
-		 * IO_BUFFER_WAKE and FAST_WAKE. And higher than 4K resolution
-		 * mode needs to increase IO_BUFFER_WAKE and FAST_WAKE.
-		 */
-		val |= TGL_EDP_PSR2_BLOCK_COUNT_NUM_2;
-		val |= TGL_EDP_PSR2_IO_BUFFER_WAKE(7);
-		val |= TGL_EDP_PSR2_FAST_WAKE(7);
+		val |= TGL_EDP_PSR2_IO_BUFFER_WAKE(intel_dp->psr.io_wake_lines);
+		val |= TGL_EDP_PSR2_FAST_WAKE(intel_dp->psr.fast_wake_lines);
 	} else if (DISPLAY_VER(dev_priv) >= 9) {
-		val |= EDP_PSR2_IO_BUFFER_WAKE(7);
-		val |= EDP_PSR2_FAST_WAKE(7);
+		val |= EDP_PSR2_IO_BUFFER_WAKE(intel_dp->psr.io_wake_lines);
+		val |= EDP_PSR2_FAST_WAKE(intel_dp->psr.fast_wake_lines);
 	}
 
 	if (intel_dp->psr.req_psr2_sdp_prior_scanline)
@@ -818,6 +834,46 @@ static bool _compute_psr2_sdp_prior_scanline_indication(struct intel_dp *intel_d
 	return true;
 }
 
+static bool _compute_psr2_wake_times(struct intel_dp *intel_dp,
+				     struct intel_crtc_state *crtc_state)
+{
+	struct drm_i915_private *i915 = dp_to_i915(intel_dp);
+	int io_wake_lines, io_wake_time, fast_wake_lines, fast_wake_time;
+	u8 max_wake_lines;
+
+	if (DISPLAY_VER(i915) >= 12) {
+		io_wake_time = 42;
+		/*
+		 * According to Bspec it's 42us, but based on testing
+		 * it is not enough -> use 45 us.
+		 */
+		fast_wake_time = 45;
+		max_wake_lines = 12;
+	} else {
+		io_wake_time = 50;
+		fast_wake_time = 32;
+		max_wake_lines = 8;
+	}
+
+	io_wake_lines = intel_usecs_to_scanlines(
+		&crtc_state->uapi.adjusted_mode, io_wake_time);
+	fast_wake_lines = intel_usecs_to_scanlines(
+		&crtc_state->uapi.adjusted_mode, fast_wake_time);
+
+	if (io_wake_lines > max_wake_lines ||
+	    fast_wake_lines > max_wake_lines)
+		return false;
+
+	if (i915->params.psr_safest_params)
+		io_wake_lines = fast_wake_lines = max_wake_lines;
+
+	/* According to Bspec lower limit should be set as 7 lines. */
+	intel_dp->psr.io_wake_lines = max(io_wake_lines, 7);
+	intel_dp->psr.fast_wake_lines = max(fast_wake_lines, 7);
+
+	return true;
+}
+
 static bool intel_psr2_config_valid(struct intel_dp *intel_dp,
 				    struct intel_crtc_state *crtc_state)
 {
@@ -908,6 +964,12 @@ static bool intel_psr2_config_valid(struct intel_dp *intel_dp,
 	if (!_compute_psr2_sdp_prior_scanline_indication(intel_dp, crtc_state)) {
 		drm_dbg_kms(&dev_priv->drm,
 			    "PSR2 not enabled, PSR2 SDP indication do not fit in hblank\n");
+		return false;
+	}
+
+	if (!_compute_psr2_wake_times(intel_dp, crtc_state)) {
+		drm_dbg_kms(&dev_priv->drm,
+			    "PSR2 not enabled, Unable to use long enough wake times\n");
 		return false;
 	}
 
@@ -1193,14 +1255,12 @@ static bool psr_interrupt_error_check(struct intel_dp *intel_dp)
 	 * first time that PSR HW tries to activate so lets keep PSR disabled
 	 * to avoid any rendering problems.
 	 */
-	if (DISPLAY_VER(dev_priv) >= 12) {
+	if (DISPLAY_VER(dev_priv) >= 12)
 		val = intel_de_read(dev_priv,
 				    TRANS_PSR_IIR(intel_dp->psr.transcoder));
-		val &= EDP_PSR_ERROR(0);
-	} else {
+	else
 		val = intel_de_read(dev_priv, EDP_PSR_IIR);
-		val &= EDP_PSR_ERROR(intel_dp->psr.transcoder);
-	}
+	val &= psr_irq_psr_error_bit_get(intel_dp);
 	if (val) {
 		intel_dp->psr.sink_not_reliable = true;
 		drm_dbg_kms(&dev_priv->drm,

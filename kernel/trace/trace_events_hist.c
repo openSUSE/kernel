@@ -429,7 +429,7 @@ struct action_data {
 	 * event param, and is passed to the synthetic event
 	 * invocation.
 	 */
-	unsigned int		var_ref_idx[TRACING_MAP_VARS_MAX];
+	unsigned int		var_ref_idx[SYNTH_FIELDS_MAX];
 	struct synth_event	*synth_event;
 	bool			use_trace_keyword;
 	char			*synth_event_name;
@@ -1103,6 +1103,9 @@ static const char *hist_field_name(struct hist_field *field,
 {
 	const char *field_name = "";
 
+	if (WARN_ON_ONCE(!field))
+		return field_name;
+
 	if (level > 1)
 		return field_name;
 
@@ -1662,6 +1665,8 @@ static struct hist_field *create_hist_field(struct hist_trigger_data *hist_data,
 		unsigned long fl = flags & ~HIST_FIELD_FL_LOG2;
 		hist_field->fn = hist_field_log2;
 		hist_field->operands[0] = create_hist_field(hist_data, field, fl, NULL);
+		if (!hist_field->operands[0])
+			goto free;
 		hist_field->size = hist_field->operands[0]->size;
 		hist_field->type = kstrdup(hist_field->operands[0]->type, GFP_KERNEL);
 		if (!hist_field->type)
@@ -1862,7 +1867,9 @@ static struct hist_field *create_var_ref(struct hist_trigger_data *hist_data,
 			return ref_field;
 		}
 	}
-
+	/* Sanity check to avoid out-of-bound write on 'hist_data->var_refs' */
+	if (hist_data->n_var_refs >= TRACING_MAP_VARS_MAX)
+		return NULL;
 	ref_field = create_hist_field(var_field->hist_data, NULL, flags, NULL);
 	if (ref_field) {
 		if (init_var_ref(ref_field, var_field, system, event_name)) {
@@ -3138,6 +3145,7 @@ static int parse_action_params(struct trace_array *tr, char *params,
 	while (params) {
 		if (data->n_params >= SYNTH_FIELDS_MAX) {
 			hist_err(tr, HIST_ERR_TOO_MANY_PARAMS, 0);
+			ret = -EINVAL;
 			goto out;
 		}
 
@@ -3474,6 +3482,10 @@ static int trace_action_create(struct hist_trigger_data *hist_data,
 
 	lockdep_assert_held(&event_mutex);
 
+	/* Sanity check to avoid out-of-bound write on 'data->var_ref_idx' */
+	if (data->n_params > SYNTH_FIELDS_MAX)
+		return -EINVAL;
+
 	if (data->use_trace_keyword)
 		synth_event_name = data->synth_event_name;
 	else
@@ -3717,6 +3729,14 @@ static int __create_val_field(struct hist_trigger_data *hist_data,
 	if (IS_ERR(hist_field)) {
 		ret = PTR_ERR(hist_field);
 		goto out;
+	}
+
+	/* Some types cannot be a value */
+	if (hist_field->flags & (HIST_FIELD_FL_LOG2 |
+				 HIST_FIELD_FL_SYM | HIST_FIELD_FL_SYM_OFFSET |
+				 HIST_FIELD_FL_SYSCALL | HIST_FIELD_FL_STACKTRACE)) {
+		hist_err(file->tr, HIST_ERR_BAD_FIELD_MODIFIER, errpos(field_str));
+		ret = -EINVAL;
 	}
 
 	hist_data->fields[val_idx] = hist_field;
@@ -4588,6 +4608,9 @@ static void event_hist_trigger(struct event_trigger_data *data,
 	u64 field_contents;
 	void *key = NULL;
 	unsigned int i;
+
+	if (unlikely(!rbe))
+		return;
 
 	memset(compound_key, 0, hist_data->key_size);
 
@@ -5853,7 +5876,7 @@ enable:
 	/* Just return zero, not the number of registered triggers */
 	ret = 0;
  out:
-	if (ret == 0)
+	if (ret == 0 && glob[0])
 		hist_err_clear();
 
 	return ret;
