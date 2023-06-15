@@ -856,6 +856,22 @@ int open_cached_dir(unsigned int xid, struct cifs_tcon *tcon,
 	rc = compound_send_recv(xid, ses, server,
 				flags, 2, rqst,
 				resp_buftype, rsp_iov);
+	if (rc) {
+		if (rc == -EREMCHG) {
+			tcon->need_reconnect = true;
+			printk_once(KERN_WARNING "server share %s deleted\n",
+				    tcon->treeName);
+		}
+		goto oshr_free;
+	}
+
+	o_rsp = (struct smb2_create_rsp *)rsp_iov[0].iov_base;
+	oparms.fid->persistent_fid = o_rsp->PersistentFileId;
+	oparms.fid->volatile_fid = o_rsp->VolatileFileId;
+#ifdef CONFIG_CIFS_DEBUG2
+	oparms.fid->mid = le64_to_cpu(o_rsp->sync_hdr.MessageId);
+#endif /* CIFS_DEBUG2 */
+
 	mutex_lock(&tcon->crfid.fid_mutex);
 
 	/*
@@ -880,33 +896,14 @@ int open_cached_dir(unsigned int xid, struct cifs_tcon *tcon,
 
 		mutex_unlock(&tcon->crfid.fid_mutex);
 
-		if (rc == 0) {
-			/* close extra handle outside of crit sec */
-			SMB2_close(xid, tcon, fid.persistent_fid, fid.volatile_fid);
-		}
-		rc = 0;
+		/* close extra handle outside of crit sec */
+		SMB2_close(xid, tcon, fid.persistent_fid, fid.volatile_fid);
 		goto oshr_free;
 	}
 
 	/* Cached root is still invalid, continue normaly */
 
-	if (rc) {
-		if (rc == -EREMCHG) {
-			tcon->need_reconnect = true;
-			pr_warn_once("server share %s deleted\n",
-				     tcon->treeName);
-		}
-		goto oshr_exit;
-	}
-
 	atomic_inc(&tcon->num_remote_opens);
-
-	o_rsp = (struct smb2_create_rsp *)rsp_iov[0].iov_base;
-	oparms.fid->persistent_fid = o_rsp->PersistentFileId;
-	oparms.fid->volatile_fid = o_rsp->VolatileFileId;
-#ifdef CONFIG_CIFS_DEBUG2
-	oparms.fid->mid = le64_to_cpu(o_rsp->hdr.MessageId);
-#endif /* CIFS_DEBUG2 */
 
 	tcon->crfid.tcon = tcon;
 	tcon->crfid.is_valid = true;
