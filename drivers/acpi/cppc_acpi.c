@@ -1392,7 +1392,7 @@ EXPORT_SYMBOL_GPL(cppc_get_perf_ctrs);
  * Set Energy Performance Preference Register value through
  * Performance Controls Interface
  */
-int cppc_set_epp_perf(int cpu, struct cppc_perf_ctrls *perf_ctrls, bool enable)
+int cppc_set_epp_perf(int cpu, struct cppc_epp_perf_ctrls *perf_ctrls, bool enable)
 {
 	int pcc_ss_id = per_cpu(cpu_pcc_subspace_idx, cpu);
 	struct cpc_register_resource *epp_set_reg;
@@ -1447,7 +1447,7 @@ EXPORT_SYMBOL_GPL(cppc_set_epp_perf);
  * @cpunum : CPU from which to read register.
  * @perf_caps : struct where autonomous selection register value is updated.
  */
-int cppc_get_auto_sel_caps(int cpunum, struct cppc_perf_caps *perf_caps)
+int cppc_get_auto_sel_caps(int cpunum, struct cppc_epp_perf_caps *perf_caps)
 {
 	struct cpc_desc *cpc_desc = per_cpu(cpc_desc_ptr, cpunum);
 	struct cpc_register_resource *auto_sel_reg;
