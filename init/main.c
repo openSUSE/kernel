@@ -96,13 +96,11 @@
 #include <linux/cache.h>
 #include <linux/rodata_test.h>
 #include <linux/jump_label.h>
-#include <linux/mem_encrypt.h>
 #include <linux/kcsan.h>
 #include <linux/init_syscalls.h>
 #include <linux/stackdepot.h>
 
 #include <asm/io.h>
-#include <asm/bugs.h>
 #include <asm/setup.h>
 #include <asm/sections.h>
 #include <asm/cacheflush.h>
@@ -772,8 +770,6 @@ void __init __weak thread_stack_cache_init(void)
 }
 #endif
 
-void __init __weak mem_encrypt_init(void) { }
-
 void __init __weak poking_init(void) { }
 
 void __init __weak pgtable_cache_init(void) { }
@@ -1052,6 +1048,8 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 
 	kmem_cache_init_late();
 
+	arch_cpu_finalize_init();
+
 	/*
 	 * HACK ALERT! This is early. We're enabling the console before
 	 * we've done PCI setups etc, and console_init() must be aware of
@@ -1070,14 +1068,6 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	 * too:
 	 */
 	locking_selftest();
-
-	/*
-	 * This needs to be called before any devices perform DMA
-	 * operations that might use the SWIOTLB bounce buffers. It will
-	 * mark the bounce buffers as decrypted so that their usage will
-	 * not cause "plain-text" data to be decrypted when accessed.
-	 */
-	mem_encrypt_init();
 
 #ifdef CONFIG_BLK_DEV_INITRD
 	if (initrd_start && !initrd_below_start_ok &&
@@ -1122,7 +1112,6 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	delayacct_init();
 
 	poking_init();
-	check_bugs();
 
 	acpi_subsystem_init();
 	arch_post_acpi_subsys_init();
