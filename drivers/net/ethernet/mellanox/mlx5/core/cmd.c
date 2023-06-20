@@ -1894,9 +1894,10 @@ static void mlx5_cmd_err_trace(struct mlx5_core_dev *dev, u16 opcode, u16 op_mod
 static void cmd_status_log(struct mlx5_core_dev *dev, u16 opcode, u8 status,
 			   u32 syndrome, int err)
 {
+	const char *namep = mlx5_command_str(opcode);
 	struct mlx5_cmd_stats *stats;
 
-	if (!err)
+	if (!err || !(strcmp(namep, "unknown command opcode")))
 		return;
 
 	stats = &dev->cmd.stats[opcode];
@@ -2177,15 +2178,9 @@ int mlx5_cmd_init(struct mlx5_core_dev *dev)
 		return -EINVAL;
 	}
 
-	cmd->stats = kvcalloc(MLX5_CMD_OP_MAX, sizeof(*cmd->stats), GFP_KERNEL);
-	if (!cmd->stats)
-		return -ENOMEM;
-
 	cmd->pool = dma_pool_create("mlx5_cmd", mlx5_core_dma_dev(dev), size, align, 0);
-	if (!cmd->pool) {
-		err = -ENOMEM;
-		goto dma_pool_err;
-	}
+	if (!cmd->pool)
+		return -ENOMEM;
 
 	err = alloc_cmd_page(dev, cmd);
 	if (err)
@@ -2269,8 +2264,6 @@ err_free_page:
 
 err_free_pool:
 	dma_pool_destroy(cmd->pool);
-dma_pool_err:
-	kvfree(cmd->stats);
 	return err;
 }
 
@@ -2283,7 +2276,6 @@ void mlx5_cmd_cleanup(struct mlx5_core_dev *dev)
 	destroy_msg_cache(dev);
 	free_cmd_page(dev, cmd);
 	dma_pool_destroy(cmd->pool);
-	kvfree(cmd->stats);
 }
 
 void mlx5_cmd_set_state(struct mlx5_core_dev *dev,

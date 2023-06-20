@@ -562,9 +562,9 @@ out:
 	return msg->len;
 }
 
-#define VDPA_DEV_NET_ATTRS_MASK ((1 << VDPA_ATTR_DEV_NET_CFG_MACADDR) | \
-				 (1 << VDPA_ATTR_DEV_NET_CFG_MTU) | \
-				 (1 << VDPA_ATTR_DEV_NET_CFG_MAX_VQP))
+#define VDPA_DEV_NET_ATTRS_MASK (BIT_ULL(VDPA_ATTR_DEV_NET_CFG_MACADDR) | \
+				 BIT_ULL(VDPA_ATTR_DEV_NET_CFG_MTU)     | \
+				 BIT_ULL(VDPA_ATTR_DEV_NET_CFG_MAX_VQP))
 
 static int vdpa_nl_cmd_dev_add_set_doit(struct sk_buff *skb, struct genl_info *info)
 {
@@ -583,12 +583,12 @@ static int vdpa_nl_cmd_dev_add_set_doit(struct sk_buff *skb, struct genl_info *i
 	if (nl_attrs[VDPA_ATTR_DEV_NET_CFG_MACADDR]) {
 		macaddr = nla_data(nl_attrs[VDPA_ATTR_DEV_NET_CFG_MACADDR]);
 		memcpy(config.net.mac, macaddr, sizeof(config.net.mac));
-		config.mask |= (1 << VDPA_ATTR_DEV_NET_CFG_MACADDR);
+		config.mask |= BIT_ULL(VDPA_ATTR_DEV_NET_CFG_MACADDR);
 	}
 	if (nl_attrs[VDPA_ATTR_DEV_NET_CFG_MTU]) {
 		config.net.mtu =
 			nla_get_u16(nl_attrs[VDPA_ATTR_DEV_NET_CFG_MTU]);
-		config.mask |= (1 << VDPA_ATTR_DEV_NET_CFG_MTU);
+		config.mask |= BIT_ULL(VDPA_ATTR_DEV_NET_CFG_MTU);
 	}
 	if (nl_attrs[VDPA_ATTR_DEV_NET_CFG_MAX_VQP]) {
 		config.net.max_vq_pairs =
@@ -739,14 +739,19 @@ static int vdpa_nl_cmd_dev_get_doit(struct sk_buff *skb, struct genl_info *info)
 		goto mdev_err;
 	}
 	err = vdpa_dev_fill(vdev, msg, info->snd_portid, info->snd_seq, 0, info->extack);
-	if (!err)
-		err = genlmsg_reply(msg, info);
+	if (err)
+		goto mdev_err;
+
+	err = genlmsg_reply(msg, info);
+	put_device(dev);
+	mutex_unlock(&vdpa_dev_mutex);
+	return err;
+
 mdev_err:
 	put_device(dev);
 err:
 	mutex_unlock(&vdpa_dev_mutex);
-	if (err)
-		nlmsg_free(msg);
+	nlmsg_free(msg);
 	return err;
 }
 
@@ -794,13 +799,13 @@ static int vdpa_nl_cmd_dev_get_dumpit(struct sk_buff *msg, struct netlink_callba
 	return msg->len;
 }
 
-static int vdpa_dev_net_mq_config_fill(struct vdpa_device *vdev,
-				       struct sk_buff *msg, u64 features,
+static int vdpa_dev_net_mq_config_fill(struct sk_buff *msg, u64 features,
 				       const struct virtio_net_config *config)
 {
 	u16 val_u16;
 
-	if ((features & (1ULL << VIRTIO_NET_F_MQ)) == 0)
+	if ((features & BIT_ULL(VIRTIO_NET_F_MQ)) == 0 &&
+	    (features & BIT_ULL(VIRTIO_NET_F_RSS)) == 0)
 		return 0;
 
 	val_u16 = le16_to_cpu(config->max_virtqueue_pairs);
@@ -819,11 +824,11 @@ static int vdpa_dev_net_config_fill(struct vdpa_device *vdev, struct sk_buff *ms
 		    config.mac))
 		return -EMSGSIZE;
 
-	val_u16 = le16_to_cpu(config.status);
+	val_u16 = __virtio16_to_cpu(true, config.status);
 	if (nla_put_u16(msg, VDPA_ATTR_DEV_NET_STATUS, val_u16))
 		return -EMSGSIZE;
 
-	val_u16 = le16_to_cpu(config.mtu);
+	val_u16 = __virtio16_to_cpu(true, config.mtu);
 	if (nla_put_u16(msg, VDPA_ATTR_DEV_NET_CFG_MTU, val_u16))
 		return -EMSGSIZE;
 
@@ -832,7 +837,7 @@ static int vdpa_dev_net_config_fill(struct vdpa_device *vdev, struct sk_buff *ms
 			      VDPA_ATTR_PAD))
 		return -EMSGSIZE;
 
-	return vdpa_dev_net_mq_config_fill(vdev, msg, features, &config);
+	return vdpa_dev_net_mq_config_fill(msg, features, &config);
 }
 
 static int
@@ -897,7 +902,6 @@ static int vdpa_fill_stats_rec(struct vdpa_device *vdev, struct sk_buff *msg,
 {
 	struct virtio_net_config config = {};
 	u64 features;
-	u16 max_vqp;
 	u8 status;
 	int err;
 
@@ -908,14 +912,14 @@ static int vdpa_fill_stats_rec(struct vdpa_device *vdev, struct sk_buff *msg,
 	}
 	vdpa_get_config_unlocked(vdev, 0, &config, sizeof(config));
 
-	max_vqp = le16_to_cpu(config.max_virtqueue_pairs);
-	if (nla_put_u16(msg, VDPA_ATTR_DEV_NET_CFG_MAX_VQP, max_vqp))
-		return -EMSGSIZE;
-
 	features = vdev->config->get_driver_features(vdev);
 	if (nla_put_u64_64bit(msg, VDPA_ATTR_DEV_NEGOTIATED_FEATURES,
 			      features, VDPA_ATTR_PAD))
 		return -EMSGSIZE;
+
+	err = vdpa_dev_net_mq_config_fill(msg, features, &config);
+	if (err)
+		return err;
 
 	if (nla_put_u32(msg, VDPA_ATTR_DEV_QUEUE_INDEX, index))
 		return -EMSGSIZE;
