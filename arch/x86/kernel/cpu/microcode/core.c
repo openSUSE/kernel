@@ -533,7 +533,6 @@ static int microcode_reload_late(void)
 			boot_cpu_data.microcode);
 	}
 
-
 	return ret;
 }
 
