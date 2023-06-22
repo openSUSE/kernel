@@ -7,6 +7,7 @@
 #include <linux/swapops.h>
 #include <linux/kmemleak.h>
 #include <linux/sched/task.h>
+#include <linux/sched/mm.h>
 
 #include <asm/set_memory.h>
 #include <asm/e820/api.h>
