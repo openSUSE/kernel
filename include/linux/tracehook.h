@@ -185,7 +185,7 @@ static inline void tracehook_notify_resume(struct pt_regs *regs)
 	 * hlist_add_head(task->task_works);
 	 */
 	smp_mb__after_atomic();
-	if (unlikely(current->task_works))
+	if (unlikely(task_work_pending(current)))
 		task_work_run();
 
 #ifdef CONFIG_KEYS_REQUEST_CACHE
@@ -208,7 +208,7 @@ static inline void tracehook_notify_signal(void)
 {
 	clear_thread_flag(TIF_NOTIFY_SIGNAL);
 	smp_mb__after_atomic();
-	if (current->task_works)
+	if (task_work_pending(current))
 		task_work_run();
 }
 
