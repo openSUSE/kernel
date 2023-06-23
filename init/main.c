@@ -839,6 +839,7 @@ static void __init mm_init(void)
 	init_espfix_bsp();
 	/* Should be run after espfix64 is set up. */
 	pti_init();
+	mm_cache_init();
 }
 
 #ifdef CONFIG_HAVE_ARCH_RANDOMIZE_KSTACK_OFFSET
@@ -971,7 +972,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	sort_main_extable();
 	trap_init();
 	mm_init();
-
+	poking_init();
 	ftrace_init();
 
 	/* trace_printk can be enabled here */
@@ -1048,7 +1049,6 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 
 	kmem_cache_init_late();
 
-	arch_cpu_finalize_init();
 
 	/*
 	 * HACK ALERT! This is early. We're enabling the console before
@@ -1085,6 +1085,9 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 		late_time_init();
 	sched_clock_init();
 	calibrate_delay();
+
+	arch_cpu_finalize_init();
+
 	pid_idr_init();
 	anon_vma_init();
 #ifdef CONFIG_X86
@@ -1110,8 +1113,6 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	cgroup_init();
 	taskstats_init_early();
 	delayacct_init();
-
-	poking_init();
 
 	acpi_subsystem_init();
 	arch_post_acpi_subsys_init();

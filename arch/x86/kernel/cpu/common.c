@@ -2184,6 +2184,8 @@ void store_cpu_caps(struct cpuinfo_x86 *curr_info)
  * The microcode loader calls this upon late microcode load to recheck features,
  * only when microcode has been updated. Caller holds microcode_mutex and CPU
  * hotplug lock.
+ *
+ * Return: None
  */
 void microcode_check(struct cpuinfo_x86 *prev_info)
 {
