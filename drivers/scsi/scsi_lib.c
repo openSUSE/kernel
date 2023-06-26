@@ -2690,8 +2690,9 @@ EXPORT_SYMBOL_GPL(scsi_internal_device_block_nowait);
  * @sdev: device to block
  * @data: dummy argument, ignored
  *
- * Pause SCSI command processing on the specified device and wait until all
- * ongoing scsi_queue_rq() calls have finished. May sleep.
+ * Pause SCSI command processing on the specified device. Callers must wait
+ * until all ongoing scsi_queue_rq() calls have finished after this function
+ * returns.
  *
  * Note:
  * This routine transitions the device to the SDEV_BLOCK state (which must be
@@ -2705,17 +2706,15 @@ static void scsi_device_block(struct scsi_device *sdev, void *data)
 
 	mutex_lock(&sdev->state_mutex);
 	err = __scsi_internal_device_block_nowait(sdev);
-	if (err == 0) {
+	if (err == 0)
 		/*
 		 * scsi_stop_queue() must be called with the state_mutex
 		 * held. Otherwise a simultaneous scsi_start_queue() call
 		 * might unquiesce the queue before we quiesce it.
 		 */
 		scsi_stop_queue(sdev);
-		mutex_unlock(&sdev->state_mutex);
-		blk_mq_wait_quiesce_done(sdev->request_queue);
-	} else
-		mutex_unlock(&sdev->state_mutex);
+
+	mutex_unlock(&sdev->state_mutex);
 
 	WARN_ONCE(err, "__scsi_internal_device_block_nowait(%s) failed: err = %d\n",
 		  dev_name(&sdev->sdev_gendev), err);
@@ -2813,11 +2812,20 @@ target_block(struct device *dev, void *data)
 void
 scsi_target_block(struct device *dev)
 {
+	struct Scsi_Host *shost = dev_to_shost(dev);
+
 	if (scsi_is_target_device(dev))
 		starget_for_each_device(to_scsi_target(dev), NULL,
 					scsi_device_block);
 	else
 		device_for_each_child(dev, NULL, target_block);
+
+	/*
+	 * blk_mq_wait_quiesce_done() comes down to just synchronize_rcu()
+	 * because SCSI doesn't use BLK_MQ_F_BLOCKING
+	 */
+	WARN_ON_ONCE(!shost || shost->tag_set.flags & BLK_MQ_F_BLOCKING);
+	synchronize_rcu();
 }
 EXPORT_SYMBOL_GPL(scsi_target_block);
 
