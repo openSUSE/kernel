@@ -1184,12 +1184,12 @@ EXPORT_SYMBOL(ap_parse_mask_str);
  * AP bus attributes.
  */
 
-static ssize_t ap_domain_show(struct bus_type *bus, char *buf)
+static ssize_t ap_domain_show(const struct bus_type *bus, char *buf)
 {
 	return sysfs_emit(buf, "%d\n", ap_domain_index);
 }
 
-static ssize_t ap_domain_store(struct bus_type *bus,
+static ssize_t ap_domain_store(const struct bus_type *bus,
 			       const char *buf, size_t count)
 {
 	int domain;
@@ -1211,7 +1211,7 @@ static ssize_t ap_domain_store(struct bus_type *bus,
 
 static BUS_ATTR_RW(ap_domain);
 
-static ssize_t ap_control_domain_mask_show(struct bus_type *bus, char *buf)
+static ssize_t ap_control_domain_mask_show(const struct bus_type *bus, char *buf)
 {
 	if (!ap_qci_info)	/* QCI not supported */
 		return sysfs_emit(buf, "not supported\n");
@@ -1225,7 +1225,7 @@ static ssize_t ap_control_domain_mask_show(struct bus_type *bus, char *buf)
 
 static BUS_ATTR_RO(ap_control_domain_mask);
 
-static ssize_t ap_usage_domain_mask_show(struct bus_type *bus, char *buf)
+static ssize_t ap_usage_domain_mask_show(const struct bus_type *bus, char *buf)
 {
 	if (!ap_qci_info)	/* QCI not supported */
 		return sysfs_emit(buf, "not supported\n");
@@ -1239,7 +1239,7 @@ static ssize_t ap_usage_domain_mask_show(struct bus_type *bus, char *buf)
 
 static BUS_ATTR_RO(ap_usage_domain_mask);
 
-static ssize_t ap_adapter_mask_show(struct bus_type *bus, char *buf)
+static ssize_t ap_adapter_mask_show(const struct bus_type *bus, char *buf)
 {
 	if (!ap_qci_info)	/* QCI not supported */
 		return sysfs_emit(buf, "not supported\n");
@@ -1253,19 +1253,19 @@ static ssize_t ap_adapter_mask_show(struct bus_type *bus, char *buf)
 
 static BUS_ATTR_RO(ap_adapter_mask);
 
-static ssize_t ap_interrupts_show(struct bus_type *bus, char *buf)
+static ssize_t ap_interrupts_show(const struct bus_type *bus, char *buf)
 {
 	return sysfs_emit(buf, "%d\n", ap_irq_flag ? 1 : 0);
 }
 
 static BUS_ATTR_RO(ap_interrupts);
 
-static ssize_t config_time_show(struct bus_type *bus, char *buf)
+static ssize_t config_time_show(const struct bus_type *bus, char *buf)
 {
 	return sysfs_emit(buf, "%d\n", ap_config_time);
 }
 
-static ssize_t config_time_store(struct bus_type *bus,
+static ssize_t config_time_store(const struct bus_type *bus,
 				 const char *buf, size_t count)
 {
 	int time;
@@ -1279,12 +1279,12 @@ static ssize_t config_time_store(struct bus_type *bus,
 
 static BUS_ATTR_RW(config_time);
 
-static ssize_t poll_thread_show(struct bus_type *bus, char *buf)
+static ssize_t poll_thread_show(const struct bus_type *bus, char *buf)
 {
 	return sysfs_emit(buf, "%d\n", ap_poll_kthread ? 1 : 0);
 }
 
-static ssize_t poll_thread_store(struct bus_type *bus,
+static ssize_t poll_thread_store(const struct bus_type *bus,
 				 const char *buf, size_t count)
 {
 	bool value;
@@ -1306,12 +1306,12 @@ static ssize_t poll_thread_store(struct bus_type *bus,
 
 static BUS_ATTR_RW(poll_thread);
 
-static ssize_t poll_timeout_show(struct bus_type *bus, char *buf)
+static ssize_t poll_timeout_show(const struct bus_type *bus, char *buf)
 {
 	return sysfs_emit(buf, "%lu\n", poll_high_timeout);
 }
 
-static ssize_t poll_timeout_store(struct bus_type *bus, const char *buf,
+static ssize_t poll_timeout_store(const struct bus_type *bus, const char *buf,
 				  size_t count)
 {
 	unsigned long value;
@@ -1339,21 +1339,21 @@ static ssize_t poll_timeout_store(struct bus_type *bus, const char *buf,
 
 static BUS_ATTR_RW(poll_timeout);
 
-static ssize_t ap_max_domain_id_show(struct bus_type *bus, char *buf)
+static ssize_t ap_max_domain_id_show(const struct bus_type *bus, char *buf)
 {
 	return sysfs_emit(buf, "%d\n", ap_max_domain_id);
 }
 
 static BUS_ATTR_RO(ap_max_domain_id);
 
-static ssize_t ap_max_adapter_id_show(struct bus_type *bus, char *buf)
+static ssize_t ap_max_adapter_id_show(const struct bus_type *bus, char *buf)
 {
 	return sysfs_emit(buf, "%d\n", ap_max_adapter_id);
 }
 
 static BUS_ATTR_RO(ap_max_adapter_id);
 
-static ssize_t apmask_show(struct bus_type *bus, char *buf)
+static ssize_t apmask_show(const struct bus_type *bus, char *buf)
 {
 	int rc;
 
@@ -1413,7 +1413,7 @@ static int apmask_commit(unsigned long *newapm)
 	return 0;
 }
 
-static ssize_t apmask_store(struct bus_type *bus, const char *buf,
+static ssize_t apmask_store(const struct bus_type *bus, const char *buf,
 			    size_t count)
 {
 	int rc, changes = 0;
@@ -1445,7 +1445,7 @@ done:
 
 static BUS_ATTR_RW(apmask);
 
-static ssize_t aqmask_show(struct bus_type *bus, char *buf)
+static ssize_t aqmask_show(const struct bus_type *bus, char *buf)
 {
 	int rc;
 
@@ -1505,7 +1505,7 @@ static int aqmask_commit(unsigned long *newaqm)
 	return 0;
 }
 
-static ssize_t aqmask_store(struct bus_type *bus, const char *buf,
+static ssize_t aqmask_store(const struct bus_type *bus, const char *buf,
 			    size_t count)
 {
 	int rc, changes = 0;
@@ -1537,12 +1537,12 @@ done:
 
 static BUS_ATTR_RW(aqmask);
 
-static ssize_t scans_show(struct bus_type *bus, char *buf)
+static ssize_t scans_show(const struct bus_type *bus, char *buf)
 {
 	return sysfs_emit(buf, "%llu\n", atomic64_read(&ap_scan_bus_count));
 }
 
-static ssize_t scans_store(struct bus_type *bus, const char *buf,
+static ssize_t scans_store(const struct bus_type *bus, const char *buf,
 			   size_t count)
 {
 	AP_DBF_INFO("%s force AP bus rescan\n", __func__);
@@ -1554,7 +1554,7 @@ static ssize_t scans_store(struct bus_type *bus, const char *buf,
 
 static BUS_ATTR_RW(scans);
 
-static ssize_t bindings_show(struct bus_type *bus, char *buf)
+static ssize_t bindings_show(const struct bus_type *bus, char *buf)
 {
 	int rc;
 	unsigned int apqns, n;
@@ -1570,7 +1570,7 @@ static ssize_t bindings_show(struct bus_type *bus, char *buf)
 
 static BUS_ATTR_RO(bindings);
 
-static ssize_t features_show(struct bus_type *bus, char *buf)
+static ssize_t features_show(const struct bus_type *bus, char *buf)
 {
 	int n = 0;
 
