@@ -75,6 +75,9 @@ enum {
 	MLX5_SET_HCA_CAP_OP_MOD_ODP                   = 0x2,
 	MLX5_SET_HCA_CAP_OP_MOD_ATOMIC                = 0x3,
 	MLX5_SET_HCA_CAP_OP_MOD_ROCE                  = 0x4,
+#ifndef __GENKSYMS__
+	MLX5_SET_HCA_CAP_OP_MODE_PORT_SELECTION       = 0x25,
+#endif
 };
 
 enum {
@@ -787,7 +790,13 @@ struct mlx5_ifc_flow_table_nic_cap_bits {
 struct mlx5_ifc_port_selection_cap_bits {
 	u8         reserved_at_0[0x10];
 	u8         port_select_flow_table[0x1];
+#ifndef __GENKSYMS__
+	u8         reserved_at_11[0x1];
+	u8         port_select_flow_table_bypass[0x1];
+	u8         reserved_at_13[0xd];
+#else
 	u8         reserved_at_11[0xf];
+#endif
 
 	u8         reserved_at_20[0x1e0];
 
@@ -10791,7 +10800,13 @@ struct mlx5_ifc_lagc_bits {
 	u8         reserved_at_18[0x5];
 	u8         lag_state[0x3];
 
+#ifndef __GENKSYMS__
+	u8         reserved_at_20[0xc];
+	u8         active_port[0x4];
+	u8         reserved_at_30[0x4];
+#else
 	u8         reserved_at_20[0x14];
+#endif
 	u8         tx_remap_affinity_2[0x4];
 	u8         reserved_at_38[0x4];
 	u8         tx_remap_affinity_1[0x4];
