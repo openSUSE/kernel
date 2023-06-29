@@ -7149,7 +7149,9 @@ static int io_poll_remove(struct io_kiocb *req, unsigned int issue_flags)
 	struct io_ring_ctx *ctx = req->ctx;
 	struct io_kiocb *preq;
 	int ret2, ret = 0;
-	bool locked;
+	bool locked = true;
+
+	io_ring_submit_lock(ctx, issue_flags);
 
 	spin_lock(&ctx->completion_lock);
 	preq = io_poll_find(ctx, true, &cd);
@@ -7170,7 +7172,7 @@ static int io_poll_remove(struct io_kiocb *req, unsigned int issue_flags)
 		if (req->poll_update.update_user_data)
 			preq->cqe.user_data = req->poll_update.new_user_data;
 
-		ret2 = io_poll_add(preq, issue_flags);
+		ret2 = io_poll_add(preq, issue_flags & ~IO_URING_F_UNLOCKED);
 		/* successfully updated, don't complete poll request */
 		if (!ret2)
 			goto out;
@@ -7178,9 +7180,9 @@ static int io_poll_remove(struct io_kiocb *req, unsigned int issue_flags)
 
 	req_set_fail(preq);
 	preq->cqe.res = -ECANCELED;
-	locked = !(issue_flags & IO_URING_F_UNLOCKED);
 	io_req_task_complete(preq, &locked);
 out:
+	io_ring_submit_unlock(ctx, issue_flags);
 	if (ret < 0)
 		req_set_fail(req);
 	/* complete update request, we're done with it */
