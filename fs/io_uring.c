@@ -5510,6 +5510,8 @@ static int io_poll_update(struct io_kiocb *req, unsigned int issue_flags)
 	bool completing;
 	int ret;
 
+	io_ring_submit_lock(ctx, !(issue_flags & IO_URING_F_NONBLOCK));
+
 	spin_lock(&ctx->completion_lock);
 	preq = io_poll_find(ctx, req->poll_update.old_user_data, true);
 	if (!preq) {
@@ -5540,6 +5542,7 @@ err:
 		spin_unlock(&ctx->completion_lock);
 		req_set_fail(req);
 		io_req_complete(req, ret);
+		io_ring_submit_unlock(ctx, !(issue_flags & IO_URING_F_NONBLOCK));
 		return 0;
 	}
 	/* only mask one event flags, keep behavior flags */
@@ -5562,6 +5565,7 @@ err:
 			io_req_complete(preq, ret);
 		}
 	}
+	io_ring_submit_unlock(ctx, !(issue_flags & IO_URING_F_NONBLOCK));
 	return 0;
 }
 
