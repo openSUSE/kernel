@@ -404,6 +404,9 @@ static irqreturn_t bnxt_qplib_nq_irq(int irq, void *dev_instance)
 
 void bnxt_qplib_nq_stop_irq(struct bnxt_qplib_nq *nq, bool kill)
 {
+	if (!nq->requested)
+		return;
+
 	tasklet_disable(&nq->nq_tasklet);
 	/* Mask h/w interrupt */
 	bnxt_qplib_ring_nq_db(&nq->nq_db.dbinfo, nq->res->cctx, false);
@@ -411,11 +414,12 @@ void bnxt_qplib_nq_stop_irq(struct bnxt_qplib_nq *nq, bool kill)
 	synchronize_irq(nq->msix_vec);
 	if (kill)
 		tasklet_kill(&nq->nq_tasklet);
-	if (nq->requested) {
-		irq_set_affinity_hint(nq->msix_vec, NULL);
-		free_irq(nq->msix_vec, nq);
-		nq->requested = false;
-	}
+
+	irq_set_affinity_hint(nq->msix_vec, NULL);
+	free_irq(nq->msix_vec, nq);
+	kfree(nq->name);
+	nq->name = NULL;
+	nq->requested = false;
 }
 
 void bnxt_qplib_disable_nq(struct bnxt_qplib_nq *nq)
@@ -441,6 +445,7 @@ void bnxt_qplib_disable_nq(struct bnxt_qplib_nq *nq)
 int bnxt_qplib_nq_start_irq(struct bnxt_qplib_nq *nq, int nq_indx,
 			    int msix_vector, bool need_init)
 {
+	struct bnxt_qplib_res *res = nq->res;
 	int rc;
 
 	if (nq->requested)
@@ -452,10 +457,17 @@ int bnxt_qplib_nq_start_irq(struct bnxt_qplib_nq *nq, int nq_indx,
 	else
 		tasklet_enable(&nq->nq_tasklet);
 
-	snprintf(nq->name, sizeof(nq->name), "bnxt_qplib_nq-%d", nq_indx);
+	nq->name = kasprintf(GFP_KERNEL, "bnxt_re-nq-%d@pci:%s",
+			     nq_indx, pci_name(res->pdev));
+	if (!nq->name)
+		return -ENOMEM;
 	rc = request_irq(nq->msix_vec, bnxt_qplib_nq_irq, 0, nq->name, nq);
-	if (rc)
+	if (rc) {
+		kfree(nq->name);
+		nq->name = NULL;
+		tasklet_disable(&nq->nq_tasklet);
 		return rc;
+	}
 
 	cpumask_clear(&nq->mask);
 	cpumask_set_cpu(nq_indx, &nq->mask);
@@ -466,7 +478,7 @@ int bnxt_qplib_nq_start_irq(struct bnxt_qplib_nq *nq, int nq_indx,
 			 nq->msix_vec, nq_indx);
 	}
 	nq->requested = true;
-	bnxt_qplib_ring_nq_db(&nq->nq_db.dbinfo, nq->res->cctx, true);
+	bnxt_qplib_ring_nq_db(&nq->nq_db.dbinfo, res->cctx, true);
 
 	return rc;
 }
@@ -476,7 +488,6 @@ static int bnxt_qplib_map_nq_db(struct bnxt_qplib_nq *nq,  u32 reg_offt)
 	resource_size_t reg_base;
 	struct bnxt_qplib_nq_db *nq_db;
 	struct pci_dev *pdev;
-	int rc = 0;
 
 	pdev = nq->pdev;
 	nq_db = &nq->nq_db;
@@ -486,8 +497,7 @@ static int bnxt_qplib_map_nq_db(struct bnxt_qplib_nq *nq,  u32 reg_offt)
 	if (!nq_db->reg.bar_base) {
 		dev_err(&pdev->dev, "QPLIB: NQ BAR region %d resc start is 0!",
 			nq_db->reg.bar_id);
-		rc = -ENOMEM;
-		goto fail;
+		return -ENOMEM;
 	}
 
 	reg_base = nq_db->reg.bar_base + reg_offt;
@@ -497,15 +507,14 @@ static int bnxt_qplib_map_nq_db(struct bnxt_qplib_nq *nq,  u32 reg_offt)
 	if (!nq_db->reg.bar_reg) {
 		dev_err(&pdev->dev, "QPLIB: NQ BAR region %d mapping failed",
 			nq_db->reg.bar_id);
-		rc = -ENOMEM;
-		goto fail;
+		return -ENOMEM;
 	}
 
 	nq_db->dbinfo.db = nq_db->reg.bar_reg;
 	nq_db->dbinfo.hwq = &nq->hwq;
 	nq_db->dbinfo.xid = nq->ring_id;
-fail:
-	return rc;
+
+	return 0;
 }
 
 int bnxt_qplib_enable_nq(struct pci_dev *pdev, struct bnxt_qplib_nq *nq,
@@ -617,7 +626,7 @@ int bnxt_qplib_create_srq(struct bnxt_qplib_res *res,
 	hwq_attr.type = HWQ_TYPE_QUEUE;
 	rc = bnxt_qplib_alloc_init_hwq(&srq->hwq, &hwq_attr);
 	if (rc)
-		goto exit;
+		return rc;
 
 	srq->swq = kcalloc(srq->hwq.max_elements, sizeof(*srq->swq),
 			   GFP_KERNEL);
@@ -669,7 +678,7 @@ int bnxt_qplib_create_srq(struct bnxt_qplib_res *res,
 fail:
 	bnxt_qplib_free_hwq(res, &srq->hwq);
 	kfree(srq->swq);
-exit:
+
 	return rc;
 }
 
@@ -730,15 +739,14 @@ int bnxt_qplib_post_srq_recv(struct bnxt_qplib_srq *srq,
 	struct rq_wqe *srqe;
 	struct sq_sge *hw_sge;
 	u32 sw_prod, sw_cons, count = 0;
-	int i, rc = 0, next;
+	int i, next;
 
 	spin_lock(&srq_hwq->lock);
 	if (srq->start_idx == srq->last_idx) {
 		dev_err(&srq_hwq->pdev->dev,
 			"FP: SRQ (0x%x) is full!\n", srq->id);
-		rc = -EINVAL;
 		spin_unlock(&srq_hwq->lock);
-		goto done;
+		return -EINVAL;
 	}
 	next = srq->start_idx;
 	srq->start_idx = srq->swq[next].next_idx;
@@ -779,22 +787,19 @@ int bnxt_qplib_post_srq_recv(struct bnxt_qplib_srq *srq,
 		srq->arm_req = false;
 		bnxt_qplib_srq_arm_db(&srq->dbinfo, srq->threshold);
 	}
-done:
-	return rc;
+
+	return 0;
 }
 
 /* QP */
 
 static int bnxt_qplib_alloc_init_swq(struct bnxt_qplib_q *que)
 {
-	int rc = 0;
 	int indx;
 
 	que->swq = kcalloc(que->max_wqe, sizeof(*que->swq), GFP_KERNEL);
-	if (!que->swq) {
-		rc = -ENOMEM;
-		goto out;
-	}
+	if (!que->swq)
+		return -ENOMEM;
 
 	que->swq_start = 0;
 	que->swq_last = que->max_wqe - 1;
@@ -802,8 +807,8 @@ static int bnxt_qplib_alloc_init_swq(struct bnxt_qplib_q *que)
 		que->swq[indx].next_idx = indx + 1;
 	que->swq[que->swq_last].next_idx = 0; /* Make it circular */
 	que->swq_last = 0;
-out:
-	return rc;
+
+	return 0;
 }
 
 int bnxt_qplib_create_qp1(struct bnxt_qplib_res *res, struct bnxt_qplib_qp *qp)
@@ -836,7 +841,7 @@ int bnxt_qplib_create_qp1(struct bnxt_qplib_res *res, struct bnxt_qplib_qp *qp)
 	hwq_attr.type = HWQ_TYPE_QUEUE;
 	rc = bnxt_qplib_alloc_init_hwq(&sq->hwq, &hwq_attr);
 	if (rc)
-		goto exit;
+		return rc;
 
 	rc = bnxt_qplib_alloc_init_swq(sq);
 	if (rc)
@@ -924,7 +929,6 @@ sq_swq:
 	kfree(sq->swq);
 fail_sq:
 	bnxt_qplib_free_hwq(res, &sq->hwq);
-exit:
 	return rc;
 }
 
@@ -987,7 +991,7 @@ int bnxt_qplib_create_qp(struct bnxt_qplib_res *res, struct bnxt_qplib_qp *qp)
 	hwq_attr.type = HWQ_TYPE_QUEUE;
 	rc = bnxt_qplib_alloc_init_hwq(&sq->hwq, &hwq_attr);
 	if (rc)
-		goto exit;
+		return rc;
 
 	rc = bnxt_qplib_alloc_init_swq(sq);
 	if (rc)
@@ -1134,7 +1138,6 @@ sq_swq:
 	kfree(sq->swq);
 fail_sq:
 	bnxt_qplib_free_hwq(res, &sq->hwq);
-exit:
 	return rc;
 }
 
@@ -1602,7 +1605,7 @@ static int bnxt_qplib_put_inline(struct bnxt_qplib_qp *qp,
 		il_src = (void *)wqe->sg_list[indx].addr;
 		t_len += len;
 		if (t_len > qp->max_inline_data)
-			goto bad;
+			return -ENOMEM;
 		while (len) {
 			if (pull_dst) {
 				pull_dst = false;
@@ -1626,8 +1629,6 @@ static int bnxt_qplib_put_inline(struct bnxt_qplib_qp *qp,
 	}
 
 	return t_len;
-bad:
-	return -ENOMEM;
 }
 
 static u32 bnxt_qplib_put_sges(struct bnxt_qplib_hwq *hwq,
@@ -2057,7 +2058,7 @@ int bnxt_qplib_create_cq(struct bnxt_qplib_res *res, struct bnxt_qplib_cq *cq)
 	hwq_attr.sginfo = &cq->sg_info;
 	rc = bnxt_qplib_alloc_init_hwq(&cq->hwq, &hwq_attr);
 	if (rc)
-		goto exit;
+		return rc;
 
 	RCFW_CMD_PREP(req, CREATE_CQ, cmd_flags);
 
@@ -2098,7 +2099,6 @@ int bnxt_qplib_create_cq(struct bnxt_qplib_res *res, struct bnxt_qplib_cq *cq)
 
 fail:
 	bnxt_qplib_free_hwq(res, &cq->hwq);
-exit:
 	return rc;
 }
 
@@ -2441,7 +2441,6 @@ static int bnxt_qplib_cq_process_res_rc(struct bnxt_qplib_cq *cq,
 	struct bnxt_qplib_qp *qp;
 	struct bnxt_qplib_q *rq;
 	u32 wr_id_idx;
-	int rc = 0;
 
 	qp = (struct bnxt_qplib_qp *)((unsigned long)
 				      le64_to_cpu(hwcqe->qp_handle));
@@ -2452,7 +2451,7 @@ static int bnxt_qplib_cq_process_res_rc(struct bnxt_qplib_cq *cq,
 	if (qp->rq.flushed) {
 		dev_dbg(&cq->hwq.pdev->dev,
 			"%s: QP in Flush QP = %p\n", __func__, qp);
-		goto done;
+		return 0;
 	}
 
 	cqe = *pcqe;
@@ -2508,8 +2507,7 @@ static int bnxt_qplib_cq_process_res_rc(struct bnxt_qplib_cq *cq,
 		}
 	}
 
-done:
-	return rc;
+	return 0;
 }
 
 static int bnxt_qplib_cq_process_res_ud(struct bnxt_qplib_cq *cq,
@@ -2522,7 +2520,6 @@ static int bnxt_qplib_cq_process_res_ud(struct bnxt_qplib_cq *cq,
 	struct bnxt_qplib_qp *qp;
 	struct bnxt_qplib_q *rq;
 	u32 wr_id_idx;
-	int rc = 0;
 
 	qp = (struct bnxt_qplib_qp *)((unsigned long)
 				      le64_to_cpu(hwcqe->qp_handle));
@@ -2533,7 +2530,7 @@ static int bnxt_qplib_cq_process_res_ud(struct bnxt_qplib_cq *cq,
 	if (qp->rq.flushed) {
 		dev_dbg(&cq->hwq.pdev->dev,
 			"%s: QP in Flush QP = %p\n", __func__, qp);
-		goto done;
+		return 0;
 	}
 	cqe = *pcqe;
 	cqe->opcode = hwcqe->cqe_type_toggle & CQ_BASE_CQE_TYPE_MASK;
@@ -2595,8 +2592,8 @@ static int bnxt_qplib_cq_process_res_ud(struct bnxt_qplib_cq *cq,
 			bnxt_qplib_add_flush_qp(qp);
 		}
 	}
-done:
-	return rc;
+
+	return 0;
 }
 
 bool bnxt_qplib_is_cq_empty(struct bnxt_qplib_cq *cq)
@@ -2623,7 +2620,6 @@ static int bnxt_qplib_cq_process_res_raweth_qp1(struct bnxt_qplib_cq *cq,
 	struct bnxt_qplib_srq *srq;
 	struct bnxt_qplib_cqe *cqe;
 	u32 wr_id_idx;
-	int rc = 0;
 
 	qp = (struct bnxt_qplib_qp *)((unsigned long)
 				      le64_to_cpu(hwcqe->qp_handle));
@@ -2634,7 +2630,7 @@ static int bnxt_qplib_cq_process_res_raweth_qp1(struct bnxt_qplib_cq *cq,
 	if (qp->rq.flushed) {
 		dev_dbg(&cq->hwq.pdev->dev,
 			"%s: QP in Flush QP = %p\n", __func__, qp);
-		goto done;
+		return 0;
 	}
 	cqe = *pcqe;
 	cqe->opcode = hwcqe->cqe_type_toggle & CQ_BASE_CQE_TYPE_MASK;
@@ -2703,8 +2699,7 @@ static int bnxt_qplib_cq_process_res_raweth_qp1(struct bnxt_qplib_cq *cq,
 		}
 	}
 
-done:
-	return rc;
+	return 0;
 }
 
 static int bnxt_qplib_cq_process_terminal(struct bnxt_qplib_cq *cq,
@@ -2726,11 +2721,8 @@ static int bnxt_qplib_cq_process_terminal(struct bnxt_qplib_cq *cq,
 
 	qp = (struct bnxt_qplib_qp *)((unsigned long)
 				      le64_to_cpu(hwcqe->qp_handle));
-	if (!qp) {
-		dev_err(&cq->hwq.pdev->dev,
-			"FP: CQ Process terminal qp is NULL\n");
+	if (!qp)
 		return -EINVAL;
-	}
 
 	/* Must block new posting of SQ and RQ */
 	qp->state = CMDQ_MODIFY_QP_NEW_STATE_ERR;
