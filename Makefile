@@ -1166,9 +1166,7 @@ export INSTALL_DTBS_PATH ?= $(INSTALL_PATH)/dtbs/$(KERNELRELEASE)
 # makefile but the argument can be passed to make if needed.
 #
 
-export KERNEL_MODULE_PREFIX := $(shell kmod config | jq -r .module_prefix)
-
-MODLIB	= $(INSTALL_MOD_PATH)$(KERNEL_MODULE_PREFIX)/lib/modules/$(KERNELRELEASE)
+MODLIB	= $(INSTALL_MOD_PATH)/usr/lib/modules/$(KERNELRELEASE)
 export MODLIB
 
 PHONY += prepare0
