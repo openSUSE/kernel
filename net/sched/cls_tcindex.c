@@ -255,10 +255,14 @@ static void tcindex_destroy_work(struct work_struct *work)
 	tcindex_data_put(p);
 }
 
+/* Perfect hashed filters release path is not correct (CVE-2023-1829), so
+ * always use imperfect hashing (even when unnecessary given hash size and
+ * range of mask>>shift).
+ */
 static inline int
 valid_perfect_hash(struct tcindex_data *p)
 {
-	return  p->hash > (p->mask >> p->shift);
+	return false;
 }
 
 static const struct nla_policy tcindex_policy[TCA_TCINDEX_MAX + 1] = {
