@@ -342,6 +342,8 @@ static inline void nvme_end_req(struct request *req)
 			le64_to_cpu(nvme_req(req)->result.u64));
 
 	nvme_trace_bio_complete(req);
+	if (req->cmd_flags & REQ_NVME_MPATH)
+		nvme_mpath_end_request(req);
 	blk_mq_end_request(req, status);
 }
 
