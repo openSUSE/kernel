@@ -270,6 +270,8 @@ static int __init efi_rtc_probe(struct platform_device *dev)
 	rtc->ops = &efi_rtc_ops;
 	rtc->uie_unsupported = 1;
 
+	device_init_wakeup(&dev->dev, true);
+
 	return devm_rtc_register_device(rtc);
 }
 
