@@ -36,6 +36,7 @@
 #include <linux/falloc.h>
 #include <linux/percpu-rwsem.h>
 #include <linux/fiemap.h>
+#include <linux/sched/mm.h>
 #ifdef __KERNEL__
 #include <linux/compat.h>
 #endif
