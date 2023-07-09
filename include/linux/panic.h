@@ -32,6 +32,9 @@ extern int sysctl_panic_on_stackoverflow;
 
 extern bool crash_kexec_post_notifiers;
 
+extern void __stack_chk_fail(void);
+void abort(void);
+
 #ifdef CONFIG_SUSE_KERNEL_SUPPORTED
 extern int suse_unsupported;
 #endif
