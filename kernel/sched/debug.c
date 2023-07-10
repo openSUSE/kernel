@@ -424,7 +424,7 @@ void update_sched_domain_debugfs(void)
 		char buf[32];
 
 		snprintf(buf, sizeof(buf), "cpu%d", cpu);
-		debugfs_remove(debugfs_lookup(buf, sd_dentry));
+		debugfs_lookup_and_remove(buf, sd_dentry);
 		d_cpu = debugfs_create_dir(buf, sd_dentry);
 
 		i = 0;
@@ -470,7 +470,8 @@ static void print_cfs_group_stats(struct seq_file *m, int cpu, struct task_group
 	PN(se->sum_exec_runtime);
 
 	if (schedstat_enabled()) {
-               struct sched_statistics *stats =  __schedstats_from_se(se);
+		struct sched_statistics *stats;
+		stats = __schedstats_from_se(se);
 
 		PN_SCHEDSTAT(wait_start);
 		PN_SCHEDSTAT(sleep_start);
