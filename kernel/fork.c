@@ -662,12 +662,6 @@ static __latent_entropy int dup_mmap(struct mm_struct *mm,
 		retval = -EINTR;
 		goto fail_uprobe_end;
 	}
-#ifdef CONFIG_PER_VMA_LOCK
-	/* Disallow any page faults before calling flush_cache_dup_mm */
-	for_each_vma(old_vmi, mpnt)
-		vma_start_write(mpnt);
-	vma_iter_set(&old_vmi, 0);
-#endif
 	flush_cache_dup_mm(oldmm);
 	uprobe_dup_mmap(oldmm, mm);
 	/*
@@ -696,6 +690,7 @@ static __latent_entropy int dup_mmap(struct mm_struct *mm,
 	for_each_vma(old_vmi, mpnt) {
 		struct file *file;
 
+		vma_start_write(mpnt);
 		if (mpnt->vm_flags & VM_DONTCOPY) {
 			vm_stat_account(mm, mpnt->vm_flags, -vma_pages(mpnt));
 			continue;
