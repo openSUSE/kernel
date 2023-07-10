@@ -2452,8 +2452,8 @@ static inline bool __io_fill_cqe_req(struct io_ring_ctx *ctx,
 	}
 }
 
-static noinline bool io_fill_cqe_aux(struct io_ring_ctx *ctx, u64 user_data,
-				     s32 res, u32 cflags)
+static bool io_fill_cqe_aux(struct io_ring_ctx *ctx, u64 user_data,
+			    s32 res, u32 cflags)
 {
 	struct io_uring_cqe *cqe;
 
@@ -2478,6 +2478,20 @@ static noinline bool io_fill_cqe_aux(struct io_ring_ctx *ctx, u64 user_data,
 		return true;
 	}
 	return io_cqring_event_overflow(ctx, user_data, res, cflags, 0, 0);
+}
+
+static bool io_post_aux_cqe(struct io_ring_ctx *ctx,
+			    u64 user_data, s32 res, u32 cflags)
+{
+       bool filled;
+
+       spin_lock(&ctx->completion_lock);
+       filled = io_fill_cqe_aux(ctx, user_data, res, cflags);
+       io_commit_cqring(ctx);
+       spin_unlock(&ctx->completion_lock);
+       if (filled)
+               io_cqring_ev_posted(ctx);
+       return filled;
 }
 
 static void __io_req_complete_put(struct io_kiocb *req)
@@ -4943,6 +4957,28 @@ static int io_nop(struct io_kiocb *req, unsigned int issue_flags)
 	return 0;
 }
 
+static void io_double_unlock_ctx(struct io_ring_ctx *octx)
+{
+	mutex_unlock(&octx->uring_lock);
+}
+
+static int io_double_lock_ctx(struct io_ring_ctx *octx,
+			      unsigned int issue_flags)
+{
+	/*
+	 * To ensure proper ordering between the two ctxs, we can only
+	 * attempt a trylock on the target. If that fails and we already have
+	 * the source ctx lock, punt to io-wq.
+	 */
+	if (!(issue_flags & IO_URING_F_UNLOCKED)) {
+		if (!mutex_trylock(&octx->uring_lock))
+			return -EAGAIN;
+		return 0;
+	}
+	mutex_lock(&octx->uring_lock);
+	return 0;
+}
+
 static int io_msg_ring_prep(struct io_kiocb *req,
 			    const struct io_uring_sqe *sqe)
 {
@@ -4959,7 +4995,6 @@ static int io_msg_ring(struct io_kiocb *req, unsigned int issue_flags)
 {
 	struct io_ring_ctx *target_ctx;
 	struct io_msg *msg = &req->msg;
-	bool filled;
 	int ret;
 
 	ret = -EBADFD;
@@ -4969,14 +5004,15 @@ static int io_msg_ring(struct io_kiocb *req, unsigned int issue_flags)
 	ret = -EOVERFLOW;
 	target_ctx = req->file->private_data;
 
-	spin_lock(&target_ctx->completion_lock);
-	filled = io_fill_cqe_aux(target_ctx, msg->user_data, msg->len, 0);
-	io_commit_cqring(target_ctx);
-	spin_unlock(&target_ctx->completion_lock);
-
-	if (filled) {
-		io_cqring_ev_posted(target_ctx);
-		ret = 0;
+	if (target_ctx->flags & IORING_SETUP_IOPOLL) {
+		if (unlikely(io_double_lock_ctx(target_ctx, issue_flags)))
+			return -EAGAIN;
+		if (io_post_aux_cqe(target_ctx, msg->user_data, msg->len, 0))
+			ret = 0;
+		io_double_unlock_ctx(target_ctx);
+	} else {
+		if (io_post_aux_cqe(target_ctx, msg->user_data, msg->len, 0))
+			ret = 0;
 	}
 
 done:
@@ -6290,22 +6326,12 @@ retry:
 		__io_req_complete(req, issue_flags, ret, 0);
 		return 0;
 	}
-	if (ret >= 0) {
-		bool filled;
+	if (ret < 0)
+		return ret;
 
-		spin_lock(&ctx->completion_lock);
-		filled = io_fill_cqe_aux(ctx, req->cqe.user_data, ret,
-					 IORING_CQE_F_MORE);
-		io_commit_cqring(ctx);
-		spin_unlock(&ctx->completion_lock);
-		if (filled) {
-			io_cqring_ev_posted(ctx);
-			goto retry;
-		}
-		ret = -ECANCELED;
-	}
-
-	return ret;
+	if (io_post_aux_cqe(ctx, req->cqe.user_data, ret, IORING_CQE_F_MORE))
+		goto retry;
+	return -ECANCELED;
 }
 
 static int io_connect_prep_async(struct io_kiocb *req)
@@ -6585,18 +6611,11 @@ static int io_poll_check_events(struct io_kiocb *req, bool *locked)
 		if (!(req->flags & REQ_F_APOLL_MULTISHOT)) {
 			__poll_t mask = mangle_poll(req->cqe.res &
 						    req->apoll_events);
-			bool filled;
 
-			spin_lock(&ctx->completion_lock);
-			filled = io_fill_cqe_aux(ctx, req->cqe.user_data,
-						 mask, IORING_CQE_F_MORE);
-			io_commit_cqring(ctx);
-			spin_unlock(&ctx->completion_lock);
-			if (filled) {
-				io_cqring_ev_posted(ctx);
-				continue;
-			}
-			return -ECANCELED;
+			if (!io_post_aux_cqe(ctx, req->cqe.user_data,
+					     mask, IORING_CQE_F_MORE))
+				return -ECANCELED;
+			continue;
 		}
 
 		io_tw_lock(req->ctx, locked);
@@ -9679,17 +9698,13 @@ static void __io_rsrc_put_work(struct io_rsrc_node *ref_node)
 		list_del(&prsrc->list);
 
 		if (prsrc->tag) {
-			if (ctx->flags & IORING_SETUP_IOPOLL)
+			if (ctx->flags & IORING_SETUP_IOPOLL) {
 				mutex_lock(&ctx->uring_lock);
-
-			spin_lock(&ctx->completion_lock);
-			io_fill_cqe_aux(ctx, prsrc->tag, 0, 0);
-			io_commit_cqring(ctx);
-			spin_unlock(&ctx->completion_lock);
-			io_cqring_ev_posted(ctx);
-
-			if (ctx->flags & IORING_SETUP_IOPOLL)
+				io_post_aux_cqe(ctx, prsrc->tag, 0, 0);
 				mutex_unlock(&ctx->uring_lock);
+			} else {
+				io_post_aux_cqe(ctx, prsrc->tag, 0, 0);
+			}
 		}
 
 		rsrc_data->do_put(ctx, prsrc);
