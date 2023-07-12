@@ -17,8 +17,10 @@ struct mdev_device {
 	guid_t uuid;
 	struct list_head next;
 	struct mdev_type *type;
-	struct device *iommu_device;
 	bool active;
+#ifndef __GENKSYMS__
+	struct device *iommu_device;
+#endif
 };
 
 static inline struct mdev_device *to_mdev_device(struct device *dev)
