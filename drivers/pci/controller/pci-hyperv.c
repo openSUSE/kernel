@@ -3358,11 +3358,16 @@ static int hv_pci_query_relations(struct hv_device *hdev)
 	 * vmbus_sendpacket() or wait_for_response() returns -ENODEV but we
 	 * already got a PCI_BUS_RELATIONS* message from the host and the
 	 * channel callback already scheduled a work to hbus->wq, which can be
-	 * running survey_child_resources() -> complete(&hbus->survey_event),
-	 * even after hv_pci_query_relations() exits and the stack variable
-	 * 'comp' is no longer valid. This can cause a strange hang issue
-	 * or sometimes a page fault. Flush hbus->wq before we exit from
-	 * hv_pci_query_relations() to avoid the issues.
+	 * running pci_devices_present_work() -> survey_child_resources() ->
+	 * complete(&hbus->survey_event), even after hv_pci_query_relations()
+	 * exits and the stack variable 'comp' is no longer valid; as a result,
+	 * a hang or a page fault may happen when the complete() calls
+	 * raw_spin_lock_irqsave(). Flush hbus->wq before we exit from
+	 * hv_pci_query_relations() to avoid the issues. Note: if 'ret' is
+	 * -ENODEV, there can't be any more work item scheduled to hbus->wq
+	 * after the flush_workqueue(): see vmbus_onoffer_rescind() ->
+	 * vmbus_reset_channel_cb(), vmbus_rescind_cleanup() ->
+	 * channel->rescind = true.
 	 */
 	flush_workqueue(hbus->wq);
 
