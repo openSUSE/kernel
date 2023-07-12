@@ -452,7 +452,7 @@ static inline int kprobe_optready(struct kprobe *p)
 }
 
 /* Return true(!0) if the kprobe is disarmed. Note: p must be on hash list */
-static inline int kprobe_disarmed(struct kprobe *p)
+int kprobe_disarmed(struct kprobe *p)
 {
 	struct optimized_kprobe *op;
 
