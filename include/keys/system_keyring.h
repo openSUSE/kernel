@@ -9,6 +9,7 @@
 #define _KEYS_SYSTEM_KEYRING_H
 
 #include <linux/key.h>
+#include <linux/verification.h>
 
 enum blacklist_hash_type {
 	/* TBSCertificate hash */
@@ -81,13 +82,15 @@ static inline int is_binary_blacklisted(const u8 *hash, size_t hash_len)
 
 #ifdef CONFIG_SYSTEM_REVOCATION_LIST
 extern int add_key_to_revocation_list(const char *data, size_t size);
-extern int is_key_on_revocation_list(struct pkcs7_message *pkcs7);
+extern int is_key_on_revocation_list(struct pkcs7_message *pkcs7,
+				     enum key_being_used_for usage);
 #else
 static inline int add_key_to_revocation_list(const char *data, size_t size)
 {
 	return 0;
 }
-static inline int is_key_on_revocation_list(struct pkcs7_message *pkcs7)
+static inline int is_key_on_revocation_list(struct pkcs7_message *pkcs7,
+					    enum key_being_used_for usage)
 {
 	return -ENOKEY;
 }
