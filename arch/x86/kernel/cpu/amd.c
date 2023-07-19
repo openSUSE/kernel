@@ -20,6 +20,11 @@
 
 #include "cpu.h"
 
+static const int amd_zenbleed[] =
+AMD_LEGACY_ERRATUM(AMD_MODEL_RANGE(0x17, 0x30, 0x0, 0x4f, 0xf),
+		   AMD_MODEL_RANGE(0x17, 0x60, 0x0, 0x7f, 0xf),
+		   AMD_MODEL_RANGE(0x17, 0xa0, 0x0, 0xaf, 0xf));
+
 #ifdef CONFIG_X86_32
 /*
  *	B step AMD K6 before B 9730xxxx have hardware bugs that can cause
@@ -53,7 +58,6 @@ static void __cpuinit init_amd_k5(struct cpuinfo_x86 *c)
 			outl(0 | CBAR_KEY, CBAR);
 	}
 }
-
 
 static void __cpuinit init_amd_k6(struct cpuinfo_x86 *c)
 {
@@ -317,6 +321,56 @@ static void __cpuinit amd_get_topology(struct cpuinfo_x86 *c)
 	}
 }
 #endif
+
+static bool cpu_has_zenbleed_microcode(void)
+{
+	u32 good_rev = 0;
+
+	switch (boot_cpu_data.x86_model) {
+	case 0x30 ... 0x3f: good_rev = 0x0830107a; break;
+	case 0x60 ... 0x67: good_rev = 0x0860010b; break;
+	case 0x68 ... 0x6f: good_rev = 0x08608105; break;
+	case 0x70 ... 0x7f: good_rev = 0x08701032; break;
+	case 0xa0 ... 0xaf: good_rev = 0x08a00008; break;
+
+	default:
+		return false;
+		break;
+	}
+
+	if (boot_cpu_data.microcode < good_rev)
+		return false;
+
+	return true;
+}
+
+static void zenbleed_check(struct cpuinfo_x86 *c)
+{
+	unsigned long long val;
+	int ret;
+
+	if (!cpu_has_amd_erratum(amd_zenbleed))
+		return;
+
+	if (cpu_has(c, X86_FEATURE_HYPERVISOR))
+		return;
+
+	if (!cpu_has(c, X86_FEATURE_AVX))
+		return;
+
+	ret = rdmsrl_safe(MSR_F10H_DECFG, &val);
+	if (ret)
+		return;
+
+	if (!cpu_has_zenbleed_microcode()) {
+		val |= BIT_64(MSR_AMD64_DE_CFG_ZEN2_FP_BACKUP_FIX_BIT);
+		pr_notice_once("Zenbleed: please update your microcode for the most optimal fix\n");
+	} else {
+		val &= ~BIT_64(MSR_AMD64_DE_CFG_ZEN2_FP_BACKUP_FIX_BIT);
+	}
+
+	wrmsrl_safe(MSR_F10H_DECFG, val);
+}
 
 /*
  * On a AMD dual core setup the lower bits of the APIC id distingush the cores.
@@ -752,7 +806,9 @@ static void __cpuinit init_amd(struct cpuinfo_x86 *c)
 	if (boot_cpu_has(X86_FEATURE_AMD_SSBD)) {
 		set_cpu_cap(c, X86_FEATURE_SSBD);
 		set_cpu_cap(c, X86_FEATURE_AMD_SSBD);
-       }
+	}
+
+	zenbleed_check(c);
 }
 
 #ifdef CONFIG_X86_32
@@ -869,3 +925,15 @@ bool cpu_has_amd_erratum(const int *erratum)
 }
 
 EXPORT_SYMBOL_GPL(cpu_has_amd_erratum);
+
+static void zenbleed_check_cpu(void *unused)
+{
+	struct cpuinfo_x86 *c = &cpu_data(smp_processor_id());
+
+	zenbleed_check(c);
+}
+
+void amd_check_microcode(void)
+{
+	on_each_cpu(zenbleed_check_cpu, NULL, 1);
+}
