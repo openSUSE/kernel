@@ -137,6 +137,8 @@ EXPORT_SYMBOL_GPL(kvm_default_tsc_scaling_ratio);
 static u32 __read_mostly tsc_tolerance_ppm = 250;
 module_param(tsc_tolerance_ppm, uint, S_IRUGO | S_IWUSR);
 
+extern bool gds_ucode_mitigated(void);
+
 /*
  * lapic timer advance (tscdeadline mode only) in nanoseconds.  '-1' enables
  * adaptive tuning starting from default advancment of 1000ns.  '0' disables
@@ -1345,6 +1347,9 @@ static u64 kvm_get_arch_capabilities(void)
 
 	/* Guests don't need to know "Fill buffer clear control" exists */
 	data &= ~ARCH_CAP_FB_CLEAR_CTRL;
+
+	if (!boot_cpu_has_bug(X86_BUG_GDS) || gds_ucode_mitigated())
+		data |= ARCH_CAP_GDS_NO;
 
 	return data;
 }
