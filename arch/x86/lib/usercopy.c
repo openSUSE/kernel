@@ -6,6 +6,7 @@
 
 #include <linux/highmem.h>
 #include <linux/module.h>
+#include <linux/nospec.h>
 
 /*
  * best effort, GUP based copy_from_user() that is NMI-safe
@@ -83,9 +84,15 @@ EXPORT_SYMBOL(_copy_to_user);
  */
 unsigned long _copy_from_user(void *to, const void __user *from, unsigned n)
 {
-	if (access_ok(VERIFY_READ, from, n))
+	if (access_ok(VERIFY_READ, from, n)) {
+		/*
+		 * Ensure that bad access_ok() speculation will not
+		 * lead to nasty side effects *after* the copy is
+		 * finished:
+		 */
+		barrier_nospec();
 		n = __copy_from_user(to, from, n);
-	else
+	} else
 		memset(to, 0, n);
 	return n;
 }
