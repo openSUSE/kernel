@@ -1501,7 +1501,13 @@
 
 			This issue is mitigated by default in updated microcode.
 			The mitigation may have a performance impact but can be
-			disabled.
+			disabled. On systems without the microcode mitigation
+			disabling AVX serves as a mitigation.
+
+			force:	Disable AVX to mitigate systems without
+				microcode mitigation. This option will be
+				ignored and instead deploy the microcode
+				mitigation if it is present.
 
 			off:	Disable GDS mitigation.
 
