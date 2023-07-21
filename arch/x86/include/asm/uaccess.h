@@ -578,12 +578,14 @@ extern struct movsl_mask {
 
 #ifdef CONFIG_X86_32
 # include "uaccess_32.h"
+unsigned long __must_check _copy_from_user(void *to, const void __user *from,
+					   unsigned long n);
 #else
 # include "uaccess_64.h"
+__must_check unsigned long _copy_from_user(void *to, const void __user *from,
+					   unsigned n);
 #endif
 
-unsigned long __must_check _copy_from_user(void *to, const void __user *from,
-					   unsigned n);
 
 #ifdef CONFIG_DEBUG_STRICT_USER_COPY_CHECKS
 # define copy_user_diag __compiletime_error
@@ -591,8 +593,8 @@ unsigned long __must_check _copy_from_user(void *to, const void __user *from,
 # define copy_user_diag __compiletime_warning
 #endif
 
-extern void copy_user_diag("copy_from_user() buffer size is too small")
-copy_from_user_overflow(void);
+extern void copy_from_user_overflow(void);
+copy_user_diag("copy_from_user() buffer size is not provably correct")
 
 #undef copy_user_diag
 
