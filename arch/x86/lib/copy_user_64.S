@@ -71,52 +71,6 @@
 #endif
 	.endm
 
-/* Standard copy_to_user with segment limit checking */
-ENTRY(_copy_to_user)
-	CFI_STARTPROC
-	GET_THREAD_INFO(%rax)
-	movq %rdi,%rcx
-	addq %rdx,%rcx
-	jc bad_to_user
-	cmpq TI_addr_limit(%rax),%rcx
-	ja bad_to_user
-	ALTERNATIVE_JUMP X86_FEATURE_REP_GOOD,X86_FEATURE_ERMS,	\
-		copy_user_generic_unrolled,copy_user_generic_string,	\
-		copy_user_enhanced_fast_string
-	CFI_ENDPROC
-ENDPROC(_copy_to_user)
-
-/* Standard copy_from_user with segment limit checking */
-ENTRY(_copy_from_user)
-	CFI_STARTPROC
-	GET_THREAD_INFO(%rax)
-	movq %rsi,%rcx
-	addq %rdx,%rcx
-	jc bad_from_user
-	cmpq TI_addr_limit(%rax),%rcx
-	ja bad_from_user
-	ALTERNATIVE_JUMP X86_FEATURE_REP_GOOD,X86_FEATURE_ERMS,	\
-		copy_user_generic_unrolled,copy_user_generic_string,	\
-		copy_user_enhanced_fast_string
-	CFI_ENDPROC
-ENDPROC(_copy_from_user)
-
-	.section .fixup,"ax"
-	/* must zero dest */
-ENTRY(bad_from_user)
-bad_from_user:
-	CFI_STARTPROC
-	movl %edx,%ecx
-	xorl %eax,%eax
-	rep
-	stosb
-bad_to_user:
-	movl %edx,%eax
-	ret
-	CFI_ENDPROC
-ENDPROC(bad_from_user)
-	.previous
-
 /*
  * copy_user_generic_unrolled - memory copy with exception handling.
  * This version is for CPUs like P4 that don't have efficient micro
