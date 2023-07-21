@@ -141,6 +141,8 @@
 /*
  * Either @site or @tramp can be NULL.
  */
+extern void __arch_static_call_transform(void *site, void *tramp, void *func, bool tail,
+					 bool checked);
 extern void arch_static_call_transform(void *site, void *tramp, void *func, bool tail);
 
 #define STATIC_CALL_TRAMP_ADDR(name) &STATIC_CALL_TRAMP(name)
@@ -152,8 +154,8 @@ extern void arch_static_call_transform(void *site, void *tramp, void *func, bool
 #define static_call_update(name, func)					\
 ({									\
 	typeof(&STATIC_CALL_TYPE(name)) __F = (func);			\
-	__static_call_update(&STATIC_CALL_KEY(name),			\
-			     STATIC_CALL_TRAMP_ADDR(name), __F);	\
+	____static_call_update(&STATIC_CALL_KEY(name),			\
+			     STATIC_CALL_TRAMP_ADDR(name), __F, true);	\
 })
 
 #define static_call_query(name) (READ_ONCE(STATIC_CALL_KEY(name).func))
@@ -175,6 +177,8 @@ struct static_call_tramp_key {
 };
 
 extern void __static_call_update(struct static_call_key *key, void *tramp, void *func);
+extern void ____static_call_update(struct static_call_key *key, void *tramp, void *func,
+				   bool checked);
 extern int static_call_mod_init(struct module *mod);
 extern int static_call_text_reserved(void *start, void *end);
 
@@ -235,12 +239,19 @@ static inline int static_call_init(void) { return 0; }
 #define static_call_cond(name)	(void)__static_call(name)
 
 static inline
-void __static_call_update(struct static_call_key *key, void *tramp, void *func)
+void ____static_call_update(struct static_call_key *key, void *tramp,
+			    void *func, bool checked)
 {
 	cpus_read_lock();
 	WRITE_ONCE(key->func, func);
-	arch_static_call_transform(NULL, tramp, func, false);
+	__arch_static_call_transform(NULL, tramp, func, false, checked);
 	cpus_read_unlock();
+}
+
+static inline
+void __static_call_update(struct static_call_key *key, void *tramp, void *func)
+{
+	____static_call_update(key, tramp, func, false);
 }
 
 static inline int static_call_text_reserved(void *start, void *end)
@@ -312,9 +323,16 @@ static inline void __static_call_nop(void) { }
 #define static_call_cond(name)	(void)__static_call_cond(name)
 
 static inline
-void __static_call_update(struct static_call_key *key, void *tramp, void *func)
+void ____static_call_update(struct static_call_key *key, void *tramp,
+			    void *func, bool checked)
 {
 	WRITE_ONCE(key->func, func);
+}
+
+static inline
+void __static_call_update(struct static_call_key *key, void *tramp, void *func)
+{
+	____static_call_update(key, tramp, func, false);
 }
 
 static inline int static_call_text_reserved(void *start, void *end)

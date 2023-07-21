@@ -120,7 +120,8 @@ static inline struct static_call_site *static_call_key_sites(struct static_call_
 	return (struct static_call_site *)(key->type & ~1);
 }
 
-void __static_call_update(struct static_call_key *key, void *tramp, void *func)
+void ____static_call_update(struct static_call_key *key, void *tramp, void *func,
+			    bool checked)
 {
 	struct static_call_site *site, *stop;
 	struct static_call_mod *site_mod, first;
@@ -133,7 +134,7 @@ void __static_call_update(struct static_call_key *key, void *tramp, void *func)
 
 	key->func = func;
 
-	arch_static_call_transform(NULL, tramp, func, false);
+	__arch_static_call_transform(NULL, tramp, func, false, checked);
 
 	/*
 	 * If uninitialized, we'll not update the callsites, but they still
@@ -195,8 +196,8 @@ void __static_call_update(struct static_call_key *key, void *tramp, void *func)
 				continue;
 			}
 
-			arch_static_call_transform(site_addr, NULL, func,
-						   static_call_is_tail(site));
+			__arch_static_call_transform(site_addr, NULL, func,
+						     static_call_is_tail(site), checked);
 		}
 	}
 
@@ -204,11 +205,17 @@ done:
 	static_call_unlock();
 	cpus_read_unlock();
 }
+EXPORT_SYMBOL_GPL(____static_call_update);
+
+void __static_call_update(struct static_call_key *key, void *tramp, void *func)
+{
+	____static_call_update(key, tramp, func, false);
+}
 EXPORT_SYMBOL_GPL(__static_call_update);
 
 static int __static_call_init(struct module *mod,
 			      struct static_call_site *start,
-			      struct static_call_site *stop)
+			      struct static_call_site *stop, bool checked)
 {
 	struct static_call_site *site;
 	struct static_call_key *key, *prev_key = NULL;
@@ -272,8 +279,8 @@ static int __static_call_init(struct module *mod,
 		}
 
 do_transform:
-		arch_static_call_transform(site_addr, NULL, key->func,
-				static_call_is_tail(site));
+		__arch_static_call_transform(site_addr, NULL, key->func,
+				static_call_is_tail(site), checked);
 	}
 
 	return 0;
@@ -386,7 +393,8 @@ static int static_call_add_module(struct module *mod)
 		site->key = key - (long)&site->key;
 	}
 
-	return __static_call_init(mod, start, stop);
+	return __static_call_init(mod, start, stop,
+				  !test_bit(TAINT_OOT_MODULE, &mod->taints));
 }
 
 static void static_call_del_module(struct module *mod)
@@ -481,7 +489,7 @@ int __init static_call_init(void)
 	cpus_read_lock();
 	static_call_lock();
 	ret = __static_call_init(NULL, __start_static_call_sites,
-				 __stop_static_call_sites);
+				 __stop_static_call_sites, true);
 	static_call_unlock();
 	cpus_read_unlock();
 

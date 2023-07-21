@@ -68,11 +68,11 @@ static void __ref __static_call_transform(void *insn, enum insn_type type,
 	text_poke_bp(insn, code, size, emulate);
 }
 
-static void __static_call_validate(void *insn, bool tail, bool tramp)
+static void __static_call_validate(void *insn, bool tail, bool tramp, bool checked)
 {
 	u8 opcode = *(u8 *)insn;
 
-	if (tramp && memcmp(insn+5, tramp_ud, 3)) {
+	if (tramp && checked && memcmp(insn+5, tramp_ud, 3)) {
 		pr_err("trampoline signature fail");
 		BUG();
 	}
@@ -110,21 +110,27 @@ static inline enum insn_type __sc_insn(bool null, bool tail)
 	return 2*tail + null;
 }
 
-void arch_static_call_transform(void *site, void *tramp, void *func, bool tail)
+void __arch_static_call_transform(void *site, void *tramp, void *func, bool tail, bool checked)
 {
 	mutex_lock(&text_mutex);
 
 	if (tramp) {
-		__static_call_validate(tramp, true, true);
+		__static_call_validate(tramp, true, true, checked);
 		__static_call_transform(tramp, __sc_insn(!func, true), func, false);
 	}
 
 	if (IS_ENABLED(CONFIG_HAVE_STATIC_CALL_INLINE) && site) {
-		__static_call_validate(site, tail, false);
+		__static_call_validate(site, tail, false, checked);
 		__static_call_transform(site, __sc_insn(!func, tail), func, false);
 	}
 
 	mutex_unlock(&text_mutex);
+}
+EXPORT_SYMBOL_GPL(__arch_static_call_transform);
+
+void arch_static_call_transform(void *site, void *tramp, void *func, bool tail)
+{
+	__arch_static_call_transform(site, tramp, func, tail, false);
 }
 EXPORT_SYMBOL_GPL(arch_static_call_transform);
 

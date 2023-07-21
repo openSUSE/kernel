@@ -115,7 +115,8 @@ static void *strip_cfi_jt(void *addr)
 	return addr;
 }
 
-void arch_static_call_transform(void *site, void *tramp, void *func, bool tail)
+void __arch_static_call_transform(void *site, void *tramp, void *func,
+				  bool tail, bool checked)
 {
 	/*
 	 * -0x8	<literal>
@@ -157,6 +158,11 @@ void arch_static_call_transform(void *site, void *tramp, void *func, bool tail)
 	ret = __aarch64_insn_write(tramp - 8, &insns, sizeof(insns));
 	if (!WARN_ON(ret))
 		caches_clean_inval_pou((u64)tramp - 8, sizeof(insns));
+}
+
+void arch_static_call_transform(void *site, void *tramp, void *func, bool tail)
+{
+       __arch_static_call_transform(site, tramp, func, tail, false);
 }
 
 int __kprobes aarch64_insn_patch_text_nosync(void *addr, u32 insn)
