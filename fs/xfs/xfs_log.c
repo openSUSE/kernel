@@ -931,7 +931,7 @@ xlog_write_unmount_record(
 	/* account for space used by record data */
 	ticket->t_curr_res -= sizeof(ulf);
 
-	return xlog_write(log, NULL, &vec, ticket, NULL, XLOG_UNMOUNT_TRANS);
+	return xlog_write(log, NULL, &vec, ticket, XLOG_UNMOUNT_TRANS);
 }
 
 /*
@@ -2352,8 +2352,7 @@ xlog_write_copy_finish(
 	int			*data_cnt,
 	int			*partial_copy,
 	int			*partial_copy_len,
-	int			log_offset,
-	struct xlog_in_core	**commit_iclog)
+	int			log_offset)
 {
 	int			error;
 
@@ -2372,27 +2371,20 @@ xlog_write_copy_finish(
 	*partial_copy = 0;
 	*partial_copy_len = 0;
 
-	if (iclog->ic_size - log_offset <= sizeof(xlog_op_header_t)) {
-		/* no more space in this iclog - push it. */
-		spin_lock(&log->l_icloglock);
-		xlog_state_finish_copy(log, iclog, *record_cnt, *data_cnt);
-		*record_cnt = 0;
-		*data_cnt = 0;
+	if (iclog->ic_size - log_offset > sizeof(xlog_op_header_t))
+		return 0;
 
-		if (iclog->ic_state == XLOG_STATE_ACTIVE)
-			xlog_state_switch_iclogs(log, iclog, 0);
-		else
-			ASSERT(iclog->ic_state == XLOG_STATE_WANT_SYNC ||
-				xlog_is_shutdown(log));
-		if (!commit_iclog)
-			goto release_iclog;
-		spin_unlock(&log->l_icloglock);
-		ASSERT(flags & XLOG_COMMIT_TRANS);
-		*commit_iclog = iclog;
-	}
+	/* no more space in this iclog - push it. */
+	spin_lock(&log->l_icloglock);
+	xlog_state_finish_copy(log, iclog, *record_cnt, *data_cnt);
+	*record_cnt = 0;
+	*data_cnt = 0;
 
-	return 0;
-
+	if (iclog->ic_state == XLOG_STATE_ACTIVE)
+		xlog_state_switch_iclogs(log, iclog, 0);
+	else
+		ASSERT(iclog->ic_state == XLOG_STATE_WANT_SYNC ||
+			xlog_is_shutdown(log));
 release_iclog:
 	error = xlog_state_release_iclog(log, iclog, 0);
 	spin_unlock(&log->l_icloglock);
@@ -2445,7 +2437,6 @@ xlog_write(
 	struct xfs_cil_ctx	*ctx,
 	struct xfs_log_vec	*log_vector,
 	struct xlog_ticket	*ticket,
-	struct xlog_in_core	**commit_iclog,
 	uint			optype)
 {
 	struct xlog_in_core	*iclog = NULL;
@@ -2574,8 +2565,7 @@ xlog_write(
 						       &record_cnt, &data_cnt,
 						       &partial_copy,
 						       &partial_copy_len,
-						       log_offset,
-						       commit_iclog);
+						       log_offset);
 			if (error)
 				return error;
 
@@ -2613,12 +2603,7 @@ next_lv:
 
 	spin_lock(&log->l_icloglock);
 	xlog_state_finish_copy(log, iclog, record_cnt, data_cnt);
-	if (commit_iclog) {
-		ASSERT(optype & XLOG_COMMIT_TRANS);
-		*commit_iclog = iclog;
-	} else {
-		error = xlog_state_release_iclog(log, iclog, 0);
-	}
+	error = xlog_state_release_iclog(log, iclog, 0);
 	spin_unlock(&log->l_icloglock);
 
 	return error;
