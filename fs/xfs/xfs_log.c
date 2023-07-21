@@ -490,6 +490,12 @@ out_error:
  * Flush iclog to disk if this is the last reference to the given iclog and the
  * it is in the WANT_SYNC state.
  *
+ * If the caller passes in a non-zero @old_tail_lsn and the current log tail
+ * does not match, there may be metadata on disk that must be persisted before
+ * this iclog is written.  To satisfy that requirement, set the
+ * XLOG_ICL_NEED_FLUSH flag as a condition for writing this iclog with the new
+ * log tail value.
+ *
  * If XLOG_ICL_NEED_FUA is already set on the iclog, we need to ensure that the
  * log tail is updated correctly. NEED_FUA indicates that the iclog will be
  * written to stable storage, and implies that a commit record is contained
@@ -506,10 +512,12 @@ out_error:
  * always capture the tail lsn on the iclog on the first NEED_FUA release
  * regardless of the number of active reference counts on this iclog.
  */
+
 int
 xlog_state_release_iclog(
 	struct xlog		*log,
-	struct xlog_in_core	*iclog)
+	struct xlog_in_core	*iclog,
+	xfs_lsn_t		old_tail_lsn)
 {
 	xfs_lsn_t		tail_lsn;
 	lockdep_assert_held(&log->l_icloglock);
@@ -521,14 +529,18 @@ xlog_state_release_iclog(
 	/*
 	 * Grabbing the current log tail needs to be atomic w.r.t. the writing
 	 * of the tail LSN into the iclog so we guarantee that the log tail does
-	 * not move between the first time we know that the iclog needs to be
-	 * made stable and when we eventually submit it.
+	 * not move between deciding if a cache flush is required and writing
+	 * the LSN into the iclog below.
 	 */
-	if ((iclog->ic_state == XLOG_STATE_WANT_SYNC ||
-	     (iclog->ic_flags & XLOG_ICL_NEED_FUA)) &&
-	    !iclog->ic_header.h_tail_lsn) {
+	if (old_tail_lsn || iclog->ic_state == XLOG_STATE_WANT_SYNC) {
 		tail_lsn = xlog_assign_tail_lsn(log->l_mp);
-		iclog->ic_header.h_tail_lsn = cpu_to_be64(tail_lsn);
+
+		if (old_tail_lsn && tail_lsn != old_tail_lsn)
+			iclog->ic_flags |= XLOG_ICL_NEED_FLUSH;
+
+		if ((iclog->ic_flags & XLOG_ICL_NEED_FUA) &&
+		    !iclog->ic_header.h_tail_lsn)
+			iclog->ic_header.h_tail_lsn = cpu_to_be64(tail_lsn);
 	}
 
 	if (!atomic_dec_and_test(&iclog->ic_refcnt))
@@ -540,6 +552,8 @@ xlog_state_release_iclog(
 	}
 
 	iclog->ic_state = XLOG_STATE_SYNCING;
+	if (!iclog->ic_header.h_tail_lsn)
+		iclog->ic_header.h_tail_lsn = cpu_to_be64(tail_lsn);
 	xlog_verify_tail_lsn(log, iclog);
 	trace_xlog_iclog_syncing(iclog, _RET_IP_);
 
@@ -807,7 +821,7 @@ xlog_force_iclog(
 	iclog->ic_flags |= XLOG_ICL_NEED_FLUSH | XLOG_ICL_NEED_FUA;
 	if (iclog->ic_state == XLOG_STATE_ACTIVE)
 		xlog_state_switch_iclogs(iclog->ic_log, iclog, 0);
-	return xlog_state_release_iclog(iclog->ic_log, iclog);
+	return xlog_state_release_iclog(iclog->ic_log, iclog, 0);
 }
 
 /*
@@ -864,7 +878,7 @@ xlog_write_unmount_record(
 	/* account for space used by record data */
 	ticket->t_curr_res -= sizeof(ulf);
 
-	return xlog_write(log, &vec, ticket, NULL, NULL, XLOG_UNMOUNT_TRANS);
+	return xlog_write(log, NULL, &vec, ticket, NULL, XLOG_UNMOUNT_TRANS);
 }
 
 /*
@@ -2327,7 +2341,7 @@ xlog_write_copy_finish(
 	return 0;
 
 release_iclog:
-	error = xlog_state_release_iclog(log, iclog);
+	error = xlog_state_release_iclog(log, iclog, 0);
 	spin_unlock(&log->l_icloglock);
 	return error;
 }
@@ -2375,9 +2389,9 @@ release_iclog:
 int
 xlog_write(
 	struct xlog		*log,
+	struct xfs_cil_ctx	*ctx,
 	struct xfs_log_vec	*log_vector,
 	struct xlog_ticket	*ticket,
-	xfs_lsn_t		*start_lsn,
 	struct xlog_in_core	**commit_iclog,
 	uint			optype)
 {
@@ -2408,8 +2422,6 @@ xlog_write(
 	}
 
 	len = xlog_write_calc_vec_length(ticket, log_vector, optype);
-	if (start_lsn)
-		*start_lsn = 0;
 	while (lv && (!lv->lv_niovecs || index < lv->lv_niovecs)) {
 		void		*ptr;
 		int		log_offset;
@@ -2422,17 +2434,14 @@ xlog_write(
 		ASSERT(log_offset <= iclog->ic_size - 1);
 		ptr = iclog->ic_datap + log_offset;
 
-		/* Start_lsn is the first lsn written to. */
-		if (start_lsn && !*start_lsn) {
-			*start_lsn = be64_to_cpu(iclog->ic_header.h_lsn);
-			/*
-			 * Make sure the metadata we are about to overwrite in
-			 * the log has been flushed to stable storage before
-			 * this iclog is issued.
-			 */
-			spin_lock(&log->l_icloglock);
-			iclog->ic_flags |= XLOG_ICL_NEED_FLUSH;
-			spin_unlock(&log->l_icloglock);
+		/*
+		 * If we have a context pointer, pass it the first iclog we are
+		 * writing to so it can record state needed for iclog write
+		 * ordering.
+		 */
+		if (ctx) {
+			xlog_cil_set_ctx_write_state(ctx, iclog);
+			ctx = NULL;
 		}
 
 		/*
@@ -2555,7 +2564,7 @@ next_lv:
 		ASSERT(optype & XLOG_COMMIT_TRANS);
 		*commit_iclog = iclog;
 	} else {
-		error = xlog_state_release_iclog(log, iclog);
+		error = xlog_state_release_iclog(log, iclog, 0);
 	}
 	spin_unlock(&log->l_icloglock);
 
@@ -2973,7 +2982,7 @@ restart:
 		 * reference to the iclog.
 		 */
 		if (!atomic_add_unless(&iclog->ic_refcnt, -1, 1))
-			error = xlog_state_release_iclog(log, iclog);
+			error = xlog_state_release_iclog(log, iclog, 0);
 		spin_unlock(&log->l_icloglock);
 		if (error)
 			return error;
