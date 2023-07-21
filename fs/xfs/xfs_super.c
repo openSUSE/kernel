@@ -501,21 +501,11 @@ xfs_init_mount_workqueues(
 	if (!mp->m_unwritten_workqueue)
 		goto out_destroy_buf;
 
-	/*
-	 * Limit the CIL pipeline depth to 4 concurrent works to bound the
-	 * concurrency the log spinlocks will be exposed to.
-	 */
-	mp->m_cil_workqueue = alloc_workqueue("xfs-cil/%s",
-			XFS_WQFLAGS(WQ_FREEZABLE | WQ_MEM_RECLAIM | WQ_UNBOUND),
-			4, mp->m_super->s_id);
-	if (!mp->m_cil_workqueue)
-		goto out_destroy_unwritten;
-
 	mp->m_reclaim_workqueue = alloc_workqueue("xfs-reclaim/%s",
 			XFS_WQFLAGS(WQ_FREEZABLE | WQ_MEM_RECLAIM),
 			0, mp->m_super->s_id);
 	if (!mp->m_reclaim_workqueue)
-		goto out_destroy_cil;
+		goto out_destroy_unwritten;
 
 	mp->m_gc_workqueue = alloc_workqueue("xfs-gc/%s",
 			WQ_SYSFS | WQ_UNBOUND | WQ_FREEZABLE | WQ_MEM_RECLAIM,
@@ -534,8 +524,6 @@ out_destroy_eofb:
 	destroy_workqueue(mp->m_gc_workqueue);
 out_destroy_reclaim:
 	destroy_workqueue(mp->m_reclaim_workqueue);
-out_destroy_cil:
-	destroy_workqueue(mp->m_cil_workqueue);
 out_destroy_unwritten:
 	destroy_workqueue(mp->m_unwritten_workqueue);
 out_destroy_buf:
@@ -551,7 +539,6 @@ xfs_destroy_mount_workqueues(
 	destroy_workqueue(mp->m_sync_workqueue);
 	destroy_workqueue(mp->m_gc_workqueue);
 	destroy_workqueue(mp->m_reclaim_workqueue);
-	destroy_workqueue(mp->m_cil_workqueue);
 	destroy_workqueue(mp->m_unwritten_workqueue);
 	destroy_workqueue(mp->m_buf_workqueue);
 }
