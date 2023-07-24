@@ -629,7 +629,7 @@ asmlinkage __visible void __init start_kernel(void)
 	sort_main_extable();
 	trap_init();
 	mm_init();
-
+	poking_init();
 	ftrace_init();
 
 	/* trace_printk can be enabled here */
@@ -778,7 +778,6 @@ asmlinkage __visible void __init start_kernel(void)
 	taskstats_init_early();
 	delayacct_init();
 
-	poking_init();
 	arch_cpu_finalize_init();
 	/* Temporary conditional until everything has been converted */
 #ifndef CONFIG_ARCH_HAS_CPU_FINALIZE_INIT
