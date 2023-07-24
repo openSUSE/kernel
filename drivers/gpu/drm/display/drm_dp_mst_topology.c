@@ -4130,6 +4130,20 @@ void drm_dp_mst_hpd_irq_send_new_request(struct drm_dp_mst_topology_mgr *mgr)
 		drm_dp_mst_kick_tx(mgr);
 }
 EXPORT_SYMBOL(drm_dp_mst_hpd_irq_send_new_request);
+
+/* FIXME - an old API function provided only for kABI on SLE15-SP5 */
+int drm_dp_mst_hpd_irq(struct drm_dp_mst_topology_mgr *mgr, u8 *esi, bool *handled)
+{
+	u8 ack[8] = {};
+	int ret;
+
+	ret = drm_dp_mst_hpd_irq_handle_event(mgr, esi, ack, handled);
+	if (!ret)
+		drm_dp_mst_hpd_irq_send_new_request(mgr);
+	return ret;
+}
+EXPORT_SYMBOL(drm_dp_mst_hpd_irq);
+
 /**
  * drm_dp_mst_detect_port() - get connection status for an MST port
  * @connector: DRM connector for this port
