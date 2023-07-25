@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# smbfs configuration
+
+source "fs/smb/client/Kconfig"
+
+config SMBFS
+       tristate
+       default y if CIFS=y
+       default m if CIFS=m
