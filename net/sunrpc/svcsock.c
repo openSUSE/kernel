@@ -128,10 +128,8 @@ static void svc_udp_release_rqst(struct svc_rqst *rqstp)
 {
 	struct sk_buff *skb = rqstp->rq_xprt_ctxt;
 
-	if (skb) {
-		rqstp->rq_xprt_ctxt = NULL;
+	if (skb)
 		consume_skb(skb);
-	}
 }
 
 union svc_pktinfo_u {
@@ -562,6 +560,7 @@ static int svc_udp_sendto(struct svc_rqst *rqstp)
 	int err;
 
 	svc_udp_release_rqst(rqstp);
+	rqstp->rq_xprt_ctxt = NULL;
 
 	svc_set_cmsg_data(rqstp, cmh);
 
@@ -1159,6 +1158,7 @@ static int svc_tcp_sendto(struct svc_rqst *rqstp)
 	int err;
 
 	svc_tcp_release_rqst(rqstp);
+	rqstp->rq_xprt_ctxt = NULL;
 
 	atomic_inc(&svsk->sk_sendqlen);
 	mutex_lock(&xprt->xpt_mutex);

@@ -253,7 +253,6 @@ void svc_rdma_release_rqst(struct svc_rqst *rqstp)
 	struct svcxprt_rdma *rdma =
 		container_of(xprt, struct svcxprt_rdma, sc_xprt);
 
-	rqstp->rq_xprt_ctxt = NULL;
 	if (ctxt)
 		svc_rdma_recv_ctxt_put(rdma, ctxt);
 }
