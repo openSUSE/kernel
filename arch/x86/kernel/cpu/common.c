@@ -1017,6 +1017,8 @@ void __init identify_boot_cpu(void)
 	tsx_init();
 }
 
+extern bool x86_bug_gds;
+
 void __cpuinit identify_secondary_cpu(struct cpuinfo_x86 *c)
 {
 	BUG_ON(c == &boot_cpu_data);
@@ -1028,6 +1030,8 @@ void __cpuinit identify_secondary_cpu(struct cpuinfo_x86 *c)
 
 	x86_spec_ctrl_setup_ap();
 	update_srbds_msr();
+	if (x86_bug_gds)
+		update_gds_msr();
 }
 
 struct msr_range {
