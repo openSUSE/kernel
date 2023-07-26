@@ -1183,6 +1183,13 @@ void __mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful,
 }
 EXPORT_SYMBOL_GPL(__mhi_power_down);
 
+/* FIXME: exported for SLE15-SP5 kABI compatibility */
+void mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful)
+{
+	__mhi_power_down(mhi_cntrl, graceful, true);
+}
+EXPORT_SYMBOL_GPL(mhi_power_down);
+
 int mhi_sync_power_up(struct mhi_controller *mhi_cntrl)
 {
 	int ret = mhi_async_power_up(mhi_cntrl);

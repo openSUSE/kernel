@@ -641,6 +641,7 @@ int mhi_sync_power_up(struct mhi_controller *mhi_cntrl);
 void __mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful,
 		    bool destroy_device);
 
+#if 0
 /**
  * mhi_power_down - Start MHI power down sequence
  * @mhi_cntrl: MHI controller
@@ -651,6 +652,10 @@ static inline void mhi_power_down(struct mhi_controller *mhi_cntrl, bool gracefu
 {
 	__mhi_power_down(mhi_cntrl, graceful, true);
 }
+#else
+/* FIXME: exported for SLE15-SP5 kABI compatibility */
+void mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful);
+#endif
 
 static inline void mhi_power_down_no_destroy(struct mhi_controller *mhi_cntrl,
 					     bool graceful)
