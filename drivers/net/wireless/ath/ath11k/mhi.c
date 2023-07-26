@@ -490,7 +490,7 @@ int ath11k_mhi_start(struct ath11k_pci *ab_pci)
 
 void ath11k_mhi_stop(struct ath11k_pci *ab_pci)
 {
-	mhi_power_down(ab_pci->mhi_ctrl, true);
+	mhi_power_down(ab_pci->mhi_ctrl, true, true);
 	mhi_unprepare_after_power_down(ab_pci->mhi_ctrl);
 }
 

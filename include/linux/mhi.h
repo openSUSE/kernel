@@ -642,8 +642,10 @@ int mhi_sync_power_up(struct mhi_controller *mhi_cntrl);
  * mhi_power_down - Start MHI power down sequence
  * @mhi_cntrl: MHI controller
  * @graceful: Link is still accessible, so do a graceful shutdown process
+ * @destroy_device: whether to destroy MHI devices
  */
-void mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful);
+void mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful,
+		    bool destroy_device);
 
 /**
  * mhi_unprepare_after_power_down - Free any allocated memory after power down
