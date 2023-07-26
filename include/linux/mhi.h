@@ -820,4 +820,6 @@ int mhi_queue_skb(struct mhi_device *mhi_dev, enum dma_data_direction dir,
  */
 bool mhi_queue_is_full(struct mhi_device *mhi_dev, enum dma_data_direction dir);
 
+int mhi_prepare_all_for_transfer_autoqueue(struct mhi_controller *mhi_cntrl);
+int mhi_unprepare_all_from_transfer(struct mhi_controller *mhi_cntrl);
 #endif /* _MHI_H_ */
