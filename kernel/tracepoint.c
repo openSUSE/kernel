@@ -305,7 +305,9 @@ static enum tp_func_state nr_func_state(const struct tracepoint_func *tp_funcs)
 	return TP_FUNC_N;	/* 3 or more */
 }
 
-static void tracepoint_update_call(struct tracepoint *tp, struct tracepoint_func *tp_funcs)
+static void tracepoint_update_call(struct tracepoint *tp,
+				   struct tracepoint_func *tp_funcs,
+				   bool checked)
 {
 	void *func = tp->iterator;
 
@@ -314,7 +316,8 @@ static void tracepoint_update_call(struct tracepoint *tp, struct tracepoint_func
 		return;
 	if (nr_func_state(tp_funcs) == TP_FUNC_1)
 		func = tp_funcs[0].func;
-	__static_call_update(tp->static_call_key, tp->static_call_tramp, func);
+	____static_call_update(tp->static_call_key, tp->static_call_tramp, func,
+			     checked);
 }
 
 /*
@@ -322,7 +325,7 @@ static void tracepoint_update_call(struct tracepoint *tp, struct tracepoint_func
  */
 static int tracepoint_add_func(struct tracepoint *tp,
 			       struct tracepoint_func *func, int prio,
-			       bool warn)
+			       bool warn, bool checked)
 {
 	struct tracepoint_func *old, *tp_funcs;
 	int ret;
@@ -355,14 +358,14 @@ static int tracepoint_add_func(struct tracepoint *tp,
 		 */
 		tp_rcu_cond_sync(TP_TRANSITION_SYNC_1_0_1);
 		/* Set static call to first function */
-		tracepoint_update_call(tp, tp_funcs);
+		tracepoint_update_call(tp, tp_funcs, checked);
 		/* Both iterator and static call handle NULL tp->funcs */
 		rcu_assign_pointer(tp->funcs, tp_funcs);
 		static_key_enable(&tp->key);
 		break;
 	case TP_FUNC_2:		/* 1->2 */
 		/* Set iterator static call */
-		tracepoint_update_call(tp, tp_funcs);
+		tracepoint_update_call(tp, tp_funcs, checked);
 		/*
 		 * Iterator callback installed before updating tp->funcs.
 		 * Requires ordering between RCU assign/dereference and
@@ -394,7 +397,7 @@ static int tracepoint_add_func(struct tracepoint *tp,
  * by preempt_disable around the call site.
  */
 static int tracepoint_remove_func(struct tracepoint *tp,
-		struct tracepoint_func *func)
+		struct tracepoint_func *func, bool checked)
 {
 	struct tracepoint_func *old, *tp_funcs;
 
@@ -416,7 +419,7 @@ static int tracepoint_remove_func(struct tracepoint *tp,
 
 		static_key_disable(&tp->key);
 		/* Set iterator static call */
-		tracepoint_update_call(tp, tp_funcs);
+		tracepoint_update_call(tp, tp_funcs, checked);
 		/* Both iterator and static call handle NULL tp->funcs */
 		rcu_assign_pointer(tp->funcs, NULL);
 		/*
@@ -438,7 +441,7 @@ static int tracepoint_remove_func(struct tracepoint *tp,
 			tp_rcu_get_state(TP_TRANSITION_SYNC_N_2_1);
 		tp_rcu_cond_sync(TP_TRANSITION_SYNC_N_2_1);
 		/* Set static call to first function */
-		tracepoint_update_call(tp, tp_funcs);
+		tracepoint_update_call(tp, tp_funcs, checked);
 		break;
 	case TP_FUNC_2:		/* N->N-1 (N>2) */
 		fallthrough;
@@ -479,7 +482,7 @@ int tracepoint_probe_register_prio_may_exist(struct tracepoint *tp, void *probe,
 	tp_func.func = probe;
 	tp_func.data = data;
 	tp_func.prio = prio;
-	ret = tracepoint_add_func(tp, &tp_func, prio, false);
+	ret = tracepoint_add_func(tp, &tp_func, prio, false, false);
 	mutex_unlock(&tracepoints_mutex);
 	return ret;
 }
@@ -498,8 +501,9 @@ EXPORT_SYMBOL_GPL(tracepoint_probe_register_prio_may_exist);
  * performed either with a tracepoint module going notifier, or from
  * within module exit functions.
  */
-int tracepoint_probe_register_prio(struct tracepoint *tp, void *probe,
-				   void *data, int prio)
+int __tracepoint_probe_register_prio(struct tracepoint *tp, void *probe,
+					    void *data, int prio,
+					    bool checked)
 {
 	struct tracepoint_func tp_func;
 	int ret;
@@ -508,11 +512,24 @@ int tracepoint_probe_register_prio(struct tracepoint *tp, void *probe,
 	tp_func.func = probe;
 	tp_func.data = data;
 	tp_func.prio = prio;
-	ret = tracepoint_add_func(tp, &tp_func, prio, true);
+	ret = tracepoint_add_func(tp, &tp_func, prio, true, checked);
 	mutex_unlock(&tracepoints_mutex);
 	return ret;
 }
+EXPORT_SYMBOL_GPL(__tracepoint_probe_register_prio);
+
+int tracepoint_probe_register_prio(struct tracepoint *tp, void *probe,
+				   void *data, int prio)
+{
+	return __tracepoint_probe_register_prio(tp, probe, data, prio, false);
+}
 EXPORT_SYMBOL_GPL(tracepoint_probe_register_prio);
+
+int __tracepoint_probe_register(struct tracepoint *tp, void *probe, void *data, bool checked)
+{
+	return __tracepoint_probe_register_prio(tp, probe, data, TRACEPOINT_DEFAULT_PRIO, checked);
+}
+EXPORT_SYMBOL_GPL(__tracepoint_probe_register);
 
 /**
  * tracepoint_probe_register -  Connect a probe to a tracepoint
@@ -540,7 +557,8 @@ EXPORT_SYMBOL_GPL(tracepoint_probe_register);
  *
  * Returns 0 if ok, error value on error.
  */
-int tracepoint_probe_unregister(struct tracepoint *tp, void *probe, void *data)
+int __tracepoint_probe_unregister(struct tracepoint *tp, void *probe,
+					 void *data, bool checked)
 {
 	struct tracepoint_func tp_func;
 	int ret;
@@ -548,9 +566,16 @@ int tracepoint_probe_unregister(struct tracepoint *tp, void *probe, void *data)
 	mutex_lock(&tracepoints_mutex);
 	tp_func.func = probe;
 	tp_func.data = data;
-	ret = tracepoint_remove_func(tp, &tp_func);
+	ret = tracepoint_remove_func(tp, &tp_func, checked);
 	mutex_unlock(&tracepoints_mutex);
 	return ret;
+}
+EXPORT_SYMBOL_GPL(__tracepoint_probe_unregister);
+
+int tracepoint_probe_unregister(struct tracepoint *tp, void *probe,
+				void *data)
+{
+	return __tracepoint_probe_unregister(tp, probe, data, false);
 }
 EXPORT_SYMBOL_GPL(tracepoint_probe_unregister);
 
