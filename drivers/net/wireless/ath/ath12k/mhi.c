@@ -543,11 +543,11 @@ static int ath12k_mhi_set_state(struct ath12k_pci *ab_pci,
 		ret = mhi_async_power_up(ab_pci->mhi_ctrl);
 		break;
 	case ATH12K_MHI_POWER_OFF:
-		mhi_power_down(ab_pci->mhi_ctrl, true);
+		mhi_power_down(ab_pci->mhi_ctrl, true, true);
 		ret = 0;
 		break;
 	case ATH12K_MHI_FORCE_POWER_OFF:
-		mhi_power_down(ab_pci->mhi_ctrl, false);
+		mhi_power_down(ab_pci->mhi_ctrl, false, true);
 		ret = 0;
 		break;
 	case ATH12K_MHI_SUSPEND:

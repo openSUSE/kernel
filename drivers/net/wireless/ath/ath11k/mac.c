@@ -8892,7 +8892,7 @@ static int ath11k_mac_setup_channels_rates(struct ath11k *ar,
 	}
 
 	if (supported_bands & WMI_HOST_WLAN_5G_CAP) {
-		if (reg_cap->high_5ghz_chan >= ATH11K_MAX_6G_FREQ) {
+		if (reg_cap->high_5ghz_chan >= ATH11K_MIN_6G_FREQ) {
 			channels = kmemdup(ath11k_6ghz_channels,
 					   sizeof(ath11k_6ghz_channels), GFP_KERNEL);
 			if (!channels) {
@@ -9067,6 +9067,7 @@ void ath11k_mac_unregister(struct ath11k_base *ab)
 		if (!ar)
 			continue;
 
+		ath11k_thermal_unregister(ar);
 		__ath11k_mac_unregister(ar);
 	}
 
@@ -9362,17 +9363,22 @@ int ath11k_mac_register(struct ath11k_base *ab)
 			goto err_cleanup;
 
 		init_waitqueue_head(&ar->txmgmt_empty_waitq);
+
+		ret = ath11k_thermal_register(ar);
+		if (ret)
+			goto err_mac_unregister;
 	}
 
 	return 0;
 
-err_cleanup:
+err_mac_unregister:
 	for (i = i - 1; i >= 0; i--) {
 		pdev = &ab->pdevs[i];
 		ar = pdev->ar;
 		__ath11k_mac_unregister(ar);
 	}
 
+err_cleanup:
 	ath11k_peer_rhash_tbl_destroy(ab);
 
 	return ret;
@@ -9468,6 +9474,7 @@ void ath11k_mac_destroy(struct ath11k_base *ab)
 		if (!ar)
 			continue;
 
+		ath11k_fw_stats_free(&ar->fw_stats);
 		ieee80211_free_hw(ar->hw);
 		pdev->ar = NULL;
 	}
