@@ -810,7 +810,7 @@ static void mhi_pci_recovery_work(struct work_struct *work)
 
 	/* Clean up MHI state */
 	if (test_and_clear_bit(MHI_PCI_DEV_STARTED, &mhi_pdev->status)) {
-		mhi_power_down(mhi_cntrl, false, true);
+		mhi_power_down(mhi_cntrl, false);
 		mhi_unprepare_after_power_down(mhi_cntrl);
 	}
 
@@ -967,7 +967,7 @@ static void mhi_pci_remove(struct pci_dev *pdev)
 	cancel_work_sync(&mhi_pdev->recovery_work);
 
 	if (test_and_clear_bit(MHI_PCI_DEV_STARTED, &mhi_pdev->status)) {
-		mhi_power_down(mhi_cntrl, true, true);
+		mhi_power_down(mhi_cntrl, true);
 		mhi_unprepare_after_power_down(mhi_cntrl);
 	}
 
@@ -995,7 +995,7 @@ static void mhi_pci_reset_prepare(struct pci_dev *pdev)
 
 	/* Clean up MHI state */
 	if (test_and_clear_bit(MHI_PCI_DEV_STARTED, &mhi_pdev->status)) {
-		mhi_power_down(mhi_cntrl, false, true);
+		mhi_power_down(mhi_cntrl, false);
 		mhi_unprepare_after_power_down(mhi_cntrl);
 	}
 
@@ -1052,7 +1052,7 @@ static pci_ers_result_t mhi_pci_error_detected(struct pci_dev *pdev,
 
 	/* Clean up MHI state */
 	if (test_and_clear_bit(MHI_PCI_DEV_STARTED, &mhi_pdev->status)) {
-		mhi_power_down(mhi_cntrl, false, true);
+		mhi_power_down(mhi_cntrl, false);
 		mhi_unprepare_after_power_down(mhi_cntrl);
 	} else {
 		/* Nothing to do */
@@ -1202,7 +1202,7 @@ static int __maybe_unused mhi_pci_freeze(struct device *dev)
 	 */
 	flush_work(&mhi_pdev->recovery_work);
 	if (test_and_clear_bit(MHI_PCI_DEV_STARTED, &mhi_pdev->status)) {
-		mhi_power_down(mhi_cntrl, true, true);
+		mhi_power_down(mhi_cntrl, true);
 		mhi_unprepare_after_power_down(mhi_cntrl);
 	}
 

@@ -1155,8 +1155,8 @@ error_exit:
 }
 EXPORT_SYMBOL_GPL(mhi_async_power_up);
 
-void mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful,
-		    bool destroy_device)
+void __mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful,
+		      bool destroy_device)
 {
 	enum mhi_pm_state cur_state, transition_state;
 	struct device *dev = &mhi_cntrl->mhi_dev->dev;
@@ -1204,7 +1204,7 @@ void mhi_power_down(struct mhi_controller *mhi_cntrl, bool graceful,
 
 	disable_irq(mhi_cntrl->irq[0]);
 }
-EXPORT_SYMBOL_GPL(mhi_power_down);
+EXPORT_SYMBOL_GPL(__mhi_power_down);
 
 int mhi_sync_power_up(struct mhi_controller *mhi_cntrl)
 {
@@ -1220,7 +1220,7 @@ int mhi_sync_power_up(struct mhi_controller *mhi_cntrl)
 
 	ret = (MHI_IN_MISSION_MODE(mhi_cntrl->ee)) ? 0 : -ETIMEDOUT;
 	if (ret)
-		mhi_power_down(mhi_cntrl, false, true);
+		mhi_power_down(mhi_cntrl, false);
 
 	return ret;
 }

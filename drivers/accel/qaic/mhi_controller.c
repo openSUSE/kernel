@@ -542,14 +542,14 @@ prepare_power_up_fail:
 
 void qaic_mhi_free_controller(struct mhi_controller *mhi_cntrl, bool link_up)
 {
-	mhi_power_down(mhi_cntrl, link_up, true);
+	mhi_power_down(mhi_cntrl, link_up);
 	mhi_unprepare_after_power_down(mhi_cntrl);
 	mhi_unregister_controller(mhi_cntrl);
 }
 
 void qaic_mhi_start_reset(struct mhi_controller *mhi_cntrl)
 {
-	mhi_power_down(mhi_cntrl, true, true);
+	mhi_power_down(mhi_cntrl, true);
 }
 
 void qaic_mhi_reset_done(struct mhi_controller *mhi_cntrl)

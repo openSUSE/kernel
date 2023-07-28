@@ -687,13 +687,15 @@ static int ath11k_pci_hif_power_down(struct ath11k_base *ab, bool is_suspend)
 	if (is_suspend) {
 		ret = ath11k_pci_save_state(ab_pci);
 		if (ret) {
-			ath11k_err(ab_pci->ab, "failed to save pci state for suspend %d\n", ret);
+			ath11k_err(ab_pci->ab, "failed to save pci state for suspend %d\n",
+				   ret);
 			return ret;
 		}
 
 		ret = ath11k_mhi_unprepare_from_transfer(ab_pci);
 		if (ret) {
-			ath11k_err(ab_pci->ab, "failed to unprepare from transfer %d\n", ret);
+			ath11k_err(ab_pci->ab, "failed to unprepare from transfer %d\n",
+				   ret);
 			return ret;
 		}
 	}
@@ -710,7 +712,8 @@ static int ath11k_pci_hif_power_up(struct ath11k_base *ab, bool is_resume)
 	if (is_resume) {
 		ret = ath11k_pci_restore_state(ab_pci);
 		if (ret) {
-			ath11k_err(ab_pci->ab, "failed to restore pci state for resume %d\n", ret);
+			ath11k_err(ab_pci->ab, "failed to restore pci state for resume %d\n",
+				   ret);
 			return ret;
 		}
 	}
@@ -722,10 +725,11 @@ static int ath11k_pci_hif_power_up(struct ath11k_base *ab, bool is_resume)
 	}
 
 	if (is_resume) {
-		/* sleep for 500ms to let mhi_pm_mission_mode_transition() finishes, or we may be 
-		 * wake up imediatly afetr mission mode event received and call 
-		 * ath11k_mhi_prepare_for_transfer(), while bottom half of mhi_pm_mission_mode_transition()
-		 * does not finish.
+		/* sleep for 500ms to let mhi_pm_mission_mode_transition()
+		 * finishes, or we may be wake up imediatly afetr mission
+		 * mode event received and call
+		 * ath11k_mhi_prepare_for_transfer(), while bottom half of
+		 * mhi_pm_mission_mode_transition() does not finish.
 		 */
 		msleep(500);
 		ret = ath11k_mhi_prepare_for_transfer(ab_pci);
