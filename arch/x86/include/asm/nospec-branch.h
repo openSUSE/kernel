@@ -177,6 +177,8 @@ extern void __x86_return_thunk(void);
 extern void zen_untrain_ret(void);
 extern void entry_ibpb(void);
 
+extern void (*x86_return_thunk)(void);
+
 #ifdef CONFIG_RETPOLINE
 
 #define GEN(reg) \
