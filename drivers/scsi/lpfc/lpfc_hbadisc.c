@@ -4837,7 +4837,7 @@ lpfc_nlp_state_name(char *buffer, size_t size, int state)
 	};
 
 	if (state < NLP_STE_MAX_STATE && states[state])
-		strlcpy(buffer, states[state], size);
+		strscpy(buffer, states[state], size);
 	else
 		snprintf(buffer, size, "unknown (%d)", state);
 	return buffer;
