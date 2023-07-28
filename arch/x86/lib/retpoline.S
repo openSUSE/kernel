@@ -63,7 +63,7 @@ GENERATE_THUNK(r15)
  *    from re-poisioning the BTB prediction.
  */
 	.align 64
-	.skip 63, 0xcc
+	.skip 64 - (__x86_return_thunk - zen_untrain_ret), 0xcc
 SYM_FUNC_START_NOALIGN(zen_untrain_ret);
 
 	/*
