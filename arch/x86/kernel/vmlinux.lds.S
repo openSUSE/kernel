@@ -128,19 +128,20 @@ SECTIONS
 		CPUIDLE_TEXT
 		LOCK_TEXT
 		KPROBES_TEXT
-		ALIGN_ENTRY_TEXT_BEGIN
-		ENTRY_TEXT
-		IRQENTRY_TEXT
-		ALIGN_ENTRY_TEXT_END
 		SOFTIRQENTRY_TEXT
 		*(.fixup)
-		*(.gnu.warning)
 
 #ifdef CONFIG_RETPOLINE
 		__indirect_thunk_start = .;
 		*(.text.__x86.*)
 		__indirect_thunk_end = .;
 #endif
+
+		ALIGN_ENTRY_TEXT_BEGIN
+		ENTRY_TEXT
+		IRQENTRY_TEXT
+		ALIGN_ENTRY_TEXT_END
+		*(.gnu.warning)
 
 		/* End of text section */
 		_etext = .;
@@ -447,7 +448,7 @@ INIT_PER_CPU(irq_stack_backing_store);
            "fixed_percpu_data is not at start of per-cpu area");
 #endif
 
-#ifdef CONFIG_RETHUNK
+#ifdef CONFIG_RETPOLINE
 . = ASSERT((__x86_return_thunk & 0x3f) == 0, "__x86_return_thunk not cacheline-aligned");
 #endif
 
