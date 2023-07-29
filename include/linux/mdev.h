@@ -18,6 +18,9 @@ struct mdev_device {
 	struct list_head next;
 	struct mdev_type *type;
 	bool active;
+#ifndef __GENKSYMS__
+	struct device *iommu_device;
+#endif
 };
 
 static inline struct mdev_device *to_mdev_device(struct device *dev)
@@ -48,6 +51,25 @@ struct mdev_type_attribute mdev_type_attr_##_name =		\
 	struct mdev_type_attribute mdev_type_attr_##_name = __ATTR_RO(_name)
 #define MDEV_TYPE_ATTR_WO(_name) \
 	struct mdev_type_attribute mdev_type_attr_##_name = __ATTR_WO(_name)
+
+/*
+ * Called by the parent device driver to set the device which represents
+ * this mdev in iommu protection scope. By default, the iommu device is
+ * NULL, that indicates using vendor defined isolation.
+ *
+ * @dev: the mediated device that iommu will isolate.
+ * @iommu_device: a pci device which represents the iommu for @dev.
+ */
+static inline void mdev_set_iommu_device(struct mdev_device *mdev,
+					 struct device *iommu_device)
+{
+	mdev->iommu_device = iommu_device;
+}
+
+static inline struct device *mdev_get_iommu_device(struct mdev_device *mdev)
+{
+	return mdev->iommu_device;
+}
 
 /**
  * struct mdev_driver - Mediated device driver
