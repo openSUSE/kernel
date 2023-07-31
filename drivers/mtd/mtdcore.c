@@ -1175,13 +1175,14 @@ int __get_mtd_device(struct mtd_info *mtd)
 		return -ENODEV;
 	}
 
-	kref_get(&mtd->refcnt);
-
-	while (mtd->parent) {
-		if (IS_ENABLED(CONFIG_MTD_PARTITIONED_MASTER) || mtd->parent != master)
-			kref_get(&mtd->parent->refcnt);
+	while (mtd) {
+		if (mtd != master)
+			kref_get(&mtd->refcnt);
 		mtd = mtd->parent;
 	}
+
+	if (IS_ENABLED(CONFIG_MTD_PARTITIONED_MASTER))
+		kref_get(&master->refcnt);
 
 	return 0;
 }
@@ -1238,10 +1239,12 @@ void __put_mtd_device(struct mtd_info *mtd)
 {
 	struct mtd_info *master = mtd_get_master(mtd);
 
-	while (mtd != master) {
+	while (mtd) {
+		/* kref_put() can relese mtd, so keep a reference mtd->parent */
 		struct mtd_info *parent = mtd->parent;
 
-		kref_put(&mtd->refcnt, mtd_device_release);
+		if (mtd != master)
+			kref_put(&mtd->refcnt, mtd_device_release);
 		mtd = parent;
 	}
 
