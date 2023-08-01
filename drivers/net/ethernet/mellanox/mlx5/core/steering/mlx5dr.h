@@ -142,6 +142,8 @@ mlx5dr_action_create_aso(struct mlx5dr_domain *dmn,
 
 int mlx5dr_action_destroy(struct mlx5dr_action *action);
 
+u32 mlx5dr_action_get_pkt_reformat_id(struct mlx5dr_action *action);
+
 static inline bool
 mlx5dr_is_supported(struct mlx5_core_dev *dev)
 {
