@@ -55,6 +55,7 @@ extern void sched_dead(struct task_struct *p);
 
 void __noreturn do_task_dead(void);
 
+extern void mm_cache_init(void);
 extern void proc_caches_init(void);
 
 extern void fork_init(void);
