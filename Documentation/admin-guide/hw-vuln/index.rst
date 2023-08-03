@@ -17,3 +17,5 @@ are configurable at compile, boot or run time.
    special-register-buffer-data-sampling.rst
    core-scheduling.rst
    processor_mmio_stale_data.rst
+   gather_data_sampling.rst
+   srso
