@@ -1513,8 +1513,8 @@ static ssize_t _nfsd_copy_file_range(struct nfsd4_copy *copy)
 	u64 bytes_total = copy->cp_count;
 	u64 src_pos = copy->cp_src_pos;
 	u64 dst_pos = copy->cp_dst_pos;
-	__be32 status;
 	loff_t end;
+	int status;
 
 	/* See RFC 7862 p.67: */
 	if (bytes_total == 0)
