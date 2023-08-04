@@ -248,6 +248,9 @@ static void netfs_rreq_unmark_after_write(struct netfs_read_request *rreq,
 		XA_STATE(xas, &rreq->mapping->i_pages, subreq->start / PAGE_SIZE);
 
 		xas_for_each(&xas, page, (subreq->start + subreq->len - 1) / PAGE_SIZE) {
+			if (xas_retry(&xas, page))
+				continue;
+
 			/* We might have multiple writes from the same huge
 			 * page, but we mustn't unlock a page more than once.
 			 */
@@ -404,9 +407,14 @@ static void netfs_rreq_unlock(struct netfs_read_request *rreq)
 
 	rcu_read_lock();
 	xas_for_each(&xas, page, last_page) {
-		unsigned int pgpos = (page->index - start_page) * PAGE_SIZE;
-		unsigned int pgend = pgpos + thp_size(page);
+		unsigned int pgpos, pgend;
 		bool pg_failed = false;
+
+		if (xas_retry(&xas, page))
+			continue;
+
+		pgpos = (page->index - start_page) * PAGE_SIZE;
+		pgend = pgpos + thp_size(page);
 
 		for (;;) {
 			if (!subreq) {
