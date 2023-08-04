@@ -1260,6 +1260,20 @@ u32 amd_get_highest_perf(void)
 }
 EXPORT_SYMBOL_GPL(amd_get_highest_perf);
 
+bool cpu_has_ibpb_brtype_microcode(void)
+{
+	u8 fam = boot_cpu_data.x86;
+
+	/* Zen1/2 IBPB flushes branch type predictions too. */
+	if (fam == 0x17)
+		return boot_cpu_has(X86_FEATURE_AMD_IBPB);
+	/* Poke the MSR bit on Zen3/4 to check its presence. */
+	else if (fam == 0x19)
+		return !wrmsrl_safe(MSR_IA32_PRED_CMD, PRED_CMD_SBPB);
+	else
+		return false;
+}
+
 static void zenbleed_check_cpu(void *unused)
 {
 	struct cpuinfo_x86 *c = &cpu_data(smp_processor_id());

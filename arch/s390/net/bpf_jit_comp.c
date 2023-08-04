@@ -567,7 +567,7 @@ static void bpf_jit_epilogue(struct bpf_jit *jit, u32 stack_depth)
 	EMIT4(0xb9040000, REG_2, BPF_REG_0);
 	/* Restore registers */
 	save_restore_regs(jit, REGS_RESTORE, stack_depth);
-	if (__is_defined(CC_USING_EXPOLINE) && !nospec_disable) {
+	if (nospec_uses_trampoline()) {
 		jit->r14_thunk_ip = jit->prg;
 		/* Generate __s390_indirect_jump_r14 thunk */
 		if (test_facility(35)) {
@@ -585,7 +585,7 @@ static void bpf_jit_epilogue(struct bpf_jit *jit, u32 stack_depth)
 	/* br %r14 */
 	_EMIT2(0x07fe);
 
-	if (__is_defined(CC_USING_EXPOLINE) && !nospec_disable &&
+	if ((nospec_uses_trampoline()) &&
 	    (is_first_pass(jit) || (jit->seen & SEEN_FUNC))) {
 		jit->r1_thunk_ip = jit->prg;
 		/* Generate __s390_indirect_jump_r1 thunk */
@@ -1332,7 +1332,7 @@ static noinline int bpf_jit_insn(struct bpf_jit *jit, struct bpf_prog *fp,
 		jit->seen |= SEEN_FUNC;
 		/* lgrl %w1,func */
 		EMIT6_PCREL_RILB(0xc4080000, REG_W1, _EMIT_CONST_U64(func));
-		if (__is_defined(CC_USING_EXPOLINE) && !nospec_disable) {
+		if (nospec_uses_trampoline()) {
 			/* brasl %r14,__s390_indirect_jump_r1 */
 			EMIT6_PCREL_RILB(0xc0050000, REG_14, jit->r1_thunk_ip);
 		} else {
@@ -1415,8 +1415,16 @@ static noinline int bpf_jit_insn(struct bpf_jit *jit, struct bpf_prog *fp,
 		/* lg %r1,bpf_func(%r1) */
 		EMIT6_DISP_LH(0xe3000000, 0x0004, REG_1, REG_1, REG_0,
 			      offsetof(struct bpf_prog, bpf_func));
-		/* bc 0xf,tail_call_start(%r1) */
-		_EMIT4(0x47f01000 + jit->tail_call_start);
+		if (nospec_uses_trampoline()) {
+			jit->seen |= SEEN_FUNC;
+			/* aghi %r1,tail_call_start */
+			EMIT4_IMM(0xa70b0000, REG_1, jit->tail_call_start);
+			/* brcl 0xf,__s390_indirect_jump_r1 */
+			EMIT6_PCREL_RILC(0xc0040000, 0xf, jit->r1_thunk_ip);
+		} else {
+			/* bc 0xf,tail_call_start(%r1) */
+			_EMIT4(0x47f01000 + jit->tail_call_start);
+		}
 		/* out: */
 		if (jit->prg_buf) {
 			*(u16 *)(jit->prg_buf + patch_1_clrj + 2) =
