@@ -2960,14 +2960,14 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 		    !guest_has_pred_cmd_msr(vcpu))
 			return 1;
 
-		if (data & ~PRED_CMD_IBPB)
+		if (data & ~(PRED_CMD_IBPB | (boot_cpu_has(X86_FEATURE_SBPB) ? PRED_CMD_SBPB : 0)))
 			return 1;
 		if (!boot_cpu_has(X86_FEATURE_IBPB))
 			return 1;
 		if (!data)
 			break;
 
-		wrmsrl(MSR_IA32_PRED_CMD, PRED_CMD_IBPB);
+		wrmsrl(MSR_IA32_PRED_CMD, data);
 		set_msr_interception(vcpu, svm->msrpm, MSR_IA32_PRED_CMD, 0, 1);
 		break;
 	case MSR_AMD64_VIRT_SPEC_CTRL:
