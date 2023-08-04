@@ -4053,17 +4053,28 @@ out:
 }
 
 /**
- * drm_dp_mst_hpd_irq() - MST hotplug IRQ notify
+ * drm_dp_mst_hpd_irq_handle_event() - MST hotplug IRQ handle MST event
  * @mgr: manager to notify irq for.
  * @esi: 4 bytes from SINK_COUNT_ESI
+ * @ack: 4 bytes used to ack events starting from SINK_COUNT_ESI
  * @handled: whether the hpd interrupt was consumed or not
  *
- * This should be called from the driver when it detects a short IRQ,
+ * This should be called from the driver when it detects a HPD IRQ,
  * along with the value of the DEVICE_SERVICE_IRQ_VECTOR_ESI0. The
- * topology manager will process the sideband messages received as a result
- * of this.
+ * topology manager will process the sideband messages received
+ * as indicated in the DEVICE_SERVICE_IRQ_VECTOR_ESI0 and set the
+ * corresponding flags that Driver has to ack the DP receiver later.
+ *
+ * Note that driver shall also call
+ * drm_dp_mst_hpd_irq_send_new_request() if the 'handled' is set
+ * after calling this function, to try to kick off a new request in
+ * the queue if the previous message transaction is completed.
+ *
+ * See also:
+ * drm_dp_mst_hpd_irq_send_new_request()
  */
-int drm_dp_mst_hpd_irq(struct drm_dp_mst_topology_mgr *mgr, u8 *esi, bool *handled)
+int drm_dp_mst_hpd_irq_handle_event(struct drm_dp_mst_topology_mgr *mgr, const u8 *esi,
+				    u8 *ack, bool *handled)
 {
 	int ret = 0;
 	int sc;
@@ -4078,14 +4089,57 @@ int drm_dp_mst_hpd_irq(struct drm_dp_mst_topology_mgr *mgr, u8 *esi, bool *handl
 	if (esi[1] & DP_DOWN_REP_MSG_RDY) {
 		ret = drm_dp_mst_handle_down_rep(mgr);
 		*handled = true;
+		ack[1] |= DP_DOWN_REP_MSG_RDY;
 	}
 
 	if (esi[1] & DP_UP_REQ_MSG_RDY) {
 		ret |= drm_dp_mst_handle_up_req(mgr);
 		*handled = true;
+		ack[1] |= DP_UP_REQ_MSG_RDY;
 	}
 
-	drm_dp_mst_kick_tx(mgr);
+	return ret;
+}
+EXPORT_SYMBOL(drm_dp_mst_hpd_irq_handle_event);
+
+/**
+ * drm_dp_mst_hpd_irq_send_new_request() - MST hotplug IRQ kick off new request
+ * @mgr: manager to notify irq for.
+ *
+ * This should be called from the driver when mst irq event is handled
+ * and acked. Note that new down request should only be sent when
+ * previous message transaction is completed. Source is not supposed to generate
+ * interleaved message transactions.
+ */
+void drm_dp_mst_hpd_irq_send_new_request(struct drm_dp_mst_topology_mgr *mgr)
+{
+	struct drm_dp_sideband_msg_tx *txmsg;
+	bool kick = true;
+
+	mutex_lock(&mgr->qlock);
+	txmsg = list_first_entry_or_null(&mgr->tx_msg_downq,
+					 struct drm_dp_sideband_msg_tx, next);
+	/* If last transaction is not completed yet*/
+	if (!txmsg ||
+	    txmsg->state == DRM_DP_SIDEBAND_TX_START_SEND ||
+	    txmsg->state == DRM_DP_SIDEBAND_TX_SENT)
+		kick = false;
+	mutex_unlock(&mgr->qlock);
+
+	if (kick)
+		drm_dp_mst_kick_tx(mgr);
+}
+EXPORT_SYMBOL(drm_dp_mst_hpd_irq_send_new_request);
+
+/* FIXME - an old API function provided only for kABI on SLE15-SP5 */
+int drm_dp_mst_hpd_irq(struct drm_dp_mst_topology_mgr *mgr, u8 *esi, bool *handled)
+{
+	u8 ack[8] = {};
+	int ret;
+
+	ret = drm_dp_mst_hpd_irq_handle_event(mgr, esi, ack, handled);
+	if (!ret)
+		drm_dp_mst_hpd_irq_send_new_request(mgr);
 	return ret;
 }
 EXPORT_SYMBOL(drm_dp_mst_hpd_irq);
@@ -4218,7 +4272,8 @@ int drm_dp_atomic_find_time_slots(struct drm_atomic_state *state,
 		return PTR_ERR(topology_state);
 
 	conn_state = drm_atomic_get_new_connector_state(state, port->connector);
-	topology_state->pending_crtc_mask |= drm_crtc_mask(conn_state->crtc);
+	if (conn_state)
+		topology_state->pending_crtc_mask |= drm_crtc_mask(conn_state->crtc);
 
 	/* Find the current allocation for this port, if any */
 	payload = drm_atomic_get_mst_payload_state(topology_state, port);
@@ -4303,12 +4358,12 @@ int drm_dp_atomic_release_time_slots(struct drm_atomic_state *state,
 	bool update_payload = true;
 
 	old_conn_state = drm_atomic_get_old_connector_state(state, port->connector);
-	if (!old_conn_state->crtc)
+	if (old_conn_state && !old_conn_state->crtc)
 		return 0;
 
 	/* If the CRTC isn't disabled by this state, don't release it's payload */
 	new_conn_state = drm_atomic_get_new_connector_state(state, port->connector);
-	if (new_conn_state->crtc) {
+	if (new_conn_state && new_conn_state->crtc) {
 		struct drm_crtc_state *crtc_state =
 			drm_atomic_get_new_crtc_state(state, new_conn_state->crtc);
 
@@ -4324,7 +4379,8 @@ int drm_dp_atomic_release_time_slots(struct drm_atomic_state *state,
 	if (IS_ERR(topology_state))
 		return PTR_ERR(topology_state);
 
-	topology_state->pending_crtc_mask |= drm_crtc_mask(old_conn_state->crtc);
+	if (old_conn_state)
+		topology_state->pending_crtc_mask |= drm_crtc_mask(old_conn_state->crtc);
 	if (!update_payload)
 		return 0;
 
@@ -4335,7 +4391,7 @@ int drm_dp_atomic_release_time_slots(struct drm_atomic_state *state,
 		return -EINVAL;
 	}
 
-	if (new_conn_state->crtc)
+	if (new_conn_state && new_conn_state->crtc)
 		return 0;
 
 	drm_dbg_atomic(mgr->dev, "[MST PORT:%p] TU %d -> 0\n", port, payload->time_slots);
