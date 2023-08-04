@@ -121,6 +121,9 @@ static void netfs_rreq_unmark_after_write(struct netfs_io_request *rreq,
 		XA_STATE(xas, &rreq->mapping->i_pages, subreq->start / PAGE_SIZE);
 
 		xas_for_each(&xas, page, (subreq->start + subreq->len - 1) / PAGE_SIZE) {
+			if (xas_retry(&xas, page))
+				continue;
+
 			/* We might have multiple writes from the same huge
 			 * page, but we mustn't unlock a page more than once.
 			 */

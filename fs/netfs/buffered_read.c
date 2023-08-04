@@ -47,9 +47,14 @@ void netfs_rreq_unlock(struct netfs_io_request *rreq)
 
 	rcu_read_lock();
 	xas_for_each(&xas, page, last_page) {
-		unsigned int pgpos = (page->index - start_page) * PAGE_SIZE;
-		unsigned int pgend = pgpos + thp_size(page);
+		unsigned int pgpos, pgend;
 		bool pg_failed = false;
+
+		if (xas_retry(&xas, page))
+			continue;
+
+		pgpos = (page->index - start_page) * PAGE_SIZE;
+		pgend = pgpos + thp_size(page);
 
 		for (;;) {
 			if (!subreq) {
