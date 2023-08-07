@@ -365,7 +365,7 @@ static int dwc2_driver_remove(struct platform_device *dev)
 	if (hsotg->ll_hw_enabled)
 		dwc2_lowlevel_hw_disable(hsotg);
 
-	return ret;
+	return 0;
 }
 
 /**

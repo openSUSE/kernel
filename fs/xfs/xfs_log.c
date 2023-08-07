@@ -41,6 +41,8 @@ xlog_dealloc_log(
 /* local state machine functions */
 STATIC void xlog_state_done_syncing(
 	struct xlog_in_core	*iclog);
+STATIC void xlog_state_do_callback(
+	struct xlog		*log);
 STATIC int
 xlog_state_get_iclog_space(
 	struct xlog		*log,
@@ -49,11 +51,6 @@ xlog_state_get_iclog_space(
 	struct xlog_ticket	*ticket,
 	int			*continued_write,
 	int			*logoffsetp);
-STATIC void
-xlog_state_switch_iclogs(
-	struct xlog		*log,
-	struct xlog_in_core	*iclog,
-	int			eventual_size);
 STATIC void
 xlog_grant_push_ail(
 	struct xlog		*log,
@@ -487,6 +484,46 @@ out_error:
 }
 
 /*
+ * Run all the pending iclog callbacks and wake log force waiters and iclog
+ * space waiters so they can process the newly set shutdown state. We really
+ * don't care what order we process callbacks here because the log is shut down
+ * and so state cannot change on disk anymore. However, we cannot wake waiters
+ * until the callbacks have been processed because we may be in unmount and
+ * we must ensure that all AIL operations the callbacks perform have completed
+ * before we tear down the AIL.
+ *
+ * We avoid processing actively referenced iclogs so that we don't run callbacks
+ * while the iclog owner might still be preparing the iclog for IO submssion.
+ * These will be caught by xlog_state_iclog_release() and call this function
+ * again to process any callbacks that may have been added to that iclog.
+ */
+static void
+xlog_state_shutdown_callbacks(
+	struct xlog		*log)
+{
+	struct xlog_in_core	*iclog;
+	LIST_HEAD(cb_list);
+
+	iclog = log->l_iclog;
+	do {
+		if (atomic_read(&iclog->ic_refcnt)) {
+			/* Reference holder will re-run iclog callbacks. */
+			continue;
+		}
+		list_splice_init(&iclog->ic_callbacks, &cb_list);
+		spin_unlock(&log->l_icloglock);
+
+		xlog_cil_process_committed(&cb_list);
+
+		spin_lock(&log->l_icloglock);
+		wake_up_all(&iclog->ic_write_wait);
+		wake_up_all(&iclog->ic_force_wait);
+	} while ((iclog = iclog->ic_next) != log->l_iclog);
+
+	wake_up_all(&log->l_flush_wait);
+}
+
+/*
  * Flush iclog to disk if this is the last reference to the given iclog and the
  * it is in the WANT_SYNC state.
  *
@@ -512,12 +549,11 @@ xlog_state_release_iclog(
 	struct xlog_in_core	*iclog)
 {
 	xfs_lsn_t		tail_lsn;
+	bool			last_ref;
+
 	lockdep_assert_held(&log->l_icloglock);
 
 	trace_xlog_iclog_release(iclog, _RET_IP_);
-	if (iclog->ic_state == XLOG_STATE_IOERROR)
-		return -EIO;
-
 	/*
 	 * Grabbing the current log tail needs to be atomic w.r.t. the writing
 	 * of the tail LSN into the iclog so we guarantee that the log tail does
@@ -531,7 +567,20 @@ xlog_state_release_iclog(
 		iclog->ic_header.h_tail_lsn = cpu_to_be64(tail_lsn);
 	}
 
-	if (!atomic_dec_and_test(&iclog->ic_refcnt))
+	last_ref = atomic_dec_and_test(&iclog->ic_refcnt);
+
+	if (xlog_is_shutdown(log)) {
+		/*
+		 * If there are no more references to this iclog, process the
+		 * pending iclog callbacks that were waiting on the release of
+		 * this iclog.
+		 */
+		if (last_ref)
+			xlog_state_shutdown_callbacks(log);
+		return -EIO;
+	}
+
+	if (!last_ref)
 		return 0;
 
 	if (iclog->ic_state != XLOG_STATE_WANT_SYNC) {
@@ -811,6 +860,23 @@ xlog_force_iclog(
 }
 
 /*
+ * Cycle all the iclogbuf locks to make sure all log IO completion
+ * is done before we tear down these buffers.
+ */
+static void
+xlog_wait_iclog_completion(struct xlog *log)
+{
+	int		i;
+	struct xlog_in_core	*iclog = log->l_iclog;
+
+	for (i = 0; i < log->l_iclog_bufs; i++) {
+		down(&iclog->ic_sema);
+		up(&iclog->ic_sema);
+		iclog = iclog->ic_next;
+	}
+}
+
+/*
  * Wait for the iclog and all prior iclogs to be written disk as required by the
  * log force state machine. Waiting on ic_force_wait ensures iclog completions
  * have been ordered and callbacks run before we are woken here, hence
@@ -864,7 +930,7 @@ xlog_write_unmount_record(
 	/* account for space used by record data */
 	ticket->t_curr_res -= sizeof(ulf);
 
-	return xlog_write(log, &vec, ticket, NULL, NULL, XLOG_UNMOUNT_TRANS);
+	return xlog_write(log, NULL, &vec, ticket, XLOG_UNMOUNT_TRANS);
 }
 
 /*
@@ -887,7 +953,7 @@ xlog_unmount_write(
 	error = xlog_write_unmount_record(log, tic);
 	/*
 	 * At this point, we're umounting anyway, so there's no point in
-	 * transitioning log state to IOERROR. Just continue...
+	 * transitioning log state to shutdown. Just continue...
 	 */
 out_err:
 	if (error)
@@ -1018,6 +1084,14 @@ xfs_log_unmount(
 	struct xfs_mount	*mp)
 {
 	xfs_log_clean(mp);
+
+	/*
+	 * If shutdown has come from iclog IO context, the log
+	 * cleaning will have been skipped and so we need to wait
+	 * for the iclog to complete shutdown processing before we
+	 * tear anything down.
+	 */
+	xlog_wait_iclog_completion(mp->m_log);
 
 	xfs_buftarg_drain(mp->m_ddev_targp);
 
@@ -1559,37 +1633,6 @@ out:
 }	/* xlog_alloc_log */
 
 /*
- * Write out the commit record of a transaction associated with the given
- * ticket to close off a running log write. Return the lsn of the commit record.
- */
-int
-xlog_commit_record(
-	struct xlog		*log,
-	struct xlog_ticket	*ticket,
-	struct xlog_in_core	**iclog,
-	xfs_lsn_t		*lsn)
-{
-	struct xfs_log_iovec reg = {
-		.i_addr = NULL,
-		.i_len = 0,
-		.i_type = XLOG_REG_TYPE_COMMIT,
-	};
-	struct xfs_log_vec vec = {
-		.lv_niovecs = 1,
-		.lv_iovecp = &reg,
-	};
-	int	error;
-
-	if (xlog_is_shutdown(log))
-		return -EIO;
-
-	error = xlog_write(log, &vec, ticket, lsn, iclog, XLOG_COMMIT_TRANS);
-	if (error)
-		xfs_force_shutdown(log->l_mp, SHUTDOWN_LOG_IO_ERROR);
-	return error;
-}
-
-/*
  * Compute the LSN that we'd need to push the log tail towards in order to have
  * (a) enough on-disk log space to log the number of bytes specified, (b) at
  * least 25% of the log space free, and (c) at least 256 blocks free.  If the
@@ -1803,7 +1846,7 @@ xlog_write_iclog(
 	 * across the log IO to archieve that.
 	 */
 	down(&iclog->ic_sema);
-	if (unlikely(iclog->ic_state == XLOG_STATE_IOERROR)) {
+	if (xlog_is_shutdown(log)) {
 		/*
 		 * It would seem logical to return EIO here, but we rely on
 		 * the log state machine to propagate I/O errors instead of
@@ -2006,17 +2049,6 @@ xlog_dealloc_log(
 {
 	xlog_in_core_t	*iclog, *next_iclog;
 	int		i;
-
-	/*
-	 * Cycle all the iclogbuf locks to make sure all log IO completion
-	 * is done before we tear down these buffers.
-	 */
-	iclog = log->l_iclog;
-	for (i = 0; i < log->l_iclog_bufs; i++) {
-		down(&iclog->ic_sema);
-		up(&iclog->ic_sema);
-		iclog = iclog->ic_next;
-	}
 
 	/*
 	 * Destroy the CIL after waiting for iclog IO completion because an
@@ -2316,8 +2348,7 @@ xlog_write_copy_finish(
 	int			*data_cnt,
 	int			*partial_copy,
 	int			*partial_copy_len,
-	int			log_offset,
-	struct xlog_in_core	**commit_iclog)
+	int			log_offset)
 {
 	int			error;
 
@@ -2336,27 +2367,20 @@ xlog_write_copy_finish(
 	*partial_copy = 0;
 	*partial_copy_len = 0;
 
-	if (iclog->ic_size - log_offset <= sizeof(xlog_op_header_t)) {
-		/* no more space in this iclog - push it. */
-		spin_lock(&log->l_icloglock);
-		xlog_state_finish_copy(log, iclog, *record_cnt, *data_cnt);
-		*record_cnt = 0;
-		*data_cnt = 0;
+	if (iclog->ic_size - log_offset > sizeof(xlog_op_header_t))
+		return 0;
 
-		if (iclog->ic_state == XLOG_STATE_ACTIVE)
-			xlog_state_switch_iclogs(log, iclog, 0);
-		else
-			ASSERT(iclog->ic_state == XLOG_STATE_WANT_SYNC ||
-			       iclog->ic_state == XLOG_STATE_IOERROR);
-		if (!commit_iclog)
-			goto release_iclog;
-		spin_unlock(&log->l_icloglock);
-		ASSERT(flags & XLOG_COMMIT_TRANS);
-		*commit_iclog = iclog;
-	}
+	/* no more space in this iclog - push it. */
+	spin_lock(&log->l_icloglock);
+	xlog_state_finish_copy(log, iclog, *record_cnt, *data_cnt);
+	*record_cnt = 0;
+	*data_cnt = 0;
 
-	return 0;
-
+	if (iclog->ic_state == XLOG_STATE_ACTIVE)
+		xlog_state_switch_iclogs(log, iclog, 0);
+	else
+		ASSERT(iclog->ic_state == XLOG_STATE_WANT_SYNC ||
+			xlog_is_shutdown(log));
 release_iclog:
 	error = xlog_state_release_iclog(log, iclog);
 	spin_unlock(&log->l_icloglock);
@@ -2406,10 +2430,9 @@ release_iclog:
 int
 xlog_write(
 	struct xlog		*log,
+	struct xfs_cil_ctx	*ctx,
 	struct xfs_log_vec	*log_vector,
 	struct xlog_ticket	*ticket,
-	xfs_lsn_t		*start_lsn,
-	struct xlog_in_core	**commit_iclog,
 	uint			optype)
 {
 	struct xlog_in_core	*iclog = NULL;
@@ -2439,8 +2462,6 @@ xlog_write(
 	}
 
 	len = xlog_write_calc_vec_length(ticket, log_vector, optype);
-	if (start_lsn)
-		*start_lsn = 0;
 	while (lv && (!lv->lv_niovecs || index < lv->lv_niovecs)) {
 		void		*ptr;
 		int		log_offset;
@@ -2453,17 +2474,14 @@ xlog_write(
 		ASSERT(log_offset <= iclog->ic_size - 1);
 		ptr = iclog->ic_datap + log_offset;
 
-		/* Start_lsn is the first lsn written to. */
-		if (start_lsn && !*start_lsn) {
-			*start_lsn = be64_to_cpu(iclog->ic_header.h_lsn);
-			/*
-			 * Make sure the metadata we are about to overwrite in
-			 * the log has been flushed to stable storage before
-			 * this iclog is issued.
-			 */
-			spin_lock(&log->l_icloglock);
-			iclog->ic_flags |= XLOG_ICL_NEED_FLUSH;
-			spin_unlock(&log->l_icloglock);
+		/*
+		 * If we have a context pointer, pass it the first iclog we are
+		 * writing to so it can record state needed for iclog write
+		 * ordering.
+		 */
+		if (ctx) {
+			xlog_cil_set_ctx_write_state(ctx, iclog);
+			ctx = NULL;
 		}
 
 		/*
@@ -2543,8 +2561,7 @@ xlog_write(
 						       &record_cnt, &data_cnt,
 						       &partial_copy,
 						       &partial_copy_len,
-						       log_offset,
-						       commit_iclog);
+						       log_offset);
 			if (error)
 				return error;
 
@@ -2582,12 +2599,7 @@ next_lv:
 
 	spin_lock(&log->l_icloglock);
 	xlog_state_finish_copy(log, iclog, record_cnt, data_cnt);
-	if (commit_iclog) {
-		ASSERT(optype & XLOG_COMMIT_TRANS);
-		*commit_iclog = iclog;
-	} else {
-		error = xlog_state_release_iclog(log, iclog);
-	}
+	error = xlog_state_release_iclog(log, iclog);
 	spin_unlock(&log->l_icloglock);
 
 	return error;
@@ -2773,8 +2785,7 @@ xlog_state_set_callback(
 static bool
 xlog_state_iodone_process_iclog(
 	struct xlog		*log,
-	struct xlog_in_core	*iclog,
-	bool			*ioerror)
+	struct xlog_in_core	*iclog)
 {
 	xfs_lsn_t		lowest_lsn;
 	xfs_lsn_t		header_lsn;
@@ -2785,15 +2796,6 @@ xlog_state_iodone_process_iclog(
 		/*
 		 * Skip all iclogs in the ACTIVE & DIRTY states:
 		 */
-		return false;
-	case XLOG_STATE_IOERROR:
-		/*
-		 * Between marking a filesystem SHUTDOWN and stopping the log,
-		 * we do flush all iclogs to disk (if there wasn't a log I/O
-		 * error). So, we do want things to go smoothly in case of just
-		 * a SHUTDOWN w/o a LOG_IO_ERROR.
-		 */
-		*ioerror = true;
 		return false;
 	case XLOG_STATE_DONE_SYNC:
 		/*
@@ -2818,72 +2820,75 @@ xlog_state_iodone_process_iclog(
 	}
 }
 
+/*
+ * Loop over all the iclogs, running attached callbacks on them. Return true if
+ * we ran any callbacks, indicating that we dropped the icloglock. We don't need
+ * to handle transient shutdown state here at all because
+ * xlog_state_shutdown_callbacks() will be run to do the necessary shutdown
+ * cleanup of the callbacks.
+ */
+static bool
+xlog_state_do_iclog_callbacks(
+	struct xlog		*log)
+		__releases(&log->l_icloglock)
+		__acquires(&log->l_icloglock)
+{
+	struct xlog_in_core	*first_iclog = log->l_iclog;
+	struct xlog_in_core	*iclog = first_iclog;
+	bool			ran_callback = false;
+
+	do {
+		LIST_HEAD(cb_list);
+
+		if (xlog_state_iodone_process_iclog(log, iclog))
+			break;
+		if (iclog->ic_state != XLOG_STATE_CALLBACK) {
+			iclog = iclog->ic_next;
+			continue;
+		}
+		list_splice_init(&iclog->ic_callbacks, &cb_list);
+		spin_unlock(&log->l_icloglock);
+
+		trace_xlog_iclog_callbacks_start(iclog, _RET_IP_);
+		xlog_cil_process_committed(&cb_list);
+		trace_xlog_iclog_callbacks_done(iclog, _RET_IP_);
+		ran_callback = true;
+
+		spin_lock(&log->l_icloglock);
+		xlog_state_clean_iclog(log, iclog);
+		iclog = iclog->ic_next;
+	} while (iclog != first_iclog);
+
+	return ran_callback;
+}
+
+
+/*
+ * Loop running iclog completion callbacks until there are no more iclogs in a
+ * state that can run callbacks.
+ */
 STATIC void
 xlog_state_do_callback(
 	struct xlog		*log)
 {
-	struct xlog_in_core	*iclog;
-	struct xlog_in_core	*first_iclog;
-	bool			cycled_icloglock;
-	bool			ioerror;
 	int			flushcnt = 0;
 	int			repeats = 0;
 
 	spin_lock(&log->l_icloglock);
-	do {
-		/*
-		 * Scan all iclogs starting with the one pointed to by the
-		 * log.  Reset this starting point each time the log is
-		 * unlocked (during callbacks).
-		 *
-		 * Keep looping through iclogs until one full pass is made
-		 * without running any callbacks.
-		 */
-		first_iclog = log->l_iclog;
-		iclog = log->l_iclog;
-		cycled_icloglock = false;
-		ioerror = false;
-		repeats++;
+	while (xlog_state_do_iclog_callbacks(log)) {
+		if (xlog_is_shutdown(log))
+			break;
 
-		do {
-			LIST_HEAD(cb_list);
-
-			if (xlog_state_iodone_process_iclog(log, iclog,
-							&ioerror))
-				break;
-
-			if (iclog->ic_state != XLOG_STATE_CALLBACK &&
-			    iclog->ic_state != XLOG_STATE_IOERROR) {
-				iclog = iclog->ic_next;
-				continue;
-			}
-			list_splice_init(&iclog->ic_callbacks, &cb_list);
-			spin_unlock(&log->l_icloglock);
-
-			trace_xlog_iclog_callbacks_start(iclog, _RET_IP_);
-			xlog_cil_process_committed(&cb_list);
-			trace_xlog_iclog_callbacks_done(iclog, _RET_IP_);
-			cycled_icloglock = true;
-
-			spin_lock(&log->l_icloglock);
-			if (xlog_is_shutdown(log))
-				wake_up_all(&iclog->ic_force_wait);
-			else
-				xlog_state_clean_iclog(log, iclog);
-			iclog = iclog->ic_next;
-		} while (first_iclog != iclog);
-
-		if (repeats > 5000) {
+		if (++repeats > 5000) {
 			flushcnt += repeats;
 			repeats = 0;
 			xfs_warn(log->l_mp,
 				"%s: possible infinite loop (%d iterations)",
 				__func__, flushcnt);
 		}
-	} while (!ioerror && cycled_icloglock);
+	}
 
-	if (log->l_iclog->ic_state == XLOG_STATE_ACTIVE ||
-	    log->l_iclog->ic_state == XLOG_STATE_IOERROR)
+	if (log->l_iclog->ic_state == XLOG_STATE_ACTIVE)
 		wake_up_all(&log->l_flush_wait);
 
 	spin_unlock(&log->l_icloglock);
@@ -2892,13 +2897,6 @@ xlog_state_do_callback(
 
 /*
  * Finish transitioning this iclog to the dirty state.
- *
- * Make sure that we completely execute this routine only when this is
- * the last call to the iclog.  There is a good chance that iclog flushes,
- * when we reach the end of the physical log, get turned into 2 separate
- * calls to bwrite.  Hence, one iclog flush could generate two calls to this
- * routine.  By using the reference count bwritecnt, we guarantee that only
- * the second completion goes through.
  *
  * Callbacks could take time, so they are done outside the scope of the
  * global state machine log lock.
@@ -3144,7 +3142,7 @@ xfs_log_ticket_ungrant(
  * This routine will mark the current iclog in the ring as WANT_SYNC and move
  * the current iclog pointer to the next iclog in the ring.
  */
-STATIC void
+void
 xlog_state_switch_iclogs(
 	struct xlog		*log,
 	struct xlog_in_core	*iclog,
@@ -3259,10 +3257,10 @@ xfs_log_force(
 	xlog_cil_force(log);
 
 	spin_lock(&log->l_icloglock);
-	iclog = log->l_iclog;
-	if (iclog->ic_state == XLOG_STATE_IOERROR)
+	if (xlog_is_shutdown(log))
 		goto out_error;
 
+	iclog = log->l_iclog;
 	trace_xlog_iclog_force(iclog, _RET_IP_);
 
 	if (iclog->ic_state == XLOG_STATE_DIRTY ||
@@ -3316,6 +3314,20 @@ out_error:
 	return -EIO;
 }
 
+/*
+ * Force the log to a specific LSN.
+ *
+ * If an iclog with that lsn can be found:
+ *	If it is in the DIRTY state, just return.
+ *	If it is in the ACTIVE state, move the in-core log into the WANT_SYNC
+ *		state and go to sleep or return.
+ *	If it is in any other state, go to sleep or return.
+ *
+ * Synchronous forces are implemented with a wait queue.  All callers trying
+ * to force a given lsn to disk must wait on the queue attached to the
+ * specific in-core log.  When given in-core log finally completes its write
+ * to disk, that thread will wake up all threads waiting on the queue.
+ */
 static int
 xlog_force_lsn(
 	struct xlog		*log,
@@ -3328,10 +3340,10 @@ xlog_force_lsn(
 	bool			completed;
 
 	spin_lock(&log->l_icloglock);
-	iclog = log->l_iclog;
-	if (iclog->ic_state == XLOG_STATE_IOERROR)
+	if (xlog_is_shutdown(log))
 		goto out_error;
 
+	iclog = log->l_iclog;
 	while (be64_to_cpu(iclog->ic_header.h_lsn) != lsn) {
 		trace_xlog_iclog_force_lsn(iclog, _RET_IP_);
 		iclog = iclog->ic_next;
@@ -3401,18 +3413,13 @@ out_error:
 }
 
 /*
- * Force the in-core log to disk for a specific LSN.
+ * Force the log to a specific checkpoint sequence.
  *
- * Find in-core log with lsn.
- *	If it is in the DIRTY state, just return.
- *	If it is in the ACTIVE state, move the in-core log into the WANT_SYNC
- *		state and go to sleep or return.
- *	If it is in any other state, go to sleep or return.
- *
- * Synchronous forces are implemented with a wait queue.  All callers trying
- * to force a given lsn to disk must wait on the queue attached to the
- * specific in-core log.  When given in-core log finally completes its write
- * to disk, that thread will wake up all threads waiting on the queue.
+ * First force the CIL so that all the required changes have been flushed to the
+ * iclogs. If the CIL force completed it will return a commit LSN that indicates
+ * the iclog that needs to be flushed to stable storage. If the caller needs
+ * a synchronous log force, we will wait on the iclog with the LSN returned by
+ * xlog_cil_force_seq() to be completed.
  */
 int
 xfs_log_force_seq(
@@ -3787,34 +3794,6 @@ xlog_verify_iclog(
 #endif
 
 /*
- * Mark all iclogs IOERROR. l_icloglock is held by the caller.
- */
-STATIC int
-xlog_state_ioerror(
-	struct xlog	*log)
-{
-	xlog_in_core_t	*iclog, *ic;
-
-	iclog = log->l_iclog;
-	if (iclog->ic_state != XLOG_STATE_IOERROR) {
-		/*
-		 * Mark all the incore logs IOERROR.
-		 * From now on, no log flushes will result.
-		 */
-		ic = iclog;
-		do {
-			ic->ic_state = XLOG_STATE_IOERROR;
-			ic = ic->ic_next;
-		} while (ic != iclog);
-		return 0;
-	}
-	/*
-	 * Return non-zero, if state transition has already happened.
-	 */
-	return 1;
-}
-
-/*
  * This is called from xfs_force_shutdown, when we're forcibly
  * shutting down the filesystem, typically because of an IO error.
  * Our main objectives here are to make sure that:
@@ -3829,6 +3808,8 @@ xlog_state_ioerror(
  * Note: for the !logerror case we need to flush the regions held in memory out
  * to disk first. This needs to be done before the log is marked as shutdown,
  * otherwise the iclog writes will fail.
+ *
+ * Return non-zero if log shutdown transition had already happened.
  */
 int
 xfs_log_force_umount(
@@ -3836,7 +3817,7 @@ xfs_log_force_umount(
 	int			logerror)
 {
 	struct xlog	*log;
-	int		retval;
+	int		retval = 0;
 
 	log = mp->m_log;
 
@@ -3856,10 +3837,8 @@ xfs_log_force_umount(
 	 * Somebody could've already done the hard work for us.
 	 * No need to get locks for this.
 	 */
-	if (logerror && log->l_iclog->ic_state == XLOG_STATE_IOERROR) {
-		ASSERT(xlog_is_shutdown(log));
+	if (logerror && xlog_is_shutdown(log))
 		return 1;
-	}
 
 	/*
 	 * Flush all the completed transactions to disk before marking the log
@@ -3884,8 +3863,10 @@ xfs_log_force_umount(
 	 * Mark the log and the iclogs with IO error flags to prevent any
 	 * further log IO from being issued or completed.
 	 */
-	log->l_flags |= XLOG_IO_ERROR;
-	retval = xlog_state_ioerror(log);
+	if (!(log->l_flags & XLOG_IO_ERROR)) {
+		log->l_flags |= XLOG_IO_ERROR;
+		retval = 1;
+	}
 	spin_unlock(&log->l_icloglock);
 
 	/*
@@ -3905,11 +3886,14 @@ xfs_log_force_umount(
 	 * avoid races.
 	 */
 	spin_lock(&log->l_cilp->xc_push_lock);
+	wake_up_all(&log->l_cilp->xc_start_wait);
 	wake_up_all(&log->l_cilp->xc_commit_wait);
 	spin_unlock(&log->l_cilp->xc_push_lock);
-	xlog_state_do_callback(log);
 
-	/* return non-zero if log IOERROR transition had already happened */
+	spin_lock(&log->l_icloglock);
+	xlog_state_shutdown_callbacks(log);
+	spin_unlock(&log->l_icloglock);
+
 	return retval;
 }
 
