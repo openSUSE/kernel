@@ -104,7 +104,7 @@ stage3:
 			code++;
 			goto array;
 		} else if (code->op == FETCH_OP_ST_USTRING) {
-			ret += fetch_store_strlen_user(val + code->offset);
+			ret = fetch_store_strlen_user(val + code->offset);
 			code++;
 			goto array;
 		} else
