@@ -111,6 +111,8 @@ enum trace_type {
 #define MEM_FAIL(condition, fmt, ...)					\
 	DO_ONCE_LITE_IF(condition, pr_err, "ERROR: " fmt, ##__VA_ARGS__)
 
+#define FAULT_STRING "(fault)"
+
 /*
  * syscalls are special, and need special handling, this is why
  * they are not included in trace_entries.h
