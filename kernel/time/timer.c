@@ -1209,7 +1209,7 @@ void add_timer_on(struct timer_list *timer, int cpu)
 EXPORT_SYMBOL_GPL(add_timer_on);
 
 /**
- * del_timer - Deactivate a timer.
+ * timer_delete - Deactivate a timer
  * @timer:	The timer to be deactivated
  *
  * The function only deactivates a pending timer, but contrary to
@@ -1222,7 +1222,7 @@ EXPORT_SYMBOL_GPL(add_timer_on);
  * * %0 - The timer was not pending
  * * %1 - The timer was pending and deactivated
  */
-int del_timer(struct timer_list *timer)
+int timer_delete(struct timer_list *timer)
 {
 	struct timer_base *base;
 	unsigned long flags;
@@ -1237,6 +1237,20 @@ int del_timer(struct timer_list *timer)
 	}
 
 	return ret;
+}
+EXPORT_SYMBOL(timer_delete);
+
+/**
+ * del_timer - Delete a pending timer
+ * @timer:     The timer to be deleted
+ *
+ * See timer_delete() for detailed explanation.
+ *
+ * Do not use in new code. Use timer_delete() instead.
+ */
+int del_timer(struct timer_list *timer)
+{
+	return timer_delete(timer);
 }
 EXPORT_SYMBOL(del_timer);
 
