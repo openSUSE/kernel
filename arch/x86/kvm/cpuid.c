@@ -774,6 +774,10 @@ static inline int __do_cpuid_func(struct kvm_cpuid_entry2 *entry, u32 function,
 	case 0x80000019:
 		entry->ecx = entry->edx = 0;
 		break;
+	case 0x80000021:
+		if (cpu_feature_enabled(X86_FEATURE_SRSO_NO))
+			entry->eax |= F(SRSO_NO);
+		break;
 	case 0x8000001a:
 	case 0x8000001e:
 		break;

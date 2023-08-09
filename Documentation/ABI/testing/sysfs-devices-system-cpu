@@ -486,6 +486,7 @@ Description:	information about CPUs heterogeneity.
 		cpu_capacity: capacity of cpu#.
 
 What:		/sys/devices/system/cpu/vulnerabilities
+		/sys/devices/system/cpu/vulnerabilities/gather_data_sampling
 		/sys/devices/system/cpu/vulnerabilities/meltdown
 		/sys/devices/system/cpu/vulnerabilities/spectre_v1
 		/sys/devices/system/cpu/vulnerabilities/spectre_v2
