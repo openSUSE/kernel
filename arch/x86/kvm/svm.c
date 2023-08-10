@@ -2367,7 +2367,9 @@ static void svm_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 
 	if (sd->current_vmcb != svm->vmcb) {
 		sd->current_vmcb = svm->vmcb;
-		indirect_branch_prediction_barrier();
+
+		if (!cpu_feature_enabled(X86_FEATURE_IBPB_ON_VMEXIT))
+			indirect_branch_prediction_barrier();
 	}
 	avic_vcpu_load(vcpu, cpu);
 }
@@ -4200,9 +4202,9 @@ static int svm_get_msr_feature(struct kvm_msr_entry *msr)
 	msr->data = 0;
 
 	switch (msr->index) {
-	case MSR_F10H_DECFG:
-		if (boot_cpu_has(X86_FEATURE_LFENCE_RDTSC))
-			msr->data |= MSR_F10H_DECFG_LFENCE_SERIALIZE;
+	case MSR_AMD64_DE_CFG:
+		if (cpu_feature_enabled(X86_FEATURE_LFENCE_RDTSC))
+			msr->data |= MSR_AMD64_DE_CFG_LFENCE_SERIALIZE;
 		break;
 	default:
 		return 1;
@@ -4305,7 +4307,7 @@ static int svm_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			msr_info->data = 0x1E;
 		}
 		break;
-	case MSR_F10H_DECFG:
+	case MSR_AMD64_DE_CFG:
 		msr_info->data = svm->msr_decfg;
 		break;
 	default:
@@ -4391,13 +4393,13 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 		    !guest_cpuid_has(vcpu, X86_FEATURE_AMD_IBPB))
 			return 1;
 
-		if (data & ~PRED_CMD_IBPB)
+		if (data & ~(PRED_CMD_IBPB | (boot_cpu_has(X86_FEATURE_SBPB) ? PRED_CMD_SBPB : 0)))
 			return 1;
 
 		if (!data)
 			break;
 
-		wrmsrl(MSR_IA32_PRED_CMD, PRED_CMD_IBPB);
+		wrmsrl(MSR_IA32_PRED_CMD, data);
 		if (is_guest_mode(vcpu))
 			break;
 		set_msr_interception(svm->msrpm, MSR_IA32_PRED_CMD, 0, 1);
@@ -4476,7 +4478,7 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 	case MSR_VM_IGNNE:
 		vcpu_unimpl(vcpu, "unimplemented wrmsr: 0x%x data 0x%llx\n", ecx, data);
 		break;
-	case MSR_F10H_DECFG: {
+	case MSR_AMD64_DE_CFG: {
 		struct kvm_msr_entry msr_entry;
 
 		msr_entry.index = msr->index;
@@ -5792,7 +5794,16 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
 		"mov %%r14, %c[r14](%[svm]) \n\t"
 		"mov %%r15, %c[r15](%[svm]) \n\t"
 
-		ALTERNATIVE("", "call zen_untrain_ret", X86_FEATURE_UNRET)
+#ifdef CONFIG_RETPOLINE
+		ALTERNATIVE_2("", "call zen_untrain_ret", X86_FEATURE_UNRET,
+			      "call entry_ibpb", X86_FEATURE_ENTRY_IBPB)
+#endif
+
+#ifdef CONFIG_CPU_SRSO
+		ALTERNATIVE_2("", "call srso_untrain_ret", X86_FEATURE_SRSO,
+		      "call srso_untrain_ret_alias", X86_FEATURE_SRSO_ALIAS)
+#endif
+		ALTERNATIVE("", "call entry_ibpb", X86_FEATURE_IBPB_ON_VMEXIT)
 
 		/*
 		* Clear host registers marked as clobbered to prevent
@@ -6282,7 +6293,8 @@ out:
 
 static void svm_handle_exit_irqoff(struct kvm_vcpu *vcpu)
 {
-
+	if (to_svm(vcpu)->vmcb->control.exit_code == SVM_EXIT_INTR)
+		vcpu->arch.at_instruction_boundary = true;
 }
 
 static void svm_sched_in(struct kvm_vcpu *vcpu, int cpu)

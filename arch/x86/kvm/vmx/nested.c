@@ -3754,14 +3754,6 @@ static void prepare_vmcs12(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12,
 			nested_vmx_abort(vcpu,
 					 VMX_ABORT_SAVE_GUEST_MSR_FAIL);
 	}
-
-	/*
-	 * Drop what we picked up for L2 via vmx_complete_interrupts. It is
-	 * preserved above and would only end up incorrectly in L1.
-	 */
-	vcpu->arch.nmi_injected = false;
-	kvm_clear_exception_queue(vcpu);
-	kvm_clear_interrupt_queue(vcpu);
 }
 
 /*
@@ -4100,7 +4092,29 @@ void nested_vmx_vmexit(struct kvm_vcpu *vcpu, u32 exit_reason,
 		WARN_ON_ONCE(nested_early_check);
 	}
 
+	/*
+	 * Drop events/exceptions that were queued for re-injection to L2
+	 * (picked up via vmx_complete_interrupts()), as well as exceptions
+	 * that were pending for L2.  Note, this must NOT be hoisted above
+	 * prepare_vmcs12(), events/exceptions queued for re-injection need to
+	 * be captured in vmcs12 (see vmcs12_save_pending_event()).
+	 */
+	vcpu->arch.nmi_injected = false;
+	kvm_clear_exception_queue(vcpu);
+	kvm_clear_interrupt_queue(vcpu);
+
 	vmx_switch_vmcs(vcpu, &vmx->vmcs01);
+
+	/*
+	 * If IBRS is advertised to the vCPU, KVM must flush the indirect
+	 * branch predictors when transitioning from L2 to L1, as L1 expects
+	 * hardware (KVM in this case) to provide separate predictor modes.
+	 * Bare metal isolates VMX root (host) from VMX non-root (guest), but
+	 * doesn't isolate different VMCSs, i.e. in this case, doesn't provide
+	 * separate modes for L2 vs L1.
+	 */
+	if (guest_cpuid_has(vcpu, X86_FEATURE_SPEC_CTRL))
+		indirect_branch_prediction_barrier();
 
 	/* Update any VMCS fields that might have changed while L2 ran */
 	vmcs_write32(VM_EXIT_MSR_LOAD_COUNT, vmx->msr_autoload.host.nr);
@@ -4917,12 +4931,20 @@ static int handle_invept(struct kvm_vcpu *vcpu)
 	}
 
 	switch (type) {
-	case VMX_EPT_EXTENT_GLOBAL:
 	case VMX_EPT_EXTENT_CONTEXT:
-	/*
-	 * TODO: Sync the necessary shadow EPT roots here, rather than
-	 * at the next emulated VM-entry.
-	 */
+		if (!valid_ept_address(vcpu, operand.eptp))
+			return nested_vmx_failValid(vcpu,
+				VMXERR_INVALID_OPERAND_TO_INVEPT_INVVPID);
+
+		/* TODO: sync only the target EPTP context. */
+		fallthrough;
+	case VMX_EPT_EXTENT_GLOBAL:
+		/*
+		 * Nested EPT roots are always held through guest_mmu,
+		 * not root_mmu.
+		 */
+		kvm_mmu_free_roots(vcpu, &vcpu->arch.guest_mmu,
+				   KVM_MMU_ROOTS_ALL);
 		break;
 	default:
 		BUG_ON(1);
@@ -5307,6 +5329,23 @@ static bool nested_vmx_exit_handled_vmcs_access(struct kvm_vcpu *vcpu,
 	return 1 & (b >> (field & 7));
 }
 
+static bool nested_vmx_exit_handled_mtf(struct vmcs12 *vmcs12)
+{
+	u32 entry_intr_info = vmcs12->vm_entry_intr_info_field;
+
+	if (nested_cpu_has_mtf(vmcs12))
+		return true;
+
+	/*
+	 * An MTF VM-exit may be injected into the guest by setting the
+	 * interruption-type to 7 (other event) and the vector field to 0. Such
+	 * is the case regardless of the 'monitor trap flag' VM-execution
+	 * control.
+	 */
+	return entry_intr_info == (INTR_INFO_VALID_MASK
+				   | INTR_TYPE_OTHER_EVENT);
+}
+
 /*
  * Return 1 if we should exit from L2 to L1 to handle an exit, or 0 if we
  * should handle it ourselves in L0 (and then continue L2). Only call this
@@ -5420,7 +5459,7 @@ bool nested_vmx_exit_reflected(struct kvm_vcpu *vcpu, u32 exit_reason)
 	case EXIT_REASON_MWAIT_INSTRUCTION:
 		return nested_cpu_has(vmcs12, CPU_BASED_MWAIT_EXITING);
 	case EXIT_REASON_MONITOR_TRAP_FLAG:
-		return nested_cpu_has(vmcs12, CPU_BASED_MONITOR_TRAP_FLAG);
+		return nested_vmx_exit_handled_mtf(vmcs12);
 	case EXIT_REASON_MONITOR_INSTRUCTION:
 		return nested_cpu_has(vmcs12, CPU_BASED_MONITOR_EXITING);
 	case EXIT_REASON_PAUSE_INSTRUCTION:
@@ -5789,8 +5828,7 @@ void nested_vmx_vcpu_setup(void)
  * bit in the high half is on if the corresponding bit in the control field
  * may be on. See also vmx_control_verify().
  */
-void nested_vmx_setup_ctls_msrs(struct nested_vmx_msrs *msrs, u32 ept_caps,
-				bool apicv)
+void nested_vmx_setup_ctls_msrs(struct nested_vmx_msrs *msrs, u32 ept_caps)
 {
 	/*
 	 * Note that as a general rule, the high half of the MSRs (bits in
@@ -5817,7 +5855,7 @@ void nested_vmx_setup_ctls_msrs(struct nested_vmx_msrs *msrs, u32 ept_caps,
 		PIN_BASED_EXT_INTR_MASK |
 		PIN_BASED_NMI_EXITING |
 		PIN_BASED_VIRTUAL_NMIS |
-		(apicv ? PIN_BASED_POSTED_INTR : 0);
+		(enable_apicv ? PIN_BASED_POSTED_INTR : 0);
 	msrs->pinbased_ctls_high |=
 		PIN_BASED_ALWAYSON_WITHOUT_TRUE_MSR |
 		PIN_BASED_VMX_PREEMPTION_TIMER;

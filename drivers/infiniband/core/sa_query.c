@@ -760,8 +760,9 @@ static void ib_nl_set_path_rec_attrs(struct sk_buff *skb,
 
 	/* Construct the family header first */
 	header = skb_put(skb, NLMSG_ALIGN(sizeof(*header)));
-	memcpy(header->device_name, dev_name(&query->port->agent->device->dev),
-	       LS_DEVICE_NAME_MAX);
+	strscpy_pad(header->device_name,
+		    dev_name(&query->port->agent->device->dev),
+		    LS_DEVICE_NAME_MAX);
 	header->port_num = query->port->port_num;
 
 	if ((comp_mask & IB_SA_PATH_REC_REVERSIBLE) &&
@@ -1443,8 +1444,7 @@ enum opa_pr_supported {
  */
 static int opa_pr_query_possible(struct ib_sa_client *client,
 				 struct ib_sa_device *sa_dev,
-				 struct ib_device *device, u8 port_num,
-				 struct sa_path_rec *rec)
+				 struct ib_device *device, u8 port_num)
 {
 	struct ib_port_attr port_attr;
 
@@ -1566,8 +1566,7 @@ int ib_sa_path_rec_get(struct ib_sa_client *client,
 
 	query->sa_query.port     = port;
 	if (rec->rec_type == SA_PATH_REC_TYPE_OPA) {
-		status = opa_pr_query_possible(client, sa_dev, device, port_num,
-					       rec);
+		status = opa_pr_query_possible(client, sa_dev, device, port_num);
 		if (status == PR_NOT_SUPPORTED) {
 			ret = -EINVAL;
 			goto err1;

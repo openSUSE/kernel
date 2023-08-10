@@ -493,6 +493,10 @@ struct mlx5_fc_stats {
 	unsigned long next_query;
 	unsigned long sampling_interval; /* jiffies */
 	u32 *bulk_query_out;
+	int bulk_query_len;
+	size_t num_counters;
+	bool bulk_query_alloc_failed;
+	unsigned long next_bulk_query_alloc;
 	struct mlx5_fc_pool fc_pool;
 };
 
@@ -666,6 +670,11 @@ struct mlx5_hv_vhca;
 #define MLX5_LOG_SW_ICM_BLOCK_SIZE(dev) (MLX5_CAP_DEV_MEM(dev, log_sw_icm_alloc_granularity))
 #define MLX5_SW_ICM_BLOCK_SIZE(dev) (1 << MLX5_LOG_SW_ICM_BLOCK_SIZE(dev))
 
+struct mlx5_hca_cap {
+	u32 cur[MLX5_UN_SZ_DW(hca_cap_union)];
+	u32 max[MLX5_UN_SZ_DW(hca_cap_union)];
+};
+
 struct mlx5_core_dev {
 	struct device *device;
 	enum mlx5_coredev_type coredev_type;
@@ -678,8 +687,7 @@ struct mlx5_core_dev {
 	struct mlx5_cmd		cmd;
 	struct mlx5_port_caps	port_caps[MLX5_MAX_PORTS];
 	struct {
-		u32 hca_cur[MLX5_CAP_NUM][MLX5_UN_SZ_DW(hca_cap_union)];
-		u32 hca_max[MLX5_CAP_NUM][MLX5_UN_SZ_DW(hca_cap_union)];
+		struct mlx5_hca_cap *hca[MLX5_CAP_NUM];
 		u32 pcam[MLX5_ST_SZ_DW(pcam_reg)];
 		u32 mcam[MLX5_MCAM_REGS_NUM][MLX5_ST_SZ_DW(mcam_reg)];
 		u32 fpga[MLX5_ST_SZ_DW(fpga_cap)];
@@ -841,6 +849,11 @@ static inline u16 fw_rev_sub(struct mlx5_core_dev *dev)
 static inline u32 mlx5_base_mkey(const u32 key)
 {
 	return key & 0xffffff00u;
+}
+
+static inline u32 wq_get_byte_sz(u8 log_sz, u8 log_stride)
+{
+	return ((u32)1 << log_sz) << log_stride;
 }
 
 static inline void mlx5_init_fbc_offset(struct mlx5_buf_list *frags,

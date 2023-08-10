@@ -452,6 +452,9 @@ struct scsi_host_template {
 	/* True if the low-level driver supports blk-mq only */
 	unsigned force_blk_mq:1;
 
+#ifndef __GENKSYMS__
+	unsigned template_has_eh_should_retry_cmd:1;
+#endif
 	/*
 	 * Countdown for host blocking with no commands outstanding.
 	 */

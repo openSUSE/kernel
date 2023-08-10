@@ -1024,7 +1024,7 @@ static void clone_endio(struct bio *bio)
 	dm_endio_fn endio = tio->ti->type->end_io;
 	struct bio *orig_bio = io->orig_bio;
 
-	if (unlikely(error == BLK_STS_TARGET) && md->type != DM_TYPE_NVME_BIO_BASED) {
+	if (unlikely(error == BLK_STS_TARGET)) {
 		if (bio_op(bio) == REQ_OP_DISCARD &&
 		    !bio->bi_disk->queue->limits.max_discard_sectors)
 			disable_discard(md);
@@ -1746,51 +1746,6 @@ static blk_qc_t __split_and_process_bio(struct mapped_device *md,
 	return ret;
 }
 
-/*
- * Optimized variant of __split_and_process_bio that leverages the
- * fact that targets that use it do _not_ have a need to split bios.
- */
-static blk_qc_t __process_bio(struct mapped_device *md, struct dm_table *map,
-			      struct bio *bio, struct dm_target *ti)
-{
-	struct clone_info ci;
-	blk_qc_t ret = BLK_QC_T_NONE;
-	int error = 0;
-
-	init_clone_info(&ci, md, map, bio);
-
-	if (bio->bi_opf & REQ_PREFLUSH) {
-		struct bio flush_bio;
-
-		/*
-		 * Use an on-stack bio for this, it's safe since we don't
-		 * need to reference it after submit. It's just used as
-		 * the basis for the clone(s).
-		 */
-		bio_init(&flush_bio, NULL, 0);
-		flush_bio.bi_opf = REQ_OP_WRITE | REQ_PREFLUSH | REQ_SYNC;
-		ci.bio = &flush_bio;
-		ci.sector_count = 0;
-		error = __send_empty_flush(&ci);
-		bio_uninit(ci.bio);
-		/* dec_pending submits any data associated with flush */
-	} else {
-		struct dm_target_io *tio;
-
-		ci.bio = bio;
-		ci.sector_count = bio_sectors(bio);
-		if (__process_abnormal_io(&ci, ti, &error))
-			goto out;
-
-		tio = alloc_tio(&ci, ti, 0, GFP_NOIO);
-		ret = __clone_and_map_simple_bio(&ci, tio, NULL);
-	}
-out:
-	/* drop the extra reference count */
-	dec_pending(ci.io, errno_to_blk_status(error));
-	return ret;
-}
-
 static blk_qc_t dm_process_bio(struct mapped_device *md,
 			       struct dm_table *map, struct bio *bio)
 {
@@ -1817,8 +1772,6 @@ static blk_qc_t dm_process_bio(struct mapped_device *md,
 	if (is_abnormal_io(bio))
 		blk_queue_split(&bio);
 
-	if (dm_get_md_type(md) == DM_TYPE_NVME_BIO_BASED)
-		return __process_bio(md, map, bio, ti);
 	return __split_and_process_bio(md, map, bio);
 }
 
@@ -1828,18 +1781,6 @@ static blk_qc_t dm_submit_bio(struct bio *bio)
 	blk_qc_t ret = BLK_QC_T_NONE;
 	int srcu_idx;
 	struct dm_table *map;
-
-	if (dm_get_md_type(md) == DM_TYPE_REQUEST_BASED) {
-		/*
-		 * We are called with a live reference on q_usage_counter, but
-		 * that one will be released as soon as we return.  Grab an
-		 * extra one as blk_mq_submit_bio expects to be able to consume
-		 * a reference (which lives until the request is freed in case a
-		 * request is allocated).
-		 */
-		percpu_ref_get(&bio->bi_disk->queue->q_usage_counter);
-		return blk_mq_submit_bio(bio);
-	}
 
 	map = dm_get_live_table(md, &srcu_idx);
 
@@ -1910,6 +1851,7 @@ static int next_free_minor(int *minor)
 }
 
 static const struct block_device_operations dm_blk_dops;
+static const struct block_device_operations dm_rq_blk_dops;
 static const struct dax_operations dm_dax_ops;
 
 static void dm_wq_work(struct work_struct *work);
@@ -2184,12 +2126,10 @@ static struct dm_table *__bind(struct mapped_device *md, struct dm_table *t,
 	if (request_based)
 		dm_stop_queue(q);
 
-	if (request_based || md->type == DM_TYPE_NVME_BIO_BASED) {
+	if (request_based) {
 		/*
-		 * Leverage the fact that request-based DM targets and
-		 * NVMe bio based targets are immutable singletons
-		 * - used to optimize both dm_request_fn and dm_mq_queue_rq;
-		 *   and __process_bio.
+		 * Leverage the fact that request-based DM targets are
+		 * immutable singletons - used to optimize dm_mq_queue_rq.
 		 */
 		md->immutable_target = dm_table_get_immutable_target(t);
 	}
@@ -2307,15 +2247,15 @@ int dm_setup_md_queue(struct mapped_device *md, struct dm_table *t)
 
 	switch (type) {
 	case DM_TYPE_REQUEST_BASED:
+		md->disk->fops = &dm_rq_blk_dops;
 		r = dm_mq_init_request_queue(md, t);
 		if (r) {
-			DMERR("Cannot initialize queue for request-based dm-mq mapped device");
+			DMERR("Cannot initialize queue for request-based dm mapped device");
 			return r;
 		}
 		break;
 	case DM_TYPE_BIO_BASED:
 	case DM_TYPE_DAX_BIO_BASED:
-	case DM_TYPE_NVME_BIO_BASED:
 		break;
 	case DM_TYPE_NONE:
 		WARN_ON_ONCE(true);
@@ -3074,7 +3014,6 @@ struct dm_md_mempools *dm_alloc_md_mempools(struct mapped_device *md, enum dm_qu
 	switch (type) {
 	case DM_TYPE_BIO_BASED:
 	case DM_TYPE_DAX_BIO_BASED:
-	case DM_TYPE_NVME_BIO_BASED:
 		pool_size = max(dm_get_reserved_bio_based_ios(), min_pool_size);
 		front_pad = roundup(per_io_data_size, __alignof__(struct dm_target_io)) + offsetof(struct dm_target_io, clone);
 		io_front_pad = roundup(front_pad,  __alignof__(struct dm_io)) + offsetof(struct dm_io, tio);
@@ -3142,6 +3081,11 @@ static int dm_call_pr(struct block_device *bdev, iterate_devices_callout_fn fn,
 	if (dm_table_get_num_targets(table) != 1)
 		goto out;
 	ti = dm_table_get_target(table, 0);
+
+	if (dm_suspended_md(md)) {
+		ret = -EAGAIN;
+		goto out;
+	}
 
 	ret = -EINVAL;
 	if (!ti->type->iterate_devices)
@@ -3288,6 +3232,15 @@ static const struct block_device_operations dm_blk_dops = {
 	.ioctl = dm_blk_ioctl,
 	.getgeo = dm_blk_getgeo,
 	.report_zones = dm_blk_report_zones,
+	.pr_ops = &dm_pr_ops,
+	.owner = THIS_MODULE
+};
+
+static const struct block_device_operations dm_rq_blk_dops = {
+	.open = dm_blk_open,
+	.release = dm_blk_close,
+	.ioctl = dm_blk_ioctl,
+	.getgeo = dm_blk_getgeo,
 	.pr_ops = &dm_pr_ops,
 	.owner = THIS_MODULE
 };

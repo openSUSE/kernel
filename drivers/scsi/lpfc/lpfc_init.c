@@ -36,7 +36,6 @@
 #include <linux/firmware.h>
 #include <linux/miscdevice.h>
 #include <linux/percpu.h>
-#include <linux/msi.h>
 #include <linux/irq.h>
 #include <linux/bitops.h>
 #include <linux/crash_dump.h>
@@ -698,6 +697,8 @@ lpfc_sli4_refresh_params(struct lpfc_hba *phba)
 		return rc;
 	}
 	mbx_sli4_parameters = &mqe->un.get_sli4_parameters.sli4_parameters;
+	phba->sli4_hba.pc_sli4_params.mi_cap =
+		bf_get(cfg_mi_ver, mbx_sli4_parameters);
 
 	/* Are we forcing MI off via module parameter? */
 	if (phba->cfg_enable_mi)
@@ -2638,20 +2639,25 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_ZEPHYR:
-		m = (typeof(m)){"LPe11000", "PCIe", "Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe11000", "PCIe",
+				 "Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_ZEPHYR_SCSP:
-		m = (typeof(m)){"LPe11000", "PCIe", "Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe11000", "PCIe",
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_ZEPHYR_DCSP:
-		m = (typeof(m)){"LP2105", "PCIe", "FCoE Adapter"};
+		m = (typeof(m)){"LP2105", "PCIe",
+				"Obsolete, Unsupported FCoE Adapter"};
 		GE = 1;
 		break;
 	case PCI_DEVICE_ID_ZMID:
-		m = (typeof(m)){"LPe1150", "PCIe", "Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe1150", "PCIe",
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_ZSMB:
-		m = (typeof(m)){"LPe111", "PCIe", "Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe111", "PCIe",
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_LP101:
 		m = (typeof(m)){"LP101", "PCI-X",
@@ -2670,22 +2676,28 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT:
-		m = (typeof(m)){"LPe12000", "PCIe", "Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe12000", "PCIe",
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT_MID:
-		m = (typeof(m)){"LPe1250", "PCIe", "Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe1250", "PCIe",
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT_SMB:
-		m = (typeof(m)){"LPe121", "PCIe", "Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe121", "PCIe",
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT_DCSP:
-		m = (typeof(m)){"LPe12002-SP", "PCIe", "Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe12002-SP", "PCIe",
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT_SCSP:
-		m = (typeof(m)){"LPe12000-SP", "PCIe", "Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe12000-SP", "PCIe",
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_SAT_S:
-		m = (typeof(m)){"LPe12000-S", "PCIe", "Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe12000-S", "PCIe",
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_PROTEUS_VF:
 		m = (typeof(m)){"LPev12000", "PCIe IOV",
@@ -2701,22 +2713,25 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 		break;
 	case PCI_DEVICE_ID_TIGERSHARK:
 		oneConnect = 1;
-		m = (typeof(m)){"OCe10100", "PCIe", "FCoE"};
+		m = (typeof(m)){"OCe10100", "PCIe",
+				"Obsolete, Unsupported FCoE Adapter"};
 		break;
 	case PCI_DEVICE_ID_TOMCAT:
 		oneConnect = 1;
-		m = (typeof(m)){"OCe11100", "PCIe", "FCoE"};
+		m = (typeof(m)){"OCe11100", "PCIe",
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_FALCON:
 		m = (typeof(m)){"LPSe12002-ML1-E", "PCIe",
-				"EmulexSecure Fibre"};
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_BALIUS:
 		m = (typeof(m)){"LPVe12002", "PCIe Shared I/O",
 				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_LANCER_FC:
-		m = (typeof(m)){"LPe16000", "PCIe", "Fibre Channel Adapter"};
+		m = (typeof(m)){"LPe16000", "PCIe",
+				"Obsolete, Unsupported Fibre Channel Adapter"};
 		break;
 	case PCI_DEVICE_ID_LANCER_FC_VF:
 		m = (typeof(m)){"LPe16000", "PCIe",
@@ -2724,7 +2739,8 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 		break;
 	case PCI_DEVICE_ID_LANCER_FCOE:
 		oneConnect = 1;
-		m = (typeof(m)){"OCe15100", "PCIe", "FCoE"};
+		m = (typeof(m)){"OCe15100", "PCIe",
+				"Obsolete, Unsupported FCoE Adapter"};
 		break;
 	case PCI_DEVICE_ID_LANCER_FCOE_VF:
 		oneConnect = 1;
@@ -2743,7 +2759,8 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 	case PCI_DEVICE_ID_SKYHAWK:
 	case PCI_DEVICE_ID_SKYHAWK_VF:
 		oneConnect = 1;
-		m = (typeof(m)){"OCe14000", "PCIe", "FCoE"};
+		m = (typeof(m)){"OCe14000", "PCIe",
+				"Obsolete, Unsupported FCoE Adapter"};
 		break;
 	default:
 		m = (typeof(m)){"Unknown", "", ""};
@@ -4811,7 +4828,7 @@ lpfc_create_port(struct lpfc_hba *phba, int instance, struct device *dev)
 	rc = lpfc_vmid_res_alloc(phba, vport);
 
 	if (rc)
-		goto out;
+		goto out_put_shost;
 
 	/* Initialize all internally managed lists. */
 	INIT_LIST_HEAD(&vport->fc_nodes);
@@ -4829,16 +4846,17 @@ lpfc_create_port(struct lpfc_hba *phba, int instance, struct device *dev)
 
 	error = scsi_add_host_with_dma(shost, dev, &phba->pcidev->dev);
 	if (error)
-		goto out_put_shost;
+		goto out_free_vmid;
 
 	spin_lock_irq(&phba->port_list_lock);
 	list_add_tail(&vport->listentry, &phba->port_list);
 	spin_unlock_irq(&phba->port_list_lock);
 	return vport;
 
-out_put_shost:
+out_free_vmid:
 	kfree(vport->vmid);
 	bitmap_free(vport->vmid_priority_range);
+out_put_shost:
 	scsi_host_put(shost);
 out:
 	return NULL;
@@ -10083,17 +10101,15 @@ lpfc_sli4_read_config(struct lpfc_hba *phba)
 		qmin = phba->sli4_hba.max_cfg_param.max_wq;
 		if (phba->sli4_hba.max_cfg_param.max_cq < qmin)
 			qmin = phba->sli4_hba.max_cfg_param.max_cq;
-		if (phba->sli4_hba.max_cfg_param.max_eq < qmin)
-			qmin = phba->sli4_hba.max_cfg_param.max_eq;
 		/*
-		 * Whats left after this can go toward NVME / FCP.
-		 * The minus 4 accounts for ELS, NVME LS, MBOX
-		 * plus one extra. When configured for
-		 * NVMET, FCP io channel WQs are not created.
+		 * Reserve 4 (ELS, NVME LS, MBOX, plus one extra) and
+		 * the remainder can be used for NVME / FCP.
 		 */
 		qmin -= 4;
+		if (phba->sli4_hba.max_cfg_param.max_eq < qmin)
+			qmin = phba->sli4_hba.max_cfg_param.max_eq;
 
-		/* Check to see if there is enough for NVME */
+		/* Check to see if there is enough for default cfg */
 		if ((phba->cfg_irq_chann > qmin) ||
 		    (phba->cfg_hdw_queue > qmin)) {
 			lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
@@ -13835,6 +13851,7 @@ lpfc_get_sli4_parameters(struct lpfc_hba *phba, LPFC_MBOXQ_t *mboxq)
 					   mbx_sli4_parameters);
 	phba->sli4_hba.extents_in_use = bf_get(cfg_ext, mbx_sli4_parameters);
 	phba->sli4_hba.rpi_hdrs_in_use = bf_get(cfg_hdrr, mbx_sli4_parameters);
+	sli4_params->mi_cap = bf_get(cfg_mi_ver, mbx_sli4_parameters);
 
 	/* Check for Extended Pre-Registered SGL support */
 	phba->cfg_xpsgl = bf_get(cfg_xpsgl, mbx_sli4_parameters);

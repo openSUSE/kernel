@@ -295,6 +295,28 @@ xfs_inode_item_format_attr_fork(
 	}
 }
 
+/*
+ * Convert an incore timestamp to a log timestamp.  Note that the log format
+ * specifies host endian format!
+ */
+static inline xfs_ictimestamp_t
+xfs_inode_to_log_dinode_ts(
+	struct xfs_inode		*ip,
+	const struct timespec64		tv)
+{
+	struct xfs_legacy_ictimestamp	*lits;
+	xfs_ictimestamp_t		its;
+
+	if (xfs_inode_has_bigtime(ip))
+		return xfs_inode_encode_bigtime(tv);
+
+	lits = (struct xfs_legacy_ictimestamp *)&its;
+	lits->t_sec = tv.tv_sec;
+	lits->t_nsec = tv.tv_nsec;
+
+	return its;
+}
+
 static void
 xfs_inode_to_log_dinode(
 	struct xfs_inode	*ip,
@@ -315,12 +337,9 @@ xfs_inode_to_log_dinode(
 
 	memset(to->di_pad, 0, sizeof(to->di_pad));
 	memset(to->di_pad3, 0, sizeof(to->di_pad3));
-	to->di_atime.t_sec = inode->i_atime.tv_sec;
-	to->di_atime.t_nsec = inode->i_atime.tv_nsec;
-	to->di_mtime.t_sec = inode->i_mtime.tv_sec;
-	to->di_mtime.t_nsec = inode->i_mtime.tv_nsec;
-	to->di_ctime.t_sec = inode->i_ctime.tv_sec;
-	to->di_ctime.t_nsec = inode->i_ctime.tv_nsec;
+	to->di_atime = xfs_inode_to_log_dinode_ts(ip, inode->i_atime);
+	to->di_mtime = xfs_inode_to_log_dinode_ts(ip, inode->i_mtime);
+	to->di_ctime = xfs_inode_to_log_dinode_ts(ip, inode->i_ctime);
 	to->di_nlink = inode->i_nlink;
 	to->di_gen = inode->i_generation;
 	to->di_mode = inode->i_mode;
@@ -341,8 +360,7 @@ xfs_inode_to_log_dinode(
 
 	if (from->di_version == 3) {
 		to->di_changecount = inode_peek_iversion(inode);
-		to->di_crtime.t_sec = from->di_crtime.t_sec;
-		to->di_crtime.t_nsec = from->di_crtime.t_nsec;
+		to->di_crtime = xfs_inode_to_log_dinode_ts(ip, from->di_crtime);
 		to->di_flags2 = from->di_flags2;
 		to->di_cowextsize = from->di_cowextsize;
 		to->di_ino = ip->i_ino;
@@ -732,29 +750,27 @@ xfs_iflush_done(
 	 * holding the lock before removing the inode from the AIL.
 	 */
 	if (need_ail) {
-		bool			mlip_changed = false;
+		xfs_lsn_t	tail_lsn = 0;
 
 		/* this is an opencoded batch version of xfs_trans_ail_delete */
 		spin_lock(&ailp->ail_lock);
 		list_for_each_entry(blip, &tmp, li_bio_list) {
 			if (INODE_ITEM(blip)->ili_logged &&
-			    blip->li_lsn == INODE_ITEM(blip)->ili_flush_lsn)
-				mlip_changed |= xfs_ail_delete_one(ailp, blip);
-			else {
+			    blip->li_lsn == INODE_ITEM(blip)->ili_flush_lsn) {
+				/*
+				 * xfs_ail_update_finish() only cares about the
+				 * lsn of the first tail item removed, any
+				 * others will be at the same or higher lsn so
+				 * we just ignore them.
+				 */
+				xfs_lsn_t lsn = xfs_ail_delete_one(ailp, blip);
+				if (!tail_lsn && lsn)
+					tail_lsn = lsn;
+			} else {
 				xfs_clear_li_failed(blip);
 			}
 		}
-
-		if (mlip_changed) {
-			if (!XFS_FORCED_SHUTDOWN(ailp->ail_mount))
-				xlog_assign_tail_lsn_locked(ailp->ail_mount);
-			if (list_empty(&ailp->ail_head))
-				wake_up_all(&ailp->ail_empty);
-		}
-		spin_unlock(&ailp->ail_lock);
-
-		if (mlip_changed)
-			xfs_log_space_wake(ailp->ail_mount);
+		xfs_ail_update_finish(ailp, tail_lsn);
 	}
 
 	/*

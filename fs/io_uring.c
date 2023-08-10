@@ -1752,6 +1752,13 @@ static int io_poll_add(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	bool cancel = false;
 	__poll_t mask;
 	u16 events;
+#ifdef CONFIG_SIGNALFD
+	extern __poll_t signalfd_poll(struct file *file, poll_table *wait);
+
+	/* unhandled pollfree: Binder (SLE-disabled) and signalfd only */
+	if (req->file->f_op->poll == &signalfd_poll)
+		return -EOPNOTSUPP;
+#endif
 
 	if (unlikely(req->ctx->flags & IORING_SETUP_IOPOLL))
 		return -EINVAL;
@@ -2234,7 +2241,15 @@ static void io_submit_sqe(struct io_ring_ctx *ctx, struct sqe_submit *s,
 		goto err;
 	}
 
+	/*
+	 * SLE15-SP3: Guard file table insertion from racing with
+	 * io_sqe_files_unregister.  The SQPOLL path can get here unlocked.
+	 */
+	if (s->needs_lock)
+		mutex_lock(&ctx->uring_lock);
 	ret = io_req_set_file(ctx, s, state, req);
+	if (s->needs_lock)
+		mutex_unlock(&ctx->uring_lock);
 	if (unlikely(ret)) {
 err_req:
 		io_free_req(req);
@@ -2423,6 +2438,19 @@ static int io_submit_sqes(struct io_ring_ctx *ctx, unsigned int nr,
 		io_submit_state_end(&state);
 
 	return submitted;
+}
+
+static int __io_uring_fd(const void *arg, struct file *file,
+			 unsigned int fd)
+{
+	return file->f_op == &io_uring_fops;
+}
+
+bool current_has_io_workers(void)
+{
+	if (iterate_fd(current->files, 0, __io_uring_fd, NULL))
+		return true;
+	return false;
 }
 
 static int io_sq_thread(void *data)
@@ -2713,6 +2741,7 @@ static int __io_sqe_files_scm(struct io_ring_ctx *ctx, int nr, int offset)
 	}
 
 	skb->sk = sk;
+	skb->scm_io_uring = 1;
 	skb->destructor = io_destruct_skb;
 
 	fpl->user = get_uid(ctx->user);

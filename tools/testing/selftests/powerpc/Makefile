@@ -28,6 +28,7 @@ SUB_DIRS = alignment		\
 	   tm			\
 	   vphn         \
 	   math		\
+	   papr_attributes	\
 	   ptrace	\
 	   security
 

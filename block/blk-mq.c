@@ -434,6 +434,7 @@ struct request *blk_mq_alloc_request_hctx(struct request_queue *q,
 		.cmd_flags	= op,
 	};
 	u64 alloc_time_ns = 0;
+	struct request *rq;
 	unsigned int cpu;
 	unsigned int tag;
 	int ret;
@@ -478,7 +479,11 @@ struct request *blk_mq_alloc_request_hctx(struct request_queue *q,
 	tag = blk_mq_get_tag(&data);
 	if (tag == BLK_MQ_NO_TAG)
 		goto out_queue_exit;
-	return blk_mq_rq_ctx_init(&data, tag, alloc_time_ns);
+	rq = blk_mq_rq_ctx_init(&data, tag, alloc_time_ns);
+	rq->__data_len = 0;
+	rq->__sector = (sector_t) -1;
+	rq->bio = rq->biotail = NULL;
+	return rq;
 
 out_queue_exit:
 	blk_queue_exit(q);
@@ -2234,7 +2239,7 @@ queue_exit:
 	blk_queue_exit(q);
 	return BLK_QC_T_NONE;
 }
-EXPORT_SYMBOL_GPL(blk_mq_submit_bio); /* only for request based dm */
+EXPORT_SYMBOL_GPL(blk_mq_submit_bio); /* keep exporting for KABI consistency */
 
 static size_t order_to_size(unsigned int order)
 {

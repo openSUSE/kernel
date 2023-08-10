@@ -362,9 +362,7 @@ void rxe_rcv(struct sk_buff *skb)
 	__be32 *icrcp;
 	u32 calc_icrc, pack_icrc;
 
-	pkt->offset = 0;
-
-	if (unlikely(skb->len < pkt->offset + RXE_BTH_BYTES))
+	if (unlikely(skb->len < RXE_BTH_BYTES))
 		goto drop;
 
 	if (rxe_match_dgid(rxe, skb) < 0) {

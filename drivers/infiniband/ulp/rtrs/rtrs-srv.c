@@ -635,7 +635,7 @@ static int map_cont_bufs(struct rtrs_srv_sess *sess)
 		struct sg_table *sgt = &srv_mr->sgt;
 		struct scatterlist *s;
 		struct ib_mr *mr;
-		int nr, chunks;
+		int nr, nr_sgt, chunks;
 
 		chunks = chunks_per_mr * mri;
 		if (!always_invalidate)
@@ -650,19 +650,19 @@ static int map_cont_bufs(struct rtrs_srv_sess *sess)
 			sg_set_page(s, srv->chunks[chunks + i],
 				    max_chunk_size, 0);
 
-		nr = ib_dma_map_sg(sess->s.dev->ib_dev, sgt->sgl,
+		nr_sgt = ib_dma_map_sg(sess->s.dev->ib_dev, sgt->sgl,
 				   sgt->nents, DMA_BIDIRECTIONAL);
-		if (nr < sgt->nents) {
-			err = nr < 0 ? nr : -EINVAL;
+		if (!nr_sgt) {
+			err = -EINVAL;
 			goto free_sg;
 		}
 		mr = ib_alloc_mr(sess->s.dev->ib_pd, IB_MR_TYPE_MEM_REG,
-				 sgt->nents);
+				 nr_sgt);
 		if (IS_ERR(mr)) {
 			err = PTR_ERR(mr);
 			goto unmap_sg;
 		}
-		nr = ib_map_mr_sg(mr, sgt->sgl, sgt->nents,
+		nr = ib_map_mr_sg(mr, sgt->sgl, nr_sgt,
 				  NULL, max_chunk_size);
 		if (nr < 0 || nr < sgt->nents) {
 			err = nr < 0 ? nr : -EINVAL;
@@ -681,7 +681,7 @@ static int map_cont_bufs(struct rtrs_srv_sess *sess)
 			}
 		}
 		/* Eventually dma addr for each chunk can be cached */
-		for_each_sg(sgt->sgl, s, sgt->orig_nents, i)
+		for_each_sg(sgt->sgl, s, nr_sgt, i)
 			sess->dma_addr[chunks + i] = sg_dma_address(s);
 
 		ib_update_fast_reg_key(mr, ib_inc_rkey(mr->rkey));

@@ -254,6 +254,7 @@ xfs_iomap_write_direct(
 	if (IS_DAX(VFS_I(ip))) {
 		bmapi_flags = XFS_BMAPI_CONVERT | XFS_BMAPI_ZERO;
 		if (imap->br_state == XFS_EXT_UNWRITTEN) {
+			quota_flag |= XFS_QMOPT_FORCE_RES;
 			tflags |= XFS_TRANS_RESERVE;
 			resblks = qblocks = XFS_DIOSTRAT_SPACE_RES(mp, 0) << 1;
 		}

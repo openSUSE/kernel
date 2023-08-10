@@ -45,17 +45,7 @@
 #include <asm/feature-fixups.h>
 #include <asm/kup.h>
 
-/*
- * System calls.
- */
 	.section	".toc","aw"
-SYS_CALL_TABLE:
-	.tc sys_call_table[TC],sys_call_table
-
-#ifdef CONFIG_COMPAT
-COMPAT_SYS_CALL_TABLE:
-	.tc compat_sys_call_table[TC],compat_sys_call_table
-#endif
 
 /* This value is used to mark exception frames on the stack. */
 exception_marker:

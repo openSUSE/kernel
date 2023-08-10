@@ -121,12 +121,11 @@ xfs_qm_dqpurge(
 {
 	struct xfs_mount	*mp = dqp->q_mount;
 	struct xfs_quotainfo	*qi = mp->m_quotainfo;
+	int			error = -EAGAIN;
 
 	xfs_dqlock(dqp);
-	if ((dqp->dq_flags & XFS_DQ_FREEING) || dqp->q_nrefs != 0) {
-		xfs_dqunlock(dqp);
-		return -EAGAIN;
-	}
+	if ((dqp->dq_flags & XFS_DQ_FREEING) || dqp->q_nrefs != 0)
+		goto out_unlock;
 
 	dqp->dq_flags |= XFS_DQ_FREEING;
 
@@ -139,7 +138,6 @@ xfs_qm_dqpurge(
 	 */
 	if (XFS_DQ_IS_DIRTY(dqp)) {
 		struct xfs_buf	*bp = NULL;
-		int		error;
 
 		/*
 		 * We don't care about getting disk errors here. We need
@@ -149,6 +147,8 @@ xfs_qm_dqpurge(
 		if (!error) {
 			error = xfs_bwrite(bp);
 			xfs_buf_relse(bp);
+		} else if (error == -EAGAIN) {
+			goto out_unlock;
 		}
 		xfs_dqflock(dqp);
 	}
@@ -174,6 +174,10 @@ xfs_qm_dqpurge(
 
 	xfs_qm_dqdestroy(dqp);
 	return 0;
+
+out_unlock:
+	xfs_dqunlock(dqp);
+	return error;
 }
 
 /*
@@ -617,11 +621,11 @@ xfs_qm_init_timelimits(
 	 * more writing. If it is zero, a default is used.
 	 */
 	if (ddqp->d_btimer)
-		qinf->qi_btimelimit = be32_to_cpu(ddqp->d_btimer);
+		qinf->qi_btimelimit = dqp->q_blk_timer;
 	if (ddqp->d_itimer)
-		qinf->qi_itimelimit = be32_to_cpu(ddqp->d_itimer);
+		qinf->qi_itimelimit = dqp->q_ino_timer;
 	if (ddqp->d_rtbtimer)
-		qinf->qi_rtbtimelimit = be32_to_cpu(ddqp->d_rtbtimer);
+		qinf->qi_rtbtimelimit = dqp->q_rtb_timer;
 	if (ddqp->d_bwarns)
 		qinf->qi_bwarnlimit = be16_to_cpu(ddqp->d_bwarns);
 	if (ddqp->d_iwarns)
@@ -890,6 +894,8 @@ xfs_qm_reset_dqcounts(
 			ddq->d_bwarns = 0;
 			ddq->d_iwarns = 0;
 			ddq->d_rtbwarns = 0;
+			if (xfs_sb_version_hasbigtime(&mp->m_sb))
+				ddq->d_flags |= XFS_DQTYPE_BIGTIME;
 		}
 
 		if (xfs_sb_version_hascrc(&mp->m_sb)) {

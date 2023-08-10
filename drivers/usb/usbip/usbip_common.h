@@ -337,4 +337,6 @@ static inline int interface_to_devnum(struct usb_interface *interface)
 	return udev->devnum;
 }
 
+extern struct mutex suse_big_usbip_lock;
+
 #endif /* __USBIP_COMMON_H */

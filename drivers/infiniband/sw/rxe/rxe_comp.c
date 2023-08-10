@@ -140,6 +140,8 @@ void retransmit_timer(struct timer_list *t)
 {
 	struct rxe_qp *qp = from_timer(qp, t, retrans_timer);
 
+	pr_debug("%s: fired for qp#%d\n", __func__, qp->pelem.index);
+
 	if (qp->valid) {
 		qp->comp.timeout = 1;
 		rxe_run_task(&qp->comp.task, 1);
@@ -373,13 +375,15 @@ static inline enum comp_state do_read(struct rxe_qp *qp,
 	ret = copy_data(qp->pd, IB_ACCESS_LOCAL_WRITE,
 			&wqe->dma, payload_addr(pkt),
 			payload_size(pkt), to_mem_obj, NULL);
-	if (ret)
+	if (ret) {
+		wqe->status = IB_WC_LOC_PROT_ERR;
 		return COMPST_ERROR;
+	}
 
 	if (wqe->dma.resid == 0 && (pkt->mask & RXE_END_MASK))
 		return COMPST_COMP_ACK;
-	else
-		return COMPST_UPDATE_COMP;
+
+	return COMPST_UPDATE_COMP;
 }
 
 static inline enum comp_state do_atomic(struct rxe_qp *qp,
@@ -393,10 +397,12 @@ static inline enum comp_state do_atomic(struct rxe_qp *qp,
 	ret = copy_data(qp->pd, IB_ACCESS_LOCAL_WRITE,
 			&wqe->dma, &atomic_orig,
 			sizeof(u64), to_mem_obj, NULL);
-	if (ret)
+	if (ret) {
+		wqe->status = IB_WC_LOC_PROT_ERR;
 		return COMPST_ERROR;
-	else
-		return COMPST_COMP_ACK;
+	}
+
+	return COMPST_COMP_ACK;
 }
 
 static void make_send_cqe(struct rxe_qp *qp, struct rxe_send_wqe *wqe,
@@ -744,11 +750,15 @@ int rxe_completer(void *arg)
 			break;
 
 		case COMPST_RNR_RETRY:
+			/* we come here if we received an RNR NAK */
 			if (qp->comp.rnr_retry > 0) {
 				if (qp->comp.rnr_retry != 7)
 					qp->comp.rnr_retry--;
 
-				qp->req.need_retry = 1;
+				/* don't start a retry flow until the
+				 * rnr timer has fired
+				 */
+				qp->req.wait_for_rnr_timer = 1;
 				pr_debug("qp#%d set rnr nak timer\n",
 					 qp_num(qp));
 				mod_timer(&qp->rnr_nak_timer,

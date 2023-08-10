@@ -1909,18 +1909,13 @@ nfsd4_decode_compound(struct nfsd4_compoundargs *argp)
 	SAVEMEM(argp->tag, argp->taglen);
 	READ_BUF(8);
 	argp->minorversion = be32_to_cpup(p++);
-	argp->opcnt = be32_to_cpup(p++);
+	argp->client_opcnt = be32_to_cpup(p++);
 	max_reply += 4 + (XDR_QUADLEN(argp->taglen) << 2);
 
 	if (argp->taglen > NFSD4_MAX_TAGLEN)
 		goto xdr_error;
-	/*
-	 * NFS4ERR_RESOURCE is a more helpful error than GARBAGE_ARGS
-	 * here, so we return success at the xdr level so that
-	 * nfsd4_proc can handle this is an NFS-level error.
-	 */
-	if (argp->opcnt > NFSD_MAX_OPS_PER_COMPOUND)
-		return 0;
+	argp->opcnt = min_t(u32, argp->client_opcnt,
+			    NFSD_MAX_OPS_PER_COMPOUND);
 
 	if (argp->opcnt > ARRAY_SIZE(argp->iops)) {
 		argp->ops = kzalloc(argp->opcnt * sizeof(*argp->ops), GFP_KERNEL);
@@ -3573,7 +3568,7 @@ nfsd4_encode_read(struct nfsd4_compoundres *resp, __be32 nfserr,
 	if (resp->xdr.buf->page_len &&
 	    test_bit(RQ_SPLICE_OK, &resp->rqstp->rq_flags)) {
 		WARN_ON_ONCE(1);
-		return nfserr_resource;
+		return nfserr_serverfault;
 	}
 	xdr_commit_encode(xdr);
 
@@ -3923,11 +3918,12 @@ nfsd4_encode_exchange_id(struct nfsd4_compoundres *resp, __be32 nfserr,
 	int major_id_sz;
 	int server_scope_sz;
 	uint64_t minor_id = 0;
+	struct nfsd_net *nn = net_generic(SVC_NET(resp->rqstp), nfsd_net_id);
 
-	major_id = utsname()->nodename;
-	major_id_sz = strlen(major_id);
-	server_scope = utsname()->nodename;
-	server_scope_sz = strlen(server_scope);
+	major_id = nn->nfsd_name;
+	major_id_sz = strlen(nn->nfsd_name);
+	server_scope = nn->nfsd_name;
+	server_scope_sz = strlen(nn->nfsd_name);
 
 	p = xdr_reserve_space(xdr,
 		8 /* eir_clientid */ +

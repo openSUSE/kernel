@@ -231,8 +231,10 @@ int vmbus_connect(void)
 	 */
 
 	for (i = 0; ; i++) {
-		if (i == ARRAY_SIZE(vmbus_versions))
+		if (i == ARRAY_SIZE(vmbus_versions)) {
+			ret = -EDOM;
 			goto cleanup;
+		}
 
 		version = vmbus_versions[i];
 		if (version > max_version)
@@ -305,6 +307,10 @@ void vmbus_disconnect(void)
  */
 struct vmbus_channel *relid2channel(u32 relid)
 {
+	if (vmbus_connection.channels == NULL) {
+		pr_warn_once("relid2channel: relid=%d: No channels mapped!\n", relid);
+		return NULL;
+	}
 	if (WARN_ON(relid >= MAX_CHANNEL_RELIDS))
 		return NULL;
 	return READ_ONCE(vmbus_connection.channels[relid]);
@@ -327,34 +333,29 @@ struct vmbus_channel *relid2channel(u32 relid)
 void vmbus_on_event(unsigned long data)
 {
 	struct vmbus_channel *channel = (void *) data;
-	unsigned long time_limit = jiffies + 2;
+	void (*callback_fn)(void *context);
 
 	trace_vmbus_on_event(channel);
 
 	hv_debug_delay_test(channel, INTERRUPT_DELAY);
-	do {
-		void (*callback_fn)(void *);
 
-		/* A channel once created is persistent even when
-		 * there is no driver handling the device. An
-		 * unloading driver sets the onchannel_callback to NULL.
-		 */
-		callback_fn = READ_ONCE(channel->onchannel_callback);
-		if (unlikely(callback_fn == NULL))
-			return;
+	/* A channel once created is persistent even when
+	 * there is no driver handling the device. An
+	 * unloading driver sets the onchannel_callback to NULL.
+	 */
+	callback_fn = READ_ONCE(channel->onchannel_callback);
+	if (unlikely(!callback_fn))
+		return;
 
-		(*callback_fn)(channel->channel_callback_context);
+	(*callback_fn)(channel->channel_callback_context);
 
-		if (channel->callback_mode != HV_CALL_BATCHED)
-			return;
+	if (channel->callback_mode != HV_CALL_BATCHED)
+		return;
 
-		if (likely(hv_end_read(&channel->inbound) == 0))
-			return;
+	if (likely(hv_end_read(&channel->inbound) == 0))
+		return;
 
-		hv_begin_read(&channel->inbound);
-	} while (likely(time_before(jiffies, time_limit)));
-
-	/* The time limit (2 jiffies) has been reached */
+	hv_begin_read(&channel->inbound);
 	tasklet_schedule(&channel->callback_event);
 }
 

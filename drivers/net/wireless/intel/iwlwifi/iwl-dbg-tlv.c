@@ -5,7 +5,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright (C) 2018 - 2020 Intel Corporation
+ * Copyright (C) 2018 - 2021 Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -28,7 +28,7 @@
  *
  * BSD LICENSE
  *
- * Copyright (C) 2018 - 2020 Intel Corporation
+ * Copyright (C) 2018 - 2021 Intel Corporation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -481,7 +481,8 @@ void iwl_dbg_tlv_load_bin(struct device *dev, struct iwl_trans *trans)
 	const struct firmware *fw;
 	int res;
 
-	if (!iwlwifi_mod_params.enable_ini)
+	if (!iwlwifi_mod_params.enable_ini ||
+	    trans->trans_cfg->device_family <= IWL_DEVICE_FAMILY_9000)
 		return;
 
 	res = firmware_request_nowarn(&fw, "iwl-debug-yoyo.bin", dev);

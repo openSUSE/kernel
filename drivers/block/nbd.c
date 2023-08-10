@@ -78,8 +78,7 @@ struct link_dead_args {
 #define NBD_RT_HAS_PID_FILE		3
 #define NBD_RT_HAS_CONFIG_REF		4
 #define NBD_RT_BOUND			5
-#define NBD_RT_DESTROY_ON_DISCONNECT	6
-#define NBD_RT_DISCONNECT_ON_CLOSE	7
+#define NBD_RT_DISCONNECT_ON_CLOSE	6
 
 #define NBD_DESTROY_ON_DISCONNECT	0
 #define NBD_DISCONNECT_REQUESTED	1
@@ -115,11 +114,11 @@ struct nbd_device {
 	struct workqueue_struct *recv_workq;
 
 	struct list_head list;
-	struct task_struct *task_recv;
 	struct task_struct *task_setup;
 
 	struct completion *destroy_complete;
 	unsigned long flags;
+	pid_t pid; /* pid of nbd-client, if attached */
 };
 
 #define NBD_CMD_REQUEUED	1
@@ -209,7 +208,7 @@ static ssize_t pid_show(struct device *dev,
 	struct gendisk *disk = dev_to_disk(dev);
 	struct nbd_device *nbd = (struct nbd_device *)disk->private_data;
 
-	return sprintf(buf, "%d\n", task_pid_nr(nbd->task_recv));
+	return sprintf(buf, "%d\n", nbd->pid);
 }
 
 static const struct device_attribute pid_attr = {
@@ -328,7 +327,7 @@ static void nbd_size_set(struct nbd_device *nbd, loff_t blocksize,
 	struct nbd_config *config = nbd->config;
 	config->blksize = blocksize;
 	config->bytesize = blocksize * nr_blocks;
-	if (nbd->task_recv != NULL)
+	if (nbd->pid)
 		nbd_size_update(nbd, false);
 }
 
@@ -803,9 +802,9 @@ static void recv_work(struct work_struct *work)
 		if (likely(!blk_should_fake_timeout(rq->q)))
 			blk_mq_complete_request(rq);
 	}
+	nbd_config_put(nbd);
 	atomic_dec(&config->recv_threads);
 	wake_up(&config->recv_wq);
-	nbd_config_put(nbd);
 	kfree(args);
 }
 
@@ -881,11 +880,15 @@ static int wait_for_reconnect(struct nbd_device *nbd)
 	struct nbd_config *config = nbd->config;
 	if (!config->dead_conn_timeout)
 		return 0;
-	if (test_bit(NBD_RT_DISCONNECTED, &config->runtime_flags))
+
+	if (!wait_event_timeout(config->conn_wait,
+				test_bit(NBD_RT_DISCONNECTED,
+					 &config->runtime_flags) ||
+				atomic_read(&config->live_connections) > 0,
+				config->dead_conn_timeout))
 		return 0;
-	return wait_event_timeout(config->conn_wait,
-				  atomic_read(&config->live_connections) > 0,
-				  config->dead_conn_timeout) > 0;
+
+	return !test_bit(NBD_RT_DISCONNECTED, &config->runtime_flags);
 }
 
 static int nbd_handle_cmd(struct nbd_cmd *cmd, int index)
@@ -1226,7 +1229,7 @@ static void nbd_config_put(struct nbd_device *nbd)
 		if (test_and_clear_bit(NBD_RT_HAS_PID_FILE,
 				       &config->runtime_flags))
 			device_remove_file(disk_to_dev(nbd->disk), &pid_attr);
-		nbd->task_recv = NULL;
+		nbd->pid = 0;
 		nbd_clear_sock(nbd);
 		if (config->num_connections) {
 			int i;
@@ -1261,7 +1264,7 @@ static int nbd_start_device(struct nbd_device *nbd)
 	int num_connections = config->num_connections;
 	int error = 0, i;
 
-	if (nbd->task_recv)
+	if (nbd->pid)
 		return -EBUSY;
 	if (!config->socks)
 		return -EINVAL;
@@ -1280,7 +1283,7 @@ static int nbd_start_device(struct nbd_device *nbd)
 	}
 
 	blk_mq_update_nr_hw_queues(&nbd->tag_set, config->num_connections);
-	nbd->task_recv = current;
+	nbd->pid = task_pid_nr(current);
 
 	nbd_parse_flags(nbd);
 
@@ -1339,10 +1342,12 @@ static int nbd_start_device_ioctl(struct nbd_device *nbd, struct block_device *b
 	mutex_unlock(&nbd->config_lock);
 	ret = wait_event_interruptible(config->recv_wq,
 					 atomic_read(&config->recv_threads) == 0);
-	if (ret)
+	if (ret) {
 		sock_shutdown(nbd);
-	flush_workqueue(nbd->recv_workq);
+		nbd_clear_que(nbd);
+	}
 
+	flush_workqueue(nbd->recv_workq);
 	mutex_lock(&nbd->config_lock);
 	nbd_bdev_reset(bdev);
 	/* user requested, ignore socket errors */
@@ -1356,7 +1361,7 @@ static int nbd_start_device_ioctl(struct nbd_device *nbd, struct block_device *b
 static void nbd_clear_sock_ioctl(struct nbd_device *nbd,
 				 struct block_device *bdev)
 {
-	sock_shutdown(nbd);
+	nbd_clear_sock(nbd);
 	__invalidate_device(bdev, true);
 	nbd_bdev_reset(bdev);
 	if (test_and_clear_bit(NBD_RT_HAS_CONFIG_REF,
@@ -1377,6 +1382,8 @@ static void nbd_set_cmd_timeout(struct nbd_device *nbd, u64 timeout)
 	nbd->tag_set.timeout = timeout * HZ;
 	if (timeout)
 		blk_queue_rq_timeout(nbd->disk->queue, timeout * HZ);
+	else
+		blk_queue_rq_timeout(nbd->disk->queue, 30 * HZ);
 }
 
 /* Must be called with config_lock held */
@@ -1467,15 +1474,20 @@ static struct nbd_config *nbd_alloc_config(void)
 {
 	struct nbd_config *config;
 
+	if (!try_module_get(THIS_MODULE))
+		return ERR_PTR(-ENODEV);
+
 	config = kzalloc(sizeof(struct nbd_config), GFP_NOFS);
-	if (!config)
-		return NULL;
+	if (!config) {
+		module_put(THIS_MODULE);
+		return ERR_PTR(-ENOMEM);
+	}
+
 	atomic_set(&config->recv_threads, 0);
 	init_waitqueue_head(&config->recv_wq);
 	init_waitqueue_head(&config->conn_wait);
 	config->blksize = NBD_DEF_BLKSIZE;
 	atomic_set(&config->live_connections, 0);
-	try_module_get(THIS_MODULE);
 	return config;
 }
 
@@ -1502,12 +1514,13 @@ static int nbd_open(struct block_device *bdev, fmode_t mode)
 			mutex_unlock(&nbd->config_lock);
 			goto out;
 		}
-		config = nbd->config = nbd_alloc_config();
-		if (!config) {
-			ret = -ENOMEM;
+		config = nbd_alloc_config();
+		if (IS_ERR(config)) {
+			ret = PTR_ERR(config);
 			mutex_unlock(&nbd->config_lock);
 			goto out;
 		}
+		nbd->config = config;
 		refcount_set(&nbd->config_refs, 1);
 		refcount_inc(&nbd->refs);
 		mutex_unlock(&nbd->config_lock);
@@ -1549,8 +1562,8 @@ static int nbd_dbg_tasks_show(struct seq_file *s, void *unused)
 {
 	struct nbd_device *nbd = s->private;
 
-	if (nbd->task_recv)
-		seq_printf(s, "recv: %d\n", task_pid_nr(nbd->task_recv));
+	if (nbd->pid)
+		seq_printf(s, "recv: %d\n", nbd->pid);
 
 	return 0;
 }
@@ -1758,6 +1771,7 @@ static int nbd_dev_add(int index)
 	refcount_set(&nbd->refs, 1);
 	INIT_LIST_HEAD(&nbd->list);
 	disk->major = NBD_MAJOR;
+
 	disk->first_minor = index << part_shift;
 	disk->fops = &nbd_fops;
 	disk->private_data = nbd;
@@ -1852,8 +1866,19 @@ static int nbd_genl_connect(struct sk_buff *skb, struct genl_info *info)
 	if (!netlink_capable(skb, CAP_SYS_ADMIN))
 		return -EPERM;
 
-	if (info->attrs[NBD_ATTR_INDEX])
+	if (info->attrs[NBD_ATTR_INDEX]) {
 		index = nla_get_u32(info->attrs[NBD_ATTR_INDEX]);
+
+		/*
+		 * Too big first_minor can cause duplicate creation of
+		 * sysfs files/links, since index << part_shift might overflow, or
+		 * MKDEV() expect that the max bits of first_minor is 20.
+		 */
+		if (index < 0 || index > MINORMASK >> part_shift) {
+			printk(KERN_ERR "nbd: illegal input index %d\n", index);
+			return -EINVAL;
+		}
+	}
 	if (!info->attrs[NBD_ATTR_SOCKETS]) {
 		printk(KERN_ERR "nbd: must specify at least one socket\n");
 		return -EINVAL;
@@ -1929,13 +1954,14 @@ again:
 		nbd_put(nbd);
 		return -EINVAL;
 	}
-	config = nbd->config = nbd_alloc_config();
-	if (!nbd->config) {
+	config = nbd_alloc_config();
+	if (IS_ERR(config)) {
 		mutex_unlock(&nbd->config_lock);
 		nbd_put(nbd);
 		printk(KERN_ERR "nbd: couldn't allocate config\n");
-		return -ENOMEM;
+		return PTR_ERR(config);
 	}
+	nbd->config = config;
 	refcount_set(&nbd->config_refs, 1);
 	set_bit(NBD_RT_BOUND, &config->runtime_flags);
 
@@ -1957,12 +1983,21 @@ again:
 	if (info->attrs[NBD_ATTR_CLIENT_FLAGS]) {
 		u64 flags = nla_get_u64(info->attrs[NBD_ATTR_CLIENT_FLAGS]);
 		if (flags & NBD_CFLAG_DESTROY_ON_DISCONNECT) {
-			set_bit(NBD_RT_DESTROY_ON_DISCONNECT,
-				&config->runtime_flags);
-			set_bit(NBD_DESTROY_ON_DISCONNECT, &nbd->flags);
-			put_dev = true;
+			/*
+			 * We have 1 ref to keep the device around, and then 1
+			 * ref for our current operation here, which will be
+			 * inherited by the config.  If we already have
+			 * DESTROY_ON_DISCONNECT set then we know we don't have
+			 * that extra ref already held so we don't need the
+			 * put_dev.
+			 */
+			if (!test_and_set_bit(NBD_DESTROY_ON_DISCONNECT,
+					      &nbd->flags))
+				put_dev = true;
 		} else {
-			clear_bit(NBD_DESTROY_ON_DISCONNECT, &nbd->flags);
+			if (test_and_clear_bit(NBD_DESTROY_ON_DISCONNECT,
+					       &nbd->flags))
+				refcount_inc(&nbd->refs);
 		}
 		if (flags & NBD_CFLAG_DISCONNECT_ON_CLOSE) {
 			set_bit(NBD_RT_DISCONNECT_ON_CLOSE,
@@ -2019,6 +2054,7 @@ static void nbd_disconnect_and_put(struct nbd_device *nbd)
 	mutex_lock(&nbd->config_lock);
 	nbd_disconnect(nbd);
 	sock_shutdown(nbd);
+	wake_up(&nbd->config->conn_wait);
 	/*
 	 * Make sure recv thread has finished, so it does not drop the last
 	 * config ref and try to destroy the workqueue from inside the work
@@ -2116,7 +2152,7 @@ static int nbd_genl_reconfigure(struct sk_buff *skb, struct genl_info *info)
 	mutex_lock(&nbd->config_lock);
 	config = nbd->config;
 	if (!test_bit(NBD_RT_BOUND, &config->runtime_flags) ||
-	    !nbd->task_recv) {
+	    !nbd->pid) {
 		dev_err(nbd_to_dev(nbd),
 			"not configured, cannot reconfigure\n");
 		ret = -EINVAL;
@@ -2138,15 +2174,13 @@ static int nbd_genl_reconfigure(struct sk_buff *skb, struct genl_info *info)
 	if (info->attrs[NBD_ATTR_CLIENT_FLAGS]) {
 		u64 flags = nla_get_u64(info->attrs[NBD_ATTR_CLIENT_FLAGS]);
 		if (flags & NBD_CFLAG_DESTROY_ON_DISCONNECT) {
-			if (!test_and_set_bit(NBD_RT_DESTROY_ON_DISCONNECT,
-					      &config->runtime_flags))
+			if (!test_and_set_bit(NBD_DESTROY_ON_DISCONNECT,
+					      &nbd->flags))
 				put_dev = true;
-			set_bit(NBD_DESTROY_ON_DISCONNECT, &nbd->flags);
 		} else {
-			if (test_and_clear_bit(NBD_RT_DESTROY_ON_DISCONNECT,
-					       &config->runtime_flags))
+			if (test_and_clear_bit(NBD_DESTROY_ON_DISCONNECT,
+					       &nbd->flags))
 				refcount_inc(&nbd->refs);
-			clear_bit(NBD_DESTROY_ON_DISCONNECT, &nbd->flags);
 		}
 
 		if (flags & NBD_CFLAG_DISCONNECT_ON_CLOSE) {
@@ -2448,6 +2482,12 @@ static void __exit nbd_cleanup(void)
 	struct nbd_device *nbd;
 	LIST_HEAD(del_list);
 
+	/*
+	 * Unregister netlink interface prior to waiting
+	 * for the completion of netlink commands.
+	 */
+	genl_unregister_family(&nbd_genl_family);
+
 	nbd_dbg_close();
 
 	mutex_lock(&nbd_index_mutex);
@@ -2457,13 +2497,15 @@ static void __exit nbd_cleanup(void)
 	while (!list_empty(&del_list)) {
 		nbd = list_first_entry(&del_list, struct nbd_device, list);
 		list_del_init(&nbd->list);
+		if (refcount_read(&nbd->config_refs))
+			printk(KERN_ERR "nbd: possibly leaking nbd_config (ref %d)\n",
+					refcount_read(&nbd->config_refs));
 		if (refcount_read(&nbd->refs) != 1)
 			printk(KERN_ERR "nbd: possibly leaking a device\n");
 		nbd_put(nbd);
 	}
 
 	idr_destroy(&nbd_index_idr);
-	genl_unregister_family(&nbd_genl_family);
 	unregister_blkdev(NBD_MAJOR, "nbd");
 }
 

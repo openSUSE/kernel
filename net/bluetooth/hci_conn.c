@@ -138,10 +138,6 @@ static void hci_conn_cleanup(struct hci_conn *conn)
 	hci_conn_del_sysfs(conn);
 
 	debugfs_remove_recursive(conn->debugfs);
-
-	hci_dev_put(hdev);
-
-	hci_conn_put(conn);
 }
 
 static void le_scan_cleanup(struct work_struct *work)

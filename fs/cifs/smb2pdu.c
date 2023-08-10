@@ -602,11 +602,15 @@ assemble_neg_contexts(struct smb2_negotiate_req *req,
 
 }
 
+/* If invalid preauth context warn but use what we requested, SHA-512 */
 static void decode_preauth_context(struct smb2_preauth_neg_context *ctxt)
 {
 	unsigned int len = le16_to_cpu(ctxt->DataLength);
 
-	/* If invalid preauth context warn but use what we requested, SHA-512 */
+	/*
+	 * Caller checked that DataLength remains within SMB boundary. We still
+	 * need to confirm that one HashAlgorithms member is accounted for.
+	 */
 	if (len < MIN_PREAUTH_CTXT_DATA_LEN) {
 		pr_warn_once("server sent bad preauth context\n");
 		return;
@@ -625,7 +629,11 @@ static void decode_compress_ctx(struct TCP_Server_Info *server,
 {
 	unsigned int len = le16_to_cpu(ctxt->DataLength);
 
-	/* sizeof compress context is a one element compression capbility struct */
+	/*
+	 * Caller checked that DataLength remains within SMB boundary. We still
+	 * need to confirm that one CompressionAlgorithms member is accounted
+	 * for.
+	 */
 	if (len < 10) {
 		pr_warn_once("server sent bad compression cntxt\n");
 		return;
@@ -647,6 +655,11 @@ static int decode_encrypt_ctx(struct TCP_Server_Info *server,
 	unsigned int len = le16_to_cpu(ctxt->DataLength);
 
 	cifs_dbg(FYI, "decode SMB3.11 encryption neg context of len %d\n", len);
+	/*
+	 * Caller checked that DataLength remains within SMB boundary. We still
+	 * need to confirm that one Cipher flexible array member is accounted
+	 * for.
+	 */
 	if (len < MIN_ENCRYPT_CTXT_DATA_LEN) {
 		pr_warn_once("server sent bad crypto ctxt len\n");
 		return -EINVAL;
@@ -693,6 +706,11 @@ static void decode_signing_ctx(struct TCP_Server_Info *server,
 {
 	unsigned int len = le16_to_cpu(pctxt->DataLength);
 
+	/*
+	 * Caller checked that DataLength remains within SMB boundary. We still
+	 * need to confirm that one SigningAlgorithms flexible array member is
+	 * accounted for.
+	 */
 	if ((len < 4) || (len > 16)) {
 		pr_warn_once("server sent bad signing negcontext\n");
 		return;
@@ -734,14 +752,19 @@ static int smb311_decode_neg_context(struct smb2_negotiate_rsp *rsp,
 	for (i = 0; i < ctxt_cnt; i++) {
 		int clen;
 		/* check that offset is not beyond end of SMB */
-		if (len_of_ctxts == 0)
-			break;
-
 		if (len_of_ctxts < sizeof(struct smb2_neg_context))
 			break;
 
 		pctx = (struct smb2_neg_context *)(offset + (char *)rsp);
-		clen = le16_to_cpu(pctx->DataLength);
+		clen = sizeof(struct smb2_neg_context)
+			+ le16_to_cpu(pctx->DataLength);
+		/*
+		 * 2.2.4 SMB2 NEGOTIATE Response
+		 * Subsequent negotiate contexts MUST appear at the first 8-byte
+		 * aligned offset following the previous negotiate context.
+		 */
+		if (i + 1 != ctxt_cnt)
+			clen = ALIGN(clen, 8);
 		if (clen > len_of_ctxts)
 			break;
 
@@ -762,12 +785,10 @@ static int smb311_decode_neg_context(struct smb2_negotiate_rsp *rsp,
 		else
 			cifs_server_dbg(VFS, "unknown negcontext of type %d ignored\n",
 				le16_to_cpu(pctx->ContextType));
-
 		if (rc)
 			break;
-		/* offsets must be 8 byte aligned */
-		clen = (clen + 7) & ~0x7;
-		offset += clen + sizeof(struct smb2_neg_context);
+
+		offset += clen;
 		len_of_ctxts -= clen;
 	}
 	return rc;
@@ -2558,19 +2579,15 @@ alloc_path_with_tree_prefix(__le16 **out_path, int *out_size, int *out_len,
 
 	path_len = UniStrnlen((wchar_t *)path, PATH_MAX);
 
-	/*
-	 * make room for one path separator between the treename and
-	 * path
-	 */
-	*out_len = treename_len + 1 + path_len;
+	/* make room for one path separator only if @path isn't empty */
+	*out_len = treename_len + (path[0] ? 1 : 0) + path_len;
 
 	/*
-	 * final path needs to be null-terminated UTF16 with a
-	 * size aligned to 8
+	 * final path needs to be 8-byte aligned as specified in
+	 * MS-SMB2 2.2.13 SMB2 CREATE Request.
 	 */
-
-	*out_size = roundup((*out_len+1)*2, 8);
-	*out_path = kzalloc(*out_size, GFP_KERNEL);
+	*out_size = roundup(*out_len * sizeof(__le16), 8);
+	*out_path = kzalloc(*out_size + sizeof(__le16) /* null */, GFP_KERNEL);
 	if (!*out_path)
 		return -ENOMEM;
 
@@ -4115,12 +4132,15 @@ smb2_readv_callback(struct mid_q_entry *mid)
 				(struct smb2_hdr *)rdata->iov[0].iov_base;
 	struct cifs_credits credits = { .value = 0, .instance = 0 };
 	struct smb_rqst rqst = { .rq_iov = &rdata->iov[1],
-				 .rq_nvec = 1,
-				 .rq_pages = rdata->pages,
-				 .rq_offset = rdata->page_offset,
-				 .rq_npages = rdata->nr_pages,
-				 .rq_pagesz = rdata->pagesz,
-				 .rq_tailsz = rdata->tailsz };
+				 .rq_nvec = 1, };
+
+	if (rdata->got_bytes) {
+		rqst.rq_pages = rdata->pages;
+		rqst.rq_offset = rdata->page_offset;
+		rqst.rq_npages = rdata->nr_pages;
+		rqst.rq_pagesz = rdata->pagesz;
+		rqst.rq_tailsz = rdata->tailsz;
+	}
 
 	WARN_ONCE(rdata->server != mid->server,
 		  "rdata server %p != mid server %p",

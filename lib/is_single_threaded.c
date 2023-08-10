@@ -22,6 +22,9 @@ bool current_is_single_threaded(void)
 	if (atomic_read(&task->signal->live) != 1)
 		return false;
 
+	if (current_has_io_workers())
+		return false;
+
 	if (atomic_read(&mm->mm_users) == 1)
 		return true;
 

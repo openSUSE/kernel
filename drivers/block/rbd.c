@@ -2532,7 +2532,7 @@ int rbd_img_fill_nodata(struct rbd_img_request *img_req,
 			u64 off, u64 len)
 {
 	struct ceph_file_extent ex = { off, len };
-	union rbd_img_fill_iter dummy;
+	union rbd_img_fill_iter dummy = {};
 	struct rbd_img_fill_ctx fctx = {
 		.pos_type = OBJ_REQUEST_NODATA,
 		.pos = &dummy,
@@ -7394,8 +7394,10 @@ static int __init rbd_sysfs_init(void)
 	int ret;
 
 	ret = device_register(&rbd_root_dev);
-	if (ret < 0)
+	if (ret < 0) {
+		put_device(&rbd_root_dev);
 		return ret;
+	}
 
 	ret = bus_register(&rbd_bus_type);
 	if (ret < 0)

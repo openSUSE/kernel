@@ -460,14 +460,17 @@ extern void bvec_free(mempool_t *, struct bio_vec *, unsigned int);
 extern unsigned int bvec_nr_vecs(unsigned short idx);
 extern const char *bio_devname(struct bio *bio, char *buffer);
 
-#define bio_set_dev(bio, bdev) 			\
+#define bio_set_disk(bio, disk, part)		\
 do {						\
-	if ((bio)->bi_disk != (bdev)->bd_disk)	\
+	if ((bio)->bi_disk != (disk))		\
 		bio_clear_flag(bio, BIO_THROTTLED);\
-	(bio)->bi_disk = (bdev)->bd_disk;	\
-	(bio)->bi_partno = (bdev)->bd_partno;	\
+	(bio)->bi_disk = (disk);		\
+	(bio)->bi_partno = (part);		\
 	bio_associate_blkg(bio);		\
 } while (0)
+
+#define bio_set_dev(bio, bdev) bio_set_disk(bio, (bdev)->bd_disk, \
+					    (bdev)->bd_partno)
 
 #define bio_copy_dev(dst, src)			\
 do {						\

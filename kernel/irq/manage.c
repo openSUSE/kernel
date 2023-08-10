@@ -398,6 +398,22 @@ int irq_set_affinity_hint(unsigned int irq, const struct cpumask *m)
 }
 EXPORT_SYMBOL_GPL(irq_set_affinity_hint);
 
+int __irq_apply_affinity_hint(unsigned int irq, const struct cpumask *m,
+			      bool setaffinity)
+{
+	unsigned long flags;
+	struct irq_desc *desc = irq_get_desc_lock(irq, &flags, IRQ_GET_DESC_CHECK_GLOBAL);
+
+	if (!desc)
+		return -EINVAL;
+	desc->affinity_hint = m;
+	irq_put_desc_unlock(desc, flags);
+	if (m && setaffinity)
+		__irq_set_affinity(irq, m, false);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(__irq_apply_affinity_hint);
+
 static void irq_affinity_notify(struct work_struct *work)
 {
 	struct irq_affinity_notify *notify =

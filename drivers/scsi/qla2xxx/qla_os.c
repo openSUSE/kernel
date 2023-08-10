@@ -352,6 +352,13 @@ MODULE_PARM_DESC(ql2xnvme_queues,
 	"1 - Minimum number of queues supported\n"
 	"8 - Default value");
 
+int ql2xfc2target = 1;
+module_param(ql2xfc2target, int, 0444);
+MODULE_PARM_DESC(qla2xfc2target,
+		  "Enables FC2 Target support. "
+		  "0 - FC2 Target support is disabled. "
+		  "1 - FC2 Target support is enabled (default).");
+
 static struct scsi_transport_template *qla2xxx_transport_template = NULL;
 struct scsi_transport_template *qla2xxx_transport_vport_template = NULL;
 
@@ -3255,7 +3262,6 @@ qla2x00_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	    host->max_cmd_len, host->max_channel, host->max_lun,
 	    host->transportt, sht->vendor_id);
 
-	INIT_WORK(&base_vha->iocb_work, qla2x00_iocb_work_fn);
 	INIT_WORK(&ha->heartbeat_work, qla_heartbeat_work_fn);
 
 	/* Set up the irqs */
@@ -4047,6 +4053,17 @@ qla2x00_mark_all_devices_lost(scsi_qla_host_t *vha)
 	    "Mark all dev lost\n");
 
 	list_for_each_entry(fcport, &vha->vp_fcports, list) {
+		if (ql2xfc2target &&
+		    fcport->loop_id != FC_NO_LOOP_ID &&
+		    (fcport->flags & FCF_FCP2_DEVICE) &&
+		    fcport->port_type == FCT_TARGET &&
+		    !qla2x00_reset_active(vha)) {
+			ql_dbg(ql_dbg_disc, vha, 0x211a,
+			       "Delaying session delete for FCP2 flags 0x%x port_type = 0x%x port_id=%06x %phC",
+			       fcport->flags, fcport->port_type,
+			       fcport->d_id.b24, fcport->port_name);
+			continue;
+		}
 		fcport->scan_state = 0;
 		qlt_schedule_sess_for_deletion(fcport);
 	}
@@ -5030,13 +5047,11 @@ struct qla_work_evt *
 qla2x00_alloc_work(struct scsi_qla_host *vha, enum qla_work_type type)
 {
 	struct qla_work_evt *e;
-	uint8_t bail;
 
 	if (test_bit(UNLOADING, &vha->dpc_flags))
 		return NULL;
 
-	QLA_VHA_MARK_BUSY(vha, bail);
-	if (bail)
+	if (qla_vha_mark_busy(vha))
 		return NULL;
 
 	e = kzalloc(sizeof(struct qla_work_evt), GFP_ATOMIC);
@@ -8019,6 +8034,7 @@ struct scsi_host_template qla2xxx_driver_template = {
 	.supported_mode		= MODE_INITIATOR,
 	.track_queue_depth	= 1,
 	.cmd_size		= sizeof(srb_t),
+	.template_has_eh_should_retry_cmd = 1,
 };
 
 static const struct pci_error_handlers qla2xxx_err_handler = {

@@ -1959,9 +1959,6 @@ nfsd4_proc_compound(struct svc_rqst *rqstp)
 	status = nfserr_minor_vers_mismatch;
 	if (nfsd_minorversion(nn, args->minorversion, NFSD_TEST) <= 0)
 		goto out;
-	status = nfserr_resource;
-	if (args->opcnt > NFSD_MAX_OPS_PER_COMPOUND)
-		goto out;
 
 	status = nfs41_check_op_ordering(args);
 	if (status) {
@@ -1971,9 +1968,19 @@ nfsd4_proc_compound(struct svc_rqst *rqstp)
 		goto encode_op;
 	}
 
-	trace_nfsd_compound(rqstp, args->opcnt);
+	trace_nfsd_compound(rqstp, args->client_opcnt);
 	while (!status && resp->opcnt < args->opcnt) {
 		op = &args->ops[resp->opcnt++];
+
+		if (unlikely(resp->opcnt == NFSD_MAX_OPS_PER_COMPOUND)) {
+			/* If there are still more operations to process,
+			 * stop here and report NFS4ERR_RESOURCE. */
+			if (cstate->minorversion == 0 &&
+			    args->client_opcnt > resp->opcnt) {
+				op->status = nfserr_resource;
+				goto encode_op;
+			}
+		}
 
 		/*
 		 * The XDR decode routines may have pre-set op->status;
@@ -2048,8 +2055,8 @@ encode_op:
 			status = op->status;
 		}
 
-		trace_nfsd_compound_status(args->opcnt, resp->opcnt, status,
-					   nfsd4_op_name(op->opnum));
+		trace_nfsd_compound_status(args->client_opcnt, resp->opcnt,
+					   status, nfsd4_op_name(op->opnum));
 
 		nfsd4_cstate_clear_replay(cstate);
 		nfsd4_increment_op_stats(op->opnum);
@@ -2083,6 +2090,22 @@ out:
 					 op_encode_ace_maxsz)
 
 #define op_encode_channel_attrs_maxsz	(6 + 1 + 1)
+
+/*
+ * The _rsize() helpers are invoked by the NFSv4 COMPOUND decoder, which
+ * is called before sunrpc sets rq_res.buflen. Thus we have to compute
+ * the maximum payload size here, based on transport limits and the size
+ * of the remaining space in the rq_pages array.
+ */
+static u32 nfsd4_max_payload(const struct svc_rqst *rqstp)
+{
+	u32 buflen;
+
+	buflen = (rqstp->rq_page_end - rqstp->rq_next_page) * PAGE_SIZE;
+	buflen -= rqstp->rq_auth_slack;
+	buflen -= rqstp->rq_res.head[0].iov_len;
+	return min_t(u32, buflen, svc_max_payload(rqstp));
+}
 
 static inline u32 nfsd4_only_status_rsize(struct svc_rqst *rqstp, struct nfsd4_op *op)
 {
@@ -2124,9 +2147,9 @@ static inline u32 nfsd4_getattr_rsize(struct svc_rqst *rqstp,
 	u32 ret = 0;
 
 	if (bmap0 & FATTR4_WORD0_ACL)
-		return svc_max_payload(rqstp);
+		return nfsd4_max_payload(rqstp);
 	if (bmap0 & FATTR4_WORD0_FS_LOCATIONS)
-		return svc_max_payload(rqstp);
+		return nfsd4_max_payload(rqstp);
 
 	if (bmap1 & FATTR4_WORD1_OWNER) {
 		ret += IDMAP_NAMESZ + 4;
@@ -2181,20 +2204,14 @@ static inline u32 nfsd4_open_rsize(struct svc_rqst *rqstp, struct nfsd4_op *op)
 
 static inline u32 nfsd4_read_rsize(struct svc_rqst *rqstp, struct nfsd4_op *op)
 {
-	u32 maxcount = 0, rlen = 0;
-
-	maxcount = svc_max_payload(rqstp);
-	rlen = min(op->u.read.rd_length, maxcount);
+	u32 rlen = min(op->u.read.rd_length, nfsd4_max_payload(rqstp));
 
 	return (op_encode_hdr_size + 2 + XDR_QUADLEN(rlen)) * sizeof(__be32);
 }
 
 static inline u32 nfsd4_readdir_rsize(struct svc_rqst *rqstp, struct nfsd4_op *op)
 {
-	u32 maxcount = 0, rlen = 0;
-
-	maxcount = svc_max_payload(rqstp);
-	rlen = min(op->u.readdir.rd_maxcount, maxcount);
+	u32 rlen = min(op->u.readdir.rd_maxcount, nfsd4_max_payload(rqstp));
 
 	return (op_encode_hdr_size + op_encode_verifier_maxsz +
 		XDR_QUADLEN(rlen)) * sizeof(__be32);
@@ -2305,10 +2322,7 @@ static inline u32 nfsd4_offload_status_rsize(struct svc_rqst *rqstp,
 #ifdef CONFIG_NFSD_PNFS
 static inline u32 nfsd4_getdeviceinfo_rsize(struct svc_rqst *rqstp, struct nfsd4_op *op)
 {
-	u32 maxcount = 0, rlen = 0;
-
-	maxcount = svc_max_payload(rqstp);
-	rlen = min(op->u.getdeviceinfo.gd_maxcount, maxcount);
+	u32 rlen = min(op->u.getdeviceinfo.gd_maxcount, nfsd4_max_payload(rqstp));
 
 	return (op_encode_hdr_size +
 		1 /* gd_layout_type*/ +

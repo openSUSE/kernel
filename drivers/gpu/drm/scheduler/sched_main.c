@@ -163,7 +163,7 @@ drm_sched_rq_select_entity(struct drm_sched_rq *rq)
 }
 
 /**
- * drm_sched_dependency_optimized
+ * drm_sched_dependency_optimized - test if the dependency can be optimized
  *
  * @fence: the dependency fence
  * @entity: the entity which depends on the above fence
@@ -836,6 +836,7 @@ static int drm_sched_main(void *param)
  * @hang_limit: number of times to allow a job to hang before dropping it
  * @timeout: timeout value in jiffies for the scheduler
  * @name: name used for debugging
+ * @dev: target &struct device
  *
  * Return 0 on success, otherwise error code.
  */

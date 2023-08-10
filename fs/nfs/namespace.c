@@ -144,7 +144,7 @@ EXPORT_SYMBOL_GPL(nfs_path);
 struct vfsmount *nfs_d_automount(struct path *path)
 {
 	struct vfsmount *mnt;
-	struct nfs_server *server = NFS_SERVER(d_inode(path->dentry));
+	struct nfs_server *server = NFS_SB(path->dentry->d_sb);
 	struct nfs_fh *fh = NULL;
 	struct nfs_fattr *fattr = NULL;
 

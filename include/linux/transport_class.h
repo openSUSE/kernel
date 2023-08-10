@@ -62,16 +62,25 @@ struct transport_container {
 	container_of(x, struct transport_container, ac)
 
 void transport_remove_device(struct device *);
+#ifndef __GENKSYMS__
+int transport_add_device(struct device *);
+#else
 void transport_add_device(struct device *);
+#endif
 void transport_setup_device(struct device *);
 void transport_configure_device(struct device *);
 void transport_destroy_device(struct device *);
 
-static inline void
+static inline int
 transport_register_device(struct device *dev)
 {
 	transport_setup_device(dev);
+#ifndef __GENKSYMS__
+	return transport_add_device(dev);
+#else
 	transport_add_device(dev);
+	return 0;
+#endif
 }
 
 static inline void

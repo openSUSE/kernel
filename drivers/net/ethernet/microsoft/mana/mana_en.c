@@ -162,6 +162,14 @@ int mana_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		pkg.tx_oob.s_oob.short_vp_offset = txq->vp_offset;
 	}
 
+	if (skb_vlan_tag_present(skb)) {
+		pkt_fmt = MANA_LONG_PKT_FMT;
+		pkg.tx_oob.l_oob.inject_vlan_pri_tag = 1;
+		pkg.tx_oob.l_oob.pcp = skb_vlan_tag_get_prio(skb);
+		pkg.tx_oob.l_oob.dei = skb_vlan_tag_get_cfi(skb);
+		pkg.tx_oob.l_oob.vlan_id = skb_vlan_tag_get_id(skb);
+	}
+
 	pkg.tx_oob.s_oob.pkt_fmt = pkt_fmt;
 
 	if (pkt_fmt == MANA_SHORT_PKT_FMT)
@@ -1151,6 +1159,12 @@ static void mana_rx_skb(void *buf_va, struct mana_rxcomp_oob *cqe,
 			skb_set_hash(skb, hash_value, PKT_HASH_TYPE_L3);
 	}
 
+	if (cqe->rx_vlantag_present) {
+		u16 vlan_tci = cqe->rx_vlan_id;
+
+		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), vlan_tci);
+	}
+
 	u64_stats_update_begin(&rx_stats->syncp);
 	rx_stats->packets++;
 	rx_stats->bytes += pkt_len;
@@ -1301,10 +1315,11 @@ static void mana_poll_rx_cq(struct mana_cq *cq)
 		xdp_do_flush();
 }
 
-static void mana_cq_handler(void *context, struct gdma_queue *gdma_queue)
+static int mana_cq_handler(void *context, struct gdma_queue *gdma_queue)
 {
 	struct mana_cq *cq = context;
 	u8 arm_bit;
+	int w;
 
 	WARN_ON_ONCE(cq->gdma_cq != gdma_queue);
 
@@ -1313,26 +1328,31 @@ static void mana_cq_handler(void *context, struct gdma_queue *gdma_queue)
 	else
 		mana_poll_tx_cq(cq);
 
-	if (cq->work_done < cq->budget &&
-	    napi_complete_done(&cq->napi, cq->work_done)) {
+	w = cq->work_done;
+
+	if (w < cq->budget &&
+	    napi_complete_done(&cq->napi, w)) {
 		arm_bit = SET_ARM_BIT;
 	} else {
 		arm_bit = 0;
 	}
 
 	mana_gd_ring_cq(gdma_queue, arm_bit);
+
+	return w;
 }
 
 static int mana_poll(struct napi_struct *napi, int budget)
 {
 	struct mana_cq *cq = container_of(napi, struct mana_cq, napi);
+	int w;
 
 	cq->work_done = 0;
 	cq->budget = budget;
 
-	mana_cq_handler(cq, cq->gdma_cq);
+	w = mana_cq_handler(cq, cq->gdma_cq);
 
-	return min(cq->work_done, budget);
+	return min(w, budget);
 }
 
 static void mana_schedule_napi(void *context, struct gdma_queue *gdma_queue)
@@ -2083,8 +2103,9 @@ static int mana_probe_port(struct mana_context *ac, int port_idx,
 	ndev->hw_features |= NETIF_F_RXCSUM;
 	ndev->hw_features |= NETIF_F_TSO | NETIF_F_TSO6;
 	ndev->hw_features |= NETIF_F_RXHASH;
-	ndev->features = ndev->hw_features;
-	ndev->vlan_features = 0;
+	ndev->features = ndev->hw_features | NETIF_F_HW_VLAN_CTAG_TX |
+			 NETIF_F_HW_VLAN_CTAG_RX;
+	ndev->vlan_features = ndev->features;
 
 	err = register_netdev(ndev);
 	if (err) {
