@@ -53,12 +53,13 @@ static inline void get_ucode_data(void *to, const u8 *from, size_t n)
 {
 	memcpy(to, from, n);
 }
-
+extern void amd_check_microcode(void);
 #else
 static inline struct microcode_ops * __init init_amd_microcode(void)
 {
 	return NULL;
 }
+static inline void amd_check_microcode(void)  {}
 #endif
 
 #endif /* _ASM_X86_MICROCODE_H */

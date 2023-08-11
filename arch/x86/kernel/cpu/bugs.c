@@ -204,6 +204,7 @@ static void __init md_clear_select_mitigation(void);
 static void __init taa_select_mitigation(void);
 static void __init mmio_select_mitigation(void);
 static void __init srbds_select_mitigation(void);
+static void __init gds_select_mitigation(void);
 
 /* The base value of the SPEC_CTRL MSR without task-specific bits set */
 u64 x86_spec_ctrl_base;
@@ -300,6 +301,7 @@ void __init check_bugs(void)
 	ssb_init_cmd_line();
 	ssb_select_mitigation();
 	srbds_select_mitigation();
+	gds_select_mitigation();
 
 #ifdef CONFIG_X86_32
 	check_config();
@@ -512,6 +514,8 @@ early_param("tsx_async_abort", tsx_async_abort_parse_cmdline);
 
 static bool x86_bug_mmio;
 
+bool x86_bug_gds = false;
+
 #undef pr_fmt
 #define pr_fmt(fmt)	"MMIO Stale Data: " fmt
 
@@ -654,6 +658,120 @@ static void __init md_clear_select_mitigation(void)
 }
 
 static bool x86_bug_srbds;
+
+#undef pr_fmt
+#define pr_fmt(fmt)	"GDS: " fmt
+
+enum gds_mitigations {
+	GDS_MITIGATION_OFF,
+	GDS_MITIGATION_UCODE_NEEDED,
+	GDS_MITIGATION_FULL,
+	GDS_MITIGATION_FULL_LOCKED,
+	GDS_MITIGATION_HYPERVISOR,
+};
+
+static enum gds_mitigations gds_mitigation = GDS_MITIGATION_FULL;
+
+static const char * const gds_strings[] = {
+	[GDS_MITIGATION_OFF]		= "Vulnerable",
+	[GDS_MITIGATION_UCODE_NEEDED]	= "Vulnerable: No microcode",
+	[GDS_MITIGATION_FULL]		= "Mitigation: Microcode",
+	[GDS_MITIGATION_FULL_LOCKED]	= "Mitigation: Microcode (locked)",
+	[GDS_MITIGATION_HYPERVISOR]	= "Unknown: Dependent on hypervisor status",
+};
+
+void update_gds_msr(void)
+{
+	u64 mcu_ctrl_after;
+	u64 mcu_ctrl;
+
+	switch (gds_mitigation) {
+	case GDS_MITIGATION_OFF:
+		rdmsrl(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl);
+		mcu_ctrl |= GDS_MITG_DIS;
+		break;
+	case GDS_MITIGATION_FULL_LOCKED:
+		/*
+		 * The LOCKED state comes from the boot CPU. APs might not have
+		 * the same state. Make sure the mitigation is enabled on all
+		 * CPUs.
+		 */
+	case GDS_MITIGATION_FULL:
+		rdmsrl(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl);
+		mcu_ctrl &= ~GDS_MITG_DIS;
+		break;
+	case GDS_MITIGATION_UCODE_NEEDED:
+	case GDS_MITIGATION_HYPERVISOR:
+		return;
+	};
+
+	wrmsrl(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl);
+
+	/*
+	 * Check to make sure that the WRMSR value was not ignored. Writes to
+	 * GDS_MITG_DIS will be ignored if this processor is locked but the boot
+	 * processor was not.
+	 */
+	rdmsrl(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl_after);
+	WARN_ON_ONCE(mcu_ctrl != mcu_ctrl_after);
+}
+
+static void __init gds_select_mitigation(void)
+{
+	u64 mcu_ctrl;
+
+	if (!x86_bug_gds)
+		return;
+
+	if (boot_cpu_has(X86_FEATURE_HYPERVISOR)) {
+		gds_mitigation = GDS_MITIGATION_HYPERVISOR;
+		goto out;
+	}
+
+	if (cpu_mitigations_off())
+		gds_mitigation = GDS_MITIGATION_OFF;
+	/* Will verify below that mitigation _can_ be disabled */
+
+	/* No microcode */
+	if (!(x86_read_arch_cap_msr() & ARCH_CAP_GDS_CTRL)) {
+		gds_mitigation = GDS_MITIGATION_UCODE_NEEDED;
+		goto out;
+	}
+
+	rdmsrl(MSR_IA32_MCU_OPT_CTRL, mcu_ctrl);
+	if (mcu_ctrl & GDS_MITG_LOCKED) {
+		if (gds_mitigation == GDS_MITIGATION_OFF)
+			pr_warn("Mitigation locked. Disable failed.\n");
+
+		/*
+		 * The mitigation is selected from the boot CPU. All other CPUs
+		 * _should_ have the same state. If the boot CPU isn't locked
+		 * but others are then update_gds_msr() will WARN() of the state
+		 * mismatch. If the boot CPU is locked update_gds_msr() will
+		 * ensure the other CPUs have the mitigation enabled.
+		 */
+		gds_mitigation = GDS_MITIGATION_FULL_LOCKED;
+	}
+
+	update_gds_msr();
+out:
+	pr_info("%s\n", gds_strings[gds_mitigation]);
+}
+
+static int __init gds_parse_cmdline(char *str)
+{
+	if (!str)
+		return -EINVAL;
+
+	if (!x86_bug_gds)
+		return 0;
+
+	if (!strcmp(str, "off"))
+		gds_mitigation = GDS_MITIGATION_OFF;
+
+	return 0;
+}
+early_param("gather_data_sampling", gds_parse_cmdline);
 
 #undef pr_fmt
 #define pr_fmt(fmt)	"SRBDS: " fmt
@@ -976,7 +1094,6 @@ static void __init retbleed_select_mitigation(void)
 		if (boot_cpu_data.x86_vendor != X86_VENDOR_AMD)
 			pr_err(RETBLEED_UNTRAIN_MSG);
 		break;
-
 	default:
 		break;
 	}
@@ -1089,6 +1206,8 @@ static const __initconst struct x86_cpu_id cpu_vuln_whitelist[] = {
 /* CPU is affected by X86_BUG_MMIO_STALE_DATA */
 #define MMIO		BIT(1)
 #define RETBLEED	BIT(2)
+/* CPU is affected by GDS */
+#define GDS		BIT(5)
 
 static const struct x86_cpu_id cpu_vuln_blacklist[] __initconst = {
 	VULNBL_INTEL_STEPPINGS(IVYBRIDGE,	X86_STEPPING_ANY,		SRBDS),
@@ -1106,12 +1225,12 @@ static const struct x86_cpu_id cpu_vuln_blacklist[] __initconst = {
 						BIT(7) | BIT(0xB),              MMIO),
 	VULNBL_INTEL_STEPPINGS(SKYLAKE_DESKTOP,	X86_STEPPINGS(0x3, 0x3),	SRBDS | MMIO),
 	VULNBL_INTEL_STEPPINGS(SKYLAKE_DESKTOP,	X86_STEPPING_ANY,		SRBDS | RETBLEED),
-	VULNBL_INTEL_STEPPINGS(SKYLAKE_X,	X86_STEPPING_ANY,		RETBLEED),
+	VULNBL_INTEL_STEPPINGS(SKYLAKE_X,	X86_STEPPING_ANY,		RETBLEED | GDS),
 
-	VULNBL_INTEL_STEPPINGS(KABYLAKE_MOBILE,	X86_STEPPINGS(0x9, 0xC),	SRBDS | MMIO),
-	VULNBL_INTEL_STEPPINGS(KABYLAKE_MOBILE,	X86_STEPPINGS(0x0, 0x8),	SRBDS),
-	VULNBL_INTEL_STEPPINGS(KABYLAKE_DESKTOP, X86_STEPPINGS(0x9, 0xD),	SRBDS | MMIO),
-	VULNBL_INTEL_STEPPINGS(KABYLAKE_DESKTOP, X86_STEPPINGS(0x0, 0x8),	SRBDS),
+	VULNBL_INTEL_STEPPINGS(KABYLAKE_MOBILE,	X86_STEPPINGS(0x9, 0xC),	SRBDS | MMIO | GDS),
+	VULNBL_INTEL_STEPPINGS(KABYLAKE_MOBILE,	X86_STEPPINGS(0x0, 0x8),	SRBDS | GDS),
+	VULNBL_INTEL_STEPPINGS(KABYLAKE_DESKTOP, X86_STEPPINGS(0x9, 0xD),	SRBDS | MMIO | GDS),
+	VULNBL_INTEL_STEPPINGS(KABYLAKE_DESKTOP, X86_STEPPINGS(0x0, 0x8),	SRBDS | GDS),
 	VULNBL_INTEL_STEPPINGS(ATOM_TREMONT_X,	X86_STEPPING_ANY,		MMIO),
 	{}
 };
@@ -1214,6 +1333,16 @@ void setup_force_cpu_bugs(unsigned long __unused)
 	if (cpu_matches(cpu_vuln_blacklist, MMIO) &&
 	    !arch_cap_mmio_immune(ia32_cap))
 		x86_bug_mmio = true;
+
+	/*
+	 * Check if CPU is vulnerable to GDS. If running in a virtual machine on
+	 * an affected processor, the VMM may have disabled the use of GATHER by
+	 * disabling AVX2. The only way to do this in HW is to clear XCR0[2],
+	 * which means that AVX will be disabled.
+	 */
+	if (cpu_matches(cpu_vuln_blacklist, GDS) && !(ia32_cap & ARCH_CAP_GDS_NO) &&
+	    boot_cpu_has(X86_FEATURE_AVX))
+		x86_bug_gds = true;
 }
 
 static void __init spec2_print_if_insecure(const char *reason)
@@ -2023,6 +2152,20 @@ ssize_t cpu_show_mmio_stale_data(struct device *dev, struct device_attribute *at
 
 	return sprintf(buf, "%s; SMT %s\n", mmio_strings[mmio_mitigation],
 			  sched_smt_active() ? "vulnerable" : "disabled");
+}
+
+
+static ssize_t gds_show_state(char *buf)
+{
+	return sprintf(buf, "%s", gds_strings[gds_mitigation]);
+}
+
+ssize_t cpu_show_gds(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	if (!x86_bug_gds)
+		return sprintf(buf, "Not affected\n");
+
+	return gds_show_state(buf);
 }
 
 void x86_spec_ctrl_set(u64 val)
