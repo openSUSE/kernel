@@ -939,3 +939,4 @@ void amd_check_microcode(void)
 {
 	on_each_cpu(zenbleed_check_cpu, NULL, 1);
 }
+EXPORT_SYMBOL_GPL(amd_check_microcode);
