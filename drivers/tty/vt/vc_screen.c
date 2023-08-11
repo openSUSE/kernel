@@ -232,10 +232,6 @@ vcs_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 	console_lock();
 
 	attr = (currcons & 128);
-	ret = -ENXIO;
-	vc = vcs_vc(inode, &viewed);
-	if (!vc)
-		goto unlock_out;
 
 	ret = -EINVAL;
 	if (pos < 0)
@@ -251,16 +247,20 @@ vcs_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 		ssize_t orig_count;
 		long p = pos;
 
+		vc = vcs_vc(inode, &viewed);
+		if (!vc) {
+			ret = -ENXIO;
+			break;
+		}
+
 		/* Check whether we are above size each round,
 		 * as copy_to_user at the end of this loop
 		 * could sleep.
 		 */
 		size = vcs_size(inode);
 		if (size < 0) {
-			if (read)
-				break;
 			ret = size;
-			goto unlock_out;
+			break;
 		}
 		if (pos >= size)
 			break;
