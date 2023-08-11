@@ -324,7 +324,7 @@ static void __cpuinit amd_get_topology(struct cpuinfo_x86 *c)
 
 static bool cpu_has_zenbleed_microcode(void)
 {
-	u32 good_rev = 0;
+	u32 good_rev = 0, microcode, dummy;
 
 	switch (boot_cpu_data.x86_model) {
 	case 0x30 ... 0x3f: good_rev = 0x0830107a; break;
@@ -338,7 +338,9 @@ static bool cpu_has_zenbleed_microcode(void)
 		break;
 	}
 
-	if (boot_cpu_data.microcode < good_rev)
+	rdmsr(MSR_AMD64_PATCH_LEVEL, microcode, dummy);
+
+	if (microcode < good_rev)
 		return false;
 
 	return true;
