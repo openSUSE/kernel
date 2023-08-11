@@ -204,12 +204,6 @@ fw_change_attrs(struct tcf_proto *tp, struct fw_filter *f,
 	if (err < 0)
 		return err;
 
-	err = -EINVAL;
-	if (tb[TCA_FW_CLASSID]) {
-		f->res.classid = nla_get_u32(tb[TCA_FW_CLASSID]);
-		tcf_bind_filter(tp, &f->res, base);
-	}
-
 #ifdef CONFIG_NET_CLS_IND
 	if (tb[TCA_FW_INDEV]) {
 		err = tcf_change_indev(tp, f->indev, tb[TCA_FW_INDEV]);
@@ -218,6 +212,7 @@ fw_change_attrs(struct tcf_proto *tp, struct fw_filter *f,
 	}
 #endif /* CONFIG_NET_CLS_IND */
 
+	err = -EINVAL;
 	if (tb[TCA_FW_MASK]) {
 		mask = nla_get_u32(tb[TCA_FW_MASK]);
 		if (mask != head->mask)
@@ -226,6 +221,11 @@ fw_change_attrs(struct tcf_proto *tp, struct fw_filter *f,
 		goto errout;
 
 	tcf_exts_change(tp, &f->exts, &e);
+
+	if (tb[TCA_FW_CLASSID]) {
+		f->res.classid = nla_get_u32(tb[TCA_FW_CLASSID]);
+		tcf_bind_filter(tp, &f->res, base);
+	}
 
 	return 0;
 errout:
