@@ -3246,10 +3246,15 @@ void nf_tables_rule_destroy(const struct nft_ctx *ctx, struct nft_rule *rule)
 	kfree(rule);
 }
 
-static void nf_tables_rule_release(const struct nft_ctx *ctx, struct nft_rule *rule)
+static void __nf_tables_rule_release(const struct nft_ctx *ctx, struct nft_rule *rule)
 {
 	nft_rule_expr_deactivate(ctx, rule, NFT_TRANS_RELEASE);
 	nf_tables_rule_destroy(ctx, rule);
+}
+
+void nf_tables_rule_release(const struct nft_ctx *ctx, struct nft_rule *rule)
+{
+	return __nf_tables_rule_release(ctx, rule);
 }
 
 int nft_chain_validate(const struct nft_ctx *ctx, const struct nft_chain *chain)
