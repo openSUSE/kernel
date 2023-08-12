@@ -937,6 +937,7 @@ static inline struct nft_userdata *nft_userdata(const struct nft_rule *rule)
 	return (void *)&rule->data[rule->dlen];
 }
 
+void nf_tables_rule_release(const struct nft_ctx *ctx, struct nft_rule *rule);
 void nft_rule_expr_activate(const struct nft_ctx *ctx, struct nft_rule *rule);
 void nft_rule_expr_deactivate(const struct nft_ctx *ctx, struct nft_rule *rule,
 			      enum nft_trans_phase phase);
@@ -1484,7 +1485,9 @@ struct nft_trans_rule {
 	struct nft_rule			*rule;
 	struct nft_flow_rule		*flow;
 	u32				rule_id;
+#ifndef __GENKSYMS__
 	bool				bound;
+#endif
 };
 
 #define nft_trans_rule(trans)	\
@@ -1510,13 +1513,15 @@ struct nft_trans_set {
 	(((struct nft_trans_set *)trans->data)->bound)
 
 struct nft_trans_chain {
-	struct nft_chain		*chain;
 	bool				update;
 	char				*name;
 	struct nft_stats __percpu	*stats;
 	u8				policy;
-	bool				bound;
 	u32				chain_id;
+#ifndef __GENKSYMS__
+	struct nft_chain                *chain;
+	bool                            bound;
+#endif
 };
 
 #define nft_trans_chain(trans)	\
