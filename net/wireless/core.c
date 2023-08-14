@@ -368,12 +368,12 @@ static void cfg80211_sched_scan_stop_wk(struct work_struct *work)
 	rdev = container_of(work, struct cfg80211_registered_device,
 			   sched_scan_stop_wk);
 
-	wiphy_lock(&rdev->wiphy);
+	rtnl_lock();
 	list_for_each_entry_safe(req, tmp, &rdev->sched_scan_req_list, list) {
 		if (req->nl_owner_dead)
 			cfg80211_stop_sched_scan_req(rdev, req, false);
 	}
-	wiphy_unlock(&rdev->wiphy);
+	rtnl_unlock();
 }
 
 static void cfg80211_propagate_radar_detect_wk(struct work_struct *work)
