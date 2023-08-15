@@ -244,6 +244,7 @@ extern struct rbd_img_request *rbd_img_request_create(
 					struct rbd_device *rbd_dev,
 					enum obj_operation_type op_type,
 					rbd_img_request_end_cb_t end_cb);
+extern void rbd_img_capture_header(struct rbd_img_request *img_req);
 extern int rbd_img_fill_nodata(struct rbd_img_request *img_req,
 			       u64 off, u64 len);
 extern int rbd_img_fill_from_bvecs(struct rbd_img_request *img_req,
