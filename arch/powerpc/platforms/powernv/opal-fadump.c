@@ -202,7 +202,7 @@ static u64 opal_fadump_init_mem_struct(struct fw_dump *fadump_conf)
 	}
 
 	/*
-	 * Kernel metadata is passed to f/w and retrieved in capture kerenl.
+	 * Kernel metadata is passed to f/w and retrieved in capture kernel.
 	 * So, use it to save fadump header address instead of calculating it.
 	 */
 	opal_fdm->fadumphdr_addr = (opal_fdm->rgn[0].dest +
