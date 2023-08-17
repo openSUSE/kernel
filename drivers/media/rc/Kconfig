@@ -15,15 +15,6 @@ menuconfig RC_CORE
 	  Say Y when you have a TV or an IR device.
 
 if RC_CORE
-source "drivers/media/rc/keymaps/Kconfig"
-
-config LIRC
-	bool "LIRC user interface"
-	help
-	   Enable this option to enable the Linux Infrared Remote
-	   Control user interface (e.g. /dev/lirc*). This interface
-	   passes raw IR to and from userspace, which is needed for
-	   IR transmitting (aka "blasting") and for the lirc daemon.
 
 config BPF_LIRC_MODE2
 	bool "Support for eBPF programs attached to lirc devices"
@@ -38,10 +29,45 @@ config BPF_LIRC_MODE2
 	   These eBPF programs can be used to decode IR into scancodes, for
 	   IR protocols not supported by the kernel decoders.
 
+config LIRC
+	bool "LIRC user interface"
+	help
+	   Enable this option to enable the Linux Infrared Remote
+	   Control user interface (e.g. /dev/lirc*). This interface
+	   passes raw IR to and from userspace, which is needed for
+	   IR transmitting (aka "blasting") and for the lirc daemon.
+
+source "drivers/media/rc/keymaps/Kconfig"
+
 menuconfig RC_DECODERS
 	bool "Remote controller decoders"
 
 if RC_DECODERS
+
+config IR_IMON_DECODER
+	tristate "Enable IR raw decoder for the iMON protocol"
+	help
+	   Enable this option if you have iMON PAD or Antec Veris infrared
+	   remote control and you would like to use it with a raw IR
+	   receiver, or if you wish to use an encoder to transmit this IR.
+
+config IR_JVC_DECODER
+	tristate "Enable IR raw decoder for the JVC protocol"
+	select BITREVERSE
+
+	help
+	   Enable this option if you have an infrared remote control which
+	   uses the JVC protocol, and you need software decoding support.
+
+config IR_MCE_KBD_DECODER
+	tristate "Enable IR raw decoder for the MCE keyboard/mouse protocol"
+	select BITREVERSE
+
+	help
+	   Enable this option if you have a Microsoft Remote Keyboard for
+	   Windows Media Center Edition, which you would like to use with
+	   a raw IR receiver in your system.
+
 config IR_NEC_DECODER
 	tristate "Enable IR raw decoder for the NEC protocol"
 	select BITREVERSE
@@ -66,21 +92,17 @@ config IR_RC6_DECODER
 	   Enable this option if you have an infrared remote control which
 	   uses the RC6 protocol, and you need software decoding support.
 
-config IR_JVC_DECODER
-	tristate "Enable IR raw decoder for the JVC protocol"
-	select BITREVERSE
-
+config IR_RCMM_DECODER
+	tristate "Enable IR raw decoder for the RC-MM protocol"
 	help
-	   Enable this option if you have an infrared remote control which
-	   uses the JVC protocol, and you need software decoding support.
+	   Enable this option when you have IR with RC-MM protocol, and
+	   you need the software decoder. The driver supports 12,
+	   24 and 32 bits RC-MM variants. You can enable or disable the
+	   different modes using the following RC protocol keywords:
+	   'rc-mm-12', 'rc-mm-24' and 'rc-mm-32'.
 
-config IR_SONY_DECODER
-	tristate "Enable IR raw decoder for the Sony protocol"
-	select BITREVERSE
-
-	help
-	   Enable this option if you have an infrared remote control which
-	   uses the Sony protocol, and you need software decoding support.
+	   To compile this driver as a module, choose M here: the module
+	   will be called ir-rcmm-decoder.
 
 config IR_SANYO_DECODER
 	tristate "Enable IR raw decoder for the Sanyo protocol"
@@ -100,14 +122,13 @@ config IR_SHARP_DECODER
 	   uses the Sharp protocol (Sharp, Denon), and you need software
 	   decoding support.
 
-config IR_MCE_KBD_DECODER
-	tristate "Enable IR raw decoder for the MCE keyboard/mouse protocol"
+config IR_SONY_DECODER
+	tristate "Enable IR raw decoder for the Sony protocol"
 	select BITREVERSE
 
 	help
-	   Enable this option if you have a Microsoft Remote Keyboard for
-	   Windows Media Center Edition, which you would like to use with
-	   a raw IR receiver in your system.
+	   Enable this option if you have an infrared remote control which
+	   uses the Sony protocol, and you need software decoding support.
 
 config IR_XMP_DECODER
 	tristate "Enable IR raw decoder for the XMP protocol"
@@ -117,48 +138,12 @@ config IR_XMP_DECODER
 	   Enable this option if you have IR with XMP protocol, and
 	   if the IR is decoded in software
 
-config IR_IMON_DECODER
-	tristate "Enable IR raw decoder for the iMON protocol"
-	help
-	   Enable this option if you have iMON PAD or Antec Veris infrared
-	   remote control and you would like to use it with a raw IR
-	   receiver, or if you wish to use an encoder to transmit this IR.
-
-config IR_RCMM_DECODER
-	tristate "Enable IR raw decoder for the RC-MM protocol"
-	help
-	   Enable this option when you have IR with RC-MM protocol, and
-	   you need the software decoder. The driver supports 12,
-	   24 and 32 bits RC-MM variants. You can enable or disable the
-	   different modes using the following RC protocol keywords:
-	   'rc-mm-12', 'rc-mm-24' and 'rc-mm-32'.
-
-	   To compile this driver as a module, choose M here: the module
-	   will be called ir-rcmm-decoder.
-
 endif #RC_DECODERS
 
 menuconfig RC_DEVICES
 	bool "Remote Controller devices"
 
 if RC_DEVICES
-
-config RC_ATI_REMOTE
-	tristate "ATI / X10 based USB RF remote controls"
-	depends on USB
-	help
-	   Say Y here if you want to use an X10 based USB remote control.
-	   These are RF remotes with USB receivers.
-
-	   Such devices include the ATI remote that comes with many of ATI's
-	   All-In-Wonder video cards, the X10 "Lola" remote, NVIDIA RF remote,
-	   Medion RF remote, and SnapStream FireFly remote.
-
-	   This driver provides mouse pointer, left and right mouse buttons,
-	   and maps all the other remote buttons to keypress events.
-
-	   To compile this driver as a module, choose M here: the module will be
-	   called ati_remote.
 
 config IR_ENE
 	tristate "ENE eHome Receiver/Transceiver (pnp id: ENE0100/ENE02xxx)"
@@ -173,58 +158,6 @@ config IR_ENE
 	   To compile this driver as a module, choose M here: the
 	   module will be called ene_ir.
 
-config IR_HIX5HD2
-	tristate "Hisilicon hix5hd2 IR remote control"
-	depends on OF || COMPILE_TEST
-	help
-	   Say Y here if you want to use hisilicon hix5hd2 remote control.
-	   To compile this driver as a module, choose M here: the module will be
-	   called ir-hix5hd2.
-
-	   If you're not sure, select N here
-
-config IR_IMON
-	tristate "SoundGraph iMON Receiver and Display"
-	depends on USB
-	help
-	   Say Y here if you want to use a SoundGraph iMON (aka Antec Veris)
-	   IR Receiver and/or LCD/VFD/VGA display.
-
-	   To compile this driver as a module, choose M here: the
-	   module will be called imon.
-
-config IR_IMON_RAW
-	tristate "SoundGraph iMON Receiver (early raw IR models)"
-	depends on USB
-	help
-	   Say Y here if you want to use a SoundGraph iMON IR Receiver,
-	   early raw models.
-
-	   To compile this driver as a module, choose M here: the
-	   module will be called imon_raw.
-
-config IR_MCEUSB
-	tristate "Windows Media Center Ed. eHome Infrared Transceiver"
-	depends on USB
-	help
-	   Say Y here if you want to use a Windows Media Center Edition
-	   eHome Infrared Transceiver.
-
-	   To compile this driver as a module, choose M here: the
-	   module will be called mceusb.
-
-config IR_ITE_CIR
-	tristate "ITE Tech Inc. IT8712/IT8512 Consumer Infrared Transceiver"
-	depends on PNP || COMPILE_TEST
-	help
-	   Say Y here to enable support for integrated infrared receivers
-	   /transceivers made by ITE Tech Inc. These are found in
-	   several ASUS devices, like the ASUS Digimatrix or the ASUS
-	   EEEBox 1501U.
-
-	   To compile this driver as a module, choose M here: the
-	   module will be called ite-cir.
-
 config IR_FINTEK
 	tristate "Fintek Consumer Infrared Transceiver"
 	depends on PNP || COMPILE_TEST
@@ -236,83 +169,35 @@ config IR_FINTEK
 	   To compile this driver as a module, choose M here: the
 	   module will be called fintek-cir.
 
-config IR_MESON
-	tristate "Amlogic Meson IR remote receiver"
-	depends on ARCH_MESON || COMPILE_TEST
+config IR_GPIO_CIR
+	tristate "GPIO IR remote control"
+	depends on (OF && GPIOLIB) || COMPILE_TEST
 	help
-	   Say Y if you want to use the IR remote receiver available
-	   on Amlogic Meson SoCs.
-
-	   To compile this driver as a module, choose M here: the
-	   module will be called meson-ir.
-
-config IR_MTK
-	tristate "Mediatek IR remote receiver"
-	depends on ARCH_MEDIATEK || COMPILE_TEST
-	help
-	   Say Y if you want to use the IR remote receiver available
-	   on Mediatek SoCs.
-
-	   To compile this driver as a module, choose M here: the
-	   module will be called mtk-cir.
-
-config IR_NUVOTON
-	tristate "Nuvoton w836x7hg Consumer Infrared Transceiver"
-	depends on PNP || COMPILE_TEST
-	help
-	   Say Y here to enable support for integrated infrared receiver
-	   /transceiver made by Nuvoton (formerly Winbond). This chip is
-	   found in the ASRock ION 330HT, as well as assorted Intel
-	   DP55-series motherboards (and of course, possibly others).
-
-	   To compile this driver as a module, choose M here: the
-	   module will be called nuvoton-cir.
-
-config IR_REDRAT3
-	tristate "RedRat3 IR Transceiver"
-	depends on USB
-	select NEW_LEDS
-	select LEDS_CLASS
-	help
-	   Say Y here if you want to use a RedRat3 Infrared Transceiver.
-
-	   To compile this driver as a module, choose M here: the
-	   module will be called redrat3.
-
-config IR_SPI
-	tristate "SPI connected IR LED"
-	depends on SPI && LIRC
-	depends on OF || COMPILE_TEST
-	help
-	  Say Y if you want to use an IR LED connected through SPI bus.
-
-	  To compile this driver as a module, choose M here: the module will be
-	  called ir-spi.
-
-config IR_STREAMZAP
-	tristate "Streamzap PC Remote IR Receiver"
-	depends on USB
-	help
-	   Say Y here if you want to use a Streamzap PC Remote
-	   Infrared Receiver.
-
-	   To compile this driver as a module, choose M here: the
-	   module will be called streamzap.
-
-config IR_WINBOND_CIR
-	tristate "Winbond IR remote control"
-	depends on (X86 && PNP) || COMPILE_TEST
-	select NEW_LEDS
-	select LEDS_CLASS
-	select BITREVERSE
-	help
-	   Say Y here if you want to use the IR remote functionality found
-	   in some Winbond SuperI/O chips. Currently only the WPCD376I
-	   chip is supported (included in some Intel Media series
-	   motherboards).
+	   Say Y if you want to use GPIO based IR Receiver.
 
 	   To compile this driver as a module, choose M here: the module will
-	   be called winbond_cir.
+	   be called gpio-ir-recv.
+
+config IR_GPIO_TX
+	tristate "GPIO IR Bit Banging Transmitter"
+	depends on LIRC
+	depends on (OF && GPIOLIB) || COMPILE_TEST
+	help
+	   Say Y if you want to a GPIO based IR transmitter. This is a
+	   bit banging driver.
+
+	   To compile this driver as a module, choose M here: the module will
+	   be called gpio-ir-tx.
+
+config IR_HIX5HD2
+	tristate "Hisilicon hix5hd2 IR remote control"
+	depends on (OF && HAS_IOMEM) || COMPILE_TEST
+	help
+	   Say Y here if you want to use hisilicon hix5hd2 remote control.
+	   To compile this driver as a module, choose M here: the module will be
+	   called ir-hix5hd2.
+
+	   If you're not sure, select N here
 
 config IR_IGORPLUGUSB
 	tristate "IgorPlug-USB IR Receiver"
@@ -341,17 +226,112 @@ config IR_IGUANA
 	   To compile this driver as a module, choose M here: the module will
 	   be called iguanair.
 
-config IR_TTUSBIR
-	tristate "TechnoTrend USB IR Receiver"
+config IR_IMON
+	tristate "SoundGraph iMON Receiver and Display"
+	depends on USB
+	help
+	   Say Y here if you want to use a SoundGraph iMON (aka Antec Veris)
+	   IR Receiver and/or LCD/VFD/VGA display.
+
+	   To compile this driver as a module, choose M here: the
+	   module will be called imon.
+
+config IR_IMON_RAW
+	tristate "SoundGraph iMON Receiver (early raw IR models)"
+	depends on USB
+	help
+	   Say Y here if you want to use a SoundGraph iMON IR Receiver,
+	   early raw models.
+
+	   To compile this driver as a module, choose M here: the
+	   module will be called imon_raw.
+
+config IR_ITE_CIR
+	tristate "ITE Tech Inc. IT8712/IT8512 Consumer Infrared Transceiver"
+	depends on PNP || COMPILE_TEST
+	help
+	   Say Y here to enable support for integrated infrared receivers
+	   /transceivers made by ITE Tech Inc. These are found in
+	   several ASUS devices, like the ASUS Digimatrix or the ASUS
+	   EEEBox 1501U.
+
+	   To compile this driver as a module, choose M here: the
+	   module will be called ite-cir.
+
+config IR_MCEUSB
+	tristate "Windows Media Center Ed. eHome Infrared Transceiver"
+	depends on USB
+	help
+	   Say Y here if you want to use a Windows Media Center Edition
+	   eHome Infrared Transceiver.
+
+	   To compile this driver as a module, choose M here: the
+	   module will be called mceusb.
+
+config IR_MESON
+	tristate "Amlogic Meson IR remote receiver"
+	depends on ARCH_MESON || COMPILE_TEST
+	help
+	   Say Y if you want to use the IR remote receiver available
+	   on Amlogic Meson SoCs.
+
+	   To compile this driver as a module, choose M here: the
+	   module will be called meson-ir.
+
+config IR_MESON_TX
+	tristate "Amlogic Meson IR TX"
+	depends on ARCH_MESON || COMPILE_TEST
+	help
+	   Say Y if you want to use the IR transmitter available on
+	   Amlogic Meson SoCs.
+
+	   To compile this driver as a module, choose M here: the
+	   module will be called meson-ir-tx.
+
+config IR_MTK
+	tristate "Mediatek IR remote receiver"
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	help
+	   Say Y if you want to use the IR remote receiver available
+	   on Mediatek SoCs.
+
+	   To compile this driver as a module, choose M here: the
+	   module will be called mtk-cir.
+
+config IR_NUVOTON
+	tristate "Nuvoton w836x7hg Consumer Infrared Transceiver"
+	depends on PNP || COMPILE_TEST
+	help
+	   Say Y here to enable support for integrated infrared receiver
+	   /transceiver made by Nuvoton (formerly Winbond). This chip is
+	   found in the ASRock ION 330HT, as well as assorted Intel
+	   DP55-series motherboards (and of course, possibly others).
+
+	   To compile this driver as a module, choose M here: the
+	   module will be called nuvoton-cir.
+
+config IR_PWM_TX
+	tristate "PWM IR transmitter"
+	depends on LIRC
+	depends on PWM
+	depends on OF
+	help
+	   Say Y if you want to use a PWM based IR transmitter. This is
+	   more power efficient than the bit banging gpio driver.
+
+	   To compile this driver as a module, choose M here: the module will
+	   be called pwm-ir-tx.
+
+config IR_REDRAT3
+	tristate "RedRat3 IR Transceiver"
 	depends on USB
 	select NEW_LEDS
 	select LEDS_CLASS
 	help
-	   Say Y here if you want to use the TechnoTrend USB IR Receiver. The
-	   driver can control the led.
+	   Say Y here if you want to use a RedRat3 Infrared Transceiver.
 
-	   To compile this driver as a module, choose M here: the module will
-	   be called ttusbir.
+	   To compile this driver as a module, choose M here: the
+	   module will be called redrat3.
 
 config IR_RX51
 	tristate "Nokia N900 IR transmitter diode"
@@ -362,71 +342,6 @@ config IR_RX51
 
 	   The driver uses omap DM timers for generating the carrier
 	   wave and pulses.
-
-source "drivers/media/rc/img-ir/Kconfig"
-
-config RC_LOOPBACK
-	tristate "Remote Control Loopback Driver"
-	help
-	   Say Y here if you want support for the remote control loopback
-	   driver which allows TX data to be sent back as RX data.
-	   This is mostly useful for debugging purposes.
-
-	   If you're not sure, select N here.
-
-	   To compile this driver as a module, choose M here: the module will
-	   be called rc_loopback.
-
-config IR_GPIO_CIR
-	tristate "GPIO IR remote control"
-	depends on (OF && GPIOLIB) || COMPILE_TEST
-	help
-	   Say Y if you want to use GPIO based IR Receiver.
-
-	   To compile this driver as a module, choose M here: the module will
-	   be called gpio-ir-recv.
-
-config IR_GPIO_TX
-	tristate "GPIO IR Bit Banging Transmitter"
-	depends on LIRC
-	depends on (OF && GPIOLIB) || COMPILE_TEST
-	help
-	   Say Y if you want to a GPIO based IR transmitter. This is a
-	   bit banging driver.
-
-	   To compile this driver as a module, choose M here: the module will
-	   be called gpio-ir-tx.
-
-config IR_PWM_TX
-	tristate "PWM IR transmitter"
-	depends on LIRC
-	depends on PWM
-	depends on OF || COMPILE_TEST
-	help
-	   Say Y if you want to use a PWM based IR transmitter. This is
-	   more power efficient than the bit banging gpio driver.
-
-	   To compile this driver as a module, choose M here: the module will
-	   be called pwm-ir-tx.
-
-config RC_ST
-	tristate "ST remote control receiver"
-	depends on ARCH_STI || COMPILE_TEST
-	help
-	   Say Y here if you want support for ST remote control driver
-	   which allows both IR and UHF RX.
-	   The driver passes raw pulse and space information to the LIRC decoder.
-
-	   If you're not sure, select N here.
-
-config IR_SUNXI
-	tristate "SUNXI IR remote control"
-	depends on ARCH_SUNXI || COMPILE_TEST
-	help
-	   Say Y if you want to use sunXi internal IR Controller
-
-	   To compile this driver as a module, choose M here: the module will
-	   be called sunxi-ir.
 
 config IR_SERIAL
 	tristate "Homebrew Serial Port Receiver"
@@ -443,13 +358,110 @@ config IR_SERIAL_TRANSMITTER
 	help
 	   Serial Port Transmitter support
 
-config IR_SIR
-	tristate "Built-in SIR IrDA port"
+config IR_SPI
+	tristate "SPI connected IR LED"
+	depends on SPI && LIRC
+	depends on OF
 	help
-	   Say Y if you want to use a IrDA SIR port Transceivers.
+	  Say Y if you want to use an IR LED connected through SPI bus.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called ir-spi.
+
+config IR_STREAMZAP
+	tristate "Streamzap PC Remote IR Receiver"
+	depends on USB
+	help
+	   Say Y here if you want to use a Streamzap PC Remote
+	   Infrared Receiver.
+
+	   To compile this driver as a module, choose M here: the
+	   module will be called streamzap.
+
+config IR_SUNXI
+	tristate "SUNXI IR remote control"
+	depends on ARCH_SUNXI || COMPILE_TEST
+	help
+	   Say Y if you want to use sunXi internal IR Controller
 
 	   To compile this driver as a module, choose M here: the module will
-	   be called sir-ir.
+	   be called sunxi-ir.
+
+config IR_TOY
+	tristate "Infrared Toy and IR Droid"
+	depends on USB
+	help
+	   Say Y here if you want to use the Infrared Toy or IR Droid, USB
+	   versions.
+
+	   To compile this driver as a module, choose M here: the module will be
+	   called ir_toy.
+
+config IR_TTUSBIR
+	tristate "TechnoTrend USB IR Receiver"
+	depends on USB
+	select NEW_LEDS
+	select LEDS_CLASS
+	help
+	   Say Y here if you want to use the TechnoTrend USB IR Receiver. The
+	   driver can control the led.
+
+	   To compile this driver as a module, choose M here: the module will
+	   be called ttusbir.
+
+config IR_WINBOND_CIR
+	tristate "Winbond IR remote control"
+	depends on (X86 && PNP) || COMPILE_TEST
+	select NEW_LEDS
+	select LEDS_CLASS
+	select BITREVERSE
+	help
+	   Say Y here if you want to use the IR remote functionality found
+	   in some Winbond SuperI/O chips. Currently only the WPCD376I
+	   chip is supported (included in some Intel Media series
+	   motherboards).
+
+	   To compile this driver as a module, choose M here: the module will
+	   be called winbond_cir.
+
+config RC_ATI_REMOTE
+	tristate "ATI / X10 based USB RF remote controls"
+	depends on USB
+	help
+	   Say Y here if you want to use an X10 based USB remote control.
+	   These are RF remotes with USB receivers.
+
+	   Such devices include the ATI remote that comes with many of ATI's
+	   All-In-Wonder video cards, the X10 "Lola" remote, NVIDIA RF remote,
+	   Medion RF remote, and SnapStream FireFly remote.
+
+	   This driver provides mouse pointer, left and right mouse buttons,
+	   and maps all the other remote buttons to keypress events.
+
+	   To compile this driver as a module, choose M here: the module will be
+	   called ati_remote.
+
+config RC_LOOPBACK
+	tristate "Remote Control Loopback Driver"
+	help
+	   Say Y here if you want support for the remote control loopback
+	   driver which allows TX data to be sent back as RX data.
+	   This is mostly useful for debugging purposes.
+
+	   If you're not sure, select N here.
+
+	   To compile this driver as a module, choose M here: the module will
+	   be called rc_loopback.
+
+config RC_ST
+	tristate "ST remote control receiver"
+	depends on ARCH_STI || COMPILE_TEST
+	help
+	   Say Y here if you want support for ST remote control driver
+	   which allows both IR and UHF RX.
+	   The driver passes raw pulse and space information to the LIRC decoder.
+
+	   If you're not sure, select N here.
 
 config RC_XBOX_DVD
 	tristate "Xbox DVD Movie Playback Kit"
@@ -461,15 +473,7 @@ config RC_XBOX_DVD
 	   To compile this driver as a module, choose M here: the module will be
 	   called xbox_remote.
 
-config IR_TOY
-	tristate "Infrared Toy and IR Droid"
-	depends on USB
-	help
-	   Say Y here if you want to use the Infrared Toy or IR Droid, USB
-	   versions.
-
-	   To compile this driver as a module, choose M here: the module will be
-	   called ir_toy.
+source "drivers/media/rc/img-ir/Kconfig"
 
 endif #RC_DEVICES
 

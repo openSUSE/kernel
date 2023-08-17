@@ -31,11 +31,6 @@
 
 static void snd_ymfpci_irq_wait(struct snd_ymfpci *chip);
 
-static inline u8 snd_ymfpci_readb(struct snd_ymfpci *chip, u32 offset)
-{
-	return readb(chip->reg_area_virt + offset);
-}
-
 static inline void snd_ymfpci_writeb(struct snd_ymfpci *chip, u32 offset, u8 val)
 {
 	writeb(val, chip->reg_area_virt + offset);
@@ -1827,20 +1822,20 @@ int snd_ymfpci_mixer(struct snd_ymfpci *chip, int rear_switch)
 	if (snd_BUG_ON(!chip->pcm_spdif))
 		return -ENXIO;
 	kctl = snd_ctl_new1(&snd_ymfpci_spdif_default, chip);
+	kctl->id.device = chip->pcm_spdif->device;
 	err = snd_ctl_add(chip->card, kctl);
 	if (err < 0)
 		return err;
-	kctl->id.device = chip->pcm_spdif->device;
 	kctl = snd_ctl_new1(&snd_ymfpci_spdif_mask, chip);
+	kctl->id.device = chip->pcm_spdif->device;
 	err = snd_ctl_add(chip->card, kctl);
 	if (err < 0)
 		return err;
-	kctl->id.device = chip->pcm_spdif->device;
 	kctl = snd_ctl_new1(&snd_ymfpci_spdif_stream, chip);
+	kctl->id.device = chip->pcm_spdif->device;
 	err = snd_ctl_add(chip->card, kctl);
 	if (err < 0)
 		return err;
-	kctl->id.device = chip->pcm_spdif->device;
 	chip->spdif_pcm_ctl = kctl;
 
 	/* direct recording source */
@@ -2116,11 +2111,12 @@ static int snd_ymfpci_memalloc(struct snd_ymfpci *chip)
 	       chip->work_size;
 	/* work_ptr must be aligned to 256 bytes, but it's already
 	   covered with the kernel page allocation mechanism */
-	if (snd_dma_alloc_pages(SNDRV_DMA_TYPE_DEV, &chip->pci->dev,
-				size, &chip->work_ptr) < 0) 
+	chip->work_ptr = snd_devm_alloc_pages(&chip->pci->dev,
+					      SNDRV_DMA_TYPE_DEV, size);
+	if (!chip->work_ptr)
 		return -ENOMEM;
-	ptr = chip->work_ptr.area;
-	ptr_addr = chip->work_ptr.addr;
+	ptr = chip->work_ptr->area;
+	ptr_addr = chip->work_ptr->addr;
 	memset(ptr, 0, size);	/* for sure */
 
 	chip->bank_base_playback = ptr;
@@ -2165,7 +2161,7 @@ static int snd_ymfpci_memalloc(struct snd_ymfpci *chip)
 	chip->work_base_addr = ptr_addr;
 	
 	snd_BUG_ON(ptr + PAGE_ALIGN(chip->work_size) !=
-		   chip->work_ptr.area + chip->work_ptr.bytes);
+		   chip->work_ptr->area + chip->work_ptr->bytes);
 
 	snd_ymfpci_writel(chip, YDSXGR_PLAYCTRLBASE, chip->bank_base_playback_addr);
 	snd_ymfpci_writel(chip, YDSXGR_RECCTRLBASE, chip->bank_base_capture_addr);
@@ -2196,112 +2192,55 @@ static int snd_ymfpci_memalloc(struct snd_ymfpci *chip)
 	return 0;
 }
 
-static int snd_ymfpci_free(struct snd_ymfpci *chip)
+static void snd_ymfpci_free(struct snd_card *card)
 {
+	struct snd_ymfpci *chip = card->private_data;
 	u16 ctrl;
 
-	if (snd_BUG_ON(!chip))
-		return -EINVAL;
-
-	if (chip->res_reg_area) {	/* don't touch busy hardware */
-		snd_ymfpci_writel(chip, YDSXGR_NATIVEDACOUTVOL, 0);
-		snd_ymfpci_writel(chip, YDSXGR_BUF441OUTVOL, 0);
-		snd_ymfpci_writel(chip, YDSXGR_LEGACYOUTVOL, 0);
-		snd_ymfpci_writel(chip, YDSXGR_STATUS, ~0);
-		snd_ymfpci_disable_dsp(chip);
-		snd_ymfpci_writel(chip, YDSXGR_PLAYCTRLBASE, 0);
-		snd_ymfpci_writel(chip, YDSXGR_RECCTRLBASE, 0);
-		snd_ymfpci_writel(chip, YDSXGR_EFFCTRLBASE, 0);
-		snd_ymfpci_writel(chip, YDSXGR_WORKBASE, 0);
-		snd_ymfpci_writel(chip, YDSXGR_WORKSIZE, 0);
-		ctrl = snd_ymfpci_readw(chip, YDSXGR_GLOBALCTRL);
-		snd_ymfpci_writew(chip, YDSXGR_GLOBALCTRL, ctrl & ~0x0007);
-	}
+	snd_ymfpci_writel(chip, YDSXGR_NATIVEDACOUTVOL, 0);
+	snd_ymfpci_writel(chip, YDSXGR_BUF441OUTVOL, 0);
+	snd_ymfpci_writel(chip, YDSXGR_LEGACYOUTVOL, 0);
+	snd_ymfpci_writel(chip, YDSXGR_STATUS, ~0);
+	snd_ymfpci_disable_dsp(chip);
+	snd_ymfpci_writel(chip, YDSXGR_PLAYCTRLBASE, 0);
+	snd_ymfpci_writel(chip, YDSXGR_RECCTRLBASE, 0);
+	snd_ymfpci_writel(chip, YDSXGR_EFFCTRLBASE, 0);
+	snd_ymfpci_writel(chip, YDSXGR_WORKBASE, 0);
+	snd_ymfpci_writel(chip, YDSXGR_WORKSIZE, 0);
+	ctrl = snd_ymfpci_readw(chip, YDSXGR_GLOBALCTRL);
+	snd_ymfpci_writew(chip, YDSXGR_GLOBALCTRL, ctrl & ~0x0007);
 
 	snd_ymfpci_ac3_done(chip);
 
-	/* Set PCI device to D3 state */
-#if 0
-	/* FIXME: temporarily disabled, otherwise we cannot fire up
-	 * the chip again unless reboot.  ACPI bug?
-	 */
-	pci_set_power_state(chip->pci, PCI_D3hot);
-#endif
-
-#ifdef CONFIG_PM_SLEEP
-	kfree(chip->saved_regs);
-#endif
-	if (chip->irq >= 0)
-		free_irq(chip->irq, chip);
-	release_and_free_resource(chip->mpu_res);
-	release_and_free_resource(chip->fm_res);
 	snd_ymfpci_free_gameport(chip);
-	iounmap(chip->reg_area_virt);
-	if (chip->work_ptr.area)
-		snd_dma_free_pages(&chip->work_ptr);
 	
-	release_and_free_resource(chip->res_reg_area);
-
-	pci_write_config_word(chip->pci, 0x40, chip->old_legacy_ctrl);
+	pci_write_config_word(chip->pci, PCIR_DSXG_LEGACY, chip->old_legacy_ctrl);
 	
-	pci_disable_device(chip->pci);
 	release_firmware(chip->dsp_microcode);
 	release_firmware(chip->controller_microcode);
-	kfree(chip);
-	return 0;
 }
-
-static int snd_ymfpci_dev_free(struct snd_device *device)
-{
-	struct snd_ymfpci *chip = device->device_data;
-	return snd_ymfpci_free(chip);
-}
-
-#ifdef CONFIG_PM_SLEEP
-static const int saved_regs_index[] = {
-	/* spdif */
-	YDSXGR_SPDIFOUTCTRL,
-	YDSXGR_SPDIFOUTSTATUS,
-	YDSXGR_SPDIFINCTRL,
-	/* volumes */
-	YDSXGR_PRIADCLOOPVOL,
-	YDSXGR_NATIVEDACINVOL,
-	YDSXGR_NATIVEDACOUTVOL,
-	YDSXGR_BUF441OUTVOL,
-	YDSXGR_NATIVEADCINVOL,
-	YDSXGR_SPDIFLOOPVOL,
-	YDSXGR_SPDIFOUTVOL,
-	YDSXGR_ZVOUTVOL,
-	YDSXGR_LEGACYOUTVOL,
-	/* address bases */
-	YDSXGR_PLAYCTRLBASE,
-	YDSXGR_RECCTRLBASE,
-	YDSXGR_EFFCTRLBASE,
-	YDSXGR_WORKBASE,
-	/* capture set up */
-	YDSXGR_MAPOFREC,
-	YDSXGR_RECFORMAT,
-	YDSXGR_RECSLOTSR,
-	YDSXGR_ADCFORMAT,
-	YDSXGR_ADCSLOTSR,
-};
-#define YDSXGR_NUM_SAVED_REGS	ARRAY_SIZE(saved_regs_index)
 
 static int snd_ymfpci_suspend(struct device *dev)
 {
 	struct snd_card *card = dev_get_drvdata(dev);
 	struct snd_ymfpci *chip = card->private_data;
-	unsigned int i;
-	
+	unsigned int i, legacy_reg_count = DSXG_PCI_NUM_SAVED_LEGACY_REGS;
+
+	if (chip->pci->device >= 0x0010) /* YMF 744/754 */
+		legacy_reg_count = DSXG_PCI_NUM_SAVED_REGS;
+
 	snd_power_change_state(card, SNDRV_CTL_POWER_D3hot);
 	snd_ac97_suspend(chip->ac97);
+
 	for (i = 0; i < YDSXGR_NUM_SAVED_REGS; i++)
 		chip->saved_regs[i] = snd_ymfpci_readl(chip, saved_regs_index[i]);
+
 	chip->saved_ydsxgr_mode = snd_ymfpci_readl(chip, YDSXGR_MODE);
-	pci_read_config_word(chip->pci, PCIR_DSXG_LEGACY,
-			     &chip->saved_dsxg_legacy);
-	pci_read_config_word(chip->pci, PCIR_DSXG_ELEGACY,
-			     &chip->saved_dsxg_elegacy);
+
+	for (i = 0; i < legacy_reg_count; i++)
+		pci_read_config_word(chip->pci, pci_saved_regs_index[i],
+				      chip->saved_dsxg_pci_regs + i);
+
 	snd_ymfpci_writel(chip, YDSXGR_NATIVEDACOUTVOL, 0);
 	snd_ymfpci_writel(chip, YDSXGR_BUF441OUTVOL, 0);
 	snd_ymfpci_disable_dsp(chip);
@@ -2313,7 +2252,10 @@ static int snd_ymfpci_resume(struct device *dev)
 	struct pci_dev *pci = to_pci_dev(dev);
 	struct snd_card *card = dev_get_drvdata(dev);
 	struct snd_ymfpci *chip = card->private_data;
-	unsigned int i;
+	unsigned int i, legacy_reg_count = DSXG_PCI_NUM_SAVED_LEGACY_REGS;
+
+	if (chip->pci->device >= 0x0010) /* YMF 744/754 */
+		legacy_reg_count = DSXG_PCI_NUM_SAVED_REGS;
 
 	snd_ymfpci_aclink_reset(pci);
 	snd_ymfpci_codec_ready(chip, 0);
@@ -2325,10 +2267,9 @@ static int snd_ymfpci_resume(struct device *dev)
 
 	snd_ac97_resume(chip->ac97);
 
-	pci_write_config_word(chip->pci, PCIR_DSXG_LEGACY,
-			      chip->saved_dsxg_legacy);
-	pci_write_config_word(chip->pci, PCIR_DSXG_ELEGACY,
-			      chip->saved_dsxg_elegacy);
+	for (i = 0; i < legacy_reg_count; i++)
+		pci_write_config_word(chip->pci, pci_saved_regs_index[i],
+				      chip->saved_dsxg_pci_regs[i]);
 
 	/* start hw again */
 	if (chip->start_count > 0) {
@@ -2341,32 +2282,20 @@ static int snd_ymfpci_resume(struct device *dev)
 	return 0;
 }
 
-SIMPLE_DEV_PM_OPS(snd_ymfpci_pm, snd_ymfpci_suspend, snd_ymfpci_resume);
-#endif /* CONFIG_PM_SLEEP */
+DEFINE_SIMPLE_DEV_PM_OPS(snd_ymfpci_pm, snd_ymfpci_suspend, snd_ymfpci_resume);
 
 int snd_ymfpci_create(struct snd_card *card,
 		      struct pci_dev *pci,
-		      unsigned short old_legacy_ctrl,
-		      struct snd_ymfpci **rchip)
+		      u16 old_legacy_ctrl)
 {
-	struct snd_ymfpci *chip;
+	struct snd_ymfpci *chip = card->private_data;
 	int err;
-	static const struct snd_device_ops ops = {
-		.dev_free =	snd_ymfpci_dev_free,
-	};
 	
-	*rchip = NULL;
-
 	/* enable PCI device */
-	err = pci_enable_device(pci);
+	err = pcim_enable_device(pci);
 	if (err < 0)
 		return err;
 
-	chip = kzalloc(sizeof(*chip), GFP_KERNEL);
-	if (chip == NULL) {
-		pci_disable_device(pci);
-		return -ENOMEM;
-	}
 	chip->old_legacy_ctrl = old_legacy_ctrl;
 	spin_lock_init(&chip->reg_lock);
 	spin_lock_init(&chip->voice_lock);
@@ -2377,71 +2306,52 @@ int snd_ymfpci_create(struct snd_card *card,
 	chip->irq = -1;
 	chip->device_id = pci->device;
 	chip->rev = pci->revision;
-	chip->reg_area_phys = pci_resource_start(pci, 0);
-	chip->reg_area_virt = ioremap(chip->reg_area_phys, 0x8000);
-	pci_set_master(pci);
-	chip->src441_used = -1;
 
-	chip->res_reg_area = request_mem_region(chip->reg_area_phys, 0x8000, "YMFPCI");
-	if (!chip->res_reg_area) {
+	err = pci_request_regions(pci, "YMFPCI");
+	if (err < 0)
+		return err;
+
+	chip->reg_area_phys = pci_resource_start(pci, 0);
+	chip->reg_area_virt = devm_ioremap(&pci->dev, chip->reg_area_phys, 0x8000);
+	if (!chip->reg_area_virt) {
 		dev_err(chip->card->dev,
 			"unable to grab memory region 0x%lx-0x%lx\n",
 			chip->reg_area_phys, chip->reg_area_phys + 0x8000 - 1);
-		err = -EBUSY;
-		goto free_chip;
+		return -EBUSY;
 	}
-	if (request_irq(pci->irq, snd_ymfpci_interrupt, IRQF_SHARED,
+	pci_set_master(pci);
+	chip->src441_used = -1;
+
+	if (devm_request_irq(&pci->dev, pci->irq, snd_ymfpci_interrupt, IRQF_SHARED,
 			KBUILD_MODNAME, chip)) {
 		dev_err(chip->card->dev, "unable to grab IRQ %d\n", pci->irq);
-		err = -EBUSY;
-		goto free_chip;
+		return -EBUSY;
 	}
 	chip->irq = pci->irq;
 	card->sync_irq = chip->irq;
+	card->private_free = snd_ymfpci_free;
 
 	snd_ymfpci_aclink_reset(pci);
-	if (snd_ymfpci_codec_ready(chip, 0) < 0) {
-		err = -EIO;
-		goto free_chip;
-	}
+	if (snd_ymfpci_codec_ready(chip, 0) < 0)
+		return -EIO;
 
 	err = snd_ymfpci_request_firmware(chip);
 	if (err < 0) {
 		dev_err(chip->card->dev, "firmware request failed: %d\n", err);
-		goto free_chip;
+		return err;
 	}
 	snd_ymfpci_download_image(chip);
 
 	udelay(100); /* seems we need a delay after downloading image.. */
 
-	if (snd_ymfpci_memalloc(chip) < 0) {
-		err = -EIO;
-		goto free_chip;
-	}
+	if (snd_ymfpci_memalloc(chip) < 0)
+		return -EIO;
 
 	err = snd_ymfpci_ac3_init(chip);
 	if (err < 0)
-		goto free_chip;
-
-#ifdef CONFIG_PM_SLEEP
-	chip->saved_regs = kmalloc_array(YDSXGR_NUM_SAVED_REGS, sizeof(u32),
-					 GFP_KERNEL);
-	if (chip->saved_regs == NULL) {
-		err = -ENOMEM;
-		goto free_chip;
-	}
-#endif
-
-	err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, chip, &ops);
-	if (err < 0)
-		goto free_chip;
+		return err;
 
 	snd_ymfpci_proc_init(card, chip);
 
-	*rchip = chip;
 	return 0;
-
-free_chip:
-	snd_ymfpci_free(chip);
-	return err;
 }

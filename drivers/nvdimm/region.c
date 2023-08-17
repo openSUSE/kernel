@@ -2,6 +2,7 @@
 /*
  * Copyright(c) 2013-2015 Intel Corporation. All rights reserved.
  */
+#include <linux/memregion.h>
 #include <linux/cpumask.h>
 #include <linux/module.h>
 #include <linux/device.h>
@@ -95,11 +96,21 @@ static void nd_region_remove(struct device *dev)
 	nvdimm_bus_unlock(dev);
 
 	/*
-	 * Note, this assumes nd_device_lock() context to not race
+	 * Note, this assumes device_lock() context to not race
 	 * nd_region_notify()
 	 */
 	sysfs_put(nd_region->bb_state);
 	nd_region->bb_state = NULL;
+
+	/*
+	 * Try to flush caches here since a disabled region may be subject to
+	 * secure erase while disabled, and previous dirty data should not be
+	 * written back to a new instance of the region. This only matters on
+	 * bare metal where security commands are available, so silent failure
+	 * here is ok.
+	 */
+	if (cpu_cache_has_invalidate_memregion())
+		cpu_cache_invalidate_memregion(IORES_DESC_PERSISTENT_MEMORY);
 }
 
 static int child_notify(struct device *dev, void *data)

@@ -89,7 +89,6 @@
 				    * devices available - and don't try to
 				    * correct read errors.
 				    */
-#define	MD_DISK_TIMEOUT		11 /* disk is faulty due to timeout */
 
 #define	MD_DISK_WRITEMOSTLY	9 /* disk is "write-mostly" is RAID1 config.
 				   * read requests will only be sent here in
@@ -100,7 +99,6 @@
 #define MD_DISK_ROLE_SPARE	0xffff
 #define MD_DISK_ROLE_FAULTY	0xfffe
 #define MD_DISK_ROLE_JOURNAL	0xfffd
-#define MD_DISK_ROLE_TIMEOUT	0xfff0 /* SUSE-only timed-out */
 #define MD_DISK_ROLE_MAX	0xff00 /* max value of regular disk role */
 
 typedef struct mdp_device_descriptor_s {
@@ -305,7 +303,7 @@ struct mdp_superblock_1 {
 	 * into the 'roles' value.  If a device is spare or faulty, then it doesn't
 	 * have a meaningful role.
 	 */
-	__le16	dev_roles[0];	/* role in array, or 0xffff for a spare, or 0xfffe for faulty */
+	__le16	dev_roles[];	/* role in array, or 0xffff for a spare, or 0xfffe for faulty */
 };
 
 /* feature_map bits */

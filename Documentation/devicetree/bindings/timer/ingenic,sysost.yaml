@@ -4,7 +4,7 @@
 $id: http://devicetree.org/schemas/timer/ingenic,sysost.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Bindings for SYSOST in Ingenic XBurst family SoCs
+title: SYSOST in Ingenic XBurst family SoCs
 
 maintainers:
   - 周琰杰 (Zhou Yanjie) <zhouyanjie@wanyeetech.com>
@@ -46,7 +46,7 @@ additionalProperties: false
 
 examples:
   - |
-    #include <dt-bindings/clock/x1000-cgu.h>
+    #include <dt-bindings/clock/ingenic,x1000-cgu.h>
 
     ost: timer@12000000 {
         compatible = "ingenic,x1000-ost";

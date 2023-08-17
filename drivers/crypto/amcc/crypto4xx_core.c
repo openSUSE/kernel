@@ -1101,7 +1101,7 @@ static void crypto4xx_bh_tasklet_cb(unsigned long data)
 static inline irqreturn_t crypto4xx_interrupt_handler(int irq, void *data,
 						      u32 clr_val)
 {
-	struct device *dev = (struct device *)data;
+	struct device *dev = data;
 	struct crypto4xx_core_device *core_dev = dev_get_drvdata(dev);
 
 	writel(clr_val, core_dev->dev->ce_base + CRYPTO4XX_INT_CLR);
@@ -1376,6 +1376,7 @@ static int crypto4xx_probe(struct platform_device *ofdev)
 	struct resource res;
 	struct device *dev = &ofdev->dev;
 	struct crypto4xx_core_device *core_dev;
+	struct device_node *np;
 	u32 pvr;
 	bool is_revb = true;
 
@@ -1383,28 +1384,35 @@ static int crypto4xx_probe(struct platform_device *ofdev)
 	if (rc)
 		return -ENODEV;
 
-	if (of_find_compatible_node(NULL, NULL, "amcc,ppc460ex-crypto")) {
+	np = of_find_compatible_node(NULL, NULL, "amcc,ppc460ex-crypto");
+	if (np) {
 		mtdcri(SDR0, PPC460EX_SDR0_SRST,
 		       mfdcri(SDR0, PPC460EX_SDR0_SRST) | PPC460EX_CE_RESET);
 		mtdcri(SDR0, PPC460EX_SDR0_SRST,
 		       mfdcri(SDR0, PPC460EX_SDR0_SRST) & ~PPC460EX_CE_RESET);
-	} else if (of_find_compatible_node(NULL, NULL,
-			"amcc,ppc405ex-crypto")) {
-		mtdcri(SDR0, PPC405EX_SDR0_SRST,
-		       mfdcri(SDR0, PPC405EX_SDR0_SRST) | PPC405EX_CE_RESET);
-		mtdcri(SDR0, PPC405EX_SDR0_SRST,
-		       mfdcri(SDR0, PPC405EX_SDR0_SRST) & ~PPC405EX_CE_RESET);
-		is_revb = false;
-	} else if (of_find_compatible_node(NULL, NULL,
-			"amcc,ppc460sx-crypto")) {
-		mtdcri(SDR0, PPC460SX_SDR0_SRST,
-		       mfdcri(SDR0, PPC460SX_SDR0_SRST) | PPC460SX_CE_RESET);
-		mtdcri(SDR0, PPC460SX_SDR0_SRST,
-		       mfdcri(SDR0, PPC460SX_SDR0_SRST) & ~PPC460SX_CE_RESET);
 	} else {
-		printk(KERN_ERR "Crypto Function Not supported!\n");
-		return -EINVAL;
+		np = of_find_compatible_node(NULL, NULL, "amcc,ppc405ex-crypto");
+		if (np) {
+			mtdcri(SDR0, PPC405EX_SDR0_SRST,
+				   mfdcri(SDR0, PPC405EX_SDR0_SRST) | PPC405EX_CE_RESET);
+			mtdcri(SDR0, PPC405EX_SDR0_SRST,
+				   mfdcri(SDR0, PPC405EX_SDR0_SRST) & ~PPC405EX_CE_RESET);
+			is_revb = false;
+		} else {
+			np = of_find_compatible_node(NULL, NULL, "amcc,ppc460sx-crypto");
+			if (np) {
+				mtdcri(SDR0, PPC460SX_SDR0_SRST,
+					mfdcri(SDR0, PPC460SX_SDR0_SRST) | PPC460SX_CE_RESET);
+				mtdcri(SDR0, PPC460SX_SDR0_SRST,
+					mfdcri(SDR0, PPC460SX_SDR0_SRST) & ~PPC460SX_CE_RESET);
+			} else {
+				printk(KERN_ERR "Crypto Function Not supported!\n");
+				return -EINVAL;
+			}
+		}
 	}
+
+	of_node_put(np);
 
 	core_dev = kzalloc(sizeof(struct crypto4xx_core_device), GFP_KERNEL);
 	if (!core_dev)

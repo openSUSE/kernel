@@ -45,9 +45,6 @@ tprogs-y += xdp_rxq_info
 tprogs-y += syscall_tp
 tprogs-y += cpustat
 tprogs-y += xdp_adjust_tail
-tprogs-y += xdpsock
-tprogs-y += xdpsock_ctrl_proc
-tprogs-y += xsk_fwd
 tprogs-y += xdp_fwd
 tprogs-y += task_fd_query
 tprogs-y += xdp_sample_pkts
@@ -109,9 +106,6 @@ xdp_rxq_info-objs := xdp_rxq_info_user.o
 syscall_tp-objs := syscall_tp_user.o
 cpustat-objs := cpustat_user.o
 xdp_adjust_tail-objs := xdp_adjust_tail_user.o
-xdpsock-objs := xdpsock_user.o
-xdpsock_ctrl_proc-objs := xdpsock_ctrl_proc.o
-xsk_fwd-objs := xsk_fwd.o
 xdp_fwd-objs := xdp_fwd_user.o
 task_fd_query-objs := task_fd_query_user.o $(TRACE_HELPERS)
 xdp_sample_pkts-objs := xdp_sample_pkts_user.o
@@ -131,34 +125,34 @@ always-y += sockex1_kern.o
 always-y += sockex2_kern.o
 always-y += sockex3_kern.o
 always-y += tracex1_kern.o
-always-y += tracex2_kern.o
+always-y += tracex2.bpf.o
 always-y += tracex3_kern.o
 always-y += tracex4_kern.o
 always-y += tracex5_kern.o
 always-y += tracex6_kern.o
 always-y += tracex7_kern.o
-always-y += sock_flags_kern.o
-always-y += test_probe_write_user_kern.o
-always-y += trace_output_kern.o
+always-y += sock_flags.bpf.o
+always-y += test_probe_write_user.bpf.o
+always-y += trace_output.bpf.o
 always-y += tcbpf1_kern.o
 always-y += tc_l2_redirect_kern.o
 always-y += lathist_kern.o
 always-y += offwaketime_kern.o
 always-y += spintest_kern.o
-always-y += map_perf_test_kern.o
-always-y += test_overhead_tp_kern.o
-always-y += test_overhead_raw_tp_kern.o
-always-y += test_overhead_kprobe_kern.o
+always-y += map_perf_test.bpf.o
+always-y += test_overhead_tp.bpf.o
+always-y += test_overhead_raw_tp.bpf.o
+always-y += test_overhead_kprobe.bpf.o
 always-y += parse_varlen.o parse_simple.o parse_ldabs.o
-always-y += test_cgrp2_tc_kern.o
+always-y += test_cgrp2_tc.bpf.o
 always-y += xdp1_kern.o
 always-y += xdp2_kern.o
-always-y += test_current_task_under_cgroup_kern.o
+always-y += test_current_task_under_cgroup.bpf.o
 always-y += trace_event_kern.o
 always-y += sampleip_kern.o
-always-y += lwt_len_hist_kern.o
+always-y += lwt_len_hist.bpf.o
 always-y += xdp_tx_iptunnel_kern.o
-always-y += test_map_in_map_kern.o
+always-y += test_map_in_map.bpf.o
 always-y += tcp_synrto_kern.o
 always-y += tcp_rwnd_kern.o
 always-y += tcp_bufs_kern.o
@@ -179,7 +173,6 @@ always-y += xdp_sample_pkts_kern.o
 always-y += ibumad_kern.o
 always-y += hbm_out_kern.o
 always-y += hbm_edt_kern.o
-always-y += xdpsock_kern.o
 
 ifeq ($(ARCH), arm)
 # Strip all except -D__LINUX_ARM_ARCH__ option needed to handle linux
@@ -224,8 +217,6 @@ TPROGLDLIBS_tracex4		+= -lrt
 TPROGLDLIBS_trace_output	+= -lrt
 TPROGLDLIBS_map_perf_test	+= -lrt
 TPROGLDLIBS_test_overhead	+= -lrt
-TPROGLDLIBS_xdpsock		+= -pthread -lcap
-TPROGLDLIBS_xsk_fwd		+= -pthread
 
 # Allows pointing LLC/CLANG to a LLVM backend with bpf support, redefine on cmdline:
 # make M=samples/bpf LLC=~/git/llvm-project/llvm/build/bin/llc CLANG=~/git/llvm-project/llvm/build/bin/clang
@@ -291,12 +282,10 @@ $(LIBBPF): $(wildcard $(LIBBPF_SRC)/*.[ch] $(LIBBPF_SRC)/Makefile) | $(LIBBPF_OU
 
 BPFTOOLDIR := $(TOOLS_PATH)/bpf/bpftool
 BPFTOOL_OUTPUT := $(abspath $(BPF_SAMPLES_PATH))/bpftool
-BPFTOOL := $(BPFTOOL_OUTPUT)/bpftool
-$(BPFTOOL): $(LIBBPF) $(wildcard $(BPFTOOLDIR)/*.[ch] $(BPFTOOLDIR)/Makefile) | $(BPFTOOL_OUTPUT)
-	    $(MAKE) -C $(BPFTOOLDIR) srctree=$(BPF_SAMPLES_PATH)/../../ \
-		OUTPUT=$(BPFTOOL_OUTPUT)/ \
-		LIBBPF_OUTPUT=$(LIBBPF_OUTPUT)/ \
-		LIBBPF_DESTDIR=$(LIBBPF_DESTDIR)/
+BPFTOOL := $(BPFTOOL_OUTPUT)/bootstrap/bpftool
+$(BPFTOOL): $(wildcard $(BPFTOOLDIR)/*.[ch] $(BPFTOOLDIR)/Makefile) | $(BPFTOOL_OUTPUT)
+	$(MAKE) -C $(BPFTOOLDIR) srctree=$(BPF_SAMPLES_PATH)/../../ 		\
+		OUTPUT=$(BPFTOOL_OUTPUT)/ bootstrap
 
 $(LIBBPF_OUTPUT) $(BPFTOOL_OUTPUT):
 	$(call msg,MKDIR,$@)

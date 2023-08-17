@@ -10,6 +10,7 @@
 
 .. _it_process_index:
 
+===============================================
 Lavorare con la comunità di sviluppo del kernel
 ===============================================
 
@@ -41,12 +42,12 @@ degli sviluppatori:
    :maxdepth: 1
 
    changes
-   submitting-drivers
    stable-api-nonsense
    management-style
    stable-kernel-rules
    submit-checklist
    kernel-docs
+   maintainers
 
 Ed infine, qui ci sono alcune guide più tecniche che son state messe qua solo
 perché non si è trovato un posto migliore.
@@ -58,6 +59,7 @@ perché non si è trovato un posto migliore.
    adding-syscalls
    magic-number
    volatile-considered-harmful
+   botching-up-ioctls
    clang-format
    ../riscv/patch-acceptance
 

@@ -81,15 +81,11 @@ int usb_acpi_port_lpm_incapable(struct usb_device *hdev, int index)
 		return -ENODEV;
 	}
 
-	obj = acpi_evaluate_dsm(port_handle, &guid, 0,
-				USB_DSM_DISABLE_U1_U2_FOR_PORT, NULL);
-
-	if (!obj)
-		return -ENODEV;
-
-	if (obj->type != ACPI_TYPE_INTEGER) {
+	obj = acpi_evaluate_dsm_typed(port_handle, &guid, 0,
+				      USB_DSM_DISABLE_U1_U2_FOR_PORT, NULL,
+				      ACPI_TYPE_INTEGER);
+	if (!obj) {
 		dev_dbg(&hdev->dev, "evaluate port-%d _DSM failed\n", port1);
-		ACPI_FREE(obj);
 		return -EINVAL;
 	}
 
@@ -254,8 +250,11 @@ usb_acpi_find_companion_for_device(struct usb_device *udev)
 	struct usb_hub *hub;
 
 	if (!udev->parent) {
-		/* root hub is only child (_ADR=0) under its parent, the HC */
-		adev = ACPI_COMPANION(udev->dev.parent);
+		/*
+		 * root hub is only child (_ADR=0) under its parent, the HC.
+		 * sysdev pointer is the HC as seen from firmware.
+		 */
+		adev = ACPI_COMPANION(udev->bus->sysdev);
 		return acpi_find_child_device(adev, 0, false);
 	}
 

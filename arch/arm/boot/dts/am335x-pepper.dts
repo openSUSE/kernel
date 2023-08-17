@@ -260,20 +260,19 @@
 };
 
 /* Ethernet */
-&cpsw_emac0 {
-	status = "okay";
+&cpsw_port1 {
 	phy-handle = <&ethphy0>;
 	phy-mode = "rgmii";
+	ti,dual-emac-pvid = <1>;
 };
 
-&cpsw_emac1 {
-	status = "okay";
+&cpsw_port2 {
 	phy-handle = <&ethphy1>;
 	phy-mode = "rgmii";
+	ti,dual-emac-pvid = <2>;
 };
 
-&davinci_mdio {
-	status = "okay";
+&davinci_mdio_sw {
 	pinctrl-names = "default";
 	pinctrl-0 = <&mdio_pins>;
 
@@ -286,12 +285,11 @@
 	};
 };
 
-&mac {
+&mac_sw {
 	status = "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&ethernet_pins>;
 };
-
 
 &am33xx_pinmux {
 	ethernet_pins: pinmux_ethernet {
@@ -557,11 +555,11 @@
 };
 
 &usb0 {
-        dr_mode = "host";
+	dr_mode = "host";
 };
 
 &usb1 {
-        dr_mode = "host";
+	dr_mode = "host";
 };
 
 &am33xx_pinmux {
@@ -598,24 +596,22 @@
 &buttons {
 	pinctrl-names = "default";
 	pinctrl-0 = <&user_buttons_pins>;
-	#address-cells = <1>;
-	#size-cells = <0>;
 
-	button0 {
+	button-0 {
 		label = "home";
 		linux,code = <KEY_HOME>;
 		gpios = <&gpio1 22 GPIO_ACTIVE_LOW>;
 		wakeup-source;
 	};
 
-	button1 {
+	button-1 {
 		label = "menu";
 		linux,code = <KEY_MENU>;
 		gpios = <&gpio1 23 GPIO_ACTIVE_LOW>;
 		wakeup-source;
 	};
 
-	buttons2 {
+	button-2 {
 		label = "power";
 		linux,code = <KEY_POWER>;
 		gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;

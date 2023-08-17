@@ -2,10 +2,13 @@
 .. include:: ../disclaimer-zh_CN.rst
 
 :Original: Documentation/core-api/workqueue.rst
-:Translator: Yanteng Si <siyanteng@loongson.cn>
+
+:翻译:
+
+ 司延腾 Yanteng Si <siyanteng@loongson.cn>
+ 周彬彬 Binbin Zhou <zhoubinbin@loongson.cn>
 
 .. _cn_workqueue.rst:
-
 
 =========================
 并发管理的工作队列 (cmwq)
@@ -176,10 +179,6 @@ workqueue将自动创建与属性相匹配的后备工作者池。调节并发�
 
   这个标志对于未绑定的wq来说是没有意义的。
 
-请注意，标志 ``WQ_NON_REENTRANT`` 不再存在，因为现在所有的工作
-队列都是不可逆的——任何工作项都保证在任何时间内最多被整个系统的一
-个工作者执行。
-
 
 ``max_active``
 --------------
@@ -314,8 +313,8 @@ And with cmwq with ``@max_active`` >= 3, ::
 
 第一个可以用追踪的方式进行跟踪: ::
 
-	$ echo workqueue:workqueue_queue_work > /sys/kernel/debug/tracing/set_event
-	$ cat /sys/kernel/debug/tracing/trace_pipe > out.txt
+	$ echo workqueue:workqueue_queue_work > /sys/kernel/tracing/set_event
+	$ cat /sys/kernel/tracing/trace_pipe > out.txt
 	(wait a few secs)
 
 如果有什么东西在工作队列上忙着做循环，它就会主导输出，可以用工作项函数确定违规者。
@@ -325,6 +324,22 @@ And with cmwq with ``@max_active`` >= 3, ::
 	$ cat /proc/THE_OFFENDING_KWORKER/stack
 
 工作项函数在堆栈追踪中应该是微不足道的。
+
+不可重入条件
+============
+
+工作队列保证，如果在工作项排队后满足以下条件，则工作项不能重入：
+
+
+        1. 工作函数没有被改变。
+        2. 没有人将该工作项排到另一个工作队列中。
+        3. 该工作项尚未被重新启动。
+
+换言之，如果上述条件成立，则保证在任何给定时间最多由一个系统范围内的工作程序执行
+该工作项。
+
+请注意，在self函数中将工作项重新排队（到同一队列）不会破坏这些条件，因此可以安全
+地执行此操作。否则在破坏工作函数内部的条件时需要小心。
 
 
 内核内联文档参考

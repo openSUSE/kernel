@@ -2,6 +2,7 @@
 /dts-v1/;
 #include "bcm2836.dtsi"
 #include "bcm2836-rpi.dtsi"
+#include "bcm283x-rpi-led-deprecated.dtsi"
 #include "bcm283x-rpi-smsc9514.dtsi"
 #include "bcm283x-rpi-usb-host.dtsi"
 
@@ -13,19 +14,6 @@
 		device_type = "memory";
 		reg = <0 0x40000000>;
 	};
-
-	leds {
-		led-act {
-			gpios = <&gpio 47 GPIO_ACTIVE_HIGH>;
-		};
-
-		led-pwr {
-			label = "PWR";
-			gpios = <&gpio 35 GPIO_ACTIVE_HIGH>;
-			default-state = "keep";
-			linux,default-trigger = "default-on";
-		};
-	};
 };
 
 &gpio {
@@ -34,7 +22,6 @@
 	 * the official GPU firmware DT blob.
 	 *
 	 * Legend:
-	 * "NC" = not connected (no rail from the SoC)
 	 * "FOO" = GPIO line named "FOO" on the schematic
 	 * "FOO_N" = GPIO line named "FOO" on schematic, active low
 	 */
@@ -83,7 +70,7 @@
 			  "CAM_GPIO0",
 			  "SMPS_SCL",
 			  "SMPS_SDA",
-			  "ETHCLK",
+			  "ETH_CLK",
 			  "PWM1_OUT",
 			  "HDMI_HPD_N",
 			  "STATUS_LED",
@@ -108,6 +95,19 @@
 	hpd-gpios = <&gpio 46 GPIO_ACTIVE_LOW>;
 	power-domains = <&power RPI_POWER_DOMAIN_HDMI>;
 	status = "okay";
+};
+
+&led_act {
+	gpios = <&gpio 47 GPIO_ACTIVE_HIGH>;
+};
+
+&leds {
+	led-pwr {
+		label = "PWR";
+		gpios = <&gpio 35 GPIO_ACTIVE_HIGH>;
+		default-state = "keep";
+		linux,default-trigger = "default-on";
+	};
 };
 
 &pwm {

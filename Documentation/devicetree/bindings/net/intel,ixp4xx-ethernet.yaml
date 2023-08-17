@@ -2,13 +2,13 @@
 # Copyright 2018 Linaro Ltd.
 %YAML 1.2
 ---
-$id: "http://devicetree.org/schemas/net/intel,ixp4xx-ethernet.yaml#"
-$schema: "http://devicetree.org/meta-schemas/core.yaml#"
+$id: http://devicetree.org/schemas/net/intel,ixp4xx-ethernet.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
 
 title: Intel IXP4xx ethernet
 
 allOf:
-  - $ref: "ethernet-controller.yaml#"
+  - $ref: ethernet-controller.yaml#
 
 maintainers:
   - Linus Walleij <linus.walleij@linaro.org>
@@ -28,7 +28,7 @@ properties:
     description: Ethernet MMIO address range
 
   queue-rx:
-    $ref: '/schemas/types.yaml#/definitions/phandle-array'
+    $ref: /schemas/types.yaml#/definitions/phandle-array
     items:
       - items:
           - description: phandle to the RX queue node
@@ -36,7 +36,7 @@ properties:
     description: phandle to the RX queue on the NPE
 
   queue-txready:
-    $ref: '/schemas/types.yaml#/definitions/phandle-array'
+    $ref: /schemas/types.yaml#/definitions/phandle-array
     items:
       - items:
           - description: phandle to the TX READY queue node
@@ -48,7 +48,7 @@ properties:
   phy-handle: true
 
   intel,npe-handle:
-    $ref: '/schemas/types.yaml#/definitions/phandle-array'
+    $ref: /schemas/types.yaml#/definitions/phandle-array
     items:
       - items:
           - description: phandle to the NPE this ethernet instance is using
@@ -57,8 +57,8 @@ properties:
       and the instance to use in the second cell
 
   mdio:
-    type: object
-    $ref: "mdio.yaml#"
+    $ref: mdio.yaml#
+    unevaluatedProperties: false
     description: optional node for embedded MDIO controller
 
 required:
@@ -80,7 +80,6 @@ examples:
     ethernet@c8009000 {
       compatible = "intel,ixp4xx-ethernet";
       reg = <0xc8009000 0x1000>;
-      status = "disabled";
       queue-rx = <&qmgr 4>;
       queue-txready = <&qmgr 21>;
       intel,npe-handle = <&npe 1>;
@@ -91,7 +90,6 @@ examples:
     ethernet@c800c000 {
       compatible = "intel,ixp4xx-ethernet";
       reg = <0xc800c000 0x1000>;
-      status = "disabled";
       queue-rx = <&qmgr 3>;
       queue-txready = <&qmgr 20>;
       intel,npe-handle = <&npe 2>;

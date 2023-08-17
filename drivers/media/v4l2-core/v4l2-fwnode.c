@@ -28,6 +28,8 @@
 #include <media/v4l2-fwnode.h>
 #include <media/v4l2-subdev.h>
 
+#include "v4l2-subdev-priv.h"
+
 static const struct v4l2_fwnode_bus_conv {
 	enum v4l2_fwnode_bus_type fwnode_bus_type;
 	enum v4l2_mbus_type mbus_type;
@@ -61,6 +63,10 @@ static const struct v4l2_fwnode_bus_conv {
 		V4L2_FWNODE_BUS_TYPE_BT656,
 		V4L2_MBUS_BT656,
 		"Bt.656",
+	}, {
+		V4L2_FWNODE_BUS_TYPE_DPI,
+		V4L2_MBUS_DPI,
+		"DPI",
 	}
 };
 
@@ -207,13 +213,11 @@ static int v4l2_fwnode_endpoint_parse_csi2_bus(struct fwnode_handle *fwnode,
 	if (fwnode_property_present(fwnode, "clock-noncontinuous")) {
 		flags |= V4L2_MBUS_CSI2_NONCONTINUOUS_CLOCK;
 		pr_debug("non-continuous clock\n");
-	} else {
-		flags |= V4L2_MBUS_CSI2_CONTINUOUS_CLOCK;
 	}
 
 	if (bus_type == V4L2_MBUS_CSI2_DPHY ||
-	    bus_type == V4L2_MBUS_CSI2_CPHY || lanes_used ||
-	    have_clk_lane || (flags & ~V4L2_MBUS_CSI2_CONTINUOUS_CLOCK)) {
+	    bus_type == V4L2_MBUS_CSI2_CPHY ||
+	    lanes_used || have_clk_lane || flags) {
 		/* Only D-PHY has a clock lane. */
 		unsigned int dfl_data_lane_index =
 			bus_type == V4L2_MBUS_CSI2_DPHY;
@@ -296,10 +300,25 @@ v4l2_fwnode_endpoint_parse_parallel_bus(struct fwnode_handle *fwnode,
 
 	if (!fwnode_property_read_u32(fwnode, "pclk-sample", &v)) {
 		flags &= ~(V4L2_MBUS_PCLK_SAMPLE_RISING |
-			   V4L2_MBUS_PCLK_SAMPLE_FALLING);
-		flags |= v ? V4L2_MBUS_PCLK_SAMPLE_RISING :
-			V4L2_MBUS_PCLK_SAMPLE_FALLING;
-		pr_debug("pclk-sample %s\n", v ? "high" : "low");
+			   V4L2_MBUS_PCLK_SAMPLE_FALLING |
+			   V4L2_MBUS_PCLK_SAMPLE_DUALEDGE);
+		switch (v) {
+		case 0:
+			flags |= V4L2_MBUS_PCLK_SAMPLE_FALLING;
+			pr_debug("pclk-sample low\n");
+			break;
+		case 1:
+			flags |= V4L2_MBUS_PCLK_SAMPLE_RISING;
+			pr_debug("pclk-sample high\n");
+			break;
+		case 2:
+			flags |= V4L2_MBUS_PCLK_SAMPLE_DUALEDGE;
+			pr_debug("pclk-sample dual edge\n");
+			break;
+		default:
+			pr_warn("invalid argument for pclk-sample");
+			break;
+		}
 	}
 
 	if (!fwnode_property_read_u32(fwnode, "data-active", &v)) {
@@ -780,11 +799,11 @@ int v4l2_fwnode_device_parse(struct device *dev,
 EXPORT_SYMBOL_GPL(v4l2_fwnode_device_parse);
 
 static int
-v4l2_async_notifier_fwnode_parse_endpoint(struct device *dev,
-					  struct v4l2_async_notifier *notifier,
-					  struct fwnode_handle *endpoint,
-					  unsigned int asd_struct_size,
-					  parse_endpoint_func parse_endpoint)
+v4l2_async_nf_fwnode_parse_endpoint(struct device *dev,
+				    struct v4l2_async_notifier *notifier,
+				    struct fwnode_handle *endpoint,
+				    unsigned int asd_struct_size,
+				    parse_endpoint_func parse_endpoint)
 {
 	struct v4l2_fwnode_endpoint vep = { .bus_type = 0 };
 	struct v4l2_async_subdev *asd;
@@ -822,7 +841,7 @@ v4l2_async_notifier_fwnode_parse_endpoint(struct device *dev,
 	if (ret < 0)
 		goto out_err;
 
-	ret = __v4l2_async_notifier_add_subdev(notifier, asd);
+	ret = __v4l2_async_nf_add_subdev(notifier, asd);
 	if (ret < 0) {
 		/* not an error if asd already exists */
 		if (ret == -EEXIST)
@@ -839,13 +858,11 @@ out_err:
 	return ret == -ENOTCONN ? 0 : ret;
 }
 
-static int
-__v4l2_async_notifier_parse_fwnode_ep(struct device *dev,
-				      struct v4l2_async_notifier *notifier,
-				      size_t asd_struct_size,
-				      unsigned int port,
-				      bool has_port,
-				      parse_endpoint_func parse_endpoint)
+int
+v4l2_async_nf_parse_fwnode_endpoints(struct device *dev,
+				     struct v4l2_async_notifier *notifier,
+				     size_t asd_struct_size,
+				     parse_endpoint_func parse_endpoint)
 {
 	struct fwnode_handle *fwnode;
 	int ret = 0;
@@ -863,22 +880,11 @@ __v4l2_async_notifier_parse_fwnode_ep(struct device *dev,
 		if (!is_available)
 			continue;
 
-		if (has_port) {
-			struct fwnode_endpoint ep;
 
-			ret = fwnode_graph_parse_endpoint(fwnode, &ep);
-			if (ret)
-				break;
-
-			if (ep.port != port)
-				continue;
-		}
-
-		ret = v4l2_async_notifier_fwnode_parse_endpoint(dev,
-								notifier,
-								fwnode,
-								asd_struct_size,
-								parse_endpoint);
+		ret = v4l2_async_nf_fwnode_parse_endpoint(dev, notifier,
+							  fwnode,
+							  asd_struct_size,
+							  parse_endpoint);
 		if (ret < 0)
 			break;
 	}
@@ -887,18 +893,7 @@ __v4l2_async_notifier_parse_fwnode_ep(struct device *dev,
 
 	return ret;
 }
-
-int
-v4l2_async_notifier_parse_fwnode_endpoints(struct device *dev,
-					   struct v4l2_async_notifier *notifier,
-					   size_t asd_struct_size,
-					   parse_endpoint_func parse_endpoint)
-{
-	return __v4l2_async_notifier_parse_fwnode_ep(dev, notifier,
-						     asd_struct_size, 0,
-						     false, parse_endpoint);
-}
-EXPORT_SYMBOL_GPL(v4l2_async_notifier_parse_fwnode_endpoints);
+EXPORT_SYMBOL_GPL(v4l2_async_nf_parse_fwnode_endpoints);
 
 /*
  * v4l2_fwnode_reference_parse - parse references for async sub-devices
@@ -920,31 +915,13 @@ static int v4l2_fwnode_reference_parse(struct device *dev,
 	int ret;
 
 	for (index = 0;
-	     !(ret = fwnode_property_get_reference_args(dev_fwnode(dev),
-							prop, NULL, 0,
-							index, &args));
-	     index++)
-		fwnode_handle_put(args.fwnode);
-
-	if (!index)
-		return -ENOENT;
-
-	/*
-	 * Note that right now both -ENODATA and -ENOENT may signal
-	 * out-of-bounds access. Return the error in cases other than that.
-	 */
-	if (ret != -ENOENT && ret != -ENODATA)
-		return ret;
-
-	for (index = 0;
-	     !fwnode_property_get_reference_args(dev_fwnode(dev), prop, NULL,
-						 0, index, &args);
+	     !(ret = fwnode_property_get_reference_args(dev_fwnode(dev), prop,
+							NULL, 0, index, &args));
 	     index++) {
 		struct v4l2_async_subdev *asd;
 
-		asd = v4l2_async_notifier_add_fwnode_subdev(notifier,
-							    args.fwnode,
-							    struct v4l2_async_subdev);
+		asd = v4l2_async_nf_add_fwnode(notifier, args.fwnode,
+					       struct v4l2_async_subdev);
 		fwnode_handle_put(args.fwnode);
 		if (IS_ERR(asd)) {
 			/* not an error if asd already exists */
@@ -955,7 +932,12 @@ static int v4l2_fwnode_reference_parse(struct device *dev,
 		}
 	}
 
-	return 0;
+	/* -ENOENT here means successful parsing */
+	if (ret != -ENOENT)
+		return ret;
+
+	/* Return -ENOENT if no references were found */
+	return index ? 0 : -ENOENT;
 }
 
 /*
@@ -1243,8 +1225,8 @@ v4l2_fwnode_reference_parse_int_props(struct device *dev,
 	     index++) {
 		struct v4l2_async_subdev *asd;
 
-		asd = v4l2_async_notifier_add_fwnode_subdev(notifier, fwnode,
-							    struct v4l2_async_subdev);
+		asd = v4l2_async_nf_add_fwnode(notifier, fwnode,
+					       struct v4l2_async_subdev);
 		fwnode_handle_put(fwnode);
 		if (IS_ERR(asd)) {
 			ret = PTR_ERR(asd);
@@ -1260,7 +1242,7 @@ v4l2_fwnode_reference_parse_int_props(struct device *dev,
 }
 
 /**
- * v4l2_async_notifier_parse_fwnode_sensor - parse common references on
+ * v4l2_async_nf_parse_fwnode_sensor - parse common references on
  *					     sensors for async sub-devices
  * @dev: the device node the properties of which are parsed for references
  * @notifier: the async notifier where the async subdevs will be added
@@ -1269,7 +1251,7 @@ v4l2_fwnode_reference_parse_int_props(struct device *dev,
  * sensor and set up async sub-devices for them.
  *
  * Any notifier populated using this function must be released with a call to
- * v4l2_async_notifier_release() after it has been unregistered and the async
+ * v4l2_async_nf_release() after it has been unregistered and the async
  * sub-devices are no longer in use, even in the case the function returned an
  * error.
  *
@@ -1278,8 +1260,8 @@ v4l2_fwnode_reference_parse_int_props(struct device *dev,
  *	   -EINVAL if property parsing failed
  */
 static int
-v4l2_async_notifier_parse_fwnode_sensor(struct device *dev,
-					struct v4l2_async_notifier *notifier)
+v4l2_async_nf_parse_fwnode_sensor(struct device *dev,
+				  struct v4l2_async_notifier *notifier)
 {
 	static const char * const led_props[] = { "led" };
 	static const struct v4l2_fwnode_int_props props[] = {
@@ -1320,13 +1302,17 @@ int v4l2_async_register_subdev_sensor(struct v4l2_subdev *sd)
 	if (!notifier)
 		return -ENOMEM;
 
-	v4l2_async_notifier_init(notifier);
+	v4l2_async_nf_init(notifier);
 
-	ret = v4l2_async_notifier_parse_fwnode_sensor(sd->dev, notifier);
+	ret = v4l2_subdev_get_privacy_led(sd);
 	if (ret < 0)
 		goto out_cleanup;
 
-	ret = v4l2_async_subdev_notifier_register(sd, notifier);
+	ret = v4l2_async_nf_parse_fwnode_sensor(sd->dev, notifier);
+	if (ret < 0)
+		goto out_cleanup;
+
+	ret = v4l2_async_subdev_nf_register(sd, notifier);
 	if (ret < 0)
 		goto out_cleanup;
 
@@ -1339,10 +1325,11 @@ int v4l2_async_register_subdev_sensor(struct v4l2_subdev *sd)
 	return 0;
 
 out_unregister:
-	v4l2_async_notifier_unregister(notifier);
+	v4l2_async_nf_unregister(notifier);
 
 out_cleanup:
-	v4l2_async_notifier_cleanup(notifier);
+	v4l2_subdev_put_privacy_led(sd);
+	v4l2_async_nf_cleanup(notifier);
 	kfree(notifier);
 
 	return ret;

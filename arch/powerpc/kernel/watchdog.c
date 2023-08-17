@@ -56,7 +56,7 @@
  * solved by also having a SMP watchdog where all CPUs check all other
  * CPUs heartbeat.
  *
- * The SMP checker can detect lockups on other CPUs. A gobal "pending"
+ * The SMP checker can detect lockups on other CPUs. A global "pending"
  * cpumask is kept, containing all CPUs which enable the watchdog. Each
  * CPU clears their pending bit in their heartbeat timer. When the bitmask
  * becomes empty, the last CPU to clear its pending bit updates a global
@@ -86,6 +86,7 @@ static DEFINE_PER_CPU(u64, wd_timer_tb);
 /* SMP checker bits */
 static unsigned long __wd_smp_lock;
 static unsigned long __wd_reporting;
+static unsigned long __wd_nmi_output;
 static cpumask_t wd_smp_cpus_pending;
 static cpumask_t wd_smp_cpus_stuck;
 static u64 wd_smp_last_reset_tb;
@@ -157,6 +158,23 @@ static void wd_lockup_ipi(struct pt_regs *regs)
 		show_regs(regs);
 	else
 		dump_stack();
+
+	/*
+	 * __wd_nmi_output must be set after we printk from NMI context.
+	 *
+	 * printk from NMI context defers printing to the console to irq_work.
+	 * If that NMI was taken in some code that is hard-locked, then irqs
+	 * are disabled so irq_work will never fire. That can result in the
+	 * hard lockup messages being delayed (indefinitely, until something
+	 * else kicks the console drivers).
+	 *
+	 * Setting __wd_nmi_output will cause another CPU to notice and kick
+	 * the console drivers for us.
+	 *
+	 * xchg is not needed here (it could be a smp_mb and store), but xchg
+	 * gives the memory ordering and atomicity required.
+	 */
+	xchg(&__wd_nmi_output, 1);
 
 	/* Do not panic from here because that can recurse into NMI IPI layer */
 }
@@ -230,12 +248,6 @@ static void watchdog_smp_panic(int cpu)
 		trigger_allbutself_cpu_backtrace();
 		cpumask_clear(&wd_smp_cpus_ipi);
 	}
-
-	/*
-	 * Force flush any remote buffers that might be stuck in IRQ context
-	 * and therefore could not run their irq_work.
-	 */
-	printk_trigger_flush();
 
 	if (hardlockup_panic)
 		nmi_panic(NULL, "Hard LOCKUP");
@@ -341,6 +353,17 @@ static void watchdog_timer_interrupt(int cpu)
 
 	if ((s64)(tb - wd_smp_last_reset_tb) >= (s64)wd_smp_panic_timeout_tb)
 		watchdog_smp_panic(cpu);
+
+	if (__wd_nmi_output && xchg(&__wd_nmi_output, 0)) {
+		/*
+		 * Something has called printk from NMI context. It might be
+		 * stuck, so this triggers a flush that will get that
+		 * printk output to the console.
+		 *
+		 * See wd_lockup_ipi.
+		 */
+		printk_trigger_flush();
+	}
 }
 
 DEFINE_INTERRUPT_HANDLER_NMI(soft_nmi_interrupt)
@@ -390,6 +413,8 @@ DEFINE_INTERRUPT_HANDLER_NMI(soft_nmi_interrupt)
 		print_irqtrace_events(current);
 		show_regs(regs);
 
+		xchg(&__wd_nmi_output, 1); // see wd_lockup_ipi
+
 		if (sysctl_hardlockup_all_cpu_backtrace)
 			trigger_allbutself_cpu_backtrace();
 
@@ -413,7 +438,7 @@ static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 {
 	int cpu = smp_processor_id();
 
-	if (!(watchdog_enabled & NMI_WATCHDOG_ENABLED))
+	if (!(watchdog_enabled & WATCHDOG_HARDLOCKUP_ENABLED))
 		return HRTIMER_NORESTART;
 
 	if (!cpumask_test_cpu(cpu, &watchdog_cpumask))
@@ -454,7 +479,7 @@ static void start_watchdog(void *arg)
 		return;
 	}
 
-	if (!(watchdog_enabled & NMI_WATCHDOG_ENABLED))
+	if (!(watchdog_enabled & WATCHDOG_HARDLOCKUP_ENABLED))
 		return;
 
 	if (!cpumask_test_cpu(cpu, &watchdog_cpumask))
@@ -521,7 +546,7 @@ static void watchdog_calc_timeouts(void)
 	wd_timer_period_ms = watchdog_thresh * 1000 * 2 / 5;
 }
 
-void watchdog_nmi_stop(void)
+void watchdog_hardlockup_stop(void)
 {
 	int cpu;
 
@@ -529,7 +554,7 @@ void watchdog_nmi_stop(void)
 		stop_watchdog_on_cpu(cpu);
 }
 
-void watchdog_nmi_start(void)
+void watchdog_hardlockup_start(void)
 {
 	int cpu;
 
@@ -541,7 +566,7 @@ void watchdog_nmi_start(void)
 /*
  * Invoked from core watchdog init.
  */
-int __init watchdog_nmi_probe(void)
+int __init watchdog_hardlockup_probe(void)
 {
 	int err;
 
@@ -557,7 +582,7 @@ int __init watchdog_nmi_probe(void)
 }
 
 #ifdef CONFIG_PPC_PSERIES
-void watchdog_nmi_set_timeout_pct(u64 pct)
+void watchdog_hardlockup_set_timeout_pct(u64 pct)
 {
 	pr_info("Set the NMI watchdog timeout factor to %llu%%\n", pct);
 	WRITE_ONCE(wd_timeout_pct, pct);

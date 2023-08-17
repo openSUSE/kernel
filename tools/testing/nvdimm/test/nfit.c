@@ -1878,14 +1878,14 @@ static size_t sizeof_spa(struct acpi_nfit_system_address *spa)
 static int nfit_test0_alloc(struct nfit_test *t)
 {
 	struct acpi_nfit_system_address *spa = NULL;
+	struct acpi_nfit_flush_address *flush;
 	size_t nfit_size = sizeof_spa(spa) * NUM_SPA
 			+ sizeof(struct acpi_nfit_memory_map) * NUM_MEM
 			+ sizeof(struct acpi_nfit_control_region) * NUM_DCR
 			+ offsetof(struct acpi_nfit_control_region,
 					window_size) * NUM_DCR
 			+ sizeof(struct acpi_nfit_data_region) * NUM_BDW
-			+ (sizeof(struct acpi_nfit_flush_address)
-					+ sizeof(u64) * NUM_HINTS) * NUM_DCR
+			+ struct_size(flush, hint_address, NUM_HINTS) * NUM_DCR
 			+ sizeof(struct acpi_nfit_capabilities);
 	int i;
 
@@ -3275,10 +3275,6 @@ static __init int nfit_test_init(void)
 	acpi_nfit_test();
 	device_dax_test();
 	dax_pmem_test();
-	dax_pmem_core_test();
-#ifdef CONFIG_DEV_DAX_PMEM_COMPAT
-	dax_pmem_compat_test();
-#endif
 
 	nfit_test_setup(nfit_test_lookup, nfit_test_evaluate_dsm);
 
@@ -3286,7 +3282,7 @@ static __init int nfit_test_init(void)
 	if (!nfit_wq)
 		return -ENOMEM;
 
-	nfit_test_dimm = class_create(THIS_MODULE, "nfit_test_dimm");
+	nfit_test_dimm = class_create("nfit_test_dimm");
 	if (IS_ERR(nfit_test_dimm)) {
 		rc = PTR_ERR(nfit_test_dimm);
 		goto err_register;
@@ -3377,7 +3373,6 @@ static __exit void nfit_test_exit(void)
 {
 	int i;
 
-	flush_workqueue(nfit_wq);
 	destroy_workqueue(nfit_wq);
 	for (i = 0; i < NUM_NFITS; i++)
 		platform_device_unregister(&instances[i]->pdev);

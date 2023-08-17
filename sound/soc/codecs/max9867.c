@@ -6,6 +6,7 @@
 // Copyright 2018 Ladislav Michl <ladis@linux-mips.org>
 //
 
+#include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
@@ -16,10 +17,11 @@
 #include "max9867.h"
 
 struct max9867_priv {
+	struct clk *mclk;
 	struct regmap *regmap;
 	const struct snd_pcm_hw_constraint_list *constraints;
 	unsigned int sysclk, pclk;
-	bool master, dsp_a;
+	bool provider, dsp_a;
 	unsigned int adc_dac_active;
 };
 
@@ -323,7 +325,7 @@ static int max9867_startup(struct snd_pcm_substream *substream,
 static int max9867_dai_hw_params(struct snd_pcm_substream *substream,
 		struct snd_pcm_hw_params *params, struct snd_soc_dai *dai)
 {
-	int value;
+	int value, freq = 0;
 	unsigned long int rate, ratio;
 	struct snd_soc_component *component = dai->component;
 	struct max9867_priv *max9867 = snd_soc_component_get_drvdata(component);
@@ -335,7 +337,7 @@ static int max9867_dai_hw_params(struct snd_pcm_substream *substream,
 		MAX9867_NI_HIGH_MASK, (0xFF00 & ni) >> 8);
 	regmap_update_bits(max9867->regmap, MAX9867_AUDIOCLKLOW,
 		MAX9867_NI_LOW_MASK, 0x00FF & ni);
-	if (max9867->master) {
+	if (max9867->provider) {
 		if (max9867->dsp_a) {
 			value = MAX9867_IFC1B_48X;
 		} else {
@@ -373,6 +375,35 @@ static int max9867_dai_hw_params(struct snd_pcm_substream *substream,
 		}
 		regmap_update_bits(max9867->regmap, MAX9867_IFC1B,
 			MAX9867_IFC1B_BCLK_MASK, value);
+
+		/* Exact integer mode available for 8kHz and 16kHz sample rates
+		 * and certain PCLK (prescaled MCLK) values.
+		 */
+		if (params_rate(params) == 8000 ||
+		    params_rate(params) == 16000) {
+			switch (max9867->pclk) {
+			case 12000000:
+				freq = 0x08;
+				break;
+			case 13000000:
+				freq = 0x0A;
+				break;
+			case 16000000:
+				freq = 0x0C;
+				break;
+			case 19200000:
+				freq = 0x0E;
+				break;
+			}
+		}
+		if (freq && params_rate(params) == 16000)
+			freq++;
+
+		/* If exact integer mode not available, the freq value
+		 * remains zero, i.e. normal mode is used.
+		 */
+		regmap_update_bits(max9867->regmap, MAX9867_SYSCLK,
+				   MAX9867_FREQ_MASK, freq);
 	} else {
 		/*
 		 * digital pll locks on to any externally supplied LRCLK signal
@@ -428,8 +459,6 @@ static int max9867_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 			 freq);
 	max9867->sysclk = freq;
 	value = value << MAX9867_PSCLK_SHIFT;
-	/* exact integer mode is not supported */
-	value &= ~MAX9867_FREQ_MASK;
 	regmap_update_bits(max9867->regmap, MAX9867_SYSCLK,
 			MAX9867_PSCLK_MASK, value);
 	return 0;
@@ -442,14 +471,14 @@ static int max9867_dai_set_fmt(struct snd_soc_dai *codec_dai,
 	struct max9867_priv *max9867 = snd_soc_component_get_drvdata(component);
 	u8 iface1A, iface1B;
 
-	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
-	case SND_SOC_DAIFMT_CBM_CFM:
-		max9867->master = true;
+	switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
+	case SND_SOC_DAIFMT_CBP_CFP:
+		max9867->provider = true;
 		iface1A = MAX9867_MASTER;
 		iface1B = MAX9867_IFC1B_48X;
 		break;
-	case SND_SOC_DAIFMT_CBS_CFS:
-		max9867->master = false;
+	case SND_SOC_DAIFMT_CBC_CFC:
+		max9867->provider = false;
 		iface1A = iface1B = 0;
 		break;
 	default:
@@ -550,6 +579,11 @@ static int max9867_set_bias_level(struct snd_soc_component *component,
 	struct max9867_priv *max9867 = snd_soc_component_get_drvdata(component);
 
 	switch (level) {
+	case SND_SOC_BIAS_ON:
+		err = clk_prepare_enable(max9867->mclk);
+		if (err)
+			return err;
+		break;
 	case SND_SOC_BIAS_STANDBY:
 		if (snd_soc_component_get_bias_level(component) == SND_SOC_BIAS_OFF) {
 			err = regcache_sync(max9867->regmap);
@@ -568,6 +602,7 @@ static int max9867_set_bias_level(struct snd_soc_component *component,
 			return err;
 
 		regcache_mark_dirty(max9867->regmap);
+		clk_disable_unprepare(max9867->mclk);
 		break;
 	default:
 		break;
@@ -589,7 +624,6 @@ static const struct snd_soc_component_driver max9867_component = {
 	.idle_bias_on		= 1,
 	.use_pmdown_time	= 1,
 	.endianness		= 1,
-	.non_legacy_dai_naming	= 1,
 };
 
 static bool max9867_volatile_register(struct device *dev, unsigned int reg)
@@ -613,8 +647,7 @@ static const struct regmap_config max9867_regmap = {
 	.cache_type	= REGCACHE_RBTREE,
 };
 
-static int max9867_i2c_probe(struct i2c_client *i2c,
-		const struct i2c_device_id *id)
+static int max9867_i2c_probe(struct i2c_client *i2c)
 {
 	struct max9867_priv *max9867;
 	int ret, reg;
@@ -638,9 +671,16 @@ static int max9867_i2c_probe(struct i2c_client *i2c,
 	dev_info(&i2c->dev, "device revision: %x\n", reg);
 	ret = devm_snd_soc_register_component(&i2c->dev, &max9867_component,
 			max9867_dai, ARRAY_SIZE(max9867_dai));
-	if (ret < 0)
+	if (ret < 0) {
 		dev_err(&i2c->dev, "Failed to register component: %d\n", ret);
-	return ret;
+		return ret;
+	}
+
+	max9867->mclk = devm_clk_get(&i2c->dev, NULL);
+	if (IS_ERR(max9867->mclk))
+		return PTR_ERR(max9867->mclk);
+
+	return 0;
 }
 
 static const struct i2c_device_id max9867_i2c_id[] = {
@@ -662,7 +702,7 @@ static struct i2c_driver max9867_i2c_driver = {
 		.name = "max9867",
 		.of_match_table = of_match_ptr(max9867_of_match),
 	},
-	.probe  = max9867_i2c_probe,
+	.probe_new  = max9867_i2c_probe,
 	.id_table = max9867_i2c_id,
 };
 

@@ -14,23 +14,41 @@ description:
 
 properties:
   compatible:
-    enum:
-      - st,lsm6ds3
-      - st,lsm6ds3h
-      - st,lsm6dsl
-      - st,lsm6dsm
-      - st,ism330dlc
-      - st,lsm6dso
-      - st,asm330lhh
-      - st,lsm6dsox
-      - st,lsm6dsr
-      - st,lsm6ds3tr-c
-      - st,ism330dhcx
-      - st,lsm9ds1-imu
-      - st,lsm6ds0
-      - st,lsm6dsrx
-      - st,lsm6dst
-      - st,lsm6dsop
+    oneOf:
+      - enum:
+          - st,lsm6ds3
+          - st,lsm6ds3h
+          - st,lsm6dsl
+          - st,lsm6dsm
+          - st,ism330dlc
+          - st,lsm6dso
+          - st,asm330lhh
+          - st,lsm6dsox
+          - st,lsm6dsr
+          - st,lsm6ds3tr-c
+          - st,ism330dhcx
+          - st,lsm9ds1-imu
+          - st,lsm6ds0
+          - st,lsm6dsrx
+          - st,lsm6dst
+          - st,lsm6dsop
+          - st,lsm6dsv
+          - st,lsm6dso16is
+      - items:
+          - const: st,asm330lhhx
+          - const: st,lsm6dsr
+      - items:
+          - const: st,lsm6dstx
+          - const: st,lsm6dst
+      - items:
+          - const: st,lsm6dsv16x
+          - const: st,lsm6dsv
+      - items:
+          - const: st,ism330is
+          - const: st,lsm6dso16is
+      - items:
+          - const: st,asm330lhb
+          - const: st,asm330lhh
 
   reg:
     maxItems: 1
@@ -41,8 +59,6 @@ properties:
     description:
       Supports up to 2 interrupt lines via the INT1 and INT2 pins.
 
-  spi-max-frequency: true
-
   vdd-supply:
     description: if defined provides VDD power to the sensor.
 
@@ -50,7 +66,7 @@ properties:
     description: if defined provides VDD IO power to the sensor.
 
   st,drdy-int-pin:
-    $ref: '/schemas/types.yaml#/definitions/uint32'
+    $ref: /schemas/types.yaml#/definitions/uint32
     description: |
       The pin on the package that will be used to signal data ready
     enum:
@@ -61,6 +77,13 @@ properties:
     type: boolean
     description: enable/disable internal i2c controller pullup resistors.
 
+  st,disable-sensor-hub:
+    type: boolean
+    description:
+      Enable/disable internal i2c controller slave autoprobing at bootstrap.
+      Disable sensor-hub is useful if i2c controller clock/data lines are
+      connected through a pull-up with other chip lines (e.g. SDO/SA0).
+
   drive-open-drain:
     type: boolean
     description:
@@ -70,11 +93,14 @@ properties:
   wakeup-source:
     $ref: /schemas/types.yaml#/definitions/flag
 
-additionalProperties: false
-
 required:
   - compatible
   - reg
+
+allOf:
+  - $ref: /schemas/spi/spi-peripheral-props.yaml#
+
+unevaluatedProperties: false
 
 examples:
   - |

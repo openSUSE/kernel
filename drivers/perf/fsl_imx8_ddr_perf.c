@@ -29,7 +29,7 @@
 #define CNTL_OVER_MASK		0xFFFFFFFE
 
 #define CNTL_CSV_SHIFT		24
-#define CNTL_CSV_MASK		(0xFF << CNTL_CSV_SHIFT)
+#define CNTL_CSV_MASK		(0xFFU << CNTL_CSV_SHIFT)
 
 #define EVENT_CYCLES_ID		0
 #define EVENT_CYCLES_COUNTER	0
@@ -97,7 +97,6 @@ struct ddr_pmu {
 	struct	hlist_node node;
 	struct	device *dev;
 	struct perf_event *events[NUM_COUNTERS];
-	int active_events;
 	enum cpuhp_state cpuhp_state;
 	const struct fsl_ddr_devtype_data *devtype_data;
 	int irq;
@@ -530,7 +529,6 @@ static int ddr_perf_event_add(struct perf_event *event, int flags)
 	}
 
 	pmu->events[counter] = event;
-	pmu->active_events++;
 	hwc->idx = counter;
 
 	hwc->state |= PERF_HES_STOPPED;
@@ -562,7 +560,6 @@ static void ddr_perf_event_del(struct perf_event *event, int flags)
 	ddr_perf_event_stop(event, PERF_EF_UPDATE);
 
 	ddr_perf_free_counter(pmu, counter);
-	pmu->active_events--;
 	hwc->idx = -1;
 }
 
@@ -611,7 +608,7 @@ static int ddr_perf_init(struct ddr_pmu *pmu, void __iomem *base,
 		.dev = dev,
 	};
 
-	pmu->id = ida_simple_get(&ddr_ida, 0, 0, GFP_KERNEL);
+	pmu->id = ida_alloc(&ddr_ida, GFP_KERNEL);
 	return pmu->id;
 }
 
@@ -765,7 +762,7 @@ ddr_perf_err:
 cpuhp_instance_err:
 	cpuhp_remove_multi_state(pmu->cpuhp_state);
 cpuhp_state_err:
-	ida_simple_remove(&ddr_ida, pmu->id);
+	ida_free(&ddr_ida, pmu->id);
 	dev_warn(&pdev->dev, "i.MX8 DDR Perf PMU failed (%d), disabled\n", ret);
 	return ret;
 }
@@ -779,7 +776,7 @@ static int ddr_perf_remove(struct platform_device *pdev)
 
 	perf_pmu_unregister(&pmu->pmu);
 
-	ida_simple_remove(&ddr_ida, pmu->id);
+	ida_free(&ddr_ida, pmu->id);
 	return 0;
 }
 

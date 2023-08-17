@@ -1,13 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * MOXA ART SoCs DMA Engine support.
  *
  * Copyright (C) 2013 Jonas Jensen
  *
  * Jonas Jensen <jonas.jensen@gmail.com>
- *
- * This file is licensed under the terms of the GNU General Public
- * License version 2.  This program is licensed "as is" without any
- * warranty of any kind, whether express or implied.
  */
 
 #include <linux/dmaengine.h>
@@ -566,7 +563,6 @@ static int moxart_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct device_node *node = dev->of_node;
-	struct resource *res;
 	void __iomem *dma_base_addr;
 	int ret, i;
 	unsigned int irq;
@@ -583,8 +579,7 @@ static int moxart_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	dma_base_addr = devm_ioremap_resource(dev, res);
+	dma_base_addr = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(dma_base_addr))
 		return PTR_ERR(dma_base_addr);
 

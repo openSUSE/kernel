@@ -15,6 +15,7 @@
  /* want to reuse a stale file handle and only the caller knows the file info */
 
 #include <linux/fs.h>
+#include <linux/filelock.h>
 #include <linux/kernel.h>
 #include <linux/vfs.h>
 #include <linux/slab.h>
@@ -24,6 +25,7 @@
 #include <linux/task_io_accounting_ops.h>
 #include <linux/uaccess.h>
 #include "cifspdu.h"
+#include "cifsfs.h"
 #include "cifsglob.h"
 #include "cifsacl.h"
 #include "cifsproto.h"
@@ -40,10 +42,6 @@ static struct {
 	int index;
 	char *name;
 } protocols[] = {
-#ifdef CONFIG_CIFS_WEAK_PW_HASH
-	{LANMAN_PROT, "\2LM1.2X002"},
-	{LANMAN2_PROT, "\2LANMAN2.1"},
-#endif /* weak password hashing for legacy clients */
 	{CIFS_PROT, "\2NT LM 0.12"},
 	{POSIX_PROT, "\2POSIX 2"},
 	{BAD_PROT, "\2"}
@@ -53,10 +51,6 @@ static struct {
 	int index;
 	char *name;
 } protocols[] = {
-#ifdef CONFIG_CIFS_WEAK_PW_HASH
-	{LANMAN_PROT, "\2LM1.2X002"},
-	{LANMAN2_PROT, "\2LANMAN2.1"},
-#endif /* weak password hashing for legacy clients */
 	{CIFS_PROT, "\2NT LM 0.12"},
 	{BAD_PROT, "\2"}
 };
@@ -64,17 +58,9 @@ static struct {
 
 /* define the number of elements in the cifs dialect array */
 #ifdef CONFIG_CIFS_POSIX
-#ifdef CONFIG_CIFS_WEAK_PW_HASH
-#define CIFS_NUM_PROT 4
-#else
 #define CIFS_NUM_PROT 2
-#endif /* CIFS_WEAK_PW_HASH */
 #else /* not posix */
-#ifdef CONFIG_CIFS_WEAK_PW_HASH
-#define CIFS_NUM_PROT 3
-#else
 #define CIFS_NUM_PROT 1
-#endif /* CONFIG_CIFS_WEAK_PW_HASH */
 #endif /* CIFS_POSIX */
 
 
@@ -396,89 +382,6 @@ decode_ext_sec_blob(struct cifs_ses *ses, NEGOTIATE_RSP *pSMBr)
 	return 0;
 }
 
-#ifdef CONFIG_CIFS_WEAK_PW_HASH
-static int
-decode_lanman_negprot_rsp(struct TCP_Server_Info *server, NEGOTIATE_RSP *pSMBr)
-{
-	__s16 tmp;
-	struct lanman_neg_rsp *rsp = (struct lanman_neg_rsp *)pSMBr;
-
-	if (server->dialect != LANMAN_PROT && server->dialect != LANMAN2_PROT)
-		return -EOPNOTSUPP;
-
-	server->sec_mode = le16_to_cpu(rsp->SecurityMode);
-	server->maxReq = min_t(unsigned int,
-			       le16_to_cpu(rsp->MaxMpxCount),
-			       cifs_max_pending);
-	set_credits(server, server->maxReq);
-	server->maxBuf = le16_to_cpu(rsp->MaxBufSize);
-	/* set up max_read for readpages check */
-	server->max_read = server->maxBuf;
-	/* even though we do not use raw we might as well set this
-	accurately, in case we ever find a need for it */
-	if ((le16_to_cpu(rsp->RawMode) & RAW_ENABLE) == RAW_ENABLE) {
-		server->max_rw = 0xFF00;
-		server->capabilities = CAP_MPX_MODE | CAP_RAW_MODE;
-	} else {
-		server->max_rw = 0;/* do not need to use raw anyway */
-		server->capabilities = CAP_MPX_MODE;
-	}
-	tmp = (__s16)le16_to_cpu(rsp->ServerTimeZone);
-	if (tmp == -1) {
-		/* OS/2 often does not set timezone therefore
-		 * we must use server time to calc time zone.
-		 * Could deviate slightly from the right zone.
-		 * Smallest defined timezone difference is 15 minutes
-		 * (i.e. Nepal).  Rounding up/down is done to match
-		 * this requirement.
-		 */
-		int val, seconds, remain, result;
-		struct timespec64 ts;
-		time64_t utc = ktime_get_real_seconds();
-		ts = cnvrtDosUnixTm(rsp->SrvTime.Date,
-				    rsp->SrvTime.Time, 0);
-		cifs_dbg(FYI, "SrvTime %lld sec since 1970 (utc: %lld) diff: %lld\n",
-			 ts.tv_sec, utc,
-			 utc - ts.tv_sec);
-		val = (int)(utc - ts.tv_sec);
-		seconds = abs(val);
-		result = (seconds / MIN_TZ_ADJ) * MIN_TZ_ADJ;
-		remain = seconds % MIN_TZ_ADJ;
-		if (remain >= (MIN_TZ_ADJ / 2))
-			result += MIN_TZ_ADJ;
-		if (val < 0)
-			result = -result;
-		server->timeAdj = result;
-	} else {
-		server->timeAdj = (int)tmp;
-		server->timeAdj *= 60; /* also in seconds */
-	}
-	cifs_dbg(FYI, "server->timeAdj: %d seconds\n", server->timeAdj);
-
-
-	/* BB get server time for time conversions and add
-	code to use it and timezone since this is not UTC */
-
-	if (rsp->EncryptionKeyLength ==
-			cpu_to_le16(CIFS_CRYPTO_KEY_SIZE)) {
-		memcpy(server->cryptkey, rsp->EncryptionKey,
-			CIFS_CRYPTO_KEY_SIZE);
-	} else if (server->sec_mode & SECMODE_PW_ENCRYPT) {
-		return -EIO; /* need cryptkey unless plain text */
-	}
-
-	cifs_dbg(FYI, "LANMAN negotiated\n");
-	return 0;
-}
-#else
-static inline int
-decode_lanman_negprot_rsp(struct TCP_Server_Info *server, NEGOTIATE_RSP *pSMBr)
-{
-	cifs_dbg(VFS, "mount failed, cifs module not built with CIFS_WEAK_PW_HASH support\n");
-	return -EOPNOTSUPP;
-}
-#endif
-
 static bool
 should_set_ext_sec_flag(enum securityEnum sectype)
 {
@@ -548,16 +451,12 @@ CIFSSMBNegotiate(const unsigned int xid,
 	server->dialect = le16_to_cpu(pSMBr->DialectIndex);
 	cifs_dbg(FYI, "Dialect: %d\n", server->dialect);
 	/* Check wct = 1 error case */
-	if ((pSMBr->hdr.WordCount < 13) || (server->dialect == BAD_PROT)) {
+	if ((pSMBr->hdr.WordCount <= 13) || (server->dialect == BAD_PROT)) {
 		/* core returns wct = 1, but we do not ask for core - otherwise
 		small wct just comes when dialect index is -1 indicating we
 		could not negotiate a common dialect */
 		rc = -EOPNOTSUPP;
 		goto neg_err_exit;
-	} else if (pSMBr->hdr.WordCount == 13) {
-		server->negflavor = CIFS_NEGFLAVOR_LANMAN;
-		rc = decode_lanman_negprot_rsp(server, pSMBr);
-		goto signing_check;
 	} else if (pSMBr->hdr.WordCount != 17) {
 		/* unknown wct */
 		rc = -EOPNOTSUPP;
@@ -576,7 +475,7 @@ CIFSSMBNegotiate(const unsigned int xid,
 	set_credits(server, server->maxReq);
 	/* probably no need to store and check maxvcs */
 	server->maxBuf = le32_to_cpu(pSMBr->MaxBufferSize);
-	/* set up max_read for readpages check */
+	/* set up max_read for readahead check */
 	server->max_read = server->maxBuf;
 	server->max_rw = le32_to_cpu(pSMBr->MaxRawSize);
 	cifs_dbg(NOISY, "Max buf = %d\n", ses->server->maxBuf);
@@ -599,7 +498,6 @@ CIFSSMBNegotiate(const unsigned int xid,
 		server->capabilities &= ~CAP_EXTENDED_SECURITY;
 	}
 
-signing_check:
 	if (!rc)
 		rc = cifs_enable_signing(server, ses->sign);
 neg_err_exit:
@@ -1368,11 +1266,8 @@ cifs_readv_callback(struct mid_q_entry *mid)
 	struct TCP_Server_Info *server = tcon->ses->server;
 	struct smb_rqst rqst = { .rq_iov = rdata->iov,
 				 .rq_nvec = 2,
-				 .rq_pages = rdata->pages,
-				 .rq_offset = rdata->page_offset,
-				 .rq_npages = rdata->nr_pages,
-				 .rq_pagesz = rdata->pagesz,
-				 .rq_tailsz = rdata->tailsz };
+				 .rq_iter_size = iov_iter_count(&rdata->iter),
+				 .rq_iter = rdata->iter };
 	struct cifs_credits credits = { .value = 1, .instance = 0 };
 
 	cifs_dbg(FYI, "%s: mid=%llu state=%d result=%d bytes=%u\n",
@@ -1811,11 +1706,8 @@ cifs_async_writev(struct cifs_writedata *wdata,
 
 	rqst.rq_iov = iov;
 	rqst.rq_nvec = 2;
-	rqst.rq_pages = wdata->pages;
-	rqst.rq_offset = wdata->page_offset;
-	rqst.rq_npages = wdata->nr_pages;
-	rqst.rq_pagesz = wdata->pagesz;
-	rqst.rq_tailsz = wdata->tailsz;
+	rqst.rq_iter = wdata->iter;
+	rqst.rq_iter_size = iov_iter_count(&wdata->iter);
 
 	cifs_dbg(FYI, "async write at %llu %u bytes\n",
 		 wdata->offset, wdata->bytes);
@@ -2988,32 +2880,57 @@ CIFSSMB_set_compression(const unsigned int xid, struct cifs_tcon *tcon,
 
 #ifdef CONFIG_CIFS_POSIX
 
-/*Convert an Access Control Entry from wire format to local POSIX xattr format*/
-static void cifs_convert_ace(struct posix_acl_xattr_entry *ace,
-			     struct cifs_posix_ace *cifs_ace)
+#ifdef CONFIG_FS_POSIX_ACL
+/**
+ * cifs_init_posix_acl - convert ACL from cifs to POSIX ACL format
+ * @ace: POSIX ACL entry to store converted ACL into
+ * @cifs_ace: ACL in cifs format
+ *
+ * Convert an Access Control Entry from wire format to local POSIX xattr
+ * format.
+ *
+ * Note that the @cifs_uid member is used to store both {g,u}id_t.
+ */
+static void cifs_init_posix_acl(struct posix_acl_entry *ace,
+				struct cifs_posix_ace *cifs_ace)
 {
 	/* u8 cifs fields do not need le conversion */
-	ace->e_perm = cpu_to_le16(cifs_ace->cifs_e_perm);
-	ace->e_tag  = cpu_to_le16(cifs_ace->cifs_e_tag);
-	ace->e_id   = cpu_to_le32(le64_to_cpu(cifs_ace->cifs_uid));
-/*
-	cifs_dbg(FYI, "perm %d tag %d id %d\n",
-		 ace->e_perm, ace->e_tag, ace->e_id);
-*/
+	ace->e_perm = cifs_ace->cifs_e_perm;
+	ace->e_tag = cifs_ace->cifs_e_tag;
 
+	switch (ace->e_tag) {
+	case ACL_USER:
+		ace->e_uid = make_kuid(&init_user_ns,
+				       le64_to_cpu(cifs_ace->cifs_uid));
+		break;
+	case ACL_GROUP:
+		ace->e_gid = make_kgid(&init_user_ns,
+				       le64_to_cpu(cifs_ace->cifs_uid));
+		break;
+	}
 	return;
 }
 
-/* Convert ACL from CIFS POSIX wire format to local Linux POSIX ACL xattr */
-static int cifs_copy_posix_acl(char *trgt, char *src, const int buflen,
-			       const int acl_type, const int size_of_data_area)
+/**
+ * cifs_to_posix_acl - copy cifs ACL format to POSIX ACL format
+ * @acl: ACLs returned in POSIX ACL format
+ * @src: ACLs in cifs format
+ * @acl_type: type of POSIX ACL requested
+ * @size_of_data_area: size of SMB we got
+ *
+ * This function converts ACLs from cifs format to POSIX ACL format.
+ * If @acl is NULL then the size of the buffer required to store POSIX ACLs in
+ * their uapi format is returned.
+ */
+static int cifs_to_posix_acl(struct posix_acl **acl, char *src,
+			     const int acl_type, const int size_of_data_area)
 {
 	int size =  0;
-	int i;
 	__u16 count;
 	struct cifs_posix_ace *pACE;
 	struct cifs_posix_acl *cifs_acl = (struct cifs_posix_acl *)src;
-	struct posix_acl_xattr_header *local_acl = (void *)trgt;
+	struct posix_acl *kacl = NULL;
+	struct posix_acl_entry *pa, *pe;
 
 	if (le16_to_cpu(cifs_acl->version) != CIFS_ACL_VERSION)
 		return -EOPNOTSUPP;
@@ -3033,7 +2950,7 @@ static int cifs_copy_posix_acl(char *trgt, char *src, const int buflen,
 		count = le16_to_cpu(cifs_acl->access_entry_count);
 		size = sizeof(struct cifs_posix_acl);
 		size += sizeof(struct cifs_posix_ace) * count;
-/* skip past access ACEs to get to default ACEs */
+		/* skip past access ACEs to get to default ACEs */
 		pACE = &cifs_acl->ace_array[count];
 		count = le16_to_cpu(cifs_acl->default_entry_count);
 		size += sizeof(struct cifs_posix_ace) * count;
@@ -3045,62 +2962,75 @@ static int cifs_copy_posix_acl(char *trgt, char *src, const int buflen,
 		return -EINVAL;
 	}
 
-	size = posix_acl_xattr_size(count);
-	if ((buflen == 0) || (local_acl == NULL)) {
-		/* used to query ACL EA size */
-	} else if (size > buflen) {
-		return -ERANGE;
-	} else /* buffer big enough */ {
-		struct posix_acl_xattr_entry *ace = (void *)(local_acl + 1);
+	/* Allocate number of POSIX ACLs to store in VFS format. */
+	kacl = posix_acl_alloc(count, GFP_NOFS);
+	if (!kacl)
+		return -ENOMEM;
 
-		local_acl->a_version = cpu_to_le32(POSIX_ACL_XATTR_VERSION);
-		for (i = 0; i < count ; i++) {
-			cifs_convert_ace(&ace[i], pACE);
-			pACE++;
-		}
+	FOREACH_ACL_ENTRY(pa, kacl, pe) {
+		cifs_init_posix_acl(pa, pACE);
+		pACE++;
 	}
-	return size;
+
+	*acl = kacl;
+	return 0;
 }
 
-static void convert_ace_to_cifs_ace(struct cifs_posix_ace *cifs_ace,
-				     const struct posix_acl_xattr_entry *local_ace)
+/**
+ * cifs_init_ace - convert ACL entry from POSIX ACL to cifs format
+ * @cifs_ace: the cifs ACL entry to store into
+ * @local_ace: the POSIX ACL entry to convert
+ */
+static void cifs_init_ace(struct cifs_posix_ace *cifs_ace,
+			  const struct posix_acl_entry *local_ace)
 {
-	cifs_ace->cifs_e_perm = le16_to_cpu(local_ace->e_perm);
-	cifs_ace->cifs_e_tag =  le16_to_cpu(local_ace->e_tag);
-	/* BB is there a better way to handle the large uid? */
-	if (local_ace->e_id == cpu_to_le32(-1)) {
-	/* Probably no need to le convert -1 on any arch but can not hurt */
+	cifs_ace->cifs_e_perm = local_ace->e_perm;
+	cifs_ace->cifs_e_tag =  local_ace->e_tag;
+
+	switch (local_ace->e_tag) {
+	case ACL_USER:
+		cifs_ace->cifs_uid =
+			cpu_to_le64(from_kuid(&init_user_ns, local_ace->e_uid));
+		break;
+	case ACL_GROUP:
+		cifs_ace->cifs_uid =
+			cpu_to_le64(from_kgid(&init_user_ns, local_ace->e_gid));
+		break;
+	default:
 		cifs_ace->cifs_uid = cpu_to_le64(-1);
-	} else
-		cifs_ace->cifs_uid = cpu_to_le64(le32_to_cpu(local_ace->e_id));
-/*
-	cifs_dbg(FYI, "perm %d tag %d id %d\n",
-		 ace->e_perm, ace->e_tag, ace->e_id);
-*/
+	}
 }
 
-/* Convert ACL from local Linux POSIX xattr to CIFS POSIX ACL wire format */
-static __u16 ACL_to_cifs_posix(char *parm_data, const char *pACL,
-			       const int buflen, const int acl_type)
+/**
+ * posix_acl_to_cifs - convert ACLs from POSIX ACL to cifs format
+ * @parm_data: ACLs in cifs format to conver to
+ * @acl: ACLs in POSIX ACL format to convert from
+ * @acl_type: the type of POSIX ACLs stored in @acl
+ *
+ * Return: the number cifs ACL entries after conversion
+ */
+static __u16 posix_acl_to_cifs(char *parm_data, const struct posix_acl *acl,
+			       const int acl_type)
 {
 	__u16 rc = 0;
 	struct cifs_posix_acl *cifs_acl = (struct cifs_posix_acl *)parm_data;
-	struct posix_acl_xattr_header *local_acl = (void *)pACL;
-	struct posix_acl_xattr_entry *ace = (void *)(local_acl + 1);
+	const struct posix_acl_entry *pa, *pe;
 	int count;
-	int i;
+	int i = 0;
 
-	if ((buflen == 0) || (pACL == NULL) || (cifs_acl == NULL))
+	if ((acl == NULL) || (cifs_acl == NULL))
 		return 0;
 
-	count = posix_acl_xattr_count((size_t)buflen);
-	cifs_dbg(FYI, "setting acl with %d entries from buf of length %d and version of %d\n",
-		 count, buflen, le32_to_cpu(local_acl->a_version));
-	if (le32_to_cpu(local_acl->a_version) != 2) {
-		cifs_dbg(FYI, "unknown POSIX ACL version %d\n",
-			 le32_to_cpu(local_acl->a_version));
-		return 0;
-	}
+	count = acl->a_count;
+	cifs_dbg(FYI, "setting acl with %d entries\n", count);
+
+	/*
+	 * Note that the uapi POSIX ACL version is verified by the VFS and is
+	 * independent of the cifs ACL version. Changing the POSIX ACL version
+	 * is a uapi change and if it's changed we will pass down the POSIX ACL
+	 * version in struct posix_acl from the VFS. For now there's really
+	 * only one that all filesystems know how to deal with.
+	 */
 	cifs_acl->version = cpu_to_le16(1);
 	if (acl_type == ACL_TYPE_ACCESS) {
 		cifs_acl->access_entry_count = cpu_to_le16(count);
@@ -3112,8 +3042,9 @@ static __u16 ACL_to_cifs_posix(char *parm_data, const char *pACL,
 		cifs_dbg(FYI, "unknown ACL type %d\n", acl_type);
 		return 0;
 	}
-	for (i = 0; i < count; i++)
-		convert_ace_to_cifs_ace(&cifs_acl->ace_array[i], &ace[i]);
+	FOREACH_ACL_ENTRY(pa, acl, pe) {
+		cifs_init_ace(&cifs_acl->ace_array[i++], pa);
+	}
 	if (rc == 0) {
 		rc = (__u16)(count * sizeof(struct cifs_posix_ace));
 		rc += sizeof(struct cifs_posix_acl);
@@ -3122,11 +3053,10 @@ static __u16 ACL_to_cifs_posix(char *parm_data, const char *pACL,
 	return rc;
 }
 
-int
-CIFSSMBGetPosixACL(const unsigned int xid, struct cifs_tcon *tcon,
-		   const unsigned char *searchName,
-		   char *acl_inf, const int buflen, const int acl_type,
-		   const struct nls_table *nls_codepage, int remap)
+int cifs_do_get_acl(const unsigned int xid, struct cifs_tcon *tcon,
+		    const unsigned char *searchName, struct posix_acl **acl,
+		    const int acl_type, const struct nls_table *nls_codepage,
+		    int remap)
 {
 /* SMB_QUERY_POSIX_ACL */
 	TRANSACTION2_QPI_REQ *pSMB = NULL;
@@ -3198,23 +3128,26 @@ queryAclRetry:
 		else {
 			__u16 data_offset = le16_to_cpu(pSMBr->t2.DataOffset);
 			__u16 count = le16_to_cpu(pSMBr->t2.DataCount);
-			rc = cifs_copy_posix_acl(acl_inf,
+			rc = cifs_to_posix_acl(acl,
 				(char *)&pSMBr->hdr.Protocol+data_offset,
-				buflen, acl_type, count);
+				acl_type, count);
 		}
 	}
 	cifs_buf_release(pSMB);
+	/*
+	 * The else branch after SendReceive() doesn't return EAGAIN so if we
+	 * allocated @acl in cifs_to_posix_acl() we are guaranteed to return
+	 * here and don't leak POSIX ACLs.
+	 */
 	if (rc == -EAGAIN)
 		goto queryAclRetry;
 	return rc;
 }
 
-int
-CIFSSMBSetPosixACL(const unsigned int xid, struct cifs_tcon *tcon,
-		   const unsigned char *fileName,
-		   const char *local_acl, const int buflen,
-		   const int acl_type,
-		   const struct nls_table *nls_codepage, int remap)
+int cifs_do_set_acl(const unsigned int xid, struct cifs_tcon *tcon,
+		    const unsigned char *fileName, const struct posix_acl *acl,
+		    const int acl_type, const struct nls_table *nls_codepage,
+		    int remap)
 {
 	struct smb_com_transaction2_spi_req *pSMB = NULL;
 	struct smb_com_transaction2_spi_rsp *pSMBr = NULL;
@@ -3255,7 +3188,7 @@ setAclRetry:
 	pSMB->ParameterOffset = cpu_to_le16(param_offset);
 
 	/* convert to on the wire format for POSIX ACL */
-	data_count = ACL_to_cifs_posix(parm_data, local_acl, buflen, acl_type);
+	data_count = posix_acl_to_cifs(parm_data, acl, acl_type);
 
 	if (data_count == 0) {
 		rc = -EOPNOTSUPP;
@@ -3285,6 +3218,23 @@ setACLerrorExit:
 		goto setAclRetry;
 	return rc;
 }
+#else
+int cifs_do_get_acl(const unsigned int xid, struct cifs_tcon *tcon,
+		    const unsigned char *searchName, struct posix_acl **acl,
+		    const int acl_type, const struct nls_table *nls_codepage,
+		    int remap)
+{
+	return -EOPNOTSUPP;
+}
+
+int cifs_do_set_acl(const unsigned int xid, struct cifs_tcon *tcon,
+		    const unsigned char *fileName, const struct posix_acl *acl,
+		    const int acl_type, const struct nls_table *nls_codepage,
+		    int remap)
+{
+	return -EOPNOTSUPP;
+}
+#endif /* CONFIG_FS_POSIX_ACL */
 
 int
 CIFSGetExtAttr(const unsigned int xid, struct cifs_tcon *tcon,
@@ -4008,12 +3958,11 @@ CIFSFindFirst(const unsigned int xid, struct cifs_tcon *tcon,
 	TRANSACTION2_FFIRST_REQ *pSMB = NULL;
 	TRANSACTION2_FFIRST_RSP *pSMBr = NULL;
 	T2_FFIRST_RSP_PARMS *parms;
-	struct nls_table *nls_codepage;
-	unsigned int lnoff;
-	__u16 params, byte_count;
+	int rc = 0;
 	int bytes_returned = 0;
 	int name_len, remap;
-	int rc = 0;
+	__u16 params, byte_count;
+	struct nls_table *nls_codepage;
 
 	cifs_dbg(FYI, "In FindFirst for %s\n", searchName);
 
@@ -4094,52 +4043,63 @@ findFirstRetry:
 			 (struct smb_hdr *) pSMBr, &bytes_returned, 0);
 	cifs_stats_inc(&tcon->stats.cifs_stats.num_ffirst);
 
-	if (rc) {
-		/*
-		 * BB: add logic to retry regular search if Unix search rejected
-		 * unexpectedly by server.
-		 */
-		/* BB: add code to handle unsupported level rc */
+	if (rc) {/* BB add logic to retry regular search if Unix search
+			rejected unexpectedly by server */
+		/* BB Add code to handle unsupported level rc */
 		cifs_dbg(FYI, "Error in FindFirst = %d\n", rc);
+
 		cifs_buf_release(pSMB);
-		/*
-		 * BB: eventually could optimize out free and realloc of buf for
-		 * this case.
-		 */
+
+		/* BB eventually could optimize out free and realloc of buf */
+		/*    for this case */
 		if (rc == -EAGAIN)
 			goto findFirstRetry;
-		return rc;
-	}
-	/* decode response */
-	rc = validate_t2((struct smb_t2_rsp *)pSMBr);
-	if (rc) {
-		cifs_buf_release(pSMB);
-		return rc;
+	} else { /* decode response */
+		/* BB remember to free buffer if error BB */
+		rc = validate_t2((struct smb_t2_rsp *)pSMBr);
+		if (rc == 0) {
+			unsigned int lnoff;
+
+			if (pSMBr->hdr.Flags2 & SMBFLG2_UNICODE)
+				psrch_inf->unicode = true;
+			else
+				psrch_inf->unicode = false;
+
+			psrch_inf->ntwrk_buf_start = (char *)pSMBr;
+			psrch_inf->smallBuf = false;
+			psrch_inf->srch_entries_start =
+				(char *) &pSMBr->hdr.Protocol +
+					le16_to_cpu(pSMBr->t2.DataOffset);
+			parms = (T2_FFIRST_RSP_PARMS *)((char *) &pSMBr->hdr.Protocol +
+			       le16_to_cpu(pSMBr->t2.ParameterOffset));
+
+			if (parms->EndofSearch)
+				psrch_inf->endOfSearch = true;
+			else
+				psrch_inf->endOfSearch = false;
+
+			psrch_inf->entries_in_buffer =
+					le16_to_cpu(parms->SearchCount);
+			psrch_inf->index_of_last_entry = 2 /* skip . and .. */ +
+				psrch_inf->entries_in_buffer;
+			lnoff = le16_to_cpu(parms->LastNameOffset);
+			if (CIFSMaxBufSize < lnoff) {
+				cifs_dbg(VFS, "ignoring corrupt resume name\n");
+				psrch_inf->last_entry = NULL;
+				return rc;
+			}
+
+			psrch_inf->last_entry = psrch_inf->srch_entries_start +
+							lnoff;
+
+			if (pnetfid)
+				*pnetfid = parms->SearchHandle;
+		} else {
+			cifs_buf_release(pSMB);
+		}
 	}
 
-	psrch_inf->unicode = !!(pSMBr->hdr.Flags2 & SMBFLG2_UNICODE);
-	psrch_inf->ntwrk_buf_start = (char *)pSMBr;
-	psrch_inf->smallBuf = false;
-	psrch_inf->srch_entries_start = (char *)&pSMBr->hdr.Protocol +
-		le16_to_cpu(pSMBr->t2.DataOffset);
-
-	parms = (T2_FFIRST_RSP_PARMS *)((char *)&pSMBr->hdr.Protocol +
-					le16_to_cpu(pSMBr->t2.ParameterOffset));
-	psrch_inf->endOfSearch = !!parms->EndofSearch;
-
-	psrch_inf->entries_in_buffer = le16_to_cpu(parms->SearchCount);
-	psrch_inf->index_of_last_entry = 2 /* skip . and .. */ +
-		psrch_inf->entries_in_buffer;
-	lnoff = le16_to_cpu(parms->LastNameOffset);
-	if (CIFSMaxBufSize < lnoff) {
-		cifs_dbg(VFS, "ignoring corrupt resume name\n");
-		psrch_inf->last_entry = NULL;
-	} else {
-		psrch_inf->last_entry = psrch_inf->srch_entries_start + lnoff;
-		if (pnetfid)
-			*pnetfid = parms->SearchHandle;
-	}
-	return 0;
+	return rc;
 }
 
 int CIFSFindNext(const unsigned int xid, struct cifs_tcon *tcon,
@@ -4149,12 +4109,11 @@ int CIFSFindNext(const unsigned int xid, struct cifs_tcon *tcon,
 	TRANSACTION2_FNEXT_REQ *pSMB = NULL;
 	TRANSACTION2_FNEXT_RSP *pSMBr = NULL;
 	T2_FNEXT_RSP_PARMS *parms;
-	unsigned int name_len;
-	unsigned int lnoff;
-	__u16 params, byte_count;
 	char *response_data;
-	int bytes_returned;
 	int rc = 0;
+	int bytes_returned;
+	unsigned int name_len;
+	__u16 params, byte_count;
 
 	cifs_dbg(FYI, "In FindNext\n");
 
@@ -4199,8 +4158,8 @@ int CIFSFindNext(const unsigned int xid, struct cifs_tcon *tcon,
 		pSMB->ResumeFileName[name_len] = 0;
 		pSMB->ResumeFileName[name_len+1] = 0;
 	} else {
-		cifs_buf_release(pSMB);
-		return -EINVAL;
+		rc = -EINVAL;
+		goto FNext2_err_exit;
 	}
 	byte_count = params + 1 /* pad */ ;
 	pSMB->TotalParameterCount = cpu_to_le16(params);
@@ -4211,61 +4170,71 @@ int CIFSFindNext(const unsigned int xid, struct cifs_tcon *tcon,
 	rc = SendReceive(xid, tcon->ses, (struct smb_hdr *) pSMB,
 			(struct smb_hdr *) pSMBr, &bytes_returned, 0);
 	cifs_stats_inc(&tcon->stats.cifs_stats.num_fnext);
-
 	if (rc) {
-		cifs_buf_release(pSMB);
 		if (rc == -EBADF) {
 			psrch_inf->endOfSearch = true;
+			cifs_buf_release(pSMB);
 			rc = 0; /* search probably was closed at end of search*/
-		} else {
+		} else
 			cifs_dbg(FYI, "FindNext returned = %d\n", rc);
+	} else {                /* decode response */
+		rc = validate_t2((struct smb_t2_rsp *)pSMBr);
+
+		if (rc == 0) {
+			unsigned int lnoff;
+
+			/* BB fixme add lock for file (srch_info) struct here */
+			if (pSMBr->hdr.Flags2 & SMBFLG2_UNICODE)
+				psrch_inf->unicode = true;
+			else
+				psrch_inf->unicode = false;
+			response_data = (char *) &pSMBr->hdr.Protocol +
+			       le16_to_cpu(pSMBr->t2.ParameterOffset);
+			parms = (T2_FNEXT_RSP_PARMS *)response_data;
+			response_data = (char *)&pSMBr->hdr.Protocol +
+				le16_to_cpu(pSMBr->t2.DataOffset);
+			if (psrch_inf->smallBuf)
+				cifs_small_buf_release(
+					psrch_inf->ntwrk_buf_start);
+			else
+				cifs_buf_release(psrch_inf->ntwrk_buf_start);
+			psrch_inf->srch_entries_start = response_data;
+			psrch_inf->ntwrk_buf_start = (char *)pSMB;
+			psrch_inf->smallBuf = false;
+			if (parms->EndofSearch)
+				psrch_inf->endOfSearch = true;
+			else
+				psrch_inf->endOfSearch = false;
+			psrch_inf->entries_in_buffer =
+						le16_to_cpu(parms->SearchCount);
+			psrch_inf->index_of_last_entry +=
+				psrch_inf->entries_in_buffer;
+			lnoff = le16_to_cpu(parms->LastNameOffset);
+			if (CIFSMaxBufSize < lnoff) {
+				cifs_dbg(VFS, "ignoring corrupt resume name\n");
+				psrch_inf->last_entry = NULL;
+				return rc;
+			} else
+				psrch_inf->last_entry =
+					psrch_inf->srch_entries_start + lnoff;
+
+/*  cifs_dbg(FYI, "fnxt2 entries in buf %d index_of_last %d\n",
+    psrch_inf->entries_in_buffer, psrch_inf->index_of_last_entry); */
+
+			/* BB fixme add unlock here */
 		}
-		return rc;
+
 	}
 
-	/* decode response */
-	rc = validate_t2((struct smb_t2_rsp *)pSMBr);
-	if (rc) {
+	/* BB On error, should we leave previous search buf (and count and
+	last entry fields) intact or free the previous one? */
+
+	/* Note: On -EAGAIN error only caller can retry on handle based calls
+	since file handle passed in no longer valid */
+FNext2_err_exit:
+	if (rc != 0)
 		cifs_buf_release(pSMB);
-		return rc;
-	}
-	/* BB fixme add lock for file (srch_info) struct here */
-	psrch_inf->unicode = !!(pSMBr->hdr.Flags2 & SMBFLG2_UNICODE);
-	response_data = (char *)&pSMBr->hdr.Protocol +
-		le16_to_cpu(pSMBr->t2.ParameterOffset);
-	parms = (T2_FNEXT_RSP_PARMS *)response_data;
-	response_data = (char *)&pSMBr->hdr.Protocol +
-		le16_to_cpu(pSMBr->t2.DataOffset);
-
-	if (psrch_inf->smallBuf)
-		cifs_small_buf_release(psrch_inf->ntwrk_buf_start);
-	else
-		cifs_buf_release(psrch_inf->ntwrk_buf_start);
-
-	psrch_inf->srch_entries_start = response_data;
-	psrch_inf->ntwrk_buf_start = (char *)pSMB;
-	psrch_inf->smallBuf = false;
-	psrch_inf->endOfSearch = !!parms->EndofSearch;
-	psrch_inf->entries_in_buffer = le16_to_cpu(parms->SearchCount);
-	psrch_inf->index_of_last_entry += psrch_inf->entries_in_buffer;
-	lnoff = le16_to_cpu(parms->LastNameOffset);
-	if (CIFSMaxBufSize < lnoff) {
-		cifs_dbg(VFS, "ignoring corrupt resume name\n");
-		psrch_inf->last_entry = NULL;
-	} else {
-		psrch_inf->last_entry =
-			psrch_inf->srch_entries_start + lnoff;
-	}
-	/* BB fixme add unlock here */
-
-	/*
-	 * BB: On error, should we leave previous search buf
-	 * (and count and last entry fields) intact or free the previous one?
-	 *
-	 * Note: On -EAGAIN error only caller can retry on handle based calls
-	 * since file handle passed in no longer valid.
-	 */
-	return 0;
+	return rc;
 }
 
 int

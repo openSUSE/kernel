@@ -29,7 +29,6 @@
 #include <asm/cache.h>
 #include <asm/8xx_immap.h>
 #include <asm/machdep.h>
-#include <asm/asm-prototypes.h>
 
 #include "setup.h"
 
@@ -164,7 +163,7 @@ static void tau_work_func(struct work_struct *work)
 	queue_work(tau_workq, work);
 }
 
-DECLARE_WORK(tau_work, tau_work_func);
+static DECLARE_WORK(tau_work, tau_work_func);
 
 /*
  * setup the TAU

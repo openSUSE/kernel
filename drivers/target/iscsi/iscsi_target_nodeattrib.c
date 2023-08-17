@@ -30,6 +30,7 @@ void iscsit_set_default_node_attribues(
 {
 	struct iscsi_node_attrib *a = &acl->node_attrib;
 
+	a->authentication = NA_AUTHENTICATION_INHERITED;
 	a->dataout_timeout = NA_DATAOUT_TIMEOUT;
 	a->dataout_timeout_retries = NA_DATAOUT_TIMEOUT_RETRIES;
 	a->nopin_timeout = NA_NOPIN_TIMEOUT;
@@ -96,7 +97,7 @@ int iscsit_na_nopin_timeout(
 	u32 nopin_timeout)
 {
 	struct iscsi_node_attrib *a = &acl->node_attrib;
-	struct iscsi_session *sess;
+	struct iscsit_session *sess;
 	struct iscsit_conn *conn;
 	struct se_node_acl *se_nacl = &a->nacl->se_node_acl;
 	struct se_session *se_sess;

@@ -91,7 +91,6 @@ asm_offsets.h
 autoconf.h*
 av_permissions.h
 bbootsect
-bin2c
 binkernel.spec
 bootsect
 bounds.h
@@ -211,6 +210,7 @@ r200_reg_safe.h
 r300_reg_safe.h
 r420_reg_safe.h
 r600_reg_safe.h
+randstruct.seed
 randomize_layout_hash.h
 randomize_layout_seed.h
 recordmcount

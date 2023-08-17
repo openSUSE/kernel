@@ -71,12 +71,12 @@ static int kvm_set_wallclock(const struct timespec64 *now)
 	return -ENODEV;
 }
 
-static u64 kvm_clock_read(void)
+static noinstr u64 kvm_clock_read(void)
 {
 	u64 ret;
 
 	preempt_disable_notrace();
-	ret = pvclock_clocksource_read(this_cpu_pvti());
+	ret = pvclock_clocksource_read_nowd(this_cpu_pvti());
 	preempt_enable_notrace();
 	return ret;
 }
@@ -86,7 +86,7 @@ static u64 kvm_clock_get_cycles(struct clocksource *cs)
 	return kvm_clock_read();
 }
 
-static u64 kvm_sched_clock_read(void)
+static noinstr u64 kvm_sched_clock_read(void)
 {
 	return kvm_clock_read() - kvm_sched_clock_offset;
 }
@@ -174,7 +174,7 @@ static void kvm_register_clock(char *txt)
 
 	pa = slow_virt_to_phys(&src->pvti) | 0x01ULL;
 	wrmsrl(msr_kvm_system_time, pa);
-	pr_info("kvm-clock: cpu %d, msr %llx, %s", smp_processor_id(), pa, txt);
+	pr_debug("kvm-clock: cpu %d, msr %llx, %s", smp_processor_id(), pa, txt);
 }
 
 static void kvm_save_sched_clock_state(void)
@@ -239,7 +239,7 @@ static void __init kvmclock_init_mem(void)
 
 static int __init kvm_setup_vsyscall_timeinfo(void)
 {
-	if (!kvm_para_available() || !kvmclock)
+	if (!kvm_para_available() || !kvmclock || nopv)
 		return 0;
 
 	kvmclock_init_mem();

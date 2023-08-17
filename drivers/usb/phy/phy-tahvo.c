@@ -194,8 +194,6 @@ static int tahvo_usb_set_host(struct usb_otg *otg, struct usb_bus *host)
 	struct tahvo_usb *tu = container_of(otg->usb_phy, struct tahvo_usb,
 					    phy);
 
-	dev_dbg(&tu->pt_dev->dev, "%s %p\n", __func__, host);
-
 	mutex_lock(&tu->serialize);
 
 	if (host == NULL) {
@@ -223,8 +221,6 @@ static int tahvo_usb_set_peripheral(struct usb_otg *otg,
 {
 	struct tahvo_usb *tu = container_of(otg->usb_phy, struct tahvo_usb,
 					    phy);
-
-	dev_dbg(&tu->pt_dev->dev, "%s %p\n", __func__, gadget);
 
 	mutex_lock(&tu->serialize);
 
@@ -416,7 +412,7 @@ err_disable_clk:
 	return ret;
 }
 
-static int tahvo_usb_remove(struct platform_device *pdev)
+static void tahvo_usb_remove(struct platform_device *pdev)
 {
 	struct tahvo_usb *tu = platform_get_drvdata(pdev);
 
@@ -424,13 +420,11 @@ static int tahvo_usb_remove(struct platform_device *pdev)
 	usb_remove_phy(&tu->phy);
 	if (!IS_ERR(tu->ick))
 		clk_disable(tu->ick);
-
-	return 0;
 }
 
 static struct platform_driver tahvo_usb_driver = {
 	.probe		= tahvo_usb_probe,
-	.remove		= tahvo_usb_remove,
+	.remove_new	= tahvo_usb_remove,
 	.driver		= {
 		.name	= "tahvo-usb",
 		.dev_groups = tahvo_groups,

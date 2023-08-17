@@ -2,7 +2,9 @@
 /dts-v1/;
 #include "bcm2837.dtsi"
 #include "bcm2836-rpi.dtsi"
+#include "bcm283x-rpi-led-deprecated.dtsi"
 #include "bcm283x-rpi-usb-host.dtsi"
+#include "bcm283x-rpi-wifi-bt.dtsi"
 
 / {
 	compatible = "raspberrypi,3-model-a-plus", "brcm,bcm2837";
@@ -16,19 +18,6 @@
 	memory@0 {
 		device_type = "memory";
 		reg = <0 0x20000000>;
-	};
-
-	leds {
-		led-act {
-			gpios = <&gpio 29 GPIO_ACTIVE_HIGH>;
-		};
-
-		led-pwr {
-			label = "PWR";
-			gpios = <&expgpio 2 GPIO_ACTIVE_LOW>;
-			default-state = "keep";
-			linux,default-trigger = "default-on";
-		};
 	};
 };
 
@@ -54,7 +43,6 @@
 	 * This is mostly based on the official GPU firmware DT blob.
 	 *
 	 * Legend:
-	 * "NC" = not connected (no rail from the SoC)
 	 * "FOO" = GPIO line named "FOO" on the schematic
 	 * "FOO_N" = GPIO line named "FOO" on schematic, active low
 	 */
@@ -124,32 +112,23 @@
 	status = "okay";
 };
 
+&led_act {
+	gpios = <&gpio 29 GPIO_ACTIVE_HIGH>;
+};
+
+&leds {
+	led-pwr {
+		label = "PWR";
+		gpios = <&expgpio 2 GPIO_ACTIVE_LOW>;
+		default-state = "keep";
+		linux,default-trigger = "default-on";
+	};
+};
+
 &pwm {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pwm0_gpio40 &pwm1_gpio41>;
 	status = "okay";
-};
-
-/*
- * SDHCI is used to control the SDIO for wireless
- *
- * WL_REG_ON and BT_REG_ON of the CYW43455 Wifi/BT module are driven
- * by a single GPIO. We can't give GPIO control to one of the drivers,
- * otherwise the other part would get unexpectedly disturbed.
- */
-&sdhci {
-	#address-cells = <1>;
-	#size-cells = <0>;
-	pinctrl-names = "default";
-	pinctrl-0 = <&emmc_gpio34>;
-	status = "okay";
-	bus-width = <4>;
-	non-removable;
-
-	brcmf: wifi@1 {
-		reg = <1>;
-		compatible = "brcm,bcm4329-fmac";
-	};
 };
 
 /* SDHOST is used to drive the SD card */
@@ -160,16 +139,15 @@
 	bus-width = <4>;
 };
 
-/* uart0 communicates with the BT module */
+/* uart0 communicates with the BT module
+ *
+ * WL_REG_ON and BT_REG_ON of the CYW43455 Wifi/BT module are driven
+ * by a single GPIO. We can't give GPIO control to one of the drivers,
+ * otherwise the other part would get unexpectedly disturbed.
+ */
 &uart0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart0_ctsrts_gpio30 &uart0_gpio32 &gpclk2_gpio43>;
-	status = "okay";
-
-	bluetooth {
-		compatible = "brcm,bcm43438-bt";
-		max-speed = <2000000>;
-	};
 };
 
 /* uart1 is mapped to the pin header */

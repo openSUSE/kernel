@@ -32,7 +32,7 @@ static int sof_nocodec_bes_setup(struct device *dev,
 
 	/* set up BE dai_links */
 	for (i = 0; i < link_num; i++) {
-		dlc = devm_kzalloc(dev, 3 * sizeof(*dlc), GFP_KERNEL);
+		dlc = devm_kcalloc(dev, 3, sizeof(*dlc), GFP_KERNEL);
 		if (!dlc)
 			return -ENOMEM;
 
@@ -78,7 +78,7 @@ static int sof_nocodec_setup(struct device *dev,
 	struct snd_soc_dai_link *links;
 
 	/* create dummy BE dai_links */
-	links = devm_kzalloc(dev, sizeof(struct snd_soc_dai_link) * num_dai_drivers, GFP_KERNEL);
+	links = devm_kcalloc(dev, num_dai_drivers, sizeof(struct snd_soc_dai_link), GFP_KERNEL);
 	if (!links)
 		return -ENOMEM;
 
@@ -103,14 +103,8 @@ static int sof_nocodec_probe(struct platform_device *pdev)
 	return devm_snd_soc_register_card(&pdev->dev, card);
 }
 
-static int sof_nocodec_remove(struct platform_device *pdev)
-{
-	return 0;
-}
-
 static struct platform_driver sof_nocodec_audio = {
 	.probe = sof_nocodec_probe,
-	.remove = sof_nocodec_remove,
 	.driver = {
 		.name = "sof-nocodec",
 		.pm = &snd_soc_pm_ops,

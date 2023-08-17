@@ -6,9 +6,6 @@
 #include <linux/mutex.h>
 #include <linux/of.h>
 
-struct pwm_capture;
-struct seq_file;
-
 struct pwm_chip;
 
 /**
@@ -252,6 +249,16 @@ pwm_set_relative_duty_cycle(struct pwm_state *state, unsigned int duty_cycle,
 }
 
 /**
+ * struct pwm_capture - PWM capture data
+ * @period: period of the PWM signal (in nanoseconds)
+ * @duty_cycle: duty cycle of the PWM signal (in nanoseconds)
+ */
+struct pwm_capture {
+	unsigned int period;
+	unsigned int duty_cycle;
+};
+
+/**
  * struct pwm_ops - PWM controller operations
  * @request: optional hook for requesting a PWM
  * @free: optional hook for freeing a PWM
@@ -261,10 +268,6 @@ pwm_set_relative_duty_cycle(struct pwm_state *state, unsigned int duty_cycle,
  *	       called once per PWM device when the PWM chip is
  *	       registered.
  * @owner: helps prevent removal of modules exporting active PWMs
- * @config: configure duty cycles and period length for this PWM
- * @set_polarity: configure the polarity of this PWM
- * @enable: enable PWM output toggling
- * @disable: disable PWM output toggling
  */
 struct pwm_ops {
 	int (*request)(struct pwm_chip *chip, struct pwm_device *pwm);
@@ -273,17 +276,9 @@ struct pwm_ops {
 		       struct pwm_capture *result, unsigned long timeout);
 	int (*apply)(struct pwm_chip *chip, struct pwm_device *pwm,
 		     const struct pwm_state *state);
-	void (*get_state)(struct pwm_chip *chip, struct pwm_device *pwm,
-			  struct pwm_state *state);
+	int (*get_state)(struct pwm_chip *chip, struct pwm_device *pwm,
+			 struct pwm_state *state);
 	struct module *owner;
-
-	/* Only used by legacy drivers */
-	int (*config)(struct pwm_chip *chip, struct pwm_device *pwm,
-		      int duty_ns, int period_ns);
-	int (*set_polarity)(struct pwm_chip *chip, struct pwm_device *pwm,
-			    enum pwm_polarity polarity);
-	int (*enable)(struct pwm_chip *chip, struct pwm_device *pwm);
-	void (*disable)(struct pwm_chip *chip, struct pwm_device *pwm);
 };
 
 /**
@@ -312,20 +307,8 @@ struct pwm_chip {
 	struct pwm_device *pwms;
 };
 
-/**
- * struct pwm_capture - PWM capture data
- * @period: period of the PWM signal (in nanoseconds)
- * @duty_cycle: duty cycle of the PWM signal (in nanoseconds)
- */
-struct pwm_capture {
-	unsigned int period;
-	unsigned int duty_cycle;
-};
-
 #if IS_ENABLED(CONFIG_PWM)
 /* PWM user APIs */
-struct pwm_device *pwm_request(int pwm_id, const char *label);
-void pwm_free(struct pwm_device *pwm);
 int pwm_apply_state(struct pwm_device *pwm, const struct pwm_state *state);
 int pwm_adjust_config(struct pwm_device *pwm);
 
@@ -404,7 +387,7 @@ int pwm_set_chip_data(struct pwm_device *pwm, void *data);
 void *pwm_get_chip_data(struct pwm_device *pwm);
 
 int pwmchip_add(struct pwm_chip *chip);
-int pwmchip_remove(struct pwm_chip *chip);
+void pwmchip_remove(struct pwm_chip *chip);
 
 int devm_pwmchip_add(struct device *dev, struct pwm_chip *chip);
 
@@ -418,29 +401,17 @@ struct pwm_device *of_pwm_single_xlate(struct pwm_chip *pc,
 				       const struct of_phandle_args *args);
 
 struct pwm_device *pwm_get(struct device *dev, const char *con_id);
-struct pwm_device *of_pwm_get(struct device *dev, struct device_node *np,
-			      const char *con_id);
 void pwm_put(struct pwm_device *pwm);
 
 struct pwm_device *devm_pwm_get(struct device *dev, const char *con_id);
-struct pwm_device *devm_of_pwm_get(struct device *dev, struct device_node *np,
-				   const char *con_id);
 struct pwm_device *devm_fwnode_pwm_get(struct device *dev,
 				       struct fwnode_handle *fwnode,
 				       const char *con_id);
 #else
-static inline struct pwm_device *pwm_request(int pwm_id, const char *label)
-{
-	return ERR_PTR(-ENODEV);
-}
-
-static inline void pwm_free(struct pwm_device *pwm)
-{
-}
-
 static inline int pwm_apply_state(struct pwm_device *pwm,
 				  const struct pwm_state *state)
 {
+	might_sleep();
 	return -ENOTSUPP;
 }
 
@@ -452,7 +423,19 @@ static inline int pwm_adjust_config(struct pwm_device *pwm)
 static inline int pwm_config(struct pwm_device *pwm, int duty_ns,
 			     int period_ns)
 {
+	might_sleep();
 	return -EINVAL;
+}
+
+static inline int pwm_enable(struct pwm_device *pwm)
+{
+	might_sleep();
+	return -EINVAL;
+}
+
+static inline void pwm_disable(struct pwm_device *pwm)
+{
+	might_sleep();
 }
 
 static inline int pwm_capture(struct pwm_device *pwm,
@@ -460,15 +443,6 @@ static inline int pwm_capture(struct pwm_device *pwm,
 			      unsigned long timeout)
 {
 	return -EINVAL;
-}
-
-static inline int pwm_enable(struct pwm_device *pwm)
-{
-	return -EINVAL;
-}
-
-static inline void pwm_disable(struct pwm_device *pwm)
-{
 }
 
 static inline int pwm_set_chip_data(struct pwm_device *pwm, void *data)
@@ -500,36 +474,26 @@ static inline struct pwm_device *pwm_request_from_chip(struct pwm_chip *chip,
 						       unsigned int index,
 						       const char *label)
 {
+	might_sleep();
 	return ERR_PTR(-ENODEV);
 }
 
 static inline struct pwm_device *pwm_get(struct device *dev,
 					 const char *consumer)
 {
-	return ERR_PTR(-ENODEV);
-}
-
-static inline struct pwm_device *of_pwm_get(struct device *dev,
-					    struct device_node *np,
-					    const char *con_id)
-{
+	might_sleep();
 	return ERR_PTR(-ENODEV);
 }
 
 static inline void pwm_put(struct pwm_device *pwm)
 {
+	might_sleep();
 }
 
 static inline struct pwm_device *devm_pwm_get(struct device *dev,
 					      const char *consumer)
 {
-	return ERR_PTR(-ENODEV);
-}
-
-static inline struct pwm_device *devm_of_pwm_get(struct device *dev,
-						 struct device_node *np,
-						 const char *con_id)
-{
+	might_sleep();
 	return ERR_PTR(-ENODEV);
 }
 
@@ -537,6 +501,7 @@ static inline struct pwm_device *
 devm_fwnode_pwm_get(struct device *dev, struct fwnode_handle *fwnode,
 		    const char *con_id)
 {
+	might_sleep();
 	return ERR_PTR(-ENODEV);
 }
 #endif

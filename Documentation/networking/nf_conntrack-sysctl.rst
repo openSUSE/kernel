@@ -17,9 +17,8 @@ nf_conntrack_acct - BOOLEAN
 nf_conntrack_buckets - INTEGER
 	Size of hash table. If not specified as parameter during module
 	loading, the default size is calculated by dividing total memory
-	by 16384 to determine the number of buckets but the hash table will
-	never have fewer than 32 and limited to 16384 buckets. For systems
-	with more than 4GB of memory it will be 65536 buckets.
+	by 16384 to determine the number of buckets. The hash table will
+	never have fewer than 1024 and never more than 262144 buckets.
 	This sysctl is only writeable in the initial net namespace.
 
 nf_conntrack_checksum - BOOLEAN
@@ -35,10 +34,13 @@ nf_conntrack_count - INTEGER (read-only)
 
 nf_conntrack_events - BOOLEAN
 	- 0 - disabled
-	- not 0 - enabled (default)
+	- 1 - enabled
+	- 2 - auto (default)
 
 	If this option is enabled, the connection tracking code will
 	provide userspace with connection tracking events via ctnetlink.
+	The default allocates the extension if a userspace program is
+	listening to ctnetlink events.
 
 nf_conntrack_expect_max - INTEGER
 	Maximum size of expectation table.  Default value is
@@ -68,15 +70,6 @@ nf_conntrack_generic_timeout - INTEGER (seconds)
 	Default for generic timeout.  This refers to layer 4 unknown/unsupported
 	protocols.
 
-nf_conntrack_helper - BOOLEAN
-	- 0 - disabled (default)
-	- not 0 - enabled
-
-	Enable automatic conntrack helper assignment.
-	If disabled it is required to set up iptables rules to assign
-	helpers to connections.  See the CT target description in the
-	iptables-extensions(8) man page for further information.
-
 nf_conntrack_icmp_timeout - INTEGER (seconds)
 	default 30
 
@@ -100,8 +93,12 @@ nf_conntrack_log_invalid - INTEGER
 	Log invalid packets of a type specified by value.
 
 nf_conntrack_max - INTEGER
-	Size of connection tracking table.  Default value is
-	nf_conntrack_buckets value * 4.
+        Maximum number of allowed connection tracking entries. This value is set
+        to nf_conntrack_buckets by default.
+        Note that connection tracking entries are added to the table twice -- once
+        for the original direction and once for the reply direction (i.e., with
+        the reversed address). This means that with default settings a maxed-out
+        table will have a average hash chain length of 2, not 1.
 
 nf_conntrack_tcp_be_liberal - BOOLEAN
 	- 0 - disabled (default)
@@ -166,6 +163,35 @@ nf_conntrack_timestamp - BOOLEAN
 
 	Enable connection tracking flow timestamping.
 
+nf_conntrack_sctp_timeout_closed - INTEGER (seconds)
+	default 10
+
+nf_conntrack_sctp_timeout_cookie_wait - INTEGER (seconds)
+	default 3
+
+nf_conntrack_sctp_timeout_cookie_echoed - INTEGER (seconds)
+	default 3
+
+nf_conntrack_sctp_timeout_established - INTEGER (seconds)
+	default 210
+
+	Default is set to (hb_interval * path_max_retrans + rto_max)
+
+nf_conntrack_sctp_timeout_shutdown_sent - INTEGER (seconds)
+	default 0.3
+
+nf_conntrack_sctp_timeout_shutdown_recd - INTEGER (seconds)
+	default 0.3
+
+nf_conntrack_sctp_timeout_shutdown_ack_sent - INTEGER (seconds)
+	default 3
+
+nf_conntrack_sctp_timeout_heartbeat_sent - INTEGER (seconds)
+	default 30
+
+	This timeout is used to setup conntrack entry on secondary paths.
+	Default is set to hb_interval.
+
 nf_conntrack_udp_timeout - INTEGER (seconds)
 	default 30
 
@@ -183,6 +209,13 @@ nf_conntrack_gre_timeout_stream - INTEGER (seconds)
 
 	This extended timeout will be used in case there is an GRE stream
 	detected.
+
+nf_hooks_lwtunnel - BOOLEAN
+	- 0 - disabled (default)
+	- not 0 - enabled
+
+	If this option is enabled, the lightweight tunnel netfilter hooks are
+	enabled. This option cannot be disabled once it is enabled.
 
 nf_flowtable_tcp_timeout - INTEGER (seconds)
         default 30

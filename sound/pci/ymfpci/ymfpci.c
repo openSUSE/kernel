@@ -98,14 +98,17 @@ static int snd_ymfpci_create_gameport(struct snd_ymfpci *chip, int dev,
 		case 0x204: legacy_ctrl2 |= 2 << 6; break;
 		case 0x205: legacy_ctrl2 |= 3 << 6; break;
 		default:
-			dev_err(chip->card->dev,
-				"invalid joystick port %#x", io_port);
+			if (io_port > 0)
+				dev_err(chip->card->dev,
+					"The %s does not support arbitrary IO ports for the game port (requested 0x%x)\n",
+					chip->card->shortname, (unsigned int)io_port);
 			return -EINVAL;
 		}
 	}
 
 	if (!r) {
-		r = request_region(io_port, 1, "YMFPCI gameport");
+		r = devm_request_region(&chip->pci->dev, io_port, 1,
+					"YMFPCI gameport");
 		if (!r) {
 			dev_err(chip->card->dev,
 				"joystick port %#x is in use.\n", io_port);
@@ -117,7 +120,6 @@ static int snd_ymfpci_create_gameport(struct snd_ymfpci *chip, int dev,
 	if (!gp) {
 		dev_err(chip->card->dev,
 			"cannot allocate memory for gameport\n");
-		release_and_free_resource(r);
 		return -ENOMEM;
 	}
 
@@ -126,7 +128,6 @@ static int snd_ymfpci_create_gameport(struct snd_ymfpci *chip, int dev,
 	gameport_set_phys(gp, "pci%s/gameport0", pci_name(chip->pci));
 	gameport_set_dev_parent(gp, &chip->pci->dev);
 	gp->io = io_port;
-	gameport_set_port_data(gp, r);
 
 	if (chip->pci->device >= 0x0010) /* YMF 744/754 */
 		pci_write_config_word(chip->pci, PCIR_DSXG_JOYBASE, io_port);
@@ -142,12 +143,8 @@ static int snd_ymfpci_create_gameport(struct snd_ymfpci *chip, int dev,
 void snd_ymfpci_free_gameport(struct snd_ymfpci *chip)
 {
 	if (chip->gameport) {
-		struct resource *r = gameport_get_port_data(chip->gameport);
-
 		gameport_unregister_port(chip->gameport);
 		chip->gameport = NULL;
-
-		release_and_free_resource(r);
 	}
 }
 #else
@@ -175,10 +172,11 @@ static int snd_card_ymfpci_probe(struct pci_dev *pci,
 		return -ENOENT;
 	}
 
-	err = snd_card_new(&pci->dev, index[dev], id[dev], THIS_MODULE,
-			   0, &card);
+	err = snd_devm_card_new(&pci->dev, index[dev], id[dev], THIS_MODULE,
+			   sizeof(*chip), &card);
 	if (err < 0)
 		return err;
+	chip = card->private_data;
 
 	switch (pci_id->device) {
 	case 0x0004: str = "YMF724";  model = "DS-1"; break;
@@ -190,6 +188,13 @@ static int snd_card_ymfpci_probe(struct pci_dev *pci,
 	default: model = str = "???"; break;
 	}
 
+	strcpy(card->driver, str);
+	sprintf(card->shortname, "Yamaha %s (%s)", model, str);
+	sprintf(card->longname, "%s at 0x%lx, irq %i",
+		card->shortname,
+		chip->reg_area_phys,
+		chip->irq);
+
 	legacy_ctrl = 0;
 	legacy_ctrl2 = 0x0800;	/* SBEN = 0, SMOD = 01, LAD = 0 */
 
@@ -199,7 +204,8 @@ static int snd_card_ymfpci_probe(struct pci_dev *pci,
 			fm_port[dev] = pci_resource_start(pci, 1);
 		}
 		if (fm_port[dev] > 0)
-			fm_res = request_region(fm_port[dev], 4, "YMFPCI OPL3");
+			fm_res = devm_request_region(&pci->dev, fm_port[dev],
+						     4, "YMFPCI OPL3");
 		if (fm_res) {
 			legacy_ctrl |= YMFPCI_LEGACY_FMEN;
 			pci_write_config_word(pci, PCIR_DSXG_FMBASE, fm_port[dev]);
@@ -209,7 +215,8 @@ static int snd_card_ymfpci_probe(struct pci_dev *pci,
 			mpu_port[dev] = pci_resource_start(pci, 1) + 0x20;
 		}
 		if (mpu_port[dev] > 0)
-			mpu_res = request_region(mpu_port[dev], 2, "YMFPCI MPU401");
+			mpu_res = devm_request_region(&pci->dev, mpu_port[dev],
+						      2, "YMFPCI MPU401");
 		if (mpu_res) {
 			legacy_ctrl |= YMFPCI_LEGACY_MEN;
 			pci_write_config_word(pci, PCIR_DSXG_MPU401BASE, mpu_port[dev]);
@@ -220,10 +227,17 @@ static int snd_card_ymfpci_probe(struct pci_dev *pci,
 		case 0x398: legacy_ctrl2 |= 1; break;
 		case 0x3a0: legacy_ctrl2 |= 2; break;
 		case 0x3a8: legacy_ctrl2 |= 3; break;
-		default: fm_port[dev] = 0; break;
+		default:
+			if (fm_port[dev] > 0)
+				dev_err(card->dev,
+					"The %s does not support arbitrary IO ports for FM (requested 0x%x)\n",
+					card->shortname, (unsigned int)fm_port[dev]);
+			fm_port[dev] = 0;
+			break;
 		}
 		if (fm_port[dev] > 0)
-			fm_res = request_region(fm_port[dev], 4, "YMFPCI OPL3");
+			fm_res = devm_request_region(&pci->dev, fm_port[dev],
+						     4, "YMFPCI OPL3");
 		if (fm_res) {
 			legacy_ctrl |= YMFPCI_LEGACY_FMEN;
 		} else {
@@ -235,10 +249,17 @@ static int snd_card_ymfpci_probe(struct pci_dev *pci,
 		case 0x300: legacy_ctrl2 |= 1 << 4; break;
 		case 0x332: legacy_ctrl2 |= 2 << 4; break;
 		case 0x334: legacy_ctrl2 |= 3 << 4; break;
-		default: mpu_port[dev] = 0; break;
+		default:
+			if (mpu_port[dev] > 0)
+				dev_err(card->dev,
+					"The %s does not support arbitrary IO ports for MPU-401 (requested 0x%x)\n",
+					card->shortname, (unsigned int)mpu_port[dev]);
+			mpu_port[dev] = 0;
+			break;
 		}
 		if (mpu_port[dev] > 0)
-			mpu_res = request_region(mpu_port[dev], 2, "YMFPCI MPU401");
+			mpu_res = devm_request_region(&pci->dev, mpu_port[dev],
+						      2, "YMFPCI MPU401");
 		if (mpu_res) {
 			legacy_ctrl |= YMFPCI_LEGACY_MEN;
 		} else {
@@ -253,48 +274,36 @@ static int snd_card_ymfpci_probe(struct pci_dev *pci,
 	pci_read_config_word(pci, PCIR_DSXG_LEGACY, &old_legacy_ctrl);
 	pci_write_config_word(pci, PCIR_DSXG_LEGACY, legacy_ctrl);
 	pci_write_config_word(pci, PCIR_DSXG_ELEGACY, legacy_ctrl2);
-	err = snd_ymfpci_create(card, pci, old_legacy_ctrl, &chip);
-	if (err  < 0) {
-		release_and_free_resource(mpu_res);
-		release_and_free_resource(fm_res);
-		goto free_card;
-	}
-	chip->fm_res = fm_res;
-	chip->mpu_res = mpu_res;
-	card->private_data = chip;
+	err = snd_ymfpci_create(card, pci, old_legacy_ctrl);
+	if (err  < 0)
+		return err;
 
-	strcpy(card->driver, str);
-	sprintf(card->shortname, "Yamaha %s (%s)", model, str);
-	sprintf(card->longname, "%s at 0x%lx, irq %i",
-		card->shortname,
-		chip->reg_area_phys,
-		chip->irq);
 	err = snd_ymfpci_pcm(chip, 0);
 	if (err < 0)
-		goto free_card;
+		return err;
 
 	err = snd_ymfpci_pcm_spdif(chip, 1);
 	if (err < 0)
-		goto free_card;
+		return err;
 
 	err = snd_ymfpci_mixer(chip, rear_switch[dev]);
 	if (err < 0)
-		goto free_card;
+		return err;
 
 	if (chip->ac97->ext_id & AC97_EI_SDAC) {
 		err = snd_ymfpci_pcm_4ch(chip, 2);
 		if (err < 0)
-			goto free_card;
+			return err;
 
 		err = snd_ymfpci_pcm2(chip, 3);
 		if (err < 0)
-			goto free_card;
+			return err;
 	}
 	err = snd_ymfpci_timer(chip, 0);
 	if (err < 0)
-		goto free_card;
+		return err;
 
-	if (chip->mpu_res) {
+	if (mpu_res) {
 		err = snd_mpu401_uart_new(card, 0, MPU401_HW_YMFPCI,
 					  mpu_port[dev],
 					  MPU401_INFO_INTEGRATED |
@@ -308,7 +317,7 @@ static int snd_card_ymfpci_probe(struct pci_dev *pci,
 			pci_write_config_word(pci, PCIR_DSXG_LEGACY, legacy_ctrl);
 		}
 	}
-	if (chip->fm_res) {
+	if (fm_res) {
 		err = snd_opl3_create(card,
 				      fm_port[dev],
 				      fm_port[dev] + 2,
@@ -323,7 +332,7 @@ static int snd_card_ymfpci_probe(struct pci_dev *pci,
 			err = snd_opl3_hwdep_new(opl3, 0, 1, NULL);
 			if (err < 0) {
 				dev_err(card->dev, "cannot create opl3 hwdep\n");
-				goto free_card;
+				return err;
 			}
 		}
 	}
@@ -332,32 +341,20 @@ static int snd_card_ymfpci_probe(struct pci_dev *pci,
 
 	err = snd_card_register(card);
 	if (err < 0)
-		goto free_card;
+		return err;
 
 	pci_set_drvdata(pci, card);
 	dev++;
 	return 0;
-
-free_card:
-	snd_card_free(card);
-	return err;
-}
-
-static void snd_card_ymfpci_remove(struct pci_dev *pci)
-{
-	snd_card_free(pci_get_drvdata(pci));
 }
 
 static struct pci_driver ymfpci_driver = {
 	.name = KBUILD_MODNAME,
 	.id_table = snd_ymfpci_ids,
 	.probe = snd_card_ymfpci_probe,
-	.remove = snd_card_ymfpci_remove,
-#ifdef CONFIG_PM_SLEEP
 	.driver = {
-		.pm = &snd_ymfpci_pm,
+		.pm = pm_sleep_ptr(&snd_ymfpci_pm),
 	},
-#endif
 };
 
 module_pci_driver(ymfpci_driver);

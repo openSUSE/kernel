@@ -14,12 +14,11 @@ cflags-y	+= -fno-common -pipe -fno-builtin -mmedium-calls -D__linux__
 tune-mcpu-def-$(CONFIG_ISA_ARCOMPACT)	:= -mcpu=arc700
 tune-mcpu-def-$(CONFIG_ISA_ARCV2)	:= -mcpu=hs38
 
-ifeq ($(CONFIG_ARC_TUNE_MCPU),"")
+ifeq ($(CONFIG_ARC_TUNE_MCPU),)
 cflags-y				+= $(tune-mcpu-def-y)
 else
-tune-mcpu				:= $(shell echo $(CONFIG_ARC_TUNE_MCPU))
-tune-mcpu-ok 				:= $(call cc-option-yn, $(tune-mcpu))
-ifeq ($(tune-mcpu-ok),y)
+tune-mcpu				:= $(CONFIG_ARC_TUNE_MCPU)
+ifneq ($(call cc-option,$(tune-mcpu)),)
 cflags-y				+= $(tune-mcpu)
 else
 # The flag provided by 'CONFIG_ARC_TUNE_MCPU' option isn't known by this compiler
@@ -83,8 +82,6 @@ KBUILD_CFLAGS	+= $(cflags-y)
 KBUILD_AFLAGS	+= $(KBUILD_CFLAGS)
 KBUILD_LDFLAGS	+= $(ldflags-y)
 
-head-y		:= arch/arc/kernel/head.o
-
 # w/o this dtb won't embed into kernel binary
 core-y		+= arch/arc/boot/dts/
 
@@ -113,6 +110,3 @@ uImage: $(uimage-default-y)
 	@$(kecho) '  Image $(boot)/uImage is ready'
 
 CLEAN_FILES += $(boot)/uImage
-
-archclean:
-	$(Q)$(MAKE) $(clean)=$(boot)

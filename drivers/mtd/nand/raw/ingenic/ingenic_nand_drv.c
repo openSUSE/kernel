@@ -522,7 +522,7 @@ static int ingenic_nand_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int ingenic_nand_remove(struct platform_device *pdev)
+static void ingenic_nand_remove(struct platform_device *pdev)
 {
 	struct ingenic_nfc *nfc = platform_get_drvdata(pdev);
 
@@ -530,8 +530,6 @@ static int ingenic_nand_remove(struct platform_device *pdev)
 		ingenic_ecc_release(nfc->ecc);
 
 	ingenic_nand_cleanup_chips(nfc);
-
-	return 0;
 }
 
 static const struct jz_soc_info jz4740_soc_info = {
@@ -564,10 +562,10 @@ MODULE_DEVICE_TABLE(of, ingenic_nand_dt_match);
 
 static struct platform_driver ingenic_nand_driver = {
 	.probe		= ingenic_nand_probe,
-	.remove		= ingenic_nand_remove,
+	.remove_new	= ingenic_nand_remove,
 	.driver	= {
 		.name	= DRV_NAME,
-		.of_match_table = of_match_ptr(ingenic_nand_dt_match),
+		.of_match_table = ingenic_nand_dt_match,
 	},
 };
 module_platform_driver(ingenic_nand_driver);

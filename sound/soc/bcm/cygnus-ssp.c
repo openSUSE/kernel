@@ -838,12 +838,12 @@ static int cygnus_ssp_set_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 
 	ssp_newcfg = 0;
 
-	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
-	case SND_SOC_DAIFMT_CBM_CFM:
+	switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
+	case SND_SOC_DAIFMT_BC_FC:
 		ssp_newcfg |= BIT(I2S_OUT_CFGX_SLAVE_MODE);
 		aio->is_slave = 1;
 		break;
-	case SND_SOC_DAIFMT_CBS_CFS:
+	case SND_SOC_DAIFMT_BP_FP:
 		ssp_newcfg &= ~BIT(I2S_OUT_CFGX_SLAVE_MODE);
 		aio->is_slave = 0;
 		break;
@@ -1191,9 +1191,10 @@ static const struct snd_soc_dai_driver cygnus_spdif_dai_info = {
 static struct snd_soc_dai_driver cygnus_ssp_dai[CYGNUS_MAX_PORTS];
 
 static const struct snd_soc_component_driver cygnus_ssp_component = {
-	.name		= "cygnus-audio",
-	.suspend	= cygnus_ssp_suspend,
-	.resume		= cygnus_ssp_resume,
+	.name			= "cygnus-audio",
+	.suspend		= cygnus_ssp_suspend,
+	.resume			= cygnus_ssp_resume,
+	.legacy_dai_naming	= 1,
 };
 
 /*
@@ -1376,11 +1377,9 @@ static int cygnus_ssp_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int cygnus_ssp_remove(struct platform_device *pdev)
+static void cygnus_ssp_remove(struct platform_device *pdev)
 {
 	cygnus_soc_platform_unregister(&pdev->dev);
-
-	return 0;
 }
 
 static const struct of_device_id cygnus_ssp_of_match[] = {
@@ -1391,7 +1390,7 @@ MODULE_DEVICE_TABLE(of, cygnus_ssp_of_match);
 
 static struct platform_driver cygnus_ssp_driver = {
 	.probe		= cygnus_ssp_probe,
-	.remove		= cygnus_ssp_remove,
+	.remove_new	= cygnus_ssp_remove,
 	.driver		= {
 		.name	= "cygnus-ssp",
 		.of_match_table = cygnus_ssp_of_match,

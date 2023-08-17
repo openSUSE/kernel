@@ -7,7 +7,7 @@ $schema: http://devicetree.org/meta-schemas/core.yaml#
 title: Analog Devices AD7091R5 4-Channel 12-Bit ADC
 
 maintainers:
-  - Beniamin Bia <beniamin.bia@analog.com>
+  - Michael Hennerich <michael.hennerich@analog.com>
 
 description: |
   Analog Devices AD7091R5 4-Channel 12-Bit ADC
@@ -44,11 +44,11 @@ examples:
         #size-cells = <0>;
 
         adc@2f {
-                compatible = "adi,ad7091r5";
-                reg = <0x2f>;
+            compatible = "adi,ad7091r5";
+            reg = <0x2f>;
 
-                interrupts = <25 IRQ_TYPE_EDGE_FALLING>;
-                interrupt-parent = <&gpio>;
+            interrupts = <25 IRQ_TYPE_EDGE_FALLING>;
+            interrupt-parent = <&gpio>;
         };
     };
 ...

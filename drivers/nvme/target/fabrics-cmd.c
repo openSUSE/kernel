@@ -331,9 +331,6 @@ static void nvmet_execute_io_connect(struct nvmet_req *req)
 	if (status)
 		goto out_ctrl_put;
 
-	/* pass back cntlid for successful completion */
-	req->cqe->result.u16 = cpu_to_le16(ctrl->cntlid);
-
 	pr_debug("adding queue %d to ctrl %d.\n", qid, ctrl->cntlid);
 	req->cqe->result.u32 = cpu_to_le32(nvmet_connect_result(ctrl));
 out:

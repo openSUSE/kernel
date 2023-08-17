@@ -479,6 +479,11 @@ static void icp_rm_down_cppr(struct kvmppc_xics *xics, struct kvmppc_icp *icp,
 	}
 }
 
+unsigned long xics_rm_h_xirr_x(struct kvm_vcpu *vcpu)
+{
+	vcpu->arch.regs.gpr[5] = get_tb();
+	return xics_rm_h_xirr(vcpu);
+}
 
 unsigned long xics_rm_h_xirr(struct kvm_vcpu *vcpu)
 {
@@ -706,6 +711,7 @@ static int ics_rm_eoi(struct kvm_vcpu *vcpu, u32 irq)
 		icp->rm_eoied_irq = irq;
 	}
 
+	/* Handle passthrough interrupts */
 	if (state->host_irq) {
 		++vcpu->stat.pthru_all;
 		if (state->intr_cpu != -1) {
@@ -759,12 +765,12 @@ int xics_rm_h_eoi(struct kvm_vcpu *vcpu, unsigned long xirr)
 
 static unsigned long eoi_rc;
 
-static void icp_eoi(struct irq_chip *c, u32 hwirq, __be32 xirr, bool *again)
+static void icp_eoi(struct irq_data *d, u32 hwirq, __be32 xirr, bool *again)
 {
 	void __iomem *xics_phys;
 	int64_t rc;
 
-	rc = pnv_opal_pci_msi_eoi(c, hwirq);
+	rc = pnv_opal_pci_msi_eoi(d);
 
 	if (rc)
 		eoi_rc = rc;
@@ -872,8 +878,7 @@ long kvmppc_deliver_irq_passthru(struct kvm_vcpu *vcpu,
 		icp_rm_deliver_irq(xics, icp, irq, false);
 
 	/* EOI the interrupt */
-	icp_eoi(irq_desc_get_chip(irq_map->desc), irq_map->r_hwirq, xirr,
-		again);
+	icp_eoi(irq_desc_get_irq_data(irq_map->desc), irq_map->r_hwirq, xirr, again);
 
 	if (check_too_hard(xics, icp) == H_TOO_HARD)
 		return 2;
@@ -883,7 +888,7 @@ long kvmppc_deliver_irq_passthru(struct kvm_vcpu *vcpu,
 
 /*  --- Non-real mode XICS-related built-in routines ---  */
 
-/**
+/*
  * Host Operations poked by RM KVM
  */
 static void rm_host_ipi_action(int action, void *data)

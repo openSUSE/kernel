@@ -7,6 +7,7 @@
  */
 /dts-v1/;
 #include "sama5d4.dtsi"
+#include <dt-bindings/input/input.h>
 
 / {
 	model = "Atmel SAMA5D4 Xplained";
@@ -36,16 +37,6 @@
 				atmel,use-dma-rx;
 				atmel,use-dma-tx;
 				status = "okay";
-			};
-
-			spi0: spi@f8010000 {
-				cs-gpios = <&pioC 3 0>, <0>, <0>, <0>;
-				status = "okay";
-				m25p80@0 {
-					compatible = "atmel,at25df321a";
-					spi-max-frequency = <50000000>;
-					reg = <0>;
-				};
 			};
 
 			i2c0: i2c@f8014000 {
@@ -251,16 +242,16 @@
 		};
 	};
 
-	gpio_keys {
+	gpio-keys {
 		compatible = "gpio-keys";
 
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_key_gpio>;
 
-		pb_user1 {
+		button {
 			label = "pb_user1";
 			gpios = <&pioE 8 GPIO_ACTIVE_HIGH>;
-			linux,code = <0x100>;
+			linux,code = <KEY_PROG1>;
 			wakeup-source;
 		};
 	};
@@ -271,13 +262,13 @@
 		pinctrl-0 = <&pinctrl_gpio_leds>;
 		status = "okay";
 
-		d8 {
+		led-d8 {
 			label = "d8";
 			gpios = <&pioD 30 GPIO_ACTIVE_HIGH>;
 			default-state = "on";
 		};
 
-		d10 {
+		led-d10 {
 			label = "d10";
 			gpios = <&pioE 15 GPIO_ACTIVE_LOW>;
 			linux,default-trigger = "heartbeat";

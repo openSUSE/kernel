@@ -359,8 +359,7 @@ exit:
 	return err;
 }
 
-static int lp3944_probe(struct i2c_client *client,
-				  const struct i2c_device_id *id)
+static int lp3944_probe(struct i2c_client *client)
 {
 	struct lp3944_platform_data *lp3944_pdata =
 			dev_get_platdata(&client->dev);
@@ -397,7 +396,7 @@ static int lp3944_probe(struct i2c_client *client,
 	return 0;
 }
 
-static int lp3944_remove(struct i2c_client *client)
+static void lp3944_remove(struct i2c_client *client)
 {
 	struct lp3944_platform_data *pdata = dev_get_platdata(&client->dev);
 	struct lp3944_data *data = i2c_get_clientdata(client);
@@ -414,8 +413,6 @@ static int lp3944_remove(struct i2c_client *client)
 		default:
 			break;
 		}
-
-	return 0;
 }
 
 /* lp3944 i2c driver struct */
@@ -430,7 +427,7 @@ static struct i2c_driver lp3944_driver = {
 	.driver   = {
 		   .name = "lp3944",
 	},
-	.probe    = lp3944_probe,
+	.probe_new = lp3944_probe,
 	.remove   = lp3944_remove,
 	.id_table = lp3944_id,
 };

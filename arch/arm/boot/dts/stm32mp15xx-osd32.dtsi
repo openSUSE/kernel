@@ -50,12 +50,6 @@
 			no-map;
 		};
 	};
-
-	reg_sip_eeprom: regulator_eeprom {
-		compatible = "regulator-fixed";
-		regulator-name = "sip_eeprom";
-		regulator-always-on;
-	};
 };
 
 &i2c4 {
@@ -78,6 +72,7 @@
 			compatible = "st,stpmic1-regulators";
 
 			ldo1-supply = <&v3v3>;
+			ldo3-supply = <&vdd_ddr>;
 			ldo6-supply = <&v3v3>;
 			pwr_sw1-supply = <&bst_out>;
 
@@ -203,7 +198,7 @@
 
 	sip_eeprom: eeprom@50 {
 		compatible = "atmel,24c32";
-		vcc-supply = <&reg_sip_eeprom>;
+		vcc-supply = <&vdd>;
 		reg = <0x50>;
 	};
 };
@@ -215,8 +210,8 @@
 &m4_rproc {
 	memory-region = <&retram>, <&mcuram>, <&mcuram2>, <&vdev0vring0>,
 			<&vdev0vring1>, <&vdev0buffer>;
-	mboxes = <&ipcc 0>, <&ipcc 1>, <&ipcc 2>;
-	mbox-names = "vq0", "vq1", "shutdown";
+	mboxes = <&ipcc 0>, <&ipcc 1>, <&ipcc 2>, <&ipcc 3>;
+	mbox-names = "vq0", "vq1", "shutdown", "detach";
 	interrupt-parent = <&exti>;
 	interrupts = <68 1>;
 	status = "okay";

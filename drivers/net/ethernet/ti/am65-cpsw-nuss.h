@@ -10,7 +10,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/netdevice.h>
-#include <linux/phy.h>
+#include <linux/phylink.h>
 #include <linux/platform_device.h>
 #include <linux/soc/ti/k3-ringacc.h>
 #include <net/devlink.h>
@@ -30,13 +30,15 @@ struct am65_cpsw_slave_data {
 	bool				mac_only;
 	struct cpsw_sl			*mac_sl;
 	struct device_node		*phy_node;
-	struct phy_device		*phy;
 	phy_interface_t			phy_if;
 	struct phy			*ifphy;
+	struct phy			*serdes_phy;
 	bool				rx_pause;
 	bool				tx_pause;
 	u8				mac_addr[ETH_ALEN];
 	int				port_vlan;
+	struct phylink			*phylink;
+	struct phylink_config		phylink_config;
 };
 
 struct am65_cpsw_port {
@@ -45,6 +47,7 @@ struct am65_cpsw_port {
 	const char			*name;
 	u32				port_id;
 	void __iomem			*port_base;
+	void __iomem			*sgmii_base;
 	void __iomem			*stat_base;
 	void __iomem			*fetch_ram_base;
 	bool				disabled;
@@ -53,12 +56,16 @@ struct am65_cpsw_port {
 	bool				rx_ts_enabled;
 	struct am65_cpsw_qos		qos;
 	struct devlink_port		devlink_port;
+	/* Only for suspend resume context */
+	u32				vid_context;
 };
 
 struct am65_cpsw_host {
 	struct am65_cpsw_common		*common;
 	void __iomem			*port_base;
 	void __iomem			*stat_base;
+	/* Only for suspend resume context */
+	u32				vid_context;
 };
 
 struct am65_cpsw_tx_chn {
@@ -72,6 +79,7 @@ struct am65_cpsw_tx_chn {
 	u32 id;
 	u32 descs_num;
 	char tx_chn_name[128];
+	u32 rate_mbps;
 };
 
 struct am65_cpsw_rx_chn {
@@ -84,9 +92,11 @@ struct am65_cpsw_rx_chn {
 };
 
 #define AM65_CPSW_QUIRK_I2027_NO_TX_CSUM BIT(0)
+#define AM64_CPSW_QUIRK_DMA_RX_TDOWN_IRQ BIT(1)
 
 struct am65_cpsw_pdata {
 	u32	quirks;
+	u64	extra_modes;
 	enum k3_ring_mode fdqring_mode;
 	const char	*ale_dev_id;
 };
@@ -117,6 +127,7 @@ struct am65_cpsw_common {
 	int			usage_count; /* number of opened ports */
 	struct cpsw_ale		*ale;
 	int			tx_ch_num;
+	u32			tx_ch_rate_msk;
 	u32			rx_flow_id_base;
 
 	struct am65_cpsw_tx_chn	tx_chns[AM65_CPSW_MAX_TX_QUEUES];
@@ -142,6 +153,8 @@ struct am65_cpsw_common {
 	struct net_device *hw_bridge_dev;
 	struct notifier_block am65_cpsw_netdevice_nb;
 	unsigned char switch_id[MAX_PHYS_ITEM_ID_LEN];
+	/* only for suspend/resume context restore */
+	u32			*ale_context;
 };
 
 struct am65_cpsw_ndev_stats {

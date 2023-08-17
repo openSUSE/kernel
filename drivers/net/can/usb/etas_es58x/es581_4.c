@@ -6,11 +6,12 @@
  *
  * Copyright (c) 2019 Robert Bosch Engineering and Business Solutions. All rights reserved.
  * Copyright (c) 2020 ETAS K.K.. All rights reserved.
- * Copyright (c) 2020, 2021 Vincent Mailhol <mailhol.vincent@wanadoo.fr>
+ * Copyright (c) 2020-2022 Vincent Mailhol <mailhol.vincent@wanadoo.fr>
  */
 
-#include <linux/kernel.h>
 #include <asm/unaligned.h>
+#include <linux/kernel.h>
+#include <linux/units.h>
 
 #include "es58x_core.h"
 #include "es581_4.h"
@@ -355,7 +356,7 @@ static int es581_4_tx_can_msg(struct es58x_priv *priv,
 		return -EMSGSIZE;
 
 	if (priv->tx_can_msg_cnt == 0) {
-		msg_len = 1; /* struct es581_4_bulk_tx_can_msg:num_can_msg */
+		msg_len = sizeof(es581_4_urb_cmd->bulk_tx_can_msg.num_can_msg);
 		es581_4_fill_urb_header(urb_cmd, ES581_4_CAN_COMMAND_TYPE,
 					ES581_4_CMD_ID_TX_MSG,
 					priv->channel_idx, msg_len);
@@ -371,8 +372,7 @@ static int es581_4_tx_can_msg(struct es58x_priv *priv,
 		return ret;
 
 	/* Fill message contents. */
-	tx_can_msg = (struct es581_4_tx_can_msg *)
-	    &es581_4_urb_cmd->bulk_tx_can_msg.tx_can_msg_buf[msg_len - 1];
+	tx_can_msg = (typeof(tx_can_msg))&es581_4_urb_cmd->raw_msg[msg_len];
 	put_unaligned_le32(es58x_get_raw_can_id(cf), &tx_can_msg->can_id);
 	put_unaligned_le32(priv->tx_head, &tx_can_msg->packet_idx);
 	put_unaligned_le16((u16)es58x_get_flags(skb), &tx_can_msg->flags);
@@ -470,8 +470,8 @@ const struct es58x_parameters es581_4_param = {
 	.bittiming_const = &es581_4_bittiming_const,
 	.data_bittiming_const = NULL,
 	.tdc_const = NULL,
-	.bitrate_max = 1 * CAN_MBPS,
-	.clock = {.freq = 50 * CAN_MHZ},
+	.bitrate_max = 1 * MEGA /* BPS */,
+	.clock = {.freq = 50 * MEGA /* Hz */},
 	.ctrlmode_supported = CAN_CTRLMODE_CC_LEN8_DLC,
 	.tx_start_of_frame = 0xAFAF,
 	.rx_start_of_frame = 0xFAFA,

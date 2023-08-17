@@ -8,11 +8,12 @@
  *
  * Copyright (c) 2019 Robert Bosch Engineering and Business Solutions. All rights reserved.
  * Copyright (c) 2020 ETAS K.K.. All rights reserved.
- * Copyright (c) 2020, 2021 Vincent Mailhol <mailhol.vincent@wanadoo.fr>
+ * Copyright (c) 2020-2022 Vincent Mailhol <mailhol.vincent@wanadoo.fr>
  */
 
-#include <linux/kernel.h>
 #include <asm/unaligned.h>
+#include <linux/kernel.h>
+#include <linux/units.h>
 
 #include "es58x_core.h"
 #include "es58x_fd.h"
@@ -68,7 +69,8 @@ static int es58x_fd_echo_msg(struct net_device *netdev,
 	int i, num_element;
 	u32 rcv_packet_idx;
 
-	const u32 mask = GENMASK(31, sizeof(echo_msg->packet_idx) * 8);
+	const u32 mask = GENMASK(BITS_PER_TYPE(mask) - 1,
+				 BITS_PER_TYPE(echo_msg->packet_idx));
 
 	num_element = es58x_msg_num_element(es58x_dev->dev,
 					    es58x_fd_urb_cmd->echo_msg,
@@ -356,8 +358,7 @@ static int es58x_fd_tx_can_msg(struct es58x_priv *priv,
 		return ret;
 
 	/* Fill message contents. */
-	tx_can_msg = (struct es58x_fd_tx_can_msg *)
-	    &es58x_fd_urb_cmd->tx_can_msg_buf[msg_len];
+	tx_can_msg = (typeof(tx_can_msg))&es58x_fd_urb_cmd->raw_msg[msg_len];
 	tx_can_msg->packet_idx = (u8)priv->tx_head;
 	put_unaligned_le32(es58x_get_raw_can_id(cf), &tx_can_msg->can_id);
 	tx_can_msg->flags = (u8)es58x_get_flags(skb);
@@ -428,7 +429,7 @@ static int es58x_fd_enable_channel(struct es58x_priv *priv)
 		es58x_fd_convert_bittiming(&tx_conf_msg.data_bittiming,
 					   &priv->can.data_bittiming);
 
-		if (priv->can.tdc.tdco) {
+		if (can_tdc_is_enabled(&priv->can)) {
 			tx_conf_msg.tdc_enabled = 1;
 			tx_conf_msg.tdco = cpu_to_le16(priv->can.tdc.tdco);
 			tx_conf_msg.tdcf = cpu_to_le16(priv->can.tdc.tdcf);
@@ -462,9 +463,9 @@ static int es58x_fd_get_timestamp(struct es58x_device *es58x_dev)
 }
 
 /* Nominal bittiming constants for ES582.1 and ES584.1 as specified in
- * the microcontroller datasheet: "SAM E701/S70/V70/V71 Family"
- * section 49.6.8 "MCAN Nominal Bit Timing and Prescaler Register"
- * from Microchip.
+ * the microcontroller datasheet: "SAM E70/S70/V70/V71 Family" section
+ * 49.6.8 "MCAN Nominal Bit Timing and Prescaler Register" from
+ * Microchip.
  *
  * The values from the specification are the hardware register
  * values. To convert them to the functional values, all ranges were
@@ -483,8 +484,8 @@ static const struct can_bittiming_const es58x_fd_nom_bittiming_const = {
 };
 
 /* Data bittiming constants for ES582.1 and ES584.1 as specified in
- * the microcontroller datasheet: "SAM E701/S70/V70/V71 Family"
- * section 49.6.4 "MCAN Data Bit Timing and Prescaler Register" from
+ * the microcontroller datasheet: "SAM E70/S70/V70/V71 Family" section
+ * 49.6.4 "MCAN Data Bit Timing and Prescaler Register" from
  * Microchip.
  */
 static const struct can_bittiming_const es58x_fd_data_bittiming_const = {
@@ -500,13 +501,16 @@ static const struct can_bittiming_const es58x_fd_data_bittiming_const = {
 };
 
 /* Transmission Delay Compensation constants for ES582.1 and ES584.1
- * as specified in the microcontroller datasheet: "SAM
- * E701/S70/V70/V71 Family" section 49.6.15 "MCAN Transmitter Delay
- * Compensation Register" from Microchip.
+ * as specified in the microcontroller datasheet: "SAM E70/S70/V70/V71
+ * Family" section 49.6.15 "MCAN Transmitter Delay Compensation
+ * Register" from Microchip.
  */
 static const struct can_tdc_const es58x_tdc_const = {
+	.tdcv_min = 0,
 	.tdcv_max = 0, /* Manual mode not supported. */
+	.tdco_min = 0,
 	.tdco_max = 127,
+	.tdcf_min = 0,
 	.tdcf_max = 127
 };
 
@@ -519,11 +523,11 @@ const struct es58x_parameters es58x_fd_param = {
 	 * Mbps work in an optimal environment but are not recommended
 	 * for production environment.
 	 */
-	.bitrate_max = 8 * CAN_MBPS,
-	.clock = {.freq = 80 * CAN_MHZ},
+	.bitrate_max = 8 * MEGA /* BPS */,
+	.clock = {.freq = 80 * MEGA /* Hz */},
 	.ctrlmode_supported = CAN_CTRLMODE_LOOPBACK | CAN_CTRLMODE_LISTENONLY |
 	    CAN_CTRLMODE_3_SAMPLES | CAN_CTRLMODE_FD | CAN_CTRLMODE_FD_NON_ISO |
-	    CAN_CTRLMODE_CC_LEN8_DLC,
+	    CAN_CTRLMODE_CC_LEN8_DLC | CAN_CTRLMODE_TDC_AUTO,
 	.tx_start_of_frame = 0xCEFA,	/* FACE in little endian */
 	.rx_start_of_frame = 0xFECA,	/* CAFE in little endian */
 	.tx_urb_cmd_max_len = ES58X_FD_TX_URB_CMD_MAX_LEN,

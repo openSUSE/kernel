@@ -82,8 +82,7 @@ static int lpfc_sli4_post_sgl_list(struct lpfc_hba *, struct list_head *,
 				       int);
 static void lpfc_sli4_hba_handle_eqe(struct lpfc_hba *phba,
 				     struct lpfc_queue *eq,
-				     struct lpfc_eqe *eqe,
-				     enum lpfc_poll_mode poll_mode);
+				     struct lpfc_eqe *eqe);
 static bool lpfc_sli4_mbox_completions_pending(struct lpfc_hba *phba);
 static bool lpfc_sli4_process_missed_mbox_completions(struct lpfc_hba *phba);
 static struct lpfc_cqe *lpfc_sli4_cq_get(struct lpfc_queue *q);
@@ -630,7 +629,7 @@ lpfc_sli4_eqcq_flush(struct lpfc_hba *phba, struct lpfc_queue *eq)
 
 static int
 lpfc_sli4_process_eq(struct lpfc_hba *phba, struct lpfc_queue *eq,
-		     u8 rearm, enum lpfc_poll_mode poll_mode)
+		     uint8_t rearm)
 {
 	struct lpfc_eqe *eqe;
 	int count = 0, consumed = 0;
@@ -640,7 +639,7 @@ lpfc_sli4_process_eq(struct lpfc_hba *phba, struct lpfc_queue *eq,
 
 	eqe = lpfc_sli4_eq_get(eq);
 	while (eqe) {
-		lpfc_sli4_hba_handle_eqe(phba, eq, eqe, poll_mode);
+		lpfc_sli4_hba_handle_eqe(phba, eq, eqe);
 		__lpfc_sli4_consume_eqe(phba, eq, eqe);
 
 		consumed++;
@@ -1932,7 +1931,7 @@ lpfc_issue_cmf_sync_wqe(struct lpfc_hba *phba, u32 ms, u64 total)
 	unsigned long iflags;
 	u32 ret_val;
 	u32 atot, wtot, max;
-	u8 warn_sync_period = 0;
+	u16 warn_sync_period = 0;
 
 	/* First address any alarm / warning activity */
 	atot = atomic_xchg(&phba->cgn_sync_alarm_cnt, 0);
@@ -3935,8 +3934,6 @@ void lpfc_poll_eratt(struct timer_list *t)
 	uint64_t sli_intr, cnt;
 
 	phba = from_timer(phba, t, eratt_poll);
-	if (!(phba->hba_flag & HBA_SETUP))
-		return;
 
 	/* Here we will also keep track of interrupts per sec of the hba */
 	sli_intr = phba->sli.slistat.sli_intr;
@@ -5704,39 +5701,7 @@ lpfc_sli_hba_setup(struct lpfc_hba *phba)
 
 	/* Enable ISR already does config_port because of config_msi mbx */
 	if (phba->hba_flag & HBA_NEEDS_CFG_PORT) {
-		int mode = 3;
-
-		switch (phba->cfg_sli_mode) {
-		case 2:
-			if (phba->cfg_enable_npiv) {
-				lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
-						"1824 NPIV enabled: Override sli_mode "
-						"parameter (%d) to auto (0).\n",
-						phba->cfg_sli_mode);
-				break;
-			}
-			mode = 2;
-			break;
-		case 0:
-		case 3:
-			break;
-		default:
-			lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
-					"1819 Unrecognized sli_mode parameter: %d.\n",
-					phba->cfg_sli_mode);
-			break;
-		}
-
-		rc = lpfc_sli_config_port(phba, mode);
-
-		if (rc && phba->cfg_sli_mode == 3)
-			lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
-					"1820 Unable to select SLI-3.  "
-					"Not supported by adapter.\n");
-		if (rc && mode != 2)
-			rc = lpfc_sli_config_port(phba, 2);
-		else if (rc && mode == 2)
-			rc = lpfc_sli_config_port(phba, 3);
+		rc = lpfc_sli_config_port(phba, LPFC_SLI_REV3);
 		if (rc)
 			return -EIO;
 		phba->hba_flag &= ~HBA_NEEDS_CFG_PORT;
@@ -7727,9 +7692,7 @@ lpfc_sli4_repost_sgl_list(struct lpfc_hba *phba,
 		spin_unlock_irq(&phba->hbalock);
 	} else {
 		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
-				"3161 Failure to post sgl to port,status %x "
-				"blkcnt %d totalcnt %d postcnt %d\n",
-				status, block_cnt, total_cnt, post_cnt);
+				"3161 Failure to post sgl to port.\n");
 		return -EIO;
 	}
 
@@ -7994,7 +7957,7 @@ out_rdf:
  * lpfc_init_idle_stat_hb - Initialize idle_stat tracking
  * @phba: pointer to lpfc hba data structure.
  *
- * This routine initializes the per-eq idle_stat to dynamically dictate
+ * This routine initializes the per-cq idle_stat to dynamically dictate
  * polling decisions.
  *
  * Return codes:
@@ -8004,16 +7967,16 @@ static void lpfc_init_idle_stat_hb(struct lpfc_hba *phba)
 {
 	int i;
 	struct lpfc_sli4_hdw_queue *hdwq;
-	struct lpfc_queue *eq;
+	struct lpfc_queue *cq;
 	struct lpfc_idle_stat *idle_stat;
 	u64 wall;
 
 	for_each_present_cpu(i) {
 		hdwq = &phba->sli4_hba.hdwq[phba->sli4_hba.cpu_map[i].hdwq];
-		eq = hdwq->hba_eq;
+		cq = hdwq->io_cq;
 
-		/* Skip if we've already handled this eq's primary CPU */
-		if (eq->chann != i)
+		/* Skip if we've already handled this cq's primary CPU */
+		if (cq->chann != i)
 			continue;
 
 		idle_stat = &phba->sli4_hba.idle_stat[i];
@@ -8022,14 +7985,13 @@ static void lpfc_init_idle_stat_hb(struct lpfc_hba *phba)
 		idle_stat->prev_wall = wall;
 
 		if (phba->nvmet_support ||
-		    phba->cmf_active_mode != LPFC_CFG_OFF ||
-		    phba->intr_type != MSIX)
-			eq->poll_mode = LPFC_QUEUE_WORK;
+		    phba->cmf_active_mode != LPFC_CFG_OFF)
+			cq->poll_mode = LPFC_QUEUE_WORK;
 		else
-			eq->poll_mode = LPFC_THREADED_IRQ;
+			cq->poll_mode = LPFC_IRQ_POLL;
 	}
 
-	if (!phba->nvmet_support && phba->intr_type == MSIX)
+	if (!phba->nvmet_support)
 		schedule_delayed_work(&phba->idle_stat_delay_work,
 				      msecs_to_jiffies(LPFC_IDLE_STAT_DELAY));
 }
@@ -8514,7 +8476,6 @@ lpfc_sli4_hba_setup(struct lpfc_hba *phba)
 			spin_unlock_irq(&phba->hbalock);
 		}
 	}
-	phba->hba_flag &= ~HBA_SETUP;
 
 	lpfc_sli4_dip(phba);
 
@@ -9257,8 +9218,7 @@ lpfc_sli4_process_missed_mbox_completions(struct lpfc_hba *phba)
 
 	if (mbox_pending)
 		/* process and rearm the EQ */
-		lpfc_sli4_process_eq(phba, fpeq, LPFC_QUEUE_REARM,
-				     LPFC_QUEUE_WORK);
+		lpfc_sli4_process_eq(phba, fpeq, LPFC_QUEUE_REARM);
 	else
 		/* Always clear and re-arm the EQ */
 		sli4_hba->sli4_write_eq_db(phba, fpeq, 0, LPFC_QUEUE_REARM);
@@ -9319,7 +9279,6 @@ lpfc_mbox_timeout_handler(struct lpfc_hba *phba)
 	 * would get IOCB_ERROR from lpfc_sli_issue_iocb, allowing
 	 * it to fail all outstanding SCSI IO.
 	 */
-	set_bit(MBX_TMO_ERR, &phba->bit_flags);
 	spin_lock_irq(&phba->pport->work_port_lock);
 	phba->pport->work_port_events &= ~WORKER_MBOX_TMO;
 	spin_unlock_irq(&phba->pport->work_port_lock);
@@ -11295,8 +11254,7 @@ inline void lpfc_sli4_poll_eq(struct lpfc_queue *eq)
 		 * will be handled through a sched from polling timer
 		 * function which is currently triggered every 1msec.
 		 */
-		lpfc_sli4_process_eq(phba, eq, LPFC_QUEUE_NOARM,
-				     LPFC_QUEUE_WORK);
+		lpfc_sli4_process_eq(phba, eq, LPFC_QUEUE_NOARM);
 }
 
 /**
@@ -14724,38 +14682,6 @@ lpfc_sli4_sp_handle_rcqe(struct lpfc_hba *phba, struct lpfc_rcqe *rcqe)
 		spin_unlock_irqrestore(&phba->hbalock, iflags);
 		workposted = true;
 		break;
-	case FC_STATUS_RQ_DMA_FAILURE:
-		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
-				"2564 RQE DMA Error x%x, x%08x x%08x x%08x "
-				"x%08x\n",
-				status, rcqe->word0, rcqe->word1,
-				rcqe->word2, rcqe->word3);
-
-		/* If IV set, no further recovery */
-		if (bf_get(lpfc_rcqe_iv, rcqe))
-			break;
-
-		/* recycle consumed resource */
-		spin_lock_irqsave(&phba->hbalock, iflags);
-		lpfc_sli4_rq_release(hrq, drq);
-		dma_buf = lpfc_sli_hbqbuf_get(&phba->hbqs[0].hbq_buffer_list);
-		if (!dma_buf) {
-			hrq->RQ_no_buf_found++;
-			spin_unlock_irqrestore(&phba->hbalock, iflags);
-			break;
-		}
-		hrq->RQ_rcv_buf++;
-		hrq->RQ_buf_posted--;
-		spin_unlock_irqrestore(&phba->hbalock, iflags);
-		lpfc_in_buf_free(phba, &dma_buf->dbuf);
-		break;
-	default:
-		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
-				"2565 Unexpected RQE Status x%x, w0-3 x%08x "
-				"x%08x x%08x x%08x\n",
-				status, rcqe->word0, rcqe->word1,
-				rcqe->word2, rcqe->word3);
-		break;
 	}
 out:
 	return workposted;
@@ -14877,6 +14803,7 @@ lpfc_sli4_sp_handle_eqe(struct lpfc_hba *phba, struct lpfc_eqe *eqe,
  * @cq: Pointer to CQ to be processed
  * @handler: Routine to process each cqe
  * @delay: Pointer to usdelay to set in case of rescheduling of the handler
+ * @poll_mode: Polling mode we were called from
  *
  * This routine processes completion queue entries in a CQ. While a valid
  * queue element is found, the handler is called. During processing checks
@@ -14894,7 +14821,8 @@ lpfc_sli4_sp_handle_eqe(struct lpfc_hba *phba, struct lpfc_eqe *eqe,
 static bool
 __lpfc_sli4_process_cq(struct lpfc_hba *phba, struct lpfc_queue *cq,
 	bool (*handler)(struct lpfc_hba *, struct lpfc_queue *,
-			struct lpfc_cqe *), unsigned long *delay)
+			struct lpfc_cqe *), unsigned long *delay,
+			enum lpfc_poll_mode poll_mode)
 {
 	struct lpfc_cqe *cqe;
 	bool workposted = false;
@@ -14934,6 +14862,10 @@ __lpfc_sli4_process_cq(struct lpfc_hba *phba, struct lpfc_queue *cq,
 		*delay = 1;
 		arm = false;
 	}
+
+	/* Note: complete the irq_poll softirq before rearming CQ */
+	if (poll_mode == LPFC_IRQ_POLL)
+		irq_poll_complete(&cq->iop);
 
 	/* Track the max number of CQEs processed in 1 EQ */
 	if (count > cq->CQ_max_cqe)
@@ -14984,17 +14916,17 @@ __lpfc_sli4_sp_process_cq(struct lpfc_queue *cq)
 	case LPFC_MCQ:
 		workposted |= __lpfc_sli4_process_cq(phba, cq,
 						lpfc_sli4_sp_handle_mcqe,
-						&delay);
+						&delay, LPFC_QUEUE_WORK);
 		break;
 	case LPFC_WCQ:
 		if (cq->subtype == LPFC_IO)
 			workposted |= __lpfc_sli4_process_cq(phba, cq,
 						lpfc_sli4_fp_handle_cqe,
-						&delay);
+						&delay, LPFC_QUEUE_WORK);
 		else
 			workposted |= __lpfc_sli4_process_cq(phba, cq,
 						lpfc_sli4_sp_handle_cqe,
-						&delay);
+						&delay, LPFC_QUEUE_WORK);
 		break;
 	default:
 		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
@@ -15271,38 +15203,6 @@ drop:
 		hrq->RQ_no_posted_buf++;
 		/* Post more buffers if possible */
 		break;
-	case FC_STATUS_RQ_DMA_FAILURE:
-		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
-				"2575 RQE DMA Error x%x, x%08x x%08x x%08x "
-				"x%08x\n",
-				status, rcqe->word0, rcqe->word1,
-				rcqe->word2, rcqe->word3);
-
-		/* If IV set, no further recovery */
-		if (bf_get(lpfc_rcqe_iv, rcqe))
-			break;
-
-		/* recycle consumed resource */
-		spin_lock_irqsave(&phba->hbalock, iflags);
-		lpfc_sli4_rq_release(hrq, drq);
-		dma_buf = lpfc_sli_rqbuf_get(phba, hrq);
-		if (!dma_buf) {
-			hrq->RQ_no_buf_found++;
-			spin_unlock_irqrestore(&phba->hbalock, iflags);
-			break;
-		}
-		hrq->RQ_rcv_buf++;
-		hrq->RQ_buf_posted--;
-		spin_unlock_irqrestore(&phba->hbalock, iflags);
-		lpfc_rq_buf_free(phba, &dma_buf->hbuf);
-		break;
-	default:
-		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
-				"2576 Unexpected RQE Status x%x, w0-3 x%08x "
-				"x%08x x%08x x%08x\n",
-				status, rcqe->word0, rcqe->word1,
-				rcqe->word2, rcqe->word3);
-		break;
 	}
 out:
 	return workposted;
@@ -15371,64 +15271,45 @@ lpfc_sli4_fp_handle_cqe(struct lpfc_hba *phba, struct lpfc_queue *cq,
 }
 
 /**
- * __lpfc_sli4_hba_process_cq - Process a fast-path event queue entry
- * @cq: Pointer to CQ to be processed
+ * lpfc_sli4_sched_cq_work - Schedules cq work
+ * @phba: Pointer to HBA context object.
+ * @cq: Pointer to CQ
+ * @cqid: CQ ID
  *
- * This routine calls the cq processing routine with the handler for
- * fast path CQEs.
+ * This routine checks the poll mode of the CQ corresponding to
+ * cq->chann, then either schedules a softirq or queue_work to complete
+ * cq work.
  *
- * The CQ routine returns two values: the first is the calling status,
- * which indicates whether work was queued to the  background discovery
- * thread. If true, the routine should wakeup the discovery thread;
- * the second is the delay parameter. If non-zero, rather than rearming
- * the CQ and yet another interrupt, the CQ handler should be queued so
- * that it is processed in a subsequent polling action. The value of
- * the delay indicates when to reschedule it.
+ * queue_work path is taken if in NVMET mode, or if poll_mode is in
+ * LPFC_QUEUE_WORK mode.  Otherwise, softirq path is taken.
+ *
  **/
-static void
-__lpfc_sli4_hba_process_cq(struct lpfc_queue *cq)
+static void lpfc_sli4_sched_cq_work(struct lpfc_hba *phba,
+				    struct lpfc_queue *cq, uint16_t cqid)
 {
-	struct lpfc_hba *phba = cq->phba;
-	unsigned long delay;
-	bool workposted = false;
-	int ret;
+	int ret = 0;
 
-	/* process and rearm the CQ */
-	workposted |= __lpfc_sli4_process_cq(phba, cq, lpfc_sli4_fp_handle_cqe,
-					     &delay);
-
-	if (delay) {
+	switch (cq->poll_mode) {
+	case LPFC_IRQ_POLL:
+		/* CGN mgmt is mutually exclusive from softirq processing */
+		if (phba->cmf_active_mode == LPFC_CFG_OFF) {
+			irq_poll_sched(&cq->iop);
+			break;
+		}
+		fallthrough;
+	case LPFC_QUEUE_WORK:
+	default:
 		if (is_kdump_kernel())
-			ret = queue_delayed_work(phba->wq, &cq->sched_irqwork,
-						delay);
+			ret = queue_work(phba->wq, &cq->irqwork);
 		else
-			ret = queue_delayed_work_on(cq->chann, phba->wq,
-						&cq->sched_irqwork, delay);
+			ret = queue_work_on(cq->chann, phba->wq, &cq->irqwork);
 		if (!ret)
 			lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
-					"0367 Cannot schedule queue work "
-					"for cqid=%d on CPU %d\n",
-					cq->queue_id, cq->chann);
+					"0383 Cannot schedule queue work "
+					"for CQ eqcqid=%d, cqid=%d on CPU %d\n",
+					cqid, cq->queue_id,
+					raw_smp_processor_id());
 	}
-
-	/* wake up worker thread if there are works to be done */
-	if (workposted)
-		lpfc_worker_wake_up(phba);
-}
-
-/**
- * lpfc_sli4_hba_process_cq - fast-path work handler when started by
- *   interrupt
- * @work: pointer to work element
- *
- * translates from the work handler and calls the fast-path handler.
- **/
-static void
-lpfc_sli4_hba_process_cq(struct work_struct *work)
-{
-	struct lpfc_queue *cq = container_of(work, struct lpfc_queue, irqwork);
-
-	__lpfc_sli4_hba_process_cq(cq);
 }
 
 /**
@@ -15436,7 +15317,6 @@ lpfc_sli4_hba_process_cq(struct work_struct *work)
  * @phba: Pointer to HBA context object.
  * @eq: Pointer to the queue structure.
  * @eqe: Pointer to fast-path event queue entry.
- * @poll_mode: poll_mode to execute processing the cq.
  *
  * This routine process a event queue entry from the fast-path event queue.
  * It will check the MajorCode and MinorCode to determine this is for a
@@ -15447,12 +15327,11 @@ lpfc_sli4_hba_process_cq(struct work_struct *work)
  **/
 static void
 lpfc_sli4_hba_handle_eqe(struct lpfc_hba *phba, struct lpfc_queue *eq,
-			 struct lpfc_eqe *eqe, enum lpfc_poll_mode poll_mode)
+			 struct lpfc_eqe *eqe)
 {
 	struct lpfc_queue *cq = NULL;
 	uint32_t qidx = eq->hdwq;
 	uint16_t cqid, id;
-	int ret;
 
 	if (unlikely(bf_get_le32(lpfc_eqe_major_code, eqe) != 0)) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
@@ -15512,25 +15391,70 @@ work_cq:
 	else
 		cq->isr_timestamp = 0;
 #endif
+	lpfc_sli4_sched_cq_work(phba, cq, cqid);
+}
 
-	switch (poll_mode) {
-	case LPFC_THREADED_IRQ:
-		__lpfc_sli4_hba_process_cq(cq);
-		break;
-	case LPFC_QUEUE_WORK:
-	default:
+/**
+ * __lpfc_sli4_hba_process_cq - Process a fast-path event queue entry
+ * @cq: Pointer to CQ to be processed
+ * @poll_mode: Enum lpfc_poll_state to determine poll mode
+ *
+ * This routine calls the cq processing routine with the handler for
+ * fast path CQEs.
+ *
+ * The CQ routine returns two values: the first is the calling status,
+ * which indicates whether work was queued to the  background discovery
+ * thread. If true, the routine should wakeup the discovery thread;
+ * the second is the delay parameter. If non-zero, rather than rearming
+ * the CQ and yet another interrupt, the CQ handler should be queued so
+ * that it is processed in a subsequent polling action. The value of
+ * the delay indicates when to reschedule it.
+ **/
+static void
+__lpfc_sli4_hba_process_cq(struct lpfc_queue *cq,
+			   enum lpfc_poll_mode poll_mode)
+{
+	struct lpfc_hba *phba = cq->phba;
+	unsigned long delay;
+	bool workposted = false;
+	int ret = 0;
+
+	/* process and rearm the CQ */
+	workposted |= __lpfc_sli4_process_cq(phba, cq, lpfc_sli4_fp_handle_cqe,
+					     &delay, poll_mode);
+
+	if (delay) {
 		if (is_kdump_kernel())
-			ret = queue_work(phba->wq, &cq->irqwork);
+			ret = queue_delayed_work(phba->wq, &cq->sched_irqwork,
+						delay);
 		else
-			ret = queue_work_on(cq->chann, phba->wq, &cq->irqwork);
+			ret = queue_delayed_work_on(cq->chann, phba->wq,
+						&cq->sched_irqwork, delay);
 		if (!ret)
 			lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
-					"0383 Cannot schedule queue work "
-					"for CQ eqcqid=%d, cqid=%d on CPU %d\n",
-					cqid, cq->queue_id,
-					raw_smp_processor_id());
-		break;
+					"0367 Cannot schedule queue work "
+					"for cqid=%d on CPU %d\n",
+					cq->queue_id, cq->chann);
 	}
+
+	/* wake up worker thread if there are works to be done */
+	if (workposted)
+		lpfc_worker_wake_up(phba);
+}
+
+/**
+ * lpfc_sli4_hba_process_cq - fast-path work handler when started by
+ *   interrupt
+ * @work: pointer to work element
+ *
+ * translates from the work handler and calls the fast-path handler.
+ **/
+static void
+lpfc_sli4_hba_process_cq(struct work_struct *work)
+{
+	struct lpfc_queue *cq = container_of(work, struct lpfc_queue, irqwork);
+
+	__lpfc_sli4_hba_process_cq(cq, LPFC_QUEUE_WORK);
 }
 
 /**
@@ -15545,7 +15469,7 @@ lpfc_sli4_dly_hba_process_cq(struct work_struct *work)
 	struct lpfc_queue *cq = container_of(to_delayed_work(work),
 					struct lpfc_queue, sched_irqwork);
 
-	__lpfc_sli4_hba_process_cq(cq);
+	__lpfc_sli4_hba_process_cq(cq, LPFC_QUEUE_WORK);
 }
 
 /**
@@ -15571,9 +15495,8 @@ lpfc_sli4_dly_hba_process_cq(struct work_struct *work)
  * and returns for these events. This function is called without any lock
  * held. It gets the hbalock to access and update SLI data structures.
  *
- * This function returns IRQ_HANDLED when interrupt is handled, IRQ_WAKE_THREAD
- * when interrupt is scheduled to be handled from a threaded irq context, or
- * else returns IRQ_NONE.
+ * This function returns IRQ_HANDLED when interrupt is handled else it
+ * returns IRQ_NONE.
  **/
 irqreturn_t
 lpfc_sli4_hba_intr_handler(int irq, void *dev_id)
@@ -15582,8 +15505,8 @@ lpfc_sli4_hba_intr_handler(int irq, void *dev_id)
 	struct lpfc_hba_eq_hdl *hba_eq_hdl;
 	struct lpfc_queue *fpeq;
 	unsigned long iflag;
-	int hba_eqidx;
 	int ecount = 0;
+	int hba_eqidx;
 	struct lpfc_eq_intr_info *eqi;
 
 	/* Get the driver's phba structure from the dev_id */
@@ -15612,41 +15535,30 @@ lpfc_sli4_hba_intr_handler(int irq, void *dev_id)
 		return IRQ_NONE;
 	}
 
-	switch (fpeq->poll_mode) {
-	case LPFC_THREADED_IRQ:
-		/* CGN mgmt is mutually exclusive from irq processing */
-		if (phba->cmf_active_mode == LPFC_CFG_OFF)
-			return IRQ_WAKE_THREAD;
-		fallthrough;
-	case LPFC_QUEUE_WORK:
-	default:
-		eqi = this_cpu_ptr(phba->sli4_hba.eq_info);
-		eqi->icnt++;
+	eqi = this_cpu_ptr(phba->sli4_hba.eq_info);
+	eqi->icnt++;
 
-		fpeq->last_cpu = raw_smp_processor_id();
+	fpeq->last_cpu = raw_smp_processor_id();
 
-		if (eqi->icnt > LPFC_EQD_ISR_TRIGGER &&
-		    fpeq->q_flag & HBA_EQ_DELAY_CHK &&
-		    phba->cfg_auto_imax &&
-		    fpeq->q_mode != LPFC_MAX_AUTO_EQ_DELAY &&
-		    phba->sli.sli_flag & LPFC_SLI_USE_EQDR)
-			lpfc_sli4_mod_hba_eq_delay(phba, fpeq,
-						   LPFC_MAX_AUTO_EQ_DELAY);
+	if (eqi->icnt > LPFC_EQD_ISR_TRIGGER &&
+	    fpeq->q_flag & HBA_EQ_DELAY_CHK &&
+	    phba->cfg_auto_imax &&
+	    fpeq->q_mode != LPFC_MAX_AUTO_EQ_DELAY &&
+	    phba->sli.sli_flag & LPFC_SLI_USE_EQDR)
+		lpfc_sli4_mod_hba_eq_delay(phba, fpeq, LPFC_MAX_AUTO_EQ_DELAY);
 
-		/* process and rearm the EQ */
-		ecount = lpfc_sli4_process_eq(phba, fpeq, LPFC_QUEUE_REARM,
-					      LPFC_QUEUE_WORK);
+	/* process and rearm the EQ */
+	ecount = lpfc_sli4_process_eq(phba, fpeq, LPFC_QUEUE_REARM);
 
-		if (unlikely(ecount == 0)) {
-			fpeq->EQ_no_entry++;
-			if (phba->intr_type == MSIX)
-				/* MSI-X treated interrupt served as no EQ share INT */
-				lpfc_printf_log(phba, KERN_WARNING, LOG_SLI,
-						"0358 MSI-X interrupt with no EQE\n");
-			else
-				/* Non MSI-X treated on interrupt as EQ share INT */
-				return IRQ_NONE;
-		}
+	if (unlikely(ecount == 0)) {
+		fpeq->EQ_no_entry++;
+		if (phba->intr_type == MSIX)
+			/* MSI-X treated interrupt served as no EQ share INT */
+			lpfc_printf_log(phba, KERN_WARNING, LOG_SLI,
+					"0358 MSI-X interrupt with no EQE\n");
+		else
+			/* Non MSI-X treated on interrupt as EQ share INT */
+			return IRQ_NONE;
 	}
 
 	return IRQ_HANDLED;
@@ -16203,69 +16115,13 @@ out:
 	return status;
 }
 
-/**
- * lpfc_sli4_hba_intr_handler_th - SLI4 HBA threaded interrupt handler
- * @irq: Interrupt number.
- * @dev_id: The device context pointer.
- *
- * This routine is a mirror of lpfc_sli4_hba_intr_handler, but executed within
- * threaded irq context.
- *
- * Returns
- * IRQ_HANDLED - interrupt is handled
- * IRQ_NONE - otherwise
- **/
-irqreturn_t lpfc_sli4_hba_intr_handler_th(int irq, void *dev_id)
+static int lpfc_cq_poll_hdler(struct irq_poll *iop, int budget)
 {
-	struct lpfc_hba *phba;
-	struct lpfc_hba_eq_hdl *hba_eq_hdl;
-	struct lpfc_queue *fpeq;
-	int ecount = 0;
-	int hba_eqidx;
-	struct lpfc_eq_intr_info *eqi;
+	struct lpfc_queue *cq = container_of(iop, struct lpfc_queue, iop);
 
-	/* Get the driver's phba structure from the dev_id */
-	hba_eq_hdl = (struct lpfc_hba_eq_hdl *)dev_id;
-	phba = hba_eq_hdl->phba;
-	hba_eqidx = hba_eq_hdl->idx;
+	__lpfc_sli4_hba_process_cq(cq, LPFC_IRQ_POLL);
 
-	if (unlikely(!phba))
-		return IRQ_NONE;
-	if (unlikely(!phba->sli4_hba.hdwq))
-		return IRQ_NONE;
-
-	/* Get to the EQ struct associated with this vector */
-	fpeq = phba->sli4_hba.hba_eq_hdl[hba_eqidx].eq;
-	if (unlikely(!fpeq))
-		return IRQ_NONE;
-
-	eqi = per_cpu_ptr(phba->sli4_hba.eq_info, raw_smp_processor_id());
-	eqi->icnt++;
-
-	fpeq->last_cpu = raw_smp_processor_id();
-
-	if (eqi->icnt > LPFC_EQD_ISR_TRIGGER &&
-	    fpeq->q_flag & HBA_EQ_DELAY_CHK &&
-	    phba->cfg_auto_imax &&
-	    fpeq->q_mode != LPFC_MAX_AUTO_EQ_DELAY &&
-	    phba->sli.sli_flag & LPFC_SLI_USE_EQDR)
-		lpfc_sli4_mod_hba_eq_delay(phba, fpeq, LPFC_MAX_AUTO_EQ_DELAY);
-
-	/* process and rearm the EQ */
-	ecount = lpfc_sli4_process_eq(phba, fpeq, LPFC_QUEUE_REARM,
-				      LPFC_THREADED_IRQ);
-
-	if (unlikely(ecount == 0)) {
-		fpeq->EQ_no_entry++;
-		if (phba->intr_type == MSIX)
-			/* MSI-X treated interrupt served as no EQ share INT */
-			lpfc_printf_log(phba, KERN_WARNING, LOG_SLI,
-					"3358 MSI-X interrupt with no EQE\n");
-		else
-			/* Non MSI-X treated on interrupt as EQ share INT */
-			return IRQ_NONE;
-	}
-	return IRQ_HANDLED;
+	return 1;
 }
 
 /**
@@ -16409,6 +16265,8 @@ lpfc_cq_create(struct lpfc_hba *phba, struct lpfc_queue *cq,
 
 	if (cq->queue_id > phba->sli4_hba.cq_max)
 		phba->sli4_hba.cq_max = cq->queue_id;
+
+	irq_poll_init(&cq->iop, LPFC_IRQ_POLL_WEIGHT, lpfc_cq_poll_hdler);
 out:
 	mempool_free(mbox, phba->mbox_mem_pool);
 	return status;
@@ -18032,8 +17890,8 @@ lpfc_sli4_alloc_xri(struct lpfc_hba *phba)
 	 * the driver starts at 0 each time.
 	 */
 	spin_lock_irq(&phba->hbalock);
-	xri = find_next_zero_bit(phba->sli4_hba.xri_bmask,
-				 phba->sli4_hba.max_cfg_param.max_xri, 0);
+	xri = find_first_zero_bit(phba->sli4_hba.xri_bmask,
+				 phba->sli4_hba.max_cfg_param.max_xri);
 	if (xri >= phba->sli4_hba.max_cfg_param.max_xri) {
 		spin_unlock_irq(&phba->hbalock);
 		return NO_XRI;
@@ -19721,7 +19579,7 @@ lpfc_sli4_alloc_rpi(struct lpfc_hba *phba)
 	max_rpi = phba->sli4_hba.max_cfg_param.max_rpi;
 	rpi_limit = phba->sli4_hba.next_rpi;
 
-	rpi = find_next_zero_bit(phba->sli4_hba.rpi_bmask, rpi_limit, 0);
+	rpi = find_first_zero_bit(phba->sli4_hba.rpi_bmask, rpi_limit);
 	if (rpi >= rpi_limit)
 		rpi = LPFC_RPI_ALLOC_ERROR;
 	else {
@@ -20364,8 +20222,8 @@ next_priority:
 		 * have been tested so that we can detect when we should
 		 * change the priority level.
 		 */
-		next_fcf_index = find_next_bit(phba->fcf.fcf_rr_bmask,
-					       LPFC_SLI4_FCF_TBL_INDX_MAX, 0);
+		next_fcf_index = find_first_bit(phba->fcf.fcf_rr_bmask,
+					       LPFC_SLI4_FCF_TBL_INDX_MAX);
 	}
 
 
@@ -20838,23 +20696,23 @@ lpfc_log_fw_write_cmpl(struct lpfc_hba *phba, u32 shdr_status,
 	if (shdr_add_status == LPFC_ADD_STATUS_INCOMPAT_OBJ) {
 		switch (shdr_add_status_2) {
 		case LPFC_ADD_STATUS_2_INCOMPAT_FLASH:
-			lpfc_log_msg(phba, KERN_WARNING, LOG_MBOX | LOG_SLI,
-				     "4199 Firmware write failed: "
-				     "image incompatible with flash x%02x\n",
-				     phba->sli4_hba.flash_id);
+			lpfc_printf_log(phba, KERN_WARNING, LOG_MBOX | LOG_SLI,
+					"4199 Firmware write failed: "
+					"image incompatible with flash x%02x\n",
+					phba->sli4_hba.flash_id);
 			break;
 		case LPFC_ADD_STATUS_2_INCORRECT_ASIC:
-			lpfc_log_msg(phba, KERN_WARNING, LOG_MBOX | LOG_SLI,
-				     "4200 Firmware write failed: "
-				     "image incompatible with ASIC "
-				     "architecture x%02x\n",
-				     phba->sli4_hba.asic_rev);
+			lpfc_printf_log(phba, KERN_WARNING, LOG_MBOX | LOG_SLI,
+					"4200 Firmware write failed: "
+					"image incompatible with ASIC "
+					"architecture x%02x\n",
+					phba->sli4_hba.asic_rev);
 			break;
 		default:
-			lpfc_log_msg(phba, KERN_WARNING, LOG_MBOX | LOG_SLI,
-				     "4210 Firmware write failed: "
-				     "add_status_2 x%02x\n",
-				     shdr_add_status_2);
+			lpfc_printf_log(phba, KERN_WARNING, LOG_MBOX | LOG_SLI,
+					"4210 Firmware write failed: "
+					"add_status_2 x%02x\n",
+					shdr_add_status_2);
 			break;
 		}
 	} else if (!shdr_status && !shdr_add_status) {
@@ -20867,26 +20725,26 @@ lpfc_log_fw_write_cmpl(struct lpfc_hba *phba, u32 shdr_status,
 
 		switch (shdr_change_status) {
 		case (LPFC_CHANGE_STATUS_PHYS_DEV_RESET):
-			lpfc_log_msg(phba, KERN_NOTICE, LOG_MBOX | LOG_SLI,
-				     "3198 Firmware write complete: System "
-				     "reboot required to instantiate\n");
+			lpfc_printf_log(phba, KERN_INFO, LOG_MBOX | LOG_SLI,
+					"3198 Firmware write complete: System "
+					"reboot required to instantiate\n");
 			break;
 		case (LPFC_CHANGE_STATUS_FW_RESET):
-			lpfc_log_msg(phba, KERN_NOTICE, LOG_MBOX | LOG_SLI,
-				     "3199 Firmware write complete: "
-				     "Firmware reset required to "
-				     "instantiate\n");
+			lpfc_printf_log(phba, KERN_INFO, LOG_MBOX | LOG_SLI,
+					"3199 Firmware write complete: "
+					"Firmware reset required to "
+					"instantiate\n");
 			break;
 		case (LPFC_CHANGE_STATUS_PORT_MIGRATION):
-			lpfc_log_msg(phba, KERN_NOTICE, LOG_MBOX | LOG_SLI,
-				     "3200 Firmware write complete: Port "
-				     "Migration or PCI Reset required to "
-				     "instantiate\n");
+			lpfc_printf_log(phba, KERN_INFO, LOG_MBOX | LOG_SLI,
+					"3200 Firmware write complete: Port "
+					"Migration or PCI Reset required to "
+					"instantiate\n");
 			break;
 		case (LPFC_CHANGE_STATUS_PCI_RESET):
-			lpfc_log_msg(phba, KERN_NOTICE, LOG_MBOX | LOG_SLI,
-				     "3201 Firmware write complete: PCI "
-				     "Reset required to instantiate\n");
+			lpfc_printf_log(phba, KERN_INFO, LOG_MBOX | LOG_SLI,
+					"3201 Firmware write complete: PCI "
+					"Reset required to instantiate\n");
 			break;
 		default:
 			break;

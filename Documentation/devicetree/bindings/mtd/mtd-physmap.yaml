@@ -13,6 +13,10 @@ description: |
   Flash chips (Memory Technology Devices) are often used for solid state
   file systems on embedded devices.
 
+allOf:
+  - $ref: mtd.yaml#
+  - $ref: /schemas/memory-controllers/mc-peripheral-props.yaml#
+
 properties:
   compatible:
     oneOf:
@@ -23,6 +27,7 @@ properties:
               - amd,s29gl256n
               - amd,s29gl512n
               - arm,versatile-flash
+              - arm,vexpress-flash
               - cortina,gemini-flash
               - cypress,hyperflash
               - ge,imp3a-firmware-mirror
@@ -43,7 +48,9 @@ properties:
               - numonyx,js28f128
               - sst,sst39vf320
               - xlnx,xps-mch-emc-2.00.a
-          - const: cfi-flash
+          - enum:
+              - cfi-flash
+              - jedec-flash
       - items:
           - enum:
               - cypress,cy7c1019dv33-10zsxi
@@ -118,13 +125,23 @@ properties:
   big-endian: true
   little-endian: true
 
-patternProperties:
-  '@[0-9a-f]+$':
-    $ref: partitions/partition.yaml
-
 required:
   - compatible
   - reg
+
+if:
+  properties:
+    compatible:
+      contains:
+        const: cortina,gemini-flash
+then:
+  properties:
+    syscon:
+      $ref: /schemas/types.yaml#/definitions/phandle
+      description:
+        Phandle to the syscon controller
+  required:
+    - syscon
 
 # FIXME: A parent bus may define timing properties
 additionalProperties: true

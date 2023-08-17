@@ -68,6 +68,7 @@ static void __init pci_swiotlb_detect(void)
 static inline void __init pci_swiotlb_detect(void)
 {
 }
+#define x86_swiotlb_flags 0
 #endif /* CONFIG_SWIOTLB */
 
 #ifdef CONFIG_SWIOTLB_XEN
@@ -123,7 +124,7 @@ void __init pci_iommu_alloc(void)
 }
 
 /*
- * See <Documentation/x86/x86_64/boot-options.rst> for the iommu kernel
+ * See <Documentation/arch/x86/x86_64/boot-options.rst> for the iommu kernel
  * parameter documentation.
  */
 static __init int iommu_setup(char *p)

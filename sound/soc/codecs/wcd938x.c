@@ -6,6 +6,7 @@
 #include <linux/platform_device.h>
 #include <linux/device.h>
 #include <linux/delay.h>
+#include <linux/gpio/consumer.h>
 #include <linux/kernel.h>
 #include <linux/pm_runtime.h>
 #include <linux/component.h>
@@ -21,6 +22,7 @@
 #include <linux/regulator/consumer.h>
 
 #include "wcd-clsh-v2.h"
+#include "wcd-mbhc-v2.h"
 #include "wcd938x.h"
 
 #define WCD938X_MAX_MICBIAS		(4)
@@ -173,6 +175,11 @@ struct wcd938x_priv {
 	struct device *rxdev;
 	struct device_node *rxnode, *txnode;
 	struct regmap *regmap;
+	struct mutex micb_lock;
+	/* mbhc module */
+	struct wcd_mbhc *wcd_mbhc;
+	struct wcd_mbhc_config mbhc_cfg;
+	struct wcd_mbhc_intr intr_ids;
 	struct wcd_clsh_ctrl *clsh_info;
 	struct irq_domain *virq;
 	struct regmap_irq_chip *wcd_regmap_irq_chip;
@@ -188,6 +195,7 @@ struct wcd938x_priv {
 	int ear_rx_path;
 	int variant;
 	int reset_gpio;
+	struct gpio_desc *us_euro_gpio;
 	u32 micb1_mv;
 	u32 micb2_mv;
 	u32 micb3_mv;
@@ -201,1017 +209,68 @@ struct wcd938x_priv {
 	bool bcs_dis;
 };
 
-enum {
-	MIC_BIAS_1 = 1,
-	MIC_BIAS_2,
-	MIC_BIAS_3,
-	MIC_BIAS_4
-};
-
-enum {
-	MICB_PULLUP_ENABLE,
-	MICB_PULLUP_DISABLE,
-	MICB_ENABLE,
-	MICB_DISABLE,
-};
-
 static const SNDRV_CTL_TLVD_DECLARE_DB_MINMAX(ear_pa_gain, 600, -1800);
 static const DECLARE_TLV_DB_SCALE(line_gain, -3000, 150, -3000);
 static const SNDRV_CTL_TLVD_DECLARE_DB_MINMAX(analog_gain, 0, 3000);
 
-static const struct reg_default wcd938x_defaults[] = {
-	{WCD938X_ANA_PAGE_REGISTER,                            0x00},
-	{WCD938X_ANA_BIAS,                                     0x00},
-	{WCD938X_ANA_RX_SUPPLIES,                              0x00},
-	{WCD938X_ANA_HPH,                                      0x0C},
-	{WCD938X_ANA_EAR,                                      0x00},
-	{WCD938X_ANA_EAR_COMPANDER_CTL,                        0x02},
-	{WCD938X_ANA_TX_CH1,                                   0x20},
-	{WCD938X_ANA_TX_CH2,                                   0x00},
-	{WCD938X_ANA_TX_CH3,                                   0x20},
-	{WCD938X_ANA_TX_CH4,                                   0x00},
-	{WCD938X_ANA_MICB1_MICB2_DSP_EN_LOGIC,                 0x00},
-	{WCD938X_ANA_MICB3_DSP_EN_LOGIC,                       0x00},
-	{WCD938X_ANA_MBHC_MECH,                                0x39},
-	{WCD938X_ANA_MBHC_ELECT,                               0x08},
-	{WCD938X_ANA_MBHC_ZDET,                                0x00},
-	{WCD938X_ANA_MBHC_RESULT_1,                            0x00},
-	{WCD938X_ANA_MBHC_RESULT_2,                            0x00},
-	{WCD938X_ANA_MBHC_RESULT_3,                            0x00},
-	{WCD938X_ANA_MBHC_BTN0,                                0x00},
-	{WCD938X_ANA_MBHC_BTN1,                                0x10},
-	{WCD938X_ANA_MBHC_BTN2,                                0x20},
-	{WCD938X_ANA_MBHC_BTN3,                                0x30},
-	{WCD938X_ANA_MBHC_BTN4,                                0x40},
-	{WCD938X_ANA_MBHC_BTN5,                                0x50},
-	{WCD938X_ANA_MBHC_BTN6,                                0x60},
-	{WCD938X_ANA_MBHC_BTN7,                                0x70},
-	{WCD938X_ANA_MICB1,                                    0x10},
-	{WCD938X_ANA_MICB2,                                    0x10},
-	{WCD938X_ANA_MICB2_RAMP,                               0x00},
-	{WCD938X_ANA_MICB3,                                    0x10},
-	{WCD938X_ANA_MICB4,                                    0x10},
-	{WCD938X_BIAS_CTL,                                     0x2A},
-	{WCD938X_BIAS_VBG_FINE_ADJ,                            0x55},
-	{WCD938X_LDOL_VDDCX_ADJUST,                            0x01},
-	{WCD938X_LDOL_DISABLE_LDOL,                            0x00},
-	{WCD938X_MBHC_CTL_CLK,                                 0x00},
-	{WCD938X_MBHC_CTL_ANA,                                 0x00},
-	{WCD938X_MBHC_CTL_SPARE_1,                             0x00},
-	{WCD938X_MBHC_CTL_SPARE_2,                             0x00},
-	{WCD938X_MBHC_CTL_BCS,                                 0x00},
-	{WCD938X_MBHC_MOISTURE_DET_FSM_STATUS,                 0x00},
-	{WCD938X_MBHC_TEST_CTL,                                0x00},
-	{WCD938X_LDOH_MODE,                                    0x2B},
-	{WCD938X_LDOH_BIAS,                                    0x68},
-	{WCD938X_LDOH_STB_LOADS,                               0x00},
-	{WCD938X_LDOH_SLOWRAMP,                                0x50},
-	{WCD938X_MICB1_TEST_CTL_1,                             0x1A},
-	{WCD938X_MICB1_TEST_CTL_2,                             0x00},
-	{WCD938X_MICB1_TEST_CTL_3,                             0xA4},
-	{WCD938X_MICB2_TEST_CTL_1,                             0x1A},
-	{WCD938X_MICB2_TEST_CTL_2,                             0x00},
-	{WCD938X_MICB2_TEST_CTL_3,                             0x24},
-	{WCD938X_MICB3_TEST_CTL_1,                             0x1A},
-	{WCD938X_MICB3_TEST_CTL_2,                             0x00},
-	{WCD938X_MICB3_TEST_CTL_3,                             0xA4},
-	{WCD938X_MICB4_TEST_CTL_1,                             0x1A},
-	{WCD938X_MICB4_TEST_CTL_2,                             0x00},
-	{WCD938X_MICB4_TEST_CTL_3,                             0xA4},
-	{WCD938X_TX_COM_ADC_VCM,                               0x39},
-	{WCD938X_TX_COM_BIAS_ATEST,                            0xE0},
-	{WCD938X_TX_COM_SPARE1,                                0x00},
-	{WCD938X_TX_COM_SPARE2,                                0x00},
-	{WCD938X_TX_COM_TXFE_DIV_CTL,                          0x22},
-	{WCD938X_TX_COM_TXFE_DIV_START,                        0x00},
-	{WCD938X_TX_COM_SPARE3,                                0x00},
-	{WCD938X_TX_COM_SPARE4,                                0x00},
-	{WCD938X_TX_1_2_TEST_EN,                               0xCC},
-	{WCD938X_TX_1_2_ADC_IB,                                0xE9},
-	{WCD938X_TX_1_2_ATEST_REFCTL,                          0x0A},
-	{WCD938X_TX_1_2_TEST_CTL,                              0x38},
-	{WCD938X_TX_1_2_TEST_BLK_EN1,                          0xFF},
-	{WCD938X_TX_1_2_TXFE1_CLKDIV,                          0x00},
-	{WCD938X_TX_1_2_SAR2_ERR,                              0x00},
-	{WCD938X_TX_1_2_SAR1_ERR,                              0x00},
-	{WCD938X_TX_3_4_TEST_EN,                               0xCC},
-	{WCD938X_TX_3_4_ADC_IB,                                0xE9},
-	{WCD938X_TX_3_4_ATEST_REFCTL,                          0x0A},
-	{WCD938X_TX_3_4_TEST_CTL,                              0x38},
-	{WCD938X_TX_3_4_TEST_BLK_EN3,                          0xFF},
-	{WCD938X_TX_3_4_TXFE3_CLKDIV,                          0x00},
-	{WCD938X_TX_3_4_SAR4_ERR,                              0x00},
-	{WCD938X_TX_3_4_SAR3_ERR,                              0x00},
-	{WCD938X_TX_3_4_TEST_BLK_EN2,                          0xFB},
-	{WCD938X_TX_3_4_TXFE2_CLKDIV,                          0x00},
-	{WCD938X_TX_3_4_SPARE1,                                0x00},
-	{WCD938X_TX_3_4_TEST_BLK_EN4,                          0xFB},
-	{WCD938X_TX_3_4_TXFE4_CLKDIV,                          0x00},
-	{WCD938X_TX_3_4_SPARE2,                                0x00},
-	{WCD938X_CLASSH_MODE_1,                                0x40},
-	{WCD938X_CLASSH_MODE_2,                                0x3A},
-	{WCD938X_CLASSH_MODE_3,                                0x00},
-	{WCD938X_CLASSH_CTRL_VCL_1,                            0x70},
-	{WCD938X_CLASSH_CTRL_VCL_2,                            0x82},
-	{WCD938X_CLASSH_CTRL_CCL_1,                            0x31},
-	{WCD938X_CLASSH_CTRL_CCL_2,                            0x80},
-	{WCD938X_CLASSH_CTRL_CCL_3,                            0x80},
-	{WCD938X_CLASSH_CTRL_CCL_4,                            0x51},
-	{WCD938X_CLASSH_CTRL_CCL_5,                            0x00},
-	{WCD938X_CLASSH_BUCK_TMUX_A_D,                         0x00},
-	{WCD938X_CLASSH_BUCK_SW_DRV_CNTL,                      0x77},
-	{WCD938X_CLASSH_SPARE,                                 0x00},
-	{WCD938X_FLYBACK_EN,                                   0x4E},
-	{WCD938X_FLYBACK_VNEG_CTRL_1,                          0x0B},
-	{WCD938X_FLYBACK_VNEG_CTRL_2,                          0x45},
-	{WCD938X_FLYBACK_VNEG_CTRL_3,                          0x74},
-	{WCD938X_FLYBACK_VNEG_CTRL_4,                          0x7F},
-	{WCD938X_FLYBACK_VNEG_CTRL_5,                          0x83},
-	{WCD938X_FLYBACK_VNEG_CTRL_6,                          0x98},
-	{WCD938X_FLYBACK_VNEG_CTRL_7,                          0xA9},
-	{WCD938X_FLYBACK_VNEG_CTRL_8,                          0x68},
-	{WCD938X_FLYBACK_VNEG_CTRL_9,                          0x64},
-	{WCD938X_FLYBACK_VNEGDAC_CTRL_1,                       0xED},
-	{WCD938X_FLYBACK_VNEGDAC_CTRL_2,                       0xF0},
-	{WCD938X_FLYBACK_VNEGDAC_CTRL_3,                       0xA6},
-	{WCD938X_FLYBACK_CTRL_1,                               0x65},
-	{WCD938X_FLYBACK_TEST_CTL,                             0x00},
-	{WCD938X_RX_AUX_SW_CTL,                                0x00},
-	{WCD938X_RX_PA_AUX_IN_CONN,                            0x01},
-	{WCD938X_RX_TIMER_DIV,                                 0x32},
-	{WCD938X_RX_OCP_CTL,                                   0x1F},
-	{WCD938X_RX_OCP_COUNT,                                 0x77},
-	{WCD938X_RX_BIAS_EAR_DAC,                              0xA0},
-	{WCD938X_RX_BIAS_EAR_AMP,                              0xAA},
-	{WCD938X_RX_BIAS_HPH_LDO,                              0xA9},
-	{WCD938X_RX_BIAS_HPH_PA,                               0xAA},
-	{WCD938X_RX_BIAS_HPH_RDACBUFF_CNP2,                    0x8A},
-	{WCD938X_RX_BIAS_HPH_RDAC_LDO,                         0x88},
-	{WCD938X_RX_BIAS_HPH_CNP1,                             0x82},
-	{WCD938X_RX_BIAS_HPH_LOWPOWER,                         0x82},
-	{WCD938X_RX_BIAS_AUX_DAC,                              0xA0},
-	{WCD938X_RX_BIAS_AUX_AMP,                              0xAA},
-	{WCD938X_RX_BIAS_VNEGDAC_BLEEDER,                      0x50},
-	{WCD938X_RX_BIAS_MISC,                                 0x00},
-	{WCD938X_RX_BIAS_BUCK_RST,                             0x08},
-	{WCD938X_RX_BIAS_BUCK_VREF_ERRAMP,                     0x44},
-	{WCD938X_RX_BIAS_FLYB_ERRAMP,                          0x40},
-	{WCD938X_RX_BIAS_FLYB_BUFF,                            0xAA},
-	{WCD938X_RX_BIAS_FLYB_MID_RST,                         0x14},
-	{WCD938X_HPH_L_STATUS,                                 0x04},
-	{WCD938X_HPH_R_STATUS,                                 0x04},
-	{WCD938X_HPH_CNP_EN,                                   0x80},
-	{WCD938X_HPH_CNP_WG_CTL,                               0x9A},
-	{WCD938X_HPH_CNP_WG_TIME,                              0x14},
-	{WCD938X_HPH_OCP_CTL,                                  0x28},
-	{WCD938X_HPH_AUTO_CHOP,                                0x16},
-	{WCD938X_HPH_CHOP_CTL,                                 0x83},
-	{WCD938X_HPH_PA_CTL1,                                  0x46},
-	{WCD938X_HPH_PA_CTL2,                                  0x50},
-	{WCD938X_HPH_L_EN,                                     0x80},
-	{WCD938X_HPH_L_TEST,                                   0xE0},
-	{WCD938X_HPH_L_ATEST,                                  0x50},
-	{WCD938X_HPH_R_EN,                                     0x80},
-	{WCD938X_HPH_R_TEST,                                   0xE0},
-	{WCD938X_HPH_R_ATEST,                                  0x54},
-	{WCD938X_HPH_RDAC_CLK_CTL1,                            0x99},
-	{WCD938X_HPH_RDAC_CLK_CTL2,                            0x9B},
-	{WCD938X_HPH_RDAC_LDO_CTL,                             0x33},
-	{WCD938X_HPH_RDAC_CHOP_CLK_LP_CTL,                     0x00},
-	{WCD938X_HPH_REFBUFF_UHQA_CTL,                         0x68},
-	{WCD938X_HPH_REFBUFF_LP_CTL,                           0x0E},
-	{WCD938X_HPH_L_DAC_CTL,                                0x20},
-	{WCD938X_HPH_R_DAC_CTL,                                0x20},
-	{WCD938X_HPH_SURGE_HPHLR_SURGE_COMP_SEL,               0x55},
-	{WCD938X_HPH_SURGE_HPHLR_SURGE_EN,                     0x19},
-	{WCD938X_HPH_SURGE_HPHLR_SURGE_MISC1,                  0xA0},
-	{WCD938X_HPH_SURGE_HPHLR_SURGE_STATUS,                 0x00},
-	{WCD938X_EAR_EAR_EN_REG,                               0x22},
-	{WCD938X_EAR_EAR_PA_CON,                               0x44},
-	{WCD938X_EAR_EAR_SP_CON,                               0xDB},
-	{WCD938X_EAR_EAR_DAC_CON,                              0x80},
-	{WCD938X_EAR_EAR_CNP_FSM_CON,                          0xB2},
-	{WCD938X_EAR_TEST_CTL,                                 0x00},
-	{WCD938X_EAR_STATUS_REG_1,                             0x00},
-	{WCD938X_EAR_STATUS_REG_2,                             0x08},
-	{WCD938X_ANA_NEW_PAGE_REGISTER,                        0x00},
-	{WCD938X_HPH_NEW_ANA_HPH2,                             0x00},
-	{WCD938X_HPH_NEW_ANA_HPH3,                             0x00},
-	{WCD938X_SLEEP_CTL,                                    0x16},
-	{WCD938X_SLEEP_WATCHDOG_CTL,                           0x00},
-	{WCD938X_MBHC_NEW_ELECT_REM_CLAMP_CTL,                 0x00},
-	{WCD938X_MBHC_NEW_CTL_1,                               0x02},
-	{WCD938X_MBHC_NEW_CTL_2,                               0x05},
-	{WCD938X_MBHC_NEW_PLUG_DETECT_CTL,                     0xE9},
-	{WCD938X_MBHC_NEW_ZDET_ANA_CTL,                        0x0F},
-	{WCD938X_MBHC_NEW_ZDET_RAMP_CTL,                       0x00},
-	{WCD938X_MBHC_NEW_FSM_STATUS,                          0x00},
-	{WCD938X_MBHC_NEW_ADC_RESULT,                          0x00},
-	{WCD938X_TX_NEW_AMIC_MUX_CFG,                          0x00},
-	{WCD938X_AUX_AUXPA,                                    0x00},
-	{WCD938X_LDORXTX_MODE,                                 0x0C},
-	{WCD938X_LDORXTX_CONFIG,                               0x10},
-	{WCD938X_DIE_CRACK_DIE_CRK_DET_EN,                     0x00},
-	{WCD938X_DIE_CRACK_DIE_CRK_DET_OUT,                    0x00},
-	{WCD938X_HPH_NEW_INT_RDAC_GAIN_CTL,                    0x40},
-	{WCD938X_HPH_NEW_INT_RDAC_HD2_CTL_L,                   0x81},
-	{WCD938X_HPH_NEW_INT_RDAC_VREF_CTL,                    0x10},
-	{WCD938X_HPH_NEW_INT_RDAC_OVERRIDE_CTL,                0x00},
-	{WCD938X_HPH_NEW_INT_RDAC_HD2_CTL_R,                   0x81},
-	{WCD938X_HPH_NEW_INT_PA_MISC1,                         0x22},
-	{WCD938X_HPH_NEW_INT_PA_MISC2,                         0x00},
-	{WCD938X_HPH_NEW_INT_PA_RDAC_MISC,                     0x00},
-	{WCD938X_HPH_NEW_INT_HPH_TIMER1,                       0xFE},
-	{WCD938X_HPH_NEW_INT_HPH_TIMER2,                       0x02},
-	{WCD938X_HPH_NEW_INT_HPH_TIMER3,                       0x4E},
-	{WCD938X_HPH_NEW_INT_HPH_TIMER4,                       0x54},
-	{WCD938X_HPH_NEW_INT_PA_RDAC_MISC2,                    0x00},
-	{WCD938X_HPH_NEW_INT_PA_RDAC_MISC3,                    0x00},
-	{WCD938X_HPH_NEW_INT_RDAC_HD2_CTL_L_NEW,               0x90},
-	{WCD938X_HPH_NEW_INT_RDAC_HD2_CTL_R_NEW,               0x90},
-	{WCD938X_RX_NEW_INT_HPH_RDAC_BIAS_LOHIFI,              0x62},
-	{WCD938X_RX_NEW_INT_HPH_RDAC_BIAS_ULP,                 0x01},
-	{WCD938X_RX_NEW_INT_HPH_RDAC_LDO_LP,                   0x11},
-	{WCD938X_MBHC_NEW_INT_MOISTURE_DET_DC_CTRL,            0x57},
-	{WCD938X_MBHC_NEW_INT_MOISTURE_DET_POLLING_CTRL,       0x01},
-	{WCD938X_MBHC_NEW_INT_MECH_DET_CURRENT,                0x00},
-	{WCD938X_MBHC_NEW_INT_SPARE_2,                         0x00},
-	{WCD938X_EAR_INT_NEW_EAR_CHOPPER_CON,                  0xA8},
-	{WCD938X_EAR_INT_NEW_CNP_VCM_CON1,                     0x42},
-	{WCD938X_EAR_INT_NEW_CNP_VCM_CON2,                     0x22},
-	{WCD938X_EAR_INT_NEW_EAR_DYNAMIC_BIAS,                 0x00},
-	{WCD938X_AUX_INT_EN_REG,                               0x00},
-	{WCD938X_AUX_INT_PA_CTRL,                              0x06},
-	{WCD938X_AUX_INT_SP_CTRL,                              0xD2},
-	{WCD938X_AUX_INT_DAC_CTRL,                             0x80},
-	{WCD938X_AUX_INT_CLK_CTRL,                             0x50},
-	{WCD938X_AUX_INT_TEST_CTRL,                            0x00},
-	{WCD938X_AUX_INT_STATUS_REG,                           0x00},
-	{WCD938X_AUX_INT_MISC,                                 0x00},
-	{WCD938X_LDORXTX_INT_BIAS,                             0x6E},
-	{WCD938X_LDORXTX_INT_STB_LOADS_DTEST,                  0x50},
-	{WCD938X_LDORXTX_INT_TEST0,                            0x1C},
-	{WCD938X_LDORXTX_INT_STARTUP_TIMER,                    0xFF},
-	{WCD938X_LDORXTX_INT_TEST1,                            0x1F},
-	{WCD938X_LDORXTX_INT_STATUS,                           0x00},
-	{WCD938X_SLEEP_INT_WATCHDOG_CTL_1,                     0x0A},
-	{WCD938X_SLEEP_INT_WATCHDOG_CTL_2,                     0x0A},
-	{WCD938X_DIE_CRACK_INT_DIE_CRK_DET_INT1,               0x02},
-	{WCD938X_DIE_CRACK_INT_DIE_CRK_DET_INT2,               0x60},
-	{WCD938X_TX_COM_NEW_INT_TXFE_DIVSTOP_L2,               0xFF},
-	{WCD938X_TX_COM_NEW_INT_TXFE_DIVSTOP_L1,               0x7F},
-	{WCD938X_TX_COM_NEW_INT_TXFE_DIVSTOP_L0,               0x3F},
-	{WCD938X_TX_COM_NEW_INT_TXFE_DIVSTOP_ULP1P2M,          0x1F},
-	{WCD938X_TX_COM_NEW_INT_TXFE_DIVSTOP_ULP0P6M,          0x0F},
-	{WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG1_L2L1,          0xD7},
-	{WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG1_L0,            0xC8},
-	{WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG1_ULP,           0xC6},
-	{WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG2MAIN_L2L1,      0xD5},
-	{WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG2MAIN_L0,        0xCA},
-	{WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG2MAIN_ULP,       0x05},
-	{WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG2CASC_L2L1L0,    0xA5},
-	{WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG2CASC_ULP,       0x13},
-	{WCD938X_TX_COM_NEW_INT_TXADC_SCBIAS_L2L1,             0x88},
-	{WCD938X_TX_COM_NEW_INT_TXADC_SCBIAS_L0ULP,            0x42},
-	{WCD938X_TX_COM_NEW_INT_TXADC_INT_L2,                  0xFF},
-	{WCD938X_TX_COM_NEW_INT_TXADC_INT_L1,                  0x64},
-	{WCD938X_TX_COM_NEW_INT_TXADC_INT_L0,                  0x64},
-	{WCD938X_TX_COM_NEW_INT_TXADC_INT_ULP,                 0x77},
-	{WCD938X_DIGITAL_PAGE_REGISTER,                        0x00},
-	{WCD938X_DIGITAL_CHIP_ID0,                             0x00},
-	{WCD938X_DIGITAL_CHIP_ID1,                             0x00},
-	{WCD938X_DIGITAL_CHIP_ID2,                             0x0D},
-	{WCD938X_DIGITAL_CHIP_ID3,                             0x01},
-	{WCD938X_DIGITAL_SWR_TX_CLK_RATE,                      0x00},
-	{WCD938X_DIGITAL_CDC_RST_CTL,                          0x03},
-	{WCD938X_DIGITAL_TOP_CLK_CFG,                          0x00},
-	{WCD938X_DIGITAL_CDC_ANA_CLK_CTL,                      0x00},
-	{WCD938X_DIGITAL_CDC_DIG_CLK_CTL,                      0xF0},
-	{WCD938X_DIGITAL_SWR_RST_EN,                           0x00},
-	{WCD938X_DIGITAL_CDC_PATH_MODE,                        0x55},
-	{WCD938X_DIGITAL_CDC_RX_RST,                           0x00},
-	{WCD938X_DIGITAL_CDC_RX0_CTL,                          0xFC},
-	{WCD938X_DIGITAL_CDC_RX1_CTL,                          0xFC},
-	{WCD938X_DIGITAL_CDC_RX2_CTL,                          0xFC},
-	{WCD938X_DIGITAL_CDC_TX_ANA_MODE_0_1,                  0x00},
-	{WCD938X_DIGITAL_CDC_TX_ANA_MODE_2_3,                  0x00},
-	{WCD938X_DIGITAL_CDC_COMP_CTL_0,                       0x00},
-	{WCD938X_DIGITAL_CDC_ANA_TX_CLK_CTL,                   0x1E},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_A1_0,                     0x00},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_A1_1,                     0x01},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_A2_0,                     0x63},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_A2_1,                     0x04},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_A3_0,                     0xAC},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_A3_1,                     0x04},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_A4_0,                     0x1A},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_A4_1,                     0x03},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_A5_0,                     0xBC},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_A5_1,                     0x02},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_A6_0,                     0xC7},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_A7_0,                     0xF8},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_C_0,                      0x47},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_C_1,                      0x43},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_C_2,                      0xB1},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_C_3,                      0x17},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_R1,                       0x4D},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_R2,                       0x29},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_R3,                       0x34},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_R4,                       0x59},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_R5,                       0x66},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_R6,                       0x87},
-	{WCD938X_DIGITAL_CDC_HPH_DSM_R7,                       0x64},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_A1_0,                     0x00},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_A1_1,                     0x01},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_A2_0,                     0x96},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_A2_1,                     0x09},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_A3_0,                     0xAB},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_A3_1,                     0x05},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_A4_0,                     0x1C},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_A4_1,                     0x02},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_A5_0,                     0x17},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_A5_1,                     0x02},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_A6_0,                     0xAA},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_A7_0,                     0xE3},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_C_0,                      0x69},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_C_1,                      0x54},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_C_2,                      0x02},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_C_3,                      0x15},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_R1,                       0xA4},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_R2,                       0xB5},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_R3,                       0x86},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_R4,                       0x85},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_R5,                       0xAA},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_R6,                       0xE2},
-	{WCD938X_DIGITAL_CDC_AUX_DSM_R7,                       0x62},
-	{WCD938X_DIGITAL_CDC_HPH_GAIN_RX_0,                    0x55},
-	{WCD938X_DIGITAL_CDC_HPH_GAIN_RX_1,                    0xA9},
-	{WCD938X_DIGITAL_CDC_HPH_GAIN_DSD_0,                   0x3D},
-	{WCD938X_DIGITAL_CDC_HPH_GAIN_DSD_1,                   0x2E},
-	{WCD938X_DIGITAL_CDC_HPH_GAIN_DSD_2,                   0x01},
-	{WCD938X_DIGITAL_CDC_AUX_GAIN_DSD_0,                   0x00},
-	{WCD938X_DIGITAL_CDC_AUX_GAIN_DSD_1,                   0xFC},
-	{WCD938X_DIGITAL_CDC_AUX_GAIN_DSD_2,                   0x01},
-	{WCD938X_DIGITAL_CDC_HPH_GAIN_CTL,                     0x00},
-	{WCD938X_DIGITAL_CDC_AUX_GAIN_CTL,                     0x00},
-	{WCD938X_DIGITAL_CDC_EAR_PATH_CTL,                     0x00},
-	{WCD938X_DIGITAL_CDC_SWR_CLH,                          0x00},
-	{WCD938X_DIGITAL_SWR_CLH_BYP,                          0x00},
-	{WCD938X_DIGITAL_CDC_TX0_CTL,                          0x68},
-	{WCD938X_DIGITAL_CDC_TX1_CTL,                          0x68},
-	{WCD938X_DIGITAL_CDC_TX2_CTL,                          0x68},
-	{WCD938X_DIGITAL_CDC_TX_RST,                           0x00},
-	{WCD938X_DIGITAL_CDC_REQ_CTL,                          0x01},
-	{WCD938X_DIGITAL_CDC_RST,                              0x00},
-	{WCD938X_DIGITAL_CDC_AMIC_CTL,                         0x0F},
-	{WCD938X_DIGITAL_CDC_DMIC_CTL,                         0x04},
-	{WCD938X_DIGITAL_CDC_DMIC1_CTL,                        0x01},
-	{WCD938X_DIGITAL_CDC_DMIC2_CTL,                        0x01},
-	{WCD938X_DIGITAL_CDC_DMIC3_CTL,                        0x01},
-	{WCD938X_DIGITAL_CDC_DMIC4_CTL,                        0x01},
-	{WCD938X_DIGITAL_EFUSE_PRG_CTL,                        0x00},
-	{WCD938X_DIGITAL_EFUSE_CTL,                            0x2B},
-	{WCD938X_DIGITAL_CDC_DMIC_RATE_1_2,                    0x11},
-	{WCD938X_DIGITAL_CDC_DMIC_RATE_3_4,                    0x11},
-	{WCD938X_DIGITAL_PDM_WD_CTL0,                          0x00},
-	{WCD938X_DIGITAL_PDM_WD_CTL1,                          0x00},
-	{WCD938X_DIGITAL_PDM_WD_CTL2,                          0x00},
-	{WCD938X_DIGITAL_INTR_MODE,                            0x00},
-	{WCD938X_DIGITAL_INTR_MASK_0,                          0xFF},
-	{WCD938X_DIGITAL_INTR_MASK_1,                          0xFF},
-	{WCD938X_DIGITAL_INTR_MASK_2,                          0x3F},
-	{WCD938X_DIGITAL_INTR_STATUS_0,                        0x00},
-	{WCD938X_DIGITAL_INTR_STATUS_1,                        0x00},
-	{WCD938X_DIGITAL_INTR_STATUS_2,                        0x00},
-	{WCD938X_DIGITAL_INTR_CLEAR_0,                         0x00},
-	{WCD938X_DIGITAL_INTR_CLEAR_1,                         0x00},
-	{WCD938X_DIGITAL_INTR_CLEAR_2,                         0x00},
-	{WCD938X_DIGITAL_INTR_LEVEL_0,                         0x00},
-	{WCD938X_DIGITAL_INTR_LEVEL_1,                         0x00},
-	{WCD938X_DIGITAL_INTR_LEVEL_2,                         0x00},
-	{WCD938X_DIGITAL_INTR_SET_0,                           0x00},
-	{WCD938X_DIGITAL_INTR_SET_1,                           0x00},
-	{WCD938X_DIGITAL_INTR_SET_2,                           0x00},
-	{WCD938X_DIGITAL_INTR_TEST_0,                          0x00},
-	{WCD938X_DIGITAL_INTR_TEST_1,                          0x00},
-	{WCD938X_DIGITAL_INTR_TEST_2,                          0x00},
-	{WCD938X_DIGITAL_TX_MODE_DBG_EN,                       0x00},
-	{WCD938X_DIGITAL_TX_MODE_DBG_0_1,                      0x00},
-	{WCD938X_DIGITAL_TX_MODE_DBG_2_3,                      0x00},
-	{WCD938X_DIGITAL_LB_IN_SEL_CTL,                        0x00},
-	{WCD938X_DIGITAL_LOOP_BACK_MODE,                       0x00},
-	{WCD938X_DIGITAL_SWR_DAC_TEST,                         0x00},
-	{WCD938X_DIGITAL_SWR_HM_TEST_RX_0,                     0x40},
-	{WCD938X_DIGITAL_SWR_HM_TEST_TX_0,                     0x40},
-	{WCD938X_DIGITAL_SWR_HM_TEST_RX_1,                     0x00},
-	{WCD938X_DIGITAL_SWR_HM_TEST_TX_1,                     0x00},
-	{WCD938X_DIGITAL_SWR_HM_TEST_TX_2,                     0x00},
-	{WCD938X_DIGITAL_SWR_HM_TEST_0,                        0x00},
-	{WCD938X_DIGITAL_SWR_HM_TEST_1,                        0x00},
-	{WCD938X_DIGITAL_PAD_CTL_SWR_0,                        0x8F},
-	{WCD938X_DIGITAL_PAD_CTL_SWR_1,                        0x06},
-	{WCD938X_DIGITAL_I2C_CTL,                              0x00},
-	{WCD938X_DIGITAL_CDC_TX_TANGGU_SW_MODE,                0x00},
-	{WCD938X_DIGITAL_EFUSE_TEST_CTL_0,                     0x00},
-	{WCD938X_DIGITAL_EFUSE_TEST_CTL_1,                     0x00},
-	{WCD938X_DIGITAL_EFUSE_T_DATA_0,                       0x00},
-	{WCD938X_DIGITAL_EFUSE_T_DATA_1,                       0x00},
-	{WCD938X_DIGITAL_PAD_CTL_PDM_RX0,                      0xF1},
-	{WCD938X_DIGITAL_PAD_CTL_PDM_RX1,                      0xF1},
-	{WCD938X_DIGITAL_PAD_CTL_PDM_TX0,                      0xF1},
-	{WCD938X_DIGITAL_PAD_CTL_PDM_TX1,                      0xF1},
-	{WCD938X_DIGITAL_PAD_CTL_PDM_TX2,                      0xF1},
-	{WCD938X_DIGITAL_PAD_INP_DIS_0,                        0x00},
-	{WCD938X_DIGITAL_PAD_INP_DIS_1,                        0x00},
-	{WCD938X_DIGITAL_DRIVE_STRENGTH_0,                     0x00},
-	{WCD938X_DIGITAL_DRIVE_STRENGTH_1,                     0x00},
-	{WCD938X_DIGITAL_DRIVE_STRENGTH_2,                     0x00},
-	{WCD938X_DIGITAL_RX_DATA_EDGE_CTL,                     0x1F},
-	{WCD938X_DIGITAL_TX_DATA_EDGE_CTL,                     0x80},
-	{WCD938X_DIGITAL_GPIO_MODE,                            0x00},
-	{WCD938X_DIGITAL_PIN_CTL_OE,                           0x00},
-	{WCD938X_DIGITAL_PIN_CTL_DATA_0,                       0x00},
-	{WCD938X_DIGITAL_PIN_CTL_DATA_1,                       0x00},
-	{WCD938X_DIGITAL_PIN_STATUS_0,                         0x00},
-	{WCD938X_DIGITAL_PIN_STATUS_1,                         0x00},
-	{WCD938X_DIGITAL_DIG_DEBUG_CTL,                        0x00},
-	{WCD938X_DIGITAL_DIG_DEBUG_EN,                         0x00},
-	{WCD938X_DIGITAL_ANA_CSR_DBG_ADD,                      0x00},
-	{WCD938X_DIGITAL_ANA_CSR_DBG_CTL,                      0x48},
-	{WCD938X_DIGITAL_SSP_DBG,                              0x00},
-	{WCD938X_DIGITAL_MODE_STATUS_0,                        0x00},
-	{WCD938X_DIGITAL_MODE_STATUS_1,                        0x00},
-	{WCD938X_DIGITAL_SPARE_0,                              0x00},
-	{WCD938X_DIGITAL_SPARE_1,                              0x00},
-	{WCD938X_DIGITAL_SPARE_2,                              0x00},
-	{WCD938X_DIGITAL_EFUSE_REG_0,                          0x00},
-	{WCD938X_DIGITAL_EFUSE_REG_1,                          0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_2,                          0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_3,                          0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_4,                          0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_5,                          0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_6,                          0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_7,                          0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_8,                          0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_9,                          0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_10,                         0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_11,                         0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_12,                         0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_13,                         0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_14,                         0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_15,                         0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_16,                         0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_17,                         0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_18,                         0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_19,                         0xFF},
-	{WCD938X_DIGITAL_EFUSE_REG_20,                         0x0E},
-	{WCD938X_DIGITAL_EFUSE_REG_21,                         0x00},
-	{WCD938X_DIGITAL_EFUSE_REG_22,                         0x00},
-	{WCD938X_DIGITAL_EFUSE_REG_23,                         0xF8},
-	{WCD938X_DIGITAL_EFUSE_REG_24,                         0x16},
-	{WCD938X_DIGITAL_EFUSE_REG_25,                         0x00},
-	{WCD938X_DIGITAL_EFUSE_REG_26,                         0x00},
-	{WCD938X_DIGITAL_EFUSE_REG_27,                         0x00},
-	{WCD938X_DIGITAL_EFUSE_REG_28,                         0x00},
-	{WCD938X_DIGITAL_EFUSE_REG_29,                         0x00},
-	{WCD938X_DIGITAL_EFUSE_REG_30,                         0x00},
-	{WCD938X_DIGITAL_EFUSE_REG_31,                         0x00},
-	{WCD938X_DIGITAL_TX_REQ_FB_CTL_0,                      0x88},
-	{WCD938X_DIGITAL_TX_REQ_FB_CTL_1,                      0x88},
-	{WCD938X_DIGITAL_TX_REQ_FB_CTL_2,                      0x88},
-	{WCD938X_DIGITAL_TX_REQ_FB_CTL_3,                      0x88},
-	{WCD938X_DIGITAL_TX_REQ_FB_CTL_4,                      0x88},
-	{WCD938X_DIGITAL_DEM_BYPASS_DATA0,                     0x55},
-	{WCD938X_DIGITAL_DEM_BYPASS_DATA1,                     0x55},
-	{WCD938X_DIGITAL_DEM_BYPASS_DATA2,                     0x55},
-	{WCD938X_DIGITAL_DEM_BYPASS_DATA3,                     0x01},
+struct wcd938x_mbhc_zdet_param {
+	u16 ldo_ctl;
+	u16 noff;
+	u16 nshift;
+	u16 btn5;
+	u16 btn6;
+	u16 btn7;
 };
 
-static bool wcd938x_rdwr_register(struct device *dev, unsigned int reg)
-{
-	switch (reg) {
-	case WCD938X_ANA_PAGE_REGISTER:
-	case WCD938X_ANA_BIAS:
-	case WCD938X_ANA_RX_SUPPLIES:
-	case WCD938X_ANA_HPH:
-	case WCD938X_ANA_EAR:
-	case WCD938X_ANA_EAR_COMPANDER_CTL:
-	case WCD938X_ANA_TX_CH1:
-	case WCD938X_ANA_TX_CH2:
-	case WCD938X_ANA_TX_CH3:
-	case WCD938X_ANA_TX_CH4:
-	case WCD938X_ANA_MICB1_MICB2_DSP_EN_LOGIC:
-	case WCD938X_ANA_MICB3_DSP_EN_LOGIC:
-	case WCD938X_ANA_MBHC_MECH:
-	case WCD938X_ANA_MBHC_ELECT:
-	case WCD938X_ANA_MBHC_ZDET:
-	case WCD938X_ANA_MBHC_BTN0:
-	case WCD938X_ANA_MBHC_BTN1:
-	case WCD938X_ANA_MBHC_BTN2:
-	case WCD938X_ANA_MBHC_BTN3:
-	case WCD938X_ANA_MBHC_BTN4:
-	case WCD938X_ANA_MBHC_BTN5:
-	case WCD938X_ANA_MBHC_BTN6:
-	case WCD938X_ANA_MBHC_BTN7:
-	case WCD938X_ANA_MICB1:
-	case WCD938X_ANA_MICB2:
-	case WCD938X_ANA_MICB2_RAMP:
-	case WCD938X_ANA_MICB3:
-	case WCD938X_ANA_MICB4:
-	case WCD938X_BIAS_CTL:
-	case WCD938X_BIAS_VBG_FINE_ADJ:
-	case WCD938X_LDOL_VDDCX_ADJUST:
-	case WCD938X_LDOL_DISABLE_LDOL:
-	case WCD938X_MBHC_CTL_CLK:
-	case WCD938X_MBHC_CTL_ANA:
-	case WCD938X_MBHC_CTL_SPARE_1:
-	case WCD938X_MBHC_CTL_SPARE_2:
-	case WCD938X_MBHC_CTL_BCS:
-	case WCD938X_MBHC_TEST_CTL:
-	case WCD938X_LDOH_MODE:
-	case WCD938X_LDOH_BIAS:
-	case WCD938X_LDOH_STB_LOADS:
-	case WCD938X_LDOH_SLOWRAMP:
-	case WCD938X_MICB1_TEST_CTL_1:
-	case WCD938X_MICB1_TEST_CTL_2:
-	case WCD938X_MICB1_TEST_CTL_3:
-	case WCD938X_MICB2_TEST_CTL_1:
-	case WCD938X_MICB2_TEST_CTL_2:
-	case WCD938X_MICB2_TEST_CTL_3:
-	case WCD938X_MICB3_TEST_CTL_1:
-	case WCD938X_MICB3_TEST_CTL_2:
-	case WCD938X_MICB3_TEST_CTL_3:
-	case WCD938X_MICB4_TEST_CTL_1:
-	case WCD938X_MICB4_TEST_CTL_2:
-	case WCD938X_MICB4_TEST_CTL_3:
-	case WCD938X_TX_COM_ADC_VCM:
-	case WCD938X_TX_COM_BIAS_ATEST:
-	case WCD938X_TX_COM_SPARE1:
-	case WCD938X_TX_COM_SPARE2:
-	case WCD938X_TX_COM_TXFE_DIV_CTL:
-	case WCD938X_TX_COM_TXFE_DIV_START:
-	case WCD938X_TX_COM_SPARE3:
-	case WCD938X_TX_COM_SPARE4:
-	case WCD938X_TX_1_2_TEST_EN:
-	case WCD938X_TX_1_2_ADC_IB:
-	case WCD938X_TX_1_2_ATEST_REFCTL:
-	case WCD938X_TX_1_2_TEST_CTL:
-	case WCD938X_TX_1_2_TEST_BLK_EN1:
-	case WCD938X_TX_1_2_TXFE1_CLKDIV:
-	case WCD938X_TX_3_4_TEST_EN:
-	case WCD938X_TX_3_4_ADC_IB:
-	case WCD938X_TX_3_4_ATEST_REFCTL:
-	case WCD938X_TX_3_4_TEST_CTL:
-	case WCD938X_TX_3_4_TEST_BLK_EN3:
-	case WCD938X_TX_3_4_TXFE3_CLKDIV:
-	case WCD938X_TX_3_4_TEST_BLK_EN2:
-	case WCD938X_TX_3_4_TXFE2_CLKDIV:
-	case WCD938X_TX_3_4_SPARE1:
-	case WCD938X_TX_3_4_TEST_BLK_EN4:
-	case WCD938X_TX_3_4_TXFE4_CLKDIV:
-	case WCD938X_TX_3_4_SPARE2:
-	case WCD938X_CLASSH_MODE_1:
-	case WCD938X_CLASSH_MODE_2:
-	case WCD938X_CLASSH_MODE_3:
-	case WCD938X_CLASSH_CTRL_VCL_1:
-	case WCD938X_CLASSH_CTRL_VCL_2:
-	case WCD938X_CLASSH_CTRL_CCL_1:
-	case WCD938X_CLASSH_CTRL_CCL_2:
-	case WCD938X_CLASSH_CTRL_CCL_3:
-	case WCD938X_CLASSH_CTRL_CCL_4:
-	case WCD938X_CLASSH_CTRL_CCL_5:
-	case WCD938X_CLASSH_BUCK_TMUX_A_D:
-	case WCD938X_CLASSH_BUCK_SW_DRV_CNTL:
-	case WCD938X_CLASSH_SPARE:
-	case WCD938X_FLYBACK_EN:
-	case WCD938X_FLYBACK_VNEG_CTRL_1:
-	case WCD938X_FLYBACK_VNEG_CTRL_2:
-	case WCD938X_FLYBACK_VNEG_CTRL_3:
-	case WCD938X_FLYBACK_VNEG_CTRL_4:
-	case WCD938X_FLYBACK_VNEG_CTRL_5:
-	case WCD938X_FLYBACK_VNEG_CTRL_6:
-	case WCD938X_FLYBACK_VNEG_CTRL_7:
-	case WCD938X_FLYBACK_VNEG_CTRL_8:
-	case WCD938X_FLYBACK_VNEG_CTRL_9:
-	case WCD938X_FLYBACK_VNEGDAC_CTRL_1:
-	case WCD938X_FLYBACK_VNEGDAC_CTRL_2:
-	case WCD938X_FLYBACK_VNEGDAC_CTRL_3:
-	case WCD938X_FLYBACK_CTRL_1:
-	case WCD938X_FLYBACK_TEST_CTL:
-	case WCD938X_RX_AUX_SW_CTL:
-	case WCD938X_RX_PA_AUX_IN_CONN:
-	case WCD938X_RX_TIMER_DIV:
-	case WCD938X_RX_OCP_CTL:
-	case WCD938X_RX_OCP_COUNT:
-	case WCD938X_RX_BIAS_EAR_DAC:
-	case WCD938X_RX_BIAS_EAR_AMP:
-	case WCD938X_RX_BIAS_HPH_LDO:
-	case WCD938X_RX_BIAS_HPH_PA:
-	case WCD938X_RX_BIAS_HPH_RDACBUFF_CNP2:
-	case WCD938X_RX_BIAS_HPH_RDAC_LDO:
-	case WCD938X_RX_BIAS_HPH_CNP1:
-	case WCD938X_RX_BIAS_HPH_LOWPOWER:
-	case WCD938X_RX_BIAS_AUX_DAC:
-	case WCD938X_RX_BIAS_AUX_AMP:
-	case WCD938X_RX_BIAS_VNEGDAC_BLEEDER:
-	case WCD938X_RX_BIAS_MISC:
-	case WCD938X_RX_BIAS_BUCK_RST:
-	case WCD938X_RX_BIAS_BUCK_VREF_ERRAMP:
-	case WCD938X_RX_BIAS_FLYB_ERRAMP:
-	case WCD938X_RX_BIAS_FLYB_BUFF:
-	case WCD938X_RX_BIAS_FLYB_MID_RST:
-	case WCD938X_HPH_CNP_EN:
-	case WCD938X_HPH_CNP_WG_CTL:
-	case WCD938X_HPH_CNP_WG_TIME:
-	case WCD938X_HPH_OCP_CTL:
-	case WCD938X_HPH_AUTO_CHOP:
-	case WCD938X_HPH_CHOP_CTL:
-	case WCD938X_HPH_PA_CTL1:
-	case WCD938X_HPH_PA_CTL2:
-	case WCD938X_HPH_L_EN:
-	case WCD938X_HPH_L_TEST:
-	case WCD938X_HPH_L_ATEST:
-	case WCD938X_HPH_R_EN:
-	case WCD938X_HPH_R_TEST:
-	case WCD938X_HPH_R_ATEST:
-	case WCD938X_HPH_RDAC_CLK_CTL1:
-	case WCD938X_HPH_RDAC_CLK_CTL2:
-	case WCD938X_HPH_RDAC_LDO_CTL:
-	case WCD938X_HPH_RDAC_CHOP_CLK_LP_CTL:
-	case WCD938X_HPH_REFBUFF_UHQA_CTL:
-	case WCD938X_HPH_REFBUFF_LP_CTL:
-	case WCD938X_HPH_L_DAC_CTL:
-	case WCD938X_HPH_R_DAC_CTL:
-	case WCD938X_HPH_SURGE_HPHLR_SURGE_COMP_SEL:
-	case WCD938X_HPH_SURGE_HPHLR_SURGE_EN:
-	case WCD938X_HPH_SURGE_HPHLR_SURGE_MISC1:
-	case WCD938X_EAR_EAR_EN_REG:
-	case WCD938X_EAR_EAR_PA_CON:
-	case WCD938X_EAR_EAR_SP_CON:
-	case WCD938X_EAR_EAR_DAC_CON:
-	case WCD938X_EAR_EAR_CNP_FSM_CON:
-	case WCD938X_EAR_TEST_CTL:
-	case WCD938X_ANA_NEW_PAGE_REGISTER:
-	case WCD938X_HPH_NEW_ANA_HPH2:
-	case WCD938X_HPH_NEW_ANA_HPH3:
-	case WCD938X_SLEEP_CTL:
-	case WCD938X_SLEEP_WATCHDOG_CTL:
-	case WCD938X_MBHC_NEW_ELECT_REM_CLAMP_CTL:
-	case WCD938X_MBHC_NEW_CTL_1:
-	case WCD938X_MBHC_NEW_CTL_2:
-	case WCD938X_MBHC_NEW_PLUG_DETECT_CTL:
-	case WCD938X_MBHC_NEW_ZDET_ANA_CTL:
-	case WCD938X_MBHC_NEW_ZDET_RAMP_CTL:
-	case WCD938X_TX_NEW_AMIC_MUX_CFG:
-	case WCD938X_AUX_AUXPA:
-	case WCD938X_LDORXTX_MODE:
-	case WCD938X_LDORXTX_CONFIG:
-	case WCD938X_DIE_CRACK_DIE_CRK_DET_EN:
-	case WCD938X_HPH_NEW_INT_RDAC_GAIN_CTL:
-	case WCD938X_HPH_NEW_INT_RDAC_HD2_CTL_L:
-	case WCD938X_HPH_NEW_INT_RDAC_VREF_CTL:
-	case WCD938X_HPH_NEW_INT_RDAC_OVERRIDE_CTL:
-	case WCD938X_HPH_NEW_INT_RDAC_HD2_CTL_R:
-	case WCD938X_HPH_NEW_INT_PA_MISC1:
-	case WCD938X_HPH_NEW_INT_PA_MISC2:
-	case WCD938X_HPH_NEW_INT_PA_RDAC_MISC:
-	case WCD938X_HPH_NEW_INT_HPH_TIMER1:
-	case WCD938X_HPH_NEW_INT_HPH_TIMER2:
-	case WCD938X_HPH_NEW_INT_HPH_TIMER3:
-	case WCD938X_HPH_NEW_INT_HPH_TIMER4:
-	case WCD938X_HPH_NEW_INT_PA_RDAC_MISC2:
-	case WCD938X_HPH_NEW_INT_PA_RDAC_MISC3:
-	case WCD938X_HPH_NEW_INT_RDAC_HD2_CTL_L_NEW:
-	case WCD938X_HPH_NEW_INT_RDAC_HD2_CTL_R_NEW:
-	case WCD938X_RX_NEW_INT_HPH_RDAC_BIAS_LOHIFI:
-	case WCD938X_RX_NEW_INT_HPH_RDAC_BIAS_ULP:
-	case WCD938X_RX_NEW_INT_HPH_RDAC_LDO_LP:
-	case WCD938X_MBHC_NEW_INT_MOISTURE_DET_DC_CTRL:
-	case WCD938X_MBHC_NEW_INT_MOISTURE_DET_POLLING_CTRL:
-	case WCD938X_MBHC_NEW_INT_MECH_DET_CURRENT:
-	case WCD938X_MBHC_NEW_INT_SPARE_2:
-	case WCD938X_EAR_INT_NEW_EAR_CHOPPER_CON:
-	case WCD938X_EAR_INT_NEW_CNP_VCM_CON1:
-	case WCD938X_EAR_INT_NEW_CNP_VCM_CON2:
-	case WCD938X_EAR_INT_NEW_EAR_DYNAMIC_BIAS:
-	case WCD938X_AUX_INT_EN_REG:
-	case WCD938X_AUX_INT_PA_CTRL:
-	case WCD938X_AUX_INT_SP_CTRL:
-	case WCD938X_AUX_INT_DAC_CTRL:
-	case WCD938X_AUX_INT_CLK_CTRL:
-	case WCD938X_AUX_INT_TEST_CTRL:
-	case WCD938X_AUX_INT_MISC:
-	case WCD938X_LDORXTX_INT_BIAS:
-	case WCD938X_LDORXTX_INT_STB_LOADS_DTEST:
-	case WCD938X_LDORXTX_INT_TEST0:
-	case WCD938X_LDORXTX_INT_STARTUP_TIMER:
-	case WCD938X_LDORXTX_INT_TEST1:
-	case WCD938X_SLEEP_INT_WATCHDOG_CTL_1:
-	case WCD938X_SLEEP_INT_WATCHDOG_CTL_2:
-	case WCD938X_DIE_CRACK_INT_DIE_CRK_DET_INT1:
-	case WCD938X_DIE_CRACK_INT_DIE_CRK_DET_INT2:
-	case WCD938X_TX_COM_NEW_INT_TXFE_DIVSTOP_L2:
-	case WCD938X_TX_COM_NEW_INT_TXFE_DIVSTOP_L1:
-	case WCD938X_TX_COM_NEW_INT_TXFE_DIVSTOP_L0:
-	case WCD938X_TX_COM_NEW_INT_TXFE_DIVSTOP_ULP1P2M:
-	case WCD938X_TX_COM_NEW_INT_TXFE_DIVSTOP_ULP0P6M:
-	case WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG1_L2L1:
-	case WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG1_L0:
-	case WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG1_ULP:
-	case WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG2MAIN_L2L1:
-	case WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG2MAIN_L0:
-	case WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG2MAIN_ULP:
-	case WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG2CASC_L2L1L0:
-	case WCD938X_TX_COM_NEW_INT_TXFE_ICTRL_STG2CASC_ULP:
-	case WCD938X_TX_COM_NEW_INT_TXADC_SCBIAS_L2L1:
-	case WCD938X_TX_COM_NEW_INT_TXADC_SCBIAS_L0ULP:
-	case WCD938X_TX_COM_NEW_INT_TXADC_INT_L2:
-	case WCD938X_TX_COM_NEW_INT_TXADC_INT_L1:
-	case WCD938X_TX_COM_NEW_INT_TXADC_INT_L0:
-	case WCD938X_TX_COM_NEW_INT_TXADC_INT_ULP:
-	case WCD938X_DIGITAL_PAGE_REGISTER:
-	case WCD938X_DIGITAL_SWR_TX_CLK_RATE:
-	case WCD938X_DIGITAL_CDC_RST_CTL:
-	case WCD938X_DIGITAL_TOP_CLK_CFG:
-	case WCD938X_DIGITAL_CDC_ANA_CLK_CTL:
-	case WCD938X_DIGITAL_CDC_DIG_CLK_CTL:
-	case WCD938X_DIGITAL_SWR_RST_EN:
-	case WCD938X_DIGITAL_CDC_PATH_MODE:
-	case WCD938X_DIGITAL_CDC_RX_RST:
-	case WCD938X_DIGITAL_CDC_RX0_CTL:
-	case WCD938X_DIGITAL_CDC_RX1_CTL:
-	case WCD938X_DIGITAL_CDC_RX2_CTL:
-	case WCD938X_DIGITAL_CDC_TX_ANA_MODE_0_1:
-	case WCD938X_DIGITAL_CDC_TX_ANA_MODE_2_3:
-	case WCD938X_DIGITAL_CDC_COMP_CTL_0:
-	case WCD938X_DIGITAL_CDC_ANA_TX_CLK_CTL:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_A1_0:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_A1_1:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_A2_0:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_A2_1:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_A3_0:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_A3_1:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_A4_0:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_A4_1:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_A5_0:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_A5_1:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_A6_0:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_A7_0:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_C_0:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_C_1:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_C_2:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_C_3:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_R1:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_R2:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_R3:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_R4:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_R5:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_R6:
-	case WCD938X_DIGITAL_CDC_HPH_DSM_R7:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_A1_0:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_A1_1:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_A2_0:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_A2_1:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_A3_0:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_A3_1:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_A4_0:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_A4_1:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_A5_0:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_A5_1:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_A6_0:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_A7_0:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_C_0:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_C_1:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_C_2:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_C_3:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_R1:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_R2:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_R3:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_R4:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_R5:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_R6:
-	case WCD938X_DIGITAL_CDC_AUX_DSM_R7:
-	case WCD938X_DIGITAL_CDC_HPH_GAIN_RX_0:
-	case WCD938X_DIGITAL_CDC_HPH_GAIN_RX_1:
-	case WCD938X_DIGITAL_CDC_HPH_GAIN_DSD_0:
-	case WCD938X_DIGITAL_CDC_HPH_GAIN_DSD_1:
-	case WCD938X_DIGITAL_CDC_HPH_GAIN_DSD_2:
-	case WCD938X_DIGITAL_CDC_AUX_GAIN_DSD_0:
-	case WCD938X_DIGITAL_CDC_AUX_GAIN_DSD_1:
-	case WCD938X_DIGITAL_CDC_AUX_GAIN_DSD_2:
-	case WCD938X_DIGITAL_CDC_HPH_GAIN_CTL:
-	case WCD938X_DIGITAL_CDC_AUX_GAIN_CTL:
-	case WCD938X_DIGITAL_CDC_EAR_PATH_CTL:
-	case WCD938X_DIGITAL_CDC_SWR_CLH:
-	case WCD938X_DIGITAL_SWR_CLH_BYP:
-	case WCD938X_DIGITAL_CDC_TX0_CTL:
-	case WCD938X_DIGITAL_CDC_TX1_CTL:
-	case WCD938X_DIGITAL_CDC_TX2_CTL:
-	case WCD938X_DIGITAL_CDC_TX_RST:
-	case WCD938X_DIGITAL_CDC_REQ_CTL:
-	case WCD938X_DIGITAL_CDC_RST:
-	case WCD938X_DIGITAL_CDC_AMIC_CTL:
-	case WCD938X_DIGITAL_CDC_DMIC_CTL:
-	case WCD938X_DIGITAL_CDC_DMIC1_CTL:
-	case WCD938X_DIGITAL_CDC_DMIC2_CTL:
-	case WCD938X_DIGITAL_CDC_DMIC3_CTL:
-	case WCD938X_DIGITAL_CDC_DMIC4_CTL:
-	case WCD938X_DIGITAL_EFUSE_PRG_CTL:
-	case WCD938X_DIGITAL_EFUSE_CTL:
-	case WCD938X_DIGITAL_CDC_DMIC_RATE_1_2:
-	case WCD938X_DIGITAL_CDC_DMIC_RATE_3_4:
-	case WCD938X_DIGITAL_PDM_WD_CTL0:
-	case WCD938X_DIGITAL_PDM_WD_CTL1:
-	case WCD938X_DIGITAL_PDM_WD_CTL2:
-	case WCD938X_DIGITAL_INTR_MODE:
-	case WCD938X_DIGITAL_INTR_MASK_0:
-	case WCD938X_DIGITAL_INTR_MASK_1:
-	case WCD938X_DIGITAL_INTR_MASK_2:
-	case WCD938X_DIGITAL_INTR_CLEAR_0:
-	case WCD938X_DIGITAL_INTR_CLEAR_1:
-	case WCD938X_DIGITAL_INTR_CLEAR_2:
-	case WCD938X_DIGITAL_INTR_LEVEL_0:
-	case WCD938X_DIGITAL_INTR_LEVEL_1:
-	case WCD938X_DIGITAL_INTR_LEVEL_2:
-	case WCD938X_DIGITAL_INTR_SET_0:
-	case WCD938X_DIGITAL_INTR_SET_1:
-	case WCD938X_DIGITAL_INTR_SET_2:
-	case WCD938X_DIGITAL_INTR_TEST_0:
-	case WCD938X_DIGITAL_INTR_TEST_1:
-	case WCD938X_DIGITAL_INTR_TEST_2:
-	case WCD938X_DIGITAL_TX_MODE_DBG_EN:
-	case WCD938X_DIGITAL_TX_MODE_DBG_0_1:
-	case WCD938X_DIGITAL_TX_MODE_DBG_2_3:
-	case WCD938X_DIGITAL_LB_IN_SEL_CTL:
-	case WCD938X_DIGITAL_LOOP_BACK_MODE:
-	case WCD938X_DIGITAL_SWR_DAC_TEST:
-	case WCD938X_DIGITAL_SWR_HM_TEST_RX_0:
-	case WCD938X_DIGITAL_SWR_HM_TEST_TX_0:
-	case WCD938X_DIGITAL_SWR_HM_TEST_RX_1:
-	case WCD938X_DIGITAL_SWR_HM_TEST_TX_1:
-	case WCD938X_DIGITAL_SWR_HM_TEST_TX_2:
-	case WCD938X_DIGITAL_PAD_CTL_SWR_0:
-	case WCD938X_DIGITAL_PAD_CTL_SWR_1:
-	case WCD938X_DIGITAL_I2C_CTL:
-	case WCD938X_DIGITAL_CDC_TX_TANGGU_SW_MODE:
-	case WCD938X_DIGITAL_EFUSE_TEST_CTL_0:
-	case WCD938X_DIGITAL_EFUSE_TEST_CTL_1:
-	case WCD938X_DIGITAL_PAD_CTL_PDM_RX0:
-	case WCD938X_DIGITAL_PAD_CTL_PDM_RX1:
-	case WCD938X_DIGITAL_PAD_CTL_PDM_TX0:
-	case WCD938X_DIGITAL_PAD_CTL_PDM_TX1:
-	case WCD938X_DIGITAL_PAD_CTL_PDM_TX2:
-	case WCD938X_DIGITAL_PAD_INP_DIS_0:
-	case WCD938X_DIGITAL_PAD_INP_DIS_1:
-	case WCD938X_DIGITAL_DRIVE_STRENGTH_0:
-	case WCD938X_DIGITAL_DRIVE_STRENGTH_1:
-	case WCD938X_DIGITAL_DRIVE_STRENGTH_2:
-	case WCD938X_DIGITAL_RX_DATA_EDGE_CTL:
-	case WCD938X_DIGITAL_TX_DATA_EDGE_CTL:
-	case WCD938X_DIGITAL_GPIO_MODE:
-	case WCD938X_DIGITAL_PIN_CTL_OE:
-	case WCD938X_DIGITAL_PIN_CTL_DATA_0:
-	case WCD938X_DIGITAL_PIN_CTL_DATA_1:
-	case WCD938X_DIGITAL_DIG_DEBUG_CTL:
-	case WCD938X_DIGITAL_DIG_DEBUG_EN:
-	case WCD938X_DIGITAL_ANA_CSR_DBG_ADD:
-	case WCD938X_DIGITAL_ANA_CSR_DBG_CTL:
-	case WCD938X_DIGITAL_SSP_DBG:
-	case WCD938X_DIGITAL_SPARE_0:
-	case WCD938X_DIGITAL_SPARE_1:
-	case WCD938X_DIGITAL_SPARE_2:
-	case WCD938X_DIGITAL_TX_REQ_FB_CTL_0:
-	case WCD938X_DIGITAL_TX_REQ_FB_CTL_1:
-	case WCD938X_DIGITAL_TX_REQ_FB_CTL_2:
-	case WCD938X_DIGITAL_TX_REQ_FB_CTL_3:
-	case WCD938X_DIGITAL_TX_REQ_FB_CTL_4:
-	case WCD938X_DIGITAL_DEM_BYPASS_DATA0:
-	case WCD938X_DIGITAL_DEM_BYPASS_DATA1:
-	case WCD938X_DIGITAL_DEM_BYPASS_DATA2:
-	case WCD938X_DIGITAL_DEM_BYPASS_DATA3:
-		return true;
-	}
-
-	return false;
-}
-
-static bool wcd938x_readonly_register(struct device *dev, unsigned int reg)
-{
-	switch (reg) {
-	case WCD938X_ANA_MBHC_RESULT_1:
-	case WCD938X_ANA_MBHC_RESULT_2:
-	case WCD938X_ANA_MBHC_RESULT_3:
-	case WCD938X_MBHC_MOISTURE_DET_FSM_STATUS:
-	case WCD938X_TX_1_2_SAR2_ERR:
-	case WCD938X_TX_1_2_SAR1_ERR:
-	case WCD938X_TX_3_4_SAR4_ERR:
-	case WCD938X_TX_3_4_SAR3_ERR:
-	case WCD938X_HPH_L_STATUS:
-	case WCD938X_HPH_R_STATUS:
-	case WCD938X_HPH_SURGE_HPHLR_SURGE_STATUS:
-	case WCD938X_EAR_STATUS_REG_1:
-	case WCD938X_EAR_STATUS_REG_2:
-	case WCD938X_MBHC_NEW_FSM_STATUS:
-	case WCD938X_MBHC_NEW_ADC_RESULT:
-	case WCD938X_DIE_CRACK_DIE_CRK_DET_OUT:
-	case WCD938X_AUX_INT_STATUS_REG:
-	case WCD938X_LDORXTX_INT_STATUS:
-	case WCD938X_DIGITAL_CHIP_ID0:
-	case WCD938X_DIGITAL_CHIP_ID1:
-	case WCD938X_DIGITAL_CHIP_ID2:
-	case WCD938X_DIGITAL_CHIP_ID3:
-	case WCD938X_DIGITAL_INTR_STATUS_0:
-	case WCD938X_DIGITAL_INTR_STATUS_1:
-	case WCD938X_DIGITAL_INTR_STATUS_2:
-	case WCD938X_DIGITAL_INTR_CLEAR_0:
-	case WCD938X_DIGITAL_INTR_CLEAR_1:
-	case WCD938X_DIGITAL_INTR_CLEAR_2:
-	case WCD938X_DIGITAL_SWR_HM_TEST_0:
-	case WCD938X_DIGITAL_SWR_HM_TEST_1:
-	case WCD938X_DIGITAL_EFUSE_T_DATA_0:
-	case WCD938X_DIGITAL_EFUSE_T_DATA_1:
-	case WCD938X_DIGITAL_PIN_STATUS_0:
-	case WCD938X_DIGITAL_PIN_STATUS_1:
-	case WCD938X_DIGITAL_MODE_STATUS_0:
-	case WCD938X_DIGITAL_MODE_STATUS_1:
-	case WCD938X_DIGITAL_EFUSE_REG_0:
-	case WCD938X_DIGITAL_EFUSE_REG_1:
-	case WCD938X_DIGITAL_EFUSE_REG_2:
-	case WCD938X_DIGITAL_EFUSE_REG_3:
-	case WCD938X_DIGITAL_EFUSE_REG_4:
-	case WCD938X_DIGITAL_EFUSE_REG_5:
-	case WCD938X_DIGITAL_EFUSE_REG_6:
-	case WCD938X_DIGITAL_EFUSE_REG_7:
-	case WCD938X_DIGITAL_EFUSE_REG_8:
-	case WCD938X_DIGITAL_EFUSE_REG_9:
-	case WCD938X_DIGITAL_EFUSE_REG_10:
-	case WCD938X_DIGITAL_EFUSE_REG_11:
-	case WCD938X_DIGITAL_EFUSE_REG_12:
-	case WCD938X_DIGITAL_EFUSE_REG_13:
-	case WCD938X_DIGITAL_EFUSE_REG_14:
-	case WCD938X_DIGITAL_EFUSE_REG_15:
-	case WCD938X_DIGITAL_EFUSE_REG_16:
-	case WCD938X_DIGITAL_EFUSE_REG_17:
-	case WCD938X_DIGITAL_EFUSE_REG_18:
-	case WCD938X_DIGITAL_EFUSE_REG_19:
-	case WCD938X_DIGITAL_EFUSE_REG_20:
-	case WCD938X_DIGITAL_EFUSE_REG_21:
-	case WCD938X_DIGITAL_EFUSE_REG_22:
-	case WCD938X_DIGITAL_EFUSE_REG_23:
-	case WCD938X_DIGITAL_EFUSE_REG_24:
-	case WCD938X_DIGITAL_EFUSE_REG_25:
-	case WCD938X_DIGITAL_EFUSE_REG_26:
-	case WCD938X_DIGITAL_EFUSE_REG_27:
-	case WCD938X_DIGITAL_EFUSE_REG_28:
-	case WCD938X_DIGITAL_EFUSE_REG_29:
-	case WCD938X_DIGITAL_EFUSE_REG_30:
-	case WCD938X_DIGITAL_EFUSE_REG_31:
-		return true;
-	}
-	return false;
-}
-
-static bool wcd938x_readable_register(struct device *dev, unsigned int reg)
-{
-	bool ret;
-
-	ret = wcd938x_readonly_register(dev, reg);
-	if (!ret)
-		return wcd938x_rdwr_register(dev, reg);
-
-	return ret;
-}
-
-static bool wcd938x_writeable_register(struct device *dev, unsigned int reg)
-{
-	return wcd938x_rdwr_register(dev, reg);
-}
-
-static bool wcd938x_volatile_register(struct device *dev, unsigned int reg)
-{
-	if (reg <= WCD938X_BASE_ADDRESS)
-		return false;
-
-	if (reg == WCD938X_DIGITAL_SWR_TX_CLK_RATE)
-		return true;
-
-	if (wcd938x_readonly_register(dev, reg))
-		return true;
-
-	return false;
-}
-
-static struct regmap_config wcd938x_regmap_config = {
-	.name = "wcd938x_csr",
-	.reg_bits = 32,
-	.val_bits = 8,
-	.cache_type = REGCACHE_RBTREE,
-	.reg_defaults = wcd938x_defaults,
-	.num_reg_defaults = ARRAY_SIZE(wcd938x_defaults),
-	.max_register = WCD938X_MAX_REGISTER,
-	.readable_reg = wcd938x_readable_register,
-	.writeable_reg = wcd938x_writeable_register,
-	.volatile_reg = wcd938x_volatile_register,
-	.can_multi_write = true,
+static struct wcd_mbhc_field wcd_mbhc_fields[WCD_MBHC_REG_FUNC_MAX] = {
+	WCD_MBHC_FIELD(WCD_MBHC_L_DET_EN, WCD938X_ANA_MBHC_MECH, 0x80),
+	WCD_MBHC_FIELD(WCD_MBHC_GND_DET_EN, WCD938X_ANA_MBHC_MECH, 0x40),
+	WCD_MBHC_FIELD(WCD_MBHC_MECH_DETECTION_TYPE, WCD938X_ANA_MBHC_MECH, 0x20),
+	WCD_MBHC_FIELD(WCD_MBHC_MIC_CLAMP_CTL, WCD938X_MBHC_NEW_PLUG_DETECT_CTL, 0x30),
+	WCD_MBHC_FIELD(WCD_MBHC_ELECT_DETECTION_TYPE, WCD938X_ANA_MBHC_ELECT, 0x08),
+	WCD_MBHC_FIELD(WCD_MBHC_HS_L_DET_PULL_UP_CTRL, WCD938X_MBHC_NEW_INT_MECH_DET_CURRENT, 0x1F),
+	WCD_MBHC_FIELD(WCD_MBHC_HS_L_DET_PULL_UP_COMP_CTRL, WCD938X_ANA_MBHC_MECH, 0x04),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHL_PLUG_TYPE, WCD938X_ANA_MBHC_MECH, 0x10),
+	WCD_MBHC_FIELD(WCD_MBHC_GND_PLUG_TYPE, WCD938X_ANA_MBHC_MECH, 0x08),
+	WCD_MBHC_FIELD(WCD_MBHC_SW_HPH_LP_100K_TO_GND, WCD938X_ANA_MBHC_MECH, 0x01),
+	WCD_MBHC_FIELD(WCD_MBHC_ELECT_SCHMT_ISRC, WCD938X_ANA_MBHC_ELECT, 0x06),
+	WCD_MBHC_FIELD(WCD_MBHC_FSM_EN, WCD938X_ANA_MBHC_ELECT, 0x80),
+	WCD_MBHC_FIELD(WCD_MBHC_INSREM_DBNC, WCD938X_MBHC_NEW_PLUG_DETECT_CTL, 0x0F),
+	WCD_MBHC_FIELD(WCD_MBHC_BTN_DBNC, WCD938X_MBHC_NEW_CTL_1, 0x03),
+	WCD_MBHC_FIELD(WCD_MBHC_HS_VREF, WCD938X_MBHC_NEW_CTL_2, 0x03),
+	WCD_MBHC_FIELD(WCD_MBHC_HS_COMP_RESULT, WCD938X_ANA_MBHC_RESULT_3, 0x08),
+	WCD_MBHC_FIELD(WCD_MBHC_IN2P_CLAMP_STATE, WCD938X_ANA_MBHC_RESULT_3, 0x10),
+	WCD_MBHC_FIELD(WCD_MBHC_MIC_SCHMT_RESULT, WCD938X_ANA_MBHC_RESULT_3, 0x20),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHL_SCHMT_RESULT, WCD938X_ANA_MBHC_RESULT_3, 0x80),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHR_SCHMT_RESULT, WCD938X_ANA_MBHC_RESULT_3, 0x40),
+	WCD_MBHC_FIELD(WCD_MBHC_OCP_FSM_EN, WCD938X_HPH_OCP_CTL, 0x10),
+	WCD_MBHC_FIELD(WCD_MBHC_BTN_RESULT, WCD938X_ANA_MBHC_RESULT_3, 0x07),
+	WCD_MBHC_FIELD(WCD_MBHC_BTN_ISRC_CTL, WCD938X_ANA_MBHC_ELECT, 0x70),
+	WCD_MBHC_FIELD(WCD_MBHC_ELECT_RESULT, WCD938X_ANA_MBHC_RESULT_3, 0xFF),
+	WCD_MBHC_FIELD(WCD_MBHC_MICB_CTRL, WCD938X_ANA_MICB2, 0xC0),
+	WCD_MBHC_FIELD(WCD_MBHC_HPH_CNP_WG_TIME, WCD938X_HPH_CNP_WG_TIME, 0xFF),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHR_PA_EN, WCD938X_ANA_HPH, 0x40),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHL_PA_EN, WCD938X_ANA_HPH, 0x80),
+	WCD_MBHC_FIELD(WCD_MBHC_HPH_PA_EN, WCD938X_ANA_HPH, 0xC0),
+	WCD_MBHC_FIELD(WCD_MBHC_SWCH_LEVEL_REMOVE, WCD938X_ANA_MBHC_RESULT_3, 0x10),
+	WCD_MBHC_FIELD(WCD_MBHC_ANC_DET_EN, WCD938X_MBHC_CTL_BCS, 0x02),
+	WCD_MBHC_FIELD(WCD_MBHC_FSM_STATUS, WCD938X_MBHC_NEW_FSM_STATUS, 0x01),
+	WCD_MBHC_FIELD(WCD_MBHC_MUX_CTL, WCD938X_MBHC_NEW_CTL_2, 0x70),
+	WCD_MBHC_FIELD(WCD_MBHC_MOISTURE_STATUS, WCD938X_MBHC_NEW_FSM_STATUS, 0x20),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHR_GND, WCD938X_HPH_PA_CTL2, 0x40),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHL_GND, WCD938X_HPH_PA_CTL2, 0x10),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHL_OCP_DET_EN, WCD938X_HPH_L_TEST, 0x01),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHR_OCP_DET_EN, WCD938X_HPH_R_TEST, 0x01),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHL_OCP_STATUS, WCD938X_DIGITAL_INTR_STATUS_0, 0x80),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHR_OCP_STATUS, WCD938X_DIGITAL_INTR_STATUS_0, 0x20),
+	WCD_MBHC_FIELD(WCD_MBHC_ADC_EN, WCD938X_MBHC_NEW_CTL_1, 0x08),
+	WCD_MBHC_FIELD(WCD_MBHC_ADC_COMPLETE, WCD938X_MBHC_NEW_FSM_STATUS, 0x40),
+	WCD_MBHC_FIELD(WCD_MBHC_ADC_TIMEOUT, WCD938X_MBHC_NEW_FSM_STATUS, 0x80),
+	WCD_MBHC_FIELD(WCD_MBHC_ADC_RESULT, WCD938X_MBHC_NEW_ADC_RESULT, 0xFF),
+	WCD_MBHC_FIELD(WCD_MBHC_MICB2_VOUT, WCD938X_ANA_MICB2, 0x3F),
+	WCD_MBHC_FIELD(WCD_MBHC_ADC_MODE, WCD938X_MBHC_NEW_CTL_1, 0x10),
+	WCD_MBHC_FIELD(WCD_MBHC_DETECTION_DONE, WCD938X_MBHC_NEW_CTL_1, 0x04),
+	WCD_MBHC_FIELD(WCD_MBHC_ELECT_ISRC_EN, WCD938X_ANA_MBHC_ZDET, 0x02),
 };
 
 static const struct regmap_irq wcd938x_irqs[WCD938X_NUM_IRQS] = {
@@ -1244,7 +303,6 @@ static struct regmap_irq_chip wcd938x_regmap_irq_chip = {
 	.num_regs = 3,
 	.status_base = WCD938X_DIGITAL_INTR_STATUS_0,
 	.mask_base = WCD938X_DIGITAL_INTR_MASK_0,
-	.type_base = WCD938X_DIGITAL_INTR_LEVEL_0,
 	.ack_base = WCD938X_DIGITAL_INTR_CLEAR_0,
 	.use_ack = 1,
 	.runtime_pm = true,
@@ -1363,7 +421,6 @@ static int wcd938x_io_init(struct wcd938x_priv *wcd938x)
 
 static int wcd938x_sdw_connect_port(struct wcd938x_sdw_ch_info *ch_info,
 				    struct sdw_port_config *port_config,
-				    u32 mstr_port_num,
 				    u8 enable)
 {
 	u8 ch_mask, port_num;
@@ -1381,16 +438,10 @@ static int wcd938x_sdw_connect_port(struct wcd938x_sdw_ch_info *ch_info,
 	return 0;
 }
 
-static int wcd938x_connect_port(struct wcd938x_sdw_priv *wcd, u8 ch_id, u8 enable)
+static int wcd938x_connect_port(struct wcd938x_sdw_priv *wcd, u8 port_num, u8 ch_id, u8 enable)
 {
-	u8 port_num, mstr_port_num;
-
-	port_num = wcd->ch_info[ch_id].port_num;
-	mstr_port_num = wcd->port_map[port_num - 1];
-
 	return wcd938x_sdw_connect_port(&wcd->ch_info[ch_id],
-					&wcd->port_config[port_num],
-					mstr_port_num,
+					&wcd->port_config[port_num - 1],
 					enable);
 }
 
@@ -1730,6 +781,8 @@ static int wcd938x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 			usleep_range(7000, 7100);
 		snd_soc_component_write_field(component, WCD938X_ANA_HPH,
 					      WCD938X_HPHR_EN_MASK, 0);
+		wcd_mbhc_event_notify(wcd938x->wcd_mbhc,
+					     WCD_EVENT_PRE_HPHR_PA_OFF);
 		set_bit(HPH_PA_DELAY, &wcd938x->status_mask);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
@@ -1745,6 +798,8 @@ static int wcd938x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 				usleep_range(7000, 7100);
 			clear_bit(HPH_PA_DELAY, &wcd938x->status_mask);
 		}
+		wcd_mbhc_event_notify(wcd938x->wcd_mbhc,
+					     WCD_EVENT_POST_HPHR_PA_OFF);
 		snd_soc_component_write_field(component, WCD938X_ANA_HPH,
 					      WCD938X_HPHR_REF_EN_MASK, 0);
 		snd_soc_component_write_field(component, WCD938X_DIGITAL_PDM_WD_CTL1,
@@ -1832,6 +887,7 @@ static int wcd938x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 			usleep_range(7000, 7100);
 		snd_soc_component_write_field(component, WCD938X_ANA_HPH,
 					      WCD938X_HPHL_EN_MASK, 0);
+		wcd_mbhc_event_notify(wcd938x->wcd_mbhc, WCD_EVENT_PRE_HPHL_PA_OFF);
 		set_bit(HPH_PA_DELAY, &wcd938x->status_mask);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
@@ -1847,6 +903,8 @@ static int wcd938x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 				usleep_range(7000, 7100);
 			clear_bit(HPH_PA_DELAY, &wcd938x->status_mask);
 		}
+		wcd_mbhc_event_notify(wcd938x->wcd_mbhc,
+					     WCD_EVENT_POST_HPHL_PA_OFF);
 		snd_soc_component_write_field(component, WCD938X_ANA_HPH,
 					      WCD938X_HPHL_REF_EN_MASK, 0);
 		snd_soc_component_write_field(component, WCD938X_DIGITAL_PDM_WD_CTL0,
@@ -2356,7 +1414,14 @@ static int wcd938x_micbias_control(struct snd_soc_component *component,
 			snd_soc_component_write_field(component, micb_reg,
 						      WCD938X_MICB_EN_MASK,
 						      WCD938X_MICB_ENABLE);
+			if (micb_num  == MIC_BIAS_2)
+				wcd_mbhc_event_notify(wcd938x->wcd_mbhc,
+						      WCD_EVENT_POST_MICBIAS_2_ON);
 		}
+		if (micb_num  == MIC_BIAS_2 && is_dapm)
+			wcd_mbhc_event_notify(wcd938x->wcd_mbhc,
+					      WCD_EVENT_POST_DAPM_MICBIAS_2_ON);
+
 
 		break;
 	case MICB_DISABLE:
@@ -2370,10 +1435,19 @@ static int wcd938x_micbias_control(struct snd_soc_component *component,
 						      WCD938X_MICB_PULL_UP);
 		else if ((wcd938x->micb_ref[micb_index] == 0) &&
 			 (wcd938x->pullup_ref[micb_index] == 0)) {
+			if (micb_num  == MIC_BIAS_2)
+				wcd_mbhc_event_notify(wcd938x->wcd_mbhc,
+						      WCD_EVENT_PRE_MICBIAS_2_OFF);
 
 			snd_soc_component_write_field(component, micb_reg,
 						      WCD938X_MICB_EN_MASK, 0);
+			if (micb_num  == MIC_BIAS_2)
+				wcd_mbhc_event_notify(wcd938x->wcd_mbhc,
+						      WCD_EVENT_POST_MICBIAS_2_OFF);
 		}
+		if (is_dapm && micb_num  == MIC_BIAS_2)
+			wcd_mbhc_event_notify(wcd938x->wcd_mbhc,
+					      WCD_EVENT_POST_DAPM_MICBIAS_2_OFF);
 		break;
 	}
 
@@ -2527,6 +1601,7 @@ static int wcd938x_set_compander(struct snd_kcontrol *kcontrol,
 	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
 	struct wcd938x_sdw_priv *wcd;
 	int value = ucontrol->value.integer.value[0];
+	int portidx;
 	struct soc_mixer_control *mc;
 	bool hphr;
 
@@ -2540,10 +1615,12 @@ static int wcd938x_set_compander(struct snd_kcontrol *kcontrol,
 	else
 		wcd938x->comp1_enable = value;
 
+	portidx = wcd->ch_info[mc->reg].port_num;
+
 	if (value)
-		wcd938x_connect_port(wcd, mc->reg, true);
+		wcd938x_connect_port(wcd, portidx, mc->reg, true);
 	else
-		wcd938x_connect_port(wcd, mc->reg, false);
+		wcd938x_connect_port(wcd, portidx, mc->reg, false);
 
 	return 1;
 }
@@ -2822,9 +1899,11 @@ static int wcd938x_get_swr_port(struct snd_kcontrol *kcontrol,
 	struct wcd938x_sdw_priv *wcd;
 	struct soc_mixer_control *mixer = (struct soc_mixer_control *)kcontrol->private_value;
 	int dai_id = mixer->shift;
-	int portidx = mixer->reg;
+	int portidx, ch_idx = mixer->reg;
+
 
 	wcd = wcd938x->sdw_priv[dai_id];
+	portidx = wcd->ch_info[ch_idx].port_num;
 
 	ucontrol->value.integer.value[0] = wcd->port_enable[portidx];
 
@@ -2839,12 +1918,14 @@ static int wcd938x_set_swr_port(struct snd_kcontrol *kcontrol,
 	struct wcd938x_sdw_priv *wcd;
 	struct soc_mixer_control *mixer =
 		(struct soc_mixer_control *)kcontrol->private_value;
-	int portidx = mixer->reg;
+	int ch_idx = mixer->reg;
+	int portidx;
 	int dai_id = mixer->shift;
 	bool enable;
 
 	wcd = wcd938x->sdw_priv[dai_id];
 
+	portidx = wcd->ch_info[ch_idx].port_num;
 	if (ucontrol->value.integer.value[0])
 		enable = true;
 	else
@@ -2852,11 +1933,717 @@ static int wcd938x_set_swr_port(struct snd_kcontrol *kcontrol,
 
 	wcd->port_enable[portidx] = enable;
 
-	wcd938x_connect_port(wcd, portidx, enable);
+	wcd938x_connect_port(wcd, portidx, ch_idx, enable);
 
 	return 1;
 
 }
+
+/* MBHC related */
+static void wcd938x_mbhc_clk_setup(struct snd_soc_component *component,
+				   bool enable)
+{
+	snd_soc_component_write_field(component, WCD938X_MBHC_NEW_CTL_1,
+				      WCD938X_MBHC_CTL_RCO_EN_MASK, enable);
+}
+
+static void wcd938x_mbhc_mbhc_bias_control(struct snd_soc_component *component,
+					   bool enable)
+{
+	snd_soc_component_write_field(component, WCD938X_ANA_MBHC_ELECT,
+				      WCD938X_ANA_MBHC_BIAS_EN, enable);
+}
+
+static void wcd938x_mbhc_program_btn_thr(struct snd_soc_component *component,
+					 int *btn_low, int *btn_high,
+					 int num_btn, bool is_micbias)
+{
+	int i, vth;
+
+	if (num_btn > WCD_MBHC_DEF_BUTTONS) {
+		dev_err(component->dev, "%s: invalid number of buttons: %d\n",
+			__func__, num_btn);
+		return;
+	}
+
+	for (i = 0; i < num_btn; i++) {
+		vth = ((btn_high[i] * 2) / 25) & 0x3F;
+		snd_soc_component_write_field(component, WCD938X_ANA_MBHC_BTN0 + i,
+					   WCD938X_MBHC_BTN_VTH_MASK, vth);
+		dev_dbg(component->dev, "%s: btn_high[%d]: %d, vth: %d\n",
+			__func__, i, btn_high[i], vth);
+	}
+}
+
+static bool wcd938x_mbhc_micb_en_status(struct snd_soc_component *component, int micb_num)
+{
+	u8 val;
+
+	if (micb_num == MIC_BIAS_2) {
+		val = snd_soc_component_read_field(component,
+						   WCD938X_ANA_MICB2,
+						   WCD938X_ANA_MICB2_ENABLE_MASK);
+		if (val == WCD938X_MICB_ENABLE)
+			return true;
+	}
+	return false;
+}
+
+static void wcd938x_mbhc_hph_l_pull_up_control(struct snd_soc_component *component,
+							int pull_up_cur)
+{
+	/* Default pull up current to 2uA */
+	if (pull_up_cur > HS_PULLUP_I_OFF || pull_up_cur < HS_PULLUP_I_3P0_UA)
+		pull_up_cur = HS_PULLUP_I_2P0_UA;
+
+	snd_soc_component_write_field(component,
+				      WCD938X_MBHC_NEW_INT_MECH_DET_CURRENT,
+				      WCD938X_HSDET_PULLUP_C_MASK, pull_up_cur);
+}
+
+static int wcd938x_mbhc_request_micbias(struct snd_soc_component *component,
+					int micb_num, int req)
+{
+	return wcd938x_micbias_control(component, micb_num, req, false);
+}
+
+static void wcd938x_mbhc_micb_ramp_control(struct snd_soc_component *component,
+					   bool enable)
+{
+	if (enable) {
+		snd_soc_component_write_field(component, WCD938X_ANA_MICB2_RAMP,
+				    WCD938X_RAMP_SHIFT_CTRL_MASK, 0x0C);
+		snd_soc_component_write_field(component, WCD938X_ANA_MICB2_RAMP,
+				    WCD938X_RAMP_EN_MASK, 1);
+	} else {
+		snd_soc_component_write_field(component, WCD938X_ANA_MICB2_RAMP,
+				    WCD938X_RAMP_EN_MASK, 0);
+		snd_soc_component_write_field(component, WCD938X_ANA_MICB2_RAMP,
+				    WCD938X_RAMP_SHIFT_CTRL_MASK, 0);
+	}
+}
+
+static int wcd938x_get_micb_vout_ctl_val(u32 micb_mv)
+{
+	/* min micbias voltage is 1V and maximum is 2.85V */
+	if (micb_mv < 1000 || micb_mv > 2850)
+		return -EINVAL;
+
+	return (micb_mv - 1000) / 50;
+}
+
+static int wcd938x_mbhc_micb_adjust_voltage(struct snd_soc_component *component,
+					    int req_volt, int micb_num)
+{
+	struct wcd938x_priv *wcd938x =  snd_soc_component_get_drvdata(component);
+	int cur_vout_ctl, req_vout_ctl, micb_reg, micb_en, ret = 0;
+
+	switch (micb_num) {
+	case MIC_BIAS_1:
+		micb_reg = WCD938X_ANA_MICB1;
+		break;
+	case MIC_BIAS_2:
+		micb_reg = WCD938X_ANA_MICB2;
+		break;
+	case MIC_BIAS_3:
+		micb_reg = WCD938X_ANA_MICB3;
+		break;
+	case MIC_BIAS_4:
+		micb_reg = WCD938X_ANA_MICB4;
+		break;
+	default:
+		return -EINVAL;
+	}
+	mutex_lock(&wcd938x->micb_lock);
+	/*
+	 * If requested micbias voltage is same as current micbias
+	 * voltage, then just return. Otherwise, adjust voltage as
+	 * per requested value. If micbias is already enabled, then
+	 * to avoid slow micbias ramp-up or down enable pull-up
+	 * momentarily, change the micbias value and then re-enable
+	 * micbias.
+	 */
+	micb_en = snd_soc_component_read_field(component, micb_reg,
+						WCD938X_MICB_EN_MASK);
+	cur_vout_ctl = snd_soc_component_read_field(component, micb_reg,
+						    WCD938X_MICB_VOUT_MASK);
+
+	req_vout_ctl = wcd938x_get_micb_vout_ctl_val(req_volt);
+	if (req_vout_ctl < 0) {
+		ret = -EINVAL;
+		goto exit;
+	}
+
+	if (cur_vout_ctl == req_vout_ctl) {
+		ret = 0;
+		goto exit;
+	}
+
+	if (micb_en == WCD938X_MICB_ENABLE)
+		snd_soc_component_write_field(component, micb_reg,
+					      WCD938X_MICB_EN_MASK,
+					      WCD938X_MICB_PULL_UP);
+
+	snd_soc_component_write_field(component, micb_reg,
+				      WCD938X_MICB_VOUT_MASK,
+				      req_vout_ctl);
+
+	if (micb_en == WCD938X_MICB_ENABLE) {
+		snd_soc_component_write_field(component, micb_reg,
+					      WCD938X_MICB_EN_MASK,
+					      WCD938X_MICB_ENABLE);
+		/*
+		 * Add 2ms delay as per HW requirement after enabling
+		 * micbias
+		 */
+		usleep_range(2000, 2100);
+	}
+exit:
+	mutex_unlock(&wcd938x->micb_lock);
+	return ret;
+}
+
+static int wcd938x_mbhc_micb_ctrl_threshold_mic(struct snd_soc_component *component,
+						int micb_num, bool req_en)
+{
+	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
+	int micb_mv;
+
+	if (micb_num != MIC_BIAS_2)
+		return -EINVAL;
+	/*
+	 * If device tree micbias level is already above the minimum
+	 * voltage needed to detect threshold microphone, then do
+	 * not change the micbias, just return.
+	 */
+	if (wcd938x->micb2_mv >= WCD_MBHC_THR_HS_MICB_MV)
+		return 0;
+
+	micb_mv = req_en ? WCD_MBHC_THR_HS_MICB_MV : wcd938x->micb2_mv;
+
+	return wcd938x_mbhc_micb_adjust_voltage(component, micb_mv, MIC_BIAS_2);
+}
+
+static inline void wcd938x_mbhc_get_result_params(struct wcd938x_priv *wcd938x,
+						s16 *d1_a, u16 noff,
+						int32_t *zdet)
+{
+	int i;
+	int val, val1;
+	s16 c1;
+	s32 x1, d1;
+	int32_t denom;
+	static const int minCode_param[] = {
+		3277, 1639, 820, 410, 205, 103, 52, 26
+	};
+
+	regmap_update_bits(wcd938x->regmap, WCD938X_ANA_MBHC_ZDET, 0x20, 0x20);
+	for (i = 0; i < WCD938X_ZDET_NUM_MEASUREMENTS; i++) {
+		regmap_read(wcd938x->regmap, WCD938X_ANA_MBHC_RESULT_2, &val);
+		if (val & 0x80)
+			break;
+	}
+	val = val << 0x8;
+	regmap_read(wcd938x->regmap, WCD938X_ANA_MBHC_RESULT_1, &val1);
+	val |= val1;
+	regmap_update_bits(wcd938x->regmap, WCD938X_ANA_MBHC_ZDET, 0x20, 0x00);
+	x1 = WCD938X_MBHC_GET_X1(val);
+	c1 = WCD938X_MBHC_GET_C1(val);
+	/* If ramp is not complete, give additional 5ms */
+	if ((c1 < 2) && x1)
+		usleep_range(5000, 5050);
+
+	if (!c1 || !x1) {
+		pr_err("%s: Impedance detect ramp error, c1=%d, x1=0x%x\n",
+			__func__, c1, x1);
+		goto ramp_down;
+	}
+	d1 = d1_a[c1];
+	denom = (x1 * d1) - (1 << (14 - noff));
+	if (denom > 0)
+		*zdet = (WCD938X_MBHC_ZDET_CONST * 1000) / denom;
+	else if (x1 < minCode_param[noff])
+		*zdet = WCD938X_ZDET_FLOATING_IMPEDANCE;
+
+	pr_debug("%s: d1=%d, c1=%d, x1=0x%x, z_val=%d (milliohm)\n",
+		 __func__, d1, c1, x1, *zdet);
+ramp_down:
+	i = 0;
+	while (x1) {
+		regmap_read(wcd938x->regmap,
+				 WCD938X_ANA_MBHC_RESULT_1, &val);
+		regmap_read(wcd938x->regmap,
+				 WCD938X_ANA_MBHC_RESULT_2, &val1);
+		val = val << 0x08;
+		val |= val1;
+		x1 = WCD938X_MBHC_GET_X1(val);
+		i++;
+		if (i == WCD938X_ZDET_NUM_MEASUREMENTS)
+			break;
+	}
+}
+
+static void wcd938x_mbhc_zdet_ramp(struct snd_soc_component *component,
+				 struct wcd938x_mbhc_zdet_param *zdet_param,
+				 int32_t *zl, int32_t *zr, s16 *d1_a)
+{
+	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
+	int32_t zdet = 0;
+
+	snd_soc_component_write_field(component, WCD938X_MBHC_NEW_ZDET_ANA_CTL,
+				WCD938X_ZDET_MAXV_CTL_MASK, zdet_param->ldo_ctl);
+	snd_soc_component_update_bits(component, WCD938X_ANA_MBHC_BTN5,
+				    WCD938X_VTH_MASK, zdet_param->btn5);
+	snd_soc_component_update_bits(component, WCD938X_ANA_MBHC_BTN6,
+				      WCD938X_VTH_MASK, zdet_param->btn6);
+	snd_soc_component_update_bits(component, WCD938X_ANA_MBHC_BTN7,
+				     WCD938X_VTH_MASK, zdet_param->btn7);
+	snd_soc_component_write_field(component, WCD938X_MBHC_NEW_ZDET_ANA_CTL,
+				WCD938X_ZDET_RANGE_CTL_MASK, zdet_param->noff);
+	snd_soc_component_update_bits(component, WCD938X_MBHC_NEW_ZDET_RAMP_CTL,
+				0x0F, zdet_param->nshift);
+
+	if (!zl)
+		goto z_right;
+	/* Start impedance measurement for HPH_L */
+	regmap_update_bits(wcd938x->regmap,
+			   WCD938X_ANA_MBHC_ZDET, 0x80, 0x80);
+	dev_dbg(component->dev, "%s: ramp for HPH_L, noff = %d\n",
+		__func__, zdet_param->noff);
+	wcd938x_mbhc_get_result_params(wcd938x, d1_a, zdet_param->noff, &zdet);
+	regmap_update_bits(wcd938x->regmap,
+			   WCD938X_ANA_MBHC_ZDET, 0x80, 0x00);
+
+	*zl = zdet;
+
+z_right:
+	if (!zr)
+		return;
+	/* Start impedance measurement for HPH_R */
+	regmap_update_bits(wcd938x->regmap,
+			   WCD938X_ANA_MBHC_ZDET, 0x40, 0x40);
+	dev_dbg(component->dev, "%s: ramp for HPH_R, noff = %d\n",
+		__func__, zdet_param->noff);
+	wcd938x_mbhc_get_result_params(wcd938x, d1_a, zdet_param->noff, &zdet);
+	regmap_update_bits(wcd938x->regmap,
+			   WCD938X_ANA_MBHC_ZDET, 0x40, 0x00);
+
+	*zr = zdet;
+}
+
+static inline void wcd938x_wcd_mbhc_qfuse_cal(struct snd_soc_component *component,
+					      int32_t *z_val, int flag_l_r)
+{
+	s16 q1;
+	int q1_cal;
+
+	if (*z_val < (WCD938X_ZDET_VAL_400/1000))
+		q1 = snd_soc_component_read(component,
+			WCD938X_DIGITAL_EFUSE_REG_23 + (2 * flag_l_r));
+	else
+		q1 = snd_soc_component_read(component,
+			WCD938X_DIGITAL_EFUSE_REG_24 + (2 * flag_l_r));
+	if (q1 & 0x80)
+		q1_cal = (10000 - ((q1 & 0x7F) * 25));
+	else
+		q1_cal = (10000 + (q1 * 25));
+	if (q1_cal > 0)
+		*z_val = ((*z_val) * 10000) / q1_cal;
+}
+
+static void wcd938x_wcd_mbhc_calc_impedance(struct snd_soc_component *component,
+					    uint32_t *zl, uint32_t *zr)
+{
+	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
+	s16 reg0, reg1, reg2, reg3, reg4;
+	int32_t z1L, z1R, z1Ls;
+	int zMono, z_diff1, z_diff2;
+	bool is_fsm_disable = false;
+	struct wcd938x_mbhc_zdet_param zdet_param[] = {
+		{4, 0, 4, 0x08, 0x14, 0x18}, /* < 32ohm */
+		{2, 0, 3, 0x18, 0x7C, 0x90}, /* 32ohm < Z < 400ohm */
+		{1, 4, 5, 0x18, 0x7C, 0x90}, /* 400ohm < Z < 1200ohm */
+		{1, 6, 7, 0x18, 0x7C, 0x90}, /* >1200ohm */
+	};
+	struct wcd938x_mbhc_zdet_param *zdet_param_ptr = NULL;
+	s16 d1_a[][4] = {
+		{0, 30, 90, 30},
+		{0, 30, 30, 5},
+		{0, 30, 30, 5},
+		{0, 30, 30, 5},
+	};
+	s16 *d1 = NULL;
+
+	reg0 = snd_soc_component_read(component, WCD938X_ANA_MBHC_BTN5);
+	reg1 = snd_soc_component_read(component, WCD938X_ANA_MBHC_BTN6);
+	reg2 = snd_soc_component_read(component, WCD938X_ANA_MBHC_BTN7);
+	reg3 = snd_soc_component_read(component, WCD938X_MBHC_CTL_CLK);
+	reg4 = snd_soc_component_read(component, WCD938X_MBHC_NEW_ZDET_ANA_CTL);
+
+	if (snd_soc_component_read(component, WCD938X_ANA_MBHC_ELECT) & 0x80) {
+		is_fsm_disable = true;
+		regmap_update_bits(wcd938x->regmap,
+				   WCD938X_ANA_MBHC_ELECT, 0x80, 0x00);
+	}
+
+	/* For NO-jack, disable L_DET_EN before Z-det measurements */
+	if (wcd938x->mbhc_cfg.hphl_swh)
+		regmap_update_bits(wcd938x->regmap,
+				   WCD938X_ANA_MBHC_MECH, 0x80, 0x00);
+
+	/* Turn off 100k pull down on HPHL */
+	regmap_update_bits(wcd938x->regmap,
+			   WCD938X_ANA_MBHC_MECH, 0x01, 0x00);
+
+	/* Disable surge protection before impedance detection.
+	 * This is done to give correct value for high impedance.
+	 */
+	regmap_update_bits(wcd938x->regmap,
+			   WCD938X_HPH_SURGE_HPHLR_SURGE_EN, 0xC0, 0x00);
+	/* 1ms delay needed after disable surge protection */
+	usleep_range(1000, 1010);
+
+	/* First get impedance on Left */
+	d1 = d1_a[1];
+	zdet_param_ptr = &zdet_param[1];
+	wcd938x_mbhc_zdet_ramp(component, zdet_param_ptr, &z1L, NULL, d1);
+
+	if (!WCD938X_MBHC_IS_SECOND_RAMP_REQUIRED(z1L))
+		goto left_ch_impedance;
+
+	/* Second ramp for left ch */
+	if (z1L < WCD938X_ZDET_VAL_32) {
+		zdet_param_ptr = &zdet_param[0];
+		d1 = d1_a[0];
+	} else if ((z1L > WCD938X_ZDET_VAL_400) &&
+		  (z1L <= WCD938X_ZDET_VAL_1200)) {
+		zdet_param_ptr = &zdet_param[2];
+		d1 = d1_a[2];
+	} else if (z1L > WCD938X_ZDET_VAL_1200) {
+		zdet_param_ptr = &zdet_param[3];
+		d1 = d1_a[3];
+	}
+	wcd938x_mbhc_zdet_ramp(component, zdet_param_ptr, &z1L, NULL, d1);
+
+left_ch_impedance:
+	if ((z1L == WCD938X_ZDET_FLOATING_IMPEDANCE) ||
+		(z1L > WCD938X_ZDET_VAL_100K)) {
+		*zl = WCD938X_ZDET_FLOATING_IMPEDANCE;
+		zdet_param_ptr = &zdet_param[1];
+		d1 = d1_a[1];
+	} else {
+		*zl = z1L/1000;
+		wcd938x_wcd_mbhc_qfuse_cal(component, zl, 0);
+	}
+	dev_dbg(component->dev, "%s: impedance on HPH_L = %d(ohms)\n",
+		__func__, *zl);
+
+	/* Start of right impedance ramp and calculation */
+	wcd938x_mbhc_zdet_ramp(component, zdet_param_ptr, NULL, &z1R, d1);
+	if (WCD938X_MBHC_IS_SECOND_RAMP_REQUIRED(z1R)) {
+		if (((z1R > WCD938X_ZDET_VAL_1200) &&
+			(zdet_param_ptr->noff == 0x6)) ||
+			((*zl) != WCD938X_ZDET_FLOATING_IMPEDANCE))
+			goto right_ch_impedance;
+		/* Second ramp for right ch */
+		if (z1R < WCD938X_ZDET_VAL_32) {
+			zdet_param_ptr = &zdet_param[0];
+			d1 = d1_a[0];
+		} else if ((z1R > WCD938X_ZDET_VAL_400) &&
+			(z1R <= WCD938X_ZDET_VAL_1200)) {
+			zdet_param_ptr = &zdet_param[2];
+			d1 = d1_a[2];
+		} else if (z1R > WCD938X_ZDET_VAL_1200) {
+			zdet_param_ptr = &zdet_param[3];
+			d1 = d1_a[3];
+		}
+		wcd938x_mbhc_zdet_ramp(component, zdet_param_ptr, NULL, &z1R, d1);
+	}
+right_ch_impedance:
+	if ((z1R == WCD938X_ZDET_FLOATING_IMPEDANCE) ||
+		(z1R > WCD938X_ZDET_VAL_100K)) {
+		*zr = WCD938X_ZDET_FLOATING_IMPEDANCE;
+	} else {
+		*zr = z1R/1000;
+		wcd938x_wcd_mbhc_qfuse_cal(component, zr, 1);
+	}
+	dev_dbg(component->dev, "%s: impedance on HPH_R = %d(ohms)\n",
+		__func__, *zr);
+
+	/* Mono/stereo detection */
+	if ((*zl == WCD938X_ZDET_FLOATING_IMPEDANCE) &&
+		(*zr == WCD938X_ZDET_FLOATING_IMPEDANCE)) {
+		dev_dbg(component->dev,
+			"%s: plug type is invalid or extension cable\n",
+			__func__);
+		goto zdet_complete;
+	}
+	if ((*zl == WCD938X_ZDET_FLOATING_IMPEDANCE) ||
+	    (*zr == WCD938X_ZDET_FLOATING_IMPEDANCE) ||
+	    ((*zl < WCD_MONO_HS_MIN_THR) && (*zr > WCD_MONO_HS_MIN_THR)) ||
+	    ((*zl > WCD_MONO_HS_MIN_THR) && (*zr < WCD_MONO_HS_MIN_THR))) {
+		dev_dbg(component->dev,
+			"%s: Mono plug type with one ch floating or shorted to GND\n",
+			__func__);
+		wcd_mbhc_set_hph_type(wcd938x->wcd_mbhc, WCD_MBHC_HPH_MONO);
+		goto zdet_complete;
+	}
+	snd_soc_component_write_field(component, WCD938X_HPH_R_ATEST,
+				      WCD938X_HPHPA_GND_OVR_MASK, 1);
+	snd_soc_component_write_field(component, WCD938X_HPH_PA_CTL2,
+				      WCD938X_HPHPA_GND_R_MASK, 1);
+	if (*zl < (WCD938X_ZDET_VAL_32/1000))
+		wcd938x_mbhc_zdet_ramp(component, &zdet_param[0], &z1Ls, NULL, d1);
+	else
+		wcd938x_mbhc_zdet_ramp(component, &zdet_param[1], &z1Ls, NULL, d1);
+	snd_soc_component_write_field(component, WCD938X_HPH_PA_CTL2,
+				      WCD938X_HPHPA_GND_R_MASK, 0);
+	snd_soc_component_write_field(component, WCD938X_HPH_R_ATEST,
+				      WCD938X_HPHPA_GND_OVR_MASK, 0);
+	z1Ls /= 1000;
+	wcd938x_wcd_mbhc_qfuse_cal(component, &z1Ls, 0);
+	/* Parallel of left Z and 9 ohm pull down resistor */
+	zMono = ((*zl) * 9) / ((*zl) + 9);
+	z_diff1 = (z1Ls > zMono) ? (z1Ls - zMono) : (zMono - z1Ls);
+	z_diff2 = ((*zl) > z1Ls) ? ((*zl) - z1Ls) : (z1Ls - (*zl));
+	if ((z_diff1 * (*zl + z1Ls)) > (z_diff2 * (z1Ls + zMono))) {
+		dev_dbg(component->dev, "%s: stereo plug type detected\n",
+			__func__);
+		wcd_mbhc_set_hph_type(wcd938x->wcd_mbhc, WCD_MBHC_HPH_STEREO);
+	} else {
+		dev_dbg(component->dev, "%s: MONO plug type detected\n",
+			__func__);
+		wcd_mbhc_set_hph_type(wcd938x->wcd_mbhc, WCD_MBHC_HPH_MONO);
+	}
+
+	/* Enable surge protection again after impedance detection */
+	regmap_update_bits(wcd938x->regmap,
+			   WCD938X_HPH_SURGE_HPHLR_SURGE_EN, 0xC0, 0xC0);
+zdet_complete:
+	snd_soc_component_write(component, WCD938X_ANA_MBHC_BTN5, reg0);
+	snd_soc_component_write(component, WCD938X_ANA_MBHC_BTN6, reg1);
+	snd_soc_component_write(component, WCD938X_ANA_MBHC_BTN7, reg2);
+	/* Turn on 100k pull down on HPHL */
+	regmap_update_bits(wcd938x->regmap,
+			   WCD938X_ANA_MBHC_MECH, 0x01, 0x01);
+
+	/* For NO-jack, re-enable L_DET_EN after Z-det measurements */
+	if (wcd938x->mbhc_cfg.hphl_swh)
+		regmap_update_bits(wcd938x->regmap,
+				   WCD938X_ANA_MBHC_MECH, 0x80, 0x80);
+
+	snd_soc_component_write(component, WCD938X_MBHC_NEW_ZDET_ANA_CTL, reg4);
+	snd_soc_component_write(component, WCD938X_MBHC_CTL_CLK, reg3);
+	if (is_fsm_disable)
+		regmap_update_bits(wcd938x->regmap,
+				   WCD938X_ANA_MBHC_ELECT, 0x80, 0x80);
+}
+
+static void wcd938x_mbhc_gnd_det_ctrl(struct snd_soc_component *component,
+			bool enable)
+{
+	if (enable) {
+		snd_soc_component_write_field(component, WCD938X_ANA_MBHC_MECH,
+					      WCD938X_MBHC_HSG_PULLUP_COMP_EN, 1);
+		snd_soc_component_write_field(component, WCD938X_ANA_MBHC_MECH,
+					      WCD938X_MBHC_GND_DET_EN_MASK, 1);
+	} else {
+		snd_soc_component_write_field(component, WCD938X_ANA_MBHC_MECH,
+					      WCD938X_MBHC_GND_DET_EN_MASK, 0);
+		snd_soc_component_write_field(component, WCD938X_ANA_MBHC_MECH,
+					      WCD938X_MBHC_HSG_PULLUP_COMP_EN, 0);
+	}
+}
+
+static void wcd938x_mbhc_hph_pull_down_ctrl(struct snd_soc_component *component,
+					  bool enable)
+{
+	snd_soc_component_write_field(component, WCD938X_HPH_PA_CTL2,
+				      WCD938X_HPHPA_GND_R_MASK, enable);
+	snd_soc_component_write_field(component, WCD938X_HPH_PA_CTL2,
+				      WCD938X_HPHPA_GND_L_MASK, enable);
+}
+
+static void wcd938x_mbhc_moisture_config(struct snd_soc_component *component)
+{
+	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
+
+	if (wcd938x->mbhc_cfg.moist_rref == R_OFF) {
+		snd_soc_component_write_field(component, WCD938X_MBHC_NEW_CTL_2,
+				    WCD938X_M_RTH_CTL_MASK, R_OFF);
+		return;
+	}
+
+	/* Do not enable moisture detection if jack type is NC */
+	if (!wcd938x->mbhc_cfg.hphl_swh) {
+		dev_dbg(component->dev, "%s: disable moisture detection for NC\n",
+			__func__);
+		snd_soc_component_write_field(component, WCD938X_MBHC_NEW_CTL_2,
+				    WCD938X_M_RTH_CTL_MASK, R_OFF);
+		return;
+	}
+
+	snd_soc_component_write_field(component, WCD938X_MBHC_NEW_CTL_2,
+			    WCD938X_M_RTH_CTL_MASK, wcd938x->mbhc_cfg.moist_rref);
+}
+
+static void wcd938x_mbhc_moisture_detect_en(struct snd_soc_component *component, bool enable)
+{
+	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
+
+	if (enable)
+		snd_soc_component_write_field(component, WCD938X_MBHC_NEW_CTL_2,
+					WCD938X_M_RTH_CTL_MASK, wcd938x->mbhc_cfg.moist_rref);
+	else
+		snd_soc_component_write_field(component, WCD938X_MBHC_NEW_CTL_2,
+				    WCD938X_M_RTH_CTL_MASK, R_OFF);
+}
+
+static bool wcd938x_mbhc_get_moisture_status(struct snd_soc_component *component)
+{
+	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
+	bool ret = false;
+
+	if (wcd938x->mbhc_cfg.moist_rref == R_OFF) {
+		snd_soc_component_write_field(component, WCD938X_MBHC_NEW_CTL_2,
+				    WCD938X_M_RTH_CTL_MASK, R_OFF);
+		goto done;
+	}
+
+	/* Do not enable moisture detection if jack type is NC */
+	if (!wcd938x->mbhc_cfg.hphl_swh) {
+		dev_dbg(component->dev, "%s: disable moisture detection for NC\n",
+			__func__);
+		snd_soc_component_write_field(component, WCD938X_MBHC_NEW_CTL_2,
+				    WCD938X_M_RTH_CTL_MASK, R_OFF);
+		goto done;
+	}
+
+	/*
+	 * If moisture_en is already enabled, then skip to plug type
+	 * detection.
+	 */
+	if (snd_soc_component_read_field(component, WCD938X_MBHC_NEW_CTL_2, WCD938X_M_RTH_CTL_MASK))
+		goto done;
+
+	wcd938x_mbhc_moisture_detect_en(component, true);
+	/* Read moisture comparator status */
+	ret = ((snd_soc_component_read(component, WCD938X_MBHC_NEW_FSM_STATUS)
+				& 0x20) ? 0 : 1);
+
+done:
+	return ret;
+
+}
+
+static void wcd938x_mbhc_moisture_polling_ctrl(struct snd_soc_component *component,
+						bool enable)
+{
+	snd_soc_component_write_field(component,
+			      WCD938X_MBHC_NEW_INT_MOISTURE_DET_POLLING_CTRL,
+			      WCD938X_MOISTURE_EN_POLLING_MASK, enable);
+}
+
+static const struct wcd_mbhc_cb mbhc_cb = {
+	.clk_setup = wcd938x_mbhc_clk_setup,
+	.mbhc_bias = wcd938x_mbhc_mbhc_bias_control,
+	.set_btn_thr = wcd938x_mbhc_program_btn_thr,
+	.micbias_enable_status = wcd938x_mbhc_micb_en_status,
+	.hph_pull_up_control_v2 = wcd938x_mbhc_hph_l_pull_up_control,
+	.mbhc_micbias_control = wcd938x_mbhc_request_micbias,
+	.mbhc_micb_ramp_control = wcd938x_mbhc_micb_ramp_control,
+	.mbhc_micb_ctrl_thr_mic = wcd938x_mbhc_micb_ctrl_threshold_mic,
+	.compute_impedance = wcd938x_wcd_mbhc_calc_impedance,
+	.mbhc_gnd_det_ctrl = wcd938x_mbhc_gnd_det_ctrl,
+	.hph_pull_down_ctrl = wcd938x_mbhc_hph_pull_down_ctrl,
+	.mbhc_moisture_config = wcd938x_mbhc_moisture_config,
+	.mbhc_get_moisture_status = wcd938x_mbhc_get_moisture_status,
+	.mbhc_moisture_polling_ctrl = wcd938x_mbhc_moisture_polling_ctrl,
+	.mbhc_moisture_detect_en = wcd938x_mbhc_moisture_detect_en,
+};
+
+static int wcd938x_get_hph_type(struct snd_kcontrol *kcontrol,
+			      struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
+
+	ucontrol->value.integer.value[0] = wcd_mbhc_get_hph_type(wcd938x->wcd_mbhc);
+
+	return 0;
+}
+
+static int wcd938x_hph_impedance_get(struct snd_kcontrol *kcontrol,
+				   struct snd_ctl_elem_value *ucontrol)
+{
+	uint32_t zl, zr;
+	bool hphr;
+	struct soc_mixer_control *mc;
+	struct snd_soc_component *component =
+					snd_soc_kcontrol_component(kcontrol);
+	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
+
+	mc = (struct soc_mixer_control *)(kcontrol->private_value);
+	hphr = mc->shift;
+	wcd_mbhc_get_impedance(wcd938x->wcd_mbhc, &zl, &zr);
+	dev_dbg(component->dev, "%s: zl=%u(ohms), zr=%u(ohms)\n", __func__, zl, zr);
+	ucontrol->value.integer.value[0] = hphr ? zr : zl;
+
+	return 0;
+}
+
+static const struct snd_kcontrol_new hph_type_detect_controls[] = {
+	SOC_SINGLE_EXT("HPH Type", 0, 0, WCD_MBHC_HPH_STEREO, 0,
+		       wcd938x_get_hph_type, NULL),
+};
+
+static const struct snd_kcontrol_new impedance_detect_controls[] = {
+	SOC_SINGLE_EXT("HPHL Impedance", 0, 0, INT_MAX, 0,
+		       wcd938x_hph_impedance_get, NULL),
+	SOC_SINGLE_EXT("HPHR Impedance", 0, 1, INT_MAX, 0,
+		       wcd938x_hph_impedance_get, NULL),
+};
+
+static int wcd938x_mbhc_init(struct snd_soc_component *component)
+{
+	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
+	struct wcd_mbhc_intr *intr_ids = &wcd938x->intr_ids;
+
+	intr_ids->mbhc_sw_intr = regmap_irq_get_virq(wcd938x->irq_chip,
+						    WCD938X_IRQ_MBHC_SW_DET);
+	intr_ids->mbhc_btn_press_intr = regmap_irq_get_virq(wcd938x->irq_chip,
+							   WCD938X_IRQ_MBHC_BUTTON_PRESS_DET);
+	intr_ids->mbhc_btn_release_intr = regmap_irq_get_virq(wcd938x->irq_chip,
+							     WCD938X_IRQ_MBHC_BUTTON_RELEASE_DET);
+	intr_ids->mbhc_hs_ins_intr = regmap_irq_get_virq(wcd938x->irq_chip,
+							WCD938X_IRQ_MBHC_ELECT_INS_REM_LEG_DET);
+	intr_ids->mbhc_hs_rem_intr = regmap_irq_get_virq(wcd938x->irq_chip,
+							WCD938X_IRQ_MBHC_ELECT_INS_REM_DET);
+	intr_ids->hph_left_ocp = regmap_irq_get_virq(wcd938x->irq_chip,
+						    WCD938X_IRQ_HPHL_OCP_INT);
+	intr_ids->hph_right_ocp = regmap_irq_get_virq(wcd938x->irq_chip,
+						     WCD938X_IRQ_HPHR_OCP_INT);
+
+	wcd938x->wcd_mbhc = wcd_mbhc_init(component, &mbhc_cb, intr_ids, wcd_mbhc_fields, true);
+	if (IS_ERR(wcd938x->wcd_mbhc))
+		return PTR_ERR(wcd938x->wcd_mbhc);
+
+	snd_soc_add_component_controls(component, impedance_detect_controls,
+				       ARRAY_SIZE(impedance_detect_controls));
+	snd_soc_add_component_controls(component, hph_type_detect_controls,
+				       ARRAY_SIZE(hph_type_detect_controls));
+
+	return 0;
+}
+
+static void wcd938x_mbhc_deinit(struct snd_soc_component *component)
+{
+	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
+
+	wcd_mbhc_deinit(wcd938x->wcd_mbhc);
+}
+
+/* END MBHC */
 
 static const struct snd_kcontrol_new wcd938x_snd_controls[] = {
 	SOC_SINGLE_EXT("HPHL_COMP Switch", WCD938X_COMP_L, 0, 1, 0,
@@ -3238,15 +3025,6 @@ static const struct snd_soc_dapm_route wcd938x_audio_map[] = {
 	{"EAR", NULL, "EAR PGA"},
 };
 
-static int wcd938x_get_micb_vout_ctl_val(u32 micb_mv)
-{
-	/* min micbias voltage is 1V and maximum is 2.85V */
-	if (micb_mv < 1000 || micb_mv > 2850)
-		return -EINVAL;
-
-	return (micb_mv - 1000) / 50;
-}
-
 static int wcd938x_set_micbias_data(struct wcd938x_priv *wcd938x)
 {
 	int vout_ctl_1, vout_ctl_2, vout_ctl_3, vout_ctl_4;
@@ -3360,20 +3138,26 @@ static int wcd938x_soc_codec_probe(struct snd_soc_component *component)
 	ret = request_threaded_irq(wcd938x->hphr_pdm_wd_int, NULL, wcd938x_wd_handle_irq,
 				   IRQF_ONESHOT | IRQF_TRIGGER_RISING,
 				   "HPHR PDM WD INT", wcd938x);
-	if (ret)
+	if (ret) {
 		dev_err(dev, "Failed to request HPHR WD interrupt (%d)\n", ret);
+		goto err_free_clsh_ctrl;
+	}
 
 	ret = request_threaded_irq(wcd938x->hphl_pdm_wd_int, NULL, wcd938x_wd_handle_irq,
 				   IRQF_ONESHOT | IRQF_TRIGGER_RISING,
 				   "HPHL PDM WD INT", wcd938x);
-	if (ret)
+	if (ret) {
 		dev_err(dev, "Failed to request HPHL WD interrupt (%d)\n", ret);
+		goto err_free_hphr_pdm_wd_int;
+	}
 
 	ret = request_threaded_irq(wcd938x->aux_pdm_wd_int, NULL, wcd938x_wd_handle_irq,
 				   IRQF_ONESHOT | IRQF_TRIGGER_RISING,
 				   "AUX PDM WD INT", wcd938x);
-	if (ret)
+	if (ret) {
 		dev_err(dev, "Failed to request Aux WD interrupt (%d)\n", ret);
+		goto err_free_hphl_pdm_wd_int;
+	}
 
 	/* Disable watchdog interrupt for HPH and AUX */
 	disable_irq_nosync(wcd938x->hphr_pdm_wd_int);
@@ -3388,7 +3172,7 @@ static int wcd938x_soc_codec_probe(struct snd_soc_component *component)
 			dev_err(component->dev,
 				"%s: Failed to add snd ctrls for variant: %d\n",
 				__func__, wcd938x->variant);
-			goto err;
+			goto err_free_aux_pdm_wd_int;
 		}
 		break;
 	case WCD9385:
@@ -3398,25 +3182,71 @@ static int wcd938x_soc_codec_probe(struct snd_soc_component *component)
 			dev_err(component->dev,
 				"%s: Failed to add snd ctrls for variant: %d\n",
 				__func__, wcd938x->variant);
-			goto err;
+			goto err_free_aux_pdm_wd_int;
 		}
 		break;
 	default:
 		break;
 	}
-err:
+
+	ret = wcd938x_mbhc_init(component);
+	if (ret) {
+		dev_err(component->dev,  "mbhc initialization failed\n");
+		goto err_free_aux_pdm_wd_int;
+	}
+
+	return 0;
+
+err_free_aux_pdm_wd_int:
+	free_irq(wcd938x->aux_pdm_wd_int, wcd938x);
+err_free_hphl_pdm_wd_int:
+	free_irq(wcd938x->hphl_pdm_wd_int, wcd938x);
+err_free_hphr_pdm_wd_int:
+	free_irq(wcd938x->hphr_pdm_wd_int, wcd938x);
+err_free_clsh_ctrl:
+	wcd_clsh_ctrl_free(wcd938x->clsh_info);
+
 	return ret;
+}
+
+static void wcd938x_soc_codec_remove(struct snd_soc_component *component)
+{
+	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
+
+	wcd938x_mbhc_deinit(component);
+
+	free_irq(wcd938x->aux_pdm_wd_int, wcd938x);
+	free_irq(wcd938x->hphl_pdm_wd_int, wcd938x);
+	free_irq(wcd938x->hphr_pdm_wd_int, wcd938x);
+
+	wcd_clsh_ctrl_free(wcd938x->clsh_info);
+}
+
+static int wcd938x_codec_set_jack(struct snd_soc_component *comp,
+				  struct snd_soc_jack *jack, void *data)
+{
+	struct wcd938x_priv *wcd = dev_get_drvdata(comp->dev);
+
+	if (jack)
+		return wcd_mbhc_start(wcd->wcd_mbhc, &wcd->mbhc_cfg, jack);
+	else
+		wcd_mbhc_stop(wcd->wcd_mbhc);
+
+	return 0;
 }
 
 static const struct snd_soc_component_driver soc_codec_dev_wcd938x = {
 	.name = "wcd938x_codec",
 	.probe = wcd938x_soc_codec_probe,
+	.remove = wcd938x_soc_codec_remove,
 	.controls = wcd938x_snd_controls,
 	.num_controls = ARRAY_SIZE(wcd938x_snd_controls),
 	.dapm_widgets = wcd938x_dapm_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(wcd938x_dapm_widgets),
 	.dapm_routes = wcd938x_audio_map,
 	.num_dapm_routes = ARRAY_SIZE(wcd938x_audio_map),
+	.set_jack = wcd938x_codec_set_jack,
+	.endianness = 1,
 };
 
 static void wcd938x_dt_parse_micbias_info(struct device *dev, struct wcd938x_priv *wcd)
@@ -3450,16 +3280,39 @@ static void wcd938x_dt_parse_micbias_info(struct device *dev, struct wcd938x_pri
 		dev_info(dev, "%s: Micbias4 DT property not found\n", __func__);
 }
 
+static bool wcd938x_swap_gnd_mic(struct snd_soc_component *component, bool active)
+{
+	int value;
+
+	struct wcd938x_priv *wcd938x;
+
+	wcd938x = snd_soc_component_get_drvdata(component);
+
+	value = gpiod_get_value(wcd938x->us_euro_gpio);
+
+	gpiod_set_value(wcd938x->us_euro_gpio, !value);
+
+	return true;
+}
+
+
 static int wcd938x_populate_dt_data(struct wcd938x_priv *wcd938x, struct device *dev)
 {
+	struct wcd_mbhc_config *cfg = &wcd938x->mbhc_cfg;
 	int ret;
 
 	wcd938x->reset_gpio = of_get_named_gpio(dev->of_node, "reset-gpios", 0);
-	if (wcd938x->reset_gpio < 0) {
-		dev_err(dev, "Failed to get reset gpio: err = %d\n",
-			wcd938x->reset_gpio);
-		return wcd938x->reset_gpio;
-	}
+	if (wcd938x->reset_gpio < 0)
+		return dev_err_probe(dev, wcd938x->reset_gpio,
+				     "Failed to get reset gpio\n");
+
+	wcd938x->us_euro_gpio = devm_gpiod_get_optional(dev, "us-euro",
+						GPIOD_OUT_LOW);
+	if (IS_ERR(wcd938x->us_euro_gpio))
+		return dev_err_probe(dev, PTR_ERR(wcd938x->us_euro_gpio),
+				     "us-euro swap Control GPIO not found\n");
+
+	cfg->swap_gnd_mic = wcd938x_swap_gnd_mic;
 
 	wcd938x->supplies[0].supply = "vdd-rxtx";
 	wcd938x->supplies[1].supply = "vdd-io";
@@ -3467,18 +3320,25 @@ static int wcd938x_populate_dt_data(struct wcd938x_priv *wcd938x, struct device 
 	wcd938x->supplies[3].supply = "vdd-mic-bias";
 
 	ret = regulator_bulk_get(dev, WCD938X_MAX_SUPPLY, wcd938x->supplies);
-	if (ret) {
-		dev_err(dev, "Failed to get supplies: err = %d\n", ret);
-		return ret;
-	}
+	if (ret)
+		return dev_err_probe(dev, ret, "Failed to get supplies\n");
 
 	ret = regulator_bulk_enable(WCD938X_MAX_SUPPLY, wcd938x->supplies);
-	if (ret) {
-		dev_err(dev, "Failed to enable supplies: err = %d\n", ret);
-		return ret;
-	}
+	if (ret)
+		return dev_err_probe(dev, ret, "Failed to enable supplies\n");
 
 	wcd938x_dt_parse_micbias_info(dev, wcd938x);
+
+	cfg->mbhc_micbias = MIC_BIAS_2;
+	cfg->anc_micbias = MIC_BIAS_2;
+	cfg->v_hs_max = WCD_MBHC_HS_V_MAX;
+	cfg->num_btn = WCD938X_MBHC_MAX_BUTTONS;
+	cfg->micb_mv = wcd938x->micb2_mv;
+	cfg->linein_th = 5000;
+	cfg->hs_thr = 1700;
+	cfg->hph_thr = 50;
+
+	wcd_dt_parse_mbhc_data(dev, cfg);
 
 	return 0;
 }
@@ -3612,10 +3472,10 @@ static int wcd938x_bind(struct device *dev)
 		return -EINVAL;
 	}
 
-	wcd938x->regmap = devm_regmap_init_sdw(wcd938x->tx_sdw_dev, &wcd938x_regmap_config);
-	if (IS_ERR(wcd938x->regmap)) {
-		dev_err(dev, "%s: tx csr regmap not found\n", __func__);
-		return PTR_ERR(wcd938x->regmap);
+	wcd938x->regmap = dev_get_regmap(&wcd938x->tx_sdw_dev->dev, NULL);
+	if (!wcd938x->regmap) {
+		dev_err(dev, "could not get TX device regmap\n");
+		return -EINVAL;
 	}
 
 	ret = wcd938x_irq_init(wcd938x, dev);
@@ -3659,16 +3519,6 @@ static const struct component_master_ops wcd938x_comp_ops = {
 	.unbind = wcd938x_unbind,
 };
 
-static int wcd938x_compare_of(struct device *dev, void *data)
-{
-	return dev->of_node == data;
-}
-
-static void wcd938x_release_of(struct device *dev, void *data)
-{
-	of_node_put(data);
-}
-
 static int wcd938x_add_slave_components(struct wcd938x_priv *wcd938x,
 					struct device *dev,
 					struct component_match **matchptr)
@@ -3684,8 +3534,8 @@ static int wcd938x_add_slave_components(struct wcd938x_priv *wcd938x,
 	}
 
 	of_node_get(wcd938x->rxnode);
-	component_match_add_release(dev, matchptr, wcd938x_release_of,
-				    wcd938x_compare_of,	wcd938x->rxnode);
+	component_match_add_release(dev, matchptr, component_release_of,
+				    component_compare_of, wcd938x->rxnode);
 
 	wcd938x->txnode = of_parse_phandle(np, "qcom,tx-device", 0);
 	if (!wcd938x->txnode) {
@@ -3693,8 +3543,8 @@ static int wcd938x_add_slave_components(struct wcd938x_priv *wcd938x,
 		return -ENODEV;
 	}
 	of_node_get(wcd938x->txnode);
-	component_match_add_release(dev, matchptr, wcd938x_release_of,
-				    wcd938x_compare_of,	wcd938x->txnode);
+	component_match_add_release(dev, matchptr, component_release_of,
+				    component_compare_of, wcd938x->txnode);
 	return 0;
 }
 
@@ -3711,6 +3561,7 @@ static int wcd938x_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	dev_set_drvdata(dev, wcd938x);
+	mutex_init(&wcd938x->micb_lock);
 
 	ret = wcd938x_populate_dt_data(wcd938x, dev);
 	if (ret) {
@@ -3735,14 +3586,12 @@ static int wcd938x_probe(struct platform_device *pdev)
 	pm_runtime_enable(dev);
 	pm_runtime_idle(dev);
 
-	return ret;
+	return 0;
 }
 
-static int wcd938x_remove(struct platform_device *pdev)
+static void wcd938x_remove(struct platform_device *pdev)
 {
 	component_master_del(&pdev->dev, &wcd938x_comp_ops);
-
-	return 0;
 }
 
 #if defined(CONFIG_OF)
@@ -3756,7 +3605,7 @@ MODULE_DEVICE_TABLE(of, wcd938x_dt_match);
 
 static struct platform_driver wcd938x_codec_driver = {
 	.probe = wcd938x_probe,
-	.remove = wcd938x_remove,
+	.remove_new = wcd938x_remove,
 	.driver = {
 		.name = "wcd938x_codec",
 		.of_match_table = of_match_ptr(wcd938x_dt_match),

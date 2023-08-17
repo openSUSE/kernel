@@ -31,8 +31,12 @@ static const struct sof_dev_desc mtl_desc = {
 	.chip_info = &mtl_chip_info,
 	.ipc_supported_mask	= BIT(SOF_INTEL_IPC4),
 	.ipc_default		= SOF_INTEL_IPC4,
+	.dspless_mode_supported	= true,		/* Only supported for HDaudio */
 	.default_fw_path = {
 		[SOF_INTEL_IPC4] = "intel/sof-ipc4/mtl",
+	},
+	.default_lib_path = {
+		[SOF_INTEL_IPC4] = "intel/sof-ipc4-lib/mtl",
 	},
 	.default_tplg_path = {
 		[SOF_INTEL_IPC4] = "intel/sof-ace-tplg",

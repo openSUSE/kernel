@@ -16,6 +16,7 @@
 #include <linux/kernel.h>
 #include <linux/cpu.h>
 #include <linux/hardirq.h>
+#include <linux/of.h>
 
 #include <asm/page.h>
 #include <asm/current.h>
@@ -25,14 +26,12 @@
 #include <asm/paca.h>
 #include <asm/mmu.h>
 #include <asm/sections.h>	/* _end */
-#include <asm/prom.h>
 #include <asm/smp.h>
 #include <asm/hw_breakpoint.h>
-#include <asm/asm-prototypes.h>
 #include <asm/svm.h>
 #include <asm/ultravisor.h>
 
-int default_machine_kexec_prepare(struct kimage *image)
+int machine_kexec_prepare(struct kimage *image)
 {
 	int i;
 	unsigned long begin, end;	/* limits of segment */
@@ -64,15 +63,18 @@ int default_machine_kexec_prepare(struct kimage *image)
 			begin = image->segment[i].mem;
 			end = begin + image->segment[i].memsz;
 
-			if ((begin < high) && (end > low))
+			if ((begin < high) && (end > low)) {
+				of_node_put(node);
 				return -ETXTBSY;
+			}
 		}
 	}
 
 	return 0;
 }
 
-static void copy_segments(unsigned long ind)
+/* Called during kexec sequence with MMU off */
+static notrace void copy_segments(unsigned long ind)
 {
 	unsigned long entry;
 	unsigned long *ptr;
@@ -105,7 +107,8 @@ static void copy_segments(unsigned long ind)
 	}
 }
 
-void kexec_copy_flush(struct kimage *image)
+/* Called during kexec sequence with MMU off */
+notrace void kexec_copy_flush(struct kimage *image)
 {
 	long i, nr_segments = image->nr_segments;
 	struct  kexec_segment ranges[KEXEC_SEGMENT_MAX];
@@ -287,7 +290,7 @@ static union thread_union kexec_stack __init_task_data =
  * For similar reasons to the stack above, the kexecing CPU needs to be on a
  * static PACA; we switch to kexec_paca.
  */
-struct paca_struct kexec_paca;
+static struct paca_struct kexec_paca;
 
 /* Our assembly helper, in misc_64.S */
 extern void kexec_sequence(void *newstack, unsigned long start,
@@ -357,7 +360,7 @@ void default_machine_kexec(struct kimage *image)
 	 * the RMA. On BookE there is no real MMU off mode, so we have to
 	 * keep it enabled as well (but then we have bolted TLB entries).
 	 */
-#ifdef CONFIG_PPC_BOOK3E
+#ifdef CONFIG_PPC_BOOK3E_64
 	copy_with_mmu_off = false;
 #else
 	copy_with_mmu_off = radix_enabled() ||
@@ -403,7 +406,7 @@ static int __init export_htab_values(void)
 	if (!node)
 		return -ENODEV;
 
-	/* remove any stale propertys so ours can be found */
+	/* remove any stale properties so ours can be found */
 	of_remove_property(node, of_find_property(node, htab_base_prop.name, NULL));
 	of_remove_property(node, of_find_property(node, htab_size_prop.name, NULL));
 

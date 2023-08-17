@@ -196,11 +196,6 @@ void output_mm_defines(void)
 #endif
 	DEFINE(_PTE_T_LOG2, PTE_T_LOG2);
 	BLANK();
-	DEFINE(_PGD_ORDER, PGD_ORDER);
-#ifndef __PAGETABLE_PMD_FOLDED
-	DEFINE(_PMD_ORDER, PMD_ORDER);
-#endif
-	DEFINE(_PTE_ORDER, PTE_ORDER);
 	BLANK();
 	DEFINE(_PMD_SHIFT, PMD_SHIFT);
 	DEFINE(_PGDIR_SHIFT, PGDIR_SHIFT);
@@ -311,7 +306,10 @@ void output_octeon_cop2_state_defines(void)
 	OFFSET(OCTEON_CP2_HSH_IVW,	octeon_cop2_state, cop2_hsh_ivw);
 	OFFSET(OCTEON_CP2_SHA3,		octeon_cop2_state, cop2_sha3);
 	OFFSET(THREAD_CP2,	task_struct, thread.cp2);
+#if defined(CONFIG_CAVIUM_OCTEON_CVMSEG_SIZE) && \
+    CONFIG_CAVIUM_OCTEON_CVMSEG_SIZE > 0
 	OFFSET(THREAD_CVMSEG,	task_struct, thread.cvmseg.cvmseg);
+#endif
 	BLANK();
 }
 #endif

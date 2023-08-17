@@ -154,8 +154,7 @@ static const struct v4l2_subdev_ops upd64083_ops = {
 
 /* i2c implementation */
 
-static int upd64083_probe(struct i2c_client *client,
-			  const struct i2c_device_id *id)
+static int upd64083_probe(struct i2c_client *client)
 {
 	struct upd64083_state *state;
 	struct v4l2_subdev *sd;
@@ -181,12 +180,11 @@ static int upd64083_probe(struct i2c_client *client,
 	return 0;
 }
 
-static int upd64083_remove(struct i2c_client *client)
+static void upd64083_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 
 	v4l2_device_unregister_subdev(sd);
-	return 0;
 }
 
 /* ----------------------------------------------------------------------- */
@@ -201,7 +199,7 @@ static struct i2c_driver upd64083_driver = {
 	.driver = {
 		.name	= "upd64083",
 	},
-	.probe		= upd64083_probe,
+	.probe_new	= upd64083_probe,
 	.remove		= upd64083_remove,
 	.id_table	= upd64083_id,
 };

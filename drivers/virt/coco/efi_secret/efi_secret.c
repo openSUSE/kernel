@@ -25,7 +25,7 @@
 #include <linux/io.h>
 #include <linux/security.h>
 #include <linux/efi.h>
-#include <asm/cacheflush.h>
+#include <linux/cacheflush.h>
 
 #define EFI_SECRET_NUM_FILES 64
 

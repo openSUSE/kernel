@@ -4,6 +4,7 @@
 
 #include <linux/types.h>
 #include <linux/rbtree.h>
+#include "cpumap.h"
 #include "rwsem.h"
 
 struct perf_cpu_map;
@@ -42,10 +43,10 @@ struct hybrid_node {
 	char	*cpus;
 };
 
-struct hybrid_cpc_node {
-	int		nr_cpu_pmu_caps;
+struct pmu_caps {
+	int		nr_caps;
 	unsigned int    max_branches;
-	char            *cpu_pmu_caps;
+	char            **caps;
 	char            *pmu_name;
 };
 
@@ -61,6 +62,7 @@ struct perf_env {
 	unsigned long long	total_mem;
 	unsigned int		msr_pmu_type;
 	unsigned int		max_branches;
+	int			kernel_is_64_bit;
 
 	int			nr_cmdline;
 	int			nr_sibling_cores;
@@ -72,14 +74,14 @@ struct perf_env {
 	int			nr_groups;
 	int			nr_cpu_pmu_caps;
 	int			nr_hybrid_nodes;
-	int			nr_hybrid_cpc_nodes;
+	int			nr_pmus_with_caps;
 	char			*cmdline;
 	const char		**cmdline_argv;
 	char			*sibling_cores;
 	char			*sibling_dies;
 	char			*sibling_threads;
 	char			*pmu_mappings;
-	char			*cpu_pmu_caps;
+	char			**cpu_pmu_caps;
 	struct cpu_topology_map	*cpu;
 	struct cpu_cache_level	*caches;
 	int			 caches_cnt;
@@ -92,7 +94,7 @@ struct perf_env {
 	struct memory_node	*memory_nodes;
 	unsigned long long	 memory_bsize;
 	struct hybrid_node	*hybrid_nodes;
-	struct hybrid_cpc_node	*hybrid_cpc_nodes;
+	struct pmu_caps		*pmu_caps;
 #ifdef HAVE_LIBBPF_SUPPORT
 	/*
 	 * bpf_info_lock protects bpf rbtrees. This is needed because the
@@ -143,14 +145,21 @@ extern struct perf_env perf_env;
 
 void perf_env__exit(struct perf_env *env);
 
+int perf_env__kernel_is_64_bit(struct perf_env *env);
+
 int perf_env__set_cmdline(struct perf_env *env, int argc, const char *argv[]);
 
 int perf_env__read_cpuid(struct perf_env *env);
+int perf_env__read_pmu_mappings(struct perf_env *env);
+int perf_env__nr_pmu_mappings(struct perf_env *env);
+const char *perf_env__pmu_mappings(struct perf_env *env);
+
 int perf_env__read_cpu_topology_map(struct perf_env *env);
 
 void cpu_cache_level__free(struct cpu_cache_level *cache);
 
 const char *perf_env__arch(struct perf_env *env);
+const char *perf_env__cpuid(struct perf_env *env);
 const char *perf_env__raw_arch(struct perf_env *env);
 int perf_env__nr_cpus_avail(struct perf_env *env);
 
@@ -159,8 +168,10 @@ void perf_env__insert_bpf_prog_info(struct perf_env *env,
 				    struct bpf_prog_info_node *info_node);
 struct bpf_prog_info_node *perf_env__find_bpf_prog_info(struct perf_env *env,
 							__u32 prog_id);
-void perf_env__insert_btf(struct perf_env *env, struct btf_node *btf_node);
+bool perf_env__insert_btf(struct perf_env *env, struct btf_node *btf_node);
 struct btf_node *perf_env__find_btf(struct perf_env *env, __u32 btf_id);
 
-int perf_env__numa_node(struct perf_env *env, int cpu);
+int perf_env__numa_node(struct perf_env *env, struct perf_cpu cpu);
+char *perf_env__find_pmu_cap(struct perf_env *env, const char *pmu_name,
+			     const char *cap);
 #endif /* __PERF_ENV_H */

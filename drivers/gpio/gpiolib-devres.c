@@ -130,61 +130,6 @@ struct gpio_desc *__must_check devm_gpiod_get_index(struct device *dev,
 EXPORT_SYMBOL_GPL(devm_gpiod_get_index);
 
 /**
- * devm_gpiod_get_from_of_node() - obtain a GPIO from an OF node
- * @dev:	device for lifecycle management
- * @node:	handle of the OF node
- * @propname:	name of the DT property representing the GPIO
- * @index:	index of the GPIO to obtain for the consumer
- * @dflags:	GPIO initialization flags
- * @label:	label to attach to the requested GPIO
- *
- * Returns:
- * On successful request the GPIO pin is configured in accordance with
- * provided @dflags.
- *
- * In case of error an ERR_PTR() is returned.
- */
-struct gpio_desc *devm_gpiod_get_from_of_node(struct device *dev,
-					      struct device_node *node,
-					      const char *propname, int index,
-					      enum gpiod_flags dflags,
-					      const char *label)
-{
-	struct gpio_desc **dr;
-	struct gpio_desc *desc;
-
-	desc = gpiod_get_from_of_node(node, propname, index, dflags, label);
-	if (IS_ERR(desc))
-		return desc;
-
-	/*
-	 * For non-exclusive GPIO descriptors, check if this descriptor is
-	 * already under resource management by this device.
-	 */
-	if (dflags & GPIOD_FLAGS_BIT_NONEXCLUSIVE) {
-		struct devres *dres;
-
-		dres = devres_find(dev, devm_gpiod_release,
-				   devm_gpiod_match, &desc);
-		if (dres)
-			return desc;
-	}
-
-	dr = devres_alloc(devm_gpiod_release, sizeof(struct gpio_desc *),
-			  GFP_KERNEL);
-	if (!dr) {
-		gpiod_put(desc);
-		return ERR_PTR(-ENOMEM);
-	}
-
-	*dr = desc;
-	devres_add(dev, dr);
-
-	return desc;
-}
-EXPORT_SYMBOL_GPL(devm_gpiod_get_from_of_node);
-
-/**
  * devm_fwnode_gpiod_get_index - get a GPIO descriptor from a given node
  * @dev:	GPIO consumer
  * @fwnode:	firmware node containing GPIO reference
@@ -375,21 +320,11 @@ void devm_gpiod_put_array(struct device *dev, struct gpio_descs *descs)
 }
 EXPORT_SYMBOL_GPL(devm_gpiod_put_array);
 
-
-
-
 static void devm_gpio_release(struct device *dev, void *res)
 {
 	unsigned *gpio = res;
 
 	gpio_free(*gpio);
-}
-
-static int devm_gpio_match(struct device *dev, void *res, void *data)
-{
-	unsigned *this = res, *gpio = data;
-
-	return *this == *gpio;
 }
 
 /**
@@ -402,11 +337,7 @@ static int devm_gpio_match(struct device *dev, void *res, void *data)
  *      same arguments and performs the same function as
  *      gpio_request().  GPIOs requested with this function will be
  *      automatically freed on driver detach.
- *
- *      If an GPIO allocated with this function needs to be freed
- *      separately, devm_gpio_free() must be used.
  */
-
 int devm_gpio_request(struct device *dev, unsigned gpio, const char *label)
 {
 	unsigned *dr;
@@ -458,24 +389,6 @@ int devm_gpio_request_one(struct device *dev, unsigned gpio,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(devm_gpio_request_one);
-
-/**
- *      devm_gpio_free - free a GPIO
- *      @dev: device to free GPIO for
- *      @gpio: GPIO to free
- *
- *      Except for the extra @dev argument, this function takes the
- *      same arguments and performs the same function as gpio_free().
- *      This function instead of gpio_free() should be used to manually
- *      free GPIOs allocated with devm_gpio_request().
- */
-void devm_gpio_free(struct device *dev, unsigned int gpio)
-{
-
-	WARN_ON(devres_release(dev, devm_gpio_release, devm_gpio_match,
-		&gpio));
-}
-EXPORT_SYMBOL_GPL(devm_gpio_free);
 
 static void devm_gpio_chip_release(void *data)
 {

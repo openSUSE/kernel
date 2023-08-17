@@ -32,9 +32,11 @@
  *
  */
 
+#include "display/intel_dp_aux_regs.h"
+#include "display/intel_gmbus_regs.h"
+#include "gvt.h"
 #include "i915_drv.h"
 #include "i915_reg.h"
-#include "gvt.h"
 
 #define GMBUS1_TOTAL_BYTES_SHIFT 16
 #define GMBUS1_TOTAL_BYTES_MASK 0x1ff

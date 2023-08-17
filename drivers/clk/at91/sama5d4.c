@@ -39,9 +39,14 @@ static const struct clk_pcr_layout sama5d4_pcr_layout = {
 static const struct {
 	char *n;
 	char *p;
+	unsigned long flags;
 	u8 id;
 } sama5d4_systemck[] = {
-	{ .n = "ddrck", .p = "masterck_div", .id = 2 },
+	/*
+	 * ddrck feeds DDR controller and is enabled by bootloader thus we need
+	 * to keep it enabled in case there is no Linux consumer for it.
+	 */
+	{ .n = "ddrck", .p = "masterck_div", .id = 2, .flags = CLK_IS_CRITICAL },
 	{ .n = "lcdck", .p = "masterck_div", .id = 3 },
 	{ .n = "smdck", .p = "smdclk",       .id = 4 },
 	{ .n = "uhpck", .p = "usbck",        .id = 6 },
@@ -103,12 +108,17 @@ static const struct {
 
 static const struct {
 	char *n;
+	unsigned long flags;
 	u8 id;
 } sama5d4_periphck[] = {
 	{ .n = "dma0_clk", .id = 8 },
 	{ .n = "cpkcc_clk", .id = 10 },
 	{ .n = "aesb_clk", .id = 13 },
-	{ .n = "mpddr_clk", .id = 16 },
+	/*
+	 * mpddr_clk feeds DDR controller and is enabled by bootloader thus we
+	 * need to keep it enabled in case there is no Linux consumer for it.
+	 */
+	{ .n = "mpddr_clk", .id = 16, .flags = CLK_IS_CRITICAL },
 	{ .n = "matrix0_clk", .id = 18 },
 	{ .n = "vdec_clk", .id = 19 },
 	{ .n = "dma1_clk", .id = 50 },
@@ -190,8 +200,7 @@ static void __init sama5d4_pmc_setup(struct device_node *np)
 	hw = at91_clk_register_master_pres(regmap, "masterck_pres", 4,
 					   parent_names,
 					   &at91sam9x5_master_layout,
-					   &mck_characteristics, &mck_lock,
-					   CLK_SET_RATE_GATE, INT_MIN);
+					   &mck_characteristics, &mck_lock);
 	if (IS_ERR(hw))
 		goto err_free;
 
@@ -199,7 +208,7 @@ static void __init sama5d4_pmc_setup(struct device_node *np)
 					  "masterck_pres",
 					  &at91sam9x5_master_layout,
 					  &mck_characteristics, &mck_lock,
-					  CLK_SET_RATE_GATE);
+					  CLK_SET_RATE_GATE, 0);
 	if (IS_ERR(hw))
 		goto err_free;
 
@@ -246,7 +255,8 @@ static void __init sama5d4_pmc_setup(struct device_node *np)
 	for (i = 0; i < ARRAY_SIZE(sama5d4_systemck); i++) {
 		hw = at91_clk_register_system(regmap, sama5d4_systemck[i].n,
 					      sama5d4_systemck[i].p,
-					      sama5d4_systemck[i].id);
+					      sama5d4_systemck[i].id,
+					      sama5d4_systemck[i].flags);
 		if (IS_ERR(hw))
 			goto err_free;
 
@@ -259,7 +269,8 @@ static void __init sama5d4_pmc_setup(struct device_node *np)
 							 sama5d4_periphck[i].n,
 							 "masterck_div",
 							 sama5d4_periphck[i].id,
-							 &range, INT_MIN);
+							 &range, INT_MIN,
+							 sama5d4_periphck[i].flags);
 		if (IS_ERR(hw))
 			goto err_free;
 
@@ -272,7 +283,7 @@ static void __init sama5d4_pmc_setup(struct device_node *np)
 							 sama5d4_periph32ck[i].n,
 							 "h32mxck",
 							 sama5d4_periph32ck[i].id,
-							 &range, INT_MIN);
+							 &range, INT_MIN, 0);
 		if (IS_ERR(hw))
 			goto err_free;
 

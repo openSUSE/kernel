@@ -5,7 +5,7 @@
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
-#include <dt-bindings/clk/versaclock.h>
+#include <dt-bindings/clock/versaclock.h>
 
 / {
 	backlight_lvds: backlight-lvds {
@@ -197,6 +197,14 @@
 		compatible = "audio-graph-card";
 		label = "rcar-sound";
 		dais = <&rsnd_port0>, <&rsnd_port1>;
+		widgets = "Microphone", "Mic Jack",
+			  "Line", "Line In Jack",
+			  "Headphone", "Headphone Jack";
+		mic-det-gpio = <&gpio0 2 GPIO_ACTIVE_LOW>;
+		routing = "Headphone Jack", "HPOUTL",
+			 "Headphone Jack", "HPOUTR",
+			 "IN3R", "MICBIAS",
+			 "Mic Jack", "IN3R";
 	};
 
 	vccq_sdhi0: regulator-vccq-sdhi0 {
@@ -264,8 +272,14 @@
 	status = "okay";
 };
 
-&du_out_rgb {
-	remote-endpoint = <&rgb_panel>;
+&du {
+	ports {
+		port@0 {
+			du_out_rgb: endpoint {
+				remote-endpoint = <&rgb_panel>;
+			};
+		};
+	};
 };
 
 &ehci0 {
@@ -351,11 +365,10 @@
 		clocks = <&x304_clk>;
 		clock-names = "xin";
 
-		assigned-clocks = <&versaclock6_bb 1>,
-				   <&versaclock6_bb 2>,
-				   <&versaclock6_bb 3>,
-				   <&versaclock6_bb 4>;
-		assigned-clock-rates =	<24000000>, <24000000>, <24000000>, <24576000>;
+		assigned-clocks = <&versaclock6_bb 1>, <&versaclock6_bb 2>,
+				  <&versaclock6_bb 3>, <&versaclock6_bb 4>;
+		assigned-clock-rates = <24000000>, <24000000>, <24576000>,
+				       <24576000>;
 
 		OUT1 {
 			idt,mode = <VC5_CMOS>;
@@ -620,6 +633,25 @@
 	/* audio_clkout0/1/2/3 */
 	#clock-cells = <1>;
 	clock-frequency = <11289600>;
+
+	/* Reference versaclock instead of audio_clk_a */
+	clocks = <&cpg CPG_MOD 1005>,
+		 <&cpg CPG_MOD 1006>, <&cpg CPG_MOD 1007>,
+		 <&cpg CPG_MOD 1008>, <&cpg CPG_MOD 1009>,
+		 <&cpg CPG_MOD 1010>, <&cpg CPG_MOD 1011>,
+		 <&cpg CPG_MOD 1012>, <&cpg CPG_MOD 1013>,
+		 <&cpg CPG_MOD 1014>, <&cpg CPG_MOD 1015>,
+		 <&cpg CPG_MOD 1022>, <&cpg CPG_MOD 1023>,
+		 <&cpg CPG_MOD 1024>, <&cpg CPG_MOD 1025>,
+		 <&cpg CPG_MOD 1026>, <&cpg CPG_MOD 1027>,
+		 <&cpg CPG_MOD 1028>, <&cpg CPG_MOD 1029>,
+		 <&cpg CPG_MOD 1030>, <&cpg CPG_MOD 1031>,
+		 <&cpg CPG_MOD 1020>, <&cpg CPG_MOD 1021>,
+		 <&cpg CPG_MOD 1020>, <&cpg CPG_MOD 1021>,
+		 <&cpg CPG_MOD 1019>, <&cpg CPG_MOD 1018>,
+		 <&versaclock6_bb 4>, <&audio_clk_b>,
+		 <&audio_clk_c>,
+		 <&cpg CPG_CORE CPG_AUDIO_CLK_I>;
 
 	status = "okay";
 

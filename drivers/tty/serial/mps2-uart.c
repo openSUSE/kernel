@@ -129,29 +129,11 @@ static void mps2_uart_stop_tx(struct uart_port *port)
 
 static void mps2_uart_tx_chars(struct uart_port *port)
 {
-	struct circ_buf *xmit = &port->state->xmit;
+	u8 ch;
 
-	while (!(mps2_uart_read8(port, UARTn_STATE) & UARTn_STATE_TX_FULL)) {
-		if (port->x_char) {
-			mps2_uart_write8(port, port->x_char, UARTn_DATA);
-			port->x_char = 0;
-			port->icount.tx++;
-			continue;
-		}
-
-		if (uart_circ_empty(xmit) || uart_tx_stopped(port))
-			break;
-
-		mps2_uart_write8(port, xmit->buf[xmit->tail], UARTn_DATA);
-		xmit->tail = (xmit->tail + 1) % UART_XMIT_SIZE;
-		port->icount.tx++;
-	}
-
-	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
-		uart_write_wakeup(port);
-
-	if (uart_circ_empty(xmit))
-		mps2_uart_stop_tx(port);
+	uart_port_tx(port, ch,
+		mps2_uart_tx_empty(port),
+		mps2_uart_write8(port, ch, UARTn_DATA));
 }
 
 static void mps2_uart_start_tx(struct uart_port *port)
@@ -358,7 +340,7 @@ static void mps2_uart_shutdown(struct uart_port *port)
 
 static void
 mps2_uart_set_termios(struct uart_port *port, struct ktermios *termios,
-		      struct ktermios *old)
+		      const struct ktermios *old)
 {
 	unsigned long flags;
 	unsigned int baud, bauddiv;
@@ -432,7 +414,7 @@ static const struct uart_ops mps2_uart_pops = {
 static DEFINE_IDR(ports_idr);
 
 #ifdef CONFIG_SERIAL_MPS2_UART_CONSOLE
-static void mps2_uart_console_putchar(struct uart_port *port, int ch)
+static void mps2_uart_console_putchar(struct uart_port *port, unsigned char ch)
 {
 	while (mps2_uart_read8(port, UARTn_STATE) & UARTn_STATE_TX_FULL)
 		cpu_relax();
@@ -484,7 +466,7 @@ static struct console mps2_uart_console = {
 
 #define MPS2_SERIAL_CONSOLE (&mps2_uart_console)
 
-static void mps2_early_putchar(struct uart_port *port, int ch)
+static void mps2_early_putchar(struct uart_port *port, unsigned char ch)
 {
 	while (readb(port->membase + UARTn_STATE) & UARTn_STATE_TX_FULL)
 		cpu_relax();

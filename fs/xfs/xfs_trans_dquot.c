@@ -58,7 +58,7 @@ xfs_trans_log_dquot(
 
 	/* Upgrade the dquot to bigtime format if possible. */
 	if (dqp->q_id != 0 &&
-	    xfs_sb_version_hasbigtime(&tp->t_mountp->m_sb) &&
+	    xfs_has_bigtime(tp->t_mountp) &&
 	    !(dqp->q_type & XFS_DQTYPE_BIGTIME))
 		dqp->q_type |= XFS_DQTYPE_BIGTIME;
 
@@ -132,8 +132,7 @@ xfs_trans_mod_dquot_byino(
 {
 	xfs_mount_t	*mp = tp->t_mountp;
 
-	if (!XFS_IS_QUOTA_RUNNING(mp) ||
-	    !XFS_IS_QUOTA_ON(mp) ||
+	if (!XFS_IS_QUOTA_ON(mp) ||
 	    xfs_is_quota_inode(&mp->m_sb, ip->i_ino))
 		return;
 
@@ -192,7 +191,7 @@ xfs_trans_mod_dquot(
 	struct xfs_dqtrx	*qtrx;
 
 	ASSERT(tp);
-	ASSERT(XFS_IS_QUOTA_RUNNING(tp->t_mountp));
+	ASSERT(XFS_IS_QUOTA_ON(tp->t_mountp));
 	qtrx = NULL;
 
 	if (!delta)
@@ -598,8 +597,7 @@ xfs_dqresv_check(
 	if (softlimit && total_count > softlimit) {
 		time64_t	now = ktime_get_real_seconds();
 
-		if ((res->timer != 0 && now > res->timer) ||
-		    (res->warnings != 0 && res->warnings >= qlim->warn)) {
+		if (res->timer != 0 && now > res->timer) {
 			*fatal = true;
 			return QUOTA_NL_ISOFTLONGWARN;
 		}
@@ -737,7 +735,7 @@ xfs_trans_reserve_quota_bydquots(
 {
 	int		error;
 
-	if (!XFS_IS_QUOTA_RUNNING(mp) || !XFS_IS_QUOTA_ON(mp))
+	if (!XFS_IS_QUOTA_ON(mp))
 		return 0;
 
 	ASSERT(flags & XFS_QMOPT_RESBLK_MASK);
@@ -794,7 +792,7 @@ xfs_trans_reserve_quota_nblks(
 	unsigned int		qflags = 0;
 	int			error;
 
-	if (!XFS_IS_QUOTA_RUNNING(mp) || !XFS_IS_QUOTA_ON(mp))
+	if (!XFS_IS_QUOTA_ON(mp))
 		return 0;
 
 	ASSERT(!xfs_is_quota_inode(&mp->m_sb, ip->i_ino));
@@ -835,56 +833,18 @@ xfs_trans_reserve_quota_icreate(
 {
 	struct xfs_mount	*mp = tp->t_mountp;
 
-	if (!XFS_IS_QUOTA_RUNNING(mp) || !XFS_IS_QUOTA_ON(mp))
+	if (!XFS_IS_QUOTA_ON(mp))
 		return 0;
 
 	return xfs_trans_reserve_quota_bydquots(tp, mp, udqp, gdqp, pdqp,
 			dblocks, 1, XFS_QMOPT_RES_REGBLKS);
 }
 
-/*
- * This routine is called to allocate a quotaoff log item.
- */
-struct xfs_qoff_logitem *
-xfs_trans_get_qoff_item(
-	struct xfs_trans	*tp,
-	struct xfs_qoff_logitem	*startqoff,
-	uint			flags)
-{
-	struct xfs_qoff_logitem	*q;
-
-	ASSERT(tp != NULL);
-
-	q = xfs_qm_qoff_logitem_init(tp->t_mountp, startqoff, flags);
-	ASSERT(q != NULL);
-
-	/*
-	 * Get a log_item_desc to point at the new item.
-	 */
-	xfs_trans_add_item(tp, &q->qql_item);
-	return q;
-}
-
-
-/*
- * This is called to mark the quotaoff logitem as needing
- * to be logged when the transaction is committed.  The logitem must
- * already be associated with the given transaction.
- */
-void
-xfs_trans_log_quotaoff_item(
-	struct xfs_trans	*tp,
-	struct xfs_qoff_logitem	*qlp)
-{
-	tp->t_flags |= XFS_TRANS_DIRTY;
-	set_bit(XFS_LI_DIRTY, &qlp->qql_item.li_flags);
-}
-
 STATIC void
 xfs_trans_alloc_dqinfo(
 	xfs_trans_t	*tp)
 {
-	tp->t_dqinfo = kmem_cache_zalloc(xfs_qm_dqtrxzone,
+	tp->t_dqinfo = kmem_cache_zalloc(xfs_dqtrx_cache,
 					 GFP_KERNEL | __GFP_NOFAIL);
 }
 
@@ -894,6 +854,6 @@ xfs_trans_free_dqinfo(
 {
 	if (!tp->t_dqinfo)
 		return;
-	kmem_cache_free(xfs_qm_dqtrxzone, tp->t_dqinfo);
+	kmem_cache_free(xfs_dqtrx_cache, tp->t_dqinfo);
 	tp->t_dqinfo = NULL;
 }

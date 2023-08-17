@@ -180,6 +180,19 @@ static inline int cpu_to_mem(int cpu)
 
 #endif	/* [!]CONFIG_HAVE_MEMORYLESS_NODES */
 
+#if defined(topology_die_id) && defined(topology_die_cpumask)
+#define TOPOLOGY_DIE_SYSFS
+#endif
+#if defined(topology_cluster_id) && defined(topology_cluster_cpumask)
+#define TOPOLOGY_CLUSTER_SYSFS
+#endif
+#if defined(topology_book_id) && defined(topology_book_cpumask)
+#define TOPOLOGY_BOOK_SYSFS
+#endif
+#if defined(topology_drawer_id) && defined(topology_drawer_cpumask)
+#define TOPOLOGY_DRAWER_SYSFS
+#endif
+
 #ifndef topology_physical_package_id
 #define topology_physical_package_id(cpu)	((void)(cpu), -1)
 #endif
@@ -191,6 +204,15 @@ static inline int cpu_to_mem(int cpu)
 #endif
 #ifndef topology_core_id
 #define topology_core_id(cpu)			((void)(cpu), 0)
+#endif
+#ifndef topology_book_id
+#define topology_book_id(cpu)			((void)(cpu), -1)
+#endif
+#ifndef topology_drawer_id
+#define topology_drawer_id(cpu)			((void)(cpu), -1)
+#endif
+#ifndef topology_ppin
+#define topology_ppin(cpu)			((void)(cpu), 0ull)
 #endif
 #ifndef topology_sibling_cpumask
 #define topology_sibling_cpumask(cpu)		cpumask_of(cpu)
@@ -204,6 +226,12 @@ static inline int cpu_to_mem(int cpu)
 #ifndef topology_die_cpumask
 #define topology_die_cpumask(cpu)		cpumask_of(cpu)
 #endif
+#ifndef topology_book_cpumask
+#define topology_book_cpumask(cpu)		cpumask_of(cpu)
+#endif
+#ifndef topology_drawer_cpumask
+#define topology_drawer_cpumask(cpu)		cpumask_of(cpu)
+#endif
 
 #if defined(CONFIG_SCHED_SMT) && !defined(cpu_smt_mask)
 static inline const struct cpumask *cpu_smt_mask(int cpu)
@@ -212,17 +240,43 @@ static inline const struct cpumask *cpu_smt_mask(int cpu)
 }
 #endif
 
-#if defined(CONFIG_SCHED_CLUSTER) && !defined(cpu_cluster_mask)
-static inline const struct cpumask *cpu_cluster_mask(int cpu)
-{
-	return topology_cluster_cpumask(cpu);
-}
-#endif
-
 static inline const struct cpumask *cpu_cpu_mask(int cpu)
 {
 	return cpumask_of_node(cpu_to_node(cpu));
 }
 
+#ifdef CONFIG_NUMA
+int sched_numa_find_nth_cpu(const struct cpumask *cpus, int cpu, int node);
+extern const struct cpumask *sched_numa_hop_mask(unsigned int node, unsigned int hops);
+#else
+static __always_inline int sched_numa_find_nth_cpu(const struct cpumask *cpus, int cpu, int node)
+{
+	return cpumask_nth(cpu, cpus);
+}
+
+static inline const struct cpumask *
+sched_numa_hop_mask(unsigned int node, unsigned int hops)
+{
+	return ERR_PTR(-EOPNOTSUPP);
+}
+#endif	/* CONFIG_NUMA */
+
+/**
+ * for_each_numa_hop_mask - iterate over cpumasks of increasing NUMA distance
+ *                          from a given node.
+ * @mask: the iteration variable.
+ * @node: the NUMA node to start the search from.
+ *
+ * Requires rcu_lock to be held.
+ *
+ * Yields cpu_online_mask for @node == NUMA_NO_NODE.
+ */
+#define for_each_numa_hop_mask(mask, node)				       \
+	for (unsigned int __hops = 0;					       \
+	     mask = (node != NUMA_NO_NODE || __hops) ?			       \
+		     sched_numa_hop_mask(node, __hops) :		       \
+		     cpu_online_mask,					       \
+	     !IS_ERR_OR_NULL(mask);					       \
+	     __hops++)
 
 #endif /* _LINUX_TOPOLOGY_H */

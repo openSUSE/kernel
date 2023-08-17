@@ -798,12 +798,12 @@ static int nct7904_detect(struct i2c_client *client,
 	    (i2c_smbus_read_byte_data(client, BANK_SEL_REG) & 0xf8) != 0x00)
 		return -ENODEV;
 
-	strlcpy(info->type, "nct7904", I2C_NAME_SIZE);
+	strscpy(info->type, "nct7904", I2C_NAME_SIZE);
 
 	return 0;
 }
 
-static const struct hwmon_channel_info *nct7904_info[] = {
+static const struct hwmon_channel_info * const nct7904_info[] = {
 	HWMON_CHANNEL_INFO(in,
 			   /* dummy, skipped in is_visible */
 			   HWMON_I_INPUT | HWMON_I_MIN | HWMON_I_MAX |

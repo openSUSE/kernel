@@ -14,15 +14,18 @@
  */
 
 #include <linux/err.h>
+#include <linux/mfd/syscon.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_gpio.h>
+#include <linux/platform_device.h>
+#include <linux/seq_file.h>
+#include <linux/slab.h>
+
 #include <linux/pinctrl/machine.h>
 #include <linux/pinctrl/pinctrl.h>
 #include <linux/pinctrl/pinmux.h>
-#include <linux/platform_device.h>
-#include <linux/slab.h>
 
 #include "pinctrl-spear.h"
 
@@ -367,9 +370,12 @@ int spear_pinctrl_probe(struct platform_device *pdev,
 	if (!pmx)
 		return -ENOMEM;
 
-	pmx->vbase = devm_platform_ioremap_resource(pdev, 0);
-	if (IS_ERR(pmx->vbase))
-		return PTR_ERR(pmx->vbase);
+	pmx->regmap = device_node_to_regmap(np);
+	if (IS_ERR(pmx->regmap)) {
+		dev_err(&pdev->dev, "Init regmap failed (%pe).\n",
+			pmx->regmap);
+		return PTR_ERR(pmx->regmap);
+	}
 
 	pmx->dev = &pdev->dev;
 	pmx->machdata = machdata;

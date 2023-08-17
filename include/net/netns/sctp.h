@@ -2,6 +2,9 @@
 #ifndef __NETNS_SCTP_H__
 #define __NETNS_SCTP_H__
 
+#include <linux/timer.h>
+#include <net/snmp.h>
+
 struct sock;
 struct proc_dir_entry;
 struct sctp_mib;
@@ -172,6 +175,10 @@ struct netns_sctp {
 
 	/* Threshold for autoclose timeout, in seconds. */
 	unsigned long max_autoclose;
+
+#ifdef CONFIG_NET_L3_MASTER_DEV
+	int l3mdev_accept;
+#endif
 };
 
 #endif /* __NETNS_SCTP_H__ */

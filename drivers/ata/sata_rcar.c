@@ -18,10 +18,6 @@
 
 #define DRV_NAME "sata_rcar"
 
-/* SH-Navi2G/ATAPI-ATA compatible task registers */
-#define DATA_REG			0x100
-#define SDEVCON_REG			0x138
-
 /* SH-Navi2G/ATAPI module compatible control registers */
 #define ATAPI_CONTROL1_REG		0x180
 #define ATAPI_STATUS_REG		0x184
@@ -283,8 +279,7 @@ static void sata_rcar_dev_select(struct ata_port *ap, unsigned int device)
 	ata_sff_pause(ap);	/* needed; also flushes, for mmio */
 }
 
-static unsigned int sata_rcar_ata_devchk(struct ata_port *ap,
-					 unsigned int device)
+static bool sata_rcar_ata_devchk(struct ata_port *ap, unsigned int device)
 {
 	struct ata_ioports *ioaddr = &ap->ioaddr;
 	u8 nsect, lbal;
@@ -304,9 +299,9 @@ static unsigned int sata_rcar_ata_devchk(struct ata_port *ap,
 	lbal  = ioread32(ioaddr->lbal_addr);
 
 	if (nsect == 0x55 && lbal == 0xaa)
-		return 1;	/* found a device */
+		return true;	/* found a device */
 
-	return 0;		/* nothing found */
+	return false;		/* nothing found */
 }
 
 static int sata_rcar_wait_after_reset(struct ata_link *link,
@@ -613,7 +608,7 @@ static u8 sata_rcar_bmdma_status(struct ata_port *ap)
 	return host_stat;
 }
 
-static struct scsi_host_template sata_rcar_sht = {
+static const struct scsi_host_template sata_rcar_sht = {
 	ATA_BASE_SHT(DRV_NAME),
 	/*
 	 * This controller allows transfer chunks up to 512MB which cross 64KB
@@ -857,7 +852,7 @@ static const struct of_device_id sata_rcar_match[] = {
 		.compatible = "renesas,rcar-gen3-sata",
 		.data = (void *)RCAR_GEN3_SATA
 	},
-	{ },
+	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, sata_rcar_match);
 
@@ -880,7 +875,7 @@ static int sata_rcar_probe(struct platform_device *pdev)
 	if (!priv)
 		return -ENOMEM;
 
-	priv->type = (enum sata_rcar_type)of_device_get_match_data(dev);
+	priv->type = (unsigned long)of_device_get_match_data(dev);
 
 	pm_runtime_enable(dev);
 	ret = pm_runtime_get_sync(dev);

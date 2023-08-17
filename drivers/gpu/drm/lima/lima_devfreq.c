@@ -119,6 +119,10 @@ int lima_devfreq_init(struct lima_device *ldev)
 
 	spin_lock_init(&ldevfreq->lock);
 
+	/*
+	 * clkname is set separately so it is not affected by the optional
+	 * regulator setting which may return error.
+	 */
 	ret = devm_pm_opp_set_clkname(dev, "core");
 	if (ret)
 		return ret;

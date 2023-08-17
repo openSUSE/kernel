@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0+
 //
-// MXC GPIO support. (c) 2008 Daniel Mack <daniel@caiaq.de>
+// MXS GPIO support. (c) 2008 Daniel Mack <daniel@caiaq.de>
 // Copyright 2008 Juergen Beisert, kernel@pengutronix.de
 //
 // Based on code from Freescale,
@@ -157,7 +157,7 @@ static void mxs_gpio_irq_handler(struct irq_desc *desc)
 		if (port->both_edges & (1 << irqoffset))
 			mxs_flip_edge(port, irqoffset);
 
-		generic_handle_irq(irq_find_mapping(port->domain, irqoffset));
+		generic_handle_domain_irq(port->domain, irqoffset);
 		irq_stat &= ~(1 << irqoffset);
 	}
 }
@@ -364,4 +364,3 @@ MODULE_AUTHOR("Freescale Semiconductor, "
 	      "Daniel Mack <danielncaiaq.de>, "
 	      "Juergen Beisert <kernel@pengutronix.de>");
 MODULE_DESCRIPTION("Freescale MXS GPIO");
-MODULE_LICENSE("GPL");

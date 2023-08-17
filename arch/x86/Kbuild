@@ -27,3 +27,6 @@ obj-y += platform/
 obj-y += net/
 
 obj-$(CONFIG_KEXEC_FILE) += purgatory/
+
+# for cleaning
+subdir- += boot tools

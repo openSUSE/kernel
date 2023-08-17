@@ -550,7 +550,8 @@ static int nhi_alloc_hop(struct tb_nhi *nhi, struct tb_ring *ring)
 			 ring->hop);
 		ret = -EBUSY;
 		goto err_unlock;
-	} else if (!ring->is_tx && nhi->rx_rings[ring->hop]) {
+	}
+	if (!ring->is_tx && nhi->rx_rings[ring->hop]) {
 		dev_warn(&nhi->pdev->dev, "RX hop %d already allocated\n",
 			 ring->hop);
 		ret = -EBUSY;
@@ -1219,6 +1220,7 @@ static void nhi_check_iommu(struct tb_nhi *nhi)
 static int nhi_init_msi(struct tb_nhi *nhi)
 {
 	struct pci_dev *pdev = nhi->pdev;
+	struct device *dev = &pdev->dev;
 	int res, irq, nvec;
 
 	/* In case someone left them on. */
@@ -1249,10 +1251,8 @@ static int nhi_init_msi(struct tb_nhi *nhi)
 
 		res = devm_request_irq(&pdev->dev, irq, nhi_msi,
 				       IRQF_NO_SUSPEND, "thunderbolt", nhi);
-		if (res) {
-			dev_err(&pdev->dev, "request_irq failed, aborting\n");
-			return res;
-		}
+		if (res)
+			return dev_err_probe(dev, res, "request_irq failed, aborting\n");
 	}
 
 	return 0;
@@ -1293,26 +1293,21 @@ static struct tb *nhi_select_cm(struct tb_nhi *nhi)
 
 static int nhi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
+	struct device *dev = &pdev->dev;
 	struct tb_nhi *nhi;
 	struct tb *tb;
 	int res;
 
-	if (!nhi_imr_valid(pdev)) {
-		dev_warn(&pdev->dev, "firmware image not valid, aborting\n");
-		return -ENODEV;
-	}
+	if (!nhi_imr_valid(pdev))
+		return dev_err_probe(dev, -ENODEV, "firmware image not valid, aborting\n");
 
 	res = pcim_enable_device(pdev);
-	if (res) {
-		dev_err(&pdev->dev, "cannot enable PCI device, aborting\n");
-		return res;
-	}
+	if (res)
+		return dev_err_probe(dev, res, "cannot enable PCI device, aborting\n");
 
 	res = pcim_iomap_regions(pdev, 1 << 0, "thunderbolt");
-	if (res) {
-		dev_err(&pdev->dev, "cannot obtain PCI resources, aborting\n");
-		return res;
-	}
+	if (res)
+		return dev_err_probe(dev, res, "cannot obtain PCI resources, aborting\n");
 
 	nhi = devm_kzalloc(&pdev->dev, sizeof(*nhi), GFP_KERNEL);
 	if (!nhi)
@@ -1320,10 +1315,10 @@ static int nhi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	nhi->pdev = pdev;
 	nhi->ops = (const struct tb_nhi_ops *)id->driver_data;
-	/* cannot fail - table is allocated bin pcim_iomap_regions */
+	/* cannot fail - table is allocated in pcim_iomap_regions */
 	nhi->iobase = pcim_iomap_table(pdev)[0];
 	nhi->hop_count = ioread32(nhi->iobase + REG_HOP_COUNT) & 0x3ff;
-	dev_dbg(&pdev->dev, "total paths: %d\n", nhi->hop_count);
+	dev_dbg(dev, "total paths: %d\n", nhi->hop_count);
 
 	nhi->tx_rings = devm_kcalloc(&pdev->dev, nhi->hop_count,
 				     sizeof(*nhi->tx_rings), GFP_KERNEL);
@@ -1336,18 +1331,14 @@ static int nhi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	nhi_check_iommu(nhi);
 
 	res = nhi_init_msi(nhi);
-	if (res) {
-		dev_err(&pdev->dev, "cannot enable MSI, aborting\n");
-		return res;
-	}
+	if (res)
+		return dev_err_probe(dev, res, "cannot enable MSI, aborting\n");
 
 	spin_lock_init(&nhi->lock);
 
 	res = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
-	if (res) {
-		dev_err(&pdev->dev, "failed to set DMA mask\n");
-		return res;
-	}
+	if (res)
+		return dev_err_probe(dev, res, "failed to set DMA mask\n");
 
 	pci_set_master(pdev);
 
@@ -1358,13 +1349,11 @@ static int nhi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	}
 
 	tb = nhi_select_cm(nhi);
-	if (!tb) {
-		dev_err(&nhi->pdev->dev,
+	if (!tb)
+		return dev_err_probe(dev, -ENODEV,
 			"failed to determine connection manager, aborting\n");
-		return -ENODEV;
-	}
 
-	dev_dbg(&nhi->pdev->dev, "NHI initialized, starting thunderbolt\n");
+	dev_dbg(dev, "NHI initialized, starting thunderbolt\n");
 
 	res = tb_domain_add(tb);
 	if (res) {
@@ -1468,6 +1457,7 @@ static struct pci_device_id nhi_ids[] = {
 	  .driver_data = (kernel_ulong_t)&icl_nhi_ops },
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_ICL_NHI1),
 	  .driver_data = (kernel_ulong_t)&icl_nhi_ops },
+	/* Thunderbolt 4 */
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_TGL_NHI0),
 	  .driver_data = (kernel_ulong_t)&icl_nhi_ops },
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_TGL_NHI1),
@@ -1483,6 +1473,12 @@ static struct pci_device_id nhi_ids[] = {
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_RPL_NHI0),
 	  .driver_data = (kernel_ulong_t)&icl_nhi_ops },
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_RPL_NHI1),
+	  .driver_data = (kernel_ulong_t)&icl_nhi_ops },
+	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_MTL_M_NHI0),
+	  .driver_data = (kernel_ulong_t)&icl_nhi_ops },
+	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_MTL_P_NHI0),
+	  .driver_data = (kernel_ulong_t)&icl_nhi_ops },
+	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_MTL_P_NHI1),
 	  .driver_data = (kernel_ulong_t)&icl_nhi_ops },
 
 	/* Any USB4 compliant host */

@@ -97,13 +97,18 @@ SYM_FUNC_START(__cpu_suspend_enter)
 	ret
 SYM_FUNC_END(__cpu_suspend_enter)
 
-	.pushsection ".idmap.text", "awx"
+	.pushsection ".idmap.text", "a"
 SYM_CODE_START(cpu_resume)
+	mov	x0, xzr
 	bl	init_kernel_el
-	bl	switch_to_vhe
+	mov	x19, x0			// preserve boot mode
+#if VA_BITS > 48
+	ldr_l	x0, vabits_actual
+#endif
 	bl	__cpu_setup
 	/* enable the MMU early - so we can access sleep_save_stash by va */
 	adrp	x1, swapper_pg_dir
+	adrp	x2, idmap_pg_dir
 	bl	__enable_mmu
 	ldr	x8, =_cpu_resume
 	br	x8
@@ -112,6 +117,9 @@ SYM_CODE_END(cpu_resume)
 	.popsection
 
 SYM_FUNC_START(_cpu_resume)
+	mov	x0, x19
+	bl	finalise_el2
+
 	mrs	x1, mpidr_el1
 	adr_l	x8, mpidr_hash		// x8 = struct mpidr_hash virt address
 

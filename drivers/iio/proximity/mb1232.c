@@ -10,12 +10,14 @@
  * https://www.maxbotix.com/documents/I2CXL-MaxSonar-EZ_Datasheet.pdf
  */
 
+#include <linux/bitops.h>
 #include <linux/err.h>
 #include <linux/i2c.h>
-#include <linux/of_irq.h>
 #include <linux/delay.h>
+#include <linux/mod_devicetable.h>
 #include <linux/module.h>
-#include <linux/bitops.h>
+#include <linux/property.h>
+
 #include <linux/iio/iio.h>
 #include <linux/iio/sysfs.h>
 #include <linux/iio/buffer.h>
@@ -178,9 +180,9 @@ static const struct iio_info mb1232_info = {
 	.read_raw = mb1232_read_raw,
 };
 
-static int mb1232_probe(struct i2c_client *client,
-					 const struct i2c_device_id *id)
+static int mb1232_probe(struct i2c_client *client)
 {
+	const struct i2c_device_id *id = i2c_client_get_device_id(client);
 	struct iio_dev *indio_dev;
 	struct mb1232_data *data;
 	int ret;
@@ -209,7 +211,7 @@ static int mb1232_probe(struct i2c_client *client,
 
 	init_completion(&data->ranging);
 
-	data->irqnr = irq_of_parse_and_map(dev->of_node, 0);
+	data->irqnr = fwnode_irq_get(dev_fwnode(&client->dev), 0);
 	if (data->irqnr <= 0) {
 		/* usage of interrupt is optional */
 		data->irqnr = -1;
@@ -262,7 +264,7 @@ static struct i2c_driver mb1232_driver = {
 		.name	= "maxbotix-mb1232",
 		.of_match_table	= of_mb1232_match,
 	},
-	.probe = mb1232_probe,
+	.probe_new = mb1232_probe,
 	.id_table = mb1232_id,
 };
 module_i2c_driver(mb1232_driver);

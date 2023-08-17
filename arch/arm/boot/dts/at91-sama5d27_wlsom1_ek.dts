@@ -19,21 +19,20 @@
 		serial1 = &uart6;	/* BT */
 		serial2 = &uart5;	/* mikro BUS 2 */
 		serial3 = &uart3;	/* mikro BUS 1 */
-		i2c1	= &i2c1;
+		i2c1 = &i2c1;
 	};
 
 	chosen {
 		stdout-path = "serial0:115200n8";
 	};
 
-	gpio_keys {
+	gpio-keys {
 		compatible = "gpio-keys";
 
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_key_gpio_default>;
-		status = "okay";
 
-		sw4 {
+		button-1 {
 			label = "USER BUTTON";
 			gpios = <&pioA PIN_PB2 GPIO_ACTIVE_LOW>;
 			linux,code = <KEY_PROG1>;
@@ -47,17 +46,17 @@
 		pinctrl-0 = <&pinctrl_led_gpio_default>;
 		status = "okay";
 
-		red {
+		led-red {
 			label = "red";
 			gpios = <&pioA PIN_PA6 GPIO_ACTIVE_HIGH>;
 		};
 
-		green {
+		led-green {
 			label = "green";
 			gpios = <&pioA PIN_PA7 GPIO_ACTIVE_HIGH>;
 		};
 
-		blue {
+		led-blue {
 			label = "blue";
 			gpios = <&pioA PIN_PA8 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "heartbeat";
@@ -191,7 +190,7 @@
 &qspi1 {
 	status = "okay";
 
-	qspi1_flash: spi_flash@0 {
+	qspi1_flash: flash@0 {
 		status = "okay";
 	};
 };

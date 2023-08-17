@@ -23,7 +23,7 @@ static void netfs_clear_unread(struct netfs_io_subrequest *subreq)
 {
 	struct iov_iter iter;
 
-	iov_iter_xarray(&iter, READ, &subreq->rreq->mapping->i_pages,
+	iov_iter_xarray(&iter, ITER_DEST, &subreq->rreq->mapping->i_pages,
 			subreq->start + subreq->transferred,
 			subreq->len   - subreq->transferred);
 	iov_iter_zero(iov_iter_count(&iter), &iter);
@@ -49,7 +49,7 @@ static void netfs_read_from_cache(struct netfs_io_request *rreq,
 	struct iov_iter iter;
 
 	netfs_stat(&netfs_n_rh_read);
-	iov_iter_xarray(&iter, READ, &rreq->mapping->i_pages,
+	iov_iter_xarray(&iter, ITER_DEST, &rreq->mapping->i_pages,
 			subreq->start + subreq->transferred,
 			subreq->len   - subreq->transferred);
 
@@ -103,7 +103,7 @@ static void netfs_rreq_completed(struct netfs_io_request *rreq, bool was_async)
 
 /*
  * Deal with the completion of writing the data to the cache.  We have to clear
- * the PG_fscache bits on the pages involved and release the caller's ref.
+ * the PG_fscache bits on the folios involved and release the caller's ref.
  *
  * May be called in softirq mode and we inherit a ref from the caller.
  */
@@ -111,7 +111,7 @@ static void netfs_rreq_unmark_after_write(struct netfs_io_request *rreq,
 					  bool was_async)
 {
 	struct netfs_io_subrequest *subreq;
-	struct page *page;
+	struct folio *folio;
 	pgoff_t unlocked = 0;
 	bool have_unlocked = false;
 
@@ -120,14 +120,17 @@ static void netfs_rreq_unmark_after_write(struct netfs_io_request *rreq,
 	list_for_each_entry(subreq, &rreq->subrequests, rreq_link) {
 		XA_STATE(xas, &rreq->mapping->i_pages, subreq->start / PAGE_SIZE);
 
-		xas_for_each(&xas, page, (subreq->start + subreq->len - 1) / PAGE_SIZE) {
-			/* We might have multiple writes from the same huge
-			 * page, but we mustn't unlock a page more than once.
-			 */
-			if (have_unlocked && page->index <= unlocked)
+		xas_for_each(&xas, folio, (subreq->start + subreq->len - 1) / PAGE_SIZE) {
+			if (xas_retry(&xas, folio))
 				continue;
-			unlocked = page->index;
-			end_page_fscache(page);
+
+			/* We might have multiple writes from the same huge
+			 * folio, but we mustn't unlock a folio more than once.
+			 */
+			if (have_unlocked && folio_index(folio) <= unlocked)
+				continue;
+			unlocked = folio_index(folio);
+			folio_end_fscache(folio);
 			have_unlocked = true;
 		}
 	}
@@ -205,7 +208,7 @@ static void netfs_rreq_do_write_to_cache(struct netfs_io_request *rreq)
 			continue;
 		}
 
-		iov_iter_xarray(&iter, WRITE, &rreq->mapping->i_pages,
+		iov_iter_xarray(&iter, ITER_SOURCE, &rreq->mapping->i_pages,
 				subreq->start, subreq->len);
 
 		atomic_inc(&rreq->nr_copy_ops);
@@ -337,7 +340,7 @@ again:
 		return;
 	}
 
-	netfs_rreq_unlock(rreq);
+	netfs_rreq_unlock_folios(rreq);
 
 	clear_bit_unlock(NETFS_RREQ_IN_PROGRESS, &rreq->flags);
 	wake_up_bit(&rreq->flags, NETFS_RREQ_IN_PROGRESS);

@@ -33,7 +33,6 @@
 #include <asm/r4kcache.h>
 #include <asm/sections.h>
 #include <asm/mmu_context.h>
-#include <asm/war.h>
 #include <asm/cacheflush.h> /* for run_uncached() */
 #include <asm/traps.h>
 #include <asm/mips-cps.h>
@@ -110,20 +109,6 @@ static unsigned long icache_size __read_mostly;
 static unsigned long dcache_size __read_mostly;
 static unsigned long vcache_size __read_mostly;
 static unsigned long scache_size __read_mostly;
-
-/*
- * Dummy cache handling routines for machines without boardcaches
- */
-static void cache_noop(void) {}
-
-static struct bcache_ops no_sc_ops = {
-	.bc_enable = (void *)cache_noop,
-	.bc_disable = (void *)cache_noop,
-	.bc_wback_inv = (void *)cache_noop,
-	.bc_inv = (void *)cache_noop
-};
-
-struct bcache_ops *bcops = &no_sc_ops;
 
 #define cpu_is_r4600_v1_x()	((read_c0_prid() & 0xfffffff0) == 0x00002010)
 #define cpu_is_r4600_v2_x()	((read_c0_prid() & 0xfffffff0) == 0x00002020)
@@ -202,24 +187,6 @@ static void r4k_blast_dcache_user_page_setup(void)
 
 #endif
 
-static void (* r4k_blast_dcache_page_indexed)(unsigned long addr);
-
-static void r4k_blast_dcache_page_indexed_setup(void)
-{
-	unsigned long dc_lsize = cpu_dcache_line_size();
-
-	if (dc_lsize == 0)
-		r4k_blast_dcache_page_indexed = (void *)cache_noop;
-	else if (dc_lsize == 16)
-		r4k_blast_dcache_page_indexed = blast_dcache16_page_indexed;
-	else if (dc_lsize == 32)
-		r4k_blast_dcache_page_indexed = blast_dcache32_page_indexed;
-	else if (dc_lsize == 64)
-		r4k_blast_dcache_page_indexed = blast_dcache64_page_indexed;
-	else if (dc_lsize == 128)
-		r4k_blast_dcache_page_indexed = blast_dcache128_page_indexed;
-}
-
 void (* r4k_blast_dcache)(void);
 EXPORT_SYMBOL(r4k_blast_dcache);
 
@@ -281,39 +248,6 @@ static inline void tx49_blast_icache32(void)
 				     addr | ws, 32);
 }
 
-static inline void blast_icache32_r4600_v1_page_indexed(unsigned long page)
-{
-	unsigned long flags;
-
-	local_irq_save(flags);
-	blast_icache32_page_indexed(page);
-	local_irq_restore(flags);
-}
-
-static inline void tx49_blast_icache32_page_indexed(unsigned long page)
-{
-	unsigned long indexmask = current_cpu_data.icache.waysize - 1;
-	unsigned long start = INDEX_BASE + (page & indexmask);
-	unsigned long end = start + PAGE_SIZE;
-	unsigned long ws_inc = 1UL << current_cpu_data.icache.waybit;
-	unsigned long ws_end = current_cpu_data.icache.ways <<
-			       current_cpu_data.icache.waybit;
-	unsigned long ws, addr;
-
-	CACHE32_UNROLL32_ALIGN2;
-	/* I'm in even chunk.  blast odd chunks */
-	for (ws = 0; ws < ws_end; ws += ws_inc)
-		for (addr = start + 0x400; addr < end; addr += 0x400 * 2)
-			cache_unroll(32, kernel_cache, Index_Invalidate_I,
-				     addr | ws, 32);
-	CACHE32_UNROLL32_ALIGN;
-	/* I'm in odd chunk.  blast even chunks */
-	for (ws = 0; ws < ws_end; ws += ws_inc)
-		for (addr = start; addr < end; addr += 0x400 * 2)
-			cache_unroll(32, kernel_cache, Index_Invalidate_I,
-				     addr | ws, 32);
-}
-
 static void (* r4k_blast_icache_page)(unsigned long addr);
 
 static void r4k_blast_icache_page_setup(void)
@@ -355,34 +289,6 @@ static void r4k_blast_icache_user_page_setup(void)
 }
 
 #endif
-
-static void (* r4k_blast_icache_page_indexed)(unsigned long addr);
-
-static void r4k_blast_icache_page_indexed_setup(void)
-{
-	unsigned long ic_lsize = cpu_icache_line_size();
-
-	if (ic_lsize == 0)
-		r4k_blast_icache_page_indexed = (void *)cache_noop;
-	else if (ic_lsize == 16)
-		r4k_blast_icache_page_indexed = blast_icache16_page_indexed;
-	else if (ic_lsize == 32) {
-		if (IS_ENABLED(CONFIG_WAR_R4600_V1_INDEX_ICACHEOP) &&
-		    cpu_is_r4600_v1_x())
-			r4k_blast_icache_page_indexed =
-				blast_icache32_r4600_v1_page_indexed;
-		else if (IS_ENABLED(CONFIG_WAR_TX49XX_ICACHE_INDEX_INV))
-			r4k_blast_icache_page_indexed =
-				tx49_blast_icache32_page_indexed;
-		else if (current_cpu_type() == CPU_LOONGSON2EF)
-			r4k_blast_icache_page_indexed =
-				loongson2_blast_icache32_page_indexed;
-		else
-			r4k_blast_icache_page_indexed =
-				blast_icache32_page_indexed;
-	} else if (ic_lsize == 64)
-		r4k_blast_icache_page_indexed = blast_icache64_page_indexed;
-}
 
 void (* r4k_blast_icache)(void);
 EXPORT_SYMBOL(r4k_blast_icache);
@@ -427,24 +333,6 @@ static void r4k_blast_scache_page_setup(void)
 		r4k_blast_scache_page = blast_scache64_page;
 	else if (sc_lsize == 128)
 		r4k_blast_scache_page = blast_scache128_page;
-}
-
-static void (* r4k_blast_scache_page_indexed)(unsigned long addr);
-
-static void r4k_blast_scache_page_indexed_setup(void)
-{
-	unsigned long sc_lsize = cpu_scache_line_size();
-
-	if (scache_size == 0)
-		r4k_blast_scache_page_indexed = (void *)cache_noop;
-	else if (sc_lsize == 16)
-		r4k_blast_scache_page_indexed = blast_scache16_page_indexed;
-	else if (sc_lsize == 32)
-		r4k_blast_scache_page_indexed = blast_scache32_page_indexed;
-	else if (sc_lsize == 64)
-		r4k_blast_scache_page_indexed = blast_scache64_page_indexed;
-	else if (sc_lsize == 128)
-		r4k_blast_scache_page_indexed = blast_scache128_page_indexed;
 }
 
 static void (* r4k_blast_scache)(void);
@@ -1195,50 +1083,6 @@ static void probe_pcache(void)
 		c->options |= MIPS_CPU_PREFETCH;
 		break;
 
-	case CPU_VR4133:
-		write_c0_config(config & ~VR41_CONF_P4K);
-		fallthrough;
-	case CPU_VR4131:
-		/* Workaround for cache instruction bug of VR4131 */
-		if (c->processor_id == 0x0c80U || c->processor_id == 0x0c81U ||
-		    c->processor_id == 0x0c82U) {
-			config |= 0x00400000U;
-			if (c->processor_id == 0x0c80U)
-				config |= VR41_CONF_BP;
-			write_c0_config(config);
-		} else
-			c->options |= MIPS_CPU_CACHE_CDEX_P;
-
-		icache_size = 1 << (10 + ((config & CONF_IC) >> 9));
-		c->icache.linesz = 16 << ((config & CONF_IB) >> 5);
-		c->icache.ways = 2;
-		c->icache.waybit = __ffs(icache_size/2);
-
-		dcache_size = 1 << (10 + ((config & CONF_DC) >> 6));
-		c->dcache.linesz = 16 << ((config & CONF_DB) >> 4);
-		c->dcache.ways = 2;
-		c->dcache.waybit = __ffs(dcache_size/2);
-		break;
-
-	case CPU_VR41XX:
-	case CPU_VR4111:
-	case CPU_VR4121:
-	case CPU_VR4122:
-	case CPU_VR4181:
-	case CPU_VR4181A:
-		icache_size = 1 << (10 + ((config & CONF_IC) >> 9));
-		c->icache.linesz = 16 << ((config & CONF_IB) >> 5);
-		c->icache.ways = 1;
-		c->icache.waybit = 0;	/* doesn't matter */
-
-		dcache_size = 1 << (10 + ((config & CONF_DC) >> 6));
-		c->dcache.linesz = 16 << ((config & CONF_DB) >> 4);
-		c->dcache.ways = 1;
-		c->dcache.waybit = 0;	/* does not matter */
-
-		c->options |= MIPS_CPU_CACHE_CDEX_P;
-		break;
-
 	case CPU_RM7000:
 		rm7k_erratum31();
 
@@ -1410,7 +1254,6 @@ static void probe_pcache(void)
 	case CPU_I6500:
 	case CPU_SB1:
 	case CPU_SB1A:
-	case CPU_XLR:
 		c->dcache.flags |= MIPS_CACHE_PINDEX;
 		break;
 
@@ -1699,7 +1542,6 @@ static void setup_scache(void)
 		return;
 
 	case CPU_CAVIUM_OCTEON3:
-	case CPU_XLP:
 		/* don't need to worry about L2, fully coherent */
 		return;
 
@@ -1868,13 +1710,10 @@ void r4k_cache_init(void)
 	setup_scache();
 
 	r4k_blast_dcache_page_setup();
-	r4k_blast_dcache_page_indexed_setup();
 	r4k_blast_dcache_setup();
 	r4k_blast_icache_page_setup();
-	r4k_blast_icache_page_indexed_setup();
 	r4k_blast_icache_setup();
 	r4k_blast_scache_page_setup();
-	r4k_blast_scache_page_indexed_setup();
 	r4k_blast_scache_setup();
 	r4k_blast_scache_node_setup();
 #ifdef CONFIG_EVA
@@ -1906,7 +1745,6 @@ void r4k_cache_init(void)
 	__flush_kernel_vmap_range = r4k_flush_kernel_vmap_range;
 
 	flush_icache_all	= r4k_flush_icache_all;
-	local_flush_data_cache_page	= local_r4k_flush_data_cache_page;
 	flush_data_cache_page	= r4k_flush_data_cache_page;
 	flush_icache_range	= r4k_flush_icache_range;
 	local_flush_icache_range	= local_r4k_flush_icache_range;
@@ -1914,15 +1752,9 @@ void r4k_cache_init(void)
 	__local_flush_icache_user_range	= local_r4k_flush_icache_user_range;
 
 #ifdef CONFIG_DMA_NONCOHERENT
-	if (dma_default_coherent) {
-		_dma_cache_wback_inv	= (void *)cache_noop;
-		_dma_cache_wback	= (void *)cache_noop;
-		_dma_cache_inv		= (void *)cache_noop;
-	} else {
-		_dma_cache_wback_inv	= r4k_dma_cache_wback_inv;
-		_dma_cache_wback	= r4k_dma_cache_wback_inv;
-		_dma_cache_inv		= r4k_dma_cache_inv;
-	}
+	_dma_cache_wback_inv	= r4k_dma_cache_wback_inv;
+	_dma_cache_wback	= r4k_dma_cache_wback_inv;
+	_dma_cache_inv		= r4k_dma_cache_inv;
 #endif /* CONFIG_DMA_NONCOHERENT */
 
 	build_clear_page();
@@ -1955,7 +1787,6 @@ void r4k_cache_init(void)
 		/* I$ fills from D$ just by emptying the write buffers */
 		flush_cache_page = (void *)b5k_instruction_hazard;
 		flush_cache_range = (void *)b5k_instruction_hazard;
-		local_flush_data_cache_page = (void *)b5k_instruction_hazard;
 		flush_data_cache_page = (void *)b5k_instruction_hazard;
 		flush_icache_range = (void *)b5k_instruction_hazard;
 		local_flush_icache_range = (void *)b5k_instruction_hazard;
@@ -1975,7 +1806,6 @@ void r4k_cache_init(void)
 		flush_cache_range	= (void *)cache_noop;
 		flush_icache_all	= (void *)cache_noop;
 		flush_data_cache_page	= (void *)cache_noop;
-		local_flush_data_cache_page	= (void *)cache_noop;
 		break;
 	}
 }

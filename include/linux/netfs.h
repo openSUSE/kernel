@@ -17,6 +17,7 @@
 #include <linux/workqueue.h>
 #include <linux/fs.h>
 #include <linux/pagemap.h>
+#include <linux/uio.h>
 
 enum netfs_sreq_ref_trace;
 
@@ -24,6 +25,7 @@ enum netfs_sreq_ref_trace;
  * Overload PG_private_2 to give us PG_fscache - this is used to indicate that
  * a page is currently backed by a local disk cache
  */
+#define folio_test_fscache(folio)	folio_test_private_2(folio)
 #define PageFsCache(page)		PagePrivate2((page))
 #define SetPageFsCache(page)		SetPagePrivate2((page))
 #define ClearPageFsCache(page)		ClearPagePrivate2((page))
@@ -31,60 +33,80 @@ enum netfs_sreq_ref_trace;
 #define TestClearPageFsCache(page)	TestClearPagePrivate2((page))
 
 /**
- * set_page_fscache - Set PG_fscache on a page and take a ref
- * @page: The page.
+ * folio_start_fscache - Start an fscache write on a folio.
+ * @folio: The folio.
  *
- * Set the PG_fscache (PG_private_2) flag on a page and take the reference
- * needed for the VM to handle its lifetime correctly.  This sets the flag and
- * takes the reference unconditionally, so care must be taken not to set the
- * flag again if it's already set.
+ * Call this function before writing a folio to a local cache.  Starting a
+ * second write before the first one finishes is not allowed.
  */
-static inline void set_page_fscache(struct page *page)
+static inline void folio_start_fscache(struct folio *folio)
 {
-	set_page_private_2(page);
+	VM_BUG_ON_FOLIO(folio_test_private_2(folio), folio);
+	folio_get(folio);
+	folio_set_private_2(folio);
 }
 
 /**
- * end_page_fscache - Clear PG_fscache and release any waiters
- * @page: The page
+ * folio_end_fscache - End an fscache write on a folio.
+ * @folio: The folio.
  *
- * Clear the PG_fscache (PG_private_2) bit on a page and wake up any sleepers
- * waiting for this.  The page ref held for PG_private_2 being set is released.
- *
- * This is, for example, used when a netfs page is being written to a local
- * disk cache, thereby allowing writes to the cache for the same page to be
- * serialised.
+ * Call this function after the folio has been written to the local cache.
+ * This will wake any sleepers waiting on this folio.
  */
-static inline void end_page_fscache(struct page *page)
+static inline void folio_end_fscache(struct folio *folio)
 {
-	end_page_private_2(page);
+	folio_end_private_2(folio);
 }
 
 /**
- * wait_on_page_fscache - Wait for PG_fscache to be cleared on a page
- * @page: The page to wait on
+ * folio_wait_fscache - Wait for an fscache write on this folio to end.
+ * @folio: The folio.
  *
- * Wait for PG_fscache (aka PG_private_2) to be cleared on a page.
+ * If this folio is currently being written to a local cache, wait for
+ * the write to finish.  Another write may start after this one finishes,
+ * unless the caller holds the folio lock.
  */
-static inline void wait_on_page_fscache(struct page *page)
+static inline void folio_wait_fscache(struct folio *folio)
 {
-	wait_on_page_private_2(page);
+	folio_wait_private_2(folio);
 }
 
 /**
- * wait_on_page_fscache_killable - Wait for PG_fscache to be cleared on a page
- * @page: The page to wait on
+ * folio_wait_fscache_killable - Wait for an fscache write on this folio to end.
+ * @folio: The folio.
  *
- * Wait for PG_fscache (aka PG_private_2) to be cleared on a page or until a
- * fatal signal is received by the calling task.
+ * If this folio is currently being written to a local cache, wait
+ * for the write to finish or for a fatal signal to be received.
+ * Another write may start after this one finishes, unless the caller
+ * holds the folio lock.
  *
  * Return:
  * - 0 if successful.
  * - -EINTR if a fatal signal was encountered.
  */
+static inline int folio_wait_fscache_killable(struct folio *folio)
+{
+	return folio_wait_private_2_killable(folio);
+}
+
+static inline void set_page_fscache(struct page *page)
+{
+	folio_start_fscache(page_folio(page));
+}
+
+static inline void end_page_fscache(struct page *page)
+{
+	folio_end_private_2(page_folio(page));
+}
+
+static inline void wait_on_page_fscache(struct page *page)
+{
+	folio_wait_private_2(page_folio(page));
+}
+
 static inline int wait_on_page_fscache_killable(struct page *page)
 {
-	return wait_on_page_private_2_killable(page);
+	return folio_wait_private_2_killable(page_folio(page));
 }
 
 enum netfs_io_source {
@@ -98,9 +120,10 @@ typedef void (*netfs_io_terminated_t)(void *priv, ssize_t transferred_or_error,
 				      bool was_async);
 
 /*
- * Per-inode description.  This must be directly after the inode struct.
+ * Per-inode context.  This wraps the VFS inode.
  */
-struct netfs_i_context {
+struct netfs_inode {
+	struct inode		inode;		/* The VFS inode */
 	const struct netfs_request_ops *ops;
 #if IS_ENABLED(CONFIG_FSCACHE)
 	struct fscache_cookie	*cache;
@@ -167,13 +190,13 @@ struct netfs_io_request {
 	enum netfs_io_origin	origin;		/* Origin of the request */
 	loff_t			i_size;		/* Size of the file */
 	loff_t			start;		/* Start position */
-	pgoff_t			no_unlock_page;	/* Don't unlock this page after read */
+	pgoff_t			no_unlock_folio; /* Don't unlock this folio after read */
 	refcount_t		ref;
 	unsigned long		flags;
 #define NETFS_RREQ_INCOMPLETE_IO	0	/* Some ioreqs terminated short or with error */
 #define NETFS_RREQ_COPY_TO_CACHE	1	/* Need to write to the cache */
-#define NETFS_RREQ_NO_UNLOCK_PAGE	2	/* Don't unlock no_unlock_page on completion */
-#define NETFS_RREQ_DONT_UNLOCK_PAGES	3	/* Don't unlock the pages on completion */
+#define NETFS_RREQ_NO_UNLOCK_FOLIO	2	/* Don't unlock no_unlock_folio on completion */
+#define NETFS_RREQ_DONT_UNLOCK_FOLIOS	3	/* Don't unlock the folios on completion */
 #define NETFS_RREQ_FAILED		4	/* The request failed */
 #define NETFS_RREQ_IN_PROGRESS		5	/* Unlocked when the request completes */
 	const struct netfs_request_ops *netfs_ops;
@@ -192,7 +215,7 @@ struct netfs_request_ops {
 	void (*issue_read)(struct netfs_io_subrequest *subreq);
 	bool (*is_still_valid)(struct netfs_io_request *rreq);
 	int (*check_write_begin)(struct file *file, loff_t pos, unsigned len,
-				 struct page **pagep, void **_fsdata);
+				 struct folio **foliop, void **_fsdata);
 	void (*done)(struct netfs_io_request *rreq);
 };
 
@@ -236,7 +259,7 @@ struct netfs_cache_ops {
 	 * boundary as appropriate.
 	 */
 	enum netfs_io_source (*prepare_read)(struct netfs_io_subrequest *subreq,
-					       loff_t i_size);
+					     loff_t i_size);
 
 	/* Prepare a write operation, working out what part of the write we can
 	 * actually do.
@@ -244,6 +267,14 @@ struct netfs_cache_ops {
 	int (*prepare_write)(struct netfs_cache_resources *cres,
 			     loff_t *_start, size_t *_len, loff_t i_size,
 			     bool no_space_allocated_yet);
+
+	/* Prepare an on-demand read operation, shortening it to a cached/uncached
+	 * boundary as appropriate.
+	 */
+	enum netfs_io_source (*prepare_ondemand_read)(struct netfs_cache_resources *cres,
+						      loff_t start, size_t *_len,
+						      loff_t i_size,
+						      unsigned long *_flags, ino_t ino);
 
 	/* Query the occupancy of the cache in a region, returning where the
 	 * next chunk of data starts and how long it is.
@@ -254,85 +285,77 @@ struct netfs_cache_ops {
 };
 
 struct readahead_control;
-extern void netfs_readahead(struct readahead_control *);
-extern int netfs_readpage(struct file *, struct page *);
-extern int netfs_write_begin(struct file *, struct address_space *,
-			     loff_t, unsigned int, unsigned int, struct page **,
-			     void **);
+void netfs_readahead(struct readahead_control *);
+int netfs_read_folio(struct file *, struct folio *);
+int netfs_write_begin(struct netfs_inode *, struct file *,
+		struct address_space *, loff_t pos, unsigned int len,
+		struct folio **, void **fsdata);
 
-extern void netfs_subreq_terminated(struct netfs_io_subrequest *, ssize_t, bool);
-extern void netfs_get_subrequest(struct netfs_io_subrequest *subreq,
-				 enum netfs_sreq_ref_trace what);
-extern void netfs_put_subrequest(struct netfs_io_subrequest *subreq,
-				 bool was_async, enum netfs_sreq_ref_trace what);
-extern void netfs_stats_show(struct seq_file *);
+void netfs_subreq_terminated(struct netfs_io_subrequest *, ssize_t, bool);
+void netfs_get_subrequest(struct netfs_io_subrequest *subreq,
+			  enum netfs_sreq_ref_trace what);
+void netfs_put_subrequest(struct netfs_io_subrequest *subreq,
+			  bool was_async, enum netfs_sreq_ref_trace what);
+void netfs_stats_show(struct seq_file *);
+ssize_t netfs_extract_user_iter(struct iov_iter *orig, size_t orig_len,
+				struct iov_iter *new,
+				iov_iter_extraction_t extraction_flags);
+struct sg_table;
+ssize_t netfs_extract_iter_to_sg(struct iov_iter *iter, size_t len,
+				 struct sg_table *sgtable, unsigned int sg_max,
+				 iov_iter_extraction_t extraction_flags);
 
 /**
- * netfs_i_context - Get the netfs inode context from the inode
+ * netfs_inode - Get the netfs inode context from the inode
  * @inode: The inode to query
  *
  * Get the netfs lib inode context from the network filesystem's inode.  The
  * context struct is expected to directly follow on from the VFS inode struct.
  */
-static inline struct netfs_i_context *netfs_i_context(struct inode *inode)
+static inline struct netfs_inode *netfs_inode(struct inode *inode)
 {
-	return (void *)inode + sizeof(*inode);
+	return container_of(inode, struct netfs_inode, inode);
 }
 
 /**
- * netfs_inode - Get the netfs inode from the inode context
- * @ctx: The context to query
- *
- * Get the netfs inode from the netfs library's inode context.  The VFS inode
- * is expected to directly precede the context struct.
- */
-static inline struct inode *netfs_inode(struct netfs_i_context *ctx)
-{
-	return (void *)ctx - sizeof(struct inode);
-}
-
-/**
- * netfs_i_context_init - Initialise a netfs lib context
- * @inode: The inode with which the context is associated
+ * netfs_inode_init - Initialise a netfslib inode context
+ * @ctx: The netfs inode to initialise
  * @ops: The netfs's operations list
  *
  * Initialise the netfs library context struct.  This is expected to follow on
  * directly from the VFS inode struct.
  */
-static inline void netfs_i_context_init(struct inode *inode,
-					const struct netfs_request_ops *ops)
+static inline void netfs_inode_init(struct netfs_inode *ctx,
+				    const struct netfs_request_ops *ops)
 {
-	struct netfs_i_context *ctx = netfs_i_context(inode);
-
-	memset(ctx, 0, sizeof(*ctx));
 	ctx->ops = ops;
-	ctx->remote_i_size = i_size_read(inode);
+	ctx->remote_i_size = i_size_read(&ctx->inode);
+#if IS_ENABLED(CONFIG_FSCACHE)
+	ctx->cache = NULL;
+#endif
 }
 
 /**
  * netfs_resize_file - Note that a file got resized
- * @inode: The inode being resized
+ * @ctx: The netfs inode being resized
  * @new_i_size: The new file size
  *
  * Inform the netfs lib that a file got resized so that it can adjust its state.
  */
-static inline void netfs_resize_file(struct inode *inode, loff_t new_i_size)
+static inline void netfs_resize_file(struct netfs_inode *ctx, loff_t new_i_size)
 {
-	struct netfs_i_context *ctx = netfs_i_context(inode);
-
 	ctx->remote_i_size = new_i_size;
 }
 
 /**
  * netfs_i_cookie - Get the cache cookie from the inode
- * @inode: The inode to query
+ * @ctx: The netfs inode to query
  *
  * Get the caching cookie (if enabled) from the network filesystem's inode.
  */
-static inline struct fscache_cookie *netfs_i_cookie(struct inode *inode)
+static inline struct fscache_cookie *netfs_i_cookie(struct netfs_inode *ctx)
 {
 #if IS_ENABLED(CONFIG_FSCACHE)
-	struct netfs_i_context *ctx = netfs_i_context(inode);
 	return ctx->cache;
 #else
 	return NULL;

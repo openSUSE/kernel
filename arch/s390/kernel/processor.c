@@ -8,9 +8,9 @@
 #define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
 
 #include <linux/stop_machine.h>
-#include <linux/cpufeature.h>
 #include <linux/bitops.h>
 #include <linux/kernel.h>
+#include <linux/random.h>
 #include <linux/sched/mm.h>
 #include <linux/init.h>
 #include <linux/seq_file.h>
@@ -23,7 +23,11 @@
 #include <asm/elf.h>
 #include <asm/lowcore.h>
 #include <asm/param.h>
+#include <asm/sclp.h>
 #include <asm/smp.h>
+
+unsigned long __read_mostly elf_hwcap;
+char elf_platform[ELF_PLATFORM_SIZE];
 
 struct cpu_info {
 	unsigned int cpu_mhz_dynamic;
@@ -91,15 +95,6 @@ void cpu_init(void)
 	enter_lazy_tlb(&init_mm, current);
 }
 
-/*
- * cpu_have_feature - Test CPU features on module initialization
- */
-int cpu_have_feature(unsigned int num)
-{
-	return elf_hwcap & (1UL << num);
-}
-EXPORT_SYMBOL(cpu_have_feature);
-
 static void show_facilities(struct seq_file *m)
 {
 	unsigned int bit;
@@ -113,15 +108,33 @@ static void show_facilities(struct seq_file *m)
 static void show_cpu_summary(struct seq_file *m, void *v)
 {
 	static const char *hwcap_str[] = {
-		"esan3", "zarch", "stfle", "msa", "ldisp", "eimm", "dfp",
-		"edat", "etf3eh", "highgprs", "te", "vx", "vxd", "vxe", "gs",
-		"vxe2", "vxp", "sort", "dflt", "vxp2", "nnpa", "pcimio"
-	};
-	static const char * const int_hwcap_str[] = {
-		"sie"
+		[HWCAP_NR_ESAN3]	= "esan3",
+		[HWCAP_NR_ZARCH]	= "zarch",
+		[HWCAP_NR_STFLE]	= "stfle",
+		[HWCAP_NR_MSA]		= "msa",
+		[HWCAP_NR_LDISP]	= "ldisp",
+		[HWCAP_NR_EIMM]		= "eimm",
+		[HWCAP_NR_DFP]		= "dfp",
+		[HWCAP_NR_HPAGE]	= "edat",
+		[HWCAP_NR_ETF3EH]	= "etf3eh",
+		[HWCAP_NR_HIGH_GPRS]	= "highgprs",
+		[HWCAP_NR_TE]		= "te",
+		[HWCAP_NR_VXRS]		= "vx",
+		[HWCAP_NR_VXRS_BCD]	= "vxd",
+		[HWCAP_NR_VXRS_EXT]	= "vxe",
+		[HWCAP_NR_GS]		= "gs",
+		[HWCAP_NR_VXRS_EXT2]	= "vxe2",
+		[HWCAP_NR_VXRS_PDE]	= "vxp",
+		[HWCAP_NR_SORT]		= "sort",
+		[HWCAP_NR_DFLT]		= "dflt",
+		[HWCAP_NR_VXRS_PDE2]	= "vxp2",
+		[HWCAP_NR_NNPA]		= "nnpa",
+		[HWCAP_NR_PCI_MIO]	= "pcimio",
+		[HWCAP_NR_SIE]		= "sie",
 	};
 	int i, cpu;
 
+	BUILD_BUG_ON(ARRAY_SIZE(hwcap_str) != HWCAP_NR_MAX);
 	seq_printf(m, "vendor_id       : IBM/S390\n"
 		   "# processors    : %i\n"
 		   "bogomips per cpu: %lu.%02lu\n",
@@ -132,9 +145,6 @@ static void show_cpu_summary(struct seq_file *m, void *v)
 	for (i = 0; i < ARRAY_SIZE(hwcap_str); i++)
 		if (hwcap_str[i] && (elf_hwcap & (1UL << i)))
 			seq_printf(m, "%s ", hwcap_str[i]);
-	for (i = 0; i < ARRAY_SIZE(int_hwcap_str); i++)
-		if (int_hwcap_str[i] && (int_hwcap & (1UL << i)))
-			seq_printf(m, "%s ", int_hwcap_str[i]);
 	seq_puts(m, "\n");
 	show_facilities(m);
 	show_cacheinfo(m);
@@ -148,6 +158,129 @@ static void show_cpu_summary(struct seq_file *m, void *v)
 			   cpu, id->version, id->ident, id->machine);
 	}
 }
+
+static int __init setup_hwcaps(void)
+{
+	/* instructions named N3, "backported" to esa-mode */
+	elf_hwcap |= HWCAP_ESAN3;
+
+	/* z/Architecture mode active */
+	elf_hwcap |= HWCAP_ZARCH;
+
+	/* store-facility-list-extended */
+	if (test_facility(7))
+		elf_hwcap |= HWCAP_STFLE;
+
+	/* message-security assist */
+	if (test_facility(17))
+		elf_hwcap |= HWCAP_MSA;
+
+	/* long-displacement */
+	if (test_facility(19))
+		elf_hwcap |= HWCAP_LDISP;
+
+	/* extended-immediate */
+	elf_hwcap |= HWCAP_EIMM;
+
+	/* extended-translation facility 3 enhancement */
+	if (test_facility(22) && test_facility(30))
+		elf_hwcap |= HWCAP_ETF3EH;
+
+	/* decimal floating point & perform floating point operation */
+	if (test_facility(42) && test_facility(44))
+		elf_hwcap |= HWCAP_DFP;
+
+	/* huge page support */
+	if (MACHINE_HAS_EDAT1)
+		elf_hwcap |= HWCAP_HPAGE;
+
+	/* 64-bit register support for 31-bit processes */
+	elf_hwcap |= HWCAP_HIGH_GPRS;
+
+	/* transactional execution */
+	if (MACHINE_HAS_TE)
+		elf_hwcap |= HWCAP_TE;
+
+	/*
+	 * Vector extension can be disabled with the "novx" parameter.
+	 * Use MACHINE_HAS_VX instead of facility bit 129.
+	 */
+	if (MACHINE_HAS_VX) {
+		elf_hwcap |= HWCAP_VXRS;
+		if (test_facility(134))
+			elf_hwcap |= HWCAP_VXRS_BCD;
+		if (test_facility(135))
+			elf_hwcap |= HWCAP_VXRS_EXT;
+		if (test_facility(148))
+			elf_hwcap |= HWCAP_VXRS_EXT2;
+		if (test_facility(152))
+			elf_hwcap |= HWCAP_VXRS_PDE;
+		if (test_facility(192))
+			elf_hwcap |= HWCAP_VXRS_PDE2;
+	}
+
+	if (test_facility(150))
+		elf_hwcap |= HWCAP_SORT;
+
+	if (test_facility(151))
+		elf_hwcap |= HWCAP_DFLT;
+
+	if (test_facility(165))
+		elf_hwcap |= HWCAP_NNPA;
+
+	/* guarded storage */
+	if (MACHINE_HAS_GS)
+		elf_hwcap |= HWCAP_GS;
+
+	if (MACHINE_HAS_PCI_MIO)
+		elf_hwcap |= HWCAP_PCI_MIO;
+
+	/* virtualization support */
+	if (sclp.has_sief2)
+		elf_hwcap |= HWCAP_SIE;
+
+	return 0;
+}
+arch_initcall(setup_hwcaps);
+
+static int __init setup_elf_platform(void)
+{
+	struct cpuid cpu_id;
+
+	get_cpu_id(&cpu_id);
+	add_device_randomness(&cpu_id, sizeof(cpu_id));
+	switch (cpu_id.machine) {
+	default:	/* Use "z10" as default. */
+		strcpy(elf_platform, "z10");
+		break;
+	case 0x2817:
+	case 0x2818:
+		strcpy(elf_platform, "z196");
+		break;
+	case 0x2827:
+	case 0x2828:
+		strcpy(elf_platform, "zEC12");
+		break;
+	case 0x2964:
+	case 0x2965:
+		strcpy(elf_platform, "z13");
+		break;
+	case 0x3906:
+	case 0x3907:
+		strcpy(elf_platform, "z14");
+		break;
+	case 0x8561:
+	case 0x8562:
+		strcpy(elf_platform, "z15");
+		break;
+	case 0x3931:
+	case 0x3932:
+		strcpy(elf_platform, "z16");
+		break;
+	}
+	return 0;
+}
+arch_initcall(setup_elf_platform);
 
 static void show_cpu_topology(struct seq_file *m, unsigned long n)
 {
@@ -231,21 +364,3 @@ const struct seq_operations cpuinfo_op = {
 	.stop	= c_stop,
 	.show	= show_cpuinfo,
 };
-
-int s390_isolate_bp(void)
-{
-	if (!test_facility(82))
-		return -EOPNOTSUPP;
-	set_thread_flag(TIF_ISOLATE_BP);
-	return 0;
-}
-EXPORT_SYMBOL(s390_isolate_bp);
-
-int s390_isolate_bp_guest(void)
-{
-	if (!test_facility(82))
-		return -EOPNOTSUPP;
-	set_thread_flag(TIF_ISOLATE_BP_GUEST);
-	return 0;
-}
-EXPORT_SYMBOL(s390_isolate_bp_guest);

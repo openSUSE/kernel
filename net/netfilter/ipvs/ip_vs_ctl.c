@@ -24,7 +24,6 @@
 #include <linux/sysctl.h>
 #include <linux/proc_fs.h>
 #include <linux/workqueue.h>
-#include <linux/swap.h>
 #include <linux/seq_file.h>
 #include <linux/slab.h>
 
@@ -1062,8 +1061,6 @@ ip_vs_new_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest)
 	unsigned int atype;
 	int ret;
 
-	EnterFunction(2);
-
 #ifdef CONFIG_IP_VS_IPV6
 	if (udest->af == AF_INET6) {
 		atype = ipv6_addr_type(&udest->addr.in6);
@@ -1112,7 +1109,6 @@ ip_vs_new_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest)
 	spin_lock_init(&dest->dst_lock);
 	__ip_vs_update_dest(svc, dest, udest, 1);
 
-	LeaveFunction(2);
 	return 0;
 
 err_stats:
@@ -1134,8 +1130,6 @@ ip_vs_add_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest)
 	union nf_inet_addr daddr;
 	__be16 dport = udest->port;
 	int ret;
-
-	EnterFunction(2);
 
 	if (udest->weight < 0) {
 		pr_err("%s(): server weight less than zero\n", __func__);
@@ -1184,7 +1178,7 @@ ip_vs_add_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest)
 
 		ret = ip_vs_start_estimator(svc->ipvs, &dest->stats);
 		if (ret < 0)
-			goto err;
+			return ret;
 		__ip_vs_update_dest(svc, dest, udest, 1);
 	} else {
 		/*
@@ -1192,9 +1186,6 @@ ip_vs_add_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest)
 		 */
 		ret = ip_vs_new_dest(svc, udest);
 	}
-
-err:
-	LeaveFunction(2);
 
 	return ret;
 }
@@ -1209,8 +1200,6 @@ ip_vs_edit_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest)
 	struct ip_vs_dest *dest;
 	union nf_inet_addr daddr;
 	__be16 dport = udest->port;
-
-	EnterFunction(2);
 
 	if (udest->weight < 0) {
 		pr_err("%s(): server weight less than zero\n", __func__);
@@ -1243,7 +1232,6 @@ ip_vs_edit_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest)
 	}
 
 	__ip_vs_update_dest(svc, dest, udest, 0);
-	LeaveFunction(2);
 
 	return 0;
 }
@@ -1318,8 +1306,6 @@ ip_vs_del_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest)
 	struct ip_vs_dest *dest;
 	__be16 dport = udest->port;
 
-	EnterFunction(2);
-
 	/* We use function that requires RCU lock */
 	rcu_read_lock();
 	dest = ip_vs_lookup_dest(svc, udest->af, &udest->addr, dport);
@@ -1339,8 +1325,6 @@ ip_vs_del_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest)
 	 *	Delete the destination
 	 */
 	__ip_vs_del_dest(svc->ipvs, dest, false);
-
-	LeaveFunction(2);
 
 	return 0;
 }
@@ -1747,7 +1731,6 @@ void ip_vs_service_nets_cleanup(struct list_head *net_list)
 	struct netns_ipvs *ipvs;
 	struct net *net;
 
-	EnterFunction(2);
 	/* Check for "full" addressed entries */
 	mutex_lock(&__ip_vs_mutex);
 	list_for_each_entry(net, net_list, exit_list) {
@@ -1755,7 +1738,6 @@ void ip_vs_service_nets_cleanup(struct list_head *net_list)
 		ip_vs_flush(ipvs, true);
 	}
 	mutex_unlock(&__ip_vs_mutex);
-	LeaveFunction(2);
 }
 
 /* Put all references for device (dst_cache) */
@@ -1793,7 +1775,6 @@ static int ip_vs_dst_event(struct notifier_block *this, unsigned long event,
 	if (event != NETDEV_DOWN || !ipvs)
 		return NOTIFY_DONE;
 	IP_VS_DBG(3, "%s() dev=%s\n", __func__, dev->name);
-	EnterFunction(2);
 	mutex_lock(&__ip_vs_mutex);
 	for (idx = 0; idx < IP_VS_SVC_TAB_SIZE; idx++) {
 		hlist_for_each_entry(svc, &ip_vs_svc_table[idx], s_list) {
@@ -1822,7 +1803,6 @@ static int ip_vs_dst_event(struct notifier_block *this, unsigned long event,
 	}
 	spin_unlock_bh(&ipvs->dest_trash_lock);
 	mutex_unlock(&__ip_vs_mutex);
-	LeaveFunction(2);
 	return NOTIFY_DONE;
 }
 
@@ -1864,8 +1844,6 @@ static int ip_vs_zero_all(struct netns_ipvs *ipvs)
 }
 
 #ifdef CONFIG_SYSCTL
-
-static int three = 3;
 
 static int
 proc_do_defense_mode(struct ctl_table *table, int write,
@@ -1994,7 +1972,7 @@ static int ipvs_proc_est_cpumask_get(struct ctl_table *table, void *buffer,
 	if (ipvs->est_cpulist_valid)
 		mask = *valp;
 	else
-		mask = (struct cpumask *)housekeeping_cpumask(HK_FLAG_KTHREAD);
+		mask = (struct cpumask *)housekeeping_cpumask(HK_TYPE_KTHREAD);
 	ret = scnprintf(buffer, size, "%*pbl\n", cpumask_pr_args(mask));
 
 	mutex_unlock(&ipvs->est_mutex);
@@ -2217,7 +2195,7 @@ static struct ctl_table vs_vars[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
 		.extra1		= SYSCTL_ZERO,
-		.extra2		= &three,
+		.extra2		= SYSCTL_THREE,
 	},
 	{
 		.procname	= "nat_icmp_send",
@@ -2550,13 +2528,13 @@ static int ip_vs_stats_percpu_show(struct seq_file *seq, void *v)
 		u64 conns, inpkts, outpkts, inbytes, outbytes;
 
 		do {
-			start = u64_stats_fetch_begin_irq(&u->syncp);
+			start = u64_stats_fetch_begin(&u->syncp);
 			conns = u64_stats_read(&u->cnt.conns);
 			inpkts = u64_stats_read(&u->cnt.inpkts);
 			outpkts = u64_stats_read(&u->cnt.outpkts);
 			inbytes = u64_stats_read(&u->cnt.inbytes);
 			outbytes = u64_stats_read(&u->cnt.outbytes);
-		} while (u64_stats_fetch_retry_irq(&u->syncp, start));
+		} while (u64_stats_fetch_retry(&u->syncp, start));
 
 		seq_printf(seq, "%3X %8LX %8LX %8LX %16LX %16LX\n",
 			   i, (u64)conns, (u64)inpkts,
@@ -2870,7 +2848,7 @@ ip_vs_copy_service(struct ip_vs_service_entry *dst, struct ip_vs_service *src)
 	dst->addr = src->addr.ip;
 	dst->port = src->port;
 	dst->fwmark = src->fwmark;
-	strlcpy(dst->sched_name, sched_name, sizeof(dst->sched_name));
+	strscpy(dst->sched_name, sched_name, sizeof(dst->sched_name));
 	dst->flags = src->flags;
 	dst->timeout = src->timeout / HZ;
 	dst->netmask = src->netmask;
@@ -3064,13 +3042,13 @@ do_ip_vs_get_ctl(struct sock *sk, int cmd, void __user *user, int *len)
 		mutex_lock(&ipvs->sync_mutex);
 		if (ipvs->sync_state & IP_VS_STATE_MASTER) {
 			d[0].state = IP_VS_STATE_MASTER;
-			strlcpy(d[0].mcast_ifn, ipvs->mcfg.mcast_ifn,
+			strscpy(d[0].mcast_ifn, ipvs->mcfg.mcast_ifn,
 				sizeof(d[0].mcast_ifn));
 			d[0].syncid = ipvs->mcfg.syncid;
 		}
 		if (ipvs->sync_state & IP_VS_STATE_BACKUP) {
 			d[1].state = IP_VS_STATE_BACKUP;
-			strlcpy(d[1].mcast_ifn, ipvs->bcfg.mcast_ifn,
+			strscpy(d[1].mcast_ifn, ipvs->bcfg.mcast_ifn,
 				sizeof(d[1].mcast_ifn));
 			d[1].syncid = ipvs->bcfg.syncid;
 		}
@@ -3820,7 +3798,7 @@ static int ip_vs_genl_new_daemon(struct netns_ipvs *ipvs, struct nlattr **attrs)
 	      attrs[IPVS_DAEMON_ATTR_MCAST_IFN] &&
 	      attrs[IPVS_DAEMON_ATTR_SYNC_ID]))
 		return -EINVAL;
-	strlcpy(c.mcast_ifn, nla_data(attrs[IPVS_DAEMON_ATTR_MCAST_IFN]),
+	strscpy(c.mcast_ifn, nla_data(attrs[IPVS_DAEMON_ATTR_MCAST_IFN]),
 		sizeof(c.mcast_ifn));
 	c.syncid = nla_get_u32(attrs[IPVS_DAEMON_ATTR_SYNC_ID]);
 
@@ -4264,6 +4242,7 @@ static struct genl_family ip_vs_genl_family __ro_after_init = {
 	.module		= THIS_MODULE,
 	.small_ops	= ip_vs_genl_ops,
 	.n_small_ops	= ARRAY_SIZE(ip_vs_genl_ops),
+	.resv_start_op	= IPVS_CMD_FLUSH + 1,
 };
 
 static int __init ip_vs_genl_register(void)
@@ -4539,8 +4518,6 @@ int __init ip_vs_control_init(void)
 	int idx;
 	int ret;
 
-	EnterFunction(2);
-
 	/* Initialize svc_table, ip_vs_svc_fwm_table */
 	for (idx = 0; idx < IP_VS_SVC_TAB_SIZE; idx++) {
 		INIT_HLIST_HEAD(&ip_vs_svc_table[idx]);
@@ -4553,15 +4530,12 @@ int __init ip_vs_control_init(void)
 	if (ret < 0)
 		return ret;
 
-	LeaveFunction(2);
 	return 0;
 }
 
 
 void ip_vs_control_cleanup(void)
 {
-	EnterFunction(2);
 	unregister_netdevice_notifier(&ip_vs_dst_notifier);
 	/* relying on common rcu_barrier() in ip_vs_cleanup() */
-	LeaveFunction(2);
 }

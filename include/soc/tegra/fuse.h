@@ -6,6 +6,8 @@
 #ifndef __SOC_TEGRA_FUSE_H__
 #define __SOC_TEGRA_FUSE_H__
 
+#include <linux/types.h>
+
 #define TEGRA20		0x20
 #define TEGRA30		0x30
 #define TEGRA114	0x35
@@ -22,11 +24,6 @@
 
 #ifndef __ASSEMBLY__
 
-u32 tegra_read_chipid(void);
-u8 tegra_get_chip_id(void);
-u8 tegra_get_platform(void);
-bool tegra_is_silicon(void);
-
 enum tegra_revision {
 	TEGRA_REVISION_UNKNOWN = 0,
 	TEGRA_REVISION_A01,
@@ -35,6 +32,20 @@ enum tegra_revision {
 	TEGRA_REVISION_A03p,
 	TEGRA_REVISION_A04,
 	TEGRA_REVISION_MAX,
+};
+
+enum tegra_platform {
+	TEGRA_PLATFORM_SILICON = 0,
+	TEGRA_PLATFORM_QT,
+	TEGRA_PLATFORM_SYSTEM_FPGA,
+	TEGRA_PLATFORM_UNIT_FPGA,
+	TEGRA_PLATFORM_ASIM_QT,
+	TEGRA_PLATFORM_ASIM_LINSIM,
+	TEGRA_PLATFORM_DSIM_ASIM_LINSIM,
+	TEGRA_PLATFORM_VERIFICATION_SIMULATION,
+	TEGRA_PLATFORM_VDK,
+	TEGRA_PLATFORM_VSP,
+	TEGRA_PLATFORM_MAX,
 };
 
 struct tegra_sku_info {
@@ -50,6 +61,7 @@ struct tegra_sku_info {
 	int gpu_speedo_id;
 	int gpu_speedo_value;
 	enum tegra_revision revision;
+	enum tegra_platform platform;
 };
 
 #ifdef CONFIG_ARCH_TEGRA
@@ -57,6 +69,10 @@ extern struct tegra_sku_info tegra_sku_info;
 u32 tegra_read_straps(void);
 u32 tegra_read_ram_code(void);
 int tegra_fuse_readl(unsigned long offset, u32 *value);
+u32 tegra_read_chipid(void);
+u8 tegra_get_chip_id(void);
+u8 tegra_get_platform(void);
+bool tegra_is_silicon(void);
 int tegra194_miscreg_mask_serror(void);
 #else
 static struct tegra_sku_info tegra_sku_info __maybe_unused;
@@ -74,6 +90,26 @@ static inline u32 tegra_read_ram_code(void)
 static inline int tegra_fuse_readl(unsigned long offset, u32 *value)
 {
 	return -ENODEV;
+}
+
+static inline u32 tegra_read_chipid(void)
+{
+	return 0;
+}
+
+static inline u8 tegra_get_chip_id(void)
+{
+	return 0;
+}
+
+static inline u8 tegra_get_platform(void)
+{
+	return 0;
+}
+
+static inline bool tegra_is_silicon(void)
+{
+	return false;
 }
 
 static inline int tegra194_miscreg_mask_serror(void)

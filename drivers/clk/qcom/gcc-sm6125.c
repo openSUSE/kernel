@@ -1153,7 +1153,6 @@ static const struct freq_tbl ftbl_gcc_sdcc2_apps_clk_src[] = {
 	F(25000000, P_GPLL0_OUT_AUX2, 12, 0, 0),
 	F(50000000, P_GPLL0_OUT_AUX2, 6, 0, 0),
 	F(100000000, P_GPLL0_OUT_AUX2, 3, 0, 0),
-	F(202000000, P_GPLL7_OUT_MAIN, 2, 0, 0),
 	{ }
 };
 
@@ -4151,7 +4150,7 @@ static int gcc_sm6125_probe(struct platform_device *pdev)
 
 	/*
 	 * Enable DUAL_EDGE mode for MCLK RCGs
-	 * This is requierd to enable MND divider mode
+	 * This is required to enable MND divider mode
 	 */
 	regmap_update_bits(regmap, 0x51004, 0x3000, 0x2000);
 	regmap_update_bits(regmap, 0x51020, 0x3000, 0x2000);

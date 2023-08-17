@@ -70,11 +70,11 @@
 				nvidia,tristate = <TEGRA_PIN_DISABLE>;
 			};
 
-			pwm-a-b {
+			sdc {
 				nvidia,tristate = <TEGRA_PIN_DISABLE>;
 			};
 
-			pwm-c-d {
+			sdb_sdd {
 				nvidia,tristate = <TEGRA_PIN_DISABLE>;
 			};
 
@@ -143,6 +143,12 @@
 		status = "okay";
 	};
 
+	/* SPI4: Colibri SSP */
+	spi@7000da00 {
+		status = "okay";
+		spi-max-frequency = <25000000>;
+	};
+
 	/* EHCI instance 0: USB1_DP/N -> USBC_P/N */
 	usb@c5000000 {
 		status = "okay";
@@ -162,12 +168,6 @@
 	usb-phy@c5008000 {
 		status = "okay";
 		vbus-supply = <&reg_usbh_vbus>;
-	};
-
-	/* SPI4: Colibri SSP */
-	spi@7000da00 {
-		status = "okay";
-		spi-max-frequency = <25000000>;
 	};
 
 	/* SD/MMC */
@@ -191,7 +191,7 @@
 	gpio-keys {
 		compatible = "gpio-keys";
 
-		wakeup {
+		key-wakeup {
 			label = "SODIMM pin 45 wakeup";
 			gpios = <&gpio TEGRA_GPIO(V, 3) GPIO_ACTIVE_HIGH>;
 			linux,code = <KEY_WAKEUP>;

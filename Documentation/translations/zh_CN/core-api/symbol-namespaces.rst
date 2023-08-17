@@ -1,10 +1,12 @@
 .. include:: ../disclaimer-zh_CN.rst
 
 :Original: Documentation/core-api/symbol-namespaces.rst
-:Translator: Yanteng Si <siyanteng@loongson.cn>
+
+:翻译:
+
+ 司延腾 Yanteng Si <siyanteng@loongson.cn>
 
 .. _cn_symbol-namespaces.rst:
-
 
 =================================
 符号命名空间（Symbol Namespaces）
@@ -50,7 +52,7 @@
 
 相应的 ksymtab 条目结构体 ``kernel_symbol`` 将有相应的成员 ``命名空间`` 集。
 导出时未指明命名空间的符号将指向 ``NULL`` 。如果没有定义命名空间，则默认没有。
-``modpost`` 和kernel/module.c分别在构建时或模块加载时使用名称空间。
+``modpost`` 和kernel/module/main.c分别在构建时或模块加载时使用名称空间。
 
 2.2 使用DEFAULT_SYMBOL_NAMESPACE定义
 ====================================

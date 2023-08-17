@@ -106,7 +106,7 @@
 	 * "i2c-mux-idle-disconnect" is important.
 	 */
 
-	pca9548@70 {
+	i2c-mux@70 {
 		compatible = "nxp,pca9548";
 		reg = <0x70>;
 		#address-cells = <1>;
@@ -213,7 +213,7 @@
 
 			u48: pca9575@22 {
 				compatible = "nxp,pca9575";
-				reg=<0x22>;
+				reg = <0x22>;
 				gpio-controller;
 				#gpio-cells = <2>;
 
@@ -232,7 +232,7 @@
 
 			u59: pca9575@23 {
 				compatible = "nxp,pca9575";
-				reg=<0x23>;
+				reg = <0x23>;
 				gpio-controller;
 				#gpio-cells = <2>;
 				gpio-line-names =
@@ -256,7 +256,7 @@
 };
 
 &i2c2 {
-	pca9548@71 {
+	i2c-mux@71 {
 		compatible = "nxp,pca9548";
 		reg = <0x71>;
 		#address-cells = <1>;
@@ -434,7 +434,7 @@
 };
 
 &mcspi1 {
-	s25fl256@0 {
+	flash@0 {
 		#address-cells = <1>;
 		#size-cells = <1>;
 		compatible = "jedec,spi-nor";

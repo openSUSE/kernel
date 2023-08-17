@@ -297,7 +297,7 @@ static __poll_t comp_poll(struct file *filp, poll_table *wait)
 	return mask;
 }
 
-/**
+/*
  * Initialization of struct file_operations
  */
 static const struct file_operations channel_fops = {
@@ -404,8 +404,9 @@ static int comp_tx_completion(struct most_interface *iface, int channel_id)
  * @channel_id: channel index/ID
  * @cfg: pointer to actual channel configuration
  * @name: name of the device to be created
+ * @args: pointer to array of component parameters (from configfs)
  *
- * This allocates achannel object and creates the device node in /dev
+ * This allocates a channel object and creates the device node in /dev
  *
  * Returns 0 on success or error code otherwise.
  */
@@ -486,11 +487,11 @@ static struct cdev_component comp = {
 	},
 };
 
-static int __init mod_init(void)
+static int __init most_cdev_init(void)
 {
 	int err;
 
-	comp.class = class_create(THIS_MODULE, "most_cdev");
+	comp.class = class_create("most_cdev");
 	if (IS_ERR(comp.class))
 		return PTR_ERR(comp.class);
 
@@ -518,7 +519,7 @@ dest_ida:
 	return err;
 }
 
-static void __exit mod_exit(void)
+static void __exit most_cdev_exit(void)
 {
 	struct comp_channel *c, *tmp;
 
@@ -534,8 +535,8 @@ static void __exit mod_exit(void)
 	class_destroy(comp.class);
 }
 
-module_init(mod_init);
-module_exit(mod_exit);
+module_init(most_cdev_init);
+module_exit(most_cdev_exit);
 MODULE_AUTHOR("Christian Gromm <christian.gromm@microchip.com>");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("character device component for mostcore");

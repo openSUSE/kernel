@@ -29,7 +29,7 @@
  *  -- on page reclamation, the driver swaps the page with a spare page.
  *     if that page is still in use, it frees its reference to that page,
  *     and allocates a new page for use. otherwise, it just recycles the
- *     the page.
+ *     page.
  *
  * NOTE: cassini can parse the header. however, it's not worth it
  *       as long as the network stack requires a header copy.
@@ -88,9 +88,8 @@
 #include <asm/io.h>
 #include <asm/byteorder.h>
 #include <linux/uaccess.h>
+#include <linux/jiffies.h>
 
-#define cas_page_map(x)      kmap_atomic((x))
-#define cas_page_unmap(x)    kunmap_atomic((x))
 #define CAS_NCPUS            num_online_cpus()
 
 #define cas_skb_release(x)  netif_rx(x)
@@ -1234,19 +1233,6 @@ static void cas_init_rx_dma(struct cas *cp)
 	 */
 	readl(cp->regs + REG_INTR_STATUS_ALIAS);
 	writel(INTR_RX_DONE | INTR_RX_BUF_UNAVAIL, cp->regs + REG_ALIAS_CLEAR);
-	if (cp->cas_flags & CAS_FLAG_REG_PLUS) {
-		for (i = 1; i < N_RX_COMP_RINGS; i++)
-			readl(cp->regs + REG_PLUS_INTRN_STATUS_ALIAS(i));
-
-		/* 2 is different from 3 and 4 */
-		if (N_RX_COMP_RINGS > 1)
-			writel(INTR_RX_DONE_ALT | INTR_RX_BUF_UNAVAIL_1,
-			       cp->regs + REG_PLUS_ALIASN_CLEAR(1));
-
-		for (i = 2; i < N_RX_COMP_RINGS; i++)
-			writel(INTR_RX_DONE_ALT,
-			       cp->regs + REG_PLUS_ALIASN_CLEAR(i));
-	}
 
 	/* set up pause thresholds */
 	val  = CAS_BASE(RX_PAUSE_THRESH_OFF,
@@ -1927,7 +1913,7 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 	int off, swivel = RX_SWIVEL_OFF_VAL;
 	struct cas_page *page;
 	struct sk_buff *skb;
-	void *addr, *crcaddr;
+	void *crcaddr;
 	__sum16 csum;
 	char *p;
 
@@ -1948,7 +1934,7 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 	skb_reserve(skb, swivel);
 
 	p = skb->data;
-	addr = crcaddr = NULL;
+	crcaddr = NULL;
 	if (hlen) { /* always copy header pages */
 		i = CAS_VAL(RX_COMP2_HDR_INDEX, words[1]);
 		page = cp->rx_pages[CAS_VAL(RX_INDEX_RING, i)][CAS_VAL(RX_INDEX_NUM, i)];
@@ -1960,12 +1946,10 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 			i += cp->crc_size;
 		dma_sync_single_for_cpu(&cp->pdev->dev, page->dma_addr + off,
 					i, DMA_FROM_DEVICE);
-		addr = cas_page_map(page->buffer);
-		memcpy(p, addr + off, i);
+		memcpy(p, page_address(page->buffer) + off, i);
 		dma_sync_single_for_device(&cp->pdev->dev,
 					   page->dma_addr + off, i,
 					   DMA_FROM_DEVICE);
-		cas_page_unmap(addr);
 		RX_USED_ADD(page, 0x100);
 		p += hlen;
 		swivel = 0;
@@ -1996,12 +1980,11 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 		/* make sure we always copy a header */
 		swivel = 0;
 		if (p == (char *) skb->data) { /* not split */
-			addr = cas_page_map(page->buffer);
-			memcpy(p, addr + off, RX_COPY_MIN);
+			memcpy(p, page_address(page->buffer) + off,
+			       RX_COPY_MIN);
 			dma_sync_single_for_device(&cp->pdev->dev,
 						   page->dma_addr + off, i,
 						   DMA_FROM_DEVICE);
-			cas_page_unmap(addr);
 			off += RX_COPY_MIN;
 			swivel = RX_COPY_MIN;
 			RX_USED_ADD(page, cp->mtu_stride);
@@ -2048,10 +2031,8 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 			RX_USED_ADD(page, hlen + cp->crc_size);
 		}
 
-		if (cp->crc_size) {
-			addr = cas_page_map(page->buffer);
-			crcaddr  = addr + off + hlen;
-		}
+		if (cp->crc_size)
+			crcaddr = page_address(page->buffer) + off + hlen;
 
 	} else {
 		/* copying packet */
@@ -2073,12 +2054,10 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 			i += cp->crc_size;
 		dma_sync_single_for_cpu(&cp->pdev->dev, page->dma_addr + off,
 					i, DMA_FROM_DEVICE);
-		addr = cas_page_map(page->buffer);
-		memcpy(p, addr + off, i);
+		memcpy(p, page_address(page->buffer) + off, i);
 		dma_sync_single_for_device(&cp->pdev->dev,
 					   page->dma_addr + off, i,
 					   DMA_FROM_DEVICE);
-		cas_page_unmap(addr);
 		if (p == (char *) skb->data) /* not split */
 			RX_USED_ADD(page, cp->mtu_stride);
 		else
@@ -2093,20 +2072,17 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 						page->dma_addr,
 						dlen + cp->crc_size,
 						DMA_FROM_DEVICE);
-			addr = cas_page_map(page->buffer);
-			memcpy(p, addr, dlen + cp->crc_size);
+			memcpy(p, page_address(page->buffer), dlen + cp->crc_size);
 			dma_sync_single_for_device(&cp->pdev->dev,
 						   page->dma_addr,
 						   dlen + cp->crc_size,
 						   DMA_FROM_DEVICE);
-			cas_page_unmap(addr);
 			RX_USED_ADD(page, dlen + cp->crc_size);
 		}
 end_copy_pkt:
-		if (cp->crc_size) {
-			addr    = NULL;
+		if (cp->crc_size)
 			crcaddr = skb->data + alloclen;
-		}
+
 		skb_put(skb, alloclen);
 	}
 
@@ -2115,8 +2091,6 @@ end_copy_pkt:
 		/* checksum includes FCS. strip it out. */
 		csum = csum_fold(csum_partial(crcaddr, cp->crc_size,
 					      csum_unfold(csum)));
-		if (addr)
-			cas_page_unmap(addr);
 	}
 	skb->protocol = eth_type_trans(skb, cp->dev);
 	if (skb->protocol == htons(ETH_P_IP)) {
@@ -2805,18 +2779,14 @@ static inline int cas_xmit_tx_ringN(struct cas *cp, int ring,
 
 		tabort = cas_calc_tabort(cp, skb_frag_off(fragp), len);
 		if (unlikely(tabort)) {
-			void *addr;
-
 			/* NOTE: len is always > tabort */
 			cas_write_txd(cp, ring, entry, mapping, len - tabort,
 				      ctrl, 0);
 			entry = TX_DESC_NEXT(ring, entry);
-
-			addr = cas_page_map(skb_frag_page(fragp));
-			memcpy(tx_tiny_buf(cp, ring, entry),
-			       addr + skb_frag_off(fragp) + len - tabort,
-			       tabort);
-			cas_page_unmap(addr);
+			memcpy_from_page(tx_tiny_buf(cp, ring, entry),
+					 skb_frag_page(fragp),
+					 skb_frag_off(fragp) + len - tabort,
+					 tabort);
 			mapping = tx_tiny_map(cp, ring, entry, tentry);
 			len     = tabort;
 		}
@@ -3508,9 +3478,6 @@ enable_rx_done:
 		if (N_RX_DESC_RINGS > 1)
 			writel(RX_DESC_RINGN_SIZE(1) - 4,
 			       cp->regs + REG_PLUS_RX_KICK1);
-
-		for (i = 1; i < N_RX_COMP_RINGS; i++)
-			writel(0, cp->regs + REG_PLUS_RX_COMPN_TAIL(i));
 	}
 }
 
@@ -4063,8 +4030,8 @@ static void cas_link_timer(struct timer_list *t)
 
 	if (link_transition_timeout != 0 &&
 	    cp->link_transition_jiffies_valid &&
-	    ((jiffies - cp->link_transition_jiffies) >
-	      (link_transition_timeout))) {
+	    time_is_before_jiffies(cp->link_transition_jiffies +
+	      link_transition_timeout)) {
 		/* One-second counter so link-down workaround doesn't
 		 * cause resets to occur so fast as to fool the switch
 		 * into thinking the link is down.
@@ -4679,7 +4646,7 @@ static void cas_set_msglevel(struct net_device *dev, u32 value)
 static int cas_get_regs_len(struct net_device *dev)
 {
 	struct cas *cp = netdev_priv(dev);
-	return cp->casreg_len < CAS_MAX_REGS ? cp->casreg_len: CAS_MAX_REGS;
+	return min_t(int, cp->casreg_len, CAS_MAX_REGS);
 }
 
 static void cas_get_regs(struct net_device *dev, struct ethtool_regs *regs,
@@ -4893,8 +4860,8 @@ static int cas_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	unsigned long casreg_len;
 	struct net_device *dev;
 	struct cas *cp;
-	int i, err, pci_using_dac;
 	u16 pci_cmd;
+	int i, err;
 	u8 orig_cacheline_size = 0, cas_cacheline_size = 0;
 
 	if (cas_version_printed++ == 0)
@@ -4965,23 +4932,10 @@ static int cas_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 
 	/* Configure DMA attributes. */
-	if (!dma_set_mask(&pdev->dev, DMA_BIT_MASK(64))) {
-		pci_using_dac = 1;
-		err = dma_set_coherent_mask(&pdev->dev, DMA_BIT_MASK(64));
-		if (err < 0) {
-			dev_err(&pdev->dev, "Unable to obtain 64-bit DMA "
-			       "for consistent allocations\n");
-			goto err_out_free_res;
-		}
-
-	} else {
-		err = dma_set_mask(&pdev->dev, DMA_BIT_MASK(32));
-		if (err) {
-			dev_err(&pdev->dev, "No usable DMA configuration, "
-			       "aborting\n");
-			goto err_out_free_res;
-		}
-		pci_using_dac = 0;
+	err = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
+	if (err) {
+		dev_err(&pdev->dev, "No usable DMA configuration, aborting\n");
+		goto err_out_free_res;
 	}
 
 	casreg_len = pci_resource_len(pdev, 0);
@@ -5078,7 +5032,7 @@ static int cas_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	dev->watchdog_timeo = CAS_TX_TIMEOUT;
 
 #ifdef USE_NAPI
-	netif_napi_add(dev, &cp->napi, cas_poll, 64);
+	netif_napi_add(dev, &cp->napi, cas_poll);
 #endif
 	dev->irq = pdev->irq;
 	dev->dma = 0;
@@ -5087,8 +5041,7 @@ static int cas_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if ((cp->cas_flags & CAS_FLAG_NO_HW_CSUM) == 0)
 		dev->features |= NETIF_F_HW_CSUM | NETIF_F_SG;
 
-	if (pci_using_dac)
-		dev->features |= NETIF_F_HIGHDMA;
+	dev->features |= NETIF_F_HIGHDMA;
 
 	/* MTU range: 60 - varies or 9000 */
 	dev->min_mtu = CAS_MIN_MTU;

@@ -292,6 +292,7 @@ static bool mac8390_rsrc_init(struct net_device *dev,
 	struct nubus_dirent ent;
 	int offset;
 	volatile unsigned short *i;
+	u8 addr[ETH_ALEN];
 
 	dev->irq = SLOT2IRQ(board->slot);
 	/* This is getting to be a habit */
@@ -314,7 +315,8 @@ static bool mac8390_rsrc_init(struct net_device *dev,
 		return false;
 	}
 
-	nubus_get_rsrc_mem(dev->dev_addr, &ent, 6);
+	nubus_get_rsrc_mem(addr, &ent, 6);
+	eth_hw_addr_set(dev, addr);
 
 	if (useresources[cardtype] == 1) {
 		nubus_rewinddir(&dir);
@@ -428,13 +430,12 @@ out:
 	return err;
 }
 
-static int mac8390_device_remove(struct nubus_board *board)
+static void mac8390_device_remove(struct nubus_board *board)
 {
 	struct net_device *dev = nubus_get_drvdata(board);
 
 	unregister_netdev(dev);
 	free_netdev(dev);
-	return 0;
 }
 
 static struct nubus_driver mac8390_driver = {

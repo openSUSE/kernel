@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Historical Service Time
  *
@@ -27,7 +27,6 @@
 #include <linux/blkdev.h>
 #include <linux/slab.h>
 #include <linux/module.h>
-#include <linux/sched/clock.h>
 
 
 #define DM_MSG_PREFIX	"multipath historical-service-time"

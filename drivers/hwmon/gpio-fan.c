@@ -14,6 +14,7 @@
 #include <linux/irq.h>
 #include <linux/platform_device.h>
 #include <linux/err.h>
+#include <linux/kstrtox.h>
 #include <linux/mutex.h>
 #include <linux/hwmon.h>
 #include <linux/gpio/consumer.h>
@@ -37,9 +38,7 @@ struct gpio_fan_data {
 	int			num_speed;
 	struct gpio_fan_speed	*speed;
 	int			speed_index;
-#ifdef CONFIG_PM_SLEEP
 	int			resume_speed;
-#endif
 	bool			pwm_enable;
 	struct gpio_desc	*alarm_gpio;
 	struct work_struct	alarm_work;
@@ -557,7 +556,6 @@ static void gpio_fan_shutdown(struct platform_device *pdev)
 		set_fan_speed(fan_data, 0);
 }
 
-#ifdef CONFIG_PM_SLEEP
 static int gpio_fan_suspend(struct device *dev)
 {
 	struct gpio_fan_data *fan_data = dev_get_drvdata(dev);
@@ -580,19 +578,15 @@ static int gpio_fan_resume(struct device *dev)
 	return 0;
 }
 
-static SIMPLE_DEV_PM_OPS(gpio_fan_pm, gpio_fan_suspend, gpio_fan_resume);
-#define GPIO_FAN_PM	(&gpio_fan_pm)
-#else
-#define GPIO_FAN_PM	NULL
-#endif
+static DEFINE_SIMPLE_DEV_PM_OPS(gpio_fan_pm, gpio_fan_suspend, gpio_fan_resume);
 
 static struct platform_driver gpio_fan_driver = {
 	.probe		= gpio_fan_probe,
 	.shutdown	= gpio_fan_shutdown,
 	.driver	= {
 		.name	= "gpio-fan",
-		.pm	= GPIO_FAN_PM,
-		.of_match_table = of_match_ptr(of_gpio_fan_match),
+		.pm	= pm_sleep_ptr(&gpio_fan_pm),
+		.of_match_table = of_gpio_fan_match,
 	},
 };
 

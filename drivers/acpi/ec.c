@@ -918,14 +918,10 @@ EXPORT_SYMBOL(ec_read);
 
 int ec_write(u8 addr, u8 val)
 {
-	int err;
-
 	if (!first_ec)
 		return -ENODEV;
 
-	err = acpi_ec_write(first_ec, addr, val);
-
-	return err;
+	return acpi_ec_write(first_ec, addr, val);
 }
 EXPORT_SYMBOL(ec_write);
 
@@ -1087,9 +1083,12 @@ int acpi_ec_add_query_handler(struct acpi_ec *ec, u8 query_bit,
 			      acpi_handle handle, acpi_ec_query_func func,
 			      void *data)
 {
-	struct acpi_ec_query_handler *handler =
-	    kzalloc(sizeof(struct acpi_ec_query_handler), GFP_KERNEL);
+	struct acpi_ec_query_handler *handler;
 
+	if (!handle && !func)
+		return -EINVAL;
+
+	handler = kzalloc(sizeof(*handler), GFP_KERNEL);
 	if (!handler)
 		return -ENOMEM;
 
@@ -1101,6 +1100,7 @@ int acpi_ec_add_query_handler(struct acpi_ec *ec, u8 query_bit,
 	kref_init(&handler->kref);
 	list_add(&handler->node, &ec->list);
 	mutex_unlock(&ec->mutex);
+
 	return 0;
 }
 EXPORT_SYMBOL_GPL(acpi_ec_add_query_handler);
@@ -1113,9 +1113,16 @@ static void acpi_ec_remove_query_handlers(struct acpi_ec *ec,
 
 	mutex_lock(&ec->mutex);
 	list_for_each_entry_safe(handler, tmp, &ec->list, node) {
-		if (remove_all || query_bit == handler->query_bit) {
+		/*
+		 * When remove_all is false, only remove custom query handlers
+		 * which have handler->func set. This is done to preserve query
+		 * handlers discovered thru ACPI, as they should continue handling
+		 * EC queries.
+		 */
+		if (remove_all || (handler->func && handler->query_bit == query_bit)) {
 			list_del_init(&handler->node);
 			list_add(&handler->node, &free_list);
+
 		}
 	}
 	mutex_unlock(&ec->mutex);
@@ -1678,12 +1685,12 @@ err:
 	return ret;
 }
 
-static int acpi_ec_remove(struct acpi_device *device)
+static void acpi_ec_remove(struct acpi_device *device)
 {
 	struct acpi_ec *ec;
 
 	if (!device)
-		return -EINVAL;
+		return;
 
 	ec = acpi_driver_data(device);
 	release_region(ec->data_addr, 1);
@@ -1693,7 +1700,6 @@ static int acpi_ec_remove(struct acpi_device *device)
 		ec_remove_handlers(ec);
 		acpi_ec_free(ec);
 	}
-	return 0;
 }
 
 static acpi_status
@@ -1892,6 +1898,16 @@ static const struct dmi_system_id ec_dmi_table[] __initconst = {
 	},
 	{
 		/*
+		 * HP Pavilion Gaming Laptop 15-cx0041ur
+		 */
+		.callback = ec_honor_dsdt_gpe,
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "HP"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "HP 15-cx0041ur"),
+		},
+	},
+	{
+		/*
 		 * Samsung hardware
 		 * https://bugzilla.kernel.org/show_bug.cgi?id=44161
 		 */
@@ -2046,6 +2062,16 @@ bool acpi_ec_dispatch_gpe(void)
 	 */
 	if (acpi_any_gpe_status_set(first_ec->gpe))
 		return true;
+
+	/*
+	 * Cancel the SCI wakeup and process all pending events in case there
+	 * are any wakeup ones in there.
+	 *
+	 * Note that if any non-EC GPEs are active at this point, the SCI will
+	 * retrigger after the rearming in acpi_s2idle_wake(), so no events
+	 * should be missed by canceling the wakeup here.
+	 */
+	pm_system_cancel_wakeup();
 
 	/*
 	 * Dispatch the EC GPE in-band, but do not report wakeup in any case

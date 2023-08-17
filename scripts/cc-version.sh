@@ -1,19 +1,17 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0
 #
-# Print the compiler name and its version in a 5 or 6-digit form.
+# Print the C compiler name and its version in a 5 or 6-digit form.
 # Also, perform the minimum version check.
 
 set -e
 
-# Print the compiler name and some version components.
-get_compiler_info()
+# Print the C compiler name and some version components.
+get_c_compiler_info()
 {
 	cat <<- EOF | "$@" -E -P -x c - 2>/dev/null
 	#if defined(__clang__)
 	Clang	__clang_major__  __clang_minor__  __clang_patchlevel__
-	#elif defined(__INTEL_COMPILER)
-	ICC	__INTEL_COMPILER  __INTEL_COMPILER_UPDATE
 	#elif defined(__GNUC__)
 	GCC	__GNUC__  __GNUC_MINOR__  __GNUC_PATCHLEVEL__
 	#else
@@ -32,7 +30,7 @@ get_canonical_version()
 
 # $@ instead of $1 because multiple words might be given, e.g. CC="ccache gcc".
 orig_args="$@"
-set -- $(get_compiler_info "$@")
+set -- $(get_c_compiler_info "$@")
 
 name=$1
 
@@ -47,12 +45,8 @@ Clang)
 	version=$2.$3.$4
 	min_version=$($min_tool_version llvm)
 	;;
-ICC)
-	version=$(($2 / 100)).$(($2 % 100)).$3
-	min_version=$($min_tool_version icc)
-	;;
 *)
-	echo "$orig_args: unknown compiler" >&2
+	echo "$orig_args: unknown C compiler" >&2
 	exit 1
 	;;
 esac
@@ -62,7 +56,7 @@ min_cversion=$(get_canonical_version $min_version)
 
 if [ "$cversion" -lt "$min_cversion" ]; then
 	echo >&2 "***"
-	echo >&2 "*** Compiler is too old."
+	echo >&2 "*** C compiler is too old."
 	echo >&2 "***   Your $name version:    $version"
 	echo >&2 "***   Minimum $name version: $min_version"
 	echo >&2 "***"

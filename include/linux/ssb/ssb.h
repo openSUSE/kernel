@@ -7,7 +7,7 @@
 #include <linux/types.h>
 #include <linux/spinlock.h>
 #include <linux/pci.h>
-#include <linux/gpio.h>
+#include <linux/gpio/driver.h>
 #include <linux/mod_devicetable.h>
 #include <linux/dma-mapping.h>
 #include <linux/platform_device.h>
@@ -285,7 +285,7 @@ struct ssb_device {
 
 /* Go from struct device to struct ssb_device. */
 static inline
-struct ssb_device * dev_to_ssb_dev(struct device *dev)
+struct ssb_device * dev_to_ssb_dev(const struct device *dev)
 {
 	struct __ssb_dev_wrapper *wrap;
 	wrap = container_of(dev, struct __ssb_dev_wrapper, dev);

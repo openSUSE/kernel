@@ -173,7 +173,7 @@ int fiemap_prep(struct inode *inode, struct fiemap_extent_info *fieinfo,
 
 	if (*len == 0)
 		return -EINVAL;
-	if (start > maxbytes)
+	if (start >= maxbytes)
 		return -EFBIG;
 
 	/*
@@ -236,9 +236,6 @@ static long ioctl_file_clone(struct file *dst_file, unsigned long srcfd,
 
 	if (!src_file.file)
 		return -EBADF;
-	ret = -EXDEV;
-	if (src_file.file->f_path.mnt != dst_file->f_path.mnt)
-		goto fdput;
 	cloned = vfs_clone_file_range(src_file.file, off, dst_file, destoff,
 				      olen, 0);
 	if (cloned < 0)
@@ -247,7 +244,6 @@ static long ioctl_file_clone(struct file *dst_file, unsigned long srcfd,
 		ret = -EINVAL;
 	else
 		ret = 0;
-fdput:
 	fdput(src_file);
 	return ret;
 }
@@ -262,209 +258,6 @@ static long ioctl_file_clone_range(struct file *file,
 	return ioctl_file_clone(file, args.src_fd, args.src_offset,
 				args.src_length, args.dest_offset);
 }
-
-#ifdef CONFIG_BLOCK
-
-static inline sector_t logical_to_blk(struct inode *inode, loff_t offset)
-{
-	return (offset >> inode->i_blkbits);
-}
-
-static inline loff_t blk_to_logical(struct inode *inode, sector_t blk)
-{
-	return (blk << inode->i_blkbits);
-}
-
-/**
- * __generic_block_fiemap - FIEMAP for block based inodes (no locking)
- * @inode: the inode to map
- * @fieinfo: the fiemap info struct that will be passed back to userspace
- * @start: where to start mapping in the inode
- * @len: how much space to map
- * @get_block: the fs's get_block function
- *
- * This does FIEMAP for block based inodes.  Basically it will just loop
- * through get_block until we hit the number of extents we want to map, or we
- * go past the end of the file and hit a hole.
- *
- * If it is possible to have data blocks beyond a hole past @inode->i_size, then
- * please do not use this function, it will stop at the first unmapped block
- * beyond i_size.
- *
- * If you use this function directly, you need to do your own locking. Use
- * generic_block_fiemap if you want the locking done for you.
- */
-static int __generic_block_fiemap(struct inode *inode,
-			   struct fiemap_extent_info *fieinfo, loff_t start,
-			   loff_t len, get_block_t *get_block)
-{
-	struct buffer_head map_bh;
-	sector_t start_blk, last_blk;
-	loff_t isize = i_size_read(inode);
-	u64 logical = 0, phys = 0, size = 0;
-	u32 flags = FIEMAP_EXTENT_MERGED;
-	bool past_eof = false, whole_file = false;
-	int ret = 0;
-
-	ret = fiemap_prep(inode, fieinfo, start, &len, FIEMAP_FLAG_SYNC);
-	if (ret)
-		return ret;
-
-	/*
-	 * Either the i_mutex or other appropriate locking needs to be held
-	 * since we expect isize to not change at all through the duration of
-	 * this call.
-	 */
-	if (len >= isize) {
-		whole_file = true;
-		len = isize;
-	}
-
-	/*
-	 * Some filesystems can't deal with being asked to map less than
-	 * blocksize, so make sure our len is at least block length.
-	 */
-	if (logical_to_blk(inode, len) == 0)
-		len = blk_to_logical(inode, 1);
-
-	start_blk = logical_to_blk(inode, start);
-	last_blk = logical_to_blk(inode, start + len - 1);
-
-	do {
-		/*
-		 * we set b_size to the total size we want so it will map as
-		 * many contiguous blocks as possible at once
-		 */
-		memset(&map_bh, 0, sizeof(struct buffer_head));
-		map_bh.b_size = len;
-
-		ret = get_block(inode, start_blk, &map_bh, 0);
-		if (ret)
-			break;
-
-		/* HOLE */
-		if (!buffer_mapped(&map_bh)) {
-			start_blk++;
-
-			/*
-			 * We want to handle the case where there is an
-			 * allocated block at the front of the file, and then
-			 * nothing but holes up to the end of the file properly,
-			 * to make sure that extent at the front gets properly
-			 * marked with FIEMAP_EXTENT_LAST
-			 */
-			if (!past_eof &&
-			    blk_to_logical(inode, start_blk) >= isize)
-				past_eof = 1;
-
-			/*
-			 * First hole after going past the EOF, this is our
-			 * last extent
-			 */
-			if (past_eof && size) {
-				flags = FIEMAP_EXTENT_MERGED|FIEMAP_EXTENT_LAST;
-				ret = fiemap_fill_next_extent(fieinfo, logical,
-							      phys, size,
-							      flags);
-			} else if (size) {
-				ret = fiemap_fill_next_extent(fieinfo, logical,
-							      phys, size, flags);
-				size = 0;
-			}
-
-			/* if we have holes up to/past EOF then we're done */
-			if (start_blk > last_blk || past_eof || ret)
-				break;
-		} else {
-			/*
-			 * We have gone over the length of what we wanted to
-			 * map, and it wasn't the entire file, so add the extent
-			 * we got last time and exit.
-			 *
-			 * This is for the case where say we want to map all the
-			 * way up to the second to the last block in a file, but
-			 * the last block is a hole, making the second to last
-			 * block FIEMAP_EXTENT_LAST.  In this case we want to
-			 * see if there is a hole after the second to last block
-			 * so we can mark it properly.  If we found data after
-			 * we exceeded the length we were requesting, then we
-			 * are good to go, just add the extent to the fieinfo
-			 * and break
-			 */
-			if (start_blk > last_blk && !whole_file) {
-				ret = fiemap_fill_next_extent(fieinfo, logical,
-							      phys, size,
-							      flags);
-				break;
-			}
-
-			/*
-			 * if size != 0 then we know we already have an extent
-			 * to add, so add it.
-			 */
-			if (size) {
-				ret = fiemap_fill_next_extent(fieinfo, logical,
-							      phys, size,
-							      flags);
-				if (ret)
-					break;
-			}
-
-			logical = blk_to_logical(inode, start_blk);
-			phys = blk_to_logical(inode, map_bh.b_blocknr);
-			size = map_bh.b_size;
-			flags = FIEMAP_EXTENT_MERGED;
-
-			start_blk += logical_to_blk(inode, size);
-
-			/*
-			 * If we are past the EOF, then we need to make sure as
-			 * soon as we find a hole that the last extent we found
-			 * is marked with FIEMAP_EXTENT_LAST
-			 */
-			if (!past_eof && logical + size >= isize)
-				past_eof = true;
-		}
-		cond_resched();
-		if (fatal_signal_pending(current)) {
-			ret = -EINTR;
-			break;
-		}
-
-	} while (1);
-
-	/* If ret is 1 then we just hit the end of the extent array */
-	if (ret == 1)
-		ret = 0;
-
-	return ret;
-}
-
-/**
- * generic_block_fiemap - FIEMAP for block based inodes
- * @inode: The inode to map
- * @fieinfo: The mapping information
- * @start: The initial block to map
- * @len: The length of the extect to attempt to map
- * @get_block: The block mapping function for the fs
- *
- * Calls __generic_block_fiemap to map the inode, after taking
- * the inode's mutex lock.
- */
-
-int generic_block_fiemap(struct inode *inode,
-			 struct fiemap_extent_info *fieinfo, u64 start,
-			 u64 len, get_block_t *get_block)
-{
-	int ret;
-	inode_lock(inode);
-	ret = __generic_block_fiemap(inode, fieinfo, start, len, get_block);
-	inode_unlock(inode);
-	return ret;
-}
-EXPORT_SYMBOL(generic_block_fiemap);
-
-#endif  /*  CONFIG_BLOCK  */
 
 /*
  * This provides compatibility with legacy XFS pre-allocation ioctls
@@ -633,7 +426,7 @@ static int ioctl_file_dedupe_range(struct file *file,
 		goto out;
 	}
 
-	size = offsetof(struct file_dedupe_range __user, info[count]);
+	size = offsetof(struct file_dedupe_range, info[count]);
 	if (size > PAGE_SIZE) {
 		ret = -ENOMEM;
 		goto out;
@@ -817,6 +610,14 @@ static int fileattr_set_prepare(struct inode *inode,
 		if ((old_ma->fsx_xflags ^ fa->fsx_xflags) &
 				FS_XFLAG_PROJINHERIT)
 			return -EINVAL;
+	} else {
+		/*
+		 * Caller is allowed to change the project ID. If it is being
+		 * changed, make sure that the new value is valid.
+		 */
+		if (old_ma->fsx_projid != fa->fsx_projid &&
+		    !projid_valid(make_kprojid(&init_user_ns, fa->fsx_projid)))
+			return -EINVAL;
 	}
 
 	/* Check extent size hints. */
@@ -850,7 +651,7 @@ static int fileattr_set_prepare(struct inode *inode,
 
 /**
  * vfs_fileattr_set - change miscellaneous file attributes
- * @mnt_userns:	user namespace of the mount
+ * @idmap:	idmap of the mount
  * @dentry:	the object to change
  * @fa:		fileattr pointer
  *
@@ -864,7 +665,7 @@ static int fileattr_set_prepare(struct inode *inode,
  *
  * Return: 0 on success, or a negative error on failure.
  */
-int vfs_fileattr_set(struct user_namespace *mnt_userns, struct dentry *dentry,
+int vfs_fileattr_set(struct mnt_idmap *idmap, struct dentry *dentry,
 		     struct fileattr *fa)
 {
 	struct inode *inode = d_inode(dentry);
@@ -874,7 +675,7 @@ int vfs_fileattr_set(struct user_namespace *mnt_userns, struct dentry *dentry,
 	if (!inode->i_op->fileattr_set)
 		return -ENOIOCTLCMD;
 
-	if (!inode_owner_or_capable(mnt_userns, inode))
+	if (!inode_owner_or_capable(idmap, inode))
 		return -EPERM;
 
 	inode_lock(inode);
@@ -892,7 +693,7 @@ int vfs_fileattr_set(struct user_namespace *mnt_userns, struct dentry *dentry,
 		}
 		err = fileattr_set_prepare(inode, &old_ma, fa);
 		if (!err)
-			err = inode->i_op->fileattr_set(mnt_userns, dentry, fa);
+			err = inode->i_op->fileattr_set(idmap, dentry, fa);
 	}
 	inode_unlock(inode);
 
@@ -913,7 +714,7 @@ static int ioctl_getflags(struct file *file, unsigned int __user *argp)
 
 static int ioctl_setflags(struct file *file, unsigned int __user *argp)
 {
-	struct user_namespace *mnt_userns = file_mnt_user_ns(file);
+	struct mnt_idmap *idmap = file_mnt_idmap(file);
 	struct dentry *dentry = file->f_path.dentry;
 	struct fileattr fa;
 	unsigned int flags;
@@ -924,7 +725,7 @@ static int ioctl_setflags(struct file *file, unsigned int __user *argp)
 		err = mnt_want_write_file(file);
 		if (!err) {
 			fileattr_fill_flags(&fa, flags);
-			err = vfs_fileattr_set(mnt_userns, dentry, &fa);
+			err = vfs_fileattr_set(idmap, dentry, &fa);
 			mnt_drop_write_file(file);
 		}
 	}
@@ -945,7 +746,7 @@ static int ioctl_fsgetxattr(struct file *file, void __user *argp)
 
 static int ioctl_fssetxattr(struct file *file, void __user *argp)
 {
-	struct user_namespace *mnt_userns = file_mnt_user_ns(file);
+	struct mnt_idmap *idmap = file_mnt_idmap(file);
 	struct dentry *dentry = file->f_path.dentry;
 	struct fileattr fa;
 	int err;
@@ -954,7 +755,7 @@ static int ioctl_fssetxattr(struct file *file, void __user *argp)
 	if (!err) {
 		err = mnt_want_write_file(file);
 		if (!err) {
-			err = vfs_fileattr_set(mnt_userns, dentry, &fa);
+			err = vfs_fileattr_set(idmap, dentry, &fa);
 			mnt_drop_write_file(file);
 		}
 	}

@@ -22,8 +22,6 @@
 #define dprintk(dev, level, fmt, arg...) \
 	v4l2_dbg(level, vivid_debug, &dev->v4l2_dev, fmt, ## arg)
 
-/* The maximum number of clip rectangles */
-#define MAX_CLIPS  16
 /* The maximum number of inputs */
 #define MAX_INPUTS 16
 /* The maximum number of outputs */
@@ -35,7 +33,9 @@
 #define MAX_HEIGHT 2160
 /* The minimum image width/height */
 #define MIN_WIDTH  16
-#define MIN_HEIGHT 16
+#define MIN_HEIGHT MIN_WIDTH
+/* Pixel Array control divider */
+#define PIXEL_ARRAY_DIV MIN_WIDTH
 /* The data_offset of plane 0 for the multiplanar formats */
 #define PLANE0_DATA_OFFSET 128
 
@@ -110,15 +110,11 @@ enum vivid_colorspace {
 #define VIVID_INVALID_SIGNAL(mode) \
 	((mode) == NO_SIGNAL || (mode) == NO_LOCK || (mode) == OUT_OF_RANGE)
 
-struct vivid_cec_work {
-	struct list_head	list;
-	struct delayed_work	work;
+struct vivid_cec_xfer {
 	struct cec_adapter	*adap;
-	struct vivid_dev	*dev;
-	unsigned int		usecs;
-	unsigned int		timeout_ms;
-	u8			tx_status;
-	struct cec_msg		msg;
+	u8			msg[CEC_MAX_MSG_SIZE];
+	u32			len;
+	u32			sft;
 };
 
 struct vivid_dev {
@@ -231,6 +227,7 @@ struct vivid_dev {
 	struct v4l2_ctrl		*bitmask;
 	struct v4l2_ctrl		*int_menu;
 	struct v4l2_ctrl		*ro_int32;
+	struct v4l2_ctrl		*pixel_array;
 	struct v4l2_ctrl		*test_pattern;
 	struct v4l2_ctrl		*colorspace;
 	struct v4l2_ctrl		*rgb_range_cap;
@@ -311,7 +308,7 @@ struct vivid_dev {
 	bool				dqbuf_error;
 	bool				req_validate_error;
 	bool				seq_wrap;
-	bool				time_wrap;
+	u64				time_wrap;
 	u64				time_wrap_offset;
 	unsigned			perc_dropped_buffers;
 	enum vivid_signal_mode		std_signal_mode[MAX_INPUTS];
@@ -346,17 +343,6 @@ struct vivid_dev {
 
 	u32				power_present;
 
-	/* Capture Overlay */
-	struct v4l2_framebuffer		fb_cap;
-	struct v4l2_fh			*overlay_cap_owner;
-	void				*fb_vbase_cap;
-	int				overlay_cap_top, overlay_cap_left;
-	enum v4l2_field			overlay_cap_field;
-	void				*bitmap_cap;
-	struct v4l2_clip		clips_cap[MAX_CLIPS];
-	struct v4l2_clip		try_clips_cap[MAX_CLIPS];
-	unsigned			clipcount_cap;
-
 	/* Output */
 	unsigned			output;
 	v4l2_std_id			std_out;
@@ -384,10 +370,6 @@ struct vivid_dev {
 	void				*fb_vbase_out;
 	bool				overlay_out_enabled;
 	int				overlay_out_top, overlay_out_left;
-	void				*bitmap_out;
-	struct v4l2_clip		clips_out[MAX_CLIPS];
-	struct v4l2_clip		try_clips_out[MAX_CLIPS];
-	unsigned			clipcount_out;
 	unsigned			fbuf_out_flags;
 	u32				chromakey_out;
 	u8				global_alpha_out;
@@ -441,6 +423,7 @@ struct vivid_dev {
 	bool				touch_cap_seq_resync;
 	u32				touch_cap_seq_start;
 	u32				touch_cap_seq_count;
+	u32				touch_cap_with_seq_wrap_count;
 	bool				touch_cap_streaming;
 	struct v4l2_fract		timeperframe_tch_cap;
 	struct v4l2_pix_format		tch_format;
@@ -528,7 +511,9 @@ struct vivid_dev {
 	struct task_struct		*kthread_sdr_cap;
 	unsigned long			jiffies_sdr_cap;
 	u32				sdr_cap_seq_offset;
+	u32				sdr_cap_seq_start;
 	u32				sdr_cap_seq_count;
+	u32				sdr_cap_with_seq_wrap_count;
 	bool				sdr_cap_seq_resync;
 
 	/* RDS generator */
@@ -560,12 +545,13 @@ struct vivid_dev {
 	/* CEC */
 	struct cec_adapter		*cec_rx_adap;
 	struct cec_adapter		*cec_tx_adap[MAX_OUTPUTS];
-	struct workqueue_struct		*cec_workqueue;
-	spinlock_t			cec_slock;
-	struct list_head		cec_work_list;
-	unsigned int			cec_xfer_time_jiffies;
-	unsigned long			cec_xfer_start_jiffies;
 	u8				cec_output2bus_map[MAX_OUTPUTS];
+	struct task_struct		*kthread_cec;
+	wait_queue_head_t		kthread_waitq_cec;
+	struct vivid_cec_xfer	xfers[MAX_OUTPUTS];
+	spinlock_t			cec_xfers_slock; /* read and write cec messages */
+	u32				cec_sft; /* bus signal free time, in bit periods */
+	u8				last_initiator;
 
 	/* CEC OSD String */
 	char				osd[14];
@@ -609,7 +595,5 @@ static inline bool vivid_is_hdmi_out(const struct vivid_dev *dev)
 {
 	return dev->output_type[dev->output] == HDMI;
 }
-
-bool vivid_validate_fb(const struct v4l2_framebuffer *a);
 
 #endif

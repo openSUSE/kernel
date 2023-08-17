@@ -94,14 +94,14 @@ static int imx_media_probe(struct platform_device *pdev)
 	return 0;
 
 cleanup:
-	v4l2_async_notifier_cleanup(&imxmd->notifier);
+	v4l2_async_nf_cleanup(&imxmd->notifier);
 	v4l2_device_unregister(&imxmd->v4l2_dev);
 	media_device_cleanup(&imxmd->md);
 
 	return ret;
 }
 
-static int imx_media_remove(struct platform_device *pdev)
+static void imx_media_remove(struct platform_device *pdev)
 {
 	struct imx_media_dev *imxmd =
 		(struct imx_media_dev *)platform_get_drvdata(pdev);
@@ -113,14 +113,12 @@ static int imx_media_remove(struct platform_device *pdev)
 		imxmd->m2m_vdev = NULL;
 	}
 
-	v4l2_async_notifier_unregister(&imxmd->notifier);
+	v4l2_async_nf_unregister(&imxmd->notifier);
 	imx_media_unregister_ipu_internal_subdevs(imxmd);
-	v4l2_async_notifier_cleanup(&imxmd->notifier);
+	v4l2_async_nf_cleanup(&imxmd->notifier);
 	media_device_unregister(&imxmd->md);
 	v4l2_device_unregister(&imxmd->v4l2_dev);
 	media_device_cleanup(&imxmd->md);
-
-	return 0;
 }
 
 static const struct of_device_id imx_media_dt_ids[] = {
@@ -131,7 +129,7 @@ MODULE_DEVICE_TABLE(of, imx_media_dt_ids);
 
 static struct platform_driver imx_media_pdrv = {
 	.probe		= imx_media_probe,
-	.remove		= imx_media_remove,
+	.remove_new	= imx_media_remove,
 	.driver		= {
 		.name	= "imx-media",
 		.of_match_table	= imx_media_dt_ids,

@@ -44,31 +44,42 @@
 #define KVM_HOST_SMCCC_FUNC(name) KVM_HOST_SMCCC_ID(__KVM_HOST_SMCCC_FUNC_##name)
 
 #define __KVM_HOST_SMCCC_FUNC___kvm_hyp_init			0
-#define __KVM_HOST_SMCCC_FUNC___kvm_vcpu_run			1
-#define __KVM_HOST_SMCCC_FUNC___kvm_flush_vm_context		2
-#define __KVM_HOST_SMCCC_FUNC___kvm_tlb_flush_vmid_ipa		3
-#define __KVM_HOST_SMCCC_FUNC___kvm_tlb_flush_vmid		4
-#define __KVM_HOST_SMCCC_FUNC___kvm_flush_cpu_context		5
-#define __KVM_HOST_SMCCC_FUNC___kvm_timer_set_cntvoff		6
-#define __KVM_HOST_SMCCC_FUNC___kvm_enable_ssbs			7
-#define __KVM_HOST_SMCCC_FUNC___vgic_v3_get_gic_config		8
-#define __KVM_HOST_SMCCC_FUNC___vgic_v3_read_vmcr		9
-#define __KVM_HOST_SMCCC_FUNC___vgic_v3_write_vmcr		10
-#define __KVM_HOST_SMCCC_FUNC___vgic_v3_init_lrs		11
-#define __KVM_HOST_SMCCC_FUNC___kvm_get_mdcr_el2		12
-#define __KVM_HOST_SMCCC_FUNC___vgic_v3_save_aprs		13
-#define __KVM_HOST_SMCCC_FUNC___vgic_v3_restore_aprs		14
-#define __KVM_HOST_SMCCC_FUNC___pkvm_init			15
-#define __KVM_HOST_SMCCC_FUNC___pkvm_create_mappings		16
-#define __KVM_HOST_SMCCC_FUNC___pkvm_create_private_mapping	17
-#define __KVM_HOST_SMCCC_FUNC___pkvm_cpu_set_vector		18
-#define __KVM_HOST_SMCCC_FUNC___pkvm_prot_finalize		19
-#define __KVM_HOST_SMCCC_FUNC___pkvm_mark_hyp			20
-#define __KVM_HOST_SMCCC_FUNC___kvm_adjust_pc			21
 
 #ifndef __ASSEMBLY__
 
 #include <linux/mm.h>
+
+enum __kvm_host_smccc_func {
+	/* Hypercalls available only prior to pKVM finalisation */
+	/* __KVM_HOST_SMCCC_FUNC___kvm_hyp_init */
+	__KVM_HOST_SMCCC_FUNC___kvm_get_mdcr_el2 = __KVM_HOST_SMCCC_FUNC___kvm_hyp_init + 1,
+	__KVM_HOST_SMCCC_FUNC___pkvm_init,
+	__KVM_HOST_SMCCC_FUNC___pkvm_create_private_mapping,
+	__KVM_HOST_SMCCC_FUNC___pkvm_cpu_set_vector,
+	__KVM_HOST_SMCCC_FUNC___kvm_enable_ssbs,
+	__KVM_HOST_SMCCC_FUNC___vgic_v3_init_lrs,
+	__KVM_HOST_SMCCC_FUNC___vgic_v3_get_gic_config,
+	__KVM_HOST_SMCCC_FUNC___pkvm_prot_finalize,
+
+	/* Hypercalls available after pKVM finalisation */
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_share_hyp,
+	__KVM_HOST_SMCCC_FUNC___pkvm_host_unshare_hyp,
+	__KVM_HOST_SMCCC_FUNC___kvm_adjust_pc,
+	__KVM_HOST_SMCCC_FUNC___kvm_vcpu_run,
+	__KVM_HOST_SMCCC_FUNC___kvm_flush_vm_context,
+	__KVM_HOST_SMCCC_FUNC___kvm_tlb_flush_vmid_ipa,
+	__KVM_HOST_SMCCC_FUNC___kvm_tlb_flush_vmid,
+	__KVM_HOST_SMCCC_FUNC___kvm_flush_cpu_context,
+	__KVM_HOST_SMCCC_FUNC___kvm_timer_set_cntvoff,
+	__KVM_HOST_SMCCC_FUNC___vgic_v3_read_vmcr,
+	__KVM_HOST_SMCCC_FUNC___vgic_v3_write_vmcr,
+	__KVM_HOST_SMCCC_FUNC___vgic_v3_save_aprs,
+	__KVM_HOST_SMCCC_FUNC___vgic_v3_restore_aprs,
+	__KVM_HOST_SMCCC_FUNC___pkvm_vcpu_init_traps,
+	__KVM_HOST_SMCCC_FUNC___pkvm_init_vm,
+	__KVM_HOST_SMCCC_FUNC___pkvm_init_vcpu,
+	__KVM_HOST_SMCCC_FUNC___pkvm_teardown_vm,
+};
 
 #define DECLARE_KVM_VHE_SYM(sym)	extern char sym[]
 #define DECLARE_KVM_NVHE_SYM(sym)	extern char kvm_nvhe_sym(sym)[]
@@ -98,7 +109,7 @@
 #define per_cpu_ptr_nvhe_sym(sym, cpu)						\
 	({									\
 		unsigned long base, off;					\
-		base = kvm_arm_hyp_percpu_base[cpu];				\
+		base = kvm_nvhe_sym(kvm_arm_hyp_percpu_base)[cpu];		\
 		off = (unsigned long)&CHOOSE_NVHE_SYM(sym) -			\
 		      (unsigned long)&CHOOSE_NVHE_SYM(__per_cpu_start);		\
 		base ? (typeof(CHOOSE_NVHE_SYM(sym))*)(base + off) : NULL;	\
@@ -161,10 +172,27 @@ struct kvm_nvhe_init_params {
 	unsigned long tcr_el2;
 	unsigned long tpidr_el2;
 	unsigned long stack_hyp_va;
+	unsigned long stack_pa;
 	phys_addr_t pgd_pa;
 	unsigned long hcr_el2;
 	unsigned long vttbr;
 	unsigned long vtcr;
+};
+
+/*
+ * Used by the host in EL1 to dump the nVHE hypervisor backtrace on
+ * hyp_panic() in non-protected mode.
+ *
+ * @stack_base:                 hyp VA of the hyp_stack base.
+ * @overflow_stack_base:        hyp VA of the hyp_overflow_stack base.
+ * @fp:                         hyp FP where the backtrace begins.
+ * @pc:                         hyp PC where the backtrace begins.
+ */
+struct kvm_nvhe_stacktrace_info {
+	unsigned long stack_base;
+	unsigned long overflow_stack_base;
+	unsigned long fp;
+	unsigned long pc;
 };
 
 /* Translate a kernel address @ptr into its equivalent linear mapping */
@@ -186,7 +214,7 @@ DECLARE_KVM_HYP_SYM(__kvm_hyp_vector);
 #define __kvm_hyp_init		CHOOSE_NVHE_SYM(__kvm_hyp_init)
 #define __kvm_hyp_vector	CHOOSE_HYP_SYM(__kvm_hyp_vector)
 
-extern unsigned long kvm_arm_hyp_percpu_base[NR_CPUS];
+extern unsigned long kvm_nvhe_sym(kvm_arm_hyp_percpu_base)[];
 DECLARE_KVM_NVHE_SYM(__per_cpu_start);
 DECLARE_KVM_NVHE_SYM(__per_cpu_end);
 
@@ -210,7 +238,7 @@ extern u64 __vgic_v3_read_vmcr(void);
 extern void __vgic_v3_write_vmcr(u32 vmcr);
 extern void __vgic_v3_init_lrs(void);
 
-extern u32 __kvm_get_mdcr_el2(void);
+extern u64 __kvm_get_mdcr_el2(void);
 
 #define __KVM_EXTABLE(from, to)						\
 	"	.pushsection	__kvm_ex_table, \"a\"\n"		\
@@ -264,9 +292,10 @@ extern u32 __kvm_get_mdcr_el2(void);
 
 /*
  * KVM extable for unexpected exceptions.
- * In the same format _asm_extable, but output to a different section so that
- * it can be mapped to EL2. The KVM version is not sorted. The caller must
- * ensure:
+ * Create a struct kvm_exception_table_entry output to a section that can be
+ * mapped by EL2. The table is not sorted.
+ *
+ * The caller must ensure:
  * x18 has the hypervisor value to allow any Shadow-Call-Stack instrumented
  * code to write to it, and that SPSR_EL2 and ELR_EL2 are restored by the fixup.
  */

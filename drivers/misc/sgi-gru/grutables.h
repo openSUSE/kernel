@@ -129,6 +129,7 @@
  *
  */
 
+#include <linux/refcount.h>
 #include <linux/rmap.h>
 #include <linux/interrupt.h>
 #include <linux/mutex.h>
@@ -350,7 +351,7 @@ struct gru_thread_state {
 	pid_t			ts_tgid_owner;	/* task that is using the
 						   context - for migration */
 	short			ts_user_blade_id;/* user selected blade */
-	char			ts_user_chiplet_id;/* user selected chiplet */
+	signed char		ts_user_chiplet_id;/* user selected chiplet */
 	unsigned short		ts_sizeavail;	/* Pagesizes in use */
 	int			ts_tsid;	/* thread that owns the
 						   structure */
@@ -358,16 +359,16 @@ struct gru_thread_state {
 						     enabled */
 	int			ts_ctxnum;	/* context number where the
 						   context is loaded */
-	atomic_t		ts_refcnt;	/* reference count GTS */
+	refcount_t		ts_refcnt;	/* reference count GTS */
 	unsigned char		ts_dsr_au_count;/* Number of DSR resources
 						   required for contest */
 	unsigned char		ts_cbr_au_count;/* Number of CBR resources
 						   required for contest */
-	char			ts_cch_req_slice;/* CCH packet slice */
-	char			ts_blade;	/* If >= 0, migrate context if
+	signed char		ts_cch_req_slice;/* CCH packet slice */
+	signed char		ts_blade;	/* If >= 0, migrate context if
 						   ref from different blade */
-	char			ts_force_cch_reload;
-	char			ts_cbr_idx[GRU_CBR_AU];/* CBR numbers of each
+	signed char		ts_force_cch_reload;
+	signed char		ts_cbr_idx[GRU_CBR_AU];/* CBR numbers of each
 							  allocated CB */
 	int			ts_data_valid;	/* Indicates if ts_gdata has
 						   valid data */
@@ -642,9 +643,9 @@ extern struct gru_thread_state *gru_alloc_gts(struct vm_area_struct *vma,
 		int cbr_au_count, int dsr_au_count,
 		unsigned char tlb_preload_count, int options, int tsid);
 extern unsigned long gru_reserve_cb_resources(struct gru_state *gru,
-		int cbr_au_count, char *cbmap);
+		int cbr_au_count, signed char *cbmap);
 extern unsigned long gru_reserve_ds_resources(struct gru_state *gru,
-		int dsr_au_count, char *dsmap);
+		int dsr_au_count, signed char *dsmap);
 extern vm_fault_t gru_fault(struct vm_fault *vmf);
 extern struct gru_mm_struct *gru_register_mmu_notifier(void);
 extern void gru_drop_mmu_notifier(struct gru_mm_struct *gms);

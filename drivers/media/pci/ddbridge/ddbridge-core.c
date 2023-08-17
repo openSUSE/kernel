@@ -5,15 +5,6 @@
  * Copyright (C) 2010-2017 Digital Devices GmbH
  *                         Marcus Metzler <mocm@metzlerbros.de>
  *                         Ralph Metzler <rjkm@metzlerbros.de>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * version 2 only, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/module.h>
@@ -2725,9 +2716,9 @@ static const struct file_operations ddb_fops = {
 	.release        = ddb_release,
 };
 
-static char *ddb_devnode(struct device *device, umode_t *mode)
+static char *ddb_devnode(const struct device *device, umode_t *mode)
 {
-	struct ddb *dev = dev_get_drvdata(device);
+	const struct ddb *dev = dev_get_drvdata(device);
 
 	return kasprintf(GFP_KERNEL, "ddbridge/card%d", dev->nr);
 }
@@ -3126,7 +3117,6 @@ static struct device_attribute ddb_attrs_fanspeed[] = {
 
 static struct class ddb_class = {
 	.name		= "ddbridge",
-	.owner          = THIS_MODULE,
 	.devnode        = ddb_devnode,
 };
 

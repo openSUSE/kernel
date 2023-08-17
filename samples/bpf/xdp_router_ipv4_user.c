@@ -162,7 +162,7 @@ static void read_route(struct nlmsghdr *nh, int nll)
 				__be32 gw;
 			} *prefix_value;
 
-			prefix_key = alloca(sizeof(*prefix_key) + 3);
+			prefix_key = alloca(sizeof(*prefix_key) + 4);
 			prefix_value = alloca(sizeof(*prefix_value));
 
 			prefix_key->prefixlen = 32;
@@ -209,7 +209,7 @@ static void read_route(struct nlmsghdr *nh, int nll)
 					/* Rereading the route table to check if
 					 * there is an entry with the same
 					 * prefix but a different metric as the
-					 * deleted enty.
+					 * deleted entry.
 					 */
 					get_route_table(AF_INET);
 				} else if (prefix_key->data[0] ==

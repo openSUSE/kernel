@@ -6,6 +6,7 @@
  */
 
 #include <linux/linkage.h>
+#include <linux/cfi_types.h>
 #include <asm/assembler.h>
 
 	SHASH		.req	v0
@@ -350,11 +351,11 @@ CPU_LE(	rev64		T1.16b, T1.16b	)
 	 * void pmull_ghash_update(int blocks, u64 dg[], const char *src,
 	 *			   struct ghash_key const *k, const char *head)
 	 */
-SYM_FUNC_START(pmull_ghash_update_p64)
+SYM_TYPED_FUNC_START(pmull_ghash_update_p64)
 	__pmull_ghash	p64
 SYM_FUNC_END(pmull_ghash_update_p64)
 
-SYM_FUNC_START(pmull_ghash_update_p8)
+SYM_TYPED_FUNC_START(pmull_ghash_update_p8)
 	__pmull_ghash	p8
 SYM_FUNC_END(pmull_ghash_update_p8)
 
@@ -435,9 +436,7 @@ SYM_FUNC_END(pmull_ghash_update_p8)
 
 	.align		6
 	.macro		pmull_gcm_do_crypt, enc
-	stp		x29, x30, [sp, #-32]!
-	mov		x29, sp
-	str		x19, [sp, #24]
+	frame_push	1
 
 	load_round_keys	x7, x6, x8
 
@@ -528,7 +527,7 @@ CPU_LE(	rev		w8, w8		)
 	.endif
 	bne		0b
 
-3:	ldp		x19, x10, [sp, #24]
+3:	ldr		x10, [sp, #.Lframe_local_offset]
 	cbz		x10, 5f				// output tag?
 
 	ld1		{INP3.16b}, [x10]		// load lengths[]
@@ -561,7 +560,7 @@ CPU_LE(	rev		w8, w8		)
 	smov		w0, v0.b[0]			// return b0
 	.endif
 
-4:	ldp		x29, x30, [sp], #32
+4:	frame_pop
 	ret
 
 5:

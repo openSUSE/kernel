@@ -175,13 +175,13 @@ static enum sas_device_type to_dev_type(struct discover_resp *dr)
 		return dr->attached_dev_type;
 }
 
-static void sas_set_ex_phy(struct domain_device *dev, int phy_id, void *rsp)
+static void sas_set_ex_phy(struct domain_device *dev, int phy_id,
+			   struct smp_disc_resp *disc_resp)
 {
 	enum sas_device_type dev_type;
 	enum sas_linkrate linkrate;
 	u8 sas_addr[SAS_ADDR_SIZE];
-	struct smp_resp *resp = rsp;
-	struct discover_resp *dr = &resp->disc;
+	struct discover_resp *dr = &disc_resp->disc;
 	struct sas_ha_struct *ha = dev->port->ha;
 	struct expander_device *ex = &dev->ex_dev;
 	struct ex_phy *phy = &ex->ex_phy[phy_id];
@@ -198,7 +198,7 @@ static void sas_set_ex_phy(struct domain_device *dev, int phy_id, void *rsp)
 		BUG_ON(!phy->phy);
 	}
 
-	switch (resp->result) {
+	switch (disc_resp->result) {
 	case SMP_RESP_PHY_VACANT:
 		phy->phy_state = PHY_VACANT;
 		break;
@@ -347,12 +347,13 @@ struct domain_device *sas_ex_to_ata(struct domain_device *ex_dev, int phy_id)
 }
 
 #define DISCOVER_REQ_SIZE  16
-#define DISCOVER_RESP_SIZE 56
+#define DISCOVER_RESP_SIZE sizeof(struct smp_disc_resp)
 
 static int sas_ex_phy_discover_helper(struct domain_device *dev, u8 *disc_req,
-				      u8 *disc_resp, int single)
+				      struct smp_disc_resp *disc_resp,
+				      int single)
 {
-	struct discover_resp *dr;
+	struct discover_resp *dr = &disc_resp->disc;
 	int res;
 
 	disc_req[9] = single;
@@ -361,7 +362,6 @@ static int sas_ex_phy_discover_helper(struct domain_device *dev, u8 *disc_req,
 			       disc_resp, DISCOVER_RESP_SIZE);
 	if (res)
 		return res;
-	dr = &((struct smp_resp *)disc_resp)->disc;
 	if (memcmp(dev->sas_addr, dr->attached_sas_addr, SAS_ADDR_SIZE) == 0) {
 		pr_notice("Found loopback topology, just ignore it!\n");
 		return 0;
@@ -375,7 +375,7 @@ int sas_ex_phy_discover(struct domain_device *dev, int single)
 	struct expander_device *ex = &dev->ex_dev;
 	int  res = 0;
 	u8   *disc_req;
-	u8   *disc_resp;
+	struct smp_disc_resp *disc_resp;
 
 	disc_req = alloc_smp_req(DISCOVER_REQ_SIZE);
 	if (!disc_req)
@@ -429,27 +429,14 @@ static int sas_expander_discover(struct domain_device *dev)
 
 #define MAX_EXPANDER_PHYS 128
 
-static void ex_assign_report_general(struct domain_device *dev,
-					    struct smp_resp *resp)
-{
-	struct report_general_resp *rg = &resp->rg;
-
-	dev->ex_dev.ex_change_count = be16_to_cpu(rg->change_count);
-	dev->ex_dev.max_route_indexes = be16_to_cpu(rg->route_indexes);
-	dev->ex_dev.num_phys = min(rg->num_phys, (u8)MAX_EXPANDER_PHYS);
-	dev->ex_dev.t2t_supp = rg->t2t_supp;
-	dev->ex_dev.conf_route_table = rg->conf_route_table;
-	dev->ex_dev.configuring = rg->configuring;
-	memcpy(dev->ex_dev.enclosure_logical_id, rg->enclosure_logical_id, 8);
-}
-
 #define RG_REQ_SIZE   8
-#define RG_RESP_SIZE 32
+#define RG_RESP_SIZE  sizeof(struct smp_rg_resp)
 
 static int sas_ex_general(struct domain_device *dev)
 {
 	u8 *rg_req;
-	struct smp_resp *rg_resp;
+	struct smp_rg_resp *rg_resp;
+	struct report_general_resp *rg;
 	int res;
 	int i;
 
@@ -480,7 +467,15 @@ static int sas_ex_general(struct domain_device *dev)
 			goto out;
 		}
 
-		ex_assign_report_general(dev, rg_resp);
+		rg = &rg_resp->rg;
+		dev->ex_dev.ex_change_count = be16_to_cpu(rg->change_count);
+		dev->ex_dev.max_route_indexes = be16_to_cpu(rg->route_indexes);
+		dev->ex_dev.num_phys = min(rg->num_phys, (u8)MAX_EXPANDER_PHYS);
+		dev->ex_dev.t2t_supp = rg->t2t_supp;
+		dev->ex_dev.conf_route_table = rg->conf_route_table;
+		dev->ex_dev.configuring = rg->configuring;
+		memcpy(dev->ex_dev.enclosure_logical_id,
+		       rg->enclosure_logical_id, 8);
 
 		if (dev->ex_dev.configuring) {
 			pr_debug("RG: ex %016llx self-configuring...\n",
@@ -681,10 +676,10 @@ int sas_smp_get_phy_events(struct sas_phy *phy)
 #ifdef CONFIG_SCSI_SAS_ATA
 
 #define RPS_REQ_SIZE  16
-#define RPS_RESP_SIZE 60
+#define RPS_RESP_SIZE sizeof(struct smp_rps_resp)
 
 int sas_get_report_phy_sata(struct domain_device *dev, int phy_id,
-			    struct smp_resp *rps_resp)
+			    struct smp_rps_resp *rps_resp)
 {
 	int res;
 	u8 *rps_req = alloc_smp_req(RPS_REQ_SIZE);
@@ -743,9 +738,7 @@ static void sas_ex_get_linkrate(struct domain_device *parent,
 		    phy->phy_state == PHY_NOT_PRESENT)
 			continue;
 
-		if (SAS_ADDR(phy->attached_sas_addr) ==
-		    SAS_ADDR(child->sas_addr)) {
-
+		if (sas_phy_match_dev_addr(child, phy)) {
 			child->min_linkrate = min(parent->min_linkrate,
 						  phy->linkrate);
 			child->max_linkrate = max(parent->max_linkrate,
@@ -758,13 +751,46 @@ static void sas_ex_get_linkrate(struct domain_device *parent,
 	child->pathways = min(child->pathways, parent->pathways);
 }
 
+static int sas_ex_add_dev(struct domain_device *parent, struct ex_phy *phy,
+			  struct domain_device *child, int phy_id)
+{
+	struct sas_rphy *rphy;
+	int res;
+
+	child->dev_type = SAS_END_DEVICE;
+	rphy = sas_end_device_alloc(phy->port);
+	if (!rphy)
+		return -ENOMEM;
+
+	child->tproto = phy->attached_tproto;
+	sas_init_dev(child);
+
+	child->rphy = rphy;
+	get_device(&rphy->dev);
+	rphy->identify.phy_identifier = phy_id;
+	sas_fill_in_rphy(child, rphy);
+
+	list_add_tail(&child->disco_list_node, &parent->port->disco_list);
+
+	res = sas_notify_lldd_dev_found(child);
+	if (res) {
+		pr_notice("notify lldd for device %016llx at %016llx:%02d returned 0x%x\n",
+			  SAS_ADDR(child->sas_addr),
+			  SAS_ADDR(parent->sas_addr), phy_id, res);
+		sas_rphy_free(child->rphy);
+		list_del(&child->disco_list_node);
+		return res;
+	}
+
+	return 0;
+}
+
 static struct domain_device *sas_ex_discover_end_dev(
 	struct domain_device *parent, int phy_id)
 {
 	struct expander_device *parent_ex = &parent->ex_dev;
 	struct ex_phy *phy = &parent_ex->ex_phy[phy_id];
 	struct domain_device *child = NULL;
-	struct sas_rphy *rphy;
 	int res;
 
 	if (phy->attached_sata_host || phy->attached_sata_ps)
@@ -792,96 +818,23 @@ static struct domain_device *sas_ex_discover_end_dev(
 	sas_ex_get_linkrate(parent, child, phy);
 	sas_device_set_phy(child, phy->port);
 
-#ifdef CONFIG_SCSI_SAS_ATA
 	if ((phy->attached_tproto & SAS_PROTOCOL_STP) || phy->attached_sata_dev) {
-		if (child->linkrate > parent->min_linkrate) {
-			struct sas_phy *cphy = child->phy;
-			enum sas_linkrate min_prate = cphy->minimum_linkrate,
-				parent_min_lrate = parent->min_linkrate,
-				min_linkrate = (min_prate > parent_min_lrate) ?
-					       parent_min_lrate : 0;
-			struct sas_phy_linkrates rates = {
-				.maximum_linkrate = parent->min_linkrate,
-				.minimum_linkrate = min_linkrate,
-			};
-			int ret;
-
-			pr_notice("ex %016llx phy%02d SATA device linkrate > min pathway connection rate, attempting to lower device linkrate\n",
-				   SAS_ADDR(child->sas_addr), phy_id);
-			ret = sas_smp_phy_control(parent, phy_id,
-						  PHY_FUNC_LINK_RESET, &rates);
-			if (ret) {
-				pr_err("ex %016llx phy%02d SATA device could not set linkrate (%d)\n",
-				       SAS_ADDR(child->sas_addr), phy_id, ret);
-				goto out_free;
-			}
-			pr_notice("ex %016llx phy%02d SATA device set linkrate successfully\n",
-				  SAS_ADDR(child->sas_addr), phy_id);
-			child->linkrate = child->min_linkrate;
-		}
-		res = sas_get_ata_info(child, phy);
-		if (res)
-			goto out_free;
-
-		sas_init_dev(child);
-		res = sas_ata_init(child);
-		if (res)
-			goto out_free;
-		rphy = sas_end_device_alloc(phy->port);
-		if (!rphy)
-			goto out_free;
-		rphy->identify.phy_identifier = phy_id;
-
-		child->rphy = rphy;
-		get_device(&rphy->dev);
-
-		list_add_tail(&child->disco_list_node, &parent->port->disco_list);
-
-		res = sas_discover_sata(child);
-		if (res) {
-			pr_notice("sas_discover_sata() for device %16llx at %016llx:%02d returned 0x%x\n",
-				  SAS_ADDR(child->sas_addr),
-				  SAS_ADDR(parent->sas_addr), phy_id, res);
-			goto out_list_del;
-		}
-	} else
-#endif
-	  if (phy->attached_tproto & SAS_PROTOCOL_SSP) {
-		child->dev_type = SAS_END_DEVICE;
-		rphy = sas_end_device_alloc(phy->port);
-		/* FIXME: error handling */
-		if (unlikely(!rphy))
-			goto out_free;
-		child->tproto = phy->attached_tproto;
-		sas_init_dev(child);
-
-		child->rphy = rphy;
-		get_device(&rphy->dev);
-		rphy->identify.phy_identifier = phy_id;
-		sas_fill_in_rphy(child, rphy);
-
-		list_add_tail(&child->disco_list_node, &parent->port->disco_list);
-
-		res = sas_discover_end_dev(child);
-		if (res) {
-			pr_notice("sas_discover_end_dev() for device %016llx at %016llx:%02d returned 0x%x\n",
-				  SAS_ADDR(child->sas_addr),
-				  SAS_ADDR(parent->sas_addr), phy_id, res);
-			goto out_list_del;
-		}
+		res = sas_ata_add_dev(parent, phy, child, phy_id);
+	} else if (phy->attached_tproto & SAS_PROTOCOL_SSP) {
+		res = sas_ex_add_dev(parent, phy, child, phy_id);
 	} else {
 		pr_notice("target proto 0x%x at %016llx:0x%x not handled\n",
 			  phy->attached_tproto, SAS_ADDR(parent->sas_addr),
 			  phy_id);
-		goto out_free;
+		res = -ENODEV;
 	}
+
+	if (res)
+		goto out_free;
 
 	list_add_tail(&child->siblings, &parent_ex->children);
 	return child;
 
- out_list_del:
-	sas_rphy_free(child->rphy);
-	list_del(&child->disco_list_node);
  out_free:
 	sas_port_delete(phy->port);
  out_err:
@@ -1009,13 +962,11 @@ static int sas_ex_discover_dev(struct domain_device *dev, int phy_id)
 	}
 
 	/* Parent and domain coherency */
-	if (!dev->parent && (SAS_ADDR(ex_phy->attached_sas_addr) ==
-			     SAS_ADDR(dev->port->sas_addr))) {
+	if (!dev->parent && sas_phy_match_port_addr(dev->port, ex_phy)) {
 		sas_add_parent_port(dev, phy_id);
 		return 0;
 	}
-	if (dev->parent && (SAS_ADDR(ex_phy->attached_sas_addr) ==
-			    SAS_ADDR(dev->parent->sas_addr))) {
+	if (dev->parent && sas_phy_match_dev_addr(dev->parent, ex_phy)) {
 		sas_add_parent_port(dev, phy_id);
 		if (ex_phy->routing_attr == TABLE_ROUTING)
 			sas_configure_phy(dev, phy_id, dev->port->sas_addr, 1);
@@ -1314,7 +1265,7 @@ static int sas_check_parent_topology(struct domain_device *child)
 		    parent_phy->phy_state == PHY_NOT_PRESENT)
 			continue;
 
-		if (SAS_ADDR(parent_phy->attached_sas_addr) != SAS_ADDR(child->sas_addr))
+		if (!sas_phy_match_dev_addr(child, parent_phy))
 			continue;
 
 		child_phy = &child_ex->ex_phy[parent_phy->attached_phy_id];
@@ -1524,8 +1475,7 @@ static int sas_configure_parent(struct domain_device *parent,
 		struct ex_phy *phy = &ex_parent->ex_phy[i];
 
 		if ((phy->routing_attr == TABLE_ROUTING) &&
-		    (SAS_ADDR(phy->attached_sas_addr) ==
-		     SAS_ADDR(child->sas_addr))) {
+		    sas_phy_match_dev_addr(child, phy)) {
 			res = sas_configure_phy(parent, i, sas_addr, include);
 			if (res)
 				return res;
@@ -1654,7 +1604,7 @@ out_err:
 /* ---------- Domain revalidation ---------- */
 
 static int sas_get_phy_discover(struct domain_device *dev,
-				int phy_id, struct smp_resp *disc_resp)
+				int phy_id, struct smp_disc_resp *disc_resp)
 {
 	int res;
 	u8 *disc_req;
@@ -1670,10 +1620,8 @@ static int sas_get_phy_discover(struct domain_device *dev,
 			       disc_resp, DISCOVER_RESP_SIZE);
 	if (res)
 		goto out;
-	else if (disc_resp->result != SMP_RESP_FUNC_ACC) {
+	if (disc_resp->result != SMP_RESP_FUNC_ACC)
 		res = disc_resp->result;
-		goto out;
-	}
 out:
 	kfree(disc_req);
 	return res;
@@ -1683,7 +1631,7 @@ static int sas_get_phy_change_count(struct domain_device *dev,
 				    int phy_id, int *pcc)
 {
 	int res;
-	struct smp_resp *disc_resp;
+	struct smp_disc_resp *disc_resp;
 
 	disc_resp = alloc_smp_resp(DISCOVER_RESP_SIZE);
 	if (!disc_resp)
@@ -1697,23 +1645,21 @@ static int sas_get_phy_change_count(struct domain_device *dev,
 	return res;
 }
 
-static int sas_get_phy_attached_dev(struct domain_device *dev, int phy_id,
-				    u8 *sas_addr, enum sas_device_type *type)
+int sas_get_phy_attached_dev(struct domain_device *dev, int phy_id,
+			     u8 *sas_addr, enum sas_device_type *type)
 {
 	int res;
-	struct smp_resp *disc_resp;
-	struct discover_resp *dr;
+	struct smp_disc_resp *disc_resp;
 
 	disc_resp = alloc_smp_resp(DISCOVER_RESP_SIZE);
 	if (!disc_resp)
 		return -ENOMEM;
-	dr = &disc_resp->disc;
 
 	res = sas_get_phy_discover(dev, phy_id, disc_resp);
 	if (res == 0) {
 		memcpy(sas_addr, disc_resp->disc.attached_sas_addr,
 		       SAS_ADDR_SIZE);
-		*type = to_dev_type(dr);
+		*type = to_dev_type(&disc_resp->disc);
 		if (*type == 0)
 			memset(sas_addr, 0, SAS_ADDR_SIZE);
 	}
@@ -1757,7 +1703,7 @@ static int sas_get_ex_change_count(struct domain_device *dev, int *ecc)
 {
 	int res;
 	u8  *rg_req;
-	struct smp_resp  *rg_resp;
+	struct smp_rg_resp  *rg_resp;
 
 	rg_req = alloc_smp_req(RG_REQ_SIZE);
 	if (!rg_req)
@@ -1864,8 +1810,7 @@ static void sas_unregister_devs_sas_addr(struct domain_device *parent,
 	if (last) {
 		list_for_each_entry_safe(child, n,
 			&ex_dev->children, siblings) {
-			if (SAS_ADDR(child->sas_addr) ==
-			    SAS_ADDR(phy->attached_sas_addr)) {
+			if (sas_phy_match_dev_addr(child, phy)) {
 				set_bit(SAS_DEV_GONE, &child->state);
 				if (dev_is_expander(child->dev_type))
 					sas_unregister_ex_tree(parent->port, child);
@@ -1947,8 +1892,7 @@ static int sas_discover_new(struct domain_device *dev, int phy_id)
 	if (res)
 		return res;
 	list_for_each_entry(child, &dev->ex_dev.children, siblings) {
-		if (SAS_ADDR(child->sas_addr) ==
-		    SAS_ADDR(ex_phy->attached_sas_addr)) {
+		if (sas_phy_match_dev_addr(child, ex_phy)) {
 			if (dev_is_expander(child->dev_type))
 				res = sas_discover_bfs_by_root(child);
 			break;
@@ -2070,8 +2014,7 @@ static int sas_rediscover(struct domain_device *dev, const int phy_id)
 
 			if (i == phy_id)
 				continue;
-			if (SAS_ADDR(phy->attached_sas_addr) ==
-			    SAS_ADDR(changed_phy->attached_sas_addr)) {
+			if (sas_phy_addr_match(phy, changed_phy)) {
 				last = false;
 				break;
 			}
@@ -2112,6 +2055,22 @@ int sas_ex_revalidate_domain(struct domain_device *port_dev)
 	}
 	return res;
 }
+
+int sas_find_attached_phy_id(struct expander_device *ex_dev,
+			     struct domain_device *dev)
+{
+	struct ex_phy *phy;
+	int phy_id;
+
+	for (phy_id = 0; phy_id < ex_dev->num_phys; phy_id++) {
+		phy = &ex_dev->ex_phy[phy_id];
+		if (sas_phy_match_dev_addr(dev, phy))
+			return phy_id;
+	}
+
+	return -ENODEV;
+}
+EXPORT_SYMBOL_GPL(sas_find_attached_phy_id);
 
 void sas_smp_handler(struct bsg_job *job, struct Scsi_Host *shost,
 		struct sas_rphy *rphy)

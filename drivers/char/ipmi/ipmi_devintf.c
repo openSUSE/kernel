@@ -247,11 +247,13 @@ static int handle_recv(struct ipmi_file_private *priv,
 
 	if (msg->msg.data_len > 0) {
 		if (rsp->msg.data_len < msg->msg.data_len) {
-			rv2 = -EMSGSIZE;
-			if (trunc)
+			if (trunc) {
+				rv2 = -EMSGSIZE;
 				msg->msg.data_len = rsp->msg.data_len;
-			else
+			} else {
+				rv = -EMSGSIZE;
 				goto recv_putback_on_err;
+			}
 		}
 
 		if (copy_to_user(rsp->msg.data,
@@ -858,7 +860,7 @@ static int __init init_ipmi_devintf(void)
 
 	pr_info("ipmi device interface\n");
 
-	ipmi_class = class_create(THIS_MODULE, "ipmi");
+	ipmi_class = class_create("ipmi");
 	if (IS_ERR(ipmi_class)) {
 		pr_err("ipmi: can't register device class\n");
 		return PTR_ERR(ipmi_class);

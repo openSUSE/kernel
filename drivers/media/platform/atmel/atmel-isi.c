@@ -587,8 +587,8 @@ static int isi_try_fmt(struct atmel_isi *isi, struct v4l2_format *f,
 	struct v4l2_pix_format *pixfmt = &f->fmt.pix;
 	struct v4l2_subdev_pad_config pad_cfg = {};
 	struct v4l2_subdev_state pad_state = {
-		.pads = &pad_cfg
-		};
+		.pads = &pad_cfg,
+	};
 	struct v4l2_subdev_format format = {
 		.which = V4L2_SUBDEV_FORMAT_TRY,
 	};
@@ -1159,12 +1159,11 @@ static int isi_graph_init(struct atmel_isi *isi)
 	if (!ep)
 		return -EINVAL;
 
-	v4l2_async_notifier_init(&isi->notifier);
+	v4l2_async_nf_init(&isi->notifier);
 
-	asd = v4l2_async_notifier_add_fwnode_remote_subdev(
-						&isi->notifier,
-						of_fwnode_handle(ep),
-						struct v4l2_async_subdev);
+	asd = v4l2_async_nf_add_fwnode_remote(&isi->notifier,
+					      of_fwnode_handle(ep),
+					      struct v4l2_async_subdev);
 	of_node_put(ep);
 
 	if (IS_ERR(asd))
@@ -1172,10 +1171,10 @@ static int isi_graph_init(struct atmel_isi *isi)
 
 	isi->notifier.ops = &isi_graph_notify_ops;
 
-	ret = v4l2_async_notifier_register(&isi->v4l2_dev, &isi->notifier);
+	ret = v4l2_async_nf_register(&isi->v4l2_dev, &isi->notifier);
 	if (ret < 0) {
 		dev_err(isi->dev, "Notifier registration failed\n");
-		v4l2_async_notifier_cleanup(&isi->notifier);
+		v4l2_async_nf_cleanup(&isi->notifier);
 		return ret;
 	}
 
@@ -1318,7 +1317,7 @@ err_vdev_alloc:
 	return ret;
 }
 
-static int atmel_isi_remove(struct platform_device *pdev)
+static void atmel_isi_remove(struct platform_device *pdev)
 {
 	struct atmel_isi *isi = platform_get_drvdata(pdev);
 
@@ -1327,11 +1326,9 @@ static int atmel_isi_remove(struct platform_device *pdev)
 			isi->p_fb_descriptors,
 			isi->fb_descriptors_phys);
 	pm_runtime_disable(&pdev->dev);
-	v4l2_async_notifier_unregister(&isi->notifier);
-	v4l2_async_notifier_cleanup(&isi->notifier);
+	v4l2_async_nf_unregister(&isi->notifier);
+	v4l2_async_nf_cleanup(&isi->notifier);
 	v4l2_device_unregister(&isi->v4l2_dev);
-
-	return 0;
 }
 
 #ifdef CONFIG_PM
@@ -1369,7 +1366,7 @@ static struct platform_driver atmel_isi_driver = {
 		.pm	= &atmel_isi_dev_pm_ops,
 	},
 	.probe		= atmel_isi_probe,
-	.remove		= atmel_isi_remove,
+	.remove_new	= atmel_isi_remove,
 };
 
 module_platform_driver(atmel_isi_driver);

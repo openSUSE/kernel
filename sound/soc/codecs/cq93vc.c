@@ -126,7 +126,6 @@ static const struct snd_soc_component_driver soc_component_dev_cq93vc = {
 	.idle_bias_on		= 1,
 	.use_pmdown_time	= 1,
 	.endianness		= 1,
-	.non_legacy_dai_naming	= 1,
 };
 
 static int cq93vc_platform_probe(struct platform_device *pdev)
@@ -135,18 +134,12 @@ static int cq93vc_platform_probe(struct platform_device *pdev)
 			&soc_component_dev_cq93vc, &cq93vc_dai, 1);
 }
 
-static int cq93vc_platform_remove(struct platform_device *pdev)
-{
-	return 0;
-}
-
 static struct platform_driver cq93vc_codec_driver = {
 	.driver = {
 			.name = "cq93vc-codec",
 	},
 
 	.probe = cq93vc_platform_probe,
-	.remove = cq93vc_platform_remove,
 };
 
 module_platform_driver(cq93vc_codec_driver);

@@ -25,14 +25,14 @@ warnings:
 
 -	A CPU looping with bottom halves disabled.
 
--	For !CONFIG_PREEMPTION kernels, a CPU looping anywhere in the kernel
-	without invoking schedule().  If the looping in the kernel is
-	really expected and desirable behavior, you might need to add
-	some calls to cond_resched().
+-	For !CONFIG_PREEMPTION kernels, a CPU looping anywhere in the
+	kernel without potentially invoking schedule().  If the looping
+	in the kernel is really expected and desirable behavior, you
+	might need to add some calls to cond_resched().
 
 -	Booting Linux using a console connection that is too slow to
 	keep up with the boot-time console-message rate.  For example,
-	a 115Kbaud serial console can be -way- too slow to keep up
+	a 115Kbaud serial console can be *way* too slow to keep up
 	with boot-time message rates, and will frequently result in
 	RCU CPU stall warning messages.  Especially if you have added
 	debug printk()s.
@@ -96,18 +96,29 @@ warnings:
 	the ``rcu_.*timer wakeup didn't happen for`` console-log message,
 	which will include additional debugging information.
 
+-	A low-level kernel issue that either fails to invoke one of the
+	variants of rcu_eqs_enter(true), rcu_eqs_exit(true), ct_idle_enter(),
+	ct_idle_exit(), ct_irq_enter(), or ct_irq_exit() on the one
+	hand, or that invokes one of them too many times on the other.
+	Historically, the most frequent issue has been an omission
+	of either irq_enter() or irq_exit(), which in turn invoke
+	ct_irq_enter() or ct_irq_exit(), respectively.  Building your
+	kernel with CONFIG_RCU_EQS_DEBUG=y can help track down these types
+	of issues, which sometimes arise in architecture-specific code.
+
 -	A bug in the RCU implementation.
 
--	A hardware failure.  This is quite unlikely, but has occurred
-	at least once in real life.  A CPU failed in a running system,
-	becoming unresponsive, but not causing an immediate crash.
-	This resulted in a series of RCU CPU stall warnings, eventually
-	leading the realization that the CPU had failed.
+-	A hardware failure.  This is quite unlikely, but is not at all
+	uncommon in large datacenter.  In one memorable case some decades
+	back, a CPU failed in a running system, becoming unresponsive,
+	but not causing an immediate crash.  This resulted in a series
+	of RCU CPU stall warnings, eventually leading the realization
+	that the CPU had failed.
 
-The RCU, RCU-sched, and RCU-tasks implementations have CPU stall warning.
-Note that SRCU does -not- have CPU stall warnings.  Please note that
-RCU only detects CPU stalls when there is a grace period in progress.
-No grace period, no CPU stall warnings.
+The RCU, RCU-sched, RCU-tasks, and RCU-tasks-trace implementations have
+CPU stall warning.  Note that SRCU does *not* have CPU stall warnings.
+Please note that RCU only detects CPU stalls when there is a grace period
+in progress.  No grace period, no CPU stall warnings.
 
 To diagnose the cause of the stall, inspect the stack traces.
 The offending function will usually be near the top of the stack.
@@ -145,9 +156,29 @@ CONFIG_RCU_CPU_STALL_TIMEOUT
 	this parameter is checked only at the beginning of a cycle.
 	So if you are 10 seconds into a 40-second stall, setting this
 	sysfs parameter to (say) five will shorten the timeout for the
-	-next- stall, or the following warning for the current stall
+	*next* stall, or the following warning for the current stall
 	(assuming the stall lasts long enough).  It will not affect the
 	timing of the next warning for the current stall.
+
+	Stall-warning messages may be enabled and disabled completely via
+	/sys/module/rcupdate/parameters/rcu_cpu_stall_suppress.
+
+CONFIG_RCU_EXP_CPU_STALL_TIMEOUT
+--------------------------------
+
+	Same as the CONFIG_RCU_CPU_STALL_TIMEOUT parameter but only for
+	the expedited grace period. This parameter defines the period
+	of time that RCU will wait from the beginning of an expedited
+	grace period until it issues an RCU CPU stall warning. This time
+	period is normally 20 milliseconds on Android devices.	A zero
+	value causes the CONFIG_RCU_CPU_STALL_TIMEOUT value to be used,
+	after conversion to milliseconds.
+
+	This configuration parameter may be changed at runtime via the
+	/sys/module/rcupdate/parameters/rcu_exp_cpu_stall_timeout, however
+	this parameter is checked only at the beginning of a cycle. If you
+	are in a current stall cycle, setting it to a new value will change
+	the timeout for the -next- stall.
 
 	Stall-warning messages may be enabled and disabled completely via
 	/sys/module/rcupdate/parameters/rcu_cpu_stall_suppress.
@@ -175,22 +206,27 @@ RCU_STALL_RAT_DELAY
 rcupdate.rcu_task_stall_timeout
 -------------------------------
 
-	This boot/sysfs parameter controls the RCU-tasks stall warning
-	interval.  A value of zero or less suppresses RCU-tasks stall
-	warnings.  A positive value sets the stall-warning interval
-	in seconds.  An RCU-tasks stall warning starts with the line:
+	This boot/sysfs parameter controls the RCU-tasks and
+	RCU-tasks-trace stall warning intervals.  A value of zero or less
+	suppresses RCU-tasks stall warnings.  A positive value sets the
+	stall-warning interval in seconds.  An RCU-tasks stall warning
+	starts with the line:
 
 		INFO: rcu_tasks detected stalls on tasks:
 
 	And continues with the output of sched_show_task() for each
 	task stalling the current RCU-tasks grace period.
 
+	An RCU-tasks-trace stall warning starts (and continues) similarly:
+
+		INFO: rcu_tasks_trace detected stalls on tasks
+
 
 Interpreting RCU's CPU Stall-Detector "Splats"
 ==============================================
 
-For non-RCU-tasks flavors of RCU, when a CPU detects that it is stalling,
-it will print a message similar to the following::
+For non-RCU-tasks flavors of RCU, when a CPU detects that some other
+CPU is stalling, it will print a message similar to the following::
 
 	INFO: rcu_sched detected stalls on CPUs/tasks:
 	2-...: (3 GPs behind) idle=06c/0/0 softirq=1453/1455 fqs=0
@@ -202,8 +238,10 @@ causing stalls, and that the stall was affecting RCU-sched.  This message
 will normally be followed by stack dumps for each CPU.  Please note that
 PREEMPT_RCU builds can be stalled by tasks as well as by CPUs, and that
 the tasks will be indicated by PID, for example, "P3421".  It is even
-possible for an rcu_state stall to be caused by both CPUs -and- tasks,
+possible for an rcu_state stall to be caused by both CPUs *and* tasks,
 in which case the offending CPUs and tasks will all be called out in the list.
+In some cases, CPUs will detect themselves stalling, which will result
+in a self-detected stall.
 
 CPU 2's "(3 GPs behind)" indicates that this CPU has not interacted with
 the RCU core for the past three grace periods.  In contrast, CPU 16's "(0
@@ -216,7 +254,8 @@ dynticks counter, which will have an even-numbered value if the CPU
 is in dyntick-idle mode and an odd-numbered value otherwise.  The hex
 number between the two "/"s is the value of the nesting, which will be
 a small non-negative number if in the idle loop (as shown above) and a
-very large positive number otherwise.
+very large positive number otherwise.  The number following the final
+"/" is the NMI nesting, which will be a small non-negative number.
 
 The "softirq=" portion of the message tracks the number of RCU softirq
 handlers that the stalled CPU has executed.  The number before the "/"
@@ -224,7 +263,7 @@ is the number that had executed since boot at the time that this CPU
 last noted the beginning of a grace period, which might be the current
 (stalled) grace period, or it might be some earlier grace period (for
 example, if the CPU might have been in dyntick-idle mode for an extended
-time period.  The number after the "/" is the number that have executed
+time period).  The number after the "/" is the number that have executed
 since boot until the current time.  If this latter number stays constant
 across repeated stall-warning messages, it is possible that RCU's softirq
 handlers are no longer able to execute on this CPU.  This can happen if
@@ -241,17 +280,6 @@ case, CPU 32), how many jiffies have elapsed since the start of the grace
 period (in this case 2603), the grace-period sequence number (7075), and
 an estimate of the total number of RCU callbacks queued across all CPUs
 (625 in this case).
-
-In kernels with CONFIG_RCU_FAST_NO_HZ, more information is printed
-for each CPU::
-
-	0: (64628 ticks this GP) idle=dd5/3fffffffffffffff/0 softirq=82/543 last_accelerate: a345/d342 dyntick_enabled: 1
-
-The "last_accelerate:" prints the low-order 16 bits (in hex) of the
-jiffies counter when this CPU last invoked rcu_try_advance_all_cbs()
-from rcu_needs_cpu() or last invoked rcu_accelerate_cbs() from
-rcu_prepare_for_idle(). "dyntick_enabled: 1" indicates that dyntick-idle
-processing is enabled.
 
 If the grace period ends just as the stall warning starts printing,
 there will be a spurious stall-warning message, which will include
@@ -283,7 +311,8 @@ If the relevant grace-period kthread has been unable to run prior to
 the stall warning, as was the case in the "All QSes seen" line above,
 the following additional line is printed::
 
-	kthread starved for 23807 jiffies! g7075 f0x0 RCU_GP_WAIT_FQS(3) ->state=0x1 ->cpu=5
+	rcu_sched kthread starved for 23807 jiffies! g7075 f0x0 RCU_GP_WAIT_FQS(3) ->state=0x1 ->cpu=5
+	Unless rcu_sched kthread gets sufficient CPU time, OOM is now expected behavior.
 
 Starving the grace-period kthreads of CPU time can of course result
 in RCU CPU stall warnings even when all CPUs and tasks have passed
@@ -313,15 +342,21 @@ is the current ``TIMER_SOFTIRQ`` count on cpu 4.  If this value does not
 change on successive RCU CPU stall warnings, there is further reason to
 suspect a timer problem.
 
+These messages are usually followed by stack dumps of the CPUs and tasks
+involved in the stall.  These stack traces can help you locate the cause
+of the stall, keeping in mind that the CPU detecting the stall will have
+an interrupt frame that is mainly devoted to detecting the stall.
+
 
 Multiple Warnings From One Stall
 ================================
 
-If a stall lasts long enough, multiple stall-warning messages will be
-printed for it.  The second and subsequent messages are printed at
+If a stall lasts long enough, multiple stall-warning messages will
+be printed for it.  The second and subsequent messages are printed at
 longer intervals, so that the time between (say) the first and second
 message will be about three times the interval between the beginning
-of the stall and the first message.
+of the stall and the first message.  It can be helpful to compare the
+stack dumps for the different messages for the same stalled grace period.
 
 
 Stall Warnings for Expedited Grace Periods
@@ -355,3 +390,95 @@ for example, "P3421".
 
 It is entirely possible to see stall warnings from normal and from
 expedited grace periods at about the same time during the same run.
+
+RCU_CPU_STALL_CPUTIME
+=====================
+
+In kernels built with CONFIG_RCU_CPU_STALL_CPUTIME=y or booted with
+rcupdate.rcu_cpu_stall_cputime=1, the following additional information
+is supplied with each RCU CPU stall warning::
+
+  rcu:          hardirqs   softirqs   csw/system
+  rcu:  number:      624         45            0
+  rcu: cputime:       69          1         2425   ==> 2500(ms)
+
+These statistics are collected during the sampling period. The values
+in row "number:" are the number of hard interrupts, number of soft
+interrupts, and number of context switches on the stalled CPU. The
+first three values in row "cputime:" indicate the CPU time in
+milliseconds consumed by hard interrupts, soft interrupts, and tasks
+on the stalled CPU.  The last number is the measurement interval, again
+in milliseconds.  Because user-mode tasks normally do not cause RCU CPU
+stalls, these tasks are typically kernel tasks, which is why only the
+system CPU time are considered.
+
+The sampling period is shown as follows::
+
+  |<------------first timeout---------->|<-----second timeout----->|
+  |<--half timeout-->|<--half timeout-->|                          |
+  |                  |<--first period-->|                          |
+  |                  |<-----------second sampling period---------->|
+  |                  |                  |                          |
+             snapshot time point    1st-stall                  2nd-stall
+
+The following describes four typical scenarios:
+
+1. A CPU looping with interrupts disabled.
+
+   ::
+
+     rcu:          hardirqs   softirqs   csw/system
+     rcu:  number:        0          0            0
+     rcu: cputime:        0          0            0   ==> 2500(ms)
+
+   Because interrupts have been disabled throughout the measurement
+   interval, there are no interrupts and no context switches.
+   Furthermore, because CPU time consumption was measured using interrupt
+   handlers, the system CPU consumption is misleadingly measured as zero.
+   This scenario will normally also have "(0 ticks this GP)" printed on
+   this CPU's summary line.
+
+2. A CPU looping with bottom halves disabled.
+
+   This is similar to the previous example, but with non-zero number of
+   and CPU time consumed by hard interrupts, along with non-zero CPU
+   time consumed by in-kernel execution::
+
+     rcu:          hardirqs   softirqs   csw/system
+     rcu:  number:      624          0            0
+     rcu: cputime:       49          0         2446   ==> 2500(ms)
+
+   The fact that there are zero softirqs gives a hint that these were
+   disabled, perhaps via local_bh_disable().  It is of course possible
+   that there were no softirqs, perhaps because all events that would
+   result in softirq execution are confined to other CPUs.  In this case,
+   the diagnosis should continue as shown in the next example.
+
+3. A CPU looping with preemption disabled.
+
+   Here, only the number of context switches is zero::
+
+     rcu:          hardirqs   softirqs   csw/system
+     rcu:  number:      624         45            0
+     rcu: cputime:       69          1         2425   ==> 2500(ms)
+
+   This situation hints that the stalled CPU was looping with preemption
+   disabled.
+
+4. No looping, but massive hard and soft interrupts.
+
+   ::
+
+     rcu:          hardirqs   softirqs   csw/system
+     rcu:  number:       xx         xx            0
+     rcu: cputime:       xx         xx            0   ==> 2500(ms)
+
+   Here, the number and CPU time of hard interrupts are all non-zero,
+   but the number of context switches and the in-kernel CPU time consumed
+   are zero. The number and cputime of soft interrupts will usually be
+   non-zero, but could be zero, for example, if the CPU was spinning
+   within a single hard interrupt handler.
+
+   If this type of RCU CPU stall warning can be reproduced, you can
+   narrow it down by looking at /proc/interrupts or by writing code to
+   trace each interrupt, for example, by referring to show_interrupts().

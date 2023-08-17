@@ -23,7 +23,6 @@ config KILAUEA
 	select PPC4xx_PCI_EXPRESS
 	select FORCE_PCI
 	select PCI_MSI
-	select PPC4xx_MSI
 	help
 	  This option enables support for the AMCC PPC405EX evaluation board.
 
@@ -66,6 +65,7 @@ config PPC4xx_GPIO
 	bool "PPC4xx GPIO support"
 	depends on 40x
 	select GPIOLIB
+	select OF_GPIO_MM_GPIOCHIP
 	help
 	  Enable gpiolib support for ppc40x based boards
 

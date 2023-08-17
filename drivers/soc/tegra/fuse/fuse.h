@@ -32,6 +32,10 @@ struct tegra_fuse_soc {
 
 	const struct nvmem_cell_lookup *lookups;
 	unsigned int num_lookups;
+	const struct nvmem_cell_info *cells;
+	unsigned int num_cells;
+	const struct nvmem_keepout *keepouts;
+	unsigned int num_keepouts;
 
 	const struct attribute_group *soc_attr_group;
 
@@ -43,6 +47,7 @@ struct tegra_fuse {
 	void __iomem *base;
 	phys_addr_t phys;
 	struct clk *clk;
+	struct reset_control *rst;
 
 	u32 (*read_early)(struct tegra_fuse *fuse, unsigned int offset);
 	u32 (*read)(struct tegra_fuse *fuse, unsigned int offset);

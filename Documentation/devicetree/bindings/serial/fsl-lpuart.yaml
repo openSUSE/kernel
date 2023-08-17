@@ -10,7 +10,8 @@ maintainers:
   - Fugang Duan <fugang.duan@nxp.com>
 
 allOf:
-  - $ref: "rs485.yaml"
+  - $ref: rs485.yaml#
+  - $ref: serial.yaml#
 
 properties:
   compatible:
@@ -20,10 +21,21 @@ properties:
           - fsl,ls1021a-lpuart
           - fsl,ls1028a-lpuart
           - fsl,imx7ulp-lpuart
-          - fsl,imx8qm-lpuart
+          - fsl,imx8qxp-lpuart
+          - fsl,imxrt1050-lpuart
       - items:
-          - const: fsl,imx8qxp-lpuart
+          - enum:
+              - fsl,imx93-lpuart
+              - fsl,imx8ulp-lpuart
           - const: fsl,imx7ulp-lpuart
+      - items:
+          - enum:
+              - fsl,imx8qm-lpuart
+              - fsl,imx8dxl-lpuart
+          - const: fsl,imx8qxp-lpuart
+      - items:
+          - const: fsl,imxrt1050-lpuart
+          - const: fsl,imxrt1170-lpuart
 
   reg:
     maxItems: 1
@@ -53,8 +65,8 @@ properties:
       - const: rx
       - const: tx
 
-  rs485-rts-active-low: true
-  linux,rs485-enabled-at-boot-time: true
+  power-domains:
+    maxItems: 1
 
 required:
   - compatible

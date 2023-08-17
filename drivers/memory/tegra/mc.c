@@ -90,11 +90,9 @@ struct tegra_mc *devm_tegra_memory_controller_get(struct device *dev)
 		return ERR_PTR(-EPROBE_DEFER);
 	}
 
-	err = devm_add_action(dev, tegra_mc_devm_action_put_device, mc);
-	if (err) {
-		put_device(mc->dev);
+	err = devm_add_action_or_reset(dev, tegra_mc_devm_action_put_device, mc);
+	if (err)
 		return ERR_PTR(err);
-	}
 
 	return mc;
 }
@@ -796,16 +794,12 @@ static int tegra_mc_interconnect_setup(struct tegra_mc *mc)
 	mc->provider.aggregate = mc->soc->icc_ops->aggregate;
 	mc->provider.xlate_extended = mc->soc->icc_ops->xlate_extended;
 
-	err = icc_provider_add(&mc->provider);
-	if (err)
-		return err;
+	icc_provider_init(&mc->provider);
 
 	/* create Memory Controller node */
 	node = icc_node_create(TEGRA_ICC_MC);
-	if (IS_ERR(node)) {
-		err = PTR_ERR(node);
-		goto del_provider;
-	}
+	if (IS_ERR(node))
+		return PTR_ERR(node);
 
 	node->name = "Memory Controller";
 	icc_node_add(node, &mc->provider);
@@ -832,28 +826,20 @@ static int tegra_mc_interconnect_setup(struct tegra_mc *mc)
 			goto remove_nodes;
 	}
 
-	/*
-	 * MC driver is registered too early, so early that generic driver
-	 * syncing doesn't work for the MC. But it doesn't really matter
-	 * since syncing works for the EMC drivers, hence we can sync the
-	 * MC driver by ourselves and then EMC will complete syncing of
-	 * the whole ICC state.
-	 */
-	icc_sync_state(mc->dev);
+	err = icc_provider_register(&mc->provider);
+	if (err)
+		goto remove_nodes;
 
 	return 0;
 
 remove_nodes:
 	icc_nodes_remove(&mc->provider);
-del_provider:
-	icc_provider_del(&mc->provider);
 
 	return err;
 }
 
 static int tegra_mc_probe(struct platform_device *pdev)
 {
-	struct resource *res;
 	struct tegra_mc *mc;
 	u64 mask;
 	int err;
@@ -878,8 +864,7 @@ static int tegra_mc_probe(struct platform_device *pdev)
 	/* length of MC tick in nanoseconds */
 	mc->tick = 30;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	mc->regs = devm_ioremap_resource(&pdev->dev, res);
+	mc->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(mc->regs))
 		return PTR_ERR(mc->regs);
 
@@ -965,6 +950,15 @@ static int __maybe_unused tegra_mc_resume(struct device *dev)
 	return 0;
 }
 
+static void tegra_mc_sync_state(struct device *dev)
+{
+	struct tegra_mc *mc = dev_get_drvdata(dev);
+
+	/* check whether ICC provider is registered */
+	if (mc->provider.dev == dev)
+		icc_sync_state(dev);
+}
+
 static const struct dev_pm_ops tegra_mc_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(tegra_mc_suspend, tegra_mc_resume)
 };
@@ -975,6 +969,7 @@ static struct platform_driver tegra_mc_driver = {
 		.of_match_table = tegra_mc_of_match,
 		.pm = &tegra_mc_pm_ops,
 		.suppress_bind_attrs = true,
+		.sync_state = tegra_mc_sync_state,
 	},
 	.prevent_deferred_probe = true,
 	.probe = tegra_mc_probe,
@@ -988,4 +983,3 @@ arch_initcall(tegra_mc_init);
 
 MODULE_AUTHOR("Thierry Reding <treding@nvidia.com>");
 MODULE_DESCRIPTION("NVIDIA Tegra Memory Controller driver");
-MODULE_LICENSE("GPL v2");

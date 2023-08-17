@@ -209,8 +209,7 @@ out_irq_init:
 	return ret;
 }
 
-static int pm805_probe(struct i2c_client *client,
-				 const struct i2c_device_id *id)
+static int pm805_probe(struct i2c_client *client)
 {
 	int ret = 0;
 	struct pm80x_chip *chip;
@@ -239,7 +238,7 @@ out_init:
 	return ret;
 }
 
-static int pm805_remove(struct i2c_client *client)
+static void pm805_remove(struct i2c_client *client)
 {
 	struct pm80x_chip *chip = i2c_get_clientdata(client);
 
@@ -247,16 +246,14 @@ static int pm805_remove(struct i2c_client *client)
 	device_irq_exit_805(chip);
 
 	pm80x_deinit();
-
-	return 0;
 }
 
 static struct i2c_driver pm805_driver = {
 	.driver = {
 		.name = "88PM805",
-		.pm = &pm80x_pm_ops,
+		.pm = pm_sleep_ptr(&pm80x_pm_ops),
 		},
-	.probe = pm805_probe,
+	.probe_new = pm805_probe,
 	.remove = pm805_remove,
 	.id_table = pm80x_id_table,
 };

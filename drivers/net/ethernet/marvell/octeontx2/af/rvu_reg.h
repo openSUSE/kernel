@@ -189,6 +189,7 @@
 #define NIX_AF_RX_CFG			(0x00D0)
 #define NIX_AF_AVG_DELAY		(0x00E0)
 #define NIX_AF_CINT_DELAY		(0x00F0)
+#define NIX_AF_VWQE_TIMER		(0x00F8)
 #define NIX_AF_RX_MCAST_BASE		(0x0100)
 #define NIX_AF_RX_MCAST_CFG		(0x0110)
 #define NIX_AF_RX_MCAST_BUF_BASE	(0x0120)
@@ -426,6 +427,7 @@
 #define NIX_AF_RX_NPC_MIRROR_DROP	(0x4730)
 #define NIX_AF_RX_ACTIVE_CYCLES_PCX(a)	(0x4800 | (a) << 16)
 #define NIX_AF_LINKX_CFG(a)		(0x4010 | (a) << 17)
+#define NIX_AF_MDQX_IN_MD_COUNT(a)	(0x14e0 | (a) << 16)
 
 #define NIX_PRIV_AF_INT_CFG		(0x8000000)
 #define NIX_PRIV_LFX_CFG		(0x8000010)
@@ -545,6 +547,8 @@
 
 #define CPT_LF_CTL                      0x10
 #define CPT_LF_INPROG                   0x40
+#define CPT_LF_Q_SIZE                   0x100
+#define CPT_LF_Q_INST_PTR               0x110
 #define CPT_LF_Q_GRP_PTR                0x120
 #define CPT_LF_CTX_FLUSH                0x510
 
@@ -566,7 +570,13 @@
 #define NPC_AF_PCK_DEF_OIP4		(0x00620)
 #define NPC_AF_PCK_DEF_OIP6		(0x00630)
 #define NPC_AF_PCK_DEF_IIP4		(0x00640)
+#define NPC_AF_INTFX_HASHX_RESULT_CTRL(a, b)	(0x006c0 | (a) << 4 | (b) << 3)
+#define NPC_AF_INTFX_HASHX_MASKX(a, b, c)  (0x00700 | (a) << 5 | (b) << 4 | (c) << 3)
 #define NPC_AF_KEX_LDATAX_FLAGS_CFG(a)	(0x00800 | (a) << 3)
+#define NPC_AF_INTFX_HASHX_CFG(a, b)  (0x00b00 | (a) << 6 | (b) << 4)
+#define NPC_AF_INTFX_SECRET_KEY0(a)	(0x00e00 | (a) << 3)
+#define NPC_AF_INTFX_SECRET_KEY1(a)	(0x00e20 | (a) << 3)
+#define NPC_AF_INTFX_SECRET_KEY2(a)	(0x00e40 | (a) << 3)
 #define NPC_AF_INTFX_KEX_CFG(a)		(0x01010 | (a) << 8)
 #define NPC_AF_PKINDX_ACTION0(a)	(0x80000ull | (a) << 6)
 #define NPC_AF_PKINDX_ACTION1(a)	(0x80008ull | (a) << 6)
@@ -599,6 +609,15 @@
 #define NPC_AF_MCAM_DBG			(0x3001000)
 #define NPC_AF_DBG_DATAX(a)		(0x3001400 | (a) << 4)
 #define NPC_AF_DBG_RESULTX(a)		(0x3001800 | (a) << 4)
+
+#define NPC_AF_EXACT_MEM_ENTRY(a, b)	(0x300000 | (a) << 15 | (b) << 3)
+#define NPC_AF_EXACT_CAM_ENTRY(a)	(0xC00 | (a) << 3)
+#define NPC_AF_INTFX_EXACT_MASK(a)	(0x660 | (a) << 3)
+#define NPC_AF_INTFX_EXACT_RESULT_CTL(a)(0x680 | (a) << 3)
+#define NPC_AF_INTFX_EXACT_CFG(a)	(0xA00 | (a) << 3)
+#define NPC_AF_INTFX_EXACT_SECRET0(a)	(0xE00 | (a) << 3)
+#define NPC_AF_INTFX_EXACT_SECRET1(a)	(0xE20 | (a) << 3)
+#define NPC_AF_INTFX_EXACT_SECRET2(a)	(0xE40 | (a) << 3)
 
 #define NPC_AF_MCAMEX_BANKX_CAMX_INTF(a, b, c) ({			   \
 	u64 offset;							   \
@@ -675,6 +694,7 @@
 #define NDC_AF_INTR_ENA_W1S		(0x00068)
 #define NDC_AF_INTR_ENA_W1C		(0x00070)
 #define NDC_AF_ACTIVE_PC		(0x00078)
+#define NDC_AF_CAMS_RD_INTERVAL		(0x00080)
 #define NDC_AF_BP_TEST_ENABLE		(0x001F8)
 #define NDC_AF_BP_TEST(a)		(0x00200 | (a) << 3)
 #define NDC_AF_BLK_RST			(0x002F0)
@@ -690,6 +710,8 @@
 		(0x00F00 | (a) << 5 | (b) << 4)
 #define NDC_AF_BANKX_HIT_PC(a)		(0x01000 | (a) << 3)
 #define NDC_AF_BANKX_MISS_PC(a)		(0x01100 | (a) << 3)
+#define NDC_AF_BANKX_LINEX_METADATA(a, b) \
+		(0x10000 | (a) << 12 | (b) << 3)
 
 /* LBK */
 #define LBK_CONST			(0x10ull)

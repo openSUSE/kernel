@@ -651,7 +651,7 @@ struct ipw_rx_notification {
 		struct notif_link_deterioration link_deterioration;
 		struct notif_calibration calibration;
 		struct notif_noise noise;
-		u8 raw[0];
+		DECLARE_FLEX_ARRAY(u8, raw);
 	} u;
 } __packed;
 
@@ -1106,9 +1106,8 @@ struct ipw_fw_error {	 /* XXX */
 	u32 config;
 	u32 elem_len;
 	u32 log_len;
-	struct ipw_error_elem *elem;
 	struct ipw_event *log;
-	u8 payload[];
+	struct ipw_error_elem elem[];
 } __packed;
 
 #ifdef CONFIG_IPW2200_PROMISCUOUS

@@ -28,7 +28,7 @@ static int mlx5_sf_dev_probe(struct auxiliary_device *adev, const struct auxilia
 	mdev->priv.adev_idx = adev->id;
 	sf_dev->mdev = mdev;
 
-	err = mlx5_mdev_init(mdev, MLX5_DEFAULT_PROF);
+	err = mlx5_mdev_init(mdev, MLX5_SF_PROF);
 	if (err) {
 		mlx5_core_warn(mdev, "mlx5_mdev_init on err=%d\n", err);
 		goto mdev_err;
@@ -75,7 +75,7 @@ static void mlx5_sf_dev_shutdown(struct auxiliary_device *adev)
 {
 	struct mlx5_sf_dev *sf_dev = container_of(adev, struct mlx5_sf_dev, adev);
 
-	mlx5_unload_one(sf_dev->mdev);
+	mlx5_unload_one(sf_dev->mdev, false);
 }
 
 static const struct auxiliary_device_id mlx5_sf_dev_id_table[] = {

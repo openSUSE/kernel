@@ -93,7 +93,7 @@
 #define LCU_MIN_SIZE_PELS		16
 #define SIZE_SEI_USERDATA		4096
 
-#define H265D_MAX_SLICE			600
+#define H265D_MAX_SLICE			3600
 #define SIZE_H265D_HW_PIC_T		SIZE_H264D_HW_PIC_T
 #define SIZE_H265D_BSE_CMD_PER_BUF	(16 * sizeof(u32))
 #define SIZE_H265D_VPP_CMD_PER_BUF	256
@@ -1021,7 +1021,7 @@ static u32 h264d_persist1_size(void)
 static u32 h265d_persist1_size(void)
 {
 	return ALIGN((SIZE_SLIST_BUF_H265 * NUM_SLIST_BUF_H265 + H265_NUM_TILE
-			* sizeof(u32)), HFI_DMA_ALIGNMENT);
+			* sizeof(u32) + NUM_HW_PIC_BUF * SIZE_SEI_USERDATA), HFI_DMA_ALIGNMENT);
 }
 
 static u32 vp8d_persist1_size(void)
@@ -1164,7 +1164,7 @@ static int output_buffer_count(u32 session_type, u32 codec)
 			output_min_count = 6;
 			break;
 		case V4L2_PIX_FMT_VP9:
-			output_min_count = 9;
+			output_min_count = 11;
 			break;
 		case V4L2_PIX_FMT_H264:
 		case V4L2_PIX_FMT_HEVC:
@@ -1213,6 +1213,8 @@ static int bufreq_dec(struct hfi_plat_buffers_params *params, u32 buftype,
 	}
 
 	out_min_count = output_buffer_count(VIDC_SESSION_TYPE_DEC, codec);
+	/* Max of driver and FW count */
+	out_min_count = max(out_min_count, bufreq->count_min);
 
 	bufreq->type = buftype;
 	bufreq->region_size = 0;
@@ -1237,7 +1239,7 @@ static int bufreq_dec(struct hfi_plat_buffers_params *params, u32 buftype,
 	} else if (buftype == HFI_BUFFER_INTERNAL_SCRATCH(version)) {
 		bufreq->size = dec_ops->scratch(width, height, is_interlaced);
 	} else if (buftype == HFI_BUFFER_INTERNAL_SCRATCH_1(version)) {
-		bufreq->size = dec_ops->scratch1(width, height, out_min_count,
+		bufreq->size = dec_ops->scratch1(width, height, VB2_MAX_FRAME,
 						 is_secondary_output,
 						 num_vpp_pipes);
 	} else if (buftype == HFI_BUFFER_INTERNAL_PERSIST_1) {

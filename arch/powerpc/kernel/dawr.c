@@ -9,9 +9,9 @@
 #include <linux/export.h>
 #include <linux/fs.h>
 #include <linux/debugfs.h>
-#include <asm/debugfs.h>
 #include <asm/machdep.h>
 #include <asm/hvcall.h>
+#include <asm/firmware.h>
 
 bool dawr_force_enable;
 EXPORT_SYMBOL_GPL(dawr_force_enable);
@@ -28,7 +28,7 @@ int set_dawr(int nr, struct arch_hw_breakpoint *brk)
 	dawrx |= (brk->type & (HW_BRK_TYPE_PRIV_ALL)) >> 3;
 	/*
 	 * DAWR length is stored in field MDR bits 48:53.  Matches range in
-	 * doublewords (64 bits) baised by -1 eg. 0b000000=1DW and
+	 * doublewords (64 bits) biased by -1 eg. 0b000000=1DW and
 	 * 0b111111=64DW.
 	 * brk->hw_len is in bytes.
 	 * This aligns up to double word size, shifts and does the bias.
@@ -101,7 +101,7 @@ static int __init dawr_force_setup(void)
 	if (PVR_VER(mfspr(SPRN_PVR)) == PVR_POWER9) {
 		/* Turn DAWR off by default, but allow admin to turn it on */
 		debugfs_create_file_unsafe("dawr_enable_dangerous", 0600,
-					   powerpc_debugfs_root,
+					   arch_debugfs_dir,
 					   &dawr_force_enable,
 					   &dawr_enable_fops);
 	}

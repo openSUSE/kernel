@@ -47,6 +47,15 @@ static inline void xsk_pool_set_rxq_info(struct xsk_buff_pool *pool,
 	xp_set_rxq_info(pool, rxq);
 }
 
+static inline unsigned int xsk_pool_get_napi_id(struct xsk_buff_pool *pool)
+{
+#ifdef CONFIG_NET_RX_BUSY_POLL
+	return pool->heads[0].xdp.rxq->napi_id;
+#else
+	return 0;
+#endif
+}
+
 static inline void xsk_pool_dma_unmap(struct xsk_buff_pool *pool,
 				      unsigned long attrs)
 {
@@ -96,13 +105,6 @@ static inline void xsk_buff_free(struct xdp_buff *xdp)
 	struct xdp_buff_xsk *xskb = container_of(xdp, struct xdp_buff_xsk, xdp);
 
 	xp_free(xskb);
-}
-
-static inline void xsk_buff_discard(struct xdp_buff *xdp)
-{
-	struct xdp_buff_xsk *xskb = container_of(xdp, struct xdp_buff_xsk, xdp);
-
-	xp_release(xskb);
 }
 
 static inline void xsk_buff_set_size(struct xdp_buff *xdp, u32 size)
@@ -206,6 +208,11 @@ static inline u32 xsk_pool_get_rx_frame_size(struct xsk_buff_pool *pool)
 static inline void xsk_pool_set_rxq_info(struct xsk_buff_pool *pool,
 					 struct xdp_rxq_info *rxq)
 {
+}
+
+static inline unsigned int xsk_pool_get_napi_id(struct xsk_buff_pool *pool)
+{
+	return 0;
 }
 
 static inline void xsk_pool_dma_unmap(struct xsk_buff_pool *pool,

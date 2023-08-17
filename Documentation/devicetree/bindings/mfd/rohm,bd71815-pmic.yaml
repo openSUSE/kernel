@@ -4,10 +4,10 @@
 $id: http://devicetree.org/schemas/mfd/rohm,bd71815-pmic.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: ROHM BD71815 Power Management Integrated Circuit bindings
+title: ROHM BD71815 Power Management Integrated Circuit
 
 maintainers:
-  - Matti Vaittinen <matti.vaittinen@fi.rohmeurope.com>
+  - Matti Vaittinen <mazziesaccount@gmail.com>
 
 description: |
   BD71815AGW is a single-chip power management ICs for battery-powered
@@ -46,7 +46,7 @@ properties:
 
   rohm,clkout-open-drain:
     description: clk32kout mode. Set to 1 for "open-drain" or 0 for "cmos".
-    $ref: "/schemas/types.yaml#/definitions/uint32"
+    $ref: /schemas/types.yaml#/definitions/uint32
     minimum: 0
     maximum: 1
 
@@ -74,7 +74,7 @@ properties:
   rohm,enable-hidden-gpo:
     description: |
       The BD71815 has undocumented GPO at pin E5. Pin is marked as GND at the
-      data-sheet as it's location in the middle of GND pins makes it hard to
+      data-sheet as its location in the middle of GND pins makes it hard to
       use on PCB. If your board has managed to use this pin you can enable the
       second GPO by defining this property. Dont enable this if you are unsure
       about how the E5 pin is connected on your board.

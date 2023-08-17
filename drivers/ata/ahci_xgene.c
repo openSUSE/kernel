@@ -193,7 +193,7 @@ static unsigned int xgene_ahci_qc_issue(struct ata_queued_cmd *qc)
 	struct xgene_ahci_context *ctx = hpriv->plat_data;
 	int rc = 0;
 	u32 port_fbs;
-	void *port_mmio = ahci_port_base(ap);
+	void __iomem *port_mmio = ahci_port_base(ap);
 
 	/*
 	 * Write the pmp value to PxFBS.DEV
@@ -454,7 +454,7 @@ static int xgene_ahci_pmp_softreset(struct ata_link *link, unsigned int *class,
 	int pmp = sata_srst_pmp(link);
 	struct ata_port *ap = link->ap;
 	u32 rc;
-	void *port_mmio = ahci_port_base(ap);
+	void __iomem *port_mmio = ahci_port_base(ap);
 	u32 port_fbs;
 
 	/*
@@ -499,7 +499,7 @@ static int xgene_ahci_softreset(struct ata_link *link, unsigned int *class,
 	struct ata_port *ap = link->ap;
 	struct ahci_host_priv *hpriv = ap->host->private_data;
 	struct xgene_ahci_context *ctx = hpriv->plat_data;
-	void *port_mmio = ahci_port_base(ap);
+	void __iomem *port_mmio = ahci_port_base(ap);
 	u32 port_fbs;
 	u32 port_fbs_save;
 	u32 retry = 1;
@@ -710,7 +710,7 @@ static int xgene_ahci_mux_select(struct xgene_ahci_context *ctx)
 	return val & CFG_SATA_ENET_SELECT_MASK ? -1 : 0;
 }
 
-static struct scsi_host_template ahci_platform_sht = {
+static const struct scsi_host_template ahci_platform_sht = {
 	AHCI_SHT(DRV_NAME),
 };
 
@@ -726,7 +726,7 @@ MODULE_DEVICE_TABLE(acpi, xgene_ahci_acpi_match);
 static const struct of_device_id xgene_ahci_of_match[] = {
 	{.compatible = "apm,xgene-ahci", .data = (void *) XGENE_AHCI_V1},
 	{.compatible = "apm,xgene-ahci-v2", .data = (void *) XGENE_AHCI_V2},
-	{},
+	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, xgene_ahci_of_match);
 
@@ -785,7 +785,7 @@ static int xgene_ahci_probe(struct platform_device *pdev)
 	of_devid = of_match_device(xgene_ahci_of_match, dev);
 	if (of_devid) {
 		if (of_devid->data)
-			version = (enum xgene_ahci_version) of_devid->data;
+			version = (unsigned long) of_devid->data;
 	}
 #ifdef CONFIG_ACPI
 	else {

@@ -50,7 +50,6 @@
 
 #include <asm/reg.h>
 #include <asm/sections.h>
-#include <asm/prom.h>
 #include <asm/io.h>
 #include <asm/pci-bridge.h>
 #include <asm/ohare.h>
@@ -71,21 +70,13 @@
 
 #undef SHOW_GATWICK_IRQS
 
-int ppc_override_l2cr = 0;
-int ppc_override_l2cr_value;
-int has_l2cache = 0;
+static int has_l2cache;
 
 int pmac_newworld;
 
 static int current_root_goodness = -1;
 
-extern struct machdep_calls pmac_md;
-
 #define DEFAULT_ROOT_DEVICE Root_SDA1	/* sda1 - slightly silly choice */
-
-#ifdef CONFIG_PPC64
-int sccdbg;
-#endif
 
 sys_ctrler_t sys_ctrler = SYS_CTRLER_UNKNOWN;
 EXPORT_SYMBOL(sys_ctrler);
@@ -146,7 +137,7 @@ static void pmac_show_cpuinfo(struct seq_file *m)
 			of_get_property(np, "d-cache-size", NULL);
 		seq_printf(m, "L2 cache\t:");
 		has_l2cache = 1;
-		if (of_get_property(np, "cache-unified", NULL) && dc) {
+		if (of_property_read_bool(np, "cache-unified") && dc) {
 			seq_printf(m, " %dK unified", *dc / 1024);
 		} else {
 			if (ic)
@@ -168,7 +159,7 @@ static void pmac_show_cpuinfo(struct seq_file *m)
 }
 
 #ifndef CONFIG_ADB_CUDA
-int find_via_cuda(void)
+int __init find_via_cuda(void)
 {
 	struct device_node *dn = of_find_node_by_name(NULL, "via-cuda");
 
@@ -182,7 +173,7 @@ int find_via_cuda(void)
 #endif
 
 #ifndef CONFIG_ADB_PMU
-int find_via_pmu(void)
+int __init find_via_pmu(void)
 {
 	struct device_node *dn = of_find_node_by_name(NULL, "via-pmu");
 
@@ -196,7 +187,7 @@ int find_via_pmu(void)
 #endif
 
 #ifndef CONFIG_PMAC_SMU
-int smu_init(void)
+int __init smu_init(void)
 {
 	/* should check and warn if SMU is present */
 	return 0;
@@ -243,22 +234,16 @@ static void __init l2cr_init(void)
 			const unsigned int *l2cr =
 				of_get_property(np, "l2cr-value", NULL);
 			if (l2cr) {
-				ppc_override_l2cr = 1;
-				ppc_override_l2cr_value = *l2cr;
 				_set_L2CR(0);
-				_set_L2CR(ppc_override_l2cr_value);
+				_set_L2CR(*l2cr);
+				pr_info("L2CR overridden (0x%x), backside cache is %s\n",
+					*l2cr, ((*l2cr) & 0x80000000) ?
+					"enabled" : "disabled");
 			}
 			of_node_put(np);
 			break;
 		}
 	}
-
-	if (ppc_override_l2cr)
-		printk(KERN_INFO "L2CR overridden (0x%x), "
-		       "backside cache is %s\n",
-		       ppc_override_l2cr_value,
-		       (ppc_override_l2cr_value & 0x80000000)
-				? "enabled" : "disabled");
 }
 #endif
 
@@ -326,13 +311,6 @@ static void __init pmac_setup_arch(void)
 	}
 #endif /* CONFIG_ADB */
 }
-
-#ifdef CONFIG_SCSI
-void note_scsi_host(struct device_node *node, void *host)
-{
-}
-EXPORT_SYMBOL(note_scsi_host);
-#endif
 
 static int initializing = 1;
 

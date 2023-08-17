@@ -7,10 +7,9 @@
 #ifndef _SELINUX_AVC_SS_H_
 #define _SELINUX_AVC_SS_H_
 
-#include "flask.h"
+#include <linux/types.h>
 
-struct selinux_avc;
-int avc_ss_reset(struct selinux_avc *avc, u32 seqno);
+int avc_ss_reset(u32 seqno);
 
 /* Class/perm mapping support */
 struct security_class_mapping {
@@ -18,7 +17,7 @@ struct security_class_mapping {
 	const char *perms[sizeof(u32) * 8 + 1];
 };
 
-extern struct security_class_mapping secclass_map[];
+extern const struct security_class_mapping secclass_map[];
 
 #endif /* _SELINUX_AVC_SS_H_ */
 

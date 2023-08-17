@@ -241,8 +241,7 @@ static const struct iio_buffer_setup_ops isl29125_buffer_setup_ops = {
 	.predisable = isl29125_buffer_predisable,
 };
 
-static int isl29125_probe(struct i2c_client *client,
-			   const struct i2c_device_id *id)
+static int isl29125_probe(struct i2c_client *client)
 {
 	struct isl29125_data *data;
 	struct iio_dev *indio_dev;
@@ -300,18 +299,15 @@ static int isl29125_powerdown(struct isl29125_data *data)
 		(data->conf1 & ~ISL29125_MODE_MASK) | ISL29125_MODE_PD);
 }
 
-static int isl29125_remove(struct i2c_client *client)
+static void isl29125_remove(struct i2c_client *client)
 {
 	struct iio_dev *indio_dev = i2c_get_clientdata(client);
 
 	iio_device_unregister(indio_dev);
 	iio_triggered_buffer_cleanup(indio_dev);
 	isl29125_powerdown(iio_priv(indio_dev));
-
-	return 0;
 }
 
-#ifdef CONFIG_PM_SLEEP
 static int isl29125_suspend(struct device *dev)
 {
 	struct isl29125_data *data = iio_priv(i2c_get_clientdata(
@@ -326,9 +322,9 @@ static int isl29125_resume(struct device *dev)
 	return i2c_smbus_write_byte_data(data->client, ISL29125_CONF1,
 		data->conf1);
 }
-#endif
 
-static SIMPLE_DEV_PM_OPS(isl29125_pm_ops, isl29125_suspend, isl29125_resume);
+static DEFINE_SIMPLE_DEV_PM_OPS(isl29125_pm_ops, isl29125_suspend,
+				isl29125_resume);
 
 static const struct i2c_device_id isl29125_id[] = {
 	{ "isl29125", 0 },
@@ -339,9 +335,9 @@ MODULE_DEVICE_TABLE(i2c, isl29125_id);
 static struct i2c_driver isl29125_driver = {
 	.driver = {
 		.name	= ISL29125_DRV_NAME,
-		.pm	= &isl29125_pm_ops,
+		.pm	= pm_sleep_ptr(&isl29125_pm_ops),
 	},
-	.probe		= isl29125_probe,
+	.probe_new	= isl29125_probe,
 	.remove		= isl29125_remove,
 	.id_table	= isl29125_id,
 };

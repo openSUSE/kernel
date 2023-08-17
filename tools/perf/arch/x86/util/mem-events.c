@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0
 #include "util/pmu.h"
+#include "util/env.h"
 #include "map_symbol.h"
 #include "mem-events.h"
+#include "linux/string.h"
+#include "env.h"
 
 static char mem_loads_name[100];
 static bool mem_loads_name__init;
@@ -12,10 +15,16 @@ static char mem_stores_name[100];
 
 #define E(t, n, s) { .tag = t, .name = n, .sysfs_name = s }
 
-static struct perf_mem_event perf_mem_events[PERF_MEM_EVENTS__MAX] = {
+static struct perf_mem_event perf_mem_events_intel[PERF_MEM_EVENTS__MAX] = {
 	E("ldlat-loads",	"%s/mem-loads,ldlat=%u/P",	"%s/events/mem-loads"),
 	E("ldlat-stores",	"%s/mem-stores/P",		"%s/events/mem-stores"),
 	E(NULL,			NULL,				NULL),
+};
+
+static struct perf_mem_event perf_mem_events_amd[PERF_MEM_EVENTS__MAX] = {
+	E(NULL,		NULL,		NULL),
+	E(NULL,		NULL,		NULL),
+	E("mem-ldst",	"ibs_op//",	"ibs_op"),
 };
 
 struct perf_mem_event *perf_mem_events__ptr(int i)
@@ -23,7 +32,10 @@ struct perf_mem_event *perf_mem_events__ptr(int i)
 	if (i >= PERF_MEM_EVENTS__MAX)
 		return NULL;
 
-	return &perf_mem_events[i];
+	if (x86__is_amd_cpu())
+		return &perf_mem_events_amd[i];
+
+	return &perf_mem_events_intel[i];
 }
 
 bool is_mem_loads_aux_event(struct evsel *leader)

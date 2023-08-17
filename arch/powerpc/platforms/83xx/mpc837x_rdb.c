@@ -18,7 +18,7 @@
 
 #include "mpc83xx.h"
 
-static void mpc837x_rdb_sd_cfg(void)
+static void __init mpc837x_rdb_sd_cfg(void)
 {
 	void __iomem *im;
 
@@ -78,6 +78,5 @@ define_machine(mpc837x_rdb) {
 	.get_irq		= ipic_get_irq,
 	.restart		= mpc83xx_restart,
 	.time_init		= mpc83xx_time_init,
-	.calibrate_decr		= generic_calibrate_decr,
 	.progress		= udbg_progress,
 };

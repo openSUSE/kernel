@@ -241,8 +241,8 @@ static int ishtp_cl_bus_match(struct device *dev, struct device_driver *drv)
 	struct ishtp_cl_device *device = to_ishtp_cl_device(dev);
 	struct ishtp_cl_driver *driver = to_ishtp_cl_driver(drv);
 
-	return guid_equal(driver->guid,
-			  &device->fw_client->props.protocol_name);
+	return(device->fw_client ? guid_equal(&driver->id[0].guid,
+	       &device->fw_client->props.protocol_name) : 0);
 }
 
 /**
@@ -350,7 +350,7 @@ static ssize_t modalias_show(struct device *dev, struct device_attribute *a,
 {
 	int len;
 
-	len = snprintf(buf, PAGE_SIZE, "ishtp:%s\n", dev_name(dev));
+	len = snprintf(buf, PAGE_SIZE, ISHTP_MODULE_PREFIX "%s\n", dev_name(dev));
 	return (len >= PAGE_SIZE) ? (PAGE_SIZE - 1) : len;
 }
 static DEVICE_ATTR_RO(modalias);
@@ -361,9 +361,9 @@ static struct attribute *ishtp_cl_dev_attrs[] = {
 };
 ATTRIBUTE_GROUPS(ishtp_cl_dev);
 
-static int ishtp_cl_uevent(struct device *dev, struct kobj_uevent_env *env)
+static int ishtp_cl_uevent(const struct device *dev, struct kobj_uevent_env *env)
 {
-	if (add_uevent_var(env, "MODALIAS=ishtp:%s", dev_name(dev)))
+	if (add_uevent_var(env, "MODALIAS=" ISHTP_MODULE_PREFIX "%s", dev_name(dev)))
 		return -ENOMEM;
 	return 0;
 }

@@ -1439,14 +1439,12 @@ err_pm_disable:
 	return ret;
 }
 
-static int mt2701_afe_pcm_dev_remove(struct platform_device *pdev)
+static void mt2701_afe_pcm_dev_remove(struct platform_device *pdev)
 {
 	pm_runtime_put_sync(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
 	if (!pm_runtime_status_suspended(&pdev->dev))
 		mt2701_afe_runtime_suspend(&pdev->dev);
-
-	return 0;
 }
 
 static const struct mt2701_soc_variants mt2701_soc_v1 = {
@@ -1474,12 +1472,10 @@ static struct platform_driver mt2701_afe_pcm_driver = {
 	.driver = {
 		   .name = "mt2701-audio",
 		   .of_match_table = mt2701_afe_pcm_dt_match,
-#ifdef CONFIG_PM
 		   .pm = &mt2701_afe_pm_ops,
-#endif
 	},
 	.probe = mt2701_afe_pcm_dev_probe,
-	.remove = mt2701_afe_pcm_dev_remove,
+	.remove_new = mt2701_afe_pcm_dev_remove,
 };
 
 module_platform_driver(mt2701_afe_pcm_driver);

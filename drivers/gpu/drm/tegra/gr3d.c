@@ -383,7 +383,7 @@ static void gr3d_del_link(void *link)
 
 static int gr3d_init_power(struct device *dev, struct gr3d *gr3d)
 {
-	static const char *opp_genpd_names[] = { "3d0", "3d1", NULL };
+	static const char * const opp_genpd_names[] = { "3d0", "3d1", NULL };
 	const u32 link_flags = DL_FLAG_STATELESS | DL_FLAG_PM_RUNTIME;
 	struct device **opp_virt_devs, *pd_dev;
 	struct device_link *link;
@@ -550,19 +550,11 @@ static int gr3d_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int gr3d_remove(struct platform_device *pdev)
+static void gr3d_remove(struct platform_device *pdev)
 {
 	struct gr3d *gr3d = platform_get_drvdata(pdev);
-	int err;
 
-	err = host1x_client_unregister(&gr3d->client.base);
-	if (err < 0) {
-		dev_err(&pdev->dev, "failed to unregister host1x client: %d\n",
-			err);
-		return err;
-	}
-
-	return 0;
+	host1x_client_unregister(&gr3d->client.base);
 }
 
 static int __maybe_unused gr3d_runtime_suspend(struct device *dev)
@@ -638,5 +630,5 @@ struct platform_driver tegra_gr3d_driver = {
 		.pm = &tegra_gr3d_pm,
 	},
 	.probe = gr3d_probe,
-	.remove = gr3d_remove,
+	.remove_new = gr3d_remove,
 };

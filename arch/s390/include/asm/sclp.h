@@ -1,15 +1,12 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
  *    Copyright IBM Corp. 2007
- *    Author(s): Heiko Carstens <heiko.carstens@de.ibm.com>
  */
 
 #ifndef _ASM_S390_SCLP_H
 #define _ASM_S390_SCLP_H
 
 #include <linux/types.h>
-#include <asm/chpid.h>
-#include <asm/cpu.h>
 
 #define SCLP_CHP_INFO_MASK_SIZE		32
 #define EARLY_SCCB_SIZE		PAGE_SIZE
@@ -18,6 +15,11 @@
 #define EXT_SCCB_READ_SCP	(3 * PAGE_SIZE)
 /* 24 + 16 * SCLP_MAX_CORES */
 #define EXT_SCCB_READ_CPU	(3 * PAGE_SIZE)
+
+#ifndef __ASSEMBLY__
+#include <linux/uio.h>
+#include <asm/chpid.h>
+#include <asm/cpu.h>
 
 struct sclp_chp_info {
 	u8 recognized[SCLP_CHP_INFO_MASK_SIZE];
@@ -85,7 +87,9 @@ struct sclp_info {
 	unsigned char has_gisaf : 1;
 	unsigned char has_diag318 : 1;
 	unsigned char has_sipl : 1;
+	unsigned char has_sipl_eckd : 1;
 	unsigned char has_dirq : 1;
+	unsigned char has_iplcc : 1;
 	unsigned char has_zpci_lsi : 1;
 	unsigned char has_aisii : 1;
 	unsigned char has_aeni : 1;
@@ -117,6 +121,10 @@ struct zpci_report_error_header {
 	u8 data[];	/* Subsequent Data passed verbatim to SCLP ET 24 */
 } __packed;
 
+extern char *sclp_early_sccb;
+
+void sclp_early_adjust_va(void);
+void sclp_early_set_buffer(void *sccb);
 int sclp_early_read_info(void);
 int sclp_early_read_storage_info(void);
 int sclp_early_get_core_info(struct sclp_core_info *info);
@@ -124,6 +132,7 @@ void sclp_early_get_ipl_info(struct sclp_ipl_info *info);
 void sclp_early_detect(void);
 void sclp_early_printk(const char *s);
 void __sclp_early_printk(const char *s, unsigned int len);
+void sclp_emergency_printk(const char *s);
 
 int sclp_early_get_memsize(unsigned long *mem);
 int sclp_early_get_hsa_size(unsigned long *hsa_size);
@@ -140,8 +149,7 @@ int sclp_pci_deconfigure(u32 fid);
 int sclp_ap_configure(u32 apid);
 int sclp_ap_deconfigure(u32 apid);
 int sclp_pci_report(struct zpci_report_error_header *report, u32 fh, u32 fid);
-int memcpy_hsa_kernel(void *dest, unsigned long src, size_t count);
-int memcpy_hsa_user(void __user *dest, unsigned long src, size_t count);
+size_t memcpy_hsa_iter(struct iov_iter *iter, unsigned long src, size_t count);
 void sclp_ocf_cpc_name_copy(char *dst);
 
 static inline int sclp_get_core_info(struct sclp_core_info *info, int early)
@@ -151,4 +159,5 @@ static inline int sclp_get_core_info(struct sclp_core_info *info, int early)
 	return _sclp_get_core_info(info);
 }
 
+#endif /* __ASSEMBLY__ */
 #endif /* _ASM_S390_SCLP_H */

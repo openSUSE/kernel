@@ -1,10 +1,13 @@
 .. include:: ../disclaimer-zh_CN.rst
 
 :Original: Documentation/core-api/printk-formats.rst
-:Translator: Yanteng Si <siyanteng@loongson.cn>
+
+:翻译:
+
+ 司延腾 Yanteng Si <siyanteng@loongson.cn>
+ 周彬彬 Binbin Zhou <zhoubinbin@loongson.cn>
 
 .. _cn_printk-formats.rst:
-
 
 ==============================
 如何获得正确的printk格式占位符
@@ -546,7 +549,7 @@ nodemask_pr_args()来方便打印cpumask和nodemask。
 
 ::
 
-	%pGp	referenced|uptodate|lru|active|private|node=0|zone=2|lastcpupid=0x1fffff
+	%pGp	0x17ffffc0002036(referenced|uptodate|lru|active|private|node=0|zone=2|lastcpupid=0x1fffff)
 	%pGg	GFP_USER|GFP_DMA32|GFP_NOWARN
 	%pGv	read|exec|mayread|maywrite|mayexec|denywrite
 

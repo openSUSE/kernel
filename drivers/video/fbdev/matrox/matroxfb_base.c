@@ -100,6 +100,7 @@
  *
  */
 
+#include <linux/aperture.h>
 #include <linux/version.h>
 
 #include "matroxfb_base.h"
@@ -2044,6 +2045,10 @@ static int matroxfb_probe(struct pci_dev* pdev, const struct pci_device_id* dumm
 	u_int32_t cmd;
 	DBG(__func__)
 
+	err = aperture_remove_conflicting_pci_devices(pdev, "matroxfb");
+	if (err)
+		return err;
+
 	svid = pdev->subsystem_vendor;
 	sid = pdev->subsystem_device;
 	for (b = dev_list; b->vendor; b++) {
@@ -2308,6 +2313,9 @@ static void __init matroxfb_init_params(void) {
 
 static int __init matrox_init(void) {
 	int err;
+
+	if (fb_modesetting_disabled("matroxfb"))
+		return -ENODEV;
 
 	matroxfb_init_params();
 	err = pci_register_driver(&matroxfb_driver);

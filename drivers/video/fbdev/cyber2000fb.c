@@ -33,6 +33,7 @@
  * (which, incidentally, is about the same saving as a 2.5in hard disk
  * entering standby mode.)
  */
+#include <linux/aperture.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/errno.h>
@@ -46,7 +47,6 @@
 #include <linux/io.h>
 #include <linux/i2c.h>
 #include <linux/i2c-algo-bit.h>
-
 
 #ifdef __arm__
 #include <asm/mach-types.h>
@@ -1720,6 +1720,10 @@ static int cyberpro_pci_probe(struct pci_dev *dev,
 
 	sprintf(name, "CyberPro%4X", id->device);
 
+	err = aperture_remove_conflicting_pci_devices(dev, name);
+	if (err)
+		return err;
+
 	err = pci_enable_device(dev);
 	if (err)
 		return err;
@@ -1873,7 +1877,12 @@ static int __init cyber2000fb_init(void)
 
 #ifndef MODULE
 	char *option = NULL;
+#endif
 
+	if (fb_modesetting_disabled("CyberPro"))
+		return -ENODEV;
+
+#ifndef MODULE
 	if (fb_get_options("cyber2000fb", &option))
 		return -ENODEV;
 	cyber2000fb_setup(option);

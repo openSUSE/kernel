@@ -6,6 +6,16 @@ Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 
 This small document introduces how to test DMA drivers using dmatest module.
 
+The dmatest module tests DMA memcpy, memset, XOR and RAID6 P+Q operations using
+various lengths and various offsets into the source and destination buffers. It
+will initialize both buffers with a repeatable pattern and verify that the DMA
+engine copies the requested region and nothing more. It will also verify that
+the bytes aren't swapped around, and that the source buffer isn't modified.
+
+The dmatest module can be configured to test a specific channel. It can also
+test multiple channels at the same time, and it can start multiple threads
+competing for the same channel.
+
 .. note::
   The test suite works only on the channels that have at least one
   capability of the following: DMA_MEMCPY (memory-to-memory), DMA_MEMSET
@@ -79,7 +89,7 @@ The following command returns the state of the test. ::
 
     % cat /sys/module/dmatest/parameters/run
 
-To wait for test completion userpace can poll 'run' until it is false, or use
+To wait for test completion userspace can poll 'run' until it is false, or use
 the wait parameter. Specifying 'wait=1' when loading the module causes module
 initialization to pause until a test run has completed, while reading
 /sys/module/dmatest/parameters/wait waits for any running test to complete

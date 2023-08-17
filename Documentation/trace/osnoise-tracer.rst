@@ -51,7 +51,7 @@ For example::
         [root@f32 ~]# cd /sys/kernel/tracing/
         [root@f32 tracing]# echo osnoise > current_tracer
 
-It is possible to follow the trace by reading the trace trace file::
+It is possible to follow the trace by reading the trace file::
 
         [root@f32 tracing]# cat trace
         # tracer: osnoise
@@ -92,8 +92,8 @@ Note that the example above shows a high number of HW noise samples.
 The reason being is that this sample was taken on a virtual machine,
 and the host interference is detected as a hardware interference.
 
-Tracer options
----------------------
+Tracer Configuration
+--------------------
 
 The tracer has a set of options inside the osnoise directory, they are:
 
@@ -108,7 +108,28 @@ The tracer has a set of options inside the osnoise directory, they are:
    option.
  - tracing_threshold: the minimum delta between two time() reads to be
    considered as noise, in us. When set to 0, the default value will
-   will be used, which is currently 5 us.
+   be used, which is currently 5 us.
+ - osnoise/options: a set of on/off options that can be enabled by
+   writing the option name to the file or disabled by writing the option
+   name preceded with the 'NO\_' prefix. For example, writing
+   NO_OSNOISE_WORKLOAD disables the OSNOISE_WORKLOAD option. The
+   special DEAFAULTS option resets all options to the default value.
+
+Tracer Options
+--------------
+
+The osnoise/options file exposes a set of on/off configuration options for
+the osnoise tracer. These options are:
+
+ - DEFAULTS: reset the options to the default value.
+ - OSNOISE_WORKLOAD: do not dispatch osnoise workload (see dedicated
+   section below).
+ - PANIC_ON_STOP: call panic() if the tracer stops. This option serves to
+   capture a vmcore.
+ - OSNOISE_PREEMPT_DISABLE: disable preemption while running the osnoise
+   workload, allowing only IRQ and hardware-related noise.
+ - OSNOISE_IRQ_DISABLE: disable IRQs while running the osnoise workload,
+   allowing only NMIs and hardware-related noise, like hwlat tracer.
 
 Additional Tracing
 ------------------
@@ -150,3 +171,10 @@ tracepoints is smaller than eight us reported in the sample_threshold.
 The reason roots in the overhead of the entry and exit code that happens
 before and after any interference execution. This justifies the dual
 approach: measuring thread and tracing.
+
+Running osnoise tracer without workload
+---------------------------------------
+
+By enabling the osnoise tracer with the NO_OSNOISE_WORKLOAD option set,
+the osnoise: tracepoints serve to measure the execution time of
+any type of Linux task, free from the interference of other tasks.

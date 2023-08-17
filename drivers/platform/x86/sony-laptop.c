@@ -584,7 +584,7 @@ static int sony_pf_add(void)
 	if (ret)
 		goto out;
 
-	sony_pf_device = platform_device_alloc("sony-laptop", -1);
+	sony_pf_device = platform_device_alloc("sony-laptop", PLATFORM_DEVID_NONE);
 	if (!sony_pf_device) {
 		ret = -ENOMEM;
 		goto out_platform_registered;
@@ -820,10 +820,9 @@ static ssize_t sony_nc_handles_show(struct device *dev,
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(handles->cap); i++) {
-		len += scnprintf(buffer + len, PAGE_SIZE - len, "0x%.4x ",
-				handles->cap[i]);
+		len += sysfs_emit_at(buffer, len, "0x%.4x ", handles->cap[i]);
 	}
-	len += scnprintf(buffer + len, PAGE_SIZE - len, "\n");
+	len += sysfs_emit_at(buffer, len, "\n");
 
 	return len;
 }
@@ -964,7 +963,7 @@ static ssize_t sony_nc_sysfs_show(struct device *dev, struct device_attribute *a
 	if (item->validate)
 		value = item->validate(SNC_VALIDATE_OUT, value);
 
-	return snprintf(buffer, PAGE_SIZE, "%d\n", value);
+	return sysfs_emit(buffer, "%d\n", value);
 }
 
 static ssize_t sony_nc_sysfs_store(struct device *dev,
@@ -1811,9 +1810,7 @@ static ssize_t sony_nc_kbd_backlight_mode_store(struct device *dev,
 static ssize_t sony_nc_kbd_backlight_mode_show(struct device *dev,
 		struct device_attribute *attr, char *buffer)
 {
-	ssize_t count = 0;
-	count = snprintf(buffer, PAGE_SIZE, "%d\n", kbdbl_ctl->mode);
-	return count;
+	return sysfs_emit(buffer, "%d\n", kbdbl_ctl->mode);
 }
 
 static int __sony_nc_kbd_backlight_timeout_set(u8 value)
@@ -1855,9 +1852,7 @@ static ssize_t sony_nc_kbd_backlight_timeout_store(struct device *dev,
 static ssize_t sony_nc_kbd_backlight_timeout_show(struct device *dev,
 		struct device_attribute *attr, char *buffer)
 {
-	ssize_t count = 0;
-	count = snprintf(buffer, PAGE_SIZE, "%d\n", kbdbl_ctl->timeout);
-	return count;
+	return sysfs_emit(buffer, "%d\n", kbdbl_ctl->timeout);
 }
 
 static int sony_nc_kbd_backlight_setup(struct platform_device *pd,
@@ -2058,21 +2053,18 @@ static ssize_t sony_nc_battery_care_limit_show(struct device *dev,
 		break;
 	}
 
-	return snprintf(buffer, PAGE_SIZE, "%d\n", status);
+	return sysfs_emit(buffer, "%d\n", status);
 }
 
 static ssize_t sony_nc_battery_care_health_show(struct device *dev,
 		struct device_attribute *attr, char *buffer)
 {
-	ssize_t count = 0;
 	unsigned int health;
 
 	if (sony_call_snc_handle(bcare_ctl->handle, 0x0200, &health))
 		return -EIO;
 
-	count = snprintf(buffer, PAGE_SIZE, "%d\n", health & 0xff);
-
-	return count;
+	return sysfs_emit(buffer, "%d\n", health & 0xff);
 }
 
 static int sony_nc_battery_care_setup(struct platform_device *pd,
@@ -2187,10 +2179,9 @@ static ssize_t sony_nc_thermal_profiles_show(struct device *dev,
 
 	for (cnt = 0; cnt < THM_PROFILE_MAX; cnt++) {
 		if (!cnt || (th_handle->profiles & cnt))
-			idx += scnprintf(buffer + idx, PAGE_SIZE - idx, "%s ",
-					snc_thermal_profiles[cnt]);
+			idx += sysfs_emit_at(buffer, idx, "%s ", snc_thermal_profiles[cnt]);
 	}
-	idx += scnprintf(buffer + idx, PAGE_SIZE - idx, "\n");
+	idx += sysfs_emit_at(buffer, idx, "\n");
 
 	return idx;
 }
@@ -2222,15 +2213,12 @@ static ssize_t sony_nc_thermal_mode_store(struct device *dev,
 static ssize_t sony_nc_thermal_mode_show(struct device *dev,
 		struct device_attribute *attr, char *buffer)
 {
-	ssize_t count = 0;
 	int mode = sony_nc_thermal_mode_get();
 
 	if (mode < 0)
 		return mode;
 
-	count = snprintf(buffer, PAGE_SIZE, "%s\n", snc_thermal_profiles[mode]);
-
-	return count;
+	return sysfs_emit(buffer, "%s\n", snc_thermal_profiles[mode]);
 }
 
 static int sony_nc_thermal_setup(struct platform_device *pd)
@@ -2368,7 +2356,7 @@ static ssize_t sony_nc_lid_resume_show(struct device *dev,
 
 	while (pos < LID_RESUME_MAX) {
 		if (&lid_ctl->attrs[pos].attr == &attr->attr)
-			return snprintf(buffer, PAGE_SIZE, "%d\n",
+			return sysfs_emit(buffer, "%d\n",
 					(lid_ctl->status >> pos) & 0x01);
 		pos++;
 	}
@@ -2500,7 +2488,7 @@ static ssize_t sony_nc_gfx_switch_status_show(struct device *dev,
 	if (pos < 0)
 		return pos;
 
-	return snprintf(buffer, PAGE_SIZE, "%s\n",
+	return sysfs_emit(buffer, "%s\n",
 					pos == SPEED ? "speed" :
 					pos == STAMINA ? "stamina" :
 					pos == AUTO ? "auto" : "unknown");
@@ -2575,7 +2563,7 @@ static ssize_t sony_nc_highspeed_charging_show(struct device *dev,
 	if (sony_call_snc_handle(0x0131, 0x0100, &result))
 		return -EIO;
 
-	return snprintf(buffer, PAGE_SIZE, "%d\n", result & 0x01);
+	return sysfs_emit(buffer, "%d\n", result & 0x01);
 }
 
 static int sony_nc_highspeed_charging_setup(struct platform_device *pd)
@@ -2649,7 +2637,7 @@ static ssize_t sony_nc_lowbatt_show(struct device *dev,
 	if (sony_call_snc_handle(0x0121, 0x0200, &result))
 		return -EIO;
 
-	return snprintf(buffer, PAGE_SIZE, "%d\n", result & 1);
+	return sysfs_emit(buffer, "%d\n", result & 1);
 }
 
 static int sony_nc_lowbatt_setup(struct platform_device *pd)
@@ -2715,7 +2703,7 @@ static ssize_t sony_nc_hsfan_show(struct device *dev,
 	if (sony_call_snc_handle(0x0149, 0x0100, &result))
 		return -EIO;
 
-	return snprintf(buffer, PAGE_SIZE, "%d\n", result & 0x01);
+	return sysfs_emit(buffer, "%d\n", result & 0x01);
 }
 
 static ssize_t sony_nc_fanspeed_show(struct device *dev,
@@ -2726,7 +2714,7 @@ static ssize_t sony_nc_fanspeed_show(struct device *dev,
 	if (sony_call_snc_handle(0x0149, 0x0300, &result))
 		return -EIO;
 
-	return snprintf(buffer, PAGE_SIZE, "%d\n", result & 0xff);
+	return sysfs_emit(buffer, "%d\n", result & 0xff);
 }
 
 static int sony_nc_fanspeed_setup(struct platform_device *pd)
@@ -2822,7 +2810,7 @@ static ssize_t sony_nc_usb_charge_show(struct device *dev,
 	if (sony_call_snc_handle(0x0155, 0x0000, &result))
 		return -EIO;
 
-	return snprintf(buffer, PAGE_SIZE, "%d\n", result & 0x01);
+	return sysfs_emit(buffer, "%d\n", result & 0x01);
 }
 
 static int sony_nc_usb_charge_setup(struct platform_device *pd)
@@ -2877,7 +2865,7 @@ static ssize_t sony_nc_panelid_show(struct device *dev,
 	if (sony_call_snc_handle(0x011D, 0x0000, &result))
 		return -EIO;
 
-	return snprintf(buffer, PAGE_SIZE, "%d\n", result);
+	return sysfs_emit(buffer, "%d\n", result);
 }
 
 static int sony_nc_panelid_setup(struct platform_device *pd)
@@ -3005,7 +2993,7 @@ static ssize_t sony_nc_touchpad_show(struct device *dev,
 	if (sony_call_snc_handle(tp_ctl->handle, 0x000, &result))
 		return -EINVAL;
 
-	return snprintf(buffer, PAGE_SIZE, "%d\n", !(result & 0x01));
+	return sysfs_emit(buffer, "%d\n", !(result & 0x01));
 }
 
 static int sony_nc_touchpad_setup(struct platform_device *pd,
@@ -3280,7 +3268,7 @@ outwalk:
 	return result;
 }
 
-static int sony_nc_remove(struct acpi_device *device)
+static void sony_nc_remove(struct acpi_device *device)
 {
 	struct sony_nc_value *item;
 
@@ -3297,11 +3285,9 @@ static int sony_nc_remove(struct acpi_device *device)
 	sony_pf_remove();
 	sony_laptop_remove_input();
 	dprintk(SONY_NC_DRIVER_NAME " removed.\n");
-
-	return 0;
 }
 
-static const struct acpi_device_id sony_device_ids[] = {
+static const struct acpi_device_id sony_device_ids[] __maybe_unused = {
 	{SONY_NC_HID, 0},
 	{SONY_PIC_HID, 0},
 	{"", 0},
@@ -3922,7 +3908,7 @@ static ssize_t sony_pic_wwanpower_show(struct device *dev,
 {
 	ssize_t count;
 	mutex_lock(&spic_dev.lock);
-	count = snprintf(buffer, PAGE_SIZE, "%d\n", spic_dev.wwan_power);
+	count = sysfs_emit(buffer, "%d\n", spic_dev.wwan_power);
 	mutex_unlock(&spic_dev.lock);
 	return count;
 }
@@ -3961,7 +3947,7 @@ static ssize_t sony_pic_bluetoothpower_show(struct device *dev,
 {
 	ssize_t count = 0;
 	mutex_lock(&spic_dev.lock);
-	count = snprintf(buffer, PAGE_SIZE, "%d\n", spic_dev.bluetooth_power);
+	count = sysfs_emit(buffer, "%d\n", spic_dev.bluetooth_power);
 	mutex_unlock(&spic_dev.lock);
 	return count;
 }
@@ -4003,7 +3989,7 @@ static ssize_t sony_pic_fanspeed_show(struct device *dev,
 	if (sony_pic_get_fanspeed(&value))
 		return -EIO;
 
-	return snprintf(buffer, PAGE_SIZE, "%d\n", value);
+	return sysfs_emit(buffer, "%d\n", value);
 }
 
 #define SPIC_ATTR(_name, _mode)					\
@@ -4358,7 +4344,7 @@ sony_pic_read_possible_resource(struct acpi_resource *resource, void *context)
 		{
 			struct acpi_resource_irq *p = &resource->data.irq;
 			struct sony_pic_irq *interrupt = NULL;
-			if (!p || !p->interrupt_count) {
+			if (!p->interrupt_count) {
 				/*
 				 * IRQ descriptors may have no IRQ# bits set,
 				 * particularly those those w/ _STA disabled
@@ -4391,11 +4377,6 @@ sony_pic_read_possible_resource(struct acpi_resource *resource, void *context)
 			struct acpi_resource_io *io = &resource->data.io;
 			struct sony_pic_ioport *ioport =
 				list_first_entry(&dev->ioports, struct sony_pic_ioport, list);
-			if (!io) {
-				dprintk("Blank IO resource\n");
-				return AE_OK;
-			}
-
 			if (!ioport->io1.minimum) {
 				memcpy(&ioport->io1, io, sizeof(*io));
 				dprintk("IO1 at 0x%.4x (0x%.2x)\n", ioport->io1.minimum,
@@ -4652,14 +4633,14 @@ found:
  *  ACPI driver
  *
  *****************/
-static int sony_pic_remove(struct acpi_device *device)
+static void sony_pic_remove(struct acpi_device *device)
 {
 	struct sony_pic_ioport *io, *tmp_io;
 	struct sony_pic_irq *irq, *tmp_irq;
 
 	if (sony_pic_disable(device)) {
 		pr_err("Couldn't disable device\n");
-		return -ENXIO;
+		return;
 	}
 
 	free_irq(spic_dev.cur_irq->irq.interrupts[0], &spic_dev);
@@ -4689,7 +4670,6 @@ static int sony_pic_remove(struct acpi_device *device)
 	spic_dev.cur_irq = NULL;
 
 	dprintk(SONY_PIC_DRIVER_NAME " removed.\n");
-	return 0;
 }
 
 static int sony_pic_add(struct acpi_device *device)

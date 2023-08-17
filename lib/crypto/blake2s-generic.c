@@ -12,7 +12,6 @@
 #include <linux/types.h>
 #include <linux/string.h>
 #include <linux/kernel.h>
-#include <linux/module.h>
 #include <linux/init.h>
 #include <linux/bug.h>
 #include <asm/unaligned.h>
@@ -37,7 +36,11 @@ static inline void blake2s_increment_counter(struct blake2s_state *state,
 	state->t[1] += (state->t[0] < inc);
 }
 
-void blake2s_compress_generic(struct blake2s_state *state,const u8 *block,
+void blake2s_compress(struct blake2s_state *state, const u8 *block,
+		      size_t nblocks, const u32 inc)
+		      __weak __alias(blake2s_compress_generic);
+
+void blake2s_compress_generic(struct blake2s_state *state, const u8 *block,
 			      size_t nblocks, const u32 inc)
 {
 	u32 m[16];
@@ -105,7 +108,3 @@ void blake2s_compress_generic(struct blake2s_state *state,const u8 *block,
 }
 
 EXPORT_SYMBOL(blake2s_compress_generic);
-
-MODULE_LICENSE("GPL v2");
-MODULE_DESCRIPTION("BLAKE2s hash function");
-MODULE_AUTHOR("Jason A. Donenfeld <Jason@zx2c4.com>");

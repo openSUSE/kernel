@@ -354,7 +354,7 @@ static ssize_t srf08_write_sensitivity(struct srf08_data *data,
 		return -EINVAL;
 
 	for (i = 0; i < data->chip_info->num_sensitivity_avail; i++)
-		if (val && (val == data->chip_info->sensitivity_avail[i])) {
+		if (val == data->chip_info->sensitivity_avail[i]) {
 			regval = i;
 			break;
 		}
@@ -443,9 +443,9 @@ static const struct iio_info srf02_info = {
 	.read_raw = srf08_read_raw,
 };
 
-static int srf08_probe(struct i2c_client *client,
-					 const struct i2c_device_id *id)
+static int srf08_probe(struct i2c_client *client)
 {
+	const struct i2c_device_id *id = i2c_client_get_device_id(client);
 	struct iio_dev *indio_dev;
 	struct srf08_data *data;
 	int ret;
@@ -528,9 +528,9 @@ static int srf08_probe(struct i2c_client *client,
 }
 
 static const struct of_device_id of_srf08_match[] = {
-	{ .compatible = "devantech,srf02", (void *)SRF02},
-	{ .compatible = "devantech,srf08", (void *)SRF08},
-	{ .compatible = "devantech,srf10", (void *)SRF10},
+	{ .compatible = "devantech,srf02", (void *)SRF02 },
+	{ .compatible = "devantech,srf08", (void *)SRF08 },
+	{ .compatible = "devantech,srf10", (void *)SRF10 },
 	{},
 };
 
@@ -549,7 +549,7 @@ static struct i2c_driver srf08_driver = {
 		.name	= "srf08",
 		.of_match_table	= of_srf08_match,
 	},
-	.probe = srf08_probe,
+	.probe_new = srf08_probe,
 	.id_table = srf08_id,
 };
 module_i2c_driver(srf08_driver);

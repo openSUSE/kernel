@@ -166,7 +166,6 @@ static int xway_nand_probe(struct platform_device *pdev)
 {
 	struct xway_nand_data *data;
 	struct mtd_info *mtd;
-	struct resource *res;
 	int err;
 	u32 cs;
 	u32 cs_flag = 0;
@@ -177,8 +176,7 @@ static int xway_nand_probe(struct platform_device *pdev)
 	if (!data)
 		return -ENOMEM;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	data->nandaddr = devm_ioremap_resource(&pdev->dev, res);
+	data->nandaddr = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(data->nandaddr))
 		return PTR_ERR(data->nandaddr);
 
@@ -240,7 +238,7 @@ static int xway_nand_probe(struct platform_device *pdev)
 /*
  * Remove a NAND device.
  */
-static int xway_nand_remove(struct platform_device *pdev)
+static void xway_nand_remove(struct platform_device *pdev)
 {
 	struct xway_nand_data *data = platform_get_drvdata(pdev);
 	struct nand_chip *chip = &data->chip;
@@ -249,8 +247,6 @@ static int xway_nand_remove(struct platform_device *pdev)
 	ret = mtd_device_unregister(nand_to_mtd(chip));
 	WARN_ON(ret);
 	nand_cleanup(chip);
-
-	return 0;
 }
 
 static const struct of_device_id xway_nand_match[] = {
@@ -260,7 +256,7 @@ static const struct of_device_id xway_nand_match[] = {
 
 static struct platform_driver xway_nand_driver = {
 	.probe	= xway_nand_probe,
-	.remove	= xway_nand_remove,
+	.remove_new = xway_nand_remove,
 	.driver	= {
 		.name		= "lantiq,nand-xway",
 		.of_match_table = xway_nand_match,

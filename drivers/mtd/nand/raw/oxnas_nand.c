@@ -79,7 +79,6 @@ static int oxnas_nand_probe(struct platform_device *pdev)
 	struct oxnas_nand_ctrl *oxnas;
 	struct nand_chip *chip;
 	struct mtd_info *mtd;
-	struct resource *res;
 	int count = 0;
 	int err = 0;
 	int i;
@@ -92,8 +91,7 @@ static int oxnas_nand_probe(struct platform_device *pdev)
 
 	nand_controller_init(&oxnas->base);
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	oxnas->io_base = devm_ioremap_resource(&pdev->dev, res);
+	oxnas->io_base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(oxnas->io_base))
 		return PTR_ERR(oxnas->io_base);
 
@@ -173,7 +171,7 @@ err_clk_unprepare:
 	return err;
 }
 
-static int oxnas_nand_remove(struct platform_device *pdev)
+static void oxnas_nand_remove(struct platform_device *pdev)
 {
 	struct oxnas_nand_ctrl *oxnas = platform_get_drvdata(pdev);
 	struct nand_chip *chip;
@@ -186,8 +184,6 @@ static int oxnas_nand_remove(struct platform_device *pdev)
 	}
 
 	clk_disable_unprepare(oxnas->clk);
-
-	return 0;
 }
 
 static const struct of_device_id oxnas_nand_match[] = {
@@ -198,7 +194,7 @@ MODULE_DEVICE_TABLE(of, oxnas_nand_match);
 
 static struct platform_driver oxnas_nand_driver = {
 	.probe	= oxnas_nand_probe,
-	.remove	= oxnas_nand_remove,
+	.remove_new = oxnas_nand_remove,
 	.driver	= {
 		.name		= "oxnas_nand",
 		.of_match_table = oxnas_nand_match,

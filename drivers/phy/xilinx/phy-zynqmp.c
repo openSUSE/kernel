@@ -8,9 +8,8 @@
  * Author: Subbaraya Sundeep <sundeep.lkml@gmail.com>
  * Author: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
  *
- * This driver is tested for USB, SATA and Display Port currently.
- * Other controllers PCIe and SGMII should also work but that is
- * experimental as of now.
+ * This driver is tested for USB, SGMII, SATA and Display Port currently.
+ * PCIe should also work but that is experimental as of now.
  */
 
 #include <linux/clk.h>
@@ -627,6 +626,9 @@ static int xpsgtr_phy_power_on(struct phy *phy)
 	struct xpsgtr_phy *gtr_phy = phy_get_drvdata(phy);
 	int ret = 0;
 
+	/* Skip initialization if not required. */
+	if (!xpsgtr_phy_init_required(gtr_phy))
+		return ret;
 	/*
 	 * Wait for the PLL to lock. For DP, only wait on DP0 to avoid
 	 * cumulating waits for both lanes. The user is expected to initialize

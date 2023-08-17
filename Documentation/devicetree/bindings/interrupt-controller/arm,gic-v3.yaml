@@ -7,7 +7,7 @@ $schema: http://devicetree.org/meta-schemas/core.yaml#
 title: ARM Generic Interrupt Controller, version 3
 
 maintainers:
-  - Marc Zyngier <marc.zyngier@arm.com>
+  - Marc Zyngier <maz@kernel.org>
 
 description: |
   AArch64 SMP cores are often associated with a GICv3, providing Private
@@ -78,7 +78,11 @@ properties:
       - GIC Hypervisor interface (GICH)
       - GIC Virtual CPU interface (GICV)
 
-      GICC, GICH and GICV are optional.
+      GICC, GICH and GICV are optional, but must be described if the CPUs
+      support them. Examples of such CPUs are ARM's implementations of the
+      ARMv8.0 architecture such as Cortex-A32, A34, A35, A53, A57, A72 and
+      A73 (this list is not exhaustive).
+
     minItems: 2
     maxItems: 4096   # Should be enough?
 
@@ -104,7 +108,7 @@ properties:
 
   msi-controller:
     description:
-      Only present if the Message Based Interrupt functionnality is
+      Only present if the Message Based Interrupt functionality is
       being exposed by the HW, and the mbi-ranges property present.
 
   mbi-ranges:
@@ -129,12 +133,14 @@ properties:
 
   ppi-partitions:
     type: object
+    additionalProperties: false
     description:
       PPI affinity can be expressed as a single "ppi-partitions" node,
       containing a set of sub-nodes.
     patternProperties:
       "^interrupt-partition-[0-9]+$":
         type: object
+        additionalProperties: false
         properties:
           affinity:
             $ref: /schemas/types.yaml#/definitions/phandle-array
@@ -160,13 +166,18 @@ properties:
   resets:
     maxItems: 1
 
+  mediatek,broken-save-restore-fw:
+    type: boolean
+    description:
+      Asserts that the firmware on this device has issues saving and restoring
+      GICR registers when the GIC redistributors are powered off.
+
 dependencies:
   mbi-ranges: [ msi-controller ]
   msi-controller: [ mbi-ranges ]
 
 required:
   - compatible
-  - interrupts
   - reg
 
 patternProperties:
@@ -241,6 +252,7 @@ examples:
       };
     };
 
+  - |
     interrupt-controller@2c010000 {
       compatible = "arm,gic-v3";
       #interrupt-cells = <4>;
@@ -256,7 +268,7 @@ examples:
             <0x2c040000 0x2000>,  // GICC
             <0x2c060000 0x2000>,  // GICH
             <0x2c080000 0x2000>;  // GICV
-      interrupts = <1 9 4>;
+      interrupts = <1 9 4 0>;
 
       msi-controller@2c200000 {
         compatible = "arm,gic-v3-its";

@@ -2,11 +2,8 @@
 #include <linux/module.h>
 #include <linux/errno.h>
 #include <linux/socket.h>
-#include <linux/udp.h>
-#include <linux/types.h>
 #include <linux/kernel.h>
 #include <net/dst_metadata.h>
-#include <net/net_namespace.h>
 #include <net/udp.h>
 #include <net/udp_tunnel.h>
 
@@ -75,6 +72,7 @@ void setup_udp_tunnel_sock(struct net *net, struct socket *sock,
 
 	udp_sk(sk)->encap_type = cfg->encap_type;
 	udp_sk(sk)->encap_rcv = cfg->encap_rcv;
+	udp_sk(sk)->encap_err_rcv = cfg->encap_err_rcv;
 	udp_sk(sk)->encap_err_lookup = cfg->encap_err_lookup;
 	udp_sk(sk)->encap_destroy = cfg->encap_destroy;
 	udp_sk(sk)->gro_receive = cfg->gro_receive;
@@ -178,6 +176,7 @@ EXPORT_SYMBOL_GPL(udp_tunnel_xmit_skb);
 void udp_tunnel_sock_release(struct socket *sock)
 {
 	rcu_assign_sk_user_data(sock->sk, NULL);
+	synchronize_rcu();
 	kernel_sock_shutdown(sock, SHUT_RDWR);
 	sock_release(sock);
 }

@@ -138,13 +138,4 @@ int __mt76_worker_fn(void *ptr)
 }
 EXPORT_SYMBOL_GPL(__mt76_worker_fn);
 
-/* FIXME: re-added for SLE kABI compatibility */
-#undef __mt76_poll_msec
-bool __mt76_poll_msec(struct mt76_dev *dev, u32 offset, u32 mask, u32 val,
-		      int timeout)
-{
-	return ____mt76_poll_msec(dev, offset, mask, val, timeout, 10);
-}
-EXPORT_SYMBOL_GPL(__mt76_poll_msec);
-
 MODULE_LICENSE("Dual BSD/GPL");

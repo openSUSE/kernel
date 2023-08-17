@@ -17,6 +17,11 @@
 / {
 	compatible = "samsung,artik5", "samsung,exynos3250", "samsung,exynos3";
 
+	aliases {
+		mmc0 = &mshc_0;
+		mmc1 = &mshc_1;
+	};
+
 	chosen {
 		stdout-path = &serial_2;
 	};
@@ -321,6 +326,7 @@
 	vmmc-supply = <&ldo12_reg>;
 	clock-frequency = <100000000>;
 	max-frequency = <100000000>;
+	mmc-ddr-1_8v;
 	samsung,dw-mshc-ciu-div = <1>;
 	samsung,dw-mshc-sdr-timing = <0 1>;
 	samsung,dw-mshc-ddr-timing = <1 2>;
@@ -356,15 +362,15 @@
 };
 
 &pinctrl_1 {
-	bten: bten {
-		samsung,pins ="gpx1-7";
+	bten: bten-pins {
+		samsung,pins = "gpx1-7";
 		samsung,pin-function = <EXYNOS_PIN_FUNC_OUTPUT>;
 		samsung,pin-pud = <EXYNOS_PIN_PULL_DOWN>;
 		samsung,pin-con-pdn = <EXYNOS_PIN_PDN_PREV>;
 		samsung,pin-pud-pdn = <EXYNOS_PIN_PULL_DOWN>;
 	};
 
-	wlanen: wlanen {
+	wlanen: wlanen-pins {
 		samsung,pins = "gpx2-3";
 		samsung,pin-function = <EXYNOS_PIN_FUNC_OUTPUT>;
 		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
@@ -372,12 +378,12 @@
 		samsung,pin-val = <1>;
 	};
 
-	s2mps14_irq: s2mps14-irq {
+	s2mps14_irq: s2mps14-irq-pins {
 		samsung,pins = "gpx3-5";
 		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
 	};
 
-	bthostwake: bthostwake {
+	bthostwake: bthostwake-pins {
 		samsung,pins = "gpx3-6";
 		samsung,pin-function = <EXYNOS_PIN_FUNC_INPUT>;
 		samsung,pin-pud = <EXYNOS_PIN_PULL_UP>;
@@ -385,7 +391,7 @@
 		samsung,pin-pud-pdn = <EXYNOS_PIN_PULL_NONE>;
 	};
 
-	btwake: btwake {
+	btwake: btwake-pins {
 		samsung,pins = "gpx3-7";
 		samsung,pin-function = <EXYNOS_PIN_FUNC_OUTPUT>;
 		samsung,pin-pud = <EXYNOS_PIN_PULL_DOWN>;

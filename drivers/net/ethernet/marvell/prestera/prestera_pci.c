@@ -14,13 +14,14 @@
 
 #define PRESTERA_MSG_MAX_SIZE 1500
 
-#define PRESTERA_SUPP_FW_MAJ_VER	3
-#define PRESTERA_SUPP_FW_MIN_VER	0
+#define PRESTERA_SUPP_FW_MAJ_VER	4
+#define PRESTERA_SUPP_FW_MIN_VER	1
 
-#define PRESTERA_PREV_FW_MAJ_VER	2
+#define PRESTERA_PREV_FW_MAJ_VER	4
 #define PRESTERA_PREV_FW_MIN_VER	0
 
 #define PRESTERA_FW_PATH_FMT	"mrvl/prestera/mvsw_prestera_fw-v%u.%u.img"
+#define PRESTERA_FW_ARM64_PATH_FMT "mrvl/prestera/mvsw_prestera_fw_arm64-v%u.%u.img"
 
 #define PRESTERA_FW_HDR_MAGIC		0x351D9D06
 #define PRESTERA_FW_DL_TIMEOUT_MS	50000
@@ -102,23 +103,30 @@ struct prestera_fw_evtq_regs {
 	u32 len;
 };
 
+#define PRESTERA_CMD_QNUM_MAX	4
+
+struct prestera_fw_cmdq_regs {
+	u32 req_ctl;
+	u32 req_len;
+	u32 rcv_ctl;
+	u32 rcv_len;
+	u32 offs;
+	u32 len;
+};
+
 struct prestera_fw_regs {
 	u32 fw_ready;
-	u32 pad;
 	u32 cmd_offs;
 	u32 cmd_len;
+	u32 cmd_qnum;
 	u32 evt_offs;
 	u32 evt_qnum;
-
-	u32 cmd_req_ctl;
-	u32 cmd_req_len;
-	u32 cmd_rcv_ctl;
-	u32 cmd_rcv_len;
 
 	u32 fw_status;
 	u32 rx_status;
 
-	struct prestera_fw_evtq_regs evtq_list[PRESTERA_EVT_QNUM_MAX];
+	struct prestera_fw_cmdq_regs cmdq_list[PRESTERA_EVT_QNUM_MAX];
+	struct prestera_fw_evtq_regs evtq_list[PRESTERA_CMD_QNUM_MAX];
 };
 
 #define PRESTERA_FW_REG_OFFSET(f)	offsetof(struct prestera_fw_regs, f)
@@ -130,14 +138,22 @@ struct prestera_fw_regs {
 
 #define PRESTERA_CMD_BUF_OFFS_REG	PRESTERA_FW_REG_OFFSET(cmd_offs)
 #define PRESTERA_CMD_BUF_LEN_REG	PRESTERA_FW_REG_OFFSET(cmd_len)
+#define PRESTERA_CMD_QNUM_REG		PRESTERA_FW_REG_OFFSET(cmd_qnum)
 #define PRESTERA_EVT_BUF_OFFS_REG	PRESTERA_FW_REG_OFFSET(evt_offs)
 #define PRESTERA_EVT_QNUM_REG		PRESTERA_FW_REG_OFFSET(evt_qnum)
 
-#define PRESTERA_CMD_REQ_CTL_REG	PRESTERA_FW_REG_OFFSET(cmd_req_ctl)
-#define PRESTERA_CMD_REQ_LEN_REG	PRESTERA_FW_REG_OFFSET(cmd_req_len)
+#define PRESTERA_CMDQ_REG_OFFSET(q, f)			\
+	(PRESTERA_FW_REG_OFFSET(cmdq_list) +		\
+	 (q) * sizeof(struct prestera_fw_cmdq_regs) +	\
+	 offsetof(struct prestera_fw_cmdq_regs, f))
 
-#define PRESTERA_CMD_RCV_CTL_REG	PRESTERA_FW_REG_OFFSET(cmd_rcv_ctl)
-#define PRESTERA_CMD_RCV_LEN_REG	PRESTERA_FW_REG_OFFSET(cmd_rcv_len)
+#define PRESTERA_CMDQ_REQ_CTL_REG(q)	PRESTERA_CMDQ_REG_OFFSET(q, req_ctl)
+#define PRESTERA_CMDQ_REQ_LEN_REG(q)	PRESTERA_CMDQ_REG_OFFSET(q, req_len)
+#define PRESTERA_CMDQ_RCV_CTL_REG(q)	PRESTERA_CMDQ_REG_OFFSET(q, rcv_ctl)
+#define PRESTERA_CMDQ_RCV_LEN_REG(q)	PRESTERA_CMDQ_REG_OFFSET(q, rcv_len)
+#define PRESTERA_CMDQ_OFFS_REG(q)	PRESTERA_CMDQ_REG_OFFSET(q, offs)
+#define PRESTERA_CMDQ_LEN_REG(q)	PRESTERA_CMDQ_REG_OFFSET(q, len)
+
 #define PRESTERA_FW_STATUS_REG		PRESTERA_FW_REG_OFFSET(fw_status)
 #define PRESTERA_RX_STATUS_REG		PRESTERA_FW_REG_OFFSET(rx_status)
 
@@ -169,7 +185,23 @@ struct prestera_fw_regs {
 #define PRESTERA_FW_CMD_DEFAULT_WAIT_MS	30000
 #define PRESTERA_FW_READY_WAIT_MS	20000
 
+#define PRESTERA_DEV_ID_AC3X_98DX_55	0xC804
+#define PRESTERA_DEV_ID_AC3X_98DX_65	0xC80C
+#define PRESTERA_DEV_ID_ALDRIN2		0xCC1E
+#define PRESTERA_DEV_ID_98DX7312M	0x981F
+#define PRESTERA_DEV_ID_98DX3500	0x9820
+#define PRESTERA_DEV_ID_98DX3501	0x9826
+#define PRESTERA_DEV_ID_98DX3510	0x9821
+#define PRESTERA_DEV_ID_98DX3520	0x9822
+
 struct prestera_fw_evtq {
+	u8 __iomem *addr;
+	size_t len;
+};
+
+struct prestera_fw_cmdq {
+	/* serialize access to dev->send_req */
+	struct mutex cmd_mtx;
 	u8 __iomem *addr;
 	size_t len;
 };
@@ -179,13 +211,15 @@ struct prestera_fw {
 	const struct firmware *bin;
 	struct workqueue_struct *wq;
 	struct prestera_device dev;
+	struct pci_dev *pci_dev;
 	u8 __iomem *ldr_regs;
 	u8 __iomem *ldr_ring_buf;
 	u32 ldr_buf_len;
 	u32 ldr_wr_idx;
-	struct mutex cmd_mtx; /* serialize access to dev->send_req */
 	size_t cmd_mbox_len;
 	u8 __iomem *cmd_mbox;
+	struct prestera_fw_cmdq cmd_queue[PRESTERA_CMD_QNUM_MAX];
+	u8 cmd_qnum;
 	struct prestera_fw_evtq evt_queue[PRESTERA_EVT_QNUM_MAX];
 	u8 evt_qnum;
 	struct work_struct evt_work;
@@ -324,7 +358,27 @@ static int prestera_fw_wait_reg32(struct prestera_fw *fw, u32 reg, u32 cmp,
 				  1 * USEC_PER_MSEC, waitms * USEC_PER_MSEC);
 }
 
-static int prestera_fw_cmd_send(struct prestera_fw *fw,
+static void prestera_fw_cmdq_lock(struct prestera_fw *fw, u8 qid)
+{
+	mutex_lock(&fw->cmd_queue[qid].cmd_mtx);
+}
+
+static void prestera_fw_cmdq_unlock(struct prestera_fw *fw, u8 qid)
+{
+	mutex_unlock(&fw->cmd_queue[qid].cmd_mtx);
+}
+
+static u32 prestera_fw_cmdq_len(struct prestera_fw *fw, u8 qid)
+{
+	return fw->cmd_queue[qid].len;
+}
+
+static u8 __iomem *prestera_fw_cmdq_buf(struct prestera_fw *fw, u8 qid)
+{
+	return fw->cmd_queue[qid].addr;
+}
+
+static int prestera_fw_cmd_send(struct prestera_fw *fw, int qid,
 				void *in_msg, size_t in_size,
 				void *out_msg, size_t out_size,
 				unsigned int waitms)
@@ -335,30 +389,32 @@ static int prestera_fw_cmd_send(struct prestera_fw *fw,
 	if (!waitms)
 		waitms = PRESTERA_FW_CMD_DEFAULT_WAIT_MS;
 
-	if (ALIGN(in_size, 4) > fw->cmd_mbox_len)
+	if (ALIGN(in_size, 4) > prestera_fw_cmdq_len(fw, qid))
 		return -EMSGSIZE;
 
 	/* wait for finish previous reply from FW */
-	err = prestera_fw_wait_reg32(fw, PRESTERA_CMD_RCV_CTL_REG, 0, 30);
+	err = prestera_fw_wait_reg32(fw, PRESTERA_CMDQ_RCV_CTL_REG(qid), 0, 30);
 	if (err) {
 		dev_err(fw->dev.dev, "finish reply from FW is timed out\n");
 		return err;
 	}
 
-	prestera_fw_write(fw, PRESTERA_CMD_REQ_LEN_REG, in_size);
-	memcpy_toio(fw->cmd_mbox, in_msg, in_size);
+	prestera_fw_write(fw, PRESTERA_CMDQ_REQ_LEN_REG(qid), in_size);
 
-	prestera_fw_write(fw, PRESTERA_CMD_REQ_CTL_REG, PRESTERA_CMD_F_REQ_SENT);
+	memcpy_toio(prestera_fw_cmdq_buf(fw, qid), in_msg, in_size);
+
+	prestera_fw_write(fw, PRESTERA_CMDQ_REQ_CTL_REG(qid),
+			  PRESTERA_CMD_F_REQ_SENT);
 
 	/* wait for reply from FW */
-	err = prestera_fw_wait_reg32(fw, PRESTERA_CMD_RCV_CTL_REG,
+	err = prestera_fw_wait_reg32(fw, PRESTERA_CMDQ_RCV_CTL_REG(qid),
 				     PRESTERA_CMD_F_REPL_SENT, waitms);
 	if (err) {
 		dev_err(fw->dev.dev, "reply from FW is timed out\n");
 		goto cmd_exit;
 	}
 
-	ret_size = prestera_fw_read(fw, PRESTERA_CMD_RCV_LEN_REG);
+	ret_size = prestera_fw_read(fw, PRESTERA_CMDQ_RCV_LEN_REG(qid));
 	if (ret_size > out_size) {
 		dev_err(fw->dev.dev, "ret_size (%u) > out_len(%zu)\n",
 			ret_size, out_size);
@@ -366,14 +422,16 @@ static int prestera_fw_cmd_send(struct prestera_fw *fw,
 		goto cmd_exit;
 	}
 
-	memcpy_fromio(out_msg, fw->cmd_mbox + in_size, ret_size);
+	memcpy_fromio(out_msg,
+		      prestera_fw_cmdq_buf(fw, qid) + in_size, ret_size);
 
 cmd_exit:
-	prestera_fw_write(fw, PRESTERA_CMD_REQ_CTL_REG, PRESTERA_CMD_F_REPL_RCVD);
+	prestera_fw_write(fw, PRESTERA_CMDQ_REQ_CTL_REG(qid),
+			  PRESTERA_CMD_F_REPL_RCVD);
 	return err;
 }
 
-static int prestera_fw_send_req(struct prestera_device *dev,
+static int prestera_fw_send_req(struct prestera_device *dev, int qid,
 				void *in_msg, size_t in_size, void *out_msg,
 				size_t out_size, unsigned int waitms)
 {
@@ -382,9 +440,10 @@ static int prestera_fw_send_req(struct prestera_device *dev,
 
 	fw = container_of(dev, struct prestera_fw, dev);
 
-	mutex_lock(&fw->cmd_mtx);
-	ret = prestera_fw_cmd_send(fw, in_msg, in_size, out_msg, out_size, waitms);
-	mutex_unlock(&fw->cmd_mtx);
+	prestera_fw_cmdq_lock(fw, qid);
+	ret = prestera_fw_cmd_send(fw, qid, in_msg, in_size, out_msg, out_size,
+				   waitms);
+	prestera_fw_cmdq_unlock(fw, qid);
 
 	return ret;
 }
@@ -414,7 +473,16 @@ static int prestera_fw_init(struct prestera_fw *fw)
 
 	fw->cmd_mbox = base + prestera_fw_read(fw, PRESTERA_CMD_BUF_OFFS_REG);
 	fw->cmd_mbox_len = prestera_fw_read(fw, PRESTERA_CMD_BUF_LEN_REG);
-	mutex_init(&fw->cmd_mtx);
+	fw->cmd_qnum = prestera_fw_read(fw, PRESTERA_CMD_QNUM_REG);
+
+	for (qid = 0; qid < fw->cmd_qnum; qid++) {
+		u32 offs = prestera_fw_read(fw, PRESTERA_CMDQ_OFFS_REG(qid));
+		struct prestera_fw_cmdq *cmdq = &fw->cmd_queue[qid];
+
+		cmdq->len = prestera_fw_read(fw, PRESTERA_CMDQ_LEN_REG(qid));
+		cmdq->addr = fw->cmd_mbox + offs;
+		mutex_init(&cmdq->cmd_mtx);
+	}
 
 	fw->evt_buf = base + prestera_fw_read(fw, PRESTERA_EVT_BUF_OFFS_REG);
 	fw->evt_qnum = prestera_fw_read(fw, PRESTERA_EVT_QNUM_REG);
@@ -632,6 +700,20 @@ static int prestera_fw_hdr_parse(struct prestera_fw *fw)
 	return prestera_fw_rev_check(fw);
 }
 
+static const char *prestera_fw_path_fmt_get(struct prestera_fw *fw)
+{
+	switch (fw->pci_dev->device) {
+	case PRESTERA_DEV_ID_98DX3500:
+	case PRESTERA_DEV_ID_98DX3501:
+	case PRESTERA_DEV_ID_98DX3510:
+	case PRESTERA_DEV_ID_98DX3520:
+		return PRESTERA_FW_ARM64_PATH_FMT;
+
+	default:
+		return PRESTERA_FW_PATH_FMT;
+	}
+}
+
 static int prestera_fw_get(struct prestera_fw *fw)
 {
 	int ver_maj = PRESTERA_SUPP_FW_MAJ_VER;
@@ -640,12 +722,13 @@ static int prestera_fw_get(struct prestera_fw *fw)
 	int err;
 
 pick_fw_ver:
-	snprintf(fw_path, sizeof(fw_path), PRESTERA_FW_PATH_FMT,
+	snprintf(fw_path, sizeof(fw_path), prestera_fw_path_fmt_get(fw),
 		 ver_maj, ver_min);
 
 	err = request_firmware_direct(&fw->bin, fw_path, fw->dev.dev);
 	if (err) {
-		if (ver_maj == PRESTERA_SUPP_FW_MAJ_VER) {
+		if (ver_maj != PRESTERA_PREV_FW_MAJ_VER ||
+		    ver_min != PRESTERA_PREV_FW_MIN_VER) {
 			ver_maj = PRESTERA_PREV_FW_MAJ_VER;
 			ver_min = PRESTERA_PREV_FW_MIN_VER;
 
@@ -717,27 +800,81 @@ out_release:
 	return err;
 }
 
+static bool prestera_pci_pp_use_bar2(struct pci_dev *pdev)
+{
+	switch (pdev->device) {
+	case PRESTERA_DEV_ID_98DX7312M:
+	case PRESTERA_DEV_ID_98DX3500:
+	case PRESTERA_DEV_ID_98DX3501:
+	case PRESTERA_DEV_ID_98DX3510:
+	case PRESTERA_DEV_ID_98DX3520:
+		return true;
+
+	default:
+		return false;
+	}
+}
+
+static u32 prestera_pci_pp_bar2_offs(struct pci_dev *pdev)
+{
+	if (pci_resource_len(pdev, 2) == 0x1000000)
+		return 0x0;
+	else
+		return (pci_resource_len(pdev, 2) / 2);
+}
+
+static u32 prestera_pci_fw_bar2_offs(struct pci_dev *pdev)
+{
+	if (pci_resource_len(pdev, 2) == 0x1000000)
+		return 0x400000;
+	else
+		return 0x0;
+}
+
 static int prestera_pci_probe(struct pci_dev *pdev,
 			      const struct pci_device_id *id)
 {
-	const char *driver_name = pdev->driver->name;
+	const char *driver_name = dev_driver_string(&pdev->dev);
+	u8 __iomem *mem_addr, *pp_addr = NULL;
 	struct prestera_fw *fw;
 	int err;
 
 	err = pcim_enable_device(pdev);
-	if (err)
-		return err;
+	if (err) {
+		dev_err(&pdev->dev, "pci_enable_device failed\n");
+		goto err_pci_enable_device;
+	}
 
-	err = pcim_iomap_regions(pdev, BIT(PRESTERA_PCI_BAR_FW) |
-				 BIT(PRESTERA_PCI_BAR_PP),
-				 pci_name(pdev));
-	if (err)
-		return err;
+	err = pci_request_regions(pdev, driver_name);
+	if (err) {
+		dev_err(&pdev->dev, "pci_request_regions failed\n");
+		goto err_pci_request_regions;
+	}
 
 	err = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(30));
 	if (err) {
 		dev_err(&pdev->dev, "fail to set DMA mask\n");
 		goto err_dma_mask;
+	}
+
+	mem_addr = pcim_iomap(pdev, 2, 0);
+	if (!mem_addr) {
+		dev_err(&pdev->dev, "pci mem ioremap failed\n");
+		err = -EIO;
+		goto err_mem_ioremap;
+	}
+
+	/* AC5X devices use second half of BAR2 */
+	if (prestera_pci_pp_use_bar2(pdev)) {
+		pp_addr = mem_addr + prestera_pci_pp_bar2_offs(pdev);
+		mem_addr = mem_addr + prestera_pci_fw_bar2_offs(pdev);
+	} else {
+		pp_addr = pcim_iomap(pdev, 4, 0);
+		if (!pp_addr) {
+			dev_err(&pdev->dev, "pp regs ioremap failed\n");
+			err = -EIO;
+			goto err_pp_ioremap;
+		}
 	}
 
 	pci_set_master(pdev);
@@ -748,8 +885,9 @@ static int prestera_pci_probe(struct pci_dev *pdev,
 		goto err_pci_dev_alloc;
 	}
 
-	fw->dev.ctl_regs = pcim_iomap_table(pdev)[PRESTERA_PCI_BAR_FW];
-	fw->dev.pp_regs = pcim_iomap_table(pdev)[PRESTERA_PCI_BAR_PP];
+	fw->pci_dev = pdev;
+	fw->dev.ctl_regs = mem_addr;
+	fw->dev.pp_regs = pp_addr;
 	fw->dev.dev = &pdev->dev;
 
 	pci_set_drvdata(pdev, fw);
@@ -797,7 +935,12 @@ err_wq_alloc:
 	prestera_fw_uninit(fw);
 err_prestera_fw_init:
 err_pci_dev_alloc:
+err_pp_ioremap:
+err_mem_ioremap:
 err_dma_mask:
+	pci_release_regions(pdev);
+err_pci_request_regions:
+err_pci_enable_device:
 	return err;
 }
 
@@ -810,11 +953,18 @@ static void prestera_pci_remove(struct pci_dev *pdev)
 	pci_free_irq_vectors(pdev);
 	destroy_workqueue(fw->wq);
 	prestera_fw_uninit(fw);
+	pci_release_regions(pdev);
 }
 
 static const struct pci_device_id prestera_pci_devices[] = {
-	{ PCI_DEVICE(PCI_VENDOR_ID_MARVELL, 0xC804) },
-	{ PCI_DEVICE(PCI_VENDOR_ID_MARVELL, 0xC80C) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_MARVELL, PRESTERA_DEV_ID_AC3X_98DX_55) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_MARVELL, PRESTERA_DEV_ID_AC3X_98DX_65) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_MARVELL, PRESTERA_DEV_ID_ALDRIN2) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_MARVELL, PRESTERA_DEV_ID_98DX7312M) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_MARVELL, PRESTERA_DEV_ID_98DX3500) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_MARVELL, PRESTERA_DEV_ID_98DX3501) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_MARVELL, PRESTERA_DEV_ID_98DX3510) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_MARVELL, PRESTERA_DEV_ID_98DX3520) },
 	{ }
 };
 MODULE_DEVICE_TABLE(pci, prestera_pci_devices);

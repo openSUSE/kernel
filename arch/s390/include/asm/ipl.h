@@ -12,6 +12,7 @@
 #include <asm/types.h>
 #include <asm/cio.h>
 #include <asm/setup.h>
+#include <asm/page.h>
 #include <uapi/asm/ipl.h>
 
 struct ipl_parameter_block {
@@ -21,6 +22,7 @@ struct ipl_parameter_block {
 		struct ipl_pb0_common common;
 		struct ipl_pb0_fcp fcp;
 		struct ipl_pb0_ccw ccw;
+		struct ipl_pb0_eckd eckd;
 		struct ipl_pb0_nvme nvme;
 		char raw[PAGE_SIZE - sizeof(struct ipl_pl_hdr)];
 	};
@@ -39,6 +41,10 @@ struct ipl_parameter_block {
 #define IPL_BP_CCW_LEN (sizeof(struct ipl_pl_hdr) + \
 			      sizeof(struct ipl_pb0_ccw))
 #define IPL_BP0_CCW_LEN (sizeof(struct ipl_pb0_ccw))
+
+#define IPL_BP_ECKD_LEN (sizeof(struct ipl_pl_hdr) + \
+			      sizeof(struct ipl_pb0_eckd))
+#define IPL_BP0_ECKD_LEN (sizeof(struct ipl_pb0_eckd))
 
 #define IPL_MAX_SUPPORTED_VERSION (0)
 
@@ -67,6 +73,8 @@ enum ipl_type {
 	IPL_TYPE_NSS		= 16,
 	IPL_TYPE_NVME		= 32,
 	IPL_TYPE_NVME_DUMP	= 64,
+	IPL_TYPE_ECKD		= 128,
+	IPL_TYPE_ECKD_DUMP	= 256,
 };
 
 struct ipl_info
@@ -76,6 +84,9 @@ struct ipl_info
 		struct {
 			struct ccw_dev_id dev_id;
 		} ccw;
+		struct {
+			struct ccw_dev_id dev_id;
+		} eckd;
 		struct {
 			struct ccw_dev_id dev_id;
 			u64 wwpn;
@@ -98,6 +109,7 @@ extern void set_os_info_reipl_block(void);
 static inline bool is_ipl_type_dump(void)
 {
 	return (ipl_info.type == IPL_TYPE_FCP_DUMP) ||
+		(ipl_info.type == IPL_TYPE_ECKD_DUMP) ||
 		(ipl_info.type == IPL_TYPE_NVME_DUMP);
 }
 
@@ -132,12 +144,18 @@ int ipl_report_add_certificate(struct ipl_report *report, void *key,
  * DIAG 308 support
  */
 enum diag308_subcode  {
+	DIAG308_CLEAR_RESET = 0,
+	DIAG308_LOAD_NORMAL_RESET = 1,
 	DIAG308_REL_HSA = 2,
 	DIAG308_LOAD_CLEAR = 3,
 	DIAG308_LOAD_NORMAL_DUMP = 4,
 	DIAG308_SET = 5,
 	DIAG308_STORE = 6,
 	DIAG308_LOAD_NORMAL = 7,
+};
+
+enum diag308_subcode_flags {
+	DIAG308_FLAG_EI = 1UL << 16,
 };
 
 enum diag308_rc {

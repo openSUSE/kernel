@@ -69,10 +69,10 @@
 
 static DEFINE_SPINLOCK(fsl_rio_config_lock);
 
-#define __fsl_read_rio_config(x, addr, err, op)		\
+#define ___fsl_read_rio_config(x, addr, err, op, barrier)	\
 	__asm__ __volatile__(				\
 		"1:	"op" %1,0(%2)\n"		\
-		"	eieio\n"			\
+		"	"barrier"\n"			\
 		"2:\n"					\
 		".section .fixup,\"ax\"\n"		\
 		"3:	li %1,-1\n"			\
@@ -83,6 +83,14 @@ static DEFINE_SPINLOCK(fsl_rio_config_lock);
 		: "=r" (err), "=r" (x)			\
 		: "b" (addr), "i" (-EFAULT), "0" (err))
 
+#ifdef CONFIG_BOOKE
+#define __fsl_read_rio_config(x, addr, err, op)	\
+	___fsl_read_rio_config(x, addr, err, op, "mbar")
+#else
+#define __fsl_read_rio_config(x, addr, err, op)	\
+	___fsl_read_rio_config(x, addr, err, op, "eieio")
+#endif
+
 void __iomem *rio_regs_win;
 void __iomem *rmu_regs_win;
 resource_size_t rio_law_start;
@@ -90,7 +98,7 @@ resource_size_t rio_law_start;
 struct fsl_rio_dbell *dbell;
 struct fsl_rio_pw *pw;
 
-#ifdef CONFIG_E500
+#ifdef CONFIG_PPC_E500
 int fsl_rio_mcheck_exception(struct pt_regs *regs)
 {
 	const struct exception_table_entry *entry;
@@ -108,7 +116,7 @@ int fsl_rio_mcheck_exception(struct pt_regs *regs)
 				 __func__);
 			out_be32((u32 *)(rio_regs_win + RIO_LTLEDCSR),
 				 0);
-			regs_set_return_msr(regs, regs->msr | MSR_RI);
+			regs_set_recoverable(regs);
 			regs_set_return_ip(regs, extable_fixup(entry));
 			return 1;
 		}
@@ -442,7 +450,6 @@ int fsl_rio_setup(struct platform_device *dev)
 	int rc = 0;
 	const u32 *dt_range, *cell, *port_index;
 	u32 active_ports = 0;
-	struct resource regs, rmu_regs;
 	struct device_node *np, *rmu_node;
 	int rlen;
 	u32 ccsr;
@@ -457,17 +464,7 @@ int fsl_rio_setup(struct platform_device *dev)
 		return -ENODEV;
 	}
 
-	rc = of_address_to_resource(dev->dev.of_node, 0, &regs);
-	if (rc) {
-		dev_err(&dev->dev, "Can't get %pOF property 'reg'\n",
-				dev->dev.of_node);
-		return -EFAULT;
-	}
-	dev_info(&dev->dev, "Of-device full name %pOF\n",
-			dev->dev.of_node);
-	dev_info(&dev->dev, "Regs: %pR\n", &regs);
-
-	rio_regs_win = ioremap(regs.start, resource_size(&regs));
+	rio_regs_win = of_iomap(dev->dev.of_node, 0);
 	if (!rio_regs_win) {
 		dev_err(&dev->dev, "Unable to map rio register window\n");
 		rc = -ENOMEM;
@@ -501,13 +498,9 @@ int fsl_rio_setup(struct platform_device *dev)
 		rc = -ENOENT;
 		goto err_rmu;
 	}
-	rc = of_address_to_resource(rmu_node, 0, &rmu_regs);
-	if (rc) {
-		dev_err(&dev->dev, "Can't get %pOF property 'reg'\n",
-				rmu_node);
-		goto err_rmu;
-	}
-	rmu_regs_win = ioremap(rmu_regs.start, resource_size(&rmu_regs));
+	rmu_regs_win = of_iomap(rmu_node, 0);
+
+	of_node_put(rmu_node);
 	if (!rmu_regs_win) {
 		dev_err(&dev->dev, "Unable to map rmu register window\n");
 		rc = -ENOMEM;

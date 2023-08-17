@@ -6,45 +6,11 @@
 
 #include "../mt76_connac_mcu.h"
 
-struct mt7915_mcu_txd {
-	__le32 txd[8];
-
-	__le16 len;
-	__le16 pq_id;
-
-	u8 cid;
-	u8 pkt_type;
-	u8 set_query; /* FW don't care */
-	u8 seq;
-
-	u8 uc_d2b0_rev;
-	u8 ext_cid;
-	u8 s2d_index;
-	u8 ext_cid_ack;
-
-	u32 reserved[5];
-} __packed __aligned(4);
-
 enum {
 	MCU_ATE_SET_TRX = 0x1,
 	MCU_ATE_SET_FREQ_OFFSET = 0xa,
 	MCU_ATE_SET_SLOT_TIME = 0x13,
 	MCU_ATE_CLEAN_TXQUEUE = 0x1c,
-};
-
-struct mt7915_mcu_rxd {
-	__le32 rxd[6];
-
-	__le16 len;
-	__le16 pkt_type_id;
-
-	u8 eid;
-	u8 seq;
-	__le16 __rsv;
-
-	u8 ext_eid;
-	u8 __rsv1[2];
-	u8 s2d_index;
 };
 
 struct mt7915_mcu_thermal_ctrl {
@@ -63,7 +29,7 @@ struct mt7915_mcu_thermal_ctrl {
 } __packed;
 
 struct mt7915_mcu_thermal_notify {
-	struct mt7915_mcu_rxd rxd;
+	struct mt76_connac2_mcu_rxd rxd;
 
 	struct mt7915_mcu_thermal_ctrl ctrl;
 	__le32 temperature;
@@ -71,7 +37,7 @@ struct mt7915_mcu_thermal_notify {
 } __packed;
 
 struct mt7915_mcu_csa_notify {
-	struct mt7915_mcu_rxd rxd;
+	struct mt76_connac2_mcu_rxd rxd;
 
 	u8 omac_idx;
 	u8 csa_count;
@@ -80,7 +46,7 @@ struct mt7915_mcu_csa_notify {
 } __packed;
 
 struct mt7915_mcu_bcc_notify {
-	struct mt7915_mcu_rxd rxd;
+	struct mt76_connac2_mcu_rxd rxd;
 
 	u8 band_idx;
 	u8 omac_idx;
@@ -89,7 +55,7 @@ struct mt7915_mcu_bcc_notify {
 } __packed;
 
 struct mt7915_mcu_rdd_report {
-	struct mt7915_mcu_rxd rxd;
+	struct mt76_connac2_mcu_rxd rxd;
 
 	u8 band_idx;
 	u8 long_detected;
@@ -163,6 +129,17 @@ struct mt7915_mcu_background_chain_ctrl {
 	u8 rsv[2];
 } __packed;
 
+struct mt7915_mcu_sr_ctrl {
+	u8 action;
+	u8 argnum;
+	u8 band_idx;
+	u8 status;
+	u8 drop_ta_idx;
+	u8 sta_idx;	/* 256 sta */
+	u8 rsv[2];
+	__le32 val;
+} __packed;
+
 struct mt7915_mcu_eeprom {
 	u8 buffer_mode;
 	u8 format;
@@ -194,16 +171,25 @@ struct mt7915_mcu_mib {
 
 enum mt7915_chan_mib_offs {
 	/* mt7915 */
-	MIB_BUSY_TIME = 14,
 	MIB_TX_TIME = 81,
 	MIB_RX_TIME,
 	MIB_OBSS_AIRTIME = 86,
+	MIB_NON_WIFI_TIME,
+	MIB_TXOP_INIT_COUNT,
+
 	/* mt7916 */
-	MIB_BUSY_TIME_V2 = 0,
 	MIB_TX_TIME_V2 = 6,
 	MIB_RX_TIME_V2 = 8,
-	MIB_OBSS_AIRTIME_V2 = 490
+	MIB_OBSS_AIRTIME_V2 = 490,
+	MIB_NON_WIFI_TIME_V2
 };
+
+struct mt7915_mcu_txpower_sku {
+	u8 format_id;
+	u8 limit_type;
+	u8 band_idx;
+	s8 txpower_sku[MT7915_SKU_RATE_NUM];
+} __packed;
 
 struct edca {
 	u8 queue;
@@ -267,9 +253,6 @@ struct mt7915_mcu_muru_stats {
 #define WMM_TXOP_SET		BIT(3)
 #define WMM_PARAM_SET		GENMASK(3, 0)
 
-#define MCU_PQ_ID(p, q)			(((p) << 15) | ((q) << 10))
-#define MCU_PKT_ID			0xa0
-
 enum {
 	MCU_FW_LOG_WM,
 	MCU_FW_LOG_WA,
@@ -295,6 +278,7 @@ enum {
 	MCU_WA_PARAM_PDMA_RX = 0x04,
 	MCU_WA_PARAM_CPU_UTIL = 0x0b,
 	MCU_WA_PARAM_RED = 0x0e,
+	MCU_WA_PARAM_RED_SETTING = 0x40,
 };
 
 enum mcu_mmps_mode {
@@ -302,16 +286,6 @@ enum mcu_mmps_mode {
 	MCU_MMPS_DYNAMIC,
 	MCU_MMPS_RSV,
 	MCU_MMPS_DISABLE,
-};
-
-enum {
-	SCS_SEND_DATA,
-	SCS_SET_MANUAL_PD_TH,
-	SCS_CONFIG,
-	SCS_ENABLE,
-	SCS_SHOW_INFO,
-	SCS_GET_GLO_ADDR,
-	SCS_GET_GLO_ADDR_EVENT,
 };
 
 struct bss_info_bmc_rate {
@@ -414,11 +388,23 @@ struct bss_info_bcn_cont {
 	__le16 pkt_len;
 } __packed __aligned(4);
 
+struct bss_info_inband_discovery {
+	__le16 tag;
+	__le16 len;
+	u8 tx_type;
+	u8 tx_mode;
+	u8 tx_interval;
+	u8 enable;
+	__le16 rsv;
+	__le16 prob_rsp_len;
+} __packed __aligned(4);
+
 enum {
 	BSS_INFO_BCN_CSA,
 	BSS_INFO_BCN_BCC,
 	BSS_INFO_BCN_MBSSID,
 	BSS_INFO_BCN_CONTENT,
+	BSS_INFO_BCN_DISCOV,
 	BSS_INFO_BCN_MAX
 };
 
@@ -429,6 +415,7 @@ enum {
 	RATE_PARAM_FIXED_MCS,
 	RATE_PARAM_FIXED_GI = 11,
 	RATE_PARAM_AUTO = 20,
+	RATE_PARAM_SPE_UPDATE = 22,
 };
 
 #define RATE_CFG_MCS			GENMASK(3, 0)
@@ -439,6 +426,25 @@ enum {
 #define RATE_CFG_LDPC			GENMASK(23, 20)
 #define RATE_CFG_PHY_TYPE		GENMASK(27, 24)
 #define RATE_CFG_HE_LTF			GENMASK(31, 28)
+
+enum {
+	TX_POWER_LIMIT_ENABLE,
+	TX_POWER_LIMIT_TABLE = 0x4,
+	TX_POWER_LIMIT_INFO = 0x7,
+	TX_POWER_LIMIT_FRAME = 0x11,
+	TX_POWER_LIMIT_FRAME_MIN = 0x12,
+};
+
+enum {
+	SPR_ENABLE = 0x1,
+	SPR_ENABLE_SD = 0x3,
+	SPR_ENABLE_MODE = 0x5,
+	SPR_ENABLE_DPD = 0x23,
+	SPR_ENABLE_TX = 0x25,
+	SPR_SET_SRG_BITMAP = 0x80,
+	SPR_SET_PARAM = 0xc2,
+	SPR_SET_SIGA = 0xdc,
+};
 
 enum {
 	THERMAL_PROTECT_PARAMETER_CTRL,
@@ -473,6 +479,28 @@ enum {
 	MURU_GET_TXC_TX_STATS = 151,
 };
 
+enum {
+	SER_QUERY,
+	/* recovery */
+	SER_SET_RECOVER_L1,
+	SER_SET_RECOVER_L2,
+	SER_SET_RECOVER_L3_RX_ABORT,
+	SER_SET_RECOVER_L3_TX_ABORT,
+	SER_SET_RECOVER_L3_TX_DISABLE,
+	SER_SET_RECOVER_L3_BF,
+	SER_SET_RECOVER_FULL,
+	SER_SET_SYSTEM_ASSERT,
+	/* action */
+	SER_ENABLE = 2,
+	SER_RECOVER
+};
+
+#define MT7915_MAX_BEACON_SIZE		512
+#define MT7915_MAX_INBAND_FRAME_SIZE	256
+#define MT7915_MAX_BSS_OFFLOAD_SIZE	(MT7915_MAX_BEACON_SIZE +	  \
+					 MT7915_MAX_INBAND_FRAME_SIZE +	  \
+					 MT7915_BEACON_UPDATE_SIZE)
+
 #define MT7915_BSS_UPDATE_MAX_SIZE	(sizeof(struct sta_req_hdr) +	\
 					 sizeof(struct bss_info_omac) +	\
 					 sizeof(struct bss_info_basic) +\
@@ -486,6 +514,19 @@ enum {
 #define MT7915_BEACON_UPDATE_SIZE	(sizeof(struct sta_req_hdr) +	\
 					 sizeof(struct bss_info_bcn_cntdwn) + \
 					 sizeof(struct bss_info_bcn_mbss) + \
-					 sizeof(struct bss_info_bcn_cont))
+					 sizeof(struct bss_info_bcn_cont) + \
+					 sizeof(struct bss_info_inband_discovery))
+
+static inline s8
+mt7915_get_power_bound(struct mt7915_phy *phy, s8 txpower)
+{
+	struct mt76_phy *mphy = phy->mt76;
+	int n_chains = hweight8(mphy->antenna_mask);
+
+	txpower = mt76_get_sar_power(mphy, mphy->chandef.chan, txpower * 2);
+	txpower -= mt76_tx_power_nss_delta(n_chains);
+
+	return txpower;
+}
 
 #endif

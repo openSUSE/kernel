@@ -338,8 +338,7 @@ static bool qt2160_identify(struct i2c_client *client)
 	return true;
 }
 
-static int qt2160_probe(struct i2c_client *client,
-			const struct i2c_device_id *id)
+static int qt2160_probe(struct i2c_client *client)
 {
 	struct qt2160_data *qt2160;
 	struct input_dev *input;
@@ -432,7 +431,7 @@ err_free_mem:
 	return error;
 }
 
-static int qt2160_remove(struct i2c_client *client)
+static void qt2160_remove(struct i2c_client *client)
 {
 	struct qt2160_data *qt2160 = i2c_get_clientdata(client);
 
@@ -446,8 +445,6 @@ static int qt2160_remove(struct i2c_client *client)
 
 	input_unregister_device(qt2160->input);
 	kfree(qt2160);
-
-	return 0;
 }
 
 static const struct i2c_device_id qt2160_idtable[] = {
@@ -463,7 +460,7 @@ static struct i2c_driver qt2160_driver = {
 	},
 
 	.id_table	= qt2160_idtable,
-	.probe		= qt2160_probe,
+	.probe_new	= qt2160_probe,
 	.remove		= qt2160_remove,
 };
 

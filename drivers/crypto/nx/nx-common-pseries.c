@@ -123,14 +123,16 @@ struct ibm_nx842_counters {
 	atomic64_t decomp_times[32];
 };
 
-static struct nx842_devdata {
+struct nx842_devdata {
 	struct vio_dev *vdev;
 	struct device *dev;
 	struct ibm_nx842_counters *counters;
 	unsigned int max_sg_len;
 	unsigned int max_sync_size;
 	unsigned int max_sync_sg;
-} __rcu *devdata;
+};
+
+static struct nx842_devdata __rcu *devdata;
 static DEFINE_SPINLOCK(devdata_mutex);
 
 #define NX842_COUNTER_INC(_x) \
@@ -962,7 +964,7 @@ static struct attribute *nx842_sysfs_entries[] = {
 	NULL,
 };
 
-static struct attribute_group nx842_attribute_group = {
+static const struct attribute_group nx842_attribute_group = {
 	.name = NULL,		/* put in device directory */
 	.attrs = nx842_sysfs_entries,
 };
@@ -992,7 +994,7 @@ static struct attribute *nxcop_caps_sysfs_entries[] = {
 	NULL,
 };
 
-static struct attribute_group nxcop_caps_attr_group = {
+static const struct attribute_group nxcop_caps_attr_group = {
 	.name	=	"nx_gzip_caps",
 	.attrs	=	nxcop_caps_sysfs_entries,
 };
@@ -1208,10 +1210,13 @@ static struct vio_driver nx842_vio_driver = {
 static int __init nx842_pseries_init(void)
 {
 	struct nx842_devdata *new_devdata;
+	struct device_node *np;
 	int ret;
 
-	if (!of_find_compatible_node(NULL, NULL, "ibm,compression"))
+	np = of_find_compatible_node(NULL, NULL, "ibm,compression");
+	if (!np)
 		return -ENODEV;
+	of_node_put(np);
 
 	RCU_INIT_POINTER(devdata, NULL);
 	new_devdata = kzalloc(sizeof(*new_devdata), GFP_KERNEL);

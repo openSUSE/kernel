@@ -7,6 +7,7 @@
 #include <asm/tlb.h>
 #include <asm/nospec-branch.h>
 #include <asm/mmu_context.h>
+#include <asm/ibt.h>
 #include <linux/build_bug.h>
 #include <linux/kernel.h>
 #include <linux/pgtable.h>
@@ -105,6 +106,8 @@ static inline void efi_fpu_end(void)
 
 extern asmlinkage u64 __efi_call(void *fp, ...);
 
+extern bool efi_disable_ibt_for_runtime;
+
 #define efi_call(...) ({						\
 	__efi_nargs_check(efi_call, 7, __VA_ARGS__);			\
 	__efi_call(__VA_ARGS__);					\
@@ -119,8 +122,12 @@ extern asmlinkage u64 __efi_call(void *fp, ...);
 })
 
 #undef arch_efi_call_virt
-#define arch_efi_call_virt(p, f, args...)				\
-	efi_call((void *)p->f, args)					\
+#define arch_efi_call_virt(p, f, args...) ({				\
+	u64 ret, ibt = ibt_save(efi_disable_ibt_for_runtime);		\
+	ret = efi_call((void *)p->f, args);				\
+	ibt_restore(ibt);						\
+	ret;								\
+})
 
 #define arch_efi_call_virt_teardown()					\
 ({									\
@@ -173,7 +180,7 @@ struct efi_setup_data {
 extern u64 efi_setup;
 
 #ifdef CONFIG_EFI
-extern efi_status_t __efi64_thunk(u32, ...);
+extern u64 __efi64_thunk(u32, ...);
 
 #define efi64_thunk(...) ({						\
 	u64 __pad[3]; /* must have space for 3 args on the stack */	\
@@ -197,14 +204,6 @@ static inline bool efi_runtime_supported(void)
 }
 
 extern void parse_efi_setup(u64 phys_addr, u32 data_len);
-
-#ifdef CONFIG_EFI_SECRET_KEY
-extern void efi_setup_secret_key(struct boot_params *params);
-extern void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len);
-#else
-static inline void efi_setup_secret_key(struct boot_params *params) {}
-static inline void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len) {}
-#endif /* CONFIG_EFI_SECRET_KEY */
 
 extern void efi_thunk_runtime_setup(void);
 efi_status_t efi_set_virtual_address_map(unsigned long memory_map_size,
@@ -231,16 +230,15 @@ static inline bool efi_is_native(void)
 	return efi_is_64bit();
 }
 
-#define efi_mixed_mode_cast(attr)					\
-	__builtin_choose_expr(						\
-		__builtin_types_compatible_p(u32, __typeof__(attr)),	\
-			(unsigned long)(attr), (attr))
-
 #define efi_table_attr(inst, attr)					\
-	(efi_is_native()						\
-		? inst->attr						\
-		: (__typeof__(inst->attr))				\
-			efi_mixed_mode_cast(inst->mixed_mode.attr))
+	(efi_is_native() ? (inst)->attr					\
+			 : efi_mixed_table_attr((inst), attr))
+
+#define efi_mixed_table_attr(inst, attr)				\
+	(__typeof__(inst->attr))					\
+		_Generic(inst->mixed_mode.attr,				\
+		u32:		(unsigned long)(inst->mixed_mode.attr),	\
+		default:	(inst->mixed_mode.attr))
 
 /*
  * The following macros allow translating arguments if necessary from native to
@@ -328,6 +326,27 @@ static inline u32 efi64_convert_status(efi_status_t status)
 #define __efi64_argmap_set_memory_space_attributes(phys, size, flags) \
 	(__efi64_split(phys), __efi64_split(size), __efi64_split(flags))
 
+/* file protocol */
+#define __efi64_argmap_open(prot, newh, fname, mode, attr) \
+	((prot), efi64_zero_upper(newh), (fname), __efi64_split(mode), \
+	 __efi64_split(attr))
+
+#define __efi64_argmap_set_position(pos) (__efi64_split(pos))
+
+/* file system protocol */
+#define __efi64_argmap_open_volume(prot, file) \
+	((prot), efi64_zero_upper(file))
+
+/* Memory Attribute Protocol */
+#define __efi64_argmap_get_memory_attributes(protocol, phys, size, flags) \
+	((protocol), __efi64_split(phys), __efi64_split(size), (flags))
+
+#define __efi64_argmap_set_memory_attributes(protocol, phys, size, flags) \
+	((protocol), __efi64_split(phys), __efi64_split(size), __efi64_split(flags))
+
+#define __efi64_argmap_clear_memory_attributes(protocol, phys, size, flags) \
+	((protocol), __efi64_split(phys), __efi64_split(size), __efi64_split(flags))
+
 /*
  * The macros below handle the plumbing for the argument mapping. To add a
  * mapping for a specific EFI method, simply define a macro
@@ -347,31 +366,27 @@ static inline u32 efi64_convert_status(efi_status_t status)
 #define __efi_eat(...)
 #define __efi_eval(...) __VA_ARGS__
 
-/* The three macros below handle dispatching via the thunk if needed */
+static inline efi_status_t __efi64_widen_efi_status(u64 status)
+{
+	/* use rotate to move the value of bit #31 into position #63 */
+	return ror64(rol32(status, 1), 1);
+}
 
-#define efi_call_proto(inst, func, ...)					\
-	(efi_is_native()						\
-		? inst->func(inst, ##__VA_ARGS__)			\
-		: __efi64_thunk_map(inst, func, inst, ##__VA_ARGS__))
+/* The macro below handles dispatching via the thunk if needed */
 
-#define efi_bs_call(func, ...)						\
-	(efi_is_native()						\
-		? efi_system_table->boottime->func(__VA_ARGS__)		\
-		: __efi64_thunk_map(efi_table_attr(efi_system_table,	\
-						   boottime),		\
-				    func, __VA_ARGS__))
+#define efi_fn_call(inst, func, ...)					\
+	(efi_is_native() ? (inst)->func(__VA_ARGS__)			\
+			 : efi_mixed_call((inst), func, ##__VA_ARGS__))
 
-#define efi_rt_call(func, ...)						\
-	(efi_is_native()						\
-		? efi_system_table->runtime->func(__VA_ARGS__)		\
-		: __efi64_thunk_map(efi_table_attr(efi_system_table,	\
-						   runtime),		\
-				    func, __VA_ARGS__))
-
-#define efi_dxe_call(func, ...)						\
-	(efi_is_native()						\
-		? efi_dxe_table->func(__VA_ARGS__)			\
-		: __efi64_thunk_map(efi_dxe_table, func, __VA_ARGS__))
+#define efi_mixed_call(inst, func, ...)					\
+	_Generic(inst->func(__VA_ARGS__),				\
+	efi_status_t:							\
+		__efi64_widen_efi_status(				\
+			__efi64_thunk_map(inst, func, ##__VA_ARGS__)),	\
+	u64: ({ BUILD_BUG(); ULONG_MAX; }),				\
+	default:							\
+		(__typeof__(inst->func(__VA_ARGS__)))			\
+			__efi64_thunk_map(inst, func, ##__VA_ARGS__))
 
 #else /* CONFIG_EFI_MIXED */
 
@@ -388,9 +403,6 @@ extern bool efi_is_table_address(unsigned long phys_addr);
 extern void efi_reserve_boot_services(void);
 #else
 static inline void parse_efi_setup(u64 phys_addr, u32 data_len) {}
-static inline void parse_efi_secret_key_setup(u64 phys_addr, u32 data_len) {}
-static inline void efi_setup_secret_key(efi_system_table_t *table,
-					struct boot_params *params) {}
 static inline bool efi_reboot_required(void)
 {
 	return false;
@@ -406,13 +418,52 @@ static inline void efi_reserve_boot_services(void)
 
 #ifdef CONFIG_EFI_FAKE_MEMMAP
 extern void __init efi_fake_memmap_early(void);
+extern void __init efi_fake_memmap(void);
 #else
 static inline void efi_fake_memmap_early(void)
 {
 }
+
+static inline void efi_fake_memmap(void)
+{
+}
 #endif
+
+extern int __init efi_memmap_alloc(unsigned int num_entries,
+				   struct efi_memory_map_data *data);
+extern void __efi_memmap_free(u64 phys, unsigned long size,
+			      unsigned long flags);
+#define __efi_memmap_free __efi_memmap_free
+
+extern int __init efi_memmap_install(struct efi_memory_map_data *data);
+extern int __init efi_memmap_split_count(efi_memory_desc_t *md,
+					 struct range *range);
+extern void __init efi_memmap_insert(struct efi_memory_map *old_memmap,
+				     void *buf, struct efi_mem_range *mem);
 
 #define arch_ima_efi_boot_mode	\
 	({ extern struct boot_params boot_params; boot_params.secure_boot; })
+
+#ifdef CONFIG_EFI_RUNTIME_MAP
+int efi_get_runtime_map_size(void);
+int efi_get_runtime_map_desc_size(void);
+int efi_runtime_map_copy(void *buf, size_t bufsz);
+#else
+static inline int efi_get_runtime_map_size(void)
+{
+	return 0;
+}
+
+static inline int efi_get_runtime_map_desc_size(void)
+{
+	return 0;
+}
+
+static inline int efi_runtime_map_copy(void *buf, size_t bufsz)
+{
+	return 0;
+}
+
+#endif
 
 #endif /* _ASM_X86_EFI_H */

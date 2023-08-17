@@ -16,6 +16,7 @@
 #include <linux/cpu.h>
 #include <linux/notifier.h>
 #include <linux/of.h>
+#include <linux/of_address.h>
 #include <linux/pfn.h>
 #include <linux/cpuset.h>
 #include <linux/node.h>
@@ -26,7 +27,6 @@
 #include <linux/slab.h>
 #include <asm/cputhreads.h>
 #include <asm/sparsemem.h>
-#include <asm/prom.h>
 #include <asm/smp.h>
 #include <asm/topology.h>
 #include <asm/firmware.h>
@@ -39,9 +39,6 @@
 static int numa_enabled = 1;
 
 static char *cmdline __initdata;
-
-static int numa_debug;
-#define dbg(args...) if (numa_debug) { printk(KERN_INFO args); }
 
 int numa_cpu_lookup_table[NR_CPUS];
 cpumask_var_t node_to_cpumask_map[MAX_NUMNODES];
@@ -87,7 +84,7 @@ static void __init setup_node_to_cpumask_map(void)
 		alloc_bootmem_cpumask_var(&node_to_cpumask_map[node]);
 
 	/* cpumask_of_node() will now work */
-	dbg("Node to cpumask map for %u nodes\n", nr_node_ids);
+	pr_debug("Node to cpumask map for %u nodes\n", nr_node_ids);
 }
 
 static int __init fake_numa_create_new_node(unsigned long end_pfn,
@@ -131,13 +128,13 @@ static int __init fake_numa_create_new_node(unsigned long end_pfn,
 		cmdline = p;
 		fake_nid++;
 		*nid = fake_nid;
-		dbg("created new fake_node with id %d\n", fake_nid);
+		pr_debug("created new fake_node with id %d\n", fake_nid);
 		return 1;
 	}
 	return 0;
 }
 
-static void reset_numa_cpu_lookup_table(void)
+static void __init reset_numa_cpu_lookup_table(void)
 {
 	unsigned int cpu;
 
@@ -149,10 +146,10 @@ void map_cpu_to_node(int cpu, int node)
 {
 	update_numa_cpu_lookup_table(cpu, node);
 
-	dbg("adding cpu %d to node %d\n", cpu, node);
-
-	if (!(cpumask_test_cpu(cpu, node_to_cpumask_map[node])))
+	if (!(cpumask_test_cpu(cpu, node_to_cpumask_map[node]))) {
+		pr_debug("adding cpu %d to node %d\n", cpu, node);
 		cpumask_set_cpu(cpu, node_to_cpumask_map[node]);
+	}
 }
 
 #if defined(CONFIG_HOTPLUG_CPU) || defined(CONFIG_PPC_SPLPAR)
@@ -160,13 +157,11 @@ void unmap_cpu_from_node(unsigned long cpu)
 {
 	int node = numa_cpu_lookup_table[cpu];
 
-	dbg("removing cpu %lu from node %d\n", cpu, node);
-
 	if (cpumask_test_cpu(cpu, node_to_cpumask_map[node])) {
 		cpumask_clear_cpu(cpu, node_to_cpumask_map[node]);
+		pr_debug("removing cpu %lu from node %d\n", cpu, node);
 	} else {
-		printk(KERN_ERR "WARNING: cpu %lu not found in node %d\n",
-		       cpu, node);
+		pr_warn("Warning: cpu %lu not found in node %d\n", cpu, node);
 	}
 }
 #endif /* CONFIG_HOTPLUG_CPU || CONFIG_PPC_SPLPAR */
@@ -378,7 +373,7 @@ EXPORT_SYMBOL_GPL(update_numa_distance);
  * ibm,numa-lookup-index-table= {N, domainid1, domainid2, ..... domainidN}
  * ibm,numa-distance-table = { N, 1, 2, 4, 5, 1, 6, .... N elements}
  */
-static void initialize_form2_numa_distance_lookup_table(void)
+static void __init initialize_form2_numa_distance_lookup_table(void)
 {
 	int i, j;
 	struct device_node *root;
@@ -447,10 +442,10 @@ static int __init find_primary_domain_index(void)
 	if (firmware_has_feature(FW_FEATURE_OPAL)) {
 		affinity_form = FORM1_AFFINITY;
 	} else if (firmware_has_feature(FW_FEATURE_FORM2_AFFINITY)) {
-		dbg("Using form 2 affinity\n");
+		pr_debug("Using form 2 affinity\n");
 		affinity_form = FORM2_AFFINITY;
 	} else if (firmware_has_feature(FW_FEATURE_FORM1_AFFINITY)) {
-		dbg("Using form 1 affinity\n");
+		pr_debug("Using form 1 affinity\n");
 		affinity_form = FORM1_AFFINITY;
 	} else
 		affinity_form = FORM0_AFFINITY;
@@ -479,15 +474,14 @@ static int __init find_primary_domain_index(void)
 					&distance_ref_points_depth);
 
 	if (!distance_ref_points) {
-		dbg("NUMA: ibm,associativity-reference-points not found.\n");
+		pr_debug("ibm,associativity-reference-points not found.\n");
 		goto err;
 	}
 
 	distance_ref_points_depth /= sizeof(int);
 	if (affinity_form == FORM0_AFFINITY) {
 		if (distance_ref_points_depth < 2) {
-			printk(KERN_WARNING "NUMA: "
-			       "short ibm,associativity-reference-points\n");
+			pr_warn("short ibm,associativity-reference-points\n");
 			goto err;
 		}
 
@@ -504,8 +498,8 @@ static int __init find_primary_domain_index(void)
 	 * MAX_DISTANCE_REF_POINTS domains.
 	 */
 	if (distance_ref_points_depth > MAX_DISTANCE_REF_POINTS) {
-		printk(KERN_WARNING "NUMA: distance array capped at "
-			"%d entries\n", MAX_DISTANCE_REF_POINTS);
+		pr_warn("distance array capped at %d entries\n",
+			MAX_DISTANCE_REF_POINTS);
 		distance_ref_points_depth = MAX_DISTANCE_REF_POINTS;
 	}
 
@@ -588,7 +582,7 @@ static int of_get_assoc_arrays(struct assoc_arrays *aa)
 	return 0;
 }
 
-static int get_nid_and_numa_distance(struct drmem_lmb *lmb)
+static int __init get_nid_and_numa_distance(struct drmem_lmb *lmb)
 {
 	struct assoc_arrays aa = { .arrays = NULL };
 	int default_nid = NUMA_NO_NODE;
@@ -907,7 +901,7 @@ static int __init parse_numa_properties(void)
 	const __be32 *associativity;
 
 	if (numa_enabled == 0) {
-		printk(KERN_WARNING "NUMA disabled by user\n");
+		pr_warn("disabled by user\n");
 		return -1;
 	}
 
@@ -922,7 +916,7 @@ static int __init parse_numa_properties(void)
 		return primary_domain_index;
 	}
 
-	dbg("NUMA associativity depth for CPU/Memory: %d\n", primary_domain_index);
+	pr_debug("associativity depth for CPU/Memory: %d\n", primary_domain_index);
 
 	/*
 	 * If it is FORM2 initialize the distance table here.
@@ -1037,10 +1031,8 @@ static void __init setup_nonnuma(void)
 	unsigned int nid = 0;
 	int i;
 
-	printk(KERN_DEBUG "Top of RAM: 0x%lx, Total RAM: 0x%lx\n",
-	       top_of_ram, total_ram);
-	printk(KERN_DEBUG "Memory hole size: %ldMB\n",
-	       (top_of_ram - total_ram) >> 20);
+	pr_debug("Top of RAM: 0x%lx, Total RAM: 0x%lx\n", top_of_ram, total_ram);
+	pr_debug("Memory hole size: %ldMB\n", (top_of_ram - total_ram) >> 20);
 
 	for_each_mem_pfn_range(i, MAX_NUMNODES, &start_pfn, &end_pfn, NULL) {
 		fake_numa_create_new_node(end_pfn, &nid);
@@ -1170,6 +1162,9 @@ void __init mem_topology_setup(void)
 {
 	int cpu;
 
+	max_low_pfn = max_pfn = memblock_end_of_DRAM() >> PAGE_SHIFT;
+	min_low_pfn = MEMORY_START >> PAGE_SHIFT;
+
 	/*
 	 * Linux/mm assumes node 0 to be online at boot. However this is not
 	 * true on PowerPC, where node 0 is similar to any other node, it
@@ -1214,9 +1209,6 @@ void __init initmem_init(void)
 {
 	int nid;
 
-	max_low_pfn = memblock_end_of_DRAM() >> PAGE_SHIFT;
-	max_pfn = max_low_pfn;
-
 	memblock_dump_all();
 
 	for_each_online_node(nid) {
@@ -1246,9 +1238,6 @@ static int __init early_numa(char *p)
 
 	if (strstr(p, "off"))
 		numa_enabled = 0;
-
-	if (strstr(p, "debug"))
-		numa_debug = 1;
 
 	p = strstr(p, "fake=");
 	if (p)
@@ -1301,23 +1290,15 @@ static int hot_add_node_scn_to_nid(unsigned long scn_addr)
 	int nid = NUMA_NO_NODE;
 
 	for_each_node_by_type(memory, "memory") {
-		unsigned long start, size;
-		int ranges;
-		const __be32 *memcell_buf;
-		unsigned int len;
+		int i = 0;
 
-		memcell_buf = of_get_property(memory, "reg", &len);
-		if (!memcell_buf || len <= 0)
-			continue;
+		while (1) {
+			struct resource res;
 
-		/* ranges in cell */
-		ranges = (len >> 2) / (n_mem_addr_cells + n_mem_size_cells);
+			if (of_address_to_resource(memory, i++, &res))
+				break;
 
-		while (ranges--) {
-			start = read_n_cells(n_mem_addr_cells, &memcell_buf);
-			size = read_n_cells(n_mem_size_cells, &memcell_buf);
-
-			if ((scn_addr < start) || (scn_addr >= (start + size)))
+			if ((scn_addr < res.start) || (scn_addr > res.end))
 				continue;
 
 			nid = of_node_to_nid_single(memory);
@@ -1412,7 +1393,7 @@ static long vphn_get_associativity(unsigned long cpu,
 
 	switch (rc) {
 	case H_SUCCESS:
-		dbg("VPHN hcall succeeded. Reset polling...\n");
+		pr_debug("VPHN hcall succeeded. Reset polling...\n");
 		goto out;
 
 	case H_FUNCTION:
@@ -1435,43 +1416,26 @@ out:
 	return rc;
 }
 
-int find_and_online_cpu_nid(int cpu)
+void find_and_update_cpu_nid(int cpu)
 {
 	__be32 associativity[VPHN_ASSOC_BUFSIZE] = {0};
 	int new_nid;
 
 	/* Use associativity from first thread for all siblings */
 	if (vphn_get_associativity(cpu, associativity))
-		return cpu_to_node(cpu);
+		return;
 
+	/* Do not have previous associativity, so find it now. */
 	new_nid = associativity_to_nid(associativity);
+
 	if (new_nid < 0 || !node_possible(new_nid))
 		new_nid = first_online_node;
+	else
+		// Associate node <-> cpu, so cpu_up() calls
+		// try_online_node() on the right node.
+		set_cpu_numa_node(cpu, new_nid);
 
-	if (!node_online(new_nid)) {
-#ifdef CONFIG_MEMORY_HOTPLUG
-		/*
-		 * Need to ensure that NODE_DATA is initialized for a node from
-		 * available memory (see memblock_alloc_try_nid). If unable to
-		 * init the node, then default to nearest node that has memory
-		 * installed. Skip onlining a node if the subsystems are not
-		 * yet initialized.
-		 */
-		if (!topology_inited || try_online_node(new_nid))
-			new_nid = first_online_node;
-#else
-		/*
-		 * Default to using the nearest node that has memory installed.
-		 * Otherwise, it would be necessary to patch the kernel MM code
-		 * to deal with more memoryless-node error conditions.
-		 */
-		new_nid = first_online_node;
-#endif
-	}
-
-	pr_debug("%s:%d cpu %d nid %d\n", __FUNCTION__, __LINE__,
-		cpu, new_nid);
-	return new_nid;
+	pr_debug("%s:%d cpu %d nid %d\n", __func__, __LINE__, cpu, new_nid);
 }
 
 int cpu_to_coregroup_id(int cpu)

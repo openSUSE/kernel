@@ -185,7 +185,7 @@ device struct of your device is embedded in the bus-specific device struct of
 your device.  For example, &pdev->dev is a pointer to the device struct of a
 PCI device (pdev is a pointer to the PCI device struct of your device).
 
-These calls usually return zero to indicated your device can perform DMA
+These calls usually return zero to indicate your device can perform DMA
 properly on the machine given the address mask you provided, but they might
 return an error if the mask is too small to be supportable on the given
 system.  If it returns non-zero, your device cannot perform DMA properly on
@@ -706,20 +706,6 @@ to use the dma_sync_*() interfaces::
 			}
 		}
 	}
-
-Drivers converted fully to this interface should not use virt_to_bus() any
-longer, nor should they use bus_to_virt(). Some drivers have to be changed a
-little bit, because there is no longer an equivalent to bus_to_virt() in the
-dynamic DMA mapping scheme - you have to always store the DMA addresses
-returned by the dma_alloc_coherent(), dma_pool_alloc(), and dma_map_single()
-calls (dma_map_sg() stores them in the scatterlist itself if the platform
-supports dynamic DMA mapping in hardware) in your driver structures and/or
-in the card registers.
-
-All drivers should be using these interfaces with no exceptions.  It
-is planned to completely remove virt_to_bus() and bus_to_virt() as
-they are entirely deprecated.  Some ports already do not provide these
-as it is impossible to correctly support them.
 
 Handling Errors
 ===============

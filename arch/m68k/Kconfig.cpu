@@ -24,7 +24,6 @@ config M68KCLASSIC
 
 config COLDFIRE
 	bool "Coldfire CPU family support"
-	select ARCH_HAVE_CUSTOM_GPIO_H
 	select CPU_HAS_NO_BITFIELDS
 	select CPU_HAS_NO_CAS
 	select CPU_HAS_NO_MULDIV64
@@ -37,7 +36,7 @@ endchoice
 if M68KCLASSIC
 
 config M68000
-	bool
+	def_bool y
 	depends on !MMU
 	select CPU_HAS_NO_BITFIELDS
 	select CPU_HAS_NO_CAS
@@ -46,23 +45,13 @@ config M68000
 	select GENERIC_CSUM
 	select CPU_NO_EFFICIENT_FFS
 	select HAVE_ARCH_HASH
+	select LEGACY_TIMER_TICK
 	help
 	  The Freescale (was Motorola) 68000 CPU is the first generation of
 	  the well known M68K family of processors. The CPU core as well as
 	  being available as a stand alone CPU was also used in many
 	  System-On-Chip devices (eg 68328, 68302, etc). It does not contain
 	  a paging MMU.
-
-config MCPU32
-	bool
-	select CPU_HAS_NO_BITFIELDS
-	select CPU_HAS_NO_CAS
-	select CPU_HAS_NO_UNALIGNED
-	select CPU_NO_EFFICIENT_FFS
-	help
-	  The Freescale (was then Motorola) CPU32 is a CPU core that is
-	  based on the 68020 processor. For the most part it is used in
-	  System-On-Chip parts, and does not contain a paging MMU.
 
 config M68020
 	bool "68020 support"
@@ -108,7 +97,6 @@ config M68060
 config M68328
 	bool
 	depends on !MMU
-	select LEGACY_TIMER_TICK
 	select M68000
 	help
 	  Motorola 68328 processor support.
@@ -116,7 +104,6 @@ config M68328
 config M68EZ328
 	bool
 	depends on !MMU
-	select LEGACY_TIMER_TICK
 	select M68000
 	help
 	  Motorola 68EX328 processor support.
@@ -124,7 +111,6 @@ config M68EZ328
 config M68VZ328
 	bool
 	depends on !MMU
-	select LEGACY_TIMER_TICK
 	select M68000
 	help
 	  Motorola 68VZ328 processor support.
@@ -166,7 +152,7 @@ config M520x
 	select COLDFIRE_PIT_TIMER
 	select HAVE_CACHE_SPLIT
 	help
-	   Freescale Coldfire 5207/5208 processor support.
+	  Freescale Coldfire 5207/5208 processor support.
 
 config M523x
 	bool "MCF523x"
@@ -333,12 +319,11 @@ config COLDFIRE_SLTIMERS
 
 endif # COLDFIRE
 
-
 comment "Processor Specific Options"
 
 config M68KFPU_EMU
 	bool "Math emulation support"
-	depends on MMU
+	depends on M68KCLASSIC && FPU
 	help
 	  At some point in the future, this will cause floating-point math
 	  instructions to be emulated by the kernel on machines that lack a
@@ -411,24 +396,23 @@ config SINGLE_MEMORY_CHUNK
 	  order" to save memory that could be wasted for unused memory map.
 	  Say N if not sure.
 
-config FORCE_MAX_ZONEORDER
-	int "Maximum zone order" if ADVANCED
+config ARCH_FORCE_MAX_ORDER
+	int "Order of maximal physically contiguous allocations" if ADVANCED
 	depends on !SINGLE_MEMORY_CHUNK
-	default "11"
+	default "10"
 	help
-	  The kernel memory allocator divides physically contiguous memory
-	  blocks into "zones", where each zone is a power of two number of
-	  pages.  This option selects the largest power of two that the kernel
-	  keeps in the memory allocator.  If you need to allocate very large
-	  blocks of physically contiguous memory, then you may need to
-	  increase this value.
+	  The kernel page allocator limits the size of maximal physically
+	  contiguous allocations. The limit is called MAX_ORDER and it
+	  defines the maximal power of two of number of pages that can be
+	  allocated as a single contiguous block. This option allows
+	  overriding the default setting when ability to allocate very
+	  large blocks of physically contiguous memory is required.
 
 	  For systems that have holes in their physical address space this
 	  value also defines the minimal size of the hole that allows
 	  freeing unused memory map.
 
-	  This config option is actually maximum order plus one. For example,
-	  a value of 11 means that the largest free memory block is 2^10 pages.
+	  Don't change if unsure.
 
 config 060_WRITETHROUGH
 	bool "Use write-through caching for 68060 supervisor accesses"
@@ -464,6 +448,7 @@ config CPU_HAS_NO_UNALIGNED
 
 config CPU_HAS_ADDRESS_SPACES
 	bool
+	select ALTERNATE_USER_ADDRESS_SPACE
 
 config FPU
 	bool
@@ -532,7 +517,7 @@ config CACHE_BOTH
 	  Split the ColdFire CPU cache, and use half as an instruction cache
 	  and half as a data cache.
 endchoice
-endif
+endif # HAVE_CACHE_SPLIT
 
 if HAVE_CACHE_CB
 choice
@@ -549,4 +534,4 @@ config CACHE_COPYBACK
 	help
 	  The ColdFire CPU cache is set into Copy-back mode.
 endchoice
-endif
+endif # HAVE_CACHE_CB

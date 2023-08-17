@@ -63,8 +63,6 @@ static DEFINE_SPINLOCK(wdt_lock);
 /* XXX currently fixed, allows max margin ~68.72 secs */
 #define prescale_value 0xffff
 
-/* Resource of the WDT registers */
-static struct resource *ar7_regs_wdt;
 /* Pointer to the remapped WDT IO space */
 static struct ar7_wdt *ar7_wdt;
 
@@ -265,9 +263,7 @@ static int ar7_wdt_probe(struct platform_device *pdev)
 {
 	int rc;
 
-	ar7_regs_wdt =
-		platform_get_resource_byname(pdev, IORESOURCE_MEM, "regs");
-	ar7_wdt = devm_ioremap_resource(&pdev->dev, ar7_regs_wdt);
+	ar7_wdt = devm_platform_ioremap_resource_byname(pdev, "regs");
 	if (IS_ERR(ar7_wdt))
 		return PTR_ERR(ar7_wdt);
 
@@ -294,12 +290,11 @@ out:
 	return rc;
 }
 
-static int ar7_wdt_remove(struct platform_device *pdev)
+static void ar7_wdt_remove(struct platform_device *pdev)
 {
 	misc_deregister(&ar7_wdt_miscdev);
 	clk_put(vbus_clk);
 	vbus_clk = NULL;
-	return 0;
 }
 
 static void ar7_wdt_shutdown(struct platform_device *pdev)
@@ -310,7 +305,7 @@ static void ar7_wdt_shutdown(struct platform_device *pdev)
 
 static struct platform_driver ar7_wdt_driver = {
 	.probe = ar7_wdt_probe,
-	.remove = ar7_wdt_remove,
+	.remove_new = ar7_wdt_remove,
 	.shutdown = ar7_wdt_shutdown,
 	.driver = {
 		.name = "ar7_wdt",

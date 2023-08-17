@@ -32,12 +32,16 @@ properties:
     maxItems: 1
     description: GPIO specifier for bridge_en pin (active high).
 
+  vcc-supply:
+    description: A 1.8V power supply (see regulator/regulator.yaml).
+
   ports:
     $ref: /schemas/graph.yaml#/properties/ports
 
     properties:
       port@0:
-        $ref: /schemas/graph.yaml#/properties/port
+        $ref: /schemas/graph.yaml#/$defs/port-base
+        unevaluatedProperties: false
         description: Video port for MIPI DSI Channel-A input
 
         properties:
@@ -49,7 +53,6 @@ properties:
               data-lanes:
                 description: array of physical DSI data lane indexes.
                 minItems: 1
-                maxItems: 4
                 items:
                   - const: 1
                   - const: 2
@@ -57,7 +60,8 @@ properties:
                   - const: 4
 
       port@1:
-        $ref: /schemas/graph.yaml#/properties/port
+        $ref: /schemas/graph.yaml#/$defs/port-base
+        unevaluatedProperties: false
         description: Video port for MIPI DSI Channel-B input
 
         properties:
@@ -69,7 +73,6 @@ properties:
               data-lanes:
                 description: array of physical DSI data lane indexes.
                 minItems: 1
-                maxItems: 4
                 items:
                   - const: 1
                   - const: 2
@@ -91,7 +94,6 @@ properties:
 required:
   - compatible
   - reg
-  - enable-gpios
   - ports
 
 allOf:
@@ -133,6 +135,7 @@ examples:
             reg = <0x2d>;
 
             enable-gpios = <&gpio2 1 GPIO_ACTIVE_HIGH>;
+            vcc-supply = <&reg_sn65dsi83_1v8>;
 
             ports {
                 #address-cells = <1>;

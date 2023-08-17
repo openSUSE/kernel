@@ -13,6 +13,7 @@
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
 #include <linux/prandom.h>
+#include <linux/string_helpers.h>
 #include <linux/utsname.h>
 #include <linux/uuid.h>
 #include <linux/workqueue.h>
@@ -341,7 +342,6 @@ static int tb_xdp_properties_request(struct tb_ctl *ctl, u64 route,
 	memcpy(&req.src_uuid, src_uuid, sizeof(*src_uuid));
 	memcpy(&req.dst_uuid, dst_uuid, sizeof(*dst_uuid));
 
-	len = 0;
 	data_len = 0;
 
 	do {
@@ -877,11 +877,11 @@ static ssize_t key_show(struct device *dev, struct device_attribute *attr,
 	 * It should be null terminated but anything else is pretty much
 	 * allowed.
 	 */
-	return sprintf(buf, "%*pE\n", (int)strlen(svc->key), svc->key);
+	return sysfs_emit(buf, "%*pE\n", (int)strlen(svc->key), svc->key);
 }
 static DEVICE_ATTR_RO(key);
 
-static int get_modalias(struct tb_service *svc, char *buf, size_t size)
+static int get_modalias(const struct tb_service *svc, char *buf, size_t size)
 {
 	return snprintf(buf, size, "tbsvc:k%sp%08Xv%08Xr%08X", svc->key,
 			svc->prtcid, svc->prtcvers, svc->prtcrevs);
@@ -903,7 +903,7 @@ static ssize_t prtcid_show(struct device *dev, struct device_attribute *attr,
 {
 	struct tb_service *svc = container_of(dev, struct tb_service, dev);
 
-	return sprintf(buf, "%u\n", svc->prtcid);
+	return sysfs_emit(buf, "%u\n", svc->prtcid);
 }
 static DEVICE_ATTR_RO(prtcid);
 
@@ -912,7 +912,7 @@ static ssize_t prtcvers_show(struct device *dev, struct device_attribute *attr,
 {
 	struct tb_service *svc = container_of(dev, struct tb_service, dev);
 
-	return sprintf(buf, "%u\n", svc->prtcvers);
+	return sysfs_emit(buf, "%u\n", svc->prtcvers);
 }
 static DEVICE_ATTR_RO(prtcvers);
 
@@ -921,7 +921,7 @@ static ssize_t prtcrevs_show(struct device *dev, struct device_attribute *attr,
 {
 	struct tb_service *svc = container_of(dev, struct tb_service, dev);
 
-	return sprintf(buf, "%u\n", svc->prtcrevs);
+	return sysfs_emit(buf, "%u\n", svc->prtcrevs);
 }
 static DEVICE_ATTR_RO(prtcrevs);
 
@@ -930,7 +930,7 @@ static ssize_t prtcstns_show(struct device *dev, struct device_attribute *attr,
 {
 	struct tb_service *svc = container_of(dev, struct tb_service, dev);
 
-	return sprintf(buf, "0x%08x\n", svc->prtcstns);
+	return sysfs_emit(buf, "0x%08x\n", svc->prtcstns);
 }
 static DEVICE_ATTR_RO(prtcstns);
 
@@ -953,9 +953,9 @@ static const struct attribute_group *tb_service_attr_groups[] = {
 	NULL,
 };
 
-static int tb_service_uevent(struct device *dev, struct kobj_uevent_env *env)
+static int tb_service_uevent(const struct device *dev, struct kobj_uevent_env *env)
 {
-	struct tb_service *svc = container_of(dev, struct tb_service, dev);
+	const struct tb_service *svc = container_of_const(dev, struct tb_service, dev);
 	char modalias[64];
 
 	get_modalias(svc, modalias, sizeof(modalias));
@@ -1131,11 +1131,6 @@ static int populate_properties(struct tb_xdomain *xd,
 	return 0;
 }
 
-static inline struct tb_switch *tb_xdomain_parent(struct tb_xdomain *xd)
-{
-	return tb_to_switch(xd->dev.parent);
-}
-
 static int tb_xdomain_update_link_attributes(struct tb_xdomain *xd)
 {
 	bool change = false;
@@ -1183,9 +1178,8 @@ static int tb_xdomain_get_uuid(struct tb_xdomain *xd)
 		if (xd->state_retries-- > 0) {
 			dev_dbg(&xd->dev, "failed to request UUID, retrying\n");
 			return -EAGAIN;
-		} else {
-			dev_dbg(&xd->dev, "failed to read remote UUID\n");
 		}
+		dev_dbg(&xd->dev, "failed to read remote UUID\n");
 		return ret;
 	}
 
@@ -1349,7 +1343,7 @@ static int tb_xdomain_bond_lanes_uuid_high(struct tb_xdomain *xd)
 	tb_port_update_credits(port);
 	tb_xdomain_update_link_attributes(xd);
 
-	dev_dbg(&xd->dev, "lane bonding %sabled\n", width == 2 ? "en" : "dis");
+	dev_dbg(&xd->dev, "lane bonding %s\n", str_enabled_disabled(width == 2));
 	return 0;
 }
 
@@ -1372,12 +1366,10 @@ static int tb_xdomain_get_properties(struct tb_xdomain *xd)
 			dev_dbg(&xd->dev,
 				"failed to request remote properties, retrying\n");
 			return -EAGAIN;
-		} else {
-			/* Give up now */
-			dev_err(&xd->dev,
-				"failed read XDomain properties from %pUb\n",
-				xd->remote_uuid);
 		}
+		/* Give up now */
+		dev_err(&xd->dev, "failed read XDomain properties from %pUb\n",
+			xd->remote_uuid);
 
 		return ret;
 	}
@@ -1447,6 +1439,8 @@ static int tb_xdomain_get_properties(struct tb_xdomain *xd)
 		if (xd->vendor_name && xd->device_name)
 			dev_info(&xd->dev, "%s %s\n", xd->vendor_name,
 				 xd->device_name);
+
+		tb_xdomain_debugfs_init(xd);
 	} else {
 		kobject_uevent(&xd->dev.kobj, KOBJ_CHANGE);
 	}
@@ -1671,7 +1665,7 @@ static ssize_t device_show(struct device *dev, struct device_attribute *attr,
 {
 	struct tb_xdomain *xd = container_of(dev, struct tb_xdomain, dev);
 
-	return sprintf(buf, "%#x\n", xd->device);
+	return sysfs_emit(buf, "%#x\n", xd->device);
 }
 static DEVICE_ATTR_RO(device);
 
@@ -1683,7 +1677,7 @@ device_name_show(struct device *dev, struct device_attribute *attr, char *buf)
 
 	if (mutex_lock_interruptible(&xd->lock))
 		return -ERESTARTSYS;
-	ret = sprintf(buf, "%s\n", xd->device_name ? xd->device_name : "");
+	ret = sysfs_emit(buf, "%s\n", xd->device_name ?: "");
 	mutex_unlock(&xd->lock);
 
 	return ret;
@@ -1695,7 +1689,7 @@ static ssize_t maxhopid_show(struct device *dev, struct device_attribute *attr,
 {
 	struct tb_xdomain *xd = container_of(dev, struct tb_xdomain, dev);
 
-	return sprintf(buf, "%d\n", xd->remote_max_hopid);
+	return sysfs_emit(buf, "%d\n", xd->remote_max_hopid);
 }
 static DEVICE_ATTR_RO(maxhopid);
 
@@ -1704,7 +1698,7 @@ static ssize_t vendor_show(struct device *dev, struct device_attribute *attr,
 {
 	struct tb_xdomain *xd = container_of(dev, struct tb_xdomain, dev);
 
-	return sprintf(buf, "%#x\n", xd->vendor);
+	return sysfs_emit(buf, "%#x\n", xd->vendor);
 }
 static DEVICE_ATTR_RO(vendor);
 
@@ -1716,7 +1710,7 @@ vendor_name_show(struct device *dev, struct device_attribute *attr, char *buf)
 
 	if (mutex_lock_interruptible(&xd->lock))
 		return -ERESTARTSYS;
-	ret = sprintf(buf, "%s\n", xd->vendor_name ? xd->vendor_name : "");
+	ret = sysfs_emit(buf, "%s\n", xd->vendor_name ?: "");
 	mutex_unlock(&xd->lock);
 
 	return ret;
@@ -1728,7 +1722,7 @@ static ssize_t unique_id_show(struct device *dev, struct device_attribute *attr,
 {
 	struct tb_xdomain *xd = container_of(dev, struct tb_xdomain, dev);
 
-	return sprintf(buf, "%pUb\n", xd->remote_uuid);
+	return sysfs_emit(buf, "%pUb\n", xd->remote_uuid);
 }
 static DEVICE_ATTR_RO(unique_id);
 
@@ -1737,7 +1731,7 @@ static ssize_t speed_show(struct device *dev, struct device_attribute *attr,
 {
 	struct tb_xdomain *xd = container_of(dev, struct tb_xdomain, dev);
 
-	return sprintf(buf, "%u.0 Gb/s\n", xd->link_speed);
+	return sysfs_emit(buf, "%u.0 Gb/s\n", xd->link_speed);
 }
 
 static DEVICE_ATTR(rx_speed, 0444, speed_show, NULL);
@@ -1748,7 +1742,7 @@ static ssize_t lanes_show(struct device *dev, struct device_attribute *attr,
 {
 	struct tb_xdomain *xd = container_of(dev, struct tb_xdomain, dev);
 
-	return sprintf(buf, "%u\n", xd->link_width);
+	return sysfs_emit(buf, "%u\n", xd->link_width);
 }
 
 static DEVICE_ATTR(rx_lanes, 0444, lanes_show, NULL);
@@ -1947,6 +1941,8 @@ static int unregister_service(struct device *dev, void *data)
  */
 void tb_xdomain_remove(struct tb_xdomain *xd)
 {
+	tb_xdomain_debugfs_remove(xd);
+
 	stop_handshake(xd);
 
 	device_for_each_child_reverse(&xd->dev, xd, unregister_service);
@@ -2180,13 +2176,12 @@ static struct tb_xdomain *switch_find_xdomain(struct tb_switch *sw,
 				if (xd->remote_uuid &&
 				    uuid_equal(xd->remote_uuid, lookup->uuid))
 					return xd;
-			} else if (lookup->link &&
-				   lookup->link == xd->link &&
-				   lookup->depth == xd->depth) {
-				return xd;
-			} else if (lookup->route &&
-				   lookup->route == xd->route) {
-				return xd;
+			} else {
+				if (lookup->link && lookup->link == xd->link &&
+				    lookup->depth == xd->depth)
+					return xd;
+				if (lookup->route && lookup->route == xd->route)
+					return xd;
 			}
 		} else if (tb_port_has_remote(port)) {
 			xd = switch_find_xdomain(port->remote->sw, lookup);
@@ -2445,7 +2440,7 @@ int tb_xdomain_init(void)
 	tb_property_add_immediate(xdomain_property_dir, "deviceid", 0x1);
 	tb_property_add_immediate(xdomain_property_dir, "devicerv", 0x80000100);
 
-	xdomain_property_block_gen = prandom_u32();
+	xdomain_property_block_gen = get_random_u32();
 	return 0;
 }
 

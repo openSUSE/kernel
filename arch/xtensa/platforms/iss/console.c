@@ -36,24 +36,19 @@ static void rs_poll(struct timer_list *);
 static struct tty_driver *serial_driver;
 static struct tty_port serial_port;
 static DEFINE_TIMER(serial_timer, rs_poll);
-static DEFINE_SPINLOCK(timer_lock);
 
 static int rs_open(struct tty_struct *tty, struct file * filp)
 {
-	spin_lock_bh(&timer_lock);
 	if (tty->count == 1)
 		mod_timer(&serial_timer, jiffies + SERIAL_TIMER_VALUE);
-	spin_unlock_bh(&timer_lock);
 
 	return 0;
 }
 
 static void rs_close(struct tty_struct *tty, struct file * filp)
 {
-	spin_lock_bh(&timer_lock);
 	if (tty->count == 1)
 		del_timer_sync(&serial_timer);
-	spin_unlock_bh(&timer_lock);
 }
 
 
@@ -73,8 +68,6 @@ static void rs_poll(struct timer_list *unused)
 	int rd = 1;
 	unsigned char c;
 
-	spin_lock(&timer_lock);
-
 	while (simc_poll(0)) {
 		rd = simc_read(0, &c, 1);
 		if (rd <= 0)
@@ -87,7 +80,6 @@ static void rs_poll(struct timer_list *unused)
 		tty_flip_buffer_push(port);
 	if (rd)
 		mod_timer(&serial_timer, jiffies + SERIAL_TIMER_VALUE);
-	spin_unlock(&timer_lock);
 }
 
 
@@ -136,38 +128,40 @@ static const struct tty_operations serial_ops = {
 
 static int __init rs_init(void)
 {
+	struct tty_driver *driver;
 	int ret;
 
-	serial_driver = alloc_tty_driver(SERIAL_MAX_NUM_LINES);
-	if (!serial_driver)
-		return -ENOMEM;
+	driver = tty_alloc_driver(SERIAL_MAX_NUM_LINES, TTY_DRIVER_REAL_RAW);
+	if (IS_ERR(driver))
+		return PTR_ERR(driver);
 
 	tty_port_init(&serial_port);
 
 	/* Initialize the tty_driver structure */
 
-	serial_driver->driver_name = "iss_serial";
-	serial_driver->name = "ttyS";
-	serial_driver->major = TTY_MAJOR;
-	serial_driver->minor_start = 64;
-	serial_driver->type = TTY_DRIVER_TYPE_SERIAL;
-	serial_driver->subtype = SERIAL_TYPE_NORMAL;
-	serial_driver->init_termios = tty_std_termios;
-	serial_driver->init_termios.c_cflag =
+	driver->driver_name = "iss_serial";
+	driver->name = "ttyS";
+	driver->major = TTY_MAJOR;
+	driver->minor_start = 64;
+	driver->type = TTY_DRIVER_TYPE_SERIAL;
+	driver->subtype = SERIAL_TYPE_NORMAL;
+	driver->init_termios = tty_std_termios;
+	driver->init_termios.c_cflag =
 		B9600 | CS8 | CREAD | HUPCL | CLOCAL;
-	serial_driver->flags = TTY_DRIVER_REAL_RAW;
 
-	tty_set_operations(serial_driver, &serial_ops);
-	tty_port_link_device(&serial_port, serial_driver, 0);
+	tty_set_operations(driver, &serial_ops);
+	tty_port_link_device(&serial_port, driver, 0);
 
-	ret = tty_register_driver(serial_driver);
+	ret = tty_register_driver(driver);
 	if (ret) {
 		pr_err("Couldn't register serial driver\n");
-		tty_driver_kref_put(serial_driver);
+		tty_driver_kref_put(driver);
 		tty_port_destroy(&serial_port);
 
 		return ret;
 	}
+
+	serial_driver = driver;
 
 	return 0;
 }
@@ -197,10 +191,10 @@ late_initcall(rs_init);
 
 static void iss_console_write(struct console *co, const char *s, unsigned count)
 {
-	int len = strlen(s);
-
-	if (s != 0 && *s != 0)
+	if (s && *s != 0) {
+		int len = strlen(s);
 		simc_write(1, s, count < len ? count : len);
+	}
 }
 
 static struct tty_driver* iss_console_device(struct console *c, int *index)

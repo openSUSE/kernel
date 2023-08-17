@@ -13,6 +13,9 @@
  * more details.
  */
 
+#include <linux/kernel.h>
+#include <linux/math.h>
+
 #include "ia_css_pipe_binarydesc.h"
 #include "ia_css_frame_format.h"
 #include "ia_css_pipe.h"
@@ -23,7 +26,6 @@
 #include <assert_support.h>
 /* HRT_GDC_N */
 #include "gdc_device.h"
-#include <linux/kernel.h>
 
 /* This module provides a binary descriptions to used to find a binary. Since,
  * every stage is associated with a binary, it implicity helps stage
@@ -58,7 +60,6 @@ static void pipe_binarydesc_get_offline(
 	descr->enable_dz = true;
 	descr->enable_xnr = false;
 	descr->enable_dpc = false;
-	descr->enable_luma_only = false;
 	descr->enable_tnr = false;
 	descr->enable_capture_pp_bli = false;
 	descr->enable_fractional_ds = false;
@@ -127,40 +128,29 @@ void ia_css_pipe_get_vfpp_binarydesc(
 	IA_CSS_LEAVE_PRIVATE("");
 }
 
-static struct sh_css_bds_factor bds_factors_list[] = {
-	{1, 1, SH_CSS_BDS_FACTOR_1_00},
-	{5, 4, SH_CSS_BDS_FACTOR_1_25},
-	{3, 2, SH_CSS_BDS_FACTOR_1_50},
-	{2, 1, SH_CSS_BDS_FACTOR_2_00},
-	{9, 4, SH_CSS_BDS_FACTOR_2_25},
-	{5, 2, SH_CSS_BDS_FACTOR_2_50},
-	{3, 1, SH_CSS_BDS_FACTOR_3_00},
-	{4, 1, SH_CSS_BDS_FACTOR_4_00},
-	{9, 2, SH_CSS_BDS_FACTOR_4_50},
-	{5, 1, SH_CSS_BDS_FACTOR_5_00},
-	{6, 1, SH_CSS_BDS_FACTOR_6_00},
-	{8, 1, SH_CSS_BDS_FACTOR_8_00}
+static struct u32_fract bds_factors_list[] = {
+	[SH_CSS_BDS_FACTOR_1_00] = {1, 1},
+	[SH_CSS_BDS_FACTOR_1_25] = {5, 4},
+	[SH_CSS_BDS_FACTOR_1_50] = {3, 2},
+	[SH_CSS_BDS_FACTOR_2_00] = {2, 1},
+	[SH_CSS_BDS_FACTOR_2_25] = {9, 4},
+	[SH_CSS_BDS_FACTOR_2_50] = {5, 2},
+	[SH_CSS_BDS_FACTOR_3_00] = {3, 1},
+	[SH_CSS_BDS_FACTOR_4_00] = {4, 1},
+	[SH_CSS_BDS_FACTOR_4_50] = {9, 2},
+	[SH_CSS_BDS_FACTOR_5_00] = {5, 1},
+	[SH_CSS_BDS_FACTOR_6_00] = {6, 1},
+	[SH_CSS_BDS_FACTOR_8_00] = {8, 1},
 };
 
-int sh_css_bds_factor_get_numerator_denominator(
-    unsigned int bds_factor,
-    unsigned int *bds_factor_numerator,
-    unsigned int *bds_factor_denominator)
+int sh_css_bds_factor_get_fract(unsigned int bds_factor, struct u32_fract *bds)
 {
-	unsigned int i;
+	/* Throw an error since bds_factor cannot be found in bds_factors_list */
+	if (bds_factor >= ARRAY_SIZE(bds_factors_list))
+		return -EINVAL;
 
-	/* Loop over all bds factors until a match is found */
-	for (i = 0; i < ARRAY_SIZE(bds_factors_list); i++) {
-		if (bds_factors_list[i].bds_factor == bds_factor) {
-			*bds_factor_numerator = bds_factors_list[i].numerator;
-			*bds_factor_denominator = bds_factors_list[i].denominator;
-			return 0;
-		}
-	}
-
-	/* Throw an error since bds_factor cannot be found
-	in bds_factors_list */
-	return -EINVAL;
+	*bds = bds_factors_list[bds_factor];
+	return 0;
 }
 
 int binarydesc_calculate_bds_factor(
@@ -195,7 +185,7 @@ int binarydesc_calculate_bds_factor(
 			    (out_h * num / den <= in_h);
 
 		if (cond) {
-			*bds_factor = bds_factors_list[i].bds_factor;
+			*bds_factor = i;
 			return 0;
 		}
 	}
@@ -390,8 +380,6 @@ int ia_css_pipe_get_video_binarydesc(
 		    pipe->extra_config.enable_fractional_ds;
 		video_descr->enable_dpc =
 		    pipe->config.enable_dpc;
-		video_descr->enable_luma_only =
-		    pipe->config.enable_luma_only;
 		video_descr->enable_tnr =
 		    pipe->config.enable_tnr;
 
@@ -574,11 +562,9 @@ void ia_css_pipe_get_primary_binarydesc(
 	in_info->res = pipe->config.input_effective_res;
 	in_info->padded_width = in_info->res.width;
 
-#if !defined(HAS_NO_PACKED_RAW_PIXELS)
 	if (pipe->stream->config.pack_raw_pixels)
 		in_info->format = IA_CSS_FRAME_FORMAT_RAW_PACKED;
 	else
-#endif
 		in_info->format = IA_CSS_FRAME_FORMAT_RAW;
 
 	in_info->raw_bit_depth = ia_css_pipe_util_pipe_input_format_bpp(pipe);
@@ -600,24 +586,15 @@ void ia_css_pipe_get_primary_binarydesc(
 		prim_descr->isp_pipe_version = pipe->config.isp_pipe_version;
 		prim_descr->enable_fractional_ds =
 		    pipe->extra_config.enable_fractional_ds;
-		prim_descr->enable_luma_only =
-		    pipe->config.enable_luma_only;
 		/* We have both striped and non-striped primary binaries,
 		 * if continuous viewfinder is required, then we must select
 		 * a striped one. Otherwise we prefer to use a non-striped
 		 * since it has better performance. */
 		if (pipe_version == IA_CSS_PIPE_VERSION_2_6_1)
 			prim_descr->striped = false;
-		else if (!IS_ISP2401) {
+		else
 			prim_descr->striped = prim_descr->continuous &&
 					      (!pipe->stream->stop_copy_preview || !pipe->stream->disable_cont_vf);
-		} else {
-			prim_descr->striped = prim_descr->continuous && !pipe->stream->disable_cont_vf;
-
-			if ((pipe->config.default_capture_config.enable_xnr != 0) &&
-			    (pipe->extra_config.enable_dvs_6axis == true))
-				prim_descr->enable_xnr = true;
-		}
 	}
 	IA_CSS_LEAVE_PRIVATE("");
 }
@@ -849,14 +826,7 @@ void ia_css_pipe_get_ldc_binarydesc(
 	assert(out_info);
 	IA_CSS_ENTER_PRIVATE("");
 
-	if (!IS_ISP2401) {
-		*in_info = *out_info;
-	} else {
-		if (pipe->out_yuv_ds_input_info.res.width)
-			*in_info = pipe->out_yuv_ds_input_info;
-		else
-			*in_info = *out_info;
-	}
+	*in_info = *out_info;
 
 	in_info->format = IA_CSS_FRAME_FORMAT_YUV420;
 	in_info->raw_bit_depth = 0;

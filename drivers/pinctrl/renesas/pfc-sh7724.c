@@ -10,7 +10,6 @@
  *  Copyright (C) 2008  Magnus Damm
  */
 
-#include <linux/init.h>
 #include <linux/kernel.h>
 #include <cpu/sh7724.h>
 
@@ -1799,9 +1798,10 @@ static const struct pinmux_cfg_reg pinmux_config_regs[] = {
 		PTF1_FN, PTF1_OUT, 0, PTF1_IN,
 		PTF0_FN, PTF0_OUT, 0, PTF0_IN ))
 	},
-	{ PINMUX_CFG_REG("PGCR", 0xa405010c, 16, 2, GROUP(
-		0, 0, 0, 0,
-		0, 0, 0, 0,
+	{ PINMUX_CFG_REG_VAR("PGCR", 0xa405010c, 16,
+			     GROUP(-4, 2, 2, 2, 2, 2, 2),
+			     GROUP(
+		/* RESERVED [4] */
 		PTG5_FN, PTG5_OUT, 0, 0,
 		PTG4_FN, PTG4_OUT, 0, 0,
 		PTG3_FN, PTG3_OUT, 0, 0,
@@ -2059,7 +2059,7 @@ static const struct pinmux_cfg_reg pinmux_config_regs[] = {
 		PSE1_0,  PSE1_1,
 		PSE0_0,  PSE0_1))
 	},
-	{}
+	{ /* sentinel */ }
 };
 
 static const struct pinmux_data_reg pinmux_data_regs[] = {
@@ -2155,7 +2155,7 @@ static const struct pinmux_data_reg pinmux_data_regs[] = {
 		PTZ7_DATA, PTZ6_DATA, PTZ5_DATA, PTZ4_DATA,
 		PTZ3_DATA, PTZ2_DATA, PTZ1_DATA, PTZ0_DATA ))
 	},
-	{ },
+	{ /* sentinel */ }
 };
 
 const struct sh_pfc_soc_info sh7724_pinmux_info = {

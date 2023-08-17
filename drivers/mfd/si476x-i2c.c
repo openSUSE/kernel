@@ -683,9 +683,9 @@ bool si476x_core_is_powered_up(struct si476x_core *core)
 }
 EXPORT_SYMBOL_GPL(si476x_core_is_powered_up);
 
-static int si476x_core_probe(struct i2c_client *client,
-			     const struct i2c_device_id *id)
+static int si476x_core_probe(struct i2c_client *client)
 {
+	const struct i2c_device_id *id = i2c_client_get_device_id(client);
 	int rval;
 	struct si476x_core          *core;
 	struct si476x_platform_data *pdata;
@@ -835,7 +835,7 @@ free_gpio:
 	return rval;
 }
 
-static int si476x_core_remove(struct i2c_client *client)
+static void si476x_core_remove(struct i2c_client *client)
 {
 	struct si476x_core *core = i2c_get_clientdata(client);
 
@@ -851,8 +851,6 @@ static int si476x_core_remove(struct i2c_client *client)
 
 	if (gpio_is_valid(core->gpio_reset))
 		gpio_free(core->gpio_reset);
-
-	return 0;
 }
 
 
@@ -868,7 +866,7 @@ static struct i2c_driver si476x_core_driver = {
 	.driver		= {
 		.name	= "si476x-core",
 	},
-	.probe		= si476x_core_probe,
+	.probe_new	= si476x_core_probe,
 	.remove         = si476x_core_remove,
 	.id_table       = si476x_id,
 };

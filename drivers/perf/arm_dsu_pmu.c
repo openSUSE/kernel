@@ -639,6 +639,7 @@ static int dsu_pmu_dt_get_cpus(struct device *dev, cpumask_t *mask)
 static int dsu_pmu_acpi_get_cpus(struct device *dev, cpumask_t *mask)
 {
 #ifdef CONFIG_ACPI
+	struct acpi_device *parent_adev = acpi_dev_parent(ACPI_COMPANION(dev));
 	int cpu;
 
 	/*
@@ -653,8 +654,7 @@ static int dsu_pmu_acpi_get_cpus(struct device *dev, cpumask_t *mask)
 			continue;
 
 		acpi_dev = ACPI_COMPANION(cpu_dev);
-		if (acpi_dev &&
-			acpi_dev->parent == ACPI_COMPANION(dev)->parent)
+		if (acpi_dev && acpi_dev_parent(acpi_dev) == parent_adev)
 			cpumask_set_cpu(cpu, mask);
 	}
 #endif
@@ -858,7 +858,11 @@ static int __init dsu_pmu_init(void)
 	if (ret < 0)
 		return ret;
 	dsu_pmu_cpuhp_state = ret;
-	return platform_driver_register(&dsu_pmu_driver);
+	ret = platform_driver_register(&dsu_pmu_driver);
+	if (ret)
+		cpuhp_remove_multi_state(dsu_pmu_cpuhp_state);
+
+	return ret;
 }
 
 static void __exit dsu_pmu_exit(void)

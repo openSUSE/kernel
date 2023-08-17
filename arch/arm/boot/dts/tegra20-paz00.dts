@@ -13,6 +13,8 @@
 	compatible = "compal,paz00", "nvidia,tegra20";
 
 	aliases {
+		mmc0 = &sdmmc4; /* eMMC */
+		mmc1 = &sdmmc1; /* MicroSD */
 		rtc0 = "/i2c@7000d000/tps6586x@34";
 		rtc1 = "/rtc@7000e000";
 		serial0 = &uarta;
@@ -264,8 +266,16 @@
 		};
 	};
 
+	spdif@70002400 {
+		status = "okay";
+
+		nvidia,fixed-parent-rate;
+	};
+
 	i2s@70002800 {
 		status = "okay";
+
+		nvidia,fixed-parent-rate;
 	};
 
 	serial@70006000 {
@@ -311,53 +321,6 @@
 		clock-names = "div-clk", "fast-clk";
 		resets = <&tegra_car 67>;
 		reset-names = "i2c";
-	};
-
-	memory-controller@7000f400 {
-		nvidia,use-ram-code;
-
-		emc-tables@0 {
-			nvidia,ram-code = <0x0>;
-			#address-cells = <1>;
-			#size-cells = <0>;
-			reg = <0>;
-
-			emc-table@166500 {
-				reg = <166500>;
-				compatible = "nvidia,tegra20-emc-table";
-				clock-frequency = <166500>;
-				nvidia,emc-registers = <0x0000000a 0x00000016
-					0x00000008 0x00000003 0x00000004 0x00000004
-					0x00000002 0x0000000c 0x00000003 0x00000003
-					0x00000002 0x00000001 0x00000004 0x00000005
-					0x00000004 0x00000009 0x0000000d 0x000004df
-					0x00000000 0x00000003 0x00000003 0x00000003
-					0x00000003 0x00000001 0x0000000a 0x000000c8
-					0x00000003 0x00000006 0x00000004 0x00000008
-					0x00000002 0x00000000 0x00000000 0x00000002
-					0x00000000 0x00000000 0x00000083 0xe03b0323
-					0x007fe010 0x00001414 0x00000000 0x00000000
-					0x00000000 0x00000000 0x00000000 0x00000000>;
-			};
-
-			emc-table@333000 {
-				reg = <333000>;
-				compatible = "nvidia,tegra20-emc-table";
-				clock-frequency = <333000>;
-				nvidia,emc-registers = <0x00000018 0x00000033
-					0x00000012 0x00000004 0x00000004 0x00000005
-					0x00000003 0x0000000c 0x00000006 0x00000006
-					0x00000003 0x00000001 0x00000004 0x00000005
-					0x00000004 0x00000009 0x0000000d 0x00000bff
-					0x00000000 0x00000003 0x00000003 0x00000006
-					0x00000006 0x00000001 0x00000011 0x000000c8
-					0x00000003 0x0000000e 0x00000007 0x00000008
-					0x00000002 0x00000000 0x00000000 0x00000002
-					0x00000000 0x00000000 0x00000083 0xf0440303
-					0x007fe010 0x00001414 0x00000000 0x00000000
-					0x00000000 0x00000000 0x00000000 0x00000000>;
-			};
-		};
 	};
 
 	i2c@7000d000 {
@@ -503,6 +466,10 @@
 		adt7461: temperature-sensor@4c {
 			compatible = "adi,adt7461";
 			reg = <0x4c>;
+
+			interrupt-parent = <&gpio>;
+			interrupts = <TEGRA_GPIO(N, 6) IRQ_TYPE_EDGE_FALLING>;
+
 			#thermal-sensor-cells = <1>;
 		};
 	};
@@ -515,6 +482,54 @@
 		nvidia,core-pwr-good-time = <3845 3845>;
 		nvidia,core-pwr-off-time = <0>;
 		nvidia,sys-clock-req-active-high;
+		core-supply = <&core_vdd_reg>;
+	};
+
+	memory-controller@7000f400 {
+		nvidia,use-ram-code;
+
+		emc-tables@0 {
+			nvidia,ram-code = <0x0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0>;
+
+			emc-table@166500 {
+				reg = <166500>;
+				compatible = "nvidia,tegra20-emc-table";
+				clock-frequency = <166500>;
+				nvidia,emc-registers = <0x0000000a 0x00000016
+					0x00000008 0x00000003 0x00000004 0x00000004
+					0x00000002 0x0000000c 0x00000003 0x00000003
+					0x00000002 0x00000001 0x00000004 0x00000005
+					0x00000004 0x00000009 0x0000000d 0x000004df
+					0x00000000 0x00000003 0x00000003 0x00000003
+					0x00000003 0x00000001 0x0000000a 0x000000c8
+					0x00000003 0x00000006 0x00000004 0x00000008
+					0x00000002 0x00000000 0x00000000 0x00000002
+					0x00000000 0x00000000 0x00000083 0xe03b0323
+					0x007fe010 0x00001414 0x00000000 0x00000000
+					0x00000000 0x00000000 0x00000000 0x00000000>;
+			};
+
+			emc-table@333000 {
+				reg = <333000>;
+				compatible = "nvidia,tegra20-emc-table";
+				clock-frequency = <333000>;
+				nvidia,emc-registers = <0x00000018 0x00000033
+					0x00000012 0x00000004 0x00000004 0x00000005
+					0x00000003 0x0000000c 0x00000006 0x00000006
+					0x00000003 0x00000001 0x00000004 0x00000005
+					0x00000004 0x00000009 0x0000000d 0x00000bff
+					0x00000000 0x00000003 0x00000003 0x00000006
+					0x00000006 0x00000001 0x00000011 0x000000c8
+					0x00000003 0x0000000e 0x00000007 0x00000008
+					0x00000002 0x00000000 0x00000000 0x00000002
+					0x00000000 0x00000000 0x00000083 0xf0440303
+					0x007fe010 0x00001414 0x00000000 0x00000000
+					0x00000000 0x00000000 0x00000000 0x00000000>;
+			};
+		};
 	};
 
 	usb@c5000000 {
@@ -529,8 +544,6 @@
 
 	usb@c5004000 {
 		status = "okay";
-		nvidia,phy-reset-gpio = <&gpio TEGRA_GPIO(V, 0)
-			GPIO_ACTIVE_LOW>;
 	};
 
 	usb-phy@c5004000 {
@@ -547,7 +560,7 @@
 		status = "okay";
 	};
 
-	mmc@c8000000 {
+	sdmmc1: mmc@c8000000 {
 		status = "okay";
 		cd-gpios = <&gpio TEGRA_GPIO(V, 5) GPIO_ACTIVE_LOW>;
 		wp-gpios = <&gpio TEGRA_GPIO(H, 1) GPIO_ACTIVE_HIGH>;
@@ -555,7 +568,7 @@
 		bus-width = <4>;
 	};
 
-	mmc@c8000600 {
+	sdmmc4: mmc@c8000600 {
 		status = "okay";
 		bus-width = <8>;
 		non-removable;
@@ -570,19 +583,34 @@
 		brightness-levels = <0 16 32 48 64 80 96 112 128 144 160 176 192 208 224 240 255>;
 		default-brightness-level = <10>;
 
-		backlight-boot-off;
+		/* close enough */
+		power-supply = <&vdd_pnl_reg>;
 	};
 
-	clk32k_in: clock@0 {
+	clk32k_in: clock-32k {
 		compatible = "fixed-clock";
 		clock-frequency = <32768>;
 		#clock-cells = <0>;
 	};
 
+	cpus {
+		cpu0: cpu@0 {
+			cpu-supply = <&cpu_vdd_reg>;
+			operating-points-v2 = <&cpu0_opp_table>;
+			#cooling-cells = <2>;
+		};
+
+		cpu1: cpu@1 {
+			cpu-supply = <&cpu_vdd_reg>;
+			operating-points-v2 = <&cpu0_opp_table>;
+			#cooling-cells = <2>;
+		};
+	};
+
 	gpio-keys {
 		compatible = "gpio-keys";
 
-		wakeup {
+		key-wakeup {
 			label = "Wakeup";
 			gpios = <&gpio TEGRA_GPIO(J, 7) GPIO_ACTIVE_LOW>;
 			linux,code = <KEY_WAKEUP>;
@@ -600,6 +628,10 @@
 		};
 	};
 
+	opp-table-emc {
+		/delete-node/ opp-760000000;
+	};
+
 	panel: panel {
 		compatible = "samsung,ltn101nt05";
 
@@ -610,7 +642,7 @@
 		backlight = <&backlight>;
 	};
 
-	p5valw_reg: regulator@0 {
+	p5valw_reg: regulator-5v0alw {
 		compatible = "regulator-fixed";
 		regulator-name = "+5valw";
 		regulator-min-microvolt = <5000000>;
@@ -618,7 +650,7 @@
 		regulator-always-on;
 	};
 
-	vdd_pnl_reg: regulator@1 {
+	vdd_pnl_reg: regulator-3v0 {
 		compatible = "regulator-fixed";
 		regulator-name = "+3VS,vdd_pnl";
 		regulator-min-microvolt = <3300000>;
@@ -654,20 +686,6 @@
 		clock-names = "pll_a", "pll_a_out0", "mclk";
 	};
 
-	cpus {
-		cpu0: cpu@0 {
-			cpu-supply = <&cpu_vdd_reg>;
-			operating-points-v2 = <&cpu0_opp_table>;
-			#cooling-cells = <2>;
-		};
-
-		cpu1: cpu@1 {
-			cpu-supply = <&cpu_vdd_reg>;
-			operating-points-v2 = <&cpu0_opp_table>;
-			#cooling-cells = <2>;
-		};
-	};
-
 	thermal-zones {
 		cpu-thermal {
 			polling-delay-passive = <500>; /* milliseconds */
@@ -700,8 +718,4 @@
 			};
 		};
 	};
-};
-
-&emc_icc_dvfs_opp_table {
-	/delete-node/ opp@760000000;
 };

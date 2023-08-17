@@ -21,14 +21,11 @@ static struct reuseport_array *reuseport_array(struct bpf_map *map)
 /* The caller must hold the reuseport_lock */
 void bpf_sk_reuseport_detach(struct sock *sk)
 {
-	uintptr_t sk_user_data;
+	struct sock __rcu **socks;
 
 	write_lock_bh(&sk->sk_callback_lock);
-	sk_user_data = (uintptr_t)sk->sk_user_data;
-	if (sk_user_data & SK_USER_DATA_BPF) {
-		struct sock __rcu **socks;
-
-		socks = (void *)(sk_user_data & SK_USER_DATA_PTRMASK);
+	socks = __locked_read_sk_user_data_with_flags(sk, SK_USER_DATA_BPF);
+	if (socks) {
 		WRITE_ONCE(sk->sk_user_data, NULL);
 		/*
 		 * Do not move this NULL assignment outside of
@@ -62,7 +59,7 @@ static void *reuseport_array_lookup_elem(struct bpf_map *map, void *key)
 }
 
 /* Called from syscall only */
-static int reuseport_array_delete_elem(struct bpf_map *map, void *key)
+static long reuseport_array_delete_elem(struct bpf_map *map, void *key)
 {
 	struct reuseport_array *array = reuseport_array(map);
 	u32 index = *(u32 *)key;
@@ -153,9 +150,6 @@ static struct bpf_map *reuseport_array_alloc(union bpf_attr *attr)
 {
 	int numa_node = bpf_map_attr_numa_node(attr);
 	struct reuseport_array *array;
-
-	if (!bpf_capable())
-		return ERR_PTR(-EPERM);
 
 	/* allocate all map elements and zero-initialize them */
 	array = bpf_map_area_alloc(struct_size(array, ptrs, attr->max_entries), numa_node);
@@ -338,6 +332,13 @@ static int reuseport_array_get_next_key(struct bpf_map *map, void *key,
 	return 0;
 }
 
+static u64 reuseport_array_mem_usage(const struct bpf_map *map)
+{
+	struct reuseport_array *array;
+
+	return struct_size(array, ptrs, map->max_entries);
+}
+
 BTF_ID_LIST_SINGLE(reuseport_array_map_btf_ids, struct, reuseport_array)
 const struct bpf_map_ops reuseport_array_ops = {
 	.map_meta_equal = bpf_map_meta_equal,
@@ -347,5 +348,6 @@ const struct bpf_map_ops reuseport_array_ops = {
 	.map_lookup_elem = reuseport_array_lookup_elem,
 	.map_get_next_key = reuseport_array_get_next_key,
 	.map_delete_elem = reuseport_array_delete_elem,
+	.map_mem_usage = reuseport_array_mem_usage,
 	.map_btf_id = &reuseport_array_map_btf_ids[0],
 };

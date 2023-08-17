@@ -68,10 +68,10 @@ static int sps30_i2c_command(struct sps30_state *state, u16 cmd, void *arg, size
 	/*
 	 * Internally sensor stores measurements in a following manner:
 	 *
-	 * PM1: upper two bytes, crc8, lower two bytes, crc8
+	 * PM1:   upper two bytes, crc8, lower two bytes, crc8
 	 * PM2P5: upper two bytes, crc8, lower two bytes, crc8
-	 * PM4: upper two bytes, crc8, lower two bytes, crc8
-	 * PM10: upper two bytes, crc8, lower two bytes, crc8
+	 * PM4:   upper two bytes, crc8, lower two bytes, crc8
+	 * PM10:  upper two bytes, crc8, lower two bytes, crc8
 	 *
 	 * What follows next are number concentration measurements and
 	 * typical particle size measurement which we omit.
@@ -256,3 +256,4 @@ module_i2c_driver(sps30_i2c_driver);
 MODULE_AUTHOR("Tomasz Duszynski <tomasz.duszynski@octakon.com>");
 MODULE_DESCRIPTION("Sensirion SPS30 particulate matter sensor i2c driver");
 MODULE_LICENSE("GPL v2");
+MODULE_IMPORT_NS(IIO_SPS30);

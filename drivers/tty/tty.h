@@ -75,7 +75,7 @@ void tty_buffer_set_lock_subclass(struct tty_port *port);
 bool tty_buffer_restart_work(struct tty_port *port);
 bool tty_buffer_cancel_work(struct tty_port *port);
 void tty_buffer_flush_work(struct tty_port *port);
-speed_t tty_termios_input_baud_rate(struct ktermios *termios);
+speed_t tty_termios_input_baud_rate(const struct ktermios *termios);
 void tty_ldisc_hangup(struct tty_struct *tty, bool reset);
 int tty_ldisc_reinit(struct tty_struct *tty, int disc);
 long tty_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
@@ -95,7 +95,7 @@ void tty_ldisc_release(struct tty_struct *tty);
 int __must_check tty_ldisc_init(struct tty_struct *tty);
 void tty_ldisc_deinit(struct tty_struct *tty);
 
-void tty_sysctl_init(void);
+extern int tty_ldisc_autoload;
 
 /* tty_audit.c */
 #ifdef CONFIG_AUDIT

@@ -27,9 +27,6 @@ menuconfig ACPI
 	  Management (APM) specification.  If both ACPI and APM support 
 	  are configured, ACPI is used.
 
-	  The project home page for the Linux ACPI subsystem is here:
-	  <https://01.org/linux-acpi>
-
 	  Linux support for ACPI is based on Intel Corporation's ACPI
 	  Component Architecture (ACPI CA).  For more information on the
 	  ACPI CA, see:
@@ -93,7 +90,7 @@ config ACPI_SPCR_TABLE
 
 config ACPI_FPDT
 	bool "ACPI Firmware Performance Data Table (FPDT) support"
-	depends on X86_64
+	depends on X86_64 || ARM64
 	help
 	  Enable support for the Firmware Performance Data Table (FPDT).
 	  This table provides information on the timing of the system
@@ -212,6 +209,7 @@ config ACPI_VIDEO
 	tristate "Video"
 	depends on BACKLIGHT_CLASS_DEVICE
 	depends on INPUT
+	depends on ACPI_WMI || !X86
 	select THERMAL
 	help
 	  This driver implements the ACPI Extensions For Display Adapters
@@ -347,7 +345,6 @@ config ACPI_CUSTOM_DSDT_FILE
 	depends on !STANDALONE
 	help
 	  This option supports a custom DSDT by linking it into the kernel.
-	  See Documentation/admin-guide/acpi/dsdt-override.rst
 
 	  Enter the full path name to the file which includes the AmlCode
 	  or dsdt_aml_code declaration.
@@ -549,6 +546,33 @@ source "drivers/acpi/arm64/Kconfig"
 config ACPI_PPTT
 	bool
 endif
+
+config ACPI_PCC
+	bool "ACPI PCC Address Space"
+	depends on PCC
+	default y
+	help
+	  The PCC Address Space also referred as PCC Operation Region pertains
+	  to the region of PCC subspace that succeeds the PCC signature.
+
+	  The PCC Operation Region works in conjunction with the PCC Table
+	  (Platform Communications Channel Table). PCC subspaces that are
+	  marked for use as PCC Operation Regions must not be used as PCC
+	  subspaces for the standard ACPI features such as CPPC, RASF, PDTT and
+	  MPST. These standard features must always use the PCC Table instead.
+
+	  Enable this feature if you want to set up and install the PCC Address
+	  Space handler to handle PCC OpRegion in the firmware.
+
+config ACPI_FFH
+	bool "ACPI FFH Address Space"
+	default n
+	help
+	  The FFH(Fixed Function Hardware) Address Space also referred as FFH
+	  Operation Region allows to define platform specific opregion.
+
+	  Enable this feature if you want to set up and install the FFH Address
+	  Space handler to handle FFH OpRegion in the firmware.
 
 source "drivers/acpi/pmic/Kconfig"
 

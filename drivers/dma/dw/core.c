@@ -29,9 +29,6 @@
  * (DW_ahb_dmac) which is used with various AMBA 2.0 systems (not all
  * of which use ARM any more).  See the "Databook" from Synopsys for
  * information beyond what licensees probably provide.
- *
- * The driver has been tested with the Atmel AT32AP7000, which does not
- * support descriptor writeback.
  */
 
 /* The set of bus widths supported by the DMA controller */
@@ -892,7 +889,8 @@ static struct dw_desc *dwc_find_desc(struct dw_dma_chan *dwc, dma_cookie_t c)
 	return NULL;
 }
 
-static u32 dwc_get_residue(struct dw_dma_chan *dwc, dma_cookie_t cookie)
+static u32 dwc_get_residue_and_status(struct dw_dma_chan *dwc, dma_cookie_t cookie,
+				      enum dma_status *status)
 {
 	struct dw_desc *desc;
 	unsigned long flags;
@@ -906,6 +904,8 @@ static u32 dwc_get_residue(struct dw_dma_chan *dwc, dma_cookie_t cookie)
 			residue = desc->residue;
 			if (test_bit(DW_DMA_IS_SOFT_LLP, &dwc->flags) && residue)
 				residue -= dwc_get_sent(dwc);
+			if (test_bit(DW_DMA_IS_PAUSED, &dwc->flags))
+				*status = DMA_PAUSED;
 		} else {
 			residue = desc->total_len;
 		}
@@ -935,11 +935,7 @@ dwc_tx_status(struct dma_chan *chan,
 	if (ret == DMA_COMPLETE)
 		return ret;
 
-	dma_set_residue(txstate, dwc_get_residue(dwc, cookie));
-
-	if (test_bit(DW_DMA_IS_PAUSED, &dwc->flags) && ret == DMA_IN_PROGRESS)
-		return DMA_PAUSED;
-
+	dma_set_residue(txstate, dwc_get_residue_and_status(dwc, cookie, &ret));
 	return ret;
 }
 

@@ -45,7 +45,6 @@ enum ia_css_pipe_mode {
 	IA_CSS_PIPE_MODE_PREVIEW,	/** Preview pipe */
 	IA_CSS_PIPE_MODE_VIDEO,		/** Video pipe */
 	IA_CSS_PIPE_MODE_CAPTURE,	/** Still capture pipe */
-	IA_CSS_PIPE_MODE_ACC,		/** Accelerated pipe */
 	IA_CSS_PIPE_MODE_COPY,		/** Copy pipe, only used for embedded/image data copying */
 	IA_CSS_PIPE_MODE_YUVPP,		/** YUV post processing pipe, used for all use cases with YUV input,
 									for SoC sensor and external ISP */
@@ -95,21 +94,11 @@ struct ia_css_pipe_config {
 	/** output of YUV scaling */
 	struct ia_css_frame_info vf_output_info[IA_CSS_PIPE_MAX_OUTPUT_STAGE];
 	/** output of VF YUV scaling */
-	struct ia_css_fw_info *acc_extension;
-	/** Pipeline extension accelerator */
-	struct ia_css_fw_info **acc_stages;
-	/** Standalone accelerator stages */
-	u32 num_acc_stages;
-	/** Number of standalone accelerator stages */
 	struct ia_css_capture_config default_capture_config;
 	/** Default capture config for initial capture pipe configuration. */
 	struct ia_css_resolution dvs_envelope; /** temporary */
 	enum ia_css_frame_delay dvs_frame_delay;
 	/** indicates the DVS loop delay in frame periods */
-	int acc_num_execs;
-	/** For acceleration pipes only: determine how many times the pipe
-	     should be run. Setting this to -1 means it will run until
-	     stopped. */
 	bool enable_dz;
 	/** Disabling digital zoom for a pipeline, if this is set to false,
 	     then setting a zoom factor will have no effect.
@@ -123,9 +112,6 @@ struct ia_css_pipe_config {
 	     processing stages. */
 
 /* ISP2401 */
-	bool enable_luma_only;
-	/** Enabling of monochrome mode for a pipeline. If enabled only luma processing
-	     will be done. */
 	bool enable_tnr;
 	/** Enabling of TNR (temporal noise reduction). This is only applicable to video
 	     pipes. Non video-pipes should always set this parameter to false. */
@@ -156,7 +142,6 @@ struct ia_css_pipe_config {
 	.vf_output_info		= {IA_CSS_BINARY_DEFAULT_FRAME_INFO}, \
 	.default_capture_config	= DEFAULT_CAPTURE_CONFIG, \
 	.dvs_frame_delay	= IA_CSS_FRAME_DELAY_1, \
-	.acc_num_execs		= -1, \
 }
 
 /* Pipe info, this struct describes properties of a pipe after it's stream has
@@ -227,9 +212,6 @@ struct ia_css_pipe_info {
 		{{0, 0}, 0, 0, 0, 0}, // second_output_info
 		{{0, 0}, 0, 0, 0, 0}, // vf_output_info
 		{{0, 0}, 0, 0, 0, 0}, // second_vf_output_info
-		NULL,   // acc_extension
-		NULL,   // acc_stages
-		0,      // num_acc_stages
 		{
 			IA_CSS_CAPTURE_MODE_RAW, // mode
 			false, // enable_xnr
@@ -237,7 +219,6 @@ struct ia_css_pipe_info {
 		},      // default_capture_config
 		{0, 0}, // dvs_envelope
 		1,      // dvs_frame_delay
-		-1,     // acc_num_execs
 		true,   // enable_dz
 		NULL,   // p_isp_config
 	};
@@ -428,82 +409,6 @@ ia_css_pipe_enqueue_buffer(struct ia_css_pipe *pipe,
 int
 ia_css_pipe_dequeue_buffer(struct ia_css_pipe *pipe,
 			   struct ia_css_buffer *buffer);
-
-/* @brief  Set the state (Enable or Disable) of the Extension stage in the
- *          given pipe.
- * @param[in] pipe         Pipe handle.
- * @param[in] fw_handle    Extension firmware Handle (ia_css_fw_info.handle)
- * @param[in] enable       Enable Flag (1 to enable ; 0 to disable)
- *
- * @return
- * 0			: Success
- * -EINVAL		: Invalid Parameters
- * -EBUSY	: Inactive QOS Pipe
- *					(No active stream with this pipe)
- *
- * This function will request state change (enable or disable) for the Extension
- * stage (firmware handle) in the given pipe.
- *
- * Note:
- *	1. Extension can be enabled/disabled only on QOS Extensions
- *	2. Extension can be enabled/disabled only with an active QOS Pipe
- *	3. Initial(Default) state of QOS Extensions is Disabled
- *	4. State change cannot be guaranteed immediately OR on frame boundary
- *
- */
-int
-ia_css_pipe_set_qos_ext_state(struct ia_css_pipe *pipe,
-			      u32 fw_handle,
-			      bool  enable);
-
-/* @brief  Get the state (Enable or Disable) of the Extension stage in the
- *          given pipe.
- * @param[in]  pipe        Pipe handle.
- * @param[in]  fw_handle   Extension firmware Handle (ia_css_fw_info.handle)
- * @param[out] *enable     Enable Flag
- *
- * @return
- * 0			: Success
- * -EINVAL		: Invalid Parameters
- * -EBUSY	: Inactive QOS Pipe
- *					(No active stream with this pipe)
- *
- * This function will query the state of the Extension stage (firmware handle)
- * in the given Pipe.
- *
- * Note:
- *	1. Extension state can be queried only on QOS Extensions
- *	2. Extension can be enabled/disabled only with an active QOS Pipe
- *	3. Initial(Default) state of QOS Extensions is Disabled.
- *
- */
-int
-ia_css_pipe_get_qos_ext_state(struct ia_css_pipe *pipe,
-			      u32 fw_handle,
-			      bool *enable);
-
-/* ISP2401  */
-/* @brief  Update mapped CSS and ISP arguments for QoS pipe during SP runtime.
- * @param[in] pipe	Pipe handle.
- * @param[in] fw_handle	Extension firmware Handle (ia_css_fw_info.handle).
- * @param[in] css_seg	Parameter memory descriptors for CSS segments.
- * @param[in] isp_seg	Parameter memory descriptors for ISP segments.
- *
- * @return
- * 0			: Success
- * -EINVAL		: Invalid Parameters
- * -EBUSY	: Inactive QOS Pipe
- *					(No active stream with this pipe)
- *
- * \deprecated{This interface is used to temporarily support a late-developed,
- * specific use-case on a specific IPU2 platform. It will not be supported or
- * maintained on IPU3 or further.}
- */
-int
-ia_css_pipe_update_qos_ext_mapped_arg(struct ia_css_pipe *pipe,
-				      u32 fw_handle,
-				      struct ia_css_isp_param_css_segments *css_seg,
-				      struct ia_css_isp_param_isp_segments *isp_seg);
 
 /* @brief Get selected configuration settings
  * @param[in]	pipe	The pipe.

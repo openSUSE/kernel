@@ -13,7 +13,7 @@
  */
 const char *phy_speed_to_str(int speed)
 {
-	BUILD_BUG_ON_MSG(__ETHTOOL_LINK_MODE_MASK_NBITS != 92,
+	BUILD_BUG_ON_MSG(__ETHTOOL_LINK_MODE_MASK_NBITS != 102,
 		"Enum ethtool_link_mode_bit_indices and phylib are out of sync. "
 		"If a speed or mode has been added please update phy_speed_to_str "
 		"and the PHY settings array.\n");
@@ -49,6 +49,8 @@ const char *phy_speed_to_str(int speed)
 		return "200Gbps";
 	case SPEED_400000:
 		return "400Gbps";
+	case SPEED_800000:
+		return "800Gbps";
 	case SPEED_UNKNOWN:
 		return "Unknown";
 	default:
@@ -74,6 +76,80 @@ const char *phy_duplex_to_str(unsigned int duplex)
 }
 EXPORT_SYMBOL_GPL(phy_duplex_to_str);
 
+/**
+ * phy_rate_matching_to_str - Return a string describing the rate matching
+ *
+ * @rate_matching: Type of rate matching to describe
+ */
+const char *phy_rate_matching_to_str(int rate_matching)
+{
+	switch (rate_matching) {
+	case RATE_MATCH_NONE:
+		return "none";
+	case RATE_MATCH_PAUSE:
+		return "pause";
+	case RATE_MATCH_CRS:
+		return "crs";
+	case RATE_MATCH_OPEN_LOOP:
+		return "open-loop";
+	}
+	return "Unsupported (update phy-core.c)";
+}
+EXPORT_SYMBOL_GPL(phy_rate_matching_to_str);
+
+/**
+ * phy_interface_num_ports - Return the number of links that can be carried by
+ *			     a given MAC-PHY physical link. Returns 0 if this is
+ *			     unknown, the number of links else.
+ *
+ * @interface: The interface mode we want to get the number of ports
+ */
+int phy_interface_num_ports(phy_interface_t interface)
+{
+	switch (interface) {
+	case PHY_INTERFACE_MODE_NA:
+		return 0;
+	case PHY_INTERFACE_MODE_INTERNAL:
+	case PHY_INTERFACE_MODE_MII:
+	case PHY_INTERFACE_MODE_GMII:
+	case PHY_INTERFACE_MODE_TBI:
+	case PHY_INTERFACE_MODE_REVMII:
+	case PHY_INTERFACE_MODE_RMII:
+	case PHY_INTERFACE_MODE_REVRMII:
+	case PHY_INTERFACE_MODE_RGMII:
+	case PHY_INTERFACE_MODE_RGMII_ID:
+	case PHY_INTERFACE_MODE_RGMII_RXID:
+	case PHY_INTERFACE_MODE_RGMII_TXID:
+	case PHY_INTERFACE_MODE_RTBI:
+	case PHY_INTERFACE_MODE_XGMII:
+	case PHY_INTERFACE_MODE_XLGMII:
+	case PHY_INTERFACE_MODE_MOCA:
+	case PHY_INTERFACE_MODE_TRGMII:
+	case PHY_INTERFACE_MODE_USXGMII:
+	case PHY_INTERFACE_MODE_SGMII:
+	case PHY_INTERFACE_MODE_SMII:
+	case PHY_INTERFACE_MODE_1000BASEX:
+	case PHY_INTERFACE_MODE_2500BASEX:
+	case PHY_INTERFACE_MODE_5GBASER:
+	case PHY_INTERFACE_MODE_10GBASER:
+	case PHY_INTERFACE_MODE_25GBASER:
+	case PHY_INTERFACE_MODE_10GKR:
+	case PHY_INTERFACE_MODE_100BASEX:
+	case PHY_INTERFACE_MODE_RXAUI:
+	case PHY_INTERFACE_MODE_XAUI:
+	case PHY_INTERFACE_MODE_1000BASEKX:
+		return 1;
+	case PHY_INTERFACE_MODE_QSGMII:
+	case PHY_INTERFACE_MODE_QUSGMII:
+		return 4;
+	case PHY_INTERFACE_MODE_MAX:
+		WARN_ONCE(1, "PHY_INTERFACE_MODE_MAX isn't a valid interface mode");
+		return 0;
+	}
+	return 0;
+}
+EXPORT_SYMBOL_GPL(phy_interface_num_ports);
+
 /* A mapping of all SUPPORTED settings to speed/duplex.  This table
  * must be grouped by speed and sorted in descending match priority
  * - iow, descending speed.
@@ -83,6 +159,13 @@ EXPORT_SYMBOL_GPL(phy_duplex_to_str);
 			       .bit = ETHTOOL_LINK_MODE_ ## b ## _BIT}
 
 static const struct phy_setting settings[] = {
+	/* 800G */
+	PHY_SETTING( 800000, FULL, 800000baseCR8_Full		),
+	PHY_SETTING( 800000, FULL, 800000baseKR8_Full		),
+	PHY_SETTING( 800000, FULL, 800000baseDR8_Full		),
+	PHY_SETTING( 800000, FULL, 800000baseDR8_2_Full		),
+	PHY_SETTING( 800000, FULL, 800000baseSR8_Full		),
+	PHY_SETTING( 800000, FULL, 800000baseVR8_Full		),
 	/* 400G */
 	PHY_SETTING( 400000, FULL, 400000baseCR8_Full		),
 	PHY_SETTING( 400000, FULL, 400000baseKR8_Full		),
@@ -176,6 +259,10 @@ static const struct phy_setting settings[] = {
 	/* 10M */
 	PHY_SETTING(     10, FULL,     10baseT_Full		),
 	PHY_SETTING(     10, HALF,     10baseT_Half		),
+	PHY_SETTING(     10, FULL,     10baseT1L_Full		),
+	PHY_SETTING(     10, FULL,     10baseT1S_Full		),
+	PHY_SETTING(     10, HALF,     10baseT1S_Half		),
+	PHY_SETTING(     10, HALF,     10baseT1S_P2MP_Half	),
 };
 #undef PHY_SETTING
 
@@ -243,7 +330,7 @@ size_t phy_speeds(unsigned int *speeds, size_t size,
 	return count;
 }
 
-static int __set_linkmode_max_speed(u32 max_speed, unsigned long *addr)
+static void __set_linkmode_max_speed(u32 max_speed, unsigned long *addr)
 {
 	const struct phy_setting *p;
 	int i;
@@ -254,13 +341,11 @@ static int __set_linkmode_max_speed(u32 max_speed, unsigned long *addr)
 		else
 			break;
 	}
-
-	return 0;
 }
 
-static int __set_phy_supported(struct phy_device *phydev, u32 max_speed)
+static void __set_phy_supported(struct phy_device *phydev, u32 max_speed)
 {
-	return __set_linkmode_max_speed(max_speed, phydev->supported);
+	__set_linkmode_max_speed(max_speed, phydev->supported);
 }
 
 /**
@@ -273,17 +358,11 @@ static int __set_phy_supported(struct phy_device *phydev, u32 max_speed)
  * is connected to a 1G PHY. This function allows the MAC to indicate its
  * maximum speed, and so limit what the PHY will advertise.
  */
-int phy_set_max_speed(struct phy_device *phydev, u32 max_speed)
+void phy_set_max_speed(struct phy_device *phydev, u32 max_speed)
 {
-	int err;
-
-	err = __set_phy_supported(phydev, max_speed);
-	if (err)
-		return err;
+	__set_phy_supported(phydev, max_speed);
 
 	phy_advertise_supported(phydev);
-
-	return 0;
 }
 EXPORT_SYMBOL(phy_set_max_speed);
 
@@ -440,7 +519,9 @@ int phy_speed_down_core(struct phy_device *phydev)
 	if (min_common_speed == SPEED_UNKNOWN)
 		return -EINVAL;
 
-	return __set_linkmode_max_speed(min_common_speed, phydev->advertising);
+	__set_linkmode_max_speed(min_common_speed, phydev->advertising);
+
+	return 0;
 }
 
 static void mmd_phy_indirect(struct mii_bus *bus, int phy_addr, int devad,

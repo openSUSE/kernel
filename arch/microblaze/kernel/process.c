@@ -18,7 +18,6 @@
 #include <linux/tick.h>
 #include <linux/bitops.h>
 #include <linux/ptrace.h>
-#include <linux/uaccess.h> /* for USER_DS macros */
 #include <asm/cacheflush.h>
 
 void show_regs(struct pt_regs *regs)
@@ -53,20 +52,22 @@ void flush_thread(void)
 {
 }
 
-int copy_thread(unsigned long clone_flags, unsigned long usp, unsigned long arg,
-		struct task_struct *p, unsigned long tls)
+int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 {
+	unsigned long clone_flags = args->flags;
+	unsigned long usp = args->stack;
+	unsigned long tls = args->tls;
 	struct pt_regs *childregs = task_pt_regs(p);
 	struct thread_info *ti = task_thread_info(p);
 
-	if (unlikely(p->flags & (PF_KTHREAD | PF_IO_WORKER))) {
+	if (unlikely(args->fn)) {
 		/* if we're creating a new kernel thread then just zeroing all
 		 * the registers. That's OK for a brand new thread.*/
 		memset(childregs, 0, sizeof(struct pt_regs));
 		memset(&ti->cpu_context, 0, sizeof(struct cpu_context));
 		ti->cpu_context.r1  = (unsigned long)childregs;
-		ti->cpu_context.r20 = (unsigned long)usp; /* fn */
-		ti->cpu_context.r19 = (unsigned long)arg;
+		ti->cpu_context.r20 = (unsigned long)args->fn;
+		ti->cpu_context.r19 = (unsigned long)args->fn_arg;
 		childregs->pt_mode = 1;
 		local_save_flags(childregs->msr);
 		ti->cpu_context.msr = childregs->msr & ~MSR_IE;
@@ -132,12 +133,11 @@ void start_thread(struct pt_regs *regs, unsigned long pc, unsigned long usp)
 /*
  * Set up a thread for executing a new program
  */
-int dump_fpu(struct pt_regs *regs, elf_fpregset_t *fpregs)
+int elf_core_copy_task_fpregs(struct task_struct *t, elf_fpregset_t *fpu)
 {
 	return 0; /* MicroBlaze has no separate FPU registers */
 }
 
 void arch_cpu_idle(void)
 {
-       raw_local_irq_enable();
 }

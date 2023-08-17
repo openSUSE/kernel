@@ -25,7 +25,6 @@
 #include <linux/tty.h>
 #include <linux/personality.h>
 #include <linux/binfmts.h>
-#include <linux/tracehook.h>
 #include <linux/syscalls.h>
 #include <linux/compat.h>
 #include <asm/ucontext.h>
@@ -141,7 +140,7 @@ static int restore_sigregs(struct pt_regs *regs, _sigregs __user *sregs)
 {
 	_sigregs user_sregs;
 
-	/* Alwys make any pending restarted system call return -EINTR */
+	/* Always make any pending restarted system call return -EINTR */
 	current->restart_block.fn = do_no_restart_syscall;
 
 	if (__copy_from_user(&user_sregs, sregs, sizeof(user_sregs)))
@@ -185,7 +184,7 @@ static int save_sigregs_ext(struct pt_regs *regs,
 	/* Save vector registers to signal stack */
 	if (MACHINE_HAS_VX) {
 		for (i = 0; i < __NUM_VXRS_LOW; i++)
-			vxrs[i] = *((__u64 *)(current->thread.fpu.vxrs + i) + 1);
+			vxrs[i] = current->thread.fpu.vxrs[i].low;
 		if (__copy_to_user(&sregs_ext->vxrs_low, vxrs,
 				   sizeof(sregs_ext->vxrs_low)) ||
 		    __copy_to_user(&sregs_ext->vxrs_high,
@@ -211,7 +210,7 @@ static int restore_sigregs_ext(struct pt_regs *regs,
 				     sizeof(sregs_ext->vxrs_high)))
 			return -EFAULT;
 		for (i = 0; i < __NUM_VXRS_LOW; i++)
-			*((__u64 *)(current->thread.fpu.vxrs + i) + 1) = vxrs[i];
+			current->thread.fpu.vxrs[i].low = vxrs[i];
 	}
 	return 0;
 }
@@ -453,7 +452,7 @@ static void handle_signal(struct ksignal *ksig, sigset_t *oldset,
  * stack-frames in one go after that.
  */
 
-void arch_do_signal_or_restart(struct pt_regs *regs, bool has_signal)
+void arch_do_signal_or_restart(struct pt_regs *regs)
 {
 	struct ksignal ksig;
 	sigset_t *oldset = sigmask_to_save();
@@ -466,7 +465,7 @@ void arch_do_signal_or_restart(struct pt_regs *regs, bool has_signal)
 	current->thread.system_call =
 		test_pt_regs_flag(regs, PIF_SYSCALL) ? regs->int_code : 0;
 
-	if (has_signal && get_signal(&ksig)) {
+	if (get_signal(&ksig)) {
 		/* Whee!  Actually deliver the signal.  */
 		if (current->thread.system_call) {
 			regs->int_code = current->thread.system_call;
@@ -532,10 +531,4 @@ void arch_do_signal_or_restart(struct pt_regs *regs, bool has_signal)
 	 * If there's no signal to deliver, we just put the saved sigmask back.
 	 */
 	restore_saved_sigmask();
-}
-
-void do_notify_resume(struct pt_regs *regs)
-{
-	tracehook_notify_resume(regs);
-	rseq_handle_notify_resume(NULL, regs);
 }

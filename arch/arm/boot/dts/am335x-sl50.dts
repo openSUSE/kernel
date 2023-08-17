@@ -588,7 +588,7 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&spi0_pins>;
 
-	flash: n25q032@1 {
+	flash: flash@1 {
 		#address-cells = <1>;
 		#size-cells = <1>;
 		compatible = "micron,n25q032";
@@ -661,20 +661,24 @@
 	};
 };
 
-&cpsw_emac0 {
+&cpsw_port1 {
 	phy-mode = "mii";
 	phy-handle = <&ethphy0>;
+	ti,dual-emac-pvid = <1>;
 };
 
-&mac {
+&cpsw_port2 {
+	status = "disabled";
+};
+
+&mac_sw {
 	status = "okay";
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&cpsw_default>;
 	pinctrl-1 = <&cpsw_sleep>;
 };
 
-&davinci_mdio {
-	status = "okay";
+&davinci_mdio_sw {
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&davinci_mdio_default>;
 	pinctrl-1 = <&davinci_mdio_sleep>;

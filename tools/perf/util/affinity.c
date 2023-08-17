@@ -11,7 +11,7 @@
 
 static int get_cpu_set_size(void)
 {
-	int sz = cpu__max_cpu() + 8 - 1;
+	int sz = cpu__max_cpu().cpu + 8 - 1;
 	/*
 	 * sched_getaffinity doesn't like masks smaller than the kernel.
 	 * Hopefully that's big enough.
@@ -25,11 +25,11 @@ int affinity__setup(struct affinity *a)
 {
 	int cpu_set_size = get_cpu_set_size();
 
-	a->orig_cpus = bitmap_alloc(cpu_set_size * 8);
+	a->orig_cpus = bitmap_zalloc(cpu_set_size * 8);
 	if (!a->orig_cpus)
 		return -1;
 	sched_getaffinity(0, cpu_set_size, (cpu_set_t *)a->orig_cpus);
-	a->sched_cpus = bitmap_alloc(cpu_set_size * 8);
+	a->sched_cpus = bitmap_zalloc(cpu_set_size * 8);
 	if (!a->sched_cpus) {
 		zfree(&a->orig_cpus);
 		return -1;
@@ -49,20 +49,26 @@ void affinity__set(struct affinity *a, int cpu)
 {
 	int cpu_set_size = get_cpu_set_size();
 
-	if (cpu == -1)
+	/*
+	 * Return:
+	 * - if cpu is -1
+	 * - restrict out of bound access to sched_cpus
+	 */
+	if (cpu == -1 || ((cpu >= (cpu_set_size * 8))))
 		return;
+
 	a->changed = true;
-	set_bit(cpu, a->sched_cpus);
+	__set_bit(cpu, a->sched_cpus);
 	/*
 	 * We ignore errors because affinity is just an optimization.
 	 * This could happen for example with isolated CPUs or cpusets.
 	 * In this case the IPIs inside the kernel's perf API still work.
 	 */
 	sched_setaffinity(0, cpu_set_size, (cpu_set_t *)a->sched_cpus);
-	clear_bit(cpu, a->sched_cpus);
+	__clear_bit(cpu, a->sched_cpus);
 }
 
-void affinity__cleanup(struct affinity *a)
+static void __affinity__cleanup(struct affinity *a)
 {
 	int cpu_set_size = get_cpu_set_size();
 
@@ -70,4 +76,10 @@ void affinity__cleanup(struct affinity *a)
 		sched_setaffinity(0, cpu_set_size, (cpu_set_t *)a->orig_cpus);
 	zfree(&a->sched_cpus);
 	zfree(&a->orig_cpus);
+}
+
+void affinity__cleanup(struct affinity *a)
+{
+	if (a != NULL)
+		__affinity__cleanup(a);
 }

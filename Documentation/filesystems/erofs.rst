@@ -1,60 +1,91 @@
 .. SPDX-License-Identifier: GPL-2.0
 
 ======================================
-Enhanced Read-Only File System - EROFS
+EROFS - Enhanced Read-Only File System
 ======================================
 
 Overview
 ========
 
-EROFS file-system stands for Enhanced Read-Only File System. Different
-from other read-only file systems, it aims to be designed for flexibility,
-scalability, but be kept simple and high performance.
+EROFS filesystem stands for Enhanced Read-Only File System.  It aims to form a
+generic read-only filesystem solution for various read-only use cases instead
+of just focusing on storage space saving without considering any side effects
+of runtime performance.
 
-It is designed as a better filesystem solution for the following scenarios:
+It is designed to meet the needs of flexibility, feature extendability and user
+payload friendly, etc.  Apart from those, it is still kept as a simple
+random-access friendly high-performance filesystem to get rid of unneeded I/O
+amplification and memory-resident overhead compared to similar approaches.
+
+It is implemented to be a better choice for the following scenarios:
 
  - read-only storage media or
 
  - part of a fully trusted read-only solution, which means it needs to be
    immutable and bit-for-bit identical to the official golden image for
-   their releases due to security and other considerations and
+   their releases due to security or other considerations and
 
- - hope to save some extra storage space with guaranteed end-to-end performance
-   by using reduced metadata and transparent file compression, especially
-   for those embedded devices with limited memory (ex, smartphone);
+ - hope to minimize extra storage space with guaranteed end-to-end performance
+   by using compact layout, transparent file compression and direct access,
+   especially for those embedded devices with limited memory and high-density
+   hosts with numerous containers.
 
-Here is the main features of EROFS:
+Here are the main features of EROFS:
 
  - Little endian on-disk design;
 
- - Currently 4KB block size (nobh) and therefore maximum 16TB address space;
+ - Block-based distribution and file-based distribution over fscache are
+   supported;
 
- - Metadata & data could be mixed by design;
+ - Support multiple devices to refer to external blobs, which can be used
+   for container images;
 
- - 2 inode versions for different requirements:
+ - 32-bit block addresses for each device, therefore 16TiB address space at
+   most with 4KiB block size for now;
 
-   =====================  ============  =====================================
+ - Two inode layouts for different requirements:
+
+   =====================  ============  ======================================
                           compact (v1)  extended (v2)
-   =====================  ============  =====================================
+   =====================  ============  ======================================
    Inode metadata size    32 bytes      64 bytes
-   Max file size          4 GB          16 EB (also limited by max. vol size)
+   Max file size          4 GiB         16 EiB (also limited by max. vol size)
    Max uids/gids          65536         4294967296
-   File change time       no            yes (64 + 32-bit timestamp)
+   Per-inode timestamp    no            yes (64 + 32-bit timestamp)
    Max hardlinks          65536         4294967296
-   Metadata reserved      4 bytes       14 bytes
-   =====================  ============  =====================================
+   Metadata reserved      8 bytes       18 bytes
+   =====================  ============  ======================================
 
- - Support extended attributes (xattrs) as an option;
+ - Support extended attributes as an option;
 
- - Support xattr inline and tail-end data inline for all files;
-
- - Support POSIX.1e ACLs by using xattrs;
+ - Support POSIX.1e ACLs by using extended attributes;
 
  - Support transparent data compression as an option:
-   LZ4 algorithm with the fixed-sized output compression for high performance.
+   LZ4 and MicroLZMA algorithms can be used on a per-file basis; In addition,
+   inplace decompression is also supported to avoid bounce compressed buffers
+   and page cache thrashing.
+
+ - Support chunk-based data deduplication and rolling-hash compressed data
+   deduplication;
+
+ - Support tailpacking inline compared to byte-addressed unaligned metadata
+   or smaller block size alternatives;
+
+ - Support merging tail-end data into a special inode as fragments.
+
+ - Support large folios for uncompressed files.
+
+ - Support direct I/O on uncompressed files to avoid double caching for loop
+   devices;
+
+ - Support FSDAX on uncompressed images for secure containers and ramdisks in
+   order to get rid of unnecessary page cache.
+
+ - Support file-based on-demand loading with the Fscache infrastructure.
 
 The following git tree provides the file system user-space tools under
-development (ex, formatting tool mkfs.erofs):
+development, such as a formatting tool (mkfs.erofs), an on-disk consistency &
+compatibility checking tool (fsck.erofs), and a debugging tool (dump.erofs):
 
 - git://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git
 
@@ -84,7 +115,22 @@ cache_strategy=%s      Select a strategy for cached decompression from now on:
                                    It still does in-place I/O decompression
                                    for the rest compressed physical clusters.
 		       ==========  =============================================
+dax={always,never}     Use direct access (no page cache).  See
+                       Documentation/filesystems/dax.rst.
+dax                    A legacy option which is an alias for ``dax=always``.
+device=%s              Specify a path to an extra device to be used together.
+fsid=%s                Specify a filesystem image ID for Fscache back-end.
+domain_id=%s           Specify a domain ID in fscache mode so that different images
+                       with the same blobs under a given domain ID can share storage.
 ===================    =========================================================
+
+Sysfs Entries
+=============
+
+Information about mounted erofs file systems can be found in /sys/fs/erofs.
+Each mounted filesystem will have a directory in /sys/fs/erofs based on its
+device name (i.e., /sys/fs/erofs/sda).
+(see also Documentation/ABI/testing/sysfs-fs-erofs)
 
 On-disk details
 ===============
@@ -153,13 +199,14 @@ may not. All metadatas can be now observed in two different spaces (views):
 
     Xattrs, extents, data inline are followed by the corresponding inode with
     proper alignment, and they could be optional for different data mappings.
-    _currently_ total 4 valid data mappings are supported:
+    _currently_ total 5 data layouts are supported:
 
     ==  ====================================================================
      0  flat file data without data inline (no extent);
      1  fixed-sized output data compression (with non-compacted indexes);
      2  flat file data with tail packing data inline (no extent);
-     3  fixed-sized output data compression (with compacted indexes, v5.3+).
+     3  fixed-sized output data compression (with compacted indexes, v5.3+);
+     4  chunk-based file (v5.15+).
     ==  ====================================================================
 
     The size of the optional xattrs is indicated by i_xattr_count in inode
@@ -210,9 +257,20 @@ Note that apart from the offset of the first filename, nameoff0 also indicates
 the total number of directory entries in this block since it is no need to
 introduce another on-disk field at all.
 
+Chunk-based files
+-----------------
+In order to support chunk-based data deduplication, a new inode data layout has
+been supported since Linux v5.15: Files are split in equal-sized data chunks
+with ``extents`` area of the inode metadata indicating how to get the chunk
+data: these can be simply as a 4-byte block address array or in the 8-byte
+chunk index form (see struct erofs_inode_chunk_index in erofs_fs.h for more
+details.)
+
+By the way, chunk-based files are all uncompressed for now.
+
 Data compression
 ----------------
-EROFS implements LZ4 fixed-sized output compression which generates fixed-sized
+EROFS implements fixed-sized output compression which generates fixed-sized
 compressed data blocks from variable-sized input in contrast to other existing
 fixed-sized input solutions. Relatively higher compression ratios can be gotten
 by using fixed-sized output compression since nowadays popular data compression
@@ -267,3 +325,6 @@ to understand its delta0 is constantly 1, as illustrated below::
 
 If another HEAD follows a HEAD lcluster, there is no room to record CBLKCNT,
 but it's easy to know the size of such pcluster is 1 lcluster as well.
+
+Since Linux v6.1, each pcluster can be used for multiple variable-sized extents,
+therefore it can be used for compressed data deduplication.

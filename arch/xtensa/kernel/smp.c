@@ -30,6 +30,7 @@
 #include <linux/thread_info.h>
 
 #include <asm/cacheflush.h>
+#include <asm/coprocessor.h>
 #include <asm/kdebug.h>
 #include <asm/mmu_context.h>
 #include <asm/mxregs.h>
@@ -272,6 +273,12 @@ int __cpu_disable(void)
 	 */
 	set_cpu_online(cpu, false);
 
+#if XTENSA_HAVE_COPROCESSORS
+	/*
+	 * Flush coprocessor contexts that are active on the current CPU.
+	 */
+	local_coprocessors_flush_release_all();
+#endif
 	/*
 	 * OK - migrate IRQs away from this CPU
 	 */
@@ -315,7 +322,7 @@ void __cpu_die(unsigned int cpu)
 	pr_err("CPU%u: unable to kill\n", cpu);
 }
 
-void arch_cpu_idle_dead(void)
+void __noreturn arch_cpu_idle_dead(void)
 {
 	cpu_die();
 }
@@ -334,6 +341,8 @@ void __ref cpu_die(void)
 	__asm__ __volatile__(
 			"	movi	a2, cpu_restart\n"
 			"	jx	a2\n");
+
+	BUG();
 }
 
 #endif /* CONFIG_HOTPLUG_CPU */
@@ -382,7 +391,7 @@ void arch_send_call_function_single_ipi(int cpu)
 	send_ipi_message(cpumask_of(cpu), IPI_CALL_FUNC);
 }
 
-void smp_send_reschedule(int cpu)
+void arch_smp_send_reschedule(int cpu)
 {
 	send_ipi_message(cpumask_of(cpu), IPI_RESCHEDULE);
 }

@@ -11,6 +11,7 @@
 #include <linux/device.h>
 #include <linux/interrupt.h>
 #include <linux/irqreturn.h>
+#include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/bitfield.h>
 
@@ -67,7 +68,7 @@ static irqreturn_t hts221_trigger_handler_thread(int irq, void *private)
 	if (!(status & HTS221_RH_DRDY_MASK))
 		return IRQ_NONE;
 
-	iio_trigger_poll_chained(hw->trig);
+	iio_trigger_poll_nested(hw->trig);
 
 	return IRQ_HANDLED;
 }

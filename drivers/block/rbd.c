@@ -34,7 +34,6 @@
 #include <linux/ceph/cls_lock_client.h>
 #include <linux/ceph/striper.h>
 #include <linux/ceph/decode.h>
-#include <linux/ceph/librbd.h>
 #include <linux/fs_parser.h>
 #include <linux/bsearch.h>
 
@@ -85,6 +84,8 @@ static int atomic_dec_return_safe(atomic_t *v)
 	return -EINVAL;
 }
 
+#define RBD_DRV_NAME "rbd"
+
 #define RBD_MINORS_PER_MAJOR		256
 #define RBD_SINGLE_MAJOR_PART_SHIFT	4
 
@@ -134,12 +135,97 @@ static int atomic_dec_return_safe(atomic_t *v)
 #define RBD_FEATURES_SUPPORTED	(RBD_FEATURES_ALL)
 
 /*
+ * An RBD device name will be "rbd#", where the "rbd" comes from
+ * RBD_DRV_NAME above, and # is a unique integer identifier.
+ */
+#define DEV_NAME_LEN		32
+
+/*
+ * block device image metadata (in-memory version)
+ */
+struct rbd_image_header {
+	/* These six fields never change for a given rbd image */
+	char *object_prefix;
+	__u8 obj_order;
+	u64 stripe_unit;
+	u64 stripe_count;
+	s64 data_pool_id;
+	u64 features;		/* Might be changeable someday? */
+
+	/* The remaining fields need to be updated occasionally */
+	u64 image_size;
+	struct ceph_snap_context *snapc;
+	char *snap_names;	/* format 1 only */
+	u64 *snap_sizes;	/* format 1 only */
+};
+
+/*
+ * An rbd image specification.
+ *
+ * The tuple (pool_id, image_id, snap_id) is sufficient to uniquely
+ * identify an image.  Each rbd_dev structure includes a pointer to
+ * an rbd_spec structure that encapsulates this identity.
+ *
+ * Each of the id's in an rbd_spec has an associated name.  For a
+ * user-mapped image, the names are supplied and the id's associated
+ * with them are looked up.  For a layered image, a parent image is
+ * defined by the tuple, and the names are looked up.
+ *
+ * An rbd_dev structure contains a parent_spec pointer which is
+ * non-null if the image it represents is a child in a layered
+ * image.  This pointer will refer to the rbd_spec structure used
+ * by the parent rbd_dev for its own identity (i.e., the structure
+ * is shared between the parent and child).
+ *
+ * Since these structures are populated once, during the discovery
+ * phase of image construction, they are effectively immutable so
+ * we make no effort to synchronize access to them.
+ *
+ * Note that code herein does not assume the image name is known (it
+ * could be a null pointer).
+ */
+struct rbd_spec {
+	u64		pool_id;
+	const char	*pool_name;
+	const char	*pool_ns;	/* NULL if default, never "" */
+
+	const char	*image_id;
+	const char	*image_name;
+
+	u64		snap_id;
+	const char	*snap_name;
+
+	struct kref	kref;
+};
+
+/*
  * an instance of the client.  multiple devices may share an rbd client.
  */
 struct rbd_client {
 	struct ceph_client	*client;
 	struct kref		kref;
 	struct list_head	node;
+};
+
+struct pending_result {
+	int			result;		/* first nonzero result */
+	int			num_pending;
+};
+
+struct rbd_img_request;
+
+enum obj_request_type {
+	OBJ_REQUEST_NODATA = 1,
+	OBJ_REQUEST_BIO,	/* pointer into provided bio (list) */
+	OBJ_REQUEST_BVECS,	/* pointer into provided bio_vec array */
+	OBJ_REQUEST_OWN_BVECS,	/* private bio_vec array, doesn't own pages */
+};
+
+enum obj_operation_type {
+	OBJ_OP_READ = 1,
+	OBJ_OP_WRITE,
+	OBJ_OP_DISCARD,
+	OBJ_OP_ZEROOUT,
 };
 
 #define RBD_OBJ_FLAG_DELETION			(1U << 0)
@@ -215,11 +301,6 @@ struct rbd_obj_request {
 			struct ceph_bvec_iter	bvec_pos;
 			u32			bvec_count;
 			u32			bvec_idx;
-			/*
-			 * iter for cmp portion of compare and write, which
-			 * refers to bvecs in @bvec_pos.
-			 */
-			struct bvec_iter	cmp_bvec_iter;
 		};
 	};
 
@@ -239,10 +320,147 @@ enum img_req_flags {
 	IMG_REQ_LAYERED,	/* ENOENT handling: normal = 0, layered = 1 */
 };
 
+enum rbd_img_state {
+	RBD_IMG_START = 1,
+	RBD_IMG_EXCLUSIVE_LOCK,
+	__RBD_IMG_OBJECT_REQUESTS,
+	RBD_IMG_OBJECT_REQUESTS,
+};
+
+struct rbd_img_request {
+	struct rbd_device	*rbd_dev;
+	enum obj_operation_type	op_type;
+	enum obj_request_type	data_type;
+	unsigned long		flags;
+	enum rbd_img_state	state;
+	union {
+		u64			snap_id;	/* for reads */
+		struct ceph_snap_context *snapc;	/* for writes */
+	};
+	struct rbd_obj_request	*obj_request;	/* obj req initiator */
+
+	struct list_head	lock_item;
+	struct list_head	object_extents;	/* obj_req.ex structs */
+
+	struct mutex		state_mutex;
+	struct pending_result	pending;
+	struct work_struct	work;
+	int			work_result;
+};
+
 #define for_each_obj_request(ireq, oreq) \
 	list_for_each_entry(oreq, &(ireq)->object_extents, ex.oe_item)
 #define for_each_obj_request_safe(ireq, oreq, n) \
 	list_for_each_entry_safe(oreq, n, &(ireq)->object_extents, ex.oe_item)
+
+enum rbd_watch_state {
+	RBD_WATCH_STATE_UNREGISTERED,
+	RBD_WATCH_STATE_REGISTERED,
+	RBD_WATCH_STATE_ERROR,
+};
+
+enum rbd_lock_state {
+	RBD_LOCK_STATE_UNLOCKED,
+	RBD_LOCK_STATE_LOCKED,
+	RBD_LOCK_STATE_RELEASING,
+};
+
+/* WatchNotify::ClientId */
+struct rbd_client_id {
+	u64 gid;
+	u64 handle;
+};
+
+struct rbd_mapping {
+	u64                     size;
+};
+
+/*
+ * a single device
+ */
+struct rbd_device {
+	int			dev_id;		/* blkdev unique id */
+
+	int			major;		/* blkdev assigned major */
+	int			minor;
+	struct gendisk		*disk;		/* blkdev's gendisk and rq */
+
+	u32			image_format;	/* Either 1 or 2 */
+	struct rbd_client	*rbd_client;
+
+	char			name[DEV_NAME_LEN]; /* blkdev name, e.g. rbd3 */
+
+	spinlock_t		lock;		/* queue, flags, open_count */
+
+	struct rbd_image_header	header;
+	unsigned long		flags;		/* possibly lock protected */
+	struct rbd_spec		*spec;
+	struct rbd_options	*opts;
+	char			*config_info;	/* add{,_single_major} string */
+
+	struct ceph_object_id	header_oid;
+	struct ceph_object_locator header_oloc;
+
+	struct ceph_file_layout	layout;		/* used for all rbd requests */
+
+	struct mutex		watch_mutex;
+	enum rbd_watch_state	watch_state;
+	struct ceph_osd_linger_request *watch_handle;
+	u64			watch_cookie;
+	struct delayed_work	watch_dwork;
+
+	struct rw_semaphore	lock_rwsem;
+	enum rbd_lock_state	lock_state;
+	char			lock_cookie[32];
+	struct rbd_client_id	owner_cid;
+	struct work_struct	acquired_lock_work;
+	struct work_struct	released_lock_work;
+	struct delayed_work	lock_dwork;
+	struct work_struct	unlock_work;
+	spinlock_t		lock_lists_lock;
+	struct list_head	acquiring_list;
+	struct list_head	running_list;
+	struct completion	acquire_wait;
+	int			acquire_err;
+	struct completion	releasing_wait;
+
+	spinlock_t		object_map_lock;
+	u8			*object_map;
+	u64			object_map_size;	/* in objects */
+	u64			object_map_flags;
+
+	struct workqueue_struct	*task_wq;
+
+	struct rbd_spec		*parent_spec;
+	u64			parent_overlap;
+	atomic_t		parent_ref;
+	struct rbd_device	*parent;
+
+	/* Block layer tags. */
+	struct blk_mq_tag_set	tag_set;
+
+	/* protects updating the header */
+	struct rw_semaphore     header_rwsem;
+
+	struct rbd_mapping	mapping;
+
+	struct list_head	node;
+
+	/* sysfs related */
+	struct device		dev;
+	unsigned long		open_count;	/* protected by lock */
+};
+
+/*
+ * Flag bits for rbd_dev->flags:
+ * - REMOVING (which is coupled with rbd_dev->open_count) is protected
+ *   by rbd_dev->lock
+ */
+enum rbd_dev_flags {
+	RBD_DEV_FLAG_EXISTS,	/* rbd_dev_device_setup() ran */
+	RBD_DEV_FLAG_REMOVING,	/* this mapping is being removed */
+	RBD_DEV_FLAG_READONLY,  /* -o ro or snapshot */
+};
 
 static DEFINE_MUTEX(client_mutex);	/* Serialize client creation */
 
@@ -273,12 +491,12 @@ static bool single_major = true;
 module_param(single_major, bool, 0444);
 MODULE_PARM_DESC(single_major, "Use a single major number for all rbd devices (default: true)");
 
-static ssize_t add_store(struct bus_type *bus, const char *buf, size_t count);
-static ssize_t remove_store(struct bus_type *bus, const char *buf,
+static ssize_t add_store(const struct bus_type *bus, const char *buf, size_t count);
+static ssize_t remove_store(const struct bus_type *bus, const char *buf,
 			    size_t count);
-static ssize_t add_single_major_store(struct bus_type *bus, const char *buf,
+static ssize_t add_single_major_store(const struct bus_type *bus, const char *buf,
 				      size_t count);
-static ssize_t remove_single_major_store(struct bus_type *bus, const char *buf,
+static ssize_t remove_single_major_store(const struct bus_type *bus, const char *buf,
 					 size_t count);
 static int rbd_dev_image_probe(struct rbd_device *rbd_dev, int depth);
 
@@ -320,7 +538,7 @@ static bool rbd_is_lock_owner(struct rbd_device *rbd_dev)
 	return is_lock_owner;
 }
 
-static ssize_t supported_features_show(struct bus_type *bus, char *buf)
+static ssize_t supported_features_show(const struct bus_type *bus, char *buf)
 {
 	return sprintf(buf, "0x%llx\n", RBD_FEATURES_SUPPORTED);
 }
@@ -424,6 +642,7 @@ static int _rbd_dev_v2_snap_size(struct rbd_device *rbd_dev, u64 snap_id,
 static int rbd_dev_v2_get_flags(struct rbd_device *rbd_dev);
 
 static void rbd_obj_handle_request(struct rbd_obj_request *obj_req, int result);
+static void rbd_img_handle_request(struct rbd_img_request *img_req, int result);
 
 /*
  * Return true if nothing else is pending.
@@ -537,24 +756,23 @@ static struct rbd_client *__rbd_get_client(struct rbd_client *rbdc)
  */
 static struct rbd_client *rbd_client_find(struct ceph_options *ceph_opts)
 {
-	struct rbd_client *client_node;
-	bool found = false;
+	struct rbd_client *rbdc = NULL, *iter;
 
 	if (ceph_opts->flags & CEPH_OPT_NOSHARE)
 		return NULL;
 
 	spin_lock(&rbd_client_list_lock);
-	list_for_each_entry(client_node, &rbd_client_list, node) {
-		if (!ceph_compare_options(ceph_opts, client_node->client)) {
-			__rbd_get_client(client_node);
+	list_for_each_entry(iter, &rbd_client_list, node) {
+		if (!ceph_compare_options(ceph_opts, iter->client)) {
+			__rbd_get_client(iter);
 
-			found = true;
+			rbdc = iter;
 			break;
 		}
 	}
 	spin_unlock(&rbd_client_list_lock);
 
-	return found ? client_node : NULL;
+	return rbdc;
 }
 
 /*
@@ -642,8 +860,6 @@ static char* obj_op_name(enum obj_operation_type op_type)
 		return "discard";
 	case OBJ_OP_ZEROOUT:
 		return "zeroout";
-	case OBJ_OP_CMP_AND_WRITE:
-		return "compare-and-write";
 	default:
 		return "???";
 	}
@@ -1118,14 +1334,30 @@ static bool rbd_obj_is_tail(struct rbd_obj_request *obj_req)
 /*
  * Must be called after rbd_obj_calc_img_extents().
  */
-static bool rbd_obj_copyup_enabled(struct rbd_obj_request *obj_req)
+static void rbd_obj_set_copyup_enabled(struct rbd_obj_request *obj_req)
 {
-	if (!obj_req->num_img_extents ||
-	    (rbd_obj_is_entire(obj_req) &&
-	     !obj_req->img_request->snapc->num_snaps))
-		return false;
+	rbd_assert(obj_req->img_request->snapc);
 
-	return true;
+	if (obj_req->img_request->op_type == OBJ_OP_DISCARD) {
+		dout("%s %p objno %llu discard\n", __func__, obj_req,
+		     obj_req->ex.oe_objno);
+		return;
+	}
+
+	if (!obj_req->num_img_extents) {
+		dout("%s %p objno %llu not overlapping\n", __func__, obj_req,
+		     obj_req->ex.oe_objno);
+		return;
+	}
+
+	if (rbd_obj_is_entire(obj_req) &&
+	    !obj_req->img_request->snapc->num_snaps) {
+		dout("%s %p objno %llu entire\n", __func__, obj_req,
+		     obj_req->ex.oe_objno);
+		return;
+	}
+
+	obj_req->flags |= RBD_OBJ_FLAG_COPYUP_ENABLED;
 }
 
 static u64 rbd_obj_img_extents_bytes(struct rbd_obj_request *obj_req)
@@ -1142,7 +1374,6 @@ static bool rbd_img_is_write(struct rbd_img_request *img_req)
 	case OBJ_OP_WRITE:
 	case OBJ_OP_DISCARD:
 	case OBJ_OP_ZEROOUT:
-	case OBJ_OP_CMP_AND_WRITE:
 		return true;
 	default:
 		BUG();
@@ -1227,6 +1458,7 @@ __rbd_obj_add_osd_request(struct rbd_obj_request *obj_req,
 static struct ceph_osd_request *
 rbd_obj_add_osd_request(struct rbd_obj_request *obj_req, int num_ops)
 {
+	rbd_assert(obj_req->img_request->snapc);
 	return __rbd_obj_add_osd_request(obj_req, obj_req->img_request->snapc,
 					 num_ops);
 }
@@ -1351,8 +1583,7 @@ static bool rbd_dev_parent_get(struct rbd_device *rbd_dev)
 
 static void rbd_img_request_init(struct rbd_img_request *img_request,
 				 struct rbd_device *rbd_dev,
-				 enum obj_operation_type op_type,
-				 rbd_img_request_end_cb_t end_cb)
+				 enum obj_operation_type op_type)
 {
 	memset(img_request, 0, sizeof(*img_request));
 
@@ -1362,42 +1593,27 @@ static void rbd_img_request_init(struct rbd_img_request *img_request,
 	INIT_LIST_HEAD(&img_request->lock_item);
 	INIT_LIST_HEAD(&img_request->object_extents);
 	mutex_init(&img_request->state_mutex);
-	img_request->callback = end_cb;
 }
 
-/* This is for use by LIO RBD so we don't export the caches directly */
-struct rbd_img_request *rbd_img_request_create(
-					struct rbd_device *rbd_dev,
-					enum obj_operation_type op_type,
-					rbd_img_request_end_cb_t end_cb)
-{
-	struct rbd_img_request *img_request;
-
-	img_request = kmem_cache_alloc(rbd_img_request_cache, GFP_NOIO);
-	if (!img_request)
-		return NULL;
-
-	rbd_img_request_init(img_request, rbd_dev, op_type, end_cb);
-	return img_request;
-}
-EXPORT_SYMBOL(rbd_img_request_create);
-
+/*
+ * Only snap_id is captured here, for reads.  For writes, snapshot
+ * context is captured in rbd_img_object_requests() after exclusive
+ * lock is ensured to be held.
+ */
 static void rbd_img_capture_header(struct rbd_img_request *img_req)
 {
 	struct rbd_device *rbd_dev = img_req->rbd_dev;
 
 	lockdep_assert_held(&rbd_dev->header_rwsem);
 
-	if (rbd_img_is_write(img_req))
-		img_req->snapc = ceph_get_snap_context(rbd_dev->header.snapc);
-	else
+	if (!rbd_img_is_write(img_req))
 		img_req->snap_id = rbd_dev->spec->snap_id;
 
 	if (rbd_dev_parent_get(rbd_dev))
 		img_request_layered_set(img_req);
 }
 
-void rbd_img_request_destroy(struct rbd_img_request *img_request)
+static void rbd_img_request_destroy(struct rbd_img_request *img_request)
 {
 	struct rbd_obj_request *obj_request;
 	struct rbd_obj_request *next_obj_request;
@@ -1417,7 +1633,6 @@ void rbd_img_request_destroy(struct rbd_img_request *img_request)
 	if (test_bit(IMG_REQ_CHILD, &img_request->flags))
 		kmem_cache_free(rbd_img_request_cache, img_request);
 }
-EXPORT_SYMBOL(rbd_img_request_destroy);
 
 #define BITS_PER_OBJ	2
 #define OBJS_PER_BYTE	(BITS_PER_BYTE / BITS_PER_OBJ)
@@ -2038,9 +2253,6 @@ static int rbd_obj_init_write(struct rbd_obj_request *obj_req)
 	if (ret)
 		return ret;
 
-	if (rbd_obj_copyup_enabled(obj_req))
-		obj_req->flags |= RBD_OBJ_FLAG_COPYUP_ENABLED;
-
 	obj_req->write_state = RBD_OBJ_WRITE_START;
 	return 0;
 }
@@ -2146,77 +2358,12 @@ static int rbd_obj_init_zeroout(struct rbd_obj_request *obj_req)
 	if (ret)
 		return ret;
 
-	if (rbd_obj_copyup_enabled(obj_req))
-		obj_req->flags |= RBD_OBJ_FLAG_COPYUP_ENABLED;
 	if (!obj_req->num_img_extents) {
 		obj_req->flags |= RBD_OBJ_FLAG_NOOP_FOR_NONEXISTENT;
 		if (rbd_obj_is_entire(obj_req))
 			obj_req->flags |= RBD_OBJ_FLAG_DELETION;
 	}
 
-	obj_req->write_state = RBD_OBJ_WRITE_START;
-	return 0;
-}
-
-static void __rbd_osd_setup_cmp_and_write_ops(struct ceph_osd_request *osd_req,
-				      int which)
-{
-	struct rbd_obj_request *obj_req = osd_req->r_priv;
-	struct rbd_device *rbd_dev = obj_req->img_request->rbd_dev;
-	/* cmp and write iters point to different ranges within same bvecs */
-	struct ceph_bvec_iter cmp_bvec_pos = {
-		.bvecs = obj_req->bvec_pos.bvecs,
-		.iter  = obj_req->cmp_bvec_iter,
-	};
-	struct ceph_bvec_iter *write_bvec_pos = &obj_req->bvec_pos;
-	u16 opcode;
-
-	BUG_ON(obj_req->img_request->data_type != OBJ_REQUEST_BVECS
-		&& obj_req->img_request->data_type != OBJ_REQUEST_OWN_BVECS);
-
-	if (!use_object_map(rbd_dev) ||
-	    !(obj_req->flags & RBD_OBJ_FLAG_MAY_EXIST)) {
-		osd_req_op_alloc_hint_init(osd_req, which++,
-					   rbd_dev->layout.object_size,
-					   rbd_dev->layout.object_size,
-					   rbd_dev->opts->alloc_hint_flags);
-	}
-
-	osd_req_op_extent_init(osd_req, which, CEPH_OSD_OP_CMPEXT,
-			       obj_req->ex.oe_off, obj_req->ex.oe_len, 0, 0);
-	/*
-	 * Regular rbd_osd_setup_data() can't be used here - separate bvec iters
-	 * need to be used for compare op and write op data.
-	 */
-	osd_req_op_extent_osd_data_bvec_pos(osd_req, which, &cmp_bvec_pos);
-	which++;
-
-	if (rbd_obj_is_entire(obj_req))
-		opcode = CEPH_OSD_OP_WRITEFULL;
-	else
-		opcode = CEPH_OSD_OP_WRITE;
-
-	osd_req_op_extent_init(osd_req, which, opcode,
-			       obj_req->ex.oe_off, obj_req->ex.oe_len, 0, 0);
-	osd_req_op_extent_osd_data_bvec_pos(osd_req, which, write_bvec_pos);
-}
-
-static int rbd_obj_init_cmp_and_write(struct rbd_obj_request *obj_req)
-{
-	int ret;
-
-	/* reverse map the entire object onto the parent */
-	ret = rbd_obj_calc_img_extents(obj_req, true);
-	if (ret)
-		return ret;
-
-	if (rbd_obj_copyup_enabled(obj_req))
-		obj_req->flags |= RBD_OBJ_FLAG_COPYUP_ENABLED;
-
-	/*
-	 * FIXME ensure that copyup *always* occurs for clones,
-	 * regardless of the I/O size.
-	 */
 	obj_req->write_state = RBD_OBJ_WRITE_START;
 	return 0;
 }
@@ -2240,12 +2387,6 @@ static int count_write_ops(struct rbd_obj_request *obj_req)
 			return 2; /* create + truncate */
 
 		return 1; /* delete/truncate/zero */
-	case OBJ_OP_CMP_AND_WRITE:
-		if (!use_object_map(img_req->rbd_dev) ||
-		    !(obj_req->flags & RBD_OBJ_FLAG_MAY_EXIST))
-			return 3; /* setallochint + cmpext + write/writefull */
-
-		return 2; /* cmpext + write/writefull */
 	default:
 		BUG();
 	}
@@ -2265,9 +2406,6 @@ static void rbd_osd_setup_write_ops(struct ceph_osd_request *osd_req,
 		break;
 	case OBJ_OP_ZEROOUT:
 		__rbd_osd_setup_zeroout_ops(osd_req, which);
-		break;
-	case OBJ_OP_CMP_AND_WRITE:
-		__rbd_osd_setup_cmp_and_write_ops(osd_req, which);
 		break;
 	default:
 		BUG();
@@ -2298,9 +2436,6 @@ static int __rbd_img_fill_request(struct rbd_img_request *img_req)
 		case OBJ_OP_ZEROOUT:
 			ret = rbd_obj_init_zeroout(obj_req);
 			break;
-		case OBJ_OP_CMP_AND_WRITE:
-			ret = rbd_obj_init_cmp_and_write(obj_req);
-			break;
 		default:
 			BUG();
 		}
@@ -2321,8 +2456,6 @@ union rbd_img_fill_iter {
 	struct ceph_bvec_iter	bvec_iter;
 };
 
-typedef void (*reset_fill_ctx_iter_fn_t)(union rbd_img_fill_iter *iter);
-
 struct rbd_img_fill_ctx {
 	enum obj_request_type	pos_type;
 	union rbd_img_fill_iter	*pos;
@@ -2330,7 +2463,6 @@ struct rbd_img_fill_ctx {
 	ceph_object_extent_fn_t	set_pos_fn;
 	ceph_object_extent_fn_t	count_fn;
 	ceph_object_extent_fn_t	copy_fn;
-	reset_fill_ctx_iter_fn_t reset_iter_fn;
 };
 
 static struct ceph_object_extent *alloc_object_extent(void *arg)
@@ -2372,10 +2504,7 @@ static int rbd_img_fill_request_nocopy(struct rbd_img_request *img_req,
 	 * Create object requests and set each object request's starting
 	 * position in the provided bio (list) or bio_vec array.
 	 */
-	if (fctx->reset_iter_fn)
-		fctx->reset_iter_fn(&fctx->iter);
-	else
-		fctx->iter = *fctx->pos;
+	fctx->iter = *fctx->pos;
 	for (i = 0; i < num_img_extents; i++) {
 		ret = ceph_file_to_extents(&img_req->rbd_dev->layout,
 					   img_extents[i].fe_off,
@@ -2427,10 +2556,7 @@ static int rbd_img_fill_request(struct rbd_img_request *img_req,
 	 * or bio_vec array because when mapped, those bio_vecs can straddle
 	 * stripe unit boundaries.
 	 */
-	if (fctx->reset_iter_fn)
-		fctx->reset_iter_fn(&fctx->iter);
-	else
-		fctx->iter = *fctx->pos;
+	fctx->iter = *fctx->pos;
 	for (i = 0; i < num_img_extents; i++) {
 		ret = ceph_file_to_extents(&rbd_dev->layout,
 					   img_extents[i].fe_off,
@@ -2454,10 +2580,7 @@ static int rbd_img_fill_request(struct rbd_img_request *img_req,
 	 * Fill in each object request's private bio_vec array, splitting and
 	 * rearranging the provided bio_vecs in stripe unit chunks as needed.
 	 */
-	if (fctx->reset_iter_fn)
-		fctx->reset_iter_fn(&fctx->iter);
-	else
-		fctx->iter = *fctx->pos;
+	fctx->iter = *fctx->pos;
 	for (i = 0; i < num_img_extents; i++) {
 		ret = ceph_iterate_extents(&rbd_dev->layout,
 					   img_extents[i].fe_off,
@@ -2471,8 +2594,8 @@ static int rbd_img_fill_request(struct rbd_img_request *img_req,
 	return __rbd_img_fill_request(img_req);
 }
 
-int rbd_img_fill_nodata(struct rbd_img_request *img_req,
-			u64 off, u64 len)
+static int rbd_img_fill_nodata(struct rbd_img_request *img_req,
+			       u64 off, u64 len)
 {
 	struct ceph_file_extent ex = { off, len };
 	union rbd_img_fill_iter dummy = {};
@@ -2483,7 +2606,6 @@ int rbd_img_fill_nodata(struct rbd_img_request *img_req,
 
 	return rbd_img_fill_request(img_req, &ex, 1, &fctx);
 }
-EXPORT_SYMBOL(rbd_img_fill_nodata);
 
 static void set_bio_pos(struct ceph_object_extent *ex, u32 bytes, void *arg)
 {
@@ -2599,10 +2721,10 @@ static int __rbd_img_fill_from_bvecs(struct rbd_img_request *img_req,
 				    &fctx);
 }
 
-int rbd_img_fill_from_bvecs(struct rbd_img_request *img_req,
-			    struct ceph_file_extent *img_extents,
-			    u32 num_img_extents,
-			    struct bio_vec *bvecs)
+static int rbd_img_fill_from_bvecs(struct rbd_img_request *img_req,
+				   struct ceph_file_extent *img_extents,
+				   u32 num_img_extents,
+				   struct bio_vec *bvecs)
 {
 	struct ceph_bvec_iter it = {
 		.bvecs = bvecs,
@@ -2613,189 +2735,6 @@ int rbd_img_fill_from_bvecs(struct rbd_img_request *img_req,
 	return __rbd_img_fill_from_bvecs(img_req, img_extents, num_img_extents,
 					 &it);
 }
-EXPORT_SYMBOL(rbd_img_fill_from_bvecs);
-
-struct ceph_bvec_dual_iter {
-	struct ceph_bvec_iter cmp_iter;
-	/* cur_cmp_iter carried as fctx->iter */
-	struct ceph_bvec_iter write_iter;
-	struct ceph_bvec_iter cur_write_iter;
-	struct rbd_img_fill_ctx fctx;
-};
-
-static void set_dual_bvec_pos(struct ceph_object_extent *ex, u32 bytes, void *arg)
-{
-	struct rbd_obj_request *obj_req =
-	    container_of(ex, struct rbd_obj_request, ex);
-	struct ceph_bvec_iter *cur_cmp_iter = arg;
-	struct rbd_img_fill_ctx *fctx =
-		container_of(arg, struct rbd_img_fill_ctx, iter);
-	struct ceph_bvec_dual_iter *dual =
-		container_of(fctx, struct ceph_bvec_dual_iter, fctx);
-
-	BUG_ON(obj_req->img_request->op_type != OBJ_OP_CMP_AND_WRITE);
-
-	pr_debug("set dual bvec pos: old bi_size: %d, bi_idx: %u, bi_bvec_done: %u, "
-		" new bi_size: %d, bi_idx: %u, bi_bvec_done: %u\n",
-		obj_req->bvec_pos.iter.bi_size,
-		/* current index into bvl_vec */
-		obj_req->bvec_pos.iter.bi_idx,
-		/* number of bytes completed in current bvec */
-		obj_req->bvec_pos.iter.bi_bvec_done,
-		cur_cmp_iter->iter.bi_size, cur_cmp_iter->iter.bi_idx,
-		cur_cmp_iter->iter.bi_bvec_done);
-
-	obj_req->cmp_bvec_iter = cur_cmp_iter->iter;
-	obj_req->bvec_pos = dual->cur_write_iter;
-
-	pr_debug("obj_req %p: shortening dual bvec pos from %u to %u\n",
-		 obj_req, cur_cmp_iter->iter.bi_size, bytes);
-
-	BUG_ON(bytes > obj_req->cmp_bvec_iter.bi_size);
-	obj_req->cmp_bvec_iter.bi_size = bytes;
-	ceph_bvec_iter_shorten(&obj_req->bvec_pos, bytes);
-	ceph_bvec_iter_advance(cur_cmp_iter, bytes);
-	ceph_bvec_iter_advance(&dual->cur_write_iter, bytes);
-}
-
-static void count_dual_bvecs(struct ceph_object_extent *ex, u32 bytes, void *arg)
-{
-	struct rbd_obj_request *obj_req =
-	    container_of(ex, struct rbd_obj_request, ex);
-	struct ceph_bvec_iter *cur_cmp_iter = arg;
-	struct rbd_img_fill_ctx *fctx =
-		container_of(arg, struct rbd_img_fill_ctx, iter);
-	struct ceph_bvec_dual_iter *dual =
-		container_of(fctx, struct ceph_bvec_dual_iter, fctx);
-
-	pr_debug("counting %u bytes from dual bvec for obj_req %p\n",
-		 bytes, obj_req);
-
-	ceph_bvec_iter_advance_step(cur_cmp_iter, bytes, ({
-		obj_req->bvec_count++;
-	}));
-	ceph_bvec_iter_advance_step(&dual->cur_write_iter, bytes, ({
-		obj_req->bvec_count++;
-	}));
-}
-
-static void copy_dual_bvecs(struct ceph_object_extent *ex, u32 bytes, void *arg)
-{
-	struct rbd_obj_request *obj_req =
-	    container_of(ex, struct rbd_obj_request, ex);
-	struct ceph_bvec_iter *cur_cmp_iter = arg;
-	struct rbd_img_fill_ctx *fctx =
-		container_of(arg, struct rbd_img_fill_ctx, iter);
-	struct ceph_bvec_dual_iter *dual =
-		container_of(fctx, struct ceph_bvec_dual_iter, fctx);
-
-	pr_debug("obj_req %p: copying %u bytes from cmp bvec %u [%u] (%u done)\n",
-		obj_req, bytes,
-		cur_cmp_iter->iter.bi_size,
-		cur_cmp_iter->iter.bi_idx,
-		cur_cmp_iter->iter.bi_bvec_done);
-
-	/* we might be placing the same bv for cmp and write */
-	ceph_bvec_iter_advance_step(cur_cmp_iter, bytes, ({
-		obj_req->bvec_pos.bvecs[obj_req->bvec_idx++] = bv;
-		obj_req->cmp_bvec_iter.bi_size += bv.bv_len;
-	}));
-
-	pr_debug("obj_req %p: copied cmp bvec to %u [%u] (%u done)\n",
-		obj_req,
-		obj_req->cmp_bvec_iter.bi_size,
-		obj_req->cmp_bvec_iter.bi_idx,
-		obj_req->cmp_bvec_iter.bi_bvec_done);
-
-	pr_debug("obj_req %p: copying %u bytes from write bvec %u [%u] (%u done)\n",
-		obj_req, bytes,
-		dual->cur_write_iter.iter.bi_size,
-		dual->cur_write_iter.iter.bi_idx,
-		dual->cur_write_iter.iter.bi_bvec_done);
-
-	/* init write-data iter to point to start of separate write section */
-	obj_req->bvec_pos.iter.bi_idx = obj_req->bvec_idx;
-	ceph_bvec_iter_advance_step(&dual->cur_write_iter, bytes, ({
-		obj_req->bvec_pos.bvecs[obj_req->bvec_idx++] = bv;
-		obj_req->bvec_pos.iter.bi_size += bv.bv_len;
-	}));
-
-	pr_debug("obj_req %p: copied write bvec to %u [%u] (%u done)\n",
-		obj_req,
-		obj_req->bvec_pos.iter.bi_size,
-		obj_req->bvec_pos.iter.bi_idx,
-		obj_req->bvec_pos.iter.bi_bvec_done);
-}
-
-static void reset_fill_ctx_dual_iter(union rbd_img_fill_iter *cur_cmp_iter)
-{
-	struct rbd_img_fill_ctx *fctx =
-		container_of(cur_cmp_iter, struct rbd_img_fill_ctx, iter);
-	struct ceph_bvec_dual_iter *dual =
-		container_of(fctx, struct ceph_bvec_dual_iter, fctx);
-
-	pr_debug("resetting cmp bvec from %u [%u] (%u done) to "
-		"%u [%u] (%u done)\n",
-		cur_cmp_iter->bvec_iter.iter.bi_size,
-		cur_cmp_iter->bvec_iter.iter.bi_idx,
-		cur_cmp_iter->bvec_iter.iter.bi_bvec_done,
-		dual->cmp_iter.iter.bi_size,
-		dual->cmp_iter.iter.bi_idx,
-		dual->cmp_iter.iter.bi_bvec_done);
-
-	pr_debug("resetting write bvec from %u [%u] (%u done) to "
-		"%u [%u] (%u done)\n",
-		dual->cur_write_iter.iter.bi_size,
-		dual->cur_write_iter.iter.bi_idx,
-		dual->cur_write_iter.iter.bi_bvec_done,
-		dual->write_iter.iter.bi_size,
-		dual->write_iter.iter.bi_idx,
-		dual->write_iter.iter.bi_bvec_done);
-
-	cur_cmp_iter->bvec_iter = dual->cmp_iter;
-	dual->cur_write_iter = dual->write_iter;
-}
-
-/*
- * compare and write consumes 2 * extent_bytes. Once for the compare op and
- * extent_bytes again for the write op. @bvecs must provide compare data
- * at range [0, img_extent->fe_len) and write data at range
- * [img_extent->fe_len, img_extent->fe_len * 2)
- */
-int rbd_img_fill_cmp_and_write_from_bvecs(struct rbd_img_request *img_req,
-					  struct ceph_file_extent *img_extent,
-					  struct bio_vec *bvecs)
-{
-	struct ceph_bvec_dual_iter dual = {
-		.cmp_iter = {
-			.bvecs = bvecs,
-			.iter = { .bi_size = img_extent->fe_len },
-		},
-		.write_iter = {
-			.bvecs = bvecs,
-			.iter = { .bi_size = img_extent->fe_len * 2 },
-		},
-		.fctx = {
-			.pos_type = OBJ_REQUEST_BVECS,
-			/*
-			 * pos is only used to reset fctx.iter, not needed with
-			 * reset cb.
-			 */
-			.pos = NULL,
-			.set_pos_fn = set_dual_bvec_pos,
-			.count_fn = count_dual_bvecs,
-			.copy_fn = copy_dual_bvecs,
-			.reset_iter_fn = reset_fill_ctx_dual_iter,
-		},
-	};
-	BUG_ON(img_req->op_type != OBJ_OP_CMP_AND_WRITE);
-
-	/* advance to write portion of bvecs */
-	ceph_bvec_iter_advance(&dual.write_iter, img_extent->fe_len);
-
-	return rbd_img_fill_request(img_req, img_extent, 1, &dual.fctx);
-}
-EXPORT_SYMBOL(rbd_img_fill_cmp_and_write_from_bvecs);
 
 static void rbd_img_handle_request_work(struct work_struct *work)
 {
@@ -2848,8 +2787,6 @@ static int rbd_obj_read_object(struct rbd_obj_request *obj_req)
 	return 0;
 }
 
-static void rbd_img_end_request(struct rbd_img_request *img_req, int result);
-
 static int rbd_obj_read_from_parent(struct rbd_obj_request *obj_req)
 {
 	struct rbd_img_request *img_req = obj_req->img_request;
@@ -2861,8 +2798,7 @@ static int rbd_obj_read_from_parent(struct rbd_obj_request *obj_req)
 	if (!child_img_req)
 		return -ENOMEM;
 
-	rbd_img_request_init(child_img_req, parent, OBJ_OP_READ,
-			    rbd_img_end_request);
+	rbd_img_request_init(child_img_req, parent, OBJ_OP_READ);
 	__set_bit(IMG_REQ_CHILD, &child_img_req->flags);
 	child_img_req->obj_request = obj_req;
 
@@ -3147,13 +3083,12 @@ static int setup_copyup_bvecs(struct rbd_obj_request *obj_req, u64 obj_overlap)
 
 	for (i = 0; i < obj_req->copyup_bvec_count; i++) {
 		unsigned int len = min(obj_overlap, (u64)PAGE_SIZE);
+		struct page *page = alloc_page(GFP_NOIO);
 
-		obj_req->copyup_bvecs[i].bv_page = alloc_page(GFP_NOIO);
-		if (!obj_req->copyup_bvecs[i].bv_page)
+		if (!page)
 			return -ENOMEM;
 
-		obj_req->copyup_bvecs[i].bv_offset = 0;
-		obj_req->copyup_bvecs[i].bv_len = len;
+		bvec_set_page(&obj_req->copyup_bvecs[i], page, len, 0);
 		obj_overlap -= len;
 	}
 
@@ -3366,6 +3301,7 @@ again:
 	case RBD_OBJ_WRITE_START:
 		rbd_assert(!*result);
 
+		rbd_obj_set_copyup_enabled(obj_req);
 		if (rbd_obj_write_is_noop(obj_req))
 			return true;
 
@@ -3458,24 +3394,9 @@ static bool __rbd_obj_handle_request(struct rbd_obj_request *obj_req,
 
 	if (done && *result) {
 		rbd_assert(*result < 0);
-		if (img_req->op_type == OBJ_OP_CMP_AND_WRITE &&
-		    *result <= -MAX_ERRNO) {
-			/*
-			 * don't warn on miscompare. cmpext returns:
-			 * (-MAX_ERRNO - offset_of_miscompare)
-			 */
-			pr_debug("%s at objno %llu %llu~%llu: miscompare at %d",
-				 obj_op_name(img_req->op_type),
-				 obj_req->ex.oe_objno, obj_req->ex.oe_off,
-				 obj_req->ex.oe_len,
-				 (*result + MAX_ERRNO) * -1);
-		} else {
-			rbd_warn(rbd_dev,
-				 "%s at objno %llu %llu~%llu result %d",
-				 obj_op_name(img_req->op_type),
-				 obj_req->ex.oe_objno, obj_req->ex.oe_off,
-				 obj_req->ex.oe_len, *result);
-		}
+		rbd_warn(rbd_dev, "%s at objno %llu %llu~%llu result %d",
+			 obj_op_name(img_req->op_type), obj_req->ex.oe_objno,
+			 obj_req->ex.oe_off, obj_req->ex.oe_len, *result);
 	}
 	return done;
 }
@@ -3567,9 +3488,19 @@ static int rbd_img_exclusive_lock(struct rbd_img_request *img_req)
 
 static void rbd_img_object_requests(struct rbd_img_request *img_req)
 {
+	struct rbd_device *rbd_dev = img_req->rbd_dev;
 	struct rbd_obj_request *obj_req;
 
 	rbd_assert(!img_req->pending.result && !img_req->pending.num_pending);
+	rbd_assert(!need_exclusive_lock(img_req) ||
+		   __rbd_is_lock_owner(rbd_dev));
+
+	if (rbd_img_is_write(img_req)) {
+		rbd_assert(!img_req->snapc);
+		down_read(&rbd_dev->header_rwsem);
+		img_req->snapc = ceph_get_snap_context(rbd_dev->header.snapc);
+		up_read(&rbd_dev->header_rwsem);
+	}
 
 	for_each_obj_request(img_req, obj_req) {
 		int result = 0;
@@ -3587,7 +3518,6 @@ static void rbd_img_object_requests(struct rbd_img_request *img_req)
 
 static bool rbd_img_advance(struct rbd_img_request *img_req, int *result)
 {
-	struct rbd_device *rbd_dev = img_req->rbd_dev;
 	int ret;
 
 again:
@@ -3607,9 +3537,6 @@ again:
 	case RBD_IMG_EXCLUSIVE_LOCK:
 		if (*result)
 			return true;
-
-		rbd_assert(!need_exclusive_lock(img_req) ||
-			   __rbd_is_lock_owner(rbd_dev));
 
 		rbd_img_object_requests(img_req);
 		if (!img_req->pending.num_pending) {
@@ -3653,7 +3580,7 @@ static bool __rbd_img_handle_request(struct rbd_img_request *img_req,
 		mutex_unlock(&img_req->state_mutex);
 	}
 
-	if (done && *result && img_req->op_type != OBJ_OP_CMP_AND_WRITE) {
+	if (done && *result) {
 		rbd_assert(*result < 0);
 		rbd_warn(rbd_dev, "%s%s result %d",
 		      test_bit(IMG_REQ_CHILD, &img_req->flags) ? "child " : "",
@@ -3662,15 +3589,7 @@ static bool __rbd_img_handle_request(struct rbd_img_request *img_req,
 	return done;
 }
 
-static void rbd_img_end_request(struct rbd_img_request *img_req, int result)
-{
-	struct request *rq = blk_mq_rq_from_pdu(img_req);
-
-	rbd_img_request_destroy(img_req);
-	blk_mq_end_request(rq, errno_to_blk_status(result));
-}
-
-void rbd_img_handle_request(struct rbd_img_request *img_req, int result)
+static void rbd_img_handle_request(struct rbd_img_request *img_req, int result)
 {
 again:
 	if (!__rbd_img_handle_request(img_req, &result))
@@ -3685,10 +3604,12 @@ again:
 			goto again;
 		}
 	} else {
-		img_req->callback(img_req, result);
+		struct request *rq = blk_mq_rq_from_pdu(img_req);
+
+		rbd_img_request_destroy(img_req);
+		blk_mq_end_request(rq, errno_to_blk_status(result));
 	}
 }
-EXPORT_SYMBOL(rbd_img_handle_request);
 
 static const struct rbd_client_id rbd_empty_cid;
 
@@ -3754,7 +3675,7 @@ static int rbd_lock(struct rbd_device *rbd_dev)
 	ret = ceph_cls_lock(osdc, &rbd_dev->header_oid, &rbd_dev->header_oloc,
 			    RBD_LOCK_NAME, CEPH_CLS_LOCK_EXCLUSIVE, cookie,
 			    RBD_LOCK_TAG, "", 0);
-	if (ret)
+	if (ret && ret != -EEXIST)
 		return ret;
 
 	__rbd_lock(rbd_dev, cookie);
@@ -3928,51 +3849,82 @@ static void wake_lock_waiters(struct rbd_device *rbd_dev, int result)
 	list_splice_tail_init(&rbd_dev->acquiring_list, &rbd_dev->running_list);
 }
 
-static int get_lock_owner_info(struct rbd_device *rbd_dev,
-			       struct ceph_locker **lockers, u32 *num_lockers)
+static bool locker_equal(const struct ceph_locker *lhs,
+			 const struct ceph_locker *rhs)
+{
+	return lhs->id.name.type == rhs->id.name.type &&
+	       lhs->id.name.num == rhs->id.name.num &&
+	       !strcmp(lhs->id.cookie, rhs->id.cookie) &&
+	       ceph_addr_equal_no_type(&lhs->info.addr, &rhs->info.addr);
+}
+
+static void free_locker(struct ceph_locker *locker)
+{
+	if (locker)
+		ceph_free_lockers(locker, 1);
+}
+
+static struct ceph_locker *get_lock_owner_info(struct rbd_device *rbd_dev)
 {
 	struct ceph_osd_client *osdc = &rbd_dev->rbd_client->client->osdc;
+	struct ceph_locker *lockers;
+	u32 num_lockers;
 	u8 lock_type;
 	char *lock_tag;
+	u64 handle;
 	int ret;
-
-	dout("%s rbd_dev %p\n", __func__, rbd_dev);
 
 	ret = ceph_cls_lock_info(osdc, &rbd_dev->header_oid,
 				 &rbd_dev->header_oloc, RBD_LOCK_NAME,
-				 &lock_type, &lock_tag, lockers, num_lockers);
-	if (ret)
-		return ret;
+				 &lock_type, &lock_tag, &lockers, &num_lockers);
+	if (ret) {
+		rbd_warn(rbd_dev, "failed to get header lockers: %d", ret);
+		return ERR_PTR(ret);
+	}
 
-	if (*num_lockers == 0) {
+	if (num_lockers == 0) {
 		dout("%s rbd_dev %p no lockers detected\n", __func__, rbd_dev);
+		lockers = NULL;
 		goto out;
 	}
 
 	if (strcmp(lock_tag, RBD_LOCK_TAG)) {
 		rbd_warn(rbd_dev, "locked by external mechanism, tag %s",
 			 lock_tag);
-		ret = -EBUSY;
-		goto out;
+		goto err_busy;
 	}
 
-	if (lock_type == CEPH_CLS_LOCK_SHARED) {
-		rbd_warn(rbd_dev, "shared lock type detected");
-		ret = -EBUSY;
-		goto out;
+	if (lock_type != CEPH_CLS_LOCK_EXCLUSIVE) {
+		rbd_warn(rbd_dev, "incompatible lock type detected");
+		goto err_busy;
 	}
 
-	if (strncmp((*lockers)[0].id.cookie, RBD_LOCK_COOKIE_PREFIX,
-		    strlen(RBD_LOCK_COOKIE_PREFIX))) {
+	WARN_ON(num_lockers != 1);
+	ret = sscanf(lockers[0].id.cookie, RBD_LOCK_COOKIE_PREFIX " %llu",
+		     &handle);
+	if (ret != 1) {
 		rbd_warn(rbd_dev, "locked by external mechanism, cookie %s",
-			 (*lockers)[0].id.cookie);
-		ret = -EBUSY;
-		goto out;
+			 lockers[0].id.cookie);
+		goto err_busy;
 	}
+	if (ceph_addr_is_blank(&lockers[0].info.addr)) {
+		rbd_warn(rbd_dev, "locker has a blank address");
+		goto err_busy;
+	}
+
+	dout("%s rbd_dev %p got locker %s%llu@%pISpc/%u handle %llu\n",
+	     __func__, rbd_dev, ENTITY_NAME(lockers[0].id.name),
+	     &lockers[0].info.addr.in_addr,
+	     le32_to_cpu(lockers[0].info.addr.nonce), handle);
 
 out:
 	kfree(lock_tag);
-	return ret;
+	return lockers;
+
+err_busy:
+	kfree(lock_tag);
+	ceph_free_lockers(lockers, num_lockers);
+	return ERR_PTR(-EBUSY);
 }
 
 static int find_watcher(struct rbd_device *rbd_dev,
@@ -3988,8 +3940,10 @@ static int find_watcher(struct rbd_device *rbd_dev,
 	ret = ceph_osdc_list_watchers(osdc, &rbd_dev->header_oid,
 				      &rbd_dev->header_oloc, &watchers,
 				      &num_watchers);
-	if (ret)
+	if (ret) {
+		rbd_warn(rbd_dev, "failed to get watchers: %d", ret);
 		return ret;
+	}
 
 	sscanf(locker->id.cookie, RBD_LOCK_COOKIE_PREFIX " %llu", &cookie);
 	for (i = 0; i < num_watchers; i++) {
@@ -4026,57 +3980,82 @@ out:
 static int rbd_try_lock(struct rbd_device *rbd_dev)
 {
 	struct ceph_client *client = rbd_dev->rbd_client->client;
-	struct ceph_locker *lockers;
-	u32 num_lockers;
+	struct ceph_locker *locker, *refreshed_locker;
 	int ret;
 
 	for (;;) {
+		locker = refreshed_locker = NULL;
+
 		ret = rbd_lock(rbd_dev);
-		if (ret != -EBUSY)
-			return ret;
+		if (!ret)
+			goto out;
+		if (ret != -EBUSY) {
+			rbd_warn(rbd_dev, "failed to lock header: %d", ret);
+			goto out;
+		}
 
 		/* determine if the current lock holder is still alive */
-		ret = get_lock_owner_info(rbd_dev, &lockers, &num_lockers);
-		if (ret)
-			return ret;
-
-		if (num_lockers == 0)
+		locker = get_lock_owner_info(rbd_dev);
+		if (IS_ERR(locker)) {
+			ret = PTR_ERR(locker);
+			locker = NULL;
+			goto out;
+		}
+		if (!locker)
 			goto again;
 
-		ret = find_watcher(rbd_dev, lockers);
+		ret = find_watcher(rbd_dev, locker);
 		if (ret)
 			goto out; /* request lock or error */
 
+		refreshed_locker = get_lock_owner_info(rbd_dev);
+		if (IS_ERR(refreshed_locker)) {
+			ret = PTR_ERR(refreshed_locker);
+			refreshed_locker = NULL;
+			goto out;
+		}
+		if (!refreshed_locker ||
+		    !locker_equal(locker, refreshed_locker))
+			goto again;
+
 		rbd_warn(rbd_dev, "breaking header lock owned by %s%llu",
-			 ENTITY_NAME(lockers[0].id.name));
+			 ENTITY_NAME(locker->id.name));
 
 		ret = ceph_monc_blocklist_add(&client->monc,
-					      &lockers[0].info.addr);
+					      &locker->info.addr);
 		if (ret) {
-			rbd_warn(rbd_dev, "blocklist of %s%llu failed: %d",
-				 ENTITY_NAME(lockers[0].id.name), ret);
+			rbd_warn(rbd_dev, "failed to blocklist %s%llu: %d",
+				 ENTITY_NAME(locker->id.name), ret);
 			goto out;
 		}
 
 		ret = ceph_cls_break_lock(&client->osdc, &rbd_dev->header_oid,
 					  &rbd_dev->header_oloc, RBD_LOCK_NAME,
-					  lockers[0].id.cookie,
-					  &lockers[0].id.name);
-		if (ret && ret != -ENOENT)
+					  locker->id.cookie, &locker->id.name);
+		if (ret && ret != -ENOENT) {
+			rbd_warn(rbd_dev, "failed to break header lock: %d",
+				 ret);
 			goto out;
+		}
 
 again:
-		ceph_free_lockers(lockers, num_lockers);
+		free_locker(refreshed_locker);
+		free_locker(locker);
 	}
 
 out:
-	ceph_free_lockers(lockers, num_lockers);
+	free_locker(refreshed_locker);
+	free_locker(locker);
 	return ret;
 }
 
 static int rbd_post_acquire_action(struct rbd_device *rbd_dev)
 {
 	int ret;
+
+	ret = rbd_dev_refresh(rbd_dev);
+	if (ret)
+		return ret;
 
 	if (rbd_dev->header.features & RBD_FEATURE_OBJECT_MAP) {
 		ret = rbd_object_map_open(rbd_dev);
@@ -4116,11 +4095,8 @@ static int rbd_try_acquire_lock(struct rbd_device *rbd_dev)
 
 	ret = rbd_try_lock(rbd_dev);
 	if (ret < 0) {
-		rbd_warn(rbd_dev, "failed to lock header: %d", ret);
-		if (ret == -EBLOCKLISTED)
-			goto out;
-
-		ret = 1; /* request lock anyway */
+		rbd_warn(rbd_dev, "failed to acquire lock: %d", ret);
+		goto out;
 	}
 	if (ret > 0) {
 		up_write(&rbd_dev->lock_rwsem);
@@ -4811,7 +4787,7 @@ static blk_status_t rbd_queue_rq(struct blk_mq_hw_ctx *hctx,
 		return BLK_STS_IOERR;
 	}
 
-	rbd_img_request_init(img_req, rbd_dev, op_type, rbd_img_end_request);
+	rbd_img_request_init(img_req, rbd_dev, op_type);
 
 	if (rbd_img_is_write(img_req)) {
 		if (rbd_is_ro(rbd_dev)) {
@@ -4829,7 +4805,7 @@ static blk_status_t rbd_queue_rq(struct blk_mq_hw_ctx *hctx,
 
 static void rbd_free_disk(struct rbd_device *rbd_dev)
 {
-	blk_cleanup_disk(rbd_dev->disk);
+	put_disk(rbd_dev->disk);
 	blk_mq_free_tag_set(&rbd_dev->tag_set);
 	rbd_dev->disk = NULL;
 }
@@ -5392,8 +5368,7 @@ static void rbd_dev_release(struct device *dev)
 		module_put(THIS_MODULE);
 }
 
-static struct rbd_device *__rbd_dev_create(struct rbd_client *rbdc,
-					   struct rbd_spec *spec)
+static struct rbd_device *__rbd_dev_create(struct rbd_spec *spec)
 {
 	struct rbd_device *rbd_dev;
 
@@ -5438,9 +5413,6 @@ static struct rbd_device *__rbd_dev_create(struct rbd_client *rbdc,
 	rbd_dev->dev.parent = &rbd_root_dev;
 	device_initialize(&rbd_dev->dev);
 
-	rbd_dev->rbd_client = rbdc;
-	rbd_dev->spec = spec;
-
 	return rbd_dev;
 }
 
@@ -5453,11 +5425,9 @@ static struct rbd_device *rbd_dev_create(struct rbd_client *rbdc,
 {
 	struct rbd_device *rbd_dev;
 
-	rbd_dev = __rbd_dev_create(rbdc, spec);
+	rbd_dev = __rbd_dev_create(spec);
 	if (!rbd_dev)
 		return NULL;
-
-	rbd_dev->opts = opts;
 
 	/* get an id and fill in device name */
 	rbd_dev->dev_id = ida_simple_get(&rbd_dev_id_ida, 0,
@@ -5474,6 +5444,10 @@ static struct rbd_device *rbd_dev_create(struct rbd_client *rbdc,
 
 	/* we have a ref from do_rbd_add() */
 	__module_get(THIS_MODULE);
+
+	rbd_dev->rbd_client = rbdc;
+	rbd_dev->spec = spec;
+	rbd_dev->opts = opts;
 
 	dout("%s rbd_dev %p dev_id %d\n", __func__, rbd_dev, rbd_dev->dev_id);
 	return rbd_dev;
@@ -6656,12 +6630,11 @@ static int rbd_add_acquire_lock(struct rbd_device *rbd_dev)
 		cancel_delayed_work_sync(&rbd_dev->lock_dwork);
 		if (!ret)
 			ret = -ETIMEDOUT;
-	}
 
-	if (ret) {
-		rbd_warn(rbd_dev, "failed to acquire exclusive lock: %ld", ret);
-		return ret;
+		rbd_warn(rbd_dev, "failed to acquire lock: %ld", ret);
 	}
+	if (ret)
+		return ret;
 
 	/*
 	 * The lock may have been released by now, unless automatic lock
@@ -6836,7 +6809,7 @@ static int rbd_dev_probe_parent(struct rbd_device *rbd_dev, int depth)
 		goto out_err;
 	}
 
-	parent = __rbd_dev_create(rbd_dev->rbd_client, rbd_dev->parent_spec);
+	parent = __rbd_dev_create(rbd_dev->parent_spec);
 	if (!parent) {
 		ret = -ENOMEM;
 		goto out_err;
@@ -6846,8 +6819,8 @@ static int rbd_dev_probe_parent(struct rbd_device *rbd_dev, int depth)
 	 * Images related by parent/child relationships always share
 	 * rbd_client and spec/parent_spec, so bump their refcounts.
 	 */
-	__rbd_get_client(rbd_dev->rbd_client);
-	rbd_spec_get(rbd_dev->parent_spec);
+	parent->rbd_client = __rbd_get_client(rbd_dev->rbd_client);
+	parent->spec = rbd_spec_get(rbd_dev->parent_spec);
 
 	__set_bit(RBD_DEV_FLAG_READONLY, &parent->flags);
 
@@ -7070,9 +7043,7 @@ err_out_format:
 	return ret;
 }
 
-static ssize_t do_rbd_add(struct bus_type *bus,
-			  const char *buf,
-			  size_t count)
+static ssize_t do_rbd_add(const char *buf, size_t count)
 {
 	struct rbd_device *rbd_dev = NULL;
 	struct ceph_options *ceph_opts = NULL;
@@ -7184,18 +7155,18 @@ err_out_args:
 	goto out;
 }
 
-static ssize_t add_store(struct bus_type *bus, const char *buf, size_t count)
+static ssize_t add_store(const struct bus_type *bus, const char *buf, size_t count)
 {
 	if (single_major)
 		return -EINVAL;
 
-	return do_rbd_add(bus, buf, count);
+	return do_rbd_add(buf, count);
 }
 
-static ssize_t add_single_major_store(struct bus_type *bus, const char *buf,
+static ssize_t add_single_major_store(const struct bus_type *bus, const char *buf,
 				      size_t count)
 {
-	return do_rbd_add(bus, buf, count);
+	return do_rbd_add(buf, count);
 }
 
 static void rbd_dev_remove_parent(struct rbd_device *rbd_dev)
@@ -7225,9 +7196,7 @@ static void rbd_dev_remove_parent(struct rbd_device *rbd_dev)
 	}
 }
 
-static ssize_t do_rbd_remove(struct bus_type *bus,
-			     const char *buf,
-			     size_t count)
+static ssize_t do_rbd_remove(const char *buf, size_t count)
 {
 	struct rbd_device *rbd_dev = NULL;
 	struct list_head *tmp;
@@ -7299,18 +7268,18 @@ static ssize_t do_rbd_remove(struct bus_type *bus,
 	return count;
 }
 
-static ssize_t remove_store(struct bus_type *bus, const char *buf, size_t count)
+static ssize_t remove_store(const struct bus_type *bus, const char *buf, size_t count)
 {
 	if (single_major)
 		return -EINVAL;
 
-	return do_rbd_remove(bus, buf, count);
+	return do_rbd_remove(buf, count);
 }
 
-static ssize_t remove_single_major_store(struct bus_type *bus, const char *buf,
+static ssize_t remove_single_major_store(const struct bus_type *bus, const char *buf,
 					 size_t count)
 {
-	return do_rbd_remove(bus, buf, count);
+	return do_rbd_remove(buf, count);
 }
 
 /*

@@ -25,6 +25,11 @@
 #include <linux/module.h>
 #include <linux/usb/otg.h>
 #include <linux/platform_device.h>
+#include <linux/platform_data/usb-omap1.h>
+#include <linux/soc/ti/omap1-usb.h>
+#include <linux/soc/ti/omap1-mux.h>
+#include <linux/soc/ti/omap1-soc.h>
+#include <linux/soc/ti/omap1-io.h>
 #include <linux/signal.h>
 #include <linux/usb.h>
 #include <linux/usb/hcd.h>
@@ -33,23 +38,6 @@
 
 #include <asm/io.h>
 #include <asm/mach-types.h>
-
-#include <mach/mux.h>
-
-#include <mach/hardware.h>
-#include <mach/usb.h>
-
-
-/* OMAP-1510 OHCI has its own MMU for DMA */
-#define OMAP1510_LB_MEMSIZE	32	/* Should be same as SDRAM size */
-#define OMAP1510_LB_CLOCK_DIV	0xfffec10c
-#define OMAP1510_LB_MMU_CTL	0xfffec208
-#define OMAP1510_LB_MMU_LCK	0xfffec224
-#define OMAP1510_LB_MMU_LD_TLB	0xfffec228
-#define OMAP1510_LB_MMU_CAM_H	0xfffec22c
-#define OMAP1510_LB_MMU_CAM_L	0xfffec230
-#define OMAP1510_LB_MMU_RAM_H	0xfffec234
-#define OMAP1510_LB_MMU_RAM_L	0xfffec238
 
 #define DRIVER_DESC "OHCI OMAP driver"
 
@@ -79,88 +67,6 @@ static void omap_ohci_clock_power(struct ohci_omap_priv *priv, int on)
 	}
 }
 
-/*
- * Board specific gang-switched transceiver power on/off.
- * NOTE:  OSK supplies power from DC, not battery.
- */
-static int omap_ohci_transceiver_power(struct ohci_omap_priv *priv, int on)
-{
-	if (on) {
-		if (machine_is_omap_innovator() && cpu_is_omap1510())
-			__raw_writeb(__raw_readb(INNOVATOR_FPGA_CAM_USB_CONTROL)
-				| ((1 << 5/*usb1*/) | (1 << 3/*usb2*/)),
-			       INNOVATOR_FPGA_CAM_USB_CONTROL);
-		else if (priv->power)
-			gpiod_set_value_cansleep(priv->power, 0);
-	} else {
-		if (machine_is_omap_innovator() && cpu_is_omap1510())
-			__raw_writeb(__raw_readb(INNOVATOR_FPGA_CAM_USB_CONTROL)
-				& ~((1 << 5/*usb1*/) | (1 << 3/*usb2*/)),
-			       INNOVATOR_FPGA_CAM_USB_CONTROL);
-		else if (priv->power)
-			gpiod_set_value_cansleep(priv->power, 1);
-	}
-
-	return 0;
-}
-
-#ifdef CONFIG_ARCH_OMAP15XX
-/*
- * OMAP-1510 specific Local Bus clock on/off
- */
-static int omap_1510_local_bus_power(int on)
-{
-	if (on) {
-		omap_writel((1 << 1) | (1 << 0), OMAP1510_LB_MMU_CTL);
-		udelay(200);
-	} else {
-		omap_writel(0, OMAP1510_LB_MMU_CTL);
-	}
-
-	return 0;
-}
-
-/*
- * OMAP-1510 specific Local Bus initialization
- * NOTE: This assumes 32MB memory size in OMAP1510LB_MEMSIZE.
- *       See also arch/mach-omap/memory.h for __virt_to_dma() and
- *       __dma_to_virt() which need to match with the physical
- *       Local Bus address below.
- */
-static int omap_1510_local_bus_init(void)
-{
-	unsigned int tlb;
-	unsigned long lbaddr, physaddr;
-
-	omap_writel((omap_readl(OMAP1510_LB_CLOCK_DIV) & 0xfffffff8) | 0x4,
-	       OMAP1510_LB_CLOCK_DIV);
-
-	/* Configure the Local Bus MMU table */
-	for (tlb = 0; tlb < OMAP1510_LB_MEMSIZE; tlb++) {
-		lbaddr = tlb * 0x00100000 + OMAP1510_LB_OFFSET;
-		physaddr = tlb * 0x00100000 + PHYS_OFFSET;
-		omap_writel((lbaddr & 0x0fffffff) >> 22, OMAP1510_LB_MMU_CAM_H);
-		omap_writel(((lbaddr & 0x003ffc00) >> 6) | 0xc,
-		       OMAP1510_LB_MMU_CAM_L);
-		omap_writel(physaddr >> 16, OMAP1510_LB_MMU_RAM_H);
-		omap_writel((physaddr & 0x0000fc00) | 0x300, OMAP1510_LB_MMU_RAM_L);
-		omap_writel(tlb << 4, OMAP1510_LB_MMU_LCK);
-		omap_writel(0x1, OMAP1510_LB_MMU_LD_TLB);
-	}
-
-	/* Enable the walking table */
-	omap_writel(omap_readl(OMAP1510_LB_MMU_CTL) | (1 << 3), OMAP1510_LB_MMU_CTL);
-	udelay(200);
-
-	return 0;
-}
-#else
-#define omap_1510_local_bus_power(x)	{}
-#define omap_1510_local_bus_init()	{}
-#endif
-
-#ifdef	CONFIG_USB_OTG
-
 static void start_hnp(struct ohci_hcd *ohci)
 {
 	struct usb_hcd *hcd = ohci_to_hcd(ohci);
@@ -178,8 +84,6 @@ static void start_hnp(struct ohci_hcd *ohci)
 	omap_writel(l, OTG_CTRL);
 	local_irq_restore(flags);
 }
-
-#endif
 
 /*-------------------------------------------------------------------------*/
 
@@ -199,16 +103,11 @@ static int ohci_omap_reset(struct usb_hcd *hcd)
 		hcd->power_budget = 8;
 	}
 
-	/* boards can use OTG transceivers in non-OTG modes */
-	need_transceiver = need_transceiver
-			|| machine_is_omap_h2() || machine_is_omap_h3();
-
 	/* XXX OMAP16xx only */
 	if (config->ocpi_enable)
 		config->ocpi_enable();
 
-#ifdef	CONFIG_USB_OTG
-	if (need_transceiver) {
+	if (IS_ENABLED(CONFIG_USB_OTG) && need_transceiver) {
 		hcd->usb_phy = usb_get_phy(USB_PHY_TYPE_USB2);
 		if (!IS_ERR_OR_NULL(hcd->usb_phy)) {
 			int	status = otg_set_host(hcd->usb_phy->otg,
@@ -225,14 +124,11 @@ static int ohci_omap_reset(struct usb_hcd *hcd)
 		hcd->skip_phy_initialization = 1;
 		ohci->start_hnp = start_hnp;
 	}
-#endif
 
 	omap_ohci_clock_power(priv, 1);
 
-	if (cpu_is_omap15xx()) {
-		omap_1510_local_bus_power(1);
-		omap_1510_local_bus_init();
-	}
+	if (config->lb_reset)
+		config->lb_reset();
 
 	ret = ohci_setup(hcd);
 	if (ret < 0)
@@ -244,7 +140,7 @@ static int ohci_omap_reset(struct usb_hcd *hcd)
 	}
 
 	/* board-specific power switching and overcurrent support */
-	if (machine_is_omap_osk() || machine_is_omap_innovator()) {
+	if (machine_is_omap_osk()) {
 		u32	rh = roothub_a (ohci);
 
 		/* power switching (ganged by default) */
@@ -271,7 +167,11 @@ static int ohci_omap_reset(struct usb_hcd *hcd)
 	}
 
 	/* FIXME hub_wq hub requests should manage power switching */
-	omap_ohci_transceiver_power(priv, 1);
+	if (config->transceiver_power)
+		return config->transceiver_power(1);
+
+	if (priv->power)
+		gpiod_set_value_cansleep(priv->power, 0);
 
 	/* board init will have already handled HMC and mux setup.
 	 * any external transceiver should already be initialized
@@ -349,6 +249,10 @@ static int ohci_hcd_omap_probe(struct platform_device *pdev)
 		goto err_put_hcd;
 	}
 
+	retval = clk_prepare(priv->usb_host_ck);
+	if (retval)
+		goto err_put_host_ck;
+
 	if (!cpu_is_omap15xx())
 		priv->usb_dc_ck = clk_get(&pdev->dev, "usb_dc_ck");
 	else
@@ -356,13 +260,17 @@ static int ohci_hcd_omap_probe(struct platform_device *pdev)
 
 	if (IS_ERR(priv->usb_dc_ck)) {
 		retval = PTR_ERR(priv->usb_dc_ck);
-		goto err_put_host_ck;
+		goto err_unprepare_host_ck;
 	}
+
+	retval = clk_prepare(priv->usb_dc_ck);
+	if (retval)
+		goto err_put_dc_ck;
 
 	if (!request_mem_region(hcd->rsrc_start, hcd->rsrc_len, hcd_name)) {
 		dev_dbg(&pdev->dev, "request_mem_region failed\n");
 		retval = -EBUSY;
-		goto err_put_dc_ck;
+		goto err_unprepare_dc_ck;
 	}
 
 	hcd->regs = ioremap(hcd->rsrc_start, hcd->rsrc_len);
@@ -374,7 +282,7 @@ static int ohci_hcd_omap_probe(struct platform_device *pdev)
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0) {
-		retval = -ENXIO;
+		retval = irq;
 		goto err3;
 	}
 	retval = usb_add_hcd(hcd, irq, 0);
@@ -387,8 +295,12 @@ err3:
 	iounmap(hcd->regs);
 err2:
 	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
+err_unprepare_dc_ck:
+	clk_unprepare(priv->usb_dc_ck);
 err_put_dc_ck:
 	clk_put(priv->usb_dc_ck);
+err_unprepare_host_ck:
+	clk_unprepare(priv->usb_host_ck);
 err_put_host_ck:
 	clk_put(priv->usb_host_ck);
 err_put_hcd:
@@ -423,7 +335,9 @@ static int ohci_hcd_omap_remove(struct platform_device *pdev)
 	}
 	iounmap(hcd->regs);
 	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
+	clk_unprepare(priv->usb_dc_ck);
 	clk_put(priv->usb_dc_ck);
+	clk_unprepare(priv->usb_host_ck);
 	clk_put(priv->usb_host_ck);
 	usb_put_hcd(hcd);
 	return 0;
@@ -498,8 +412,6 @@ static int __init ohci_omap_init(void)
 {
 	if (usb_disabled())
 		return -ENODEV;
-
-	pr_info("%s: " DRIVER_DESC "\n", hcd_name);
 
 	ohci_init_driver(&ohci_omap_hc_driver, &omap_overrides);
 	return platform_driver_register(&ohci_hcd_omap_driver);

@@ -3,6 +3,9 @@
 #include <test_progs.h>
 #include <network_helpers.h>
 #include <bpf/btf.h>
+#include "bind4_prog.skel.h"
+#include "freplace_progmap.skel.h"
+#include "xdp_dummy.skel.h"
 
 typedef int (*test_cb)(struct bpf_object *obj);
 
@@ -76,7 +79,7 @@ static void test_fexit_bpf2bpf_common(const char *obj_file,
 		return;
 
 	info_len = sizeof(prog_info);
-	err = bpf_obj_get_info_by_fd(tgt_fd, &prog_info, &info_len);
+	err = bpf_prog_get_info_by_fd(tgt_fd, &prog_info, &info_len);
 	if (!ASSERT_OK(err, "tgt_fd_get_info"))
 		goto close_prog;
 
@@ -133,8 +136,8 @@ static void test_fexit_bpf2bpf_common(const char *obj_file,
 
 		info_len = sizeof(link_info);
 		memset(&link_info, 0, sizeof(link_info));
-		err = bpf_obj_get_info_by_fd(bpf_link__fd(link[i]),
-					     &link_info, &info_len);
+		err = bpf_link_get_info_by_fd(bpf_link__fd(link[i]),
+					      &link_info, &info_len);
 		ASSERT_OK(err, "link_fd_get_info");
 		ASSERT_EQ(link_info.tracing.attach_type,
 			  bpf_program__expected_attach_type(prog[i]),
@@ -173,8 +176,8 @@ static void test_target_no_callees(void)
 	const char *prog_name[] = {
 		"fexit/test_pkt_md_access",
 	};
-	test_fexit_bpf2bpf_common("./fexit_bpf2bpf_simple.o",
-				  "./test_pkt_md_access.o",
+	test_fexit_bpf2bpf_common("./fexit_bpf2bpf_simple.bpf.o",
+				  "./test_pkt_md_access.bpf.o",
 				  ARRAY_SIZE(prog_name),
 				  prog_name, true, NULL);
 }
@@ -187,8 +190,8 @@ static void test_target_yes_callees(void)
 		"fexit/test_pkt_access_subprog2",
 		"fexit/test_pkt_access_subprog3",
 	};
-	test_fexit_bpf2bpf_common("./fexit_bpf2bpf.o",
-				  "./test_pkt_access.o",
+	test_fexit_bpf2bpf_common("./fexit_bpf2bpf.bpf.o",
+				  "./test_pkt_access.bpf.o",
 				  ARRAY_SIZE(prog_name),
 				  prog_name, true, NULL);
 }
@@ -205,8 +208,8 @@ static void test_func_replace(void)
 		"freplace/get_constant",
 		"freplace/test_pkt_write_access_subprog",
 	};
-	test_fexit_bpf2bpf_common("./fexit_bpf2bpf.o",
-				  "./test_pkt_access.o",
+	test_fexit_bpf2bpf_common("./fexit_bpf2bpf.bpf.o",
+				  "./test_pkt_access.bpf.o",
 				  ARRAY_SIZE(prog_name),
 				  prog_name, true, NULL);
 }
@@ -216,8 +219,8 @@ static void test_func_replace_verify(void)
 	const char *prog_name[] = {
 		"freplace/do_bind",
 	};
-	test_fexit_bpf2bpf_common("./freplace_connect4.o",
-				  "./connect4_prog.o",
+	test_fexit_bpf2bpf_common("./freplace_connect4.bpf.o",
+				  "./connect4_prog.bpf.o",
 				  ARRAY_SIZE(prog_name),
 				  prog_name, false, NULL);
 }
@@ -226,7 +229,7 @@ static int test_second_attach(struct bpf_object *obj)
 {
 	const char *prog_name = "security_new_get_constant";
 	const char *tgt_name = "get_constant";
-	const char *tgt_obj_file = "./test_pkt_access.o";
+	const char *tgt_obj_file = "./test_pkt_access.bpf.o";
 	struct bpf_program *prog = NULL;
 	struct bpf_object *tgt_obj;
 	struct bpf_link *link;
@@ -271,8 +274,8 @@ static void test_func_replace_multi(void)
 	const char *prog_name[] = {
 		"freplace/get_constant",
 	};
-	test_fexit_bpf2bpf_common("./freplace_get_constant.o",
-				  "./test_pkt_access.o",
+	test_fexit_bpf2bpf_common("./freplace_get_constant.bpf.o",
+				  "./test_pkt_access.bpf.o",
 				  ARRAY_SIZE(prog_name),
 				  prog_name, true, test_second_attach);
 }
@@ -280,10 +283,10 @@ static void test_func_replace_multi(void)
 static void test_fmod_ret_freplace(void)
 {
 	struct bpf_object *freplace_obj = NULL, *pkt_obj, *fmod_obj = NULL;
-	const char *freplace_name = "./freplace_get_constant.o";
-	const char *fmod_ret_name = "./fmod_ret_freplace.o";
+	const char *freplace_name = "./freplace_get_constant.bpf.o";
+	const char *fmod_ret_name = "./fmod_ret_freplace.bpf.o";
 	DECLARE_LIBBPF_OPTS(bpf_object_open_opts, opts);
-	const char *tgt_name = "./test_pkt_access.o";
+	const char *tgt_name = "./test_pkt_access.bpf.o";
 	struct bpf_link *freplace_link = NULL;
 	struct bpf_program *prog;
 	__u32 duration = 0;
@@ -338,8 +341,8 @@ static void test_func_sockmap_update(void)
 	const char *prog_name[] = {
 		"freplace/cls_redirect",
 	};
-	test_fexit_bpf2bpf_common("./freplace_cls_redirect.o",
-				  "./test_cls_redirect.o",
+	test_fexit_bpf2bpf_common("./freplace_cls_redirect.bpf.o",
+				  "./test_cls_redirect.bpf.o",
 				  ARRAY_SIZE(prog_name),
 				  prog_name, false, NULL);
 }
@@ -384,15 +387,15 @@ close_prog:
 static void test_func_replace_return_code(void)
 {
 	/* test invalid return code in the replaced program */
-	test_obj_load_failure_common("./freplace_connect_v4_prog.o",
-				     "./connect4_prog.o");
+	test_obj_load_failure_common("./freplace_connect_v4_prog.bpf.o",
+				     "./connect4_prog.bpf.o");
 }
 
 static void test_func_map_prog_compatibility(void)
 {
 	/* test with spin lock map value in the replaced program */
-	test_obj_load_failure_common("./freplace_attach_probe.o",
-				     "./test_attach_probe.o");
+	test_obj_load_failure_common("./freplace_attach_probe.bpf.o",
+				     "./test_attach_probe.bpf.o");
 }
 
 static void test_func_replace_global_func(void)
@@ -401,10 +404,146 @@ static void test_func_replace_global_func(void)
 		"freplace/test_pkt_access",
 	};
 
-	test_fexit_bpf2bpf_common("./freplace_global_func.o",
-				  "./test_pkt_access.o",
+	test_fexit_bpf2bpf_common("./freplace_global_func.bpf.o",
+				  "./test_pkt_access.bpf.o",
 				  ARRAY_SIZE(prog_name),
 				  prog_name, false, NULL);
+}
+
+static int find_prog_btf_id(const char *name, __u32 attach_prog_fd)
+{
+	struct bpf_prog_info info = {};
+	__u32 info_len = sizeof(info);
+	struct btf *btf;
+	int ret;
+
+	ret = bpf_prog_get_info_by_fd(attach_prog_fd, &info, &info_len);
+	if (ret)
+		return ret;
+
+	if (!info.btf_id)
+		return -EINVAL;
+
+	btf = btf__load_from_kernel_by_id(info.btf_id);
+	ret = libbpf_get_error(btf);
+	if (ret)
+		return ret;
+
+	ret = btf__find_by_name_kind(btf, name, BTF_KIND_FUNC);
+	btf__free(btf);
+	return ret;
+}
+
+static int load_fentry(int attach_prog_fd, int attach_btf_id)
+{
+	LIBBPF_OPTS(bpf_prog_load_opts, opts,
+		    .expected_attach_type = BPF_TRACE_FENTRY,
+		    .attach_prog_fd = attach_prog_fd,
+		    .attach_btf_id = attach_btf_id,
+	);
+	struct bpf_insn insns[] = {
+		BPF_MOV64_IMM(BPF_REG_0, 0),
+		BPF_EXIT_INSN(),
+	};
+
+	return bpf_prog_load(BPF_PROG_TYPE_TRACING,
+			     "bind4_fentry",
+			     "GPL",
+			     insns,
+			     ARRAY_SIZE(insns),
+			     &opts);
+}
+
+static void test_fentry_to_cgroup_bpf(void)
+{
+	struct bind4_prog *skel = NULL;
+	struct bpf_prog_info info = {};
+	__u32 info_len = sizeof(info);
+	int cgroup_fd = -1;
+	int fentry_fd = -1;
+	int btf_id;
+
+	cgroup_fd = test__join_cgroup("/fentry_to_cgroup_bpf");
+	if (!ASSERT_GE(cgroup_fd, 0, "cgroup_fd"))
+		return;
+
+	skel = bind4_prog__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "skel"))
+		goto cleanup;
+
+	skel->links.bind_v4_prog = bpf_program__attach_cgroup(skel->progs.bind_v4_prog, cgroup_fd);
+	if (!ASSERT_OK_PTR(skel->links.bind_v4_prog, "bpf_program__attach_cgroup"))
+		goto cleanup;
+
+	btf_id = find_prog_btf_id("bind_v4_prog", bpf_program__fd(skel->progs.bind_v4_prog));
+	if (!ASSERT_GE(btf_id, 0, "find_prog_btf_id"))
+		goto cleanup;
+
+	fentry_fd = load_fentry(bpf_program__fd(skel->progs.bind_v4_prog), btf_id);
+	if (!ASSERT_GE(fentry_fd, 0, "load_fentry"))
+		goto cleanup;
+
+	/* Make sure bpf_prog_get_info_by_fd works correctly when attaching
+	 * to another BPF program.
+	 */
+
+	ASSERT_OK(bpf_prog_get_info_by_fd(fentry_fd, &info, &info_len),
+		  "bpf_prog_get_info_by_fd");
+
+	ASSERT_EQ(info.btf_id, 0, "info.btf_id");
+	ASSERT_EQ(info.attach_btf_id, btf_id, "info.attach_btf_id");
+	ASSERT_GT(info.attach_btf_obj_id, 0, "info.attach_btf_obj_id");
+
+cleanup:
+	if (cgroup_fd >= 0)
+		close(cgroup_fd);
+	if (fentry_fd >= 0)
+		close(fentry_fd);
+	bind4_prog__destroy(skel);
+}
+
+static void test_func_replace_progmap(void)
+{
+	struct bpf_cpumap_val value = { .qsize = 1 };
+	struct freplace_progmap *skel = NULL;
+	struct xdp_dummy *tgt_skel = NULL;
+	__u32 key = 0;
+	int err;
+
+	skel = freplace_progmap__open();
+	if (!ASSERT_OK_PTR(skel, "prog_open"))
+		return;
+
+	tgt_skel = xdp_dummy__open_and_load();
+	if (!ASSERT_OK_PTR(tgt_skel, "tgt_prog_load"))
+		goto out;
+
+	err = bpf_program__set_attach_target(skel->progs.xdp_cpumap_prog,
+					     bpf_program__fd(tgt_skel->progs.xdp_dummy_prog),
+					     "xdp_dummy_prog");
+	if (!ASSERT_OK(err, "set_attach_target"))
+		goto out;
+
+	err = freplace_progmap__load(skel);
+	if (!ASSERT_OK(err, "obj_load"))
+		goto out;
+
+	/* Prior to fixing the kernel, loading the PROG_TYPE_EXT 'redirect'
+	 * program above will cause the map owner type of 'cpumap' to be set to
+	 * PROG_TYPE_EXT. This in turn will cause the bpf_map_update_elem()
+	 * below to fail, because the program we are inserting into the map is
+	 * of PROG_TYPE_XDP. After fixing the kernel, the initial ownership will
+	 * be correctly resolved to the *target* of the PROG_TYPE_EXT program
+	 * (i.e., PROG_TYPE_XDP) and the map update will succeed.
+	 */
+	value.bpf_prog.fd = bpf_program__fd(skel->progs.xdp_drop_prog);
+	err = bpf_map_update_elem(bpf_map__fd(skel->maps.cpu_map),
+				  &key, &value, 0);
+	ASSERT_OK(err, "map_update");
+
+out:
+	xdp_dummy__destroy(tgt_skel);
+	freplace_progmap__destroy(skel);
 }
 
 /* NOTE: affect other tests, must run in serial mode */
@@ -430,4 +569,8 @@ void serial_test_fexit_bpf2bpf(void)
 		test_fmod_ret_freplace();
 	if (test__start_subtest("func_replace_global_func"))
 		test_func_replace_global_func();
+	if (test__start_subtest("fentry_to_cgroup_bpf"))
+		test_fentry_to_cgroup_bpf();
+	if (test__start_subtest("func_replace_progmap"))
+		test_func_replace_progmap();
 }

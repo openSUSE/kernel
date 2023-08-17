@@ -4,7 +4,7 @@
 $id: http://devicetree.org/schemas/clock/imx7ulp-scg-clock.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Clock bindings for Freescale i.MX7ULP System Clock Generation (SCG) modules
+title: Freescale i.MX7ULP System Clock Generation (SCG) modules Clock Controller
 
 maintainers:
   - A.s. Dong <aisheng.dong@nxp.com>
@@ -85,15 +85,4 @@ examples:
         clock-names = "rosc", "sosc", "sirc",
                       "firc", "upll";
         #clock-cells = <1>;
-    };
-
-    mmc@40380000 {
-        compatible = "fsl,imx7ulp-usdhc";
-        reg = <0x40380000 0x10000>;
-        interrupts = <GIC_SPI 43 IRQ_TYPE_LEVEL_HIGH>;
-        clocks = <&scg1 IMX7ULP_CLK_NIC1_BUS_DIV>,
-                 <&scg1 IMX7ULP_CLK_NIC1_DIV>,
-                 <&pcc2 IMX7ULP_CLK_USDHC1>;
-        clock-names ="ipg", "ahb", "per";
-        bus-width = <4>;
     };

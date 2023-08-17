@@ -93,7 +93,6 @@ static const struct snd_soc_component_driver nau8315_component_driver = {
 	.idle_bias_on		= 1,
 	.use_pmdown_time	= 1,
 	.endianness		= 1,
-	.non_legacy_dai_naming	= 1,
 };
 
 static const struct snd_soc_dai_ops nau8315_dai_ops = {
@@ -138,6 +137,7 @@ static int nau8315_platform_probe(struct platform_device *pdev)
 #ifdef CONFIG_OF
 static const struct of_device_id nau8315_device_id[] = {
 	{ .compatible = "nuvoton,nau8315" },
+	{ .compatible = "nuvoton,nau8318" },
 	{}
 };
 MODULE_DEVICE_TABLE(of, nau8315_device_id);
@@ -146,6 +146,7 @@ MODULE_DEVICE_TABLE(of, nau8315_device_id);
 #ifdef CONFIG_ACPI
 static const struct acpi_device_id nau8315_acpi_match[] = {
 	{ "NVTN2010", 0 },
+	{ "NVTN2012", 0},
 	{},
 };
 MODULE_DEVICE_TABLE(acpi, nau8315_acpi_match);

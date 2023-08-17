@@ -62,11 +62,6 @@ MODULE_AUTHOR("Roland Dreier");
 MODULE_DESCRIPTION("InfiniBand SCSI RDMA Protocol initiator");
 MODULE_LICENSE("Dual BSD/GPL");
 
-#if !defined(CONFIG_DYNAMIC_DEBUG)
-#define DEFINE_DYNAMIC_DEBUG_METADATA(name, fmt)
-#define DYNAMIC_DEBUG_BRANCH(descriptor) false
-#endif
-
 static unsigned int srp_sg_tablesize;
 static unsigned int cmd_sg_entries;
 static unsigned int indirect_sg_entries;
@@ -430,7 +425,7 @@ static struct srp_fr_pool *srp_create_fr_pool(struct ib_device *device,
 	spin_lock_init(&pool->lock);
 	INIT_LIST_HEAD(&pool->free_list);
 
-	if (device->attrs.device_cap_flags & IB_DEVICE_SG_GAPS_REG)
+	if (device->attrs.kernel_cap_flags & IBK_SG_GAPS_REG)
 		mr_type = IB_MR_TYPE_SG_GAPS;
 	else
 		mr_type = IB_MR_TYPE_MEM_REG;
@@ -699,7 +694,7 @@ static void srp_free_ch_ib(struct srp_target_port *target,
 
 static void srp_path_rec_completion(int status,
 				    struct sa_path_rec *pathrec,
-				    void *ch_ptr)
+				    unsigned int num_paths, void *ch_ptr)
 {
 	struct srp_rdma_ch *ch = ch_ptr;
 	struct srp_target_port *target = ch->target;
@@ -1282,8 +1277,7 @@ struct srp_terminate_context {
 	int scsi_result;
 };
 
-static bool srp_terminate_cmd(struct scsi_cmnd *scmnd, void *context_ptr,
-			      bool reserved)
+static bool srp_terminate_cmd(struct scsi_cmnd *scmnd, void *context_ptr)
 {
 	struct srp_terminate_context *context = context_ptr;
 	struct srp_target_port *target = context->srp_target;
@@ -3078,7 +3072,7 @@ static struct attribute *srp_host_attrs[] = {
 
 ATTRIBUTE_GROUPS(srp_host);
 
-static struct scsi_host_template srp_template = {
+static const struct scsi_host_template srp_template = {
 	.module				= THIS_MODULE,
 	.name				= "InfiniBand SRP initiator",
 	.proc_name			= DRV_NAME,
@@ -3178,7 +3172,7 @@ static void srp_release_dev(struct device *dev)
 	struct srp_host *host =
 		container_of(dev, struct srp_host, dev);
 
-	complete(&host->released);
+	kfree(host);
 }
 
 static struct attribute *srp_class_attrs[];
@@ -3722,7 +3716,7 @@ static ssize_t add_target_store(struct device *dev,
 	target_host->max_cmd_len = sizeof ((struct srp_cmd *) (void *) 0L)->cdb;
 	target_host->max_segment_size = ib_dma_max_seg_size(ibdev);
 
-	if (!(ibdev->attrs.device_cap_flags & IB_DEVICE_SG_GAPS_REG))
+	if (!(ibdev->attrs.kernel_cap_flags & IBK_SG_GAPS_REG))
 		target_host->virt_boundary_mask = ~srp_dev->mr_page_mask;
 
 	target = host_to_target(target_host);
@@ -3778,8 +3772,8 @@ static ssize_t add_target_store(struct device *dev,
 	}
 
 	if (srp_dev->use_fast_reg) {
-		bool gaps_reg = (ibdev->attrs.device_cap_flags &
-				 IB_DEVICE_SG_GAPS_REG);
+		bool gaps_reg = ibdev->attrs.kernel_cap_flags &
+				 IBK_SG_GAPS_REG;
 
 		max_sectors_per_mr = srp_dev->max_pages_per_mr <<
 				  (ilog2(srp_dev->mr_page_size) - 9);
@@ -3978,7 +3972,6 @@ static struct srp_host *srp_add_port(struct srp_device *device, u32 port)
 
 	INIT_LIST_HEAD(&host->target_list);
 	spin_lock_init(&host->target_lock);
-	init_completion(&host->released);
 	mutex_init(&host->add_target_mutex);
 	host->srp_dev = device;
 	host->port = port;
@@ -3997,8 +3990,6 @@ static struct srp_host *srp_add_port(struct srp_device *device, u32 port)
 put_host:
 	device_del(&host->dev);
 	put_device(&host->dev);
-	kfree(host);
-
 	return NULL;
 }
 
@@ -4104,12 +4095,11 @@ static void srp_remove_one(struct ib_device *device, void *client_data)
 	srp_dev = client_data;
 
 	list_for_each_entry_safe(host, tmp_host, &srp_dev->dev_list, list) {
-		device_unregister(&host->dev);
 		/*
-		 * Wait for the sysfs entry to go away, so that no new
-		 * target ports can be created.
+		 * Remove the add_target sysfs entry so that no new target ports
+		 * can be created.
 		 */
-		wait_for_completion(&host->released);
+		device_del(&host->dev);
 
 		/*
 		 * Remove all target ports.
@@ -4127,7 +4117,7 @@ static void srp_remove_one(struct ib_device *device, void *client_data)
 		 */
 		flush_workqueue(srp_remove_wq);
 
-		kfree(host);
+		put_device(&host->dev);
 	}
 
 	ib_dealloc_pd(srp_dev->pd);

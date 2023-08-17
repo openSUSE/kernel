@@ -5,7 +5,7 @@
 $id: http://devicetree.org/schemas/phy/mediatek,dsi-phy.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: MediaTek MIPI Display Serial Interface (DSI) PHY binding
+title: MediaTek MIPI Display Serial Interface (DSI) PHY
 
 maintainers:
   - Chun-Kuang Hu <chunkuang.hu@kernel.org>
@@ -24,6 +24,10 @@ properties:
           - enum:
               - mediatek,mt7623-mipi-tx
           - const: mediatek,mt2701-mipi-tx
+      - items:
+          - enum:
+              - mediatek,mt8365-mipi-tx
+          - const: mediatek,mt8183-mipi-tx
       - const: mediatek,mt2701-mipi-tx
       - const: mediatek,mt8173-mipi-tx
       - const: mediatek,mt8183-mipi-tx

@@ -9,7 +9,6 @@
 #include <linux/slab.h>
 #include <linux/ctype.h>
 #include <linux/vmalloc.h>
-#include <linux/blktrace_api.h>
 #include <linux/raid/detect.h>
 #include "check.h"
 
@@ -85,14 +84,6 @@ static int (*check_part[])(struct parsed_partitions *) = {
 #endif
 	NULL
 };
-
-static void bdev_set_nr_sectors(struct block_device *bdev, sector_t sectors)
-{
-	spin_lock(&bdev->bd_size_lock);
-	i_size_write(bdev->bd_inode, (loff_t)sectors << SECTOR_SHIFT);
-	bdev->bd_nr_sectors = sectors;
-	spin_unlock(&bdev->bd_size_lock);
-}
 
 static struct parsed_partitions *allocate_partitions(struct gendisk *hd)
 {
@@ -255,9 +246,9 @@ static void part_release(struct device *dev)
 	iput(dev_to_bdev(dev)->bd_inode);
 }
 
-static int part_uevent(struct device *dev, struct kobj_uevent_env *env)
+static int part_uevent(const struct device *dev, struct kobj_uevent_env *env)
 {
-	struct block_device *part = dev_to_bdev(dev);
+	const struct block_device *part = dev_to_bdev(dev);
 
 	add_uevent_var(env, "PARTN=%u", part->bd_partno);
 	if (part->bd_meta_info && part->bd_meta_info->volname[0])
@@ -331,7 +322,7 @@ static struct block_device *add_partition(struct gendisk *disk, int partno,
 	case BLK_ZONED_HA:
 		pr_info("%s: disabling host aware zoned block device support due to partitions\n",
 			disk->disk_name);
-		blk_queue_set_zoned(disk, BLK_ZONED_NONE);
+		disk_set_zoned(disk, BLK_ZONED_NONE);
 		break;
 	case BLK_ZONED_NONE:
 		break;
@@ -597,6 +588,9 @@ static int blk_add_partitions(struct gendisk *disk)
 	if (disk->flags & GENHD_FL_NO_PART)
 		return 0;
 
+	if (test_bit(GD_SUPPRESS_PART_SCAN, &disk->state))
+		return 0;
+
 	state = check_partition(disk);
 	if (!state)
 		return 0;
@@ -705,25 +699,19 @@ EXPORT_SYMBOL_GPL(bdev_disk_changed);
 void *read_part_sector(struct parsed_partitions *state, sector_t n, Sector *p)
 {
 	struct address_space *mapping = state->disk->part0->bd_inode->i_mapping;
-	struct page *page;
+	struct folio *folio;
 
 	if (n >= get_capacity(state->disk)) {
 		state->access_beyond_eod = true;
-		return NULL;
+		goto out;
 	}
 
-	page = read_mapping_page(mapping,
-			(pgoff_t)(n >> (PAGE_SHIFT - 9)), NULL);
-	if (IS_ERR(page))
+	folio = read_mapping_folio(mapping, n >> PAGE_SECTORS_SHIFT, NULL);
+	if (IS_ERR(folio))
 		goto out;
-	if (PageError(page))
-		goto out_put_page;
 
-	p->v = page;
-	return (unsigned char *)page_address(page) +
-			((n & ((1 << (PAGE_SHIFT - 9)) - 1)) << SECTOR_SHIFT);
-out_put_page:
-	put_page(page);
+	p->v = folio;
+	return folio_address(folio) + offset_in_folio(folio, n * SECTOR_SIZE);
 out:
 	p->v = NULL;
 	return NULL;

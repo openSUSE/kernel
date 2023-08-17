@@ -77,7 +77,7 @@ static const struct of_device_id ahci_qoriq_of_match[] = {
 	{ .compatible = "fsl,ls1088a-ahci", .data = (void *)AHCI_LS1088A},
 	{ .compatible = "fsl,ls2088a-ahci", .data = (void *)AHCI_LS2088A},
 	{ .compatible = "fsl,lx2160a-ahci", .data = (void *)AHCI_LX2160A},
-	{},
+	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, ahci_qoriq_of_match);
 
@@ -159,7 +159,7 @@ static const struct ata_port_info ahci_qoriq_port_info = {
 	.port_ops	= &ahci_qoriq_ops,
 };
 
-static struct scsi_host_template ahci_qoriq_sht = {
+static const struct scsi_host_template ahci_qoriq_sht = {
 	AHCI_SHT(DRV_NAME),
 };
 
@@ -280,7 +280,7 @@ static int ahci_qoriq_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	if (of_id)
-		qoriq_priv->type = (enum ahci_qoriq_type)of_id->data;
+		qoriq_priv->type = (unsigned long)of_id->data;
 	else
 		qoriq_priv->type = (enum ahci_qoriq_type)acpi_id->driver_data;
 

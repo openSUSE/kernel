@@ -6,18 +6,19 @@
  */
 
 #include <linux/context_tracking.h>
+#include <linux/kasan.h>
 #include <linux/linkage.h>
 #include <linux/lockdep.h>
 #include <linux/ptrace.h>
 #include <linux/sched.h>
 #include <linux/sched/debug.h>
 #include <linux/thread_info.h>
-#include <linux/static_call.h>
 
 #include <asm/cpufeature.h>
 #include <asm/daifflags.h>
 #include <asm/esr.h>
 #include <asm/exception.h>
+#include <asm/irq_regs.h>
 #include <asm/kprobes.h>
 #include <asm/mmu.h>
 #include <asm/processor.h>
@@ -27,16 +28,20 @@
 #include <asm/system_misc.h>
 
 /*
+ * Handle IRQ/context state management when entering from kernel mode.
+ * Before this function is called it is not safe to call regular kernel code,
+ * instrumentable code, or any code which may trigger an exception.
+ *
  * This is intended to match the logic in irqentry_enter(), handling the kernel
  * mode transitions only.
  */
-static void noinstr enter_from_kernel_mode(struct pt_regs *regs)
+static __always_inline void __enter_from_kernel_mode(struct pt_regs *regs)
 {
 	regs->exit_rcu = false;
 
 	if (!IS_ENABLED(CONFIG_TINY_RCU) && is_idle_task(current)) {
 		lockdep_hardirqs_off(CALLER_ADDR0);
-		rcu_irq_enter();
+		ct_irq_enter();
 		trace_hardirqs_off_finish();
 
 		regs->exit_rcu = true;
@@ -46,25 +51,32 @@ static void noinstr enter_from_kernel_mode(struct pt_regs *regs)
 	lockdep_hardirqs_off(CALLER_ADDR0);
 	rcu_irq_enter_check_tick();
 	trace_hardirqs_off_finish();
+}
 
+static void noinstr enter_from_kernel_mode(struct pt_regs *regs)
+{
+	__enter_from_kernel_mode(regs);
 	mte_check_tfsr_entry();
+	mte_disable_tco_entry(current);
 }
 
 /*
+ * Handle IRQ/context state management when exiting to kernel mode.
+ * After this function returns it is not safe to call regular kernel code,
+ * instrumentable code, or any code which may trigger an exception.
+ *
  * This is intended to match the logic in irqentry_exit(), handling the kernel
  * mode transitions only, and with preemption handled elsewhere.
  */
-static void noinstr exit_to_kernel_mode(struct pt_regs *regs)
+static __always_inline void __exit_to_kernel_mode(struct pt_regs *regs)
 {
 	lockdep_assert_irqs_disabled();
-
-	mte_check_tfsr_exit();
 
 	if (interrupts_enabled(regs)) {
 		if (regs->exit_rcu) {
 			trace_hardirqs_on_prepare();
-			lockdep_hardirqs_on_prepare(CALLER_ADDR0);
-			rcu_irq_exit();
+			lockdep_hardirqs_on_prepare();
+			ct_irq_exit();
 			lockdep_hardirqs_on(CALLER_ADDR0);
 			return;
 		}
@@ -72,10 +84,76 @@ static void noinstr exit_to_kernel_mode(struct pt_regs *regs)
 		trace_hardirqs_on();
 	} else {
 		if (regs->exit_rcu)
-			rcu_irq_exit();
+			ct_irq_exit();
 	}
 }
 
+static void noinstr exit_to_kernel_mode(struct pt_regs *regs)
+{
+	mte_check_tfsr_exit();
+	__exit_to_kernel_mode(regs);
+}
+
+/*
+ * Handle IRQ/context state management when entering from user mode.
+ * Before this function is called it is not safe to call regular kernel code,
+ * instrumentable code, or any code which may trigger an exception.
+ */
+static __always_inline void __enter_from_user_mode(void)
+{
+	lockdep_hardirqs_off(CALLER_ADDR0);
+	CT_WARN_ON(ct_state() != CONTEXT_USER);
+	user_exit_irqoff();
+	trace_hardirqs_off_finish();
+	mte_disable_tco_entry(current);
+}
+
+static __always_inline void enter_from_user_mode(struct pt_regs *regs)
+{
+	__enter_from_user_mode();
+}
+
+/*
+ * Handle IRQ/context state management when exiting to user mode.
+ * After this function returns it is not safe to call regular kernel code,
+ * instrumentable code, or any code which may trigger an exception.
+ */
+static __always_inline void __exit_to_user_mode(void)
+{
+	trace_hardirqs_on_prepare();
+	lockdep_hardirqs_on_prepare();
+	user_enter_irqoff();
+	lockdep_hardirqs_on(CALLER_ADDR0);
+}
+
+static __always_inline void prepare_exit_to_user_mode(struct pt_regs *regs)
+{
+	unsigned long flags;
+
+	local_daif_mask();
+
+	flags = read_thread_flags();
+	if (unlikely(flags & _TIF_WORK_MASK))
+		do_notify_resume(regs, flags);
+}
+
+static __always_inline void exit_to_user_mode(struct pt_regs *regs)
+{
+	prepare_exit_to_user_mode(regs);
+	mte_check_tfsr_exit();
+	__exit_to_user_mode();
+}
+
+asmlinkage void noinstr asm_exit_to_user_mode(struct pt_regs *regs)
+{
+	exit_to_user_mode(regs);
+}
+
+/*
+ * Handle IRQ/context state management when entering an NMI from user/kernel
+ * mode. Before this function is called it is not safe to call regular kernel
+ * code, instrumentable code, or any code which may trigger an exception.
+ */
 static void noinstr arm64_enter_nmi(struct pt_regs *regs)
 {
 	regs->lockdep_hardirqs = lockdep_hardirqs_enabled();
@@ -83,12 +161,17 @@ static void noinstr arm64_enter_nmi(struct pt_regs *regs)
 	__nmi_enter();
 	lockdep_hardirqs_off(CALLER_ADDR0);
 	lockdep_hardirq_enter();
-	rcu_nmi_enter();
+	ct_nmi_enter();
 
 	trace_hardirqs_off_finish();
 	ftrace_nmi_enter();
 }
 
+/*
+ * Handle IRQ/context state management when exiting an NMI from user/kernel
+ * mode. After this function returns it is not safe to call regular kernel
+ * code, instrumentable code, or any code which may trigger an exception.
+ */
 static void noinstr arm64_exit_nmi(struct pt_regs *regs)
 {
 	bool restore = regs->lockdep_hardirqs;
@@ -96,35 +179,70 @@ static void noinstr arm64_exit_nmi(struct pt_regs *regs)
 	ftrace_nmi_exit();
 	if (restore) {
 		trace_hardirqs_on_prepare();
-		lockdep_hardirqs_on_prepare(CALLER_ADDR0);
+		lockdep_hardirqs_on_prepare();
 	}
 
-	rcu_nmi_exit();
+	ct_nmi_exit();
 	lockdep_hardirq_exit();
 	if (restore)
 		lockdep_hardirqs_on(CALLER_ADDR0);
 	__nmi_exit();
 }
 
-static void noinstr enter_el1_irq_or_nmi(struct pt_regs *regs)
+/*
+ * Handle IRQ/context state management when entering a debug exception from
+ * kernel mode. Before this function is called it is not safe to call regular
+ * kernel code, instrumentable code, or any code which may trigger an exception.
+ */
+static void noinstr arm64_enter_el1_dbg(struct pt_regs *regs)
 {
-	if (IS_ENABLED(CONFIG_ARM64_PSEUDO_NMI) && !interrupts_enabled(regs))
-		arm64_enter_nmi(regs);
-	else
-		enter_from_kernel_mode(regs);
+	regs->lockdep_hardirqs = lockdep_hardirqs_enabled();
+
+	lockdep_hardirqs_off(CALLER_ADDR0);
+	ct_nmi_enter();
+
+	trace_hardirqs_off_finish();
 }
 
-static void noinstr exit_el1_irq_or_nmi(struct pt_regs *regs)
+/*
+ * Handle IRQ/context state management when exiting a debug exception from
+ * kernel mode. After this function returns it is not safe to call regular
+ * kernel code, instrumentable code, or any code which may trigger an exception.
+ */
+static void noinstr arm64_exit_el1_dbg(struct pt_regs *regs)
 {
-	if (IS_ENABLED(CONFIG_ARM64_PSEUDO_NMI) && !interrupts_enabled(regs))
-		arm64_exit_nmi(regs);
-	else
-		exit_to_kernel_mode(regs);
+	bool restore = regs->lockdep_hardirqs;
+
+	if (restore) {
+		trace_hardirqs_on_prepare();
+		lockdep_hardirqs_on_prepare();
+	}
+
+	ct_nmi_exit();
+	if (restore)
+		lockdep_hardirqs_on(CALLER_ADDR0);
 }
 
-void __sched arm64_preempt_schedule_irq(void)
+#ifdef CONFIG_PREEMPT_DYNAMIC
+DEFINE_STATIC_KEY_TRUE(sk_dynamic_irqentry_exit_cond_resched);
+#define need_irq_preemption() \
+	(static_branch_unlikely(&sk_dynamic_irqentry_exit_cond_resched))
+#else
+#define need_irq_preemption()	(IS_ENABLED(CONFIG_PREEMPTION))
+#endif
+
+static void __sched arm64_preempt_schedule_irq(void)
 {
-	lockdep_assert_irqs_disabled();
+	if (!need_irq_preemption())
+		return;
+
+	/*
+	 * Note: thread_info::preempt_count includes both thread_info::count
+	 * and thread_info::need_resched, and is not equivalent to
+	 * preempt_count().
+	 */
+	if (READ_ONCE(current_thread_info()->preempt_count) != 0)
+		return;
 
 	/*
 	 * DAIF.DA are cleared at the start of IRQ/FIQ handling, and when GIC
@@ -146,17 +264,18 @@ void __sched arm64_preempt_schedule_irq(void)
 	if (system_capabilities_finalized())
 		preempt_schedule_irq();
 }
-#ifdef CONFIG_PREEMPT_DYNAMIC
-DEFINE_STATIC_CALL(irqentry_exit_cond_resched, arm64_preempt_schedule_irq);
-#endif
 
 static void do_interrupt_handler(struct pt_regs *regs,
 				 void (*handler)(struct pt_regs *))
 {
+	struct pt_regs *old_regs = set_irq_regs(regs);
+
 	if (on_thread_stack())
 		call_on_irq_stack(regs, handler);
 	else
 		handler(regs);
+
+	set_irq_regs(old_regs);
 }
 
 extern void (*handle_arch_irq)(struct pt_regs *);
@@ -261,37 +380,22 @@ static void noinstr el1_pc(struct pt_regs *regs, unsigned long esr)
 	exit_to_kernel_mode(regs);
 }
 
-static void noinstr el1_undef(struct pt_regs *regs)
+static void noinstr el1_undef(struct pt_regs *regs, unsigned long esr)
 {
 	enter_from_kernel_mode(regs);
 	local_daif_inherit(regs);
-	do_undefinstr(regs);
+	do_el1_undef(regs, esr);
 	local_daif_mask();
 	exit_to_kernel_mode(regs);
 }
 
-static void noinstr arm64_enter_el1_dbg(struct pt_regs *regs)
+static void noinstr el1_bti(struct pt_regs *regs, unsigned long esr)
 {
-	regs->lockdep_hardirqs = lockdep_hardirqs_enabled();
-
-	lockdep_hardirqs_off(CALLER_ADDR0);
-	rcu_nmi_enter();
-
-	trace_hardirqs_off_finish();
-}
-
-static void noinstr arm64_exit_el1_dbg(struct pt_regs *regs)
-{
-	bool restore = regs->lockdep_hardirqs;
-
-	if (restore) {
-		trace_hardirqs_on_prepare();
-		lockdep_hardirqs_on_prepare(CALLER_ADDR0);
-	}
-
-	rcu_nmi_exit();
-	if (restore)
-		lockdep_hardirqs_on(CALLER_ADDR0);
+	enter_from_kernel_mode(regs);
+	local_daif_inherit(regs);
+	do_el1_bti(regs, esr);
+	local_daif_mask();
+	exit_to_kernel_mode(regs);
 }
 
 static void noinstr el1_dbg(struct pt_regs *regs, unsigned long esr)
@@ -308,7 +412,7 @@ static void noinstr el1_fpac(struct pt_regs *regs, unsigned long esr)
 {
 	enter_from_kernel_mode(regs);
 	local_daif_inherit(regs);
-	do_ptrauth_fault(regs, esr);
+	do_el1_fpac(regs, esr);
 	local_daif_mask();
 	exit_to_kernel_mode(regs);
 }
@@ -331,7 +435,10 @@ asmlinkage void noinstr el1h_64_sync_handler(struct pt_regs *regs)
 		break;
 	case ESR_ELx_EC_SYS64:
 	case ESR_ELx_EC_UNKNOWN:
-		el1_undef(regs);
+		el1_undef(regs, esr);
+		break;
+	case ESR_ELx_EC_BTI:
+		el1_bti(regs, esr);
 		break;
 	case ESR_ELx_EC_BREAKPT_CUR:
 	case ESR_ELx_EC_SOFTSTP_CUR:
@@ -347,29 +454,36 @@ asmlinkage void noinstr el1h_64_sync_handler(struct pt_regs *regs)
 	}
 }
 
+static __always_inline void __el1_pnmi(struct pt_regs *regs,
+				       void (*handler)(struct pt_regs *))
+{
+	arm64_enter_nmi(regs);
+	do_interrupt_handler(regs, handler);
+	arm64_exit_nmi(regs);
+}
+
+static __always_inline void __el1_irq(struct pt_regs *regs,
+				      void (*handler)(struct pt_regs *))
+{
+	enter_from_kernel_mode(regs);
+
+	irq_enter_rcu();
+	do_interrupt_handler(regs, handler);
+	irq_exit_rcu();
+
+	arm64_preempt_schedule_irq();
+
+	exit_to_kernel_mode(regs);
+}
 static void noinstr el1_interrupt(struct pt_regs *regs,
 				  void (*handler)(struct pt_regs *))
 {
 	write_sysreg(DAIF_PROCCTX_NOIRQ, daif);
 
-	enter_el1_irq_or_nmi(regs);
-	do_interrupt_handler(regs, handler);
-
-	/*
-	 * Note: thread_info::preempt_count includes both thread_info::count
-	 * and thread_info::need_resched, and is not equivalent to
-	 * preempt_count().
-	 */
-	if (IS_ENABLED(CONFIG_PREEMPTION) &&
-	    READ_ONCE(current_thread_info()->preempt_count) == 0) {
-#ifdef CONFIG_PREEMPT_DYNAMIC
-			static_call(irqentry_exit_cond_resched)();
-#else
-			arm64_preempt_schedule_irq();
-#endif
-	}
-
-	exit_el1_irq_or_nmi(regs);
+	if (IS_ENABLED(CONFIG_ARM64_PSEUDO_NMI) && !interrupts_enabled(regs))
+		__el1_pnmi(regs, handler);
+	else
+		__el1_irq(regs, handler);
 }
 
 asmlinkage void noinstr el1h_64_irq_handler(struct pt_regs *regs)
@@ -392,31 +506,14 @@ asmlinkage void noinstr el1h_64_error_handler(struct pt_regs *regs)
 	arm64_exit_nmi(regs);
 }
 
-asmlinkage void noinstr enter_from_user_mode(void)
-{
-	lockdep_hardirqs_off(CALLER_ADDR0);
-	CT_WARN_ON(ct_state() != CONTEXT_USER);
-	user_exit_irqoff();
-	trace_hardirqs_off_finish();
-}
-
-asmlinkage void noinstr exit_to_user_mode(void)
-{
-	mte_check_tfsr_exit();
-
-	trace_hardirqs_on_prepare();
-	lockdep_hardirqs_on_prepare(CALLER_ADDR0);
-	user_enter_irqoff();
-	lockdep_hardirqs_on(CALLER_ADDR0);
-}
-
 static void noinstr el0_da(struct pt_regs *regs, unsigned long esr)
 {
 	unsigned long far = read_sysreg(far_el1);
 
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	local_daif_restore(DAIF_PROCCTX);
 	do_mem_abort(far, esr, regs);
+	exit_to_user_mode(regs);
 }
 
 static void noinstr el0_ia(struct pt_regs *regs, unsigned long esr)
@@ -431,37 +528,50 @@ static void noinstr el0_ia(struct pt_regs *regs, unsigned long esr)
 	if (!is_ttbr0_addr(far))
 		arm64_apply_bp_hardening();
 
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	local_daif_restore(DAIF_PROCCTX);
 	do_mem_abort(far, esr, regs);
+	exit_to_user_mode(regs);
 }
 
 static void noinstr el0_fpsimd_acc(struct pt_regs *regs, unsigned long esr)
 {
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	local_daif_restore(DAIF_PROCCTX);
 	do_fpsimd_acc(esr, regs);
+	exit_to_user_mode(regs);
 }
 
 static void noinstr el0_sve_acc(struct pt_regs *regs, unsigned long esr)
 {
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	local_daif_restore(DAIF_PROCCTX);
 	do_sve_acc(esr, regs);
+	exit_to_user_mode(regs);
+}
+
+static void noinstr el0_sme_acc(struct pt_regs *regs, unsigned long esr)
+{
+	enter_from_user_mode(regs);
+	local_daif_restore(DAIF_PROCCTX);
+	do_sme_acc(esr, regs);
+	exit_to_user_mode(regs);
 }
 
 static void noinstr el0_fpsimd_exc(struct pt_regs *regs, unsigned long esr)
 {
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	local_daif_restore(DAIF_PROCCTX);
 	do_fpsimd_exc(esr, regs);
+	exit_to_user_mode(regs);
 }
 
 static void noinstr el0_sys(struct pt_regs *regs, unsigned long esr)
 {
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	local_daif_restore(DAIF_PROCCTX);
-	do_sysinstr(esr, regs);
+	do_el0_sys(esr, regs);
+	exit_to_user_mode(regs);
 }
 
 static void noinstr el0_pc(struct pt_regs *regs, unsigned long esr)
@@ -471,37 +581,42 @@ static void noinstr el0_pc(struct pt_regs *regs, unsigned long esr)
 	if (!is_ttbr0_addr(instruction_pointer(regs)))
 		arm64_apply_bp_hardening();
 
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	local_daif_restore(DAIF_PROCCTX);
 	do_sp_pc_abort(far, esr, regs);
+	exit_to_user_mode(regs);
 }
 
 static void noinstr el0_sp(struct pt_regs *regs, unsigned long esr)
 {
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	local_daif_restore(DAIF_PROCCTX);
 	do_sp_pc_abort(regs->sp, esr, regs);
+	exit_to_user_mode(regs);
 }
 
-static void noinstr el0_undef(struct pt_regs *regs)
+static void noinstr el0_undef(struct pt_regs *regs, unsigned long esr)
 {
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	local_daif_restore(DAIF_PROCCTX);
-	do_undefinstr(regs);
+	do_el0_undef(regs, esr);
+	exit_to_user_mode(regs);
 }
 
 static void noinstr el0_bti(struct pt_regs *regs)
 {
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	local_daif_restore(DAIF_PROCCTX);
-	do_bti(regs);
+	do_el0_bti(regs);
+	exit_to_user_mode(regs);
 }
 
 static void noinstr el0_inv(struct pt_regs *regs, unsigned long esr)
 {
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	local_daif_restore(DAIF_PROCCTX);
 	bad_el0_sync(regs, 0, esr);
+	exit_to_user_mode(regs);
 }
 
 static void noinstr el0_dbg(struct pt_regs *regs, unsigned long esr)
@@ -509,23 +624,26 @@ static void noinstr el0_dbg(struct pt_regs *regs, unsigned long esr)
 	/* Only watchpoints write FAR_EL1, otherwise its UNKNOWN */
 	unsigned long far = read_sysreg(far_el1);
 
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	do_debug_exception(far, esr, regs);
 	local_daif_restore(DAIF_PROCCTX);
+	exit_to_user_mode(regs);
 }
 
 static void noinstr el0_svc(struct pt_regs *regs)
 {
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	cortex_a76_erratum_1463225_svc_handler();
 	do_el0_svc(regs);
+	exit_to_user_mode(regs);
 }
 
 static void noinstr el0_fpac(struct pt_regs *regs, unsigned long esr)
 {
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	local_daif_restore(DAIF_PROCCTX);
-	do_ptrauth_fault(regs, esr);
+	do_el0_fpac(regs, esr);
+	exit_to_user_mode(regs);
 }
 
 asmlinkage void noinstr el0t_64_sync_handler(struct pt_regs *regs)
@@ -548,6 +666,9 @@ asmlinkage void noinstr el0t_64_sync_handler(struct pt_regs *regs)
 	case ESR_ELx_EC_SVE:
 		el0_sve_acc(regs, esr);
 		break;
+	case ESR_ELx_EC_SME:
+		el0_sme_acc(regs, esr);
+		break;
 	case ESR_ELx_EC_FP_EXC64:
 		el0_fpsimd_exc(regs, esr);
 		break;
@@ -562,7 +683,7 @@ asmlinkage void noinstr el0t_64_sync_handler(struct pt_regs *regs)
 		el0_pc(regs, esr);
 		break;
 	case ESR_ELx_EC_UNKNOWN:
-		el0_undef(regs);
+		el0_undef(regs, esr);
 		break;
 	case ESR_ELx_EC_BTI:
 		el0_bti(regs);
@@ -584,14 +705,18 @@ asmlinkage void noinstr el0t_64_sync_handler(struct pt_regs *regs)
 static void noinstr el0_interrupt(struct pt_regs *regs,
 				  void (*handler)(struct pt_regs *))
 {
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 
 	write_sysreg(DAIF_PROCCTX_NOIRQ, daif);
 
 	if (regs->pc & BIT(55))
 		arm64_apply_bp_hardening();
 
+	irq_enter_rcu();
 	do_interrupt_handler(regs, handler);
+	irq_exit_rcu();
+
+	exit_to_user_mode(regs);
 }
 
 static void noinstr __el0_irq_handler_common(struct pt_regs *regs)
@@ -618,12 +743,13 @@ static void noinstr __el0_error_handler_common(struct pt_regs *regs)
 {
 	unsigned long esr = read_sysreg(esr_el1);
 
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	local_daif_restore(DAIF_ERRCTX);
 	arm64_enter_nmi(regs);
 	do_serror(regs, esr);
 	arm64_exit_nmi(regs);
 	local_daif_restore(DAIF_PROCCTX);
+	exit_to_user_mode(regs);
 }
 
 asmlinkage void noinstr el0t_64_error_handler(struct pt_regs *regs)
@@ -634,16 +760,18 @@ asmlinkage void noinstr el0t_64_error_handler(struct pt_regs *regs)
 #ifdef CONFIG_COMPAT
 static void noinstr el0_cp15(struct pt_regs *regs, unsigned long esr)
 {
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	local_daif_restore(DAIF_PROCCTX);
-	do_cp15instr(esr, regs);
+	do_el0_cp15(esr, regs);
+	exit_to_user_mode(regs);
 }
 
 static void noinstr el0_svc_compat(struct pt_regs *regs)
 {
-	enter_from_user_mode();
+	enter_from_user_mode(regs);
 	cortex_a76_erratum_1463225_svc_handler();
 	do_el0_svc_compat(regs);
+	exit_to_user_mode(regs);
 }
 
 asmlinkage void noinstr el0t_32_sync_handler(struct pt_regs *regs)
@@ -673,7 +801,7 @@ asmlinkage void noinstr el0t_32_sync_handler(struct pt_regs *regs)
 	case ESR_ELx_EC_CP14_MR:
 	case ESR_ELx_EC_CP14_LS:
 	case ESR_ELx_EC_CP14_64:
-		el0_undef(regs);
+		el0_undef(regs, esr);
 		break;
 	case ESR_ELx_EC_CP15_32:
 	case ESR_ELx_EC_CP15_64:
@@ -712,7 +840,7 @@ UNHANDLED(el0t, 32, error)
 #endif /* CONFIG_COMPAT */
 
 #ifdef CONFIG_VMAP_STACK
-asmlinkage void noinstr handle_bad_stack(struct pt_regs *regs)
+asmlinkage void noinstr __noreturn handle_bad_stack(struct pt_regs *regs)
 {
 	unsigned long esr = read_sysreg(esr_el1);
 	unsigned long far = read_sysreg(far_el1);

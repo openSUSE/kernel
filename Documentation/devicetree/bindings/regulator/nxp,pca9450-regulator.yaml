@@ -17,10 +17,10 @@ description: |
   Datasheet is available at
   https://www.nxp.com/docs/en/data-sheet/PCA9450DS.pdf
 
-#The valid names for PCA9450 regulator nodes are:
-#BUCK1, BUCK2, BUCK3, BUCK4, BUCK5, BUCK6,
-#LDO1, LDO2, LDO3, LDO4, LDO5
-#Note: Buck3 removed on PCA9450B and connect with Buck1 on PCA9450C.
+# The valid names for PCA9450 regulator nodes are:
+# BUCK1, BUCK2, BUCK3, BUCK4, BUCK5, BUCK6,
+# LDO1, LDO2, LDO3, LDO4, LDO5
+# Note: Buck3 removed on PCA9450B and connect with Buck1 on PCA9450C.
 
 properties:
   compatible:
@@ -57,7 +57,7 @@ properties:
 
         properties:
           nxp,dvs-run-voltage:
-            $ref: "/schemas/types.yaml#/definitions/uint32"
+            $ref: /schemas/types.yaml#/definitions/uint32
             minimum: 600000
             maximum: 2187500
             description:
@@ -65,7 +65,7 @@ properties:
               dvs(dynamic voltage scaling) property.
 
           nxp,dvs-standby-voltage:
-            $ref: "/schemas/types.yaml#/definitions/uint32"
+            $ref: /schemas/types.yaml#/definitions/uint32
             minimum: 600000
             maximum: 2187500
             description:
@@ -80,6 +80,17 @@ properties:
     description: GPIO that is used to switch LDO5 between being configured by
       LDO5CTRL_L or LDO5CTRL_H register. Use this if the SD_VSEL signal is
       connected to a host GPIO.
+
+  nxp,i2c-lt-enable:
+    type: boolean
+    description:
+      Indicates that the I2C Level Translator is used.
+
+  nxp,wdog_b-warm-reset:
+    type: boolean
+    description:
+      When WDOG_B signal is asserted a warm reset will be done instead of cold
+      reset.
 
 required:
   - compatible

@@ -1,8 +1,4 @@
-/*
- * This file is licensed under the terms of the GNU General Public License
- * version 2.  This program is licensed "as is" without any warranty of any
- * kind, whether express or implied.
- */
+// SPDX-License-Identifier: GPL-2.0-only
 
 #include <dt-bindings/bus/ti-sysc.h>
 #include <dt-bindings/clock/dm816.h>
@@ -526,7 +522,7 @@
 			ti,timer-pwm;
 		};
 
-		uart1: uart@48020000 {
+		uart1: serial@48020000 {
 			compatible = "ti,am3352-uart", "ti,omap3-uart";
 			ti,hwmods = "uart1";
 			reg = <0x48020000 0x2000>;
@@ -536,7 +532,7 @@
 			dma-names = "tx", "rx";
 		};
 
-		uart2: uart@48022000 {
+		uart2: serial@48022000 {
 			compatible = "ti,am3352-uart", "ti,omap3-uart";
 			ti,hwmods = "uart2";
 			reg = <0x48022000 0x2000>;
@@ -546,7 +542,7 @@
 			dma-names = "tx", "rx";
 		};
 
-		uart3: uart@48024000 {
+		uart3: serial@48024000 {
 			compatible = "ti,am3352-uart", "ti,omap3-uart";
 			ti,hwmods = "uart3";
 			reg = <0x48024000 0x2000>;
@@ -655,8 +651,11 @@
 				interrupts = <17>;
 				interrupt-names = "glue";
 				#dma-cells = <2>;
+				/* For backwards compatibility: */
 				#dma-channels = <30>;
+				dma-channels = <30>;
 				#dma-requests = <256>;
+				dma-requests = <256>;
 			};
 		};
 

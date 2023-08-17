@@ -6,6 +6,8 @@
 #include <asm/alternative.h>
 #include <asm/export.h>
 
+.section .noinstr.text, "ax"
+
 /*
  * ISO C memset - set a memory block to a byte value. This function uses fast
  * string to get better performance than the original function. The code is
@@ -26,7 +28,6 @@
  * only for the return value that is the same as the source input,
  * which the compiler could/should do much better anyway.
  */
-SYM_FUNC_START_WEAK(memset)
 SYM_FUNC_START(__memset)
 	ALTERNATIVE "jmp memset_orig", "", X86_FEATURE_FSRS
 
@@ -37,9 +38,10 @@ SYM_FUNC_START(__memset)
 	movq %r9,%rax
 	RET
 SYM_FUNC_END(__memset)
-SYM_FUNC_END_ALIAS(memset)
-EXPORT_SYMBOL(memset)
 EXPORT_SYMBOL(__memset)
+
+SYM_FUNC_ALIAS(memset, __memset)
+EXPORT_SYMBOL(memset)
 
 SYM_FUNC_START_LOCAL(memset_orig)
 	movq %rdi,%r10

@@ -2,8 +2,8 @@
 # # Copyright 2020 MediaTek Inc.
 %YAML 1.2
 ---
-$id: "http://devicetree.org/schemas/soc/mediatek/devapc.yaml#"
-$schema: "http://devicetree.org/meta-schemas/core.yaml#"
+$id: http://devicetree.org/schemas/soc/mediatek/devapc.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
 
 title: MediaTek Device Access Permission Control driver
 
@@ -20,6 +20,7 @@ properties:
   compatible:
     enum:
       - mediatek,mt6779-devapc
+      - mediatek,mt8186-devapc
 
   reg:
     description: The base address of devapc register bank

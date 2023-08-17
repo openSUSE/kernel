@@ -35,6 +35,8 @@
 #include <linux/types.h>
 #include <linux/sunrpc/gss_krb5.h>
 
+#include "gss_krb5_internal.h"
+
 #if IS_ENABLED(CONFIG_SUNRPC_DEBUG)
 # define RPCDBG_FACILITY        RPCDBG_AUTH
 #endif
@@ -49,7 +51,7 @@ krb5_make_seq_num(struct krb5_ctx *kctx,
 	unsigned char *plain;
 	s32 code;
 
-	plain = kmalloc(8, GFP_NOFS);
+	plain = kmalloc(8, GFP_KERNEL);
 	if (!plain)
 		return -ENOMEM;
 
@@ -80,7 +82,7 @@ krb5_get_seq_num(struct krb5_ctx *kctx,
 
 	dprintk("RPC:       krb5_get_seq_num:\n");
 
-	plain = kmalloc(8, GFP_NOFS);
+	plain = kmalloc(8, GFP_KERNEL);
 	if (!plain)
 		return -ENOMEM;
 

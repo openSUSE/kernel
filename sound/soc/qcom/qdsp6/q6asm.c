@@ -513,7 +513,7 @@ int q6asm_map_memory_regions(unsigned int dir, struct audio_client *ac,
 		return 0;
 	}
 
-	buf = kzalloc(((sizeof(struct audio_buffer)) * periods), GFP_ATOMIC);
+	buf = kcalloc(periods, sizeof(*buf), GFP_ATOMIC);
 	if (!buf) {
 		spin_unlock_irqrestore(&ac->lock, flags);
 		return -ENOMEM;
@@ -1624,7 +1624,7 @@ EXPORT_SYMBOL_GPL(q6asm_write_async);
 
 static void q6asm_reset_buf_state(struct audio_client *ac)
 {
-	struct audio_port_data *port = NULL;
+	struct audio_port_data *port;
 	unsigned long flags;
 
 	spin_lock_irqsave(&ac->lock, flags);

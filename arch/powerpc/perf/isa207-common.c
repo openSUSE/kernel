@@ -82,11 +82,11 @@ static unsigned long sdar_mod_val(u64 event)
 static void mmcra_sdar_mode(u64 event, unsigned long *mmcra)
 {
 	/*
-	 * MMCRA[SDAR_MODE] specifices how the SDAR should be updated in
-	 * continous sampling mode.
+	 * MMCRA[SDAR_MODE] specifies how the SDAR should be updated in
+	 * continuous sampling mode.
 	 *
 	 * Incase of Power8:
-	 * MMCRA[SDAR_MODE] will be programmed as "0b01" for continous sampling
+	 * MMCRA[SDAR_MODE] will be programmed as "0b01" for continuous sampling
 	 * mode and will be un-changed when setting MMCRA[63] (Marked events).
 	 *
 	 * Incase of Power9/power10:
@@ -254,7 +254,7 @@ static inline u64 isa207_find_source(u64 idx, u32 sub_idx)
 		break;
 	case 5:
 		if (cpu_has_feature(CPU_FTR_ARCH_31)) {
-			ret = REM;
+			ret = REM | P(HOPS, 0);
 
 			if (sub_idx == 0 || sub_idx == 4)
 				ret |= PH(LVL, L2) | LEVEL(L2) | P(SNOOP, HIT);
@@ -266,13 +266,13 @@ static inline u64 isa207_find_source(u64 idx, u32 sub_idx)
 				ret |= PH(LVL, L3) | LEVEL(L3) | P(SNOOP, HITM);
 		} else {
 			if (sub_idx == 0)
-				ret = PH(LVL, L2) | LEVEL(L2) | REM | P(SNOOP, HIT);
+				ret = PH(LVL, L2) | LEVEL(L2) | REM | P(SNOOP, HIT) | P(HOPS, 0);
 			else if (sub_idx == 1)
-				ret = PH(LVL, L2) | LEVEL(L2) | REM | P(SNOOP, HITM);
+				ret = PH(LVL, L2) | LEVEL(L2) | REM | P(SNOOP, HITM) | P(HOPS, 0);
 			else if (sub_idx == 2 || sub_idx == 4)
-				ret = PH(LVL, L3) | LEVEL(L3) | REM | P(SNOOP, HIT);
+				ret = PH(LVL, L3) | LEVEL(L3) | REM | P(SNOOP, HIT) | P(HOPS, 0);
 			else if (sub_idx == 3 || sub_idx == 5)
-				ret = PH(LVL, L3) | LEVEL(L3) | REM | P(SNOOP, HITM);
+				ret = PH(LVL, L3) | LEVEL(L3) | REM | P(SNOOP, HITM) | P(HOPS, 0);
 		}
 		break;
 	case 6:

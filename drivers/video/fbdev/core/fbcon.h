@@ -155,7 +155,7 @@ static inline int attr_col_ec(int shift, struct vc_data *vc,
     /*
      *  Scroll Method
      */
-     
+
 /* There are several methods fbcon can use to move text around the screen:
  *
  *                     Operation   Pan    Wrap

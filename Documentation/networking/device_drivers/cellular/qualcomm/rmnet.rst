@@ -190,7 +190,8 @@ MAP header|IP Packet|Optional padding|MAP header|Command Packet|Optional pad...
 3. Userspace configuration
 ==========================
 
-rmnet userspace configuration is done through netlink using iproute2
-https://git.kernel.org/pub/scm/network/iproute2/iproute2.git/
-
+rmnet userspace configuration is done through netlink library librmnetctl
+and command line utility rmnetcli. Utility is hosted in codeaurora forum git.
 The driver uses rtnl_link_ops for communication.
+
+https://source.codeaurora.org/quic/la/platform/vendor/qcom-opensource/dataservices/tree/rmnetctl

@@ -186,14 +186,16 @@
 
 		CLUSTER0_L2: l2-cache0 {
 			compatible = "cache";
+			cache-level = <2>;
 		};
 
 		CLUSTER1_L2: l2-cache1 {
 			compatible = "cache";
+			cache-level = <2>;
 		};
 	};
 
-	cpu_opp_table: cpu_opp_table {
+	cpu_opp_table: opp-table-0 {
 		compatible = "operating-points-v2";
 		opp-shared;
 

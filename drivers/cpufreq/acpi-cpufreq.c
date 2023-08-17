@@ -19,6 +19,8 @@
 #include <linux/compiler.h>
 #include <linux/dmi.h>
 #include <linux/slab.h>
+#include <linux/string_helpers.h>
+#include <linux/platform_device.h>
 
 #include <linux/acpi.h>
 #include <linux/io.h>
@@ -78,6 +80,8 @@ static bool boost_state(unsigned int cpu)
 
 	switch (boot_cpu_data.x86_vendor) {
 	case X86_VENDOR_INTEL:
+	case X86_VENDOR_CENTAUR:
+	case X86_VENDOR_ZHAOXIN:
 		rdmsr_on_cpu(cpu, MSR_IA32_MISC_ENABLE, &lo, &hi);
 		msr = lo | ((u64)hi << 32);
 		return !(msr & MSR_IA32_MISC_ENABLE_TURBO_DISABLE);
@@ -97,6 +101,8 @@ static int boost_set_msr(bool enable)
 
 	switch (boot_cpu_data.x86_vendor) {
 	case X86_VENDOR_INTEL:
+	case X86_VENDOR_CENTAUR:
+	case X86_VENDOR_ZHAOXIN:
 		msr_addr = MSR_IA32_MISC_ENABLE;
 		msr_mask = MSR_IA32_MISC_ENABLE_TURBO_DISABLE;
 		break;
@@ -131,8 +137,8 @@ static int set_boost(struct cpufreq_policy *policy, int val)
 {
 	on_each_cpu_mask(policy->cpus, boost_set_msr_each,
 			 (void *)(long)val, 1);
-	pr_debug("CPU %*pbl: Core Boosting %sabled.\n",
-		 cpumask_pr_args(policy->cpus), val ? "en" : "dis");
+	pr_debug("CPU %*pbl: Core Boosting %s.\n",
+		 cpumask_pr_args(policy->cpus), str_enabled_disabled(val));
 
 	return 0;
 }
@@ -470,7 +476,8 @@ static unsigned int acpi_cpufreq_fast_switch(struct cpufreq_policy *policy,
 	if (policy->cached_target_freq == target_freq)
 		index = policy->cached_resolved_idx;
 	else
-		index = cpufreq_table_find_index_dl(policy, target_freq);
+		index = cpufreq_table_find_index_dl(policy, target_freq,
+						    false);
 
 	entry = &policy->freq_table[index];
 	next_freq = entry->frequency;
@@ -880,6 +887,9 @@ static int acpi_cpufreq_cpu_init(struct cpufreq_policy *policy)
 	policy->fast_switch_possible = !acpi_pstate_strict &&
 		!(policy_is_shared(policy) && policy->shared_type != CPUFREQ_SHARED_TYPE_ANY);
 
+	if (perf->states[0].core_frequency * 1000 != freq_table[0].frequency)
+		pr_warn(FW_WARN "P-state 0 is not max freq\n");
+
 	if (acpi_cpufreq_driver.set_boost)
 		set_boost(policy, acpi_cpufreq_driver.boost_enabled);
 
@@ -913,16 +923,6 @@ static int acpi_cpufreq_cpu_exit(struct cpufreq_policy *policy)
 	return 0;
 }
 
-static void acpi_cpufreq_cpu_ready(struct cpufreq_policy *policy)
-{
-	struct acpi_processor_performance *perf = per_cpu_ptr(acpi_perf_data,
-							      policy->cpu);
-	unsigned int freq = policy->freq_table[0].frequency;
-
-	if (perf->states[0].core_frequency * 1000 != freq)
-		pr_warn(FW_WARN "P-state 0 is not max freq\n");
-}
-
 static int acpi_cpufreq_resume(struct cpufreq_policy *policy)
 {
 	struct acpi_cpufreq_data *data = policy->driver_data;
@@ -950,7 +950,6 @@ static struct cpufreq_driver acpi_cpufreq_driver = {
 	.bios_limit	= acpi_processor_get_bios_limit,
 	.init		= acpi_cpufreq_cpu_init,
 	.exit		= acpi_cpufreq_cpu_exit,
-	.ready		= acpi_cpufreq_cpu_ready,
 	.resume		= acpi_cpufreq_resume,
 	.name		= "acpi-cpufreq",
 	.attr		= acpi_cpufreq_attr,
@@ -967,7 +966,7 @@ static void __init acpi_cpufreq_boost_init(void)
 	acpi_cpufreq_driver.boost_enabled = boost_state(0);
 }
 
-static int __init acpi_cpufreq_init(void)
+static int __init acpi_cpufreq_probe(struct platform_device *pdev)
 {
 	int ret;
 
@@ -976,7 +975,7 @@ static int __init acpi_cpufreq_init(void)
 
 	/* don't keep reloading if cpufreq_driver exists */
 	if (cpufreq_get_current_driver())
-		return -EEXIST;
+		return -ENODEV;
 
 	pr_debug("%s\n", __func__);
 
@@ -1012,13 +1011,32 @@ static int __init acpi_cpufreq_init(void)
 	return ret;
 }
 
-static void __exit acpi_cpufreq_exit(void)
+static int acpi_cpufreq_remove(struct platform_device *pdev)
 {
 	pr_debug("%s\n", __func__);
 
 	cpufreq_unregister_driver(&acpi_cpufreq_driver);
 
 	free_acpi_perf_data();
+
+	return 0;
+}
+
+static struct platform_driver acpi_cpufreq_platdrv = {
+	.driver = {
+		.name	= "acpi-cpufreq",
+	},
+	.remove		= acpi_cpufreq_remove,
+};
+
+static int __init acpi_cpufreq_init(void)
+{
+	return platform_driver_probe(&acpi_cpufreq_platdrv, acpi_cpufreq_probe);
+}
+
+static void __exit acpi_cpufreq_exit(void)
+{
+	platform_driver_unregister(&acpi_cpufreq_platdrv);
 }
 
 module_param(acpi_pstate_strict, uint, 0644);
@@ -1029,18 +1047,4 @@ MODULE_PARM_DESC(acpi_pstate_strict,
 late_initcall(acpi_cpufreq_init);
 module_exit(acpi_cpufreq_exit);
 
-static const struct x86_cpu_id __maybe_unused acpi_cpufreq_ids[] = {
-	X86_MATCH_FEATURE(X86_FEATURE_ACPI, NULL),
-	X86_MATCH_FEATURE(X86_FEATURE_HW_PSTATE, NULL),
-	{}
-};
-MODULE_DEVICE_TABLE(x86cpu, acpi_cpufreq_ids);
-
-static const struct acpi_device_id __maybe_unused processor_device_ids[] = {
-	{ACPI_PROCESSOR_OBJECT_HID, },
-	{ACPI_PROCESSOR_DEVICE_HID, },
-	{},
-};
-MODULE_DEVICE_TABLE(acpi, processor_device_ids);
-
-MODULE_ALIAS("acpi");
+MODULE_ALIAS("platform:acpi-cpufreq");

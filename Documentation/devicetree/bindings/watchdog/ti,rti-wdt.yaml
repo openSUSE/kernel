@@ -18,7 +18,7 @@ description:
   to directly reset the SoC.
 
 allOf:
-  - $ref: "watchdog.yaml#"
+  - $ref: watchdog.yaml#
 
 properties:
   compatible:
@@ -32,12 +32,6 @@ properties:
     maxItems: 1
 
   power-domains:
-    maxItems: 1
-
-  assigned-clocks:
-    maxItems: 1
-
-  assigned-clocks-parents:
     maxItems: 1
 
 required:

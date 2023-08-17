@@ -11,6 +11,8 @@
 #include "trace-event.h"
 
 #include <linux/ctype.h>
+#include <linux/kernel.h>
+#include <traceevent/event-parse.h>
 
 static int get_common_field(struct scripting_context *context,
 			    int *offset, int *size, const char *type)
@@ -206,7 +208,7 @@ unsigned long long eval_flag(const char *flag)
 	if (isdigit(flag[0]))
 		return strtoull(flag, NULL, 0);
 
-	for (i = 0; i < (int)(sizeof(flags)/sizeof(flags[0])); i++)
+	for (i = 0; i < (int)(ARRAY_SIZE(flags)); i++)
 		if (strcmp(flags[i].name, flag) == 0)
 			return flags[i].value;
 

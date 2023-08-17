@@ -9,7 +9,7 @@ LLVM_STRIP ?= llvm-strip
 TOOLS_PATH := $(abspath ../../../../tools)
 BPFTOOL_SRC := $(TOOLS_PATH)/bpf/bpftool
 BPFTOOL_OUTPUT := $(abs_out)/bpftool
-DEFAULT_BPFTOOL := $(OUTPUT)/sbin/bpftool
+DEFAULT_BPFTOOL := $(BPFTOOL_OUTPUT)/bootstrap/bpftool
 BPFTOOL ?= $(DEFAULT_BPFTOOL)
 
 LIBBPF_SRC := $(TOOLS_PATH)/lib/bpf
@@ -35,20 +35,22 @@ endif
 
 .PHONY: all clean
 
-all: iterators.lskel.h
+all: iterators.lskel-little-endian.h
+
+big: iterators.lskel-big-endian.h
 
 clean:
 	$(call msg,CLEAN)
 	$(Q)rm -rf $(OUTPUT) iterators
 
-iterators.lskel.h: $(OUTPUT)/iterators.bpf.o | $(BPFTOOL)
+iterators.lskel-%.h: $(OUTPUT)/%/iterators.bpf.o | $(BPFTOOL)
 	$(call msg,GEN-SKEL,$@)
 	$(Q)$(BPFTOOL) gen skeleton -L $< > $@
 
-
-$(OUTPUT)/iterators.bpf.o: iterators.bpf.c $(BPFOBJ) | $(OUTPUT)
+$(OUTPUT)/%/iterators.bpf.o: iterators.bpf.c $(BPFOBJ) | $(OUTPUT)
 	$(call msg,BPF,$@)
-	$(Q)$(CLANG) -g -O2 -target bpf $(INCLUDES)			      \
+	$(Q)mkdir -p $(@D)
+	$(Q)$(CLANG) -g -O2 -target bpf -m$* $(INCLUDES)		      \
 		 -c $(filter %.c,$^) -o $@ &&				      \
 	$(LLVM_STRIP) -g $@
 
@@ -61,9 +63,5 @@ $(BPFOBJ): $(wildcard $(LIBBPF_SRC)/*.[ch] $(LIBBPF_SRC)/Makefile) | $(LIBBPF_OU
 		    OUTPUT=$(abspath $(dir $@))/ prefix=		       \
 		    DESTDIR=$(LIBBPF_DESTDIR) $(abspath $@) install_headers
 
-$(DEFAULT_BPFTOOL): $(BPFOBJ) | $(BPFTOOL_OUTPUT)
-	$(Q)$(MAKE) $(submake_extras) -C $(BPFTOOL_SRC)			       \
-		    OUTPUT=$(BPFTOOL_OUTPUT)/				       \
-		    LIBBPF_OUTPUT=$(LIBBPF_OUTPUT)/			       \
-		    LIBBPF_DESTDIR=$(LIBBPF_DESTDIR)/			       \
-		    prefix= DESTDIR=$(abs_out)/ install-bin
+$(DEFAULT_BPFTOOL): | $(BPFTOOL_OUTPUT)
+	$(Q)$(MAKE) $(submake_extras) -C $(BPFTOOL_SRC)	OUTPUT=$(BPFTOOL_OUTPUT)/ bootstrap

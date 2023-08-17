@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+
 %YAML 1.2
 ---
 $id: http://devicetree.org/schemas/pinctrl/socionext,uniphier-pinctrl.yaml#
@@ -10,9 +11,6 @@ maintainers:
   - Masahiro Yamada <yamada.masahiro@socionext.com>
 
 properties:
-  $nodename:
-    pattern: "pinctrl"
-
   compatible:
     enum:
       - socionext,uniphier-ld4-pinctrl
@@ -24,21 +22,65 @@ properties:
       - socionext,uniphier-ld11-pinctrl
       - socionext,uniphier-ld20-pinctrl
       - socionext,uniphier-pxs3-pinctrl
+      - socionext,uniphier-nx1-pinctrl
+
+additionalProperties:
+  type: object
+
+  allOf:
+    - $ref: pincfg-node.yaml#
+    - $ref: pinmux-node.yaml#
+
+  properties:
+    phandle: true
+    function: true
+    groups: true
+    pins: true
+    bias-pull-up: true
+    bias-pull-down: true
+    bias-pull-pin-default: true
+    drive-strength: true
+
+  additionalProperties:
+    type: object
+
+    allOf:
+      - $ref: pincfg-node.yaml#
+      - $ref: pinmux-node.yaml#
+
+    properties:
+      phandle: true
+      function: true
+      groups: true
+      pins: true
+      bias-pull-up: true
+      bias-pull-down: true
+      bias-pull-pin-default: true
+      drive-strength: true
+
+    unevaluatedProperties: false
+
+allOf:
+  - $ref: pinctrl.yaml#
 
 required:
   - compatible
-
-additionalProperties: false
 
 examples:
   - |
     // The UniPhier pinctrl should be a subnode of a "syscon" compatible node.
 
-    soc-glue@5f800000 {
-        compatible = "socionext,uniphier-pro4-soc-glue", "simple-mfd", "syscon";
-        reg = <0x5f800000 0x2000>;
+    pinctrl {
+        compatible = "socionext,uniphier-ld20-pinctrl";
 
-        pinctrl: pinctrl {
-            compatible = "socionext,uniphier-pro4-pinctrl";
+        pinctrl_ether_rgmii: ether-rgmii {
+            groups = "ether_rgmii";
+            function = "ether_rgmii";
+
+            tx {
+                pins = "RGMII_TXCLK", "RGMII_TXD0", "RGMII_TXD1",
+                       "RGMII_TXD2", "RGMII_TXD3", "RGMII_TXCTL";
+                drive-strength = <9>;
+            };
         };
     };

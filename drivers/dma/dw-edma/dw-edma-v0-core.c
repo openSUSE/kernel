@@ -8,6 +8,8 @@
 
 #include <linux/bitfield.h>
 
+#include <linux/io-64-nonatomic-lo-hi.h>
+
 #include "dw-edma-core.h"
 #include "dw-edma-v0-core.h"
 #include "dw-edma-v0-regs.h"
@@ -25,7 +27,7 @@ enum dw_edma_control {
 
 static inline struct dw_edma_v0_regs __iomem *__dw_regs(struct dw_edma *dw)
 {
-	return dw->rg_region.vaddr;
+	return dw->chip->reg_base;
 }
 
 #define SET_32(dw, name, value)				\
@@ -53,8 +55,6 @@ static inline struct dw_edma_v0_regs __iomem *__dw_regs(struct dw_edma *dw)
 		SET_32(dw, rd_##name, value);		\
 	} while (0)
 
-#ifdef CONFIG_64BIT
-
 #define SET_64(dw, name, value)				\
 	writeq(value, &(__dw_regs(dw)->name))
 
@@ -80,8 +80,6 @@ static inline struct dw_edma_v0_regs __iomem *__dw_regs(struct dw_edma *dw)
 		SET_64(dw, rd_##name, value);		\
 	} while (0)
 
-#endif /* CONFIG_64BIT */
-
 #define SET_COMPAT(dw, name, value)			\
 	writel(value, &(__dw_regs(dw)->type.unroll.name))
 
@@ -96,7 +94,7 @@ static inline struct dw_edma_v0_regs __iomem *__dw_regs(struct dw_edma *dw)
 static inline struct dw_edma_v0_ch_regs __iomem *
 __dw_ch_regs(struct dw_edma *dw, enum dw_edma_dir dir, u16 ch)
 {
-	if (dw->mf == EDMA_MF_EDMA_LEGACY)
+	if (dw->chip->mf == EDMA_MF_EDMA_LEGACY)
 		return &(__dw_regs(dw)->type.legacy.ch);
 
 	if (dir == EDMA_DIR_WRITE)
@@ -108,7 +106,7 @@ __dw_ch_regs(struct dw_edma *dw, enum dw_edma_dir dir, u16 ch)
 static inline void writel_ch(struct dw_edma *dw, enum dw_edma_dir dir, u16 ch,
 			     u32 value, void __iomem *addr)
 {
-	if (dw->mf == EDMA_MF_EDMA_LEGACY) {
+	if (dw->chip->mf == EDMA_MF_EDMA_LEGACY) {
 		u32 viewport_sel;
 		unsigned long flags;
 
@@ -133,7 +131,7 @@ static inline u32 readl_ch(struct dw_edma *dw, enum dw_edma_dir dir, u16 ch,
 {
 	u32 value;
 
-	if (dw->mf == EDMA_MF_EDMA_LEGACY) {
+	if (dw->chip->mf == EDMA_MF_EDMA_LEGACY) {
 		u32 viewport_sel;
 		unsigned long flags;
 
@@ -160,72 +158,6 @@ static inline u32 readl_ch(struct dw_edma *dw, enum dw_edma_dir dir, u16 ch,
 
 #define GET_CH_32(dw, dir, ch, name) \
 	readl_ch(dw, dir, ch, &(__dw_ch_regs(dw, dir, ch)->name))
-
-#define SET_LL_32(ll, value) \
-	writel(value, ll)
-
-#ifdef CONFIG_64BIT
-
-static inline void writeq_ch(struct dw_edma *dw, enum dw_edma_dir dir, u16 ch,
-			     u64 value, void __iomem *addr)
-{
-	if (dw->mf == EDMA_MF_EDMA_LEGACY) {
-		u32 viewport_sel;
-		unsigned long flags;
-
-		raw_spin_lock_irqsave(&dw->lock, flags);
-
-		viewport_sel = FIELD_PREP(EDMA_V0_VIEWPORT_MASK, ch);
-		if (dir == EDMA_DIR_READ)
-			viewport_sel |= BIT(31);
-
-		writel(viewport_sel,
-		       &(__dw_regs(dw)->type.legacy.viewport_sel));
-		writeq(value, addr);
-
-		raw_spin_unlock_irqrestore(&dw->lock, flags);
-	} else {
-		writeq(value, addr);
-	}
-}
-
-static inline u64 readq_ch(struct dw_edma *dw, enum dw_edma_dir dir, u16 ch,
-			   const void __iomem *addr)
-{
-	u64 value;
-
-	if (dw->mf == EDMA_MF_EDMA_LEGACY) {
-		u32 viewport_sel;
-		unsigned long flags;
-
-		raw_spin_lock_irqsave(&dw->lock, flags);
-
-		viewport_sel = FIELD_PREP(EDMA_V0_VIEWPORT_MASK, ch);
-		if (dir == EDMA_DIR_READ)
-			viewport_sel |= BIT(31);
-
-		writel(viewport_sel,
-		       &(__dw_regs(dw)->type.legacy.viewport_sel));
-		value = readq(addr);
-
-		raw_spin_unlock_irqrestore(&dw->lock, flags);
-	} else {
-		value = readq(addr);
-	}
-
-	return value;
-}
-
-#define SET_CH_64(dw, dir, ch, name, value) \
-	writeq_ch(dw, dir, ch, value, &(__dw_ch_regs(dw, dir, ch)->name))
-
-#define GET_CH_64(dw, dir, ch, name) \
-	readq_ch(dw, dir, ch, &(__dw_ch_regs(dw, dir, ch)->name))
-
-#define SET_LL_64(ll, value) \
-	writeq(value, ll)
-
-#endif /* CONFIG_64BIT */
 
 /* eDMA management callbacks */
 void dw_edma_v0_core_off(struct dw_edma *dw)
@@ -256,7 +188,7 @@ u16 dw_edma_v0_core_ch_count(struct dw_edma *dw, enum dw_edma_dir dir)
 
 enum dma_status dw_edma_v0_core_ch_status(struct dw_edma_chan *chan)
 {
-	struct dw_edma *dw = chan->chip->dw;
+	struct dw_edma *dw = chan->dw;
 	u32 tmp;
 
 	tmp = FIELD_GET(EDMA_V0_CH_STATUS_MASK,
@@ -272,7 +204,7 @@ enum dma_status dw_edma_v0_core_ch_status(struct dw_edma_chan *chan)
 
 void dw_edma_v0_core_clear_done_int(struct dw_edma_chan *chan)
 {
-	struct dw_edma *dw = chan->chip->dw;
+	struct dw_edma *dw = chan->dw;
 
 	SET_RW_32(dw, chan->dir, int_clear,
 		  FIELD_PREP(EDMA_V0_DONE_INT_MASK, BIT(chan->id)));
@@ -280,7 +212,7 @@ void dw_edma_v0_core_clear_done_int(struct dw_edma_chan *chan)
 
 void dw_edma_v0_core_clear_abort_int(struct dw_edma_chan *chan)
 {
-	struct dw_edma *dw = chan->chip->dw;
+	struct dw_edma *dw = chan->dw;
 
 	SET_RW_32(dw, chan->dir, int_clear,
 		  FIELD_PREP(EDMA_V0_ABORT_INT_MASK, BIT(chan->id)));
@@ -298,15 +230,52 @@ u32 dw_edma_v0_core_status_abort_int(struct dw_edma *dw, enum dw_edma_dir dir)
 			 GET_RW_32(dw, dir, int_status));
 }
 
+static void dw_edma_v0_write_ll_data(struct dw_edma_chunk *chunk, int i,
+				     u32 control, u32 size, u64 sar, u64 dar)
+{
+	ptrdiff_t ofs = i * sizeof(struct dw_edma_v0_lli);
+
+	if (chunk->chan->dw->chip->flags & DW_EDMA_CHIP_LOCAL) {
+		struct dw_edma_v0_lli *lli = chunk->ll_region.vaddr.mem + ofs;
+
+		lli->control = control;
+		lli->transfer_size = size;
+		lli->sar.reg = sar;
+		lli->dar.reg = dar;
+	} else {
+		struct dw_edma_v0_lli __iomem *lli = chunk->ll_region.vaddr.io + ofs;
+
+		writel(control, &lli->control);
+		writel(size, &lli->transfer_size);
+		writeq(sar, &lli->sar.reg);
+		writeq(dar, &lli->dar.reg);
+	}
+}
+
+static void dw_edma_v0_write_ll_link(struct dw_edma_chunk *chunk,
+				     int i, u32 control, u64 pointer)
+{
+	ptrdiff_t ofs = i * sizeof(struct dw_edma_v0_lli);
+
+	if (chunk->chan->dw->chip->flags & DW_EDMA_CHIP_LOCAL) {
+		struct dw_edma_v0_llp *llp = chunk->ll_region.vaddr.mem + ofs;
+
+		llp->control = control;
+		llp->llp.reg = pointer;
+	} else {
+		struct dw_edma_v0_llp __iomem *llp = chunk->ll_region.vaddr.io + ofs;
+
+		writel(control, &llp->control);
+		writeq(pointer, &llp->llp.reg);
+	}
+}
+
 static void dw_edma_v0_core_write_chunk(struct dw_edma_chunk *chunk)
 {
 	struct dw_edma_burst *child;
-	struct dw_edma_v0_lli __iomem *lli;
-	struct dw_edma_v0_llp __iomem *llp;
+	struct dw_edma_chan *chan = chunk->chan;
 	u32 control = 0, i = 0;
 	int j;
-
-	lli = chunk->ll_region.vaddr;
 
 	if (chunk->cb)
 		control = DW_EDMA_V0_CB;
@@ -314,50 +283,27 @@ static void dw_edma_v0_core_write_chunk(struct dw_edma_chunk *chunk)
 	j = chunk->bursts_alloc;
 	list_for_each_entry(child, &chunk->burst->list, list) {
 		j--;
-		if (!j)
-			control |= (DW_EDMA_V0_LIE | DW_EDMA_V0_RIE);
+		if (!j) {
+			control |= DW_EDMA_V0_LIE;
+			if (!(chan->dw->chip->flags & DW_EDMA_CHIP_LOCAL))
+				control |= DW_EDMA_V0_RIE;
+		}
 
-		/* Channel control */
-		SET_LL_32(&lli[i].control, control);
-		/* Transfer size */
-		SET_LL_32(&lli[i].transfer_size, child->sz);
-		/* SAR */
-		#ifdef CONFIG_64BIT
-			SET_LL_64(&lli[i].sar.reg, child->sar);
-		#else /* CONFIG_64BIT */
-			SET_LL_32(&lli[i].sar.lsb, lower_32_bits(child->sar));
-			SET_LL_32(&lli[i].sar.msb, upper_32_bits(child->sar));
-		#endif /* CONFIG_64BIT */
-		/* DAR */
-		#ifdef CONFIG_64BIT
-			SET_LL_64(&lli[i].dar.reg, child->dar);
-		#else /* CONFIG_64BIT */
-			SET_LL_32(&lli[i].dar.lsb, lower_32_bits(child->dar));
-			SET_LL_32(&lli[i].dar.msb, upper_32_bits(child->dar));
-		#endif /* CONFIG_64BIT */
-		i++;
+		dw_edma_v0_write_ll_data(chunk, i++, control, child->sz,
+					 child->sar, child->dar);
 	}
 
-	llp = (void __iomem *)&lli[i];
 	control = DW_EDMA_V0_LLP | DW_EDMA_V0_TCB;
 	if (!chunk->cb)
 		control |= DW_EDMA_V0_CB;
 
-	/* Channel control */
-	SET_LL_32(&llp->control, control);
-	/* Linked list */
-	#ifdef CONFIG_64BIT
-		SET_LL_64(&llp->llp.reg, chunk->ll_region.paddr);
-	#else /* CONFIG_64BIT */
-		SET_LL_32(&llp->llp.lsb, lower_32_bits(chunk->ll_region.paddr));
-		SET_LL_32(&llp->llp.msb, upper_32_bits(chunk->ll_region.paddr));
-	#endif /* CONFIG_64BIT */
+	dw_edma_v0_write_ll_link(chunk, i, control, chunk->ll_region.paddr);
 }
 
 void dw_edma_v0_core_start(struct dw_edma_chunk *chunk, bool first)
 {
 	struct dw_edma_chan *chan = chunk->chan;
-	struct dw_edma *dw = chan->chip->dw;
+	struct dw_edma *dw = chan->dw;
 	u32 tmp;
 
 	dw_edma_v0_core_write_chunk(chunk);
@@ -365,7 +311,7 @@ void dw_edma_v0_core_start(struct dw_edma_chunk *chunk, bool first)
 	if (first) {
 		/* Enable engine */
 		SET_RW_32(dw, chan->dir, engine_en, BIT(0));
-		if (dw->mf == EDMA_MF_HDMA_COMPAT) {
+		if (dw->chip->mf == EDMA_MF_HDMA_COMPAT) {
 			switch (chan->id) {
 			case 0:
 				SET_RW_COMPAT(dw, chan->dir, ch0_pwr_en,
@@ -414,18 +360,11 @@ void dw_edma_v0_core_start(struct dw_edma_chunk *chunk, bool first)
 		SET_CH_32(dw, chan->dir, chan->id, ch_control1,
 			  (DW_EDMA_V0_CCS | DW_EDMA_V0_LLE));
 		/* Linked list */
-		#ifdef CONFIG_64BIT
-			/* llp is not aligned on 64bit -> keep 32bit accesses */
-			SET_CH_32(dw, chan->dir, chan->id, llp.lsb,
-				  lower_32_bits(chunk->ll_region.paddr));
-			SET_CH_32(dw, chan->dir, chan->id, llp.msb,
-				  upper_32_bits(chunk->ll_region.paddr));
-		#else /* CONFIG_64BIT */
-			SET_CH_32(dw, chan->dir, chan->id, llp.lsb,
-				  lower_32_bits(chunk->ll_region.paddr));
-			SET_CH_32(dw, chan->dir, chan->id, llp.msb,
-				  upper_32_bits(chunk->ll_region.paddr));
-		#endif /* CONFIG_64BIT */
+		/* llp is not aligned on 64bit -> keep 32bit accesses */
+		SET_CH_32(dw, chan->dir, chan->id, llp.lsb,
+			  lower_32_bits(chunk->ll_region.paddr));
+		SET_CH_32(dw, chan->dir, chan->id, llp.msb,
+			  upper_32_bits(chunk->ll_region.paddr));
 	}
 	/* Doorbell */
 	SET_RW_32(dw, chan->dir, doorbell,
@@ -434,7 +373,7 @@ void dw_edma_v0_core_start(struct dw_edma_chunk *chunk, bool first)
 
 int dw_edma_v0_core_device_config(struct dw_edma_chan *chan)
 {
-	struct dw_edma *dw = chan->chip->dw;
+	struct dw_edma *dw = chan->dw;
 	u32 tmp = 0;
 
 	/* MSI done addr - low, high */
@@ -504,12 +443,7 @@ int dw_edma_v0_core_device_config(struct dw_edma_chan *chan)
 }
 
 /* eDMA debugfs callbacks */
-void dw_edma_v0_core_debugfs_on(struct dw_edma_chip *chip)
+void dw_edma_v0_core_debugfs_on(struct dw_edma *dw)
 {
-	dw_edma_v0_debugfs_on(chip);
-}
-
-void dw_edma_v0_core_debugfs_off(struct dw_edma_chip *chip)
-{
-	dw_edma_v0_debugfs_off(chip);
+	dw_edma_v0_debugfs_on(dw);
 }

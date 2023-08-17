@@ -146,7 +146,7 @@ static int nft_rt_get_init(const struct nft_ctx *ctx,
 }
 
 static int nft_rt_get_dump(struct sk_buff *skb,
-			   const struct nft_expr *expr)
+			   const struct nft_expr *expr, bool reset)
 {
 	const struct nft_rt *priv = nft_expr_priv(expr);
 
@@ -191,6 +191,7 @@ static const struct nft_expr_ops nft_rt_get_ops = {
 	.init		= nft_rt_get_init,
 	.dump		= nft_rt_get_dump,
 	.validate	= nft_rt_validate,
+	.reduce		= NFT_REDUCE_READONLY,
 };
 
 struct nft_expr_type nft_rt_type __read_mostly = {

@@ -15,14 +15,15 @@
 #include <linux/device.h>
 #include <linux/module.h>
 #include <linux/cdev.h>
+#include <linux/rwsem.h>
 
 #define GPIOCHIP_NAME	"gpiochip"
 
 /**
  * struct gpio_device - internal state container for GPIO devices
- * @id: numerical ID number for the GPIO chip
  * @dev: the GPIO device struct
  * @chrdev: character device for the GPIO device
+ * @id: numerical ID number for the GPIO chip
  * @mockdev: class device used by the deprecated sysfs interface (may be
  * NULL)
  * @owner: helps prevent removal of modules exporting active GPIOs
@@ -39,6 +40,9 @@
  * @list: links gpio_device:s together for traversal
  * @notifier: used to notify subscribers about lines being requested, released
  *            or reconfigured
+ * @sem: protects the structure from a NULL-pointer dereference of @chip by
+ *       user-space operations when the device gets unregistered during
+ *       a hot-unplug event
  * @pin_ranges: range of pins served by the GPIO driver
  *
  * This state container holds most of the runtime variable data
@@ -47,9 +51,9 @@
  * userspace.
  */
 struct gpio_device {
-	int			id;
 	struct device		dev;
 	struct cdev		chrdev;
+	int			id;
 	struct device		*mockdev;
 	struct module		*owner;
 	struct gpio_chip	*chip;
@@ -60,6 +64,7 @@ struct gpio_device {
 	void			*data;
 	struct list_head        list;
 	struct blocking_notifier_head notifier;
+	struct rw_semaphore	sem;
 
 #ifdef CONFIG_PINCTRL
 	/*
@@ -71,6 +76,21 @@ struct gpio_device {
 	struct list_head pin_ranges;
 #endif
 };
+
+static inline struct gpio_device *to_gpio_device(struct device *dev)
+{
+	return container_of(dev, struct gpio_device, dev);
+}
+
+static inline struct gpio_device *gpio_device_get(struct gpio_device *gdev)
+{
+	return to_gpio_device(get_device(&gdev->dev));
+}
+
+static inline void gpio_device_put(struct gpio_device *gdev)
+{
+	put_device(&gdev->dev);
+}
 
 /* gpio suffixes used for ACPI and device tree lookup */
 static __maybe_unused const char * const gpio_suffixes[] = { "gpios", "gpio" };
@@ -99,6 +119,16 @@ struct gpio_array {
 };
 
 struct gpio_desc *gpiochip_get_desc(struct gpio_chip *gc, unsigned int hwnum);
+
+#define for_each_gpio_desc(gc, desc)					\
+	for (unsigned int __i = 0;					\
+	     __i < gc->ngpio && (desc = gpiochip_get_desc(gc, __i));	\
+	     __i++)							\
+
+#define for_each_gpio_desc_with_flag(gc, desc, flag)			\
+	for_each_gpio_desc(gc, desc)					\
+		if (!test_bit(flag, &desc->flags)) {} else
+
 int gpiod_get_array_value_complex(bool raw, bool can_sleep,
 				  unsigned int array_size,
 				  struct gpio_desc **desc_array,
@@ -151,6 +181,7 @@ struct gpio_desc {
 #define FLAG_EDGE_RISING     16	/* GPIO CDEV detects rising edge events */
 #define FLAG_EDGE_FALLING    17	/* GPIO CDEV detects falling edge events */
 #define FLAG_EVENT_CLOCK_REALTIME	18 /* GPIO CDEV reports REALTIME timestamps in events */
+#define FLAG_EVENT_CLOCK_HTE		19 /* GPIO CDEV reports hardware timestamps in events */
 
 	/* Connection label */
 	const char		*label;

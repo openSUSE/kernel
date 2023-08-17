@@ -121,6 +121,15 @@ Specifically, it provides the following information.
   non-standard PMBus commands to standard commands, or to augment standard
   command return values with device specific information.
 
+PEC Support
+===========
+
+Many PMBus devices support SMBus PEC (Packet Error Checking). If supported
+by both the I2C adapter and by the PMBus chip, it is by default enabled.
+If PEC is supported, the PMBus core driver adds an attribute named 'pec' to
+the I2C device. This attribute can be used to control PEC support in the
+communication with the PMBus chip.
+
 API functions
 =============
 
@@ -165,7 +174,7 @@ Read byte from page <page>, register <reg>.
   int (*read_word_data)(struct i2c_client *client, int page, int phase,
                         int reg);
 
-Read word from page <page>, phase <pase>, register <reg>. If the chip does not
+Read word from page <page>, phase <phase>, register <reg>. If the chip does not
 support multiple phases, the phase parameter can be ignored. If the chip
 supports multiple phases, a phase value of 0xff indicates all phases.
 

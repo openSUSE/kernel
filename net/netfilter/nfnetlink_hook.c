@@ -5,6 +5,7 @@
  * Author: Florian Westphal <fw@strlen.de>
  */
 
+#include <linux/bpf.h>
 #include <linux/module.h>
 #include <linux/kallsyms.h>
 #include <linux/kernel.h>
@@ -57,34 +58,75 @@ struct nfnl_dump_hook_data {
 	u8 hook;
 };
 
+static struct nlattr *nfnl_start_info_type(struct sk_buff *nlskb, enum nfnl_hook_chaintype t)
+{
+	struct nlattr *nest = nla_nest_start(nlskb, NFNLA_HOOK_CHAIN_INFO);
+	int ret;
+
+	if (!nest)
+		return NULL;
+
+	ret = nla_put_be32(nlskb, NFNLA_HOOK_INFO_TYPE, htonl(t));
+	if (ret == 0)
+		return nest;
+
+	nla_nest_cancel(nlskb, nest);
+	return NULL;
+}
+
+static int nfnl_hook_put_bpf_prog_info(struct sk_buff *nlskb,
+				       const struct nfnl_dump_hook_data *ctx,
+				       unsigned int seq,
+				       const struct bpf_prog *prog)
+{
+	struct nlattr *nest, *nest2;
+	int ret;
+
+	if (!IS_ENABLED(CONFIG_NETFILTER_BPF_LINK))
+		return 0;
+
+	if (WARN_ON_ONCE(!prog))
+		return 0;
+
+	nest = nfnl_start_info_type(nlskb, NFNL_HOOK_TYPE_BPF);
+	if (!nest)
+		return -EMSGSIZE;
+
+	nest2 = nla_nest_start(nlskb, NFNLA_HOOK_INFO_DESC);
+	if (!nest2)
+		goto cancel_nest;
+
+	ret = nla_put_be32(nlskb, NFNLA_HOOK_BPF_ID, htonl(prog->aux->id));
+	if (ret)
+		goto cancel_nest;
+
+	nla_nest_end(nlskb, nest2);
+	nla_nest_end(nlskb, nest);
+	return 0;
+
+cancel_nest:
+	nla_nest_cancel(nlskb, nest);
+	return -EMSGSIZE;
+}
+
 static int nfnl_hook_put_nft_chain_info(struct sk_buff *nlskb,
 					const struct nfnl_dump_hook_data *ctx,
 					unsigned int seq,
-					const struct nf_hook_ops *ops)
+					struct nft_chain *chain)
 {
 	struct net *net = sock_net(nlskb->sk);
 	struct nlattr *nest, *nest2;
-	struct nft_chain *chain;
 	int ret = 0;
 
-	if (ops->hook_ops_type != NF_HOOK_OP_NF_TABLES)
-		return 0;
-
-	chain = ops->priv;
 	if (WARN_ON_ONCE(!chain))
 		return 0;
 
 	if (!nft_is_active(net, chain))
 		return 0;
 
-	nest = nla_nest_start(nlskb, NFNLA_HOOK_CHAIN_INFO);
+	nest = nfnl_start_info_type(nlskb, NFNL_HOOK_TYPE_NFTABLES);
 	if (!nest)
 		return -EMSGSIZE;
-
-	ret = nla_put_be32(nlskb, NFNLA_HOOK_INFO_TYPE,
-			   htonl(NFNL_HOOK_TYPE_NFTABLES));
-	if (ret)
-		goto cancel_nest;
 
 	nest2 = nla_nest_start(nlskb, NFNLA_HOOK_INFO_DESC);
 	if (!nest2)
@@ -171,7 +213,20 @@ static int nfnl_hook_dump_one(struct sk_buff *nlskb,
 	if (ret)
 		goto nla_put_failure;
 
-	ret = nfnl_hook_put_nft_chain_info(nlskb, ctx, seq, ops);
+	switch (ops->hook_ops_type) {
+	case NF_HOOK_OP_NF_TABLES:
+		ret = nfnl_hook_put_nft_chain_info(nlskb, ctx, seq, ops->priv);
+		break;
+	case NF_HOOK_OP_BPF:
+		ret = nfnl_hook_put_bpf_prog_info(nlskb, ctx, seq, ops->priv);
+		break;
+	case NF_HOOK_OP_UNDEFINED:
+		break;
+	default:
+		WARN_ON_ONCE(1);
+		break;
+	}
+
 	if (ret)
 		goto nla_put_failure;
 
@@ -186,7 +241,7 @@ static const struct nf_hook_entries *
 nfnl_hook_entries_head(u8 pf, unsigned int hook, struct net *net, const char *dev)
 {
 	const struct nf_hook_entries *hook_head = NULL;
-#ifdef CONFIG_NETFILTER_INGRESS
+#if defined(CONFIG_NETFILTER_INGRESS) || defined(CONFIG_NETFILTER_EGRESS)
 	struct net_device *netdev;
 #endif
 
@@ -215,16 +270,9 @@ nfnl_hook_entries_head(u8 pf, unsigned int hook, struct net *net, const char *de
 		hook_head = rcu_dereference(net->nf.hooks_bridge[hook]);
 #endif
 		break;
-#if IS_ENABLED(CONFIG_DECNET)
-	case NFPROTO_DECNET:
-		if (hook >= ARRAY_SIZE(net->nf.hooks_decnet))
-			return ERR_PTR(-EINVAL);
-		hook_head = rcu_dereference(net->nf.hooks_decnet[hook]);
-		break;
-#endif
-#ifdef CONFIG_NETFILTER_INGRESS
+#if defined(CONFIG_NETFILTER_INGRESS) || defined(CONFIG_NETFILTER_EGRESS)
 	case NFPROTO_NETDEV:
-		if (hook != NF_NETDEV_INGRESS)
+		if (hook >= NF_NETDEV_NUMHOOKS)
 			return ERR_PTR(-EOPNOTSUPP);
 
 		if (!dev)
@@ -234,7 +282,15 @@ nfnl_hook_entries_head(u8 pf, unsigned int hook, struct net *net, const char *de
 		if (!netdev)
 			return ERR_PTR(-ENODEV);
 
-		return rcu_dereference(netdev->nf_hooks_ingress);
+#ifdef CONFIG_NETFILTER_INGRESS
+		if (hook == NF_NETDEV_INGRESS)
+			return rcu_dereference(netdev->nf_hooks_ingress);
+#endif
+#ifdef CONFIG_NETFILTER_EGRESS
+		if (hook == NF_NETDEV_EGRESS)
+			return rcu_dereference(netdev->nf_hooks_egress);
+#endif
+		fallthrough;
 #endif
 	default:
 		return ERR_PTR(-EPROTONOSUPPORT);

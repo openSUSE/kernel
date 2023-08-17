@@ -31,8 +31,9 @@
  * These limitations are worked around in this test by using a large enough
  * region of memory for each vCPU such that the number of translations cached in
  * the TLB and the number of pages held in pagevecs are a small fraction of the
- * overall workload. And if either of those conditions are not true this test
- * will fail rather than silently passing.
+ * overall workload. And if either of those conditions are not true (for example
+ * in nesting, where TLB size is unlimited) this test will print a warning
+ * rather than silently passing.
  */
 #include <inttypes.h>
 #include <limits.h>
@@ -43,11 +44,12 @@
 
 #include "kvm_util.h"
 #include "test_util.h"
-#include "perf_test_util.h"
+#include "memstress.h"
 #include "guest_modes.h"
+#include "processor.h"
 
 /* Global variable used to synchronize all of the vCPU threads. */
-static int iteration = -1;
+static int iteration;
 
 /* Defines what vCPU threads should do during a given iteration. */
 static enum {
@@ -56,9 +58,6 @@ static enum {
 	/* Mark the vCPU's memory idle in page_idle. */
 	ITERATION_MARK_IDLE,
 } iteration_work;
-
-/* Set to true when vCPU threads should exit. */
-static bool done;
 
 /* The iteration that was last completed by each vCPU. */
 static int vcpu_last_completed_iteration[KVM_MAX_VCPUS];
@@ -74,7 +73,7 @@ struct test_params {
 	uint64_t vcpu_memory_bytes;
 
 	/* The number of vCPUs to create in the VM. */
-	int vcpus;
+	int nr_vcpus;
 };
 
 static uint64_t pread_uint64(int fd, const char *filename, uint64_t index)
@@ -104,10 +103,7 @@ static uint64_t lookup_pfn(int pagemap_fd, struct kvm_vm *vm, uint64_t gva)
 		return 0;
 
 	pfn = entry & PAGEMAP_PFN_MASK;
-	if (!pfn) {
-		print_skip("Looking up PFNs requires CAP_SYS_ADMIN");
-		exit(KSFT_SKIP);
-	}
+	__TEST_REQUIRE(pfn, "Looking up PFNs requires CAP_SYS_ADMIN");
 
 	return pfn;
 }
@@ -127,10 +123,12 @@ static void mark_page_idle(int page_idle_fd, uint64_t pfn)
 		    "Set page_idle bits for PFN 0x%" PRIx64, pfn);
 }
 
-static void mark_vcpu_memory_idle(struct kvm_vm *vm, int vcpu_id)
+static void mark_vcpu_memory_idle(struct kvm_vm *vm,
+				  struct memstress_vcpu_args *vcpu_args)
 {
-	uint64_t base_gva = perf_test_args.vcpu_args[vcpu_id].gva;
-	uint64_t pages = perf_test_args.vcpu_args[vcpu_id].pages;
+	int vcpu_idx = vcpu_args->vcpu_idx;
+	uint64_t base_gva = vcpu_args->gva;
+	uint64_t pages = vcpu_args->pages;
 	uint64_t page;
 	uint64_t still_idle = 0;
 	uint64_t no_pfn = 0;
@@ -138,7 +136,7 @@ static void mark_vcpu_memory_idle(struct kvm_vm *vm, int vcpu_id)
 	int pagemap_fd;
 
 	/* If vCPUs are using an overlapping region, let vCPU 0 mark it idle. */
-	if (overlap_memory_access && vcpu_id)
+	if (overlap_memory_access && vcpu_idx)
 		return;
 
 	page_idle_fd = open("/sys/kernel/mm/page_idle/bitmap", O_RDWR);
@@ -148,7 +146,7 @@ static void mark_vcpu_memory_idle(struct kvm_vm *vm, int vcpu_id)
 	TEST_ASSERT(pagemap_fd > 0, "Failed to open pagemap.");
 
 	for (page = 0; page < pages; page++) {
-		uint64_t gva = base_gva + page * perf_test_args.guest_page_size;
+		uint64_t gva = base_gva + page * memstress_args.guest_page_size;
 		uint64_t pfn = lookup_pfn(pagemap_fd, vm, gva);
 
 		if (!pfn) {
@@ -170,30 +168,40 @@ static void mark_vcpu_memory_idle(struct kvm_vm *vm, int vcpu_id)
 	 */
 	TEST_ASSERT(no_pfn < pages / 100,
 		    "vCPU %d: No PFN for %" PRIu64 " out of %" PRIu64 " pages.",
-		    vcpu_id, no_pfn, pages);
+		    vcpu_idx, no_pfn, pages);
 
 	/*
-	 * Test that at least 90% of memory has been marked idle (the rest might
-	 * not be marked idle because the pages have not yet made it to an LRU
-	 * list or the translations are still cached in the TLB). 90% is
+	 * Check that at least 90% of memory has been marked idle (the rest
+	 * might not be marked idle because the pages have not yet made it to an
+	 * LRU list or the translations are still cached in the TLB). 90% is
 	 * arbitrary; high enough that we ensure most memory access went through
 	 * access tracking but low enough as to not make the test too brittle
 	 * over time and across architectures.
+	 *
+	 * When running the guest as a nested VM, "warn" instead of asserting
+	 * as the TLB size is effectively unlimited and the KVM doesn't
+	 * explicitly flush the TLB when aging SPTEs.  As a result, more pages
+	 * are cached and the guest won't see the "idle" bit cleared.
 	 */
-	TEST_ASSERT(still_idle < pages / 10,
-		    "vCPU%d: Too many pages still idle (%"PRIu64 " out of %"
-		    PRIu64 ").\n",
-		    vcpu_id, still_idle, pages);
+	if (still_idle >= pages / 10) {
+#ifdef __x86_64__
+		TEST_ASSERT(this_cpu_has(X86_FEATURE_HYPERVISOR),
+			    "vCPU%d: Too many pages still idle (%lu out of %lu)",
+			    vcpu_idx, still_idle, pages);
+#endif
+		printf("WARNING: vCPU%d: Too many pages still idle (%lu out of %lu), "
+		       "this will affect performance results.\n",
+		       vcpu_idx, still_idle, pages);
+	}
 
 	close(page_idle_fd);
 	close(pagemap_fd);
 }
 
-static void assert_ucall(struct kvm_vm *vm, uint32_t vcpu_id,
-			 uint64_t expected_ucall)
+static void assert_ucall(struct kvm_vcpu *vcpu, uint64_t expected_ucall)
 {
 	struct ucall uc;
-	uint64_t actual_ucall = get_ucall(vm, vcpu_id, &uc);
+	uint64_t actual_ucall = get_ucall(vcpu, &uc);
 
 	TEST_ASSERT(expected_ucall == actual_ucall,
 		    "Guest exited unexpectedly (expected ucall %" PRIu64
@@ -206,7 +214,7 @@ static bool spin_wait_for_next_iteration(int *current_iteration)
 	int last_iteration = *current_iteration;
 
 	do {
-		if (READ_ONCE(done))
+		if (READ_ONCE(memstress_args.stop_vcpus))
 			return false;
 
 		*current_iteration = READ_ONCE(iteration);
@@ -215,35 +223,31 @@ static bool spin_wait_for_next_iteration(int *current_iteration)
 	return true;
 }
 
-static void *vcpu_thread_main(void *arg)
+static void vcpu_thread_main(struct memstress_vcpu_args *vcpu_args)
 {
-	struct perf_test_vcpu_args *vcpu_args = arg;
-	struct kvm_vm *vm = perf_test_args.vm;
-	int vcpu_id = vcpu_args->vcpu_id;
-	int current_iteration = -1;
-
-	vcpu_args_set(vm, vcpu_id, 1, vcpu_id);
+	struct kvm_vcpu *vcpu = vcpu_args->vcpu;
+	struct kvm_vm *vm = memstress_args.vm;
+	int vcpu_idx = vcpu_args->vcpu_idx;
+	int current_iteration = 0;
 
 	while (spin_wait_for_next_iteration(&current_iteration)) {
 		switch (READ_ONCE(iteration_work)) {
 		case ITERATION_ACCESS_MEMORY:
-			vcpu_run(vm, vcpu_id);
-			assert_ucall(vm, vcpu_id, UCALL_SYNC);
+			vcpu_run(vcpu);
+			assert_ucall(vcpu, UCALL_SYNC);
 			break;
 		case ITERATION_MARK_IDLE:
-			mark_vcpu_memory_idle(vm, vcpu_id);
+			mark_vcpu_memory_idle(vm, vcpu_args);
 			break;
 		};
 
-		vcpu_last_completed_iteration[vcpu_id] = current_iteration;
+		vcpu_last_completed_iteration[vcpu_idx] = current_iteration;
 	}
-
-	return NULL;
 }
 
-static void spin_wait_for_vcpu(int vcpu_id, int target_iteration)
+static void spin_wait_for_vcpu(int vcpu_idx, int target_iteration)
 {
-	while (READ_ONCE(vcpu_last_completed_iteration[vcpu_id]) !=
+	while (READ_ONCE(vcpu_last_completed_iteration[vcpu_idx]) !=
 	       target_iteration) {
 		continue;
 	}
@@ -255,12 +259,11 @@ enum access_type {
 	ACCESS_WRITE,
 };
 
-static void run_iteration(struct kvm_vm *vm, int vcpus, const char *description)
+static void run_iteration(struct kvm_vm *vm, int nr_vcpus, const char *description)
 {
 	struct timespec ts_start;
 	struct timespec ts_elapsed;
-	int next_iteration;
-	int vcpu_id;
+	int next_iteration, i;
 
 	/* Kick off the vCPUs by incrementing iteration. */
 	next_iteration = ++iteration;
@@ -268,24 +271,23 @@ static void run_iteration(struct kvm_vm *vm, int vcpus, const char *description)
 	clock_gettime(CLOCK_MONOTONIC, &ts_start);
 
 	/* Wait for all vCPUs to finish the iteration. */
-	for (vcpu_id = 0; vcpu_id < vcpus; vcpu_id++)
-		spin_wait_for_vcpu(vcpu_id, next_iteration);
+	for (i = 0; i < nr_vcpus; i++)
+		spin_wait_for_vcpu(i, next_iteration);
 
 	ts_elapsed = timespec_elapsed(ts_start);
 	pr_info("%-30s: %ld.%09lds\n",
 		description, ts_elapsed.tv_sec, ts_elapsed.tv_nsec);
 }
 
-static void access_memory(struct kvm_vm *vm, int vcpus, enum access_type access,
-			  const char *description)
+static void access_memory(struct kvm_vm *vm, int nr_vcpus,
+			  enum access_type access, const char *description)
 {
-	perf_test_args.wr_fract = (access == ACCESS_READ) ? INT_MAX : 1;
-	sync_global_to_guest(vm, perf_test_args);
+	memstress_set_write_percent(vm, (access == ACCESS_READ) ? 0 : 100);
 	iteration_work = ITERATION_ACCESS_MEMORY;
-	run_iteration(vm, vcpus, description);
+	run_iteration(vm, nr_vcpus, description);
 }
 
-static void mark_memory_idle(struct kvm_vm *vm, int vcpus)
+static void mark_memory_idle(struct kvm_vm *vm, int nr_vcpus)
 {
 	/*
 	 * Even though this parallelizes the work across vCPUs, this is still a
@@ -295,68 +297,35 @@ static void mark_memory_idle(struct kvm_vm *vm, int vcpus)
 	 */
 	pr_debug("Marking VM memory idle (slow)...\n");
 	iteration_work = ITERATION_MARK_IDLE;
-	run_iteration(vm, vcpus, "Mark memory idle");
-}
-
-static pthread_t *create_vcpu_threads(int vcpus)
-{
-	pthread_t *vcpu_threads;
-	int i;
-
-	vcpu_threads = malloc(vcpus * sizeof(vcpu_threads[0]));
-	TEST_ASSERT(vcpu_threads, "Failed to allocate vcpu_threads.");
-
-	for (i = 0; i < vcpus; i++) {
-		vcpu_last_completed_iteration[i] = iteration;
-		pthread_create(&vcpu_threads[i], NULL, vcpu_thread_main,
-			       &perf_test_args.vcpu_args[i]);
-	}
-
-	return vcpu_threads;
-}
-
-static void terminate_vcpu_threads(pthread_t *vcpu_threads, int vcpus)
-{
-	int i;
-
-	/* Set done to signal the vCPU threads to exit */
-	done = true;
-
-	for (i = 0; i < vcpus; i++)
-		pthread_join(vcpu_threads[i], NULL);
+	run_iteration(vm, nr_vcpus, "Mark memory idle");
 }
 
 static void run_test(enum vm_guest_mode mode, void *arg)
 {
 	struct test_params *params = arg;
 	struct kvm_vm *vm;
-	pthread_t *vcpu_threads;
-	int vcpus = params->vcpus;
+	int nr_vcpus = params->nr_vcpus;
 
-	vm = perf_test_create_vm(mode, vcpus, params->vcpu_memory_bytes,
-				 params->backing_src);
+	vm = memstress_create_vm(mode, nr_vcpus, params->vcpu_memory_bytes, 1,
+				 params->backing_src, !overlap_memory_access);
 
-	perf_test_setup_vcpus(vm, vcpus, params->vcpu_memory_bytes,
-			      !overlap_memory_access);
-
-	vcpu_threads = create_vcpu_threads(vcpus);
+	memstress_start_vcpu_threads(nr_vcpus, vcpu_thread_main);
 
 	pr_info("\n");
-	access_memory(vm, vcpus, ACCESS_WRITE, "Populating memory");
+	access_memory(vm, nr_vcpus, ACCESS_WRITE, "Populating memory");
 
 	/* As a control, read and write to the populated memory first. */
-	access_memory(vm, vcpus, ACCESS_WRITE, "Writing to populated memory");
-	access_memory(vm, vcpus, ACCESS_READ, "Reading from populated memory");
+	access_memory(vm, nr_vcpus, ACCESS_WRITE, "Writing to populated memory");
+	access_memory(vm, nr_vcpus, ACCESS_READ, "Reading from populated memory");
 
 	/* Repeat on memory that has been marked as idle. */
-	mark_memory_idle(vm, vcpus);
-	access_memory(vm, vcpus, ACCESS_WRITE, "Writing to idle memory");
-	mark_memory_idle(vm, vcpus);
-	access_memory(vm, vcpus, ACCESS_READ, "Reading from idle memory");
+	mark_memory_idle(vm, nr_vcpus);
+	access_memory(vm, nr_vcpus, ACCESS_WRITE, "Writing to idle memory");
+	mark_memory_idle(vm, nr_vcpus);
+	access_memory(vm, nr_vcpus, ACCESS_READ, "Reading from idle memory");
 
-	terminate_vcpu_threads(vcpu_threads, vcpus);
-	free(vcpu_threads);
-	perf_test_destroy_vm(vm);
+	memstress_join_vcpu_threads(nr_vcpus);
+	memstress_destroy_vm(vm);
 }
 
 static void help(char *name)
@@ -373,9 +342,7 @@ static void help(char *name)
 	printf(" -v: specify the number of vCPUs to run.\n");
 	printf(" -o: Overlap guest memory accesses instead of partitioning\n"
 	       "     them into a separate region of memory for each vCPU.\n");
-	printf(" -s: specify the type of memory that should be used to\n"
-	       "     back the guest data region.\n\n");
-	backing_src_help();
+	backing_src_help("-s");
 	puts("");
 	exit(0);
 }
@@ -383,9 +350,9 @@ static void help(char *name)
 int main(int argc, char *argv[])
 {
 	struct test_params params = {
-		.backing_src = VM_MEM_SRC_ANONYMOUS,
+		.backing_src = DEFAULT_VM_MEM_SRC,
 		.vcpu_memory_bytes = DEFAULT_PER_VCPU_MEM_SIZE,
-		.vcpus = 1,
+		.nr_vcpus = 1,
 	};
 	int page_idle_fd;
 	int opt;
@@ -401,7 +368,7 @@ int main(int argc, char *argv[])
 			params.vcpu_memory_bytes = parse_size(optarg);
 			break;
 		case 'v':
-			params.vcpus = atoi(optarg);
+			params.nr_vcpus = atoi_positive("Number of vCPUs", optarg);
 			break;
 		case 'o':
 			overlap_memory_access = true;
@@ -417,10 +384,8 @@ int main(int argc, char *argv[])
 	}
 
 	page_idle_fd = open("/sys/kernel/mm/page_idle/bitmap", O_RDWR);
-	if (page_idle_fd < 0) {
-		print_skip("CONFIG_IDLE_PAGE_TRACKING is not enabled");
-		exit(KSFT_SKIP);
-	}
+	__TEST_REQUIRE(page_idle_fd >= 0,
+		       "CONFIG_IDLE_PAGE_TRACKING is not enabled");
 	close(page_idle_fd);
 
 	for_each_guest_mode(run_test, &params);

@@ -126,7 +126,7 @@ MODULE_PARM_DESC(node_types, " node types, default is 0xe1d3d. Bitmask with the 
 			     "\t\t    bit 8: Video Output node\n"
 			     "\t\t    bit 10-11: VBI Output node: 0 = none, 1 = raw vbi, 2 = sliced vbi, 3 = both\n"
 			     "\t\t    bit 12: Radio Transmitter node\n"
-			     "\t\t    bit 16: Framebuffer for testing overlays\n"
+			     "\t\t    bit 16: Framebuffer for testing output overlays\n"
 			     "\t\t    bit 17: Metadata Capture node\n"
 			     "\t\t    bit 18: Metadata Output node\n"
 			     "\t\t    bit 19: Touch Capture node\n");
@@ -176,6 +176,15 @@ module_param_array(cache_hints, uint, NULL, 0444);
 MODULE_PARM_DESC(cache_hints, " user-space cache hints, default is 0.\n"
 			     "\t\t    0 == forbid\n"
 			     "\t\t    1 == allow");
+
+static unsigned int supports_requests[VIVID_MAX_DEVS] = {
+	[0 ... (VIVID_MAX_DEVS - 1)] = 1
+};
+module_param_array(supports_requests, uint, NULL, 0444);
+MODULE_PARM_DESC(supports_requests, " support for requests, default is 1.\n"
+			     "\t\t    0 == no support\n"
+			     "\t\t    1 == supports requests\n"
+			     "\t\t    2 == requires requests");
 
 static struct vivid_dev *vivid_devs[VIVID_MAX_DEVS];
 
@@ -317,7 +326,7 @@ static int vidioc_overlay(struct file *file, void *fh, unsigned i)
 	struct video_device *vdev = video_devdata(file);
 
 	if (vdev->vfl_dir == VFL_DIR_RX)
-		return vivid_vid_cap_overlay(file, fh, i);
+		return -ENOTTY;
 	return vivid_vid_out_overlay(file, fh, i);
 }
 
@@ -326,30 +335,8 @@ static int vidioc_g_fbuf(struct file *file, void *fh, struct v4l2_framebuffer *a
 	struct video_device *vdev = video_devdata(file);
 
 	if (vdev->vfl_dir == VFL_DIR_RX)
-		return vivid_vid_cap_g_fbuf(file, fh, a);
+		return -ENOTTY;
 	return vivid_vid_out_g_fbuf(file, fh, a);
-}
-
-/*
- * Only support the framebuffer of one of the vivid instances.
- * Anything else is rejected.
- */
-bool vivid_validate_fb(const struct v4l2_framebuffer *a)
-{
-	struct vivid_dev *dev;
-	int i;
-
-	for (i = 0; i < n_devs; i++) {
-		dev = vivid_devs[i];
-		if (!dev || !dev->video_pbase)
-			continue;
-		if ((unsigned long)a->base == dev->video_pbase &&
-		    a->fmt.width <= dev->display_width &&
-		    a->fmt.height <= dev->display_height &&
-		    a->fmt.bytesperline <= dev->display_byte_stride)
-			return true;
-	}
-	return false;
 }
 
 static int vidioc_s_fbuf(struct file *file, void *fh, const struct v4l2_framebuffer *a)
@@ -357,7 +344,7 @@ static int vidioc_s_fbuf(struct file *file, void *fh, const struct v4l2_framebuf
 	struct video_device *vdev = video_devdata(file);
 
 	if (vdev->vfl_dir == VFL_DIR_RX)
-		return vivid_vid_cap_s_fbuf(file, fh, a);
+		return -ENOTTY;
 	return vivid_vid_out_s_fbuf(file, fh, a);
 }
 
@@ -642,8 +629,6 @@ static int vivid_fop_release(struct file *file)
 		vivid_reconnect(dev);
 	}
 	mutex_unlock(&dev->mutex);
-	if (file->private_data == dev->overlay_cap_owner)
-		dev->overlay_cap_owner = NULL;
 	if (file->private_data == dev->radio_rx_rds_owner) {
 		dev->radio_rx_rds_last_block = 0;
 		dev->radio_rx_rds_owner = NULL;
@@ -769,10 +754,6 @@ static const struct v4l2_ioctl_ops vivid_ioctl_ops = {
 	.vidioc_g_parm			= vidioc_g_parm,
 	.vidioc_s_parm			= vidioc_s_parm,
 
-	.vidioc_enum_fmt_vid_overlay	= vidioc_enum_fmt_vid_overlay,
-	.vidioc_g_fmt_vid_overlay	= vidioc_g_fmt_vid_overlay,
-	.vidioc_try_fmt_vid_overlay	= vidioc_try_fmt_vid_overlay,
-	.vidioc_s_fmt_vid_overlay	= vidioc_s_fmt_vid_overlay,
 	.vidioc_g_fmt_vid_out_overlay	= vidioc_g_fmt_vid_out_overlay,
 	.vidioc_try_fmt_vid_out_overlay	= vidioc_try_fmt_vid_out_overlay,
 	.vidioc_s_fmt_vid_out_overlay	= vidioc_s_fmt_vid_out_overlay,
@@ -853,8 +834,6 @@ static void vivid_dev_release(struct v4l2_device *v4l2_dev)
 	vfree(dev->scaled_line);
 	vfree(dev->blended_line);
 	vfree(dev->edid);
-	vfree(dev->bitmap_cap);
-	vfree(dev->bitmap_out);
 	tpg_free(&dev->tpg);
 	kfree(dev->query_dv_timings_qmenu);
 	kfree(dev->query_dv_timings_qmenu_strings);
@@ -905,10 +884,11 @@ static int vivid_create_queue(struct vivid_dev *dev,
 	q->mem_ops = allocators[dev->inst] == 1 ? &vb2_dma_contig_memops :
 						  &vb2_vmalloc_memops;
 	q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
-	q->min_buffers_needed = min_buffers_needed;
+	q->min_buffers_needed = supports_requests[dev->inst] ? 0 : min_buffers_needed;
 	q->lock = &dev->mutex;
 	q->dev = dev->v4l2_dev.dev;
-	q->supports_requests = true;
+	q->supports_requests = supports_requests[dev->inst];
+	q->requires_requests = supports_requests[dev->inst] >= 2;
 	q->allow_cache_hints = (cache_hints[dev->inst] == 1);
 
 	return vb2_queue_init(q);
@@ -1097,7 +1077,7 @@ static void vivid_set_capabilities(struct vivid_dev *dev)
 		/* set up the capabilities of the video capture device */
 		dev->vid_cap_caps = dev->multiplanar ?
 			V4L2_CAP_VIDEO_CAPTURE_MPLANE :
-			V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VIDEO_OVERLAY;
+			V4L2_CAP_VIDEO_CAPTURE;
 		dev->vid_cap_caps |= V4L2_CAP_STREAMING | V4L2_CAP_READWRITE;
 		if (dev->has_audio_inputs)
 			dev->vid_cap_caps |= V4L2_CAP_AUDIO;
@@ -1386,7 +1366,7 @@ static int vivid_create_queues(struct vivid_dev *dev)
 	}
 
 	if (dev->has_fb) {
-		/* Create framebuffer for testing capture/output overlay */
+		/* Create framebuffer for testing output overlay */
 		ret = vivid_fb_init(dev);
 		if (ret)
 			return ret;
@@ -1882,13 +1862,6 @@ static int vivid_create_instance(struct platform_device *pdev, int inst)
 	vivid_update_format_cap(dev, false);
 	vivid_update_format_out(dev);
 
-	/* initialize overlay */
-	dev->fb_cap.fmt.width = dev->src_rect.width;
-	dev->fb_cap.fmt.height = dev->src_rect.height;
-	dev->fb_cap.fmt.pixelformat = dev->fmt_cap->fourcc;
-	dev->fb_cap.fmt.bytesperline = dev->src_rect.width * tpg_g_twopixelsize(&dev->tpg, 0) / 2;
-	dev->fb_cap.fmt.sizeimage = dev->src_rect.height * dev->fb_cap.fmt.bytesperline;
-
 	/* update touch configuration */
 	dev->timeperframe_tch_cap.numerator = 1;
 	dev->timeperframe_tch_cap.denominator = 10;
@@ -1908,18 +1881,7 @@ static int vivid_create_instance(struct platform_device *pdev, int inst)
 	INIT_LIST_HEAD(&dev->meta_out_active);
 	INIT_LIST_HEAD(&dev->touch_cap_active);
 
-	INIT_LIST_HEAD(&dev->cec_work_list);
-	spin_lock_init(&dev->cec_slock);
-	/*
-	 * Same as create_singlethread_workqueue, but now I can use the
-	 * string formatting of alloc_ordered_workqueue.
-	 */
-	dev->cec_workqueue = alloc_ordered_workqueue("vivid-%03d-cec",
-						     WQ_MEM_RECLAIM, inst);
-	if (!dev->cec_workqueue) {
-		ret = -ENOMEM;
-		goto unreg_dev;
-	}
+	spin_lock_init(&dev->cec_xfers_slock);
 
 	if (allocators[inst] == 1)
 		dma_coerce_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
@@ -1959,6 +1921,19 @@ static int vivid_create_instance(struct platform_device *pdev, int inst)
 			cec_tx_bus_cnt++;
 		}
 	}
+
+	if (dev->cec_rx_adap || cec_tx_bus_cnt) {
+		init_waitqueue_head(&dev->kthread_waitq_cec);
+		dev->kthread_cec = kthread_run(vivid_cec_bus_thread, dev,
+					       "vivid_cec-%s", dev->v4l2_dev.name);
+		if (IS_ERR(dev->kthread_cec)) {
+			ret = PTR_ERR(dev->kthread_cec);
+			dev->kthread_cec = NULL;
+			v4l2_err(&dev->v4l2_dev, "kernel_thread() failed\n");
+			goto unreg_dev;
+		}
+	}
+
 #endif
 
 	v4l2_ctrl_handler_setup(&dev->ctrl_hdl_vid_cap);
@@ -1998,10 +1973,8 @@ unreg_dev:
 	cec_unregister_adapter(dev->cec_rx_adap);
 	for (i = 0; i < MAX_OUTPUTS; i++)
 		cec_unregister_adapter(dev->cec_tx_adap[i]);
-	if (dev->cec_workqueue) {
-		vivid_cec_bus_free_work(dev);
-		destroy_workqueue(dev->cec_workqueue);
-	}
+	if (dev->kthread_cec)
+		kthread_stop(dev->kthread_cec);
 free_dev:
 	v4l2_device_put(&dev->v4l2_dev);
 	return ret;
@@ -2048,7 +2021,7 @@ static int vivid_probe(struct platform_device *pdev)
 	return ret;
 }
 
-static int vivid_remove(struct platform_device *pdev)
+static void vivid_remove(struct platform_device *pdev)
 {
 	struct vivid_dev *dev;
 	unsigned int i, j;
@@ -2123,14 +2096,11 @@ static int vivid_remove(struct platform_device *pdev)
 		cec_unregister_adapter(dev->cec_rx_adap);
 		for (j = 0; j < MAX_OUTPUTS; j++)
 			cec_unregister_adapter(dev->cec_tx_adap[j]);
-		if (dev->cec_workqueue) {
-			vivid_cec_bus_free_work(dev);
-			destroy_workqueue(dev->cec_workqueue);
-		}
+		if (dev->kthread_cec)
+			kthread_stop(dev->kthread_cec);
 		v4l2_device_put(&dev->v4l2_dev);
 		vivid_devs[i] = NULL;
 	}
-	return 0;
 }
 
 static void vivid_pdev_release(struct device *dev)
@@ -2144,7 +2114,7 @@ static struct platform_device vivid_pdev = {
 
 static struct platform_driver vivid_pdrv = {
 	.probe		= vivid_probe,
-	.remove		= vivid_remove,
+	.remove_new	= vivid_remove,
 	.driver		= {
 		.name	= "vivid",
 	},

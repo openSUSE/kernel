@@ -43,7 +43,7 @@
 #include <acpi/cppc_acpi.h>
 
 struct cppc_pcc_data {
-	struct mbox_chan *pcc_channel;
+	struct pcc_mbox_chan *pcc_channel;
 	void __iomem *pcc_comm_addr;
 	bool pcc_channel_acquired;
 	unsigned int deadline_us;
@@ -148,7 +148,7 @@ __ATTR(_name, 0444, show_##_name, NULL)
 		if (ret)						\
 			return ret;					\
 									\
-		return scnprintf(buf, PAGE_SIZE, "%llu\n",		\
+		return sysfs_emit(buf, "%llu\n",		\
 				(u64)st_name.member_name);		\
 	}								\
 	define_one_cppc_ro(member_name)
@@ -174,7 +174,7 @@ static ssize_t show_feedback_ctrs(struct kobject *kobj,
 	if (ret)
 		return ret;
 
-	return scnprintf(buf, PAGE_SIZE, "ref:%llu del:%llu\n",
+	return sysfs_emit(buf, "ref:%llu del:%llu\n",
 			fb_ctrs.reference, fb_ctrs.delivered);
 }
 define_one_cppc_ro(feedback_ctrs);
@@ -193,7 +193,7 @@ static struct attribute *cppc_attrs[] = {
 };
 ATTRIBUTE_GROUPS(cppc);
 
-static struct kobj_type cppc_ktype = {
+static const struct kobj_type cppc_ktype = {
 	.sysfs_ops = &kobj_sysfs_ops,
 	.default_groups = cppc_groups,
 };
@@ -308,7 +308,7 @@ static int send_pcc_cmd(int pcc_ss_id, u16 cmd)
 	pcc_ss_data->platform_owns_pcc = true;
 
 	/* Ring doorbell */
-	ret = mbox_send_message(pcc_ss_data->pcc_channel, &cmd);
+	ret = mbox_send_message(pcc_ss_data->pcc_channel->mchan, &cmd);
 	if (ret < 0) {
 		pr_err("Err sending PCC mbox message. ss: %d cmd:%d, ret:%d\n",
 		       pcc_ss_id, cmd, ret);
@@ -321,10 +321,10 @@ static int send_pcc_cmd(int pcc_ss_id, u16 cmd)
 	if (pcc_ss_data->pcc_mrtt)
 		pcc_ss_data->last_cmd_cmpl_time = ktime_get();
 
-	if (pcc_ss_data->pcc_channel->mbox->txdone_irq)
-		mbox_chan_txdone(pcc_ss_data->pcc_channel, ret);
+	if (pcc_ss_data->pcc_channel->mchan->mbox->txdone_irq)
+		mbox_chan_txdone(pcc_ss_data->pcc_channel->mchan, ret);
 	else
-		mbox_client_txdone(pcc_ss_data->pcc_channel, ret);
+		mbox_client_txdone(pcc_ss_data->pcc_channel->mchan, ret);
 
 end:
 	if (cmd == CMD_WRITE) {
@@ -527,46 +527,33 @@ EXPORT_SYMBOL_GPL(acpi_get_psd_map);
 
 static int register_pcc_channel(int pcc_ss_idx)
 {
-	struct acpi_pcct_hw_reduced *cppc_ss;
+	struct pcc_mbox_chan *pcc_chan;
 	u64 usecs_lat;
 
 	if (pcc_ss_idx >= 0) {
-		pcc_data[pcc_ss_idx]->pcc_channel =
-			pcc_mbox_request_channel(&cppc_mbox_cl,	pcc_ss_idx);
+		pcc_chan = pcc_mbox_request_channel(&cppc_mbox_cl, pcc_ss_idx);
 
-		if (IS_ERR(pcc_data[pcc_ss_idx]->pcc_channel)) {
+		if (IS_ERR(pcc_chan)) {
 			pr_err("Failed to find PCC channel for subspace %d\n",
 			       pcc_ss_idx);
 			return -ENODEV;
 		}
 
-		/*
-		 * The PCC mailbox controller driver should
-		 * have parsed the PCCT (global table of all
-		 * PCC channels) and stored pointers to the
-		 * subspace communication region in con_priv.
-		 */
-		cppc_ss = (pcc_data[pcc_ss_idx]->pcc_channel)->con_priv;
-
-		if (!cppc_ss) {
-			pr_err("No PCC subspace found for %d CPPC\n",
-			       pcc_ss_idx);
-			return -ENODEV;
-		}
-
+		pcc_data[pcc_ss_idx]->pcc_channel = pcc_chan;
 		/*
 		 * cppc_ss->latency is just a Nominal value. In reality
 		 * the remote processor could be much slower to reply.
 		 * So add an arbitrary amount of wait on top of Nominal.
 		 */
-		usecs_lat = NUM_RETRIES * cppc_ss->latency;
+		usecs_lat = NUM_RETRIES * pcc_chan->latency;
 		pcc_data[pcc_ss_idx]->deadline_us = usecs_lat;
-		pcc_data[pcc_ss_idx]->pcc_mrtt = cppc_ss->min_turnaround_time;
-		pcc_data[pcc_ss_idx]->pcc_mpar = cppc_ss->max_access_rate;
-		pcc_data[pcc_ss_idx]->pcc_nominal = cppc_ss->latency;
+		pcc_data[pcc_ss_idx]->pcc_mrtt = pcc_chan->min_turnaround_time;
+		pcc_data[pcc_ss_idx]->pcc_mpar = pcc_chan->max_access_rate;
+		pcc_data[pcc_ss_idx]->pcc_nominal = pcc_chan->latency;
 
 		pcc_data[pcc_ss_idx]->pcc_comm_addr =
-			acpi_os_ioremap(cppc_ss->base_address, cppc_ss->length);
+			acpi_os_ioremap(pcc_chan->shmem_base_addr,
+					pcc_chan->shmem_size);
 		if (!pcc_data[pcc_ss_idx]->pcc_comm_addr) {
 			pr_err("Failed to ioremap PCC comm region mem for %d\n",
 			       pcc_ss_idx);
@@ -608,6 +595,7 @@ bool __weak cpc_supported_by_cpu(void)
 
 /**
  * pcc_data_alloc() - Allocate the pcc_data memory for pcc subspace
+ * @pcc_ss_id: PCC Subspace index as in the PCC client ACPI package.
  *
  * Check and allocate the cppc_pcc_data memory.
  * In some processor configurations it is possible that same subspace
@@ -1395,7 +1383,7 @@ EXPORT_SYMBOL_GPL(cppc_get_perf_ctrs);
  * Set Energy Performance Preference Register value through
  * Performance Controls Interface
  */
-int cppc_set_epp_perf(int cpu, struct cppc_epp_perf_ctrls *perf_ctrls, bool enable)
+int cppc_set_epp_perf(int cpu, struct cppc_perf_ctrls *perf_ctrls, bool enable)
 {
 	int pcc_ss_id = per_cpu(cpu_pcc_subspace_idx, cpu);
 	struct cpc_register_resource *epp_set_reg;
@@ -1450,7 +1438,7 @@ EXPORT_SYMBOL_GPL(cppc_set_epp_perf);
  * @cpunum : CPU from which to read register.
  * @perf_caps : struct where autonomous selection register value is updated.
  */
-int cppc_get_auto_sel_caps(int cpunum, struct cppc_epp_perf_caps *perf_caps)
+int cppc_get_auto_sel_caps(int cpunum, struct cppc_perf_caps *perf_caps)
 {
 	struct cpc_desc *cpc_desc = per_cpu(cpc_desc_ptr, cpunum);
 	struct cpc_register_resource *auto_sel_reg;
@@ -1596,7 +1584,7 @@ EXPORT_SYMBOL_GPL(cppc_set_enable);
 int cppc_set_perf(int cpu, struct cppc_perf_ctrls *perf_ctrls)
 {
 	struct cpc_desc *cpc_desc = per_cpu(cpc_desc_ptr, cpu);
-	struct cpc_register_resource *desired_reg;
+	struct cpc_register_resource *desired_reg, *min_perf_reg, *max_perf_reg;
 	int pcc_ss_id = per_cpu(cpu_pcc_subspace_idx, cpu);
 	struct cppc_pcc_data *pcc_ss_data = NULL;
 	int ret = 0;
@@ -1607,6 +1595,8 @@ int cppc_set_perf(int cpu, struct cppc_perf_ctrls *perf_ctrls)
 	}
 
 	desired_reg = &cpc_desc->cpc_regs[DESIRED_PERF];
+	min_perf_reg = &cpc_desc->cpc_regs[MIN_PERF];
+	max_perf_reg = &cpc_desc->cpc_regs[MAX_PERF];
 
 	/*
 	 * This is Phase-I where we want to write to CPC registers
@@ -1615,7 +1605,7 @@ int cppc_set_perf(int cpu, struct cppc_perf_ctrls *perf_ctrls)
 	 * Since read_lock can be acquired by multiple CPUs simultaneously we
 	 * achieve that goal here
 	 */
-	if (CPC_IN_PCC(desired_reg)) {
+	if (CPC_IN_PCC(desired_reg) || CPC_IN_PCC(min_perf_reg) || CPC_IN_PCC(max_perf_reg)) {
 		if (pcc_ss_id < 0) {
 			pr_debug("Invalid pcc_ss_id\n");
 			return -ENODEV;
@@ -1638,13 +1628,19 @@ int cppc_set_perf(int cpu, struct cppc_perf_ctrls *perf_ctrls)
 		cpc_desc->write_cmd_status = 0;
 	}
 
-	/*
-	 * Skip writing MIN/MAX until Linux knows how to come up with
-	 * useful values.
-	 */
 	cpc_write(cpu, desired_reg, perf_ctrls->desired_perf);
 
-	if (CPC_IN_PCC(desired_reg))
+	/*
+	 * Only write if min_perf and max_perf not zero. Some drivers pass zero
+	 * value to min and max perf, but they don't mean to set the zero value,
+	 * they just don't want to write to those registers.
+	 */
+	if (perf_ctrls->min_perf)
+		cpc_write(cpu, min_perf_reg, perf_ctrls->min_perf);
+	if (perf_ctrls->max_perf)
+		cpc_write(cpu, max_perf_reg, perf_ctrls->max_perf);
+
+	if (CPC_IN_PCC(desired_reg) || CPC_IN_PCC(min_perf_reg) || CPC_IN_PCC(max_perf_reg))
 		up_read(&pcc_ss_data->pcc_lock);	/* END Phase-I */
 	/*
 	 * This is Phase-II where we transfer the ownership of PCC to Platform
@@ -1692,7 +1688,7 @@ int cppc_set_perf(int cpu, struct cppc_perf_ctrls *perf_ctrls)
 	 * case during a CMD_READ and if there are pending writes it delivers
 	 * the write command before servicing the read command
 	 */
-	if (CPC_IN_PCC(desired_reg)) {
+	if (CPC_IN_PCC(desired_reg) || CPC_IN_PCC(min_perf_reg) || CPC_IN_PCC(max_perf_reg)) {
 		if (down_write_trylock(&pcc_ss_data->pcc_lock)) {/* BEGIN Phase-II */
 			/* Update only if there are pending write commands */
 			if (pcc_ss_data->pending_pcc_write_cmd)
@@ -1712,6 +1708,7 @@ EXPORT_SYMBOL_GPL(cppc_set_perf);
 
 /**
  * cppc_get_transition_latency - returns frequency transition latency in ns
+ * @cpu_num: CPU number for per_cpu().
  *
  * ACPI CPPC does not explicitly specify how a platform can specify the
  * transition latency for performance change requests. The closest we have

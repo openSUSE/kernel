@@ -17,7 +17,9 @@
 .. |SSAM_DEVICE| replace:: :c:func:`SSAM_DEVICE`
 .. |ssam_notifier_register| replace:: :c:func:`ssam_notifier_register`
 .. |ssam_notifier_unregister| replace:: :c:func:`ssam_notifier_unregister`
-.. |ssam_request_sync| replace:: :c:func:`ssam_request_sync`
+.. |ssam_device_notifier_register| replace:: :c:func:`ssam_device_notifier_register`
+.. |ssam_device_notifier_unregister| replace:: :c:func:`ssam_device_notifier_unregister`
+.. |ssam_request_do_sync| replace:: :c:func:`ssam_request_do_sync`
 .. |ssam_event_mask| replace:: :c:type:`enum ssam_event_mask <ssam_event_mask>`
 
 
@@ -189,7 +191,7 @@ data received from it is converted from little-endian to host endianness.
             *       they do not correspond to an actual SAM/EC request.
             */
            rqst.target_category = SSAM_SSH_TC_SAM;
-           rqst.target_id = 0x01;
+           rqst.target_id = SSAM_SSH_TID_SAM;
            rqst.command_id = 0x02;
            rqst.instance_id = 0x03;
            rqst.flags = SSAM_REQUEST_HAS_RESPONSE;
@@ -207,12 +209,12 @@ data received from it is converted from little-endian to host endianness.
             * with the SSAM_REQUEST_HAS_RESPONSE flag set in the specification
             * above.
             */
-           status = ssam_request_sync(ctrl, &rqst, &resp);
+           status = ssam_request_do_sync(ctrl, &rqst, &resp);
 
            /*
             * Alternatively use
             *
-            *   ssam_request_sync_onstack(ctrl, &rqst, &resp, sizeof(arg_le));
+            *   ssam_request_do_sync_onstack(ctrl, &rqst, &resp, sizeof(arg_le));
             *
             * to perform the request, allocating the message buffer directly
             * on the stack as opposed to allocation via kzalloc().
@@ -228,7 +230,7 @@ data received from it is converted from little-endian to host endianness.
            return status;
    }
 
-Note that |ssam_request_sync| in its essence is a wrapper over lower-level
+Note that |ssam_request_do_sync| in its essence is a wrapper over lower-level
 request primitives, which may also be used to perform requests. Refer to its
 implementation and documentation for more details.
 
@@ -239,7 +241,7 @@ one of the generator macros, for example via:
 
    SSAM_DEFINE_SYNC_REQUEST_W(__ssam_tmp_perf_mode_set, __le32, {
            .target_category = SSAM_SSH_TC_TMP,
-           .target_id       = 0x01,
+           .target_id       = SSAM_SSH_TID_SAM,
            .command_id      = 0x03,
            .instance_id     = 0x00,
    });
@@ -312,7 +314,9 @@ Handling Events
 To receive events from the SAM EC, an event notifier must be registered for
 the desired event via |ssam_notifier_register|. The notifier must be
 unregistered via |ssam_notifier_unregister| once it is not required any
-more.
+more. For |ssam_device| type clients, the |ssam_device_notifier_register| and
+|ssam_device_notifier_unregister| wrappers should be preferred as they properly
+handle hot-removal of client devices.
 
 Event notifiers are registered by providing (at minimum) a callback to call
 in case an event has been received, the registry specifying how the event

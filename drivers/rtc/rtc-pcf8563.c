@@ -330,19 +330,6 @@ static int pcf8563_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *tm)
 	unsigned char buf[4];
 	int err;
 
-	/* The alarm has no seconds, round up to nearest minute */
-	if (tm->time.tm_sec) {
-		time64_t alarm_time = rtc_tm_to_time64(&tm->time);
-
-		alarm_time += 60 - tm->time.tm_sec;
-		rtc_time64_to_tm(alarm_time, &tm->time);
-	}
-
-	dev_dbg(dev, "%s, min=%d hour=%d wday=%d mday=%d "
-		"enabled=%d pending=%d\n", __func__,
-		tm->time.tm_min, tm->time.tm_hour, tm->time.tm_wday,
-		tm->time.tm_mday, tm->enabled, tm->pending);
-
 	buf[0] = bin2bcd(tm->time.tm_min);
 	buf[1] = bin2bcd(tm->time.tm_hour);
 	buf[2] = bin2bcd(tm->time.tm_mday);
@@ -522,8 +509,7 @@ static const struct rtc_class_ops pcf8563_rtc_ops = {
 	.alarm_irq_enable = pcf8563_irq_enable,
 };
 
-static int pcf8563_probe(struct i2c_client *client,
-				const struct i2c_device_id *id)
+static int pcf8563_probe(struct i2c_client *client)
 {
 	struct pcf8563 *pcf8563;
 	int err;
@@ -565,21 +551,29 @@ static int pcf8563_probe(struct i2c_client *client,
 
 	pcf8563->rtc->ops = &pcf8563_rtc_ops;
 	/* the pcf8563 alarm only supports a minute accuracy */
-	pcf8563->rtc->uie_unsupported = 1;
+	set_bit(RTC_FEATURE_ALARM_RES_MINUTE, pcf8563->rtc->features);
+	clear_bit(RTC_FEATURE_UPDATE_INTERRUPT, pcf8563->rtc->features);
 	pcf8563->rtc->range_min = RTC_TIMESTAMP_BEGIN_2000;
 	pcf8563->rtc->range_max = RTC_TIMESTAMP_END_2099;
 	pcf8563->rtc->set_start_time = true;
 
 	if (client->irq > 0) {
+		unsigned long irqflags = IRQF_TRIGGER_LOW;
+
+		if (dev_fwnode(&client->dev))
+			irqflags = 0;
+
 		err = devm_request_threaded_irq(&client->dev, client->irq,
 				NULL, pcf8563_irq,
-				IRQF_SHARED | IRQF_ONESHOT | IRQF_TRIGGER_LOW,
+				IRQF_SHARED | IRQF_ONESHOT | irqflags,
 				pcf8563_driver.driver.name, client);
 		if (err) {
 			dev_err(&client->dev, "unable to request IRQ %d\n",
 								client->irq);
 			return err;
 		}
+	} else {
+		clear_bit(RTC_FEATURE_ALARM, pcf8563->rtc->features);
 	}
 
 	err = devm_rtc_register_device(pcf8563->rtc);
@@ -618,7 +612,7 @@ static struct i2c_driver pcf8563_driver = {
 		.name	= "rtc-pcf8563",
 		.of_match_table = of_match_ptr(pcf8563_of_match),
 	},
-	.probe		= pcf8563_probe,
+	.probe_new	= pcf8563_probe,
 	.id_table	= pcf8563_id,
 };
 

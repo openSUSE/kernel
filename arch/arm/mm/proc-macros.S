@@ -6,6 +6,7 @@
  *  VM_EXEC
  */
 #include <asm/asm-offsets.h>
+#include <asm/pgtable.h>
 #include <asm/thread_info.h>
 
 #ifdef CONFIG_CPU_V7M
@@ -30,8 +31,7 @@
  * act_mm - get current->active_mm
  */
 	.macro	act_mm, rd
-	get_thread_info \rd
-	ldr	\rd, [\rd, #TI_TASK]
+	get_current \rd
 	.if (TSK_ACTIVE_MM > IMM12_MASK)
 	add	\rd, \rd, #TSK_ACTIVE_MM & ~IMM12_MASK
 	.endif

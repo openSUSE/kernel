@@ -33,20 +33,13 @@ static void __cpuidle r3081_wait(void)
 {
 	unsigned long cfg = read_c0_conf();
 	write_c0_conf(cfg | R30XX_CONF_HALT);
-	raw_local_irq_enable();
-}
-
-static void __cpuidle r39xx_wait(void)
-{
-	if (!need_resched())
-		write_c0_conf(read_c0_conf() | TX39_CONF_HALT);
-	raw_local_irq_enable();
 }
 
 void __cpuidle r4k_wait(void)
 {
 	raw_local_irq_enable();
 	__r4k_wait();
+	raw_local_irq_disable();
 }
 
 /*
@@ -64,7 +57,6 @@ void __cpuidle r4k_wait_irqoff(void)
 		"	.set	arch=r4000	\n"
 		"	wait			\n"
 		"	.set	pop		\n");
-	raw_local_irq_enable();
 }
 
 /*
@@ -84,7 +76,6 @@ static void __cpuidle rm7k_wait_irqoff(void)
 		"	wait						\n"
 		"	mtc0	$1, $12		# stalls until W stage	\n"
 		"	.set	pop					\n");
-	raw_local_irq_enable();
 }
 
 /*
@@ -110,6 +101,8 @@ static void __cpuidle au1k_wait(void)
 	"	nop				\n"
 	"	.set	pop			\n"
 	: : "r" (au1k_wait), "r" (c0status));
+
+	raw_local_irq_disable();
 }
 
 static int __initdata nowait;
@@ -147,9 +140,6 @@ void __init check_wait(void)
 	case CPU_R3081E:
 		cpu_wait = r3081_wait;
 		break;
-	case CPU_TX3927:
-		cpu_wait = r39xx_wait;
-		break;
 	case CPU_R4200:
 /*	case CPU_R4300: */
 	case CPU_R4600:
@@ -175,8 +165,6 @@ void __init check_wait(void)
 	case CPU_CAVIUM_OCTEON3:
 	case CPU_XBURST:
 	case CPU_LOONGSON32:
-	case CPU_XLR:
-	case CPU_XLP:
 		cpu_wait = r4k_wait;
 		break;
 	case CPU_LOONGSON64:
@@ -240,7 +228,7 @@ void __init check_wait(void)
 			break;
 
 		/*
-		 * Another rev is incremeting c0_count at a reduced clock
+		 * Another rev is incrementing c0_count at a reduced clock
 		 * rate while in WAIT mode.  So we basically have the choice
 		 * between using the cp0 timer as clocksource or avoiding
 		 * the WAIT instruction.  Until more details are known,
@@ -253,18 +241,16 @@ void __init check_wait(void)
 	}
 }
 
-void arch_cpu_idle(void)
+__cpuidle void arch_cpu_idle(void)
 {
 	if (cpu_wait)
 		cpu_wait();
-	else
-		raw_local_irq_enable();
 }
 
 #ifdef CONFIG_CPU_IDLE
 
-int mips_cpuidle_wait_enter(struct cpuidle_device *dev,
-			    struct cpuidle_driver *drv, int index)
+__cpuidle int mips_cpuidle_wait_enter(struct cpuidle_device *dev,
+				      struct cpuidle_driver *drv, int index)
 {
 	arch_cpu_idle();
 	return index;

@@ -112,6 +112,7 @@ static int add_hist_entries(struct hists *hists, struct machine *machine)
 		}
 
 		fake_samples[i].thread = al.thread;
+		map__put(fake_samples[i].map);
 		fake_samples[i].map = al.map;
 		fake_samples[i].sym = al.sym;
 	}
@@ -147,15 +148,23 @@ static void del_hist_entries(struct hists *hists)
 	}
 }
 
+static void put_fake_samples(void)
+{
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(fake_samples); i++)
+		map__put(fake_samples[i].map);
+}
+
 typedef int (*test_fn_t)(struct evsel *, struct machine *);
 
 #define COMM(he)  (thread__comm_str(he->thread))
-#define DSO(he)   (he->ms.map->dso->short_name)
+#define DSO(he)   (map__dso(he->ms.map)->short_name)
 #define SYM(he)   (he->ms.sym->name)
 #define CPU(he)   (he->cpu)
 #define PID(he)   (he->thread->tid)
 #define DEPTH(he) (he->callchain->max_depth)
-#define CDSO(cl)  (cl->ms.map->dso->short_name)
+#define CDSO(cl)  (map__dso(cl->ms.map)->short_name)
 #define CSYM(cl)  (cl->ms.sym->name)
 
 struct result {
@@ -689,7 +698,7 @@ out:
 	return err;
 }
 
-int test__hists_cumulate(struct test *test __maybe_unused, int subtest __maybe_unused)
+static int test__hists_cumulate(struct test_suite *test __maybe_unused, int subtest __maybe_unused)
 {
 	int err = TEST_FAIL;
 	struct machines machines;
@@ -706,7 +715,7 @@ int test__hists_cumulate(struct test *test __maybe_unused, int subtest __maybe_u
 
 	TEST_ASSERT_VAL("No memory", evlist);
 
-	err = parse_events(evlist, "cpu-clock", NULL);
+	err = parse_event(evlist, "cpu-clock");
 	if (err)
 		goto out;
 	err = TEST_FAIL;
@@ -733,6 +742,9 @@ out:
 	/* tear down everything */
 	evlist__delete(evlist);
 	machines__exit(&machines);
+	put_fake_samples();
 
 	return err;
 }
+
+DEFINE_SUITE("Cumulate child hist entries", hists_cumulate);

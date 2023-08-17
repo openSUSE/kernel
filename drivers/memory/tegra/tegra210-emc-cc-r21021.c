@@ -277,7 +277,7 @@ static u32 update_clock_tree_delay(struct tegra210_emc *emc, int type)
 		/*
 		 * Dev1 LSB.
 		 */
-		value = tegra210_emc_mrr_read(emc, 2, 18);
+		value = tegra210_emc_mrr_read(emc, 1, 18);
 
 		for (i = 0; i < emc->num_channels; i++) {
 			temp[i][0] |= (value & 0x00ff) >> 0;
@@ -478,7 +478,7 @@ static u32 periodic_compensation_handler(struct tegra210_emc *emc, u32 type,
 static u32 tegra210_emc_r21021_periodic_compensation(struct tegra210_emc *emc)
 {
 	u32 emc_cfg, emc_cfg_o, emc_cfg_update, del, value;
-	u32 list[] = {
+	static const u32 list[] = {
 		EMC_PMACRO_OB_DDLL_LONG_DQ_RANK0_0,
 		EMC_PMACRO_OB_DDLL_LONG_DQ_RANK0_1,
 		EMC_PMACRO_OB_DDLL_LONG_DQ_RANK0_2,

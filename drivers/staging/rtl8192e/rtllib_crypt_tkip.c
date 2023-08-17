@@ -62,7 +62,7 @@ static void *rtllib_tkip_init(int key_idx)
 		return NULL;
 
 	priv = kzalloc(sizeof(*priv), GFP_ATOMIC);
-	if (priv == NULL)
+	if (!priv)
 		goto fail;
 	priv->key_idx = key_idx;
 
@@ -91,7 +91,6 @@ fail:
 	return NULL;
 }
 
-
 static void rtllib_tkip_deinit(void *priv)
 {
 	struct rtllib_tkip_data *_priv = priv;
@@ -103,48 +102,40 @@ static void rtllib_tkip_deinit(void *priv)
 	kfree_sensitive(priv);
 }
 
-
 static inline u16 RotR1(u16 val)
 {
 	return (val >> 1) | (val << 15);
 }
-
 
 static inline u8 Lo8(u16 val)
 {
 	return val & 0xff;
 }
 
-
 static inline u8 Hi8(u16 val)
 {
 	return val >> 8;
 }
-
 
 static inline u16 Lo16(u32 val)
 {
 	return val & 0xffff;
 }
 
-
 static inline u16 Hi16(u32 val)
 {
 	return val >> 16;
 }
 
-
 static inline u16 Mk16(u8 hi, u8 lo)
 {
-	return lo | (((u16) hi) << 8);
+	return lo | (hi << 8);
 }
-
 
 static inline u16 Mk16_le(u16 *v)
 {
 	return *v;
 }
-
 
 static const u16 Sbox[256] = {
 	0xC6A5, 0xF884, 0xEE99, 0xF68D, 0xFF0D, 0xD6BD, 0xDEB1, 0x9154,
@@ -181,16 +172,13 @@ static const u16 Sbox[256] = {
 	0x82C3, 0x29B0, 0x5A77, 0x1E11, 0x7BCB, 0xA8FC, 0x6DD6, 0x2C3A,
 };
 
-
 static inline u16 _S_(u16 v)
 {
 	u16 t = Sbox[Hi8(v)];
 	return Sbox[Lo8(v)] ^ ((t << 8) | (t >> 8));
 }
 
-
 #define PHASE1_LOOP_COUNT 8
-
 
 static void tkip_mixing_phase1(u16 *TTAK, const u8 *TK, const u8 *TA, u32 IV32)
 {
@@ -213,14 +201,13 @@ static void tkip_mixing_phase1(u16 *TTAK, const u8 *TK, const u8 *TA, u32 IV32)
 	}
 }
 
-
 static void tkip_mixing_phase2(u8 *WEPSeed, const u8 *TK, const u16 *TTAK,
 			       u16 IV16)
 {
 	/* Make temporary area overlap WEP seed so that the final copy can be
 	 * avoided on little endian hosts.
 	 */
-	u16 *PPK = (u16 *) &WEPSeed[4];
+	u16 *PPK = (u16 *)&WEPSeed[4];
 
 	/* Step 1 - make copy of TTAK and bring in TSC */
 	PPK[0] = TTAK[0];
@@ -231,15 +218,15 @@ static void tkip_mixing_phase2(u8 *WEPSeed, const u8 *TK, const u16 *TTAK,
 	PPK[5] = TTAK[4] + IV16;
 
 	/* Step 2 - 96-bit bijective mixing using S-box */
-	PPK[0] += _S_(PPK[5] ^ Mk16_le((u16 *) &TK[0]));
-	PPK[1] += _S_(PPK[0] ^ Mk16_le((u16 *) &TK[2]));
-	PPK[2] += _S_(PPK[1] ^ Mk16_le((u16 *) &TK[4]));
-	PPK[3] += _S_(PPK[2] ^ Mk16_le((u16 *) &TK[6]));
-	PPK[4] += _S_(PPK[3] ^ Mk16_le((u16 *) &TK[8]));
-	PPK[5] += _S_(PPK[4] ^ Mk16_le((u16 *) &TK[10]));
+	PPK[0] += _S_(PPK[5] ^ Mk16_le((u16 *)&TK[0]));
+	PPK[1] += _S_(PPK[0] ^ Mk16_le((u16 *)&TK[2]));
+	PPK[2] += _S_(PPK[1] ^ Mk16_le((u16 *)&TK[4]));
+	PPK[3] += _S_(PPK[2] ^ Mk16_le((u16 *)&TK[6]));
+	PPK[4] += _S_(PPK[3] ^ Mk16_le((u16 *)&TK[8]));
+	PPK[5] += _S_(PPK[4] ^ Mk16_le((u16 *)&TK[10]));
 
-	PPK[0] += RotR1(PPK[5] ^ Mk16_le((u16 *) &TK[12]));
-	PPK[1] += RotR1(PPK[0] ^ Mk16_le((u16 *) &TK[14]));
+	PPK[0] += RotR1(PPK[5] ^ Mk16_le((u16 *)&TK[12]));
+	PPK[1] += RotR1(PPK[0] ^ Mk16_le((u16 *)&TK[14]));
 	PPK[2] += RotR1(PPK[1]);
 	PPK[3] += RotR1(PPK[2]);
 	PPK[4] += RotR1(PPK[3]);
@@ -251,7 +238,7 @@ static void tkip_mixing_phase2(u8 *WEPSeed, const u8 *TK, const u16 *TTAK,
 	WEPSeed[0] = Hi8(IV16);
 	WEPSeed[1] = (Hi8(IV16) | 0x20) & 0x7F;
 	WEPSeed[2] = Lo8(IV16);
-	WEPSeed[3] = Lo8((PPK[5] ^ Mk16_le((u16 *) &TK[0])) >> 1);
+	WEPSeed[3] = Lo8((PPK[5] ^ Mk16_le((u16 *)&TK[0])) >> 1);
 
 #ifdef __BIG_ENDIAN
 	{
@@ -262,7 +249,6 @@ static void tkip_mixing_phase2(u8 *WEPSeed, const u8 *TK, const u16 *TTAK,
 	}
 #endif
 }
-
 
 static int rtllib_tkip_encrypt(struct sk_buff *skb, int hdr_len, void *priv)
 {
@@ -280,19 +266,19 @@ static int rtllib_tkip_encrypt(struct sk_buff *skb, int hdr_len, void *priv)
 	    skb->len < hdr_len)
 		return -1;
 
-	hdr = (struct rtllib_hdr_4addr *) skb->data;
+	hdr = (struct rtllib_hdr_4addr *)skb->data;
 
 	if (!tcb_desc->bHwSec) {
 		if (!tkey->tx_phase1_done) {
 			tkip_mixing_phase1(tkey->tx_ttak, tkey->key, hdr->addr2,
-					tkey->tx_iv32);
+					   tkey->tx_iv32);
 			tkey->tx_phase1_done = 1;
 		}
 		tkip_mixing_phase2(rc4key, tkey->key, tkey->tx_ttak,
 				   tkey->tx_iv16);
-	} else
+	} else {
 		tkey->tx_phase1_done = 1;
-
+	}
 
 	len = skb->len - hdr_len;
 	pos = skb_push(skb, 8);
@@ -336,8 +322,6 @@ static int rtllib_tkip_encrypt(struct sk_buff *skb, int hdr_len, void *priv)
 	if (!tcb_desc->bHwSec)
 		return ret;
 	return 0;
-
-
 }
 
 static int rtllib_tkip_decrypt(struct sk_buff *skb, int hdr_len, void *priv)
@@ -357,7 +341,7 @@ static int rtllib_tkip_decrypt(struct sk_buff *skb, int hdr_len, void *priv)
 	if (skb->len < hdr_len + 8 + 4)
 		return -1;
 
-	hdr = (struct rtllib_hdr_4addr *) skb->data;
+	hdr = (struct rtllib_hdr_4addr *)skb->data;
 	pos = skb->data + hdr_len;
 	keyidx = pos[3];
 	if (!(keyidx & (1 << 5))) {
@@ -389,8 +373,8 @@ static int rtllib_tkip_decrypt(struct sk_buff *skb, int hdr_len, void *priv)
 
 	if (!tcb_desc->bHwSec || (skb->cb[0] == 1)) {
 		if ((iv32 < tkey->rx_iv32 ||
-		    (iv32 == tkey->rx_iv32 && iv16 <= tkey->rx_iv16)) &&
-		    tkey->initialized) {
+		     (iv32 == tkey->rx_iv32 && iv16 <= tkey->rx_iv16)) &&
+		     tkey->initialized) {
 			if (net_ratelimit()) {
 				netdev_dbg(skb->dev,
 					   "Replay detected: STA= %pM previous TSC %08x%04x received TSC %08x%04x\n",
@@ -436,7 +420,6 @@ static int rtllib_tkip_decrypt(struct sk_buff *skb, int hdr_len, void *priv)
 			tkey->dot11RSNAStatsTKIPICVErrors++;
 			return -5;
 		}
-
 	}
 
 	/* Update real counters only after Michael MIC verification has
@@ -452,7 +435,6 @@ static int rtllib_tkip_decrypt(struct sk_buff *skb, int hdr_len, void *priv)
 
 	return keyidx;
 }
-
 
 static int michael_mic(struct crypto_shash *tfm_michael, u8 *key, u8 *hdr,
 		       u8 *data, size_t data_len, u8 *mic)
@@ -485,7 +467,7 @@ static void michael_mic_hdr(struct sk_buff *skb, u8 *hdr)
 {
 	struct rtllib_hdr_4addr *hdr11;
 
-	hdr11 = (struct rtllib_hdr_4addr *) skb->data;
+	hdr11 = (struct rtllib_hdr_4addr *)skb->data;
 	switch (le16_to_cpu(hdr11->frame_ctl) &
 		(RTLLIB_FCTL_FROMDS | RTLLIB_FCTL_TODS)) {
 	case RTLLIB_FCTL_TODS:
@@ -506,11 +488,14 @@ static void michael_mic_hdr(struct sk_buff *skb, u8 *hdr)
 		break;
 	}
 
-	hdr[12] = 0; /* priority */
+	/* priority */
+	hdr[12] = 0;
 
-	hdr[13] = hdr[14] = hdr[15] = 0; /* reserved */
+	/* reserved */
+	hdr[13] = 0;
+	hdr[14] = 0;
+	hdr[15] = 0;
 }
-
 
 static int rtllib_michael_mic_add(struct sk_buff *skb, int hdr_len, void *priv)
 {
@@ -518,7 +503,7 @@ static int rtllib_michael_mic_add(struct sk_buff *skb, int hdr_len, void *priv)
 	u8 *pos;
 	struct rtllib_hdr_4addr *hdr;
 
-	hdr = (struct rtllib_hdr_4addr *) skb->data;
+	hdr = (struct rtllib_hdr_4addr *)skb->data;
 
 	if (skb_tailroom(skb) < 8 || skb->len < hdr_len) {
 		netdev_dbg(skb->dev,
@@ -533,12 +518,11 @@ static int rtllib_michael_mic_add(struct sk_buff *skb, int hdr_len, void *priv)
 		tkey->tx_hdr[12] = *(skb->data + hdr_len - 2) & 0x07;
 	pos = skb_put(skb, 8);
 	if (michael_mic(tkey->tx_tfm_michael, &tkey->key[16], tkey->tx_hdr,
-	    skb->data + hdr_len, skb->len - 8 - hdr_len, pos))
+			skb->data + hdr_len, skb->len - 8 - hdr_len, pos))
 		return -1;
 
 	return 0;
 }
-
 
 static void rtllib_michael_mic_failure(struct net_device *dev,
 				       struct rtllib_hdr_4addr *hdr,
@@ -558,7 +542,7 @@ static void rtllib_michael_mic_failure(struct net_device *dev,
 	ether_addr_copy(ev.src_addr.sa_data, hdr->addr2);
 	memset(&wrqu, 0, sizeof(wrqu));
 	wrqu.data.length = sizeof(ev);
-	wireless_send_event(dev, IWEVMICHAELMICFAILURE, &wrqu, (char *) &ev);
+	wireless_send_event(dev, IWEVMICHAELMICFAILURE, &wrqu, (char *)&ev);
 }
 
 static int rtllib_michael_mic_verify(struct sk_buff *skb, int keyidx,
@@ -568,7 +552,7 @@ static int rtllib_michael_mic_verify(struct sk_buff *skb, int keyidx,
 	u8 mic[8];
 	struct rtllib_hdr_4addr *hdr;
 
-	hdr = (struct rtllib_hdr_4addr *) skb->data;
+	hdr = (struct rtllib_hdr_4addr *)skb->data;
 
 	if (!tkey->key_set)
 		return -1;
@@ -584,7 +568,7 @@ static int rtllib_michael_mic_verify(struct sk_buff *skb, int keyidx,
 	if (memcmp(mic, skb->data + skb->len - 8, 8) != 0) {
 		struct rtllib_hdr_4addr *hdr;
 
-		hdr = (struct rtllib_hdr_4addr *) skb->data;
+		hdr = (struct rtllib_hdr_4addr *)skb->data;
 		netdev_dbg(skb->dev,
 			   "Michael MIC verification failed for MSDU from %pM keyidx=%d\n",
 			   hdr->addr2, keyidx);
@@ -609,7 +593,6 @@ static int rtllib_michael_mic_verify(struct sk_buff *skb, int keyidx,
 	return 0;
 }
 
-
 static int rtllib_tkip_set_key(void *key, int len, u8 *seq, void *priv)
 {
 	struct rtllib_tkip_data *tkey = priv;
@@ -632,14 +615,14 @@ static int rtllib_tkip_set_key(void *key, int len, u8 *seq, void *priv)
 				(seq[3] << 8) | seq[2];
 			tkey->rx_iv16 = (seq[1] << 8) | seq[0];
 		}
-	} else if (len == 0)
+	} else if (len == 0) {
 		tkey->key_set = 0;
-	else
+	} else {
 		return -1;
+	}
 
 	return 0;
 }
-
 
 static int rtllib_tkip_get_key(void *key, int len, u8 *seq, void *priv)
 {
@@ -670,7 +653,6 @@ static int rtllib_tkip_get_key(void *key, int len, u8 *seq, void *priv)
 
 	return TKIP_KEY_LEN;
 }
-
 
 static void rtllib_tkip_print_stats(struct seq_file *m, void *priv)
 {
@@ -713,12 +695,10 @@ static struct lib80211_crypto_ops rtllib_crypt_tkip = {
 	.owner			= THIS_MODULE,
 };
 
-
 static int __init rtllib_crypto_tkip_init(void)
 {
 	return lib80211_register_crypto_ops(&rtllib_crypt_tkip);
 }
-
 
 static void __exit rtllib_crypto_tkip_exit(void)
 {

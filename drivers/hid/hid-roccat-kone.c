@@ -860,7 +860,7 @@ static int kone_raw_event(struct hid_device *hdev, struct hid_report *report,
 		memcpy(&kone->last_mouse_event, event,
 				sizeof(struct kone_mouse_event));
 	else
-		memset(&event->tilt, 0, 5);
+		memset(&event->wipe, 0, sizeof(event->wipe));
 
 	kone_keep_values_up_to_date(kone, event);
 
@@ -890,7 +890,7 @@ static int __init kone_init(void)
 	int retval;
 
 	/* class name has to be same as driver name */
-	kone_class = class_create(THIS_MODULE, "kone");
+	kone_class = class_create("kone");
 	if (IS_ERR(kone_class))
 		return PTR_ERR(kone_class);
 	kone_class->dev_groups = kone_groups;

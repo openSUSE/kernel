@@ -6,24 +6,58 @@
 #ifndef __DRIVERS_INTERCONNECT_QCOM_ICC_RPM_H
 #define __DRIVERS_INTERCONNECT_QCOM_ICC_RPM_H
 
+#include <dt-bindings/interconnect/qcom,icc.h>
+
 #define RPM_BUS_MASTER_REQ	0x73616d62
 #define RPM_BUS_SLAVE_REQ	0x766c7362
-
-#define QCOM_MAX_LINKS 12
 
 #define to_qcom_provider(_provider) \
 	container_of(_provider, struct qcom_icc_provider, provider)
 
+enum qcom_icc_type {
+	QCOM_ICC_NOC,
+	QCOM_ICC_BIMC,
+	QCOM_ICC_QNOC,
+};
+
 /**
  * struct qcom_icc_provider - Qualcomm specific interconnect provider
  * @provider: generic interconnect provider
+ * @num_bus_clks: the total number of bus_clks clk_bulk_data entries
+ * @type: the ICC provider type
+ * @regmap: regmap for QoS registers read/write access
+ * @qos_offset: offset to QoS registers
+ * @bus_clk_rate: bus clock rate in Hz
  * @bus_clks: the clk_bulk_data table of bus clocks
- * @num_clks: the total number of clk_bulk_data entries
  */
 struct qcom_icc_provider {
 	struct icc_provider provider;
-	struct clk_bulk_data *bus_clks;
-	int num_clks;
+	int num_bus_clks;
+	enum qcom_icc_type type;
+	struct regmap *regmap;
+	unsigned int qos_offset;
+	u64 *bus_clk_rate;
+	struct clk_bulk_data bus_clks[];
+};
+
+/**
+ * struct qcom_icc_qos - Qualcomm specific interconnect QoS parameters
+ * @areq_prio: node requests priority
+ * @prio_level: priority level for bus communication
+ * @limit_commands: activate/deactivate limiter mode during runtime
+ * @ap_owned: indicates if the node is owned by the AP or by the RPM
+ * @qos_mode: default qos mode for this node
+ * @qos_port: qos port number for finding qos registers of this node
+ * @urg_fwd_en: enable urgent forwarding
+ */
+struct qcom_icc_qos {
+	u32 areq_prio;
+	u32 prio_level;
+	bool limit_commands;
+	bool ap_owned;
+	int qos_mode;
+	int qos_port;
+	bool urg_fwd_en;
 };
 
 /**
@@ -32,42 +66,46 @@ struct qcom_icc_provider {
  * @id: a unique node identifier
  * @links: an array of nodes where we can go next while traversing
  * @num_links: the total number of @links
+ * @channels: number of channels at this node (e.g. DDR channels)
  * @buswidth: width of the interconnect between a node and the bus (bytes)
+ * @sum_avg: current sum aggregate value of all avg bw requests
+ * @max_peak: current max aggregate value of all peak bw requests
  * @mas_rpm_id:	RPM id for devices that are bus masters
  * @slv_rpm_id:	RPM id for devices that are bus slaves
- * @rate: current bus clock rate in Hz
+ * @qos: NoC QoS setting parameters
  */
 struct qcom_icc_node {
 	unsigned char *name;
 	u16 id;
-	u16 links[QCOM_MAX_LINKS];
+	const u16 *links;
 	u16 num_links;
+	u16 channels;
 	u16 buswidth;
+	u64 sum_avg[QCOM_ICC_NUM_BUCKETS];
+	u64 max_peak[QCOM_ICC_NUM_BUCKETS];
 	int mas_rpm_id;
 	int slv_rpm_id;
-	u64 rate;
+	struct qcom_icc_qos qos;
 };
 
 struct qcom_icc_desc {
-	struct qcom_icc_node **nodes;
+	struct qcom_icc_node * const *nodes;
 	size_t num_nodes;
+	const char * const *clocks;
+	size_t num_clocks;
+	enum qcom_icc_type type;
+	const struct regmap_config *regmap_cfg;
+	unsigned int qos_offset;
 };
 
-#define DEFINE_QNODE(_name, _id, _buswidth, _mas_rpm_id, _slv_rpm_id,	\
-		     ...)						\
-		static struct qcom_icc_node _name = {			\
-		.name = #_name,						\
-		.id = _id,						\
-		.buswidth = _buswidth,					\
-		.mas_rpm_id = _mas_rpm_id,				\
-		.slv_rpm_id = _slv_rpm_id,				\
-		.num_links = ARRAY_SIZE(((int[]){ __VA_ARGS__ })),	\
-		.links = { __VA_ARGS__ },				\
-	}
+/* Valid for all bus types */
+enum qos_mode {
+	NOC_QOS_MODE_INVALID = 0,
+	NOC_QOS_MODE_FIXED,
+	NOC_QOS_MODE_BYPASS,
+};
 
-
-int qnoc_probe(struct platform_device *pdev, size_t cd_size, int cd_num,
-	       const struct clk_bulk_data *cd);
+int qnoc_probe(struct platform_device *pdev);
 int qnoc_remove(struct platform_device *pdev);
 
 #endif

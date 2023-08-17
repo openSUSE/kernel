@@ -746,9 +746,7 @@ int hfi1_ipoib_txreq_init(struct hfi1_ipoib_dev_priv *priv)
 				goto free_txqs;
 		}
 
-		netif_tx_napi_add(dev, &txq->napi,
-				  hfi1_ipoib_poll_tx_ring,
-				  NAPI_POLL_WEIGHT);
+		netif_napi_add_tx(dev, &txq->napi, hfi1_ipoib_poll_tx_ring);
 	}
 
 	return 0;

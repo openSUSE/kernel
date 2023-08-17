@@ -51,10 +51,6 @@ static unsigned int latency = UNSET;
 module_param(latency, int, 0444);
 MODULE_PARM_DESC(latency,"pci latency timer");
 
-int saa7134_no_overlay=-1;
-module_param_named(no_overlay, saa7134_no_overlay, int, 0444);
-MODULE_PARM_DESC(no_overlay, "allow override overlay default (0 disables, 1 enables) [some VIA/SIS chipsets are known to have problem with overlay]");
-
 bool saa7134_userptr;
 module_param(saa7134_userptr, bool, 0644);
 MODULE_PARM_DESC(saa7134_userptr, "enable page-aligned userptr support");
@@ -223,7 +219,8 @@ int saa7134_pgtable_alloc(struct pci_dev *pci, struct saa7134_pgtable *pt)
 	__le32       *cpu;
 	dma_addr_t   dma_addr = 0;
 
-	cpu = pci_alloc_consistent(pci, SAA7134_PGTABLE_SIZE, &dma_addr);
+	cpu = dma_alloc_coherent(&pci->dev, SAA7134_PGTABLE_SIZE, &dma_addr,
+				 GFP_KERNEL);
 	if (NULL == cpu)
 		return -ENOMEM;
 	pt->size = SAA7134_PGTABLE_SIZE;
@@ -254,7 +251,7 @@ void saa7134_pgtable_free(struct pci_dev *pci, struct saa7134_pgtable *pt)
 {
 	if (NULL == pt->cpu)
 		return;
-	pci_free_consistent(pci, pt->size, pt->cpu, pt->dma);
+	dma_free_coherent(&pci->dev, pt->size, pt->cpu, pt->dma);
 	pt->cpu = NULL;
 }
 
@@ -397,13 +394,6 @@ int saa7134_set_dmabits(struct saa7134_dev *dev)
 	if (dev->video_q.curr && dev->fmt->planar) {
 		ctrl |= SAA7134_MAIN_CTRL_TE4 |
 			SAA7134_MAIN_CTRL_TE5;
-	}
-
-	/* screen overlay -- dma 0 + video task B */
-	if (dev->ovenable) {
-		task |= 0x10;
-		ctrl |= SAA7134_MAIN_CTRL_TE1;
-		ov = dev->ovfield;
 	}
 
 	/* vbi capture -- dma 0 + vbi task A+B */
@@ -1065,18 +1055,6 @@ static int saa7134_initdev(struct pci_dev *pci_dev,
 			latency = 0x0A;
 		}
 #endif
-		if (pci_pci_problems & (PCIPCI_FAIL|PCIAGP_FAIL)) {
-			pr_info("%s: quirk: this driver and your chipset may not work together in overlay mode.\n",
-				dev->name);
-			if (!saa7134_no_overlay) {
-				pr_info("%s: quirk: overlay mode will be disabled.\n",
-						dev->name);
-				saa7134_no_overlay = 1;
-			} else {
-				pr_info("%s: quirk: overlay mode will be forced. Use this option at your own risk.\n",
-						dev->name);
-			}
-		}
 	}
 	if (UNSET != latency) {
 		pr_info("%s: setting pci latency timer to %d\n",
@@ -1092,7 +1070,7 @@ static int saa7134_initdev(struct pci_dev *pci_dev,
 		dev->pci_lat,
 		(unsigned long long)pci_resource_start(pci_dev, 0));
 	pci_set_master(pci_dev);
-	err = pci_set_dma_mask(pci_dev, DMA_BIT_MASK(32));
+	err = dma_set_mask(&pci_dev->dev, DMA_BIT_MASK(32));
 	if (err) {
 		pr_warn("%s: Oops: no 32bit PCI DMA ???\n", dev->name);
 		goto err_v4l2_unregister;
@@ -1197,9 +1175,6 @@ static int saa7134_initdev(struct pci_dev *pci_dev,
 		saa_call_all(dev, core, s_power, 0);
 
 	/* register v4l devices */
-	if (saa7134_no_overlay > 0)
-		pr_info("%s: Overlay support disabled.\n", dev->name);
-
 	dev->video_dev = vdev_init(dev,&saa7134_video_template,"video");
 	dev->video_dev->ctrl_handler = &dev->ctrl_handler;
 	dev->video_dev->lock = &dev->lock;
@@ -1208,9 +1183,6 @@ static int saa7134_initdev(struct pci_dev *pci_dev,
 				      V4L2_CAP_VIDEO_CAPTURE;
 	if (dev->tuner_type != TUNER_ABSENT && dev->tuner_type != UNSET)
 		dev->video_dev->device_caps |= V4L2_CAP_TUNER;
-
-	if (saa7134_no_overlay <= 0)
-		dev->video_dev->device_caps |= V4L2_CAP_VIDEO_OVERLAY;
 
 	err = video_register_device(dev->video_dev,VFL_TYPE_VIDEO,
 				    video_nr[dev->nr]);
@@ -1401,9 +1373,6 @@ static int __maybe_unused saa7134_suspend(struct device *dev_d)
 	struct pci_dev *pci_dev = to_pci_dev(dev_d);
 	struct v4l2_device *v4l2_dev = pci_get_drvdata(pci_dev);
 	struct saa7134_dev *dev = container_of(v4l2_dev, struct saa7134_dev, v4l2_dev);
-
-	/* disable overlay - apps should enable it explicitly on resume*/
-	dev->ovenable = 0;
 
 	/* Disable interrupts, DMA, and rest of the chip*/
 	saa_writel(SAA7134_IRQ1, 0);

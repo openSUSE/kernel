@@ -35,7 +35,6 @@ struct sas_task *sas_alloc_task(gfp_t flags)
 
 	return task;
 }
-EXPORT_SYMBOL_GPL(sas_alloc_task);
 
 struct sas_task *sas_alloc_slow_task(gfp_t flags)
 {
@@ -56,7 +55,6 @@ struct sas_task *sas_alloc_slow_task(gfp_t flags)
 
 	return task;
 }
-EXPORT_SYMBOL_GPL(sas_alloc_slow_task);
 
 void sas_free_task(struct sas_task *task)
 {
@@ -65,7 +63,6 @@ void sas_free_task(struct sas_task *task)
 		kmem_cache_free(sas_task_cache, task);
 	}
 }
-EXPORT_SYMBOL_GPL(sas_free_task);
 
 /*------------ SAS addr hash -----------*/
 void sas_hash_addr(u8 *hashed, const u8 *sas_addr)
@@ -147,6 +144,7 @@ Undo_phys:
 
 	return error;
 }
+EXPORT_SYMBOL_GPL(sas_register_ha);
 
 static void sas_disable_events(struct sas_ha_struct *sas_ha)
 {
@@ -176,6 +174,7 @@ int sas_unregister_ha(struct sas_ha_struct *sas_ha)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(sas_unregister_ha);
 
 static int sas_get_linkerrors(struct sas_phy *phy)
 {
@@ -252,7 +251,7 @@ static int transport_sas_phy_reset(struct sas_phy *phy, int hard_reset)
 	}
 }
 
-static int sas_phy_enable(struct sas_phy *phy, int enable)
+int sas_phy_enable(struct sas_phy *phy, int enable)
 {
 	int ret;
 	enum phy_func cmd;
@@ -284,6 +283,7 @@ static int sas_phy_enable(struct sas_phy *phy, int enable)
 	}
 	return ret;
 }
+EXPORT_SYMBOL_GPL(sas_phy_enable);
 
 int sas_phy_reset(struct sas_phy *phy, int hard_reset)
 {
@@ -313,6 +313,7 @@ int sas_phy_reset(struct sas_phy *phy, int hard_reset)
 	}
 	return ret;
 }
+EXPORT_SYMBOL_GPL(sas_phy_reset);
 
 int sas_set_phy_speed(struct sas_phy *phy,
 		      struct sas_phy_linkrates *rates)
@@ -527,6 +528,7 @@ static int queue_phy_reset(struct sas_phy *phy, int hard_reset)
 	if (!d)
 		return -ENOMEM;
 
+	pm_runtime_get_sync(ha->dev);
 	/* libsas workqueue coordinates ata-eh reset with discovery */
 	mutex_lock(&d->event_lock);
 	d->reset_result = 0;
@@ -540,6 +542,7 @@ static int queue_phy_reset(struct sas_phy *phy, int hard_reset)
 	if (rc == 0)
 		rc = d->reset_result;
 	mutex_unlock(&d->event_lock);
+	pm_runtime_put_sync(ha->dev);
 
 	return rc;
 }
@@ -554,6 +557,7 @@ static int queue_phy_enable(struct sas_phy *phy, int enable)
 	if (!d)
 		return -ENOMEM;
 
+	pm_runtime_get_sync(ha->dev);
 	/* libsas workqueue coordinates ata-eh reset with discovery */
 	mutex_lock(&d->event_lock);
 	d->enable_result = 0;
@@ -567,6 +571,7 @@ static int queue_phy_enable(struct sas_phy *phy, int enable)
 	if (rc == 0)
 		rc = d->enable_result;
 	mutex_unlock(&d->event_lock);
+	pm_runtime_put_sync(ha->dev);
 
 	return rc;
 }
@@ -704,5 +709,3 @@ MODULE_LICENSE("GPL v2");
 module_init(sas_class_init);
 module_exit(sas_class_exit);
 
-EXPORT_SYMBOL_GPL(sas_register_ha);
-EXPORT_SYMBOL_GPL(sas_unregister_ha);

@@ -102,9 +102,9 @@ static int mt7915_pci_hif2_probe(struct pci_dev *pdev)
 static int mt7915_pci_probe(struct pci_dev *pdev,
 			    const struct pci_device_id *id)
 {
+	struct mt7915_hif *hif2 = NULL;
 	struct mt7915_dev *dev;
 	struct mt76_dev *mdev;
-	struct mt7915_hif *hif2;
 	int irq;
 	int ret;
 
@@ -133,19 +133,27 @@ static int mt7915_pci_probe(struct pci_dev *pdev,
 		return PTR_ERR(dev);
 
 	mdev = &dev->mt76;
+	mt7915_wfsys_reset(dev);
 	hif2 = mt7915_pci_init_hif2(pdev);
 
-	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_ALL_TYPES);
+	ret = mt7915_mmio_wed_init(dev, pdev, true, &irq);
 	if (ret < 0)
-		goto free_device;
+		goto free_wed_or_irq_vector;
 
-	irq = pdev->irq;
+	if (!ret) {
+		hif2 = mt7915_pci_init_hif2(pdev);
+
+		ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_ALL_TYPES);
+		if (ret < 0)
+			goto free_device;
+
+		irq = pdev->irq;
+	}
+
 	ret = devm_request_irq(mdev->dev, irq, mt7915_irq_handler,
 			       IRQF_SHARED, KBUILD_MODNAME, dev);
 	if (ret)
-		goto free_irq_vector;
-
-	mt76_wr(dev, MT_INT_MASK_CSR, 0);
+		goto free_wed_or_irq_vector;
 
 	/* master switch of PCIe tnterrupt enable */
 	mt76_wr(dev, MT_PCIE_MAC_INT_ENABLE, 0xff);
@@ -180,8 +188,11 @@ free_hif2:
 	if (dev->hif2)
 		put_device(dev->hif2->dev);
 	devm_free_irq(mdev->dev, irq, dev);
-free_irq_vector:
-	pci_free_irq_vectors(pdev);
+free_wed_or_irq_vector:
+	if (mtk_wed_device_active(&mdev->mmio.wed))
+		mtk_wed_device_detach(&mdev->mmio.wed);
+	else
+		pci_free_irq_vectors(pdev);
 free_device:
 	mt76_free_device(&dev->mt76);
 

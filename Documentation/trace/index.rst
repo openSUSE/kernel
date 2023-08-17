@@ -31,3 +31,6 @@ Linux Tracing Technologies
    stm
    sys-t
    coresight/index
+   user_events
+   rv/index
+   hisi-ptt

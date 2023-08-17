@@ -29,12 +29,6 @@
 #undef pr_fmt
 #define pr_fmt(fmt) DRIVER_NAME ": " fmt
 
-/*
- * The size has to be longer than this string, so we can append
- * board/chip information to it in the initialization code.
- */
-const char ib_hfi1_version[] = HFI1_DRIVER_VERSION "\n";
-
 DEFINE_MUTEX(hfi1_mutex);	/* general driver use */
 
 unsigned int hfi1_max_mtu = HFI1_DEFAULT_MAX_MTU;
@@ -118,7 +112,7 @@ static int hfi1_caps_get(char *buffer, const struct kernel_param *kp)
 	cap_mask &= ~HFI1_CAP_LOCKED_SMASK;
 	cap_mask |= ((cap_mask & HFI1_CAP_K2U) << HFI1_CAP_USER_SHIFT);
 
-	return scnprintf(buffer, PAGE_SIZE, "0x%lx", cap_mask);
+	return sysfs_emit(buffer, "0x%lx\n", cap_mask);
 }
 
 struct pci_dev *get_pci_dev(struct rvt_dev_info *rdi)
@@ -1603,7 +1597,7 @@ static int hfi1_setup_bypass_packet(struct hfi1_packet *packet)
 
 	return 0;
 drop:
-	hfi1_cdbg(PKT, "%s: packet dropped\n", __func__);
+	hfi1_cdbg(PKT, "%s: packet dropped", __func__);
 	ibp->rvp.n_pkt_drops++;
 	return -EINVAL;
 }

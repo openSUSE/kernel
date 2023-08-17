@@ -68,7 +68,7 @@ static void set_task_info(struct sock *sk)
 }
 
 SEC("fentry/inet_csk_listen_start")
-int BPF_PROG(trace_inet_csk_listen_start, struct sock *sk, int backlog)
+int BPF_PROG(trace_inet_csk_listen_start, struct sock *sk)
 {
 	set_task_info(sk);
 
@@ -89,6 +89,22 @@ int BPF_PROG(inet_csk_accept, struct sock *sk, int flags, int *err, bool kern,
 {
 	set_task_info(accepted_sk);
 
+	return 0;
+}
+
+SEC("tp_btf/tcp_retransmit_synack")
+int BPF_PROG(tcp_retransmit_synack, struct sock* sk, struct request_sock* req)
+{
+	/* load only test */
+	bpf_sk_storage_get(&sk_stg_map, sk, 0, 0);
+	bpf_sk_storage_get(&sk_stg_map, req->sk, 0, 0);
+	return 0;
+}
+
+SEC("tp_btf/tcp_bad_csum")
+int BPF_PROG(tcp_bad_csum, struct sk_buff* skb)
+{
+	bpf_sk_storage_get(&sk_stg_map, skb->sk, 0, 0);
 	return 0;
 }
 

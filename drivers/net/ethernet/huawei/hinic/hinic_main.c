@@ -62,8 +62,6 @@ MODULE_PARM_DESC(rx_weight, "Number Rx packets for NAPI budget (default=64)");
 
 #define HINIC_LRO_RX_TIMER_DEFAULT	16
 
-#define VLAN_BITMAP_SIZE(nic_dev)       (ALIGN(VLAN_N_VID, 8) / 8)
-
 #define work_to_rx_mode_work(work)      \
 		container_of(work, struct hinic_rx_mode_work, work)
 
@@ -82,56 +80,44 @@ static int set_features(struct hinic_dev *nic_dev,
 			netdev_features_t pre_features,
 			netdev_features_t features, bool force_change);
 
-static void update_rx_stats(struct hinic_dev *nic_dev, struct hinic_rxq *rxq)
+static void gather_rx_stats(struct hinic_rxq_stats *nic_rx_stats, struct hinic_rxq *rxq)
 {
-	struct hinic_rxq_stats *nic_rx_stats = &nic_dev->rx_stats;
 	struct hinic_rxq_stats rx_stats;
-
-	u64_stats_init(&rx_stats.syncp);
 
 	hinic_rxq_get_stats(rxq, &rx_stats);
 
-	u64_stats_update_begin(&nic_rx_stats->syncp);
 	nic_rx_stats->bytes += rx_stats.bytes;
 	nic_rx_stats->pkts  += rx_stats.pkts;
 	nic_rx_stats->errors += rx_stats.errors;
 	nic_rx_stats->csum_errors += rx_stats.csum_errors;
 	nic_rx_stats->other_errors += rx_stats.other_errors;
-	u64_stats_update_end(&nic_rx_stats->syncp);
-
-	hinic_rxq_clean_stats(rxq);
 }
 
-static void update_tx_stats(struct hinic_dev *nic_dev, struct hinic_txq *txq)
+static void gather_tx_stats(struct hinic_txq_stats *nic_tx_stats, struct hinic_txq *txq)
 {
-	struct hinic_txq_stats *nic_tx_stats = &nic_dev->tx_stats;
 	struct hinic_txq_stats tx_stats;
-
-	u64_stats_init(&tx_stats.syncp);
 
 	hinic_txq_get_stats(txq, &tx_stats);
 
-	u64_stats_update_begin(&nic_tx_stats->syncp);
 	nic_tx_stats->bytes += tx_stats.bytes;
 	nic_tx_stats->pkts += tx_stats.pkts;
 	nic_tx_stats->tx_busy += tx_stats.tx_busy;
 	nic_tx_stats->tx_wake += tx_stats.tx_wake;
 	nic_tx_stats->tx_dropped += tx_stats.tx_dropped;
 	nic_tx_stats->big_frags_pkts += tx_stats.big_frags_pkts;
-	u64_stats_update_end(&nic_tx_stats->syncp);
-
-	hinic_txq_clean_stats(txq);
 }
 
-static void update_nic_stats(struct hinic_dev *nic_dev)
+static void gather_nic_stats(struct hinic_dev *nic_dev,
+			     struct hinic_rxq_stats *nic_rx_stats,
+			     struct hinic_txq_stats *nic_tx_stats)
 {
 	int i, num_qps = hinic_hwdev_num_qps(nic_dev->hwdev);
 
 	for (i = 0; i < num_qps; i++)
-		update_rx_stats(nic_dev, &nic_dev->rxqs[i]);
+		gather_rx_stats(nic_rx_stats, &nic_dev->rxqs[i]);
 
 	for (i = 0; i < num_qps; i++)
-		update_tx_stats(nic_dev, &nic_dev->txqs[i]);
+		gather_tx_stats(nic_tx_stats, &nic_dev->txqs[i]);
 }
 
 /**
@@ -560,8 +546,6 @@ int hinic_close(struct net_device *netdev)
 	netif_carrier_off(netdev);
 	netif_tx_disable(netdev);
 
-	update_nic_stats(nic_dev);
-
 	up(&nic_dev->mgmt_lock);
 
 	if (!HINIC_IS_VF(nic_dev->hwdev->hwif))
@@ -855,26 +839,19 @@ static void hinic_get_stats64(struct net_device *netdev,
 			      struct rtnl_link_stats64 *stats)
 {
 	struct hinic_dev *nic_dev = netdev_priv(netdev);
-	struct hinic_rxq_stats *nic_rx_stats;
-	struct hinic_txq_stats *nic_tx_stats;
-
-	nic_rx_stats = &nic_dev->rx_stats;
-	nic_tx_stats = &nic_dev->tx_stats;
-
-	down(&nic_dev->mgmt_lock);
+	struct hinic_rxq_stats nic_rx_stats = {};
+	struct hinic_txq_stats nic_tx_stats = {};
 
 	if (nic_dev->flags & HINIC_INTF_UP)
-		update_nic_stats(nic_dev);
+		gather_nic_stats(nic_dev, &nic_rx_stats, &nic_tx_stats);
 
-	up(&nic_dev->mgmt_lock);
+	stats->rx_bytes   = nic_rx_stats.bytes;
+	stats->rx_packets = nic_rx_stats.pkts;
+	stats->rx_errors  = nic_rx_stats.errors;
 
-	stats->rx_bytes   = nic_rx_stats->bytes;
-	stats->rx_packets = nic_rx_stats->pkts;
-	stats->rx_errors  = nic_rx_stats->errors;
-
-	stats->tx_bytes   = nic_tx_stats->bytes;
-	stats->tx_packets = nic_tx_stats->pkts;
-	stats->tx_errors  = nic_tx_stats->tx_dropped;
+	stats->tx_bytes   = nic_tx_stats.bytes;
+	stats->tx_packets = nic_tx_stats.pkts;
+	stats->tx_errors  = nic_tx_stats.tx_dropped;
 }
 
 static int hinic_set_features(struct net_device *netdev,
@@ -983,8 +960,6 @@ static void hinic_refresh_nic_cfg(struct hinic_dev *nic_dev)
  * @in_size: input size
  * @buf_out: output buffer
  * @out_size: returned output size
- *
- * Return 0 - Success, negative - Failure
  **/
 static void link_status_event_handler(void *handle, void *buf_in, u16 in_size,
 				      void *buf_out, u16 *out_size)
@@ -1117,6 +1092,16 @@ static int set_features(struct hinic_dev *nic_dev,
 		}
 	}
 
+	if (changed & NETIF_F_HW_VLAN_CTAG_FILTER) {
+		ret = hinic_set_vlan_fliter(nic_dev,
+					    !!(features &
+					       NETIF_F_HW_VLAN_CTAG_FILTER));
+		if (ret) {
+			err = ret;
+			failed_features |= NETIF_F_HW_VLAN_CTAG_FILTER;
+		}
+	}
+
 	if (err) {
 		nic_dev->netdev->features = features ^ failed_features;
 		return -EIO;
@@ -1173,8 +1158,6 @@ static void hinic_free_intr_coalesce(struct hinic_dev *nic_dev)
 static int nic_dev_init(struct pci_dev *pdev)
 {
 	struct hinic_rx_mode_work *rx_mode_work;
-	struct hinic_txq_stats *tx_stats;
-	struct hinic_rxq_stats *rx_stats;
 	struct hinic_dev *nic_dev;
 	struct net_device *netdev;
 	struct hinic_hwdev *hwdev;
@@ -1214,7 +1197,8 @@ static int nic_dev_init(struct pci_dev *pdev)
 	else
 		netdev->netdev_ops = &hinicvf_netdev_ops;
 
-	netdev->max_mtu = ETH_MAX_MTU;
+	netdev->max_mtu = HINIC_MAX_MTU_SIZE;
+	netdev->min_mtu = HINIC_MIN_MTU_SIZE;
 
 	nic_dev = netdev_priv(netdev);
 	nic_dev->netdev = netdev;
@@ -1236,15 +1220,8 @@ static int nic_dev_init(struct pci_dev *pdev)
 
 	sema_init(&nic_dev->mgmt_lock, 1);
 
-	tx_stats = &nic_dev->tx_stats;
-	rx_stats = &nic_dev->rx_stats;
-
-	u64_stats_init(&tx_stats->syncp);
-	u64_stats_init(&rx_stats->syncp);
-
-	nic_dev->vlan_bitmap = devm_kzalloc(&pdev->dev,
-					    VLAN_BITMAP_SIZE(nic_dev),
-					    GFP_KERNEL);
+	nic_dev->vlan_bitmap = devm_bitmap_zalloc(&pdev->dev, VLAN_N_VID,
+						  GFP_KERNEL);
 	if (!nic_dev->vlan_bitmap) {
 		err = -ENOMEM;
 		goto err_vlan_bitmap;
@@ -1379,10 +1356,8 @@ static int hinic_probe(struct pci_dev *pdev,
 {
 	int err = pci_enable_device(pdev);
 
-	if (err) {
-		dev_err(&pdev->dev, "Failed to enable PCI device\n");
-		return err;
-	}
+	if (err)
+		return dev_err_probe(&pdev->dev, err, "Failed to enable PCI device\n");
 
 	err = pci_request_regions(pdev, HINIC_DRV_NAME);
 	if (err) {
@@ -1392,26 +1367,10 @@ static int hinic_probe(struct pci_dev *pdev,
 
 	pci_set_master(pdev);
 
-	err = pci_set_dma_mask(pdev, DMA_BIT_MASK(64));
+	err = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
 	if (err) {
-		dev_warn(&pdev->dev, "Couldn't set 64-bit DMA mask\n");
-		err = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
-		if (err) {
-			dev_err(&pdev->dev, "Failed to set DMA mask\n");
-			goto err_dma_mask;
-		}
-	}
-
-	err = pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(64));
-	if (err) {
-		dev_warn(&pdev->dev,
-			 "Couldn't set 64-bit consistent DMA mask\n");
-		err = pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(32));
-		if (err) {
-			dev_err(&pdev->dev,
-				"Failed to set consistent DMA mask\n");
-			goto err_dma_consistent_mask;
-		}
+		dev_err(&pdev->dev, "Failed to set DMA mask\n");
+		goto err_dma_mask;
 	}
 
 	err = nic_dev_init(pdev);
@@ -1424,7 +1383,6 @@ static int hinic_probe(struct pci_dev *pdev,
 	return 0;
 
 err_nic_dev_init:
-err_dma_consistent_mask:
 err_dma_mask:
 	pci_release_regions(pdev);
 
@@ -1432,8 +1390,6 @@ err_pci_regions:
 	pci_disable_device(pdev);
 	return err;
 }
-
-#define HINIC_WAIT_SRIOV_CFG_TIMEOUT	15000
 
 static void wait_sriov_cfg_complete(struct hinic_dev *nic_dev)
 {
@@ -1529,8 +1485,15 @@ static struct pci_driver hinic_driver = {
 
 static int __init hinic_module_init(void)
 {
+	int ret;
+
 	hinic_dbg_register_debugfs(HINIC_DRV_NAME);
-	return pci_register_driver(&hinic_driver);
+
+	ret = pci_register_driver(&hinic_driver);
+	if (ret)
+		hinic_dbg_unregister_debugfs();
+
+	return ret;
 }
 
 static void __exit hinic_module_exit(void)

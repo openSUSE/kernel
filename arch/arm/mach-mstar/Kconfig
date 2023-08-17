@@ -1,6 +1,7 @@
 menuconfig ARCH_MSTARV7
 	bool "MStar/Sigmastar Armv7 SoC Support"
 	depends on ARCH_MULTI_V7
+	select ARM_ERRATA_814220
 	select ARM_GIC
 	select ARM_HEAVY_MB
 	select HAVE_ARM_ARCH_TIMER
@@ -18,12 +19,5 @@ config MACH_INFINITY
 	default ARCH_MSTARV7
 	help
 	  Support for MStar/Sigmastar infinity IP camera SoCs.
-
-config MACH_MERCURY
-	bool "MStar/Sigmastar mercury SoC support"
-	default ARCH_MSTARV7
-	help
-	  Support for MStar/Sigmastar mercury dash camera SoCs.
-	  Note that older Mercury2 SoCs are ARM9 based and not supported.
 
 endif

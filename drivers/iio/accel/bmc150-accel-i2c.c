@@ -171,11 +171,12 @@ static void bmc150_acpi_dual_accel_probe(struct i2c_client *client) {}
 static void bmc150_acpi_dual_accel_remove(struct i2c_client *client) {}
 #endif
 
-static int bmc150_accel_probe(struct i2c_client *client,
-			      const struct i2c_device_id *id)
+static int bmc150_accel_probe(struct i2c_client *client)
 {
+	const struct i2c_device_id *id = i2c_client_get_device_id(client);
 	struct regmap *regmap;
 	const char *name = NULL;
+	enum bmc150_type type = BOSCH_UNKNOWN;
 	bool block_supported =
 		i2c_check_functionality(client->adapter, I2C_FUNC_I2C) ||
 		i2c_check_functionality(client->adapter,
@@ -188,10 +189,13 @@ static int bmc150_accel_probe(struct i2c_client *client,
 		return PTR_ERR(regmap);
 	}
 
-	if (id)
+	if (id) {
 		name = id->name;
+		type = id->driver_data;
+	}
 
-	ret = bmc150_accel_core_probe(&client->dev, regmap, client->irq, name, block_supported);
+	ret = bmc150_accel_core_probe(&client->dev, regmap, client->irq,
+				      type, name, block_supported);
 	if (ret)
 		return ret;
 
@@ -205,11 +209,11 @@ static int bmc150_accel_probe(struct i2c_client *client,
 	return 0;
 }
 
-static int bmc150_accel_remove(struct i2c_client *client)
+static void bmc150_accel_remove(struct i2c_client *client)
 {
 	bmc150_acpi_dual_accel_remove(client);
 
-	return bmc150_accel_core_remove(&client->dev);
+	bmc150_accel_core_remove(&client->dev);
 }
 
 static const struct acpi_device_id bmc150_accel_acpi_match[] = {
@@ -236,6 +240,7 @@ static const struct i2c_device_id bmc150_accel_id[] = {
 	{"bma255"},
 	{"bma280"},
 	{"bmc150_accel"},
+	{"bmc156_accel", BOSCH_BMC156},
 	{"bmi055_accel"},
 	{}
 };
@@ -251,6 +256,7 @@ static const struct of_device_id bmc150_accel_of_match[] = {
 	{ .compatible = "bosch,bma255" },
 	{ .compatible = "bosch,bma280" },
 	{ .compatible = "bosch,bmc150_accel" },
+	{ .compatible = "bosch,bmc156_accel" },
 	{ .compatible = "bosch,bmi055_accel" },
 	{ },
 };
@@ -263,7 +269,7 @@ static struct i2c_driver bmc150_accel_driver = {
 		.acpi_match_table = ACPI_PTR(bmc150_accel_acpi_match),
 		.pm	= &bmc150_accel_pm_ops,
 	},
-	.probe		= bmc150_accel_probe,
+	.probe_new	= bmc150_accel_probe,
 	.remove		= bmc150_accel_remove,
 	.id_table	= bmc150_accel_id,
 };
@@ -272,3 +278,4 @@ module_i2c_driver(bmc150_accel_driver);
 MODULE_AUTHOR("Srinivas Pandruvada <srinivas.pandruvada@linux.intel.com>");
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("BMC150 I2C accelerometer driver");
+MODULE_IMPORT_NS(IIO_BMC150);

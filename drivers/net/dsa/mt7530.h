@@ -8,7 +8,6 @@
 
 #define MT7530_NUM_PORTS		7
 #define MT7530_NUM_PHYS			5
-#define MT7530_CPU_PORT			6
 #define MT7530_NUM_FDB_RECORDS		2048
 #define MT7530_ALL_MEMBERS		0xff
 
@@ -19,6 +18,7 @@ enum mt753x_id {
 	ID_MT7530 = 0,
 	ID_MT7621 = 1,
 	ID_MT7531 = 2,
+	ID_MT7988 = 3,
 };
 
 #define	NUM_TRGMII_CTRL			5
@@ -54,17 +54,23 @@ enum mt753x_id {
 #define  MT7531_MIRROR_PORT_GET(x)	(((x) >> 16) & MIRROR_MASK)
 #define  MT7531_MIRROR_PORT_SET(x)	(((x) & MIRROR_MASK) << 16)
 #define  MT7531_CPU_PMAP_MASK		GENMASK(7, 0)
+#define  MT7531_CPU_PMAP(x)		FIELD_PREP(MT7531_CPU_PMAP_MASK, x)
 
-#define MT753X_MIRROR_REG(id)		(((id) == ID_MT7531) ? \
+#define MT753X_MIRROR_REG(id)		((((id) == ID_MT7531) || ((id) == ID_MT7988)) ?	\
 					 MT7531_CFC : MT7530_MFC)
-#define MT753X_MIRROR_EN(id)		(((id) == ID_MT7531) ? \
+#define MT753X_MIRROR_EN(id)		((((id) == ID_MT7531) || ((id) == ID_MT7988)) ?	\
 					 MT7531_MIRROR_EN : MIRROR_EN)
-#define MT753X_MIRROR_MASK(id)		(((id) == ID_MT7531) ? \
+#define MT753X_MIRROR_MASK(id)		((((id) == ID_MT7531) || ((id) == ID_MT7988)) ?	\
 					 MT7531_MIRROR_MASK : MIRROR_MASK)
 
 /* Registers for BPDU and PAE frame control*/
 #define MT753X_BPC			0x24
 #define  MT753X_BPDU_PORT_FW_MASK	GENMASK(2, 0)
+
+/* Register for :03 and :0E MAC DA frame control */
+#define MT753X_RGAC2			0x2c
+#define  MT753X_R0E_PORT_FW_MASK	GENMASK(18, 16)
+#define  MT753X_R0E_PORT_FW(x)		FIELD_PREP(MT753X_R0E_PORT_FW_MASK, x)
 
 enum mt753x_bpdu_port_fw {
 	MT753X_BPDU_FOLLOW_MFC,
@@ -80,6 +86,7 @@ enum mt753x_bpdu_port_fw {
 #define  STATIC_ENT			3
 #define MT7530_ATA2			0x78
 #define  ATA2_IVL			BIT(15)
+#define  ATA2_FID(x)			(((x) & 0x7) << 12)
 
 /* Register for address table write data */
 #define MT7530_ATWD			0x7c
@@ -144,14 +151,23 @@ enum mt7530_vlan_cmd {
 #define  PORT_STAG			BIT(31)
 /* Independent VLAN Learning */
 #define  IVL_MAC			BIT(30)
+/* Egress Tag Consistent */
+#define  EG_CON				BIT(29)
 /* Per VLAN Egress Tag Control */
 #define  VTAG_EN			BIT(28)
 /* VLAN Member Control */
 #define  PORT_MEM(x)			(((x) & 0xff) << 16)
+/* Filter ID */
+#define  FID(x)				(((x) & 0x7) << 1)
 /* VLAN Entry Valid */
 #define  VLAN_VALID			BIT(0)
 #define  PORT_MEM_SHFT			16
 #define  PORT_MEM_MASK			0xff
+
+enum mt7530_fid {
+	FID_STANDALONE = 0,
+	FID_BRIDGED = 1,
+};
 
 #define MT7530_VAWD2			0x98
 /* Egress Tag Control */
@@ -179,8 +195,8 @@ enum mt7530_vlan_egress_attr {
 
 /* Register for port STP state control */
 #define MT7530_SSP_P(x)			(0x2000 + ((x) * 0x100))
-#define  FID_PST(x)			((x) & 0x3)
-#define  FID_PST_MASK			FID_PST(0x3)
+#define  FID_PST(fid, state)		(((state) & 0x3) << ((fid) * 2))
+#define  FID_PST_MASK(fid)		FID_PST(fid, 0x3)
 
 enum mt7530_stp_state {
 	MT7530_STP_DISABLED = 0,
@@ -230,6 +246,7 @@ enum mt7530_port_mode {
 #define  PVC_EG_TAG_MASK		PVC_EG_TAG(7)
 #define  VLAN_ATTR(x)			(((x) & 0x3) << 6)
 #define  VLAN_ATTR_MASK			VLAN_ATTR(3)
+#define  ACC_FRM_MASK			GENMASK(1, 0)
 
 enum mt7530_vlan_port_eg_tag {
 	MT7530_VLAN_EG_DISABLED = 0,
@@ -241,13 +258,19 @@ enum mt7530_vlan_port_attr {
 	MT7530_VLAN_TRANSPARENT = 3,
 };
 
+enum mt7530_vlan_port_acc_frm {
+	MT7530_VLAN_ACC_ALL = 0,
+	MT7530_VLAN_ACC_TAGGED = 1,
+	MT7530_VLAN_ACC_UNTAGGED = 2,
+};
+
 #define  STAG_VPID			(((x) & 0xffff) << 16)
 
 /* Register for port port-and-protocol based vlan 1 control */
 #define MT7530_PPBV1_P(x)		(0x2014 + ((x) * 0x100))
 #define  G0_PORT_VID(x)			(((x) & 0xfff) << 0)
 #define  G0_PORT_VID_MASK		G0_PORT_VID(0xfff)
-#define  G0_PORT_VID_DEF		G0_PORT_VID(1)
+#define  G0_PORT_VID_DEF		G0_PORT_VID(0)
 
 /* Register for port MAC control register */
 #define MT7530_PMCR_P(x)		(0x3000 + ((x) * 0x100))
@@ -279,9 +302,8 @@ enum mt7530_vlan_port_attr {
 					 MT7531_FORCE_DPX | \
 					 MT7531_FORCE_RX_FC | \
 					 MT7531_FORCE_TX_FC)
-#define  PMCR_FORCE_MODE_ID(id)		(((id) == ID_MT7531) ? \
-					 MT7531_FORCE_MODE : \
-					 PMCR_FORCE_MODE)
+#define  PMCR_FORCE_MODE_ID(id)		((((id) == ID_MT7531) || ((id) == ID_MT7988)) ?	\
+					 MT7531_FORCE_MODE : PMCR_FORCE_MODE)
 #define  PMCR_LINK_SETTINGS_MASK	(PMCR_TX_EN | PMCR_FORCE_SPEED_1000 | \
 					 PMCR_RX_EN | PMCR_FORCE_SPEED_100 | \
 					 PMCR_TX_FC_EN | PMCR_RX_FC_EN | \
@@ -348,46 +370,8 @@ enum mt7530_vlan_port_attr {
 					 CCR_TX_OCT_CNT_BAD)
 
 /* MT7531 SGMII register group */
-#define MT7531_SGMII_REG_BASE		0x5000
-#define MT7531_SGMII_REG(p, r)		(MT7531_SGMII_REG_BASE + \
-					((p) - 5) * 0x1000 + (r))
-
-/* Register forSGMII PCS_CONTROL_1 */
-#define MT7531_PCS_CONTROL_1(p)		MT7531_SGMII_REG(p, 0x00)
-#define  MT7531_SGMII_LINK_STATUS	BIT(18)
-#define  MT7531_SGMII_AN_ENABLE		BIT(12)
-#define  MT7531_SGMII_AN_RESTART	BIT(9)
-
-/* Register for SGMII PCS_SPPED_ABILITY */
-#define MT7531_PCS_SPEED_ABILITY(p)	MT7531_SGMII_REG(p, 0x08)
-#define  MT7531_SGMII_TX_CONFIG_MASK	GENMASK(15, 0)
-#define  MT7531_SGMII_TX_CONFIG		BIT(0)
-
-/* Register for SGMII_MODE */
-#define MT7531_SGMII_MODE(p)		MT7531_SGMII_REG(p, 0x20)
-#define  MT7531_SGMII_REMOTE_FAULT_DIS	BIT(8)
-#define  MT7531_SGMII_IF_MODE_MASK	GENMASK(5, 1)
-#define  MT7531_SGMII_FORCE_DUPLEX	BIT(4)
-#define  MT7531_SGMII_FORCE_SPEED_MASK	GENMASK(3, 2)
-#define  MT7531_SGMII_FORCE_SPEED_1000	BIT(3)
-#define  MT7531_SGMII_FORCE_SPEED_100	BIT(2)
-#define  MT7531_SGMII_FORCE_SPEED_10	0
-#define  MT7531_SGMII_SPEED_DUPLEX_AN	BIT(1)
-
-enum mt7531_sgmii_force_duplex {
-	MT7531_SGMII_FORCE_FULL_DUPLEX = 0,
-	MT7531_SGMII_FORCE_HALF_DUPLEX = 0x10,
-};
-
-/* Fields of QPHY_PWR_STATE_CTRL */
-#define MT7531_QPHY_PWR_STATE_CTRL(p)	MT7531_SGMII_REG(p, 0xe8)
-#define  MT7531_SGMII_PHYA_PWD		BIT(4)
-
-/* Values of SGMII SPEED */
-#define MT7531_PHYA_CTRL_SIGNAL3(p)	MT7531_SGMII_REG(p, 0x128)
-#define  MT7531_RG_TPHY_SPEED_MASK	(BIT(2) | BIT(3))
-#define  MT7531_RG_TPHY_SPEED_1_25G	0x0
-#define  MT7531_RG_TPHY_SPEED_3_125G	BIT(2)
+#define MT7531_SGMII_REG_BASE(p)	(0x5000 + ((p) - 5) * 0x1000)
+#define MT7531_PHYA_CTRL_SIGNAL3	0x128
 
 /* Register for system reset */
 #define MT7530_SYS_CTRL			0x7000
@@ -686,13 +670,13 @@ struct mt7530_fdb {
  * @pm:		The matrix used to show all connections with the port.
  * @pvid:	The VLAN specified is to be considered a PVID at ingress.  Any
  *		untagged frames will be assigned to the related VLAN.
- * @vlan_filtering: The flags indicating whether the port that can recognize
- *		    VLAN-tagged frames.
+ * @sgmii_pcs:	Pointer to PCS instance for SerDes ports
  */
 struct mt7530_port {
 	bool enable;
 	u32 pm;
 	u16 pvid;
+	struct phylink_pcs *sgmii_pcs;
 };
 
 /* Port 5 interface select definitions */
@@ -704,67 +688,53 @@ enum p5_interface_select {
 	P5_INTF_SEL_GMAC5_SGMII,
 };
 
-static const char *p5_intf_modes(unsigned int p5_interface)
-{
-	switch (p5_interface) {
-	case P5_DISABLED:
-		return "DISABLED";
-	case P5_INTF_SEL_PHY_P0:
-		return "PHY P0";
-	case P5_INTF_SEL_PHY_P4:
-		return "PHY P4";
-	case P5_INTF_SEL_GMAC5:
-		return "GMAC5";
-	case P5_INTF_SEL_GMAC5_SGMII:
-		return "GMAC5_SGMII";
-	default:
-		return "unknown";
-	}
-}
-
 struct mt7530_priv;
+
+struct mt753x_pcs {
+	struct phylink_pcs pcs;
+	struct mt7530_priv *priv;
+	int port;
+};
 
 /* struct mt753x_info -	This is the main data structure for holding the specific
  *			part for each supported device
  * @sw_setup:		Holding the handler to a device initialization
- * @phy_read:		Holding the way reading PHY port
- * @phy_write:		Holding the way writing PHY port
+ * @phy_read_c22:	Holding the way reading PHY port using C22
+ * @phy_write_c22:	Holding the way writing PHY port using C22
+ * @phy_read_c45:	Holding the way reading PHY port using C45
+ * @phy_write_c45:	Holding the way writing PHY port using C45
  * @pad_setup:		Holding the way setting up the bus pad for a certain
  *			MAC port
  * @phy_mode_supported:	Check if the PHY type is being supported on a certain
  *			port
  * @mac_port_validate:	Holding the way to set addition validate type for a
  *			certan MAC port
- * @mac_port_get_state: Holding the way getting the MAC/PCS state for a certain
- *			MAC port
  * @mac_port_config:	Holding the way setting up the PHY attribute to a
  *			certain MAC port
- * @mac_pcs_an_restart	Holding the way restarting PCS autonegotiation for a
- *			certain MAC port
- * @mac_pcs_link_up:	Holding the way setting up the PHY attribute to the pcs
- *			of the certain MAC port
  */
 struct mt753x_info {
 	enum mt753x_id id;
 
+	const struct phylink_pcs_ops *pcs_ops;
+
 	int (*sw_setup)(struct dsa_switch *ds);
-	int (*phy_read)(struct mt7530_priv *priv, int port, int regnum);
-	int (*phy_write)(struct mt7530_priv *priv, int port, int regnum, u16 val);
+	int (*phy_read_c22)(struct mt7530_priv *priv, int port, int regnum);
+	int (*phy_write_c22)(struct mt7530_priv *priv, int port, int regnum,
+			     u16 val);
+	int (*phy_read_c45)(struct mt7530_priv *priv, int port, int devad,
+			    int regnum);
+	int (*phy_write_c45)(struct mt7530_priv *priv, int port, int devad,
+			     int regnum, u16 val);
 	int (*pad_setup)(struct dsa_switch *ds, phy_interface_t interface);
 	int (*cpu_port_config)(struct dsa_switch *ds, int port);
-	bool (*phy_mode_supported)(struct dsa_switch *ds, int port,
-				   const struct phylink_link_state *state);
+	void (*mac_port_get_caps)(struct dsa_switch *ds, int port,
+				  struct phylink_config *config);
 	void (*mac_port_validate)(struct dsa_switch *ds, int port,
+				  phy_interface_t interface,
 				  unsigned long *supported);
-	int (*mac_port_get_state)(struct dsa_switch *ds, int port,
-				  struct phylink_link_state *state);
 	int (*mac_port_config)(struct dsa_switch *ds, int port,
 			       unsigned int mode,
 			       phy_interface_t interface);
-	void (*mac_pcs_an_restart)(struct dsa_switch *ds, int port);
-	void (*mac_pcs_link_up)(struct dsa_switch *ds, int port,
-				unsigned int mode, phy_interface_t interface,
-				int speed, int duplex);
 };
 
 /* struct mt7530_priv -	This is the main data structure for holding the state
@@ -772,6 +742,7 @@ struct mt753x_info {
  * @dev:		The device pointer
  * @ds:			The pointer to the dsa core structure
  * @bus:		The bus used for the device and built-in PHY
+ * @regmap:		The regmap instance representing all switch registers
  * @rstc:		The pointer to reset control used by MCM
  * @core_pwr:		The power supplied into the core
  * @io_pwr:		The power supplied into the I/O
@@ -783,15 +754,16 @@ struct mt753x_info {
  *			registers
  * @p6_interface	Holding the current port 6 interface
  * @p5_intf_sel:	Holding the current port 5 interface select
- *
  * @irq:		IRQ number of the switch
  * @irq_domain:		IRQ domain of the switch irq_chip
  * @irq_enable:		IRQ enable bits, synced to SYS_INT_EN
+ * @create_sgmii:	Pointer to function creating SGMII PCS instance(s)
  */
 struct mt7530_priv {
 	struct device		*dev;
 	struct dsa_switch	*ds;
 	struct mii_bus		*bus;
+	struct regmap		*regmap;
 	struct reset_control	*rstc;
 	struct regulator	*core_pwr;
 	struct regulator	*io_pwr;
@@ -804,13 +776,14 @@ struct mt7530_priv {
 	unsigned int		p5_intf_sel;
 	u8			mirror_rx;
 	u8			mirror_tx;
-
 	struct mt7530_port	ports[MT7530_NUM_PORTS];
+	struct mt753x_pcs	pcs[MT7530_NUM_PORTS];
 	/* protect among processes for registers access*/
 	struct mutex reg_mutex;
 	int irq;
 	struct irq_domain *irq_domain;
 	u32 irq_enable;
+	int (*create_sgmii)(struct mt7530_priv *priv, bool dual_sgmii);
 };
 
 struct mt7530_hw_vlan_entry {
@@ -846,5 +819,11 @@ static inline void INIT_MT7530_DUMMY_POLL(struct mt7530_dummy_poll *p,
 	p->priv = priv;
 	p->reg = reg;
 }
+
+int mt7530_probe_common(struct mt7530_priv *priv);
+void mt7530_remove_common(struct mt7530_priv *priv);
+
+extern const struct dsa_switch_ops mt7530_switch_ops;
+extern const struct mt753x_info mt753x_table[];
 
 #endif /* __MT7530_H */

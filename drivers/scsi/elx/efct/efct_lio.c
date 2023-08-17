@@ -285,11 +285,6 @@ efct_lio_npiv_check_prod_write_protect(struct se_portal_group *se_tpg)
 	return tpg->tpg_attrib.prod_mode_write_protect;
 }
 
-static u32 efct_lio_tpg_get_inst_index(struct se_portal_group *se_tpg)
-{
-	return 1;
-}
-
 static int efct_lio_check_stop_free(struct se_cmd *se_cmd)
 {
 	struct efct_scsi_tgt_io *ocp =
@@ -355,23 +350,11 @@ static void efct_lio_close_session(struct se_session *se_sess)
 	efc_node_post_shutdown(node, NULL);
 }
 
-static u32 efct_lio_sess_get_index(struct se_session *se_sess)
-{
-	return 0;
-}
-
-static void efct_lio_set_default_node_attrs(struct se_node_acl *nacl)
-{
-}
-
 static int efct_lio_get_cmd_state(struct se_cmd *cmd)
 {
 	struct efct_scsi_tgt_io *ocp =
 		container_of(cmd, struct efct_scsi_tgt_io, cmd);
 	struct efct_io *io = container_of(ocp, struct efct_io, tgt_io);
-
-	if (!io)
-		return 0;
 
 	return io->tgt_io.state;
 }
@@ -382,7 +365,7 @@ efct_lio_sg_map(struct efct_io *io)
 	struct efct_scsi_tgt_io *ocp = &io->tgt_io;
 	struct se_cmd *cmd = &ocp->cmd;
 
-	ocp->seg_map_cnt = pci_map_sg(io->efct->pci, cmd->t_data_sg,
+	ocp->seg_map_cnt = dma_map_sg(&io->efct->pci->dev, cmd->t_data_sg,
 				      cmd->t_data_nents, cmd->data_direction);
 	if (ocp->seg_map_cnt == 0)
 		return -EFAULT;
@@ -398,7 +381,7 @@ efct_lio_sg_unmap(struct efct_io *io)
 	if (WARN_ON(!ocp->seg_map_cnt || !cmd->t_data_sg))
 		return;
 
-	pci_unmap_sg(io->efct->pci, cmd->t_data_sg,
+	dma_unmap_sg(&io->efct->pci->dev, cmd->t_data_sg,
 		     ocp->seg_map_cnt, cmd->data_direction);
 	ocp->seg_map_cnt = 0;
 }
@@ -1610,14 +1593,11 @@ static const struct target_core_fabric_ops efct_lio_ops = {
 	.tpg_check_demo_mode_cache      = efct_lio_check_demo_mode_cache,
 	.tpg_check_demo_mode_write_protect = efct_lio_check_demo_write_protect,
 	.tpg_check_prod_mode_write_protect = efct_lio_check_prod_write_protect,
-	.tpg_get_inst_index		= efct_lio_tpg_get_inst_index,
 	.check_stop_free		= efct_lio_check_stop_free,
 	.aborted_task			= efct_lio_aborted_task,
 	.release_cmd			= efct_lio_release_cmd,
 	.close_session			= efct_lio_close_session,
-	.sess_get_index			= efct_lio_sess_get_index,
 	.write_pending			= efct_lio_write_pending,
-	.set_default_node_attributes	= efct_lio_set_default_node_attrs,
 	.get_cmd_state			= efct_lio_get_cmd_state,
 	.queue_data_in			= efct_lio_queue_data_in,
 	.queue_status			= efct_lio_queue_status,
@@ -1647,14 +1627,11 @@ static const struct target_core_fabric_ops efct_lio_npiv_ops = {
 					efct_lio_npiv_check_demo_write_protect,
 	.tpg_check_prod_mode_write_protect =
 					efct_lio_npiv_check_prod_write_protect,
-	.tpg_get_inst_index		= efct_lio_tpg_get_inst_index,
 	.check_stop_free		= efct_lio_check_stop_free,
 	.aborted_task			= efct_lio_aborted_task,
 	.release_cmd			= efct_lio_release_cmd,
 	.close_session			= efct_lio_close_session,
-	.sess_get_index			= efct_lio_sess_get_index,
 	.write_pending			= efct_lio_write_pending,
-	.set_default_node_attributes	= efct_lio_set_default_node_attrs,
 	.get_cmd_state			= efct_lio_get_cmd_state,
 	.queue_data_in			= efct_lio_queue_data_in,
 	.queue_status			= efct_lio_queue_status,

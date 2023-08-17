@@ -50,6 +50,7 @@
 #include "stm32f429-pinctrl.dtsi"
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/media/video-interfaces.h>
 
 / {
 	model = "STMicroelectronics STM32429i-EVAL board";
@@ -60,7 +61,7 @@
 		stdout-path = "serial0:115200n8";
 	};
 
-	memory@00000000 {
+	memory@0 {
 		device_type = "memory";
 		reg = <0x00000000 0x2000000>;
 	};
@@ -186,7 +187,7 @@
 	port {
 		dcmi_0: endpoint {
 			remote-endpoint = <&ov2640_0>;
-			bus-type = <5>;
+			bus-type = <MEDIA_BUS_TYPE_PARALLEL>;
 			bus-width = <8>;
 			hsync-active = <0>;
 			vsync-active = <0>;
@@ -251,10 +252,10 @@
 
 &mac {
 	status = "okay";
-	pinctrl-0	= <&ethernet_mii>;
-	pinctrl-names	= "default";
-	phy-mode	= "mii";
-	phy-handle	= <&phy1>;
+	pinctrl-0 = <&ethernet_mii>;
+	pinctrl-names = "default";
+	phy-mode = "mii";
+	phy-handle = <&phy1>;
 	mdio0 {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -306,6 +307,18 @@
 	timer@2 {
 		status = "okay";
 	};
+};
+
+&timers5 {
+	/* Override timer5 to act as clockevent */
+	compatible = "st,stm32-timer";
+	interrupts = <50>;
+	status = "okay";
+	/delete-property/#address-cells;
+	/delete-property/#size-cells;
+	/delete-property/clock-names;
+	/delete-node/pwm;
+	/delete-node/timer@4;
 };
 
 &usart1 {

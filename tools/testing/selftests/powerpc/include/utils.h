@@ -31,10 +31,29 @@ int read_auxv(char *buf, ssize_t buf_size);
 void *find_auxv_entry(int type, char *auxv);
 void *get_auxv_entry(int type);
 
-int pick_online_cpu(void);
+#define BIND_CPU_ANY	(-1)
 
-int read_debugfs_file(char *debugfs_file, int *result);
-int write_debugfs_file(char *debugfs_file, int result);
+int pick_online_cpu(void);
+int bind_to_cpu(int cpu);
+
+int parse_intmax(const char *buffer, size_t count, intmax_t *result, int base);
+int parse_uintmax(const char *buffer, size_t count, uintmax_t *result, int base);
+int parse_int(const char *buffer, size_t count, int *result, int base);
+int parse_uint(const char *buffer, size_t count, unsigned int *result, int base);
+int parse_long(const char *buffer, size_t count, long *result, int base);
+int parse_ulong(const char *buffer, size_t count, unsigned long *result, int base);
+
+int read_file(const char *path, char *buf, size_t count, size_t *len);
+int write_file(const char *path, const char *buf, size_t count);
+int read_file_alloc(const char *path, char **buf, size_t *len);
+int read_long(const char *path, long *result, int base);
+int write_long(const char *path, long result, int base);
+int read_ulong(const char *path, unsigned long *result, int base);
+int write_ulong(const char *path, unsigned long result, int base);
+int read_debugfs_file(const char *debugfs_file, char *buf, size_t count);
+int write_debugfs_file(const char *debugfs_file, const char *buf, size_t count);
+int read_debugfs_int(const char *debugfs_file, int *result);
+int write_debugfs_int(const char *debugfs_file, int result);
 int read_sysfs_file(char *debugfs_file, char *result, size_t result_size);
 int perf_event_open_counter(unsigned int type,
 			    unsigned long config, int group_fd);
@@ -73,6 +92,16 @@ static inline bool have_hwcap2(unsigned long ftr2)
 	return false;
 }
 #endif
+
+static inline char *auxv_base_platform(void)
+{
+	return ((char *)get_auxv_entry(AT_BASE_PLATFORM));
+}
+
+static inline char *auxv_platform(void)
+{
+	return ((char *)get_auxv_entry(AT_PLATFORM));
+}
 
 bool is_ppc64le(void);
 int using_hash_mmu(bool *using_hash);
@@ -133,6 +162,11 @@ do {								\
 /* POWER10 feature */
 #ifndef PPC_FEATURE2_ARCH_3_1
 #define PPC_FEATURE2_ARCH_3_1 0x00040000
+#endif
+
+/* POWER10 features */
+#ifndef PPC_FEATURE2_MMA
+#define PPC_FEATURE2_MMA 0x00020000
 #endif
 
 #if defined(__powerpc64__)

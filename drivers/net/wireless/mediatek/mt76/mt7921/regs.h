@@ -80,6 +80,14 @@
 #define MT_DMA_DCR0_MAX_RX_LEN		GENMASK(15, 3)
 #define MT_DMA_DCR0_RXD_G5_EN		BIT(23)
 
+/* WTBLOFF TOP: band 0(0x820e9000),band 1(0x820f9000) */
+#define MT_WTBLOFF_TOP_BASE(_band)	((_band) ? 0x820f9000 : 0x820e9000)
+#define MT_WTBLOFF_TOP(_band, ofs)	(MT_WTBLOFF_TOP_BASE(_band) + (ofs))
+
+#define MT_WTBLOFF_TOP_RSCR(_band)	MT_WTBLOFF_TOP(_band, 0x008)
+#define MT_WTBLOFF_TOP_RSCR_RCPI_MODE	GENMASK(31, 30)
+#define MT_WTBLOFF_TOP_RSCR_RCPI_PARAM	GENMASK(25, 24)
+
 /* LPON: band 0(0x24200), band 1(0xa4200) */
 #define MT_WF_LPON_BASE(_band)		((_band) ? 0x820fb000 : 0x820eb000)
 #define MT_WF_LPON(_band, ofs)		(MT_WF_LPON_BASE(_band) + (ofs))
@@ -517,5 +525,10 @@
 #define MT_CONN_ON_MISC			0x7c0600f0
 #define MT_TOP_MISC2_FW_PWR_ON		BIT(0)
 #define MT_TOP_MISC2_FW_N9_RDY		GENMASK(1, 0)
+
+#define MT_WF_SW_DEF_CR(ofs)		(0x401a00 + (ofs))
+#define MT_WF_SW_DEF_CR_USB_MCU_EVENT	MT_WF_SW_DEF_CR(0x028)
+#define MT_WF_SW_SER_TRIGGER_SUSPEND	BIT(6)
+#define MT_WF_SW_SER_DONE_SUSPEND	BIT(7)
 
 #endif

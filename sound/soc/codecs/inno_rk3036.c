@@ -200,12 +200,12 @@ static int rk3036_codec_dai_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 
 	dev_dbg(component->dev, "rk3036_codec dai set fmt : %08x\n", fmt);
 
-	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
-	case SND_SOC_DAIFMT_CBS_CFS:
+	switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
+	case SND_SOC_DAIFMT_CBC_CFC:
 		reg01_val |= INNO_R01_PINDIR_IN_SLAVE |
 			     INNO_R01_I2SMODE_SLAVE;
 		break;
-	case SND_SOC_DAIFMT_CBM_CFM:
+	case SND_SOC_DAIFMT_CBP_CFP:
 		reg01_val |= INNO_R01_PINDIR_OUT_MASTER |
 			     INNO_R01_I2SMODE_MASTER;
 		break;
@@ -387,7 +387,6 @@ static const struct snd_soc_component_driver rk3036_codec_driver = {
 	.idle_bias_on		= 1,
 	.use_pmdown_time	= 1,
 	.endianness		= 1,
-	.non_legacy_dai_naming	= 1,
 };
 
 static const struct regmap_config rk3036_codec_regmap_config = {
@@ -458,13 +457,11 @@ static int rk3036_codec_platform_probe(struct platform_device *pdev)
 	return ret;
 }
 
-static int rk3036_codec_platform_remove(struct platform_device *pdev)
+static void rk3036_codec_platform_remove(struct platform_device *pdev)
 {
 	struct rk3036_codec_priv *priv = dev_get_drvdata(&pdev->dev);
 
 	clk_disable_unprepare(priv->pclk);
-
-	return 0;
 }
 
 static const struct of_device_id rk3036_codec_of_match[] __maybe_unused = {
@@ -479,7 +476,7 @@ static struct platform_driver rk3036_codec_platform_driver = {
 		.of_match_table = of_match_ptr(rk3036_codec_of_match),
 	},
 	.probe = rk3036_codec_platform_probe,
-	.remove = rk3036_codec_platform_remove,
+	.remove_new = rk3036_codec_platform_remove,
 };
 
 module_platform_driver(rk3036_codec_platform_driver);

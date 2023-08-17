@@ -8,13 +8,134 @@
 #include <linux/string.h>
 #include <linux/slab.h>
 
+static volatile int fortify_scratch_space;
+
+static void lkdtm_FORTIFY_STR_OBJECT(void)
+{
+	struct target {
+		char a[10];
+		int foo;
+	} target[3] = {};
+	/*
+	 * Using volatile prevents the compiler from determining the value of
+	 * 'size' at compile time. Without that, we would get a compile error
+	 * rather than a runtime error.
+	 */
+	volatile int size = 20;
+
+	pr_info("trying to strcmp() past the end of a struct\n");
+
+	strncpy(target[0].a, target[1].a, size);
+
+	/* Store result to global to prevent the code from being eliminated */
+	fortify_scratch_space = target[0].a[3];
+
+	pr_err("FAIL: fortify did not block a strncpy() object write overflow!\n");
+	pr_expected_config(CONFIG_FORTIFY_SOURCE);
+}
+
+static void lkdtm_FORTIFY_STR_MEMBER(void)
+{
+	struct target {
+		char a[10];
+		char b[10];
+	} target;
+	volatile int size = 20;
+	char *src;
+
+	src = kmalloc(size, GFP_KERNEL);
+	strscpy(src, "over ten bytes", size);
+	size = strlen(src) + 1;
+
+	pr_info("trying to strncpy() past the end of a struct member...\n");
+
+	/*
+	 * strncpy(target.a, src, 20); will hit a compile error because the
+	 * compiler knows at build time that target.a < 20 bytes. Use a
+	 * volatile to force a runtime error.
+	 */
+	strncpy(target.a, src, size);
+
+	/* Store result to global to prevent the code from being eliminated */
+	fortify_scratch_space = target.a[3];
+
+	pr_err("FAIL: fortify did not block a strncpy() struct member write overflow!\n");
+	pr_expected_config(CONFIG_FORTIFY_SOURCE);
+
+	kfree(src);
+}
+
+static void lkdtm_FORTIFY_MEM_OBJECT(void)
+{
+	int before[10];
+	struct target {
+		char a[10];
+		int foo;
+	} target = {};
+	int after[10];
+	/*
+	 * Using volatile prevents the compiler from determining the value of
+	 * 'size' at compile time. Without that, we would get a compile error
+	 * rather than a runtime error.
+	 */
+	volatile int size = 20;
+
+	memset(before, 0, sizeof(before));
+	memset(after, 0, sizeof(after));
+	fortify_scratch_space = before[5];
+	fortify_scratch_space = after[5];
+
+	pr_info("trying to memcpy() past the end of a struct\n");
+
+	pr_info("0: %zu\n", __builtin_object_size(&target, 0));
+	pr_info("1: %zu\n", __builtin_object_size(&target, 1));
+	pr_info("s: %d\n", size);
+	memcpy(&target, &before, size);
+
+	/* Store result to global to prevent the code from being eliminated */
+	fortify_scratch_space = target.a[3];
+
+	pr_err("FAIL: fortify did not block a memcpy() object write overflow!\n");
+	pr_expected_config(CONFIG_FORTIFY_SOURCE);
+}
+
+static void lkdtm_FORTIFY_MEM_MEMBER(void)
+{
+	struct target {
+		char a[10];
+		char b[10];
+	} target;
+	volatile int size = 20;
+	char *src;
+
+	src = kmalloc(size, GFP_KERNEL);
+	strscpy(src, "over ten bytes", size);
+	size = strlen(src) + 1;
+
+	pr_info("trying to memcpy() past the end of a struct member...\n");
+
+	/*
+	 * strncpy(target.a, src, 20); will hit a compile error because the
+	 * compiler knows at build time that target.a < 20 bytes. Use a
+	 * volatile to force a runtime error.
+	 */
+	memcpy(target.a, src, size);
+
+	/* Store result to global to prevent the code from being eliminated */
+	fortify_scratch_space = target.a[3];
+
+	pr_err("FAIL: fortify did not block a memcpy() struct member write overflow!\n");
+	pr_expected_config(CONFIG_FORTIFY_SOURCE);
+
+	kfree(src);
+}
 
 /*
  * Calls fortified strscpy to test that it returns the same result as vanilla
  * strscpy and generate a panic because there is a write overflow (i.e. src
  * length is greater than dst length).
  */
-void lkdtm_FORTIFIED_STRSCPY(void)
+static void lkdtm_FORTIFY_STRSCPY(void)
 {
 	char *src;
 	char dst[5];
@@ -81,3 +202,16 @@ void lkdtm_FORTIFIED_STRSCPY(void)
 
 	kfree(src);
 }
+
+static struct crashtype crashtypes[] = {
+	CRASHTYPE(FORTIFY_STR_OBJECT),
+	CRASHTYPE(FORTIFY_STR_MEMBER),
+	CRASHTYPE(FORTIFY_MEM_OBJECT),
+	CRASHTYPE(FORTIFY_MEM_MEMBER),
+	CRASHTYPE(FORTIFY_STRSCPY),
+};
+
+struct crashtype_category fortify_crashtypes = {
+	.crashtypes = crashtypes,
+	.len	    = ARRAY_SIZE(crashtypes),
+};

@@ -1269,10 +1269,11 @@ static int __init capinc_tty_init(void)
 	if (!capiminors)
 		return -ENOMEM;
 
-	drv = alloc_tty_driver(capi_ttyminors);
-	if (!drv) {
+	drv = tty_alloc_driver(capi_ttyminors, TTY_DRIVER_REAL_RAW |
+			TTY_DRIVER_RESET_TERMIOS | TTY_DRIVER_DYNAMIC_DEV);
+	if (IS_ERR(drv)) {
 		kfree(capiminors);
-		return -ENOMEM;
+		return PTR_ERR(drv);
 	}
 	drv->driver_name = "capi_nc";
 	drv->name = "capi!";
@@ -1285,9 +1286,6 @@ static int __init capinc_tty_init(void)
 	drv->init_termios.c_oflag = OPOST | ONLCR;
 	drv->init_termios.c_cflag = B9600 | CS8 | CREAD | HUPCL | CLOCAL;
 	drv->init_termios.c_lflag = 0;
-	drv->flags =
-		TTY_DRIVER_REAL_RAW | TTY_DRIVER_RESET_TERMIOS |
-		TTY_DRIVER_DYNAMIC_DEV;
 	tty_set_operations(drv, &capinc_ops);
 
 	err = tty_register_driver(drv);
@@ -1395,7 +1393,7 @@ static int __init capi_init(void)
 		kcapi_exit();
 		return major_ret;
 	}
-	capi_class = class_create(THIS_MODULE, "capi");
+	capi_class = class_create("capi");
 	if (IS_ERR(capi_class)) {
 		unregister_chrdev(capi_major, "capi20");
 		kcapi_exit();

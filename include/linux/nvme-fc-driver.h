@@ -511,8 +511,6 @@ struct nvme_fc_port_template {
 	u32	remote_priv_sz;
 	u32	lsrqst_priv_sz;
 	u32	fcprqst_priv_sz;
-
-	void *suse_kabi_padding;
 };
 
 
@@ -732,7 +730,7 @@ enum {
  *
  * Fields with static values for the port. Initialized by the
  * port_info struct supplied to the registration call.
- * @port_num:  NVME-FC transport subsytem port number
+ * @port_num:  NVME-FC transport subsystem port number
  * @node_name: FC WWNN for the port
  * @port_name: FC WWPN for the port
  * @private:   pointer to memory allocated alongside the local port
@@ -988,8 +986,6 @@ struct nvmet_fc_target_template {
 	/* sizes of additional private data for data structures */
 	u32	target_priv_sz;
 	u32	lsrqst_priv_sz;
-
-	void *suse_kabi_padding;
 };
 
 

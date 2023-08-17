@@ -803,7 +803,6 @@ static int deinterlace_probe(struct platform_device *pdev)
 {
 	struct deinterlace_dev *dev;
 	struct video_device *vfd;
-	struct resource *res;
 	int irq, ret;
 
 	dev = devm_kzalloc(&pdev->dev, sizeof(*dev), GFP_KERNEL);
@@ -825,8 +824,7 @@ static int deinterlace_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	dev->base = devm_ioremap_resource(&pdev->dev, res);
+	dev->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(dev->base))
 		return PTR_ERR(dev->base);
 
@@ -908,7 +906,7 @@ err_v4l2:
 	return ret;
 }
 
-static int deinterlace_remove(struct platform_device *pdev)
+static void deinterlace_remove(struct platform_device *pdev)
 {
 	struct deinterlace_dev *dev = platform_get_drvdata(pdev);
 
@@ -917,8 +915,6 @@ static int deinterlace_remove(struct platform_device *pdev)
 	v4l2_device_unregister(&dev->v4l2_dev);
 
 	pm_runtime_force_suspend(&pdev->dev);
-
-	return 0;
 }
 
 static int deinterlace_runtime_resume(struct device *device)
@@ -1004,7 +1000,7 @@ static const struct dev_pm_ops deinterlace_pm_ops = {
 
 static struct platform_driver deinterlace_driver = {
 	.probe		= deinterlace_probe,
-	.remove		= deinterlace_remove,
+	.remove_new	= deinterlace_remove,
 	.driver		= {
 		.name		= DEINTERLACE_NAME,
 		.of_match_table	= deinterlace_dt_match,

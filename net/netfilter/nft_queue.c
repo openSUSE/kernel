@@ -68,6 +68,31 @@ static void nft_queue_sreg_eval(const struct nft_expr *expr,
 	regs->verdict.code = ret;
 }
 
+static int nft_queue_validate(const struct nft_ctx *ctx,
+			      const struct nft_expr *expr,
+			      const struct nft_data **data)
+{
+	static const unsigned int supported_hooks = ((1 << NF_INET_PRE_ROUTING) |
+						     (1 << NF_INET_LOCAL_IN) |
+						     (1 << NF_INET_FORWARD) |
+						     (1 << NF_INET_LOCAL_OUT) |
+						     (1 << NF_INET_POST_ROUTING));
+
+	switch (ctx->family) {
+	case NFPROTO_IPV4:
+	case NFPROTO_IPV6:
+	case NFPROTO_INET:
+	case NFPROTO_BRIDGE:
+		break;
+	case NFPROTO_NETDEV: /* lacks okfn */
+		fallthrough;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	return nft_chain_validate_hooks(ctx->chain, supported_hooks);
+}
+
 static const struct nla_policy nft_queue_policy[NFTA_QUEUE_MAX + 1] = {
 	[NFTA_QUEUE_NUM]	= { .type = NLA_U16 },
 	[NFTA_QUEUE_TOTAL]	= { .type = NLA_U16 },
@@ -127,7 +152,8 @@ static int nft_queue_sreg_init(const struct nft_ctx *ctx,
 	return 0;
 }
 
-static int nft_queue_dump(struct sk_buff *skb, const struct nft_expr *expr)
+static int nft_queue_dump(struct sk_buff *skb,
+			  const struct nft_expr *expr, bool reset)
 {
 	const struct nft_queue *priv = nft_expr_priv(expr);
 
@@ -143,7 +169,8 @@ nla_put_failure:
 }
 
 static int
-nft_queue_sreg_dump(struct sk_buff *skb, const struct nft_expr *expr)
+nft_queue_sreg_dump(struct sk_buff *skb,
+		    const struct nft_expr *expr, bool reset)
 {
 	const struct nft_queue *priv = nft_expr_priv(expr);
 
@@ -164,6 +191,8 @@ static const struct nft_expr_ops nft_queue_ops = {
 	.eval		= nft_queue_eval,
 	.init		= nft_queue_init,
 	.dump		= nft_queue_dump,
+	.validate	= nft_queue_validate,
+	.reduce		= NFT_REDUCE_READONLY,
 };
 
 static const struct nft_expr_ops nft_queue_sreg_ops = {
@@ -172,6 +201,8 @@ static const struct nft_expr_ops nft_queue_sreg_ops = {
 	.eval		= nft_queue_sreg_eval,
 	.init		= nft_queue_sreg_init,
 	.dump		= nft_queue_sreg_dump,
+	.validate	= nft_queue_validate,
+	.reduce		= NFT_REDUCE_READONLY,
 };
 
 static const struct nft_expr_ops *

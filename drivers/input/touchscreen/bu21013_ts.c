@@ -404,8 +404,7 @@ static void bu21013_disable_chip(void *_ts)
 	gpiod_set_value(ts->cs_gpiod, 0);
 }
 
-static int bu21013_probe(struct i2c_client *client,
-			 const struct i2c_device_id *id)
+static int bu21013_probe(struct i2c_client *client)
 {
 	struct bu21013_ts *ts;
 	struct input_dev *in_dev;
@@ -552,18 +551,16 @@ static int bu21013_probe(struct i2c_client *client,
 	return 0;
 }
 
-static int bu21013_remove(struct i2c_client *client)
+static void bu21013_remove(struct i2c_client *client)
 {
 	struct bu21013_ts *ts = i2c_get_clientdata(client);
 
 	/* Make sure IRQ will exit quickly even if there is contact */
 	ts->touch_stopped = true;
 	/* The resources will be freed by devm */
-
-	return 0;
 }
 
-static int __maybe_unused bu21013_suspend(struct device *dev)
+static int bu21013_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct bu21013_ts *ts = i2c_get_clientdata(client);
@@ -578,7 +575,7 @@ static int __maybe_unused bu21013_suspend(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused bu21013_resume(struct device *dev)
+static int bu21013_resume(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct bu21013_ts *ts = i2c_get_clientdata(client);
@@ -607,7 +604,7 @@ static int __maybe_unused bu21013_resume(struct device *dev)
 	return 0;
 }
 
-static SIMPLE_DEV_PM_OPS(bu21013_dev_pm_ops, bu21013_suspend, bu21013_resume);
+static DEFINE_SIMPLE_DEV_PM_OPS(bu21013_dev_pm_ops, bu21013_suspend, bu21013_resume);
 
 static const struct i2c_device_id bu21013_id[] = {
 	{ DRIVER_TP, 0 },
@@ -618,9 +615,9 @@ MODULE_DEVICE_TABLE(i2c, bu21013_id);
 static struct i2c_driver bu21013_driver = {
 	.driver	= {
 		.name	=	DRIVER_TP,
-		.pm	=	&bu21013_dev_pm_ops,
+		.pm	=	pm_sleep_ptr(&bu21013_dev_pm_ops),
 	},
-	.probe		=	bu21013_probe,
+	.probe_new	=	bu21013_probe,
 	.remove		=	bu21013_remove,
 	.id_table	=	bu21013_id,
 };

@@ -21,8 +21,6 @@
 #include <linux/console.h>
 #include <linux/cpu.h>
 #include <linux/freezer.h>
-#include <linux/security.h>
-#include <linux/efi.h>
 
 #include <linux/uaccess.h>
 
@@ -49,12 +47,13 @@ int is_hibernate_resume_dev(dev_t dev)
 static int snapshot_open(struct inode *inode, struct file *filp)
 {
 	struct snapshot_data *data;
+	unsigned int sleep_flags;
 	int error;
 
 	if (!hibernation_available())
 		return -EPERM;
 
-	lock_system_sleep();
+	sleep_flags = lock_system_sleep();
 
 	if (!hibernate_acquire()) {
 		error = -EBUSY;
@@ -100,7 +99,7 @@ static int snapshot_open(struct inode *inode, struct file *filp)
 	data->dev = 0;
 
  Unlock:
-	unlock_system_sleep();
+	unlock_system_sleep(sleep_flags);
 
 	return error;
 }
@@ -108,8 +107,9 @@ static int snapshot_open(struct inode *inode, struct file *filp)
 static int snapshot_release(struct inode *inode, struct file *filp)
 {
 	struct snapshot_data *data;
+	unsigned int sleep_flags;
 
-	lock_system_sleep();
+	sleep_flags = lock_system_sleep();
 
 	swsusp_free();
 	data = filp->private_data;
@@ -126,7 +126,7 @@ static int snapshot_release(struct inode *inode, struct file *filp)
 			PM_POST_HIBERNATION : PM_POST_RESTORE);
 	hibernate_release();
 
-	unlock_system_sleep();
+	unlock_system_sleep(sleep_flags);
 
 	return 0;
 }
@@ -134,11 +134,12 @@ static int snapshot_release(struct inode *inode, struct file *filp)
 static ssize_t snapshot_read(struct file *filp, char __user *buf,
                              size_t count, loff_t *offp)
 {
-	struct snapshot_data *data;
-	ssize_t res;
 	loff_t pg_offp = *offp & ~PAGE_MASK;
+	struct snapshot_data *data;
+	unsigned int sleep_flags;
+	ssize_t res;
 
-	lock_system_sleep();
+	sleep_flags = lock_system_sleep();
 
 	data = filp->private_data;
 	if (!data->ready) {
@@ -159,7 +160,7 @@ static ssize_t snapshot_read(struct file *filp, char __user *buf,
 		*offp += res;
 
  Unlock:
-	unlock_system_sleep();
+	unlock_system_sleep(sleep_flags);
 
 	return res;
 }
@@ -167,16 +168,17 @@ static ssize_t snapshot_read(struct file *filp, char __user *buf,
 static ssize_t snapshot_write(struct file *filp, const char __user *buf,
                               size_t count, loff_t *offp)
 {
-	struct snapshot_data *data;
-	ssize_t res;
 	loff_t pg_offp = *offp & ~PAGE_MASK;
+	struct snapshot_data *data;
+	unsigned long sleep_flags;
+	ssize_t res;
 
 	if (need_wait) {
 		wait_for_device_probe();
 		need_wait = false;
 	}
 
-	lock_system_sleep();
+	sleep_flags = lock_system_sleep();
 
 	data = filp->private_data;
 
@@ -185,7 +187,7 @@ static ssize_t snapshot_write(struct file *filp, const char __user *buf,
 		if (res <= 0)
 			goto unlock;
 	} else {
-		res = PAGE_SIZE - pg_offp;
+		res = PAGE_SIZE;
 	}
 
 	if (!data_of(data->handle)) {
@@ -198,7 +200,7 @@ static ssize_t snapshot_write(struct file *filp, const char __user *buf,
 	if (res > 0)
 		*offp += res;
 unlock:
-	unlock_system_sleep();
+	unlock_system_sleep(sleep_flags);
 
 	return res;
 }
@@ -294,7 +296,6 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		if (!data->frozen || data->ready)
 			break;
 		pm_restore_gfp_mask();
-		snapshot_restore_trampoline();
 		free_basic_memory_bitmaps();
 		data->free_bitmaps = false;
 		thaw_processes();
@@ -306,9 +307,6 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 			error = -EPERM;
 			break;
 		}
-		error = snapshot_create_trampoline();
-		if (error)
-			return error;
 		pm_restore_gfp_mask();
 		error = hibernation_snapshot(data->platform_support);
 		if (!error) {
@@ -325,13 +323,6 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 			error = -EPERM;
 			break;
 		}
-		if (snapshot_image_verify()) {
-			error = -EPERM;
-			break;
-		}
-		snapshot_init_trampoline();
-		/* clean the hidden area in boot kernel */
-		clean_hidden_area();
 		error = hibernation_restore(data->platform_support);
 		break;
 
@@ -397,7 +388,6 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 			error = -EPERM;
 			break;
 		}
-		efi_skey_stop_regen();
 		/*
 		 * Tasks are frozen and the notifiers have been called with
 		 * PM_HIBERNATION_PREPARE
@@ -411,7 +401,6 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		break;
 
 	case SNAPSHOT_POWER_OFF:
-		efi_skey_stop_regen();
 		if (data->platform_support)
 			error = hibernation_platform_enter();
 		break;

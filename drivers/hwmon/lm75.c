@@ -26,6 +26,7 @@
 
 enum lm75_type {		/* keep sorted in alphabetical order */
 	adt75,
+	at30ts74,
 	ds1775,
 	ds75,
 	ds7505,
@@ -127,6 +128,14 @@ static const struct lm75_params device_params[] = {
 		.clr_mask = 1 << 5,	/* not one-shot mode */
 		.default_resolution = 12,
 		.default_sample_time = MSEC_PER_SEC / 10,
+	},
+	[at30ts74] = {
+		.set_mask = 3 << 5,	/* 12-bit mode*/
+		.default_resolution = 12,
+		.default_sample_time = 200,
+		.num_sample_times = 4,
+		.sample_times = (unsigned int []){ 25, 50, 100, 200 },
+		.resolutions = (u8 []) {9, 10, 11, 12 },
 	},
 	[ds1775] = {
 		.clr_mask = 3 << 5,
@@ -503,7 +512,7 @@ static umode_t lm75_is_visible(const void *data, enum hwmon_sensor_types type,
 	return 0;
 }
 
-static const struct hwmon_channel_info *lm75_info[] = {
+static const struct hwmon_channel_info * const lm75_info[] = {
 	HWMON_CHANNEL_INFO(chip,
 			   HWMON_C_REGISTER_TZ | HWMON_C_UPDATE_INTERVAL),
 	HWMON_CHANNEL_INFO(temp,
@@ -645,6 +654,7 @@ static int lm75_probe(struct i2c_client *client)
 
 static const struct i2c_device_id lm75_ids[] = {
 	{ "adt75", adt75, },
+	{ "at30ts74", at30ts74, },
 	{ "ds1775", ds1775, },
 	{ "ds75", ds75, },
 	{ "ds7505", ds7505, },
@@ -679,6 +689,10 @@ static const struct of_device_id __maybe_unused lm75_of_match[] = {
 	{
 		.compatible = "adi,adt75",
 		.data = (void *)adt75
+	},
+	{
+		.compatible = "atmel,at30ts74",
+		.data = (void *)at30ts74
 	},
 	{
 		.compatible = "dallas,ds1775",
@@ -879,7 +893,7 @@ static int lm75_detect(struct i2c_client *new_client,
 			return -ENODEV;
 	}
 
-	strlcpy(info->type, is_lm75a ? "lm75a" : "lm75", I2C_NAME_SIZE);
+	strscpy(info->type, is_lm75a ? "lm75a" : "lm75", I2C_NAME_SIZE);
 
 	return 0;
 }

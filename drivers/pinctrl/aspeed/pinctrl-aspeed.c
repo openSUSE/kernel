@@ -5,6 +5,7 @@
 
 #include <linux/mfd/syscon.h>
 #include <linux/platform_device.h>
+#include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include "../core.h"
@@ -133,8 +134,8 @@ static int aspeed_disable_sig(struct aspeed_pinmux_data *ctx,
 }
 
 /**
- * Search for the signal expression needed to enable the pin's signal for the
- * requested function.
+ * aspeed_find_expr_by_name - Search for the signal expression needed to
+ * enable the pin's signal for the requested function.
  *
  * @exprs: List of signal expressions (haystack)
  * @name: The name of the requested function (needle)

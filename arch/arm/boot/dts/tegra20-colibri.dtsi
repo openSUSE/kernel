@@ -27,6 +27,31 @@
 		};
 	};
 
+	gpio@6000d000 {
+		lan-reset-n-hog {
+			gpio-hog;
+			gpios = <TEGRA_GPIO(V, 4) GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "LAN_RESET#";
+		};
+
+		/* Tri-stating GMI_WR_N on SODIMM pin 99 nPWE */
+		npwe-hog {
+			gpio-hog;
+			gpios = <TEGRA_GPIO(T, 5) GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "Tri-state nPWE";
+		};
+
+		/* Not tri-stating GMI_WR_N on SODIMM pin 93 RDnWR */
+		rdnwr-hog {
+			gpio-hog;
+			gpios = <TEGRA_GPIO(T, 6) GPIO_ACTIVE_HIGH>;
+			output-low;
+			line-name = "Not tri-state RDnWR";
+		};
+	};
+
 	pinmux@70000014 {
 		pinctrl-names = "default";
 		pinctrl-0 = <&state_default>;
@@ -113,7 +138,7 @@
 			};
 
 			/* Colibri Backlight PWM<A>, PWM<B> */
-			pwm-a-b {
+			sdc {
 				nvidia,pins = "sdc";
 				nvidia,function = "pwm";
 				nvidia,tristate = <TEGRA_PIN_ENABLE>;
@@ -242,7 +267,7 @@
 			};
 
 			/* Colibri PWM<C>, PWM<D> */
-			pwm-c-d {
+			sdb_sdd {
 				nvidia,pins = "sdb", "sdd";
 				nvidia,function = "pwm";
 				nvidia,tristate = <TEGRA_PIN_ENABLE>;
@@ -428,10 +453,12 @@
 
 	serial@70006040 {
 		compatible = "nvidia,tegra20-hsuart";
+		/delete-property/ reg-shift;
 	};
 
 	serial@70006300 {
 		compatible = "nvidia,tegra20-hsuart";
+		/delete-property/ reg-shift;
 	};
 
 	nand-controller@70008000 {
@@ -495,7 +522,7 @@
 					regulator-always-on;
 				};
 
-				sm0 {
+				vdd_core: sm0 {
 					regulator-name = "VDD_CORE_1.2V";
 					regulator-min-microvolt = <1200000>;
 					regulator-max-microvolt = <1200000>;
@@ -601,6 +628,7 @@
 		nvidia,core-pwr-good-time = <3845 3845>;
 		nvidia,core-pwr-off-time = <3875>;
 		nvidia,sys-clock-req-active-high;
+		core-supply = <&vdd_core>;
 
 		/* Set SLEEP MODE bit in SUPPLYENE register of TPS658643 PMIC */
 		i2c-thermtrip {
@@ -688,7 +716,8 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		asix@1 {
+		ethernet@1 {
+			compatible = "usbb95,772b";
 			reg = <1>;
 			local-mac-address = [00 00 00 00 00 00];
 		};
@@ -701,10 +730,14 @@
 		vbus-supply = <&reg_lan_v_bus>;
 	};
 
-	clk32k_in: xtal3 {
+	clk32k_in: clock-xtal3 {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
 		clock-frequency = <32768>;
+	};
+
+	opp-table-emc {
+		/delete-node/ opp-760000000;
 	};
 
 	reg_lan_v_bus: regulator-lan-v-bus {
@@ -739,34 +772,5 @@
 			 <&tegra_car TEGRA20_CLK_PLL_A_OUT0>,
 			 <&tegra_car TEGRA20_CLK_CDEV1>;
 		clock-names = "pll_a", "pll_a_out0", "mclk";
-	};
-};
-
-&emc_icc_dvfs_opp_table {
-	/delete-node/ opp@760000000;
-};
-
-&gpio {
-	lan-reset-n {
-		gpio-hog;
-		gpios = <TEGRA_GPIO(V, 4) GPIO_ACTIVE_HIGH>;
-		output-high;
-		line-name = "LAN_RESET#";
-	};
-
-	/* Tri-stating GMI_WR_N on SODIMM pin 99 nPWE */
-	npwe {
-		gpio-hog;
-		gpios = <TEGRA_GPIO(T, 5) GPIO_ACTIVE_HIGH>;
-		output-high;
-		line-name = "Tri-state nPWE";
-	};
-
-	/* Not tri-stating GMI_WR_N on SODIMM pin 93 RDnWR */
-	rdnwr {
-		gpio-hog;
-		gpios = <TEGRA_GPIO(T, 6) GPIO_ACTIVE_HIGH>;
-		output-low;
-		line-name = "Not tri-state RDnWR";
 	};
 };

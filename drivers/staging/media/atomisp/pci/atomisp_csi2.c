@@ -22,13 +22,12 @@
 #include "atomisp_internal.h"
 #include "atomisp-regs.h"
 
-static struct v4l2_mbus_framefmt *__csi2_get_format(struct
-	atomisp_mipi_csi2_device
-	* csi2,
-	struct v4l2_subdev_state *sd_state,
-	enum
-	v4l2_subdev_format_whence
-	which, unsigned int pad) {
+static struct
+v4l2_mbus_framefmt *__csi2_get_format(struct atomisp_mipi_csi2_device *csi2,
+				      struct v4l2_subdev_state *sd_state,
+				      enum v4l2_subdev_format_whence which,
+				      unsigned int pad)
+{
 	if (which == V4L2_SUBDEV_FORMAT_TRY)
 		return v4l2_subdev_get_try_format(&csi2->subdev, sd_state,
 						  pad);
@@ -42,7 +41,7 @@ static struct v4l2_mbus_framefmt *__csi2_get_format(struct
  * @fh     : V4L2 subdev file handle
  * @code   : pointer to v4l2_subdev_pad_mbus_code_enum structure
  * return -EINVAL or zero on success
-*/
+ */
 static int csi2_enum_mbus_code(struct v4l2_subdev *sd,
 			       struct v4l2_subdev_state *sd_state,
 			       struct v4l2_subdev_mbus_code_enum *code)
@@ -68,7 +67,7 @@ static int csi2_enum_mbus_code(struct v4l2_subdev *sd,
  * @pad: pad num
  * @fmt: pointer to v4l2 format structure
  * return -EINVAL or zero on success
-*/
+ */
 static int csi2_get_format(struct v4l2_subdev *sd,
 			   struct v4l2_subdev_state *sd_state,
 			   struct v4l2_subdev_format *fmt)
@@ -103,12 +102,12 @@ int atomisp_csi2_set_ffmt(struct v4l2_subdev *sd,
 		else
 			actual_ffmt->code = atomisp_in_fmt_conv[0].code;
 
-		actual_ffmt->width = clamp_t(
-					 u32, ffmt->width, ATOM_ISP_MIN_WIDTH,
-					 ATOM_ISP_MAX_WIDTH);
-		actual_ffmt->height = clamp_t(
-					  u32, ffmt->height, ATOM_ISP_MIN_HEIGHT,
-					  ATOM_ISP_MAX_HEIGHT);
+		actual_ffmt->width = clamp_t(u32, ffmt->width,
+					     ATOM_ISP_MIN_WIDTH,
+					     ATOM_ISP_MAX_WIDTH);
+		actual_ffmt->height = clamp_t(u32, ffmt->height,
+					      ATOM_ISP_MIN_HEIGHT,
+					      ATOM_ISP_MAX_HEIGHT);
 
 		tmp_ffmt = *ffmt = *actual_ffmt;
 
@@ -131,7 +130,7 @@ int atomisp_csi2_set_ffmt(struct v4l2_subdev *sd,
  * @pad: pad num
  * @fmt: pointer to v4l2 format structure
  * return -EINVAL or zero on success
-*/
+ */
 static int csi2_set_format(struct v4l2_subdev *sd,
 			   struct v4l2_subdev_state *sd_state,
 			   struct v4l2_subdev_format *fmt)
@@ -146,7 +145,7 @@ static int csi2_set_format(struct v4l2_subdev *sd,
  * @enable: Enable/disable stream (1/0)
  *
  * Return 0 on success or a negative error code otherwise.
-*/
+ */
 static int csi2_set_stream(struct v4l2_subdev *sd, int enable)
 {
 	return 0;
@@ -176,55 +175,16 @@ static const struct v4l2_subdev_ops csi2_ops = {
 	.pad = &csi2_pad_ops,
 };
 
-/*
- * csi2_link_setup - Setup CSI2 connections.
- * @entity : Pointer to media entity structure
- * @local  : Pointer to local pad array
- * @remote : Pointer to remote pad array
- * @flags  : Link flags
- * return -EINVAL or zero on success
-*/
-static int csi2_link_setup(struct media_entity *entity,
-			   const struct media_pad *local,
-			   const struct media_pad *remote, u32 flags)
-{
-	struct v4l2_subdev *sd = media_entity_to_v4l2_subdev(entity);
-	struct atomisp_mipi_csi2_device *csi2 = v4l2_get_subdevdata(sd);
-	u32 result = local->index | is_media_entity_v4l2_subdev(remote->entity);
-
-	switch (result) {
-	case CSI2_PAD_SOURCE | MEDIA_ENT_F_OLD_BASE:
-		/* not supported yet */
-		return -EINVAL;
-
-	case CSI2_PAD_SOURCE | MEDIA_ENT_F_V4L2_SUBDEV_UNKNOWN:
-		if (flags & MEDIA_LNK_FL_ENABLED) {
-			if (csi2->output & ~CSI2_OUTPUT_ISP_SUBDEV)
-				return -EBUSY;
-			csi2->output |= CSI2_OUTPUT_ISP_SUBDEV;
-		} else {
-			csi2->output &= ~CSI2_OUTPUT_ISP_SUBDEV;
-		}
-		break;
-
-	default:
-		/* Link from camera to CSI2 is fixed... */
-		return -EINVAL;
-	}
-	return 0;
-}
-
 /* media operations */
 static const struct media_entity_operations csi2_media_ops = {
-	.link_setup = csi2_link_setup,
 	.link_validate = v4l2_subdev_link_validate,
 };
 
 /*
-* ispcsi2_init_entities - Initialize subdev and media entity.
-* @csi2: Pointer to ispcsi2 structure.
-* return -ENOMEM or zero on success
-*/
+ * ispcsi2_init_entities - Initialize subdev and media entity.
+ * @csi2: Pointer to ispcsi2 structure.
+ * return -ENOMEM or zero on success
+ */
 static int mipi_csi2_init_entities(struct atomisp_mipi_csi2_device *csi2,
 				   int port)
 {
@@ -243,14 +203,13 @@ static int mipi_csi2_init_entities(struct atomisp_mipi_csi2_device *csi2,
 	pads[CSI2_PAD_SINK].flags = MEDIA_PAD_FL_SINK;
 
 	me->ops = &csi2_media_ops;
-	me->function = MEDIA_ENT_F_V4L2_SUBDEV_UNKNOWN;
+	me->function = MEDIA_ENT_F_VID_IF_BRIDGE;
 	ret = media_entity_pads_init(me, CSI2_PADS_NUM, pads);
 	if (ret < 0)
 		return ret;
 
-	csi2->formats[CSI2_PAD_SINK].code =
-	    csi2->formats[CSI2_PAD_SOURCE].code =
-		atomisp_in_fmt_conv[0].code;
+	csi2->formats[CSI2_PAD_SINK].code = atomisp_in_fmt_conv[0].code;
+	csi2->formats[CSI2_PAD_SOURCE].code = atomisp_in_fmt_conv[0].code;
 
 	return 0;
 }
@@ -378,21 +337,22 @@ static void atomisp_csi2_configure_isp2401(struct atomisp_sub_device *asd)
 	    (isp->inputs[asd->input_curr].camera->ctrl_handler, &ctrl) == 0)
 		mipi_freq = ctrl.value;
 
-	clk_termen = atomisp_csi2_configure_calc(coeff_clk_termen,
-		     mipi_freq, TERMEN_DEFAULT);
-	clk_settle = atomisp_csi2_configure_calc(coeff_clk_settle,
-		     mipi_freq, SETTLE_DEFAULT);
-	dat_termen = atomisp_csi2_configure_calc(coeff_dat_termen,
-		     mipi_freq, TERMEN_DEFAULT);
-	dat_settle = atomisp_csi2_configure_calc(coeff_dat_settle,
-		     mipi_freq, SETTLE_DEFAULT);
+	clk_termen = atomisp_csi2_configure_calc(coeff_clk_termen, mipi_freq,
+						 TERMEN_DEFAULT);
+	clk_settle = atomisp_csi2_configure_calc(coeff_clk_settle, mipi_freq,
+						 SETTLE_DEFAULT);
+	dat_termen = atomisp_csi2_configure_calc(coeff_dat_termen, mipi_freq,
+						 TERMEN_DEFAULT);
+	dat_settle = atomisp_csi2_configure_calc(coeff_dat_settle, mipi_freq,
+						 SETTLE_DEFAULT);
+
 	for (n = 0; n < csi2_port_lanes[port] + 1; n++) {
 		hrt_address base = csi2_port_base[port] + csi2_lane_base[n];
 
 		atomisp_css2_hw_store_32(base + CSI2_REG_RX_CSI_DLY_CNT_TERMEN,
-				     n == 0 ? clk_termen : dat_termen);
+					 n == 0 ? clk_termen : dat_termen);
 		atomisp_css2_hw_store_32(base + CSI2_REG_RX_CSI_DLY_CNT_SETTLE,
-				     n == 0 ? clk_settle : dat_settle);
+					 n == 0 ? clk_settle : dat_settle);
 	}
 }
 
@@ -404,7 +364,7 @@ void atomisp_csi2_configure(struct atomisp_sub_device *asd)
 
 /*
  * atomisp_mipi_csi2_cleanup - Routine for module driver cleanup
-*/
+ */
 void atomisp_mipi_csi2_cleanup(struct atomisp_device *isp)
 {
 }

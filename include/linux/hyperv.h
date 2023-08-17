@@ -230,15 +230,19 @@ static inline u32 hv_get_avail_to_write_percent(
  * two 16 bit quantities: major_number. minor_number.
  *
  * 0 . 13 (Windows Server 2008)
- * 1 . 1  (Windows 7)
- * 2 . 4  (Windows 8)
- * 3 . 0  (Windows 8 R2)
+ * 1 . 1  (Windows 7, WS2008 R2)
+ * 2 . 4  (Windows 8, WS2012)
+ * 3 . 0  (Windows 8.1, WS2012 R2)
  * 4 . 0  (Windows 10)
  * 4 . 1  (Windows 10 RS3)
  * 5 . 0  (Newer Windows 10)
  * 5 . 1  (Windows 10 RS4)
  * 5 . 2  (Windows Server 2019, RS5)
  * 5 . 3  (Windows Server 2022)
+ *
+ * The WS2008 and WIN7 versions are listed here for
+ * completeness but are no longer supported in the
+ * Linux kernel.
  */
 
 #define VERSION_WS2008  ((0 << 16) | (13))
@@ -1269,7 +1273,7 @@ struct hv_driver {
 	} dynids;
 
 	int (*probe)(struct hv_device *, const struct hv_vmbus_device_id *);
-	int (*remove)(struct hv_device *);
+	void (*remove)(struct hv_device *dev);
 	void (*shutdown)(struct hv_device *);
 
 	int (*suspend)(struct hv_device *);
@@ -1305,10 +1309,7 @@ struct hv_device {
 };
 
 
-static inline struct hv_device *device_to_hv_device(struct device *d)
-{
-	return container_of(d, struct hv_device, device);
-}
+#define device_to_hv_device(d)	container_of_const(d, struct hv_device, device)
 
 static inline struct hv_driver *drv_to_hv_drv(struct device_driver *d)
 {
@@ -1336,6 +1337,8 @@ struct hv_ring_buffer_debug_info {
 
 int hv_ringbuffer_get_debuginfo(struct hv_ring_buffer_info *ring_info,
 				struct hv_ring_buffer_debug_info *debug_info);
+
+bool hv_ringbuffer_spinlock_busy(struct vmbus_channel *channel);
 
 /* Vmbus interface */
 #define vmbus_driver_register(driver)	\

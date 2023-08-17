@@ -1,23 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * This contains encryption functions for per-file encryption.
+ * Utility functions for file contents encryption/decryption on
+ * block device-based filesystems.
  *
  * Copyright (C) 2015, Google, Inc.
  * Copyright (C) 2015, Motorola Mobility
- *
- * Written by Michael Halcrow, 2014.
- *
- * Filename encryption additions
- *	Uday Savagaonkar, 2014
- * Encryption policy handling additions
- *	Ildar Muslukhov, 2014
- * Add fscrypt_pullback_bio_page()
- *	Jaegeuk Kim, 2015.
- *
- * This has not yet undergone a rigorous security audit.
- *
- * The usage of AES-XTS should conform to recommendations in NIST
- * Special Publication 800-38E and IEEE P1619/D16.
  */
 
 #include <linux/pagemap.h>
@@ -26,18 +13,35 @@
 #include <linux/namei.h>
 #include "fscrypt_private.h"
 
-void fscrypt_decrypt_bio(struct bio *bio)
+/**
+ * fscrypt_decrypt_bio() - decrypt the contents of a bio
+ * @bio: the bio to decrypt
+ *
+ * Decrypt the contents of a "read" bio following successful completion of the
+ * underlying disk read.  The bio must be reading a whole number of blocks of an
+ * encrypted file directly into the page cache.  If the bio is reading the
+ * ciphertext into bounce pages instead of the page cache (for example, because
+ * the file is also compressed, so decompression is required after decryption),
+ * then this function isn't applicable.  This function may sleep, so it must be
+ * called from a workqueue rather than from the bio's bi_end_io callback.
+ *
+ * Return: %true on success; %false on failure.  On failure, bio->bi_status is
+ *	   also set to an error status.
+ */
+bool fscrypt_decrypt_bio(struct bio *bio)
 {
-	struct bio_vec *bv;
-	struct bvec_iter_all iter_all;
+	struct folio_iter fi;
 
-	bio_for_each_segment_all(bv, bio, iter_all) {
-		struct page *page = bv->bv_page;
-		int ret = fscrypt_decrypt_pagecache_blocks(page, bv->bv_len,
-							   bv->bv_offset);
-		if (ret)
-			SetPageError(page);
+	bio_for_each_folio_all(fi, bio) {
+		int err = fscrypt_decrypt_pagecache_blocks(fi.folio, fi.length,
+							   fi.offset);
+
+		if (err) {
+			bio->bi_status = errno_to_blk_status(err);
+			return false;
+		}
 	}
+	return true;
 }
 EXPORT_SYMBOL(fscrypt_decrypt_bio);
 
@@ -65,7 +69,7 @@ static int fscrypt_zeroout_range_inline_crypt(const struct inode *inode,
 					pblk << (blockbits - SECTOR_SHIFT);
 		}
 		ret = bio_add_page(bio, ZERO_PAGE(0), bytes_this_page, 0);
-		if (WARN_ON(ret != bytes_this_page)) {
+		if (WARN_ON_ONCE(ret != bytes_this_page)) {
 			err = -EIO;
 			goto out;
 		}
@@ -143,7 +147,7 @@ int fscrypt_zeroout_range(const struct inode *inode, pgoff_t lblk,
 			break;
 	}
 	nr_pages = i;
-	if (WARN_ON(nr_pages <= 0))
+	if (WARN_ON_ONCE(nr_pages <= 0))
 		return -EINVAL;
 
 	/* This always succeeds since __GFP_DIRECT_RECLAIM is set. */
@@ -166,7 +170,7 @@ int fscrypt_zeroout_range(const struct inode *inode, pgoff_t lblk,
 			offset += blocksize;
 			if (offset == PAGE_SIZE || len == 0) {
 				ret = bio_add_page(bio, pages[i++], offset, 0);
-				if (WARN_ON(ret != offset)) {
+				if (WARN_ON_ONCE(ret != offset)) {
 					err = -EIO;
 					goto out;
 				}

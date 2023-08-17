@@ -169,14 +169,16 @@ static void bsg_device_release(struct device *dev)
 {
 	struct bsg_device *bd = container_of(dev, struct bsg_device, device);
 
-	ida_simple_remove(&bsg_minor_ida, MINOR(bd->device.devt));
+	ida_free(&bsg_minor_ida, MINOR(bd->device.devt));
 	kfree(bd);
 }
 
 void bsg_unregister_queue(struct bsg_device *bd)
 {
-	if (bd->queue->kobj.sd)
-		sysfs_remove_link(&bd->queue->kobj, "bsg");
+	struct gendisk *disk = bd->queue->disk;
+
+	if (disk && disk->queue_kobj.sd)
+		sysfs_remove_link(&disk->queue_kobj, "bsg");
 	cdev_device_del(&bd->cdev, &bd->device);
 	put_device(&bd->device);
 }
@@ -196,7 +198,7 @@ struct bsg_device *bsg_register_queue(struct request_queue *q,
 	bd->queue = q;
 	bd->sg_io_fn = sg_io_fn;
 
-	ret = ida_simple_get(&bsg_minor_ida, 0, BSG_MAX_DEVS, GFP_KERNEL);
+	ret = ida_alloc_max(&bsg_minor_ida, BSG_MAX_DEVS - 1, GFP_KERNEL);
 	if (ret < 0) {
 		if (ret == -ENOSPC)
 			dev_err(parent, "bsg: too many bsg devices\n");
@@ -216,8 +218,9 @@ struct bsg_device *bsg_register_queue(struct request_queue *q,
 	if (ret)
 		goto out_put_device;
 
-	if (q->kobj.sd) {
-		ret = sysfs_create_link(&q->kobj, &bd->device.kobj, "bsg");
+	if (q->disk && q->disk->queue_kobj.sd) {
+		ret = sysfs_create_link(&q->disk->queue_kobj, &bd->device.kobj,
+					"bsg");
 		if (ret)
 			goto out_device_del;
 	}
@@ -232,7 +235,7 @@ out_put_device:
 }
 EXPORT_SYMBOL_GPL(bsg_register_queue);
 
-static char *bsg_devnode(struct device *dev, umode_t *mode)
+static char *bsg_devnode(const struct device *dev, umode_t *mode)
 {
 	return kasprintf(GFP_KERNEL, "bsg/%s", dev_name(dev));
 }
@@ -242,7 +245,7 @@ static int __init bsg_init(void)
 	dev_t devid;
 	int ret;
 
-	bsg_class = class_create(THIS_MODULE, "bsg");
+	bsg_class = class_create("bsg");
 	if (IS_ERR(bsg_class))
 		return PTR_ERR(bsg_class);
 	bsg_class->devnode = bsg_devnode;

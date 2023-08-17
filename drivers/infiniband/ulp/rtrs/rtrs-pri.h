@@ -26,11 +26,10 @@
 /*
  * Max IB immediate data size is 2^28 (MAX_IMM_PAYL_BITS)
  * and the minimum chunk size is 4096 (2^12).
- * So the maximum sess_queue_depth is 65536 (2^16) in theory.
- * But mempool_create, create_qp and ib_post_send fail with
- * "cannot allocate memory" error if sess_queue_depth is too big.
+ * So the maximum sess_queue_depth is 65535 (2^16 - 1) in theory
+ * since queue_depth in rtrs_msg_conn_rsp is defined as le16.
  * Therefore the pratical max value of sess_queue_depth is
- * somewhere between 1 and 65534 and it depends on the system.
+ * somewhere between 1 and 65535 and it depends on the system.
  */
 #define MAX_SESS_QUEUE_DEPTH 65535
 
@@ -69,10 +68,7 @@ enum {
 struct rtrs_ib_dev;
 
 struct rtrs_rdma_dev_pd_ops {
-	struct rtrs_ib_dev *(*alloc)(void);
-	void (*free)(struct rtrs_ib_dev *dev);
 	int (*init)(struct rtrs_ib_dev *dev);
-	void (*deinit)(struct rtrs_ib_dev *dev);
 };
 
 struct rtrs_rdma_dev_pd {
@@ -91,7 +87,7 @@ struct rtrs_ib_dev {
 };
 
 struct rtrs_con {
-	struct rtrs_sess	*sess;
+	struct rtrs_path	*path;
 	struct ib_qp		*qp;
 	struct ib_cq		*cq;
 	struct rdma_cm_id	*cm_id;
@@ -101,7 +97,7 @@ struct rtrs_con {
 	atomic_t		sq_wr_avail;
 };
 
-struct rtrs_sess {
+struct rtrs_path {
 	struct list_head	entry;
 	struct sockaddr_storage dst_addr;
 	struct sockaddr_storage src_addr;
@@ -230,11 +226,11 @@ struct rtrs_msg_conn_rsp {
 /**
  * struct rtrs_msg_info_req
  * @type:		@RTRS_MSG_INFO_REQ
- * @sessname:		Session name chosen by client
+ * @pathname:		Path name chosen by client
  */
 struct rtrs_msg_info_req {
 	__le16		type;
-	u8		sessname[NAME_MAX];
+	u8		pathname[NAME_MAX];
 	u8		reserved[15];
 };
 
@@ -314,19 +310,19 @@ int rtrs_iu_post_rdma_write_imm(struct rtrs_con *con, struct rtrs_iu *iu,
 
 int rtrs_post_recv_empty(struct rtrs_con *con, struct ib_cqe *cqe);
 
-int rtrs_cq_qp_create(struct rtrs_sess *sess, struct rtrs_con *con,
+int rtrs_cq_qp_create(struct rtrs_path *path, struct rtrs_con *con,
 		      u32 max_send_sge, int cq_vector, int nr_cqe,
 		      u32 max_send_wr, u32 max_recv_wr,
 		      enum ib_poll_context poll_ctx);
 void rtrs_cq_qp_destroy(struct rtrs_con *con);
 
-void rtrs_init_hb(struct rtrs_sess *sess, struct ib_cqe *cqe,
+void rtrs_init_hb(struct rtrs_path *path, struct ib_cqe *cqe,
 		  unsigned int interval_ms, unsigned int missed_max,
 		  void (*err_handler)(struct rtrs_con *con),
 		  struct workqueue_struct *wq);
-void rtrs_start_hb(struct rtrs_sess *sess);
-void rtrs_stop_hb(struct rtrs_sess *sess);
-void rtrs_send_hb_ack(struct rtrs_sess *sess);
+void rtrs_start_hb(struct rtrs_path *path);
+void rtrs_stop_hb(struct rtrs_path *path);
+void rtrs_send_hb_ack(struct rtrs_path *path);
 
 void rtrs_rdma_dev_pd_init(enum ib_pd_flags pd_flags,
 			   struct rtrs_rdma_dev_pd *pool);

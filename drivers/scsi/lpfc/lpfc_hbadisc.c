@@ -169,44 +169,29 @@ lpfc_dev_loss_tmo_callbk(struct fc_rport *rport)
 
 	lpfc_printf_vlog(ndlp->vport, KERN_INFO, LOG_NODE,
 			 "3181 dev_loss_callbk x%06x, rport x%px flg x%x "
-			 "load_flag x%x refcnt %u state %d xpt x%x\n",
+			 "load_flag x%x refcnt %d state %d xpt x%x\n",
 			 ndlp->nlp_DID, ndlp->rport, ndlp->nlp_flag,
 			 vport->load_flag, kref_read(&ndlp->kref),
 			 ndlp->nlp_state, ndlp->fc4_xpt_flags);
 
-	/* Don't schedule a worker thread event if the vport is going down. */
+	/* Don't schedule a worker thread event if the vport is going down.
+	 * The teardown process cleans up the node via lpfc_drop_node.
+	 */
 	if (vport->load_flag & FC_UNLOADING) {
-		spin_lock_irqsave(&ndlp->lock, iflags);
+		((struct lpfc_rport_data *)rport->dd_data)->pnode = NULL;
 		ndlp->rport = NULL;
 
-		/* The scsi_transport is done with the rport so lpfc cannot
-		 * call to unregister. Remove the scsi transport reference
-		 * and clean up the SCSI transport node details.
+		ndlp->fc4_xpt_flags &= ~SCSI_XPT_REGD;
+		/* clear the NLP_XPT_REGD if the node is not registered
+		 * with nvme-fc
 		 */
-		if (ndlp->fc4_xpt_flags & (NLP_XPT_REGD | SCSI_XPT_REGD)) {
-			ndlp->fc4_xpt_flags &= ~SCSI_XPT_REGD;
+		if (ndlp->fc4_xpt_flags == NLP_XPT_REGD)
+			ndlp->fc4_xpt_flags &= ~NLP_XPT_REGD;
 
-			/* NVME transport-registered rports need the
-			 * NLP_XPT_REGD flag to complete an unregister.
-			 */
-			if (!(ndlp->fc4_xpt_flags & NVME_XPT_REGD))
-				ndlp->fc4_xpt_flags &= ~NLP_XPT_REGD;
-			spin_unlock_irqrestore(&ndlp->lock, iflags);
-			lpfc_nlp_put(ndlp);
-			spin_lock_irqsave(&ndlp->lock, iflags);
-		}
-
-		/* Only 1 thread can drop the initial node reference.  If
-		 * another thread has set NLP_DROPPED, this thread is done.
+		/* Remove the node reference from remote_port_add now.
+		 * The driver will not call remote_port_delete.
 		 */
-		if (!(ndlp->nlp_flag & NLP_DROPPED)) {
-			ndlp->nlp_flag |= NLP_DROPPED;
-			spin_unlock_irqrestore(&ndlp->lock, iflags);
-			lpfc_nlp_put(ndlp);
-			spin_lock_irqsave(&ndlp->lock, iflags);
-		}
-
-		spin_unlock_irqrestore(&ndlp->lock, iflags);
+		lpfc_nlp_put(ndlp);
 		return;
 	}
 
@@ -473,9 +458,11 @@ lpfc_dev_loss_tmo_handler(struct lpfc_nodelist *ndlp)
 	if (ndlp->nlp_type & NLP_FABRIC) {
 		spin_lock_irqsave(&ndlp->lock, iflags);
 
-		/* The driver has to account for a race between any fabric
-		 * node that's in recovery when dev_loss_tmo expires. When this
-		 * happens, the driver has to allow node recovery.
+		/* In massive vport configuration settings or when the FLOGI
+		 * completes with a sequence timeout, it's possible
+		 * dev_loss_tmo fired during node recovery.  The driver has to
+		 * account for this race to allow for recovery and keep
+		 * the reference counting correct.
 		 */
 		switch (ndlp->nlp_DID) {
 		case Fabric_DID:
@@ -501,17 +488,6 @@ lpfc_dev_loss_tmo_handler(struct lpfc_nodelist *ndlp)
 			if (ndlp->nlp_state >= NLP_STE_PLOGI_ISSUE &&
 			    ndlp->nlp_state <= NLP_STE_REG_LOGIN_ISSUE)
 				recovering = true;
-			break;
-		default:
-			/* Ensure the nlp_DID at least has the correct prefix.
-			 * The fabric domain controller's last three nibbles
-			 * vary so we handle it in the default case.
-			 */
-			if (ndlp->nlp_DID & Fabric_DID_MASK) {
-				if (ndlp->nlp_state >= NLP_STE_PLOGI_ISSUE &&
-				    ndlp->nlp_state <= NLP_STE_REG_LOGIN_ISSUE)
-					recovering = true;
-			}
 			break;
 		}
 		spin_unlock_irqrestore(&ndlp->lock, iflags);
@@ -580,9 +556,6 @@ lpfc_dev_loss_tmo_handler(struct lpfc_nodelist *ndlp)
 				 ndlp->nlp_DID, ndlp->nlp_flag,
 				 ndlp->nlp_state, ndlp->nlp_rpi);
 	}
-	spin_lock_irqsave(&ndlp->lock, iflags);
-	ndlp->nlp_flag &= ~NLP_IN_DEV_LOSS;
-	spin_unlock_irqrestore(&ndlp->lock, iflags);
 
 	/* If we are devloss, but we are in the process of rediscovering the
 	 * ndlp, don't issue a NLP_EVT_DEVICE_RM event.
@@ -592,6 +565,9 @@ lpfc_dev_loss_tmo_handler(struct lpfc_nodelist *ndlp)
 		return fcf_inuse;
 	}
 
+	spin_lock_irqsave(&ndlp->lock, iflags);
+	ndlp->nlp_flag &= ~NLP_IN_DEV_LOSS;
+	spin_unlock_irqrestore(&ndlp->lock, iflags);
 	if (!(ndlp->fc4_xpt_flags & NVME_XPT_REGD))
 		lpfc_disc_state_machine(vport, ndlp, NULL, NLP_EVT_DEVICE_RM);
 
@@ -2181,8 +2157,8 @@ lpfc_check_pending_fcoe_event(struct lpfc_hba *phba, uint8_t unreg_fcf)
  * This function makes an running random selection decision on FCF record to
  * use through a sequence of @fcf_cnt eligible FCF records with equal
  * probability. To perform integer manunipulation of random numbers with
- * size unit32_t, the lower 16 bits of the 32-bit random number returned
- * from prandom_u32() are taken as the random random number generated.
+ * size unit32_t, a 16-bit random number returned from get_random_u16() is
+ * taken as the random random number generated.
  *
  * Returns true when outcome is for the newly read FCF record should be
  * chosen; otherwise, return false when outcome is for keeping the previously
@@ -2194,7 +2170,7 @@ lpfc_sli4_new_fcf_random_select(struct lpfc_hba *phba, uint32_t fcf_cnt)
 	uint32_t rand_num;
 
 	/* Get 16-bit uniform random number */
-	rand_num = 0xFFFF & prandom_u32();
+	rand_num = get_random_u16();
 
 	/* Decision with probability 1/fcf_cnt */
 	if ((fcf_cnt * rand_num) < 0xFFFF)
@@ -4522,6 +4498,14 @@ lpfc_register_remote_port(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp)
 	if (vport->load_flag & FC_UNLOADING)
 		return;
 
+	/*
+	 * Disassociate any older association between this ndlp and rport
+	 */
+	if (ndlp->rport) {
+		rdata = ndlp->rport->dd_data;
+		rdata->pnode = NULL;
+	}
+
 	ndlp->rport = rport = fc_remote_port_add(shost, 0, &rport_ids);
 	if (!rport) {
 		dev_printk(KERN_WARNING, &phba->pcidev->dev,
@@ -4701,8 +4685,7 @@ lpfc_nlp_unreg_node(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp)
 	spin_lock_irqsave(&ndlp->lock, iflags);
 	if (!(ndlp->fc4_xpt_flags & NLP_XPT_REGD)) {
 		spin_unlock_irqrestore(&ndlp->lock, iflags);
-		lpfc_printf_vlog(vport, KERN_INFO,
-				 LOG_ELS | LOG_NODE | LOG_DISCOVERY,
+		lpfc_printf_vlog(vport, KERN_INFO, LOG_SLI,
 				 "0999 %s Not regd: ndlp x%px rport x%px DID "
 				 "x%x FLG x%x XPT x%x\n",
 				  __func__, ndlp, ndlp->rport, ndlp->nlp_DID,
@@ -4718,10 +4701,9 @@ lpfc_nlp_unreg_node(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp)
 		vport->phba->nport_event_cnt++;
 		lpfc_unregister_remote_port(ndlp);
 	} else if (!ndlp->rport) {
-		lpfc_printf_vlog(vport, KERN_INFO,
-				 LOG_ELS | LOG_NODE | LOG_DISCOVERY,
+		lpfc_printf_vlog(vport, KERN_INFO, LOG_SLI,
 				 "1999 %s NDLP in devloss x%px DID x%x FLG x%x"
-				 " XPT x%x refcnt %u\n",
+				 " XPT x%x refcnt %d\n",
 				 __func__, ndlp, ndlp->nlp_DID, ndlp->nlp_flag,
 				 ndlp->fc4_xpt_flags,
 				 kref_read(&ndlp->kref));
@@ -4854,7 +4836,7 @@ lpfc_nlp_state_name(char *buffer, size_t size, int state)
 	};
 
 	if (state < NLP_STE_MAX_STATE && states[state])
-		strscpy(buffer, states[state], size);
+		strlcpy(buffer, states[state], size);
 	else
 		snprintf(buffer, size, "unknown (%d)", state);
 	return buffer;
@@ -4971,29 +4953,22 @@ lpfc_drop_node(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp)
 {
 	/*
 	 * Use of lpfc_drop_node and UNUSED list: lpfc_drop_node should
-	 * be used when lpfc wants to remove the "last" lpfc_nlp_put() to
-	 * release the ndlp from the vport when conditions are correct.
+	 * be used if we wish to issue the "last" lpfc_nlp_put() to remove
+	 * the ndlp from the vport. The ndlp marked as UNUSED on the list
+	 * until ALL other outstanding threads have completed. We check
+	 * that the ndlp not already in the UNUSED state before we proceed.
 	 */
 	if (ndlp->nlp_state == NLP_STE_UNUSED_NODE)
 		return;
 	lpfc_nlp_set_state(vport, ndlp, NLP_STE_UNUSED_NODE);
+	ndlp->nlp_flag |= NLP_DROPPED;
 	if (vport->phba->sli_rev == LPFC_SLI_REV4) {
 		lpfc_cleanup_vports_rrqs(vport, ndlp);
 		lpfc_unreg_rpi(vport, ndlp);
 	}
 
-	/* NLP_DROPPED means another thread already removed the initial
-	 * reference from lpfc_nlp_init.  If set, don't drop it again and
-	 * introduce an imbalance.
-	 */
-	spin_lock_irq(&ndlp->lock);
-	if (!(ndlp->nlp_flag & NLP_DROPPED)) {
-		ndlp->nlp_flag |= NLP_DROPPED;
-		spin_unlock_irq(&ndlp->lock);
-		lpfc_nlp_put(ndlp);
-		return;
-	}
-	spin_unlock_irq(&ndlp->lock);
+	lpfc_nlp_put(ndlp);
+	return;
 }
 
 /*
@@ -5781,11 +5756,8 @@ lpfc_setup_disc_node(struct lpfc_vport *vport, uint32_t did)
 			     (NLP_FCP_TARGET | NLP_NVME_TARGET)))
 				return NULL;
 
-			if (ndlp->nlp_state > NLP_STE_UNUSED_NODE &&
-			    ndlp->nlp_state < NLP_STE_NPR_NODE) {
-				lpfc_disc_state_machine(vport, ndlp, NULL,
-							NLP_EVT_DEVICE_RECOVERY);
-			}
+			lpfc_disc_state_machine(vport, ndlp, NULL,
+						NLP_EVT_DEVICE_RECOVERY);
 
 			spin_lock_irq(&ndlp->lock);
 			ndlp->nlp_flag |= NLP_NPR_2B_DISC;
@@ -6971,9 +6943,7 @@ lpfc_unregister_fcf_rescan(struct lpfc_hba *phba)
 	if (rc)
 		return;
 	/* Reset HBA FCF states after successful unregister FCF */
-	spin_lock_irq(&phba->hbalock);
 	phba->fcf.fcf_flag = 0;
-	spin_unlock_irq(&phba->hbalock);
 	phba->fcf.current_rec.flag = 0;
 
 	/*

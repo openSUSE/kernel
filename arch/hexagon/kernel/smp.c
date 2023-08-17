@@ -217,7 +217,7 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 	}
 }
 
-void smp_send_reschedule(int cpu)
+void arch_smp_send_reschedule(int cpu)
 {
 	send_ipi(cpumask_of(cpu), IPI_RESCHEDULE);
 }
@@ -238,11 +238,6 @@ void arch_send_call_function_single_ipi(int cpu)
 void arch_send_call_function_ipi_mask(const struct cpumask *mask)
 {
 	send_ipi(mask, IPI_CALL_FUNC);
-}
-
-int setup_profiling_timer(unsigned int multiplier)
-{
-	return -EINVAL;
 }
 
 void smp_start_cpus(void)

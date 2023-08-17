@@ -284,19 +284,14 @@ out:
 	return ret;
 }
 
-static int omfs_readpage(struct file *file, struct page *page)
+static int omfs_read_folio(struct file *file, struct folio *folio)
 {
-	return block_read_full_page(page, omfs_get_block);
+	return block_read_full_folio(folio, omfs_get_block);
 }
 
 static void omfs_readahead(struct readahead_control *rac)
 {
 	mpage_readahead(rac, omfs_get_block);
-}
-
-static int omfs_writepage(struct page *page, struct writeback_control *wbc)
-{
-	return block_write_full_page(page, omfs_get_block, wbc);
 }
 
 static int
@@ -316,13 +311,12 @@ static void omfs_write_failed(struct address_space *mapping, loff_t to)
 }
 
 static int omfs_write_begin(struct file *file, struct address_space *mapping,
-			loff_t pos, unsigned len, unsigned flags,
+			loff_t pos, unsigned len,
 			struct page **pagep, void **fsdata)
 {
 	int ret;
 
-	ret = block_write_begin(mapping, pos, len, flags, pagep,
-				omfs_get_block);
+	ret = block_write_begin(mapping, pos, len, pagep, omfs_get_block);
 	if (unlikely(ret))
 		omfs_write_failed(mapping, pos + len);
 
@@ -343,13 +337,13 @@ const struct file_operations omfs_file_operations = {
 	.splice_read = generic_file_splice_read,
 };
 
-static int omfs_setattr(struct user_namespace *mnt_userns,
+static int omfs_setattr(struct mnt_idmap *idmap,
 			struct dentry *dentry, struct iattr *attr)
 {
 	struct inode *inode = d_inode(dentry);
 	int error;
 
-	error = setattr_prepare(&init_user_ns, dentry, attr);
+	error = setattr_prepare(&nop_mnt_idmap, dentry, attr);
 	if (error)
 		return error;
 
@@ -362,7 +356,7 @@ static int omfs_setattr(struct user_namespace *mnt_userns,
 		omfs_truncate(inode);
 	}
 
-	setattr_copy(&init_user_ns, inode, attr);
+	setattr_copy(&nop_mnt_idmap, inode, attr);
 	mark_inode_dirty(inode);
 	return 0;
 }
@@ -372,13 +366,14 @@ const struct inode_operations omfs_file_inops = {
 };
 
 const struct address_space_operations omfs_aops = {
-	.set_page_dirty = __set_page_dirty_buffers,
-	.readpage = omfs_readpage,
+	.dirty_folio = block_dirty_folio,
+	.invalidate_folio = block_invalidate_folio,
+	.read_folio = omfs_read_folio,
 	.readahead = omfs_readahead,
-	.writepage = omfs_writepage,
 	.writepages = omfs_writepages,
 	.write_begin = omfs_write_begin,
 	.write_end = generic_write_end,
 	.bmap = omfs_bmap,
+	.migrate_folio = buffer_migrate_folio,
 };
 

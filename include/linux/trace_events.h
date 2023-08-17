@@ -136,7 +136,6 @@ struct trace_event_functions {
 
 struct trace_event {
 	struct hlist_node		node;
-	struct list_head		list;
 	int				type;
 	struct trace_event_functions	*funcs;
 };
@@ -174,6 +173,7 @@ enum trace_flag_type {
 	TRACE_FLAG_SOFTIRQ		= 0x10,
 	TRACE_FLAG_PREEMPT_RESCHED	= 0x20,
 	TRACE_FLAG_NMI			= 0x40,
+	TRACE_FLAG_BH_OFF		= 0x80,
 };
 
 #ifdef CONFIG_TRACE_IRQFLAGS_SUPPORT
@@ -234,7 +234,8 @@ void tracing_record_taskinfo_sched_switch(struct task_struct *prev,
 void tracing_record_cmdline(struct task_struct *task);
 void tracing_record_tgid(struct task_struct *task);
 
-int trace_output_call(struct trace_iterator *iter, char *name, char *fmt, ...);
+int trace_output_call(struct trace_iterator *iter, char *name, char *fmt, ...)
+	 __printf(3, 4);
 
 struct event_filter;
 
@@ -269,6 +270,7 @@ struct trace_event_fields {
 			const int  align;
 			const int  is_signed;
 			const int  filter_type;
+			const int  len;
 		};
 		int (*define_fields)(struct trace_event_call *);
 	};
@@ -315,6 +317,8 @@ enum {
 	TRACE_EVENT_FL_DYNAMIC_BIT,
 	TRACE_EVENT_FL_KPROBE_BIT,
 	TRACE_EVENT_FL_UPROBE_BIT,
+	TRACE_EVENT_FL_EPROBE_BIT,
+	TRACE_EVENT_FL_CUSTOM_BIT,
 };
 
 /*
@@ -327,6 +331,10 @@ enum {
  *  DYNAMIC       - Event is a dynamic event (created at run time)
  *  KPROBE        - Event is a kprobe
  *  UPROBE        - Event is a uprobe
+ *  EPROBE        - Event is an event probe
+ *  CUSTOM        - Event is a custom event (to be attached to an exsiting tracepoint)
+ *                   This is set when the custom event has not been attached
+ *                   to a tracepoint yet, then it is cleared when it is.
  */
 enum {
 	TRACE_EVENT_FL_FILTERED		= (1 << TRACE_EVENT_FL_FILTERED_BIT),
@@ -337,6 +345,8 @@ enum {
 	TRACE_EVENT_FL_DYNAMIC		= (1 << TRACE_EVENT_FL_DYNAMIC_BIT),
 	TRACE_EVENT_FL_KPROBE		= (1 << TRACE_EVENT_FL_KPROBE_BIT),
 	TRACE_EVENT_FL_UPROBE		= (1 << TRACE_EVENT_FL_UPROBE_BIT),
+	TRACE_EVENT_FL_EPROBE		= (1 << TRACE_EVENT_FL_EPROBE_BIT),
+	TRACE_EVENT_FL_CUSTOM		= (1 << TRACE_EVENT_FL_CUSTOM_BIT),
 };
 
 #define TRACE_EVENT_FL_UKPROBE (TRACE_EVENT_FL_KPROBE | TRACE_EVENT_FL_UPROBE)
@@ -352,7 +362,14 @@ struct trace_event_call {
 	struct trace_event	event;
 	char			*print_fmt;
 	struct event_filter	*filter;
-	void			*mod;
+	/*
+	 * Static events can disappear with modules,
+	 * where as dynamic ones need their own ref count.
+	 */
+	union {
+		void				*module;
+		atomic_t			refcnt;
+	};
 	void			*data;
 
 	/* See the TRACE_EVENT_FL_* flags above */
@@ -367,6 +384,42 @@ struct trace_event_call {
 			     struct perf_event *);
 #endif
 };
+
+#ifdef CONFIG_DYNAMIC_EVENTS
+bool trace_event_dyn_try_get_ref(struct trace_event_call *call);
+void trace_event_dyn_put_ref(struct trace_event_call *call);
+bool trace_event_dyn_busy(struct trace_event_call *call);
+#else
+static inline bool trace_event_dyn_try_get_ref(struct trace_event_call *call)
+{
+	/* Without DYNAMIC_EVENTS configured, nothing should be calling this */
+	return false;
+}
+static inline void trace_event_dyn_put_ref(struct trace_event_call *call)
+{
+}
+static inline bool trace_event_dyn_busy(struct trace_event_call *call)
+{
+	/* Nothing should call this without DYNAIMIC_EVENTS configured. */
+	return true;
+}
+#endif
+
+static inline bool trace_event_try_get_ref(struct trace_event_call *call)
+{
+	if (call->flags & TRACE_EVENT_FL_DYNAMIC)
+		return trace_event_dyn_try_get_ref(call);
+	else
+		return try_module_get(call->module);
+}
+
+static inline void trace_event_put_ref(struct trace_event_call *call)
+{
+	if (call->flags & TRACE_EVENT_FL_DYNAMIC)
+		trace_event_dyn_put_ref(call);
+	else
+		module_put(call->module);
+}
 
 #ifdef CONFIG_PERF_EVENTS
 static inline bool bpf_prog_array_valid(struct trace_event_call *call)
@@ -395,7 +448,9 @@ static inline bool bpf_prog_array_valid(struct trace_event_call *call)
 static inline const char *
 trace_event_name(struct trace_event_call *call)
 {
-	if (call->flags & TRACE_EVENT_FL_TRACEPOINT)
+	if (call->flags & TRACE_EVENT_FL_CUSTOM)
+		return call->name;
+	else if (call->flags & TRACE_EVENT_FL_TRACEPOINT)
 		return call->tp ? call->tp->name : NULL;
 	else
 		return call->name;
@@ -639,6 +694,7 @@ enum event_trigger_type {
 	ETT_EVENT_ENABLE	= (1 << 3),
 	ETT_EVENT_HIST		= (1 << 4),
 	ETT_HIST_ENABLE		= (1 << 5),
+	ETT_EVENT_EPROBE	= (1 << 6),
 };
 
 extern int filter_match_preds(struct event_filter *filter, void *rec);
@@ -653,6 +709,8 @@ event_triggers_post_call(struct trace_event_file *file,
 
 bool trace_event_ignore_this_pid(struct trace_event_file *trace_file);
 
+bool __trace_trigger_soft_disabled(struct trace_event_file *file);
+
 /**
  * trace_trigger_soft_disabled - do triggers and test if soft disabled
  * @file: The file pointer of the event to test
@@ -662,20 +720,20 @@ bool trace_event_ignore_this_pid(struct trace_event_file *trace_file);
  * triggers that require testing the fields, it will return true,
  * otherwise false.
  */
-static inline bool
+static __always_inline bool
 trace_trigger_soft_disabled(struct trace_event_file *file)
 {
 	unsigned long eflags = file->flags;
 
-	if (!(eflags & EVENT_FILE_FL_TRIGGER_COND)) {
-		if (eflags & EVENT_FILE_FL_TRIGGER_MODE)
-			event_triggers_call(file, NULL, NULL, NULL);
-		if (eflags & EVENT_FILE_FL_SOFT_DISABLED)
-			return true;
-		if (eflags & EVENT_FILE_FL_PID_FILTER)
-			return trace_event_ignore_this_pid(file);
-	}
-	return false;
+	if (likely(!(eflags & (EVENT_FILE_FL_TRIGGER_MODE |
+			       EVENT_FILE_FL_SOFT_DISABLED |
+			       EVENT_FILE_FL_PID_FILTER))))
+		return false;
+
+	if (likely(eflags & EVENT_FILE_FL_TRIGGER_COND))
+		return false;
+
+	return __trace_trigger_soft_disabled(file);
 }
 
 #ifdef CONFIG_BPF_EVENTS
@@ -743,10 +801,12 @@ enum {
 	FILTER_OTHER = 0,
 	FILTER_STATIC_STRING,
 	FILTER_DYN_STRING,
+	FILTER_RDYN_STRING,
 	FILTER_PTR_STRING,
 	FILTER_TRACE_FN,
 	FILTER_COMM,
 	FILTER_CPU,
+	FILTER_STACKTRACE,
 };
 
 extern int trace_event_raw_init(struct trace_event_call *call);
@@ -756,8 +816,6 @@ extern int trace_define_field(struct trace_event_call *call, const char *type,
 extern int trace_add_event_call(struct trace_event_call *call);
 extern int trace_remove_event_call(struct trace_event_call *call);
 extern int trace_event_get_offsets(struct trace_event_call *call);
-
-#define is_signed_type(type)	(((type)(-1)) < (type)1)
 
 int ftrace_set_clr_event(struct trace_array *tr, char *buf, int set);
 int trace_set_clr_event(const char *system, const char *event, int set);
@@ -859,4 +917,37 @@ perf_trace_buf_submit(void *raw_data, int size, int rctx, u16 type,
 
 #endif
 
+#define TRACE_EVENT_STR_MAX	512
+
+/*
+ * gcc warns that you can not use a va_list in an inlined
+ * function. But lets me make it into a macro :-/
+ */
+#define __trace_event_vstr_len(fmt, va)			\
+({							\
+	va_list __ap;					\
+	int __ret;					\
+							\
+	va_copy(__ap, *(va));				\
+	__ret = vsnprintf(NULL, 0, fmt, __ap) + 1;	\
+	va_end(__ap);					\
+							\
+	min(__ret, TRACE_EVENT_STR_MAX);		\
+})
+
 #endif /* _LINUX_TRACE_EVENT_H */
+
+/*
+ * Note: we keep the TRACE_CUSTOM_EVENT outside the include file ifdef protection.
+ *  This is due to the way trace custom events work. If a file includes two
+ *  trace event headers under one "CREATE_CUSTOM_TRACE_EVENTS" the first include
+ *  will override the TRACE_CUSTOM_EVENT and break the second include.
+ */
+
+#ifndef TRACE_CUSTOM_EVENT
+
+#define DECLARE_CUSTOM_EVENT_CLASS(name, proto, args, tstruct, assign, print)
+#define DEFINE_CUSTOM_EVENT(template, name, proto, args)
+#define TRACE_CUSTOM_EVENT(name, proto, args, struct, assign, print)
+
+#endif /* ifdef TRACE_CUSTOM_EVENT (see note above) */

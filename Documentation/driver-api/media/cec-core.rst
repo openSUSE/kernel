@@ -109,6 +109,7 @@ your driver:
 		int (*adap_monitor_all_enable)(struct cec_adapter *adap, bool enable);
 		int (*adap_monitor_pin_enable)(struct cec_adapter *adap, bool enable);
 		int (*adap_log_addr)(struct cec_adapter *adap, u8 logical_addr);
+		void (*adap_configured)(struct cec_adapter *adap, bool configured);
 		int (*adap_transmit)(struct cec_adapter *adap, u8 attempts,
 				      u32 signal_free_time, struct cec_msg *msg);
 		void (*adap_status)(struct cec_adapter *adap, struct seq_file *file);
@@ -117,7 +118,7 @@ your driver:
 		/* Error injection callbacks */
 		...
 
-		/* High-level callbacks */
+		/* High-level callback */
 		...
 	};
 
@@ -130,9 +131,12 @@ To enable/disable the hardware::
 	int (*adap_enable)(struct cec_adapter *adap, bool enable);
 
 This callback enables or disables the CEC hardware. Enabling the CEC hardware
-means powering it up in a state where no logical addresses are claimed. This
-op assumes that the physical address (adap->phys_addr) is valid when enable is
-true and will not change while the CEC adapter remains enabled. The initial
+means powering it up in a state where no logical addresses are claimed. The
+physical address will always be valid if CEC_CAP_NEEDS_HPD is set. If that
+capability is not set, then the physical address can change while the CEC
+hardware is enabled. CEC drivers should not set CEC_CAP_NEEDS_HPD unless
+the hardware design requires that as this will make it impossible to wake
+up displays that pull the HPD low when in standby mode.  The initial
 state of the CEC adapter after calling cec_allocate_adapter() is disabled.
 
 Note that adap_enable must return 0 if enable is false.
@@ -173,6 +177,16 @@ should return -ENXIO. Once a logical address is programmed the CEC hardware
 can receive directed messages to that address.
 
 Note that adap_log_addr must return 0 if logical_addr is CEC_LOG_ADDR_INVALID.
+
+
+Called when the adapter is fully configured or unconfigured::
+
+	void (*adap_configured)(struct cec_adapter *adap, bool configured);
+
+If configured == true, then the adapter is fully configured, i.e. all logical
+addresses have been successfully claimed. If configured == false, then the
+adapter is unconfigured. If the driver has to take specific actions after
+(un)configuration, then that can be done through this optional callback.
 
 
 To transmit a new message::

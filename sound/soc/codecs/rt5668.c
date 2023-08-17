@@ -1022,8 +1022,8 @@ static void rt5668_jack_detect_handler(struct work_struct *work)
 		container_of(work, struct rt5668_priv, jack_detect_work.work);
 	int val, btn_type;
 
-	if (!rt5668->component || !rt5668->component->card ||
-	    !rt5668->component->card->instantiated) {
+	if (!rt5668->component ||
+	    !snd_soc_card_is_instantiated(rt5668->component->card)) {
 		/* card not yet ready, try later */
 		mod_delayed_work(system_power_efficient_wq,
 				 &rt5668->jack_detect_work, msecs_to_jiffies(15));
@@ -2362,7 +2362,6 @@ static const struct snd_soc_component_driver soc_component_dev_rt5668 = {
 	.set_jack = rt5668_set_jack_detect,
 	.use_pmdown_time	= 1,
 	.endianness		= 1,
-	.non_legacy_dai_naming	= 1,
 };
 
 static const struct regmap_config rt5668_regmap = {

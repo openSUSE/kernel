@@ -26,7 +26,7 @@ struct ntxec {
  * This convenience function converts an 8-bit value to 16-bit for use in the
  * second kind of register.
  */
-static inline __be16 ntxec_reg8(u8 value)
+static inline u16 ntxec_reg8(u8 value)
 {
 	return value << 8;
 }
@@ -34,5 +34,5 @@ static inline __be16 ntxec_reg8(u8 value)
 /* Known firmware versions */
 #define NTXEC_VERSION_KOBO_AURA	0xd726	/* found in Kobo Aura */
 #define NTXEC_VERSION_TOLINO_SHINE2 0xf110 /* found in Tolino Shine 2 HD */
-
+#define NTXEC_VERSION_TOLINO_VISION 0xe135 /* found in Tolino Vision, contains RTC, ADC, PWM, home pad */
 #endif

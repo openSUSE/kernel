@@ -44,15 +44,17 @@ struct xfs_dquot_res {
 	 * in seconds since the Unix epoch.
 	 */
 	time64_t		timer;
-
-	/*
-	 * For root dquots, this is the maximum number of warnings that will
-	 * be issued for this quota type.  Otherwise, this is the number of
-	 * warnings issued against this quota.  Note that none of this is
-	 * implemented.
-	 */
-	xfs_qwarncnt_t		warnings;
 };
+
+static inline bool
+xfs_dquot_res_over_limits(
+	const struct xfs_dquot_res	*qres)
+{
+	if ((qres->softlimit && qres->softlimit < qres->reserved) ||
+	    (qres->hardlimit && qres->hardlimit < qres->reserved))
+		return true;
+	return false;
+}
 
 /*
  * The incore dquot structure

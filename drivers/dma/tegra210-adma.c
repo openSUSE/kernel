@@ -674,9 +674,8 @@ static int tegra_adma_alloc_chan_resources(struct dma_chan *dc)
 		return ret;
 	}
 
-	ret = pm_runtime_get_sync(tdc2dev(tdc));
+	ret = pm_runtime_resume_and_get(tdc2dev(tdc));
 	if (ret < 0) {
-		pm_runtime_put_noidle(tdc2dev(tdc));
 		free_irq(tdc->irq, tdc);
 		return ret;
 	}
@@ -838,7 +837,6 @@ static int tegra_adma_probe(struct platform_device *pdev)
 {
 	const struct tegra_adma_chip_data *cdata;
 	struct tegra_adma *tdma;
-	struct resource	*res;
 	int ret, i;
 
 	cdata = of_device_get_match_data(&pdev->dev);
@@ -858,8 +856,7 @@ static int tegra_adma_probe(struct platform_device *pdev)
 	tdma->nr_channels = cdata->nr_channels;
 	platform_set_drvdata(pdev, tdma);
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	tdma->base_addr = devm_ioremap_resource(&pdev->dev, res);
+	tdma->base_addr = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(tdma->base_addr))
 		return PTR_ERR(tdma->base_addr);
 
@@ -889,11 +886,9 @@ static int tegra_adma_probe(struct platform_device *pdev)
 
 	pm_runtime_enable(&pdev->dev);
 
-	ret = pm_runtime_get_sync(&pdev->dev);
-	if (ret < 0) {
-		pm_runtime_put_noidle(&pdev->dev);
+	ret = pm_runtime_resume_and_get(&pdev->dev);
+	if (ret < 0)
 		goto rpm_disable;
-	}
 
 	ret = tegra_adma_init(tdma);
 	if (ret)
@@ -964,7 +959,6 @@ static int tegra_adma_remove(struct platform_device *pdev)
 	for (i = 0; i < tdma->nr_channels; ++i)
 		irq_dispose_mapping(tdma->channels[i].irq);
 
-	pm_runtime_put_sync(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
 
 	return 0;

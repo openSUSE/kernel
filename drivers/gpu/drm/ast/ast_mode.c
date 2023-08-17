@@ -35,14 +35,14 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_atomic_state_helper.h>
 #include <drm/drm_crtc.h>
-#include <drm/drm_crtc_helper.h>
+#include <drm/drm_damage_helper.h>
 #include <drm/drm_edid.h>
+#include <drm/drm_format_helper.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_gem_atomic_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
-#include <drm/drm_gem_vram_helper.h>
+#include <drm/drm_gem_shmem_helper.h>
 #include <drm/drm_managed.h>
-#include <drm/drm_plane_helper.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_simple_kms_helper.h>
 
@@ -51,7 +51,7 @@
 
 #define AST_LUT_SIZE 256
 
-static inline void ast_load_palette_index(struct ast_private *ast,
+static inline void ast_load_palette_index(struct ast_device *ast,
 				     u8 index, u8 red, u8 green,
 				     u8 blue)
 {
@@ -65,7 +65,7 @@ static inline void ast_load_palette_index(struct ast_private *ast,
 	ast_io_read8(ast, AST_IO_SEQ_PORT);
 }
 
-static void ast_crtc_set_gamma_linear(struct ast_private *ast,
+static void ast_crtc_set_gamma_linear(struct ast_device *ast,
 				      const struct drm_format_info *format)
 {
 	int i;
@@ -84,7 +84,7 @@ static void ast_crtc_set_gamma_linear(struct ast_private *ast,
 	}
 }
 
-static void ast_crtc_set_gamma(struct ast_private *ast,
+static void ast_crtc_set_gamma(struct ast_device *ast,
 			       const struct drm_format_info *format,
 			       struct drm_color_lut *lut)
 {
@@ -232,7 +232,7 @@ static bool ast_get_vbios_mode_info(const struct drm_format_info *format,
 	return true;
 }
 
-static void ast_set_vbios_color_reg(struct ast_private *ast,
+static void ast_set_vbios_color_reg(struct ast_device *ast,
 				    const struct drm_format_info *format,
 				    const struct ast_vbios_mode_info *vbios_mode)
 {
@@ -263,7 +263,7 @@ static void ast_set_vbios_color_reg(struct ast_private *ast,
 	}
 }
 
-static void ast_set_vbios_mode_reg(struct ast_private *ast,
+static void ast_set_vbios_mode_reg(struct ast_device *ast,
 				   const struct drm_display_mode *adjusted_mode,
 				   const struct ast_vbios_mode_info *vbios_mode)
 {
@@ -287,7 +287,7 @@ static void ast_set_vbios_mode_reg(struct ast_private *ast,
 	}
 }
 
-static void ast_set_std_reg(struct ast_private *ast,
+static void ast_set_std_reg(struct ast_device *ast,
 			    struct drm_display_mode *mode,
 			    struct ast_vbios_mode_info *vbios_mode)
 {
@@ -335,7 +335,7 @@ static void ast_set_std_reg(struct ast_private *ast,
 		ast_set_index_reg(ast, AST_IO_GR_PORT, i, stdtable->gr[i]);
 }
 
-static void ast_set_crtc_reg(struct ast_private *ast,
+static void ast_set_crtc_reg(struct ast_device *ast,
 			     struct drm_display_mode *mode,
 			     struct ast_vbios_mode_info *vbios_mode)
 {
@@ -450,7 +450,7 @@ static void ast_set_crtc_reg(struct ast_private *ast,
 	ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0x11, 0x7f, 0x80);
 }
 
-static void ast_set_offset_reg(struct ast_private *ast,
+static void ast_set_offset_reg(struct ast_device *ast,
 			       struct drm_framebuffer *fb)
 {
 	u16 offset;
@@ -460,7 +460,7 @@ static void ast_set_offset_reg(struct ast_private *ast,
 	ast_set_index_reg(ast, AST_IO_CRTC_PORT, 0xb0, (offset >> 8) & 0x3f);
 }
 
-static void ast_set_dclk_reg(struct ast_private *ast,
+static void ast_set_dclk_reg(struct ast_device *ast,
 			     struct drm_display_mode *mode,
 			     struct ast_vbios_mode_info *vbios_mode)
 {
@@ -478,7 +478,7 @@ static void ast_set_dclk_reg(struct ast_private *ast,
 			       ((clk_info->param3 & 0x3) << 4));
 }
 
-static void ast_set_color_reg(struct ast_private *ast,
+static void ast_set_color_reg(struct ast_device *ast,
 			      const struct drm_format_info *format)
 {
 	u8 jregA0 = 0, jregA3 = 0, jregA8 = 0;
@@ -507,7 +507,7 @@ static void ast_set_color_reg(struct ast_private *ast,
 	ast_set_index_reg_mask(ast, AST_IO_CRTC_PORT, 0xa8, 0xfd, jregA8);
 }
 
-static void ast_set_crtthd_reg(struct ast_private *ast)
+static void ast_set_crtthd_reg(struct ast_device *ast)
 {
 	/* Set Threshold */
 	if (ast->chip == AST2600) {
@@ -529,7 +529,7 @@ static void ast_set_crtthd_reg(struct ast_private *ast)
 	}
 }
 
-static void ast_set_sync_reg(struct ast_private *ast,
+static void ast_set_sync_reg(struct ast_device *ast,
 			     struct drm_display_mode *mode,
 			     struct ast_vbios_mode_info *vbios_mode)
 {
@@ -544,7 +544,7 @@ static void ast_set_sync_reg(struct ast_private *ast,
 	ast_io_write8(ast, AST_IO_MISC_PORT_WRITE, jreg);
 }
 
-static void ast_set_start_address_crt1(struct ast_private *ast,
+static void ast_set_start_address_crt1(struct ast_device *ast,
 				       unsigned int offset)
 {
 	u32 addr;
@@ -556,7 +556,7 @@ static void ast_set_start_address_crt1(struct ast_private *ast,
 
 }
 
-static void ast_wait_for_vretrace(struct ast_private *ast)
+static void ast_wait_for_vretrace(struct ast_device *ast)
 {
 	unsigned long timeout = jiffies + HZ;
 	u8 vgair1;
@@ -564,6 +564,29 @@ static void ast_wait_for_vretrace(struct ast_private *ast)
 	do {
 		vgair1 = ast_io_read8(ast, AST_IO_INPUT_STATUS1_READ);
 	} while (!(vgair1 & AST_IO_VGAIR1_VREFRESH) && time_before(jiffies, timeout));
+}
+
+/*
+ * Planes
+ */
+
+static int ast_plane_init(struct drm_device *dev, struct ast_plane *ast_plane,
+			  void __iomem *vaddr, u64 offset, unsigned long size,
+			  uint32_t possible_crtcs,
+			  const struct drm_plane_funcs *funcs,
+			  const uint32_t *formats, unsigned int format_count,
+			  const uint64_t *format_modifiers,
+			  enum drm_plane_type type)
+{
+	struct drm_plane *plane = &ast_plane->base;
+
+	ast_plane->vaddr = vaddr;
+	ast_plane->offset = offset;
+	ast_plane->size = size;
+
+	return drm_universal_plane_init(dev, plane, possible_crtcs, funcs,
+					formats, format_count, format_modifiers,
+					type, NULL);
 }
 
 /*
@@ -589,8 +612,8 @@ static int ast_primary_plane_helper_atomic_check(struct drm_plane *plane,
 		new_crtc_state = drm_atomic_get_new_crtc_state(state, new_plane_state->crtc);
 
 	ret = drm_atomic_helper_check_plane_state(new_plane_state, new_crtc_state,
-						  DRM_PLANE_HELPER_NO_SCALING,
-						  DRM_PLANE_HELPER_NO_SCALING,
+						  DRM_PLANE_NO_SCALING,
+						  DRM_PLANE_NO_SCALING,
 						  false, true);
 	if (ret) {
 		return ret;
@@ -608,17 +631,29 @@ static int ast_primary_plane_helper_atomic_check(struct drm_plane *plane,
 	return 0;
 }
 
+static void ast_handle_damage(struct ast_plane *ast_plane, struct iosys_map *src,
+			      struct drm_framebuffer *fb,
+			      const struct drm_rect *clip)
+{
+	struct iosys_map dst = IOSYS_MAP_INIT_VADDR_IOMEM(ast_plane->vaddr);
+
+	iosys_map_incr(&dst, drm_fb_clip_offset(fb->pitches[0], fb->format, clip));
+	drm_fb_memcpy(&dst, fb->pitches, src, fb, clip);
+}
+
 static void ast_primary_plane_helper_atomic_update(struct drm_plane *plane,
 						   struct drm_atomic_state *state)
 {
 	struct drm_device *dev = plane->dev;
-	struct ast_private *ast = to_ast_private(dev);
+	struct ast_device *ast = to_ast_device(dev);
 	struct drm_plane_state *plane_state = drm_atomic_get_new_plane_state(state, plane);
+	struct drm_shadow_plane_state *shadow_plane_state = to_drm_shadow_plane_state(plane_state);
 	struct drm_framebuffer *fb = plane_state->fb;
 	struct drm_plane_state *old_plane_state = drm_atomic_get_old_plane_state(state, plane);
 	struct drm_framebuffer *old_fb = old_plane_state->fb;
-	struct drm_gem_vram_object *gbo;
-	s64 gpu_addr;
+	struct ast_plane *ast_plane = to_ast_plane(plane);
+	struct drm_rect damage;
+	struct drm_atomic_helper_damage_iter iter;
 
 	if (!old_fb || (fb->format != old_fb->format)) {
 		struct drm_crtc *crtc = plane_state->crtc;
@@ -630,29 +665,50 @@ static void ast_primary_plane_helper_atomic_update(struct drm_plane *plane,
 		ast_set_vbios_color_reg(ast, fb->format, vbios_mode_info);
 	}
 
-	gbo = drm_gem_vram_of_gem(fb->obj[0]);
-	gpu_addr = drm_gem_vram_offset(gbo);
-	if (drm_WARN_ON_ONCE(dev, gpu_addr < 0))
-		return; /* Bug: we didn't pin the BO to VRAM in prepare_fb. */
+	drm_atomic_helper_damage_iter_init(&iter, old_plane_state, plane_state);
+	drm_atomic_for_each_plane_damage(&iter, &damage) {
+		ast_handle_damage(ast_plane, shadow_plane_state->data, fb, &damage);
+	}
 
-	ast_set_offset_reg(ast, fb);
-	ast_set_start_address_crt1(ast, (u32)gpu_addr);
+	/*
+	 * Some BMCs stop scanning out the video signal after the driver
+	 * reprogrammed the offset. This stalls display output for several
+	 * seconds and makes the display unusable. Therefore only update
+	 * the offset if it changes.
+	 */
+	if (!old_fb || old_fb->pitches[0] != fb->pitches[0])
+		ast_set_offset_reg(ast, fb);
+}
 
+static void ast_primary_plane_helper_atomic_enable(struct drm_plane *plane,
+						   struct drm_atomic_state *state)
+{
+	struct ast_device *ast = to_ast_device(plane->dev);
+	struct ast_plane *ast_plane = to_ast_plane(plane);
+
+	/*
+	 * Some BMCs stop scanning out the video signal after the driver
+	 * reprogrammed the scanout address. This stalls display
+	 * output for several seconds and makes the display unusable.
+	 * Therefore only reprogram the address after enabling the plane.
+	 */
+	ast_set_start_address_crt1(ast, (u32)ast_plane->offset);
 	ast_set_index_reg_mask(ast, AST_IO_SEQ_PORT, 0x1, 0xdf, 0x00);
 }
 
 static void ast_primary_plane_helper_atomic_disable(struct drm_plane *plane,
 						    struct drm_atomic_state *state)
 {
-	struct ast_private *ast = to_ast_private(plane->dev);
+	struct ast_device *ast = to_ast_device(plane->dev);
 
 	ast_set_index_reg_mask(ast, AST_IO_SEQ_PORT, 0x1, 0xdf, 0x20);
 }
 
 static const struct drm_plane_helper_funcs ast_primary_plane_helper_funcs = {
-	DRM_GEM_VRAM_PLANE_HELPER_FUNCS,
+	DRM_GEM_SHADOW_PLANE_HELPER_FUNCS,
 	.atomic_check = ast_primary_plane_helper_atomic_check,
 	.atomic_update = ast_primary_plane_helper_atomic_update,
+	.atomic_enable = ast_primary_plane_helper_atomic_enable,
 	.atomic_disable = ast_primary_plane_helper_atomic_disable,
 };
 
@@ -660,27 +716,30 @@ static const struct drm_plane_funcs ast_primary_plane_funcs = {
 	.update_plane = drm_atomic_helper_update_plane,
 	.disable_plane = drm_atomic_helper_disable_plane,
 	.destroy = drm_plane_cleanup,
-	.reset = drm_atomic_helper_plane_reset,
-	.atomic_duplicate_state = drm_atomic_helper_plane_duplicate_state,
-	.atomic_destroy_state = drm_atomic_helper_plane_destroy_state,
+	DRM_GEM_SHADOW_PLANE_FUNCS,
 };
 
-static int ast_primary_plane_init(struct ast_private *ast)
+static int ast_primary_plane_init(struct ast_device *ast)
 {
 	struct drm_device *dev = &ast->base;
-	struct drm_plane *primary_plane = &ast->primary_plane;
+	struct ast_plane *ast_primary_plane = &ast->primary_plane;
+	struct drm_plane *primary_plane = &ast_primary_plane->base;
+	void __iomem *vaddr = ast->vram;
+	u64 offset = 0; /* with shmem, the primary plane is always at offset 0 */
+	unsigned long cursor_size = roundup(AST_HWC_SIZE + AST_HWC_SIGNATURE_SIZE, PAGE_SIZE);
+	unsigned long size = ast->vram_fb_available - cursor_size;
 	int ret;
 
-	ret = drm_universal_plane_init(dev, primary_plane, 0x01,
-				       &ast_primary_plane_funcs,
-				       ast_primary_plane_formats,
-				       ARRAY_SIZE(ast_primary_plane_formats),
-				       NULL, DRM_PLANE_TYPE_PRIMARY, NULL);
+	ret = ast_plane_init(dev, ast_primary_plane, vaddr, offset, size,
+			     0x01, &ast_primary_plane_funcs,
+			     ast_primary_plane_formats, ARRAY_SIZE(ast_primary_plane_formats),
+			     NULL, DRM_PLANE_TYPE_PRIMARY);
 	if (ret) {
-		drm_err(dev, "drm_universal_plane_init() failed: %d\n", ret);
+		drm_err(dev, "ast_plane_init() failed: %d\n", ret);
 		return ret;
 	}
 	drm_plane_helper_add(primary_plane, &ast_primary_plane_helper_funcs);
+	drm_plane_enable_fb_damage_clips(primary_plane);
 
 	return 0;
 }
@@ -753,7 +812,7 @@ static void ast_update_cursor_image(u8 __iomem *dst, const u8 *src, int width, i
 	writel(0, dst + AST_HWC_SIGNATURE_HOTSPOTY);
 }
 
-static void ast_set_cursor_base(struct ast_private *ast, u64 address)
+static void ast_set_cursor_base(struct ast_device *ast, u64 address)
 {
 	u8 addr0 = (address >> 3) & 0xff;
 	u8 addr1 = (address >> 11) & 0xff;
@@ -764,7 +823,7 @@ static void ast_set_cursor_base(struct ast_private *ast, u64 address)
 	ast_set_index_reg(ast, AST_IO_CRTC_PORT, 0xca, addr2);
 }
 
-static void ast_set_cursor_location(struct ast_private *ast, u16 x, u16 y,
+static void ast_set_cursor_location(struct ast_device *ast, u16 x, u16 y,
 				    u8 x_offset, u8 y_offset)
 {
 	u8 x0 = (x & 0x00ff);
@@ -780,7 +839,7 @@ static void ast_set_cursor_location(struct ast_private *ast, u16 x, u16 y,
 	ast_set_index_reg(ast, AST_IO_CRTC_PORT, 0xc7, y1);
 }
 
-static void ast_set_cursor_enabled(struct ast_private *ast, bool enabled)
+static void ast_set_cursor_enabled(struct ast_device *ast, bool enabled)
 {
 	static const u8 mask = (u8)~(AST_IO_VGACRCB_HWC_16BPP |
 				     AST_IO_VGACRCB_HWC_ENABLED);
@@ -809,8 +868,8 @@ static int ast_cursor_plane_helper_atomic_check(struct drm_plane *plane,
 		new_crtc_state = drm_atomic_get_new_crtc_state(state, new_plane_state->crtc);
 
 	ret = drm_atomic_helper_check_plane_state(new_plane_state, new_crtc_state,
-						  DRM_PLANE_HELPER_NO_SCALING,
-						  DRM_PLANE_HELPER_NO_SCALING,
+						  DRM_PLANE_NO_SCALING,
+						  DRM_PLANE_NO_SCALING,
 						  true, true);
 	if (ret || !new_plane_state->visible)
 		return ret;
@@ -821,41 +880,34 @@ static int ast_cursor_plane_helper_atomic_check(struct drm_plane *plane,
 	return 0;
 }
 
-static void
-ast_cursor_plane_helper_atomic_update(struct drm_plane *plane,
-				      struct drm_atomic_state *state)
+static void ast_cursor_plane_helper_atomic_update(struct drm_plane *plane,
+						  struct drm_atomic_state *state)
 {
 	struct ast_plane *ast_plane = to_ast_plane(plane);
-	struct drm_plane_state *old_plane_state = drm_atomic_get_old_plane_state(state,
-										 plane);
-	struct drm_plane_state *plane_state = drm_atomic_get_new_plane_state(state,
-									     plane);
+	struct drm_plane_state *plane_state = drm_atomic_get_new_plane_state(state, plane);
 	struct drm_shadow_plane_state *shadow_plane_state = to_drm_shadow_plane_state(plane_state);
 	struct drm_framebuffer *fb = plane_state->fb;
-	struct ast_private *ast = to_ast_private(plane->dev);
-	struct iosys_map dst_map = ast_plane->map;
-	u64 dst_off = ast_plane->off;
+	struct drm_plane_state *old_plane_state = drm_atomic_get_old_plane_state(state, plane);
+	struct ast_device *ast = to_ast_device(plane->dev);
 	struct iosys_map src_map = shadow_plane_state->data[0];
+	struct drm_rect damage;
+	const u8 *src = src_map.vaddr; /* TODO: Use mapping abstraction properly */
+	u64 dst_off = ast_plane->offset;
+	u8 __iomem *dst = ast_plane->vaddr; /* TODO: Use mapping abstraction properly */
+	u8 __iomem *sig = dst + AST_HWC_SIZE; /* TODO: Use mapping abstraction properly */
 	unsigned int offset_x, offset_y;
 	u16 x, y;
 	u8 x_offset, y_offset;
-	u8 __iomem *dst;
-	u8 __iomem *sig;
-	const u8 *src;
-
-	src = src_map.vaddr; /* TODO: Use mapping abstraction properly */
-	dst = dst_map.vaddr_iomem; /* TODO: Use mapping abstraction properly */
-	sig = dst + AST_HWC_SIZE; /* TODO: Use mapping abstraction properly */
 
 	/*
-	 * Do data transfer to HW cursor BO. If a new cursor image was installed,
-	 * point the scanout engine to dst_gbo's offset and page-flip the HWC buffers.
+	 * Do data transfer to hardware buffer and point the scanout
+	 * engine to the offset.
 	 */
 
-	ast_update_cursor_image(dst, src, fb->width, fb->height);
-
-	if (fb != old_plane_state->fb)
+	if (drm_atomic_helper_damage_merged(old_plane_state, plane_state, &damage)) {
+		ast_update_cursor_image(dst, src, fb->width, fb->height);
 		ast_set_cursor_base(ast, dst_off);
+	}
 
 	/*
 	 * Update location in HWC signature and registers.
@@ -891,7 +943,7 @@ ast_cursor_plane_helper_atomic_update(struct drm_plane *plane,
 static void ast_cursor_plane_helper_atomic_disable(struct drm_plane *plane,
 						   struct drm_atomic_state *state)
 {
-	struct ast_private *ast = to_ast_private(plane->dev);
+	struct ast_device *ast = to_ast_device(plane->dev);
 
 	ast_set_cursor_enabled(ast, false);
 }
@@ -903,36 +955,22 @@ static const struct drm_plane_helper_funcs ast_cursor_plane_helper_funcs = {
 	.atomic_disable = ast_cursor_plane_helper_atomic_disable,
 };
 
-static void ast_cursor_plane_destroy(struct drm_plane *plane)
-{
-	struct ast_plane *ast_plane = to_ast_plane(plane);
-	struct drm_gem_vram_object *gbo = ast_plane->gbo;
-	struct iosys_map map = ast_plane->map;
-
-	drm_gem_vram_vunmap(gbo, &map);
-	drm_gem_vram_unpin(gbo);
-	drm_gem_vram_put(gbo);
-
-	drm_plane_cleanup(plane);
-}
-
 static const struct drm_plane_funcs ast_cursor_plane_funcs = {
 	.update_plane = drm_atomic_helper_update_plane,
 	.disable_plane = drm_atomic_helper_disable_plane,
-	.destroy = ast_cursor_plane_destroy,
+	.destroy = drm_plane_cleanup,
 	DRM_GEM_SHADOW_PLANE_FUNCS,
 };
 
-static int ast_cursor_plane_init(struct ast_private *ast)
+static int ast_cursor_plane_init(struct ast_device *ast)
 {
 	struct drm_device *dev = &ast->base;
-	struct ast_plane *ast_plane = &ast->cursor_plane;
-	struct drm_plane *cursor_plane = &ast_plane->base;
+	struct ast_plane *ast_cursor_plane = &ast->cursor_plane;
+	struct drm_plane *cursor_plane = &ast_cursor_plane->base;
 	size_t size;
-	struct drm_gem_vram_object *gbo;
-	struct iosys_map map;
+	void __iomem *vaddr;
+	u64 offset;
 	int ret;
-	s64 off;
 
 	/*
 	 * Allocate backing storage for cursors. The BOs are permanently
@@ -941,52 +979,26 @@ static int ast_cursor_plane_init(struct ast_private *ast)
 
 	size = roundup(AST_HWC_SIZE + AST_HWC_SIGNATURE_SIZE, PAGE_SIZE);
 
-	gbo = drm_gem_vram_create(dev, size, 0);
-	if (IS_ERR(gbo))
-		return PTR_ERR(gbo);
+	if (ast->vram_fb_available < size)
+		return -ENOMEM;
 
-	ret = drm_gem_vram_pin(gbo, DRM_GEM_VRAM_PL_FLAG_VRAM |
-				    DRM_GEM_VRAM_PL_FLAG_TOPDOWN);
-	if (ret)
-		goto err_drm_gem_vram_put;
-	ret = drm_gem_vram_vmap(gbo, &map);
-	if (ret)
-		goto err_drm_gem_vram_unpin;
-	off = drm_gem_vram_offset(gbo);
-	if (off < 0) {
-		ret = off;
-		goto err_drm_gem_vram_vunmap;
-	}
+	vaddr = ast->vram + ast->vram_fb_available - size;
+	offset = ast->vram_fb_available - size;
 
-	ast_plane->gbo = gbo;
-	ast_plane->map = map;
-	ast_plane->off = off;
-
-	/*
-	 * Create the cursor plane. The plane's destroy callback will release
-	 * the backing storages' BO memory.
-	 */
-
-	ret = drm_universal_plane_init(dev, cursor_plane, 0x01,
-				       &ast_cursor_plane_funcs,
-				       ast_cursor_plane_formats,
-				       ARRAY_SIZE(ast_cursor_plane_formats),
-				       NULL, DRM_PLANE_TYPE_CURSOR, NULL);
+	ret = ast_plane_init(dev, ast_cursor_plane, vaddr, offset, size,
+			     0x01, &ast_cursor_plane_funcs,
+			     ast_cursor_plane_formats, ARRAY_SIZE(ast_cursor_plane_formats),
+			     NULL, DRM_PLANE_TYPE_CURSOR);
 	if (ret) {
-		drm_err(dev, "drm_universal_plane failed(): %d\n", ret);
-		goto err_drm_gem_vram_vunmap;
+		drm_err(dev, "ast_plane_init() failed: %d\n", ret);
+		return ret;
 	}
 	drm_plane_helper_add(cursor_plane, &ast_cursor_plane_helper_funcs);
+	drm_plane_enable_fb_damage_clips(cursor_plane);
+
+	ast->vram_fb_available -= size;
 
 	return 0;
-
-err_drm_gem_vram_vunmap:
-	drm_gem_vram_vunmap(gbo, &map);
-err_drm_gem_vram_unpin:
-	drm_gem_vram_unpin(gbo);
-err_drm_gem_vram_put:
-	drm_gem_vram_put(gbo);
-	return ret;
 }
 
 /*
@@ -995,7 +1007,7 @@ err_drm_gem_vram_put:
 
 static void ast_crtc_dpms(struct drm_crtc *crtc, int mode)
 {
-	struct ast_private *ast = to_ast_private(crtc->dev);
+	struct ast_device *ast = to_ast_device(crtc->dev);
 	u8 ch = AST_DPMS_VSYNC_OFF | AST_DPMS_HSYNC_OFF;
 	struct ast_crtc_state *ast_state;
 	const struct drm_format_info *format;
@@ -1052,7 +1064,7 @@ static void ast_crtc_dpms(struct drm_crtc *crtc, int mode)
 static enum drm_mode_status
 ast_crtc_helper_mode_valid(struct drm_crtc *crtc, const struct drm_display_mode *mode)
 {
-	struct ast_private *ast = to_ast_private(crtc->dev);
+	struct ast_device *ast = to_ast_device(crtc->dev);
 	enum drm_mode_status status;
 	uint32_t jtemp;
 
@@ -1132,12 +1144,12 @@ static int ast_crtc_helper_atomic_check(struct drm_crtc *crtc,
 	bool succ;
 	int ret;
 
-	ret = drm_atomic_helper_check_crtc_state(crtc_state, false);
-	if (ret)
-		return ret;
-
 	if (!crtc_state->enable)
 		return 0;
+
+	ret = drm_atomic_helper_check_crtc_primary_plane(crtc_state);
+	if (ret)
+		return ret;
 
 	ast_state = to_ast_crtc_state(crtc_state);
 
@@ -1177,7 +1189,7 @@ ast_crtc_helper_atomic_flush(struct drm_crtc *crtc,
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state,
 									  crtc);
 	struct drm_device *dev = crtc->dev;
-	struct ast_private *ast = to_ast_private(dev);
+	struct ast_device *ast = to_ast_device(dev);
 	struct ast_crtc_state *ast_crtc_state = to_ast_crtc_state(crtc_state);
 	struct ast_vbios_mode_info *vbios_mode_info = &ast_crtc_state->vbios_mode_info;
 
@@ -1202,7 +1214,7 @@ ast_crtc_helper_atomic_flush(struct drm_crtc *crtc,
 static void ast_crtc_helper_atomic_enable(struct drm_crtc *crtc, struct drm_atomic_state *state)
 {
 	struct drm_device *dev = crtc->dev;
-	struct ast_private *ast = to_ast_private(dev);
+	struct ast_device *ast = to_ast_device(dev);
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
 	struct ast_crtc_state *ast_crtc_state = to_ast_crtc_state(crtc_state);
 	struct ast_vbios_mode_info *vbios_mode_info =
@@ -1224,7 +1236,7 @@ static void ast_crtc_helper_atomic_disable(struct drm_crtc *crtc, struct drm_ato
 {
 	struct drm_crtc_state *old_crtc_state = drm_atomic_get_old_crtc_state(state, crtc);
 	struct drm_device *dev = crtc->dev;
-	struct ast_private *ast = to_ast_private(dev);
+	struct ast_device *ast = to_ast_device(dev);
 
 	ast_crtc_dpms(crtc, DRM_MODE_DPMS_OFF);
 
@@ -1312,11 +1324,11 @@ static const struct drm_crtc_funcs ast_crtc_funcs = {
 
 static int ast_crtc_init(struct drm_device *dev)
 {
-	struct ast_private *ast = to_ast_private(dev);
+	struct ast_device *ast = to_ast_device(dev);
 	struct drm_crtc *crtc = &ast->crtc;
 	int ret;
 
-	ret = drm_crtc_init_with_planes(dev, crtc, &ast->primary_plane,
+	ret = drm_crtc_init_with_planes(dev, crtc, &ast->primary_plane.base,
 					&ast->cursor_plane.base, &ast_crtc_funcs,
 					NULL);
 	if (ret)
@@ -1338,7 +1350,7 @@ static int ast_vga_connector_helper_get_modes(struct drm_connector *connector)
 {
 	struct ast_vga_connector *ast_vga_connector = to_ast_vga_connector(connector);
 	struct drm_device *dev = connector->dev;
-	struct ast_private *ast = to_ast_private(dev);
+	struct ast_device *ast = to_ast_device(dev);
 	struct edid *edid;
 	int count;
 
@@ -1411,7 +1423,7 @@ static int ast_vga_connector_init(struct drm_device *dev,
 	return 0;
 }
 
-static int ast_vga_output_init(struct ast_private *ast)
+static int ast_vga_output_init(struct ast_device *ast)
 {
 	struct drm_device *dev = &ast->base;
 	struct drm_crtc *crtc = &ast->crtc;
@@ -1444,7 +1456,7 @@ static int ast_sil164_connector_helper_get_modes(struct drm_connector *connector
 {
 	struct ast_sil164_connector *ast_sil164_connector = to_ast_sil164_connector(connector);
 	struct drm_device *dev = connector->dev;
-	struct ast_private *ast = to_ast_private(dev);
+	struct ast_device *ast = to_ast_device(dev);
 	struct edid *edid;
 	int count;
 
@@ -1517,7 +1529,7 @@ static int ast_sil164_connector_init(struct drm_device *dev,
 	return 0;
 }
 
-static int ast_sil164_output_init(struct ast_private *ast)
+static int ast_sil164_output_init(struct ast_device *ast)
 {
 	struct drm_device *dev = &ast->base;
 	struct drm_crtc *crtc = &ast->crtc;
@@ -1604,7 +1616,7 @@ static int ast_dp501_connector_init(struct drm_device *dev, struct drm_connector
 	return 0;
 }
 
-static int ast_dp501_output_init(struct ast_private *ast)
+static int ast_dp501_output_init(struct ast_device *ast)
 {
 	struct drm_device *dev = &ast->base;
 	struct drm_crtc *crtc = &ast->crtc;
@@ -1635,6 +1647,8 @@ static int ast_dp501_output_init(struct ast_private *ast)
 static int ast_astdp_connector_helper_get_modes(struct drm_connector *connector)
 {
 	void *edid;
+	struct drm_device *dev = connector->dev;
+	struct ast_device *ast = to_ast_device(dev);
 
 	int succ;
 	int count;
@@ -1643,9 +1657,17 @@ static int ast_astdp_connector_helper_get_modes(struct drm_connector *connector)
 	if (!edid)
 		goto err_drm_connector_update_edid_property;
 
+	/*
+	 * Protect access to I/O registers from concurrent modesetting
+	 * by acquiring the I/O-register lock.
+	 */
+	mutex_lock(&ast->ioregs_lock);
+
 	succ = ast_astdp_read_edid(connector->dev, edid);
 	if (succ < 0)
-		goto err_kfree;
+		goto err_mutex_unlock;
+
+	mutex_unlock(&ast->ioregs_lock);
 
 	drm_connector_update_edid_property(connector, edid);
 	count = drm_add_edid_modes(connector, edid);
@@ -1653,7 +1675,8 @@ static int ast_astdp_connector_helper_get_modes(struct drm_connector *connector)
 
 	return count;
 
-err_kfree:
+err_mutex_unlock:
+	mutex_unlock(&ast->ioregs_lock);
 	kfree(edid);
 err_drm_connector_update_edid_property:
 	drm_connector_update_edid_property(connector, NULL);
@@ -1691,7 +1714,7 @@ static int ast_astdp_connector_init(struct drm_device *dev, struct drm_connector
 	return 0;
 }
 
-static int ast_astdp_output_init(struct ast_private *ast)
+static int ast_astdp_output_init(struct ast_device *ast)
 {
 	struct drm_device *dev = &ast->base;
 	struct drm_crtc *crtc = &ast->crtc;
@@ -1721,7 +1744,7 @@ static int ast_astdp_output_init(struct ast_private *ast)
 
 static void ast_mode_config_helper_atomic_commit_tail(struct drm_atomic_state *state)
 {
-	struct ast_private *ast = to_ast_private(state->dev);
+	struct ast_device *ast = to_ast_device(state->dev);
 
 	/*
 	 * Concurrent operations could possibly trigger a call to
@@ -1738,17 +1761,34 @@ static const struct drm_mode_config_helper_funcs ast_mode_config_helper_funcs = 
 	.atomic_commit_tail = ast_mode_config_helper_atomic_commit_tail,
 };
 
+static enum drm_mode_status ast_mode_config_mode_valid(struct drm_device *dev,
+						       const struct drm_display_mode *mode)
+{
+	static const unsigned long max_bpp = 4; /* DRM_FORMAT_XRGB8888 */
+	struct ast_device *ast = to_ast_device(dev);
+	unsigned long fbsize, fbpages, max_fbpages;
+
+	max_fbpages = (ast->vram_fb_available) >> PAGE_SHIFT;
+
+	fbsize = mode->hdisplay * mode->vdisplay * max_bpp;
+	fbpages = DIV_ROUND_UP(fbsize, PAGE_SIZE);
+
+	if (fbpages > max_fbpages)
+		return MODE_MEM;
+
+	return MODE_OK;
+}
+
 static const struct drm_mode_config_funcs ast_mode_config_funcs = {
-	.fb_create = drm_gem_fb_create,
-	.mode_valid = drm_vram_helper_mode_valid,
+	.fb_create = drm_gem_fb_create_with_dirty,
+	.mode_valid = ast_mode_config_mode_valid,
 	.atomic_check = drm_atomic_helper_check,
 	.atomic_commit = drm_atomic_helper_commit,
 };
 
-int ast_mode_config_init(struct ast_private *ast)
+int ast_mode_config_init(struct ast_device *ast)
 {
 	struct drm_device *dev = &ast->base;
-	struct pci_dev *pdev = to_pci_dev(dev->dev);
 	int ret;
 
 	ret = drmm_mode_config_init(dev);
@@ -1759,8 +1799,6 @@ int ast_mode_config_init(struct ast_private *ast)
 	dev->mode_config.min_width = 0;
 	dev->mode_config.min_height = 0;
 	dev->mode_config.preferred_depth = 24;
-	dev->mode_config.prefer_shadow = 1;
-	dev->mode_config.fb_base = pci_resource_start(pdev, 0);
 
 	if (ast->chip == AST2100 ||
 	    ast->chip == AST2200 ||

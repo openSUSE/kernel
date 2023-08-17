@@ -22,27 +22,18 @@
 #define PMT_XA_LIMIT		XA_LIMIT(PMT_XA_START, PMT_XA_MAX)
 #define GUID_SPR_PUNIT		0x9956f43f
 
-/*
- * Early implementations of PMT on client platforms have some
- * differences from the server platforms (which use the Out Of Band
- * Management Services Module OOBMSM). This list tracks those
- * platforms as needed to handle those differences. Newer client
- * platforms are expected to be fully compatible with server.
- */
-static const struct pci_device_id pmt_telem_early_client_pci_ids[] = {
-	{ PCI_VDEVICE(INTEL, 0x467d) }, /* ADL */
-	{ PCI_VDEVICE(INTEL, 0x490e) }, /* DG1 */
-	{ PCI_VDEVICE(INTEL, 0x9a0d) }, /* TGL */
-	{ }
-};
-
 bool intel_pmt_is_early_client_hw(struct device *dev)
 {
-	struct pci_dev *parent = to_pci_dev(dev->parent);
+	struct intel_vsec_device *ivdev = dev_to_ivdev(dev);
 
-	return !!pci_match_id(pmt_telem_early_client_pci_ids, parent);
+	/*
+	 * Early implementations of PMT on client platforms have some
+	 * differences from the server platforms (which use the Out Of Band
+	 * Management Services Module OOBMSM).
+	 */
+	return !!(ivdev->info->quirks & VSEC_QUIRK_EARLY_HW);
 }
-EXPORT_SYMBOL_GPL(intel_pmt_is_early_client_hw);
+EXPORT_SYMBOL_NS_GPL(intel_pmt_is_early_client_hw, INTEL_PMT);
 
 static inline int
 pmt_memcpy64_fromio(void *to, const u64 __iomem *from, size_t count)
@@ -164,7 +155,6 @@ ATTRIBUTE_GROUPS(intel_pmt);
 
 static struct class intel_pmt_class = {
 	.name = "intel_pmt",
-	.owner = THIS_MODULE,
 	.dev_groups = intel_pmt_groups,
 };
 
@@ -336,7 +326,7 @@ int intel_pmt_dev_create(struct intel_pmt_entry *entry, struct intel_pmt_namespa
 	return intel_pmt_dev_register(entry, ns, dev);
 
 }
-EXPORT_SYMBOL_GPL(intel_pmt_dev_create);
+EXPORT_SYMBOL_NS_GPL(intel_pmt_dev_create, INTEL_PMT);
 
 void intel_pmt_dev_destroy(struct intel_pmt_entry *entry,
 			   struct intel_pmt_namespace *ns)
@@ -352,7 +342,7 @@ void intel_pmt_dev_destroy(struct intel_pmt_entry *entry,
 	device_unregister(dev);
 	xa_erase(ns->xa, entry->devid);
 }
-EXPORT_SYMBOL_GPL(intel_pmt_dev_destroy);
+EXPORT_SYMBOL_NS_GPL(intel_pmt_dev_destroy, INTEL_PMT);
 
 static int __init pmt_class_init(void)
 {

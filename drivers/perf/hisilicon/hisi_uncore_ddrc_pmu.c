@@ -499,13 +499,6 @@ static int hisi_ddrc_pmu_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	ret = cpuhp_state_add_instance(CPUHP_AP_PERF_ARM_HISI_DDRC_ONLINE,
-				       &ddrc_pmu->node);
-	if (ret) {
-		dev_err(&pdev->dev, "Error %d registering hotplug;\n", ret);
-		return ret;
-	}
-
 	if (ddrc_pmu->identifier >= HISI_PMU_V2)
 		name = devm_kasprintf(&pdev->dev, GFP_KERNEL,
 				      "hisi_sccl%u_ddrc%u_%u",
@@ -516,21 +509,17 @@ static int hisi_ddrc_pmu_probe(struct platform_device *pdev)
 				      "hisi_sccl%u_ddrc%u", ddrc_pmu->sccl_id,
 				      ddrc_pmu->index_id);
 
-	ddrc_pmu->pmu = (struct pmu) {
-		.name		= name,
-		.module		= THIS_MODULE,
-		.task_ctx_nr	= perf_invalid_context,
-		.event_init	= hisi_uncore_pmu_event_init,
-		.pmu_enable	= hisi_uncore_pmu_enable,
-		.pmu_disable	= hisi_uncore_pmu_disable,
-		.add		= hisi_uncore_pmu_add,
-		.del		= hisi_uncore_pmu_del,
-		.start		= hisi_uncore_pmu_start,
-		.stop		= hisi_uncore_pmu_stop,
-		.read		= hisi_uncore_pmu_read,
-		.attr_groups	= ddrc_pmu->pmu_events.attr_groups,
-		.capabilities	= PERF_PMU_CAP_NO_EXCLUDE,
-	};
+	if (!name)
+		return -ENOMEM;
+
+	ret = cpuhp_state_add_instance(CPUHP_AP_PERF_ARM_HISI_DDRC_ONLINE,
+				       &ddrc_pmu->node);
+	if (ret) {
+		dev_err(&pdev->dev, "Error %d registering hotplug;\n", ret);
+		return ret;
+	}
+
+	hisi_pmu_init(ddrc_pmu, THIS_MODULE);
 
 	ret = perf_pmu_register(&ddrc_pmu->pmu, name, -1);
 	if (ret) {

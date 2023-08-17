@@ -173,11 +173,14 @@ static void *jffs2_acl_to_medium(const struct posix_acl *acl, size_t *size)
 	return ERR_PTR(-EINVAL);
 }
 
-struct posix_acl *jffs2_get_acl(struct inode *inode, int type)
+struct posix_acl *jffs2_get_acl(struct inode *inode, int type, bool rcu)
 {
 	struct posix_acl *acl;
 	char *value = NULL;
 	int rc, xprefix;
+
+	if (rcu)
+		return ERR_PTR(-ECHILD);
 
 	switch (type) {
 	case ACL_TYPE_ACCESS:
@@ -226,10 +229,11 @@ static int __jffs2_set_acl(struct inode *inode, int xprefix, struct posix_acl *a
 	return rc;
 }
 
-int jffs2_set_acl(struct user_namespace *mnt_userns, struct inode *inode,
+int jffs2_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 		  struct posix_acl *acl, int type)
 {
 	int rc, xprefix;
+	struct inode *inode = d_inode(dentry);
 
 	switch (type) {
 	case ACL_TYPE_ACCESS:
@@ -237,7 +241,7 @@ int jffs2_set_acl(struct user_namespace *mnt_userns, struct inode *inode,
 		if (acl) {
 			umode_t mode;
 
-			rc = posix_acl_update_mode(&init_user_ns, inode, &mode,
+			rc = posix_acl_update_mode(&nop_mnt_idmap, inode, &mode,
 						   &acl);
 			if (rc)
 				return rc;

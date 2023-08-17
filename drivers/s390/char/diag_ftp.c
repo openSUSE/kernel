@@ -15,6 +15,7 @@
 #include <linux/irq.h>
 #include <linux/wait.h>
 #include <linux/string.h>
+#include <asm/asm-extable.h>
 #include <asm/ctl_reg.h>
 #include <asm/diag.h>
 
@@ -158,8 +159,8 @@ ssize_t diag_ftp_cmd(const struct hmcdrv_ftp_cmdspec *ftp, size_t *fsize)
 		goto out;
 	}
 
-	len = strlcpy(ldfpl->fident, ftp->fname, sizeof(ldfpl->fident));
-	if (len >= HMCDRV_FTP_FIDENT_MAX) {
+	len = strscpy(ldfpl->fident, ftp->fname, sizeof(ldfpl->fident));
+	if (len < 0) {
 		len = -EINVAL;
 		goto out_free;
 	}

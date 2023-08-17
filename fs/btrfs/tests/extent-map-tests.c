@@ -15,6 +15,7 @@ static void free_extent_map_tree(struct extent_map_tree *em_tree)
 	struct extent_map *em;
 	struct rb_node *node;
 
+	write_lock(&em_tree->lock);
 	while (!RB_EMPTY_ROOT(&em_tree->map.rb_root)) {
 		node = rb_first_cached(&em_tree->map);
 		em = rb_entry(node, struct extent_map, rb_node);
@@ -32,6 +33,7 @@ static void free_extent_map_tree(struct extent_map_tree *em_tree)
 #endif
 		free_extent_map(em);
 	}
+	write_unlock(&em_tree->lock);
 }
 
 /*
@@ -484,7 +486,6 @@ static int test_rmap_block(struct btrfs_fs_info *fs_info,
 	em->map_lookup = map;
 
 	map->num_stripes = test->num_stripes;
-	map->stripe_len = BTRFS_STRIPE_LEN;
 	map->type = test->raid_type;
 
 	for (i = 0; i < map->num_stripes; i++) {
@@ -507,7 +508,7 @@ static int test_rmap_block(struct btrfs_fs_info *fs_info,
 		goto out_free;
 	}
 
-	ret = btrfs_rmap_block(fs_info, em->start, NULL, btrfs_sb_offset(1),
+	ret = btrfs_rmap_block(fs_info, em->start, btrfs_sb_offset(1),
 			       &logical, &out_ndaddrs, &out_stripe_len);
 	if (ret || (out_ndaddrs == 0 && test->expected_mapped_addr)) {
 		test_err("didn't rmap anything but expected %d",

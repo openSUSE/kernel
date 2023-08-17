@@ -40,7 +40,7 @@ static int frontend_bus_id(char bus_id[XEN_BUS_ID_SIZE], const char *nodename)
 		return -EINVAL;
 	}
 
-	strlcpy(bus_id, nodename + 1, XEN_BUS_ID_SIZE);
+	strscpy(bus_id, nodename + 1, XEN_BUS_ID_SIZE);
 	if (!strchr(bus_id, '/')) {
 		pr_warn("bus_id %s no slash\n", bus_id);
 		return -EINVAL;
@@ -73,10 +73,10 @@ static int xenbus_probe_frontend(struct xen_bus_type *bus, const char *type,
 	return err;
 }
 
-static int xenbus_uevent_frontend(struct device *_dev,
+static int xenbus_uevent_frontend(const struct device *_dev,
 				  struct kobj_uevent_env *env)
 {
-	struct xenbus_device *dev = to_xenbus_device(_dev);
+	const struct xenbus_device *dev = to_xenbus_device(_dev);
 
 	if (add_uevent_var(env, "MODALIAS=xen:%s", dev->devicetype))
 		return -ENOMEM;

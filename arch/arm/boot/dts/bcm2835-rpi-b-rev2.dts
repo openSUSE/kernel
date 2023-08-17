@@ -2,6 +2,8 @@
 /dts-v1/;
 #include "bcm2835.dtsi"
 #include "bcm2835-rpi.dtsi"
+#include "bcm2835-rpi-common.dtsi"
+#include "bcm283x-rpi-led-deprecated.dtsi"
 #include "bcm283x-rpi-smsc9512.dtsi"
 #include "bcm283x-rpi-usb-host.dtsi"
 
@@ -13,12 +15,6 @@
 		device_type = "memory";
 		reg = <0 0x10000000>;
 	};
-
-	leds {
-		led-act {
-			gpios = <&gpio 16 GPIO_ACTIVE_LOW>;
-		};
-	};
 };
 
 &gpio {
@@ -27,7 +23,6 @@
 	 * RPI00022 sheet 02
 	 *
 	 * Legend:
-	 * "NC" = not connected (no rail from the SoC)
 	 * "FOO" = GPIO line named "FOO" on the schematic
 	 * "FOO_N" = GPIO line named "FOO" on schematic, active low
 	 */
@@ -43,40 +38,40 @@
 			  "SPI_MISO",
 			  "SPI_MOSI",
 			  "SPI_SCLK",
-			  "NC", /* GPIO12 */
-			  "NC", /* GPIO13 */
+			  "", /* GPIO12 */
+			  "", /* GPIO13 */
 			  /* Serial port */
 			  "TXD0",
 			  "RXD0",
 			  "STATUS_LED_N",
 			  "GPIO17",
 			  "GPIO18",
-			  "NC", /* GPIO19 */
-			  "NC", /* GPIO20 */
+			  "", /* GPIO19 */
+			  "", /* GPIO20 */
 			  "CAM_GPIO",
 			  "GPIO22",
 			  "GPIO23",
 			  "GPIO24",
 			  "GPIO25",
-			  "NC", /* GPIO26 */
+			  "", /* GPIO26 */
 			  "GPIO27",
 			  "GPIO28",
 			  "GPIO29",
 			  "GPIO30",
 			  "GPIO31",
-			  "NC", /* GPIO32 */
-			  "NC", /* GPIO33 */
-			  "NC", /* GPIO34 */
-			  "NC", /* GPIO35 */
-			  "NC", /* GPIO36 */
-			  "NC", /* GPIO37 */
-			  "NC", /* GPIO38 */
-			  "NC", /* GPIO39 */
+			  "", /* GPIO32 */
+			  "", /* GPIO33 */
+			  "", /* GPIO34 */
+			  "", /* GPIO35 */
+			  "", /* GPIO36 */
+			  "", /* GPIO37 */
+			  "", /* GPIO38 */
+			  "", /* GPIO39 */
 			  "PWM0_OUT",
-			  "NC", /* GPIO41 */
-			  "NC", /* GPIO42 */
-			  "NC", /* GPIO43 */
-			  "NC", /* GPIO44 */
+			  "", /* GPIO41 */
+			  "", /* GPIO42 */
+			  "", /* GPIO43 */
+			  "", /* GPIO44 */
 			  "PWM1_OUT",
 			  "HDMI_HPD_P",
 			  "SD_CARD_DET",
@@ -101,6 +96,10 @@
 	hpd-gpios = <&gpio 46 GPIO_ACTIVE_HIGH>;
 	power-domains = <&power RPI_POWER_DOMAIN_HDMI>;
 	status = "okay";
+};
+
+&led_act {
+	gpios = <&gpio 16 GPIO_ACTIVE_LOW>;
 };
 
 &pwm {

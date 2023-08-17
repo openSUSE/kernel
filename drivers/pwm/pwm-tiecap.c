@@ -253,7 +253,7 @@ static int ecap_pwm_probe(struct platform_device *pdev)
 	if (IS_ERR(pc->mmio_base))
 		return PTR_ERR(pc->mmio_base);
 
-	ret = pwmchip_add(&pc->chip);
+	ret = devm_pwmchip_add(&pdev->dev, &pc->chip);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "pwmchip_add() failed: %d\n", ret);
 		return ret;
@@ -265,13 +265,9 @@ static int ecap_pwm_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int ecap_pwm_remove(struct platform_device *pdev)
+static void ecap_pwm_remove(struct platform_device *pdev)
 {
-	struct ecap_pwm_chip *pc = platform_get_drvdata(pdev);
-
 	pm_runtime_disable(&pdev->dev);
-
-	return pwmchip_remove(&pc->chip);
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -328,7 +324,7 @@ static struct platform_driver ecap_pwm_driver = {
 		.pm = &ecap_pwm_pm_ops,
 	},
 	.probe = ecap_pwm_probe,
-	.remove = ecap_pwm_remove,
+	.remove_new = ecap_pwm_remove,
 };
 module_platform_driver(ecap_pwm_driver);
 

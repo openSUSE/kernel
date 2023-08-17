@@ -42,11 +42,13 @@ int br_dev_queue_push_xmit(struct net *net, struct sock *sk, struct sk_buff *skb
 	    eth_type_vlan(skb->protocol)) {
 		int depth;
 
-		if (!__vlan_get_protocol(skb, skb->protocol, &depth))
+		if (!vlan_get_protocol_and_depth(skb, skb->protocol, &depth))
 			goto drop;
 
 		skb_set_network_header(skb, depth);
 	}
+
+	br_switchdev_frame_set_offload_fwd_mark(skb);
 
 	dev_queue_xmit(skb);
 
@@ -75,6 +77,11 @@ static void __br_forward(const struct net_bridge_port *to,
 	struct net_device *indev;
 	struct net *net;
 	int br_hook;
+
+	/* Mark the skb for forwarding offload early so that br_handle_vlan()
+	 * can know whether to pop the VLAN header on egress or keep it.
+	 */
+	nbp_switchdev_frame_mark_tx_fwd_offload(to, skb);
 
 	vg = nbp_vlan_group_rcu(to);
 	skb = br_handle_vlan(to->br, to, vg, skb);
@@ -174,6 +181,8 @@ static struct net_bridge_port *maybe_deliver(
 	if (!should_deliver(p, skb))
 		return prev;
 
+	nbp_switchdev_frame_mark_tx_fwd_to_hwdom(p, skb);
+
 	if (!prev)
 		goto out;
 
@@ -188,7 +197,8 @@ out:
 
 /* called under rcu_read_lock */
 void br_flood(struct net_bridge *br, struct sk_buff *skb,
-	      enum br_pkt_type pkt_type, bool local_rcv, bool local_orig)
+	      enum br_pkt_type pkt_type, bool local_rcv, bool local_orig,
+	      u16 vid)
 {
 	struct net_bridge_port *prev = NULL;
 	struct net_bridge_port *p;
@@ -215,8 +225,9 @@ void br_flood(struct net_bridge *br, struct sk_buff *skb,
 		/* Do not flood to ports that enable proxy ARP */
 		if (p->flags & BR_PROXYARP)
 			continue;
-		if ((p->flags & (BR_PROXYARP_WIFI | BR_NEIGH_SUPPRESS)) &&
-		    BR_INPUT_SKB_CB(skb)->proxyarp_replied)
+		if (BR_INPUT_SKB_CB(skb)->proxyarp_replied &&
+		    ((p->flags & BR_PROXYARP_WIFI) ||
+		     br_is_neigh_suppress_enabled(p, vid)))
 			continue;
 
 		prev = maybe_deliver(prev, p, skb, local_orig);
@@ -267,20 +278,19 @@ static void maybe_deliver_addr(struct net_bridge_port *p, struct sk_buff *skb,
 /* called with rcu_read_lock */
 void br_multicast_flood(struct net_bridge_mdb_entry *mdst,
 			struct sk_buff *skb,
+			struct net_bridge_mcast *brmctx,
 			bool local_rcv, bool local_orig)
 {
-	struct net_device *dev = BR_INPUT_SKB_CB(skb)->brdev;
-	struct net_bridge *br = netdev_priv(dev);
 	struct net_bridge_port *prev = NULL;
 	struct net_bridge_port_group *p;
 	bool allow_mode_include = true;
 	struct hlist_node *rp;
 
-	rp = br_multicast_get_first_rport_node(br, skb);
+	rp = br_multicast_get_first_rport_node(brmctx, skb);
 
 	if (mdst) {
 		p = rcu_dereference(mdst->ports);
-		if (br_multicast_should_handle_mode(br, mdst->addr.proto) &&
+		if (br_multicast_should_handle_mode(brmctx, mdst->addr.proto) &&
 		    br_multicast_is_star_g(&mdst->addr))
 			allow_mode_include = false;
 	} else {

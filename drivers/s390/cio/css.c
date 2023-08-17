@@ -338,31 +338,11 @@ static ssize_t driver_override_store(struct device *dev,
 				     const char *buf, size_t count)
 {
 	struct subchannel *sch = to_subchannel(dev);
-	char *driver_override, *old, *cp;
+	int ret;
 
-	/* We need to keep extra room for a newline */
-	if (count >= (PAGE_SIZE - 1))
-		return -EINVAL;
-
-	driver_override = kstrndup(buf, count, GFP_KERNEL);
-	if (!driver_override)
-		return -ENOMEM;
-
-	cp = strchr(driver_override, '\n');
-	if (cp)
-		*cp = '\0';
-
-	device_lock(dev);
-	old = sch->driver_override;
-	if (strlen(driver_override)) {
-		sch->driver_override = driver_override;
-	} else {
-		kfree(driver_override);
-		sch->driver_override = NULL;
-	}
-	device_unlock(dev);
-
-	kfree(old);
+	ret = driver_set_override(dev, &sch->driver_override, buf, count);
+	if (ret)
+		return ret;
 
 	return count;
 }
@@ -760,36 +740,66 @@ void css_schedule_eval_all(void)
 	spin_unlock_irqrestore(&slow_subchannel_lock, flags);
 }
 
-static int __unset_registered(struct device *dev, void *data)
+static int __unset_validpath(struct device *dev, void *data)
+{
+	struct idset *set = data;
+	struct subchannel *sch = to_subchannel(dev);
+	struct pmcw *pmcw = &sch->schib.pmcw;
+
+	/* Here we want to make sure that we are considering only those subchannels
+	 * which do not have an operational device attached to it. This can be found
+	 * with the help of PAM and POM values of pmcw. OPM provides the information
+	 * about any path which is currently vary-off, so that we should not consider.
+	 */
+	if (sch->st == SUBCHANNEL_TYPE_IO &&
+	    (sch->opm & pmcw->pam & pmcw->pom))
+		idset_sch_del(set, sch->schid);
+
+	return 0;
+}
+
+static int __unset_online(struct device *dev, void *data)
 {
 	struct idset *set = data;
 	struct subchannel *sch = to_subchannel(dev);
 
-	idset_sch_del(set, sch->schid);
+	if (sch->st == SUBCHANNEL_TYPE_IO && sch->config.ena)
+		idset_sch_del(set, sch->schid);
+
 	return 0;
 }
 
-void css_schedule_eval_all_unreg(unsigned long delay)
+void css_schedule_eval_cond(enum css_eval_cond cond, unsigned long delay)
 {
 	unsigned long flags;
-	struct idset *unreg_set;
+	struct idset *set;
 
 	/* Find unregistered subchannels. */
-	unreg_set = idset_sch_new();
-	if (!unreg_set) {
+	set = idset_sch_new();
+	if (!set) {
 		/* Fallback. */
 		css_schedule_eval_all();
 		return;
 	}
-	idset_fill(unreg_set);
-	bus_for_each_dev(&css_bus_type, NULL, unreg_set, __unset_registered);
+	idset_fill(set);
+	switch (cond) {
+	case CSS_EVAL_NO_PATH:
+		bus_for_each_dev(&css_bus_type, NULL, set, __unset_validpath);
+		break;
+	case CSS_EVAL_NOT_ONLINE:
+		bus_for_each_dev(&css_bus_type, NULL, set, __unset_online);
+		break;
+	default:
+		break;
+	}
+
 	/* Apply to slow_subchannel_set. */
 	spin_lock_irqsave(&slow_subchannel_lock, flags);
-	idset_add_set(slow_subchannel_set, unreg_set);
+	idset_add_set(slow_subchannel_set, set);
 	atomic_set(&css_eval_scheduled, 1);
 	queue_delayed_work(cio_work_q, &slow_path_work, delay);
 	spin_unlock_irqrestore(&slow_subchannel_lock, flags);
-	idset_free(unreg_set);
+	idset_free(set);
 }
 
 void css_wait_for_slow_path(void)
@@ -797,11 +807,11 @@ void css_wait_for_slow_path(void)
 	flush_workqueue(cio_work_q);
 }
 
-/* Schedule reprobing of all unregistered subchannels. */
+/* Schedule reprobing of all subchannels with no valid operational path. */
 void css_schedule_reprobe(void)
 {
 	/* Schedule with a delay to allow merging of subsequent calls. */
-	css_schedule_eval_all_unreg(1 * HZ);
+	css_schedule_eval_cond(CSS_EVAL_NO_PATH, 1 * HZ);
 }
 EXPORT_SYMBOL_GPL(css_schedule_reprobe);
 
@@ -884,6 +894,18 @@ static ssize_t real_cssid_show(struct device *dev, struct device_attribute *a,
 }
 static DEVICE_ATTR_RO(real_cssid);
 
+static ssize_t rescan_store(struct device *dev, struct device_attribute *a,
+			    const char *buf, size_t count)
+{
+	CIO_TRACE_EVENT(4, "usr-rescan");
+
+	css_schedule_eval_all();
+	css_complete_work();
+
+	return count;
+}
+static DEVICE_ATTR_WO(rescan);
+
 static ssize_t cm_enable_show(struct device *dev, struct device_attribute *a,
 			      char *buf)
 {
@@ -930,6 +952,7 @@ static umode_t cm_enable_mode(struct kobject *kobj, struct attribute *attr,
 
 static struct attribute *cssdev_attrs[] = {
 	&dev_attr_real_cssid.attr,
+	&dev_attr_rescan.attr,
 	NULL,
 };
 
@@ -1388,9 +1411,9 @@ static void css_shutdown(struct device *dev)
 		sch->driver->shutdown(sch);
 }
 
-static int css_uevent(struct device *dev, struct kobj_uevent_env *env)
+static int css_uevent(const struct device *dev, struct kobj_uevent_env *env)
 {
-	struct subchannel *sch = to_subchannel(dev);
+	const struct subchannel *sch = to_subchannel(dev);
 	int ret;
 
 	ret = add_uevent_var(env, "ST=%01X", sch->st);

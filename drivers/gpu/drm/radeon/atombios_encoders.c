@@ -30,7 +30,10 @@
 
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_file.h>
+#include <drm/drm_modeset_helper_vtables.h>
 #include <drm/radeon_drm.h>
+
+#include <acpi/video.h>
 
 #include "atom.h"
 #include "radeon_atombios.h"
@@ -208,6 +211,11 @@ void radeon_atom_backlight_init(struct radeon_encoder *radeon_encoder,
 
 	if (!(rdev->mode_info.firmware_flags & ATOM_BIOS_INFO_BL_CONTROLLED_BY_GPU))
 		return;
+
+	if (!acpi_video_backlight_use_native()) {
+		drm_info(dev, "Skipping radeon atom DIG backlight registration\n");
+		return;
+	}
 
 	pdata = kmalloc(sizeof(struct radeon_backlight_privdata), GFP_KERNEL);
 	if (!pdata) {

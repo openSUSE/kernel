@@ -12,7 +12,7 @@
 #include <linux/mm.h>
 #include "util.h"
 
-extern int gfs2_releasepage(struct page *page, gfp_t gfp_mask);
+bool gfs2_release_folio(struct folio *folio, gfp_t gfp_mask);
 extern int gfs2_internal_read(struct gfs2_inode *ip,
 			      char *buf, loff_t *pos, unsigned size);
 extern void gfs2_set_aops(struct inode *inode);
@@ -99,7 +99,7 @@ extern int gfs2_inode_refresh(struct gfs2_inode *ip);
 
 extern struct inode *gfs2_lookupi(struct inode *dir, const struct qstr *name,
 				  int is_root);
-extern int gfs2_permission(struct user_namespace *mnt_userns,
+extern int gfs2_permission(struct mnt_idmap *idmap,
 			   struct inode *inode, int mask);
 extern struct inode *gfs2_lookup_simple(struct inode *dip, const char *name);
 extern void gfs2_dinode_out(const struct gfs2_inode *ip, void *buf);
@@ -111,7 +111,7 @@ extern const struct file_operations gfs2_file_fops_nolock;
 extern const struct file_operations gfs2_dir_fops_nolock;
 
 extern int gfs2_fileattr_get(struct dentry *dentry, struct fileattr *fa);
-extern int gfs2_fileattr_set(struct user_namespace *mnt_userns,
+extern int gfs2_fileattr_set(struct mnt_idmap *idmap,
 			     struct dentry *dentry, struct fileattr *fa);
 extern void gfs2_set_inode_flags(struct inode *inode);
  

@@ -38,14 +38,10 @@
 #define SCFTORT_STRING "scftorture"
 #define SCFTORT_FLAG SCFTORT_STRING ": "
 
-#define SCFTORTOUT(s, x...) \
-	pr_alert(SCFTORT_FLAG s, ## x)
-
 #define VERBOSE_SCFTORTOUT(s, x...) \
-	do { if (verbose) pr_alert(SCFTORT_FLAG s, ## x); } while (0)
+	do { if (verbose) pr_alert(SCFTORT_FLAG s "\n", ## x); } while (0)
 
-#define VERBOSE_SCFTORTOUT_ERRSTRING(s, x...) \
-	do { if (verbose) pr_alert(SCFTORT_FLAG "!!! " s, ## x); } while (0)
+#define SCFTORTOUT_ERRSTRING(s, x...) pr_alert(SCFTORT_FLAG "!!! " s "\n", ## x)
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Paul E. McKenney <paulmck@kernel.org>");
@@ -64,6 +60,7 @@ torture_param(bool, use_cpus_read_lock, 0, "Use cpus_read_lock() to exclude CPU 
 torture_param(int, verbose, 0, "Enable verbose debugging printk()s");
 torture_param(int, weight_resched, -1, "Testing weight for resched_cpu() operations.");
 torture_param(int, weight_single, -1, "Testing weight for single-CPU no-wait operations.");
+torture_param(int, weight_single_rpc, -1, "Testing weight for single-CPU RPC operations.");
 torture_param(int, weight_single_wait, -1, "Testing weight for single-CPU operations.");
 torture_param(int, weight_many, -1, "Testing weight for multi-CPU no-wait operations.");
 torture_param(int, weight_many_wait, -1, "Testing weight for multi-CPU operations.");
@@ -86,6 +83,8 @@ struct scf_statistics {
 	long long n_resched;
 	long long n_single;
 	long long n_single_ofl;
+	long long n_single_rpc;
+	long long n_single_rpc_ofl;
 	long long n_single_wait;
 	long long n_single_wait_ofl;
 	long long n_many;
@@ -101,14 +100,17 @@ static DEFINE_PER_CPU(long long, scf_invoked_count);
 // Data for random primitive selection
 #define SCF_PRIM_RESCHED	0
 #define SCF_PRIM_SINGLE		1
-#define SCF_PRIM_MANY		2
-#define SCF_PRIM_ALL		3
-#define SCF_NPRIMS		7 // Need wait and no-wait versions of each,
-				  //  except for SCF_PRIM_RESCHED.
+#define SCF_PRIM_SINGLE_RPC	2
+#define SCF_PRIM_MANY		3
+#define SCF_PRIM_ALL		4
+#define SCF_NPRIMS		8 // Need wait and no-wait versions of each,
+				  //  except for SCF_PRIM_RESCHED and
+				  //  SCF_PRIM_SINGLE_RPC.
 
 static char *scf_prim_name[] = {
 	"resched_cpu",
 	"smp_call_function_single",
+	"smp_call_function_single_rpc",
 	"smp_call_function_many",
 	"smp_call_function",
 };
@@ -128,6 +130,8 @@ struct scf_check {
 	bool scfc_out;
 	int scfc_cpu; // -1 for not _single().
 	bool scfc_wait;
+	bool scfc_rpc;
+	struct completion scfc_completion;
 };
 
 // Use to wait for all threads to start.
@@ -158,6 +162,7 @@ static void scf_torture_stats_print(void)
 		scfs.n_resched += scf_stats_p[i].n_resched;
 		scfs.n_single += scf_stats_p[i].n_single;
 		scfs.n_single_ofl += scf_stats_p[i].n_single_ofl;
+		scfs.n_single_rpc += scf_stats_p[i].n_single_rpc;
 		scfs.n_single_wait += scf_stats_p[i].n_single_wait;
 		scfs.n_single_wait_ofl += scf_stats_p[i].n_single_wait_ofl;
 		scfs.n_many += scf_stats_p[i].n_many;
@@ -168,9 +173,10 @@ static void scf_torture_stats_print(void)
 	if (atomic_read(&n_errs) || atomic_read(&n_mb_in_errs) ||
 	    atomic_read(&n_mb_out_errs) || atomic_read(&n_alloc_errs))
 		bangstr = "!!! ";
-	pr_alert("%s %sscf_invoked_count %s: %lld resched: %lld single: %lld/%lld single_ofl: %lld/%lld many: %lld/%lld all: %lld/%lld ",
+	pr_alert("%s %sscf_invoked_count %s: %lld resched: %lld single: %lld/%lld single_ofl: %lld/%lld single_rpc: %lld single_rpc_ofl: %lld many: %lld/%lld all: %lld/%lld ",
 		 SCFTORT_FLAG, bangstr, isdone ? "VER" : "ver", invoked_count, scfs.n_resched,
 		 scfs.n_single, scfs.n_single_wait, scfs.n_single_ofl, scfs.n_single_wait_ofl,
+		 scfs.n_single_rpc, scfs.n_single_rpc_ofl,
 		 scfs.n_many, scfs.n_many_wait, scfs.n_all, scfs.n_all_wait);
 	torture_onoff_stats();
 	pr_cont("ste: %d stnmie: %d stnmoe: %d staf: %d\n", atomic_read(&n_errs),
@@ -261,9 +267,10 @@ static void scf_handler(void *scfc_in)
 	}
 	this_cpu_inc(scf_invoked_count);
 	if (longwait <= 0) {
-		if (!(r & 0xffc0))
+		if (!(r & 0xffc0)) {
 			udelay(r & 0x3f);
-		goto out;
+			goto out;
+		}
 	}
 	if (r & 0xfff)
 		goto out;
@@ -282,10 +289,13 @@ static void scf_handler(void *scfc_in)
 out:
 	if (unlikely(!scfcp))
 		return;
-	if (scfcp->scfc_wait)
+	if (scfcp->scfc_wait) {
 		WRITE_ONCE(scfcp->scfc_out, true);
-	else
+		if (scfcp->scfc_rpc)
+			complete(&scfcp->scfc_completion);
+	} else {
 		kfree(scfcp);
+	}
 }
 
 // As above, but check for correct CPU.
@@ -319,6 +329,7 @@ static void scftorture_invoke_one(struct scf_statistics *scfp, struct torture_ra
 			scfcp->scfc_cpu = -1;
 			scfcp->scfc_wait = scfsp->scfs_wait;
 			scfcp->scfc_out = false;
+			scfcp->scfc_rpc = false;
 		}
 	}
 	switch (scfsp->scfs_prim) {
@@ -347,6 +358,34 @@ static void scftorture_invoke_one(struct scf_statistics *scfp, struct torture_ra
 				scfp->n_single_wait_ofl++;
 			else
 				scfp->n_single_ofl++;
+			kfree(scfcp);
+			scfcp = NULL;
+		}
+		break;
+	case SCF_PRIM_SINGLE_RPC:
+		if (!scfcp)
+			break;
+		cpu = torture_random(trsp) % nr_cpu_ids;
+		scfp->n_single_rpc++;
+		scfcp->scfc_cpu = cpu;
+		scfcp->scfc_wait = true;
+		init_completion(&scfcp->scfc_completion);
+		scfcp->scfc_rpc = true;
+		barrier(); // Prevent race-reduction compiler optimizations.
+		scfcp->scfc_in = true;
+		ret = smp_call_function_single(cpu, scf_handler_1, (void *)scfcp, 0);
+		if (!ret) {
+			if (use_cpus_read_lock)
+				cpus_read_unlock();
+			else
+				preempt_enable();
+			wait_for_completion(&scfcp->scfc_completion);
+			if (use_cpus_read_lock)
+				cpus_read_lock();
+			else
+				preempt_disable();
+		} else {
+			scfp->n_single_rpc_ofl++;
 			kfree(scfcp);
 			scfcp = NULL;
 		}
@@ -380,10 +419,12 @@ static void scftorture_invoke_one(struct scf_statistics *scfp, struct torture_ra
 	}
 	if (scfcp && scfsp->scfs_wait) {
 		if (WARN_ON_ONCE((num_online_cpus() > 1 || scfsp->scfs_prim == SCF_PRIM_SINGLE) &&
-				 !scfcp->scfc_out))
+				 !scfcp->scfc_out)) {
+			pr_warn("%s: Memory-ordering failure, scfs_prim: %d.\n", __func__, scfsp->scfs_prim);
 			atomic_inc(&n_mb_out_errs); // Leak rather than trash!
-		else
+		} else {
 			kfree(scfcp);
+		}
 		barrier(); // Prevent race-reduction compiler optimizations.
 	}
 	if (use_cpus_read_lock)
@@ -454,8 +495,8 @@ static void
 scftorture_print_module_parms(const char *tag)
 {
 	pr_alert(SCFTORT_FLAG
-		 "--- %s:  verbose=%d holdoff=%d longwait=%d nthreads=%d onoff_holdoff=%d onoff_interval=%d shutdown_secs=%d stat_interval=%d stutter=%d use_cpus_read_lock=%d, weight_resched=%d, weight_single=%d, weight_single_wait=%d, weight_many=%d, weight_many_wait=%d, weight_all=%d, weight_all_wait=%d\n", tag,
-		 verbose, holdoff, longwait, nthreads, onoff_holdoff, onoff_interval, shutdown, stat_interval, stutter, use_cpus_read_lock, weight_resched, weight_single, weight_single_wait, weight_many, weight_many_wait, weight_all, weight_all_wait);
+		 "--- %s:  verbose=%d holdoff=%d longwait=%d nthreads=%d onoff_holdoff=%d onoff_interval=%d shutdown_secs=%d stat_interval=%d stutter=%d use_cpus_read_lock=%d, weight_resched=%d, weight_single=%d, weight_single_rpc=%d, weight_single_wait=%d, weight_many=%d, weight_many_wait=%d, weight_all=%d, weight_all_wait=%d\n", tag,
+		 verbose, holdoff, longwait, nthreads, onoff_holdoff, onoff_interval, shutdown, stat_interval, stutter, use_cpus_read_lock, weight_resched, weight_single, weight_single_rpc, weight_single_wait, weight_many, weight_many_wait, weight_all, weight_all_wait);
 }
 
 static void scf_cleanup_handler(void *unused)
@@ -470,7 +511,7 @@ static void scf_torture_cleanup(void)
 		return;
 
 	WRITE_ONCE(scfdone, true);
-	if (nthreads)
+	if (nthreads && scf_stats_p)
 		for (i = 0; i < nthreads; i++)
 			torture_stop_kthread("scftorture_invoker", scf_stats_p[i].task);
 	else
@@ -498,6 +539,7 @@ static int __init scf_torture_init(void)
 	int firsterr = 0;
 	unsigned long weight_resched1 = weight_resched;
 	unsigned long weight_single1 = weight_single;
+	unsigned long weight_single_rpc1 = weight_single_rpc;
 	unsigned long weight_single_wait1 = weight_single_wait;
 	unsigned long weight_many1 = weight_many;
 	unsigned long weight_many_wait1 = weight_many_wait;
@@ -509,21 +551,25 @@ static int __init scf_torture_init(void)
 
 	scftorture_print_module_parms("Start of test");
 
-	if (weight_resched == -1 && weight_single == -1 && weight_single_wait == -1 &&
-	    weight_many == -1 && weight_many_wait == -1 &&
-	    weight_all == -1 && weight_all_wait == -1) {
-		weight_resched1 = 2 * nr_cpu_ids;
-		weight_single1 = 2 * nr_cpu_ids;
-		weight_single_wait1 = 2 * nr_cpu_ids;
-		weight_many1 = 2;
-		weight_many_wait1 = 2;
-		weight_all1 = 1;
-		weight_all_wait1 = 1;
+	if (weight_resched <= 0 &&
+	    weight_single <= 0 && weight_single_rpc <= 0 && weight_single_wait <= 0 &&
+	    weight_many <= 0 && weight_many_wait <= 0 &&
+	    weight_all <= 0 && weight_all_wait <= 0) {
+		weight_resched1 = weight_resched == 0 ? 0 : 2 * nr_cpu_ids;
+		weight_single1 = weight_single == 0 ? 0 : 2 * nr_cpu_ids;
+		weight_single_rpc1 = weight_single_rpc == 0 ? 0 : 2 * nr_cpu_ids;
+		weight_single_wait1 = weight_single_wait == 0 ? 0 : 2 * nr_cpu_ids;
+		weight_many1 = weight_many == 0 ? 0 : 2;
+		weight_many_wait1 = weight_many_wait == 0 ? 0 : 2;
+		weight_all1 = weight_all == 0 ? 0 : 1;
+		weight_all_wait1 = weight_all_wait == 0 ? 0 : 1;
 	} else {
 		if (weight_resched == -1)
 			weight_resched1 = 0;
 		if (weight_single == -1)
 			weight_single1 = 0;
+		if (weight_single_rpc == -1)
+			weight_single_rpc1 = 0;
 		if (weight_single_wait == -1)
 			weight_single_wait1 = 0;
 		if (weight_many == -1)
@@ -535,18 +581,19 @@ static int __init scf_torture_init(void)
 		if (weight_all_wait == -1)
 			weight_all_wait1 = 0;
 	}
-	if (weight_single1 == 0 && weight_single_wait1 == 0 &&
-	    weight_many1 == 0 && weight_many_wait1 == 0 &&
+	if (weight_resched1 == 0 && weight_single1 == 0 && weight_single_rpc1 == 0 &&
+	    weight_single_wait1 == 0 && weight_many1 == 0 && weight_many_wait1 == 0 &&
 	    weight_all1 == 0 && weight_all_wait1 == 0) {
-		VERBOSE_SCFTORTOUT_ERRSTRING("all zero weights makes no sense");
+		SCFTORTOUT_ERRSTRING("all zero weights makes no sense");
 		firsterr = -EINVAL;
 		goto unwind;
 	}
 	if (IS_BUILTIN(CONFIG_SCF_TORTURE_TEST))
 		scf_sel_add(weight_resched1, SCF_PRIM_RESCHED, false);
 	else if (weight_resched1)
-		VERBOSE_SCFTORTOUT_ERRSTRING("built as module, weight_resched ignored");
+		SCFTORTOUT_ERRSTRING("built as module, weight_resched ignored");
 	scf_sel_add(weight_single1, SCF_PRIM_SINGLE, false);
+	scf_sel_add(weight_single_rpc1, SCF_PRIM_SINGLE_RPC, true);
 	scf_sel_add(weight_single_wait1, SCF_PRIM_SINGLE, true);
 	scf_sel_add(weight_many1, SCF_PRIM_MANY, false);
 	scf_sel_add(weight_many_wait1, SCF_PRIM_MANY, true);
@@ -556,17 +603,17 @@ static int __init scf_torture_init(void)
 
 	if (onoff_interval > 0) {
 		firsterr = torture_onoff_init(onoff_holdoff * HZ, onoff_interval, NULL);
-		if (firsterr)
+		if (torture_init_error(firsterr))
 			goto unwind;
 	}
 	if (shutdown_secs > 0) {
 		firsterr = torture_shutdown_init(shutdown_secs, scf_torture_cleanup);
-		if (firsterr)
+		if (torture_init_error(firsterr))
 			goto unwind;
 	}
 	if (stutter > 0) {
 		firsterr = torture_stutter_init(stutter, stutter);
-		if (firsterr)
+		if (torture_init_error(firsterr))
 			goto unwind;
 	}
 
@@ -575,24 +622,24 @@ static int __init scf_torture_init(void)
 		nthreads = num_online_cpus();
 	scf_stats_p = kcalloc(nthreads, sizeof(scf_stats_p[0]), GFP_KERNEL);
 	if (!scf_stats_p) {
-		VERBOSE_SCFTORTOUT_ERRSTRING("out of memory");
+		SCFTORTOUT_ERRSTRING("out of memory");
 		firsterr = -ENOMEM;
 		goto unwind;
 	}
 
-	VERBOSE_SCFTORTOUT("Starting %d smp_call_function() threads\n", nthreads);
+	VERBOSE_SCFTORTOUT("Starting %d smp_call_function() threads", nthreads);
 
 	atomic_set(&n_started, nthreads);
 	for (i = 0; i < nthreads; i++) {
 		scf_stats_p[i].cpu = i;
 		firsterr = torture_create_kthread(scftorture_invoker, (void *)&scf_stats_p[i],
 						  scf_stats_p[i].task);
-		if (firsterr)
+		if (torture_init_error(firsterr))
 			goto unwind;
 	}
 	if (stat_interval > 0) {
 		firsterr = torture_create_kthread(scf_torture_stats, NULL, scf_torture_stats_task);
-		if (firsterr)
+		if (torture_init_error(firsterr))
 			goto unwind;
 	}
 
@@ -602,6 +649,10 @@ static int __init scf_torture_init(void)
 unwind:
 	torture_init_end();
 	scf_torture_cleanup();
+	if (shutdown_secs) {
+		WARN_ON(!IS_MODULE(CONFIG_SCF_TORTURE_TEST));
+		kernel_power_off();
+	}
 	return firsterr;
 }
 

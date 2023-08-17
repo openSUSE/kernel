@@ -10,6 +10,9 @@ from __future__ import print_function
 import argparse
 import re
 import sys, os
+import subprocess
+
+helpersDocStart = 'Start of BPF helper function descriptions:'
 
 class NoHelperFound(BaseException):
     pass
@@ -47,6 +50,10 @@ class Helper(APIElement):
     @desc: textual description of the helper function
     @ret: description of the return value of the helper function
     """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.enum_val = None
+
     def proto_break_down(self):
         """
         Break down helper function protocol into smaller chunks: return type,
@@ -89,6 +96,8 @@ class HeaderParser(object):
         self.commands = []
         self.desc_unique_helpers = set()
         self.define_unique_helpers = []
+        self.helper_enum_vals = {}
+        self.helper_enum_pos = {}
         self.desc_syscalls = []
         self.enum_syscalls = []
 
@@ -233,7 +242,7 @@ class HeaderParser(object):
         self.enum_syscalls = re.findall('(BPF\w+)+', bpf_cmd_str)
 
     def parse_desc_helpers(self):
-        self.seek_to('* Start of BPF helper function descriptions:',
+        self.seek_to(helpersDocStart,
                      'Could not find start of eBPF helper descriptions list')
         while True:
             try:
@@ -245,30 +254,71 @@ class HeaderParser(object):
                 break
 
     def parse_define_helpers(self):
-        # Parse the number of FN(...) in #define __BPF_FUNC_MAPPER to compare
-        # later with the number of unique function names present in description.
+        # Parse FN(...) in #define ___BPF_FUNC_MAPPER to compare later with the
+        # number of unique function names present in description and use the
+        # correct enumeration value.
         # Note: seek_to(..) discards the first line below the target search text,
-        # resulting in FN(unspec) being skipped and not added to self.define_unique_helpers.
-        self.seek_to('#define __BPF_FUNC_MAPPER(FN)',
+        # resulting in FN(unspec, 0, ##ctx) being skipped and not added to
+        # self.define_unique_helpers.
+        self.seek_to('#define ___BPF_FUNC_MAPPER(FN, ctx...)',
                      'Could not find start of eBPF helper definition list')
-        # Searches for either one or more FN(\w+) defines or a backslash for newline
-        p = re.compile('\s*(FN\(\w+\))+|\\\\')
+        # Searches for one FN(\w+) define or a backslash for newline
+        p = re.compile('\s*FN\((\w+), (\d+), ##ctx\)|\\\\')
         fn_defines_str = ''
+        i = 0
         while True:
             capture = p.match(self.line)
             if capture:
                 fn_defines_str += self.line
+                helper_name = capture.expand(r'bpf_\1')
+                self.helper_enum_vals[helper_name] = int(capture.group(2))
+                self.helper_enum_pos[helper_name] = i
+                i += 1
             else:
                 break
             self.line = self.reader.readline()
         # Find the number of occurences of FN(\w+)
-        self.define_unique_helpers = re.findall('FN\(\w+\)', fn_defines_str)
+        self.define_unique_helpers = re.findall('FN\(\w+, \d+, ##ctx\)', fn_defines_str)
+
+    def validate_helpers(self):
+        last_helper = ''
+        seen_helpers = set()
+        seen_enum_vals = set()
+        i = 0
+        for helper in self.helpers:
+            proto = helper.proto_break_down()
+            name = proto['name']
+            try:
+                enum_val = self.helper_enum_vals[name]
+                enum_pos = self.helper_enum_pos[name]
+            except KeyError:
+                raise Exception("Helper %s is missing from enum bpf_func_id" % name)
+
+            if name in seen_helpers:
+                if last_helper != name:
+                    raise Exception("Helper %s has multiple descriptions which are not grouped together" % name)
+                continue
+
+            # Enforce current practice of having the descriptions ordered
+            # by enum value.
+            if enum_pos != i:
+                raise Exception("Helper %s (ID %d) comment order (#%d) must be aligned with its position (#%d) in enum bpf_func_id" % (name, enum_val, i + 1, enum_pos + 1))
+            if enum_val in seen_enum_vals:
+                raise Exception("Helper %s has duplicated value %d" % (name, enum_val))
+
+            seen_helpers.add(name)
+            last_helper = name
+            seen_enum_vals.add(enum_val)
+
+            helper.enum_val = enum_val
+            i += 1
 
     def run(self):
         self.parse_desc_syscall()
         self.parse_enum_syscall()
         self.parse_desc_helpers()
         self.parse_define_helpers()
+        self.validate_helpers()
         self.reader.close()
 
 ###############################################################################
@@ -333,27 +383,7 @@ class PrinterRST(Printer):
 .. Copyright (C) All BPF authors and contributors from 2014 to present.
 .. See git log include/uapi/linux/bpf.h in kernel tree for details.
 .. 
-.. %%%LICENSE_START(VERBATIM)
-.. Permission is granted to make and distribute verbatim copies of this
-.. manual provided the copyright notice and this permission notice are
-.. preserved on all copies.
-.. 
-.. Permission is granted to copy and distribute modified versions of this
-.. manual under the conditions for verbatim copying, provided that the
-.. entire resulting derived work is distributed under the terms of a
-.. permission notice identical to this one.
-.. 
-.. Since the Linux kernel and libraries are constantly changing, this
-.. manual page may be incorrect or out-of-date.  The author(s) assume no
-.. responsibility for errors or omissions, or for damages resulting from
-.. the use of the information contained herein.  The author(s) may not
-.. have taken the same level of care in the production of this manual,
-.. which is licensed free of charge, as they might when working
-.. professionally.
-.. 
-.. Formatted or processed versions of this manual, if unaccompanied by
-.. the source, must acknowledge the copyright and authors of this work.
-.. %%%LICENSE_END
+.. SPDX-License-Identifier: Linux-man-pages-copyleft
 .. 
 .. Please do not edit this file. It was generated from the documentation
 .. located in file include/uapi/linux/bpf.h of the Linux kernel sources
@@ -377,6 +407,31 @@ class PrinterRST(Printer):
 
         print('')
 
+    def get_kernel_version(self):
+        try:
+            version = subprocess.run(['git', 'describe'], cwd=linuxRoot,
+                                     capture_output=True, check=True)
+            version = version.stdout.decode().rstrip()
+        except:
+            try:
+                version = subprocess.run(['make', 'kernelversion'], cwd=linuxRoot,
+                                         capture_output=True, check=True)
+                version = version.stdout.decode().rstrip()
+            except:
+                return 'Linux'
+        return 'Linux {version}'.format(version=version)
+
+    def get_last_doc_update(self, delimiter):
+        try:
+            cmd = ['git', 'log', '-1', '--pretty=format:%cs', '--no-patch',
+                   '-L',
+                   '/{}/,/\*\//:include/uapi/linux/bpf.h'.format(delimiter)]
+            date = subprocess.run(cmd, cwd=linuxRoot,
+                                  capture_output=True, check=True)
+            return date.stdout.decode().rstrip()
+        except:
+            return ''
+
 class PrinterHelpersRST(PrinterRST):
     """
     A printer for dumping collected information about helpers as a ReStructured
@@ -386,7 +441,7 @@ class PrinterHelpersRST(PrinterRST):
     """
     def __init__(self, parser):
         self.elements = parser.helpers
-        self.elem_number_check(parser.desc_unique_helpers, parser.define_unique_helpers, 'helper', '__BPF_FUNC_MAPPER')
+        self.elem_number_check(parser.desc_unique_helpers, parser.define_unique_helpers, 'helper', '___BPF_FUNC_MAPPER')
 
     def print_header(self):
         header = '''\
@@ -398,6 +453,8 @@ list of eBPF helper functions
 -------------------------------------------------------------------------------
 
 :Manual section: 7
+:Version: {version}
+{date_field}{date}
 
 DESCRIPTION
 ===========
@@ -430,8 +487,13 @@ kernel at the top).
 HELPERS
 =======
 '''
+        kernelVersion = self.get_kernel_version()
+        lastUpdate = self.get_last_doc_update(helpersDocStart)
+
         PrinterRST.print_license(self)
-        print(header)
+        print(header.format(version=kernelVersion,
+                            date_field = ':Date: ' if lastUpdate else '',
+                            date=lastUpdate))
 
     def print_footer(self):
         footer = '''
@@ -592,7 +654,7 @@ class PrinterHelpers(Printer):
     """
     def __init__(self, parser):
         self.elements = parser.helpers
-        self.elem_number_check(parser.desc_unique_helpers, parser.define_unique_helpers, 'helper', '__BPF_FUNC_MAPPER')
+        self.elem_number_check(parser.desc_unique_helpers, parser.define_unique_helpers, 'helper', '___BPF_FUNC_MAPPER')
 
     type_fwds = [
             'struct bpf_fib_lookup',
@@ -623,6 +685,7 @@ class PrinterHelpers(Printer):
             'struct udp6_sock',
             'struct unix_sock',
             'struct task_struct',
+            'struct cgroup',
 
             'struct __sk_buff',
             'struct sk_msg_md',
@@ -635,6 +698,8 @@ class PrinterHelpers(Printer):
             'struct bpf_timer',
             'struct mptcp_sock',
             'struct bpf_dynptr',
+            'struct iphdr',
+            'struct ipv6hdr',
     ]
     known_types = {
             '...',
@@ -678,6 +743,7 @@ class PrinterHelpers(Printer):
             'struct udp6_sock',
             'struct unix_sock',
             'struct task_struct',
+            'struct cgroup',
             'struct path',
             'struct btf_ptr',
             'struct inode',
@@ -686,6 +752,9 @@ class PrinterHelpers(Printer):
             'struct bpf_timer',
             'struct mptcp_sock',
             'struct bpf_dynptr',
+            'const struct bpf_dynptr',
+            'struct iphdr',
+            'struct ipv6hdr',
     }
     mapped_types = {
             'u8': '__u8',
@@ -777,7 +846,7 @@ class PrinterHelpers(Printer):
             comma = ', '
             print(one_arg, end='')
 
-        print(') = (void *) %d;' % len(self.seen_helpers))
+        print(') = (void *) %d;' % helper.enum_val)
         print('')
 
 ###############################################################################

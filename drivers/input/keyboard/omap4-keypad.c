@@ -179,11 +179,9 @@ static irqreturn_t omap4_keypad_irq_thread_fn(int irq, void *dev_id)
 	int error;
 	u64 keys;
 
-	error = pm_runtime_get_sync(dev);
-	if (error < 0) {
-		pm_runtime_put_noidle(dev);
+	error = pm_runtime_resume_and_get(dev);
+	if (error)
 		return IRQ_NONE;
-	}
 
 	low = kbd_readl(keypad_data, OMAP4_KBD_FULLCODE31_0);
 	high = kbd_readl(keypad_data, OMAP4_KBD_FULLCODE63_32);
@@ -207,11 +205,9 @@ static int omap4_keypad_open(struct input_dev *input)
 	struct device *dev = input->dev.parent;
 	int error;
 
-	error = pm_runtime_get_sync(dev);
-	if (error < 0) {
-		pm_runtime_put_noidle(dev);
+	error = pm_runtime_resume_and_get(dev);
+	if (error)
 		return error;
-	}
 
 	disable_irq(keypad_data->irq);
 
@@ -254,9 +250,10 @@ static void omap4_keypad_close(struct input_dev *input)
 	struct device *dev = input->dev.parent;
 	int error;
 
-	error = pm_runtime_get_sync(dev);
-	if (error < 0)
-		pm_runtime_put_noidle(dev);
+	error = pm_runtime_resume_and_get(dev);
+	if (error)
+		dev_err(dev, "%s: pm_runtime_resume_and_get() failed: %d\n",
+			__func__, error);
 
 	disable_irq(keypad_data->irq);
 	omap4_keypad_stop(keypad_data);
@@ -277,8 +274,7 @@ static int omap4_keypad_parse_dt(struct device *dev,
 	if (err)
 		return err;
 
-	if (of_get_property(np, "linux,input-no-autorepeat", NULL))
-		keypad_data->no_autorepeat = true;
+	keypad_data->no_autorepeat = of_property_read_bool(np, "linux,input-no-autorepeat");
 
 	return 0;
 }
@@ -313,7 +309,7 @@ static int omap4_keypad_check_revision(struct device *dev,
  * Interrupt may not happen for key-up events. We must clear stuck
  * key-up events after the keyboard hardware has auto-idled.
  */
-static int __maybe_unused omap4_keypad_runtime_suspend(struct device *dev)
+static int omap4_keypad_runtime_suspend(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct omap4_keypad *keypad_data = platform_get_drvdata(pdev);
@@ -331,7 +327,7 @@ static int __maybe_unused omap4_keypad_runtime_suspend(struct device *dev)
 }
 
 static const struct dev_pm_ops omap4_keypad_pm_ops = {
-	SET_RUNTIME_PM_OPS(omap4_keypad_runtime_suspend, NULL, NULL)
+	RUNTIME_PM_OPS(omap4_keypad_runtime_suspend, NULL, NULL)
 };
 
 static void omap4_disable_pm(void *d)
@@ -392,10 +388,9 @@ static int omap4_keypad_probe(struct platform_device *pdev)
 	 * Enable clocks for the keypad module so that we can read
 	 * revision register.
 	 */
-	error = pm_runtime_get_sync(dev);
-	if (error < 0) {
-		dev_err(dev, "pm_runtime_get_sync() failed\n");
-		pm_runtime_put_noidle(dev);
+	error = pm_runtime_resume_and_get(dev);
+	if (error) {
+		dev_err(dev, "pm_runtime_resume_and_get() failed\n");
 		return error;
 	}
 
@@ -492,7 +487,7 @@ static struct platform_driver omap4_keypad_driver = {
 	.driver		= {
 		.name	= "omap4-keypad",
 		.of_match_table = omap_keypad_dt_match,
-		.pm = &omap4_keypad_pm_ops,
+		.pm = pm_ptr(&omap4_keypad_pm_ops),
 	},
 };
 module_platform_driver(omap4_keypad_driver);

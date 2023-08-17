@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
 #include <linux/regulator/consumer.h>
+#include <linux/units.h>
 #include <media/media-entity.h>
 #include <media/v4l2-async.h>
 #include <media/v4l2-ctrls.h>
@@ -64,7 +65,6 @@
 /* Test pattern control */
 #define OV02A10_REG_TEST_PATTERN			0xb6
 
-#define HZ_PER_MHZ					1000000L
 #define OV02A10_LINK_FREQ_390MHZ			(390 * HZ_PER_MHZ)
 #define OV02A10_ECLK_FREQ				(24 * HZ_PER_MHZ)
 
@@ -975,7 +975,7 @@ err_destroy_mutex:
 	return ret;
 }
 
-static int ov02a10_remove(struct i2c_client *client)
+static void ov02a10_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct ov02a10 *ov02a10 = to_ov02a10(sd);
@@ -988,8 +988,6 @@ static int ov02a10_remove(struct i2c_client *client)
 		ov02a10_power_off(&client->dev);
 	pm_runtime_set_suspended(&client->dev);
 	mutex_destroy(&ov02a10->mutex);
-
-	return 0;
 }
 
 static const struct of_device_id ov02a10_of_match[] = {

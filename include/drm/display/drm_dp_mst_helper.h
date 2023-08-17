@@ -48,14 +48,6 @@ struct drm_dp_mst_topology_ref_history {
 
 struct drm_dp_mst_branch;
 
-/* FIXME: only for SLE15-SP5 kABI compatibility */
-struct drm_dp_vcpi {
-	int vcpi;
-	int pbn;
-	int aligned_pbn;
-	int num_slots;
-};
-
 /**
  * struct drm_dp_mst_port - MST port
  * @port_num: port number
@@ -139,7 +131,6 @@ struct drm_dp_mst_port {
 	struct drm_dp_aux *passthrough_aux;
 	struct drm_dp_mst_branch *parent;
 
-	struct drm_dp_vcpi vcpi;
 	struct drm_connector *connector;
 	struct drm_dp_mst_topology_mgr *mgr;
 
@@ -524,30 +515,16 @@ struct drm_dp_mst_topology_cbs {
 	void (*poll_hpd_irq)(struct drm_dp_mst_topology_mgr *mgr);
 };
 
-#define DP_MAX_PAYLOAD (sizeof(unsigned long) * 8)
-
-#define DP_PAYLOAD_LOCAL 1
-#define DP_PAYLOAD_REMOTE 2
-#define DP_PAYLOAD_DELETE_LOCAL 3
-
-struct drm_dp_payload {
-	int payload_state;
-	int start_slot;
-	int num_slots;
-	int vcpi;
-};
-
 #define to_dp_mst_topology_state(x) container_of(x, struct drm_dp_mst_topology_state, base)
 
-struct drm_dp_vcpi_allocation {
-	struct drm_dp_mst_port *port;
-	int vcpi;
-	int pbn;
-	bool dsc_enabled;
-	struct list_head next;
-};
-
+/**
+ * struct drm_dp_mst_atomic_payload - Atomic state struct for an MST payload
+ *
+ * The primary atomic state structure for a given MST payload. Stores information like current
+ * bandwidth allocation, intended action for this payload, etc.
+ */
 struct drm_dp_mst_atomic_payload {
+	/** @port: The MST port assigned to this payload */
 	struct drm_dp_mst_port *port;
 
 	/**
@@ -584,6 +561,7 @@ struct drm_dp_mst_atomic_payload {
 	 * the immediate downstream DP Rx
 	 */
 	int time_slots;
+	/** @pbn: The payload bandwidth for this payload */
 	int pbn;
 
 	/** @delete: Whether or not we intend to delete this payload during this atomic commit */
@@ -591,18 +569,22 @@ struct drm_dp_mst_atomic_payload {
 	/** @dsc_enabled: Whether or not this payload has DSC enabled */
 	bool dsc_enabled : 1;
 
+	/** @next: The list node for this payload */
 	struct list_head next;
 };
 
+/**
+ * struct drm_dp_mst_topology_state - DisplayPort MST topology atomic state
+ *
+ * This struct represents the atomic state of the toplevel DisplayPort MST manager
+ */
 struct drm_dp_mst_topology_state {
+	/** @base: Base private state for atomic */
 	struct drm_private_state base;
-	struct list_head vcpis;	/* XXX: placeholder for SLE kABI */
+
+	/** @mgr: The topology manager */
 	struct drm_dp_mst_topology_mgr *mgr;
 
-	u8 total_avail_slots;
-	u8 start_slot;
-
-#ifndef __GENKSYMS__
 	/**
 	 * @pending_crtc_mask: A bitmask of all CRTCs this topology state touches, drivers may
 	 * modify this to add additional dependencies if needed.
@@ -621,12 +603,16 @@ struct drm_dp_mst_topology_state {
 	/** @payloads: The list of payloads being created/destroyed in this state */
 	struct list_head payloads;
 
+	/** @total_avail_slots: The total number of slots this topology can handle (63 or 64) */
+	u8 total_avail_slots;
+	/** @start_slot: The first usable time slot in this topology (1 or 0) */
+	u8 start_slot;
+
 	/**
 	 * @pbn_div: The current PBN divisor for this topology. The driver is expected to fill this
 	 * out itself.
 	 */
 	int pbn_div;
-#endif /* !__GENKSYMS__ */
 };
 
 #define to_dp_mst_topology_mgr(x) container_of(x, struct drm_dp_mst_topology_mgr, base)
@@ -666,11 +652,6 @@ struct drm_dp_mst_topology_mgr {
 	 * @max_payloads: maximum number of payloads the GPU can generate.
 	 */
 	int max_payloads;
-
-	/* FIXME: placeholders for SLE kABI compatibility */
-	int max_lane_count;
-	int max_link_rate;
-
 	/**
 	 * @conn_base_id: DRM connector ID this mgr is connected to. Only used
 	 * to build the MST connector path value.
@@ -713,7 +694,6 @@ struct drm_dp_mst_topology_mgr {
 	 */
 	bool payload_id_table_cleared : 1;
 
-#ifndef __GENKSYMS__
 	/**
 	 * @payload_count: The number of currently active payloads in hardware. This value is only
 	 * intended to be used internally by MST helpers for payload tracking, and is only safe to
@@ -727,7 +707,6 @@ struct drm_dp_mst_topology_mgr {
 	 * atomic commit (not check) context.
 	 */
 	u8 next_start_slot;
-#endif /* !__GENKSYMS__ */
 
 	/**
 	 * @mst_primary: Pointer to the primary/first branch device.
@@ -743,9 +722,6 @@ struct drm_dp_mst_topology_mgr {
 	 */
 	u8 sink_count;
 
-	/* FIXME: placeholder for SLE kABI */
-	int pbn_div;
-
 	/**
 	 * @funcs: Atomic helper callbacks
 	 */
@@ -760,13 +736,6 @@ struct drm_dp_mst_topology_mgr {
 	 * @tx_msg_downq: List of pending down requests
 	 */
 	struct list_head tx_msg_downq;
-
-	/* FIXME: placeholders for SLE kABI */
-	struct mutex payload_lock;
-	struct drm_dp_vcpi **proposed_vcpis;
-	struct drm_dp_payload *payloads;
-	unsigned long payload_mask;
-	unsigned long vcpi_mask;
 
 	/**
 	 * @tx_waitq: Wait to queue stall for the tx worker.
@@ -836,11 +805,10 @@ struct drm_dp_mst_topology_mgr {
 #endif
 };
 
-int __drm_dp_mst_topology_mgr_init(struct drm_dp_mst_topology_mgr *mgr,
+int drm_dp_mst_topology_mgr_init(struct drm_dp_mst_topology_mgr *mgr,
 				 struct drm_device *dev, struct drm_dp_aux *aux,
 				 int max_dpcd_transaction_bytes,
 				 int max_payloads, int conn_base_id);
-#define drm_dp_mst_topology_mgr_init __drm_dp_mst_topology_mgr_init
 
 void drm_dp_mst_topology_mgr_destroy(struct drm_dp_mst_topology_mgr *mgr);
 
@@ -874,11 +842,10 @@ int drm_dp_add_payload_part1(struct drm_dp_mst_topology_mgr *mgr,
 int drm_dp_add_payload_part2(struct drm_dp_mst_topology_mgr *mgr,
 			     struct drm_atomic_state *state,
 			     struct drm_dp_mst_atomic_payload *payload);
-void __drm_dp_remove_payload(struct drm_dp_mst_topology_mgr *mgr,
+void drm_dp_remove_payload(struct drm_dp_mst_topology_mgr *mgr,
 			   struct drm_dp_mst_topology_state *mst_state,
 			   const struct drm_dp_mst_atomic_payload *old_payload,
 			   struct drm_dp_mst_atomic_payload *new_payload);
-#define drm_dp_remove_payload __drm_dp_remove_payload
 
 int drm_dp_check_act_status(struct drm_dp_mst_topology_mgr *mgr);
 
@@ -916,10 +883,9 @@ int __must_check
 drm_dp_atomic_find_time_slots(struct drm_atomic_state *state,
 			      struct drm_dp_mst_topology_mgr *mgr,
 			      struct drm_dp_mst_port *port, int pbn);
-int __drm_dp_mst_atomic_enable_dsc(struct drm_atomic_state *state,
+int drm_dp_mst_atomic_enable_dsc(struct drm_atomic_state *state,
 				 struct drm_dp_mst_port *port,
 				 int pbn, bool enable);
-#define drm_dp_mst_atomic_enable_dsc __drm_dp_mst_atomic_enable_dsc
 int __must_check
 drm_dp_mst_add_affected_dsc_crtcs(struct drm_atomic_state *state,
 				  struct drm_dp_mst_topology_mgr *mgr);

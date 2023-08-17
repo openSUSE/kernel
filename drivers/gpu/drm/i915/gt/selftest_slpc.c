@@ -13,6 +13,14 @@ enum test_type {
 	VARY_MAX,
 	MAX_GRANTED,
 	SLPC_POWER,
+	TILE_INTERACTION,
+};
+
+struct slpc_thread {
+	struct kthread_worker *worker;
+	struct kthread_work work;
+	struct intel_gt *gt;
+	int result;
 };
 
 static int slpc_set_min_freq(struct intel_guc_slpc *slpc, u32 freq)
@@ -212,7 +220,8 @@ static int max_granted_freq(struct intel_guc_slpc *slpc, struct intel_rps *rps, 
 	*max_act_freq =  intel_rps_read_actual_frequency(rps);
 	if (*max_act_freq != slpc->rp0_freq) {
 		/* Check if there was some throttling by pcode */
-		perf_limit_reasons = intel_uncore_read(gt->uncore, GT0_PERF_LIMIT_REASONS);
+		perf_limit_reasons = intel_uncore_read(gt->uncore,
+						       intel_gt_perf_limit_reasons_reg(gt));
 
 		/* If not, this is an error */
 		if (!(perf_limit_reasons & GT0_PERF_LIMIT_REASONS_MASK)) {
@@ -239,6 +248,11 @@ static int run_test(struct intel_gt *gt, int test_type)
 	if (!intel_uc_uses_guc_slpc(&gt->uc))
 		return 0;
 
+	if (slpc->min_freq == slpc->rp0_freq) {
+		pr_err("Min/Max are fused to the same value\n");
+		return -EINVAL;
+	}
+
 	if (igt_spinner_init(&spin, gt))
 		return -ENOMEM;
 
@@ -252,9 +266,15 @@ static int run_test(struct intel_gt *gt, int test_type)
 		return -EIO;
 	}
 
-	if (slpc->min_freq == slpc->rp0_freq) {
-		pr_err("Min/Max are fused to the same value\n");
-		return -EINVAL;
+	/*
+	 * Set min frequency to RPn so that we can test the whole
+	 * range of RPn-RP0. This also turns off efficient freq
+	 * usage and makes results more predictable.
+	 */
+	err = slpc_set_min_freq(slpc, slpc->min_freq);
+	if (err) {
+		pr_err("Unable to update min freq!");
+		return err;
 	}
 
 	intel_gt_pm_wait_for_idle(gt);
@@ -299,9 +319,10 @@ static int run_test(struct intel_gt *gt, int test_type)
 			break;
 
 		case MAX_GRANTED:
+		case TILE_INTERACTION:
 			/* Media engines have a different RP0 */
-			if (engine->class == VIDEO_DECODE_CLASS ||
-			    engine->class == VIDEO_ENHANCEMENT_CLASS) {
+			if (gt->type != GT_MEDIA && (engine->class == VIDEO_DECODE_CLASS ||
+						     engine->class == VIDEO_ENHANCEMENT_CLASS)) {
 				igt_spinner_end(&spin);
 				st_engine_heartbeat_enable(engine);
 				err = 0;
@@ -321,10 +342,11 @@ static int run_test(struct intel_gt *gt, int test_type)
 				engine->name, max_act_freq);
 
 			/* Actual frequency should rise above min */
-			if (max_act_freq <= slpc_min_freq) {
+			if (max_act_freq <= slpc->min_freq) {
 				pr_err("Actual freq did not rise above min\n");
 				pr_err("Perf Limit Reasons: 0x%x\n",
-				       intel_uncore_read(gt->uncore, GT0_PERF_LIMIT_REASONS));
+				       intel_uncore_read(gt->uncore,
+							 intel_gt_perf_limit_reasons_reg(gt)));
 				err = -EINVAL;
 			}
 		}
@@ -415,6 +437,56 @@ static int live_slpc_power(void *arg)
 	return ret;
 }
 
+static void slpc_spinner_thread(struct kthread_work *work)
+{
+	struct slpc_thread *thread = container_of(work, typeof(*thread), work);
+
+	thread->result = run_test(thread->gt, TILE_INTERACTION);
+}
+
+static int live_slpc_tile_interaction(void *arg)
+{
+	struct drm_i915_private *i915 = arg;
+	struct intel_gt *gt;
+	struct slpc_thread *threads;
+	int i = 0, ret = 0;
+
+	threads = kcalloc(I915_MAX_GT, sizeof(*threads), GFP_KERNEL);
+	if (!threads)
+		return -ENOMEM;
+
+	for_each_gt(gt, i915, i) {
+		threads[i].worker = kthread_create_worker(0, "igt/slpc_parallel:%d", gt->info.id);
+
+		if (IS_ERR(threads[i].worker)) {
+			ret = PTR_ERR(threads[i].worker);
+			break;
+		}
+
+		threads[i].gt = gt;
+		kthread_init_work(&threads[i].work, slpc_spinner_thread);
+		kthread_queue_work(threads[i].worker, &threads[i].work);
+	}
+
+	for_each_gt(gt, i915, i) {
+		int status;
+
+		if (IS_ERR_OR_NULL(threads[i].worker))
+			continue;
+
+		kthread_flush_work(&threads[i].work);
+		status = READ_ONCE(threads[i].result);
+		if (status && !ret) {
+			pr_err("%s GT %d failed ", __func__, gt->info.id);
+			ret = status;
+		}
+		kthread_destroy_worker(threads[i].worker);
+	}
+
+	kfree(threads);
+	return ret;
+}
+
 int intel_slpc_live_selftests(struct drm_i915_private *i915)
 {
 	static const struct i915_subtest tests[] = {
@@ -422,6 +494,7 @@ int intel_slpc_live_selftests(struct drm_i915_private *i915)
 		SUBTEST(live_slpc_vary_min),
 		SUBTEST(live_slpc_max_granted),
 		SUBTEST(live_slpc_power),
+		SUBTEST(live_slpc_tile_interaction),
 	};
 
 	struct intel_gt *gt;

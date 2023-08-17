@@ -65,13 +65,12 @@ static void ftm_clear_write_protection(struct fsl_pwm_chip *fpc)
 
 	regmap_read(fpc->regmap, FTM_FMS, &val);
 	if (val & FTM_FMS_WPEN)
-		regmap_update_bits(fpc->regmap, FTM_MODE, FTM_MODE_WPDIS,
-				   FTM_MODE_WPDIS);
+		regmap_set_bits(fpc->regmap, FTM_MODE, FTM_MODE_WPDIS);
 }
 
 static void ftm_set_write_protection(struct fsl_pwm_chip *fpc)
 {
-	regmap_update_bits(fpc->regmap, FTM_FMS, FTM_FMS_WPEN, FTM_FMS_WPEN);
+	regmap_set_bits(fpc->regmap, FTM_FMS, FTM_FMS_WPEN);
 }
 
 static bool fsl_pwm_periodcfg_are_equal(const struct fsl_pwm_periodcfg *a,
@@ -94,8 +93,7 @@ static int fsl_pwm_request(struct pwm_chip *chip, struct pwm_device *pwm)
 	ret = clk_prepare_enable(fpc->ipg_clk);
 	if (!ret && fpc->soc->has_enable_bits) {
 		mutex_lock(&fpc->lock);
-		regmap_update_bits(fpc->regmap, FTM_SC, BIT(pwm->hwpwm + 16),
-				   BIT(pwm->hwpwm + 16));
+		regmap_set_bits(fpc->regmap, FTM_SC, BIT(pwm->hwpwm + 16));
 		mutex_unlock(&fpc->lock);
 	}
 
@@ -108,8 +106,7 @@ static void fsl_pwm_free(struct pwm_chip *chip, struct pwm_device *pwm)
 
 	if (fpc->soc->has_enable_bits) {
 		mutex_lock(&fpc->lock);
-		regmap_update_bits(fpc->regmap, FTM_SC, BIT(pwm->hwpwm + 16),
-				   0);
+		regmap_clear_bits(fpc->regmap, FTM_SC, BIT(pwm->hwpwm + 16));
 		mutex_unlock(&fpc->lock);
 	}
 
@@ -317,8 +314,8 @@ static int fsl_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 
 	if (!newstate->enabled) {
 		if (oldstate->enabled) {
-			regmap_update_bits(fpc->regmap, FTM_OUTMASK,
-					   BIT(pwm->hwpwm), BIT(pwm->hwpwm));
+			regmap_set_bits(fpc->regmap, FTM_OUTMASK,
+					BIT(pwm->hwpwm));
 			clk_disable_unprepare(fpc->clk[FSL_PWM_CLK_CNTEN]);
 			clk_disable_unprepare(fpc->clk[fpc->period.clk_select]);
 		}
@@ -342,8 +339,7 @@ static int fsl_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 			goto end_mutex;
 		}
 
-		regmap_update_bits(fpc->regmap, FTM_OUTMASK, BIT(pwm->hwpwm),
-				   0);
+		regmap_clear_bits(fpc->regmap, FTM_OUTMASK, BIT(pwm->hwpwm));
 	}
 
 end_mutex:
@@ -453,7 +449,7 @@ static int fsl_pwm_probe(struct platform_device *pdev)
 	fpc->chip.ops = &fsl_pwm_ops;
 	fpc->chip.npwm = 8;
 
-	ret = pwmchip_add(&fpc->chip);
+	ret = devm_pwmchip_add(&pdev->dev, &fpc->chip);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "failed to add PWM chip: %d\n", ret);
 		return ret;
@@ -462,13 +458,6 @@ static int fsl_pwm_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, fpc);
 
 	return fsl_pwm_init(fpc);
-}
-
-static int fsl_pwm_remove(struct platform_device *pdev)
-{
-	struct fsl_pwm_chip *fpc = platform_get_drvdata(pdev);
-
-	return pwmchip_remove(&fpc->chip);
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -552,7 +541,6 @@ static struct platform_driver fsl_pwm_driver = {
 		.pm = &fsl_pwm_pm_ops,
 	},
 	.probe = fsl_pwm_probe,
-	.remove = fsl_pwm_remove,
 };
 module_platform_driver(fsl_pwm_driver);
 

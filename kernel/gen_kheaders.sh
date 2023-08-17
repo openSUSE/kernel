@@ -7,12 +7,14 @@ set -e
 sfile="$(readlink -f "$0")"
 outdir="$(pwd)"
 tarfile=$1
-cpio_dir=$outdir/$tarfile.tmp
+cpio_dir=$outdir/${tarfile%/*}/.tmp_cpio_dir
 
 dir_list="
 include/
 arch/$SRCARCH/include/
 "
+
+type cpio > /dev/null
 
 # Support incremental builds by skipping archive generation
 # if timestamps of files being archived are not changed.
@@ -31,8 +33,8 @@ if [ "$building_out_of_srctree" ]; then
 fi
 all_dirs="$all_dirs $dir_list"
 
-# include/generated/compile.h is ignored because it is touched even when none
-# of the source files changed.
+# include/generated/utsversion.h is ignored because it is generated after this
+# script is executed. (utsversion.h is unneeded for kheaders)
 #
 # When Kconfig regenerates include/generated/autoconf.h, its timestamp is
 # updated, but the contents might be still the same. When any CONFIG option is
@@ -42,7 +44,7 @@ all_dirs="$all_dirs $dir_list"
 #
 # Ignore them for md5 calculation to avoid pointless regeneration.
 headers_md5="$(find $all_dirs -name "*.h"			|
-		grep -v "include/generated/compile.h"	|
+		grep -v "include/generated/utsversion.h"	|
 		grep -v "include/generated/autoconf.h"	|
 		xargs ls -l | md5sum | cut -d ' ' -f1)"
 
@@ -74,7 +76,7 @@ fi
 # of tree builds having stale headers in srctree. Just silence CPIO for now.
 for f in $dir_list;
 	do find "$f" -name "*.h";
-done | cpio --quiet -pd $cpio_dir >/dev/null 2>&1
+done | cpio --quiet -pdu $cpio_dir >/dev/null 2>&1
 
 # Remove comments except SDPX lines
 find $cpio_dir -type f -print0 |

@@ -44,6 +44,7 @@ int enetc_setup_cbdr(struct device *dev, struct enetc_hw *hw, int bd_count,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(enetc_setup_cbdr);
 
 void enetc_teardown_cbdr(struct enetc_cbdr *cbdr)
 {
@@ -57,6 +58,7 @@ void enetc_teardown_cbdr(struct enetc_cbdr *cbdr)
 	cbdr->bd_base = NULL;
 	cbdr->dma_dev = NULL;
 }
+EXPORT_SYMBOL_GPL(enetc_teardown_cbdr);
 
 static void enetc_clean_cbdr(struct enetc_cbdr *ring)
 {
@@ -127,6 +129,7 @@ int enetc_send_cmd(struct enetc_si *si, struct enetc_cbd *cbd)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(enetc_send_cmd);
 
 int enetc_clear_mac_flt_entry(struct enetc_si *si, int index)
 {
@@ -140,6 +143,7 @@ int enetc_clear_mac_flt_entry(struct enetc_si *si, int index)
 
 	return enetc_send_cmd(si, &cbd);
 }
+EXPORT_SYMBOL_GPL(enetc_clear_mac_flt_entry);
 
 int enetc_set_mac_flt_entry(struct enetc_si *si, int index,
 			    char *mac_addr, int si_map)
@@ -165,71 +169,58 @@ int enetc_set_mac_flt_entry(struct enetc_si *si, int index,
 
 	return enetc_send_cmd(si, &cbd);
 }
+EXPORT_SYMBOL_GPL(enetc_set_mac_flt_entry);
 
-#define RFSE_ALIGN	64
 /* Set entry in RFS table */
 int enetc_set_fs_entry(struct enetc_si *si, struct enetc_cmd_rfse *rfse,
 		       int index)
 {
 	struct enetc_cbdr *ring = &si->cbd_ring;
 	struct enetc_cbd cbd = {.cmd = 0};
-	dma_addr_t dma, dma_align;
 	void *tmp, *tmp_align;
+	dma_addr_t dma;
 	int err;
 
 	/* fill up the "set" descriptor */
 	cbd.cmd = 0;
 	cbd.cls = 4;
 	cbd.index = cpu_to_le16(index);
-	cbd.length = cpu_to_le16(sizeof(*rfse));
 	cbd.opt[3] = cpu_to_le32(0); /* SI */
 
-	tmp = dma_alloc_coherent(ring->dma_dev, sizeof(*rfse) + RFSE_ALIGN,
-				 &dma, GFP_KERNEL);
-	if (!tmp) {
-		dev_err(ring->dma_dev, "DMA mapping of RFS entry failed!\n");
+	tmp = enetc_cbd_alloc_data_mem(si, &cbd, sizeof(*rfse),
+				       &dma, &tmp_align);
+	if (!tmp)
 		return -ENOMEM;
-	}
 
-	dma_align = ALIGN(dma, RFSE_ALIGN);
-	tmp_align = PTR_ALIGN(tmp, RFSE_ALIGN);
 	memcpy(tmp_align, rfse, sizeof(*rfse));
-
-	cbd.addr[0] = cpu_to_le32(lower_32_bits(dma_align));
-	cbd.addr[1] = cpu_to_le32(upper_32_bits(dma_align));
 
 	err = enetc_send_cmd(si, &cbd);
 	if (err)
 		dev_err(ring->dma_dev, "FS entry add failed (%d)!", err);
 
-	dma_free_coherent(ring->dma_dev, sizeof(*rfse) + RFSE_ALIGN,
-			  tmp, dma);
+	enetc_cbd_free_data_mem(si, sizeof(*rfse), tmp, &dma);
 
 	return err;
 }
+EXPORT_SYMBOL_GPL(enetc_set_fs_entry);
 
-#define RSSE_ALIGN	64
 static int enetc_cmd_rss_table(struct enetc_si *si, u32 *table, int count,
 			       bool read)
 {
 	struct enetc_cbdr *ring = &si->cbd_ring;
 	struct enetc_cbd cbd = {.cmd = 0};
-	dma_addr_t dma, dma_align;
 	u8 *tmp, *tmp_align;
+	dma_addr_t dma;
 	int err, i;
 
-	if (count < RSSE_ALIGN)
+	if (count < ENETC_CBD_DATA_MEM_ALIGN)
 		/* HW only takes in a full 64 entry table */
 		return -EINVAL;
 
-	tmp = dma_alloc_coherent(ring->dma_dev, count + RSSE_ALIGN,
-				 &dma, GFP_KERNEL);
-	if (!tmp) {
-		dev_err(ring->dma_dev, "DMA mapping of RSS table failed!\n");
+	tmp = enetc_cbd_alloc_data_mem(si, &cbd, count,
+				       &dma, (void *)&tmp_align);
+	if (!tmp)
 		return -ENOMEM;
-	}
-	dma_align = ALIGN(dma, RSSE_ALIGN);
-	tmp_align = PTR_ALIGN(tmp, RSSE_ALIGN);
 
 	if (!read)
 		for (i = 0; i < count; i++)
@@ -238,10 +229,6 @@ static int enetc_cmd_rss_table(struct enetc_si *si, u32 *table, int count,
 	/* fill up the descriptor */
 	cbd.cmd = read ? 2 : 1;
 	cbd.cls = 3;
-	cbd.length = cpu_to_le16(count);
-
-	cbd.addr[0] = cpu_to_le32(lower_32_bits(dma_align));
-	cbd.addr[1] = cpu_to_le32(upper_32_bits(dma_align));
 
 	err = enetc_send_cmd(si, &cbd);
 	if (err)
@@ -251,7 +238,7 @@ static int enetc_cmd_rss_table(struct enetc_si *si, u32 *table, int count,
 		for (i = 0; i < count; i++)
 			table[i] = tmp_align[i];
 
-	dma_free_coherent(ring->dma_dev, count + RSSE_ALIGN, tmp, dma);
+	enetc_cbd_free_data_mem(si, count, tmp, &dma);
 
 	return err;
 }
@@ -261,9 +248,11 @@ int enetc_get_rss_table(struct enetc_si *si, u32 *table, int count)
 {
 	return enetc_cmd_rss_table(si, table, count, true);
 }
+EXPORT_SYMBOL_GPL(enetc_get_rss_table);
 
 /* Set RSS table */
 int enetc_set_rss_table(struct enetc_si *si, const u32 *table, int count)
 {
 	return enetc_cmd_rss_table(si, (u32 *)table, count, false);
 }
+EXPORT_SYMBOL_GPL(enetc_set_rss_table);

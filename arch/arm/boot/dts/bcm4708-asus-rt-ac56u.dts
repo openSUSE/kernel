@@ -28,40 +28,39 @@
 	leds {
 		compatible = "gpio-leds";
 
-		usb3 {
+		led-usb3 {
 			label = "bcm53xx:blue:usb3";
 			gpios = <&chipcommon 0 GPIO_ACTIVE_LOW>;
 		};
 
-		wan {
+		led-wan {
 			label = "bcm53xx:blue:wan";
 			gpios = <&chipcommon 1 GPIO_ACTIVE_LOW>;
 		};
 
-		lan {
+		led-lan {
 			label = "bcm53xx:blue:lan";
 			gpios = <&chipcommon 2 GPIO_ACTIVE_LOW>;
 		};
 
-		power {
+		led-power {
 			label = "bcm53xx:blue:power";
 			gpios = <&chipcommon 3 GPIO_ACTIVE_LOW>;
 			linux,default-trigger = "default-on";
 		};
 
-		all {
+		led-all {
 			label = "bcm53xx:blue:all";
 			gpios = <&chipcommon 4 GPIO_ACTIVE_LOW>;
 			linux,default-trigger = "default-on";
 		};
 
-		2ghz {
+		led-2ghz {
 			label = "bcm53xx:blue:2ghz";
 			gpios = <&chipcommon 6 GPIO_ACTIVE_LOW>;
 		};
 
-
-		usb2 {
+		led-usb2 {
 			label = "bcm53xx:blue:usb2";
 			gpios = <&chipcommon 14 GPIO_ACTIVE_LOW>;
 		};
@@ -70,19 +69,19 @@
 	gpio-keys {
 		compatible = "gpio-keys";
 
-		rfkill {
+		button-rfkill {
 			label = "WiFi";
 			linux,code = <KEY_RFKILL>;
 			gpios = <&chipcommon 7 GPIO_ACTIVE_LOW>;
 		};
 
-		restart {
+		button-restart {
 			label = "Reset";
 			linux,code = <KEY_RESTART>;
 			gpios = <&chipcommon 11 GPIO_ACTIVE_LOW>;
 		};
 
-		wps {
+		button-wps {
 			label = "WPS";
 			linux,code = <KEY_WPS_BUTTON>;
 			gpios = <&chipcommon 15 GPIO_ACTIVE_LOW>;

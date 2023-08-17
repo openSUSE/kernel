@@ -9,6 +9,9 @@ title: UniPhier EVEA SoC-internal sound codec
 maintainers:
   - <alsa-devel@alsa-project.org>
 
+allOf:
+  - $ref: dai-common.yaml#
+
 properties:
   compatible:
     const: socionext,uniphier-evea
@@ -40,11 +43,15 @@ properties:
 
 patternProperties:
   "^port@[0-9]$":
-    description: FIXME, Need to define what each port is.
+    description: |
+      Port number of DT node is specified by the following DAI channels.
+        0: line1
+        1: hp
+        2: line2
     $ref: audio-graph-port.yaml#
     unevaluatedProperties: false
 
-additionalProperties: false
+unevaluatedProperties: false
 
 required:
   - compatible

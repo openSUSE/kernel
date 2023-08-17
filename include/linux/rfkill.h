@@ -62,8 +62,6 @@ struct rfkill_ops {
 	void	(*poll)(struct rfkill *rfkill, void *data);
 	void	(*query)(struct rfkill *rfkill, void *data);
 	int	(*set_block)(void *data, bool blocked);
-
-	void * suse_kabi_padding;
 };
 
 #if defined(CONFIG_RFKILL) || defined(CONFIG_RFKILL_MODULE)
@@ -232,6 +230,13 @@ void rfkill_set_states(struct rfkill *rfkill, bool sw, bool hw);
 bool rfkill_blocked(struct rfkill *rfkill);
 
 /**
+ * rfkill_soft_blocked - Query soft rfkill block state
+ *
+ * @rfkill: rfkill struct to query
+ */
+bool rfkill_soft_blocked(struct rfkill *rfkill);
+
+/**
  * rfkill_find_type - Helper for finding rfkill type by name
  * @name: the name of the type
  *
@@ -299,6 +304,11 @@ static inline void rfkill_set_states(struct rfkill *rfkill, bool sw, bool hw)
 }
 
 static inline bool rfkill_blocked(struct rfkill *rfkill)
+{
+	return false;
+}
+
+static inline bool rfkill_soft_blocked(struct rfkill *rfkill)
 {
 	return false;
 }

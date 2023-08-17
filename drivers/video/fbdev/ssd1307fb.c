@@ -803,10 +803,8 @@ static int ssd1307fb_probe(struct i2c_client *client)
 bl_init_error:
 	unregister_framebuffer(info);
 panel_init_error:
-	if (par->device_info->need_pwm) {
-		pwm_disable(par->pwm);
-		pwm_put(par->pwm);
-	}
+	pwm_disable(par->pwm);
+	pwm_put(par->pwm);
 regulator_enable_error:
 	if (par->vbat_reg)
 		regulator_disable(par->vbat_reg);
@@ -817,7 +815,7 @@ fb_alloc_error:
 	return ret;
 }
 
-static int ssd1307fb_remove(struct i2c_client *client)
+static void ssd1307fb_remove(struct i2c_client *client)
 {
 	struct fb_info *info = i2c_get_clientdata(client);
 	struct ssd1307fb_par *par = info->par;
@@ -827,17 +825,13 @@ static int ssd1307fb_remove(struct i2c_client *client)
 	backlight_device_unregister(info->bl_dev);
 
 	unregister_framebuffer(info);
-	if (par->device_info->need_pwm) {
-		pwm_disable(par->pwm);
-		pwm_put(par->pwm);
-	}
+	pwm_disable(par->pwm);
+	pwm_put(par->pwm);
 	if (par->vbat_reg)
 		regulator_disable(par->vbat_reg);
 	fb_deferred_io_cleanup(info);
 	__free_pages(__va(info->fix.smem_start), get_order(info->fix.smem_len));
 	framebuffer_release(info);
-
-	return 0;
 }
 
 static const struct i2c_device_id ssd1307fb_i2c_id[] = {
@@ -850,7 +844,7 @@ static const struct i2c_device_id ssd1307fb_i2c_id[] = {
 MODULE_DEVICE_TABLE(i2c, ssd1307fb_i2c_id);
 
 static struct i2c_driver ssd1307fb_driver = {
-	.probe_new = ssd1307fb_probe,
+	.probe = ssd1307fb_probe,
 	.remove = ssd1307fb_remove,
 	.id_table = ssd1307fb_i2c_id,
 	.driver = {

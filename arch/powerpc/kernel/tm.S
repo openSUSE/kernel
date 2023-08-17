@@ -117,7 +117,7 @@ _GLOBAL(tm_reclaim)
 	std	r2, STK_GOT(r1)
 	stdu	r1, -TM_FRAME_SIZE(r1)
 
-	/* We've a struct pt_regs at [r1+STACK_FRAME_OVERHEAD]. */
+	/* We've a struct pt_regs at [r1+STACK_INT_FRAME_REGS]. */
 
 	std	r3, STK_PARAM(R3)(r1)
 	SAVE_NVGPRS(r1)
@@ -222,15 +222,12 @@ _GLOBAL(tm_reclaim)
 	 * Make r7 look like an exception frame so that we can use the neat
 	 * GPRx(n) macros. r7 is NOT a pt_regs ptr!
 	 */
-	subi	r7, r7, STACK_FRAME_OVERHEAD
+	subi	r7, r7, STACK_INT_FRAME_REGS
 
 	/* Sync the userland GPRs 2-12, 14-31 to thread->regs: */
 	SAVE_GPR(0, r7)				/* user r0 */
-	SAVE_GPR(2, r7)				/* user r2 */
-	SAVE_4GPRS(3, r7)			/* user r3-r6 */
-	SAVE_GPR(8, r7)				/* user r8 */
-	SAVE_GPR(9, r7)				/* user r9 */
-	SAVE_GPR(10, r7)			/* user r10 */
+	SAVE_GPRS(2, 6, r7)			/* user r2-r6 */
+	SAVE_GPRS(8, 10, r7)			/* user r8-r10 */
 	ld	r3, GPR1(r1)			/* user r1 */
 	ld	r4, GPR7(r1)			/* user r7 */
 	ld	r5, GPR11(r1)			/* user r11 */
@@ -362,7 +359,7 @@ _GLOBAL(__tm_recheckpoint)
 	stdu	r1, -TM_FRAME_SIZE(r1)
 
 	/*
-	 * We've a struct pt_regs at [r1+STACK_FRAME_OVERHEAD].
+	 * We've a struct pt_regs at [r1+STACK_INT_FRAME_REGS].
 	 * This is used for backing up the NVGPRs:
 	 */
 	SAVE_NVGPRS(r1)
@@ -382,7 +379,7 @@ _GLOBAL(__tm_recheckpoint)
 	 * Make r7 look like an exception frame so that we can use the neat
 	 * GPRx(n) macros. r7 is now NOT a pt_regs ptr!
 	 */
-	subi	r7, r7, STACK_FRAME_OVERHEAD
+	subi	r7, r7, STACK_INT_FRAME_REGS
 
 	/* We need to setup MSR for FP/VMX/VSX register save instructions. */
 	mfmsr	r6
@@ -445,12 +442,9 @@ restore_gprs:
 	ld	r6, THREAD_TM_PPR(r3)
 
 	REST_GPR(0, r7)				/* GPR0 */
-	REST_2GPRS(2, r7)			/* GPR2-3 */
-	REST_GPR(4, r7)				/* GPR4 */
-	REST_4GPRS(8, r7)			/* GPR8-11 */
-	REST_GPR(12, r7)			/* GPR12 */
-
-	REST_NVGPRS(r7)				/* GPR14-31 */
+	REST_GPRS(2, 4, r7)			/* GPR2-4 */
+	REST_GPRS(8, 12, r7)			/* GPR8-12 */
+	REST_GPRS(14, 31, r7)			/* GPR14-31 */
 
 	/* Load up PPR and DSCR here so we don't run with user values for long */
 	mtspr	SPRN_DSCR, r5
@@ -486,8 +480,9 @@ restore_gprs:
 	REST_GPR(6, r7)
 
 	/*
-	 * Store r1 and r5 and r13 on the stack so that we can access them after we
-	 * clear MSR RI.
+	 * Store user r1 and r5 and r13 on the stack (in the unused save
+	 * areas / compiler reserved areas), so that we can access them after
+	 * we clear MSR RI.
 	 */
 
 	REST_GPR(5, r7)
@@ -500,7 +495,7 @@ restore_gprs:
 	REST_GPR(7, r7)
 
 	/* Stash the stack pointer away for use after recheckpoint */
-	std     r1, PACAR1(r13)
+	std	r1, PACAR1(r13)
 
 	/* Clear MSR RI since we are about to clobber r13. EE is already off */
 	li	r5, 0

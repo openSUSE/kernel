@@ -87,9 +87,6 @@ struct pcie_port_service_driver {
 
 	int (*slot_reset)(struct pcie_device *dev);
 
-	/* Device driver may resume normal operations */
-	void (*error_resume)(struct pci_dev *dev);
-
 	int port_type;  /* Type of the port this driver can handle */
 	u32 service;    /* Port service this device represents */
 
@@ -101,28 +98,7 @@ struct pcie_port_service_driver {
 int pcie_port_service_register(struct pcie_port_service_driver *new);
 void pcie_port_service_unregister(struct pcie_port_service_driver *new);
 
-/*
- * The PCIe Capability Interrupt Message Number (PCIe r3.1, sec 7.8.2) must
- * be one of the first 32 MSI-X entries.  Per PCI r3.0, sec 6.8.3.1, MSI
- * supports a maximum of 32 vectors per function.
- */
-#define PCIE_PORT_MAX_MSI_ENTRIES	32
-
-#define get_descriptor_id(type, service) (((type - 4) << 8) | service)
-
 extern struct bus_type pcie_port_bus_type;
-int pcie_port_device_register(struct pci_dev *dev);
-int pcie_port_device_iter(struct device *dev, void *data);
-#ifdef CONFIG_PM
-int pcie_port_device_suspend(struct device *dev);
-int pcie_port_device_resume_noirq(struct device *dev);
-int pcie_port_device_resume(struct device *dev);
-int pcie_port_device_runtime_suspend(struct device *dev);
-int pcie_port_device_runtime_resume(struct device *dev);
-#endif
-void pcie_port_device_remove(struct pci_dev *dev);
-int __must_check pcie_port_bus_register(void);
-void pcie_port_bus_unregister(void);
 
 struct pci_dev;
 

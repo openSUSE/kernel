@@ -40,7 +40,6 @@ static int plat_nand_probe(struct platform_device *pdev)
 	struct platform_nand_data *pdata = dev_get_platdata(&pdev->dev);
 	struct plat_nand_data *data;
 	struct mtd_info *mtd;
-	struct resource *res;
 	const char **part_types;
 	int err = 0;
 
@@ -64,8 +63,7 @@ static int plat_nand_probe(struct platform_device *pdev)
 	nand_controller_init(&data->controller);
 	data->chip.controller = &data->controller;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	data->io_base = devm_ioremap_resource(&pdev->dev, res);
+	data->io_base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(data->io_base))
 		return PTR_ERR(data->io_base);
 
@@ -124,7 +122,7 @@ out:
 /*
  * Remove a NAND device.
  */
-static int plat_nand_remove(struct platform_device *pdev)
+static void plat_nand_remove(struct platform_device *pdev)
 {
 	struct plat_nand_data *data = platform_get_drvdata(pdev);
 	struct platform_nand_data *pdata = dev_get_platdata(&pdev->dev);
@@ -136,8 +134,6 @@ static int plat_nand_remove(struct platform_device *pdev)
 	nand_cleanup(chip);
 	if (pdata->ctrl.remove)
 		pdata->ctrl.remove(pdev);
-
-	return 0;
 }
 
 static const struct of_device_id plat_nand_match[] = {
@@ -148,7 +144,7 @@ MODULE_DEVICE_TABLE(of, plat_nand_match);
 
 static struct platform_driver plat_nand_driver = {
 	.probe	= plat_nand_probe,
-	.remove	= plat_nand_remove,
+	.remove_new = plat_nand_remove,
 	.driver	= {
 		.name		= "gen_nand",
 		.of_match_table = plat_nand_match,

@@ -7,9 +7,9 @@
 
 #include <linux/interrupt.h>
 #include <linux/module.h>
-#include <linux/of_irq.h>
 #include <linux/pm.h>
 #include <linux/pm_runtime.h>
+#include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
 
@@ -813,7 +813,7 @@ static irqreturn_t fxas21002c_data_rdy_thread(int irq, void *private)
 	if (!data_ready)
 		return IRQ_NONE;
 
-	iio_trigger_poll_chained(data->dready_trig);
+	iio_trigger_poll_nested(data->dready_trig);
 
 	return IRQ_HANDLED;
 }
@@ -822,7 +822,6 @@ static int fxas21002c_trigger_probe(struct fxas21002c_data *data)
 {
 	struct device *dev = regmap_get_device(data->regmap);
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
-	struct device_node *np = indio_dev->dev.of_node;
 	unsigned long irq_trig;
 	bool irq_open_drain;
 	int irq1;
@@ -831,8 +830,7 @@ static int fxas21002c_trigger_probe(struct fxas21002c_data *data)
 	if (!data->irq)
 		return 0;
 
-	irq1 = of_irq_get_byname(np, "INT1");
-
+	irq1 = fwnode_irq_get_byname(dev_fwnode(dev), "INT1");
 	if (irq1 == data->irq) {
 		dev_info(dev, "using interrupt line INT1\n");
 		ret = regmap_field_write(data->regmap_fields[F_INT_CFG_DRDY],
@@ -843,7 +841,7 @@ static int fxas21002c_trigger_probe(struct fxas21002c_data *data)
 
 	dev_info(dev, "using interrupt line INT2\n");
 
-	irq_open_drain = of_property_read_bool(np, "drive-open-drain");
+	irq_open_drain = device_property_read_bool(dev, "drive-open-drain");
 
 	data->dready_trig = devm_iio_trigger_alloc(dev, "%s-dev%d",
 						   indio_dev->name,
@@ -1000,7 +998,7 @@ pm_disable:
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(fxas21002c_core_probe);
+EXPORT_SYMBOL_NS_GPL(fxas21002c_core_probe, IIO_FXAS21002C);
 
 void fxas21002c_core_remove(struct device *dev)
 {
@@ -1011,9 +1009,9 @@ void fxas21002c_core_remove(struct device *dev)
 	pm_runtime_disable(dev);
 	pm_runtime_set_suspended(dev);
 }
-EXPORT_SYMBOL_GPL(fxas21002c_core_remove);
+EXPORT_SYMBOL_NS_GPL(fxas21002c_core_remove, IIO_FXAS21002C);
 
-static int __maybe_unused fxas21002c_suspend(struct device *dev)
+static int fxas21002c_suspend(struct device *dev)
 {
 	struct fxas21002c_data *data = iio_priv(dev_get_drvdata(dev));
 
@@ -1023,7 +1021,7 @@ static int __maybe_unused fxas21002c_suspend(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused fxas21002c_resume(struct device *dev)
+static int fxas21002c_resume(struct device *dev)
 {
 	struct fxas21002c_data *data = iio_priv(dev_get_drvdata(dev));
 	int ret;
@@ -1035,26 +1033,25 @@ static int __maybe_unused fxas21002c_resume(struct device *dev)
 	return fxas21002c_mode_set(data, data->prev_mode);
 }
 
-static int __maybe_unused fxas21002c_runtime_suspend(struct device *dev)
+static int fxas21002c_runtime_suspend(struct device *dev)
 {
 	struct fxas21002c_data *data = iio_priv(dev_get_drvdata(dev));
 
 	return fxas21002c_mode_set(data, FXAS21002C_MODE_READY);
 }
 
-static int __maybe_unused fxas21002c_runtime_resume(struct device *dev)
+static int fxas21002c_runtime_resume(struct device *dev)
 {
 	struct fxas21002c_data *data = iio_priv(dev_get_drvdata(dev));
 
 	return fxas21002c_mode_set(data, FXAS21002C_MODE_ACTIVE);
 }
 
-const struct dev_pm_ops fxas21002c_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(fxas21002c_suspend, fxas21002c_resume)
-	SET_RUNTIME_PM_OPS(fxas21002c_runtime_suspend,
-			   fxas21002c_runtime_resume, NULL)
+EXPORT_NS_GPL_DEV_PM_OPS(fxas21002c_pm_ops, IIO_FXAS21002C) = {
+	SYSTEM_SLEEP_PM_OPS(fxas21002c_suspend, fxas21002c_resume)
+	RUNTIME_PM_OPS(fxas21002c_runtime_suspend, fxas21002c_runtime_resume,
+		       NULL)
 };
-EXPORT_SYMBOL_GPL(fxas21002c_pm_ops);
 
 MODULE_AUTHOR("Rui Miguel Silva <rui.silva@linaro.org>");
 MODULE_LICENSE("GPL v2");

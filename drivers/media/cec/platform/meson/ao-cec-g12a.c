@@ -633,7 +633,6 @@ static int meson_ao_cec_g12a_probe(struct platform_device *pdev)
 {
 	struct meson_ao_cec_g12a_device *ao_cec;
 	struct device *hdmi_dev;
-	struct resource *res;
 	void __iomem *base;
 	int ret, irq;
 
@@ -664,8 +663,7 @@ static int meson_ao_cec_g12a_probe(struct platform_device *pdev)
 
 	ao_cec->adap->owner = THIS_MODULE;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	base = devm_ioremap_resource(&pdev->dev, res);
+	base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(base)) {
 		ret = PTR_ERR(base);
 		goto out_probe_adapter;
@@ -746,7 +744,7 @@ out_probe_adapter:
 	return ret;
 }
 
-static int meson_ao_cec_g12a_remove(struct platform_device *pdev)
+static void meson_ao_cec_g12a_remove(struct platform_device *pdev)
 {
 	struct meson_ao_cec_g12a_device *ao_cec = platform_get_drvdata(pdev);
 
@@ -755,8 +753,6 @@ static int meson_ao_cec_g12a_remove(struct platform_device *pdev)
 	cec_notifier_cec_adap_unregister(ao_cec->notify, ao_cec->adap);
 
 	cec_unregister_adapter(ao_cec->adap);
-
-	return 0;
 }
 
 static const struct meson_ao_cec_g12a_data ao_cec_g12a_data = {
@@ -782,7 +778,7 @@ MODULE_DEVICE_TABLE(of, meson_ao_cec_g12a_of_match);
 
 static struct platform_driver meson_ao_cec_g12a_driver = {
 	.probe   = meson_ao_cec_g12a_probe,
-	.remove  = meson_ao_cec_g12a_remove,
+	.remove_new = meson_ao_cec_g12a_remove,
 	.driver  = {
 		.name = "meson-ao-cec-g12a",
 		.of_match_table = of_match_ptr(meson_ao_cec_g12a_of_match),

@@ -10,7 +10,7 @@
 #include <linux/mmu_notifier.h>
 
 #include <drm/drm_gem.h>
-#include <drm/ttm/ttm_bo_api.h>
+#include <drm/ttm/ttm_bo.h>
 #include <uapi/drm/i915_drm.h>
 
 #include "i915_active.h"
@@ -299,7 +299,8 @@ struct drm_i915_gem_object {
 	};
 
 	/**
-	 * Whether the object is currently in the GGTT mmap.
+	 * Whether the object is currently in the GGTT or any other supported
+	 * fake offset mmap backed by lmem.
 	 */
 	unsigned int userfault_count;
 	struct list_head userfault_link;
@@ -490,10 +491,8 @@ struct drm_i915_gem_object {
 	 */
 	unsigned int cache_dirty:1;
 
-#ifndef __GENKSYMS__
 	/* @is_dpt: Object houses a display page table (DPT) */
 	unsigned int is_dpt:1;
-#endif
 
 	/**
 	 * @read_domains: Read memory domains.

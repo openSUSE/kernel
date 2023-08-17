@@ -208,9 +208,8 @@ struct __packed vmcs12 {
 /*
  * For save/restore compatibility, the vmcs12 field offsets must not change.
  */
-#define CHECK_OFFSET(field, loc)				\
-	BUILD_BUG_ON_MSG(offsetof(struct vmcs12, field) != (loc),	\
-		"Offset of " #field " in struct vmcs12 has changed.")
+#define CHECK_OFFSET(field, loc) \
+	ASSERT_STRUCT_OFFSET(struct vmcs12, field, loc)
 
 static inline void vmx_check_vmcs12_offsets(void)
 {
@@ -361,12 +360,10 @@ static inline void vmx_check_vmcs12_offsets(void)
 	CHECK_OFFSET(guest_pml_index, 996);
 }
 
-extern const unsigned short vmcs_field_to_offset_table[];
+extern const unsigned short vmcs12_field_offsets[];
 extern const unsigned int nr_vmcs12_fields;
 
-#define ROL16(val, n) ((u16)(((u16)(val) << (n)) | ((u16)(val) >> (16 - (n)))))
-
-static inline short vmcs_field_to_offset(unsigned long field)
+static inline short get_vmcs12_field_offset(unsigned long field)
 {
 	unsigned short offset;
 	unsigned int index;
@@ -379,13 +376,11 @@ static inline short vmcs_field_to_offset(unsigned long field)
 		return -ENOENT;
 
 	index = array_index_nospec(index, nr_vmcs12_fields);
-	offset = vmcs_field_to_offset_table[index];
+	offset = vmcs12_field_offsets[index];
 	if (offset == 0)
 		return -ENOENT;
 	return offset;
 }
-
-#undef ROL16
 
 static inline u64 vmcs12_read_any(struct vmcs12 *vmcs12, unsigned long field,
 				  u16 offset)

@@ -800,7 +800,6 @@ static int rga_probe(struct platform_device *pdev)
 {
 	struct rockchip_rga *rga;
 	struct video_device *vfd;
-	struct resource *res;
 	int ret = 0;
 	int irq;
 
@@ -817,13 +816,11 @@ static int rga_probe(struct platform_device *pdev)
 
 	ret = rga_parse_dt(rga);
 	if (ret)
-		dev_err(&pdev->dev, "Unable to parse OF data\n");
+		return dev_err_probe(&pdev->dev, ret, "Unable to parse OF data\n");
 
 	pm_runtime_enable(rga->dev);
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-
-	rga->regs = devm_ioremap_resource(rga->dev, res);
+	rga->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(rga->regs)) {
 		ret = PTR_ERR(rga->regs);
 		goto err_put_clk;
@@ -933,7 +930,7 @@ err_put_clk:
 	return ret;
 }
 
-static int rga_remove(struct platform_device *pdev)
+static void rga_remove(struct platform_device *pdev)
 {
 	struct rockchip_rga *rga = platform_get_drvdata(pdev);
 
@@ -950,8 +947,6 @@ static int rga_remove(struct platform_device *pdev)
 	v4l2_device_unregister(&rga->v4l2_dev);
 
 	pm_runtime_disable(rga->dev);
-
-	return 0;
 }
 
 static int __maybe_unused rga_runtime_suspend(struct device *dev)
@@ -989,7 +984,7 @@ MODULE_DEVICE_TABLE(of, rockchip_rga_match);
 
 static struct platform_driver rga_pdrv = {
 	.probe = rga_probe,
-	.remove = rga_remove,
+	.remove_new = rga_remove,
 	.driver = {
 		.name = RGA_NAME,
 		.pm = &rga_pm,

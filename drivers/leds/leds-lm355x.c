@@ -396,9 +396,9 @@ static const struct regmap_config lm355x_regmap = {
 };
 
 /* module initialize */
-static int lm355x_probe(struct i2c_client *client,
-				  const struct i2c_device_id *id)
+static int lm355x_probe(struct i2c_client *client)
 {
+	const struct i2c_device_id *id = i2c_client_get_device_id(client);
 	struct lm355x_platform_data *pdata = dev_get_platdata(&client->dev);
 	struct lm355x_chip_data *chip;
 
@@ -491,7 +491,7 @@ err_out:
 	return err;
 }
 
-static int lm355x_remove(struct i2c_client *client)
+static void lm355x_remove(struct i2c_client *client)
 {
 	struct lm355x_chip_data *chip = i2c_get_clientdata(client);
 	struct lm355x_reg_data *preg = chip->regs;
@@ -501,8 +501,6 @@ static int lm355x_remove(struct i2c_client *client)
 	led_classdev_unregister(&chip->cdev_torch);
 	led_classdev_unregister(&chip->cdev_flash);
 	dev_info(&client->dev, "%s is removed\n", lm355x_name[chip->type]);
-
-	return 0;
 }
 
 static const struct i2c_device_id lm355x_id[] = {
@@ -518,7 +516,7 @@ static struct i2c_driver lm355x_i2c_driver = {
 		   .name = LM355x_NAME,
 		   .pm = NULL,
 		   },
-	.probe = lm355x_probe,
+	.probe_new = lm355x_probe,
 	.remove = lm355x_remove,
 	.id_table = lm355x_id,
 };

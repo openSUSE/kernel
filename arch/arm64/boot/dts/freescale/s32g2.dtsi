@@ -52,10 +52,12 @@
 
 		cluster0_l2: l2-cache0 {
 			compatible = "cache";
+			cache-level = <2>;
 		};
 
 		cluster1_l2: l2-cache1 {
 			compatible = "cache";
+			cache-level = <2>;
 		};
 	};
 
@@ -79,27 +81,7 @@
 		};
 	};
 
-	clocks {
-		usdhc_clk_module: usdhc_clk_module {
-			compatible = "fixed-clock";
-			clock-frequency = <133333333>;
-			#clock-cells = <0>;
-		};
-
-		usdhc_clk_ahb: usdhc_clk_ahb {
-			compatible = "fixed-clock";
-			clock-frequency = <400000000>;
-			#clock-cells = <0>;
-		};
-
-		usdhc_clk_core: usdhc_clk_core {
-			compatible = "fixed-clock";
-			clock-frequency = <400000000>;
-			#clock-cells = <0>;
-		};
-	};
-
-	soc {
+	soc@0 {
 		compatible = "simple-bus";
 		#address-cells = <1>;
 		#size-cells = <1>;
@@ -126,18 +108,6 @@
 				     "fsl,s32v234-linflexuart";
 			reg = <0x402bc000 0x3000>;
 			interrupts = <GIC_SPI 84 IRQ_TYPE_EDGE_RISING>;
-			status = "disabled";
-		};
-
-		usdhc0: mmc@402f0000 {
-			compatible = "nxp,s32g2-usdhc";
-			reg = <0x402f0000 0x1000>;
-			interrupts = <GIC_SPI 36 IRQ_TYPE_LEVEL_HIGH>;
-			bus-width = <8>;
-			clocks = <&usdhc_clk_module>, <&usdhc_clk_ahb>,
-				 <&usdhc_clk_core>;
-			clock-names = "ipg", "ahb", "per";
-			no-1-8-v;
 			status = "disabled";
 		};
 

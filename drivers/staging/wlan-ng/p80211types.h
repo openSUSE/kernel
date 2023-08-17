@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: (GPL-2.0 OR MPL-1.1) */
 /*
- * p80211types.h
+ *
  *
  * Macros, constants, types, and funcs for p80211 data types
  *
@@ -229,12 +229,6 @@ struct p80211pstr14 {
 struct p80211pstr32 {
 	u8 len;
 	u8 data[MAXLEN_PSTR32];
-} __packed;
-
-/* MAC address array */
-struct p80211macarray {
-	u32 cnt;
-	u8 data[1][MAXLEN_PSTR6];
 } __packed;
 
 /* prototype template */

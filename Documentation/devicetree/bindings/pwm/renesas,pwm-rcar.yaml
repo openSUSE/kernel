@@ -35,6 +35,7 @@ properties:
           - renesas,pwm-r8a77980  # R-Car V3H
           - renesas,pwm-r8a77990  # R-Car E3
           - renesas,pwm-r8a77995  # R-Car D3
+          - renesas,pwm-r8a779g0  # R-Car V4H
       - const: renesas,pwm-rcar
 
   reg:
@@ -59,21 +60,23 @@ properties:
 required:
   - compatible
   - reg
-  - '#pwm-cells'
   - clocks
   - power-domains
 
-if:
-  not:
-    properties:
-      compatible:
-        contains:
-          enum:
-            - renesas,pwm-r8a7778
-            - renesas,pwm-r8a7779
-then:
-  required:
-    - resets
+allOf:
+  - $ref: pwm.yaml#
+
+  - if:
+      not:
+        properties:
+          compatible:
+            contains:
+              enum:
+                - renesas,pwm-r8a7778
+                - renesas,pwm-r8a7779
+    then:
+      required:
+        - resets
 
 additionalProperties: false
 

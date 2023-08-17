@@ -248,9 +248,9 @@ static void via_do_set_mode(struct ata_port *ap, struct ata_device *adev,
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
 	struct ata_device *peer = ata_dev_pair(adev);
 	struct ata_timing t, p;
-	static int via_clock = 33333;	/* Bus clock in kHZ */
-	unsigned long T =  1000000000 / via_clock;
-	unsigned long UT = T;
+	const int via_clock = 33333;	/* Bus clock in kHz */
+	const int T = 1000000000 / via_clock;
+	int UT = T;
 	int ut;
 	int offset = 3 - (2*ap->port_no) - adev->devno;
 
@@ -443,7 +443,7 @@ static int via_port_start(struct ata_port *ap)
 	return 0;
 }
 
-static struct scsi_host_template via_sht = {
+static const struct scsi_host_template via_sht = {
 	ATA_BMDMA_SHT(DRV_NAME),
 };
 

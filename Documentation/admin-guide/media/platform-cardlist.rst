@@ -30,7 +30,6 @@ exynos-fimc-is     EXYNOS4x12 FIMC-IS (Imaging Subsystem)
 exynos-fimc-lite   EXYNOS FIMC-LITE camera interface
 exynos-gsc         Samsung Exynos G-Scaler
 exy                Samsung S5P/EXYNOS4 SoC series Camera Subsystem
-fsl-viu            Freescale VIU
 imx-pxp            i.MX Pixel Pipeline (PXP)
 isdf               TI DM365 ISIF video capture
 mmp_camera         Marvell Armada 610 integrated camera controller
@@ -60,6 +59,7 @@ s5p-mfc            Samsung S5P MFC Video Codec
 sh_veu             SuperH VEU mem2mem video processing
 sh_vou             SuperH VOU video output
 stm32-dcmi         STM32 Digital Camera Memory Interface (DCMI)
+stm32-dma2d        STM32 Chrom-Art Accelerator Unit
 sun4i-csi          Allwinner A10 CMOS Sensor Interface Support
 sun6i-csi          Allwinner V3s Camera Sensor Interface
 sun8i-di           Allwinner Deinterlace
@@ -72,7 +72,6 @@ via-camera         VIAFB camera controller
 video-mux          Video Multiplexer
 vpif_display       TI DaVinci VPIF V4L2-Display
 vpif_capture       TI DaVinci VPIF video capture
-vpss               TI DaVinci VPBE V4L2-Display
 vsp1               Renesas VSP1 Video Processing Engine
 xilinx-tpg         Xilinx Video Test Pattern Generator
 xilinx-video       Xilinx Video IP (EXPERIMENTAL)

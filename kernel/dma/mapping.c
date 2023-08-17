@@ -10,13 +10,18 @@
 #include <linux/dma-map-ops.h>
 #include <linux/export.h>
 #include <linux/gfp.h>
+#include <linux/kmsan.h>
 #include <linux/of_device.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include "debug.h"
 #include "direct.h"
 
-bool dma_default_coherent;
+#if defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_DEVICE) || \
+	defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU) || \
+	defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU_ALL)
+bool dma_default_coherent = IS_ENABLED(CONFIG_ARCH_DMA_DEFAULT_COHERENT);
+#endif
 
 /*
  * Managed DMA API
@@ -156,7 +161,8 @@ dma_addr_t dma_map_page_attrs(struct device *dev, struct page *page,
 		addr = dma_direct_map_page(dev, page, offset, size, dir, attrs);
 	else
 		addr = ops->map_page(dev, page, offset, size, dir, attrs);
-	debug_dma_map_page(dev, page, offset, size, dir, addr);
+	kmsan_handle_dma(page, offset, size, dir);
+	debug_dma_map_page(dev, page, offset, size, dir, addr, attrs);
 
 	return addr;
 }
@@ -194,11 +200,13 @@ static int __dma_map_sg_attrs(struct device *dev, struct scatterlist *sg,
 	else
 		ents = ops->map_sg(dev, sg, nents, dir, attrs);
 
-	if (ents > 0)
-		debug_dma_map_sg(dev, sg, nents, ents, dir);
-	else if (WARN_ON_ONCE(ents != -EINVAL && ents != -ENOMEM &&
-			      ents != -EIO && ents != 0 && ents != -EREMOTEIO))
+	if (ents > 0) {
+		kmsan_handle_dma_sg(sg, nents, dir);
+		debug_dma_map_sg(dev, sg, nents, ents, dir, attrs);
+	} else if (WARN_ON_ONCE(ents != -EINVAL && ents != -ENOMEM &&
+				ents != -EIO && ents != -EREMOTEIO)) {
 		return -EIO;
+	}
 
 	return ents;
 }
@@ -220,7 +228,7 @@ static int __dma_map_sg_attrs(struct device *dev, struct scatterlist *sg,
  * dma_unmap_sg_attrs() should be used to unmap the buffer with the
  * original sg and original nents (not the value returned by this funciton).
  */
-int dma_map_sg_attrs(struct device *dev, struct scatterlist *sg,
+unsigned int dma_map_sg_attrs(struct device *dev, struct scatterlist *sg,
 		    int nents, enum dma_data_direction dir, unsigned long attrs)
 {
 	int ret;
@@ -265,8 +273,6 @@ int dma_map_sgtable(struct device *dev, struct sg_table *sgt,
 	int nents;
 
 	nents = __dma_map_sg_attrs(dev, sgt->sgl, sgt->orig_nents, dir, attrs);
-	if (nents == 0)
-		return -EIO;
 	if (nents < 0)
 		return nents;
 	sgt->nents = nents;
@@ -306,7 +312,7 @@ dma_addr_t dma_map_resource(struct device *dev, phys_addr_t phys_addr,
 	else if (ops->map_resource)
 		addr = ops->map_resource(dev, phys_addr, size, dir, attrs);
 
-	debug_dma_map_resource(dev, phys_addr, size, dir, addr);
+	debug_dma_map_resource(dev, phys_addr, size, dir, addr, attrs);
 	return addr;
 }
 EXPORT_SYMBOL(dma_map_resource);
@@ -412,8 +418,6 @@ EXPORT_SYMBOL(dma_get_sgtable_attrs);
  */
 pgprot_t dma_pgprot(struct device *dev, pgprot_t prot, unsigned long attrs)
 {
-	if (force_dma_unencrypted(dev))
-		prot = pgprot_decrypted(prot);
 	if (dev_is_dma_coherent(dev))
 		return prot;
 #ifdef CONFIG_ARCH_HAS_DMA_WRITE_COMBINE
@@ -498,6 +502,14 @@ void *dma_alloc_attrs(struct device *dev, size_t size, dma_addr_t *dma_handle,
 
 	WARN_ON_ONCE(!dev->coherent_dma_mask);
 
+	/*
+	 * DMA allocations can never be turned back into a page pointer, so
+	 * requesting compound pages doesn't make sense (and can't even be
+	 * supported at all by various backends).
+	 */
+	if (WARN_ON_ONCE(flag & __GFP_COMP))
+		return NULL;
+
 	if (dma_alloc_from_dev_coherent(dev, size, dma_handle, &cpu_addr))
 		return cpu_addr;
 
@@ -511,7 +523,7 @@ void *dma_alloc_attrs(struct device *dev, size_t size, dma_addr_t *dma_handle,
 	else
 		return NULL;
 
-	debug_dma_alloc_coherent(dev, size, *dma_handle, cpu_addr);
+	debug_dma_alloc_coherent(dev, size, *dma_handle, cpu_addr, attrs);
 	return cpu_addr;
 }
 EXPORT_SYMBOL(dma_alloc_attrs);
@@ -552,6 +564,8 @@ static struct page *__dma_alloc_pages(struct device *dev, size_t size,
 		return NULL;
 	if (WARN_ON_ONCE(gfp & (__GFP_DMA | __GFP_DMA32 | __GFP_HIGHMEM)))
 		return NULL;
+	if (WARN_ON_ONCE(gfp & __GFP_COMP))
+		return NULL;
 
 	size = PAGE_ALIGN(size);
 	if (dma_alloc_direct(dev, ops))
@@ -567,7 +581,7 @@ struct page *dma_alloc_pages(struct device *dev, size_t size,
 	struct page *page = __dma_alloc_pages(dev, size, dma_handle, dir, gfp);
 
 	if (page)
-		debug_dma_map_page(dev, page, 0, size, dir, *dma_handle);
+		debug_dma_map_page(dev, page, 0, size, dir, *dma_handle, 0);
 	return page;
 }
 EXPORT_SYMBOL_GPL(dma_alloc_pages);
@@ -637,6 +651,8 @@ struct sg_table *dma_alloc_noncontiguous(struct device *dev, size_t size,
 
 	if (WARN_ON_ONCE(attrs & ~DMA_ATTR_ALLOC_SINGLE_PAGES))
 		return NULL;
+	if (WARN_ON_ONCE(gfp & __GFP_COMP))
+		return NULL;
 
 	if (ops && ops->alloc_noncontiguous)
 		sgt = ops->alloc_noncontiguous(dev, size, dir, gfp, attrs);
@@ -645,7 +661,7 @@ struct sg_table *dma_alloc_noncontiguous(struct device *dev, size_t size,
 
 	if (sgt) {
 		sgt->nents = 1;
-		debug_dma_map_sg(dev, sgt->sgl, sgt->orig_nents, 1, dir);
+		debug_dma_map_sg(dev, sgt->sgl, sgt->orig_nents, 1, dir, attrs);
 	}
 	return sgt;
 }
@@ -711,7 +727,7 @@ int dma_mmap_noncontiguous(struct device *dev, struct vm_area_struct *vma,
 }
 EXPORT_SYMBOL_GPL(dma_mmap_noncontiguous);
 
-int dma_supported(struct device *dev, u64 mask)
+static int dma_supported(struct device *dev, u64 mask)
 {
 	const struct dma_map_ops *ops = get_dma_ops(dev);
 
@@ -725,7 +741,6 @@ int dma_supported(struct device *dev, u64 mask)
 		return 1;
 	return ops->dma_supported(dev, mask);
 }
-EXPORT_SYMBOL(dma_supported);
 
 bool dma_pci_p2pdma_supported(struct device *dev)
 {
@@ -768,7 +783,6 @@ int dma_set_mask(struct device *dev, u64 mask)
 }
 EXPORT_SYMBOL(dma_set_mask);
 
-#ifndef CONFIG_ARCH_HAS_DMA_SET_COHERENT_MASK
 int dma_set_coherent_mask(struct device *dev, u64 mask)
 {
 	/*
@@ -784,7 +798,6 @@ int dma_set_coherent_mask(struct device *dev, u64 mask)
 	return 0;
 }
 EXPORT_SYMBOL(dma_set_coherent_mask);
-#endif
 
 size_t dma_max_mapping_size(struct device *dev)
 {

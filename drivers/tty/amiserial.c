@@ -12,7 +12,7 @@
  * (non hardware specific) changes to serial.c.
  *
  * The port is registered with the tty driver as minor device 64, and
- * therefore other ports should should only use 65 upwards.
+ * therefore other ports should only use 65 upwards.
  *
  * Richard Lucock 28/12/99
  *
@@ -22,8 +22,6 @@
  *
  */
 
-#include <linux/delay.h>
-
 /* Set of debugging defines */
 
 #undef SERIAL_DEBUG_INTR
@@ -31,55 +29,43 @@
 #undef SERIAL_DEBUG_FLOW
 #undef SERIAL_DEBUG_RS_WAIT_UNTIL_SENT
 
-/* Sanity checks */
-
-#if defined(MODULE) && defined(SERIAL_DEBUG_MCOUNT)
-#define DBG_CNT(s) printk("(%s): [%x] refc=%d, serc=%d, ttyc=%d -> %s\n", \
- tty->name, (info->tport.flags), serial_driver->refcount,info->count,tty->count,s)
-#else
-#define DBG_CNT(s)
-#endif
-
 /*
  * End of serial driver configuration section.
  */
 
-#include <linux/module.h>
-
-#include <linux/types.h>
-#include <linux/serial.h>
-#include <linux/serial_reg.h>
-static char *serial_version = "4.30";
-
-#include <linux/errno.h>
-#include <linux/signal.h>
-#include <linux/sched.h>
-#include <linux/kernel.h>
-#include <linux/timer.h>
-#include <linux/interrupt.h>
-#include <linux/tty.h>
-#include <linux/tty_flip.h>
+#include <linux/bitops.h>
 #include <linux/circ_buf.h>
 #include <linux/console.h>
-#include <linux/major.h>
-#include <linux/string.h>
+#include <linux/delay.h>
+#include <linux/errno.h>
 #include <linux/fcntl.h>
-#include <linux/ptrace.h>
-#include <linux/ioport.h>
-#include <linux/mm.h>
-#include <linux/seq_file.h>
-#include <linux/slab.h>
 #include <linux/init.h>
-#include <linux/bitops.h>
+#include <linux/interrupt.h>
+#include <linux/ioport.h>
+#include <linux/kernel.h>
+#include <linux/major.h>
+#include <linux/mm.h>
+#include <linux/module.h>
 #include <linux/platform_device.h>
-
-#include <asm/setup.h>
-
-
-#include <asm/irq.h>
+#include <linux/ptrace.h>
+#include <linux/seq_file.h>
+#include <linux/serial.h>
+#include <linux/serial_reg.h>
+#include <linux/serial_core.h>
+#include <linux/sched.h>
+#include <linux/signal.h>
+#include <linux/slab.h>
+#include <linux/string.h>
+#include <linux/timer.h>
+#include <linux/tty_flip.h>
+#include <linux/tty.h>
+#include <linux/types.h>
+#include <linux/uaccess.h>
 
 #include <asm/amigahw.h>
 #include <asm/amigaints.h>
+#include <asm/irq.h>
+#include <asm/setup.h>
 
 struct serial_state {
 	struct tty_port		tport;
@@ -88,7 +74,6 @@ struct serial_state {
 
 	unsigned long		port;
 	int			baud_base;
-	int			xmit_fifo_size;
 	int			custom_divisor;
 	int			read_status_mask;
 	int			ignore_status_mask;
@@ -99,28 +84,21 @@ struct serial_state {
 	int			x_char;	/* xon/xoff character */
 };
 
-#define custom amiga_custom
-static char *serial_name = "Amiga-builtin serial driver";
-
 static struct tty_driver *serial_driver;
 
 /* number of characters left in xmit buffer before we ask for more */
 #define WAKEUP_CHARS 256
 
+#define XMIT_FIFO_SIZE 1
+
 static unsigned char current_ctl_bits;
 
 static void change_speed(struct tty_struct *tty, struct serial_state *info,
-		struct ktermios *old);
+			 const struct ktermios *old);
 static void rs_wait_until_sent(struct tty_struct *tty, int timeout);
 
 
-static struct serial_state rs_table[1];
-
-#define NR_PORTS ARRAY_SIZE(rs_table)
-
-#include <linux/uaccess.h>
-
-#define serial_isroot()	(capable(CAP_SYS_ADMIN))
+static struct serial_state serial_state;
 
 /* some serial hardware definitions */
 #define SDR_OVRUN   (1<<15)
@@ -161,9 +139,9 @@ static void rs_stop(struct tty_struct *tty)
 	if (info->IER & UART_IER_THRI) {
 		info->IER &= ~UART_IER_THRI;
 		/* disable Tx interrupt and remove any pending interrupts */
-		custom.intena = IF_TBE;
+		amiga_custom.intena = IF_TBE;
 		mb();
-		custom.intreq = IF_TBE;
+		amiga_custom.intreq = IF_TBE;
 		mb();
 	}
 	local_irq_restore(flags);
@@ -179,10 +157,10 @@ static void rs_start(struct tty_struct *tty)
 	    && info->xmit.buf
 	    && !(info->IER & UART_IER_THRI)) {
 		info->IER |= UART_IER_THRI;
-		custom.intena = IF_SETCLR | IF_TBE;
+		amiga_custom.intena = IF_SETCLR | IF_TBE;
 		mb();
 		/* set a pending Tx Interrupt, transmitter should restart now */
-		custom.intreq = IF_SETCLR | IF_TBE;
+		amiga_custom.intreq = IF_SETCLR | IF_TBE;
 		mb();
 	}
 	local_irq_restore(flags);
@@ -191,21 +169,8 @@ static void rs_start(struct tty_struct *tty)
 /*
  * ----------------------------------------------------------------------
  *
- * Here starts the interrupt handling routines.  All of the following
- * subroutines are declared as inline and are folded into
- * rs_interrupt().  They were separated out for readability's sake.
+ * Here start the interrupt handling routines.
  *
- * Note: rs_interrupt() is a "fast" interrupt, which means that it
- * runs with interrupts turned off.  People who may want to modify
- * rs_interrupt() should try to keep the interrupt handler as fast as
- * possible.  After you are done making modifications, it is not a bad
- * idea to do:
- * 
- * gcc -S -DKERNEL -Wall -Wstrict-prototypes -O6 -fomit-frame-pointer serial.c
- *
- * and look at the resulting assemble code in serial.s.
- *
- * 				- Ted Ts'o (tytso@mit.edu), 7-Mar-93
  * -----------------------------------------------------------------------
  */
 
@@ -220,9 +185,9 @@ static void receive_chars(struct serial_state *info)
 	icount = &info->icount;
 
 	status = UART_LSR_DR; /* We obviously have a character! */
-	serdatr = custom.serdatr;
+	serdatr = amiga_custom.serdatr;
 	mb();
-	custom.intreq = IF_RBF;
+	amiga_custom.intreq = IF_RBF;
 	mb();
 
 	if((serdatr & 0x1ff) == 0)
@@ -299,10 +264,10 @@ out:
 
 static void transmit_chars(struct serial_state *info)
 {
-	custom.intreq = IF_TBE;
+	amiga_custom.intreq = IF_TBE;
 	mb();
 	if (info->x_char) {
-	        custom.serdat = info->x_char | 0x100;
+	        amiga_custom.serdat = info->x_char | 0x100;
 		mb();
 		info->icount.tx++;
 		info->x_char = 0;
@@ -312,26 +277,26 @@ static void transmit_chars(struct serial_state *info)
 	    || info->tport.tty->flow.stopped
 	    || info->tport.tty->hw_stopped) {
 		info->IER &= ~UART_IER_THRI;
-	        custom.intena = IF_TBE;
+	        amiga_custom.intena = IF_TBE;
 		mb();
 		return;
 	}
 
-	custom.serdat = info->xmit.buf[info->xmit.tail++] | 0x100;
+	amiga_custom.serdat = info->xmit.buf[info->xmit.tail++] | 0x100;
 	mb();
-	info->xmit.tail = info->xmit.tail & (SERIAL_XMIT_SIZE-1);
+	info->xmit.tail = info->xmit.tail & (UART_XMIT_SIZE - 1);
 	info->icount.tx++;
 
 	if (CIRC_CNT(info->xmit.head,
 		     info->xmit.tail,
-		     SERIAL_XMIT_SIZE) < WAKEUP_CHARS)
+		     UART_XMIT_SIZE) < WAKEUP_CHARS)
 		tty_wakeup(info->tport.tty);
 
 #ifdef SERIAL_DEBUG_INTR
 	printk("THRE...");
 #endif
 	if (info->xmit.head == info->xmit.tail) {
-	        custom.intena = IF_TBE;
+	        amiga_custom.intena = IF_TBE;
 		mb();
 		info->IER &= ~UART_IER_THRI;
 	}
@@ -382,12 +347,12 @@ static void check_modem_status(struct serial_state *info)
 #if (defined(SERIAL_DEBUG_INTR) || defined(SERIAL_DEBUG_FLOW))
 				printk("CTS tx start...");
 #endif
-				port->tty->hw_stopped = 0;
+				port->tty->hw_stopped = false;
 				info->IER |= UART_IER_THRI;
-				custom.intena = IF_SETCLR | IF_TBE;
+				amiga_custom.intena = IF_SETCLR | IF_TBE;
 				mb();
 				/* set a pending Tx Interrupt, transmitter should restart now */
-				custom.intreq = IF_SETCLR | IF_TBE;
+				amiga_custom.intreq = IF_SETCLR | IF_TBE;
 				mb();
 				tty_wakeup(port->tty);
 				return;
@@ -397,12 +362,12 @@ static void check_modem_status(struct serial_state *info)
 #if (defined(SERIAL_DEBUG_INTR) || defined(SERIAL_DEBUG_FLOW))
 				printk("CTS tx stop...");
 #endif
-				port->tty->hw_stopped = 1;
+				port->tty->hw_stopped = true;
 				info->IER &= ~UART_IER_THRI;
 				/* disable Tx interrupt and remove any pending interrupts */
-				custom.intena = IF_TBE;
+				amiga_custom.intena = IF_TBE;
 				mb();
-				custom.intreq = IF_TBE;
+				amiga_custom.intreq = IF_TBE;
 				mb();
 			}
 		}
@@ -444,7 +409,7 @@ static irqreturn_t ser_tx_int(int irq, void *dev_id)
 {
 	struct serial_state *info = dev_id;
 
-	if (custom.serdatr & SDR_TBE) {
+	if (amiga_custom.serdatr & SDR_TBE) {
 #ifdef SERIAL_DEBUG_INTR
 	  printk("ser_tx_int...");
 #endif
@@ -504,20 +469,20 @@ static int startup(struct tty_struct *tty, struct serial_state *info)
 
 	/* Clear anything in the input buffer */
 
-	custom.intreq = IF_RBF;
+	amiga_custom.intreq = IF_RBF;
 	mb();
 
 	retval = request_irq(IRQ_AMIGA_VERTB, ser_vbl_int, 0, "serial status", info);
 	if (retval) {
-	  if (serial_isroot()) {
-	      set_bit(TTY_IO_ERROR, &tty->flags);
-	    retval = 0;
-	  }
-	  goto errout;
+		if (capable(CAP_SYS_ADMIN)) {
+			set_bit(TTY_IO_ERROR, &tty->flags);
+			retval = 0;
+		}
+		goto errout;
 	}
 
 	/* enable both Rx and Tx interrupts */
-	custom.intena = IF_SETCLR | IF_RBF | IF_TBE;
+	amiga_custom.intena = IF_SETCLR | IF_RBF | IF_TBE;
 	mb();
 	info->IER = UART_IER_MSI;
 
@@ -537,7 +502,7 @@ static int startup(struct tty_struct *tty, struct serial_state *info)
 	 */
 	change_speed(tty, info, NULL);
 
-	tty_port_set_initialized(port, 1);
+	tty_port_set_initialized(port, true);
 	local_irq_restore(flags);
 	return 0;
 
@@ -553,12 +518,9 @@ errout:
 static void shutdown(struct tty_struct *tty, struct serial_state *info)
 {
 	unsigned long	flags;
-	struct serial_state *state;
 
 	if (!tty_port_initialized(&info->tport))
 		return;
-
-	state = info;
 
 #ifdef SERIAL_DEBUG_OPEN
 	printk("Shutting down serial port %d ....\n", info->line);
@@ -577,17 +539,15 @@ static void shutdown(struct tty_struct *tty, struct serial_state *info)
 	 */
 	free_irq(IRQ_AMIGA_VERTB, info);
 
-	if (info->xmit.buf) {
-		free_page((unsigned long) info->xmit.buf);
-		info->xmit.buf = NULL;
-	}
+	free_page((unsigned long)info->xmit.buf);
+	info->xmit.buf = NULL;
 
 	info->IER = 0;
-	custom.intena = IF_RBF | IF_TBE;
+	amiga_custom.intena = IF_RBF | IF_TBE;
 	mb();
 
 	/* disable break condition */
-	custom.adkcon = AC_UARTBRK;
+	amiga_custom.adkcon = AC_UARTBRK;
 	mb();
 
 	if (C_HUPCL(tty))
@@ -596,7 +556,7 @@ static void shutdown(struct tty_struct *tty, struct serial_state *info)
 
 	set_bit(TTY_IO_ERROR, &tty->flags);
 
-	tty_port_set_initialized(&info->tport, 0);
+	tty_port_set_initialized(&info->tport, false);
 	local_irq_restore(flags);
 }
 
@@ -606,7 +566,7 @@ static void shutdown(struct tty_struct *tty, struct serial_state *info)
  * the specified baud rate for a serial port.
  */
 static void change_speed(struct tty_struct *tty, struct serial_state *info,
-			 struct ktermios *old_termios)
+			 const struct ktermios *old_termios)
 {
 	struct tty_port *port = &info->tport;
 	int	quot = 0, baud_base, baud;
@@ -669,7 +629,7 @@ static void change_speed(struct tty_struct *tty, struct serial_state *info,
 	if (!quot)
 		quot = baud_base / 9600;
 	info->quot = quot;
-	info->timeout = ((info->xmit_fifo_size*HZ*bits*quot) / baud_base);
+	info->timeout = (XMIT_FIFO_SIZE*HZ*bits*quot) / baud_base;
 	info->timeout += HZ/50;		/* Add .02 seconds of slop */
 
 	/* CTS flow control flag and modem status interrupts */
@@ -729,7 +689,7 @@ static void change_speed(struct tty_struct *tty, struct serial_state *info,
 	if(cval & UART_LCR_PARITY)
 	  serper |= (SERPER_PARENB);
 
-	custom.serper = serper;
+	amiga_custom.serper = serper;
 	mb();
 	}
 
@@ -749,13 +709,13 @@ static int rs_put_char(struct tty_struct *tty, unsigned char ch)
 	local_irq_save(flags);
 	if (CIRC_SPACE(info->xmit.head,
 		       info->xmit.tail,
-		       SERIAL_XMIT_SIZE) == 0) {
+		       UART_XMIT_SIZE) == 0) {
 		local_irq_restore(flags);
 		return 0;
 	}
 
 	info->xmit.buf[info->xmit.head++] = ch;
-	info->xmit.head &= SERIAL_XMIT_SIZE-1;
+	info->xmit.head &= UART_XMIT_SIZE - 1;
 	local_irq_restore(flags);
 	return 1;
 }
@@ -773,10 +733,10 @@ static void rs_flush_chars(struct tty_struct *tty)
 
 	local_irq_save(flags);
 	info->IER |= UART_IER_THRI;
-	custom.intena = IF_SETCLR | IF_TBE;
+	amiga_custom.intena = IF_SETCLR | IF_TBE;
 	mb();
 	/* set a pending Tx Interrupt, transmitter should restart now */
-	custom.intreq = IF_SETCLR | IF_TBE;
+	amiga_custom.intreq = IF_SETCLR | IF_TBE;
 	mb();
 	local_irq_restore(flags);
 }
@@ -794,15 +754,14 @@ static int rs_write(struct tty_struct * tty, const unsigned char *buf, int count
 	while (1) {
 		c = CIRC_SPACE_TO_END(info->xmit.head,
 				      info->xmit.tail,
-				      SERIAL_XMIT_SIZE);
+				      UART_XMIT_SIZE);
 		if (count < c)
 			c = count;
 		if (c <= 0) {
 			break;
 		}
 		memcpy(info->xmit.buf + info->xmit.head, buf, c);
-		info->xmit.head = ((info->xmit.head + c) &
-				   (SERIAL_XMIT_SIZE-1));
+		info->xmit.head = (info->xmit.head + c) & (UART_XMIT_SIZE - 1);
 		buf += c;
 		count -= c;
 		ret += c;
@@ -815,10 +774,10 @@ static int rs_write(struct tty_struct * tty, const unsigned char *buf, int count
 	    && !(info->IER & UART_IER_THRI)) {
 		info->IER |= UART_IER_THRI;
 		local_irq_disable();
-		custom.intena = IF_SETCLR | IF_TBE;
+		amiga_custom.intena = IF_SETCLR | IF_TBE;
 		mb();
 		/* set a pending Tx Interrupt, transmitter should restart now */
-		custom.intreq = IF_SETCLR | IF_TBE;
+		amiga_custom.intreq = IF_SETCLR | IF_TBE;
 		mb();
 		local_irq_restore(flags);
 	}
@@ -829,14 +788,14 @@ static unsigned int rs_write_room(struct tty_struct *tty)
 {
 	struct serial_state *info = tty->driver_data;
 
-	return CIRC_SPACE(info->xmit.head, info->xmit.tail, SERIAL_XMIT_SIZE);
+	return CIRC_SPACE(info->xmit.head, info->xmit.tail, UART_XMIT_SIZE);
 }
 
 static unsigned int rs_chars_in_buffer(struct tty_struct *tty)
 {
 	struct serial_state *info = tty->driver_data;
 
-	return CIRC_CNT(info->xmit.head, info->xmit.tail, SERIAL_XMIT_SIZE);
+	return CIRC_CNT(info->xmit.head, info->xmit.tail, UART_XMIT_SIZE);
 }
 
 static void rs_flush_buffer(struct tty_struct *tty)
@@ -865,11 +824,11 @@ static void rs_send_xchar(struct tty_struct *tty, char ch)
 
 	        /* Check this ! */
 	        local_irq_save(flags);
-		if(!(custom.intenar & IF_TBE)) {
-		    custom.intena = IF_SETCLR | IF_TBE;
+		if(!(amiga_custom.intenar & IF_TBE)) {
+		    amiga_custom.intena = IF_SETCLR | IF_TBE;
 		    mb();
 		    /* set a pending Tx Interrupt, transmitter should restart now */
-		    custom.intreq = IF_SETCLR | IF_TBE;
+		    amiga_custom.intreq = IF_SETCLR | IF_TBE;
 		    mb();
 		}
 		local_irq_restore(flags);
@@ -946,7 +905,7 @@ static int get_serial_info(struct tty_struct *tty, struct serial_struct *ss)
 	ss->line = tty->index;
 	ss->port = state->port;
 	ss->flags = state->tport.flags;
-	ss->xmit_fifo_size = state->xmit_fifo_size;
+	ss->xmit_fifo_size = XMIT_FIFO_SIZE;
 	ss->baud_base = state->baud_base;
 	ss->close_delay = close_delay;
 	ss->closing_wait = closing_wait;
@@ -967,7 +926,7 @@ static int set_serial_info(struct tty_struct *tty, struct serial_struct *ss)
 	change_spd = ((ss->flags ^ port->flags) & ASYNC_SPD_MASK) ||
 		ss->custom_divisor != state->custom_divisor;
 	if (ss->irq || ss->port != state->port ||
-			ss->xmit_fifo_size != state->xmit_fifo_size) {
+			ss->xmit_fifo_size != XMIT_FIFO_SIZE) {
 		tty_unlock(tty);
 		return -EINVAL;
 	}
@@ -977,11 +936,10 @@ static int set_serial_info(struct tty_struct *tty, struct serial_struct *ss)
 	if (closing_wait != ASYNC_CLOSING_WAIT_NONE)
 		closing_wait = msecs_to_jiffies(closing_wait * 10);
 
-	if (!serial_isroot()) {
+	if (!capable(CAP_SYS_ADMIN)) {
 		if ((ss->baud_base != state->baud_base) ||
 		    (close_delay != port->close_delay) ||
 		    (closing_wait != port->closing_wait) ||
-		    (ss->xmit_fifo_size != state->xmit_fifo_size) ||
 		    ((ss->flags & ~ASYNC_USR_MASK) !=
 		     (port->flags & ~ASYNC_USR_MASK))) {
 			tty_unlock(tty);
@@ -1041,7 +999,7 @@ static int get_lsr_info(struct serial_state *info, unsigned int __user *value)
 	unsigned long flags;
 
 	local_irq_save(flags);
-	status = custom.serdatr;
+	status = amiga_custom.serdatr;
 	mb();
 	local_irq_restore(flags);
 	result = ((status & SDR_TSRE) ? TIOCSER_TEMT : 0);
@@ -1103,9 +1061,9 @@ static int rs_break(struct tty_struct *tty, int break_state)
 
 	local_irq_save(flags);
 	if (break_state == -1)
-	  custom.adkcon = AC_SETCLR | AC_UARTBRK;
+	  amiga_custom.adkcon = AC_SETCLR | AC_UARTBRK;
 	else
-	  custom.adkcon = AC_UARTBRK;
+	  amiga_custom.adkcon = AC_UARTBRK;
 	mb();
 	local_irq_restore(flags);
 	return 0;
@@ -1211,7 +1169,7 @@ static int rs_ioctl(struct tty_struct *tty,
 	return 0;
 }
 
-static void rs_set_termios(struct tty_struct *tty, struct ktermios *old_termios)
+static void rs_set_termios(struct tty_struct *tty, const struct ktermios *old_termios)
 {
 	struct serial_state *info = tty->driver_data;
 	unsigned long flags;
@@ -1239,7 +1197,7 @@ static void rs_set_termios(struct tty_struct *tty, struct ktermios *old_termios)
 
 	/* Handle turning off CRTSCTS */
 	if ((old_termios->c_cflag & CRTSCTS) && !C_CRTSCTS(tty)) {
-		tty->hw_stopped = 0;
+		tty->hw_stopped = false;
 		rs_start(tty);
 	}
 
@@ -1282,10 +1240,10 @@ static void rs_close(struct tty_struct *tty, struct file * filp)
 	state->read_status_mask &= ~UART_LSR_DR;
 	if (tty_port_initialized(port)) {
 	        /* disable receive interrupts */
-	        custom.intena = IF_RBF;
+	        amiga_custom.intena = IF_RBF;
 		mb();
 		/* clear any pending receive interrupt */
-		custom.intreq = IF_RBF;
+		amiga_custom.intreq = IF_RBF;
 		mb();
 
 		/*
@@ -1313,9 +1271,6 @@ static void rs_wait_until_sent(struct tty_struct *tty, int timeout)
 	unsigned long orig_jiffies, char_time;
 	int lsr;
 
-	if (info->xmit_fifo_size == 0)
-		return; /* Just in case.... */
-
 	orig_jiffies = jiffies;
 
 	/*
@@ -1326,7 +1281,7 @@ static void rs_wait_until_sent(struct tty_struct *tty, int timeout)
 	 * Note: we have to use pretty tight timings here to satisfy
 	 * the NIST-PCTS.
 	 */
-	char_time = (info->timeout - HZ/50) / info->xmit_fifo_size;
+	char_time = (info->timeout - HZ/50) / XMIT_FIFO_SIZE;
 	char_time = char_time / 5;
 	if (char_time == 0)
 		char_time = 1;
@@ -1347,7 +1302,7 @@ static void rs_wait_until_sent(struct tty_struct *tty, int timeout)
 	printk("In rs_wait_until_sent(%d) check=%lu...", timeout, char_time);
 	printk("jiff=%lu...", jiffies);
 #endif
-	while(!((lsr = custom.serdatr) & SDR_TSRE)) {
+	while(!((lsr = amiga_custom.serdatr) & SDR_TSRE)) {
 #ifdef SERIAL_DEBUG_RS_WAIT_UNTIL_SENT
 		printk("serdatr = %d (jiff=%lu)...", lsr, jiffies);
 #endif
@@ -1374,7 +1329,7 @@ static void rs_hangup(struct tty_struct *tty)
 	rs_flush_buffer(tty);
 	shutdown(tty, info);
 	info->tport.count = 0;
-	tty_port_set_active(&info->tport, 0);
+	tty_port_set_active(&info->tport, false);
 	info->tport.tty = NULL;
 	wake_up_interruptible(&info->tport.open_wait);
 }
@@ -1387,14 +1342,14 @@ static void rs_hangup(struct tty_struct *tty)
  */
 static int rs_open(struct tty_struct *tty, struct file * filp)
 {
-	struct serial_state *info = rs_table + tty->index;
-	struct tty_port *port = &info->tport;
+	struct tty_port *port = tty->port;
+	struct serial_state *info = container_of(port, struct serial_state,
+			tport);
 	int retval;
 
 	port->count++;
 	port->tty = tty;
 	tty->driver_data = info;
-	tty->port = port;
 
 	retval = startup(tty, info);
 	if (retval) {
@@ -1459,8 +1414,8 @@ static inline void line_info(struct seq_file *m, int line,
 
 static int rs_proc_show(struct seq_file *m, void *v)
 {
-	seq_printf(m, "serinfo:1.0 driver:%s\n", serial_version);
-	line_info(m, 0, &rs_table[0]);
+	seq_printf(m, "serinfo:1.0 driver:4.30\n");
+	line_info(m, 0, &serial_state);
 	return 0;
 }
 
@@ -1471,17 +1426,6 @@ static int rs_proc_show(struct seq_file *m, void *v)
  * rs_init() is called at boot-time to initialize the serial driver.
  * ---------------------------------------------------------------------
  */
-
-/*
- * This routine prints out the appropriate serial driver version
- * number, and identifies which options were configured into this
- * driver.
- */
-static void show_serial_version(void)
-{
- 	printk(KERN_INFO "%s version %s\n", serial_name, serial_version);
-}
-
 
 static const struct tty_operations serial_ops = {
 	.open = rs_open,
@@ -1510,18 +1454,18 @@ static const struct tty_operations serial_ops = {
 	.proc_show = rs_proc_show,
 };
 
-static int amiga_carrier_raised(struct tty_port *port)
+static bool amiga_carrier_raised(struct tty_port *port)
 {
 	return !(ciab.pra & SER_DCD);
 }
 
-static void amiga_dtr_rts(struct tty_port *port, int raise)
+static void amiga_dtr_rts(struct tty_port *port, bool active)
 {
 	struct serial_state *info = container_of(port, struct serial_state,
 			tport);
 	unsigned long flags;
 
-	if (raise)
+	if (active)
 		info->MCR |= SER_DTR|SER_RTS;
 	else
 		info->MCR &= ~(SER_DTR|SER_RTS);
@@ -1541,43 +1485,35 @@ static const struct tty_port_operations amiga_port_ops = {
  */
 static int __init amiga_serial_probe(struct platform_device *pdev)
 {
+	struct serial_state *state = &serial_state;
+	struct tty_driver *driver;
 	unsigned long flags;
-	struct serial_state * state;
 	int error;
 
-	serial_driver = alloc_tty_driver(NR_PORTS);
-	if (!serial_driver)
-		return -ENOMEM;
-
-	show_serial_version();
+	driver = tty_alloc_driver(1, TTY_DRIVER_REAL_RAW);
+	if (IS_ERR(driver))
+		return PTR_ERR(driver);
 
 	/* Initialize the tty_driver structure */
 
-	serial_driver->driver_name = "amiserial";
-	serial_driver->name = "ttyS";
-	serial_driver->major = TTY_MAJOR;
-	serial_driver->minor_start = 64;
-	serial_driver->type = TTY_DRIVER_TYPE_SERIAL;
-	serial_driver->subtype = SERIAL_TYPE_NORMAL;
-	serial_driver->init_termios = tty_std_termios;
-	serial_driver->init_termios.c_cflag =
+	driver->driver_name = "amiserial";
+	driver->name = "ttyS";
+	driver->major = TTY_MAJOR;
+	driver->minor_start = 64;
+	driver->type = TTY_DRIVER_TYPE_SERIAL;
+	driver->subtype = SERIAL_TYPE_NORMAL;
+	driver->init_termios = tty_std_termios;
+	driver->init_termios.c_cflag =
 		B9600 | CS8 | CREAD | HUPCL | CLOCAL;
-	serial_driver->flags = TTY_DRIVER_REAL_RAW;
-	tty_set_operations(serial_driver, &serial_ops);
+	tty_set_operations(driver, &serial_ops);
 
-	state = rs_table;
-	state->port = (int)&custom.serdatr; /* Just to give it a value */
-	state->custom_divisor = 0;
-	state->icount.cts = state->icount.dsr = 
-	  state->icount.rng = state->icount.dcd = 0;
-	state->icount.rx = state->icount.tx = 0;
-	state->icount.frame = state->icount.parity = 0;
-	state->icount.overrun = state->icount.brk = 0;
+	memset(state, 0, sizeof(*state));
+	state->port = (int)&amiga_custom.serdatr; /* Just to give it a value */
 	tty_port_init(&state->tport);
 	state->tport.ops = &amiga_port_ops;
-	tty_port_link_device(&state->tport, serial_driver, 0);
+	tty_port_link_device(&state->tport, driver, 0);
 
-	error = tty_register_driver(serial_driver);
+	error = tty_register_driver(driver);
 	if (error)
 		goto fail_tty_driver_kref_put;
 
@@ -1586,7 +1522,6 @@ static int __init amiga_serial_probe(struct platform_device *pdev)
 	/* Hardware set up */
 
 	state->baud_base = amiga_colorclock;
-	state->xmit_fifo_size = 1;
 
 	/* set ISRs, and then disable the rx interrupts */
 	error = request_irq(IRQ_AMIGA_TBE, ser_tx_int, 0, "serial TX", state);
@@ -1601,11 +1536,11 @@ static int __init amiga_serial_probe(struct platform_device *pdev)
 	local_irq_save(flags);
 
 	/* turn off Rx and Tx interrupts */
-	custom.intena = IF_RBF | IF_TBE;
+	amiga_custom.intena = IF_RBF | IF_TBE;
 	mb();
 
 	/* clear any pending interrupt */
-	custom.intreq = IF_RBF | IF_TBE;
+	amiga_custom.intreq = IF_RBF | IF_TBE;
 	mb();
 
 	local_irq_restore(flags);
@@ -1619,15 +1554,17 @@ static int __init amiga_serial_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, state);
 
+	serial_driver = driver;
+
 	return 0;
 
 fail_free_irq:
 	free_irq(IRQ_AMIGA_TBE, state);
 fail_unregister:
-	tty_unregister_driver(serial_driver);
+	tty_unregister_driver(driver);
 fail_tty_driver_kref_put:
 	tty_port_destroy(&state->tport);
-	tty_driver_kref_put(serial_driver);
+	tty_driver_kref_put(driver);
 	return error;
 }
 
@@ -1635,7 +1572,6 @@ static int __exit amiga_serial_remove(struct platform_device *pdev)
 {
 	struct serial_state *state = platform_get_drvdata(pdev);
 
-	/* printk("Unloading %s: version %s\n", serial_name, serial_version); */
 	tty_unregister_driver(serial_driver);
 	tty_driver_kref_put(serial_driver);
 	tty_port_destroy(&state->tport);
@@ -1666,8 +1602,8 @@ module_platform_driver_probe(amiga_serial_driver, amiga_serial_probe);
 
 static void amiga_serial_putc(char c)
 {
-	custom.serdat = (unsigned char)c | 0x100;
-	while (!(custom.serdatr & 0x2000))
+	amiga_custom.serdat = (unsigned char)c | 0x100;
+	while (!(amiga_custom.serdatr & 0x2000))
 		barrier();
 }
 
@@ -1680,9 +1616,9 @@ static void amiga_serial_putc(char c)
 static void serial_console_write(struct console *co, const char *s,
 				unsigned count)
 {
-	unsigned short intena = custom.intenar;
+	unsigned short intena = amiga_custom.intenar;
 
-	custom.intena = IF_TBE;
+	amiga_custom.intena = IF_TBE;
 
 	while (count--) {
 		if (*s == '\n')
@@ -1690,7 +1626,7 @@ static void serial_console_write(struct console *co, const char *s,
 		amiga_serial_putc(*s++);
 	}
 
-	custom.intena = IF_SETCLR | (intena & IF_TBE);
+	amiga_custom.intena = IF_SETCLR | (intena & IF_TBE);
 }
 
 static struct tty_driver *serial_console_device(struct console *c, int *index)

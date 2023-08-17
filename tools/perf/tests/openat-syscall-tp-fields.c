@@ -14,6 +14,7 @@
 #include "util/mmap.h"
 #include <errno.h>
 #include <perf/mmap.h>
+#include "util/sample.h"
 
 #ifndef O_DIRECTORY
 #define O_DIRECTORY    00200000
@@ -22,7 +23,8 @@
 #define AT_FDCWD       -100
 #endif
 
-int test__syscall_openat_tp_fields(struct test *test __maybe_unused, int subtest __maybe_unused)
+static int test__syscall_openat_tp_fields(struct test_suite *test __maybe_unused,
+					  int subtest __maybe_unused)
 {
 	struct record_opts opts = {
 		.target = {
@@ -142,3 +144,5 @@ out_delete_evlist:
 out:
 	return err;
 }
+
+DEFINE_SUITE("syscalls:sys_enter_openat event fields", syscall_openat_tp_fields);

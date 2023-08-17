@@ -171,16 +171,12 @@ config PTP_1588_CLOCK_OCP
 	tristate "OpenCompute TimeCard as PTP clock"
 	depends on PTP_1588_CLOCK
 	depends on HAS_IOMEM && PCI
-	depends on SPI && I2C && MTD
-	imply SPI_MEM
-	imply SPI_XILINX
-	imply MTD_SPI_NOR
-	imply I2C_XILINX
-	select SERIAL_8250
+	depends on I2C && MTD
+	depends on SERIAL_8250
+	depends on !S390
 	depends on COMMON_CLK
 	select NET_DEVLINK
-
-	default n
+	select CRC16
 	help
 	  This driver adds support for an OpenCompute time card.
 
@@ -189,5 +185,19 @@ config PTP_1588_CLOCK_OCP
 	  for a PTP enabled network.
 
 	  More information is available at http://www.timingcard.com/
+
+config PTP_DFL_TOD
+	tristate "FPGA DFL ToD Driver"
+	depends on FPGA_DFL
+	depends on PTP_1588_CLOCK
+	help
+	  The DFL (Device Feature List) device driver for the Intel ToD
+	  (Time-of-Day) device in FPGA card. The ToD IP within the FPGA
+	  is exposed as PTP Hardware Clock (PHC) device to the Linux PTP
+	  stack to synchronize the system clock to its ToD information
+	  using phc2sys utility of the Linux PTP stack.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called ptp_dfl_tod.
 
 endmenu

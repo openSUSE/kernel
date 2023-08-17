@@ -162,11 +162,9 @@ static int img_prl_out_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 		return -EINVAL;
 	}
 
-	ret = pm_runtime_get_sync(prl->dev);
-	if (ret < 0) {
-		pm_runtime_put_noidle(prl->dev);
+	ret = pm_runtime_resume_and_get(prl->dev);
+	if (ret < 0)
 		return ret;
-	}
 
 	reg = img_prl_out_readl(prl, IMG_PRL_OUT_CTL);
 	reg = (reg & ~IMG_PRL_OUT_CTL_EDGE_MASK) | control_set;
@@ -203,7 +201,8 @@ static struct snd_soc_dai_driver img_prl_out_dai = {
 };
 
 static const struct snd_soc_component_driver img_prl_out_component = {
-	.name = "img-prl-out"
+	.name = "img-prl-out",
+	.legacy_dai_naming = 1,
 };
 
 static int img_prl_out_probe(struct platform_device *pdev)
@@ -229,25 +228,19 @@ static int img_prl_out_probe(struct platform_device *pdev)
 	prl->base = base;
 
 	prl->rst = devm_reset_control_get_exclusive(&pdev->dev, "rst");
-	if (IS_ERR(prl->rst)) {
-		if (PTR_ERR(prl->rst) != -EPROBE_DEFER)
-			dev_err(&pdev->dev, "No top level reset found\n");
-		return PTR_ERR(prl->rst);
-	}
+	if (IS_ERR(prl->rst))
+		return dev_err_probe(&pdev->dev, PTR_ERR(prl->rst),
+				     "No top level reset found\n");
 
 	prl->clk_sys = devm_clk_get(&pdev->dev, "sys");
-	if (IS_ERR(prl->clk_sys)) {
-		if (PTR_ERR(prl->clk_sys) != -EPROBE_DEFER)
-			dev_err(dev, "Failed to acquire clock 'sys'\n");
-		return PTR_ERR(prl->clk_sys);
-	}
+	if (IS_ERR(prl->clk_sys))
+		return dev_err_probe(dev, PTR_ERR(prl->clk_sys),
+				     "Failed to acquire clock 'sys'\n");
 
 	prl->clk_ref = devm_clk_get(&pdev->dev, "ref");
-	if (IS_ERR(prl->clk_ref)) {
-		if (PTR_ERR(prl->clk_ref) != -EPROBE_DEFER)
-			dev_err(dev, "Failed to acquire clock 'ref'\n");
-		return PTR_ERR(prl->clk_ref);
-	}
+	if (IS_ERR(prl->clk_ref))
+		return dev_err_probe(dev, PTR_ERR(prl->clk_ref),
+				     "Failed to acquire clock 'ref'\n");
 
 	ret = clk_prepare_enable(prl->clk_sys);
 	if (ret)
@@ -289,7 +282,7 @@ err_pm_disable:
 	return ret;
 }
 
-static int img_prl_out_dev_remove(struct platform_device *pdev)
+static void img_prl_out_dev_remove(struct platform_device *pdev)
 {
 	struct img_prl_out *prl = platform_get_drvdata(pdev);
 
@@ -298,8 +291,6 @@ static int img_prl_out_dev_remove(struct platform_device *pdev)
 		img_prl_out_suspend(&pdev->dev);
 
 	clk_disable_unprepare(prl->clk_sys);
-
-	return 0;
 }
 
 static const struct of_device_id img_prl_out_of_match[] = {
@@ -320,7 +311,7 @@ static struct platform_driver img_prl_out_driver = {
 		.pm = &img_prl_out_pm_ops
 	},
 	.probe = img_prl_out_probe,
-	.remove = img_prl_out_dev_remove
+	.remove_new = img_prl_out_dev_remove
 };
 module_platform_driver(img_prl_out_driver);
 

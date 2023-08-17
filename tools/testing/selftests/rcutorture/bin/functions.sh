@@ -159,6 +159,9 @@ identify_boot_image () {
 		qemu-system-aarch64)
 			echo arch/arm64/boot/Image
 			;;
+		qemu-system-s390x)
+			echo arch/s390/boot/bzImage
+			;;
 		*)
 			echo vmlinux
 			;;
@@ -184,6 +187,9 @@ identify_qemu () {
 	elif echo $u | grep -q aarch64
 	then
 		echo qemu-system-aarch64
+	elif echo $u | grep -q 'IBM S/390'
+	then
+		echo qemu-system-s390x
 	elif uname -a | grep -q ppc64
 	then
 		echo qemu-system-ppc64
@@ -301,7 +307,7 @@ specify_qemu_cpus () {
 			echo $2 -smp $3
 			;;
 		qemu-system-ppc64)
-			nt="`lscpu | grep '^NUMA node0' | sed -e 's/^[^,]*,\([0-9]*\),.*$/\1/'`"
+			nt="`lscpu | sed -n 's/^Thread(s) per core:\s*//p'`"
 			echo $2 -smp cores=`expr \( $3 + $nt - 1 \) / $nt`,threads=$nt
 			;;
 		esac

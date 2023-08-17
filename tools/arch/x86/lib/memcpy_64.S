@@ -7,14 +7,7 @@
 #include <asm/alternative.h>
 #include <asm/export.h>
 
-.pushsection .noinstr.text, "ax"
-
-/*
- * We build a jump to memcpy_orig by default which gets NOPped out on
- * the majority of x86 CPUs which set REP_GOOD. In addition, CPUs which
- * have the enhanced REP MOVSB/STOSB feature (ERMS), change those NOPs
- * to a jmp to memcpy_erms which does the REP; MOVSB mem copy.
- */
+.section .noinstr.text, "ax"
 
 /*
  * memcpy - Copy a memory block.
@@ -26,35 +19,28 @@
  *
  * Output:
  * rax original destination
+ *
+ * The FSRM alternative should be done inline (avoiding the call and
+ * the disgusting return handling), but that would require some help
+ * from the compiler for better calling conventions.
+ *
+ * The 'rep movsb' itself is small enough to replace the call, but the
+ * two register moves blow up the code. And one of them is "needed"
+ * only for the return value that is the same as the source input,
+ * which the compiler could/should do much better anyway.
  */
-SYM_FUNC_START_ALIAS(__memcpy)
-SYM_FUNC_START_WEAK(memcpy)
-	ALTERNATIVE_2 "jmp memcpy_orig", "", X86_FEATURE_REP_GOOD, \
-		      "jmp memcpy_erms", X86_FEATURE_ERMS
+SYM_TYPED_FUNC_START(__memcpy)
+	ALTERNATIVE "jmp memcpy_orig", "", X86_FEATURE_FSRM
 
 	movq %rdi, %rax
 	movq %rdx, %rcx
-	shrq $3, %rcx
-	andl $7, %edx
-	rep movsq
-	movl %edx, %ecx
 	rep movsb
-	ret
-SYM_FUNC_END(memcpy)
-SYM_FUNC_END_ALIAS(__memcpy)
-EXPORT_SYMBOL(memcpy)
+	RET
+SYM_FUNC_END(__memcpy)
 EXPORT_SYMBOL(__memcpy)
 
-/*
- * memcpy_erms() - enhanced fast string memcpy. This is faster and
- * simpler than memcpy. Use memcpy_erms when possible.
- */
-SYM_FUNC_START_LOCAL(memcpy_erms)
-	movq %rdi, %rax
-	movq %rdx, %rcx
-	rep movsb
-	ret
-SYM_FUNC_END(memcpy_erms)
+SYM_FUNC_ALIAS(memcpy, __memcpy)
+EXPORT_SYMBOL(memcpy)
 
 SYM_FUNC_START_LOCAL(memcpy_orig)
 	movq %rdi, %rax
@@ -137,7 +123,7 @@ SYM_FUNC_START_LOCAL(memcpy_orig)
 	movq %r9,	1*8(%rdi)
 	movq %r10,	-2*8(%rdi, %rdx)
 	movq %r11,	-1*8(%rdi, %rdx)
-	retq
+	RET
 	.p2align 4
 .Lless_16bytes:
 	cmpl $8,	%edx
@@ -149,7 +135,7 @@ SYM_FUNC_START_LOCAL(memcpy_orig)
 	movq -1*8(%rsi, %rdx),	%r9
 	movq %r8,	0*8(%rdi)
 	movq %r9,	-1*8(%rdi, %rdx)
-	retq
+	RET
 	.p2align 4
 .Lless_8bytes:
 	cmpl $4,	%edx
@@ -162,7 +148,7 @@ SYM_FUNC_START_LOCAL(memcpy_orig)
 	movl -4(%rsi, %rdx), %r8d
 	movl %ecx, (%rdi)
 	movl %r8d, -4(%rdi, %rdx)
-	retq
+	RET
 	.p2align 4
 .Lless_3bytes:
 	subl $1, %edx
@@ -180,7 +166,6 @@ SYM_FUNC_START_LOCAL(memcpy_orig)
 	movb %cl, (%rdi)
 
 .Lend:
-	retq
+	RET
 SYM_FUNC_END(memcpy_orig)
 
-.popsection

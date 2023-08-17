@@ -247,7 +247,6 @@ irqreturn_t lpfc_sli_sp_intr_handler(int, void *);
 irqreturn_t lpfc_sli_fp_intr_handler(int, void *);
 irqreturn_t lpfc_sli4_intr_handler(int, void *);
 irqreturn_t lpfc_sli4_hba_intr_handler(int, void *);
-irqreturn_t lpfc_sli4_hba_intr_handler_th(int irq, void *dev_id);
 
 int lpfc_read_object(struct lpfc_hba *phba, char *s, uint32_t *datap,
 		     uint32_t len);
@@ -664,7 +663,7 @@ extern int lpfc_enable_nvmet_cnt;
 extern unsigned long long lpfc_enable_nvmet[];
 extern int lpfc_no_hba_reset_cnt;
 extern unsigned long lpfc_no_hba_reset[];
-extern unsigned char lpfc_acqe_cgn_frequency;
+extern int lpfc_acqe_cgn_frequency;
 extern int lpfc_fabric_cgn_frequency;
 extern int lpfc_use_cgn_signal;
 

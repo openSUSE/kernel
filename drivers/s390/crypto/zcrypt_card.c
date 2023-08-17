@@ -39,9 +39,9 @@
 static ssize_t type_show(struct device *dev,
 			 struct device_attribute *attr, char *buf)
 {
-	struct zcrypt_card *zc = to_ap_card(dev)->private;
+	struct zcrypt_card *zc = dev_get_drvdata(dev);
 
-	return scnprintf(buf, PAGE_SIZE, "%s\n", zc->type_string);
+	return sysfs_emit(buf, "%s\n", zc->type_string);
 }
 
 static DEVICE_ATTR_RO(type);
@@ -50,19 +50,19 @@ static ssize_t online_show(struct device *dev,
 			   struct device_attribute *attr,
 			   char *buf)
 {
+	struct zcrypt_card *zc = dev_get_drvdata(dev);
 	struct ap_card *ac = to_ap_card(dev);
-	struct zcrypt_card *zc = ac->private;
 	int online = ac->config && zc->online ? 1 : 0;
 
-	return scnprintf(buf, PAGE_SIZE, "%d\n", online);
+	return sysfs_emit(buf, "%d\n", online);
 }
 
 static ssize_t online_store(struct device *dev,
 			    struct device_attribute *attr,
 			    const char *buf, size_t count)
 {
+	struct zcrypt_card *zc = dev_get_drvdata(dev);
 	struct ap_card *ac = to_ap_card(dev);
-	struct zcrypt_card *zc = ac->private;
 	struct zcrypt_queue *zq;
 	int online, id, i = 0, maxzqs = 0;
 	struct zcrypt_queue **zq_uelist = NULL;
@@ -90,7 +90,7 @@ static ssize_t online_store(struct device *dev,
 	list_for_each_entry(zq, &zc->zqueues, list)
 		maxzqs++;
 	if (maxzqs > 0)
-		zq_uelist = kcalloc(maxzqs + 1, sizeof(zq), GFP_ATOMIC);
+		zq_uelist = kcalloc(maxzqs + 1, sizeof(*zq_uelist), GFP_ATOMIC);
 	list_for_each_entry(zq, &zc->zqueues, list)
 		if (zcrypt_queue_force_online(zq, online))
 			if (zq_uelist) {
@@ -116,9 +116,9 @@ static ssize_t load_show(struct device *dev,
 			 struct device_attribute *attr,
 			 char *buf)
 {
-	struct zcrypt_card *zc = to_ap_card(dev)->private;
+	struct zcrypt_card *zc = dev_get_drvdata(dev);
 
-	return scnprintf(buf, PAGE_SIZE, "%d\n", atomic_read(&zc->load));
+	return sysfs_emit(buf, "%d\n", atomic_read(&zc->load));
 }
 
 static DEVICE_ATTR_RO(load);
@@ -138,7 +138,7 @@ struct zcrypt_card *zcrypt_card_alloc(void)
 {
 	struct zcrypt_card *zc;
 
-	zc = kzalloc(sizeof(struct zcrypt_card), GFP_KERNEL);
+	zc = kzalloc(sizeof(*zc), GFP_KERNEL);
 	if (!zc)
 		return NULL;
 	INIT_LIST_HEAD(&zc->list);

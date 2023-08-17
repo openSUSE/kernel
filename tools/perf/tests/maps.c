@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
+#include <inttypes.h>
 #include <linux/compiler.h>
 #include <linux/kernel.h>
 #include "tests.h"
@@ -15,27 +16,48 @@ struct map_def {
 
 static int check_maps(struct map_def *merged, unsigned int size, struct maps *maps)
 {
-	struct map *map;
+	struct map_rb_node *rb_node;
 	unsigned int i = 0;
+	bool failed = false;
 
-	maps__for_each_entry(maps, map) {
-		if (i > 0)
-			TEST_ASSERT_VAL("less maps expected", (map && i < size) || (!map && i == size));
+	if (maps__nr_maps(maps) != size) {
+		pr_debug("Expected %d maps, got %d", size, maps__nr_maps(maps));
+		failed = true;
+	} else {
+		maps__for_each_entry(maps, rb_node) {
+			struct map *map = rb_node->map;
 
-		TEST_ASSERT_VAL("wrong map start",  map->start == merged[i].start);
-		TEST_ASSERT_VAL("wrong map end",    map->end == merged[i].end);
-		TEST_ASSERT_VAL("wrong map name",  !strcmp(map->dso->name, merged[i].name));
-		TEST_ASSERT_VAL("wrong map refcnt", refcount_read(&map->refcnt) == 1);
-
-		i++;
+			if (map__start(map) != merged[i].start ||
+			    map__end(map) != merged[i].end ||
+			    strcmp(map__dso(map)->name, merged[i].name) ||
+			    refcount_read(map__refcnt(map)) != 1) {
+				failed = true;
+			}
+			i++;
+		}
 	}
+	if (failed) {
+		pr_debug("Expected:\n");
+		for (i = 0; i < size; i++) {
+			pr_debug("\tstart: %" PRIu64 " end: %" PRIu64 " name: '%s' refcnt: 1\n",
+				merged[i].start, merged[i].end, merged[i].name);
+		}
+		pr_debug("Got:\n");
+		maps__for_each_entry(maps, rb_node) {
+			struct map *map = rb_node->map;
 
-	return TEST_OK;
+			pr_debug("\tstart: %" PRIu64 " end: %" PRIu64 " name: '%s' refcnt: %d\n",
+				map__start(map),
+				map__end(map),
+				map__dso(map)->name,
+				refcount_read(map__refcnt(map)));
+		}
+	}
+	return failed ? TEST_FAIL : TEST_OK;
 }
 
-int test__maps__merge_in(struct test *t __maybe_unused, int subtest __maybe_unused)
+static int test__maps__merge_in(struct test_suite *t __maybe_unused, int subtest __maybe_unused)
 {
-	struct maps maps;
 	unsigned int i;
 	struct map_def bpf_progs[] = {
 		{ "bpf_prog_1", 200, 300 },
@@ -63,8 +85,9 @@ int test__maps__merge_in(struct test *t __maybe_unused, int subtest __maybe_unus
 	};
 	struct map *map_kcore1, *map_kcore2, *map_kcore3;
 	int ret;
+	struct maps *maps = maps__new(NULL);
 
-	maps__init(&maps, NULL);
+	TEST_ASSERT_VAL("failed to create maps", maps);
 
 	for (i = 0; i < ARRAY_SIZE(bpf_progs); i++) {
 		struct map *map;
@@ -72,9 +95,9 @@ int test__maps__merge_in(struct test *t __maybe_unused, int subtest __maybe_unus
 		map = dso__new_map(bpf_progs[i].name);
 		TEST_ASSERT_VAL("failed to create map", map);
 
-		map->start = bpf_progs[i].start;
-		map->end   = bpf_progs[i].end;
-		maps__insert(&maps, map);
+		map__set_start(map, bpf_progs[i].start);
+		map__set_end(map, bpf_progs[i].end);
+		TEST_ASSERT_VAL("failed to insert map", maps__insert(maps, map) == 0);
 		map__put(map);
 	}
 
@@ -88,35 +111,37 @@ int test__maps__merge_in(struct test *t __maybe_unused, int subtest __maybe_unus
 	TEST_ASSERT_VAL("failed to create map", map_kcore3);
 
 	/* kcore1 map overlaps over all bpf maps */
-	map_kcore1->start = 100;
-	map_kcore1->end   = 1000;
+	map__set_start(map_kcore1, 100);
+	map__set_end(map_kcore1, 1000);
 
 	/* kcore2 map hides behind bpf_prog_2 */
-	map_kcore2->start = 550;
-	map_kcore2->end   = 570;
+	map__set_start(map_kcore2, 550);
+	map__set_end(map_kcore2, 570);
 
 	/* kcore3 map hides behind bpf_prog_3, kcore1 and adds new map */
-	map_kcore3->start = 880;
-	map_kcore3->end   = 1100;
+	map__set_start(map_kcore3, 880);
+	map__set_end(map_kcore3, 1100);
 
-	ret = maps__merge_in(&maps, map_kcore1);
+	ret = maps__merge_in(maps, map_kcore1);
 	TEST_ASSERT_VAL("failed to merge map", !ret);
 
-	ret = check_maps(merged12, ARRAY_SIZE(merged12), &maps);
+	ret = check_maps(merged12, ARRAY_SIZE(merged12), maps);
 	TEST_ASSERT_VAL("merge check failed", !ret);
 
-	ret = maps__merge_in(&maps, map_kcore2);
+	ret = maps__merge_in(maps, map_kcore2);
 	TEST_ASSERT_VAL("failed to merge map", !ret);
 
-	ret = check_maps(merged12, ARRAY_SIZE(merged12), &maps);
+	ret = check_maps(merged12, ARRAY_SIZE(merged12), maps);
 	TEST_ASSERT_VAL("merge check failed", !ret);
 
-	ret = maps__merge_in(&maps, map_kcore3);
+	ret = maps__merge_in(maps, map_kcore3);
 	TEST_ASSERT_VAL("failed to merge map", !ret);
 
-	ret = check_maps(merged3, ARRAY_SIZE(merged3), &maps);
+	ret = check_maps(merged3, ARRAY_SIZE(merged3), maps);
 	TEST_ASSERT_VAL("merge check failed", !ret);
 
-	maps__exit(&maps);
+	maps__delete(maps);
 	return TEST_OK;
 }
+
+DEFINE_SUITE("maps__merge_in", maps__merge_in);

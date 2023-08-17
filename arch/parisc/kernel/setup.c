@@ -48,28 +48,41 @@ struct proc_dir_entry * proc_mckinley_root __read_mostly = NULL;
 void __init setup_cmdline(char **cmdline_p)
 {
 	extern unsigned int boot_args[];
+	char *p;
 
-	/* Collect stuff passed in from the boot loader */
+	*cmdline_p = command_line;
 
 	/* boot_args[0] is free-mem start, boot_args[1] is ptr to command line */
-	if (boot_args[0] < 64) {
-		/* called from hpux boot loader */
-		boot_command_line[0] = '\0';
-	} else {
-		strlcpy(boot_command_line, (char *)__va(boot_args[1]),
-			COMMAND_LINE_SIZE);
+	if (boot_args[0] < 64)
+		return;	/* return if called from hpux boot loader */
 
-#ifdef CONFIG_BLK_DEV_INITRD
-		if (boot_args[2] != 0) /* did palo pass us a ramdisk? */
-		{
-		    initrd_start = (unsigned long)__va(boot_args[2]);
-		    initrd_end = (unsigned long)__va(boot_args[3]);
-		}
-#endif
+	/* Collect stuff passed in from the boot loader */
+	strscpy(boot_command_line, (char *)__va(boot_args[1]),
+		COMMAND_LINE_SIZE);
+
+	/* autodetect console type (if not done by palo yet) */
+	p = boot_command_line;
+	if (!str_has_prefix(p, "console=") && !strstr(p, " console=")) {
+		strlcat(p, " console=", COMMAND_LINE_SIZE);
+		if (PAGE0->mem_cons.cl_class == CL_DUPLEX)
+			strlcat(p, "ttyS0", COMMAND_LINE_SIZE);
+		else
+			strlcat(p, "tty0", COMMAND_LINE_SIZE);
 	}
 
-	strcpy(command_line, boot_command_line);
-	*cmdline_p = command_line;
+	/* default to use early console */
+	if (!strstr(p, "earlycon"))
+		strlcat(p, " earlycon=pdc", COMMAND_LINE_SIZE);
+
+#ifdef CONFIG_BLK_DEV_INITRD
+	/* did palo pass us a ramdisk? */
+	if (boot_args[2] != 0) {
+		initrd_start = (unsigned long)__va(boot_args[2]);
+		initrd_end = (unsigned long)__va(boot_args[3]);
+	}
+#endif
+
+	strscpy(command_line, boot_command_line, COMMAND_LINE_SIZE);
 }
 
 #ifdef CONFIG_PA11
@@ -127,8 +140,6 @@ void __init setup_arch(char **cmdline_p)
 	 */
 	if (__pa((unsigned long) &_end) >= KERNEL_INITIAL_SIZE)
 		panic("KERNEL_INITIAL_ORDER too small!");
-
-	pdc_console_init();
 
 #ifdef CONFIG_64BIT
 	if(parisc_narrow_firmware) {

@@ -50,6 +50,10 @@ enum tb_port_state {
 	TB_PORT_DISABLED	= 0, /* tb_cap_phy.disable == 1 */
 	TB_PORT_CONNECTING	= 1, /* retry */
 	TB_PORT_UP		= 2,
+	TB_PORT_TX_CL0S		= 3,
+	TB_PORT_RX_CL0S		= 4,
+	TB_PORT_CL1		= 5,
+	TB_PORT_CL2		= 6,
 	TB_PORT_UNPLUGGED	= 7,
 };
 
@@ -133,11 +137,11 @@ struct tb_cap_phy {
 } __packed;
 
 struct tb_eeprom_ctl {
-	bool clock:1; /* send pulse to transfer one bit */
-	bool access_low:1; /* set to 0 before access */
-	bool data_out:1; /* to eeprom */
-	bool data_in:1; /* from eeprom */
-	bool access_high:1; /* set to 1 before access */
+	bool fl_sk:1; /* send pulse to transfer one bit */
+	bool fl_cs:1; /* set to 0 before access */
+	bool fl_di:1; /* to eeprom */
+	bool fl_do:1; /* from eeprom */
+	bool bit_banging_enable:1; /* set to 1 before access */
 	bool not_present:1; /* should be 0 */
 	bool unknown1:1;
 	bool present:1; /* should be 1 */
@@ -234,6 +238,7 @@ enum usb4_switch_op {
 
 /* Router TMU configuration */
 #define TMU_RTR_CS_0				0x00
+#define TMU_RTR_CS_0_FREQ_WIND_MASK		GENMASK(26, 16)
 #define TMU_RTR_CS_0_TD				BIT(27)
 #define TMU_RTR_CS_0_UCAP			BIT(30)
 #define TMU_RTR_CS_1				0x01
@@ -244,6 +249,11 @@ enum usb4_switch_op {
 #define TMU_RTR_CS_3_LOCAL_TIME_NS_MASK		GENMASK(15, 0)
 #define TMU_RTR_CS_3_TS_PACKET_INTERVAL_MASK	GENMASK(31, 16)
 #define TMU_RTR_CS_3_TS_PACKET_INTERVAL_SHIFT	16
+#define TMU_RTR_CS_15				0xf
+#define TMU_RTR_CS_15_FREQ_AVG_MASK		GENMASK(5, 0)
+#define TMU_RTR_CS_15_DELAY_AVG_MASK		GENMASK(11, 6)
+#define TMU_RTR_CS_15_OFFSET_AVG_MASK		GENMASK(17, 12)
+#define TMU_RTR_CS_15_ERROR_AVG_MASK		GENMASK(23, 18)
 #define TMU_RTR_CS_22				0x16
 #define TMU_RTR_CS_24				0x18
 #define TMU_RTR_CS_25				0x19
@@ -319,6 +329,7 @@ struct tb_regs_port_header {
 #define LANE_ADP_CS_0_SUPPORTED_WIDTH_DUAL	0x2
 #define LANE_ADP_CS_0_CL0S_SUPPORT		BIT(26)
 #define LANE_ADP_CS_0_CL1_SUPPORT		BIT(27)
+#define LANE_ADP_CS_0_CL2_SUPPORT		BIT(28)
 #define LANE_ADP_CS_1				0x01
 #define LANE_ADP_CS_1_TARGET_SPEED_MASK		GENMASK(3, 0)
 #define LANE_ADP_CS_1_TARGET_SPEED_GEN3		0xc
@@ -328,6 +339,7 @@ struct tb_regs_port_header {
 #define LANE_ADP_CS_1_TARGET_WIDTH_DUAL		0x3
 #define LANE_ADP_CS_1_CL0S_ENABLE		BIT(10)
 #define LANE_ADP_CS_1_CL1_ENABLE		BIT(11)
+#define LANE_ADP_CS_1_CL2_ENABLE		BIT(12)
 #define LANE_ADP_CS_1_LD			BIT(14)
 #define LANE_ADP_CS_1_LB			BIT(15)
 #define LANE_ADP_CS_1_CURRENT_SPEED_MASK	GENMASK(19, 16)
@@ -353,6 +365,8 @@ struct tb_regs_port_header {
 #define PORT_CS_18_BE				BIT(8)
 #define PORT_CS_18_TCM				BIT(9)
 #define PORT_CS_18_CPS				BIT(10)
+#define PORT_CS_18_WOCS				BIT(16)
+#define PORT_CS_18_WODS				BIT(17)
 #define PORT_CS_18_WOU4S			BIT(18)
 #define PORT_CS_19				0x13
 #define PORT_CS_19_PC				BIT(3)
@@ -371,15 +385,42 @@ struct tb_regs_port_header {
 #define ADP_DP_CS_1_AUX_RX_HOPID_MASK		GENMASK(21, 11)
 #define ADP_DP_CS_1_AUX_RX_HOPID_SHIFT		11
 #define ADP_DP_CS_2				0x02
+#define ADP_DP_CS_2_NRD_MLC_MASK		GENMASK(2, 0)
 #define ADP_DP_CS_2_HDP				BIT(6)
+#define ADP_DP_CS_2_NRD_MLR_MASK		GENMASK(9, 7)
+#define ADP_DP_CS_2_NRD_MLR_SHIFT		7
+#define ADP_DP_CS_2_CA				BIT(10)
+#define ADP_DP_CS_2_GR_MASK			GENMASK(12, 11)
+#define ADP_DP_CS_2_GR_SHIFT			11
+#define ADP_DP_CS_2_GR_0_25G			0x0
+#define ADP_DP_CS_2_GR_0_5G			0x1
+#define ADP_DP_CS_2_GR_1G			0x2
+#define ADP_DP_CS_2_GROUP_ID_MASK		GENMASK(15, 13)
+#define ADP_DP_CS_2_GROUP_ID_SHIFT		13
+#define ADP_DP_CS_2_CM_ID_MASK			GENMASK(19, 16)
+#define ADP_DP_CS_2_CM_ID_SHIFT			16
+#define ADP_DP_CS_2_CMMS			BIT(20)
+#define ADP_DP_CS_2_ESTIMATED_BW_MASK		GENMASK(31, 24)
+#define ADP_DP_CS_2_ESTIMATED_BW_SHIFT		24
 #define ADP_DP_CS_3				0x03
 #define ADP_DP_CS_3_HDPC			BIT(9)
 #define DP_LOCAL_CAP				0x04
 #define DP_REMOTE_CAP				0x05
+/* For DP IN adapter */
+#define DP_STATUS				0x06
+#define DP_STATUS_ALLOCATED_BW_MASK		GENMASK(31, 24)
+#define DP_STATUS_ALLOCATED_BW_SHIFT		24
+/* For DP OUT adapter */
 #define DP_STATUS_CTRL				0x06
 #define DP_STATUS_CTRL_CMHS			BIT(25)
 #define DP_STATUS_CTRL_UF			BIT(26)
 #define DP_COMMON_CAP				0x07
+/* Only if DP IN supports BW allocation mode */
+#define ADP_DP_CS_8				0x08
+#define ADP_DP_CS_8_REQUESTED_BW_MASK		GENMASK(7, 0)
+#define ADP_DP_CS_8_DPME			BIT(30)
+#define ADP_DP_CS_8_DR				BIT(31)
+
 /*
  * DP_COMMON_CAP offsets work also for DP_LOCAL_CAP and DP_REMOTE_CAP
  * with exception of DPRX done.
@@ -396,7 +437,12 @@ struct tb_regs_port_header {
 #define DP_COMMON_CAP_2_LANES			0x1
 #define DP_COMMON_CAP_4_LANES			0x2
 #define DP_COMMON_CAP_LTTPR_NS			BIT(27)
+#define DP_COMMON_CAP_BW_MODE			BIT(28)
 #define DP_COMMON_CAP_DPRX_DONE			BIT(31)
+/* Only present if DP IN supports BW allocation mode */
+#define ADP_DP_CS_8				0x08
+#define ADP_DP_CS_8_DPME			BIT(30)
+#define ADP_DP_CS_8_DR				BIT(31)
 
 /* PCIe adapter registers */
 #define ADP_PCIE_CS_0				0x00

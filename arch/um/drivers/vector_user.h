@@ -68,8 +68,6 @@ struct vector_fds {
 };
 
 #define VECTOR_READ	1
-#define VECTOR_WRITE	(1 < 1)
-#define VECTOR_HEADERS	(1 < 2)
 
 extern struct arglist *uml_parse_vector_ifspec(char *arg);
 
@@ -97,7 +95,7 @@ extern int uml_vector_recvmmsg(
 	unsigned int vlen,
 	unsigned int flags
 );
-extern void *uml_vector_default_bpf(void *mac);
+extern void *uml_vector_default_bpf(const void *mac);
 extern void *uml_vector_user_bpf(char *filename);
 extern int uml_vector_attach_bpf(int fd, void *bpf);
 extern int uml_vector_detach_bpf(int fd, void *bpf);

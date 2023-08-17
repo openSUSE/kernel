@@ -29,7 +29,6 @@
 #include <linux/syscore_ops.h>
 #include <linux/ctype.h>
 #include <linux/ktime.h>
-#include <linux/efi.h>
 #include <linux/security.h>
 #include <linux/secretmem.h>
 #include <trace/events/power.h>
@@ -83,19 +82,9 @@ void hibernate_release(void)
 
 bool hibernation_available(void)
 {
-	if (nohibernate != 0 || secretmem_active())
-		return false;
-
-	if (security_locked_down(LOCKDOWN_HIBERNATION) || snapshot_is_enforce_verify()) {
-		snapshot_set_enforce_verify();
-		if (get_efi_secret_key())
-			return true;
-		else
-			pr_warn("the secret key is invalid\n");
-		return false;
-	} else {
-		return true;
-	}
+	return nohibernate == 0 &&
+		!security_locked_down(LOCKDOWN_HIBERNATION) &&
+		!secretmem_active() && !cxl_mem_active();
 }
 
 /**
@@ -104,20 +93,24 @@ bool hibernation_available(void)
  */
 void hibernation_set_ops(const struct platform_hibernation_ops *ops)
 {
+	unsigned int sleep_flags;
+
 	if (ops && !(ops->begin && ops->end &&  ops->pre_snapshot
 	    && ops->prepare && ops->finish && ops->enter && ops->pre_restore
 	    && ops->restore_cleanup && ops->leave)) {
 		WARN_ON(1);
 		return;
 	}
-	lock_system_sleep();
+
+	sleep_flags = lock_system_sleep();
+
 	hibernation_ops = ops;
 	if (ops)
 		hibernation_mode = HIBERNATION_PLATFORM;
 	else if (hibernation_mode == HIBERNATION_PLATFORM)
 		hibernation_mode = HIBERNATION_SHUTDOWN;
 
-	unlock_system_sleep();
+	unlock_system_sleep(sleep_flags);
 }
 EXPORT_SYMBOL_GPL(hibernation_set_ops);
 
@@ -301,21 +294,17 @@ static int create_image(int platform_mode)
 {
 	int error;
 
-	error = swsusp_prepare_hash(false);
-	if (error)
-		return error;
-
 	error = dpm_suspend_end(PMSG_FREEZE);
 	if (error) {
 		pr_err("Some devices failed to power down, aborting\n");
-		goto finish_hash;
+		return error;
 	}
 
 	error = platform_pre_snapshot(platform_mode);
 	if (error || hibernation_test(TEST_PLATFORM))
 		goto Platform_finish;
 
-	error = suspend_disable_secondary_cpus();
+	error = pm_sleep_disable_secondary_cpus();
 	if (error || hibernation_test(TEST_CPUS))
 		goto Enable_cpus;
 
@@ -357,7 +346,7 @@ static int create_image(int platform_mode)
 	local_irq_enable();
 
  Enable_cpus:
-	suspend_enable_secondary_cpus();
+	pm_sleep_enable_secondary_cpus();
 
 	/* Allow architectures to do nosmt-specific post-resume dances */
 	if (!in_suspend)
@@ -368,9 +357,6 @@ static int create_image(int platform_mode)
 
 	dpm_resume_start(in_suspend ?
 		(error ? PMSG_RECOVER : PMSG_THAW) : PMSG_RESTORE);
-
- finish_hash:
-	swsusp_finish_hash();
 
 	return error;
 }
@@ -484,6 +470,8 @@ static int resume_target_kernel(bool platform_mode)
 	if (error)
 		goto Cleanup;
 
+	cpuidle_pause();
+
 	error = hibernate_resume_nonboot_cpu_disable();
 	if (error)
 		goto Enable_cpus;
@@ -527,7 +515,7 @@ static int resume_target_kernel(bool platform_mode)
 	local_irq_enable();
 
  Enable_cpus:
-	suspend_enable_secondary_cpus();
+	pm_sleep_enable_secondary_cpus();
 
  Cleanup:
 	platform_restore_cleanup(platform_mode);
@@ -605,7 +593,7 @@ int hibernation_platform_enter(void)
 	if (error)
 		goto Platform_finish;
 
-	error = suspend_disable_secondary_cpus();
+	error = pm_sleep_disable_secondary_cpus();
 	if (error)
 		goto Enable_cpus;
 
@@ -627,7 +615,7 @@ int hibernation_platform_enter(void)
 	local_irq_enable();
 
  Enable_cpus:
-	suspend_enable_secondary_cpus();
+	pm_sleep_enable_secondary_cpus();
 
  Platform_finish:
 	hibernation_ops->finish();
@@ -682,7 +670,7 @@ static void power_down(void)
 		hibernation_platform_enter();
 		fallthrough;
 	case HIBERNATION_SHUTDOWN:
-		if (pm_power_off)
+		if (kernel_can_power_off())
 			kernel_power_off();
 		break;
 	}
@@ -733,31 +721,15 @@ static int load_image_and_restore(void)
  */
 int hibernate(void)
 {
+	unsigned int sleep_flags;
 	int error;
-	void *secret_key;
 
 	if (!hibernation_available()) {
 		pm_pr_dbg("Hibernation not available.\n");
 		return -EPERM;
 	}
-	efi_skey_stop_regen();
 
-	error = snapshot_create_trampoline();
-	if (error)
-		return error;
-
-	/* using EFI secret key to encrypt hidden area */
-	secret_key = get_efi_secret_key();
-	if (secret_key) {
-		error = encrypt_backup_hidden_area(secret_key, SECRET_KEY_SIZE);
-		if (error) {
-			pr_err("Encrypt hidden area failed: %d\n", error);
-			snapshot_free_trampoline();
-			return error;
-		}
-	}
-
-	lock_system_sleep();
+	sleep_flags = lock_system_sleep();
 	/* The snapshot device should not be opened while we're running */
 	if (!hibernate_acquire()) {
 		error = -EBUSY;
@@ -812,7 +784,6 @@ int hibernate(void)
 		pm_restore_gfp_mask();
 	} else {
 		pm_pr_dbg("Hibernation image restored successfully.\n");
-		snapshot_restore_trampoline();
 	}
 
  Free_bitmaps:
@@ -835,7 +806,7 @@ int hibernate(void)
 	pm_restore_console();
 	hibernate_release();
  Unlock:
-	unlock_system_sleep();
+	unlock_system_sleep(sleep_flags);
 	pr_info("hibernation exit\n");
 
 	return error;
@@ -850,9 +821,10 @@ int hibernate(void)
  */
 int hibernate_quiet_exec(int (*func)(void *data), void *data)
 {
+	unsigned int sleep_flags;
 	int error;
 
-	lock_system_sleep();
+	sleep_flags = lock_system_sleep();
 
 	if (!hibernate_acquire()) {
 		error = -EBUSY;
@@ -932,7 +904,7 @@ restore:
 	hibernate_release();
 
 unlock:
-	unlock_system_sleep();
+	unlock_system_sleep(sleep_flags);
 
 	return error;
 }
@@ -1143,11 +1115,12 @@ static ssize_t disk_show(struct kobject *kobj, struct kobj_attribute *attr,
 static ssize_t disk_store(struct kobject *kobj, struct kobj_attribute *attr,
 			  const char *buf, size_t n)
 {
+	int mode = HIBERNATION_INVALID;
+	unsigned int sleep_flags;
 	int error = 0;
-	int i;
 	int len;
 	char *p;
-	int mode = HIBERNATION_INVALID;
+	int i;
 
 	if (!hibernation_available())
 		return -EPERM;
@@ -1155,7 +1128,7 @@ static ssize_t disk_store(struct kobject *kobj, struct kobj_attribute *attr,
 	p = memchr(buf, '\n', n);
 	len = p ? p - buf : n;
 
-	lock_system_sleep();
+	sleep_flags = lock_system_sleep();
 	for (i = HIBERNATION_FIRST; i <= HIBERNATION_MAX; i++) {
 		if (len == strlen(hibernation_modes[i])
 		    && !strncmp(buf, hibernation_modes[i], len)) {
@@ -1185,7 +1158,7 @@ static ssize_t disk_store(struct kobject *kobj, struct kobj_attribute *attr,
 	if (!error)
 		pm_pr_dbg("Hibernation mode set to '%s'\n",
 			       hibernation_modes[mode]);
-	unlock_system_sleep();
+	unlock_system_sleep(sleep_flags);
 	return error ? error : n;
 }
 
@@ -1201,9 +1174,10 @@ static ssize_t resume_show(struct kobject *kobj, struct kobj_attribute *attr,
 static ssize_t resume_store(struct kobject *kobj, struct kobj_attribute *attr,
 			    const char *buf, size_t n)
 {
-	dev_t res;
+	unsigned int sleep_flags;
 	int len = n;
 	char *name;
+	dev_t res;
 
 	if (len && buf[len-1] == '\n')
 		len--;
@@ -1216,9 +1190,10 @@ static ssize_t resume_store(struct kobject *kobj, struct kobj_attribute *attr,
 	if (!res)
 		return -EINVAL;
 
-	lock_system_sleep();
+	sleep_flags = lock_system_sleep();
 	swsusp_resume_device = res;
-	unlock_system_sleep();
+	unlock_system_sleep(sleep_flags);
+
 	pm_pr_dbg("Configured hibernation resume from disk to %u\n",
 		  swsusp_resume_device);
 	noresume = 0;
@@ -1351,8 +1326,6 @@ static int __init hibernate_setup(char *str)
 	} else if (IS_ENABLED(CONFIG_STRICT_KERNEL_RWX)
 		   && !strncmp(str, "protect_image", 13)) {
 		enable_restore_image_protection();
-	} else if (!strncmp(str, "sigenforce", 10)) {
-		snapshot_set_enforce_verify();
 	}
 	return 1;
 }

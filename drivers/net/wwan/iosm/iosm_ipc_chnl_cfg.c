@@ -8,7 +8,7 @@
 #include "iosm_ipc_chnl_cfg.h"
 
 /* Max. sizes of a downlink buffers */
-#define IPC_MEM_MAX_DL_FLASH_BUF_SIZE (16 * 1024)
+#define IPC_MEM_MAX_DL_FLASH_BUF_SIZE (64 * 1024)
 #define IPC_MEM_MAX_DL_LOOPBACK_SIZE (1 * 1024 * 1024)
 #define IPC_MEM_MAX_DL_AT_BUF_SIZE 2048
 #define IPC_MEM_MAX_DL_RPC_BUF_SIZE (32 * 1024)
@@ -39,7 +39,7 @@ static struct ipc_chnl_cfg modem_cfg[] = {
 	/* RPC - 0 */
 	{ IPC_MEM_CTRL_CHL_ID_1, IPC_MEM_PIPE_2, IPC_MEM_PIPE_3,
 	  IPC_MEM_MAX_TDS_RPC, IPC_MEM_MAX_TDS_RPC,
-	  IPC_MEM_MAX_DL_RPC_BUF_SIZE, WWAN_PORT_UNKNOWN },
+	  IPC_MEM_MAX_DL_RPC_BUF_SIZE, WWAN_PORT_XMMRPC },
 	/* IAT0 */
 	{ IPC_MEM_CTRL_CHL_ID_2, IPC_MEM_PIPE_4, IPC_MEM_PIPE_5,
 	  IPC_MEM_MAX_TDS_AT, IPC_MEM_MAX_TDS_AT, IPC_MEM_MAX_DL_AT_BUF_SIZE,
@@ -60,6 +60,10 @@ static struct ipc_chnl_cfg modem_cfg[] = {
 	{ IPC_MEM_CTRL_CHL_ID_6, IPC_MEM_PIPE_12, IPC_MEM_PIPE_13,
 	  IPC_MEM_MAX_TDS_MBIM, IPC_MEM_MAX_TDS_MBIM,
 	  IPC_MEM_MAX_DL_MBIM_BUF_SIZE, WWAN_PORT_MBIM },
+	/* Flash Channel/Coredump Channel */
+	{ IPC_MEM_CTRL_CHL_ID_7, IPC_MEM_PIPE_0, IPC_MEM_PIPE_1,
+	  IPC_MEM_MAX_TDS_FLASH_UL, IPC_MEM_MAX_TDS_FLASH_DL,
+	  IPC_MEM_MAX_DL_FLASH_BUF_SIZE, WWAN_PORT_UNKNOWN },
 };
 
 int ipc_chnl_cfg_get(struct ipc_chnl_cfg *chnl_cfg, int index)

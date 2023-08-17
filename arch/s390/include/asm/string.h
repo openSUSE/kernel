@@ -31,22 +31,18 @@ void *memmove(void *dest, const void *src, size_t n);
 #define __HAVE_ARCH_STRCMP	/* arch function */
 #define __HAVE_ARCH_STRCPY	/* inline & arch function */
 #define __HAVE_ARCH_STRLCAT	/* arch function */
-#define __HAVE_ARCH_STRLCPY	/* arch function */
 #define __HAVE_ARCH_STRLEN	/* inline & arch function */
 #define __HAVE_ARCH_STRNCAT	/* arch function */
 #define __HAVE_ARCH_STRNCPY	/* arch function */
 #define __HAVE_ARCH_STRNLEN	/* inline & arch function */
-#define __HAVE_ARCH_STRRCHR	/* arch function */
 #define __HAVE_ARCH_STRSTR	/* arch function */
 
 /* Prototypes for non-inlined arch strings functions. */
 int memcmp(const void *s1, const void *s2, size_t n);
 int strcmp(const char *s1, const char *s2);
 size_t strlcat(char *dest, const char *src, size_t n);
-size_t strlcpy(char *dest, const char *src, size_t size);
 char *strncat(char *dest, const char *src, size_t n);
 char *strncpy(char *dest, const char *src, size_t n);
-char *strrchr(const char *s, int c);
 char *strstr(const char *s1, const char *s2);
 #endif /* !CONFIG_KASAN */
 
@@ -59,18 +55,6 @@ char *strstr(const char *s1, const char *s2);
 
 #if defined(CONFIG_KASAN) && !defined(__SANITIZE_ADDRESS__)
 
-extern void *__memcpy(void *dest, const void *src, size_t n);
-extern void *__memset(void *s, int c, size_t n);
-extern void *__memmove(void *dest, const void *src, size_t n);
-
-/*
- * For files that are not instrumented (e.g. mm/slub.c) we
- * should use not instrumented version of mem* functions.
- */
-
-#define memcpy(dst, src, len) __memcpy(dst, src, len)
-#define memmove(dst, src, len) __memmove(dst, src, len)
-#define memset(s, c, n) __memset(s, c, n)
 #define strlen(s) __strlen(s)
 
 #define __no_sanitize_prefix_strfunc(x) __##x
@@ -83,6 +67,9 @@ extern void *__memmove(void *dest, const void *src, size_t n);
 #define __no_sanitize_prefix_strfunc(x) x
 #endif /* defined(CONFIG_KASAN) && !defined(__SANITIZE_ADDRESS__) */
 
+void *__memcpy(void *dest, const void *src, size_t n);
+void *__memset(void *s, int c, size_t n);
+void *__memmove(void *dest, const void *src, size_t n);
 void *__memset16(uint16_t *s, uint16_t v, size_t count);
 void *__memset32(uint32_t *s, uint32_t v, size_t count);
 void *__memset64(uint64_t *s, uint64_t v, size_t count);

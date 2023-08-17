@@ -166,7 +166,7 @@ static void rproc_copy_segment(struct rproc *rproc, void *dest,
 			memset(dest, 0xff, size);
 		} else {
 			if (is_iomem)
-				memcpy_fromio(dest, ptr, size);
+				memcpy_fromio(dest, (void const __iomem *)ptr, size);
 			else
 				memcpy(dest, ptr, size);
 		}
@@ -249,7 +249,7 @@ void rproc_coredump(struct rproc *rproc)
 		return;
 
 	if (class == ELFCLASSNONE) {
-		dev_err(&rproc->dev, "Elf class is not set\n");
+		dev_err(&rproc->dev, "ELF class is not set\n");
 		return;
 	}
 
@@ -361,7 +361,7 @@ void rproc_coredump_using_sections(struct rproc *rproc)
 		return;
 
 	if (class == ELFCLASSNONE) {
-		dev_err(&rproc->dev, "Elf class is not set\n");
+		dev_err(&rproc->dev, "ELF class is not set\n");
 		return;
 	}
 

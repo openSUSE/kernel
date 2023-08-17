@@ -461,7 +461,7 @@ config SND_INDIGODJX
 	  will be called snd-indigodjx
 
 config SND_EMU10K1
-	tristate "Emu10k1 (SB Live!, Audigy, E-mu APS)"
+	tristate "Emu10k1 (SB Live!, Audigy, E-MU APS/0404/1010/1212/1616/1820)"
 	select FW_LOADER
 	select SND_HWDEP
 	select SND_RAWMIDI
@@ -471,7 +471,7 @@ config SND_EMU10K1
 	depends on ZONE_DMA
 	help
 	  Say Y to include support for Sound Blaster PCI 512, Live!,
-	  Audigy and E-mu APS (partially supported) soundcards.
+	  Audigy and E-MU APS/0404/1010/1212/1616/1820 soundcards.
 
 	  The confusing multitude of mixer controls is documented in
 	  <file:Documentation/sound/cards/sb-live-mixer.rst> and
@@ -559,7 +559,7 @@ config SND_ES1968_RADIO
 	bool "Enable TEA5757 radio tuner support for es1968"
 	depends on SND_ES1968
 	depends on MEDIA_RADIO_SUPPORT
-	depends on VIDEO_V4L2=y || VIDEO_V4L2=SND_ES1968
+	depends on VIDEO_DEV=y || VIDEO_DEV=SND_ES1968
 	select RADIO_ADAPTERS
 	select RADIO_TEA575X
 
@@ -583,7 +583,7 @@ config SND_FM801_TEA575X_BOOL
 	bool "ForteMedia FM801 + TEA5757 tuner"
 	depends on SND_FM801
 	depends on MEDIA_RADIO_SUPPORT
-	depends on VIDEO_V4L2=y || VIDEO_V4L2=SND_FM801
+	depends on VIDEO_DEV=y || VIDEO_DEV=SND_FM801
 	select RADIO_ADAPTERS
 	select RADIO_TEA575X
 	help

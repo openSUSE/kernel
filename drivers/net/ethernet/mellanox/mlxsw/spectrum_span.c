@@ -269,8 +269,7 @@ mlxsw_sp_span_entry_bridge_8021q(const struct net_device *br_dev,
 
 	if (!vid && WARN_ON(br_vlan_get_pvid(br_dev, &vid)))
 		return NULL;
-	if (!vid ||
-	    br_vlan_get_info(br_dev, vid, &vinfo) ||
+	if (!vid || br_vlan_get_info(br_dev, vid, &vinfo) ||
 	    !(vinfo.flags & BRIDGE_VLAN_INFO_BRENTRY))
 		return NULL;
 
@@ -424,7 +423,8 @@ mlxsw_sp_span_gretap4_route(const struct net_device *to_dev,
 
 	parms = mlxsw_sp_ipip_netdev_parms4(to_dev);
 	ip_tunnel_init_flow(&fl4, parms.iph.protocol, *daddrp, *saddrp,
-			    0, 0, parms.link, tun->fwmark, 0);
+			    0, 0, dev_net(to_dev), parms.link, tun->fwmark, 0,
+			    0);
 
 	rt = ip_route_output_key(tun->net, &fl4);
 	if (IS_ERR(rt))
@@ -1648,6 +1648,22 @@ void mlxsw_sp_span_trigger_disable(struct mlxsw_sp_port *mlxsw_sp_port,
 		return;
 
 	return trigger_entry->ops->disable(trigger_entry, mlxsw_sp_port, tc);
+}
+
+bool mlxsw_sp_span_trigger_is_ingress(enum mlxsw_sp_span_trigger trigger)
+{
+	switch (trigger) {
+	case MLXSW_SP_SPAN_TRIGGER_INGRESS:
+	case MLXSW_SP_SPAN_TRIGGER_EARLY_DROP:
+	case MLXSW_SP_SPAN_TRIGGER_TAIL_DROP:
+		return true;
+	case MLXSW_SP_SPAN_TRIGGER_EGRESS:
+	case MLXSW_SP_SPAN_TRIGGER_ECN:
+		return false;
+	}
+
+	WARN_ON_ONCE(1);
+	return false;
 }
 
 static int mlxsw_sp1_span_init(struct mlxsw_sp *mlxsw_sp)

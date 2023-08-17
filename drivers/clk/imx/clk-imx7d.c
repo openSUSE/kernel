@@ -391,8 +391,8 @@ static void __init imx7d_clocks_init(struct device_node *ccm_node)
 	hws = clk_hw_data->hws;
 
 	hws[IMX7D_CLK_DUMMY] = imx_clk_hw_fixed("dummy", 0);
-	hws[IMX7D_OSC_24M_CLK] = imx_obtain_fixed_clk_hw(ccm_node, "osc");
-	hws[IMX7D_CKIL] = imx_obtain_fixed_clk_hw(ccm_node, "ckil");
+	hws[IMX7D_OSC_24M_CLK] = imx_get_clk_hw_by_name(ccm_node, "osc");
+	hws[IMX7D_CKIL] = imx_get_clk_hw_by_name(ccm_node, "ckil");
 
 	np = of_find_compatible_node(NULL, NULL, "fsl,imx7d-anatop");
 	base = of_iomap(np, 0);
@@ -782,7 +782,6 @@ static void __init imx7d_clocks_init(struct device_node *ccm_node)
 	hws[IMX7D_DRAM_PHYM_ALT_ROOT_CLK] = imx_clk_hw_gate2_flags("dram_phym_alt_root_clk", "dram_phym_alt_post_div", base + 0x4130, 0, CLK_IS_CRITICAL | CLK_OPS_PARENT_ENABLE);
 	hws[IMX7D_DRAM_ALT_ROOT_CLK] = imx_clk_hw_gate2_flags("dram_alt_root_clk", "dram_alt_post_div", base + 0x4130, 0, CLK_IS_CRITICAL | CLK_OPS_PARENT_ENABLE);
 	hws[IMX7D_OCOTP_CLK] = imx_clk_hw_gate4("ocotp_clk", "ipg_root_clk", base + 0x4230, 0);
-	hws[IMX7D_SNVS_CLK] = imx_clk_hw_gate4("snvs_clk", "ipg_root_clk", base + 0x4250, 0);
 	hws[IMX7D_MU_ROOT_CLK] = imx_clk_hw_gate4("mu_root_clk", "ipg_root_clk", base + 0x4270, 0);
 	hws[IMX7D_CAAM_CLK] = imx_clk_hw_gate4("caam_clk", "ipg_root_clk", base + 0x4240, 0);
 	hws[IMX7D_USB_HSIC_ROOT_CLK] = imx_clk_hw_gate4("usb_hsic_root_clk", "usb_hsic_post_div", base + 0x4690, 0);
@@ -883,7 +882,7 @@ static void __init imx7d_clocks_init(struct device_node *ccm_node)
 	hws[IMX7D_USB1_MAIN_480M_CLK] = imx_clk_hw_fixed_factor("pll_usb1_main_clk", "osc", 20, 1);
 	hws[IMX7D_USB_MAIN_480M_CLK] = imx_clk_hw_fixed_factor("pll_usb_main_clk", "osc", 20, 1);
 
-	imx_register_uart_clocks(7);
+	imx_register_uart_clocks();
 
 }
 CLK_OF_DECLARE(imx7d, "fsl,imx7d-ccm", imx7d_clocks_init);

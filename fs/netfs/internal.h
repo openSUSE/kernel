@@ -18,7 +18,7 @@
 /*
  * buffered_read.c
  */
-void netfs_rreq_unlock(struct netfs_io_request *rreq);
+void netfs_rreq_unlock_folios(struct netfs_io_request *rreq);
 
 /*
  * io.c
@@ -91,7 +91,7 @@ static inline void netfs_stat_d(atomic_t *stat)
 /*
  * Miscellaneous functions.
  */
-static inline bool netfs_is_cache_enabled(struct netfs_i_context *ctx)
+static inline bool netfs_is_cache_enabled(struct netfs_inode *ctx)
 {
 #if IS_ENABLED(CONFIG_FSCACHE)
 	struct fscache_cookie *cookie = ctx->cache;

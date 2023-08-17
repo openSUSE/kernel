@@ -559,8 +559,6 @@ static void igc_ptp_clear_tx_tstamp(struct igc_adapter *adapter)
 {
 	unsigned long flags;
 
-	cancel_work_sync(&adapter->ptp_tx_work);
-
 	spin_lock_irqsave(&adapter->ptp_tx_lock, flags);
 
 	dev_kfree_skb_any(adapter->ptp_tx_skb);
@@ -621,10 +619,6 @@ static void igc_ptp_enable_tx_timestamp(struct igc_adapter *adapter)
 static int igc_ptp_set_timestamp_mode(struct igc_adapter *adapter,
 				      struct hwtstamp_config *config)
 {
-	/* reserved for future extensions */
-	if (config->flags)
-		return -EINVAL;
-
 	switch (config->tx_type) {
 	case HWTSTAMP_TX_OFF:
 		igc_ptp_disable_tx_timestamp(adapter);
@@ -782,16 +776,14 @@ static void igc_ptp_tx_hwtstamp(struct igc_adapter *adapter)
 }
 
 /**
- * igc_ptp_tx_work
- * @work: pointer to work struct
+ * igc_ptp_tx_tstamp_event
+ * @adapter: board private structure
  *
- * This work function checks the TSYNCTXCTL valid bit to determine when
- * a timestamp has been taken for the current stored skb.
+ * Called when a TX timestamp interrupt happens to retrieve the
+ * timestamp and send it up to the socket.
  */
-static void igc_ptp_tx_work(struct work_struct *work)
+void igc_ptp_tx_tstamp_event(struct igc_adapter *adapter)
 {
-	struct igc_adapter *adapter = container_of(work, struct igc_adapter,
-						   ptp_tx_work);
 	unsigned long flags;
 
 	spin_lock_irqsave(&adapter->ptp_tx_lock, flags);
@@ -1053,7 +1045,6 @@ void igc_ptp_init(struct igc_adapter *adapter)
 
 	spin_lock_init(&adapter->ptp_tx_lock);
 	spin_lock_init(&adapter->tmreg_lock);
-	INIT_WORK(&adapter->ptp_tx_work, igc_ptp_tx_work);
 
 	adapter->tstamp_config.rx_filter = HWTSTAMP_FILTER_NONE;
 	adapter->tstamp_config.tx_type = HWTSTAMP_TX_OFF;

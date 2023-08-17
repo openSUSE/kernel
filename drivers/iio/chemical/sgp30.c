@@ -496,9 +496,9 @@ static const struct of_device_id sgp_dt_ids[] = {
 	{ }
 };
 
-static int sgp_probe(struct i2c_client *client,
-		     const struct i2c_device_id *id)
+static int sgp_probe(struct i2c_client *client)
 {
+	const struct i2c_device_id *id = i2c_client_get_device_id(client);
 	struct device *dev = &client->dev;
 	struct iio_dev *indio_dev;
 	struct sgp_data *data;
@@ -552,15 +552,13 @@ static int sgp_probe(struct i2c_client *client,
 	return 0;
 }
 
-static int sgp_remove(struct i2c_client *client)
+static void sgp_remove(struct i2c_client *client)
 {
 	struct iio_dev *indio_dev = i2c_get_clientdata(client);
 	struct sgp_data *data = iio_priv(indio_dev);
 
 	if (data->iaq_thread)
 		kthread_stop(data->iaq_thread);
-
-	return 0;
 }
 
 static const struct i2c_device_id sgp_id[] = {
@@ -577,7 +575,7 @@ static struct i2c_driver sgp_driver = {
 		.name = "sgp30",
 		.of_match_table = sgp_dt_ids,
 	},
-	.probe = sgp_probe,
+	.probe_new = sgp_probe,
 	.remove = sgp_remove,
 	.id_table = sgp_id,
 };

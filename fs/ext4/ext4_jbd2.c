@@ -86,15 +86,21 @@ static int ext4_journal_check_start(struct super_block *sb)
 	return 0;
 }
 
-handle_t *__ext4_journal_start_sb(struct super_block *sb, unsigned int line,
+handle_t *__ext4_journal_start_sb(struct inode *inode,
+				  struct super_block *sb, unsigned int line,
 				  int type, int blocks, int rsv_blocks,
 				  int revoke_creds)
 {
 	journal_t *journal;
 	int err;
-
-	trace_ext4_journal_start(sb, blocks, rsv_blocks, revoke_creds,
-				 _RET_IP_);
+	if (inode)
+		trace_ext4_journal_start_inode(inode, blocks, rsv_blocks,
+					revoke_creds, type,
+					_RET_IP_);
+	else
+		trace_ext4_journal_start_sb(sb, blocks, rsv_blocks,
+					revoke_creds, type,
+					_RET_IP_);
 	err = ext4_journal_check_start(sb);
 	if (err < 0)
 		return ERR_PTR(err);
@@ -267,8 +273,7 @@ int __ext4_forget(const char *where, unsigned int line, handle_t *handle,
 	trace_ext4_forget(inode, is_metadata, blocknr);
 	BUFFER_TRACE(bh, "enter");
 
-	jbd_debug(4, "forgetting bh %p: is_metadata = %d, mode %o, "
-		  "data mode %x\n",
+	ext4_debug("forgetting bh %p: is_metadata=%d, mode %o, data mode %x\n",
 		  bh, is_metadata, inode->i_mode,
 		  test_opt(inode->i_sb, DATA_FLAGS));
 

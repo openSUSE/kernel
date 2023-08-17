@@ -8,15 +8,18 @@
 
 #include <linux/pm_runtime.h>
 #include <linux/time.h>
+#include <net/pkt_cls.h>
 
 #include "am65-cpsw-nuss.h"
 #include "am65-cpsw-qos.h"
 #include "am65-cpts.h"
+#include "cpsw_ale.h"
 
 #define AM65_CPSW_REG_CTL			0x004
 #define AM65_CPSW_PN_REG_CTL			0x004
 #define AM65_CPSW_PN_REG_FIFO_STATUS		0x050
 #define AM65_CPSW_PN_REG_EST_CTL		0x060
+#define AM65_CPSW_PN_REG_PRI_CIR(pri)		(0x140 + 4 * (pri))
 
 /* AM65_CPSW_REG_CTL register fields */
 #define AM65_CPSW_CTL_EST_EN			BIT(18)
@@ -164,8 +167,7 @@ static void am65_cpsw_admin_to_oper(struct net_device *ndev)
 {
 	struct am65_cpsw_port *port = am65_ndev_to_port(ndev);
 
-	if (port->qos.est_oper)
-		devm_kfree(&ndev->dev, port->qos.est_oper);
+	devm_kfree(&ndev->dev, port->qos.est_oper);
 
 	port->qos.est_oper = port->qos.est_admin;
 	port->qos.est_admin = NULL;
@@ -432,11 +434,8 @@ static void am65_cpsw_purge_est(struct net_device *ndev)
 
 	am65_cpsw_stop_est(ndev);
 
-	if (port->qos.est_admin)
-		devm_kfree(&ndev->dev, port->qos.est_admin);
-
-	if (port->qos.est_oper)
-		devm_kfree(&ndev->dev, port->qos.est_oper);
+	devm_kfree(&ndev->dev, port->qos.est_admin);
+	devm_kfree(&ndev->dev, port->qos.est_oper);
 
 	port->qos.est_oper = NULL;
 	port->qos.est_admin = NULL;
@@ -451,7 +450,7 @@ static int am65_cpsw_configure_taprio(struct net_device *ndev,
 
 	am65_cpsw_est_update_state(ndev);
 
-	if (!est_new->taprio.enable) {
+	if (est_new->taprio.cmd == TAPRIO_CMD_DESTROY) {
 		am65_cpsw_stop_est(ndev);
 		return ret;
 	}
@@ -477,7 +476,7 @@ static int am65_cpsw_configure_taprio(struct net_device *ndev,
 	am65_cpsw_est_set_sched_list(ndev, est_new);
 	am65_cpsw_port_est_assign_buf_num(ndev, est_new->buf);
 
-	am65_cpsw_est_set(ndev, est_new->taprio.enable);
+	am65_cpsw_est_set(ndev, est_new->taprio.cmd == TAPRIO_CMD_REPLACE);
 
 	if (tact == TACT_PROG) {
 		ret = am65_cpsw_timer_set(ndev, est_new);
@@ -521,9 +520,8 @@ static int am65_cpsw_set_taprio(struct net_device *ndev, void *type_data)
 	am65_cpsw_cp_taprio(taprio, &est_new->taprio);
 	ret = am65_cpsw_configure_taprio(ndev, est_new);
 	if (!ret) {
-		if (taprio->enable) {
-			if (port->qos.est_admin)
-				devm_kfree(&ndev->dev, port->qos.est_admin);
+		if (taprio->cmd == TAPRIO_CMD_REPLACE) {
+			devm_kfree(&ndev->dev, port->qos.est_admin);
 
 			port->qos.est_admin = est_new;
 		} else {
@@ -566,7 +564,12 @@ purge_est:
 static int am65_cpsw_setup_taprio(struct net_device *ndev, void *type_data)
 {
 	struct am65_cpsw_port *port = am65_ndev_to_port(ndev);
+	struct tc_taprio_qopt_offload *taprio = type_data;
 	struct am65_cpsw_common *common = port->common;
+
+	if (taprio->cmd != TAPRIO_CMD_REPLACE &&
+	    taprio->cmd != TAPRIO_CMD_DESTROY)
+		return -EOPNOTSUPP;
 
 	if (!IS_ENABLED(CONFIG_TI_AM65_CPSW_TAS))
 		return -ENODEV;
@@ -588,12 +591,212 @@ static int am65_cpsw_setup_taprio(struct net_device *ndev, void *type_data)
 	return am65_cpsw_set_taprio(ndev, type_data);
 }
 
+static int am65_cpsw_tc_query_caps(struct net_device *ndev, void *type_data)
+{
+	struct tc_query_caps_base *base = type_data;
+
+	switch (base->type) {
+	case TC_SETUP_QDISC_TAPRIO: {
+		struct tc_taprio_caps *caps = base->caps;
+
+		if (!IS_ENABLED(CONFIG_TI_AM65_CPSW_TAS))
+			return -EOPNOTSUPP;
+
+		caps->gate_mask_per_txq = true;
+
+		return 0;
+	}
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int am65_cpsw_qos_clsflower_add_policer(struct am65_cpsw_port *port,
+					       struct netlink_ext_ack *extack,
+					       struct flow_cls_offload *cls,
+					       u64 rate_pkt_ps)
+{
+	struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
+	struct flow_dissector *dissector = rule->match.dissector;
+	static const u8 mc_mac[] = {0x01, 0x00, 0x00, 0x00, 0x00, 0x00};
+	struct am65_cpsw_qos *qos = &port->qos;
+	struct flow_match_eth_addrs match;
+	int ret;
+
+	if (dissector->used_keys &
+	    ~(BIT(FLOW_DISSECTOR_KEY_BASIC) |
+	      BIT(FLOW_DISSECTOR_KEY_CONTROL) |
+	      BIT(FLOW_DISSECTOR_KEY_ETH_ADDRS))) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Unsupported keys used");
+		return -EOPNOTSUPP;
+	}
+
+	if (!flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_ETH_ADDRS)) {
+		NL_SET_ERR_MSG_MOD(extack, "Not matching on eth address");
+		return -EOPNOTSUPP;
+	}
+
+	flow_rule_match_eth_addrs(rule, &match);
+
+	if (!is_zero_ether_addr(match.mask->src)) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Matching on source MAC not supported");
+		return -EOPNOTSUPP;
+	}
+
+	if (is_broadcast_ether_addr(match.key->dst) &&
+	    is_broadcast_ether_addr(match.mask->dst)) {
+		ret = cpsw_ale_rx_ratelimit_bc(port->common->ale, port->port_id, rate_pkt_ps);
+		if (ret)
+			return ret;
+
+		qos->ale_bc_ratelimit.cookie = cls->cookie;
+		qos->ale_bc_ratelimit.rate_packet_ps = rate_pkt_ps;
+	} else if (ether_addr_equal_unaligned(match.key->dst, mc_mac) &&
+		   ether_addr_equal_unaligned(match.mask->dst, mc_mac)) {
+		ret = cpsw_ale_rx_ratelimit_mc(port->common->ale, port->port_id, rate_pkt_ps);
+		if (ret)
+			return ret;
+
+		qos->ale_mc_ratelimit.cookie = cls->cookie;
+		qos->ale_mc_ratelimit.rate_packet_ps = rate_pkt_ps;
+	} else {
+		NL_SET_ERR_MSG_MOD(extack, "Not supported matching key");
+		return -EOPNOTSUPP;
+	}
+
+	return 0;
+}
+
+static int am65_cpsw_qos_clsflower_policer_validate(const struct flow_action *action,
+						    const struct flow_action_entry *act,
+						    struct netlink_ext_ack *extack)
+{
+	if (act->police.exceed.act_id != FLOW_ACTION_DROP) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Offload not supported when exceed action is not drop");
+		return -EOPNOTSUPP;
+	}
+
+	if (act->police.notexceed.act_id != FLOW_ACTION_PIPE &&
+	    act->police.notexceed.act_id != FLOW_ACTION_ACCEPT) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Offload not supported when conform action is not pipe or ok");
+		return -EOPNOTSUPP;
+	}
+
+	if (act->police.notexceed.act_id == FLOW_ACTION_ACCEPT &&
+	    !flow_action_is_last_entry(action, act)) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Offload not supported when conform action is ok, but action is not last");
+		return -EOPNOTSUPP;
+	}
+
+	if (act->police.rate_bytes_ps || act->police.peakrate_bytes_ps ||
+	    act->police.avrate || act->police.overhead) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Offload not supported when bytes per second/peakrate/avrate/overhead is configured");
+		return -EOPNOTSUPP;
+	}
+
+	return 0;
+}
+
+static int am65_cpsw_qos_configure_clsflower(struct am65_cpsw_port *port,
+					     struct flow_cls_offload *cls)
+{
+	struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
+	struct netlink_ext_ack *extack = cls->common.extack;
+	const struct flow_action_entry *act;
+	int i, ret;
+
+	flow_action_for_each(i, act, &rule->action) {
+		switch (act->id) {
+		case FLOW_ACTION_POLICE:
+			ret = am65_cpsw_qos_clsflower_policer_validate(&rule->action, act, extack);
+			if (ret)
+				return ret;
+
+			return am65_cpsw_qos_clsflower_add_policer(port, extack, cls,
+								   act->police.rate_pkt_ps);
+		default:
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Action not supported");
+			return -EOPNOTSUPP;
+		}
+	}
+	return -EOPNOTSUPP;
+}
+
+static int am65_cpsw_qos_delete_clsflower(struct am65_cpsw_port *port, struct flow_cls_offload *cls)
+{
+	struct am65_cpsw_qos *qos = &port->qos;
+
+	if (cls->cookie == qos->ale_bc_ratelimit.cookie) {
+		qos->ale_bc_ratelimit.cookie = 0;
+		qos->ale_bc_ratelimit.rate_packet_ps = 0;
+		cpsw_ale_rx_ratelimit_bc(port->common->ale, port->port_id, 0);
+	}
+
+	if (cls->cookie == qos->ale_mc_ratelimit.cookie) {
+		qos->ale_mc_ratelimit.cookie = 0;
+		qos->ale_mc_ratelimit.rate_packet_ps = 0;
+		cpsw_ale_rx_ratelimit_mc(port->common->ale, port->port_id, 0);
+	}
+
+	return 0;
+}
+
+static int am65_cpsw_qos_setup_tc_clsflower(struct am65_cpsw_port *port,
+					    struct flow_cls_offload *cls_flower)
+{
+	switch (cls_flower->command) {
+	case FLOW_CLS_REPLACE:
+		return am65_cpsw_qos_configure_clsflower(port, cls_flower);
+	case FLOW_CLS_DESTROY:
+		return am65_cpsw_qos_delete_clsflower(port, cls_flower);
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int am65_cpsw_qos_setup_tc_block_cb(enum tc_setup_type type, void *type_data, void *cb_priv)
+{
+	struct am65_cpsw_port *port = cb_priv;
+
+	if (!tc_cls_can_offload_and_chain0(port->ndev, type_data))
+		return -EOPNOTSUPP;
+
+	switch (type) {
+	case TC_SETUP_CLSFLOWER:
+		return am65_cpsw_qos_setup_tc_clsflower(port, type_data);
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static LIST_HEAD(am65_cpsw_qos_block_cb_list);
+
+static int am65_cpsw_qos_setup_tc_block(struct net_device *ndev, struct flow_block_offload *f)
+{
+	struct am65_cpsw_port *port = am65_ndev_to_port(ndev);
+
+	return flow_block_cb_setup_simple(f, &am65_cpsw_qos_block_cb_list,
+					  am65_cpsw_qos_setup_tc_block_cb,
+					  port, port, true);
+}
+
 int am65_cpsw_qos_ndo_setup_tc(struct net_device *ndev, enum tc_setup_type type,
 			       void *type_data)
 {
 	switch (type) {
+	case TC_QUERY_CAPS:
+		return am65_cpsw_tc_query_caps(ndev, type_data);
 	case TC_SETUP_QDISC_TAPRIO:
 		return am65_cpsw_setup_taprio(ndev, type_data);
+	case TC_SETUP_BLOCK:
+		return am65_cpsw_qos_setup_tc_block(ndev, type_data);
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -621,4 +824,116 @@ void am65_cpsw_qos_link_down(struct net_device *ndev)
 		port->qos.link_down_time = ktime_get();
 
 	port->qos.link_speed = SPEED_UNKNOWN;
+}
+
+static u32
+am65_cpsw_qos_tx_rate_calc(u32 rate_mbps, unsigned long bus_freq)
+{
+	u32 ir;
+
+	bus_freq /= 1000000;
+	ir = DIV_ROUND_UP(((u64)rate_mbps * 32768),  bus_freq);
+	return ir;
+}
+
+static void
+am65_cpsw_qos_tx_p0_rate_apply(struct am65_cpsw_common *common,
+			       int tx_ch, u32 rate_mbps)
+{
+	struct am65_cpsw_host *host = am65_common_get_host(common);
+	u32 ch_cir;
+	int i;
+
+	ch_cir = am65_cpsw_qos_tx_rate_calc(rate_mbps, common->bus_freq);
+	writel(ch_cir, host->port_base + AM65_CPSW_PN_REG_PRI_CIR(tx_ch));
+
+	/* update rates for every port tx queues */
+	for (i = 0; i < common->port_num; i++) {
+		struct net_device *ndev = common->ports[i].ndev;
+
+		if (!ndev)
+			continue;
+		netdev_get_tx_queue(ndev, tx_ch)->tx_maxrate = rate_mbps;
+	}
+}
+
+int am65_cpsw_qos_ndo_tx_p0_set_maxrate(struct net_device *ndev,
+					int queue, u32 rate_mbps)
+{
+	struct am65_cpsw_port *port = am65_ndev_to_port(ndev);
+	struct am65_cpsw_common *common = port->common;
+	struct am65_cpsw_tx_chn *tx_chn;
+	u32 ch_rate, tx_ch_rate_msk_new;
+	u32 ch_msk = 0;
+	int ret;
+
+	dev_dbg(common->dev, "apply TX%d rate limiting %uMbps tx_rate_msk%x\n",
+		queue, rate_mbps, common->tx_ch_rate_msk);
+
+	if (common->pf_p0_rx_ptype_rrobin) {
+		dev_err(common->dev, "TX Rate Limiting failed - rrobin mode\n");
+		return -EINVAL;
+	}
+
+	ch_rate = netdev_get_tx_queue(ndev, queue)->tx_maxrate;
+	if (ch_rate == rate_mbps)
+		return 0;
+
+	ret = pm_runtime_get_sync(common->dev);
+	if (ret < 0) {
+		pm_runtime_put_noidle(common->dev);
+		return ret;
+	}
+	ret = 0;
+
+	tx_ch_rate_msk_new = common->tx_ch_rate_msk;
+	if (rate_mbps && !(tx_ch_rate_msk_new & BIT(queue))) {
+		tx_ch_rate_msk_new |= BIT(queue);
+		ch_msk = GENMASK(common->tx_ch_num - 1, queue);
+		ch_msk = tx_ch_rate_msk_new ^ ch_msk;
+	} else if (!rate_mbps) {
+		tx_ch_rate_msk_new &= ~BIT(queue);
+		ch_msk = queue ? GENMASK(queue - 1, 0) : 0;
+		ch_msk = tx_ch_rate_msk_new & ch_msk;
+	}
+
+	if (ch_msk) {
+		dev_err(common->dev, "TX rate limiting has to be enabled sequentially hi->lo tx_rate_msk:%x tx_rate_msk_new:%x\n",
+			common->tx_ch_rate_msk, tx_ch_rate_msk_new);
+		ret = -EINVAL;
+		goto exit_put;
+	}
+
+	tx_chn = &common->tx_chns[queue];
+	tx_chn->rate_mbps = rate_mbps;
+	common->tx_ch_rate_msk = tx_ch_rate_msk_new;
+
+	if (!common->usage_count)
+		/* will be applied on next netif up */
+		goto exit_put;
+
+	am65_cpsw_qos_tx_p0_rate_apply(common, queue, rate_mbps);
+
+exit_put:
+	pm_runtime_put(common->dev);
+	return ret;
+}
+
+void am65_cpsw_qos_tx_p0_rate_init(struct am65_cpsw_common *common)
+{
+	struct am65_cpsw_host *host = am65_common_get_host(common);
+	int tx_ch;
+
+	for (tx_ch = 0; tx_ch < common->tx_ch_num; tx_ch++) {
+		struct am65_cpsw_tx_chn *tx_chn = &common->tx_chns[tx_ch];
+		u32 ch_cir;
+
+		if (!tx_chn->rate_mbps)
+			continue;
+
+		ch_cir = am65_cpsw_qos_tx_rate_calc(tx_chn->rate_mbps,
+						    common->bus_freq);
+		writel(ch_cir,
+		       host->port_base + AM65_CPSW_PN_REG_PRI_CIR(tx_ch));
+	}
 }

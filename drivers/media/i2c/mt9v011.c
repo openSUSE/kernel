@@ -478,8 +478,7 @@ static const struct v4l2_subdev_ops mt9v011_ops = {
 			I2C Client & Driver
  ****************************************************************************/
 
-static int mt9v011_probe(struct i2c_client *c,
-			 const struct i2c_device_id *id)
+static int mt9v011_probe(struct i2c_client *c)
 {
 	u16 version;
 	struct mt9v011 *core;
@@ -561,7 +560,7 @@ static int mt9v011_probe(struct i2c_client *c,
 	return 0;
 }
 
-static int mt9v011_remove(struct i2c_client *c)
+static void mt9v011_remove(struct i2c_client *c)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(c);
 	struct mt9v011 *core = to_mt9v011(sd);
@@ -572,8 +571,6 @@ static int mt9v011_remove(struct i2c_client *c)
 
 	v4l2_device_unregister_subdev(sd);
 	v4l2_ctrl_handler_free(&core->ctrls);
-
-	return 0;
 }
 
 /* ----------------------------------------------------------------------- */
@@ -588,7 +585,7 @@ static struct i2c_driver mt9v011_driver = {
 	.driver = {
 		.name	= "mt9v011",
 	},
-	.probe		= mt9v011_probe,
+	.probe_new	= mt9v011_probe,
 	.remove		= mt9v011_remove,
 	.id_table	= mt9v011_id,
 };

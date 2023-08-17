@@ -132,8 +132,8 @@ int siw_query_device(struct ib_device *base_dev, struct ib_device_attr *attr,
 
 	/* Revisit atomic caps if RFC 7306 gets supported */
 	attr->atomic_cap = 0;
-	attr->device_cap_flags =
-		IB_DEVICE_MEM_MGT_EXTENSIONS | IB_DEVICE_ALLOW_USER_UNREG;
+	attr->device_cap_flags = IB_DEVICE_MEM_MGT_EXTENSIONS;
+	attr->kernel_cap_flags = IBK_ALLOW_USER_UNREG;
 	attr->max_cq = sdev->attrs.max_cq;
 	attr->max_cqe = sdev->attrs.max_cqe;
 	attr->max_fast_reg_page_list_len = SIW_MAX_SGE_PBL;
@@ -660,7 +660,7 @@ static int siw_copy_inline_sgl(const struct ib_send_wr *core_wr,
 			bytes = -EINVAL;
 			break;
 		}
-		memcpy(kbuf, (void *)(uintptr_t)core_sge->addr,
+		memcpy(kbuf, ib_virt_dma_to_ptr(core_sge->addr),
 		       core_sge->length);
 
 		kbuf += core_sge->length;
@@ -1523,7 +1523,7 @@ int siw_map_mr_sg(struct ib_mr *base_mr, struct scatterlist *sl, int num_sle,
 		}
 		siw_dbg_mem(mem,
 			"sge[%d], size %u, addr 0x%p, total %lu\n",
-			i, pble->size, (void *)(uintptr_t)pble->addr,
+			i, pble->size, ib_virt_dma_to_ptr(pble->addr),
 			pbl_size);
 	}
 	rv = ib_sg_to_pages(base_mr, sl, num_sle, sg_off, siw_set_pbl_page);

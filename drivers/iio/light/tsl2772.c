@@ -15,7 +15,9 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/property.h>
 #include <linux/slab.h>
+
 #include <linux/iio/events.h>
 #include <linux/iio/iio.h>
 #include <linux/iio/sysfs.h>
@@ -549,10 +551,10 @@ prox_poll_err:
 
 static int tsl2772_read_prox_led_current(struct tsl2772_chip *chip)
 {
-	struct device_node *of_node = chip->client->dev.of_node;
+	struct device *dev = &chip->client->dev;
 	int ret, tmp, i;
 
-	ret = of_property_read_u32(of_node, "led-max-microamp", &tmp);
+	ret = device_property_read_u32(dev, "led-max-microamp", &tmp);
 	if (ret < 0)
 		return ret;
 
@@ -563,20 +565,18 @@ static int tsl2772_read_prox_led_current(struct tsl2772_chip *chip)
 		}
 	}
 
-	dev_err(&chip->client->dev, "Invalid value %d for led-max-microamp\n",
-		tmp);
+	dev_err(dev, "Invalid value %d for led-max-microamp\n", tmp);
 
 	return -EINVAL;
-
 }
 
 static int tsl2772_read_prox_diodes(struct tsl2772_chip *chip)
 {
-	struct device_node *of_node = chip->client->dev.of_node;
+	struct device *dev = &chip->client->dev;
 	int i, ret, num_leds, prox_diode_mask;
 	u32 leds[TSL2772_MAX_PROX_LEDS];
 
-	ret = of_property_count_u32_elems(of_node, "amstaos,proximity-diodes");
+	ret = device_property_count_u32(dev, "amstaos,proximity-diodes");
 	if (ret < 0)
 		return ret;
 
@@ -584,12 +584,9 @@ static int tsl2772_read_prox_diodes(struct tsl2772_chip *chip)
 	if (num_leds > TSL2772_MAX_PROX_LEDS)
 		num_leds = TSL2772_MAX_PROX_LEDS;
 
-	ret = of_property_read_u32_array(of_node, "amstaos,proximity-diodes",
-					 leds, num_leds);
+	ret = device_property_read_u32_array(dev, "amstaos,proximity-diodes", leds, num_leds);
 	if (ret < 0) {
-		dev_err(&chip->client->dev,
-			"Invalid value for amstaos,proximity-diodes: %d.\n",
-			ret);
+		dev_err(dev, "Invalid value for amstaos,proximity-diodes: %d.\n", ret);
 		return ret;
 	}
 
@@ -600,9 +597,7 @@ static int tsl2772_read_prox_diodes(struct tsl2772_chip *chip)
 		else if (leds[i] == 1)
 			prox_diode_mask |= TSL2772_DIODE1;
 		else {
-			dev_err(&chip->client->dev,
-				"Invalid value %d in amstaos,proximity-diodes.\n",
-				leds[i]);
+			dev_err(dev, "Invalid value %d in amstaos,proximity-diodes.\n", leds[i]);
 			return -EINVAL;
 		}
 	}
@@ -1756,9 +1751,9 @@ static const struct tsl2772_chip_info tsl2772_chip_info_tbl[] = {
 	},
 };
 
-static int tsl2772_probe(struct i2c_client *clientp,
-			 const struct i2c_device_id *id)
+static int tsl2772_probe(struct i2c_client *clientp)
 {
+	const struct i2c_device_id *id = i2c_client_get_device_id(clientp);
 	struct iio_dev *indio_dev;
 	struct tsl2772_chip *chip;
 	int ret;
@@ -1903,7 +1898,7 @@ static const struct i2c_device_id tsl2772_idtable[] = {
 	{ "tmd2672", tmd2672 },
 	{ "tsl2772", tsl2772 },
 	{ "tmd2772", tmd2772 },
-	{ "apds9930", apds9930},
+	{ "apds9930", apds9930 },
 	{}
 };
 
@@ -1937,7 +1932,7 @@ static struct i2c_driver tsl2772_driver = {
 		.pm = &tsl2772_pm_ops,
 	},
 	.id_table = tsl2772_idtable,
-	.probe = tsl2772_probe,
+	.probe_new = tsl2772_probe,
 };
 
 module_i2c_driver(tsl2772_driver);

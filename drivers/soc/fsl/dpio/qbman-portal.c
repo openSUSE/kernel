@@ -679,9 +679,9 @@ int qbman_swp_enqueue_multiple_direct(struct qbman_swp *s,
 	for (i = 0; i < num_enqueued; i++) {
 		p = (s->addr_cena + QBMAN_CENA_SWP_EQCR(eqcr_pi & half_mask));
 		/* Skip copying the verb */
-		memcpy_toio((__iomem void *)&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
-		memcpy_toio((__iomem void *)&p[EQ_DESC_SIZE_FD_START / sizeof(uint32_t)],
-			    &fd[i], sizeof(*fd));
+		memcpy(&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
+		memcpy(&p[EQ_DESC_SIZE_FD_START/sizeof(uint32_t)],
+		       &fd[i], sizeof(*fd));
 		eqcr_pi++;
 	}
 
@@ -743,8 +743,8 @@ int qbman_swp_enqueue_multiple_mem_back(struct qbman_swp *s,
 	full_mask = s->eqcr.pi_ci_mask;
 	if (!s->eqcr.available) {
 		eqcr_ci = s->eqcr.ci;
-		p = s->addr_cena + QBMAN_CENA_SWP_EQCR_CI_MEMBACK;
-		s->eqcr.ci = *p & full_mask;
+		s->eqcr.ci = qbman_read_register(s, QBMAN_CINH_SWP_EQCR_CI);
+		s->eqcr.ci &= full_mask;
 		s->eqcr.available = qm_cyc_diff(s->eqcr.pi_ring_size,
 					eqcr_ci, s->eqcr.ci);
 		if (!s->eqcr.available) {
@@ -761,9 +761,9 @@ int qbman_swp_enqueue_multiple_mem_back(struct qbman_swp *s,
 	for (i = 0; i < num_enqueued; i++) {
 		p = (s->addr_cena + QBMAN_CENA_SWP_EQCR(eqcr_pi & half_mask));
 		/* Skip copying the verb */
-		memcpy_toio((__iomem void *)&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
-		memcpy_toio((__iomem void *)&p[EQ_DESC_SIZE_FD_START / sizeof(uint32_t)],
-			    &fd[i], sizeof(*fd));
+		memcpy(&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
+		memcpy(&p[EQ_DESC_SIZE_FD_START/sizeof(uint32_t)],
+		       &fd[i], sizeof(*fd));
 		eqcr_pi++;
 	}
 
@@ -834,9 +834,9 @@ int qbman_swp_enqueue_multiple_desc_direct(struct qbman_swp *s,
 		p = (s->addr_cena + QBMAN_CENA_SWP_EQCR(eqcr_pi & half_mask));
 		cl = (uint32_t *)(&d[i]);
 		/* Skip copying the verb */
-		memcpy_toio((__iomem void *)&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
-		memcpy_toio((__iomem void *)&p[EQ_DESC_SIZE_FD_START / sizeof(uint32_t)],
-			    &fd[i], sizeof(*fd));
+		memcpy(&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
+		memcpy(&p[EQ_DESC_SIZE_FD_START/sizeof(uint32_t)],
+		       &fd[i], sizeof(*fd));
 		eqcr_pi++;
 	}
 
@@ -887,8 +887,8 @@ int qbman_swp_enqueue_multiple_desc_mem_back(struct qbman_swp *s,
 	full_mask = s->eqcr.pi_ci_mask;
 	if (!s->eqcr.available) {
 		eqcr_ci = s->eqcr.ci;
-		p = s->addr_cena + QBMAN_CENA_SWP_EQCR_CI_MEMBACK;
-		s->eqcr.ci = *p & full_mask;
+		s->eqcr.ci = qbman_read_register(s, QBMAN_CINH_SWP_EQCR_CI);
+		s->eqcr.ci &= full_mask;
 		s->eqcr.available = qm_cyc_diff(s->eqcr.pi_ring_size,
 					eqcr_ci, s->eqcr.ci);
 		if (!s->eqcr.available)
@@ -904,9 +904,9 @@ int qbman_swp_enqueue_multiple_desc_mem_back(struct qbman_swp *s,
 		p = (s->addr_cena + QBMAN_CENA_SWP_EQCR(eqcr_pi & half_mask));
 		cl = (uint32_t *)(&d[i]);
 		/* Skip copying the verb */
-		memcpy_toio((__iomem void *)&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
-		memcpy_toio((__iomem void *)&p[EQ_DESC_SIZE_FD_START / sizeof(uint32_t)],
-			    &fd[i], sizeof(*fd));
+		memcpy(&p[1], &cl[1], EQ_DESC_SIZE_WITHOUT_FD - 1);
+		memcpy(&p[EQ_DESC_SIZE_FD_START/sizeof(uint32_t)],
+		       &fd[i], sizeof(*fd));
 		eqcr_pi++;
 	}
 

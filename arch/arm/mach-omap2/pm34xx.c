@@ -26,7 +26,7 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/of.h>
-#include <linux/omap-gpmc.h>
+#include <linux/cpuidle.h>
 
 #include <trace/events/power.h>
 
@@ -81,8 +81,6 @@ static void omap3_core_save_context(void)
 
 	/* Save the Interrupt controller context */
 	omap_intc_save_context();
-	/* Save the GPMC context */
-	omap3_gpmc_save_context();
 	/* Save the system control module context, padconf already save above*/
 	omap3_control_save_context();
 }
@@ -91,8 +89,6 @@ static void omap3_core_restore_context(void)
 {
 	/* Restore the control module context, padconf restored by h/w */
 	omap3_control_restore_context();
-	/* Restore the GPMC context */
-	omap3_gpmc_restore_context();
 	/* Restore the interrupt controller context */
 	omap_intc_restore_context();
 }
@@ -179,7 +175,7 @@ static int omap34xx_do_sram_idle(unsigned long save_state)
 	return 0;
 }
 
-void omap_sram_idle(void)
+__cpuidle void omap_sram_idle(bool rcuidle)
 {
 	/* Variable to tell what needs to be saved and restored
 	 * in omap_sram_idle*/
@@ -259,10 +255,17 @@ void omap_sram_idle(void)
 	 */
 	if (save_state)
 		omap34xx_save_context(omap3_arm_context);
+
+	if (rcuidle)
+		ct_cpuidle_enter();
+
 	if (save_state == 1 || save_state == 3)
 		cpu_suspend(save_state, omap34xx_do_sram_idle);
 	else
 		omap34xx_do_sram_idle(save_state);
+
+	if (rcuidle)
+		ct_cpuidle_exit();
 
 	/* Restore normal SDRC POWER settings */
 	if (cpu_is_omap3430() && omap_rev() >= OMAP3430_REV_ES3_0 &&
@@ -299,7 +302,7 @@ static void omap3_pm_idle(void)
 	if (omap_irq_pending())
 		return;
 
-	omap_sram_idle();
+	omap3_do_wfi();
 }
 
 #ifdef CONFIG_SUSPEND
@@ -321,7 +324,7 @@ static int omap3_pm_suspend(void)
 
 	omap3_intc_suspend();
 
-	omap_sram_idle();
+	omap_sram_idle(false);
 
 restore:
 	/* Restore next_pwrsts */

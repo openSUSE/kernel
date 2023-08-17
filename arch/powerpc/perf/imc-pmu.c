@@ -6,6 +6,7 @@
  *           (C) 2017 Anju T Sudhakar, IBM Corporation.
  *           (C) 2017 Hemant K Shaw, IBM Corporation.
  */
+#include <linux/of.h>
 #include <linux/perf_event.h>
 #include <linux/slab.h>
 #include <asm/opal.h>
@@ -13,6 +14,7 @@
 #include <asm/cputhreads.h>
 #include <asm/smp.h>
 #include <linux/string.h>
+#include <linux/spinlock.h>
 
 /* Nest IMC data structures and variables */
 
@@ -49,7 +51,7 @@ static int trace_imc_mem_size;
  * core and trace-imc
  */
 static struct imc_pmu_ref imc_global_refc = {
-	.lock = __MUTEX_INITIALIZER(imc_global_refc.lock),
+	.lock = __SPIN_LOCK_INITIALIZER(imc_global_refc.lock),
 	.id = 0,
 	.refc = 0,
 };
@@ -239,8 +241,10 @@ static int update_events_in_group(struct device_node *node, struct imc_pmu *pmu)
 	ct = of_get_child_count(pmu_events);
 
 	/* Get the event prefix */
-	if (of_property_read_string(node, "events-prefix", &prefix))
+	if (of_property_read_string(node, "events-prefix", &prefix)) {
+		of_node_put(pmu_events);
 		return 0;
+	}
 
 	/* Get a global unit and scale data if available */
 	if (of_property_read_string(node, "scale", &g_scale))
@@ -254,8 +258,10 @@ static int update_events_in_group(struct device_node *node, struct imc_pmu *pmu)
 
 	/* Allocate memory for the events */
 	pmu->events = kcalloc(ct, sizeof(struct imc_events), GFP_KERNEL);
-	if (!pmu->events)
+	if (!pmu->events) {
+		of_node_put(pmu_events);
 		return -ENOMEM;
+	}
 
 	ct = 0;
 	/* Parse the events and update the struct */
@@ -264,6 +270,8 @@ static int update_events_in_group(struct device_node *node, struct imc_pmu *pmu)
 		if (!ret)
 			ct++;
 	}
+
+	of_node_put(pmu_events);
 
 	/* Allocate memory for attribute group */
 	attr_group = kzalloc(sizeof(*attr_group), GFP_KERNEL);
@@ -393,7 +401,7 @@ static int ppc_nest_imc_cpu_offline(unsigned int cpu)
 				       get_hard_smp_processor_id(cpu));
 		/*
 		 * If this is the last cpu in this chip then, skip the reference
-		 * count mutex lock and make the reference count on this chip zero.
+		 * count lock and make the reference count on this chip zero.
 		 */
 		ref = get_nest_pmu_ref(cpu);
 		if (!ref)
@@ -455,15 +463,15 @@ static void nest_imc_counters_release(struct perf_event *event)
 	/*
 	 * See if we need to disable the nest PMU.
 	 * If no events are currently in use, then we have to take a
-	 * mutex to ensure that we don't race with another task doing
+	 * lock to ensure that we don't race with another task doing
 	 * enable or disable the nest counters.
 	 */
 	ref = get_nest_pmu_ref(event->cpu);
 	if (!ref)
 		return;
 
-	/* Take the mutex lock for this node and then decrement the reference count */
-	mutex_lock(&ref->lock);
+	/* Take the lock for this node and then decrement the reference count */
+	spin_lock(&ref->lock);
 	if (ref->refc == 0) {
 		/*
 		 * The scenario where this is true is, when perf session is
@@ -475,7 +483,7 @@ static void nest_imc_counters_release(struct perf_event *event)
 		 * an OPAL call to disable the engine in that node.
 		 *
 		 */
-		mutex_unlock(&ref->lock);
+		spin_unlock(&ref->lock);
 		return;
 	}
 	ref->refc--;
@@ -483,7 +491,7 @@ static void nest_imc_counters_release(struct perf_event *event)
 		rc = opal_imc_counters_stop(OPAL_IMC_COUNTERS_NEST,
 					    get_hard_smp_processor_id(event->cpu));
 		if (rc) {
-			mutex_unlock(&ref->lock);
+			spin_unlock(&ref->lock);
 			pr_err("nest-imc: Unable to stop the counters for core %d\n", node_id);
 			return;
 		}
@@ -491,7 +499,7 @@ static void nest_imc_counters_release(struct perf_event *event)
 		WARN(1, "nest-imc: Invalid event reference count\n");
 		ref->refc = 0;
 	}
-	mutex_unlock(&ref->lock);
+	spin_unlock(&ref->lock);
 }
 
 static int nest_imc_event_init(struct perf_event *event)
@@ -521,7 +529,7 @@ static int nest_imc_event_init(struct perf_event *event)
 
 	/*
 	 * Nest HW counter memory resides in a per-chip reserve-memory (HOMER).
-	 * Get the base memory addresss for this cpu.
+	 * Get the base memory address for this cpu.
 	 */
 	chip_id = cpu_to_chip_id(event->cpu);
 
@@ -550,26 +558,25 @@ static int nest_imc_event_init(struct perf_event *event)
 
 	/*
 	 * Get the imc_pmu_ref struct for this node.
-	 * Take the mutex lock and then increment the count of nest pmu events
-	 * inited.
+	 * Take the lock and then increment the count of nest pmu events inited.
 	 */
 	ref = get_nest_pmu_ref(event->cpu);
 	if (!ref)
 		return -EINVAL;
 
-	mutex_lock(&ref->lock);
+	spin_lock(&ref->lock);
 	if (ref->refc == 0) {
 		rc = opal_imc_counters_start(OPAL_IMC_COUNTERS_NEST,
 					     get_hard_smp_processor_id(event->cpu));
 		if (rc) {
-			mutex_unlock(&ref->lock);
+			spin_unlock(&ref->lock);
 			pr_err("nest-imc: Unable to start the counters for node %d\n",
 									node_id);
 			return rc;
 		}
 	}
 	++ref->refc;
-	mutex_unlock(&ref->lock);
+	spin_unlock(&ref->lock);
 
 	event->destroy = nest_imc_counters_release;
 	return 0;
@@ -605,9 +612,8 @@ static int core_imc_mem_init(int cpu, int size)
 		return -ENOMEM;
 	mem_info->vbase = page_address(page);
 
-	/* Init the mutex */
 	core_imc_refc[core_id].id = core_id;
-	mutex_init(&core_imc_refc[core_id].lock);
+	spin_lock_init(&core_imc_refc[core_id].lock);
 
 	rc = opal_imc_counters_init(OPAL_IMC_COUNTERS_CORE,
 				__pa((void *)mem_info->vbase),
@@ -674,7 +680,7 @@ static int ppc_core_imc_cpu_offline(unsigned int cpu)
 	/*
 	 * Check whether core_imc is registered. We could end up here
 	 * if the cpuhotplug callback registration fails. i.e, callback
-	 * invokes the offline path for all sucessfully registered cpus.
+	 * invokes the offline path for all successfully registered cpus.
 	 * At this stage, core_imc pmu will not be registered and we
 	 * should return here.
 	 *
@@ -696,9 +702,8 @@ static int ppc_core_imc_cpu_offline(unsigned int cpu)
 		perf_pmu_migrate_context(&core_imc_pmu->pmu, cpu, ncpu);
 	} else {
 		/*
-		 * If this is the last cpu in this core then, skip taking refernce
-		 * count mutex lock for this core and directly zero "refc" for
-		 * this core.
+		 * If this is the last cpu in this core then skip taking reference
+		 * count lock for this core and directly zero "refc" for this core.
 		 */
 		opal_imc_counters_stop(OPAL_IMC_COUNTERS_CORE,
 				       get_hard_smp_processor_id(cpu));
@@ -713,11 +718,11 @@ static int ppc_core_imc_cpu_offline(unsigned int cpu)
 		 * last cpu in this core and core-imc event running
 		 * in this cpu.
 		 */
-		mutex_lock(&imc_global_refc.lock);
+		spin_lock(&imc_global_refc.lock);
 		if (imc_global_refc.id == IMC_DOMAIN_CORE)
 			imc_global_refc.refc--;
 
-		mutex_unlock(&imc_global_refc.lock);
+		spin_unlock(&imc_global_refc.lock);
 	}
 	return 0;
 }
@@ -732,7 +737,7 @@ static int core_imc_pmu_cpumask_init(void)
 
 static void reset_global_refc(struct perf_event *event)
 {
-		mutex_lock(&imc_global_refc.lock);
+		spin_lock(&imc_global_refc.lock);
 		imc_global_refc.refc--;
 
 		/*
@@ -744,7 +749,7 @@ static void reset_global_refc(struct perf_event *event)
 			imc_global_refc.refc = 0;
 			imc_global_refc.id = 0;
 		}
-		mutex_unlock(&imc_global_refc.lock);
+		spin_unlock(&imc_global_refc.lock);
 }
 
 static void core_imc_counters_release(struct perf_event *event)
@@ -757,17 +762,17 @@ static void core_imc_counters_release(struct perf_event *event)
 	/*
 	 * See if we need to disable the IMC PMU.
 	 * If no events are currently in use, then we have to take a
-	 * mutex to ensure that we don't race with another task doing
+	 * lock to ensure that we don't race with another task doing
 	 * enable or disable the core counters.
 	 */
 	core_id = event->cpu / threads_per_core;
 
-	/* Take the mutex lock and decrement the refernce count for this core */
+	/* Take the lock and decrement the refernce count for this core */
 	ref = &core_imc_refc[core_id];
 	if (!ref)
 		return;
 
-	mutex_lock(&ref->lock);
+	spin_lock(&ref->lock);
 	if (ref->refc == 0) {
 		/*
 		 * The scenario where this is true is, when perf session is
@@ -779,7 +784,7 @@ static void core_imc_counters_release(struct perf_event *event)
 		 * an OPAL call to disable the engine in that core.
 		 *
 		 */
-		mutex_unlock(&ref->lock);
+		spin_unlock(&ref->lock);
 		return;
 	}
 	ref->refc--;
@@ -787,7 +792,7 @@ static void core_imc_counters_release(struct perf_event *event)
 		rc = opal_imc_counters_stop(OPAL_IMC_COUNTERS_CORE,
 					    get_hard_smp_processor_id(event->cpu));
 		if (rc) {
-			mutex_unlock(&ref->lock);
+			spin_unlock(&ref->lock);
 			pr_err("IMC: Unable to stop the counters for core %d\n", core_id);
 			return;
 		}
@@ -795,7 +800,7 @@ static void core_imc_counters_release(struct perf_event *event)
 		WARN(1, "core-imc: Invalid event reference count\n");
 		ref->refc = 0;
 	}
-	mutex_unlock(&ref->lock);
+	spin_unlock(&ref->lock);
 
 	reset_global_refc(event);
 }
@@ -833,7 +838,6 @@ static int core_imc_event_init(struct perf_event *event)
 	if ((!pcmi->vbase))
 		return -ENODEV;
 
-	/* Get the core_imc mutex for this core */
 	ref = &core_imc_refc[core_id];
 	if (!ref)
 		return -EINVAL;
@@ -841,22 +845,22 @@ static int core_imc_event_init(struct perf_event *event)
 	/*
 	 * Core pmu units are enabled only when it is used.
 	 * See if this is triggered for the first time.
-	 * If yes, take the mutex lock and enable the core counters.
+	 * If yes, take the lock and enable the core counters.
 	 * If not, just increment the count in core_imc_refc struct.
 	 */
-	mutex_lock(&ref->lock);
+	spin_lock(&ref->lock);
 	if (ref->refc == 0) {
 		rc = opal_imc_counters_start(OPAL_IMC_COUNTERS_CORE,
 					     get_hard_smp_processor_id(event->cpu));
 		if (rc) {
-			mutex_unlock(&ref->lock);
+			spin_unlock(&ref->lock);
 			pr_err("core-imc: Unable to start the counters for core %d\n",
 									core_id);
 			return rc;
 		}
 	}
 	++ref->refc;
-	mutex_unlock(&ref->lock);
+	spin_unlock(&ref->lock);
 
 	/*
 	 * Since the system can run either in accumulation or trace-mode
@@ -867,7 +871,7 @@ static int core_imc_event_init(struct perf_event *event)
 	 * to know whether any other trace/thread imc
 	 * events are running.
 	 */
-	mutex_lock(&imc_global_refc.lock);
+	spin_lock(&imc_global_refc.lock);
 	if (imc_global_refc.id == 0 || imc_global_refc.id == IMC_DOMAIN_CORE) {
 		/*
 		 * No other trace/thread imc events are running in
@@ -876,10 +880,10 @@ static int core_imc_event_init(struct perf_event *event)
 		imc_global_refc.id = IMC_DOMAIN_CORE;
 		imc_global_refc.refc++;
 	} else {
-		mutex_unlock(&imc_global_refc.lock);
+		spin_unlock(&imc_global_refc.lock);
 		return -EBUSY;
 	}
-	mutex_unlock(&imc_global_refc.lock);
+	spin_unlock(&imc_global_refc.lock);
 
 	event->hw.event_base = (u64)pcmi->vbase + (config & IMC_EVENT_OFFSET_MASK);
 	event->destroy = core_imc_counters_release;
@@ -951,10 +955,10 @@ static int ppc_thread_imc_cpu_offline(unsigned int cpu)
 	mtspr(SPRN_LDBAR, (mfspr(SPRN_LDBAR) & (~(1UL << 63))));
 
 	/* Reduce the refc if thread-imc event running on this cpu */
-	mutex_lock(&imc_global_refc.lock);
+	spin_lock(&imc_global_refc.lock);
 	if (imc_global_refc.id == IMC_DOMAIN_THREAD)
 		imc_global_refc.refc--;
-	mutex_unlock(&imc_global_refc.lock);
+	spin_unlock(&imc_global_refc.lock);
 
 	return 0;
 }
@@ -994,7 +998,7 @@ static int thread_imc_event_init(struct perf_event *event)
 	if (!target)
 		return -EINVAL;
 
-	mutex_lock(&imc_global_refc.lock);
+	spin_lock(&imc_global_refc.lock);
 	/*
 	 * Check if any other trace/core imc events are running in the
 	 * system, if not set the global id to thread-imc.
@@ -1003,10 +1007,10 @@ static int thread_imc_event_init(struct perf_event *event)
 		imc_global_refc.id = IMC_DOMAIN_THREAD;
 		imc_global_refc.refc++;
 	} else {
-		mutex_unlock(&imc_global_refc.lock);
+		spin_unlock(&imc_global_refc.lock);
 		return -EBUSY;
 	}
-	mutex_unlock(&imc_global_refc.lock);
+	spin_unlock(&imc_global_refc.lock);
 
 	event->pmu->task_ctx_nr = perf_sw_context;
 	event->destroy = reset_global_refc;
@@ -1128,25 +1132,25 @@ static int thread_imc_event_add(struct perf_event *event, int flags)
 	/*
 	 * imc pmus are enabled only when it is used.
 	 * See if this is triggered for the first time.
-	 * If yes, take the mutex lock and enable the counters.
+	 * If yes, take the lock and enable the counters.
 	 * If not, just increment the count in ref count struct.
 	 */
 	ref = &core_imc_refc[core_id];
 	if (!ref)
 		return -EINVAL;
 
-	mutex_lock(&ref->lock);
+	spin_lock(&ref->lock);
 	if (ref->refc == 0) {
 		if (opal_imc_counters_start(OPAL_IMC_COUNTERS_CORE,
 		    get_hard_smp_processor_id(smp_processor_id()))) {
-			mutex_unlock(&ref->lock);
+			spin_unlock(&ref->lock);
 			pr_err("thread-imc: Unable to start the counter\
 				for core %d\n", core_id);
 			return -EINVAL;
 		}
 	}
 	++ref->refc;
-	mutex_unlock(&ref->lock);
+	spin_unlock(&ref->lock);
 	return 0;
 }
 
@@ -1163,12 +1167,12 @@ static void thread_imc_event_del(struct perf_event *event, int flags)
 		return;
 	}
 
-	mutex_lock(&ref->lock);
+	spin_lock(&ref->lock);
 	ref->refc--;
 	if (ref->refc == 0) {
 		if (opal_imc_counters_stop(OPAL_IMC_COUNTERS_CORE,
 		    get_hard_smp_processor_id(smp_processor_id()))) {
-			mutex_unlock(&ref->lock);
+			spin_unlock(&ref->lock);
 			pr_err("thread-imc: Unable to stop the counters\
 				for core %d\n", core_id);
 			return;
@@ -1176,7 +1180,7 @@ static void thread_imc_event_del(struct perf_event *event, int flags)
 	} else if (ref->refc < 0) {
 		ref->refc = 0;
 	}
-	mutex_unlock(&ref->lock);
+	spin_unlock(&ref->lock);
 
 	/* Set bit 0 of LDBAR to zero, to stop posting updates to memory */
 	mtspr(SPRN_LDBAR, (mfspr(SPRN_LDBAR) & (~(1UL << 63))));
@@ -1217,9 +1221,8 @@ static int trace_imc_mem_alloc(int cpu_id, int size)
 		}
 	}
 
-	/* Init the mutex, if not already */
 	trace_imc_refc[core_id].id = core_id;
-	mutex_init(&trace_imc_refc[core_id].lock);
+	spin_lock_init(&trace_imc_refc[core_id].lock);
 
 	mtspr(SPRN_LDBAR, 0);
 	return 0;
@@ -1239,10 +1242,10 @@ static int ppc_trace_imc_cpu_offline(unsigned int cpu)
 	 * Reduce the refc if any trace-imc event running
 	 * on this cpu.
 	 */
-	mutex_lock(&imc_global_refc.lock);
+	spin_lock(&imc_global_refc.lock);
 	if (imc_global_refc.id == IMC_DOMAIN_TRACE)
 		imc_global_refc.refc--;
-	mutex_unlock(&imc_global_refc.lock);
+	spin_unlock(&imc_global_refc.lock);
 
 	return 0;
 }
@@ -1364,17 +1367,17 @@ static int trace_imc_event_add(struct perf_event *event, int flags)
 	}
 
 	mtspr(SPRN_LDBAR, ldbar_value);
-	mutex_lock(&ref->lock);
+	spin_lock(&ref->lock);
 	if (ref->refc == 0) {
 		if (opal_imc_counters_start(OPAL_IMC_COUNTERS_TRACE,
 				get_hard_smp_processor_id(smp_processor_id()))) {
-			mutex_unlock(&ref->lock);
+			spin_unlock(&ref->lock);
 			pr_err("trace-imc: Unable to start the counters for core %d\n", core_id);
 			return -EINVAL;
 		}
 	}
 	++ref->refc;
-	mutex_unlock(&ref->lock);
+	spin_unlock(&ref->lock);
 	return 0;
 }
 
@@ -1407,19 +1410,19 @@ static void trace_imc_event_del(struct perf_event *event, int flags)
 		return;
 	}
 
-	mutex_lock(&ref->lock);
+	spin_lock(&ref->lock);
 	ref->refc--;
 	if (ref->refc == 0) {
 		if (opal_imc_counters_stop(OPAL_IMC_COUNTERS_TRACE,
 				get_hard_smp_processor_id(smp_processor_id()))) {
-			mutex_unlock(&ref->lock);
+			spin_unlock(&ref->lock);
 			pr_err("trace-imc: Unable to stop the counters for core %d\n", core_id);
 			return;
 		}
 	} else if (ref->refc < 0) {
 		ref->refc = 0;
 	}
-	mutex_unlock(&ref->lock);
+	spin_unlock(&ref->lock);
 
 	trace_imc_event_stop(event, flags);
 }
@@ -1441,7 +1444,7 @@ static int trace_imc_event_init(struct perf_event *event)
 	 * no other thread is running any core/thread imc
 	 * events
 	 */
-	mutex_lock(&imc_global_refc.lock);
+	spin_lock(&imc_global_refc.lock);
 	if (imc_global_refc.id == 0 || imc_global_refc.id == IMC_DOMAIN_TRACE) {
 		/*
 		 * No core/thread imc events are running in the
@@ -1450,10 +1453,10 @@ static int trace_imc_event_init(struct perf_event *event)
 		imc_global_refc.id = IMC_DOMAIN_TRACE;
 		imc_global_refc.refc++;
 	} else {
-		mutex_unlock(&imc_global_refc.lock);
+		spin_unlock(&imc_global_refc.lock);
 		return -EBUSY;
 	}
-	mutex_unlock(&imc_global_refc.lock);
+	spin_unlock(&imc_global_refc.lock);
 
 	event->hw.idx = -1;
 
@@ -1526,10 +1529,10 @@ static int init_nest_pmu_ref(void)
 	i = 0;
 	for_each_node(nid) {
 		/*
-		 * Mutex lock to avoid races while tracking the number of
+		 * Take the lock to avoid races while tracking the number of
 		 * sessions using the chip's nest pmu units.
 		 */
-		mutex_init(&nest_imc_refc[i].lock);
+		spin_lock_init(&nest_imc_refc[i].lock);
 
 		/*
 		 * Loop to init the "id" with the node_id. Variable "i" initialized to

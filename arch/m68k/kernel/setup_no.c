@@ -50,12 +50,10 @@ char __initdata command_line[COMMAND_LINE_SIZE];
 
 /* machine dependent timer functions */
 void (*mach_sched_init)(void) __initdata = NULL;
-int (*mach_hwclk) (int, struct rtc_time*);
 
 /* machine dependent reboot functions */
 void (*mach_reset)(void);
 void (*mach_halt)(void);
-void (*mach_power_off)(void);
 
 #ifdef CONFIG_M68000
 #if defined(CONFIG_M68328)
@@ -92,8 +90,7 @@ void __init setup_arch(char **cmdline_p)
 	config_BSP(&command_line[0], sizeof(command_line));
 
 #if defined(CONFIG_BOOTPARAM)
-	strncpy(&command_line[0], CONFIG_BOOTPARAM_STRING, sizeof(command_line));
-	command_line[sizeof(command_line) - 1] = 0;
+	strscpy(&command_line[0], CONFIG_BOOTPARAM_STRING, sizeof(command_line));
 #endif /* CONFIG_BOOTPARAM */
 
 	process_uboot_commandline(&command_line[0], sizeof(command_line));

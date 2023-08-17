@@ -43,9 +43,6 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * Intel PCIe NTB Linux driver
- *
- * Contact Information:
- * Jon Mason <jon.mason@intel.com>
  */
 
 #ifndef NTB_HW_INTEL_H
@@ -73,6 +70,7 @@
 #define PCI_DEVICE_ID_INTEL_NTB_SS_BDX	0x6F0F
 #define PCI_DEVICE_ID_INTEL_NTB_B2B_SKX	0x201C
 #define PCI_DEVICE_ID_INTEL_NTB_B2B_ICX	0x347e
+#define PCI_DEVICE_ID_INTEL_NTB_B2B_GNR	0x0db4
 
 /* Ntb control and link status */
 #define NTB_CTL_CFG_LOCK		BIT(0)
@@ -231,4 +229,10 @@ static inline int pdev_is_gen4(struct pci_dev *pdev)
 
 	return 0;
 }
+
+static inline int pdev_is_gen5(struct pci_dev *pdev)
+{
+	return pdev->device == PCI_DEVICE_ID_INTEL_NTB_B2B_GNR;
+}
+
 #endif

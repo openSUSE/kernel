@@ -1228,8 +1228,7 @@ static const struct v4l2_subdev_ops saa717x_ops = {
 /* i2c implementation */
 
 /* ----------------------------------------------------------------------- */
-static int saa717x_probe(struct i2c_client *client,
-			 const struct i2c_device_id *did)
+static int saa717x_probe(struct i2c_client *client)
 {
 	struct saa717x_state *decoder;
 	struct v4l2_ctrl_handler *hdl;
@@ -1324,13 +1323,12 @@ static int saa717x_probe(struct i2c_client *client,
 	return 0;
 }
 
-static int saa717x_remove(struct i2c_client *client)
+static void saa717x_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 
 	v4l2_device_unregister_subdev(sd);
 	v4l2_ctrl_handler_free(sd->ctrl_handler);
-	return 0;
 }
 
 /* ----------------------------------------------------------------------- */
@@ -1345,7 +1343,7 @@ static struct i2c_driver saa717x_driver = {
 	.driver = {
 		.name	= "saa717x",
 	},
-	.probe		= saa717x_probe,
+	.probe_new	= saa717x_probe,
 	.remove		= saa717x_remove,
 	.id_table	= saa717x_id,
 };

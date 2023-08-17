@@ -69,6 +69,15 @@ struct nmi_stats {
 	unsigned int unknown;
 	unsigned int external;
 	unsigned int swallow;
+	unsigned long recv_jiffies;
+	unsigned long idt_seq;
+	unsigned long idt_nmi_seq;
+	unsigned long idt_ignored;
+	atomic_long_t idt_calls;
+	unsigned long idt_seq_snap;
+	unsigned long idt_nmi_seq_snap;
+	unsigned long idt_ignored_snap;
+	long idt_calls_snap;
 };
 
 static DEFINE_PER_CPU(struct nmi_stats, nmi_stats);
@@ -157,7 +166,7 @@ int __register_nmi_handler(unsigned int type, struct nmiaction *action)
 	struct nmi_desc *desc = nmi_to_desc(type);
 	unsigned long flags;
 
-	if (!action->handler)
+	if (WARN_ON_ONCE(!action->handler || !list_empty(&action->list)))
 		return -EINVAL;
 
 	raw_spin_lock_irqsave(&desc->lock, flags);
@@ -177,7 +186,7 @@ int __register_nmi_handler(unsigned int type, struct nmiaction *action)
 		list_add_rcu(&action->list, &desc->head);
 	else
 		list_add_tail_rcu(&action->list, &desc->head);
-	
+
 	raw_spin_unlock_irqrestore(&desc->lock, flags);
 	return 0;
 }
@@ -186,7 +195,7 @@ EXPORT_SYMBOL(__register_nmi_handler);
 void unregister_nmi_handler(unsigned int type, const char *name)
 {
 	struct nmi_desc *desc = nmi_to_desc(type);
-	struct nmiaction *n;
+	struct nmiaction *n, *found = NULL;
 	unsigned long flags;
 
 	raw_spin_lock_irqsave(&desc->lock, flags);
@@ -200,12 +209,16 @@ void unregister_nmi_handler(unsigned int type, const char *name)
 			WARN(in_nmi(),
 				"Trying to free NMI (%s) from NMI context!\n", n->name);
 			list_del_rcu(&n->list);
+			found = n;
 			break;
 		}
 	}
 
 	raw_spin_unlock_irqrestore(&desc->lock, flags);
-	synchronize_rcu();
+	if (found) {
+		synchronize_rcu();
+		INIT_LIST_HEAD(&found->list);
+	}
 }
 EXPORT_SYMBOL_GPL(unregister_nmi_handler);
 
@@ -292,7 +305,6 @@ unknown_nmi_error(unsigned char reason, struct pt_regs *regs)
 	pr_emerg("Uhhuh. NMI received for unknown reason %02x on CPU %d.\n",
 		 reason, smp_processor_id());
 
-	pr_emerg("Do you have a strange power saving mode enabled?\n");
 	if (unknown_nmi_panic || panic_on_unrecovered_nmi)
 		nmi_panic(regs, "NMI: Not continuing");
 
@@ -476,12 +488,15 @@ static DEFINE_PER_CPU(unsigned long, nmi_dr7);
 DEFINE_IDTENTRY_RAW(exc_nmi)
 {
 	irqentry_state_t irq_state;
+	struct nmi_stats *nsp = this_cpu_ptr(&nmi_stats);
 
 	/*
 	 * Re-enable NMIs right here when running as an SEV-ES guest. This might
 	 * cause nested NMIs, but those can be handled safely.
 	 */
 	sev_es_nmi_complete();
+	if (IS_ENABLED(CONFIG_NMI_CHECK_CPU))
+		arch_atomic_long_inc(&nsp->idt_calls);
 
 	if (IS_ENABLED(CONFIG_SMP) && arch_cpu_is_offline(smp_processor_id()))
 		return;
@@ -492,6 +507,11 @@ DEFINE_IDTENTRY_RAW(exc_nmi)
 	}
 	this_cpu_write(nmi_state, NMI_EXECUTING);
 	this_cpu_write(nmi_cr2, read_cr2());
+	if (IS_ENABLED(CONFIG_NMI_CHECK_CPU)) {
+		WRITE_ONCE(nsp->idt_seq, nsp->idt_seq + 1);
+		WARN_ON_ONCE(!(nsp->idt_seq & 0x1));
+		WRITE_ONCE(nsp->recv_jiffies, jiffies);
+	}
 nmi_restart:
 
 	/*
@@ -506,8 +526,19 @@ nmi_restart:
 
 	inc_irq_stat(__nmi_count);
 
-	if (!ignore_nmis)
+	if (IS_ENABLED(CONFIG_NMI_CHECK_CPU) && ignore_nmis) {
+		WRITE_ONCE(nsp->idt_ignored, nsp->idt_ignored + 1);
+	} else if (!ignore_nmis) {
+		if (IS_ENABLED(CONFIG_NMI_CHECK_CPU)) {
+			WRITE_ONCE(nsp->idt_nmi_seq, nsp->idt_nmi_seq + 1);
+			WARN_ON_ONCE(!(nsp->idt_nmi_seq & 0x1));
+		}
 		default_do_nmi(regs);
+		if (IS_ENABLED(CONFIG_NMI_CHECK_CPU)) {
+			WRITE_ONCE(nsp->idt_nmi_seq, nsp->idt_nmi_seq + 1);
+			WARN_ON_ONCE(nsp->idt_nmi_seq & 0x1);
+		}
+	}
 
 	irqentry_nmi_exit(regs, irq_state);
 
@@ -522,16 +553,94 @@ nmi_restart:
 
 	if (user_mode(regs))
 		mds_user_clear_cpu_buffers();
+	if (IS_ENABLED(CONFIG_NMI_CHECK_CPU)) {
+		WRITE_ONCE(nsp->idt_seq, nsp->idt_seq + 1);
+		WARN_ON_ONCE(nsp->idt_seq & 0x1);
+		WRITE_ONCE(nsp->recv_jiffies, jiffies);
+	}
 }
 
-#if defined(CONFIG_X86_64) && IS_ENABLED(CONFIG_KVM_INTEL)
-DEFINE_IDTENTRY_RAW(exc_nmi_noist)
+#if IS_ENABLED(CONFIG_KVM_INTEL)
+DEFINE_IDTENTRY_RAW(exc_nmi_kvm_vmx)
 {
 	exc_nmi(regs);
 }
-#endif
 #if IS_MODULE(CONFIG_KVM_INTEL)
-EXPORT_SYMBOL_GPL(asm_exc_nmi_noist);
+EXPORT_SYMBOL_GPL(asm_exc_nmi_kvm_vmx);
+#endif
+#endif
+
+#ifdef CONFIG_NMI_CHECK_CPU
+
+static char *nmi_check_stall_msg[] = {
+/*									*/
+/* +--------- nsp->idt_seq_snap & 0x1: CPU is in NMI handler.		*/
+/* | +------ cpu_is_offline(cpu)					*/
+/* | | +--- nsp->idt_calls_snap != atomic_long_read(&nsp->idt_calls):	*/
+/* | | |	NMI handler has been invoked.				*/
+/* | | |								*/
+/* V V V								*/
+/* 0 0 0 */ "NMIs are not reaching exc_nmi() handler",
+/* 0 0 1 */ "exc_nmi() handler is ignoring NMIs",
+/* 0 1 0 */ "CPU is offline and NMIs are not reaching exc_nmi() handler",
+/* 0 1 1 */ "CPU is offline and exc_nmi() handler is legitimately ignoring NMIs",
+/* 1 0 0 */ "CPU is in exc_nmi() handler and no further NMIs are reaching handler",
+/* 1 0 1 */ "CPU is in exc_nmi() handler which is legitimately ignoring NMIs",
+/* 1 1 0 */ "CPU is offline in exc_nmi() handler and no more NMIs are reaching exc_nmi() handler",
+/* 1 1 1 */ "CPU is offline in exc_nmi() handler which is legitimately ignoring NMIs",
+};
+
+void nmi_backtrace_stall_snap(const struct cpumask *btp)
+{
+	int cpu;
+	struct nmi_stats *nsp;
+
+	for_each_cpu(cpu, btp) {
+		nsp = per_cpu_ptr(&nmi_stats, cpu);
+		nsp->idt_seq_snap = READ_ONCE(nsp->idt_seq);
+		nsp->idt_nmi_seq_snap = READ_ONCE(nsp->idt_nmi_seq);
+		nsp->idt_ignored_snap = READ_ONCE(nsp->idt_ignored);
+		nsp->idt_calls_snap = atomic_long_read(&nsp->idt_calls);
+	}
+}
+
+void nmi_backtrace_stall_check(const struct cpumask *btp)
+{
+	int cpu;
+	int idx;
+	unsigned long nmi_seq;
+	unsigned long j = jiffies;
+	char *modp;
+	char *msgp;
+	char *msghp;
+	struct nmi_stats *nsp;
+
+	for_each_cpu(cpu, btp) {
+		nsp = per_cpu_ptr(&nmi_stats, cpu);
+		modp = "";
+		msghp = "";
+		nmi_seq = READ_ONCE(nsp->idt_nmi_seq);
+		if (nsp->idt_nmi_seq_snap + 1 == nmi_seq && (nmi_seq & 0x1)) {
+			msgp = "CPU entered NMI handler function, but has not exited";
+		} else if ((nsp->idt_nmi_seq_snap & 0x1) != (nmi_seq & 0x1)) {
+			msgp = "CPU is handling NMIs";
+		} else {
+			idx = ((nsp->idt_seq_snap & 0x1) << 2) |
+			      (cpu_is_offline(cpu) << 1) |
+			      (nsp->idt_calls_snap != atomic_long_read(&nsp->idt_calls));
+			msgp = nmi_check_stall_msg[idx];
+			if (nsp->idt_ignored_snap != READ_ONCE(nsp->idt_ignored) && (idx & 0x1))
+				modp = ", but OK because ignore_nmis was set";
+			if (nmi_seq & ~0x1)
+				msghp = " (CPU currently in NMI handler function)";
+			else if (nsp->idt_nmi_seq_snap + 1 == nmi_seq)
+				msghp = " (CPU exited one NMI handler function)";
+		}
+		pr_alert("%s: CPU %d: %s%s%s, last activity: %lu jiffies ago.\n",
+			 __func__, cpu, msgp, modp, msghp, j - READ_ONCE(nsp->recv_jiffies));
+	}
+}
+
 #endif
 
 void stop_nmi(void)

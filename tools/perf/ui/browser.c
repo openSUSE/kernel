@@ -268,9 +268,9 @@ void __ui_browser__show_title(struct ui_browser *browser, const char *title)
 
 void ui_browser__show_title(struct ui_browser *browser, const char *title)
 {
-	pthread_mutex_lock(&ui__lock);
+	mutex_lock(&ui__lock);
 	__ui_browser__show_title(browser, title);
-	pthread_mutex_unlock(&ui__lock);
+	mutex_unlock(&ui__lock);
 }
 
 int ui_browser__show(struct ui_browser *browser, const char *title,
@@ -284,7 +284,7 @@ int ui_browser__show(struct ui_browser *browser, const char *title,
 
 	browser->refresh_dimensions(browser);
 
-	pthread_mutex_lock(&ui__lock);
+	mutex_lock(&ui__lock);
 	__ui_browser__show_title(browser, title);
 
 	browser->title = title;
@@ -295,16 +295,16 @@ int ui_browser__show(struct ui_browser *browser, const char *title,
 	va_end(ap);
 	if (err > 0)
 		ui_helpline__push(browser->helpline);
-	pthread_mutex_unlock(&ui__lock);
+	mutex_unlock(&ui__lock);
 	return err ? 0 : -1;
 }
 
 void ui_browser__hide(struct ui_browser *browser)
 {
-	pthread_mutex_lock(&ui__lock);
+	mutex_lock(&ui__lock);
 	ui_helpline__pop();
 	zfree(&browser->helpline);
-	pthread_mutex_unlock(&ui__lock);
+	mutex_unlock(&ui__lock);
 }
 
 static void ui_browser__scrollbar_set(struct ui_browser *browser)
@@ -352,9 +352,9 @@ static int __ui_browser__refresh(struct ui_browser *browser)
 
 int ui_browser__refresh(struct ui_browser *browser)
 {
-	pthread_mutex_lock(&ui__lock);
+	mutex_lock(&ui__lock);
 	__ui_browser__refresh(browser);
-	pthread_mutex_unlock(&ui__lock);
+	mutex_unlock(&ui__lock);
 
 	return 0;
 }
@@ -390,10 +390,10 @@ int ui_browser__run(struct ui_browser *browser, int delay_secs)
 	while (1) {
 		off_t offset;
 
-		pthread_mutex_lock(&ui__lock);
+		mutex_lock(&ui__lock);
 		err = __ui_browser__refresh(browser);
 		SLsmg_refresh();
-		pthread_mutex_unlock(&ui__lock);
+		mutex_unlock(&ui__lock);
 		if (err < 0)
 			break;
 
@@ -757,25 +757,40 @@ void __ui_browser__line_arrow(struct ui_browser *browser, unsigned int column,
 }
 
 void ui_browser__mark_fused(struct ui_browser *browser, unsigned int column,
-			    unsigned int row, bool arrow_down)
+			    unsigned int row, int diff, bool arrow_down)
 {
-	unsigned int end_row;
+	int end_row;
 
-	if (row >= browser->top_idx)
-		end_row = row - browser->top_idx;
-	else
+	if (diff <= 0)
 		return;
 
 	SLsmg_set_char_set(1);
 
 	if (arrow_down) {
+		if (row + diff <= browser->top_idx)
+			return;
+
+		end_row = row + diff - browser->top_idx;
 		ui_browser__gotorc(browser, end_row, column - 1);
-		SLsmg_write_char(SLSMG_ULCORN_CHAR);
-		ui_browser__gotorc(browser, end_row, column);
-		SLsmg_draw_hline(2);
-		ui_browser__gotorc(browser, end_row + 1, column - 1);
 		SLsmg_write_char(SLSMG_LTEE_CHAR);
+
+		while (--end_row >= 0 && end_row > (int)(row - browser->top_idx)) {
+			ui_browser__gotorc(browser, end_row, column - 1);
+			SLsmg_draw_vline(1);
+		}
+
+		end_row = (int)(row - browser->top_idx);
+		if (end_row >= 0) {
+			ui_browser__gotorc(browser, end_row, column - 1);
+			SLsmg_write_char(SLSMG_ULCORN_CHAR);
+			ui_browser__gotorc(browser, end_row, column);
+			SLsmg_draw_hline(2);
+		}
 	} else {
+		if (row < browser->top_idx)
+			return;
+
+		end_row = row - browser->top_idx;
 		ui_browser__gotorc(browser, end_row, column - 1);
 		SLsmg_write_char(SLSMG_LTEE_CHAR);
 		ui_browser__gotorc(browser, end_row, column);

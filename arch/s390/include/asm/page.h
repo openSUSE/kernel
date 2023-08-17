@@ -73,9 +73,8 @@ static inline void copy_page(void *to, void *from)
 #define clear_user_page(page, vaddr, pg)	clear_page(page)
 #define copy_user_page(to, from, vaddr, pg)	copy_page(to, from)
 
-#define alloc_zeroed_user_highpage_movable(vma, vaddr) \
-	alloc_page_vma(GFP_HIGHUSER_MOVABLE | __GFP_ZERO, vma, vaddr)
-#define __HAVE_ARCH_ALLOC_ZEROED_USER_HIGHPAGE_MOVABLE
+#define vma_alloc_zeroed_movable_folio(vma, vaddr) \
+	vma_alloc_folio(GFP_HIGHUSER_MOVABLE | __GFP_ZERO, 0, vma, vaddr, false)
 
 /*
  * These are used to make use of C type-checking..
@@ -92,11 +91,31 @@ typedef pte_t *pgtable_t;
 
 #define pgprot_val(x)	((x).pgprot)
 #define pgste_val(x)	((x).pgste)
-#define pte_val(x)	((x).pte)
-#define pmd_val(x)	((x).pmd)
-#define pud_val(x)	((x).pud)
-#define p4d_val(x)	((x).p4d)
-#define pgd_val(x)      ((x).pgd)
+
+static inline unsigned long pte_val(pte_t pte)
+{
+	return pte.pte;
+}
+
+static inline unsigned long pmd_val(pmd_t pmd)
+{
+	return pmd.pmd;
+}
+
+static inline unsigned long pud_val(pud_t pud)
+{
+	return pud.pud;
+}
+
+static inline unsigned long p4d_val(p4d_t p4d)
+{
+	return p4d.p4d;
+}
+
+static inline unsigned long pgd_val(pgd_t pgd)
+{
+	return pgd.pgd;
+}
 
 #define __pgste(x)	((pgste_t) { (x) } )
 #define __pte(x)        ((pte_t) { (x) } )
@@ -146,9 +165,6 @@ struct page;
 void arch_free_page(struct page *page, int order);
 void arch_alloc_page(struct page *page, int order);
 void arch_set_page_dat(struct page *page, int order);
-void arch_set_page_nodat(struct page *page, int order);
-int arch_test_page_nodat(struct page *page);
-void arch_set_page_states(int make_stable);
 
 static inline int devmem_is_allowed(unsigned long pfn)
 {

@@ -18,6 +18,7 @@
 #include <linux/bitops.h>
 #include <linux/types.h>
 
+#include "dev.h"
 
 enum lw_bits {
 	LW_URGENT = 0,
@@ -37,9 +38,23 @@ static unsigned char default_operstate(const struct net_device *dev)
 	if (netif_testing(dev))
 		return IF_OPER_TESTING;
 
-	if (!netif_carrier_ok(dev))
-		return (dev->ifindex != dev_get_iflink(dev) ?
-			IF_OPER_LOWERLAYERDOWN : IF_OPER_DOWN);
+	/* Some uppers (DSA) have additional sources for being down, so
+	 * first check whether lower is indeed the source of its down state.
+	 */
+	if (!netif_carrier_ok(dev)) {
+		int iflink = dev_get_iflink(dev);
+		struct net_device *peer;
+
+		if (iflink == dev->ifindex)
+			return IF_OPER_DOWN;
+
+		peer = __dev_get_by_index(dev_net(dev), iflink);
+		if (!peer)
+			return IF_OPER_DOWN;
+
+		return netif_carrier_ok(peer) ? IF_OPER_DOWN :
+						IF_OPER_LOWERLAYERDOWN;
+	}
 
 	if (netif_dormant(dev))
 		return IF_OPER_DORMANT;
@@ -55,7 +70,7 @@ static void rfc2863_policy(struct net_device *dev)
 	if (operstate == dev->operstate)
 		return;
 
-	write_lock_bh(&dev_base_lock);
+	write_lock(&dev_base_lock);
 
 	switch(dev->link_mode) {
 	case IF_LINK_MODE_TESTING:
@@ -74,7 +89,7 @@ static void rfc2863_policy(struct net_device *dev)
 
 	dev->operstate = operstate;
 
-	write_unlock_bh(&dev_base_lock);
+	write_unlock(&dev_base_lock);
 }
 
 
@@ -109,7 +124,7 @@ static void linkwatch_add_event(struct net_device *dev)
 	spin_lock_irqsave(&lweventlist_lock, flags);
 	if (list_empty(&dev->link_watch_list)) {
 		list_add_tail(&dev->link_watch_list, &lweventlist);
-		dev_hold_track(dev, &dev->linkwatch_dev_tracker, GFP_ATOMIC);
+		netdev_hold(dev, &dev->linkwatch_dev_tracker, GFP_ATOMIC);
 	}
 	spin_unlock_irqrestore(&lweventlist_lock, flags);
 }
@@ -166,10 +181,10 @@ static void linkwatch_do_dev(struct net_device *dev)
 
 		netdev_state_change(dev);
 	}
-	/* Note: our callers are responsible for
-	 * calling netdev_tracker_free().
+	/* Note: our callers are responsible for calling netdev_tracker_free().
+	 * This is the reason we use __dev_put() instead of dev_put().
 	 */
-	dev_put(dev);
+	__dev_put(dev);
 }
 
 static void __linkwatch_run_queue(int urgent_only)

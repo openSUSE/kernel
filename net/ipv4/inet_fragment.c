@@ -133,6 +133,7 @@ static void inet_frags_free_cb(void *ptr, void *arg)
 	count = del_timer_sync(&fq->timer) ? 1 : 0;
 
 	spin_lock_bh(&fq->lock);
+	fq->flags |= INET_FRAG_DROP;
 	if (!(fq->flags & INET_FRAG_COMPLETE)) {
 		fq->flags |= INET_FRAG_COMPLETE;
 		count++;
@@ -235,9 +236,9 @@ void inet_frag_kill(struct inet_frag_queue *fq)
 		/* The RCU read lock provides a memory barrier
 		 * guaranteeing that if fqdir->dead is false then
 		 * the hash table destruction will not start until
-		 * after we unlock.  Paired with inet_frags_exit_net().
+		 * after we unlock.  Paired with fqdir_pre_exit().
 		 */
-		if (!fqdir->dead) {
+		if (!READ_ONCE(fqdir->dead)) {
 			rhashtable_remove_fast(&fqdir->rhashtable, &fq->node,
 					       fqdir->f->rhash_params);
 			refcount_dec(&fq->refcnt);
@@ -260,7 +261,8 @@ static void inet_frag_destroy_rcu(struct rcu_head *head)
 	kmem_cache_free(f->frags_cachep, q);
 }
 
-unsigned int inet_frag_rbtree_purge(struct rb_root *root)
+unsigned int inet_frag_rbtree_purge(struct rb_root *root,
+				    enum skb_drop_reason reason)
 {
 	struct rb_node *p = rb_first(root);
 	unsigned int sum = 0;
@@ -274,7 +276,7 @@ unsigned int inet_frag_rbtree_purge(struct rb_root *root)
 			struct sk_buff *next = FRAG_CB(skb)->next_frag;
 
 			sum += skb->truesize;
-			kfree_skb(skb);
+			kfree_skb_reason(skb, reason);
 			skb = next;
 		}
 	}
@@ -284,17 +286,21 @@ EXPORT_SYMBOL(inet_frag_rbtree_purge);
 
 void inet_frag_destroy(struct inet_frag_queue *q)
 {
-	struct fqdir *fqdir;
 	unsigned int sum, sum_truesize = 0;
+	enum skb_drop_reason reason;
 	struct inet_frags *f;
+	struct fqdir *fqdir;
 
 	WARN_ON(!(q->flags & INET_FRAG_COMPLETE));
+	reason = (q->flags & INET_FRAG_DROP) ?
+			SKB_DROP_REASON_FRAG_REASM_TIMEOUT :
+			SKB_CONSUMED;
 	WARN_ON(del_timer(&q->timer) != 0);
 
 	/* Release all fragment data. */
 	fqdir = q->fqdir;
 	f = fqdir->f;
-	sum_truesize = inet_frag_rbtree_purge(&q->rb_fragments);
+	sum_truesize = inet_frag_rbtree_purge(&q->rb_fragments, reason);
 	sum = sum_truesize + f->qsize;
 
 	call_rcu(&q->rcu, inet_frag_destroy_rcu);
@@ -352,9 +358,11 @@ static struct inet_frag_queue *inet_frag_create(struct fqdir *fqdir,
 /* TODO : call from rcu_read_lock() and no longer use refcount_inc_not_zero() */
 struct inet_frag_queue *inet_frag_find(struct fqdir *fqdir, void *key)
 {
+	/* This pairs with WRITE_ONCE() in fqdir_pre_exit(). */
+	long high_thresh = READ_ONCE(fqdir->high_thresh);
 	struct inet_frag_queue *fq = NULL, *prev;
 
-	if (!fqdir->high_thresh || frag_mem_limit(fqdir) > fqdir->high_thresh)
+	if (!high_thresh || frag_mem_limit(fqdir) > high_thresh)
 		return NULL;
 
 	rcu_read_lock();
@@ -508,7 +516,7 @@ EXPORT_SYMBOL(inet_frag_reasm_prepare);
 void inet_frag_reasm_finish(struct inet_frag_queue *q, struct sk_buff *head,
 			    void *reasm_data, bool try_coalesce)
 {
-	struct sk_buff **nextp = (struct sk_buff **)reasm_data;
+	struct sk_buff **nextp = reasm_data;
 	struct rb_node *rbn;
 	struct sk_buff *fp;
 	int sum_truesize;

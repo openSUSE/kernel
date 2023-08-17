@@ -7,7 +7,7 @@
  * Handles communication via requests as well as enabling, disabling, and
  * relaying of events.
  *
- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
+ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #include <linux/acpi.h>
@@ -22,6 +22,7 @@
 #include <linux/sysfs.h>
 
 #include <linux/surface_aggregator/controller.h>
+#include <linux/surface_aggregator/device.h>
 
 #include "bus.h"
 #include "controller.h"
@@ -301,19 +302,12 @@ static acpi_status ssam_serdev_setup_via_acpi_crs(struct acpi_resource *rsc,
 						  void *ctx)
 {
 	struct serdev_device *serdev = ctx;
-	struct acpi_resource_common_serialbus *serial;
 	struct acpi_resource_uart_serialbus *uart;
 	bool flow_control;
 	int status = 0;
 
-	if (rsc->type != ACPI_RESOURCE_TYPE_SERIAL_BUS)
+	if (!serdev_acpi_get_uart_resource(rsc, &uart))
 		return AE_OK;
-
-	serial = &rsc->data.common_serial_bus;
-	if (serial->type != ACPI_RESOURCE_SERIAL_TYPE_UART)
-		return AE_OK;
-
-	uart = &rsc->data.uart_serial_bus;
 
 	/* Set up serdev device. */
 	serdev_device_set_baudrate(serdev, uart->default_baud_rate);
@@ -742,7 +736,7 @@ static void ssam_serial_hub_remove(struct serdev_device *serdev)
 	ssam_controller_lock(ctrl);
 
 	/* Remove all client devices. */
-	ssam_controller_remove_clients(ctrl);
+	ssam_remove_clients(&serdev->dev);
 
 	/* Act as if suspending to silence events. */
 	status = ssam_ctrl_notif_display_off(ctrl);

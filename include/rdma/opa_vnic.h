@@ -51,7 +51,7 @@ static inline void *opa_vnic_dev_priv(const struct net_device *dev)
 	return oparn->dev_priv;
 }
 
-/* opa_vnic skb meta data structrue */
+/* opa_vnic skb meta data structure */
 struct opa_vnic_skb_mdata {
 	u8 vl;
 	u8 entropy;
@@ -90,8 +90,7 @@ struct opa_vnic_stats {
 
 static inline bool rdma_cap_opa_vnic(struct ib_device *device)
 {
-	return !!(device->attrs.device_cap_flags &
-		  IB_DEVICE_RDMA_NETDEV_OPA);
+	return !!(device->attrs.kernel_cap_flags & IBK_RDMA_NETDEV_OPA);
 }
 
 #endif /* _OPA_VNIC_H */

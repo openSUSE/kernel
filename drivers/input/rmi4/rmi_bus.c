@@ -90,6 +90,7 @@ int rmi_register_transport_device(struct rmi_transport_dev *xport)
 
 	rmi_dev->dev.bus = &rmi_bus_type;
 	rmi_dev->dev.type = &rmi_device_type;
+	rmi_dev->dev.parent = xport->dev;
 
 	xport->rmi_dev = rmi_dev;
 
@@ -284,7 +285,7 @@ void rmi_unregister_function(struct rmi_function *fn)
 }
 
 /**
- * rmi_register_function_handler - register a handler for an RMI function
+ * __rmi_register_function_handler - register a handler for an RMI function
  * @handler: RMI handler that should be registered.
  * @owner: pointer to module that implements the handler
  * @mod_name: name of the module implementing the handler

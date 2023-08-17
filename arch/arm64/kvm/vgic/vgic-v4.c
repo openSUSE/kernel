@@ -184,12 +184,13 @@ static void vgic_v4_disable_vsgis(struct kvm_vcpu *vcpu)
 	}
 }
 
-/* Must be called with the kvm lock held */
 void vgic_v4_configure_vsgis(struct kvm *kvm)
 {
 	struct vgic_dist *dist = &kvm->arch.vgic;
 	struct kvm_vcpu *vcpu;
-	int i;
+	unsigned long i;
+
+	lockdep_assert_held(&kvm->arch.config_lock);
 
 	kvm_arm_halt_guest(kvm);
 
@@ -232,15 +233,17 @@ int vgic_v4_request_vpe_irq(struct kvm_vcpu *vcpu, int irq)
  * @kvm:	Pointer to the VM being initialized
  *
  * We may be called each time a vITS is created, or when the
- * vgic is initialized. This relies on kvm->lock to be
- * held. In both cases, the number of vcpus should now be
- * fixed.
+ * vgic is initialized. In both cases, the number of vcpus
+ * should now be fixed.
  */
 int vgic_v4_init(struct kvm *kvm)
 {
 	struct vgic_dist *dist = &kvm->arch.vgic;
 	struct kvm_vcpu *vcpu;
-	int i, nr_vcpus, ret;
+	int nr_vcpus, ret;
+	unsigned long i;
+
+	lockdep_assert_held(&kvm->arch.config_lock);
 
 	if (!kvm_vgic_global_state.has_gicv4)
 		return 0; /* Nothing to see here... move along. */
@@ -251,7 +254,7 @@ int vgic_v4_init(struct kvm *kvm)
 	nr_vcpus = atomic_read(&kvm->online_vcpus);
 
 	dist->its_vm.vpes = kcalloc(nr_vcpus, sizeof(*dist->its_vm.vpes),
-				    GFP_KERNEL);
+				    GFP_KERNEL_ACCOUNT);
 	if (!dist->its_vm.vpes)
 		return -ENOMEM;
 
@@ -308,13 +311,13 @@ int vgic_v4_init(struct kvm *kvm)
 /**
  * vgic_v4_teardown - Free the GICv4 data structures
  * @kvm:	Pointer to the VM being destroyed
- *
- * Relies on kvm->lock to be held.
  */
 void vgic_v4_teardown(struct kvm *kvm)
 {
 	struct its_vm *its_vm = &kvm->arch.vgic.its_vm;
 	int i;
+
+	lockdep_assert_held(&kvm->arch.config_lock);
 
 	if (!its_vm->vpes)
 		return;
@@ -333,14 +336,14 @@ void vgic_v4_teardown(struct kvm *kvm)
 	its_vm->vpes = NULL;
 }
 
-int vgic_v4_put(struct kvm_vcpu *vcpu, bool need_db)
+int vgic_v4_put(struct kvm_vcpu *vcpu)
 {
 	struct its_vpe *vpe = &vcpu->arch.vgic_cpu.vgic_v3.its_vpe;
 
 	if (!vgic_supports_direct_msis(vcpu->kvm) || !vpe->resident)
 		return 0;
 
-	return its_make_vpe_non_resident(vpe, need_db);
+	return its_make_vpe_non_resident(vpe, !!vcpu_get_flag(vcpu, IN_WFI));
 }
 
 int vgic_v4_load(struct kvm_vcpu *vcpu)
@@ -349,6 +352,9 @@ int vgic_v4_load(struct kvm_vcpu *vcpu)
 	int err;
 
 	if (!vgic_supports_direct_msis(vcpu->kvm) || vpe->resident)
+		return 0;
+
+	if (vcpu_get_flag(vcpu, IN_WFI))
 		return 0;
 
 	/*

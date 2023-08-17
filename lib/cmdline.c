@@ -218,7 +218,6 @@ bool parse_option_str(const char *str, const char *option)
 
 	return false;
 }
-EXPORT_SYMBOL_GPL(parse_option_str);
 
 /*
  * Parse a string to get a param value pair.
@@ -261,7 +260,7 @@ char *next_arg(char *args, char **param, char **val)
 				args[i-1] = '\0';
 		}
 	}
-	if (quoted && args[i-1] == '"')
+	if (quoted && i > 0 && args[i-1] == '"')
 		args[i-1] = '\0';
 
 	if (args[i]) {

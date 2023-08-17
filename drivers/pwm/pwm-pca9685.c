@@ -431,8 +431,8 @@ static int pca9685_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 	return ret;
 }
 
-static void pca9685_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
-				  struct pwm_state *state)
+static int pca9685_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
+				 struct pwm_state *state)
 {
 	struct pca9685 *pca = to_pca(chip);
 	unsigned long long duty;
@@ -458,12 +458,14 @@ static void pca9685_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 		 */
 		state->duty_cycle = 0;
 		state->enabled = false;
-		return;
+		return 0;
 	}
 
 	state->enabled = true;
 	duty = pca9685_pwm_get_duty(pca, pwm->hwpwm);
 	state->duty_cycle = DIV_ROUND_DOWN_ULL(duty * state->period, PCA9685_COUNTER_RANGE);
+
+	return 0;
 }
 
 static int pca9685_pwm_request(struct pwm_chip *chip, struct pwm_device *pwm)
@@ -513,8 +515,7 @@ static const struct regmap_config pca9685_regmap_i2c_config = {
 	.cache_type = REGCACHE_NONE,
 };
 
-static int pca9685_pwm_probe(struct i2c_client *client,
-				const struct i2c_device_id *id)
+static int pca9685_pwm_probe(struct i2c_client *client)
 {
 	struct pca9685 *pca;
 	unsigned int reg;
@@ -560,10 +561,10 @@ static int pca9685_pwm_probe(struct i2c_client *client,
 	pca9685_write_reg(pca, PCA9685_MODE1, reg);
 
 	/* Reset OFF/ON registers to POR default */
-	pca9685_write_reg(pca, PCA9685_ALL_LED_OFF_L, LED_FULL);
+	pca9685_write_reg(pca, PCA9685_ALL_LED_OFF_L, 0);
 	pca9685_write_reg(pca, PCA9685_ALL_LED_OFF_H, LED_FULL);
 	pca9685_write_reg(pca, PCA9685_ALL_LED_ON_L, 0);
-	pca9685_write_reg(pca, PCA9685_ALL_LED_ON_H, 0);
+	pca9685_write_reg(pca, PCA9685_ALL_LED_ON_H, LED_FULL);
 
 	pca->chip.ops = &pca9685_pwm_ops;
 	/* Add an extra channel for ALL_LED */
@@ -598,14 +599,11 @@ static int pca9685_pwm_probe(struct i2c_client *client,
 	return 0;
 }
 
-static int pca9685_pwm_remove(struct i2c_client *client)
+static void pca9685_pwm_remove(struct i2c_client *client)
 {
 	struct pca9685 *pca = i2c_get_clientdata(client);
-	int ret;
 
-	ret = pwmchip_remove(&pca->chip);
-	if (ret)
-		return ret;
+	pwmchip_remove(&pca->chip);
 
 	if (!pm_runtime_enabled(&client->dev)) {
 		/* Put chip in sleep state if runtime PM is disabled */
@@ -613,8 +611,6 @@ static int pca9685_pwm_remove(struct i2c_client *client)
 	}
 
 	pm_runtime_disable(&client->dev);
-
-	return 0;
 }
 
 static int __maybe_unused pca9685_pwm_runtime_suspend(struct device *dev)
@@ -669,7 +665,7 @@ static struct i2c_driver pca9685_i2c_driver = {
 		.of_match_table = of_match_ptr(pca9685_dt_ids),
 		.pm = &pca9685_pwm_pm,
 	},
-	.probe = pca9685_pwm_probe,
+	.probe_new = pca9685_pwm_probe,
 	.remove = pca9685_pwm_remove,
 	.id_table = pca9685_id,
 };

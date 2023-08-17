@@ -49,7 +49,7 @@
 #define N_OUTBUF	16
 #define N_INBUF		16
 
-#define __ALIGNED__ __attribute__((__aligned__(sizeof(long))))
+#define __ALIGNED__ __attribute__((__aligned__(L1_CACHE_BYTES)))
 
 static struct tty_driver *hvc_driver;
 static struct task_struct *hvc_task;
@@ -264,8 +264,8 @@ static void hvc_port_destruct(struct tty_port *port)
 
 static void hvc_check_console(int index)
 {
-	/* Already enabled, bail out */
-	if (hvc_console.flags & CON_ENABLED)
+	/* Already registered, bail out */
+	if (console_is_registered(&hvc_console))
 		return;
 
  	/* If this index is what the user requested, then register
@@ -376,7 +376,7 @@ static int hvc_open(struct tty_struct *tty, struct file * filp)
 		/* We are ready... raise DTR/RTS */
 		if (C_BAUD(tty))
 			if (hp->ops->dtr_rts)
-				hp->ops->dtr_rts(hp, 1);
+				hp->ops->dtr_rts(hp, true);
 		tty_port_set_initialized(&hp->port, true);
 	}
 
@@ -406,7 +406,7 @@ static void hvc_close(struct tty_struct *tty, struct file * filp)
 
 		if (C_HUPCL(tty))
 			if (hp->ops->dtr_rts)
-				hp->ops->dtr_rts(hp, 0);
+				hp->ops->dtr_rts(hp, false);
 
 		if (hp->ops->notifier_del)
 			hp->ops->notifier_del(hp, hp->data);
@@ -1021,9 +1021,10 @@ static int hvc_init(void)
 	int err;
 
 	/* We need more than hvc_count adapters due to hotplug additions. */
-	drv = alloc_tty_driver(HVC_ALLOC_TTY_ADAPTERS);
-	if (!drv) {
-		err = -ENOMEM;
+	drv = tty_alloc_driver(HVC_ALLOC_TTY_ADAPTERS, TTY_DRIVER_REAL_RAW |
+			TTY_DRIVER_RESET_TERMIOS);
+	if (IS_ERR(drv)) {
+		err = PTR_ERR(drv);
 		goto out;
 	}
 
@@ -1033,7 +1034,6 @@ static int hvc_init(void)
 	drv->minor_start = HVC_MINOR;
 	drv->type = TTY_DRIVER_TYPE_SYSTEM;
 	drv->init_termios = tty_std_termios;
-	drv->flags = TTY_DRIVER_REAL_RAW | TTY_DRIVER_RESET_TERMIOS;
 	tty_set_operations(drv, &hvc_ops);
 
 	/* Always start the kthread because there can be hotplug vty adapters

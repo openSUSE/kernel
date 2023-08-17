@@ -30,6 +30,7 @@
 #include "dc_dmub_srv.h"
 
 #include "dml/dcn30/dcn30_fpu.h"
+#include "dc_trace.h"
 
 #define REG(reg)\
 	optc1->tg_regs->reg
@@ -58,6 +59,8 @@ void optc3_triplebuffer_lock(struct timing_generator *optc)
 		REG_WAIT(OTG_MASTER_UPDATE_LOCK,
 				UPDATE_LOCK_STATUS, 1,
 				1, 10);
+
+	TRACE_OPTC_LOCK_UNLOCK_STATE(optc1, optc->inst, true);
 }
 
 void optc3_lock_doublebuffer_enable(struct timing_generator *optc)
@@ -93,6 +96,8 @@ void optc3_lock_doublebuffer_enable(struct timing_generator *optc)
 		MASTER_UPDATE_LOCK_VUPDATE_KEEPOUT_START_OFFSET, 0,
 		MASTER_UPDATE_LOCK_VUPDATE_KEEPOUT_END_OFFSET, 100,
 		OTG_MASTER_UPDATE_LOCK_VUPDATE_KEEPOUT_EN, 1);
+
+	TRACE_OPTC_LOCK_UNLOCK_STATE(optc1, optc->inst, true);
 }
 
 void optc3_lock_doublebuffer_disable(struct timing_generator *optc)
@@ -108,6 +113,8 @@ void optc3_lock_doublebuffer_disable(struct timing_generator *optc)
 
 	REG_UPDATE(OTG_GLOBAL_CONTROL2, GLOBAL_UPDATE_LOCK_EN, 0);
 	REG_UPDATE(OTG_GLOBAL_CONTROL0, MASTER_UPDATE_LOCK_DB_EN, 0);
+
+	TRACE_OPTC_LOCK_UNLOCK_STATE(optc1, optc->inst, true);
 }
 
 void optc3_lock(struct timing_generator *optc)
@@ -122,6 +129,8 @@ void optc3_lock(struct timing_generator *optc)
 	REG_WAIT(OTG_MASTER_UPDATE_LOCK,
 			UPDATE_LOCK_STATUS, 1,
 			1, 10);
+
+	TRACE_OPTC_LOCK_UNLOCK_STATE(optc1, optc->inst, true);
 }
 
 void optc3_set_out_mux(struct timing_generator *optc, enum otg_out_mux_dest dest)
@@ -282,7 +291,7 @@ static void optc3_set_timing_double_buffer(struct timing_generator *optc, bool e
 		   OTG_DRR_TIMING_DBUF_UPDATE_MODE, mode);
 }
 
-void optc3_wait_drr_doublebuffer_pending_clear(struct timing_generator *optc)
+static void optc3_wait_drr_doublebuffer_pending_clear(struct timing_generator *optc)
 {
 	struct optc *optc1 = DCN10TG_FROM_TG(optc);
 
@@ -292,7 +301,12 @@ void optc3_wait_drr_doublebuffer_pending_clear(struct timing_generator *optc)
 
 void optc3_set_vtotal_min_max(struct timing_generator *optc, int vtotal_min, int vtotal_max)
 {
-	optc1_set_vtotal_min_max(optc, vtotal_min, vtotal_max);
+	struct dc *dc = optc->ctx->dc;
+
+	if (dc->caps.dmub_caps.mclk_sw && !dc->debug.disable_fams)
+		dc_dmub_srv_drr_update_cmd(dc, optc->inst, vtotal_min, vtotal_max);
+	else
+		optc1_set_vtotal_min_max(optc, vtotal_min, vtotal_max);
 }
 
 void optc3_tg_init(struct timing_generator *optc)

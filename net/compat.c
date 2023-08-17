@@ -34,20 +34,15 @@
 #include <net/compat.h>
 
 int __get_compat_msghdr(struct msghdr *kmsg,
-			struct compat_msghdr __user *umsg,
-			struct sockaddr __user **save_addr,
-			compat_uptr_t *ptr, compat_size_t *len)
+			struct compat_msghdr *msg,
+			struct sockaddr __user **save_addr)
 {
-	struct compat_msghdr msg;
 	ssize_t err;
 
-	if (copy_from_user(&msg, umsg, sizeof(*umsg)))
-		return -EFAULT;
+	kmsg->msg_flags = msg->msg_flags;
+	kmsg->msg_namelen = msg->msg_namelen;
 
-	kmsg->msg_flags = msg.msg_flags;
-	kmsg->msg_namelen = msg.msg_namelen;
-
-	if (!msg.msg_name)
+	if (!msg->msg_name)
 		kmsg->msg_namelen = 0;
 
 	if (kmsg->msg_namelen < 0)
@@ -57,15 +52,16 @@ int __get_compat_msghdr(struct msghdr *kmsg,
 		kmsg->msg_namelen = sizeof(struct sockaddr_storage);
 
 	kmsg->msg_control_is_user = true;
-	kmsg->msg_control_user = compat_ptr(msg.msg_control);
-	kmsg->msg_controllen = msg.msg_controllen;
+	kmsg->msg_get_inq = 0;
+	kmsg->msg_control_user = compat_ptr(msg->msg_control);
+	kmsg->msg_controllen = msg->msg_controllen;
 
 	if (save_addr)
-		*save_addr = compat_ptr(msg.msg_name);
+		*save_addr = compat_ptr(msg->msg_name);
 
-	if (msg.msg_name && kmsg->msg_namelen) {
+	if (msg->msg_name && kmsg->msg_namelen) {
 		if (!save_addr) {
-			err = move_addr_to_kernel(compat_ptr(msg.msg_name),
+			err = move_addr_to_kernel(compat_ptr(msg->msg_name),
 						  kmsg->msg_namelen,
 						  kmsg->msg_name);
 			if (err < 0)
@@ -76,12 +72,11 @@ int __get_compat_msghdr(struct msghdr *kmsg,
 		kmsg->msg_namelen = 0;
 	}
 
-	if (msg.msg_iovlen > UIO_MAXIOV)
+	if (msg->msg_iovlen > UIO_MAXIOV)
 		return -EMSGSIZE;
 
 	kmsg->msg_iocb = NULL;
-	*ptr = msg.msg_iov;
-	*len = msg.msg_iovlen;
+	kmsg->msg_ubuf = NULL;
 	return 0;
 }
 
@@ -90,15 +85,18 @@ int get_compat_msghdr(struct msghdr *kmsg,
 		      struct sockaddr __user **save_addr,
 		      struct iovec **iov)
 {
-	compat_uptr_t ptr;
-	compat_size_t len;
+	struct compat_msghdr msg;
 	ssize_t err;
 
-	err = __get_compat_msghdr(kmsg, umsg, save_addr, &ptr, &len);
+	if (copy_from_user(&msg, umsg, sizeof(*umsg)))
+		return -EFAULT;
+
+	err = __get_compat_msghdr(kmsg, &msg, save_addr);
 	if (err)
 		return err;
 
-	err = import_iovec(save_addr ? READ : WRITE, compat_ptr(ptr), len,
+	err = import_iovec(save_addr ? ITER_DEST : ITER_SOURCE,
+			   compat_ptr(msg.msg_iov), msg.msg_iovlen,
 			   UIO_FASTIOV, iov, &kmsg->msg_iter);
 	return err < 0 ? err : 0;
 }
@@ -115,7 +113,7 @@ int get_compat_msghdr(struct msghdr *kmsg,
 
 #define CMSG_COMPAT_FIRSTHDR(msg)			\
 	(((msg)->msg_controllen) >= sizeof(struct compat_cmsghdr) ?	\
-	 (struct compat_cmsghdr __user *)((msg)->msg_control) :		\
+	 (struct compat_cmsghdr __user *)((msg)->msg_control_user) :	\
 	 (struct compat_cmsghdr __user *)NULL)
 
 #define CMSG_COMPAT_OK(ucmlen, ucmsg, mhdr) \
@@ -128,7 +126,7 @@ static inline struct compat_cmsghdr __user *cmsg_compat_nxthdr(struct msghdr *ms
 		struct compat_cmsghdr __user *cmsg, int cmsg_len)
 {
 	char __user *ptr = (char __user *)cmsg + CMSG_COMPAT_ALIGN(cmsg_len);
-	if ((unsigned long)(ptr + 1 - (char __user *)msg->msg_control) >
+	if ((unsigned long)(ptr + 1 - (char __user *)msg->msg_control_user) >
 			msg->msg_controllen)
 		return NULL;
 	return (struct compat_cmsghdr __user *)ptr;
@@ -213,6 +211,7 @@ int cmsghdr_from_user_compat_to_kern(struct msghdr *kmsg, struct sock *sk,
 		goto Einval;
 
 	/* Ok, looks like we made it.  Hook it up and return success. */
+	kmsg->msg_control_is_user = false;
 	kmsg->msg_control = kcmsg_base;
 	kmsg->msg_controllen = kcmlen;
 	return 0;
@@ -227,7 +226,7 @@ Efault:
 
 int put_cmsg_compat(struct msghdr *kmsg, int level, int type, int len, void *data)
 {
-	struct compat_cmsghdr __user *cm = (struct compat_cmsghdr __user *) kmsg->msg_control;
+	struct compat_cmsghdr __user *cm = (struct compat_cmsghdr __user *) kmsg->msg_control_user;
 	struct compat_cmsghdr cmhdr;
 	struct old_timeval32 ctv;
 	struct old_timespec32 cts[3];
@@ -276,7 +275,7 @@ int put_cmsg_compat(struct msghdr *kmsg, int level, int type, int len, void *dat
 	cmlen = CMSG_COMPAT_SPACE(len);
 	if (kmsg->msg_controllen < cmlen)
 		cmlen = kmsg->msg_controllen;
-	kmsg->msg_control += cmlen;
+	kmsg->msg_control_user += cmlen;
 	kmsg->msg_controllen -= cmlen;
 	return 0;
 }
@@ -291,7 +290,7 @@ static int scm_max_fds_compat(struct msghdr *msg)
 void scm_detach_fds_compat(struct msghdr *msg, struct scm_cookie *scm)
 {
 	struct compat_cmsghdr __user *cm =
-		(struct compat_cmsghdr __user *)msg->msg_control;
+		(struct compat_cmsghdr __user *)msg->msg_control_user;
 	unsigned int o_flags = (msg->msg_flags & MSG_CMSG_CLOEXEC) ? O_CLOEXEC : 0;
 	int fdmax = min_t(int, scm_max_fds_compat(msg), scm->fp->count);
 	int __user *cmsg_data = CMSG_COMPAT_DATA(cm);
@@ -315,7 +314,7 @@ void scm_detach_fds_compat(struct msghdr *msg, struct scm_cookie *scm)
 			cmlen = CMSG_COMPAT_SPACE(i * sizeof(int));
 			if (msg->msg_controllen < cmlen)
 				cmlen = msg->msg_controllen;
-			msg->msg_control += cmlen;
+			msg->msg_control_user += cmlen;
 			msg->msg_controllen -= cmlen;
 		}
 	}

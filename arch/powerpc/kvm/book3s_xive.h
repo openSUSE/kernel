@@ -97,6 +97,9 @@ struct kvmppc_xive_ops {
 	int (*reset_mapped)(struct kvm *kvm, unsigned long guest_irq);
 };
 
+#define KVMPPC_XIVE_FLAG_SINGLE_ESCALATION 0x1
+#define KVMPPC_XIVE_FLAG_SAVE_RESTORE 0x2
+
 struct kvmppc_xive {
 	struct kvm *kvm;
 	struct kvm_device *dev;
@@ -133,7 +136,7 @@ struct kvmppc_xive {
 	u32	q_page_order;
 
 	/* Flags */
-	u8	single_escalation;
+	u8	flags;
 
 	/* Number of entries in the VP block */
 	u32	nr_servers;
@@ -196,7 +199,7 @@ struct kvmppc_xive_vcpu {
 static inline struct kvm_vcpu *kvmppc_xive_find_server(struct kvm *kvm, u32 nr)
 {
 	struct kvm_vcpu *vcpu = NULL;
-	int i;
+	unsigned long i;
 
 	kvm_for_each_vcpu(i, vcpu, kvm) {
 		if (vcpu->arch.xive_vcpu && nr == vcpu->arch.xive_vcpu->server_num)
@@ -237,7 +240,7 @@ static inline u32 kvmppc_xive_vp(struct kvmppc_xive *xive, u32 server)
 static inline bool kvmppc_xive_vp_in_use(struct kvm *kvm, u32 vp_id)
 {
 	struct kvm_vcpu *vcpu = NULL;
-	int i;
+	unsigned long i;
 
 	kvm_for_each_vcpu(i, vcpu, kvm) {
 		if (vcpu->arch.xive_vcpu && vp_id == vcpu->arch.xive_vcpu->vp_id)
@@ -282,13 +285,6 @@ static inline u32 __xive_read_eq(__be32 *qpage, u32 msk, u32 *idx, u32 *toggle)
 	return cur & 0x7fffffff;
 }
 
-extern unsigned long xive_rm_h_xirr(struct kvm_vcpu *vcpu);
-extern unsigned long xive_rm_h_ipoll(struct kvm_vcpu *vcpu, unsigned long server);
-extern int xive_rm_h_ipi(struct kvm_vcpu *vcpu, unsigned long server,
-			 unsigned long mfrr);
-extern int xive_rm_h_cppr(struct kvm_vcpu *vcpu, unsigned long cppr);
-extern int xive_rm_h_eoi(struct kvm_vcpu *vcpu, unsigned long xirr);
-
 /*
  * Common Xive routines for XICS-over-XIVE and XIVE native
  */
@@ -303,10 +299,15 @@ int kvmppc_xive_select_target(struct kvm *kvm, u32 *server, u8 prio);
 int kvmppc_xive_attach_escalation(struct kvm_vcpu *vcpu, u8 prio,
 				  bool single_escalation);
 struct kvmppc_xive *kvmppc_xive_get_device(struct kvm *kvm, u32 type);
-void xive_cleanup_single_escalation(struct kvm_vcpu *vcpu,
-				    struct kvmppc_xive_vcpu *xc, int irq);
+void xive_cleanup_single_escalation(struct kvm_vcpu *vcpu, int irq);
 int kvmppc_xive_compute_vp_id(struct kvmppc_xive *xive, u32 cpu, u32 *vp);
 int kvmppc_xive_set_nr_servers(struct kvmppc_xive *xive, u64 addr);
+bool kvmppc_xive_check_save_restore(struct kvm_vcpu *vcpu);
+
+static inline bool kvmppc_xive_has_single_escalation(struct kvmppc_xive *xive)
+{
+	return xive->flags & KVMPPC_XIVE_FLAG_SINGLE_ESCALATION;
+}
 
 #endif /* CONFIG_KVM_XICS */
 #endif /* _KVM_PPC_BOOK3S_XICS_H */

@@ -16,11 +16,11 @@
 
 	/* Power supply provides a fixed 3.3V @3A */
 	vmmcsd_fixed: vmmcsd-regulator {
-	      compatible = "regulator-fixed";
-	      regulator-name = "vmmcsd_fixed";
-	      regulator-min-microvolt = <3300000>;
-	      regulator-max-microvolt = <3300000>;
-	      regulator-boot-on;
+		compatible = "regulator-fixed";
+		regulator-name = "vmmcsd_fixed";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
 	};
 
 	buttons: push_button {
@@ -122,24 +122,24 @@
 	regulator-max-microvolt = <5000000>;
 };
 
-&mac {
+&mac_sw {
 	pinctrl-names = "default";
 	pinctrl-0 = <&cpsw_default>;
 	status = "okay";
 };
 
-&davinci_mdio {
+&davinci_mdio_sw {
 	pinctrl-names = "default";
 	pinctrl-0 = <&davinci_mdio_default>;
 	status = "okay";
 };
 
-&cpsw_emac0 {
-	status = "okay";
+&cpsw_port1 {
+	ti,dual-emac-pvid = <1>;
 };
 
-&cpsw_emac1 {
-	status = "okay";
+&cpsw_port2 {
+	ti,dual-emac-pvid = <2>;
 };
 
 &sham {
@@ -166,10 +166,8 @@
 &buttons {
 	pinctrl-names = "default";
 	pinctrl-0 = <&push_button_pins>;
-	#address-cells = <1>;
-	#size-cells = <0>;
 
-	button@0 {
+	button-0 {
 		label = "push_button";
 		linux,code = <0x100>;
 		gpios = <&gpio2 23 GPIO_ACTIVE_LOW>;
@@ -182,7 +180,7 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&spi0_pins>;
 
-	m25p80@0 {
+	flash@0 {
 		compatible = "mx25l6405d";
 		spi-max-frequency = <40000000>;
 

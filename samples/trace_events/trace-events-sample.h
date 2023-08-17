@@ -141,6 +141,27 @@
  *         In most cases, the __assign_str() macro will take the same
  *         parameters as the __string() macro had to declare the string.
  *
+ *   __vstring: This is similar to __string() but instead of taking a
+ *         dynamic length, it takes a variable list va_list 'va' variable.
+ *         Some event callers already have a message from parameters saved
+ *         in a va_list. Passing in the format and the va_list variable
+ *         will save just enough on the ring buffer for that string.
+ *         Note, the va variable used is a pointer to a va_list, not
+ *         to the va_list directly.
+ *
+ *           (va_list *va)
+ *
+ *         __vstring(foo, fmt, va)  is similar to:  vsnprintf(foo, fmt, va)
+ *
+ *         To assign the string, use the helper macro __assign_vstr().
+ *
+ *         __assign_vstr(foo, fmt, va);
+ *
+ *         In most cases, the __assign_vstr() macro will take the same
+ *         parameters as the __vstring() macro had to declare the string.
+ *         Use __get_str() to retrieve the __vstring() just like it would for
+ *         __string().
+ *
  *   __string_len: This is a helper to a __dynamic_array, but it understands
  *	   that the array has characters in it, and with the combined
  *         use of __assign_str_len(), it will allocate 'len' + 1 bytes
@@ -179,6 +200,16 @@
  *
  *         __assign_bitmask(target_cpus, cpumask_bits(bar), nr_cpumask_bits);
  *
+ *   __cpumask: This is pretty much the same as __bitmask but is specific for
+ *         CPU masks. The type displayed to the user via the format files will
+ *         be "cpumaks_t" such that user space may deal with them differently
+ *         if they choose to do so, and the bits is always set to nr_cpumask_bits.
+ *
+ *         __cpumask(target_cpu)
+ *
+ *         To assign a cpumask, use the __assign_cpumask() helper macro.
+ *
+ *         __assign_cpumask(target_cpus, cpumask_bits(bar));
  *
  * fast_assign: This is a C like function that is used to store the items
  *    into the ring buffer. A special variable called "__entry" will be the
@@ -191,8 +222,8 @@
  *    This is also used to print out the data from the trace files.
  *    Again, the __entry macro is used to access the data from the ring buffer.
  *
- *    Note, __dynamic_array, __string, and __bitmask require special helpers
- *       to access the data.
+ *    Note, __dynamic_array, __string, __bitmask and __cpumask require special
+ *       helpers to access the data.
  *
  *      For __dynamic_array(int, foo, bar) use __get_dynamic_array(foo)
  *            Use __get_dynamic_array_len(foo) to get the length of the array
@@ -204,6 +235,8 @@
  *      For __string(foo, bar) use __get_str(foo)
  *
  *      For __bitmask(target_cpus, nr_cpumask_bits) use __get_bitmask(target_cpus)
+ *
+ *      For __cpumask(target_cpus) use __get_cpumask(target_cpus)
  *
  *
  * Note, that for both the assign and the printk, __entry is the handler
@@ -256,9 +289,10 @@ TRACE_DEFINE_ENUM(TRACE_SAMPLE_ZOO);
 TRACE_EVENT(foo_bar,
 
 	TP_PROTO(const char *foo, int bar, const int *lst,
-		 const char *string, const struct cpumask *mask),
+		 const char *string, const struct cpumask *mask,
+		 const char *fmt, va_list *va),
 
-	TP_ARGS(foo, bar, lst, string, mask),
+	TP_ARGS(foo, bar, lst, string, mask, fmt, va),
 
 	TP_STRUCT__entry(
 		__array(	char,	foo,    10		)
@@ -266,6 +300,8 @@ TRACE_EVENT(foo_bar,
 		__dynamic_array(int,	list,   __length_of(lst))
 		__string(	str,	string			)
 		__bitmask(	cpus,	num_possible_cpus()	)
+		__cpumask(	cpum				)
+		__vstring(	vstr,	fmt,	va		)
 	),
 
 	TP_fast_assign(
@@ -274,10 +310,12 @@ TRACE_EVENT(foo_bar,
 		memcpy(__get_dynamic_array(list), lst,
 		       __length_of(lst) * sizeof(int));
 		__assign_str(str, string);
+		__assign_vstr(vstr, fmt, va);
 		__assign_bitmask(cpus, cpumask_bits(mask), num_possible_cpus());
+		__assign_cpumask(cpum, cpumask_bits(mask));
 	),
 
-	TP_printk("foo %s %d %s %s %s %s (%s)", __entry->foo, __entry->bar,
+	TP_printk("foo %s %d %s %s %s %s (%s) (%s) %s", __entry->foo, __entry->bar,
 
 /*
  * Notice here the use of some helper functions. This includes:
@@ -321,7 +359,8 @@ TRACE_EVENT(foo_bar,
 		  __print_array(__get_dynamic_array(list),
 				__get_dynamic_array_len(list) / sizeof(int),
 				sizeof(int)),
-		  __get_str(str), __get_bitmask(cpus))
+		  __get_str(str), __get_bitmask(cpus), __get_cpumask(cpum),
+		  __get_str(vstr))
 );
 
 /*
@@ -506,6 +545,42 @@ DEFINE_EVENT_PRINT(foo_template, foo_with_template_print,
 	TP_ARGS(foo, bar),
 	TP_printk("bar %s %d", __get_str(foo), __entry->bar));
 
+/*
+ * There are yet another __rel_loc dynamic data attribute. If you
+ * use __rel_dynamic_array() and __rel_string() etc. macros, you
+ * can use this attribute. There is no difference from the viewpoint
+ * of functionality with/without 'rel' but the encoding is a bit
+ * different. This is expected to be used with user-space event,
+ * there is no reason that the kernel event use this, but only for
+ * testing.
+ */
+
+TRACE_EVENT(foo_rel_loc,
+
+	TP_PROTO(const char *foo, int bar, unsigned long *mask, const cpumask_t *cpus),
+
+	TP_ARGS(foo, bar, mask, cpus),
+
+	TP_STRUCT__entry(
+		__rel_string(	foo,	foo	)
+		__field(	int,	bar	)
+		__rel_bitmask(	bitmask,
+			BITS_PER_BYTE * sizeof(unsigned long)	)
+		__rel_cpumask(	cpumask )
+	),
+
+	TP_fast_assign(
+		__assign_rel_str(foo, foo);
+		__entry->bar = bar;
+		__assign_rel_bitmask(bitmask, mask,
+			BITS_PER_BYTE * sizeof(unsigned long));
+		__assign_rel_cpumask(cpumask, cpus);
+	),
+
+	TP_printk("foo_rel_loc %s, %d, %s, %s", __get_rel_str(foo), __entry->bar,
+		  __get_rel_bitmask(bitmask),
+		  __get_rel_cpumask(cpumask))
+);
 #endif
 
 /***** NOTICE! The #if protection ends here. *****/

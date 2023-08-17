@@ -97,7 +97,10 @@ static struct snd_soc_dai_link at91sam9g20ek_dai = {
 	.stream_name = "WM8731 PCM",
 	.init = at91sam9g20ek_wm8731_init,
 	.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF |
-		   SND_SOC_DAIFMT_CBM_CFM,
+		   SND_SOC_DAIFMT_CBP_CFP,
+#ifndef ENABLE_MIC_INPUT
+	.playback_only = true,
+#endif
 	SND_SOC_DAILINK_REG(pcm),
 };
 
@@ -127,8 +130,8 @@ static int at91sam9g20ek_audio_probe(struct platform_device *pdev)
 
 	ret = atmel_ssc_set_audio(0);
 	if (ret) {
-		dev_err(&pdev->dev, "ssc channel is not valid\n");
-		return -EINVAL;
+		dev_err(&pdev->dev, "ssc channel is not valid: %d\n", ret);
+		return ret;
 	}
 
 	card->dev = &pdev->dev;
@@ -148,7 +151,8 @@ static int at91sam9g20ek_audio_probe(struct platform_device *pdev)
 	codec_np = of_parse_phandle(np, "atmel,audio-codec", 0);
 	if (!codec_np) {
 		dev_err(&pdev->dev, "codec info missing\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err;
 	}
 	at91sam9g20ek_dai.codecs->of_node = codec_np;
 
@@ -159,7 +163,8 @@ static int at91sam9g20ek_audio_probe(struct platform_device *pdev)
 	if (!cpu_np) {
 		dev_err(&pdev->dev, "dai and pcm info missing\n");
 		of_node_put(codec_np);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err;
 	}
 	at91sam9g20ek_dai.cpus->of_node = cpu_np;
 	at91sam9g20ek_dai.platforms->of_node = cpu_np;
@@ -169,24 +174,24 @@ static int at91sam9g20ek_audio_probe(struct platform_device *pdev)
 
 	ret = snd_soc_register_card(card);
 	if (ret) {
-		dev_err(&pdev->dev, "snd_soc_register_card() failed\n");
+		dev_err_probe(&pdev->dev, ret,
+			      "snd_soc_register_card() failed\n");
+		goto err;
 	}
 
-	return ret;
+	return 0;
 
 err:
 	atmel_ssc_put_audio(0);
 	return ret;
 }
 
-static int at91sam9g20ek_audio_remove(struct platform_device *pdev)
+static void at91sam9g20ek_audio_remove(struct platform_device *pdev)
 {
 	struct snd_soc_card *card = platform_get_drvdata(pdev);
 
 	snd_soc_unregister_card(card);
 	atmel_ssc_put_audio(0);
-
-	return 0;
 }
 
 #ifdef CONFIG_OF
@@ -203,7 +208,7 @@ static struct platform_driver at91sam9g20ek_audio_driver = {
 		.of_match_table = of_match_ptr(at91sam9g20ek_wm8731_dt_ids),
 	},
 	.probe	= at91sam9g20ek_audio_probe,
-	.remove	= at91sam9g20ek_audio_remove,
+	.remove_new = at91sam9g20ek_audio_remove,
 };
 
 module_platform_driver(at91sam9g20ek_audio_driver);

@@ -152,7 +152,7 @@ static int gru_assign_asid(struct gru_state *gru)
  * Optionally, build an array of chars that contain the bit numbers allocated.
  */
 static unsigned long reserve_resources(unsigned long *p, int n, int mmax,
-				       char *idx)
+				       signed char *idx)
 {
 	unsigned long bits = 0;
 	int i;
@@ -170,14 +170,14 @@ static unsigned long reserve_resources(unsigned long *p, int n, int mmax,
 }
 
 unsigned long gru_reserve_cb_resources(struct gru_state *gru, int cbr_au_count,
-				       char *cbmap)
+				       signed char *cbmap)
 {
 	return reserve_resources(&gru->gs_cbr_map, cbr_au_count, GRU_CBR_AU,
 				 cbmap);
 }
 
 unsigned long gru_reserve_ds_resources(struct gru_state *gru, int dsr_au_count,
-				       char *dsmap)
+				       signed char *dsmap)
 {
 	return reserve_resources(&gru->gs_dsr_map, dsr_au_count, GRU_DSR_AU,
 				 dsmap);
@@ -282,7 +282,7 @@ static void gru_unload_mm_tracker(struct gru_state *gru,
  */
 void gts_drop(struct gru_thread_state *gts)
 {
-	if (gts && atomic_dec_return(&gts->ts_refcnt) == 0) {
+	if (gts && refcount_dec_and_test(&gts->ts_refcnt)) {
 		if (gts->ts_gms)
 			gru_drop_mmu_notifier(gts->ts_gms);
 		kfree(gts);
@@ -323,7 +323,7 @@ struct gru_thread_state *gru_alloc_gts(struct vm_area_struct *vma,
 
 	STAT(gts_alloc);
 	memset(gts, 0, sizeof(struct gru_thread_state)); /* zero out header */
-	atomic_set(&gts->ts_refcnt, 1);
+	refcount_set(&gts->ts_refcnt, 1);
 	mutex_init(&gts->ts_ctxlock);
 	gts->ts_cbr_au_count = cbr_au_count;
 	gts->ts_dsr_au_count = dsr_au_count;
@@ -897,7 +897,7 @@ again:
 		gts->ts_gru = gru;
 		gts->ts_blade = gru->gs_blade_id;
 		gts->ts_ctxnum = gru_assign_context_number(gru);
-		atomic_inc(&gts->ts_refcnt);
+		refcount_inc(&gts->ts_refcnt);
 		gru->gs_gts[gts->ts_ctxnum] = gts;
 		spin_unlock(&gru->gs_lock);
 

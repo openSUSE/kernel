@@ -167,6 +167,7 @@ static struct snd_soc_dai_driver axi_spdif_dai = {
 
 static const struct snd_soc_component_driver axi_spdif_component = {
 	.name = "axi-spdif",
+	.legacy_dai_naming = 1,
 };
 
 static const struct regmap_config axi_spdif_regmap_config = {
@@ -238,13 +239,11 @@ err_clk_disable:
 	return ret;
 }
 
-static int axi_spdif_dev_remove(struct platform_device *pdev)
+static void axi_spdif_dev_remove(struct platform_device *pdev)
 {
 	struct axi_spdif *spdif = platform_get_drvdata(pdev);
 
 	clk_disable_unprepare(spdif->clk);
-
-	return 0;
 }
 
 static const struct of_device_id axi_spdif_of_match[] = {
@@ -259,7 +258,7 @@ static struct platform_driver axi_spdif_driver = {
 		.of_match_table = axi_spdif_of_match,
 	},
 	.probe = axi_spdif_probe,
-	.remove = axi_spdif_dev_remove,
+	.remove_new = axi_spdif_dev_remove,
 };
 module_platform_driver(axi_spdif_driver);
 

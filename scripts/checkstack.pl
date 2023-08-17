@@ -10,12 +10,12 @@
 #	Mips port by Juan Quintela <quintela@mandrakesoft.com>
 #	IA64 port via Andreas Dilger
 #	Arm port by Holger Schurig
-#	sh64 port by Paul Mundt
 #	Random bits by Matt Mackall <mpm@selenic.com>
 #	M68k port by Geert Uytterhoeven and Andreas Schwab
 #	AArch64, PARISC ports by Kyle McMartin
 #	sparc port by Martin Habets <errandir_news@mph.eclipse.co.uk>
 #	ppc64le port by Breno Leitao <leitao@debian.org>
+#	riscv port by Wadim Mueller <wafgo01@gmail.com>
 #
 #	Usage:
 #	objdump -d vmlinux | scripts/checkstack.pl [arch]
@@ -99,15 +99,12 @@ my (@stack, $re, $dre, $sub, $x, $xs, $funcre, $min_stack);
 		#  100092:	 e3 f0 ff c8 ff 71	 lay	 %r15,-56(%r15)
 		$re = qr/.*(?:lay|ag?hi).*\%r15,-(([0-9]{2}|[3-9])[0-9]{2})
 		      (?:\(\%r15\))?$/ox;
-	} elsif ($arch =~ /^sh64$/) {
-		#XXX: we only check for the immediate case presently,
-		#     though we will want to check for the movi/sub
-		#     pair for larger users. -- PFM.
-		#a00048e0:       d4fc40f0        addi.l  r15,-240,r15
-		$re = qr/.*addi\.l.*r15,-(([0-9]{2}|[3-9])[0-9]{2}),r15/o;
 	} elsif ($arch eq 'sparc' || $arch eq 'sparc64') {
 		# f0019d10:       9d e3 bf 90     save  %sp, -112, %sp
 		$re = qr/.*save.*%sp, -(([0-9]{2}|[3-9])[0-9]{2}), %sp/o;
+	} elsif ($arch =~ /^riscv(64)?$/) {
+		#ffffffff8036e868:	c2010113          	addi	sp,sp,-992
+		$re = qr/.*addi.*sp,sp,-(([0-9]{2}|[3-9])[0-9]{2})/o;
 	} else {
 		print("wrong or unknown architecture \"$arch\"\n");
 		exit

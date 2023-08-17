@@ -45,8 +45,7 @@ static const struct v4l2_subdev_ops uda1342_ops = {
 	.audio = &uda1342_audio_ops,
 };
 
-static int uda1342_probe(struct i2c_client *client,
-			     const struct i2c_device_id *id)
+static int uda1342_probe(struct i2c_client *client)
 {
 	struct i2c_adapter *adapter = client->adapter;
 	struct v4l2_subdev *sd;
@@ -72,12 +71,11 @@ static int uda1342_probe(struct i2c_client *client,
 	return 0;
 }
 
-static int uda1342_remove(struct i2c_client *client)
+static void uda1342_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 
 	v4l2_device_unregister_subdev(sd);
-	return 0;
 }
 
 static const struct i2c_device_id uda1342_id[] = {
@@ -90,7 +88,7 @@ static struct i2c_driver uda1342_driver = {
 	.driver = {
 		.name	= "uda1342",
 	},
-	.probe		= uda1342_probe,
+	.probe_new	= uda1342_probe,
 	.remove		= uda1342_remove,
 	.id_table	= uda1342_id,
 };

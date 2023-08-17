@@ -326,7 +326,6 @@ static void iproc_msi_handler(struct irq_desc *desc)
 	struct iproc_msi *msi;
 	u32 eq, head, tail, nr_events;
 	unsigned long hwirq;
-	int virq;
 
 	chained_irq_enter(chip, desc);
 
@@ -362,8 +361,7 @@ static void iproc_msi_handler(struct irq_desc *desc)
 		/* process all outstanding events */
 		while (nr_events--) {
 			hwirq = decode_msi_hwirq(msi, eq, head);
-			virq = irq_find_mapping(msi->inner_domain, hwirq);
-			generic_handle_irq(virq);
+			generic_handle_domain_irq(msi->inner_domain, hwirq);
 
 			head++;
 			head %= EQ_LEN;
@@ -591,8 +589,8 @@ int iproc_msi_init(struct iproc_pcie *pcie, struct device_node *node)
 		msi->has_inten_reg = true;
 
 	msi->nr_msi_vecs = msi->nr_irqs * EQ_LEN;
-	msi->bitmap = devm_kcalloc(pcie->dev, BITS_TO_LONGS(msi->nr_msi_vecs),
-				   sizeof(*msi->bitmap), GFP_KERNEL);
+	msi->bitmap = devm_bitmap_zalloc(pcie->dev, msi->nr_msi_vecs,
+					 GFP_KERNEL);
 	if (!msi->bitmap)
 		return -ENOMEM;
 

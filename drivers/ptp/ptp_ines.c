@@ -338,10 +338,6 @@ static int ines_hwtstamp(struct mii_timestamper *mii_ts, struct ifreq *ifr)
 	if (copy_from_user(&cfg, ifr->ifr_data, sizeof(cfg)))
 		return -EFAULT;
 
-	/* reserved for future extensions */
-	if (cfg.flags)
-		return -EINVAL;
-
 	switch (cfg.tx_type) {
 	case HWTSTAMP_TX_OFF:
 		ts_stat_tx = 0;
@@ -796,7 +792,7 @@ static struct platform_driver ines_ptp_ctrl_driver = {
 	.remove = ines_ptp_ctrl_remove,
 	.driver = {
 		.name = "ines_ptp_ctrl",
-		.of_match_table = of_match_ptr(ines_ptp_ctrl_of_match),
+		.of_match_table = ines_ptp_ctrl_of_match,
 	},
 };
 module_platform_driver(ines_ptp_ctrl_driver);

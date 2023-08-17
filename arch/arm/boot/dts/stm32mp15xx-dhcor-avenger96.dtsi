@@ -66,7 +66,6 @@
 		led4 {
 			label = "green:user3";
 			gpios = <&gpiog 1 GPIO_ACTIVE_HIGH>;
-			linux,default-trigger = "none";
 			default-state = "off";
 			panic-indicator;
 		};
@@ -88,7 +87,7 @@
 
 	sound {
 		compatible = "audio-graph-card";
-		label = "STM32MP1-AV96-HDMI";
+		label = "STM32-AV96-HDMI";
 		dais = <&sai2a_port>;
 		status = "okay";
 	};
@@ -126,6 +125,22 @@
 	};
 };
 
+&dcmi {
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&dcmi_pins_c>;
+	pinctrl-1 = <&dcmi_sleep_pins_c>;
+	status = "disabled";
+
+	port {
+		dcmi_0: endpoint {
+			remote-endpoint = <&stmipi_2>;
+			bus-type = <5>;
+			bus-width = <8>;
+			pclk-sample = <0>;
+		};
+	};
+};
+
 &ethernet0 {
 	status = "okay";
 	pinctrl-0 = <&ethernet0_rgmii_pins_c>;
@@ -135,7 +150,7 @@
 	max-speed = <1000>;
 	phy-handle = <&phy0>;
 
-	mdio0 {
+	mdio {
 		#address-cells = <1>;
 		#size-cells = <0>;
 		compatible = "snps,dwmac-mdio";
@@ -219,6 +234,45 @@
 };
 
 &i2c4 {
+	stmipi: stmipi@14 {
+		compatible = "st,st-mipid02";
+		pinctrl-names = "default", "sleep";
+		pinctrl-0 = <&mco1_pins_a>;
+		pinctrl-1 = <&mco1_sleep_pins_a>;
+		reg = <0x14>;
+		clocks = <&rcc CK_MCO1>;
+		clock-names = "xclk";
+		assigned-clocks = <&rcc CK_MCO1>;
+		assigned-clock-parents = <&rcc CK_HSE>;
+		assigned-clock-rates = <24000000>;
+		VDDE-supply = <&v1v8>;
+		VDDIN-supply = <&v1v8>;
+		reset-gpios = <&gpioz 0 GPIO_ACTIVE_LOW>;
+		status = "disabled";
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				stmipi_0: endpoint {
+				};
+			};
+
+			port@2 {
+				reg = <2>;
+				stmipi_2: endpoint {
+					bus-width = <8>;
+					hsync-active = <0>;
+					vsync-active = <0>;
+					pclk-sample = <0>;
+					remote-endpoint = <&dcmi_0>;
+				};
+			};
+		};
+	};
+
 	hdmi-transmitter@3d {
 		compatible = "adi,adv7513";
 		reg = <0x3d>, <0x4d>, <0x2d>, <0x5d>;
@@ -267,6 +321,12 @@
 			};
 		};
 	};
+
+	dh_mac_eeprom: eeprom@53 {
+		compatible = "atmel,24c02";
+		reg = <0x53>;
+		pagesize = <16>;
+	};
 };
 
 &ltdc {
@@ -304,7 +364,7 @@
 		sai2a_port: port {
 			sai2a_endpoint: endpoint {
 				remote-endpoint = <&adv7513_i2s0>;
-				format = "i2s";
+				dai-format = "i2s";
 				mclk-fs = <256>;
 			};
 		};
@@ -377,6 +437,8 @@
 	label = "LS-UART1";
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart4_pins_b>;
+	/delete-property/dmas;
+	/delete-property/dma-names;
 	status = "okay";
 };
 
@@ -386,6 +448,8 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart7_pins_a>;
 	uart-has-rtscts;
+	/delete-property/dmas;
+	/delete-property/dma-names;
 	status = "okay";
 };
 
@@ -395,6 +459,8 @@
 	pinctrl-0 = <&usart2_pins_a>;
 	pinctrl-1 = <&usart2_sleep_pins_a>;
 	st,hw-flow-ctrl;
+	/delete-property/dmas;
+	/delete-property/dma-names;
 	status = "okay";
 
 	bluetooth {

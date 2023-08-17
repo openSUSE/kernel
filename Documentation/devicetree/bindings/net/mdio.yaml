@@ -4,7 +4,7 @@
 $id: http://devicetree.org/schemas/net/mdio.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: MDIO Bus Generic Binding
+title: MDIO Bus Common Properties
 
 maintainers:
   - Andrew Lunn <andrew@lunn.ch>
@@ -59,7 +59,7 @@ properties:
     type: boolean
 
 patternProperties:
-  "^ethernet-phy@[0-9a-f]+$":
+  '@[0-9a-f]+$':
     type: object
 
     properties:
@@ -75,12 +75,6 @@ patternProperties:
           If set, indicates the MDIO device does not correctly release
           the turn around line low at end of the control phase of the
           MDIO transaction.
-
-      resets:
-        maxItems: 1
-
-      reset-names:
-        const: phy
 
       reset-gpios:
         maxItems: 1

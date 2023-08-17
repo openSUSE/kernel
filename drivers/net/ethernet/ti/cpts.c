@@ -213,25 +213,13 @@ static void cpts_update_cur_time(struct cpts *cpts, int match,
 
 /* PTP clock operations */
 
-static int cpts_ptp_adjfreq(struct ptp_clock_info *ptp, s32 ppb)
+static int cpts_ptp_adjfine(struct ptp_clock_info *ptp, long scaled_ppm)
 {
 	struct cpts *cpts = container_of(ptp, struct cpts, info);
-	int neg_adj = 0;
-	u32 diff, mult;
-	u64 adj;
-
-	if (ppb < 0) {
-		neg_adj = 1;
-		ppb = -ppb;
-	}
-	mult = cpts->cc_mult;
-	adj = mult;
-	adj *= ppb;
-	diff = div_u64(adj, 1000000000ULL);
 
 	mutex_lock(&cpts->ptp_clk_mutex);
 
-	cpts->mult_new = neg_adj ? mult - diff : mult + diff;
+	cpts->mult_new = adjust_by_scaled_ppm(cpts->cc_mult, scaled_ppm);
 
 	cpts_update_cur_time(cpts, CPTS_EV_PUSH, NULL);
 
@@ -435,7 +423,7 @@ static const struct ptp_clock_info cpts_info = {
 	.n_ext_ts	= 0,
 	.n_pins		= 0,
 	.pps		= 0,
-	.adjfreq	= cpts_ptp_adjfreq,
+	.adjfine	= cpts_ptp_adjfine,
 	.adjtime	= cpts_ptp_adjtime,
 	.gettimex64	= cpts_ptp_gettimeex,
 	.settime64	= cpts_ptp_settime,
@@ -671,10 +659,10 @@ static int cpts_of_mux_clk_setup(struct cpts *cpts, struct device_node *node)
 		goto mux_fail;
 	}
 
-	parent_names = devm_kzalloc(cpts->dev, (sizeof(char *) * num_parents),
-				    GFP_KERNEL);
+	parent_names = devm_kcalloc(cpts->dev, num_parents,
+				    sizeof(*parent_names), GFP_KERNEL);
 
-	mux_table = devm_kzalloc(cpts->dev, sizeof(*mux_table) * num_parents,
+	mux_table = devm_kcalloc(cpts->dev, num_parents, sizeof(*mux_table),
 				 GFP_KERNEL);
 	if (!mux_table || !parent_names) {
 		ret = -ENOMEM;
@@ -794,7 +782,7 @@ struct cpts *cpts_create(struct device *dev, void __iomem *regs,
 
 	cpts_calc_mult_shift(cpts);
 	/* save cc.mult original value as it can be modified
-	 * by cpts_ptp_adjfreq().
+	 * by cpts_ptp_adjfine().
 	 */
 	cpts->cc_mult = cpts->cc.mult;
 

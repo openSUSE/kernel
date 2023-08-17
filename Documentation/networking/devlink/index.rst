@@ -13,10 +13,8 @@ new APIs prefixed by ``devl_*``. The older APIs handle all the locking
 in devlink core, but don't allow registration of most sub-objects once
 the main devlink object is itself registered. The newer ``devl_*`` APIs assume
 the devlink instance lock is already held. Drivers can take the instance
-lock by calling ``devl_lock()``. It is also held in most of the callbacks.
-Eventually all callbacks will be invoked under the devlink instance lock,
-refer to the use of the ``DEVLINK_NL_FLAG_NO_LOCK`` flag in devlink core
-to find out which callbacks are not converted, yet.
+lock by calling ``devl_lock()``. It is also held all callbacks of devlink
+netlink commands.
 
 Drivers are encouraged to use the devlink instance lock for their own needs.
 
@@ -52,6 +50,8 @@ parameters, info versions, and other features it supports.
    :maxdepth: 1
 
    bnxt
+   etas_es58x
+   hns3
    ionic
    ice
    mlx4
@@ -60,8 +60,10 @@ parameters, info versions, and other features it supports.
    mv88e6xxx
    netdevsim
    nfp
-   sja1105
    qed
    ti-cpsw-switch
    am65-nuss-cpsw-switch
    prestera
+   iosm
+   octeontx2
+   sfc

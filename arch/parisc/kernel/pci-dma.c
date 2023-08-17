@@ -36,8 +36,8 @@
 #include <asm/tlbflush.h>	/* for purge_tlb_*() macros */
 
 static struct proc_dir_entry * proc_gsc_root __read_mostly = NULL;
-static unsigned long pcxl_used_bytes __read_mostly = 0;
-static unsigned long pcxl_used_pages __read_mostly = 0;
+static unsigned long pcxl_used_bytes __read_mostly;
+static unsigned long pcxl_used_pages __read_mostly;
 
 extern unsigned long pcxl_dma_start; /* Start of pcxl dma mapping area */
 static DEFINE_SPINLOCK(pcxl_res_lock);
@@ -91,7 +91,7 @@ static inline int map_pte_uncached(pte_t * pte,
 			printk(KERN_ERR "map_pte_uncached: page already exists\n");
 		purge_tlb_start(flags);
 		set_pte(pte, __mk_pte(*paddr_ptr, PAGE_KERNEL_UNC));
-		pdtlb_kernel(orig_vaddr);
+		pdtlb(SR_KERNEL, orig_vaddr);
 		purge_tlb_end(flags);
 		vaddr += PAGE_SIZE;
 		orig_vaddr += PAGE_SIZE;
@@ -175,7 +175,7 @@ static inline void unmap_uncached_pte(pmd_t * pmd, unsigned long vaddr,
 
 		pte_clear(&init_mm, vaddr, pte);
 		purge_tlb_start(flags);
-		pdtlb_kernel(orig_vaddr);
+		pdtlb(SR_KERNEL, orig_vaddr);
 		purge_tlb_end(flags);
 		vaddr += PAGE_SIZE;
 		orig_vaddr += PAGE_SIZE;
@@ -446,11 +446,27 @@ void arch_dma_free(struct device *dev, size_t size, void *vaddr,
 void arch_sync_dma_for_device(phys_addr_t paddr, size_t size,
 		enum dma_data_direction dir)
 {
+	/*
+	 * fdc: The data cache line is written back to memory, if and only if
+	 * it is dirty, and then invalidated from the data cache.
+	 */
 	flush_kernel_dcache_range((unsigned long)phys_to_virt(paddr), size);
 }
 
 void arch_sync_dma_for_cpu(phys_addr_t paddr, size_t size,
 		enum dma_data_direction dir)
 {
-	flush_kernel_dcache_range((unsigned long)phys_to_virt(paddr), size);
+	unsigned long addr = (unsigned long) phys_to_virt(paddr);
+
+	switch (dir) {
+	case DMA_TO_DEVICE:
+	case DMA_BIDIRECTIONAL:
+		flush_kernel_dcache_range(addr, size);
+		return;
+	case DMA_FROM_DEVICE:
+		purge_kernel_dcache_range_asm(addr, addr + size);
+		return;
+	default:
+		BUG();
+	}
 }

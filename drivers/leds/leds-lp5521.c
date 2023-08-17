@@ -469,7 +469,7 @@ static ssize_t lp5521_selftest(struct device *dev,
 	ret = lp5521_run_selftest(chip, buf);
 	mutex_unlock(&chip->lock);
 
-	return scnprintf(buf, PAGE_SIZE, "%s\n", ret ? "FAIL" : "OK");
+	return sysfs_emit(buf, "%s\n", ret ? "FAIL" : "OK");
 }
 
 /* device attributes */
@@ -516,9 +516,9 @@ static struct lp55xx_device_config lp5521_cfg = {
 	.dev_attr_group     = &lp5521_group,
 };
 
-static int lp5521_probe(struct i2c_client *client,
-			const struct i2c_device_id *id)
+static int lp5521_probe(struct i2c_client *client)
 {
+	const struct i2c_device_id *id = i2c_client_get_device_id(client);
 	int ret;
 	struct lp55xx_chip *chip;
 	struct lp55xx_led *led;
@@ -579,7 +579,7 @@ err_init:
 	return ret;
 }
 
-static int lp5521_remove(struct i2c_client *client)
+static void lp5521_remove(struct i2c_client *client)
 {
 	struct lp55xx_led *led = i2c_get_clientdata(client);
 	struct lp55xx_chip *chip = led->chip;
@@ -587,8 +587,6 @@ static int lp5521_remove(struct i2c_client *client)
 	lp5521_stop_all_engines(chip);
 	lp55xx_unregister_sysfs(chip);
 	lp55xx_deinit_device(chip);
-
-	return 0;
 }
 
 static const struct i2c_device_id lp5521_id[] = {
@@ -610,7 +608,7 @@ static struct i2c_driver lp5521_driver = {
 		.name	= "lp5521",
 		.of_match_table = of_match_ptr(of_lp5521_leds_match),
 	},
-	.probe		= lp5521_probe,
+	.probe_new	= lp5521_probe,
 	.remove		= lp5521_remove,
 	.id_table	= lp5521_id,
 };

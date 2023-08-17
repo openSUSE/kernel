@@ -45,7 +45,7 @@ static struct i2c_driver fxls8962af_driver = {
 	.driver = {
 		   .name = "fxls8962af_i2c",
 		   .of_match_table = fxls8962af_of_match,
-		   .pm = &fxls8962af_pm_ops,
+		   .pm = pm_ptr(&fxls8962af_pm_ops),
 		   },
 	.probe_new = fxls8962af_probe,
 	.id_table = fxls8962af_id,
@@ -55,3 +55,4 @@ module_i2c_driver(fxls8962af_driver);
 MODULE_AUTHOR("Sean Nyekjaer <sean@geanix.com>");
 MODULE_DESCRIPTION("NXP FXLS8962AF/FXLS8964AF accelerometer i2c driver");
 MODULE_LICENSE("GPL v2");
+MODULE_IMPORT_NS(IIO_FXLS8962AF);

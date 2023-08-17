@@ -593,8 +593,7 @@ static int ziirave_wdt_init_duration(struct i2c_client *client)
 					 reset_duration);
 }
 
-static int ziirave_wdt_probe(struct i2c_client *client,
-			     const struct i2c_device_id *id)
+static int ziirave_wdt_probe(struct i2c_client *client)
 {
 	int ret;
 	struct ziirave_wdt_data *w_priv;
@@ -708,13 +707,11 @@ static int ziirave_wdt_probe(struct i2c_client *client,
 	return ret;
 }
 
-static int ziirave_wdt_remove(struct i2c_client *client)
+static void ziirave_wdt_remove(struct i2c_client *client)
 {
 	struct ziirave_wdt_data *w_priv = i2c_get_clientdata(client);
 
 	watchdog_unregister_device(&w_priv->wdd);
-
-	return 0;
 }
 
 static const struct i2c_device_id ziirave_wdt_id[] = {
@@ -734,7 +731,7 @@ static struct i2c_driver ziirave_wdt_driver = {
 		.name = "ziirave_wdt",
 		.of_match_table = zrv_wdt_of_match,
 	},
-	.probe = ziirave_wdt_probe,
+	.probe_new = ziirave_wdt_probe,
 	.remove = ziirave_wdt_remove,
 	.id_table = ziirave_wdt_id,
 };

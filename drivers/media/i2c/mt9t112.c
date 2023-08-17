@@ -1060,8 +1060,7 @@ done:
 	return ret;
 }
 
-static int mt9t112_probe(struct i2c_client *client,
-			 const struct i2c_device_id *did)
+static int mt9t112_probe(struct i2c_client *client)
 {
 	struct mt9t112_priv *priv;
 	int ret;
@@ -1102,14 +1101,12 @@ static int mt9t112_probe(struct i2c_client *client,
 	return v4l2_async_register_subdev(&priv->subdev);
 }
 
-static int mt9t112_remove(struct i2c_client *client)
+static void mt9t112_remove(struct i2c_client *client)
 {
 	struct mt9t112_priv *priv = to_mt9t112(client);
 
 	clk_disable_unprepare(priv->clk);
 	v4l2_async_unregister_subdev(&priv->subdev);
-
-	return 0;
 }
 
 static const struct i2c_device_id mt9t112_id[] = {
@@ -1122,7 +1119,7 @@ static struct i2c_driver mt9t112_i2c_driver = {
 	.driver = {
 		.name = "mt9t112",
 	},
-	.probe    = mt9t112_probe,
+	.probe_new = mt9t112_probe,
 	.remove   = mt9t112_remove,
 	.id_table = mt9t112_id,
 };

@@ -9,6 +9,7 @@
 
 #include <sound/sof/stream.h>
 #include <sound/sof/control.h>
+#include <trace/events/sof.h>
 #include "sof-priv.h"
 #include "sof-audio.h"
 #include "ipc3-priv.h"
@@ -23,7 +24,7 @@ static void ipc3_log_header(struct device *dev, u8 *text, u32 cmd)
 	u8 *str2 = NULL;
 	u32 glb;
 	u32 type;
-	bool vdbg = false;
+	bool is_sof_ipc_stream_position = false;
 
 	glb = cmd & SOF_GLB_TYPE_MASK;
 	type = cmd & SOF_CMD_TYPE_MASK;
@@ -118,7 +119,7 @@ static void ipc3_log_header(struct device *dev, u8 *text, u32 cmd)
 		case SOF_IPC_STREAM_TRIG_XRUN:
 			str2 = "TRIG_XRUN"; break;
 		case SOF_IPC_STREAM_POSITION:
-			vdbg = true;
+			is_sof_ipc_stream_position = true;
 			str2 = "POSITION"; break;
 		case SOF_IPC_STREAM_VORBIS_PARAMS:
 			str2 = "VORBIS_PARAMS"; break;
@@ -206,8 +207,8 @@ static void ipc3_log_header(struct device *dev, u8 *text, u32 cmd)
 	}
 
 	if (str2) {
-		if (vdbg)
-			dev_vdbg(dev, "%s: 0x%x: %s: %s\n", text, cmd, str, str2);
+		if (is_sof_ipc_stream_position)
+			trace_sof_stream_position_ipc_rx(dev);
 		else
 			dev_dbg(dev, "%s: 0x%x: %s: %s\n", text, cmd, str, str2);
 	} else {
@@ -328,6 +329,8 @@ static int ipc3_tx_msg_unlocked(struct snd_sof_ipc *ipc,
 	struct snd_sof_dev *sdev = ipc->sdev;
 	int ret;
 
+	ipc3_log_header(sdev->dev, "ipc tx", hdr->cmd);
+
 	ret = sof_ipc_send_msg(sdev, msg_data, msg_bytes, reply_bytes);
 
 	if (ret) {
@@ -336,8 +339,6 @@ static int ipc3_tx_msg_unlocked(struct snd_sof_ipc *ipc,
 				    __func__, hdr->cmd, ret);
 		return ret;
 	}
-
-	ipc3_log_header(sdev->dev, "ipc tx", hdr->cmd);
 
 	/* now wait for completion */
 	return ipc3_wait_tx_done(ipc, reply_data);
@@ -846,14 +847,13 @@ static void ipc3_period_elapsed(struct snd_sof_dev *sdev, u32 msg_id)
 	}
 
 	stream = &spcm->stream[direction];
-	ret = snd_sof_ipc_msg_data(sdev, stream->substream, &posn, sizeof(posn));
+	ret = snd_sof_ipc_msg_data(sdev, stream, &posn, sizeof(posn));
 	if (ret < 0) {
 		dev_warn(sdev->dev, "failed to read stream position: %d\n", ret);
 		return;
 	}
 
-	dev_vdbg(sdev->dev, "posn : host 0x%llx dai 0x%llx wall 0x%llx\n",
-		 posn.host_posn, posn.dai_posn, posn.wallclock);
+	trace_sof_ipc3_period_elapsed_position(sdev, &posn);
 
 	memcpy(&stream->posn, &posn, sizeof(posn));
 
@@ -882,7 +882,7 @@ static void ipc3_xrun(struct snd_sof_dev *sdev, u32 msg_id)
 	}
 
 	stream = &spcm->stream[direction];
-	ret = snd_sof_ipc_msg_data(sdev, stream->substream, &posn, sizeof(posn));
+	ret = snd_sof_ipc_msg_data(sdev, stream, &posn, sizeof(posn));
 	if (ret < 0) {
 		dev_warn(sdev->dev, "failed to read overrun position: %d\n", ret);
 		return;
@@ -970,8 +970,9 @@ static void sof_ipc3_rx_msg(struct snd_sof_dev *sdev)
 		return;
 	}
 
-	if (hdr.size < sizeof(hdr)) {
-		dev_err(sdev->dev, "The received message size is invalid\n");
+	if (hdr.size < sizeof(hdr) || hdr.size > SOF_IPC_MSG_MAX_SIZE) {
+		dev_err(sdev->dev, "The received message size is invalid: %u\n",
+			hdr.size);
 		return;
 	}
 
@@ -1043,15 +1044,13 @@ static int sof_ipc3_set_core_state(struct snd_sof_dev *sdev, int core_idx, bool 
 		.hdr.size = sizeof(core_cfg),
 		.hdr.cmd = SOF_IPC_GLB_PM_MSG | SOF_IPC_PM_CORE_ENABLE,
 	};
-	struct sof_ipc_reply reply;
 
 	if (on)
 		core_cfg.enable_mask = sdev->enabled_cores_mask | BIT(core_idx);
 	else
 		core_cfg.enable_mask = sdev->enabled_cores_mask & ~BIT(core_idx);
 
-	return sof_ipc3_tx_msg(sdev, &core_cfg, sizeof(core_cfg),
-			       &reply, sizeof(reply), false);
+	return sof_ipc3_tx_msg(sdev, &core_cfg, sizeof(core_cfg), NULL, 0, false);
 }
 
 static int sof_ipc3_ctx_ipc(struct snd_sof_dev *sdev, int cmd)
@@ -1060,11 +1059,9 @@ static int sof_ipc3_ctx_ipc(struct snd_sof_dev *sdev, int cmd)
 		.hdr.size = sizeof(pm_ctx),
 		.hdr.cmd = SOF_IPC_GLB_PM_MSG | cmd,
 	};
-	struct sof_ipc_reply reply;
 
 	/* send ctx save ipc to dsp */
-	return sof_ipc3_tx_msg(sdev, &pm_ctx, sizeof(pm_ctx),
-			       &reply, sizeof(reply), false);
+	return sof_ipc3_tx_msg(sdev, &pm_ctx, sizeof(pm_ctx), NULL, 0, false);
 }
 
 static int sof_ipc3_ctx_save(struct snd_sof_dev *sdev)
@@ -1077,10 +1074,26 @@ static int sof_ipc3_ctx_restore(struct snd_sof_dev *sdev)
 	return sof_ipc3_ctx_ipc(sdev, SOF_IPC_PM_CTX_RESTORE);
 }
 
+static int sof_ipc3_set_pm_gate(struct snd_sof_dev *sdev, u32 flags)
+{
+	struct sof_ipc_pm_gate pm_gate;
+
+	memset(&pm_gate, 0, sizeof(pm_gate));
+
+	/* configure pm_gate ipc message */
+	pm_gate.hdr.size = sizeof(pm_gate);
+	pm_gate.hdr.cmd = SOF_IPC_GLB_PM_MSG | SOF_IPC_PM_GATE;
+	pm_gate.flags = flags;
+
+	/* send pm_gate ipc to dsp */
+	return sof_ipc_tx_message_no_pm_no_reply(sdev->ipc, &pm_gate, sizeof(pm_gate));
+}
+
 static const struct sof_ipc_pm_ops ipc3_pm_ops = {
 	.ctx_save = sof_ipc3_ctx_save,
 	.ctx_restore = sof_ipc3_ctx_restore,
 	.set_core_state = sof_ipc3_set_core_state,
+	.set_pm_gate = sof_ipc3_set_pm_gate,
 };
 
 const struct sof_ipc_ops ipc3_ops = {

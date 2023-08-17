@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (c) 2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/bitfield.h>
@@ -13,11 +13,6 @@
 #include <linux/platform_device.h>
 
 #include <dt-bindings/interconnect/qcom,osm-l3.h>
-
-#include "sc7180.h"
-#include "sdm845.h"
-#include "sm8150.h"
-#include "sm8250.h"
 
 #define LUT_MAX_ENTRIES			40U
 #define LUT_SRC				GENMASK(31, 30)
@@ -32,12 +27,13 @@
 
 /* EPSS Register offsets */
 #define EPSS_LUT_ROW_SIZE		4
+#define EPSS_REG_L3_VOTE		0x90
 #define EPSS_REG_FREQ_LUT		0x100
 #define EPSS_REG_PERF_STATE		0x320
 
 #define OSM_L3_MAX_LINKS		1
 
-#define to_qcom_provider(_provider) \
+#define to_osm_l3_provider(_provider) \
 	container_of(_provider, struct qcom_osm_l3_icc_provider, provider)
 
 struct qcom_osm_l3_icc_provider {
@@ -49,14 +45,14 @@ struct qcom_osm_l3_icc_provider {
 };
 
 /**
- * struct qcom_icc_node - Qualcomm specific interconnect nodes
+ * struct qcom_osm_l3_node - Qualcomm specific interconnect nodes
  * @name: the node name used in debugfs
  * @links: an array of nodes where we can go next while traversing
  * @id: a unique node identifier
  * @num_links: the total number of @links
  * @buswidth: width of the interconnect between a node and the bus
  */
-struct qcom_icc_node {
+struct qcom_osm_l3_node {
 	const char *name;
 	u16 links[OSM_L3_MAX_LINKS];
 	u16 id;
@@ -64,16 +60,21 @@ struct qcom_icc_node {
 	u16 buswidth;
 };
 
-struct qcom_icc_desc {
-	const struct qcom_icc_node **nodes;
+struct qcom_osm_l3_desc {
+	const struct qcom_osm_l3_node * const *nodes;
 	size_t num_nodes;
 	unsigned int lut_row_size;
 	unsigned int reg_freq_lut;
 	unsigned int reg_perf_state;
 };
 
+enum {
+	OSM_L3_MASTER_NODE = 10000,
+	OSM_L3_SLAVE_NODE,
+};
+
 #define DEFINE_QNODE(_name, _id, _buswidth, ...)			\
-	static const struct qcom_icc_node _name = {			\
+	static const struct qcom_osm_l3_node _name = {			\
 		.name = #_name,						\
 		.id = _id,						\
 		.buswidth = _buswidth,					\
@@ -81,91 +82,59 @@ struct qcom_icc_desc {
 		.links = { __VA_ARGS__ },				\
 	}
 
-DEFINE_QNODE(sdm845_osm_apps_l3, SDM845_MASTER_OSM_L3_APPS, 16, SDM845_SLAVE_OSM_L3);
-DEFINE_QNODE(sdm845_osm_l3, SDM845_SLAVE_OSM_L3, 16);
+DEFINE_QNODE(osm_l3_master, OSM_L3_MASTER_NODE, 16, OSM_L3_SLAVE_NODE);
+DEFINE_QNODE(osm_l3_slave, OSM_L3_SLAVE_NODE, 16);
 
-static const struct qcom_icc_node *sdm845_osm_l3_nodes[] = {
-	[MASTER_OSM_L3_APPS] = &sdm845_osm_apps_l3,
-	[SLAVE_OSM_L3] = &sdm845_osm_l3,
+static const struct qcom_osm_l3_node * const osm_l3_nodes[] = {
+	[MASTER_OSM_L3_APPS] = &osm_l3_master,
+	[SLAVE_OSM_L3] = &osm_l3_slave,
 };
 
-static const struct qcom_icc_desc sdm845_icc_osm_l3 = {
-	.nodes = sdm845_osm_l3_nodes,
-	.num_nodes = ARRAY_SIZE(sdm845_osm_l3_nodes),
+DEFINE_QNODE(epss_l3_master, OSM_L3_MASTER_NODE, 32, OSM_L3_SLAVE_NODE);
+DEFINE_QNODE(epss_l3_slave, OSM_L3_SLAVE_NODE, 32);
+
+static const struct qcom_osm_l3_node * const epss_l3_nodes[] = {
+	[MASTER_EPSS_L3_APPS] = &epss_l3_master,
+	[SLAVE_EPSS_L3_SHARED] = &epss_l3_slave,
+};
+
+static const struct qcom_osm_l3_desc osm_l3 = {
+	.nodes = osm_l3_nodes,
+	.num_nodes = ARRAY_SIZE(osm_l3_nodes),
 	.lut_row_size = OSM_LUT_ROW_SIZE,
 	.reg_freq_lut = OSM_REG_FREQ_LUT,
 	.reg_perf_state = OSM_REG_PERF_STATE,
 };
 
-DEFINE_QNODE(sc7180_osm_apps_l3, SC7180_MASTER_OSM_L3_APPS, 16, SC7180_SLAVE_OSM_L3);
-DEFINE_QNODE(sc7180_osm_l3, SC7180_SLAVE_OSM_L3, 16);
-
-static const struct qcom_icc_node *sc7180_osm_l3_nodes[] = {
-	[MASTER_OSM_L3_APPS] = &sc7180_osm_apps_l3,
-	[SLAVE_OSM_L3] = &sc7180_osm_l3,
-};
-
-static const struct qcom_icc_desc sc7180_icc_osm_l3 = {
-	.nodes = sc7180_osm_l3_nodes,
-	.num_nodes = ARRAY_SIZE(sc7180_osm_l3_nodes),
-	.lut_row_size = OSM_LUT_ROW_SIZE,
-	.reg_freq_lut = OSM_REG_FREQ_LUT,
-	.reg_perf_state = OSM_REG_PERF_STATE,
-};
-
-DEFINE_QNODE(sm8150_osm_apps_l3, SM8150_MASTER_OSM_L3_APPS, 32, SM8150_SLAVE_OSM_L3);
-DEFINE_QNODE(sm8150_osm_l3, SM8150_SLAVE_OSM_L3, 32);
-
-static const struct qcom_icc_node *sm8150_osm_l3_nodes[] = {
-	[MASTER_OSM_L3_APPS] = &sm8150_osm_apps_l3,
-	[SLAVE_OSM_L3] = &sm8150_osm_l3,
-};
-
-static const struct qcom_icc_desc sm8150_icc_osm_l3 = {
-	.nodes = sm8150_osm_l3_nodes,
-	.num_nodes = ARRAY_SIZE(sm8150_osm_l3_nodes),
-	.lut_row_size = OSM_LUT_ROW_SIZE,
-	.reg_freq_lut = OSM_REG_FREQ_LUT,
-	.reg_perf_state = OSM_REG_PERF_STATE,
-};
-
-DEFINE_QNODE(sm8250_epss_apps_l3, SM8250_MASTER_EPSS_L3_APPS, 32, SM8250_SLAVE_EPSS_L3);
-DEFINE_QNODE(sm8250_epss_l3, SM8250_SLAVE_EPSS_L3, 32);
-
-static const struct qcom_icc_node *sm8250_epss_l3_nodes[] = {
-	[MASTER_EPSS_L3_APPS] = &sm8250_epss_apps_l3,
-	[SLAVE_EPSS_L3_SHARED] = &sm8250_epss_l3,
-};
-
-static const struct qcom_icc_desc sm8250_icc_epss_l3 = {
-	.nodes = sm8250_epss_l3_nodes,
-	.num_nodes = ARRAY_SIZE(sm8250_epss_l3_nodes),
+static const struct qcom_osm_l3_desc epss_l3_perf_state = {
+	.nodes = epss_l3_nodes,
+	.num_nodes = ARRAY_SIZE(epss_l3_nodes),
 	.lut_row_size = EPSS_LUT_ROW_SIZE,
 	.reg_freq_lut = EPSS_REG_FREQ_LUT,
 	.reg_perf_state = EPSS_REG_PERF_STATE,
 };
 
-static int qcom_icc_set(struct icc_node *src, struct icc_node *dst)
+static const struct qcom_osm_l3_desc epss_l3_l3_vote = {
+	.nodes = epss_l3_nodes,
+	.num_nodes = ARRAY_SIZE(epss_l3_nodes),
+	.lut_row_size = EPSS_LUT_ROW_SIZE,
+	.reg_freq_lut = EPSS_REG_FREQ_LUT,
+	.reg_perf_state = EPSS_REG_L3_VOTE,
+};
+
+static int qcom_osm_l3_set(struct icc_node *src, struct icc_node *dst)
 {
 	struct qcom_osm_l3_icc_provider *qp;
 	struct icc_provider *provider;
-	const struct qcom_icc_node *qn;
-	struct icc_node *n;
+	const struct qcom_osm_l3_node *qn;
 	unsigned int index;
-	u32 agg_peak = 0;
-	u32 agg_avg = 0;
 	u64 rate;
 
 	qn = src->data;
 	provider = src->provider;
-	qp = to_qcom_provider(provider);
+	qp = to_osm_l3_provider(provider);
 
-	list_for_each_entry(n, &provider->nodes, node_list)
-		provider->aggregate(n, 0, n->avg_bw, n->peak_bw,
-				    &agg_avg, &agg_peak);
-
-	rate = max(agg_avg, agg_peak);
-	rate = icc_units_to_bps(rate);
+	rate = icc_units_to_bps(dst->peak_bw);
 	do_div(rate, qn->buswidth);
 
 	for (index = 0; index < qp->max_state - 1; index++) {
@@ -182,8 +151,10 @@ static int qcom_osm_l3_remove(struct platform_device *pdev)
 {
 	struct qcom_osm_l3_icc_provider *qp = platform_get_drvdata(pdev);
 
+	icc_provider_deregister(&qp->provider);
 	icc_nodes_remove(&qp->provider);
-	return icc_provider_del(&qp->provider);
+
+	return 0;
 }
 
 static int qcom_osm_l3_probe(struct platform_device *pdev)
@@ -191,10 +162,10 @@ static int qcom_osm_l3_probe(struct platform_device *pdev)
 	u32 info, src, lval, i, prev_freq = 0, freq;
 	static unsigned long hw_rate, xo_rate;
 	struct qcom_osm_l3_icc_provider *qp;
-	const struct qcom_icc_desc *desc;
+	const struct qcom_osm_l3_desc *desc;
 	struct icc_onecell_data *data;
 	struct icc_provider *provider;
-	const struct qcom_icc_node **qnodes;
+	const struct qcom_osm_l3_node * const *qnodes;
 	struct icc_node *node;
 	size_t num_nodes;
 	struct clk *clk;
@@ -264,17 +235,12 @@ static int qcom_osm_l3_probe(struct platform_device *pdev)
 
 	provider = &qp->provider;
 	provider->dev = &pdev->dev;
-	provider->set = qcom_icc_set;
+	provider->set = qcom_osm_l3_set;
 	provider->aggregate = icc_std_aggregate;
 	provider->xlate = of_icc_xlate_onecell;
-	INIT_LIST_HEAD(&provider->nodes);
 	provider->data = data;
 
-	ret = icc_provider_add(provider);
-	if (ret) {
-		dev_err(&pdev->dev, "error adding interconnect provider\n");
-		return ret;
-	}
+	icc_provider_init(provider);
 
 	for (i = 0; i < num_nodes; i++) {
 		size_t j;
@@ -286,7 +252,7 @@ static int qcom_osm_l3_probe(struct platform_device *pdev)
 		}
 
 		node->name = qnodes[i]->name;
-		/* Cast away const and add it back in qcom_icc_set() */
+		/* Cast away const and add it back in qcom_osm_l3_set() */
 		node->data = (void *)qnodes[i];
 		icc_node_add(node, provider);
 
@@ -297,21 +263,28 @@ static int qcom_osm_l3_probe(struct platform_device *pdev)
 	}
 	data->num_nodes = num_nodes;
 
+	ret = icc_provider_register(provider);
+	if (ret)
+		goto err;
+
 	platform_set_drvdata(pdev, qp);
 
 	return 0;
 err:
 	icc_nodes_remove(provider);
-	icc_provider_del(provider);
 
 	return ret;
 }
 
 static const struct of_device_id osm_l3_of_match[] = {
-	{ .compatible = "qcom,sc7180-osm-l3", .data = &sc7180_icc_osm_l3 },
-	{ .compatible = "qcom,sdm845-osm-l3", .data = &sdm845_icc_osm_l3 },
-	{ .compatible = "qcom,sm8150-osm-l3", .data = &sm8150_icc_osm_l3 },
-	{ .compatible = "qcom,sm8250-epss-l3", .data = &sm8250_icc_epss_l3 },
+	{ .compatible = "qcom,epss-l3", .data = &epss_l3_l3_vote },
+	{ .compatible = "qcom,osm-l3", .data = &osm_l3 },
+	{ .compatible = "qcom,sc7180-osm-l3", .data = &osm_l3 },
+	{ .compatible = "qcom,sc7280-epss-l3", .data = &epss_l3_perf_state },
+	{ .compatible = "qcom,sdm845-osm-l3", .data = &osm_l3 },
+	{ .compatible = "qcom,sm8150-osm-l3", .data = &osm_l3 },
+	{ .compatible = "qcom,sc8180x-osm-l3", .data = &osm_l3 },
+	{ .compatible = "qcom,sm8250-epss-l3", .data = &epss_l3_perf_state },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, osm_l3_of_match);

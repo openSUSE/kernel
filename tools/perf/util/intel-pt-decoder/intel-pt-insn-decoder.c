@@ -18,6 +18,7 @@
 
 #include "intel-pt-insn-decoder.h"
 #include "dump-insn.h"
+#include "util/sample.h"
 
 #if INTEL_PT_INSN_BUF_SZ < MAX_INSN_SIZE || INTEL_PT_INSN_BUF_SZ > MAX_INSN
 #error Instruction buffer size too small
@@ -32,6 +33,7 @@ static void intel_pt_insn_decoder(struct insn *insn,
 	int ext;
 
 	intel_pt_insn->rel = 0;
+	intel_pt_insn->emulated_ptwrite = false;
 
 	if (insn_is_avx(insn)) {
 		intel_pt_insn->op = INTEL_PT_OP_OTHER;
@@ -49,6 +51,20 @@ static void intel_pt_insn_decoder(struct insn *insn,
 			case 0xc3: /* vmresume */
 				op = INTEL_PT_OP_VMENTRY;
 				branch = INTEL_PT_BR_INDIRECT;
+				break;
+			case 0xca:
+				switch (insn->prefixes.bytes[3]) {
+				case 0xf2: /* erets */
+					op = INTEL_PT_OP_ERETS;
+					branch = INTEL_PT_BR_INDIRECT;
+					break;
+				case 0xf3: /* eretu */
+					op = INTEL_PT_OP_ERETU;
+					branch = INTEL_PT_BR_INDIRECT;
+					break;
+				default:
+					break;
+				}
 				break;
 			default:
 				break;
@@ -143,7 +159,7 @@ static void intel_pt_insn_decoder(struct insn *insn,
 
 	if (branch == INTEL_PT_BR_CONDITIONAL ||
 	    branch == INTEL_PT_BR_UNCONDITIONAL) {
-#if __BYTE_ORDER == __BIG_ENDIAN
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 		switch (insn->immediate.nbytes) {
 		case 1:
 			intel_pt_insn->rel = insn->immediate.value;
@@ -228,6 +244,8 @@ const char *branch_name[] = {
 	[INTEL_PT_OP_SYSCALL]	= "Syscall",
 	[INTEL_PT_OP_SYSRET]	= "Sysret",
 	[INTEL_PT_OP_VMENTRY]	= "VMentry",
+	[INTEL_PT_OP_ERETS]	= "Erets",
+	[INTEL_PT_OP_ERETU]	= "Eretu",
 };
 
 const char *intel_pt_insn_name(enum intel_pt_insn_op op)
@@ -271,6 +289,8 @@ int intel_pt_insn_type(enum intel_pt_insn_op op)
 	case INTEL_PT_OP_LOOP:
 		return PERF_IP_FLAG_BRANCH | PERF_IP_FLAG_CONDITIONAL;
 	case INTEL_PT_OP_IRET:
+	case INTEL_PT_OP_ERETS:
+	case INTEL_PT_OP_ERETU:
 		return PERF_IP_FLAG_BRANCH | PERF_IP_FLAG_RETURN |
 		       PERF_IP_FLAG_INTERRUPT;
 	case INTEL_PT_OP_INT:

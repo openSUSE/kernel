@@ -116,7 +116,7 @@
 	.if \mode == LEGACY_MODE;				\
 9:		insn reg, addr;					\
 		.section __ex_table,"a";			\
-		PTR	9b, handler;				\
+		PTR_WD	9b, handler;				\
 		.previous;					\
 	/* This is assembled in EVA mode */			\
 	.else;							\
@@ -125,7 +125,7 @@
 		    ((\to == USEROP) && (type == ST_INSN));	\
 9:			__BUILD_EVA_INSN(insn##e, reg, addr);	\
 			.section __ex_table,"a";		\
-			PTR	9b, handler;			\
+			PTR_WD	9b, handler;			\
 			.previous;				\
 		.else;						\
 			/*					\
@@ -666,8 +666,6 @@ FEXPORT(__raw_copy_from_user)
 EXPORT_SYMBOL(__raw_copy_from_user)
 FEXPORT(__raw_copy_to_user)
 EXPORT_SYMBOL(__raw_copy_to_user)
-FEXPORT(__raw_copy_in_user)
-EXPORT_SYMBOL(__raw_copy_in_user)
 #endif
 	/* Legacy Mode, user <-> user */
 	__BUILD_COPY_USER LEGACY_MODE USEROP USEROP
@@ -702,14 +700,5 @@ LEAF(__raw_copy_to_user)
 EXPORT_SYMBOL(__raw_copy_to_user)
 __BUILD_COPY_USER EVA_MODE KERNELOP USEROP
 END(__raw_copy_to_user)
-
-/*
- * __copy_in_user (EVA)
- */
-
-LEAF(__raw_copy_in_user)
-EXPORT_SYMBOL(__raw_copy_in_user)
-__BUILD_COPY_USER EVA_MODE USEROP USEROP
-END(__raw_copy_in_user)
 
 #endif

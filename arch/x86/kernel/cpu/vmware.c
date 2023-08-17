@@ -143,7 +143,7 @@ static __init int parse_no_stealacc(char *arg)
 }
 early_param("no-steal-acc", parse_no_stealacc);
 
-static unsigned long long notrace vmware_sched_clock(void)
+static noinstr u64 vmware_sched_clock(void)
 {
 	unsigned long long ns;
 
@@ -476,8 +476,8 @@ static bool __init vmware_legacy_x2apic_available(void)
 {
 	uint32_t eax, ebx, ecx, edx;
 	VMWARE_CMD(GETVCPU_INFO, eax, ebx, ecx, edx);
-	return (eax & (1 << VMWARE_CMD_VCPU_RESERVED)) == 0 &&
-	       (eax & (1 << VMWARE_CMD_LEGACY_X2APIC)) != 0;
+	return !(eax & BIT(VMWARE_CMD_VCPU_RESERVED)) &&
+		(eax & BIT(VMWARE_CMD_LEGACY_X2APIC));
 }
 
 #ifdef CONFIG_AMD_MEM_ENCRYPT

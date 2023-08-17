@@ -959,7 +959,6 @@ char *tomoyo_read_token(struct tomoyo_acl_param *param);
 char *tomoyo_realpath_from_path(const struct path *path);
 char *tomoyo_realpath_nofollow(const char *pathname);
 const char *tomoyo_get_exe(void);
-const char *tomoyo_yesno(const unsigned int value);
 const struct tomoyo_path_info *tomoyo_compare_name_union
 (const struct tomoyo_path_info *name, const struct tomoyo_name_union *ptr);
 const struct tomoyo_path_info *tomoyo_get_domainname
@@ -1276,50 +1275,6 @@ static inline struct tomoyo_policy_namespace *tomoyo_current_namespace(void)
 {
 	return tomoyo_domain()->ns;
 }
-
-#if defined(CONFIG_SLOB)
-
-/**
- * tomoyo_round2 - Round up to power of 2 for calculating memory usage.
- *
- * @size: Size to be rounded up.
- *
- * Returns @size.
- *
- * Since SLOB does not round up, this function simply returns @size.
- */
-static inline int tomoyo_round2(size_t size)
-{
-	return size;
-}
-
-#else
-
-/**
- * tomoyo_round2 - Round up to power of 2 for calculating memory usage.
- *
- * @size: Size to be rounded up.
- *
- * Returns rounded size.
- *
- * Strictly speaking, SLAB may be able to allocate (e.g.) 96 bytes instead of
- * (e.g.) 128 bytes.
- */
-static inline int tomoyo_round2(size_t size)
-{
-#if PAGE_SIZE == 4096
-	size_t bsize = 32;
-#else
-	size_t bsize = 64;
-#endif
-	if (!size)
-		return 0;
-	while (size > bsize)
-		bsize <<= 1;
-	return bsize;
-}
-
-#endif
 
 /**
  * list_for_each_cookie - iterate over a list with cookie.

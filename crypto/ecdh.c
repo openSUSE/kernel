@@ -6,12 +6,11 @@
  */
 
 #include <linux/module.h>
+#include <crypto/internal/ecc.h>
 #include <crypto/internal/kpp.h>
 #include <crypto/kpp.h>
 #include <crypto/ecdh.h>
 #include <linux/scatterlist.h>
-#include <linux/fips.h>
-#include "ecc.h"
 
 struct ecdh_ctx {
 	unsigned int curve_id;
@@ -95,36 +94,6 @@ static int ecdh_compute_value(struct kpp_request *req)
 				       ctx->private_key, public_key);
 		buf = public_key;
 		nbytes = public_key_sz;
-
-		/*
-		 * SP800-56Arev3, 5.6.2.1.4: ("Owner Assurance of
-		 * Pair-wise Consistency"): recompute the public key
-		 * and check if the results match.
-		 */
-		if (fips_enabled) {
-			u64 *public_key_pct;
-
-			if (ret < 0)
-				goto free_all;
-
-			public_key_pct = kmalloc(public_key_sz, GFP_KERNEL);
-			if (!public_key_pct) {
-				ret = -ENOMEM;
-				goto free_all;
-			}
-
-			ret = ecc_make_pub_key(ctx->curve_id, ctx->ndigits,
-					       ctx->private_key,
-					       public_key_pct);
-			if (ret < 0) {
-				kfree(public_key_pct);
-				goto free_all;
-			}
-
-			if (memcmp(public_key, public_key_pct, public_key_sz))
-				panic("ECDH PCT failed in FIPS mode");
-			kfree(public_key_pct);
-		}
 	}
 
 	if (ret < 0)
@@ -231,7 +200,7 @@ static struct kpp_alg ecdh_nist_p384 = {
 
 static bool ecdh_nist_p192_registered;
 
-static int ecdh_init(void)
+static int __init ecdh_init(void)
 {
 	int ret;
 
@@ -258,7 +227,7 @@ nist_p256_error:
 	return ret;
 }
 
-static void ecdh_exit(void)
+static void __exit ecdh_exit(void)
 {
 	if (ecdh_nist_p192_registered)
 		crypto_unregister_kpp(&ecdh_nist_p192);

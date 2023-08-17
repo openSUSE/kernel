@@ -4,7 +4,7 @@
 extra_paholeopt=
 
 if ! [ -x "$(command -v ${PAHOLE})" ]; then
-	return
+	exit 0
 fi
 
 pahole_ver=$($(dirname $0)/pahole-version.sh ${PAHOLE})
@@ -20,7 +20,8 @@ if [ "${pahole_ver}" -ge "122" ]; then
 	extra_paholeopt="${extra_paholeopt} -j"
 fi
 if [ "${pahole_ver}" -ge "124" ]; then
-	extra_paholeopt="${extra_paholeopt} --skip_encoding_btf_enum64"
+	# see PAHOLE_HAS_LANG_EXCLUDE
+	extra_paholeopt="${extra_paholeopt} --lang_exclude=rust"
 fi
 
 echo ${extra_paholeopt}

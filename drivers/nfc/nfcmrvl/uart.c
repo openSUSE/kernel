@@ -49,7 +49,7 @@ static void nfcmrvl_uart_nci_update_config(struct nfcmrvl_private *priv,
 			    config->flow_control);
 }
 
-static struct nfcmrvl_if_ops uart_ops = {
+static const struct nfcmrvl_if_ops uart_ops = {
 	.nci_open = nfcmrvl_uart_nci_open,
 	.nci_close = nfcmrvl_uart_nci_close,
 	.nci_send = nfcmrvl_uart_nci_send,
@@ -76,15 +76,8 @@ static int nfcmrvl_uart_parse_dt(struct device_node *node,
 		return ret;
 	}
 
-	if (of_find_property(matched_node, "flow-control", NULL))
-		pdata->flow_control = 1;
-	else
-		pdata->flow_control = 0;
-
-	if (of_find_property(matched_node, "break-control", NULL))
-		pdata->break_control = 1;
-	else
-		pdata->break_control = 0;
+	pdata->flow_control = of_property_read_bool(matched_node, "flow-control");
+	pdata->break_control = of_property_read_bool(matched_node, "break-control");
 
 	of_node_put(matched_node);
 
@@ -98,8 +91,8 @@ static int nfcmrvl_uart_parse_dt(struct device_node *node,
 static int nfcmrvl_nci_uart_open(struct nci_uart *nu)
 {
 	struct nfcmrvl_private *priv;
-	struct nfcmrvl_platform_data *pdata = NULL;
 	struct nfcmrvl_platform_data config;
+	const struct nfcmrvl_platform_data *pdata = NULL;
 	struct device *dev = nu->tty->dev;
 
 	/*

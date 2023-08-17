@@ -417,7 +417,7 @@ static void lbtf_op_configure_filter(struct ieee80211_hw *hw,
 static void lbtf_op_bss_info_changed(struct ieee80211_hw *hw,
 			struct ieee80211_vif *vif,
 			struct ieee80211_bss_conf *bss_conf,
-			u32 changes)
+			u64 changes)
 {
 	struct lbtf_private *priv = hw->priv;
 	struct sk_buff *beacon;
@@ -427,7 +427,7 @@ static void lbtf_op_bss_info_changed(struct ieee80211_hw *hw,
 		switch (priv->vif->type) {
 		case NL80211_IFTYPE_AP:
 		case NL80211_IFTYPE_MESH_POINT:
-			beacon = ieee80211_beacon_get(hw, vif);
+			beacon = ieee80211_beacon_get(hw, vif, 0);
 			if (beacon) {
 				lbtf_beacon_set(priv, beacon);
 				kfree_skb(beacon);
@@ -474,6 +474,7 @@ static int lbtf_op_get_survey(struct ieee80211_hw *hw, int idx,
 
 static const struct ieee80211_ops lbtf_ops = {
 	.tx			= lbtf_op_tx,
+	.wake_tx_queue		= ieee80211_handle_wake_tx_queue,
 	.start			= lbtf_op_start,
 	.stop			= lbtf_op_stop,
 	.add_interface		= lbtf_op_add_interface,
@@ -691,7 +692,7 @@ void lbtf_bcn_sent(struct lbtf_private *priv)
 		}
 	}
 
-	skb = ieee80211_beacon_get(priv->hw, priv->vif);
+	skb = ieee80211_beacon_get(priv->hw, priv->vif, 0);
 
 	if (skb) {
 		lbtf_beacon_set(priv, skb);

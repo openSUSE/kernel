@@ -106,6 +106,7 @@
 struct rv3032_data {
 	struct regmap *regmap;
 	struct rtc_device *rtc;
+	bool trickle_charger_set;
 #ifdef CONFIG_COMMON_CLK
 	struct clk_hw clkout_hw;
 #endif
@@ -310,14 +311,6 @@ static int rv3032_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 	u8 ctrl = 0;
 	int ret;
 
-	/* The alarm has no seconds, round up to nearest minute */
-	if (alrm->time.tm_sec) {
-		time64_t alarm_time = rtc_tm_to_time64(&alrm->time);
-
-		alarm_time += 60 - alrm->time.tm_sec;
-		rtc_time64_to_tm(alarm_time, &alrm->time);
-	}
-
 	ret = regmap_update_bits(rv3032->regmap, RV3032_CTRL2,
 				 RV3032_CTRL2_AIE | RV3032_CTRL2_UIE, 0);
 	if (ret)
@@ -400,6 +393,75 @@ static int rv3032_set_offset(struct device *dev, long offset)
 
 	return rv3032_update_cfg(rv3032, RV3032_OFFSET, RV3032_OFFSET_MSK,
 				 FIELD_PREP(RV3032_OFFSET_MSK, offset));
+}
+
+static int rv3032_param_get(struct device *dev, struct rtc_param *param)
+{
+	struct rv3032_data *rv3032 = dev_get_drvdata(dev);
+	int ret;
+
+	switch(param->param) {
+		u32 value;
+
+	case RTC_PARAM_BACKUP_SWITCH_MODE:
+		ret = regmap_read(rv3032->regmap, RV3032_PMU, &value);
+		if (ret < 0)
+			return ret;
+
+		value = FIELD_GET(RV3032_PMU_BSM, value);
+
+		switch(value) {
+		case RV3032_PMU_BSM_DSM:
+			param->uvalue = RTC_BSM_DIRECT;
+			break;
+		case RV3032_PMU_BSM_LSM:
+			param->uvalue = RTC_BSM_LEVEL;
+			break;
+		default:
+			param->uvalue = RTC_BSM_DISABLED;
+		}
+
+		break;
+
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int rv3032_param_set(struct device *dev, struct rtc_param *param)
+{
+	struct rv3032_data *rv3032 = dev_get_drvdata(dev);
+
+	switch(param->param) {
+		u8 mode;
+	case RTC_PARAM_BACKUP_SWITCH_MODE:
+		if (rv3032->trickle_charger_set)
+			return -EINVAL;
+
+		switch (param->uvalue) {
+		case RTC_BSM_DISABLED:
+			mode = 0;
+			break;
+		case RTC_BSM_DIRECT:
+			mode = RV3032_PMU_BSM_DSM;
+			break;
+		case RTC_BSM_LEVEL:
+			mode = RV3032_PMU_BSM_LSM;
+			break;
+		default:
+			return -EINVAL;
+		}
+
+		return rv3032_update_cfg(rv3032, RV3032_PMU, RV3032_PMU_BSM,
+					 FIELD_PREP(RV3032_PMU_BSM, mode));
+
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 static int rv3032_ioctl(struct device *dev, unsigned int cmd, unsigned long arg)
@@ -540,6 +602,8 @@ static int rv3032_trickle_charger_setup(struct device *dev, struct rv3032_data *
 
 		return 0;
 	}
+
+	rv3032->trickle_charger_set = true;
 
 	return rv3032_update_cfg(rv3032, RV3032_PMU,
 				 RV3032_PMU_TCR | RV3032_PMU_TCM | RV3032_PMU_BSM,
@@ -813,6 +877,8 @@ static const struct rtc_class_ops rv3032_rtc_ops = {
 	.read_alarm = rv3032_get_alarm,
 	.set_alarm = rv3032_set_alarm,
 	.alarm_irq_enable = rv3032_alarm_irq_enable,
+	.param_get = rv3032_param_get,
+	.param_set = rv3032_param_set,
 };
 
 static const struct regmap_config regmap_config = {
@@ -864,9 +930,14 @@ static int rv3032_probe(struct i2c_client *client)
 		return PTR_ERR(rv3032->rtc);
 
 	if (client->irq > 0) {
+		unsigned long irqflags = IRQF_TRIGGER_LOW;
+
+		if (dev_fwnode(&client->dev))
+			irqflags = 0;
+
 		ret = devm_request_threaded_irq(&client->dev, client->irq,
 						NULL, rv3032_handle_irq,
-						IRQF_TRIGGER_LOW | IRQF_ONESHOT,
+						irqflags | IRQF_ONESHOT,
 						"rv3032", rv3032);
 		if (ret) {
 			dev_warn(&client->dev, "unable to request IRQ, alarms disabled\n");
@@ -882,6 +953,9 @@ static int rv3032_probe(struct i2c_client *client)
 		return ret;
 
 	rv3032_trickle_charger_setup(&client->dev, rv3032);
+
+	set_bit(RTC_FEATURE_BACKUP_SWITCH_MODE, rv3032->rtc->features);
+	set_bit(RTC_FEATURE_ALARM_RES_MINUTE, rv3032->rtc->features);
 
 	rv3032->rtc->range_min = RTC_TIMESTAMP_BEGIN_2000;
 	rv3032->rtc->range_max = RTC_TIMESTAMP_END_2099;
@@ -906,6 +980,12 @@ static int rv3032_probe(struct i2c_client *client)
 	return 0;
 }
 
+static const struct acpi_device_id rv3032_i2c_acpi_match[] = {
+	{ "MCRY3032" },
+	{ }
+};
+MODULE_DEVICE_TABLE(acpi, rv3032_i2c_acpi_match);
+
 static const __maybe_unused struct of_device_id rv3032_of_match[] = {
 	{ .compatible = "microcrystal,rv3032", },
 	{ }
@@ -915,6 +995,7 @@ MODULE_DEVICE_TABLE(of, rv3032_of_match);
 static struct i2c_driver rv3032_driver = {
 	.driver = {
 		.name = "rtc-rv3032",
+		.acpi_match_table = rv3032_i2c_acpi_match,
 		.of_match_table = of_match_ptr(rv3032_of_match),
 	},
 	.probe_new	= rv3032_probe,

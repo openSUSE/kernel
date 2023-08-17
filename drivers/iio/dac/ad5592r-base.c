@@ -11,7 +11,6 @@
 #include <linux/iio/iio.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
-#include <linux/of.h>
 #include <linux/regulator/consumer.h>
 #include <linux/gpio/consumer.h>
 #include <linux/gpio/driver.h>
@@ -125,6 +124,10 @@ static int ad5592r_gpio_request(struct gpio_chip *chip, unsigned offset)
 	return 0;
 }
 
+static const char * const ad5592r_gpio_names[] = {
+	"GPIO0", "GPIO1", "GPIO2", "GPIO3", "GPIO4", "GPIO5", "GPIO6", "GPIO7",
+};
+
 static int ad5592r_gpio_init(struct ad5592r_state *st)
 {
 	if (!st->gpio_map)
@@ -141,6 +144,7 @@ static int ad5592r_gpio_init(struct ad5592r_state *st)
 	st->gpiochip.set = ad5592r_gpio_set;
 	st->gpiochip.request = ad5592r_gpio_request;
 	st->gpiochip.owner = THIS_MODULE;
+	st->gpiochip.names = ad5592r_gpio_names;
 
 	mutex_init(&st->gpio_lock);
 
@@ -604,7 +608,7 @@ int ad5592r_probe(struct device *dev, const char *name,
 
 	st->reg = devm_regulator_get_optional(dev, "vref");
 	if (IS_ERR(st->reg)) {
-		if ((PTR_ERR(st->reg) != -ENODEV) && dev->of_node)
+		if ((PTR_ERR(st->reg) != -ENODEV) && dev_fwnode(dev))
 			return PTR_ERR(st->reg);
 
 		st->reg = NULL;
@@ -661,9 +665,9 @@ error_disable_reg:
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(ad5592r_probe);
+EXPORT_SYMBOL_NS_GPL(ad5592r_probe, IIO_AD5592R);
 
-int ad5592r_remove(struct device *dev)
+void ad5592r_remove(struct device *dev)
 {
 	struct iio_dev *iio_dev = dev_get_drvdata(dev);
 	struct ad5592r_state *st = iio_priv(iio_dev);
@@ -674,10 +678,8 @@ int ad5592r_remove(struct device *dev)
 
 	if (st->reg)
 		regulator_disable(st->reg);
-
-	return 0;
 }
-EXPORT_SYMBOL_GPL(ad5592r_remove);
+EXPORT_SYMBOL_NS_GPL(ad5592r_remove, IIO_AD5592R);
 
 MODULE_AUTHOR("Paul Cercueil <paul.cercueil@analog.com>");
 MODULE_DESCRIPTION("Analog Devices AD5592R multi-channel converters");

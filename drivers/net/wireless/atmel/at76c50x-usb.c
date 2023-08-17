@@ -2033,7 +2033,7 @@ static int at76_config(struct ieee80211_hw *hw, u32 changed)
 static void at76_bss_info_changed(struct ieee80211_hw *hw,
 				  struct ieee80211_vif *vif,
 				  struct ieee80211_bss_conf *conf,
-				  u32 changed)
+				  u64 changed)
 {
 	struct at76_priv *priv = hw->priv;
 
@@ -2179,6 +2179,7 @@ static int at76_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 
 static const struct ieee80211_ops at76_ops = {
 	.tx = at76_mac80211_tx,
+	.wake_tx_queue = ieee80211_handle_wake_tx_queue,
 	.add_interface = at76_add_interface,
 	.remove_interface = at76_remove_interface,
 	.config = at76_config,

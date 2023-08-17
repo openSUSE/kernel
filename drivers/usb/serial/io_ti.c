@@ -221,7 +221,8 @@ static void stop_read(struct edgeport_port *edge_port);
 static int restart_read(struct edgeport_port *edge_port);
 
 static void edge_set_termios(struct tty_struct *tty,
-		struct usb_serial_port *port, struct ktermios *old_termios);
+			     struct usb_serial_port *port,
+			     const struct ktermios *old_termios);
 static void edge_send(struct usb_serial_port *port, struct tty_struct *tty);
 
 static int do_download_mode(struct edgeport_serial *serial,
@@ -2210,7 +2211,7 @@ static int restart_read(struct edgeport_port *edge_port)
 }
 
 static void change_port_settings(struct tty_struct *tty,
-		struct edgeport_port *edge_port, struct ktermios *old_termios)
+		struct edgeport_port *edge_port, const struct ktermios *old_termios)
 {
 	struct device *dev = &edge_port->port->dev;
 	struct ump_uart_config *config;
@@ -2351,7 +2352,8 @@ static void change_port_settings(struct tty_struct *tty,
 }
 
 static void edge_set_termios(struct tty_struct *tty,
-		struct usb_serial_port *port, struct ktermios *old_termios)
+			     struct usb_serial_port *port,
+			     const struct ktermios *old_termios)
 {
 	struct edgeport_port *edge_port = usb_get_serial_port_data(port);
 
@@ -2748,9 +2750,9 @@ MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 MODULE_FIRMWARE("edgeport/down3.bin");
 
-module_param(ignore_cpu_rev, bool, S_IRUGO | S_IWUSR);
+module_param(ignore_cpu_rev, bool, 0644);
 MODULE_PARM_DESC(ignore_cpu_rev,
 			"Ignore the cpu revision when connecting to a device");
 
-module_param(default_uart_mode, int, S_IRUGO | S_IWUSR);
+module_param(default_uart_mode, int, 0644);
 MODULE_PARM_DESC(default_uart_mode, "Default uart_mode, 0=RS232, ...");

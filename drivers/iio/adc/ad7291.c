@@ -179,7 +179,7 @@ static unsigned int ad7291_threshold_reg(const struct iio_chan_spec *chan,
 		offset = AD7291_VOLTAGE_OFFSET;
 		break;
 	default:
-	    return 0;
+		return 0;
 	}
 
 	switch (info) {
@@ -460,9 +460,14 @@ static const struct iio_info ad7291_info = {
 	.write_event_value = &ad7291_write_event_value,
 };
 
-static int ad7291_probe(struct i2c_client *client,
-			const struct i2c_device_id *id)
+static void ad7291_reg_disable(void *reg)
 {
+	regulator_disable(reg);
+}
+
+static int ad7291_probe(struct i2c_client *client)
+{
+	const struct i2c_device_id *id = i2c_client_get_device_id(client);
 	struct ad7291_chip_info *chip;
 	struct iio_dev *indio_dev;
 	int ret;
@@ -473,8 +478,6 @@ static int ad7291_probe(struct i2c_client *client,
 	chip = iio_priv(indio_dev);
 
 	mutex_init(&chip->state_lock);
-	/* this is only used for device removal purposes */
-	i2c_set_clientdata(client, indio_dev);
 
 	chip->client = client;
 
@@ -495,6 +498,11 @@ static int ad7291_probe(struct i2c_client *client,
 		if (ret)
 			return ret;
 
+		ret = devm_add_action_or_reset(&client->dev, ad7291_reg_disable,
+					       chip->reg);
+		if (ret)
+			return ret;
+
 		chip->command |= AD7291_EXT_REF;
 	}
 
@@ -506,58 +514,25 @@ static int ad7291_probe(struct i2c_client *client,
 	indio_dev->modes = INDIO_DIRECT_MODE;
 
 	ret = ad7291_i2c_write(chip, AD7291_COMMAND, AD7291_RESET);
-	if (ret) {
-		ret = -EIO;
-		goto error_disable_reg;
-	}
+	if (ret)
+		return -EIO;
 
 	ret = ad7291_i2c_write(chip, AD7291_COMMAND, chip->command);
-	if (ret) {
-		ret = -EIO;
-		goto error_disable_reg;
-	}
+	if (ret)
+		return -EIO;
 
 	if (client->irq > 0) {
-		ret = request_threaded_irq(client->irq,
-					   NULL,
-					   &ad7291_event_handler,
-					   IRQF_TRIGGER_LOW | IRQF_ONESHOT,
-					   id->name,
-					   indio_dev);
+		ret = devm_request_threaded_irq(&client->dev, client->irq,
+						NULL,
+						&ad7291_event_handler,
+						IRQF_TRIGGER_LOW | IRQF_ONESHOT,
+						id->name,
+						indio_dev);
 		if (ret)
-			goto error_disable_reg;
+			return ret;
 	}
 
-	ret = iio_device_register(indio_dev);
-	if (ret)
-		goto error_unreg_irq;
-
-	return 0;
-
-error_unreg_irq:
-	if (client->irq)
-		free_irq(client->irq, indio_dev);
-error_disable_reg:
-	if (chip->reg)
-		regulator_disable(chip->reg);
-
-	return ret;
-}
-
-static int ad7291_remove(struct i2c_client *client)
-{
-	struct iio_dev *indio_dev = i2c_get_clientdata(client);
-	struct ad7291_chip_info *chip = iio_priv(indio_dev);
-
-	iio_device_unregister(indio_dev);
-
-	if (client->irq)
-		free_irq(client->irq, indio_dev);
-
-	if (chip->reg)
-		regulator_disable(chip->reg);
-
-	return 0;
+	return devm_iio_device_register(&client->dev, indio_dev);
 }
 
 static const struct i2c_device_id ad7291_id[] = {
@@ -578,8 +553,7 @@ static struct i2c_driver ad7291_driver = {
 		.name = KBUILD_MODNAME,
 		.of_match_table = ad7291_of_match,
 	},
-	.probe = ad7291_probe,
-	.remove = ad7291_remove,
+	.probe_new = ad7291_probe,
 	.id_table = ad7291_id,
 };
 module_i2c_driver(ad7291_driver);

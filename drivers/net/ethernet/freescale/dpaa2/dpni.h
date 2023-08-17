@@ -92,19 +92,28 @@ int dpni_close(struct fsl_mc_io	*mc_io,
 	       u32		cmd_flags,
 	       u16		token);
 
+#define DPNI_POOL_ASSOC_QPRI	0
+#define DPNI_POOL_ASSOC_QDBIN	1
+
 /**
  * struct dpni_pools_cfg - Structure representing buffer pools configuration
  * @num_dpbp: Number of DPBPs
+ * @pool_options: Buffer assignment options.
+ *	This field is a combination of DPNI_POOL_ASSOC_flags
  * @pools: Array of buffer pools parameters; The number of valid entries
  *	must match 'num_dpbp' value
  * @pools.dpbp_id: DPBP object ID
+ * @pools.priority: Priority mask that indicates TC's used with this buffer.
+ *	If set to 0x00 MC will assume value 0xff.
  * @pools.buffer_size: Buffer size
  * @pools.backup_pool: Backup pool
  */
 struct dpni_pools_cfg {
 	u8		num_dpbp;
+	u8		pool_options;
 	struct {
 		int	dpbp_id;
+		u8	priority_mask;
 		u16	buffer_size;
 		int	backup_pool;
 	} pools[DPNI_MAX_DPBP];
@@ -1074,12 +1083,18 @@ int dpni_set_tx_shaping(struct fsl_mc_io *mc_io,
  * @peer_delay:	For peer-to-peer transparent clocks add this value to the
  *		correction field in addition to the transient time update.
  *		The value expresses nanoseconds.
+ * @ptp_onestep_reg_base: 1588 SINGLE_STEP register base address. This address
+ *			  is used to update directly the register contents.
+ *			  User has to create an address mapping for it.
+ *
+ *
  */
 struct dpni_single_step_cfg {
 	u8	en;
 	u8	ch_update;
 	u16	offset;
 	u32	peer_delay;
+	u32	ptp_onestep_reg_base;
 };
 
 int dpni_set_single_step_cfg(struct fsl_mc_io *mc_io,

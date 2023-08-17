@@ -125,29 +125,6 @@ static void mq_attach(struct Qdisc *sch)
 	priv->qdiscs = NULL;
 }
 
-static void mq_change_real_num_tx(struct Qdisc *sch, unsigned int new_real_tx)
-{
-#ifdef CONFIG_NET_SCHED
-	struct net_device *dev = qdisc_dev(sch);
-	struct Qdisc *qdisc;
-	unsigned int i;
-
-	for (i = new_real_tx; i < dev->real_num_tx_queues; i++) {
-		qdisc = netdev_get_tx_queue(dev, i)->qdisc_sleeping;
-		/* Only update the default qdiscs we created,
-		 * qdiscs with handles are always hashed.
-		 */
-		if (qdisc != &noop_qdisc && !qdisc->handle)
-			qdisc_hash_del(qdisc);
-	}
-	for (i = dev->real_num_tx_queues; i < new_real_tx; i++) {
-		qdisc = netdev_get_tx_queue(dev, i)->qdisc_sleeping;
-		if (qdisc != &noop_qdisc && !qdisc->handle)
-			qdisc_hash_add(qdisc, false);
-	}
-#endif
-}
-
 static int mq_dump(struct Qdisc *sch, struct sk_buff *skb)
 {
 	struct net_device *dev = qdisc_dev(sch);
@@ -164,7 +141,7 @@ static int mq_dump(struct Qdisc *sch, struct sk_buff *skb)
 	 * qdisc totals are added at end.
 	 */
 	for (ntx = 0; ntx < dev->num_tx_queues; ntx++) {
-		qdisc = netdev_get_tx_queue(dev, ntx)->qdisc_sleeping;
+		qdisc = rtnl_dereference(netdev_get_tx_queue(dev, ntx)->qdisc_sleeping);
 		spin_lock_bh(qdisc_lock(qdisc));
 
 		gnet_stats_add_basic(&sch->bstats, qdisc->cpu_bstats,
@@ -225,7 +202,7 @@ static struct Qdisc *mq_leaf(struct Qdisc *sch, unsigned long cl)
 {
 	struct netdev_queue *dev_queue = mq_queue_get(sch, cl);
 
-	return dev_queue->qdisc_sleeping;
+	return rtnl_dereference(dev_queue->qdisc_sleeping);
 }
 
 static unsigned long mq_find(struct Qdisc *sch, u32 classid)
@@ -244,7 +221,7 @@ static int mq_dump_class(struct Qdisc *sch, unsigned long cl,
 
 	tcm->tcm_parent = TC_H_ROOT;
 	tcm->tcm_handle |= TC_H_MIN(cl);
-	tcm->tcm_info = dev_queue->qdisc_sleeping->handle;
+	tcm->tcm_info = rtnl_dereference(dev_queue->qdisc_sleeping)->handle;
 	return 0;
 }
 
@@ -253,7 +230,7 @@ static int mq_dump_class_stats(struct Qdisc *sch, unsigned long cl,
 {
 	struct netdev_queue *dev_queue = mq_queue_get(sch, cl);
 
-	sch = dev_queue->qdisc_sleeping;
+	sch = rtnl_dereference(dev_queue->qdisc_sleeping);
 	if (gnet_stats_copy_basic(d, sch->cpu_bstats, &sch->bstats, true) < 0 ||
 	    qdisc_qstats_copy(d, sch) < 0)
 		return -1;
@@ -270,11 +247,8 @@ static void mq_walk(struct Qdisc *sch, struct qdisc_walker *arg)
 
 	arg->count = arg->skip;
 	for (ntx = arg->skip; ntx < dev->num_tx_queues; ntx++) {
-		if (arg->fn(sch, ntx + 1, arg) < 0) {
-			arg->stop = 1;
+		if (!tc_qdisc_stats_dump(sch, ntx + 1, arg))
 			break;
-		}
-		arg->count++;
 	}
 }
 

@@ -30,12 +30,14 @@
 #include <linux/init.h>
 #include <linux/ptrace.h>
 #include <linux/kallsyms.h>
+#include <linux/extable.h>
 
 #include <asm/setup.h>
 #include <asm/fpu.h>
 #include <linux/uaccess.h>
 #include <asm/traps.h>
 #include <asm/machdep.h>
+#include <asm/processor.h>
 #include <asm/siginfo.h>
 #include <asm/tlbflush.h>
 
@@ -181,9 +183,8 @@ static inline void access_error060 (struct frame *fp)
 static inline unsigned long probe040(int iswrite, unsigned long addr, int wbs)
 {
 	unsigned long mmusr;
-	mm_segment_t old_fs = get_fs();
 
-	set_fs(MAKE_MM_SEG(wbs));
+	set_fc(wbs);
 
 	if (iswrite)
 		asm volatile (".chip 68040; ptestw (%0); .chip 68k" : : "a" (addr));
@@ -192,7 +193,7 @@ static inline unsigned long probe040(int iswrite, unsigned long addr, int wbs)
 
 	asm volatile (".chip 68040; movec %%mmusr,%0; .chip 68k" : "=r" (mmusr));
 
-	set_fs(old_fs);
+	set_fc(USER_DATA);
 
 	return mmusr;
 }
@@ -201,10 +202,8 @@ static inline int do_040writeback1(unsigned short wbs, unsigned long wba,
 				   unsigned long wbd)
 {
 	int res = 0;
-	mm_segment_t old_fs = get_fs();
 
-	/* set_fs can not be moved, otherwise put_user() may oops */
-	set_fs(MAKE_MM_SEG(wbs));
+	set_fc(wbs);
 
 	switch (wbs & WBSIZ_040) {
 	case BA_SIZE_BYTE:
@@ -218,9 +217,7 @@ static inline int do_040writeback1(unsigned short wbs, unsigned long wba,
 		break;
 	}
 
-	/* set_fs can not be moved, otherwise put_user() may oops */
-	set_fs(old_fs);
-
+	set_fc(USER_DATA);
 
 	pr_debug("do_040writeback1, res=%d\n", res);
 
@@ -549,7 +546,8 @@ static inline void bus_error030 (struct frame *fp)
 			errorcode |= 2;
 
 		if (mmusr & (MMU_I | MMU_WP)) {
-			if (ssw & 4) {
+			/* We might have an exception table for this PC */
+			if (ssw & 4 && !search_exception_tables(fp->ptregs.pc)) {
 				pr_err("Data %s fault at %#010lx in %s (pc=%#lx)\n",
 				       ssw & RW ? "read" : "write",
 				       fp->un.fmtb.daddr,
@@ -1150,7 +1148,7 @@ asmlinkage void set_esp0(unsigned long ssp)
  */
 asmlinkage void fpsp040_die(void)
 {
-	do_exit(SIGSEGV);
+	force_exit_sig(SIGSEGV);
 }
 
 #ifdef CONFIG_M68KFPU_EMU

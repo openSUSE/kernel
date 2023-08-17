@@ -18,6 +18,11 @@
 		reg = <0x20000000 0x80000000>;
 	};
 
+	aliases {
+		mmc0 = &mmc_0;
+		mmc1 = &mmc_2;
+	};
+
 	chosen {
 		stdout-path = "serial2:115200n8";
 	};
@@ -26,6 +31,27 @@
 		compatible = "fixed-clock";
 		clock-frequency = <24000000>;
 		clock-output-names = "fin_pll";
+		#clock-cells = <0>;
+	};
+
+	ioclk_pcm: clock-pcm-ext {
+		compatible = "fixed-clock";
+		clock-frequency = <2048000>;
+		clock-output-names = "ioclk_pcm_extclk";
+		#clock-cells = <0>;
+	};
+
+	ioclk_i2s: clock-i2s-cd {
+		compatible = "fixed-clock";
+		clock-frequency = <147456000>;
+		clock-output-names = "ioclk_i2s_cdclk";
+		#clock-cells = <0>;
+	};
+
+	ioclk_spdif: clock-spdif-ext {
+		compatible = "fixed-clock";
+		clock-frequency = <49152000>;
+		clock-output-names = "ioclk_spdif_extclk";
 		#clock-cells = <0>;
 	};
 
@@ -38,7 +64,7 @@
 };
 
 &pinctrl_0 {
-	hdmi_hpd_irq: hdmi-hpd-irq {
+	hdmi_hpd_irq: hdmi-hpd-irq-pins {
 		samsung,pins = "gpx3-7";
 		samsung,pin-function = <EXYNOS_PIN_FUNC_INPUT>;
 		samsung,pin-pud = <EXYNOS_PIN_PULL_DOWN>;
@@ -66,8 +92,9 @@
 	status = "okay";
 	broken-cd;
 	cap-mmc-highspeed;
-	supports-hs200-mode; /* 200 MHz */
+	mmc-hs200-1_8v;
 	card-detect-delay = <200>;
+	mmc-ddr-1_8v;
 	samsung,dw-mshc-ciu-div = <3>;
 	samsung,dw-mshc-sdr-timing = <0 4>;
 	samsung,dw-mshc-ddr-timing = <0 2>;

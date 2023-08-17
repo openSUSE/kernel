@@ -15,15 +15,12 @@
  * How to use the V4L2_MBUS_* flags:
  * Flags are defined for each of the possible states and values of a media
  * bus configuration parameter. One and only one bit of each group of flags
- * shall be set by the users of the v4l2_subdev_pad_ops.get_mbus_config and
- * v4l2_subdev_pad_ops.set_mbus_config operations to ensure that no
- * conflicting settings are specified when reporting and setting the media bus
- * configuration with the two operations respectively. For example, it is
- * invalid to set or clear both the V4L2_MBUS_HSYNC_ACTIVE_HIGH and the
+ * shall be set by the users of the v4l2_subdev_pad_ops.get_mbus_config
+ * operation to ensure that no conflicting settings are specified when
+ * reporting the media bus configuration. For example, it is invalid to set or
+ * clear both the V4L2_MBUS_HSYNC_ACTIVE_HIGH and the
  * V4L2_MBUS_HSYNC_ACTIVE_LOW flag at the same time. Instead either flag
- * V4L2_MBUS_HSYNC_ACTIVE_HIGH or flag V4L2_MBUS_HSYNC_ACTIVE_LOW shall be
- * set. The same is true for the V4L2_MBUS_CSI2_1/2/3/4_LANE flags group: only
- * one of these four bits shall be set.
+ * V4L2_MBUS_HSYNC_ACTIVE_HIGH or flag V4L2_MBUS_HSYNC_ACTIVE_LOW shall be set.
  *
  * TODO: replace the existing V4L2_MBUS_* flags with structures of fields
  * to avoid conflicting settings.
@@ -57,41 +54,22 @@
 #define V4L2_MBUS_VSYNC_ACTIVE_LOW		BIT(5)
 #define V4L2_MBUS_PCLK_SAMPLE_RISING		BIT(6)
 #define V4L2_MBUS_PCLK_SAMPLE_FALLING		BIT(7)
-#define V4L2_MBUS_DATA_ACTIVE_HIGH		BIT(8)
-#define V4L2_MBUS_DATA_ACTIVE_LOW		BIT(9)
+#define V4L2_MBUS_PCLK_SAMPLE_DUALEDGE		BIT(8)
+#define V4L2_MBUS_DATA_ACTIVE_HIGH		BIT(9)
+#define V4L2_MBUS_DATA_ACTIVE_LOW		BIT(10)
 /* FIELD = 0/1 - Field1 (odd)/Field2 (even) */
-#define V4L2_MBUS_FIELD_EVEN_HIGH		BIT(10)
+#define V4L2_MBUS_FIELD_EVEN_HIGH		BIT(11)
 /* FIELD = 1/0 - Field1 (odd)/Field2 (even) */
-#define V4L2_MBUS_FIELD_EVEN_LOW		BIT(11)
+#define V4L2_MBUS_FIELD_EVEN_LOW		BIT(12)
 /* Active state of Sync-on-green (SoG) signal, 0/1 for LOW/HIGH respectively. */
-#define V4L2_MBUS_VIDEO_SOG_ACTIVE_HIGH		BIT(12)
-#define V4L2_MBUS_VIDEO_SOG_ACTIVE_LOW		BIT(13)
-#define V4L2_MBUS_DATA_ENABLE_HIGH		BIT(14)
-#define V4L2_MBUS_DATA_ENABLE_LOW		BIT(15)
+#define V4L2_MBUS_VIDEO_SOG_ACTIVE_HIGH		BIT(13)
+#define V4L2_MBUS_VIDEO_SOG_ACTIVE_LOW		BIT(14)
+#define V4L2_MBUS_DATA_ENABLE_HIGH		BIT(15)
+#define V4L2_MBUS_DATA_ENABLE_LOW		BIT(16)
 
 /* Serial flags */
-/* CSI-2 D-PHY number of data lanes. */
-#define V4L2_MBUS_CSI2_1_LANE			BIT(0)
-#define V4L2_MBUS_CSI2_2_LANE			BIT(1)
-#define V4L2_MBUS_CSI2_3_LANE			BIT(2)
-#define V4L2_MBUS_CSI2_4_LANE			BIT(3)
-/* CSI-2 Virtual Channel identifiers. */
-#define V4L2_MBUS_CSI2_CHANNEL_0		BIT(4)
-#define V4L2_MBUS_CSI2_CHANNEL_1		BIT(5)
-#define V4L2_MBUS_CSI2_CHANNEL_2		BIT(6)
-#define V4L2_MBUS_CSI2_CHANNEL_3		BIT(7)
 /* Clock non-continuous mode support. */
-#define V4L2_MBUS_CSI2_CONTINUOUS_CLOCK		BIT(8)
-#define V4L2_MBUS_CSI2_NONCONTINUOUS_CLOCK	BIT(9)
-
-#define V4L2_MBUS_CSI2_LANES		(V4L2_MBUS_CSI2_1_LANE | \
-					 V4L2_MBUS_CSI2_2_LANE | \
-					 V4L2_MBUS_CSI2_3_LANE | \
-					 V4L2_MBUS_CSI2_4_LANE)
-#define V4L2_MBUS_CSI2_CHANNELS		(V4L2_MBUS_CSI2_CHANNEL_0 | \
-					 V4L2_MBUS_CSI2_CHANNEL_1 | \
-					 V4L2_MBUS_CSI2_CHANNEL_2 | \
-					 V4L2_MBUS_CSI2_CHANNEL_3)
+#define V4L2_MBUS_CSI2_NONCONTINUOUS_CLOCK	BIT(0)
 
 #define V4L2_MBUS_CSI2_MAX_DATA_LANES		8
 
@@ -152,6 +130,7 @@ struct v4l2_mbus_config_mipi_csi1 {
  * @V4L2_MBUS_CCP2:	CCP2 (Compact Camera Port 2)
  * @V4L2_MBUS_CSI2_DPHY: MIPI CSI-2 serial interface, with D-PHY
  * @V4L2_MBUS_CSI2_CPHY: MIPI CSI-2 serial interface, with C-PHY
+ * @V4L2_MBUS_DPI:      MIPI VIDEO DPI interface
  * @V4L2_MBUS_INVALID:	invalid bus type (keep as last)
  */
 enum v4l2_mbus_type {
@@ -162,6 +141,7 @@ enum v4l2_mbus_type {
 	V4L2_MBUS_CCP2,
 	V4L2_MBUS_CSI2_DPHY,
 	V4L2_MBUS_CSI2_CPHY,
+	V4L2_MBUS_DPI,
 	V4L2_MBUS_INVALID,
 };
 

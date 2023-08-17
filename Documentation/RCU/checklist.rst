@@ -32,12 +32,12 @@ over a rather long period of time, but improvements are always welcome!
 	for lockless updates.  This does result in the mildly
 	counter-intuitive situation where rcu_read_lock() and
 	rcu_read_unlock() are used to protect updates, however, this
-	approach provides the same potential simplifications that garbage
-	collectors do.
+	approach can provide the same simplifications to certain types
+	of lockless algorithms that garbage collectors do.
 
 1.	Does the update code have proper mutual exclusion?
 
-	RCU does allow -readers- to run (almost) naked, but -writers- must
+	RCU does allow *readers* to run (almost) naked, but *writers* must
 	still use some sort of mutual exclusion, such as:
 
 	a.	locking,
@@ -49,12 +49,12 @@ over a rather long period of time, but improvements are always welcome!
 	them -- even x86 allows later loads to be reordered to precede
 	earlier stores), and be prepared to explain why this added
 	complexity is worthwhile.  If you choose #c, be prepared to
-	explain how this single task does not become a major bottleneck on
-	big multiprocessor machines (for example, if the task is updating
-	information relating to itself that other tasks can read, there
-	by definition can be no bottleneck).  Note that the definition
-	of "large" has changed significantly:  Eight CPUs was "large"
-	in the year 2000, but a hundred CPUs was unremarkable in 2017.
+	explain how this single task does not become a major bottleneck
+	on large systems (for example, if the task is updating information
+	relating to itself that other tasks can read, there by definition
+	can be no bottleneck).	Note that the definition of "large" has
+	changed significantly:	Eight CPUs was "large" in the year 2000,
+	but a hundred CPUs was unremarkable in 2017.
 
 2.	Do the RCU read-side critical sections make proper use of
 	rcu_read_lock() and friends?  These primitives are needed
@@ -66,14 +66,19 @@ over a rather long period of time, but improvements are always welcome!
 	As a rough rule of thumb, any dereference of an RCU-protected
 	pointer must be covered by rcu_read_lock(), rcu_read_lock_bh(),
 	rcu_read_lock_sched(), or by the appropriate update-side lock.
-	Disabling of preemption can serve as rcu_read_lock_sched(), but
-	is less readable and prevents lockdep from detecting locking issues.
+	Explicit disabling of preemption (preempt_disable(), for example)
+	can serve as rcu_read_lock_sched(), but is less readable and
+	prevents lockdep from detecting locking issues.
+
+	Please note that you *cannot* rely on code known to be built
+	only in non-preemptible kernels.  Such code can and will break,
+	especially in kernels built with CONFIG_PREEMPT_COUNT=y.
 
 	Letting RCU-protected pointers "leak" out of an RCU read-side
 	critical section is every bit as bad as letting them leak out
 	from under a lock.  Unless, of course, you have arranged some
 	other means of protection, such as a lock or a reference count
-	-before- letting them out of the RCU read-side critical section.
+	*before* letting them out of the RCU read-side critical section.
 
 3.	Does the update code tolerate concurrent accesses?
 
@@ -92,33 +97,38 @@ over a rather long period of time, but improvements are always welcome!
 
 	b.	Proceed as in (a) above, but also maintain per-element
 		locks (that are acquired by both readers and writers)
-		that guard per-element state.  Of course, fields that
-		the readers refrain from accessing can be guarded by
-		some other lock acquired only by updaters, if desired.
+		that guard per-element state.  Fields that the readers
+		refrain from accessing can be guarded by some other lock
+		acquired only by updaters, if desired.
 
-		This works quite well, also.
+		This also works quite well.
 
 	c.	Make updates appear atomic to readers.	For example,
 		pointer updates to properly aligned fields will
 		appear atomic, as will individual atomic primitives.
-		Sequences of operations performed under a lock will -not-
+		Sequences of operations performed under a lock will *not*
 		appear to be atomic to RCU readers, nor will sequences
-		of multiple atomic primitives.
+		of multiple atomic primitives.	One alternative is to
+		move multiple individual fields to a separate structure,
+		thus solving the multiple-field problem by imposing an
+		additional level of indirection.
 
 		This can work, but is starting to get a bit tricky.
 
-	d.	Carefully order the updates and the reads so that
-		readers see valid data at all phases of the update.
-		This is often more difficult than it sounds, especially
-		given modern CPUs' tendency to reorder memory references.
-		One must usually liberally sprinkle memory barriers
-		(smp_wmb(), smp_rmb(), smp_mb()) through the code,
-		making it difficult to understand and to test.
+	d.	Carefully order the updates and the reads so that readers
+		see valid data at all phases of the update.  This is often
+		more difficult than it sounds, especially given modern
+		CPUs' tendency to reorder memory references.  One must
+		usually liberally sprinkle memory-ordering operations
+		through the code, making it difficult to understand and
+		to test.  Where it works, it is better to use things
+		like smp_store_release() and smp_load_acquire(), but in
+		some cases the smp_mb() full memory barrier is required.
 
-		It is usually better to group the changing data into
-		a separate structure, so that the change may be made
-		to appear atomic by updating a pointer to reference
-		a new structure containing updated values.
+		As noted earlier, it is usually better to group the
+		changing data into a separate structure, so that the
+		change may be made to appear atomic by updating a pointer
+		to reference a new structure containing updated values.
 
 4.	Weakly ordered CPUs pose special challenges.  Almost all CPUs
 	are weakly ordered -- even x86 CPUs allow later loads to be
@@ -140,8 +150,7 @@ over a rather long period of time, but improvements are always welcome!
 		prevents destructive compiler optimizations.  However,
 		with a bit of devious creativity, it is possible to
 		mishandle the return value from rcu_dereference().
-		Please see rcu_dereference.txt in this directory for
-		more information.
+		Please see rcu_dereference.rst for more information.
 
 		The rcu_dereference() primitive is used by the
 		various "_rcu()" list-traversal primitives, such
@@ -151,7 +160,7 @@ over a rather long period of time, but improvements are always welcome!
 		primitives.  This is particularly useful in code that
 		is common to readers and updaters.  However, lockdep
 		will complain if you access rcu_dereference() outside
-		of an RCU read-side critical section.  See lockdep.txt
+		of an RCU read-side critical section.  See lockdep.rst
 		to learn what to do about this.
 
 		Of course, neither rcu_dereference() nor the "_rcu()"
@@ -184,23 +193,29 @@ over a rather long period of time, but improvements are always welcome!
 		when publicizing a pointer to a structure that can
 		be traversed by an RCU read-side critical section.
 
-5.	If call_rcu() or call_srcu() is used, the callback function will
-	be called from softirq context.  In particular, it cannot block.
+5.	If any of call_rcu(), call_srcu(), call_rcu_tasks(),
+	call_rcu_tasks_rude(), or call_rcu_tasks_trace() is used,
+	the callback function may be invoked from softirq context,
+	and in any case with bottom halves disabled.  In particular,
+	this callback function cannot block.  If you need the callback
+	to block, run that code in a workqueue handler scheduled from
+	the callback.  The queue_rcu_work() function does this for you
+	in the case of call_rcu().
 
 6.	Since synchronize_rcu() can block, it cannot be called
 	from any sort of irq context.  The same rule applies
-	for synchronize_srcu(), synchronize_rcu_expedited(), and
-	synchronize_srcu_expedited().
+	for synchronize_srcu(), synchronize_rcu_expedited(),
+	synchronize_srcu_expedited(), synchronize_rcu_tasks(),
+	synchronize_rcu_tasks_rude(), and synchronize_rcu_tasks_trace().
 
 	The expedited forms of these primitives have the same semantics
-	as the non-expedited forms, but expediting is both expensive and
-	(with the exception of synchronize_srcu_expedited()) unfriendly
-	to real-time workloads.  Use of the expedited primitives should
-	be restricted to rare configuration-change operations that would
-	not normally be undertaken while a real-time workload is running.
-	However, real-time workloads can use rcupdate.rcu_normal kernel
-	boot parameter to completely disable expedited grace periods,
-	though this might have performance implications.
+	as the non-expedited forms, but expediting is more CPU intensive.
+	Use of the expedited primitives should be restricted to rare
+	configuration-change operations that would not normally be
+	undertaken while a real-time workload is running.  Note that
+	IPI-sensitive real-time workloads can use the rcupdate.rcu_normal
+	kernel boot parameter to completely disable expedited grace
+	periods, though this might have performance implications.
 
 	In particular, if you find yourself invoking one of the expedited
 	primitives repeatedly in a loop, please do everyone a favor:
@@ -208,8 +223,9 @@ over a rather long period of time, but improvements are always welcome!
 	a single non-expedited primitive to cover the entire batch.
 	This will very likely be faster than the loop containing the
 	expedited primitive, and will be much much easier on the rest
-	of the system, especially to real-time workloads running on
-	the rest of the system.
+	of the system, especially to real-time workloads running on the
+	rest of the system.  Alternatively, instead use asynchronous
+	primitives such as call_rcu().
 
 7.	As of v4.20, a given kernel implements only one RCU flavor, which
 	is RCU-sched for PREEMPTION=n and RCU-preempt for PREEMPTION=y.
@@ -232,7 +248,8 @@ over a rather long period of time, but improvements are always welcome!
 	the corresponding readers must use rcu_read_lock_trace() and
 	rcu_read_unlock_trace().  If an updater uses call_rcu_tasks_rude()
 	or synchronize_rcu_tasks_rude(), then the corresponding readers
-	must use anything that disables interrupts.
+	must use anything that disables preemption, for example,
+	preempt_disable() and preempt_enable().
 
 	Mixing things up will result in confusion and broken kernels, and
 	has even resulted in an exploitable security issue.  Therefore,
@@ -246,15 +263,16 @@ over a rather long period of time, but improvements are always welcome!
 	that this usage is safe is that readers can use anything that
 	disables BH when updaters use call_rcu() or synchronize_rcu().
 
-8.	Although synchronize_rcu() is slower than is call_rcu(), it
-	usually results in simpler code.  So, unless update performance is
-	critically important, the updaters cannot block, or the latency of
-	synchronize_rcu() is visible from userspace, synchronize_rcu()
-	should be used in preference to call_rcu().  Furthermore,
-	kfree_rcu() usually results in even simpler code than does
-	synchronize_rcu() without synchronize_rcu()'s multi-millisecond
-	latency.  So please take advantage of kfree_rcu()'s "fire and
-	forget" memory-freeing capabilities where it applies.
+8.	Although synchronize_rcu() is slower than is call_rcu(),
+	it usually results in simpler code.  So, unless update
+	performance is critically important, the updaters cannot block,
+	or the latency of synchronize_rcu() is visible from userspace,
+	synchronize_rcu() should be used in preference to call_rcu().
+	Furthermore, kfree_rcu() and kvfree_rcu() usually result
+	in even simpler code than does synchronize_rcu() without
+	synchronize_rcu()'s multi-millisecond latency.	So please take
+	advantage of kfree_rcu()'s and kvfree_rcu()'s "fire and forget"
+	memory-freeing capabilities where it applies.
 
 	An especially important property of the synchronize_rcu()
 	primitive is that it automatically self-limits: if grace periods
@@ -264,8 +282,8 @@ over a rather long period of time, but improvements are always welcome!
 	cases where grace periods are delayed, as failing to do so can
 	result in excessive realtime latencies or even OOM conditions.
 
-	Ways of gaining this self-limiting property when using call_rcu()
-	include:
+	Ways of gaining this self-limiting property when using call_rcu(),
+	kfree_rcu(), or kvfree_rcu() include:
 
 	a.	Keeping a count of the number of data-structure elements
 		used by the RCU-protected data structure, including
@@ -297,17 +315,21 @@ over a rather long period of time, but improvements are always welcome!
 		here is that superuser already has lots of ways to crash
 		the machine.
 
-	d.	Periodically invoke synchronize_rcu(), permitting a limited
+	d.	Periodically invoke rcu_barrier(), permitting a limited
 		number of updates per grace period.
 
-	The same cautions apply to call_srcu() and kfree_rcu().
+	The same cautions apply to call_srcu(), call_rcu_tasks(),
+	call_rcu_tasks_rude(), and call_rcu_tasks_trace().  This is
+	why there is an srcu_barrier(), rcu_barrier_tasks(),
+	rcu_barrier_tasks_rude(), and rcu_barrier_tasks_rude(),
+	respectively.
 
-	Note that although these primitives do take action to avoid memory
-	exhaustion when any given CPU has too many callbacks, a determined
-	user could still exhaust memory.  This is especially the case
-	if a system with a large number of CPUs has been configured to
-	offload all of its RCU callbacks onto a single CPU, or if the
-	system has relatively little free memory.
+	Note that although these primitives do take action to avoid
+	memory exhaustion when any given CPU has too many callbacks,
+	a determined user or administrator can still exhaust memory.
+	This is especially the case if a system with a large number of
+	CPUs has been configured to offload all of its RCU callbacks onto
+	a single CPU, or if the system has relatively little free memory.
 
 9.	All RCU list-traversal primitives, which include
 	rcu_dereference(), list_for_each_entry_rcu(), and
@@ -323,7 +345,7 @@ over a rather long period of time, but improvements are always welcome!
 	primitives when the update-side lock is held is that doing so
 	can be quite helpful in reducing code bloat when common code is
 	shared between readers and updaters.  Additional primitives
-	are provided for this case, as discussed in lockdep.txt.
+	are provided for this case, as discussed in lockdep.rst.
 
 	One exception to this rule is when data is only ever added to
 	the linked data structure, and is never removed during any
@@ -333,17 +355,17 @@ over a rather long period of time, but improvements are always welcome!
 	for example) may be omitted.
 
 10.	Conversely, if you are in an RCU read-side critical section,
-	and you don't hold the appropriate update-side lock, you -must-
+	and you don't hold the appropriate update-side lock, you *must*
 	use the "_rcu()" variants of the list macros.  Failing to do so
 	will break Alpha, cause aggressive compilers to generate bad code,
-	and confuse people trying to read your code.
+	and confuse people trying to understand your code.
 
 11.	Any lock acquired by an RCU callback must be acquired elsewhere
-	with softirq disabled, e.g., via spin_lock_irqsave(),
-	spin_lock_bh(), etc.  Failing to disable softirq on a given
-	acquisition of that lock will result in deadlock as soon as
-	the RCU softirq handler happens to run your RCU callback while
-	interrupting that acquisition's critical section.
+	with softirq disabled, e.g., via spin_lock_bh().  Failing to
+	disable softirq on a given acquisition of that lock will result
+	in deadlock as soon as the RCU softirq handler happens to run
+	your RCU callback while interrupting that acquisition's critical
+	section.
 
 12.	RCU callbacks can be and are executed in parallel.  In many cases,
 	the callback code simply wrappers around kfree(), so that this
@@ -359,12 +381,22 @@ over a rather long period of time, but improvements are always welcome!
 	callback pending, then that RCU callback will execute on some
 	surviving CPU.	(If this was not the case, a self-spawning RCU
 	callback would prevent the victim CPU from ever going offline.)
-	Furthermore, CPUs designated by rcu_nocbs= might well -always-
+	Furthermore, CPUs designated by rcu_nocbs= might well *always*
 	have their RCU callbacks executed on some other CPUs, in fact,
 	for some  real-time workloads, this is the whole point of using
 	the rcu_nocbs= kernel boot parameter.
 
-13.	Unlike other forms of RCU, it -is- permissible to block in an
+	In addition, do not assume that callbacks queued in a given order
+	will be invoked in that order, even if they all are queued on the
+	same CPU.  Furthermore, do not assume that same-CPU callbacks will
+	be invoked serially.  For example, in recent kernels, CPUs can be
+	switched between offloaded and de-offloaded callback invocation,
+	and while a given CPU is undergoing such a switch, its callbacks
+	might be concurrently invoked by that CPU's softirq handler and
+	that CPU's rcuo kthread.  At such times, that CPU's callbacks
+	might be executed both concurrently and out of order.
+
+13.	Unlike most flavors of RCU, it *is* permissible to block in an
 	SRCU read-side critical section (demarked by srcu_read_lock()
 	and srcu_read_unlock()), hence the "SRCU": "sleepable RCU".
 	Please note that if you don't need to sleep in read-side critical
@@ -404,6 +436,12 @@ over a rather long period of time, but improvements are always welcome!
 	never sends IPIs to other CPUs, so it is easier on
 	real-time workloads than is synchronize_rcu_expedited().
 
+	It is also permissible to sleep in RCU Tasks Trace read-side
+	critical, which are delimited by rcu_read_lock_trace() and
+	rcu_read_unlock_trace().  However, this is a specialized flavor
+	of RCU, and you should not use it without first checking with
+	its current users.  In most cases, you should instead use SRCU.
+
 	Note that rcu_assign_pointer() relates to SRCU just as it does to
 	other forms of RCU, but instead of rcu_dereference() you should
 	use srcu_dereference() in order to avoid lockdep splats.
@@ -411,16 +449,16 @@ over a rather long period of time, but improvements are always welcome!
 14.	The whole point of call_rcu(), synchronize_rcu(), and friends
 	is to wait until all pre-existing readers have finished before
 	carrying out some otherwise-destructive operation.  It is
-	therefore critically important to -first- remove any path
+	therefore critically important to *first* remove any path
 	that readers can follow that could be affected by the
-	destructive operation, and -only- -then- invoke call_rcu(),
+	destructive operation, and *only then* invoke call_rcu(),
 	synchronize_rcu(), or friends.
 
 	Because these primitives only wait for pre-existing readers, it
 	is the caller's responsibility to guarantee that any subsequent
 	readers will execute safely.
 
-15.	The various RCU read-side primitives do -not- necessarily contain
+15.	The various RCU read-side primitives do *not* necessarily contain
 	memory barriers.  You should therefore plan for the CPU
 	and the compiler to freely reorder code into and out of RCU
 	read-side critical sections.  It is the responsibility of the
@@ -434,50 +472,62 @@ over a rather long period of time, but improvements are always welcome!
 	find problems as follows:
 
 	CONFIG_PROVE_LOCKING:
-		check that accesses to RCU-protected data
-		structures are carried out under the proper RCU
-		read-side critical section, while holding the right
-		combination of locks, or whatever other conditions
-		are appropriate.
+		check that accesses to RCU-protected data structures
+		are carried out under the proper RCU read-side critical
+		section, while holding the right combination of locks,
+		or whatever other conditions are appropriate.
 
 	CONFIG_DEBUG_OBJECTS_RCU_HEAD:
-		check that you don't pass the
-		same object to call_rcu() (or friends) before an RCU
-		grace period has elapsed since the last time that you
-		passed that same object to call_rcu() (or friends).
+		check that you don't pass the same object to call_rcu()
+		(or friends) before an RCU grace period has elapsed
+		since the last time that you passed that same object to
+		call_rcu() (or friends).
 
 	__rcu sparse checks:
-		tag the pointer to the RCU-protected data
-		structure with __rcu, and sparse will warn you if you
-		access that pointer without the services of one of the
-		variants of rcu_dereference().
+		tag the pointer to the RCU-protected data structure
+		with __rcu, and sparse will warn you if you access that
+		pointer without the services of one of the variants
+		of rcu_dereference().
 
 	These debugging aids can help you find problems that are
 	otherwise extremely difficult to spot.
 
-17.	If you register a callback using call_rcu() or call_srcu(), and
-	pass in a function defined within a loadable module, then it in
-	necessary to wait for all pending callbacks to be invoked after
-	the last invocation and before unloading that module.  Note that
-	it is absolutely -not- sufficient to wait for a grace period!
-	The current (say) synchronize_rcu() implementation is -not-
-	guaranteed to wait for callbacks registered on other CPUs.
-	Or even on the current CPU if that CPU recently went offline
-	and came back online.
+17.	If you pass a callback function defined within a module to one of
+	call_rcu(), call_srcu(), call_rcu_tasks(), call_rcu_tasks_rude(),
+	or call_rcu_tasks_trace(), then it is necessary to wait for all
+	pending callbacks to be invoked before unloading that module.
+	Note that it is absolutely *not* sufficient to wait for a grace
+	period!  For example, synchronize_rcu() implementation is *not*
+	guaranteed to wait for callbacks registered on other CPUs via
+	call_rcu().  Or even on the current CPU if that CPU recently
+	went offline and came back online.
 
 	You instead need to use one of the barrier functions:
 
 	-	call_rcu() -> rcu_barrier()
 	-	call_srcu() -> srcu_barrier()
+	-	call_rcu_tasks() -> rcu_barrier_tasks()
+	-	call_rcu_tasks_rude() -> rcu_barrier_tasks_rude()
+	-	call_rcu_tasks_trace() -> rcu_barrier_tasks_trace()
 
-	However, these barrier functions are absolutely -not- guaranteed
-	to wait for a grace period.  In fact, if there are no call_rcu()
-	callbacks waiting anywhere in the system, rcu_barrier() is within
-	its rights to return immediately.
+	However, these barrier functions are absolutely *not* guaranteed
+	to wait for a grace period.  For example, if there are no
+	call_rcu() callbacks queued anywhere in the system, rcu_barrier()
+	can and will return immediately.
 
-	So if you need to wait for both an RCU grace period and for
-	all pre-existing call_rcu() callbacks, you will need to execute
-	both rcu_barrier() and synchronize_rcu(), if necessary, using
-	something like workqueues to to execute them concurrently.
+	So if you need to wait for both a grace period and for all
+	pre-existing callbacks, you will need to invoke both functions,
+	with the pair depending on the flavor of RCU:
 
-	See rcubarrier.txt for more information.
+	-	Either synchronize_rcu() or synchronize_rcu_expedited(),
+		together with rcu_barrier()
+	-	Either synchronize_srcu() or synchronize_srcu_expedited(),
+		together with and srcu_barrier()
+	-	synchronize_rcu_tasks() and rcu_barrier_tasks()
+	-	synchronize_tasks_rude() and rcu_barrier_tasks_rude()
+	-	synchronize_tasks_trace() and rcu_barrier_tasks_trace()
+
+	If necessary, you can use something like workqueues to execute
+	the requisite pair of functions concurrently.
+
+	See rcubarrier.rst for more information.

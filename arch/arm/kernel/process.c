@@ -36,10 +36,19 @@
 
 #include "signal.h"
 
+#if defined(CONFIG_CURRENT_POINTER_IN_TPIDRURO) || defined(CONFIG_SMP)
+DEFINE_PER_CPU(struct task_struct *, __entry_task);
+#endif
+
 #if defined(CONFIG_STACKPROTECTOR) && !defined(CONFIG_STACKPROTECTOR_PER_TASK)
 #include <linux/stackprotector.h>
 unsigned long __stack_chk_guard __read_mostly;
 EXPORT_SYMBOL(__stack_chk_guard);
+#endif
+
+#ifndef CONFIG_CURRENT_POINTER_IN_TPIDRURO
+asmlinkage struct task_struct *__current;
+EXPORT_SYMBOL(__current);
 #endif
 
 static const char *processor_modes[] __maybe_unused = {
@@ -69,7 +78,6 @@ void arch_cpu_idle(void)
 		arm_pm_idle();
 	else
 		cpu_do_idle();
-	raw_local_irq_enable();
 }
 
 void arch_cpu_idle_prepare(void)
@@ -106,7 +114,7 @@ void __show_regs(struct pt_regs *regs)
 	unsigned long flags;
 	char buf[64];
 #ifndef CONFIG_CPU_V7M
-	unsigned int domain, fs;
+	unsigned int domain;
 #ifdef CONFIG_CPU_SW_DOMAIN_PAN
 	/*
 	 * Get the domain register for the parent context. In user
@@ -115,14 +123,11 @@ void __show_regs(struct pt_regs *regs)
 	 */
 	if (user_mode(regs)) {
 		domain = DACR_UACCESS_ENABLE;
-		fs = get_fs();
 	} else {
 		domain = to_svc_pt_regs(regs)->dacr;
-		fs = to_svc_pt_regs(regs)->addr_limit;
 	}
 #else
 	domain = get_domain();
-	fs = get_fs();
 #endif
 #endif
 
@@ -158,8 +163,6 @@ void __show_regs(struct pt_regs *regs)
 		if ((domain & domain_mask(DOMAIN_USER)) ==
 		    domain_val(DOMAIN_USER, DOMAIN_NOACCESS))
 			segment = "none";
-		else if (fs == KERNEL_DS)
-			segment = "kernel";
 		else
 			segment = "user";
 
@@ -197,7 +200,7 @@ void __show_regs(struct pt_regs *regs)
 void show_regs(struct pt_regs * regs)
 {
 	__show_regs(regs);
-	dump_stack();
+	dump_backtrace(regs, NULL, KERN_DEFAULT);
 }
 
 ATOMIC_NOTIFIER_HEAD(thread_notify_head);
@@ -228,15 +231,13 @@ void flush_thread(void)
 	thread_notify(THREAD_NOTIFY_FLUSH, thread);
 }
 
-void release_thread(struct task_struct *dead_task)
-{
-}
-
 asmlinkage void ret_from_fork(void) __asm__("ret_from_fork");
 
-int copy_thread(unsigned long clone_flags, unsigned long stack_start,
-		unsigned long stk_sz, struct task_struct *p, unsigned long tls)
+int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 {
+	unsigned long clone_flags = args->flags;
+	unsigned long stack_start = args->stack;
+	unsigned long tls = args->tls;
 	struct thread_info *thread = task_thread_info(p);
 	struct pt_regs *childregs = task_pt_regs(p);
 
@@ -252,15 +253,15 @@ int copy_thread(unsigned long clone_flags, unsigned long stack_start,
 	thread->cpu_domain = get_domain();
 #endif
 
-	if (likely(!(p->flags & (PF_KTHREAD | PF_IO_WORKER)))) {
+	if (likely(!args->fn)) {
 		*childregs = *current_pt_regs();
 		childregs->ARM_r0 = 0;
 		if (stack_start)
 			childregs->ARM_sp = stack_start;
 	} else {
 		memset(childregs, 0, sizeof(struct pt_regs));
-		thread->cpu_context.r4 = stk_sz;
-		thread->cpu_context.r5 = stack_start;
+		thread->cpu_context.r4 = (unsigned long)args->fn_arg;
+		thread->cpu_context.r5 = (unsigned long)args->fn;
 		childregs->ARM_cpsr = SVC_MODE;
 	}
 	thread->cpu_context.pc = (unsigned long)ret_from_fork;
@@ -273,10 +274,6 @@ int copy_thread(unsigned long clone_flags, unsigned long stack_start,
 	thread->tp_value[1] = get_tpuser();
 
 	thread_notify(THREAD_NOTIFY_COPY, thread);
-
-#ifdef CONFIG_STACKPROTECTOR_PER_TASK
-	thread->stack_canary = p->stack_canary;
-#endif
 
 	return 0;
 }
@@ -318,7 +315,7 @@ static int __init gate_vma_init(void)
 	gate_vma.vm_page_prot = PAGE_READONLY_EXEC;
 	gate_vma.vm_start = 0xffff0000;
 	gate_vma.vm_end	= 0xffff0000 + PAGE_SIZE;
-	gate_vma.vm_flags = VM_READ | VM_EXEC | VM_MAYREAD | VM_MAYEXEC;
+	vm_flags_init(&gate_vma, VM_READ | VM_EXEC | VM_MAYREAD | VM_MAYEXEC);
 	return 0;
 }
 arch_initcall(gate_vma_init);
@@ -373,7 +370,7 @@ static unsigned long sigpage_addr(const struct mm_struct *mm,
 
 	slots = ((last - first) >> PAGE_SHIFT) + 1;
 
-	offset = get_random_int() % slots;
+	offset = get_random_u32_below(slots);
 
 	addr = first + (offset << PAGE_SHIFT);
 

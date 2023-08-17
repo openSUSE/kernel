@@ -45,10 +45,6 @@ struct v4l2_async_subdev;
  */
 struct v4l2_fwnode_endpoint {
 	struct fwnode_endpoint base;
-	/*
-	 * Fields below this line will be zeroed by
-	 * v4l2_fwnode_endpoint_parse()
-	 */
 	enum v4l2_mbus_type bus_type;
 	struct {
 		struct v4l2_mbus_config_parallel parallel;
@@ -173,6 +169,7 @@ struct v4l2_fwnode_connector {
  * @V4L2_FWNODE_BUS_TYPE_CSI2_DPHY: MIPI CSI-2 bus, D-PHY physical layer
  * @V4L2_FWNODE_BUS_TYPE_PARALLEL: Camera Parallel Interface bus
  * @V4L2_FWNODE_BUS_TYPE_BT656: BT.656 video format bus-type
+ * @V4L2_FWNODE_BUS_TYPE_DPI: Video Parallel Interface bus
  * @NR_OF_V4L2_FWNODE_BUS_TYPE: Number of bus-types
  */
 enum v4l2_fwnode_bus_type {
@@ -183,6 +180,7 @@ enum v4l2_fwnode_bus_type {
 	V4L2_FWNODE_BUS_TYPE_CSI2_DPHY,
 	V4L2_FWNODE_BUS_TYPE_PARALLEL,
 	V4L2_FWNODE_BUS_TYPE_BT656,
+	V4L2_FWNODE_BUS_TYPE_DPI,
 	NR_OF_V4L2_FWNODE_BUS_TYPE
 };
 
@@ -414,7 +412,7 @@ typedef int (*parse_endpoint_func)(struct device *dev,
 				  struct v4l2_async_subdev *asd);
 
 /**
- * v4l2_async_notifier_parse_fwnode_endpoints - Parse V4L2 fwnode endpoints in a
+ * v4l2_async_nf_parse_fwnode_endpoints - Parse V4L2 fwnode endpoints in a
  *						device node
  * @dev: the device the endpoints of which are to be parsed
  * @notifier: notifier for @dev
@@ -447,7 +445,7 @@ typedef int (*parse_endpoint_func)(struct device *dev,
  * to retain that configuration, the user needs to allocate memory for it.
  *
  * Any notifier populated using this function must be released with a call to
- * v4l2_async_notifier_cleanup() after it has been unregistered and the async
+ * v4l2_async_nf_cleanup() after it has been unregistered and the async
  * sub-devices are no longer in use, even if the function returned an error.
  *
  * Return: %0 on success, including when no async sub-devices are found
@@ -456,10 +454,10 @@ typedef int (*parse_endpoint_func)(struct device *dev,
  *	   Other error codes as returned by @parse_endpoint
  */
 int
-v4l2_async_notifier_parse_fwnode_endpoints(struct device *dev,
-					   struct v4l2_async_notifier *notifier,
-					   size_t asd_struct_size,
-					   parse_endpoint_func parse_endpoint);
+v4l2_async_nf_parse_fwnode_endpoints(struct device *dev,
+				     struct v4l2_async_notifier *notifier,
+				     size_t asd_struct_size,
+				     parse_endpoint_func parse_endpoint);
 
 /* Helper macros to access the connector links. */
 

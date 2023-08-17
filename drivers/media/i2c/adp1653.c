@@ -463,8 +463,7 @@ err:
 }
 
 
-static int adp1653_probe(struct i2c_client *client,
-			 const struct i2c_device_id *devid)
+static int adp1653_probe(struct i2c_client *client)
 {
 	struct adp1653_flash *flash;
 	int ret;
@@ -510,7 +509,7 @@ free_and_quit:
 	return ret;
 }
 
-static int adp1653_remove(struct i2c_client *client)
+static void adp1653_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *subdev = i2c_get_clientdata(client);
 	struct adp1653_flash *flash = to_adp1653_flash(subdev);
@@ -518,8 +517,6 @@ static int adp1653_remove(struct i2c_client *client)
 	v4l2_device_unregister_subdev(&flash->subdev);
 	v4l2_ctrl_handler_free(&flash->ctrls);
 	media_entity_cleanup(&flash->subdev.entity);
-
-	return 0;
 }
 
 static const struct i2c_device_id adp1653_id_table[] = {
@@ -538,7 +535,7 @@ static struct i2c_driver adp1653_i2c_driver = {
 		.name	= ADP1653_NAME,
 		.pm	= &adp1653_pm_ops,
 	},
-	.probe		= adp1653_probe,
+	.probe_new	= adp1653_probe,
 	.remove		= adp1653_remove,
 	.id_table	= adp1653_id_table,
 };

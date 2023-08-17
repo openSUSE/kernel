@@ -4,7 +4,7 @@
 $id: http://devicetree.org/schemas/pci/pci-ep.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: PCI Endpoint Controller Schema
+title: PCI Endpoint Controller
 
 description: |
   Common properties for PCI Endpoint Controller Nodes.
@@ -22,6 +22,13 @@ properties:
     minimum: 1
     default: 1
     maximum: 255
+
+  max-virtual-functions:
+    description: Array representing the number of virtual functions corresponding to each physical
+      function
+    $ref: /schemas/types.yaml#/definitions/uint8-array
+    minItems: 1
+    maxItems: 255
 
   max-link-speed:
     $ref: /schemas/types.yaml#/definitions/uint32

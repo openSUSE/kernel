@@ -11,6 +11,8 @@
 #include <linux/property.h>
 #include <linux/slab.h>
 
+#include "base.h"
+
 struct swnode {
 	struct kobject kobj;
 	struct fwnode_handle fwnode;
@@ -411,9 +413,6 @@ software_node_get_name(const struct fwnode_handle *fwnode)
 {
 	const struct swnode *swnode = to_swnode(fwnode);
 
-	if (!swnode)
-		return "(null)";
-
 	return kobject_name(&swnode->kobj);
 }
 
@@ -504,9 +503,6 @@ software_node_get_reference_args(const struct fwnode_handle *fwnode,
 	u32 nargs_prop_val;
 	int error;
 	int i;
-
-	if (!swnode)
-		return -ENOENT;
 
 	prop = property_entry_get(swnode->node->properties, propname);
 	if (!prop)
@@ -764,7 +760,7 @@ static void software_node_release(struct kobject *kobj)
 	kfree(swnode);
 }
 
-static struct kobj_type software_node_type = {
+static const struct kobj_type software_node_type = {
 	.release = software_node_release,
 	.sysfs_ops = &kobj_sysfs_ops,
 };
@@ -822,67 +818,6 @@ swnode_register(const struct software_node *node, struct swnode *parent,
 	kobject_uevent(&swnode->kobj, KOBJ_ADD);
 	return &swnode->fwnode;
 }
-
-/**
- * software_node_register_nodes - Register an array of software nodes
- * @nodes: Zero terminated array of software nodes to be registered
- *
- * Register multiple software nodes at once. If any node in the array
- * has its .parent pointer set (which can only be to another software_node),
- * then its parent **must** have been registered before it is; either outside
- * of this function or by ordering the array such that parent comes before
- * child.
- */
-int software_node_register_nodes(const struct software_node *nodes)
-{
-	int ret;
-	int i;
-
-	for (i = 0; nodes[i].name; i++) {
-		const struct software_node *parent = nodes[i].parent;
-
-		if (parent && !software_node_to_swnode(parent)) {
-			ret = -EINVAL;
-			goto err_unregister_nodes;
-		}
-
-		ret = software_node_register(&nodes[i]);
-		if (ret)
-			goto err_unregister_nodes;
-	}
-
-	return 0;
-
-err_unregister_nodes:
-	software_node_unregister_nodes(nodes);
-	return ret;
-}
-EXPORT_SYMBOL_GPL(software_node_register_nodes);
-
-/**
- * software_node_unregister_nodes - Unregister an array of software nodes
- * @nodes: Zero terminated array of software nodes to be unregistered
- *
- * Unregister multiple software nodes at once. If parent pointers are set up
- * in any of the software nodes then the array **must** be ordered such that
- * parents come before their children.
- *
- * NOTE: If you are uncertain whether the array is ordered such that
- * parents will be unregistered before their children, it is wiser to
- * remove the nodes individually, in the correct order (child before
- * parent).
- */
-void software_node_unregister_nodes(const struct software_node *nodes)
-{
-	unsigned int i = 0;
-
-	while (nodes[i].name)
-		i++;
-
-	while (i--)
-		software_node_unregister(&nodes[i]);
-}
-EXPORT_SYMBOL_GPL(software_node_unregister_nodes);
 
 /**
  * software_node_register_node_group - Register a group of software nodes
@@ -1053,7 +988,7 @@ int device_add_software_node(struct device *dev, const struct software_node *nod
 	 * balance.
 	 */
 	if (device_is_registered(dev))
-		software_node_notify(dev, KOBJ_ADD);
+		software_node_notify(dev);
 
 	return 0;
 }
@@ -1074,7 +1009,8 @@ void device_remove_software_node(struct device *dev)
 		return;
 
 	if (device_is_registered(dev))
-		software_node_notify(dev, KOBJ_REMOVE);
+		software_node_notify_remove(dev);
+
 	set_secondary_fwnode(dev, NULL);
 	kobject_put(&swnode->kobj);
 }
@@ -1114,50 +1050,50 @@ int device_create_managed_software_node(struct device *dev,
 	set_secondary_fwnode(dev, fwnode);
 
 	if (device_is_registered(dev))
-		software_node_notify(dev, KOBJ_ADD);
+		software_node_notify(dev);
 
 	return 0;
 }
 EXPORT_SYMBOL_GPL(device_create_managed_software_node);
 
-int software_node_notify(struct device *dev, unsigned long action)
+void software_node_notify(struct device *dev)
 {
 	struct swnode *swnode;
 	int ret;
 
 	swnode = dev_to_swnode(dev);
 	if (!swnode)
-		return 0;
+		return;
 
-	switch (action) {
-	case KOBJ_ADD:
-		ret = sysfs_create_link(&dev->kobj, &swnode->kobj, "software_node");
-		if (ret)
-			break;
+	ret = sysfs_create_link(&dev->kobj, &swnode->kobj, "software_node");
+	if (ret)
+		return;
 
-		ret = sysfs_create_link(&swnode->kobj, &dev->kobj,
-					dev_name(dev));
-		if (ret) {
-			sysfs_remove_link(&dev->kobj, "software_node");
-			break;
-		}
-		kobject_get(&swnode->kobj);
-		break;
-	case KOBJ_REMOVE:
-		sysfs_remove_link(&swnode->kobj, dev_name(dev));
+	ret = sysfs_create_link(&swnode->kobj, &dev->kobj, dev_name(dev));
+	if (ret) {
 		sysfs_remove_link(&dev->kobj, "software_node");
-		kobject_put(&swnode->kobj);
-
-		if (swnode->managed) {
-			set_secondary_fwnode(dev, NULL);
-			kobject_put(&swnode->kobj);
-		}
-		break;
-	default:
-		break;
+		return;
 	}
 
-	return 0;
+	kobject_get(&swnode->kobj);
+}
+
+void software_node_notify_remove(struct device *dev)
+{
+	struct swnode *swnode;
+
+	swnode = dev_to_swnode(dev);
+	if (!swnode)
+		return;
+
+	sysfs_remove_link(&swnode->kobj, dev_name(dev));
+	sysfs_remove_link(&dev->kobj, "software_node");
+	kobject_put(&swnode->kobj);
+
+	if (swnode->managed) {
+		set_secondary_fwnode(dev, NULL);
+		kobject_put(&swnode->kobj);
+	}
 }
 
 static int __init software_node_init(void)

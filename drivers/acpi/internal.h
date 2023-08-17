@@ -102,10 +102,10 @@ struct acpi_device_bus_id {
 	struct list_head node;
 };
 
-int acpi_device_add(struct acpi_device *device,
-		    void (*release)(struct device *));
 void acpi_init_device_object(struct acpi_device *device, acpi_handle handle,
-			     int type);
+			     int type, void (*release)(struct device *));
+int acpi_tie_acpi_dev(struct acpi_device *adev);
+int acpi_device_add(struct acpi_device *device);
 int acpi_device_setup_files(struct acpi_device *dev);
 void acpi_device_remove_files(struct acpi_device *dev);
 void acpi_device_add_finalize(struct acpi_device *device);
@@ -120,7 +120,7 @@ int acpi_bus_register_early_device(int type);
                      Device Matching and Notification
    -------------------------------------------------------------------------- */
 struct acpi_device *acpi_companion_match(const struct device *dev);
-int __acpi_device_uevent_modalias(struct acpi_device *adev,
+int __acpi_device_uevent_modalias(const struct acpi_device *adev,
 				  struct kobj_uevent_env *env);
 
 /* --------------------------------------------------------------------------
@@ -173,6 +173,7 @@ enum acpi_ec_event_state {
 
 struct acpi_ec {
 	acpi_handle handle;
+	acpi_handle address_space_handler_holder;
 	int gpe;
 	int irq;
 	unsigned long command_addr;
@@ -193,9 +194,6 @@ struct acpi_ec {
 	unsigned int queries_in_progress;
 	bool busy_polling;
 	unsigned int polling_guard;
-#ifndef __GENKSYMS__
-	acpi_handle address_space_handler_holder;
-#endif
 };
 
 extern struct acpi_ec *first_ec;

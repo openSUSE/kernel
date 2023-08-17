@@ -153,7 +153,7 @@ static void md4_transform(uint32_t *hash, uint32_t const *in)
 
 static inline void md4_transform_helper(struct md4_ctx *ctx)
 {
-	le32_to_cpu_array(ctx->block, sizeof(ctx->block) / sizeof(uint32_t));
+	le32_to_cpu_array(ctx->block, ARRAY_SIZE(ctx->block));
 	md4_transform(ctx->hash, ctx->block);
 }
 
@@ -216,7 +216,7 @@ static void md4_final_ascii(struct md4_ctx *mctx, char *out, unsigned int len)
 	le32_to_cpu_array(mctx->block, (sizeof(mctx->block) -
 			  sizeof(uint64_t)) / sizeof(uint32_t));
 	md4_transform(mctx->hash, mctx->block);
-	cpu_to_le32_array(mctx->hash, sizeof(mctx->hash) / sizeof(uint32_t));
+	cpu_to_le32_array(mctx->hash, ARRAY_SIZE(mctx->hash));
 
 	snprintf(out, len, "%08X%08X%08X%08X",
 		 mctx->hash[0], mctx->hash[1], mctx->hash[2], mctx->hash[3]);
@@ -290,13 +290,11 @@ static int parse_file(const char *fname, struct md4_ctx *md)
 	return 1;
 }
 /* Check whether the file is a static library or not */
-static int is_static_library(const char *objfile)
+static bool is_static_library(const char *objfile)
 {
 	int len = strlen(objfile);
-	if (objfile[len - 2] == '.' && objfile[len - 1] == 'a')
-		return 1;
-	else
-		return 0;
+
+	return objfile[len - 2] == '.' && objfile[len - 1] == 'a';
 }
 
 /* We have dir/file.o.  Open dir/.file.o.cmd, look for source_ and deps_ line
@@ -387,30 +385,18 @@ out_file:
 /* Calc and record src checksum. */
 void get_src_version(const char *modname, char sum[], unsigned sumlen)
 {
-	char *buf, *pos, *firstline;
+	char *buf;
 	struct md4_ctx md;
 	char *fname;
 	char filelist[PATH_MAX + 1];
-	int postfix_len = 1;
-
-	if (strends(modname, ".lto.o"))
-		postfix_len = 5;
 
 	/* objects for a module are listed in the first line of *.mod file. */
-	snprintf(filelist, sizeof(filelist), "%.*smod",
-		 (int)strlen(modname) - postfix_len, modname);
+	snprintf(filelist, sizeof(filelist), "%s.mod", modname);
 
 	buf = read_text_file(filelist);
 
-	pos = buf;
-	firstline = get_line(&pos);
-	if (!firstline) {
-		warn("bad ending versions file for %s\n", modname);
-		goto free;
-	}
-
 	md4_init(&md);
-	while ((fname = strsep(&firstline, " "))) {
+	while ((fname = strsep(&buf, "\n"))) {
 		if (!*fname)
 			continue;
 		if (!(is_static_library(fname)) &&

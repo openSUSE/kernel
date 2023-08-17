@@ -1073,7 +1073,6 @@ static const struct snd_soc_component_driver soc_component_dev_rt274 = {
 	.num_dapm_routes	= ARRAY_SIZE(rt274_dapm_routes),
 	.use_pmdown_time	= 1,
 	.endianness		= 1,
-	.non_legacy_dai_naming	= 1,
 };
 
 static const struct regmap_config rt274_regmap = {
@@ -1205,14 +1204,12 @@ static int rt274_i2c_probe(struct i2c_client *i2c)
 	return ret;
 }
 
-static int rt274_i2c_remove(struct i2c_client *i2c)
+static void rt274_i2c_remove(struct i2c_client *i2c)
 {
 	struct rt274_priv *rt274 = i2c_get_clientdata(i2c);
 
 	if (i2c->irq)
 		free_irq(i2c->irq, rt274);
-
-	return 0;
 }
 
 

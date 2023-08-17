@@ -1261,10 +1261,8 @@ static int i2c_pxa_probe_dt(struct platform_device *pdev, struct pxa_i2c *i2c,
 	/* For device tree we always use the dynamic or alias-assigned ID */
 	i2c->adap.nr = -1;
 
-	if (of_get_property(np, "mrvl,i2c-polling", NULL))
-		i2c->use_pio = 1;
-	if (of_get_property(np, "mrvl,i2c-fast-mode", NULL))
-		i2c->fast_mode = 1;
+	i2c->use_pio = of_property_read_bool(np, "mrvl,i2c-polling");
+	i2c->fast_mode = of_property_read_bool(np, "mrvl,i2c-fast-mode");
 
 	*i2c_types = (enum pxa_i2c_types)(of_id->data);
 
@@ -1403,7 +1401,7 @@ static int i2c_pxa_probe(struct platform_device *dev)
 	spin_lock_init(&i2c->lock);
 	init_waitqueue_head(&i2c->wait);
 
-	strlcpy(i2c->adap.name, "pxa_i2c-i2c", sizeof(i2c->adap.name));
+	strscpy(i2c->adap.name, "pxa_i2c-i2c", sizeof(i2c->adap.name));
 
 	i2c->clk = devm_clk_get(&dev->dev, NULL);
 	if (IS_ERR(i2c->clk)) {
@@ -1547,7 +1545,6 @@ static void __exit i2c_adap_pxa_exit(void)
 }
 
 MODULE_LICENSE("GPL");
-MODULE_ALIAS("platform:pxa2xx-i2c");
 
 subsys_initcall(i2c_adap_pxa_init);
 module_exit(i2c_adap_pxa_exit);

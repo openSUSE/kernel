@@ -116,23 +116,6 @@ bool xen_arch_need_swiotlb(struct device *dev,
 		!dev_is_dma_coherent(dev));
 }
 
-int xen_create_contiguous_region(phys_addr_t pstart, unsigned int order,
-				 unsigned int address_bits,
-				 dma_addr_t *dma_handle)
-{
-	if (!xen_initial_domain())
-		return -EINVAL;
-
-	/* we assume that dom0 is mapped 1:1 for now */
-	*dma_handle = pstart;
-	return 0;
-}
-
-void xen_destroy_contiguous_region(phys_addr_t pstart, unsigned int order)
-{
-	return;
-}
-
 static int __init xen_mm_init(void)
 {
 	struct gnttab_cache_flush cflush;

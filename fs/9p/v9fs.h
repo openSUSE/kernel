@@ -31,29 +31,54 @@
 #define V9FS_ACL_MASK V9FS_POSIX_ACL
 
 enum p9_session_flags {
-	V9FS_PROTO_2000U	= 0x01,
-	V9FS_PROTO_2000L	= 0x02,
-	V9FS_ACCESS_SINGLE	= 0x04,
-	V9FS_ACCESS_USER	= 0x08,
-	V9FS_ACCESS_CLIENT	= 0x10,
-	V9FS_POSIX_ACL		= 0x20
+	V9FS_PROTO_2000U    = 0x01,
+	V9FS_PROTO_2000L    = 0x02,
+	V9FS_ACCESS_SINGLE  = 0x04,
+	V9FS_ACCESS_USER    = 0x08,
+	V9FS_ACCESS_CLIENT  = 0x10,
+	V9FS_POSIX_ACL      = 0x20,
+	V9FS_NO_XATTR       = 0x40,
+	V9FS_IGNORE_QV      = 0x80, /* ignore qid.version for cache hints */
+	V9FS_DIRECT_IO      = 0x100,
+	V9FS_SYNC           = 0x200
 };
 
-/* possible values of ->cache */
 /**
- * enum p9_cache_modes - user specified cache preferences
- * @CACHE_NONE: do not cache data, dentries, or directory contents (default)
- * @CACHE_LOOSE: cache data, dentries, and directory contents w/no consistency
+ * enum p9_cache_shortcuts - human readable cache preferences
+ * @CACHE_SC_NONE: disable all caches
+ * @CACHE_SC_READAHEAD: only provide caching for readahead
+ * @CACHE_SC_MMAP: provide caching to enable mmap
+ * @CACHE_SC_LOOSE: non-coherent caching for files and meta data
+ * @CACHE_SC_FSCACHE: persistent non-coherent caching for files and meta-data
  *
- * eventually support loose, tight, time, session, default always none
  */
 
-enum p9_cache_modes {
-	CACHE_NONE,
-	CACHE_MMAP,
-	CACHE_LOOSE,
-	CACHE_FSCACHE,
-	nr__p9_cache_modes
+enum p9_cache_shortcuts {
+	CACHE_SC_NONE       = 0b00000000,
+	CACHE_SC_READAHEAD  = 0b00000001,
+	CACHE_SC_MMAP       = 0b00000101,
+	CACHE_SC_LOOSE      = 0b00001111,
+	CACHE_SC_FSCACHE    = 0b10001111,
+};
+
+/**
+ * enum p9_cache_bits - possible values of ->cache
+ * @CACHE_NONE: caches disabled
+ * @CACHE_FILE: file caching (open to close)
+ * @CACHE_META: meta-data and directory caching
+ * @CACHE_WRITEBACK: write-back caching for files
+ * @CACHE_LOOSE: don't check cache consistency
+ * @CACHE_FSCACHE: local persistent caches
+ *
+ */
+
+enum p9_cache_bits {
+	CACHE_NONE          = 0b00000000,
+	CACHE_FILE          = 0b00000001,
+	CACHE_META          = 0b00000010,
+	CACHE_WRITEBACK     = 0b00000100,
+	CACHE_LOOSE         = 0b00001000,
+	CACHE_FSCACHE       = 0b10000000,
 };
 
 /**
@@ -62,7 +87,7 @@ enum p9_cache_modes {
  * @nodev: set to 1 to disable device mapping
  * @debug: debug level
  * @afid: authentication handle
- * @cache: cache mode of type &p9_cache_modes
+ * @cache: cache mode of type &p9_cache_bits
  * @cachetag: the tag of the cache associated with this session
  * @fscache: session cookie associated with FS-Cache
  * @uname: string user name to mount hierarchy as
@@ -83,7 +108,7 @@ enum p9_cache_modes {
 
 struct v9fs_session_info {
 	/* options */
-	unsigned char flags;
+	unsigned int flags;
 	unsigned char nodev;
 	unsigned short debug;
 	unsigned int afid;
@@ -109,26 +134,21 @@ struct v9fs_session_info {
 #define V9FS_INO_INVALID_ATTR 0x01
 
 struct v9fs_inode {
-	struct {
-		/* These must be contiguous */
-		struct inode	vfs_inode;	/* the VFS's inode record */
-		struct netfs_i_context netfs_ctx; /* Netfslib context */
-	};
+	struct netfs_inode netfs; /* Netfslib context and vfs inode */
 	struct p9_qid qid;
 	unsigned int cache_validity;
-	struct p9_fid *writeback_fid;
 	struct mutex v_mutex;
 };
 
 static inline struct v9fs_inode *V9FS_I(const struct inode *inode)
 {
-	return container_of(inode, struct v9fs_inode, vfs_inode);
+	return container_of(inode, struct v9fs_inode, netfs.inode);
 }
 
 static inline struct fscache_cookie *v9fs_inode_cookie(struct v9fs_inode *v9inode)
 {
 #ifdef CONFIG_9P_FSCACHE
-	return netfs_i_cookie(&v9inode->vfs_inode);
+	return netfs_i_cookie(&v9inode->netfs);
 #else
 	return NULL;
 #endif
@@ -146,16 +166,16 @@ static inline struct fscache_volume *v9fs_session_cache(struct v9fs_session_info
 
 extern int v9fs_show_options(struct seq_file *m, struct dentry *root);
 
-struct p9_fid *v9fs_session_init(struct v9fs_session_info *, const char *,
-									char *);
+struct p9_fid *v9fs_session_init(struct v9fs_session_info *v9ses,
+				 const char *dev_name, char *data);
 extern void v9fs_session_close(struct v9fs_session_info *v9ses);
 extern void v9fs_session_cancel(struct v9fs_session_info *v9ses);
 extern void v9fs_session_begin_cancel(struct v9fs_session_info *v9ses);
 extern struct dentry *v9fs_vfs_lookup(struct inode *dir, struct dentry *dentry,
-			unsigned int flags);
+				      unsigned int flags);
 extern int v9fs_vfs_unlink(struct inode *i, struct dentry *d);
 extern int v9fs_vfs_rmdir(struct inode *i, struct dentry *d);
-extern int v9fs_vfs_rename(struct user_namespace *mnt_userns,
+extern int v9fs_vfs_rename(struct mnt_idmap *idmap,
 			   struct inode *old_dir, struct dentry *old_dentry,
 			   struct inode *new_dir, struct dentry *new_dentry,
 			   unsigned int flags);
@@ -179,7 +199,7 @@ extern struct inode *v9fs_inode_from_fid_dotl(struct v9fs_session_info *v9ses,
 
 static inline struct v9fs_session_info *v9fs_inode2v9ses(struct inode *inode)
 {
-	return (inode->i_sb->s_fs_info);
+	return inode->i_sb->s_fs_info;
 }
 
 static inline struct v9fs_session_info *v9fs_dentry2v9ses(struct dentry *dentry)

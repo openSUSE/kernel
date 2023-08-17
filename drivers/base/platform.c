@@ -261,8 +261,9 @@ int platform_get_irq(struct platform_device *dev, unsigned int num)
 	int ret;
 
 	ret = platform_get_irq_optional(dev, num);
-	if (ret < 0 && ret != -EPROBE_DEFER)
-		dev_err(&dev->dev, "IRQ index %u not found\n", num);
+	if (ret < 0)
+		return dev_err_probe(&dev->dev, ret,
+				     "IRQ index %u not found\n", num);
 
 	return ret;
 }
@@ -440,11 +441,9 @@ static int __platform_get_irq_byname(struct platform_device *dev,
 	struct resource *r;
 	int ret;
 
-	if (IS_ENABLED(CONFIG_OF_IRQ) && dev->dev.of_node) {
-		ret = of_irq_get_byname(dev->dev.of_node, name);
-		if (ret > 0 || ret == -EPROBE_DEFER)
-			return ret;
-	}
+	ret = fwnode_irq_get_byname(dev_fwnode(&dev->dev), name);
+	if (ret > 0 || ret == -EPROBE_DEFER)
+		return ret;
 
 	r = platform_get_resource_byname(dev, IORESOURCE_IRQ, name);
 	if (r) {
@@ -470,9 +469,9 @@ int platform_get_irq_byname(struct platform_device *dev, const char *name)
 	int ret;
 
 	ret = __platform_get_irq_byname(dev, name);
-	if (ret < 0 && ret != -EPROBE_DEFER)
-		dev_err(&dev->dev, "IRQ %s not found\n", name);
-
+	if (ret < 0)
+		return dev_err_probe(&dev->dev, ret, "IRQ %s not found\n",
+				     name);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(platform_get_irq_byname);
@@ -498,6 +497,8 @@ EXPORT_SYMBOL_GPL(platform_get_irq_byname_optional);
  * platform_add_devices - add a numbers of platform devices
  * @devs: array of platform devices to add
  * @num: number of platform devices in array
+ *
+ * Return: 0 on success, negative error number on failure.
  */
 int platform_add_devices(struct platform_device **devs, int num)
 {
@@ -646,22 +647,6 @@ int platform_device_add_data(struct platform_device *pdev, const void *data,
 EXPORT_SYMBOL_GPL(platform_device_add_data);
 
 /**
- * platform_device_add_properties - add built-in properties to a platform device
- * @pdev: platform device to add properties to
- * @properties: null terminated array of properties to add
- *
- * The function will take deep copy of @properties and attach the copy to the
- * platform device. The memory associated with properties will be freed when the
- * platform device is released.
- */
-int platform_device_add_properties(struct platform_device *pdev,
-				   const struct property_entry *properties)
-{
-	return device_add_properties(&pdev->dev, properties);
-}
-EXPORT_SYMBOL_GPL(platform_device_add_properties);
-
-/**
  * platform_device_add - add a platform device to device hierarchy
  * @pdev: platform device we're adding
  *
@@ -782,6 +767,10 @@ EXPORT_SYMBOL_GPL(platform_device_del);
 /**
  * platform_device_register - add a platform-level device
  * @pdev: platform device we're adding
+ *
+ * NOTE: _Never_ directly free @pdev after calling this function, even if it
+ * returned an error! Always use platform_device_put() to give up the
+ * reference initialised in this function instead.
  */
 int platform_device_register(struct platform_device *pdev)
 {
@@ -846,8 +835,8 @@ struct platform_device *platform_device_register_full(
 		goto err;
 
 	if (pdevinfo->properties) {
-		ret = platform_device_add_properties(pdev,
-						     pdevinfo->properties);
+		ret = device_create_managed_software_node(&pdev->dev,
+							  pdevinfo->properties, NULL);
 		if (ret)
 			goto err;
 	}
@@ -894,6 +883,13 @@ static int platform_probe_fail(struct platform_device *pdev)
 	return -ENXIO;
 }
 
+static int is_bound_to_driver(struct device *dev, void *driver)
+{
+	if (dev->driver == driver)
+		return 1;
+	return 0;
+}
+
 /**
  * __platform_driver_probe - register driver for non-hotpluggable device
  * @drv: platform driver structure
@@ -917,7 +913,7 @@ static int platform_probe_fail(struct platform_device *pdev)
 int __init_or_module __platform_driver_probe(struct platform_driver *drv,
 		int (*probe)(struct platform_device *), struct module *module)
 {
-	int retval, code;
+	int retval;
 
 	if (drv->driver.probe_type == PROBE_PREFER_ASYNCHRONOUS) {
 		pr_err("%s: drivers registered with %s can not be probed asynchronously\n",
@@ -943,24 +939,21 @@ int __init_or_module __platform_driver_probe(struct platform_driver *drv,
 
 	/* temporary section violation during probe() */
 	drv->probe = probe;
-	retval = code = __platform_driver_register(drv, module);
+	retval = __platform_driver_register(drv, module);
 	if (retval)
 		return retval;
 
-	/*
-	 * Fixup that section violation, being paranoid about code scanning
-	 * the list of drivers in order to probe new devices.  Check to see
-	 * if the probe was successful, and make sure any forced probes of
-	 * new devices fail.
-	 */
-	spin_lock(&drv->driver.bus->p->klist_drivers.k_lock);
+	/* Force all new probes of this driver to fail */
 	drv->probe = platform_probe_fail;
-	if (code == 0 && list_empty(&drv->driver.p->klist_devices.k_list))
-		retval = -ENODEV;
-	spin_unlock(&drv->driver.bus->p->klist_drivers.k_lock);
 
-	if (code != retval)
+	/* Walk all platform devices and see if any actually bound to this driver.
+	 * If not, return an error as the device should have done so by now.
+	 */
+	if (!bus_for_each_dev(&platform_bus_type, NULL, &drv->driver, is_bound_to_driver)) {
+		retval = -ENODEV;
 		platform_driver_unregister(drv);
+	}
+
 	return retval;
 }
 EXPORT_SYMBOL_GPL(__platform_driver_probe);
@@ -1364,9 +1357,9 @@ static int platform_match(struct device *dev, struct device_driver *drv)
 	return (strcmp(pdev->name, drv->name) == 0);
 }
 
-static int platform_uevent(struct device *dev, struct kobj_uevent_env *env)
+static int platform_uevent(const struct device *dev, struct kobj_uevent_env *env)
 {
-	struct platform_device	*pdev = to_platform_device(dev);
+	const struct platform_device *pdev = to_platform_device(dev);
 	int rc;
 
 	/* Some devices have extra OF data and an OF-style MODALIAS */
@@ -1427,7 +1420,9 @@ static void platform_remove(struct device *_dev)
 	struct platform_driver *drv = to_platform_driver(_dev->driver);
 	struct platform_device *dev = to_platform_device(_dev);
 
-	if (drv->remove) {
+	if (drv->remove_new) {
+		drv->remove_new(dev);
+	} else if (drv->remove) {
 		int ret = drv->remove(dev);
 
 		if (ret)
@@ -1480,8 +1475,7 @@ static void platform_dma_cleanup(struct device *dev)
 }
 
 static const struct dev_pm_ops platform_dev_pm_ops = {
-	.runtime_suspend = pm_generic_runtime_suspend,
-	.runtime_resume = pm_generic_runtime_resume,
+	SET_RUNTIME_PM_OPS(pm_generic_runtime_suspend, pm_generic_runtime_resume, NULL)
 	USE_PLATFORM_PM_SLEEP_OPS
 };
 

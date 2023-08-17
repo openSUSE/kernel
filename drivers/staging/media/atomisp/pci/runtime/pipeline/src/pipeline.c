@@ -140,8 +140,7 @@ void ia_css_pipeline_start(enum ia_css_pipe_id pipe_id,
 				false, false, false, true, SH_CSS_BDS_FACTOR_1_00,
 				SH_CSS_PIPE_CONFIG_OVRD_NO_OVRD,
 				IA_CSS_INPUT_MODE_MEMORY, NULL, NULL,
-				(enum mipi_port_id)0,
-				NULL, NULL);
+				(enum mipi_port_id)0);
 
 	ia_css_pipeline_get_sp_thread_id(pipe_num, &thread_id);
 	if (!sh_css_sp_is_running()) {
@@ -771,14 +770,6 @@ ia_css_pipeline_configure_inout_port(struct ia_css_pipeline *me,
 		SH_CSS_PIPE_PORT_CONFIG_SET(me->inout_port_config,
 					    (uint8_t)SH_CSS_PORT_INPUT,
 					    (uint8_t)(SH_CSS_HOST_TYPE), 1);
-		SH_CSS_PIPE_PORT_CONFIG_SET(me->inout_port_config,
-					    (uint8_t)SH_CSS_PORT_OUTPUT,
-					    (uint8_t)SH_CSS_HOST_TYPE, 1);
-		break;
-	case IA_CSS_PIPE_ID_ACC:
-		SH_CSS_PIPE_PORT_CONFIG_SET(me->inout_port_config,
-					    (uint8_t)SH_CSS_PORT_INPUT,
-					    (uint8_t)SH_CSS_HOST_TYPE, 1);
 		SH_CSS_PIPE_PORT_CONFIG_SET(me->inout_port_config,
 					    (uint8_t)SH_CSS_PORT_OUTPUT,
 					    (uint8_t)SH_CSS_HOST_TYPE, 1);

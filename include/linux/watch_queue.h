@@ -29,11 +29,7 @@ struct watch_filter {
 	union {
 		struct rcu_head	rcu;
 		/* Bitmask of accepted types */
-#ifdef __GENKSYMS__
-		unsigned long type_filter[2];
-#else
 		DECLARE_BITMAP(type_filter, WATCH_TYPE__NR);
-#endif
 	};
 	u32			nr_filters;	/* Number of filters */
 	struct watch_type_filter filters[];
@@ -42,7 +38,7 @@ struct watch_filter {
 struct watch_queue {
 	struct rcu_head		rcu;
 	struct watch_filter __rcu *filter;
-	struct pipe_inode_info	*pipe;		/* The pipe we're using as a buffer */
+	struct pipe_inode_info	*pipe;		/* Pipe we use as a buffer, NULL if queue closed */
 	struct hlist_head	watches;	/* Contributory watches */
 	struct page		**notes;	/* Preallocated notifications */
 	unsigned long		*notes_bitmap;	/* Allocation bitmap for notes */
@@ -50,7 +46,6 @@ struct watch_queue {
 	spinlock_t		lock;
 	unsigned int		nr_notes;	/* Number of notes */
 	unsigned int		nr_pages;	/* Number of pages in notes[] */
-	bool			defunct;	/* T when queues closed */
 };
 
 /*

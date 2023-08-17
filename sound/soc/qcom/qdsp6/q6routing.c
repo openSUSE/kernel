@@ -372,6 +372,12 @@ int q6routing_stream_open(int fedai_id, int perf_mode,
 	}
 
 	session = &routing_data->sessions[stream_id - 1];
+	if (session->port_id < 0) {
+		dev_err(routing_data->dev, "Routing not setup for MultiMedia%d Session\n",
+			session->fedai_id);
+		return -EINVAL;
+	}
+
 	pdata = &routing_data->port_data[session->port_id];
 
 	mutex_lock(&routing_data->lock);
@@ -1134,12 +1140,10 @@ static int q6pcm_routing_probe(struct platform_device *pdev)
 					  NULL, 0);
 }
 
-static int q6pcm_routing_remove(struct platform_device *pdev)
+static void q6pcm_routing_remove(struct platform_device *pdev)
 {
 	kfree(routing_data);
 	routing_data = NULL;
-
-	return 0;
 }
 
 #ifdef CONFIG_OF
@@ -1156,7 +1160,7 @@ static struct platform_driver q6pcm_routing_platform_driver = {
 		.of_match_table = of_match_ptr(q6pcm_routing_device_id),
 	},
 	.probe = q6pcm_routing_probe,
-	.remove = q6pcm_routing_remove,
+	.remove_new = q6pcm_routing_remove,
 };
 module_platform_driver(q6pcm_routing_platform_driver);
 

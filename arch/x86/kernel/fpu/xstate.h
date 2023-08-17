@@ -16,14 +16,23 @@ static inline void xstate_init_xcomp_bv(struct xregs_state *xsave, u64 mask)
 	 * XRSTORS requires these bits set in xcomp_bv, or it will
 	 * trigger #GP:
 	 */
-	if (cpu_feature_enabled(X86_FEATURE_XSAVES))
+	if (cpu_feature_enabled(X86_FEATURE_XCOMPACTED))
 		xsave->header.xcomp_bv = mask | XCOMP_BV_COMPACTED_FORMAT;
+}
+
+static inline u64 xstate_get_group_perm(bool guest)
+{
+	struct fpu *fpu = &current->group_leader->thread.fpu;
+	struct fpu_state_perm *perm;
+
+	/* Pairs with WRITE_ONCE() in xstate_request_perm() */
+	perm = guest ? &fpu->guest_perm : &fpu->perm;
+	return READ_ONCE(perm->__state_perm);
 }
 
 static inline u64 xstate_get_host_group_perm(void)
 {
-	/* Pairs with WRITE_ONCE() in xstate_request_perm() */
-	return READ_ONCE(current->group_leader->thread.fpu.perm.__state_perm);
+	return xstate_get_group_perm(false);
 }
 
 enum xstate_copy_mode {
@@ -37,8 +46,8 @@ extern void __copy_xstate_to_uabi_buf(struct membuf to, struct fpstate *fpstate,
 				      u32 pkru_val, enum xstate_copy_mode copy_mode);
 extern void copy_xstate_to_uabi_buf(struct membuf to, struct task_struct *tsk,
 				    enum xstate_copy_mode mode);
-extern int copy_uabi_from_kernel_to_xstate(struct fpstate *fpstate, const void *kbuf);
-extern int copy_sigframe_from_user_to_xstate(struct fpstate *fpstate, const void __user *ubuf);
+extern int copy_uabi_from_kernel_to_xstate(struct fpstate *fpstate, const void *kbuf, u32 *pkru);
+extern int copy_sigframe_from_user_to_xstate(struct task_struct *tsk, const void __user *ubuf);
 
 
 extern void fpu__init_cpu_xstate(void);
@@ -70,6 +79,7 @@ static inline u64 xfeatures_mask_independent(void)
 /* These macros all use (%edi)/(%rdi) as the single memory argument. */
 #define XSAVE		".byte " REX_PREFIX "0x0f,0xae,0x27"
 #define XSAVEOPT	".byte " REX_PREFIX "0x0f,0xae,0x37"
+#define XSAVEC		".byte " REX_PREFIX "0x0f,0xc7,0x27"
 #define XSAVES		".byte " REX_PREFIX "0x0f,0xc7,0x2f"
 #define XRSTOR		".byte " REX_PREFIX "0x0f,0xae,0x2f"
 #define XRSTORS		".byte " REX_PREFIX "0x0f,0xc7,0x1f"
@@ -88,9 +98,11 @@ static inline u64 xfeatures_mask_independent(void)
 		     : "memory")
 
 /*
- * If XSAVES is enabled, it replaces XSAVEOPT because it supports a compact
- * format and supervisor states in addition to modified optimization in
- * XSAVEOPT.
+ * If XSAVES is enabled, it replaces XSAVEC because it supports supervisor
+ * states in addition to XSAVEC.
+ *
+ * Otherwise if XSAVEC is enabled, it replaces XSAVEOPT because it supports
+ * compacted storage format in addition to XSAVEOPT.
  *
  * Otherwise, if XSAVEOPT is enabled, XSAVEOPT replaces XSAVE because XSAVEOPT
  * supports modified optimization which is not supported by XSAVE.
@@ -102,17 +114,14 @@ static inline u64 xfeatures_mask_independent(void)
  * address of the instruction where we might get an exception at.
  */
 #define XSTATE_XSAVE(st, lmask, hmask, err)				\
-	asm volatile(ALTERNATIVE_2(XSAVE,				\
+	asm volatile(ALTERNATIVE_3(XSAVE,				\
 				   XSAVEOPT, X86_FEATURE_XSAVEOPT,	\
+				   XSAVEC,   X86_FEATURE_XSAVEC,	\
 				   XSAVES,   X86_FEATURE_XSAVES)	\
 		     "\n"						\
 		     "xor %[err], %[err]\n"				\
 		     "3:\n"						\
-		     ".pushsection .fixup,\"ax\"\n"			\
-		     "4: movl $-2, %[err]\n"				\
-		     "jmp 3b\n"						\
-		     ".popsection\n"					\
-		     _ASM_EXTABLE(661b, 4b)				\
+		     _ASM_EXTABLE_TYPE_REG(661b, 3b, EX_TYPE_EFAULT_REG, %[err]) \
 		     : [err] "=r" (err)					\
 		     : "D" (st), "m" (*st), "a" (lmask), "d" (hmask)	\
 		     : "memory")
@@ -149,8 +158,14 @@ static inline void xfd_update_state(struct fpstate *fpstate)
 		}
 	}
 }
+
+extern int __xfd_enable_feature(u64 which, struct fpu_guest *guest_fpu);
 #else
 static inline void xfd_update_state(struct fpstate *fpstate) { }
+
+static inline int __xfd_enable_feature(u64 which, struct fpu_guest *guest_fpu) {
+	return -EPERM;
+}
 #endif
 
 /*

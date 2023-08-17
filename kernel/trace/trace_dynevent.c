@@ -13,10 +13,48 @@
 #include <linux/tracefs.h>
 
 #include "trace.h"
+#include "trace_output.h"	/* for trace_event_sem */
 #include "trace_dynevent.h"
 
 static DEFINE_MUTEX(dyn_event_ops_mutex);
 static LIST_HEAD(dyn_event_ops_list);
+
+bool trace_event_dyn_try_get_ref(struct trace_event_call *dyn_call)
+{
+	struct trace_event_call *call;
+	bool ret = false;
+
+	if (WARN_ON_ONCE(!(dyn_call->flags & TRACE_EVENT_FL_DYNAMIC)))
+		return false;
+
+	down_read(&trace_event_sem);
+	list_for_each_entry(call, &ftrace_events, list) {
+		if (call == dyn_call) {
+			atomic_inc(&dyn_call->refcnt);
+			ret = true;
+		}
+	}
+	up_read(&trace_event_sem);
+	return ret;
+}
+
+void trace_event_dyn_put_ref(struct trace_event_call *call)
+{
+	if (WARN_ON_ONCE(!(call->flags & TRACE_EVENT_FL_DYNAMIC)))
+		return;
+
+	if (WARN_ON_ONCE(atomic_read(&call->refcnt) <= 0)) {
+		atomic_set(&call->refcnt, 0);
+		return;
+	}
+
+	atomic_dec(&call->refcnt);
+}
+
+bool trace_event_dyn_busy(struct trace_event_call *call)
+{
+	return atomic_read(&call->refcnt) != 0;
+}
 
 int dyn_event_register(struct dyn_event_operations *ops)
 {
@@ -63,7 +101,7 @@ int dyn_event_release(const char *raw_command, struct dyn_event_operations *type
 		event = p + 1;
 		*p = '\0';
 	}
-	if (event[0] == '\0') {
+	if (!system && event[0] == '\0') {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -219,19 +257,14 @@ static const struct file_operations dynamic_events_ops = {
 /* Make a tracefs interface for controlling dynamic events */
 static __init int init_dynamic_event(void)
 {
-	struct dentry *entry;
 	int ret;
 
 	ret = tracing_init_dentry();
 	if (ret)
 		return 0;
 
-	entry = tracefs_create_file("dynamic_events", TRACE_MODE_WRITE, NULL,
-				    NULL, &dynamic_events_ops);
-
-	/* Event list interface */
-	if (!entry)
-		pr_warn("Could not create tracefs 'dynamic_events' entry\n");
+	trace_create_file("dynamic_events", TRACE_MODE_WRITE, NULL,
+			  NULL, &dynamic_events_ops);
 
 	return 0;
 }

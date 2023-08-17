@@ -8,7 +8,11 @@
 #include "bpf_dctcp.skel.h"
 #include "bpf_cubic.skel.h"
 #include "bpf_tcp_nogpl.skel.h"
+#include "tcp_ca_update.skel.h"
 #include "bpf_dctcp_release.skel.h"
+#include "tcp_ca_write_sk_pacing.skel.h"
+#include "tcp_ca_incompl_cong_ops.skel.h"
+#include "tcp_ca_unsupp_cong_op.skel.h"
 
 #ifndef ENOTSUPP
 #define ENOTSUPP 524
@@ -287,6 +291,10 @@ static void test_dctcp_fallback(void)
 		goto done;
 	ASSERT_STREQ(dctcp_skel->bss->cc_res, "cubic", "cc_res");
 	ASSERT_EQ(dctcp_skel->bss->tcp_cdg_res, -ENOTSUPP, "tcp_cdg_res");
+	/* All setsockopt(TCP_CONGESTION) in the recurred
+	 * bpf_dctcp->init() should fail with -EBUSY.
+	 */
+	ASSERT_EQ(dctcp_skel->bss->ebusy_cnt, 3, "ebusy_cnt");
 
 	err = getsockopt(srv_fd, SOL_TCP, TCP_CONGESTION, srv_cc, &cc_len);
 	if (!ASSERT_OK(err, "getsockopt(srv_fd, TCP_CONGESTION)"))
@@ -322,6 +330,207 @@ static void test_rel_setsockopt(void)
 	bpf_dctcp_release__destroy(rel_skel);
 }
 
+static void test_write_sk_pacing(void)
+{
+	struct tcp_ca_write_sk_pacing *skel;
+	struct bpf_link *link;
+
+	skel = tcp_ca_write_sk_pacing__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "open_and_load"))
+		return;
+
+	link = bpf_map__attach_struct_ops(skel->maps.write_sk_pacing);
+	ASSERT_OK_PTR(link, "attach_struct_ops");
+
+	bpf_link__destroy(link);
+	tcp_ca_write_sk_pacing__destroy(skel);
+}
+
+static void test_incompl_cong_ops(void)
+{
+	struct tcp_ca_incompl_cong_ops *skel;
+	struct bpf_link *link;
+
+	skel = tcp_ca_incompl_cong_ops__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "open_and_load"))
+		return;
+
+	/* That cong_avoid() and cong_control() are missing is only reported at
+	 * this point:
+	 */
+	link = bpf_map__attach_struct_ops(skel->maps.incompl_cong_ops);
+	ASSERT_ERR_PTR(link, "attach_struct_ops");
+
+	bpf_link__destroy(link);
+	tcp_ca_incompl_cong_ops__destroy(skel);
+}
+
+static void test_unsupp_cong_op(void)
+{
+	libbpf_print_fn_t old_print_fn;
+	struct tcp_ca_unsupp_cong_op *skel;
+
+	err_str = "attach to unsupported member get_info";
+	found = false;
+	old_print_fn = libbpf_set_print(libbpf_debug_print);
+
+	skel = tcp_ca_unsupp_cong_op__open_and_load();
+	ASSERT_NULL(skel, "open_and_load");
+	ASSERT_EQ(found, true, "expected_err_msg");
+
+	tcp_ca_unsupp_cong_op__destroy(skel);
+	libbpf_set_print(old_print_fn);
+}
+
+static void test_update_ca(void)
+{
+	struct tcp_ca_update *skel;
+	struct bpf_link *link;
+	int saved_ca1_cnt;
+	int err;
+
+	skel = tcp_ca_update__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "open"))
+		return;
+
+	link = bpf_map__attach_struct_ops(skel->maps.ca_update_1);
+	ASSERT_OK_PTR(link, "attach_struct_ops");
+
+	do_test("tcp_ca_update", NULL);
+	saved_ca1_cnt = skel->bss->ca1_cnt;
+	ASSERT_GT(saved_ca1_cnt, 0, "ca1_ca1_cnt");
+
+	err = bpf_link__update_map(link, skel->maps.ca_update_2);
+	ASSERT_OK(err, "update_map");
+
+	do_test("tcp_ca_update", NULL);
+	ASSERT_EQ(skel->bss->ca1_cnt, saved_ca1_cnt, "ca2_ca1_cnt");
+	ASSERT_GT(skel->bss->ca2_cnt, 0, "ca2_ca2_cnt");
+
+	bpf_link__destroy(link);
+	tcp_ca_update__destroy(skel);
+}
+
+static void test_update_wrong(void)
+{
+	struct tcp_ca_update *skel;
+	struct bpf_link *link;
+	int saved_ca1_cnt;
+	int err;
+
+	skel = tcp_ca_update__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "open"))
+		return;
+
+	link = bpf_map__attach_struct_ops(skel->maps.ca_update_1);
+	ASSERT_OK_PTR(link, "attach_struct_ops");
+
+	do_test("tcp_ca_update", NULL);
+	saved_ca1_cnt = skel->bss->ca1_cnt;
+	ASSERT_GT(saved_ca1_cnt, 0, "ca1_ca1_cnt");
+
+	err = bpf_link__update_map(link, skel->maps.ca_wrong);
+	ASSERT_ERR(err, "update_map");
+
+	do_test("tcp_ca_update", NULL);
+	ASSERT_GT(skel->bss->ca1_cnt, saved_ca1_cnt, "ca2_ca1_cnt");
+
+	bpf_link__destroy(link);
+	tcp_ca_update__destroy(skel);
+}
+
+static void test_mixed_links(void)
+{
+	struct tcp_ca_update *skel;
+	struct bpf_link *link, *link_nl;
+	int err;
+
+	skel = tcp_ca_update__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "open"))
+		return;
+
+	link_nl = bpf_map__attach_struct_ops(skel->maps.ca_no_link);
+	ASSERT_OK_PTR(link_nl, "attach_struct_ops_nl");
+
+	link = bpf_map__attach_struct_ops(skel->maps.ca_update_1);
+	ASSERT_OK_PTR(link, "attach_struct_ops");
+
+	do_test("tcp_ca_update", NULL);
+	ASSERT_GT(skel->bss->ca1_cnt, 0, "ca1_ca1_cnt");
+
+	err = bpf_link__update_map(link, skel->maps.ca_no_link);
+	ASSERT_ERR(err, "update_map");
+
+	bpf_link__destroy(link);
+	bpf_link__destroy(link_nl);
+	tcp_ca_update__destroy(skel);
+}
+
+static void test_multi_links(void)
+{
+	struct tcp_ca_update *skel;
+	struct bpf_link *link;
+
+	skel = tcp_ca_update__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "open"))
+		return;
+
+	link = bpf_map__attach_struct_ops(skel->maps.ca_update_1);
+	ASSERT_OK_PTR(link, "attach_struct_ops_1st");
+	bpf_link__destroy(link);
+
+	/* A map should be able to be used to create links multiple
+	 * times.
+	 */
+	link = bpf_map__attach_struct_ops(skel->maps.ca_update_1);
+	ASSERT_OK_PTR(link, "attach_struct_ops_2nd");
+	bpf_link__destroy(link);
+
+	tcp_ca_update__destroy(skel);
+}
+
+static void test_link_replace(void)
+{
+	DECLARE_LIBBPF_OPTS(bpf_link_update_opts, opts);
+	struct tcp_ca_update *skel;
+	struct bpf_link *link;
+	int err;
+
+	skel = tcp_ca_update__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "open"))
+		return;
+
+	link = bpf_map__attach_struct_ops(skel->maps.ca_update_1);
+	ASSERT_OK_PTR(link, "attach_struct_ops_1st");
+	bpf_link__destroy(link);
+
+	link = bpf_map__attach_struct_ops(skel->maps.ca_update_2);
+	ASSERT_OK_PTR(link, "attach_struct_ops_2nd");
+
+	/* BPF_F_REPLACE with a wrong old map Fd. It should fail!
+	 *
+	 * With BPF_F_REPLACE, the link should be updated only if the
+	 * old map fd given here matches the map backing the link.
+	 */
+	opts.old_map_fd = bpf_map__fd(skel->maps.ca_update_1);
+	opts.flags = BPF_F_REPLACE;
+	err = bpf_link_update(bpf_link__fd(link),
+			      bpf_map__fd(skel->maps.ca_update_1),
+			      &opts);
+	ASSERT_ERR(err, "bpf_link_update_fail");
+
+	/* BPF_F_REPLACE with a correct old map Fd. It should success! */
+	opts.old_map_fd = bpf_map__fd(skel->maps.ca_update_2);
+	err = bpf_link_update(bpf_link__fd(link),
+			      bpf_map__fd(skel->maps.ca_update_1),
+			      &opts);
+	ASSERT_OK(err, "bpf_link_update_success");
+
+	bpf_link__destroy(link);
+
+	tcp_ca_update__destroy(skel);
+}
+
 void test_bpf_tcp_ca(void)
 {
 	if (test__start_subtest("dctcp"))
@@ -334,4 +543,20 @@ void test_bpf_tcp_ca(void)
 		test_dctcp_fallback();
 	if (test__start_subtest("rel_setsockopt"))
 		test_rel_setsockopt();
+	if (test__start_subtest("write_sk_pacing"))
+		test_write_sk_pacing();
+	if (test__start_subtest("incompl_cong_ops"))
+		test_incompl_cong_ops();
+	if (test__start_subtest("unsupp_cong_op"))
+		test_unsupp_cong_op();
+	if (test__start_subtest("update_ca"))
+		test_update_ca();
+	if (test__start_subtest("update_wrong"))
+		test_update_wrong();
+	if (test__start_subtest("mixed_links"))
+		test_mixed_links();
+	if (test__start_subtest("multi_links"))
+		test_multi_links();
+	if (test__start_subtest("link_replace"))
+		test_link_replace();
 }

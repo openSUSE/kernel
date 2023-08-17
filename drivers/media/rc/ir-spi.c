@@ -152,20 +152,21 @@ static int ir_spi_probe(struct spi_device *spi)
 	return devm_rc_register_device(&spi->dev, idata->rc);
 }
 
-static int ir_spi_remove(struct spi_device *spi)
-{
-	return 0;
-}
-
 static const struct of_device_id ir_spi_of_match[] = {
 	{ .compatible = "ir-spi-led" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, ir_spi_of_match);
 
+static const struct spi_device_id ir_spi_ids[] = {
+	{ "ir-spi-led" },
+	{},
+};
+MODULE_DEVICE_TABLE(spi, ir_spi_ids);
+
 static struct spi_driver ir_spi_driver = {
 	.probe = ir_spi_probe,
-	.remove = ir_spi_remove,
+	.id_table = ir_spi_ids,
 	.driver = {
 		.name = IR_SPI_DRIVER_NAME,
 		.of_match_table = ir_spi_of_match,

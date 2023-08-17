@@ -21,8 +21,8 @@
 		serial0 = &uart1;	/* DBGU */
 		serial1 = &uart4;	/* mikro BUS 1 */
 		serial2 = &uart2;	/* mikro BUS 2 */
-		i2c1	= &i2c1;
-		i2c2	= &i2c3;
+		i2c1 = &i2c1;
+		i2c2 = &i2c3;
 	};
 
 	chosen {
@@ -130,13 +130,16 @@
 					i2c-analog-filter;
 					i2c-digital-filter;
 					i2c-digital-filter-width-ns = <35>;
-					pinctrl-names = "default";
+					pinctrl-names = "default", "gpio";
 					pinctrl-0 = <&pinctrl_mikrobus_i2c>;
+					pinctrl-1 = <&pinctrl_i2c3_gpio>;
+					sda-gpios = <&pioA PIN_PA24 GPIO_ACTIVE_HIGH>;
+					scl-gpios = <&pioA PIN_PA23 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
 					status = "okay";
 				};
 			};
 
-			shdwc@f8048010 {
+			poweroff@f8048010 {
 				debounce-delay-us = <976>;
 				atmel,wakeup-rtc-timer;
 
@@ -215,16 +218,21 @@
 				i2c-analog-filter;
 				i2c-digital-filter;
 				i2c-digital-filter-width-ns = <35>;
-				pinctrl-names = "default";
+				pinctrl-names = "default", "gpio";
 				pinctrl-0 = <&pinctrl_i2c1_default>;
+				pinctrl-1 = <&pinctrl_i2c1_gpio>;
+				sda-gpios = <&pioA PIN_PD4 GPIO_ACTIVE_HIGH>;
+				scl-gpios = <&pioA PIN_PD5 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
 				status = "okay";
 			};
 
 			adc: adc@fc030000 {
 				vddana-supply = <&vddana>;
 				vref-supply = <&advref>;
+				pinctrl-names = "default";
+				pinctrl-0 = <&pinctrl_mikrobus1_an &pinctrl_mikrobus2_an>;
 
-				status = "disabled";
+				status = "okay";
 			};
 
 			pinctrl@fc038000 {
@@ -249,6 +257,13 @@
 						 <PIN_PD5__TWCK1>;
 					bias-disable;
 				};
+
+				pinctrl_i2c1_gpio: i2c1_gpio {
+                                        pinmux = <PIN_PD4__GPIO>,
+                                                 <PIN_PD5__GPIO>;
+                                        bias-disable;
+                                };
+
 
 				pinctrl_isc_base: isc_base {
 					pinmux = <PIN_PC21__ISC_PCK>,
@@ -439,6 +454,12 @@
 					bias-disable;
 				};
 
+				pinctrl_i2c3_gpio: i2c3_gpio {
+					pinmux = <PIN_PA24__GPIO>,
+						 <PIN_PA23__GPIO>;
+					bias-disable;
+				};
+
 				pinctrl_flx4_default: flx4_uart_default {
 					pinmux = <PIN_PC28__FLEXCOM4_IO0>,
 						 <PIN_PC29__FLEXCOM4_IO1>,
@@ -457,13 +478,13 @@
 		};
 	};
 
-	gpio_keys {
+	gpio-keys {
 		compatible = "gpio-keys";
 
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_key_gpio_default>;
 
-		pb4 {
+		button {
 			label = "USER";
 			gpios = <&pioA PIN_PA29 GPIO_ACTIVE_LOW>;
 			linux,code = <KEY_PROG1>;
@@ -477,17 +498,17 @@
 		pinctrl-0 = <&pinctrl_led_gpio_default>;
 		status = "okay"; /* Conflict with pwm0. */
 
-		red {
+		led-red {
 			label = "red";
 			gpios = <&pioA PIN_PA10 GPIO_ACTIVE_HIGH>;
 		};
 
-		green {
+		led-green {
 			label = "green";
 			gpios = <&pioA PIN_PB1 GPIO_ACTIVE_HIGH>;
 		};
 
-		blue {
+		led-blue {
 			label = "blue";
 			gpios = <&pioA PIN_PA31 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "heartbeat";

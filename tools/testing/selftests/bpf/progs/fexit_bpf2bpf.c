@@ -73,10 +73,10 @@ int test_subprog2(struct args_subprog2 *ctx)
 			      __builtin_preserve_access_index(&skb->len));
 
 	ret = ctx->ret;
-	/* bpf_prog_test_load() loads "test_pkt_access.o" with BPF_F_TEST_RND_HI32
-	 * which randomizes upper 32 bits after BPF_ALU32 insns.
-	 * Hence after 'w0 <<= 1' upper bits of $rax are random.
-	 * That is expected and correct. Trim them.
+	/* bpf_prog_test_load() loads "test_pkt_access.bpf.o" with
+	 * BPF_F_TEST_RND_HI32 which randomizes upper 32 bits after BPF_ALU32
+	 * insns. Hence after 'w0 <<= 1' upper bits of $rax are random. That is
+	 * expected and correct. Trim them.
 	 */
 	ret = (__u32) ret;
 	if (len != 74 || ret != 148)
@@ -120,8 +120,6 @@ int new_get_skb_ifindex(int val, struct __sk_buff *skb, int var)
 	void *data = (void *)(long)skb->data;
 	struct ipv6hdr ip6, *ip6p;
 	int ifindex = skb->ifindex;
-	__u32 eth_proto;
-	__u32 nh_off;
 
 	/* check that BPF extension can read packet via direct packet access */
 	if (data + 14 + sizeof(ip6) > data_end)

@@ -108,27 +108,11 @@ struct cppc_perf_caps {
 	u32 lowest_nonlinear_perf;
 	u32 lowest_freq;
 	u32 nominal_freq;
-};
-
-struct cppc_perf_ctrls {
-	u32 max_perf;
-	u32 min_perf;
-	u32 desired_perf;
-};
-
-struct cppc_epp_perf_caps {
-	u32 guaranteed_perf;
-	u32 highest_perf;
-	u32 nominal_perf;
-	u32 lowest_perf;
-	u32 lowest_nonlinear_perf;
-	u32 lowest_freq;
-	u32 nominal_freq;
 	u32 energy_perf;
 	bool auto_sel;
 };
 
-struct cppc_epp_perf_ctrls {
+struct cppc_perf_ctrls {
 	u32 max_perf;
 	u32 min_perf;
 	u32 desired_perf;
@@ -169,8 +153,8 @@ extern bool cpc_supported_by_cpu(void);
 extern int cpc_read_ffh(int cpunum, struct cpc_reg *reg, u64 *val);
 extern int cpc_write_ffh(int cpunum, struct cpc_reg *reg, u64 val);
 extern int cppc_get_epp_perf(int cpunum, u64 *epp_perf);
-extern int cppc_set_epp_perf(int cpu, struct cppc_epp_perf_ctrls *perf_ctrls, bool enable);
-extern int cppc_get_auto_sel_caps(int cpunum, struct cppc_epp_perf_caps *perf_caps);
+extern int cppc_set_epp_perf(int cpu, struct cppc_perf_ctrls *perf_ctrls, bool enable);
+extern int cppc_get_auto_sel_caps(int cpunum, struct cppc_perf_caps *perf_caps);
 extern int cppc_set_auto_sel(int cpu, bool enable);
 #else /* !CONFIG_ACPI_CPPC_LIB */
 static inline int cppc_get_desired_perf(int cpunum, u64 *desired_perf)
@@ -225,7 +209,7 @@ static inline int cpc_write_ffh(int cpunum, struct cpc_reg *reg, u64 val)
 {
 	return -ENOTSUPP;
 }
-static inline int cppc_set_epp_perf(int cpu, struct cppc_epp_perf_ctrls *perf_ctrls, bool enable)
+static inline int cppc_set_epp_perf(int cpu, struct cppc_perf_ctrls *perf_ctrls, bool enable)
 {
 	return -ENOTSUPP;
 }
@@ -237,7 +221,7 @@ static inline int cppc_set_auto_sel(int cpu, bool enable)
 {
 	return -ENOTSUPP;
 }
-static inline int cppc_get_auto_sel_caps(int cpunum, struct cppc_epp_perf_caps *perf_caps)
+static inline int cppc_get_auto_sel_caps(int cpunum, struct cppc_perf_caps *perf_caps)
 {
 	return -ENOTSUPP;
 }

@@ -180,7 +180,6 @@ static int s5p_cec_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct device *hdmi_dev;
-	struct resource *res;
 	struct s5p_cec_dev *cec;
 	bool needs_hpd = of_property_read_bool(pdev->dev.of_node, "needs-hpd");
 	int ret;
@@ -214,8 +213,7 @@ static int s5p_cec_probe(struct platform_device *pdev)
 	if (IS_ERR(cec->pmu))
 		return -EPROBE_DEFER;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	cec->reg = devm_ioremap_resource(dev, res);
+	cec->reg = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(cec->reg))
 		return PTR_ERR(cec->reg);
 
@@ -251,14 +249,13 @@ err_delete_adapter:
 	return ret;
 }
 
-static int s5p_cec_remove(struct platform_device *pdev)
+static void s5p_cec_remove(struct platform_device *pdev)
 {
 	struct s5p_cec_dev *cec = platform_get_drvdata(pdev);
 
 	cec_notifier_cec_adap_unregister(cec->notifier, cec->adap);
 	cec_unregister_adapter(cec->adap);
 	pm_runtime_disable(&pdev->dev);
-	return 0;
 }
 
 static int __maybe_unused s5p_cec_runtime_suspend(struct device *dev)
@@ -297,7 +294,7 @@ MODULE_DEVICE_TABLE(of, s5p_cec_match);
 
 static struct platform_driver s5p_cec_pdrv = {
 	.probe	= s5p_cec_probe,
-	.remove	= s5p_cec_remove,
+	.remove_new = s5p_cec_remove,
 	.driver	= {
 		.name		= CEC_NAME,
 		.of_match_table	= s5p_cec_match,

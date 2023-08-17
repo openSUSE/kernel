@@ -306,42 +306,6 @@ temperature) and throttle appropriate devices.
 
     ::
 
-	struct thermal_bind_params
-
-    This structure defines the following parameters that are used to bind
-    a zone with a cooling device for a particular trip point.
-
-    .cdev:
-	     The cooling device pointer
-    .weight:
-	     The 'influence' of a particular cooling device on this
-	     zone. This is relative to the rest of the cooling
-	     devices. For example, if all cooling devices have a
-	     weight of 1, then they all contribute the same. You can
-	     use percentages if you want, but it's not mandatory. A
-	     weight of 0 means that this cooling device doesn't
-	     contribute to the cooling of this zone unless all cooling
-	     devices have a weight of 0. If all weights are 0, then
-	     they all contribute the same.
-    .trip_mask:
-	       This is a bit mask that gives the binding relation between
-	       this thermal zone and cdev, for a particular trip point.
-	       If nth bit is set, then the cdev and thermal zone are bound
-	       for trip point n.
-    .binding_limits:
-		     This is an array of cooling state limits. Must have
-		     exactly 2 * thermal_zone.number_of_trip_points. It is an
-		     array consisting of tuples <lower-state upper-state> of
-		     state limits. Each trip will be associated with one state
-		     limit tuple when binding. A NULL pointer means
-		     <THERMAL_NO_LIMITS THERMAL_NO_LIMITS> on all trips.
-		     These limits are used when binding a cdev to a trip point.
-    .match:
-	    This call back returns success(0) if the 'tz and cdev' need to
-	    be bound, as per platform data.
-
-    ::
-
 	struct thermal_zone_params
 
     This structure defines the platform level parameters for a thermal zone.
@@ -357,10 +321,6 @@ temperature) and throttle appropriate devices.
 	       will be created. when no_hwmon == true, nothing will be done.
 	       In case the thermal_zone_params is NULL, the hwmon interface
 	       will be created (for backward compatibility).
-    .num_tbps:
-	       Number of thermal_bind_params entries for this zone
-    .tbp:
-	       thermal_bind_params entries
 
 2. sysfs attributes structure
 =============================
@@ -428,6 +388,9 @@ of thermal zone device. E.g. the generic thermal driver registers one hwmon
 class device and build the associated hwmon sysfs I/F for all the registered
 ACPI thermal zones.
 
+Please read Documentation/ABI/testing/sysfs-class-thermal for thermal
+zone and cooling device attribute details.
+
 ::
 
   /sys/class/hwmon/hwmon[0-*]:
@@ -436,228 +399,6 @@ ACPI thermal zones.
     |---temp[1-*]_critical:	The critical trip point of thermal zone [1-*]
 
 Please read Documentation/hwmon/sysfs-interface.rst for additional information.
-
-Thermal zone attributes
------------------------
-
-type
-	Strings which represent the thermal zone type.
-	This is given by thermal zone driver as part of registration.
-	E.g: "acpitz" indicates it's an ACPI thermal device.
-	In order to keep it consistent with hwmon sys attribute; this should
-	be a short, lowercase string, not containing spaces nor dashes.
-	RO, Required
-
-temp
-	Current temperature as reported by thermal zone (sensor).
-	Unit: millidegree Celsius
-	RO, Required
-
-mode
-	One of the predefined values in [enabled, disabled].
-	This file gives information about the algorithm that is currently
-	managing the thermal zone. It can be either default kernel based
-	algorithm or user space application.
-
-	enabled
-			  enable Kernel Thermal management.
-	disabled
-			  Preventing kernel thermal zone driver actions upon
-			  trip points so that user application can take full
-			  charge of the thermal management.
-
-	RW, Optional
-
-policy
-	One of the various thermal governors used for a particular zone.
-
-	RW, Required
-
-available_policies
-	Available thermal governors which can be used for a particular zone.
-
-	RO, Required
-
-`trip_point_[0-*]_temp`
-	The temperature above which trip point will be fired.
-
-	Unit: millidegree Celsius
-
-	RO, Optional
-
-`trip_point_[0-*]_type`
-	Strings which indicate the type of the trip point.
-
-	E.g. it can be one of critical, hot, passive, `active[0-*]` for ACPI
-	thermal zone.
-
-	RO, Optional
-
-`trip_point_[0-*]_hyst`
-	The hysteresis value for a trip point, represented as an integer
-	Unit: Celsius
-	RW, Optional
-
-`cdev[0-*]`
-	Sysfs link to the thermal cooling device node where the sys I/F
-	for cooling device throttling control represents.
-
-	RO, Optional
-
-`cdev[0-*]_trip_point`
-	The trip point in this thermal zone which `cdev[0-*]` is associated
-	with; -1 means the cooling device is not associated with any trip
-	point.
-
-	RO, Optional
-
-`cdev[0-*]_weight`
-	The influence of `cdev[0-*]` in this thermal zone. This value
-	is relative to the rest of cooling devices in the thermal
-	zone. For example, if a cooling device has a weight double
-	than that of other, it's twice as effective in cooling the
-	thermal zone.
-
-	RW, Optional
-
-emul_temp
-	Interface to set the emulated temperature method in thermal zone
-	(sensor). After setting this temperature, the thermal zone may pass
-	this temperature to platform emulation function if registered or
-	cache it locally. This is useful in debugging different temperature
-	threshold and its associated cooling action. This is write only node
-	and writing 0 on this node should disable emulation.
-	Unit: millidegree Celsius
-
-	WO, Optional
-
-	  WARNING:
-	    Be careful while enabling this option on production systems,
-	    because userland can easily disable the thermal policy by simply
-	    flooding this sysfs node with low temperature values.
-
-sustainable_power
-	An estimate of the sustained power that can be dissipated by
-	the thermal zone. Used by the power allocator governor. For
-	more information see Documentation/driver-api/thermal/power_allocator.rst
-
-	Unit: milliwatts
-
-	RW, Optional
-
-k_po
-	The proportional term of the power allocator governor's PID
-	controller during temperature overshoot. Temperature overshoot
-	is when the current temperature is above the "desired
-	temperature" trip point. For more information see
-	Documentation/driver-api/thermal/power_allocator.rst
-
-	RW, Optional
-
-k_pu
-	The proportional term of the power allocator governor's PID
-	controller during temperature undershoot. Temperature undershoot
-	is when the current temperature is below the "desired
-	temperature" trip point. For more information see
-	Documentation/driver-api/thermal/power_allocator.rst
-
-	RW, Optional
-
-k_i
-	The integral term of the power allocator governor's PID
-	controller. This term allows the PID controller to compensate
-	for long term drift. For more information see
-	Documentation/driver-api/thermal/power_allocator.rst
-
-	RW, Optional
-
-k_d
-	The derivative term of the power allocator governor's PID
-	controller. For more information see
-	Documentation/driver-api/thermal/power_allocator.rst
-
-	RW, Optional
-
-integral_cutoff
-	Temperature offset from the desired temperature trip point
-	above which the integral term of the power allocator
-	governor's PID controller starts accumulating errors. For
-	example, if integral_cutoff is 0, then the integral term only
-	accumulates error when temperature is above the desired
-	temperature trip point. For more information see
-	Documentation/driver-api/thermal/power_allocator.rst
-
-	Unit: millidegree Celsius
-
-	RW, Optional
-
-slope
-	The slope constant used in a linear extrapolation model
-	to determine a hotspot temperature based off the sensor's
-	raw readings. It is up to the device driver to determine
-	the usage of these values.
-
-	RW, Optional
-
-offset
-	The offset constant used in a linear extrapolation model
-	to determine a hotspot temperature based off the sensor's
-	raw readings. It is up to the device driver to determine
-	the usage of these values.
-
-	RW, Optional
-
-Cooling device attributes
--------------------------
-
-type
-	String which represents the type of device, e.g:
-
-	- for generic ACPI: should be "Fan", "Processor" or "LCD"
-	- for memory controller device on intel_menlow platform:
-	  should be "Memory controller".
-
-	RO, Required
-
-max_state
-	The maximum permissible cooling state of this cooling device.
-
-	RO, Required
-
-cur_state
-	The current cooling state of this cooling device.
-	The value can any integer numbers between 0 and max_state:
-
-	- cur_state == 0 means no cooling
-	- cur_state == max_state means the maximum cooling.
-
-	RW, Required
-
-stats/reset
-	Writing any value resets the cooling device's statistics.
-	WO, Required
-
-stats/time_in_state_ms:
-	The amount of time spent by the cooling device in various cooling
-	states. The output will have "<state> <time>" pair in each line, which
-	will mean this cooling device spent <time> msec of time at <state>.
-	Output will have one line for each of the supported states.
-	RO, Required
-
-
-stats/total_trans:
-	A single positive value showing the total number of times the state of a
-	cooling device is changed.
-
-	RO, Required
-
-stats/trans_table:
-	This gives fine grained information about all the cooling state
-	transitions. The cat output here is a two dimensional matrix, where an
-	entry <i,j> (row i, column j) represents the number of transitions from
-	State_i to State_j. If the transition table is bigger than PAGE_SIZE,
-	reading this will return an -EFBIG error.
-	RO, Required
 
 3. A simple implementation
 ==========================

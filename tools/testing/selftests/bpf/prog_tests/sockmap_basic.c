@@ -2,6 +2,7 @@
 // Copyright (c) 2020 Cloudflare
 #include <error.h>
 #include <netinet/tcp.h>
+#include <sys/epoll.h>
 
 #include "test_progs.h"
 #include "test_skmsg_load_helpers.skel.h"
@@ -9,7 +10,11 @@
 #include "test_sockmap_invalid_update.skel.h"
 #include "test_sockmap_skb_verdict_attach.skel.h"
 #include "test_sockmap_progs_query.skel.h"
+#include "test_sockmap_pass_prog.skel.h"
+#include "test_sockmap_drop_prog.skel.h"
 #include "bpf_iter_sockmap.skel.h"
+
+#include "sockmap_helpers.h"
 
 #define TCP_REPAIR		19	/* TCP sock is under repair right now */
 
@@ -27,21 +32,21 @@ static int connected_socket_v4(void)
 	int s, repair, err;
 
 	s = socket(AF_INET, SOCK_STREAM, 0);
-	if (CHECK_FAIL(s == -1))
+	if (!ASSERT_GE(s, 0, "socket"))
 		goto error;
 
 	repair = TCP_REPAIR_ON;
 	err = setsockopt(s, SOL_TCP, TCP_REPAIR, &repair, sizeof(repair));
-	if (CHECK_FAIL(err))
+	if (!ASSERT_OK(err, "setsockopt(TCP_REPAIR)"))
 		goto error;
 
 	err = connect(s, (struct sockaddr *)&addr, len);
-	if (CHECK_FAIL(err))
+	if (!ASSERT_OK(err, "connect"))
 		goto error;
 
 	repair = TCP_REPAIR_OFF_NO_WP;
 	err = setsockopt(s, SOL_TCP, TCP_REPAIR, &repair, sizeof(repair));
-	if (CHECK_FAIL(err))
+	if (!ASSERT_OK(err, "setsockopt(TCP_REPAIR)"))
 		goto error;
 
 	return s;
@@ -54,7 +59,7 @@ error:
 static void compare_cookies(struct bpf_map *src, struct bpf_map *dst)
 {
 	__u32 i, max_entries = bpf_map__max_entries(src);
-	int err, duration = 0, src_fd, dst_fd;
+	int err, src_fd, dst_fd;
 
 	src_fd = bpf_map__fd(src);
 	dst_fd = bpf_map__fd(dst);
@@ -65,20 +70,18 @@ static void compare_cookies(struct bpf_map *src, struct bpf_map *dst)
 		err = bpf_map_lookup_elem(src_fd, &i, &src_cookie);
 		if (err && errno == ENOENT) {
 			err = bpf_map_lookup_elem(dst_fd, &i, &dst_cookie);
-			CHECK(!err, "map_lookup_elem(dst)", "element %u not deleted\n", i);
-			CHECK(err && errno != ENOENT, "map_lookup_elem(dst)", "%s\n",
-			      strerror(errno));
+			ASSERT_ERR(err, "map_lookup_elem(dst)");
+			ASSERT_EQ(errno, ENOENT, "map_lookup_elem(dst)");
 			continue;
 		}
-		if (CHECK(err, "lookup_elem(src)", "%s\n", strerror(errno)))
+		if (!ASSERT_OK(err, "lookup_elem(src)"))
 			continue;
 
 		err = bpf_map_lookup_elem(dst_fd, &i, &dst_cookie);
-		if (CHECK(err, "lookup_elem(dst)", "%s\n", strerror(errno)))
+		if (!ASSERT_OK(err, "lookup_elem(dst)"))
 			continue;
 
-		CHECK(dst_cookie != src_cookie, "cookie mismatch",
-		      "%llu != %llu (pos %u)\n", dst_cookie, src_cookie, i);
+		ASSERT_EQ(dst_cookie, src_cookie, "cookie mismatch");
 	}
 }
 
@@ -89,20 +92,16 @@ static void test_sockmap_create_update_free(enum bpf_map_type map_type)
 	int s, map, err;
 
 	s = connected_socket_v4();
-	if (CHECK_FAIL(s < 0))
+	if (!ASSERT_GE(s, 0, "connected_socket_v4"))
 		return;
 
 	map = bpf_map_create(map_type, NULL, sizeof(int), sizeof(int), 1, NULL);
-	if (CHECK_FAIL(map < 0)) {
-		perror("bpf_cmap_create");
+	if (!ASSERT_GE(map, 0, "bpf_map_create"))
 		goto out;
-	}
 
 	err = bpf_map_update_elem(map, &zero, &s, BPF_NOEXIST);
-	if (CHECK_FAIL(err)) {
-		perror("bpf_map_update");
+	if (!ASSERT_OK(err, "bpf_map_update"))
 		goto out;
-	}
 
 out:
 	close(map);
@@ -115,32 +114,26 @@ static void test_skmsg_helpers(enum bpf_map_type map_type)
 	int err, map, verdict;
 
 	skel = test_skmsg_load_helpers__open_and_load();
-	if (CHECK_FAIL(!skel)) {
-		perror("test_skmsg_load_helpers__open_and_load");
+	if (!ASSERT_OK_PTR(skel, "test_skmsg_load_helpers__open_and_load"))
 		return;
-	}
 
 	verdict = bpf_program__fd(skel->progs.prog_msg_verdict);
 	map = bpf_map__fd(skel->maps.sock_map);
 
 	err = bpf_prog_attach(verdict, map, BPF_SK_MSG_VERDICT, 0);
-	if (CHECK_FAIL(err)) {
-		perror("bpf_prog_attach");
+	if (!ASSERT_OK(err, "bpf_prog_attach"))
 		goto out;
-	}
 
 	err = bpf_prog_detach2(verdict, map, BPF_SK_MSG_VERDICT);
-	if (CHECK_FAIL(err)) {
-		perror("bpf_prog_detach2");
+	if (!ASSERT_OK(err, "bpf_prog_detach2"))
 		goto out;
-	}
 out:
 	test_skmsg_load_helpers__destroy(skel);
 }
 
 static void test_sockmap_update(enum bpf_map_type map_type)
 {
-	int err, prog, src, duration = 0;
+	int err, prog, src;
 	struct test_sockmap_update *skel;
 	struct bpf_map *dst_map;
 	const __u32 zero = 0;
@@ -153,11 +146,11 @@ static void test_sockmap_update(enum bpf_map_type map_type)
 	__s64 sk;
 
 	sk = connected_socket_v4();
-	if (CHECK(sk == -1, "connected_socket_v4", "cannot connect\n"))
+	if (!ASSERT_NEQ(sk, -1, "connected_socket_v4"))
 		return;
 
 	skel = test_sockmap_update__open_and_load();
-	if (CHECK(!skel, "open_and_load", "cannot load skeleton\n"))
+	if (!ASSERT_OK_PTR(skel, "open_and_load"))
 		goto close_sk;
 
 	prog = bpf_program__fd(skel->progs.copy_sock_map);
@@ -168,7 +161,7 @@ static void test_sockmap_update(enum bpf_map_type map_type)
 		dst_map = skel->maps.dst_sock_hash;
 
 	err = bpf_map_update_elem(src, &zero, &sk, BPF_NOEXIST);
-	if (CHECK(err, "update_elem(src)", "errno=%u\n", errno))
+	if (!ASSERT_OK(err, "update_elem(src)"))
 		goto out;
 
 	err = bpf_prog_test_run_opts(prog, &topts);
@@ -188,17 +181,16 @@ close_sk:
 static void test_sockmap_invalid_update(void)
 {
 	struct test_sockmap_invalid_update *skel;
-	int duration = 0;
 
 	skel = test_sockmap_invalid_update__open_and_load();
-	if (CHECK(skel, "open_and_load", "verifier accepted map_update\n"))
+	if (!ASSERT_NULL(skel, "open_and_load"))
 		test_sockmap_invalid_update__destroy(skel);
 }
 
 static void test_sockmap_copy(enum bpf_map_type map_type)
 {
 	DECLARE_LIBBPF_OPTS(bpf_iter_attach_opts, opts);
-	int err, len, src_fd, iter_fd, duration = 0;
+	int err, len, src_fd, iter_fd;
 	union bpf_iter_link_info linfo = {};
 	__u32 i, num_sockets, num_elems;
 	struct bpf_iter_sockmap *skel;
@@ -208,7 +200,7 @@ static void test_sockmap_copy(enum bpf_map_type map_type)
 	char buf[64];
 
 	skel = bpf_iter_sockmap__open_and_load();
-	if (CHECK(!skel, "bpf_iter_sockmap__open_and_load", "skeleton open_and_load failed\n"))
+	if (!ASSERT_OK_PTR(skel, "bpf_iter_sockmap__open_and_load"))
 		return;
 
 	if (map_type == BPF_MAP_TYPE_SOCKMAP) {
@@ -222,7 +214,7 @@ static void test_sockmap_copy(enum bpf_map_type map_type)
 	}
 
 	sock_fd = calloc(num_sockets, sizeof(*sock_fd));
-	if (CHECK(!sock_fd, "calloc(sock_fd)", "failed to allocate\n"))
+	if (!ASSERT_OK_PTR(sock_fd, "calloc(sock_fd)"))
 		goto out;
 
 	for (i = 0; i < num_sockets; i++)
@@ -232,11 +224,11 @@ static void test_sockmap_copy(enum bpf_map_type map_type)
 
 	for (i = 0; i < num_sockets; i++) {
 		sock_fd[i] = connected_socket_v4();
-		if (CHECK(sock_fd[i] == -1, "connected_socket_v4", "cannot connect\n"))
+		if (!ASSERT_NEQ(sock_fd[i], -1, "connected_socket_v4"))
 			goto out;
 
 		err = bpf_map_update_elem(src_fd, &i, &sock_fd[i], BPF_NOEXIST);
-		if (CHECK(err, "map_update", "failed: %s\n", strerror(errno)))
+		if (!ASSERT_OK(err, "map_update"))
 			goto out;
 	}
 
@@ -248,22 +240,20 @@ static void test_sockmap_copy(enum bpf_map_type map_type)
 		goto out;
 
 	iter_fd = bpf_iter_create(bpf_link__fd(link));
-	if (CHECK(iter_fd < 0, "create_iter", "create_iter failed\n"))
+	if (!ASSERT_GE(iter_fd, 0, "create_iter"))
 		goto free_link;
 
 	/* do some tests */
 	while ((len = read(iter_fd, buf, sizeof(buf))) > 0)
 		;
-	if (CHECK(len < 0, "read", "failed: %s\n", strerror(errno)))
+	if (!ASSERT_GE(len, 0, "read"))
 		goto close_iter;
 
 	/* test results */
-	if (CHECK(skel->bss->elems != num_elems, "elems", "got %u expected %u\n",
-		  skel->bss->elems, num_elems))
+	if (!ASSERT_EQ(skel->bss->elems, num_elems, "elems"))
 		goto close_iter;
 
-	if (CHECK(skel->bss->socks != num_sockets, "socks", "got %u expected %u\n",
-		  skel->bss->socks, num_sockets))
+	if (!ASSERT_EQ(skel->bss->socks, num_sockets, "socks"))
 		goto close_iter;
 
 	compare_cookies(src, skel->maps.dst);
@@ -288,28 +278,22 @@ static void test_sockmap_skb_verdict_attach(enum bpf_attach_type first,
 	int err, map, verdict;
 
 	skel = test_sockmap_skb_verdict_attach__open_and_load();
-	if (CHECK_FAIL(!skel)) {
-		perror("test_sockmap_skb_verdict_attach__open_and_load");
+	if (!ASSERT_OK_PTR(skel, "open_and_load"))
 		return;
-	}
 
 	verdict = bpf_program__fd(skel->progs.prog_skb_verdict);
 	map = bpf_map__fd(skel->maps.sock_map);
 
 	err = bpf_prog_attach(verdict, map, first, 0);
-	if (CHECK_FAIL(err)) {
-		perror("bpf_prog_attach");
+	if (!ASSERT_OK(err, "bpf_prog_attach"))
 		goto out;
-	}
 
 	err = bpf_prog_attach(verdict, map, second, 0);
 	ASSERT_EQ(err, -EBUSY, "prog_attach_fail");
 
 	err = bpf_prog_detach2(verdict, map, first);
-	if (CHECK_FAIL(err)) {
-		perror("bpf_prog_detach2");
+	if (!ASSERT_OK(err, "bpf_prog_detach2"))
 		goto out;
-	}
 out:
 	test_sockmap_skb_verdict_attach__destroy(skel);
 }
@@ -320,9 +304,9 @@ static __u32 query_prog_id(int prog_fd)
 	__u32 info_len = sizeof(info);
 	int err;
 
-	err = bpf_obj_get_info_by_fd(prog_fd, &info, &info_len);
-	if (!ASSERT_OK(err, "bpf_obj_get_info_by_fd") ||
-	    !ASSERT_EQ(info_len, sizeof(info), "bpf_obj_get_info_by_fd"))
+	err = bpf_prog_get_info_by_fd(prog_fd, &info, &info_len);
+	if (!ASSERT_OK(err, "bpf_prog_get_info_by_fd") ||
+	    !ASSERT_EQ(info_len, sizeof(info), "bpf_prog_get_info_by_fd"))
 		return 0;
 
 	return info.id;
@@ -371,6 +355,126 @@ out:
 	test_sockmap_progs_query__destroy(skel);
 }
 
+#define MAX_EVENTS 10
+static void test_sockmap_skb_verdict_shutdown(void)
+{
+	struct epoll_event ev, events[MAX_EVENTS];
+	int n, err, map, verdict, s, c1, p1;
+	struct test_sockmap_pass_prog *skel;
+	int epollfd;
+	int zero = 0;
+	char b;
+
+	skel = test_sockmap_pass_prog__open_and_load();
+	if (!ASSERT_OK_PTR(skel, "open_and_load"))
+		return;
+
+	verdict = bpf_program__fd(skel->progs.prog_skb_verdict);
+	map = bpf_map__fd(skel->maps.sock_map_rx);
+
+	err = bpf_prog_attach(verdict, map, BPF_SK_SKB_STREAM_VERDICT, 0);
+	if (!ASSERT_OK(err, "bpf_prog_attach"))
+		goto out;
+
+	s = socket_loopback(AF_INET, SOCK_STREAM);
+	if (s < 0)
+		goto out;
+	err = create_pair(s, AF_INET, SOCK_STREAM, &c1, &p1);
+	if (err < 0)
+		goto out;
+
+	err = bpf_map_update_elem(map, &zero, &c1, BPF_NOEXIST);
+	if (err < 0)
+		goto out_close;
+
+	shutdown(p1, SHUT_WR);
+
+	ev.events = EPOLLIN;
+	ev.data.fd = c1;
+
+	epollfd = epoll_create1(0);
+	if (!ASSERT_GT(epollfd, -1, "epoll_create(0)"))
+		goto out_close;
+	err = epoll_ctl(epollfd, EPOLL_CTL_ADD, c1, &ev);
+	if (!ASSERT_OK(err, "epoll_ctl(EPOLL_CTL_ADD)"))
+		goto out_close;
+	err = epoll_wait(epollfd, events, MAX_EVENTS, -1);
+	if (!ASSERT_EQ(err, 1, "epoll_wait(fd)"))
+		goto out_close;
+
+	n = recv(c1, &b, 1, SOCK_NONBLOCK);
+	ASSERT_EQ(n, 0, "recv_timeout(fin)");
+out_close:
+	close(c1);
+	close(p1);
+out:
+	test_sockmap_pass_prog__destroy(skel);
+}
+
+static void test_sockmap_skb_verdict_fionread(bool pass_prog)
+{
+	int expected, zero = 0, sent, recvd, avail;
+	int err, map, verdict, s, c0, c1, p0, p1;
+	struct test_sockmap_pass_prog *pass;
+	struct test_sockmap_drop_prog *drop;
+	char buf[256] = "0123456789";
+
+	if (pass_prog) {
+		pass = test_sockmap_pass_prog__open_and_load();
+		if (!ASSERT_OK_PTR(pass, "open_and_load"))
+			return;
+		verdict = bpf_program__fd(pass->progs.prog_skb_verdict);
+		map = bpf_map__fd(pass->maps.sock_map_rx);
+		expected = sizeof(buf);
+	} else {
+		drop = test_sockmap_drop_prog__open_and_load();
+		if (!ASSERT_OK_PTR(drop, "open_and_load"))
+			return;
+		verdict = bpf_program__fd(drop->progs.prog_skb_verdict);
+		map = bpf_map__fd(drop->maps.sock_map_rx);
+		/* On drop data is consumed immediately and copied_seq inc'd */
+		expected = 0;
+	}
+
+
+	err = bpf_prog_attach(verdict, map, BPF_SK_SKB_STREAM_VERDICT, 0);
+	if (!ASSERT_OK(err, "bpf_prog_attach"))
+		goto out;
+
+	s = socket_loopback(AF_INET, SOCK_STREAM);
+	if (!ASSERT_GT(s, -1, "socket_loopback(s)"))
+		goto out;
+	err = create_socket_pairs(s, AF_INET, SOCK_STREAM, &c0, &c1, &p0, &p1);
+	if (!ASSERT_OK(err, "create_socket_pairs(s)"))
+		goto out;
+
+	err = bpf_map_update_elem(map, &zero, &c1, BPF_NOEXIST);
+	if (!ASSERT_OK(err, "bpf_map_update_elem(c1)"))
+		goto out_close;
+
+	sent = xsend(p1, &buf, sizeof(buf), 0);
+	ASSERT_EQ(sent, sizeof(buf), "xsend(p0)");
+	err = ioctl(c1, FIONREAD, &avail);
+	ASSERT_OK(err, "ioctl(FIONREAD) error");
+	ASSERT_EQ(avail, expected, "ioctl(FIONREAD)");
+	/* On DROP test there will be no data to read */
+	if (pass_prog) {
+		recvd = recv_timeout(c1, &buf, sizeof(buf), SOCK_NONBLOCK, IO_TIMEOUT_SEC);
+		ASSERT_EQ(recvd, sizeof(buf), "recv_timeout(c0)");
+	}
+
+out_close:
+	close(c0);
+	close(p0);
+	close(c1);
+	close(p1);
+out:
+	if (pass_prog)
+		test_sockmap_pass_prog__destroy(pass);
+	else
+		test_sockmap_drop_prog__destroy(drop);
+}
+
 void test_sockmap_basic(void)
 {
 	if (test__start_subtest("sockmap create_update_free"))
@@ -405,4 +509,10 @@ void test_sockmap_basic(void)
 		test_sockmap_progs_query(BPF_SK_SKB_STREAM_VERDICT);
 	if (test__start_subtest("sockmap skb_verdict progs query"))
 		test_sockmap_progs_query(BPF_SK_SKB_VERDICT);
+	if (test__start_subtest("sockmap skb_verdict shutdown"))
+		test_sockmap_skb_verdict_shutdown();
+	if (test__start_subtest("sockmap skb_verdict fionread"))
+		test_sockmap_skb_verdict_fionread(true);
+	if (test__start_subtest("sockmap skb_verdict fionread on drop"))
+		test_sockmap_skb_verdict_fionread(false);
 }

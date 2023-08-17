@@ -15,33 +15,24 @@
  * stmmac_adjust_freq
  *
  * @ptp: pointer to ptp_clock_info structure
- * @ppb: desired period change in parts ber billion
+ * @scaled_ppm: desired period change in scaled parts per million
  *
  * Description: this function will adjust the frequency of hardware clock.
+ *
+ * Scaled parts per million is ppm with a 16-bit binary fractional field.
  */
-static int stmmac_adjust_freq(struct ptp_clock_info *ptp, s32 ppb)
+static int stmmac_adjust_freq(struct ptp_clock_info *ptp, long scaled_ppm)
 {
 	struct stmmac_priv *priv =
 	    container_of(ptp, struct stmmac_priv, ptp_clock_ops);
 	unsigned long flags;
-	u32 diff, addend;
-	int neg_adj = 0;
-	u64 adj;
+	u32 addend;
 
-	if (ppb < 0) {
-		neg_adj = 1;
-		ppb = -ppb;
-	}
+	addend = adjust_by_scaled_ppm(priv->default_addend, scaled_ppm);
 
-	addend = priv->default_addend;
-	adj = addend;
-	adj *= ppb;
-	diff = div_u64(adj, 1000000000ULL);
-	addend = neg_adj ? (addend - diff) : (addend + diff);
-
-	spin_lock_irqsave(&priv->ptp_lock, flags);
+	write_lock_irqsave(&priv->ptp_lock, flags);
 	stmmac_config_addend(priv, priv->ptpaddr, addend);
-	spin_unlock_irqrestore(&priv->ptp_lock, flags);
+	write_unlock_irqrestore(&priv->ptp_lock, flags);
 
 	return 0;
 }
@@ -86,9 +77,9 @@ static int stmmac_adjust_time(struct ptp_clock_info *ptp, s64 delta)
 		mutex_unlock(&priv->plat->est->lock);
 	}
 
-	spin_lock_irqsave(&priv->ptp_lock, flags);
+	write_lock_irqsave(&priv->ptp_lock, flags);
 	stmmac_adjust_systime(priv, priv->ptpaddr, sec, nsec, neg_adj, xmac);
-	spin_unlock_irqrestore(&priv->ptp_lock, flags);
+	write_unlock_irqrestore(&priv->ptp_lock, flags);
 
 	/* Caculate new basetime and re-configured EST after PTP time adjust. */
 	if (est_rst) {
@@ -137,9 +128,9 @@ static int stmmac_get_time(struct ptp_clock_info *ptp, struct timespec64 *ts)
 	unsigned long flags;
 	u64 ns = 0;
 
-	spin_lock_irqsave(&priv->ptp_lock, flags);
+	read_lock_irqsave(&priv->ptp_lock, flags);
 	stmmac_get_systime(priv, priv->ptpaddr, &ns);
-	spin_unlock_irqrestore(&priv->ptp_lock, flags);
+	read_unlock_irqrestore(&priv->ptp_lock, flags);
 
 	*ts = ns_to_timespec64(ns);
 
@@ -162,9 +153,9 @@ static int stmmac_set_time(struct ptp_clock_info *ptp,
 	    container_of(ptp, struct stmmac_priv, ptp_clock_ops);
 	unsigned long flags;
 
-	spin_lock_irqsave(&priv->ptp_lock, flags);
+	write_lock_irqsave(&priv->ptp_lock, flags);
 	stmmac_init_systime(priv, priv->ptpaddr, ts->tv_sec, ts->tv_nsec);
-	spin_unlock_irqrestore(&priv->ptp_lock, flags);
+	write_unlock_irqrestore(&priv->ptp_lock, flags);
 
 	return 0;
 }
@@ -175,11 +166,10 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 	struct stmmac_priv *priv =
 	    container_of(ptp, struct stmmac_priv, ptp_clock_ops);
 	void __iomem *ptpaddr = priv->ptpaddr;
-	void __iomem *ioaddr = priv->hw->pcsr;
 	struct stmmac_pps_cfg *cfg;
-	u32 intr_value, acr_value;
 	int ret = -EOPNOTSUPP;
 	unsigned long flags;
+	u32 acr_value;
 
 	switch (rq->type) {
 	case PTP_CLK_REQ_PEROUT:
@@ -194,12 +184,12 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 		cfg->period.tv_sec = rq->perout.period.sec;
 		cfg->period.tv_nsec = rq->perout.period.nsec;
 
-		spin_lock_irqsave(&priv->ptp_lock, flags);
+		write_lock_irqsave(&priv->ptp_lock, flags);
 		ret = stmmac_flex_pps_config(priv, priv->ioaddr,
 					     rq->perout.index, cfg, on,
 					     priv->sub_second_inc,
 					     priv->systime_flags);
-		spin_unlock_irqrestore(&priv->ptp_lock, flags);
+		write_unlock_irqrestore(&priv->ptp_lock, flags);
 		break;
 	case PTP_CLK_REQ_EXTTS:
 		priv->plat->ext_snapshot_en = on;
@@ -213,23 +203,17 @@ static int stmmac_enable(struct ptp_clock_info *ptp,
 			netdev_dbg(priv->dev, "Auxiliary Snapshot %d enabled.\n",
 				   priv->plat->ext_snapshot_num >>
 				   PTP_ACR_ATSEN_SHIFT);
-			/* Enable Timestamp Interrupt */
-			intr_value = readl(ioaddr + GMAC_INT_EN);
-			intr_value |= GMAC_INT_TSIE;
-			writel(intr_value, ioaddr + GMAC_INT_EN);
-
 		} else {
 			netdev_dbg(priv->dev, "Auxiliary Snapshot %d disabled.\n",
 				   priv->plat->ext_snapshot_num >>
 				   PTP_ACR_ATSEN_SHIFT);
-			/* Disable Timestamp Interrupt */
-			intr_value = readl(ioaddr + GMAC_INT_EN);
-			intr_value &= ~GMAC_INT_TSIE;
-			writel(intr_value, ioaddr + GMAC_INT_EN);
 		}
 		writel(acr_value, ptpaddr + PTP_ACR);
 		mutex_unlock(&priv->aux_ts_lock);
-		ret = 0;
+		/* wait for auxts fifo clear to finish */
+		ret = readl_poll_timeout(ptpaddr + PTP_ACR, acr_value,
+					 !(acr_value & PTP_ACR_ATSFC),
+					 10, 10000);
 		break;
 
 	default:
@@ -279,7 +263,7 @@ static struct ptp_clock_info stmmac_ptp_clock_ops = {
 	.n_per_out = 0, /* will be overwritten in stmmac_ptp_register */
 	.n_pins = 0,
 	.pps = 0,
-	.adjfreq = stmmac_adjust_freq,
+	.adjfine = stmmac_adjust_freq,
 	.adjtime = stmmac_adjust_time,
 	.gettime64 = stmmac_get_time,
 	.settime64 = stmmac_set_time,
@@ -306,10 +290,15 @@ void stmmac_ptp_register(struct stmmac_priv *priv)
 	if (priv->plat->ptp_max_adj)
 		stmmac_ptp_clock_ops.max_adj = priv->plat->ptp_max_adj;
 
+	/* Calculate the clock domain crossing (CDC) error if necessary */
+	priv->plat->cdc_error_adj = 0;
+	if (priv->plat->has_gmac4 && priv->plat->clk_ptp_rate)
+		priv->plat->cdc_error_adj = (2 * NSEC_PER_SEC) / priv->plat->clk_ptp_rate;
+
 	stmmac_ptp_clock_ops.n_per_out = priv->dma_cap.pps_out_num;
 	stmmac_ptp_clock_ops.n_ext_ts = priv->dma_cap.aux_snapshot_n;
 
-	spin_lock_init(&priv->ptp_lock);
+	rwlock_init(&priv->ptp_lock);
 	mutex_init(&priv->aux_ts_lock);
 	priv->ptp_clock_ops = stmmac_ptp_clock_ops;
 

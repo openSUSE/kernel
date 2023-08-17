@@ -707,20 +707,16 @@ static int ethoc_mdio_probe(struct net_device *dev)
 	else
 		phy = phy_find_first(priv->mdio);
 
-	if (!phy) {
-		dev_err(&dev->dev, "no PHY found\n");
-		return -ENXIO;
-	}
+	if (!phy)
+		return dev_err_probe(&dev->dev, -ENXIO, "no PHY found\n");
 
 	priv->old_duplex = -1;
 	priv->old_link = -1;
 
 	err = phy_connect_direct(dev, phy, ethoc_mdio_poll,
 				 PHY_INTERFACE_MODE_GMII);
-	if (err) {
-		dev_err(&dev->dev, "could not attach to PHY\n");
-		return err;
-	}
+	if (err)
+		return dev_err_probe(&dev->dev, err, "could not attach to PHY\n");
 
 	phy_set_max_speed(phy, SPEED_100);
 
@@ -1082,14 +1078,11 @@ static int ethoc_probe(struct platform_device *pdev)
 
 
 	/* obtain device IRQ number */
-	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-	if (!res) {
-		dev_err(&pdev->dev, "cannot obtain IRQ\n");
-		ret = -ENXIO;
+	ret = platform_get_irq(pdev, 0);
+	if (ret < 0)
 		goto free;
-	}
 
-	netdev->irq = res->start;
+	netdev->irq = ret;
 
 	/* setup driver-private data */
 	priv = netdev_priv(netdev);
@@ -1231,7 +1224,7 @@ static int ethoc_probe(struct platform_device *pdev)
 	netdev->ethtool_ops = &ethoc_ethtool_ops;
 
 	/* setup NAPI */
-	netif_napi_add(netdev, &priv->napi, ethoc_poll, 64);
+	netif_napi_add(netdev, &priv->napi, ethoc_poll);
 
 	spin_lock_init(&priv->lock);
 

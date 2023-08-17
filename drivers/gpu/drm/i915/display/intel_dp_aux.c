@@ -4,9 +4,13 @@
  */
 
 #include "i915_drv.h"
+#include "i915_reg.h"
 #include "i915_trace.h"
+#include "intel_bios.h"
+#include "intel_de.h"
 #include "intel_display_types.h"
 #include "intel_dp_aux.h"
+#include "intel_dp_aux_regs.h"
 #include "intel_pps.h"
 #include "intel_tc.h"
 
@@ -39,20 +43,16 @@ intel_dp_aux_wait_done(struct intel_dp *intel_dp)
 	i915_reg_t ch_ctl = intel_dp->aux_ch_ctl_reg(intel_dp);
 	const unsigned int timeout_ms = 10;
 	u32 status;
-	bool done;
+	int ret;
 
-#define C (((status = intel_uncore_read_notrace(&i915->uncore, ch_ctl)) & DP_AUX_CH_CTL_SEND_BUSY) == 0)
-	done = wait_event_timeout(i915->gmbus_wait_queue, C,
-				  msecs_to_jiffies_timeout(timeout_ms));
+	ret = __intel_de_wait_for_register(i915, ch_ctl,
+					   DP_AUX_CH_CTL_SEND_BUSY, 0,
+					   2, timeout_ms, &status);
 
-	/* just trace the final value */
-	trace_i915_reg_rw(false, ch_ctl, status, sizeof(status), true);
-
-	if (!done)
+	if (ret == -ETIMEDOUT)
 		drm_err(&i915->drm,
 			"%s: did not complete or timeout within %ums (status 0x%08x)\n",
 			intel_dp->aux.name, timeout_ms, status);
-#undef C
 
 	return status;
 }
@@ -86,7 +86,7 @@ static u32 ilk_get_aux_clock_divider(struct intel_dp *intel_dp, int index)
 	 * divide by 2000 and use that
 	 */
 	if (dig_port->aux_ch == AUX_CH_A)
-		freq = dev_priv->cdclk.hw.cdclk;
+		freq = dev_priv->display.cdclk.hw.cdclk;
 	else
 		freq = RUNTIME_INFO(dev_priv)->rawclk_freq;
 	return DIV_ROUND_CLOSEST(freq, 2000);
@@ -176,6 +176,7 @@ static u32 skl_get_aux_send_ctl(struct intel_dp *intel_dp,
 				u32 unused)
 {
 	struct intel_digital_port *dig_port = dp_to_dig_port(intel_dp);
+	struct drm_i915_private *i915 =	to_i915(dig_port->base.base.dev);
 	u32 ret;
 
 	/*
@@ -196,6 +197,13 @@ static u32 skl_get_aux_send_ctl(struct intel_dp *intel_dp,
 	if (intel_tc_port_in_tbt_alt_mode(dig_port))
 		ret |= DP_AUX_CH_CTL_TBT_IO;
 
+	/*
+	 * Power request bit is already set during aux power well enable.
+	 * Preserve the bit across aux transactions.
+	 */
+	if (DISPLAY_VER(i915) >= 14)
+		ret |= XELPDP_DP_AUX_CH_CTL_POWER_REQUEST;
+
 	return ret;
 }
 
@@ -208,7 +216,6 @@ intel_dp_aux_xfer(struct intel_dp *intel_dp,
 	struct intel_digital_port *dig_port = dp_to_dig_port(intel_dp);
 	struct drm_i915_private *i915 =
 			to_i915(dig_port->base.base.dev);
-	struct intel_uncore *uncore = &i915->uncore;
 	enum phy phy = intel_port_to_phy(i915, dig_port->base.port);
 	bool is_tc_port = intel_phy_is_tc(i915, phy);
 	i915_reg_t ch_ctl, ch_data[5];
@@ -225,8 +232,19 @@ intel_dp_aux_xfer(struct intel_dp *intel_dp,
 	for (i = 0; i < ARRAY_SIZE(ch_data); i++)
 		ch_data[i] = intel_dp->aux_ch_data_reg(intel_dp, i);
 
-	if (is_tc_port)
+	if (is_tc_port) {
 		intel_tc_port_lock(dig_port);
+		/*
+		 * Abort transfers on a disconnected port as required by
+		 * DP 1.4a link CTS 4.2.1.5, also avoiding the long AUX
+		 * timeouts that would otherwise happen.
+		 * TODO: abort the transfer on non-TC ports as well.
+		 */
+		if (!intel_tc_port_connected_locked(&dig_port->base)) {
+			ret = -ENXIO;
+			goto out_unlock;
+		}
+	}
 
 	aux_domain = intel_aux_power_domain(dig_port);
 
@@ -252,7 +270,7 @@ intel_dp_aux_xfer(struct intel_dp *intel_dp,
 
 	/* Try to wait for any previous AUX channel activity */
 	for (try = 0; try < 3; try++) {
-		status = intel_uncore_read_notrace(uncore, ch_ctl);
+		status = intel_de_read_notrace(i915, ch_ctl);
 		if ((status & DP_AUX_CH_CTL_SEND_BUSY) == 0)
 			break;
 		msleep(1);
@@ -261,7 +279,7 @@ intel_dp_aux_xfer(struct intel_dp *intel_dp,
 	trace_i915_reg_rw(false, ch_ctl, status, sizeof(status), true);
 
 	if (try == 3) {
-		const u32 status = intel_uncore_read(uncore, ch_ctl);
+		const u32 status = intel_de_read(i915, ch_ctl);
 
 		if (status != intel_dp->aux_busy_last_status) {
 			drm_WARN(&i915->drm, 1,
@@ -291,23 +309,20 @@ intel_dp_aux_xfer(struct intel_dp *intel_dp,
 		for (try = 0; try < 5; try++) {
 			/* Load the send data into the aux channel data registers */
 			for (i = 0; i < send_bytes; i += 4)
-				intel_uncore_write(uncore,
-						   ch_data[i >> 2],
-						   intel_dp_aux_pack(send + i,
-								     send_bytes - i));
+				intel_de_write(i915, ch_data[i >> 2],
+					       intel_dp_aux_pack(send + i,
+								 send_bytes - i));
 
 			/* Send the command and wait for it to complete */
-			intel_uncore_write(uncore, ch_ctl, send_ctl);
+			intel_de_write(i915, ch_ctl, send_ctl);
 
 			status = intel_dp_aux_wait_done(intel_dp);
 
 			/* Clear done status and any errors */
-			intel_uncore_write(uncore,
-					   ch_ctl,
-					   status |
-					   DP_AUX_CH_CTL_DONE |
-					   DP_AUX_CH_CTL_TIME_OUT_ERROR |
-					   DP_AUX_CH_CTL_RECEIVE_ERROR);
+			intel_de_write(i915, ch_ctl,
+				       status | DP_AUX_CH_CTL_DONE |
+				       DP_AUX_CH_CTL_TIME_OUT_ERROR |
+				       DP_AUX_CH_CTL_RECEIVE_ERROR);
 
 			/*
 			 * DP CTS 1.2 Core Rev 1.1, 4.2.1.1 & 4.2.1.2
@@ -378,7 +393,7 @@ done:
 		recv_bytes = recv_size;
 
 	for (i = 0; i < recv_bytes; i += 4)
-		intel_dp_aux_unpack(intel_uncore_read(uncore, ch_data[i >> 2]),
+		intel_dp_aux_unpack(intel_de_read(i915, ch_data[i >> 2]),
 				    recv + i, recv_bytes - i);
 
 	ret = recv_bytes;
@@ -390,7 +405,7 @@ out:
 
 	intel_pps_unlock(intel_dp, pps_wakeref);
 	intel_display_power_put_async(i915, aux_domain, aux_wakeref);
-
+out_unlock:
 	if (is_tc_port)
 		intel_tc_port_unlock(dig_port);
 
@@ -655,6 +670,46 @@ static i915_reg_t tgl_aux_data_reg(struct intel_dp *intel_dp, int index)
 	}
 }
 
+static i915_reg_t xelpdp_aux_ctl_reg(struct intel_dp *intel_dp)
+{
+	struct drm_i915_private *dev_priv = dp_to_i915(intel_dp);
+	struct intel_digital_port *dig_port = dp_to_dig_port(intel_dp);
+	enum aux_ch aux_ch = dig_port->aux_ch;
+
+	switch (aux_ch) {
+	case AUX_CH_A:
+	case AUX_CH_B:
+	case AUX_CH_USBC1:
+	case AUX_CH_USBC2:
+	case AUX_CH_USBC3:
+	case AUX_CH_USBC4:
+		return XELPDP_DP_AUX_CH_CTL(aux_ch);
+	default:
+		MISSING_CASE(aux_ch);
+		return XELPDP_DP_AUX_CH_CTL(AUX_CH_A);
+	}
+}
+
+static i915_reg_t xelpdp_aux_data_reg(struct intel_dp *intel_dp, int index)
+{
+	struct drm_i915_private *dev_priv = dp_to_i915(intel_dp);
+	struct intel_digital_port *dig_port = dp_to_dig_port(intel_dp);
+	enum aux_ch aux_ch = dig_port->aux_ch;
+
+	switch (aux_ch) {
+	case AUX_CH_A:
+	case AUX_CH_B:
+	case AUX_CH_USBC1:
+	case AUX_CH_USBC2:
+	case AUX_CH_USBC3:
+	case AUX_CH_USBC4:
+		return XELPDP_DP_AUX_CH_DATA(aux_ch, index);
+	default:
+		MISSING_CASE(aux_ch);
+		return XELPDP_DP_AUX_CH_DATA(AUX_CH_A, index);
+	}
+}
+
 void intel_dp_aux_fini(struct intel_dp *intel_dp)
 {
 	if (cpu_latency_qos_request_active(&intel_dp->pm_qos))
@@ -670,7 +725,10 @@ void intel_dp_aux_init(struct intel_dp *intel_dp)
 	struct intel_encoder *encoder = &dig_port->base;
 	enum aux_ch aux_ch = dig_port->aux_ch;
 
-	if (DISPLAY_VER(dev_priv) >= 12) {
+	if (DISPLAY_VER(dev_priv) >= 14) {
+		intel_dp->aux_ch_ctl_reg = xelpdp_aux_ctl_reg;
+		intel_dp->aux_ch_data_reg = xelpdp_aux_data_reg;
+	} else if (DISPLAY_VER(dev_priv) >= 12) {
 		intel_dp->aux_ch_ctl_reg = tgl_aux_ctl_reg;
 		intel_dp->aux_ch_data_reg = tgl_aux_data_reg;
 	} else if (DISPLAY_VER(dev_priv) >= 9) {
@@ -717,4 +775,38 @@ void intel_dp_aux_init(struct intel_dp *intel_dp)
 
 	intel_dp->aux.transfer = intel_dp_aux_transfer;
 	cpu_latency_qos_add_request(&intel_dp->pm_qos, PM_QOS_DEFAULT_VALUE);
+}
+
+static enum aux_ch default_aux_ch(struct intel_encoder *encoder)
+{
+	struct drm_i915_private *i915 = to_i915(encoder->base.dev);
+
+	/* SKL has DDI E but no AUX E */
+	if (DISPLAY_VER(i915) == 9 && encoder->port == PORT_E)
+		return AUX_CH_A;
+
+	return (enum aux_ch)encoder->port;
+}
+
+enum aux_ch intel_dp_aux_ch(struct intel_encoder *encoder)
+{
+	struct drm_i915_private *i915 = to_i915(encoder->base.dev);
+	enum aux_ch aux_ch;
+
+	aux_ch = intel_bios_dp_aux_ch(encoder->devdata);
+	if (aux_ch != AUX_CH_NONE) {
+		drm_dbg_kms(&i915->drm, "[ENCODER:%d:%s] using AUX %c (VBT)\n",
+			    encoder->base.base.id, encoder->base.name,
+			    aux_ch_name(aux_ch));
+		return aux_ch;
+	}
+
+	aux_ch = default_aux_ch(encoder);
+
+	drm_dbg_kms(&i915->drm,
+		    "[ENCODER:%d:%s] using AUX %c (platform default)\n",
+		    encoder->base.base.id, encoder->base.name,
+		    aux_ch_name(aux_ch));
+
+	return aux_ch;
 }

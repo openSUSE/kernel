@@ -17,8 +17,9 @@
 #include <net/ipv6.h>
 #include <linux/kernel.h>
 #include <linux/user_namespace.h>
-#define RPCDBG_FACILITY	RPCDBG_AUTH
+#include <trace/events/sunrpc.h>
 
+#define RPCDBG_FACILITY	RPCDBG_AUTH
 
 #include "netns.h"
 
@@ -37,6 +38,7 @@ struct unix_domain {
 
 extern struct auth_ops svcauth_null;
 extern struct auth_ops svcauth_unix;
+extern struct auth_ops svcauth_tls;
 
 static void svcauth_unix_domain_release_rcu(struct rcu_head *head)
 {
@@ -224,9 +226,9 @@ static int ip_map_parse(struct cache_detail *cd,
 		return -EINVAL;
 	}
 
-	expiry = get_expiry(&mesg);
-	if (expiry ==0)
-		return -EINVAL;
+	err = get_expiry(&mesg, &expiry);
+	if (err)
+		return err;
 
 	/* domainname, or empty for NEGATIVE */
 	len = qword_get(&mesg, buf, mlen);
@@ -505,9 +507,9 @@ static int unix_gid_parse(struct cache_detail *cd,
 	uid = make_kuid(current_user_ns(), id);
 	ug.uid = uid;
 
-	expiry = get_expiry(&mesg);
-	if (expiry == 0)
-		return -EINVAL;
+	err = get_expiry(&mesg, &expiry);
+	if (err)
+		return err;
 
 	rv = get_int(&mesg, &gids);
 	if (rv || gids < 0 || gids > 8192)
@@ -690,8 +692,9 @@ svcauth_unix_set_client(struct svc_rqst *rqstp)
 
 	rqstp->rq_client = NULL;
 	if (rqstp->rq_proc == 0)
-		return SVC_OK;
+		goto out;
 
+	rqstp->rq_auth_stat = rpc_autherr_badcred;
 	ipm = ip_map_cached_get(xprt);
 	if (ipm == NULL)
 		ipm = __ip_map_lookup(sn->ip_map_cache, rqstp->rq_server->sv_program->pg_class,
@@ -728,29 +731,47 @@ svcauth_unix_set_client(struct svc_rqst *rqstp)
 		put_group_info(cred->cr_group_info);
 		cred->cr_group_info = gi;
 	}
+
+out:
+	rqstp->rq_auth_stat = rpc_auth_ok;
 	return SVC_OK;
 }
 
 EXPORT_SYMBOL_GPL(svcauth_unix_set_client);
 
+/**
+ * svcauth_null_accept - Decode and validate incoming RPC_AUTH_NULL credential
+ * @rqstp: RPC transaction
+ *
+ * Return values:
+ *   %SVC_OK: Both credential and verifier are valid
+ *   %SVC_DENIED: Credential or verifier is not valid
+ *   %SVC_GARBAGE: Failed to decode credential or verifier
+ *   %SVC_CLOSE: Temporary failure
+ *
+ * rqstp->rq_auth_stat is set as mandated by RFC 5531.
+ */
 static int
-svcauth_null_accept(struct svc_rqst *rqstp, __be32 *authp)
+svcauth_null_accept(struct svc_rqst *rqstp)
 {
-	struct kvec	*argv = &rqstp->rq_arg.head[0];
-	struct kvec	*resv = &rqstp->rq_res.head[0];
+	struct xdr_stream *xdr = &rqstp->rq_arg_stream;
 	struct svc_cred	*cred = &rqstp->rq_cred;
+	u32 flavor, len;
+	void *body;
 
-	if (argv->iov_len < 3*4)
+	/* Length of Call's credential body field: */
+	if (xdr_stream_decode_u32(xdr, &len) < 0)
 		return SVC_GARBAGE;
-
-	if (svc_getu32(argv) != 0) {
-		dprintk("svc: bad null cred\n");
-		*authp = rpc_autherr_badcred;
+	if (len != 0) {
+		rqstp->rq_auth_stat = rpc_autherr_badcred;
 		return SVC_DENIED;
 	}
-	if (svc_getu32(argv) != htonl(RPC_AUTH_NULL) || svc_getu32(argv) != 0) {
-		dprintk("svc: bad null verf\n");
-		*authp = rpc_autherr_badverf;
+
+	/* Call's verf field: */
+	if (xdr_stream_decode_opaque_auth(xdr, &flavor, &body, &len) < 0)
+		return SVC_GARBAGE;
+	if (flavor != RPC_AUTH_NULL || len != 0) {
+		rqstp->rq_auth_stat = rpc_autherr_badverf;
 		return SVC_DENIED;
 	}
 
@@ -761,9 +782,11 @@ svcauth_null_accept(struct svc_rqst *rqstp, __be32 *authp)
 	if (cred->cr_group_info == NULL)
 		return SVC_CLOSE; /* kmalloc failure - client must retry */
 
-	/* Put NULL verifier */
-	svc_putnl(resv, RPC_AUTH_NULL);
-	svc_putnl(resv, 0);
+	if (xdr_stream_encode_opaque_auth(&rqstp->rq_res_stream,
+					  RPC_AUTH_NULL, NULL, 0) < 0)
+		return SVC_CLOSE;
+	if (!svcxdr_set_accept_stat(rqstp))
+		return SVC_CLOSE;
 
 	rqstp->rq_cred.cr_flavor = RPC_AUTH_NULL;
 	return SVC_OK;
@@ -787,32 +810,133 @@ struct auth_ops svcauth_null = {
 	.name		= "null",
 	.owner		= THIS_MODULE,
 	.flavour	= RPC_AUTH_NULL,
-	.accept 	= svcauth_null_accept,
+	.accept		= svcauth_null_accept,
 	.release	= svcauth_null_release,
 	.set_client	= svcauth_unix_set_client,
 };
 
 
+/**
+ * svcauth_tls_accept - Decode and validate incoming RPC_AUTH_TLS credential
+ * @rqstp: RPC transaction
+ *
+ * Return values:
+ *   %SVC_OK: Both credential and verifier are valid
+ *   %SVC_DENIED: Credential or verifier is not valid
+ *   %SVC_GARBAGE: Failed to decode credential or verifier
+ *   %SVC_CLOSE: Temporary failure
+ *
+ * rqstp->rq_auth_stat is set as mandated by RFC 5531.
+ */
 static int
-svcauth_unix_accept(struct svc_rqst *rqstp, __be32 *authp)
+svcauth_tls_accept(struct svc_rqst *rqstp)
 {
-	struct kvec	*argv = &rqstp->rq_arg.head[0];
-	struct kvec	*resv = &rqstp->rq_res.head[0];
+	struct xdr_stream *xdr = &rqstp->rq_arg_stream;
+	struct svc_cred	*cred = &rqstp->rq_cred;
+	struct svc_xprt *xprt = rqstp->rq_xprt;
+	u32 flavor, len;
+	void *body;
+	__be32 *p;
+
+	/* Length of Call's credential body field: */
+	if (xdr_stream_decode_u32(xdr, &len) < 0)
+		return SVC_GARBAGE;
+	if (len != 0) {
+		rqstp->rq_auth_stat = rpc_autherr_badcred;
+		return SVC_DENIED;
+	}
+
+	/* Call's verf field: */
+	if (xdr_stream_decode_opaque_auth(xdr, &flavor, &body, &len) < 0)
+		return SVC_GARBAGE;
+	if (flavor != RPC_AUTH_NULL || len != 0) {
+		rqstp->rq_auth_stat = rpc_autherr_badverf;
+		return SVC_DENIED;
+	}
+
+	/* AUTH_TLS is not valid on non-NULL procedures */
+	if (rqstp->rq_proc != 0) {
+		rqstp->rq_auth_stat = rpc_autherr_badcred;
+		return SVC_DENIED;
+	}
+
+	/* Signal that mapping to nobody uid/gid is required */
+	cred->cr_uid = INVALID_UID;
+	cred->cr_gid = INVALID_GID;
+	cred->cr_group_info = groups_alloc(0);
+	if (cred->cr_group_info == NULL)
+		return SVC_CLOSE;
+
+	if (xprt->xpt_ops->xpo_handshake) {
+		p = xdr_reserve_space(&rqstp->rq_res_stream, XDR_UNIT * 2 + 8);
+		if (!p)
+			return SVC_CLOSE;
+		trace_svc_tls_start(xprt);
+		*p++ = rpc_auth_null;
+		*p++ = cpu_to_be32(8);
+		memcpy(p, "STARTTLS", 8);
+
+		set_bit(XPT_HANDSHAKE, &xprt->xpt_flags);
+		svc_xprt_enqueue(xprt);
+	} else {
+		trace_svc_tls_unavailable(xprt);
+		if (xdr_stream_encode_opaque_auth(&rqstp->rq_res_stream,
+						  RPC_AUTH_NULL, NULL, 0) < 0)
+			return SVC_CLOSE;
+	}
+	if (!svcxdr_set_accept_stat(rqstp))
+		return SVC_CLOSE;
+
+	rqstp->rq_cred.cr_flavor = RPC_AUTH_TLS;
+	return SVC_OK;
+}
+
+struct auth_ops svcauth_tls = {
+	.name		= "tls",
+	.owner		= THIS_MODULE,
+	.flavour	= RPC_AUTH_TLS,
+	.accept		= svcauth_tls_accept,
+	.release	= svcauth_null_release,
+	.set_client	= svcauth_unix_set_client,
+};
+
+
+/**
+ * svcauth_unix_accept - Decode and validate incoming RPC_AUTH_SYS credential
+ * @rqstp: RPC transaction
+ *
+ * Return values:
+ *   %SVC_OK: Both credential and verifier are valid
+ *   %SVC_DENIED: Credential or verifier is not valid
+ *   %SVC_GARBAGE: Failed to decode credential or verifier
+ *   %SVC_CLOSE: Temporary failure
+ *
+ * rqstp->rq_auth_stat is set as mandated by RFC 5531.
+ */
+static int
+svcauth_unix_accept(struct svc_rqst *rqstp)
+{
+	struct xdr_stream *xdr = &rqstp->rq_arg_stream;
 	struct svc_cred	*cred = &rqstp->rq_cred;
 	struct user_namespace *userns;
-	u32		slen, i;
-	int		len   = argv->iov_len;
+	u32 flavor, len, i;
+	void *body;
+	__be32 *p;
 
-	if ((len -= 3*4) < 0)
+	/*
+	 * This implementation ignores the length of the Call's
+	 * credential body field and the timestamp and machinename
+	 * fields.
+	 */
+	p = xdr_inline_decode(xdr, XDR_UNIT * 3);
+	if (!p)
+		return SVC_GARBAGE;
+	len = be32_to_cpup(p + 2);
+	if (len > RPC_MAX_MACHINENAME)
+		return SVC_GARBAGE;
+	if (!xdr_inline_decode(xdr, len))
 		return SVC_GARBAGE;
 
-	svc_getu32(argv);			/* length */
-	svc_getu32(argv);			/* time stamp */
-	slen = XDR_QUADLEN(svc_getnl(argv));	/* machname length */
-	if (slen > 64 || (len -= (slen + 3)*4) < 0)
-		goto badcred;
-	argv->iov_base = (void*)((__be32*)argv->iov_base + slen);	/* skip machname */
-	argv->iov_len -= slen*4;
 	/*
 	 * Note: we skip uid_valid()/gid_valid() checks here for
 	 * backwards compatibility with clients that use -1 id's.
@@ -822,33 +946,48 @@ svcauth_unix_accept(struct svc_rqst *rqstp, __be32 *authp)
 	 */
 	userns = (rqstp->rq_xprt && rqstp->rq_xprt->xpt_cred) ?
 		rqstp->rq_xprt->xpt_cred->user_ns : &init_user_ns;
-	cred->cr_uid = make_kuid(userns, svc_getnl(argv)); /* uid */
-	cred->cr_gid = make_kgid(userns, svc_getnl(argv)); /* gid */
-	slen = svc_getnl(argv);			/* gids length */
-	if (slen > UNX_NGROUPS || (len -= (slen + 2)*4) < 0)
+	if (xdr_stream_decode_u32(xdr, &i) < 0)
+		return SVC_GARBAGE;
+	cred->cr_uid = make_kuid(userns, i);
+	if (xdr_stream_decode_u32(xdr, &i) < 0)
+		return SVC_GARBAGE;
+	cred->cr_gid = make_kgid(userns, i);
+
+	if (xdr_stream_decode_u32(xdr, &len) < 0)
+		return SVC_GARBAGE;
+	if (len > UNX_NGROUPS)
 		goto badcred;
-	cred->cr_group_info = groups_alloc(slen);
+	p = xdr_inline_decode(xdr, XDR_UNIT * len);
+	if (!p)
+		return SVC_GARBAGE;
+	cred->cr_group_info = groups_alloc(len);
 	if (cred->cr_group_info == NULL)
 		return SVC_CLOSE;
-	for (i = 0; i < slen; i++) {
-		kgid_t kgid = make_kgid(userns, svc_getnl(argv));
+	for (i = 0; i < len; i++) {
+		kgid_t kgid = make_kgid(userns, be32_to_cpup(p++));
 		cred->cr_group_info->gid[i] = kgid;
 	}
 	groups_sort(cred->cr_group_info);
-	if (svc_getu32(argv) != htonl(RPC_AUTH_NULL) || svc_getu32(argv) != 0) {
-		*authp = rpc_autherr_badverf;
+
+	/* Call's verf field: */
+	if (xdr_stream_decode_opaque_auth(xdr, &flavor, &body, &len) < 0)
+		return SVC_GARBAGE;
+	if (flavor != RPC_AUTH_NULL || len != 0) {
+		rqstp->rq_auth_stat = rpc_autherr_badverf;
 		return SVC_DENIED;
 	}
 
-	/* Put NULL verifier */
-	svc_putnl(resv, RPC_AUTH_NULL);
-	svc_putnl(resv, 0);
+	if (xdr_stream_encode_opaque_auth(&rqstp->rq_res_stream,
+					  RPC_AUTH_NULL, NULL, 0) < 0)
+		return SVC_CLOSE;
+	if (!svcxdr_set_accept_stat(rqstp))
+		return SVC_CLOSE;
 
 	rqstp->rq_cred.cr_flavor = RPC_AUTH_UNIX;
 	return SVC_OK;
 
 badcred:
-	*authp = rpc_autherr_badcred;
+	rqstp->rq_auth_stat = rpc_autherr_badcred;
 	return SVC_DENIED;
 }
 
@@ -872,7 +1011,7 @@ struct auth_ops svcauth_unix = {
 	.name		= "unix",
 	.owner		= THIS_MODULE,
 	.flavour	= RPC_AUTH_UNIX,
-	.accept 	= svcauth_unix_accept,
+	.accept		= svcauth_unix_accept,
 	.release	= svcauth_unix_release,
 	.domain_release	= svcauth_unix_domain_release,
 	.set_client	= svcauth_unix_set_client,

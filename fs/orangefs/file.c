@@ -14,6 +14,7 @@
 #include "orangefs-kernel.h"
 #include "orangefs-bufmap.h"
 #include <linux/fs.h>
+#include <linux/filelock.h>
 #include <linux/pagemap.h>
 
 static int flush_racache(struct inode *inode)
@@ -273,7 +274,6 @@ out:
 		gossip_debug(GOSSIP_FILE_DEBUG,
 			"%s(%pU): PUT buffer_index %d\n",
 			__func__, handle, buffer_index);
-		buffer_index = -1;
 	}
 	op_release(new_op);
 	return ret;
@@ -390,8 +390,7 @@ static int orangefs_file_mmap(struct file *file, struct vm_area_struct *vma)
 		     "orangefs_file_mmap: called on %pD\n", file);
 
 	/* set the sequential readahead hint */
-	vma->vm_flags |= VM_SEQ_READ;
-	vma->vm_flags &= ~VM_RAND_READ;
+	vm_flags_mod(vma, VM_SEQ_READ, VM_RAND_READ);
 
 	file_accessed(file);
 	vma->vm_ops = &orangefs_file_vm_ops;
@@ -417,9 +416,7 @@ static int orangefs_file_release(struct inode *inode, struct file *file)
 	 * readahead cache (if any); this forces an expensive refresh of
 	 * data for the next caller of mmap (or 'get_block' accesses)
 	 */
-	if (file_inode(file) &&
-	    file_inode(file)->i_mapping &&
-	    mapping_nrpages(&file_inode(file)->i_data)) {
+	if (mapping_nrpages(file->f_mapping)) {
 		if (orangefs_features & ORANGEFS_FEATURE_READAHEAD) {
 			gossip_debug(GOSSIP_INODE_DEBUG,
 			    "calling flush_racache on %pU\n",

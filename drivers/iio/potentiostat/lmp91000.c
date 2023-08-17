@@ -118,7 +118,7 @@ static int lmp91000_read(struct lmp91000_data *data, int channel, int *val)
 
 	data->chan_select = channel != LMP91000_REG_MODECN_3LEAD;
 
-	iio_trigger_poll_chained(data->trig);
+	iio_trigger_poll_nested(data->trig);
 
 	ret = wait_for_completion_timeout(&data->completion, HZ);
 	reinit_completion(&data->completion);
@@ -271,9 +271,6 @@ static int lmp91000_buffer_cb(const void *val, void *private)
 	return 0;
 }
 
-static const struct iio_trigger_ops lmp91000_trigger_ops = {
-};
-
 static int lmp91000_buffer_postenable(struct iio_dev *indio_dev)
 {
 	struct lmp91000_data *data = iio_priv(indio_dev);
@@ -295,8 +292,7 @@ static const struct iio_buffer_setup_ops lmp91000_buffer_setup_ops = {
 	.predisable = lmp91000_buffer_predisable,
 };
 
-static int lmp91000_probe(struct i2c_client *client,
-			  const struct i2c_device_id *id)
+static int lmp91000_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
 	struct lmp91000_data *data;
@@ -330,7 +326,6 @@ static int lmp91000_probe(struct i2c_client *client,
 		return -ENOMEM;
 	}
 
-	data->trig->ops = &lmp91000_trigger_ops;
 	init_completion(&data->completion);
 
 	ret = lmp91000_read_config(data);
@@ -388,7 +383,7 @@ error_unreg_trigger:
 	return ret;
 }
 
-static int lmp91000_remove(struct i2c_client *client)
+static void lmp91000_remove(struct i2c_client *client)
 {
 	struct iio_dev *indio_dev = i2c_get_clientdata(client);
 	struct lmp91000_data *data = iio_priv(indio_dev);
@@ -400,8 +395,6 @@ static int lmp91000_remove(struct i2c_client *client)
 
 	iio_triggered_buffer_cleanup(indio_dev);
 	iio_trigger_unregister(data->trig);
-
-	return 0;
 }
 
 static const struct of_device_id lmp91000_of_match[] = {
@@ -423,7 +416,7 @@ static struct i2c_driver lmp91000_driver = {
 		.name = LMP91000_DRV_NAME,
 		.of_match_table = lmp91000_of_match,
 	},
-	.probe = lmp91000_probe,
+	.probe_new = lmp91000_probe,
 	.remove = lmp91000_remove,
 	.id_table = lmp91000_id,
 };

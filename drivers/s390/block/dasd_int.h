@@ -444,22 +444,22 @@ struct dasd_discipline {
 
 extern struct dasd_discipline *dasd_diag_discipline_pointer;
 
-/*
- * Notification numbers for extended error reporting notifications:
- * The DASD_EER_DISABLE notification is sent before a dasd_device (and it's
- * eer pointer) is freed. The error reporting module needs to do all necessary
- * cleanup steps.
- * The DASD_EER_TRIGGER notification sends the actual error reports (triggers).
- */
-#define DASD_EER_DISABLE 0
-#define DASD_EER_TRIGGER 1
+/* Trigger IDs for extended error reporting DASD EER and autoquiesce */
+enum eer_trigger {
+	DASD_EER_FATALERROR = 1,
+	DASD_EER_NOPATH,
+	DASD_EER_STATECHANGE,
+	DASD_EER_PPRCSUSPEND,
+	DASD_EER_NOSPC,
+	DASD_EER_TIMEOUTS,
+	DASD_EER_STARTIO,
 
-/* Trigger IDs for extended error reporting DASD_EER_TRIGGER notification */
-#define DASD_EER_FATALERROR  1
-#define DASD_EER_NOPATH      2
-#define DASD_EER_STATECHANGE 3
-#define DASD_EER_PPRCSUSPEND 4
-#define DASD_EER_NOSPC	     5
+	/* enum end marker, only add new trigger above */
+	DASD_EER_MAX,
+	DASD_EER_AUTOQUIESCE = 31, /* internal only */
+};
+
+#define DASD_EER_VALID ((1U << DASD_EER_MAX) - 1)
 
 /* DASD path handling */
 
@@ -637,12 +637,13 @@ struct dasd_device {
 	struct dasd_format_entry format_entry;
 	struct kset *paths_info;
 	struct dasd_copy_relation *copy;
+	unsigned long aq_mask;
+	unsigned int aq_timeouts;
 };
 
 struct dasd_block {
 	/* Block device stuff. */
 	struct gendisk *gdp;
-	struct request_queue *request_queue;
 	spinlock_t request_queue_lock;
 	struct blk_mq_tag_set tag_set;
 	struct block_device *bdev;
@@ -850,6 +851,7 @@ extern debug_info_t *dasd_debug_area;
 extern struct dasd_profile dasd_global_profile;
 extern unsigned int dasd_global_profile_level;
 extern const struct block_device_operations dasd_device_operations;
+extern struct blk_mq_ops dasd_mq_ops;
 
 extern struct kmem_cache *dasd_page_cache;
 
@@ -866,7 +868,7 @@ void dasd_free_device(struct dasd_device *);
 struct dasd_block *dasd_alloc_block(void);
 void dasd_free_block(struct dasd_block *);
 
-enum blk_eh_timer_return dasd_times_out(struct request *req, bool reserved);
+enum blk_eh_timer_return dasd_times_out(struct request *req);
 
 void dasd_enable_device(struct dasd_device *);
 void dasd_set_target_state(struct dasd_device *, int);
@@ -973,7 +975,7 @@ void dasd_proc_exit(void);
 /* externals in dasd_erp.c */
 struct dasd_ccw_req *dasd_default_erp_action(struct dasd_ccw_req *);
 struct dasd_ccw_req *dasd_default_erp_postaction(struct dasd_ccw_req *);
-struct dasd_ccw_req *dasd_alloc_erp_request(char *, int, int,
+struct dasd_ccw_req *dasd_alloc_erp_request(unsigned int, int, int,
 					    struct dasd_device *);
 void dasd_free_erp_request(struct dasd_ccw_req *, struct dasd_device *);
 void dasd_log_sense(struct dasd_ccw_req *, struct irb *);
@@ -1389,6 +1391,15 @@ static inline void dasd_path_add_ppm(struct dasd_device *device, __u8 pm)
 	for (chp = 0; chp < 8; chp++)
 		if (pm & (0x80 >> chp))
 			dasd_path_preferred(device, chp);
+}
+
+static inline void dasd_path_add_fcsecpm(struct dasd_device *device, __u8 pm)
+{
+	int chp;
+
+	for (chp = 0; chp < 8; chp++)
+		if (pm & (0x80 >> chp))
+			dasd_path_fcsec(device, chp);
 }
 
 /*

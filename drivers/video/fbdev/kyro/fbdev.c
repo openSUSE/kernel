@@ -9,6 +9,7 @@
  * for more details.
  */
 
+#include <linux/aperture.h>
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
@@ -676,6 +677,10 @@ static int kyrofb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	unsigned long size;
 	int err;
 
+	err = aperture_remove_conflicting_pci_devices(pdev, "kyrofb");
+	if (err)
+		return err;
+
 	if ((err = pci_enable_device(pdev))) {
 		printk(KERN_WARNING "kyrofb: Can't enable pdev: %d\n", err);
 		return err;
@@ -784,7 +789,12 @@ static int __init kyrofb_init(void)
 {
 #ifndef MODULE
 	char *option = NULL;
+#endif
 
+	if (fb_modesetting_disabled("kyrofb"))
+		return -ENODEV;
+
+#ifndef MODULE
 	if (fb_get_options("kyrofb", &option))
 		return -ENODEV;
 	kyrofb_setup(option);

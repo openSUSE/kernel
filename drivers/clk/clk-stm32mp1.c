@@ -155,6 +155,10 @@ static const char * const eth_src[] = {
 	"pll4_p", "pll3_q"
 };
 
+static const struct clk_parent_data ethrx_src[] = {
+	{ .name = "ethck_k", .fw_name = "ETH_RX_CLK/ETH_REF_CLK" },
+};
+
 static const char * const rng_src[] = {
 	"ck_csi", "pll4_r", "ck_lse", "ck_lsi"
 };
@@ -317,6 +321,7 @@ struct clock_config {
 	const char *name;
 	const char *parent_name;
 	const char * const *parent_names;
+	const struct clk_parent_data *parent_data;
 	int num_parents;
 	unsigned long flags;
 	void *cfg;
@@ -576,6 +581,7 @@ static struct clk_hw *
 clk_stm32_register_gate_ops(struct device *dev,
 			    const char *name,
 			    const char *parent_name,
+			    const struct clk_parent_data *parent_data,
 			    unsigned long flags,
 			    void __iomem *base,
 			    const struct stm32_gate_cfg *cfg,
@@ -586,7 +592,10 @@ clk_stm32_register_gate_ops(struct device *dev,
 	int ret;
 
 	init.name = name;
-	init.parent_names = &parent_name;
+	if (parent_name)
+		init.parent_names = &parent_name;
+	if (parent_data)
+		init.parent_data = parent_data;
 	init.num_parents = 1;
 	init.flags = flags;
 
@@ -611,6 +620,7 @@ clk_stm32_register_gate_ops(struct device *dev,
 static struct clk_hw *
 clk_stm32_register_composite(struct device *dev,
 			     const char *name, const char * const *parent_names,
+			     const struct clk_parent_data *parent_data,
 			     int num_parents, void __iomem *base,
 			     const struct stm32_composite_cfg *cfg,
 			     unsigned long flags, spinlock_t *lock)
@@ -1076,14 +1086,10 @@ static int clk_divider_rtc_set_rate(struct clk_hw *hw, unsigned long rate,
 
 static int clk_divider_rtc_determine_rate(struct clk_hw *hw, struct clk_rate_request *req)
 {
-	unsigned long best_parent_rate = req->best_parent_rate;
+	if (req->best_parent_hw == clk_hw_get_parent_by_index(hw, HSE_RTC))
+		return clk_divider_ops.determine_rate(hw, req);
 
-	if (req->best_parent_hw == clk_hw_get_parent_by_index(hw, HSE_RTC)) {
-		req->rate = clk_divider_ops.round_rate(hw, req->rate, &best_parent_rate);
-		req->best_parent_rate = best_parent_rate;
-	} else {
-		req->rate = best_parent_rate;
-	}
+	req->rate = req->best_parent_rate;
 
 	return 0;
 }
@@ -1139,6 +1145,7 @@ _clk_stm32_register_gate(struct device *dev,
 	return clk_stm32_register_gate_ops(dev,
 				    cfg->name,
 				    cfg->parent_name,
+				    cfg->parent_data,
 				    cfg->flags,
 				    base,
 				    cfg->cfg,
@@ -1152,8 +1159,8 @@ _clk_stm32_register_composite(struct device *dev,
 			      const struct clock_config *cfg)
 {
 	return clk_stm32_register_composite(dev, cfg->name, cfg->parent_names,
-					    cfg->num_parents, base, cfg->cfg,
-					    cfg->flags, lock);
+					    cfg->parent_data, cfg->num_parents,
+					    base, cfg->cfg, cfg->flags, lock);
 }
 
 #define GATE(_id, _name, _parent, _flags, _offset, _bit_idx, _gate_flags)\
@@ -1262,6 +1269,16 @@ _clk_stm32_register_composite(struct device *dev,
 	.func		= _clk_stm32_register_gate,\
 }
 
+#define STM32_GATE_PDATA(_id, _name, _parent, _flags, _gate)\
+{\
+	.id		= _id,\
+	.name		= _name,\
+	.parent_data	= _parent,\
+	.flags		= _flags,\
+	.cfg		= (struct stm32_gate_cfg *) {_gate},\
+	.func		= _clk_stm32_register_gate,\
+}
+
 #define _STM32_GATE(_gate_offset, _gate_bit_idx, _gate_flags, _mgate, _ops)\
 	(&(struct stm32_gate_cfg) {\
 		&(struct gate_cfg) {\
@@ -1293,6 +1310,10 @@ _clk_stm32_register_composite(struct device *dev,
 
 #define MGATE_MP1(_id, _name, _parent, _flags, _mgate)\
 	STM32_GATE(_id, _name, _parent, _flags,\
+		   _STM32_MGATE(_mgate))
+
+#define MGATE_MP1_PDATA(_id, _name, _parent, _flags, _mgate)\
+	STM32_GATE_PDATA(_id, _name, _parent, _flags,\
 		   _STM32_MGATE(_mgate))
 
 #define _STM32_DIV(_div_offset, _div_shift, _div_width,\
@@ -1357,6 +1378,9 @@ _clk_stm32_register_composite(struct device *dev,
 
 #define PCLK(_id, _name, _parent, _flags, _mgate)\
 	MGATE_MP1(_id, _name, _parent, _flags, _mgate)
+
+#define PCLK_PDATA(_id, _name, _parent, _flags, _mgate)\
+	MGATE_MP1_PDATA(_id, _name, _parent, _flags, _mgate)
 
 #define KCLK(_id, _name, _parents, _flags, _mgate, _mmux)\
 	     COMPOSITE(_id, _name, _parents, CLK_OPS_PARENT_ENABLE |\
@@ -1955,7 +1979,7 @@ static const struct clock_config stm32mp1_clock_cfg[] = {
 	PCLK(MDMA, "mdma", "ck_axi", 0, G_MDMA),
 	PCLK(GPU, "gpu", "ck_axi", 0, G_GPU),
 	PCLK(ETHTX, "ethtx", "ck_axi", 0, G_ETHTX),
-	PCLK(ETHRX, "ethrx", "ck_axi", 0, G_ETHRX),
+	PCLK_PDATA(ETHRX, "ethrx", ethrx_src, 0, G_ETHRX),
 	PCLK(ETHMAC, "ethmac", "ck_axi", 0, G_ETHMAC),
 	PCLK(FMC, "fmc", "ck_axi", CLK_IGNORE_UNUSED, G_FMC),
 	PCLK(QSPI, "qspi", "ck_axi", CLK_IGNORE_UNUSED, G_QSPI),
@@ -2012,7 +2036,6 @@ static const struct clock_config stm32mp1_clock_cfg[] = {
 	KCLK(DSI_K, "dsi_k", dsi_src, 0, G_DSI, M_DSI),
 	KCLK(ADFSDM_K, "adfsdm_k", sai_src, 0, G_ADFSDM, M_SAI1),
 	KCLK(USBO_K, "usbo_k", usbo_src, 0, G_USBO, M_USBO),
-	KCLK(ETHCK_K, "ethck_k", eth_src, 0, G_ETHCK, M_ETHCK),
 
 	/* Particulary Kernel Clocks (no mux or no gate) */
 	MGATE_MP1(DFSDM_K, "dfsdm_k", "ck_mcu", 0, G_DFSDM),
@@ -2021,11 +2044,16 @@ static const struct clock_config stm32mp1_clock_cfg[] = {
 	MGATE_MP1(GPU_K, "gpu_k", "pll2_q", 0, G_GPU),
 	MGATE_MP1(DAC12_K, "dac12_k", "ck_lsi", 0, G_DAC12),
 
-	COMPOSITE(ETHPTP_K, "ethptp_k", eth_src, CLK_OPS_PARENT_ENABLE |
+	COMPOSITE(NO_ID, "ck_ker_eth", eth_src, CLK_OPS_PARENT_ENABLE |
 		  CLK_SET_RATE_NO_REPARENT,
 		  _NO_GATE,
 		  _MMUX(M_ETHCK),
-		  _DIV(RCC_ETHCKSELR, 4, 4, 0, NULL)),
+		  _NO_DIV),
+
+	MGATE_MP1(ETHCK_K, "ethck_k", "ck_ker_eth", 0, G_ETHCK),
+
+	DIV(ETHPTP_K, "ethptp_k", "ck_ker_eth", CLK_OPS_PARENT_ENABLE |
+	    CLK_SET_RATE_NO_REPARENT, RCC_ETHCKSELR, 4, 4, 0),
 
 	/* RTC clock */
 	COMPOSITE(RTC, "ck_rtc", rtc_src, CLK_OPS_PARENT_ENABLE,
@@ -2257,8 +2285,6 @@ static int stm32_rcc_reset_init(struct device *dev, void __iomem *base,
 	const struct stm32_rcc_match_data *data = match->data;
 	struct stm32_reset_data *reset_data = NULL;
 
-	data = match->data;
-
 	reset_data = kzalloc(sizeof(*reset_data), GFP_KERNEL);
 	if (!reset_data)
 		return -ENOMEM;
@@ -2408,15 +2434,13 @@ static int stm32mp1_rcc_clocks_probe(struct platform_device *pdev)
 	return ret;
 }
 
-static int stm32mp1_rcc_clocks_remove(struct platform_device *pdev)
+static void stm32mp1_rcc_clocks_remove(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct device_node *child, *np = dev_of_node(dev);
 
 	for_each_available_child_of_node(np, child)
 		of_clk_del_provider(child);
-
-	return 0;
 }
 
 static struct platform_driver stm32mp1_rcc_clocks_driver = {
@@ -2425,7 +2449,7 @@ static struct platform_driver stm32mp1_rcc_clocks_driver = {
 		.of_match_table = stm32mp1_match_data,
 	},
 	.probe = stm32mp1_rcc_clocks_probe,
-	.remove = stm32mp1_rcc_clocks_remove,
+	.remove_new = stm32mp1_rcc_clocks_remove,
 };
 
 static int __init stm32mp1_clocks_init(void)

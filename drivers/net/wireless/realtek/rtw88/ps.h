@@ -9,6 +9,7 @@
 
 #define POWER_MODE_ACK		BIT(6)
 #define POWER_MODE_PG		BIT(4)
+#define POWER_TX_WAKE		BIT(1)
 #define POWER_MODE_LCLK		BIT(0)
 
 #define LEAVE_LPS_TRY_CNT	5
@@ -22,4 +23,6 @@ void rtw_enter_lps(struct rtw_dev *rtwdev, u8 port_id);
 void rtw_leave_lps(struct rtw_dev *rtwdev);
 void rtw_leave_lps_deep(struct rtw_dev *rtwdev);
 enum rtw_lps_deep_mode rtw_get_lps_deep_mode(struct rtw_dev *rtwdev);
+void rtw_recalc_lps(struct rtw_dev *rtwdev, struct ieee80211_vif *new_vif);
+
 #endif

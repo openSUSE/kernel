@@ -34,45 +34,51 @@
  *			    thanks to Chris Wright <chrisw@osdl.org>
  */
 
-#include <linux/kernel.h>
-#include <linux/module.h>
-#include <linux/init.h>
-#include <linux/types.h>
-#include <linux/string.h>
-#include <linux/list.h>
-#include <linux/mutex.h>
-#include <linux/sched.h>
-#include <linux/sched/signal.h>
-#include <linux/kthread.h>
-#include <linux/freezer.h>
-#include <linux/delay.h>
-#include <linux/slab.h>
-#include <linux/nvram.h>
-#include <linux/proc_fs.h>
-#include <linux/seq_file.h>
-#include <linux/sysfs.h>
+#include <linux/acpi.h>
 #include <linux/backlight.h>
 #include <linux/bitops.h>
+#include <linux/delay.h>
+#include <linux/dmi.h>
 #include <linux/fb.h>
-#include <linux/platform_device.h>
+#include <linux/freezer.h>
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
+#include <linux/init.h>
 #include <linux/input.h>
-#include <linux/leds.h>
-#include <linux/rfkill.h>
-#include <linux/dmi.h>
 #include <linux/jiffies.h>
-#include <linux/workqueue.h>
-#include <linux/acpi.h>
+#include <linux/kernel.h>
+#include <linux/kthread.h>
+#include <linux/leds.h>
+#include <linux/list.h>
+#include <linux/module.h>
+#include <linux/mutex.h>
+#include <linux/nvram.h>
 #include <linux/pci.h>
-#include <linux/power_supply.h>
+#include <linux/platform_device.h>
 #include <linux/platform_profile.h>
-#include <sound/core.h>
-#include <sound/control.h>
-#include <sound/initval.h>
+#include <linux/power_supply.h>
+#include <linux/proc_fs.h>
+#include <linux/rfkill.h>
+#include <linux/sched.h>
+#include <linux/sched/signal.h>
+#include <linux/seq_file.h>
+#include <linux/slab.h>
+#include <linux/string.h>
+#include <linux/string_helpers.h>
+#include <linux/sysfs.h>
+#include <linux/types.h>
 #include <linux/uaccess.h>
+#include <linux/workqueue.h>
+
 #include <acpi/battery.h>
 #include <acpi/video.h>
+
+#include <drm/drm_privacy_screen_driver.h>
+
+#include <sound/control.h>
+#include <sound/core.h>
+#include <sound/initval.h>
+
 #include "dual_accel_detect.h"
 
 /* ThinkPad CMOS commands */
@@ -157,6 +163,8 @@ enum tpacpi_hkey_event_t {
 	TP_HKEY_EV_VOL_UP		= 0x1015, /* Volume up or unmute */
 	TP_HKEY_EV_VOL_DOWN		= 0x1016, /* Volume down or unmute */
 	TP_HKEY_EV_VOL_MUTE		= 0x1017, /* Mixer output mute */
+	TP_HKEY_EV_PRIVACYGUARD_TOGGLE	= 0x130f, /* Toggle priv.guard on/off */
+	TP_HKEY_EV_AMT_TOGGLE		= 0x131a, /* Toggle AMT on/off */
 
 	/* Reasons for waking up from S3/S4 */
 	TP_HKEY_EV_WKUP_S3_UNDOCK	= 0x2304, /* undock requested, S3 */
@@ -254,9 +262,6 @@ enum tpacpi_hkey_event_t {
 #define TPACPI_DBG_FAN		0x0010
 #define TPACPI_DBG_BRGHT	0x0020
 #define TPACPI_DBG_MIXER	0x0040
-
-#define onoff(status, bit) ((status) & (1 << (bit)) ? "on" : "off")
-#define enabled(status, bit) ((status) & (1 << (bit)) ? "enabled" : "disabled")
 
 #define FAN_NOT_PRESENT		65535
 
@@ -891,14 +896,14 @@ static int dispatch_proc_show(struct seq_file *m, void *v)
 
 static int dispatch_proc_open(struct inode *inode, struct file *file)
 {
-	return single_open(file, dispatch_proc_show, PDE_DATA(inode));
+	return single_open(file, dispatch_proc_show, pde_data(inode));
 }
 
 static ssize_t dispatch_proc_write(struct file *file,
 			const char __user *userbuf,
 			size_t count, loff_t *pos)
 {
-	struct ibm_struct *ibm = PDE_DATA(file_inode(file));
+	struct ibm_struct *ibm = pde_data(file_inode(file));
 	char *kernbuf;
 	int ret;
 
@@ -1310,9 +1315,7 @@ static int tpacpi_rfk_procfs_read(const enum tpacpi_rfk_id id, struct seq_file *
 				return status;
 		}
 
-		seq_printf(m, "status:\t\t%s\n",
-				(status == TPACPI_RFK_RADIO_ON) ?
-					"enabled" : "disabled");
+		seq_printf(m, "status:\t\t%s\n", str_enabled_disabled(status == TPACPI_RFK_RADIO_ON));
 		seq_printf(m, "commands:\tenable, disable\n");
 	}
 
@@ -1339,8 +1342,7 @@ static int tpacpi_rfk_procfs_write(const enum tpacpi_rfk_id id, char *buf)
 
 	if (status != -1) {
 		tpacpi_disclose_usertask("procfs", "attempt to %s %s\n",
-				(status == TPACPI_RFK_RADIO_ON) ?
-						"enable" : "disable",
+				str_enable_disable(status == TPACPI_RFK_RADIO_ON),
 				tpacpi_rfkill_names[id]);
 		res = (tpacpi_rfkill_switches[id]->ops->set_status)(status);
 		tpacpi_rfk_update_swstate(tpacpi_rfkill_switches[id]);
@@ -3497,8 +3499,7 @@ static int __init hotkey_init(struct ibm_init_struct *iibm)
 	if (acpi_evalf(hkey_handle, &status, "WLSW", "qd")) {
 		tp_features.hotkey_wlsw = 1;
 		radiosw_state = !!status;
-		pr_info("radio switch found; radios are %s\n",
-			enabled(status, 0));
+		pr_info("radio switch found; radios are %s\n", str_enabled_disabled(status & BIT(0)));
 	}
 
 	tabletsw_state = hotkey_init_tablet_mode();
@@ -3730,6 +3731,13 @@ static bool adaptive_keyboard_hotkey_notify_hotkey(unsigned int scancode)
 static bool hotkey_notify_extended_hotkey(const u32 hkey)
 {
 	unsigned int scancode;
+
+	switch (hkey) {
+	case TP_HKEY_EV_PRIVACYGUARD_TOGGLE:
+	case TP_HKEY_EV_AMT_TOGGLE:
+		tpacpi_driver_event(hkey);
+		return true;
+	}
 
 	/* Extended keycodes start at 0x300 and our offset into the map
 	 * TP_ACPI_HOTKEYSCAN_EXTENDED_START. The calculated scancode
@@ -4151,7 +4159,7 @@ static int hotkey_read(struct seq_file *m)
 	if (res)
 		return res;
 
-	seq_printf(m, "status:\t\t%s\n", enabled(status, 0));
+	seq_printf(m, "status:\t\t%s\n", str_enabled_disabled(status & BIT(0)));
 	if (hotkey_all_mask) {
 		seq_printf(m, "mask:\t\t0x%08x\n", hotkey_user_mask);
 		seq_printf(m, "commands:\tenable, disable, reset, <mask>\n");
@@ -4284,9 +4292,8 @@ static int bluetooth_set_status(enum tpacpi_rfkill_state state)
 {
 	int status;
 
-	vdbg_printk(TPACPI_DBG_RFKILL,
-		"will attempt to %s bluetooth\n",
-		(state == TPACPI_RFK_RADIO_ON) ? "enable" : "disable");
+	vdbg_printk(TPACPI_DBG_RFKILL, "will attempt to %s bluetooth\n",
+		    str_enable_disable(state == TPACPI_RFK_RADIO_ON));
 
 #ifdef CONFIG_THINKPAD_ACPI_DEBUGFACILITIES
 	if (dbg_bluetoothemul) {
@@ -4469,6 +4476,14 @@ static const struct dmi_system_id fwbug_list[] __initconst = {
 		.matches = {
 			DMI_MATCH(DMI_BOARD_VENDOR, "LENOVO"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "20UH"),
+		}
+	},
+	{
+		.ident = "T14s Gen1 AMD",
+		.driver_data = &quirk_s2idle_bug,
+		.matches = {
+			DMI_MATCH(DMI_BOARD_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "20UJ"),
 		}
 	},
 	{
@@ -4659,9 +4674,8 @@ static int wan_set_status(enum tpacpi_rfkill_state state)
 {
 	int status;
 
-	vdbg_printk(TPACPI_DBG_RFKILL,
-		"will attempt to %s wwan\n",
-		(state == TPACPI_RFK_RADIO_ON) ? "enable" : "disable");
+	vdbg_printk(TPACPI_DBG_RFKILL, "will attempt to %s wwan\n",
+		    str_enable_disable(state == TPACPI_RFK_RADIO_ON));
 
 #ifdef CONFIG_THINKPAD_ACPI_DEBUGFACILITIES
 	if (dbg_wwanemul) {
@@ -4837,9 +4851,8 @@ static int uwb_set_status(enum tpacpi_rfkill_state state)
 {
 	int status;
 
-	vdbg_printk(TPACPI_DBG_RFKILL,
-		"will attempt to %s UWB\n",
-		(state == TPACPI_RFK_RADIO_ON) ? "enable" : "disable");
+	vdbg_printk(TPACPI_DBG_RFKILL, "will attempt to %s UWB\n",
+		    str_enable_disable(state == TPACPI_RFK_RADIO_ON));
 
 #ifdef CONFIG_THINKPAD_ACPI_DEBUGFACILITIES
 	if (dbg_uwbemul) {
@@ -5193,11 +5206,11 @@ static int video_read(struct seq_file *m)
 		return autosw;
 
 	seq_printf(m, "status:\t\tsupported\n");
-	seq_printf(m, "lcd:\t\t%s\n", enabled(status, 0));
-	seq_printf(m, "crt:\t\t%s\n", enabled(status, 1));
+	seq_printf(m, "lcd:\t\t%s\n", str_enabled_disabled(status & BIT(0)));
+	seq_printf(m, "crt:\t\t%s\n", str_enabled_disabled(status & BIT(1)));
 	if (video_supported == TPACPI_VIDEO_NEW)
-		seq_printf(m, "dvi:\t\t%s\n", enabled(status, 3));
-	seq_printf(m, "auto:\t\t%s\n", enabled(autosw, 0));
+		seq_printf(m, "dvi:\t\t%s\n", str_enabled_disabled(status & BIT(3)));
+	seq_printf(m, "auto:\t\t%s\n", str_enabled_disabled(autosw & BIT(0)));
 	seq_printf(m, "commands:\tlcd_enable, lcd_disable\n");
 	seq_printf(m, "commands:\tcrt_enable, crt_disable\n");
 	if (video_supported == TPACPI_VIDEO_NEW)
@@ -5629,7 +5642,7 @@ static int light_read(struct seq_file *m)
 		status = light_get_status();
 		if (status < 0)
 			return status;
-		seq_printf(m, "status:\t\t%s\n", onoff(status, 0));
+		seq_printf(m, "status:\t\t%s\n", str_on_off(status & BIT(0)));
 		seq_printf(m, "commands:\ton, off\n");
 	}
 
@@ -6085,9 +6098,7 @@ static int __init led_init(struct ibm_init_struct *iibm)
 	return 0;
 }
 
-#define str_led_status(s) \
-	((s) == TPACPI_LED_OFF ? "off" : \
-		((s) == TPACPI_LED_ON ? "on" : "blinking"))
+#define str_led_status(s)	((s) >= TPACPI_LED_BLINK ? "blinking" : str_on_off(s))
 
 static int led_read(struct seq_file *m)
 {
@@ -6104,8 +6115,7 @@ static int led_read(struct seq_file *m)
 			status = led_get_status(i);
 			if (status < 0)
 				return -EIO;
-			seq_printf(m, "%d:\t\t%s\n",
-				       i, str_led_status(status));
+			seq_printf(m, "%d:\t\t%s\n", i, str_led_status(status));
 		}
 	}
 
@@ -7629,9 +7639,9 @@ static int __init volume_create_alsa_mixer(void)
 	data = card->private_data;
 	data->card = card;
 
-	strlcpy(card->driver, TPACPI_ALSA_DRVNAME,
+	strscpy(card->driver, TPACPI_ALSA_DRVNAME,
 		sizeof(card->driver));
-	strlcpy(card->shortname, TPACPI_ALSA_SHRTNAME,
+	strscpy(card->shortname, TPACPI_ALSA_SHRTNAME,
 		sizeof(card->shortname));
 	snprintf(card->mixername, sizeof(card->mixername), "ThinkPad EC %s",
 		 (thinkpad_id.ec_version_str) ?
@@ -7828,8 +7838,7 @@ static int volume_read(struct seq_file *m)
 			seq_printf(m, "level:\t\t%d\n",
 					status & TP_EC_AUDIO_LVL_MSK);
 
-		seq_printf(m, "mute:\t\t%s\n",
-				onoff(status, TP_EC_AUDIO_MUTESW));
+		seq_printf(m, "mute:\t\t%s\n", str_on_off(status & BIT(TP_EC_AUDIO_MUTESW)));
 
 		if (volume_control_allowed) {
 			seq_printf(m, "commands:\tunmute, mute\n");
@@ -9058,7 +9067,7 @@ static int fan_read(struct seq_file *m)
 
 		seq_printf(m, "status:\t\t%s\n"
 			       "level:\t\t%d\n",
-			       (status != 0) ? "enabled" : "disabled", status);
+			       str_enabled_disabled(status), status);
 		break;
 
 	case TPACPI_FAN_RD_TPEC:
@@ -9067,8 +9076,7 @@ static int fan_read(struct seq_file *m)
 		if (rc)
 			return rc;
 
-		seq_printf(m, "status:\t\t%s\n",
-			       (status != 0) ? "enabled" : "disabled");
+		seq_printf(m, "status:\t\t%s\n", str_enabled_disabled(status));
 
 		rc = fan_get_speed(&speed);
 		if (rc < 0)
@@ -9380,6 +9388,10 @@ static struct ibm_struct mute_led_driver_data = {
 #define SET_START	"BCCS"
 #define GET_STOP	"BCSG"
 #define SET_STOP	"BCSS"
+#define GET_DISCHARGE	"BDSG"
+#define SET_DISCHARGE	"BDSS"
+#define GET_INHIBIT	"BICG"
+#define SET_INHIBIT	"BICS"
 
 enum {
 	BAT_ANY = 0,
@@ -9396,6 +9408,8 @@ enum {
 	/* This is used in the get/set helpers */
 	THRESHOLD_START,
 	THRESHOLD_STOP,
+	FORCE_DISCHARGE,
+	INHIBIT_CHARGE,
 };
 
 struct tpacpi_battery_data {
@@ -9403,6 +9417,7 @@ struct tpacpi_battery_data {
 	int start_support;
 	int charge_stop;
 	int stop_support;
+	unsigned int charge_behaviours;
 };
 
 struct tpacpi_battery_driver_data {
@@ -9460,6 +9475,18 @@ static int tpacpi_battery_get(int what, int battery, int *ret)
 		if (*ret == 0)
 			*ret = 100;
 		return 0;
+	case FORCE_DISCHARGE:
+		if ACPI_FAILURE(tpacpi_battery_acpi_eval(GET_DISCHARGE, ret, battery))
+			return -ENODEV;
+		/* The force discharge status is in bit 0 */
+		*ret = *ret & 0x01;
+		return 0;
+	case INHIBIT_CHARGE:
+		if ACPI_FAILURE(tpacpi_battery_acpi_eval(GET_INHIBIT, ret, battery))
+			return -ENODEV;
+		/* The inhibit charge status is in bit 0 */
+		*ret = *ret & 0x01;
+		return 0;
 	default:
 		pr_crit("wrong parameter: %d", what);
 		return -EINVAL;
@@ -9488,10 +9515,63 @@ static int tpacpi_battery_set(int what, int battery, int value)
 			return -ENODEV;
 		}
 		return 0;
+	case FORCE_DISCHARGE:
+		/* Force discharge is in bit 0,
+		 * break on AC attach is in bit 1 (won't work on some ThinkPads),
+		 * battery ID is in bits 8-9, 2 bits.
+		 */
+		if (ACPI_FAILURE(tpacpi_battery_acpi_eval(SET_DISCHARGE, &ret, param))) {
+			pr_err("failed to set force discharge on %d", battery);
+			return -ENODEV;
+		}
+		return 0;
+	case INHIBIT_CHARGE:
+		/* When setting inhibit charge, we set a default value of
+		 * always breaking on AC detach and the effective time is set to
+		 * be permanent.
+		 * The battery ID is in bits 4-5, 2 bits,
+		 * the effective time is in bits 8-23, 2 bytes.
+		 * A time of FFFF indicates forever.
+		 */
+		param = value;
+		param |= battery << 4;
+		param |= 0xFFFF << 8;
+		if (ACPI_FAILURE(tpacpi_battery_acpi_eval(SET_INHIBIT, &ret, param))) {
+			pr_err("failed to set inhibit charge on %d", battery);
+			return -ENODEV;
+		}
+		return 0;
 	default:
 		pr_crit("wrong parameter: %d", what);
 		return -EINVAL;
 	}
+}
+
+static int tpacpi_battery_set_validate(int what, int battery, int value)
+{
+	int ret, v;
+
+	ret = tpacpi_battery_set(what, battery, value);
+	if (ret < 0)
+		return ret;
+
+	ret = tpacpi_battery_get(what, battery, &v);
+	if (ret < 0)
+		return ret;
+
+	if (v == value)
+		return 0;
+
+	msleep(500);
+
+	ret = tpacpi_battery_get(what, battery, &v);
+	if (ret < 0)
+		return ret;
+
+	if (v == value)
+		return 0;
+
+	return -EIO;
 }
 
 static int tpacpi_battery_probe(int battery)
@@ -9506,6 +9586,10 @@ static int tpacpi_battery_probe(int battery)
 	 * 2) Check for support
 	 * 3) Get the current stop threshold
 	 * 4) Check for support
+	 * 5) Get the current force discharge status
+	 * 6) Check for support
+	 * 7) Get the current inhibit charge status
+	 * 8) Check for support
 	 */
 	if (acpi_has_method(hkey_handle, GET_START)) {
 		if ACPI_FAILURE(tpacpi_battery_acpi_eval(GET_START, &ret, battery)) {
@@ -9542,10 +9626,35 @@ static int tpacpi_battery_probe(int battery)
 			return -ENODEV;
 		}
 	}
-	pr_info("battery %d registered (start %d, stop %d)",
-			battery,
-			battery_info.batteries[battery].charge_start,
-			battery_info.batteries[battery].charge_stop);
+	if (acpi_has_method(hkey_handle, GET_DISCHARGE)) {
+		if (ACPI_FAILURE(tpacpi_battery_acpi_eval(GET_DISCHARGE, &ret, battery))) {
+			pr_err("Error probing battery discharge; %d\n", battery);
+			return -ENODEV;
+		}
+		/* Support is marked in bit 8 */
+		if (ret & BIT(8))
+			battery_info.batteries[battery].charge_behaviours |=
+				BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_FORCE_DISCHARGE);
+	}
+	if (acpi_has_method(hkey_handle, GET_INHIBIT)) {
+		if (ACPI_FAILURE(tpacpi_battery_acpi_eval(GET_INHIBIT, &ret, battery))) {
+			pr_err("Error probing battery inhibit charge; %d\n", battery);
+			return -ENODEV;
+		}
+		/* Support is marked in bit 5 */
+		if (ret & BIT(5))
+			battery_info.batteries[battery].charge_behaviours |=
+				BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE);
+	}
+
+	battery_info.batteries[battery].charge_behaviours |=
+		BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO);
+
+	pr_info("battery %d registered (start %d, stop %d, behaviours: 0x%x)\n",
+		battery,
+		battery_info.batteries[battery].charge_start,
+		battery_info.batteries[battery].charge_stop,
+		battery_info.batteries[battery].charge_behaviours);
 
 	return 0;
 }
@@ -9680,6 +9789,40 @@ static ssize_t charge_control_end_threshold_show(struct device *device,
 	return tpacpi_battery_show(THRESHOLD_STOP, device, buf);
 }
 
+static ssize_t charge_behaviour_show(struct device *dev,
+				     struct device_attribute *attr,
+				     char *buf)
+{
+	enum power_supply_charge_behaviour active = POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO;
+	struct power_supply *supply = to_power_supply(dev);
+	unsigned int available;
+	int ret, battery;
+
+	battery = tpacpi_battery_get_id(supply->desc->name);
+	available = battery_info.batteries[battery].charge_behaviours;
+
+	if (available & BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_FORCE_DISCHARGE)) {
+		if (tpacpi_battery_get(FORCE_DISCHARGE, battery, &ret))
+			return -ENODEV;
+		if (ret) {
+			active = POWER_SUPPLY_CHARGE_BEHAVIOUR_FORCE_DISCHARGE;
+			goto out;
+		}
+	}
+
+	if (available & BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE)) {
+		if (tpacpi_battery_get(INHIBIT_CHARGE, battery, &ret))
+			return -ENODEV;
+		if (ret) {
+			active = POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE;
+			goto out;
+		}
+	}
+
+out:
+	return power_supply_charge_behaviour_show(dev, available, active, buf);
+}
+
 static ssize_t charge_control_start_threshold_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count)
@@ -9694,8 +9837,55 @@ static ssize_t charge_control_end_threshold_store(struct device *dev,
 	return tpacpi_battery_store(THRESHOLD_STOP, dev, buf, count);
 }
 
+static ssize_t charge_behaviour_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
+{
+	struct power_supply *supply = to_power_supply(dev);
+	int selected, battery, ret = 0;
+	unsigned int available;
+
+	battery = tpacpi_battery_get_id(supply->desc->name);
+	available = battery_info.batteries[battery].charge_behaviours;
+	selected = power_supply_charge_behaviour_parse(available, buf);
+
+	if (selected < 0)
+		return selected;
+
+	switch (selected) {
+	case POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO:
+		if (available & BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_FORCE_DISCHARGE))
+			ret = tpacpi_battery_set_validate(FORCE_DISCHARGE, battery, 0);
+		if (available & BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE))
+			ret = min(ret, tpacpi_battery_set_validate(INHIBIT_CHARGE, battery, 0));
+		if (ret < 0)
+			return ret;
+		break;
+	case POWER_SUPPLY_CHARGE_BEHAVIOUR_FORCE_DISCHARGE:
+		if (available & BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE))
+			ret = tpacpi_battery_set_validate(INHIBIT_CHARGE, battery, 0);
+		ret = min(ret, tpacpi_battery_set_validate(FORCE_DISCHARGE, battery, 1));
+		if (ret < 0)
+			return ret;
+		break;
+	case POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE:
+		if (available & BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_FORCE_DISCHARGE))
+			ret = tpacpi_battery_set_validate(FORCE_DISCHARGE, battery, 0);
+		ret = min(ret, tpacpi_battery_set_validate(INHIBIT_CHARGE, battery, 1));
+		if (ret < 0)
+			return ret;
+		break;
+	default:
+		dev_err(dev, "Unexpected charge behaviour: %d\n", selected);
+		return -EINVAL;
+	}
+
+	return count;
+}
+
 static DEVICE_ATTR_RW(charge_control_start_threshold);
 static DEVICE_ATTR_RW(charge_control_end_threshold);
+static DEVICE_ATTR_RW(charge_behaviour);
 static struct device_attribute dev_attr_charge_start_threshold = __ATTR(
 	charge_start_threshold,
 	0644,
@@ -9714,6 +9904,7 @@ static struct attribute *tpacpi_battery_attrs[] = {
 	&dev_attr_charge_control_end_threshold.attr,
 	&dev_attr_charge_start_threshold.attr,
 	&dev_attr_charge_stop_threshold.attr,
+	&dev_attr_charge_behaviour.attr,
 	NULL,
 };
 
@@ -9721,7 +9912,7 @@ ATTRIBUTE_GROUPS(tpacpi_battery);
 
 /* ACPI battery hooking */
 
-static int tpacpi_battery_add(struct power_supply *battery)
+static int tpacpi_battery_add(struct power_supply *battery, struct acpi_battery_hook *hook)
 {
 	int batteryid = tpacpi_battery_get_id(battery->desc->name);
 
@@ -9732,7 +9923,7 @@ static int tpacpi_battery_add(struct power_supply *battery)
 	return 0;
 }
 
-static int tpacpi_battery_remove(struct power_supply *battery)
+static int tpacpi_battery_remove(struct power_supply *battery, struct acpi_battery_hook *hook)
 {
 	device_remove_groups(&battery->dev, tpacpi_battery_groups);
 	return 0;
@@ -9785,29 +9976,39 @@ static struct ibm_struct battery_driver_data = {
  * LCD Shadow subdriver, for the Lenovo PrivacyGuard feature
  */
 
+static struct drm_privacy_screen *lcdshadow_dev;
 static acpi_handle lcdshadow_get_handle;
 static acpi_handle lcdshadow_set_handle;
-static int lcdshadow_state;
 
-static int lcdshadow_on_off(bool state)
+static int lcdshadow_set_sw_state(struct drm_privacy_screen *priv,
+				  enum drm_privacy_screen_status state)
 {
 	int output;
+
+	if (WARN_ON(!mutex_is_locked(&priv->lock)))
+		return -EIO;
 
 	if (!acpi_evalf(lcdshadow_set_handle, &output, NULL, "dd", (int)state))
 		return -EIO;
 
-	lcdshadow_state = state;
+	priv->hw_state = priv->sw_state = state;
 	return 0;
 }
 
-static int lcdshadow_set(bool on)
+static void lcdshadow_get_hw_state(struct drm_privacy_screen *priv)
 {
-	if (lcdshadow_state < 0)
-		return lcdshadow_state;
-	if (lcdshadow_state == on)
-		return 0;
-	return lcdshadow_on_off(on);
+	int output;
+
+	if (!acpi_evalf(lcdshadow_get_handle, &output, NULL, "dd", 0))
+		return;
+
+	priv->hw_state = priv->sw_state = output & 0x1;
 }
+
+static const struct drm_privacy_screen_ops lcdshadow_ops = {
+	.set_sw_state = lcdshadow_set_sw_state,
+	.get_hw_state = lcdshadow_get_hw_state,
+};
 
 static int tpacpi_lcdshadow_init(struct ibm_init_struct *iibm)
 {
@@ -9816,36 +10017,44 @@ static int tpacpi_lcdshadow_init(struct ibm_init_struct *iibm)
 
 	status1 = acpi_get_handle(hkey_handle, "GSSS", &lcdshadow_get_handle);
 	status2 = acpi_get_handle(hkey_handle, "SSSS", &lcdshadow_set_handle);
-	if (ACPI_FAILURE(status1) || ACPI_FAILURE(status2)) {
-		lcdshadow_state = -ENODEV;
+	if (ACPI_FAILURE(status1) || ACPI_FAILURE(status2))
 		return 0;
-	}
 
-	if (!acpi_evalf(lcdshadow_get_handle, &output, NULL, "dd", 0)) {
-		lcdshadow_state = -EIO;
+	if (!acpi_evalf(lcdshadow_get_handle, &output, NULL, "dd", 0))
 		return -EIO;
-	}
-	if (!(output & 0x10000)) {
-		lcdshadow_state = -ENODEV;
+
+	if (!(output & 0x10000))
 		return 0;
-	}
-	lcdshadow_state = output & 0x1;
+
+	lcdshadow_dev = drm_privacy_screen_register(&tpacpi_pdev->dev,
+						    &lcdshadow_ops, NULL);
+	if (IS_ERR(lcdshadow_dev))
+		return PTR_ERR(lcdshadow_dev);
 
 	return 0;
 }
 
+static void lcdshadow_exit(void)
+{
+	drm_privacy_screen_unregister(lcdshadow_dev);
+}
+
 static void lcdshadow_resume(void)
 {
-	if (lcdshadow_state >= 0)
-		lcdshadow_on_off(lcdshadow_state);
+	if (!lcdshadow_dev)
+		return;
+
+	mutex_lock(&lcdshadow_dev->lock);
+	lcdshadow_set_sw_state(lcdshadow_dev, lcdshadow_dev->sw_state);
+	mutex_unlock(&lcdshadow_dev->lock);
 }
 
 static int lcdshadow_read(struct seq_file *m)
 {
-	if (lcdshadow_state < 0) {
+	if (!lcdshadow_dev) {
 		seq_puts(m, "status:\t\tnot supported\n");
 	} else {
-		seq_printf(m, "status:\t\t%d\n", lcdshadow_state);
+		seq_printf(m, "status:\t\t%d\n", lcdshadow_dev->hw_state);
 		seq_puts(m, "commands:\t0, 1\n");
 	}
 
@@ -9857,7 +10066,7 @@ static int lcdshadow_write(char *buf)
 	char *cmd;
 	int res, state = -EINVAL;
 
-	if (lcdshadow_state < 0)
+	if (!lcdshadow_dev)
 		return -ENODEV;
 
 	while ((cmd = strsep(&buf, ","))) {
@@ -9869,11 +10078,18 @@ static int lcdshadow_write(char *buf)
 	if (state >= 2 || state < 0)
 		return -EINVAL;
 
-	return lcdshadow_set(state);
+	mutex_lock(&lcdshadow_dev->lock);
+	res = lcdshadow_set_sw_state(lcdshadow_dev, state);
+	mutex_unlock(&lcdshadow_dev->lock);
+
+	drm_privacy_screen_call_notifier_chain(lcdshadow_dev);
+
+	return res;
 }
 
 static struct ibm_struct lcdshadow_driver_data = {
 	.name = "lcdshadow",
+	.exit = lcdshadow_exit,
 	.resume = lcdshadow_resume,
 	.read = lcdshadow_read,
 	.write = lcdshadow_write,
@@ -10102,6 +10318,7 @@ static atomic_t dytc_ignore_event = ATOMIC_INIT(0);
 static DEFINE_MUTEX(dytc_mutex);
 static int dytc_capabilities;
 static bool dytc_mmc_get_available;
+static int profile_force;
 
 static int convert_dytc_to_profile(int funcmode, int dytcmode,
 		enum platform_profile_option *profile)
@@ -10366,6 +10583,21 @@ static int tpacpi_dytc_profile_init(struct ibm_init_struct *iibm)
 	if (err)
 		return err;
 
+	/* Check if user wants to override the profile selection */
+	if (profile_force) {
+		switch (profile_force) {
+		case -1:
+			dytc_capabilities = 0;
+			break;
+		case 1:
+			dytc_capabilities = BIT(DYTC_FC_MMC);
+			break;
+		case 2:
+			dytc_capabilities = BIT(DYTC_FC_PSC);
+			break;
+		}
+		pr_debug("Profile selection forced: 0x%x\n", dytc_capabilities);
+	}
 	if (dytc_capabilities & BIT(DYTC_FC_MMC)) { /* MMC MODE */
 		pr_debug("MMC is supported\n");
 		/*
@@ -10833,6 +11065,29 @@ static void tpacpi_driver_event(const unsigned int hkey_event)
 		if (!atomic_add_unless(&dytc_ignore_event, -1, 0))
 			dytc_profile_refresh();
 	}
+
+	if (lcdshadow_dev && hkey_event == TP_HKEY_EV_PRIVACYGUARD_TOGGLE) {
+		enum drm_privacy_screen_status old_hw_state;
+		bool changed;
+
+		mutex_lock(&lcdshadow_dev->lock);
+		old_hw_state = lcdshadow_dev->hw_state;
+		lcdshadow_get_hw_state(lcdshadow_dev);
+		changed = lcdshadow_dev->hw_state != old_hw_state;
+		mutex_unlock(&lcdshadow_dev->lock);
+
+		if (changed)
+			drm_privacy_screen_call_notifier_chain(lcdshadow_dev);
+	}
+	if (hkey_event == TP_HKEY_EV_AMT_TOGGLE) {
+		/* If we're enabling AMT we need to force balanced mode */
+		if (!dytc_amt_active)
+			/* This will also set AMT mode enabled */
+			dytc_profile_set(NULL, PLATFORM_PROFILE_BALANCED);
+		else
+			dytc_control_amt(!dytc_amt_active);
+	}
+
 }
 
 static void hotkey_driver_event(const unsigned int scancode)
@@ -11404,6 +11659,9 @@ MODULE_PARM_DESC(uwb_state,
 		 "Initial state of the emulated UWB switch");
 #endif
 
+module_param(profile_force, int, 0444);
+MODULE_PARM_DESC(profile_force, "Force profile mode. -1=off, 1=MMC, 2=PSC");
+
 static void thinkpad_acpi_module_exit(void)
 {
 	struct ibm_struct *ibm, *itmp;
@@ -11457,6 +11715,7 @@ static int __init thinkpad_acpi_module_init(void)
 {
 	const struct dmi_system_id *dmi_id;
 	int ret, i;
+	acpi_object_type obj_type;
 
 	tpacpi_lifecycle = TPACPI_LIFE_INIT;
 
@@ -11482,6 +11741,21 @@ static int __init thinkpad_acpi_module_init(void)
 	TPACPI_ACPIHANDLE_INIT(ecrd);
 	TPACPI_ACPIHANDLE_INIT(ecwr);
 
+	/*
+	 * Quirk: in some models (e.g. X380 Yoga), an object named ECRD
+	 * exists, but it is a register, not a method.
+	 */
+	if (ecrd_handle) {
+		acpi_get_type(ecrd_handle, &obj_type);
+		if (obj_type != ACPI_TYPE_METHOD)
+			ecrd_handle = NULL;
+	}
+	if (ecwr_handle) {
+		acpi_get_type(ecwr_handle, &obj_type);
+		if (obj_type != ACPI_TYPE_METHOD)
+			ecwr_handle = NULL;
+	}
+
 	tpacpi_wq = create_singlethread_workqueue(TPACPI_WORKQUEUE_NAME);
 	if (!tpacpi_wq) {
 		thinkpad_acpi_module_exit();
@@ -11500,7 +11774,7 @@ static int __init thinkpad_acpi_module_init(void)
 		tp_features.quirks = dmi_id->driver_data;
 
 	/* Device initialization */
-	tpacpi_pdev = platform_device_register_simple(TPACPI_DRVR_NAME, -1,
+	tpacpi_pdev = platform_device_register_simple(TPACPI_DRVR_NAME, PLATFORM_DEVID_NONE,
 							NULL, 0);
 	if (IS_ERR(tpacpi_pdev)) {
 		ret = PTR_ERR(tpacpi_pdev);
@@ -11511,7 +11785,7 @@ static int __init thinkpad_acpi_module_init(void)
 	}
 	tpacpi_sensors_pdev = platform_device_register_simple(
 						TPACPI_HWMON_DRVR_NAME,
-						-1, NULL, 0);
+						PLATFORM_DEVID_NONE, NULL, 0);
 	if (IS_ERR(tpacpi_sensors_pdev)) {
 		ret = PTR_ERR(tpacpi_sensors_pdev);
 		tpacpi_sensors_pdev = NULL;

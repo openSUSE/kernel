@@ -927,9 +927,9 @@ static int pcmcia_bus_match(struct device *dev, struct device_driver *drv)
 	return 0;
 }
 
-static int pcmcia_bus_uevent(struct device *dev, struct kobj_uevent_env *env)
+static int pcmcia_bus_uevent(const struct device *dev, struct kobj_uevent_env *env)
 {
-	struct pcmcia_device *p_dev;
+	const struct pcmcia_device *p_dev;
 	int i;
 	u32 hash[4] = { 0, 0, 0, 0};
 
@@ -998,7 +998,7 @@ static int runtime_resume(struct device *dev)
 static ssize_t field##_show (struct device *dev, struct device_attribute *attr, char *buf)		\
 {									\
 	struct pcmcia_device *p_dev = to_pcmcia_dev(dev);		\
-	return p_dev->test ? sprintf(buf, format, p_dev->field) : -ENODEV; \
+	return p_dev->test ? sysfs_emit(buf, format, p_dev->field) : -ENODEV; \
 }									\
 static DEVICE_ATTR_RO(field);
 
@@ -1006,7 +1006,7 @@ static DEVICE_ATTR_RO(field);
 static ssize_t name##_show (struct device *dev, struct device_attribute *attr, char *buf)		\
 {									\
 	struct pcmcia_device *p_dev = to_pcmcia_dev(dev);		\
-	return p_dev->field ? sprintf(buf, "%s\n", p_dev->field) : -ENODEV; \
+	return p_dev->field ? sysfs_emit(buf, "%s\n", p_dev->field) : -ENODEV; \
 }									\
 static DEVICE_ATTR_RO(name);
 
@@ -1022,7 +1022,7 @@ static ssize_t function_show(struct device *dev, struct device_attribute *attr,
 			     char *buf)
 {
 	struct pcmcia_device *p_dev = to_pcmcia_dev(dev);
-	return p_dev->socket ? sprintf(buf, "0x%02x\n", p_dev->func) : -ENODEV;
+	return p_dev->socket ? sysfs_emit(buf, "0x%02x\n", p_dev->func) : -ENODEV;
 }
 static DEVICE_ATTR_RO(function);
 
@@ -1030,13 +1030,12 @@ static ssize_t resources_show(struct device *dev,
 			      struct device_attribute *attr, char *buf)
 {
 	struct pcmcia_device *p_dev = to_pcmcia_dev(dev);
-	char *str = buf;
-	int i;
+	int i, at = 0;
 
 	for (i = 0; i < PCMCIA_NUM_RESOURCES; i++)
-		str += sprintf(str, "%pr\n", p_dev->resource[i]);
+		at += sysfs_emit_at(buf, at, "%pr\n", p_dev->resource[i]);
 
-	return str - buf;
+	return at;
 }
 static DEVICE_ATTR_RO(resources);
 
@@ -1045,9 +1044,9 @@ static ssize_t pm_state_show(struct device *dev, struct device_attribute *attr, 
 	struct pcmcia_device *p_dev = to_pcmcia_dev(dev);
 
 	if (p_dev->suspended)
-		return sprintf(buf, "off\n");
+		return sysfs_emit(buf, "off\n");
 	else
-		return sprintf(buf, "on\n");
+		return sysfs_emit(buf, "on\n");
 }
 
 static ssize_t pm_state_store(struct device *dev, struct device_attribute *attr,
@@ -1081,8 +1080,7 @@ static ssize_t modalias_show(struct device *dev, struct device_attribute *attr, 
 		hash[i] = crc32(0, p_dev->prod_id[i],
 				strlen(p_dev->prod_id[i]));
 	}
-	return sprintf(buf, "pcmcia:m%04Xc%04Xf%02Xfn%02Xpfn%02X"
-				"pa%08Xpb%08Xpc%08Xpd%08X\n",
+	return sysfs_emit(buf, "pcmcia:m%04Xc%04Xf%02Xfn%02Xpfn%02Xpa%08Xpb%08Xpc%08Xpd%08X\n",
 				p_dev->has_manf_id ? p_dev->manf_id : 0,
 				p_dev->has_card_id ? p_dev->card_id : 0,
 				p_dev->has_func_id ? p_dev->func_id : 0,
@@ -1337,8 +1335,7 @@ static struct pcmcia_callback pcmcia_bus_callback = {
 	.resume = pcmcia_bus_resume,
 };
 
-static int pcmcia_bus_add_socket(struct device *dev,
-					   struct class_interface *class_intf)
+static int pcmcia_bus_add_socket(struct device *dev)
 {
 	struct pcmcia_socket *socket = dev_get_drvdata(dev);
 	int ret;
@@ -1371,8 +1368,7 @@ static int pcmcia_bus_add_socket(struct device *dev,
 	return 0;
 }
 
-static void pcmcia_bus_remove_socket(struct device *dev,
-				     struct class_interface *class_intf)
+static void pcmcia_bus_remove_socket(struct device *dev)
 {
 	struct pcmcia_socket *socket = dev_get_drvdata(dev);
 

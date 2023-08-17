@@ -435,7 +435,7 @@ qcaspi_receive(struct qcaspi *qca)
 				qca->rx_skb->protocol = eth_type_trans(
 					qca->rx_skb, qca->rx_skb->dev);
 				skb_checksum_none_assert(qca->rx_skb);
-				netif_rx_ni(qca->rx_skb);
+				netif_rx(qca->rx_skb);
 				qca->rx_skb = netdev_alloc_skb_ip_align(net_dev,
 					net_dev->mtu + VLAN_ETH_HLEN);
 				if (!qca->rx_skb) {
@@ -582,8 +582,7 @@ qcaspi_spi_thread(void *data)
 	while (!kthread_should_stop()) {
 		set_current_state(TASK_INTERRUPTIBLE);
 		if ((qca->intr_req == qca->intr_svc) &&
-		    (qca->txr.skb[qca->txr.head] == NULL) &&
-		    (qca->sync == QCASPI_SYNC_READY))
+		    !qca->txr.skb[qca->txr.head])
 			schedule();
 
 		set_current_state(TASK_RUNNING);
@@ -1001,7 +1000,7 @@ qca_spi_probe(struct spi_device *spi)
 	return 0;
 }
 
-static int
+static void
 qca_spi_remove(struct spi_device *spi)
 {
 	struct net_device *qcaspi_devs = spi_get_drvdata(spi);
@@ -1011,8 +1010,6 @@ qca_spi_remove(struct spi_device *spi)
 
 	unregister_netdev(qcaspi_devs);
 	free_netdev(qcaspi_devs);
-
-	return 0;
 }
 
 static const struct spi_device_id qca_spi_id[] = {

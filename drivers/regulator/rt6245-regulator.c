@@ -144,7 +144,7 @@ static int rt6245_init_device_properties(struct device *dev)
 static int rt6245_reg_write(void *context, unsigned int reg, unsigned int val)
 {
 	struct i2c_client *i2c = context;
-	const u8 func_base[] = { 0x6F, 0x73, 0x78, 0x61, 0x7C, 0 };
+	static const u8 func_base[] = { 0x6F, 0x73, 0x78, 0x61, 0x7C, 0 };
 	unsigned int code, bit_count;
 
 	code = func_base[reg];
@@ -243,6 +243,7 @@ MODULE_DEVICE_TABLE(of, rt6245_of_match_table);
 static struct i2c_driver rt6245_driver = {
 	.driver = {
 		.name = "rt6245",
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 		.of_match_table = rt6245_of_match_table,
 	},
 	.probe_new = rt6245_probe,

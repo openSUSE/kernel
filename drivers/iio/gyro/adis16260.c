@@ -395,7 +395,7 @@ static int adis16260_probe(struct spi_device *spi)
 		return ret;
 
 	/* Get the device into a sane initial state */
-	ret = adis_initial_startup(&adis16260->adis);
+	ret = __adis_initial_startup(&adis16260->adis);
 	if (ret)
 		return ret;
 
@@ -433,3 +433,4 @@ module_spi_driver(adis16260_driver);
 MODULE_AUTHOR("Barry Song <21cnbao@gmail.com>");
 MODULE_DESCRIPTION("Analog Devices ADIS16260/5 Digital Gyroscope Sensor");
 MODULE_LICENSE("GPL v2");
+MODULE_IMPORT_NS(IIO_ADISLIB);

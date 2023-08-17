@@ -17,6 +17,8 @@
 	(0x70 + (((lm) - LM_0) * 0x004))
 #define   CTL_LAYER_EXT3(lm)             \
 	(0xA0 + (((lm) - LM_0) * 0x004))
+#define CTL_LAYER_EXT4(lm)             \
+	(0xB8 + (((lm) - LM_0) * 0x004))
 #define   CTL_TOP                       0x014
 #define   CTL_FLUSH                     0x018
 #define   CTL_START                     0x01C
@@ -24,15 +26,16 @@
 #define   CTL_SW_RESET                  0x030
 #define   CTL_LAYER_EXTN_OFFSET         0x40
 #define   CTL_MERGE_3D_ACTIVE           0x0E4
+#define   CTL_DSC_ACTIVE                0x0E8
 #define   CTL_WB_ACTIVE                 0x0EC
 #define   CTL_INTF_ACTIVE               0x0F4
+#define   CTL_FETCH_PIPE_ACTIVE         0x0FC
 #define   CTL_MERGE_3D_FLUSH            0x100
-#define   CTL_DSC_ACTIVE                0x0E8
 #define   CTL_DSC_FLUSH                0x104
 #define   CTL_WB_FLUSH                  0x108
 #define   CTL_INTF_FLUSH                0x110
 #define   CTL_INTF_MASTER               0x134
-#define   CTL_FETCH_PIPE_ACTIVE         0x0FC
+#define   CTL_DSPP_n_FLUSH(n)           ((0x13C) + ((n) * 4))
 
 #define CTL_MIXER_BORDER_OUT            BIT(24)
 #define CTL_FLUSH_MASK_CTL              BIT(17)
@@ -42,12 +45,13 @@
 #define  DSC_IDX        22
 #define  INTF_IDX       31
 #define WB_IDX          16
+#define  DSPP_IDX       29  /* From DPU hw rev 7.x.x */
 #define CTL_INVALID_BIT                 0xffff
 #define CTL_DEFAULT_GROUP_ID		0xf
 
 static const u32 fetch_tbl[SSPP_MAX] = {CTL_INVALID_BIT, 16, 17, 18, 19,
 	CTL_INVALID_BIT, CTL_INVALID_BIT, CTL_INVALID_BIT, CTL_INVALID_BIT, 0,
-	1, 2, 3, CTL_INVALID_BIT, CTL_INVALID_BIT};
+	1, 2, 3, 4, 5};
 
 static const struct dpu_ctl_cfg *_ctl_offset(enum dpu_ctl ctl,
 		const struct dpu_mdss_cfg *m,
@@ -113,6 +117,12 @@ static inline void dpu_hw_ctl_clear_pending_flush(struct dpu_hw_ctl *ctx)
 	trace_dpu_hw_ctl_clear_pending_flush(ctx->pending_flush_mask,
 				     dpu_hw_ctl_get_flush_register(ctx));
 	ctx->pending_flush_mask = 0x0;
+	ctx->pending_intf_flush_mask = 0;
+	ctx->pending_wb_flush_mask = 0;
+	ctx->pending_merge_3d_flush_mask = 0;
+
+	memset(ctx->pending_dspp_flush_mask, 0,
+		sizeof(ctx->pending_dspp_flush_mask));
 }
 
 static inline void dpu_hw_ctl_update_pending_flush(struct dpu_hw_ctl *ctx,
@@ -130,6 +140,8 @@ static u32 dpu_hw_ctl_get_pending_flush(struct dpu_hw_ctl *ctx)
 
 static inline void dpu_hw_ctl_trigger_flush_v1(struct dpu_hw_ctl *ctx)
 {
+	int dspp;
+
 	if (ctx->pending_flush_mask & BIT(MERGE_3D_IDX))
 		DPU_REG_WRITE(&ctx->hw, CTL_MERGE_3D_FLUSH,
 				ctx->pending_merge_3d_flush_mask);
@@ -140,6 +152,13 @@ static inline void dpu_hw_ctl_trigger_flush_v1(struct dpu_hw_ctl *ctx)
 		DPU_REG_WRITE(&ctx->hw, CTL_WB_FLUSH,
 				ctx->pending_wb_flush_mask);
 
+	if (ctx->pending_flush_mask & BIT(DSPP_IDX))
+		for (dspp = DSPP_0; dspp < DSPP_MAX; dspp++) {
+			if (ctx->pending_dspp_flush_mask[dspp - DSPP_0])
+				DPU_REG_WRITE(&ctx->hw,
+				CTL_DSPP_n_FLUSH(dspp - DSPP_0),
+				ctx->pending_dspp_flush_mask[dspp - DSPP_0]);
+		}
 	DPU_REG_WRITE(&ctx->hw, CTL_FLUSH, ctx->pending_flush_mask);
 }
 
@@ -150,92 +169,90 @@ static inline void dpu_hw_ctl_trigger_flush(struct dpu_hw_ctl *ctx)
 	DPU_REG_WRITE(&ctx->hw, CTL_FLUSH, ctx->pending_flush_mask);
 }
 
-static uint32_t dpu_hw_ctl_get_bitmask_sspp(struct dpu_hw_ctl *ctx,
+static void dpu_hw_ctl_update_pending_flush_sspp(struct dpu_hw_ctl *ctx,
 	enum dpu_sspp sspp)
 {
-	uint32_t flushbits = 0;
-
 	switch (sspp) {
 	case SSPP_VIG0:
-		flushbits =  BIT(0);
+		ctx->pending_flush_mask |=  BIT(0);
 		break;
 	case SSPP_VIG1:
-		flushbits = BIT(1);
+		ctx->pending_flush_mask |= BIT(1);
 		break;
 	case SSPP_VIG2:
-		flushbits = BIT(2);
+		ctx->pending_flush_mask |= BIT(2);
 		break;
 	case SSPP_VIG3:
-		flushbits = BIT(18);
+		ctx->pending_flush_mask |= BIT(18);
 		break;
 	case SSPP_RGB0:
-		flushbits = BIT(3);
+		ctx->pending_flush_mask |= BIT(3);
 		break;
 	case SSPP_RGB1:
-		flushbits = BIT(4);
+		ctx->pending_flush_mask |= BIT(4);
 		break;
 	case SSPP_RGB2:
-		flushbits = BIT(5);
+		ctx->pending_flush_mask |= BIT(5);
 		break;
 	case SSPP_RGB3:
-		flushbits = BIT(19);
+		ctx->pending_flush_mask |= BIT(19);
 		break;
 	case SSPP_DMA0:
-		flushbits = BIT(11);
+		ctx->pending_flush_mask |= BIT(11);
 		break;
 	case SSPP_DMA1:
-		flushbits = BIT(12);
+		ctx->pending_flush_mask |= BIT(12);
 		break;
 	case SSPP_DMA2:
-		flushbits = BIT(24);
+		ctx->pending_flush_mask |= BIT(24);
 		break;
 	case SSPP_DMA3:
-		flushbits = BIT(25);
+		ctx->pending_flush_mask |= BIT(25);
+		break;
+	case SSPP_DMA4:
+		ctx->pending_flush_mask |= BIT(13);
+		break;
+	case SSPP_DMA5:
+		ctx->pending_flush_mask |= BIT(14);
 		break;
 	case SSPP_CURSOR0:
-		flushbits = BIT(22);
+		ctx->pending_flush_mask |= BIT(22);
 		break;
 	case SSPP_CURSOR1:
-		flushbits = BIT(23);
+		ctx->pending_flush_mask |= BIT(23);
 		break;
 	default:
 		break;
 	}
-
-	return flushbits;
 }
 
-static uint32_t dpu_hw_ctl_get_bitmask_mixer(struct dpu_hw_ctl *ctx,
+static void dpu_hw_ctl_update_pending_flush_mixer(struct dpu_hw_ctl *ctx,
 	enum dpu_lm lm)
 {
-	uint32_t flushbits = 0;
-
 	switch (lm) {
 	case LM_0:
-		flushbits = BIT(6);
+		ctx->pending_flush_mask |= BIT(6);
 		break;
 	case LM_1:
-		flushbits = BIT(7);
+		ctx->pending_flush_mask |= BIT(7);
 		break;
 	case LM_2:
-		flushbits = BIT(8);
+		ctx->pending_flush_mask |= BIT(8);
 		break;
 	case LM_3:
-		flushbits = BIT(9);
+		ctx->pending_flush_mask |= BIT(9);
 		break;
 	case LM_4:
-		flushbits = BIT(10);
+		ctx->pending_flush_mask |= BIT(10);
 		break;
 	case LM_5:
-		flushbits = BIT(20);
+		ctx->pending_flush_mask |= BIT(20);
 		break;
 	default:
-		return -EINVAL;
+		break;
 	}
 
-	flushbits |= CTL_FLUSH_MASK_CTL;
-
-	return flushbits;
+	ctx->pending_flush_mask |= CTL_FLUSH_MASK_CTL;
 }
 
 static void dpu_hw_ctl_update_pending_flush_intf(struct dpu_hw_ctl *ctx,
@@ -294,29 +311,48 @@ static void dpu_hw_ctl_update_pending_flush_merge_3d_v1(struct dpu_hw_ctl *ctx,
 	ctx->pending_flush_mask |= BIT(MERGE_3D_IDX);
 }
 
-static uint32_t dpu_hw_ctl_get_bitmask_dspp(struct dpu_hw_ctl *ctx,
-	enum dpu_dspp dspp)
+static void dpu_hw_ctl_update_pending_flush_dspp(struct dpu_hw_ctl *ctx,
+	enum dpu_dspp dspp, u32 dspp_sub_blk)
 {
-	uint32_t flushbits = 0;
-
 	switch (dspp) {
 	case DSPP_0:
-		flushbits = BIT(13);
+		ctx->pending_flush_mask |= BIT(13);
 		break;
 	case DSPP_1:
-		flushbits = BIT(14);
+		ctx->pending_flush_mask |= BIT(14);
 		break;
 	case DSPP_2:
-		flushbits = BIT(15);
+		ctx->pending_flush_mask |= BIT(15);
 		break;
 	case DSPP_3:
-		flushbits = BIT(21);
+		ctx->pending_flush_mask |= BIT(21);
 		break;
 	default:
-		return 0;
+		break;
+	}
+}
+
+static void dpu_hw_ctl_update_pending_flush_dspp_sub_blocks(
+	struct dpu_hw_ctl *ctx,	enum dpu_dspp dspp, u32 dspp_sub_blk)
+{
+	if (dspp >= DSPP_MAX)
+		return;
+
+	switch (dspp_sub_blk) {
+	case DPU_DSPP_IGC:
+		ctx->pending_dspp_flush_mask[dspp - DSPP_0] |= BIT(2);
+		break;
+	case DPU_DSPP_PCC:
+		ctx->pending_dspp_flush_mask[dspp - DSPP_0] |= BIT(4);
+		break;
+	case DPU_DSPP_GC:
+		ctx->pending_dspp_flush_mask[dspp - DSPP_0] |= BIT(5);
+		break;
+	default:
+		return;
 	}
 
-	return flushbits;
+	ctx->pending_flush_mask |= BIT(DSPP_IDX);
 }
 
 static u32 dpu_hw_ctl_poll_reset_status(struct dpu_hw_ctl *ctx, u32 timeout_us)
@@ -389,12 +425,37 @@ static void dpu_hw_ctl_clear_all_blendstages(struct dpu_hw_ctl *ctx)
 	DPU_REG_WRITE(c, CTL_FETCH_PIPE_ACTIVE, 0);
 }
 
+struct ctl_blend_config {
+	int idx, shift, ext_shift;
+};
+
+static const struct ctl_blend_config ctl_blend_config[][2] = {
+	[SSPP_NONE] = { { -1 }, { -1 } },
+	[SSPP_MAX] =  { { -1 }, { -1 } },
+	[SSPP_VIG0] = { { 0, 0,  0  }, { 3, 0 } },
+	[SSPP_VIG1] = { { 0, 3,  2  }, { 3, 4 } },
+	[SSPP_VIG2] = { { 0, 6,  4  }, { 3, 8 } },
+	[SSPP_VIG3] = { { 0, 26, 6  }, { 3, 12 } },
+	[SSPP_RGB0] = { { 0, 9,  8  }, { -1 } },
+	[SSPP_RGB1] = { { 0, 12, 10 }, { -1 } },
+	[SSPP_RGB2] = { { 0, 15, 12 }, { -1 } },
+	[SSPP_RGB3] = { { 0, 29, 14 }, { -1 } },
+	[SSPP_DMA0] = { { 0, 18, 16 }, { 2, 8 } },
+	[SSPP_DMA1] = { { 0, 21, 18 }, { 2, 12 } },
+	[SSPP_DMA2] = { { 2, 0      }, { 2, 16 } },
+	[SSPP_DMA3] = { { 2, 4      }, { 2, 20 } },
+	[SSPP_DMA4] = { { 4, 0      }, { 4, 8 } },
+	[SSPP_DMA5] = { { 4, 4      }, { 4, 12 } },
+	[SSPP_CURSOR0] =  { { 1, 20 }, { -1 } },
+	[SSPP_CURSOR1] =  { { 1, 26 }, { -1 } },
+};
+
 static void dpu_hw_ctl_setup_blendstage(struct dpu_hw_ctl *ctx,
 	enum dpu_lm lm, struct dpu_hw_stage_cfg *stage_cfg)
 {
 	struct dpu_hw_blk_reg_map *c = &ctx->hw;
-	u32 mixercfg = 0, mixercfg_ext = 0, mix, ext;
-	u32 mixercfg_ext2 = 0, mixercfg_ext3 = 0;
+	u32 mix, ext, mix_ext;
+	u32 mixercfg[5] = { 0 };
 	int i, j;
 	int stages;
 	int pipes_per_stage;
@@ -409,7 +470,7 @@ static void dpu_hw_ctl_setup_blendstage(struct dpu_hw_ctl *ctx,
 	else
 		pipes_per_stage = 1;
 
-	mixercfg = CTL_MIXER_BORDER_OUT; /* always set BORDER_OUT */
+	mixercfg[0] = CTL_MIXER_BORDER_OUT; /* always set BORDER_OUT */
 
 	if (!stage_cfg)
 		goto exit;
@@ -418,109 +479,37 @@ static void dpu_hw_ctl_setup_blendstage(struct dpu_hw_ctl *ctx,
 		/* overflow to ext register if 'i + 1 > 7' */
 		mix = (i + 1) & 0x7;
 		ext = i >= 7;
+		mix_ext = (i + 1) & 0xf;
 
 		for (j = 0 ; j < pipes_per_stage; j++) {
 			enum dpu_sspp_multirect_index rect_index =
 				stage_cfg->multirect_index[i][j];
+			enum dpu_sspp pipe = stage_cfg->stage[i][j];
+			const struct ctl_blend_config *cfg =
+				&ctl_blend_config[pipe][rect_index == DPU_SSPP_RECT_1];
 
-			switch (stage_cfg->stage[i][j]) {
-			case SSPP_VIG0:
-				if (rect_index == DPU_SSPP_RECT_1) {
-					mixercfg_ext3 |= ((i + 1) & 0xF) << 0;
-				} else {
-					mixercfg |= mix << 0;
-					mixercfg_ext |= ext << 0;
-				}
-				break;
-			case SSPP_VIG1:
-				if (rect_index == DPU_SSPP_RECT_1) {
-					mixercfg_ext3 |= ((i + 1) & 0xF) << 4;
-				} else {
-					mixercfg |= mix << 3;
-					mixercfg_ext |= ext << 2;
-				}
-				break;
-			case SSPP_VIG2:
-				if (rect_index == DPU_SSPP_RECT_1) {
-					mixercfg_ext3 |= ((i + 1) & 0xF) << 8;
-				} else {
-					mixercfg |= mix << 6;
-					mixercfg_ext |= ext << 4;
-				}
-				break;
-			case SSPP_VIG3:
-				if (rect_index == DPU_SSPP_RECT_1) {
-					mixercfg_ext3 |= ((i + 1) & 0xF) << 12;
-				} else {
-					mixercfg |= mix << 26;
-					mixercfg_ext |= ext << 6;
-				}
-				break;
-			case SSPP_RGB0:
-				mixercfg |= mix << 9;
-				mixercfg_ext |= ext << 8;
-				break;
-			case SSPP_RGB1:
-				mixercfg |= mix << 12;
-				mixercfg_ext |= ext << 10;
-				break;
-			case SSPP_RGB2:
-				mixercfg |= mix << 15;
-				mixercfg_ext |= ext << 12;
-				break;
-			case SSPP_RGB3:
-				mixercfg |= mix << 29;
-				mixercfg_ext |= ext << 14;
-				break;
-			case SSPP_DMA0:
-				if (rect_index == DPU_SSPP_RECT_1) {
-					mixercfg_ext2 |= ((i + 1) & 0xF) << 8;
-				} else {
-					mixercfg |= mix << 18;
-					mixercfg_ext |= ext << 16;
-				}
-				break;
-			case SSPP_DMA1:
-				if (rect_index == DPU_SSPP_RECT_1) {
-					mixercfg_ext2 |= ((i + 1) & 0xF) << 12;
-				} else {
-					mixercfg |= mix << 21;
-					mixercfg_ext |= ext << 18;
-				}
-				break;
-			case SSPP_DMA2:
-				if (rect_index == DPU_SSPP_RECT_1) {
-					mixercfg_ext2 |= ((i + 1) & 0xF) << 16;
-				} else {
-					mix |= (i + 1) & 0xF;
-					mixercfg_ext2 |= mix << 0;
-				}
-				break;
-			case SSPP_DMA3:
-				if (rect_index == DPU_SSPP_RECT_1) {
-					mixercfg_ext2 |= ((i + 1) & 0xF) << 20;
-				} else {
-					mix |= (i + 1) & 0xF;
-					mixercfg_ext2 |= mix << 4;
-				}
-				break;
-			case SSPP_CURSOR0:
-				mixercfg_ext |= ((i + 1) & 0xF) << 20;
-				break;
-			case SSPP_CURSOR1:
-				mixercfg_ext |= ((i + 1) & 0xF) << 26;
-				break;
-			default:
-				break;
+			/*
+			 * CTL_LAYER has 3-bit field (and extra bits in EXT register),
+			 * all EXT registers has 4-bit fields.
+			 */
+			if (cfg->idx == -1) {
+				continue;
+			} else if (cfg->idx == 0) {
+				mixercfg[0] |= mix << cfg->shift;
+				mixercfg[1] |= ext << cfg->ext_shift;
+			} else {
+				mixercfg[cfg->idx] |= mix_ext << cfg->shift;
 			}
 		}
 	}
 
 exit:
-	DPU_REG_WRITE(c, CTL_LAYER(lm), mixercfg);
-	DPU_REG_WRITE(c, CTL_LAYER_EXT(lm), mixercfg_ext);
-	DPU_REG_WRITE(c, CTL_LAYER_EXT2(lm), mixercfg_ext2);
-	DPU_REG_WRITE(c, CTL_LAYER_EXT3(lm), mixercfg_ext3);
+	DPU_REG_WRITE(c, CTL_LAYER(lm), mixercfg[0]);
+	DPU_REG_WRITE(c, CTL_LAYER_EXT(lm), mixercfg[1]);
+	DPU_REG_WRITE(c, CTL_LAYER_EXT2(lm), mixercfg[2]);
+	DPU_REG_WRITE(c, CTL_LAYER_EXT3(lm), mixercfg[3]);
+	if ((test_bit(DPU_CTL_HAS_LAYER_EXT4, &ctx->caps->features)))
+		DPU_REG_WRITE(c, CTL_LAYER_EXT4(lm), mixercfg[4]);
 }
 
 
@@ -685,9 +674,13 @@ static void _setup_ctl_ops(struct dpu_hw_ctl_ops *ops,
 	ops->wait_reset_status = dpu_hw_ctl_wait_reset_status;
 	ops->clear_all_blendstages = dpu_hw_ctl_clear_all_blendstages;
 	ops->setup_blendstage = dpu_hw_ctl_setup_blendstage;
-	ops->get_bitmask_sspp = dpu_hw_ctl_get_bitmask_sspp;
-	ops->get_bitmask_mixer = dpu_hw_ctl_get_bitmask_mixer;
-	ops->get_bitmask_dspp = dpu_hw_ctl_get_bitmask_dspp;
+	ops->update_pending_flush_sspp = dpu_hw_ctl_update_pending_flush_sspp;
+	ops->update_pending_flush_mixer = dpu_hw_ctl_update_pending_flush_mixer;
+	if (cap & BIT(DPU_CTL_DSPP_SUB_BLOCK_FLUSH))
+		ops->update_pending_flush_dspp = dpu_hw_ctl_update_pending_flush_dspp_sub_blocks;
+	else
+		ops->update_pending_flush_dspp = dpu_hw_ctl_update_pending_flush_dspp;
+
 	if (cap & BIT(DPU_CTL_FETCH_ACTIVE))
 		ops->set_active_pipes = dpu_hw_ctl_set_fetch_pipe_active;
 };

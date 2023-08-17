@@ -53,6 +53,8 @@ static ssize_t link_show(struct device *dev, struct device_attribute *attr,
 		link = port->sw->link_usb4 ? "usb4" : "tbt";
 	else if (tb_port_has_remote(port))
 		link = port->remote->sw->link_usb4 ? "usb4" : "tbt";
+	else if (port->xdomain)
+		link = port->xdomain->link_usb4 ? "usb4" : "tbt";
 	else
 		link = "none";
 
@@ -281,6 +283,9 @@ struct usb4_port *usb4_port_device_add(struct tb_port *port)
 			device_unregister(&usb4->dev);
 		}
 	}
+
+	if (!tb_is_upstream_port(port))
+		device_set_wakeup_capable(&usb4->dev, true);
 
 	pm_runtime_no_callbacks(&usb4->dev);
 	pm_runtime_set_active(&usb4->dev);

@@ -46,11 +46,12 @@ properties:
 
   reg: true
   port: true
+  backlight: true
 
 required:
   - compatible
   - reg
-  - vddi0-supply
+  - vddio-supply
   - vddpos-supply
   - vddneg-supply
   - reset-gpios
@@ -69,14 +70,13 @@ examples:
         panel@0 {
             compatible = "tianma,fhd-video", "novatek,nt36672a";
             reg = <0>;
-            vddi0-supply = <&vreg_l14a_1p88>;
+            vddio-supply = <&vreg_l14a_1p88>;
             vddpos-supply = <&lab>;
             vddneg-supply = <&ibb>;
 
+            backlight = <&pmi8998_wled>;
             reset-gpios = <&tlmm 6 GPIO_ACTIVE_HIGH>;
 
-            #address-cells = <1>;
-            #size-cells = <0>;
             port {
                 tianma_nt36672a_in_0: endpoint {
                     remote-endpoint = <&dsi0_out>;

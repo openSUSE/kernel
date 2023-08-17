@@ -9,6 +9,7 @@
  *  Copyright (C) 2016  IBM Corporation
  */
 
+#include <linux/ima.h>
 #include <linux/kernel.h>
 #include <linux/kexec.h>
 #include <linux/memblock.h>
@@ -16,16 +17,9 @@
 #include <linux/of.h>
 #include <linux/of_fdt.h>
 #include <linux/random.h>
+#include <linux/slab.h>
 #include <linux/types.h>
 
-/* relevant device tree properties */
-#define FDT_PROP_KEXEC_ELFHDR	"linux,elfcorehdr"
-#define FDT_PROP_MEM_RANGE	"linux,usable-memory-range"
-#define FDT_PROP_INITRD_START	"linux,initrd-start"
-#define FDT_PROP_INITRD_END	"linux,initrd-end"
-#define FDT_PROP_BOOTARGS	"bootargs"
-#define FDT_PROP_KASLR_SEED	"kaslr-seed"
-#define FDT_PROP_RNG_SEED	"rng-seed"
 #define RNG_SEED_SIZE		128
 
 /*
@@ -122,6 +116,7 @@ static int do_get_kexec_buffer(const void *prop, int len, unsigned long *addr,
 	return 0;
 }
 
+#ifdef CONFIG_HAVE_IMA_KEXEC
 /**
  * ima_get_kexec_buffer - get IMA buffer from the previous kernel
  * @addr:	On successful return, set to point to the buffer contents.
@@ -129,15 +124,13 @@ static int do_get_kexec_buffer(const void *prop, int len, unsigned long *addr,
  *
  * Return: 0 on success, negative errno on error.
  */
-int ima_get_kexec_buffer(void **addr, size_t *size)
+int __init ima_get_kexec_buffer(void **addr, size_t *size)
 {
 	int ret, len;
 	unsigned long tmp_addr;
+	unsigned long start_pfn, end_pfn;
 	size_t tmp_size;
 	const void *prop;
-
-	if (!IS_ENABLED(CONFIG_HAVE_IMA_KEXEC))
-		return -ENOTSUPP;
 
 	prop = of_get_property(of_chosen, "linux,ima-kexec-buffer", &len);
 	if (!prop)
@@ -146,6 +139,22 @@ int ima_get_kexec_buffer(void **addr, size_t *size)
 	ret = do_get_kexec_buffer(prop, len, &tmp_addr, &tmp_size);
 	if (ret)
 		return ret;
+
+	/* Do some sanity on the returned size for the ima-kexec buffer */
+	if (!tmp_size)
+		return -ENOENT;
+
+	/*
+	 * Calculate the PFNs for the buffer and ensure
+	 * they are with in addressable memory.
+	 */
+	start_pfn = PHYS_PFN(tmp_addr);
+	end_pfn = PHYS_PFN(tmp_addr + tmp_size - 1);
+	if (!page_is_ram(start_pfn) || !page_is_ram(end_pfn)) {
+		pr_warn("IMA buffer at 0x%lx, size = 0x%zx beyond memory\n",
+			tmp_addr, tmp_size);
+		return -EINVAL;
+	}
 
 	*addr = __va(tmp_addr);
 	*size = tmp_size;
@@ -156,15 +165,12 @@ int ima_get_kexec_buffer(void **addr, size_t *size)
 /**
  * ima_free_kexec_buffer - free memory used by the IMA buffer
  */
-int ima_free_kexec_buffer(void)
+int __init ima_free_kexec_buffer(void)
 {
 	int ret;
 	unsigned long addr;
 	size_t size;
 	struct property *prop;
-
-	if (!IS_ENABLED(CONFIG_HAVE_IMA_KEXEC))
-		return -ENOTSUPP;
 
 	prop = of_find_property(of_chosen, "linux,ima-kexec-buffer", NULL);
 	if (!prop)
@@ -178,9 +184,9 @@ int ima_free_kexec_buffer(void)
 	if (ret)
 		return ret;
 
-	return memblock_free(addr, size);
-
+	return memblock_phys_free(addr, size);
 }
+#endif
 
 /**
  * remove_ima_buffer - remove the IMA buffer property and reservation from @fdt
@@ -275,7 +281,7 @@ void *of_kexec_alloc_and_setup_fdt(const struct kimage *image,
 				   const char *cmdline, size_t extra_fdt_size)
 {
 	void *fdt;
-	int ret, chosen_node;
+	int ret, chosen_node, len;
 	const void *prop;
 	size_t fdt_size;
 
@@ -310,27 +316,27 @@ void *of_kexec_alloc_and_setup_fdt(const struct kimage *image,
 		goto out;
 	}
 
-	ret = fdt_delprop(fdt, chosen_node, FDT_PROP_KEXEC_ELFHDR);
+	ret = fdt_delprop(fdt, chosen_node, "linux,elfcorehdr");
 	if (ret && ret != -FDT_ERR_NOTFOUND)
 		goto out;
-	ret = fdt_delprop(fdt, chosen_node, FDT_PROP_MEM_RANGE);
+	ret = fdt_delprop(fdt, chosen_node, "linux,usable-memory-range");
 	if (ret && ret != -FDT_ERR_NOTFOUND)
 		goto out;
 
 	/* Did we boot using an initrd? */
-	prop = fdt_getprop(fdt, chosen_node, "linux,initrd-start", NULL);
+	prop = fdt_getprop(fdt, chosen_node, "linux,initrd-start", &len);
 	if (prop) {
 		u64 tmp_start, tmp_end, tmp_size;
 
-		tmp_start = fdt64_to_cpu(*((const fdt64_t *) prop));
+		tmp_start = of_read_number(prop, len / 4);
 
-		prop = fdt_getprop(fdt, chosen_node, "linux,initrd-end", NULL);
+		prop = fdt_getprop(fdt, chosen_node, "linux,initrd-end", &len);
 		if (!prop) {
 			ret = -EINVAL;
 			goto out;
 		}
 
-		tmp_end = fdt64_to_cpu(*((const fdt64_t *) prop));
+		tmp_end = of_read_number(prop, len / 4);
 
 		/*
 		 * kexec reserves exact initrd size, while firmware may
@@ -347,12 +353,12 @@ void *of_kexec_alloc_and_setup_fdt(const struct kimage *image,
 
 	/* add initrd-* */
 	if (initrd_load_addr) {
-		ret = fdt_setprop_u64(fdt, chosen_node, FDT_PROP_INITRD_START,
+		ret = fdt_setprop_u64(fdt, chosen_node, "linux,initrd-start",
 				      initrd_load_addr);
 		if (ret)
 			goto out;
 
-		ret = fdt_setprop_u64(fdt, chosen_node, FDT_PROP_INITRD_END,
+		ret = fdt_setprop_u64(fdt, chosen_node, "linux,initrd-end",
 				      initrd_load_addr + initrd_len);
 		if (ret)
 			goto out;
@@ -362,11 +368,11 @@ void *of_kexec_alloc_and_setup_fdt(const struct kimage *image,
 			goto out;
 
 	} else {
-		ret = fdt_delprop(fdt, chosen_node, FDT_PROP_INITRD_START);
+		ret = fdt_delprop(fdt, chosen_node, "linux,initrd-start");
 		if (ret && (ret != -FDT_ERR_NOTFOUND))
 			goto out;
 
-		ret = fdt_delprop(fdt, chosen_node, FDT_PROP_INITRD_END);
+		ret = fdt_delprop(fdt, chosen_node, "linux,initrd-end");
 		if (ret && (ret != -FDT_ERR_NOTFOUND))
 			goto out;
 	}
@@ -374,8 +380,7 @@ void *of_kexec_alloc_and_setup_fdt(const struct kimage *image,
 	if (image->type == KEXEC_TYPE_CRASH) {
 		/* add linux,elfcorehdr */
 		ret = fdt_appendprop_addrrange(fdt, 0, chosen_node,
-				FDT_PROP_KEXEC_ELFHDR,
-				image->elf_load_addr,
+				"linux,elfcorehdr", image->elf_load_addr,
 				image->elf_headers_sz);
 		if (ret)
 			goto out;
@@ -391,8 +396,7 @@ void *of_kexec_alloc_and_setup_fdt(const struct kimage *image,
 
 		/* add linux,usable-memory-range */
 		ret = fdt_appendprop_addrrange(fdt, 0, chosen_node,
-				FDT_PROP_MEM_RANGE,
-				crashk_res.start,
+				"linux,usable-memory-range", crashk_res.start,
 				crashk_res.end - crashk_res.start + 1);
 		if (ret)
 			goto out;
@@ -409,17 +413,17 @@ void *of_kexec_alloc_and_setup_fdt(const struct kimage *image,
 
 	/* add bootargs */
 	if (cmdline) {
-		ret = fdt_setprop_string(fdt, chosen_node, FDT_PROP_BOOTARGS, cmdline);
+		ret = fdt_setprop_string(fdt, chosen_node, "bootargs", cmdline);
 		if (ret)
 			goto out;
 	} else {
-		ret = fdt_delprop(fdt, chosen_node, FDT_PROP_BOOTARGS);
+		ret = fdt_delprop(fdt, chosen_node, "bootargs");
 		if (ret && (ret != -FDT_ERR_NOTFOUND))
 			goto out;
 	}
 
 	/* add kaslr-seed */
-	ret = fdt_delprop(fdt, chosen_node, FDT_PROP_KASLR_SEED);
+	ret = fdt_delprop(fdt, chosen_node, "kaslr-seed");
 	if (ret == -FDT_ERR_NOTFOUND)
 		ret = 0;
 	else if (ret)
@@ -428,26 +432,26 @@ void *of_kexec_alloc_and_setup_fdt(const struct kimage *image,
 	if (rng_is_initialized()) {
 		u64 seed = get_random_u64();
 
-		ret = fdt_setprop_u64(fdt, chosen_node, FDT_PROP_KASLR_SEED, seed);
+		ret = fdt_setprop_u64(fdt, chosen_node, "kaslr-seed", seed);
 		if (ret)
 			goto out;
 	} else {
 		pr_notice("RNG is not initialised: omitting \"%s\" property\n",
-				FDT_PROP_KASLR_SEED);
+			  "kaslr-seed");
 	}
 
 	/* add rng-seed */
 	if (rng_is_initialized()) {
 		void *rng_seed;
 
-		ret = fdt_setprop_placeholder(fdt, chosen_node, FDT_PROP_RNG_SEED,
+		ret = fdt_setprop_placeholder(fdt, chosen_node, "rng-seed",
 				RNG_SEED_SIZE, &rng_seed);
 		if (ret)
 			goto out;
 		get_random_bytes(rng_seed, RNG_SEED_SIZE);
 	} else {
 		pr_notice("RNG is not initialised: omitting \"%s\" property\n",
-				FDT_PROP_RNG_SEED);
+			  "rng-seed");
 	}
 
 	ret = fdt_setprop(fdt, chosen_node, "linux,booted-from-kexec", NULL, 0);

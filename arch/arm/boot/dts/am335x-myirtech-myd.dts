@@ -86,16 +86,24 @@
 	};
 };
 
-&cpsw_emac1 {
+&cpsw_port2 {
+	status = "okay";
 	phy-handle = <&phy1>;
 	phy-mode = "rgmii-id";
+	ti,dual-emac-pvid = <2>;
 };
 
-&davinci_mdio {
+&davinci_mdio_sw {
 	phy1: ethernet-phy@6 {
 		reg = <6>;
 		eee-broken-1000t;
 	};
+};
+
+&mac_sw {
+	pinctrl-0 = <&eth_slave1_pins_default>, <&eth_slave2_pins_default>;
+	pinctrl-1 = <&eth_slave1_pins_sleep>, <&eth_slave2_pins_sleep>;
+	slaves = <2>;
 };
 
 &dcan0 {
@@ -153,8 +161,13 @@
 		#sound-dai-cells = <0>;
 
 		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
 			port@0 {
-				hdmi_0: endpoint@0 {
+				reg = <0>;
+
+				hdmi_0: endpoint {
 					remote-endpoint = <&lcdc_0>;
 				};
 			};
@@ -194,12 +207,6 @@
 	};
 };
 
-&mac {
-	pinctrl-0 = <&eth_slave1_pins_default>, <&eth_slave2_pins_default>;
-	pinctrl-1 = <&eth_slave1_pins_sleep>, <&eth_slave2_pins_sleep>;
-	slaves = <2>;
-};
-
 &mcasp0 {
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&mcasp0_pins_default>;
@@ -225,14 +232,20 @@
 };
 
 &nand0 {
-	partition@0 {
-		label = "MLO";
-		reg = <0x00000 0x20000>;
-	};
+	nand_parts: partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
 
-	partition@20000 {
-		label = "boot";
-		reg = <0x20000 0x80000>;
+		partition@0 {
+			label = "MLO";
+			reg = <0x00000 0x20000>;
+		};
+
+		partition@80000 {
+			label = "boot";
+			reg = <0x80000 0x100000>;
+		};
 	};
 };
 

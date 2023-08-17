@@ -94,15 +94,9 @@ primitives, but I'll pretend they don't exist.
 Locking in the Linux Kernel
 ===========================
 
-If I could give you one piece of advice: never sleep with anyone crazier
-than yourself. But if I had to give you advice on locking: **keep it
-simple**.
+If I could give you one piece of advice on locking: **keep it simple**.
 
 Be reluctant to introduce new locks.
-
-Strangely enough, this last one is the exact reverse of my advice when
-you **have** slept with someone crazier than yourself. And you should
-think about getting a big dog.
 
 Two Main Types of Kernel Locks: Spinlocks and Mutexes
 -----------------------------------------------------
@@ -301,7 +295,7 @@ Pete Zaitcev gives the following summary:
 
 -  If you are in a process context (any syscall) and want to lock other
    process out, use a mutex. You can take a mutex and sleep
-   (``copy_from_user*(`` or ``kmalloc(x,GFP_KERNEL)``).
+   (``copy_from_user()`` or ``kmalloc(x,GFP_KERNEL)``).
 
 -  Otherwise (== data can be touched in an interrupt), use
    spin_lock_irqsave() and
@@ -947,8 +941,7 @@ lock.
 
 A classic problem here is when you provide callbacks or hooks: if you
 call these with the lock held, you risk simple deadlock, or a deadly
-embrace (who knows what the callback will do?). Remember, the other
-programmers are out to get you, so don't do this.
+embrace (who knows what the callback will do?).
 
 Overzealous Prevention Of Deadlocks
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -957,8 +950,6 @@ Deadlocks are problematic, but not as bad as data corruption. Code which
 grabs a read lock, searches a list, fails to find what it wants, drops
 the read lock, grabs a write lock and inserts the object has a race
 condition.
-
-If you don't see why, please stay away from my code.
 
 Racing Timers: A Kernel Pastime
 -------------------------------
@@ -976,7 +967,7 @@ you might do the following::
 
             while (list) {
                     struct foo *next = list->next;
-                    del_timer(&list->timer);
+                    timer_delete(&list->timer);
                     kfree(list);
                     list = next;
             }
@@ -990,7 +981,7 @@ the lock after we spin_unlock_bh(), and then try to free
 the element (which has already been freed!).
 
 This can be avoided by checking the result of
-del_timer(): if it returns 1, the timer has been deleted.
+timer_delete(): if it returns 1, the timer has been deleted.
 If 0, it means (in this case) that it is currently running, so we can
 do::
 
@@ -999,7 +990,7 @@ do::
 
                     while (list) {
                             struct foo *next = list->next;
-                            if (!del_timer(&list->timer)) {
+                            if (!timer_delete(&list->timer)) {
                                     /* Give timer a chance to delete this */
                                     spin_unlock_bh(&list_lock);
                                     goto retry;
@@ -1014,8 +1005,12 @@ do::
 Another common problem is deleting timers which restart themselves (by
 calling add_timer() at the end of their timer function).
 Because this is a fairly common case which is prone to races, you should
-use del_timer_sync() (``include/linux/timer.h``) to
-handle this case.
+use timer_delete_sync() (``include/linux/timer.h``) to handle this case.
+
+Before freeing a timer, timer_shutdown() or timer_shutdown_sync() should be
+called which will keep it from being rearmed. Any subsequent attempt to
+rearm the timer will be silently ignored by the core code.
+
 
 Locking Speed
 =============
@@ -1282,11 +1277,11 @@ Manfred Spraul points out that you can still do this, even if the data
 is very occasionally accessed in user context or softirqs/tasklets. The
 irq handler doesn't use a lock, and all other accesses are done as so::
 
-        spin_lock(&lock);
+        mutex_lock(&lock);
         disable_irq(irq);
         ...
         enable_irq(irq);
-        spin_unlock(&lock);
+        mutex_unlock(&lock);
 
 The disable_irq() prevents the irq handler from running
 (and waits for it to finish if it's currently running on other CPUs).
@@ -1343,7 +1338,7 @@ lock.
 
 -  kfree()
 
--  add_timer() and del_timer()
+-  add_timer() and timer_delete()
 
 Mutex API reference
 ===================
@@ -1357,7 +1352,19 @@ Mutex API reference
 Futex API reference
 ===================
 
-.. kernel-doc:: kernel/futex.c
+.. kernel-doc:: kernel/futex/core.c
+   :internal:
+
+.. kernel-doc:: kernel/futex/futex.h
+   :internal:
+
+.. kernel-doc:: kernel/futex/pi.c
+   :internal:
+
+.. kernel-doc:: kernel/futex/requeue.c
+   :internal:
+
+.. kernel-doc:: kernel/futex/waitwake.c
    :internal:
 
 Further reading
@@ -1405,7 +1412,7 @@ bh
   half will be running at any time.
 
 Hardware Interrupt / Hardware IRQ
-  Hardware interrupt request. in_irq() returns true in a
+  Hardware interrupt request. in_hardirq() returns true in a
   hardware interrupt handler.
 
 Interrupt Context
@@ -1417,7 +1424,7 @@ SMP
   (``CONFIG_SMP=y``).
 
 Software Interrupt / softirq
-  Software interrupt handler. in_irq() returns false;
+  Software interrupt handler. in_hardirq() returns false;
   in_softirq() returns true. Tasklets and softirqs both
   fall into the category of 'software interrupts'.
 

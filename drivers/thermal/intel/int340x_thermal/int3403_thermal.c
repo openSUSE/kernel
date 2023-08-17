@@ -69,7 +69,7 @@ static void int3403_notify(acpi_handle handle,
 						   THERMAL_TRIP_VIOLATED);
 		break;
 	case INT3403_PERF_TRIP_POINT_CHANGED:
-		int340x_thermal_read_trips(obj->int340x_zone);
+		int340x_thermal_update_trips(obj->int340x_zone);
 		int340x_thermal_zone_device_update(obj->int340x_zone,
 						   THERMAL_TRIP_CHANGED);
 		break;
@@ -286,6 +286,7 @@ static const struct acpi_device_id int3403_device_ids[] = {
 	{"INTC1043", 0},
 	{"INTC1046", 0},
 	{"INTC1062", 0},
+	{"INTC10A1", 0},
 	{"", 0},
 };
 MODULE_DEVICE_TABLE(acpi, int3403_device_ids);

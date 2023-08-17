@@ -3,7 +3,6 @@
 #define __ASM_SH_PROCESSOR_H
 
 #include <asm/cpu-features.h>
-#include <asm/segment.h>
 #include <asm/cache.h>
 
 #ifndef __ASSEMBLY__
@@ -166,6 +165,8 @@ extern unsigned int instruction_size(unsigned int insn);
 #else
 #define instruction_size(insn)	(2)
 #endif
+
+void select_idle_routine(void);
 
 #endif /* __ASSEMBLY__ */
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <string.h>
@@ -25,6 +27,7 @@
 static unsigned int offset;
 static unsigned int ino = 721;
 static time_t default_mtime;
+static bool do_csum = false;
 
 struct file_handler {
 	const char *type;
@@ -78,7 +81,7 @@ static void cpio_trailer(void)
 
 	sprintf(s, "%s%08X%08X%08lX%08lX%08X%08lX"
 	       "%08X%08X%08X%08X%08X%08X%08X",
-		"070701",		/* magic */
+		do_csum ? "070702" : "070701", /* magic */
 		0,			/* ino */
 		0,			/* mode */
 		(long) 0,		/* uid */
@@ -110,7 +113,7 @@ static int cpio_mkslink(const char *name, const char *target,
 		name++;
 	sprintf(s,"%s%08X%08X%08lX%08lX%08X%08lX"
 	       "%08X%08X%08X%08X%08X%08X%08X",
-		"070701",		/* magic */
+		do_csum ? "070702" : "070701", /* magic */
 		ino++,			/* ino */
 		S_IFLNK | mode,		/* mode */
 		(long) uid,		/* uid */
@@ -159,7 +162,7 @@ static int cpio_mkgeneric(const char *name, unsigned int mode,
 		name++;
 	sprintf(s,"%s%08X%08X%08lX%08lX%08X%08lX"
 	       "%08X%08X%08X%08X%08X%08X%08X",
-		"070701",		/* magic */
+		do_csum ? "070702" : "070701", /* magic */
 		ino++,			/* ino */
 		mode,			/* mode */
 		(long) uid,		/* uid */
@@ -189,7 +192,7 @@ struct generic_type {
 	mode_t mode;
 };
 
-static struct generic_type generic_type_table[] = {
+static const struct generic_type generic_type_table[] = {
 	[GT_DIR] = {
 		.type = "dir",
 		.mode = S_IFDIR
@@ -253,7 +256,7 @@ static int cpio_mknod(const char *name, unsigned int mode,
 		name++;
 	sprintf(s,"%s%08X%08X%08lX%08lX%08X%08lX"
 	       "%08X%08X%08X%08X%08X%08X%08X",
-		"070701",		/* magic */
+		do_csum ? "070702" : "070701", /* magic */
 		ino++,			/* ino */
 		mode,			/* mode */
 		(long) uid,		/* uid */
@@ -293,6 +296,29 @@ static int cpio_mknod_line(const char *line)
 	return rc;
 }
 
+static int cpio_mkfile_csum(int fd, unsigned long size, uint32_t *csum)
+{
+	while (size) {
+		unsigned char filebuf[65536];
+		ssize_t this_read;
+		size_t i, this_size = MIN(size, sizeof(filebuf));
+
+		this_read = read(fd, filebuf, this_size);
+		if (this_read <= 0 || this_read > this_size)
+			return -1;
+
+		for (i = 0; i < this_read; i++)
+			*csum += filebuf[i];
+
+		size -= this_read;
+	}
+	/* seek back to the start for data segment I/O */
+	if (lseek(fd, 0, SEEK_SET) < 0)
+		return -1;
+
+	return 0;
+}
+
 static int cpio_mkfile(const char *name, const char *location,
 			unsigned int mode, uid_t uid, gid_t gid,
 			unsigned int nlinks)
@@ -300,11 +326,12 @@ static int cpio_mkfile(const char *name, const char *location,
 	char s[256];
 	struct stat buf;
 	unsigned long size;
-	int file = -1;
+	int file;
 	int retval;
 	int rc = -1;
 	int namesize;
 	unsigned int i;
+	uint32_t csum = 0;
 
 	mode |= S_IFREG;
 
@@ -326,9 +353,20 @@ static int cpio_mkfile(const char *name, const char *location,
 		buf.st_mtime = 0xffffffff;
 	}
 
+	if (buf.st_mtime < 0) {
+		fprintf(stderr, "%s: Timestamp negative, clipping.\n",
+			location);
+		buf.st_mtime = 0;
+	}
+
 	if (buf.st_size > 0xffffffff) {
 		fprintf(stderr, "%s: Size exceeds maximum cpio file size\n",
 			location);
+		goto error;
+	}
+
+	if (do_csum && cpio_mkfile_csum(file, buf.st_size, &csum) < 0) {
+		fprintf(stderr, "Failed to checksum file %s\n", location);
 		goto error;
 	}
 
@@ -343,7 +381,7 @@ static int cpio_mkfile(const char *name, const char *location,
 		namesize = strlen(name) + 1;
 		sprintf(s,"%s%08X%08X%08lX%08lX%08X%08lX"
 		       "%08lX%08X%08X%08X%08X%08X%08X",
-			"070701",		/* magic */
+			do_csum ? "070702" : "070701", /* magic */
 			ino,			/* ino */
 			mode,			/* mode */
 			(long) uid,		/* uid */
@@ -356,7 +394,7 @@ static int cpio_mkfile(const char *name, const char *location,
 			0,			/* rmajor */
 			0,			/* rminor */
 			namesize,		/* namesize */
-			0);			/* chksum */
+			size ? csum : 0);	/* chksum */
 		push_hdr(s);
 		push_string(name);
 		push_pad();
@@ -464,7 +502,7 @@ static int cpio_mkfile_line(const char *line)
 static void usage(const char *prog)
 {
 	fprintf(stderr, "Usage:\n"
-		"\t%s [-t <timestamp>] <cpio_list>\n"
+		"\t%s [-t <timestamp>] [-c] <cpio_list>\n"
 		"\n"
 		"<cpio_list> is a file containing newline separated entries that\n"
 		"describe the files to be included in the initramfs archive:\n"
@@ -499,11 +537,12 @@ static void usage(const char *prog)
 		"\n"
 		"<timestamp> is time in seconds since Epoch that will be used\n"
 		"as mtime for symlinks, special files and directories. The default\n"
-		"is to use the current time for these entries.\n",
+		"is to use the current time for these entries.\n"
+		"-c: calculate and store 32-bit checksums for file data.\n",
 		prog);
 }
 
-struct file_handler file_handler_table[] = {
+static const struct file_handler file_handler_table[] = {
 	{
 		.type    = "file",
 		.handler = cpio_mkfile_line,
@@ -541,7 +580,7 @@ int main (int argc, char *argv[])
 
 	default_mtime = time(NULL);
 	while (1) {
-		int opt = getopt(argc, argv, "t:h");
+		int opt = getopt(argc, argv, "t:ch");
 		char *invalid;
 
 		if (opt == -1)
@@ -556,6 +595,9 @@ int main (int argc, char *argv[])
 				exit(1);
 			}
 			break;
+		case 'c':
+			do_csum = true;
+			break;
 		case 'h':
 		case '?':
 			usage(argv[0]);
@@ -566,10 +608,10 @@ int main (int argc, char *argv[])
 	/*
 	 * Timestamps after 2106-02-07 06:28:15 UTC have an ascii hex time_t
 	 * representation that exceeds 8 chars and breaks the cpio header
-	 * specification.
+	 * specification. Negative timestamps similarly exceed 8 chars.
 	 */
-	if (default_mtime > 0xffffffff) {
-		fprintf(stderr, "ERROR: Timestamp too large for cpio format\n");
+	if (default_mtime > 0xffffffff || default_mtime < 0) {
+		fprintf(stderr, "ERROR: Timestamp out of range for cpio format\n");
 		exit(1);
 	}
 

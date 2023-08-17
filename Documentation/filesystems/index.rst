@@ -29,11 +29,11 @@ algorithms work.
    fiemap
    files
    locks
-   mandatory-locking
    mount_api
    quota
    seq_file
    sharedsubtree
+   idmappings
 
    automount-support
 
@@ -72,7 +72,6 @@ Documentation for filesystem implementations.
    befs
    bfs
    btrfs
-   cifs/cifsroot
    ceph
    coda
    configfs
@@ -100,6 +99,7 @@ Documentation for filesystem implementations.
    nilfs2
    nfs/index
    ntfs
+   ntfs3
    ocfs2
    ocfs2-online-filecheck
    omfs
@@ -110,6 +110,7 @@ Documentation for filesystem implementations.
    ramfs-rootfs-initramfs
    relay
    romfs
+   smb/index
    spufs/index
    squashfs
    sysfs
@@ -122,4 +123,5 @@ Documentation for filesystem implementations.
    vfat
    xfs-delayed-logging-design
    xfs-self-describing-metadata
+   xfs-online-fsck-design
    zonefs

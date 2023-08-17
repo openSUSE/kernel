@@ -182,11 +182,11 @@ static const char * const smbus_pnp_ids[] = {
 	"LEN0099", /* X1 Extreme Gen 1 / P1 Gen 1 */
 	"LEN009b", /* T580 */
 	"LEN0402", /* X1 Extreme Gen 2 / P1 Gen 2 */
+	"LEN040f", /* P1 Gen 3 */
 	"LEN200f", /* T450s */
 	"LEN2044", /* L470  */
 	"LEN2054", /* E480 */
 	"LEN2055", /* E580 */
-	"LEN2064", /* T14 Gen 1 AMD / P14s Gen 1 AMD */
 	"LEN2068", /* T14 Gen 1 */
 	"SYN3052", /* HP EliteBook 840 G4 */
 	"SYN3221", /* HP 15-ay000 */
@@ -417,7 +417,7 @@ static int synaptics_resolution(struct psmouse *psmouse,
 	return 0;
 }
 
-static int __synaptics_query_hardware(struct psmouse *psmouse,
+static int synaptics_query_hardware(struct psmouse *psmouse,
 				    struct synaptics_device_info *info)
 {
 	int error;
@@ -449,21 +449,6 @@ static int __synaptics_query_hardware(struct psmouse *psmouse,
 		return error;
 
 	return 0;
-}
-
-static int synaptics_query_hardware(struct psmouse *psmouse,
-				    struct synaptics_device_info *info)
-{
-	int err;
-
-	err = __synaptics_query_hardware(psmouse, info);
-	if (err) {
-		psmouse_info(psmouse, "Query error (%d), retrying...\n", err);
-		msleep(100);
-		err = __synaptics_query_hardware(psmouse, info);
-	}
-
-	return err;
 }
 
 #endif /* CONFIG_MOUSE_PS2_SYNAPTICS || CONFIG_MOUSE_PS2_SYNAPTICS_SMBUS */
@@ -730,8 +715,8 @@ static void synaptics_pt_create(struct psmouse *psmouse)
 	}
 
 	serio->id.type = SERIO_PS_PSTHRU;
-	strlcpy(serio->name, "Synaptics pass-through", sizeof(serio->name));
-	strlcpy(serio->phys, "synaptics-pt/serio0", sizeof(serio->phys));
+	strscpy(serio->name, "Synaptics pass-through", sizeof(serio->name));
+	strscpy(serio->phys, "synaptics-pt/serio0", sizeof(serio->phys));
 	serio->write = synaptics_pt_write;
 	serio->start = synaptics_pt_start;
 	serio->stop = synaptics_pt_stop;

@@ -19,8 +19,9 @@ Follow these rules to keep your RCU code working properly:
 	can reload the value, and won't your code have fun with two
 	different values for a single pointer!  Without rcu_dereference(),
 	DEC Alpha can load a pointer, dereference that pointer, and
-	return data preceding initialization that preceded the store of
-	the pointer.
+	return data preceding initialization that preceded the store
+	of the pointer.  (As noted later, in recent kernels READ_ONCE()
+	also prevents DEC Alpha from playing these tricks.)
 
 	In addition, the volatile cast in rcu_dereference() prevents the
 	compiler from deducing the resulting pointer value.  Please see
@@ -34,7 +35,7 @@ Follow these rules to keep your RCU code working properly:
 	takes on the role of the lockless_dereference() primitive that
 	was removed in v4.15.
 
--	You are only permitted to use rcu_dereference on pointer values.
+-	You are only permitted to use rcu_dereference() on pointer values.
 	The compiler simply knows too much about integral values to
 	trust it to carry dependencies through integer operations.
 	There are a very few exceptions, namely that you can temporarily
@@ -43,7 +44,7 @@ Follow these rules to keep your RCU code working properly:
 	-	Set bits and clear bits down in the must-be-zero low-order
 		bits of that pointer.  This clearly means that the pointer
 		must have alignment constraints, for example, this does
-		-not- work in general for char* pointers.
+		*not* work in general for char* pointers.
 
 	-	XOR bits to translate pointers, as is done in some
 		classic buddy-allocator algorithms.
@@ -128,10 +129,16 @@ Follow these rules to keep your RCU code working properly:
 		This sort of comparison occurs frequently when scanning
 		RCU-protected circular linked lists.
 
-		Note that if checks for being within an RCU read-side
-		critical section are not required and the pointer is never
-		dereferenced, rcu_access_pointer() should be used in place
-		of rcu_dereference().
+		Note that if the pointer comparison is done outside
+		of an RCU read-side critical section, and the pointer
+		is never dereferenced, rcu_access_pointer() should be
+		used in place of rcu_dereference().  In most cases,
+		it is best to avoid accidental dereferences by testing
+		the rcu_access_pointer() return value directly, without
+		assigning it to a variable.
+
+		Within an RCU read-side critical section, there is little
+		reason to use rcu_access_pointer().
 
 	-	The comparison is against a pointer that references memory
 		that was initialized "a long time ago."  The reason
@@ -174,7 +181,7 @@ Follow these rules to keep your RCU code working properly:
 		Please see the "CONTROL DEPENDENCIES" section of
 		Documentation/memory-barriers.txt for more details.
 
-	-	The pointers are not equal -and- the compiler does
+	-	The pointers are not equal *and* the compiler does
 		not have enough information to deduce the value of the
 		pointer.  Note that the volatile cast in rcu_dereference()
 		will normally prevent the compiler from knowing too much.
@@ -234,6 +241,7 @@ precautions.  To see this, consider the following code fragment::
 		struct foo *q;
 		int r1, r2;
 
+		rcu_read_lock();
 		p = rcu_dereference(gp2);
 		if (p == NULL)
 			return;
@@ -242,7 +250,10 @@ precautions.  To see this, consider the following code fragment::
 		if (p == q) {
 			/* The compiler decides that q->c is same as p->c. */
 			r2 = p->c; /* Could get 44 on weakly order system. */
+		} else {
+			r2 = p->c - r1; /* Unconditional access to p->c. */
 		}
+		rcu_read_unlock();
 		do_something_with(r1, r2);
 	}
 
@@ -291,6 +302,7 @@ Then one approach is to use locking, for example, as follows::
 		struct foo *q;
 		int r1, r2;
 
+		rcu_read_lock();
 		p = rcu_dereference(gp2);
 		if (p == NULL)
 			return;
@@ -300,7 +312,12 @@ Then one approach is to use locking, for example, as follows::
 		if (p == q) {
 			/* The compiler decides that q->c is same as p->c. */
 			r2 = p->c; /* Locking guarantees r2 == 144. */
+		} else {
+			spin_lock(&q->lock);
+			r2 = q->c - r1;
+			spin_unlock(&q->lock);
 		}
+		rcu_read_unlock();
 		spin_unlock(&p->lock);
 		do_something_with(r1, r2);
 	}
@@ -358,9 +375,9 @@ the exact value of "p" even in the not-equals case.  This allows the
 compiler to make the return values independent of the load from "gp",
 in turn destroying the ordering between this load and the loads of the
 return values.  This can result in "p->b" returning pre-initialization
-garbage values.
+garbage values on weakly ordered systems.
 
-In short, rcu_dereference() is -not- optional when you are going to
+In short, rcu_dereference() is *not* optional when you are going to
 dereference the resulting pointer.
 
 
@@ -424,7 +441,7 @@ member of the rcu_dereference() to use in various situations:
 SPARSE CHECKING OF RCU-PROTECTED POINTERS
 -----------------------------------------
 
-The sparse static-analysis tool checks for direct access to RCU-protected
+The sparse static-analysis tool checks for non-RCU access to RCU-protected
 pointers, which can result in "interesting" bugs due to compiler
 optimizations involving invented loads and perhaps also load tearing.
 For example, suppose someone mistakenly does something like this::

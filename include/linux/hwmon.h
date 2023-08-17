@@ -332,12 +332,14 @@ enum hwmon_pwm_attributes {
 	hwmon_pwm_enable,
 	hwmon_pwm_mode,
 	hwmon_pwm_freq,
+	hwmon_pwm_auto_channels_temp,
 };
 
 #define HWMON_PWM_INPUT			BIT(hwmon_pwm_input)
 #define HWMON_PWM_ENABLE		BIT(hwmon_pwm_enable)
 #define HWMON_PWM_MODE			BIT(hwmon_pwm_mode)
 #define HWMON_PWM_FREQ			BIT(hwmon_pwm_freq)
+#define HWMON_PWM_AUTO_CHANNELS_TEMP	BIT(hwmon_pwm_auto_channels_temp)
 
 enum hwmon_intrusion_attributes {
 	hwmon_intrusion_alarm,
@@ -403,7 +405,7 @@ struct hwmon_ops {
 };
 
 /**
- * Channel information
+ * struct hwmon_channel_info - Channel information
  * @type:	Channel type.
  * @config:	Pointer to NULL-terminated list of channel parameters.
  *		Use for per-channel attributes.
@@ -422,18 +424,22 @@ struct hwmon_channel_info {
 	})
 
 /**
- * Chip configuration
+ * struct hwmon_chip_info - Chip configuration
  * @ops:	Pointer to hwmon operations.
  * @info:	Null-terminated list of channel information.
  */
 struct hwmon_chip_info {
 	const struct hwmon_ops *ops;
-	const struct hwmon_channel_info **info;
+	const struct hwmon_channel_info * const *info;
 };
 
 /* hwmon_device_register() is deprecated */
 struct device *hwmon_device_register(struct device *dev);
 
+/*
+ * hwmon_device_register_with_groups() and
+ * devm_hwmon_device_register_with_groups() are deprecated.
+ */
 struct device *
 hwmon_device_register_with_groups(struct device *dev, const char *name,
 				  void *drvdata,
@@ -447,6 +453,9 @@ hwmon_device_register_with_info(struct device *dev,
 				const char *name, void *drvdata,
 				const struct hwmon_chip_info *info,
 				const struct attribute_group **extra_groups);
+struct device *
+hwmon_device_register_for_thermal(struct device *dev, const char *name,
+				  void *drvdata);
 struct device *
 devm_hwmon_device_register_with_info(struct device *dev,
 				const char *name, void *drvdata,

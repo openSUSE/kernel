@@ -25,7 +25,7 @@ References
 
 -	In order to locate kernel-generated OS jitter on CPU N:
 
-		cd /sys/kernel/debug/tracing
+		cd /sys/kernel/tracing
 		echo 1 > max_graph_depth # Increase the "1" for more detail
 		echo function_graph > current_tracer
 		# run workload
@@ -208,7 +208,7 @@ Do at least one of the following:
 2.	Enable RCU to do its processing remotely via dyntick-idle by
 	doing all of the following:
 
-	a.	Build with CONFIG_NO_HZ=y and CONFIG_RCU_FAST_NO_HZ=y.
+	a.	Build with CONFIG_NO_HZ=y.
 	b.	Ensure that the CPU goes idle frequently, allowing other
 		CPUs to detect that it has passed through an RCU quiescent
 		state.	If the kernel is built with CONFIG_NO_HZ_FULL=y,

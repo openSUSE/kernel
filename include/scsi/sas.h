@@ -193,6 +193,13 @@ enum sas_gpio_reg_type {
 	SAS_GPIO_REG_TX_GP = 4,
 };
 
+/* Response frame DATAPRES field */
+enum {
+	SAS_DATAPRES_NO_DATA		= 0,
+	SAS_DATAPRES_RESPONSE_DATA	= 1,
+	SAS_DATAPRES_SENSE_DATA		= 2,
+};
+
 struct  dev_to_host_fis {
 	u8     fis_type;	  /* 0x34 */
 	u8     flags;
@@ -325,8 +332,10 @@ struct ssp_response_iu {
 	__be32 sense_data_len;
 	__be32 response_data_len;
 
-	u8     resp_data[0];
-	u8     sense_data[];
+	union {
+		DECLARE_FLEX_ARRAY(u8, resp_data);
+		DECLARE_FLEX_ARRAY(u8, sense_data);
+	};
 } __attribute__ ((packed));
 
 struct ssp_command_iu {
@@ -462,18 +471,6 @@ struct report_phy_sata_resp {
 	__be32 crc;
 } __attribute__ ((packed));
 
-struct smp_resp {
-	u8    frame_type;
-	u8    function;
-	u8    result;
-	u8    reserved;
-	union {
-		struct report_general_resp  rg;
-		struct discover_resp        disc;
-		struct report_phy_sata_resp rps;
-	};
-} __attribute__ ((packed));
-
 #elif defined(__BIG_ENDIAN_BITFIELD)
 struct sas_identify_frame {
 	/* Byte 0 */
@@ -556,8 +553,10 @@ struct ssp_response_iu {
 	__be32 sense_data_len;
 	__be32 response_data_len;
 
-	u8     resp_data[0];
-	u8     sense_data[];
+	union {
+		DECLARE_FLEX_ARRAY(u8, resp_data);
+		DECLARE_FLEX_ARRAY(u8, sense_data);
+	};
 } __attribute__ ((packed));
 
 struct ssp_command_iu {
@@ -693,20 +692,32 @@ struct report_phy_sata_resp {
 	__be32 crc;
 } __attribute__ ((packed));
 
-struct smp_resp {
+#else
+#error "Bitfield order not defined!"
+#endif
+
+struct smp_rg_resp {
 	u8    frame_type;
 	u8    function;
 	u8    result;
 	u8    reserved;
-	union {
-		struct report_general_resp  rg;
-		struct discover_resp        disc;
-		struct report_phy_sata_resp rps;
-	};
+	struct report_general_resp rg;
 } __attribute__ ((packed));
 
-#else
-#error "Bitfield order not defined!"
-#endif
+struct smp_disc_resp {
+	u8    frame_type;
+	u8    function;
+	u8    result;
+	u8    reserved;
+	struct discover_resp disc;
+} __attribute__ ((packed));
+
+struct smp_rps_resp {
+	u8    frame_type;
+	u8    function;
+	u8    result;
+	u8    reserved;
+	struct report_phy_sata_resp rps;
+} __attribute__ ((packed));
 
 #endif /* _SAS_H_ */

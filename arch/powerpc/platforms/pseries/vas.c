@@ -16,6 +16,7 @@
 #include <asm/machdep.h>
 #include <asm/hvcall.h>
 #include <asm/plpar_wrappers.h>
+#include <asm/firmware.h>
 #include <asm/vas.h>
 #include "vas.h"
 
@@ -152,8 +153,15 @@ int h_query_vas_capabilities(const u64 hcall, u8 query_type, u64 result)
 	if (rc == H_SUCCESS)
 		return 0;
 
-	pr_err("HCALL(%llx) error %ld, query_type %u, result buffer 0x%llx\n",
-			hcall, rc, query_type, result);
+	/* H_FUNCTION means HV does not support VAS so don't print an error */
+	if (rc != H_FUNCTION) {
+		pr_err("%s error %ld, query_type %u, result buffer 0x%llx\n",
+			(hcall == H_QUERY_VAS_CAPABILITIES) ?
+				"H_QUERY_VAS_CAPABILITIES" :
+				"H_QUERY_NX_CAPABILITIES",
+			rc, query_type, result);
+	}
+
 	return -EIO;
 }
 EXPORT_SYMBOL_GPL(h_query_vas_capabilities);
@@ -519,14 +527,10 @@ static const struct vas_user_win_ops vops_pseries = {
 int vas_register_api_pseries(struct module *mod, enum vas_cop_type cop_type,
 			     const char *name)
 {
-	int rc;
-
 	if (!copypaste_feat)
 		return -ENOTSUPP;
 
-	rc = vas_register_coproc_api(mod, cop_type, name, &vops_pseries);
-
-	return rc;
+	return vas_register_coproc_api(mod, cop_type, name, &vops_pseries);
 }
 EXPORT_SYMBOL_GPL(vas_register_api_pseries);
 
@@ -540,7 +544,7 @@ EXPORT_SYMBOL_GPL(vas_unregister_api_pseries);
  * Get the specific capabilities based on the feature type.
  * Right now supports GZIP default and GZIP QoS capabilities.
  */
-static int get_vas_capabilities(u8 feat, enum vas_cop_feat_type type,
+static int __init get_vas_capabilities(u8 feat, enum vas_cop_feat_type type,
 				struct hv_vas_cop_feat_caps *hv_caps)
 {
 	struct vas_cop_feat_caps *caps;
@@ -761,8 +765,7 @@ static int reconfig_close_windows(struct vas_caps *vcap, int excess_creds,
 		 * is done before the original mmap() and after the ioctl.
 		 */
 		if (vma)
-			zap_page_range(vma, vma->vm_start,
-					vma->vm_end - vma->vm_start);
+			zap_vma_pages(vma);
 
 		mutex_unlock(&task_ref->mmap_mutex);
 		mmap_write_unlock(task_ref->mm);
@@ -825,9 +828,9 @@ int vas_reconfig_capabilties(u8 type, int new_nr_creds)
 	atomic_set(&caps->nr_total_credits, new_nr_creds);
 	/*
 	 * The total number of available credits may be decreased or
-	 * inceased with DLPAR operation. Means some windows have to be
+	 * increased with DLPAR operation. Means some windows have to be
 	 * closed / reopened. Hold the vas_pseries_mutex so that the
-	 * the user space can not open new windows.
+	 * user space can not open new windows.
 	 */
 	if (old_nr_creds <  new_nr_creds) {
 		/*

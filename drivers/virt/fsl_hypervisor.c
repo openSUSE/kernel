@@ -659,7 +659,6 @@ static int fsl_hv_open(struct inode *inode, struct file *filp)
 {
 	struct doorbell_queue *dbq;
 	unsigned long flags;
-	int ret = 0;
 
 	dbq = kzalloc(sizeof(struct doorbell_queue), GFP_KERNEL);
 	if (!dbq) {
@@ -676,7 +675,7 @@ static int fsl_hv_open(struct inode *inode, struct file *filp)
 
 	filp->private_data = dbq;
 
-	return ret;
+	return 0;
 }
 
 /*
@@ -687,15 +686,13 @@ static int fsl_hv_close(struct inode *inode, struct file *filp)
 	struct doorbell_queue *dbq = filp->private_data;
 	unsigned long flags;
 
-	int ret = 0;
-
 	spin_lock_irqsave(&db_list_lock, flags);
 	list_del(&dbq->list);
 	spin_unlock_irqrestore(&db_list_lock, flags);
 
 	kfree(dbq);
 
-	return ret;
+	return 0;
 }
 
 static const struct file_operations fsl_hv_fops = {
@@ -799,7 +796,7 @@ static int has_fsl_hypervisor(void)
 	if (!node)
 		return 0;
 
-	ret = of_find_property(node, "fsl,hv-version", NULL) != NULL;
+	ret = of_property_present(node, "fsl,hv-version");
 
 	of_node_put(node);
 
@@ -842,7 +839,7 @@ static int __init fsl_hypervisor_init(void)
 
 		handle = of_get_property(np, "interrupts", NULL);
 		irq = irq_of_parse_and_map(np, 0);
-		if (!handle || (irq == NO_IRQ)) {
+		if (!handle || !irq) {
 			pr_err("fsl-hv: no 'interrupts' property in %pOF node\n",
 				np);
 			continue;

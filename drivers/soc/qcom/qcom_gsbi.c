@@ -114,7 +114,7 @@ struct gsbi_info {
 	struct regmap *tcsr;
 };
 
-static const struct of_device_id tcsr_dt_match[] = {
+static const struct of_device_id tcsr_dt_match[] __maybe_unused = {
 	{ .compatible = "qcom,tcsr-ipq8064", .data = &config_ipq8064},
 	{ .compatible = "qcom,tcsr-apq8064", .data = &config_apq8064},
 	{ .compatible = "qcom,tcsr-msm8960", .data = &config_msm8960},
@@ -127,7 +127,6 @@ static int gsbi_probe(struct platform_device *pdev)
 	struct device_node *node = pdev->dev.of_node;
 	struct device_node *tcsr_node;
 	const struct of_device_id *match;
-	struct resource *res;
 	void __iomem *base;
 	struct gsbi_info *gsbi;
 	int i, ret;
@@ -139,8 +138,7 @@ static int gsbi_probe(struct platform_device *pdev)
 	if (!gsbi)
 		return -ENOMEM;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	base = devm_ioremap_resource(&pdev->dev, res);
+	base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(base))
 		return PTR_ERR(base);
 

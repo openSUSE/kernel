@@ -8,10 +8,12 @@
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM rpcgss
 
-#if !defined(_TRACE_RPCRDMA_H) || defined(TRACE_HEADER_MULTI_READ)
+#if !defined(_TRACE_RPCGSS_H) || defined(TRACE_HEADER_MULTI_READ)
 #define _TRACE_RPCGSS_H
 
 #include <linux/tracepoint.h>
+
+#include <trace/misc/sunrpc.h>
 
 /**
  ** GSS-API related trace events
@@ -99,7 +101,7 @@ DECLARE_EVENT_CLASS(rpcgss_gssapi_event,
 		__entry->maj_stat = maj_stat;
 	),
 
-	TP_printk("task:%u@%u maj_stat=%s",
+	TP_printk(SUNRPC_TRACE_TASK_SPECIFIER " maj_stat=%s",
 		__entry->task_id, __entry->client_id,
 		__entry->maj_stat == 0 ?
 		"GSS_S_COMPLETE" : show_gss_status(__entry->maj_stat))
@@ -204,8 +206,30 @@ DECLARE_EVENT_CLASS(rpcgss_svc_gssapi_class,
 			),						\
 			TP_ARGS(rqstp, maj_stat))
 
+DEFINE_SVC_GSSAPI_EVENT(wrap);
 DEFINE_SVC_GSSAPI_EVENT(unwrap);
 DEFINE_SVC_GSSAPI_EVENT(mic);
+DEFINE_SVC_GSSAPI_EVENT(get_mic);
+
+TRACE_EVENT(rpcgss_svc_wrap_failed,
+	TP_PROTO(
+		const struct svc_rqst *rqstp
+	),
+
+	TP_ARGS(rqstp),
+
+	TP_STRUCT__entry(
+		__field(u32, xid)
+		__string(addr, rqstp->rq_xprt->xpt_remotebuf)
+	),
+
+	TP_fast_assign(
+		__entry->xid = be32_to_cpu(rqstp->rq_xid);
+		__assign_str(addr, rqstp->rq_xprt->xpt_remotebuf);
+	),
+
+	TP_printk("addr=%s xid=0x%08x", __get_str(addr), __entry->xid)
+);
 
 TRACE_EVENT(rpcgss_svc_unwrap_failed,
 	TP_PROTO(
@@ -332,7 +356,8 @@ TRACE_EVENT(rpcgss_unwrap_failed,
 		__entry->client_id = task->tk_client->cl_clid;
 	),
 
-	TP_printk("task:%u@%u", __entry->task_id, __entry->client_id)
+	TP_printk(SUNRPC_TRACE_TASK_SPECIFIER,
+		__entry->task_id, __entry->client_id)
 );
 
 TRACE_EVENT(rpcgss_bad_seqno,
@@ -358,7 +383,8 @@ TRACE_EVENT(rpcgss_bad_seqno,
 		__entry->received = received;
 	),
 
-	TP_printk("task:%u@%u expected seqno %u, received seqno %u",
+	TP_printk(SUNRPC_TRACE_TASK_SPECIFIER
+		  " expected seqno %u, received seqno %u",
 		__entry->task_id, __entry->client_id,
 		__entry->expected, __entry->received)
 );
@@ -386,7 +412,7 @@ TRACE_EVENT(rpcgss_seqno,
 		__entry->seqno = rqst->rq_seqno;
 	),
 
-	TP_printk("task:%u@%u xid=0x%08x seqno=%u",
+	TP_printk(SUNRPC_TRACE_TASK_SPECIFIER " xid=0x%08x seqno=%u",
 		__entry->task_id, __entry->client_id,
 		__entry->xid, __entry->seqno)
 );
@@ -418,7 +444,8 @@ TRACE_EVENT(rpcgss_need_reencode,
 		__entry->ret = ret;
 	),
 
-	TP_printk("task:%u@%u xid=0x%08x rq_seqno=%u seq_xmit=%u reencode %sneeded",
+	TP_printk(SUNRPC_TRACE_TASK_SPECIFIER
+		  " xid=0x%08x rq_seqno=%u seq_xmit=%u reencode %sneeded",
 		__entry->task_id, __entry->client_id,
 		__entry->xid, __entry->seqno, __entry->seq_xmit,
 		__entry->ret ? "" : "un")
@@ -452,7 +479,8 @@ TRACE_EVENT(rpcgss_update_slack,
 		__entry->verfsize = auth->au_verfsize;
 	),
 
-	TP_printk("task:%u@%u xid=0x%08x auth=%p rslack=%u ralign=%u verfsize=%u\n",
+	TP_printk(SUNRPC_TRACE_TASK_SPECIFIER
+		  " xid=0x%08x auth=%p rslack=%u ralign=%u verfsize=%u\n",
 		__entry->task_id, __entry->client_id, __entry->xid,
 		__entry->auth, __entry->rslack, __entry->ralign,
 		__entry->verfsize)

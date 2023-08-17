@@ -21,6 +21,7 @@
 #include <linux/earlycpio.h>
 #include <linux/initrd.h>
 #include <linux/security.h>
+#include <linux/kmemleak.h>
 #include "internal.h"
 
 #ifdef CONFIG_ACPI_CUSTOM_DSDT
@@ -206,6 +207,16 @@ void acpi_table_print_madt_entry(struct acpi_subtable_header *header)
 			pr_debug("GIC Distributor (gic_id[0x%04x] address[%llx] gsi_base[%d])\n",
 				 p->gic_id, p->base_address,
 				 p->global_irq_base);
+		}
+		break;
+
+	case ACPI_MADT_TYPE_CORE_PIC:
+		{
+			struct acpi_madt_core_pic *p = (struct acpi_madt_core_pic *)header;
+
+			pr_debug("CORE PIC (processor_id[0x%02x] core_id[0x%02x] %s)\n",
+				 p->processor_id, p->core_id,
+				 (p->flags & ACPI_MADT_ENABLED) ? "enabled" : "disabled");
 		}
 		break;
 
@@ -629,8 +640,8 @@ void __init acpi_table_upgrade(void)
 	}
 
 	acpi_tables_addr =
-		memblock_find_in_range(0, ACPI_TABLE_UPGRADE_MAX_PHYS,
-				       all_tables_size, PAGE_SIZE);
+		memblock_phys_alloc_range(all_tables_size, PAGE_SIZE,
+					  0, ACPI_TABLE_UPGRADE_MAX_PHYS);
 	if (!acpi_tables_addr) {
 		WARN_ON(1);
 		return;
@@ -645,8 +656,9 @@ void __init acpi_table_upgrade(void)
 	 * Both memblock_reserve and e820__range_add (via arch_reserve_mem_area)
 	 * works fine.
 	 */
-	memblock_reserve(acpi_tables_addr, all_tables_size);
 	arch_reserve_mem_area(acpi_tables_addr, all_tables_size);
+
+	kmemleak_ignore_phys(acpi_tables_addr);
 
 	/*
 	 * early_ioremap only can remap 256k one time. If we map all
@@ -837,12 +849,11 @@ acpi_status acpi_os_table_override(struct acpi_table_header *existing_table,
 /*
  * acpi_locate_initial_tables()
  *
- * find RSDP, find and checksum SDT/XSDT.
- * checksum all tables, print SDT/XSDT
+ * Get the RSDP, then find and checksum all the ACPI tables.
  *
- * result: sdt_entry[] is initialized
+ * result: initial_tables[] is initialized, and points to
+ * a list of ACPI tables.
  */
-
 int __init acpi_locate_initial_tables(void)
 {
 	acpi_status status;

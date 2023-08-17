@@ -146,7 +146,7 @@ static int mt2701_cs42448_be_ops_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-static struct snd_soc_ops mt2701_cs42448_be_ops = {
+static const struct snd_soc_ops mt2701_cs42448_be_ops = {
 	.hw_params = mt2701_cs42448_be_ops_hw_params
 };
 
@@ -418,6 +418,7 @@ static const struct of_device_id mt2701_cs42448_machine_dt_match[] = {
 	{.compatible = "mediatek,mt2701-cs42448-machine",},
 	{}
 };
+MODULE_DEVICE_TABLE(of, mt2701_cs42448_machine_dt_match);
 #endif
 
 static struct platform_driver mt2701_cs42448_machine = {

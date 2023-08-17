@@ -18,7 +18,7 @@
 
 
 /*
- * Prolific PL-2301/PL-2302 driver ... http://www.prolific.com.tw/ 
+ * Prolific PL-2301/PL-2302 driver ... http://www.prolific.com.tw/
  *
  * The protocol and handshaking used here should be bug-compatible
  * with the Linux 2.2 "plusb" driver, by Deti Fliegl.
@@ -59,12 +59,6 @@ pl_vendor_req(struct usbnet *dev, u8 req, u8 val, u8 index)
 {
 	return usbnet_write_cmd(dev, req, USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 				val, index, NULL, 0);
-}
-
-static inline int
-pl_clear_QuickLink_features(struct usbnet *dev, int val)
-{
-	return pl_vendor_req(dev, 1, (u8) val, 0);
 }
 
 static inline int

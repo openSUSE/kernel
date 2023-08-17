@@ -16,14 +16,12 @@
 		compatible = "simple-bus";
 		interrupt-parent = <&intcon>;
 
-		flash@30000000 {
+		flash: flash@30000000 {
 			compatible = "cortina,gemini-flash", "cfi-flash";
 			syscon = <&syscon>;
 			pinctrl-names = "default";
 			pinctrl-0 = <&pflash_default_pins>;
 			bank-width = <2>;
-			#address-cells = <1>;
-			#size-cells = <1>;
 			status = "disabled";
 		};
 
@@ -289,8 +287,27 @@
 			device_type = "pci";
 			#address-cells = <3>;
 			#size-cells = <2>;
-			#interrupt-cells = <1>;
 			status = "disabled";
+
+			#interrupt-cells = <1>;
+			interrupt-map-mask = <0xf800 0 0 7>;
+			interrupt-map =
+				<0x4800 0 0 1 &pci_intc 0>, /* Slot 9 */
+				<0x4800 0 0 2 &pci_intc 1>,
+				<0x4800 0 0 3 &pci_intc 2>,
+				<0x4800 0 0 4 &pci_intc 3>,
+				<0x5000 0 0 1 &pci_intc 1>, /* Slot 10 */
+				<0x5000 0 0 2 &pci_intc 2>,
+				<0x5000 0 0 3 &pci_intc 3>,
+				<0x5000 0 0 4 &pci_intc 0>,
+				<0x5800 0 0 1 &pci_intc 2>, /* Slot 11 */
+				<0x5800 0 0 2 &pci_intc 3>,
+				<0x5800 0 0 3 &pci_intc 0>,
+				<0x5800 0 0 4 &pci_intc 1>,
+				<0x6000 0 0 1 &pci_intc 3>, /* Slot 12 */
+				<0x6000 0 0 2 &pci_intc 0>,
+				<0x6000 0 0 3 &pci_intc 1>,
+				<0x6000 0 0 4 &pci_intc 2>;
 
 			bus-range = <0x00 0xff>;
 			/* PCI ranges mappings */
@@ -322,7 +339,7 @@
 			};
 		};
 
-		ethernet@60000000 {
+		ethernet: ethernet@60000000 {
 			compatible = "cortina,gemini-ethernet";
 			reg = <0x60000000 0x4000>, /* Global registers, queue */
 			      <0x60004000 0x2000>, /* V-bit */
@@ -365,7 +382,7 @@
 			clocks = <&syscon GEMINI_CLK_GATE_SECURITY>;
 		};
 
-		ide@63000000 {
+		ide0: ide@63000000 {
 			compatible = "cortina,gemini-pata", "faraday,ftide010";
 			reg = <0x63000000 0x1000>;
 			interrupts = <4 IRQ_TYPE_EDGE_RISING>;
@@ -378,7 +395,7 @@
 			#size-cells = <0>;
 		};
 
-		ide@63400000 {
+		ide1: ide@63400000 {
 			compatible = "cortina,gemini-pata", "faraday,ftide010";
 			reg = <0x63400000 0x1000>;
 			interrupts = <5 IRQ_TYPE_EDGE_RISING>;
@@ -421,8 +438,8 @@
 			status = "disabled";
 		};
 
-		usb@68000000 {
-			compatible = "cortina,gemini-usb", "faraday,fotg210";
+		usb0: usb@68000000 {
+			compatible = "cortina,gemini-usb", "faraday,fotg200";
 			reg = <0x68000000 0x1000>;
 			interrupts = <10 IRQ_TYPE_LEVEL_HIGH>;
 			resets = <&syscon GEMINI_RESET_USB0>;
@@ -438,12 +455,14 @@
 			 */
 			pinctrl-names = "default";
 			pinctrl-0 = <&usb_default_pins>;
+			/* Default to host mode */
+			dr_mode = "host";
 			syscon = <&syscon>;
 			status = "disabled";
 		};
 
-		usb@69000000 {
-			compatible = "cortina,gemini-usb", "faraday,fotg210";
+		usb1: usb@69000000 {
+			compatible = "cortina,gemini-usb", "faraday,fotg200";
 			reg = <0x69000000 0x1000>;
 			interrupts = <11 IRQ_TYPE_LEVEL_HIGH>;
 			resets = <&syscon GEMINI_RESET_USB1>;

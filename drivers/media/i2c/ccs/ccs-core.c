@@ -17,7 +17,6 @@
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/firmware.h>
-#include <linux/gpio.h>
 #include <linux/gpio/consumer.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
@@ -122,7 +121,7 @@ void ccs_replace_limit(struct ccs_sensor *sensor,
 
 	linfo = &ccs_limits[ccs_limit_offsets[limit].info];
 
-	dev_dbg(&client->dev, "quirk: 0x%8.8x \"%s\" %u = %d, 0x%x\n",
+	dev_dbg(&client->dev, "quirk: 0x%8.8x \"%s\" %u = %u, 0x%x\n",
 		linfo->reg, linfo->name, offset, val, val);
 
 	ccs_assign_limit(ptr, ccs_reg_width(linfo->reg), val);
@@ -289,7 +288,7 @@ static int ccs_read_frame_fmt(struct ccs_sensor *sensor)
 				CCS_FRAME_FORMAT_DESCRIPTOR_4_PIXELS_MASK;
 		} else {
 			dev_dbg(&client->dev,
-				"invalid frame format model type %d\n",
+				"invalid frame format model type %u\n",
 				fmt_model_type);
 			return -EINVAL;
 		}
@@ -321,7 +320,7 @@ static int ccs_read_frame_fmt(struct ccs_sensor *sensor)
 		}
 
 		dev_dbg(&client->dev,
-			"%s pixels: %d %s (pixelcode %u)\n",
+			"%s pixels: %u %s (pixelcode %u)\n",
 			what, pixels, which, pixelcode);
 
 		if (i < ncol_desc) {
@@ -354,9 +353,9 @@ static int ccs_read_frame_fmt(struct ccs_sensor *sensor)
 		sensor->image_start = sensor->embedded_end;
 	}
 
-	dev_dbg(&client->dev, "embedded data from lines %d to %d\n",
+	dev_dbg(&client->dev, "embedded data from lines %u to %u\n",
 		sensor->embedded_start, sensor->embedded_end);
-	dev_dbg(&client->dev, "image data starts at line %d\n",
+	dev_dbg(&client->dev, "image data starts at line %u\n",
 		sensor->image_start);
 
 	return 0;
@@ -570,9 +569,7 @@ static u32 ccs_pixel_order(struct ccs_sensor *sensor)
 			flip |= CCS_IMAGE_ORIENTATION_VERTICAL_FLIP;
 	}
 
-	flip ^= sensor->hvflip_inv_mask;
-
-	dev_dbg(&client->dev, "flip %d\n", flip);
+	dev_dbg(&client->dev, "flip %u\n", flip);
 	return sensor->default_pixel_order ^ flip;
 }
 
@@ -632,8 +629,6 @@ static int ccs_set_ctrl(struct v4l2_ctrl *ctrl)
 
 		if (sensor->vflip->val)
 			orient |= CCS_IMAGE_ORIENTATION_VERTICAL_FLIP;
-
-		orient ^= sensor->hvflip_inv_mask;
 
 		ccs_update_mbus_formats(sensor);
 
@@ -801,13 +796,23 @@ static const struct v4l2_ctrl_ops ccs_ctrl_ops = {
 static int ccs_init_controls(struct ccs_sensor *sensor)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&sensor->src->sd);
+	struct v4l2_fwnode_device_properties props;
 	int rval;
 
-	rval = v4l2_ctrl_handler_init(&sensor->pixel_array->ctrl_handler, 17);
+	rval = v4l2_ctrl_handler_init(&sensor->pixel_array->ctrl_handler, 19);
 	if (rval)
 		return rval;
 
 	sensor->pixel_array->ctrl_handler.lock = &sensor->mutex;
+
+	rval = v4l2_fwnode_device_parse(&client->dev, &props);
+	if (rval)
+		return rval;
+
+	rval = v4l2_ctrl_new_fwnode_properties(&sensor->pixel_array->ctrl_handler,
+					       &ccs_ctrl_ops, &props);
+	if (rval)
+		return rval;
 
 	switch (CCS_LIM(sensor, ANALOG_GAIN_CAPABILITY)) {
 	case CCS_ANALOG_GAIN_CAPABILITY_GLOBAL: {
@@ -1057,18 +1062,18 @@ static int ccs_get_mbus_formats(struct ccs_sensor *sensor)
 
 	type = CCS_LIM(sensor, DATA_FORMAT_MODEL_TYPE);
 
-	dev_dbg(&client->dev, "data_format_model_type %d\n", type);
+	dev_dbg(&client->dev, "data_format_model_type %u\n", type);
 
 	rval = ccs_read(sensor, PIXEL_ORDER, &pixel_order);
 	if (rval)
 		return rval;
 
 	if (pixel_order >= ARRAY_SIZE(pixel_order_str)) {
-		dev_dbg(&client->dev, "bad pixel order %d\n", pixel_order);
+		dev_dbg(&client->dev, "bad pixel order %u\n", pixel_order);
 		return -EINVAL;
 	}
 
-	dev_dbg(&client->dev, "pixel order %d (%s)\n", pixel_order,
+	dev_dbg(&client->dev, "pixel order %u (%s)\n", pixel_order,
 		pixel_order_str[pixel_order]);
 
 	switch (type) {
@@ -1106,7 +1111,7 @@ static int ccs_get_mbus_formats(struct ccs_sensor *sensor)
 			    (fmt & CCS_DATA_FORMAT_DESCRIPTOR_COMPRESSED_MASK))
 				continue;
 
-			dev_dbg(&client->dev, "jolly good! %d\n", j);
+			dev_dbg(&client->dev, "jolly good! %u\n", j);
 
 			sensor->default_mbus_frame_fmts |= 1 << j;
 		}
@@ -1946,6 +1951,51 @@ static int ccs_set_stream(struct v4l2_subdev *subdev, int enable)
 	return rval;
 }
 
+static int ccs_pre_streamon(struct v4l2_subdev *subdev, u32 flags)
+{
+	struct ccs_sensor *sensor = to_ccs_sensor(subdev);
+	struct i2c_client *client = v4l2_get_subdevdata(&sensor->src->sd);
+	int rval;
+
+	if (flags & V4L2_SUBDEV_PRE_STREAMON_FL_MANUAL_LP) {
+		switch (sensor->hwcfg.csi_signalling_mode) {
+		case CCS_CSI_SIGNALING_MODE_CSI_2_DPHY:
+			if (!(CCS_LIM(sensor, PHY_CTRL_CAPABILITY_2) &
+			      CCS_PHY_CTRL_CAPABILITY_2_MANUAL_LP_DPHY))
+				return -EACCES;
+			break;
+		case CCS_CSI_SIGNALING_MODE_CSI_2_CPHY:
+			if (!(CCS_LIM(sensor, PHY_CTRL_CAPABILITY_2) &
+			      CCS_PHY_CTRL_CAPABILITY_2_MANUAL_LP_CPHY))
+				return -EACCES;
+			break;
+		default:
+			return -EACCES;
+		}
+	}
+
+	rval = ccs_pm_get_init(sensor);
+	if (rval)
+		return rval;
+
+	if (flags & V4L2_SUBDEV_PRE_STREAMON_FL_MANUAL_LP) {
+		rval = ccs_write(sensor, MANUAL_LP_CTRL,
+				 CCS_MANUAL_LP_CTRL_ENABLE);
+		if (rval)
+			pm_runtime_put(&client->dev);
+	}
+
+	return rval;
+}
+
+static int ccs_post_streamoff(struct v4l2_subdev *subdev)
+{
+	struct ccs_sensor *sensor = to_ccs_sensor(subdev);
+	struct i2c_client *client = v4l2_get_subdevdata(&sensor->src->sd);
+
+	return pm_runtime_put(&client->dev);
+}
+
 static int ccs_enum_mbus_code(struct v4l2_subdev *subdev,
 			      struct v4l2_subdev_state *sd_state,
 			      struct v4l2_subdev_mbus_code_enum *code)
@@ -1958,7 +2008,7 @@ static int ccs_enum_mbus_code(struct v4l2_subdev *subdev,
 
 	mutex_lock(&sensor->mutex);
 
-	dev_err(&client->dev, "subdev %s, pad %d, index %d\n",
+	dev_err(&client->dev, "subdev %s, pad %u, index %u\n",
 		subdev->name, code->pad, code->index);
 
 	if (subdev != &sensor->src->sd || code->pad != CCS_PAD_SRC) {
@@ -1976,7 +2026,7 @@ static int ccs_enum_mbus_code(struct v4l2_subdev *subdev,
 
 		if (idx == code->index) {
 			code->code = ccs_csi_data_formats[i].code;
-			dev_err(&client->dev, "found index %d, i %d, code %x\n",
+			dev_err(&client->dev, "found index %u, i %u, code %x\n",
 				code->index, i, code->code);
 			rval = 0;
 			break;
@@ -2345,7 +2395,7 @@ static void ccs_set_compose_scaler(struct v4l2_subdev *subdev,
 	max_m = clamp(max_m, CCS_LIM(sensor, SCALER_M_MIN),
 		      CCS_LIM(sensor, SCALER_M_MAX));
 
-	dev_dbg(&client->dev, "scaling: a %d b %d max_m %d\n", a, b, max_m);
+	dev_dbg(&client->dev, "scaling: a %u b %u max_m %u\n", a, b, max_m);
 
 	min = min(max_m, min(a, b));
 	max = min(max_m, max(a, b));
@@ -2375,7 +2425,7 @@ static void ccs_set_compose_scaler(struct v4l2_subdev *subdev,
 			sel->r.height,
 			sel->flags);
 
-		dev_dbg(&client->dev, "trying factor %d (%d)\n", try[i], i);
+		dev_dbg(&client->dev, "trying factor %u (%u)\n", try[i], i);
 
 		if (this > best) {
 			scale_m = try[i];
@@ -2676,8 +2726,7 @@ static int ccs_get_skip_top_lines(struct v4l2_subdev *subdev, u32 *lines)
  */
 
 static ssize_t
-ccs_sysfs_nvm_read(struct device *dev, struct device_attribute *attr,
-		   char *buf)
+nvm_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct v4l2_subdev *subdev = i2c_get_clientdata(to_i2c_client(dev));
 	struct i2c_client *client = v4l2_get_subdevdata(subdev);
@@ -2707,27 +2756,25 @@ ccs_sysfs_nvm_read(struct device *dev, struct device_attribute *attr,
 	 */
 	return rval;
 }
-static DEVICE_ATTR(nvm, S_IRUGO, ccs_sysfs_nvm_read, NULL);
+static DEVICE_ATTR_RO(nvm);
 
 static ssize_t
-ccs_sysfs_ident_read(struct device *dev, struct device_attribute *attr,
-		     char *buf)
+ident_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct v4l2_subdev *subdev = i2c_get_clientdata(to_i2c_client(dev));
 	struct ccs_sensor *sensor = to_ccs_sensor(subdev);
 	struct ccs_module_info *minfo = &sensor->minfo;
 
 	if (minfo->mipi_manufacturer_id)
-		return snprintf(buf, PAGE_SIZE, "%4.4x%4.4x%2.2x\n",
-				minfo->mipi_manufacturer_id, minfo->model_id,
-				minfo->revision_number) + 1;
+		return sysfs_emit(buf, "%4.4x%4.4x%2.2x\n",
+				    minfo->mipi_manufacturer_id, minfo->model_id,
+				    minfo->revision_number) + 1;
 	else
-		return snprintf(buf, PAGE_SIZE, "%2.2x%4.4x%2.2x\n",
-				minfo->smia_manufacturer_id, minfo->model_id,
-				minfo->revision_number) + 1;
+		return sysfs_emit(buf, "%2.2x%4.4x%2.2x\n",
+				    minfo->smia_manufacturer_id, minfo->model_id,
+				    minfo->revision_number) + 1;
 }
-
-static DEVICE_ATTR(ident, S_IRUGO, ccs_sysfs_ident_read, NULL);
+static DEVICE_ATTR_RO(ident);
 
 /* -----------------------------------------------------------------------------
  * V4L2 subdev core operations
@@ -2787,6 +2834,10 @@ static int ccs_identify_module(struct ccs_sensor *sensor)
 		rval = ccs_read_addr_8only(sensor,
 					   CCS_R_SENSOR_REVISION_NUMBER,
 					   &minfo->sensor_revision_number);
+	if (!rval && !minfo->sensor_revision_number)
+		rval = ccs_read_addr_8only(sensor,
+					   CCS_R_SENSOR_REVISION_NUMBER_16,
+					   &minfo->sensor_revision_number);
 	if (!rval)
 		rval = ccs_read_addr_8only(sensor,
 					   CCS_R_SENSOR_FIRMWARE_VERSION,
@@ -2829,7 +2880,7 @@ static int ccs_identify_module(struct ccs_sensor *sensor)
 			minfo->sensor_model_id);
 
 	dev_dbg(&client->dev,
-		"sensor revision 0x%2.2x firmware version 0x%2.2x\n",
+		"sensor revision 0x%4.4x firmware version 0x%2.2x\n",
 		minfo->sensor_revision_number, minfo->sensor_firmware_version);
 
 	if (minfo->ccs_version) {
@@ -2843,19 +2894,18 @@ static int ccs_identify_module(struct ccs_sensor *sensor)
 			"smia version %2.2d smiapp version %2.2d\n",
 			minfo->smia_version, minfo->smiapp_version);
 		minfo->name = SMIAPP_NAME;
-	}
-
-	/*
-	 * Some modules have bad data in the lvalues below. Hope the
-	 * rvalues have better stuff. The lvalues are module
-	 * parameters whereas the rvalues are sensor parameters.
-	 */
-	if (minfo->sensor_smia_manufacturer_id &&
-	    !minfo->smia_manufacturer_id && !minfo->model_id) {
-		minfo->smia_manufacturer_id =
-			minfo->sensor_smia_manufacturer_id;
-		minfo->model_id = minfo->sensor_model_id;
-		minfo->revision_number = minfo->sensor_revision_number;
+		/*
+		 * Some modules have bad data in the lvalues below. Hope the
+		 * rvalues have better stuff. The lvalues are module
+		 * parameters whereas the rvalues are sensor parameters.
+		 */
+		if (minfo->sensor_smia_manufacturer_id &&
+		    !minfo->smia_manufacturer_id && !minfo->model_id) {
+			minfo->smia_manufacturer_id =
+				minfo->sensor_smia_manufacturer_id;
+			minfo->model_id = minfo->sensor_model_id;
+			minfo->revision_number = minfo->sensor_revision_number;
+		}
 	}
 
 	for (i = 0; i < ARRAY_SIZE(ccs_module_idents); i++) {
@@ -3061,6 +3111,8 @@ static int ccs_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 
 static const struct v4l2_subdev_video_ops ccs_video_ops = {
 	.s_stream = ccs_set_stream,
+	.pre_streamon = ccs_pre_streamon,
+	.post_streamoff = ccs_post_streamoff,
 };
 
 static const struct v4l2_subdev_pad_ops ccs_pad_ops = {
@@ -3142,8 +3194,7 @@ static int ccs_get_hwconfig(struct ccs_sensor *sensor, struct device *dev)
 	struct v4l2_fwnode_endpoint bus_cfg = { .bus_type = V4L2_MBUS_UNKNOWN };
 	struct fwnode_handle *ep;
 	struct fwnode_handle *fwnode = dev_fwnode(dev);
-	u32 rotation;
-	int i;
+	unsigned int i;
 	int rval;
 
 	ep = fwnode_graph_get_endpoint_by_id(fwnode, 0, 0,
@@ -3181,30 +3232,12 @@ static int ccs_get_hwconfig(struct ccs_sensor *sensor, struct device *dev)
 		goto out_err;
 	}
 
-	dev_dbg(dev, "lanes %u\n", hwcfg->lanes);
-
-	rval = fwnode_property_read_u32(fwnode, "rotation", &rotation);
-	if (!rval) {
-		switch (rotation) {
-		case 180:
-			hwcfg->module_board_orient =
-				CCS_MODULE_BOARD_ORIENT_180;
-			fallthrough;
-		case 0:
-			break;
-		default:
-			dev_err(dev, "invalid rotation %u\n", rotation);
-			rval = -EINVAL;
-			goto out_err;
-		}
-	}
-
 	rval = fwnode_property_read_u32(dev_fwnode(dev), "clock-frequency",
 					&hwcfg->ext_clk);
 	if (rval)
 		dev_info(dev, "can't get clock-frequency\n");
 
-	dev_dbg(dev, "clk %d, mode %d\n", hwcfg->ext_clk,
+	dev_dbg(dev, "clk %u, mode %u\n", hwcfg->ext_clk,
 		hwcfg->csi_signalling_mode);
 
 	if (!bus_cfg.nr_of_link_frequencies) {
@@ -3223,7 +3256,7 @@ static int ccs_get_hwconfig(struct ccs_sensor *sensor, struct device *dev)
 
 	for (i = 0; i < bus_cfg.nr_of_link_frequencies; i++) {
 		hwcfg->op_sys_clock[i] = bus_cfg.link_frequencies[i];
-		dev_dbg(dev, "freq %d: %lld\n", i, hwcfg->op_sys_clock[i]);
+		dev_dbg(dev, "freq %u: %lld\n", i, hwcfg->op_sys_clock[i]);
 	}
 
 	v4l2_fwnode_endpoint_free(&bus_cfg);
@@ -3238,8 +3271,47 @@ out_err:
 	return rval;
 }
 
+static int ccs_firmware_name(struct i2c_client *client,
+			     struct ccs_sensor *sensor, char *filename,
+			     size_t filename_size, bool is_module)
+{
+	const struct ccs_device *ccsdev = device_get_match_data(&client->dev);
+	bool is_ccs = !(ccsdev->flags & CCS_DEVICE_FLAG_IS_SMIA);
+	bool is_smiapp = sensor->minfo.smiapp_version;
+	u16 manufacturer_id;
+	u16 model_id;
+	u16 revision_number;
+
+	/*
+	 * Old SMIA is module-agnostic. Its sensor identification is based on
+	 * what now are those of the module.
+	 */
+	if (is_module || (!is_ccs && !is_smiapp)) {
+		manufacturer_id = is_ccs ?
+			sensor->minfo.mipi_manufacturer_id :
+			sensor->minfo.smia_manufacturer_id;
+		model_id = sensor->minfo.model_id;
+		revision_number = sensor->minfo.revision_number;
+	} else {
+		manufacturer_id = is_ccs ?
+			sensor->minfo.sensor_mipi_manufacturer_id :
+			sensor->minfo.sensor_smia_manufacturer_id;
+		model_id = sensor->minfo.sensor_model_id;
+		revision_number = sensor->minfo.sensor_revision_number;
+	}
+
+	return snprintf(filename, filename_size,
+			"ccs/%s-%s-%0*x-%4.4x-%0*x.fw",
+			is_ccs ? "ccs" : is_smiapp ? "smiapp" : "smia",
+			is_module || (!is_ccs && !is_smiapp) ?
+				"module" : "sensor",
+			is_ccs ? 4 : 2, manufacturer_id, model_id,
+			!is_ccs && !is_module ? 2 : 4, revision_number);
+}
+
 static int ccs_probe(struct i2c_client *client)
 {
+	const struct ccs_device *ccsdev = device_get_match_data(&client->dev);
 	struct ccs_sensor *sensor;
 	const struct firmware *fw;
 	char filename[40];
@@ -3348,11 +3420,8 @@ static int ccs_probe(struct i2c_client *client)
 		goto out_power_off;
 	}
 
-	rval = snprintf(filename, sizeof(filename),
-			"ccs/ccs-sensor-%4.4x-%4.4x-%4.4x.fw",
-			sensor->minfo.sensor_mipi_manufacturer_id,
-			sensor->minfo.sensor_model_id,
-			sensor->minfo.sensor_revision_number);
+	rval = ccs_firmware_name(client, sensor, filename, sizeof(filename),
+				 false);
 	if (rval >= sizeof(filename)) {
 		rval = -ENOMEM;
 		goto out_power_off;
@@ -3365,21 +3434,21 @@ static int ccs_probe(struct i2c_client *client)
 		release_firmware(fw);
 	}
 
-	rval = snprintf(filename, sizeof(filename),
-			"ccs/ccs-module-%4.4x-%4.4x-%4.4x.fw",
-			sensor->minfo.mipi_manufacturer_id,
-			sensor->minfo.model_id,
-			sensor->minfo.revision_number);
-	if (rval >= sizeof(filename)) {
-		rval = -ENOMEM;
-		goto out_release_sdata;
-	}
+	if (!(ccsdev->flags & CCS_DEVICE_FLAG_IS_SMIA) ||
+	    sensor->minfo.smiapp_version) {
+		rval = ccs_firmware_name(client, sensor, filename,
+					 sizeof(filename), true);
+		if (rval >= sizeof(filename)) {
+			rval = -ENOMEM;
+			goto out_release_sdata;
+		}
 
-	rval = request_firmware(&fw, filename, &client->dev);
-	if (!rval) {
-		ccs_data_parse(&sensor->mdata, fw->data, fw->size, &client->dev,
-			       true);
-		release_firmware(fw);
+		rval = request_firmware(&fw, filename, &client->dev);
+		if (!rval) {
+			ccs_data_parse(&sensor->mdata, fw->data, fw->size,
+				       &client->dev, true);
+			release_firmware(fw);
+		}
 	}
 
 	rval = ccs_read_all_limits(sensor);
@@ -3395,25 +3464,6 @@ static int ccs_probe(struct i2c_client *client)
 	rval = ccs_update_phy_ctrl(sensor);
 	if (rval < 0)
 		goto out_free_ccs_limits;
-
-	/*
-	 * Handle Sensor Module orientation on the board.
-	 *
-	 * The application of H-FLIP and V-FLIP on the sensor is modified by
-	 * the sensor orientation on the board.
-	 *
-	 * For CCS_BOARD_SENSOR_ORIENT_180 the default behaviour is to set
-	 * both H-FLIP and V-FLIP for normal operation which also implies
-	 * that a set/unset operation for user space HFLIP and VFLIP v4l2
-	 * controls will need to be internally inverted.
-	 *
-	 * Rotation also changes the bayer pattern.
-	 */
-	if (sensor->hwcfg.module_board_orient ==
-	    CCS_MODULE_BOARD_ORIENT_180)
-		sensor->hvflip_inv_mask =
-			CCS_IMAGE_ORIENTATION_HORIZONTAL_MIRROR |
-			CCS_IMAGE_ORIENTATION_VERTICAL_FLIP;
 
 	rval = ccs_call_quirk(sensor, limits);
 	if (rval) {
@@ -3624,7 +3674,7 @@ out_power_off:
 	return rval;
 }
 
-static int ccs_remove(struct i2c_client *client)
+static void ccs_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *subdev = i2c_get_clientdata(client);
 	struct ccs_sensor *sensor = to_ccs_sensor(subdev);
@@ -3646,8 +3696,6 @@ static int ccs_remove(struct i2c_client *client)
 	kfree(sensor->ccs_limits);
 	kvfree(sensor->sdata.backing);
 	kvfree(sensor->mdata.backing);
-
-	return 0;
 }
 
 static const struct ccs_device smia_device = {

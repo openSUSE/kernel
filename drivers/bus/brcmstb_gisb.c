@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (C) 2014-2017 Broadcom
+ * Copyright (C) 2014-2021 Broadcom
  */
 
 #include <linux/init.h>
@@ -401,12 +401,10 @@ static int __init brcmstb_gisb_arb_probe(struct platform_device *pdev)
 	struct device_node *dn = pdev->dev.of_node;
 	struct brcmstb_gisb_arb_device *gdev;
 	const struct of_device_id *of_id;
-	struct resource *r;
 	int err, timeout_irq, tea_irq, bp_irq;
 	unsigned int num_masters, j = 0;
 	int i, first, last;
 
-	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	timeout_irq = platform_get_irq(pdev, 0);
 	tea_irq = platform_get_irq(pdev, 1);
 	bp_irq = platform_get_irq(pdev, 2);
@@ -418,7 +416,7 @@ static int __init brcmstb_gisb_arb_probe(struct platform_device *pdev)
 	mutex_init(&gdev->lock);
 	INIT_LIST_HEAD(&gdev->next);
 
-	gdev->base = devm_ioremap_resource(&pdev->dev, r);
+	gdev->base = devm_platform_get_and_ioremap_resource(pdev, 0, NULL);
 	if (IS_ERR(gdev->base))
 		return PTR_ERR(gdev->base);
 
@@ -485,7 +483,7 @@ static int __init brcmstb_gisb_arb_probe(struct platform_device *pdev)
 	list_add_tail(&gdev->next, &brcmstb_gisb_arb_device_list);
 
 #ifdef CONFIG_MIPS
-	board_be_handler = brcmstb_bus_error_handler;
+	mips_set_be_handler(brcmstb_bus_error_handler);
 #endif
 
 	if (list_is_singular(&brcmstb_gisb_arb_device_list)) {
@@ -546,3 +544,7 @@ static int __init brcm_gisb_driver_init(void)
 }
 
 module_init(brcm_gisb_driver_init);
+
+MODULE_AUTHOR("Broadcom");
+MODULE_DESCRIPTION("Broadcom STB GISB arbiter driver");
+MODULE_LICENSE("GPL v2");

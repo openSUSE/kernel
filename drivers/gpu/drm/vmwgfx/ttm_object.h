@@ -42,6 +42,8 @@
 #include <linux/list.h>
 #include <linux/rcupdate.h>
 
+#include <drm/ttm/ttm_bo.h>
+
 /**
  * enum ttm_object_type
  *
@@ -94,7 +96,7 @@ struct ttm_object_device;
  *
  * This struct is intended to be used as a base struct for objects that
  * are visible to user-space. It provides a global name, race-safe
- * access and refcounting, minimal access contol and hooks for unref actions.
+ * access and refcounting, minimal access control and hooks for unref actions.
  */
 
 struct ttm_base_object {
@@ -136,7 +138,7 @@ struct ttm_prime_object {
  *
  * @tfile: Pointer to a struct ttm_object_file.
  * @base: The struct ttm_base_object to initialize.
- * @shareable: This object is shareable with other applcations.
+ * @shareable: This object is shareable with other applications.
  * (different @tfile pointers.)
  * @type: The object type.
  * @refcount_release: See the struct ttm_base_object description.
@@ -306,5 +308,13 @@ extern int ttm_prime_handle_to_fd(struct ttm_object_file *tfile,
 
 #define ttm_prime_object_kfree(__obj, __prime)		\
 	kfree_rcu(__obj, __prime.base.rhead)
+
+static inline int ttm_bo_wait(struct ttm_buffer_object *bo, bool intr,
+			      bool no_wait)
+{
+	struct ttm_operation_ctx ctx = { intr, no_wait };
+
+	return ttm_bo_wait_ctx(bo, &ctx);
+}
 
 #endif

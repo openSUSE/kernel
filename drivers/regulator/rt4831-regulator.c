@@ -106,6 +106,7 @@ static const struct regulator_desc rt4831_regulator_descs[] = {
 		.vsel_reg = RT4831_REG_VLCM,
 		.vsel_mask = RT4831_VOLT_MASK,
 		.bypass_reg = RT4831_REG_DSVEN,
+		.bypass_mask = RT4831_DSVMODE_MASK,
 		.bypass_val_on = DSV_MODE_BYPASS,
 		.bypass_val_off = DSV_MODE_NORMAL,
 		.owner = THIS_MODULE,
@@ -126,6 +127,7 @@ static const struct regulator_desc rt4831_regulator_descs[] = {
 		.enable_mask = RT4831_POSEN_MASK,
 		.active_discharge_reg = RT4831_REG_DSVEN,
 		.active_discharge_mask = RT4831_POSADEN_MASK,
+		.active_discharge_on = RT4831_POSADEN_MASK,
 		.owner = THIS_MODULE,
 	},
 	{
@@ -144,6 +146,7 @@ static const struct regulator_desc rt4831_regulator_descs[] = {
 		.enable_mask = RT4831_NEGEN_MASK,
 		.active_discharge_reg = RT4831_REG_DSVEN,
 		.active_discharge_mask = RT4831_NEGADEN_MASK,
+		.active_discharge_on = RT4831_NEGADEN_MASK,
 		.owner = THIS_MODULE,
 	}
 };
@@ -191,6 +194,7 @@ MODULE_DEVICE_TABLE(platform, rt4831_regulator_match);
 static struct platform_driver rt4831_regulator_driver = {
 	.driver = {
 		.name = "rt4831-regulator",
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 	.id_table = rt4831_regulator_match,
 	.probe = rt4831_regulator_probe,

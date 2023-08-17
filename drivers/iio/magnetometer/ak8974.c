@@ -814,8 +814,7 @@ static const struct regmap_config ak8974_regmap_config = {
 	.precious_reg = ak8974_precious_reg,
 };
 
-static int ak8974_probe(struct i2c_client *i2c,
-			const struct i2c_device_id *id)
+static int ak8974_probe(struct i2c_client *i2c)
 {
 	struct iio_dev *indio_dev;
 	struct ak8974 *ak8974;
@@ -969,7 +968,7 @@ disable_pm:
 	return ret;
 }
 
-static int ak8974_remove(struct i2c_client *i2c)
+static void ak8974_remove(struct i2c_client *i2c)
 {
 	struct iio_dev *indio_dev = i2c_get_clientdata(i2c);
 	struct ak8974 *ak8974 = iio_priv(indio_dev);
@@ -981,11 +980,9 @@ static int ak8974_remove(struct i2c_client *i2c)
 	pm_runtime_disable(&i2c->dev);
 	ak8974_set_power(ak8974, AK8974_PWR_OFF);
 	regulator_bulk_disable(ARRAY_SIZE(ak8974->regs), ak8974->regs);
-
-	return 0;
 }
 
-static int __maybe_unused ak8974_runtime_suspend(struct device *dev)
+static int ak8974_runtime_suspend(struct device *dev)
 {
 	struct ak8974 *ak8974 =
 		iio_priv(i2c_get_clientdata(to_i2c_client(dev)));
@@ -996,7 +993,7 @@ static int __maybe_unused ak8974_runtime_suspend(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused ak8974_runtime_resume(struct device *dev)
+static int ak8974_runtime_resume(struct device *dev)
 {
 	struct ak8974 *ak8974 =
 		iio_priv(i2c_get_clientdata(to_i2c_client(dev)));
@@ -1024,12 +1021,8 @@ out_regulator_disable:
 	return ret;
 }
 
-static const struct dev_pm_ops ak8974_dev_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend,
-				pm_runtime_force_resume)
-	SET_RUNTIME_PM_OPS(ak8974_runtime_suspend,
-			   ak8974_runtime_resume, NULL)
-};
+static DEFINE_RUNTIME_DEV_PM_OPS(ak8974_dev_pm_ops, ak8974_runtime_suspend,
+				 ak8974_runtime_resume, NULL);
 
 static const struct i2c_device_id ak8974_id[] = {
 	{"ami305", 0 },
@@ -1050,10 +1043,10 @@ MODULE_DEVICE_TABLE(of, ak8974_of_match);
 static struct i2c_driver ak8974_driver = {
 	.driver	 = {
 		.name	= "ak8974",
-		.pm = &ak8974_dev_pm_ops,
+		.pm = pm_ptr(&ak8974_dev_pm_ops),
 		.of_match_table = ak8974_of_match,
 	},
-	.probe	  = ak8974_probe,
+	.probe_new = ak8974_probe,
 	.remove	  = ak8974_remove,
 	.id_table = ak8974_id,
 };

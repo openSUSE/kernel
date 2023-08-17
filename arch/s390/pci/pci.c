@@ -75,6 +75,7 @@ struct zpci_dev *get_zdev_by_fid(u32 fid)
 	list_for_each_entry(tmp, &zpci_list, entry) {
 		if (tmp->fid == fid) {
 			zdev = tmp;
+			zpci_zdev_get(zdev);
 			break;
 		}
 	}
@@ -115,20 +116,20 @@ EXPORT_SYMBOL_GPL(pci_proc_domain);
 
 /* Modify PCI: Register I/O address translation parameters */
 int zpci_register_ioat(struct zpci_dev *zdev, u8 dmaas,
-		       u64 base, u64 limit, u64 iota)
+		       u64 base, u64 limit, u64 iota, u8 *status)
 {
 	u64 req = ZPCI_CREATE_REQ(zdev->fh, dmaas, ZPCI_MOD_FC_REG_IOAT);
 	struct zpci_fib fib = {0};
-	u8 cc, status;
+	u8 cc;
 
 	WARN_ON_ONCE(iota & 0x3fff);
 	fib.pba = base;
 	fib.pal = limit;
 	fib.iota = iota | ZPCI_IOTA_RTTO_FLAG;
 	fib.gd = zdev->gisa;
-	cc = zpci_mod_fc(req, &fib, &status);
+	cc = zpci_mod_fc(req, &fib, status);
 	if (cc)
-		zpci_dbg(3, "reg ioat fid:%x, cc:%d, status:%d\n", zdev->fid, cc, status);
+		zpci_dbg(3, "reg ioat fid:%x, cc:%d, status:%d\n", zdev->fid, cc, *status);
 	return cc;
 }
 EXPORT_SYMBOL_GPL(zpci_register_ioat);
@@ -412,7 +413,7 @@ EXPORT_SYMBOL(pci_iounmap);
 static int pci_read(struct pci_bus *bus, unsigned int devfn, int where,
 		    int size, u32 *val)
 {
-	struct zpci_dev *zdev = get_zdev_by_bus(bus, devfn);
+	struct zpci_dev *zdev = zdev_from_bus(bus, devfn);
 
 	return (zdev) ? zpci_cfg_load(zdev, where, val, size) : -ENODEV;
 }
@@ -420,7 +421,7 @@ static int pci_read(struct pci_bus *bus, unsigned int devfn, int where,
 static int pci_write(struct pci_bus *bus, unsigned int devfn, int where,
 		     int size, u32 val)
 {
-	struct zpci_dev *zdev = get_zdev_by_bus(bus, devfn);
+	struct zpci_dev *zdev = zdev_from_bus(bus, devfn);
 
 	return (zdev) ? zpci_cfg_store(zdev, where, val, size) : -ENODEV;
 }
@@ -767,6 +768,7 @@ EXPORT_SYMBOL_GPL(zpci_disable_device);
  */
 int zpci_hot_reset_device(struct zpci_dev *zdev)
 {
+	u8 status;
 	int rc;
 
 	zpci_dbg(3, "rst fid:%x, fh:%x\n", zdev->fid, zdev->fh);
@@ -790,7 +792,7 @@ int zpci_hot_reset_device(struct zpci_dev *zdev)
 
 	if (zdev->dma_table)
 		rc = zpci_register_ioat(zdev, 0, zdev->start_dma, zdev->end_dma,
-					virt_to_phys(zdev->dma_table));
+					virt_to_phys(zdev->dma_table), &status);
 	else
 		rc = zpci_dma_init_device(zdev);
 	if (rc) {
@@ -817,7 +819,7 @@ struct zpci_dev *zpci_create_device(u32 fid, u32 fh, enum zpci_state state)
 	struct zpci_dev *zdev;
 	int rc;
 
-	zpci_dbg(3, "add fid:%x, fh:%x, c:%d\n", fid, fh, state);
+	zpci_dbg(1, "add fid:%x, fh:%x, c:%d\n", fid, fh, state);
 	zdev = kzalloc(sizeof(*zdev), GFP_KERNEL);
 	if (!zdev)
 		return ERR_PTR(-ENOMEM);
@@ -981,7 +983,7 @@ void zpci_release_device(struct kref *kref)
 		break;
 	}
 	zpci_dbg(3, "rem fid:%x\n", zdev->fid);
-	kfree(zdev);
+	kfree_rcu(zdev, rcu);
 }
 
 int zpci_report_error(struct pci_dev *pdev,

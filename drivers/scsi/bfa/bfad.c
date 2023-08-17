@@ -732,17 +732,11 @@ bfad_pci_init(struct pci_dev *pdev, struct bfad_s *bfad)
 	pci_set_master(pdev);
 
 	rc = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
-	if (rc)
-		rc = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
-
 	if (rc) {
 		rc = -ENODEV;
 		printk(KERN_ERR "dma_set_mask_and_coherent fail %p\n", pdev);
 		goto out_release_region;
 	}
-
-	/* Enable PCIE Advanced Error Recovery (AER) if kernel supports */
-	pci_enable_pcie_error_reporting(pdev);
 
 	bfad->pci_bar0_kva = pci_iomap(pdev, 0, pci_resource_len(pdev, 0));
 	bfad->pci_bar2_kva = pci_iomap(pdev, 2, pci_resource_len(pdev, 2));
@@ -804,8 +798,6 @@ bfad_pci_uninit(struct pci_dev *pdev, struct bfad_s *bfad)
 	pci_iounmap(pdev, bfad->pci_bar0_kva);
 	pci_iounmap(pdev, bfad->pci_bar2_kva);
 	pci_release_regions(pdev);
-	/* Disable PCIE Advanced Error Recovery (AER) */
-	pci_disable_pcie_error_reporting(pdev);
 	pci_disable_device(pdev);
 }
 
@@ -1560,15 +1552,11 @@ bfad_pci_slot_reset(struct pci_dev *pdev)
 
 	rc = dma_set_mask_and_coherent(&bfad->pcidev->dev, DMA_BIT_MASK(64));
 	if (rc)
-		rc = dma_set_mask_and_coherent(&bfad->pcidev->dev,
-					       DMA_BIT_MASK(32));
-	if (rc)
 		goto out_disable_device;
 
 	if (restart_bfa(bfad) == -1)
 		goto out_disable_device;
 
-	pci_enable_pcie_error_reporting(pdev);
 	dev_printk(KERN_WARNING, &pdev->dev,
 		   "slot_reset completed  flags: 0x%x!\n", bfad->bfad_flags);
 

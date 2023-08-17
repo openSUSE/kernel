@@ -66,7 +66,7 @@ static void mv_cesa_rearm_engine(struct mv_cesa_engine *engine)
 		return;
 
 	if (backlog)
-		backlog->complete(backlog, -EINPROGRESS);
+		crypto_request_complete(backlog, -EINPROGRESS);
 
 	ctx = crypto_tfm_ctx(req->tfm);
 	ctx->ops->step(req);
@@ -106,7 +106,7 @@ mv_cesa_complete_req(struct mv_cesa_ctx *ctx, struct crypto_async_request *req,
 {
 	ctx->ops->cleanup(req);
 	local_bh_disable();
-	req->complete(req, res);
+	crypto_request_complete(req, res);
 	local_bh_enable();
 }
 
@@ -615,7 +615,6 @@ static struct platform_driver marvell_cesa = {
 };
 module_platform_driver(marvell_cesa);
 
-MODULE_ALIAS("platform:mv_crypto");
 MODULE_AUTHOR("Boris Brezillon <boris.brezillon@free-electrons.com>");
 MODULE_AUTHOR("Arnaud Ebalard <arno@natisbad.org>");
 MODULE_DESCRIPTION("Support for Marvell's cryptographic engine");

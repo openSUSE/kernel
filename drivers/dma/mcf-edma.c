@@ -182,7 +182,6 @@ static int mcf_edma_probe(struct platform_device *pdev)
 	struct fsl_edma_engine *mcf_edma;
 	struct fsl_edma_chan *mcf_chan;
 	struct edma_regs *regs;
-	struct resource *res;
 	int ret, i, len, chans;
 
 	pdata = dev_get_platdata(&pdev->dev);
@@ -191,7 +190,13 @@ static int mcf_edma_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	chans = pdata->dma_channels;
+	if (!pdata->dma_channels) {
+		dev_info(&pdev->dev, "setting default channel number to 64");
+		chans = 64;
+	} else {
+		chans = pdata->dma_channels;
+	}
+
 	len = sizeof(*mcf_edma) + sizeof(*mcf_chan) * chans;
 	mcf_edma = devm_kzalloc(&pdev->dev, len, GFP_KERNEL);
 	if (!mcf_edma)
@@ -203,16 +208,9 @@ static int mcf_edma_probe(struct platform_device *pdev)
 	mcf_edma->drvdata = &mcf_data;
 	mcf_edma->big_endian = 1;
 
-	if (!mcf_edma->n_chans) {
-		dev_info(&pdev->dev, "setting default channel number to 64");
-		mcf_edma->n_chans = 64;
-	}
-
 	mutex_init(&mcf_edma->fsl_edma_mutex);
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-
-	mcf_edma->membase = devm_ioremap_resource(&pdev->dev, res);
+	mcf_edma->membase = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(mcf_edma->membase))
 		return PTR_ERR(mcf_edma->membase);
 

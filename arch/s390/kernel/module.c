@@ -14,6 +14,7 @@
 #include <linux/elf.h>
 #include <linux/vmalloc.h>
 #include <linux/fs.h>
+#include <linux/ftrace.h>
 #include <linux/string.h>
 #include <linux/kernel.h>
 #include <linux/kasan.h>
@@ -23,6 +24,9 @@
 #include <asm/alternative.h>
 #include <asm/nospec-branch.h>
 #include <asm/facility.h>
+#include <asm/ftrace.lds.h>
+#include <asm/set_memory.h>
+#include <asm/setup.h>
 
 #if 0
 #define DEBUGP printk
@@ -32,21 +36,49 @@
 
 #define PLT_ENTRY_SIZE 22
 
+static unsigned long get_module_load_offset(void)
+{
+	static DEFINE_MUTEX(module_kaslr_mutex);
+	static unsigned long module_load_offset;
+
+	if (!kaslr_enabled())
+		return 0;
+	/*
+	 * Calculate the module_load_offset the first time this code
+	 * is called. Once calculated it stays the same until reboot.
+	 */
+	mutex_lock(&module_kaslr_mutex);
+	if (!module_load_offset)
+		module_load_offset = get_random_u32_inclusive(1, 1024) * PAGE_SIZE;
+	mutex_unlock(&module_kaslr_mutex);
+	return module_load_offset;
+}
+
 void *module_alloc(unsigned long size)
 {
+	gfp_t gfp_mask = GFP_KERNEL;
 	void *p;
 
 	if (PAGE_ALIGN(size) > MODULES_LEN)
 		return NULL;
-	p = __vmalloc_node_range(size, MODULE_ALIGN, MODULES_VADDR, MODULES_END,
-				 GFP_KERNEL, PAGE_KERNEL_EXEC, 0, NUMA_NO_NODE,
-				 __builtin_return_address(0));
-	if (p && (kasan_module_alloc(p, size) < 0)) {
+	p = __vmalloc_node_range(size, MODULE_ALIGN,
+				 MODULES_VADDR + get_module_load_offset(),
+				 MODULES_END, gfp_mask, PAGE_KERNEL,
+				 VM_FLUSH_RESET_PERMS | VM_DEFER_KMEMLEAK,
+				 NUMA_NO_NODE, __builtin_return_address(0));
+	if (p && (kasan_alloc_module_shadow(p, size, gfp_mask) < 0)) {
 		vfree(p);
 		return NULL;
 	}
 	return p;
 }
+
+#ifdef CONFIG_FUNCTION_TRACER
+void module_arch_cleanup(struct module *mod)
+{
+	module_memfree(mod->arch.trampolines_start);
+}
+#endif
 
 void module_arch_freeing_init(struct module *mod)
 {
@@ -115,6 +147,7 @@ int module_frob_arch_sections(Elf_Ehdr *hdr, Elf_Shdr *sechdrs,
 	Elf_Rela *rela;
 	char *strings;
 	int nrela, i, j;
+	struct module_memory *mod_mem;
 
 	/* Find symbol table and string table. */
 	symtab = NULL;
@@ -162,14 +195,15 @@ int module_frob_arch_sections(Elf_Ehdr *hdr, Elf_Shdr *sechdrs,
 
 	/* Increase core size by size of got & plt and set start
 	   offsets for got and plt. */
-	me->core_layout.size = ALIGN(me->core_layout.size, 4);
-	me->arch.got_offset = me->core_layout.size;
-	me->core_layout.size += me->arch.got_size;
-	me->arch.plt_offset = me->core_layout.size;
+	mod_mem = &me->mem[MOD_TEXT];
+	mod_mem->size = ALIGN(mod_mem->size, 4);
+	me->arch.got_offset = mod_mem->size;
+	mod_mem->size += me->arch.got_size;
+	me->arch.plt_offset = mod_mem->size;
 	if (me->arch.plt_size) {
 		if (IS_ENABLED(CONFIG_EXPOLINE) && !nospec_disable)
 			me->arch.plt_size += PLT_ENTRY_SIZE;
-		me->core_layout.size += me->arch.plt_size;
+		mod_mem->size += me->arch.plt_size;
 	}
 	return 0;
 }
@@ -293,7 +327,7 @@ static int apply_rela(Elf_Rela *rela, Elf_Addr base, Elf_Sym *symtab,
 	case R_390_GOTPLT64:	/* 64 bit offset to jump slot.	*/
 	case R_390_GOTPLTENT:	/* 32 bit rel. offset to jump slot >> 1. */
 		if (info->got_initialized == 0) {
-			Elf_Addr *gotent = me->core_layout.base +
+			Elf_Addr *gotent = me->mem[MOD_TEXT].base +
 					   me->arch.got_offset +
 					   info->got_offset;
 
@@ -318,7 +352,7 @@ static int apply_rela(Elf_Rela *rela, Elf_Addr base, Elf_Sym *symtab,
 			rc = apply_rela_bits(loc, val, 0, 64, 0, write);
 		else if (r_type == R_390_GOTENT ||
 			 r_type == R_390_GOTPLTENT) {
-			val += (Elf_Addr) me->core_layout.base - loc;
+			val += (Elf_Addr) me->mem[MOD_TEXT].base - loc;
 			rc = apply_rela_bits(loc, val, 1, 32, 1, write);
 		}
 		break;
@@ -334,7 +368,7 @@ static int apply_rela(Elf_Rela *rela, Elf_Addr base, Elf_Sym *symtab,
 			char *plt_base;
 			char *ip;
 
-			plt_base = me->core_layout.base + me->arch.plt_offset;
+			plt_base = me->mem[MOD_TEXT].base + me->arch.plt_offset;
 			ip = plt_base + info->plt_offset;
 			*(int *)insn = 0x0d10e310;	/* basr 1,0  */
 			*(int *)&insn[4] = 0x100c0004;	/* lg	1,12(1) */
@@ -364,7 +398,7 @@ static int apply_rela(Elf_Rela *rela, Elf_Addr base, Elf_Sym *symtab,
 			       val - loc + 0xffffUL < 0x1ffffeUL) ||
 			      (r_type == R_390_PLT32DBL &&
 			       val - loc + 0xffffffffULL < 0x1fffffffeULL)))
-				val = (Elf_Addr) me->core_layout.base +
+				val = (Elf_Addr) me->mem[MOD_TEXT].base +
 					me->arch.plt_offset +
 					info->plt_offset;
 			val += rela->r_addend - loc;
@@ -386,7 +420,7 @@ static int apply_rela(Elf_Rela *rela, Elf_Addr base, Elf_Sym *symtab,
 	case R_390_GOTOFF32:	/* 32 bit offset to GOT.  */
 	case R_390_GOTOFF64:	/* 64 bit offset to GOT. */
 		val = val + rela->r_addend -
-			((Elf_Addr) me->core_layout.base + me->arch.got_offset);
+			((Elf_Addr) me->mem[MOD_TEXT].base + me->arch.got_offset);
 		if (r_type == R_390_GOTOFF16)
 			rc = apply_rela_bits(loc, val, 0, 16, 0, write);
 		else if (r_type == R_390_GOTOFF32)
@@ -396,7 +430,7 @@ static int apply_rela(Elf_Rela *rela, Elf_Addr base, Elf_Sym *symtab,
 		break;
 	case R_390_GOTPC:	/* 32 bit PC relative offset to GOT. */
 	case R_390_GOTPCDBL:	/* 32 bit PC rel. off. to GOT shifted by 1. */
-		val = (Elf_Addr) me->core_layout.base + me->arch.got_offset +
+		val = (Elf_Addr) me->mem[MOD_TEXT].base + me->arch.got_offset +
 			rela->r_addend - loc;
 		if (r_type == R_390_GOTPC)
 			rc = apply_rela_bits(loc, val, 1, 32, 0, write);
@@ -465,6 +499,30 @@ int apply_relocate_add(Elf_Shdr *sechdrs, const char *strtab,
 				    write);
 }
 
+#ifdef CONFIG_FUNCTION_TRACER
+static int module_alloc_ftrace_hotpatch_trampolines(struct module *me,
+						    const Elf_Shdr *s)
+{
+	char *start, *end;
+	int numpages;
+	size_t size;
+
+	size = FTRACE_HOTPATCH_TRAMPOLINES_SIZE(s->sh_size);
+	numpages = DIV_ROUND_UP(size, PAGE_SIZE);
+	start = module_alloc(numpages * PAGE_SIZE);
+	if (!start)
+		return -ENOMEM;
+	set_memory_rox((unsigned long)start, numpages);
+	end = start + size;
+
+	me->arch.trampolines_start = (struct ftrace_hotpatch_trampoline *)start;
+	me->arch.trampolines_end = (struct ftrace_hotpatch_trampoline *)end;
+	me->arch.next_trampoline = me->arch.trampolines_start;
+
+	return 0;
+}
+#endif /* CONFIG_FUNCTION_TRACER */
+
 int module_finalize(const Elf_Ehdr *hdr,
 		    const Elf_Shdr *sechdrs,
 		    struct module *me)
@@ -472,22 +530,19 @@ int module_finalize(const Elf_Ehdr *hdr,
 	const Elf_Shdr *s;
 	char *secstrings, *secname;
 	void *aseg;
+#ifdef CONFIG_FUNCTION_TRACER
+	int ret;
+#endif
 
 	if (IS_ENABLED(CONFIG_EXPOLINE) &&
 	    !nospec_disable && me->arch.plt_size) {
 		unsigned int *ij;
 
-		ij = me->core_layout.base + me->arch.plt_offset +
+		ij = me->mem[MOD_TEXT].base + me->arch.plt_offset +
 			me->arch.plt_size - PLT_ENTRY_SIZE;
-		if (test_facility(35)) {
-			ij[0] = 0xc6000000;	/* exrl	%r0,.+10	*/
-			ij[1] = 0x0005a7f4;	/* j	.		*/
-			ij[2] = 0x000007f1;	/* br	%r1		*/
-		} else {
-			ij[0] = 0x44000000 | (unsigned int)
-				offsetof(struct lowcore, br_r1_trampoline);
-			ij[1] = 0xa7f40000;	/* j	.		*/
-		}
+		ij[0] = 0xc6000000;	/* exrl	%r0,.+10	*/
+		ij[1] = 0x0005a7f4;	/* j	.		*/
+		ij[2] = 0x000007f1;	/* br	%r1		*/
 	}
 
 	secstrings = (void *)hdr + sechdrs[hdr->e_shstrndx].sh_offset;
@@ -506,8 +561,15 @@ int module_finalize(const Elf_Ehdr *hdr,
 		if (IS_ENABLED(CONFIG_EXPOLINE) &&
 		    (str_has_prefix(secname, ".s390_return")))
 			nospec_revert(aseg, aseg + s->sh_size);
+
+#ifdef CONFIG_FUNCTION_TRACER
+		if (!strcmp(FTRACE_CALLSITE_SECTION, secname)) {
+			ret = module_alloc_ftrace_hotpatch_trampolines(me, s);
+			if (ret < 0)
+				return ret;
+		}
+#endif /* CONFIG_FUNCTION_TRACER */
 	}
 
-	jump_label_apply_nops(me);
 	return 0;
 }

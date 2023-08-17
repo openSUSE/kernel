@@ -438,13 +438,13 @@ static const struct ata_port_info ahci_highbank_port_info = {
 	.port_ops       = &ahci_highbank_ops,
 };
 
-static struct scsi_host_template ahci_highbank_platform_sht = {
+static const struct scsi_host_template ahci_highbank_platform_sht = {
 	AHCI_SHT("sata_highbank"),
 };
 
 static const struct of_device_id ahci_of_match[] = {
 	{ .compatible = "calxeda,hb-ahci" },
-	{},
+	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, ahci_of_match);
 
@@ -469,10 +469,8 @@ static int ahci_highbank_probe(struct platform_device *pdev)
 	}
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		dev_err(dev, "no irq\n");
+	if (irq < 0)
 		return irq;
-	}
 	if (!irq)
 		return -EINVAL;
 

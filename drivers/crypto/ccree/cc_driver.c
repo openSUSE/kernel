@@ -350,9 +350,9 @@ static int init_cc_resources(struct platform_device *plat_dev)
 
 	/* Get device resources */
 	/* First CC registers space */
-	req_mem_cc_regs = platform_get_resource(plat_dev, IORESOURCE_MEM, 0);
 	/* Map registers space */
-	new_drvdata->cc_base = devm_ioremap_resource(dev, req_mem_cc_regs);
+	new_drvdata->cc_base = devm_platform_get_and_ioremap_resource(plat_dev,
+								      0, &req_mem_cc_regs);
 	if (IS_ERR(new_drvdata->cc_base))
 		return PTR_ERR(new_drvdata->cc_base);
 
@@ -372,17 +372,10 @@ static int init_cc_resources(struct platform_device *plat_dev)
 		dev->dma_mask = &dev->coherent_dma_mask;
 
 	dma_mask = DMA_BIT_MASK(DMA_BIT_MASK_LEN);
-	while (dma_mask > 0x7fffffffUL) {
-		if (dma_supported(dev, dma_mask)) {
-			rc = dma_set_coherent_mask(dev, dma_mask);
-			if (!rc)
-				break;
-		}
-		dma_mask >>= 1;
-	}
-
+	rc = dma_set_coherent_mask(dev, dma_mask);
 	if (rc) {
-		dev_err(dev, "Failed in dma_set_mask, mask=%llx\n", dma_mask);
+		dev_err(dev, "Failed in dma_set_coherent_mask, mask=%llx\n",
+			dma_mask);
 		return rc;
 	}
 
@@ -529,24 +522,26 @@ static int init_cc_resources(struct platform_device *plat_dev)
 		goto post_req_mgr_err;
 	}
 
+	/* hash must be allocated first due to use of send_request_init()
+	 * and dependency of AEAD on it
+	 */
+	rc = cc_hash_alloc(new_drvdata);
+	if (rc) {
+		dev_err(dev, "cc_hash_alloc failed\n");
+		goto post_buf_mgr_err;
+	}
+
 	/* Allocate crypto algs */
 	rc = cc_cipher_alloc(new_drvdata);
 	if (rc) {
 		dev_err(dev, "cc_cipher_alloc failed\n");
-		goto post_buf_mgr_err;
-	}
-
-	/* hash must be allocated before aead since hash exports APIs */
-	rc = cc_hash_alloc(new_drvdata);
-	if (rc) {
-		dev_err(dev, "cc_hash_alloc failed\n");
-		goto post_cipher_err;
+		goto post_hash_err;
 	}
 
 	rc = cc_aead_alloc(new_drvdata);
 	if (rc) {
 		dev_err(dev, "cc_aead_alloc failed\n");
-		goto post_hash_err;
+		goto post_cipher_err;
 	}
 
 	/* If we got here and FIPS mode is enabled
@@ -558,10 +553,10 @@ static int init_cc_resources(struct platform_device *plat_dev)
 	pm_runtime_put(dev);
 	return 0;
 
-post_hash_err:
-	cc_hash_free(new_drvdata);
 post_cipher_err:
 	cc_cipher_free(new_drvdata);
+post_hash_err:
+	cc_hash_free(new_drvdata);
 post_buf_mgr_err:
 	 cc_buffer_mgr_fini(new_drvdata);
 post_req_mgr_err:
@@ -593,8 +588,8 @@ static void cleanup_cc_resources(struct platform_device *plat_dev)
 		(struct cc_drvdata *)platform_get_drvdata(plat_dev);
 
 	cc_aead_free(drvdata);
-	cc_hash_free(drvdata);
 	cc_cipher_free(drvdata);
+	cc_hash_free(drvdata);
 	cc_buffer_mgr_fini(drvdata);
 	cc_req_mgr_fini(drvdata);
 	cc_fips_fini(drvdata);

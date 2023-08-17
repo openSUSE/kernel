@@ -1235,7 +1235,7 @@ static void ib_uverbs_remove_one(struct ib_device *device, void *client_data)
 	put_device(&uverbs_dev->dev);
 }
 
-static char *uverbs_devnode(struct device *dev, umode_t *mode)
+static char *uverbs_devnode(const struct device *dev, umode_t *mode)
 {
 	if (mode)
 		*mode = 0666;
@@ -1262,7 +1262,7 @@ static int __init ib_uverbs_init(void)
 		goto out_alloc;
 	}
 
-	uverbs_class = class_create(THIS_MODULE, "infiniband_verbs");
+	uverbs_class = class_create("infiniband_verbs");
 	if (IS_ERR(uverbs_class)) {
 		ret = PTR_ERR(uverbs_class);
 		pr_err("user_verbs: couldn't create class infiniband_verbs\n");

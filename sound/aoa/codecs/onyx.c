@@ -990,8 +990,7 @@ static void onyx_exit_codec(struct aoa_codec *codec)
 	onyx->codec.soundbus_dev->detach_codec(onyx->codec.soundbus_dev, onyx);
 }
 
-static int onyx_i2c_probe(struct i2c_client *client,
-			  const struct i2c_device_id *id)
+static int onyx_i2c_probe(struct i2c_client *client)
 {
 	struct device_node *node = client->dev.of_node;
 	struct onyx *onyx;
@@ -1029,7 +1028,7 @@ static int onyx_i2c_probe(struct i2c_client *client,
 	return -ENODEV;
 }
 
-static int onyx_i2c_remove(struct i2c_client *client)
+static void onyx_i2c_remove(struct i2c_client *client)
 {
 	struct onyx *onyx = i2c_get_clientdata(client);
 
@@ -1037,7 +1036,6 @@ static int onyx_i2c_remove(struct i2c_client *client)
 	of_node_put(onyx->codec.node);
 	kfree(onyx->codec_info);
 	kfree(onyx);
-	return 0;
 }
 
 static const struct i2c_device_id onyx_i2c_id[] = {
@@ -1050,7 +1048,7 @@ static struct i2c_driver onyx_driver = {
 	.driver = {
 		.name = "aoa_codec_onyx",
 	},
-	.probe = onyx_i2c_probe,
+	.probe_new = onyx_i2c_probe,
 	.remove = onyx_i2c_remove,
 	.id_table = onyx_i2c_id,
 };

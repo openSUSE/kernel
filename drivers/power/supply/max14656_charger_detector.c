@@ -18,6 +18,7 @@
 #include <linux/of_device.h>
 #include <linux/workqueue.h>
 #include <linux/power_supply.h>
+#include <linux/devm-helpers.h>
 
 #define MAX14656_MANUFACTURER	"Maxim Integrated"
 #define MAX14656_NAME		"max14656"
@@ -233,16 +234,7 @@ static enum power_supply_property max14656_battery_props[] = {
 	POWER_SUPPLY_PROP_MANUFACTURER,
 };
 
-static void stop_irq_work(void *data)
-{
-	struct max14656_chip *chip = data;
-
-	cancel_delayed_work_sync(&chip->irq_work);
-}
-
-
-static int max14656_probe(struct i2c_client *client,
-			  const struct i2c_device_id *id)
+static int max14656_probe(struct i2c_client *client)
 {
 	struct i2c_adapter *adapter = client->adapter;
 	struct device *dev = &client->dev;
@@ -286,10 +278,10 @@ static int max14656_probe(struct i2c_client *client,
 		return -EINVAL;
 	}
 
-	INIT_DELAYED_WORK(&chip->irq_work, max14656_irq_worker);
-	ret = devm_add_action(dev, stop_irq_work, chip);
+	ret = devm_delayed_work_autocancel(dev, &chip->irq_work,
+					   max14656_irq_worker);
 	if (ret) {
-		dev_err(dev, "devm_add_action %d failed\n", ret);
+		dev_err(dev, "devm_delayed_work_autocancel %d failed\n", ret);
 		return ret;
 	}
 
@@ -324,7 +316,7 @@ static struct i2c_driver max14656_i2c_driver = {
 		.name	= "max14656",
 		.of_match_table = max14656_match_table,
 	},
-	.probe		= max14656_probe,
+	.probe_new	= max14656_probe,
 	.id_table	= max14656_id,
 };
 module_i2c_driver(max14656_i2c_driver);

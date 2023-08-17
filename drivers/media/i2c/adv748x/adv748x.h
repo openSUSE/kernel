@@ -417,7 +417,7 @@ int adv748x_write_block(struct adv748x_state *state, int client_page,
 
 static inline struct v4l2_subdev *adv748x_get_remote_sd(struct media_pad *pad)
 {
-	pad = media_entity_remote_pad(pad);
+	pad = media_pad_remote_pad_first(pad);
 	if (!pad)
 		return NULL;
 
@@ -427,9 +427,6 @@ static inline struct v4l2_subdev *adv748x_get_remote_sd(struct media_pad *pad)
 void adv748x_subdev_init(struct v4l2_subdev *sd, struct adv748x_state *state,
 			 const struct v4l2_subdev_ops *ops, u32 function,
 			 const char *ident);
-
-int adv748x_register_subdevs(struct adv748x_state *state,
-			     struct v4l2_device *v4l2_dev);
 
 int adv748x_tx_power(struct adv748x_csi2 *tx, bool on);
 

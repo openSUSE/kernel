@@ -34,7 +34,7 @@
  * 1) Energy break even point
  * 2) Performance impact
  * 3) Latency tolerance (from pmqos infrastructure)
- * These these three factors are treated independently.
+ * These three factors are treated independently.
  *
  * Energy break even point
  * -----------------------
@@ -397,28 +397,14 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 		idx = 0; /* No states enabled. Must use 0. */
 
 	/*
-	 * Don't stop the tick if the selected state is a polling one, if the
-	 * expected idle duration is shorter than the tick period length or
-	 * there is an io-waiter that may receive an interrupt soon.
+	 * Don't stop the tick if the selected state is a polling one or if the
+	 * expected idle duration is shorter than the tick period length.
 	 */
 	if (((drv->states[idx].flags & CPUIDLE_FLAG_POLLING) ||
-	     predicted_ns < TICK_NSEC || nr_iowaiters) && !tick_nohz_tick_stopped()) {
-		s64 threshold = ktime_to_ns(delta_tick);
-
+	     predicted_ns < TICK_NSEC) && !tick_nohz_tick_stopped()) {
 		*stop_tick = false;
 
-		/*
-		 * For io-waiters, use either the soonest of either the next
-		 * timer event or the predicted next wakeup event adjusted for
-		 * the number of io-waiters. At worst, a shallow c-state will
-		 * be used for too long as the IO takes longer than predicted
-		 * to complete but the nr_iowaiters value should not be lost as
-		 * it's tracked by the core scheduler.
-		 */
-		if (nr_iowaiters)
-			threshold = min(threshold, latency_req);
-
-		if (idx > 0 && drv->states[idx].target_residency_ns > threshold) {
+		if (idx > 0 && drv->states[idx].target_residency_ns > delta_tick) {
 			/*
 			 * The tick is not going to be stopped and the target
 			 * residency of the state to be returned is not within
@@ -430,7 +416,7 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 					continue;
 
 				idx = i;
-				if (drv->states[i].target_residency_ns <= threshold)
+				if (drv->states[i].target_residency_ns <= delta_tick)
 					break;
 			}
 		}

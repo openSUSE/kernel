@@ -402,7 +402,7 @@ dasd_ioctl_copy_pair_swap(struct block_device *bdev, void __user *argp)
 		return -EFAULT;
 	}
 	if (memchr_inv(data.reserved, 0, sizeof(data.reserved))) {
-		pr_warn("%s: Ivalid swap data specified.\n",
+		pr_warn("%s: Invalid swap data specified\n",
 			dev_name(&device->cdev->dev));
 		dasd_put_device(device);
 		return DASD_COPYPAIRSWAP_INVALID;
@@ -626,10 +626,8 @@ int dasd_ioctl(struct block_device *bdev, fmode_t mode,
 	else
 		argp = (void __user *)arg;
 
-	if ((_IOC_DIR(cmd) != _IOC_NONE) && !arg) {
-		PRINT_DEBUG("empty data ptr");
+	if ((_IOC_DIR(cmd) != _IOC_NONE) && !arg)
 		return -EINVAL;
-	}
 
 	base = dasd_device_from_gendisk(bdev->bd_disk);
 	if (!base)
@@ -706,8 +704,8 @@ int dasd_ioctl(struct block_device *bdev, fmode_t mode,
 
 /**
  * dasd_biodasdinfo() - fill out the dasd information structure
- * @disk [in]: pointer to gendisk structure that references a DASD
- * @info [out]: pointer to the dasd_information2_t structure
+ * @disk: [in] pointer to gendisk structure that references a DASD
+ * @info: [out] pointer to the dasd_information2_t structure
  *
  * Provide access to DASD specific information.
  * The gendisk structure is checked if it belongs to the DASD driver by

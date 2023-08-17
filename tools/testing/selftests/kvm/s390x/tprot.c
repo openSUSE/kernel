@@ -15,8 +15,6 @@
 #define CR0_FETCH_PROTECTION_OVERRIDE	(1UL << (63 - 38))
 #define CR0_STORAGE_PROTECTION_OVERRIDE	(1UL << (63 - 39))
 
-#define VCPU_ID 1
-
 static __aligned(PAGE_SIZE) uint8_t pages[2][PAGE_SIZE];
 static uint8_t *const page_store_prot = pages[0];
 static uint8_t *const page_fetch_prot = pages[1];
@@ -183,30 +181,29 @@ static void guest_code(void)
 	GUEST_SYNC(perform_next_stage(&i, mapped_0));
 }
 
-#define HOST_SYNC_NO_TAP(vmp, stage)						\
-({										\
-	struct kvm_vm *__vm = (vmp);						\
-	struct ucall uc;							\
-	int __stage = (stage);							\
-										\
-	vcpu_run(__vm, VCPU_ID);						\
-	get_ucall(__vm, VCPU_ID, &uc);						\
-	if (uc.cmd == UCALL_ABORT) {						\
-		TEST_FAIL("line %lu: %s, hints: %lu, %lu", uc.args[1],		\
-			  (const char *)uc.args[0], uc.args[2], uc.args[3]);	\
-	}									\
-	ASSERT_EQ(uc.cmd, UCALL_SYNC);						\
-	ASSERT_EQ(uc.args[1], __stage);						\
+#define HOST_SYNC_NO_TAP(vcpup, stage)				\
+({								\
+	struct kvm_vcpu *__vcpu = (vcpup);			\
+	struct ucall uc;					\
+	int __stage = (stage);					\
+								\
+	vcpu_run(__vcpu);					\
+	get_ucall(__vcpu, &uc);					\
+	if (uc.cmd == UCALL_ABORT)				\
+		REPORT_GUEST_ASSERT_2(uc, "hints: %lu, %lu");	\
+	ASSERT_EQ(uc.cmd, UCALL_SYNC);				\
+	ASSERT_EQ(uc.args[1], __stage);				\
 })
 
-#define HOST_SYNC(vmp, stage)			\
+#define HOST_SYNC(vcpu, stage)			\
 ({						\
-	HOST_SYNC_NO_TAP(vmp, stage);		\
+	HOST_SYNC_NO_TAP(vcpu, stage);		\
 	ksft_test_result_pass("" #stage "\n");	\
 })
 
 int main(int argc, char *argv[])
 {
+	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
 	struct kvm_run *run;
 	vm_vaddr_t guest_0_page;
@@ -214,31 +211,31 @@ int main(int argc, char *argv[])
 	ksft_print_header();
 	ksft_set_plan(STAGE_END);
 
-	vm = vm_create_default(VCPU_ID, 0, guest_code);
-	run = vcpu_state(vm, VCPU_ID);
+	vm = vm_create_with_one_vcpu(&vcpu, guest_code);
+	run = vcpu->run;
 
-	HOST_SYNC(vm, STAGE_INIT_SIMPLE);
+	HOST_SYNC(vcpu, STAGE_INIT_SIMPLE);
 	mprotect(addr_gva2hva(vm, (vm_vaddr_t)pages), PAGE_SIZE * 2, PROT_READ);
-	HOST_SYNC(vm, TEST_SIMPLE);
+	HOST_SYNC(vcpu, TEST_SIMPLE);
 
 	guest_0_page = vm_vaddr_alloc(vm, PAGE_SIZE, 0);
 	if (guest_0_page != 0) {
 		/* Use NO_TAP so we don't get a PASS print */
-		HOST_SYNC_NO_TAP(vm, STAGE_INIT_FETCH_PROT_OVERRIDE);
+		HOST_SYNC_NO_TAP(vcpu, STAGE_INIT_FETCH_PROT_OVERRIDE);
 		ksft_test_result_skip("STAGE_INIT_FETCH_PROT_OVERRIDE - "
 				      "Did not allocate page at 0\n");
 	} else {
-		HOST_SYNC(vm, STAGE_INIT_FETCH_PROT_OVERRIDE);
+		HOST_SYNC(vcpu, STAGE_INIT_FETCH_PROT_OVERRIDE);
 	}
 	if (guest_0_page == 0)
 		mprotect(addr_gva2hva(vm, (vm_vaddr_t)0), PAGE_SIZE, PROT_READ);
 	run->s.regs.crs[0] |= CR0_FETCH_PROTECTION_OVERRIDE;
 	run->kvm_dirty_regs = KVM_SYNC_CRS;
-	HOST_SYNC(vm, TEST_FETCH_PROT_OVERRIDE);
+	HOST_SYNC(vcpu, TEST_FETCH_PROT_OVERRIDE);
 
 	run->s.regs.crs[0] |= CR0_STORAGE_PROTECTION_OVERRIDE;
 	run->kvm_dirty_regs = KVM_SYNC_CRS;
-	HOST_SYNC(vm, TEST_STORAGE_PROT_OVERRIDE);
+	HOST_SYNC(vcpu, TEST_STORAGE_PROT_OVERRIDE);
 
 	kvm_vm_free(vm);
 

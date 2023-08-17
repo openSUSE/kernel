@@ -133,7 +133,7 @@ static void get_ids(const u32 *directory, int *id)
 	}
 }
 
-static void get_modalias_ids(struct fw_unit *unit, int *id)
+static void get_modalias_ids(const struct fw_unit *unit, int *id)
 {
 	get_ids(&fw_parent_device(unit)->config_rom[5], id);
 	get_ids(unit->directory, id);
@@ -195,7 +195,7 @@ static void fw_unit_remove(struct device *dev)
 	driver->remove(fw_unit(dev));
 }
 
-static int get_modalias(struct fw_unit *unit, char *buffer, size_t buffer_size)
+static int get_modalias(const struct fw_unit *unit, char *buffer, size_t buffer_size)
 {
 	int id[] = {0, 0, 0, 0};
 
@@ -206,9 +206,9 @@ static int get_modalias(struct fw_unit *unit, char *buffer, size_t buffer_size)
 			id[0], id[1], id[2], id[3]);
 }
 
-static int fw_unit_uevent(struct device *dev, struct kobj_uevent_env *env)
+static int fw_unit_uevent(const struct device *dev, struct kobj_uevent_env *env)
 {
-	struct fw_unit *unit = fw_unit(dev);
+	const struct fw_unit *unit = fw_unit(dev);
 	char modalias[64];
 
 	get_modalias(unit, modalias, sizeof(modalias));
@@ -372,8 +372,7 @@ static ssize_t rom_index_show(struct device *dev,
 	struct fw_device *device = fw_device(dev->parent);
 	struct fw_unit *unit = fw_unit(dev);
 
-	return snprintf(buf, PAGE_SIZE, "%d\n",
-			(int)(unit->directory - device->config_rom));
+	return sysfs_emit(buf, "%td\n", unit->directory - device->config_rom);
 }
 
 static struct device_attribute fw_unit_attributes[] = {
@@ -403,8 +402,7 @@ static ssize_t guid_show(struct device *dev,
 	int ret;
 
 	down_read(&fw_device_rwsem);
-	ret = snprintf(buf, PAGE_SIZE, "0x%08x%08x\n",
-		       device->config_rom[3], device->config_rom[4]);
+	ret = sysfs_emit(buf, "0x%08x%08x\n", device->config_rom[3], device->config_rom[4]);
 	up_read(&fw_device_rwsem);
 
 	return ret;

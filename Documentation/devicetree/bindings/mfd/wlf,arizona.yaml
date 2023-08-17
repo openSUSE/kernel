@@ -14,6 +14,7 @@ description: |
   range of analogue I/O.
 
 allOf:
+  - $ref: /schemas/spi/spi-peripheral-props.yaml
   - $ref: /schemas/sound/wlf,arizona.yaml#
   - $ref: /schemas/regulator/wlf,arizona.yaml#
   - $ref: /schemas/extcon/wlf,arizona.yaml#
@@ -155,7 +156,7 @@ properties:
       entry has a value that is out of range for a 16 bit register then the
       chip default will be used. If present exactly five values must be
       specified.
-    $ref: "/schemas/types.yaml#/definitions/uint32-array"
+    $ref: /schemas/types.yaml#/definitions/uint32-array
     minItems: 1
     maxItems: 5
 

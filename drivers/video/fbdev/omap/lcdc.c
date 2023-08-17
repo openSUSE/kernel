@@ -17,6 +17,8 @@
 #include <linux/clk.h>
 #include <linux/gfp.h>
 
+#include <linux/soc/ti/omap1-io.h>
+#include <linux/soc/ti/omap1-soc.h>
 #include <linux/omap-dma.h>
 
 #include <asm/mach-types.h>
@@ -704,8 +706,6 @@ static int omap_lcdc_init(struct omapfb_device *fbdev, int ext_mode,
 
 	if (machine_is_ams_delta())
 		rate /= 4;
-	if (machine_is_omap_h3())
-		rate /= 3;
 	r = clk_set_rate(lcdc.lcd_ck, rate);
 	if (r) {
 		dev_err(fbdev->dev, "failed to adjust LCD rate\n");

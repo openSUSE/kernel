@@ -346,6 +346,8 @@ static inline void snd_pcm_pack_audio_tstamp_report(__u32 *data, __u32 *accuracy
 
 struct snd_pcm_runtime {
 	/* -- Status -- */
+	snd_pcm_state_t state;		/* stream state */
+	snd_pcm_state_t suspended_state; /* suspended stream state */
 	struct snd_pcm_substream *trigger_master;
 	struct timespec64 trigger_tstamp;	/* trigger timestamp */
 	bool trigger_tstamp_latched;     /* trigger timestamp latched in low-level driver/hardware */
@@ -376,18 +378,18 @@ struct snd_pcm_runtime {
 	unsigned int rate_den;
 	unsigned int no_period_wakeup: 1;
 
-	/* -- SW params -- */
-	int tstamp_mode;		/* mmap timestamp is updated */
+	/* -- SW params; see struct snd_pcm_sw_params for comments -- */
+	int tstamp_mode;
   	unsigned int period_step;
 	snd_pcm_uframes_t start_threshold;
 	snd_pcm_uframes_t stop_threshold;
-	snd_pcm_uframes_t silence_threshold; /* Silence filling happens when
-						noise is nearest than this */
-	snd_pcm_uframes_t silence_size;	/* Silence filling size */
-	snd_pcm_uframes_t boundary;	/* pointers wrap point */
+	snd_pcm_uframes_t silence_threshold;
+	snd_pcm_uframes_t silence_size;
+	snd_pcm_uframes_t boundary;
 
+	/* internal data of auto-silencer */
 	snd_pcm_uframes_t silence_start; /* starting pointer to silence area */
-	snd_pcm_uframes_t silence_filled; /* size filled with silence */
+	snd_pcm_uframes_t silence_filled; /* already filled part of silence area */
 
 	union snd_pcm_sync_id sync;	/* hardware synchronization ID */
 
@@ -678,9 +680,23 @@ void snd_pcm_stream_unlock_irqrestore(struct snd_pcm_substream *substream,
  */
 static inline int snd_pcm_running(struct snd_pcm_substream *substream)
 {
-	return (substream->runtime->status->state == SNDRV_PCM_STATE_RUNNING ||
-		(substream->runtime->status->state == SNDRV_PCM_STATE_DRAINING &&
+	return (substream->runtime->state == SNDRV_PCM_STATE_RUNNING ||
+		(substream->runtime->state == SNDRV_PCM_STATE_DRAINING &&
 		 substream->stream == SNDRV_PCM_STREAM_PLAYBACK));
+}
+
+/**
+ * __snd_pcm_set_state - Change the current PCM state
+ * @runtime: PCM runtime to set
+ * @state: the current state to set
+ *
+ * Call within the stream lock
+ */
+static inline void __snd_pcm_set_state(struct snd_pcm_runtime *runtime,
+				       snd_pcm_state_t state)
+{
+	runtime->state = state;
+	runtime->status->state = state; /* copy for mmap */
 }
 
 /**

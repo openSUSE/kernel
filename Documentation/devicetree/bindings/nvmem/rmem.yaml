@@ -10,7 +10,7 @@ maintainers:
   - Nicolas Saenz Julienne <nsaenzjulienne@suse.de>
 
 allOf:
-  - $ref: "nvmem.yaml#"
+  - $ref: nvmem.yaml#
 
 properties:
   compatible:
@@ -18,6 +18,9 @@ properties:
       - enum:
           - raspberrypi,bootloader-config
       - const: nvmem-rmem
+
+  reg:
+    maxItems: 1
 
   no-map:
     $ref: /schemas/types.yaml#/definitions/flag

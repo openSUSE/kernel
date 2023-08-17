@@ -1,11 +1,10 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2021 Microsoft Corporation
  *
  * Author: Tushar Sugandhi <tusharsu@linux.microsoft.com>
  *
- * File: dm-ima.c
- *       Enables IMA measurements for DM targets
+ * Enables IMA measurements for DM targets
  */
 
 #include "dm-core.h"
@@ -137,7 +136,8 @@ static void dm_ima_measure_data(const char *event_name, const void *buf, size_t 
 	if (noio)
 		noio_flag = memalloc_noio_save();
 
-	ima_measure_critical_data(DM_NAME, event_name, buf, buf_len, false);
+	ima_measure_critical_data(DM_NAME, event_name, buf, buf_len,
+				  false, NULL, 0);
 
 	if (noio)
 		memalloc_noio_restore(noio_flag);

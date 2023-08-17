@@ -3,8 +3,6 @@
  * Copyright (c) 1996, 2003 VIA Networking Technologies, Inc.
  * All rights reserved.
  *
- * File: key.c
- *
  * Purpose: Implement functions for 802.11i Key management
  *
  * Author: Jerry Chen
@@ -13,7 +11,6 @@
  *
  */
 
-#include "tmacro.h"
 #include "key.h"
 #include "mac.h"
 
@@ -83,7 +80,7 @@ static int vnt_set_keymode(struct ieee80211_hw *hw, u8 *mac_addr,
 	}
 
 	MACvSetKeyEntry(priv, key_mode, entry, key_inx,
-			bssid, (u32 *)key->key, priv->byLocalID);
+			bssid, (u32 *)key->key, priv->local_id);
 
 	return 0;
 }

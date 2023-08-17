@@ -83,23 +83,21 @@ enum ssh_payload_type {
 
 /**
  * struct ssh_command - Payload of a command-type frame.
- * @type:    The type of the payload. See &enum ssh_payload_type. Should be
- *           SSH_PLD_TYPE_CMD for this struct.
- * @tc:      Command target category.
- * @tid_out: Output target ID. Should be zero if this an incoming (EC to host)
- *           message.
- * @tid_in:  Input target ID. Should be zero if this is an outgoing (host to
- *           EC) message.
- * @iid:     Instance ID.
- * @rqid:    Request ID. Used to match requests with responses and differentiate
- *           between responses and events.
- * @cid:     Command ID.
+ * @type: The type of the payload. See &enum ssh_payload_type. Should be
+ *        SSH_PLD_TYPE_CMD for this struct.
+ * @tc:   Command target category.
+ * @tid:  Target ID. Indicates the target of the message.
+ * @sid:  Source ID. Indicates the source of the message.
+ * @iid:  Instance ID.
+ * @rqid: Request ID. Used to match requests with responses and differentiate
+ *        between responses and events.
+ * @cid:  Command ID.
  */
 struct ssh_command {
 	u8 type;
 	u8 tc;
-	u8 tid_out;
-	u8 tid_in;
+	u8 tid;
+	u8 sid;
 	u8 iid;
 	__le16 rqid;
 	u8 cid;
@@ -201,7 +199,7 @@ static inline u16 ssh_crc(const u8 *buf, size_t len)
  * exception of zero, which is not an event ID. Thus, this is also the
  * absolute maximum number of event handlers that can be registered.
  */
-#define SSH_NUM_EVENTS		34
+#define SSH_NUM_EVENTS		38
 
 /*
  * SSH_NUM_TARGETS - The number of communication targets used in the protocol.
@@ -280,6 +278,22 @@ struct ssam_span {
 	size_t len;
 };
 
+/**
+ * enum ssam_ssh_tid - Target/source IDs for Serial Hub messages.
+ * @SSAM_SSH_TID_HOST:     We as the kernel Serial Hub driver.
+ * @SSAM_SSH_TID_SAM:      The Surface Aggregator EC.
+ * @SSAM_SSH_TID_KIP:      Keyboard and perihperal controller.
+ * @SSAM_SSH_TID_DEBUG:    Debug connector.
+ * @SSAM_SSH_TID_SURFLINK: SurfLink connector.
+ */
+enum ssam_ssh_tid {
+	SSAM_SSH_TID_HOST     = 0x00,
+	SSAM_SSH_TID_SAM      = 0x01,
+	SSAM_SSH_TID_KIP      = 0x02,
+	SSAM_SSH_TID_DEBUG    = 0x03,
+	SSAM_SSH_TID_SURFLINK = 0x04,
+};
+
 /*
  * Known SSH/EC target categories.
  *
@@ -292,40 +306,45 @@ struct ssam_span {
  * Windows driver.
  */
 enum ssam_ssh_tc {
-				/* Category 0x00 is invalid for EC use. */
-	SSAM_SSH_TC_SAM = 0x01,	/* Generic system functionality, real-time clock. */
-	SSAM_SSH_TC_BAT = 0x02,	/* Battery/power subsystem. */
-	SSAM_SSH_TC_TMP = 0x03,	/* Thermal subsystem. */
-	SSAM_SSH_TC_PMC = 0x04,
-	SSAM_SSH_TC_FAN = 0x05,
-	SSAM_SSH_TC_PoM = 0x06,
-	SSAM_SSH_TC_DBG = 0x07,
-	SSAM_SSH_TC_KBD = 0x08,	/* Legacy keyboard (Laptop 1/2). */
-	SSAM_SSH_TC_FWU = 0x09,
-	SSAM_SSH_TC_UNI = 0x0a,
-	SSAM_SSH_TC_LPC = 0x0b,
-	SSAM_SSH_TC_TCL = 0x0c,
-	SSAM_SSH_TC_SFL = 0x0d,
-	SSAM_SSH_TC_KIP = 0x0e,
-	SSAM_SSH_TC_EXT = 0x0f,
-	SSAM_SSH_TC_BLD = 0x10,
-	SSAM_SSH_TC_BAS = 0x11,	/* Detachment system (Surface Book 2/3). */
-	SSAM_SSH_TC_SEN = 0x12,
-	SSAM_SSH_TC_SRQ = 0x13,
-	SSAM_SSH_TC_MCU = 0x14,
-	SSAM_SSH_TC_HID = 0x15,	/* Generic HID input subsystem. */
-	SSAM_SSH_TC_TCH = 0x16,
-	SSAM_SSH_TC_BKL = 0x17,
-	SSAM_SSH_TC_TAM = 0x18,
-	SSAM_SSH_TC_ACC = 0x19,
-	SSAM_SSH_TC_UFI = 0x1a,
-	SSAM_SSH_TC_USC = 0x1b,
-	SSAM_SSH_TC_PEN = 0x1c,
-	SSAM_SSH_TC_VID = 0x1d,
-	SSAM_SSH_TC_AUD = 0x1e,
-	SSAM_SSH_TC_SMC = 0x1f,
-	SSAM_SSH_TC_KPD = 0x20,
-	SSAM_SSH_TC_REG = 0x21,	/* Extended event registry. */
+				  /* Category 0x00 is invalid for EC use. */
+	SSAM_SSH_TC_SAM  = 0x01,  /* Generic system functionality, real-time clock. */
+	SSAM_SSH_TC_BAT  = 0x02,  /* Battery/power subsystem. */
+	SSAM_SSH_TC_TMP  = 0x03,  /* Thermal subsystem. */
+	SSAM_SSH_TC_PMC  = 0x04,
+	SSAM_SSH_TC_FAN  = 0x05,
+	SSAM_SSH_TC_PoM  = 0x06,
+	SSAM_SSH_TC_DBG  = 0x07,
+	SSAM_SSH_TC_KBD  = 0x08,  /* Legacy keyboard (Laptop 1/2). */
+	SSAM_SSH_TC_FWU  = 0x09,
+	SSAM_SSH_TC_UNI  = 0x0a,
+	SSAM_SSH_TC_LPC  = 0x0b,
+	SSAM_SSH_TC_TCL  = 0x0c,
+	SSAM_SSH_TC_SFL  = 0x0d,
+	SSAM_SSH_TC_KIP  = 0x0e,  /* Manages detachable peripherals (Pro X/8 keyboard cover) */
+	SSAM_SSH_TC_EXT  = 0x0f,
+	SSAM_SSH_TC_BLD  = 0x10,
+	SSAM_SSH_TC_BAS  = 0x11,  /* Detachment system (Surface Book 2/3). */
+	SSAM_SSH_TC_SEN  = 0x12,
+	SSAM_SSH_TC_SRQ  = 0x13,
+	SSAM_SSH_TC_MCU  = 0x14,
+	SSAM_SSH_TC_HID  = 0x15,  /* Generic HID input subsystem. */
+	SSAM_SSH_TC_TCH  = 0x16,
+	SSAM_SSH_TC_BKL  = 0x17,
+	SSAM_SSH_TC_TAM  = 0x18,
+	SSAM_SSH_TC_ACC0 = 0x19,
+	SSAM_SSH_TC_UFI  = 0x1a,
+	SSAM_SSH_TC_USC  = 0x1b,
+	SSAM_SSH_TC_PEN  = 0x1c,
+	SSAM_SSH_TC_VID  = 0x1d,
+	SSAM_SSH_TC_AUD  = 0x1e,
+	SSAM_SSH_TC_SMC  = 0x1f,
+	SSAM_SSH_TC_KPD  = 0x20,
+	SSAM_SSH_TC_REG  = 0x21,  /* Extended event registry. */
+	SSAM_SSH_TC_SPT  = 0x22,
+	SSAM_SSH_TC_SYS  = 0x23,
+	SSAM_SSH_TC_ACC1 = 0x24,
+	SSAM_SSH_TC_SHB  = 0x25,
+	SSAM_SSH_TC_POS  = 0x26,  /* For obtaining Laptop Studio screen position. */
 };
 
 

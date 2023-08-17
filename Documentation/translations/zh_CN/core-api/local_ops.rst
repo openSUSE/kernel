@@ -1,10 +1,12 @@
 .. include:: ../disclaimer-zh_CN.rst
 
 :Original: Documentation/core-api/local_ops.rst
-:Translator: Yanteng Si <siyanteng@loongson.cn>
+
+:翻译:
+
+ 司延腾 Yanteng Si <siyanteng@loongson.cn>
 
 .. _cn_local_ops:
-
 
 ========================
 本地原子操作的语义和行为
@@ -183,7 +185,7 @@ UP之间没有不同的行为，在你的架构的 ``local.h`` 中包括 ``asm-g
 
     static void __exit test_exit(void)
     {
-            del_timer_sync(&test_timer);
+            timer_shutdown_sync(&test_timer);
     }
 
     module_init(test_init);

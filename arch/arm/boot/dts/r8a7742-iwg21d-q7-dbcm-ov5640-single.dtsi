@@ -7,6 +7,8 @@
  * Copyright (C) 2020 Renesas Electronics Corp.
  */
 
+#include <dt-bindings/media/video-interfaces.h>
+
 #define CAM_ENABLED	1
 
 &CAM_PARENT_I2C {
@@ -17,13 +19,16 @@
 		reg = <0x3c>;
 		clocks = <&MCLK_CAM>;
 		clock-names = "xclk";
+		AVDD-supply = <&reg_2p8v>;
+		DOVDD-supply = <&reg_2p8v>;
+		DVDD-supply = <&reg_1p8v>;
 		status = "okay";
 
 		port {
 			CAM_EP: endpoint {
 				bus-width = <8>;
 				data-shift = <2>;
-				bus-type = <6>;
+				bus-type = <MEDIA_BUS_TYPE_BT656>;
 				pclk-sample = <1>;
 				remote-endpoint = <&VIN_EP>;
 			};

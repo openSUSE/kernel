@@ -1,15 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2015 Texas Instruments Incorporated - http://www.ti.com/
  *	Andrew F. Davis <afd@ti.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed "as is" WITHOUT ANY WARRANTY of any
- * kind, whether expressed or implied; without even the implied warranty
- * of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License version 2 for more details.
  */
 
 #include <linux/gpio/driver.h>
@@ -106,8 +98,7 @@ static const struct of_device_id tpic2810_of_match_table[] = {
 };
 MODULE_DEVICE_TABLE(of, tpic2810_of_match_table);
 
-static int tpic2810_probe(struct i2c_client *client,
-			  const struct i2c_device_id *id)
+static int tpic2810_probe(struct i2c_client *client)
 {
 	struct tpic2810 *gpio;
 	int ret;
@@ -134,13 +125,11 @@ static int tpic2810_probe(struct i2c_client *client,
 	return 0;
 }
 
-static int tpic2810_remove(struct i2c_client *client)
+static void tpic2810_remove(struct i2c_client *client)
 {
 	struct tpic2810 *gpio = i2c_get_clientdata(client);
 
 	gpiochip_remove(&gpio->chip);
-
-	return 0;
 }
 
 static const struct i2c_device_id tpic2810_id_table[] = {
@@ -154,7 +143,7 @@ static struct i2c_driver tpic2810_driver = {
 		.name = "tpic2810",
 		.of_match_table = tpic2810_of_match_table,
 	},
-	.probe = tpic2810_probe,
+	.probe_new = tpic2810_probe,
 	.remove = tpic2810_remove,
 	.id_table = tpic2810_id_table,
 };

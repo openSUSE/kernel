@@ -187,10 +187,8 @@ struct v4l2_buffer
 	on the negotiated data format and may change with each buffer for
 	compressed variable size data like JPEG images. Drivers must set
 	this field when ``type`` refers to a capture stream, applications
-	when it refers to an output stream. If the application sets this
-	to 0 for an output stream, then ``bytesused`` will be set to the
-	size of the buffer (see the ``length`` field of this struct) by
-	the driver. For multiplanar formats this field is ignored and the
+	when it refers to an output stream. For multiplanar formats this field
+        is ignored and the
 	``planes`` pointer is used instead.
     * - __u32
       - ``flags``
@@ -327,10 +325,7 @@ struct v4l2_plane
       - ``bytesused``
       - The number of bytes occupied by data in the plane (its payload).
 	Drivers must set this field when ``type`` refers to a capture
-	stream, applications when it refers to an output stream. If the
-	application sets this to 0 for an output stream, then
-	``bytesused`` will be set to the size of the plane (see the
-	``length`` field of this struct) by the driver.
+	stream, applications when it refers to an output stream.
 
 	.. note::
 
@@ -676,8 +671,6 @@ Buffer Flags
 
     \normalsize
 
-.. _memory-flags:
-
 enum v4l2_memory
 ================
 
@@ -701,6 +694,44 @@ enum v4l2_memory
       - 4
       - The buffer is used for :ref:`DMA shared buffer <dmabuf>` I/O.
 
+.. _memory-flags:
+
+Memory Consistency Flags
+------------------------
+
+.. raw:: latex
+
+    \small
+
+.. tabularcolumns:: |p{7.0cm}|p{2.1cm}|p{8.4cm}|
+
+.. cssclass:: longtable
+
+.. flat-table::
+    :header-rows:  0
+    :stub-columns: 0
+    :widths:       3 1 4
+
+    * .. _`V4L2-MEMORY-FLAG-NON-COHERENT`:
+
+      - ``V4L2_MEMORY_FLAG_NON_COHERENT``
+      - 0x00000001
+      - A buffer is allocated either in coherent (it will be automatically
+	coherent between the CPU and the bus) or non-coherent memory. The
+	latter can provide performance gains, for instance the CPU cache
+	sync/flush operations can be avoided if the buffer is accessed by the
+	corresponding device only and the CPU does not read/write to/from that
+	buffer. However, this requires extra care from the driver -- it must
+	guarantee memory consistency by issuing a cache flush/sync when
+	consistency is needed. If this flag is set V4L2 will attempt to
+	allocate the buffer in non-coherent memory. The flag takes effect
+	only if the buffer is used for :ref:`memory mapping <mmap>` I/O and the
+	queue reports the :ref:`V4L2_BUF_CAP_SUPPORTS_MMAP_CACHE_HINTS
+	<V4L2-BUF-CAP-SUPPORTS-MMAP-CACHE-HINTS>` capability.
+
+.. raw:: latex
+
+    \normalsize
 
 Timecodes
 =========

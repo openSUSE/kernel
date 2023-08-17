@@ -45,30 +45,6 @@
 #define DESC_RATEMCS5				0x11
 #define DESC_RATEMCS6				0x12
 #define DESC_RATEMCS7				0x13
-#define DESC_RATEMCS8				0x14
-#define DESC_RATEMCS9				0x15
-#define DESC_RATEMCS10				0x16
-#define DESC_RATEMCS11				0x17
-#define DESC_RATEMCS12				0x18
-#define DESC_RATEMCS13				0x19
-#define DESC_RATEMCS14				0x1a
-#define DESC_RATEMCS15				0x1b
-#define DESC_RATEMCS16				0x1C
-#define DESC_RATEMCS17				0x1D
-#define DESC_RATEMCS18				0x1E
-#define DESC_RATEMCS19				0x1F
-#define DESC_RATEMCS20				0x20
-#define DESC_RATEMCS21				0x21
-#define DESC_RATEMCS22				0x22
-#define DESC_RATEMCS23				0x23
-#define DESC_RATEMCS24				0x24
-#define DESC_RATEMCS25				0x25
-#define DESC_RATEMCS26				0x26
-#define DESC_RATEMCS27				0x27
-#define DESC_RATEMCS28				0x28
-#define DESC_RATEMCS29				0x29
-#define DESC_RATEMCS30				0x2A
-#define DESC_RATEMCS31				0x2B
 
 #define HDATA_RATE(rate)\
 (rate == DESC_RATE1M) ? "CCK_1M" : \
@@ -90,16 +66,7 @@
 (rate == DESC_RATEMCS4) ? "MCS4" : \
 (rate == DESC_RATEMCS5) ? "MCS5" : \
 (rate == DESC_RATEMCS6) ? "MCS6" : \
-(rate == DESC_RATEMCS7) ? "MCS7" : \
-(rate == DESC_RATEMCS8) ? "MCS8" : \
-(rate == DESC_RATEMCS9) ? "MCS9" : \
-(rate == DESC_RATEMCS10) ? "MCS10" : \
-(rate == DESC_RATEMCS11) ? "MCS11" : \
-(rate == DESC_RATEMCS12) ? "MCS12" : \
-(rate == DESC_RATEMCS13) ? "MCS13" : \
-(rate == DESC_RATEMCS14) ? "MCS14" : \
-(rate == DESC_RATEMCS15) ? "MCS15" : "UNKNOWN"
-
+(rate == DESC_RATEMCS7) ? "MCS7" : "UNKNOWN"
 
 enum{
 	UP_LINK,
@@ -180,27 +147,9 @@ u8 GetHalDefVar(struct adapter *adapter, enum hal_def_variable variable,
 
 bool eqNByte(u8 *str1, u8 *str2, u32 num);
 
-bool IsHexDigit(char chTmp);
-
-u32 MapCharToHexDigit(char chTmp);
-
-bool GetHexValueFromString(char *szStr, u32 *pu4bVal, u32 *pu4bMove);
-
-bool GetFractionValueFromString(char *szStr, u8 *pInteger, u8 *pFraction,
-				u32 *pu4bMove);
-
-bool IsCommentString(char *szStr);
-
-bool ParseQualifiedString(char *In, u32 *Start, char *Out, char LeftQualifier,
-			  char RightQualifier);
-
 bool GetU1ByteIntegerFromStringInDecimal(char *str, u8 *in);
 
-bool isAllSpaceOrTab(u8 *data, u8 size);
-
-void linked_info_dump(struct adapter *padapter, u8 benable);
 #ifdef DBG_RX_SIGNAL_DISPLAY_RAW_DATA
-void rtw_get_raw_rssi_info(void *sel, struct adapter *padapter);
 void rtw_store_phy_info(struct adapter *padapter, union recv_frame *prframe);
 void rtw_dump_raw_rssi_info(struct adapter *padapter);
 #endif

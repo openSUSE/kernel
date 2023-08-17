@@ -7,14 +7,14 @@ $schema: http://devicetree.org/meta-schemas/core.yaml#
 title: Altera mSGDMA IP core
 
 maintainers:
-  - Olivier Dautricourt <olivier.dautricourt@orolia.com>
+  - Olivier Dautricourt <olivierdautricourt@gmail.com>
 
 description: |
   Altera / Intel modular Scatter-Gather Direct Memory Access (mSGDMA)
   intellectual property (IP)
 
 allOf:
-  - $ref: "dma-controller.yaml#"
+  - $ref: dma-controller.yaml#
 
 properties:
   compatible:
@@ -24,13 +24,15 @@ properties:
     items:
       - description: Control and Status Register Slave Port
       - description: Descriptor Slave Port
-      - description: Response Slave Port
+      - description: Response Slave Port (Optional)
+    minItems: 2
 
   reg-names:
     items:
       - const: csr
       - const: desc
       - const: resp
+    minItems: 2
 
   interrupts:
     maxItems: 1

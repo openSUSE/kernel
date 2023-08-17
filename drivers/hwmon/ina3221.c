@@ -650,7 +650,7 @@ static umode_t ina3221_is_visible(const void *drvdata,
 				   HWMON_C_CRIT | HWMON_C_CRIT_ALARM | \
 				   HWMON_C_MAX | HWMON_C_MAX_ALARM)
 
-static const struct hwmon_channel_info *ina3221_info[] = {
+static const struct hwmon_channel_info * const ina3221_info[] = {
 	HWMON_CHANNEL_INFO(chip,
 			   HWMON_C_SAMPLES,
 			   HWMON_C_UPDATE_INTERVAL),
@@ -913,7 +913,7 @@ fail:
 	return ret;
 }
 
-static int ina3221_remove(struct i2c_client *client)
+static void ina3221_remove(struct i2c_client *client)
 {
 	struct ina3221_data *ina = dev_get_drvdata(&client->dev);
 	int i;
@@ -926,11 +926,9 @@ static int ina3221_remove(struct i2c_client *client)
 		pm_runtime_put_noidle(ina->pm_dev);
 
 	mutex_destroy(&ina->lock);
-
-	return 0;
 }
 
-static int __maybe_unused ina3221_suspend(struct device *dev)
+static int ina3221_suspend(struct device *dev)
 {
 	struct ina3221_data *ina = dev_get_drvdata(dev);
 	int ret;
@@ -953,7 +951,7 @@ static int __maybe_unused ina3221_suspend(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused ina3221_resume(struct device *dev)
+static int ina3221_resume(struct device *dev)
 {
 	struct ina3221_data *ina = dev_get_drvdata(dev);
 	int ret;
@@ -996,11 +994,8 @@ static int __maybe_unused ina3221_resume(struct device *dev)
 	return 0;
 }
 
-static const struct dev_pm_ops ina3221_pm = {
-	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend,
-				pm_runtime_force_resume)
-	SET_RUNTIME_PM_OPS(ina3221_suspend, ina3221_resume, NULL)
-};
+static DEFINE_RUNTIME_DEV_PM_OPS(ina3221_pm, ina3221_suspend, ina3221_resume,
+				 NULL);
 
 static const struct of_device_id ina3221_of_match_table[] = {
 	{ .compatible = "ti,ina3221", },
@@ -1020,7 +1015,7 @@ static struct i2c_driver ina3221_i2c_driver = {
 	.driver = {
 		.name = INA3221_DRIVER_NAME,
 		.of_match_table = ina3221_of_match_table,
-		.pm = &ina3221_pm,
+		.pm = pm_ptr(&ina3221_pm),
 	},
 	.id_table = ina3221_ids,
 };

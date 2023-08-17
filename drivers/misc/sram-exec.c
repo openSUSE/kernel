@@ -1,26 +1,18 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * SRAM protect-exec region helper functions
  *
  * Copyright (C) 2017 Texas Instruments Incorporated - https://www.ti.com/
  *	Dave Gerlach
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed "as is" WITHOUT ANY WARRANTY of any
- * kind, whether express or implied; without even the implied warranty
- * of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/device.h>
 #include <linux/genalloc.h>
 #include <linux/mm.h>
 #include <linux/sram.h>
+#include <linux/set_memory.h>
 
 #include <asm/fncpy.h>
-#include <asm/set_memory.h>
 
 #include "sram.h"
 
@@ -114,10 +106,7 @@ void *sram_exec_copy(struct gen_pool *pool, void *dst, void *src,
 
 	dst_cpy = fncpy(dst, src, size);
 
-	ret = set_memory_ro((unsigned long)base, pages);
-	if (ret)
-		goto error_out;
-	ret = set_memory_x((unsigned long)base, pages);
+	ret = set_memory_rox((unsigned long)base, pages);
 	if (ret)
 		goto error_out;
 

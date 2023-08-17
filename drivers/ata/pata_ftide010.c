@@ -84,7 +84,7 @@ struct ftide010 {
 #define FTIDE010_CLK_MOD_DEV0_UDMA_EN	BIT(4)
 #define FTIDE010_CLK_MOD_DEV1_UDMA_EN	BIT(5)
 
-static struct scsi_host_template pata_ftide010_sht = {
+static const struct scsi_host_template pata_ftide010_sht = {
 	ATA_BMDMA_SHT(DRV_NAME),
 };
 
@@ -536,8 +536,8 @@ static int pata_ftide010_probe(struct platform_device *pdev)
 	return 0;
 
 err_dis_clk:
-	if (!IS_ERR(ftide->pclk))
-		clk_disable_unprepare(ftide->pclk);
+	clk_disable_unprepare(ftide->pclk);
+
 	return ret;
 }
 
@@ -547,23 +547,20 @@ static int pata_ftide010_remove(struct platform_device *pdev)
 	struct ftide010 *ftide = host->private_data;
 
 	ata_host_detach(ftide->host);
-	if (!IS_ERR(ftide->pclk))
-		clk_disable_unprepare(ftide->pclk);
+	clk_disable_unprepare(ftide->pclk);
 
 	return 0;
 }
 
 static const struct of_device_id pata_ftide010_of_match[] = {
-	{
-		.compatible = "faraday,ftide010",
-	},
-	{},
+	{ .compatible = "faraday,ftide010", },
+	{ /* sentinel */ }
 };
 
 static struct platform_driver pata_ftide010_driver = {
 	.driver = {
 		.name = DRV_NAME,
-		.of_match_table = of_match_ptr(pata_ftide010_of_match),
+		.of_match_table = pata_ftide010_of_match,
 	},
 	.probe = pata_ftide010_probe,
 	.remove = pata_ftide010_remove,

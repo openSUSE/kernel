@@ -18,26 +18,26 @@
 #include <linux/delay.h>
 #include <linux/initrd.h>
 #include <linux/platform_device.h>
+#include <linux/printk.h>
 #include <linux/seq_file.h>
 #include <linux/ioport.h>
 #include <linux/console.h>
 #include <linux/screen_info.h>
 #include <linux/root_dev.h>
-#include <linux/notifier.h>
 #include <linux/cpu.h>
 #include <linux/unistd.h>
+#include <linux/seq_buf.h>
 #include <linux/serial.h>
 #include <linux/serial_8250.h>
 #include <linux/percpu.h>
 #include <linux/memblock.h>
+#include <linux/of_irq.h>
+#include <linux/of_fdt.h>
 #include <linux/of_platform.h>
 #include <linux/hugetlb.h>
 #include <linux/pgtable.h>
-#include <linux/security.h>
-#include <asm/debugfs.h>
 #include <asm/io.h>
 #include <asm/paca.h>
-#include <asm/prom.h>
 #include <asm/processor.h>
 #include <asm/vdso_datapage.h>
 #include <asm/smp.h>
@@ -59,6 +59,7 @@
 #include <asm/xmon.h>
 #include <asm/cputhreads.h>
 #include <mm/mmu_decl.h>
+#include <asm/archrandom.h>
 #include <asm/fadump.h>
 #include <asm/udbg.h>
 #include <asm/hugetlb.h>
@@ -67,7 +68,6 @@
 #include <asm/cpu_has_feature.h>
 #include <asm/kasan.h>
 #include <asm/mce.h>
-#include <asm/secure_boot.h>
 
 #include "setup.h"
 
@@ -86,6 +86,10 @@ EXPORT_SYMBOL(machine_id);
 
 int boot_cpuid = -1;
 EXPORT_SYMBOL_GPL(boot_cpuid);
+
+#ifdef CONFIG_PPC64
+int boot_cpu_hwid = -1;
+#endif
 
 /*
  * These are used in binfmt_elf.c to put aux entries on the stack
@@ -164,9 +168,7 @@ void machine_restart(char *cmd)
 void machine_power_off(void)
 {
 	machine_shutdown();
-	if (pm_power_off)
-		pm_power_off();
-
+	do_kernel_power_off();
 	smp_send_stop();
 	machine_hang();
 }
@@ -176,17 +178,13 @@ EXPORT_SYMBOL_GPL(machine_power_off);
 void (*pm_power_off)(void);
 EXPORT_SYMBOL_GPL(pm_power_off);
 
-#ifdef CONFIG_ARCH_RANDOM
-bool __must_check arch_get_random_seed_long(unsigned long *v)
+size_t __must_check arch_get_random_seed_longs(unsigned long *v, size_t max_longs)
 {
-	if (ppc_md.get_random_seed)
-		return ppc_md.get_random_seed(v);
-
-	return false;
+	if (max_longs && ppc_md.get_random_seed && ppc_md.get_random_seed(v))
+		return 1;
+	return 0;
 }
-EXPORT_SYMBOL(arch_get_random_seed_long);
-
-#endif
+EXPORT_SYMBOL(arch_get_random_seed_longs);
 
 void machine_halt(void)
 {
@@ -293,11 +291,8 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 		seq_printf(m, "clock\t\t: %lu.%06luMHz\n",
 			   proc_freq / 1000000, proc_freq % 1000000);
 
-	if (ppc_md.show_percpuinfo != NULL)
-		ppc_md.show_percpuinfo(m, cpu_id);
-
 	/* If we are a Freescale core do a simple check so
-	 * we dont have to keep adding cases in the future */
+	 * we don't have to keep adding cases in the future */
 	if (PVR_VER(pvr) & 0x8000) {
 		switch (PVR_VER(pvr)) {
 		case 0x8000:	/* 7441/7450/7451, Voyager */
@@ -474,8 +469,8 @@ void __init smp_setup_cpu_maps(void)
 		intserv = of_get_property(dn, "ibm,ppc-interrupt-server#s",
 				&len);
 		if (intserv) {
-			DBG("    ibm,ppc-interrupt-server#s -> %d threads\n",
-			    nthreads);
+			DBG("    ibm,ppc-interrupt-server#s -> %lu threads\n",
+			    (len / sizeof(int)));
 		} else {
 			DBG("    no ibm,ppc-interrupt-server#s -> 1 thread\n");
 			intserv = of_get_property(dn, "reg", &len);
@@ -600,7 +595,16 @@ static __init int add_pcspkr(void)
 device_initcall(add_pcspkr);
 #endif	/* CONFIG_PCSPKR_PLATFORM */
 
-void probe_machine(void)
+static char ppc_hw_desc_buf[128] __initdata;
+
+struct seq_buf ppc_hw_desc __initdata = {
+	.buffer = ppc_hw_desc_buf,
+	.size = sizeof(ppc_hw_desc_buf),
+	.len = 0,
+	.readpos = 0,
+};
+
+static __init void probe_machine(void)
 {
 	extern struct machdep_calls __machine_desc_start;
 	extern struct machdep_calls __machine_desc_end;
@@ -626,13 +630,14 @@ void probe_machine(void)
 	for (machine_id = &__machine_desc_start;
 	     machine_id < &__machine_desc_end;
 	     machine_id++) {
-		DBG("  %s ...", machine_id->name);
+		DBG("  %s ...\n", machine_id->name);
+		if (machine_id->compatible && !of_machine_is_compatible(machine_id->compatible))
+			continue;
 		memcpy(&ppc_md, machine_id, sizeof(struct machdep_calls));
-		if (ppc_md.probe()) {
-			DBG(" match !\n");
-			break;
-		}
-		DBG("\n");
+		if (ppc_md.probe && !ppc_md.probe())
+			continue;
+		DBG("   %s match !\n", machine_id->name);
+		break;
 	}
 	/* What can we do if we didn't find ? */
 	if (machine_id >= &__machine_desc_end) {
@@ -640,7 +645,13 @@ void probe_machine(void)
 		for (;;);
 	}
 
-	printk(KERN_INFO "Using %s machine description\n", ppc_md.name);
+	// Append the machine name to other info we've gathered
+	seq_buf_puts(&ppc_hw_desc, ppc_md.name);
+
+	// Set the generic hardware description shown in oopses
+	dump_stack_set_arch_desc(ppc_hw_desc.buffer);
+
+	pr_info("Hardware name: %s\n", ppc_hw_desc.buffer);
 }
 
 /* Match a class of boards, not a specific device configuration. */
@@ -698,8 +709,25 @@ int check_legacy_ioport(unsigned long base_port)
 }
 EXPORT_SYMBOL(check_legacy_ioport);
 
-static int ppc_panic_event(struct notifier_block *this,
-                             unsigned long event, void *ptr)
+/*
+ * Panic notifiers setup
+ *
+ * We have 3 notifiers for powerpc, each one from a different "nature":
+ *
+ * - ppc_panic_fadump_handler() is a hypervisor notifier, which hard-disables
+ *   IRQs and deal with the Firmware-Assisted dump, when it is configured;
+ *   should run early in the panic path.
+ *
+ * - dump_kernel_offset() is an informative notifier, just showing the KASLR
+ *   offset if we have RANDOMIZE_BASE set.
+ *
+ * - ppc_panic_platform_handler() is a low-level handler that's registered
+ *   only if the platform wishes to perform final actions in the panic path,
+ *   hence it should run late and might not even return. Currently, only
+ *   pseries and ps3 platforms register callbacks.
+ */
+static int ppc_panic_fadump_handler(struct notifier_block *this,
+				    unsigned long event, void *ptr)
 {
 	/*
 	 * panic does a local_irq_disable, but we really
@@ -709,45 +737,63 @@ static int ppc_panic_event(struct notifier_block *this,
 
 	/*
 	 * If firmware-assisted dump has been registered then trigger
-	 * firmware-assisted dump and let firmware handle everything else.
+	 * its callback and let the firmware handles everything else.
 	 */
 	crash_fadump(NULL, ptr);
-	if (ppc_md.panic)
-		ppc_md.panic(ptr);  /* May not return */
+
 	return NOTIFY_DONE;
 }
 
-static struct notifier_block ppc_panic_block = {
-	.notifier_call = ppc_panic_event,
-	.priority = INT_MIN /* may not return; must be done last */
-};
-
-/*
- * Dump out kernel offset information on panic.
- */
 static int dump_kernel_offset(struct notifier_block *self, unsigned long v,
 			      void *p)
 {
 	pr_emerg("Kernel Offset: 0x%lx from 0x%lx\n",
 		 kaslr_offset(), KERNELBASE);
 
-	return 0;
+	return NOTIFY_DONE;
 }
 
+static int ppc_panic_platform_handler(struct notifier_block *this,
+				      unsigned long event, void *ptr)
+{
+	/*
+	 * This handler is only registered if we have a panic callback
+	 * on ppc_md, hence NULL check is not needed.
+	 * Also, it may not return, so it runs really late on panic path.
+	 */
+	ppc_md.panic(ptr);
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block ppc_fadump_block = {
+	.notifier_call = ppc_panic_fadump_handler,
+	.priority = INT_MAX, /* run early, to notify the firmware ASAP */
+};
+
 static struct notifier_block kernel_offset_notifier = {
-	.notifier_call = dump_kernel_offset
+	.notifier_call = dump_kernel_offset,
+};
+
+static struct notifier_block ppc_panic_block = {
+	.notifier_call = ppc_panic_platform_handler,
+	.priority = INT_MIN, /* may not return; must be done last */
 };
 
 void __init setup_panic(void)
 {
+	/* Hard-disables IRQs + deal with FW-assisted dump (fadump) */
+	atomic_notifier_chain_register(&panic_notifier_list,
+				       &ppc_fadump_block);
+
 	if (IS_ENABLED(CONFIG_RANDOMIZE_BASE) && kaslr_offset() > 0)
 		atomic_notifier_chain_register(&panic_notifier_list,
 					       &kernel_offset_notifier);
 
-	/* PPC64 always does a hard irq disable in its panic handler */
-	if (!IS_ENABLED(CONFIG_PPC64) && !ppc_md.panic)
-		return;
-	atomic_notifier_chain_register(&panic_notifier_list, &ppc_panic_block);
+	/* Low-level platform-specific routines that should run on panic */
+	if (ppc_md.panic)
+		atomic_notifier_chain_register(&panic_notifier_list,
+					       &ppc_panic_block);
 }
 
 #ifdef CONFIG_CHECK_CACHE_COHERENCY
@@ -786,18 +832,6 @@ static int __init check_cache_coherency(void)
 
 late_initcall(check_cache_coherency);
 #endif /* CONFIG_CHECK_CACHE_COHERENCY */
-
-#ifdef CONFIG_DEBUG_FS
-struct dentry *powerpc_debugfs_root;
-EXPORT_SYMBOL(powerpc_debugfs_root);
-
-static int powerpc_debugfs_init(void)
-{
-	powerpc_debugfs_root = debugfs_create_dir("powerpc", NULL);
-	return 0;
-}
-arch_initcall(powerpc_debugfs_init);
-#endif
 
 void ppc_printk_progress(char *s, unsigned short hex)
 {
@@ -852,7 +886,7 @@ static void __init smp_setup_pacas(void)
 		set_hard_smp_processor_id(cpu, cpu_to_phys_id[cpu]);
 	}
 
-	memblock_free(__pa(cpu_to_phys_id), nr_cpu_ids * sizeof(u32));
+	memblock_free(cpu_to_phys_id, nr_cpu_ids * sizeof(u32));
 	cpu_to_phys_id = NULL;
 }
 #endif
@@ -878,16 +912,6 @@ void __init setup_arch(char **cmdline_p)
 	 * just cputable (on ppc32).
 	 */
 	initialize_cache_info();
-
-	/*
-	 * Lock down the kernel if booted in secure mode. This is required to
-	 * maintain kernel integrity.
-	 */
-	if (IS_ENABLED(CONFIG_LOCK_DOWN_IN_EFI_SECURE_BOOT)) {
-		if (is_ppc_secureboot_enabled())
-			security_lock_kernel_down("Power Secure Boot mode",
-						  LOCKDOWN_INTEGRITY_MAX);
-	}
 
 	/* Initialize RTAS if available. */
 	rtas_initialize();
@@ -942,12 +966,6 @@ void __init setup_arch(char **cmdline_p)
 	/* Print various info about the machine that has been gathered so far. */
 	print_system_info();
 
-	/* Reserve large chunks of memory for use by CMA for KVM. */
-	kvm_cma_reserve();
-
-	/*  Reserve large chunks of memory for us by CMA for hugetlb */
-	gigantic_hugetlb_cma_reserve();
-
 	klp_init_thread_info(&init_task);
 
 	setup_initial_init_mm(_stext, _etext, _edata, _end);
@@ -961,6 +979,13 @@ void __init setup_arch(char **cmdline_p)
 	smp_release_cpus();
 
 	initmem_init();
+
+	/*
+	 * Reserve large chunks of memory for use by CMA for KVM and hugetlb. These must
+	 * be called after initmem_init(), so that pageblock_order is initialised.
+	 */
+	kvm_cma_reserve();
+	gigantic_hugetlb_cma_reserve();
 
 	early_memtest(min_low_pfn << PAGE_SHIFT, max_low_pfn << PAGE_SHIFT);
 

@@ -314,12 +314,11 @@ static int db7430_probe(struct spi_device *spi)
 	return 0;
 }
 
-static int db7430_remove(struct spi_device *spi)
+static void db7430_remove(struct spi_device *spi)
 {
 	struct db7430 *db = spi_get_drvdata(spi);
 
 	drm_panel_remove(&db->panel);
-	return 0;
 }
 
 /*
@@ -332,9 +331,16 @@ static const struct of_device_id db7430_match[] = {
 };
 MODULE_DEVICE_TABLE(of, db7430_match);
 
+static const struct spi_device_id db7430_ids[] = {
+	{ "lms397kf04" },
+	{ },
+};
+MODULE_DEVICE_TABLE(spi, db7430_ids);
+
 static struct spi_driver db7430_driver = {
 	.probe		= db7430_probe,
 	.remove		= db7430_remove,
+	.id_table	= db7430_ids,
 	.driver		= {
 		.name	= "db7430-panel",
 		.of_match_table = db7430_match,

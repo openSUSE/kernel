@@ -1488,6 +1488,7 @@ static bool mvpp2_port_supports_rgmii(struct mvpp2_port *port)
 static bool mvpp2_is_xlg(phy_interface_t interface)
 {
 	return interface == PHY_INTERFACE_MODE_10GBASER ||
+	       interface == PHY_INTERFACE_MODE_5GBASER ||
 	       interface == PHY_INTERFACE_MODE_XAUI;
 }
 
@@ -1627,6 +1628,7 @@ static int mvpp22_gop_init(struct mvpp2_port *port, phy_interface_t interface)
 	case PHY_INTERFACE_MODE_2500BASEX:
 		mvpp22_gop_init_sgmii(port);
 		break;
+	case PHY_INTERFACE_MODE_5GBASER:
 	case PHY_INTERFACE_MODE_10GBASER:
 		if (!mvpp2_port_supports_xlg(port))
 			goto invalid_conf;
@@ -1867,7 +1869,7 @@ static u32 mvpp2_read_index(struct mvpp2 *priv, u32 index, u32 reg)
  * design, incremented at different moments in the chain of packet processing,
  * it is very likely that incoming packets could have been dropped after being
  * counted by hardware but before reaching software statistics (most probably
- * multicast packets), and in the oppposite way, during transmission, FCS bytes
+ * multicast packets), and in the opposite way, during transmission, FCS bytes
  * are added in between as well as TSO skb will be split and header bytes added.
  * Hence, statistics gathered from userspace with ifconfig (software) and
  * ethtool (hardware) cannot be compared.
@@ -2006,7 +2008,7 @@ mvpp2_get_xdp_stats(struct mvpp2_port *port, struct mvpp2_pcpu_stats *xdp_stats)
 
 		cpu_stats = per_cpu_ptr(port->stats, cpu);
 		do {
-			start = u64_stats_fetch_begin_irq(&cpu_stats->syncp);
+			start = u64_stats_fetch_begin(&cpu_stats->syncp);
 			xdp_redirect = cpu_stats->xdp_redirect;
 			xdp_pass   = cpu_stats->xdp_pass;
 			xdp_drop = cpu_stats->xdp_drop;
@@ -2014,7 +2016,7 @@ mvpp2_get_xdp_stats(struct mvpp2_port *port, struct mvpp2_pcpu_stats *xdp_stats)
 			xdp_xmit_err   = cpu_stats->xdp_xmit_err;
 			xdp_tx   = cpu_stats->xdp_tx;
 			xdp_tx_err   = cpu_stats->xdp_tx_err;
-		} while (u64_stats_fetch_retry_irq(&cpu_stats->syncp, start));
+		} while (u64_stats_fetch_retry(&cpu_stats->syncp, start));
 
 		xdp_stats->xdp_redirect += xdp_redirect;
 		xdp_stats->xdp_pass   += xdp_pass;
@@ -2186,6 +2188,7 @@ static void mvpp22_pcs_reset_deassert(struct mvpp2_port *port,
 	xpcs = priv->iface_base + MVPP22_XPCS_BASE(port->gop_id);
 
 	switch (interface) {
+	case PHY_INTERFACE_MODE_5GBASER:
 	case PHY_INTERFACE_MODE_10GBASER:
 		val = readl(mpcs + MVPP22_MPCS_CLK_RESET);
 		val |= MAC_CLK_RESET_MAC | MAC_CLK_RESET_SD_RX |
@@ -4993,6 +4996,14 @@ static int mvpp2_bm_switch_buffers(struct mvpp2 *priv, bool percpu)
 
 	for (i = 0; i < priv->port_count; i++) {
 		port = priv->port_list[i];
+		if (percpu && port->ntxqs >= num_possible_cpus() * 2)
+			xdp_set_features_flag(port->dev,
+					      NETDEV_XDP_ACT_BASIC |
+					      NETDEV_XDP_ACT_REDIRECT |
+					      NETDEV_XDP_ACT_NDO_XMIT);
+		else
+			xdp_clear_features_flag(port->dev);
+
 		mvpp2_swf_bm_pool_init(port);
 		if (status[i])
 			mvpp2_open(port->dev);
@@ -5112,12 +5123,12 @@ mvpp2_get_stats64(struct net_device *dev, struct rtnl_link_stats64 *stats)
 
 		cpu_stats = per_cpu_ptr(port->stats, cpu);
 		do {
-			start = u64_stats_fetch_begin_irq(&cpu_stats->syncp);
+			start = u64_stats_fetch_begin(&cpu_stats->syncp);
 			rx_packets = cpu_stats->rx_packets;
 			rx_bytes   = cpu_stats->rx_bytes;
 			tx_packets = cpu_stats->tx_packets;
 			tx_bytes   = cpu_stats->tx_bytes;
-		} while (u64_stats_fetch_retry_irq(&cpu_stats->syncp, start));
+		} while (u64_stats_fetch_retry(&cpu_stats->syncp, start));
 
 		stats->rx_packets += rx_packets;
 		stats->rx_bytes   += rx_bytes;
@@ -5138,9 +5149,6 @@ static int mvpp2_set_ts_config(struct mvpp2_port *port, struct ifreq *ifr)
 
 	if (copy_from_user(&config, ifr->ifr_data, sizeof(config)))
 		return -EFAULT;
-
-	if (config.flags)
-		return -EINVAL;
 
 	if (config.tx_type != HWTSTAMP_TX_OFF &&
 	    config.tx_type != HWTSTAMP_TX_ON)
@@ -5770,8 +5778,7 @@ static int mvpp2_simple_queue_vectors_init(struct mvpp2_port *port,
 	v->irq = irq_of_parse_and_map(port_node, 0);
 	if (v->irq <= 0)
 		return -EINVAL;
-	netif_napi_add(port->dev, &v->napi, mvpp2_poll,
-		       NAPI_POLL_WEIGHT);
+	netif_napi_add(port->dev, &v->napi, mvpp2_poll);
 
 	port->nqvecs = 1;
 
@@ -5831,8 +5838,7 @@ static int mvpp2_multi_queue_vectors_init(struct mvpp2_port *port,
 			goto err;
 		}
 
-		netif_napi_add(port->dev, &v->napi, mvpp2_poll,
-			       NAPI_POLL_WEIGHT);
+		netif_napi_add(port->dev, &v->napi, mvpp2_poll);
 	}
 
 	return 0;
@@ -6083,18 +6089,19 @@ static bool mvpp2_port_has_irqs(struct mvpp2 *priv,
 	return true;
 }
 
-static void mvpp2_port_copy_mac_addr(struct net_device *dev, struct mvpp2 *priv,
-				     struct fwnode_handle *fwnode,
-				     char **mac_from)
+static int mvpp2_port_copy_mac_addr(struct net_device *dev, struct mvpp2 *priv,
+				    struct fwnode_handle *fwnode,
+				    char **mac_from)
 {
 	struct mvpp2_port *port = netdev_priv(dev);
 	char hw_mac_addr[ETH_ALEN] = {0};
 	char fw_mac_addr[ETH_ALEN];
+	int ret;
 
 	if (!fwnode_get_mac_address(fwnode, fw_mac_addr)) {
 		*mac_from = "firmware node";
 		eth_hw_addr_set(dev, fw_mac_addr);
-		return;
+		return 0;
 	}
 
 	if (priv->hw_version == MVPP21) {
@@ -6102,12 +6109,24 @@ static void mvpp2_port_copy_mac_addr(struct net_device *dev, struct mvpp2 *priv,
 		if (is_valid_ether_addr(hw_mac_addr)) {
 			*mac_from = "hardware";
 			eth_hw_addr_set(dev, hw_mac_addr);
-			return;
+			return 0;
 		}
+	}
+
+	/* Only valid on OF enabled platforms */
+	ret = of_get_mac_address_nvmem(to_of_node(fwnode), fw_mac_addr);
+	if (ret == -EPROBE_DEFER)
+		return ret;
+	if (!ret) {
+		*mac_from = "nvmem cell";
+		eth_hw_addr_set(dev, fw_mac_addr);
+		return 0;
 	}
 
 	*mac_from = "random";
 	eth_hw_addr_random(dev);
+
+	return 0;
 }
 
 static struct mvpp2_port *mvpp2_phylink_to_port(struct phylink_config *config)
@@ -6115,18 +6134,26 @@ static struct mvpp2_port *mvpp2_phylink_to_port(struct phylink_config *config)
 	return container_of(config, struct mvpp2_port, phylink_config);
 }
 
-static struct mvpp2_port *mvpp2_pcs_to_port(struct phylink_pcs *pcs)
+static struct mvpp2_port *mvpp2_pcs_xlg_to_port(struct phylink_pcs *pcs)
 {
-	return container_of(pcs, struct mvpp2_port, phylink_pcs);
+	return container_of(pcs, struct mvpp2_port, pcs_xlg);
+}
+
+static struct mvpp2_port *mvpp2_pcs_gmac_to_port(struct phylink_pcs *pcs)
+{
+	return container_of(pcs, struct mvpp2_port, pcs_gmac);
 }
 
 static void mvpp2_xlg_pcs_get_state(struct phylink_pcs *pcs,
 				    struct phylink_link_state *state)
 {
-	struct mvpp2_port *port = mvpp2_pcs_to_port(pcs);
+	struct mvpp2_port *port = mvpp2_pcs_xlg_to_port(pcs);
 	u32 val;
 
-	state->speed = SPEED_10000;
+	if (port->phy_interface == PHY_INTERFACE_MODE_5GBASER)
+		state->speed = SPEED_5000;
+	else
+		state->speed = SPEED_10000;
 	state->duplex = 1;
 	state->an_complete = 1;
 
@@ -6155,10 +6182,25 @@ static const struct phylink_pcs_ops mvpp2_phylink_xlg_pcs_ops = {
 	.pcs_config = mvpp2_xlg_pcs_config,
 };
 
+static int mvpp2_gmac_pcs_validate(struct phylink_pcs *pcs,
+				   unsigned long *supported,
+				   const struct phylink_link_state *state)
+{
+	/* When in 802.3z mode, we must have AN enabled:
+	 * Bit 2 Field InBandAnEn In-band Auto-Negotiation enable. ...
+	 * When <PortType> = 1 (1000BASE-X) this field must be set to 1.
+	 */
+	if (phy_interface_mode_is_8023z(state->interface) &&
+	    !phylink_test(state->advertising, Autoneg))
+		return -EINVAL;
+
+	return 0;
+}
+
 static void mvpp2_gmac_pcs_get_state(struct phylink_pcs *pcs,
 				     struct phylink_link_state *state)
 {
-	struct mvpp2_port *port = mvpp2_pcs_to_port(pcs);
+	struct mvpp2_port *port = mvpp2_pcs_gmac_to_port(pcs);
 	u32 val;
 
 	val = readl(port->base + MVPP2_GMAC_STATUS0);
@@ -6195,7 +6237,7 @@ static int mvpp2_gmac_pcs_config(struct phylink_pcs *pcs, unsigned int mode,
 				 const unsigned long *advertising,
 				 bool permit_pause_to_mac)
 {
-	struct mvpp2_port *port = mvpp2_pcs_to_port(pcs);
+	struct mvpp2_port *port = mvpp2_pcs_gmac_to_port(pcs);
 	u32 mask, val, an, old_an, changed;
 
 	mask = MVPP2_GMAC_IN_BAND_AUTONEG_BYPASS |
@@ -6249,7 +6291,7 @@ static int mvpp2_gmac_pcs_config(struct phylink_pcs *pcs, unsigned int mode,
 
 static void mvpp2_gmac_pcs_an_restart(struct phylink_pcs *pcs)
 {
-	struct mvpp2_port *port = mvpp2_pcs_to_port(pcs);
+	struct mvpp2_port *port = mvpp2_pcs_gmac_to_port(pcs);
 	u32 val = readl(port->base + MVPP2_GMAC_AUTONEG_CONFIG);
 
 	writel(val | MVPP2_GMAC_IN_BAND_RESTART_AN,
@@ -6259,101 +6301,11 @@ static void mvpp2_gmac_pcs_an_restart(struct phylink_pcs *pcs)
 }
 
 static const struct phylink_pcs_ops mvpp2_phylink_gmac_pcs_ops = {
+	.pcs_validate = mvpp2_gmac_pcs_validate,
 	.pcs_get_state = mvpp2_gmac_pcs_get_state,
 	.pcs_config = mvpp2_gmac_pcs_config,
 	.pcs_an_restart = mvpp2_gmac_pcs_an_restart,
 };
-
-static void mvpp2_phylink_validate(struct phylink_config *config,
-				   unsigned long *supported,
-				   struct phylink_link_state *state)
-{
-	struct mvpp2_port *port = mvpp2_phylink_to_port(config);
-	__ETHTOOL_DECLARE_LINK_MODE_MASK(mask) = { 0, };
-
-	/* Invalid combinations */
-	switch (state->interface) {
-	case PHY_INTERFACE_MODE_10GBASER:
-	case PHY_INTERFACE_MODE_XAUI:
-		if (!mvpp2_port_supports_xlg(port))
-			goto empty_set;
-		break;
-	case PHY_INTERFACE_MODE_RGMII:
-	case PHY_INTERFACE_MODE_RGMII_ID:
-	case PHY_INTERFACE_MODE_RGMII_RXID:
-	case PHY_INTERFACE_MODE_RGMII_TXID:
-		if (!mvpp2_port_supports_rgmii(port))
-			goto empty_set;
-		break;
-	default:
-		break;
-	}
-
-	phylink_set(mask, Autoneg);
-	phylink_set_port_modes(mask);
-
-	if (port->priv->global_tx_fc) {
-		phylink_set(mask, Pause);
-		phylink_set(mask, Asym_Pause);
-	}
-
-	switch (state->interface) {
-	case PHY_INTERFACE_MODE_10GBASER:
-	case PHY_INTERFACE_MODE_XAUI:
-	case PHY_INTERFACE_MODE_NA:
-		if (mvpp2_port_supports_xlg(port)) {
-			phylink_set(mask, 10000baseT_Full);
-			phylink_set(mask, 10000baseCR_Full);
-			phylink_set(mask, 10000baseSR_Full);
-			phylink_set(mask, 10000baseLR_Full);
-			phylink_set(mask, 10000baseLRM_Full);
-			phylink_set(mask, 10000baseER_Full);
-			phylink_set(mask, 10000baseKR_Full);
-		}
-		if (state->interface != PHY_INTERFACE_MODE_NA)
-			break;
-		fallthrough;
-	case PHY_INTERFACE_MODE_RGMII:
-	case PHY_INTERFACE_MODE_RGMII_ID:
-	case PHY_INTERFACE_MODE_RGMII_RXID:
-	case PHY_INTERFACE_MODE_RGMII_TXID:
-	case PHY_INTERFACE_MODE_SGMII:
-		phylink_set(mask, 10baseT_Half);
-		phylink_set(mask, 10baseT_Full);
-		phylink_set(mask, 100baseT_Half);
-		phylink_set(mask, 100baseT_Full);
-		phylink_set(mask, 1000baseT_Full);
-		phylink_set(mask, 1000baseX_Full);
-		if (state->interface != PHY_INTERFACE_MODE_NA)
-			break;
-		fallthrough;
-	case PHY_INTERFACE_MODE_1000BASEX:
-	case PHY_INTERFACE_MODE_2500BASEX:
-		if (port->comphy ||
-		    state->interface != PHY_INTERFACE_MODE_2500BASEX) {
-			phylink_set(mask, 1000baseT_Full);
-			phylink_set(mask, 1000baseX_Full);
-		}
-		if (port->comphy ||
-		    state->interface == PHY_INTERFACE_MODE_2500BASEX) {
-			phylink_set(mask, 2500baseT_Full);
-			phylink_set(mask, 2500baseX_Full);
-		}
-		break;
-	default:
-		goto empty_set;
-	}
-
-	bitmap_and(supported, supported, mask, __ETHTOOL_LINK_MODE_MASK_NBITS);
-	bitmap_and(state->advertising, state->advertising, mask,
-		   __ETHTOOL_LINK_MODE_MASK_NBITS);
-
-	phylink_helper_basex_speed(state);
-	return;
-
-empty_set:
-	bitmap_zero(supported, __ETHTOOL_LINK_MODE_MASK_NBITS);
-}
 
 static void mvpp2_xlg_config(struct mvpp2_port *port, unsigned int mode,
 			     const struct phylink_link_state *state)
@@ -6434,8 +6386,23 @@ static void mvpp2_gmac_config(struct mvpp2_port *port, unsigned int mode,
 		writel(ctrl4, port->base + MVPP22_GMAC_CTRL_4_REG);
 }
 
-static int mvpp2__mac_prepare(struct phylink_config *config, unsigned int mode,
-			      phy_interface_t interface)
+static struct phylink_pcs *mvpp2_select_pcs(struct phylink_config *config,
+					    phy_interface_t interface)
+{
+	struct mvpp2_port *port = mvpp2_phylink_to_port(config);
+
+	/* Select the appropriate PCS operations depending on the
+	 * configured interface mode. We will only switch to a mode
+	 * that the validate() checks have already passed.
+	 */
+	if (mvpp2_is_xlg(interface))
+		return &port->pcs_xlg;
+	else
+		return &port->pcs_gmac;
+}
+
+static int mvpp2_mac_prepare(struct phylink_config *config, unsigned int mode,
+			     phy_interface_t interface)
 {
 	struct mvpp2_port *port = mvpp2_phylink_to_port(config);
 
@@ -6484,29 +6451,7 @@ static int mvpp2__mac_prepare(struct phylink_config *config, unsigned int mode,
 		}
 	}
 
-	/* Select the appropriate PCS operations depending on the
-	 * configured interface mode. We will only switch to a mode
-	 * that the validate() checks have already passed.
-	 */
-	if (mvpp2_is_xlg(interface))
-		port->phylink_pcs.ops = &mvpp2_phylink_xlg_pcs_ops;
-	else
-		port->phylink_pcs.ops = &mvpp2_phylink_gmac_pcs_ops;
-
 	return 0;
-}
-
-static int mvpp2_mac_prepare(struct phylink_config *config, unsigned int mode,
-			     phy_interface_t interface)
-{
-	struct mvpp2_port *port = mvpp2_phylink_to_port(config);
-	int ret;
-
-	ret = mvpp2__mac_prepare(config, mode, interface);
-	if (ret == 0)
-		phylink_set_pcs(port->phylink, &port->phylink_pcs);
-
-	return ret;
 }
 
 static void mvpp2_mac_config(struct phylink_config *config, unsigned int mode,
@@ -6679,7 +6624,7 @@ static void mvpp2_mac_link_down(struct phylink_config *config,
 }
 
 static const struct phylink_mac_ops mvpp2_phylink_ops = {
-	.validate = mvpp2_phylink_validate,
+	.mac_select_pcs = mvpp2_select_pcs,
 	.mac_prepare = mvpp2_mac_prepare,
 	.mac_config = mvpp2_mac_config,
 	.mac_finish = mvpp2_mac_finish,
@@ -6697,12 +6642,15 @@ static void mvpp2_acpi_start(struct mvpp2_port *port)
 	struct phylink_link_state state = {
 		.interface = port->phy_interface,
 	};
-	mvpp2__mac_prepare(&port->phylink_config, MLO_AN_INBAND,
-			   port->phy_interface);
+	struct phylink_pcs *pcs;
+
+	pcs = mvpp2_select_pcs(&port->phylink_config, port->phy_interface);
+
+	mvpp2_mac_prepare(&port->phylink_config, MLO_AN_INBAND,
+			  port->phy_interface);
 	mvpp2_mac_config(&port->phylink_config, MLO_AN_INBAND, &state);
-	port->phylink_pcs.ops->pcs_config(&port->phylink_pcs, MLO_AN_INBAND,
-					  port->phy_interface,
-					  state.advertising, false);
+	pcs->ops->pcs_config(pcs, MLO_AN_INBAND, port->phy_interface,
+			     state.advertising, false);
 	mvpp2_mac_finish(&port->phylink_config, MLO_AN_INBAND,
 			 port->phy_interface);
 	mvpp2_mac_link_up(&port->phylink_config, NULL,
@@ -6881,7 +6829,9 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 	mutex_init(&port->gather_stats_lock);
 	INIT_DELAYED_WORK(&port->stats_work, mvpp2_gather_hw_statistics);
 
-	mvpp2_port_copy_mac_addr(dev, priv, port_fwnode, &mac_from);
+	err = mvpp2_port_copy_mac_addr(dev, priv, port_fwnode, &mac_from);
+	if (err < 0)
+		goto err_free_stats;
 
 	port->tx_ring_size = MVPP2_MAX_TXD_DFLT;
 	port->rx_ring_size = MVPP2_MAX_RXD_DFLT;
@@ -6929,9 +6879,14 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 
 	if (!port->priv->percpu_pools)
 		mvpp2_set_hw_csum(port, port->pool_long->id);
+	else if (port->ntxqs >= num_possible_cpus() * 2)
+		dev->xdp_features = NETDEV_XDP_ACT_BASIC |
+				    NETDEV_XDP_ACT_REDIRECT |
+				    NETDEV_XDP_ACT_NDO_XMIT;
 
 	dev->vlan_features |= features;
 	netif_set_tso_max_segs(dev, MVPP2_MAX_TSO_SEGS);
+
 	dev->priv_flags |= IFF_UNICAST_FLT;
 
 	/* MTU range: 68 - 9704 */
@@ -6940,9 +6895,78 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 	dev->max_mtu = MVPP2_BM_JUMBO_PKT_SIZE;
 	dev->dev.of_node = port_node;
 
+	port->pcs_gmac.ops = &mvpp2_phylink_gmac_pcs_ops;
+	port->pcs_xlg.ops = &mvpp2_phylink_xlg_pcs_ops;
+
 	if (!mvpp2_use_acpi_compat_mode(port_fwnode)) {
 		port->phylink_config.dev = &dev->dev;
 		port->phylink_config.type = PHYLINK_NETDEV;
+		port->phylink_config.mac_capabilities =
+			MAC_2500FD | MAC_1000FD | MAC_100 | MAC_10;
+
+		if (port->priv->global_tx_fc)
+			port->phylink_config.mac_capabilities |=
+				MAC_SYM_PAUSE | MAC_ASYM_PAUSE;
+
+		if (mvpp2_port_supports_xlg(port)) {
+			/* If a COMPHY is present, we can support any of
+			 * the serdes modes and switch between them.
+			 */
+			if (comphy) {
+				__set_bit(PHY_INTERFACE_MODE_5GBASER,
+					  port->phylink_config.supported_interfaces);
+				__set_bit(PHY_INTERFACE_MODE_10GBASER,
+					  port->phylink_config.supported_interfaces);
+				__set_bit(PHY_INTERFACE_MODE_XAUI,
+					  port->phylink_config.supported_interfaces);
+			} else if (phy_mode == PHY_INTERFACE_MODE_5GBASER) {
+				__set_bit(PHY_INTERFACE_MODE_5GBASER,
+					  port->phylink_config.supported_interfaces);
+			} else if (phy_mode == PHY_INTERFACE_MODE_10GBASER) {
+				__set_bit(PHY_INTERFACE_MODE_10GBASER,
+					  port->phylink_config.supported_interfaces);
+			} else if (phy_mode == PHY_INTERFACE_MODE_XAUI) {
+				__set_bit(PHY_INTERFACE_MODE_XAUI,
+					  port->phylink_config.supported_interfaces);
+			}
+
+			if (comphy)
+				port->phylink_config.mac_capabilities |=
+					MAC_10000FD | MAC_5000FD;
+			else if (phy_mode == PHY_INTERFACE_MODE_5GBASER)
+				port->phylink_config.mac_capabilities |=
+					MAC_5000FD;
+			else
+				port->phylink_config.mac_capabilities |=
+					MAC_10000FD;
+		}
+
+		if (mvpp2_port_supports_rgmii(port))
+			phy_interface_set_rgmii(port->phylink_config.supported_interfaces);
+
+		if (comphy) {
+			/* If a COMPHY is present, we can support any of the
+			 * serdes modes and switch between them.
+			 */
+			__set_bit(PHY_INTERFACE_MODE_SGMII,
+				  port->phylink_config.supported_interfaces);
+			__set_bit(PHY_INTERFACE_MODE_1000BASEX,
+				  port->phylink_config.supported_interfaces);
+			__set_bit(PHY_INTERFACE_MODE_2500BASEX,
+				  port->phylink_config.supported_interfaces);
+		} else if (phy_mode == PHY_INTERFACE_MODE_2500BASEX) {
+			/* No COMPHY, with only 2500BASE-X mode supported */
+			__set_bit(PHY_INTERFACE_MODE_2500BASEX,
+				  port->phylink_config.supported_interfaces);
+		} else if (phy_mode == PHY_INTERFACE_MODE_1000BASEX ||
+			   phy_mode == PHY_INTERFACE_MODE_SGMII) {
+			/* No COMPHY, we can switch between 1000BASE-X and SGMII
+			 */
+			__set_bit(PHY_INTERFACE_MODE_1000BASEX,
+				  port->phylink_config.supported_interfaces);
+			__set_bit(PHY_INTERFACE_MODE_SGMII,
+				  port->phylink_config.supported_interfaces);
+		}
 
 		phylink = phylink_create(&port->phylink_config, port_fwnode,
 					 phy_mode, &mvpp2_phylink_ops);
@@ -7353,6 +7377,7 @@ static int mvpp2_get_sram(struct platform_device *pdev,
 			  struct mvpp2 *priv)
 {
 	struct resource *res;
+	void __iomem *base;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
 	if (!res) {
@@ -7363,9 +7388,12 @@ static int mvpp2_get_sram(struct platform_device *pdev,
 		return 0;
 	}
 
-	priv->cm3_base = devm_ioremap_resource(&pdev->dev, res);
+	base = devm_ioremap_resource(&pdev->dev, res);
+	if (IS_ERR(base))
+		return PTR_ERR(base);
 
-	return PTR_ERR_OR_ZERO(priv->cm3_base);
+	priv->cm3_base = base;
+	return 0;
 }
 
 static int mvpp2_probe(struct platform_device *pdev)

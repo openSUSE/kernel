@@ -151,7 +151,7 @@ xfs_attr3_node_inactive(
 	}
 
 	xfs_da3_node_hdr_from_disk(dp->i_mount, &ichdr, bp->b_addr);
-	parent_blkno = bp->b_bn;
+	parent_blkno = xfs_buf_daddr(bp);
 	if (!ichdr.count) {
 		xfs_trans_brelse(*trans, bp);
 		return 0;
@@ -178,7 +178,7 @@ xfs_attr3_node_inactive(
 			return error;
 
 		/* save for re-read later */
-		child_blkno = XFS_BUF_ADDR(child_bp);
+		child_blkno = xfs_buf_daddr(child_bp);
 
 		/*
 		 * Invalidate the subtree, however we have to.
@@ -269,7 +269,7 @@ xfs_attr3_root_inactive(
 	error = xfs_da3_node_read(*trans, dp, 0, &bp, XFS_ATTR_FORK);
 	if (error)
 		return error;
-	blkno = bp->b_bn;
+	blkno = xfs_buf_daddr(bp);
 
 	/*
 	 * Invalidate the tree, even if the "tree" is only a single leaf block.
@@ -336,7 +336,7 @@ xfs_attr_inactive(
 	ASSERT(! XFS_NOT_DQATTACHED(mp, dp));
 
 	xfs_ilock(dp, lock_mode);
-	if (!XFS_IFORK_Q(dp))
+	if (!xfs_inode_has_attr_fork(dp))
 		goto out_destroy_fork;
 	xfs_iunlock(dp, lock_mode);
 
@@ -349,7 +349,7 @@ xfs_attr_inactive(
 	lock_mode = XFS_ILOCK_EXCL;
 	xfs_ilock(dp, lock_mode);
 
-	if (!XFS_IFORK_Q(dp))
+	if (!xfs_inode_has_attr_fork(dp))
 		goto out_cancel;
 
 	/*
@@ -360,12 +360,11 @@ xfs_attr_inactive(
 
 	/*
 	 * Invalidate and truncate the attribute fork extents. Make sure the
-	 * fork actually has attributes as otherwise the invalidation has no
+	 * fork actually has xattr blocks as otherwise the invalidation has no
 	 * blocks to read and returns an error. In this case, just do the fork
 	 * removal below.
 	 */
-	if (xfs_inode_hasattr(dp) &&
-	    dp->i_afp->if_format != XFS_DINODE_FMT_LOCAL) {
+	if (dp->i_af.if_nextents > 0) {
 		error = xfs_attr3_root_inactive(&trans, dp);
 		if (error)
 			goto out_cancel;
@@ -386,11 +385,7 @@ out_cancel:
 	xfs_trans_cancel(trans);
 out_destroy_fork:
 	/* kill the in-core attr fork before we drop the inode lock */
-	if (dp->i_afp) {
-		xfs_idestroy_fork(dp->i_afp);
-		kmem_cache_free(xfs_ifork_zone, dp->i_afp);
-		dp->i_afp = NULL;
-	}
+	xfs_ifork_zap_attr(dp);
 	if (lock_mode)
 		xfs_iunlock(dp, lock_mode);
 	return error;

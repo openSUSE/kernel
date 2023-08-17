@@ -19,10 +19,10 @@
 #include <linux/syscalls.h>
 #include <linux/irq.h>
 #include <linux/vmalloc.h>
+#include <linux/of.h>
 
 #include <asm/processor.h>
 #include <asm/io.h>
-#include <asm/prom.h>
 #include <asm/pci-bridge.h>
 #include <asm/byteorder.h>
 #include <asm/machdep.h>
@@ -73,7 +73,7 @@ static int __init pcibios_init(void)
 	return 0;
 }
 
-subsys_initcall(pcibios_init);
+subsys_initcall_sync(pcibios_init);
 
 int pcibios_unmap_io_space(struct pci_bus *bus)
 {
@@ -132,7 +132,7 @@ void __iomem *ioremap_phb(phys_addr_t paddr, unsigned long size)
 	 * address decoding but I'd rather not deal with those outside of the
 	 * reserved 64K legacy region.
 	 */
-	area = __get_vm_area_caller(size, 0, PHB_IO_BASE, PHB_IO_END,
+	area = __get_vm_area_caller(size, VM_IOREMAP, PHB_IO_BASE, PHB_IO_END,
 				    __builtin_return_address(0));
 	if (!area)
 		return NULL;
@@ -284,4 +284,15 @@ int pcibus_to_node(struct pci_bus *bus)
 	return phb->node;
 }
 EXPORT_SYMBOL(pcibus_to_node);
+#endif
+
+#ifdef CONFIG_PPC_PMAC
+int pci_device_from_OF_node(struct device_node *np, u8 *bus, u8 *devfn)
+{
+	if (!PCI_DN(np))
+		return -ENODEV;
+	*bus = PCI_DN(np)->busno;
+	*devfn = PCI_DN(np)->devfn;
+	return 0;
+}
 #endif

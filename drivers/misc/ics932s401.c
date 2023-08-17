@@ -89,11 +89,10 @@ struct ics932s401_data {
 	u8			regs[NUM_REGS];
 };
 
-static int ics932s401_probe(struct i2c_client *client,
-			 const struct i2c_device_id *id);
+static int ics932s401_probe(struct i2c_client *client);
 static int ics932s401_detect(struct i2c_client *client,
 			  struct i2c_board_info *info);
-static int ics932s401_remove(struct i2c_client *client);
+static void ics932s401_remove(struct i2c_client *client);
 
 static const struct i2c_device_id ics932s401_id[] = {
 	{ "ics932s401", 0 },
@@ -106,7 +105,7 @@ static struct i2c_driver ics932s401_driver = {
 	.driver = {
 		.name	= "ics932s401",
 	},
-	.probe		= ics932s401_probe,
+	.probe_new	= ics932s401_probe,
 	.remove		= ics932s401_remove,
 	.id_table	= ics932s401_id,
 	.detect		= ics932s401_detect,
@@ -429,8 +428,7 @@ static int ics932s401_detect(struct i2c_client *client,
 	return 0;
 }
 
-static int ics932s401_probe(struct i2c_client *client,
-			 const struct i2c_device_id *id)
+static int ics932s401_probe(struct i2c_client *client)
 {
 	struct ics932s401_data *data;
 	int err;
@@ -460,13 +458,12 @@ exit:
 	return err;
 }
 
-static int ics932s401_remove(struct i2c_client *client)
+static void ics932s401_remove(struct i2c_client *client)
 {
 	struct ics932s401_data *data = i2c_get_clientdata(client);
 
 	sysfs_remove_group(&client->dev.kobj, &data->attrs);
 	kfree(data);
-	return 0;
 }
 
 module_i2c_driver(ics932s401_driver);

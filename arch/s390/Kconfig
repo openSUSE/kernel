@@ -55,11 +55,14 @@ config S390
 	# Note: keep this list sorted alphabetically
 	#
 	imply IMA_SECURE_AND_OR_TRUSTED_BOOT
+	select ALTERNATE_USER_ADDRESS_SPACE
 	select ARCH_32BIT_USTAT_F_TINODE
 	select ARCH_BINFMT_ELF_STATE
+	select ARCH_CORRECT_STACKTRACE_ON_KRETPROBE
 	select ARCH_ENABLE_MEMORY_HOTPLUG if SPARSEMEM
 	select ARCH_ENABLE_MEMORY_HOTREMOVE
 	select ARCH_ENABLE_SPLIT_PMD_PTLOCK if PGTABLE_LEVELS > 2
+	select ARCH_HAS_CURRENT_STACK_POINTER
 	select ARCH_HAS_DEBUG_VM_PGTABLE
 	select ARCH_HAS_DEBUG_WX
 	select ARCH_HAS_DEVMEM_IS_ALLOWED
@@ -69,9 +72,12 @@ config S390
 	select ARCH_HAS_GCOV_PROFILE_ALL
 	select ARCH_HAS_GIGANTIC_PAGE
 	select ARCH_HAS_KCOV
+	select ARCH_HAS_MEMBARRIER_SYNC_CORE
 	select ARCH_HAS_MEM_ENCRYPT
+	select ARCH_HAS_NMI_SAFE_THIS_CPU_OPS
 	select ARCH_HAS_PTE_SPECIAL
 	select ARCH_HAS_SCALED_CPUTIME
+	select ARCH_HAS_SET_DIRECT_MAP
 	select ARCH_HAS_SET_MEMORY
 	select ARCH_HAS_STRICT_KERNEL_RWX
 	select ARCH_HAS_STRICT_MODULE_RWX
@@ -110,23 +116,27 @@ config S390
 	select ARCH_STACKWALK
 	select ARCH_SUPPORTS_ATOMIC_RMW
 	select ARCH_SUPPORTS_DEBUG_PAGEALLOC
+	select ARCH_SUPPORTS_HUGETLBFS
 	select ARCH_SUPPORTS_NUMA_BALANCING
+	select ARCH_SUPPORTS_PER_VMA_LOCK
 	select ARCH_USE_BUILTIN_BSWAP
 	select ARCH_USE_CMPXCHG_LOCKREF
+	select ARCH_USE_SYM_ANNOTATIONS
 	select ARCH_WANTS_DYNAMIC_TASK_STRUCT
 	select ARCH_WANTS_NO_INSTR
 	select ARCH_WANT_DEFAULT_BPF_JIT
 	select ARCH_WANT_IPC_PARSE_VERSION
+	select ARCH_WANT_OPTIMIZE_VMEMMAP
 	select BUILDTIME_TABLE_SORT
 	select CLONE_BACKWARDS2
-	select CPU_NO_EFFICIENT_FFS if !HAVE_MARCH_Z9_109_FEATURES
 	select DMA_OPS if PCI
 	select DYNAMIC_FTRACE if FUNCTION_TRACER
+	select FUNCTION_ALIGNMENT_8B if CC_IS_GCC
+	select FUNCTION_ALIGNMENT_16B if !CC_IS_GCC
 	select GENERIC_ALLOCATOR
 	select GENERIC_CPU_AUTOPROBE
 	select GENERIC_CPU_VULNERABILITIES
 	select GENERIC_ENTRY
-	select GENERIC_FIND_FIRST_BIT
 	select GENERIC_GETTIMEOFDAY
 	select GENERIC_PTDUMP
 	select GENERIC_SMP_IDLE_THREAD
@@ -138,9 +148,12 @@ config S390
 	select HAVE_ARCH_JUMP_LABEL_RELATIVE
 	select HAVE_ARCH_KASAN
 	select HAVE_ARCH_KASAN_VMALLOC
+	select HAVE_ARCH_KCSAN
+	select HAVE_ARCH_KFENCE
 	select HAVE_ARCH_RANDOMIZE_KSTACK_OFFSET
 	select HAVE_ARCH_SECCOMP_FILTER
 	select HAVE_ARCH_SOFT_DIRTY
+	select HAVE_ARCH_STACKLEAK
 	select HAVE_ARCH_TRACEHOOK
 	select HAVE_ARCH_TRANSPARENT_HUGEPAGE
 	select HAVE_ARCH_VMAP_STACK
@@ -150,12 +163,15 @@ config S390
 	select HAVE_DEBUG_KMEMLEAK
 	select HAVE_DMA_CONTIGUOUS
 	select HAVE_DYNAMIC_FTRACE
+	select HAVE_DYNAMIC_FTRACE_WITH_ARGS
+	select HAVE_DYNAMIC_FTRACE_WITH_DIRECT_CALLS
 	select HAVE_DYNAMIC_FTRACE_WITH_REGS
-	select HAVE_EBPF_JIT if PACK_STACK && HAVE_MARCH_Z196_FEATURES
+	select HAVE_EBPF_JIT if HAVE_MARCH_Z196_FEATURES
 	select HAVE_EFFICIENT_UNALIGNED_ACCESS
 	select HAVE_FAST_GUP
 	select HAVE_FENTRY
 	select HAVE_FTRACE_MCOUNT_RECORD
+	select HAVE_FUNCTION_ARG_ACCESS_API
 	select HAVE_FUNCTION_ERROR_INJECTION
 	select HAVE_FUNCTION_GRAPH_TRACER
 	select HAVE_FUNCTION_TRACER
@@ -185,17 +201,23 @@ config S390
 	select HAVE_PERF_USER_STACK_DUMP
 	select HAVE_REGS_AND_STACK_ACCESS_API
 	select HAVE_RELIABLE_STACKTRACE
+	select HAVE_RETHOOK
 	select HAVE_RSEQ
+	select HAVE_SAMPLE_FTRACE_DIRECT
+	select HAVE_SAMPLE_FTRACE_DIRECT_MULTI
+	select HAVE_SETUP_PER_CPU_AREA
 	select HAVE_SOFTIRQ_ON_OWN_STACK
 	select HAVE_SYSCALL_TRACEPOINTS
 	select HAVE_VIRT_CPU_ACCOUNTING
 	select HAVE_VIRT_CPU_ACCOUNTING_IDLE
 	select IOMMU_HELPER		if PCI
 	select IOMMU_SUPPORT		if PCI
+	select MMU_GATHER_MERGE_VMAS
 	select MMU_GATHER_NO_GATHER
 	select MMU_GATHER_RCU_TABLE_FREE
 	select MODULES_USE_ELF_RELA
 	select NEED_DMA_MAP_STATE	if PCI
+	select NEED_PER_CPU_EMBED_FIRST_CHUNK
 	select NEED_SG_DMA_LENGTH	if PCI
 	select OLD_SIGACTION
 	select OLD_SIGSUSPEND3
@@ -206,6 +228,7 @@ config S390
 	select SWIOTLB
 	select SYSCTL_EXCEPTION_TRACE
 	select THREAD_INFO_IN_TASK
+	select TRACE_IRQFLAGS_SUPPORT
 	select TTY
 	select VIRT_CPU_ACCOUNTING
 	select ZONE_DMA
@@ -222,20 +245,8 @@ source "kernel/livepatch/Kconfig"
 
 menu "Processor type and features"
 
-config HAVE_MARCH_Z900_FEATURES
-	def_bool n
-
-config HAVE_MARCH_Z990_FEATURES
-	def_bool n
-	select HAVE_MARCH_Z900_FEATURES
-
-config HAVE_MARCH_Z9_109_FEATURES
-	def_bool n
-	select HAVE_MARCH_Z990_FEATURES
-
 config HAVE_MARCH_Z10_FEATURES
 	def_bool n
-	select HAVE_MARCH_Z9_109_FEATURES
 
 config HAVE_MARCH_Z196_FEATURES
 	def_bool n
@@ -257,45 +268,21 @@ config HAVE_MARCH_Z15_FEATURES
 	def_bool n
 	select HAVE_MARCH_Z14_FEATURES
 
+config HAVE_MARCH_Z16_FEATURES
+	def_bool n
+	select HAVE_MARCH_Z15_FEATURES
+
 choice
 	prompt "Processor type"
 	default MARCH_Z196
-
-config MARCH_Z900
-	bool "IBM zSeries model z800 and z900"
-	select HAVE_MARCH_Z900_FEATURES
-	depends on $(cc-option,-march=z900)
-	help
-	  Select this to enable optimizations for model z800/z900 (2064 and
-	  2066 series). This will enable some optimizations that are not
-	  available on older ESA/390 (31 Bit) only CPUs.
-
-config MARCH_Z990
-	bool "IBM zSeries model z890 and z990"
-	select HAVE_MARCH_Z990_FEATURES
-	depends on $(cc-option,-march=z990)
-	help
-	  Select this to enable optimizations for model z890/z990 (2084 and
-	  2086 series). The kernel will be slightly faster but will not work
-	  on older machines.
-
-config MARCH_Z9_109
-	bool "IBM System z9"
-	select HAVE_MARCH_Z9_109_FEATURES
-	depends on $(cc-option,-march=z9-109)
-	help
-	  Select this to enable optimizations for IBM System z9 (2094 and
-	  2096 series). The kernel will be slightly faster but will not work
-	  on older machines.
 
 config MARCH_Z10
 	bool "IBM System z10"
 	select HAVE_MARCH_Z10_FEATURES
 	depends on $(cc-option,-march=z10)
 	help
-	  Select this to enable optimizations for IBM System z10 (2097 and
-	  2098 series). The kernel will be slightly faster but will not work
-	  on older machines.
+	  Select this to enable optimizations for IBM System z10 (2097 and 2098
+	  series). This is the oldest machine generation currently supported.
 
 config MARCH_Z196
 	bool "IBM zEnterprise 114 and 196"
@@ -342,16 +329,15 @@ config MARCH_Z15
 	  and 8561 series). The kernel will be slightly faster but will not
 	  work on older machines.
 
+config MARCH_Z16
+	bool "IBM z16"
+	select HAVE_MARCH_Z16_FEATURES
+	depends on $(cc-option,-march=z16)
+	help
+	  Select this to enable optimizations for IBM z16 (3931 and
+	  3932 series).
+
 endchoice
-
-config MARCH_Z900_TUNE
-	def_bool TUNE_Z900 || MARCH_Z900 && TUNE_DEFAULT
-
-config MARCH_Z990_TUNE
-	def_bool TUNE_Z990 || MARCH_Z990 && TUNE_DEFAULT
-
-config MARCH_Z9_109_TUNE
-	def_bool TUNE_Z9_109 || MARCH_Z9_109 && TUNE_DEFAULT
 
 config MARCH_Z10_TUNE
 	def_bool TUNE_Z10 || MARCH_Z10 && TUNE_DEFAULT
@@ -371,6 +357,9 @@ config MARCH_Z14_TUNE
 config MARCH_Z15_TUNE
 	def_bool TUNE_Z15 || MARCH_Z15 && TUNE_DEFAULT
 
+config MARCH_Z16_TUNE
+	def_bool TUNE_Z16 || MARCH_Z16 && TUNE_DEFAULT
+
 choice
 	prompt "Tune code generation"
 	default TUNE_DEFAULT
@@ -388,21 +377,8 @@ config TUNE_DEFAULT
 	  Tune the generated code for the target processor for which the kernel
 	  will be compiled.
 
-config TUNE_Z900
-	bool "IBM zSeries model z800 and z900"
-	depends on $(cc-option,-mtune=z900)
-
-config TUNE_Z990
-	bool "IBM zSeries model z890 and z990"
-	depends on $(cc-option,-mtune=z990)
-
-config TUNE_Z9_109
-	bool "IBM System z9"
-	depends on $(cc-option,-mtune=z9-109)
-
 config TUNE_Z10
 	bool "IBM System z10"
-	depends on $(cc-option,-mtune=z10)
 
 config TUNE_Z196
 	bool "IBM zEnterprise 114 and 196"
@@ -424,10 +400,22 @@ config TUNE_Z15
 	bool "IBM z15"
 	depends on $(cc-option,-mtune=z15)
 
+config TUNE_Z16
+	bool "IBM z16"
+	depends on $(cc-option,-mtune=z16)
+
 endchoice
 
 config 64BIT
 	def_bool y
+
+config COMMAND_LINE_SIZE
+	int "Maximum size of kernel command line"
+	default 4096
+	range 896 1048576
+	help
+	  This allows you to specify the maximum length of the kernel command
+	  line.
 
 config COMPAT
 	def_bool y
@@ -442,9 +430,6 @@ config COMPAT
 	  handle system-calls from ELF binaries for 31 bit ESA.  This option
 	  (and some other stuff like libraries and such) is needed for
 	  executing 31 bit applications.  It is safe to say "Y".
-
-config SYSVIPC_COMPAT
-	def_bool y if COMPAT && SYSVIPC
 
 config SMP
 	def_bool y
@@ -484,19 +469,11 @@ config SCHED_SMT
 config SCHED_MC
 	def_bool n
 
-config SCHED_BOOK
-	def_bool n
-
-config SCHED_DRAWER
-	def_bool n
-
 config SCHED_TOPOLOGY
 	def_bool y
 	prompt "Topology scheduler support"
 	select SCHED_SMT
 	select SCHED_MC
-	select SCHED_BOOK
-	select SCHED_DRAWER
 	help
 	  Topology scheduler support improves the CPU scheduler's decision
 	  making when dealing with machines that have multi-threading,
@@ -511,7 +488,6 @@ config KEXEC
 config KEXEC_FILE
 	bool "kexec file based system call"
 	select KEXEC_CORE
-	select BUILD_BIN2C
 	depends on CRYPTO
 	depends on CRYPTO_SHA256
 	depends on CRYPTO_SHA256_S390
@@ -535,21 +511,6 @@ config KEXEC_SIG
 	  verification for the corresponding kernel image type being
 	  loaded in order for this to work.
 
-config ARCH_RANDOM
-	def_bool y
-	prompt "s390 architectural random number generation API"
-	help
-	  Enable the s390 architectural random number generation API
-	  to provide random data for all consumers within the Linux
-	  kernel.
-
-	  When enabled the arch_random_* functions declared in linux/random.h
-	  are implemented. The implementation is based on the s390 CPACF
-	  instruction subfunction TRNG which provides a real true random
-	  number generator.
-
-	  If unsure, say Y.
-
 config KERNEL_NOBP
 	def_bool n
 	prompt "Enable modified branch prediction for the kernel by default"
@@ -569,6 +530,7 @@ config KERNEL_NOBP
 
 config EXPOLINE
 	def_bool n
+	depends on $(cc-option,-mindirect-branch=thunk)
 	prompt "Avoid speculative indirect branches in the kernel"
 	help
 	  Compile the kernel with the expoline compiler options to guard
@@ -576,6 +538,19 @@ config EXPOLINE
 	  branches.
 	  Requires a compiler with -mindirect-branch=thunk support for full
 	  protection. The kernel may run slower.
+
+	  If unsure, say N.
+
+config EXPOLINE_EXTERN
+	def_bool n
+	depends on EXPOLINE
+	depends on CC_IS_GCC && GCC_VERSION >= 110200
+	depends on $(success,$(srctree)/arch/s390/tools/gcc-thunk-extern.sh $(CC))
+	prompt "Generate expolines as extern functions."
+	help
+	  This option is required for some tooling like kpatch. The kernel is
+	  compiled with -mindirect-branch=thunk-extern and requires a newer
+	  compiler.
 
 	  If unsure, say N.
 
@@ -596,9 +571,7 @@ config EXPOLINE_FULL
 endchoice
 
 config RELOCATABLE
-	bool "Build a relocatable kernel"
-	select MODULE_REL_CRCS if MODVERSIONS
-	default y
+	def_bool y
 	help
 	  This builds a kernel image that retains relocation information
 	  so it can be loaded at an arbitrary address.
@@ -607,10 +580,11 @@ config RELOCATABLE
 	  bootup process.
 	  The relocations make the kernel image about 15% larger (compressed
 	  10%), but are discarded at runtime.
+	  Note: this option exists only for documentation purposes, please do
+	  not remove it.
 
 config RANDOMIZE_BASE
 	bool "Randomize the address of the kernel image (KASLR)"
-	depends on RELOCATABLE
 	default y
 	help
 	  In support of Kernel Address Space Layout Randomization (KASLR),
@@ -640,20 +614,6 @@ config MAX_PHYSMEM_BITS
 	  Increasing the number of bits also increases the kernel image size.
 	  By default 46 bits (64TB) are supported.
 
-config PACK_STACK
-	def_bool y
-	prompt "Pack kernel stack"
-	help
-	  This option enables the compiler option -mkernel-backchain if it
-	  is available. If the option is available the compiler supports
-	  the new stack layout which dramatically reduces the minimum stack
-	  frame size. With an old compiler a non-leaf function needs a
-	  minimum of 96 bytes on 31 bit and 160 bytes on 64 bit. With
-	  -mkernel-backchain the minimum size drops to 16 byte on 31 bit
-	  and 24 byte on 64 bit.
-
-	  Say Y if you are unsure.
-
 config CHECK_STACK
 	def_bool y
 	depends on !VMAP_STACK
@@ -679,16 +639,6 @@ config STACK_GUARD
 	  interrupt frame is 184 bytes for 31 bit and 328 bytes on 64 bit.
 	  The minimum size for the stack guard should be 256 for 31 bit and
 	  512 for 64 bit.
-
-config WARN_DYNAMIC_STACK
-	def_bool n
-	prompt "Emit compiler warnings for function with dynamic stack usage"
-	help
-	  This option enables the compiler option -mwarn-dynamicstack. If the
-	  compiler supports this options generates warnings for functions
-	  that dynamically allocate stack space using alloca.
-
-	  Say N if you are unsure.
 
 endmenu
 
@@ -758,7 +708,8 @@ config EADM_SCH
 config VFIO_CCW
 	def_tristate n
 	prompt "Support for VFIO-CCW subchannels"
-	depends on S390_CCW_IOMMU && VFIO_MDEV
+	depends on VFIO
+	select VFIO_MDEV
 	help
 	  This driver allows usage of I/O subchannels via VFIO-CCW.
 
@@ -768,14 +719,16 @@ config VFIO_CCW
 config VFIO_AP
 	def_tristate n
 	prompt "VFIO support for AP devices"
-	depends on S390_AP_IOMMU && VFIO_MDEV && KVM
+	depends on KVM
+	depends on VFIO
 	depends on ZCRYPT
+	select VFIO_MDEV
 	help
-		This driver grants access to Adjunct Processor (AP) devices
-		via the VFIO mediated device interface.
+	  This driver grants access to Adjunct Processor (AP) devices
+	  via the VFIO mediated device interface.
 
-		To compile this driver as a module, choose M here: the module
-		will be called vfio_ap.
+	  To compile this driver as a module, choose M here: the module
+	  will be called vfio_ap.
 
 endmenu
 
@@ -807,7 +760,6 @@ menu "Virtualization"
 config PROTECTED_VIRTUALIZATION_GUEST
 	def_bool n
 	prompt "Protected virtualization guest support"
-	select ARCH_HAS_RESTRICTED_VIRTIO_MEMORY_ACCESS
 	help
 	  Select this option, if you want to be able to run this
 	  kernel as a protected virtualization KVM guest.
@@ -939,10 +891,15 @@ config S390_GUEST
 
 endmenu
 
+config S390_MODULES_SANITY_TEST_HELPERS
+	def_bool n
+
 menu "Selftests"
 
 config S390_UNWIND_SELFTEST
 	def_tristate n
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
 	prompt "Test unwind functions"
 	help
 	  This option enables s390 specific stack unwinder testing kernel
@@ -951,4 +908,28 @@ config S390_UNWIND_SELFTEST
 
 	  Say N if you are unsure.
 
+config S390_KPROBES_SANITY_TEST
+	def_tristate n
+	prompt "Enable s390 specific kprobes tests"
+	depends on KPROBES
+	depends on KUNIT
+	help
+	  This option enables an s390 specific kprobes test module. This option
+	  is not useful for distributions or general kernels, but only for kernel
+	  developers working on architecture code.
+
+	  Say N if you are unsure.
+
+config S390_MODULES_SANITY_TEST
+	def_tristate n
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
+	prompt "Enable s390 specific modules tests"
+	select S390_MODULES_SANITY_TEST_HELPERS
+	help
+	  This option enables an s390 specific modules test. This option is
+	  not useful for distributions or general kernels, but only for
+	  kernel developers working on architecture code.
+
+	  Say N if you are unsure.
 endmenu

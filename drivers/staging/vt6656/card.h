@@ -3,8 +3,6 @@
  * Copyright (c) 1996, 2003 VIA Networking Technologies, Inc.
  * All rights reserved.
  *
- * File: card.h
- *
  * Purpose: Provide functions to setup NIC operation mode
  *
  * Author: Tevin Chen
@@ -32,7 +30,6 @@ void vnt_update_top_rates(struct vnt_private *priv);
 bool vnt_ofdm_min_rate(struct vnt_private *priv);
 int vnt_adjust_tsf(struct vnt_private *priv, u8 rx_rate,
 		   u64 time_stamp, u64 local_tsf);
-bool vnt_get_current_tsf(struct vnt_private *priv, u64 *current_tsf);
 bool vnt_clear_current_tsf(struct vnt_private *priv);
 int vnt_reset_next_tbtt(struct vnt_private *priv, u16 beacon_interval);
 int vnt_update_next_tbtt(struct vnt_private *priv, u64 tsf,

@@ -296,8 +296,7 @@ static const struct regmap_config lm3639_regmap = {
 	.max_register = REG_MAX,
 };
 
-static int lm3639_probe(struct i2c_client *client,
-				  const struct i2c_device_id *id)
+static int lm3639_probe(struct i2c_client *client)
 {
 	int ret;
 	struct lm3639_chip_data *pchip;
@@ -390,7 +389,7 @@ err_out:
 	return ret;
 }
 
-static int lm3639_remove(struct i2c_client *client)
+static void lm3639_remove(struct i2c_client *client)
 {
 	struct lm3639_chip_data *pchip = i2c_get_clientdata(client);
 
@@ -400,7 +399,6 @@ static int lm3639_remove(struct i2c_client *client)
 	led_classdev_unregister(&pchip->cdev_flash);
 	if (pchip->bled)
 		device_remove_file(&(pchip->bled->dev), &dev_attr_bled_mode);
-	return 0;
 }
 
 static const struct i2c_device_id lm3639_id[] = {
@@ -413,7 +411,7 @@ static struct i2c_driver lm3639_i2c_driver = {
 	.driver = {
 		   .name = LM3639_NAME,
 		   },
-	.probe = lm3639_probe,
+	.probe_new = lm3639_probe,
 	.remove = lm3639_remove,
 	.id_table = lm3639_id,
 };

@@ -279,13 +279,11 @@ static const struct v4l2_async_notifier_operations csi2rx_notifier_ops = {
 static int csi2rx_get_resources(struct csi2rx_priv *csi2rx,
 				struct platform_device *pdev)
 {
-	struct resource *res;
 	unsigned char i;
 	u32 dev_cfg;
 	int ret;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	csi2rx->base = devm_ioremap_resource(&pdev->dev, res);
+	csi2rx->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(csi2rx->base))
 		return PTR_ERR(csi2rx->base);
 
@@ -401,21 +399,19 @@ static int csi2rx_parse_dt(struct csi2rx_priv *csi2rx)
 		return -EINVAL;
 	}
 
-	v4l2_async_notifier_init(&csi2rx->notifier);
+	v4l2_async_nf_init(&csi2rx->notifier);
 
-	asd = v4l2_async_notifier_add_fwnode_remote_subdev(&csi2rx->notifier,
-							   fwh,
-							   struct v4l2_async_subdev);
+	asd = v4l2_async_nf_add_fwnode_remote(&csi2rx->notifier, fwh,
+					      struct v4l2_async_subdev);
 	of_node_put(ep);
 	if (IS_ERR(asd))
 		return PTR_ERR(asd);
 
 	csi2rx->notifier.ops = &csi2rx_notifier_ops;
 
-	ret = v4l2_async_subdev_notifier_register(&csi2rx->subdev,
-						  &csi2rx->notifier);
+	ret = v4l2_async_subdev_nf_register(&csi2rx->subdev, &csi2rx->notifier);
 	if (ret)
-		v4l2_async_notifier_cleanup(&csi2rx->notifier);
+		v4l2_async_nf_cleanup(&csi2rx->notifier);
 
 	return ret;
 }
@@ -471,20 +467,18 @@ static int csi2rx_probe(struct platform_device *pdev)
 	return 0;
 
 err_cleanup:
-	v4l2_async_notifier_cleanup(&csi2rx->notifier);
+	v4l2_async_nf_cleanup(&csi2rx->notifier);
 err_free_priv:
 	kfree(csi2rx);
 	return ret;
 }
 
-static int csi2rx_remove(struct platform_device *pdev)
+static void csi2rx_remove(struct platform_device *pdev)
 {
 	struct csi2rx_priv *csi2rx = platform_get_drvdata(pdev);
 
 	v4l2_async_unregister_subdev(&csi2rx->subdev);
 	kfree(csi2rx);
-
-	return 0;
 }
 
 static const struct of_device_id csi2rx_of_table[] = {
@@ -495,7 +489,7 @@ MODULE_DEVICE_TABLE(of, csi2rx_of_table);
 
 static struct platform_driver csi2rx_driver = {
 	.probe	= csi2rx_probe,
-	.remove	= csi2rx_remove,
+	.remove_new = csi2rx_remove,
 
 	.driver	= {
 		.name		= "cdns-csi2rx",

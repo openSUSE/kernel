@@ -16,6 +16,7 @@
 #include <linux/hwmon.h>
 #include <linux/hwmon-vid.h>
 #include <linux/err.h>
+#include <linux/kstrtox.h>
 #include <linux/mutex.h>
 #include <linux/sysfs.h>
 #include <linux/slab.h>
@@ -37,7 +38,7 @@ struct atxp1_data {
 	struct i2c_client *client;
 	struct mutex update_lock;
 	unsigned long last_updated;
-	u8 valid;
+	bool valid;
 	struct {
 		u8 vid;		/* VID output register */
 		u8 cpu_vid; /* VID input from CPU */
@@ -63,7 +64,7 @@ static struct atxp1_data *atxp1_update_device(struct device *dev)
 		data->reg.gpio1 = i2c_smbus_read_byte_data(client, ATXP1_GPIO1);
 		data->reg.gpio2 = i2c_smbus_read_byte_data(client, ATXP1_GPIO2);
 
-		data->valid = 1;
+		data->valid = true;
 	}
 
 	mutex_unlock(&data->update_lock);
@@ -136,7 +137,7 @@ static ssize_t cpu0_vid_store(struct device *dev,
 						ATXP1_VID, cvid | ATXP1_VIDENA);
 	}
 
-	data->valid = 0;
+	data->valid = false;
 
 	return count;
 }
@@ -180,7 +181,7 @@ static ssize_t gpio1_store(struct device *dev, struct device_attribute *attr,
 
 		i2c_smbus_write_byte_data(client, ATXP1_GPIO1, value);
 
-		data->valid = 0;
+		data->valid = false;
 	}
 
 	return count;
@@ -224,7 +225,7 @@ static ssize_t gpio2_store(struct device *dev, struct device_attribute *attr,
 
 		i2c_smbus_write_byte_data(client, ATXP1_GPIO2, value);
 
-		data->valid = 0;
+		data->valid = false;
 	}
 
 	return count;

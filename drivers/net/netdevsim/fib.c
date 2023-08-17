@@ -22,6 +22,7 @@
 #include <linux/spinlock_types.h>
 #include <linux/types.h>
 #include <net/fib_notifier.h>
+#include <net/inet_dscp.h>
 #include <net/ip_fib.h>
 #include <net/ip6_fib.h>
 #include <net/fib_rules.h>
@@ -61,6 +62,7 @@ struct nsim_fib_data {
 	bool fail_route_offload;
 	bool fail_res_nexthop_group_replace;
 	bool fail_nexthop_bucket_replace;
+	bool fail_route_delete;
 };
 
 struct nsim_fib_rt_key {
@@ -79,7 +81,7 @@ struct nsim_fib_rt {
 struct nsim_fib4_rt {
 	struct nsim_fib_rt common;
 	struct fib_info *fi;
-	u8 tos;
+	dscp_t dscp;
 	u8 type;
 };
 
@@ -284,7 +286,7 @@ nsim_fib4_rt_create(struct nsim_fib_data *data,
 
 	fib4_rt->fi = fen_info->fi;
 	fib_info_hold(fib4_rt->fi);
-	fib4_rt->tos = fen_info->tos;
+	fib4_rt->dscp = fen_info->dscp;
 	fib4_rt->type = fen_info->type;
 
 	return fib4_rt;
@@ -323,7 +325,7 @@ nsim_fib4_rt_offload_failed_flag_set(struct net *net,
 	fri.tb_id = fen_info->tb_id;
 	fri.dst = cpu_to_be32(*p_dst);
 	fri.dst_len = fen_info->dst_len;
-	fri.tos = fen_info->tos;
+	fri.dscp = fen_info->dscp;
 	fri.type = fen_info->type;
 	fri.offload = false;
 	fri.trap = false;
@@ -343,7 +345,7 @@ static void nsim_fib4_rt_hw_flags_set(struct net *net,
 	fri.tb_id = fib4_rt->common.key.tb_id;
 	fri.dst = cpu_to_be32(*p_dst);
 	fri.dst_len = dst_len;
-	fri.tos = fib4_rt->tos;
+	fri.dscp = fib4_rt->dscp;
 	fri.type = fib4_rt->type;
 	fri.offload = false;
 	fri.trap = trap;
@@ -624,14 +626,14 @@ static int nsim_fib6_rt_append(struct nsim_fib_data *data,
 		if (err)
 			goto err_fib6_rt_nh_del;
 
-		fib6_event->rt_arr[i]->trap = true;
+		WRITE_ONCE(fib6_event->rt_arr[i]->trap, true);
 	}
 
 	return 0;
 
 err_fib6_rt_nh_del:
 	for (i--; i >= 0; i--) {
-		fib6_event->rt_arr[i]->trap = false;
+		WRITE_ONCE(fib6_event->rt_arr[i]->trap, false);
 		nsim_fib6_rt_nh_del(fib6_rt, fib6_event->rt_arr[i]);
 	}
 	return err;
@@ -914,6 +916,10 @@ static int nsim_fib4_prepare_event(struct fib_notifier_info *info,
 		}
 		break;
 	case FIB_EVENT_ENTRY_DEL:
+		if (data->fail_route_delete) {
+			NL_SET_ERR_MSG_MOD(extack, "Failed to process route deletion");
+			return -EINVAL;
+		}
 		nsim_fib_account(&data->ipv4.fib, false);
 		break;
 	}
@@ -952,6 +958,11 @@ static int nsim_fib6_prepare_event(struct fib_notifier_info *info,
 		}
 		break;
 	case FIB_EVENT_ENTRY_DEL:
+		if (data->fail_route_delete) {
+			err = -EINVAL;
+			NL_SET_ERR_MSG_MOD(extack, "Failed to process route deletion");
+			goto err_fib6_event_fini;
+		}
 		nsim_fib_account(&data->ipv6.fib, false);
 		break;
 	}
@@ -1445,7 +1456,7 @@ static u64 nsim_fib_nexthops_res_occ_get(void *priv)
 static void nsim_fib_set_max_all(struct nsim_fib_data *data,
 				 struct devlink *devlink)
 {
-	enum nsim_resource_id res_ids[] = {
+	static const enum nsim_resource_id res_ids[] = {
 		NSIM_RESOURCE_IPV4_FIB, NSIM_RESOURCE_IPV4_FIB_RULES,
 		NSIM_RESOURCE_IPV6_FIB, NSIM_RESOURCE_IPV6_FIB_RULES,
 		NSIM_RESOURCE_NEXTHOPS,
@@ -1525,6 +1536,10 @@ nsim_fib_debugfs_init(struct nsim_fib_data *data, struct nsim_dev *nsim_dev)
 
 	debugfs_create_file("nexthop_bucket_activity", 0200, data->ddir,
 			    data, &nsim_nexthop_bucket_activity_fops);
+
+	data->fail_route_delete = false;
+	debugfs_create_bool("fail_route_delete", 0600, data->ddir,
+			    &data->fail_route_delete);
 	return 0;
 }
 

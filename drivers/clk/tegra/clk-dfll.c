@@ -667,7 +667,7 @@ static int dfll_force_output(struct tegra_dfll *td, unsigned int out_sel)
 }
 
 /**
- * dfll_load_lut - load the voltage lookup table
+ * dfll_load_i2c_lut - load the voltage lookup table
  * @td: struct tegra_dfll *
  *
  * Load the voltage-to-PMIC register value lookup table into the DFLL
@@ -898,7 +898,7 @@ static void dfll_set_frequency_request(struct tegra_dfll *td,
 }
 
 /**
- * tegra_dfll_request_rate - set the next rate for the DFLL to tune to
+ * dfll_request_rate - set the next rate for the DFLL to tune to
  * @td: DFLL instance
  * @rate: clock rate to target
  *
@@ -1006,7 +1006,7 @@ static void dfll_set_open_loop_config(struct tegra_dfll *td)
 }
 
 /**
- * tegra_dfll_lock - switch from open-loop to closed-loop mode
+ * dfll_lock - switch from open-loop to closed-loop mode
  * @td: DFLL instance
  *
  * Switch from OPEN_LOOP state to CLOSED_LOOP state. Returns 0 upon success,
@@ -1047,7 +1047,7 @@ static int dfll_lock(struct tegra_dfll *td)
 }
 
 /**
- * tegra_dfll_unlock - switch from closed-loop to open-loop mode
+ * dfll_unlock - switch from closed-loop to open-loop mode
  * @td: DFLL instance
  *
  * Switch from CLOSED_LOOP state to OPEN_LOOP state. Returns 0 upon success,
@@ -1378,7 +1378,7 @@ static void dfll_debug_init(struct tegra_dfll *td)
 }
 
 #else
-static void inline dfll_debug_init(struct tegra_dfll *td) { }
+static inline void dfll_debug_init(struct tegra_dfll *td) { }
 #endif /* CONFIG_DEBUG_FS */
 
 /*
@@ -2081,7 +2081,10 @@ struct tegra_dfll_soc_data *tegra_dfll_unregister(struct platform_device *pdev)
 {
 	struct tegra_dfll *td = platform_get_drvdata(pdev);
 
-	/* Try to prevent removal while the DFLL is active */
+	/*
+	 * Note that exiting early here doesn't prevent unbinding the driver.
+	 * Exiting early here only leaks some resources.
+	 */
 	if (td->mode != DFLL_DISABLED) {
 		dev_err(&pdev->dev,
 			"must disable DFLL before removing driver\n");

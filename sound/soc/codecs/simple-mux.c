@@ -55,6 +55,14 @@ static int simple_mux_control_put(struct snd_kcontrol *kcontrol,
 					     e, NULL);
 }
 
+static unsigned int simple_mux_read(struct snd_soc_component *component,
+				    unsigned int reg)
+{
+	struct simple_mux *priv = snd_soc_component_get_drvdata(component);
+
+	return priv->mux;
+}
+
 static const struct snd_kcontrol_new simple_mux_mux =
 	SOC_DAPM_ENUM_EXT("Muxer", simple_mux_enum, simple_mux_control_get, simple_mux_control_put);
 
@@ -76,13 +84,13 @@ static const struct snd_soc_component_driver simple_mux_component_driver = {
 	.num_dapm_widgets	= ARRAY_SIZE(simple_mux_dapm_widgets),
 	.dapm_routes		= simple_mux_dapm_routes,
 	.num_dapm_routes	= ARRAY_SIZE(simple_mux_dapm_routes),
+	.read			= simple_mux_read,
 };
 
 static int simple_mux_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct simple_mux *priv;
-	int err;
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
@@ -91,12 +99,9 @@ static int simple_mux_probe(struct platform_device *pdev)
 	dev_set_drvdata(dev, priv);
 
 	priv->gpiod_mux = devm_gpiod_get(dev, "mux", GPIOD_OUT_LOW);
-	if (IS_ERR(priv->gpiod_mux)) {
-		err = PTR_ERR(priv->gpiod_mux);
-		if (err != -EPROBE_DEFER)
-			dev_err(dev, "Failed to get 'mux' gpio: %d", err);
-		return err;
-	}
+	if (IS_ERR(priv->gpiod_mux))
+		return dev_err_probe(dev, PTR_ERR(priv->gpiod_mux),
+				     "Failed to get 'mux' gpio");
 
 	return devm_snd_soc_register_component(dev, &simple_mux_component_driver, NULL, 0);
 }

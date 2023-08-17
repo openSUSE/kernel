@@ -55,9 +55,9 @@ static int tifm_bus_match(struct device *dev, struct device_driver *drv)
 	return 0;
 }
 
-static int tifm_uevent(struct device *dev, struct kobj_uevent_env *env)
+static int tifm_uevent(const struct device *dev, struct kobj_uevent_env *env)
 {
-	struct tifm_dev *sock = container_of(dev, struct tifm_dev, dev);
+	const struct tifm_dev *sock = container_of_const(dev, struct tifm_dev, dev);
 
 	if (add_uevent_var(env, "TIFM_CARD_TYPE=%s", tifm_media_type_name(sock->type, 1)))
 		return -ENOMEM;
@@ -176,8 +176,7 @@ struct tifm_adapter *tifm_alloc_adapter(unsigned int num_sockets,
 {
 	struct tifm_adapter *fm;
 
-	fm = kzalloc(sizeof(struct tifm_adapter)
-		     + sizeof(struct tifm_dev*) * num_sockets, GFP_KERNEL);
+	fm = kzalloc(struct_size(fm, sockets, num_sockets), GFP_KERNEL);
 	if (fm) {
 		fm->dev.class = &tifm_adapter_class;
 		fm->dev.parent = dev;
@@ -293,14 +292,15 @@ EXPORT_SYMBOL(tifm_has_ms_pif);
 int tifm_map_sg(struct tifm_dev *sock, struct scatterlist *sg, int nents,
 		int direction)
 {
-	return pci_map_sg(to_pci_dev(sock->dev.parent), sg, nents, direction);
+	return dma_map_sg(&to_pci_dev(sock->dev.parent)->dev, sg, nents,
+			  direction);
 }
 EXPORT_SYMBOL(tifm_map_sg);
 
 void tifm_unmap_sg(struct tifm_dev *sock, struct scatterlist *sg, int nents,
 		   int direction)
 {
-	pci_unmap_sg(to_pci_dev(sock->dev.parent), sg, nents, direction);
+	dma_unmap_sg(&to_pci_dev(sock->dev.parent)->dev, sg, nents, direction);
 }
 EXPORT_SYMBOL(tifm_unmap_sg);
 

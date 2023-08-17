@@ -27,7 +27,6 @@
 #include <linux/freezer.h>
 #include <linux/of_platform.h>
 
-#include <asm/prom.h>
 #include <asm/machdep.h>
 #include <asm/io.h>
 #include <asm/sections.h>
@@ -465,9 +464,9 @@ static void thermostat_remove_files(struct thermostat *th)
 
 }
 
-static int probe_thermostat(struct i2c_client *client,
-			    const struct i2c_device_id *id)
+static int probe_thermostat(struct i2c_client *client)
 {
+	const struct i2c_device_id *id = i2c_client_get_device_id(client);
 	struct device_node *np = client->dev.of_node;
 	struct thermostat* th;
 	const __be32 *prop;
@@ -484,7 +483,7 @@ static int probe_thermostat(struct i2c_client *client,
 	if (vers != 1)
 		return -ENXIO;
 
-	if (of_get_property(np, "hwsensor-location", NULL)) {
+	if (of_property_present(np, "hwsensor-location")) {
 		for (i = 0; i < 3; i++) {
 			sensor_location[i] = of_get_property(np,
 					"hwsensor-location", NULL) + offset;
@@ -564,7 +563,7 @@ static int probe_thermostat(struct i2c_client *client,
 	return 0;
 }
 
-static int remove_thermostat(struct i2c_client *client)
+static void remove_thermostat(struct i2c_client *client)
 {
 	struct thermostat *th = i2c_get_clientdata(client);
 	int i;
@@ -586,8 +585,6 @@ static int remove_thermostat(struct i2c_client *client)
 	write_both_fan_speed(th, -1);
 
 	kfree(th);
-
-	return 0;
 }
 
 static const struct i2c_device_id therm_adt746x_id[] = {
@@ -601,7 +598,7 @@ static struct i2c_driver thermostat_driver = {
 	.driver = {
 		.name	= "therm_adt746x",
 	},
-	.probe = probe_thermostat,
+	.probe_new = probe_thermostat,
 	.remove = remove_thermostat,
 	.id_table = therm_adt746x_id,
 };

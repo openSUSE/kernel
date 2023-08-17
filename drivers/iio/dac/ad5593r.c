@@ -99,15 +99,19 @@ static const struct ad5592r_rw_ops ad5593r_rw_ops = {
 	.gpio_read = ad5593r_gpio_read,
 };
 
-static int ad5593r_i2c_probe(struct i2c_client *i2c,
-		const struct i2c_device_id *id)
+static int ad5593r_i2c_probe(struct i2c_client *i2c)
 {
+	const struct i2c_device_id *id = i2c_client_get_device_id(i2c);
+	if (!i2c_check_functionality(i2c->adapter,
+				     I2C_FUNC_SMBUS_BYTE | I2C_FUNC_I2C))
+		return -EOPNOTSUPP;
+
 	return ad5592r_probe(&i2c->dev, id->name, &ad5593r_rw_ops);
 }
 
-static int ad5593r_i2c_remove(struct i2c_client *i2c)
+static void ad5593r_i2c_remove(struct i2c_client *i2c)
 {
-	return ad5592r_remove(&i2c->dev);
+	ad5592r_remove(&i2c->dev);
 }
 
 static const struct i2c_device_id ad5593r_i2c_ids[] = {
@@ -134,7 +138,7 @@ static struct i2c_driver ad5593r_driver = {
 		.of_match_table = ad5593r_of_match,
 		.acpi_match_table = ad5593r_acpi_match,
 	},
-	.probe = ad5593r_i2c_probe,
+	.probe_new = ad5593r_i2c_probe,
 	.remove = ad5593r_i2c_remove,
 	.id_table = ad5593r_i2c_ids,
 };
@@ -143,3 +147,4 @@ module_i2c_driver(ad5593r_driver);
 MODULE_AUTHOR("Paul Cercueil <paul.cercueil@analog.com>");
 MODULE_DESCRIPTION("Analog Devices AD5593R multi-channel converters");
 MODULE_LICENSE("GPL v2");
+MODULE_IMPORT_NS(IIO_AD5592R);

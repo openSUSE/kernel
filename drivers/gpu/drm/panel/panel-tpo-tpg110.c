@@ -450,12 +450,11 @@ static int tpg110_probe(struct spi_device *spi)
 	return 0;
 }
 
-static int tpg110_remove(struct spi_device *spi)
+static void tpg110_remove(struct spi_device *spi)
 {
 	struct tpg110 *tpg = spi_get_drvdata(spi);
 
 	drm_panel_remove(&tpg->panel);
-	return 0;
 }
 
 static const struct of_device_id tpg110_match[] = {
@@ -464,9 +463,16 @@ static const struct of_device_id tpg110_match[] = {
 };
 MODULE_DEVICE_TABLE(of, tpg110_match);
 
+static const struct spi_device_id tpg110_ids[] = {
+	{ "tpg110" },
+	{ },
+};
+MODULE_DEVICE_TABLE(spi, tpg110_ids);
+
 static struct spi_driver tpg110_driver = {
 	.probe		= tpg110_probe,
 	.remove		= tpg110_remove,
+	.id_table	= tpg110_ids,
 	.driver		= {
 		.name	= "tpo-tpg110-panel",
 		.of_match_table = tpg110_match,

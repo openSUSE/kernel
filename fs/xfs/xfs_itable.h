@@ -8,7 +8,7 @@
 /* In-memory representation of a userspace request for batch inode data. */
 struct xfs_ibulk {
 	struct xfs_mount	*mp;
-	struct user_namespace   *mnt_userns;
+	struct mnt_idmap	*idmap;
 	void __user		*ubuffer; /* user output buffer */
 	xfs_ino_t		startino; /* start with this inode */
 	unsigned int		icount;   /* number of elements in ubuffer */
@@ -17,7 +17,10 @@ struct xfs_ibulk {
 };
 
 /* Only iterate within the same AG as startino */
-#define XFS_IBULK_SAME_AG	(XFS_IWALK_SAME_AG)
+#define XFS_IBULK_SAME_AG	(1U << 0)
+
+/* Fill out the bs_extents64 field if set. */
+#define XFS_IBULK_NREXT64	(1U << 1)
 
 /*
  * Advance the user buffer pointer by one record of the given size.  If the

@@ -17,6 +17,8 @@ source "drivers/bus/Kconfig"
 
 source "drivers/connector/Kconfig"
 
+source "drivers/firmware/Kconfig"
+
 source "drivers/gnss/Kconfig"
 
 source "drivers/mtd/Kconfig"
@@ -96,6 +98,8 @@ source "drivers/regulator/Kconfig"
 source "drivers/media/Kconfig"
 
 source "drivers/video/Kconfig"
+
+source "drivers/accel/Kconfig"
 
 source "sound/Kconfig"
 
@@ -181,8 +185,6 @@ source "drivers/iio/Kconfig"
 
 source "drivers/ntb/Kconfig"
 
-source "drivers/vme/Kconfig"
-
 source "drivers/pwm/Kconfig"
 
 source "drivers/irqchip/Kconfig"
@@ -225,8 +227,6 @@ source "drivers/mux/Kconfig"
 
 source "drivers/opp/Kconfig"
 
-source "drivers/visorbus/Kconfig"
-
 source "drivers/siox/Kconfig"
 
 source "drivers/slimbus/Kconfig"
@@ -236,4 +236,11 @@ source "drivers/interconnect/Kconfig"
 source "drivers/counter/Kconfig"
 
 source "drivers/most/Kconfig"
+
+source "drivers/peci/Kconfig"
+
+source "drivers/hte/Kconfig"
+
+source "drivers/cdx/Kconfig"
+
 endmenu

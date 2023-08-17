@@ -5825,8 +5825,7 @@ static u32 get_cx2388x_ident(struct i2c_client *client)
 	return ret;
 }
 
-static int cx25840_probe(struct i2c_client *client,
-			 const struct i2c_device_id *did)
+static int cx25840_probe(struct i2c_client *client)
 {
 	struct cx25840_state *state;
 	struct v4l2_subdev *sd;
@@ -6026,7 +6025,7 @@ static int cx25840_probe(struct i2c_client *client,
 	return 0;
 }
 
-static int cx25840_remove(struct i2c_client *client)
+static void cx25840_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct cx25840_state *state = to_state(sd);
@@ -6034,7 +6033,6 @@ static int cx25840_remove(struct i2c_client *client)
 	cx25840_ir_remove(sd);
 	v4l2_device_unregister_subdev(sd);
 	v4l2_ctrl_handler_free(&state->hdl);
-	return 0;
 }
 
 static const struct i2c_device_id cx25840_id[] = {
@@ -6047,7 +6045,7 @@ static struct i2c_driver cx25840_driver = {
 	.driver = {
 		.name	= "cx25840",
 	},
-	.probe		= cx25840_probe,
+	.probe_new	= cx25840_probe,
 	.remove		= cx25840_remove,
 	.id_table	= cx25840_id,
 };

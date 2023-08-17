@@ -244,7 +244,8 @@ static int spdif_soc_dai_probe(struct snd_soc_dai *dai)
 	struct spdif_out_dev *host = snd_soc_dai_get_drvdata(dai);
 
 	host->dma_params_tx.filter_data = &host->dma_params;
-	dai->playback_dma_data = &host->dma_params_tx;
+
+	snd_soc_dai_dma_data_set_playback(dai, &host->dma_params_tx);
 
 	return snd_soc_add_dai_controls(dai, spdif_out_controls,
 				ARRAY_SIZE(spdif_out_controls));
@@ -273,7 +274,8 @@ static struct snd_soc_dai_driver spdif_out_dai = {
 };
 
 static const struct snd_soc_component_driver spdif_out_component = {
-	.name		= "spdif-out",
+	.name			= "spdif-out",
+	.legacy_dai_naming	= 1,
 };
 
 static int spdif_out_probe(struct platform_device *pdev)

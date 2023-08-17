@@ -18,6 +18,7 @@ struct rpc_xprt_switch {
 	unsigned int		xps_id;
 	unsigned int		xps_nxprts;
 	unsigned int		xps_nactive;
+	unsigned int		xps_nunique_destaddr_xprts;
 	atomic_long_t		xps_queuelen;
 	struct list_head	xps_xprt_list;
 
@@ -54,7 +55,7 @@ extern void rpc_xprt_switch_set_roundrobin(struct rpc_xprt_switch *xps);
 extern void rpc_xprt_switch_add_xprt(struct rpc_xprt_switch *xps,
 		struct rpc_xprt *xprt);
 extern void rpc_xprt_switch_remove_xprt(struct rpc_xprt_switch *xps,
-		struct rpc_xprt *xprt);
+		struct rpc_xprt *xprt, bool offline);
 
 extern void xprt_iter_init(struct rpc_xprt_iter *xpi,
 		struct rpc_xprt_switch *xps);
@@ -62,7 +63,12 @@ extern void xprt_iter_init(struct rpc_xprt_iter *xpi,
 extern void xprt_iter_init_listall(struct rpc_xprt_iter *xpi,
 		struct rpc_xprt_switch *xps);
 
+extern void xprt_iter_init_listoffline(struct rpc_xprt_iter *xpi,
+		struct rpc_xprt_switch *xps);
+
 extern void xprt_iter_destroy(struct rpc_xprt_iter *xpi);
+
+extern void xprt_iter_rewind(struct rpc_xprt_iter *xpi);
 
 extern struct rpc_xprt_switch *xprt_iter_xchg_switch(
 		struct rpc_xprt_iter *xpi,

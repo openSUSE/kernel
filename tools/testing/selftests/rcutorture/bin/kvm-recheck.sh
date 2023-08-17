@@ -30,10 +30,15 @@ do
 			resdir=`echo $i | sed -e 's,/$,,' -e 's,/[^/]*$,,'`
 			head -1 $resdir/log
 		fi
-		TORTURE_SUITE="`cat $i/../torture_suite`"
+		TORTURE_SUITE="`cat $i/../torture_suite`" ; export TORTURE_SUITE
 		configfile=`echo $i | sed -e 's,^.*/,,'`
 		rm -f $i/console.log.*.diags
-		kvm-recheck-${TORTURE_SUITE}.sh $i
+		case "${TORTURE_SUITE}" in
+		X*)
+			;;
+		*)
+			kvm-recheck-${TORTURE_SUITE}.sh $i
+		esac
 		if test -f "$i/qemu-retval" && test "`cat $i/qemu-retval`" -ne 0 && test "`cat $i/qemu-retval`" -ne 137
 		then
 			echo QEMU error, output:
@@ -74,7 +79,10 @@ do
 	done
 	if test -f "$rd/kcsan.sum"
 	then
-		if grep -q CONFIG_KCSAN=y $T
+		if ! test -f $T
+		then
+			:
+		elif grep -q CONFIG_KCSAN=y $T
 		then
 			echo "Compiler or architecture does not support KCSAN!"
 			echo Did you forget to switch your compiler with '--kmake-arg CC=<cc-that-supports-kcsan>'?

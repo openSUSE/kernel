@@ -2,52 +2,15 @@
 #ifndef _LINUX_OBJTOOL_H
 #define _LINUX_OBJTOOL_H
 
-#ifndef __ASSEMBLY__
+#include <linux/objtool_types.h>
 
-#include <linux/types.h>
+#ifdef CONFIG_OBJTOOL
 
-/*
- * This struct is used by asm and inline asm code to manually annotate the
- * location of registers on the stack.
- */
-struct unwind_hint {
-	u32		ip;
-	s16		sp_offset;
-	u8		sp_reg;
-	u8		type;
-	u8		end;
-};
-#endif
-
-/*
- * UNWIND_HINT_TYPE_CALL: Indicates that sp_reg+sp_offset resolves to PREV_SP
- * (the caller's SP right before it made the call).  Used for all callable
- * functions, i.e. all C code and all callable asm functions.
- *
- * UNWIND_HINT_TYPE_REGS: Used in entry code to indicate that sp_reg+sp_offset
- * points to a fully populated pt_regs from a syscall, interrupt, or exception.
- *
- * UNWIND_HINT_TYPE_REGS_PARTIAL: Used in entry code to indicate that
- * sp_reg+sp_offset points to the iret return frame.
- *
- * UNWIND_HINT_FUNC: Generate the unwind metadata of a callable function.
- * Useful for code which doesn't have an ELF function annotation.
- *
- * UNWIND_HINT_ENTRY: machine entry without stack, SYSCALL/SYSENTER etc.
- */
-#define UNWIND_HINT_TYPE_CALL		0
-#define UNWIND_HINT_TYPE_REGS		1
-#define UNWIND_HINT_TYPE_REGS_PARTIAL	2
-#define UNWIND_HINT_TYPE_FUNC		3
-#define UNWIND_HINT_TYPE_ENTRY		4
-#define UNWIND_HINT_TYPE_SAVE		5
-#define UNWIND_HINT_TYPE_RESTORE	6
-
-#ifdef CONFIG_STACK_VALIDATION
+#include <asm/asm.h>
 
 #ifndef __ASSEMBLY__
 
-#define UNWIND_HINT(sp_reg, sp_offset, type, end)		\
+#define UNWIND_HINT(type, sp_reg, sp_offset, signal)	\
 	"987: \n\t"						\
 	".pushsection .discard.unwind_hints\n\t"		\
 	/* struct unwind_hint */				\
@@ -55,7 +18,7 @@ struct unwind_hint {
 	".short " __stringify(sp_offset) "\n\t"			\
 	".byte " __stringify(sp_reg) "\n\t"			\
 	".byte " __stringify(type) "\n\t"			\
-	".byte " __stringify(end) "\n\t"			\
+	".byte " __stringify(signal) "\n\t"			\
 	".balign 4 \n\t"					\
 	".popsection\n\t"
 
@@ -65,7 +28,7 @@ struct unwind_hint {
  * It should only be used in special cases where you're 100% sure it won't
  * affect the reliability of frame pointers and kernel stack traces.
  *
- * For more information, see tools/objtool/Documentation/stack-validation.txt.
+ * For more information, see tools/objtool/Documentation/objtool.txt.
  */
 #define STACK_FRAME_NON_STANDARD(func) \
 	static void __used __section(".discard.func_stack_frame_non_standard") \
@@ -82,6 +45,12 @@ struct unwind_hint {
 #define STACK_FRAME_NON_STANDARD_FP(func)
 #endif
 
+#define ANNOTATE_NOENDBR					\
+	"986: \n\t"						\
+	".pushsection .discard.noendbr\n\t"			\
+	".long 986b - .\n\t"					\
+	".popsection\n\t"
+
 #define ASM_REACHABLE							\
 	"998:\n\t"							\
 	".pushsection .discard.reachable\n\t"				\
@@ -97,7 +66,7 @@ struct unwind_hint {
 #define ANNOTATE_INTRA_FUNCTION_CALL				\
 	999:							\
 	.pushsection .discard.intra_function_calls;		\
-	.long 999b;						\
+	.long 999b - .;						\
 	.popsection;
 
 /*
@@ -121,23 +90,52 @@ struct unwind_hint {
  * the debuginfo as necessary.  It will also warn if it sees any
  * inconsistencies.
  */
-.macro UNWIND_HINT type:req sp_reg=0 sp_offset=0 end=0
-.Lunwind_hint_ip_\@:
+.macro UNWIND_HINT type:req sp_reg=0 sp_offset=0 signal=0
+.Lhere_\@:
 	.pushsection .discard.unwind_hints
 		/* struct unwind_hint */
-		.long .Lunwind_hint_ip_\@ - .
+		.long .Lhere_\@ - .
 		.short \sp_offset
 		.byte \sp_reg
 		.byte \type
-		.byte \end
+		.byte \signal
 		.balign 4
 	.popsection
 .endm
 
 .macro STACK_FRAME_NON_STANDARD func:req
 	.pushsection .discard.func_stack_frame_non_standard, "aw"
-		.long \func - .
+	.long \func - .
 	.popsection
+.endm
+
+.macro STACK_FRAME_NON_STANDARD_FP func:req
+#ifdef CONFIG_FRAME_POINTER
+	STACK_FRAME_NON_STANDARD \func
+#endif
+.endm
+
+.macro ANNOTATE_NOENDBR
+.Lhere_\@:
+	.pushsection .discard.noendbr
+	.long	.Lhere_\@ - .
+	.popsection
+.endm
+
+/*
+ * Use objtool to validate the entry requirement that all code paths do
+ * VALIDATE_UNRET_END before RET.
+ *
+ * NOTE: The macro must be used at the beginning of a global symbol, otherwise
+ * it will be ignored.
+ */
+.macro VALIDATE_UNRET_BEGIN
+#if defined(CONFIG_NOINSTR_VALIDATION) && defined(CONFIG_CPU_UNRET_ENTRY)
+.Lhere_\@:
+	.pushsection .discard.validate_unret
+	.long	.Lhere_\@ - .
+	.popsection
+#endif
 .endm
 
 .macro REACHABLE
@@ -149,25 +147,27 @@ struct unwind_hint {
 
 #endif /* __ASSEMBLY__ */
 
-#else /* !CONFIG_STACK_VALIDATION */
+#else /* !CONFIG_OBJTOOL */
 
 #ifndef __ASSEMBLY__
 
-#define UNWIND_HINT(sp_reg, sp_offset, type, end)	\
-	"\n\t"
+#define UNWIND_HINT(type, sp_reg, sp_offset, signal) "\n\t"
 #define STACK_FRAME_NON_STANDARD(func)
 #define STACK_FRAME_NON_STANDARD_FP(func)
+#define ANNOTATE_NOENDBR
 #define ASM_REACHABLE
 #else
 #define ANNOTATE_INTRA_FUNCTION_CALL
-.macro UNWIND_HINT type:req sp_reg=0 sp_offset=0 end=0
+.macro UNWIND_HINT type:req sp_reg=0 sp_offset=0 signal=0
 .endm
 .macro STACK_FRAME_NON_STANDARD func:req
+.endm
+.macro ANNOTATE_NOENDBR
 .endm
 .macro REACHABLE
 .endm
 #endif
 
-#endif /* CONFIG_STACK_VALIDATION */
+#endif /* CONFIG_OBJTOOL */
 
 #endif /* _LINUX_OBJTOOL_H */

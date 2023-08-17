@@ -485,14 +485,14 @@ static int m920x_identify_state(struct usb_device *udev,
 static int m920x_mt352_demod_init(struct dvb_frontend *fe)
 {
 	int ret;
-	u8 config[] = { CONFIG, 0x3d };
-	u8 clock[] = { CLOCK_CTL, 0x30 };
-	u8 reset[] = { RESET, 0x80 };
-	u8 adc_ctl[] = { ADC_CTL_1, 0x40 };
-	u8 agc[] = { AGC_TARGET, 0x1c, 0x20 };
-	u8 sec_agc[] = { 0x69, 0x00, 0xff, 0xff, 0x40, 0xff, 0x00, 0x40, 0x40 };
-	u8 unk1[] = { 0x93, 0x1a };
-	u8 unk2[] = { 0xb5, 0x7a };
+	static const u8 config[] = { CONFIG, 0x3d };
+	static const u8 clock[] = { CLOCK_CTL, 0x30 };
+	static const u8 reset[] = { RESET, 0x80 };
+	static const u8 adc_ctl[] = { ADC_CTL_1, 0x40 };
+	static const u8 agc[] = { AGC_TARGET, 0x1c, 0x20 };
+	static const u8 sec_agc[] = { 0x69, 0x00, 0xff, 0xff, 0x40, 0xff, 0x00, 0x40, 0x40 };
+	static const u8 unk1[] = { 0x93, 0x1a };
+	static const u8 unk2[] = { 0xb5, 0x7a };
 
 	deb("Demod init!\n");
 
@@ -897,20 +897,29 @@ static int m920x_probe(struct usb_interface *intf,
 	return ret;
 }
 
-static struct usb_device_id m920x_table [] = {
-		{ USB_DEVICE(USB_VID_MSI, USB_PID_MSI_MEGASKY580) },
-		{ USB_DEVICE(USB_VID_ANUBIS_ELECTRONIC,
-			     USB_PID_MSI_DIGI_VOX_MINI_II) },
-		{ USB_DEVICE(USB_VID_ANUBIS_ELECTRONIC,
-			     USB_PID_LIFEVIEW_TV_WALKER_TWIN_COLD) },
-		{ USB_DEVICE(USB_VID_ANUBIS_ELECTRONIC,
-			     USB_PID_LIFEVIEW_TV_WALKER_TWIN_WARM) },
-		{ USB_DEVICE(USB_VID_DPOSH, USB_PID_DPOSH_M9206_COLD) },
-		{ USB_DEVICE(USB_VID_DPOSH, USB_PID_DPOSH_M9206_WARM) },
-		{ USB_DEVICE(USB_VID_VISIONPLUS, USB_PID_PINNACLE_PCTV310E) },
-		{ USB_DEVICE(USB_VID_AZUREWAVE, USB_PID_TWINHAN_VP7049) },
-		{ }		/* Terminating entry */
+enum {
+	MSI_MEGASKY580,
+	ANUBIS_MSI_DIGI_VOX_MINI_II,
+	ANUBIS_LIFEVIEW_TV_WALKER_TWIN_COLD,
+	ANUBIS_LIFEVIEW_TV_WALKER_TWIN_WARM,
+	DPOSH_M9206_COLD,
+	DPOSH_M9206_WARM,
+	VISIONPLUS_PINNACLE_PCTV310E,
+	AZUREWAVE_TWINHAN_VP7049,
 };
+
+static struct usb_device_id m920x_table[] = {
+	DVB_USB_DEV(MSI, MSI_MEGASKY580),
+	DVB_USB_DEV(ANUBIS_ELECTRONIC, ANUBIS_MSI_DIGI_VOX_MINI_II),
+	DVB_USB_DEV(ANUBIS_ELECTRONIC, ANUBIS_LIFEVIEW_TV_WALKER_TWIN_COLD),
+	DVB_USB_DEV(ANUBIS_ELECTRONIC, ANUBIS_LIFEVIEW_TV_WALKER_TWIN_WARM),
+	DVB_USB_DEV(DPOSH, DPOSH_M9206_COLD),
+	DVB_USB_DEV(DPOSH, DPOSH_M9206_WARM),
+	DVB_USB_DEV(VISIONPLUS, VISIONPLUS_PINNACLE_PCTV310E),
+	DVB_USB_DEV(AZUREWAVE, AZUREWAVE_TWINHAN_VP7049),
+	{ }
+};
+
 MODULE_DEVICE_TABLE (usb, m920x_table);
 
 static struct dvb_usb_device_properties megasky_properties = {
@@ -962,7 +971,7 @@ static struct dvb_usb_device_properties megasky_properties = {
 	.num_device_descs = 1,
 	.devices = {
 		{   "MSI Mega Sky 580 DVB-T USB2.0",
-			{ &m920x_table[0], NULL },
+			{ &m920x_table[MSI_MEGASKY580], NULL },
 			{ NULL },
 		}
 	}
@@ -1010,7 +1019,7 @@ static struct dvb_usb_device_properties digivox_mini_ii_properties = {
 	.num_device_descs = 1,
 	.devices = {
 		{   "MSI DIGI VOX mini II DVB-T USB2.0",
-			{ &m920x_table[1], NULL },
+			{ &m920x_table[ANUBIS_MSI_DIGI_VOX_MINI_II], NULL },
 			{ NULL },
 		},
 	}
@@ -1097,8 +1106,8 @@ static struct dvb_usb_device_properties tvwalkertwin_properties = {
 	.num_device_descs = 1,
 	.devices = {
 		{   .name = "LifeView TV Walker Twin DVB-T USB2.0",
-		    .cold_ids = { &m920x_table[2], NULL },
-		    .warm_ids = { &m920x_table[3], NULL },
+		    .cold_ids = { &m920x_table[ANUBIS_LIFEVIEW_TV_WALKER_TWIN_COLD], NULL },
+		    .warm_ids = { &m920x_table[ANUBIS_LIFEVIEW_TV_WALKER_TWIN_WARM], NULL },
 		},
 	}
 };
@@ -1139,8 +1148,8 @@ static struct dvb_usb_device_properties dposh_properties = {
 	.num_device_descs = 1,
 	.devices = {
 		 {   .name = "Dposh DVB-T USB2.0",
-		     .cold_ids = { &m920x_table[4], NULL },
-		     .warm_ids = { &m920x_table[5], NULL },
+		     .cold_ids = { &m920x_table[DPOSH_M9206_COLD], NULL },
+		     .warm_ids = { &m920x_table[DPOSH_M9206_WARM], NULL },
 		 },
 	 }
 };
@@ -1195,7 +1204,7 @@ static struct dvb_usb_device_properties pinnacle_pctv310e_properties = {
 	.num_device_descs = 1,
 	.devices = {
 		{   "Pinnacle PCTV 310e",
-			{ &m920x_table[6], NULL },
+			{ &m920x_table[VISIONPLUS_PINNACLE_PCTV310E], NULL },
 			{ NULL },
 		}
 	}
@@ -1250,7 +1259,7 @@ static struct dvb_usb_device_properties vp7049_properties = {
 	.num_device_descs = 1,
 	.devices = {
 		{   "DTV-DVB UDTT7049",
-			{ &m920x_table[7], NULL },
+			{ &m920x_table[AZUREWAVE_TWINHAN_VP7049], NULL },
 			{ NULL },
 		}
 	 }

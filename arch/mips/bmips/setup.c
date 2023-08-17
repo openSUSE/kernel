@@ -28,11 +28,14 @@
 #include <asm/smp-ops.h>
 #include <asm/time.h>
 #include <asm/traps.h>
+#include <asm/fw/cfe/cfe_api.h>
 
 #define RELO_NORMAL_VEC		BIT(18)
 
 #define REG_BCM6328_OTP		((void __iomem *)CKSEG1ADDR(0x1000062c))
 #define BCM6328_TP1_DISABLED	BIT(9)
+
+extern bool bmips_rac_flush_disable;
 
 static const unsigned long kbase = VMLINUX_LOAD_ADDRESS & 0xfff00000;
 
@@ -103,6 +106,12 @@ static void bcm6358_quirks(void)
 	 * disable SMP for now
 	 */
 	bmips_smp_enabled = 0;
+
+	/*
+	 * RAC flush causes kernel panics on BCM6358 when booting from TP1
+	 * because the bootloader is not initializing it properly.
+	 */
+	bmips_rac_flush_disable = !!(read_c0_brcm_cmt_local() & (1 << 31));
 }
 
 static void bcm6368_quirks(void)
@@ -123,8 +132,19 @@ static const struct bmips_quirk bmips_quirk_list[] = {
 	{ },
 };
 
+static void __init bmips_init_cfe(void)
+{
+	cfe_seal = fw_arg3;
+
+	if (cfe_seal != CFE_EPTSEAL)
+		return;
+
+	cfe_init(fw_arg0, fw_arg2);
+}
+
 void __init prom_init(void)
 {
+	bmips_init_cfe();
 	bmips_cpu_setup();
 	register_bmips_smp_ops();
 }
@@ -165,7 +185,7 @@ void __init plat_mem_setup(void)
 		dtb = get_fdt();
 
 	if (!dtb)
-		panic("no dtb found");
+		cfe_die("no dtb found");
 
 	__dt_setup_arch(dtb);
 

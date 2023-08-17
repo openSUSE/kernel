@@ -106,9 +106,11 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 	return 0;
 }
 
-int copy_thread(unsigned long clone_flags, unsigned long new_stackp,
-		unsigned long arg, struct task_struct *p, unsigned long tls)
+int copy_thread(struct task_struct *p, const struct kernel_clone_args *args)
 {
+	unsigned long clone_flags = args->flags;
+	unsigned long new_stackp = args->stack;
+	unsigned long tls = args->tls;
 	struct fake_frame
 	{
 		struct stack_frame sf;
@@ -134,26 +136,23 @@ int copy_thread(unsigned long clone_flags, unsigned long new_stackp,
 	p->thread.last_break = 1;
 
 	frame->sf.back_chain = 0;
-	frame->sf.gprs[5] = (unsigned long)frame + sizeof(struct stack_frame);
-	frame->sf.gprs[6] = (unsigned long)p;
+	frame->sf.gprs[11 - 6] = (unsigned long)&frame->childregs;
+	frame->sf.gprs[12 - 6] = (unsigned long)p;
 	/* new return point is ret_from_fork */
-	frame->sf.gprs[8] = (unsigned long)ret_from_fork;
+	frame->sf.gprs[14 - 6] = (unsigned long)ret_from_fork;
 	/* fake return stack for resume(), don't go back to schedule */
-	frame->sf.gprs[9] = (unsigned long)frame;
+	frame->sf.gprs[15 - 6] = (unsigned long)frame;
 
 	/* Store access registers to kernel stack of new process. */
-	if (unlikely(p->flags & (PF_KTHREAD | PF_IO_WORKER))) {
+	if (unlikely(args->fn)) {
 		/* kernel thread */
 		memset(&frame->childregs, 0, sizeof(struct pt_regs));
-		frame->childregs.psw.mask = PSW_KERNEL_BITS | PSW_MASK_DAT |
-				PSW_MASK_IO | PSW_MASK_EXT | PSW_MASK_MCHECK;
-		frame->childregs.psw.addr =
-				(unsigned long)__ret_from_fork;
-		frame->childregs.gprs[9] = new_stackp; /* function */
-		frame->childregs.gprs[10] = arg;
-		frame->childregs.gprs[11] = (unsigned long)do_exit;
+		frame->childregs.psw.mask = PSW_KERNEL_BITS | PSW_MASK_IO |
+					    PSW_MASK_EXT | PSW_MASK_MCHECK;
+		frame->childregs.gprs[9] = (unsigned long)args->fn;
+		frame->childregs.gprs[10] = (unsigned long)args->fn_arg;
 		frame->childregs.orig_gpr2 = -1;
-
+		frame->childregs.last_break = 1;
 		return 0;
 	}
 	frame->childregs = *current_pt_regs();
@@ -223,13 +222,13 @@ unsigned long __get_wchan(struct task_struct *p)
 unsigned long arch_align_stack(unsigned long sp)
 {
 	if (!(current->personality & ADDR_NO_RANDOMIZE) && randomize_va_space)
-		sp -= get_random_int() & ~PAGE_MASK;
+		sp -= get_random_u32_below(PAGE_SIZE);
 	return sp & ~0xf;
 }
 
 static inline unsigned long brk_rnd(void)
 {
-	return (get_random_int() & BRK_RND_MASK) << PAGE_SHIFT;
+	return (get_random_u16() & BRK_RND_MASK) << PAGE_SHIFT;
 }
 
 unsigned long arch_randomize_brk(struct mm_struct *mm)

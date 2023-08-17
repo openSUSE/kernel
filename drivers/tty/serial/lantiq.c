@@ -8,6 +8,7 @@
  * Copyright (C) 2010 Thomas Langer, <thomas.langer@lantiq.com>
  */
 
+#include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/console.h>
 #include <linux/device.h>
@@ -16,8 +17,6 @@
 #include <linux/ioport.h>
 #include <linux/lantiq.h>
 #include <linux/module.h>
-#include <linux/of_address.h>
-#include <linux/of_irq.h>
 #include <linux/of_platform.h>
 #include <linux/serial.h>
 #include <linux/serial_core.h>
@@ -95,9 +94,7 @@
 #define ASCFSTAT_RXFFLMASK	0x003F
 #define ASCFSTAT_TXFFLMASK	0x3F00
 #define ASCFSTAT_TXFREEMASK	0x3F000000
-#define ASCFSTAT_TXFREEOFF	24
 
-static void lqasc_tx_chars(struct uart_port *port);
 static struct ltq_uart_port *lqasc_port[MAXPORTS];
 static struct uart_driver lqasc_reg;
 
@@ -141,14 +138,24 @@ lqasc_stop_tx(struct uart_port *port)
 	return;
 }
 
+static bool lqasc_tx_ready(struct uart_port *port)
+{
+	u32 fstat = __raw_readl(port->membase + LTQ_ASC_FSTAT);
+
+	return FIELD_GET(ASCFSTAT_TXFREEMASK, fstat);
+}
+
 static void
 lqasc_start_tx(struct uart_port *port)
 {
 	unsigned long flags;
 	struct ltq_uart_port *ltq_port = to_ltq_uart_port(port);
+	u8 ch;
 
 	spin_lock_irqsave(&ltq_port->lock, flags);
-	lqasc_tx_chars(port);
+	uart_port_tx(port, ch,
+		lqasc_tx_ready(port),
+		writeb(ch, port->membase + LTQ_ASC_TBUF));
 	spin_unlock_irqrestore(&ltq_port->lock, flags);
 	return;
 }
@@ -219,37 +226,6 @@ lqasc_rx_chars(struct uart_port *port)
 		tty_flip_buffer_push(tport);
 
 	return 0;
-}
-
-static void
-lqasc_tx_chars(struct uart_port *port)
-{
-	struct circ_buf *xmit = &port->state->xmit;
-	if (uart_tx_stopped(port)) {
-		lqasc_stop_tx(port);
-		return;
-	}
-
-	while (((__raw_readl(port->membase + LTQ_ASC_FSTAT) &
-		ASCFSTAT_TXFREEMASK) >> ASCFSTAT_TXFREEOFF) != 0) {
-		if (port->x_char) {
-			writeb(port->x_char, port->membase + LTQ_ASC_TBUF);
-			port->icount.tx++;
-			port->x_char = 0;
-			continue;
-		}
-
-		if (uart_circ_empty(xmit))
-			break;
-
-		writeb(port->state->xmit.buf[port->state->xmit.tail],
-			port->membase + LTQ_ASC_TBUF);
-		xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
-		port->icount.tx++;
-	}
-
-	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
-		uart_write_wakeup(port);
 }
 
 static irqreturn_t
@@ -408,8 +384,8 @@ lqasc_shutdown(struct uart_port *port)
 }
 
 static void
-lqasc_set_termios(struct uart_port *port,
-	struct ktermios *new, struct ktermios *old)
+lqasc_set_termios(struct uart_port *port, struct ktermios *new,
+		  const struct ktermios *old)
 {
 	unsigned int cflag;
 	unsigned int iflag;
@@ -601,17 +577,14 @@ static const struct uart_ops lqasc_pops = {
 
 #ifdef CONFIG_SERIAL_LANTIQ_CONSOLE
 static void
-lqasc_console_putchar(struct uart_port *port, int ch)
+lqasc_console_putchar(struct uart_port *port, unsigned char ch)
 {
-	int fifofree;
-
 	if (!port->membase)
 		return;
 
-	do {
-		fifofree = (__raw_readl(port->membase + LTQ_ASC_FSTAT)
-			& ASCFSTAT_TXFREEMASK) >> ASCFSTAT_TXFREEOFF;
-	} while (fifofree == 0);
+	while (!lqasc_tx_ready(port))
+		;
+
 	writeb(ch, port->membase + LTQ_ASC_TBUF);
 }
 
@@ -729,19 +702,23 @@ static struct uart_driver lqasc_reg = {
 static int fetch_irq_lantiq(struct device *dev, struct ltq_uart_port *ltq_port)
 {
 	struct uart_port *port = &ltq_port->port;
-	struct resource irqres[3];
-	int ret;
+	struct platform_device *pdev = to_platform_device(dev);
+	int irq;
 
-	ret = of_irq_to_resource_table(dev->of_node, irqres, 3);
-	if (ret != 3) {
-		dev_err(dev,
-			"failed to get IRQs for serial port\n");
-		return -ENODEV;
-	}
-	ltq_port->tx_irq = irqres[0].start;
-	ltq_port->rx_irq = irqres[1].start;
-	ltq_port->err_irq = irqres[2].start;
-	port->irq = irqres[0].start;
+	irq = platform_get_irq(pdev, 0);
+	if (irq < 0)
+		return irq;
+	ltq_port->tx_irq = irq;
+	irq = platform_get_irq(pdev, 1);
+	if (irq < 0)
+		return irq;
+	ltq_port->rx_irq = irq;
+	irq = platform_get_irq(pdev, 2);
+	if (irq < 0)
+		return irq;
+	ltq_port->err_irq = irq;
+
+	port->irq = ltq_port->tx_irq;
 
 	return 0;
 }
@@ -794,7 +771,7 @@ static int fetch_irq_intel(struct device *dev, struct ltq_uart_port *ltq_port)
 	struct uart_port *port = &ltq_port->port;
 	int ret;
 
-	ret = of_irq_get(dev->of_node, 0);
+	ret = platform_get_irq(to_platform_device(dev), 0);
 	if (ret < 0) {
 		dev_err(dev, "failed to fetch IRQ for serial port\n");
 		return ret;

@@ -73,7 +73,7 @@ static ssize_t ad5686_write_dac_powerdown(struct iio_dev *indio_dev,
 	unsigned int val, ref_bit_msk;
 	u8 shift, address = 0;
 
-	ret = strtobool(buf, &readin);
+	ret = kstrtobool(buf, &readin);
 	if (ret)
 		return ret;
 
@@ -184,7 +184,7 @@ static const struct iio_chan_spec_ext_info ad5686_ext_info[] = {
 		.shared = IIO_SEPARATE,
 	},
 	IIO_ENUM("powerdown_mode", IIO_SEPARATE, &ad5686_powerdown_mode_enum),
-	IIO_ENUM_AVAILABLE("powerdown_mode", &ad5686_powerdown_mode_enum),
+	IIO_ENUM_AVAILABLE("powerdown_mode", IIO_SHARED_BY_TYPE, &ad5686_powerdown_mode_enum),
 	{ },
 };
 
@@ -258,6 +258,7 @@ static const struct iio_chan_spec name[] = {			\
 
 DECLARE_AD5693_CHANNELS(ad5310r_channels, 10, 2);
 DECLARE_AD5693_CHANNELS(ad5311r_channels, 10, 6);
+DECLARE_AD5338_CHANNELS(ad5337r_channels, 8, 8);
 DECLARE_AD5338_CHANNELS(ad5338r_channels, 10, 6);
 DECLARE_AD5676_CHANNELS(ad5672_channels, 12, 4);
 DECLARE_AD5679_CHANNELS(ad5674r_channels, 12, 4);
@@ -282,6 +283,12 @@ static const struct ad5686_chip_info ad5686_chip_info_tbl[] = {
 		.int_vref_mv = 2500,
 		.num_channels = 1,
 		.regmap_type = AD5693_REGMAP,
+	},
+	[ID_AD5337R] = {
+		.channels = ad5337r_channels,
+		.int_vref_mv = 2500,
+		.num_channels = 2,
+		.regmap_type = AD5686_REGMAP,
 	},
 	[ID_AD5338R] = {
 		.channels = ad5338r_channels,
@@ -536,9 +543,9 @@ error_disable_reg:
 		regulator_disable(st->reg);
 	return ret;
 }
-EXPORT_SYMBOL_GPL(ad5686_probe);
+EXPORT_SYMBOL_NS_GPL(ad5686_probe, IIO_AD5686);
 
-int ad5686_remove(struct device *dev)
+void ad5686_remove(struct device *dev)
 {
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
 	struct ad5686_state *st = iio_priv(indio_dev);
@@ -546,10 +553,8 @@ int ad5686_remove(struct device *dev)
 	iio_device_unregister(indio_dev);
 	if (!IS_ERR(st->reg))
 		regulator_disable(st->reg);
-
-	return 0;
 }
-EXPORT_SYMBOL_GPL(ad5686_remove);
+EXPORT_SYMBOL_NS_GPL(ad5686_remove, IIO_AD5686);
 
 MODULE_AUTHOR("Michael Hennerich <michael.hennerich@analog.com>");
 MODULE_DESCRIPTION("Analog Devices AD5686/85/84 DAC");

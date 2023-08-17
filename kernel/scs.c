@@ -12,6 +12,10 @@
 #include <linux/vmalloc.h>
 #include <linux/vmstat.h>
 
+#ifdef CONFIG_DYNAMIC_SCS
+DEFINE_STATIC_KEY_FALSE(dynamic_scs_enabled);
+#endif
+
 static void __scs_account(void *s, int account)
 {
 	struct page *scs_page = vmalloc_to_page(s);
@@ -32,15 +36,19 @@ static void *__scs_alloc(int node)
 	for (i = 0; i < NR_CACHED_SCS; i++) {
 		s = this_cpu_xchg(scs_cache[i], NULL);
 		if (s) {
-			kasan_unpoison_vmalloc(s, SCS_SIZE);
+			s = kasan_unpoison_vmalloc(s, SCS_SIZE,
+						   KASAN_VMALLOC_PROT_NORMAL);
 			memset(s, 0, SCS_SIZE);
-			return s;
+			goto out;
 		}
 	}
 
-	return __vmalloc_node_range(SCS_SIZE, 1, VMALLOC_START, VMALLOC_END,
+	s = __vmalloc_node_range(SCS_SIZE, 1, VMALLOC_START, VMALLOC_END,
 				    GFP_SCS, PAGE_KERNEL, 0, node,
 				    __builtin_return_address(0));
+
+out:
+	return kasan_reset_tag(s);
 }
 
 void *scs_alloc(int node)
@@ -78,7 +86,7 @@ void scs_free(void *s)
 		if (this_cpu_cmpxchg(scs_cache[i], 0, s) == NULL)
 			return;
 
-	kasan_unpoison_vmalloc(s, SCS_SIZE);
+	kasan_unpoison_vmalloc(s, SCS_SIZE, KASAN_VMALLOC_PROT_NORMAL);
 	vfree_atomic(s);
 }
 
@@ -97,14 +105,20 @@ static int scs_cleanup(unsigned int cpu)
 
 void __init scs_init(void)
 {
+	if (!scs_is_enabled())
+		return;
 	cpuhp_setup_state(CPUHP_BP_PREPARE_DYN, "scs:scs_cache", NULL,
 			  scs_cleanup);
 }
 
 int scs_prepare(struct task_struct *tsk, int node)
 {
-	void *s = scs_alloc(node);
+	void *s;
 
+	if (!scs_is_enabled())
+		return 0;
+
+	s = scs_alloc(node);
 	if (!s)
 		return -ENOMEM;
 
@@ -144,7 +158,7 @@ void scs_release(struct task_struct *tsk)
 {
 	void *s = task_scs(tsk);
 
-	if (!s)
+	if (!scs_is_enabled() || !s)
 		return;
 
 	WARN(task_scs_end_corrupted(tsk),

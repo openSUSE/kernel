@@ -331,8 +331,7 @@ static const struct v4l2_subdev_ops empty_ops = {};
  * concerning the addresses: i2c wants 7 bit (without the r/w bit), so '>>1'
  */
 
-static int saa7706h_probe(struct i2c_client *client,
-			  const struct i2c_device_id *id)
+static int saa7706h_probe(struct i2c_client *client)
 {
 	struct saa7706h_state *state;
 	struct v4l2_subdev *sd;
@@ -384,7 +383,7 @@ err:
 	return err;
 }
 
-static int saa7706h_remove(struct i2c_client *client)
+static void saa7706h_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct saa7706h_state *state = to_state(sd);
@@ -393,7 +392,6 @@ static int saa7706h_remove(struct i2c_client *client)
 	v4l2_device_unregister_subdev(sd);
 	v4l2_ctrl_handler_free(&state->hdl);
 	kfree(to_state(sd));
-	return 0;
 }
 
 static const struct i2c_device_id saa7706h_id[] = {
@@ -407,7 +405,7 @@ static struct i2c_driver saa7706h_driver = {
 	.driver = {
 		.name	= DRIVER_NAME,
 	},
-	.probe		= saa7706h_probe,
+	.probe_new	= saa7706h_probe,
 	.remove		= saa7706h_remove,
 	.id_table	= saa7706h_id,
 };

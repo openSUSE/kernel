@@ -17,17 +17,20 @@
 #include <linux/delay.h>
 #include <linux/pci.h>
 #include <linux/uaccess.h>
+#include <asm/asm-extable.h>
 #include <asm/pci_debug.h>
 #include <asm/pci_clp.h>
 #include <asm/clp.h>
 #include <uapi/asm/clp.h>
+
+#include "pci_bus.h"
 
 bool zpci_unique_uid;
 
 void update_uid_checking(bool new)
 {
 	if (zpci_unique_uid != new)
-		zpci_dbg(1, "uid checking:%d\n", new);
+		zpci_dbg(3, "uid checking:%d\n", new);
 
 	zpci_unique_uid = new;
 }
@@ -390,8 +393,8 @@ static int clp_find_pci(struct clp_req_rsp_list_pci *rrb, u32 fid,
 		rc = clp_list_pci_req(rrb, &resume_token, &nentries);
 		if (rc)
 			return rc;
+		fh_list = rrb->response.fh_list;
 		for (i = 0; i < nentries; i++) {
-			fh_list = rrb->response.fh_list;
 			if (fh_list[i].fid == fid) {
 				*entry = fh_list[i];
 				return 0;
@@ -410,8 +413,11 @@ static void __clp_add(struct clp_fh_list_entry *entry, void *data)
 		return;
 
 	zdev = get_zdev_by_fid(entry->fid);
-	if (!zdev)
-		zpci_create_device(entry->fid, entry->fh, entry->config_state);
+	if (zdev) {
+		zpci_zdev_put(zdev);
+		return;
+	}
+	zpci_create_device(entry->fid, entry->fh, entry->config_state);
 }
 
 int clp_scan_pci_devices(void)

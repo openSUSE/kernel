@@ -26,7 +26,7 @@
 #include "wl12xx_80211.h"
 #include "io.h"
 
-static bool dump = false;
+static bool dump;
 
 struct wl12xx_sdio_glue {
 	struct device *dev;
@@ -132,9 +132,8 @@ static int wl12xx_sdio_power_on(struct wl12xx_sdio_glue *glue)
 	struct sdio_func *func = dev_to_sdio_func(glue->dev);
 	struct mmc_card *card = func->card;
 
-	ret = pm_runtime_get_sync(&card->dev);
+	ret = pm_runtime_resume_and_get(&card->dev);
 	if (ret < 0) {
-		pm_runtime_put_noidle(&card->dev);
 		dev_err(glue->dev, "%s: failed to get_sync(%d)\n",
 			__func__, ret);
 

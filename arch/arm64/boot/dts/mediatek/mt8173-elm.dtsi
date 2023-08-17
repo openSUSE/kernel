@@ -10,6 +10,12 @@
 #include "mt8173.dtsi"
 
 / {
+	aliases {
+		mmc0 = &mmc0;
+		mmc1 = &mmc1;
+		mmc2 = &mmc3;
+	};
+
 	memory@40000000 {
 		device_type = "memory";
 		reg = <0 0x40000000 0 0x80000000>;
@@ -22,7 +28,7 @@
 		enable-gpios = <&pio 95 GPIO_ACTIVE_HIGH>;
 
 		pinctrl-names = "default";
-		pinctrl-0 = <&disp_pwm0_pins>;
+		pinctrl-0 = <&panel_backlight_en_pins>;
 		status = "okay";
 	};
 
@@ -47,52 +53,40 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&gpio_keys_pins>;
 
-		lid {
+		switch-lid {
 			label = "Lid";
 			gpios = <&pio 69 GPIO_ACTIVE_LOW>;
 			linux,code = <SW_LID>;
 			linux,input-type = <EV_SW>;
-			gpio-key,wakeup;
+			wakeup-source;
 		};
 
-		power {
+		switch-power {
 			label = "Power";
 			gpios = <&pio 14 GPIO_ACTIVE_HIGH>;
 			linux,code = <KEY_POWER>;
 			debounce-interval = <30>;
-			gpio-key,wakeup;
+			wakeup-source;
 		};
 
-		tablet_mode {
+		switch-tablet-mode {
 			label = "Tablet_mode";
 			gpios = <&pio 121 GPIO_ACTIVE_HIGH>;
 			linux,code = <SW_TABLET_MODE>;
 			linux,input-type = <EV_SW>;
-			gpio-key,wakeup;
+			wakeup-source;
 		};
 
-		volume_down {
+		switch-volume-down {
 			label = "Volume_down";
 			gpios = <&pio 123 GPIO_ACTIVE_LOW>;
 			linux,code = <KEY_VOLUMEDOWN>;
 		};
 
-		volume_up {
+		switch-volume-up {
 			label = "Volume_up";
 			gpios = <&pio 124 GPIO_ACTIVE_LOW>;
 			linux,code = <KEY_VOLUMEUP>;
-		};
-	};
-
-	panel: panel {
-		compatible = "lg,lp120up1";
-		power-supply = <&panel_fixed_3v3>;
-		backlight = <&backlight>;
-
-		port {
-			panel_in: endpoint {
-				remote-endpoint = <&ps8640_out>;
-			};
 		};
 	};
 
@@ -155,6 +149,22 @@
 			};
 		};
 	};
+
+	watchdog {
+		compatible = "arm,smc-wdt";
+	};
+};
+
+/*
+ * Disable the original MMIO watch dog and switch to the SMC watchdog, which
+ * operates on the same MMIO.
+ */
+&watchdog {
+	status = "disabled";
+};
+
+&mfg_async {
+	domain-supply = <&da9211_vgpu_reg>;
 };
 
 &cec {
@@ -272,6 +282,20 @@
 				};
 			};
 		};
+
+		aux-bus {
+			panel: panel {
+				compatible = "lg,lp120up1";
+				power-supply = <&panel_fixed_3v3>;
+				backlight = <&backlight>;
+
+				port {
+					panel_in: endpoint {
+						remote-endpoint = <&ps8640_out>;
+					};
+				};
+			};
+		};
 	};
 };
 
@@ -290,8 +314,8 @@
 				regulator-name = "VBUCKA";
 				regulator-min-microvolt = < 700000>;
 				regulator-max-microvolt = <1310000>;
-				regulator-min-microamp  = <2000000>;
-				regulator-max-microamp  = <4400000>;
+				regulator-min-microamp = <2000000>;
+				regulator-max-microamp = <4400000>;
 				regulator-ramp-delay = <10000>;
 				regulator-always-on;
 				regulator-allowed-modes = <DA9211_BUCK_MODE_SYNC
@@ -302,8 +326,8 @@
 				regulator-name = "VBUCKB";
 				regulator-min-microvolt = < 700000>;
 				regulator-max-microvolt = <1310000>;
-				regulator-min-microamp  = <2000000>;
-				regulator-max-microamp  = <3000000>;
+				regulator-min-microamp = <2000000>;
+				regulator-max-microamp = <3000000>;
 				regulator-ramp-delay = <10000>;
 			};
 		};
@@ -364,8 +388,8 @@
 	mmc-hs400-1_8v;
 	cap-mmc-hw-reset;
 	hs400-ds-delay = <0x14015>;
-	mediatek,hs200-cmd-int-delay=<30>;
-	mediatek,hs400-cmd-int-delay=<14>;
+	mediatek,hs200-cmd-int-delay = <30>;
+	mediatek,hs400-cmd-int-delay = <14>;
 	mediatek,hs400-cmd-resp-sel-rising;
 	vmmc-supply = <&mt6397_vemc_3v3_reg>;
 	vqmmc-supply = <&mt6397_vio18_reg>;
@@ -400,7 +424,7 @@
 	sd-uhs-sdr50;
 	sd-uhs-sdr104;
 	keep-power-in-suspend;
-	enable-sdio-wakeup;
+	wakeup-source;
 	cap-sdio-irq;
 	vmmc-supply = <&sdio_fixed_3v3>;
 	vqmmc-supply = <&mt6397_vgp3_reg>;
@@ -817,6 +841,12 @@
 		};
 	};
 
+	panel_backlight_en_pins: panel_backlight_en_pins {
+		pins1 {
+			pinmux = <MT8173_PIN_95_PCM_TX__FUNC_GPIO95>;
+		};
+	};
+
 	panel_fixed_pins: panel_fixed_pins {
 		pins1 {
 			pinmux = <MT8173_PIN_41_CMMCLK__FUNC_GPIO41>;
@@ -891,11 +921,13 @@
 };
 
 &pwm0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&disp_pwm0_pins>;
 	status = "okay";
 };
 
 &pwrap {
-	pmic: mt6397 {
+	pmic: pmic {
 		compatible = "mediatek,mt6397";
 		#address-cells = <1>;
 		#size-cells = <1>;
@@ -911,7 +943,6 @@
 
 		pio6397: pinctrl {
 			compatible = "mediatek,mt6397-pinctrl";
-			pins-are-numbered;
 			gpio-controller;
 			#gpio-cells = <2>;
 		};

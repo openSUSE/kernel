@@ -63,7 +63,7 @@ static struct kmem_cache * minix_inode_cachep;
 static struct inode *minix_alloc_inode(struct super_block *sb)
 {
 	struct minix_inode_info *ei;
-	ei = kmem_cache_alloc(minix_inode_cachep, GFP_KERNEL);
+	ei = alloc_inode_sb(sb, minix_inode_cachep, GFP_KERNEL);
 	if (!ei)
 		return NULL;
 	return &ei->vfs_inode;
@@ -402,9 +402,9 @@ static int minix_writepage(struct page *page, struct writeback_control *wbc)
 	return block_write_full_page(page, minix_get_block, wbc);
 }
 
-static int minix_readpage(struct file *file, struct page *page)
+static int minix_read_folio(struct file *file, struct folio *folio)
 {
-	return block_read_full_page(page,minix_get_block);
+	return block_read_full_folio(folio, minix_get_block);
 }
 
 int minix_prepare_chunk(struct page *page, loff_t pos, unsigned len)
@@ -423,13 +423,12 @@ static void minix_write_failed(struct address_space *mapping, loff_t to)
 }
 
 static int minix_write_begin(struct file *file, struct address_space *mapping,
-			loff_t pos, unsigned len, unsigned flags,
+			loff_t pos, unsigned len,
 			struct page **pagep, void **fsdata)
 {
 	int ret;
 
-	ret = block_write_begin(mapping, pos, len, flags, pagep,
-				minix_get_block);
+	ret = block_write_begin(mapping, pos, len, pagep, minix_get_block);
 	if (unlikely(ret))
 		minix_write_failed(mapping, pos + len);
 
@@ -442,8 +441,9 @@ static sector_t minix_bmap(struct address_space *mapping, sector_t block)
 }
 
 static const struct address_space_operations minix_aops = {
-	.set_page_dirty	= __set_page_dirty_buffers,
-	.readpage = minix_readpage,
+	.dirty_folio	= block_dirty_folio,
+	.invalidate_folio = block_invalidate_folio,
+	.read_folio = minix_read_folio,
 	.writepage = minix_writepage,
 	.write_begin = minix_write_begin,
 	.write_end = generic_write_end,
@@ -654,13 +654,13 @@ static int minix_write_inode(struct inode *inode, struct writeback_control *wbc)
 	return err;
 }
 
-int minix_getattr(struct user_namespace *mnt_userns, const struct path *path,
+int minix_getattr(struct mnt_idmap *idmap, const struct path *path,
 		  struct kstat *stat, u32 request_mask, unsigned int flags)
 {
 	struct super_block *sb = path->dentry->d_sb;
 	struct inode *inode = d_inode(path->dentry);
 
-	generic_fillattr(&init_user_ns, inode, stat);
+	generic_fillattr(&nop_mnt_idmap, inode, stat);
 	if (INODE_VERSION(inode) == MINIX_V1)
 		stat->blocks = (BLOCK_SIZE / 512) * V1_minix_blocks(stat->size, sb);
 	else

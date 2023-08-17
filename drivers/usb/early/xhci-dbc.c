@@ -192,7 +192,7 @@ static void __init xdbc_free_ring(struct xdbc_ring *ring)
 	if (!seg)
 		return;
 
-	memblock_free(seg->dma, PAGE_SIZE);
+	memblock_phys_free(seg->dma, PAGE_SIZE);
 	ring->segment = NULL;
 }
 
@@ -499,8 +499,7 @@ static int xdbc_bulk_transfer(void *data, int size, bool read)
 		addr = xdbc.in_dma;
 		xdbc.flags |= XDBC_FLAGS_IN_PROCESS;
 	} else {
-		memset(xdbc.out_buf, 0, XDBC_MAX_PACKET);
-		memcpy(xdbc.out_buf, data, size);
+		memcpy_and_pad(xdbc.out_buf, XDBC_MAX_PACKET, data, size, 0);
 		addr = xdbc.out_dma;
 		xdbc.flags |= XDBC_FLAGS_OUT_PROCESS;
 	}
@@ -599,23 +598,26 @@ static int __init xdbc_early_setup(void)
 	return 0;
 }
 
-int __init early_xdbc_parse_parameter(char *s)
+int __init early_xdbc_parse_parameter(char *s, int keep_early)
 {
 	unsigned long dbgp_num = 0;
 	u32 bus, dev, func, offset;
+	char *e;
 	int ret;
 
 	if (!early_pci_allowed())
 		return -EPERM;
 
-	if (strstr(s, "keep"))
-		early_console_keep = true;
+	early_console_keep = keep_early;
 
 	if (xdbc.xdbc_reg)
 		return 0;
 
-	if (*s && kstrtoul(s, 0, &dbgp_num))
-		dbgp_num = 0;
+	if (*s) {
+	       dbgp_num = simple_strtoul(s, &e, 10);
+	       if (s == e)
+		       dbgp_num = 0;
+	}
 
 	pr_notice("dbgp_num: %lu\n", dbgp_num);
 
@@ -672,10 +674,10 @@ int __init early_xdbc_setup_hardware(void)
 		xdbc_free_ring(&xdbc.in_ring);
 
 		if (xdbc.table_dma)
-			memblock_free(xdbc.table_dma, PAGE_SIZE);
+			memblock_phys_free(xdbc.table_dma, PAGE_SIZE);
 
 		if (xdbc.out_dma)
-			memblock_free(xdbc.out_dma, PAGE_SIZE);
+			memblock_phys_free(xdbc.out_dma, PAGE_SIZE);
 
 		xdbc.table_base = NULL;
 		xdbc.out_buf = NULL;
@@ -878,7 +880,7 @@ static void early_xdbc_write(struct console *con, const char *str, u32 n)
 
 	if (!xdbc.xdbc_reg)
 		return;
-	memset(buf, 0, XDBC_MAX_PACKET);
+
 	while (n > 0) {
 		for (chunk = 0; chunk < XDBC_MAX_PACKET && n > 0; str++, chunk++, n--) {
 
@@ -925,7 +927,7 @@ void __init early_xdbc_register_console(void)
 
 static void xdbc_unregister_console(void)
 {
-	if (early_xdbc_console.flags & CON_ENABLED)
+	if (console_is_registered(&early_xdbc_console))
 		unregister_console(&early_xdbc_console);
 }
 
@@ -995,8 +997,8 @@ free_and_quit:
 	xdbc_free_ring(&xdbc.evt_ring);
 	xdbc_free_ring(&xdbc.out_ring);
 	xdbc_free_ring(&xdbc.in_ring);
-	memblock_free(xdbc.table_dma, PAGE_SIZE);
-	memblock_free(xdbc.out_dma, PAGE_SIZE);
+	memblock_phys_free(xdbc.table_dma, PAGE_SIZE);
+	memblock_phys_free(xdbc.out_dma, PAGE_SIZE);
 	writel(0, &xdbc.xdbc_reg->control);
 	early_iounmap(xdbc.xhci_base, xdbc.xhci_length);
 

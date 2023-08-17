@@ -27,6 +27,13 @@
 		reg = <0x80000000 0x10000000>;
 	};
 
+	clk32k: clk32k {
+		compatible = "fixed-clock";
+		clock-frequency = <32768>;
+
+		#clock-cells = <0>;
+	};
+
 	vdd_mod: vdd_mod_reg {
 		compatible = "regulator-fixed";
 		regulator-name = "vdd-mod";
@@ -57,16 +64,27 @@
 	};
 };
 
-&cpsw_emac0 {
-	phy-handle = <&phy0>;
-	phy-mode = "rgmii-id";
+&mac_sw {
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&eth_slave1_pins_default>;
+	pinctrl-1 = <&eth_slave1_pins_sleep>;
+	status = "okay";
 };
 
-&davinci_mdio {
+&cpsw_port1 {
+	phy-handle = <&phy0>;
+	phy-mode = "rgmii-id";
+	ti,dual-emac-pvid = <1>;
+};
+
+&cpsw_port2 {
+	status = "disabled";
+};
+
+&davinci_mdio_sw {
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&mdio_pins_default>;
 	pinctrl-1 = <&mdio_pins_sleep>;
-	status = "okay";
 
 	phy0: ethernet-phy@4 {
 		reg = <4>;
@@ -113,9 +131,6 @@
 		gpmc,wr-data-mux-bus-ns = <0>;
 		ti,elm-id = <&elm>;
 		ti,nand-ecc-opt = "bch8";
-
-		#address-cells = <1>;
-		#size-cells = <1>;
 	};
 };
 
@@ -137,15 +152,9 @@
 	};
 };
 
-&mac {
-	pinctrl-names = "default", "sleep";
-	pinctrl-0 = <&eth_slave1_pins_default>;
-	pinctrl-1 = <&eth_slave1_pins_sleep>;
-	slaves = <1>;
-	status = "okay";
-};
-
 &rtc {
+	clocks = <&clk32k>;
+	clock-names = "ext-clk";
 	system-power-controller;
 };
 

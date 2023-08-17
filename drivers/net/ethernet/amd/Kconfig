@@ -46,6 +46,7 @@ config AMD8111_ETH
 config LANCE
 	tristate "AMD LANCE and PCnet (AT1500 and NE2100) support"
 	depends on ISA && ISA_DMA_API && !ARM && !PPC32
+	select NETDEV_LEGACY_INIT
 	help
 	  If you have a network (Ethernet) card of this type, say Y here.
 	  Some LinkSys cards are of this type.
@@ -129,15 +130,6 @@ config PCMCIA_NMCLAN
 	  To compile this driver as a module, choose M here: the module will be
 	  called nmclan_cs.  If unsure, say N.
 
-config NI65
-	tristate "NI6510 support"
-	depends on ISA && ISA_DMA_API && !ARM && !PPC32
-	help
-	  If you have a network (Ethernet) card of this type, say Y here.
-
-	  To compile this driver as a module, choose M here. The module
-	  will be called ni65.
-
 config SUN3LANCE
 	tristate "Sun3/Sun3x on-board LANCE support"
 	depends on (SUN3 || SUN3X)
@@ -193,5 +185,19 @@ config AMD_XGBE_DCB
 config AMD_XGBE_HAVE_ECC
 	bool
 	default n
+
+config PDS_CORE
+	tristate "AMD/Pensando Data Systems Core Device Support"
+	depends on 64BIT && PCI
+	select AUXILIARY_BUS
+	select NET_DEVLINK
+	help
+	  This enables the support for the AMD/Pensando Core device family of
+	  adapters.  More specific information on this driver can be
+	  found in
+	  <file:Documentation/networking/device_drivers/ethernet/amd/pds_core.rst>.
+
+	  To compile this driver as a module, choose M here. The module
+	  will be called pds_core.
 
 endif # NET_VENDOR_AMD

@@ -58,6 +58,7 @@ properties:
 
             properties:
               data-lines:
+                $ref: /schemas/types.yaml#/definitions/uint32
                 enum: [ 16, 18, 24 ]
 
       port@1:
@@ -77,17 +78,20 @@ required:
   - vddio-supply
   - ports
 
-additionalProperties: false
+allOf:
+  - $ref: ../dsi-controller.yaml#
+
+unevaluatedProperties: false
 
 examples:
   - |
     #include <dt-bindings/gpio/gpio.h>
 
-    i2c1 {
+    i2c {
       #address-cells = <1>;
       #size-cells = <0>;
 
-      dsi_bridge: dsi-bridge@e {
+      dsi_bridge: dsi@e {
         compatible = "toshiba,tc358768";
         reg = <0xe>;
 

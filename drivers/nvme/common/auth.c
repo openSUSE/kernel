@@ -23,7 +23,7 @@ u32 nvme_auth_get_seqnum(void)
 
 	mutex_lock(&nvme_dhchap_mutex);
 	if (!nvme_dhchap_seqnum)
-		nvme_dhchap_seqnum = prandom_u32();
+		nvme_dhchap_seqnum = get_random_u32();
 	else {
 		nvme_dhchap_seqnum++;
 		if (!nvme_dhchap_seqnum)
@@ -42,22 +42,20 @@ static struct nvme_auth_dhgroup_map {
 	[NVME_AUTH_DHGROUP_NULL] = {
 		.name = "null", .kpp = "null" },
 	[NVME_AUTH_DHGROUP_2048] = {
-		.name = "ffdhe2048", .kpp = "dh" },
+		.name = "ffdhe2048", .kpp = "ffdhe2048(dh)" },
 	[NVME_AUTH_DHGROUP_3072] = {
-		.name = "ffdhe3072", .kpp = "dh" },
+		.name = "ffdhe3072", .kpp = "ffdhe3072(dh)" },
 	[NVME_AUTH_DHGROUP_4096] = {
-		.name = "ffdhe4096", .kpp = "dh" },
+		.name = "ffdhe4096", .kpp = "ffdhe4096(dh)" },
 	[NVME_AUTH_DHGROUP_6144] = {
-		.name = "ffdhe6144", .kpp = "dh" },
+		.name = "ffdhe6144", .kpp = "ffdhe6144(dh)" },
 	[NVME_AUTH_DHGROUP_8192] = {
-		.name = "ffdhe8192", .kpp = "dh" },
+		.name = "ffdhe8192", .kpp = "ffdhe8192(dh)" },
 };
 
 const char *nvme_auth_dhgroup_name(u8 dhgroup_id)
 {
-	if ((dhgroup_id >= ARRAY_SIZE(dhgroup_map)) ||
-	    !dhgroup_map[dhgroup_id].name ||
-	    !strlen(dhgroup_map[dhgroup_id].name))
+	if (dhgroup_id >= ARRAY_SIZE(dhgroup_map))
 		return NULL;
 	return dhgroup_map[dhgroup_id].name;
 }
@@ -65,9 +63,7 @@ EXPORT_SYMBOL_GPL(nvme_auth_dhgroup_name);
 
 const char *nvme_auth_dhgroup_kpp(u8 dhgroup_id)
 {
-	if ((dhgroup_id >= ARRAY_SIZE(dhgroup_map)) ||
-	    !dhgroup_map[dhgroup_id].kpp ||
-	    !strlen(dhgroup_map[dhgroup_id].kpp))
+	if (dhgroup_id >= ARRAY_SIZE(dhgroup_map))
 		return NULL;
 	return dhgroup_map[dhgroup_id].kpp;
 }
@@ -77,9 +73,10 @@ u8 nvme_auth_dhgroup_id(const char *dhgroup_name)
 {
 	int i;
 
+	if (!dhgroup_name || !strlen(dhgroup_name))
+		return NVME_AUTH_DHGROUP_INVALID;
 	for (i = 0; i < ARRAY_SIZE(dhgroup_map); i++) {
-		if (!dhgroup_map[i].name ||
-		    !strlen(dhgroup_map[i].name))
+		if (!strlen(dhgroup_map[i].name))
 			continue;
 		if (!strncmp(dhgroup_map[i].name, dhgroup_name,
 			     strlen(dhgroup_map[i].name)))
@@ -113,9 +110,7 @@ static struct nvme_dhchap_hash_map {
 
 const char *nvme_auth_hmac_name(u8 hmac_id)
 {
-	if ((hmac_id >= ARRAY_SIZE(hash_map)) ||
-	    !hash_map[hmac_id].hmac ||
-	    !strlen(hash_map[hmac_id].hmac))
+	if (hmac_id >= ARRAY_SIZE(hash_map))
 		return NULL;
 	return hash_map[hmac_id].hmac;
 }
@@ -123,9 +118,7 @@ EXPORT_SYMBOL_GPL(nvme_auth_hmac_name);
 
 const char *nvme_auth_digest_name(u8 hmac_id)
 {
-	if ((hmac_id >= ARRAY_SIZE(hash_map)) ||
-	    !hash_map[hmac_id].digest ||
-	    !strlen(hash_map[hmac_id].digest))
+	if (hmac_id >= ARRAY_SIZE(hash_map))
 		return NULL;
 	return hash_map[hmac_id].digest;
 }
@@ -135,8 +128,11 @@ u8 nvme_auth_hmac_id(const char *hmac_name)
 {
 	int i;
 
+	if (!hmac_name || !strlen(hmac_name))
+		return NVME_AUTH_HASH_INVALID;
+
 	for (i = 0; i < ARRAY_SIZE(hash_map); i++) {
-		if (!hash_map[i].hmac || !strlen(hash_map[i].hmac))
+		if (!strlen(hash_map[i].hmac))
 			continue;
 		if (!strncmp(hash_map[i].hmac, hmac_name,
 			     strlen(hash_map[i].hmac)))
@@ -148,9 +144,7 @@ EXPORT_SYMBOL_GPL(nvme_auth_hmac_id);
 
 size_t nvme_auth_hmac_hash_len(u8 hmac_id)
 {
-	if ((hmac_id >= ARRAY_SIZE(hash_map)) ||
-	    !hash_map[hmac_id].hmac ||
-	    !strlen(hash_map[hmac_id].hmac))
+	if (hmac_id >= ARRAY_SIZE(hash_map))
 		return 0;
 	return hash_map[hmac_id].len;
 }
@@ -399,35 +393,11 @@ EXPORT_SYMBOL_GPL(nvme_auth_augmented_challenge);
 int nvme_auth_gen_privkey(struct crypto_kpp *dh_tfm, u8 dh_gid)
 {
 	int ret;
-	struct dh dh = {0};
-	size_t dh_secret_len;
-	u8 *dh_secret;
 
-	dh.group_id = dh_gid;
-	if (!nvme_auth_dhgroup_name(dh.group_id) ||
-	    dh_gid == NVME_AUTH_DHGROUP_NULL) {
-		pr_warn("invalid dh group %u\n", dh_gid);
-		return -EINVAL;
-	}
-
-	dh_secret_len = crypto_dh_key_len(&dh);
-	dh_secret = kzalloc(dh_secret_len, GFP_KERNEL);
-	if (!dh_secret)
-		return -ENOMEM;
-
-	ret = crypto_dh_encode_key(dh_secret, dh_secret_len, &dh);
-	if (ret) {
-		pr_debug("failed to encode private key, error %d\n", ret);
-		goto out;
-	}
-
-	ret = crypto_kpp_set_secret(dh_tfm, dh_secret, dh_secret_len);
+	ret = crypto_kpp_set_secret(dh_tfm, NULL, 0);
 	if (ret)
 		pr_debug("failed to set private key, error %d\n", ret);
 
-out:
-	kfree_sensitive(dh_secret);
-	dh_secret = NULL;
 	return ret;
 }
 EXPORT_SYMBOL_GPL(nvme_auth_gen_privkey);

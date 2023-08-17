@@ -662,7 +662,7 @@ static int i3c_hci_init(struct i3c_hci *hci)
 
 	/* Make sure our data ordering fits the host's */
 	regval = reg_read(HC_CONTROL);
-	if (IS_ENABLED(CONFIG_BIG_ENDIAN)) {
+	if (IS_ENABLED(CONFIG_CPU_BIG_ENDIAN)) {
 		if (!(regval & HC_CONTROL_DATA_BIG_ENDIAN)) {
 			regval |= HC_CONTROL_DATA_BIG_ENDIAN;
 			reg_write(HC_CONTROL, regval);
@@ -765,16 +765,11 @@ static int i3c_hci_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int i3c_hci_remove(struct platform_device *pdev)
+static void i3c_hci_remove(struct platform_device *pdev)
 {
 	struct i3c_hci *hci = platform_get_drvdata(pdev);
-	int ret;
 
-	ret = i3c_master_unregister(&hci->master);
-	if (ret)
-		return ret;
-
-	return 0;
+	i3c_master_unregister(&hci->master);
 }
 
 static const __maybe_unused struct of_device_id i3c_hci_of_match[] = {
@@ -785,7 +780,7 @@ MODULE_DEVICE_TABLE(of, i3c_hci_of_match);
 
 static struct platform_driver i3c_hci_driver = {
 	.probe = i3c_hci_probe,
-	.remove = i3c_hci_remove,
+	.remove_new = i3c_hci_remove,
 	.driver = {
 		.name = "mipi-i3c-hci",
 		.of_match_table = of_match_ptr(i3c_hci_of_match),

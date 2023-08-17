@@ -1428,7 +1428,9 @@ static void _rtl92ce_read_txpower_info_from_hwpg(struct ieee80211_hw *hw,
 
 	for (rf_path = 0; rf_path < 2; rf_path++) {
 		for (i = 0; i < 3; i++) {
-			if (!autoload_fail) {
+			if (!autoload_fail &&
+			    hwinfo[EEPROM_TXPOWERCCK + rf_path * 3 + i] != 0xff &&
+			    hwinfo[EEPROM_TXPOWERHT40_1S + rf_path * 3 + i] != 0xff) {
 				rtlefuse->
 				    eeprom_chnlarea_txpwr_cck[rf_path][i] =
 				    hwinfo[EEPROM_TXPOWERCCK + rf_path * 3 + i];
@@ -1448,7 +1450,8 @@ static void _rtl92ce_read_txpower_info_from_hwpg(struct ieee80211_hw *hw,
 	}
 
 	for (i = 0; i < 3; i++) {
-		if (!autoload_fail)
+		if (!autoload_fail &&
+		    hwinfo[EEPROM_TXPOWERHT40_2SDIFF + i] != 0xff)
 			tempval = hwinfo[EEPROM_TXPOWERHT40_2SDIFF + i];
 		else
 			tempval = EEPROM_DEFAULT_HT40_2SDIFF;
@@ -1518,7 +1521,9 @@ static void _rtl92ce_read_txpower_info_from_hwpg(struct ieee80211_hw *hw,
 	}
 
 	for (i = 0; i < 3; i++) {
-		if (!autoload_fail) {
+		if (!autoload_fail &&
+		    hwinfo[EEPROM_TXPWR_GROUP + i] != 0xff &&
+		    hwinfo[EEPROM_TXPWR_GROUP + 3 + i] != 0xff) {
 			rtlefuse->eeprom_pwrlimit_ht40[i] =
 			    hwinfo[EEPROM_TXPWR_GROUP + i];
 			rtlefuse->eeprom_pwrlimit_ht20[i] =
@@ -1563,7 +1568,8 @@ static void _rtl92ce_read_txpower_info_from_hwpg(struct ieee80211_hw *hw,
 	for (i = 0; i < 14; i++) {
 		index = rtl92c_get_chnl_group((u8)i);
 
-		if (!autoload_fail)
+		if (!autoload_fail &&
+		    hwinfo[EEPROM_TXPOWERHT20DIFF + index] != 0xff)
 			tempval = hwinfo[EEPROM_TXPOWERHT20DIFF + index];
 		else
 			tempval = EEPROM_DEFAULT_HT20_DIFF;
@@ -1580,7 +1586,8 @@ static void _rtl92ce_read_txpower_info_from_hwpg(struct ieee80211_hw *hw,
 
 		index = rtl92c_get_chnl_group((u8)i);
 
-		if (!autoload_fail)
+		if (!autoload_fail &&
+		    hwinfo[EEPROM_TXPOWER_OFDMDIFF + index] != 0xff)
 			tempval = hwinfo[EEPROM_TXPOWER_OFDMDIFF + index];
 		else
 			tempval = EEPROM_DEFAULT_LEGACYHTTXPOWERDIFF;
@@ -1610,14 +1617,16 @@ static void _rtl92ce_read_txpower_info_from_hwpg(struct ieee80211_hw *hw,
 			"RF-B Legacy to HT40 Diff[%d] = 0x%x\n",
 			i, rtlefuse->txpwr_legacyhtdiff[RF90_PATH_B][i]);
 
-	if (!autoload_fail)
+	if (!autoload_fail && hwinfo[RF_OPTION1] != 0xff)
 		rtlefuse->eeprom_regulatory = (hwinfo[RF_OPTION1] & 0x7);
 	else
 		rtlefuse->eeprom_regulatory = 0;
 	RTPRINT(rtlpriv, FINIT, INIT_TXPOWER,
 		"eeprom_regulatory = 0x%x\n", rtlefuse->eeprom_regulatory);
 
-	if (!autoload_fail) {
+	if (!autoload_fail &&
+	    hwinfo[EEPROM_TSSI_A] != 0xff &&
+	    hwinfo[EEPROM_TSSI_B] != 0xff) {
 		rtlefuse->eeprom_tssi[RF90_PATH_A] = hwinfo[EEPROM_TSSI_A];
 		rtlefuse->eeprom_tssi[RF90_PATH_B] = hwinfo[EEPROM_TSSI_B];
 	} else {
@@ -1628,7 +1637,7 @@ static void _rtl92ce_read_txpower_info_from_hwpg(struct ieee80211_hw *hw,
 		rtlefuse->eeprom_tssi[RF90_PATH_A],
 		rtlefuse->eeprom_tssi[RF90_PATH_B]);
 
-	if (!autoload_fail)
+	if (!autoload_fail && hwinfo[EEPROM_THERMAL_METER] != 0xff)
 		tempval = hwinfo[EEPROM_THERMAL_METER];
 	else
 		tempval = EEPROM_DEFAULT_THERMALMETER;
@@ -1765,22 +1774,22 @@ static void rtl92ce_update_hal_rate_table(struct ieee80211_hw *hw,
 	u16 shortgi_rate;
 	u32 tmp_ratr_value;
 	u8 curtxbw_40mhz = mac->bw_40;
-	u8 curshortgi_40mhz = (sta->ht_cap.cap & IEEE80211_HT_CAP_SGI_40) ?
+	u8 curshortgi_40mhz = (sta->deflink.ht_cap.cap & IEEE80211_HT_CAP_SGI_40) ?
 			       1 : 0;
-	u8 curshortgi_20mhz = (sta->ht_cap.cap & IEEE80211_HT_CAP_SGI_20) ?
+	u8 curshortgi_20mhz = (sta->deflink.ht_cap.cap & IEEE80211_HT_CAP_SGI_20) ?
 			       1 : 0;
 	enum wireless_mode wirelessmode = mac->mode;
 	u32 ratr_mask;
 
 	if (rtlhal->current_bandtype == BAND_ON_5G)
-		ratr_value = sta->supp_rates[1] << 4;
+		ratr_value = sta->deflink.supp_rates[1] << 4;
 	else
-		ratr_value = sta->supp_rates[0];
+		ratr_value = sta->deflink.supp_rates[0];
 	if (mac->opmode == NL80211_IFTYPE_ADHOC)
 		ratr_value = 0xfff;
 
-	ratr_value |= (sta->ht_cap.mcs.rx_mask[1] << 20 |
-			sta->ht_cap.mcs.rx_mask[0] << 12);
+	ratr_value |= (sta->deflink.ht_cap.mcs.rx_mask[1] << 20 |
+			sta->deflink.ht_cap.mcs.rx_mask[0] << 12);
 	switch (wirelessmode) {
 	case WIRELESS_MODE_B:
 		if (ratr_value & 0x0000000c)
@@ -1853,11 +1862,11 @@ static void rtl92ce_update_hal_rate_mask(struct ieee80211_hw *hw,
 	struct rtl_sta_info *sta_entry = NULL;
 	u32 ratr_bitmap;
 	u8 ratr_index;
-	u8 curtxbw_40mhz = (sta->ht_cap.cap &
+	u8 curtxbw_40mhz = (sta->deflink.ht_cap.cap &
 			    IEEE80211_HT_CAP_SUP_WIDTH_20_40) ? 1 : 0;
-	u8 curshortgi_40mhz = (sta->ht_cap.cap &
+	u8 curshortgi_40mhz = (sta->deflink.ht_cap.cap &
 			       IEEE80211_HT_CAP_SGI_40) ?  1 : 0;
-	u8 curshortgi_20mhz = (sta->ht_cap.cap & IEEE80211_HT_CAP_SGI_20) ?
+	u8 curshortgi_20mhz = (sta->deflink.ht_cap.cap & IEEE80211_HT_CAP_SGI_20) ?
 				1 : 0;
 	enum wireless_mode wirelessmode = 0;
 	bool shortgi = false;
@@ -1874,13 +1883,13 @@ static void rtl92ce_update_hal_rate_mask(struct ieee80211_hw *hw,
 		macid = sta->aid + 1;
 
 	if (rtlhal->current_bandtype == BAND_ON_5G)
-		ratr_bitmap = sta->supp_rates[1] << 4;
+		ratr_bitmap = sta->deflink.supp_rates[1] << 4;
 	else
-		ratr_bitmap = sta->supp_rates[0];
+		ratr_bitmap = sta->deflink.supp_rates[0];
 	if (mac->opmode == NL80211_IFTYPE_ADHOC)
 		ratr_bitmap = 0xfff;
-	ratr_bitmap |= (sta->ht_cap.mcs.rx_mask[1] << 20 |
-			sta->ht_cap.mcs.rx_mask[0] << 12);
+	ratr_bitmap |= (sta->deflink.ht_cap.mcs.rx_mask[1] << 20 |
+			sta->deflink.ht_cap.mcs.rx_mask[0] << 12);
 	switch (wirelessmode) {
 	case WIRELESS_MODE_B:
 		ratr_index = RATR_INX_WIRELESS_B;

@@ -13,13 +13,29 @@ config EXYNOS_ASV_ARM
 	depends on EXYNOS_CHIPID
 
 config EXYNOS_CHIPID
-	bool "Exynos ChipID controller and ASV driver" if COMPILE_TEST
+	tristate "Exynos ChipID controller and ASV driver"
 	depends on ARCH_EXYNOS || COMPILE_TEST
+	default ARCH_EXYNOS
 	select EXYNOS_ASV_ARM if ARM && ARCH_EXYNOS
 	select MFD_SYSCON
 	select SOC_BUS
 	help
 	  Support for Samsung Exynos SoC ChipID and Adaptive Supply Voltage.
+	  This driver can also be built as module (exynos_chipid).
+
+config EXYNOS_USI
+	tristate "Exynos USI (Universal Serial Interface) driver"
+	default ARCH_EXYNOS && ARM64
+	depends on ARCH_EXYNOS || COMPILE_TEST
+	select MFD_SYSCON
+	help
+	  Enable support for USI block. USI (Universal Serial Interface) is an
+	  IP-core found in modern Samsung Exynos SoCs, like Exynos850 and
+	  ExynosAutoV9. USI block can be configured to provide one of the
+	  following serial protocols: UART, SPI or High Speed I2C.
+
+	  This driver allows one to configure USI for desired protocol, which
+	  is usually done in USI node in Device Tree.
 
 config EXYNOS_PMU
 	bool "Exynos PMU controller driver" if COMPILE_TEST
@@ -36,29 +52,9 @@ config EXYNOS_PM_DOMAINS
 	bool "Exynos PM domains" if COMPILE_TEST
 	depends on (ARCH_EXYNOS && PM_GENERIC_DOMAINS) || COMPILE_TEST
 
-config SAMSUNG_PM_DEBUG
-	bool "Samsung PM Suspend debug"
-	depends on PM && DEBUG_KERNEL
-	depends on PLAT_S3C24XX || ARCH_S3C64XX || ARCH_S5PV210
-	depends on DEBUG_S3C24XX_UART || DEBUG_S3C2410_UART
-	depends on DEBUG_LL && MMU
-	help
-	  Say Y here if you want verbose debugging from the PM Suspend and
-	  Resume code. See <file:Documentation/arm/samsung-s3c24xx/suspend.rst>
-	  for more information.
-
-config S3C_PM_DEBUG_LED_SMDK
-       bool "SMDK LED suspend/resume debugging"
-       depends on PM && (MACH_SMDK6410)
-       help
-         Say Y here to enable the use of the SMDK LEDs on the baseboard
-	 for debugging of the state of the suspend and resume process.
-
-	 Note, this currently only works for S3C64XX based SMDK boards.
-
 config SAMSUNG_PM_CHECK
 	bool "S3C2410 PM Suspend Memory CRC"
-	depends on PM && (PLAT_S3C24XX || ARCH_S3C64XX || ARCH_S5PV210)
+	depends on PM && (ARCH_S3C64XX || ARCH_S5PV210)
 	select CRC32
 	help
 	  Enable the PM code's memory area checksum over sleep. This option
@@ -69,8 +65,6 @@ config SAMSUNG_PM_CHECK
 	  Note, this can take several seconds depending on memory size
 	  and CPU speed.
 
-	  See <file:Documentation/arm/samsung-s3c24xx/suspend.rst>
-
 config SAMSUNG_PM_CHECK_CHUNKSIZE
 	int "S3C2410 PM Suspend CRC Chunksize (KiB)"
 	depends on PM && SAMSUNG_PM_CHECK
@@ -80,8 +74,6 @@ config SAMSUNG_PM_CHECK_CHUNKSIZE
 	  corruption over suspend and resume. A smaller value will mean that
 	  the CRC data block will take more memory, but will identify any
 	  faults with better precision.
-
-	  See <file:Documentation/arm/samsung-s3c24xx/suspend.rst>
 
 config EXYNOS_REGULATOR_COUPLER
 	bool "Exynos SoC Regulator Coupler" if COMPILE_TEST

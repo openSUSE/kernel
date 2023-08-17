@@ -626,7 +626,7 @@ static void yam_arbitrate(struct net_device *dev)
 	yp->slotcnt = yp->slot / 10;
 
 	/* is random > persist ? */
-	if ((prandom_u32() % 256) > yp->pers)
+	if (get_random_u8() > yp->pers)
 		return;
 
 	yam_start_tx(dev, yp);
@@ -920,15 +920,15 @@ static int yam_close(struct net_device *dev)
 
 /* --------------------------------------------------------------------- */
 
-static int yam_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+static int yam_siocdevprivate(struct net_device *dev, struct ifreq *ifr, void __user *data, int cmd)
 {
 	struct yam_port *yp = netdev_priv(dev);
 	struct yamdrv_ioctl_cfg yi;
 	struct yamdrv_ioctl_mcs *ym;
 	int ioctl_cmd;
 
-	if (copy_from_user(&ioctl_cmd, ifr->ifr_data, sizeof(int)))
-		 return -EFAULT;
+	if (copy_from_user(&ioctl_cmd, data, sizeof(int)))
+		return -EFAULT;
 
 	if (yp->magic != YAM_MAGIC)
 		return -EINVAL;
@@ -947,8 +947,7 @@ static int yam_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	case SIOCYAMSMCS:
 		if (netif_running(dev))
 			return -EINVAL;		/* Cannot change this parameter when up */
-		ym = memdup_user(ifr->ifr_data,
-				 sizeof(struct yamdrv_ioctl_mcs));
+		ym = memdup_user(data, sizeof(struct yamdrv_ioctl_mcs));
 		if (IS_ERR(ym))
 			return PTR_ERR(ym);
 		if (ym->cmd != SIOCYAMSMCS || ym->bitrate > YAM_MAXBITRATE) {
@@ -963,8 +962,8 @@ static int yam_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	case SIOCYAMSCFG:
 		if (!capable(CAP_SYS_RAWIO))
 			return -EPERM;
-		if (copy_from_user(&yi, ifr->ifr_data, sizeof(struct yamdrv_ioctl_cfg)))
-			 return -EFAULT;
+		if (copy_from_user(&yi, data, sizeof(struct yamdrv_ioctl_cfg)))
+			return -EFAULT;
 
 		if (yi.cmd != SIOCYAMSCFG)
 			return -EINVAL;
@@ -1043,8 +1042,8 @@ static int yam_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		yi.cfg.txtail = yp->txtail;
 		yi.cfg.persist = yp->pers;
 		yi.cfg.slottime = yp->slot;
-		if (copy_to_user(ifr->ifr_data, &yi, sizeof(struct yamdrv_ioctl_cfg)))
-			 return -EFAULT;
+		if (copy_to_user(data, &yi, sizeof(struct yamdrv_ioctl_cfg)))
+			return -EFAULT;
 		break;
 
 	default:
@@ -1072,7 +1071,7 @@ static const struct net_device_ops yam_netdev_ops = {
 	.ndo_open	     = yam_open,
 	.ndo_stop	     = yam_close,
 	.ndo_start_xmit      = yam_send_packet,
-	.ndo_do_ioctl 	     = yam_ioctl,
+	.ndo_siocdevprivate  = yam_siocdevprivate,
 	.ndo_set_mac_address = yam_set_mac_address,
 };
 

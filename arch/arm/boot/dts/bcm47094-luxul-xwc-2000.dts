@@ -25,7 +25,7 @@
 	leds {
 		compatible = "gpio-leds";
 
-		status	{
+		led-status {
 			label = "bcm53xx:green:status";
 			gpios = <&chipcommon 18 GPIO_ACTIVE_LOW>;
 			linux,default-trigger = "timer";
@@ -34,10 +34,8 @@
 
 	gpio-keys {
 		compatible = "gpio-keys";
-		#address-cells = <1>;
-		#size-cells = <0>;
 
-		restart {
+		button-restart {
 			label = "Reset";
 			linux,code = <KEY_RESTART>;
 			gpios = <&chipcommon 19 GPIO_ACTIVE_LOW>;

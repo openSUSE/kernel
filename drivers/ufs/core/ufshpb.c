@@ -233,11 +233,6 @@ next_srgn:
 	rgn = hpb->rgn_tbl + rgn_idx;
 	srgn = rgn->srgn_tbl + srgn_idx;
 
-	if (likely(!srgn->is_last))
-		bitmap_len = hpb->entries_per_srgn;
-	else
-		bitmap_len = hpb->last_srgn_entries;
-
 	if (!ufshpb_is_valid_srgn(rgn, srgn))
 		return true;
 
@@ -252,6 +247,11 @@ next_srgn:
 			srgn->rgn_idx, srgn->srgn_idx);
 		return true;
 	}
+
+	if (likely(!srgn->is_last))
+		bitmap_len = hpb->entries_per_srgn;
+	else
+		bitmap_len = hpb->last_srgn_entries;
 
 	if ((srgn_offset + cnt) > bitmap_len)
 		bit_len = bitmap_len - srgn_offset;
@@ -383,7 +383,7 @@ int ufshpb_prep(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 	rgn = hpb->rgn_tbl + rgn_idx;
 	srgn = rgn->srgn_tbl + srgn_idx;
 
-	/* If command type is WRITE or DISCARD, set bitmap as drity */
+	/* If command type is WRITE or DISCARD, set bitmap as dirty */
 	if (ufshpb_is_write_or_discard(cmd)) {
 		ufshpb_iterate_rgn(hpb, rgn_idx, srgn_idx, srgn_offset,
 				   transfer_len, true);
@@ -433,9 +433,8 @@ int ufshpb_prep(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 	return 0;
 }
 
-static struct ufshpb_req *ufshpb_get_req(struct ufshpb_lu *hpb,
-					 int rgn_idx, enum req_opf dir,
-					 bool atomic)
+static struct ufshpb_req *ufshpb_get_req(struct ufshpb_lu *hpb, int rgn_idx,
+					 enum req_op op, bool atomic)
 {
 	struct ufshpb_req *rq;
 	struct request *req;
@@ -446,7 +445,7 @@ static struct ufshpb_req *ufshpb_get_req(struct ufshpb_lu *hpb,
 		return NULL;
 
 retry:
-	req = blk_mq_alloc_request(hpb->sdev_ufs_lu->request_queue, dir,
+	req = blk_mq_alloc_request(hpb->sdev_ufs_lu->request_queue, op,
 			      BLK_MQ_REQ_NOWAIT);
 
 	if (!atomic && (PTR_ERR(req) == -EWOULDBLOCK) && (--retries > 0)) {
@@ -614,16 +613,19 @@ static void ufshpb_activate_subregion(struct ufshpb_lu *hpb,
 	srgn->srgn_state = HPB_SRGN_VALID;
 }
 
-static void ufshpb_umap_req_compl_fn(struct request *req, blk_status_t error)
+static enum rq_end_io_ret ufshpb_umap_req_compl_fn(struct request *req,
+						   blk_status_t error)
 {
-	struct ufshpb_req *umap_req = (struct ufshpb_req *)req->end_io_data;
+	struct ufshpb_req *umap_req = req->end_io_data;
 
 	ufshpb_put_req(umap_req->hpb, umap_req);
+	return RQ_END_IO_NONE;
 }
 
-static void ufshpb_map_req_compl_fn(struct request *req, blk_status_t error)
+static enum rq_end_io_ret ufshpb_map_req_compl_fn(struct request *req,
+						  blk_status_t error)
 {
-	struct ufshpb_req *map_req = (struct ufshpb_req *) req->end_io_data;
+	struct ufshpb_req *map_req = req->end_io_data;
 	struct ufshpb_lu *hpb = map_req->hpb;
 	struct ufshpb_subregion *srgn;
 	unsigned long flags;
@@ -637,6 +639,7 @@ static void ufshpb_map_req_compl_fn(struct request *req, blk_status_t error)
 	spin_unlock_irqrestore(&hpb->rgn_state_lock, flags);
 
 	ufshpb_put_map_req(map_req->hpb, map_req);
+	return RQ_END_IO_NONE;
 }
 
 static void ufshpb_set_unmap_cmd(unsigned char *cdb, struct ufshpb_region *rgn)
@@ -1306,6 +1309,13 @@ void ufshpb_rsp_upiu(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 	struct utp_hpb_rsp *rsp_field = &lrbp->ucd_rsp_ptr->hr;
 	int data_seg_len;
 
+	data_seg_len = be32_to_cpu(lrbp->ucd_rsp_ptr->header.dword_2)
+		& MASK_RSP_UPIU_DATA_SEG_LEN;
+
+	/* If data segment length is zero, rsp_field is not valid */
+	if (!data_seg_len)
+		return;
+
 	if (unlikely(lrbp->lun != rsp_field->lun)) {
 		struct scsi_device *sdev;
 		bool found = false;
@@ -1337,18 +1347,6 @@ void ufshpb_rsp_upiu(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 		dev_notice(&hpb->sdev_ufs_lu->sdev_dev,
 			   "%s: ufshpb state is not PRESENT/SUSPEND\n",
 			   __func__);
-		return;
-	}
-
-	data_seg_len = be32_to_cpu(lrbp->ucd_rsp_ptr->header.dword_2)
-		& MASK_RSP_UPIU_DATA_SEG_LEN;
-
-	/* To flush remained rsp_list, we queue the map_work task */
-	if (!data_seg_len) {
-		if (!ufshpb_is_general_lun(hpb->lun))
-			return;
-
-		ufshpb_kick_map_work(hpb);
 		return;
 	}
 
@@ -2291,7 +2289,7 @@ static bool ufshpb_check_hpb_reset_query(struct ufs_hba *hba)
 	/* wait for the device to complete HPB reset query */
 	for (try = 0; try < HPB_RESET_REQ_RETRIES; try++) {
 		dev_dbg(hba->dev,
-			"%s start flag reset polling %d times\n",
+			"%s: start flag reset polling %d times\n",
 			__func__, try);
 
 		/* Poll fHpbReset flag to be cleared */
@@ -2300,7 +2298,7 @@ static bool ufshpb_check_hpb_reset_query(struct ufs_hba *hba)
 
 		if (err) {
 			dev_err(hba->dev,
-				"%s reading fHpbReset flag failed with error %d\n",
+				"%s: reading fHpbReset flag failed with error %d\n",
 				__func__, err);
 			return flag_res;
 		}
@@ -2312,7 +2310,7 @@ static bool ufshpb_check_hpb_reset_query(struct ufs_hba *hba)
 	}
 	if (flag_res) {
 		dev_err(hba->dev,
-			"%s fHpbReset was not cleared by the device\n",
+			"%s: fHpbReset was not cleared by the device\n",
 			__func__);
 	}
 out:
@@ -2384,11 +2382,9 @@ static int ufshpb_get_lu_info(struct ufs_hba *hba, int lun,
 {
 	u16 max_active_rgns;
 	u8 lu_enable;
-	int size;
+	int size = QUERY_DESC_MAX_SIZE;
 	int ret;
 	char desc_buf[QUERY_DESC_MAX_SIZE];
-
-	ufshcd_map_desc_id_to_length(hba, QUERY_DESC_IDN_UNIT, &size);
 
 	ufshcd_rpm_get_sync(hba);
 	ret = ufshcd_query_descriptor_retry(hba, UPIU_QUERY_OPCODE_READ_DESC,

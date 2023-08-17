@@ -59,7 +59,7 @@ srmcons_do_receive_chars(struct tty_port *port)
 	} while((result.bits.status & 1) && (++loops < 10));
 
 	if (count)
-		tty_schedule_flip(port);
+		tty_flip_buffer_push(port);
 
 	return count;
 }
@@ -204,9 +204,9 @@ srmcons_init(void)
 		struct tty_driver *driver;
 		int err;
 
-		driver = alloc_tty_driver(MAX_SRM_CONSOLE_DEVICES);
-		if (!driver)
-			return -ENOMEM;
+		driver = tty_alloc_driver(MAX_SRM_CONSOLE_DEVICES, 0);
+		if (IS_ERR(driver))
+			return PTR_ERR(driver);
 
 		tty_port_init(&srmcons_singleton.port);
 

@@ -2,8 +2,12 @@
 #ifndef _ASM_X86_SET_MEMORY_H
 #define _ASM_X86_SET_MEMORY_H
 
+#include <linux/mm.h>
 #include <asm/page.h>
 #include <asm-generic/set_memory.h>
+
+#define set_memory_rox set_memory_rox
+int set_memory_rox(unsigned long addr, int numpages);
 
 /*
  * The set_memory_* API can be used to change various attributes of a virtual
@@ -52,7 +56,6 @@ int set_memory_global(unsigned long addr, int numpages);
 
 int set_pages_array_uc(struct page **pages, int addrinarray);
 int set_pages_array_wc(struct page **pages, int addrinarray);
-int set_pages_array_wt(struct page **pages, int addrinarray);
 int set_pages_array_wb(struct page **pages, int addrinarray);
 
 /*

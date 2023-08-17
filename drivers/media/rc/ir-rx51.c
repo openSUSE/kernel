@@ -19,6 +19,7 @@
 struct ir_rx51 {
 	struct rc_dev *rcdev;
 	struct pwm_device *pwm;
+	struct pwm_state state;
 	struct hrtimer timer;
 	struct device	     *dev;
 	wait_queue_head_t     wqueue;
@@ -32,22 +33,20 @@ struct ir_rx51 {
 
 static inline void ir_rx51_on(struct ir_rx51 *ir_rx51)
 {
-	pwm_enable(ir_rx51->pwm);
+	ir_rx51->state.enabled = true;
+	pwm_apply_state(ir_rx51->pwm, &ir_rx51->state);
 }
 
 static inline void ir_rx51_off(struct ir_rx51 *ir_rx51)
 {
-	pwm_disable(ir_rx51->pwm);
+	ir_rx51->state.enabled = false;
+	pwm_apply_state(ir_rx51->pwm, &ir_rx51->state);
 }
 
 static int init_timing_params(struct ir_rx51 *ir_rx51)
 {
-	struct pwm_device *pwm = ir_rx51->pwm;
-	int duty, period = DIV_ROUND_CLOSEST(NSEC_PER_SEC, ir_rx51->freq);
-
-	duty = DIV_ROUND_CLOSEST(ir_rx51->duty_cycle * period, 100);
-
-	pwm_config(pwm, duty, period);
+	ir_rx51->state.period = DIV_ROUND_CLOSEST(NSEC_PER_SEC, ir_rx51->freq);
+	pwm_set_relative_duty_cycle(&ir_rx51->state, ir_rx51->duty_cycle, 100);
 
 	return 0;
 }
@@ -232,16 +231,12 @@ static int ir_rx51_probe(struct platform_device *dev)
 	struct rc_dev *rcdev;
 
 	pwm = pwm_get(&dev->dev, NULL);
-	if (IS_ERR(pwm)) {
-		int err = PTR_ERR(pwm);
-
-		if (err != -EPROBE_DEFER)
-			dev_err(&dev->dev, "pwm_get failed: %d\n", err);
-		return err;
-	}
+	if (IS_ERR(pwm))
+		return dev_err_probe(&dev->dev, PTR_ERR(pwm), "pwm_get failed\n");
 
 	/* Use default, in case userspace does not set the carrier */
 	ir_rx51.freq = DIV_ROUND_CLOSEST_ULL(pwm_get_period(pwm), NSEC_PER_SEC);
+	pwm_init_state(pwm, &ir_rx51.state);
 	pwm_put(pwm);
 
 	hrtimer_init(&ir_rx51.timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
@@ -266,11 +261,6 @@ static int ir_rx51_probe(struct platform_device *dev)
 	return devm_rc_register_device(&dev->dev, ir_rx51.rcdev);
 }
 
-static int ir_rx51_remove(struct platform_device *dev)
-{
-	return 0;
-}
-
 static const struct of_device_id ir_rx51_match[] = {
 	{
 		.compatible = "nokia,n900-ir",
@@ -281,7 +271,6 @@ MODULE_DEVICE_TABLE(of, ir_rx51_match);
 
 static struct platform_driver ir_rx51_platform_driver = {
 	.probe		= ir_rx51_probe,
-	.remove		= ir_rx51_remove,
 	.suspend	= ir_rx51_suspend,
 	.resume		= ir_rx51_resume,
 	.driver		= {

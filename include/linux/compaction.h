@@ -81,13 +81,6 @@ static inline unsigned long compact_gap(unsigned int order)
 }
 
 #ifdef CONFIG_COMPACTION
-extern unsigned int sysctl_compaction_proactiveness;
-extern int sysctl_compaction_handler(struct ctl_table *table, int write,
-			void *buffer, size_t *length, loff_t *ppos);
-extern int compaction_proactiveness_sysctl_handler(struct ctl_table *table,
-		int write, void *buffer, size_t *length, loff_t *ppos);
-extern int sysctl_extfrag_threshold;
-extern int sysctl_compact_unevictable_allowed;
 
 extern unsigned int extfrag_for_order(struct zone *zone, unsigned int order);
 extern int fragmentation_index(struct zone *zone, unsigned int order);
@@ -177,7 +170,7 @@ static inline bool compaction_withdrawn(enum compact_result result)
 bool compaction_zonelist_suitable(struct alloc_context *ac, int order,
 					int alloc_flags);
 
-extern int kcompactd_run(int nid);
+extern void kcompactd_run(int nid);
 extern void kcompactd_stop(int nid);
 extern void wakeup_kcompactd(pg_data_t *pgdat, int order, int highest_zoneidx);
 
@@ -212,9 +205,8 @@ static inline bool compaction_withdrawn(enum compact_result result)
 	return true;
 }
 
-static inline int kcompactd_run(int nid)
+static inline void kcompactd_run(int nid)
 {
-	return 0;
 }
 static inline void kcompactd_stop(int nid)
 {

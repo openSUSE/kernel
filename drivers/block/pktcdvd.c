@@ -12,7 +12,7 @@
  * Theory of operation:
  *
  * At the lowest level, there is the standard driver for the CD/DVD device,
- * typically ide-cd.c or sr.c. This driver can handle read and write requests,
+ * such as drivers/scsi/sr.c. This driver can handle read and write requests,
  * but it doesn't know anything about the special restrictions that apply to
  * packet writing. One restriction is that write requests must be aligned to
  * packet boundaries on the physical media, and the size of a write request
@@ -100,7 +100,8 @@ static struct mutex ctl_mutex;	/* Serialize open/close/setup/teardown */
 static mempool_t psd_pool;
 static struct bio_set pkt_bio_set;
 
-static struct class	*class_pktcdvd = NULL;    /* /sys/class/pktcdvd */
+/* /sys/class/pktcdvd */
+static struct class	class_pktcdvd;
 static struct dentry	*pkt_debugfs_root = NULL; /* /sys/kernel/debug/pktcdvd */
 
 /* forward declaration */
@@ -315,8 +316,8 @@ static const struct attribute_group *pkt_groups[] = {
 
 static void pkt_sysfs_dev_new(struct pktcdvd_device *pd)
 {
-	if (class_pktcdvd) {
-		pd->dev = device_create_with_groups(class_pktcdvd, NULL,
+	if (class_is_registered(&class_pktcdvd)) {
+		pd->dev = device_create_with_groups(&class_pktcdvd, NULL,
 						    MKDEV(0, 0), pd, pkt_groups,
 						    "%s", pd->name);
 		if (IS_ERR(pd->dev))
@@ -326,7 +327,7 @@ static void pkt_sysfs_dev_new(struct pktcdvd_device *pd)
 
 static void pkt_sysfs_dev_remove(struct pktcdvd_device *pd)
 {
-	if (class_pktcdvd)
+	if (class_is_registered(&class_pktcdvd))
 		device_unregister(pd->dev);
 }
 
@@ -338,12 +339,7 @@ static void pkt_sysfs_dev_remove(struct pktcdvd_device *pd)
                      device_map     show mappings
  *******************************************************************/
 
-static void class_pktcdvd_release(struct class *cls)
-{
-	kfree(cls);
-}
-
-static ssize_t device_map_show(struct class *c, struct class_attribute *attr,
+static ssize_t device_map_show(const struct class *c, const struct class_attribute *attr,
 			       char *data)
 {
 	int n = 0;
@@ -364,7 +360,7 @@ static ssize_t device_map_show(struct class *c, struct class_attribute *attr,
 }
 static CLASS_ATTR_RO(device_map);
 
-static ssize_t add_store(struct class *c, struct class_attribute *attr,
+static ssize_t add_store(const struct class *c, const struct class_attribute *attr,
 			 const char *buf, size_t count)
 {
 	unsigned int major, minor;
@@ -385,7 +381,7 @@ static ssize_t add_store(struct class *c, struct class_attribute *attr,
 }
 static CLASS_ATTR_WO(add);
 
-static ssize_t remove_store(struct class *c, struct class_attribute *attr,
+static ssize_t remove_store(const struct class *c, const struct class_attribute *attr,
 			    const char *buf, size_t count)
 {
 	unsigned int major, minor;
@@ -405,36 +401,23 @@ static struct attribute *class_pktcdvd_attrs[] = {
 };
 ATTRIBUTE_GROUPS(class_pktcdvd);
 
+static struct class class_pktcdvd = {
+	.name		= DRIVER_NAME,
+	.class_groups	= class_pktcdvd_groups,
+};
+
 static int pkt_sysfs_init(void)
 {
-	int ret = 0;
-
 	/*
 	 * create control files in sysfs
 	 * /sys/class/pktcdvd/...
 	 */
-	class_pktcdvd = kzalloc(sizeof(*class_pktcdvd), GFP_KERNEL);
-	if (!class_pktcdvd)
-		return -ENOMEM;
-	class_pktcdvd->name = DRIVER_NAME;
-	class_pktcdvd->owner = THIS_MODULE;
-	class_pktcdvd->class_release = class_pktcdvd_release;
-	class_pktcdvd->class_groups = class_pktcdvd_groups;
-	ret = class_register(class_pktcdvd);
-	if (ret) {
-		kfree(class_pktcdvd);
-		class_pktcdvd = NULL;
-		pr_err("failed to create class pktcdvd\n");
-		return ret;
-	}
-	return 0;
+	return class_register(&class_pktcdvd);
 }
 
 static void pkt_sysfs_cleanup(void)
 {
-	if (class_pktcdvd)
-		class_destroy(class_pktcdvd);
-	class_pktcdvd = NULL;
+	class_unregister(&class_pktcdvd);
 }
 
 /********************************************************************
@@ -1869,12 +1852,12 @@ static noinline_for_stack int pkt_probe_settings(struct pktcdvd_device *pd)
 /*
  * enable/disable write caching on drive
  */
-static noinline_for_stack int pkt_write_caching(struct pktcdvd_device *pd,
-						int set)
+static noinline_for_stack int pkt_write_caching(struct pktcdvd_device *pd)
 {
 	struct packet_command cgc;
 	struct scsi_sense_hdr sshdr;
 	unsigned char buf[64];
+	bool set = IS_ENABLED(CONFIG_CDROM_PKTCDVD_WCACHE);
 	int ret;
 
 	init_cdrom_command(&cgc, buf, sizeof(buf), CGC_DATA_READ);
@@ -1890,7 +1873,12 @@ static noinline_for_stack int pkt_write_caching(struct pktcdvd_device *pd,
 	if (ret)
 		return ret;
 
-	buf[pd->mode_offset + 10] |= (!!set << 2);
+	/*
+	 * use drive write caching -- we need deferred error handling to be
+	 * able to successfully recover with this option (drive will return good
+	 * status as soon as the cdb is validated).
+	 */
+	buf[pd->mode_offset + 10] |= (set << 2);
 
 	cgc.buflen = cgc.cmd[8] = 2 + ((buf[0] << 8) | (buf[1] & 0xff));
 	ret = pkt_mode_select(pd, &cgc);
@@ -2085,7 +2073,7 @@ static int pkt_open_write(struct pktcdvd_device *pd)
 		return -EIO;
 	}
 
-	pkt_write_caching(pd, USE_WCACHING);
+	pkt_write_caching(pd);
 
 	ret = pkt_get_max_speed(pd, &write_speed);
 	if (ret)
@@ -2399,7 +2387,9 @@ static void pkt_submit_bio(struct bio *bio)
 	struct pktcdvd_device *pd = bio->bi_bdev->bd_disk->queue->queuedata;
 	struct bio *split;
 
-	blk_queue_split(&bio);
+	bio = bio_split_to_limits(bio);
+	if (!bio)
+		return;
 
 	pkt_dbg(2, pd, "start = %6llx stop = %6llx\n",
 		(unsigned long long)bio->bi_iter.bi_sector,
@@ -2460,11 +2450,9 @@ static int pkt_seq_show(struct seq_file *m, void *p)
 {
 	struct pktcdvd_device *pd = m->private;
 	char *msg;
-	char bdev_buf[BDEVNAME_SIZE];
 	int states[PACKET_NUM_STATES];
 
-	seq_printf(m, "Writer %s mapped to %s:\n", pd->name,
-		   bdevname(pd->bdev, bdev_buf));
+	seq_printf(m, "Writer %s mapped to %pg:\n", pd->name, pd->bdev);
 
 	seq_printf(m, "\nSettings:\n");
 	seq_printf(m, "\tpacket size:\t\t%dkB\n", pd->settings.size / 2);
@@ -2521,7 +2509,6 @@ static int pkt_seq_show(struct seq_file *m, void *p)
 static int pkt_new_dev(struct pktcdvd_device *pd, dev_t dev)
 {
 	int i;
-	char b[BDEVNAME_SIZE];
 	struct block_device *bdev;
 	struct scsi_device *sdev;
 
@@ -2534,8 +2521,7 @@ static int pkt_new_dev(struct pktcdvd_device *pd, dev_t dev)
 		if (!pd2)
 			continue;
 		if (pd2->bdev->bd_dev == dev) {
-			pkt_err(pd, "%s already setup\n",
-				bdevname(pd2->bdev, b));
+			pkt_err(pd, "%pg already setup\n", pd2->bdev);
 			return -EBUSY;
 		}
 		if (pd2->pkt_dev == dev) {
@@ -2570,7 +2556,7 @@ static int pkt_new_dev(struct pktcdvd_device *pd, dev_t dev)
 	}
 
 	proc_create_single_data(pd->name, 0, pkt_proc, pkt_seq_show, pd);
-	pkt_dbg(1, pd, "writer mapped to %s\n", bdevname(bdev, b));
+	pkt_dbg(1, pd, "writer mapped to %pg\n", bdev);
 	return 0;
 
 out_mem:
@@ -2733,7 +2719,7 @@ static int pkt_setup_dev(dev_t dev, dev_t* pkt_dev)
 	return 0;
 
 out_mem2:
-	blk_cleanup_disk(disk);
+	put_disk(disk);
 out_mem:
 	mempool_exit(&pd->rb_pool);
 	kfree(pd);
@@ -2783,7 +2769,7 @@ static int pkt_remove_dev(dev_t pkt_dev)
 	pkt_dbg(1, pd, "writer unmapped\n");
 
 	del_gendisk(pd->disk);
-	blk_cleanup_disk(pd->disk);
+	put_disk(pd->disk);
 
 	mempool_exit(&pd->rb_pool);
 	kfree(pd);

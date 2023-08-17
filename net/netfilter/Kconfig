@@ -10,6 +10,17 @@ config NETFILTER_INGRESS
 	  This allows you to classify packets from ingress using the Netfilter
 	  infrastructure.
 
+config NETFILTER_EGRESS
+	bool "Netfilter egress support"
+	default y
+	select NET_EGRESS
+	help
+	  This allows you to classify packets before transmission using the
+	  Netfilter infrastructure.
+
+config NETFILTER_SKIP_EGRESS
+	def_bool NETFILTER_EGRESS && (NET_CLS_ACT || IFB)
+
 config NETFILTER_NETLINK
 	tristate
 
@@ -18,6 +29,9 @@ config NETFILTER_FAMILY_BRIDGE
 
 config NETFILTER_FAMILY_ARP
 	bool
+
+config NETFILTER_BPF_LINK
+	def_bool BPF_SYSCALL
 
 config NETFILTER_NETLINK_HOOK
 	tristate "Netfilter base hook dump support"
@@ -133,7 +147,6 @@ config NF_CONNTRACK_ZONES
 
 config NF_CONNTRACK_PROCFS
 	bool "Supply CT list in procfs (OBSOLETE)"
-	default y
 	depends on PROC_FS
 	help
 	This option enables for the list of known conntrack entries
@@ -178,6 +191,9 @@ config NF_CONNTRACK_LABELS
 	  This option enables support for assigning user-defined flag bits
 	  to connection tracking entries.  It can be used with xtables connlabel
 	  match and the nftables ct expression.
+
+config NF_CONNTRACK_OVS
+	bool
 
 config NF_CT_PROTO_DCCP
 	bool 'DCCP protocol connection tracking support'
@@ -449,6 +465,9 @@ config NF_NAT_REDIRECT
 config NF_NAT_MASQUERADE
 	bool
 
+config NF_NAT_OVS
+	bool
+
 config NETFILTER_SYNPROXY
 	tristate
 
@@ -504,12 +523,6 @@ config NFT_FLOW_OFFLOAD
 	  This option adds the "flow_offload" expression that you can use to
 	  choose what flows are placed into the hardware.
 
-config NFT_COUNTER
-	tristate "Netfilter nf_tables counter module"
-	help
-	  This option adds the "counter" expression that you can use to
-	  include packet and byte counters in a rule.
-
 config NFT_CONNLIMIT
 	tristate "Netfilter nf_tables connlimit module"
 	depends on NF_CONNTRACK
@@ -563,12 +576,6 @@ config NFT_TUNNEL
 	help
 	  This option adds the "tunnel" expression that you can use to set
 	  tunneling policies.
-
-config NFT_OBJREF
-	tristate "Netfilter nf_tables stateful object reference module"
-	help
-	  This option adds the "objref" expression that allows you to refer to
-	  stateful objects, such as counters and quotas.
 
 config NFT_QUEUE
 	depends on NETFILTER_NETLINK_QUEUE
@@ -729,6 +736,14 @@ config NF_FLOW_TABLE
 
 	  To compile it as a module, choose M here.
 
+config NF_FLOW_TABLE_PROCFS
+	bool "Supply flow table statistics in procfs"
+	depends on NF_FLOW_TABLE
+	depends on PROC_FS
+	help
+	  This option enables for the flow table offload statistics
+	  to be shown in procfs under net/netfilter/nf_flowtable.
+
 config NETFILTER_XTABLES
 	tristate "Netfilter Xtables support (required for ip_tables)"
 	default m if NETFILTER_ADVANCED=n
@@ -741,7 +756,6 @@ if NETFILTER_XTABLES
 config NETFILTER_XTABLES_COMPAT
 	bool "Netfilter Xtables 32bit support"
 	depends on COMPAT
-	default y
 	help
 	   This option provides a translation layer to run 32bit arp,ip(6),ebtables
 	   binaries on 64bit kernels.

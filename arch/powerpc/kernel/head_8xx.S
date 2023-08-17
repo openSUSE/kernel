@@ -18,6 +18,8 @@
 #include <linux/magic.h>
 #include <linux/pgtable.h>
 #include <linux/sizes.h>
+#include <linux/linkage.h>
+
 #include <asm/processor.h>
 #include <asm/page.h>
 #include <asm/mmu.h>
@@ -53,8 +55,8 @@
 #define PAGE_SHIFT_8M		23
 
 	__HEAD
-_ENTRY(_stext);
-_ENTRY(_start);
+_GLOBAL(_stext);
+_GLOBAL(_start);
 
 /* MPC8xx
  * This port was done on an MBX board with an 860.  Right now I only
@@ -537,7 +539,7 @@ start_here:
 	ori	r0, r0, STACK_END_MAGIC@l
 	stw	r0, 0(r1)
 	li	r0,0
-	stwu	r0,THREAD_SIZE-STACK_FRAME_OVERHEAD(r1)
+	stwu	r0,THREAD_SIZE-STACK_FRAME_MIN_SIZE(r1)
 
 	lis	r6, swapper_pg_dir@ha
 	tophys(r6,r6)
@@ -625,7 +627,7 @@ start_here:
  * 24 Mbytes of data, and the 512k IMMR space.  Anything not covered by
  * these mappings is mapped by page tables.
  */
-initial_mmu:
+SYM_FUNC_START_LOCAL(initial_mmu)
 	li	r8, 0
 	mtspr	SPRN_MI_CTR, r8		/* remove PINNED ITLB entries */
 	lis	r10, MD_TWAM@h
@@ -686,6 +688,7 @@ initial_mmu:
 #endif
 	mtspr	SPRN_DER, r8
 	blr
+SYM_FUNC_END(initial_mmu)
 
 _GLOBAL(mmu_pin_tlb)
 	lis	r9, (1f - PAGE_OFFSET)@h
@@ -733,6 +736,7 @@ _GLOBAL(mmu_pin_tlb)
 #ifdef CONFIG_PIN_TLB_DATA
 	LOAD_REG_IMMEDIATE(r6, PAGE_OFFSET)
 	LOAD_REG_IMMEDIATE(r7, MI_SVALID | MI_PS8MEG | _PMD_ACCESSED)
+	li	r8, 0
 #ifdef CONFIG_PIN_TLB_IMMR
 	li	r0, 3
 #else
@@ -741,26 +745,26 @@ _GLOBAL(mmu_pin_tlb)
 	mtctr	r0
 	cmpwi	r4, 0
 	beq	4f
-	LOAD_REG_IMMEDIATE(r8, 0xf0 | _PAGE_RO | _PAGE_SPS | _PAGE_SH | _PAGE_PRESENT)
 	LOAD_REG_ADDR(r9, _sinittext)
 
 2:	ori	r0, r6, MD_EVALID
+	ori	r12, r8, 0xf0 | _PAGE_RO | _PAGE_SPS | _PAGE_SH | _PAGE_PRESENT
 	mtspr	SPRN_MD_CTR, r5
 	mtspr	SPRN_MD_EPN, r0
 	mtspr	SPRN_MD_TWC, r7
-	mtspr	SPRN_MD_RPN, r8
+	mtspr	SPRN_MD_RPN, r12
 	addi	r5, r5, 0x100
 	addis	r6, r6, SZ_8M@h
 	addis	r8, r8, SZ_8M@h
 	cmplw	r6, r9
 	bdnzt	lt, 2b
-
-4:	LOAD_REG_IMMEDIATE(r8, 0xf0 | _PAGE_SPS | _PAGE_SH | _PAGE_PRESENT)
+4:
 2:	ori	r0, r6, MD_EVALID
+	ori	r12, r8, 0xf0 | _PAGE_DIRTY | _PAGE_SPS | _PAGE_SH | _PAGE_PRESENT
 	mtspr	SPRN_MD_CTR, r5
 	mtspr	SPRN_MD_EPN, r0
 	mtspr	SPRN_MD_TWC, r7
-	mtspr	SPRN_MD_RPN, r8
+	mtspr	SPRN_MD_RPN, r12
 	addi	r5, r5, 0x100
 	addis	r6, r6, SZ_8M@h
 	addis	r8, r8, SZ_8M@h
@@ -781,7 +785,7 @@ _GLOBAL(mmu_pin_tlb)
 #endif
 #if defined(CONFIG_PIN_TLB_IMMR) || defined(CONFIG_PIN_TLB_DATA)
 	lis	r0, (MD_RSV4I | MD_TWAM)@h
-	mtspr	SPRN_MI_CTR, r0
+	mtspr	SPRN_MD_CTR, r0
 #endif
 	mtspr	SPRN_SRR1, r10
 	mtspr	SPRN_SRR0, r11

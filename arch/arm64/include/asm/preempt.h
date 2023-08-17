@@ -2,8 +2,8 @@
 #ifndef __ASM_PREEMPT_H
 #define __ASM_PREEMPT_H
 
+#include <linux/jump_label.h>
 #include <linux/thread_info.h>
-#include <linux/static_call_types.h>
 
 #define PREEMPT_NEED_RESCHED	BIT(32)
 #define PREEMPT_ENABLED	(PREEMPT_NEED_RESCHED)
@@ -81,30 +81,24 @@ static inline bool should_resched(int preempt_offset)
 }
 
 #ifdef CONFIG_PREEMPTION
+
 void preempt_schedule(void);
 void preempt_schedule_notrace(void);
 
 #ifdef CONFIG_PREEMPT_DYNAMIC
 
-#define __preempt_schedule_func preempt_schedule
-DECLARE_STATIC_CALL(preempt_schedule, __preempt_schedule_func);
-#define __preempt_schedule() static_call(preempt_schedule)()
+DECLARE_STATIC_KEY_TRUE(sk_dynamic_irqentry_exit_cond_resched);
+void dynamic_preempt_schedule(void);
+#define __preempt_schedule()		dynamic_preempt_schedule()
+void dynamic_preempt_schedule_notrace(void);
+#define __preempt_schedule_notrace()	dynamic_preempt_schedule_notrace()
 
-#define __preempt_schedule_notrace_func preempt_schedule_notrace
-DECLARE_STATIC_CALL(preempt_schedule_notrace, __preempt_schedule_notrace_func);
-#define __preempt_schedule_notrace() static_call(preempt_schedule_notrace)()
+#else /* CONFIG_PREEMPT_DYNAMIC */
 
-void arm64_preempt_schedule_irq(void);
-#define __irqentry_exit_cond_resched_func arm64_preempt_schedule_irq
-DECLARE_STATIC_CALL(irqentry_exit_cond_resched, __irqentry_exit_cond_resched_func);
-
-#else /* !CONFIG_PREEMPT_DYNAMIC */
-
-#define __preempt_schedule() preempt_schedule()
-#define __preempt_schedule_notrace() preempt_schedule_notrace()
+#define __preempt_schedule()		preempt_schedule()
+#define __preempt_schedule_notrace()	preempt_schedule_notrace()
 
 #endif /* CONFIG_PREEMPT_DYNAMIC */
-
 #endif /* CONFIG_PREEMPTION */
 
 #endif /* __ASM_PREEMPT_H */

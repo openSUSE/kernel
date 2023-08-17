@@ -172,7 +172,7 @@ static void qeth_get_strings(struct net_device *dev, u32 stringset, u8 *data)
 		qeth_add_stat_strings(&data, prefix, card_stats,
 				      CARD_STATS_LEN);
 		for (i = 0; i < card->qdio.no_out_queues; i++) {
-			snprintf(prefix, ETH_GSTRING_LEN, "tx%u ", i);
+			scnprintf(prefix, ETH_GSTRING_LEN, "tx%u ", i);
 			qeth_add_stat_strings(&data, prefix, txq_stats,
 					      TXQ_STATS_LEN);
 		}
@@ -188,12 +188,12 @@ static void qeth_get_drvinfo(struct net_device *dev,
 {
 	struct qeth_card *card = dev->ml_priv;
 
-	strlcpy(info->driver, IS_LAYER2(card) ? "qeth_l2" : "qeth_l3",
+	strscpy(info->driver, IS_LAYER2(card) ? "qeth_l2" : "qeth_l3",
 		sizeof(info->driver));
-	strlcpy(info->fw_version, card->info.mcl_level,
+	strscpy(info->fw_version, card->info.mcl_level,
 		sizeof(info->fw_version));
-	snprintf(info->bus_info, sizeof(info->bus_info), "%s/%s/%s",
-		 CARD_RDEV_ID(card), CARD_WDEV_ID(card), CARD_DDEV_ID(card));
+	scnprintf(info->bus_info, sizeof(info->bus_info), "%s/%s/%s",
+		  CARD_RDEV_ID(card), CARD_WDEV_ID(card), CARD_DDEV_ID(card));
 }
 
 static void qeth_get_channels(struct net_device *dev,
@@ -462,11 +462,4 @@ const struct ethtool_ops qeth_ethtool_ops = {
 	.get_per_queue_coalesce = qeth_get_per_queue_coalesce,
 	.set_per_queue_coalesce = qeth_set_per_queue_coalesce,
 	.get_link_ksettings = qeth_get_link_ksettings,
-};
-
-const struct ethtool_ops qeth_osn_ethtool_ops = {
-	.get_strings = qeth_get_strings,
-	.get_ethtool_stats = qeth_get_ethtool_stats,
-	.get_sset_count = qeth_get_sset_count,
-	.get_drvinfo = qeth_get_drvinfo,
 };

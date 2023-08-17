@@ -107,6 +107,7 @@ struct intel_engine_coredump {
 		int active;
 		int guilty;
 		struct i915_sched_attr sched_attr;
+		u32 hwsp_seqno;
 	} context;
 
 	struct i915_vma_coredump *vma;
@@ -123,6 +124,15 @@ struct intel_engine_coredump {
 	} vm_info;
 
 	struct intel_engine_coredump *next;
+};
+
+struct intel_ctb_coredump {
+	u32 raw_head, head;
+	u32 raw_tail, tail;
+	u32 raw_status;
+	u32 desc_offset;
+	u32 cmds_offset;
+	u32 size;
 };
 
 struct intel_gt_coredump {
@@ -150,6 +160,8 @@ struct intel_gt_coredump {
 	u32 gtt_cache;
 	u32 aux_err; /* gen12 */
 	u32 gam_done; /* gen12 */
+	u32 clock_frequency;
+	u32 clock_period_ns;
 
 	/* Display related */
 	u32 derrmr;
@@ -163,8 +175,14 @@ struct intel_gt_coredump {
 	struct intel_uc_coredump {
 		struct intel_uc_fw guc_fw;
 		struct intel_uc_fw huc_fw;
-		struct i915_vma_coredump *guc_log;
-		bool is_guc_capture;
+		struct guc_info {
+			struct intel_ctb_coredump ctb[2];
+			struct i915_vma_coredump *vma_ctb;
+			struct i915_vma_coredump *vma_log;
+			u32 timestamp;
+			u16 last_fence;
+			bool is_guc_capture;
+		} guc;
 	} *uc;
 
 	struct intel_gt_coredump *next;

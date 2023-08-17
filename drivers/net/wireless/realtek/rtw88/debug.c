@@ -12,6 +12,7 @@
 #include "phy.h"
 #include "reg.h"
 #include "ps.h"
+#include "regd.h"
 
 #ifdef CONFIG_RTW88_DEBUGFS
 
@@ -143,11 +144,29 @@ static int rtw_debugfs_get_rf_read(struct seq_file *m, void *v)
 	addr = debugfs_priv->rf_addr;
 	mask = debugfs_priv->rf_mask;
 
+	mutex_lock(&rtwdev->mutex);
 	val = rtw_read_rf(rtwdev, path, addr, mask);
+	mutex_unlock(&rtwdev->mutex);
 
 	seq_printf(m, "rf_read path:%d addr:0x%08x mask:0x%08x val=0x%08x\n",
 		   path, addr, mask, val);
 
+	return 0;
+}
+
+static int rtw_debugfs_get_fix_rate(struct seq_file *m, void *v)
+{
+	struct rtw_debugfs_priv *debugfs_priv = m->private;
+	struct rtw_dev *rtwdev = debugfs_priv->rtwdev;
+	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
+	u8 fix_rate = dm_info->fix_rate;
+
+	if (fix_rate >= DESC_RATE_MAX) {
+		seq_printf(m, "Fix rate disabled, fix_rate = %u\n", fix_rate);
+		return 0;
+	}
+
+	seq_printf(m, "Data frames fixed at desc rate %u\n", fix_rate);
 	return 0;
 }
 
@@ -252,11 +271,7 @@ static int rtw_debugfs_get_rsvd_page(struct seq_file *m, void *v)
 	for (i = 0 ; i < buf_size ; i += 8) {
 		if (i % page_size == 0)
 			seq_printf(m, "PAGE %d\n", (i + offset) / page_size);
-		seq_printf(m, "%2.2x %2.2x %2.2x %2.2x %2.2x %2.2x %2.2x %2.2x\n",
-			   *(buf + i), *(buf + i + 1),
-			   *(buf + i + 2), *(buf + i + 3),
-			   *(buf + i + 4), *(buf + i + 5),
-			   *(buf + i + 6), *(buf + i + 7));
+		seq_printf(m, "%8ph\n", buf + i);
 	}
 	vfree(buf);
 
@@ -373,11 +388,13 @@ static ssize_t rtw_debugfs_set_h2c(struct file *filp,
 		     &param[0], &param[1], &param[2], &param[3],
 		     &param[4], &param[5], &param[6], &param[7]);
 	if (num != 8) {
-		rtw_info(rtwdev, "invalid H2C command format for debug\n");
+		rtw_warn(rtwdev, "invalid H2C command format for debug\n");
 		return -EINVAL;
 	}
 
+	mutex_lock(&rtwdev->mutex);
 	rtw_fw_h2c_cmd_dbg(rtwdev, param);
+	mutex_unlock(&rtwdev->mutex);
 
 	return count;
 }
@@ -401,7 +418,9 @@ static ssize_t rtw_debugfs_set_rf_write(struct file *filp,
 		return count;
 	}
 
+	mutex_lock(&rtwdev->mutex);
 	rtw_write_rf(rtwdev, path, addr, mask, val);
+	mutex_unlock(&rtwdev->mutex);
 	rtw_dbg(rtwdev, RTW_DBG_DEBUGFS,
 		"write_rf path:%d addr:0x%08x mask:0x%08x, val:0x%08x\n",
 		path, addr, mask, val);
@@ -432,6 +451,31 @@ static ssize_t rtw_debugfs_set_rf_read(struct file *filp,
 	debugfs_priv->rf_path = path;
 	debugfs_priv->rf_addr = addr;
 	debugfs_priv->rf_mask = mask;
+
+	return count;
+}
+
+static ssize_t rtw_debugfs_set_fix_rate(struct file *filp,
+					const char __user *buffer,
+					size_t count, loff_t *loff)
+{
+	struct seq_file *seqpriv = (struct seq_file *)filp->private_data;
+	struct rtw_debugfs_priv *debugfs_priv = seqpriv->private;
+	struct rtw_dev *rtwdev = debugfs_priv->rtwdev;
+	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
+	u8 fix_rate;
+	char tmp[32 + 1];
+	int ret;
+
+	rtw_debugfs_copy_from_user(tmp, sizeof(tmp), buffer, count, 1);
+
+	ret = kstrtou8(tmp, 0, &fix_rate);
+	if (ret) {
+		rtw_warn(rtwdev, "invalid args, [rate]\n");
+		return ret;
+	}
+
+	dm_info->fix_rate = fix_rate;
 
 	return count;
 }
@@ -481,6 +525,8 @@ static int rtw_debug_get_rf_dump(struct seq_file *m, void *v)
 	u32 addr, offset, data;
 	u8 path;
 
+	mutex_lock(&rtwdev->mutex);
+
 	for (path = 0; path < rtwdev->hal.rf_path_num; path++) {
 		seq_printf(m, "RF path:%d\n", path);
 		for (addr = 0; addr < 0x100; addr += 4) {
@@ -494,6 +540,8 @@ static int rtw_debug_get_rf_dump(struct seq_file *m, void *v)
 		}
 		seq_puts(m, "\n");
 	}
+
+	mutex_unlock(&rtwdev->mutex);
 
 	return 0;
 }
@@ -583,15 +631,19 @@ static int rtw_debugfs_get_tx_pwr_tbl(struct seq_file *m, void *v)
 	struct rtw_debugfs_priv *debugfs_priv = m->private;
 	struct rtw_dev *rtwdev = debugfs_priv->rtwdev;
 	struct rtw_hal *hal = &rtwdev->hal;
-	u8 path, rate;
+	u8 path, rate, bw, ch, regd;
 	struct rtw_power_params pwr_param = {0};
-	u8 bw = hal->current_band_width;
-	u8 ch = hal->current_channel;
-	u8 regd = rtwdev->regd.txpwr_regd;
 
+	mutex_lock(&rtwdev->mutex);
+	bw = hal->current_band_width;
+	ch = hal->current_channel;
+	regd = rtw_regd_get(rtwdev);
+
+	seq_printf(m, "channel: %u\n", ch);
+	seq_printf(m, "bandwidth: %u\n", bw);
 	seq_printf(m, "regulatory: %s\n", rtw_get_regd_string(regd));
-	seq_printf(m, "%-4s %-10s %-3s%6s %-4s %4s (%-4s %-4s) %-4s\n",
-		   "path", "rate", "pwr", "", "base", "", "byr", "lmt", "rem");
+	seq_printf(m, "%-4s %-10s %-9s %-9s (%-4s %-4s %-4s) %-4s\n",
+		   "path", "rate", "pwr", "base", "byr", "lmt", "sar", "rem");
 
 	mutex_lock(&hal->tx_power_mutex);
 	for (path = RF_PATH_A; path <= RF_PATH_B; path++) {
@@ -613,18 +665,21 @@ static int rtw_debugfs_get_tx_pwr_tbl(struct seq_file *m, void *v)
 
 			seq_printf(m, "%4c ", path + 'A');
 			rtw_print_rate(m, rate);
-			seq_printf(m, " %3u(0x%02x) %4u %4d (%4d %4d) %4d\n",
+			seq_printf(m, " %3u(0x%02x) %4u %4d (%4d %4d %4d) %4d\n",
 				   hal->tx_pwr_tbl[path][rate],
 				   hal->tx_pwr_tbl[path][rate],
 				   pwr_param.pwr_base,
-				   min_t(s8, pwr_param.pwr_offset,
-					 pwr_param.pwr_limit),
+				   min3(pwr_param.pwr_offset,
+					pwr_param.pwr_limit,
+					pwr_param.pwr_sar),
 				   pwr_param.pwr_offset, pwr_param.pwr_limit,
+				   pwr_param.pwr_sar,
 				   pwr_param.pwr_remnant);
 		}
 	}
 
 	mutex_unlock(&hal->tx_power_mutex);
+	mutex_unlock(&rtwdev->mutex);
 
 	return 0;
 }
@@ -669,8 +724,10 @@ static int rtw_debugfs_get_phy_info(struct seq_file *m, void *v)
 	seq_printf(m, "Current CH(fc) = %u\n", rtwdev->hal.current_channel);
 	seq_printf(m, "Current BW = %u\n", rtwdev->hal.current_band_width);
 	seq_printf(m, "Current IGI = 0x%x\n", dm_info->igi_history[0]);
-	seq_printf(m, "TP {Tx, Rx} = {%u, %u}Mbps\n\n",
+	seq_printf(m, "TP {Tx, Rx} = {%u, %u}Mbps\n",
 		   stats->tx_throughput, stats->rx_throughput);
+	seq_printf(m, "1SS for TX and RX = %c\n\n", rtwdev->hal.txrx_1ss ?
+		   'Y' : 'N');
 
 	seq_puts(m, "==========[Tx Phy Info]========\n");
 	seq_puts(m, "[Tx Rate] = ");
@@ -784,7 +841,9 @@ static int rtw_debugfs_get_coex_info(struct seq_file *m, void *v)
 	struct rtw_debugfs_priv *debugfs_priv = m->private;
 	struct rtw_dev *rtwdev = debugfs_priv->rtwdev;
 
+	mutex_lock(&rtwdev->mutex);
 	rtw_coex_display_coex_info(rtwdev, m);
+	mutex_unlock(&rtwdev->mutex);
 
 	return 0;
 }
@@ -828,6 +887,38 @@ static int rtw_debugfs_get_coex_enable(struct seq_file *m, void *v)
 	return 0;
 }
 
+static ssize_t rtw_debugfs_set_edcca_enable(struct file *filp,
+					    const char __user *buffer,
+					    size_t count, loff_t *loff)
+{
+	struct seq_file *seqpriv = (struct seq_file *)filp->private_data;
+	struct rtw_debugfs_priv *debugfs_priv = seqpriv->private;
+	struct rtw_dev *rtwdev = debugfs_priv->rtwdev;
+	bool input;
+	int err;
+
+	err = kstrtobool_from_user(buffer, count, &input);
+	if (err)
+		return err;
+
+	rtw_edcca_enabled = input;
+	rtw_phy_adaptivity_set_mode(rtwdev);
+
+	return count;
+}
+
+static int rtw_debugfs_get_edcca_enable(struct seq_file *m, void *v)
+{
+	struct rtw_debugfs_priv *debugfs_priv = m->private;
+	struct rtw_dev *rtwdev = debugfs_priv->rtwdev;
+	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
+
+	seq_printf(m, "EDCCA %s: EDCCA mode %d\n",
+		   rtw_edcca_enabled ? "enabled" : "disabled",
+		   dm_info->edcca_mode);
+	return 0;
+}
+
 static ssize_t rtw_debugfs_set_fw_crash(struct file *filp,
 					const char __user *buffer,
 					size_t count, loff_t *loff)
@@ -853,6 +944,7 @@ static ssize_t rtw_debugfs_set_fw_crash(struct file *filp,
 
 	mutex_lock(&rtwdev->mutex);
 	rtw_leave_lps_deep(rtwdev);
+	set_bit(RTW_FLAG_RESTART_TRIGGERING, rtwdev->flags);
 	rtw_write8(rtwdev, REG_HRCV_MSG, 1);
 	mutex_unlock(&rtwdev->mutex);
 
@@ -864,7 +956,42 @@ static int rtw_debugfs_get_fw_crash(struct seq_file *m, void *v)
 	struct rtw_debugfs_priv *debugfs_priv = m->private;
 	struct rtw_dev *rtwdev = debugfs_priv->rtwdev;
 
-	seq_printf(m, "%d\n", test_bit(RTW_FLAG_RESTARTING, rtwdev->flags));
+	seq_printf(m, "%d\n",
+		   test_bit(RTW_FLAG_RESTART_TRIGGERING, rtwdev->flags) ||
+		   test_bit(RTW_FLAG_RESTARTING, rtwdev->flags));
+	return 0;
+}
+
+static ssize_t rtw_debugfs_set_force_lowest_basic_rate(struct file *filp,
+						       const char __user *buffer,
+						       size_t count, loff_t *loff)
+{
+	struct seq_file *seqpriv = (struct seq_file *)filp->private_data;
+	struct rtw_debugfs_priv *debugfs_priv = seqpriv->private;
+	struct rtw_dev *rtwdev = debugfs_priv->rtwdev;
+	bool input;
+	int err;
+
+	err = kstrtobool_from_user(buffer, count, &input);
+	if (err)
+		return err;
+
+	if (input)
+		set_bit(RTW_FLAG_FORCE_LOWEST_RATE, rtwdev->flags);
+	else
+		clear_bit(RTW_FLAG_FORCE_LOWEST_RATE, rtwdev->flags);
+
+	return count;
+}
+
+static int rtw_debugfs_get_force_lowest_basic_rate(struct seq_file *m, void *v)
+{
+	struct rtw_debugfs_priv *debugfs_priv = m->private;
+	struct rtw_dev *rtwdev = debugfs_priv->rtwdev;
+
+	seq_printf(m, "force lowest basic rate: %d\n",
+		   test_bit(RTW_FLAG_FORCE_LOWEST_RATE, rtwdev->flags));
+
 	return 0;
 }
 
@@ -911,6 +1038,8 @@ static void dump_gapk_status(struct rtw_dev *rtwdev, struct seq_file *m)
 		   dm_info->dm_flags & BIT(RTW_DM_CAP_TXGAPK) ? '-' : '+',
 		   rtw_dm_cap_strs[RTW_DM_CAP_TXGAPK]);
 
+	mutex_lock(&rtwdev->mutex);
+
 	for (path = 0; path < rtwdev->hal.rf_path_num; path++) {
 		val = rtw_read_rf(rtwdev, path, RF_GAINTX, RFREG_MASK);
 		seq_printf(m, "path %d:\n0x%x = 0x%x\n", path, RF_GAINTX, val);
@@ -920,6 +1049,7 @@ static void dump_gapk_status(struct rtw_dev *rtwdev, struct seq_file *m)
 				   txgapk->rf3f_fs[path][i], i);
 		seq_puts(m, "\n");
 	}
+	mutex_unlock(&rtwdev->mutex);
 }
 
 static int rtw_debugfs_get_dm_cap(struct seq_file *m, void *v)
@@ -1025,6 +1155,11 @@ static struct rtw_debugfs_priv rtw_debug_priv_read_reg = {
 	.cb_read = rtw_debugfs_get_read_reg,
 };
 
+static struct rtw_debugfs_priv rtw_debug_priv_fix_rate = {
+	.cb_write = rtw_debugfs_set_fix_rate,
+	.cb_read = rtw_debugfs_get_fix_rate,
+};
+
 static struct rtw_debugfs_priv rtw_debug_priv_dump_cam = {
 	.cb_write = rtw_debugfs_set_single_input,
 	.cb_read = rtw_debugfs_get_dump_cam,
@@ -1048,9 +1183,19 @@ static struct rtw_debugfs_priv rtw_debug_priv_coex_info = {
 	.cb_read = rtw_debugfs_get_coex_info,
 };
 
+static struct rtw_debugfs_priv rtw_debug_priv_edcca_enable = {
+	.cb_write = rtw_debugfs_set_edcca_enable,
+	.cb_read = rtw_debugfs_get_edcca_enable,
+};
+
 static struct rtw_debugfs_priv rtw_debug_priv_fw_crash = {
 	.cb_write = rtw_debugfs_set_fw_crash,
 	.cb_read = rtw_debugfs_get_fw_crash,
+};
+
+static struct rtw_debugfs_priv rtw_debug_priv_force_lowest_basic_rate = {
+	.cb_write = rtw_debugfs_set_force_lowest_basic_rate,
+	.cb_read = rtw_debugfs_get_force_lowest_basic_rate,
 };
 
 static struct rtw_debugfs_priv rtw_debug_priv_dm_cap = {
@@ -1085,6 +1230,7 @@ void rtw_debugfs_init(struct rtw_dev *rtwdev)
 	rtw_debugfs_add_rw(read_reg);
 	rtw_debugfs_add_w(rf_write);
 	rtw_debugfs_add_rw(rf_read);
+	rtw_debugfs_add_rw(fix_rate);
 	rtw_debugfs_add_rw(dump_cam);
 	rtw_debugfs_add_rw(rsvd_page);
 	rtw_debugfs_add_r(phy_info);
@@ -1131,7 +1277,9 @@ void rtw_debugfs_init(struct rtw_dev *rtwdev)
 	}
 	rtw_debugfs_add_r(rf_dump);
 	rtw_debugfs_add_r(tx_pwr_tbl);
+	rtw_debugfs_add_rw(edcca_enable);
 	rtw_debugfs_add_rw(fw_crash);
+	rtw_debugfs_add_rw(force_lowest_basic_rate);
 	rtw_debugfs_add_rw(dm_cap);
 }
 

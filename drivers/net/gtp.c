@@ -227,7 +227,7 @@ static int gtp_rx(struct pdp_ctx *pctx, struct sk_buff *skb,
 
 	dev_sw_netstats_rx_add(pctx->dev, skb->len);
 
-	netif_rx(skb);
+	__netif_rx(skb);
 	return 0;
 
 err:
@@ -631,7 +631,9 @@ static void __gtp_encap_destroy(struct sock *sk)
 			gtp->sk1u = NULL;
 		udp_sk(sk)->encap_type = 0;
 		rcu_assign_sk_user_data(sk, NULL);
+		release_sock(sk);
 		sock_put(sk);
+		return;
 	}
 	release_sock(sk);
 }
@@ -1859,6 +1861,7 @@ static struct genl_family gtp_genl_family __ro_after_init = {
 	.module		= THIS_MODULE,
 	.small_ops	= gtp_genl_ops,
 	.n_small_ops	= ARRAY_SIZE(gtp_genl_ops),
+	.resv_start_op	= GTP_CMD_ECHOREQ + 1,
 	.mcgrps		= gtp_genl_mcgrps,
 	.n_mcgrps	= ARRAY_SIZE(gtp_genl_mcgrps),
 };

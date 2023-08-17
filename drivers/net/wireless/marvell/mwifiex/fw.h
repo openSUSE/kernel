@@ -1,20 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * NXP Wireless LAN device driver: Firmware specific macros & structures
  *
  * Copyright 2011-2020 NXP
- *
- * This software file (the "File") is distributed by NXP
- * under the terms of the GNU General Public License Version 2, June 1991
- * (the "License").  You may use, redistribute and/or modify this File in
- * accordance with the terms and conditions of the License, a copy of which
- * is available by writing to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA or on the
- * worldwide web at http://www.gnu.org/licenses/old-licenses/gpl-2.0.txt.
- *
- * THE FILE IS DISTRIBUTED AS-IS, WITHOUT WARRANTY OF ANY KIND, AND THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE
- * ARE EXPRESSLY DISCLAIMED.  The License provides additional details about
- * this warranty disclaimer.
  */
 
 #ifndef _MWIFIEX_FW_H_
@@ -53,7 +41,7 @@ struct mwifiex_fw_header {
 struct mwifiex_fw_data {
 	struct mwifiex_fw_header header;
 	__le32 seq_num;
-	u8 data[1];
+	u8 data[];
 } __packed;
 
 struct mwifiex_fw_dump_header {
@@ -653,7 +641,7 @@ struct mwifiex_ie_types_header {
 
 struct mwifiex_ie_types_data {
 	struct mwifiex_ie_types_header header;
-	u8 data[1];
+	u8 data[];
 } __packed;
 
 #define MWIFIEX_TxPD_POWER_MGMT_NULL_PACKET 0x01
@@ -806,12 +794,12 @@ struct mwifiex_ie_types_chan_band_list_param_set {
 
 struct mwifiex_ie_types_rates_param_set {
 	struct mwifiex_ie_types_header header;
-	u8 rates[1];
+	u8 rates[];
 } __packed;
 
 struct mwifiex_ie_types_ssid_param_set {
 	struct mwifiex_ie_types_header header;
-	u8 ssid[1];
+	u8 ssid[];
 } __packed;
 
 struct mwifiex_ie_types_num_probes {
@@ -919,7 +907,7 @@ struct mwifiex_ie_types_tdls_idle_timeout {
 
 struct mwifiex_ie_types_rsn_param_set {
 	struct mwifiex_ie_types_header header;
-	u8 rsn_ie[1];
+	u8 rsn_ie[];
 } __packed;
 
 #define KEYPARAMSET_FIXED_LEN 6
@@ -1060,6 +1048,7 @@ enum API_VER_ID {
 	FW_API_VER_ID = 2,
 	UAP_FW_API_VER_ID = 3,
 	CHANRPT_API_VER_ID = 4,
+	FW_HOTFIX_VER_ID = 5,
 };
 
 struct hw_spec_api_rev {
@@ -1445,7 +1434,7 @@ struct mwifiex_tdls_stop_cs_params {
 
 struct host_cmd_ds_tdls_config {
 	__le16 tdls_action;
-	u8 tdls_data[1];
+	u8 tdls_data[];
 } __packed;
 
 struct mwifiex_chan_desc {
@@ -1586,13 +1575,13 @@ struct ie_body {
 struct host_cmd_ds_802_11_scan {
 	u8 bss_mode;
 	u8 bssid[ETH_ALEN];
-	u8 tlv_buffer[1];
+	u8 tlv_buffer[];
 } __packed;
 
 struct host_cmd_ds_802_11_scan_rsp {
 	__le16 bss_descript_size;
 	u8 number_of_sets;
-	u8 bss_desc_and_tlv_buffer[1];
+	u8 bss_desc_and_tlv_buffer[];
 } __packed;
 
 struct host_cmd_ds_802_11_scan_ext {
@@ -1608,7 +1597,7 @@ struct mwifiex_ie_types_bss_mode {
 struct mwifiex_ie_types_bss_scan_rsp {
 	struct mwifiex_ie_types_header header;
 	u8 bssid[ETH_ALEN];
-	u8 frame_body[1];
+	u8 frame_body[];
 } __packed;
 
 struct mwifiex_ie_types_bss_scan_info {
@@ -1745,7 +1734,7 @@ struct mwifiex_ie_types_local_pwr_constraint {
 
 struct mwifiex_ie_types_wmm_param_set {
 	struct mwifiex_ie_types_header header;
-	u8 wmm_ie[1];
+	u8 wmm_ie[];
 } __packed;
 
 struct mwifiex_ie_types_mgmt_frame {
@@ -1971,7 +1960,7 @@ struct host_cmd_tlv_wep_key {
 	struct mwifiex_ie_types_header header;
 	u8 key_index;
 	u8 is_default;
-	u8 key[1];
+	u8 key[];
 };
 
 struct host_cmd_tlv_auth_type {
@@ -2071,9 +2060,11 @@ struct mwifiex_ie_types_robust_coex {
 	__le32 mode;
 } __packed;
 
+#define MWIFIEX_VERSION_STR_LENGTH  128
+
 struct host_cmd_ds_version_ext {
 	u8 version_str_sel;
-	char version_str[128];
+	char version_str[MWIFIEX_VERSION_STR_LENGTH];
 } __packed;
 
 struct host_cmd_ds_mgmt_frame_reg {
@@ -2114,7 +2105,7 @@ struct mwifiex_fw_mef_entry {
 struct host_cmd_ds_mef_cfg {
 	__le32 criteria;
 	__le16 num_entries;
-	struct mwifiex_fw_mef_entry mef_entry[];
+	u8 mef_entry_data[];
 } __packed;
 
 #define CONNECTION_TYPE_INFRA   0
@@ -2264,7 +2255,7 @@ struct coalesce_receive_filt_rule {
 struct host_cmd_ds_coalesce_cfg {
 	__le16 action;
 	__le16 num_of_rules;
-	struct coalesce_receive_filt_rule rule[];
+	u8 rule_data[];
 } __packed;
 
 struct host_cmd_ds_multi_chan_policy {

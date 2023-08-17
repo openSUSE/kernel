@@ -96,15 +96,6 @@
  */
 #define MMU_FTR_NEED_DTLB_SW_LRU	ASM_CONST(0x00200000)
 
-/* Enable use of TLB reservation.  Processor should support tlbsrx.
- * instruction and MAS0[WQ].
- */
-#define MMU_FTR_USE_TLBRSRV		ASM_CONST(0x00800000)
-
-/* Use paired MAS registers (MAS7||MAS3, etc.)
- */
-#define MMU_FTR_USE_PAIRED_MAS		ASM_CONST(0x01000000)
-
 /* Doesn't support the B bit (1T segment) in SLBIE
  */
 #define MMU_FTR_NO_SLBIE_B		ASM_CONST(0x02000000)
@@ -153,7 +144,7 @@
 
 typedef pte_t *pgtable_t;
 
-#ifdef CONFIG_PPC_FSL_BOOK3E
+#ifdef CONFIG_PPC_E500
 #include <asm/percpu.h>
 DECLARE_PER_CPU(int, next_tlbcam_idx);
 #endif
@@ -174,7 +165,7 @@ enum {
 #elif defined(CONFIG_44x)
 		MMU_FTR_TYPE_44x |
 #endif
-#ifdef CONFIG_E500
+#ifdef CONFIG_PPC_E500
 		MMU_FTR_TYPE_FSL_E | MMU_FTR_BIG_PHYS | MMU_FTR_USE_TLBILX |
 #endif
 #ifdef CONFIG_PPC_BOOK3S_32
@@ -182,9 +173,6 @@ enum {
 #endif
 #ifdef CONFIG_PPC_83xx
 		MMU_FTR_NEED_DTLB_SW_LRU |
-#endif
-#ifdef CONFIG_PPC_BOOK3E_64
-		MMU_FTR_USE_TLBRSRV | MMU_FTR_USE_PAIRED_MAS |
 #endif
 #ifdef CONFIG_PPC_BOOK3S_64
 		MMU_FTR_KERNEL_RO |
@@ -226,7 +214,7 @@ enum {
 #elif defined(CONFIG_44x)
 #define MMU_FTRS_ALWAYS		MMU_FTR_TYPE_44x
 #endif
-#ifdef CONFIG_E500
+#ifdef CONFIG_PPC_E500
 #define MMU_FTRS_ALWAYS		MMU_FTR_TYPE_FSL_E
 #endif
 
@@ -337,7 +325,7 @@ static inline void assert_pte_locked(struct mm_struct *mm, unsigned long addr)
 }
 #endif /* !CONFIG_DEBUG_VM */
 
-static inline bool radix_enabled(void)
+static __always_inline bool radix_enabled(void)
 {
 	return mmu_has_feature(MMU_FTR_TYPE_RADIX);
 }

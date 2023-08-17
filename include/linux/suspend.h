@@ -68,6 +68,9 @@ struct suspend_stats {
 	int	last_failed_errno;
 	int	errno[REC_FAILED_NUM];
 	int	last_failed_step;
+	u64	last_hw_sleep;
+	u64	total_hw_sleep;
+	u64	max_hw_sleep;
 	enum suspend_stat_step	failed_steps[REC_FAILED_NUM];
 };
 
@@ -75,7 +78,7 @@ extern struct suspend_stats suspend_stats;
 
 static inline void dpm_save_failed_dev(const char *name)
 {
-	strlcpy(suspend_stats.failed_devs[suspend_stats.last_failed_dev],
+	strscpy(suspend_stats.failed_devs[suspend_stats.last_failed_dev],
 		name,
 		sizeof(suspend_stats.failed_devs[0]));
 	suspend_stats.last_failed_dev++;
@@ -191,6 +194,7 @@ struct platform_s2idle_ops {
 	int (*begin)(void);
 	int (*prepare)(void);
 	int (*prepare_late)(void);
+	void (*check)(void);
 	bool (*wake)(void);
 	void (*restore_early)(void);
 	void (*restore)(void);
@@ -488,6 +492,8 @@ void restore_processor_state(void);
 extern int register_pm_notifier(struct notifier_block *nb);
 extern int unregister_pm_notifier(struct notifier_block *nb);
 extern void ksys_sync_helper(void);
+extern void pm_report_hw_sleep_time(u64 t);
+extern void pm_report_max_hw_sleep(u64 t);
 
 #define pm_notifier(fn, pri) {				\
 	static struct notifier_block fn##_nb =			\
@@ -510,8 +516,8 @@ extern bool pm_save_wakeup_count(unsigned int count);
 extern void pm_wakep_autosleep_enabled(bool set);
 extern void pm_print_active_wakeup_sources(void);
 
-extern void lock_system_sleep(void);
-extern void unlock_system_sleep(void);
+extern unsigned int lock_system_sleep(void);
+extern void unlock_system_sleep(unsigned int);
 
 #else /* !CONFIG_PM_SLEEP */
 
@@ -525,6 +531,9 @@ static inline int unregister_pm_notifier(struct notifier_block *nb)
 	return 0;
 }
 
+static inline void pm_report_hw_sleep_time(u64 t) {};
+static inline void pm_report_max_hw_sleep(u64 t) {};
+
 static inline void ksys_sync_helper(void) {}
 
 #define pm_notifier(fn, pri)	do { (void)(fn); } while (0)
@@ -534,30 +543,64 @@ static inline void pm_system_wakeup(void) {}
 static inline void pm_wakeup_clear(bool reset) {}
 static inline void pm_system_irq_wakeup(unsigned int irq_number) {}
 
-static inline void lock_system_sleep(void) {}
-static inline void unlock_system_sleep(void) {}
+static inline unsigned int lock_system_sleep(void) { return 0; }
+static inline void unlock_system_sleep(unsigned int flags) {}
 
 #endif /* !CONFIG_PM_SLEEP */
 
 #ifdef CONFIG_PM_SLEEP_DEBUG
 extern bool pm_print_times_enabled;
 extern bool pm_debug_messages_on;
-extern __printf(2, 3) void __pm_pr_dbg(bool defer, const char *fmt, ...);
+static inline int pm_dyn_debug_messages_on(void)
+{
+#ifdef CONFIG_DYNAMIC_DEBUG
+	return 1;
+#else
+	return 0;
+#endif
+}
+#ifndef pr_fmt
+#define pr_fmt(fmt) "PM: " fmt
+#endif
+#define __pm_pr_dbg(fmt, ...)					\
+	do {							\
+		if (pm_debug_messages_on)			\
+			printk(KERN_DEBUG pr_fmt(fmt), ##__VA_ARGS__);	\
+		else if (pm_dyn_debug_messages_on())		\
+			pr_debug(fmt, ##__VA_ARGS__);	\
+	} while (0)
+#define __pm_deferred_pr_dbg(fmt, ...)				\
+	do {							\
+		if (pm_debug_messages_on)			\
+			printk_deferred(KERN_DEBUG pr_fmt(fmt), ##__VA_ARGS__);	\
+	} while (0)
 #else
 #define pm_print_times_enabled	(false)
 #define pm_debug_messages_on	(false)
 
 #include <linux/printk.h>
 
-#define __pm_pr_dbg(defer, fmt, ...) \
-	no_printk(KERN_DEBUG fmt, ##__VA_ARGS__)
+#define __pm_pr_dbg(fmt, ...) \
+	no_printk(KERN_DEBUG pr_fmt(fmt), ##__VA_ARGS__)
+#define __pm_deferred_pr_dbg(fmt, ...) \
+	no_printk(KERN_DEBUG pr_fmt(fmt), ##__VA_ARGS__)
 #endif
 
+/**
+ * pm_pr_dbg - print pm sleep debug messages
+ *
+ * If pm_debug_messages_on is enabled, print message.
+ * If pm_debug_messages_on is disabled and CONFIG_DYNAMIC_DEBUG is enabled,
+ *	print message only from instances explicitly enabled on dynamic debug's
+ *	control.
+ * If pm_debug_messages_on is disabled and CONFIG_DYNAMIC_DEBUG is disabled,
+ *	don't print message.
+ */
 #define pm_pr_dbg(fmt, ...) \
-	__pm_pr_dbg(false, fmt, ##__VA_ARGS__)
+	__pm_pr_dbg(fmt, ##__VA_ARGS__)
 
 #define pm_deferred_pr_dbg(fmt, ...) \
-	__pm_pr_dbg(true, fmt, ##__VA_ARGS__)
+	__pm_deferred_pr_dbg(fmt, ##__VA_ARGS__)
 
 #ifdef CONFIG_PM_AUTOSLEEP
 

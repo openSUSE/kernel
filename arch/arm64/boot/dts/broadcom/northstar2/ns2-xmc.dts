@@ -49,7 +49,7 @@
 
 	memory {
 		device_type = "memory";
-		reg = <0x000000000 0x80000000 0x00000001 0x00000000>;
+		reg = <0x00000000 0x80000000 0x00000001 0x00000000>;
 	};
 };
 
@@ -146,7 +146,7 @@
 };
 
 &qspi {
-	flash: m25p80@0 {
+	flash: flash@0 {
 		#address-cells = <1>;
 		#size-cells = <1>;
 		compatible = "m25p80";

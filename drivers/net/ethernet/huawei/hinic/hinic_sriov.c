@@ -24,6 +24,7 @@ MODULE_PARM_DESC(set_vf_link_state, "Set vf link state, 0 represents link auto, 
 #define HINIC_VLAN_PRIORITY_SHIFT 13
 #define HINIC_ADD_VLAN_IN_MAC 0x8000
 #define HINIC_TX_RATE_TABLE_FULL 12
+#define HINIC_MAX_QOS 7
 
 static int hinic_set_mac(struct hinic_hwdev *hwdev, const u8 *mac_addr,
 			 u16 vlan_id, u16 func_id)
@@ -488,6 +489,24 @@ static struct vf_cmd_check_handle nic_cmd_support_vf[] = {
 	{HINIC_PORT_CMD_UPDATE_MAC, hinic_mbox_check_func_id_8B},
 	{HINIC_PORT_CMD_GET_CAP, hinic_mbox_check_func_id_8B},
 	{HINIC_PORT_CMD_GET_LINK_MODE, hinic_mbox_check_func_id_8B},
+	{HINIC_PORT_CMD_GET_VF_COS, NULL},
+	{HINIC_PORT_CMD_SET_VHD_CFG, hinic_mbox_check_func_id_8B},
+	{HINIC_PORT_CMD_SET_VLAN_FILTER, hinic_mbox_check_func_id_8B},
+	{HINIC_PORT_CMD_Q_FILTER, hinic_mbox_check_func_id_8B},
+	{HINIC_PORT_CMD_TCAM_FILTER, NULL},
+	{HINIC_PORT_CMD_UP_TC_ADD_FLOW, NULL},
+	{HINIC_PORT_CMD_UP_TC_DEL_FLOW, NULL},
+	{HINIC_PORT_CMD_UP_TC_FLUSH_TCAM, hinic_mbox_check_func_id_8B},
+	{HINIC_PORT_CMD_UP_TC_CTRL_TCAM_BLOCK, hinic_mbox_check_func_id_8B},
+	{HINIC_PORT_CMD_UP_TC_ENABLE, hinic_mbox_check_func_id_8B},
+	{HINIC_PORT_CMD_CABLE_PLUG_EVENT, NULL},
+	{HINIC_PORT_CMD_LINK_ERR_EVENT, NULL},
+	{HINIC_PORT_CMD_SET_PORT_STATE, hinic_mbox_check_func_id_8B},
+	{HINIC_PORT_CMD_SET_ETS, NULL},
+	{HINIC_PORT_CMD_SET_ANTI_ATTACK_RATE, NULL},
+	{HINIC_PORT_CMD_RESET_LINK_CFG, hinic_mbox_check_func_id_8B},
+	{HINIC_PORT_CMD_SET_LINK_FOLLOW, NULL},
+	{HINIC_PORT_CMD_CLEAR_QP_RES, NULL},
 };
 
 #define CHECK_IPSU_15BIT	0X8000
@@ -774,7 +793,7 @@ int hinic_ndo_set_vf_vlan(struct net_device *netdev, int vf, u16 vlan, u8 qos,
 	u16 vlanprio, cur_vlanprio;
 
 	sriov_info = &nic_dev->sriov_info;
-	if (vf >= sriov_info->num_vfs || vlan > 4095 || qos > 7)
+	if (vf >= sriov_info->num_vfs || vlan >= VLAN_N_VID || qos > HINIC_MAX_QOS)
 		return -EINVAL;
 	if (vlan_proto != htons(ETH_P_8021Q))
 		return -EPROTONOSUPPORT;
@@ -820,7 +839,7 @@ int hinic_ndo_set_vf_trust(struct net_device *netdev, int vf, bool setting)
 
 	cur_trust = nic_io->vf_infos[vf].trust;
 	/* same request, so just return success */
-	if ((setting && cur_trust) || (!setting && !cur_trust))
+	if (setting == cur_trust)
 		return 0;
 
 	err = hinic_set_vf_trust(adapter->hwdev, vf, setting);
@@ -837,8 +856,10 @@ int hinic_ndo_set_vf_trust(struct net_device *netdev, int vf, bool setting)
 int hinic_ndo_set_vf_bw(struct net_device *netdev,
 			int vf, int min_tx_rate, int max_tx_rate)
 {
-	u32 speeds[] = {SPEED_10, SPEED_100, SPEED_1000, SPEED_10000,
-			SPEED_25000, SPEED_40000, SPEED_100000};
+	static const u32 speeds[] = {
+		SPEED_10, SPEED_100, SPEED_1000, SPEED_10000,
+		SPEED_25000, SPEED_40000, SPEED_100000
+	};
 	struct hinic_dev *nic_dev = netdev_priv(netdev);
 	struct hinic_port_cap port_cap = { 0 };
 	enum hinic_port_link_state link_state;
@@ -938,7 +959,7 @@ int hinic_ndo_set_vf_spoofchk(struct net_device *netdev, int vf, bool setting)
 	cur_spoofchk = nic_dev->hwdev->func_to_io.vf_infos[vf].spoofchk;
 
 	/* same request, so just return success */
-	if ((setting && cur_spoofchk) || (!setting && !cur_spoofchk))
+	if (setting == cur_spoofchk)
 		return 0;
 
 	err = hinic_set_vf_spoofchk(sriov_info->hwdev,
@@ -1129,8 +1150,8 @@ static void hinic_clear_vf_infos(struct hinic_dev *nic_dev, u16 vf_id)
 	hinic_init_vf_infos(&nic_dev->hwdev->func_to_io, HW_VF_ID_TO_OS(vf_id));
 }
 
-static int hinic_deinit_vf_hw(struct hinic_sriov_info *sriov_info,
-			      u16 start_vf_id, u16 end_vf_id)
+static void hinic_deinit_vf_hw(struct hinic_sriov_info *sriov_info,
+			       u16 start_vf_id, u16 end_vf_id)
 {
 	struct hinic_dev *nic_dev;
 	u16 func_idx, idx;
@@ -1143,8 +1164,6 @@ static int hinic_deinit_vf_hw(struct hinic_sriov_info *sriov_info,
 				       HINIC_HW_WQ_PAGE_SIZE);
 		hinic_clear_vf_infos(nic_dev, idx);
 	}
-
-	return 0;
 }
 
 int hinic_vf_func_init(struct hinic_hwdev *hwdev)
@@ -1173,7 +1192,6 @@ int hinic_vf_func_init(struct hinic_hwdev *hwdev)
 			dev_err(&hwdev->hwif->pdev->dev,
 				"Failed to register VF, err: %d, status: 0x%x, out size: 0x%x\n",
 				err, register_info.status, out_size);
-			hinic_unregister_vf_mbox_cb(hwdev, HINIC_MOD_L2NIC);
 			return -EIO;
 		}
 	} else {
@@ -1291,7 +1309,7 @@ int hinic_pci_sriov_disable(struct pci_dev *pdev)
 	return 0;
 }
 
-int hinic_pci_sriov_enable(struct pci_dev *pdev, int num_vfs)
+static int hinic_pci_sriov_enable(struct pci_dev *pdev, int num_vfs)
 {
 	struct hinic_sriov_info *sriov_info;
 	int err;

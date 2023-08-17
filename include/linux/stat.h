@@ -34,6 +34,10 @@ struct kstat {
 	 STATX_ATTR_ENCRYPTED |				\
 	 STATX_ATTR_VERITY				\
 	 )/* Attrs corresponding to FS_*_FL flags */
+#define KSTAT_ATTR_VFS_FLAGS				\
+	(STATX_ATTR_IMMUTABLE |				\
+	 STATX_ATTR_APPEND				\
+	 ) /* Attrs corresponding to S_* flags that are enforced by the VFS */
 	u64		ino;
 	dev_t		dev;
 	dev_t		rdev;
@@ -46,6 +50,17 @@ struct kstat {
 	struct timespec64 btime;			/* File creation time */
 	u64		blocks;
 	u64		mnt_id;
+	u32		dio_mem_align;
+	u32		dio_offset_align;
+	u64		change_cookie;
 };
+
+/* These definitions are internal to the kernel for now. Mainly used by nfsd. */
+
+/* mask values */
+#define STATX_CHANGE_COOKIE		0x40000000U	/* Want/got stx_change_attr */
+
+/* file attribute values */
+#define STATX_ATTR_CHANGE_MONOTONIC	0x8000000000000000ULL /* version monotonically increases */
 
 #endif

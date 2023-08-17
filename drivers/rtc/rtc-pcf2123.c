@@ -413,9 +413,14 @@ static int pcf2123_probe(struct spi_device *spi)
 
 	/* Register alarm irq */
 	if (spi->irq > 0) {
+		unsigned long irqflags = IRQF_TRIGGER_LOW;
+
+		if (dev_fwnode(&spi->dev))
+			irqflags = 0;
+
 		ret = devm_request_threaded_irq(&spi->dev, spi->irq, NULL,
 				pcf2123_rtc_irq,
-				IRQF_TRIGGER_LOW | IRQF_ONESHOT,
+				irqflags | IRQF_ONESHOT,
 				pcf2123_driver.driver.name, &spi->dev);
 		if (!ret)
 			device_init_wakeup(&spi->dev, true);
@@ -427,7 +432,8 @@ static int pcf2123_probe(struct spi_device *spi)
 	 * support to this driver to generate interrupts more than once
 	 * per minute.
 	 */
-	rtc->uie_unsupported = 1;
+	set_bit(RTC_FEATURE_ALARM_RES_MINUTE, rtc->features);
+	clear_bit(RTC_FEATURE_UPDATE_INTERRUPT, rtc->features);
 	rtc->ops = &pcf2123_rtc_ops;
 	rtc->range_min = RTC_TIMESTAMP_BEGIN_2000;
 	rtc->range_max = RTC_TIMESTAMP_END_2099;

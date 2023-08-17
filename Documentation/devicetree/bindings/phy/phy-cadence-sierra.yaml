@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
 %YAML 1.2
 ---
-$id: "http://devicetree.org/schemas/phy/phy-cadence-sierra.yaml#"
-$schema: "http://devicetree.org/meta-schemas/core.yaml#"
+$id: http://devicetree.org/schemas/phy/phy-cadence-sierra.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Cadence Sierra PHY binding
+title: Cadence Sierra PHY
 
 description:
   This binding describes the Cadence Sierra PHY. Sierra PHY supports multilink
@@ -61,14 +61,6 @@ properties:
       - const: pll0_refclk
       - const: pll1_refclk
 
-  assigned-clocks:
-    minItems: 1
-    maxItems: 2
-
-  assigned-clock-parents:
-    minItems: 1
-    maxItems: 2
-
   cdns,autoconf:
     type: boolean
     description:
@@ -112,6 +104,15 @@ patternProperties:
         $ref: /schemas/types.yaml#/definitions/uint32
         minimum: 1
         maximum: 16
+
+      cdns,ssc-mode:
+        description:
+          Specifies the Spread Spectrum Clocking mode used. It can be NO_SSC,
+          EXTERNAL_SSC or INTERNAL_SSC.
+          Refer include/dt-bindings/phy/phy-cadence.h for the constants to be used.
+        $ref: /schemas/types.yaml#/definitions/uint32
+        enum: [0, 1, 2]
+        default: 1
 
     required:
       - reg

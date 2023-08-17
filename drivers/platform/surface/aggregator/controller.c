@@ -2,7 +2,7 @@
 /*
  * Main SSAM/SSH controller structure and functionality.
  *
- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
+ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
  */
 
 #include <linux/acpi.h>
@@ -994,7 +994,7 @@ static void ssam_handle_event(struct ssh_rtl *rtl,
 
 	item->rqid = get_unaligned_le16(&cmd->rqid);
 	item->event.target_category = cmd->tc;
-	item->event.target_id = cmd->tid_in;
+	item->event.target_id = cmd->sid;
 	item->event.command_id = cmd->cid;
 	item->event.instance_id = cmd->iid;
 	memcpy(&item->event.data[0], data->ptr, data->len);
@@ -1674,7 +1674,7 @@ int ssam_request_sync_submit(struct ssam_controller *ctrl,
 EXPORT_SYMBOL_GPL(ssam_request_sync_submit);
 
 /**
- * ssam_request_sync() - Execute a synchronous request.
+ * ssam_request_do_sync() - Execute a synchronous request.
  * @ctrl: The controller via which the request will be submitted.
  * @spec: The request specification and payload.
  * @rsp:  The response buffer.
@@ -1686,9 +1686,9 @@ EXPORT_SYMBOL_GPL(ssam_request_sync_submit);
  *
  * Return: Returns the status of the request or any failure during setup.
  */
-int ssam_request_sync(struct ssam_controller *ctrl,
-		      const struct ssam_request *spec,
-		      struct ssam_response *rsp)
+int ssam_request_do_sync(struct ssam_controller *ctrl,
+			 const struct ssam_request *spec,
+			 struct ssam_response *rsp)
 {
 	struct ssam_request_sync *rqst;
 	struct ssam_span buf;
@@ -1722,10 +1722,10 @@ int ssam_request_sync(struct ssam_controller *ctrl,
 	ssam_request_sync_free(rqst);
 	return status;
 }
-EXPORT_SYMBOL_GPL(ssam_request_sync);
+EXPORT_SYMBOL_GPL(ssam_request_do_sync);
 
 /**
- * ssam_request_sync_with_buffer() - Execute a synchronous request with the
+ * ssam_request_do_sync_with_buffer() - Execute a synchronous request with the
  * provided buffer as back-end for the message buffer.
  * @ctrl: The controller via which the request will be submitted.
  * @spec: The request specification and payload.
@@ -1738,17 +1738,17 @@ EXPORT_SYMBOL_GPL(ssam_request_sync);
  * SSH_COMMAND_MESSAGE_LENGTH() macro can be used to compute the required
  * message buffer size.
  *
- * This function does essentially the same as ssam_request_sync(), but instead
- * of dynamically allocating the request and message data buffer, it uses the
- * provided message data buffer and stores the (small) request struct on the
- * heap.
+ * This function does essentially the same as ssam_request_do_sync(), but
+ * instead of dynamically allocating the request and message data buffer, it
+ * uses the provided message data buffer and stores the (small) request struct
+ * on the heap.
  *
  * Return: Returns the status of the request or any failure during setup.
  */
-int ssam_request_sync_with_buffer(struct ssam_controller *ctrl,
-				  const struct ssam_request *spec,
-				  struct ssam_response *rsp,
-				  struct ssam_span *buf)
+int ssam_request_do_sync_with_buffer(struct ssam_controller *ctrl,
+				     const struct ssam_request *spec,
+				     struct ssam_response *rsp,
+				     struct ssam_span *buf)
 {
 	struct ssam_request_sync rqst;
 	ssize_t len;
@@ -1772,42 +1772,42 @@ int ssam_request_sync_with_buffer(struct ssam_controller *ctrl,
 
 	return status;
 }
-EXPORT_SYMBOL_GPL(ssam_request_sync_with_buffer);
+EXPORT_SYMBOL_GPL(ssam_request_do_sync_with_buffer);
 
 
 /* -- Internal SAM requests. ------------------------------------------------ */
 
 SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_get_firmware_version, __le32, {
 	.target_category = SSAM_SSH_TC_SAM,
-	.target_id       = 0x01,
+	.target_id       = SSAM_SSH_TID_SAM,
 	.command_id      = 0x13,
 	.instance_id     = 0x00,
 });
 
 SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_notif_display_off, u8, {
 	.target_category = SSAM_SSH_TC_SAM,
-	.target_id       = 0x01,
+	.target_id       = SSAM_SSH_TID_SAM,
 	.command_id      = 0x15,
 	.instance_id     = 0x00,
 });
 
 SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_notif_display_on, u8, {
 	.target_category = SSAM_SSH_TC_SAM,
-	.target_id       = 0x01,
+	.target_id       = SSAM_SSH_TID_SAM,
 	.command_id      = 0x16,
 	.instance_id     = 0x00,
 });
 
 SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_notif_d0_exit, u8, {
 	.target_category = SSAM_SSH_TC_SAM,
-	.target_id       = 0x01,
+	.target_id       = SSAM_SSH_TID_SAM,
 	.command_id      = 0x33,
 	.instance_id     = 0x00,
 });
 
 SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_notif_d0_entry, u8, {
 	.target_category = SSAM_SSH_TC_SAM,
-	.target_id       = 0x01,
+	.target_id       = SSAM_SSH_TID_SAM,
 	.command_id      = 0x34,
 	.instance_id     = 0x00,
 });
@@ -1864,7 +1864,7 @@ static int __ssam_ssh_event_request(struct ssam_controller *ctrl,
 	result.length = 0;
 	result.pointer = &buf;
 
-	status = ssam_retry(ssam_request_sync_onstack, ctrl, &rqst, &result,
+	status = ssam_retry(ssam_request_do_sync_onstack, ctrl, &rqst, &result,
 			    sizeof(params));
 
 	return status < 0 ? status : buf;
@@ -2201,16 +2201,26 @@ static int ssam_nf_refcount_enable(struct ssam_controller *ctrl,
 }
 
 /**
- * ssam_nf_refcount_disable_free() - Disable event for reference count entry if it is
- * no longer in use and free the corresponding entry.
+ * ssam_nf_refcount_disable_free() - Disable event for reference count entry if
+ * it is no longer in use and free the corresponding entry.
  * @ctrl:  The controller to disable the event on.
  * @entry: The reference count entry for the event to be disabled.
  * @flags: The flags used for enabling the event on the EC.
+ * @ec:    Flag specifying if the event should actually be disabled on the EC.
  *
- * If the reference count equals zero, i.e. the event is no longer requested by
- * any client, the event will be disabled and the corresponding reference count
- * entry freed. The reference count entry must not be used any more after a
- * call to this function.
+ * If ``ec`` equals ``true`` and the reference count equals zero (i.e. the
+ * event is no longer requested by any client), the specified event will be
+ * disabled on the EC via the corresponding request.
+ *
+ * If ``ec`` equals ``false``, no request will be sent to the EC and the event
+ * can be considered in a detached state (i.e. no longer used but still
+ * enabled). Disabling an event via this method may be required for
+ * hot-removable devices, where event disable requests may time out after the
+ * device has been physically removed.
+ *
+ * In both cases, if the reference count equals zero, the corresponding
+ * reference count entry will be freed. The reference count entry must not be
+ * used any more after a call to this function.
  *
  * Also checks if the flags used for disabling the event match the flags used
  * for enabling the event and warns if they do not (regardless of reference
@@ -2225,7 +2235,7 @@ static int ssam_nf_refcount_enable(struct ssam_controller *ctrl,
  * returns the status of the event-enable EC command.
  */
 static int ssam_nf_refcount_disable_free(struct ssam_controller *ctrl,
-					 struct ssam_nf_refcount_entry *entry, u8 flags)
+					 struct ssam_nf_refcount_entry *entry, u8 flags, bool ec)
 {
 	const struct ssam_event_registry reg = entry->key.reg;
 	const struct ssam_event_id id = entry->key.id;
@@ -2234,8 +2244,9 @@ static int ssam_nf_refcount_disable_free(struct ssam_controller *ctrl,
 
 	lockdep_assert_held(&nf->lock);
 
-	ssam_dbg(ctrl, "disabling event (reg: %#04x, tc: %#04x, iid: %#04x, rc: %d)\n",
-		 reg.target_category, id.target_category, id.instance, entry->refcount);
+	ssam_dbg(ctrl, "%s event (reg: %#04x, tc: %#04x, iid: %#04x, rc: %d)\n",
+		 ec ? "disabling" : "detaching", reg.target_category, id.target_category,
+		 id.instance, entry->refcount);
 
 	if (entry->flags != flags) {
 		ssam_warn(ctrl,
@@ -2244,7 +2255,7 @@ static int ssam_nf_refcount_disable_free(struct ssam_controller *ctrl,
 			  id.instance);
 	}
 
-	if (entry->refcount == 0) {
+	if (ec && entry->refcount == 0) {
 		status = ssam_ssh_event_disable(ctrl, reg, id, flags);
 		kfree(entry);
 	}
@@ -2324,20 +2335,26 @@ int ssam_notifier_register(struct ssam_controller *ctrl, struct ssam_event_notif
 EXPORT_SYMBOL_GPL(ssam_notifier_register);
 
 /**
- * ssam_notifier_unregister() - Unregister an event notifier.
- * @ctrl: The controller the notifier has been registered on.
- * @n:    The event notifier to unregister.
+ * __ssam_notifier_unregister() - Unregister an event notifier.
+ * @ctrl:    The controller the notifier has been registered on.
+ * @n:       The event notifier to unregister.
+ * @disable: Whether to disable the corresponding event on the EC.
  *
  * Unregister an event notifier. Decrement the usage counter of the associated
  * SAM event if the notifier is not marked as an observer. If the usage counter
- * reaches zero, the event will be disabled.
+ * reaches zero and ``disable`` equals ``true``, the event will be disabled.
+ *
+ * Useful for hot-removable devices, where communication may fail once the
+ * device has been physically removed. In that case, specifying ``disable`` as
+ * ``false`` avoids communication with the EC.
  *
  * Return: Returns zero on success, %-ENOENT if the given notifier block has
  * not been registered on the controller. If the given notifier block was the
  * last one associated with its specific event, returns the status of the
  * event-disable EC-command.
  */
-int ssam_notifier_unregister(struct ssam_controller *ctrl, struct ssam_event_notifier *n)
+int __ssam_notifier_unregister(struct ssam_controller *ctrl, struct ssam_event_notifier *n,
+			       bool disable)
 {
 	u16 rqid = ssh_tc_to_rqid(n->event.id.target_category);
 	struct ssam_nf_refcount_entry *entry;
@@ -2375,7 +2392,7 @@ int ssam_notifier_unregister(struct ssam_controller *ctrl, struct ssam_event_not
 			goto remove;
 		}
 
-		status = ssam_nf_refcount_disable_free(ctrl, entry, n->event.flags);
+		status = ssam_nf_refcount_disable_free(ctrl, entry, n->event.flags, disable);
 	}
 
 remove:
@@ -2385,7 +2402,7 @@ remove:
 
 	return status;
 }
-EXPORT_SYMBOL_GPL(ssam_notifier_unregister);
+EXPORT_SYMBOL_GPL(__ssam_notifier_unregister);
 
 /**
  * ssam_controller_event_enable() - Enable the specified event.
@@ -2479,7 +2496,7 @@ int ssam_controller_event_disable(struct ssam_controller *ctrl,
 		return -ENOENT;
 	}
 
-	status = ssam_nf_refcount_disable_free(ctrl, entry, flags);
+	status = ssam_nf_refcount_disable_free(ctrl, entry, flags, true);
 
 	mutex_unlock(&nf->lock);
 	return status;

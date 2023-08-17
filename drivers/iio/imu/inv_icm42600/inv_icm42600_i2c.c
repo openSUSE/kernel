@@ -61,7 +61,7 @@ static int inv_icm42600_probe(struct i2c_client *client)
 	match = device_get_match_data(&client->dev);
 	if (!match)
 		return -EINVAL;
-	chip = (enum inv_icm42600_chip)match;
+	chip = (uintptr_t)match;
 
 	regmap = devm_regmap_init_i2c(client, &inv_icm42600_regmap_config);
 	if (IS_ERR(regmap))
@@ -84,6 +84,9 @@ static const struct of_device_id inv_icm42600_of_matches[] = {
 	}, {
 		.compatible = "invensense,icm42622",
 		.data = (void *)INV_CHIP_ICM42622,
+	}, {
+		.compatible = "invensense,icm42631",
+		.data = (void *)INV_CHIP_ICM42631,
 	},
 	{}
 };
@@ -93,7 +96,7 @@ static struct i2c_driver inv_icm42600_driver = {
 	.driver = {
 		.name = "inv-icm42600-i2c",
 		.of_match_table = inv_icm42600_of_matches,
-		.pm = &inv_icm42600_pm_ops,
+		.pm = pm_ptr(&inv_icm42600_pm_ops),
 	},
 	.probe_new = inv_icm42600_probe,
 };
@@ -102,3 +105,4 @@ module_i2c_driver(inv_icm42600_driver);
 MODULE_AUTHOR("InvenSense, Inc.");
 MODULE_DESCRIPTION("InvenSense ICM-426xx I2C driver");
 MODULE_LICENSE("GPL");
+MODULE_IMPORT_NS(IIO_ICM42600);

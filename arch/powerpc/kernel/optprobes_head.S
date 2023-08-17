@@ -10,8 +10,8 @@
 #include <asm/asm-offsets.h>
 
 #ifdef CONFIG_PPC64
-#define SAVE_30GPRS(base) SAVE_10GPRS(2,base); SAVE_10GPRS(12,base); SAVE_10GPRS(22,base)
-#define REST_30GPRS(base) REST_10GPRS(2,base); REST_10GPRS(12,base); REST_10GPRS(22,base)
+#define SAVE_30GPRS(base) SAVE_GPRS(2, 31, base)
+#define REST_30GPRS(base) REST_GPRS(2, 31, base)
 #define TEMPLATE_FOR_IMM_LOAD_INSNS	nop; nop; nop; nop; nop
 #else
 #define SAVE_30GPRS(base) stmw	r2, GPR2(base)
@@ -73,7 +73,7 @@ optprobe_template_entry:
 	 * further below.
 	 */
 #ifdef CONFIG_PPC64
-	ld	r2,PACATOC(r13)
+	LOAD_PACA_TOC()
 #endif
 
 	.global optprobe_template_op_address
@@ -85,7 +85,7 @@ optprobe_template_op_address:
 	TEMPLATE_FOR_IMM_LOAD_INSNS
 
 	/* 2. pt_regs pointer in r4 */
-	addi	r4,r1,STACK_FRAME_OVERHEAD
+	addi	r4,r1,STACK_INT_FRAME_REGS
 
 	.global optprobe_template_call_handler
 optprobe_template_call_handler:
@@ -96,7 +96,7 @@ optprobe_template_call_handler:
 	 * Parameters for instruction emulation:
 	 * 1. Pass SP in register r3.
 	 */
-	addi	r3,r1,STACK_FRAME_OVERHEAD
+	addi	r3,r1,STACK_INT_FRAME_REGS
 
 	.global optprobe_template_insn
 optprobe_template_insn:

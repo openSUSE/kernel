@@ -54,6 +54,19 @@ static void rethook_free_rcu(struct rcu_head *head)
 }
 
 /**
+ * rethook_stop() - Stop using a rethook.
+ * @rh: the struct rethook to stop.
+ *
+ * Stop using a rethook to prepare for freeing it. If you want to wait for
+ * all running rethook handler before calling rethook_free(), you need to
+ * call this first and wait RCU, and call rethook_free().
+ */
+void rethook_stop(struct rethook *rh)
+{
+	WRITE_ONCE(rh->handler, NULL);
+}
+
+/**
  * rethook_free() - Free struct rethook.
  * @rh: the struct rethook to be freed.
  *
@@ -65,7 +78,7 @@ static void rethook_free_rcu(struct rcu_head *head)
  */
 void rethook_free(struct rethook *rh)
 {
-	rcu_assign_pointer(rh->handler, NULL);
+	WRITE_ONCE(rh->handler, NULL);
 
 	call_rcu(&rh->rcu, rethook_free_rcu);
 }

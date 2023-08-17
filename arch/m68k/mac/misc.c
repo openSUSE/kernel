@@ -18,7 +18,6 @@
 
 #include <linux/uaccess.h>
 #include <asm/io.h>
-#include <asm/segment.h>
 #include <asm/setup.h>
 #include <asm/macintosh.h>
 #include <asm/mac_via.h>
@@ -127,7 +126,7 @@ static void via_rtc_send(__u8 data)
 
 	reg = via1[vBufB] & ~(VIA1B_vRTCClk | VIA1B_vRTCData);
 
-	/* The bits of the byte go in in MSB order */
+	/* The bits of the byte go into the RTC in MSB order */
 
 	for (i = 0 ; i < 8 ; i++) {
 		bit = data & 0x80? 1 : 0;

@@ -28,8 +28,7 @@ static int max7300_i2c_read(struct device *dev, unsigned int reg)
 	return i2c_smbus_read_byte_data(client, reg);
 }
 
-static int max7300_probe(struct i2c_client *client,
-			 const struct i2c_device_id *id)
+static int max7300_probe(struct i2c_client *client)
 {
 	struct max7301 *ts;
 
@@ -48,9 +47,9 @@ static int max7300_probe(struct i2c_client *client,
 	return __max730x_probe(ts);
 }
 
-static int max7300_remove(struct i2c_client *client)
+static void max7300_remove(struct i2c_client *client)
 {
-	return __max730x_remove(&client->dev);
+	__max730x_remove(&client->dev);
 }
 
 static const struct i2c_device_id max7300_id[] = {
@@ -63,7 +62,7 @@ static struct i2c_driver max7300_driver = {
 	.driver = {
 		.name = "max7300",
 	},
-	.probe = max7300_probe,
+	.probe_new = max7300_probe,
 	.remove = max7300_remove,
 	.id_table = max7300_id,
 };

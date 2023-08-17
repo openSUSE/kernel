@@ -69,8 +69,8 @@ dovrebbero essere fatto negli argomenti di funzioni di allocazione di memoria
 piccoli di quelli che il chiamante si aspettava. L'uso di questo modo di
 allocare può portare ad un overflow della memoria di heap e altri
 malfunzionamenti. (Si fa eccezione per valori numerici per i quali il
-compilatore può generare avvisi circa un potenziale overflow. Tuttavia usare
-i valori numerici come suggerito di seguito è innocuo).
+compilatore può generare avvisi circa un potenziale overflow. Tuttavia, anche in
+questi casi è preferibile riscrivere il codice come suggerito di seguito).
 
 Per esempio, non usate ``count * size`` come argomento::
 
@@ -79,6 +79,9 @@ Per esempio, non usate ``count * size`` come argomento::
 Al suo posto, si dovrebbe usare l'allocatore a due argomenti::
 
 	foo = kmalloc_array(count, size, GFP_KERNEL);
+
+Nello specifico, kmalloc() può essere sostituta da kmalloc_array(), e kzalloc()
+da kcalloc().
 
 Se questo tipo di allocatore non è disponibile, allora dovrebbero essere usate
 le funzioni del tipo *saturate-on-overflow*::
@@ -100,9 +103,20 @@ Invece, usate la seguente funzione::
 	  invitati a riorganizzare il vostro codice usando il
 	  `flexible array member <#zero-length-and-one-element-arrays>`_.
 
-Per maggiori dettagli fate riferimento a array_size(),
-array3_size(), e struct_size(), così come la famiglia di
-funzioni check_add_overflow() e check_mul_overflow().
+Per altri calcoli, usate le funzioni size_mul(), size_add(), e size_sub(). Per
+esempio, al posto di::
+
+       foo = krealloc(current_size + chunk_size * (count - 3), GFP_KERNEL);
+
+dovreste scrivere:
+
+       foo = krealloc(size_add(current_size,
+                               size_mul(chunk_size,
+                                        size_sub(count, 3))), GFP_KERNEL);
+
+Per maggiori dettagli fate riferimento a array3_size() e flex_array_size(), ma
+anche le funzioni della famiglia check_mul_overflow(), check_add_overflow(),
+check_sub_overflow(), e check_shl_overflow().
 
 simple_strtol(), simple_strtoll(), simple_strtoul(), simple_strtoull()
 ----------------------------------------------------------------------
@@ -183,9 +197,11 @@ di Linus:
   affrontare il giudizio di Linus, allora forse potrai usare "%px",
   assicurandosi anche di averne il permesso.
 
-Infine, sappi che un cambio in favore di "%p" con hash `non verrà
-accettato
-<https://lore.kernel.org/lkml/CA+55aFwieC1-nAs+NFq9RTwaR8ef9hWa4MjNBWL41F-8wM49eA@mail.gmail.com/>`_.
+Potete disabilitare temporaneamente l'hashing di "%p" nel caso in cui questa
+funzionalità vi sia d'ostacolo durante una sessione di debug. Per farlo
+aggiungete l'opzione di debug "`no_hash_pointers
+<https://git.kernel.org/linus/5ead723a20e0447bc7db33dc3070b420e5f80aa6>`_" alla
+riga di comando del kernel.
 
 Vettori a dimensione variabile (VLA)
 ------------------------------------
@@ -316,7 +332,7 @@ zero come risultato::
 
 Il valore di ``size`` nell'ultima riga sarà ``zero``, quando uno
 invece si aspetterebbe che il suo valore sia la dimensione totale in
-byte dell'allocazione dynamica che abbiamo appena fatto per l'array
+byte dell'allocazione dinamica che abbiamo appena fatto per l'array
 ``items``. Qui un paio di esempi reali del problema: `collegamento 1
 <https://git.kernel.org/linus/f2cd32a443da694ac4e28fbf4ac6f9d5cc63a539>`_,
 `collegamento 2
@@ -365,4 +381,29 @@ combinazione con struct_size() e flex_array_size()::
         instance = kmalloc(struct_size(instance, items, count), GFP_KERNEL);
         instance->count = count;
 
-	memcpy(instance->items, source, flex_array_size(instance, items, instance->count));
+        memcpy(instance->items, source, flex_array_size(instance, items, instance->count));
+
+Ci sono due casi speciali dove è necessario usare la macro DECLARE_FLEX_ARRAY()
+(da notare che la stessa macro è chiamata __DECLARE_FLEX_ARRAY() nei file di
+intestazione UAPI). Uno è quando l'array flessibile è l'unico elemento di una
+struttura, e l'altro quando è parte di un unione. Per motivi non tecnici, entrambi
+i casi d'uso non sono permessi dalla specifica C99. Per esempio, per
+convertire il seguente codice::
+
+    struct something {
+        ...
+        union {
+            struct type1 one[0];
+            struct type2 two[0];
+        };
+    };
+
+La macro di supporto dev'essere usata::
+
+    struct something {
+        ...
+        union {
+            DECLARE_FLEX_ARRAY(struct type1, one);
+            DECLARE_FLEX_ARRAY(struct type2, two);
+        };
+    };

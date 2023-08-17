@@ -442,8 +442,7 @@ static void tusb320_typec_remove(struct tusb320_priv *priv)
 	fwnode_handle_put(priv->connector_fwnode);
 }
 
-static int tusb320_probe(struct i2c_client *client,
-			 const struct i2c_device_id *id)
+static int tusb320_probe(struct i2c_client *client)
 {
 	struct tusb320_priv *priv;
 	const void *match_data;
@@ -512,12 +511,11 @@ static int tusb320_probe(struct i2c_client *client,
 	return ret;
 }
 
-static int tusb320_remove(struct i2c_client *client)
+static void tusb320_remove(struct i2c_client *client)
 {
 	struct tusb320_priv *priv = i2c_get_clientdata(client);
 
 	tusb320_typec_remove(priv);
-	return 0;
 }
 
 static const struct of_device_id tusb320_extcon_dt_match[] = {
@@ -528,7 +526,7 @@ static const struct of_device_id tusb320_extcon_dt_match[] = {
 MODULE_DEVICE_TABLE(of, tusb320_extcon_dt_match);
 
 static struct i2c_driver tusb320_extcon_driver = {
-	.probe		= tusb320_probe,
+	.probe_new	= tusb320_probe,
 	.remove		= tusb320_remove,
 	.driver		= {
 		.name	= "extcon-tusb320",

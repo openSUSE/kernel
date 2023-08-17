@@ -97,7 +97,7 @@ static int odroid_card_be_hw_params(struct snd_pcm_substream *substream,
 	if (ret < 0)
 		return ret;
 
-	if (rtd->num_codecs > 1) {
+	if (rtd->dai_link->num_codecs > 1) {
 		struct snd_soc_dai *codec_dai = asoc_rtd_to_codec(rtd, 1);
 
 		ret = snd_soc_dai_set_sysclk(codec_dai, 0, rclk_freq,
@@ -331,15 +331,13 @@ err_put_node:
 	return ret;
 }
 
-static int odroid_audio_remove(struct platform_device *pdev)
+static void odroid_audio_remove(struct platform_device *pdev)
 {
 	struct odroid_priv *priv = platform_get_drvdata(pdev);
 
 	snd_soc_of_put_dai_link_codecs(&priv->card.dai_link[1]);
 	clk_put(priv->sclk_i2s);
 	clk_put(priv->clk_i2s_bus);
-
-	return 0;
 }
 
 static const struct of_device_id odroid_audio_of_match[] = {
@@ -358,7 +356,7 @@ static struct platform_driver odroid_audio_driver = {
 		.pm		= &snd_soc_pm_ops,
 	},
 	.probe	= odroid_audio_probe,
-	.remove	= odroid_audio_remove,
+	.remove_new = odroid_audio_remove,
 };
 module_platform_driver(odroid_audio_driver);
 

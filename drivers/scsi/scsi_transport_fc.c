@@ -544,7 +544,7 @@ fc_host_post_fc_event(struct Scsi_Host *shost, u32 event_number,
 	struct nlmsghdr	*nlh;
 	struct fc_nl_event *event;
 	const char *name;
-	u32 len;
+	size_t len, padding;
 	int err;
 
 	if (!data_buf || data_len < 4)
@@ -555,7 +555,7 @@ fc_host_post_fc_event(struct Scsi_Host *shost, u32 event_number,
 		goto send_fail;
 	}
 
-	len = FC_NL_MSGALIGN(sizeof(*event) + data_len);
+	len = FC_NL_MSGALIGN(sizeof(*event) - sizeof(event->event_data) + data_len);
 
 	skb = nlmsg_new(len, GFP_KERNEL);
 	if (!skb) {
@@ -579,7 +579,9 @@ fc_host_post_fc_event(struct Scsi_Host *shost, u32 event_number,
 	event->event_num = event_number;
 	event->event_code = event_code;
 	if (data_len)
-		memcpy(&event->event_data, data_buf, data_len);
+		memcpy(event->event_data_flex, data_buf, data_len);
+	padding = len - offsetof(typeof(*event), event_data_flex) - data_len;
+	memset(event->event_data_flex + data_len, 0, padding);
 
 	nlmsg_multicast(scsi_nl_sock, skb, 0, SCSI_NL_GRP_FC_EVENTS,
 			GFP_KERNEL);
@@ -889,7 +891,7 @@ fc_fpin_congn_stats_update(struct Scsi_Host *shost,
 }
 
 /**
- * fc_host_fpin_rcv_ack - routine to process a received FPIN.
+ * fc_host_fpin_rcv - routine to process a received FPIN.
  * @shost:		host the FPIN was received on
  * @fpin_len:		length of FPIN payload, in bytes
  * @fpin_buf:		pointer to FPIN payload
@@ -898,12 +900,12 @@ fc_fpin_congn_stats_update(struct Scsi_Host *shost,
  *	This routine assumes no locks are held on entry.
  */
 void
-fc_host_fpin_rcv_ack(struct Scsi_Host *shost, u32 fpin_len, char *fpin_buf,
-		     u8 event_acknowledge)
+fc_host_fpin_rcv(struct Scsi_Host *shost, u32 fpin_len, char *fpin_buf,
+		u8 event_acknowledge)
 {
 	struct fc_els_fpin *fpin = (struct fc_els_fpin *)fpin_buf;
 	struct fc_tlv_desc *tlv;
-	u32 desc_cnt = 0, bytes_remain;
+	u32 bytes_remain;
 	u32 dtag;
 	enum fc_host_event_code event_code =
 		event_acknowledge ? FCH_EVT_LINK_FPIN_ACK : FCH_EVT_LINK_FPIN;
@@ -930,7 +932,6 @@ fc_host_fpin_rcv_ack(struct Scsi_Host *shost, u32 fpin_len, char *fpin_buf,
 			fc_fpin_congn_stats_update(shost, tlv);
 		}
 
-		desc_cnt++;
 		bytes_remain -= FC_TLV_DESC_SZ_FROM_LENGTH(tlv);
 		tlv = fc_tlv_next_desc(tlv);
 	}
@@ -938,15 +939,8 @@ fc_host_fpin_rcv_ack(struct Scsi_Host *shost, u32 fpin_len, char *fpin_buf,
 	fc_host_post_fc_event(shost, fc_get_event_number(),
 				event_code, fpin_len, fpin_buf, 0);
 }
-EXPORT_SYMBOL(fc_host_fpin_rcv_ack);
-
-
-void
-fc_host_fpin_rcv(struct Scsi_Host *shost, u32 fpin_len, char *fpin_buf)
-{
-	fc_host_fpin_rcv_ack(shost, fpin_len, fpin_buf, 0);
-}
 EXPORT_SYMBOL(fc_host_fpin_rcv);
+
 
 static __init int fc_transport_init(void)
 {
@@ -2539,15 +2533,14 @@ static int fc_vport_match(struct attribute_container *cont,
  * Notes:
  *	This routine assumes no locks are held on entry.
  */
-enum blk_eh_timer_return
-fc_eh_timed_out(struct scsi_cmnd *scmd)
+enum scsi_timeout_action fc_eh_timed_out(struct scsi_cmnd *scmd)
 {
 	struct fc_rport *rport = starget_to_rport(scsi_target(scmd->device));
 
 	if (rport->port_state == FC_PORTSTATE_BLOCKED)
-		return BLK_EH_RESET_TIMER;
+		return SCSI_EH_RESET_TIMER;
 
-	return BLK_EH_DONE;
+	return SCSI_EH_NOT_HANDLED;
 }
 EXPORT_SYMBOL(fc_eh_timed_out);
 

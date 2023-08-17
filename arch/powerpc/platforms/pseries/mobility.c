@@ -22,9 +22,6 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/stringify.h>
-#include <linux/netdevice.h>
-#include <linux/rtnetlink.h>
-#include <net/net_namespace.h>
 
 #include <asm/machdep.h>
 #include <asm/rtas.h>
@@ -65,18 +62,10 @@ static struct ctl_table nmi_wd_lpm_factor_ctl_table[] = {
 	},
 	{}
 };
-static struct ctl_table nmi_wd_lpm_factor_sysctl_root[] = {
-	{
-		.procname       = "kernel",
-		.mode           = 0555,
-		.child          = nmi_wd_lpm_factor_ctl_table,
-	},
-	{}
-};
 
 static int __init register_nmi_wd_lpm_factor_sysctl(void)
 {
-	register_sysctl_table(nmi_wd_lpm_factor_sysctl_root);
+	register_sysctl("kernel", nmi_wd_lpm_factor_ctl_table);
 
 	return 0;
 }
@@ -198,7 +187,7 @@ static int update_dt_node(struct device_node *dn, s32 scope)
 	u32 nprops;
 	u32 vd;
 
-	update_properties_token = rtas_token("ibm,update-properties");
+	update_properties_token = rtas_function_token(RTAS_FN_IBM_UPDATE_PROPERTIES);
 	if (update_properties_token == RTAS_UNKNOWN_SERVICE)
 		return -EINVAL;
 
@@ -219,7 +208,7 @@ static int update_dt_node(struct device_node *dn, s32 scope)
 		nprops = be32_to_cpu(upwa->nprops);
 
 		/* On the first call to ibm,update-properties for a node the
-		 * the first property value descriptor contains an empty
+		 * first property value descriptor contains an empty
 		 * property name, the property value length encoded as u32,
 		 * and the property value is the node path being updated.
 		 */
@@ -302,14 +291,14 @@ static int add_dt_node(struct device_node *parent_dn, __be32 drc_index)
 	return rc;
 }
 
-int pseries_devicetree_update(s32 scope)
+static int pseries_devicetree_update(s32 scope)
 {
 	char *rtas_buf;
 	__be32 *data;
 	int update_nodes_token;
 	int rc;
 
-	update_nodes_token = rtas_token("ibm,update-nodes");
+	update_nodes_token = rtas_function_token(RTAS_FN_IBM_UPDATE_NODES);
 	if (update_nodes_token == RTAS_UNKNOWN_SERVICE)
 		return 0;
 
@@ -370,8 +359,6 @@ int pseries_devicetree_update(s32 scope)
 void post_mobility_fixup(void)
 {
 	int rc;
-	struct net_device *netdev;
-	struct net *net;
 
 	rtas_activate_firmware();
 
@@ -401,22 +388,6 @@ void post_mobility_fixup(void)
 
 	/* Reinitialise system information for hv-24x7 */
 	read_24x7_sys_info();
-
-	/* need to force a gratuitous ARP on running interfaces */
-	rtnl_lock();
-	for_each_net(net) {
-		for_each_netdev(net, netdev) {
-			if (netif_device_present(netdev) &&
-			    netif_running(netdev) &&
-			    !(netdev->flags & (IFF_NOARP | IFF_LOOPBACK))) {
-				call_netdevice_notifiers(NETDEV_NOTIFY_PEERS,
-							 netdev);
-				call_netdevice_notifiers(NETDEV_RESEND_IGMP,
-							 netdev);
-			}
-		}
-	}
-	rtnl_unlock();
 
 	return;
 }
@@ -656,10 +627,13 @@ retry:
 		prod_others();
 	}
 	/*
-	 * Execution may have been suspended for several seconds, so
-	 * reset the watchdog.
+	 * Execution may have been suspended for several seconds, so reset
+	 * the watchdogs. touch_nmi_watchdog() also touches the soft lockup
+	 * watchdog.
 	 */
+	rcu_cpu_stall_reset();
 	touch_nmi_watchdog();
+
 	return ret;
 }
 
@@ -776,7 +750,7 @@ static int pseries_migrate_partition(u64 handle)
 		goto out;
 
 	if (factor)
-		watchdog_nmi_set_timeout_pct(factor);
+		watchdog_hardlockup_set_timeout_pct(factor);
 
 	ret = pseries_suspend(handle);
 	if (ret == 0) {
@@ -792,7 +766,7 @@ static int pseries_migrate_partition(u64 handle)
 		pseries_cancel_migration(handle, ret);
 
 	if (factor)
-		watchdog_nmi_set_timeout_pct(0);
+		watchdog_hardlockup_set_timeout_pct(0);
 
 out:
 	vas_migration_handler(VAS_RESUME);
@@ -805,8 +779,8 @@ int rtas_syscall_dispatch_ibm_suspend_me(u64 handle)
 	return pseries_migrate_partition(handle);
 }
 
-static ssize_t migration_store(struct class *class,
-			       struct class_attribute *attr, const char *buf,
+static ssize_t migration_store(const struct class *class,
+			       const struct class_attribute *attr, const char *buf,
 			       size_t count)
 {
 	u64 streamid;

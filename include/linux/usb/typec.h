@@ -23,6 +23,7 @@ struct fwnode_handle;
 struct device;
 
 struct usb_power_delivery;
+struct usb_power_delivery_desc;
 
 enum typec_port_type {
 	TYPEC_PORT_SRC,
@@ -193,7 +194,6 @@ struct typec_cable_desc {
 	struct usb_pd_identity	*identity;
 	u16			pd_revision; /* 0300H = "3.0" */
 
-	void *suse_kabi_padding;
 };
 
 /*
@@ -217,8 +217,6 @@ struct typec_partner_desc {
 	enum typec_accessory	accessory;
 	struct usb_pd_identity	*identity;
 	u16			pd_revision; /* 0300H = "3.0" */
-
-	void *suse_kabi_padding;
 };
 
 /**
@@ -240,8 +238,6 @@ struct typec_operations {
 			     enum typec_port_type type);
 	struct usb_power_delivery **(*pd_get)(struct typec_port *port);
 	int (*pd_set)(struct typec_port *port, struct usb_power_delivery *pd);
-
-	void *suse_kabi_padding;
 };
 
 enum usb_pd_svdm_ver {
@@ -282,8 +278,6 @@ struct typec_capability {
 	struct usb_power_delivery *pd;
 
 	const struct typec_operations	*ops;
-
-	void *suse_kabi_padding;
 };
 
 /* Specific to try_role(). Indicates the user want's to clear the preference. */
@@ -333,6 +327,9 @@ int typec_find_port_data_role(const char *name);
 void typec_partner_set_svdm_version(struct typec_partner *partner,
 				    enum usb_pd_svdm_ver svdm_version);
 int typec_get_negotiated_svdm_version(struct typec_port *port);
+
+struct usb_power_delivery *typec_partner_usb_power_delivery_register(struct typec_partner *partner,
+							struct usb_power_delivery_desc *desc);
 
 int typec_port_set_usb_power_delivery(struct typec_port *port, struct usb_power_delivery *pd);
 int typec_partner_set_usb_power_delivery(struct typec_partner *partner,

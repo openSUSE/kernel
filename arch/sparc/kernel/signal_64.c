@@ -15,7 +15,7 @@
 #include <linux/errno.h>
 #include <linux/wait.h>
 #include <linux/ptrace.h>
-#include <linux/tracehook.h>
+#include <linux/resume_user_mode.h>
 #include <linux/unistd.h>
 #include <linux/mm.h>
 #include <linux/tty.h>
@@ -406,10 +406,10 @@ setup_rt_frame(struct ksignal *ksig, struct pt_regs *regs)
 	err |= copy_to_user(&sf->mask, sigmask_to_save(), sizeof(sigset_t));
 
 	if (!wsaved) {
-		err |= copy_in_user((u64 __user *)sf,
-				    (u64 __user *)(regs->u_regs[UREG_FP] +
-						   STACK_BIAS),
-				    sizeof(struct reg_window));
+		err |= raw_copy_in_user((u64 __user *)sf,
+					(u64 __user *)(regs->u_regs[UREG_FP] +
+					   STACK_BIAS),
+					sizeof(struct reg_window));
 	} else {
 		struct reg_window *rp;
 
@@ -552,7 +552,7 @@ void do_notify_resume(struct pt_regs *regs, unsigned long orig_i0, unsigned long
 	if (thread_info_flags & (_TIF_SIGPENDING | _TIF_NOTIFY_SIGNAL))
 		do_signal(regs, orig_i0);
 	if (thread_info_flags & _TIF_NOTIFY_RESUME)
-		tracehook_notify_resume(regs);
+		resume_user_mode_work(regs);
 	user_enter();
 }
 
@@ -567,6 +567,8 @@ static_assert(NSIGBUS	== 5);
 static_assert(NSIGTRAP	== 6);
 static_assert(NSIGCHLD	== 6);
 static_assert(NSIGSYS	== 2);
+static_assert(sizeof(siginfo_t) == 128);
+static_assert(__alignof__(siginfo_t) == 8);
 static_assert(offsetof(siginfo_t, si_signo)	== 0x00);
 static_assert(offsetof(siginfo_t, si_errno)	== 0x04);
 static_assert(offsetof(siginfo_t, si_code)	== 0x08);

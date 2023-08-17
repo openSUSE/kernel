@@ -82,7 +82,7 @@ static const struct ena_stats ena_stats_rx_strings[] = {
 	ENA_STAT_RX_ENTRY(rx_copybreak_pkt),
 	ENA_STAT_RX_ENTRY(csum_good),
 	ENA_STAT_RX_ENTRY(refil_partial),
-	ENA_STAT_RX_ENTRY(bad_csum),
+	ENA_STAT_RX_ENTRY(csum_bad),
 	ENA_STAT_RX_ENTRY(page_alloc_fail),
 	ENA_STAT_RX_ENTRY(skb_alloc_fail),
 	ENA_STAT_RX_ENTRY(dma_mapping_err),
@@ -110,8 +110,7 @@ static const struct ena_stats ena_stats_ena_com_strings[] = {
 #define ENA_STATS_ARRAY_TX		ARRAY_SIZE(ena_stats_tx_strings)
 #define ENA_STATS_ARRAY_RX		ARRAY_SIZE(ena_stats_rx_strings)
 #define ENA_STATS_ARRAY_ENA_COM		ARRAY_SIZE(ena_stats_ena_com_strings)
-#define ENA_STATS_ARRAY_ENI(adapter)	\
-	(ARRAY_SIZE(ena_stats_eni_strings) * (adapter)->eni_stats_supported)
+#define ENA_STATS_ARRAY_ENI(adapter)	ARRAY_SIZE(ena_stats_eni_strings)
 
 static void ena_safe_update_stat(u64 *src, u64 *dst,
 				 struct u64_stats_sync *syncp)
@@ -119,9 +118,9 @@ static void ena_safe_update_stat(u64 *src, u64 *dst,
 	unsigned int start;
 
 	do {
-		start = u64_stats_fetch_begin_irq(syncp);
+		start = u64_stats_fetch_begin(syncp);
 		*(dst) = *src;
-	} while (u64_stats_fetch_retry_irq(syncp, start));
+	} while (u64_stats_fetch_retry(syncp, start));
 }
 
 static void ena_queue_stats(struct ena_adapter *adapter, u64 **data)
@@ -213,8 +212,9 @@ static void ena_get_ethtool_stats(struct net_device *netdev,
 				  u64 *data)
 {
 	struct ena_adapter *adapter = netdev_priv(netdev);
+	struct ena_com_dev *dev = adapter->ena_dev;
 
-	ena_get_stats(adapter, data, adapter->eni_stats_supported);
+	ena_get_stats(adapter, data, ena_com_get_cap(dev, ENA_ADMIN_ENI_STATS));
 }
 
 static int ena_get_sw_stats_count(struct ena_adapter *adapter)
@@ -226,7 +226,9 @@ static int ena_get_sw_stats_count(struct ena_adapter *adapter)
 
 static int ena_get_hw_stats_count(struct ena_adapter *adapter)
 {
-	return ENA_STATS_ARRAY_ENI(adapter);
+	bool supported = ena_com_get_cap(adapter->ena_dev, ENA_ADMIN_ENI_STATS);
+
+	return ENA_STATS_ARRAY_ENI(adapter) * supported;
 }
 
 int ena_get_sset_count(struct net_device *netdev, int sset)
@@ -316,10 +318,11 @@ static void ena_get_ethtool_strings(struct net_device *netdev,
 				    u8 *data)
 {
 	struct ena_adapter *adapter = netdev_priv(netdev);
+	struct ena_com_dev *dev = adapter->ena_dev;
 
 	switch (sset) {
 	case ETH_SS_STATS:
-		ena_get_strings(adapter, data, adapter->eni_stats_supported);
+		ena_get_strings(adapter, data, ena_com_get_cap(dev, ENA_ADMIN_ENI_STATS));
 		break;
 	}
 }
@@ -473,6 +476,21 @@ static void ena_get_ringparam(struct net_device *netdev,
 
 	ring->tx_max_pending = adapter->max_tx_ring_size;
 	ring->rx_max_pending = adapter->max_rx_ring_size;
+	if (adapter->ena_dev->tx_mem_queue_type == ENA_ADMIN_PLACEMENT_POLICY_DEV) {
+		bool large_llq_supported = adapter->large_llq_header_supported;
+
+		kernel_ring->tx_push = true;
+		kernel_ring->tx_push_buf_len = adapter->ena_dev->tx_max_header_size;
+		if (large_llq_supported)
+			kernel_ring->tx_push_buf_max_len = ENA_LLQ_LARGE_HEADER;
+		else
+			kernel_ring->tx_push_buf_max_len = ENA_LLQ_HEADER;
+	} else {
+		kernel_ring->tx_push = false;
+		kernel_ring->tx_push_buf_max_len = 0;
+		kernel_ring->tx_push_buf_len = 0;
+	}
+
 	ring->tx_pending = adapter->tx_ring[0].ring_size;
 	ring->rx_pending = adapter->rx_ring[0].ring_size;
 }
@@ -483,7 +501,8 @@ static int ena_set_ringparam(struct net_device *netdev,
 			     struct netlink_ext_ack *extack)
 {
 	struct ena_adapter *adapter = netdev_priv(netdev);
-	u32 new_tx_size, new_rx_size;
+	u32 new_tx_size, new_rx_size, new_tx_push_buf_len;
+	bool changed = false;
 
 	new_tx_size = ring->tx_pending < ENA_MIN_RING_SIZE ?
 			ENA_MIN_RING_SIZE : ring->tx_pending;
@@ -493,11 +512,51 @@ static int ena_set_ringparam(struct net_device *netdev,
 			ENA_MIN_RING_SIZE : ring->rx_pending;
 	new_rx_size = rounddown_pow_of_two(new_rx_size);
 
-	if (new_tx_size == adapter->requested_tx_ring_size &&
-	    new_rx_size == adapter->requested_rx_ring_size)
+	changed |= new_tx_size != adapter->requested_tx_ring_size ||
+		   new_rx_size != adapter->requested_rx_ring_size;
+
+	/* This value is ignored if LLQ is not supported */
+	new_tx_push_buf_len = adapter->ena_dev->tx_max_header_size;
+
+	if ((adapter->ena_dev->tx_mem_queue_type == ENA_ADMIN_PLACEMENT_POLICY_DEV) !=
+	    kernel_ring->tx_push) {
+		NL_SET_ERR_MSG_MOD(extack, "Push mode state cannot be modified");
+		return -EINVAL;
+	}
+
+	/* Validate that the push buffer is supported on the underlying device */
+	if (kernel_ring->tx_push_buf_len) {
+		enum ena_admin_placement_policy_type placement;
+
+		new_tx_push_buf_len = kernel_ring->tx_push_buf_len;
+
+		placement = adapter->ena_dev->tx_mem_queue_type;
+		if (placement == ENA_ADMIN_PLACEMENT_POLICY_HOST)
+			return -EOPNOTSUPP;
+
+		if (new_tx_push_buf_len != ENA_LLQ_HEADER &&
+		    new_tx_push_buf_len != ENA_LLQ_LARGE_HEADER) {
+			bool large_llq_sup = adapter->large_llq_header_supported;
+			char large_llq_size_str[40];
+
+			snprintf(large_llq_size_str, 40, ", %lu", ENA_LLQ_LARGE_HEADER);
+
+			NL_SET_ERR_MSG_FMT_MOD(extack,
+					       "Supported tx push buff values: [%lu%s]",
+					       ENA_LLQ_HEADER,
+					       large_llq_sup ? large_llq_size_str : "");
+
+			return -EINVAL;
+		}
+
+		changed |= new_tx_push_buf_len != adapter->ena_dev->tx_max_header_size;
+	}
+
+	if (!changed)
 		return 0;
 
-	return ena_update_queue_sizes(adapter, new_tx_size, new_rx_size);
+	return ena_update_queue_params(adapter, new_tx_size, new_rx_size,
+				       new_tx_push_buf_len);
 }
 
 static u32 ena_flow_hash_to_flow_type(u16 hash_fields)
@@ -847,10 +906,19 @@ static int ena_set_channels(struct net_device *netdev,
 	struct ena_adapter *adapter = netdev_priv(netdev);
 	u32 count = channels->combined_count;
 	/* The check for max value is already done in ethtool */
-	if (count < ENA_MIN_NUM_IO_QUEUES ||
-	    (ena_xdp_present(adapter) &&
-	    !ena_xdp_legal_queue_count(adapter, count)))
+	if (count < ENA_MIN_NUM_IO_QUEUES)
 		return -EINVAL;
+
+	if (!ena_xdp_legal_queue_count(adapter, count)) {
+		if (ena_xdp_present(adapter))
+			return -EINVAL;
+
+		xdp_clear_features_flag(netdev);
+	} else {
+		xdp_set_features_flag(netdev,
+				      NETDEV_XDP_ACT_BASIC |
+				      NETDEV_XDP_ACT_REDIRECT);
+	}
 
 	return ena_update_queue_count(adapter, count);
 }
@@ -897,6 +965,8 @@ static int ena_set_tunable(struct net_device *netdev,
 static const struct ethtool_ops ena_ethtool_ops = {
 	.supported_coalesce_params = ETHTOOL_COALESCE_USECS |
 				     ETHTOOL_COALESCE_USE_ADAPTIVE_RX,
+	.supported_ring_params	= ETHTOOL_RING_USE_TX_PUSH_BUF_LEN |
+				  ETHTOOL_RING_USE_TX_PUSH,
 	.get_link_ksettings	= ena_get_link_ksettings,
 	.get_drvinfo		= ena_get_drvinfo,
 	.get_msglevel		= ena_get_msglevel,

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
 /* Copyright 2017-2019 NXP */
 
+#include <linux/ethtool_netlink.h>
 #include <linux/net_tstamp.h>
 #include <linux/module.h>
 #include "enetc.h"
@@ -31,6 +32,12 @@ static const u32 enetc_port_regs[] = {
 	ENETC_PM0_CMD_CFG, ENETC_PM0_MAXFRM, ENETC_PM0_IF_MODE
 };
 
+static const u32 enetc_port_mm_regs[] = {
+	ENETC_MMCSR, ENETC_PFPMR, ENETC_PTCFPR(0), ENETC_PTCFPR(1),
+	ENETC_PTCFPR(2), ENETC_PTCFPR(3), ENETC_PTCFPR(4), ENETC_PTCFPR(5),
+	ENETC_PTCFPR(6), ENETC_PTCFPR(7),
+};
+
 static int enetc_get_reglen(struct net_device *ndev)
 {
 	struct enetc_ndev_priv *priv = netdev_priv(ndev);
@@ -43,6 +50,9 @@ static int enetc_get_reglen(struct net_device *ndev)
 
 	if (hw->port)
 		len += ARRAY_SIZE(enetc_port_regs);
+
+	if (hw->port && !!(priv->si->hw_features & ENETC_SI_F_QBU))
+		len += ARRAY_SIZE(enetc_port_mm_regs);
 
 	len *= sizeof(u32) * 2; /* store 2 entries per reg: addr and value */
 
@@ -89,6 +99,14 @@ static void enetc_get_regs(struct net_device *ndev, struct ethtool_regs *regs,
 		*buf++ = addr;
 		*buf++ = enetc_rd(hw, addr);
 	}
+
+	if (priv->si->hw_features & ENETC_SI_F_QBU) {
+		for (i = 0; i < ARRAY_SIZE(enetc_port_mm_regs); i++) {
+			addr = ENETC_PORT_BASE + enetc_port_mm_regs[i];
+			*buf++ = addr;
+			*buf++ = enetc_rd(hw, addr);
+		}
+	}
 }
 
 static const struct {
@@ -125,68 +143,68 @@ static const struct {
 	int reg;
 	char name[ETH_GSTRING_LEN];
 } enetc_port_counters[] = {
-	{ ENETC_PM0_REOCT,  "MAC rx ethernet octets" },
-	{ ENETC_PM0_RALN,   "MAC rx alignment errors" },
-	{ ENETC_PM0_RXPF,   "MAC rx valid pause frames" },
-	{ ENETC_PM0_RFRM,   "MAC rx valid frames" },
-	{ ENETC_PM0_RFCS,   "MAC rx fcs errors" },
-	{ ENETC_PM0_RVLAN,  "MAC rx VLAN frames" },
-	{ ENETC_PM0_RERR,   "MAC rx frame errors" },
-	{ ENETC_PM0_RUCA,   "MAC rx unicast frames" },
-	{ ENETC_PM0_RMCA,   "MAC rx multicast frames" },
-	{ ENETC_PM0_RBCA,   "MAC rx broadcast frames" },
-	{ ENETC_PM0_RDRP,   "MAC rx dropped packets" },
-	{ ENETC_PM0_RPKT,   "MAC rx packets" },
-	{ ENETC_PM0_RUND,   "MAC rx undersized packets" },
-	{ ENETC_PM0_R64,    "MAC rx 64 byte packets" },
-	{ ENETC_PM0_R127,   "MAC rx 65-127 byte packets" },
-	{ ENETC_PM0_R255,   "MAC rx 128-255 byte packets" },
-	{ ENETC_PM0_R511,   "MAC rx 256-511 byte packets" },
-	{ ENETC_PM0_R1023,  "MAC rx 512-1023 byte packets" },
-	{ ENETC_PM0_R1522,  "MAC rx 1024-1522 byte packets" },
-	{ ENETC_PM0_R1523X, "MAC rx 1523 to max-octet packets" },
-	{ ENETC_PM0_ROVR,   "MAC rx oversized packets" },
-	{ ENETC_PM0_RJBR,   "MAC rx jabber packets" },
-	{ ENETC_PM0_RFRG,   "MAC rx fragment packets" },
-	{ ENETC_PM0_RCNP,   "MAC rx control packets" },
-	{ ENETC_PM0_RDRNTP, "MAC rx fifo drop" },
-	{ ENETC_PM0_TEOCT,  "MAC tx ethernet octets" },
-	{ ENETC_PM0_TOCT,   "MAC tx octets" },
-	{ ENETC_PM0_TCRSE,  "MAC tx carrier sense errors" },
-	{ ENETC_PM0_TXPF,   "MAC tx valid pause frames" },
-	{ ENETC_PM0_TFRM,   "MAC tx frames" },
-	{ ENETC_PM0_TFCS,   "MAC tx fcs errors" },
-	{ ENETC_PM0_TVLAN,  "MAC tx VLAN frames" },
-	{ ENETC_PM0_TERR,   "MAC tx frame errors" },
-	{ ENETC_PM0_TUCA,   "MAC tx unicast frames" },
-	{ ENETC_PM0_TMCA,   "MAC tx multicast frames" },
-	{ ENETC_PM0_TBCA,   "MAC tx broadcast frames" },
-	{ ENETC_PM0_TPKT,   "MAC tx packets" },
-	{ ENETC_PM0_TUND,   "MAC tx undersized packets" },
-	{ ENETC_PM0_T64,    "MAC tx 64 byte packets" },
-	{ ENETC_PM0_T127,   "MAC tx 65-127 byte packets" },
-	{ ENETC_PM0_T255,   "MAC tx 128-255 byte packets" },
-	{ ENETC_PM0_T511,   "MAC tx 256-511 byte packets" },
-	{ ENETC_PM0_T1023,  "MAC tx 512-1023 byte packets" },
-	{ ENETC_PM0_T1522,  "MAC tx 1024-1522 byte packets" },
-	{ ENETC_PM0_T1523X, "MAC tx 1523 to max-octet packets" },
-	{ ENETC_PM0_TCNP,   "MAC tx control packets" },
-	{ ENETC_PM0_TDFR,   "MAC tx deferred packets" },
-	{ ENETC_PM0_TMCOL,  "MAC tx multiple collisions" },
-	{ ENETC_PM0_TSCOL,  "MAC tx single collisions" },
-	{ ENETC_PM0_TLCOL,  "MAC tx late collisions" },
-	{ ENETC_PM0_TECOL,  "MAC tx excessive collisions" },
-	{ ENETC_UFDMF,      "SI MAC nomatch u-cast discards" },
-	{ ENETC_MFDMF,      "SI MAC nomatch m-cast discards" },
-	{ ENETC_PBFDSIR,    "SI MAC nomatch b-cast discards" },
-	{ ENETC_PUFDVFR,    "SI VLAN nomatch u-cast discards" },
-	{ ENETC_PMFDVFR,    "SI VLAN nomatch m-cast discards" },
-	{ ENETC_PBFDVFR,    "SI VLAN nomatch b-cast discards" },
-	{ ENETC_PFDMSAPR,   "SI pruning discarded frames" },
-	{ ENETC_PICDR(0),   "ICM DR0 discarded frames" },
-	{ ENETC_PICDR(1),   "ICM DR1 discarded frames" },
-	{ ENETC_PICDR(2),   "ICM DR2 discarded frames" },
-	{ ENETC_PICDR(3),   "ICM DR3 discarded frames" },
+	{ ENETC_PM_REOCT(0),	"MAC rx ethernet octets" },
+	{ ENETC_PM_RALN(0),	"MAC rx alignment errors" },
+	{ ENETC_PM_RXPF(0),	"MAC rx valid pause frames" },
+	{ ENETC_PM_RFRM(0),	"MAC rx valid frames" },
+	{ ENETC_PM_RFCS(0),	"MAC rx fcs errors" },
+	{ ENETC_PM_RVLAN(0),	"MAC rx VLAN frames" },
+	{ ENETC_PM_RERR(0),	"MAC rx frame errors" },
+	{ ENETC_PM_RUCA(0),	"MAC rx unicast frames" },
+	{ ENETC_PM_RMCA(0),	"MAC rx multicast frames" },
+	{ ENETC_PM_RBCA(0),	"MAC rx broadcast frames" },
+	{ ENETC_PM_RDRP(0),	"MAC rx dropped packets" },
+	{ ENETC_PM_RPKT(0),	"MAC rx packets" },
+	{ ENETC_PM_RUND(0),	"MAC rx undersized packets" },
+	{ ENETC_PM_R64(0),	"MAC rx 64 byte packets" },
+	{ ENETC_PM_R127(0),	"MAC rx 65-127 byte packets" },
+	{ ENETC_PM_R255(0),	"MAC rx 128-255 byte packets" },
+	{ ENETC_PM_R511(0),	"MAC rx 256-511 byte packets" },
+	{ ENETC_PM_R1023(0),	"MAC rx 512-1023 byte packets" },
+	{ ENETC_PM_R1522(0),	"MAC rx 1024-1522 byte packets" },
+	{ ENETC_PM_R1523X(0),	"MAC rx 1523 to max-octet packets" },
+	{ ENETC_PM_ROVR(0),	"MAC rx oversized packets" },
+	{ ENETC_PM_RJBR(0),	"MAC rx jabber packets" },
+	{ ENETC_PM_RFRG(0),	"MAC rx fragment packets" },
+	{ ENETC_PM_RCNP(0),	"MAC rx control packets" },
+	{ ENETC_PM_RDRNTP(0),	"MAC rx fifo drop" },
+	{ ENETC_PM_TEOCT(0),	"MAC tx ethernet octets" },
+	{ ENETC_PM_TOCT(0),	"MAC tx octets" },
+	{ ENETC_PM_TCRSE(0),	"MAC tx carrier sense errors" },
+	{ ENETC_PM_TXPF(0),	"MAC tx valid pause frames" },
+	{ ENETC_PM_TFRM(0),	"MAC tx frames" },
+	{ ENETC_PM_TFCS(0),	"MAC tx fcs errors" },
+	{ ENETC_PM_TVLAN(0),	"MAC tx VLAN frames" },
+	{ ENETC_PM_TERR(0),	"MAC tx frame errors" },
+	{ ENETC_PM_TUCA(0),	"MAC tx unicast frames" },
+	{ ENETC_PM_TMCA(0),	"MAC tx multicast frames" },
+	{ ENETC_PM_TBCA(0),	"MAC tx broadcast frames" },
+	{ ENETC_PM_TPKT(0),	"MAC tx packets" },
+	{ ENETC_PM_TUND(0),	"MAC tx undersized packets" },
+	{ ENETC_PM_T64(0),	"MAC tx 64 byte packets" },
+	{ ENETC_PM_T127(0),	"MAC tx 65-127 byte packets" },
+	{ ENETC_PM_T255(0),	"MAC tx 128-255 byte packets" },
+	{ ENETC_PM_T511(0),	"MAC tx 256-511 byte packets" },
+	{ ENETC_PM_T1023(0),	"MAC tx 512-1023 byte packets" },
+	{ ENETC_PM_T1522(0),	"MAC tx 1024-1522 byte packets" },
+	{ ENETC_PM_T1523X(0),	"MAC tx 1523 to max-octet packets" },
+	{ ENETC_PM_TCNP(0),	"MAC tx control packets" },
+	{ ENETC_PM_TDFR(0),	"MAC tx deferred packets" },
+	{ ENETC_PM_TMCOL(0),	"MAC tx multiple collisions" },
+	{ ENETC_PM_TSCOL(0),	"MAC tx single collisions" },
+	{ ENETC_PM_TLCOL(0),	"MAC tx late collisions" },
+	{ ENETC_PM_TECOL(0),	"MAC tx excessive collisions" },
+	{ ENETC_UFDMF,		"SI MAC nomatch u-cast discards" },
+	{ ENETC_MFDMF,		"SI MAC nomatch m-cast discards" },
+	{ ENETC_PBFDSIR,	"SI MAC nomatch b-cast discards" },
+	{ ENETC_PUFDVFR,	"SI VLAN nomatch u-cast discards" },
+	{ ENETC_PMFDVFR,	"SI VLAN nomatch m-cast discards" },
+	{ ENETC_PBFDVFR,	"SI VLAN nomatch b-cast discards" },
+	{ ENETC_PFDMSAPR,	"SI pruning discarded frames" },
+	{ ENETC_PICDR(0),	"ICM DR0 discarded frames" },
+	{ ENETC_PICDR(1),	"ICM DR1 discarded frames" },
+	{ ENETC_PICDR(2),	"ICM DR2 discarded frames" },
+	{ ENETC_PICDR(3),	"ICM DR3 discarded frames" },
 };
 
 static const char rx_ring_stats[][ETH_GSTRING_LEN] = {
@@ -197,13 +215,13 @@ static const char rx_ring_stats[][ETH_GSTRING_LEN] = {
 	"Rx ring %2d recycle failures",
 	"Rx ring %2d redirects",
 	"Rx ring %2d redirect failures",
-	"Rx ring %2d redirect S/G",
 };
 
 static const char tx_ring_stats[][ETH_GSTRING_LEN] = {
 	"Tx ring %2d frames",
 	"Tx ring %2d XDP frames",
 	"Tx ring %2d XDP drops",
+	"Tx window drop %2d frames",
 };
 
 static int enetc_get_sset_count(struct net_device *ndev, int sset)
@@ -279,6 +297,7 @@ static void enetc_get_ethtool_stats(struct net_device *ndev,
 		data[o++] = priv->tx_ring[i]->stats.packets;
 		data[o++] = priv->tx_ring[i]->stats.xdp_tx;
 		data[o++] = priv->tx_ring[i]->stats.xdp_tx_drops;
+		data[o++] = priv->tx_ring[i]->stats.win_drop;
 	}
 
 	for (i = 0; i < priv->num_rx_rings; i++) {
@@ -289,7 +308,6 @@ static void enetc_get_ethtool_stats(struct net_device *ndev,
 		data[o++] = priv->rx_ring[i]->stats.recycle_failures;
 		data[o++] = priv->rx_ring[i]->stats.xdp_redirect;
 		data[o++] = priv->rx_ring[i]->stats.xdp_redirect_failures;
-		data[o++] = priv->rx_ring[i]->stats.xdp_redirect_sg;
 	}
 
 	if (!enetc_si_is_pf(priv->si))
@@ -297,6 +315,166 @@ static void enetc_get_ethtool_stats(struct net_device *ndev,
 
 	for (i = 0; i < ARRAY_SIZE(enetc_port_counters); i++)
 		data[o++] = enetc_port_rd(hw, enetc_port_counters[i].reg);
+}
+
+static void enetc_pause_stats(struct enetc_hw *hw, int mac,
+			      struct ethtool_pause_stats *pause_stats)
+{
+	pause_stats->tx_pause_frames = enetc_port_rd(hw, ENETC_PM_TXPF(mac));
+	pause_stats->rx_pause_frames = enetc_port_rd(hw, ENETC_PM_RXPF(mac));
+}
+
+static void enetc_get_pause_stats(struct net_device *ndev,
+				  struct ethtool_pause_stats *pause_stats)
+{
+	struct enetc_ndev_priv *priv = netdev_priv(ndev);
+	struct enetc_hw *hw = &priv->si->hw;
+	struct enetc_si *si = priv->si;
+
+	switch (pause_stats->src) {
+	case ETHTOOL_MAC_STATS_SRC_EMAC:
+		enetc_pause_stats(hw, 0, pause_stats);
+		break;
+	case ETHTOOL_MAC_STATS_SRC_PMAC:
+		if (si->hw_features & ENETC_SI_F_QBU)
+			enetc_pause_stats(hw, 1, pause_stats);
+		break;
+	case ETHTOOL_MAC_STATS_SRC_AGGREGATE:
+		ethtool_aggregate_pause_stats(ndev, pause_stats);
+		break;
+	}
+}
+
+static void enetc_mac_stats(struct enetc_hw *hw, int mac,
+			    struct ethtool_eth_mac_stats *s)
+{
+	s->FramesTransmittedOK = enetc_port_rd(hw, ENETC_PM_TFRM(mac));
+	s->SingleCollisionFrames = enetc_port_rd(hw, ENETC_PM_TSCOL(mac));
+	s->MultipleCollisionFrames = enetc_port_rd(hw, ENETC_PM_TMCOL(mac));
+	s->FramesReceivedOK = enetc_port_rd(hw, ENETC_PM_RFRM(mac));
+	s->FrameCheckSequenceErrors = enetc_port_rd(hw, ENETC_PM_RFCS(mac));
+	s->AlignmentErrors = enetc_port_rd(hw, ENETC_PM_RALN(mac));
+	s->OctetsTransmittedOK = enetc_port_rd(hw, ENETC_PM_TEOCT(mac));
+	s->FramesWithDeferredXmissions = enetc_port_rd(hw, ENETC_PM_TDFR(mac));
+	s->LateCollisions = enetc_port_rd(hw, ENETC_PM_TLCOL(mac));
+	s->FramesAbortedDueToXSColls = enetc_port_rd(hw, ENETC_PM_TECOL(mac));
+	s->FramesLostDueToIntMACXmitError = enetc_port_rd(hw, ENETC_PM_TERR(mac));
+	s->CarrierSenseErrors = enetc_port_rd(hw, ENETC_PM_TCRSE(mac));
+	s->OctetsReceivedOK = enetc_port_rd(hw, ENETC_PM_REOCT(mac));
+	s->FramesLostDueToIntMACRcvError = enetc_port_rd(hw, ENETC_PM_RDRNTP(mac));
+	s->MulticastFramesXmittedOK = enetc_port_rd(hw, ENETC_PM_TMCA(mac));
+	s->BroadcastFramesXmittedOK = enetc_port_rd(hw, ENETC_PM_TBCA(mac));
+	s->MulticastFramesReceivedOK = enetc_port_rd(hw, ENETC_PM_RMCA(mac));
+	s->BroadcastFramesReceivedOK = enetc_port_rd(hw, ENETC_PM_RBCA(mac));
+}
+
+static void enetc_ctrl_stats(struct enetc_hw *hw, int mac,
+			     struct ethtool_eth_ctrl_stats *s)
+{
+	s->MACControlFramesTransmitted = enetc_port_rd(hw, ENETC_PM_TCNP(mac));
+	s->MACControlFramesReceived = enetc_port_rd(hw, ENETC_PM_RCNP(mac));
+}
+
+static const struct ethtool_rmon_hist_range enetc_rmon_ranges[] = {
+	{   64,   64 },
+	{   65,  127 },
+	{  128,  255 },
+	{  256,  511 },
+	{  512, 1023 },
+	{ 1024, 1522 },
+	{ 1523, ENETC_MAC_MAXFRM_SIZE },
+	{},
+};
+
+static void enetc_rmon_stats(struct enetc_hw *hw, int mac,
+			     struct ethtool_rmon_stats *s)
+{
+	s->undersize_pkts = enetc_port_rd(hw, ENETC_PM_RUND(mac));
+	s->oversize_pkts = enetc_port_rd(hw, ENETC_PM_ROVR(mac));
+	s->fragments = enetc_port_rd(hw, ENETC_PM_RFRG(mac));
+	s->jabbers = enetc_port_rd(hw, ENETC_PM_RJBR(mac));
+
+	s->hist[0] = enetc_port_rd(hw, ENETC_PM_R64(mac));
+	s->hist[1] = enetc_port_rd(hw, ENETC_PM_R127(mac));
+	s->hist[2] = enetc_port_rd(hw, ENETC_PM_R255(mac));
+	s->hist[3] = enetc_port_rd(hw, ENETC_PM_R511(mac));
+	s->hist[4] = enetc_port_rd(hw, ENETC_PM_R1023(mac));
+	s->hist[5] = enetc_port_rd(hw, ENETC_PM_R1522(mac));
+	s->hist[6] = enetc_port_rd(hw, ENETC_PM_R1523X(mac));
+
+	s->hist_tx[0] = enetc_port_rd(hw, ENETC_PM_T64(mac));
+	s->hist_tx[1] = enetc_port_rd(hw, ENETC_PM_T127(mac));
+	s->hist_tx[2] = enetc_port_rd(hw, ENETC_PM_T255(mac));
+	s->hist_tx[3] = enetc_port_rd(hw, ENETC_PM_T511(mac));
+	s->hist_tx[4] = enetc_port_rd(hw, ENETC_PM_T1023(mac));
+	s->hist_tx[5] = enetc_port_rd(hw, ENETC_PM_T1522(mac));
+	s->hist_tx[6] = enetc_port_rd(hw, ENETC_PM_T1523X(mac));
+}
+
+static void enetc_get_eth_mac_stats(struct net_device *ndev,
+				    struct ethtool_eth_mac_stats *mac_stats)
+{
+	struct enetc_ndev_priv *priv = netdev_priv(ndev);
+	struct enetc_hw *hw = &priv->si->hw;
+	struct enetc_si *si = priv->si;
+
+	switch (mac_stats->src) {
+	case ETHTOOL_MAC_STATS_SRC_EMAC:
+		enetc_mac_stats(hw, 0, mac_stats);
+		break;
+	case ETHTOOL_MAC_STATS_SRC_PMAC:
+		if (si->hw_features & ENETC_SI_F_QBU)
+			enetc_mac_stats(hw, 1, mac_stats);
+		break;
+	case ETHTOOL_MAC_STATS_SRC_AGGREGATE:
+		ethtool_aggregate_mac_stats(ndev, mac_stats);
+		break;
+	}
+}
+
+static void enetc_get_eth_ctrl_stats(struct net_device *ndev,
+				     struct ethtool_eth_ctrl_stats *ctrl_stats)
+{
+	struct enetc_ndev_priv *priv = netdev_priv(ndev);
+	struct enetc_hw *hw = &priv->si->hw;
+	struct enetc_si *si = priv->si;
+
+	switch (ctrl_stats->src) {
+	case ETHTOOL_MAC_STATS_SRC_EMAC:
+		enetc_ctrl_stats(hw, 0, ctrl_stats);
+		break;
+	case ETHTOOL_MAC_STATS_SRC_PMAC:
+		if (si->hw_features & ENETC_SI_F_QBU)
+			enetc_ctrl_stats(hw, 1, ctrl_stats);
+		break;
+	case ETHTOOL_MAC_STATS_SRC_AGGREGATE:
+		ethtool_aggregate_ctrl_stats(ndev, ctrl_stats);
+		break;
+	}
+}
+
+static void enetc_get_rmon_stats(struct net_device *ndev,
+				 struct ethtool_rmon_stats *rmon_stats,
+				 const struct ethtool_rmon_hist_range **ranges)
+{
+	struct enetc_ndev_priv *priv = netdev_priv(ndev);
+	struct enetc_hw *hw = &priv->si->hw;
+	struct enetc_si *si = priv->si;
+
+	*ranges = enetc_rmon_ranges;
+
+	switch (rmon_stats->src) {
+	case ETHTOOL_MAC_STATS_SRC_EMAC:
+		enetc_rmon_stats(hw, 0, rmon_stats);
+		break;
+	case ETHTOOL_MAC_STATS_SRC_PMAC:
+		if (si->hw_features & ENETC_SI_F_QBU)
+			enetc_rmon_stats(hw, 1, rmon_stats);
+		break;
+	case ETHTOOL_MAC_STATS_SRC_AGGREGATE:
+		ethtool_aggregate_rmon_stats(ndev, rmon_stats);
+		break;
+	}
 }
 
 #define ENETC_RSSHASH_L3 (RXH_L2DA | RXH_VLAN | RXH_L3_PROTO | RXH_IP_SRC | \
@@ -542,6 +720,7 @@ void enetc_set_rss_key(struct enetc_hw *hw, const u8 *bytes)
 	for (i = 0; i < ENETC_RSSHASH_KEY_SIZE / 4; i++)
 		enetc_port_wr(hw, ENETC_PRSSK(i), ((u32 *)bytes)[i]);
 }
+EXPORT_SYMBOL_GPL(enetc_set_rss_key);
 
 static int enetc_set_rxfh(struct net_device *ndev, const u32 *indir,
 			  const u8 *key, const u8 hfunc)
@@ -755,6 +934,249 @@ static int enetc_set_link_ksettings(struct net_device *dev,
 	return phylink_ethtool_ksettings_set(priv->phylink, cmd);
 }
 
+static void enetc_get_mm_stats(struct net_device *ndev,
+			       struct ethtool_mm_stats *s)
+{
+	struct enetc_ndev_priv *priv = netdev_priv(ndev);
+	struct enetc_hw *hw = &priv->si->hw;
+	struct enetc_si *si = priv->si;
+
+	if (!(si->hw_features & ENETC_SI_F_QBU))
+		return;
+
+	s->MACMergeFrameAssErrorCount = enetc_port_rd(hw, ENETC_MMFAECR);
+	s->MACMergeFrameSmdErrorCount = enetc_port_rd(hw, ENETC_MMFSECR);
+	s->MACMergeFrameAssOkCount = enetc_port_rd(hw, ENETC_MMFAOCR);
+	s->MACMergeFragCountRx = enetc_port_rd(hw, ENETC_MMFCRXR);
+	s->MACMergeFragCountTx = enetc_port_rd(hw, ENETC_MMFCTXR);
+	s->MACMergeHoldCount = enetc_port_rd(hw, ENETC_MMHCR);
+}
+
+static int enetc_get_mm(struct net_device *ndev, struct ethtool_mm_state *state)
+{
+	struct enetc_ndev_priv *priv = netdev_priv(ndev);
+	struct enetc_si *si = priv->si;
+	struct enetc_hw *hw = &si->hw;
+	u32 lafs, rafs, val;
+
+	if (!(si->hw_features & ENETC_SI_F_QBU))
+		return -EOPNOTSUPP;
+
+	mutex_lock(&priv->mm_lock);
+
+	val = enetc_port_rd(hw, ENETC_PFPMR);
+	state->pmac_enabled = !!(val & ENETC_PFPMR_PMACE);
+
+	val = enetc_port_rd(hw, ENETC_MMCSR);
+
+	switch (ENETC_MMCSR_GET_VSTS(val)) {
+	case 0:
+		state->verify_status = ETHTOOL_MM_VERIFY_STATUS_DISABLED;
+		break;
+	case 2:
+		state->verify_status = ETHTOOL_MM_VERIFY_STATUS_VERIFYING;
+		break;
+	case 3:
+		state->verify_status = ETHTOOL_MM_VERIFY_STATUS_SUCCEEDED;
+		break;
+	case 4:
+		state->verify_status = ETHTOOL_MM_VERIFY_STATUS_FAILED;
+		break;
+	case 5:
+	default:
+		state->verify_status = ETHTOOL_MM_VERIFY_STATUS_UNKNOWN;
+		break;
+	}
+
+	rafs = ENETC_MMCSR_GET_RAFS(val);
+	state->tx_min_frag_size = ethtool_mm_frag_size_add_to_min(rafs);
+	lafs = ENETC_MMCSR_GET_LAFS(val);
+	state->rx_min_frag_size = ethtool_mm_frag_size_add_to_min(lafs);
+	state->tx_enabled = !!(val & ENETC_MMCSR_LPE); /* mirror of MMCSR_ME */
+	state->tx_active = state->tx_enabled &&
+			   (state->verify_status == ETHTOOL_MM_VERIFY_STATUS_SUCCEEDED ||
+			    state->verify_status == ETHTOOL_MM_VERIFY_STATUS_DISABLED);
+	state->verify_enabled = !(val & ENETC_MMCSR_VDIS);
+	state->verify_time = ENETC_MMCSR_GET_VT(val);
+	/* A verifyTime of 128 ms would exceed the 7 bit width
+	 * of the ENETC_MMCSR_VT field
+	 */
+	state->max_verify_time = 127;
+
+	mutex_unlock(&priv->mm_lock);
+
+	return 0;
+}
+
+static int enetc_mm_wait_tx_active(struct enetc_hw *hw, int verify_time)
+{
+	int timeout = verify_time * USEC_PER_MSEC * ENETC_MM_VERIFY_RETRIES;
+	u32 val;
+
+	/* This will time out after the standard value of 3 verification
+	 * attempts. To not sleep forever, it relies on a non-zero verify_time,
+	 * guarantee which is provided by the ethtool nlattr policy.
+	 */
+	return read_poll_timeout(enetc_port_rd, val,
+				 ENETC_MMCSR_GET_VSTS(val) == 3,
+				 ENETC_MM_VERIFY_SLEEP_US, timeout,
+				 true, hw, ENETC_MMCSR);
+}
+
+static void enetc_set_ptcfpr(struct enetc_hw *hw, u8 preemptible_tcs)
+{
+	u32 val;
+	int tc;
+
+	for (tc = 0; tc < 8; tc++) {
+		val = enetc_port_rd(hw, ENETC_PTCFPR(tc));
+
+		if (preemptible_tcs & BIT(tc))
+			val |= ENETC_PTCFPR_FPE;
+		else
+			val &= ~ENETC_PTCFPR_FPE;
+
+		enetc_port_wr(hw, ENETC_PTCFPR(tc), val);
+	}
+}
+
+/* ENETC does not have an IRQ to notify changes to the MAC Merge TX status
+ * (active/inactive), but the preemptible traffic classes should only be
+ * committed to hardware once TX is active. Resort to polling.
+ */
+void enetc_mm_commit_preemptible_tcs(struct enetc_ndev_priv *priv)
+{
+	struct enetc_hw *hw = &priv->si->hw;
+	u8 preemptible_tcs = 0;
+	u32 val;
+	int err;
+
+	val = enetc_port_rd(hw, ENETC_MMCSR);
+	if (!(val & ENETC_MMCSR_ME))
+		goto out;
+
+	if (!(val & ENETC_MMCSR_VDIS)) {
+		err = enetc_mm_wait_tx_active(hw, ENETC_MMCSR_GET_VT(val));
+		if (err)
+			goto out;
+	}
+
+	preemptible_tcs = priv->preemptible_tcs;
+out:
+	enetc_set_ptcfpr(hw, preemptible_tcs);
+}
+
+/* FIXME: Workaround for the link partner's verification failing if ENETC
+ * priorly received too much express traffic. The documentation doesn't
+ * suggest this is needed.
+ */
+static void enetc_restart_emac_rx(struct enetc_si *si)
+{
+	u32 val = enetc_port_rd(&si->hw, ENETC_PM0_CMD_CFG);
+
+	enetc_port_wr(&si->hw, ENETC_PM0_CMD_CFG, val & ~ENETC_PM0_RX_EN);
+
+	if (val & ENETC_PM0_RX_EN)
+		enetc_port_wr(&si->hw, ENETC_PM0_CMD_CFG, val);
+}
+
+static int enetc_set_mm(struct net_device *ndev, struct ethtool_mm_cfg *cfg,
+			struct netlink_ext_ack *extack)
+{
+	struct enetc_ndev_priv *priv = netdev_priv(ndev);
+	struct enetc_hw *hw = &priv->si->hw;
+	struct enetc_si *si = priv->si;
+	u32 val, add_frag_size;
+	int err;
+
+	if (!(si->hw_features & ENETC_SI_F_QBU))
+		return -EOPNOTSUPP;
+
+	err = ethtool_mm_frag_size_min_to_add(cfg->tx_min_frag_size,
+					      &add_frag_size, extack);
+	if (err)
+		return err;
+
+	mutex_lock(&priv->mm_lock);
+
+	val = enetc_port_rd(hw, ENETC_PFPMR);
+	if (cfg->pmac_enabled)
+		val |= ENETC_PFPMR_PMACE;
+	else
+		val &= ~ENETC_PFPMR_PMACE;
+	enetc_port_wr(hw, ENETC_PFPMR, val);
+
+	val = enetc_port_rd(hw, ENETC_MMCSR);
+
+	if (cfg->verify_enabled)
+		val &= ~ENETC_MMCSR_VDIS;
+	else
+		val |= ENETC_MMCSR_VDIS;
+
+	if (cfg->tx_enabled)
+		priv->active_offloads |= ENETC_F_QBU;
+	else
+		priv->active_offloads &= ~ENETC_F_QBU;
+
+	/* If link is up, enable/disable MAC Merge right away */
+	if (!(val & ENETC_MMCSR_LINK_FAIL)) {
+		if (!!(priv->active_offloads & ENETC_F_QBU))
+			val |= ENETC_MMCSR_ME;
+		else
+			val &= ~ENETC_MMCSR_ME;
+	}
+
+	val &= ~ENETC_MMCSR_VT_MASK;
+	val |= ENETC_MMCSR_VT(cfg->verify_time);
+
+	val &= ~ENETC_MMCSR_RAFS_MASK;
+	val |= ENETC_MMCSR_RAFS(add_frag_size);
+
+	enetc_port_wr(hw, ENETC_MMCSR, val);
+
+	enetc_restart_emac_rx(priv->si);
+
+	enetc_mm_commit_preemptible_tcs(priv);
+
+	mutex_unlock(&priv->mm_lock);
+
+	return 0;
+}
+
+/* When the link is lost, the verification state machine goes to the FAILED
+ * state and doesn't restart on its own after a new link up event.
+ * According to 802.3 Figure 99-8 - Verify state diagram, the LINK_FAIL bit
+ * should have been sufficient to re-trigger verification, but for ENETC it
+ * doesn't. As a workaround, we need to toggle the Merge Enable bit to
+ * re-trigger verification when link comes up.
+ */
+void enetc_mm_link_state_update(struct enetc_ndev_priv *priv, bool link)
+{
+	struct enetc_hw *hw = &priv->si->hw;
+	u32 val;
+
+	mutex_lock(&priv->mm_lock);
+
+	val = enetc_port_rd(hw, ENETC_MMCSR);
+
+	if (link) {
+		val &= ~ENETC_MMCSR_LINK_FAIL;
+		if (priv->active_offloads & ENETC_F_QBU)
+			val |= ENETC_MMCSR_ME;
+	} else {
+		val |= ENETC_MMCSR_LINK_FAIL;
+		if (priv->active_offloads & ENETC_F_QBU)
+			val &= ~ENETC_MMCSR_ME;
+	}
+
+	enetc_port_wr(hw, ENETC_MMCSR, val);
+
+	enetc_mm_commit_preemptible_tcs(priv);
+
+	mutex_unlock(&priv->mm_lock);
+}
+EXPORT_SYMBOL_GPL(enetc_mm_link_state_update);
+
 static const struct ethtool_ops enetc_pf_ethtool_ops = {
 	.supported_coalesce_params = ETHTOOL_COALESCE_USECS |
 				     ETHTOOL_COALESCE_MAX_FRAMES |
@@ -764,6 +1186,10 @@ static const struct ethtool_ops enetc_pf_ethtool_ops = {
 	.get_sset_count = enetc_get_sset_count,
 	.get_strings = enetc_get_strings,
 	.get_ethtool_stats = enetc_get_ethtool_stats,
+	.get_pause_stats = enetc_get_pause_stats,
+	.get_rmon_stats = enetc_get_rmon_stats,
+	.get_eth_ctrl_stats = enetc_get_eth_ctrl_stats,
+	.get_eth_mac_stats = enetc_get_eth_mac_stats,
 	.get_rxnfc = enetc_get_rxnfc,
 	.set_rxnfc = enetc_set_rxnfc,
 	.get_rxfh_key_size = enetc_get_rxfh_key_size,
@@ -781,6 +1207,9 @@ static const struct ethtool_ops enetc_pf_ethtool_ops = {
 	.set_wol = enetc_set_wol,
 	.get_pauseparam = enetc_get_pauseparam,
 	.set_pauseparam = enetc_set_pauseparam,
+	.get_mm = enetc_get_mm,
+	.set_mm = enetc_set_mm,
+	.get_mm_stats = enetc_get_mm_stats,
 };
 
 static const struct ethtool_ops enetc_vf_ethtool_ops = {
@@ -813,3 +1242,4 @@ void enetc_set_ethtool_ops(struct net_device *ndev)
 	else
 		ndev->ethtool_ops = &enetc_vf_ethtool_ops;
 }
+EXPORT_SYMBOL_GPL(enetc_set_ethtool_ops);

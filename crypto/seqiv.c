@@ -36,10 +36,9 @@ out:
 	kfree_sensitive(subreq->iv);
 }
 
-static void seqiv_aead_encrypt_complete(struct crypto_async_request *base,
-					int err)
+static void seqiv_aead_encrypt_complete(void *data, int err)
 {
-	struct aead_request *req = base->data;
+	struct aead_request *req = data;
 
 	seqiv_aead_encrypt_complete2(req, err);
 	aead_request_complete(req, err);
@@ -133,19 +132,6 @@ static int seqiv_aead_decrypt(struct aead_request *req)
 	return crypto_aead_decrypt(subreq);
 }
 
-static int aead_init_seqiv(struct crypto_aead *aead)
-{
-	int err;
-
-	err = aead_init_geniv(aead);
-	if (err)
-		return err;
-
-	crypto_aead_set_flags(aead, CRYPTO_TFM_FIPS_COMPLIANCE);
-
-	return 0;
-}
-
 static int seqiv_aead_create(struct crypto_template *tmpl, struct rtattr **tb)
 {
 	struct aead_instance *inst;
@@ -163,7 +149,7 @@ static int seqiv_aead_create(struct crypto_template *tmpl, struct rtattr **tb)
 	inst->alg.encrypt = seqiv_aead_encrypt;
 	inst->alg.decrypt = seqiv_aead_decrypt;
 
-	inst->alg.init = aead_init_seqiv;
+	inst->alg.init = aead_init_geniv;
 	inst->alg.exit = aead_exit_geniv;
 
 	inst->alg.base.cra_ctxsize = sizeof(struct aead_geniv_ctx);

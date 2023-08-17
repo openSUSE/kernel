@@ -4,13 +4,13 @@
 $id: http://devicetree.org/schemas/clock/qcom,a7pll.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Qualcomm A7 PLL Binding
+title: Qualcomm A7 PLL clock
 
 maintainers:
   - Manivannan Sadhasivam <manivannan.sadhasivam@linaro.org>
 
 description:
-  The A7 PLL on the Qualcomm platforms like SDX55 is used to provide high
+  The A7 PLL on the Qualcomm platforms like SDX55, SDX65 is used to provide high
   frequency clock to the CPU.
 
 properties:

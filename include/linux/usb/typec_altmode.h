@@ -30,8 +30,6 @@ struct typec_altmode {
 
 	char				*desc;
 	const struct typec_altmode_ops	*ops;
-
-	void *suse_kabi_padding;
 };
 
 #define to_typec_altmode(d) container_of(d, struct typec_altmode, dev)
@@ -65,8 +63,6 @@ struct typec_altmode_ops {
 	int (*notify)(struct typec_altmode *altmode, unsigned long conf,
 		      void *data);
 	int (*activate)(struct typec_altmode *altmode, int activate);
-
-	void *suse_kabi_padding;
 };
 
 int typec_altmode_enter(struct typec_altmode *altmode, u32 *vdo);
@@ -128,7 +124,7 @@ struct typec_altmode *typec_match_altmode(struct typec_altmode **altmodes,
 
 /**
  * typec_altmode_get_orientation - Get cable plug orientation
- * altmode: Handle to the alternate mode
+ * @altmode: Handle to the alternate mode
  */
 static inline enum typec_orientation
 typec_altmode_get_orientation(struct typec_altmode *altmode)
@@ -160,9 +156,6 @@ struct typec_altmode_driver {
 	const struct typec_device_id *id_table;
 	int (*probe)(struct typec_altmode *altmode);
 	void (*remove)(struct typec_altmode *altmode);
-
-	void *suse_kabi_padding;
-
 	struct device_driver driver;
 };
 

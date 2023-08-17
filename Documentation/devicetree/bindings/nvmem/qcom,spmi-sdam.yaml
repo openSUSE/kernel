@@ -4,7 +4,7 @@
 $id: http://devicetree.org/schemas/nvmem/qcom,spmi-sdam.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Qualcomm Technologies, Inc. SPMI SDAM DT bindings
+title: Qualcomm Technologies, Inc. SPMI SDAM
 
 maintainers:
   - Shyam Kumar Thella <sthella@codeaurora.org>
@@ -15,7 +15,7 @@ description: |
   to/from the PBUS.
 
 allOf:
-  - $ref: "nvmem.yaml#"
+  - $ref: nvmem.yaml#
 
 properties:
   compatible:
@@ -37,34 +37,6 @@ required:
   - compatible
   - reg
   - ranges
-
-patternProperties:
-  "^.*@[0-9a-f]+$":
-    type: object
-
-    properties:
-      reg:
-        maxItems: 1
-        description:
-          Offset and size in bytes within the storage device.
-
-      bits:
-        $ref: /schemas/types.yaml#/definitions/uint32-array
-        maxItems: 1
-        items:
-          items:
-            - minimum: 0
-              maximum: 7
-              description:
-                Offset in bit within the address range specified by reg.
-            - minimum: 1
-              description:
-                Size in bit within the address range specified by reg.
-
-    required:
-      - reg
-
-    additionalProperties: false
 
 unevaluatedProperties: false
 

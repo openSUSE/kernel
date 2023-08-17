@@ -512,16 +512,14 @@ static const struct of_device_id tegra30_ahub_of_match[] = {
 
 static int tegra30_ahub_probe(struct platform_device *pdev)
 {
-	const struct of_device_id *match;
 	const struct tegra30_ahub_soc_data *soc_data;
 	struct resource *res0;
 	void __iomem *regs_apbif, *regs_ahub;
 	int ret = 0;
 
-	match = of_match_device(tegra30_ahub_of_match, &pdev->dev);
-	if (!match)
+	soc_data = of_device_get_match_data(&pdev->dev);
+	if (!soc_data)
 		return -EINVAL;
-	soc_data = match->data;
 
 	ahub = devm_kzalloc(&pdev->dev, sizeof(struct tegra30_ahub),
 			    GFP_KERNEL);
@@ -594,13 +592,11 @@ err_unset_ahub:
 	return ret;
 }
 
-static int tegra30_ahub_remove(struct platform_device *pdev)
+static void tegra30_ahub_remove(struct platform_device *pdev)
 {
 	pm_runtime_disable(&pdev->dev);
 
 	ahub = NULL;
-
-	return 0;
 }
 
 static const struct dev_pm_ops tegra30_ahub_pm_ops = {
@@ -612,7 +608,7 @@ static const struct dev_pm_ops tegra30_ahub_pm_ops = {
 
 static struct platform_driver tegra30_ahub_driver = {
 	.probe = tegra30_ahub_probe,
-	.remove = tegra30_ahub_remove,
+	.remove_new = tegra30_ahub_remove,
 	.driver = {
 		.name = DRV_NAME,
 		.of_match_table = tegra30_ahub_of_match,

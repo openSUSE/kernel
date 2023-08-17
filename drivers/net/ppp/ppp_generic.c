@@ -175,6 +175,7 @@ struct channel {
 	spinlock_t	downl;		/* protects `chan', file.xq dequeue */
 	struct ppp	*ppp;		/* ppp unit we're connected to */
 	struct net	*chan_net;	/* the net channel belongs to */
+	netns_tracker	ns_tracker;
 	struct list_head clist;		/* link in list of channels per unit */
 	rwlock_t	upl;		/* protects `ppp' and 'bridge' */
 	struct channel __rcu *bridge;	/* "bridged" ppp channel */
@@ -479,7 +480,7 @@ static ssize_t ppp_read(struct file *file, char __user *buf,
 	ret = -EFAULT;
 	iov.iov_base = buf;
 	iov.iov_len = count;
-	iov_iter_init(&to, READ, &iov, 1, count);
+	iov_iter_init(&to, ITER_DEST, &iov, 1, count);
 	if (skb_copy_datagram_iter(skb, 0, &to, skb->len))
 		goto outf;
 	ret = skb->len;
@@ -1166,7 +1167,7 @@ static int ppp_unit_register(struct ppp *ppp, int unit, bool ifname_is_set)
 		if (!ifname_is_set) {
 			while (1) {
 				snprintf(ppp->dev->name, IFNAMSIZ, "ppp%i", ret);
-				if (!__dev_get_by_name(ppp->ppp_net, ppp->dev->name))
+				if (!netdev_name_in_use(ppp->ppp_net, ppp->dev->name))
 					break;
 				unit_put(&pn->units_idr, ret);
 				ret = unit_get(&pn->units_idr, ppp, ret + 1);
@@ -1393,7 +1394,7 @@ static int __init ppp_init(void)
 		goto out_net;
 	}
 
-	ppp_class = class_create(THIS_MODULE, "ppp");
+	ppp_class = class_create("ppp");
 	if (IS_ERR(ppp_class)) {
 		err = PTR_ERR(ppp_class);
 		goto out_chrdev;
@@ -1468,11 +1469,11 @@ ppp_start_xmit(struct sk_buff *skb, struct net_device *dev)
 }
 
 static int
-ppp_net_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+ppp_net_siocdevprivate(struct net_device *dev, struct ifreq *ifr,
+		       void __user *addr, int cmd)
 {
 	struct ppp *ppp = netdev_priv(dev);
 	int err = -EFAULT;
-	void __user *addr = (void __user *) ifr->ifr_ifru.ifru_data;
 	struct ppp_stats stats;
 	struct ppp_comp_stats cstats;
 	char *vers;
@@ -1601,7 +1602,7 @@ static const struct net_device_ops ppp_netdev_ops = {
 	.ndo_init	 = ppp_dev_init,
 	.ndo_uninit      = ppp_dev_uninit,
 	.ndo_start_xmit  = ppp_start_xmit,
-	.ndo_do_ioctl    = ppp_net_ioctl,
+	.ndo_siocdevprivate = ppp_net_siocdevprivate,
 	.ndo_get_stats64 = ppp_get_stats64,
 	.ndo_fill_forward_path = ppp_fill_forward_path,
 };
@@ -1741,6 +1742,8 @@ ppp_send_frame(struct ppp *ppp, struct sk_buff *skb)
 	struct sk_buff *new_skb;
 	int len;
 	unsigned char *cp;
+
+	skb->dev = ppp->dev;
 
 	if (proto < 0x8000) {
 #ifdef CONFIG_PPP_FILTER
@@ -2884,7 +2887,7 @@ int ppp_register_net_channel(struct net *net, struct ppp_channel *chan)
 
 	pch->ppp = NULL;
 	pch->chan = chan;
-	pch->chan_net = get_net(net);
+	pch->chan_net = get_net_track(net, &pch->ns_tracker, GFP_KERNEL);
 	chan->ppp = pch;
 	init_ppp_file(&pch->file, CHANNEL);
 	pch->file.hdrlen = chan->hdrlen;
@@ -2967,7 +2970,7 @@ ppp_unregister_channel(struct ppp_channel *chan)
 	chan->ppp = NULL;
 
 	/*
-	 * This ensures that we have returned from any calls into the
+	 * This ensures that we have returned from any calls into
 	 * the channel's start_xmit or ioctl routine before we proceed.
 	 */
 	down_write(&pch->chan_sem);
@@ -3524,7 +3527,7 @@ ppp_disconnect_channel(struct channel *pch)
  */
 static void ppp_destroy_channel(struct channel *pch)
 {
-	put_net(pch->chan_net);
+	put_net_track(pch->chan_net, &pch->ns_tracker);
 	pch->chan_net = NULL;
 
 	atomic_dec(&channel_count);

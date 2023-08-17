@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 
 /* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
- * Copyright (C) 2019-2021 Linaro Ltd.
+ * Copyright (C) 2019-2023 Linaro Ltd.
  */
 #ifndef _IPA_DATA_H_
 #define _IPA_DATA_H_
@@ -19,7 +19,7 @@
  * IPA and GSI resources to use for a given platform.  This data is supplied
  * via the Device Tree match table, associated with a particular compatible
  * string.  The data defines information about how resources, endpoints and
- * channels, memory, clocking and so on are allocated and used for the
+ * channels, memory, power and so on are allocated and used for the
  * platform.
  *
  * Resources are data structures used internally by the IPA hardware.  The
@@ -31,7 +31,7 @@
  * communication path between the IPA and a particular execution environment
  * (EE), such as the AP or Modem.  Each EE has a set of channels associated
  * with it, and each channel has an ID unique for that EE.  For the most part
- * the only GSI channels of concern to this driver belong to the AP
+ * the only GSI channels of concern to this driver belong to the AP.
  *
  * An endpoint is an IPA construct representing a single channel anywhere
  * in the system.  An IPA endpoint ID maps directly to an (EE, channel_id)
@@ -96,69 +96,9 @@ struct gsi_channel_data {
 };
 
 /**
- * struct ipa_endpoint_tx_data - configuration data for TX endpoints
- * @seq_type:		primary packet processing sequencer type
- * @seq_rep_type:	sequencer type for replication processing
- * @status_endpoint:	endpoint to which status elements are sent
- *
- * The @status_endpoint is only valid if the endpoint's @status_enable
- * flag is set.
- */
-struct ipa_endpoint_tx_data {
-	enum ipa_seq_type seq_type;
-	enum ipa_seq_rep_type seq_rep_type;
-	enum ipa_endpoint_name status_endpoint;
-};
-
-/**
- * struct ipa_endpoint_rx_data - configuration data for RX endpoints
- * @pad_align:	power-of-2 boundary to which packet payload is aligned
- * @aggr_close_eof: whether aggregation closes on end-of-frame
- *
- * With each packet it transfers, the IPA hardware can perform certain
- * transformations of its packet data.  One of these is adding pad bytes
- * to the end of the packet data so the result ends on a power-of-2 boundary.
- *
- * It is also able to aggregate multiple packets into a single receive buffer.
- * Aggregation is "open" while a buffer is being filled, and "closes" when
- * certain criteria are met.  One of those criteria is the sender indicating
- * a "frame" consisting of several transfers has ended.
- */
-struct ipa_endpoint_rx_data {
-	u32 pad_align;
-	bool aggr_close_eof;
-};
-
-/**
- * struct ipa_endpoint_config_data - IPA endpoint hardware configuration
- * @resource_group:	resource group to assign endpoint to
- * @checksum:		whether checksum offload is enabled
- * @qmap:		whether endpoint uses QMAP protocol
- * @aggregation:	whether endpoint supports aggregation
- * @status_enable:	whether endpoint uses status elements
- * @dma_mode:		whether endpoint operates in DMA mode
- * @dma_endpoint:	peer endpoint, if operating in DMA mode
- * @tx:			TX-specific endpoint information (see above)
- * @rx:			RX-specific endpoint information (see above)
- */
-struct ipa_endpoint_config_data {
-	u32 resource_group;
-	bool checksum;
-	bool qmap;
-	bool aggregation;
-	bool status_enable;
-	bool dma_mode;
-	enum ipa_endpoint_name dma_endpoint;
-	union {
-		struct ipa_endpoint_tx_data tx;
-		struct ipa_endpoint_rx_data rx;
-	};
-};
-
-/**
  * struct ipa_endpoint_data - IPA endpoint configuration data
  * @filter_support:	whether endpoint supports filtering
- * @config:		hardware configuration (see above)
+ * @config:		hardware configuration
  *
  * Not all endpoints support the IPA filtering capability.  A filter table
  * defines the filters to apply for those endpoints that support it.  The
@@ -166,12 +106,12 @@ struct ipa_endpoint_config_data {
  * for non-AP endpoints.  For this reason we define *all* endpoints used
  * in the system, and indicate whether they support filtering.
  *
- * The remaining endpoint configuration data applies only to AP endpoints.
+ * The remaining endpoint configuration data specifies default hardware
+ * configuration values that apply only to AP endpoints.
  */
 struct ipa_endpoint_data {
 	bool filter_support;
-	/* Everything else is specified only for AP endpoints */
-	struct ipa_endpoint_config_data config;
+	struct ipa_endpoint_config config;
 };
 
 /**
@@ -265,12 +205,12 @@ struct ipa_interconnect_data {
 };
 
 /**
- * struct ipa_clock_data - description of IPA clock and interconnect rates
+ * struct ipa_power_data - description of IPA power configuration data
  * @core_clock_rate:	Core clock rate (Hz)
  * @interconnect_count:	Number of entries in the interconnect_data array
  * @interconnect_data:	IPA interconnect configuration data
  */
-struct ipa_clock_data {
+struct ipa_power_data {
 	u32 core_clock_rate;
 	u32 interconnect_count;		/* # entries in interconnect_data[] */
 	const struct ipa_interconnect_data *interconnect_data;
@@ -282,29 +222,33 @@ struct ipa_clock_data {
  * @backward_compat:	BCR register value (prior to IPA v4.5 only)
  * @qsb_count:		number of entries in the qsb_data array
  * @qsb_data:		Qualcomm System Bus configuration data
+ * @modem_route_count:	number of modem entries in a routing table
  * @endpoint_count:	number of entries in the endpoint_data array
  * @endpoint_data:	IPA endpoint/GSI channel data
  * @resource_data:	IPA resource configuration data
  * @mem_data:		IPA memory region data
- * @clock_data:		IPA clock and interconnect data
+ * @power_data:		IPA power data
  */
 struct ipa_data {
 	enum ipa_version version;
 	u32 backward_compat;
 	u32 qsb_count;		/* number of entries in qsb_data[] */
 	const struct ipa_qsb_data *qsb_data;
+	u32 modem_route_count;
 	u32 endpoint_count;	/* number of entries in endpoint_data[] */
 	const struct ipa_gsi_endpoint_data *endpoint_data;
 	const struct ipa_resource_data *resource_data;
 	const struct ipa_mem_data *mem_data;
-	const struct ipa_clock_data *clock_data;
+	const struct ipa_power_data *power_data;
 };
 
 extern const struct ipa_data ipa_data_v3_1;
 extern const struct ipa_data ipa_data_v3_5_1;
 extern const struct ipa_data ipa_data_v4_2;
 extern const struct ipa_data ipa_data_v4_5;
+extern const struct ipa_data ipa_data_v4_7;
 extern const struct ipa_data ipa_data_v4_9;
 extern const struct ipa_data ipa_data_v4_11;
+extern const struct ipa_data ipa_data_v5_0;
 
 #endif /* _IPA_DATA_H_ */

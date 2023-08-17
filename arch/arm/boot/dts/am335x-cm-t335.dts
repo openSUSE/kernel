@@ -325,7 +325,7 @@ status = "okay";
 	tlv320aic23: codec@1a {
 		compatible = "ti,tlv320aic23";
 		reg = <0x1a>;
-		#sound-dai-cells= <0>;
+		#sound-dai-cells = <0>;
 		status = "okay";
 	};
 };
@@ -413,28 +413,31 @@ status = "okay";
 	status = "okay";
 };
 
-&mac {
+&mac_sw {
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&cpsw_default>;
 	pinctrl-1 = <&cpsw_sleep>;
-	slaves = <1>;
 	status = "okay";
 };
 
-&davinci_mdio {
+&davinci_mdio_sw {
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&davinci_mdio_default>;
 	pinctrl-1 = <&davinci_mdio_sleep>;
-	status = "okay";
 
 	ethphy0: ethernet-phy@0 {
 		reg = <0>;
 	};
 };
 
-&cpsw_emac0 {
+&cpsw_port1 {
 	phy-handle = <&ethphy0>;
 	phy-mode = "rgmii-txid";
+	ti,dual-emac-pvid = <1>;
+};
+
+&cpsw_port2 {
+	status = "disabled";
 };
 
 &mmc1 {
@@ -488,7 +491,7 @@ status = "okay";
 		tx-num-evt = <1>;
 		rx-num-evt = <1>;
 
-		#sound-dai-cells= <0>;
+		#sound-dai-cells = <0>;
 		status = "okay";
 };
 

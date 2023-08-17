@@ -10,6 +10,16 @@
 #include <asm/memory.h>
 #include <asm/sysreg.h>
 
+/*
+ * The EL0/EL1 pointer bits used by a pointer authentication code.
+ * This is dependent on TBI0/TBI1 being enabled, or bits 63:56 would also apply.
+ */
+#define ptrauth_user_pac_mask()		GENMASK_ULL(54, vabits_actual)
+#define ptrauth_kernel_pac_mask()	GENMASK_ULL(63, vabits_actual)
+
+#define PR_PAC_ENABLED_KEYS_MASK                                               \
+	(PR_PAC_APIAKEY | PR_PAC_APIBKEY | PR_PAC_APDAKEY | PR_PAC_APDBKEY)
+
 #ifdef CONFIG_ARM64_PTR_AUTH
 /*
  * Each key is a 128-bit quantity which is split across a pair of 64-bit
@@ -94,11 +104,6 @@ extern int ptrauth_set_enabled_keys(struct task_struct *tsk, unsigned long keys,
 				    unsigned long enabled);
 extern int ptrauth_get_enabled_keys(struct task_struct *tsk);
 
-static inline unsigned long ptrauth_strip_insn_pac(unsigned long ptr)
-{
-	return ptrauth_clear_pac(ptr);
-}
-
 static __always_inline void ptrauth_enable(void)
 {
 	if (!system_supports_address_auth())
@@ -117,9 +122,9 @@ static __always_inline void ptrauth_enable(void)
 									       \
 		/* enable all keys */                                          \
 		if (system_supports_address_auth())                            \
-			set_task_sctlr_el1(current->thread.sctlr_user |        \
-					   SCTLR_ELx_ENIA | SCTLR_ELx_ENIB |   \
-					   SCTLR_ELx_ENDA | SCTLR_ELx_ENDB);   \
+			ptrauth_set_enabled_keys(current,                      \
+						 PR_PAC_ENABLED_KEYS_MASK,     \
+						 PR_PAC_ENABLED_KEYS_MASK);    \
 	} while (0)
 
 #define ptrauth_thread_switch_user(tsk)                                        \
@@ -130,7 +135,6 @@ static __always_inline void ptrauth_enable(void)
 #define ptrauth_prctl_reset_keys(tsk, arg)	(-EINVAL)
 #define ptrauth_set_enabled_keys(tsk, keys, enabled)	(-EINVAL)
 #define ptrauth_get_enabled_keys(tsk)	(-EINVAL)
-#define ptrauth_strip_insn_pac(lr)	(lr)
 #define ptrauth_suspend_exit()
 #define ptrauth_thread_init_user()
 #define ptrauth_thread_switch_user(tsk)
@@ -145,8 +149,5 @@ static __always_inline void ptrauth_enable(void)
 #define ptrauth_thread_init_kernel(tsk)
 #define ptrauth_thread_switch_kernel(tsk)
 #endif /* CONFIG_ARM64_PTR_AUTH_KERNEL */
-
-#define PR_PAC_ENABLED_KEYS_MASK                                               \
-	(PR_PAC_APIAKEY | PR_PAC_APIBKEY | PR_PAC_APDAKEY | PR_PAC_APDBKEY)
 
 #endif /* __ASM_POINTER_AUTH_H */

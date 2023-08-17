@@ -176,14 +176,6 @@ static inline int qt2_control_msg(struct usb_device *dev,
 			       NULL, 0, QT2_USB_TIMEOUT);
 }
 
-static inline int qt2_setdevice(struct usb_device *dev, u8 *data)
-{
-	u16 x = ((u16) (data[1] << 8) | (u16) (data[0]));
-
-	return qt2_control_msg(dev, QT_SET_GET_DEVICE, x, 0);
-}
-
-
 static inline int qt2_getregister(struct usb_device *dev,
 				  u8 uart,
 				  u8 reg,
@@ -261,8 +253,8 @@ static int qt2_calc_num_ports(struct usb_serial *serial,
 }
 
 static void qt2_set_termios(struct tty_struct *tty,
-			    struct usb_serial_port *port,
-			    struct ktermios *old_termios)
+		            struct usb_serial_port *port,
+		            const struct ktermios *old_termios)
 {
 	struct usb_device *dev = port->serial->dev;
 	struct qt2_port_private *port_priv;
@@ -281,21 +273,7 @@ static void qt2_set_termios(struct tty_struct *tty,
 			new_lcr |= SERIAL_EVEN_PARITY;
 	}
 
-	switch (cflag & CSIZE) {
-	case CS5:
-		new_lcr |= UART_LCR_WLEN5;
-		break;
-	case CS6:
-		new_lcr |= UART_LCR_WLEN6;
-		break;
-	case CS7:
-		new_lcr |= UART_LCR_WLEN7;
-		break;
-	default:
-	case CS8:
-		new_lcr |= UART_LCR_WLEN8;
-		break;
-	}
+	new_lcr |= UART_LCR_WLEN(tty_get_char_size(cflag));
 
 	baud = tty_get_baud_rate(tty);
 	if (!baud)

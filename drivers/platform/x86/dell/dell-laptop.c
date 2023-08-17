@@ -80,6 +80,10 @@ static struct quirk_entry quirk_dell_inspiron_1012 = {
 	.kbd_led_not_present = true,
 };
 
+static struct quirk_entry quirk_dell_latitude_7520 = {
+	.kbd_missing_ac_tag = true,
+};
+
 static struct platform_driver platform_driver = {
 	.driver = {
 		.name = "dell-laptop",
@@ -93,6 +97,7 @@ static struct rfkill *bluetooth_rfkill;
 static struct rfkill *wwan_rfkill;
 static bool force_rfkill;
 static bool micmute_led_registered;
+static bool mute_led_registered;
 
 module_param(force_rfkill, bool, 0444);
 MODULE_PARM_DESC(force_rfkill, "enable rfkill on non whitelisted models");
@@ -335,6 +340,15 @@ static const struct dmi_system_id dell_quirks[] __initconst = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "Inspiron 1018"),
 		},
 		.driver_data = &quirk_dell_inspiron_1012,
+	},
+	{
+		.callback = dmi_matched,
+		.ident = "Dell Latitude 7520",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Latitude 7520"),
+		},
+		.driver_data = &quirk_dell_latitude_7520,
 	},
 	{ }
 };
@@ -2164,6 +2178,34 @@ static struct led_classdev micmute_led_cdev = {
 	.default_trigger = "audio-micmute",
 };
 
+static int mute_led_set(struct led_classdev *led_cdev,
+			   enum led_brightness brightness)
+{
+	struct calling_interface_buffer buffer;
+	struct calling_interface_token *token;
+	int state = brightness != LED_OFF;
+
+	if (state == 0)
+		token = dell_smbios_find_token(GLOBAL_MUTE_DISABLE);
+	else
+		token = dell_smbios_find_token(GLOBAL_MUTE_ENABLE);
+
+	if (!token)
+		return -ENODEV;
+
+	dell_fill_request(&buffer, token->location, token->value, 0, 0);
+	dell_send_request(&buffer, CLASS_TOKEN_WRITE, SELECT_TOKEN_STD);
+
+	return 0;
+}
+
+static struct led_classdev mute_led_cdev = {
+	.name = "platform::mute",
+	.max_brightness = 1,
+	.brightness_set_blocking = mute_led_set,
+	.default_trigger = "audio-mute",
+};
+
 static int __init dell_init(void)
 {
 	struct calling_interface_token *token;
@@ -2180,7 +2222,7 @@ static int __init dell_init(void)
 	ret = platform_driver_register(&platform_driver);
 	if (ret)
 		goto fail_platform_driver;
-	platform_device = platform_device_alloc("dell-laptop", -1);
+	platform_device = platform_device_alloc("dell-laptop", PLATFORM_DEVID_NONE);
 	if (!platform_device) {
 		ret = -ENOMEM;
 		goto fail_platform_device1;
@@ -2215,6 +2257,15 @@ static int __init dell_init(void)
 		if (ret < 0)
 			goto fail_led;
 		micmute_led_registered = true;
+	}
+
+	if (dell_smbios_find_token(GLOBAL_MUTE_DISABLE) &&
+	    dell_smbios_find_token(GLOBAL_MUTE_ENABLE)) {
+		mute_led_cdev.brightness = ledtrig_audio_get(LED_AUDIO_MUTE);
+		ret = led_classdev_register(&platform_device->dev, &mute_led_cdev);
+		if (ret < 0)
+			goto fail_backlight;
+		mute_led_registered = true;
 	}
 
 	if (acpi_video_get_backlight_type() != acpi_backlight_vendor)
@@ -2264,6 +2315,8 @@ fail_get_brightness:
 fail_backlight:
 	if (micmute_led_registered)
 		led_classdev_unregister(&micmute_led_cdev);
+	if (mute_led_registered)
+		led_classdev_unregister(&mute_led_cdev);
 fail_led:
 	dell_cleanup_rfkill();
 fail_rfkill:
@@ -2286,6 +2339,8 @@ static void __exit dell_exit(void)
 	backlight_device_unregister(dell_backlight_device);
 	if (micmute_led_registered)
 		led_classdev_unregister(&micmute_led_cdev);
+	if (mute_led_registered)
+		led_classdev_unregister(&mute_led_cdev);
 	dell_cleanup_rfkill();
 	if (platform_device) {
 		platform_device_unregister(platform_device);

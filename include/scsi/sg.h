@@ -29,10 +29,6 @@
  * For utility and test programs see: http://sg.danny.cz/sg/sg3_utils.html
  */
 
-#ifdef __KERNEL__
-extern int sg_big_buff; /* for sysctl */
-#endif
-
 
 typedef struct sg_iovec /* same structure as used by readv() Linux system */
 {                       /* call. It defines one scatter-gather element. */
@@ -163,7 +159,7 @@ struct compat_sg_io_hdr {
 #define TASK_ABORTED         0x20
 
 /* Obsolete status_byte() declaration */
-#define status_byte(result) (((result) >> 1) & 0x7f)
+#define sg_status_byte(result) (((result) >> 1) & 0x7f)
 
 typedef struct sg_scsi_id { /* used by SG_GET_SCSI_ID ioctl() */
     int host_no;        /* as in "scsi<n>" where 'n' is one of 0, 1, 2 etc */

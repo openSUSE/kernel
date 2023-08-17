@@ -16,14 +16,11 @@
 #include <asm/xics.h>
 #include <asm/udbg.h>
 
+#include "microwatt.h"
+
 static void __init microwatt_init_IRQ(void)
 {
 	xics_init();
-}
-
-static int __init microwatt_probe(void)
-{
-	return of_machine_is_compatible("microwatt-soc");
 }
 
 static int __init microwatt_populate(void)
@@ -32,10 +29,15 @@ static int __init microwatt_populate(void)
 }
 machine_arch_initcall(microwatt, microwatt_populate);
 
+static void __init microwatt_setup_arch(void)
+{
+	microwatt_rng_init();
+}
+
 define_machine(microwatt) {
 	.name			= "microwatt",
-	.probe			= microwatt_probe,
+	.compatible		= "microwatt-soc",
 	.init_IRQ		= microwatt_init_IRQ,
+	.setup_arch		= microwatt_setup_arch,
 	.progress		= udbg_progress,
-	.calibrate_decr		= generic_calibrate_decr,
 };

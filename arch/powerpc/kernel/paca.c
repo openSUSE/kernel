@@ -186,12 +186,14 @@ void __init initialise_paca(struct paca_struct *new_paca, int cpu)
 #ifdef CONFIG_PPC_PSERIES
 	new_paca->lppaca_ptr = NULL;
 #endif
-#ifdef CONFIG_PPC_BOOK3E
+#ifdef CONFIG_PPC_BOOK3E_64
 	new_paca->kernel_pgd = swapper_pg_dir;
 #endif
 	new_paca->lock_token = 0x8000;
 	new_paca->paca_index = cpu;
+#ifndef CONFIG_PPC_KERNEL_PCREL
 	new_paca->kernel_toc = kernel_toc_addr();
+#endif
 	new_paca->kernelbase = (unsigned long) _stext;
 	/* Only set MSR:IR/DR when MMU is initialized */
 	new_paca->kernel_msr = MSR_KERNEL & ~(MSR_IR | MSR_DR);
@@ -203,7 +205,7 @@ void __init initialise_paca(struct paca_struct *new_paca, int cpu)
 	new_paca->slb_shadow_ptr = NULL;
 #endif
 
-#ifdef CONFIG_PPC_BOOK3E
+#ifdef CONFIG_PPC_BOOK3E_64
 	/* For now -- if we have threads this will be adjusted later */
 	new_paca->tcd_ptr = &new_paca->tcd;
 #endif
@@ -215,7 +217,7 @@ void setup_paca(struct paca_struct *new_paca)
 	/* Setup r13 */
 	local_paca = new_paca;
 
-#ifdef CONFIG_PPC_BOOK3E
+#ifdef CONFIG_PPC_BOOK3E_64
 	/* On Book3E, initialize the TLB miss exception frames */
 	mtspr(SPRN_SPRG_TLB_EXFRAME, local_paca->extlb);
 #else
@@ -288,8 +290,8 @@ void __init free_unused_pacas(void)
 
 	new_ptrs_size = sizeof(struct paca_struct *) * nr_cpu_ids;
 	if (new_ptrs_size < paca_ptrs_size)
-		memblock_free(__pa(paca_ptrs) + new_ptrs_size,
-					paca_ptrs_size - new_ptrs_size);
+		memblock_phys_free(__pa(paca_ptrs) + new_ptrs_size,
+				   paca_ptrs_size - new_ptrs_size);
 
 	paca_nr_cpu_ids = nr_cpu_ids;
 	paca_ptrs_size = new_ptrs_size;
@@ -297,8 +299,8 @@ void __init free_unused_pacas(void)
 #ifdef CONFIG_PPC_64S_HASH_MMU
 	if (early_radix_enabled()) {
 		/* Ugly fixup, see new_slb_shadow() */
-		memblock_free(__pa(paca_ptrs[boot_cpuid]->slb_shadow_ptr),
-				sizeof(struct slb_shadow));
+		memblock_phys_free(__pa(paca_ptrs[boot_cpuid]->slb_shadow_ptr),
+				   sizeof(struct slb_shadow));
 		paca_ptrs[boot_cpuid]->slb_shadow_ptr = NULL;
 	}
 #endif
@@ -312,15 +314,10 @@ void copy_mm_to_paca(struct mm_struct *mm)
 {
 	mm_context_t *context = &mm->context;
 
-#ifdef CONFIG_PPC_MM_SLICES
 	VM_BUG_ON(!mm_ctx_slb_addr_limit(context));
 	memcpy(&get_paca()->mm_ctx_low_slices_psize, mm_ctx_low_slices(context),
 	       LOW_SLICE_ARRAY_SZ);
 	memcpy(&get_paca()->mm_ctx_high_slices_psize, mm_ctx_high_slices(context),
 	       TASK_SLICE_ARRAY_SZ(context));
-#else /* CONFIG_PPC_MM_SLICES */
-	get_paca()->mm_ctx_user_psize = context->user_psize;
-	get_paca()->mm_ctx_sllp = context->sllp;
-#endif
 }
 #endif /* CONFIG_PPC_64S_HASH_MMU */

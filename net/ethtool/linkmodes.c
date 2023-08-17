@@ -70,6 +70,7 @@ static int linkmodes_reply_size(const struct ethnl_req_info *req_base,
 		+ nla_total_size(sizeof(u32)) /* LINKMODES_SPEED */
 		+ nla_total_size(sizeof(u32)) /* LINKMODES_LANES */
 		+ nla_total_size(sizeof(u8)) /* LINKMODES_DUPLEX */
+		+ nla_total_size(sizeof(u8)) /* LINKMODES_RATE_MATCHING */
 		+ 0;
 	ret = ethnl_bitset_size(ksettings->link_modes.advertising,
 				ksettings->link_modes.supported,
@@ -143,20 +144,12 @@ static int linkmodes_fill_reply(struct sk_buff *skb,
 		       lsettings->master_slave_state))
 		return -EMSGSIZE;
 
+	if (nla_put_u8(skb, ETHTOOL_A_LINKMODES_RATE_MATCHING,
+		       lsettings->rate_matching))
+		return -EMSGSIZE;
+
 	return 0;
 }
-
-const struct ethnl_request_ops ethnl_linkmodes_request_ops = {
-	.request_cmd		= ETHTOOL_MSG_LINKMODES_GET,
-	.reply_cmd		= ETHTOOL_MSG_LINKMODES_GET_REPLY,
-	.hdr_attr		= ETHTOOL_A_LINKMODES_HEADER,
-	.req_info_size		= sizeof(struct linkmodes_req_info),
-	.reply_data_size	= sizeof(struct linkmodes_reply_data),
-
-	.prepare_data		= linkmodes_prepare_data,
-	.reply_size		= linkmodes_reply_size,
-	.fill_reply		= linkmodes_fill_reply,
-};
 
 /* LINKMODES_SET */
 
@@ -277,11 +270,12 @@ static int ethnl_update_linkmodes(struct genl_info *info, struct nlattr **tb,
 					    "lanes configuration not supported by device");
 			return -EOPNOTSUPP;
 		}
-	} else if (!lsettings->autoneg) {
-		/* If autoneg is off and lanes parameter is not passed from user,
-		 * set the lanes parameter to 0.
+	} else if (!lsettings->autoneg && ksettings->lanes) {
+		/* If autoneg is off and lanes parameter is not passed from user but
+		 * it was defined previously then set the lanes parameter to 0.
 		 */
 		ksettings->lanes = 0;
+		*mod = true;
 	}
 
 	ret = ethnl_update_bitset(ksettings->link_modes.advertising,
@@ -305,59 +299,64 @@ static int ethnl_update_linkmodes(struct genl_info *info, struct nlattr **tb,
 	return 0;
 }
 
-int ethnl_set_linkmodes(struct sk_buff *skb, struct genl_info *info)
+static int
+ethnl_set_linkmodes_validate(struct ethnl_req_info *req_info,
+			     struct genl_info *info)
 {
-	struct ethtool_link_ksettings ksettings = {};
-	struct ethnl_req_info req_info = {};
-	struct nlattr **tb = info->attrs;
-	struct net_device *dev;
-	bool mod = false;
+	const struct ethtool_ops *ops = req_info->dev->ethtool_ops;
 	int ret;
 
-	ret = ethnl_check_linkmodes(info, tb);
+	ret = ethnl_check_linkmodes(info, info->attrs);
 	if (ret < 0)
 		return ret;
 
-	ret = ethnl_parse_header_dev_get(&req_info,
-					 tb[ETHTOOL_A_LINKMODES_HEADER],
-					 genl_info_net(info), info->extack,
-					 true);
-	if (ret < 0)
-		return ret;
-	dev = req_info.dev;
-	ret = -EOPNOTSUPP;
-	if (!dev->ethtool_ops->get_link_ksettings ||
-	    !dev->ethtool_ops->set_link_ksettings)
-		goto out_dev;
+	if (!ops->get_link_ksettings || !ops->set_link_ksettings)
+		return -EOPNOTSUPP;
+	return 1;
+}
 
-	rtnl_lock();
-	ret = ethnl_ops_begin(dev);
-	if (ret < 0)
-		goto out_rtnl;
+static int
+ethnl_set_linkmodes(struct ethnl_req_info *req_info, struct genl_info *info)
+{
+	struct ethtool_link_ksettings ksettings = {};
+	struct net_device *dev = req_info->dev;
+	struct nlattr **tb = info->attrs;
+	bool mod = false;
+	int ret;
 
 	ret = __ethtool_get_link_ksettings(dev, &ksettings);
 	if (ret < 0) {
 		GENL_SET_ERR_MSG(info, "failed to retrieve link settings");
-		goto out_ops;
+		return ret;
 	}
 
 	ret = ethnl_update_linkmodes(info, tb, &ksettings, &mod, dev);
 	if (ret < 0)
-		goto out_ops;
+		return ret;
+	if (!mod)
+		return 0;
 
-	if (mod) {
-		ret = dev->ethtool_ops->set_link_ksettings(dev, &ksettings);
-		if (ret < 0)
-			GENL_SET_ERR_MSG(info, "link settings update failed");
-		else
-			ethtool_notify(dev, ETHTOOL_MSG_LINKMODES_NTF, NULL);
+	ret = dev->ethtool_ops->set_link_ksettings(dev, &ksettings);
+	if (ret < 0) {
+		GENL_SET_ERR_MSG(info, "link settings update failed");
+		return ret;
 	}
 
-out_ops:
-	ethnl_ops_complete(dev);
-out_rtnl:
-	rtnl_unlock();
-out_dev:
-	dev_put(dev);
-	return ret;
+	return 1;
 }
+
+const struct ethnl_request_ops ethnl_linkmodes_request_ops = {
+	.request_cmd		= ETHTOOL_MSG_LINKMODES_GET,
+	.reply_cmd		= ETHTOOL_MSG_LINKMODES_GET_REPLY,
+	.hdr_attr		= ETHTOOL_A_LINKMODES_HEADER,
+	.req_info_size		= sizeof(struct linkmodes_req_info),
+	.reply_data_size	= sizeof(struct linkmodes_reply_data),
+
+	.prepare_data		= linkmodes_prepare_data,
+	.reply_size		= linkmodes_reply_size,
+	.fill_reply		= linkmodes_fill_reply,
+
+	.set_validate		= ethnl_set_linkmodes_validate,
+	.set			= ethnl_set_linkmodes,
+	.set_ntf_cmd		= ETHTOOL_MSG_LINKMODES_NTF,
+};

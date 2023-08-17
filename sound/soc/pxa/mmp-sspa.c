@@ -171,11 +171,11 @@ static int mmp_sspa_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 	sspa->sp   = SSPA_SP_WEN | SSPA_SP_S_RST | SSPA_SP_FFLUSH;
 	sspa->ctrl = 0;
 
-	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
-	case SND_SOC_DAIFMT_CBS_CFS:
+	switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
+	case SND_SOC_DAIFMT_BP_FP:
 		sspa->sp |= SSPA_SP_MSL;
 		break;
-	case SND_SOC_DAIFMT_CBM_CFM:
+	case SND_SOC_DAIFMT_BC_FC:
 		break;
 	default:
 		return -EINVAL;
@@ -404,7 +404,7 @@ static int mmp_pcm_mmap(struct snd_soc_component *component,
 			struct snd_pcm_substream *substream,
 			struct vm_area_struct *vma)
 {
-	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
+	vm_flags_set(vma, VM_DONTEXPAND | VM_DONTDUMP);
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 	return remap_pfn_range(vma, vma->vm_start,
 		substream->dma_buffer.addr >> PAGE_SHIFT,
@@ -456,10 +456,11 @@ static int mmp_sspa_close(struct snd_soc_component *component,
 }
 
 static const struct snd_soc_component_driver mmp_sspa_component = {
-	.name		= "mmp-sspa",
-	.mmap		= mmp_pcm_mmap,
-	.open		= mmp_sspa_open,
-	.close		= mmp_sspa_close,
+	.name			= "mmp-sspa",
+	.mmap			= mmp_pcm_mmap,
+	.open			= mmp_sspa_open,
+	.close			= mmp_sspa_close,
+	.legacy_dai_naming	= 1,
 };
 
 static int asoc_mmp_sspa_probe(struct platform_device *pdev)
@@ -544,7 +545,7 @@ static int asoc_mmp_sspa_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int asoc_mmp_sspa_remove(struct platform_device *pdev)
+static void asoc_mmp_sspa_remove(struct platform_device *pdev)
 {
 	struct sspa_priv *sspa = platform_get_drvdata(pdev);
 
@@ -552,11 +553,10 @@ static int asoc_mmp_sspa_remove(struct platform_device *pdev)
 	pm_runtime_disable(&pdev->dev);
 
 	if (pdev->dev.of_node)
-		return 0;
+		return;
 
 	clk_put(sspa->audio_clk);
 	clk_put(sspa->sysclk);
-	return 0;
 }
 
 #ifdef CONFIG_OF
@@ -574,7 +574,7 @@ static struct platform_driver asoc_mmp_sspa_driver = {
 		.of_match_table = of_match_ptr(mmp_sspa_of_match),
 	},
 	.probe = asoc_mmp_sspa_probe,
-	.remove = asoc_mmp_sspa_remove,
+	.remove_new = asoc_mmp_sspa_remove,
 };
 
 module_platform_driver(asoc_mmp_sspa_driver);

@@ -23,6 +23,7 @@
 #include <linux/sched/signal.h>
 #include <asm/debug.h>
 #include <asm/cpacf.h>
+#include <asm/archrandom.h>
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("IBM Corporation");
@@ -108,24 +109,15 @@ static ssize_t trng_counter_show(struct device *dev,
 {
 	u64 dev_counter = atomic64_read(&trng_dev_counter);
 	u64 hwrng_counter = atomic64_read(&trng_hwrng_counter);
-#if IS_ENABLED(CONFIG_ARCH_RANDOM)
 	u64 arch_counter = atomic64_read(&s390_arch_random_counter);
 
-	return snprintf(buf, PAGE_SIZE,
+	return sysfs_emit(buf,
 			"trng:  %llu\n"
 			"hwrng: %llu\n"
 			"arch:  %llu\n"
 			"total: %llu\n",
 			dev_counter, hwrng_counter, arch_counter,
 			dev_counter + hwrng_counter + arch_counter);
-#else
-	return snprintf(buf, PAGE_SIZE,
-			"trng:  %llu\n"
-			"hwrng: %llu\n"
-			"total: %llu\n",
-			dev_counter, hwrng_counter,
-			dev_counter + hwrng_counter);
-#endif
 }
 static DEVICE_ATTR(byte_counter, 0444, trng_counter_show, NULL);
 
@@ -200,7 +192,6 @@ static struct hwrng trng_hwrng_dev = {
 	.name		= "s390-trng",
 	.data_read	= trng_hwrng_data_read,
 	.read		= trng_hwrng_read,
-	.quality	= 1024,
 };
 
 
@@ -261,5 +252,5 @@ static void __exit trng_exit(void)
 	trng_debug_exit();
 }
 
-module_cpu_feature_match(MSA, trng_init);
+module_cpu_feature_match(S390_CPU_FEATURE_MSA, trng_init);
 module_exit(trng_exit);

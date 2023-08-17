@@ -460,7 +460,7 @@ static ssize_t vendor_id_show(struct device *dev,
 {
 	struct ac97_codec_device *codec = to_ac97_device(dev);
 
-	return sprintf(buf, "%08x", codec->vendor_id);
+	return sysfs_emit(buf, "%08x", codec->vendor_id);
 }
 DEVICE_ATTR_RO(vendor_id);
 
@@ -524,10 +524,9 @@ static void ac97_bus_remove(struct device *dev)
 	if (ret < 0)
 		return;
 
-	ret = adrv->remove(adev);
+	adrv->remove(adev);
 	pm_runtime_put_noidle(dev);
-	if (ret == 0)
-		ac97_put_disable_clk(adev);
+	ac97_put_disable_clk(adev);
 
 	pm_runtime_disable(dev);
 }

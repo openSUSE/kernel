@@ -216,7 +216,7 @@ static int spwr_ac_register(struct spwr_ac_device *ac)
 	if (IS_ERR(ac->psy))
 		return PTR_ERR(ac->psy);
 
-	return ssam_notifier_register(ac->sdev->ctrl, &ac->notif);
+	return ssam_device_notifier_register(ac->sdev, &ac->notif);
 }
 
 
@@ -251,7 +251,7 @@ static void surface_ac_remove(struct ssam_device *sdev)
 {
 	struct spwr_ac_device *ac = ssam_device_get_drvdata(sdev);
 
-	ssam_notifier_unregister(sdev->ctrl, &ac->notif);
+	ssam_device_notifier_unregister(sdev, &ac->notif);
 }
 
 static const struct spwr_psy_properties spwr_psy_props_adp1 = {
@@ -260,7 +260,7 @@ static const struct spwr_psy_properties spwr_psy_props_adp1 = {
 };
 
 static const struct ssam_device_id surface_ac_match[] = {
-	{ SSAM_SDEV(BAT, 0x01, 0x01, 0x01), (unsigned long)&spwr_psy_props_adp1 },
+	{ SSAM_SDEV(BAT, SAM, 0x01, 0x01), (unsigned long)&spwr_psy_props_adp1 },
 	{ },
 };
 MODULE_DEVICE_TABLE(ssam, surface_ac_match);

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: (GPL-2.0 OR MPL-1.1) */
-/* hfa384x.h
+/*
  *
  * Defines the constants and data structures for the hfa384x
  *
@@ -475,14 +475,7 @@ struct hfa384x_tx_frame {
 	u16 tx_control;
 
 	/*-- 802.11 Header Information --*/
-
-	u16 frame_control;
-	u16 duration_id;
-	u8 address1[6];
-	u8 address2[6];
-	u8 address3[6];
-	u16 sequence_control;
-	u8 address4[6];
+	struct p80211_hdr hdr;
 	__le16 data_len;		/* little endian format */
 
 	/*-- 802.3 Header Information --*/
@@ -541,13 +534,7 @@ struct hfa384x_rx_frame {
 	u16 reserved2;
 
 	/*-- 802.11 Header Information (802.11 byte order) --*/
-	__le16 frame_control;
-	u16 duration_id;
-	u8 address1[6];
-	u8 address2[6];
-	u8 address3[6];
-	u16 sequence_control;
-	u8 address4[6];
+	struct p80211_hdr hdr;
 	__le16 data_len;		/* hfa384x (little endian) format */
 
 	/*-- 802.3 Header Information --*/
@@ -917,40 +904,6 @@ union hfa384x_usbin {
  *--------------------------------------------------------------------
  */
 
-struct hfa384x_pdr_pcb_partnum {
-	u8 num[8];
-} __packed;
-
-struct hfa384x_pdr_pcb_tracenum {
-	u8 num[8];
-} __packed;
-
-struct hfa384x_pdr_nic_serial {
-	u8 num[12];
-} __packed;
-
-struct hfa384x_pdr_mkk_measurements {
-	double carrier_freq;
-	double occupied_band;
-	double power_density;
-	double tx_spur_f1;
-	double tx_spur_f2;
-	double tx_spur_f3;
-	double tx_spur_f4;
-	double tx_spur_l1;
-	double tx_spur_l2;
-	double tx_spur_l3;
-	double tx_spur_l4;
-	double rx_spur_f1;
-	double rx_spur_f2;
-	double rx_spur_l1;
-	double rx_spur_l2;
-} __packed;
-
-struct hfa384x_pdr_nic_ramsize {
-	u8 size[12];		/* units of KB */
-} __packed;
-
 struct hfa384x_pdr_mfisuprange {
 	u16 id;
 	u16 variant;
@@ -972,150 +925,13 @@ struct hfa384x_pdr_nicid {
 	u16 minor;
 } __packed;
 
-struct hfa384x_pdr_refdac_measurements {
-	u16 value[0];
-} __packed;
-
-struct hfa384x_pdr_vgdac_measurements {
-	u16 value[0];
-} __packed;
-
-struct hfa384x_pdr_level_comp_measurements {
-	u16 value[0];
-} __packed;
-
-struct hfa384x_pdr_mac_address {
-	u8 addr[6];
-} __packed;
-
-struct hfa384x_pdr_mkk_callname {
-	u8 callname[8];
-} __packed;
-
-struct hfa384x_pdr_regdomain {
-	u16 numdomains;
-	u16 domain[5];
-} __packed;
-
-struct hfa384x_pdr_allowed_channel {
-	u16 ch_bitmap;
-} __packed;
-
-struct hfa384x_pdr_default_channel {
-	u16 channel;
-} __packed;
-
-struct hfa384x_pdr_privacy_option {
-	u16 available;
-} __packed;
-
-struct hfa384x_pdr_temptype {
-	u16 type;
-} __packed;
-
-struct hfa384x_pdr_refdac_setup {
-	u16 ch_value[14];
-} __packed;
-
-struct hfa384x_pdr_vgdac_setup {
-	u16 ch_value[14];
-} __packed;
-
-struct hfa384x_pdr_level_comp_setup {
-	u16 ch_value[14];
-} __packed;
-
-struct hfa384x_pdr_trimdac_setup {
-	u16 trimidac;
-	u16 trimqdac;
-} __packed;
-
-struct hfa384x_pdr_ifr_setting {
-	u16 value[3];
-} __packed;
-
-struct hfa384x_pdr_rfr_setting {
-	u16 value[3];
-} __packed;
-
-struct hfa384x_pdr_hfa3861_baseline {
-	u16 value[50];
-} __packed;
-
-struct hfa384x_pdr_hfa3861_shadow {
-	u32 value[32];
-} __packed;
-
-struct hfa384x_pdr_hfa3861_ifrf {
-	u32 value[20];
-} __packed;
-
-struct hfa384x_pdr_hfa3861_chcalsp {
-	u16 value[14];
-} __packed;
-
-struct hfa384x_pdr_hfa3861_chcali {
-	u16 value[17];
-} __packed;
-
-struct hfa384x_pdr_hfa3861_nic_config {
-	u16 config_bitmap;
-} __packed;
-
-struct hfa384x_pdr_hfo_delay {
-	u8 hfo_delay;
-} __packed;
-
-struct hfa384x_pdr_hfa3861_manf_testsp {
-	u16 value[30];
-} __packed;
-
-struct hfa384x_pdr_hfa3861_manf_testi {
-	u16 value[30];
-} __packed;
-
-struct hfa384x_pdr_end_of_pda {
-	u16 crc;
-} __packed;
-
 struct hfa384x_pdrec {
 	__le16 len;		/* in words */
 	__le16 code;
 	union pdr {
-		struct hfa384x_pdr_pcb_partnum pcb_partnum;
-		struct hfa384x_pdr_pcb_tracenum pcb_tracenum;
-		struct hfa384x_pdr_nic_serial nic_serial;
-		struct hfa384x_pdr_mkk_measurements mkk_measurements;
-		struct hfa384x_pdr_nic_ramsize nic_ramsize;
 		struct hfa384x_pdr_mfisuprange mfisuprange;
 		struct hfa384x_pdr_cfisuprange cfisuprange;
 		struct hfa384x_pdr_nicid nicid;
-		struct hfa384x_pdr_refdac_measurements refdac_measurements;
-		struct hfa384x_pdr_vgdac_measurements vgdac_measurements;
-		struct hfa384x_pdr_level_comp_measurements level_compc_measurements;
-		struct hfa384x_pdr_mac_address mac_address;
-		struct hfa384x_pdr_mkk_callname mkk_callname;
-		struct hfa384x_pdr_regdomain regdomain;
-		struct hfa384x_pdr_allowed_channel allowed_channel;
-		struct hfa384x_pdr_default_channel default_channel;
-		struct hfa384x_pdr_privacy_option privacy_option;
-		struct hfa384x_pdr_temptype temptype;
-		struct hfa384x_pdr_refdac_setup refdac_setup;
-		struct hfa384x_pdr_vgdac_setup vgdac_setup;
-		struct hfa384x_pdr_level_comp_setup level_comp_setup;
-		struct hfa384x_pdr_trimdac_setup trimdac_setup;
-		struct hfa384x_pdr_ifr_setting ifr_setting;
-		struct hfa384x_pdr_rfr_setting rfr_setting;
-		struct hfa384x_pdr_hfa3861_baseline hfa3861_baseline;
-		struct hfa384x_pdr_hfa3861_shadow hfa3861_shadow;
-		struct hfa384x_pdr_hfa3861_ifrf hfa3861_ifrf;
-		struct hfa384x_pdr_hfa3861_chcalsp hfa3861_chcalsp;
-		struct hfa384x_pdr_hfa3861_chcali hfa3861_chcali;
-		struct hfa384x_pdr_hfa3861_nic_config nic_config;
-		struct hfa384x_pdr_hfo_delay hfo_delay;
-		struct hfa384x_pdr_hfa3861_manf_testsp hfa3861_manf_testsp;
-		struct hfa384x_pdr_hfa3861_manf_testi hfa3861_manf_testi;
-		struct hfa384x_pdr_end_of_pda end_of_pda;
 
 	} data;
 } __packed;
@@ -1240,8 +1056,8 @@ struct hfa384x {
 
 	struct timer_list throttle;
 
-	struct tasklet_struct reaper_bh;
-	struct tasklet_struct completion_bh;
+	struct work_struct reaper_bh;
+	struct work_struct completion_bh;
 
 	struct work_struct usb_work;
 
@@ -1423,7 +1239,7 @@ int hfa384x_drvr_start(struct hfa384x *hw);
 int hfa384x_drvr_stop(struct hfa384x *hw);
 int
 hfa384x_drvr_txframe(struct hfa384x *hw, struct sk_buff *skb,
-		     union p80211_hdr *p80211_hdr,
+		     struct p80211_hdr *p80211_hdr,
 		     struct p80211_metawep *p80211_wep);
 void hfa384x_tx_timeout(struct wlandevice *wlandev);
 

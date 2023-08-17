@@ -48,6 +48,7 @@ static enum mmc_issue_type mmc_cqe_issue_type(struct mmc_host *host,
 	case REQ_OP_DRV_OUT:
 	case REQ_OP_DISCARD:
 	case REQ_OP_SECURE_ERASE:
+	case REQ_OP_WRITE_ZEROES:
 		return MMC_ISSUE_SYNC;
 	case REQ_OP_FLUSH:
 		return mmc_cqe_can_dcmd(host) ? MMC_ISSUE_DCMD : MMC_ISSUE_SYNC;
@@ -116,8 +117,7 @@ static enum blk_eh_timer_return mmc_cqe_timed_out(struct request *req)
 	}
 }
 
-static enum blk_eh_timer_return mmc_mq_timed_out(struct request *req,
-						 bool reserved)
+static enum blk_eh_timer_return mmc_mq_timed_out(struct request *req)
 {
 	struct request_queue *q = req->q;
 	struct mmc_queue *mq = q->queuedata;
@@ -163,7 +163,7 @@ static void mmc_mq_recovery_handler(struct work_struct *work)
 	blk_mq_run_hw_queues(q, true);
 }
 
-static struct scatterlist *mmc_alloc_sg(int sg_len, gfp_t gfp)
+static struct scatterlist *mmc_alloc_sg(unsigned short sg_len, gfp_t gfp)
 {
 	struct scatterlist *sg;
 
@@ -190,54 +190,38 @@ static void mmc_queue_setup_discard(struct request_queue *q,
 		q->limits.discard_granularity = SECTOR_SIZE;
 	if (mmc_can_secure_erase_trim(card))
 		blk_queue_max_secure_erase_sectors(q, max_discard);
+	if (mmc_can_trim(card) && card->erased_byte == 0)
+		blk_queue_max_write_zeroes_sectors(q, max_discard);
 }
 
-static unsigned int mmc_get_max_segments(struct mmc_host *host)
+static unsigned short mmc_get_max_segments(struct mmc_host *host)
 {
 	return host->can_dma_map_merge ? MMC_DMA_MAP_MERGE_SEGMENTS :
 					 host->max_segs;
 }
 
-/**
- * mmc_init_request() - initialize the MMC-specific per-request data
- * @mq: the request queue
- * @req: the request
- * @gfp: memory allocation policy
- */
-static int __mmc_init_request(struct mmc_queue *mq, struct request *req,
-			      gfp_t gfp)
+static int mmc_mq_init_request(struct blk_mq_tag_set *set, struct request *req,
+			       unsigned int hctx_idx, unsigned int numa_node)
 {
 	struct mmc_queue_req *mq_rq = req_to_mmc_queue_req(req);
+	struct mmc_queue *mq = set->driver_data;
 	struct mmc_card *card = mq->card;
 	struct mmc_host *host = card->host;
 
-	mq_rq->sg = mmc_alloc_sg(mmc_get_max_segments(host), gfp);
+	mq_rq->sg = mmc_alloc_sg(mmc_get_max_segments(host), GFP_KERNEL);
 	if (!mq_rq->sg)
 		return -ENOMEM;
 
 	return 0;
 }
 
-static void mmc_exit_request(struct request_queue *q, struct request *req)
+static void mmc_mq_exit_request(struct blk_mq_tag_set *set, struct request *req,
+				unsigned int hctx_idx)
 {
 	struct mmc_queue_req *mq_rq = req_to_mmc_queue_req(req);
 
 	kfree(mq_rq->sg);
 	mq_rq->sg = NULL;
-}
-
-static int mmc_mq_init_request(struct blk_mq_tag_set *set, struct request *req,
-			       unsigned int hctx_idx, unsigned int numa_node)
-{
-	return __mmc_init_request(set->driver_data, req, GFP_KERNEL);
-}
-
-static void mmc_mq_exit_request(struct blk_mq_tag_set *set, struct request *req,
-				unsigned int hctx_idx)
-{
-	struct mmc_queue *mq = set->driver_data;
-
-	mmc_exit_request(mq->queue, req);
 }
 
 static blk_status_t mmc_mq_queue_rq(struct blk_mq_hw_ctx *hctx,
@@ -251,7 +235,7 @@ static blk_status_t mmc_mq_queue_rq(struct blk_mq_hw_ctx *hctx,
 	enum mmc_issue_type issue_type;
 	enum mmc_issued issued;
 	bool get_card, cqe_retune_ok;
-	int ret;
+	blk_status_t ret;
 
 	if (mmc_card_removed(mq->card)) {
 		req->rq_flags |= RQF_QUIET;
@@ -510,7 +494,13 @@ void mmc_cleanup_queue(struct mmc_queue *mq)
 	if (blk_queue_quiesced(q))
 		blk_mq_unquiesce_queue(q);
 
-	blk_cleanup_queue(q);
+	/*
+	 * If the recovery completes the last (and only remaining) request in
+	 * the queue, and the card has been removed, we could end up here with
+	 * the recovery not quite finished yet, so cancel it.
+	 */
+	cancel_work_sync(&mq->recovery_work);
+
 	blk_mq_free_tag_set(&mq->tag_set);
 
 	/*

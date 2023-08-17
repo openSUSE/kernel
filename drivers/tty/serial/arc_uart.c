@@ -166,8 +166,7 @@ static void arc_serial_tx_chars(struct uart_port *port)
 		sent = 1;
 	} else if (!uart_circ_empty(xmit)) {
 		ch = xmit->buf[xmit->tail];
-		xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
-		port->icount.tx++;
+		uart_xmit_advance(port, 1);
 		while (!(UART_GET_STATUS(port) & TXEMPTY))
 			cpu_relax();
 		UART_SET_DATA(port, ch);
@@ -351,7 +350,7 @@ static void arc_serial_shutdown(struct uart_port *port)
 
 static void
 arc_serial_set_termios(struct uart_port *port, struct ktermios *new,
-		       struct ktermios *old)
+		       const struct ktermios *old)
 {
 	struct arc_uart_port *uart = to_arc_port(port);
 	unsigned int baud, uartl, uarth, hw_val;
@@ -508,7 +507,7 @@ static int arc_serial_console_setup(struct console *co, char *options)
 	return uart_set_options(port, co, baud, parity, bits, flow);
 }
 
-static void arc_serial_console_putchar(struct uart_port *port, int ch)
+static void arc_serial_console_putchar(struct uart_port *port, unsigned char ch)
 {
 	while (!(UART_GET_STATUS(port) & TXEMPTY))
 		cpu_relax();
@@ -633,12 +632,6 @@ static int arc_serial_probe(struct platform_device *pdev)
 	return uart_add_one_port(&arc_uart_driver, &arc_uart_ports[dev_id].port);
 }
 
-static int arc_serial_remove(struct platform_device *pdev)
-{
-	/* This will never be called */
-	return 0;
-}
-
 static const struct of_device_id arc_uart_dt_ids[] = {
 	{ .compatible = "snps,arc-uart" },
 	{ /* Sentinel */ }
@@ -647,7 +640,6 @@ MODULE_DEVICE_TABLE(of, arc_uart_dt_ids);
 
 static struct platform_driver arc_platform_driver = {
 	.probe = arc_serial_probe,
-	.remove = arc_serial_remove,
 	.driver = {
 		.name = DRIVER_NAME,
 		.of_match_table  = arc_uart_dt_ids,

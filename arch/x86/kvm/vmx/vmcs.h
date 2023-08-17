@@ -11,6 +11,8 @@
 
 #include "capabilities.h"
 
+#define ROL16(val, n) ((u16)(((u16)(val) << (n)) | ((u16)(val) >> (16 - (n)))))
+
 struct vmcs_hdr {
 	u32 revision_id:31;
 	u32 shadow_vmcs:1;
@@ -48,6 +50,7 @@ struct vmcs_controls_shadow {
 	u32 pin;
 	u32 exec;
 	u32 secondary_exec;
+	u64 tertiary_exec;
 };
 
 /*
@@ -72,7 +75,7 @@ struct loaded_vmcs {
 	struct vmcs_controls_shadow controls_shadow;
 };
 
-static inline bool is_intr_type(u32 intr_info, u32 type)
+static __always_inline bool is_intr_type(u32 intr_info, u32 type)
 {
 	const u32 mask = INTR_INFO_VALID_MASK | INTR_INFO_INTR_TYPE_MASK;
 
@@ -132,13 +135,18 @@ static inline bool is_machine_check(u32 intr_info)
 	return is_exception_n(intr_info, MC_VECTOR);
 }
 
+static inline bool is_nm_fault(u32 intr_info)
+{
+	return is_exception_n(intr_info, NM_VECTOR);
+}
+
 /* Undocumented: icebp/int1 */
 static inline bool is_icebp(u32 intr_info)
 {
 	return is_intr_type(intr_info, INTR_TYPE_PRIV_SW_EXCEPTION);
 }
 
-static inline bool is_nmi(u32 intr_info)
+static __always_inline bool is_nmi(u32 intr_info)
 {
 	return is_intr_type(intr_info, INTR_TYPE_NMI_INTR);
 }

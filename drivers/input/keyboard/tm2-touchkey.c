@@ -156,6 +156,8 @@ static irqreturn_t tm2_touchkey_irq_handler(int irq, void *devid)
 		goto out;
 	}
 
+	input_event(touchkey->input_dev, EV_MSC, MSC_SCAN, index);
+
 	if (data & TM2_TOUCHKEY_BIT_PRESS_EV) {
 		for (i = 0; i < touchkey->num_keycodes; i++)
 			input_report_key(touchkey->input_dev,
@@ -179,8 +181,7 @@ out:
 	return IRQ_HANDLED;
 }
 
-static int tm2_touchkey_probe(struct i2c_client *client,
-			      const struct i2c_device_id *id)
+static int tm2_touchkey_probe(struct i2c_client *client)
 {
 	struct device_node *np = client->dev.of_node;
 	struct tm2_touchkey_data *touchkey;
@@ -250,6 +251,11 @@ static int tm2_touchkey_probe(struct i2c_client *client,
 	touchkey->input_dev->name = TM2_TOUCHKEY_DEV_NAME;
 	touchkey->input_dev->id.bustype = BUS_I2C;
 
+	touchkey->input_dev->keycode = touchkey->keycodes;
+	touchkey->input_dev->keycodemax = touchkey->num_keycodes;
+	touchkey->input_dev->keycodesize = sizeof(touchkey->keycodes[0]);
+
+	input_set_capability(touchkey->input_dev, EV_MSC, MSC_SCAN);
 	for (i = 0; i < touchkey->num_keycodes; i++)
 		input_set_capability(touchkey->input_dev, EV_KEY,
 				     touchkey->keycodes[i]);
@@ -291,7 +297,7 @@ static int tm2_touchkey_probe(struct i2c_client *client,
 	return 0;
 }
 
-static int __maybe_unused tm2_touchkey_suspend(struct device *dev)
+static int tm2_touchkey_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct tm2_touchkey_data *touchkey = i2c_get_clientdata(client);
@@ -302,7 +308,7 @@ static int __maybe_unused tm2_touchkey_suspend(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused tm2_touchkey_resume(struct device *dev)
+static int tm2_touchkey_resume(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct tm2_touchkey_data *touchkey = i2c_get_clientdata(client);
@@ -317,8 +323,8 @@ static int __maybe_unused tm2_touchkey_resume(struct device *dev)
 	return ret;
 }
 
-static SIMPLE_DEV_PM_OPS(tm2_touchkey_pm_ops,
-			 tm2_touchkey_suspend, tm2_touchkey_resume);
+static DEFINE_SIMPLE_DEV_PM_OPS(tm2_touchkey_pm_ops,
+				tm2_touchkey_suspend, tm2_touchkey_resume);
 
 static const struct i2c_device_id tm2_touchkey_id_table[] = {
 	{ TM2_TOUCHKEY_DEV_NAME, 0 },
@@ -347,10 +353,10 @@ MODULE_DEVICE_TABLE(of, tm2_touchkey_of_match);
 static struct i2c_driver tm2_touchkey_driver = {
 	.driver = {
 		.name = TM2_TOUCHKEY_DEV_NAME,
-		.pm = &tm2_touchkey_pm_ops,
-		.of_match_table = of_match_ptr(tm2_touchkey_of_match),
+		.pm = pm_sleep_ptr(&tm2_touchkey_pm_ops),
+		.of_match_table = tm2_touchkey_of_match,
 	},
-	.probe = tm2_touchkey_probe,
+	.probe_new = tm2_touchkey_probe,
 	.id_table = tm2_touchkey_id_table,
 };
 module_i2c_driver(tm2_touchkey_driver);

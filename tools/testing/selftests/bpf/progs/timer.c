@@ -46,7 +46,15 @@ struct {
 	__type(value, struct elem);
 } lru SEC(".maps");
 
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, struct elem);
+} abs_timer SEC(".maps");
+
 __u64 bss_data;
+__u64 abs_data;
 __u64 err;
 __u64 ok;
 __u64 callback_check = 52;
@@ -120,7 +128,7 @@ static int timer_cb1(void *map, int *key, struct bpf_timer *timer)
 }
 
 SEC("fentry/bpf_fentry_test1")
-int BPF_PROG(test1, int a)
+int BPF_PROG2(test1, int, a)
 {
 	struct bpf_timer *arr_timer, *lru_timer;
 	struct elem init = {};
@@ -208,17 +216,6 @@ static int timer_cb2(void *map, int *key, struct hmap_elem *val)
 		 */
 		bpf_map_delete_elem(map, key);
 
-		/* in non-preallocated hashmap both 'key' and 'val' are RCU
-		 * protected and still valid though this element was deleted
-		 * from the map. Arm this timer for ~35 seconds. When callback
-		 * finishes the call_rcu will invoke:
-		 * htab_elem_free_rcu
-		 *   check_and_free_timer
-		 *     bpf_timer_cancel_and_free
-		 * to cancel this 35 second sleep and delete the timer for real.
-		 */
-		if (bpf_timer_start(&val->timer, 1ull << 35, 0) != 0)
-			err |= 256;
 		ok |= 4;
 	}
 	return 0;
@@ -247,7 +244,7 @@ int bpf_timer_test(void)
 }
 
 SEC("fentry/bpf_fentry_test2")
-int BPF_PROG(test2, int a, int b)
+int BPF_PROG2(test2, int, a, int, b)
 {
 	struct hmap_elem init = {}, *val;
 	int key = HTAB, key_malloc = HTAB_MALLOC;
@@ -294,4 +291,41 @@ int BPF_PROG(test2, int a, int b)
 		bpf_timer_init(&val->timer, &hmap_malloc, CLOCK_BOOTTIME);
 
 	return bpf_timer_test();
+}
+
+/* callback for absolute timer */
+static int timer_cb3(void *map, int *key, struct bpf_timer *timer)
+{
+	abs_data += 6;
+
+	if (abs_data < 12) {
+		bpf_timer_start(timer, bpf_ktime_get_boot_ns() + 1000,
+				BPF_F_TIMER_ABS);
+	} else {
+		/* Re-arm timer ~35 seconds in future */
+		bpf_timer_start(timer, bpf_ktime_get_boot_ns() + (1ull << 35),
+				BPF_F_TIMER_ABS);
+	}
+
+	return 0;
+}
+
+SEC("fentry/bpf_fentry_test3")
+int BPF_PROG2(test3, int, a)
+{
+	int key = 0;
+	struct bpf_timer *timer;
+
+	bpf_printk("test3");
+
+	timer = bpf_map_lookup_elem(&abs_timer, &key);
+	if (timer) {
+		if (bpf_timer_init(timer, &abs_timer, CLOCK_BOOTTIME) != 0)
+			err |= 2048;
+		bpf_timer_set_callback(timer, timer_cb3);
+		bpf_timer_start(timer, bpf_ktime_get_boot_ns() + 1000,
+				BPF_F_TIMER_ABS);
+	}
+
+	return 0;
 }

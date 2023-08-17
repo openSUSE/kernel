@@ -53,13 +53,13 @@
 		pinctrl-0 = <&gpio_keys_pins>;
 		pinctrl-names = "default";
 
-		wps {
+		button-wps {
 			label = "WPS";
 			linux,code = <KEY_WPS_BUTTON>;
 			gpios = <&gpio0 24 GPIO_ACTIVE_LOW>;
 		};
 
-		reset {
+		button-reset {
 			label = "Factory Reset Button";
 			linux,code = <KEY_RESTART>;
 			gpios = <&gpio0 29 GPIO_ACTIVE_LOW>;
@@ -71,12 +71,12 @@
 		pinctrl-0 = <&gpio_leds_pins>;
 		pinctrl-names = "default";
 
-		power {
+		led-power {
 			gpios = <&gpio1 23 GPIO_ACTIVE_HIGH>;
 			default-state = "on";
 		};
 
-		sata {
+		led-sata {
 			gpios = <&gpio1 22 GPIO_ACTIVE_LOW>;
 			default-state = "off";
 			linux,default-trigger = "disk-activity";
@@ -195,7 +195,7 @@
 
 			port@5 {
 				reg = <5>;
-				label = "cpu";
+				phy-mode = "sgmii";
 				ethernet = <&eth2>;
 
 				fixed-link {

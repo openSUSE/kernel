@@ -20,10 +20,12 @@
 #include <linux/iommu.h>
 #include <linux/rculist.h>
 #include <linux/sizes.h>
+#include <linux/debugfs.h>
+#include <linux/of_address.h>
+#include <linux/of_irq.h>
 
 #include <asm/sections.h>
 #include <asm/io.h>
-#include <asm/prom.h>
 #include <asm/pci-bridge.h>
 #include <asm/machdep.h>
 #include <asm/msi_bitmap.h>
@@ -32,10 +34,10 @@
 #include <asm/iommu.h>
 #include <asm/tce.h>
 #include <asm/xics.h>
-#include <asm/debugfs.h>
 #include <asm/firmware.h>
 #include <asm/pnv-pci.h>
 #include <asm/mmzone.h>
+#include <asm/xive.h>
 
 #include <misc/cxl-base.h>
 
@@ -65,7 +67,7 @@ void pe_level_printk(const struct pnv_ioda_pe *pe, const char *level,
 	vaf.va = &args;
 
 	if (pe->flags & PNV_IODA_PE_DEV)
-		strlcpy(pfix, dev_name(&pe->pdev->dev), sizeof(pfix));
+		strscpy(pfix, dev_name(&pe->pdev->dev), sizeof(pfix));
 	else if (pe->flags & (PNV_IODA_PE_BUS | PNV_IODA_PE_BUS_ALL))
 		sprintf(pfix, "%04x:%02x     ",
 			pci_domain_nr(pe->pbus), pe->pbus->number);
@@ -1266,22 +1268,20 @@ static bool pnv_pci_ioda_iommu_bypass_supported(struct pci_dev *pdev,
 	return false;
 }
 
-static inline __be64 __iomem *pnv_ioda_get_inval_reg(struct pnv_phb *phb,
-						     bool real_mode)
+static inline __be64 __iomem *pnv_ioda_get_inval_reg(struct pnv_phb *phb)
 {
-	return real_mode ? (__be64 __iomem *)(phb->regs_phys + 0x210) :
-		(phb->regs + 0x210);
+	return phb->regs + 0x210;
 }
 
 static void pnv_pci_p7ioc_tce_invalidate(struct iommu_table *tbl,
-		unsigned long index, unsigned long npages, bool rm)
+		unsigned long index, unsigned long npages)
 {
 	struct iommu_table_group_link *tgl = list_first_entry_or_null(
 			&tbl->it_group_list, struct iommu_table_group_link,
 			next);
 	struct pnv_ioda_pe *pe = container_of(tgl->table_group,
 			struct pnv_ioda_pe, table_group);
-	__be64 __iomem *invalidate = pnv_ioda_get_inval_reg(pe->phb, rm);
+	__be64 __iomem *invalidate = pnv_ioda_get_inval_reg(pe->phb);
 	unsigned long start, end, inc;
 
 	start = __pa(((__be64 *)tbl->it_base) + index - tbl->it_offset);
@@ -1296,11 +1296,7 @@ static void pnv_pci_p7ioc_tce_invalidate(struct iommu_table *tbl,
 
         mb(); /* Ensure above stores are visible */
         while (start <= end) {
-		if (rm)
-			__raw_rm_writeq_be(start, invalidate);
-		else
-			__raw_writeq_be(start, invalidate);
-
+		__raw_writeq_be(start, invalidate);
                 start += inc;
         }
 
@@ -1319,7 +1315,7 @@ static int pnv_ioda1_tce_build(struct iommu_table *tbl, long index,
 			attrs);
 
 	if (!ret)
-		pnv_pci_p7ioc_tce_invalidate(tbl, index, npages, false);
+		pnv_pci_p7ioc_tce_invalidate(tbl, index, npages);
 
 	return ret;
 }
@@ -1327,10 +1323,9 @@ static int pnv_ioda1_tce_build(struct iommu_table *tbl, long index,
 #ifdef CONFIG_IOMMU_API
 /* Common for IODA1 and IODA2 */
 static int pnv_ioda_tce_xchg_no_kill(struct iommu_table *tbl, long index,
-		unsigned long *hpa, enum dma_data_direction *direction,
-		bool realmode)
+		unsigned long *hpa, enum dma_data_direction *direction)
 {
-	return pnv_tce_xchg(tbl, index, hpa, direction, !realmode);
+	return pnv_tce_xchg(tbl, index, hpa, direction);
 }
 #endif
 
@@ -1339,7 +1334,7 @@ static void pnv_ioda1_tce_free(struct iommu_table *tbl, long index,
 {
 	pnv_tce_free(tbl, index, npages);
 
-	pnv_pci_p7ioc_tce_invalidate(tbl, index, npages, false);
+	pnv_pci_p7ioc_tce_invalidate(tbl, index, npages);
 }
 
 static struct iommu_table_ops pnv_ioda1_iommu_ops = {
@@ -1360,18 +1355,18 @@ static struct iommu_table_ops pnv_ioda1_iommu_ops = {
 static inline void pnv_pci_phb3_tce_invalidate_pe(struct pnv_ioda_pe *pe)
 {
 	/* 01xb - invalidate TCEs that match the specified PE# */
-	__be64 __iomem *invalidate = pnv_ioda_get_inval_reg(pe->phb, false);
+	__be64 __iomem *invalidate = pnv_ioda_get_inval_reg(pe->phb);
 	unsigned long val = PHB3_TCE_KILL_INVAL_PE | (pe->pe_number & 0xFF);
 
 	mb(); /* Ensure above stores are visible */
 	__raw_writeq_be(val, invalidate);
 }
 
-static void pnv_pci_phb3_tce_invalidate(struct pnv_ioda_pe *pe, bool rm,
+static void pnv_pci_phb3_tce_invalidate(struct pnv_ioda_pe *pe,
 					unsigned shift, unsigned long index,
 					unsigned long npages)
 {
-	__be64 __iomem *invalidate = pnv_ioda_get_inval_reg(pe->phb, rm);
+	__be64 __iomem *invalidate = pnv_ioda_get_inval_reg(pe->phb);
 	unsigned long start, end, inc;
 
 	/* We'll invalidate DMA address in PE scope */
@@ -1386,10 +1381,7 @@ static void pnv_pci_phb3_tce_invalidate(struct pnv_ioda_pe *pe, bool rm,
 	mb();
 
 	while (start <= end) {
-		if (rm)
-			__raw_rm_writeq_be(start, invalidate);
-		else
-			__raw_writeq_be(start, invalidate);
+		__raw_writeq_be(start, invalidate);
 		start += inc;
 	}
 }
@@ -1406,7 +1398,7 @@ static inline void pnv_pci_ioda2_tce_invalidate_pe(struct pnv_ioda_pe *pe)
 }
 
 static void pnv_pci_ioda2_tce_invalidate(struct iommu_table *tbl,
-		unsigned long index, unsigned long npages, bool rm)
+		unsigned long index, unsigned long npages)
 {
 	struct iommu_table_group_link *tgl;
 
@@ -1417,7 +1409,7 @@ static void pnv_pci_ioda2_tce_invalidate(struct iommu_table *tbl,
 		unsigned int shift = tbl->it_page_shift;
 
 		if (phb->model == PNV_PHB_MODEL_PHB3 && phb->regs)
-			pnv_pci_phb3_tce_invalidate(pe, rm, shift,
+			pnv_pci_phb3_tce_invalidate(pe, shift,
 						    index, npages);
 		else
 			opal_pci_tce_kill(phb->opal_id,
@@ -1436,7 +1428,7 @@ static int pnv_ioda2_tce_build(struct iommu_table *tbl, long index,
 			attrs);
 
 	if (!ret)
-		pnv_pci_ioda2_tce_invalidate(tbl, index, npages, false);
+		pnv_pci_ioda2_tce_invalidate(tbl, index, npages);
 
 	return ret;
 }
@@ -1446,7 +1438,7 @@ static void pnv_ioda2_tce_free(struct iommu_table *tbl, long index,
 {
 	pnv_tce_free(tbl, index, npages);
 
-	pnv_pci_ioda2_tce_invalidate(tbl, index, npages, false);
+	pnv_pci_ioda2_tce_invalidate(tbl, index, npages);
 }
 
 static struct iommu_table_ops pnv_ioda2_iommu_ops = {
@@ -1562,6 +1554,10 @@ found:
 	if (WARN_ON(!tbl))
 		return;
 
+#ifdef CONFIG_IOMMU_API
+	pe->table_group.ops = &spapr_tce_table_group_ops;
+	pe->table_group.pgsizes = SZ_4K;
+#endif
 	iommu_register_group(&pe->table_group, phb->hose->global_number,
 			pe->pe_number);
 	pnv_pci_link_table_and_group(phb->hose->node, 0, tbl, &pe->table_group);
@@ -1748,7 +1744,7 @@ static long pnv_pci_ioda2_setup_default_config(struct pnv_ioda_pe *pe)
 	 * DMA window can be larger than available memory, which will
 	 * cause errors later.
 	 */
-	const u64 maxblock = 1UL << (PAGE_SHIFT + MAX_ORDER - 1);
+	const u64 maxblock = 1UL << (PAGE_SHIFT + MAX_ORDER);
 
 	/*
 	 * We create the default window as big as we can. The constraint is
@@ -1896,12 +1892,19 @@ static void pnv_ioda_setup_bus_dma(struct pnv_ioda_pe *pe, struct pci_bus *bus)
 	}
 }
 
-static void pnv_ioda2_take_ownership(struct iommu_table_group *table_group)
+static long pnv_ioda2_take_ownership(struct iommu_table_group *table_group)
 {
 	struct pnv_ioda_pe *pe = container_of(table_group, struct pnv_ioda_pe,
 						table_group);
 	/* Store @tbl as pnv_pci_ioda2_unset_window() resets it */
 	struct iommu_table *tbl = pe->table_group.tables[0];
+
+	/*
+	 * iommu_ops transfers the ownership per a device and we mode
+	 * the group ownership with the first device in the group.
+	 */
+	if (!tbl)
+		return 0;
 
 	pnv_pci_ioda2_set_bypass(pe, false);
 	pnv_pci_ioda2_unset_window(&pe->table_group, 0);
@@ -1910,6 +1913,8 @@ static void pnv_ioda2_take_ownership(struct iommu_table_group *table_group)
 	else if (pe->pdev)
 		set_iommu_table_base(&pe->pdev->dev, NULL);
 	iommu_tce_table_put(tbl);
+
+	return 0;
 }
 
 static void pnv_ioda2_release_ownership(struct iommu_table_group *table_group)
@@ -1917,6 +1922,9 @@ static void pnv_ioda2_release_ownership(struct iommu_table_group *table_group)
 	struct pnv_ioda_pe *pe = container_of(table_group, struct pnv_ioda_pe,
 						table_group);
 
+	/* See the comment about iommu_ops above */
+	if (pe->table_group.tables[0])
+		return;
 	pnv_pci_ioda2_setup_default_config(pe);
 	if (pe->pbus)
 		pnv_ioda_setup_bus_dma(pe, pe->pbus);
@@ -1964,27 +1972,40 @@ void pnv_pci_ioda2_setup_dma_pe(struct pnv_phb *phb,
 	pe->dma_setup_done = true;
 }
 
-int64_t pnv_opal_pci_msi_eoi(struct irq_chip *chip, unsigned int hw_irq)
+/*
+ * Called from KVM in real mode to EOI passthru interrupts. The ICP
+ * EOI is handled directly in KVM in kvmppc_deliver_irq_passthru().
+ *
+ * The IRQ data is mapped in the PCI-MSI domain and the EOI OPAL call
+ * needs an HW IRQ number mapped in the XICS IRQ domain. The HW IRQ
+ * numbers of the in-the-middle MSI domain are vector numbers and it's
+ * good enough for OPAL. Use that.
+ */
+int64_t pnv_opal_pci_msi_eoi(struct irq_data *d)
 {
-	struct pnv_phb *phb = container_of(chip, struct pnv_phb,
-					   ioda.irq_chip);
+	struct pci_controller *hose = irq_data_get_irq_chip_data(d->parent_data);
+	struct pnv_phb *phb = hose->private_data;
 
-	return opal_pci_msi_eoi(phb->opal_id, hw_irq);
+	return opal_pci_msi_eoi(phb->opal_id, d->parent_data->hwirq);
 }
 
+/*
+ * The IRQ data is mapped in the XICS domain, with OPAL HW IRQ numbers
+ */
 static void pnv_ioda2_msi_eoi(struct irq_data *d)
 {
 	int64_t rc;
 	unsigned int hw_irq = (unsigned int)irqd_to_hwirq(d);
-	struct irq_chip *chip = irq_data_get_irq_chip(d);
+	struct pci_controller *hose = irq_data_get_irq_chip_data(d);
+	struct pnv_phb *phb = hose->private_data;
 
-	rc = pnv_opal_pci_msi_eoi(chip, hw_irq);
+	rc = opal_pci_msi_eoi(phb->opal_id, hw_irq);
 	WARN_ON_ONCE(rc);
 
 	icp_native_eoi(d);
 }
 
-
+/* P8/CXL only */
 void pnv_set_msi_irq_chip(struct pnv_phb *phb, unsigned int virq)
 {
 	struct irq_data *idata;
@@ -2006,7 +2027,10 @@ void pnv_set_msi_irq_chip(struct pnv_phb *phb, unsigned int virq)
 		phb->ioda.irq_chip.irq_eoi = pnv_ioda2_msi_eoi;
 	}
 	irq_set_chip(virq, &phb->ioda.irq_chip);
+	irq_set_chip_data(virq, phb->hose);
 }
+
+static struct irq_chip pnv_pci_msi_irq_chip;
 
 /*
  * Returns true iff chip is something that we could call
@@ -2014,18 +2038,20 @@ void pnv_set_msi_irq_chip(struct pnv_phb *phb, unsigned int virq)
  */
 bool is_pnv_opal_msi(struct irq_chip *chip)
 {
-	return chip->irq_eoi == pnv_ioda2_msi_eoi;
+	return chip == &pnv_pci_msi_irq_chip;
 }
 EXPORT_SYMBOL_GPL(is_pnv_opal_msi);
 
-static int pnv_pci_ioda_msi_setup(struct pnv_phb *phb, struct pci_dev *dev,
-				  unsigned int hwirq, unsigned int virq,
-				  unsigned int is_64, struct msi_msg *msg)
+static int __pnv_pci_ioda_msi_setup(struct pnv_phb *phb, struct pci_dev *dev,
+				    unsigned int xive_num,
+				    unsigned int is_64, struct msi_msg *msg)
 {
 	struct pnv_ioda_pe *pe = pnv_ioda_get_pe(dev);
-	unsigned int xive_num = hwirq - phb->msi_base;
 	__be32 data;
 	int rc;
+
+	dev_dbg(&dev->dev, "%s: setup %s-bit MSI for vector #%d\n", __func__,
+		is_64 ? "64" : "32", xive_num);
 
 	/* No PE assigned ? bail out ... no MSI for you ! */
 	if (pe == NULL)
@@ -2074,12 +2100,209 @@ static int pnv_pci_ioda_msi_setup(struct pnv_phb *phb, struct pci_dev *dev,
 	}
 	msg->data = be32_to_cpu(data);
 
-	pnv_set_msi_irq_chip(phb, virq);
+	return 0;
+}
 
-	pr_devel("%s: %s-bit MSI on hwirq %x (xive #%d),"
-		 " address=%x_%08x data=%x PE# %x\n",
-		 pci_name(dev), is_64 ? "64" : "32", hwirq, xive_num,
-		 msg->address_hi, msg->address_lo, data, pe->pe_number);
+/*
+ * The msi_free() op is called before irq_domain_free_irqs_top() when
+ * the handler data is still available. Use that to clear the XIVE
+ * controller.
+ */
+static void pnv_msi_ops_msi_free(struct irq_domain *domain,
+				 struct msi_domain_info *info,
+				 unsigned int irq)
+{
+	if (xive_enabled())
+		xive_irq_free_data(irq);
+}
+
+static struct msi_domain_ops pnv_pci_msi_domain_ops = {
+	.msi_free	= pnv_msi_ops_msi_free,
+};
+
+static void pnv_msi_shutdown(struct irq_data *d)
+{
+	d = d->parent_data;
+	if (d->chip->irq_shutdown)
+		d->chip->irq_shutdown(d);
+}
+
+static void pnv_msi_mask(struct irq_data *d)
+{
+	pci_msi_mask_irq(d);
+	irq_chip_mask_parent(d);
+}
+
+static void pnv_msi_unmask(struct irq_data *d)
+{
+	pci_msi_unmask_irq(d);
+	irq_chip_unmask_parent(d);
+}
+
+static struct irq_chip pnv_pci_msi_irq_chip = {
+	.name		= "PNV-PCI-MSI",
+	.irq_shutdown	= pnv_msi_shutdown,
+	.irq_mask	= pnv_msi_mask,
+	.irq_unmask	= pnv_msi_unmask,
+	.irq_eoi	= irq_chip_eoi_parent,
+};
+
+static struct msi_domain_info pnv_msi_domain_info = {
+	.flags = (MSI_FLAG_USE_DEF_DOM_OPS | MSI_FLAG_USE_DEF_CHIP_OPS |
+		  MSI_FLAG_MULTI_PCI_MSI  | MSI_FLAG_PCI_MSIX),
+	.ops   = &pnv_pci_msi_domain_ops,
+	.chip  = &pnv_pci_msi_irq_chip,
+};
+
+static void pnv_msi_compose_msg(struct irq_data *d, struct msi_msg *msg)
+{
+	struct msi_desc *entry = irq_data_get_msi_desc(d);
+	struct pci_dev *pdev = msi_desc_to_pci_dev(entry);
+	struct pci_controller *hose = irq_data_get_irq_chip_data(d);
+	struct pnv_phb *phb = hose->private_data;
+	int rc;
+
+	rc = __pnv_pci_ioda_msi_setup(phb, pdev, d->hwirq,
+				      entry->pci.msi_attrib.is_64, msg);
+	if (rc)
+		dev_err(&pdev->dev, "Failed to setup %s-bit MSI #%ld : %d\n",
+			entry->pci.msi_attrib.is_64 ? "64" : "32", d->hwirq, rc);
+}
+
+/*
+ * The IRQ data is mapped in the MSI domain in which HW IRQ numbers
+ * correspond to vector numbers.
+ */
+static void pnv_msi_eoi(struct irq_data *d)
+{
+	struct pci_controller *hose = irq_data_get_irq_chip_data(d);
+	struct pnv_phb *phb = hose->private_data;
+
+	if (phb->model == PNV_PHB_MODEL_PHB3) {
+		/*
+		 * The EOI OPAL call takes an OPAL HW IRQ number but
+		 * since it is translated into a vector number in
+		 * OPAL, use that directly.
+		 */
+		WARN_ON_ONCE(opal_pci_msi_eoi(phb->opal_id, d->hwirq));
+	}
+
+	irq_chip_eoi_parent(d);
+}
+
+static struct irq_chip pnv_msi_irq_chip = {
+	.name			= "PNV-MSI",
+	.irq_shutdown		= pnv_msi_shutdown,
+	.irq_mask		= irq_chip_mask_parent,
+	.irq_unmask		= irq_chip_unmask_parent,
+	.irq_eoi		= pnv_msi_eoi,
+	.irq_set_affinity	= irq_chip_set_affinity_parent,
+	.irq_compose_msi_msg	= pnv_msi_compose_msg,
+};
+
+static int pnv_irq_parent_domain_alloc(struct irq_domain *domain,
+				       unsigned int virq, int hwirq)
+{
+	struct irq_fwspec parent_fwspec;
+	int ret;
+
+	parent_fwspec.fwnode = domain->parent->fwnode;
+	parent_fwspec.param_count = 2;
+	parent_fwspec.param[0] = hwirq;
+	parent_fwspec.param[1] = IRQ_TYPE_EDGE_RISING;
+
+	ret = irq_domain_alloc_irqs_parent(domain, virq, 1, &parent_fwspec);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+static int pnv_irq_domain_alloc(struct irq_domain *domain, unsigned int virq,
+				unsigned int nr_irqs, void *arg)
+{
+	struct pci_controller *hose = domain->host_data;
+	struct pnv_phb *phb = hose->private_data;
+	msi_alloc_info_t *info = arg;
+	struct pci_dev *pdev = msi_desc_to_pci_dev(info->desc);
+	int hwirq;
+	int i, ret;
+
+	hwirq = msi_bitmap_alloc_hwirqs(&phb->msi_bmp, nr_irqs);
+	if (hwirq < 0) {
+		dev_warn(&pdev->dev, "failed to find a free MSI\n");
+		return -ENOSPC;
+	}
+
+	dev_dbg(&pdev->dev, "%s bridge %pOF %d/%x #%d\n", __func__,
+		hose->dn, virq, hwirq, nr_irqs);
+
+	for (i = 0; i < nr_irqs; i++) {
+		ret = pnv_irq_parent_domain_alloc(domain, virq + i,
+						  phb->msi_base + hwirq + i);
+		if (ret)
+			goto out;
+
+		irq_domain_set_hwirq_and_chip(domain, virq + i, hwirq + i,
+					      &pnv_msi_irq_chip, hose);
+	}
+
+	return 0;
+
+out:
+	irq_domain_free_irqs_parent(domain, virq, i - 1);
+	msi_bitmap_free_hwirqs(&phb->msi_bmp, hwirq, nr_irqs);
+	return ret;
+}
+
+static void pnv_irq_domain_free(struct irq_domain *domain, unsigned int virq,
+				unsigned int nr_irqs)
+{
+	struct irq_data *d = irq_domain_get_irq_data(domain, virq);
+	struct pci_controller *hose = irq_data_get_irq_chip_data(d);
+	struct pnv_phb *phb = hose->private_data;
+
+	pr_debug("%s bridge %pOF %d/%lx #%d\n", __func__, hose->dn,
+		 virq, d->hwirq, nr_irqs);
+
+	msi_bitmap_free_hwirqs(&phb->msi_bmp, d->hwirq, nr_irqs);
+	/* XIVE domain is cleared through ->msi_free() */
+}
+
+static const struct irq_domain_ops pnv_irq_domain_ops = {
+	.alloc  = pnv_irq_domain_alloc,
+	.free   = pnv_irq_domain_free,
+};
+
+static int __init pnv_msi_allocate_domains(struct pci_controller *hose, unsigned int count)
+{
+	struct pnv_phb *phb = hose->private_data;
+	struct irq_domain *parent = irq_get_default_host();
+
+	hose->fwnode = irq_domain_alloc_named_id_fwnode("PNV-MSI", phb->opal_id);
+	if (!hose->fwnode)
+		return -ENOMEM;
+
+	hose->dev_domain = irq_domain_create_hierarchy(parent, 0, count,
+						       hose->fwnode,
+						       &pnv_irq_domain_ops, hose);
+	if (!hose->dev_domain) {
+		pr_err("PCI: failed to create IRQ domain bridge %pOF (domain %d)\n",
+		       hose->dn, hose->global_number);
+		irq_domain_free_fwnode(hose->fwnode);
+		return -ENOMEM;
+	}
+
+	hose->msi_domain = pci_msi_create_irq_domain(of_node_to_fwnode(hose->dn),
+						     &pnv_msi_domain_info,
+						     hose->dev_domain);
+	if (!hose->msi_domain) {
+		pr_err("PCI: failed to create MSI IRQ domain bridge %pOF (domain %d)\n",
+		       hose->dn, hose->global_number);
+		irq_domain_free_fwnode(hose->fwnode);
+		irq_domain_remove(hose->dev_domain);
+		return -ENOMEM;
+	}
 
 	return 0;
 }
@@ -2104,10 +2327,10 @@ static void __init pnv_pci_init_ioda_msis(struct pnv_phb *phb)
 		return;
 	}
 
-	phb->msi_setup = pnv_pci_ioda_msi_setup;
-	phb->msi32_support = 1;
 	pr_info("  Allocated bitmap for %d MSIs (base IRQ 0x%x)\n",
 		count, phb->msi_base);
+
+	pnv_msi_allocate_domains(phb->hose, count);
 }
 
 static void pnv_ioda_setup_pe_res(struct pnv_ioda_pe *pe,
@@ -2170,7 +2393,7 @@ static void pnv_ioda_setup_pe_res(struct pnv_ioda_pe *pe,
 
 /*
  * This function is supposed to be called on basis of PE from top
- * to bottom style. So the the I/O or MMIO segment assigned to
+ * to bottom style. So the I/O or MMIO segment assigned to
  * parent PE could be overridden by its child PEs if necessary.
  */
 static void pnv_ioda_setup_pe_seg(struct pnv_ioda_pe *pe)
@@ -2262,7 +2485,7 @@ static void pnv_pci_ioda_create_dbgfs(void)
 		phb = hose->private_data;
 
 		sprintf(name, "PCI%04x", hose->global_number);
-		phb->dbgfs = debugfs_create_dir(name, powerpc_debugfs_root);
+		phb->dbgfs = debugfs_create_dir(name, arch_debugfs_dir);
 
 		debugfs_create_file_unsafe("dump_diag_regs", 0200, phb->dbgfs,
 					   phb, &pnv_pci_diag_data_fops);
@@ -2525,7 +2748,7 @@ static void pnv_pci_ioda1_release_pe_dma(struct pnv_ioda_pe *pe)
 	if (rc != OPAL_SUCCESS)
 		return;
 
-	pnv_pci_p7ioc_tce_invalidate(tbl, tbl->it_offset, tbl->it_size, false);
+	pnv_pci_p7ioc_tce_invalidate(tbl, tbl->it_offset, tbl->it_size);
 	if (pe->table_group.group) {
 		iommu_group_put(pe->table_group.group);
 		WARN_ON(pe->table_group.group);
@@ -2708,18 +2931,40 @@ static void pnv_pci_ioda_dma_bus_setup(struct pci_bus *bus)
 	}
 }
 
+#ifdef CONFIG_IOMMU_API
+static struct iommu_group *pnv_pci_device_group(struct pci_controller *hose,
+						struct pci_dev *pdev)
+{
+	struct pnv_phb *phb = hose->private_data;
+	struct pnv_ioda_pe *pe;
+
+	if (WARN_ON(!phb))
+		return ERR_PTR(-ENODEV);
+
+	pe = pnv_pci_bdfn_to_pe(phb, pdev->devfn | (pdev->bus->number << 8));
+	if (!pe)
+		return ERR_PTR(-ENODEV);
+
+	if (!pe->table_group.group)
+		return ERR_PTR(-ENODEV);
+
+	return iommu_group_ref_get(pe->table_group.group);
+}
+#endif
+
 static const struct pci_controller_ops pnv_pci_ioda_controller_ops = {
 	.dma_dev_setup		= pnv_pci_ioda_dma_dev_setup,
 	.dma_bus_setup		= pnv_pci_ioda_dma_bus_setup,
 	.iommu_bypass_supported	= pnv_pci_ioda_iommu_bypass_supported,
-	.setup_msi_irqs		= pnv_setup_msi_irqs,
-	.teardown_msi_irqs	= pnv_teardown_msi_irqs,
 	.enable_device_hook	= pnv_pci_enable_device_hook,
 	.release_device		= pnv_pci_release_device,
 	.window_alignment	= pnv_pci_window_alignment,
 	.setup_bridge		= pnv_pci_fixup_bridge_resources,
 	.reset_secondary_bus	= pnv_pci_reset_secondary_bus,
 	.shutdown		= pnv_pci_ioda_shutdown,
+#ifdef CONFIG_IOMMU_API
+	.device_group		= pnv_pci_device_group,
+#endif
 };
 
 static const struct pci_controller_ops pnv_npu_ocapi_ioda_controller_ops = {
@@ -2770,7 +3015,7 @@ static void __init pnv_pci_init_ioda_phb(struct device_node *np,
 	if (!phb->hose) {
 		pr_err("  Can't allocate PCI controller for %pOF\n",
 		       np);
-		memblock_free(__pa(phb), sizeof(struct pnv_phb));
+		memblock_free(phb, sizeof(struct pnv_phb));
 		return;
 	}
 

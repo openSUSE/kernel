@@ -2,14 +2,16 @@
 
 #include <linux/aperture.h>
 #include <linux/device.h>
-#include <linux/fb.h> /* for old fbdev helpers */
 #include <linux/list.h>
 #include <linux/mutex.h>
 #include <linux/pci.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
+#include <linux/sysfb.h>
 #include <linux/types.h>
 #include <linux/vgaarb.h>
+
+#include <video/vga.h>
 
 /**
  * DOC: overview
@@ -18,7 +20,7 @@
  * driver can be active at any given time. Many systems load a generic
  * graphics drivers, such as EFI-GOP or VESA, early during the boot process.
  * During later boot stages, they replace the generic driver with a dedicated,
- * hardware-specific driver. To take over the device the dedicated driver
+ * hardware-specific driver. To take over the device, the dedicated driver
  * first has to remove the generic driver. Aperture functions manage
  * ownership of framebuffer memory and hand-over between drivers.
  *
@@ -74,7 +76,7 @@
  * generic EFI or VESA drivers, have to register themselves as owners of their
  * framebuffer apertures. Ownership of the framebuffer memory is achieved
  * by calling devm_aperture_acquire_for_platform_device(). If successful, the
- * driveris the owner of the framebuffer range. The function fails if the
+ * driver is the owner of the framebuffer range. The function fails if the
  * framebuffer is already owned by another driver. See below for an example.
  *
  * .. code-block:: c
@@ -124,7 +126,7 @@
  * et al for the registered framebuffer range, the aperture helpers call
  * platform_device_unregister() and the generic driver unloads itself. The
  * generic driver also has to provide a remove function to make this work.
- * Once hot unplugged fro mhardware, it may not access the device's
+ * Once hot unplugged from hardware, it may not access the device's
  * registers, framebuffer memory, ROM, etc afterwards.
  */
 
@@ -201,7 +203,7 @@ static void aperture_detach_platform_device(struct device *dev)
 
 	/*
 	 * Remove the device from the device hierarchy. This is the right thing
-	 * to do for firmware-based DRM drivers, such as EFI, VESA or VGA. After
+	 * to do for firmware-based fb drivers, such as EFI, VESA or VGA. After
 	 * the new driver takes over the hardware, the firmware device's state
 	 * will be lost.
 	 *
@@ -283,25 +285,26 @@ static void aperture_detach_devices(resource_size_t base, resource_size_t size)
 int aperture_remove_conflicting_devices(resource_size_t base, resource_size_t size,
 					bool primary, const char *name)
 {
-#if IS_REACHABLE(CONFIG_FB)
-	struct apertures_struct *a;
-	int ret;
-
-	a = alloc_apertures(1);
-	if (!a)
-		return -ENOMEM;
-
-	a->ranges[0].base = base;
-	a->ranges[0].size = size;
-
-	ret = remove_conflicting_framebuffers(a, name, primary);
-	kfree(a);
-
-	if (ret)
-		return ret;
-#endif
+	/*
+	 * If a driver asked to unregister a platform device registered by
+	 * sysfb, then can be assumed that this is a driver for a display
+	 * that is set up by the system firmware and has a generic driver.
+	 *
+	 * Drivers for devices that don't have a generic driver will never
+	 * ask for this, so let's assume that a real driver for the display
+	 * was already probed and prevent sysfb to register devices later.
+	 */
+	sysfb_disable();
 
 	aperture_detach_devices(base, size);
+
+	/*
+	 * If this is the primary adapter, there could be a VGA device
+	 * that consumes the VGA framebuffer I/O range. Remove this device
+	 * as well.
+	 */
+	if (primary)
+		aperture_detach_devices(VGA_FB_PHYS_BASE, VGA_FB_PHYS_SIZE);
 
 	return 0;
 }
@@ -321,29 +324,32 @@ EXPORT_SYMBOL(aperture_remove_conflicting_devices);
  */
 int aperture_remove_conflicting_pci_devices(struct pci_dev *pdev, const char *name)
 {
+	bool primary = false;
 	resource_size_t base, size;
 	int bar, ret;
+
+#ifdef CONFIG_X86
+	primary = pdev->resource[PCI_ROM_RESOURCE].flags & IORESOURCE_ROM_SHADOW;
+#endif
+
+	for (bar = 0; bar < PCI_STD_NUM_BARS; ++bar) {
+		if (!(pci_resource_flags(pdev, bar) & IORESOURCE_MEM))
+			continue;
+
+		base = pci_resource_start(pdev, bar);
+		size = pci_resource_len(pdev, bar);
+		ret = aperture_remove_conflicting_devices(base, size, primary, name);
+		if (ret)
+			return ret;
+	}
 
 	/*
 	 * WARNING: Apparently we must kick fbdev drivers before vgacon,
 	 * otherwise the vga fbdev driver falls over.
 	 */
-#if IS_REACHABLE(CONFIG_FB)
-	ret = remove_conflicting_pci_framebuffers(pdev, name);
-	if (ret)
-		return ret;
-#endif
 	ret = vga_remove_vgacon(pdev);
 	if (ret)
 		return ret;
-
-	for (bar = 0; bar < PCI_STD_NUM_BARS; ++bar) {
-		if (!(pci_resource_flags(pdev, bar) & IORESOURCE_MEM))
-			continue;
-		base = pci_resource_start(pdev, bar);
-		size = pci_resource_len(pdev, bar);
-		aperture_detach_devices(base, size);
-	}
 
 	return 0;
 

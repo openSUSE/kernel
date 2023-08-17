@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0+
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * Copyright (C) 2017 Oracle.  All Rights Reserved.
- * Author: Darrick J. Wong <darrick.wong@oracle.com>
+ * Copyright (C) 2017-2023 Oracle.  All Rights Reserved.
+ * Author: Darrick J. Wong <djwong@kernel.org>
  */
 #include "xfs.h"
 #include "xfs_fs.h"
@@ -21,13 +21,14 @@ xchk_btree_cur_fsbno(
 	struct xfs_btree_cur	*cur,
 	int			level)
 {
-	if (level < cur->bc_nlevels && cur->bc_bufs[level])
-		return XFS_DADDR_TO_FSB(cur->bc_mp, cur->bc_bufs[level]->b_bn);
-	else if (level == cur->bc_nlevels - 1 &&
-		 cur->bc_flags & XFS_BTREE_LONG_PTRS)
+	if (level < cur->bc_nlevels && cur->bc_levels[level].bp)
+		return XFS_DADDR_TO_FSB(cur->bc_mp,
+				xfs_buf_daddr(cur->bc_levels[level].bp));
+
+	if (level == cur->bc_nlevels - 1 &&
+	    (cur->bc_flags & XFS_BTREE_ROOT_IN_INODE))
 		return XFS_INO_TO_FSB(cur->bc_mp, cur->bc_ino.ip->i_ino);
-	else if (!(cur->bc_flags & XFS_BTREE_LONG_PTRS))
-		return XFS_AGB_TO_FSB(cur->bc_mp, cur->bc_ag.pag->pag_agno, 0);
+
 	return NULLFSBLOCK;
 }
 

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0
 %YAML 1.2
 ---
-$id: "http://devicetree.org/schemas/power/supply/x-powers,axp20x-ac-power-supply.yaml#"
-$schema: "http://devicetree.org/meta-schemas/core.yaml#"
+$id: http://devicetree.org/schemas/power/supply/x-powers,axp20x-ac-power-supply.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
 
 title: AXP20x AC power-supply
 
@@ -21,10 +21,13 @@ allOf:
 
 properties:
   compatible:
-    enum:
-      - x-powers,axp202-ac-power-supply
-      - x-powers,axp221-ac-power-supply
-      - x-powers,axp813-ac-power-supply
+    oneOf:
+      - const: x-powers,axp202-ac-power-supply
+      - const: x-powers,axp221-ac-power-supply
+      - items:
+          - const: x-powers,axp803-ac-power-supply
+          - const: x-powers,axp813-ac-power-supply
+      - const: x-powers,axp813-ac-power-supply
 
 required:
   - compatible

@@ -221,10 +221,10 @@ enum {
  * 4 Dwords per command slot, command header size ==  64 Dwords.
  */
 struct cmdhdr_tbl_entry {
-	u32 cda;
-	u32 prde_fis_len;
-	u32 ttl;
-	u32 desc_info;
+	__le32 cda;
+	__le32 prde_fis_len;
+	__le32 ttl;
+	__le32 desc_info;
 };
 
 /*
@@ -246,8 +246,10 @@ enum {
 struct command_desc {
 	u8 cfis[8 * 4];
 	u8 sfis[8 * 4];
-	u8 acmd[4 * 4];
-	u8 fill[4 * 4];
+	struct_group(cdb,
+		u8 acmd[4 * 4];
+		u8 fill[4 * 4];
+	);
 	u32 prdt[SATA_FSL_MAX_PRD_DIRECT * 4];
 	u32 prdt_indirect[(SATA_FSL_MAX_PRD - SATA_FSL_MAX_PRD_DIRECT) * 4];
 };
@@ -257,9 +259,9 @@ struct command_desc {
  */
 
 struct prde {
-	u32 dba;
+	__le32 dba;
 	u8 fill[2 * 4];
-	u32 ddc_and_ext;
+	__le32 ddc_and_ext;
 };
 
 /*
@@ -320,7 +322,7 @@ static void fsl_sata_set_irq_coalescing(struct ata_host *host,
 static ssize_t fsl_sata_intr_coalescing_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	return sprintf(buf, "%d	%d\n",
+	return sysfs_emit(buf, "%u	%u\n",
 			intr_coalescing_count, intr_coalescing_ticks);
 }
 
@@ -330,10 +332,8 @@ static ssize_t fsl_sata_intr_coalescing_store(struct device *dev,
 {
 	unsigned int coalescing_count,	coalescing_ticks;
 
-	if (sscanf(buf, "%d%d",
-				&coalescing_count,
-				&coalescing_ticks) != 2) {
-		printk(KERN_ERR "fsl-sata: wrong parameter format.\n");
+	if (sscanf(buf, "%u%u", &coalescing_count, &coalescing_ticks) != 2) {
+		dev_err(dev, "fsl-sata: wrong parameter format.\n");
 		return -EINVAL;
 	}
 
@@ -355,9 +355,9 @@ static ssize_t fsl_sata_rx_watermark_show(struct device *dev,
 	spin_lock_irqsave(&host->lock, flags);
 	rx_watermark = ioread32(csr_base + TRANSCFG);
 	rx_watermark &= 0x1f;
-
 	spin_unlock_irqrestore(&host->lock, flags);
-	return sprintf(buf, "%d\n", rx_watermark);
+
+	return sysfs_emit(buf, "%u\n", rx_watermark);
 }
 
 static ssize_t fsl_sata_rx_watermark_store(struct device *dev,
@@ -371,8 +371,8 @@ static ssize_t fsl_sata_rx_watermark_store(struct device *dev,
 	void __iomem *csr_base = host_priv->csr_base;
 	u32 temp;
 
-	if (sscanf(buf, "%d", &rx_watermark) != 1) {
-		printk(KERN_ERR "fsl-sata: wrong parameter format.\n");
+	if (kstrtouint(buf, 10, &rx_watermark) < 0) {
+		dev_err(dev, "fsl-sata: wrong parameter format.\n");
 		return -EINVAL;
 	}
 
@@ -380,8 +380,8 @@ static ssize_t fsl_sata_rx_watermark_store(struct device *dev,
 	temp = ioread32(csr_base + TRANSCFG);
 	temp &= 0xffffffe0;
 	iowrite32(temp | rx_watermark, csr_base + TRANSCFG);
-
 	spin_unlock_irqrestore(&host->lock, flags);
+
 	return strlen(buf);
 }
 
@@ -424,10 +424,10 @@ static void sata_fsl_setup_cmd_hdr_entry(struct ata_port *ap,
 	pp->cmdslot[tag].desc_info = cpu_to_le32(desc_info | (tag & 0x1F));
 
 	ata_port_dbg(ap, "cda=0x%x, prde_fis_len=0x%x, ttl=0x%x, di=0x%x\n",
-		pp->cmdslot[tag].cda,
-		pp->cmdslot[tag].prde_fis_len,
-		pp->cmdslot[tag].ttl, pp->cmdslot[tag].desc_info);
-
+		     le32_to_cpu(pp->cmdslot[tag].cda),
+		     le32_to_cpu(pp->cmdslot[tag].prde_fis_len),
+		     le32_to_cpu(pp->cmdslot[tag].ttl),
+		     le32_to_cpu(pp->cmdslot[tag].desc_info));
 }
 
 static unsigned int sata_fsl_fill_sg(struct ata_queued_cmd *qc, void *cmd_desc,
@@ -516,8 +516,8 @@ static enum ata_completion_errors sata_fsl_qc_prep(struct ata_queued_cmd *qc)
 	/* setup "ACMD - atapi command" in cmd. desc. if this is ATAPI cmd */
 	if (ata_is_atapi(qc->tf.protocol)) {
 		desc_info |= ATAPI_CMD;
-		memset((void *)&cd->acmd, 0, 32);
-		memcpy((void *)&cd->acmd, qc->cdb, qc->dev->cdb_len);
+		memset(&cd->cdb, 0, sizeof(cd->cdb));
+		memcpy(&cd->cdb, qc->cdb, qc->dev->cdb_len);
 	}
 
 	if (qc->flags & ATA_QCFLAG_DMAMAP)
@@ -566,7 +566,7 @@ static unsigned int sata_fsl_qc_issue(struct ata_queued_cmd *qc)
 	return 0;
 }
 
-static bool sata_fsl_qc_fill_rtf(struct ata_queued_cmd *qc)
+static void sata_fsl_qc_fill_rtf(struct ata_queued_cmd *qc)
 {
 	struct sata_fsl_port_priv *pp = qc->ap->private_data;
 	struct sata_fsl_host_priv *host_priv = qc->ap->host->private_data;
@@ -577,7 +577,6 @@ static bool sata_fsl_qc_fill_rtf(struct ata_queued_cmd *qc)
 	cd = pp->cmdentry + tag;
 
 	ata_tf_from_fis(cd->sfis, &qc->result_tf);
-	return true;
 }
 
 static int sata_fsl_scr_write(struct ata_link *link,
@@ -1042,7 +1041,7 @@ static void sata_fsl_error_handler(struct ata_port *ap)
 
 static void sata_fsl_post_internal_cmd(struct ata_queued_cmd *qc)
 {
-	if (qc->flags & ATA_QCFLAG_FAILED)
+	if (qc->flags & ATA_QCFLAG_EH)
 		qc->err_mask |= AC_ERR_OTHER;
 
 	if (qc->err_mask) {
@@ -1377,9 +1376,8 @@ static void sata_fsl_host_stop(struct ata_host *host)
 /*
  * scsi mid-layer and libata interface structures
  */
-static struct scsi_host_template sata_fsl_sht = {
-	ATA_NCQ_SHT("sata_fsl"),
-	.can_queue = SATA_FSL_QUEUE_DEPTH,
+static const struct scsi_host_template sata_fsl_sht = {
+	ATA_NCQ_SHT_QD("sata_fsl", SATA_FSL_QUEUE_DEPTH),
 	.sg_tablesize = SATA_FSL_MAX_PRD_USABLE,
 	.dma_boundary = ATA_DMA_BOUNDARY,
 };
@@ -1580,13 +1578,9 @@ static int sata_fsl_resume(struct platform_device *op)
 #endif
 
 static const struct of_device_id fsl_sata_match[] = {
-	{
-		.compatible = "fsl,pq-sata",
-	},
-	{
-		.compatible = "fsl,pq-sata-v2",
-	},
-	{},
+	{ .compatible = "fsl,pq-sata", },
+	{ .compatible = "fsl,pq-sata-v2", },
+	{ /* sentinel */ }
 };
 
 MODULE_DEVICE_TABLE(of, fsl_sata_match);

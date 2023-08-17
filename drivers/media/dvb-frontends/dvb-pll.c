@@ -870,8 +870,9 @@ EXPORT_SYMBOL(dvb_pll_attach);
 
 
 static int
-dvb_pll_probe(struct i2c_client *client, const struct i2c_device_id *id)
+dvb_pll_probe(struct i2c_client *client)
 {
+	const struct i2c_device_id *id = i2c_client_get_device_id(client);
 	struct dvb_pll_config *cfg;
 	struct dvb_frontend *fe;
 	unsigned int desc_id;
@@ -899,14 +900,13 @@ dvb_pll_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	return 0;
 }
 
-static int dvb_pll_remove(struct i2c_client *client)
+static void dvb_pll_remove(struct i2c_client *client)
 {
 	struct dvb_frontend *fe = i2c_get_clientdata(client);
 	struct dvb_pll_priv *priv = fe->tuner_priv;
 
 	ida_simple_remove(&pll_ida, priv->nr);
 	dvb_pll_release(fe);
-	return 0;
 }
 
 
@@ -942,7 +942,7 @@ static struct i2c_driver dvb_pll_driver = {
 	.driver = {
 		.name = "dvb_pll",
 	},
-	.probe    = dvb_pll_probe,
+	.probe_new = dvb_pll_probe,
 	.remove   = dvb_pll_remove,
 	.id_table = dvb_pll_id,
 };

@@ -35,6 +35,7 @@
 #include <linux/wait.h>
 #include <linux/workqueue.h>
 #include <linux/bitops.h>
+#include <linux/of.h>
 #include <net/checksum.h>
 
 #include "spider_net.h"
@@ -354,9 +355,10 @@ spider_net_free_rx_chain_contents(struct spider_net_card *card)
 	descr = card->rx_chain.head;
 	do {
 		if (descr->skb) {
-			pci_unmap_single(card->pdev, descr->hwdescr->buf_addr,
+			dma_unmap_single(&card->pdev->dev,
+					 descr->hwdescr->buf_addr,
 					 SPIDER_NET_MAX_FRAME,
-					 PCI_DMA_BIDIRECTIONAL);
+					 DMA_BIDIRECTIONAL);
 			dev_kfree_skb(descr->skb);
 			descr->skb = NULL;
 		}
@@ -411,9 +413,9 @@ spider_net_prepare_rx_descr(struct spider_net_card *card,
 	if (offset)
 		skb_reserve(descr->skb, SPIDER_NET_RXBUF_ALIGN - offset);
 	/* iommu-map the skb */
-	buf = pci_map_single(card->pdev, descr->skb->data,
-			SPIDER_NET_MAX_FRAME, PCI_DMA_FROMDEVICE);
-	if (pci_dma_mapping_error(card->pdev, buf)) {
+	buf = dma_map_single(&card->pdev->dev, descr->skb->data,
+			     SPIDER_NET_MAX_FRAME, DMA_FROM_DEVICE);
+	if (dma_mapping_error(&card->pdev->dev, buf)) {
 		dev_kfree_skb_any(descr->skb);
 		descr->skb = NULL;
 		if (netif_msg_rx_err(card) && net_ratelimit())
@@ -594,24 +596,24 @@ spider_net_set_multi(struct net_device *netdev)
 	int i;
 	u32 reg;
 	struct spider_net_card *card = netdev_priv(netdev);
-	DECLARE_BITMAP(bitmask, SPIDER_NET_MULTICAST_HASHES) = {};
+	DECLARE_BITMAP(bitmask, SPIDER_NET_MULTICAST_HASHES);
 
 	spider_net_set_promisc(card);
 
 	if (netdev->flags & IFF_ALLMULTI) {
-		for (i = 0; i < SPIDER_NET_MULTICAST_HASHES; i++) {
-			set_bit(i, bitmask);
-		}
+		bitmap_fill(bitmask, SPIDER_NET_MULTICAST_HASHES);
 		goto write_hash;
 	}
 
+	bitmap_zero(bitmask, SPIDER_NET_MULTICAST_HASHES);
+
 	/* well, we know, what the broadcast hash value is: it's xfd
 	hash = spider_net_get_multicast_hash(netdev, netdev->broadcast); */
-	set_bit(0xfd, bitmask);
+	__set_bit(0xfd, bitmask);
 
 	netdev_for_each_mc_addr(ha, netdev) {
 		hash = spider_net_get_multicast_hash(netdev, ha->addr);
-		set_bit(hash, bitmask);
+		__set_bit(hash, bitmask);
 	}
 
 write_hash:
@@ -653,8 +655,9 @@ spider_net_prepare_tx_descr(struct spider_net_card *card,
 	dma_addr_t buf;
 	unsigned long flags;
 
-	buf = pci_map_single(card->pdev, skb->data, skb->len, PCI_DMA_TODEVICE);
-	if (pci_dma_mapping_error(card->pdev, buf)) {
+	buf = dma_map_single(&card->pdev->dev, skb->data, skb->len,
+			     DMA_TO_DEVICE);
+	if (dma_mapping_error(&card->pdev->dev, buf)) {
 		if (netif_msg_tx_err(card) && net_ratelimit())
 			dev_err(&card->netdev->dev, "could not iommu-map packet (%p, %i). "
 				  "Dropping packet\n", skb->data, skb->len);
@@ -666,7 +669,8 @@ spider_net_prepare_tx_descr(struct spider_net_card *card,
 	descr = card->tx_chain.head;
 	if (descr->next == chain->tail->prev) {
 		spin_unlock_irqrestore(&chain->lock, flags);
-		pci_unmap_single(card->pdev, buf, skb->len, PCI_DMA_TODEVICE);
+		dma_unmap_single(&card->pdev->dev, buf, skb->len,
+				 DMA_TO_DEVICE);
 		return -ENOMEM;
 	}
 	hwdescr = descr->hwdescr;
@@ -822,8 +826,8 @@ spider_net_release_tx_chain(struct spider_net_card *card, int brutal)
 
 		/* unmap the skb */
 		if (skb) {
-			pci_unmap_single(card->pdev, buf_addr, skb->len,
-					PCI_DMA_TODEVICE);
+			dma_unmap_single(&card->pdev->dev, buf_addr, skb->len,
+					 DMA_TO_DEVICE);
 			dev_consume_skb_any(skb);
 		}
 	}
@@ -1165,8 +1169,8 @@ spider_net_decode_one_descr(struct spider_net_card *card)
 	/* unmap descriptor */
 	hw_buf_addr = hwdescr->buf_addr;
 	hwdescr->buf_addr = 0xffffffff;
-	pci_unmap_single(card->pdev, hw_buf_addr,
-			SPIDER_NET_MAX_FRAME, PCI_DMA_FROMDEVICE);
+	dma_unmap_single(&card->pdev->dev, hw_buf_addr, SPIDER_NET_MAX_FRAME,
+			 DMA_FROM_DEVICE);
 
 	if ( (status == SPIDER_NET_DESCR_RESPONSE_ERROR) ||
 	     (status == SPIDER_NET_DESCR_PROTECTION_ERROR) ||
@@ -2266,8 +2270,7 @@ spider_net_setup_netdev(struct spider_net_card *card)
 	card->aneg_count = 0;
 	timer_setup(&card->aneg_timer, spider_net_link_phy, 0);
 
-	netif_napi_add(netdev, &card->napi,
-		       spider_net_poll, SPIDER_NET_NAPI_WEIGHT);
+	netif_napi_add(netdev, &card->napi, spider_net_poll);
 
 	spider_net_setup_netdev_ops(netdev);
 

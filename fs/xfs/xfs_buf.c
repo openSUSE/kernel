@@ -5,6 +5,7 @@
  */
 #include "xfs.h"
 #include <linux/backing-dev.h>
+#include <linux/dax.h>
 
 #include "xfs_shared.h"
 #include "xfs_format.h"
@@ -14,13 +15,14 @@
 #include "xfs_trace.h"
 #include "xfs_log.h"
 #include "xfs_log_recover.h"
+#include "xfs_log_priv.h"
 #include "xfs_trans.h"
 #include "xfs_buf_item.h"
 #include "xfs_errortag.h"
 #include "xfs_error.h"
 #include "xfs_ag.h"
 
-static kmem_zone_t *xfs_buf_zone;
+struct kmem_cache *xfs_buf_cache;
 
 /*
  * Locking orders
@@ -220,7 +222,7 @@ _xfs_buf_alloc(
 	int			i;
 
 	*bpp = NULL;
-	bp = kmem_cache_zalloc(xfs_buf_zone, GFP_NOFS | __GFP_NOFAIL);
+	bp = kmem_cache_zalloc(xfs_buf_cache, GFP_NOFS | __GFP_NOFAIL);
 
 	/*
 	 * We don't want certain flags to appear in b_flags unless they are
@@ -247,11 +249,11 @@ _xfs_buf_alloc(
 	 */
 	error = xfs_buf_get_maps(bp, nmaps);
 	if (error)  {
-		kmem_cache_free(xfs_buf_zone, bp);
+		kmem_cache_free(xfs_buf_cache, bp);
 		return error;
 	}
 
-	bp->b_bn = map[0].bm_bn;
+	bp->b_rhash_key = map[0].bm_bn;
 	bp->b_length = 0;
 	for (i = 0; i < nmaps; i++) {
 		bp->b_maps[i].bm_bn = map[i].bm_bn;
@@ -284,13 +286,22 @@ xfs_buf_free_pages(
 		if (bp->b_pages[i])
 			__free_page(bp->b_pages[i]);
 	}
-	if (current->reclaim_state)
-		current->reclaim_state->reclaimed_slab += bp->b_page_count;
+	mm_account_reclaimed_pages(bp->b_page_count);
 
 	if (bp->b_pages != bp->b_page_array)
 		kmem_free(bp->b_pages);
 	bp->b_pages = NULL;
 	bp->b_flags &= ~_XBF_PAGES;
+}
+
+static void
+xfs_buf_free_callback(
+	struct callback_head	*cb)
+{
+	struct xfs_buf		*bp = container_of(cb, struct xfs_buf, b_rcu);
+
+	xfs_buf_free_maps(bp);
+	kmem_cache_free(xfs_buf_cache, bp);
 }
 
 static void
@@ -306,8 +317,7 @@ xfs_buf_free(
 	else if (bp->b_flags & _XBF_KMEM)
 		kmem_free(bp->b_addr);
 
-	xfs_buf_free_maps(bp);
-	kmem_cache_free(xfs_buf_zone, bp);
+	call_rcu(&bp->b_rcu, xfs_buf_free_callback);
 }
 
 static int
@@ -315,7 +325,6 @@ xfs_buf_alloc_kmem(
 	struct xfs_buf	*bp,
 	xfs_buf_flags_t	flags)
 {
-	int		align_mask = xfs_buftarg_dma_alignment(bp->b_target);
 	xfs_km_flags_t	kmflag_mask = KM_NOFS;
 	size_t		size = BBTOB(bp->b_length);
 
@@ -323,7 +332,7 @@ xfs_buf_alloc_kmem(
 	if (!(flags & XBF_READ))
 		kmflag_mask |= KM_ZERO;
 
-	bp->b_addr = kmem_alloc_io(size, align_mask, kmflag_mask);
+	bp->b_addr = kmem_alloc(size, kmflag_mask);
 	if (!bp->b_addr)
 		return -ENOMEM;
 
@@ -395,7 +404,7 @@ xfs_buf_alloc_pages(
 		}
 
 		XFS_STATS_INC(bp->b_mount, xb_page_retries);
-		congestion_wait(BLK_RW_ASYNC, HZ / 50);
+		memalloc_retry_wait(gfp_mask);
 	}
 	return 0;
 }
@@ -406,7 +415,7 @@ xfs_buf_alloc_pages(
 STATIC int
 _xfs_buf_map_pages(
 	struct xfs_buf		*bp,
-	uint			flags)
+	xfs_buf_flags_t		flags)
 {
 	ASSERT(bp->b_flags & _XBF_PAGES);
 	if (bp->b_page_count == 1) {
@@ -460,7 +469,7 @@ _xfs_buf_obj_cmp(
 	 */
 	BUILD_BUG_ON(offsetof(struct xfs_buf_map, bm_bn) != 0);
 
-	if (bp->b_bn != map->bm_bn)
+	if (bp->b_rhash_key != map->bm_bn)
 		return 1;
 
 	if (unlikely(bp->b_length != map->bm_len)) {
@@ -482,7 +491,7 @@ static const struct rhashtable_params xfs_buf_hash_params = {
 	.min_size		= 32,	/* empty AGs have minimal footprint */
 	.nelem_hint		= 16,
 	.key_len		= sizeof(xfs_daddr_t),
-	.key_offset		= offsetof(struct xfs_buf, b_bn),
+	.key_offset		= offsetof(struct xfs_buf, b_rhash_key),
 	.head_offset		= offsetof(struct xfs_buf, b_rhash_head),
 	.automatic_shrinking	= true,
 	.obj_cmpfn		= _xfs_buf_obj_cmp,
@@ -503,100 +512,45 @@ xfs_buf_hash_destroy(
 	rhashtable_destroy(&pag->pag_buf_hash);
 }
 
-/*
- * Look up a buffer in the buffer cache and return it referenced and locked
- * in @found_bp.
- *
- * If @new_bp is supplied and we have a lookup miss, insert @new_bp into the
- * cache.
- *
- * If XBF_TRYLOCK is set in @flags, only try to lock the buffer and return
- * -EAGAIN if we fail to lock it.
- *
- * Return values are:
- *	-EFSCORRUPTED if have been supplied with an invalid address
- *	-EAGAIN on trylock failure
- *	-ENOENT if we fail to find a match and @new_bp was NULL
- *	0, with @found_bp:
- *		- @new_bp if we inserted it into the cache
- *		- the buffer we found and locked.
- */
 static int
-xfs_buf_find(
+xfs_buf_map_verify(
 	struct xfs_buftarg	*btp,
-	struct xfs_buf_map	*map,
-	int			nmaps,
-	xfs_buf_flags_t		flags,
-	struct xfs_buf		*new_bp,
-	struct xfs_buf		**found_bp)
+	struct xfs_buf_map	*map)
 {
-	struct xfs_perag	*pag;
-	struct xfs_buf		*bp;
-	struct xfs_buf_map	cmap = { .bm_bn = map[0].bm_bn };
 	xfs_daddr_t		eofs;
-	int			i;
-
-	*found_bp = NULL;
-
-	for (i = 0; i < nmaps; i++)
-		cmap.bm_len += map[i].bm_len;
 
 	/* Check for IOs smaller than the sector size / not sector aligned */
-	ASSERT(!(BBTOB(cmap.bm_len) < btp->bt_meta_sectorsize));
-	ASSERT(!(BBTOB(cmap.bm_bn) & (xfs_off_t)btp->bt_meta_sectormask));
+	ASSERT(!(BBTOB(map->bm_len) < btp->bt_meta_sectorsize));
+	ASSERT(!(BBTOB(map->bm_bn) & (xfs_off_t)btp->bt_meta_sectormask));
 
 	/*
 	 * Corrupted block numbers can get through to here, unfortunately, so we
 	 * have to check that the buffer falls within the filesystem bounds.
 	 */
 	eofs = XFS_FSB_TO_BB(btp->bt_mount, btp->bt_mount->m_sb.sb_dblocks);
-	if (cmap.bm_bn < 0 || cmap.bm_bn >= eofs) {
+	if (map->bm_bn < 0 || map->bm_bn >= eofs) {
 		xfs_alert(btp->bt_mount,
 			  "%s: daddr 0x%llx out of range, EOFS 0x%llx",
-			  __func__, cmap.bm_bn, eofs);
+			  __func__, map->bm_bn, eofs);
 		WARN_ON(1);
 		return -EFSCORRUPTED;
 	}
-
-	pag = xfs_perag_get(btp->bt_mount,
-			    xfs_daddr_to_agno(btp->bt_mount, cmap.bm_bn));
-
-	spin_lock(&pag->pag_buf_lock);
-	bp = rhashtable_lookup_fast(&pag->pag_buf_hash, &cmap,
-				    xfs_buf_hash_params);
-	if (bp) {
-		atomic_inc(&bp->b_hold);
-		goto found;
-	}
-
-	/* No match found */
-	if (!new_bp) {
-		XFS_STATS_INC(btp->bt_mount, xb_miss_locked);
-		spin_unlock(&pag->pag_buf_lock);
-		xfs_perag_put(pag);
-		return -ENOENT;
-	}
-
-	/* the buffer keeps the perag reference until it is freed */
-	new_bp->b_pag = pag;
-	rhashtable_insert_fast(&pag->pag_buf_hash, &new_bp->b_rhash_head,
-			       xfs_buf_hash_params);
-	spin_unlock(&pag->pag_buf_lock);
-	*found_bp = new_bp;
 	return 0;
+}
 
-found:
-	spin_unlock(&pag->pag_buf_lock);
-	xfs_perag_put(pag);
-
-	if (!xfs_buf_trylock(bp)) {
-		if (flags & XBF_TRYLOCK) {
-			xfs_buf_rele(bp);
-			XFS_STATS_INC(btp->bt_mount, xb_busy_locked);
+static int
+xfs_buf_find_lock(
+	struct xfs_buf          *bp,
+	xfs_buf_flags_t		flags)
+{
+	if (flags & XBF_TRYLOCK) {
+		if (!xfs_buf_trylock(bp)) {
+			XFS_STATS_INC(bp->b_mount, xb_busy_locked);
 			return -EAGAIN;
 		}
+	} else {
 		xfs_buf_lock(bp);
-		XFS_STATS_INC(btp->bt_mount, xb_get_locked_waited);
+		XFS_STATS_INC(bp->b_mount, xb_get_locked_waited);
 	}
 
 	/*
@@ -609,57 +563,59 @@ found:
 		bp->b_flags &= _XBF_KMEM | _XBF_PAGES;
 		bp->b_ops = NULL;
 	}
-
-	trace_xfs_buf_find(bp, flags, _RET_IP_);
-	XFS_STATS_INC(btp->bt_mount, xb_get_locked);
-	*found_bp = bp;
 	return 0;
 }
 
-struct xfs_buf *
-xfs_buf_incore(
-	struct xfs_buftarg	*target,
-	xfs_daddr_t		blkno,
-	size_t			numblks,
-	xfs_buf_flags_t		flags)
+static inline int
+xfs_buf_lookup(
+	struct xfs_perag	*pag,
+	struct xfs_buf_map	*map,
+	xfs_buf_flags_t		flags,
+	struct xfs_buf		**bpp)
 {
-	struct xfs_buf		*bp;
+	struct xfs_buf          *bp;
 	int			error;
-	DEFINE_SINGLE_BUF_MAP(map, blkno, numblks);
 
-	error = xfs_buf_find(target, &map, 1, flags, NULL, &bp);
-	if (error)
-		return NULL;
-	return bp;
+	rcu_read_lock();
+	bp = rhashtable_lookup(&pag->pag_buf_hash, map, xfs_buf_hash_params);
+	if (!bp || !atomic_inc_not_zero(&bp->b_hold)) {
+		rcu_read_unlock();
+		return -ENOENT;
+	}
+	rcu_read_unlock();
+
+	error = xfs_buf_find_lock(bp, flags);
+	if (error) {
+		xfs_buf_rele(bp);
+		return error;
+	}
+
+	trace_xfs_buf_find(bp, flags, _RET_IP_);
+	*bpp = bp;
+	return 0;
 }
 
 /*
- * Assembles a buffer covering the specified range. The code is optimised for
- * cache hits, as metadata intensive workloads will see 3 orders of magnitude
- * more hits than misses.
+ * Insert the new_bp into the hash table. This consumes the perag reference
+ * taken for the lookup regardless of the result of the insert.
  */
-int
-xfs_buf_get_map(
-	struct xfs_buftarg	*target,
+static int
+xfs_buf_find_insert(
+	struct xfs_buftarg	*btp,
+	struct xfs_perag	*pag,
+	struct xfs_buf_map	*cmap,
 	struct xfs_buf_map	*map,
 	int			nmaps,
 	xfs_buf_flags_t		flags,
 	struct xfs_buf		**bpp)
 {
-	struct xfs_buf		*bp;
 	struct xfs_buf		*new_bp;
+	struct xfs_buf		*bp;
 	int			error;
 
-	*bpp = NULL;
-	error = xfs_buf_find(target, map, nmaps, flags, NULL, &bp);
-	if (!error)
-		goto found;
-	if (error != -ENOENT)
-		return error;
-
-	error = _xfs_buf_alloc(target, map, nmaps, flags, &new_bp);
+	error = _xfs_buf_alloc(btp, map, nmaps, flags, &new_bp);
 	if (error)
-		return error;
+		goto out_drop_pag;
 
 	/*
 	 * For buffers that fit entirely within a single page, first attempt to
@@ -674,18 +630,94 @@ xfs_buf_get_map(
 			goto out_free_buf;
 	}
 
-	error = xfs_buf_find(target, map, nmaps, flags, new_bp, &bp);
-	if (error)
+	spin_lock(&pag->pag_buf_lock);
+	bp = rhashtable_lookup_get_insert_fast(&pag->pag_buf_hash,
+			&new_bp->b_rhash_head, xfs_buf_hash_params);
+	if (IS_ERR(bp)) {
+		error = PTR_ERR(bp);
+		spin_unlock(&pag->pag_buf_lock);
 		goto out_free_buf;
+	}
+	if (bp) {
+		/* found an existing buffer */
+		atomic_inc(&bp->b_hold);
+		spin_unlock(&pag->pag_buf_lock);
+		error = xfs_buf_find_lock(bp, flags);
+		if (error)
+			xfs_buf_rele(bp);
+		else
+			*bpp = bp;
+		goto out_free_buf;
+	}
 
-	if (bp != new_bp)
-		xfs_buf_free(new_bp);
+	/* The new buffer keeps the perag reference until it is freed. */
+	new_bp->b_pag = pag;
+	spin_unlock(&pag->pag_buf_lock);
+	*bpp = new_bp;
+	return 0;
 
-found:
+out_free_buf:
+	xfs_buf_free(new_bp);
+out_drop_pag:
+	xfs_perag_put(pag);
+	return error;
+}
+
+/*
+ * Assembles a buffer covering the specified range. The code is optimised for
+ * cache hits, as metadata intensive workloads will see 3 orders of magnitude
+ * more hits than misses.
+ */
+int
+xfs_buf_get_map(
+	struct xfs_buftarg	*btp,
+	struct xfs_buf_map	*map,
+	int			nmaps,
+	xfs_buf_flags_t		flags,
+	struct xfs_buf		**bpp)
+{
+	struct xfs_perag	*pag;
+	struct xfs_buf		*bp = NULL;
+	struct xfs_buf_map	cmap = { .bm_bn = map[0].bm_bn };
+	int			error;
+	int			i;
+
+	for (i = 0; i < nmaps; i++)
+		cmap.bm_len += map[i].bm_len;
+
+	error = xfs_buf_map_verify(btp, &cmap);
+	if (error)
+		return error;
+
+	pag = xfs_perag_get(btp->bt_mount,
+			    xfs_daddr_to_agno(btp->bt_mount, cmap.bm_bn));
+
+	error = xfs_buf_lookup(pag, &cmap, flags, &bp);
+	if (error && error != -ENOENT)
+		goto out_put_perag;
+
+	/* cache hits always outnumber misses by at least 10:1 */
+	if (unlikely(!bp)) {
+		XFS_STATS_INC(btp->bt_mount, xb_miss_locked);
+
+		if (flags & XBF_INCORE)
+			goto out_put_perag;
+
+		/* xfs_buf_find_insert() consumes the perag reference. */
+		error = xfs_buf_find_insert(btp, pag, &cmap, map, nmaps,
+				flags, &bp);
+		if (error)
+			return error;
+	} else {
+		XFS_STATS_INC(btp->bt_mount, xb_get_locked);
+		xfs_perag_put(pag);
+	}
+
+	/* We do not hold a perag reference anymore. */
 	if (!bp->b_addr) {
 		error = _xfs_buf_map_pages(bp, flags);
 		if (unlikely(error)) {
-			xfs_warn_ratelimited(target->bt_mount,
+			xfs_warn_ratelimited(btp->bt_mount,
 				"%s: failed to map %u pages", __func__,
 				bp->b_page_count);
 			xfs_buf_relse(bp);
@@ -700,12 +732,13 @@ found:
 	if (!(flags & XBF_READ))
 		xfs_buf_ioerror(bp, 0);
 
-	XFS_STATS_INC(target->bt_mount, xb_get);
+	XFS_STATS_INC(btp->bt_mount, xb_get);
 	trace_xfs_buf_get(bp, flags, _RET_IP_);
 	*bpp = bp;
 	return 0;
-out_free_buf:
-	xfs_buf_free(new_bp);
+
+out_put_perag:
+	xfs_perag_put(pag);
 	return error;
 }
 
@@ -814,7 +847,15 @@ xfs_buf_read_map(
 	 * buffer.
 	 */
 	if (error) {
-		if (!XFS_FORCED_SHUTDOWN(target->bt_mount))
+		/*
+		 * Check against log shutdown for error reporting because
+		 * metadata writeback may require a read first and we need to
+		 * report errors in metadata writeback until the log is shut
+		 * down. High level transaction read functions already check
+		 * against mount shutdown, anyway, so we only need to be
+		 * concerned about low level IO interactions here.
+		 */
+		if (!xlog_is_shutdown(target->bt_mount->m_log))
 			xfs_buf_ioerror_alert(bp, fa);
 
 		bp->b_flags &= ~XBF_DONE;
@@ -844,9 +885,6 @@ xfs_buf_readahead_map(
 {
 	struct xfs_buf		*bp;
 
-	if (bdi_read_congested(target->bt_bdev->bd_disk->bdi))
-		return;
-
 	xfs_buf_read_map(target, map, nmaps,
 		     XBF_TRYLOCK | XBF_ASYNC | XBF_READ_AHEAD, &bp, ops,
 		     __this_address);
@@ -854,14 +892,16 @@ xfs_buf_readahead_map(
 
 /*
  * Read an uncached buffer from disk. Allocates and returns a locked
- * buffer containing the disk contents or nothing.
+ * buffer containing the disk contents or nothing. Uncached buffers always have
+ * a cache index of XFS_BUF_DADDR_NULL so we can easily determine if the buffer
+ * is cached or uncached during fault diagnosis.
  */
 int
 xfs_buf_read_uncached(
 	struct xfs_buftarg	*target,
 	xfs_daddr_t		daddr,
 	size_t			numblks,
-	int			flags,
+	xfs_buf_flags_t		flags,
 	struct xfs_buf		**bpp,
 	const struct xfs_buf_ops *ops)
 {
@@ -876,7 +916,7 @@ xfs_buf_read_uncached(
 
 	/* set up the buffer for a read IO */
 	ASSERT(bp->b_map_count == 1);
-	bp->b_bn = XFS_BUF_DADDR_NULL;  /* always null for uncached buffers */
+	bp->b_rhash_key = XFS_BUF_DADDR_NULL;
 	bp->b_maps[0].bm_bn = daddr;
 	bp->b_flags |= XBF_READ;
 	bp->b_ops = ops;
@@ -896,7 +936,7 @@ int
 xfs_buf_get_uncached(
 	struct xfs_buftarg	*target,
 	size_t			numblks,
-	int			flags,
+	xfs_buf_flags_t		flags,
 	struct xfs_buf		**bpp)
 {
 	int			error;
@@ -1145,7 +1185,7 @@ xfs_buf_ioerror_permanent(
 		return true;
 
 	/* At unmount we may treat errors differently */
-	if ((mp->m_flags & XFS_MOUNT_UNMOUNTING) && mp->m_fail_unmount)
+	if (xfs_is_unmounting(mp) && mp->m_fail_unmount)
 		return true;
 
 	return false;
@@ -1176,10 +1216,10 @@ xfs_buf_ioend_handle_error(
 	struct xfs_error_cfg	*cfg;
 
 	/*
-	 * If we've already decided to shutdown the filesystem because of I/O
-	 * errors, there's no point in giving this a retry.
+	 * If we've already shutdown the journal because of I/O errors, there's
+	 * no point in giving this a retry.
 	 */
-	if (XFS_FORCED_SHUTDOWN(mp))
+	if (xlog_is_shutdown(mp->m_log))
 		goto out_stale;
 
 	xfs_buf_ioerror_alert_ratelimited(bp);
@@ -1336,7 +1376,7 @@ xfs_buf_ioerror_alert(
 {
 	xfs_buf_alert_ratelimited(bp, "XFS: metadata IO error",
 		"metadata I/O error in \"%pS\" at daddr 0x%llx len %d error %d",
-				  func, (uint64_t)XFS_BUF_ADDR(bp),
+				  func, (uint64_t)xfs_buf_daddr(bp),
 				  bp->b_length, -bp->b_error);
 }
 
@@ -1409,7 +1449,7 @@ xfs_buf_ioapply_map(
 	int		map,
 	int		*buf_offset,
 	int		*count,
-	int		op)
+	blk_opf_t	op)
 {
 	int		page_index;
 	unsigned int	total_nr_pages = bp->b_page_count;
@@ -1486,7 +1526,7 @@ _xfs_buf_ioapply(
 	struct xfs_buf	*bp)
 {
 	struct blk_plug	plug;
-	int		op;
+	blk_opf_t	op;
 	int		offset;
 	int		size;
 	int		i;
@@ -1512,17 +1552,18 @@ _xfs_buf_ioapply(
 						   SHUTDOWN_CORRUPT_INCORE);
 				return;
 			}
-		} else if (bp->b_bn != XFS_BUF_DADDR_NULL) {
+		} else if (bp->b_rhash_key != XFS_BUF_DADDR_NULL) {
 			struct xfs_mount *mp = bp->b_mount;
 
 			/*
 			 * non-crc filesystems don't attach verifiers during
 			 * log recovery, so don't warn for such filesystems.
 			 */
-			if (xfs_sb_version_hascrc(&mp->m_sb)) {
+			if (xfs_has_crc(mp)) {
 				xfs_warn(mp,
 					"%s: no buf ops on daddr 0x%llx len %d",
-					__func__, bp->b_bn, bp->b_length);
+					__func__, xfs_buf_daddr(bp),
+					bp->b_length);
 				xfs_hex_dump(bp->b_addr,
 						XFS_CORRUPTION_DUMP_LEN);
 				dump_stack();
@@ -1589,8 +1630,23 @@ __xfs_buf_submit(
 
 	ASSERT(!(bp->b_flags & _XBF_DELWRI_Q));
 
-	/* on shutdown we stale and complete the buffer immediately */
-	if (XFS_FORCED_SHUTDOWN(bp->b_mount)) {
+	/*
+	 * On log shutdown we stale and complete the buffer immediately. We can
+	 * be called to read the superblock before the log has been set up, so
+	 * be careful checking the log state.
+	 *
+	 * Checking the mount shutdown state here can result in the log tail
+	 * moving inappropriately on disk as the log may not yet be shut down.
+	 * i.e. failing this buffer on mount shutdown can remove it from the AIL
+	 * and move the tail of the log forwards without having written this
+	 * buffer to disk. This corrupts the log tail state in memory, and
+	 * because the log may not be shut down yet, it can then be propagated
+	 * to disk before the log is shutdown. Hence we check log shutdown
+	 * state here rather than mount state to avoid corrupting the log tail
+	 * on shutdown.
+	 */
+	if (bp->b_mount->m_log &&
+	    xlog_is_shutdown(bp->b_mount->m_log)) {
 		xfs_buf_ioend_fail(bp);
 		return -EIO;
 	}
@@ -1792,7 +1848,7 @@ xfs_buftarg_drain(
 				xfs_buf_alert_ratelimited(bp,
 					"XFS: Corruption Alert",
 "Corruption Alert: Buffer at daddr 0x%llx had permanent write failures!",
-					(long long)bp->b_bn);
+					(long long)xfs_buf_daddr(bp));
 			}
 			xfs_buf_rele(bp);
 		}
@@ -1804,10 +1860,10 @@ xfs_buftarg_drain(
 	 * If one or more failed buffers were freed, that means dirty metadata
 	 * was thrown away. This should only ever happen after I/O completion
 	 * handling has elevated I/O error(s) to permanent failures and shuts
-	 * down the fs.
+	 * down the journal.
 	 */
 	if (write_fail) {
-		ASSERT(XFS_FORCED_SHUTDOWN(btp->bt_mount));
+		ASSERT(xlog_is_shutdown(btp->bt_mount->m_log));
 		xfs_alert(btp->bt_mount,
 	      "Please run xfs_repair to determine the extent of the problem.");
 	}
@@ -1888,6 +1944,8 @@ xfs_free_buftarg(
 	list_lru_destroy(&btp->bt_lru);
 
 	blkdev_issue_flush(btp->bt_bdev);
+	invalidate_bdev(btp->bt_bdev);
+	fs_put_dax(btp->bt_daxdev, btp->bt_mount);
 
 	kmem_free(btp);
 }
@@ -1928,20 +1986,24 @@ xfs_setsize_buftarg_early(
 	return xfs_setsize_buftarg(btp, bdev_logical_block_size(bdev));
 }
 
-xfs_buftarg_t *
+struct xfs_buftarg *
 xfs_alloc_buftarg(
 	struct xfs_mount	*mp,
-	struct block_device	*bdev,
-	struct dax_device	*dax_dev)
+	struct block_device	*bdev)
 {
 	xfs_buftarg_t		*btp;
+	const struct dax_holder_operations *ops = NULL;
 
+#if defined(CONFIG_FS_DAX) && defined(CONFIG_MEMORY_FAILURE)
+	ops = &xfs_dax_holder_operations;
+#endif
 	btp = kmem_zalloc(sizeof(*btp), KM_NOFS);
 
 	btp->bt_mount = mp;
 	btp->bt_dev =  bdev->bd_dev;
 	btp->bt_bdev = bdev;
-	btp->bt_daxdev = dax_dev;
+	btp->bt_daxdev = fs_dax_get_by_bdev(bdev, &btp->bt_dax_part_off,
+					    mp, ops);
 
 	/*
 	 * Buffer IO error rate limiting. Limit it to no more than 10 messages
@@ -1963,7 +2025,8 @@ xfs_alloc_buftarg(
 	btp->bt_shrinker.scan_objects = xfs_buftarg_shrink_scan;
 	btp->bt_shrinker.seeks = DEFAULT_SEEKS;
 	btp->bt_shrinker.flags = SHRINKER_NUMA_AWARE;
-	if (register_shrinker(&btp->bt_shrinker))
+	if (register_shrinker(&btp->bt_shrinker, "xfs-buf:%s",
+			      mp->m_super->s_id))
 		goto error_pcpu;
 	return btp;
 
@@ -2090,12 +2153,13 @@ xfs_buf_delwri_submit_buffers(
 	blk_start_plug(&plug);
 	list_for_each_entry_safe(bp, n, buffer_list, b_list) {
 		if (!wait_list) {
+			if (!xfs_buf_trylock(bp))
+				continue;
 			if (xfs_buf_ispinned(bp)) {
+				xfs_buf_unlock(bp);
 				pinned++;
 				continue;
 			}
-			if (!xfs_buf_trylock(bp))
-				continue;
 		} else {
 			xfs_buf_lock(bp);
 		}
@@ -2251,29 +2315,6 @@ xfs_buf_delwri_pushbuf(
 	return error;
 }
 
-int __init
-xfs_buf_init(void)
-{
-	xfs_buf_zone = kmem_cache_create("xfs_buf", sizeof(struct xfs_buf), 0,
-					 SLAB_HWCACHE_ALIGN |
-					 SLAB_RECLAIM_ACCOUNT |
-					 SLAB_MEM_SPREAD,
-					 NULL);
-	if (!xfs_buf_zone)
-		goto out;
-
-	return 0;
-
- out:
-	return -ENOMEM;
-}
-
-void
-xfs_buf_terminate(void)
-{
-	kmem_cache_destroy(xfs_buf_zone);
-}
-
 void xfs_buf_set_ref(struct xfs_buf *bp, int lru_ref)
 {
 	/*
@@ -2300,7 +2341,7 @@ xfs_verify_magic(
 	struct xfs_mount	*mp = bp->b_mount;
 	int			idx;
 
-	idx = xfs_sb_version_hascrc(&mp->m_sb);
+	idx = xfs_has_crc(mp);
 	if (WARN_ON(!bp->b_ops || !bp->b_ops->magic[idx]))
 		return false;
 	return dmagic == bp->b_ops->magic[idx];
@@ -2318,7 +2359,7 @@ xfs_verify_magic16(
 	struct xfs_mount	*mp = bp->b_mount;
 	int			idx;
 
-	idx = xfs_sb_version_hascrc(&mp->m_sb);
+	idx = xfs_has_crc(mp);
 	if (WARN_ON(!bp->b_ops || !bp->b_ops->magic16[idx]))
 		return false;
 	return dmagic == bp->b_ops->magic16[idx];

@@ -5,6 +5,7 @@
 
 /dts-v1/;
 #include "mt8183-kukui.dtsi"
+#include "mt8183-kukui-audio-ts3a227e-max98357a.dtsi"
 
 / {
 	ppvarn_lcd: ppvarn-lcd {
@@ -335,6 +336,12 @@
 			 */
 			output-high;
 		};
+	};
+};
+
+&cros_ec {
+	keyboard-controller {
+		compatible = "google,cros-ec-keyb-switches";
 	};
 };
 

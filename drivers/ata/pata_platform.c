@@ -45,7 +45,7 @@ static int pata_platform_set_mode(struct ata_link *link, struct ata_device **unu
 	return 0;
 }
 
-static struct scsi_host_template pata_platform_sht = {
+static const struct scsi_host_template pata_platform_sht = {
 	ATA_PIO_SHT(DRV_NAME),
 };
 
@@ -97,7 +97,7 @@ static void pata_platform_setup_port(struct ata_ioports *ioaddr,
 int __pata_platform_probe(struct device *dev, struct resource *io_res,
 			  struct resource *ctl_res, struct resource *irq_res,
 			  unsigned int ioport_shift, int __pio_mask,
-			  struct scsi_host_template *sht, bool use16bit)
+			  const struct scsi_host_template *sht, bool use16bit)
 {
 	struct ata_host *host;
 	struct ata_port *ap;
@@ -200,22 +200,16 @@ static int pata_platform_probe(struct platform_device *pdev)
 	/*
 	 * Get the I/O base first
 	 */
-	io_res = platform_get_resource(pdev, IORESOURCE_IO, 0);
-	if (io_res == NULL) {
-		io_res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-		if (unlikely(io_res == NULL))
-			return -EINVAL;
-	}
+	io_res = platform_get_mem_or_io(pdev, 0);
+	if (!io_res)
+		return -EINVAL;
 
 	/*
 	 * Then the CTL base
 	 */
-	ctl_res = platform_get_resource(pdev, IORESOURCE_IO, 1);
-	if (ctl_res == NULL) {
-		ctl_res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
-		if (unlikely(ctl_res == NULL))
-			return -EINVAL;
-	}
+	ctl_res = platform_get_mem_or_io(pdev, 1);
+	if (!ctl_res)
+		return -EINVAL;
 
 	/*
 	 * And the IRQ

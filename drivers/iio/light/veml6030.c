@@ -786,8 +786,7 @@ static int veml6030_hw_init(struct iio_dev *indio_dev)
 	return ret;
 }
 
-static int veml6030_probe(struct i2c_client *client,
-			  const struct i2c_device_id *id)
+static int veml6030_probe(struct i2c_client *client)
 {
 	int ret;
 	struct veml6030_data *data;
@@ -846,7 +845,7 @@ static int veml6030_probe(struct i2c_client *client,
 	return devm_iio_device_register(&client->dev, indio_dev);
 }
 
-static int __maybe_unused veml6030_runtime_suspend(struct device *dev)
+static int veml6030_runtime_suspend(struct device *dev)
 {
 	int ret;
 	struct iio_dev *indio_dev = i2c_get_clientdata(to_i2c_client(dev));
@@ -859,7 +858,7 @@ static int __maybe_unused veml6030_runtime_suspend(struct device *dev)
 	return ret;
 }
 
-static int __maybe_unused veml6030_runtime_resume(struct device *dev)
+static int veml6030_runtime_resume(struct device *dev)
 {
 	int ret;
 	struct iio_dev *indio_dev = i2c_get_clientdata(to_i2c_client(dev));
@@ -872,12 +871,8 @@ static int __maybe_unused veml6030_runtime_resume(struct device *dev)
 	return ret;
 }
 
-static const struct dev_pm_ops veml6030_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend,
-				pm_runtime_force_resume)
-	SET_RUNTIME_PM_OPS(veml6030_runtime_suspend,
-				veml6030_runtime_resume, NULL)
-};
+static DEFINE_RUNTIME_DEV_PM_OPS(veml6030_pm_ops, veml6030_runtime_suspend,
+				 veml6030_runtime_resume, NULL);
 
 static const struct of_device_id veml6030_of_match[] = {
 	{ .compatible = "vishay,veml6030" },
@@ -895,9 +890,9 @@ static struct i2c_driver veml6030_driver = {
 	.driver = {
 		.name = "veml6030",
 		.of_match_table = veml6030_of_match,
-		.pm = &veml6030_pm_ops,
+		.pm = pm_ptr(&veml6030_pm_ops),
 	},
-	.probe = veml6030_probe,
+	.probe_new = veml6030_probe,
 	.id_table = veml6030_id,
 };
 module_i2c_driver(veml6030_driver);

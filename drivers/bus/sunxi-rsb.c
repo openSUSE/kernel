@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * RSB (Reduced Serial Bus) driver.
  *
  * Author: Chen-Yu Tsai <wens@csie.org>
- *
- * This file is licensed under the terms of the GNU General Public License
- * version 2.  This program is licensed "as is" without any warranty of any
- * kind, whether express or implied.
  *
  * The RSB controller looks like an SMBus controller which only supports
  * byte and word data transfers. But, it differs from standard SMBus
@@ -31,7 +28,6 @@
  * This document is officially released by Allwinner.
  *
  * This driver is based on i2c-sun6i-p2wi.c, the P2WI bus driver.
- *
  */
 
 #include <linux/clk.h>
@@ -176,12 +172,17 @@ static void sunxi_rsb_device_remove(struct device *dev)
 	drv->remove(to_sunxi_rsb_device(dev));
 }
 
+static int sunxi_rsb_device_modalias(const struct device *dev, struct kobj_uevent_env *env)
+{
+	return of_device_uevent_modalias(dev, env);
+}
+
 static struct bus_type sunxi_rsb_bus = {
 	.name		= RSB_CTRL_NAME,
 	.match		= sunxi_rsb_device_match,
 	.probe		= sunxi_rsb_device_probe,
 	.remove		= sunxi_rsb_device_remove,
-	.uevent		= of_device_uevent_modalias,
+	.uevent		= sunxi_rsb_device_modalias,
 };
 
 static void sunxi_rsb_dev_release(struct device *dev)

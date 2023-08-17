@@ -91,33 +91,10 @@
 			/* 8MB of flash */
 			reg = <0x30000000 0x00800000>;
 
-			partition@0 {
-				label = "RedBoot";
-				reg = <0x00000000 0x00020000>;
-				read-only;
-			};
-			partition@20000 {
-				label = "kernel";
-				reg = <0x00020000 0x00100000>;
-			};
-			partition@120000 {
-				label = "rootfs";
-				reg = <0x00120000 0x006a0000>;
-			};
-			partition@7c0000 {
-				label = "VCTL";
-				reg = <0x007c0000 0x00010000>;
-				read-only;
-			};
-			partition@7d0000 {
-				label = "cfg";
-				reg = <0x007d0000 0x00010000>;
-				read-only;
-			};
-			partition@7e0000 {
-				label = "FIS";
-				reg = <0x007e0000 0x00010000>;
-				read-only;
+			partitions {
+				compatible = "redboot-fis";
+				/* Eraseblock at 0x7e0000 */
+				fis-index-block = <0x3f>;
 			};
 		};
 
@@ -151,24 +128,6 @@
 
 		pci@50000000 {
 			status = "okay";
-			interrupt-map-mask = <0xf800 0 0 7>;
-			interrupt-map =
-				<0x4800 0 0 1 &pci_intc 0>, /* Slot 9 */
-				<0x4800 0 0 2 &pci_intc 1>,
-				<0x4800 0 0 3 &pci_intc 2>,
-				<0x4800 0 0 4 &pci_intc 3>,
-				<0x5000 0 0 1 &pci_intc 1>, /* Slot 10 */
-				<0x5000 0 0 2 &pci_intc 2>,
-				<0x5000 0 0 3 &pci_intc 3>,
-				<0x5000 0 0 4 &pci_intc 0>,
-				<0x5800 0 0 1 &pci_intc 2>, /* Slot 11 */
-				<0x5800 0 0 2 &pci_intc 3>,
-				<0x5800 0 0 3 &pci_intc 0>,
-				<0x5800 0 0 4 &pci_intc 1>,
-				<0x6000 0 0 1 &pci_intc 3>, /* Slot 12 */
-				<0x6000 0 0 2 &pci_intc 0>,
-				<0x6000 0 0 3 &pci_intc 1>,
-				<0x6000 0 0 4 &pci_intc 2>;
 		};
 
 		ethernet@60000000 {

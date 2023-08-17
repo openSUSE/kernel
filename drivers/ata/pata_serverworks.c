@@ -252,13 +252,13 @@ static void serverworks_set_dmamode(struct ata_port *ap, struct ata_device *adev
 	pci_write_config_byte(pdev, 0x54, ultra_cfg);
 }
 
-static struct scsi_host_template serverworks_osb4_sht = {
+static const struct scsi_host_template serverworks_osb4_sht = {
 	ATA_BASE_SHT(DRV_NAME),
 	.sg_tablesize	= LIBATA_DUMB_MAX_PRD,
 	.dma_boundary	= ATA_DMA_BOUNDARY,
 };
 
-static struct scsi_host_template serverworks_csb_sht = {
+static const struct scsi_host_template serverworks_csb_sht = {
 	ATA_BMDMA_SHT(DRV_NAME),
 };
 
@@ -286,13 +286,13 @@ static int serverworks_fixup_osb4(struct pci_dev *pdev)
 		pci_read_config_dword(isa_dev, 0x64, &reg);
 		reg &= ~0x00002000; /* disable 600ns interrupt mask */
 		if (!(reg & 0x00004000))
-			printk(KERN_DEBUG DRV_NAME ": UDMA not BIOS enabled.\n");
+			dev_info(&pdev->dev, "UDMA not BIOS enabled.\n");
 		reg |=  0x00004000; /* enable UDMA/33 support */
 		pci_write_config_dword(isa_dev, 0x64, reg);
 		pci_dev_put(isa_dev);
 		return 0;
 	}
-	printk(KERN_WARNING DRV_NAME ": Unable to find bridge.\n");
+	dev_warn(&pdev->dev, "Unable to find bridge.\n");
 	return -ENODEV;
 }
 
@@ -413,7 +413,7 @@ static int serverworks_init_one(struct pci_dev *pdev, const struct pci_device_id
 		}
 	};
 	const struct ata_port_info *ppi[] = { &info[id->driver_data], NULL };
-	struct scsi_host_template *sht = &serverworks_csb_sht;
+	const struct scsi_host_template *sht = &serverworks_csb_sht;
 	int rc;
 
 	rc = pcim_enable_device(pdev);

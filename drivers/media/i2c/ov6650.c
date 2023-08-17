@@ -764,6 +764,33 @@ static int ov6650_enum_mbus_code(struct v4l2_subdev *sd,
 	return 0;
 }
 
+static int ov6650_enum_frame_interval(struct v4l2_subdev *sd,
+				    struct v4l2_subdev_state *sd_state,
+				    struct v4l2_subdev_frame_interval_enum *fie)
+{
+	int i;
+
+	/* enumerate supported frame intervals not exceeding 1 second */
+	if (fie->index > CLKRC_DIV_MASK ||
+	    GET_CLKRC_DIV(fie->index) > FRAME_RATE_MAX)
+		return -EINVAL;
+
+	for (i = 0; i < ARRAY_SIZE(ov6650_codes); i++)
+		if (fie->code == ov6650_codes[i])
+			break;
+	if (i == ARRAY_SIZE(ov6650_codes))
+		return -EINVAL;
+
+	if (!fie->width || fie->width > W_CIF ||
+	    !fie->height || fie->height > H_CIF)
+		return -EINVAL;
+
+	fie->interval.numerator = GET_CLKRC_DIV(fie->index);
+	fie->interval.denominator = FRAME_RATE_MAX;
+
+	return 0;
+}
+
 static int ov6650_g_frame_interval(struct v4l2_subdev *sd,
 				   struct v4l2_subdev_frame_interval *ival)
 {
@@ -969,42 +996,6 @@ static int ov6650_get_mbus_config(struct v4l2_subdev *sd,
 	return 0;
 }
 
-/* Alter bus settings on camera side */
-static int ov6650_set_mbus_config(struct v4l2_subdev *sd,
-				  unsigned int pad,
-				  struct v4l2_mbus_config *cfg)
-{
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
-	int ret = 0;
-
-	if (cfg->bus.parallel.flags & V4L2_MBUS_PCLK_SAMPLE_RISING)
-		ret = ov6650_reg_rmw(client, REG_COMJ, COMJ_PCLK_RISING, 0);
-	else if (cfg->bus.parallel.flags & V4L2_MBUS_PCLK_SAMPLE_FALLING)
-		ret = ov6650_reg_rmw(client, REG_COMJ, 0, COMJ_PCLK_RISING);
-	if (ret)
-		return ret;
-
-	if (cfg->bus.parallel.flags & V4L2_MBUS_HSYNC_ACTIVE_LOW)
-		ret = ov6650_reg_rmw(client, REG_COMF, COMF_HREF_LOW, 0);
-	else if (cfg->bus.parallel.flags & V4L2_MBUS_HSYNC_ACTIVE_HIGH)
-		ret = ov6650_reg_rmw(client, REG_COMF, 0, COMF_HREF_LOW);
-	if (ret)
-		return ret;
-
-	if (cfg->bus.parallel.flags & V4L2_MBUS_VSYNC_ACTIVE_HIGH)
-		ret = ov6650_reg_rmw(client, REG_COMJ, COMJ_VSYNC_HIGH, 0);
-	else if (cfg->bus.parallel.flags & V4L2_MBUS_VSYNC_ACTIVE_LOW)
-		ret = ov6650_reg_rmw(client, REG_COMJ, 0, COMJ_VSYNC_HIGH);
-	if (ret)
-		return ret;
-
-	/*
-	 * Update the configuration to report what is actually applied to
-	 * the hardware.
-	 */
-	return ov6650_get_mbus_config(sd, pad, cfg);
-}
-
 static const struct v4l2_subdev_video_ops ov6650_video_ops = {
 	.s_stream	= ov6650_s_stream,
 	.g_frame_interval = ov6650_g_frame_interval,
@@ -1012,13 +1003,13 @@ static const struct v4l2_subdev_video_ops ov6650_video_ops = {
 };
 
 static const struct v4l2_subdev_pad_ops ov6650_pad_ops = {
-	.enum_mbus_code = ov6650_enum_mbus_code,
-	.get_selection	= ov6650_get_selection,
-	.set_selection	= ov6650_set_selection,
-	.get_fmt	= ov6650_get_fmt,
-	.set_fmt	= ov6650_set_fmt,
-	.get_mbus_config = ov6650_get_mbus_config,
-	.set_mbus_config = ov6650_set_mbus_config,
+	.enum_mbus_code		= ov6650_enum_mbus_code,
+	.enum_frame_interval	= ov6650_enum_frame_interval,
+	.get_selection		= ov6650_get_selection,
+	.set_selection		= ov6650_set_selection,
+	.get_fmt		= ov6650_get_fmt,
+	.set_fmt		= ov6650_set_fmt,
+	.get_mbus_config	= ov6650_get_mbus_config,
 };
 
 static const struct v4l2_subdev_ops ov6650_subdev_ops = {
@@ -1034,8 +1025,7 @@ static const struct v4l2_subdev_internal_ops ov6650_internal_ops = {
 /*
  * i2c_driver function
  */
-static int ov6650_probe(struct i2c_client *client,
-			const struct i2c_device_id *did)
+static int ov6650_probe(struct i2c_client *client)
 {
 	struct ov6650 *priv;
 	int ret;
@@ -1105,13 +1095,12 @@ ectlhdlfree:
 	return ret;
 }
 
-static int ov6650_remove(struct i2c_client *client)
+static void ov6650_remove(struct i2c_client *client)
 {
 	struct ov6650 *priv = to_ov6650(client);
 
 	v4l2_async_unregister_subdev(&priv->subdev);
 	v4l2_ctrl_handler_free(&priv->hdl);
-	return 0;
 }
 
 static const struct i2c_device_id ov6650_id[] = {
@@ -1124,7 +1113,7 @@ static struct i2c_driver ov6650_i2c_driver = {
 	.driver = {
 		.name = "ov6650",
 	},
-	.probe    = ov6650_probe,
+	.probe_new = ov6650_probe,
 	.remove   = ov6650_remove,
 	.id_table = ov6650_id,
 };

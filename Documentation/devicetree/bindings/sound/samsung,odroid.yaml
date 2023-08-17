@@ -35,20 +35,20 @@ properties:
 
   cpu:
     type: object
+    additionalProperties: false
     properties:
       sound-dai:
-        $ref: /schemas/types.yaml#/definitions/phandle-array
         description: phandles to the I2S controllers
 
   codec:
     type: object
+    additionalProperties: false
     properties:
       sound-dai:
-        $ref: /schemas/types.yaml#/definitions/phandle-array
-        description: |
-          List of phandles to the CODEC nodes,
-          first entry must be corresponding to the MAX98090 CODEC and
-          the second entry must be the phandle of the HDMI IP block node.
+        minItems: 1
+        items:
+          - description: phandle of the HDMI IP block node
+          - description: phandle of the MAX98090 CODEC
 
   samsung,audio-routing:
     $ref: /schemas/types.yaml#/definitions/non-unique-string-array
@@ -95,4 +95,3 @@ examples:
             sound-dai = <&hdmi>, <&max98090>;
         };
     };
-

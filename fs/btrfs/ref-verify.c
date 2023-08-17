@@ -5,11 +5,14 @@
 
 #include <linux/sched.h>
 #include <linux/stacktrace.h>
+#include "messages.h"
 #include "ctree.h"
 #include "disk-io.h"
 #include "locking.h"
 #include "delayed-ref.h"
 #include "ref-verify.h"
+#include "fs.h"
+#include "accessors.h"
 
 /*
  * Used to keep track the roots and number of refs each root has for a given
@@ -678,10 +681,10 @@ int btrfs_ref_tree_mod(struct btrfs_fs_info *fs_info,
 
 	if (generic_ref->type == BTRFS_REF_METADATA) {
 		if (!parent)
-			ref_root = generic_ref->tree_ref.root;
+			ref_root = generic_ref->tree_ref.owning_root;
 		owner = generic_ref->tree_ref.level;
 	} else if (!parent) {
-		ref_root = generic_ref->data_ref.ref_root;
+		ref_root = generic_ref->data_ref.owning_root;
 		owner = generic_ref->data_ref.ino;
 		offset = generic_ref->data_ref.offset;
 	}
@@ -972,6 +975,7 @@ void btrfs_free_ref_tree_range(struct btrfs_fs_info *fs_info, u64 start,
 /* Walk down all roots and build the ref tree, meant to be called at mount */
 int btrfs_build_ref_tree(struct btrfs_fs_info *fs_info)
 {
+	struct btrfs_root *extent_root;
 	struct btrfs_path *path;
 	struct extent_buffer *eb;
 	int tree_block_level = 0;
@@ -985,7 +989,8 @@ int btrfs_build_ref_tree(struct btrfs_fs_info *fs_info)
 	if (!path)
 		return -ENOMEM;
 
-	eb = btrfs_read_lock_root_node(fs_info->extent_root);
+	extent_root = btrfs_extent_root(fs_info, 0);
+	eb = btrfs_read_lock_root_node(extent_root);
 	level = btrfs_header_level(eb);
 	path->nodes[level] = eb;
 	path->slots[level] = 0;
@@ -998,7 +1003,7 @@ int btrfs_build_ref_tree(struct btrfs_fs_info *fs_info)
 		 * would have had to added a ref key item which may appear on a
 		 * different leaf from the original extent item.
 		 */
-		ret = walk_down_tree(fs_info->extent_root, path, level,
+		ret = walk_down_tree(extent_root, path, level,
 				     &bytenr, &num_bytes, &tree_block_level);
 		if (ret)
 			break;

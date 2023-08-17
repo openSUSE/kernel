@@ -64,9 +64,9 @@ int BPF_KPROBE(handle_sys_prctl)
 	return 0;
 }
 
-SEC("kprobe/" SYS_PREFIX "sys_prctl")
-int BPF_KPROBE_SYSCALL(prctl_enter, int option, unsigned long arg2,
-		       unsigned long arg3, unsigned long arg4, unsigned long arg5)
+SEC("ksyscall/prctl")
+int BPF_KSYSCALL(prctl_enter, int option, unsigned long arg2,
+		 unsigned long arg3, unsigned long arg4, unsigned long arg5)
 {
 	pid_t pid = bpf_get_current_pid_tgid() >> 32;
 
@@ -78,6 +78,32 @@ int BPF_KPROBE_SYSCALL(prctl_enter, int option, unsigned long arg2,
 	arg3_syscall = arg3;
 	arg4_syscall = arg4;
 	arg5_syscall = arg5;
+	return 0;
+}
+
+__u64 splice_fd_in;
+__u64 splice_off_in;
+__u64 splice_fd_out;
+__u64 splice_off_out;
+__u64 splice_len;
+__u64 splice_flags;
+
+SEC("ksyscall/splice")
+int BPF_KSYSCALL(splice_enter, int fd_in, loff_t *off_in, int fd_out,
+		 loff_t *off_out, size_t len, unsigned int flags)
+{
+	pid_t pid = bpf_get_current_pid_tgid() >> 32;
+
+	if (pid != filter_pid)
+		return 0;
+
+	splice_fd_in = fd_in;
+	splice_off_in = (__u64)off_in;
+	splice_fd_out = fd_out;
+	splice_off_out = (__u64)off_out;
+	splice_len = len;
+	splice_flags = flags;
+
 	return 0;
 }
 

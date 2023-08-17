@@ -1,17 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * SCI Clock driver for keystone based devices
  *
  * Copyright (C) 2015-2016 Texas Instruments Incorporated - https://www.ti.com/
  *	Tero Kristo <t-kristo@ti.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed "as is" WITHOUT ANY WARRANTY of any
- * kind, whether express or implied; without even the implied warranty
- * of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 #include <linux/clk-provider.h>
 #include <linux/err.h>
@@ -699,16 +691,14 @@ static int ti_sci_clk_probe(struct platform_device *pdev)
  * via common clock framework. Any memory allocated for the device will
  * be free'd silently via the devm framework. Returns 0 always.
  */
-static int ti_sci_clk_remove(struct platform_device *pdev)
+static void ti_sci_clk_remove(struct platform_device *pdev)
 {
 	of_clk_del_provider(pdev->dev.of_node);
-
-	return 0;
 }
 
 static struct platform_driver ti_sci_clk_driver = {
 	.probe = ti_sci_clk_probe,
-	.remove = ti_sci_clk_remove,
+	.remove_new = ti_sci_clk_remove,
 	.driver = {
 		.name = "ti-sci-clk",
 		.of_match_table = of_match_ptr(ti_sci_clk_of_match),

@@ -338,8 +338,7 @@ out:
 	return ret;
 }
 
-static int pa12203001_probe(struct i2c_client *client,
-			    const struct i2c_device_id *id)
+static int pa12203001_probe(struct i2c_client *client)
 {
 	struct pa12203001_data *data;
 	struct iio_dev *indio_dev;
@@ -394,16 +393,20 @@ out_err:
 	return ret;
 }
 
-static int pa12203001_remove(struct i2c_client *client)
+static void pa12203001_remove(struct i2c_client *client)
 {
 	struct iio_dev *indio_dev = i2c_get_clientdata(client);
+	int ret;
 
 	iio_device_unregister(indio_dev);
 
 	pm_runtime_disable(&client->dev);
 	pm_runtime_set_suspended(&client->dev);
 
-	return pa12203001_power_chip(indio_dev, PA12203001_CHIP_DISABLE);
+	ret = pa12203001_power_chip(indio_dev, PA12203001_CHIP_DISABLE);
+	if (ret)
+		dev_warn(&client->dev, "Failed to power down (%pe)\n",
+			 ERR_PTR(ret));
 }
 
 #if defined(CONFIG_PM_SLEEP) || defined(CONFIG_PM)
@@ -452,14 +455,14 @@ static const struct dev_pm_ops pa12203001_pm_ops = {
 };
 
 static const struct acpi_device_id pa12203001_acpi_match[] = {
-	{ "TXCPA122", 0},
+	{ "TXCPA122", 0 },
 	{}
 };
 
 MODULE_DEVICE_TABLE(acpi, pa12203001_acpi_match);
 
 static const struct i2c_device_id pa12203001_id[] = {
-		{"txcpa122", 0},
+		{ "txcpa122", 0 },
 		{}
 };
 
@@ -471,7 +474,7 @@ static struct i2c_driver pa12203001_driver = {
 		.pm = &pa12203001_pm_ops,
 		.acpi_match_table = ACPI_PTR(pa12203001_acpi_match),
 	},
-	.probe = pa12203001_probe,
+	.probe_new = pa12203001_probe,
 	.remove = pa12203001_remove,
 	.id_table = pa12203001_id,
 

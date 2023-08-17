@@ -55,6 +55,15 @@ irqfd_inject(struct work_struct *work)
 			    irqfd->gsi, 1, false);
 }
 
+static void irqfd_resampler_notify(struct kvm_kernel_irqfd_resampler *resampler)
+{
+	struct kvm_kernel_irqfd *irqfd;
+
+	list_for_each_entry_srcu(irqfd, &resampler->list, resampler_link,
+				 srcu_read_lock_held(&resampler->kvm->irq_srcu))
+		eventfd_signal(irqfd->resamplefd, 1);
+}
+
 /*
  * Since resampler irqfds share an IRQ source ID, we de-assert once
  * then notify all of the resampler irqfds using this GSI.  We can't
@@ -65,7 +74,6 @@ irqfd_resampler_ack(struct kvm_irq_ack_notifier *kian)
 {
 	struct kvm_kernel_irqfd_resampler *resampler;
 	struct kvm *kvm;
-	struct kvm_kernel_irqfd *irqfd;
 	int idx;
 
 	resampler = container_of(kian,
@@ -76,10 +84,7 @@ irqfd_resampler_ack(struct kvm_irq_ack_notifier *kian)
 		    resampler->notifier.gsi, 0, false);
 
 	idx = srcu_read_lock(&kvm->irq_srcu);
-
-	list_for_each_entry_rcu(irqfd, &resampler->list, resampler_link)
-		eventfd_signal(irqfd->resamplefd, 1);
-
+	irqfd_resampler_notify(resampler);
 	srcu_read_unlock(&kvm->irq_srcu, idx);
 }
 
@@ -95,8 +100,12 @@ irqfd_resampler_shutdown(struct kvm_kernel_irqfd *irqfd)
 	synchronize_srcu(&kvm->irq_srcu);
 
 	if (list_empty(&resampler->list)) {
-		list_del(&resampler->link);
+		list_del_rcu(&resampler->link);
 		kvm_unregister_irq_ack_notifier(kvm, &resampler->notifier);
+		/*
+		 * synchronize_srcu(&kvm->irq_srcu) already called
+		 * in kvm_unregister_irq_ack_notifier().
+		 */
 		kvm_set_irq(kvm, KVM_IRQFD_RESAMPLE_IRQ_SOURCE_ID,
 			    resampler->notifier.gsi, 0, false);
 		kfree(resampler);
@@ -281,6 +290,13 @@ int  __attribute__((weak)) kvm_arch_update_irqfd_routing(
 {
 	return 0;
 }
+
+bool __attribute__((weak)) kvm_arch_irqfd_route_changed(
+				struct kvm_kernel_irq_routing_entry *old,
+				struct kvm_kernel_irq_routing_entry *new)
+{
+	return true;
+}
 #endif
 
 static int
@@ -361,7 +377,7 @@ kvm_irqfd_assign(struct kvm *kvm, struct kvm_irqfd *args)
 			resampler->notifier.irq_acked = irqfd_resampler_ack;
 			INIT_LIST_HEAD(&resampler->link);
 
-			list_add(&resampler->link, &kvm->irqfds.resampler_list);
+			list_add_rcu(&resampler->link, &kvm->irqfds.resampler_list);
 			kvm_register_irq_ack_notifier(kvm,
 						      &resampler->notifier);
 			irqfd->resampler = resampler;
@@ -456,8 +472,8 @@ bool kvm_irq_has_notifier(struct kvm *kvm, unsigned irqchip, unsigned pin)
 	idx = srcu_read_lock(&kvm->irq_srcu);
 	gsi = kvm_irq_map_chip_pin(kvm, irqchip, pin);
 	if (gsi != -1)
-		hlist_for_each_entry_rcu(kian, &kvm->irq_ack_notifier_list,
-					 link)
+		hlist_for_each_entry_srcu(kian, &kvm->irq_ack_notifier_list,
+					  link, srcu_read_lock_held(&kvm->irq_srcu))
 			if (kian->gsi == gsi) {
 				srcu_read_unlock(&kvm->irq_srcu, idx);
 				return true;
@@ -473,8 +489,8 @@ void kvm_notify_acked_gsi(struct kvm *kvm, int gsi)
 {
 	struct kvm_irq_ack_notifier *kian;
 
-	hlist_for_each_entry_rcu(kian, &kvm->irq_ack_notifier_list,
-				 link)
+	hlist_for_each_entry_srcu(kian, &kvm->irq_ack_notifier_list,
+				  link, srcu_read_lock_held(&kvm->irq_srcu))
 		if (kian->gsi == gsi)
 			kian->irq_acked(kian);
 }
@@ -615,10 +631,16 @@ void kvm_irq_routing_update(struct kvm *kvm)
 	spin_lock_irq(&kvm->irqfds.lock);
 
 	list_for_each_entry(irqfd, &kvm->irqfds.items, list) {
+#ifdef CONFIG_HAVE_KVM_IRQ_BYPASS
+		/* Under irqfds.lock, so can read irq_entry safely */
+		struct kvm_kernel_irq_routing_entry old = irqfd->irq_entry;
+#endif
+
 		irqfd_update(kvm, irqfd);
 
 #ifdef CONFIG_HAVE_KVM_IRQ_BYPASS
-		if (irqfd->producer) {
+		if (irqfd->producer &&
+		    kvm_arch_irqfd_route_changed(&old, &irqfd->irq_entry)) {
 			int ret = kvm_arch_update_irqfd_routing(
 					irqfd->kvm, irqfd->producer->irq,
 					irqfd->gsi, 1);
@@ -628,6 +650,31 @@ void kvm_irq_routing_update(struct kvm *kvm)
 	}
 
 	spin_unlock_irq(&kvm->irqfds.lock);
+}
+
+bool kvm_notify_irqfd_resampler(struct kvm *kvm,
+				unsigned int irqchip,
+				unsigned int pin)
+{
+	struct kvm_kernel_irqfd_resampler *resampler;
+	int gsi, idx;
+
+	idx = srcu_read_lock(&kvm->irq_srcu);
+	gsi = kvm_irq_map_chip_pin(kvm, irqchip, pin);
+	if (gsi != -1) {
+		list_for_each_entry_srcu(resampler,
+					 &kvm->irqfds.resampler_list, link,
+					 srcu_read_lock_held(&kvm->irq_srcu)) {
+			if (resampler->notifier.gsi == gsi) {
+				irqfd_resampler_notify(resampler);
+				srcu_read_unlock(&kvm->irq_srcu, idx);
+				return true;
+			}
+		}
+	}
+	srcu_read_unlock(&kvm->irq_srcu, idx);
+
+	return false;
 }
 
 /*

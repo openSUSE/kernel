@@ -550,7 +550,7 @@ static int ep93xx_spi_prepare_hardware(struct spi_master *master)
 	u32 val;
 	int ret;
 
-	ret = clk_enable(espi->clk);
+	ret = clk_prepare_enable(espi->clk);
 	if (ret)
 		return ret;
 
@@ -570,7 +570,7 @@ static int ep93xx_spi_unprepare_hardware(struct spi_master *master)
 	val &= ~SSPCR1_SSE;
 	writel(val, espi->mmio + SSPCR1);
 
-	clk_disable(espi->clk);
+	clk_disable_unprepare(espi->clk);
 
 	return 0;
 }
@@ -745,14 +745,12 @@ fail_release_master:
 	return error;
 }
 
-static int ep93xx_spi_remove(struct platform_device *pdev)
+static void ep93xx_spi_remove(struct platform_device *pdev)
 {
 	struct spi_master *master = platform_get_drvdata(pdev);
 	struct ep93xx_spi *espi = spi_master_get_devdata(master);
 
 	ep93xx_spi_release_dma(espi);
-
-	return 0;
 }
 
 static struct platform_driver ep93xx_spi_driver = {
@@ -760,7 +758,7 @@ static struct platform_driver ep93xx_spi_driver = {
 		.name	= "ep93xx-spi",
 	},
 	.probe		= ep93xx_spi_probe,
-	.remove		= ep93xx_spi_remove,
+	.remove_new	= ep93xx_spi_remove,
 };
 module_platform_driver(ep93xx_spi_driver);
 

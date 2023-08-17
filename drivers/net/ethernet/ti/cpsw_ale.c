@@ -50,6 +50,8 @@
 /* ALE_AGING_TIMER */
 #define ALE_AGING_TIMER_MASK	GENMASK(23, 0)
 
+#define ALE_RATE_LIMIT_MIN_PPS 1000
+
 /**
  * struct ale_entry_fld - The ALE tbl entry field description
  * @start_bit: field start bit
@@ -104,23 +106,37 @@ struct cpsw_ale_dev_id {
 
 static inline int cpsw_ale_get_field(u32 *ale_entry, u32 start, u32 bits)
 {
-	int idx;
+	int idx, idx2;
+	u32 hi_val = 0;
 
 	idx    = start / 32;
+	idx2 = (start + bits - 1) / 32;
+	/* Check if bits to be fetched exceed a word */
+	if (idx != idx2) {
+		idx2 = 2 - idx2; /* flip */
+		hi_val = ale_entry[idx2] << ((idx2 * 32) - start);
+	}
 	start -= idx * 32;
 	idx    = 2 - idx; /* flip */
-	return (ale_entry[idx] >> start) & BITMASK(bits);
+	return (hi_val + (ale_entry[idx] >> start)) & BITMASK(bits);
 }
 
 static inline void cpsw_ale_set_field(u32 *ale_entry, u32 start, u32 bits,
 				      u32 value)
 {
-	int idx;
+	int idx, idx2;
 
 	value &= BITMASK(bits);
-	idx    = start / 32;
+	idx = start / 32;
+	idx2 = (start + bits - 1) / 32;
+	/* Check if bits to be set exceed a word */
+	if (idx != idx2) {
+		idx2 = 2 - idx2; /* flip */
+		ale_entry[idx2] &= ~(BITMASK(bits + start - (idx2 * 32)));
+		ale_entry[idx2] |= (value >> ((idx2 * 32) - start));
+	}
 	start -= idx * 32;
-	idx    = 2 - idx; /* flip */
+	idx = 2 - idx; /* flip */
 	ale_entry[idx] &= ~(BITMASK(bits) << start);
 	ale_entry[idx] |=  (value << start);
 }
@@ -1136,6 +1152,50 @@ int cpsw_ale_control_get(struct cpsw_ale *ale, int port, int control)
 	return tmp & BITMASK(info->bits);
 }
 
+int cpsw_ale_rx_ratelimit_mc(struct cpsw_ale *ale, int port, unsigned int ratelimit_pps)
+
+{
+	int val = ratelimit_pps / ALE_RATE_LIMIT_MIN_PPS;
+	u32 remainder = ratelimit_pps % ALE_RATE_LIMIT_MIN_PPS;
+
+	if (ratelimit_pps && !val) {
+		dev_err(ale->params.dev, "ALE MC port:%d ratelimit min value 1000pps\n", port);
+		return -EINVAL;
+	}
+
+	if (remainder)
+		dev_info(ale->params.dev, "ALE port:%d MC ratelimit set to %dpps (requested %d)\n",
+			 port, ratelimit_pps - remainder, ratelimit_pps);
+
+	cpsw_ale_control_set(ale, port, ALE_PORT_MCAST_LIMIT, val);
+
+	dev_dbg(ale->params.dev, "ALE port:%d MC ratelimit set %d\n",
+		port, val * ALE_RATE_LIMIT_MIN_PPS);
+	return 0;
+}
+
+int cpsw_ale_rx_ratelimit_bc(struct cpsw_ale *ale, int port, unsigned int ratelimit_pps)
+
+{
+	int val = ratelimit_pps / ALE_RATE_LIMIT_MIN_PPS;
+	u32 remainder = ratelimit_pps % ALE_RATE_LIMIT_MIN_PPS;
+
+	if (ratelimit_pps && !val) {
+		dev_err(ale->params.dev, "ALE port:%d BC ratelimit min value 1000pps\n", port);
+		return -EINVAL;
+	}
+
+	if (remainder)
+		dev_info(ale->params.dev, "ALE port:%d BC ratelimit set to %dpps (requested %d)\n",
+			 port, ratelimit_pps - remainder, ratelimit_pps);
+
+	cpsw_ale_control_set(ale, port, ALE_PORT_BCAST_LIMIT, val);
+
+	dev_dbg(ale->params.dev, "ALE port:%d BC ratelimit set %d\n",
+		port, val * ALE_RATE_LIMIT_MIN_PPS);
+	return 0;
+}
+
 static void cpsw_ale_timer(struct timer_list *t)
 {
 	struct cpsw_ale *ale = from_timer(ale, t, timer);
@@ -1199,6 +1259,26 @@ static void cpsw_ale_aging_stop(struct cpsw_ale *ale)
 
 void cpsw_ale_start(struct cpsw_ale *ale)
 {
+	unsigned long ale_prescale;
+
+	/* configure Broadcast and Multicast Rate Limit
+	 * number_of_packets = (Fclk / ALE_PRESCALE) * port.BCAST/MCAST_LIMIT
+	 * ALE_PRESCALE width is 19bit and min value 0x10
+	 * port.BCAST/MCAST_LIMIT is 8bit
+	 *
+	 * For multi port configuration support the ALE_PRESCALE is configured to 1ms interval,
+	 * which allows to configure port.BCAST/MCAST_LIMIT per port and achieve:
+	 * min number_of_packets = 1000 when port.BCAST/MCAST_LIMIT = 1
+	 * max number_of_packets = 1000 * 255 = 255000 when port.BCAST/MCAST_LIMIT = 0xFF
+	 */
+	ale_prescale = ale->params.bus_freq / ALE_RATE_LIMIT_MIN_PPS;
+	writel((u32)ale_prescale, ale->params.ale_regs + ALE_PRESCALE);
+
+	/* Allow MC/BC rate limiting globally.
+	 * The actual Rate Limit cfg enabled per-port by port.BCAST/MCAST_LIMIT
+	 */
+	cpsw_ale_control_set(ale, 0, ALE_RATE_LIMIT, 1);
+
 	cpsw_ale_control_set(ale, 0, ALE_ENABLE, 1);
 	cpsw_ale_control_set(ale, 0, ALE_CLEAR, 1);
 
@@ -1382,6 +1462,16 @@ void cpsw_ale_dump(struct cpsw_ale *ale, u32 *data)
 
 	for (i = 0; i < ale->params.ale_entries; i++) {
 		cpsw_ale_read(ale, i, data);
+		data += ALE_ENTRY_WORDS;
+	}
+}
+
+void cpsw_ale_restore(struct cpsw_ale *ale, u32 *data)
+{
+	int i;
+
+	for (i = 0; i < ale->params.ale_entries; i++) {
+		cpsw_ale_write(ale, i, data);
 		data += ALE_ENTRY_WORDS;
 	}
 }

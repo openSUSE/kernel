@@ -9,8 +9,6 @@
 #include <linux/list.h>
 #include <linux/completion.h>
 
-#include <generated/utsrelease.h>
-
 /**
  * enum fw_opt - options to control firmware loading behaviour
  *
@@ -166,6 +164,23 @@ int alloc_lookup_fw_priv(const char *fw_name, struct firmware_cache *fwc,
 int assign_fw(struct firmware *fw, struct device *device);
 void free_fw_priv(struct fw_priv *fw_priv);
 void fw_state_init(struct fw_priv *fw_priv);
+
+#ifdef CONFIG_FW_LOADER
+bool firmware_is_builtin(const struct firmware *fw);
+bool firmware_request_builtin_buf(struct firmware *fw, const char *name,
+				  void *buf, size_t size);
+#else /* module case */
+static inline bool firmware_is_builtin(const struct firmware *fw)
+{
+	return false;
+}
+static inline bool firmware_request_builtin_buf(struct firmware *fw,
+						const char *name,
+						void *buf, size_t size)
+{
+	return false;
+}
+#endif
 
 #ifdef CONFIG_FW_LOADER_PAGED_BUF
 void fw_free_paged_buf(struct fw_priv *fw_priv);

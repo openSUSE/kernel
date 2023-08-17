@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
-/* Copyright 2021 NXP Semiconductors
+/* Copyright 2021 NXP
  *
  * The Integrated Endpoint Register Block (IERB) is configured by pre-boot
  * software and is supposed to be to ENETC what a NVRAM is to a 'real' PCIe
@@ -127,11 +127,6 @@ static int enetc_ierb_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int enetc_ierb_remove(struct platform_device *pdev)
-{
-	return 0;
-}
-
 static const struct of_device_id enetc_ierb_match[] = {
 	{ .compatible = "fsl,ls1028a-enetc-ierb", },
 	{},
@@ -144,7 +139,6 @@ static struct platform_driver enetc_ierb_driver = {
 		.of_match_table = enetc_ierb_match,
 	},
 	.probe = enetc_ierb_probe,
-	.remove = enetc_ierb_remove,
 };
 
 module_platform_driver(enetc_ierb_driver);

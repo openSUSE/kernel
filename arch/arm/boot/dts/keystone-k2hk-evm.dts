@@ -28,22 +28,22 @@
 
 	leds {
 		compatible = "gpio-leds";
-		debug1_1 {
+		led-debug-1-1 {
 			label = "keystone:green:debug1";
 			gpios = <&gpio0 12 GPIO_ACTIVE_HIGH>; /* 12 */
 		};
 
-		debug1_2 {
+		led-debug-1-2 {
 			label = "keystone:red:debug1";
 			gpios = <&gpio0 13 GPIO_ACTIVE_HIGH>; /* 13 */
 		};
 
-		debug2 {
+		led-debug-2 {
 			label = "keystone:blue:debug2";
 			gpios = <&gpio0 14 GPIO_ACTIVE_HIGH>; /* 14 */
 		};
 
-		debug3 {
+		led-debug-3 {
 			label = "keystone:blue:debug3";
 			gpios = <&gpio0 15 GPIO_ACTIVE_HIGH>; /* 15 */
 		};
@@ -161,10 +161,10 @@
 };
 
 &spi0 {
-	nor_flash: n25q128a11@0 {
+	nor_flash: flash@0 {
 		#address-cells = <1>;
 		#size-cells = <1>;
-		compatible = "Micron,n25q128a11";
+		compatible = "micron,n25q128a11", "jedec,spi-nor";
 		spi-max-frequency = <54000000>;
 		m25p,fast-read;
 		reg = <0>;
@@ -183,7 +183,7 @@
 };
 
 &mdio {
-	status = "ok";
+	status = "okay";
 	ethphy0: ethernet-phy@0 {
 		compatible = "marvell,88E1111", "ethernet-phy-ieee802.3-c22";
 		reg = <0>;

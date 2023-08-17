@@ -99,6 +99,15 @@ static unsigned long quarantine_size;
 static DEFINE_RAW_SPINLOCK(quarantine_lock);
 DEFINE_STATIC_SRCU(remove_cache_srcu);
 
+struct cpu_shrink_qlist {
+	raw_spinlock_t lock;
+	struct qlist_head qlist;
+};
+
+static DEFINE_PER_CPU(struct cpu_shrink_qlist, shrink_qlist) = {
+	.lock = __RAW_SPIN_LOCK_UNLOCKED(shrink_qlist.lock),
+};
+
 /* Maximum size of the global queue. */
 static unsigned long quarantine_max_size;
 
@@ -117,7 +126,7 @@ static unsigned long quarantine_batch_size;
 
 static struct kmem_cache *qlink_to_cache(struct qlist_node *qlink)
 {
-	return virt_to_head_page(qlink)->slab_cache;
+	return virt_to_slab(qlink)->slab_cache;
 }
 
 static void *qlink_to_object(struct qlist_node *qlink, struct kmem_cache *cache)
@@ -132,16 +141,27 @@ static void *qlink_to_object(struct qlist_node *qlink, struct kmem_cache *cache)
 static void qlink_free(struct qlist_node *qlink, struct kmem_cache *cache)
 {
 	void *object = qlink_to_object(qlink, cache);
+	struct kasan_free_meta *meta = kasan_get_free_meta(cache, object);
 	unsigned long flags;
 
 	if (IS_ENABLED(CONFIG_SLAB))
 		local_irq_save(flags);
 
 	/*
+	 * If init_on_free is enabled and KASAN's free metadata is stored in
+	 * the object, zero the metadata. Otherwise, the object's memory will
+	 * not be properly zeroed, as KASAN saves the metadata after the slab
+	 * allocator zeroes the object.
+	 */
+	if (slab_want_init_on_free(cache) &&
+	    cache->kasan_info.free_meta_offset == 0)
+		memzero_explicit(meta, sizeof(*meta));
+
+	/*
 	 * As the object now gets freed from the quarantine, assume that its
 	 * free track is no longer valid.
 	 */
-	*(u8 *)kasan_mem_to_shadow(object) = KASAN_KMALLOC_FREE;
+	*(u8 *)kasan_mem_to_shadow(object) = KASAN_SLAB_FREE;
 
 	___cache_free(cache, object, _THIS_IP_);
 
@@ -297,15 +317,31 @@ static void qlist_move_cache(struct qlist_head *from,
 	}
 }
 
-static void per_cpu_remove_cache(void *arg)
+static void __per_cpu_remove_cache(struct qlist_head *q, void *arg)
 {
 	struct kmem_cache *cache = arg;
-	struct qlist_head to_free = QLIST_INIT;
+	unsigned long flags;
+	struct cpu_shrink_qlist *sq;
+
+	sq = this_cpu_ptr(&shrink_qlist);
+	raw_spin_lock_irqsave(&sq->lock, flags);
+	qlist_move_cache(q, &sq->qlist, cache);
+	raw_spin_unlock_irqrestore(&sq->lock, flags);
+}
+
+static void per_cpu_remove_cache(void *arg)
+{
 	struct qlist_head *q;
 
 	q = this_cpu_ptr(&cpu_quarantine);
-	qlist_move_cache(q, &to_free, cache);
-	qlist_free_all(&to_free, cache);
+	/*
+	 * Ensure the ordering between the writing to q->offline and
+	 * per_cpu_remove_cache.  Prevent cpu_quarantine from being corrupted
+	 * by interrupt.
+	 */
+	if (READ_ONCE(q->offline))
+		return;
+	__per_cpu_remove_cache(q, arg);
 }
 
 /* Free all quarantined objects belonging to cache. */
@@ -313,6 +349,8 @@ void kasan_quarantine_remove_cache(struct kmem_cache *cache)
 {
 	unsigned long flags, i;
 	struct qlist_head to_free = QLIST_INIT;
+	int cpu;
+	struct cpu_shrink_qlist *sq;
 
 	/*
 	 * Must be careful to not miss any objects that are being moved from
@@ -322,6 +360,14 @@ void kasan_quarantine_remove_cache(struct kmem_cache *cache)
 	 * second.
 	 */
 	on_each_cpu(per_cpu_remove_cache, cache, 1);
+
+	for_each_online_cpu(cpu) {
+		sq = per_cpu_ptr(&shrink_qlist, cpu);
+		raw_spin_lock_irqsave(&sq->lock, flags);
+		qlist_move_cache(&sq->qlist, &to_free, cache);
+		raw_spin_unlock_irqrestore(&sq->lock, flags);
+	}
+	qlist_free_all(&to_free, cache);
 
 	raw_spin_lock_irqsave(&quarantine_lock, flags);
 	for (i = 0; i < QUARANTINE_BATCHES; i++) {

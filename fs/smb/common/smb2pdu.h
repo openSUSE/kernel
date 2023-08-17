@@ -505,7 +505,7 @@ struct smb2_netname_neg_context {
  */
 
 /* Flags */
-#define SMB2_ACCEPT_TRANSFORM_LEVEL_SECURITY	0x00000001
+#define SMB2_ACCEPT_TRANSPORT_LEVEL_SECURITY	0x00000001
 
 struct smb2_transport_capabilities_context {
 	__le16	ContextType; /* 6 */
@@ -1105,7 +1105,11 @@ struct smb2_change_notify_rsp {
 #define SMB2_CREATE_REQUEST_LEASE		"RqLs"
 #define SMB2_CREATE_DURABLE_HANDLE_REQUEST_V2	"DH2Q"
 #define SMB2_CREATE_DURABLE_HANDLE_RECONNECT_V2	"DH2C"
-#define SMB2_CREATE_TAG_POSIX          "\x93\xAD\x25\x50\x9C\xB4\x11\xE7\xB4\x23\x83\xDE\x96\x8B\xCD\x7C"
+#define SMB2_CREATE_TAG_POSIX		"\x93\xAD\x25\x50\x9C\xB4\x11\xE7\xB4\x23\x83\xDE\x96\x8B\xCD\x7C"
+#define SMB2_CREATE_APP_INSTANCE_ID	"\x45\xBC\xA6\x6A\xEF\xA7\xF7\x4A\x90\x08\xFA\x46\x2E\x14\x4D\x74"
+#define SMB2_CREATE_APP_INSTANCE_VERSION "\xB9\x82\xD0\xB7\x3B\x56\x07\x4F\xA0\x7B\x52\x4A\x81\x16\xA0\x10"
+#define SVHDX_OPEN_DEVICE_CONTEXT	"\x9C\xCB\xCF\x9E\x04\xC1\xE6\x43\x98\x0E\x15\x8D\xA1\xF6\xEC\x83"
+#define SMB2_CREATE_TAG_AAPL			"AAPL"
 
 /* Flag (SMB3 open response) values */
 #define SMB2_CREATE_FLAG_REPARSEPOINT 0x01
@@ -1244,6 +1248,26 @@ struct create_disk_id_rsp {
 	__le64 DiskFileId;
 	__le64 VolumeId;
 	__u8  Reserved[16];
+} __packed;
+
+/* See MS-SMB2 2.2.13.2.13 */
+struct create_app_inst_id {
+	struct create_context ccontext;
+	__u8 Name[16];
+	__le32 StructureSize; /* Must be 20 */
+	__u16 Reserved;
+	__u8 AppInstanceId[16];
+} __packed;
+
+/* See MS-SMB2 2.2.13.2.15 */
+struct create_app_inst_id_vers {
+	struct create_context ccontext;
+	__u8 Name[16];
+	__le32 StructureSize; /* Must be 24 */
+	__u16 Reserved;
+	__u32 Padding;
+	__le64 AppInstanceVersionHigh;
+	__le64 AppInstanceVersionLow;
 } __packed;
 
 /* See MS-SMB2 2.2.31 and 2.2.32 */

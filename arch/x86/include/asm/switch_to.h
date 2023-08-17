@@ -66,25 +66,22 @@ static inline void update_task_stack(struct task_struct *task)
 {
 	/* sp0 always points to the entry trampoline stack, which is constant: */
 #ifdef CONFIG_X86_32
-	if (static_cpu_has(X86_FEATURE_XENPV))
-		load_sp0(task->thread.sp0);
-	else
-		this_cpu_write(cpu_tss_rw.x86_tss.sp1, task->thread.sp0);
+	this_cpu_write(cpu_tss_rw.x86_tss.sp1, task->thread.sp0);
 #else
 	/* Xen PV enters the kernel on the thread stack. */
-	if (static_cpu_has(X86_FEATURE_XENPV))
+	if (cpu_feature_enabled(X86_FEATURE_XENPV))
 		load_sp0(task_top_of_stack(task));
 #endif
 }
 
 static inline void kthread_frame_init(struct inactive_task_frame *frame,
-				      unsigned long fun, unsigned long arg)
+				      int (*fun)(void *), void *arg)
 {
-	frame->bx = fun;
+	frame->bx = (unsigned long)fun;
 #ifdef CONFIG_X86_32
-	frame->di = arg;
+	frame->di = (unsigned long)arg;
 #else
-	frame->r12 = arg;
+	frame->r12 = (unsigned long)arg;
 #endif
 }
 

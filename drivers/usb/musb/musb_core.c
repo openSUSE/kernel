@@ -2330,7 +2330,6 @@ musb_init_controller(struct device *dev, int nIrq, void __iomem *ctrl)
 
 	spin_lock_init(&musb->lock);
 	spin_lock_init(&musb->list_lock);
-	musb->board_set_power = plat->set_power;
 	musb->min_power = plat->min_power;
 	musb->ops = plat->platform_ops;
 	musb->port_mode = plat->mode;
@@ -2448,7 +2447,7 @@ musb_init_controller(struct device *dev, int nIrq, void __iomem *ctrl)
 	else
 		musb->io.set_toggle = musb_default_set_toggle;
 
-	if (!musb->xceiv->io_ops) {
+	if (IS_ENABLED(CONFIG_USB_PHY) && musb->xceiv && !musb->xceiv->io_ops) {
 		musb->xceiv->io_dev = musb->controller;
 		musb->xceiv->io_priv = musb->mregs;
 		musb->xceiv->io_ops = &musb_ulpi_access;
@@ -2590,9 +2589,7 @@ fail2:
 	musb_platform_exit(musb);
 
 fail1:
-	if (status != -EPROBE_DEFER)
-		dev_err(musb->controller,
-			"%s failed with status %d\n", __func__, status);
+	dev_err_probe(musb->controller, status, "%s failed\n", __func__);
 
 	musb_free(musb);
 
@@ -2623,7 +2620,7 @@ static int musb_probe(struct platform_device *pdev)
 	return musb_init_controller(dev, irq, base);
 }
 
-static int musb_remove(struct platform_device *pdev)
+static void musb_remove(struct platform_device *pdev)
 {
 	struct device	*dev = &pdev->dev;
 	struct musb	*musb = dev_to_musb(dev);
@@ -2659,7 +2656,6 @@ static int musb_remove(struct platform_device *pdev)
 	usb_phy_shutdown(musb->xceiv);
 	musb_free(musb);
 	device_init_wakeup(dev, 0);
-	return 0;
 }
 
 #ifdef	CONFIG_PM
@@ -2679,13 +2675,7 @@ static void musb_save_context(struct musb *musb)
 	musb->context.devctl = musb_readb(musb_base, MUSB_DEVCTL);
 
 	for (i = 0; i < musb->config->num_eps; ++i) {
-		struct musb_hw_ep	*hw_ep;
-
-		hw_ep = &musb->endpoints[i];
-		if (!hw_ep)
-			continue;
-
-		epio = hw_ep->regs;
+		epio = musb->endpoints[i].regs;
 		if (!epio)
 			continue;
 
@@ -2760,13 +2750,7 @@ static void musb_restore_context(struct musb *musb)
 		musb_writeb(musb_base, MUSB_DEVCTL, musb->context.devctl);
 
 	for (i = 0; i < musb->config->num_eps; ++i) {
-		struct musb_hw_ep	*hw_ep;
-
-		hw_ep = &musb->endpoints[i];
-		if (!hw_ep)
-			continue;
-
-		epio = hw_ep->regs;
+		epio = musb->endpoints[i].regs;
 		if (!epio)
 			continue;
 
@@ -2969,7 +2953,7 @@ static struct platform_driver musb_driver = {
 		.dev_groups	= musb_groups,
 	},
 	.probe		= musb_probe,
-	.remove		= musb_remove,
+	.remove_new	= musb_remove,
 };
 
 module_platform_driver(musb_driver);

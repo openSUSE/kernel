@@ -18,14 +18,7 @@ struct device_node;
 /* consumer cookie */
 struct nvmem_cell;
 struct nvmem_device;
-
-struct nvmem_cell_info {
-	const char		*name;
-	unsigned int		offset;
-	unsigned int		bytes;
-	unsigned int		bit_offset;
-	unsigned int		nbits;
-};
+struct nvmem_cell_info;
 
 /**
  * struct nvmem_cell_lookup - cell lookup entry
@@ -150,6 +143,20 @@ static inline int nvmem_cell_read_u64(struct device *dev,
 	return -EOPNOTSUPP;
 }
 
+static inline int nvmem_cell_read_variable_le_u32(struct device *dev,
+						 const char *cell_id,
+						 u32 *val)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline int nvmem_cell_read_variable_le_u64(struct device *dev,
+						  const char *cell_id,
+						  u64 *val)
+{
+	return -EOPNOTSUPP;
+}
+
 static inline struct nvmem_device *nvmem_device_get(struct device *dev,
 						    const char *name)
 {
@@ -232,6 +239,7 @@ struct nvmem_cell *of_nvmem_cell_get(struct device_node *np,
 				     const char *id);
 struct nvmem_device *of_nvmem_device_get(struct device_node *np,
 					 const char *name);
+struct device_node *of_nvmem_layout_get_container(struct nvmem_device *nvmem);
 #else
 static inline struct nvmem_cell *of_nvmem_cell_get(struct device_node *np,
 						   const char *id)
@@ -241,6 +249,12 @@ static inline struct nvmem_cell *of_nvmem_cell_get(struct device_node *np,
 
 static inline struct nvmem_device *of_nvmem_device_get(struct device_node *np,
 						       const char *name)
+{
+	return ERR_PTR(-EOPNOTSUPP);
+}
+
+static inline struct device_node *
+of_nvmem_layout_get_container(struct nvmem_device *nvmem)
 {
 	return ERR_PTR(-EOPNOTSUPP);
 }

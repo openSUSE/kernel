@@ -45,6 +45,7 @@
 
 #undef DEBUG
 
+#include <linux/aperture.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/errno.h>
@@ -942,6 +943,10 @@ static int pvr2fb_pci_probe(struct pci_dev *pdev,
 {
 	int ret;
 
+	ret = aperture_remove_conflicting_pci_devices(pdev, "pvrfb");
+	if (ret)
+		return ret;
+
 	ret = pci_enable_device(pdev);
 	if (ret) {
 		printk(KERN_ERR "pvr2fb: PCI enable failed\n");
@@ -1077,7 +1082,12 @@ static int __init pvr2fb_init(void)
 
 #ifndef MODULE
 	char *option = NULL;
+#endif
 
+	if (fb_modesetting_disabled("pvr2fb"))
+		return -ENODEV;
+
+#ifndef MODULE
 	if (fb_get_options("pvr2fb", &option))
 		return -ENODEV;
 	pvr2fb_setup(option);

@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * OMAP Voltage Controller (VC) interface
  *
  * Copyright (C) 2011 Texas Instruments, Inc.
- *
- * This file is licensed under the terms of the GNU General Public
- * License version 2. This program is licensed "as is" without any
- * warranty of any kind, whether express or implied.
  */
 #include <linux/kernel.h>
 #include <linux/delay.h>
@@ -805,21 +802,6 @@ static u8 omap_vc_calc_vsel(struct voltagedomain *voltdm, u32 uvolt)
 	return voltdm->pmic->uv_to_vsel(uvolt);
 }
 
-#ifdef CONFIG_PM
-/**
- * omap_pm_setup_sr_i2c_pcb_length - set length of SR I2C traces on PCB
- * @mm: length of the PCB trace in millimetres
- *
- * Sets the PCB trace length for the I2C channel. By default uses 63mm.
- * This is needed for properly calculating the capacitance value for
- * the PCB trace, and for setting the SR I2C channel timing parameters.
- */
-void __init omap_pm_setup_sr_i2c_pcb_length(u32 mm)
-{
-	sr_i2c_pcb_length = mm;
-}
-#endif
-
 void __init omap_vc_init_channel(struct voltagedomain *voltdm)
 {
 	struct omap_vc_channel *vc = voltdm->vc;
@@ -895,4 +877,3 @@ void __init omap_vc_init_channel(struct voltagedomain *voltdm)
 	else if (cpu_is_omap44xx())
 		omap4_vc_init_channel(voltdm);
 }
-

@@ -12,6 +12,7 @@
 
 #include <linux/err.h>
 #include <linux/errno.h>
+#include <linux/jump_label.h>
 #include <linux/kernel.h>
 #include <linux/kmod.h>
 #include <linux/module.h>
@@ -20,7 +21,6 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/completion.h>
-#include <linux/fips.h>
 #include "internal.h"
 
 LIST_HEAD(crypto_alg_list);
@@ -30,6 +30,11 @@ EXPORT_SYMBOL_GPL(crypto_alg_sem);
 
 BLOCKING_NOTIFIER_HEAD(crypto_chain);
 EXPORT_SYMBOL_GPL(crypto_chain);
+
+#ifndef CONFIG_CRYPTO_MANAGER_DISABLE_TESTS
+DEFINE_STATIC_KEY_FALSE(__crypto_boot_test_finished);
+EXPORT_SYMBOL_GPL(__crypto_boot_test_finished);
+#endif
 
 static struct crypto_alg *crypto_larval_wait(struct crypto_alg *alg);
 
@@ -47,11 +52,6 @@ void crypto_mod_put(struct crypto_alg *alg)
 	module_put(module);
 }
 EXPORT_SYMBOL_GPL(crypto_mod_put);
-
-static inline int crypto_is_test_larval(struct crypto_larval *larval)
-{
-	return larval->alg.cra_driver_name[0];
-}
 
 static struct crypto_alg *__crypto_alg_lookup(const char *name, u32 type,
 					      u32 mask)
@@ -116,7 +116,7 @@ struct crypto_larval *crypto_larval_alloc(const char *name, u32 type, u32 mask)
 	larval->alg.cra_priority = -1;
 	larval->alg.cra_destroy = crypto_larval_destroy;
 
-	strlcpy(larval->alg.cra_name, name, CRYPTO_MAX_ALG_NAME);
+	strscpy(larval->alg.cra_name, name, CRYPTO_MAX_ALG_NAME);
 	init_completion(&larval->completion);
 
 	return larval;
@@ -128,15 +128,6 @@ static struct crypto_alg *crypto_larval_add(const char *name, u32 type,
 {
 	struct crypto_alg *alg;
 	struct crypto_larval *larval;
-
-	if (fips_enabled && !((type | mask) & CRYPTO_ALG_TESTED)) {
-		/*
-		 * Make sure the __crypto_alg_lookup() below won't return
-		 * any untested algorithm.
-		 */
-		mask |= CRYPTO_ALG_TESTED;
-		type |= CRYPTO_ALG_TESTED;
-	}
 
 	larval = crypto_larval_alloc(name, type, mask);
 	if (IS_ERR(larval))
@@ -173,10 +164,48 @@ void crypto_larval_kill(struct crypto_alg *alg)
 }
 EXPORT_SYMBOL_GPL(crypto_larval_kill);
 
+void crypto_wait_for_test(struct crypto_larval *larval)
+{
+	int err;
+
+	err = crypto_probing_notify(CRYPTO_MSG_ALG_REGISTER, larval->adult);
+	if (WARN_ON_ONCE(err != NOTIFY_STOP))
+		goto out;
+
+	err = wait_for_completion_killable(&larval->completion);
+	WARN_ON(err);
+out:
+	crypto_larval_kill(&larval->alg);
+}
+EXPORT_SYMBOL_GPL(crypto_wait_for_test);
+
+static void crypto_start_test(struct crypto_larval *larval)
+{
+	if (!crypto_is_test_larval(larval))
+		return;
+
+	if (larval->test_started)
+		return;
+
+	down_write(&crypto_alg_sem);
+	if (larval->test_started) {
+		up_write(&crypto_alg_sem);
+		return;
+	}
+
+	larval->test_started = true;
+	up_write(&crypto_alg_sem);
+
+	crypto_wait_for_test(larval);
+}
+
 static struct crypto_alg *crypto_larval_wait(struct crypto_alg *alg)
 {
 	struct crypto_larval *larval = (void *)alg;
 	long timeout;
+
+	if (!crypto_boot_test_finished())
+		crypto_start_test(larval);
 
 	timeout = wait_for_completion_killable_timeout(
 		&larval->completion, 60 * HZ);
@@ -250,7 +279,6 @@ static struct crypto_alg *crypto_larval_lookup(const char *name, u32 type,
 	type &= ~(CRYPTO_ALG_LARVAL | CRYPTO_ALG_DEAD);
 	mask &= ~(CRYPTO_ALG_LARVAL | CRYPTO_ALG_DEAD);
 
-again:
 	alg = crypto_alg_lookup(name, type, mask);
 	if (!alg && !(mask & CRYPTO_NOLOAD)) {
 		request_module("crypto-%s", name);
@@ -262,45 +290,10 @@ again:
 		alg = crypto_alg_lookup(name, type, mask);
 	}
 
-	/*
-	 * As a downstream solution, unapproved crypto driver
-	 * instances' tests are forced to fail in FIPS mode from
-	 * testmgr. A lot of those register "fused" implementations of
-	 * certain algorithm constructions, which would otherwise get
-	 * served by some generic templates. However, those driver
-	 * instances are kept on the global algorithms list in failed
-	 * state and crypto_alg_lookup() would return -ELIBBAD upon
-	 * encountering a matching such one. In order to still allow
-	 * the generic template implementations to serve the request,
-	 * check if the the ELIBBAD had been coming from a matching
-	 * template instantiation in failed state and ignore it if
-	 * not.
-	 */
-	if (fips_enabled && IS_ERR(alg) && PTR_ERR(alg) == -ELIBBAD &&
-	    strchr(name, '(')) {
-		alg = crypto_alg_lookup(name,
-					type | CRYPTO_ALG_INSTANCE,
-					mask | CRYPTO_ALG_INSTANCE);
-	}
-
 	if (!IS_ERR_OR_NULL(alg) && crypto_is_larval(alg))
 		alg = crypto_larval_wait(alg);
 	else if (!alg)
 		alg = crypto_larval_add(name, type, mask);
-
-	/*
-	 * As outlined above, unapproved crypto driver instances'
-	 * tests are forced to fail in FIPS mode from testmgr. If
-	 * crypto_larval_wait() returned -EAGAIN, chances are the wait
-	 * had been on such a driver instance's failed test larval.
-	 * Retry the search in this case.
-	 */
-	if (fips_enabled && IS_ERR(alg) && PTR_ERR(alg) == -EAGAIN) {
-		if (fatal_signal_pending(current))
-			return ERR_PTR(-EINTR);
-		cond_resched();
-		goto again;
-	}
 
 	return alg;
 }
@@ -327,7 +320,7 @@ struct crypto_alg *crypto_alg_mod_lookup(const char *name, u32 type, u32 mask)
 
 	/*
 	 * If the internal flag is set for a cipher, require a caller to
-	 * to invoke the cipher with the internal flag to use that cipher.
+	 * invoke the cipher with the internal flag to use that cipher.
 	 * Also, if a caller wants to allocate a cipher that may or may
 	 * not be an internal cipher, use type | CRYPTO_ALG_INTERNAL and
 	 * !(mask & CRYPTO_ALG_INTERNAL).
@@ -415,6 +408,7 @@ struct crypto_tfm *__crypto_alloc_tfm(struct crypto_alg *alg, u32 type,
 		goto out_err;
 
 	tfm->__crt_alg = alg;
+	refcount_set(&tfm->refcnt, 1);
 
 	err = crypto_init_ops(tfm, type, mask);
 	if (err)
@@ -494,26 +488,43 @@ err:
 }
 EXPORT_SYMBOL_GPL(crypto_alloc_base);
 
-void *crypto_create_tfm_node(struct crypto_alg *alg,
-			const struct crypto_type *frontend,
-			int node)
+static void *crypto_alloc_tfmmem(struct crypto_alg *alg,
+				 const struct crypto_type *frontend, int node,
+				 gfp_t gfp)
 {
-	char *mem;
-	struct crypto_tfm *tfm = NULL;
+	struct crypto_tfm *tfm;
 	unsigned int tfmsize;
 	unsigned int total;
-	int err = -ENOMEM;
+	char *mem;
 
 	tfmsize = frontend->tfmsize;
 	total = tfmsize + sizeof(*tfm) + frontend->extsize(alg);
 
-	mem = kzalloc_node(total, GFP_KERNEL, node);
+	mem = kzalloc_node(total, gfp, node);
 	if (mem == NULL)
-		goto out_err;
+		return ERR_PTR(-ENOMEM);
 
 	tfm = (struct crypto_tfm *)(mem + tfmsize);
 	tfm->__crt_alg = alg;
 	tfm->node = node;
+	refcount_set(&tfm->refcnt, 1);
+
+	return mem;
+}
+
+void *crypto_create_tfm_node(struct crypto_alg *alg,
+			     const struct crypto_type *frontend,
+			     int node)
+{
+	struct crypto_tfm *tfm;
+	char *mem;
+	int err;
+
+	mem = crypto_alloc_tfmmem(alg, frontend, node, GFP_KERNEL);
+	if (IS_ERR(mem))
+		goto out;
+
+	tfm = (struct crypto_tfm *)(mem + frontend->tfmsize);
 
 	err = frontend->init_tfm(tfm);
 	if (err)
@@ -530,12 +541,37 @@ out_free_tfm:
 	if (err == -EAGAIN)
 		crypto_shoot_alg(alg);
 	kfree(mem);
-out_err:
 	mem = ERR_PTR(err);
 out:
 	return mem;
 }
 EXPORT_SYMBOL_GPL(crypto_create_tfm_node);
+
+void *crypto_clone_tfm(const struct crypto_type *frontend,
+		       struct crypto_tfm *otfm)
+{
+	struct crypto_alg *alg = otfm->__crt_alg;
+	struct crypto_tfm *tfm;
+	char *mem;
+
+	mem = ERR_PTR(-ESTALE);
+	if (unlikely(!crypto_mod_get(alg)))
+		goto out;
+
+	mem = crypto_alloc_tfmmem(alg, frontend, otfm->node, GFP_ATOMIC);
+	if (IS_ERR(mem)) {
+		crypto_mod_put(alg);
+		goto out;
+	}
+
+	tfm = (struct crypto_tfm *)(mem + frontend->tfmsize);
+	tfm->crt_flags = otfm->crt_flags;
+	tfm->exit = otfm->exit;
+
+out:
+	return mem;
+}
+EXPORT_SYMBOL_GPL(crypto_clone_tfm);
 
 struct crypto_alg *crypto_find_alg(const char *alg_name,
 				   const struct crypto_type *frontend,
@@ -626,6 +662,8 @@ void crypto_destroy_tfm(void *mem, struct crypto_tfm *tfm)
 	if (IS_ERR_OR_NULL(mem))
 		return;
 
+	if (!refcount_dec_and_test(&tfm->refcnt))
+		return;
 	alg = tfm->__crt_alg;
 
 	if (!tfm->exit && alg->cra_exit)
@@ -650,9 +688,9 @@ int crypto_has_alg(const char *name, u32 type, u32 mask)
 }
 EXPORT_SYMBOL_GPL(crypto_has_alg);
 
-void crypto_req_done(struct crypto_async_request *req, int err)
+void crypto_req_done(void *data, int err)
 {
-	struct crypto_wait *wait = req->data;
+	struct crypto_wait *wait = data;
 
 	if (err == -EINPROGRESS)
 		return;

@@ -166,7 +166,7 @@ static const struct regmap_config lp8788_regmap_config = {
 	.max_register = MAX_LP8788_REGISTERS,
 };
 
-static int lp8788_probe(struct i2c_client *cl, const struct i2c_device_id *id)
+static int lp8788_probe(struct i2c_client *cl)
 {
 	struct lp8788 *lp;
 	struct lp8788_platform_data *pdata = dev_get_platdata(&cl->dev);
@@ -207,13 +207,12 @@ err_exit_irq:
 	return ret;
 }
 
-static int lp8788_remove(struct i2c_client *cl)
+static void lp8788_remove(struct i2c_client *cl)
 {
 	struct lp8788 *lp = i2c_get_clientdata(cl);
 
 	mfd_remove_devices(lp->dev);
 	lp8788_irq_exit(lp);
-	return 0;
 }
 
 static const struct i2c_device_id lp8788_ids[] = {
@@ -226,7 +225,7 @@ static struct i2c_driver lp8788_driver = {
 	.driver = {
 		.name = "lp8788",
 	},
-	.probe = lp8788_probe,
+	.probe_new = lp8788_probe,
 	.remove = lp8788_remove,
 	.id_table = lp8788_ids,
 };
@@ -245,4 +244,3 @@ module_exit(lp8788_exit);
 
 MODULE_DESCRIPTION("TI LP8788 MFD Driver");
 MODULE_AUTHOR("Milo Kim");
-MODULE_LICENSE("GPL");

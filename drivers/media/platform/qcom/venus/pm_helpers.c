@@ -869,8 +869,8 @@ static int vcodec_domains_get(struct venus_core *core)
 	for (i = 0; i < res->vcodec_pmdomains_num; i++) {
 		pd = dev_pm_domain_attach_by_name(dev,
 						  res->vcodec_pmdomains[i]);
-		if (IS_ERR(pd))
-			return PTR_ERR(pd);
+		if (IS_ERR_OR_NULL(pd))
+			return PTR_ERR(pd) ? : -ENODATA;
 		core->pmdomains[i] = pd;
 	}
 
@@ -1141,9 +1141,10 @@ static int load_scale_v4(struct venus_inst *inst)
 	freq = max(freq_core1, freq_core2);
 
 	if (freq > table[0].freq) {
+		dev_dbg(dev, VDBGL "requested clock rate: %lu scaling clock rate : %lu\n",
+			freq, table[0].freq);
+
 		freq = table[0].freq;
-		dev_warn(dev, "HW is overloaded, needed: %lu max: %lu\n",
-			 freq, table[0].freq);
 		goto set_freq;
 	}
 

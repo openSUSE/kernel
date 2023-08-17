@@ -933,5 +933,80 @@
         "teardown": [
             "$TC actions flush action tunnel_key"
         ]
+    },
+    {
+        "id": "3671",
+        "name": "Delete tunnel_key set action with valid index",
+	"category": [
+            "actions",
+            "tunnel_key"
+        ],
+        "setup": [
+            [
+                "$TC actions flush action tunnel_key",
+                0,
+                1,
+                255
+            ],
+	    "$TC actions add action tunnel_key set src_ip 1.1.1.1 dst_ip 2.2.2.2 index 1"
+        ],
+        "cmdUnderTest": "$TC actions del action tunnel_key index 1",
+        "expExitCode": "0",
+        "verifyCmd": "$TC actions list action tunnel_key",
+        "matchPattern": "action order [0-9]+: tunnel_key.*set.*src_ip 1.1.1.1.*dst_ip 2.2.2.2.*index 1",
+        "matchCount": "0",
+        "teardown": [
+            "$TC actions flush action tunnel_key"
+        ]
+    },
+    {
+        "id": "8597",
+        "name": "Delete tunnel_key set action with invalid index",
+        "category": [
+            "actions",
+            "tunnel_key"
+        ],
+        "setup": [
+            [
+                "$TC actions flush action tunnel_key",
+                0,
+                1,
+                255
+            ],
+            "$TC actions add action tunnel_key set src_ip 1.1.1.1 dst_ip 2.2.2.2 index 1"
+        ],
+        "cmdUnderTest": "$TC actions del action tunnel_key index 10",
+        "expExitCode": "255",
+        "verifyCmd": "$TC actions list action tunnel_key",
+        "matchPattern": "action order [0-9]+: tunnel_key.*set.*src_ip 1.1.1.1.*dst_ip 2.2.2.2.*index 1",
+        "matchCount": "1",
+        "teardown": [
+            "$TC actions flush action tunnel_key"
+        ]
+    },
+    {
+        "id": "6bda",
+        "name": "Add tunnel_key action with nofrag option",
+        "category": [
+            "actions",
+            "tunnel_key"
+        ],
+        "dependsOn": "$TC actions add action tunnel_key help 2>&1 | grep -q nofrag",
+        "setup": [
+            [
+                "$TC action flush action tunnel_key",
+                0,
+                1,
+                255
+            ]
+        ],
+        "cmdUnderTest": "$TC actions add action tunnel_key set src_ip 10.10.10.1 dst_ip 10.10.10.2 id 1111 nofrag index 222",
+        "expExitCode": "0",
+        "verifyCmd": "$TC actions get action tunnel_key index 222",
+        "matchPattern": "action order [0-9]+: tunnel_key.*src_ip 10.10.10.1.*dst_ip 10.10.10.2.*key_id 1111.*csum.*nofrag pipe.*index 222",
+        "matchCount": "1",
+        "teardown": [
+            "$TC actions flush action tunnel_key"
+        ]
     }
 ]

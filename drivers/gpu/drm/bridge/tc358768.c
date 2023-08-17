@@ -17,7 +17,6 @@
 #include <linux/slab.h>
 
 #include <drm/drm_atomic_helper.h>
-#include <drm/drm_crtc_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_of.h>
@@ -1071,8 +1070,7 @@ static int tc358768_get_regulators(struct tc358768_priv *priv)
 	return ret;
 }
 
-static int tc358768_i2c_probe(struct i2c_client *client,
-			      const struct i2c_device_id *id)
+static int tc358768_i2c_probe(struct i2c_client *client)
 {
 	struct tc358768_priv *priv;
 	struct device *dev = &client->dev;
@@ -1125,13 +1123,11 @@ static int tc358768_i2c_probe(struct i2c_client *client,
 	return mipi_dsi_host_register(&priv->dsi_host);
 }
 
-static int tc358768_i2c_remove(struct i2c_client *client)
+static void tc358768_i2c_remove(struct i2c_client *client)
 {
 	struct tc358768_priv *priv = i2c_get_clientdata(client);
 
 	mipi_dsi_host_unregister(&priv->dsi_host);
-
-	return 0;
 }
 
 static struct i2c_driver tc358768_driver = {
@@ -1140,7 +1136,7 @@ static struct i2c_driver tc358768_driver = {
 		.of_match_table = tc358768_of_ids,
 	},
 	.id_table = tc358768_i2c_ids,
-	.probe = tc358768_i2c_probe,
+	.probe_new = tc358768_i2c_probe,
 	.remove	= tc358768_i2c_remove,
 };
 module_i2c_driver(tc358768_driver);

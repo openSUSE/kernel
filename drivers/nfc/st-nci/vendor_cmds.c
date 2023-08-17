@@ -371,7 +371,7 @@ static int st_nci_manufacturer_specific(struct nfc_dev *dev, void *data,
 	return nfc_vendor_cmd_reply(msg);
 }
 
-static struct nfc_vendor_cmd st_nci_vendor_cmds[] = {
+static const struct nfc_vendor_cmd st_nci_vendor_cmds[] = {
 	{
 		.vendor_id = ST_NCI_VENDOR_OUI,
 		.subcmd = FACTORY_MODE,
@@ -456,7 +456,7 @@ static struct nfc_vendor_cmd st_nci_vendor_cmds[] = {
 
 int st_nci_vendor_cmds_init(struct nci_dev *ndev)
 {
-	return nfc_set_vendor_cmds(ndev->nfc_dev, st_nci_vendor_cmds,
+	return nci_set_vendor_cmds(ndev, st_nci_vendor_cmds,
 				   sizeof(st_nci_vendor_cmds));
 }
 EXPORT_SYMBOL(st_nci_vendor_cmds_init);

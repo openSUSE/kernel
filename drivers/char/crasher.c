@@ -65,7 +65,7 @@ static inline char crasher_hash(unsigned int i)
 
 static void mem_alloc(struct mem_buf *b)
 {
-	unsigned int i, size = sizes[prandom_u32_max(NUM_SIZES)];
+	unsigned int i, size = sizes[get_random_u32_below(NUM_SIZES)];
 
 	b->buf = kmalloc(size, GFP_KERNEL);
 	if (!b->buf)
@@ -98,12 +98,12 @@ static void mem_verify(void)
 	struct mem_buf *b, bufs[NUM_ALLOC] = {};
 
 	while (!test_bit(0, module_exiting)) {
-		b = &bufs[prandom_u32_max(NUM_ALLOC)];
+		b = &bufs[get_random_u32_below(NUM_ALLOC)];
 		if (b->size)
 			mem_check_free(b);
 		else
 			mem_alloc(b);
-		schedule_timeout_interruptible(prandom_u32_max(HZ / 10));
+		schedule_timeout_interruptible(get_random_u32_below(HZ / 10));
 	}
 
 	for (b = bufs; b < &bufs[NUM_ALLOC]; b++)

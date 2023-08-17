@@ -5,14 +5,10 @@
  * Copyright 2020 Google LLC.
  */
 
-#include "sc7180.dtsi"
-
-ap_ec_spi: &spi6 {};
-ap_h1_spi: &spi0 {};
-
 #include "sc7180-trogdor.dtsi"
+#include "sc7180-trogdor-ti-sn65dsi86.dtsi"
 
-/* Deleted nodes from trogdor.dtsi */
+/* Deleted nodes from sc7180-trogdor.dtsi */
 
 /delete-node/ &alc5682;
 /delete-node/ &pp3300_codec;
@@ -85,6 +81,10 @@ ap_h1_spi: &spi0 {};
 };
 
 &cros_ec {
+	keyboard-controller {
+		compatible = "google,cros-ec-keyb-switches";
+	};
+
 	cros_ec_proximity: proximity {
 		compatible = "google,cros-ec-mkbp-proximity";
 		label = "proximity-wifi";
@@ -108,10 +108,6 @@ ap_ts_pen_1v8: &i2c4 {
 
 		vdd-supply = <&pp3300_ts>;
 	};
-};
-
-&i2c7 {
-	status = "disabled";
 };
 
 &i2c9 {
@@ -139,6 +135,22 @@ ap_ts_pen_1v8: &i2c4 {
 		qcom,ratiometric;
 		qcom,hw-settle-time-us = <200>;
 	};
+};
+
+&pp1800_uf_cam {
+	status = "okay";
+};
+
+&pp1800_wf_cam {
+	status = "okay";
+};
+
+&pp2800_uf_cam {
+	status = "okay";
+};
+
+&pp2800_wf_cam {
+	status = "okay";
 };
 
 &pp3300_dx_edp {
@@ -169,23 +181,15 @@ ap_ts_pen_1v8: &i2c4 {
 /* PINCTRL - modifications to sc7180-trogdor.dtsi */
 
 &en_pp3300_dx_edp {
-	pinmux  {
-		pins = "gpio67";
-	};
-
-	pinconf {
-		pins = "gpio67";
-	};
+	pins = "gpio67";
 };
 
 &ts_reset_l {
-	pinconf {
-		/*
-		 * We want reset state by default and it will be up to the
-		 * driver to disable this when it's ready.
-		 */
-		output-low;
-	};
+	/*
+	 * We want reset state by default and it will be up to the
+	 * driver to disable this when it's ready.
+	 */
+	output-low;
 };
 
 /* PINCTRL - board-specific pinctrl */
@@ -315,16 +319,10 @@ ap_ts_pen_1v8: &i2c4 {
 			  "DP_HOT_PLUG_DET",
 			  "EC_IN_RW_ODL";
 
-	dmic_clk_en: dmic_clk_en {
-		pinmux {
-			pins = "gpio83";
-			function = "gpio";
-		};
-
-		pinconf {
-			pins = "gpio83";
-			drive-strength = <8>;
-			bias-pull-up;
-		};
+	dmic_clk_en: dmic-clk-en-state {
+		pins = "gpio83";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
 	};
 };

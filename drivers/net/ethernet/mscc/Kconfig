@@ -13,10 +13,11 @@ if NET_VENDOR_MICROSEMI
 
 # Users should depend on NET_SWITCHDEV, HAS_IOMEM, BRIDGE
 config MSCC_OCELOT_SWITCH_LIB
+	depends on PTP_1588_CLOCK_OPTIONAL
 	select NET_DEVLINK
 	select REGMAP_MMIO
 	select PACKING
-	select PHYLIB
+	select PHYLINK
 	tristate
 	help
 	  This is a hardware support library for Ocelot network switches. It is

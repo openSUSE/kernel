@@ -17,7 +17,6 @@
 #include <linux/ethtool.h>
 #include <linux/topology.h>
 #include <linux/gfp.h>
-#include <linux/aer.h>
 #include <linux/interrupt.h>
 #include "net_driver.h"
 #include "efx.h"
@@ -111,11 +110,6 @@ bool ef4_separate_tx_channels;
 module_param(ef4_separate_tx_channels, bool, 0444);
 MODULE_PARM_DESC(ef4_separate_tx_channels,
 		 "Use separate channels for TX and RX");
-
-/* This is the weight assigned to each of the (per-channel) virtual
- * NAPI devices.
- */
-static int napi_weight = 64;
 
 /* This is the time (in jiffies) between invocations of the hardware
  * monitor.
@@ -2017,8 +2011,7 @@ static void ef4_init_napi_channel(struct ef4_channel *channel)
 	struct ef4_nic *efx = channel->efx;
 
 	channel->napi_dev = efx->net_dev;
-	netif_napi_add(channel->napi_dev, &channel->napi_str,
-		       ef4_poll, napi_weight);
+	netif_napi_add(channel->napi_dev, &channel->napi_str, ef4_poll);
 }
 
 static void ef4_init_napi(struct ef4_nic *efx)
@@ -2771,8 +2764,6 @@ static void ef4_pci_remove(struct pci_dev *pci_dev)
 
 	ef4_fini_struct(efx);
 	free_netdev(efx->net_dev);
-
-	pci_disable_pcie_error_reporting(pci_dev);
 };
 
 /* NIC VPD information
@@ -2932,12 +2923,6 @@ static int ef4_pci_probe(struct pci_dev *pci_dev,
 	if (rc && rc != -EPERM)
 		netif_warn(efx, probe, efx->net_dev,
 			   "failed to create MTDs (%d)\n", rc);
-
-	rc = pci_enable_pcie_error_reporting(pci_dev);
-	if (rc && rc != -EINVAL)
-		netif_notice(efx, probe, efx->net_dev,
-			     "PCIE error reporting unavailable (%d).\n",
-			     rc);
 
 	return 0;
 

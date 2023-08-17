@@ -603,28 +603,15 @@ of_clk_cdce925_get(struct of_phandle_args *clkspec, void *_data)
 	return &data->clk[idx].hw;
 }
 
-static void cdce925_regulator_disable(void *regulator)
-{
-	regulator_disable(regulator);
-}
-
 static int cdce925_regulator_enable(struct device *dev, const char *name)
 {
-	struct regulator *regulator;
 	int err;
 
-	regulator = devm_regulator_get(dev, name);
-	if (IS_ERR(regulator))
-		return PTR_ERR(regulator);
+	err = devm_regulator_get_enable(dev, name);
+	if (err)
+		dev_err_probe(dev, err, "Failed to enable %s:\n", name);
 
-	err = regulator_enable(regulator);
-	if (err) {
-		dev_err(dev, "Failed to enable %s: %d\n", name, err);
-		return err;
-	}
-
-	return devm_add_action_or_reset(dev, cdce925_regulator_disable,
-					regulator);
+	return err;
 }
 
 /* The CDCE925 uses a funky way to read/write registers. Bulk mode is
@@ -634,11 +621,20 @@ static struct regmap_bus regmap_cdce925_bus = {
 	.read = cdce925_regmap_i2c_read,
 };
 
-static int cdce925_probe(struct i2c_client *client,
-		const struct i2c_device_id *id)
+static const struct i2c_device_id cdce925_id[] = {
+	{ "cdce913", CDCE913 },
+	{ "cdce925", CDCE925 },
+	{ "cdce937", CDCE937 },
+	{ "cdce949", CDCE949 },
+	{ }
+};
+MODULE_DEVICE_TABLE(i2c, cdce925_id);
+
+static int cdce925_probe(struct i2c_client *client)
 {
 	struct clk_cdce925_chip *data;
 	struct device_node *node = client->dev.of_node;
+	const struct i2c_device_id *id = i2c_match_id(cdce925_id, client);
 	const char *parent_name;
 	const char *pll_clk_name[MAX_NUMBER_OF_PLLS] = {NULL,};
 	struct clk_init_data init;
@@ -826,15 +822,6 @@ error:
 	return err;
 }
 
-static const struct i2c_device_id cdce925_id[] = {
-	{ "cdce913", CDCE913 },
-	{ "cdce925", CDCE925 },
-	{ "cdce937", CDCE937 },
-	{ "cdce949", CDCE949 },
-	{ }
-};
-MODULE_DEVICE_TABLE(i2c, cdce925_id);
-
 static const struct of_device_id clk_cdce925_of_match[] = {
 	{ .compatible = "ti,cdce913" },
 	{ .compatible = "ti,cdce925" },
@@ -849,7 +836,7 @@ static struct i2c_driver cdce925_driver = {
 		.name = "cdce925",
 		.of_match_table = of_match_ptr(clk_cdce925_of_match),
 	},
-	.probe		= cdce925_probe,
+	.probe_new	= cdce925_probe,
 	.id_table	= cdce925_id,
 };
 module_i2c_driver(cdce925_driver);

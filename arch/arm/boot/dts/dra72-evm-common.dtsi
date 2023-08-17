@@ -356,7 +356,7 @@
 		#size-cells = <1>;
 		partition@0 {
 			label = "NAND.SPL";
-			reg = <0x00000000 0x000020000>;
+			reg = <0x00000000 0x00020000>;
 		};
 		partition@1 {
 			label = "NAND.SPL.backup1";
@@ -474,7 +474,7 @@
 	status = "okay";
 
 	spi-max-frequency = <76800000>;
-	m25p80@0 {
+	flash@0 {
 		compatible = "s25fl256s1";
 		spi-max-frequency = <76800000>;
 		reg = <0>;
@@ -490,7 +490,7 @@
 		 */
 		partition@0 {
 			label = "QSPI.SPL";
-			reg = <0x00000000 0x000010000>;
+			reg = <0x00000000 0x00010000>;
 		};
 		partition@1 {
 			label = "QSPI.SPL.backup1";

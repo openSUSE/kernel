@@ -280,7 +280,7 @@ static struct variant_data variant_stm32_sdmmc = {
 static struct variant_data variant_stm32_sdmmcv2 = {
 	.fifosize		= 16 * 4,
 	.fifohalfsize		= 8 * 4,
-	.f_max			= 208000000,
+	.f_max			= 267000000,
 	.stm32_clkdiv		= true,
 	.cmdreg_cpsm_enable	= MCI_CPSM_STM32_ENABLE,
 	.cmdreg_lrsp_crc	= MCI_CPSM_STM32_LRSP_CRC,
@@ -762,7 +762,7 @@ int mmci_dmae_setup(struct mmci_host *host)
 
 	/*
 	 * If only an RX channel is specified, the driver will
-	 * attempt to use it bidirectionally, however if it is
+	 * attempt to use it bidirectionally, however if it
 	 * is specified but cannot be located, DMA will be disabled.
 	 */
 	if (dmae->rx_channel && !dmae->tx_channel)
@@ -1394,6 +1394,10 @@ mmci_cmd_irq(struct mmci_host *host, struct mmc_command *cmd,
 	} else if (host->variant->busy_timeout && busy_resp &&
 		   status & MCI_DATATIMEOUT) {
 		cmd->error = -ETIMEDOUT;
+		/*
+		 * This will wake up mmci_irq_thread() which will issue
+		 * a hardware reset of the MMCI block.
+		 */
 		host->irq_action = IRQ_WAKE_THREAD;
 	} else {
 		cmd->resp[0] = readl(base + MMCIRESPONSE0);
@@ -1615,6 +1619,8 @@ static irqreturn_t mmci_irq(int irq, void *dev_id)
 
 	do {
 		status = readl(host->base + MMCISTATUS);
+		if (!status)
+			break;
 
 		if (host->singleirq) {
 			if (status & host->mask1_reg)
@@ -1742,10 +1748,6 @@ static void mmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	u32 pwr = 0;
 	unsigned long flags;
 	int ret;
-
-	if (host->plat->ios_handler &&
-		host->plat->ios_handler(mmc_dev(mmc), ios))
-			dev_err(mmc_dev(mmc), "platform ios_handler failed\n");
 
 	switch (ios->power_mode) {
 	case MMC_POWER_OFF:
@@ -1961,28 +1963,28 @@ static int mmci_of_parse(struct device_node *np, struct mmc_host *mmc)
 	if (ret)
 		return ret;
 
-	if (of_get_property(np, "st,sig-dir-dat0", NULL))
+	if (of_property_read_bool(np, "st,sig-dir-dat0"))
 		host->pwr_reg_add |= MCI_ST_DATA0DIREN;
-	if (of_get_property(np, "st,sig-dir-dat2", NULL))
+	if (of_property_read_bool(np, "st,sig-dir-dat2"))
 		host->pwr_reg_add |= MCI_ST_DATA2DIREN;
-	if (of_get_property(np, "st,sig-dir-dat31", NULL))
+	if (of_property_read_bool(np, "st,sig-dir-dat31"))
 		host->pwr_reg_add |= MCI_ST_DATA31DIREN;
-	if (of_get_property(np, "st,sig-dir-dat74", NULL))
+	if (of_property_read_bool(np, "st,sig-dir-dat74"))
 		host->pwr_reg_add |= MCI_ST_DATA74DIREN;
-	if (of_get_property(np, "st,sig-dir-cmd", NULL))
+	if (of_property_read_bool(np, "st,sig-dir-cmd"))
 		host->pwr_reg_add |= MCI_ST_CMDDIREN;
-	if (of_get_property(np, "st,sig-pin-fbclk", NULL))
+	if (of_property_read_bool(np, "st,sig-pin-fbclk"))
 		host->pwr_reg_add |= MCI_ST_FBCLKEN;
-	if (of_get_property(np, "st,sig-dir", NULL))
+	if (of_property_read_bool(np, "st,sig-dir"))
 		host->pwr_reg_add |= MCI_STM32_DIRPOL;
-	if (of_get_property(np, "st,neg-edge", NULL))
+	if (of_property_read_bool(np, "st,neg-edge"))
 		host->clk_reg_add |= MCI_STM32_CLK_NEGEDGE;
-	if (of_get_property(np, "st,use-ckin", NULL))
+	if (of_property_read_bool(np, "st,use-ckin"))
 		mmci_probe_level_translator(mmc);
 
-	if (of_get_property(np, "mmc-cap-mmc-highspeed", NULL))
+	if (of_property_read_bool(np, "mmc-cap-mmc-highspeed"))
 		mmc->caps |= MMC_CAP_MMC_HIGHSPEED;
-	if (of_get_property(np, "mmc-cap-sd-highspeed", NULL))
+	if (of_property_read_bool(np, "mmc-cap-sd-highspeed"))
 		mmc->caps |= MMC_CAP_SD_HIGHSPEED;
 
 	return 0;
@@ -2127,6 +2129,9 @@ static int mmci_probe(struct amba_device *dev,
 		ret = PTR_ERR(host->rst);
 		goto clk_disable;
 	}
+	ret = reset_control_deassert(host->rst);
+	if (ret)
+		dev_err(mmc_dev(mmc), "failed to de-assert reset\n");
 
 	/* Get regulators and the supported OCR mask */
 	ret = mmc_regulator_get_supply(mmc);
@@ -2428,6 +2433,11 @@ static const struct amba_id mmci_ids[] = {
 	},
 	{
 		.id     = 0x00253180,
+		.mask	= 0xf0ffffff,
+		.data	= &variant_stm32_sdmmcv2,
+	},
+	{
+		.id     = 0x20253180,
 		.mask	= 0xf0ffffff,
 		.data	= &variant_stm32_sdmmcv2,
 	},

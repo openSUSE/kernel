@@ -18,12 +18,11 @@ then
 	exit 1
 fi
 
-T=${TMPDIR-/tmp}/kvm-end-run-stats.sh.$$
+T="`mktemp -d ${TMPDIR-/tmp}/kvm-end-run-stats.sh.XXXXXX`"
 trap 'rm -rf $T' 0
-mkdir $T
 
-KVM="`pwd`/tools/testing/selftests/rcutorture"; export KVM
-PATH=${KVM}/bin:$PATH; export PATH
+RCUTORTURE="`pwd`/tools/testing/selftests/rcutorture"; export RCUTORTURE
+PATH=${RCUTORTURE}/bin:$PATH; export PATH
 . functions.sh
 default_starttime="`get_starttime`"
 starttime="${2-default_starttime}"

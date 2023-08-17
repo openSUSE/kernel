@@ -27,7 +27,6 @@
 
 #include <linux/spinlock.h>
 #include <linux/types.h>
-#include <linux/slab.h>
 #include <drm/drm_modeset_lock.h>
 #include <drm/drm_mode_object.h>
 #include <drm/drm_modes.h>
@@ -391,8 +390,6 @@ struct drm_crtc_state {
 
 	/** @state: backpointer to global drm_atomic_state */
 	struct drm_atomic_state *state;
-
-	void *suse_kabi_padding;
 };
 
 /**
@@ -1219,6 +1216,15 @@ int drm_crtc_init_with_planes(struct drm_device *dev,
 			      struct drm_plane *cursor,
 			      const struct drm_crtc_funcs *funcs,
 			      const char *name, ...);
+
+__printf(6, 7)
+int drmm_crtc_init_with_planes(struct drm_device *dev,
+			       struct drm_crtc *crtc,
+			       struct drm_plane *primary,
+			       struct drm_plane *cursor,
+			       const struct drm_crtc_funcs *funcs,
+			       const char *name, ...);
+
 void drm_crtc_cleanup(struct drm_crtc *crtc);
 
 __printf(7, 8)

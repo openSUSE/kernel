@@ -51,6 +51,22 @@ int out_dynarr[4] SEC(".data.dyn") = { 1, 2, 3, 4 };
 int read_mostly_var __read_mostly;
 int out_mostly_var;
 
+char huge_arr[16 * 1024 * 1024];
+
+/* non-mmapable custom .data section */
+
+struct my_value { int x, y, z; };
+
+__hidden int zero_key SEC(".data.non_mmapable");
+static struct my_value zero_value SEC(".data.non_mmapable");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__type(key, int);
+	__type(value, struct my_value);
+	__uint(max_entries, 1);
+} my_map SEC(".maps");
+
 SEC("raw_tp/sys_enter")
 int handler(const void *ctx)
 {
@@ -70,6 +86,11 @@ int handler(const void *ctx)
 		out_dynarr[i] = in_dynarr[i];
 
 	out_mostly_var = read_mostly_var;
+
+	huge_arr[sizeof(huge_arr) - 1] = 123;
+
+	/* make sure zero_key and zero_value are not optimized out */
+	bpf_map_update_elem(&my_map, &zero_key, &zero_value, BPF_ANY);
 
 	return 0;
 }

@@ -34,8 +34,6 @@ obj-$(CONFIG_DAX) += dax.o
 endif
 obj-$(CONFIG_DEV_DAX) += device_dax.o
 obj-$(CONFIG_DEV_DAX_PMEM) += dax_pmem.o
-obj-$(CONFIG_DEV_DAX_PMEM) += dax_pmem_core.o
-obj-$(CONFIG_DEV_DAX_PMEM_COMPAT) += dax_pmem_compat.o
 
 nfit-y := $(ACPI_SRC)/core.o
 nfit-y += $(ACPI_SRC)/intel.o
@@ -63,12 +61,8 @@ device_dax-y += dax-dev.o
 device_dax-y += device_dax_test.o
 device_dax-y += config_check.o
 
-dax_pmem-y := $(DAX_SRC)/pmem/pmem.o
+dax_pmem-y := $(DAX_SRC)/pmem.o
 dax_pmem-y += dax_pmem_test.o
-dax_pmem_core-y := $(DAX_SRC)/pmem/core.o
-dax_pmem_core-y += dax_pmem_core_test.o
-dax_pmem_compat-y := $(DAX_SRC)/pmem/compat.o
-dax_pmem_compat-y += dax_pmem_compat_test.o
 dax_pmem-y += config_check.o
 
 libnvdimm-y := $(NVDIMM_SRC)/core.o
@@ -85,7 +79,6 @@ libnvdimm-$(CONFIG_BTT) += $(NVDIMM_SRC)/btt_devs.o
 libnvdimm-$(CONFIG_NVDIMM_PFN) += $(NVDIMM_SRC)/pfn_devs.o
 libnvdimm-$(CONFIG_NVDIMM_DAX) += $(NVDIMM_SRC)/dax_devs.o
 libnvdimm-$(CONFIG_NVDIMM_KEYS) += $(NVDIMM_SRC)/security.o
-libnvdimm-y += dimm_devs.o
 libnvdimm-y += libnvdimm_test.o
 libnvdimm-y += config_check.o
 

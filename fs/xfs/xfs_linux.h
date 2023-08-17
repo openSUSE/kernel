@@ -34,6 +34,7 @@ typedef __u32			xfs_nlink_t;
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/file.h>
+#include <linux/filelock.h>
 #include <linux/swap.h>
 #include <linux/errno.h>
 #include <linux/sched/signal.h>
@@ -79,6 +80,7 @@ typedef __u32			xfs_nlink_t;
 #include "xfs_cksum.h"
 #include "xfs_buf.h"
 #include "xfs_message.h"
+#include "xfs_drain.h"
 
 #ifdef __BIG_ENDIAN
 #define XFS_NATIVE_HOST 1
@@ -196,7 +198,7 @@ static inline uint64_t howmany_64(uint64_t x, uint32_t y)
 }
 
 int xfs_rw_bdev(struct block_device *bdev, sector_t sector, unsigned int count,
-		char *data, unsigned int op);
+		char *data, enum req_op op);
 
 #define ASSERT_ALWAYS(expr)	\
 	(likely(expr) ? (void)0 : assfail(NULL, #expr, __FILE__, __LINE__))

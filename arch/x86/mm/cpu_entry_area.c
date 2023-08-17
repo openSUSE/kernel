@@ -5,11 +5,12 @@
 #include <linux/kallsyms.h>
 #include <linux/kcore.h>
 #include <linux/pgtable.h>
-#include <linux/prandom.h>
 
 #include <asm/cpu_entry_area.h>
 #include <asm/fixmap.h>
 #include <asm/desc.h>
+#include <asm/kasan.h>
+#include <asm/setup.h>
 
 static DEFINE_PER_CPU_PAGE_ALIGNED(struct entry_stack_page, entry_stack_storage);
 
@@ -26,20 +27,23 @@ static __always_inline unsigned int cea_offset(unsigned int cpu)
 
 static __init void init_cea_offsets(void)
 {
-	struct rnd_state rand_state;
-	unsigned int max_cea, rand;
+	unsigned int max_cea;
 	unsigned int i, j;
 
+	if (!kaslr_enabled()) {
+		for_each_possible_cpu(i)
+			per_cpu(_cea_offset, i) = i;
+		return;
+	}
+
 	max_cea = (CPU_ENTRY_AREA_MAP_SIZE - PAGE_SIZE) / CPU_ENTRY_AREA_SIZE;
-	prandom_seed_state(&rand_state, kaslr_get_random_long("CPU entry"));
 
 	/* O(sodding terrible) */
 	for_each_possible_cpu(i) {
 		unsigned int cea;
 
 again:
-		prandom_bytes_state(&rand_state, &rand, sizeof(rand));
-		cea = rand % max_cea;
+		cea = get_random_u32_below(max_cea);
 
 		for_each_possible_cpu(j) {
 			if (cea_offset(j) == cea)
@@ -179,19 +183,18 @@ static void __init setup_cpu_entry_area(unsigned int cpu)
 	pgprot_t tss_prot = PAGE_KERNEL_RO;
 #else
 	/*
-	 * On native 32-bit systems, the GDT cannot be read-only because
+	 * On 32-bit systems, the GDT cannot be read-only because
 	 * our double fault handler uses a task gate, and entering through
 	 * a task gate needs to change an available TSS to busy.  If the
 	 * GDT is read-only, that will triple fault.  The TSS cannot be
 	 * read-only because the CPU writes to it on task switches.
-	 *
-	 * On Xen PV, the GDT must be read-only because the hypervisor
-	 * requires it.
 	 */
-	pgprot_t gdt_prot = boot_cpu_has(X86_FEATURE_XENPV) ?
-		PAGE_KERNEL_RO : PAGE_KERNEL;
+	pgprot_t gdt_prot = PAGE_KERNEL;
 	pgprot_t tss_prot = PAGE_KERNEL;
 #endif
+
+	kasan_populate_shadow_for_vaddr(cea, CPU_ENTRY_AREA_SIZE,
+					early_cpu_to_node(cpu));
 
 	cea_set_pte(&cea->gdt, get_cpu_gdt_paddr(cpu), gdt_prot);
 

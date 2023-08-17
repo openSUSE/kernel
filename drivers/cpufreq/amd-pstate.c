@@ -63,8 +63,6 @@ static struct cpufreq_driver *current_pstate_driver;
 static struct cpufreq_driver amd_pstate_driver;
 static struct cpufreq_driver amd_pstate_epp_driver;
 static int cppc_state = AMD_PSTATE_DISABLE;
-struct kobject *amd_pstate_kobj;
-static bool cppc_enabled;
 
 /*
  * AMD Energy Preference Performance (EPP)
@@ -179,7 +177,7 @@ static int amd_pstate_get_energy_pref_index(struct amd_cpudata *cpudata)
 static int amd_pstate_set_epp(struct amd_cpudata *cpudata, u32 epp)
 {
 	int ret;
-	struct cppc_epp_perf_ctrls perf_ctrls;
+	struct cppc_perf_ctrls perf_ctrls;
 
 	if (boot_cpu_has(X86_FEATURE_CPPC)) {
 		u64 value = READ_ONCE(cpudata->cppc_req_cached);
@@ -230,37 +228,13 @@ static int amd_pstate_set_energy_pref_index(struct amd_cpudata *cpudata,
 
 static inline int pstate_enable(bool enable)
 {
-	int ret, cpu;
-	unsigned long logical_proc_id_mask = 0;
-
-	if (enable == cppc_enabled)
-		return 0;
-
-	for_each_present_cpu(cpu) {
-		unsigned long logical_id = topology_logical_die_id(cpu);
-
-		if (test_bit(logical_id, &logical_proc_id_mask))
-			continue;
-
-		set_bit(logical_id, &logical_proc_id_mask);
-
-		ret = wrmsrl_safe_on_cpu(cpu, MSR_AMD_CPPC_ENABLE,
-				enable);
-		if (ret)
-			return ret;
-	}
-
-	cppc_enabled = enable;
-	return 0;
+	return wrmsrl_safe(MSR_AMD_CPPC_ENABLE, enable);
 }
 
 static int cppc_enable(bool enable)
 {
 	int cpu, ret = 0;
 	struct cppc_perf_ctrls perf_ctrls;
-
-	if (enable == cppc_enabled)
-		return 0;
 
 	for_each_present_cpu(cpu) {
 		ret = cppc_set_enable(cpu, enable);
@@ -277,7 +251,6 @@ static int cppc_enable(bool enable)
 		}
 	}
 
-	cppc_enabled = enable;
 	return ret;
 }
 
@@ -318,10 +291,10 @@ static int pstate_init_perf(struct amd_cpudata *cpudata)
 
 static int cppc_init_perf(struct amd_cpudata *cpudata)
 {
-	struct cppc_epp_perf_caps cppc_perf = {};
+	struct cppc_perf_caps cppc_perf;
 	u32 highest_perf;
 
-	int ret = cppc_get_perf_caps(cpudata->cpu, (struct cppc_perf_caps *)&cppc_perf);
+	int ret = cppc_get_perf_caps(cpudata->cpu, &cppc_perf);
 	if (ret)
 		return ret;
 
@@ -1013,8 +986,8 @@ static int amd_pstate_update_status(const char *buf, size_t size)
 	return 0;
 }
 
-static ssize_t show_status(struct kobject *kobj,
-			   struct kobj_attribute *attr, char *buf)
+static ssize_t status_show(struct device *dev,
+			   struct device_attribute *attr, char *buf)
 {
 	ssize_t ret;
 
@@ -1025,7 +998,7 @@ static ssize_t show_status(struct kobject *kobj,
 	return ret;
 }
 
-static ssize_t store_status(struct kobject *a, struct kobj_attribute *b,
+static ssize_t status_store(struct device *a, struct device_attribute *b,
 			    const char *buf, size_t count)
 {
 	char *p = memchr(buf, '\n', count);
@@ -1044,7 +1017,7 @@ cpufreq_freq_attr_ro(amd_pstate_lowest_nonlinear_freq);
 cpufreq_freq_attr_ro(amd_pstate_highest_perf);
 cpufreq_freq_attr_rw(energy_performance_preference);
 cpufreq_freq_attr_ro(energy_performance_available_preferences);
-define_one_global_rw(status);
+static DEVICE_ATTR_RW(status);
 
 static struct freq_attr *amd_pstate_attr[] = {
 	&amd_pstate_max_freq,
@@ -1063,33 +1036,14 @@ static struct freq_attr *amd_pstate_epp_attr[] = {
 };
 
 static struct attribute *pstate_global_attributes[] = {
-	&status.attr,
+	&dev_attr_status.attr,
 	NULL
 };
 
 static const struct attribute_group amd_pstate_global_attr_group = {
+	.name = "amd_pstate",
 	.attrs = pstate_global_attributes,
 };
-
-static bool amd_pstate_acpi_pm_profile_server(void)
-{
-	switch (acpi_gbl_FADT.preferred_profile) {
-	case PM_ENTERPRISE_SERVER:
-	case PM_SOHO_SERVER:
-	case PM_PERFORMANCE_SERVER:
-		return true;
-	}
-	return false;
-}
-
-static bool amd_pstate_acpi_pm_profile_undefined(void)
-{
-	if (acpi_gbl_FADT.preferred_profile == PM_UNSPECIFIED)
-		return true;
-	if (acpi_gbl_FADT.preferred_profile >= NR_PM_PROFILES)
-		return true;
-	return false;
-}
 
 static int amd_pstate_epp_cpu_init(struct cpufreq_policy *policy)
 {
@@ -1148,14 +1102,10 @@ static int amd_pstate_epp_cpu_init(struct cpufreq_policy *policy)
 	policy->max = policy->cpuinfo.max_freq;
 
 	/*
-	 * Set the policy to provide a valid fallback value in case
+	 * Set the policy to powersave to provide a valid fallback value in case
 	 * the default cpufreq governor is neither powersave nor performance.
 	 */
-	if (amd_pstate_acpi_pm_profile_server() ||
-	    amd_pstate_acpi_pm_profile_undefined())
-		policy->policy = CPUFREQ_POLICY_PERFORMANCE;
-	else
-		policy->policy = CPUFREQ_POLICY_POWERSAVE;
+	policy->policy = CPUFREQ_POLICY_POWERSAVE;
 
 	if (boot_cpu_has(X86_FEATURE_CPPC)) {
 		ret = rdmsrl_on_cpu(cpudata->cpu, MSR_AMD_CPPC_REQ, &value);
@@ -1259,7 +1209,7 @@ static int amd_pstate_epp_set_policy(struct cpufreq_policy *policy)
 
 static void amd_pstate_epp_reenable(struct amd_cpudata *cpudata)
 {
-	struct cppc_epp_perf_ctrls perf_ctrls;
+	struct cppc_perf_ctrls perf_ctrls;
 	u64 value, max_perf;
 	int ret;
 
@@ -1275,8 +1225,7 @@ static void amd_pstate_epp_reenable(struct amd_cpudata *cpudata)
 	} else {
 		perf_ctrls.max_perf = max_perf;
 		perf_ctrls.energy_perf = AMD_CPPC_ENERGY_PERF_PREF(cpudata->epp_cached);
-		cppc_set_perf(cpudata->cpu, (struct cppc_perf_ctrls *)&perf_ctrls);
-		cppc_set_epp_perf(cpudata->cpu, &perf_ctrls, 1);
+		cppc_set_perf(cpudata->cpu, &perf_ctrls);
 	}
 }
 
@@ -1317,8 +1266,7 @@ static void amd_pstate_epp_offline(struct cpufreq_policy *policy)
 	} else {
 		perf_ctrls.desired_perf = 0;
 		perf_ctrls.max_perf = min_perf;
-		// FIXME: SLE15-SP5 kABI workaround
-		// perf_ctrls.energy_perf = AMD_CPPC_ENERGY_PERF_PREF(HWP_EPP_BALANCE_POWERSAVE);
+		perf_ctrls.energy_perf = AMD_CPPC_ENERGY_PERF_PREF(HWP_EPP_BALANCE_POWERSAVE);
 		cppc_set_perf(cpudata->cpu, &perf_ctrls);
 	}
 	mutex_unlock(&amd_pstate_limits_lock);
@@ -1414,6 +1362,7 @@ static struct cpufreq_driver amd_pstate_epp_driver = {
 
 static int __init amd_pstate_init(void)
 {
+	struct device *dev_root;
 	int ret;
 
 	if (boot_cpu_data.x86_vendor != X86_VENDOR_AMD)
@@ -1429,7 +1378,7 @@ static int __init amd_pstate_init(void)
 	}
 
 	if (!acpi_cpc_valid()) {
-		pr_info_once("the _CPC object is not present in SBIOS or ACPI disabled\n");
+		pr_warn_once("the _CPC object is not present in SBIOS or ACPI disabled\n");
 		return -ENODEV;
 	}
 
@@ -1460,24 +1409,19 @@ static int __init amd_pstate_init(void)
 	if (ret)
 		pr_err("failed to register with return %d\n", ret);
 
-	amd_pstate_kobj = kobject_create_and_add("amd_pstate", &cpu_subsys.dev_root->kobj);
-	if (!amd_pstate_kobj) {
-		ret = -EINVAL;
-		pr_err("global sysfs registration failed.\n");
-		goto kobject_free;
-	}
-
-	ret = sysfs_create_group(amd_pstate_kobj, &amd_pstate_global_attr_group);
-	if (ret) {
-		pr_err("sysfs attribute export failed with error %d.\n", ret);
-		goto global_attr_free;
+	dev_root = bus_get_dev_root(&cpu_subsys);
+	if (dev_root) {
+		ret = sysfs_create_group(&dev_root->kobj, &amd_pstate_global_attr_group);
+		put_device(dev_root);
+		if (ret) {
+			pr_err("sysfs attribute export failed with error %d.\n", ret);
+			goto global_attr_free;
+		}
 	}
 
 	return ret;
 
 global_attr_free:
-	kobject_put(amd_pstate_kobj);
-kobject_free:
 	cpufreq_unregister_driver(current_pstate_driver);
 	return ret;
 }

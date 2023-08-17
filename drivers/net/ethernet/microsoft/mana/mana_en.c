@@ -8,6 +8,7 @@
 #include <linux/ethtool.h>
 #include <linux/filter.h>
 #include <linux/mm.h>
+#include <linux/pci.h>
 
 #include <net/checksum.h>
 #include <net/ip6_checksum.h>
@@ -141,7 +142,7 @@ frag_err:
 	return -ENOMEM;
 }
 
-int mana_start_xmit(struct sk_buff *skb, struct net_device *ndev)
+netdev_tx_t mana_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 {
 	enum mana_tx_pkt_format pkt_fmt = MANA_SHORT_PKT_FMT;
 	struct mana_port_context *apc = netdev_priv(ndev);
@@ -177,14 +178,6 @@ int mana_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		pkt_fmt = MANA_LONG_PKT_FMT;
 	} else {
 		pkg.tx_oob.s_oob.short_vp_offset = txq->vp_offset;
-	}
-
-	if (skb_vlan_tag_present(skb)) {
-		pkt_fmt = MANA_LONG_PKT_FMT;
-		pkg.tx_oob.l_oob.inject_vlan_pri_tag = 1;
-		pkg.tx_oob.l_oob.pcp = skb_vlan_tag_get_prio(skb);
-		pkg.tx_oob.l_oob.dei = skb_vlan_tag_get_cfi(skb);
-		pkg.tx_oob.l_oob.vlan_id = skb_vlan_tag_get_id(skb);
 	}
 
 	pkg.tx_oob.s_oob.pkt_fmt = pkt_fmt;
@@ -251,7 +244,7 @@ int mana_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		}
 
 		if (skb->encapsulation) {
-			ihs = skb_inner_transport_offset(skb) + inner_tcp_hdrlen(skb);
+			ihs = skb_inner_tcp_all_headers(skb);
 			u64_stats_update_begin(&tx_stats->syncp);
 			tx_stats->tso_inner_packets++;
 			tx_stats->tso_inner_bytes += skb->len - ihs;
@@ -260,7 +253,9 @@ int mana_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 			if (skb_shinfo(skb)->gso_type & SKB_GSO_UDP_L4) {
 				ihs = skb_transport_offset(skb) + sizeof(struct udphdr);
 			} else {
-				ihs = skb_transport_offset(skb) + tcp_hdrlen(skb);
+				ihs = skb_tcp_all_headers(skb);
+				if (ipv6_has_hopopt_jumbo(skb))
+					ihs -= sizeof(struct hop_jumbo_hdr);
 			}
 
 			u64_stats_update_begin(&tx_stats->syncp);
@@ -373,10 +368,10 @@ static void mana_get_stats64(struct net_device *ndev,
 		rx_stats = &apc->rxqs[q]->stats;
 
 		do {
-			start = u64_stats_fetch_begin_irq(&rx_stats->syncp);
+			start = u64_stats_fetch_begin(&rx_stats->syncp);
 			packets = rx_stats->packets;
 			bytes = rx_stats->bytes;
-		} while (u64_stats_fetch_retry_irq(&rx_stats->syncp, start));
+		} while (u64_stats_fetch_retry(&rx_stats->syncp, start));
 
 		st->rx_packets += packets;
 		st->rx_bytes += bytes;
@@ -386,10 +381,10 @@ static void mana_get_stats64(struct net_device *ndev,
 		tx_stats = &apc->tx_qp[q].txq.stats;
 
 		do {
-			start = u64_stats_fetch_begin_irq(&tx_stats->syncp);
+			start = u64_stats_fetch_begin(&tx_stats->syncp);
 			packets = tx_stats->packets;
 			bytes = tx_stats->bytes;
-		} while (u64_stats_fetch_retry_irq(&tx_stats->syncp, start));
+		} while (u64_stats_fetch_retry(&tx_stats->syncp, start));
 
 		st->tx_packets += packets;
 		st->tx_bytes += bytes;
@@ -1381,8 +1376,8 @@ static void mana_post_pkt_rxq(struct mana_rxq *rxq)
 
 	recv_buf_oob = &rxq->rx_oobs[curr_index];
 
-	err = mana_gd_post_work_request(rxq->gdma_rq, &recv_buf_oob->wqe_req,
-					&recv_buf_oob->wqe_inf);
+	err = mana_gd_post_and_ring(rxq->gdma_rq, &recv_buf_oob->wqe_req,
+				    &recv_buf_oob->wqe_inf);
 	if (WARN_ON_ONCE(err))
 		return;
 
@@ -1461,12 +1456,6 @@ static void mana_rx_skb(void *buf_va, struct mana_rxcomp_oob *cqe,
 			skb_set_hash(skb, hash_value, PKT_HASH_TYPE_L4);
 		else
 			skb_set_hash(skb, hash_value, PKT_HASH_TYPE_L3);
-	}
-
-	if (cqe->rx_vlantag_present) {
-		u16 vlan_tci = cqe->rx_vlan_id;
-
-		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), vlan_tci);
 	}
 
 	u64_stats_update_begin(&rx_stats->syncp);
@@ -1650,12 +1639,6 @@ static void mana_poll_rx_cq(struct mana_cq *cq)
 			return;
 
 		mana_process_rx_cqe(rxq, cq, &comp[i]);
-	}
-
-	if (comp_read > 0) {
-		struct gdma_context *gc = rxq->gdma_rq->gdma_dev->gdma_context;
-
-		mana_gd_wq_ring_doorbell(gc, rxq->gdma_rq);
 	}
 
 	if (rxq->xdp_flush)
@@ -2105,7 +2088,7 @@ static struct mana_rxq *mana_create_rxq(struct mana_port_context *apc,
 
 	gc->cq_table[cq->gdma_id] = cq->gdma_cq;
 
-	netif_napi_add(ndev, &cq->napi, mana_poll, 1);
+	netif_napi_add_weight(ndev, &cq->napi, mana_poll, 1);
 
 	WARN_ON(xdp_rxq_info_reg(&rxq->xdp_rxq, ndev, rxq_idx,
 				 cq->napi.napi_id));
@@ -2346,9 +2329,12 @@ int mana_attach(struct net_device *ndev)
 static int mana_dealloc_queues(struct net_device *ndev)
 {
 	struct mana_port_context *apc = netdev_priv(ndev);
+	unsigned long timeout = jiffies + 120 * HZ;
 	struct gdma_dev *gd = apc->ac->gdma_dev;
 	struct mana_txq *txq;
+	struct sk_buff *skb;
 	int i, err;
+	u32 tsleep;
 
 	if (apc->port_is_up)
 		return -EINVAL;
@@ -2364,15 +2350,40 @@ static int mana_dealloc_queues(struct net_device *ndev)
 	 * to false, but it doesn't matter since mana_start_xmit() drops any
 	 * new packets due to apc->port_is_up being false.
 	 *
-	 * Drain all the in-flight TX packets
+	 * Drain all the in-flight TX packets.
+	 * A timeout of 120 seconds for all the queues is used.
+	 * This will break the while loop when h/w is not responding.
+	 * This value of 120 has been decided here considering max
+	 * number of queues.
 	 */
+
 	for (i = 0; i < apc->num_queues; i++) {
 		txq = &apc->tx_qp[i].txq;
-
-		while (atomic_read(&txq->pending_sends) > 0)
-			usleep_range(1000, 2000);
+		tsleep = 1000;
+		while (atomic_read(&txq->pending_sends) > 0 &&
+		       time_before(jiffies, timeout)) {
+			usleep_range(tsleep, tsleep + 1000);
+			tsleep <<= 1;
+		}
+		if (atomic_read(&txq->pending_sends)) {
+			err = pcie_flr(to_pci_dev(gd->gdma_context->dev));
+			if (err) {
+				netdev_err(ndev, "flr failed %d with %d pkts pending in txq %u\n",
+					   err, atomic_read(&txq->pending_sends),
+					   txq->gdma_txq_id);
+			}
+			break;
+		}
 	}
 
+	for (i = 0; i < apc->num_queues; i++) {
+		txq = &apc->tx_qp[i].txq;
+		while ((skb = skb_dequeue(&txq->pending_skbs))) {
+			mana_unmap_skb(skb, apc);
+			dev_kfree_skb_any(skb);
+		}
+		atomic_set(&txq->pending_sends, 0);
+	}
 	/* We're 100% sure the queues can no longer be woken up, because
 	 * we're sure now mana_poll_tx_cq() can't be running.
 	 */
@@ -2469,9 +2480,10 @@ static int mana_probe_port(struct mana_context *ac, int port_idx,
 	ndev->hw_features |= NETIF_F_RXCSUM;
 	ndev->hw_features |= NETIF_F_TSO | NETIF_F_TSO6;
 	ndev->hw_features |= NETIF_F_RXHASH;
-	ndev->features = ndev->hw_features | NETIF_F_HW_VLAN_CTAG_TX |
-			 NETIF_F_HW_VLAN_CTAG_RX;
-	ndev->vlan_features = ndev->features;
+	ndev->features = ndev->hw_features;
+	ndev->vlan_features = 0;
+	ndev->xdp_features = NETDEV_XDP_ACT_BASIC | NETDEV_XDP_ACT_REDIRECT |
+			     NETDEV_XDP_ACT_NDO_XMIT;
 
 	err = register_netdev(ndev);
 	if (err) {

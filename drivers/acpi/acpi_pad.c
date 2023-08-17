@@ -17,8 +17,6 @@
 #include <linux/tick.h>
 #include <linux/slab.h>
 #include <linux/acpi.h>
-#include <linux/kernel_stat.h>
-#include <linux/jiffies.h>
 #include <linux/perf_event.h>
 #include <asm/mwait.h>
 #include <xen/xen.h>
@@ -256,62 +254,12 @@ static void set_power_saving_task_num(unsigned int num)
 	}
 }
 
-/*
- * Extra acpi_pad threads should not be created until
- * the requested idle count is less than/equals to the
- * number of the busy cpus - it does not make sense to
- * throttle the idle cpus.
- */
-#define SAMPLE_INTERVAL_JIF	20
-
-static u64 get_acpi_pad_idle_time(int cpu)
-{
-	u64 idle, idle_usecs = -1ULL;
-
-	idle_usecs = get_cpu_idle_time_us(cpu, NULL);
-
-	if (idle_usecs == -1ULL)
-		idle = kcpustat_cpu(cpu).cpustat[CPUTIME_IDLE];
-	else
-		idle = idle_usecs * NSEC_PER_USEC;
-
-	return idle;
-}
-
-static bool idle_nr_valid(unsigned int num_cpus)
-{
-	int busy_nr = 0, i = 0, load_thresh = 100 - idle_pct;
-
-	if (!num_cpus)
-		return true;
-
-	for_each_online_cpu(i) {
-		u64 wall_time, idle_time;
-		unsigned int elapsed_delta, idle_delta, load;
-
-		wall_time = jiffies64_to_nsecs(get_jiffies_64());
-		idle_time = get_acpi_pad_idle_time(i);
-		/* Wait and see... */
-		schedule_timeout_uninterruptible(SAMPLE_INTERVAL_JIF);
-
-		idle_delta = get_acpi_pad_idle_time(i) - idle_time;
-		elapsed_delta = jiffies64_to_nsecs(get_jiffies_64()) - wall_time;
-		idle_delta = (idle_delta > elapsed_delta) ? elapsed_delta : idle_delta;
-		load = 100 * (elapsed_delta - idle_delta) / elapsed_delta;
-		if (load >= load_thresh)
-			busy_nr++;
-	}
-
-	return (busy_nr >= num_cpus) ? true : false;
-}
-
 static void acpi_pad_idle_cpus(unsigned int num_cpus)
 {
 	cpus_read_lock();
 
 	num_cpus = min_t(unsigned int, num_cpus, num_online_cpus());
-	if (idle_nr_valid(num_cpus))
-		set_power_saving_task_num(num_cpus);
+	set_power_saving_task_num(num_cpus);
 
 	cpus_read_unlock();
 }
@@ -339,7 +287,7 @@ static ssize_t rrtime_store(struct device *dev,
 static ssize_t rrtime_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	return scnprintf(buf, PAGE_SIZE, "%d\n", round_robin_time);
+	return sysfs_emit(buf, "%d\n", round_robin_time);
 }
 static DEVICE_ATTR_RW(rrtime);
 
@@ -361,7 +309,7 @@ static ssize_t idlepct_store(struct device *dev,
 static ssize_t idlepct_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	return scnprintf(buf, PAGE_SIZE, "%d\n", idle_pct);
+	return sysfs_emit(buf, "%d\n", idle_pct);
 }
 static DEVICE_ATTR_RW(idlepct);
 
@@ -501,7 +449,7 @@ static int acpi_pad_add(struct acpi_device *device)
 	return 0;
 }
 
-static int acpi_pad_remove(struct acpi_device *device)
+static void acpi_pad_remove(struct acpi_device *device)
 {
 	mutex_lock(&isolated_cpus_lock);
 	acpi_pad_idle_cpus(0);
@@ -510,7 +458,6 @@ static int acpi_pad_remove(struct acpi_device *device)
 	acpi_remove_notify_handler(device->handle,
 		ACPI_DEVICE_NOTIFY, acpi_pad_notify);
 	acpi_pad_remove_sysfs(device);
-	return 0;
 }
 
 static const struct acpi_device_id pad_device_ids[] = {

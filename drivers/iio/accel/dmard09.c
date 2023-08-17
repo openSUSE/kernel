@@ -24,7 +24,7 @@
 #define DMARD09_AXIS_Y 1
 #define DMARD09_AXIS_Z 2
 #define DMARD09_AXIS_X_OFFSET ((DMARD09_AXIS_X + 1) * 2)
-#define DMARD09_AXIS_Y_OFFSET ((DMARD09_AXIS_Y + 1 )* 2)
+#define DMARD09_AXIS_Y_OFFSET ((DMARD09_AXIS_Y + 1) * 2)
 #define DMARD09_AXIS_Z_OFFSET ((DMARD09_AXIS_Z + 1) * 2)
 
 struct dmard09_data {
@@ -88,8 +88,7 @@ static const struct iio_info dmard09_info = {
 	.read_raw	= dmard09_read_raw,
 };
 
-static int dmard09_probe(struct i2c_client *client,
-			const struct i2c_device_id *id)
+static int dmard09_probe(struct i2c_client *client)
 {
 	int ret;
 	struct iio_dev *indio_dev;
@@ -126,7 +125,7 @@ static int dmard09_probe(struct i2c_client *client,
 }
 
 static const struct i2c_device_id dmard09_id[] = {
-	{ "dmard09", 0},
+	{ "dmard09", 0 },
 	{ },
 };
 
@@ -136,7 +135,7 @@ static struct i2c_driver dmard09_driver = {
 	.driver = {
 		.name = DMARD09_DRV_NAME
 	},
-	.probe = dmard09_probe,
+	.probe_new = dmard09_probe,
 	.id_table = dmard09_id,
 };
 

@@ -20,7 +20,6 @@
 #include <linux/binfmts.h>
 #include <linux/compat.h>
 #include <linux/bitops.h>
-#include <linux/tracehook.h>
 
 #include <linux/uaccess.h>
 #include <asm/ptrace.h>
@@ -435,9 +434,9 @@ static int setup_frame32(struct ksignal *ksig, struct pt_regs *regs,
 			      (_COMPAT_NSIG_WORDS - 1) * sizeof(unsigned int));
 
 	if (!wsaved) {
-		err |= copy_in_user((u32 __user *)sf,
-				    (u32 __user *)(regs->u_regs[UREG_FP]),
-				    sizeof(struct reg_window32));
+		err |= raw_copy_in_user((u32 __user *)sf,
+					(u32 __user *)(regs->u_regs[UREG_FP]),
+					sizeof(struct reg_window32));
 	} else {
 		struct reg_window *rp;
 
@@ -567,9 +566,9 @@ static int setup_rt_frame32(struct ksignal *ksig, struct pt_regs *regs,
 	err |= put_compat_sigset(&sf->mask, oldset, sizeof(compat_sigset_t));
 
 	if (!wsaved) {
-		err |= copy_in_user((u32 __user *)sf,
-				    (u32 __user *)(regs->u_regs[UREG_FP]),
-				    sizeof(struct reg_window32));
+		err |= raw_copy_in_user((u32 __user *)sf,
+					(u32 __user *)(regs->u_regs[UREG_FP]),
+					sizeof(struct reg_window32));
 	} else {
 		struct reg_window *rp;
 
@@ -757,6 +756,8 @@ static_assert(NSIGBUS	== 5);
 static_assert(NSIGTRAP	== 6);
 static_assert(NSIGCHLD	== 6);
 static_assert(NSIGSYS	== 2);
+static_assert(sizeof(compat_siginfo_t) == 128);
+static_assert(__alignof__(compat_siginfo_t) == 4);
 static_assert(offsetof(compat_siginfo_t, si_signo)	== 0x00);
 static_assert(offsetof(compat_siginfo_t, si_errno)	== 0x04);
 static_assert(offsetof(compat_siginfo_t, si_code)	== 0x08);

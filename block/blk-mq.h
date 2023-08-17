@@ -2,8 +2,8 @@
 #ifndef INT_BLK_MQ_H
 #define INT_BLK_MQ_H
 
+#include <linux/blk-mq.h>
 #include "blk-stat.h"
-#include "blk-mq-tag.h"
 
 struct blk_mq_tag_set;
 
@@ -30,6 +30,15 @@ struct blk_mq_ctx {
 	struct kobject		kobj;
 } ____cacheline_aligned_in_smp;
 
+enum {
+	BLK_MQ_NO_TAG		= -1U,
+	BLK_MQ_TAG_MIN		= 1,
+	BLK_MQ_TAG_MAX		= BLK_MQ_NO_TAG - 1,
+};
+
+typedef unsigned int __bitwise blk_insert_t;
+#define BLK_MQ_INSERT_AT_HEAD		((__force blk_insert_t)0x01)
+
 void blk_mq_submit_bio(struct bio *bio);
 int blk_mq_poll(struct request_queue *q, blk_qc_t cookie, struct io_comp_batch *iob,
 		unsigned int flags);
@@ -38,8 +47,7 @@ int blk_mq_update_nr_requests(struct request_queue *q, unsigned int nr);
 void blk_mq_wake_waiters(struct request_queue *q);
 bool blk_mq_dispatch_rq_list(struct blk_mq_hw_ctx *hctx, struct list_head *,
 			     unsigned int);
-void blk_mq_add_to_requeue_list(struct request *rq, bool at_head,
-				bool kick_requeue_list);
+void blk_mq_add_to_requeue_list(struct request *rq, blk_insert_t insert_flags);
 void blk_mq_flush_busy_ctxs(struct blk_mq_hw_ctx *hctx, struct list_head *list);
 struct request *blk_mq_dequeue_from_ctx(struct blk_mq_hw_ctx *hctx,
 					struct blk_mq_ctx *start);
@@ -59,14 +67,7 @@ void blk_mq_free_map_and_rqs(struct blk_mq_tag_set *set,
 /*
  * Internal helpers for request insertion into sw queues
  */
-void __blk_mq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
-				bool at_head);
-void blk_mq_request_bypass_insert(struct request *rq, bool at_head,
-				  bool run_queue);
-void blk_mq_insert_requests(struct blk_mq_hw_ctx *hctx, struct blk_mq_ctx *ctx,
-				struct list_head *list);
-void blk_mq_try_issue_list_directly(struct blk_mq_hw_ctx *hctx,
-				    struct list_head *list);
+void blk_mq_request_bypass_insert(struct request *rq, blk_insert_t flags);
 
 /*
  * CPU -> queue mappings
@@ -86,16 +87,16 @@ static inline struct blk_mq_hw_ctx *blk_mq_map_queue_type(struct request_queue *
 	return xa_load(&q->hctx_table, q->tag_set->map[type].mq_map[cpu]);
 }
 
-static inline enum hctx_type blk_mq_get_hctx_type(unsigned int flags)
+static inline enum hctx_type blk_mq_get_hctx_type(blk_opf_t opf)
 {
 	enum hctx_type type = HCTX_TYPE_DEFAULT;
 
 	/*
 	 * The caller ensure that if REQ_POLLED, poll must be enabled.
 	 */
-	if (flags & REQ_POLLED)
+	if (opf & REQ_POLLED)
 		type = HCTX_TYPE_POLL;
-	else if ((flags & REQ_OP_MASK) == REQ_OP_READ)
+	else if ((opf & REQ_OP_MASK) == REQ_OP_READ)
 		type = HCTX_TYPE_READ;
 	return type;
 }
@@ -103,14 +104,14 @@ static inline enum hctx_type blk_mq_get_hctx_type(unsigned int flags)
 /*
  * blk_mq_map_queue() - map (cmd_flags,type) to hardware queue
  * @q: request queue
- * @flags: request command flags
+ * @opf: operation type (REQ_OP_*) and flags (e.g. REQ_POLLED).
  * @ctx: software queue cpu ctx
  */
 static inline struct blk_mq_hw_ctx *blk_mq_map_queue(struct request_queue *q,
-						     unsigned int flags,
+						     blk_opf_t opf,
 						     struct blk_mq_ctx *ctx)
 {
-	return ctx->hctxs[blk_mq_get_hctx_type(flags)];
+	return ctx->hctxs[blk_mq_get_hctx_type(opf)];
 }
 
 /*
@@ -118,9 +119,10 @@ static inline struct blk_mq_hw_ctx *blk_mq_map_queue(struct request_queue *q,
  */
 extern void blk_mq_sysfs_init(struct request_queue *q);
 extern void blk_mq_sysfs_deinit(struct request_queue *q);
-extern int __blk_mq_register_dev(struct device *dev, struct request_queue *q);
-extern int blk_mq_sysfs_register(struct request_queue *q);
-extern void blk_mq_sysfs_unregister(struct request_queue *q);
+int blk_mq_sysfs_register(struct gendisk *disk);
+void blk_mq_sysfs_unregister(struct gendisk *disk);
+int blk_mq_sysfs_register_hctxs(struct request_queue *q);
+void blk_mq_sysfs_unregister_hctxs(struct request_queue *q);
 extern void blk_mq_hctx_kobj_init(struct blk_mq_hw_ctx *hctx);
 void blk_mq_free_plug_rqs(struct blk_plug *plug);
 void blk_mq_flush_plug_list(struct blk_plug *plug, bool from_schedule);
@@ -151,7 +153,7 @@ struct blk_mq_alloc_data {
 	struct request_queue *q;
 	blk_mq_req_flags_t flags;
 	unsigned int shallow_depth;
-	unsigned int cmd_flags;
+	blk_opf_t cmd_flags;
 	req_flags_t rq_flags;
 
 	/* allocate multiple requests/tags in one go */
@@ -162,6 +164,60 @@ struct blk_mq_alloc_data {
 	struct blk_mq_ctx *ctx;
 	struct blk_mq_hw_ctx *hctx;
 };
+
+struct blk_mq_tags *blk_mq_init_tags(unsigned int nr_tags,
+		unsigned int reserved_tags, int node, int alloc_policy);
+void blk_mq_free_tags(struct blk_mq_tags *tags);
+int blk_mq_init_bitmaps(struct sbitmap_queue *bitmap_tags,
+		struct sbitmap_queue *breserved_tags, unsigned int queue_depth,
+		unsigned int reserved, int node, int alloc_policy);
+
+unsigned int blk_mq_get_tag(struct blk_mq_alloc_data *data);
+unsigned long blk_mq_get_tags(struct blk_mq_alloc_data *data, int nr_tags,
+		unsigned int *offset);
+void blk_mq_put_tag(struct blk_mq_tags *tags, struct blk_mq_ctx *ctx,
+		unsigned int tag);
+void blk_mq_put_tags(struct blk_mq_tags *tags, int *tag_array, int nr_tags);
+int blk_mq_tag_update_depth(struct blk_mq_hw_ctx *hctx,
+		struct blk_mq_tags **tags, unsigned int depth, bool can_grow);
+void blk_mq_tag_resize_shared_tags(struct blk_mq_tag_set *set,
+		unsigned int size);
+void blk_mq_tag_update_sched_shared_tags(struct request_queue *q);
+
+void blk_mq_tag_wakeup_all(struct blk_mq_tags *tags, bool);
+void blk_mq_queue_tag_busy_iter(struct request_queue *q, busy_tag_iter_fn *fn,
+		void *priv);
+void blk_mq_all_tag_iter(struct blk_mq_tags *tags, busy_tag_iter_fn *fn,
+		void *priv);
+
+static inline struct sbq_wait_state *bt_wait_ptr(struct sbitmap_queue *bt,
+						 struct blk_mq_hw_ctx *hctx)
+{
+	if (!hctx)
+		return &bt->ws[0];
+	return sbq_wait_ptr(bt, &hctx->wait_index);
+}
+
+void __blk_mq_tag_busy(struct blk_mq_hw_ctx *);
+void __blk_mq_tag_idle(struct blk_mq_hw_ctx *);
+
+static inline void blk_mq_tag_busy(struct blk_mq_hw_ctx *hctx)
+{
+	if (hctx->flags & BLK_MQ_F_TAG_QUEUE_SHARED)
+		__blk_mq_tag_busy(hctx);
+}
+
+static inline void blk_mq_tag_idle(struct blk_mq_hw_ctx *hctx)
+{
+	if (hctx->flags & BLK_MQ_F_TAG_QUEUE_SHARED)
+		__blk_mq_tag_idle(hctx);
+}
+
+static inline bool blk_mq_tag_is_reserved(struct blk_mq_tags *tags,
+					  unsigned int tag)
+{
+	return tag < tags->nr_reserved_tags;
+}
 
 static inline bool blk_mq_is_shared_tags(unsigned int flags)
 {
@@ -293,7 +349,6 @@ static inline void blk_mq_clear_mq_map(struct blk_mq_queue_map *qmap)
 
 /*
  * blk_mq_plug() - Get caller context plug
- * @q: request queue
  * @bio : the bio being submitted by the caller context
  *
  * Plugging, by design, may delay the insertion of BIOs into the elevator in
@@ -304,23 +359,23 @@ static inline void blk_mq_clear_mq_map(struct blk_mq_queue_map *qmap)
  * order. While this is not a problem with regular block devices, this ordering
  * change can cause write BIO failures with zoned block devices as these
  * require sequential write patterns to zones. Prevent this from happening by
- * ignoring the plug state of a BIO issuing context if the target request queue
- * is for a zoned block device and the BIO to plug is a write operation.
+ * ignoring the plug state of a BIO issuing context if it is for a zoned block
+ * device and the BIO to plug is a write operation.
  *
  * Return current->plug if the bio can be plugged and NULL otherwise
  */
-static inline struct blk_plug *blk_mq_plug(struct request_queue *q,
-					   struct bio *bio)
+static inline struct blk_plug *blk_mq_plug( struct bio *bio)
 {
+	/* Zoned block device write operation case: do not plug the BIO */
+	if (IS_ENABLED(CONFIG_BLK_DEV_ZONED) &&
+	    bdev_op_is_zoned_write(bio->bi_bdev, bio_op(bio)))
+		return NULL;
+
 	/*
 	 * For regular block devices or read operations, use the context plug
 	 * which may be NULL if blk_start_plug() was not executed.
 	 */
-	if (!blk_queue_is_zoned(q) || !op_is_write(bio_op(bio)))
-		return current->plug;
-
-	/* Zoned block device write operation case: do not plug the BIO */
-	return NULL;
+	return current->plug;
 }
 
 /* Free all requests on the list */
@@ -362,8 +417,7 @@ static inline bool hctx_may_queue(struct blk_mq_hw_ctx *hctx,
 			return true;
 	}
 
-	users = atomic_read(&hctx->tags->active_queues);
-
+	users = READ_ONCE(hctx->tags->active_queues);
 	if (!users)
 		return true;
 
@@ -377,17 +431,18 @@ static inline bool hctx_may_queue(struct blk_mq_hw_ctx *hctx,
 /* run the code block in @dispatch_ops with rcu/srcu read lock held */
 #define __blk_mq_run_dispatch_ops(q, check_sleep, dispatch_ops)	\
 do {								\
-	if (!blk_queue_has_srcu(q)) {				\
-		rcu_read_lock();				\
-		(dispatch_ops);					\
-		rcu_read_unlock();				\
-	} else {						\
+	if ((q)->tag_set->flags & BLK_MQ_F_BLOCKING) {		\
+		struct blk_mq_tag_set *__tag_set = (q)->tag_set; \
 		int srcu_idx;					\
 								\
 		might_sleep_if(check_sleep);			\
-		srcu_idx = srcu_read_lock((q)->srcu);		\
+		srcu_idx = srcu_read_lock(__tag_set->srcu);	\
 		(dispatch_ops);					\
-		srcu_read_unlock((q)->srcu, srcu_idx);		\
+		srcu_read_unlock(__tag_set->srcu, srcu_idx);	\
+	} else {						\
+		rcu_read_lock();				\
+		(dispatch_ops);					\
+		rcu_read_unlock();				\
 	}							\
 } while (0)
 

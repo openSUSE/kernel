@@ -19,6 +19,7 @@
 #ifdef CONFIG_32BIT
 
 #define __UA_LIMIT 0x80000000UL
+#define TASK_SIZE_MAX	KSEG0
 
 #define __UA_ADDR	".word"
 #define __UA_LA		"la"
@@ -33,6 +34,7 @@
 extern u64 __ua_limit;
 
 #define __UA_LIMIT	__ua_limit
+#define TASK_SIZE_MAX	XKSSEG
 
 #define __UA_ADDR	".dword"
 #define __UA_LA		"dla"
@@ -42,50 +44,7 @@ extern u64 __ua_limit;
 
 #endif /* CONFIG_64BIT */
 
-/*
- * Is a address valid? This does a straightforward calculation rather
- * than tests.
- *
- * Address valid if:
- *  - "addr" doesn't have any high-bits set
- *  - AND "size" doesn't have any high-bits set
- *  - AND "addr+size" doesn't have any high-bits set
- *  - OR we are in kernel mode.
- *
- * __ua_size() is a trick to avoid runtime checking of positive constant
- * sizes; for those we already know at compile time that the size is ok.
- */
-#define __ua_size(size)							\
-	((__builtin_constant_p(size) && (signed long) (size) > 0) ? 0 : (size))
-
-/*
- * access_ok: - Checks if a user space pointer is valid
- * @addr: User space pointer to start of block to check
- * @size: Size of block to check
- *
- * Context: User context only. This function may sleep if pagefaults are
- *          enabled.
- *
- * Checks if a pointer to a block of memory in user space is valid.
- *
- * Returns true (nonzero) if the memory block may be valid, false (zero)
- * if it is definitely invalid.
- *
- * Note that, depending on architecture, this function probably just
- * checks that the pointer is in the user space range - after calling
- * this function, memory access functions may still return -EFAULT.
- */
-
-static inline int __access_ok(const void __user *p, unsigned long size)
-{
-	unsigned long addr = (unsigned long)p;
-	unsigned long end = addr + size - !!size;
-
-	return (__UA_LIMIT & (addr | end | __ua_size(size))) == 0;
-}
-
-#define access_ok(addr, size)					\
-	likely(__access_ok((addr), (size)))
+#include <asm-generic/access_ok.h>
 
 /*
  * put_user: - Write a simple value into user space.
@@ -296,8 +255,6 @@ struct __large_struct { unsigned long buf[100]; };
 	(val) = __gu_tmp.t;						\
 }
 
-#define HAVE_GET_KERNEL_NOFAULT
-
 #define __get_kernel_nofault(dst, src, type, err_label)			\
 do {									\
 	int __gu_err;							\
@@ -428,7 +385,6 @@ do {									\
 
 extern size_t __raw_copy_from_user(void *__to, const void *__from, size_t __n);
 extern size_t __raw_copy_to_user(void *__to, const void *__from, size_t __n);
-extern size_t __raw_copy_in_user(void *__to, const void *__from, size_t __n);
 
 static inline unsigned long
 raw_copy_from_user(void *to, const void __user *from, unsigned long n)
@@ -479,31 +435,6 @@ raw_copy_to_user(void __user *to, const void *from, unsigned long n)
 
 #define INLINE_COPY_FROM_USER
 #define INLINE_COPY_TO_USER
-
-static inline unsigned long
-raw_copy_in_user(void __user *to, const void __user *from, unsigned long n)
-{
-	register void __user *__cu_to_r __asm__("$4");
-	register const void __user *__cu_from_r __asm__("$5");
-	register long __cu_len_r __asm__("$6");
-
-	__cu_to_r = to;
-	__cu_from_r = from;
-	__cu_len_r = n;
-
-	__asm__ __volatile__(
-		".set\tnoreorder\n\t"
-		__MODULE_JAL(__raw_copy_in_user)
-		".set\tnoat\n\t"
-		__UA_ADDU "\t$1, %1, %2\n\t"
-		".set\tat\n\t"
-		".set\treorder"
-		: "+r" (__cu_to_r), "+r" (__cu_from_r), "+r" (__cu_len_r)
-		:
-		: "$8", "$9", "$10", "$11", "$12", "$14", "$15", "$24", "$31",
-		  DADDI_SCRATCH, "memory");
-	return __cu_len_r;
-}
 
 extern __kernel_size_t __bzero(void __user *addr, __kernel_size_t size);
 

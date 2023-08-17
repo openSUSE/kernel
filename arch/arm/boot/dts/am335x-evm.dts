@@ -92,20 +92,18 @@
 				0x0201006c>;	/* DOWN */
 	};
 
-	gpio_keys: volume_keys0 {
+	gpio_keys: volume-keys {
 		compatible = "gpio-keys";
-		#address-cells = <1>;
-		#size-cells = <0>;
 		autorepeat;
 
-		switch9 {
+		switch-9 {
 			label = "volume-up";
 			linux,code = <115>;
 			gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
 			wakeup-source;
 		};
 
-		switch10 {
+		switch-10 {
 			label = "volume-down";
 			linux,code = <114>;
 			gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
@@ -128,7 +126,7 @@
 		backlight = <&backlight>;
 
 		port {
-			panel_0: endpoint@0 {
+			panel_0: endpoint {
 				remote-endpoint = <&lcdc_0>;
 			};
 		};
@@ -546,7 +544,7 @@
 		#size-cells = <1>;
 		partition@0 {
 			label = "NAND.SPL";
-			reg = <0x00000000 0x000020000>;
+			reg = <0x00000000 0x00020000>;
 		};
 		partition@1 {
 			label = "NAND.SPL.backup1";
@@ -777,4 +775,12 @@
 &rtc {
 	clocks = <&clk_32768_ck>, <&clk_24mhz_clkctrl AM3_CLK_24MHZ_CLKDIV32K_CLKCTRL 0>;
 	clock-names = "ext-clk", "int-clk";
+};
+
+&pruss_tm {
+	status = "okay";
+};
+
+&wkup_m3_ipc {
+	firmware-name = "am335x-evm-scale-data.bin";
 };

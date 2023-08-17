@@ -17,6 +17,7 @@
 #include <linux/mtd/partitions.h>
 #include <linux/err.h>
 #include <linux/of.h>
+#include <linux/of_platform.h>
 
 #include "mtdcore.h"
 
@@ -576,10 +577,17 @@ static int mtd_part_of_parse(struct mtd_info *master,
 {
 	struct mtd_part_parser *parser;
 	struct device_node *np;
+	struct device_node *child;
 	struct property *prop;
+	struct device *dev;
 	const char *compat;
 	const char *fixed = "fixed-partitions";
 	int ret, err = 0;
+
+	dev = &master->dev;
+	/* Use parent device (controller) if the top level MTD is not registered */
+	if (!IS_ENABLED(CONFIG_MTD_PARTITIONED_MASTER) && !mtd_is_partition(master))
+		dev = master->dev.parent;
 
 	np = mtd_get_of_node(master);
 	if (mtd_is_partition(master))
@@ -587,12 +595,22 @@ static int mtd_part_of_parse(struct mtd_info *master,
 	else
 		np = of_get_child_by_name(np, "partitions");
 
+	/*
+	 * Don't create devices that are added to a bus but will never get
+	 * probed. That'll cause fw_devlink to block probing of consumers of
+	 * this partition until the partition device is probed.
+	 */
+	for_each_child_of_node(np, child)
+		if (of_device_is_compatible(child, "nvmem-cells"))
+			of_node_set_flag(child, OF_POPULATED);
+
 	of_property_for_each_string(np, "compatible", prop, compat) {
 		parser = mtd_part_get_compatible_parser(compat);
 		if (!parser)
 			continue;
 		ret = mtd_part_do_parse(parser, master, pparts, NULL);
 		if (ret > 0) {
+			of_platform_populate(np, NULL, NULL, dev);
 			of_node_put(np);
 			return ret;
 		}
@@ -600,6 +618,7 @@ static int mtd_part_of_parse(struct mtd_info *master,
 		if (ret < 0 && !err)
 			err = ret;
 	}
+	of_platform_populate(np, NULL, NULL, dev);
 	of_node_put(np);
 
 	/*

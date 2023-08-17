@@ -758,10 +758,9 @@ void *knav_pool_create(const char *name,
 					int num_desc, int region_id)
 {
 	struct knav_region *reg_itr, *region = NULL;
-	struct knav_pool *pool, *pi;
+	struct knav_pool *pool, *pi = NULL, *iter;
 	struct list_head *node;
 	unsigned last_offset;
-	bool slot_found;
 	int ret;
 
 	if (!kdev)
@@ -790,7 +789,7 @@ void *knav_pool_create(const char *name,
 	}
 
 	pool->queue = knav_queue_open(name, KNAV_QUEUE_GP, 0);
-	if (IS_ERR_OR_NULL(pool->queue)) {
+	if (IS_ERR(pool->queue)) {
 		dev_err(kdev->dev,
 			"failed to open queue for pool(%s), error %ld\n",
 			name, PTR_ERR(pool->queue));
@@ -816,18 +815,17 @@ void *knav_pool_create(const char *name,
 	 * the request
 	 */
 	last_offset = 0;
-	slot_found = false;
 	node = &region->pools;
-	list_for_each_entry(pi, &region->pools, region_inst) {
-		if ((pi->region_offset - last_offset) >= num_desc) {
-			slot_found = true;
+	list_for_each_entry(iter, &region->pools, region_inst) {
+		if ((iter->region_offset - last_offset) >= num_desc) {
+			pi = iter;
 			break;
 		}
-		last_offset = pi->region_offset + pi->num_desc;
+		last_offset = iter->region_offset + iter->num_desc;
 	}
-	node = &pi->region_inst;
 
-	if (slot_found) {
+	if (pi) {
+		node = &pi->region_inst;
 		pool->region = region;
 		pool->num_desc = num_desc;
 		pool->region_offset = last_offset;
@@ -1266,10 +1264,10 @@ static int knav_setup_queue_range(struct knav_device *kdev,
 	if (range->num_irqs)
 		range->flags |= RANGE_HAS_IRQ;
 
-	if (of_get_property(node, "qalloc-by-id", NULL))
+	if (of_property_read_bool(node, "qalloc-by-id"))
 		range->flags |= RANGE_RESERVED;
 
-	if (of_get_property(node, "accumulator", NULL)) {
+	if (of_property_present(node, "accumulator")) {
 		ret = knav_init_acc_range(kdev, node, range);
 		if (ret < 0) {
 			devm_kfree(dev, range);

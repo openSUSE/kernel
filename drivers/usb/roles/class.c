@@ -87,7 +87,7 @@ enum usb_role usb_role_switch_get_role(struct usb_role_switch *sw)
 }
 EXPORT_SYMBOL_GPL(usb_role_switch_get_role);
 
-static void *usb_role_switch_match(struct fwnode_handle *fwnode, const char *id,
+static void *usb_role_switch_match(const struct fwnode_handle *fwnode, const char *id,
 				   void *data)
 {
 	struct device *dev;
@@ -274,8 +274,7 @@ static const struct attribute_group *usb_role_switch_groups[] = {
 	NULL,
 };
 
-static int
-usb_role_switch_uevent(struct device *dev, struct kobj_uevent_env *env)
+static int usb_role_switch_uevent(const struct device *dev, struct kobj_uevent_env *env)
 {
 	int ret;
 
@@ -393,7 +392,7 @@ EXPORT_SYMBOL_GPL(usb_role_switch_get_drvdata);
 
 static int __init usb_roles_init(void)
 {
-	role_class = class_create(THIS_MODULE, "usb_role");
+	role_class = class_create("usb_role");
 	return PTR_ERR_OR_ZERO(role_class);
 }
 subsys_initcall(usb_roles_init);

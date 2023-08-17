@@ -309,17 +309,16 @@ static int qeth_l2_request_initial_mac(struct qeth_card *card)
 		/* fall back to alternative mechanism: */
 	}
 
-	if (!IS_OSN(card)) {
-		rc = qeth_setadpparms_change_macaddr(card);
-		if (!rc)
-			goto out;
-		QETH_DBF_MESSAGE(2, "READ_MAC Assist failed on device %x: %#x\n",
-				 CARD_DEVID(card), rc);
-		QETH_CARD_TEXT_(card, 2, "1err%04x", rc);
-		/* fall back once more: */
-	}
+	rc = qeth_setadpparms_change_macaddr(card);
+	if (!rc)
+		goto out;
+	QETH_DBF_MESSAGE(2, "READ_MAC Assist failed on device %x: %#x\n",
+			 CARD_DEVID(card), rc);
+	QETH_CARD_TEXT_(card, 2, "1err%04x", rc);
 
-	/* some devices don't support a custom MAC address: */
+	/* Fall back once more, but some devices don't support a custom MAC
+	 * address:
+	 */
 	if (IS_OSM(card) || IS_OSX(card))
 		return (rc) ? rc : -EADDRNOTAVAIL;
 	eth_hw_addr_random(card->dev);
@@ -334,7 +333,7 @@ static void qeth_l2_register_dev_addr(struct qeth_card *card)
 	if (!is_valid_ether_addr(card->dev->dev_addr))
 		qeth_l2_request_initial_mac(card);
 
-	if (!IS_OSN(card) && !qeth_l2_send_setmac(card, card->dev->dev_addr))
+	if (!qeth_l2_send_setmac(card, card->dev->dev_addr))
 		card->info.dev_addr_is_registered = 1;
 	else
 		card->info.dev_addr_is_registered = 0;
@@ -496,44 +495,6 @@ static void qeth_l2_rx_mode_work(struct work_struct *work)
 	qeth_l2_set_promisc_mode(card);
 }
 
-static int qeth_l2_xmit_osn(struct qeth_card *card, struct sk_buff *skb,
-			    struct qeth_qdio_out_q *queue)
-{
-	gfp_t gfp = GFP_ATOMIC | (skb_pfmemalloc(skb) ? __GFP_MEMALLOC : 0);
-	struct qeth_hdr *hdr = (struct qeth_hdr *)skb->data;
-	addr_t end = (addr_t)(skb->data + sizeof(*hdr));
-	addr_t start = (addr_t)skb->data;
-	unsigned int elements = 0;
-	unsigned int hd_len = 0;
-	int rc;
-
-	if (skb->protocol == htons(ETH_P_IPV6))
-		return -EPROTONOSUPPORT;
-
-	if (qeth_get_elements_for_range(start, end) > 1) {
-		/* Misaligned HW header, move it to its own buffer element. */
-		hdr = kmem_cache_alloc(qeth_core_header_cache, gfp);
-		if (!hdr)
-			return -ENOMEM;
-		hd_len = sizeof(*hdr);
-		skb_copy_from_linear_data(skb, (char *)hdr, hd_len);
-		elements++;
-	}
-
-	elements += qeth_count_elements(skb, hd_len);
-	if (elements > queue->max_elements) {
-		rc = -E2BIG;
-		goto out;
-	}
-
-	rc = qeth_do_send_packet(card, queue, skb, hdr, hd_len, hd_len,
-				 elements);
-out:
-	if (rc && hd_len)
-		kmem_cache_free(qeth_core_header_cache, hdr);
-	return rc;
-}
-
 static netdev_tx_t qeth_l2_hard_start_xmit(struct sk_buff *skb,
 					   struct net_device *dev)
 {
@@ -548,12 +509,8 @@ static netdev_tx_t qeth_l2_hard_start_xmit(struct sk_buff *skb,
 		txq = qeth_iqd_translate_txq(dev, txq);
 	queue = card->qdio.out_qs[txq];
 
-	if (IS_OSN(card))
-		rc = qeth_l2_xmit_osn(card, skb, queue);
-	else
-		rc = qeth_xmit(card, skb, queue, vlan_get_protocol(skb),
-			       qeth_l2_fill_header);
-
+	rc = qeth_xmit(card, skb, queue, vlan_get_protocol(skb),
+		       qeth_l2_fill_header);
 	if (!rc)
 		return NETDEV_TX_OK;
 
@@ -1128,23 +1085,8 @@ static const struct net_device_ops qeth_l2_osa_netdev_ops = {
 	.ndo_set_features	= qeth_set_features,
 };
 
-static const struct net_device_ops qeth_osn_netdev_ops = {
-	.ndo_open		= qeth_open,
-	.ndo_stop		= qeth_stop,
-	.ndo_get_stats64	= qeth_get_stats64,
-	.ndo_start_xmit		= qeth_l2_hard_start_xmit,
-	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_tx_timeout		= qeth_tx_timeout,
-};
-
 static int qeth_l2_setup_netdev(struct qeth_card *card)
 {
-	if (IS_OSN(card)) {
-		card->dev->netdev_ops = &qeth_osn_netdev_ops;
-		card->dev->flags |= IFF_NOARP;
-		goto add_napi;
-	}
-
 	card->dev->netdev_ops = IS_IQD(card) ? &qeth_l2_iqd_netdev_ops :
 					       &qeth_l2_osa_netdev_ops;
 	card->dev->needed_headroom = sizeof(struct qeth_hdr);
@@ -1191,8 +1133,7 @@ static int qeth_l2_setup_netdev(struct qeth_card *card)
 				       PAGE_SIZE * (QDIO_MAX_ELEMENTS_PER_BUFFER - 1));
 	}
 
-add_napi:
-	netif_napi_add(card->dev, &card->napi, qeth_poll, NAPI_POLL_WEIGHT);
+	netif_napi_add(card->dev, &card->napi, qeth_poll);
 	return register_netdev(card->dev);
 }
 
@@ -1283,84 +1224,6 @@ static void qeth_l2_enable_brport_features(struct qeth_card *card)
 	}
 }
 
-#ifdef CONFIG_QETH_OSN
-static void qeth_osn_assist_cb(struct qeth_card *card,
-			       struct qeth_cmd_buffer *iob,
-			       unsigned int data_length)
-{
-	qeth_notify_cmd(iob, 0);
-	qeth_put_cmd(iob);
-}
-
-int qeth_osn_assist(struct net_device *dev, void *data, int data_len)
-{
-	struct qeth_cmd_buffer *iob;
-	struct qeth_card *card;
-
-	if (data_len < 0)
-		return -EINVAL;
-	if (!dev)
-		return -ENODEV;
-	card = dev->ml_priv;
-	if (!card)
-		return -ENODEV;
-	QETH_CARD_TEXT(card, 2, "osnsdmc");
-	if (!qeth_card_hw_is_reachable(card))
-		return -ENODEV;
-
-	iob = qeth_alloc_cmd(&card->write, IPA_PDU_HEADER_SIZE + data_len, 1,
-			     QETH_IPA_TIMEOUT);
-	if (!iob)
-		return -ENOMEM;
-
-	qeth_prepare_ipa_cmd(card, iob, (u16) data_len, NULL);
-
-	memcpy(__ipa_cmd(iob), data, data_len);
-	iob->callback = qeth_osn_assist_cb;
-	return qeth_send_ipa_cmd(card, iob, NULL, NULL);
-}
-EXPORT_SYMBOL(qeth_osn_assist);
-
-int qeth_osn_register(unsigned char *read_dev_no, struct net_device **dev,
-		  int (*assist_cb)(struct net_device *, void *),
-		  int (*data_cb)(struct sk_buff *))
-{
-	struct qeth_card *card;
-	char bus_id[16];
-	u16 devno;
-
-	memcpy(&devno, read_dev_no, 2);
-	sprintf(bus_id, "0.0.%04x", devno);
-	card = qeth_get_card_by_busid(bus_id);
-	if (!card || !IS_OSN(card))
-		return -ENODEV;
-	*dev = card->dev;
-
-	QETH_CARD_TEXT(card, 2, "osnreg");
-	if ((assist_cb == NULL) || (data_cb == NULL))
-		return -EINVAL;
-	card->osn_info.assist_cb = assist_cb;
-	card->osn_info.data_cb = data_cb;
-	return 0;
-}
-EXPORT_SYMBOL(qeth_osn_register);
-
-void qeth_osn_deregister(struct net_device *dev)
-{
-	struct qeth_card *card;
-
-	if (!dev)
-		return;
-	card = dev->ml_priv;
-	if (!card)
-		return;
-	QETH_CARD_TEXT(card, 2, "osndereg");
-	card->osn_info.assist_cb = NULL;
-	card->osn_info.data_cb = NULL;
-}
-EXPORT_SYMBOL(qeth_osn_deregister);
-#endif
-
 /* SETBRIDGEPORT support, async notifications */
 
 enum qeth_an_event_type {anev_reg_unreg, anev_abort, anev_reset};
@@ -1392,37 +1255,38 @@ static void qeth_bridge_emit_host_event(struct qeth_card *card,
 
 	switch (evtype) {
 	case anev_reg_unreg:
-		snprintf(str[i], sizeof(str[i]), "BRIDGEDHOST=%s",
-				(code & IPA_ADDR_CHANGE_CODE_REMOVAL)
-				? "deregister" : "register");
+		scnprintf(str[i], sizeof(str[i]), "BRIDGEDHOST=%s",
+			  (code & IPA_ADDR_CHANGE_CODE_REMOVAL)
+			  ? "deregister" : "register");
 		env[i] = str[i]; i++;
 		if (code & IPA_ADDR_CHANGE_CODE_VLANID) {
-			snprintf(str[i], sizeof(str[i]), "VLAN=%d",
-				addr_lnid->lnid);
+			scnprintf(str[i], sizeof(str[i]), "VLAN=%d",
+				  addr_lnid->lnid);
 			env[i] = str[i]; i++;
 		}
 		if (code & IPA_ADDR_CHANGE_CODE_MACADDR) {
-			snprintf(str[i], sizeof(str[i]), "MAC=%pM",
-				addr_lnid->mac);
+			scnprintf(str[i], sizeof(str[i]), "MAC=%pM",
+				  addr_lnid->mac);
 			env[i] = str[i]; i++;
 		}
-		snprintf(str[i], sizeof(str[i]), "NTOK_BUSID=%x.%x.%04x",
-			token->cssid, token->ssid, token->devnum);
+		scnprintf(str[i], sizeof(str[i]), "NTOK_BUSID=%x.%x.%04x",
+			  token->cssid, token->ssid, token->devnum);
 		env[i] = str[i]; i++;
-		snprintf(str[i], sizeof(str[i]), "NTOK_IID=%02x", token->iid);
+		scnprintf(str[i], sizeof(str[i]), "NTOK_IID=%02x", token->iid);
 		env[i] = str[i]; i++;
-		snprintf(str[i], sizeof(str[i]), "NTOK_CHPID=%02x",
-				token->chpid);
+		scnprintf(str[i], sizeof(str[i]), "NTOK_CHPID=%02x",
+			  token->chpid);
 		env[i] = str[i]; i++;
-		snprintf(str[i], sizeof(str[i]), "NTOK_CHID=%04x", token->chid);
+		scnprintf(str[i], sizeof(str[i]), "NTOK_CHID=%04x",
+			  token->chid);
 		env[i] = str[i]; i++;
 		break;
 	case anev_abort:
-		snprintf(str[i], sizeof(str[i]), "BRIDGEDHOST=abort");
+		scnprintf(str[i], sizeof(str[i]), "BRIDGEDHOST=abort");
 		env[i] = str[i]; i++;
 		break;
 	case anev_reset:
-		snprintf(str[i], sizeof(str[i]), "BRIDGEDHOST=reset");
+		scnprintf(str[i], sizeof(str[i]), "BRIDGEDHOST=reset");
 		env[i] = str[i]; i++;
 		break;
 	}
@@ -1451,17 +1315,17 @@ static void qeth_bridge_state_change_worker(struct work_struct *work)
 		NULL
 	};
 
-	snprintf(env_locrem, sizeof(env_locrem), "BRIDGEPORT=statechange");
-	snprintf(env_role, sizeof(env_role), "ROLE=%s",
-		(data->role == QETH_SBP_ROLE_NONE) ? "none" :
-		(data->role == QETH_SBP_ROLE_PRIMARY) ? "primary" :
-		(data->role == QETH_SBP_ROLE_SECONDARY) ? "secondary" :
-		"<INVALID>");
-	snprintf(env_state, sizeof(env_state), "STATE=%s",
-		(data->state == QETH_SBP_STATE_INACTIVE) ? "inactive" :
-		(data->state == QETH_SBP_STATE_STANDBY) ? "standby" :
-		(data->state == QETH_SBP_STATE_ACTIVE) ? "active" :
-		"<INVALID>");
+	scnprintf(env_locrem, sizeof(env_locrem), "BRIDGEPORT=statechange");
+	scnprintf(env_role, sizeof(env_role), "ROLE=%s",
+		  (data->role == QETH_SBP_ROLE_NONE) ? "none" :
+		  (data->role == QETH_SBP_ROLE_PRIMARY) ? "primary" :
+		  (data->role == QETH_SBP_ROLE_SECONDARY) ? "secondary" :
+		  "<INVALID>");
+	scnprintf(env_state, sizeof(env_state), "STATE=%s",
+		  (data->state == QETH_SBP_STATE_INACTIVE) ? "inactive" :
+		  (data->state == QETH_SBP_STATE_STANDBY) ? "standby" :
+		  (data->state == QETH_SBP_STATE_ACTIVE) ? "active" :
+		  "<INVALID>");
 	kobject_uevent_env(&data->card->gdev->dev.kobj,
 				KOBJ_CHANGE, env);
 	kfree(data);
@@ -1667,8 +1531,8 @@ static void qeth_addr_change_event(struct qeth_card *card,
 	else
 		INIT_DELAYED_WORK(&data->dwork, qeth_l2_dev2br_worker);
 	data->card = card;
-	memcpy(&data->ac_event, hostevs,
-			sizeof(struct qeth_ipacmd_addr_change) + extrasize);
+	data->ac_event = *hostevs;
+	memcpy(data->ac_event.entry, hostevs->entry, extrasize);
 	queue_delayed_work(card->event_wq, &data->dwork, 0);
 }
 
@@ -2424,10 +2288,6 @@ static const struct device_type qeth_l2_devtype = {
 	.groups = qeth_l2_attr_groups,
 };
 
-static const struct device_type qeth_osn_devtype = {
-	.name = "qeth_osn",
-};
-
 static int qeth_l2_probe_device(struct ccwgroup_device *gdev)
 {
 	struct qeth_card *card = dev_get_drvdata(&gdev->dev);
@@ -2441,8 +2301,7 @@ static int qeth_l2_probe_device(struct ccwgroup_device *gdev)
 		if (rc)
 			return rc;
 	} else {
-		gdev->dev.type = IS_OSN(card) ? &qeth_osn_devtype :
-						&qeth_l2_devtype;
+		gdev->dev.type = &qeth_l2_devtype;
 	}
 
 	INIT_WORK(&card->rx_mode_work, qeth_l2_rx_mode_work);
@@ -2529,9 +2388,12 @@ static int qeth_l2_set_online(struct qeth_card *card, bool carrier_ok)
 		qeth_enable_hw_features(dev);
 		qeth_l2_enable_brport_features(card);
 
-		if (card->info.open_when_online) {
-			card->info.open_when_online = 0;
-			dev_open(dev, NULL);
+		if (netif_running(dev)) {
+			local_bh_disable();
+			napi_schedule(&card->napi);
+			/* kick-start the NAPI softirq: */
+			local_bh_enable();
+			qeth_l2_set_rx_mode(dev);
 		}
 		rtnl_unlock();
 	}

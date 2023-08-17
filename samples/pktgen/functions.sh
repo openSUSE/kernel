@@ -123,7 +123,7 @@ function root_check_run_with_sudo() {
     if [ "$EUID" -ne 0 ]; then
 	if [ -x $0 ]; then # Directly executable use sudo
 	    info "Not root, running with sudo"
-            sudo "$0" "$@"
+            sudo -E "$0" "$@"
             exit $?
 	fi
 	err 4 "cannot perform sudo run of $0"
@@ -191,7 +191,7 @@ function extend_addr6()
     fi
 
     # if shrink '::' occurs multiple, it's malformed.
-    shrink=( $(egrep -o "$sep{2,}" <<< $addr) )
+    shrink=( $(grep -E -o "$sep{2,}" <<< $addr) )
     if [[ ${#shrink[@]} -ne 0 ]]; then
         if [[ ${#shrink[@]} -gt 1 || ( ${shrink[0]} != $sep2 ) ]]; then
             err 5 "Invalid IP6 address: $1"

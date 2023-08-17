@@ -40,7 +40,6 @@
 #include <linux/can.h>
 #include <linux/can/dev.h>
 #include <linux/can/error.h>
-#include <linux/can/led.h>
 
 #include "c_can.h"
 
@@ -160,8 +159,8 @@
 
 #define IF_MCONT_TX		(IF_MCONT_TXIE | IF_MCONT_EOB)
 
-/* Use IF1 for RX and IF2 for TX */
-#define IF_RX			0
+/* Use IF1 in NAPI path and IF2 in TX path */
+#define IF_NAPI			0
 #define IF_TX			1
 
 /* minimum timeout for checking BUSY status */
@@ -427,36 +426,59 @@ static void c_can_setup_receive_object(struct net_device *dev, int iface,
 	c_can_object_put(dev, iface, obj, IF_COMM_RCV_SETUP);
 }
 
+static bool c_can_tx_busy(const struct c_can_priv *priv,
+			  const struct c_can_tx_ring *tx_ring)
+{
+	if (c_can_get_tx_free(priv, tx_ring) > 0)
+		return false;
+
+	netif_stop_queue(priv->dev);
+
+	/* Memory barrier before checking tx_free (head and tail) */
+	smp_mb();
+
+	if (c_can_get_tx_free(priv, tx_ring) == 0) {
+		netdev_dbg(priv->dev,
+			   "Stopping tx-queue (tx_head=0x%08x, tx_tail=0x%08x, len=%d).\n",
+			   tx_ring->head, tx_ring->tail,
+			   tx_ring->head - tx_ring->tail);
+		return true;
+	}
+
+	netif_start_queue(priv->dev);
+	return false;
+}
+
 static netdev_tx_t c_can_start_xmit(struct sk_buff *skb,
 				    struct net_device *dev)
 {
 	struct can_frame *frame = (struct can_frame *)skb->data;
 	struct c_can_priv *priv = netdev_priv(dev);
-	u32 idx, obj;
+	struct c_can_tx_ring *tx_ring = &priv->tx;
+	u32 idx, obj, cmd = IF_COMM_TX;
 
-	if (can_dropped_invalid_skb(dev, skb))
+	if (can_dev_dropped_skb(dev, skb))
 		return NETDEV_TX_OK;
-	/* This is not a FIFO. C/D_CAN sends out the buffers
-	 * prioritized. The lowest buffer number wins.
-	 */
-	idx = fls(atomic_read(&priv->tx_active));
-	obj = idx + priv->msg_obj_tx_first;
 
-	/* If this is the last buffer, stop the xmit queue */
-	if (idx == priv->msg_obj_tx_num - 1)
+	if (c_can_tx_busy(priv, tx_ring))
+		return NETDEV_TX_BUSY;
+
+	idx = c_can_get_tx_head(tx_ring);
+	tx_ring->head++;
+	if (c_can_get_tx_free(priv, tx_ring) == 0)
 		netif_stop_queue(dev);
+
+	if (idx < c_can_get_tx_tail(tx_ring))
+		cmd &= ~IF_COMM_TXRQST; /* Cache the message */
+
 	/* Store the message in the interface so we can call
 	 * can_put_echo_skb(). We must do this before we enable
 	 * transmit as we might race against do_tx().
 	 */
 	c_can_setup_tx_object(dev, IF_TX, frame, idx);
-	priv->dlc[idx] = frame->len;
 	can_put_echo_skb(skb, dev, idx, 0);
-
-	/* Update the active bits */
-	atomic_add(BIT(idx), &priv->tx_active);
-	/* Start transmission */
-	c_can_object_put(dev, IF_TX, obj, IF_COMM_TX);
+	obj = idx + priv->msg_obj_tx_first;
+	c_can_object_put(dev, IF_TX, obj, cmd);
 
 	return NETDEV_TX_OK;
 }
@@ -529,13 +551,13 @@ static void c_can_configure_msg_objects(struct net_device *dev)
 
 	/* first invalidate all message objects */
 	for (i = priv->msg_obj_rx_first; i <= priv->msg_obj_num; i++)
-		c_can_inval_msg_object(dev, IF_RX, i);
+		c_can_inval_msg_object(dev, IF_NAPI, i);
 
 	/* setup receive message objects */
 	for (i = priv->msg_obj_rx_first; i < priv->msg_obj_rx_last; i++)
-		c_can_setup_receive_object(dev, IF_RX, i, 0, 0, IF_MCONT_RCV);
+		c_can_setup_receive_object(dev, IF_NAPI, i, 0, 0, IF_MCONT_RCV);
 
-	c_can_setup_receive_object(dev, IF_RX, priv->msg_obj_rx_last, 0, 0,
+	c_can_setup_receive_object(dev, IF_NAPI, priv->msg_obj_rx_last, 0, 0,
 				   IF_MCONT_RCV_EOB);
 }
 
@@ -567,6 +589,7 @@ static int c_can_software_reset(struct net_device *dev)
 static int c_can_chip_config(struct net_device *dev)
 {
 	struct c_can_priv *priv = netdev_priv(dev);
+	struct c_can_tx_ring *tx_ring = &priv->tx;
 	int err;
 
 	err = c_can_software_reset(dev);
@@ -598,7 +621,8 @@ static int c_can_chip_config(struct net_device *dev)
 	priv->write_reg(priv, C_CAN_STS_REG, LEC_UNUSED);
 
 	/* Clear all internal status */
-	atomic_set(&priv->tx_active, 0);
+	tx_ring->head = 0;
+	tx_ring->tail = 0;
 	priv->tx_dir = 0;
 
 	/* set bittiming params */
@@ -696,40 +720,54 @@ static int c_can_get_berr_counter(const struct net_device *dev,
 static void c_can_do_tx(struct net_device *dev)
 {
 	struct c_can_priv *priv = netdev_priv(dev);
+	struct c_can_tx_ring *tx_ring = &priv->tx;
 	struct net_device_stats *stats = &dev->stats;
-	u32 idx, obj, pkts = 0, bytes = 0, pend, clr;
+	u32 idx, obj, pkts = 0, bytes = 0, pend;
+	u8 tail;
 
 	if (priv->msg_obj_tx_last > 32)
 		pend = priv->read_reg32(priv, C_CAN_INTPND3_REG);
 	else
 		pend = priv->read_reg(priv, C_CAN_INTPND2_REG);
-	clr = pend;
 
 	while ((idx = ffs(pend))) {
 		idx--;
 		pend &= ~BIT(idx);
 		obj = idx + priv->msg_obj_tx_first;
 
-		/* We use IF_RX interface instead of IF_TX because we
+		/* We use IF_NAPI interface instead of IF_TX because we
 		 * are called from c_can_poll(), which runs inside
 		 * NAPI. We are not transmitting.
 		 */
-		c_can_inval_tx_object(dev, IF_RX, obj);
-		can_get_echo_skb(dev, idx, NULL);
-		bytes += priv->dlc[idx];
+		c_can_inval_tx_object(dev, IF_NAPI, obj);
+		bytes += can_get_echo_skb(dev, idx, NULL);
 		pkts++;
 	}
 
-	/* Clear the bits in the tx_active mask */
-	atomic_sub(clr, &priv->tx_active);
+	if (!pkts)
+		return;
 
-	if (clr & BIT(priv->msg_obj_tx_num - 1))
-		netif_wake_queue(dev);
+	tx_ring->tail += pkts;
+	if (c_can_get_tx_free(priv, tx_ring)) {
+		/* Make sure that anybody stopping the queue after
+		 * this sees the new tx_ring->tail.
+		 */
+		smp_mb();
+		netif_wake_queue(priv->dev);
+	}
 
-	if (pkts) {
-		stats->tx_bytes += bytes;
-		stats->tx_packets += pkts;
-		can_led_event(dev, CAN_LED_EVENT_TX);
+	stats->tx_bytes += bytes;
+	stats->tx_packets += pkts;
+
+	tail = c_can_get_tx_tail(tx_ring);
+	if (priv->type == BOSCH_D_CAN && tail == 0) {
+		u8 head = c_can_get_tx_head(tx_ring);
+
+		/* Start transmission for all cached messages */
+		for (idx = tail; idx < head; idx++) {
+			obj = idx + priv->msg_obj_tx_first;
+			c_can_object_put(dev, IF_NAPI, obj, IF_COMM_TXRQST);
+		}
 	}
 }
 
@@ -766,14 +804,14 @@ static u32 c_can_adjust_pending(u32 pend, u32 rx_mask)
 static inline void c_can_rx_object_get(struct net_device *dev,
 				       struct c_can_priv *priv, u32 obj)
 {
-	c_can_object_get(dev, IF_RX, obj, priv->comm_rcv_high);
+	c_can_object_get(dev, IF_NAPI, obj, priv->comm_rcv_high);
 }
 
 static inline void c_can_rx_finalize(struct net_device *dev,
 				     struct c_can_priv *priv, u32 obj)
 {
 	if (priv->type != BOSCH_D_CAN)
-		c_can_object_get(dev, IF_RX, obj, IF_COMM_CLR_NEWDAT);
+		c_can_object_get(dev, IF_NAPI, obj, IF_COMM_CLR_NEWDAT);
 }
 
 static int c_can_read_objects(struct net_device *dev, struct c_can_priv *priv,
@@ -785,10 +823,12 @@ static int c_can_read_objects(struct net_device *dev, struct c_can_priv *priv,
 		pend &= ~BIT(obj - 1);
 
 		c_can_rx_object_get(dev, priv, obj);
-		ctrl = priv->read_reg(priv, C_CAN_IFACE(MSGCTRL_REG, IF_RX));
+		ctrl = priv->read_reg(priv, C_CAN_IFACE(MSGCTRL_REG, IF_NAPI));
 
 		if (ctrl & IF_MCONT_MSGLST) {
-			int n = c_can_handle_lost_msg_obj(dev, IF_RX, obj, ctrl);
+			int n;
+
+			n = c_can_handle_lost_msg_obj(dev, IF_NAPI, obj, ctrl);
 
 			pkts += n;
 			quota -= n;
@@ -803,7 +843,7 @@ static int c_can_read_objects(struct net_device *dev, struct c_can_priv *priv,
 			continue;
 
 		/* read the data from the message object */
-		c_can_read_msg_object(dev, IF_RX, ctrl);
+		c_can_read_msg_object(dev, IF_NAPI, ctrl);
 
 		c_can_rx_finalize(dev, priv, obj);
 
@@ -863,9 +903,6 @@ static int c_can_do_rx_poll(struct net_device *dev, int quota)
 		quota -= n;
 	}
 
-	if (pkts)
-		can_led_event(dev, CAN_LED_EVENT_RX);
-
 	return pkts;
 }
 
@@ -914,15 +951,14 @@ static int c_can_handle_state_change(struct net_device *dev,
 
 	switch (error_type) {
 	case C_CAN_NO_ERROR:
-		/* error warning state */
-		cf->can_id |= CAN_ERR_CRTL;
+		cf->can_id |= CAN_ERR_CRTL | CAN_ERR_CNT;
 		cf->data[1] = CAN_ERR_CRTL_ACTIVE;
 		cf->data[6] = bec.txerr;
 		cf->data[7] = bec.rxerr;
 		break;
 	case C_CAN_ERROR_WARNING:
 		/* error warning state */
-		cf->can_id |= CAN_ERR_CRTL;
+		cf->can_id |= CAN_ERR_CRTL | CAN_ERR_CNT;
 		cf->data[1] = (bec.txerr > bec.rxerr) ?
 			CAN_ERR_CRTL_TX_WARNING :
 			CAN_ERR_CRTL_RX_WARNING;
@@ -932,7 +968,7 @@ static int c_can_handle_state_change(struct net_device *dev,
 		break;
 	case C_CAN_ERROR_PASSIVE:
 		/* error passive state */
-		cf->can_id |= CAN_ERR_CRTL;
+		cf->can_id |= CAN_ERR_CRTL | CAN_ERR_CNT;
 		if (rx_err_passive)
 			cf->data[1] |= CAN_ERR_CRTL_RX_PASSIVE;
 		if (bec.txerr > 127)
@@ -1139,8 +1175,6 @@ static int c_can_open(struct net_device *dev)
 	if (err)
 		goto exit_start_fail;
 
-	can_led_event(dev, CAN_LED_EVENT_OPEN);
-
 	napi_enable(&priv->napi);
 	/* enable status change, error and module interrupts */
 	c_can_irq_control(priv, true);
@@ -1171,8 +1205,6 @@ static int c_can_close(struct net_device *dev)
 	c_can_reset_ram(priv, false);
 	c_can_pm_runtime_put_sync(priv);
 
-	can_led_event(dev, CAN_LED_EVENT_STOP);
-
 	return 0;
 }
 
@@ -1182,8 +1214,7 @@ struct net_device *alloc_c_can_dev(int msg_obj_num)
 	struct c_can_priv *priv;
 	int msg_obj_tx_num = msg_obj_num / 2;
 
-	dev = alloc_candev(struct_size(priv, dlc, msg_obj_tx_num),
-			   msg_obj_tx_num);
+	dev = alloc_candev(sizeof(*priv), msg_obj_tx_num);
 	if (!dev)
 		return NULL;
 
@@ -1200,7 +1231,12 @@ struct net_device *alloc_c_can_dev(int msg_obj_num)
 	priv->msg_obj_tx_last =
 		priv->msg_obj_tx_first + priv->msg_obj_tx_num - 1;
 
-	netif_napi_add(dev, &priv->napi, c_can_poll, priv->msg_obj_rx_num);
+	priv->tx.head = 0;
+	priv->tx.tail = 0;
+	priv->tx.obj_num = msg_obj_tx_num;
+
+	netif_napi_add_weight(dev, &priv->napi, c_can_poll,
+			      priv->msg_obj_rx_num);
 
 	priv->dev = dev;
 	priv->can.bittiming_const = &c_can_bittiming_const;
@@ -1318,8 +1354,6 @@ static const struct net_device_ops c_can_netdev_ops = {
 
 int register_c_can_dev(struct net_device *dev)
 {
-	int err;
-
 	/* Deactivate pins to prevent DRA7 DCAN IP from being
 	 * stuck in transition when module is disabled.
 	 * Pins are activated in c_can_start() and deactivated
@@ -1329,12 +1363,9 @@ int register_c_can_dev(struct net_device *dev)
 
 	dev->flags |= IFF_ECHO;	/* we support local echo */
 	dev->netdev_ops = &c_can_netdev_ops;
-	c_can_set_ethtool_ops(dev);
+	dev->ethtool_ops = &c_can_ethtool_ops;
 
-	err = register_candev(dev);
-	if (!err)
-		devm_can_led_init(dev);
-	return err;
+	return register_candev(dev);
 }
 EXPORT_SYMBOL_GPL(register_c_can_dev);
 

@@ -18,6 +18,7 @@
 #include <linux/freezer.h>
 #include <linux/random.h>
 #include <linux/v4l2-dv-timings.h>
+#include <linux/jiffies.h>
 #include <asm/div64.h>
 #include <media/videobuf2-vmalloc.h>
 #include <media/v4l2-dv-timings.h>
@@ -50,7 +51,7 @@ static void vivid_thread_vid_out_tick(struct vivid_dev *dev)
 
 	/* Drop a certain percentage of buffers. */
 	if (dev->perc_dropped_buffers &&
-	    prandom_u32_max(100) < dev->perc_dropped_buffers)
+	    get_random_u32_below(100) < dev->perc_dropped_buffers)
 		return;
 
 	spin_lock(&dev->slock);
@@ -154,12 +155,13 @@ static int vivid_thread_vid_out(void *data)
 
 	/* Resets frame counters */
 	dev->out_seq_offset = 0;
-	if (dev->seq_wrap)
-		dev->out_seq_count = 0xffffff80U;
+	dev->out_seq_count = 0;
 	dev->jiffies_vid_out = jiffies;
-	dev->vid_out_seq_start = dev->vbi_out_seq_start = 0;
-	dev->meta_out_seq_start = 0;
 	dev->out_seq_resync = false;
+	if (dev->time_wrap)
+		dev->time_wrap_offset = dev->time_wrap - ktime_get_ns();
+	else
+		dev->time_wrap_offset = 0;
 
 	for (;;) {
 		try_to_freeze();
@@ -233,7 +235,7 @@ static int vivid_thread_vid_out(void *data)
 			next_jiffies_since_start = jiffies_since_start;
 
 		wait_jiffies = next_jiffies_since_start - jiffies_since_start;
-		while (jiffies - cur_jiffies < wait_jiffies &&
+		while (time_is_after_jiffies(cur_jiffies + wait_jiffies) &&
 		       !kthread_should_stop())
 			schedule();
 	}

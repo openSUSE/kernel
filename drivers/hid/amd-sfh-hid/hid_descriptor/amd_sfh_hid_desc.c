@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  AMD SFH Report Descriptor generator
- *  Copyright 2020 Advanced Micro Devices, Inc.
+ *  Copyright 2020-2021 Advanced Micro Devices, Inc.
  *  Authors: Nehal Bakulchandra Shah <Nehal-Bakulchandra.Shah@amd.com>
  *	     Sandeep Singh <sandeep.singh@amd.com>
+ *	     Basavaraj Natikar <Basavaraj.Natikar@amd.com>
  */
 
 #include <linux/kernel.h>
@@ -28,7 +29,7 @@
 #define HID_USAGE_SENSOR_EVENT_DATA_UPDATED_ENUM                      0x04
 #define ILLUMINANCE_MASK					GENMASK(14, 0)
 
-int get_report_descriptor(int sensor_idx, u8 *rep_desc)
+static int get_report_descriptor(int sensor_idx, u8 *rep_desc)
 {
 	switch (sensor_idx) {
 	case accel_idx: /* accel */
@@ -47,6 +48,7 @@ int get_report_descriptor(int sensor_idx, u8 *rep_desc)
 		       sizeof(comp3_report_descriptor));
 		break;
 	case als_idx: /* ambient light sensor */
+	case ACS_IDX: /* ambient color sensor */
 		memset(rep_desc, 0, sizeof(als_report_descriptor));
 		memcpy(rep_desc, als_report_descriptor,
 		       sizeof(als_report_descriptor));
@@ -62,7 +64,7 @@ int get_report_descriptor(int sensor_idx, u8 *rep_desc)
 	return 0;
 }
 
-u32 get_descr_sz(int sensor_idx, int descriptor_name)
+static u32 get_descr_sz(int sensor_idx, int descriptor_name)
 {
 	switch (sensor_idx) {
 	case accel_idx:
@@ -96,6 +98,7 @@ u32 get_descr_sz(int sensor_idx, int descriptor_name)
 		}
 		break;
 	case als_idx:
+	case ACS_IDX: /* ambient color sensor */
 		switch (descriptor_name) {
 		case descr_size:
 			return sizeof(als_report_descriptor);
@@ -132,7 +135,7 @@ static void get_common_features(struct common_feature_property *common, int repo
 	common->report_interval =  HID_DEFAULT_REPORT_INTERVAL;
 }
 
-u8 get_feature_report(int sensor_idx, int report_id, u8 *feature_report)
+static u8 get_feature_report(int sensor_idx, int report_id, u8 *feature_report)
 {
 	struct accel3_feature_report acc_feature;
 	struct gyro_feature_report gyro_feature;
@@ -173,6 +176,7 @@ u8 get_feature_report(int sensor_idx, int report_id, u8 *feature_report)
 		report_size = sizeof(magno_feature);
 		break;
 	case als_idx:  /* ambient light sensor */
+	case ACS_IDX: /* ambient color sensor */
 		get_common_features(&als_feature.common_property, report_id);
 		als_feature.als_change_sesnitivity = HID_DEFAULT_SENSITIVITY;
 		als_feature.als_sensitivity_min = HID_DEFAULT_MIN_VALUE;
@@ -199,7 +203,8 @@ static void get_common_inputs(struct common_input_property *common, int report_i
 	common->event_type = HID_USAGE_SENSOR_EVENT_DATA_UPDATED_ENUM;
 }
 
-u8 get_input_report(u8 current_index, int sensor_idx, int report_id, struct amd_input_data *in_data)
+static u8 get_input_report(u8 current_index, int sensor_idx, int report_id,
+			   struct amd_input_data *in_data)
 {
 	struct amd_mp2_dev *privdata = container_of(in_data, struct amd_mp2_dev, in_data);
 	u32 *sensor_virt_addr = in_data->sensor_virt_addr[current_index];
@@ -243,6 +248,7 @@ u8 get_input_report(u8 current_index, int sensor_idx, int report_id, struct amd_
 		report_size = sizeof(magno_input);
 		break;
 	case als_idx: /* Als */
+	case ACS_IDX: /* ambient color sensor */
 		get_common_inputs(&als_input.common_property, report_id);
 		/* For ALS ,V2 Platforms uses C2P_MSG5 register instead of DRAM access method */
 		if (supported_input == V2_STATUS)
@@ -265,4 +271,12 @@ u8 get_input_report(u8 current_index, int sensor_idx, int report_id, struct amd_
 		break;
 	}
 	return report_size;
+}
+
+void amd_sfh_set_desc_ops(struct amd_mp2_ops *mp2_ops)
+{
+	mp2_ops->get_rep_desc = get_report_descriptor;
+	mp2_ops->get_feat_rep = get_feature_report;
+	mp2_ops->get_in_rep = get_input_report;
+	mp2_ops->get_desc_sz = get_descr_sz;
 }

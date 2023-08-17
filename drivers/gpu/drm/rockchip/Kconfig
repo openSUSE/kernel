@@ -2,7 +2,7 @@
 config DRM_ROCKCHIP
 	tristate "DRM Support for Rockchip"
 	depends on DRM && ROCKCHIP_IOMMU
-	select DRM_GEM_CMA_HELPER
+	select DRM_GEM_DMA_HELPER
 	select DRM_KMS_HELPER
 	select DRM_PANEL
 	select VIDEOMODE_HELPERS
@@ -27,6 +27,12 @@ config ROCKCHIP_VOP
 	help
 	  This selects support for the VOP driver. You should enable it
 	  on older SoCs.
+
+config ROCKCHIP_VOP2
+	bool "Rockchip VOP2 driver"
+	help
+	  This selects support for the VOP2 driver. The VOP2 hardware is
+	  first found on the RK3568.
 
 config ROCKCHIP_ANALOGIX_DP
 	bool "Rockchip specific extensions for Analogix DP driver"

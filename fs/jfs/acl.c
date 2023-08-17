@@ -14,12 +14,15 @@
 #include "jfs_xattr.h"
 #include "jfs_acl.h"
 
-struct posix_acl *jfs_get_acl(struct inode *inode, int type)
+struct posix_acl *jfs_get_acl(struct inode *inode, int type, bool rcu)
 {
 	struct posix_acl *acl;
 	char *ea_name;
 	int size;
 	char *value = NULL;
+
+	if (rcu)
+		return ERR_PTR(-ECHILD);
 
 	switch(type) {
 		case ACL_TYPE_ACCESS:
@@ -91,18 +94,19 @@ out:
 	return rc;
 }
 
-int jfs_set_acl(struct user_namespace *mnt_userns, struct inode *inode,
+int jfs_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 		struct posix_acl *acl, int type)
 {
 	int rc;
 	tid_t tid;
 	int update_mode = 0;
+	struct inode *inode = d_inode(dentry);
 	umode_t mode = inode->i_mode;
 
 	tid = txBegin(inode->i_sb, 0);
 	mutex_lock(&JFS_IP(inode)->commit_mutex);
 	if (type == ACL_TYPE_ACCESS && acl) {
-		rc = posix_acl_update_mode(&init_user_ns, inode, &mode, &acl);
+		rc = posix_acl_update_mode(&nop_mnt_idmap, inode, &mode, &acl);
 		if (rc)
 			goto end_tx;
 		if (mode != inode->i_mode)

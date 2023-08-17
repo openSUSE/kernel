@@ -10,6 +10,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/errno.h>
+#include <linux/gpio/driver.h>
 #include <linux/gpio/gpio-reg.h>
 #include <linux/gpio/machine.h>
 #include <linux/gpio_keys.h>
@@ -38,7 +39,6 @@
 
 #include <asm/mach/arch.h>
 #include <asm/mach/flash.h>
-#include <linux/platform_data/irda-sa11x0.h>
 #include <asm/mach/map.h>
 #include <mach/assabet.h>
 #include <linux/platform_data/mfd-mcp-sa11x0.h>
@@ -84,7 +84,7 @@ void ASSABET_BCR_frob(unsigned int mask, unsigned int val)
 }
 EXPORT_SYMBOL(ASSABET_BCR_frob);
 
-static int __init assabet_init_gpio(void __iomem *reg, u32 def_val)
+static void __init assabet_init_gpio(void __iomem *reg, u32 def_val)
 {
 	struct gpio_chip *gc;
 
@@ -94,11 +94,9 @@ static int __init assabet_init_gpio(void __iomem *reg, u32 def_val)
 			   assabet_names, NULL, NULL);
 
 	if (IS_ERR(gc))
-		return PTR_ERR(gc);
+		return;
 
 	assabet_bcr_gc = gc;
-
-	return gc->base;
 }
 
 /*
@@ -299,38 +297,6 @@ static struct resource assabet_flash_resources[] = {
 };
 
 
-/*
- * Assabet IrDA support code.
- */
-
-static int assabet_irda_set_power(struct device *dev, unsigned int state)
-{
-	static unsigned int bcr_state[4] = {
-		ASSABET_BCR_IRDA_MD0,
-		ASSABET_BCR_IRDA_MD1|ASSABET_BCR_IRDA_MD0,
-		ASSABET_BCR_IRDA_MD1,
-		0
-	};
-
-	if (state < 4)
-		ASSABET_BCR_frob(ASSABET_BCR_IRDA_MD1 | ASSABET_BCR_IRDA_MD0,
-				 bcr_state[state]);
-	return 0;
-}
-
-static void assabet_irda_set_speed(struct device *dev, unsigned int speed)
-{
-	if (speed < 4000000)
-		ASSABET_BCR_clear(ASSABET_BCR_IRDA_FSEL);
-	else
-		ASSABET_BCR_set(ASSABET_BCR_IRDA_FSEL);
-}
-
-static struct irda_platform_data assabet_irda_data = {
-	.set_power	= assabet_irda_set_power,
-	.set_speed	= assabet_irda_set_speed,
-};
-
 static struct ucb1x00_plat_data assabet_ucb1x00_data = {
 	.reset		= assabet_ucb1x00_reset,
 	.gpio_base	= -1,
@@ -475,16 +441,23 @@ static struct gpiod_lookup_table assabet_cf_vcc_gpio_table = {
 	},
 };
 
+static struct gpiod_lookup_table assabet_leds_gpio_table = {
+	.dev_id = "leds-gpio",
+	.table = {
+		GPIO_LOOKUP("assabet", 13, NULL, GPIO_ACTIVE_LOW),
+		GPIO_LOOKUP("assabet", 14, NULL, GPIO_ACTIVE_LOW),
+		{ },
+	},
+};
+
 static struct gpio_led assabet_leds[] __initdata = {
 	{
 		.name = "assabet:red",
 		.default_trigger = "cpu0",
-		.active_low = 1,
 		.default_state = LEDS_GPIO_DEFSTATE_KEEP,
 	}, {
 		.name = "assabet:green",
 		.default_trigger = "heartbeat",
-		.active_low = 1,
 		.default_state = LEDS_GPIO_DEFSTATE_KEEP,
 	},
 };
@@ -603,6 +576,7 @@ static void __init assabet_init(void)
 					  &assabet_keys_pdata,
 					  sizeof(assabet_keys_pdata));
 
+	gpiod_add_lookup_table(&assabet_leds_gpio_table);
 	gpio_led_register_device(-1, &assabet_leds_pdata);
 
 #ifndef ASSABET_PAL_VIDEO
@@ -612,7 +586,6 @@ static void __init assabet_init(void)
 #endif
 	sa11x0_register_mtd(&assabet_flash_data, assabet_flash_resources,
 			    ARRAY_SIZE(assabet_flash_resources));
-	sa11x0_register_irda(&assabet_irda_data);
 	sa11x0_register_mcp(&assabet_mcp_data);
 
 	if (!machine_has_neponset())
@@ -739,7 +712,6 @@ static void __init assabet_map_io(void)
 
 void __init assabet_init_irq(void)
 {
-	unsigned int assabet_gpio_base;
 	u32 def_val;
 
 	sa1100_init_irq();
@@ -754,10 +726,7 @@ void __init assabet_init_irq(void)
 	 *
 	 * This must precede any driver calls to BCR_set() or BCR_clear().
 	 */
-	assabet_gpio_base = assabet_init_gpio((void *)&ASSABET_BCR, def_val);
-
-	assabet_leds[0].gpio = assabet_gpio_base + 13;
-	assabet_leds[1].gpio = assabet_gpio_base + 14;
+	assabet_init_gpio((void *)&ASSABET_BCR, def_val);
 }
 
 MACHINE_START(ASSABET, "Intel-Assabet")

@@ -46,18 +46,41 @@ enum sgx_encls_function {
 };
 
 /**
+ * SGX_ENCLS_FAULT_FLAG - flag signifying an ENCLS return code is a trapnr
+ *
+ * ENCLS has its own (positive value) error codes and also generates
+ * ENCLS specific #GP and #PF faults.  And the ENCLS values get munged
+ * with system error codes as everything percolates back up the stack.
+ * Unfortunately (for us), we need to precisely identify each unique
+ * error code, e.g. the action taken if EWB fails varies based on the
+ * type of fault and on the exact SGX error code, i.e. we can't simply
+ * convert all faults to -EFAULT.
+ *
+ * To make all three error types coexist, we set bit 30 to identify an
+ * ENCLS fault.  Bit 31 (technically bits N:31) is used to differentiate
+ * between positive (faults and SGX error codes) and negative (system
+ * error codes) values.
+ */
+#define SGX_ENCLS_FAULT_FLAG 0x40000000
+
+/**
  * enum sgx_return_code - The return code type for ENCLS, ENCLU and ENCLV
+ * %SGX_EPC_PAGE_CONFLICT:	Page is being written by other ENCLS function.
  * %SGX_NOT_TRACKED:		Previous ETRACK's shootdown sequence has not
  *				been completed yet.
  * %SGX_CHILD_PRESENT		SECS has child pages present in the EPC.
  * %SGX_INVALID_EINITTOKEN:	EINITTOKEN is invalid and enclave signer's
  *				public key does not match IA32_SGXLEPUBKEYHASH.
+ * %SGX_PAGE_NOT_MODIFIABLE:	The EPC page cannot be modified because it
+ *				is in the PENDING or MODIFIED state.
  * %SGX_UNMASKED_EVENT:		An unmasked event, e.g. INTR, was received
  */
 enum sgx_return_code {
+	SGX_EPC_PAGE_CONFLICT		= 7,
 	SGX_NOT_TRACKED			= 11,
 	SGX_CHILD_PRESENT		= 13,
 	SGX_INVALID_EINITTOKEN		= 16,
+	SGX_PAGE_NOT_MODIFIABLE		= 20,
 	SGX_UNMASKED_EVENT		= 128,
 };
 
@@ -92,17 +115,36 @@ enum sgx_miscselect {
  * %SGX_ATTR_EINITTOKENKEY:	Allow to use token signing key that is used to
  *				sign cryptographic tokens that can be passed to
  *				EINIT as an authorization to run an enclave.
+ * %SGX_ATTR_ASYNC_EXIT_NOTIFY:	Allow enclaves to be notified after an
+ *				asynchronous exit has occurred.
  */
 enum sgx_attribute {
-	SGX_ATTR_INIT		= BIT(0),
-	SGX_ATTR_DEBUG		= BIT(1),
-	SGX_ATTR_MODE64BIT	= BIT(2),
-	SGX_ATTR_PROVISIONKEY	= BIT(4),
-	SGX_ATTR_EINITTOKENKEY	= BIT(5),
-	SGX_ATTR_KSS		= BIT(7),
+	SGX_ATTR_INIT		   = BIT(0),
+	SGX_ATTR_DEBUG		   = BIT(1),
+	SGX_ATTR_MODE64BIT	   = BIT(2),
+				  /* BIT(3) is reserved */
+	SGX_ATTR_PROVISIONKEY	   = BIT(4),
+	SGX_ATTR_EINITTOKENKEY	   = BIT(5),
+				  /* BIT(6) is for CET */
+	SGX_ATTR_KSS		   = BIT(7),
+				  /* BIT(8) is reserved */
+				  /* BIT(9) is reserved */
+	SGX_ATTR_ASYNC_EXIT_NOTIFY = BIT(10),
 };
 
-#define SGX_ATTR_RESERVED_MASK	(BIT_ULL(3) | BIT_ULL(6) | GENMASK_ULL(63, 8))
+#define SGX_ATTR_RESERVED_MASK	(BIT_ULL(3) | \
+				 BIT_ULL(6) | \
+				 BIT_ULL(8) | \
+				 BIT_ULL(9) | \
+				 GENMASK_ULL(63, 11))
+
+#define SGX_ATTR_UNPRIV_MASK	(SGX_ATTR_DEBUG	    | \
+				 SGX_ATTR_MODE64BIT | \
+				 SGX_ATTR_KSS	    | \
+				 SGX_ATTR_ASYNC_EXIT_NOTIFY)
+
+#define SGX_ATTR_PRIV_MASK	(SGX_ATTR_PROVISIONKEY	| \
+				 SGX_ATTR_EINITTOKENKEY)
 
 /**
  * struct sgx_secs - SGX Enclave Control Structure (SECS)
@@ -216,6 +258,9 @@ struct sgx_pageinfo {
  * %SGX_PAGE_TYPE_REG:	a regular page
  * %SGX_PAGE_TYPE_VA:	a VA page
  * %SGX_PAGE_TYPE_TRIM:	a page in trimmed state
+ *
+ * Make sure when making changes to this enum that its values can still fit
+ * in the bitfield within &struct sgx_encl_page
  */
 enum sgx_page_type {
 	SGX_PAGE_TYPE_SECS,

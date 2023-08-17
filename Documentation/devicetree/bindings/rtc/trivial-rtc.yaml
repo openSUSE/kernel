@@ -15,7 +15,7 @@ description: |
   possibly an interrupt line.
 
 allOf:
-  - $ref: "rtc.yaml#"
+  - $ref: rtc.yaml#
 
 properties:
   compatible:
@@ -30,8 +30,13 @@ properties:
       - dallas,ds1672
       # Extremely Accurate I²C RTC with Integrated Crystal and SRAM
       - dallas,ds3232
+      # EM Microelectronic EM3027 RTC
+      - emmicro,em3027
       # I2C-BUS INTERFACE REAL TIME CLOCK MODULE
       - epson,rx8010
+      # I2C-BUS INTERFACE REAL TIME CLOCK MODULE
+      - epson,rx8025
+      - epson,rx8035
       # I2C-BUS INTERFACE REAL TIME CLOCK MODULE with Battery Backed RAM
       - epson,rx8571
       # I2C-BUS INTERFACE REAL TIME CLOCK MODULE
@@ -42,14 +47,12 @@ properties:
       - isil,isl1218
       # Intersil ISL12022 Real-time Clock
       - isil,isl12022
-      # Real Time Clock Module with I2C-Bus
-      - microcrystal,rv3028
+      # Loongson-2K Socs/LS7A bridge Real-time Clock
+      - loongson,ls2x-rtc
       # Real Time Clock Module with I2C-Bus
       - microcrystal,rv3029
       # Real Time Clock
       - microcrystal,rv8523
-      - nxp,pca2129
-      - nxp,pcf2129
       # Real-time Clock Module
       - pericom,pt7c4338
       # I2C bus SERIAL INTERFACE REAL-TIME CLOCK IC

@@ -63,6 +63,12 @@ int driver_set_override(struct device *dev, const char **override,
 	if (len >= (PAGE_SIZE - 1))
 		return -EINVAL;
 
+	/*
+	 * Compute the real length of the string in case userspace sends us a
+	 * bunch of \0 characters like python likes to do.
+	 */
+	len = strlen(s);
+
 	if (!len) {
 		/* Empty string passed - clear override */
 		device_lock(dev);
@@ -218,7 +224,7 @@ int driver_register(struct device_driver *drv)
 	int ret;
 	struct device_driver *other;
 
-	if (!drv->bus->p) {
+	if (!bus_is_registered(drv->bus)) {
 		pr_err("Driver '%s' was unable to register with bus_type '%s' because the bus was not initialized.\n",
 			   drv->name, drv->bus->name);
 		return -EINVAL;
@@ -246,6 +252,7 @@ int driver_register(struct device_driver *drv)
 		return ret;
 	}
 	kobject_uevent(&drv->p->kobj, KOBJ_ADD);
+	deferred_probe_extend_timeout();
 
 	return ret;
 }
@@ -267,30 +274,3 @@ void driver_unregister(struct device_driver *drv)
 	bus_remove_driver(drv);
 }
 EXPORT_SYMBOL_GPL(driver_unregister);
-
-/**
- * driver_find - locate driver on a bus by its name.
- * @name: name of the driver.
- * @bus: bus to scan for the driver.
- *
- * Call kset_find_obj() to iterate over list of drivers on
- * a bus to find driver by name. Return driver if found.
- *
- * This routine provides no locking to prevent the driver it returns
- * from being unregistered or unloaded while the caller is using it.
- * The caller is responsible for preventing this.
- */
-struct device_driver *driver_find(const char *name, struct bus_type *bus)
-{
-	struct kobject *k = kset_find_obj(bus->p->drivers_kset, name);
-	struct driver_private *priv;
-
-	if (k) {
-		/* Drop reference added by kset_find_obj() */
-		kobject_put(k);
-		priv = to_driver(k);
-		return priv->driver;
-	}
-	return NULL;
-}
-EXPORT_SYMBOL_GPL(driver_find);

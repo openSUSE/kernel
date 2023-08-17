@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: GPL-2.0-only
 /*
    drbd_bitmap.c
 
@@ -113,7 +113,7 @@ struct drbd_bitmap {
 static void __bm_print_lock_info(struct drbd_device *device, const char *func)
 {
 	struct drbd_bitmap *b = device->bitmap;
-	if (!__ratelimit(&drbd_ratelimit_state))
+	if (!drbd_ratelimit())
 		return;
 	drbd_err(device, "FIXME %s[%d] in %s, bitmap locked for '%s' by %s[%d]\n",
 		 current->comm, task_pid_nr(current),
@@ -448,7 +448,7 @@ int drbd_bm_init(struct drbd_device *device)
 
 sector_t drbd_bm_capacity(struct drbd_device *device)
 {
-	if (!expect(device->bitmap))
+	if (!expect(device, device->bitmap))
 		return 0;
 	return device->bitmap->bm_dev_capacity;
 }
@@ -457,7 +457,7 @@ sector_t drbd_bm_capacity(struct drbd_device *device)
  */
 void drbd_bm_cleanup(struct drbd_device *device)
 {
-	if (!expect(device->bitmap))
+	if (!expect(device, device->bitmap))
 		return;
 	bm_free_pages(device->bitmap->bm_pages, device->bitmap->bm_number_of_pages);
 	bm_vk_free(device->bitmap->bm_pages);
@@ -636,7 +636,7 @@ int drbd_bm_resize(struct drbd_device *device, sector_t capacity, int set_new_bi
 	int err = 0;
 	bool growing;
 
-	if (!expect(b))
+	if (!expect(device, b))
 		return -ENOMEM;
 
 	drbd_bm_lock(device, "resize", BM_LOCKED_MASK);
@@ -683,7 +683,7 @@ int drbd_bm_resize(struct drbd_device *device, sector_t capacity, int set_new_bi
 		}
 	}
 
-	want = ALIGN(words*sizeof(long), PAGE_SIZE) >> PAGE_SHIFT;
+	want = PFN_UP(words*sizeof(long));
 	have = b->bm_number_of_pages;
 	if (want == have) {
 		D_ASSERT(device, b->bm_pages != NULL);
@@ -757,9 +757,9 @@ unsigned long _drbd_bm_total_weight(struct drbd_device *device)
 	unsigned long s;
 	unsigned long flags;
 
-	if (!expect(b))
+	if (!expect(device, b))
 		return 0;
-	if (!expect(b->bm_pages))
+	if (!expect(device, b->bm_pages))
 		return 0;
 
 	spin_lock_irqsave(&b->bm_lock, flags);
@@ -783,9 +783,9 @@ unsigned long drbd_bm_total_weight(struct drbd_device *device)
 size_t drbd_bm_words(struct drbd_device *device)
 {
 	struct drbd_bitmap *b = device->bitmap;
-	if (!expect(b))
+	if (!expect(device, b))
 		return 0;
-	if (!expect(b->bm_pages))
+	if (!expect(device, b->bm_pages))
 		return 0;
 
 	return b->bm_words;
@@ -794,7 +794,7 @@ size_t drbd_bm_words(struct drbd_device *device)
 unsigned long drbd_bm_bits(struct drbd_device *device)
 {
 	struct drbd_bitmap *b = device->bitmap;
-	if (!expect(b))
+	if (!expect(device, b))
 		return 0;
 
 	return b->bm_bits;
@@ -816,9 +816,9 @@ void drbd_bm_merge_lel(struct drbd_device *device, size_t offset, size_t number,
 
 	end = offset + number;
 
-	if (!expect(b))
+	if (!expect(device, b))
 		return;
-	if (!expect(b->bm_pages))
+	if (!expect(device, b->bm_pages))
 		return;
 	if (number == 0)
 		return;
@@ -863,9 +863,9 @@ void drbd_bm_get_lel(struct drbd_device *device, size_t offset, size_t number,
 
 	end = offset + number;
 
-	if (!expect(b))
+	if (!expect(device, b))
 		return;
-	if (!expect(b->bm_pages))
+	if (!expect(device, b->bm_pages))
 		return;
 
 	spin_lock_irq(&b->bm_lock);
@@ -894,9 +894,9 @@ void drbd_bm_get_lel(struct drbd_device *device, size_t offset, size_t number,
 void drbd_bm_set_all(struct drbd_device *device)
 {
 	struct drbd_bitmap *b = device->bitmap;
-	if (!expect(b))
+	if (!expect(device, b))
 		return;
-	if (!expect(b->bm_pages))
+	if (!expect(device, b->bm_pages))
 		return;
 
 	spin_lock_irq(&b->bm_lock);
@@ -910,9 +910,9 @@ void drbd_bm_set_all(struct drbd_device *device)
 void drbd_bm_clear_all(struct drbd_device *device)
 {
 	struct drbd_bitmap *b = device->bitmap;
-	if (!expect(b))
+	if (!expect(device, b))
 		return;
-	if (!expect(b->bm_pages))
+	if (!expect(device, b->bm_pages))
 		return;
 
 	spin_lock_irq(&b->bm_lock);
@@ -952,7 +952,7 @@ static void drbd_bm_endio(struct bio *bio)
 		bm_set_page_io_err(b->bm_pages[idx]);
 		/* Not identical to on disk version of it.
 		 * Is BM_PAGE_IO_ERROR enough? */
-		if (__ratelimit(&drbd_ratelimit_state))
+		if (drbd_ratelimit())
 			drbd_err(device, "IO ERROR %d on bitmap page idx %u\n",
 					bio->bi_status, idx);
 	} else {
@@ -974,25 +974,58 @@ static void drbd_bm_endio(struct bio *bio)
 	}
 }
 
+/* For the layout, see comment above drbd_md_set_sector_offsets(). */
+static inline sector_t drbd_md_last_bitmap_sector(struct drbd_backing_dev *bdev)
+{
+	switch (bdev->md.meta_dev_idx) {
+	case DRBD_MD_INDEX_INTERNAL:
+	case DRBD_MD_INDEX_FLEX_INT:
+		return bdev->md.md_offset + bdev->md.al_offset -1;
+	case DRBD_MD_INDEX_FLEX_EXT:
+	default:
+		return bdev->md.md_offset + bdev->md.md_size_sect -1;
+	}
+}
+
 static void bm_page_io_async(struct drbd_bm_aio_ctx *ctx, int page_nr) __must_hold(local)
 {
 	struct drbd_device *device = ctx->device;
-	unsigned int op = (ctx->flags & BM_AIO_READ) ? REQ_OP_READ : REQ_OP_WRITE;
-	struct bio *bio = bio_alloc_bioset(device->ldev->md_bdev, 1, op,
-					   GFP_NOIO, &drbd_md_io_bio_set);
+	enum req_op op = ctx->flags & BM_AIO_READ ? REQ_OP_READ : REQ_OP_WRITE;
 	struct drbd_bitmap *b = device->bitmap;
+	struct bio *bio;
 	struct page *page;
+	sector_t last_bm_sect;
+	sector_t first_bm_sect;
+	sector_t on_disk_sector;
 	unsigned int len;
 
-	sector_t on_disk_sector =
-		device->ldev->md.md_offset + device->ldev->md.bm_offset;
-	on_disk_sector += ((sector_t)page_nr) << (PAGE_SHIFT-9);
+	first_bm_sect = device->ldev->md.md_offset + device->ldev->md.bm_offset;
+	on_disk_sector = first_bm_sect + (((sector_t)page_nr) << (PAGE_SHIFT-SECTOR_SHIFT));
 
 	/* this might happen with very small
 	 * flexible external meta data device,
 	 * or with PAGE_SIZE > 4k */
-	len = min_t(unsigned int, PAGE_SIZE,
-		(drbd_md_last_sector(device->ldev) - on_disk_sector + 1)<<9);
+	last_bm_sect = drbd_md_last_bitmap_sector(device->ldev);
+	if (first_bm_sect <= on_disk_sector && last_bm_sect >= on_disk_sector) {
+		sector_t len_sect = last_bm_sect - on_disk_sector + 1;
+		if (len_sect < PAGE_SIZE/SECTOR_SIZE)
+			len = (unsigned int)len_sect*SECTOR_SIZE;
+		else
+			len = PAGE_SIZE;
+	} else {
+		if (drbd_ratelimit()) {
+			drbd_err(device, "Invalid offset during on-disk bitmap access: "
+				 "page idx %u, sector %llu\n", page_nr, on_disk_sector);
+		}
+		ctx->error = -EIO;
+		bm_set_page_io_err(b->bm_pages[page_nr]);
+		if (atomic_dec_and_test(&ctx->in_flight)) {
+			ctx->done = 1;
+			wake_up(&device->misc_wait);
+			kref_put(&ctx->kref, &drbd_bm_aio_ctx_destroy);
+		}
+		return;
+	}
 
 	/* serialize IO on this page */
 	bm_page_lock_io(device, page_nr);
@@ -1007,6 +1040,8 @@ static void bm_page_io_async(struct drbd_bm_aio_ctx *ctx, int page_nr) __must_ho
 		bm_store_page_idx(page, page_nr);
 	} else
 		page = b->bm_pages[page_nr];
+	bio = bio_alloc_bioset(device->ldev->md_bdev, 1, op, GFP_NOIO,
+			&drbd_md_io_bio_set);
 	bio->bi_iter.bi_sector = on_disk_sector;
 	/* bio_add_page of a single page to an empty bio will always succeed,
 	 * according to api.  Do we want to assert that? */
@@ -1181,7 +1216,9 @@ static int bm_rw(struct drbd_device *device, const unsigned int flags, unsigned 
  * drbd_bm_read() - Read the whole bitmap from its on disk location.
  * @device:	DRBD device.
  */
-int drbd_bm_read(struct drbd_device *device) __must_hold(local)
+int drbd_bm_read(struct drbd_device *device,
+		 struct drbd_peer_device *peer_device) __must_hold(local)
+
 {
 	return bm_rw(device, BM_AIO_READ, 0);
 }
@@ -1192,7 +1229,8 @@ int drbd_bm_read(struct drbd_device *device) __must_hold(local)
  *
  * Will only write pages that have changed since last IO.
  */
-int drbd_bm_write(struct drbd_device *device) __must_hold(local)
+int drbd_bm_write(struct drbd_device *device,
+		 struct drbd_peer_device *peer_device) __must_hold(local)
 {
 	return bm_rw(device, 0, 0);
 }
@@ -1203,7 +1241,8 @@ int drbd_bm_write(struct drbd_device *device) __must_hold(local)
  *
  * Will write all pages.
  */
-int drbd_bm_write_all(struct drbd_device *device) __must_hold(local)
+int drbd_bm_write_all(struct drbd_device *device,
+		struct drbd_peer_device *peer_device) __must_hold(local)
 {
 	return bm_rw(device, BM_AIO_WRITE_ALL_PAGES, 0);
 }
@@ -1229,7 +1268,8 @@ int drbd_bm_write_lazy(struct drbd_device *device, unsigned upper_idx) __must_ho
  * verify is aborted due to a failed peer disk, while local IO continues, or
  * pending resync acks are still being processed.
  */
-int drbd_bm_write_copy_pages(struct drbd_device *device) __must_hold(local)
+int drbd_bm_write_copy_pages(struct drbd_device *device,
+		struct drbd_peer_device *peer_device) __must_hold(local)
 {
 	return bm_rw(device, BM_AIO_COPY_PAGES, 0);
 }
@@ -1297,9 +1337,9 @@ static unsigned long bm_find_next(struct drbd_device *device,
 	struct drbd_bitmap *b = device->bitmap;
 	unsigned long i = DRBD_END_OF_BITMAP;
 
-	if (!expect(b))
+	if (!expect(device, b))
 		return i;
-	if (!expect(b->bm_pages))
+	if (!expect(device, b->bm_pages))
 		return i;
 
 	spin_lock_irq(&b->bm_lock);
@@ -1401,9 +1441,9 @@ static int bm_change_bits_to(struct drbd_device *device, const unsigned long s,
 	struct drbd_bitmap *b = device->bitmap;
 	int c = 0;
 
-	if (!expect(b))
+	if (!expect(device, b))
 		return 1;
-	if (!expect(b->bm_pages))
+	if (!expect(device, b->bm_pages))
 		return 0;
 
 	spin_lock_irqsave(&b->bm_lock, flags);
@@ -1547,9 +1587,9 @@ int drbd_bm_test_bit(struct drbd_device *device, const unsigned long bitnr)
 	unsigned long *p_addr;
 	int i;
 
-	if (!expect(b))
+	if (!expect(device, b))
 		return 0;
-	if (!expect(b->bm_pages))
+	if (!expect(device, b->bm_pages))
 		return 0;
 
 	spin_lock_irqsave(&b->bm_lock, flags);
@@ -1584,9 +1624,9 @@ int drbd_bm_count_bits(struct drbd_device *device, const unsigned long s, const 
 	 * robust in case we screwed up elsewhere, in that case pretend there
 	 * was one dirty bit in the requested area, so we won't try to do a
 	 * local read there (no bitmap probably implies no disk) */
-	if (!expect(b))
+	if (!expect(device, b))
 		return 1;
-	if (!expect(b->bm_pages))
+	if (!expect(device, b->bm_pages))
 		return 1;
 
 	spin_lock_irqsave(&b->bm_lock, flags);
@@ -1600,7 +1640,7 @@ int drbd_bm_count_bits(struct drbd_device *device, const unsigned long s, const 
 				bm_unmap(p_addr);
 			p_addr = bm_map_pidx(b, idx);
 		}
-		if (expect(bitnr < b->bm_bits))
+		if (expect(device, bitnr < b->bm_bits))
 			c += (0 != test_bit_le(bitnr - (page_nr << (PAGE_SHIFT+3)), p_addr));
 		else
 			drbd_err(device, "bitnr=%lu bm_bits=%lu\n", bitnr, b->bm_bits);
@@ -1633,9 +1673,9 @@ int drbd_bm_e_weight(struct drbd_device *device, unsigned long enr)
 	unsigned long flags;
 	unsigned long *p_addr, *bm;
 
-	if (!expect(b))
+	if (!expect(device, b))
 		return 0;
-	if (!expect(b->bm_pages))
+	if (!expect(device, b->bm_pages))
 		return 0;
 
 	spin_lock_irqsave(&b->bm_lock, flags);

@@ -17,6 +17,7 @@ struct tcf_skbedit_params {
 	u32 mark;
 	u32 mask;
 	u16 queue_mapping;
+	u16 mapping_mod;
 	u16 ptype;
 	struct rcu_head rcu;
 };
@@ -92,6 +93,47 @@ static inline u32 tcf_skbedit_priority(const struct tc_action *a)
 	rcu_read_unlock();
 
 	return priority;
+}
+
+static inline u16 tcf_skbedit_rx_queue_mapping(const struct tc_action *a)
+{
+	u16 rx_queue;
+
+	rcu_read_lock();
+	rx_queue = rcu_dereference(to_skbedit(a)->params)->queue_mapping;
+	rcu_read_unlock();
+
+	return rx_queue;
+}
+
+/* Return true iff action is queue_mapping */
+static inline bool is_tcf_skbedit_queue_mapping(const struct tc_action *a)
+{
+	return is_tcf_skbedit_with_flag(a, SKBEDIT_F_QUEUE_MAPPING);
+}
+
+/* Return true if action is on ingress traffic */
+static inline bool is_tcf_skbedit_ingress(u32 flags)
+{
+	return flags & TCA_ACT_FLAGS_AT_INGRESS;
+}
+
+static inline bool is_tcf_skbedit_tx_queue_mapping(const struct tc_action *a)
+{
+	return is_tcf_skbedit_queue_mapping(a) &&
+	       !is_tcf_skbedit_ingress(a->tcfa_flags);
+}
+
+static inline bool is_tcf_skbedit_rx_queue_mapping(const struct tc_action *a)
+{
+	return is_tcf_skbedit_queue_mapping(a) &&
+	       is_tcf_skbedit_ingress(a->tcfa_flags);
+}
+
+/* Return true iff action is inheritdsfield */
+static inline bool is_tcf_skbedit_inheritdsfield(const struct tc_action *a)
+{
+	return is_tcf_skbedit_with_flag(a, SKBEDIT_F_INHERITDSFIELD);
 }
 
 #endif /* __NET_TC_SKBEDIT_H */

@@ -96,10 +96,10 @@ EXPORT_SYMBOL_GPL(cleanup_srcu_struct);
  */
 void __srcu_read_unlock(struct srcu_struct *ssp, int idx)
 {
-	int newval = ssp->srcu_lock_nesting[idx] - 1;
+	int newval = READ_ONCE(ssp->srcu_lock_nesting[idx]) - 1;
 
 	WRITE_ONCE(ssp->srcu_lock_nesting[idx], newval);
-	if (!newval && READ_ONCE(ssp->srcu_gp_waiting))
+	if (!newval && READ_ONCE(ssp->srcu_gp_waiting) && in_task())
 		swake_up_one(&ssp->srcu_wq);
 }
 EXPORT_SYMBOL_GPL(__srcu_read_unlock);
@@ -117,7 +117,7 @@ void srcu_drive_gp(struct work_struct *wp)
 	struct srcu_struct *ssp;
 
 	ssp = container_of(wp, struct srcu_struct, srcu_work);
-	if (ssp->srcu_gp_running || USHORT_CMP_GE(ssp->srcu_idx, READ_ONCE(ssp->srcu_idx_max)))
+	if (ssp->srcu_gp_running || ULONG_CMP_GE(ssp->srcu_idx, READ_ONCE(ssp->srcu_idx_max)))
 		return; /* Already running or nothing to do. */
 
 	/* Remove recently arrived callbacks and wait for readers. */
@@ -150,17 +150,17 @@ void srcu_drive_gp(struct work_struct *wp)
 	 * straighten that out.
 	 */
 	WRITE_ONCE(ssp->srcu_gp_running, false);
-	if (USHORT_CMP_LT(ssp->srcu_idx, READ_ONCE(ssp->srcu_idx_max)))
+	if (ULONG_CMP_LT(ssp->srcu_idx, READ_ONCE(ssp->srcu_idx_max)))
 		schedule_work(&ssp->srcu_work);
 }
 EXPORT_SYMBOL_GPL(srcu_drive_gp);
 
 static void srcu_gp_start_if_needed(struct srcu_struct *ssp)
 {
-	unsigned short cookie;
+	unsigned long cookie;
 
 	cookie = get_state_synchronize_srcu(ssp);
-	if (USHORT_CMP_GE(READ_ONCE(ssp->srcu_idx_max), cookie))
+	if (ULONG_CMP_GE(READ_ONCE(ssp->srcu_idx_max), cookie))
 		return;
 	WRITE_ONCE(ssp->srcu_idx_max, cookie);
 	if (!READ_ONCE(ssp->srcu_gp_running)) {
@@ -197,6 +197,18 @@ void synchronize_srcu(struct srcu_struct *ssp)
 {
 	struct rcu_synchronize rs;
 
+	srcu_lock_sync(&ssp->dep_map);
+
+	RCU_LOCKDEP_WARN(lockdep_is_held(ssp) ||
+			lock_is_held(&rcu_bh_lock_map) ||
+			lock_is_held(&rcu_lock_map) ||
+			lock_is_held(&rcu_sched_lock_map),
+			"Illegal synchronize_srcu() in same-type SRCU (or in RCU) read-side critical section");
+
+	if (rcu_scheduler_active == RCU_SCHEDULER_INACTIVE)
+		return;
+
+	might_sleep();
 	init_rcu_head_on_stack(&rs.head);
 	init_completion(&rs.completion);
 	call_srcu(ssp, &rs.head, wakeme_after_rcu);
@@ -215,7 +227,7 @@ unsigned long get_state_synchronize_srcu(struct srcu_struct *ssp)
 	barrier();
 	ret = (READ_ONCE(ssp->srcu_idx) + 3) & ~0x1;
 	barrier();
-	return ret & USHRT_MAX;
+	return ret;
 }
 EXPORT_SYMBOL_GPL(get_state_synchronize_srcu);
 
@@ -240,10 +252,10 @@ EXPORT_SYMBOL_GPL(start_poll_synchronize_srcu);
  */
 bool poll_state_synchronize_srcu(struct srcu_struct *ssp, unsigned long cookie)
 {
-	bool ret = USHORT_CMP_GE(READ_ONCE(ssp->srcu_idx), cookie);
+	unsigned long cur_s = READ_ONCE(ssp->srcu_idx);
 
 	barrier();
-	return ret;
+	return ULONG_CMP_GE(cur_s, cookie) || ULONG_CMP_LT(cur_s, cookie - 3);
 }
 EXPORT_SYMBOL_GPL(poll_state_synchronize_srcu);
 

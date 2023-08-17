@@ -151,7 +151,7 @@ static irqreturn_t goldfish_tty_interrupt(int irq, void *dev_id)
 	address = (unsigned long)(void *)buf;
 	goldfish_tty_rw(qtty, address, count, 0);
 
-	tty_schedule_flip(&qtty->port);
+	tty_flip_buffer_push(&qtty->port);
 	return IRQ_HANDLED;
 }
 
@@ -253,18 +253,18 @@ static int goldfish_tty_create_driver(void)
 		ret = -ENOMEM;
 		goto err_alloc_goldfish_ttys_failed;
 	}
-	tty = alloc_tty_driver(goldfish_tty_line_count);
-	if (tty == NULL) {
-		ret = -ENOMEM;
-		goto err_alloc_tty_driver_failed;
+	tty = tty_alloc_driver(goldfish_tty_line_count,
+			TTY_DRIVER_RESET_TERMIOS | TTY_DRIVER_REAL_RAW |
+			TTY_DRIVER_DYNAMIC_DEV);
+	if (IS_ERR(tty)) {
+		ret = PTR_ERR(tty);
+		goto err_tty_alloc_driver_failed;
 	}
 	tty->driver_name = "goldfish";
 	tty->name = "ttyGF";
 	tty->type = TTY_DRIVER_TYPE_SERIAL;
 	tty->subtype = SERIAL_TYPE_NORMAL;
 	tty->init_termios = tty_std_termios;
-	tty->flags = TTY_DRIVER_RESET_TERMIOS | TTY_DRIVER_REAL_RAW |
-						TTY_DRIVER_DYNAMIC_DEV;
 	tty_set_operations(tty, &goldfish_tty_ops);
 	ret = tty_register_driver(tty);
 	if (ret)
@@ -275,7 +275,7 @@ static int goldfish_tty_create_driver(void)
 
 err_tty_register_driver_failed:
 	tty_driver_kref_put(tty);
-err_alloc_tty_driver_failed:
+err_tty_alloc_driver_failed:
 	kfree(goldfish_ttys);
 	goldfish_ttys = NULL;
 err_alloc_goldfish_ttys_failed:
@@ -298,7 +298,7 @@ static int goldfish_tty_probe(struct platform_device *pdev)
 	struct resource *r;
 	struct device *ttydev;
 	void __iomem *base;
-	u32 irq;
+	int irq;
 	unsigned int line;
 
 	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -313,13 +313,11 @@ static int goldfish_tty_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	r = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-	if (!r) {
-		pr_err("goldfish_tty: No IRQ resource available!\n");
+	irq = platform_get_irq(pdev, 0);
+	if (irq < 0) {
+		ret = irq;
 		goto err_unmap;
 	}
-
-	irq = r->start;
 
 	mutex_lock(&goldfish_tty_lock);
 
@@ -438,7 +436,7 @@ static int goldfish_tty_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_GOLDFISH_TTY_EARLY_CONSOLE
-static void gf_early_console_putchar(struct uart_port *port, int ch)
+static void gf_early_console_putchar(struct uart_port *port, unsigned char ch)
 {
 	gf_iowrite32(ch, port->membase);
 }

@@ -13,18 +13,22 @@
 #include <linux/fiemap.h>
 #include <linux/fileattr.h>
 #include <linux/security.h>
+#include <linux/namei.h>
+#include <linux/posix_acl.h>
+#include <linux/posix_acl_xattr.h>
 #include "overlayfs.h"
 
 
-int ovl_setattr(struct user_namespace *mnt_userns, struct dentry *dentry,
+int ovl_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 		struct iattr *attr)
 {
 	int err;
+	struct ovl_fs *ofs = OVL_FS(dentry->d_sb);
 	bool full_copy_up = false;
 	struct dentry *upperdentry;
 	const struct cred *old_cred;
 
-	err = setattr_prepare(&init_user_ns, dentry, attr);
+	err = setattr_prepare(&nop_mnt_idmap, dentry, attr);
 	if (err)
 		return err;
 
@@ -33,12 +37,6 @@ int ovl_setattr(struct user_namespace *mnt_userns, struct dentry *dentry,
 		goto out;
 
 	if (attr->ia_valid & ATTR_SIZE) {
-		struct inode *realinode = d_inode(ovl_dentry_real(dentry));
-
-		err = -ETXTBSY;
-		if (atomic_read(&realinode->i_writecount) < 0)
-			goto out_drop_write;
-
 		/* Truncate should trigger data copy up as well */
 		full_copy_up = true;
 	}
@@ -82,10 +80,10 @@ int ovl_setattr(struct user_namespace *mnt_userns, struct dentry *dentry,
 
 		inode_lock(upperdentry->d_inode);
 		old_cred = ovl_override_creds(dentry->d_sb);
-		err = notify_change(&init_user_ns, upperdentry, attr, NULL);
+		err = ovl_do_notify_change(ofs, upperdentry, attr);
 		revert_creds(old_cred);
 		if (!err)
-			ovl_copyattr(upperdentry->d_inode, dentry->d_inode);
+			ovl_copyattr(dentry->d_inode);
 		inode_unlock(upperdentry->d_inode);
 
 		if (winode)
@@ -155,14 +153,15 @@ static void ovl_map_dev_ino(struct dentry *dentry, struct kstat *stat, int fsid)
 	}
 }
 
-int ovl_getattr(struct user_namespace *mnt_userns, const struct path *path,
+int ovl_getattr(struct mnt_idmap *idmap, const struct path *path,
 		struct kstat *stat, u32 request_mask, unsigned int flags)
 {
 	struct dentry *dentry = path->dentry;
 	enum ovl_path_type type;
 	struct path realpath;
 	const struct cred *old_cred;
-	bool is_dir = S_ISDIR(dentry->d_inode->i_mode);
+	struct inode *inode = d_inode(dentry);
+	bool is_dir = S_ISDIR(inode->i_mode);
 	int fsid = 0;
 	int err;
 	bool metacopy_blocks = false;
@@ -174,6 +173,9 @@ int ovl_getattr(struct user_namespace *mnt_userns, const struct path *path,
 	err = vfs_getattr(&realpath, stat, request_mask, flags);
 	if (err)
 		goto out;
+
+	/* Report the effective immutable/append-only STATX flags */
+	generic_fill_statx_attr(inode, stat);
 
 	/*
 	 * For non-dir or same fs, we use st_ino of the copy up origin.
@@ -276,15 +278,17 @@ out:
 	return err;
 }
 
-int ovl_permission(struct user_namespace *mnt_userns,
+int ovl_permission(struct mnt_idmap *idmap,
 		   struct inode *inode, int mask)
 {
 	struct inode *upperinode = ovl_inode_upper(inode);
-	struct inode *realinode = upperinode ?: ovl_inode_lower(inode);
+	struct inode *realinode;
+	struct path realpath;
 	const struct cred *old_cred;
 	int err;
 
 	/* Careful in RCU walk mode */
+	realinode = ovl_i_path_real(inode, &realpath);
 	if (!realinode) {
 		WARN_ON(!(mask & MAY_NOT_BLOCK));
 		return -ECHILD;
@@ -294,7 +298,7 @@ int ovl_permission(struct user_namespace *mnt_userns,
 	 * Check overlay inode with the creds of task and underlying inode
 	 * with creds of mounter
 	 */
-	err = generic_permission(&init_user_ns, inode, mask);
+	err = generic_permission(&nop_mnt_idmap, inode, mask);
 	if (err)
 		return err;
 
@@ -305,7 +309,7 @@ int ovl_permission(struct user_namespace *mnt_userns,
 		/* Make sure mounter can read file for copy up later */
 		mask |= MAY_READ;
 	}
-	err = inode_permission(&init_user_ns, realinode, mask);
+	err = inode_permission(mnt_idmap(realpath.mnt), realinode, mask);
 	revert_creds(old_cred);
 
 	return err;
@@ -343,8 +347,10 @@ int ovl_xattr_set(struct dentry *dentry, struct inode *inode, const char *name,
 		  const void *value, size_t size, int flags)
 {
 	int err;
+	struct ovl_fs *ofs = OVL_FS(dentry->d_sb);
 	struct dentry *upperdentry = ovl_i_dentry_upper(inode);
 	struct dentry *realdentry = upperdentry ?: ovl_dentry_lower(dentry);
+	struct path realpath;
 	const struct cred *old_cred;
 
 	err = ovl_want_write(dentry);
@@ -352,8 +358,9 @@ int ovl_xattr_set(struct dentry *dentry, struct inode *inode, const char *name,
 		goto out;
 
 	if (!value && !upperdentry) {
+		ovl_path_lower(dentry, &realpath);
 		old_cred = ovl_override_creds(dentry->d_sb);
-		err = vfs_getxattr(&init_user_ns, realdentry, name, NULL, 0);
+		err = vfs_getxattr(mnt_idmap(realpath.mnt), realdentry, name, NULL, 0);
 		revert_creds(old_cred);
 		if (err < 0)
 			goto out_drop_write;
@@ -368,17 +375,17 @@ int ovl_xattr_set(struct dentry *dentry, struct inode *inode, const char *name,
 	}
 
 	old_cred = ovl_override_creds(dentry->d_sb);
-	if (value)
-		err = vfs_setxattr(&init_user_ns, realdentry, name, value, size,
-				   flags);
-	else {
+	if (value) {
+		err = ovl_do_setxattr(ofs, realdentry, name, value, size,
+				      flags);
+	} else {
 		WARN_ON(flags != XATTR_REPLACE);
-		err = vfs_removexattr(&init_user_ns, realdentry, name);
+		err = ovl_do_removexattr(ofs, realdentry, name);
 	}
 	revert_creds(old_cred);
 
 	/* copy c/mtime */
-	ovl_copyattr(d_inode(realdentry), inode);
+	ovl_copyattr(inode);
 
 out_drop_write:
 	ovl_drop_write(dentry);
@@ -391,11 +398,11 @@ int ovl_xattr_get(struct dentry *dentry, struct inode *inode, const char *name,
 {
 	ssize_t res;
 	const struct cred *old_cred;
-	struct dentry *realdentry =
-		ovl_i_dentry_upper(inode) ?: ovl_dentry_lower(dentry);
+	struct path realpath;
 
+	ovl_i_path_real(inode, &realpath);
 	old_cred = ovl_override_creds(dentry->d_sb);
-	res = vfs_getxattr(&init_user_ns, realdentry, name, value, size);
+	res = vfs_getxattr(mnt_idmap(realpath.mnt), realpath.dentry, name, value, size);
 	revert_creds(old_cred);
 	return res;
 }
@@ -448,21 +455,235 @@ ssize_t ovl_listxattr(struct dentry *dentry, char *list, size_t size)
 	return res;
 }
 
-struct posix_acl *ovl_get_acl(struct inode *inode, int type)
+#ifdef CONFIG_FS_POSIX_ACL
+/*
+ * Apply the idmapping of the layer to POSIX ACLs. The caller must pass a clone
+ * of the POSIX ACLs retrieved from the lower layer to this function to not
+ * alter the POSIX ACLs for the underlying filesystem.
+ */
+static void ovl_idmap_posix_acl(const struct inode *realinode,
+				struct mnt_idmap *idmap,
+				struct posix_acl *acl)
 {
-	struct inode *realinode = ovl_inode_real(inode);
-	const struct cred *old_cred;
-	struct posix_acl *acl;
+	struct user_namespace *fs_userns = i_user_ns(realinode);
 
-	if (!IS_ENABLED(CONFIG_FS_POSIX_ACL) || !IS_POSIXACL(realinode))
+	for (unsigned int i = 0; i < acl->a_count; i++) {
+		vfsuid_t vfsuid;
+		vfsgid_t vfsgid;
+
+		struct posix_acl_entry *e = &acl->a_entries[i];
+		switch (e->e_tag) {
+		case ACL_USER:
+			vfsuid = make_vfsuid(idmap, fs_userns, e->e_uid);
+			e->e_uid = vfsuid_into_kuid(vfsuid);
+			break;
+		case ACL_GROUP:
+			vfsgid = make_vfsgid(idmap, fs_userns, e->e_gid);
+			e->e_gid = vfsgid_into_kgid(vfsgid);
+			break;
+		}
+	}
+}
+
+/*
+ * The @noperm argument is used to skip permission checking and is a temporary
+ * measure. Quoting Miklos from an earlier discussion:
+ *
+ * > So there are two paths to getting an acl:
+ * > 1) permission checking and 2) retrieving the value via getxattr(2).
+ * > This is a similar situation as reading a symlink vs. following it.
+ * > When following a symlink overlayfs always reads the link on the
+ * > underlying fs just as if it was a readlink(2) call, calling
+ * > security_inode_readlink() instead of security_inode_follow_link().
+ * > This is logical: we are reading the link from the underlying storage,
+ * > and following it on overlayfs.
+ * >
+ * > Applying the same logic to acl: we do need to call the
+ * > security_inode_getxattr() on the underlying fs, even if just want to
+ * > check permissions on overlay. This is currently not done, which is an
+ * > inconsistency.
+ * >
+ * > Maybe adding the check to ovl_get_acl() is the right way to go, but
+ * > I'm a little afraid of a performance regression.  Will look into that.
+ *
+ * Until we have made a decision allow this helper to take the @noperm
+ * argument. We should hopefully be able to remove it soon.
+ */
+struct posix_acl *ovl_get_acl_path(const struct path *path,
+				   const char *acl_name, bool noperm)
+{
+	struct posix_acl *real_acl, *clone;
+	struct mnt_idmap *idmap;
+	struct inode *realinode = d_inode(path->dentry);
+
+	idmap = mnt_idmap(path->mnt);
+
+	if (noperm)
+		real_acl = get_inode_acl(realinode, posix_acl_type(acl_name));
+	else
+		real_acl = vfs_get_acl(idmap, path->dentry, acl_name);
+	if (IS_ERR_OR_NULL(real_acl))
+		return real_acl;
+
+	if (!is_idmapped_mnt(path->mnt))
+		return real_acl;
+
+	/*
+        * We cannot alter the ACLs returned from the relevant layer as that
+        * would alter the cached values filesystem wide for the lower
+        * filesystem. Instead we can clone the ACLs and then apply the
+        * relevant idmapping of the layer.
+        */
+	clone = posix_acl_clone(real_acl, GFP_KERNEL);
+	posix_acl_release(real_acl); /* release original acl */
+	if (!clone)
+		return ERR_PTR(-ENOMEM);
+
+	ovl_idmap_posix_acl(realinode, idmap, clone);
+	return clone;
+}
+
+/*
+ * When the relevant layer is an idmapped mount we need to take the idmapping
+ * of the layer into account and translate any ACL_{GROUP,USER} values
+ * according to the idmapped mount.
+ *
+ * We cannot alter the ACLs returned from the relevant layer as that would
+ * alter the cached values filesystem wide for the lower filesystem. Instead we
+ * can clone the ACLs and then apply the relevant idmapping of the layer.
+ *
+ * This is obviously only relevant when idmapped layers are used.
+ */
+struct posix_acl *do_ovl_get_acl(struct mnt_idmap *idmap,
+				 struct inode *inode, int type,
+				 bool rcu, bool noperm)
+{
+	struct inode *realinode;
+	struct posix_acl *acl;
+	struct path realpath;
+
+	/* Careful in RCU walk mode */
+	realinode = ovl_i_path_real(inode, &realpath);
+	if (!realinode) {
+		WARN_ON(!rcu);
+		return ERR_PTR(-ECHILD);
+	}
+
+	if (!IS_POSIXACL(realinode))
 		return NULL;
 
-	old_cred = ovl_override_creds(inode->i_sb);
-	acl = get_acl(realinode, type);
-	revert_creds(old_cred);
+	if (rcu) {
+		/*
+		 * If the layer is idmapped drop out of RCU path walk
+		 * so we can clone the ACLs.
+		 */
+		if (is_idmapped_mnt(realpath.mnt))
+			return ERR_PTR(-ECHILD);
+
+		acl = get_cached_acl_rcu(realinode, type);
+	} else {
+		const struct cred *old_cred;
+
+		old_cred = ovl_override_creds(inode->i_sb);
+		acl = ovl_get_acl_path(&realpath, posix_acl_xattr_name(type), noperm);
+		revert_creds(old_cred);
+	}
 
 	return acl;
 }
+
+static int ovl_set_or_remove_acl(struct dentry *dentry, struct inode *inode,
+				 struct posix_acl *acl, int type)
+{
+	int err;
+	struct path realpath;
+	const char *acl_name;
+	const struct cred *old_cred;
+	struct ovl_fs *ofs = OVL_FS(dentry->d_sb);
+	struct dentry *upperdentry = ovl_dentry_upper(dentry);
+	struct dentry *realdentry = upperdentry ?: ovl_dentry_lower(dentry);
+
+	err = ovl_want_write(dentry);
+	if (err)
+		return err;
+
+	/*
+	 * If ACL is to be removed from a lower file, check if it exists in
+	 * the first place before copying it up.
+	 */
+	acl_name = posix_acl_xattr_name(type);
+	if (!acl && !upperdentry) {
+		struct posix_acl *real_acl;
+
+		ovl_path_lower(dentry, &realpath);
+		old_cred = ovl_override_creds(dentry->d_sb);
+		real_acl = vfs_get_acl(mnt_idmap(realpath.mnt), realdentry,
+				       acl_name);
+		revert_creds(old_cred);
+		if (IS_ERR(real_acl)) {
+			err = PTR_ERR(real_acl);
+			goto out_drop_write;
+		}
+		posix_acl_release(real_acl);
+	}
+
+	if (!upperdentry) {
+		err = ovl_copy_up(dentry);
+		if (err)
+			goto out_drop_write;
+
+		realdentry = ovl_dentry_upper(dentry);
+	}
+
+	old_cred = ovl_override_creds(dentry->d_sb);
+	if (acl)
+		err = ovl_do_set_acl(ofs, realdentry, acl_name, acl);
+	else
+		err = ovl_do_remove_acl(ofs, realdentry, acl_name);
+	revert_creds(old_cred);
+
+	/* copy c/mtime */
+	ovl_copyattr(inode);
+
+out_drop_write:
+	ovl_drop_write(dentry);
+	return err;
+}
+
+int ovl_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
+		struct posix_acl *acl, int type)
+{
+	int err;
+	struct inode *inode = d_inode(dentry);
+	struct dentry *workdir = ovl_workdir(dentry);
+	struct inode *realinode = ovl_inode_real(inode);
+
+	if (!IS_POSIXACL(d_inode(workdir)))
+		return -EOPNOTSUPP;
+	if (!realinode->i_op->set_acl)
+		return -EOPNOTSUPP;
+	if (type == ACL_TYPE_DEFAULT && !S_ISDIR(inode->i_mode))
+		return acl ? -EACCES : 0;
+	if (!inode_owner_or_capable(&nop_mnt_idmap, inode))
+		return -EPERM;
+
+	/*
+	 * Check if sgid bit needs to be cleared (actual setacl operation will
+	 * be done with mounter's capabilities and so that won't do it for us).
+	 */
+	if (unlikely(inode->i_mode & S_ISGID) && type == ACL_TYPE_ACCESS &&
+	    !in_group_p(inode->i_gid) &&
+	    !capable_wrt_inode_uidgid(&nop_mnt_idmap, inode, CAP_FSETID)) {
+		struct iattr iattr = { .ia_valid = ATTR_KILL_SGID };
+
+		err = ovl_setattr(&nop_mnt_idmap, dentry, &iattr);
+		if (err)
+			return err;
+	}
+
+	return ovl_set_or_remove_acl(dentry, inode, acl, type);
+}
+#endif
 
 int ovl_update_time(struct inode *inode, struct timespec64 *ts, int flags)
 {
@@ -503,16 +724,14 @@ static int ovl_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
  * Introducing security_inode_fileattr_get/set() hooks would solve this issue
  * properly.
  */
-static int ovl_security_fileattr(struct dentry *dentry, struct fileattr *fa,
+static int ovl_security_fileattr(const struct path *realpath, struct fileattr *fa,
 				 bool set)
 {
-	struct path realpath;
 	struct file *file;
 	unsigned int cmd;
 	int err;
 
-	ovl_path_real(dentry, &realpath);
-	file = dentry_open(&realpath, O_RDONLY, current_cred());
+	file = dentry_open(realpath, O_RDONLY, current_cred());
 	if (IS_ERR(file))
 		return PTR_ERR(file);
 
@@ -527,12 +746,24 @@ static int ovl_security_fileattr(struct dentry *dentry, struct fileattr *fa,
 	return err;
 }
 
-int ovl_fileattr_set(struct user_namespace *mnt_userns,
+int ovl_real_fileattr_set(const struct path *realpath, struct fileattr *fa)
+{
+	int err;
+
+	err = ovl_security_fileattr(realpath, fa, true);
+	if (err)
+		return err;
+
+	return vfs_fileattr_set(mnt_idmap(realpath->mnt), realpath->dentry, fa);
+}
+
+int ovl_fileattr_set(struct mnt_idmap *idmap,
 		     struct dentry *dentry, struct fileattr *fa)
 {
 	struct inode *inode = d_inode(dentry);
-	struct dentry *upperdentry;
+	struct path upperpath;
 	const struct cred *old_cred;
+	unsigned int flags;
 	int err;
 
 	err = ovl_want_write(dentry);
@@ -541,31 +772,81 @@ int ovl_fileattr_set(struct user_namespace *mnt_userns,
 
 	err = ovl_copy_up(dentry);
 	if (!err) {
-		upperdentry = ovl_dentry_upper(dentry);
+		ovl_path_real(dentry, &upperpath);
 
 		old_cred = ovl_override_creds(inode->i_sb);
-		err = ovl_security_fileattr(dentry, fa, true);
+		/*
+		 * Store immutable/append-only flags in xattr and clear them
+		 * in upper fileattr (in case they were set by older kernel)
+		 * so children of "ovl-immutable" directories lower aliases of
+		 * "ovl-immutable" hardlinks could be copied up.
+		 * Clear xattr when flags are cleared.
+		 */
+		err = ovl_set_protattr(inode, upperpath.dentry, fa);
 		if (!err)
-			err = vfs_fileattr_set(&init_user_ns, upperdentry, fa);
+			err = ovl_real_fileattr_set(&upperpath, fa);
 		revert_creds(old_cred);
-		ovl_copyflags(ovl_inode_real(inode), inode);
+
+		/*
+		 * Merge real inode flags with inode flags read from
+		 * overlay.protattr xattr
+		 */
+		flags = ovl_inode_real(inode)->i_flags & OVL_COPY_I_FLAGS_MASK;
+
+		BUILD_BUG_ON(OVL_PROT_I_FLAGS_MASK & ~OVL_COPY_I_FLAGS_MASK);
+		flags |= inode->i_flags & OVL_PROT_I_FLAGS_MASK;
+		inode_set_flags(inode, flags, OVL_COPY_I_FLAGS_MASK);
+
+		/* Update ctime */
+		ovl_copyattr(inode);
 	}
 	ovl_drop_write(dentry);
 out:
 	return err;
 }
 
+/* Convert inode protection flags to fileattr flags */
+static void ovl_fileattr_prot_flags(struct inode *inode, struct fileattr *fa)
+{
+	BUILD_BUG_ON(OVL_PROT_FS_FLAGS_MASK & ~FS_COMMON_FL);
+	BUILD_BUG_ON(OVL_PROT_FSX_FLAGS_MASK & ~FS_XFLAG_COMMON);
+
+	if (inode->i_flags & S_APPEND) {
+		fa->flags |= FS_APPEND_FL;
+		fa->fsx_xflags |= FS_XFLAG_APPEND;
+	}
+	if (inode->i_flags & S_IMMUTABLE) {
+		fa->flags |= FS_IMMUTABLE_FL;
+		fa->fsx_xflags |= FS_XFLAG_IMMUTABLE;
+	}
+}
+
+int ovl_real_fileattr_get(const struct path *realpath, struct fileattr *fa)
+{
+	int err;
+
+	err = ovl_security_fileattr(realpath, fa, false);
+	if (err)
+		return err;
+
+	err = vfs_fileattr_get(realpath->dentry, fa);
+	if (err == -ENOIOCTLCMD)
+		err = -ENOTTY;
+	return err;
+}
+
 int ovl_fileattr_get(struct dentry *dentry, struct fileattr *fa)
 {
 	struct inode *inode = d_inode(dentry);
-	struct dentry *realdentry = ovl_dentry_real(dentry);
+	struct path realpath;
 	const struct cred *old_cred;
 	int err;
 
+	ovl_path_real(dentry, &realpath);
+
 	old_cred = ovl_override_creds(inode->i_sb);
-	err = ovl_security_fileattr(dentry, fa, false);
-	if (!err)
-		err = vfs_fileattr_get(realdentry, fa);
+	err = ovl_real_fileattr_get(&realpath, fa);
+	ovl_fileattr_prot_flags(inode, fa);
 	revert_creds(old_cred);
 
 	return err;
@@ -576,7 +857,9 @@ static const struct inode_operations ovl_file_inode_operations = {
 	.permission	= ovl_permission,
 	.getattr	= ovl_getattr,
 	.listxattr	= ovl_listxattr,
+	.get_inode_acl	= ovl_get_inode_acl,
 	.get_acl	= ovl_get_acl,
+	.set_acl	= ovl_set_acl,
 	.update_time	= ovl_update_time,
 	.fiemap		= ovl_fiemap,
 	.fileattr_get	= ovl_fileattr_get,
@@ -596,7 +879,9 @@ static const struct inode_operations ovl_special_inode_operations = {
 	.permission	= ovl_permission,
 	.getattr	= ovl_getattr,
 	.listxattr	= ovl_listxattr,
+	.get_inode_acl	= ovl_get_inode_acl,
 	.get_acl	= ovl_get_acl,
+	.set_acl	= ovl_set_acl,
 	.update_time	= ovl_update_time,
 };
 
@@ -715,16 +1000,19 @@ void ovl_inode_init(struct inode *inode, struct ovl_inode_params *oip,
 		    unsigned long ino, int fsid)
 {
 	struct inode *realinode;
+	struct ovl_inode *oi = OVL_I(inode);
 
 	if (oip->upperdentry)
-		OVL_I(inode)->__upperdentry = oip->upperdentry;
-	if (oip->lowerpath && oip->lowerpath->dentry)
-		OVL_I(inode)->lower = igrab(d_inode(oip->lowerpath->dentry));
+		oi->__upperdentry = oip->upperdentry;
+	if (oip->lowerpath && oip->lowerpath->dentry) {
+		oi->lowerpath.dentry = dget(oip->lowerpath->dentry);
+		oi->lowerpath.layer = oip->lowerpath->layer;
+	}
 	if (oip->lowerdata)
-		OVL_I(inode)->lowerdata = igrab(d_inode(oip->lowerdata));
+		oi->lowerdata = igrab(d_inode(oip->lowerdata));
 
 	realinode = ovl_inode_real(inode);
-	ovl_copyattr(realinode, inode);
+	ovl_copyattr(inode);
 	ovl_copyflags(realinode, inode);
 	ovl_map_ino(inode, ino, fsid);
 }
@@ -809,8 +1097,8 @@ static int ovl_set_nlink_common(struct dentry *dentry,
 	if (WARN_ON(len >= sizeof(buf)))
 		return -EIO;
 
-	return ovl_do_setxattr(OVL_FS(inode->i_sb), ovl_dentry_upper(dentry),
-			       OVL_XATTR_NLINK, buf, len);
+	return ovl_setxattr(OVL_FS(inode->i_sb), ovl_dentry_upper(dentry),
+			    OVL_XATTR_NLINK, buf, len);
 }
 
 int ovl_set_nlink_upper(struct dentry *dentry)
@@ -835,8 +1123,8 @@ unsigned int ovl_get_nlink(struct ovl_fs *ofs, struct dentry *lowerdentry,
 	if (!lowerdentry || !upperdentry || d_inode(lowerdentry)->i_nlink == 1)
 		return fallback;
 
-	err = ovl_do_getxattr(ofs, upperdentry, OVL_XATTR_NLINK,
-			      &buf, sizeof(buf) - 1);
+	err = ovl_getxattr_upper(ofs, upperdentry, OVL_XATTR_NLINK,
+				 &buf, sizeof(buf) - 1);
 	if (err < 0)
 		goto fail;
 
@@ -1040,6 +1328,10 @@ struct inode *ovl_get_inode(struct super_block *sb,
 	struct inode *realinode = upperdentry ? d_inode(upperdentry) : NULL;
 	struct inode *inode;
 	struct dentry *lowerdentry = lowerpath ? lowerpath->dentry : NULL;
+	struct path realpath = {
+		.dentry = upperdentry ?: lowerdentry,
+		.mnt = upperdentry ? ovl_upper_mnt(ofs) : lowerpath->layer->mnt,
+	};
 	bool bylower = ovl_hash_bylower(sb, upperdentry, lowerdentry,
 					oip->index);
 	int fsid = bylower ? lowerpath->layer->fsid : 0;
@@ -1113,10 +1405,14 @@ struct inode *ovl_get_inode(struct super_block *sb,
 	/* Check for non-merge dir that may have whiteouts */
 	if (is_dir) {
 		if (((upperdentry && lowerdentry) || oip->numlower > 1) ||
-		    ovl_check_origin_xattr(ofs, upperdentry ?: lowerdentry)) {
+		    ovl_path_check_origin_xattr(ofs, &realpath)) {
 			ovl_set_flag(OVL_WHITEOUTS, inode);
 		}
 	}
+
+	/* Check for immutable/append-only inode flags in xattr */
+	if (upperdentry)
+		ovl_check_protattr(inode, upperdentry);
 
 	if (inode->i_state & I_NEW)
 		unlock_new_inode(inode);

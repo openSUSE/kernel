@@ -88,6 +88,11 @@ Compressed Formats
       - ``V4L2_PIX_FMT_H263``
       - 'H263'
       - H263 video elementary stream.
+    * .. _V4L2-PIX-FMT-SPK:
+
+      - ``V4L2_PIX_FMT_SPK``
+      - 'SPK0'
+      - Sorenson Spark is an implementation of H.263 for use in Flash Video and Adobe Flash files
     * .. _V4L2-PIX-FMT-MPEG1:
 
       - ``V4L2_PIX_FMT_MPEG1``
@@ -172,6 +177,21 @@ Compressed Formats
       - VP9 compressed video frame. The encoder generates one
 	compressed frame per buffer, and the decoder requires one
 	compressed frame per buffer.
+    * .. _V4L2-PIX-FMT-VP9-FRAME:
+
+      - ``V4L2_PIX_FMT_VP9_FRAME``
+      - 'VP9F'
+      - VP9 parsed frame, including the frame header, as extracted from the container.
+	This format is adapted for stateless video decoders that implement a
+	VP9 pipeline with the :ref:`stateless_decoder`.
+	Metadata associated with the frame to decode is required to be passed
+	through the ``V4L2_CID_STATELESS_VP9_FRAME`` and
+	the ``V4L2_CID_STATELESS_VP9_COMPRESSED_HDR`` controls.
+	See the :ref:`associated Codec Control IDs <v4l2-codec-stateless-vp9>`.
+	Exactly one output and one capture buffer must be provided for use with
+	this pixel format. The output buffer must contain the appropriate number
+	of macroblocks to decode a full corresponding frame to the matching
+	capture buffer.
     * .. _V4L2-PIX-FMT-HEVC:
 
       - ``V4L2_PIX_FMT_HEVC``
@@ -197,14 +217,9 @@ Compressed Formats
         ``V4L2_CID_MPEG_VIDEO_HEVC_SPS``,
         ``V4L2_CID_MPEG_VIDEO_HEVC_PPS``, and
         ``V4L2_CID_MPEG_VIDEO_HEVC_SLICE_PARAMS``.
-	See the :ref:`associated Codec Control IDs <v4l2-mpeg-hevc>`.
+	See the :ref:`associated Codec Control IDs <v4l2-codec-stateless-hevc>`.
 	Buffers associated with this pixel format must contain the appropriate
 	number of macroblocks to decode a full corresponding frame.
-
-	.. note::
-
-	   This format is not yet part of the public kernel API and it
-	   is expected to change.
     * .. _V4L2-PIX-FMT-FWHT:
 
       - ``V4L2_PIX_FMT_FWHT``
@@ -222,6 +237,26 @@ Compressed Formats
         Metadata associated with the frame to decode is required to be passed
         through the ``V4L2_CID_STATELESS_FWHT_PARAMS`` control.
 	See the :ref:`associated Codec Control ID <codec-stateless-fwht>`.
+    * .. _V4L2-PIX-FMT-RV30:
+
+      - ``V4L2_PIX_FMT_RV30``
+      - 'RV30'
+      - RealVideo, or also spelled as Real Video, is a suite of
+        proprietary video compression formats developed by
+        RealNetworks - the specific format changes with the version.
+        RealVideo codecs are identified by four-character codes.
+        RV30 corresponds to RealVideo 8, suspected to be based
+        largely on an early draft of H.264
+    * .. _V4L2-PIX-FMT-RV40:
+
+      - ``V4L2_PIX_FMT_RV40``
+      - 'RV40'
+      - RV40 represents RealVideo 9 and RealVideo 10.
+        RealVideo 9, suspected to be based on H.264.
+        RealVideo 10, aka RV9 EHQ, This refers to an improved encoder
+        for the RV9 format that is fully backwards compatible with
+        RV9 players - the format and decoder did not change, only
+        the encoder did. As a result, it uses the same FourCC.
 
 .. raw:: latex
 

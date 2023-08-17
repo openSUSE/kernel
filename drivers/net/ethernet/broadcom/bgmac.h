@@ -364,8 +364,6 @@
 #define BGMAC_CHIPCTL_7_IF_TYPE_MII		0x00000040
 #define BGMAC_CHIPCTL_7_IF_TYPE_RGMII		0x00000080
 
-#define BGMAC_WEIGHT	64
-
 #define ETHER_MAX_LEN	(ETH_FRAME_LEN + ETH_FCS_LEN)
 
 /* Feature Flags */
@@ -473,6 +471,8 @@ struct bgmac {
 	/* Int */
 	int irq;
 	u32 int_mask;
+
+	bool in_init;
 
 	/* Current MAC state */
 	int mac_speed;

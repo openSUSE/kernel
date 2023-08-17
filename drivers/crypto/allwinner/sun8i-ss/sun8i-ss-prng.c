@@ -11,6 +11,8 @@
  */
 #include "sun8i-ss.h"
 #include <linux/dma-mapping.h>
+#include <linux/kernel.h>
+#include <linux/mm.h>
 #include <linux/pm_runtime.h>
 #include <crypto/internal/rng.h>
 
@@ -20,13 +22,12 @@ int sun8i_ss_prng_seed(struct crypto_rng *tfm, const u8 *seed,
 	struct sun8i_ss_rng_tfm_ctx *ctx = crypto_rng_ctx(tfm);
 
 	if (ctx->seed && ctx->slen != slen) {
-		memzero_explicit(ctx->seed, ctx->slen);
-		kfree(ctx->seed);
+		kfree_sensitive(ctx->seed);
 		ctx->slen = 0;
 		ctx->seed = NULL;
 	}
 	if (!ctx->seed)
-		ctx->seed = kmalloc(slen, GFP_KERNEL | GFP_DMA);
+		ctx->seed = kmalloc(slen, GFP_KERNEL);
 	if (!ctx->seed)
 		return -ENOMEM;
 
@@ -48,8 +49,7 @@ void sun8i_ss_prng_exit(struct crypto_tfm *tfm)
 {
 	struct sun8i_ss_rng_tfm_ctx *ctx = crypto_tfm_ctx(tfm);
 
-	memzero_explicit(ctx->seed, ctx->slen);
-	kfree(ctx->seed);
+	kfree_sensitive(ctx->seed);
 	ctx->seed = NULL;
 	ctx->slen = 0;
 }
@@ -60,6 +60,7 @@ int sun8i_ss_prng_generate(struct crypto_rng *tfm, const u8 *src,
 	struct sun8i_ss_rng_tfm_ctx *ctx = crypto_rng_ctx(tfm);
 	struct rng_alg *alg = crypto_rng_alg(tfm);
 	struct sun8i_ss_alg_template *algt;
+	unsigned int todo_with_padding;
 	struct sun8i_ss_dev *ss;
 	dma_addr_t dma_iv, dma_dst;
 	unsigned int todo;
@@ -83,7 +84,11 @@ int sun8i_ss_prng_generate(struct crypto_rng *tfm, const u8 *src,
 	todo = dlen + PRNG_SEED_SIZE + PRNG_DATA_SIZE;
 	todo -= todo % PRNG_DATA_SIZE;
 
-	d = kzalloc(todo, GFP_KERNEL | GFP_DMA);
+	todo_with_padding = ALIGN(todo, dma_get_cache_alignment());
+	if (todo_with_padding < todo || todo < dlen)
+		return -EOVERFLOW;
+
+	d = kzalloc(todo_with_padding, GFP_KERNEL);
 	if (!d)
 		return -ENOMEM;
 
@@ -114,11 +119,9 @@ int sun8i_ss_prng_generate(struct crypto_rng *tfm, const u8 *src,
 		goto err_iv;
 	}
 
-	err = pm_runtime_get_sync(ss->dev);
-	if (err < 0) {
-		pm_runtime_put_noidle(ss->dev);
+	err = pm_runtime_resume_and_get(ss->dev);
+	if (err < 0)
 		goto err_pm;
-	}
 	err = 0;
 
 	mutex_lock(&ss->mlock);
@@ -167,9 +170,8 @@ err_iv:
 		/* Update seed */
 		memcpy(ctx->seed, d + dlen, ctx->slen);
 	}
-	memzero_explicit(d, todo);
 err_free:
-	kfree(d);
+	kfree_sensitive(d);
 
 	return err;
 }

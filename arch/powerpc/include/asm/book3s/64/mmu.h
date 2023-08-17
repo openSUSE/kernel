@@ -62,6 +62,9 @@ extern struct patb_entry *partition_tb;
 #define PRTS_MASK	0x1f		/* process table size field */
 #define PRTB_MASK	0x0ffffffffffff000UL
 
+/* Number of supported LPID bits */
+extern unsigned int mmu_lpid_bits;
+
 /* Number of supported PID bits */
 extern unsigned int mmu_pid_bits;
 
@@ -76,10 +79,8 @@ extern unsigned long __ro_after_init radix_mem_block_size;
 #define PRTB_SIZE_SHIFT	(mmu_pid_bits + 4)
 #define PRTB_ENTRIES	(1ul << mmu_pid_bits)
 
-/*
- * Power9 currently only support 64K partition table size.
- */
-#define PATB_SIZE_SHIFT	16
+#define PATB_SIZE_SHIFT	(mmu_lpid_bits + 4)
+#define PATB_ENTRIES	(1ul << mmu_lpid_bits)
 
 typedef unsigned long mm_context_id_t;
 struct spinlock;
@@ -135,7 +136,6 @@ typedef struct {
 	u32 pkey_allocation_map;
 	s16 execute_only_pkey; /* key holding execute-only protection */
 #endif
-	void* suse_kabi_padding;
 } mm_context_t;
 
 #ifdef CONFIG_PPC_64S_HASH_MMU
@@ -252,7 +252,7 @@ static inline void setup_initial_memory_limit(phys_addr_t first_memblock_base,
 }
 
 #ifdef CONFIG_PPC_PSERIES
-extern void radix_init_pseries(void);
+void __init radix_init_pseries(void);
 #else
 static inline void radix_init_pseries(void) { }
 #endif

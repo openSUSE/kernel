@@ -302,7 +302,7 @@ static int inet4_pton(const char *src, u16 port_num,
 		struct sockaddr_storage *addr)
 {
 	struct sockaddr_in *addr4 = (struct sockaddr_in *)addr;
-	int srclen = strlen(src);
+	size_t srclen = strlen(src);
 
 	if (srclen > INET_ADDRSTRLEN)
 		return -EINVAL;
@@ -322,7 +322,7 @@ static int inet6_pton(struct net *net, const char *src, u16 port_num,
 {
 	struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)addr;
 	const char *scope_delim;
-	int srclen = strlen(src);
+	size_t srclen = strlen(src);
 
 	if (srclen > INET6_ADDRSTRLEN)
 		return -EINVAL;
@@ -476,9 +476,9 @@ void inet_proto_csum_replace_by_diff(__sum16 *sum, struct sk_buff *skb,
 				     __wsum diff, bool pseudohdr)
 {
 	if (skb->ip_summed != CHECKSUM_PARTIAL) {
-		*sum = csum_fold(csum_add(diff, ~csum_unfold(*sum)));
+		csum_replace_by_diff(sum, diff);
 		if (skb->ip_summed == CHECKSUM_COMPLETE && pseudohdr)
-			skb->csum = ~csum_add(diff, ~skb->csum);
+			skb->csum = ~csum_sub(diff, skb->csum);
 	} else if (pseudohdr) {
 		*sum = ~csum_fold(csum_add(diff, csum_unfold(*sum)));
 	}

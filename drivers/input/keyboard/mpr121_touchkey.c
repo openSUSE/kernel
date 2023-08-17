@@ -107,9 +107,9 @@ static struct regulator *mpr121_vdd_supply_init(struct device *dev)
 		return ERR_PTR(err);
 	}
 
-	err = devm_add_action(dev, mpr121_vdd_supply_disable, vdd_supply);
+	err = devm_add_action_or_reset(dev, mpr121_vdd_supply_disable,
+				       vdd_supply);
 	if (err) {
-		regulator_disable(vdd_supply);
 		dev_err(dev, "failed to add disable regulator action: %d\n",
 			err);
 		return ERR_PTR(err);
@@ -230,8 +230,7 @@ err_i2c_write:
 	return ret;
 }
 
-static int mpr_touchkey_probe(struct i2c_client *client,
-			      const struct i2c_device_id *id)
+static int mpr_touchkey_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
 	struct regulator *vdd_supply;
@@ -341,7 +340,7 @@ static int mpr_touchkey_probe(struct i2c_client *client,
 	return 0;
 }
 
-static int __maybe_unused mpr_suspend(struct device *dev)
+static int mpr_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 
@@ -353,7 +352,7 @@ static int __maybe_unused mpr_suspend(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused mpr_resume(struct device *dev)
+static int mpr_resume(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct mpr121_touchkey *mpr121 = i2c_get_clientdata(client);
@@ -367,7 +366,7 @@ static int __maybe_unused mpr_resume(struct device *dev)
 	return 0;
 }
 
-static SIMPLE_DEV_PM_OPS(mpr121_touchkey_pm_ops, mpr_suspend, mpr_resume);
+static DEFINE_SIMPLE_DEV_PM_OPS(mpr121_touchkey_pm_ops, mpr_suspend, mpr_resume);
 
 static const struct i2c_device_id mpr121_id[] = {
 	{ "mpr121_touchkey", 0 },
@@ -386,11 +385,11 @@ MODULE_DEVICE_TABLE(of, mpr121_touchkey_dt_match_table);
 static struct i2c_driver mpr_touchkey_driver = {
 	.driver = {
 		.name	= "mpr121",
-		.pm	= &mpr121_touchkey_pm_ops,
+		.pm	= pm_sleep_ptr(&mpr121_touchkey_pm_ops),
 		.of_match_table = of_match_ptr(mpr121_touchkey_dt_match_table),
 	},
 	.id_table	= mpr121_id,
-	.probe		= mpr_touchkey_probe,
+	.probe_new	= mpr_touchkey_probe,
 };
 
 module_i2c_driver(mpr_touchkey_driver);

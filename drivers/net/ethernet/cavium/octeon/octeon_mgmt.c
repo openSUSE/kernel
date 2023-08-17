@@ -702,9 +702,6 @@ static int octeon_mgmt_ioctl_hwtstamp(struct net_device *netdev,
 	if (copy_from_user(&config, rq->ifr_data, sizeof(config)))
 		return -EFAULT;
 
-	if (config.flags) /* reserved for future extensions */
-		return -EINVAL;
-
 	/* Check the status of hardware for tiemstamps */
 	if (OCTEON_IS_MODEL(OCTEON_CN6XXX)) {
 		/* Get the current state of the PTP clock */
@@ -1399,8 +1396,8 @@ static int octeon_mgmt_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, netdev);
 	p = netdev_priv(netdev);
-	netif_napi_add(netdev, &p->napi, octeon_mgmt_napi_poll,
-		       OCTEON_MGMT_NAPI_WEIGHT);
+	netif_napi_add_weight(netdev, &p->napi, octeon_mgmt_napi_poll,
+			      OCTEON_MGMT_NAPI_WEIGHT);
 
 	p->netdev = netdev;
 	p->dev = &pdev->dev;

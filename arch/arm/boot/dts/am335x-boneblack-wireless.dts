@@ -7,6 +7,7 @@
 #include "am33xx.dtsi"
 #include "am335x-bone-common.dtsi"
 #include "am335x-boneblack-common.dtsi"
+#include "am335x-boneblack-hdmi.dtsi"
 #include <dt-bindings/interrupt-controller/irq.h>
 
 / {
@@ -18,7 +19,7 @@
 		regulator-name = "wlan-en-regulator";
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <1800000>;
-		startup-delay-us= <70000>;
+		startup-delay-us = <70000>;
 
 		/* WL_EN */
 		gpio = <&gpio3 9 0>;
@@ -62,7 +63,7 @@
 	};
 };
 
-&mac {
+&mac_sw {
 	status = "disabled";
 };
 

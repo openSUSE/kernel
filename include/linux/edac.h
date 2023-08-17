@@ -186,6 +186,7 @@ static inline char *mc_event_error_type(const unsigned int err_type)
  * @MEM_LRDDR5:		Load-Reduced DDR5 memory.
  * @MEM_NVDIMM:		Non-volatile RAM
  * @MEM_WIO2:		Wide I/O 2.
+ * @MEM_HBM2:		High bandwidth Memory Gen 2.
  */
 enum mem_type {
 	MEM_EMPTY = 0,
@@ -216,6 +217,7 @@ enum mem_type {
 	MEM_LRDDR5,
 	MEM_NVDIMM,
 	MEM_WIO2,
+	MEM_HBM2,
 };
 
 #define MEM_FLAG_EMPTY		BIT(MEM_EMPTY)
@@ -229,22 +231,23 @@ enum mem_type {
 #define MEM_FLAG_DDR		BIT(MEM_DDR)
 #define MEM_FLAG_RDDR		BIT(MEM_RDDR)
 #define MEM_FLAG_RMBS		BIT(MEM_RMBS)
-#define MEM_FLAG_DDR2           BIT(MEM_DDR2)
-#define MEM_FLAG_FB_DDR2        BIT(MEM_FB_DDR2)
-#define MEM_FLAG_RDDR2          BIT(MEM_RDDR2)
-#define MEM_FLAG_XDR            BIT(MEM_XDR)
-#define MEM_FLAG_DDR3           BIT(MEM_DDR3)
-#define MEM_FLAG_RDDR3          BIT(MEM_RDDR3)
-#define MEM_FLAG_LPDDR3         BIT(MEM_LPDDR3)
-#define MEM_FLAG_DDR4           BIT(MEM_DDR4)
-#define MEM_FLAG_RDDR4          BIT(MEM_RDDR4)
-#define MEM_FLAG_LRDDR4         BIT(MEM_LRDDR4)
-#define MEM_FLAG_LPDDR4         BIT(MEM_LPDDR4)
-#define MEM_FLAG_DDR5           BIT(MEM_DDR5)
-#define MEM_FLAG_RDDR5          BIT(MEM_RDDR5)
-#define MEM_FLAG_LRDDR5         BIT(MEM_LRDDR5)
-#define MEM_FLAG_NVDIMM         BIT(MEM_NVDIMM)
+#define MEM_FLAG_DDR2		BIT(MEM_DDR2)
+#define MEM_FLAG_FB_DDR2	BIT(MEM_FB_DDR2)
+#define MEM_FLAG_RDDR2		BIT(MEM_RDDR2)
+#define MEM_FLAG_XDR		BIT(MEM_XDR)
+#define MEM_FLAG_DDR3		BIT(MEM_DDR3)
+#define MEM_FLAG_RDDR3		BIT(MEM_RDDR3)
+#define MEM_FLAG_LPDDR3		BIT(MEM_LPDDR3)
+#define MEM_FLAG_DDR4		BIT(MEM_DDR4)
+#define MEM_FLAG_RDDR4		BIT(MEM_RDDR4)
+#define MEM_FLAG_LRDDR4		BIT(MEM_LRDDR4)
+#define MEM_FLAG_LPDDR4		BIT(MEM_LPDDR4)
+#define MEM_FLAG_DDR5		BIT(MEM_DDR5)
+#define MEM_FLAG_RDDR5		BIT(MEM_RDDR5)
+#define MEM_FLAG_LRDDR5		BIT(MEM_LRDDR5)
+#define MEM_FLAG_NVDIMM		BIT(MEM_NVDIMM)
 #define MEM_FLAG_WIO2		BIT(MEM_WIO2)
+#define MEM_FLAG_HBM2		BIT(MEM_HBM2)
 
 /**
  * enum edac_type - Error Detection and Correction capabilities and mode

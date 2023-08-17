@@ -8,6 +8,7 @@ menuconfig CORESIGHT
 	depends on OF || ACPI
 	select ARM_AMBA
 	select PERF_EVENTS
+	select CONFIGFS_FS
 	help
 	  This framework provides a kernel interface for the CoreSight debug
 	  and trace drivers to register themselves with. It's intended to build
@@ -149,6 +150,19 @@ config CORESIGHT_CPU_DEBUG
 	  To compile this driver as a module, choose M here: the
 	  module will be called coresight-cpu-debug.
 
+config CORESIGHT_CPU_DEBUG_DEFAULT_ON
+	bool "Enable CoreSight CPU Debug by default"
+	depends on CORESIGHT_CPU_DEBUG
+	help
+	  Say Y here to enable the CoreSight Debug panic-debug by default. This
+	  can also be enabled via debugfs, but this ensures the debug feature
+	  is enabled as early as possible.
+
+	  Has the same effect as setting coresight_cpu_debug.enable=1 on the
+	  kernel command line.
+
+	  Say N if unsure.
+
 config CORESIGHT_CTI
 	tristate "CoreSight Cross Trigger Interface (CTI) driver"
 	depends on ARM || ARM64
@@ -179,12 +193,47 @@ config CORESIGHT_TRBE
 	depends on ARM64 && CORESIGHT_SOURCE_ETM4X
 	help
 	  This driver provides support for percpu Trace Buffer Extension (TRBE).
-	  TRBE always needs to be used along with it's corresponding percpu ETE
+	  TRBE always needs to be used along with its corresponding percpu ETE
 	  component. ETE generates trace data which is then captured with TRBE.
 	  Unlike traditional sink devices, TRBE is a CPU feature accessible via
-	  system registers. But it's explicit dependency with trace unit (ETE)
+	  system registers. But its explicit dependency with trace unit (ETE)
 	  requires it to be plugged in as a coresight sink device.
 
 	  To compile this driver as a module, choose M here: the module will be
 	  called coresight-trbe.
+
+config ULTRASOC_SMB
+	tristate "Ultrasoc system memory buffer drivers"
+	depends on ACPI || COMPILE_TEST
+	depends on ARM64 && CORESIGHT_LINKS_AND_SINKS
+	help
+	  This driver provides support for the Ultrasoc system memory buffer (SMB).
+	  SMB is responsible for receiving the trace data from Coresight ETM devices
+	  and storing them to a system buffer.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called ultrasoc-smb.
+
+config CORESIGHT_TPDM
+	tristate "CoreSight Trace, Profiling & Diagnostics Monitor driver"
+	select CORESIGHT_LINKS_AND_SINKS
+	select CORESIGHT_TPDA
+	help
+	  This driver provides support for configuring monitor. Monitors are
+	  primarily responsible for data set collection and support the
+	  ability to collect any permutation of data set types.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called coresight-tpdm.
+
+config CORESIGHT_TPDA
+	tristate "CoreSight Trace, Profiling & Diagnostics Aggregator driver"
+	help
+	  This driver provides support for configuring aggregator. This is
+	  primarily useful for pulling the data sets from one or more
+	  attached monitors and pushing the resultant data out. Multiple
+	  monitors are connected on different input ports of TPDA.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called coresight-tpda.
 endif

@@ -359,15 +359,13 @@ static int batadv_netlink_mesh_fill(struct sk_buff *msg,
 			atomic_read(&bat_priv->orig_interval)))
 		goto nla_put_failure;
 
-	if (primary_if)
-		batadv_hardif_put(primary_if);
+	batadv_hardif_put(primary_if);
 
 	genlmsg_end(msg, hdr);
 	return 0;
 
 nla_put_failure:
-	if (primary_if)
-		batadv_hardif_put(primary_if);
+	batadv_hardif_put(primary_if);
 
 	genlmsg_cancel(msg, hdr);
 	return -EMSGSIZE;
@@ -1269,7 +1267,8 @@ batadv_get_vlan_from_info(struct batadv_priv *bat_priv, struct net *net,
  *
  * Return: 0 on success or negative error number in case of failure
  */
-static int batadv_pre_doit(const struct genl_ops *ops, struct sk_buff *skb,
+static int batadv_pre_doit(const struct genl_split_ops *ops,
+			   struct sk_buff *skb,
 			   struct genl_info *info)
 {
 	struct net *net = genl_info_net(info);
@@ -1334,7 +1333,8 @@ err_put_softif:
  * @skb: Netlink message with request data
  * @info: receiver information
  */
-static void batadv_post_doit(const struct genl_ops *ops, struct sk_buff *skb,
+static void batadv_post_doit(const struct genl_split_ops *ops,
+			     struct sk_buff *skb,
 			     struct genl_info *info)
 {
 	struct batadv_hard_iface *hard_iface;
@@ -1495,6 +1495,7 @@ struct genl_family batadv_netlink_family __ro_after_init = {
 	.module = THIS_MODULE,
 	.small_ops = batadv_netlink_ops,
 	.n_small_ops = ARRAY_SIZE(batadv_netlink_ops),
+	.resv_start_op = BATADV_CMD_SET_VLAN + 1,
 	.mcgrps = batadv_netlink_mcgrps,
 	.n_mcgrps = ARRAY_SIZE(batadv_netlink_mcgrps),
 };

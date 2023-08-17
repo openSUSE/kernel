@@ -21,7 +21,7 @@
 #include <linux/fs.h>
 #include <linux/fs_context.h>
 #include <linux/poll.h>
-#include <linux/zlib.h>
+#include <linux/zstd.h>
 #include <uapi/linux/major.h>
 #include <uapi/linux/magic.h>
 
@@ -36,6 +36,7 @@
 #include "include/policy_ns.h"
 #include "include/resource.h"
 #include "include/policy_unpack.h"
+#include "include/task.h"
 
 /*
  * The apparmor filesystem interface used for policy load and introspection
@@ -70,6 +71,7 @@ struct rawdata_f_data {
 	struct aa_loaddata *loaddata;
 };
 
+#ifdef CONFIG_SECURITY_APPARMOR_EXPORT_BINARY
 #define RAWDATA_F_DATA_BUF(p) (char *)(p + 1)
 
 static void rawdata_f_data_free(struct rawdata_f_data *private)
@@ -94,9 +96,10 @@ static struct rawdata_f_data *rawdata_f_data_alloc(size_t size)
 
 	return ret;
 }
+#endif
 
 /**
- * aa_mangle_name - mangle a profile name to std profile layout form
+ * mangle_name - mangle a profile name to std profile layout form
  * @name: profile name to mangle  (NOT NULL)
  * @target: buffer to store mangled name, same length as @name (MAYBE NULL)
  *
@@ -608,29 +611,30 @@ static const struct file_operations aa_fs_ns_revision_fops = {
 static void profile_query_cb(struct aa_profile *profile, struct aa_perms *perms,
 			     const char *match_str, size_t match_len)
 {
+	struct aa_ruleset *rules = list_first_entry(&profile->rules,
+						    typeof(*rules), list);
 	struct aa_perms tmp = { };
-	struct aa_dfa *dfa;
-	unsigned int state = 0;
+	aa_state_t state = DFA_NOMATCH;
 
 	if (profile_unconfined(profile))
 		return;
-	if (profile->file.dfa && *match_str == AA_CLASS_FILE) {
-		dfa = profile->file.dfa;
-		state = aa_dfa_match_len(dfa, profile->file.start,
+	if (rules->file.dfa && *match_str == AA_CLASS_FILE) {
+		state = aa_dfa_match_len(rules->file.dfa,
+					 rules->file.start[AA_CLASS_FILE],
 					 match_str + 1, match_len - 1);
 		if (state) {
 			struct path_cond cond = { };
 
-			tmp = aa_compute_fperms(dfa, state, &cond);
+			tmp = *(aa_lookup_fperms(&(rules->file), state, &cond));
 		}
-	} else if (profile->policy.dfa) {
-		if (!PROFILE_MEDIATES(profile, *match_str))
+	} else if (rules->policy.dfa) {
+		if (!RULE_MEDIATES(rules, *match_str))
 			return;	/* no change to current perms */
-		dfa = profile->policy.dfa;
-		state = aa_dfa_match_len(dfa, profile->policy.start[0],
+		state = aa_dfa_match_len(rules->policy.dfa,
+					 rules->policy.start[0],
 					 match_str, match_len);
 		if (state)
-			aa_compute_perms(dfa, state, &tmp);
+			tmp = *aa_lookup_perms(&rules->policy, state);
 	}
 	aa_apply_modes_to_perms(profile, &tmp);
 	aa_perms_accum_raw(perms, &tmp);
@@ -812,8 +816,6 @@ struct multi_transaction {
 };
 
 #define MULTI_TRANSACTION_LIMIT (PAGE_SIZE - sizeof(struct multi_transaction))
-/* TODO: replace with per file lock */
-static DEFINE_SPINLOCK(multi_transaction_lock);
 
 static void multi_transaction_kref(struct kref *kref)
 {
@@ -847,10 +849,10 @@ static void multi_transaction_set(struct file *file,
 	AA_BUG(n > MULTI_TRANSACTION_LIMIT);
 
 	new->size = n;
-	spin_lock(&multi_transaction_lock);
+	spin_lock(&file->f_lock);
 	old = (struct multi_transaction *) file->private_data;
 	file->private_data = new;
-	spin_unlock(&multi_transaction_lock);
+	spin_unlock(&file->f_lock);
 	put_multi_transaction(old);
 }
 
@@ -881,9 +883,10 @@ static ssize_t multi_transaction_read(struct file *file, char __user *buf,
 	struct multi_transaction *t;
 	ssize_t ret;
 
-	spin_lock(&multi_transaction_lock);
+	spin_lock(&file->f_lock);
 	t = get_multi_transaction(file->private_data);
-	spin_unlock(&multi_transaction_lock);
+	spin_unlock(&file->f_lock);
+
 	if (!t)
 		return 0;
 
@@ -1090,9 +1093,9 @@ static int seq_profile_attach_show(struct seq_file *seq, void *v)
 	struct aa_proxy *proxy = seq->private;
 	struct aa_label *label = aa_get_label_rcu(&proxy->label);
 	struct aa_profile *profile = labels_profile(label);
-	if (profile->attach)
-		seq_printf(seq, "%s\n", profile->attach);
-	else if (profile->xmatch)
+	if (profile->attach.xmatch_str)
+		seq_printf(seq, "%s\n", profile->attach.xmatch_str);
+	else if (profile->attach.xmatch.dfa)
 		seq_puts(seq, "<unknown>\n");
 	else
 		seq_printf(seq, "%s\n", profile->base.name);
@@ -1197,14 +1200,28 @@ static int seq_ns_name_show(struct seq_file *seq, void *v)
 	return 0;
 }
 
+static int seq_ns_compress_min_show(struct seq_file *seq, void *v)
+{
+	seq_printf(seq, "%d\n", AA_MIN_CLEVEL);
+	return 0;
+}
+
+static int seq_ns_compress_max_show(struct seq_file *seq, void *v)
+{
+	seq_printf(seq, "%d\n", AA_MAX_CLEVEL);
+	return 0;
+}
+
 SEQ_NS_FOPS(stacked);
 SEQ_NS_FOPS(nsstacked);
 SEQ_NS_FOPS(level);
 SEQ_NS_FOPS(name);
+SEQ_NS_FOPS(compress_min);
+SEQ_NS_FOPS(compress_max);
 
 
 /* policy/raw_data/ * file ops */
-
+#ifdef CONFIG_SECURITY_APPARMOR_EXPORT_BINARY
 #define SEQ_RAWDATA_FOPS(NAME)						      \
 static int seq_rawdata_ ##NAME ##_open(struct inode *inode, struct file *file)\
 {									      \
@@ -1295,46 +1312,41 @@ SEQ_RAWDATA_FOPS(revision);
 SEQ_RAWDATA_FOPS(hash);
 SEQ_RAWDATA_FOPS(compressed_size);
 
-static int deflate_decompress(char *src, size_t slen, char *dst, size_t dlen)
+static int decompress_zstd(char *src, size_t slen, char *dst, size_t dlen)
 {
-	int error;
-	struct z_stream_s strm;
+#ifdef CONFIG_SECURITY_APPARMOR_EXPORT_BINARY
+	if (slen < dlen) {
+		const size_t wksp_len = zstd_dctx_workspace_bound();
+		zstd_dctx *ctx;
+		void *wksp;
+		size_t out_len;
+		int ret = 0;
 
-	if (aa_g_rawdata_compression_level == 0) {
-		if (dlen < slen)
-			return -EINVAL;
-		memcpy(dst, src, slen);
-		return 0;
+		wksp = kvzalloc(wksp_len, GFP_KERNEL);
+		if (!wksp) {
+			ret = -ENOMEM;
+			goto cleanup;
+		}
+		ctx = zstd_init_dctx(wksp, wksp_len);
+		if (ctx == NULL) {
+			ret = -ENOMEM;
+			goto cleanup;
+		}
+		out_len = zstd_decompress_dctx(ctx, dst, dlen, src, slen);
+		if (zstd_is_error(out_len)) {
+			ret = -EINVAL;
+			goto cleanup;
+		}
+cleanup:
+		kvfree(wksp);
+		return ret;
 	}
+#endif
 
-	memset(&strm, 0, sizeof(strm));
-
-	strm.workspace = kvzalloc(zlib_inflate_workspacesize(), GFP_KERNEL);
-	if (!strm.workspace)
-		return -ENOMEM;
-
-	strm.next_in = src;
-	strm.avail_in = slen;
-
-	error = zlib_inflateInit(&strm);
-	if (error != Z_OK) {
-		error = -ENOMEM;
-		goto fail_inflate_init;
-	}
-
-	strm.next_out = dst;
-	strm.avail_out = dlen;
-
-	error = zlib_inflate(&strm, Z_FINISH);
-	if (error != Z_STREAM_END)
-		error = -EINVAL;
-	else
-		error = 0;
-
-	zlib_inflateEnd(&strm);
-fail_inflate_init:
-	kvfree(strm.workspace);
-	return error;
+	if (dlen < slen)
+		return -EINVAL;
+	memcpy(dst, src, slen);
+	return 0;
 }
 
 static ssize_t rawdata_read(struct file *file, char __user *buf, size_t size,
@@ -1360,7 +1372,7 @@ static int rawdata_open(struct inode *inode, struct file *file)
 	struct aa_loaddata *loaddata;
 	struct rawdata_f_data *private;
 
-	if (!policy_view_capable(NULL))
+	if (!aa_current_policy_view_capable(NULL))
 		return -EACCES;
 
 	loaddata = __aa_get_loaddata(inode->i_private);
@@ -1376,9 +1388,9 @@ static int rawdata_open(struct inode *inode, struct file *file)
 
 	private->loaddata = loaddata;
 
-	error = deflate_decompress(loaddata->data, loaddata->compressed_size,
-				   RAWDATA_F_DATA_BUF(private),
-				   loaddata->size);
+	error = decompress_zstd(loaddata->data, loaddata->compressed_size,
+				RAWDATA_F_DATA_BUF(private),
+				loaddata->size);
 	if (error)
 		goto fail_decompress;
 
@@ -1495,10 +1507,12 @@ fail:
 
 	return PTR_ERR(dent);
 }
+#endif /* CONFIG_SECURITY_APPARMOR_EXPORT_BINARY */
+
 
 /** fns to setup dynamic per profile/namespace files **/
 
-/**
+/*
  *
  * Requires: @profile->ns->lock held
  */
@@ -1525,7 +1539,7 @@ void __aafs_profile_rmdir(struct aa_profile *profile)
 	}
 }
 
-/**
+/*
  *
  * Requires: @old->ns->lock held
  */
@@ -1560,6 +1574,7 @@ static struct dentry *create_profile_file(struct dentry *dir, const char *name,
 	return dent;
 }
 
+#ifdef CONFIG_SECURITY_APPARMOR_EXPORT_BINARY
 static int profile_depth(struct aa_profile *profile)
 {
 	int depth = 0;
@@ -1661,7 +1676,7 @@ static const struct inode_operations rawdata_link_abi_iops = {
 static const struct inode_operations rawdata_link_data_iops = {
 	.get_link	= rawdata_get_link_data,
 };
-
+#endif /* CONFIG_SECURITY_APPARMOR_EXPORT_BINARY */
 
 /*
  * Requires: @profile->ns->lock held
@@ -1732,15 +1747,17 @@ int __aafs_profile_mkdir(struct aa_profile *profile, struct dentry *parent)
 		profile->dents[AAFS_PROF_HASH] = dent;
 	}
 
+#ifdef CONFIG_SECURITY_APPARMOR_EXPORT_BINARY
 	if (profile->rawdata) {
-		dent = aafs_create("raw_sha1", S_IFLNK | 0444, dir,
-				   profile->label.proxy, NULL, NULL,
-				   &rawdata_link_sha1_iops);
-		if (IS_ERR(dent))
-			goto fail;
-		aa_get_proxy(profile->label.proxy);
-		profile->dents[AAFS_PROF_RAW_HASH] = dent;
-
+		if (aa_g_hash_policy) {
+			dent = aafs_create("raw_sha1", S_IFLNK | 0444, dir,
+					   profile->label.proxy, NULL, NULL,
+					   &rawdata_link_sha1_iops);
+			if (IS_ERR(dent))
+				goto fail;
+			aa_get_proxy(profile->label.proxy);
+			profile->dents[AAFS_PROF_RAW_HASH] = dent;
+		}
 		dent = aafs_create("raw_abi", S_IFLNK | 0444, dir,
 				   profile->label.proxy, NULL, NULL,
 				   &rawdata_link_abi_iops);
@@ -1757,6 +1774,7 @@ int __aafs_profile_mkdir(struct aa_profile *profile, struct dentry *parent)
 		aa_get_proxy(profile->label.proxy);
 		profile->dents[AAFS_PROF_RAW_DATA] = dent;
 	}
+#endif /*CONFIG_SECURITY_APPARMOR_EXPORT_BINARY */
 
 	list_for_each_entry(child, &profile->base.profiles, base.list) {
 		error = __aafs_profile_mkdir(child, prof_child_dir(profile));
@@ -1775,7 +1793,7 @@ fail2:
 	return error;
 }
 
-static int ns_mkdir_op(struct user_namespace *mnt_userns, struct inode *dir,
+static int ns_mkdir_op(struct mnt_idmap *idmap, struct inode *dir,
 		       struct dentry *dentry, umode_t mode)
 {
 	struct aa_ns *ns, *parent;
@@ -1883,7 +1901,7 @@ static void __aa_fs_list_remove_rawdata(struct aa_ns *ns)
 		__aa_fs_remove_rawdata(ent);
 }
 
-/**
+/*
  *
  * Requires: @ns->lock held
  */
@@ -2116,7 +2134,7 @@ static struct aa_profile *__first_profile(struct aa_ns *root,
 
 /**
  * __next_profile - step to the next profile in a profile tree
- * @profile: current profile in tree (NOT NULL)
+ * @p: current profile in tree (NOT NULL)
  *
  * Perform a depth first traversal on the profile tree in a namespace
  *
@@ -2267,7 +2285,7 @@ static const struct seq_operations aa_sfs_profiles_op = {
 
 static int profiles_open(struct inode *inode, struct file *file)
 {
-	if (!policy_view_capable(NULL))
+	if (!aa_current_policy_view_capable(NULL))
 		return -EACCES;
 
 	return seq_open(file, &aa_sfs_profiles_op);
@@ -2326,6 +2344,7 @@ static struct aa_sfs_entry aa_sfs_entry_versions[] = {
 	AA_SFS_FILE_BOOLEAN("v6",	1),
 	AA_SFS_FILE_BOOLEAN("v7",	1),
 	AA_SFS_FILE_BOOLEAN("v8",	1),
+	AA_SFS_FILE_BOOLEAN("v9",	1),
 	{ }
 };
 
@@ -2382,6 +2401,8 @@ static struct aa_sfs_entry aa_sfs_entry_apparmor[] = {
 	AA_SFS_FILE_FOPS(".ns_level", 0444, &seq_ns_level_fops),
 	AA_SFS_FILE_FOPS(".ns_name", 0444, &seq_ns_name_fops),
 	AA_SFS_FILE_FOPS("profiles", 0444, &aa_sfs_profiles_fops),
+	AA_SFS_FILE_FOPS("raw_data_compression_level_min", 0444, &seq_ns_compress_min_fops),
+	AA_SFS_FILE_FOPS("raw_data_compression_level_max", 0444, &seq_ns_compress_max_fops),
 	AA_SFS_DIR("features", aa_sfs_entry_features),
 	{ }
 };

@@ -89,6 +89,7 @@ static int add_hist_entries(struct evlist *evlist,
 			}
 
 			fake_samples[i].thread = al.thread;
+			map__put(fake_samples[i].map);
 			fake_samples[i].map = al.map;
 			fake_samples[i].sym = al.sym;
 		}
@@ -101,7 +102,15 @@ out:
 	return TEST_FAIL;
 }
 
-int test__hists_filter(struct test *test __maybe_unused, int subtest __maybe_unused)
+static void put_fake_samples(void)
+{
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(fake_samples); i++)
+		map__put(fake_samples[i].map);
+}
+
+static int test__hists_filter(struct test_suite *test __maybe_unused, int subtest __maybe_unused)
 {
 	int err = TEST_FAIL;
 	struct machines machines;
@@ -111,10 +120,10 @@ int test__hists_filter(struct test *test __maybe_unused, int subtest __maybe_unu
 
 	TEST_ASSERT_VAL("No memory", evlist);
 
-	err = parse_events(evlist, "cpu-clock", NULL);
+	err = parse_event(evlist, "cpu-clock");
 	if (err)
 		goto out;
-	err = parse_events(evlist, "task-clock", NULL);
+	err = parse_event(evlist, "task-clock");
 	if (err)
 		goto out;
 	err = TEST_FAIL;
@@ -194,7 +203,7 @@ int test__hists_filter(struct test *test __maybe_unused, int subtest __maybe_unu
 		hists__filter_by_thread(hists);
 
 		/* now applying dso filter for 'kernel' */
-		hists->dso_filter = fake_samples[0].map->dso;
+		hists->dso_filter = map__dso(fake_samples[0].map);
 		hists__filter_by_dso(hists);
 
 		if (verbose > 2) {
@@ -288,7 +297,7 @@ int test__hists_filter(struct test *test __maybe_unused, int subtest __maybe_unu
 
 		/* now applying all filters at once. */
 		hists->thread_filter = fake_samples[1].thread;
-		hists->dso_filter = fake_samples[1].map->dso;
+		hists->dso_filter = map__dso(fake_samples[1].map);
 		hists__filter_by_thread(hists);
 		hists__filter_by_dso(hists);
 
@@ -322,6 +331,9 @@ out:
 	evlist__delete(evlist);
 	reset_output_field();
 	machines__exit(&machines);
+	put_fake_samples();
 
 	return err;
 }
+
+DEFINE_SUITE("Filter hist entries", hists_filter);

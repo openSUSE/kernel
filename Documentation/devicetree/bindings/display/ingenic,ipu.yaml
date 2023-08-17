@@ -4,7 +4,7 @@
 $id: http://devicetree.org/schemas/display/ingenic,ipu.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Ingenic SoCs Image Processing Unit (IPU) devicetree bindings
+title: Ingenic SoCs Image Processing Unit (IPU)
 
 maintainers:
   - Paul Cercueil <paul@crapouillou.net>
@@ -45,7 +45,7 @@ additionalProperties: false
 
 examples:
   - |
-    #include <dt-bindings/clock/jz4770-cgu.h>
+    #include <dt-bindings/clock/ingenic,jz4770-cgu.h>
     ipu@13080000 {
       compatible = "ingenic,jz4770-ipu", "ingenic,jz4760-ipu";
       reg = <0x13080000 0x800>;

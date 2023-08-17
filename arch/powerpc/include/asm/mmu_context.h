@@ -21,7 +21,6 @@ extern void destroy_context(struct mm_struct *mm);
 #ifdef CONFIG_SPAPR_TCE_IOMMU
 struct mm_iommu_table_group_mem_t;
 
-extern int isolate_lru_page(struct page *page);	/* from internal.h */
 extern bool mm_iommu_preregistered(struct mm_struct *mm);
 extern long mm_iommu_new(struct mm_struct *mm,
 		unsigned long ua, unsigned long entries,
@@ -32,18 +31,12 @@ extern long mm_iommu_newdev(struct mm_struct *mm, unsigned long ua,
 extern long mm_iommu_put(struct mm_struct *mm,
 		struct mm_iommu_table_group_mem_t *mem);
 extern void mm_iommu_init(struct mm_struct *mm);
-extern void mm_iommu_cleanup(struct mm_struct *mm);
 extern struct mm_iommu_table_group_mem_t *mm_iommu_lookup(struct mm_struct *mm,
 		unsigned long ua, unsigned long size);
-extern struct mm_iommu_table_group_mem_t *mm_iommu_lookup_rm(
-		struct mm_struct *mm, unsigned long ua, unsigned long size);
 extern struct mm_iommu_table_group_mem_t *mm_iommu_get(struct mm_struct *mm,
 		unsigned long ua, unsigned long entries);
 extern long mm_iommu_ua_to_hpa(struct mm_iommu_table_group_mem_t *mem,
 		unsigned long ua, unsigned int pageshift, unsigned long *hpa);
-extern long mm_iommu_ua_to_hpa_rm(struct mm_iommu_table_group_mem_t *mem,
-		unsigned long ua, unsigned int pageshift, unsigned long *hpa);
-extern void mm_iommu_ua_mark_dirty_rm(struct mm_struct *mm, unsigned long ua);
 extern bool mm_iommu_is_devmem(struct mm_struct *mm, unsigned long hpa,
 		unsigned int pageshift, unsigned long *size);
 extern long mm_iommu_mapped_inc(struct mm_iommu_table_group_mem_t *mem);
@@ -71,7 +64,7 @@ static inline void switch_mmu_context(struct mm_struct *prev,
 }
 
 extern int hash__alloc_context_id(void);
-extern void hash__reserve_context_id(int id);
+void __init hash__reserve_context_id(int id);
 extern void __destroy_context(int context_id);
 static inline void mmu_context_init(void) { }
 
@@ -123,7 +116,6 @@ static inline bool need_extra_context(struct mm_struct *mm, unsigned long ea)
 }
 #endif
 
-extern void switch_cop(struct mm_struct *next);
 extern int use_cop(unsigned long acop, struct mm_struct *mm);
 extern void drop_cop(unsigned long acop, struct mm_struct *mm);
 
@@ -159,8 +151,8 @@ static inline void mm_context_remove_copro(struct mm_struct *mm)
 	 * nMMU and/or PSL need to be cleaned up.
 	 *
 	 * Both the 'copros' and 'active_cpus' counts are looked at in
-	 * flush_all_mm() to determine the scope (local/global) of the
-	 * TLBIs, so we need to flush first before decrementing
+	 * radix__flush_all_mm() to determine the scope (local/global)
+	 * of the TLBIs, so we need to flush first before decrementing
 	 * 'copros'. If this API is used by several callers for the
 	 * same context, it can lead to over-flushing. It's hopefully
 	 * not common enough to be a problem.
@@ -172,7 +164,7 @@ static inline void mm_context_remove_copro(struct mm_struct *mm)
 	 * in-between.
 	 */
 	if (radix_enabled()) {
-		flush_all_mm(mm);
+		radix__flush_all_mm(mm);
 
 		c = atomic_dec_if_positive(&mm->context.copros);
 		/* Detect imbalance between add and remove */

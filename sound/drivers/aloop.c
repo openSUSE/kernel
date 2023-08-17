@@ -535,7 +535,7 @@ static void copy_play_buf(struct loopback_pcm *play,
 
 	/* check if playback is draining, trim the capture copy size
 	 * when our pointer is at the end of playback ring buffer */
-	if (runtime->status->state == SNDRV_PCM_STATE_DRAINING &&
+	if (runtime->state == SNDRV_PCM_STATE_DRAINING &&
 	    snd_pcm_playback_hw_avail(runtime) < runtime->buffer_size) { 
 	    	snd_pcm_uframes_t appl_ptr, appl_ptr1, diff;
 		appl_ptr = appl_ptr1 = runtime->control->appl_ptr;
@@ -730,7 +730,7 @@ static void loopback_snd_timer_period_elapsed(struct loopback_cable *cable,
 
 	if (event == SNDRV_TIMER_EVENT_MSTOP) {
 		if (!dpcm_play ||
-		    dpcm_play->substream->runtime->status->state !=
+		    dpcm_play->substream->runtime->state !=
 				SNDRV_PCM_STATE_DRAINING) {
 			spin_unlock_irqrestore(&cable->lock, flags);
 			return;
@@ -1713,8 +1713,8 @@ static int loopback_probe(struct platform_device *devptr)
 	int dev = devptr->id;
 	int err;
 
-	err = snd_card_new(&devptr->dev, index[dev], id[dev], THIS_MODULE,
-			   sizeof(struct loopback), &card);
+	err = snd_devm_card_new(&devptr->dev, index[dev], id[dev], THIS_MODULE,
+				sizeof(struct loopback), &card);
 	if (err < 0)
 		return err;
 	loopback = card->private_data;
@@ -1731,13 +1731,13 @@ static int loopback_probe(struct platform_device *devptr)
 
 	err = loopback_pcm_new(loopback, 0, pcm_substreams[dev]);
 	if (err < 0)
-		goto __nodev;
+		return err;
 	err = loopback_pcm_new(loopback, 1, pcm_substreams[dev]);
 	if (err < 0)
-		goto __nodev;
+		return err;
 	err = loopback_mixer_new(loopback, pcm_notify[dev] ? 1 : 0);
 	if (err < 0)
-		goto __nodev;
+		return err;
 	loopback_cable_proc_new(loopback, 0);
 	loopback_cable_proc_new(loopback, 1);
 	loopback_timer_source_proc_new(loopback);
@@ -1745,18 +1745,9 @@ static int loopback_probe(struct platform_device *devptr)
 	strcpy(card->shortname, "Loopback");
 	sprintf(card->longname, "Loopback %i", dev + 1);
 	err = snd_card_register(card);
-	if (!err) {
-		platform_set_drvdata(devptr, card);
-		return 0;
-	}
-      __nodev:
-	snd_card_free(card);
-	return err;
-}
-
-static int loopback_remove(struct platform_device *devptr)
-{
-	snd_card_free(platform_get_drvdata(devptr));
+	if (err < 0)
+		return err;
+	platform_set_drvdata(devptr, card);
 	return 0;
 }
 
@@ -1787,7 +1778,6 @@ static SIMPLE_DEV_PM_OPS(loopback_pm, loopback_suspend, loopback_resume);
 
 static struct platform_driver loopback_driver = {
 	.probe		= loopback_probe,
-	.remove		= loopback_remove,
 	.driver		= {
 		.name	= SND_LOOPBACK_DRIVER,
 		.pm	= LOOPBACK_PM_OPS,

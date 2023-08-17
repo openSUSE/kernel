@@ -2,17 +2,17 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <linux/string.h>
-/* For the CLR_() macros */
-#include <pthread.h>
 
 #include <sched.h>
 #include <perf/mmap.h>
+#include "event.h"
 #include "evlist.h"
 #include "evsel.h"
 #include "debug.h"
 #include "record.h"
 #include "tests.h"
 #include "util/mmap.h"
+#include "util/sample.h"
 
 static int sched__get_first_possible_cpu(pid_t pid, cpu_set_t *maskp)
 {
@@ -41,7 +41,7 @@ realloc:
 	return cpu;
 }
 
-int test__PERF_RECORD(struct test *test __maybe_unused, int subtest __maybe_unused)
+static int test__PERF_RECORD(struct test_suite *test __maybe_unused, int subtest __maybe_unused)
 {
 	struct record_opts opts = {
 		.target = {
@@ -330,5 +330,21 @@ found_exit:
 out_delete_evlist:
 	evlist__delete(evlist);
 out:
-	return (err < 0 || errs > 0) ? -1 : 0;
+	if (err == -EACCES)
+		return TEST_SKIP;
+	if (err < 0 || errs != 0)
+		return TEST_FAIL;
+	return TEST_OK;
 }
+
+static struct test_case tests__PERF_RECORD[] = {
+	TEST_CASE_REASON("PERF_RECORD_* events & perf_sample fields",
+			 PERF_RECORD,
+			 "permissions"),
+	{	.name = NULL, }
+};
+
+struct test_suite suite__PERF_RECORD = {
+	.desc = "PERF_RECORD_* events & perf_sample fields",
+	.test_cases = tests__PERF_RECORD,
+};

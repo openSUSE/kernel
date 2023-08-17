@@ -11,7 +11,7 @@
 
 #define PCIECAR			0x000010
 #define PCIECCTLR		0x000018
-#define  CONFIG_SEND_ENABLE	BIT(31)
+#define  PCIECCTLR_CCIE		BIT(31)
 #define  TYPE0			(0 << 8)
 #define  TYPE1			BIT(8)
 #define PCIECDR			0x000020
@@ -85,6 +85,13 @@
 #define  LTSMDIS		BIT(31)
 #define  MACCTLR_INIT_VAL	(LTSMDIS | MACCTLR_NFTS_MASK)
 #define PMSR			0x01105c
+#define  L1FAEG			BIT(31)
+#define  PMEL1RX		BIT(23)
+#define  PMSTATE		GENMASK(18, 16)
+#define  PMSTATE_L1		(3 << 16)
+#define PMCTLR			0x011060
+#define  L1IATN			BIT(31)
+
 #define MACS2R			0x011078
 #define MACCGSPSETR		0x011084
 #define  SPCNGRSN		BIT(31)

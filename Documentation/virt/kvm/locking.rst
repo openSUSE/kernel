@@ -9,6 +9,8 @@ KVM Lock Overview
 
 The acquisition orders for mutexes are as follows:
 
+- cpus_read_lock() is taken outside kvm_lock
+
 - kvm->lock is taken outside vcpu->mutex
 
 - kvm->lock is taken outside kvm->slots_lock and kvm->irq_lock
@@ -16,14 +18,30 @@ The acquisition orders for mutexes are as follows:
 - kvm->slots_lock is taken outside kvm->irq_lock, though acquiring
   them together is quite rare.
 
-- Unlike kvm->slots_lock, kvm->slots_arch_lock is released before
-  synchronize_srcu(&kvm->srcu).  Therefore kvm->slots_arch_lock
-  can be taken inside a kvm->srcu read-side critical section,
-  while kvm->slots_lock cannot.
+- kvm->mn_active_invalidate_count ensures that pairs of
+  invalidate_range_start() and invalidate_range_end() callbacks
+  use the same memslots array.  kvm->slots_lock and kvm->slots_arch_lock
+  are taken on the waiting side when modifying memslots, so MMU notifiers
+  must not take either kvm->slots_lock or kvm->slots_arch_lock.
+
+For SRCU:
+
+- ``synchronize_srcu(&kvm->srcu)`` is called inside critical sections
+  for kvm->lock, vcpu->mutex and kvm->slots_lock.  These locks _cannot_
+  be taken inside a kvm->srcu read-side critical section; that is, the
+  following is broken::
+
+      srcu_read_lock(&kvm->srcu);
+      mutex_lock(&kvm->slots_lock);
+
+- kvm->slots_arch_lock instead is released before the call to
+  ``synchronize_srcu()``.  It _can_ therefore be taken inside a
+  kvm->srcu read-side critical section, for example while processing
+  a vmexit.
 
 On x86:
 
-- vcpu->mutex is taken outside kvm->arch.hyperv.hv_lock
+- vcpu->mutex is taken outside kvm->arch.hyperv.hv_lock and kvm->arch.xen.xen_lock
 
 - kvm->arch.mmu_lock is an rwlock.  kvm->arch.tdp_mmu_pages_lock and
   kvm->arch.mmu_unsync_pages_lock are taken inside kvm->arch.mmu_lock, and
@@ -204,32 +222,42 @@ time it will be set using the Dirty tracking mechanism described above.
 3. Reference
 ------------
 
-:Name:		kvm_lock
+``kvm_lock``
+^^^^^^^^^^^^
+
 :Type:		mutex
 :Arch:		any
 :Protects:	- vm_list
+		- kvm_usage_count
+		- hardware virtualization enable/disable
+:Comment:	KVM also disables CPU hotplug via cpus_read_lock() during
+		enable/disable.
 
-:Name:		kvm_count_lock
+``kvm->mn_invalidate_lock``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+:Type:          spinlock_t
+:Arch:          any
+:Protects:      mn_active_invalidate_count, mn_memslots_update_rcuwait
+
+``kvm_arch::tsc_write_lock``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 :Type:		raw_spinlock_t
-:Arch:		any
-:Protects:	- hardware virtualization enable/disable
-:Comment:	'raw' because hardware enabling/disabling must be atomic /wrt
-		migration.
-
-:Name:		kvm_arch::tsc_write_lock
-:Type:		raw_spinlock
 :Arch:		x86
 :Protects:	- kvm_arch::{last_tsc_write,last_tsc_nsec,last_tsc_offset}
 		- tsc offset in vmcb
 :Comment:	'raw' because updating the tsc offsets must not be preempted.
 
-:Name:		kvm->mmu_lock
-:Type:		spinlock_t
+``kvm->mmu_lock``
+^^^^^^^^^^^^^^^^^
+:Type:		spinlock_t or rwlock_t
 :Arch:		any
 :Protects:	-shadow page/shadow tlb entry
 :Comment:	it is a spinlock since it is used in mmu notifier.
 
-:Name:		kvm->srcu
+``kvm->srcu``
+^^^^^^^^^^^^^
 :Type:		srcu lock
 :Arch:		any
 :Protects:	- kvm->memslots
@@ -240,10 +268,20 @@ time it will be set using the Dirty tracking mechanism described above.
 		The srcu index can be stored in kvm_vcpu->srcu_idx per vcpu
 		if it is needed by multiple functions.
 
-:Name:		blocked_vcpu_on_cpu_lock
+``kvm->slots_arch_lock``
+^^^^^^^^^^^^^^^^^^^^^^^^
+:Type:          mutex
+:Arch:          any (only needed on x86 though)
+:Protects:      any arch-specific fields of memslots that have to be modified
+                in a ``kvm->srcu`` read-side critical section.
+:Comment:       must be held before reading the pointer to the current memslots,
+                until after all changes to the memslots are complete
+
+``wakeup_vcpus_on_cpu_lock``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 :Type:		spinlock_t
 :Arch:		x86
-:Protects:	blocked_vcpu_on_cpu
+:Protects:	wakeup_vcpus_on_cpu
 :Comment:	This is a per-CPU lock and it is used for VT-d posted-interrupts.
 		When VT-d posted-interrupts is supported and the VM has assigned
 		devices, we put the blocked vCPU on the list blocked_vcpu_on_cpu
@@ -251,3 +289,13 @@ time it will be set using the Dirty tracking mechanism described above.
 		wakeup notification event since external interrupts from the
 		assigned devices happens, we will find the vCPU on the list to
 		wakeup.
+
+``vendor_module_lock``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+:Type:		mutex
+:Arch:		x86
+:Protects:	loading a vendor module (kvm_amd or kvm_intel)
+:Comment:	Exists because using kvm_lock leads to deadlock.  cpu_hotplug_lock is
+    taken outside of kvm_lock, e.g. in KVM's CPU online/offline callbacks, and
+    many operations need to take cpu_hotplug_lock when loading a vendor module,
+    e.g. updating static calls.

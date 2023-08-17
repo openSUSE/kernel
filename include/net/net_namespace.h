@@ -23,9 +23,11 @@
 #include <net/netns/ieee802154_6lowpan.h>
 #include <net/netns/sctp.h>
 #include <net/netns/netfilter.h>
-#include <net/netns/x_tables.h>
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 #include <net/netns/conntrack.h>
+#endif
+#if IS_ENABLED(CONFIG_NF_FLOW_TABLE)
+#include <net/netns/flow_table.h>
 #endif
 #include <net/netns/nftables.h>
 #include <net/netns/xfrm.h>
@@ -34,6 +36,8 @@
 #include <net/netns/xdp.h>
 #include <net/netns/smc.h>
 #include <net/netns/bpf.h>
+#include <net/netns/mctp.h>
+#include <net/net_trackers.h>
 #include <linux/ns_common.h>
 #include <linux/idr.h>
 #include <linux/skbuff.h>
@@ -62,7 +66,7 @@ struct net {
 						 */
 	spinlock_t		rules_mod_lock;
 
-	unsigned int		dev_unreg_count;
+	atomic_t		dev_unreg_count;
 
 	unsigned int		dev_base_seq;	/* protected by rtnl_mutex */
 	int			ifindex;
@@ -87,7 +91,10 @@ struct net {
 	struct idr		netns_ids;
 
 	struct ns_common	ns;
-
+	struct ref_tracker_dir  refcnt_tracker;
+	struct ref_tracker_dir  notrefcnt_tracker; /* tracker for objects not
+						    * refcounted against netns
+						    */
 	struct list_head 	dev_base_head;
 	struct proc_dir_entry 	*proc_net;
 	struct proc_dir_entry 	*proc_net_stat;
@@ -118,7 +125,9 @@ struct net {
 	struct netns_core	core;
 	struct netns_mib	mib;
 	struct netns_packet	packet;
+#if IS_ENABLED(CONFIG_UNIX)
 	struct netns_unix	unx;
+#endif
 	struct netns_nexthop	nexthop;
 	struct netns_ipv4	ipv4;
 #if IS_ENABLED(CONFIG_IPV6)
@@ -132,12 +141,14 @@ struct net {
 #endif
 #ifdef CONFIG_NETFILTER
 	struct netns_nf		nf;
-	struct netns_xt		xt;
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 	struct netns_ct		ct;
 #endif
 #if defined(CONFIG_NF_TABLES) || defined(CONFIG_NF_TABLES_MODULE)
 	struct netns_nftables	nft;
+#endif
+#if IS_ENABLED(CONFIG_NF_FLOW_TABLE)
+	struct netns_ft ft;
 #endif
 #endif
 #ifdef CONFIG_WEXT_CORE
@@ -166,6 +177,9 @@ struct net {
 #endif
 #ifdef CONFIG_XDP_SOCKETS
 	struct netns_xdp	xdp;
+#endif
+#if IS_ENABLED(CONFIG_MCTP)
+	struct netns_mctp	mctp;
 #endif
 #if IS_ENABLED(CONFIG_CRYPTO_USER)
 	struct sock		*crypto_nlsk;
@@ -238,6 +252,7 @@ void ipx_unregister_sysctl(void);
 #ifdef CONFIG_NET_NS
 void __put_net(struct net *net);
 
+/* Try using get_net_track() instead */
 static inline struct net *get_net(struct net *net)
 {
 	refcount_inc(&net->ns.count);
@@ -256,6 +271,7 @@ static inline struct net *maybe_get_net(struct net *net)
 	return net;
 }
 
+/* Try using put_net_track() instead */
 static inline void put_net(struct net *net)
 {
 	if (refcount_dec_and_test(&net->ns.count))
@@ -305,6 +321,48 @@ static inline int check_net(const struct net *net)
 #define net_drop_ns NULL
 #endif
 
+
+static inline void __netns_tracker_alloc(struct net *net,
+					 netns_tracker *tracker,
+					 bool refcounted,
+					 gfp_t gfp)
+{
+#ifdef CONFIG_NET_NS_REFCNT_TRACKER
+	ref_tracker_alloc(refcounted ? &net->refcnt_tracker :
+				       &net->notrefcnt_tracker,
+			  tracker, gfp);
+#endif
+}
+
+static inline void netns_tracker_alloc(struct net *net, netns_tracker *tracker,
+				       gfp_t gfp)
+{
+	__netns_tracker_alloc(net, tracker, true, gfp);
+}
+
+static inline void __netns_tracker_free(struct net *net,
+					netns_tracker *tracker,
+					bool refcounted)
+{
+#ifdef CONFIG_NET_NS_REFCNT_TRACKER
+       ref_tracker_free(refcounted ? &net->refcnt_tracker :
+				     &net->notrefcnt_tracker, tracker);
+#endif
+}
+
+static inline struct net *get_net_track(struct net *net,
+					netns_tracker *tracker, gfp_t gfp)
+{
+	get_net(net);
+	netns_tracker_alloc(net, tracker, gfp);
+	return net;
+}
+
+static inline void put_net_track(struct net *net, netns_tracker *tracker)
+{
+	__netns_tracker_free(net, tracker, true);
+	put_net(net);
+}
 
 typedef struct {
 #ifdef CONFIG_NET_NS
@@ -476,5 +534,11 @@ static inline void fnhe_genid_bump(struct net *net)
 {
 	atomic_inc(&net->fnhe_genid);
 }
+
+#ifdef CONFIG_NET
+void net_ns_init(void);
+#else
+static inline void net_ns_init(void) {}
+#endif
 
 #endif /* __NET_NET_NAMESPACE_H */

@@ -159,9 +159,6 @@ struct net_device *alloc_ieee80211(int sizeof_priv)
 		ieee->last_packet_time[i] = 0;
 	}
 
-/* These function were added to load crypte module autoly */
-	ieee80211_tkip_null();
-
 	return dev;
 
  failed:
@@ -276,7 +273,7 @@ int __init ieee80211_debug_init(void)
 	return 0;
 }
 
-void __exit ieee80211_debug_exit(void)
+void ieee80211_debug_exit(void)
 {
 	if (ieee80211_proc) {
 		remove_proc_entry("debug_level", ieee80211_proc);

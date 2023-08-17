@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
 %YAML 1.2
 ---
-$id: "http://devicetree.org/schemas/phy/phy-cadence-torrent.yaml#"
-$schema: "http://devicetree.org/meta-schemas/core.yaml#"
+$id: http://devicetree.org/schemas/phy/phy-cadence-torrent.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Cadence Torrent SD0801 PHY binding
+title: Cadence Torrent SD0801 PHY
 
 description:
   This binding describes the Cadence SD0801 PHY (also known as Torrent PHY)
@@ -43,12 +43,6 @@ properties:
     items:
       - const: refclk
       - const: phy_en_refclk
-
-  assigned-clocks:
-    maxItems: 3
-
-  assigned-clock-parents:
-    maxItems: 3
 
   reg:
     minItems: 1
@@ -202,7 +196,7 @@ examples:
                 #phy-cells = <0>;
                 cdns,phy-type = <PHY_TYPE_PCIE>;
                 cdns,num-lanes = <2>;
-                cdns,ssc-mode = <TORRENT_SERDES_NO_SSC>;
+                cdns,ssc-mode = <CDNS_SERDES_NO_SSC>;
             };
 
             phy@2 {
@@ -211,7 +205,7 @@ examples:
                 #phy-cells = <0>;
                 cdns,phy-type = <PHY_TYPE_SGMII>;
                 cdns,num-lanes = <1>;
-                cdns,ssc-mode = <TORRENT_SERDES_NO_SSC>;
+                cdns,ssc-mode = <CDNS_SERDES_NO_SSC>;
             };
         };
     };

@@ -3,7 +3,7 @@
  * Microchip / Atmel ECC (I2C) driver.
  *
  * Copyright (c) 2017, Microchip Technology Inc.
- * Author: Tudor Ambarus <tudor.ambarus@microchip.com>
+ * Author: Tudor Ambarus
  */
 
 #include <linux/delay.h>
@@ -311,13 +311,12 @@ static struct kpp_alg atmel_ecdh_nist_p256 = {
 	},
 };
 
-static int atmel_ecc_probe(struct i2c_client *client,
-			   const struct i2c_device_id *id)
+static int atmel_ecc_probe(struct i2c_client *client)
 {
 	struct atmel_i2c_client_priv *i2c_priv;
 	int ret;
 
-	ret = atmel_i2c_probe(client, id);
+	ret = atmel_i2c_probe(client);
 	if (ret)
 		return ret;
 
@@ -343,14 +342,22 @@ static int atmel_ecc_probe(struct i2c_client *client,
 	return ret;
 }
 
-static int atmel_ecc_remove(struct i2c_client *client)
+static void atmel_ecc_remove(struct i2c_client *client)
 {
 	struct atmel_i2c_client_priv *i2c_priv = i2c_get_clientdata(client);
 
 	/* Return EBUSY if i2c client already allocated. */
 	if (atomic_read(&i2c_priv->tfm_count)) {
-		dev_err(&client->dev, "Device is busy\n");
-		return -EBUSY;
+		/*
+		 * After we return here, the memory backing the device is freed.
+		 * That happens no matter what the return value of this function
+		 * is because in the Linux device model there is no error
+		 * handling for unbinding a driver.
+		 * If there is still some action pending, it probably involves
+		 * accessing the freed memory.
+		 */
+		dev_emerg(&client->dev, "Device is busy, expect memory corruption.\n");
+		return;
 	}
 
 	crypto_unregister_kpp(&atmel_ecdh_nist_p256);
@@ -358,8 +365,6 @@ static int atmel_ecc_remove(struct i2c_client *client)
 	spin_lock(&driver_data.i2c_list_lock);
 	list_del(&i2c_priv->i2c_client_list_node);
 	spin_unlock(&driver_data.i2c_list_lock);
-
-	return 0;
 }
 
 #ifdef CONFIG_OF
@@ -384,7 +389,7 @@ static struct i2c_driver atmel_ecc_driver = {
 		.name	= "atmel-ecc",
 		.of_match_table = of_match_ptr(atmel_ecc_dt_ids),
 	},
-	.probe		= atmel_ecc_probe,
+	.probe_new	= atmel_ecc_probe,
 	.remove		= atmel_ecc_remove,
 	.id_table	= atmel_ecc_id,
 };
@@ -398,13 +403,13 @@ static int __init atmel_ecc_init(void)
 
 static void __exit atmel_ecc_exit(void)
 {
-	flush_scheduled_work();
+	atmel_i2c_flush_queue();
 	i2c_del_driver(&atmel_ecc_driver);
 }
 
 module_init(atmel_ecc_init);
 module_exit(atmel_ecc_exit);
 
-MODULE_AUTHOR("Tudor Ambarus <tudor.ambarus@microchip.com>");
+MODULE_AUTHOR("Tudor Ambarus");
 MODULE_DESCRIPTION("Microchip / Atmel ECC (I2C) driver");
 MODULE_LICENSE("GPL v2");

@@ -117,8 +117,7 @@ static struct tps6105x_platform_data *tps6105x_parse_dt(struct device *dev)
 	return pdata;
 }
 
-static int tps6105x_probe(struct i2c_client *client,
-			const struct i2c_device_id *id)
+static int tps6105x_probe(struct i2c_client *client)
 {
 	struct tps6105x			*tps6105x;
 	struct tps6105x_platform_data	*pdata;
@@ -179,7 +178,7 @@ static int tps6105x_probe(struct i2c_client *client,
 	return ret;
 }
 
-static int tps6105x_remove(struct i2c_client *client)
+static void tps6105x_remove(struct i2c_client *client)
 {
 	struct tps6105x *tps6105x = i2c_get_clientdata(client);
 
@@ -189,8 +188,6 @@ static int tps6105x_remove(struct i2c_client *client)
 	regmap_update_bits(tps6105x->regmap, TPS6105X_REG_0,
 		TPS6105X_REG0_MODE_MASK,
 		TPS6105X_MODE_SHUTDOWN << TPS6105X_REG0_MODE_SHIFT);
-
-	return 0;
 }
 
 static const struct i2c_device_id tps6105x_id[] = {
@@ -212,7 +209,7 @@ static struct i2c_driver tps6105x_driver = {
 		.name	= "tps6105x",
 		.of_match_table = tps6105x_of_match,
 	},
-	.probe		= tps6105x_probe,
+	.probe_new	= tps6105x_probe,
 	.remove		= tps6105x_remove,
 	.id_table	= tps6105x_id,
 };

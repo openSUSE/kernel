@@ -68,16 +68,6 @@ enum btc_chip_interface {
 	BTC_INTF_MAX
 };
 
-enum {
-	BTC_CHIP_UNDEF		= 0,
-	BTC_CHIP_CSR_BC4	= 1,
-	BTC_CHIP_CSR_BC8	= 2,
-	BTC_CHIP_RTL8723A	= 3,
-	BTC_CHIP_RTL8821	= 4,
-	BTC_CHIP_RTL8723B	= 5,
-	BTC_CHIP_MAX
-};
-
 /*  following is for wifi link status */
 #define WIFI_STA_CONNECTED				BIT0
 #define WIFI_AP_CONNECTED				BIT1
@@ -85,13 +75,8 @@ enum {
 #define WIFI_P2P_GO_CONNECTED			BIT3
 #define WIFI_P2P_GC_CONNECTED			BIT4
 
-/*  following is for command line utility */
-#define CL_SPRINTF	snprintf
-#define CL_PRINTF	DCMD_Printf
-
 struct btc_board_info {
 	/*  The following is some board information */
-	u8 btChipType;
 	u8 pgAntNum;	/*  pg ant number */
 	u8 btdmAntNum;	/*  ant number for btdm */
 	u8 btdmAntPos;		/* Bryant Add to indicate Antenna Position for (pgAntNum = 2) && (btdmAntNum = 1)  (DPDT+1Ant case) */
@@ -384,7 +369,6 @@ struct btc_coexist {
 	bool bInitilized;
 	bool bStopCoexDm;
 	bool bManualControl;
-	u8 *cliBuf;
 	struct btc_statistics statistics;
 	u8 pwrModeVal[10];
 
@@ -408,8 +392,6 @@ struct btc_coexist {
 
 	/*  fill h2c related */
 	BFP_BTC_FILL_H2C fBtcFillH2c;
-	/*  other */
-	BFP_BTC_DISP_DBG_MSG fBtcDispDbgMsg;
 	/*  normal get/set related */
 	BFP_BTC_GET fBtcGet;
 	BFP_BTC_SET fBtcSet;
@@ -440,6 +422,5 @@ void EXhalbtcoutsrc_Periodical(struct btc_coexist *pBtCoexist);
 void EXhalbtcoutsrc_SetChipType(u8 chipType);
 void EXhalbtcoutsrc_SetAntNum(u8 type, u8 antNum);
 void EXhalbtcoutsrc_SetSingleAntPath(u8 singleAntPath);
-void EXhalbtcoutsrc_DisplayBtCoexInfo(struct btc_coexist *pBtCoexist);
 
 #endif

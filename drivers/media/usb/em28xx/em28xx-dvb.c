@@ -16,10 +16,6 @@
 // Based on cx88-dvb, saa7134-dvb and videobuf-dvb originally written by:
 //	(c) 2004, 2005 Chris Pascoe <c.pascoe@itee.uq.edu.au>
 //	(c) 2004 Gerd Knorr <kraxel@bytesex.org> [SuSE Labs]
-//
-// This program is free software; you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation version 2 of the License.
 
 #include "em28xx.h"
 
@@ -1208,6 +1204,12 @@ static int em28178_dvb_init_pctv_461e(struct em28xx *dev)
 
 	/* attach SEC */
 	a8293_pdata.dvb_frontend = dvb->fe[0];
+	/*
+	 * 461e has a tendency to have vIN undervoltage troubles.
+	 * Slew mitigates this.
+	 */
+	a8293_pdata.volt_slew_nanos_per_mv = 20;
+
 	dvb->i2c_client_sec = dvb_module_probe("a8293", NULL,
 					       &dev->i2c_adap[dev->def_i2c_bus],
 					       0x08, &a8293_pdata);

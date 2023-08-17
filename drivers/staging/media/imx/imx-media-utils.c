@@ -432,15 +432,15 @@ int imx_media_init_cfg(struct v4l2_subdev *sd,
 		       struct v4l2_subdev_state *sd_state)
 {
 	struct v4l2_mbus_framefmt *mf_try;
-	struct v4l2_subdev_format format;
 	unsigned int pad;
 	int ret;
 
 	for (pad = 0; pad < sd->entity.num_pads; pad++) {
-		memset(&format, 0, sizeof(format));
+		struct v4l2_subdev_format format = {
+			.pad = pad,
+			.which = V4L2_SUBDEV_FORMAT_ACTIVE,
+		};
 
-		format.pad = pad;
-		format.which = V4L2_SUBDEV_FORMAT_ACTIVE;
 		ret = v4l2_subdev_call(sd, pad, get_fmt, NULL, &format);
 		if (ret)
 			continue;
@@ -569,48 +569,6 @@ int imx_media_mbus_fmt_to_pix_fmt(struct v4l2_pix_format *pix,
 }
 EXPORT_SYMBOL_GPL(imx_media_mbus_fmt_to_pix_fmt);
 
-int imx_media_mbus_fmt_to_ipu_image(struct ipu_image *image,
-				    const struct v4l2_mbus_framefmt *mbus)
-{
-	int ret;
-
-	memset(image, 0, sizeof(*image));
-
-	ret = imx_media_mbus_fmt_to_pix_fmt(&image->pix, mbus, NULL);
-	if (ret)
-		return ret;
-
-	image->rect.width = mbus->width;
-	image->rect.height = mbus->height;
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(imx_media_mbus_fmt_to_ipu_image);
-
-int imx_media_ipu_image_to_mbus_fmt(struct v4l2_mbus_framefmt *mbus,
-				    const struct ipu_image *image)
-{
-	const struct imx_media_pixfmt *fmt;
-
-	fmt = imx_media_find_pixel_format(image->pix.pixelformat,
-					  PIXFMT_SEL_ANY);
-	if (!fmt || !fmt->codes || !fmt->codes[0])
-		return -EINVAL;
-
-	memset(mbus, 0, sizeof(*mbus));
-	mbus->width = image->pix.width;
-	mbus->height = image->pix.height;
-	mbus->code = fmt->codes[0];
-	mbus->field = image->pix.field;
-	mbus->colorspace = image->pix.colorspace;
-	mbus->xfer_func = image->pix.xfer_func;
-	mbus->ycbcr_enc = image->pix.ycbcr_enc;
-	mbus->quantization = image->pix.quantization;
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(imx_media_ipu_image_to_mbus_fmt);
-
 void imx_media_free_dma_buf(struct device *dev,
 			    struct imx_media_dma_buf *buf)
 {
@@ -668,36 +626,6 @@ void imx_media_grp_id_to_sd_name(char *sd_name, int sz, u32 grp_id, int ipu_id)
 }
 EXPORT_SYMBOL_GPL(imx_media_grp_id_to_sd_name);
 
-struct v4l2_subdev *
-imx_media_find_subdev_by_fwnode(struct imx_media_dev *imxmd,
-				struct fwnode_handle *fwnode)
-{
-	struct v4l2_subdev *sd;
-
-	list_for_each_entry(sd, &imxmd->v4l2_dev.subdevs, list) {
-		if (sd->fwnode == fwnode)
-			return sd;
-	}
-
-	return NULL;
-}
-EXPORT_SYMBOL_GPL(imx_media_find_subdev_by_fwnode);
-
-struct v4l2_subdev *
-imx_media_find_subdev_by_devname(struct imx_media_dev *imxmd,
-				 const char *devname)
-{
-	struct v4l2_subdev *sd;
-
-	list_for_each_entry(sd, &imxmd->v4l2_dev.subdevs, list) {
-		if (!strcmp(devname, dev_name(sd->dev)))
-			return sd;
-	}
-
-	return NULL;
-}
-EXPORT_SYMBOL_GPL(imx_media_find_subdev_by_devname);
-
 /*
  * Adds a video device to the master video device list. This is called
  * when a video device is registered.
@@ -740,7 +668,7 @@ imx_media_pipeline_pad(struct media_entity *start_entity, u32 grp_id,
 		    (!upstream && !(spad->flags & MEDIA_PAD_FL_SOURCE)))
 			continue;
 
-		pad = media_entity_remote_pad(spad);
+		pad = media_pad_remote_pad_first(spad);
 		if (!pad)
 			continue;
 
@@ -799,25 +727,6 @@ find_pipeline_entity(struct media_entity *start, u32 grp_id,
 }
 
 /*
- * Find the upstream mipi-csi2 virtual channel reached from the given
- * start entity in the current pipeline.
- * Must be called with mdev->graph_mutex held.
- */
-int imx_media_pipeline_csi2_channel(struct media_entity *start_entity)
-{
-	struct media_pad *pad;
-	int ret = -EPIPE;
-
-	pad = imx_media_pipeline_pad(start_entity, IMX_MEDIA_GRP_ID_CSI2,
-				     0, true);
-	if (pad)
-		ret = pad->index - 1;
-
-	return ret;
-}
-EXPORT_SYMBOL_GPL(imx_media_pipeline_csi2_channel);
-
-/*
  * Find a subdev reached upstream from the given start entity in
  * the current pipeline.
  * Must be called with mdev->graph_mutex held.
@@ -837,58 +746,6 @@ imx_media_pipeline_subdev(struct media_entity *start_entity, u32 grp_id,
 EXPORT_SYMBOL_GPL(imx_media_pipeline_subdev);
 
 /*
- * Find a subdev reached upstream from the given start entity in
- * the current pipeline.
- * Must be called with mdev->graph_mutex held.
- */
-struct video_device *
-imx_media_pipeline_video_device(struct media_entity *start_entity,
-				enum v4l2_buf_type buftype, bool upstream)
-{
-	struct media_entity *me;
-
-	me = find_pipeline_entity(start_entity, 0, buftype, upstream);
-	if (!me)
-		return ERR_PTR(-ENODEV);
-
-	return media_entity_to_video_device(me);
-}
-EXPORT_SYMBOL_GPL(imx_media_pipeline_video_device);
-
-/*
- * Find a fwnode endpoint that maps to the given subdevice's pad.
- * If there are multiple endpoints that map to the pad, only the
- * first endpoint encountered is returned.
- *
- * On success the refcount of the returned fwnode endpoint is
- * incremented.
- */
-struct fwnode_handle *imx_media_get_pad_fwnode(struct media_pad *pad)
-{
-	struct fwnode_handle *endpoint;
-	struct v4l2_subdev *sd;
-
-	if (!is_media_entity_v4l2_subdev(pad->entity))
-		return ERR_PTR(-ENODEV);
-
-	sd = media_entity_to_v4l2_subdev(pad->entity);
-
-	fwnode_graph_for_each_endpoint(dev_fwnode(sd->dev), endpoint) {
-		int pad_idx = media_entity_get_fwnode_pad(&sd->entity,
-							  endpoint,
-							  pad->flags);
-		if (pad_idx < 0)
-			continue;
-
-		if (pad_idx == pad->index)
-			return endpoint;
-	}
-
-	return ERR_PTR(-ENODEV);
-}
-EXPORT_SYMBOL_GPL(imx_media_get_pad_fwnode);
-
-/*
  * Turn current pipeline streaming on/off starting from entity.
  */
 int imx_media_pipeline_set_stream(struct imx_media_dev *imxmd,
@@ -905,16 +762,16 @@ int imx_media_pipeline_set_stream(struct imx_media_dev *imxmd,
 	mutex_lock(&imxmd->md.graph_mutex);
 
 	if (on) {
-		ret = __media_pipeline_start(entity, &imxmd->pipe);
+		ret = __media_pipeline_start(entity->pads, &imxmd->pipe);
 		if (ret)
 			goto out;
 		ret = v4l2_subdev_call(sd, video, s_stream, 1);
 		if (ret)
-			__media_pipeline_stop(entity);
+			__media_pipeline_stop(entity->pads);
 	} else {
 		v4l2_subdev_call(sd, video, s_stream, 0);
-		if (entity->pipe)
-			__media_pipeline_stop(entity);
+		if (media_pad_pipeline(entity->pads))
+			__media_pipeline_stop(entity->pads);
 	}
 
 out:

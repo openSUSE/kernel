@@ -16,8 +16,10 @@
 #include <linux/dma-direction.h>
 #include <linux/dma-mapping.h>
 #include <linux/page-flags.h>
-#include <linux/mm.h> /* for __put_page() */
+#include <linux/mm.h> /* for put_page() */
 #include <linux/poison.h>
+#include <linux/ethtool.h>
+#include <linux/netdevice.h>
 
 #include <trace/events/page_pool.h>
 
@@ -25,6 +27,135 @@
 #define DEFER_WARN_INTERVAL (60 * HZ)
 
 #define BIAS_MAX	LONG_MAX
+
+#ifdef CONFIG_PAGE_POOL_STATS
+/* alloc_stat_inc is intended to be used in softirq context */
+#define alloc_stat_inc(pool, __stat)	(pool->alloc_stats.__stat++)
+/* recycle_stat_inc is safe to use when preemption is possible. */
+#define recycle_stat_inc(pool, __stat)							\
+	do {										\
+		struct page_pool_recycle_stats __percpu *s = pool->recycle_stats;	\
+		this_cpu_inc(s->__stat);						\
+	} while (0)
+
+#define recycle_stat_add(pool, __stat, val)						\
+	do {										\
+		struct page_pool_recycle_stats __percpu *s = pool->recycle_stats;	\
+		this_cpu_add(s->__stat, val);						\
+	} while (0)
+
+static const char pp_stats[][ETH_GSTRING_LEN] = {
+	"rx_pp_alloc_fast",
+	"rx_pp_alloc_slow",
+	"rx_pp_alloc_slow_ho",
+	"rx_pp_alloc_empty",
+	"rx_pp_alloc_refill",
+	"rx_pp_alloc_waive",
+	"rx_pp_recycle_cached",
+	"rx_pp_recycle_cache_full",
+	"rx_pp_recycle_ring",
+	"rx_pp_recycle_ring_full",
+	"rx_pp_recycle_released_ref",
+};
+
+bool page_pool_get_stats(struct page_pool *pool,
+			 struct page_pool_stats *stats)
+{
+	int cpu = 0;
+
+	if (!stats)
+		return false;
+
+	/* The caller is responsible to initialize stats. */
+	stats->alloc_stats.fast += pool->alloc_stats.fast;
+	stats->alloc_stats.slow += pool->alloc_stats.slow;
+	stats->alloc_stats.slow_high_order += pool->alloc_stats.slow_high_order;
+	stats->alloc_stats.empty += pool->alloc_stats.empty;
+	stats->alloc_stats.refill += pool->alloc_stats.refill;
+	stats->alloc_stats.waive += pool->alloc_stats.waive;
+
+	for_each_possible_cpu(cpu) {
+		const struct page_pool_recycle_stats *pcpu =
+			per_cpu_ptr(pool->recycle_stats, cpu);
+
+		stats->recycle_stats.cached += pcpu->cached;
+		stats->recycle_stats.cache_full += pcpu->cache_full;
+		stats->recycle_stats.ring += pcpu->ring;
+		stats->recycle_stats.ring_full += pcpu->ring_full;
+		stats->recycle_stats.released_refcnt += pcpu->released_refcnt;
+	}
+
+	return true;
+}
+EXPORT_SYMBOL(page_pool_get_stats);
+
+u8 *page_pool_ethtool_stats_get_strings(u8 *data)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(pp_stats); i++) {
+		memcpy(data, pp_stats[i], ETH_GSTRING_LEN);
+		data += ETH_GSTRING_LEN;
+	}
+
+	return data;
+}
+EXPORT_SYMBOL(page_pool_ethtool_stats_get_strings);
+
+int page_pool_ethtool_stats_get_count(void)
+{
+	return ARRAY_SIZE(pp_stats);
+}
+EXPORT_SYMBOL(page_pool_ethtool_stats_get_count);
+
+u64 *page_pool_ethtool_stats_get(u64 *data, void *stats)
+{
+	struct page_pool_stats *pool_stats = stats;
+
+	*data++ = pool_stats->alloc_stats.fast;
+	*data++ = pool_stats->alloc_stats.slow;
+	*data++ = pool_stats->alloc_stats.slow_high_order;
+	*data++ = pool_stats->alloc_stats.empty;
+	*data++ = pool_stats->alloc_stats.refill;
+	*data++ = pool_stats->alloc_stats.waive;
+	*data++ = pool_stats->recycle_stats.cached;
+	*data++ = pool_stats->recycle_stats.cache_full;
+	*data++ = pool_stats->recycle_stats.ring;
+	*data++ = pool_stats->recycle_stats.ring_full;
+	*data++ = pool_stats->recycle_stats.released_refcnt;
+
+	return data;
+}
+EXPORT_SYMBOL(page_pool_ethtool_stats_get);
+
+#else
+#define alloc_stat_inc(pool, __stat)
+#define recycle_stat_inc(pool, __stat)
+#define recycle_stat_add(pool, __stat, val)
+#endif
+
+static bool page_pool_producer_lock(struct page_pool *pool)
+	__acquires(&pool->ring.producer_lock)
+{
+	bool in_softirq = in_softirq();
+
+	if (in_softirq)
+		spin_lock(&pool->ring.producer_lock);
+	else
+		spin_lock_bh(&pool->ring.producer_lock);
+
+	return in_softirq;
+}
+
+static void page_pool_producer_unlock(struct page_pool *pool,
+				      bool in_softirq)
+	__releases(&pool->ring.producer_lock)
+{
+	if (in_softirq)
+		spin_unlock(&pool->ring.producer_lock);
+	else
+		spin_unlock_bh(&pool->ring.producer_lock);
+}
 
 static int page_pool_init(struct page_pool *pool,
 			  const struct page_pool_params *params)
@@ -73,6 +204,12 @@ static int page_pool_init(struct page_pool *pool,
 	    pool->p.flags & PP_FLAG_PAGE_FRAG)
 		return -EINVAL;
 
+#ifdef CONFIG_PAGE_POOL_STATS
+	pool->recycle_stats = alloc_percpu(struct page_pool_recycle_stats);
+	if (!pool->recycle_stats)
+		return -ENOMEM;
+#endif
+
 	if (ptr_ring_init(&pool->ring, ring_qsize, GFP_KERNEL) < 0)
 		return -ENOMEM;
 
@@ -117,8 +254,10 @@ static struct page *page_pool_refill_alloc_cache(struct page_pool *pool)
 	int pref_nid; /* preferred NUMA node */
 
 	/* Quicker fallback, avoid locks when ring is empty */
-	if (__ptr_ring_empty(r))
+	if (__ptr_ring_empty(r)) {
+		alloc_stat_inc(pool, empty);
 		return NULL;
+	}
 
 	/* Softirq guarantee CPU and thus NUMA node is stable. This,
 	 * assumes CPU refilling driver RX-ring will also run RX-NAPI.
@@ -129,9 +268,6 @@ static struct page *page_pool_refill_alloc_cache(struct page_pool *pool)
 	/* Ignore pool->p.nid setting if !CONFIG_NUMA, helps compiler */
 	pref_nid = numa_mem_id(); /* will be zero like page_to_nid() */
 #endif
-
-	/* Slower-path: Get pages from locked ring queue */
-	spin_lock(&r->consumer_lock);
 
 	/* Refill alloc array, but only if NUMA match */
 	do {
@@ -148,16 +284,18 @@ static struct page *page_pool_refill_alloc_cache(struct page_pool *pool)
 			 * This limit stress on page buddy alloactor.
 			 */
 			page_pool_return_page(pool, page);
+			alloc_stat_inc(pool, waive);
 			page = NULL;
 			break;
 		}
 	} while (pool->alloc.count < PP_ALLOC_CACHE_REFILL);
 
 	/* Return last page */
-	if (likely(pool->alloc.count > 0))
+	if (likely(pool->alloc.count > 0)) {
 		page = pool->alloc.cache[--pool->alloc.count];
+		alloc_stat_inc(pool, refill);
+	}
 
-	spin_unlock(&r->consumer_lock);
 	return page;
 }
 
@@ -170,6 +308,7 @@ static struct page *__page_pool_get_cached(struct page_pool *pool)
 	if (likely(pool->alloc.count)) {
 		/* Fast-path */
 		page = pool->alloc.cache[--pool->alloc.count];
+		alloc_stat_inc(pool, fast);
 	} else {
 		page = page_pool_refill_alloc_cache(pool);
 	}
@@ -200,7 +339,8 @@ static bool page_pool_dma_map(struct page_pool *pool, struct page *page)
 	 */
 	dma = dma_map_page_attrs(pool->p.dev, page, 0,
 				 (PAGE_SIZE << pool->p.order),
-				 pool->p.dma_dir, DMA_ATTR_SKIP_CPU_SYNC);
+				 pool->p.dma_dir, DMA_ATTR_SKIP_CPU_SYNC |
+						  DMA_ATTR_WEAK_ORDERING);
 	if (dma_mapping_error(pool->p.dev, dma))
 		return false;
 
@@ -243,6 +383,7 @@ static struct page *__page_pool_alloc_page_order(struct page_pool *pool,
 		return NULL;
 	}
 
+	alloc_stat_inc(pool, slow_high_order);
 	page_pool_set_pp_info(pool, page);
 
 	/* Track how many pages are held 'in-flight' */
@@ -273,7 +414,8 @@ static struct page *__page_pool_alloc_pages_slow(struct page_pool *pool,
 	/* Mark empty alloc.cache slots "empty" for alloc_pages_bulk_array */
 	memset(&pool->alloc.cache, 0, sizeof(void *) * bulk);
 
-	nr_pages = alloc_pages_bulk_array(gfp, bulk, pool->alloc.cache);
+	nr_pages = alloc_pages_bulk_array_node(gfp, pool->p.nid, bulk,
+					       pool->alloc.cache);
 	if (unlikely(!nr_pages))
 		return NULL;
 
@@ -297,10 +439,12 @@ static struct page *__page_pool_alloc_pages_slow(struct page_pool *pool,
 	}
 
 	/* Return last page */
-	if (likely(pool->alloc.count > 0))
+	if (likely(pool->alloc.count > 0)) {
 		page = pool->alloc.cache[--pool->alloc.count];
-	else
+		alloc_stat_inc(pool, slow);
+	} else {
 		page = NULL;
+	}
 
 	/* When page just alloc'ed is should/must have refcnt 1. */
 	return page;
@@ -364,7 +508,7 @@ void page_pool_release_page(struct page_pool *pool, struct page *page)
 	/* When page is unmapped, it cannot be returned to our pool */
 	dma_unmap_page_attrs(pool->p.dev, dma,
 			     PAGE_SIZE << pool->p.order, pool->p.dma_dir,
-			     DMA_ATTR_SKIP_CPU_SYNC);
+			     DMA_ATTR_SKIP_CPU_SYNC | DMA_ATTR_WEAK_ORDERING);
 	page_pool_set_dma_addr(page, 0);
 skip_dma_unmap:
 	page_pool_clear_pp_info(page);
@@ -372,7 +516,7 @@ skip_dma_unmap:
 	/* This may be the last page returned, releasing the pool, so
 	 * it is not safe to reference pool afterwards.
 	 */
-	count = atomic_inc_return(&pool->pages_state_release_cnt);
+	count = atomic_inc_return_relaxed(&pool->pages_state_release_cnt);
 	trace_page_pool_state_release(pool, page, count);
 }
 EXPORT_SYMBOL(page_pool_release_page);
@@ -392,13 +536,18 @@ static void page_pool_return_page(struct page_pool *pool, struct page *page)
 static bool page_pool_recycle_in_ring(struct page_pool *pool, struct page *page)
 {
 	int ret;
-	/* BH protection not needed if current is serving softirq */
-	if (in_serving_softirq())
+	/* BH protection not needed if current is softirq */
+	if (in_softirq())
 		ret = ptr_ring_produce(&pool->ring, page);
 	else
 		ret = ptr_ring_produce_bh(&pool->ring, page);
 
-	return (ret == 0) ? true : false;
+	if (!ret) {
+		recycle_stat_inc(pool, ring);
+		return true;
+	}
+
+	return false;
 }
 
 /* Only allow direct recycling in special circumstances, into the
@@ -409,11 +558,14 @@ static bool page_pool_recycle_in_ring(struct page_pool *pool, struct page *page)
 static bool page_pool_recycle_in_cache(struct page *page,
 				       struct page_pool *pool)
 {
-	if (unlikely(pool->alloc.count == PP_ALLOC_CACHE_SIZE))
+	if (unlikely(pool->alloc.count == PP_ALLOC_CACHE_SIZE)) {
+		recycle_stat_inc(pool, cache_full);
 		return false;
+	}
 
 	/* Caller MUST have verified/know (page_ref_count(page) == 1) */
 	pool->alloc.cache[pool->alloc.count++] = page;
+	recycle_stat_inc(pool, cached);
 	return true;
 }
 
@@ -427,11 +579,6 @@ static __always_inline struct page *
 __page_pool_put_page(struct page_pool *pool, struct page *page,
 		     unsigned int dma_sync_size, bool allow_direct)
 {
-	/* It is not the last user for the page frag case */
-	if (pool->p.flags & PP_FLAG_PAGE_FRAG &&
-	    page_pool_atomic_sub_frag_count_return(page, 1))
-		return NULL;
-
 	/* This allocator is optimized for the XDP mode that uses
 	 * one-frame-per-page, but have fallbacks that act like the
 	 * regular page allocator APIs.
@@ -448,7 +595,7 @@ __page_pool_put_page(struct page_pool *pool, struct page *page,
 			page_pool_dma_sync_for_device(pool, page,
 						      dma_sync_size);
 
-		if (allow_direct && in_serving_softirq() &&
+		if (allow_direct && in_softirq() &&
 		    page_pool_recycle_in_cache(page, pool))
 			return NULL;
 
@@ -468,6 +615,7 @@ __page_pool_put_page(struct page_pool *pool, struct page *page,
 	 * doing refcnt based recycle tricks, meaning another process
 	 * will be invoking put_page.
 	 */
+	recycle_stat_inc(pool, released_refcnt);
 	/* Do not replace this with page_pool_return_page() */
 	page_pool_release_page(pool, page);
 	put_page(page);
@@ -475,25 +623,31 @@ __page_pool_put_page(struct page_pool *pool, struct page *page,
 	return NULL;
 }
 
-void page_pool_put_page(struct page_pool *pool, struct page *page,
-			unsigned int dma_sync_size, bool allow_direct)
+void page_pool_put_defragged_page(struct page_pool *pool, struct page *page,
+				  unsigned int dma_sync_size, bool allow_direct)
 {
 	page = __page_pool_put_page(pool, page, dma_sync_size, allow_direct);
 	if (page && !page_pool_recycle_in_ring(pool, page)) {
 		/* Cache full, fallback to free pages */
+		recycle_stat_inc(pool, ring_full);
 		page_pool_return_page(pool, page);
 	}
 }
-EXPORT_SYMBOL(page_pool_put_page);
+EXPORT_SYMBOL(page_pool_put_defragged_page);
 
 /* Caller must not use data area after call, as this function overwrites it */
 void page_pool_put_page_bulk(struct page_pool *pool, void **data,
 			     int count)
 {
 	int i, bulk_len = 0;
+	bool in_softirq;
 
 	for (i = 0; i < count; i++) {
 		struct page *page = virt_to_head_page(data[i]);
+
+		/* It is not the last user for the page frag case */
+		if (!page_pool_is_last_frag(pool, page))
+			continue;
 
 		page = __page_pool_put_page(pool, page, -1, false);
 		/* Approved for bulk recycling in ptr_ring cache */
@@ -505,12 +659,16 @@ void page_pool_put_page_bulk(struct page_pool *pool, void **data,
 		return;
 
 	/* Bulk producer into ptr_ring page_pool cache */
-	page_pool_ring_lock(pool);
+	in_softirq = page_pool_producer_lock(pool);
 	for (i = 0; i < bulk_len; i++) {
-		if (__ptr_ring_produce(&pool->ring, data[i]))
-			break; /* ring full */
+		if (__ptr_ring_produce(&pool->ring, data[i])) {
+			/* ring full */
+			recycle_stat_inc(pool, ring_full);
+			break;
+		}
 	}
-	page_pool_ring_unlock(pool);
+	recycle_stat_add(pool, ring, i);
+	page_pool_producer_unlock(pool, in_softirq);
 
 	/* Hopefully all pages was return into ptr_ring */
 	if (likely(i == bulk_len))
@@ -530,8 +688,7 @@ static struct page *page_pool_drain_frag(struct page_pool *pool,
 	long drain_count = BIAS_MAX - pool->frag_users;
 
 	/* Some user is still using the page frag */
-	if (likely(page_pool_atomic_sub_frag_count_return(page,
-							  drain_count)))
+	if (likely(page_pool_defrag_page(page, drain_count)))
 		return NULL;
 
 	if (page_ref_count(page) == 1 && !page_is_pfmemalloc(page)) {
@@ -552,8 +709,7 @@ static void page_pool_free_frag(struct page_pool *pool)
 
 	pool->frag_page = NULL;
 
-	if (!page ||
-	    page_pool_atomic_sub_frag_count_return(page, drain_count))
+	if (!page || page_pool_defrag_page(page, drain_count))
 		return;
 
 	page_pool_return_page(pool, page);
@@ -575,8 +731,10 @@ struct page *page_pool_alloc_frag(struct page_pool *pool,
 
 	if (page && *offset + size > max_size) {
 		page = page_pool_drain_frag(pool, page);
-		if (page)
+		if (page) {
+			alloc_stat_inc(pool, fast);
 			goto frag_reset;
+		}
 	}
 
 	if (!page) {
@@ -592,12 +750,13 @@ frag_reset:
 		pool->frag_users = 1;
 		*offset = 0;
 		pool->frag_offset = size;
-		page_pool_set_frag_count(page, BIAS_MAX);
+		page_pool_fragment_page(page, BIAS_MAX);
 		return page;
 	}
 
 	pool->frag_users++;
 	pool->frag_offset = *offset + size;
+	alloc_stat_inc(pool, fast);
 	return page;
 }
 EXPORT_SYMBOL(page_pool_alloc_frag);
@@ -627,6 +786,9 @@ static void page_pool_free(struct page_pool *pool)
 	if (pool->p.flags & PP_FLAG_DMA_MAP)
 		put_device(pool->p.dev);
 
+#ifdef CONFIG_PAGE_POOL_STATS
+	free_percpu(pool->recycle_stats);
+#endif
 	kfree(pool);
 }
 
@@ -701,6 +863,21 @@ void page_pool_use_xdp_mem(struct page_pool *pool, void (*disconnect)(void *),
 	pool->xdp_mem_id = mem->id;
 }
 
+void page_pool_unlink_napi(struct page_pool *pool)
+{
+	if (!pool->p.napi)
+		return;
+
+	/* To avoid races with recycling and additional barriers make sure
+	 * pool and NAPI are unlinked when NAPI is disabled.
+	 */
+	WARN_ON(!test_bit(NAPI_STATE_SCHED, &pool->p.napi->state) ||
+		READ_ONCE(pool->p.napi->list_owner) != -1);
+
+	WRITE_ONCE(pool->p.napi, NULL);
+}
+EXPORT_SYMBOL(page_pool_unlink_napi);
+
 void page_pool_destroy(struct page_pool *pool)
 {
 	if (!pool)
@@ -709,6 +886,7 @@ void page_pool_destroy(struct page_pool *pool)
 	if (!page_pool_put(pool))
 		return;
 
+	page_pool_unlink_napi(pool);
 	page_pool_free_frag(pool);
 
 	if (!page_pool_release(pool))
@@ -738,9 +916,11 @@ void page_pool_update_nid(struct page_pool *pool, int new_nid)
 }
 EXPORT_SYMBOL(page_pool_update_nid);
 
-bool page_pool_return_skb_page(struct page *page)
+bool page_pool_return_skb_page(struct page *page, bool napi_safe)
 {
+	struct napi_struct *napi;
 	struct page_pool *pp;
+	bool allow_direct;
 
 	page = compound_head(page);
 
@@ -756,12 +936,20 @@ bool page_pool_return_skb_page(struct page *page)
 
 	pp = page->pp;
 
+	/* Allow direct recycle if we have reasons to believe that we are
+	 * in the same context as the consumer would run, so there's
+	 * no possible race.
+	 */
+	napi = READ_ONCE(pp->p.napi);
+	allow_direct = napi_safe && napi &&
+		READ_ONCE(napi->list_owner) == smp_processor_id();
+
 	/* Driver set this to memory recycling info. Reset it on recycle.
 	 * This will *not* work for NIC using a split-page memory model.
 	 * The page will be returned to the pool here regardless of the
 	 * 'flipped' fragment being in use or not.
 	 */
-	page_pool_put_full_page(pp, page, false);
+	page_pool_put_full_page(pp, page, allow_direct);
 
 	return true;
 }

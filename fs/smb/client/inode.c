@@ -50,7 +50,7 @@ static void cifs_set_ops(struct inode *inode)
 			inode->i_fop = &cifs_file_ops;
 		}
 
-		/* check if server can support readpages */
+		/* check if server can support readahead */
 		if (cifs_sb_master_tcon(cifs_sb)->ses->server->max_read <
 				PAGE_SIZE + MAX_CIFS_HDR_SIZE)
 			inode->i_data.a_ops = &cifs_addr_ops_smallbuf;
@@ -84,6 +84,7 @@ static void cifs_set_ops(struct inode *inode)
 static void
 cifs_revalidate_cache(struct inode *inode, struct cifs_fattr *fattr)
 {
+	struct cifs_fscache_inode_coherency_data cd;
 	struct cifsInodeInfo *cifs_i = CIFS_I(inode);
 
 	cifs_dbg(FYI, "%s: revalidating inode %llu\n",
@@ -114,6 +115,9 @@ cifs_revalidate_cache(struct inode *inode, struct cifs_fattr *fattr)
 	cifs_dbg(FYI, "%s: invalidating inode %llu mapping\n",
 		 __func__, cifs_i->uniqueid);
 	set_bit(CIFS_INO_INVALID_MAPPING, &cifs_i->flags);
+	/* Invalidate fscache cookie */
+	cifs_fscache_fill_coherency(&cifs_i->netfs.inode, &cd);
+	fscache_invalidate(cifs_inode_cookie(inode), &cd, i_size_read(inode), 0);
 }
 
 /*
@@ -1908,7 +1912,7 @@ posix_mkdir_get_info:
 }
 #endif /* CONFIG_CIFS_ALLOW_INSECURE_LEGACY */
 
-int cifs_mkdir(struct user_namespace *mnt_userns, struct inode *inode,
+int cifs_mkdir(struct mnt_idmap *idmap, struct inode *inode,
 	       struct dentry *direntry, umode_t mode)
 {
 	int rc = 0;
@@ -2137,7 +2141,7 @@ do_rename_exit:
 }
 
 int
-cifs_rename2(struct user_namespace *mnt_userns, struct inode *source_dir,
+cifs_rename2(struct mnt_idmap *idmap, struct inode *source_dir,
 	     struct dentry *source_dentry, struct inode *target_dir,
 	     struct dentry *target_dentry, unsigned int flags)
 {
@@ -2335,19 +2339,15 @@ cifs_dentry_needs_reval(struct dentry *dentry)
 int
 cifs_invalidate_mapping(struct inode *inode)
 {
-	struct cifs_fscache_inode_coherency_data cd;
-	struct cifsInodeInfo *cifsi = CIFS_I(inode);
 	int rc = 0;
 
 	if (inode->i_mapping && inode->i_mapping->nrpages != 0) {
 		rc = invalidate_inode_pages2(inode->i_mapping);
 		if (rc)
-			cifs_dbg(VFS, "%s: invalidate inode %p failed with rc %d\n",
-				 __func__, inode, rc);
+			cifs_dbg(VFS, "%s: Could not invalidate inode %p\n",
+				 __func__, inode);
 	}
 
-	cifs_fscache_fill_coherency(&cifsi->vfs_inode, &cd);
-	fscache_invalidate(cifs_inode_cookie(inode), &cd, i_size_read(inode), 0);
 	return rc;
 }
 
@@ -2360,7 +2360,7 @@ cifs_invalidate_mapping(struct inode *inode)
 static int
 cifs_wait_bit_killable(struct wait_bit_key *key, int mode)
 {
-	freezable_schedule_unsafe();
+	schedule();
 	if (signal_pending_state(mode, current))
 		return -ERESTARTSYS;
 	return 0;
@@ -2371,22 +2371,28 @@ cifs_revalidate_mapping(struct inode *inode)
 {
 	int rc;
 	unsigned long *flags = &CIFS_I(inode)->flags;
+	struct cifs_sb_info *cifs_sb = CIFS_SB(inode->i_sb);
 
 	/* swapfiles are not supposed to be shared */
 	if (IS_SWAPFILE(inode))
 		return 0;
 
 	rc = wait_on_bit_lock_action(flags, CIFS_INO_LOCK, cifs_wait_bit_killable,
-				     TASK_KILLABLE);
+				     TASK_KILLABLE|TASK_FREEZABLE_UNSAFE);
 	if (rc)
 		return rc;
 
 	if (test_and_clear_bit(CIFS_INO_INVALID_MAPPING, flags)) {
+		/* for cache=singleclient, do not invalidate */
+		if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_RW_CACHE)
+			goto skip_invalidate;
+
 		rc = cifs_invalidate_mapping(inode);
 		if (rc)
 			set_bit(CIFS_INO_INVALID_MAPPING, flags);
 	}
 
+skip_invalidate:
 	clear_bit_unlock(CIFS_INO_LOCK, flags);
 	smp_mb__after_atomic();
 	wake_up_bit(flags, CIFS_INO_LOCK);
@@ -2493,7 +2499,7 @@ int cifs_revalidate_dentry(struct dentry *dentry)
 	return cifs_revalidate_mapping(inode);
 }
 
-int cifs_getattr(struct user_namespace *mnt_userns, const struct path *path,
+int cifs_getattr(struct mnt_idmap *idmap, const struct path *path,
 		 struct kstat *stat, u32 request_mask, unsigned int flags)
 {
 	struct dentry *dentry = path->dentry;
@@ -2534,7 +2540,7 @@ int cifs_getattr(struct user_namespace *mnt_userns, const struct path *path,
 			return rc;
 	}
 
-	generic_fillattr(&init_user_ns, inode, stat);
+	generic_fillattr(&nop_mnt_idmap, inode, stat);
 	stat->blksize = cifs_sb->ctx->bsize;
 	stat->ino = CIFS_I(inode)->uniqueid;
 
@@ -2571,7 +2577,7 @@ int cifs_fiemap(struct inode *inode, struct fiemap_extent_info *fei, u64 start,
 		u64 len)
 {
 	struct cifsInodeInfo *cifs_i = CIFS_I(inode);
-	struct cifs_sb_info *cifs_sb = CIFS_SB(cifs_i->vfs_inode.i_sb);
+	struct cifs_sb_info *cifs_sb = CIFS_SB(cifs_i->netfs.inode.i_sb);
 	struct cifs_tcon *tcon = cifs_sb_master_tcon(cifs_sb);
 	struct TCP_Server_Info *server = tcon->ses->server;
 	struct cifsFileInfo *cfile;
@@ -2749,7 +2755,7 @@ cifs_setattr_unix(struct dentry *direntry, struct iattr *attrs)
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_NO_PERM)
 		attrs->ia_valid |= ATTR_FORCE;
 
-	rc = setattr_prepare(&init_user_ns, direntry, attrs);
+	rc = setattr_prepare(&nop_mnt_idmap, direntry, attrs);
 	if (rc < 0)
 		goto out;
 
@@ -2856,7 +2862,7 @@ cifs_setattr_unix(struct dentry *direntry, struct iattr *attrs)
 		fscache_resize_cookie(cifs_inode_cookie(inode), attrs->ia_size);
 	}
 
-	setattr_copy(&init_user_ns, inode, attrs);
+	setattr_copy(&nop_mnt_idmap, inode, attrs);
 	mark_inode_dirty(inode);
 
 	/* force revalidate when any of these times are set since some
@@ -2900,7 +2906,7 @@ cifs_setattr_nounix(struct dentry *direntry, struct iattr *attrs)
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_NO_PERM)
 		attrs->ia_valid |= ATTR_FORCE;
 
-	rc = setattr_prepare(&init_user_ns, direntry, attrs);
+	rc = setattr_prepare(&nop_mnt_idmap, direntry, attrs);
 	if (rc < 0)
 		goto cifs_setattr_exit;
 
@@ -3055,7 +3061,7 @@ cifs_setattr_nounix(struct dentry *direntry, struct iattr *attrs)
 		fscache_resize_cookie(cifs_inode_cookie(inode), attrs->ia_size);
 	}
 
-	setattr_copy(&init_user_ns, inode, attrs);
+	setattr_copy(&nop_mnt_idmap, inode, attrs);
 	mark_inode_dirty(inode);
 
 cifs_setattr_exit:
@@ -3065,7 +3071,7 @@ cifs_setattr_exit:
 }
 
 int
-cifs_setattr(struct user_namespace *mnt_userns, struct dentry *direntry,
+cifs_setattr(struct mnt_idmap *idmap, struct dentry *direntry,
 	     struct iattr *attrs)
 {
 	struct cifs_sb_info *cifs_sb = CIFS_SB(direntry->d_sb);

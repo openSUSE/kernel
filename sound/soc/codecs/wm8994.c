@@ -4619,7 +4619,6 @@ static const struct snd_soc_component_driver soc_component_dev_wm8994 = {
 	.idle_bias_on		= 1,
 	.use_pmdown_time	= 1,
 	.endianness		= 1,
-	.non_legacy_dai_naming	= 1,
 };
 
 static int wm8994_probe(struct platform_device *pdev)
@@ -4658,11 +4657,9 @@ static int wm8994_probe(struct platform_device *pdev)
 	return ret;
 }
 
-static int wm8994_remove(struct platform_device *pdev)
+static void wm8994_remove(struct platform_device *pdev)
 {
 	pm_runtime_disable(&pdev->dev);
-
-	return 0;
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -4702,7 +4699,7 @@ static struct platform_driver wm8994_codec_driver = {
 		.pm = &wm8994_pm_ops,
 	},
 	.probe = wm8994_probe,
-	.remove = wm8994_remove,
+	.remove_new = wm8994_remove,
 };
 
 module_platform_driver(wm8994_codec_driver);

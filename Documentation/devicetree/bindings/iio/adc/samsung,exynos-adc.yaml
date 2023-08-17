@@ -52,7 +52,7 @@ properties:
   vdd-supply: true
 
   samsung,syscon-phandle:
-    $ref: '/schemas/types.yaml#/definitions/phandle'
+    $ref: /schemas/types.yaml#/definitions/phandle
     description:
       Phandle to the PMU system controller node (to access the ADC_PHY
       register on Exynos3250/4x12/5250/5420/5800).
@@ -136,13 +136,13 @@ examples:
         samsung,syscon-phandle = <&pmu_system_controller>;
 
         /* NTC thermistor is a hwmon device */
-        ncp15wb473 {
+        thermistor {
             compatible = "murata,ncp15wb473";
             pullup-uv = <1800000>;
             pullup-ohm = <47000>;
             pulldown-ohm = <0>;
             io-channels = <&adc 4>;
-          };
+        };
     };
 
   - |
@@ -150,7 +150,7 @@ examples:
 
     adc@126c0000 {
         compatible = "samsung,exynos3250-adc";
-        reg = <0x126C0000 0x100>;
+        reg = <0x126c0000 0x100>;
         interrupts = <0 137 0>;
         #io-channel-cells = <1>;
 

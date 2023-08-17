@@ -12,13 +12,53 @@
 #define _PCIE_DESIGNWARE_H
 
 #include <linux/bitfield.h>
+#include <linux/bitops.h>
+#include <linux/clk.h>
 #include <linux/dma-mapping.h>
+#include <linux/dma/edma.h>
+#include <linux/gpio/consumer.h>
 #include <linux/irq.h>
 #include <linux/msi.h>
 #include <linux/pci.h>
+#include <linux/reset.h>
 
 #include <linux/pci-epc.h>
 #include <linux/pci-epf.h>
+
+/* DWC PCIe IP-core versions (native support since v4.70a) */
+#define DW_PCIE_VER_365A		0x3336352a
+#define DW_PCIE_VER_460A		0x3436302a
+#define DW_PCIE_VER_470A		0x3437302a
+#define DW_PCIE_VER_480A		0x3438302a
+#define DW_PCIE_VER_490A		0x3439302a
+#define DW_PCIE_VER_520A		0x3532302a
+#define DW_PCIE_VER_540A		0x3534302a
+
+#define __dw_pcie_ver_cmp(_pci, _ver, _op) \
+	((_pci)->version _op DW_PCIE_VER_ ## _ver)
+
+#define dw_pcie_ver_is(_pci, _ver) __dw_pcie_ver_cmp(_pci, _ver, ==)
+
+#define dw_pcie_ver_is_ge(_pci, _ver) __dw_pcie_ver_cmp(_pci, _ver, >=)
+
+#define dw_pcie_ver_type_is(_pci, _ver, _type) \
+	(__dw_pcie_ver_cmp(_pci, _ver, ==) && \
+	 __dw_pcie_ver_cmp(_pci, TYPE_ ## _type, ==))
+
+#define dw_pcie_ver_type_is_ge(_pci, _ver, _type) \
+	(__dw_pcie_ver_cmp(_pci, _ver, ==) && \
+	 __dw_pcie_ver_cmp(_pci, TYPE_ ## _type, >=))
+
+/* DWC PCIe controller capabilities */
+#define DW_PCIE_CAP_REQ_RES		0
+#define DW_PCIE_CAP_IATU_UNROLL		1
+#define DW_PCIE_CAP_CDM_CHECK		2
+
+#define dw_pcie_cap_is(_pci, _cap) \
+	test_bit(DW_PCIE_CAP_ ## _cap, &(_pci)->caps)
+
+#define dw_pcie_cap_set(_pci, _cap) \
+	set_bit(DW_PCIE_CAP_ ## _cap, &(_pci)->caps)
 
 /* Parameters for the waiting for link up routine */
 #define LINK_WAIT_MAX_RETRIES		10
@@ -74,13 +114,34 @@
 #define PCIE_MSI_INTR0_MASK		0x82C
 #define PCIE_MSI_INTR0_STATUS		0x830
 
+#define GEN3_RELATED_OFF			0x890
+#define GEN3_RELATED_OFF_GEN3_ZRXDC_NONCOMPL	BIT(0)
+#define GEN3_RELATED_OFF_RXEQ_RGRDLESS_RXTS	BIT(13)
+#define GEN3_RELATED_OFF_GEN3_EQ_DISABLE	BIT(16)
+#define GEN3_RELATED_OFF_RATE_SHADOW_SEL_SHIFT	24
+#define GEN3_RELATED_OFF_RATE_SHADOW_SEL_MASK	GENMASK(25, 24)
+
 #define PCIE_PORT_MULTI_LANE_CTRL	0x8C0
 #define PORT_MLTI_UPCFG_SUPPORT		BIT(7)
 
+#define PCIE_VERSION_NUMBER		0x8F8
+#define PCIE_VERSION_TYPE		0x8FC
+
+/*
+ * iATU inbound and outbound windows CSRs. Before the IP-core v4.80a each
+ * iATU region CSRs had been indirectly accessible by means of the dedicated
+ * viewport selector. The iATU/eDMA CSRs space was re-designed in DWC PCIe
+ * v4.80a in a way so the viewport was unrolled into the directly accessible
+ * iATU/eDMA CSRs space.
+ */
 #define PCIE_ATU_VIEWPORT		0x900
-#define PCIE_ATU_REGION_INBOUND		BIT(31)
-#define PCIE_ATU_REGION_OUTBOUND	0
-#define PCIE_ATU_CR1			0x904
+#define PCIE_ATU_REGION_DIR_IB		BIT(31)
+#define PCIE_ATU_REGION_DIR_OB		0
+#define PCIE_ATU_VIEWPORT_BASE		0x904
+#define PCIE_ATU_UNROLL_BASE(dir, index) \
+	(((index) << 9) | ((dir == PCIE_ATU_REGION_DIR_IB) ? BIT(8) : 0))
+#define PCIE_ATU_VIEWPORT_SIZE		0x2C
+#define PCIE_ATU_REGION_CTRL1		0x000
 #define PCIE_ATU_INCREASE_REGION_SIZE	BIT(13)
 #define PCIE_ATU_TYPE_MEM		0x0
 #define PCIE_ATU_TYPE_IO		0x2
@@ -88,25 +149,37 @@
 #define PCIE_ATU_TYPE_CFG1		0x5
 #define PCIE_ATU_TD			BIT(8)
 #define PCIE_ATU_FUNC_NUM(pf)           ((pf) << 20)
-#define PCIE_ATU_CR2			0x908
+#define PCIE_ATU_REGION_CTRL2		0x004
 #define PCIE_ATU_ENABLE			BIT(31)
 #define PCIE_ATU_BAR_MODE_ENABLE	BIT(30)
 #define PCIE_ATU_FUNC_NUM_MATCH_EN      BIT(19)
-#define PCIE_ATU_LOWER_BASE		0x90C
-#define PCIE_ATU_UPPER_BASE		0x910
-#define PCIE_ATU_LIMIT			0x914
-#define PCIE_ATU_LOWER_TARGET		0x918
+#define PCIE_ATU_LOWER_BASE		0x008
+#define PCIE_ATU_UPPER_BASE		0x00C
+#define PCIE_ATU_LIMIT			0x010
+#define PCIE_ATU_LOWER_TARGET		0x014
 #define PCIE_ATU_BUS(x)			FIELD_PREP(GENMASK(31, 24), x)
 #define PCIE_ATU_DEV(x)			FIELD_PREP(GENMASK(23, 19), x)
 #define PCIE_ATU_FUNC(x)		FIELD_PREP(GENMASK(18, 16), x)
-#define PCIE_ATU_UPPER_TARGET		0x91C
-#define PCIE_ATU_UPPER_LIMIT		0x924
+#define PCIE_ATU_UPPER_TARGET		0x018
+#define PCIE_ATU_UPPER_LIMIT		0x020
 
 #define PCIE_MISC_CONTROL_1_OFF		0x8BC
 #define PCIE_DBI_RO_WR_EN		BIT(0)
 
 #define PCIE_MSIX_DOORBELL		0x948
 #define PCIE_MSIX_DOORBELL_PF_SHIFT	24
+
+/*
+ * eDMA CSRs. DW PCIe IP-core v4.70a and older had the eDMA registers accessible
+ * over the Port Logic registers space. Afterwards the unrolled mapping was
+ * introduced so eDMA and iATU could be accessed via a dedicated registers
+ * space.
+ */
+#define PCIE_DMA_VIEWPORT_BASE		0x970
+#define PCIE_DMA_UNROLL_BASE		0x80000
+#define PCIE_DMA_CTRL			0x008
+#define PCIE_DMA_NUM_WR_CHAN		GENMASK(3, 0)
+#define PCIE_DMA_NUM_RD_CHAN		GENMASK(19, 16)
 
 #define PCIE_PL_CHK_REG_CONTROL_STATUS			0xB20
 #define PCIE_PL_CHK_REG_CHK_REG_START			BIT(0)
@@ -156,13 +229,7 @@
  * this offset, if atu_base not set.
  */
 #define DEFAULT_DBI_ATU_OFFSET (0x3 << 20)
-
-/* Register address builder */
-#define PCIE_GET_ATU_OUTB_UNR_REG_OFFSET(region) \
-		((region) << 9)
-
-#define PCIE_GET_ATU_INB_UNR_REG_OFFSET(region) \
-		(((region) << 9) | BIT(8))
+#define DEFAULT_DBI_DMA_OFFSET PCIE_DMA_UNROLL_BASE
 
 #define MAX_MSI_IRQS			256
 #define MAX_MSI_IRQS_PER_CTRL		32
@@ -174,15 +241,12 @@
 #define MAX_IATU_IN			256
 #define MAX_IATU_OUT			256
 
-struct pcie_port;
-struct dw_pcie;
-struct dw_pcie_ep;
+/* Default eDMA LLP memory size */
+#define DMA_LLP_MEM_SIZE		PAGE_SIZE
 
-enum dw_pcie_region_type {
-	DW_PCIE_REGION_UNKNOWN,
-	DW_PCIE_REGION_INBOUND,
-	DW_PCIE_REGION_OUTBOUND,
-};
+struct dw_pcie;
+struct dw_pcie_rp;
+struct dw_pcie_ep;
 
 enum dw_pcie_device_mode {
 	DW_PCIE_UNKNOWN_TYPE,
@@ -191,16 +255,48 @@ enum dw_pcie_device_mode {
 	DW_PCIE_RC_TYPE,
 };
 
-struct dw_pcie_host_ops {
-	int (*host_init)(struct pcie_port *pp);
-	int (*msi_host_init)(struct pcie_port *pp);
-#ifndef __GENKSYMS__
-	void (*host_deinit)(struct pcie_port *pp);
-#endif
+enum dw_pcie_app_clk {
+	DW_PCIE_DBI_CLK,
+	DW_PCIE_MSTR_CLK,
+	DW_PCIE_SLV_CLK,
+	DW_PCIE_NUM_APP_CLKS
 };
 
-struct pcie_port {
+enum dw_pcie_core_clk {
+	DW_PCIE_PIPE_CLK,
+	DW_PCIE_CORE_CLK,
+	DW_PCIE_AUX_CLK,
+	DW_PCIE_REF_CLK,
+	DW_PCIE_NUM_CORE_CLKS
+};
+
+enum dw_pcie_app_rst {
+	DW_PCIE_DBI_RST,
+	DW_PCIE_MSTR_RST,
+	DW_PCIE_SLV_RST,
+	DW_PCIE_NUM_APP_RSTS
+};
+
+enum dw_pcie_core_rst {
+	DW_PCIE_NON_STICKY_RST,
+	DW_PCIE_STICKY_RST,
+	DW_PCIE_CORE_RST,
+	DW_PCIE_PIPE_RST,
+	DW_PCIE_PHY_RST,
+	DW_PCIE_HOT_RST,
+	DW_PCIE_PWR_RST,
+	DW_PCIE_NUM_CORE_RSTS
+};
+
+struct dw_pcie_host_ops {
+	int (*host_init)(struct dw_pcie_rp *pp);
+	void (*host_deinit)(struct dw_pcie_rp *pp);
+	int (*msi_host_init)(struct dw_pcie_rp *pp);
+};
+
+struct dw_pcie_rp {
 	bool			has_msi_ctrl:1;
+	bool			cfg0_io_shared:1;
 	u64			cfg0_base;
 	void __iomem		*va_cfg0_base;
 	u32			cfg0_size;
@@ -209,10 +305,9 @@ struct pcie_port {
 	u32			io_size;
 	int			irq;
 	const struct dw_pcie_host_ops *ops;
-	int			msi_irq;
+	int			msi_irq[MAX_MSI_CTRLS];
 	struct irq_domain	*irq_domain;
 	struct irq_domain	*msi_domain;
-	u16			msi_msg;
 	dma_addr_t		msi_data;
 	struct irq_chip		*msi_irq_chip;
 	u32			num_vectors;
@@ -220,12 +315,6 @@ struct pcie_port {
 	struct pci_host_bridge  *bridge;
 	raw_spinlock_t		lock;
 	DECLARE_BITMAP(msi_irq_in_use, MAX_MSI_IRQS);
-};
-
-enum dw_pcie_as_type {
-	DW_PCIE_AS_UNKNOWN,
-	DW_PCIE_AS_MEM,
-	DW_PCIE_AS_IO,
 };
 
 struct dw_pcie_ep_ops {
@@ -283,26 +372,37 @@ struct dw_pcie {
 	struct device		*dev;
 	void __iomem		*dbi_base;
 	void __iomem		*dbi_base2;
-	/* Used when iatu_unroll_enabled is true */
 	void __iomem		*atu_base;
 	size_t			atu_size;
 	u32			num_ib_windows;
 	u32			num_ob_windows;
-	struct pcie_port	pp;
+	u32			region_align;
+	u64			region_limit;
+	struct dw_pcie_rp	pp;
 	struct dw_pcie_ep	ep;
 	const struct dw_pcie_ops *ops;
-	unsigned int		version;
+	u32			version;
+	u32			type;
+	unsigned long		caps;
 	int			num_lanes;
 	int			link_gen;
 	u8			n_fts[2];
-	bool			iatu_unroll_enabled: 1;
-	bool			io_cfg_atu_shared: 1;
+	struct dw_edma_chip	edma;
+	struct clk_bulk_data	app_clks[DW_PCIE_NUM_APP_CLKS];
+	struct clk_bulk_data	core_clks[DW_PCIE_NUM_CORE_CLKS];
+	struct reset_control_bulk_data	app_rsts[DW_PCIE_NUM_APP_RSTS];
+	struct reset_control_bulk_data	core_rsts[DW_PCIE_NUM_CORE_RSTS];
+	struct gpio_desc		*pe_rst;
 };
 
 #define to_dw_pcie_from_pp(port) container_of((port), struct dw_pcie, pp)
 
 #define to_dw_pcie_from_ep(endpoint)   \
 		container_of((endpoint), struct dw_pcie, ep)
+
+int dw_pcie_get_resources(struct dw_pcie *pci);
+
+void dw_pcie_version_detect(struct dw_pcie *pci);
 
 u8 dw_pcie_find_capability(struct dw_pcie *pci, u8 cap);
 u16 dw_pcie_find_ext_capability(struct dw_pcie *pci, u8 cap);
@@ -316,19 +416,19 @@ void dw_pcie_write_dbi2(struct dw_pcie *pci, u32 reg, size_t size, u32 val);
 int dw_pcie_link_up(struct dw_pcie *pci);
 void dw_pcie_upconfig_setup(struct dw_pcie *pci);
 int dw_pcie_wait_for_link(struct dw_pcie *pci);
-void dw_pcie_prog_outbound_atu(struct dw_pcie *pci, int index,
-			       int type, u64 cpu_addr, u64 pci_addr,
-			       u64 size);
-void dw_pcie_prog_ep_outbound_atu(struct dw_pcie *pci, u8 func_no, int index,
-				  int type, u64 cpu_addr, u64 pci_addr,
-				  u64 size);
-int dw_pcie_prog_inbound_atu(struct dw_pcie *pci, u8 func_no, int index,
-			     int bar, u64 cpu_addr,
-			     enum dw_pcie_as_type as_type);
-void dw_pcie_disable_atu(struct dw_pcie *pci, int index,
-			 enum dw_pcie_region_type type);
+int dw_pcie_prog_outbound_atu(struct dw_pcie *pci, int index, int type,
+			      u64 cpu_addr, u64 pci_addr, u64 size);
+int dw_pcie_prog_ep_outbound_atu(struct dw_pcie *pci, u8 func_no, int index,
+				 int type, u64 cpu_addr, u64 pci_addr, u64 size);
+int dw_pcie_prog_inbound_atu(struct dw_pcie *pci, int index, int type,
+			     u64 cpu_addr, u64 pci_addr, u64 size);
+int dw_pcie_prog_ep_inbound_atu(struct dw_pcie *pci, u8 func_no, int index,
+				int type, u64 cpu_addr, u8 bar);
+void dw_pcie_disable_atu(struct dw_pcie *pci, u32 dir, int index);
 void dw_pcie_setup(struct dw_pcie *pci);
 void dw_pcie_iatu_detect(struct dw_pcie *pci);
+int dw_pcie_edma_detect(struct dw_pcie *pci);
+void dw_pcie_edma_remove(struct dw_pcie *pci);
 
 static inline void dw_pcie_writel_dbi(struct dw_pcie *pci, u32 reg, u32 val)
 {
@@ -387,35 +487,49 @@ static inline void dw_pcie_dbi_ro_wr_dis(struct dw_pcie *pci)
 	dw_pcie_writel_dbi(pci, reg, val);
 }
 
+static inline int dw_pcie_start_link(struct dw_pcie *pci)
+{
+	if (pci->ops && pci->ops->start_link)
+		return pci->ops->start_link(pci);
+
+	return 0;
+}
+
+static inline void dw_pcie_stop_link(struct dw_pcie *pci)
+{
+	if (pci->ops && pci->ops->stop_link)
+		pci->ops->stop_link(pci);
+}
+
 #ifdef CONFIG_PCIE_DW_HOST
-irqreturn_t dw_handle_msi_irq(struct pcie_port *pp);
-void dw_pcie_setup_rc(struct pcie_port *pp);
-int dw_pcie_host_init(struct pcie_port *pp);
-int dw_pcie_host_init2(struct pcie_port *pp);
-void dw_pcie_host_deinit(struct pcie_port *pp);
-int dw_pcie_allocate_domains(struct pcie_port *pp);
+irqreturn_t dw_handle_msi_irq(struct dw_pcie_rp *pp);
+int dw_pcie_setup_rc(struct dw_pcie_rp *pp);
+int dw_pcie_host_init(struct dw_pcie_rp *pp);
+void dw_pcie_host_deinit(struct dw_pcie_rp *pp);
+int dw_pcie_allocate_domains(struct dw_pcie_rp *pp);
 void __iomem *dw_pcie_own_conf_map_bus(struct pci_bus *bus, unsigned int devfn,
 				       int where);
 #else
-static inline irqreturn_t dw_handle_msi_irq(struct pcie_port *pp)
+static inline irqreturn_t dw_handle_msi_irq(struct dw_pcie_rp *pp)
 {
 	return IRQ_NONE;
 }
 
-static inline void dw_pcie_setup_rc(struct pcie_port *pp)
-{
-}
-
-static inline int dw_pcie_host_init(struct pcie_port *pp)
+static inline int dw_pcie_setup_rc(struct dw_pcie_rp *pp)
 {
 	return 0;
 }
 
-static inline void dw_pcie_host_deinit(struct pcie_port *pp)
+static inline int dw_pcie_host_init(struct dw_pcie_rp *pp)
+{
+	return 0;
+}
+
+static inline void dw_pcie_host_deinit(struct dw_pcie_rp *pp)
 {
 }
 
-static inline int dw_pcie_allocate_domains(struct pcie_port *pp)
+static inline int dw_pcie_allocate_domains(struct dw_pcie_rp *pp)
 {
 	return 0;
 }

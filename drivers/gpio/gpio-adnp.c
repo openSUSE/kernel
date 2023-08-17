@@ -6,8 +6,9 @@
 #include <linux/gpio/driver.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
+#include <linux/mod_devicetable.h>
 #include <linux/module.h>
-#include <linux/of_irq.h>
+#include <linux/property.h>
 #include <linux/seq_file.h>
 #include <linux/slab.h>
 
@@ -306,6 +307,7 @@ static void adnp_irq_mask(struct irq_data *d)
 	unsigned int pos = d->hwirq & 7;
 
 	adnp->irq_enable[reg] &= ~BIT(pos);
+	gpiochip_disable_irq(gc, irqd_to_hwirq(d));
 }
 
 static void adnp_irq_unmask(struct irq_data *d)
@@ -315,6 +317,7 @@ static void adnp_irq_unmask(struct irq_data *d)
 	unsigned int reg = d->hwirq >> adnp->reg_shift;
 	unsigned int pos = d->hwirq & 7;
 
+	gpiochip_enable_irq(gc, irqd_to_hwirq(d));
 	adnp->irq_enable[reg] |= BIT(pos);
 }
 
@@ -371,13 +374,15 @@ static void adnp_irq_bus_unlock(struct irq_data *d)
 	mutex_unlock(&adnp->irq_lock);
 }
 
-static struct irq_chip adnp_irq_chip = {
+static const struct irq_chip adnp_irq_chip = {
 	.name = "gpio-adnp",
 	.irq_mask = adnp_irq_mask,
 	.irq_unmask = adnp_irq_unmask,
 	.irq_set_type = adnp_irq_set_type,
 	.irq_bus_lock = adnp_irq_bus_lock,
 	.irq_bus_sync_unlock = adnp_irq_bus_unlock,
+	.flags = IRQCHIP_IMMUTABLE,
+	GPIOCHIP_IRQ_RESOURCE_HELPERS,
 };
 
 static int adnp_irq_setup(struct adnp *adnp)
@@ -458,7 +463,6 @@ static int adnp_gpio_setup(struct adnp *adnp, unsigned int num_gpios,
 	chip->ngpio = num_gpios;
 	chip->label = adnp->client->name;
 	chip->parent = &adnp->client->dev;
-	chip->of_node = chip->parent->of_node;
 	chip->owner = THIS_MODULE;
 
 	if (is_irq_controller) {
@@ -469,7 +473,8 @@ static int adnp_gpio_setup(struct adnp *adnp, unsigned int num_gpios,
 			return err;
 
 		girq = &chip->irq;
-		girq->chip = &adnp_irq_chip;
+		gpio_irq_chip_set_chip(girq, &adnp_irq_chip);
+
 		/* This will let us handle the parent IRQ in the driver */
 		girq->parent_handler = NULL;
 		girq->num_parents = 0;
@@ -486,21 +491,16 @@ static int adnp_gpio_setup(struct adnp *adnp, unsigned int num_gpios,
 	return 0;
 }
 
-static int adnp_i2c_probe(struct i2c_client *client,
-				    const struct i2c_device_id *id)
+static int adnp_i2c_probe(struct i2c_client *client)
 {
-	struct device_node *np = client->dev.of_node;
+	struct device *dev = &client->dev;
 	struct adnp *adnp;
 	u32 num_gpios;
 	int err;
 
-	err = of_property_read_u32(np, "nr-gpios", &num_gpios);
+	err = device_property_read_u32(dev, "nr-gpios", &num_gpios);
 	if (err < 0)
 		return err;
-
-	client->irq = irq_of_parse_and_map(np, 0);
-	if (!client->irq)
-		return -EPROBE_DEFER;
 
 	adnp = devm_kzalloc(&client->dev, sizeof(*adnp), GFP_KERNEL);
 	if (!adnp)
@@ -509,8 +509,7 @@ static int adnp_i2c_probe(struct i2c_client *client,
 	mutex_init(&adnp->i2c_lock);
 	adnp->client = client;
 
-	err = adnp_gpio_setup(adnp, num_gpios,
-			of_property_read_bool(np, "interrupt-controller"));
+	err = adnp_gpio_setup(adnp, num_gpios, device_property_read_bool(dev, "interrupt-controller"));
 	if (err)
 		return err;
 
@@ -536,7 +535,7 @@ static struct i2c_driver adnp_i2c_driver = {
 		.name = "gpio-adnp",
 		.of_match_table = adnp_of_match,
 	},
-	.probe = adnp_i2c_probe,
+	.probe_new = adnp_i2c_probe,
 	.id_table = adnp_i2c_id,
 };
 module_i2c_driver(adnp_i2c_driver);

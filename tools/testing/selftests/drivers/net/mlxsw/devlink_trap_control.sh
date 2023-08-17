@@ -83,10 +83,12 @@ ALL_TESTS="
 	ptp_general_test
 	flow_action_sample_test
 	flow_action_trap_test
+	eapol_test
 "
 NUM_NETIFS=4
 source $lib_dir/lib.sh
 source $lib_dir/devlink_lib.sh
+source mlxsw_lib.sh
 
 h1_create()
 {
@@ -626,8 +628,7 @@ ipv6_redirect_test()
 
 ptp_event_test()
 {
-	# PTP is only supported on Spectrum-1, for now.
-	[[ "$DEVLINK_VIDDID" != "15b3:cb84" ]] && return
+	mlxsw_only_on_spectrum 1 || return
 
 	# PTP Sync (0)
 	devlink_trap_stats_test "PTP Time-Critical Event Message" "ptp_event" \
@@ -638,8 +639,7 @@ ptp_event_test()
 
 ptp_general_test()
 {
-	# PTP is only supported on Spectrum-1, for now.
-	[[ "$DEVLINK_VIDDID" != "15b3:cb84" ]] && return
+	mlxsw_only_on_spectrum 1 || return
 
 	# PTP Announce (b)
 	devlink_trap_stats_test "PTP General Message" "ptp_general" \
@@ -676,6 +676,27 @@ flow_action_trap_test()
 
 	tc filter del dev $rp1 ingress proto ip pref 1 handle 101 flower
 	tc qdisc del dev $rp1 clsact
+}
+
+eapol_payload_get()
+{
+	local source_mac=$1; shift
+	local p
+
+	p=$(:
+		)"01:80:C2:00:00:03:"$(       : ETH daddr
+		)"$source_mac:"$(             : ETH saddr
+		)"88:8E:"$(                   : ETH type
+		)
+	echo $p
+}
+
+eapol_test()
+{
+	local h1mac=$(mac_get $h1)
+
+	devlink_trap_stats_test "EAPOL" "eapol" $MZ $h1 -c 1 \
+		$(eapol_payload_get $h1mac) -p 100 -q
 }
 
 trap cleanup EXIT

@@ -102,13 +102,17 @@ there are several "locks" in mlme_priv,
 since mlme_priv is a shared resource between many threads,
 like ISR/Call-Back functions, the OID handlers, and even timer functions.
 
-
 Each struct __queue has its own locks, already.
-Other items are protected by mlme_priv.lock.
+Other items in mlme_priv are protected by mlme_priv.lock, while items in
+xmit_priv are protected by xmit_priv.lock.
 
 To avoid possible dead lock, any thread trying to modifiying mlme_priv
 SHALL not lock up more than one locks at a time!
 
+The only exception is that queue functions which take the __queue.lock
+may be called with the xmit_priv.lock held. In this case the order
+MUST always be first lock xmit_priv.lock and then call any queue functions
+which take __queue.lock.
 */
 
 
@@ -299,7 +303,6 @@ struct mlme_priv {
 	struct __queue	free_bss_pool;
 	struct __queue	scanned_queue;
 	u8 *free_bss_buf;
-	u32 num_of_scanned;
 
 	struct ndis_802_11_ssid	assoc_ssid;
 	u8 assoc_bssid[6];
@@ -445,9 +448,9 @@ extern signed int rtw_set_key(struct adapter *adapter, struct security_priv *pse
 extern signed int rtw_set_auth(struct adapter *adapter, struct security_priv *psecuritypriv);
 
 static inline u8 *get_bssid(struct mlme_priv *pmlmepriv)
-{	/* if sta_mode:pmlmepriv->cur_network.network.MacAddress => bssid */
-	/*  if adhoc_mode:pmlmepriv->cur_network.network.MacAddress => ibss mac address */
-	return pmlmepriv->cur_network.network.MacAddress;
+{	/* if sta_mode:pmlmepriv->cur_network.network.mac_address => bssid */
+	/*  if adhoc_mode:pmlmepriv->cur_network.network.mac_address => ibss mac address */
+	return pmlmepriv->cur_network.network.mac_address;
 }
 
 static inline signed int check_fwstate(struct mlme_priv *pmlmepriv, signed int state)
@@ -484,25 +487,6 @@ static inline void _clr_fwstate_(struct mlme_priv *pmlmepriv, signed int state)
 	/* FOR HW integration */
 	if (state == _FW_UNDER_SURVEY)
 		pmlmepriv->bScanInProcess = false;
-}
-
-/*
- * No Limit on the calling context,
- * therefore set it to be the critical section...
- */
-static inline void clr_fwstate(struct mlme_priv *pmlmepriv, signed int state)
-{
-	spin_lock_bh(&pmlmepriv->lock);
-	if (check_fwstate(pmlmepriv, state) == true)
-		pmlmepriv->fw_state ^= state;
-	spin_unlock_bh(&pmlmepriv->lock);
-}
-
-static inline void set_scanned_network_val(struct mlme_priv *pmlmepriv, signed int val)
-{
-	spin_lock_bh(&pmlmepriv->lock);
-	pmlmepriv->num_of_scanned = val;
-	spin_unlock_bh(&pmlmepriv->lock);
 }
 
 extern u16 rtw_get_capability(struct wlan_bssid_ex *bss);

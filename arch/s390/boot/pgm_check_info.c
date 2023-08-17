@@ -29,7 +29,6 @@ static char *symstart(char *p)
 	return p + 1;
 }
 
-extern char _decompressor_syms_start[], _decompressor_syms_end[];
 static noinline char *findsym(unsigned long ip, unsigned short *off, unsigned short *len)
 {
 	/* symbol entries are in a form "10000 c4 startup\0" */
@@ -124,11 +123,10 @@ out:
 	sclp_early_printk(buf);
 }
 
-static noinline void print_stacktrace(void)
+void print_stacktrace(unsigned long sp)
 {
-	struct stack_info boot_stack = { STACK_TYPE_TASK, BOOT_STACK_OFFSET,
-					 BOOT_STACK_OFFSET + BOOT_STACK_SIZE };
-	unsigned long sp = S390_lowcore.gpregs_save_area[15];
+	struct stack_info boot_stack = { STACK_TYPE_TASK, (unsigned long)_stack_start,
+					 (unsigned long)_stack_end };
 	bool first = true;
 
 	decompressor_printk("Call Trace:\n");
@@ -155,7 +153,7 @@ void print_pgm_check_info(void)
 		decompressor_printk("Kernel command line: %s\n", early_command_line);
 	decompressor_printk("Kernel fault: interruption code %04x ilc:%x\n",
 			    S390_lowcore.pgm_code, S390_lowcore.pgm_ilc >> 1);
-	if (kaslr_enabled)
+	if (kaslr_enabled())
 		decompressor_printk("Kernel random base: %lx\n", __kaslr_offset);
 	decompressor_printk("PSW : %016lx %016lx (%pS)\n",
 			    S390_lowcore.psw_save_area.mask,
@@ -174,8 +172,8 @@ void print_pgm_check_info(void)
 			    gpregs[8], gpregs[9], gpregs[10], gpregs[11]);
 	decompressor_printk("      %016lx %016lx %016lx %016lx\n",
 			    gpregs[12], gpregs[13], gpregs[14], gpregs[15]);
-	print_stacktrace();
+	print_stacktrace(S390_lowcore.gpregs_save_area[15]);
 	decompressor_printk("Last Breaking-Event-Address:\n");
-	decompressor_printk(" [<%016lx>] %pS\n", (unsigned long)S390_lowcore.breaking_event_addr,
-			    (void *)S390_lowcore.breaking_event_addr);
+	decompressor_printk(" [<%016lx>] %pS\n", (unsigned long)S390_lowcore.pgm_last_break,
+			    (void *)S390_lowcore.pgm_last_break);
 }

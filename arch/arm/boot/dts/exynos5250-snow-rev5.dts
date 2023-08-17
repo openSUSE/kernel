@@ -14,6 +14,7 @@
 	model = "Google Snow Rev 5+";
 	compatible = "google,snow-rev5", "samsung,exynos5250",
 		"samsung,exynos5";
+	chassis-type = "laptop";
 
 	sound {
 		compatible = "google,snow-audio-max98090";
@@ -26,7 +27,7 @@
 		};
 
 		codec {
-			sound-dai = <&max98090 0>, <&hdmi>;
+			sound-dai = <&max98090>, <&hdmi>;
 		};
 	};
 };
@@ -41,12 +42,12 @@
 		pinctrl-0 = <&max98090_irq>;
 		clocks = <&pmu_system_controller 0>;
 		clock-names = "mclk";
-		#sound-dai-cells = <1>;
+		#sound-dai-cells = <0>;
 	};
 };
 
 &pinctrl_0 {
-	max98090_irq: max98090-irq {
+	max98090_irq: max98090-irq-pins {
 		samsung,pins = "gpx0-4";
 		samsung,pin-function = <EXYNOS_PIN_FUNC_INPUT>;
 		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;

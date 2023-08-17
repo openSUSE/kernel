@@ -1188,7 +1188,8 @@ static int mos7840_send_cmd_write_baud_rate(struct moschip_port *mos7840_port,
  *****************************************************************************/
 
 static void mos7840_change_port_settings(struct tty_struct *tty,
-	struct moschip_port *mos7840_port, struct ktermios *old_termios)
+					 struct moschip_port *mos7840_port,
+					 const struct ktermios *old_termios)
 {
 	struct usb_serial_port *port = mos7840_port->port;
 	int baud;
@@ -1330,7 +1331,7 @@ static void mos7840_change_port_settings(struct tty_struct *tty,
 
 static void mos7840_set_termios(struct tty_struct *tty,
 				struct usb_serial_port *port,
-				struct ktermios *old_termios)
+				const struct ktermios *old_termios)
 {
 	struct moschip_port *mos7840_port = usb_get_serial_port_data(port);
 	int status;
@@ -1724,8 +1725,8 @@ static void mos7840_port_remove(struct usb_serial_port *port)
 		/* Turn off LED */
 		mos7840_set_led_sync(port, MODEM_CONTROL_REGISTER, 0x0300);
 
-		del_timer_sync(&mos7840_port->led_timer1);
-		del_timer_sync(&mos7840_port->led_timer2);
+		timer_shutdown_sync(&mos7840_port->led_timer1);
+		timer_shutdown_sync(&mos7840_port->led_timer2);
 
 		usb_kill_urb(mos7840_port->led_urb);
 		usb_free_urb(mos7840_port->led_urb);

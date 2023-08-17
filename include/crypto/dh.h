@@ -19,25 +19,6 @@
  * the KPP API function call of crypto_kpp_set_secret.
  */
 
-/** enum dh_group_id - identify well-known domain parameter sets */
-enum dh_group_id {
-	DH_GROUP_ID_UNKNOWN = 0, /* Constants are used in test vectors. */
-#ifdef CONFIG_CRYPTO_DH_GROUPS_RFC7919
-	DH_GROUP_ID_FFDHE2048 = 1,
-	DH_GROUP_ID_FFDHE3072 = 2,
-	DH_GROUP_ID_FFDHE4096 = 3,
-	DH_GROUP_ID_FFDHE6144 = 4,
-	DH_GROUP_ID_FFDHE8192 = 5,
-#endif
-#ifdef CONFIG_CRYPTO_DH_GROUPS_RFC3526
-	DH_GROUP_ID_MODP2048 = 6,
-	DH_GROUP_ID_MODP3072 = 7,
-	DH_GROUP_ID_MODP4096 = 8,
-	DH_GROUP_ID_MODP6144 = 9,
-	DH_GROUP_ID_MODP8192 = 10,
-#endif
-};
-
 /**
  * struct dh - define a DH private key
  *
@@ -49,7 +30,6 @@ enum dh_group_id {
  * @g_size:	Size of DH generator G
  */
 struct dh {
-	enum dh_group_id group_id;
 	const void *key;
 	const void *p;
 	const void *g;
@@ -99,26 +79,20 @@ int crypto_dh_encode_key(char *buf, unsigned int len, const struct dh *params);
  */
 int crypto_dh_decode_key(const char *buf, unsigned int len, struct dh *params);
 
-/*
- * The maximum key length is two times the max. sec. strength of the
- * safe-prime groups, rounded up to the next power of two.
- */
-#define CRYPTO_DH_MAX_PRIVKEY_SIZE (512 / 8)
-
 /**
- * crypto_dh_gen_privkey() - generate a DH private key
- * @buf:	The DH group to generate a key for
- * @key:	Buffer provided by the caller to receive the generated
- *		key
- * @key_size:	Pointer to an unsigned integer the generated key's length
- *		will be stored in
+ * __crypto_dh_decode_key() - decode a private key without parameter checks
+ * @buf:	Buffer holding a packet key that should be decoded
+ * @len:	Length of the packet private key buffer
+ * @params:	Buffer allocated by the caller that is filled with the
+ *		unpacked DH private key.
  *
- * This function is intended to generate an ephemeral DH key.
+ * Internal function providing the same services as the exported
+ * crypto_dh_decode_key(), but without any of those basic parameter
+ * checks conducted by the latter.
  *
- * Return:	Negative error code on failure, 0 on success
+ * Return:	-EINVAL if buffer has insufficient size, 0 on success
  */
-int crypto_dh_gen_privkey(enum dh_group_id group_id,
-			  char key[CRYPTO_DH_MAX_PRIVKEY_SIZE],
-			  unsigned int *key_size);
+int __crypto_dh_decode_key(const char *buf, unsigned int len,
+			   struct dh *params);
 
 #endif

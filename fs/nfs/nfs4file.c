@@ -32,7 +32,6 @@ nfs4_file_open(struct inode *inode, struct file *filp)
 	struct dentry *parent = NULL;
 	struct inode *dir;
 	unsigned openflags = filp->f_flags;
-	fmode_t f_mode;
 	struct iattr attr;
 	int err;
 
@@ -51,17 +50,14 @@ nfs4_file_open(struct inode *inode, struct file *filp)
 	if (err)
 		return err;
 
-	f_mode = filp->f_mode;
-	if ((openflags & O_ACCMODE) == 3)
-		f_mode |= flags_to_mode(openflags);
-
 	/* We can't create new files here */
 	openflags &= ~(O_CREAT|O_EXCL);
 
 	parent = dget_parent(dentry);
 	dir = d_inode(parent);
 
-	ctx = alloc_nfs_open_context(file_dentry(filp), f_mode, filp);
+	ctx = alloc_nfs_open_context(file_dentry(filp),
+				     flags_to_mode(openflags), filp);
 	err = PTR_ERR(ctx);
 	if (IS_ERR(ctx))
 		goto out;
@@ -93,6 +89,7 @@ nfs4_file_open(struct inode *inode, struct file *filp)
 	nfs_file_set_open_context(filp, ctx);
 	nfs_fscache_open_file(inode, filp);
 	err = 0;
+	filp->f_mode |= FMODE_CAN_ODIRECT;
 
 out_put_ctx:
 	put_nfs_open_context(ctx);
@@ -160,16 +157,14 @@ static ssize_t __nfs4_copy_file_range(struct file *file_in, loff_t pos_in,
 		sync = true;
 retry:
 	if (!nfs42_files_from_same_server(file_in, file_out)) {
-		/* for inter copy, if copy size if smaller than 12 RPC
-		 * payloads, fallback to traditional copy. There are
-		 * 14 RPCs during an NFSv4.x mount between source/dest
-		 * servers.
+		/*
+		 * for inter copy, if copy size is too small
+		 * then fallback to generic copy.
 		 */
-		if (sync ||
-			count <= 14 * NFS_SERVER(file_inode(file_in))->rsize)
+		if (sync)
 			return -EOPNOTSUPP;
 		cn_resp = kzalloc(sizeof(struct nfs42_copy_notify_res),
-				GFP_NOFS);
+				  GFP_KERNEL);
 		if (unlikely(cn_resp == NULL))
 			return -ENOMEM;
 
@@ -184,8 +179,8 @@ retry:
 	ret = nfs42_proc_copy(file_in, pos_in, file_out, pos_out, count,
 				nss, cnrs, sync);
 out:
-	if (!nfs42_files_from_same_server(file_in, file_out))
-		kfree(cn_resp);
+	kfree(cn_resp);
+
 	if (ret == -EAGAIN)
 		goto retry;
 	return ret;
@@ -330,12 +325,12 @@ static struct file *__nfs42_ssc_open(struct vfsmount *ss_mnt,
 	char *read_name = NULL;
 	int len, status = 0;
 
-	server = NFS_SERVER(ss_mnt->mnt_root->d_inode);
+	server = NFS_SB(ss_mnt->mnt_sb);
 
 	if (!fattr)
 		return ERR_PTR(-ENOMEM);
 
-	status = nfs4_proc_getattr(server, src_fh, fattr, NULL, NULL);
+	status = nfs4_proc_getattr(server, src_fh, fattr, NULL);
 	if (status < 0) {
 		res = ERR_PTR(status);
 		goto out;
@@ -348,29 +343,27 @@ static struct file *__nfs42_ssc_open(struct vfsmount *ss_mnt,
 
 	res = ERR_PTR(-ENOMEM);
 	len = strlen(SSC_READ_NAME_BODY) + 16;
-	read_name = kzalloc(len, GFP_NOFS);
+	read_name = kzalloc(len, GFP_KERNEL);
 	if (read_name == NULL)
 		goto out;
 	snprintf(read_name, len, SSC_READ_NAME_BODY, read_name_gen++);
 
-	r_ino = nfs_fhget(ss_mnt->mnt_root->d_inode->i_sb, src_fh, fattr,
-			NULL);
+	r_ino = nfs_fhget(ss_mnt->mnt_sb, src_fh, fattr);
 	if (IS_ERR(r_ino)) {
 		res = ERR_CAST(r_ino);
 		goto out_free_name;
 	}
 
-	filep = alloc_file_pseudo(r_ino, ss_mnt, read_name, FMODE_READ,
+	filep = alloc_file_pseudo(r_ino, ss_mnt, read_name, O_RDONLY,
 				     r_ino->i_fop);
 	if (IS_ERR(filep)) {
 		res = ERR_CAST(filep);
 		iput(r_ino);
 		goto out_free_name;
 	}
-	filep->f_mode |= FMODE_READ;
 
-	ctx = alloc_nfs_open_context(filep->f_path.dentry, filep->f_mode,
-					filep);
+	ctx = alloc_nfs_open_context(filep->f_path.dentry,
+				     flags_to_mode(filep->f_flags), filep);
 	if (IS_ERR(ctx)) {
 		res = ERR_CAST(ctx);
 		goto out_filep;

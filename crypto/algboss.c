@@ -67,7 +67,7 @@ out:
 	complete_all(&param->larval->completion);
 	crypto_alg_put(&param->larval->alg);
 	kfree(param);
-	module_put_and_exit(0);
+	module_put_and_kthread_exit(0);
 }
 
 static int cryptomgr_schedule_probe(struct crypto_larval *larval)
@@ -175,29 +175,23 @@ static int cryptomgr_test(void *data)
 {
 	struct crypto_test_param *param = data;
 	u32 type = param->type;
-	int err = 0;
-
-#ifdef CONFIG_CRYPTO_MANAGER_DISABLE_TESTS
-	goto skiptest;
-#endif
-
-	if (type & CRYPTO_ALG_TESTED)
-		goto skiptest;
+	int err;
 
 	err = alg_test(param->driver, param->alg, type, CRYPTO_ALG_TESTED);
 
-skiptest:
 	crypto_alg_tested(param->driver, err);
 
 	kfree(param);
-	module_put_and_exit(0);
+	module_put_and_kthread_exit(0);
 }
 
 static int cryptomgr_schedule_test(struct crypto_alg *alg)
 {
 	struct task_struct *thread;
 	struct crypto_test_param *param;
-	u32 type;
+
+	if (IS_ENABLED(CONFIG_CRYPTO_MANAGER_DISABLE_TESTS))
+		return NOTIFY_DONE;
 
 	if (!try_module_get(THIS_MODULE))
 		goto err;
@@ -208,13 +202,7 @@ static int cryptomgr_schedule_test(struct crypto_alg *alg)
 
 	memcpy(param->driver, alg->cra_driver_name, sizeof(param->driver));
 	memcpy(param->alg, alg->cra_name, sizeof(param->alg));
-	type = alg->cra_flags;
-
-	/* Do not test internal algorithms. */
-	if (type & CRYPTO_ALG_INTERNAL)
-		type |= CRYPTO_ALG_TESTED;
-
-	param->type = type;
+	param->type = alg->cra_flags;
 
 	thread = kthread_run(cryptomgr_test, param, "cryptomgr_test");
 	if (IS_ERR(thread))

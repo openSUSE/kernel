@@ -56,12 +56,30 @@
 		};
 	};
 
-	gpu@0,57000000 {
+	gpu@57000000 {
 		/*
 		 * Node left disabled on purpose - the bootloader will enable
 		 * it after having set the VPR up
 		 */
 		vdd-supply = <&reg_vdd_gpu>;
+	};
+
+	gpio@6000d000 {
+		/* I210 Gigabit Ethernet Controller Reset */
+		lan-reset-n-hog {
+			gpio-hog;
+			gpios = <TEGRA_GPIO(S, 2) GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "LAN_RESET_N";
+		};
+
+		/* Control MXM3 pin 26 Reset Module Output Carrier Input */
+		reset-moci-ctrl-hog {
+			gpio-hog;
+			gpios = <TEGRA_GPIO(U, 4) GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "RESET_MOCI_CTRL";
+		};
 	};
 
 	pinmux@70000868 {
@@ -1532,14 +1550,17 @@
 
 	serial@70006040 {
 		compatible = "nvidia,tegra124-hsuart", "nvidia,tegra30-hsuart";
+		/delete-property/ reg-shift;
 	};
 
 	serial@70006200 {
 		compatible = "nvidia,tegra124-hsuart", "nvidia,tegra30-hsuart";
+		/delete-property/ reg-shift;
 	};
 
 	serial@70006300 {
 		compatible = "nvidia,tegra124-hsuart", "nvidia,tegra30-hsuart";
+		/delete-property/ reg-shift;
 	};
 
 	hdmi_ddc: i2c@7000c400 {
@@ -1575,17 +1596,17 @@
 			pinctrl-0 = <&as3722_default>;
 
 			as3722_default: pinmux {
+				gpio0-1-3-4-5-6 {
+					pins = "gpio0", "gpio1", "gpio3",
+					       "gpio4", "gpio5", "gpio6";
+					bias-high-impedance;
+				};
+
 				gpio2-7 {
 					pins = "gpio2", /* PWR_EN_+V3.3 */
 					       "gpio7"; /* +V1.6_LPO */
 					function = "gpio";
 					bias-pull-up;
-				};
-
-				gpio0-1-3-4-5-6 {
-					pins = "gpio0", "gpio1", "gpio3",
-					       "gpio4", "gpio5", "gpio6";
-					bias-high-impedance;
 				};
 			};
 
@@ -1744,7 +1765,7 @@
 			compatible = "ti,tmp451";
 			reg = <0x4c>;
 			interrupt-parent = <&gpio>;
-			interrupts = <TEGRA_GPIO(I, 6) IRQ_TYPE_LEVEL_LOW>;
+			interrupts = <TEGRA_GPIO(I, 6) IRQ_TYPE_EDGE_FALLING>;
 			#thermal-sensor-cells = <1>;
 			vcc-supply = <&reg_module_3v3>;
 		};
@@ -1877,6 +1898,7 @@
 			usb2-0 {
 				status = "okay";
 				mode = "otg";
+				usb-role-switch;
 				vbus-supply = <&reg_usbo1_vbus>;
 			};
 
@@ -1931,16 +1953,16 @@
 		};
 	};
 
-	clk32k_in: osc3 {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <32768>;
-	};
-
 	cpus {
 		cpu@0 {
 			vdd-cpu-supply = <&reg_vdd_cpu>;
 		};
+	};
+
+	clk32k_in: osc3 {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <32768>;
 	};
 
 	reg_1v05_avdd_hdmi_pll: regulator-1v05-avdd-hdmi-pll {
@@ -2013,7 +2035,7 @@
 	};
 
 	thermal-zones {
-		cpu {
+		cpu-thermal {
 			trips {
 				cpu-shutdown-trip {
 					temperature = <101000>;
@@ -2023,7 +2045,7 @@
 			};
 		};
 
-		mem {
+		mem-thermal {
 			trips {
 				mem-shutdown-trip {
 					temperature = <101000>;
@@ -2033,7 +2055,7 @@
 			};
 		};
 
-		gpu {
+		gpu-thermal {
 			trips {
 				gpu-shutdown-trip {
 					temperature = <101000>;
@@ -2042,23 +2064,5 @@
 				};
 			};
 		};
-	};
-};
-
-&gpio {
-	/* I210 Gigabit Ethernet Controller Reset */
-	lan-reset-n {
-		gpio-hog;
-		gpios = <TEGRA_GPIO(S, 2) GPIO_ACTIVE_HIGH>;
-		output-high;
-		line-name = "LAN_RESET_N";
-	};
-
-	/* Control MXM3 pin 26 Reset Module Output Carrier Input */
-	reset-moci-ctrl {
-		gpio-hog;
-		gpios = <TEGRA_GPIO(U, 4) GPIO_ACTIVE_HIGH>;
-		output-high;
-		line-name = "RESET_MOCI_CTRL";
 	};
 };

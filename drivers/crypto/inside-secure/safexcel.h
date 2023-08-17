@@ -497,15 +497,15 @@ struct result_data_desc {
 	u32 packet_length:17;
 	u32 error_code:15;
 
-	u8 bypass_length:4;
-	u8 e15:1;
-	u16 rsvd0;
-	u8 hash_bytes:1;
-	u8 hash_length:6;
-	u8 generic_bytes:1;
-	u8 checksum:1;
-	u8 next_header:1;
-	u8 length:1;
+	u32 bypass_length:4;
+	u32 e15:1;
+	u32 rsvd0:16;
+	u32 hash_bytes:1;
+	u32 hash_length:6;
+	u32 generic_bytes:1;
+	u32 checksum:1;
+	u32 next_header:1;
+	u32 length:1;
 
 	u16 application_id;
 	u16 rsvd1;
@@ -730,7 +730,13 @@ enum safexcel_eip_version {
 	EIP97IES_MRVL,
 	EIP197B_MRVL,
 	EIP197D_MRVL,
-	EIP197_DEVBRD
+	EIP197_DEVBRD,
+	EIP197C_MXL,
+};
+
+struct safexcel_priv_data {
+	enum safexcel_eip_version version;
+	bool fw_little_endian;
 };
 
 /* Priority we use for advertising our algorithms */
@@ -815,7 +821,7 @@ struct safexcel_crypto_priv {
 	struct clk *reg_clk;
 	struct safexcel_config config;
 
-	enum safexcel_eip_version version;
+	struct safexcel_priv_data *data;
 	struct safexcel_register_offsets offsets;
 	struct safexcel_hwconfig hwconfig;
 	u32 flags;
@@ -878,11 +884,6 @@ struct safexcel_alg_template {
 	} alg;
 };
 
-struct safexcel_inv_result {
-	struct completion completion;
-	int error;
-};
-
 void safexcel_dequeue(struct safexcel_crypto_priv *priv, int ring);
 int safexcel_rdesc_check_errors(struct safexcel_crypto_priv *priv,
 				void *rdp);
@@ -921,7 +922,6 @@ void safexcel_rdr_req_set(struct safexcel_crypto_priv *priv,
 			  struct crypto_async_request *req);
 inline struct crypto_async_request *
 safexcel_rdr_req_get(struct safexcel_crypto_priv *priv, int ring);
-void safexcel_inv_complete(struct crypto_async_request *req, int error);
 int safexcel_hmac_setkey(struct safexcel_context *base, const u8 *key,
 			 unsigned int keylen, const char *alg,
 			 unsigned int state_sz);

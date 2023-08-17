@@ -769,12 +769,14 @@ skip(ret != 0, "bpftool not installed")
 base_progs = progs
 _, base_maps = bpftool("map")
 base_map_names = [
-    'pid_iter.rodata' # created on each bpftool invocation
+    'pid_iter.rodata', # created on each bpftool invocation
+    'libbpf_det_bind', # created on each bpftool invocation
 ]
 
 # Check netdevsim
-ret, out = cmd("modprobe netdevsim", fail=False)
-skip(ret != 0, "netdevsim module could not be loaded")
+if not os.path.isdir("/sys/bus/netdevsim/"):
+    ret, out = cmd("modprobe netdevsim", fail=False)
+    skip(ret != 0, "netdevsim module could not be loaded")
 
 # Check debugfs
 _, out = cmd("mount")
@@ -782,7 +784,7 @@ if out.find("/sys/kernel/debug type debugfs") == -1:
     cmd("mount -t debugfs none /sys/kernel/debug")
 
 # Check samples are compiled
-samples = ["sample_ret0.o", "sample_map_ret0.o"]
+samples = ["sample_ret0.bpf.o", "sample_map_ret0.bpf.o"]
 for s in samples:
     ret, out = cmd("ls %s/%s" % (bpf_test_dir, s), fail=False)
     skip(ret != 0, "sample %s/%s not found, please compile it" %
@@ -803,7 +805,7 @@ cmd("ip netns delete %s" % (ns))
 netns = []
 
 try:
-    obj = bpf_obj("sample_ret0.o")
+    obj = bpf_obj("sample_ret0.bpf.o")
     bytecode = bpf_bytecode("1,6 0 0 4294967295,")
 
     start_test("Test destruction of generic XDP...")
@@ -1023,7 +1025,7 @@ try:
 
     sim.wait_for_flush()
     start_test("Test non-offload XDP attaching to HW...")
-    bpftool_prog_load("sample_ret0.o", "/sys/fs/bpf/nooffload")
+    bpftool_prog_load("sample_ret0.bpf.o", "/sys/fs/bpf/nooffload")
     nooffload = bpf_pinned("/sys/fs/bpf/nooffload")
     ret, _, err = sim.set_xdp(nooffload, "offload",
                               fail=False, include_stderr=True)
@@ -1032,18 +1034,18 @@ try:
     rm("/sys/fs/bpf/nooffload")
 
     start_test("Test offload XDP attaching to drv...")
-    bpftool_prog_load("sample_ret0.o", "/sys/fs/bpf/offload",
+    bpftool_prog_load("sample_ret0.bpf.o", "/sys/fs/bpf/offload",
                       dev=sim['ifname'])
     offload = bpf_pinned("/sys/fs/bpf/offload")
     ret, _, err = sim.set_xdp(offload, "drv", fail=False, include_stderr=True)
     fail(ret == 0, "attached offloaded XDP program to drv")
-    check_extack(err, "Using device-bound program without HW_MODE flag is not supported.", args)
+    check_extack(err, "Using offloaded program without HW_MODE flag is not supported.", args)
     rm("/sys/fs/bpf/offload")
     sim.wait_for_flush()
 
     start_test("Test XDP load failure...")
     sim.dfs["dev/bpf_bind_verifier_accept"] = 0
-    ret, _, err = bpftool_prog_load("sample_ret0.o", "/sys/fs/bpf/offload",
+    ret, _, err = bpftool_prog_load("sample_ret0.bpf.o", "/sys/fs/bpf/offload",
                                  dev=sim['ifname'], fail=False, include_stderr=True)
     fail(ret == 0, "verifier should fail on load")
     check_verifier_log(err, "[netdevsim] Hello from netdevsim!")
@@ -1086,12 +1088,12 @@ try:
     ret, _, err = sim.set_xdp(pinned, "offload",
                               fail=False, include_stderr=True)
     fail(ret == 0, "Pinned program loaded for a different device accepted")
-    check_extack_nsim(err, "program bound to different dev.", args)
+    check_extack(err, "Program bound to different device.", args)
     simdev2.remove()
     ret, _, err = sim.set_xdp(pinned, "offload",
                               fail=False, include_stderr=True)
     fail(ret == 0, "Pinned program loaded for a removed device accepted")
-    check_extack_nsim(err, "xdpoffload of non-bound program.", args)
+    check_extack(err, "Program bound to different device.", args)
     rm(pin_file)
     bpftool_prog_list_wait(expected=0)
 
@@ -1169,7 +1171,7 @@ try:
 
     simdev = NetdevSimDev()
     sim, = simdev.nsims
-    map_obj = bpf_obj("sample_map_ret0.o")
+    map_obj = bpf_obj("sample_map_ret0.bpf.o")
     start_test("Test loading program with maps...")
     sim.set_xdp(map_obj, "offload", JSON=False) # map fixup msg breaks JSON
 
@@ -1307,10 +1309,10 @@ try:
     sims = (simA, simB1, simB2, simB3)
     simB = (simB1, simB2, simB3)
 
-    bpftool_prog_load("sample_map_ret0.o", "/sys/fs/bpf/nsimA",
+    bpftool_prog_load("sample_map_ret0.bpf.o", "/sys/fs/bpf/nsimA",
                       dev=simA['ifname'])
     progA = bpf_pinned("/sys/fs/bpf/nsimA")
-    bpftool_prog_load("sample_map_ret0.o", "/sys/fs/bpf/nsimB",
+    bpftool_prog_load("sample_map_ret0.bpf.o", "/sys/fs/bpf/nsimB",
                       dev=simB1['ifname'])
     progB = bpf_pinned("/sys/fs/bpf/nsimB")
 
@@ -1332,26 +1334,26 @@ try:
     ret, _, err = simA.set_xdp(progB, "offload", force=True, JSON=False,
                                fail=False, include_stderr=True)
     fail(ret == 0, "cross-ASIC program allowed")
-    check_extack_nsim(err, "program bound to different dev.", args)
+    check_extack(err, "Program bound to different device.", args)
     for d in simdevB.nsims:
         ret, _, err = d.set_xdp(progA, "offload", force=True, JSON=False,
                                 fail=False, include_stderr=True)
         fail(ret == 0, "cross-ASIC program allowed")
-        check_extack_nsim(err, "program bound to different dev.", args)
+        check_extack(err, "Program bound to different device.", args)
 
     start_test("Test multi-dev ASIC cross-dev map reuse...")
 
     mapA = bpftool("prog show %s" % (progA))[1]["map_ids"][0]
     mapB = bpftool("prog show %s" % (progB))[1]["map_ids"][0]
 
-    ret, _ = bpftool_prog_load("sample_map_ret0.o", "/sys/fs/bpf/nsimB_",
+    ret, _ = bpftool_prog_load("sample_map_ret0.bpf.o", "/sys/fs/bpf/nsimB_",
                                dev=simB3['ifname'],
                                maps=["idx 0 id %d" % (mapB)],
                                fail=False)
     fail(ret != 0, "couldn't reuse a map on the same ASIC")
     rm("/sys/fs/bpf/nsimB_")
 
-    ret, _, err = bpftool_prog_load("sample_map_ret0.o", "/sys/fs/bpf/nsimA_",
+    ret, _, err = bpftool_prog_load("sample_map_ret0.bpf.o", "/sys/fs/bpf/nsimA_",
                                     dev=simA['ifname'],
                                     maps=["idx 0 id %d" % (mapB)],
                                     fail=False, include_stderr=True)
@@ -1359,7 +1361,7 @@ try:
     fail(err.count("offload device mismatch between prog and map") == 0,
          "error message missing for cross-ASIC map")
 
-    ret, _, err = bpftool_prog_load("sample_map_ret0.o", "/sys/fs/bpf/nsimB_",
+    ret, _, err = bpftool_prog_load("sample_map_ret0.bpf.o", "/sys/fs/bpf/nsimB_",
                                     dev=simB1['ifname'],
                                     maps=["idx 0 id %d" % (mapA)],
                                     fail=False, include_stderr=True)

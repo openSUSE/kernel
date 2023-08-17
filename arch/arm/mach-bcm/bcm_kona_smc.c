@@ -1,15 +1,5 @@
-/*
- * Copyright (C) 2013 Broadcom Corporation
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation version 2.
- *
- * This program is distributed "as is" WITHOUT ANY WARRANTY of any
- * kind, whether express or implied; without even the implied warranty
- * of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- */
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2013 Broadcom Corporation
 #include <linux/smp.h>
 #include <linux/io.h>
 #include <linux/ioport.h>
@@ -41,34 +31,23 @@ static const struct of_device_id bcm_kona_smc_ids[] __initconst = {
 int __init bcm_kona_smc_init(void)
 {
 	struct device_node *node;
-	const __be32 *prop_val;
-	u64 prop_size = 0;
-	unsigned long buffer_size;
-	u32 buffer_phys;
+	struct resource res;
+	int ret;
 
 	/* Read buffer addr and size from the device tree node */
 	node = of_find_matching_node(NULL, bcm_kona_smc_ids);
 	if (!node)
 		return -ENODEV;
 
-	prop_val = of_get_address(node, 0, &prop_size, NULL);
+	ret = of_address_to_resource(node, 0, &res);
 	of_node_put(node);
-	if (!prop_val)
+	if (ret)
 		return -EINVAL;
 
-	/* We assume space for four 32-bit arguments */
-	if (prop_size < 4 * sizeof(u32) || prop_size > (u64)ULONG_MAX)
-		return -EINVAL;
-	buffer_size = (unsigned long)prop_size;
-
-	buffer_phys = be32_to_cpup(prop_val);
-	if (!buffer_phys)
-		return -EINVAL;
-
-	bcm_smc_buffer = ioremap(buffer_phys, buffer_size);
+	bcm_smc_buffer = ioremap(res.start, resource_size(&res));
 	if (!bcm_smc_buffer)
 		return -ENOMEM;
-	bcm_smc_buffer_phys = buffer_phys;
+	bcm_smc_buffer_phys = res.start;
 
 	pr_info("Kona Secure API initialized\n");
 

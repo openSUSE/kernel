@@ -22,6 +22,7 @@ properties:
       - socionext,uniphier-pxs2-usb3-hsphy
       - socionext,uniphier-ld20-usb3-hsphy
       - socionext,uniphier-pxs3-usb3-hsphy
+      - socionext,uniphier-nx1-usb3-hsphy
 
   reg:
     maxItems: 1
@@ -33,30 +34,12 @@ properties:
     minItems: 2
     maxItems: 3
 
-  clock-names:
-    oneOf:
-      - items:               # for Pro5
-          - const: gio
-          - const: link
-      - items:               # for PXs3 with phy-ext
-          - const: link
-          - const: phy
-          - const: phy-ext
-      - items:               # for others
-          - const: link
-          - const: phy
+  clock-names: true
 
   resets:
     maxItems: 2
 
-  reset-names:
-    oneOf:
-      - items:               # for Pro5
-          - const: gio
-          - const: link
-      - items:               # for others
-          - const: link
-          - const: phy
+  reset-names: true
 
   vbus-supply:
     description: A phandle to the regulator for USB VBUS
@@ -79,6 +62,77 @@ properties:
       required for each port, if any one is omitted, the trimming data
       of the port will not be set at all.
 
+allOf:
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: socionext,uniphier-pro5-usb3-hsphy
+    then:
+      properties:
+        clocks:
+          minItems: 2
+          maxItems: 2
+        clock-names:
+          items:
+            - const: gio
+            - const: link
+        resets:
+          minItems: 2
+          maxItems: 2
+        reset-names:
+          items:
+            - const: gio
+            - const: link
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - socionext,uniphier-pxs2-usb3-hsphy
+              - socionext,uniphier-ld20-usb3-hsphy
+    then:
+      properties:
+        clocks:
+          minItems: 2
+          maxItems: 2
+        clock-names:
+          items:
+            - const: link
+            - const: phy
+        resets:
+          minItems: 2
+          maxItems: 2
+        reset-names:
+          items:
+            - const: link
+            - const: phy
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - socionext,uniphier-pxs3-usb3-hsphy
+              - socionext,uniphier-nx1-usb3-hsphy
+    then:
+      properties:
+        clocks:
+          minItems: 2
+          maxItems: 3
+        clock-names:
+          minItems: 2
+          items:
+            - const: link
+            - const: phy
+            - const: phy-ext
+        resets:
+          minItems: 2
+          maxItems: 2
+        reset-names:
+          items:
+            - const: link
+            - const: phy
+
 required:
   - compatible
   - reg
@@ -92,22 +146,15 @@ additionalProperties: false
 
 examples:
   - |
-    usb-glue@65b00000 {
-        compatible = "socionext,uniphier-ld20-dwc3-glue", "simple-mfd";
-        #address-cells = <1>;
-        #size-cells = <1>;
-        ranges = <0 0x65b00000 0x400>;
-
-        usb_hsphy0: hs-phy@200 {
-            compatible = "socionext,uniphier-ld20-usb3-hsphy";
-            reg = <0x200 0x10>;
-            #phy-cells = <0>;
-            clock-names = "link", "phy";
-            clocks = <&sys_clk 14>, <&sys_clk 16>;
-            reset-names = "link", "phy";
-            resets = <&sys_rst 14>, <&sys_rst 16>;
-            vbus-supply = <&usb_vbus0>;
-            nvmem-cell-names = "rterm", "sel_t", "hs_i";
-            nvmem-cells = <&usb_rterm0>, <&usb_sel_t0>, <&usb_hs_i0>;
-        };
+    usb_hsphy0: phy@200 {
+        compatible = "socionext,uniphier-ld20-usb3-hsphy";
+        reg = <0x200 0x10>;
+        #phy-cells = <0>;
+        clock-names = "link", "phy";
+        clocks = <&sys_clk 14>, <&sys_clk 16>;
+        reset-names = "link", "phy";
+        resets = <&sys_rst 14>, <&sys_rst 16>;
+        vbus-supply = <&usb_vbus0>;
+        nvmem-cell-names = "rterm", "sel_t", "hs_i";
+        nvmem-cells = <&usb_rterm0>, <&usb_sel_t0>, <&usb_hs_i0>;
     };

@@ -644,18 +644,15 @@ static void hns_nic_get_drvinfo(struct net_device *net_dev,
 {
 	struct hns_nic_priv *priv = netdev_priv(net_dev);
 
-	strncpy(drvinfo->version, HNAE_DRIVER_VERSION,
+	strscpy(drvinfo->version, HNAE_DRIVER_VERSION,
 		sizeof(drvinfo->version));
-	drvinfo->version[sizeof(drvinfo->version) - 1] = '\0';
 
-	strncpy(drvinfo->driver, HNAE_DRIVER_NAME, sizeof(drvinfo->driver));
-	drvinfo->driver[sizeof(drvinfo->driver) - 1] = '\0';
+	strscpy(drvinfo->driver, HNAE_DRIVER_NAME, sizeof(drvinfo->driver));
 
-	strncpy(drvinfo->bus_info, priv->dev->bus->name,
+	strscpy(drvinfo->bus_info, priv->dev->bus->name,
 		sizeof(drvinfo->bus_info));
-	drvinfo->bus_info[ETHTOOL_BUSINFO_LEN - 1] = '\0';
 
-	strncpy(drvinfo->fw_version, "N/A", ETHTOOL_FWVERS_LEN);
+	strscpy(drvinfo->fw_version, "N/A", ETHTOOL_FWVERS_LEN);
 	drvinfo->eedump_len = 0;
 }
 
@@ -887,8 +884,8 @@ static void hns_get_ethtool_stats(struct net_device *netdev,
 	p[21] = net_stats->rx_compressed;
 	p[22] = net_stats->tx_compressed;
 
-	p[23] = netdev->rx_dropped.counter;
-	p[24] = netdev->tx_dropped.counter;
+	p[23] = 0; /* was netdev->rx_dropped.counter */
+	p[24] = 0; /* was netdev->tx_dropped.counter */
 
 	p[25] = priv->tx_timeout_count;
 

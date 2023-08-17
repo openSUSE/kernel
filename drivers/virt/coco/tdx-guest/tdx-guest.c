@@ -12,7 +12,6 @@
 #include <linux/mod_devicetable.h>
 #include <linux/string.h>
 #include <linux/uaccess.h>
-#include <linux/slab.h>
 
 #include <uapi/linux/tdx-guest.h>
 

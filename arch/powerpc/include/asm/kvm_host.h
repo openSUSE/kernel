@@ -26,6 +26,8 @@
 #include <asm/hvcall.h>
 #include <asm/mce.h>
 
+#define __KVM_HAVE_ARCH_VCPU_DEBUGFS
+
 #define KVM_MAX_VCPUS		NR_CPUS
 #define KVM_MAX_VCORES		NR_CPUS
 
@@ -34,7 +36,12 @@
 #ifdef CONFIG_KVM_BOOK3S_HV_POSSIBLE
 #include <asm/kvm_book3s_asm.h>		/* for MAX_SMT_THREADS */
 #define KVM_MAX_VCPU_IDS	(MAX_SMT_THREADS * KVM_MAX_VCORES)
-#define KVM_MAX_NESTED_GUESTS	KVMPPC_NR_LPIDS
+
+/*
+ * Limit the nested partition table to 4096 entries (because that's what
+ * hardware supports). Both guest and host use this value.
+ */
+#define KVM_MAX_NESTED_GUESTS_SHIFT	12
 
 #else
 #define KVM_MAX_VCPU_IDS	KVM_MAX_VCPUS
@@ -103,7 +110,6 @@ struct kvm_vcpu_stat {
 	u64 emulated_inst_exits;
 	u64 dec_exits;
 	u64 ext_intr_exits;
-	u64 halt_wait_ns;
 	u64 halt_successful_wait;
 	u64 dbell_exits;
 	u64 gdbell_exits;
@@ -191,7 +197,7 @@ struct kvmppc_spapr_tce_table {
 	u64 size;		/* window size in pages */
 	struct list_head iommu_tables;
 	struct mutex alloc_lock;
-	struct page *pages[0];
+	struct page *pages[];
 };
 
 /* XICS components, defined in book3s_xics.c */
@@ -288,7 +294,6 @@ struct kvm_arch {
 	u32 online_vcores;
 	atomic_t hpte_mod_interest;
 	cpumask_t need_tlb_flush;
-	cpumask_t cpu_in_guest;
 	u8 radix;
 	u8 fwnmi_enabled;
 	u8 secure_guest;
@@ -297,7 +302,6 @@ struct kvm_arch {
 	bool dawr1_enabled;
 	pgd_t *pgtable;
 	u64 process_table;
-	struct dentry *debugfs_dir;
 	struct kvm_resize_hpt *resize_hpt; /* protected by kvm->lock */
 #endif /* CONFIG_KVM_BOOK3S_HV_POSSIBLE */
 #ifdef CONFIG_KVM_BOOK3S_PR_POSSIBLE
@@ -328,8 +332,7 @@ struct kvm_arch {
 	struct list_head uvmem_pfns;
 	struct mutex mmu_setup_lock;	/* nests inside vcpu mutexes */
 	u64 l1_ptcr;
-	int max_nested_lpid;
-	struct kvm_nested_guest *nested_guests[KVM_MAX_NESTED_GUESTS];
+	struct idr kvm_nested_guest_idr;
 	/* This array can grow quite large, keep it at the end */
 	struct kvmppc_vcore *vcores[KVM_MAX_VCORES];
 #endif
@@ -440,7 +443,7 @@ struct kvmppc_passthru_irqmap {
 };
 #endif
 
-# ifdef CONFIG_PPC_FSL_BOOK3E
+# ifdef CONFIG_PPC_E500
 #define KVMPPC_BOOKE_IAC_NUM	2
 #define KVMPPC_BOOKE_DAC_NUM	2
 # else
@@ -520,7 +523,11 @@ struct kvm_vcpu_arch {
 	struct kvmppc_book3s_shadow_vcpu *shadow_vcpu;
 #endif
 
-	struct pt_regs regs;
+	/*
+	 * This is passed along to the HV via H_ENTER_NESTED. Align to
+	 * prevent it crossing a real 4K page.
+	 */
+	struct pt_regs regs __aligned(512);
 
 	struct thread_fp_state fp;
 
@@ -580,6 +587,10 @@ struct kvm_vcpu_arch {
 	ulong cfar;
 	ulong ppr;
 	u32 pspb;
+	u8 load_ebb;
+#ifdef CONFIG_PPC_TRANSACTIONAL_MEM
+	u8 load_tm;
+#endif
 	ulong fscr;
 	ulong shadow_fscr;
 	ulong ebbhr;
@@ -671,7 +682,6 @@ struct kvm_vcpu_arch {
 	u64 timing_min_duration[__NUMBER_OF_KVM_EXIT_TYPES];
 	u64 timing_max_duration[__NUMBER_OF_KVM_EXIT_TYPES];
 	u64 timing_last_exit;
-	struct dentry *debugfs_exit_timing;
 #endif
 
 #ifdef CONFIG_PPC_BOOK3S
@@ -742,14 +752,15 @@ struct kvm_vcpu_arch {
 
 	struct hrtimer dec_timer;
 	u64 dec_jiffies;
-	u64 dec_expires;
+	u64 dec_expires;	/* Relative to guest timebase. */
 	unsigned long pending_exceptions;
 	u8 ceded;
 	u8 prodded;
 	u8 doorbell_request;
 	u8 irq_pending; /* Used by XIVE to signal pending guest irqs */
-	u32 last_inst;
+	unsigned long last_inst;
 
+	struct rcuwait wait;
 	struct rcuwait *waitp;
 	struct kvmppc_vcore *vcore;
 	int ret;
@@ -807,12 +818,15 @@ struct kvm_vcpu_arch {
 	u64 busy_stolen;
 	u64 busy_preempt;
 
-	u32 emul_inst;
+	u64 emul_inst;
 
 	u32 online;
 
+	u64 hfscr_permitted;	/* A mask of permitted HFSCR facilities */
+
 	/* For support of nested guests */
 	struct kvm_nested_guest *nested;
+	u64 nested_hfscr;	/* HFSCR that the L1 requested for the nested guest */
 	u32 nested_vcpu_id;
 	gpa_t nested_io_gpr;
 #endif
@@ -820,13 +834,21 @@ struct kvm_vcpu_arch {
 #ifdef CONFIG_KVM_BOOK3S_HV_EXIT_TIMING
 	struct kvmhv_tb_accumulator *cur_activity;	/* What we're timing */
 	u64	cur_tb_start;			/* when it started */
+#ifdef CONFIG_KVM_BOOK3S_HV_P9_TIMING
+	struct kvmhv_tb_accumulator vcpu_entry;
+	struct kvmhv_tb_accumulator vcpu_exit;
+	struct kvmhv_tb_accumulator in_guest;
+	struct kvmhv_tb_accumulator hcall;
+	struct kvmhv_tb_accumulator pg_fault;
+	struct kvmhv_tb_accumulator guest_entry;
+	struct kvmhv_tb_accumulator guest_exit;
+#else
 	struct kvmhv_tb_accumulator rm_entry;	/* real-mode entry code */
 	struct kvmhv_tb_accumulator rm_intr;	/* real-mode intr handling */
 	struct kvmhv_tb_accumulator rm_exit;	/* real-mode exit code */
 	struct kvmhv_tb_accumulator guest_time;	/* guest execution */
 	struct kvmhv_tb_accumulator cede_time;	/* time napping inside guest */
-
-	struct dentry *debugfs_dir;
+#endif
 #endif /* CONFIG_KVM_BOOK3S_HV_EXIT_TIMING */
 };
 
@@ -854,15 +876,11 @@ struct kvm_vcpu_arch {
 #define __KVM_HAVE_ARCH_WQP
 #define __KVM_HAVE_CREATE_DEVICE
 
-static inline void kvm_arch_hardware_disable(void) {}
-static inline void kvm_arch_hardware_unsetup(void) {}
 static inline void kvm_arch_sync_events(struct kvm *kvm) {}
 static inline void kvm_arch_memslots_updated(struct kvm *kvm, u64 gen) {}
 static inline void kvm_arch_flush_shadow_all(struct kvm *kvm) {}
 static inline void kvm_arch_sched_in(struct kvm_vcpu *vcpu, int cpu) {}
-static inline void kvm_arch_exit(void) {}
 static inline void kvm_arch_vcpu_blocking(struct kvm_vcpu *vcpu) {}
 static inline void kvm_arch_vcpu_unblocking(struct kvm_vcpu *vcpu) {}
-static inline void kvm_arch_vcpu_block_finish(struct kvm_vcpu *vcpu) {}
 
 #endif /* __POWERPC_KVM_HOST_H__ */

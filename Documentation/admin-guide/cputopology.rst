@@ -8,11 +8,9 @@ to /proc/cpuinfo output of some architectures. They reside in
 Documentation/ABI/stable/sysfs-devices-system-cpu.
 
 Architecture-neutral, drivers/base/topology.c, exports these attributes.
-However, the book and drawer related sysfs files will only be created if
-CONFIG_SCHED_BOOK and CONFIG_SCHED_DRAWER are selected, respectively.
-
-CONFIG_SCHED_BOOK and CONFIG_SCHED_DRAWER are currently only used on s390,
-where they reflect the cpu and cache hierarchy.
+However the die, cluster, book, and drawer hierarchy related sysfs files will
+only be created if an architecture provides the related macros as described
+below.
 
 For an architecture to support this feature, it must define some of
 these macros in include/asm-XXX/topology.h::
@@ -43,15 +41,14 @@ not defined by include/asm-XXX/topology.h:
 2) topology_die_id: -1
 3) topology_cluster_id: -1
 4) topology_core_id: 0
-5) topology_sibling_cpumask: just the given CPU
-6) topology_core_cpumask: just the given CPU
-7) topology_cluster_cpumask: just the given CPU
-8) topology_die_cpumask: just the given CPU
-
-For architectures that don't support books (CONFIG_SCHED_BOOK) there are no
-default definitions for topology_book_id() and topology_book_cpumask().
-For architectures that don't support drawers (CONFIG_SCHED_DRAWER) there are
-no default definitions for topology_drawer_id() and topology_drawer_cpumask().
+5) topology_book_id: -1
+6) topology_drawer_id: -1
+7) topology_sibling_cpumask: just the given CPU
+8) topology_core_cpumask: just the given CPU
+9) topology_cluster_cpumask: just the given CPU
+10) topology_die_cpumask: just the given CPU
+11) topology_book_cpumask:  just the given CPU
+12) topology_drawer_cpumask: just the given CPU
 
 Additionally, CPU topology information is provided under
 /sys/devices/system/cpu and includes these files.  The internal
@@ -62,9 +59,9 @@ source for the output is in brackets ("[]").
 		[NR_CPUS-1]
 
     offline:	CPUs that are not online because they have been
-		HOTPLUGGED off (see cpu-hotplug.txt) or exceed the limit
-		of CPUs allowed by the kernel configuration (kernel_max
-		above). [~cpu_online_mask + cpus >= NR_CPUS]
+		HOTPLUGGED off or exceed the limit of CPUs allowed by the
+		kernel configuration (kernel_max above).
+		[~cpu_online_mask + cpus >= NR_CPUS]
 
     online:	CPUs that are online and being scheduled [cpu_online_mask]
 
@@ -100,5 +97,5 @@ online.)::
        possible: 0-127
         present: 0-3
 
-See cpu-hotplug.txt for the possible_cpus=NUM kernel start parameter
-as well as more information on the various cpumasks.
+See Documentation/core-api/cpu_hotplug.rst for the possible_cpus=NUM
+kernel start parameter as well as more information on the various cpumasks.

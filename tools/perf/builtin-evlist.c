@@ -7,7 +7,6 @@
 
 #include <linux/list.h>
 
-#include "perf.h"
 #include "util/evlist.h"
 #include "util/evsel.h"
 #include "util/evsel_fprintf.h"
@@ -18,6 +17,7 @@
 #include "util/debug.h"
 #include <linux/err.h>
 #include "util/tool.h"
+#include "util/util.h"
 
 static int process_header_feature(struct perf_session *session __maybe_unused,
 				  union perf_event *event __maybe_unused)
@@ -42,7 +42,7 @@ static int __cmd_evlist(const char *file_name, struct perf_attr_details *details
 	};
 	bool has_tracepoint = false;
 
-	session = perf_session__new(&data, 0, &tool);
+	session = perf_session__new(&data, &tool);
 	if (IS_ERR(session))
 		return PTR_ERR(session);
 

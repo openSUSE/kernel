@@ -255,20 +255,23 @@ _bpftool_map_update_get_name()
 
 _bpftool()
 {
-    local cur prev words objword
+    local cur prev words objword json=0
     _init_completion || return
 
     # Deal with options
     if [[ ${words[cword]} == -* ]]; then
         local c='--version --json --pretty --bpffs --mapcompat --debug \
-	       --use-loader --base-btf --legacy'
+            --use-loader --base-btf'
         COMPREPLY=( $( compgen -W "$c" -- "$cur" ) )
         return 0
+    fi
+    if _bpftool_search_list -j --json -p --pretty; then
+        json=1
     fi
 
     # Deal with simplest keywords
     case $prev in
-        help|hex|opcodes|visual|linum)
+        help|hex)
             return 0
             ;;
         tag)
@@ -366,13 +369,16 @@ _bpftool()
                             return 0
                             ;;
                         *)
-                            _bpftool_once_attr 'file'
-                            if _bpftool_search_list 'xlated'; then
-                                COMPREPLY+=( $( compgen -W 'opcodes visual linum' -- \
-                                    "$cur" ) )
-                            else
-                                COMPREPLY+=( $( compgen -W 'opcodes linum' -- \
-                                    "$cur" ) )
+                            # "file" is not compatible with other keywords here
+                            if _bpftool_search_list 'file'; then
+                                return 0
+                            fi
+                            if ! _bpftool_search_list 'linum opcodes visual'; then
+                                _bpftool_once_attr 'file'
+                            fi
+                            _bpftool_once_attr 'linum opcodes'
+                            if _bpftool_search_list 'xlated' && [[ "$json" == 0 ]]; then
+                                _bpftool_once_attr 'visual'
                             fi
                             return 0
                             ;;
@@ -407,8 +413,8 @@ _bpftool()
                             return 0
                             ;;
                         5)
-                            local BPFTOOL_PROG_ATTACH_TYPES='msg_verdict \
-                                skb_verdict stream_verdict stream_parser \
+                            local BPFTOOL_PROG_ATTACH_TYPES='sk_msg_verdict \
+                                sk_skb_verdict sk_skb_stream_verdict sk_skb_stream_parser \
                                 flow_dissector'
                             COMPREPLY=( $( compgen -W "$BPFTOOL_PROG_ATTACH_TYPES" -- "$cur" ) )
                             return 0
@@ -502,9 +508,7 @@ _bpftool()
                             ;;
                         *)
                             COMPREPLY=( $( compgen -W "map" -- "$cur" ) )
-                            _bpftool_once_attr 'type'
-                            _bpftool_once_attr 'dev'
-                            _bpftool_once_attr 'pinmaps'
+                            _bpftool_once_attr 'type dev pinmaps autoattach'
                             return 0
                             ;;
                     esac
@@ -703,15 +707,8 @@ _bpftool()
                             return 0
                             ;;
                         type)
-                            local BPFTOOL_MAP_CREATE_TYPES='hash array \
-                                prog_array perf_event_array percpu_hash \
-                                percpu_array stack_trace cgroup_array lru_hash \
-                                lru_percpu_hash lpm_trie array_of_maps \
-                                hash_of_maps devmap devmap_hash sockmap cpumap \
-                                xskmap sockhash cgroup_storage reuseport_sockarray \
-                                percpu_cgroup_storage queue stack sk_storage \
-                                struct_ops ringbuf inode_storage task_storage \
-                                bloom_filter'
+                            local BPFTOOL_MAP_CREATE_TYPES="$(bpftool feature list_builtins map_types 2>/dev/null | \
+                                grep -v '^unspec$')"
                             COMPREPLY=( $( compgen -W "$BPFTOOL_MAP_CREATE_TYPES" -- "$cur" ) )
                             return 0
                             ;;
@@ -736,16 +733,10 @@ _bpftool()
                             esac
                             ;;
                         *)
-                            _bpftool_once_attr 'type'
-                            _bpftool_once_attr 'key'
-                            _bpftool_once_attr 'value'
-                            _bpftool_once_attr 'entries'
-                            _bpftool_once_attr 'name'
-                            _bpftool_once_attr 'flags'
+                            _bpftool_once_attr 'type key value entries name flags dev'
                             if _bpftool_search_list 'array_of_maps' 'hash_of_maps'; then
                                 _bpftool_once_attr 'inner_map'
                             fi
-                            _bpftool_once_attr 'dev'
                             return 0
                             ;;
                     esac
@@ -886,8 +877,7 @@ _bpftool()
                             return 0
                             ;;
                         *)
-                            _bpftool_once_attr 'cpu'
-                            _bpftool_once_attr 'index'
+                            _bpftool_once_attr 'cpu index'
                             return 0
                             ;;
                     esac
@@ -1039,12 +1029,8 @@ _bpftool()
                     return 0
                     ;;
                 attach|detach)
-                    local BPFTOOL_CGROUP_ATTACH_TYPES='ingress egress \
-                        sock_create sock_ops device \
-                        bind4 bind6 post_bind4 post_bind6 connect4 connect6 \
-                        getpeername4 getpeername6 getsockname4 getsockname6 \
-                        sendmsg4 sendmsg6 recvmsg4 recvmsg6 sysctl getsockopt \
-                        setsockopt sock_release'
+                    local BPFTOOL_CGROUP_ATTACH_TYPES="$(bpftool feature list_builtins attach_types 2>/dev/null | \
+                        grep '^cgroup_')"
                     local ATTACH_FLAGS='multi override'
                     local PROG_TYPE='id pinned tag name'
                     # Check for $prev = $command first
@@ -1173,9 +1159,14 @@ _bpftool()
                     _bpftool_once_attr 'full unprivileged'
                     return 0
                     ;;
+                list_builtins)
+                    [[ $prev != "$command" ]] && return 0
+                    COMPREPLY=( $( compgen -W 'prog_types map_types \
+                        attach_types link_types helpers' -- "$cur" ) )
+                    ;;
                 *)
                     [[ $prev == $object ]] && \
-                        COMPREPLY=( $( compgen -W 'help probe' -- "$cur" ) )
+                        COMPREPLY=( $( compgen -W 'help list_builtins probe' -- "$cur" ) )
                     ;;
             esac
             ;;

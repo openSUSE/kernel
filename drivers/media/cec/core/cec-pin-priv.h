@@ -12,6 +12,17 @@
 #include <linux/atomic.h>
 #include <media/cec-pin.h>
 
+#define call_pin_op(pin, op, arg...)					\
+	((pin && pin->ops->op && !pin->adap->devnode.unregistered) ?	\
+	 pin->ops->op(pin->adap, ## arg) : 0)
+
+#define call_void_pin_op(pin, op, arg...)				\
+	do {								\
+		if (pin && pin->ops->op &&				\
+		    !pin->adap->devnode.unregistered)			\
+			pin->ops->op(pin->adap, ## arg);		\
+	} while (0)
+
 enum cec_pin_state {
 	/* CEC is off */
 	CEC_ST_OFF,
@@ -170,7 +181,6 @@ struct cec_pin {
 	ktime_t				ts;
 	unsigned int			wait_usecs;
 	u16				la_mask;
-	bool				enabled;
 	bool				monitor_all;
 	bool				rx_eom;
 	bool				enable_irq_failed;
@@ -209,8 +219,8 @@ struct cec_pin {
 	u32				work_pin_events_dropped_cnt;
 	ktime_t				timer_ts;
 	u32				timer_cnt;
-	u32				timer_100ms_overruns;
-	u32				timer_300ms_overruns;
+	u32				timer_100us_overruns;
+	u32				timer_300us_overruns;
 	u32				timer_max_overrun;
 	u32				timer_sum_overrun;
 

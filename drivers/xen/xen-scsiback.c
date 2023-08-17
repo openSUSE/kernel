@@ -280,6 +280,70 @@ static void scsiback_free_translation_entry(struct kref *kref)
 	kfree(entry);
 }
 
+static int32_t scsiback_result(int32_t result)
+{
+	int32_t host_status;
+
+	switch (XEN_VSCSIIF_RSLT_HOST(result)) {
+	case DID_OK:
+		host_status = XEN_VSCSIIF_RSLT_HOST_OK;
+		break;
+	case DID_NO_CONNECT:
+		host_status = XEN_VSCSIIF_RSLT_HOST_NO_CONNECT;
+		break;
+	case DID_BUS_BUSY:
+		host_status = XEN_VSCSIIF_RSLT_HOST_BUS_BUSY;
+		break;
+	case DID_TIME_OUT:
+		host_status = XEN_VSCSIIF_RSLT_HOST_TIME_OUT;
+		break;
+	case DID_BAD_TARGET:
+		host_status = XEN_VSCSIIF_RSLT_HOST_BAD_TARGET;
+		break;
+	case DID_ABORT:
+		host_status = XEN_VSCSIIF_RSLT_HOST_ABORT;
+		break;
+	case DID_PARITY:
+		host_status = XEN_VSCSIIF_RSLT_HOST_PARITY;
+		break;
+	case DID_ERROR:
+		host_status = XEN_VSCSIIF_RSLT_HOST_ERROR;
+		break;
+	case DID_RESET:
+		host_status = XEN_VSCSIIF_RSLT_HOST_RESET;
+		break;
+	case DID_BAD_INTR:
+		host_status = XEN_VSCSIIF_RSLT_HOST_BAD_INTR;
+		break;
+	case DID_PASSTHROUGH:
+		host_status = XEN_VSCSIIF_RSLT_HOST_PASSTHROUGH;
+		break;
+	case DID_SOFT_ERROR:
+		host_status = XEN_VSCSIIF_RSLT_HOST_SOFT_ERROR;
+		break;
+	case DID_IMM_RETRY:
+		host_status = XEN_VSCSIIF_RSLT_HOST_IMM_RETRY;
+		break;
+	case DID_REQUEUE:
+		host_status = XEN_VSCSIIF_RSLT_HOST_REQUEUE;
+		break;
+	case DID_TRANSPORT_DISRUPTED:
+		host_status = XEN_VSCSIIF_RSLT_HOST_TRANSPORT_DISRUPTED;
+		break;
+	case DID_TRANSPORT_FAILFAST:
+		host_status = XEN_VSCSIIF_RSLT_HOST_TRANSPORT_FAILFAST;
+		break;
+	case DID_TRANSPORT_MARGINAL:
+		host_status = XEN_VSCSIIF_RSLT_HOST_TRANSPORT_MARGINAL;
+		break;
+	default:
+		host_status = XEN_VSCSIIF_RSLT_HOST_ERROR;
+		break;
+	}
+
+	return (host_status << 16) | (result & 0x00ffff);
+}
+
 static void scsiback_send_response(struct vscsibk_info *info,
 			char *sense_buffer, int32_t result, uint32_t resid,
 			uint16_t rqid)
@@ -295,7 +359,7 @@ static void scsiback_send_response(struct vscsibk_info *info,
 	ring_res = RING_GET_RESPONSE(&info->ring, info->ring.rsp_prod_pvt);
 	info->ring.rsp_prod_pvt++;
 
-	ring_res->rslt   = result;
+	ring_res->rslt   = scsiback_result(result);
 	ring_res->rqid   = rqid;
 
 	if (sense_buffer != NULL &&
@@ -555,7 +619,7 @@ static void scsiback_device_action(struct vscsibk_pend *pending_req,
 	struct scsiback_nexus *nexus = tpg->tpg_nexus;
 	struct se_cmd *se_cmd = &pending_req->se_cmd;
 	u64 unpacked_lun = pending_req->v2p->lun;
-	int rc, err = FAILED;
+	int rc, err = XEN_VSCSIIF_RSLT_RESET_FAILED;
 
 	init_completion(&pending_req->tmr_done);
 
@@ -569,7 +633,7 @@ static void scsiback_device_action(struct vscsibk_pend *pending_req,
 	wait_for_completion(&pending_req->tmr_done);
 
 	err = (se_cmd->se_tmr_req->response == TMR_FUNCTION_COMPLETE) ?
-		SUCCESS : FAILED;
+		XEN_VSCSIIF_RSLT_RESET_SUCCESS : XEN_VSCSIIF_RSLT_RESET_FAILED;
 
 	scsiback_do_resp_with_sense(NULL, err, 0, pending_req);
 	transport_generic_free_cmd(&pending_req->se_cmd, 0);
@@ -946,12 +1010,6 @@ out_free:
 	return err;
 }
 
-static void __scsiback_del_translation_entry(struct v2p_entry *entry)
-{
-	list_del(&entry->l);
-	kref_put(&entry->kref, scsiback_free_translation_entry);
-}
-
 /*
   Delete the translation entry specified
 */
@@ -960,18 +1018,20 @@ static int scsiback_del_translation_entry(struct vscsibk_info *info,
 {
 	struct v2p_entry *entry;
 	unsigned long flags;
-	int ret = 0;
 
 	spin_lock_irqsave(&info->v2p_lock, flags);
 	/* Find out the translation entry specified */
 	entry = scsiback_chk_translation_entry(info, v);
 	if (entry)
-		__scsiback_del_translation_entry(entry);
-	else
-		ret = -ENOENT;
+		list_del(&entry->l);
 
 	spin_unlock_irqrestore(&info->v2p_lock, flags);
-	return ret;
+
+	if (!entry)
+		return -ENOENT;
+
+	kref_put(&entry->kref, scsiback_free_translation_entry);
+	return 0;
 }
 
 static void scsiback_do_add_lun(struct vscsibk_info *info, const char *state,
@@ -1045,7 +1105,7 @@ static void scsiback_do_1lun_hotplug(struct vscsibk_info *info, int op,
 				"%s: writing %s", __func__, state);
 		return;
 	}
-	strlcpy(phy, val, VSCSI_NAMELEN);
+	strscpy(phy, val, VSCSI_NAMELEN);
 	kfree(val);
 
 	/* virtual SCSI device */
@@ -1175,17 +1235,22 @@ static void scsiback_release_translation_entry(struct vscsibk_info *info)
 {
 	struct v2p_entry *entry, *tmp;
 	struct list_head *head = &(info->v2p_entry_lists);
+	struct list_head tmp_list;
 	unsigned long flags;
 
 	spin_lock_irqsave(&info->v2p_lock, flags);
 
-	list_for_each_entry_safe(entry, tmp, head, l)
-		__scsiback_del_translation_entry(entry);
+	list_cut_before(&tmp_list, head, head);
 
 	spin_unlock_irqrestore(&info->v2p_lock, flags);
+
+	list_for_each_entry_safe(entry, tmp, &tmp_list, l) {
+		list_del(&entry->l);
+		kref_put(&entry->kref, scsiback_free_translation_entry);
+	}
 }
 
-static int scsiback_remove(struct xenbus_device *dev)
+static void scsiback_remove(struct xenbus_device *dev)
 {
 	struct vscsibk_info *info = dev_get_drvdata(&dev->dev);
 
@@ -1197,8 +1262,6 @@ static int scsiback_remove(struct xenbus_device *dev)
 	gnttab_page_cache_shrink(&info->free_pages, 0);
 
 	dev_set_drvdata(&dev->dev, NULL);
-
-	return 0;
 }
 
 static int scsiback_probe(struct xenbus_device *dev,
@@ -1344,11 +1407,6 @@ static void scsiback_drop_tport(struct se_wwn *wwn)
 	kfree(tport);
 }
 
-static u32 scsiback_tpg_get_inst_index(struct se_portal_group *se_tpg)
-{
-	return 1;
-}
-
 static int scsiback_check_stop_free(struct se_cmd *se_cmd)
 {
 	return transport_generic_free_cmd(se_cmd, 0);
@@ -1359,25 +1417,11 @@ static void scsiback_release_cmd(struct se_cmd *se_cmd)
 	target_free_tag(se_cmd->se_sess, se_cmd);
 }
 
-static u32 scsiback_sess_get_index(struct se_session *se_sess)
-{
-	return 0;
-}
-
 static int scsiback_write_pending(struct se_cmd *se_cmd)
 {
 	/* Go ahead and process the write immediately */
 	target_execute_cmd(se_cmd);
 
-	return 0;
-}
-
-static void scsiback_set_default_node_attrs(struct se_node_acl *nacl)
-{
-}
-
-static int scsiback_get_cmd_state(struct se_cmd *se_cmd)
-{
 	return 0;
 }
 
@@ -1760,11 +1804,6 @@ static int scsiback_check_true(struct se_portal_group *se_tpg)
 	return 1;
 }
 
-static int scsiback_check_false(struct se_portal_group *se_tpg)
-{
-	return 0;
-}
-
 static const struct target_core_fabric_ops scsiback_ops = {
 	.module				= THIS_MODULE,
 	.fabric_name			= "xen-pvscsi",
@@ -1772,16 +1811,10 @@ static const struct target_core_fabric_ops scsiback_ops = {
 	.tpg_get_tag			= scsiback_get_tag,
 	.tpg_check_demo_mode		= scsiback_check_true,
 	.tpg_check_demo_mode_cache	= scsiback_check_true,
-	.tpg_check_demo_mode_write_protect = scsiback_check_false,
-	.tpg_check_prod_mode_write_protect = scsiback_check_false,
-	.tpg_get_inst_index		= scsiback_tpg_get_inst_index,
 	.check_stop_free		= scsiback_check_stop_free,
 	.release_cmd			= scsiback_release_cmd,
-	.sess_get_index			= scsiback_sess_get_index,
 	.sess_get_initiator_sid		= NULL,
 	.write_pending			= scsiback_write_pending,
-	.set_default_node_attributes	= scsiback_set_default_node_attrs,
-	.get_cmd_state			= scsiback_get_cmd_state,
 	.queue_data_in			= scsiback_queue_data_in,
 	.queue_status			= scsiback_queue_status,
 	.queue_tm_rsp			= scsiback_queue_tm_rsp,

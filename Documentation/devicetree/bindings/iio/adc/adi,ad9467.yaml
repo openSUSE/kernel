@@ -8,7 +8,6 @@ title: Analog Devices AD9467 and similar High-Speed ADCs
 
 maintainers:
   - Michael Hennerich <michael.hennerich@analog.com>
-  - Alexandru Ardelean <alexandru.ardelean@analog.com>
 
 description: |
   The AD9467 and the parts similar with it, are high-speed analog-to-digital
@@ -65,10 +64,10 @@ examples:
         #size-cells = <0>;
 
         adc@0 {
-          compatible = "adi,ad9467";
-          reg = <0>;
-          clocks = <&adc_clk>;
-          clock-names = "adc-clk";
+            compatible = "adi,ad9467";
+            reg = <0>;
+            clocks = <&adc_clk>;
+            clock-names = "adc-clk";
         };
     };
 ...

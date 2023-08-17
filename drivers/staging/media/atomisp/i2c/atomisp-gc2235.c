@@ -220,135 +220,6 @@ static int gc2235_write_reg_array(struct i2c_client *client,
 	return __gc2235_flush_reg_array(client, &ctrl);
 }
 
-static int gc2235_g_focal(struct v4l2_subdev *sd, s32 *val)
-{
-	*val = (GC2235_FOCAL_LENGTH_NUM << 16) | GC2235_FOCAL_LENGTH_DEM;
-	return 0;
-}
-
-static int gc2235_g_fnumber(struct v4l2_subdev *sd, s32 *val)
-{
-	/* const f number for imx */
-	*val = (GC2235_F_NUMBER_DEFAULT_NUM << 16) | GC2235_F_NUMBER_DEM;
-	return 0;
-}
-
-static int gc2235_g_fnumber_range(struct v4l2_subdev *sd, s32 *val)
-{
-	*val = (GC2235_F_NUMBER_DEFAULT_NUM << 24) |
-	       (GC2235_F_NUMBER_DEM << 16) |
-	       (GC2235_F_NUMBER_DEFAULT_NUM << 8) | GC2235_F_NUMBER_DEM;
-	return 0;
-}
-
-static int gc2235_get_intg_factor(struct i2c_client *client,
-				  struct camera_mipi_info *info,
-				  const struct gc2235_resolution *res)
-{
-	struct v4l2_subdev *sd = i2c_get_clientdata(client);
-	struct gc2235_device *dev = to_gc2235_sensor(sd);
-	struct atomisp_sensor_mode_data *buf = &info->data;
-	u16 reg_val, reg_val_h;
-	int ret;
-
-	if (!info)
-		return -EINVAL;
-
-	/* pixel clock calculattion */
-	buf->vt_pix_clk_freq_mhz = dev->vt_pix_clk_freq_mhz = 30000000;
-
-	/* get integration time */
-	buf->coarse_integration_time_min = GC2235_COARSE_INTG_TIME_MIN;
-	buf->coarse_integration_time_max_margin =
-	    GC2235_COARSE_INTG_TIME_MAX_MARGIN;
-
-	buf->fine_integration_time_min = GC2235_FINE_INTG_TIME_MIN;
-	buf->fine_integration_time_max_margin =
-	    GC2235_FINE_INTG_TIME_MAX_MARGIN;
-
-	buf->fine_integration_time_def = GC2235_FINE_INTG_TIME_MIN;
-	buf->frame_length_lines = res->lines_per_frame;
-	buf->line_length_pck = res->pixels_per_line;
-	buf->read_mode = res->bin_mode;
-
-	/* get the cropping and output resolution to ISP for this mode. */
-	ret =  gc2235_read_reg(client, GC2235_8BIT,
-			       GC2235_H_CROP_START_H, &reg_val_h);
-	ret =  gc2235_read_reg(client, GC2235_8BIT,
-			       GC2235_H_CROP_START_L, &reg_val);
-	if (ret)
-		return ret;
-
-	buf->crop_horizontal_start = (reg_val_h << 8) | reg_val;
-
-	ret =  gc2235_read_reg(client, GC2235_8BIT,
-			       GC2235_V_CROP_START_H, &reg_val_h);
-	ret =  gc2235_read_reg(client, GC2235_8BIT,
-			       GC2235_V_CROP_START_L, &reg_val);
-	if (ret)
-		return ret;
-
-	buf->crop_vertical_start = (reg_val_h << 8) | reg_val;
-
-	ret = gc2235_read_reg(client, GC2235_8BIT,
-			      GC2235_H_OUTSIZE_H, &reg_val_h);
-	ret = gc2235_read_reg(client, GC2235_8BIT,
-			      GC2235_H_OUTSIZE_L, &reg_val);
-	if (ret)
-		return ret;
-	buf->output_width = (reg_val_h << 8) | reg_val;
-
-	ret = gc2235_read_reg(client, GC2235_8BIT,
-			      GC2235_V_OUTSIZE_H, &reg_val_h);
-	ret = gc2235_read_reg(client, GC2235_8BIT,
-			      GC2235_V_OUTSIZE_L, &reg_val);
-	if (ret)
-		return ret;
-	buf->output_height = (reg_val_h << 8) | reg_val;
-
-	buf->crop_horizontal_end = buf->crop_horizontal_start +
-				   buf->output_width - 1;
-	buf->crop_vertical_end = buf->crop_vertical_start +
-				 buf->output_height - 1;
-
-	ret = gc2235_read_reg(client, GC2235_8BIT,
-			      GC2235_HB_H, &reg_val_h);
-	ret = gc2235_read_reg(client, GC2235_8BIT,
-			      GC2235_HB_L, &reg_val);
-	if (ret)
-		return ret;
-
-#if 0
-	u16 dummy = (reg_val_h << 8) | reg_val;
-#endif
-
-	ret = gc2235_read_reg(client, GC2235_8BIT,
-			      GC2235_SH_DELAY_H, &reg_val_h);
-	ret = gc2235_read_reg(client, GC2235_8BIT,
-			      GC2235_SH_DELAY_L, &reg_val);
-
-#if 0
-	buf->line_length_pck = buf->output_width + 16 + dummy +
-			       (((u16)reg_val_h << 8) | (u16)reg_val) + 4;
-#endif
-	ret = gc2235_read_reg(client, GC2235_8BIT,
-			      GC2235_VB_H, &reg_val_h);
-	ret = gc2235_read_reg(client, GC2235_8BIT,
-			      GC2235_VB_L, &reg_val);
-	if (ret)
-		return ret;
-
-#if 0
-	buf->frame_length_lines = buf->output_height + 32 +
-				  (((u16)reg_val_h << 8) | (u16)reg_val);
-#endif
-	buf->binning_factor_x = res->bin_factor_x ?
-				res->bin_factor_x : 1;
-	buf->binning_factor_y = res->bin_factor_y ?
-				res->bin_factor_y : 1;
-	return 0;
-}
-
 static long __gc2235_set_exposure(struct v4l2_subdev *sd, int coarse_itg,
 				  int gain, int digitgain)
 
@@ -467,15 +338,6 @@ static int gc2235_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_EXPOSURE_ABSOLUTE:
 		ret = gc2235_q_exposure(&dev->sd, &ctrl->val);
 		break;
-	case V4L2_CID_FOCAL_ABSOLUTE:
-		ret = gc2235_g_focal(&dev->sd, &ctrl->val);
-		break;
-	case V4L2_CID_FNUMBER_ABSOLUTE:
-		ret = gc2235_g_fnumber(&dev->sd, &ctrl->val);
-		break;
-	case V4L2_CID_FNUMBER_RANGE:
-		ret = gc2235_g_fnumber_range(&dev->sd, &ctrl->val);
-		break;
 	default:
 		ret = -EINVAL;
 	}
@@ -497,39 +359,6 @@ static struct v4l2_ctrl_config gc2235_controls[] = {
 		.max = 0xffff,
 		.step = 0x01,
 		.def = 0x00,
-		.flags = 0,
-	},
-	{
-		.ops = &ctrl_ops,
-		.id = V4L2_CID_FOCAL_ABSOLUTE,
-		.type = V4L2_CTRL_TYPE_INTEGER,
-		.name = "focal length",
-		.min = GC2235_FOCAL_LENGTH_DEFAULT,
-		.max = GC2235_FOCAL_LENGTH_DEFAULT,
-		.step = 0x01,
-		.def = GC2235_FOCAL_LENGTH_DEFAULT,
-		.flags = 0,
-	},
-	{
-		.ops = &ctrl_ops,
-		.id = V4L2_CID_FNUMBER_ABSOLUTE,
-		.type = V4L2_CTRL_TYPE_INTEGER,
-		.name = "f-number",
-		.min = GC2235_F_NUMBER_DEFAULT,
-		.max = GC2235_F_NUMBER_DEFAULT,
-		.step = 0x01,
-		.def = GC2235_F_NUMBER_DEFAULT,
-		.flags = 0,
-	},
-	{
-		.ops = &ctrl_ops,
-		.id = V4L2_CID_FNUMBER_RANGE,
-		.type = V4L2_CTRL_TYPE_INTEGER,
-		.name = "f-number range",
-		.min = GC2235_F_NUMBER_RANGE,
-		.max = GC2235_F_NUMBER_RANGE,
-		.step = 0x01,
-		.def = GC2235_F_NUMBER_RANGE,
 		.flags = 0,
 	},
 };
@@ -570,14 +399,16 @@ static int power_ctrl(struct v4l2_subdev *sd, bool flag)
 static int gpio_ctrl(struct v4l2_subdev *sd, bool flag)
 {
 	struct gc2235_device *dev = to_gc2235_sensor(sd);
-	int ret = -1;
+	int ret;
 
 	if (!dev || !dev->platform_data)
 		return -ENODEV;
 
-	ret |= dev->platform_data->gpio1_ctrl(sd, !flag);
+	ret = dev->platform_data->gpio1_ctrl(sd, !flag);
 	usleep_range(60, 90);
-	return dev->platform_data->gpio0_ctrl(sd, flag);
+	ret |= dev->platform_data->gpio0_ctrl(sd, flag);
+
+	return ret;
 }
 
 static int power_up(struct v4l2_subdev *sd)
@@ -670,76 +501,6 @@ static int gc2235_s_power(struct v4l2_subdev *sd, int on)
 	return ret;
 }
 
-/*
- * distance - calculate the distance
- * @res: resolution
- * @w: width
- * @h: height
- *
- * Get the gap between resolution and w/h.
- * res->width/height smaller than w/h wouldn't be considered.
- * Returns the value of gap or -1 if fail.
- */
-#define LARGEST_ALLOWED_RATIO_MISMATCH 800
-static int distance(struct gc2235_resolution *res, u32 w, u32 h)
-{
-	unsigned int w_ratio = (res->width << 13) / w;
-	unsigned int h_ratio;
-	int match;
-
-	if (h == 0)
-		return -1;
-	h_ratio = (res->height << 13) / h;
-	if (h_ratio == 0)
-		return -1;
-	match   = abs(((w_ratio << 13) / h_ratio) - 8192);
-
-	if ((w_ratio < 8192) || (h_ratio < 8192) ||
-	    (match > LARGEST_ALLOWED_RATIO_MISMATCH))
-		return -1;
-
-	return w_ratio + h_ratio;
-}
-
-/* Return the nearest higher resolution index */
-static int nearest_resolution_index(int w, int h)
-{
-	int i;
-	int idx = -1;
-	int dist;
-	int min_dist = INT_MAX;
-	struct gc2235_resolution *tmp_res = NULL;
-
-	for (i = 0; i < N_RES; i++) {
-		tmp_res = &gc2235_res[i];
-		dist = distance(tmp_res, w, h);
-		if (dist == -1)
-			continue;
-		if (dist < min_dist) {
-			min_dist = dist;
-			idx = i;
-		}
-	}
-
-	return idx;
-}
-
-static int get_resolution_index(int w, int h)
-{
-	int i;
-
-	for (i = 0; i < N_RES; i++) {
-		if (w != gc2235_res[i].width)
-			continue;
-		if (h != gc2235_res[i].height)
-			continue;
-
-		return i;
-	}
-
-	return -1;
-}
-
 static int startup(struct v4l2_subdev *sd)
 {
 	struct gc2235_device *dev = to_gc2235_sensor(sd);
@@ -758,7 +519,7 @@ static int startup(struct v4l2_subdev *sd)
 		gc2235_write_reg_array(client, gc2235_init_settings);
 	}
 
-	ret = gc2235_write_reg_array(client, gc2235_res[dev->fmt_idx].regs);
+	ret = gc2235_write_reg_array(client, dev->res->regs);
 	if (ret) {
 		dev_err(&client->dev, "gc2235 write register err.\n");
 		return ret;
@@ -776,8 +537,8 @@ static int gc2235_set_fmt(struct v4l2_subdev *sd,
 	struct gc2235_device *dev = to_gc2235_sensor(sd);
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	struct camera_mipi_info *gc2235_info = NULL;
+	struct gc2235_resolution *res;
 	int ret = 0;
-	int idx;
 
 	gc2235_info = v4l2_get_subdev_hostdata(sd);
 	if (!gc2235_info)
@@ -786,16 +547,18 @@ static int gc2235_set_fmt(struct v4l2_subdev *sd,
 		return -EINVAL;
 	if (!fmt)
 		return -EINVAL;
+
 	mutex_lock(&dev->input_lock);
-	idx = nearest_resolution_index(fmt->width, fmt->height);
-	if (idx == -1) {
-		/* return the largest resolution */
-		fmt->width = gc2235_res[N_RES - 1].width;
-		fmt->height = gc2235_res[N_RES - 1].height;
-	} else {
-		fmt->width = gc2235_res[idx].width;
-		fmt->height = gc2235_res[idx].height;
-	}
+	res = v4l2_find_nearest_size(gc2235_res_preview,
+				     ARRAY_SIZE(gc2235_res_preview), width,
+				     height, fmt->width, fmt->height);
+	if (!res)
+		res = &gc2235_res_preview[N_RES - 1];
+
+	fmt->width = res->width;
+	fmt->height = res->height;
+	dev->res = res;
+
 	fmt->code = MEDIA_BUS_FMT_SGRBG10_1X10;
 	if (format->which == V4L2_SUBDEV_FORMAT_TRY) {
 		sd_state->pads->try_fmt = *fmt;
@@ -803,23 +566,11 @@ static int gc2235_set_fmt(struct v4l2_subdev *sd,
 		return 0;
 	}
 
-	dev->fmt_idx = get_resolution_index(fmt->width, fmt->height);
-	if (dev->fmt_idx == -1) {
-		dev_err(&client->dev, "get resolution fail\n");
-		mutex_unlock(&dev->input_lock);
-		return -EINVAL;
-	}
-
 	ret = startup(sd);
 	if (ret) {
 		dev_err(&client->dev, "gc2235 startup err\n");
 		goto err;
 	}
-
-	ret = gc2235_get_intg_factor(client, gc2235_info,
-				     &gc2235_res[dev->fmt_idx]);
-	if (ret)
-		dev_err(&client->dev, "failed to get integration_factor\n");
 
 err:
 	mutex_unlock(&dev->input_lock);
@@ -839,8 +590,8 @@ static int gc2235_get_fmt(struct v4l2_subdev *sd,
 	if (!fmt)
 		return -EINVAL;
 
-	fmt->width = gc2235_res[dev->fmt_idx].width;
-	fmt->height = gc2235_res[dev->fmt_idx].height;
+	fmt->width = dev->res->width;
+	fmt->height = dev->res->height;
 	fmt->code = MEDIA_BUS_FMT_SGRBG10_1X10;
 
 	return 0;
@@ -849,21 +600,14 @@ static int gc2235_get_fmt(struct v4l2_subdev *sd,
 static int gc2235_detect(struct i2c_client *client)
 {
 	struct i2c_adapter *adapter = client->adapter;
-	u16 high, low;
-	int ret;
+	u16 high = 0, low = 0;
 	u16 id;
 
 	if (!i2c_check_functionality(adapter, I2C_FUNC_I2C))
 		return -ENODEV;
 
-	ret = gc2235_read_reg(client, GC2235_8BIT,
-			      GC2235_SENSOR_ID_H, &high);
-	if (ret) {
-		dev_err(&client->dev, "sensor_id_high = 0x%x\n", high);
-		return -ENODEV;
-	}
-	ret = gc2235_read_reg(client, GC2235_8BIT,
-			      GC2235_SENSOR_ID_L, &low);
+	gc2235_read_reg(client, GC2235_8BIT, GC2235_SENSOR_ID_H, &high);
+	gc2235_read_reg(client, GC2235_8BIT, GC2235_SENSOR_ID_L, &low);
 	id = ((high << 8) | low);
 
 	if (id != GC2235_ID) {
@@ -960,7 +704,7 @@ static int gc2235_g_frame_interval(struct v4l2_subdev *sd,
 	struct gc2235_device *dev = to_gc2235_sensor(sd);
 
 	interval->interval.numerator = 1;
-	interval->interval.denominator = gc2235_res[dev->fmt_idx].fps;
+	interval->interval.denominator = dev->res->fps;
 
 	return 0;
 }
@@ -998,7 +742,7 @@ static int gc2235_g_skip_frames(struct v4l2_subdev *sd, u32 *frames)
 	struct gc2235_device *dev = to_gc2235_sensor(sd);
 
 	mutex_lock(&dev->input_lock);
-	*frames = gc2235_res[dev->fmt_idx].skip_frames;
+	*frames = dev->res->skip_frames;
 	mutex_unlock(&dev->input_lock);
 
 	return 0;
@@ -1032,7 +776,7 @@ static const struct v4l2_subdev_ops gc2235_ops = {
 	.sensor = &gc2235_sensor_ops,
 };
 
-static int gc2235_remove(struct i2c_client *client)
+static void gc2235_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct gc2235_device *dev = to_gc2235_sensor(sd);
@@ -1045,8 +789,6 @@ static int gc2235_remove(struct i2c_client *client)
 	media_entity_cleanup(&dev->sd.entity);
 	v4l2_ctrl_handler_free(&dev->ctrl_handler);
 	kfree(dev);
-
-	return 0;
 }
 
 static int gc2235_probe(struct i2c_client *client)
@@ -1062,7 +804,7 @@ static int gc2235_probe(struct i2c_client *client)
 
 	mutex_init(&dev->input_lock);
 
-	dev->fmt_idx = 0;
+	dev->res = &gc2235_res_preview[0];
 	v4l2_i2c_subdev_init(&dev->sd, client, &gc2235_ops);
 
 	gcpdev = gmin_camera_platform_data(&dev->sd,

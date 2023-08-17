@@ -10,6 +10,7 @@
 #include <internal/lib.h>
 #include <symbol/kallsyms.h>
 #include "bpf-event.h"
+#include "bpf-utils.h"
 #include "debug.h"
 #include "dso.h"
 #include "symbol.h"
@@ -20,8 +21,6 @@
 #include "evlist.h"
 #include "record.h"
 #include "util/synthetic-events.h"
-
-#define ptr_to_u64(ptr)    ((__u64)(unsigned long)(ptr))
 
 static int snprintf_hex(char *buf, size_t size, unsigned char *data, size_t len)
 {
@@ -37,9 +36,9 @@ static int machine__process_bpf_event_load(struct machine *machine,
 					   union perf_event *event,
 					   struct perf_sample *sample __maybe_unused)
 {
-	struct bpf_prog_info_linear *info_linear;
 	struct bpf_prog_info_node *info_node;
 	struct perf_env *env = machine->env;
+	struct perf_bpil *info_linear;
 	int id = event->bpf.id;
 	unsigned int i;
 
@@ -55,13 +54,15 @@ static int machine__process_bpf_event_load(struct machine *machine,
 	for (i = 0; i < info_linear->info.nr_jited_ksyms; i++) {
 		u64 *addrs = (u64 *)(uintptr_t)(info_linear->info.jited_ksyms);
 		u64 addr = addrs[i];
-		struct map *map = maps__find(&machine->kmaps, addr);
+		struct map *map = maps__find(machine__kernel_maps(machine), addr);
 
 		if (map) {
-			map->dso->binary_type = DSO_BINARY_TYPE__BPF_PROG_INFO;
-			map->dso->bpf_prog.id = id;
-			map->dso->bpf_prog.sub_id = i;
-			map->dso->bpf_prog.env = env;
+			struct dso *dso = map__dso(map);
+
+			dso->binary_type = DSO_BINARY_TYPE__BPF_PROG_INFO;
+			dso->bpf_prog.id = id;
+			dso->bpf_prog.sub_id = i;
+			dso->bpf_prog.env = env;
 		}
 	}
 	return 0;
@@ -109,7 +110,11 @@ static int perf_env__fetch_btf(struct perf_env *env,
 	node->data_size = data_size;
 	memcpy(node->data, data, data_size);
 
-	perf_env__insert_btf(env, node);
+	if (!perf_env__insert_btf(env, node)) {
+		/* Insertion failed because of a duplicate. */
+		free(node);
+		return -1;
+	}
 	return 0;
 }
 
@@ -164,9 +169,9 @@ static int perf_event__synthesize_one_bpf_prog(struct perf_session *session,
 {
 	struct perf_record_ksymbol *ksymbol_event = &event->ksymbol;
 	struct perf_record_bpf_event *bpf_event = &event->bpf;
-	struct bpf_prog_info_linear *info_linear;
 	struct perf_tool *tool = session->tool;
 	struct bpf_prog_info_node *info_node;
+	struct perf_bpil *info_linear;
 	struct bpf_prog_info *info;
 	struct btf *btf = NULL;
 	struct perf_env *env;
@@ -180,15 +185,15 @@ static int perf_event__synthesize_one_bpf_prog(struct perf_session *session,
 	 */
 	env = session->data ? &session->header.env : &perf_env;
 
-	arrays = 1UL << BPF_PROG_INFO_JITED_KSYMS;
-	arrays |= 1UL << BPF_PROG_INFO_JITED_FUNC_LENS;
-	arrays |= 1UL << BPF_PROG_INFO_FUNC_INFO;
-	arrays |= 1UL << BPF_PROG_INFO_PROG_TAGS;
-	arrays |= 1UL << BPF_PROG_INFO_JITED_INSNS;
-	arrays |= 1UL << BPF_PROG_INFO_LINE_INFO;
-	arrays |= 1UL << BPF_PROG_INFO_JITED_LINE_INFO;
+	arrays = 1UL << PERF_BPIL_JITED_KSYMS;
+	arrays |= 1UL << PERF_BPIL_JITED_FUNC_LENS;
+	arrays |= 1UL << PERF_BPIL_FUNC_INFO;
+	arrays |= 1UL << PERF_BPIL_PROG_TAGS;
+	arrays |= 1UL << PERF_BPIL_JITED_INSNS;
+	arrays |= 1UL << PERF_BPIL_LINE_INFO;
+	arrays |= 1UL << PERF_BPIL_JITED_LINE_INFO;
 
-	info_linear = bpf_program__get_prog_info_linear(fd, arrays);
+	info_linear = get_bpf_prog_info_linear(fd, arrays);
 	if (IS_ERR_OR_NULL(info_linear)) {
 		info_linear = NULL;
 		pr_debug("%s: failed to get BPF program info. aborting\n", __func__);
@@ -441,8 +446,8 @@ int perf_event__synthesize_bpf_events(struct perf_session *session,
 
 static void perf_env__add_bpf_info(struct perf_env *env, u32 id)
 {
-	struct bpf_prog_info_linear *info_linear;
 	struct bpf_prog_info_node *info_node;
+	struct perf_bpil *info_linear;
 	struct btf *btf = NULL;
 	u64 arrays;
 	u32 btf_id;
@@ -452,15 +457,15 @@ static void perf_env__add_bpf_info(struct perf_env *env, u32 id)
 	if (fd < 0)
 		return;
 
-	arrays = 1UL << BPF_PROG_INFO_JITED_KSYMS;
-	arrays |= 1UL << BPF_PROG_INFO_JITED_FUNC_LENS;
-	arrays |= 1UL << BPF_PROG_INFO_FUNC_INFO;
-	arrays |= 1UL << BPF_PROG_INFO_PROG_TAGS;
-	arrays |= 1UL << BPF_PROG_INFO_JITED_INSNS;
-	arrays |= 1UL << BPF_PROG_INFO_LINE_INFO;
-	arrays |= 1UL << BPF_PROG_INFO_JITED_LINE_INFO;
+	arrays = 1UL << PERF_BPIL_JITED_KSYMS;
+	arrays |= 1UL << PERF_BPIL_JITED_FUNC_LENS;
+	arrays |= 1UL << PERF_BPIL_FUNC_INFO;
+	arrays |= 1UL << PERF_BPIL_PROG_TAGS;
+	arrays |= 1UL << PERF_BPIL_JITED_INSNS;
+	arrays |= 1UL << PERF_BPIL_LINE_INFO;
+	arrays |= 1UL << PERF_BPIL_JITED_LINE_INFO;
 
-	info_linear = bpf_program__get_prog_info_linear(fd, arrays);
+	info_linear = get_bpf_prog_info_linear(fd, arrays);
 	if (IS_ERR_OR_NULL(info_linear)) {
 		pr_debug("%s: failed to get BPF program info. aborting\n", __func__);
 		goto out;

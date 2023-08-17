@@ -134,13 +134,13 @@ nfp_repr_get_host_stats64(const struct net_device *netdev,
 
 		repr_stats = per_cpu_ptr(repr->stats, i);
 		do {
-			start = u64_stats_fetch_begin_irq(&repr_stats->syncp);
+			start = u64_stats_fetch_begin(&repr_stats->syncp);
 			tbytes = repr_stats->tx_bytes;
 			tpkts = repr_stats->tx_packets;
 			tdrops = repr_stats->tx_drops;
 			rbytes = repr_stats->rx_bytes;
 			rpkts = repr_stats->rx_packets;
-		} while (u64_stats_fetch_retry_irq(&repr_stats->syncp, start));
+		} while (u64_stats_fetch_retry(&repr_stats->syncp, start));
 
 		stats->tx_bytes += tbytes;
 		stats->tx_packets += tpkts;
@@ -275,7 +275,6 @@ const struct net_device_ops nfp_repr_netdev_ops = {
 	.ndo_set_features	= nfp_port_set_features,
 	.ndo_set_mac_address    = eth_mac_addr,
 	.ndo_get_port_parent_id	= nfp_port_get_port_parent_id,
-	.ndo_get_devlink_port	= nfp_devlink_get_devlink_port,
 };
 
 void
@@ -365,9 +364,9 @@ int nfp_repr_init(struct nfp_app *app, struct net_device *netdev,
 
 	netdev->vlan_features = netdev->hw_features;
 
-	if (repr_cap & NFP_NET_CFG_CTRL_RXVLAN)
+	if (repr_cap & NFP_NET_CFG_CTRL_RXVLAN_ANY)
 		netdev->hw_features |= NETIF_F_HW_VLAN_CTAG_RX;
-	if (repr_cap & NFP_NET_CFG_CTRL_TXVLAN) {
+	if (repr_cap & NFP_NET_CFG_CTRL_TXVLAN_ANY) {
 		if (repr_cap & NFP_NET_CFG_CTRL_LSO2)
 			netdev_warn(netdev, "Device advertises both TSO2 and TXVLAN. Refusing to enable TXVLAN.\n");
 		else
@@ -375,11 +374,15 @@ int nfp_repr_init(struct nfp_app *app, struct net_device *netdev,
 	}
 	if (repr_cap & NFP_NET_CFG_CTRL_CTAG_FILTER)
 		netdev->hw_features |= NETIF_F_HW_VLAN_CTAG_FILTER;
+	if (repr_cap & NFP_NET_CFG_CTRL_RXQINQ)
+		netdev->hw_features |= NETIF_F_HW_VLAN_STAG_RX;
 
 	netdev->features = netdev->hw_features;
 
-	/* Advertise but disable TSO by default. */
-	netdev->features &= ~(NETIF_F_TSO | NETIF_F_TSO6);
+	/* C-Tag strip and S-Tag strip can't be supported simultaneously,
+	 * so enable C-Tag strip and disable S-Tag strip by default.
+	 */
+	netdev->features &= ~NETIF_F_HW_VLAN_STAG_RX;
 	netif_set_tso_max_segs(netdev, NFP_NET_LSO_MAX_SEGS);
 
 	netdev->priv_flags |= IFF_NO_QUEUE | IFF_DISABLE_NETPOLL;
@@ -498,8 +501,7 @@ struct nfp_reprs *nfp_reprs_alloc(unsigned int num_reprs)
 {
 	struct nfp_reprs *reprs;
 
-	reprs = kzalloc(sizeof(*reprs) +
-			num_reprs * sizeof(struct net_device *), GFP_KERNEL);
+	reprs = kzalloc(struct_size(reprs, reprs, num_reprs), GFP_KERNEL);
 	if (!reprs)
 		return NULL;
 	reprs->num_reprs = num_reprs;

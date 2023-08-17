@@ -417,8 +417,6 @@ struct mbox_chan *omap_mbox_request_channel(struct mbox_client *cl,
 	struct device *dev = cl->dev;
 	struct omap_mbox *mbox = NULL;
 	struct omap_mbox_device *mdev;
-	struct mbox_chan *chan;
-	unsigned long flags;
 	int ret;
 
 	if (!dev)
@@ -441,23 +439,11 @@ struct mbox_chan *omap_mbox_request_channel(struct mbox_client *cl,
 	if (!mbox || !mbox->chan)
 		return ERR_PTR(-ENOENT);
 
-	chan = mbox->chan;
-	spin_lock_irqsave(&chan->lock, flags);
-	chan->msg_free = 0;
-	chan->msg_count = 0;
-	chan->active_req = NULL;
-	chan->cl = cl;
-	init_completion(&chan->tx_complete);
-	spin_unlock_irqrestore(&chan->lock, flags);
+	ret = mbox_bind_client(mbox->chan, cl);
+	if (ret)
+		return ERR_PTR(ret);
 
-	ret = chan->mbox->ops->startup(chan);
-	if (ret) {
-		pr_err("Unable to startup the chan (%d)\n", ret);
-		mbox_free_channel(chan);
-		chan = ERR_PTR(ret);
-	}
-
-	return chan;
+	return mbox->chan;
 }
 EXPORT_SYMBOL(omap_mbox_request_channel);
 
@@ -699,7 +685,6 @@ static struct mbox_chan *omap_mbox_of_xlate(struct mbox_controller *controller,
 
 static int omap_mbox_probe(struct platform_device *pdev)
 {
-	struct resource *mem;
 	int ret;
 	struct mbox_chan *chnls;
 	struct omap_mbox **list, *mbox, *mboxblk;
@@ -764,8 +749,7 @@ static int omap_mbox_probe(struct platform_device *pdev)
 
 		finfo->name = child->name;
 
-		if (of_find_property(child, "ti,mbox-send-noirq", NULL))
-			finfo->send_no_irq = true;
+		finfo->send_no_irq = of_property_read_bool(child, "ti,mbox-send-noirq");
 
 		if (finfo->tx_id >= num_fifos || finfo->rx_id >= num_fifos ||
 		    finfo->tx_usr >= num_users || finfo->rx_usr >= num_users)
@@ -776,8 +760,7 @@ static int omap_mbox_probe(struct platform_device *pdev)
 	if (!mdev)
 		return -ENOMEM;
 
-	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	mdev->mbox_base = devm_ioremap_resource(&pdev->dev, mem);
+	mdev->mbox_base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(mdev->mbox_base))
 		return PTR_ERR(mdev->mbox_base);
 
@@ -858,11 +841,9 @@ static int omap_mbox_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, mdev);
 	pm_runtime_enable(mdev->dev);
 
-	ret = pm_runtime_get_sync(mdev->dev);
-	if (ret < 0) {
-		pm_runtime_put_noidle(mdev->dev);
+	ret = pm_runtime_resume_and_get(mdev->dev);
+	if (ret < 0)
 		goto unregister;
-	}
 
 	/*
 	 * just print the raw revision register, the format is not

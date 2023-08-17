@@ -30,26 +30,6 @@
 #include <linux/namei.h>
 #include <linux/crc32.h>
 #include <linux/seq_file.h>
-#include <linux/moduleparam.h>
-#include <linux/unsupported-feature.h>
-
-DECLARE_SUSE_UNSUPPORTED_FEATURE(reiserfs)
-DEFINE_SUSE_UNSUPPORTED_FEATURE(reiserfs)
-
-static bool check_rw_mount(struct super_block *sb, unsigned long flags)
-{
-	if (flags & SB_RDONLY)
-		return true;
-
-	if (reiserfs_allow_unsupported()) {
-		reiserfs_mark_unsupported();
-		return true;
-	}
-
-	pr_warn("reiserfs: read-write mode is unsupported.\n");
-	pr_warn("reiserfs: load module with allow_unsupported=1 to enable read-write mode.\n");
-	return false;
-}
 
 struct file_system_type reiserfs_fs_type;
 
@@ -659,7 +639,7 @@ static struct kmem_cache *reiserfs_inode_cachep;
 static struct inode *reiserfs_alloc_inode(struct super_block *sb)
 {
 	struct reiserfs_inode_info *ei;
-	ei = kmem_cache_alloc(reiserfs_inode_cachep, GFP_KERNEL);
+	ei = alloc_inode_sb(sb, reiserfs_inode_cachep, GFP_KERNEL);
 	if (!ei)
 		return NULL;
 	atomic_set(&ei->openers, 0);
@@ -1455,20 +1435,12 @@ static int reiserfs_remount(struct super_block *s, int *mount_flags, char *arg)
 	unsigned long safe_mask = 0;
 	unsigned int commit_max_age = (unsigned int)-1;
 	struct reiserfs_journal *journal = SB_JOURNAL(s);
-	char *new_opts;
 	int err;
 	char *qf_names[REISERFS_MAXQUOTAS];
 	unsigned int qfmt = 0;
 #ifdef CONFIG_QUOTA
 	int i;
 #endif
-
-	if (!check_rw_mount(s, *mount_flags))
-		return -EACCES;
-
-	new_opts = kstrdup(arg, GFP_KERNEL);
-	if (arg && !new_opts)
-		return -ENOMEM;
 
 	sync_filesystem(s);
 	reiserfs_write_lock(s);
@@ -1620,7 +1592,6 @@ out_ok_unlocked:
 out_err_unlock:
 	reiserfs_write_unlock(s);
 out_err:
-	kfree(new_opts);
 	return err;
 }
 
@@ -1681,6 +1652,8 @@ static int read_super_block(struct super_block *s, int offset)
 		return 1;
 	}
 
+	reiserfs_warning(NULL, "", "reiserfs filesystem is deprecated and "
+		"scheduled to be removed from the kernel in 2025");
 	SB_BUFFER_WITH_SB(s) = bh;
 	SB_DISK_SUPER_BLOCK(s) = rs;
 
@@ -1729,9 +1702,7 @@ static int read_super_block(struct super_block *s, int offset)
 /* after journal replay, reread all bitmap and super blocks */
 static int reread_meta_blocks(struct super_block *s)
 {
-	ll_rw_block(REQ_OP_READ, 0, 1, &SB_BUFFER_WITH_SB(s));
-	wait_on_buffer(SB_BUFFER_WITH_SB(s));
-	if (!buffer_uptodate(SB_BUFFER_WITH_SB(s))) {
+	if (bh_read(SB_BUFFER_WITH_SB(s), 0) < 0) {
 		reiserfs_warning(s, "reiserfs-2504", "error reading the super");
 		return 1;
 	}
@@ -1929,9 +1900,6 @@ static int reiserfs_fill_super(struct super_block *s, void *data, int silent)
 	int errval = -EINVAL;
 	char *qf_names[REISERFS_MAXQUOTAS] = {};
 	unsigned int qfmt = 0;
-
-	if (!check_rw_mount(s, s->s_flags))
-		return -EACCES;
 
 	sbi = kzalloc(sizeof(struct reiserfs_sb_info), GFP_KERNEL);
 	if (!sbi)
@@ -2534,9 +2502,7 @@ static ssize_t reiserfs_quota_read(struct super_block *sb, int type, char *data,
 		len = i_size - off;
 	toread = len;
 	while (toread > 0) {
-		tocopy =
-		    sb->s_blocksize - offset <
-		    toread ? sb->s_blocksize - offset : toread;
+		tocopy = min_t(unsigned long, sb->s_blocksize - offset, toread);
 		tmp_bh.b_state = 0;
 		/*
 		 * Quota files are without tails so we can safely
@@ -2584,8 +2550,7 @@ static ssize_t reiserfs_quota_write(struct super_block *sb, int type,
 		return -EIO;
 	}
 	while (towrite > 0) {
-		tocopy = sb->s_blocksize - offset < towrite ?
-		    sb->s_blocksize - offset : towrite;
+		tocopy = min_t(unsigned long, sb->s_blocksize - offset, towrite);
 		tmp_bh.b_state = 0;
 		reiserfs_write_lock(sb);
 		err = reiserfs_get_block(inode, blk, &tmp_bh, GET_BLOCK_CREATE);

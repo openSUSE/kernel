@@ -43,6 +43,7 @@ properties:
 
   fsl,timeout:
     $ref: /schemas/types.yaml#/definitions/uint32
+    deprecated: true
     description: |
       I2C bus timeout in microseconds
 
@@ -73,6 +74,7 @@ examples:
         clock-frequency = <100000>;
     };
 
+  - |
     /* MPC5200B based board */
     i2c@3d00 {
         #address-cells = <1>;
@@ -84,6 +86,7 @@ examples:
         fsl,preserve-clocking;
     };
 
+  - |
     /* MPC8544 base board */
     i2c@3100 {
         #address-cells = <1>;
@@ -93,6 +96,6 @@ examples:
         interrupts = <43 2>;
         interrupt-parent = <&mpic>;
         clock-frequency = <400000>;
-        fsl,timeout = <10000>;
+        i2c-scl-clk-low-timeout-us = <10000>;
     };
 ...

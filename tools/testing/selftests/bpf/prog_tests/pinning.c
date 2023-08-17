@@ -18,7 +18,7 @@ __u32 get_map_id(struct bpf_object *obj, const char *name)
 	if (CHECK(!map, "find map", "NULL map"))
 		return 0;
 
-	err = bpf_obj_get_info_by_fd(bpf_map__fd(map),
+	err = bpf_map_get_info_by_fd(bpf_map__fd(map),
 				     &map_info, &map_info_len);
 	CHECK(err, "get map info", "err %d errno %d", err, errno);
 	return map_info.id;
@@ -26,13 +26,13 @@ __u32 get_map_id(struct bpf_object *obj, const char *name)
 
 void test_pinning(void)
 {
-	const char *file_invalid = "./test_pinning_invalid.o";
+	const char *file_invalid = "./test_pinning_invalid.bpf.o";
 	const char *custpinpath = "/sys/fs/bpf/custom/pinmap";
 	const char *nopinpath = "/sys/fs/bpf/nopinmap";
 	const char *nopinpath2 = "/sys/fs/bpf/nopinmap2";
 	const char *custpath = "/sys/fs/bpf/custom";
 	const char *pinpath = "/sys/fs/bpf/pinmap";
-	const char *file = "./test_pinning.o";
+	const char *file = "./test_pinning.bpf.o";
 	__u32 map_id, map_id2, duration = 0;
 	struct stat statbuf = {};
 	struct bpf_object *obj;

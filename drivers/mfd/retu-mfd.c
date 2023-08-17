@@ -227,7 +227,7 @@ static const struct regmap_config retu_config = {
 	.val_bits = 16,
 };
 
-static int retu_probe(struct i2c_client *i2c, const struct i2c_device_id *id)
+static int retu_probe(struct i2c_client *i2c)
 {
 	struct retu_data const *rdat;
 	struct retu_dev *rdev;
@@ -287,7 +287,7 @@ static int retu_probe(struct i2c_client *i2c, const struct i2c_device_id *id)
 	return 0;
 }
 
-static int retu_remove(struct i2c_client *i2c)
+static void retu_remove(struct i2c_client *i2c)
 {
 	struct retu_dev *rdev = i2c_get_clientdata(i2c);
 
@@ -297,8 +297,6 @@ static int retu_remove(struct i2c_client *i2c)
 	}
 	mfd_remove_devices(rdev->dev);
 	regmap_del_irq_chip(i2c->irq, rdev->irq_data);
-
-	return 0;
 }
 
 static const struct i2c_device_id retu_id[] = {
@@ -320,7 +318,7 @@ static struct i2c_driver retu_driver = {
 		.name = "retu-mfd",
 		.of_match_table = retu_of_match,
 	},
-	.probe		= retu_probe,
+	.probe_new	= retu_probe,
 	.remove		= retu_remove,
 	.id_table	= retu_id,
 };

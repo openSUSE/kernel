@@ -156,11 +156,12 @@ void perf_mem_events__list(void)
 	for (j = 0; j < PERF_MEM_EVENTS__MAX; j++) {
 		struct perf_mem_event *e = perf_mem_events__ptr(j);
 
-		fprintf(stderr, "%-13s%-*s%s\n",
-			e->tag ?: "",
-			verbose > 0 ? 25 : 0,
-			verbose > 0 ? perf_mem_events__name(j, NULL) : "",
-			e->supported ? ": available" : "");
+		fprintf(stderr, "%-*s%-*s%s",
+			e->tag ? 13 : 0,
+			e->tag ? : "",
+			e->tag && verbose > 0 ? 25 : 0,
+			e->tag && verbose > 0 ? perf_mem_events__name(j, NULL) : "",
+			e->supported ? ": available\n" : "");
 	}
 }
 
@@ -281,7 +282,7 @@ static const char * const mem_lvl[] = {
 	"HIT",
 	"MISS",
 	"L1",
-	"LFB",
+	"LFB/MAB",
 	"L2",
 	"L3",
 	"Local RAM",
@@ -294,40 +295,104 @@ static const char * const mem_lvl[] = {
 };
 
 static const char * const mem_lvlnum[] = {
+	[PERF_MEM_LVLNUM_UNC] = "Uncached",
+	[PERF_MEM_LVLNUM_CXL] = "CXL",
+	[PERF_MEM_LVLNUM_IO] = "I/O",
 	[PERF_MEM_LVLNUM_ANY_CACHE] = "Any cache",
-	[PERF_MEM_LVLNUM_LFB] = "LFB",
+	[PERF_MEM_LVLNUM_LFB] = "LFB/MAB",
 	[PERF_MEM_LVLNUM_RAM] = "RAM",
 	[PERF_MEM_LVLNUM_PMEM] = "PMEM",
 	[PERF_MEM_LVLNUM_NA] = "N/A",
 };
 
-int perf_mem__lvl_scnprintf(char *out, size_t sz, struct mem_info *mem_info)
+static const char * const mem_hops[] = {
+	"N/A",
+	/*
+	 * While printing, 'Remote' will be added to represent
+	 * 'Remote core, same node' accesses as remote field need
+	 * to be set with mem_hops field.
+	 */
+	"core, same node",
+	"node, same socket",
+	"socket, same board",
+	"board",
+};
+
+static int perf_mem__op_scnprintf(char *out, size_t sz, struct mem_info *mem_info)
 {
-	size_t i, l = 0;
-	u64 m =  PERF_MEM_LVL_NA;
-	u64 hit, miss;
-	int printed;
+	u64 op = PERF_MEM_LOCK_NA;
+	int l;
 
 	if (mem_info)
-		m  = mem_info->data_src.mem_lvl;
+		op = mem_info->data_src.mem_op;
+
+	if (op & PERF_MEM_OP_NA)
+		l = scnprintf(out, sz, "N/A");
+	else if (op & PERF_MEM_OP_LOAD)
+		l = scnprintf(out, sz, "LOAD");
+	else if (op & PERF_MEM_OP_STORE)
+		l = scnprintf(out, sz, "STORE");
+	else if (op & PERF_MEM_OP_PFETCH)
+		l = scnprintf(out, sz, "PFETCH");
+	else if (op & PERF_MEM_OP_EXEC)
+		l = scnprintf(out, sz, "EXEC");
+	else
+		l = scnprintf(out, sz, "No");
+
+	return l;
+}
+
+int perf_mem__lvl_scnprintf(char *out, size_t sz, struct mem_info *mem_info)
+{
+	union perf_mem_data_src data_src;
+	int printed = 0;
+	size_t l = 0;
+	size_t i;
+	int lvl;
+	char hit_miss[5] = {0};
 
 	sz -= 1; /* -1 for null termination */
 	out[0] = '\0';
 
-	hit = m & PERF_MEM_LVL_HIT;
-	miss = m & PERF_MEM_LVL_MISS;
+	if (!mem_info)
+		goto na;
 
-	/* already taken care of */
-	m &= ~(PERF_MEM_LVL_HIT|PERF_MEM_LVL_MISS);
+	data_src = mem_info->data_src;
 
-	if (mem_info && mem_info->data_src.mem_remote) {
-		strcat(out, "Remote ");
-		l += 7;
+	if (data_src.mem_lvl & PERF_MEM_LVL_HIT)
+		memcpy(hit_miss, "hit", 3);
+	else if (data_src.mem_lvl & PERF_MEM_LVL_MISS)
+		memcpy(hit_miss, "miss", 4);
+
+	lvl = data_src.mem_lvl_num;
+	if (lvl && lvl != PERF_MEM_LVLNUM_NA) {
+		if (data_src.mem_remote) {
+			strcat(out, "Remote ");
+			l += 7;
+		}
+
+		if (data_src.mem_hops)
+			l += scnprintf(out + l, sz - l, "%s ", mem_hops[data_src.mem_hops]);
+
+		if (mem_lvlnum[lvl])
+			l += scnprintf(out + l, sz - l, mem_lvlnum[lvl]);
+		else
+			l += scnprintf(out + l, sz - l, "L%d", lvl);
+
+		l += scnprintf(out + l, sz - l, " %s", hit_miss);
+		return l;
 	}
 
-	printed = 0;
-	for (i = 0; m && i < ARRAY_SIZE(mem_lvl); i++, m >>= 1) {
-		if (!(m & 0x1))
+	lvl = data_src.mem_lvl;
+	if (!lvl)
+		goto na;
+
+	lvl &= ~(PERF_MEM_LVL_NA | PERF_MEM_LVL_HIT | PERF_MEM_LVL_MISS);
+	if (!lvl)
+		goto na;
+
+	for (i = 0; lvl && i < ARRAY_SIZE(mem_lvl); i++, lvl >>= 1) {
+		if (!(lvl & 0x1))
 			continue;
 		if (printed++) {
 			strcat(out, " or ");
@@ -336,26 +401,14 @@ int perf_mem__lvl_scnprintf(char *out, size_t sz, struct mem_info *mem_info)
 		l += scnprintf(out + l, sz - l, mem_lvl[i]);
 	}
 
-	if (mem_info && mem_info->data_src.mem_lvl_num) {
-		int lvl = mem_info->data_src.mem_lvl_num;
-		if (printed++) {
-			strcat(out, " or ");
-			l += 4;
-		}
-		if (mem_lvlnum[lvl])
-			l += scnprintf(out + l, sz - l, mem_lvlnum[lvl]);
-		else
-			l += scnprintf(out + l, sz - l, "L%d", lvl);
+	if (printed) {
+		l += scnprintf(out + l, sz - l, " %s", hit_miss);
+		return l;
 	}
 
-	if (l == 0)
-		l += scnprintf(out + l, sz - l, "N/A");
-	if (hit)
-		l += scnprintf(out + l, sz - l, " hit");
-	if (miss)
-		l += scnprintf(out + l, sz - l, " miss");
-
-	return l;
+na:
+	strcat(out, "N/A");
+	return 3;
 }
 
 static const char * const snoop_access[] = {
@@ -364,6 +417,11 @@ static const char * const snoop_access[] = {
 	"Hit",
 	"Miss",
 	"HitM",
+};
+
+static const char * const snoopx_access[] = {
+	"Fwd",
+	"Peer",
 };
 
 int perf_mem__snp_scnprintf(char *out, size_t sz, struct mem_info *mem_info)
@@ -386,13 +444,20 @@ int perf_mem__snp_scnprintf(char *out, size_t sz, struct mem_info *mem_info)
 		}
 		l += scnprintf(out + l, sz - l, snoop_access[i]);
 	}
-	if (mem_info &&
-	     (mem_info->data_src.mem_snoopx & PERF_MEM_SNOOPX_FWD)) {
+
+	m = 0;
+	if (mem_info)
+		m = mem_info->data_src.mem_snoopx;
+
+	for (i = 0; m && i < ARRAY_SIZE(snoopx_access); i++, m >>= 1) {
+		if (!(m & 0x1))
+			continue;
+
 		if (l) {
 			strcat(out, " or ");
 			l += 4;
 		}
-		l += scnprintf(out + l, sz - l, "Fwd");
+		l += scnprintf(out + l, sz - l, snoopx_access[i]);
 	}
 
 	if (*out == '\0')
@@ -446,7 +511,10 @@ int perf_script__meminfo_scnprintf(char *out, size_t sz, struct mem_info *mem_in
 {
 	int i = 0;
 
-	i += perf_mem__lvl_scnprintf(out, sz, mem_info);
+	i += scnprintf(out, sz, "|OP ");
+	i += perf_mem__op_scnprintf(out + i, sz - i, mem_info);
+	i += scnprintf(out + i, sz - i, "|LVL ");
+	i += perf_mem__lvl_scnprintf(out + i, sz, mem_info);
 	i += scnprintf(out + i, sz - i, "|SNP ");
 	i += perf_mem__snp_scnprintf(out + i, sz - i, mem_info);
 	i += scnprintf(out + i, sz - i, "|TLB ");
@@ -466,19 +534,30 @@ int c2c_decode_stats(struct c2c_stats *stats, struct mem_info *mi)
 	u64 op     = data_src->mem_op;
 	u64 lvl    = data_src->mem_lvl;
 	u64 snoop  = data_src->mem_snoop;
+	u64 snoopx = data_src->mem_snoopx;
 	u64 lock   = data_src->mem_lock;
 	u64 blk    = data_src->mem_blk;
 	/*
 	 * Skylake might report unknown remote level via this
 	 * bit, consider it when evaluating remote HITMs.
+	 *
+	 * Incase of power, remote field can also be used to denote cache
+	 * accesses from the another core of same node. Hence, setting
+	 * mrem only when HOPS is zero along with set remote field.
 	 */
-	bool mrem  = data_src->mem_remote;
+	bool mrem  = (data_src->mem_remote && !data_src->mem_hops);
 	int err = 0;
 
 #define HITM_INC(__f)		\
 do {				\
 	stats->__f++;		\
 	stats->tot_hitm++;	\
+} while (0)
+
+#define PEER_INC(__f)		\
+do {				\
+	stats->__f++;		\
+	stats->tot_peer++;	\
 } while (0)
 
 #define P(a, b) PERF_MEM_##a##_##b
@@ -504,12 +583,20 @@ do {				\
 			if (lvl & P(LVL, IO))  stats->ld_io++;
 			if (lvl & P(LVL, LFB)) stats->ld_fbhit++;
 			if (lvl & P(LVL, L1 )) stats->ld_l1hit++;
-			if (lvl & P(LVL, L2 )) stats->ld_l2hit++;
+			if (lvl & P(LVL, L2)) {
+				stats->ld_l2hit++;
+
+				if (snoopx & P(SNOOPX, PEER))
+					PEER_INC(lcl_peer);
+			}
 			if (lvl & P(LVL, L3 )) {
 				if (snoop & P(SNOOP, HITM))
 					HITM_INC(lcl_hitm);
 				else
 					stats->ld_llchit++;
+
+				if (snoopx & P(SNOOPX, PEER))
+					PEER_INC(lcl_peer);
 			}
 
 			if (lvl & P(LVL, LOC_RAM)) {
@@ -534,10 +621,14 @@ do {				\
 		if ((lvl & P(LVL, REM_CCE1)) ||
 		    (lvl & P(LVL, REM_CCE2)) ||
 		     mrem) {
-			if (snoop & P(SNOOP, HIT))
+			if (snoop & P(SNOOP, HIT)) {
 				stats->rmt_hit++;
-			else if (snoop & P(SNOOP, HITM))
+			} else if (snoop & P(SNOOP, HITM)) {
 				HITM_INC(rmt_hitm);
+			} else if (snoopx & P(SNOOPX, PEER)) {
+				stats->rmt_hit++;
+				PEER_INC(rmt_peer);
+			}
 		}
 
 		if ((lvl & P(LVL, MISS)))
@@ -558,6 +649,8 @@ do {				\
 		}
 		if (lvl & P(LVL, MISS))
 			if (lvl & P(LVL, L1)) stats->st_l1miss++;
+		if (lvl & P(LVL, NA))
+			stats->st_na++;
 	} else {
 		/* unparsable data_src? */
 		stats->noparse++;
@@ -584,6 +677,7 @@ void c2c_add_stats(struct c2c_stats *stats, struct c2c_stats *add)
 	stats->st_noadrs	+= add->st_noadrs;
 	stats->st_l1hit		+= add->st_l1hit;
 	stats->st_l1miss	+= add->st_l1miss;
+	stats->st_na		+= add->st_na;
 	stats->load		+= add->load;
 	stats->ld_excl		+= add->ld_excl;
 	stats->ld_shared	+= add->ld_shared;
@@ -598,6 +692,9 @@ void c2c_add_stats(struct c2c_stats *stats, struct c2c_stats *add)
 	stats->lcl_hitm		+= add->lcl_hitm;
 	stats->rmt_hitm		+= add->rmt_hitm;
 	stats->tot_hitm		+= add->tot_hitm;
+	stats->lcl_peer		+= add->lcl_peer;
+	stats->rmt_peer		+= add->rmt_peer;
+	stats->tot_peer		+= add->tot_peer;
 	stats->rmt_hit		+= add->rmt_hit;
 	stats->lcl_dram		+= add->lcl_dram;
 	stats->rmt_dram		+= add->rmt_dram;

@@ -53,7 +53,7 @@
    NUL too in big-endian, byte-reverse the data before the NUL check.  */
 
 
-SYM_FUNC_START_WEAK_PI(strcmp)
+SYM_FUNC_START(__pi_strcmp)
 	sub	off2, src2, src1
 	mov	zeroones, REP8_01
 	and	tmp, src1, 7
@@ -185,6 +185,6 @@ L(tail):
 L(done):
 	sub	result, data1, data2
 	ret
-
-SYM_FUNC_END_PI(strcmp)
+SYM_FUNC_END(__pi_strcmp)
+SYM_FUNC_ALIAS_WEAK(strcmp, __pi_strcmp)
 EXPORT_SYMBOL_NOKASAN(strcmp)

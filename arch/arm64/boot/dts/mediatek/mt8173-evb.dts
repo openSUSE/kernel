@@ -62,6 +62,10 @@
 	};
 };
 
+&mfg_async {
+	domain-supply = <&da9211_vgpu_reg>;
+};
+
 &cec {
 	status = "okay";
 };
@@ -118,8 +122,8 @@
 				regulator-name = "VBUCKA";
 				regulator-min-microvolt = < 700000>;
 				regulator-max-microvolt = <1310000>;
-				regulator-min-microamp	= <2000000>;
-				regulator-max-microamp	= <4400000>;
+				regulator-min-microamp = <2000000>;
+				regulator-max-microamp = <4400000>;
 				regulator-ramp-delay = <10000>;
 				regulator-always-on;
 			};
@@ -128,8 +132,8 @@
 				regulator-name = "VBUCKB";
 				regulator-min-microvolt = < 700000>;
 				regulator-max-microvolt = <1310000>;
-				regulator-min-microamp	= <2000000>;
-				regulator-max-microamp	= <3000000>;
+				regulator-min-microamp = <2000000>;
+				regulator-max-microamp = <3000000>;
 				regulator-ramp-delay = <10000>;
 			};
 		};
@@ -144,8 +148,8 @@
 	bus-width = <8>;
 	max-frequency = <50000000>;
 	cap-mmc-highspeed;
-	mediatek,hs200-cmd-int-delay=<26>;
-	mediatek,hs400-cmd-int-delay=<14>;
+	mediatek,hs200-cmd-int-delay = <26>;
+	mediatek,hs400-cmd-int-delay = <14>;
 	mediatek,hs400-cmd-resp-sel-rising;
 	vmmc-supply = <&mt6397_vemc_3v3_reg>;
 	vqmmc-supply = <&mt6397_vio18_reg>;
@@ -296,7 +300,7 @@
 	/* Only MT8173 E1 needs USB power domain */
 	power-domains = <&spm MT8173_POWER_DOMAIN_USB>;
 
-	pmic: mt6397 {
+	pmic: pmic {
 		compatible = "mediatek,mt6397";
 		interrupt-parent = <&pio>;
 		interrupts = <11 IRQ_TYPE_LEVEL_HIGH>;

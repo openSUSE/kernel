@@ -854,7 +854,7 @@ typedef struct {
 	   The following is packed:
 	   - N cardrsp_rds_rings
 	   - N cardrs_sds_rings */
-	char data[0];
+	char data[];
 } nx_cardrsp_rx_ctx_t;
 
 #define SIZEOF_HOSTRQ_RX(HOSTRQ_RX, rds_rings, sds_rings)	\
@@ -1863,7 +1863,6 @@ static inline u32 netxen_tx_avail(struct nx_host_tx_ring *tx_ring)
 int netxen_get_flash_mac_addr(struct netxen_adapter *adapter, u64 *mac);
 int netxen_p3_get_mac_addr(struct netxen_adapter *adapter, u64 *mac);
 void netxen_change_ringparam(struct netxen_adapter *adapter);
-int netxen_rom_fast_read(struct netxen_adapter *adapter, int addr, int *valp);
 
 extern const struct ethtool_ops netxen_nic_ethtool_ops;
 

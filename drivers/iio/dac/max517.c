@@ -100,21 +100,21 @@ static int max517_write_raw(struct iio_dev *indio_dev,
 	return ret;
 }
 
-static int __maybe_unused max517_suspend(struct device *dev)
+static int max517_suspend(struct device *dev)
 {
 	u8 outbuf = COMMAND_PD;
 
 	return i2c_master_send(to_i2c_client(dev), &outbuf, 1);
 }
 
-static int __maybe_unused max517_resume(struct device *dev)
+static int max517_resume(struct device *dev)
 {
 	u8 outbuf = 0;
 
 	return i2c_master_send(to_i2c_client(dev), &outbuf, 1);
 }
 
-static SIMPLE_DEV_PM_OPS(max517_pm_ops, max517_suspend, max517_resume);
+static DEFINE_SIMPLE_DEV_PM_OPS(max517_pm_ops, max517_suspend, max517_resume);
 
 static const struct iio_info max517_info = {
 	.read_raw = max517_read_raw,
@@ -141,9 +141,9 @@ static const struct iio_chan_spec max517_channels[] = {
 	MAX517_CHANNEL(7),
 };
 
-static int max517_probe(struct i2c_client *client,
-			const struct i2c_device_id *id)
+static int max517_probe(struct i2c_client *client)
 {
+	const struct i2c_device_id *id = i2c_client_get_device_id(client);
 	struct max517_data *data;
 	struct iio_dev *indio_dev;
 	struct max517_platform_data *platform_data = client->dev.platform_data;
@@ -201,9 +201,9 @@ MODULE_DEVICE_TABLE(i2c, max517_id);
 static struct i2c_driver max517_driver = {
 	.driver = {
 		.name	= MAX517_DRV_NAME,
-		.pm	= &max517_pm_ops,
+		.pm	= pm_sleep_ptr(&max517_pm_ops),
 	},
-	.probe		= max517_probe,
+	.probe_new	= max517_probe,
 	.id_table	= max517_id,
 };
 module_i2c_driver(max517_driver);

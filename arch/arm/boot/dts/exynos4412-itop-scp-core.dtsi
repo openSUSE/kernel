@@ -23,9 +23,13 @@
 		reg = <0x40000000 0x40000000>;
 	};
 
+	aliases {
+		mmc0 = &mshc_0;
+	};
+
 	firmware@203f000 {
 		compatible = "samsung,secure-firmware";
-		reg = <0x0203F000 0x1000>;
+		reg = <0x0203f000 0x1000>;
 	};
 
 	fixed-rate-clocks {
@@ -476,6 +480,7 @@
 	vmmc-supply = <&buck9_reg>;
 	broken-cd;
 	card-detect-delay = <200>;
+	mmc-ddr-1_8v;
 	samsung,dw-mshc-ciu-div = <3>;
 	samsung,dw-mshc-sdr-timing = <2 3>;
 	samsung,dw-mshc-ddr-timing = <1 2>;
@@ -484,7 +489,7 @@
 };
 
 &pinctrl_1 {
-	hsic_reset: hsic-reset {
+	hsic_reset: hsic-reset-pins {
 		samsung,pins = "gpm2-4";
 		samsung,pin-function = <EXYNOS_PIN_FUNC_INPUT>;
 		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;

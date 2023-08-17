@@ -192,8 +192,8 @@ struct owl_dma_pchan {
 };
 
 /**
- * struct owl_dma_pchan - Wrapper for DMA ENGINE channel
- * @vc: wrappped virtual channel
+ * struct owl_dma_vchan - Wrapper for DMA ENGINE channel
+ * @vc: wrapped virtual channel
  * @pchan: the physical channel utilized by this channel
  * @txd: active transaction on this channel
  * @cfg: slave configuration for this channel

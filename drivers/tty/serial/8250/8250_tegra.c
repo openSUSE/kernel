@@ -11,6 +11,7 @@
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/reset.h>
 #include <linux/slab.h>
 
@@ -177,7 +178,7 @@ static const struct of_device_id tegra_uart_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, tegra_uart_of_match);
 
-static const struct acpi_device_id tegra_uart_acpi_match[] = {
+static const struct acpi_device_id tegra_uart_acpi_match[] __maybe_unused = {
 	{ "NVDA0100", 0 },
 	{ },
 };

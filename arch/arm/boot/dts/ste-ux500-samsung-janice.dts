@@ -20,6 +20,36 @@
 		stdout-path = &serial2;
 	};
 
+	battery: battery {
+		compatible = "samsung,eb535151vu";
+	};
+
+	thermal-zones {
+		battery-thermal {
+			/* This zone will be polled by the battery temperature code */
+			polling-delay = <0>;
+			polling-delay-passive = <0>;
+			thermal-sensors = <&bat_therm>;
+
+			trips {
+				battery-crit-hi {
+					temperature = <70000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+		};
+	};
+
+	bat_therm: thermistor {
+		compatible = "samsung,1404-001221";
+		io-channels = <&gpadc 0x02>; /* BatTemp */
+		pullup-uv = <1800000>;
+		pullup-ohm = <230000>;
+		pulldown-ohm = <0>;
+		#thermal-sensor-cells = <0>;
+	};
+
 	/* External LDO for eMMC LDO VMEM_3V3 controlled by GPIO6 */
 	ldo_3v3_reg: regulator-gpio-ldo-3v3 {
 		compatible = "regulator-fixed";
@@ -241,7 +271,7 @@
 	 * this derivative is 3wire support, so it cannot be used to drive
 	 * this panel interface. We have to use GPIO bit-banging instead.
 	 */
-	spi-gpio-0 {
+	spi {
 		compatible = "spi-gpio";
 		/* Clock on GPIO220 */
 		sck-gpios = <&gpio6 28 GPIO_ACTIVE_HIGH>;
@@ -266,6 +296,9 @@
 			pinctrl-names = "default";
 			pinctrl-0 = <&panel_default_mode>;
 			spi-3wire;
+			/* TYPE 3: inverse clock polarity and phase */
+			spi-cpha;
+			spi-cpol;
 
 			port {
 				panel_in: endpoint {
@@ -340,9 +373,13 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		nfc@30 {
-			compatible = "nxp,pn547", "nxp,nxp-nci-i2c";
-			reg = <0x30>;
+		/* This is only mounted on the GT-I9070P */
+		nfc@2b { /* 0x30? */
+			/* NXP NFC circuit PN544 C1 marked NXP 44501  */
+			compatible = "nxp,pn544-i2c";
+			/* IF0, IF1 high, gives I2C address 0x2B */
+			reg = <0x2b>;
+			clock-frequency = <400000>;
 			/* NFC IRQ on GPIO32 */
 			interrupt-parent = <&gpio1>;
 			interrupts = <0 IRQ_TYPE_EDGE_FALLING>;
@@ -351,7 +388,7 @@
 			/* GPIO88 */
 			enable-gpios = <&gpio2 24 GPIO_ACTIVE_HIGH>;
 			pinctrl-names = "default";
-			pinctrl-0 = <&pn547_janice_default>;
+			pinctrl-0 = <&pn544_janice_default>;
 		};
 	};
 
@@ -420,6 +457,8 @@
 			non-removable;
 			cap-mmc-highspeed;
 			mmc-ddr-1_8v;
+			no-sdio;
+			no-sd;
 			vmmc-supply = <&ldo_3v3_reg>;
 			pinctrl-names = "default", "sleep";
 			pinctrl-0 = <&mc2_a_1_default>;
@@ -458,7 +497,26 @@
 			/* CTS/RTS is not used, CTS is repurposed as GPIO */
 			pinctrl-0 = <&u1rxtx_a_1_default>;
 			pinctrl-1 = <&u1rxtx_a_1_sleep>;
-			/* FIXME: add a device for the GPS here */
+
+			gnss {
+				/*
+				 * The Low Noise Amplifier (LNA) power and enablement is controlled
+				 * autonomously by the GSD4t.
+				 * Janice has a SiRFstarIV-based GSD4t
+				 * Golden has a SiRFstarV 5t-based CSRG05TA03-ICJE-R.
+				 */
+				compatible = "csr,gsd4t";
+				/* GPS_RSTN on GPIO21 */
+				reset-gpios = <&gpio0 21 GPIO_ACTIVE_LOW>;
+				/* GPS_ON_OFF on GPIO96 */
+				sirf,onoff-gpios = <&gpio3 0 GPIO_ACTIVE_HIGH>;
+				/* GPS_1V8 (VSMPS2) */
+				vcc-supply = <&db8500_vsmps2_reg>;
+				pinctrl-names = "default";
+				pinctrl-0 = <&gsd4t_janice_default>;
+				/* According to /etc/sirfgps.conf */
+				current-speed = <460800>;
+			};
 		};
 
 		/* Debugging console UART connected to TSU6111RSVR (FSA880) */
@@ -471,13 +529,17 @@
 
 		prcmu@80157000 {
 			ab8500 {
-				ab8500_usb {
+				phy {
 					pinctrl-names = "default", "sleep";
 					pinctrl-0 = <&usb_a_1_default>;
 					pinctrl-1 = <&usb_a_1_sleep>;
 				};
 
-				ab8500-regulators {
+				ab8500_fg {
+					line-impedance-micro-ohms = <15000>;
+				};
+
+				regulator {
 					ab8500_ldo_aux1 {
 						/* Used for VDD for sensors */
 						regulator-name = "V-SENSORS-VDD";
@@ -580,12 +642,12 @@
 					#size-cells = <0>;
 
 					/* Bosch BMA222 accelerometer */
-					accelerometer@08 {
+					accelerometer@8 {
 						compatible = "bosch,bma222";
 						reg = <0x08>;
-						mount-matrix = "0", "1", "0",
-							       "-1", "0", "0",
-							       "0", "0", "-1";
+						mount-matrix = "0", "-1", "0",
+							       "1", "0", "0",
+							       "0", "0", "1";
 						vddio-supply = <&ab8500_ldo_aux2_reg>; // 1.8V
 						vdd-supply = <&ab8500_ldo_aux1_reg>; // 3V
 					};
@@ -901,7 +963,7 @@
 		};
 	};
 	nfc {
-		pn547_janice_default: pn547_janice {
+		pn544_janice_default: pn544_janice {
 			/* Interrupt line */
 			janice_cfg1 {
 				pins = "GPIO32_V2";
@@ -911,6 +973,25 @@
 			janice_cfg2 {
 				pins = "GPIO31_V3", "GPIO88_C4";
 				ste,config = <&gpio_out_lo>;
+			};
+		};
+	};
+	gsd4t {
+		gsd4t_janice_default: gsd4t_janice {
+			/* Reset line, start out asserted */
+			janice_cfg1 {
+				pins = "GPIO21_AB3";
+				ste,config = <&gpio_out_lo>;
+			};
+			/* GPS_ON_OFF, start out deasserted (off) */
+			janice_cfg2 {
+				pins = "GPIO96_D8";
+				ste,config = <&gpio_out_lo>;
+			};
+			/* Unused power enablement line, used in R0.0 and R0.1 boards */
+			janice_cfg3 {
+				pins = "GPIO86_C6";
+				ste,config = <&gpio_in_pd>;
 			};
 		};
 	};

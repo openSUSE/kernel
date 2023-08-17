@@ -13,27 +13,28 @@
 #define SP	%r15
 #define FRAME	(16 * 8 + 4 * 8)
 
-.data
-.align	32
+	.data
+	.balign	32
 
-.Lsigma:
-.long	0x61707865,0x3320646e,0x79622d32,0x6b206574	# endian-neutral
-.long	1,0,0,0
-.long	2,0,0,0
-.long	3,0,0,0
-.long	0x03020100,0x07060504,0x0b0a0908,0x0f0e0d0c	# byte swap
+SYM_DATA_START_LOCAL(sigma)
+	.long	0x61707865,0x3320646e,0x79622d32,0x6b206574	# endian-neutral
+	.long	1,0,0,0
+	.long	2,0,0,0
+	.long	3,0,0,0
+	.long	0x03020100,0x07060504,0x0b0a0908,0x0f0e0d0c	# byte swap
 
-.long	0,1,2,3
-.long	0x61707865,0x61707865,0x61707865,0x61707865	# smashed sigma
-.long	0x3320646e,0x3320646e,0x3320646e,0x3320646e
-.long	0x79622d32,0x79622d32,0x79622d32,0x79622d32
-.long	0x6b206574,0x6b206574,0x6b206574,0x6b206574
+	.long	0,1,2,3
+	.long	0x61707865,0x61707865,0x61707865,0x61707865	# smashed sigma
+	.long	0x3320646e,0x3320646e,0x3320646e,0x3320646e
+	.long	0x79622d32,0x79622d32,0x79622d32,0x79622d32
+	.long	0x6b206574,0x6b206574,0x6b206574,0x6b206574
+SYM_DATA_END(sigma)
 
-.previous
+	.previous
 
 	GEN_BR_THUNK %r14
 
-.text
+	.text
 
 #############################################################################
 # void chacha20_vx_4x(u8 *out, counst u8 *inp, size_t len,
@@ -78,10 +79,10 @@
 #define XT2		%v29
 #define XT3		%v30
 
-ENTRY(chacha20_vx_4x)
+SYM_FUNC_START(chacha20_vx_4x)
 	stmg	%r6,%r7,6*8(SP)
 
-	larl	%r7,.Lsigma
+	larl	%r7,sigma
 	lhi	%r0,10
 	lhi	%r1,0
 
@@ -312,7 +313,7 @@ ENTRY(chacha20_vx_4x)
 	VPERM	XC0,XC0,XC0,BEPERM
 	VPERM	XD0,XD0,XD0,BEPERM
 
-	.insn	rilu,0xc20e00000000,LEN,0x40	# clgfi LEN,0x40
+	clgfi	LEN,0x40
 	jl	.Ltail_4x
 
 	VLM	XT0,XT3,0,INP,0
@@ -339,7 +340,7 @@ ENTRY(chacha20_vx_4x)
 	VPERM	XC0,XC0,XC0,BEPERM
 	VPERM	XD0,XD0,XD0,BEPERM
 
-	.insn	rilu,0xc20e00000000,LEN,0x40	# clgfi LEN,0x40
+	clgfi	LEN,0x40
 	jl	.Ltail_4x
 
 	VLM	XT0,XT3,0,INP,0
@@ -366,7 +367,7 @@ ENTRY(chacha20_vx_4x)
 	VPERM	XC0,XC0,XC0,BEPERM
 	VPERM	XD0,XD0,XD0,BEPERM
 
-	.insn	rilu,0xc20e00000000,LEN,0x40	# clgfi LEN,0x40
+	clgfi	LEN,0x40
 	jl	.Ltail_4x
 
 	VLM	XT0,XT3,0,INP,0
@@ -403,7 +404,7 @@ ENTRY(chacha20_vx_4x)
 
 	lmg	%r6,%r7,6*8(SP)
 	BR_EX	%r14
-ENDPROC(chacha20_vx_4x)
+SYM_FUNC_END(chacha20_vx_4x)
 
 #undef	OUT
 #undef	INP
@@ -471,8 +472,8 @@ ENDPROC(chacha20_vx_4x)
 #define T2		%v29
 #define T3		%v30
 
-ENTRY(chacha20_vx)
-	.insn	rilu,0xc20e00000000,LEN,256	# clgfi LEN,256
+SYM_FUNC_START(chacha20_vx)
+	clgfi	LEN,256
 	jle	chacha20_vx_4x
 	stmg	%r6,%r7,6*8(SP)
 
@@ -481,7 +482,7 @@ ENTRY(chacha20_vx)
 	la	SP,0(%r1,SP)
 	stg	%r0,0(SP)		# back-chain
 
-	larl	%r7,.Lsigma
+	larl	%r7,sigma
 	lhi	%r0,10
 
 	VLM	K1,K2,0,KEY,0		# load key
@@ -725,7 +726,7 @@ ENTRY(chacha20_vx)
 	VPERM	C0,C0,C0,BEPERM
 	VPERM	D0,D0,D0,BEPERM
 
-	.insn	rilu,0xc20e00000000,LEN,0x40	# clgfi LEN,0x40
+	clgfi	LEN,0x40
 	jl	.Ltail_vx
 
 	VAF	D2,D2,T2		# +K[3]+2
@@ -754,7 +755,7 @@ ENTRY(chacha20_vx)
 	VPERM	C0,C1,C1,BEPERM
 	VPERM	D0,D1,D1,BEPERM
 
-	.insn	rilu,0xc20e00000000,LEN,0x40	# clgfi LEN,0x40
+	clgfi	LEN,0x40
 	jl	.Ltail_vx
 
 	VLM	A1,D1,0,INP,0
@@ -780,7 +781,7 @@ ENTRY(chacha20_vx)
 	VPERM	C0,C2,C2,BEPERM
 	VPERM	D0,D2,D2,BEPERM
 
-	.insn	rilu,0xc20e00000000,LEN,0x40	# clgfi LEN,0x40
+	clgfi	LEN,0x40
 	jl	.Ltail_vx
 
 	VLM	A1,D1,0,INP,0
@@ -807,7 +808,7 @@ ENTRY(chacha20_vx)
 	VPERM	C0,C3,C3,BEPERM
 	VPERM	D0,D3,D3,BEPERM
 
-	.insn	rilu,0xc20e00000000,LEN,0x40	# clgfi LEN,0x40
+	clgfi	LEN,0x40
 	jl	.Ltail_vx
 
 	VAF	D3,D2,T1		# K[3]+4
@@ -837,7 +838,7 @@ ENTRY(chacha20_vx)
 	VPERM	C0,C4,C4,BEPERM
 	VPERM	D0,D4,D4,BEPERM
 
-	.insn	rilu,0xc20e00000000,LEN,0x40	# clgfi LEN,0x40
+	clgfi	LEN,0x40
 	jl	.Ltail_vx
 
 	VLM	A1,D1,0,INP,0
@@ -864,7 +865,7 @@ ENTRY(chacha20_vx)
 	VPERM	C0,C5,C5,BEPERM
 	VPERM	D0,D5,D5,BEPERM
 
-	.insn	rilu,0xc20e00000000,LEN,0x40	# clgfi LEN,0x40
+	clgfi	LEN,0x40
 	jl	.Ltail_vx
 
 	VLM	A1,D1,0,INP,0
@@ -902,6 +903,6 @@ ENTRY(chacha20_vx)
 	lmg	%r6,%r7,FRAME+6*8(SP)
 	la	SP,FRAME(SP)
 	BR_EX	%r14
-ENDPROC(chacha20_vx)
+SYM_FUNC_END(chacha20_vx)
 
 .previous

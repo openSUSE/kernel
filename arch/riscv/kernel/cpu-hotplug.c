@@ -12,13 +12,8 @@
 #include <linux/sched/hotplug.h>
 #include <asm/irq.h>
 #include <asm/cpu_ops.h>
-#include <asm/sbi.h>
-
-void cpu_stop(void);
-void arch_cpu_idle_dead(void)
-{
-	cpu_stop();
-}
+#include <asm/numa.h>
+#include <asm/smp.h>
 
 bool cpu_has_hotplug(unsigned int cpu)
 {
@@ -46,7 +41,9 @@ int __cpu_disable(void)
 		return ret;
 
 	remove_cpu_topology(cpu);
+	numa_remove_cpu(cpu);
 	set_cpu_online(cpu, false);
+	riscv_ipi_disable();
 	irq_migrate_all_off_this_cpu();
 
 	return ret;
@@ -75,7 +72,7 @@ void __cpu_die(unsigned int cpu)
 /*
  * Called from the idle thread for the CPU which has been shutdown.
  */
-void cpu_stop(void)
+void __noreturn arch_cpu_idle_dead(void)
 {
 	idle_task_exit();
 

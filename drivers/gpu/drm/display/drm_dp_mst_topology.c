@@ -4130,20 +4130,6 @@ void drm_dp_mst_hpd_irq_send_new_request(struct drm_dp_mst_topology_mgr *mgr)
 		drm_dp_mst_kick_tx(mgr);
 }
 EXPORT_SYMBOL(drm_dp_mst_hpd_irq_send_new_request);
-
-/* FIXME - an old API function provided only for kABI on SLE15-SP5 */
-int drm_dp_mst_hpd_irq(struct drm_dp_mst_topology_mgr *mgr, u8 *esi, bool *handled)
-{
-	u8 ack[8] = {};
-	int ret;
-
-	ret = drm_dp_mst_hpd_irq_handle_event(mgr, esi, ack, handled);
-	if (!ret)
-		drm_dp_mst_hpd_irq_send_new_request(mgr);
-	return ret;
-}
-EXPORT_SYMBOL(drm_dp_mst_hpd_irq);
-
 /**
  * drm_dp_mst_detect_port() - get connection status for an MST port
  * @connector: DRM connector for this port
@@ -4272,8 +4258,7 @@ int drm_dp_atomic_find_time_slots(struct drm_atomic_state *state,
 		return PTR_ERR(topology_state);
 
 	conn_state = drm_atomic_get_new_connector_state(state, port->connector);
-	if (conn_state)
-		topology_state->pending_crtc_mask |= drm_crtc_mask(conn_state->crtc);
+	topology_state->pending_crtc_mask |= drm_crtc_mask(conn_state->crtc);
 
 	/* Find the current allocation for this port, if any */
 	payload = drm_atomic_get_mst_payload_state(topology_state, port);
@@ -4358,12 +4343,12 @@ int drm_dp_atomic_release_time_slots(struct drm_atomic_state *state,
 	bool update_payload = true;
 
 	old_conn_state = drm_atomic_get_old_connector_state(state, port->connector);
-	if (old_conn_state && !old_conn_state->crtc)
+	if (!old_conn_state->crtc)
 		return 0;
 
 	/* If the CRTC isn't disabled by this state, don't release it's payload */
 	new_conn_state = drm_atomic_get_new_connector_state(state, port->connector);
-	if (new_conn_state && new_conn_state->crtc) {
+	if (new_conn_state->crtc) {
 		struct drm_crtc_state *crtc_state =
 			drm_atomic_get_new_crtc_state(state, new_conn_state->crtc);
 
@@ -4379,8 +4364,7 @@ int drm_dp_atomic_release_time_slots(struct drm_atomic_state *state,
 	if (IS_ERR(topology_state))
 		return PTR_ERR(topology_state);
 
-	if (old_conn_state)
-		topology_state->pending_crtc_mask |= drm_crtc_mask(old_conn_state->crtc);
+	topology_state->pending_crtc_mask |= drm_crtc_mask(old_conn_state->crtc);
 	if (!update_payload)
 		return 0;
 
@@ -4391,7 +4375,7 @@ int drm_dp_atomic_release_time_slots(struct drm_atomic_state *state,
 		return -EINVAL;
 	}
 
-	if (new_conn_state && new_conn_state->crtc)
+	if (new_conn_state->crtc)
 		return 0;
 
 	drm_dbg_atomic(mgr->dev, "[MST PORT:%p] TU %d -> 0\n", port, payload->time_slots);
@@ -5520,8 +5504,6 @@ int drm_dp_mst_topology_mgr_init(struct drm_dp_mst_topology_mgr *mgr,
 	mgr->max_dpcd_transaction_bytes = max_dpcd_transaction_bytes;
 	mgr->max_payloads = max_payloads;
 	mgr->conn_base_id = conn_base_id;
-	/* FIXME: only for kABI compatibility */
-	mutex_init(&mgr->payload_lock);
 
 	mst_state = kzalloc(sizeof(*mst_state), GFP_KERNEL);
 	if (mst_state == NULL)
@@ -5945,108 +5927,3 @@ struct drm_dp_aux *drm_dp_mst_dsc_aux_for_port(struct drm_dp_mst_port *port)
 	return NULL;
 }
 EXPORT_SYMBOL(drm_dp_mst_dsc_aux_for_port);
-
-/* FIXME: dummy entries for SLE kABI compatibility */
-int drm_dp_find_vcpi_slots(struct drm_dp_mst_topology_mgr *mgr, int pbn)
-{
-	WARN_ONCE(1, "%s is deprecated\n", __func__);
-	return -ENOSPC;
-}
-EXPORT_SYMBOL(drm_dp_find_vcpi_slots);
-
-int __must_check
-drm_dp_atomic_find_vcpi_slots(struct drm_atomic_state *state,
-			      struct drm_dp_mst_topology_mgr *mgr,
-			      struct drm_dp_mst_port *port, int pbn,
-			      int pbn_div)
-{
-	WARN_ONCE(1, "%s is deprecated\n", __func__);
-	return -ENOSPC;
-}
-EXPORT_SYMBOL(drm_dp_atomic_find_vcpi_slots);
-
-int __must_check
-drm_dp_atomic_release_vcpi_slots(struct drm_atomic_state *state,
-				 struct drm_dp_mst_topology_mgr *mgr,
-				 struct drm_dp_mst_port *port)
-{
-	WARN_ONCE(1, "%s is deprecated\n", __func__);
-	return -EINVAL;
-}
-EXPORT_SYMBOL(drm_dp_atomic_release_vcpi_slots);
-
-bool drm_dp_mst_allocate_vcpi(struct drm_dp_mst_topology_mgr *mgr,
-			      struct drm_dp_mst_port *port, int pbn, int slots)
-{
-	WARN_ONCE(1, "%s is deprecated\n", __func__);
-	return false;
-}
-EXPORT_SYMBOL(drm_dp_mst_allocate_vcpi);
-
-int drm_dp_mst_get_vcpi_slots(struct drm_dp_mst_topology_mgr *mgr,
-			      struct drm_dp_mst_port *port)
-{
-	WARN_ONCE(1, "%s is deprecated\n", __func__);
-	return 0;
-}
-EXPORT_SYMBOL(drm_dp_mst_get_vcpi_slots);
-
-void drm_dp_mst_reset_vcpi_slots(struct drm_dp_mst_topology_mgr *mgr,
-				 struct drm_dp_mst_port *port)
-{
-	WARN_ONCE(1, "%s is deprecated\n", __func__);
-}
-EXPORT_SYMBOL(drm_dp_mst_reset_vcpi_slots);
-
-void drm_dp_mst_deallocate_vcpi(struct drm_dp_mst_topology_mgr *mgr,
-				struct drm_dp_mst_port *port)
-{
-	WARN_ONCE(1, "%s is deprecated\n", __func__);
-}
-EXPORT_SYMBOL(drm_dp_mst_deallocate_vcpi);
-
-int drm_dp_update_payload_part1(struct drm_dp_mst_topology_mgr *mgr,
-				int start_slot)
-{
-	WARN_ONCE(1, "%s is deprecated\n", __func__);
-	return -ENXIO;
-}
-EXPORT_SYMBOL(drm_dp_update_payload_part1);
-
-int drm_dp_update_payload_part2(struct drm_dp_mst_topology_mgr *mgr)		{
-	WARN_ONCE(1, "%s is deprecated\n", __func__);
-	return -ENXIO;
-}
-EXPORT_SYMBOL(drm_dp_update_payload_part2);
-
-#undef drm_dp_mst_atomic_enable_dsc
-int drm_dp_mst_atomic_enable_dsc(struct drm_atomic_state *state,
-				 struct drm_dp_mst_port *port,
-				 int pbn, int pbn_div,
-				 bool enable)
-{
-	return __drm_dp_mst_atomic_enable_dsc(state, port, pbn, enable);
-}
-EXPORT_SYMBOL(drm_dp_mst_atomic_enable_dsc);
-
-#undef drm_dp_mst_topology_mgr_init
-int drm_dp_mst_topology_mgr_init(struct drm_dp_mst_topology_mgr *mgr,
-				 struct drm_device *dev, struct drm_dp_aux *aux,
-				 int max_dpcd_transaction_bytes, int max_payloads,
-				 int max_lane_count, int max_link_rate,
-				 int conn_base_id)
-{
-	return __drm_dp_mst_topology_mgr_init(mgr, dev, aux,
-					      max_dpcd_transaction_bytes,
-					      max_payloads, conn_base_id);
-}
-EXPORT_SYMBOL(drm_dp_mst_topology_mgr_init);
-
-#undef drm_dp_remove_payload
-void drm_dp_remove_payload(struct drm_dp_mst_topology_mgr *mgr,
-                           struct drm_dp_mst_topology_state *mst_state,
-                           struct drm_dp_mst_atomic_payload *payload)
-{
-	__drm_dp_remove_payload(mgr, mst_state, payload, payload);
-}
-EXPORT_SYMBOL(drm_dp_remove_payload);

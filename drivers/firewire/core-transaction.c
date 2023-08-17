@@ -535,12 +535,6 @@ const struct fw_address_region fw_unit_space_region =
 	{ .start = 0xfffff0000900ULL, .end = 0x1000000000000ULL, };
 #endif  /*  0  */
 
-static bool is_in_fcp_region(u64 offset, size_t length)
-{
-	return offset >= (CSR_REGISTER_BASE | CSR_FCP_COMMAND) &&
-		offset + length <= (CSR_REGISTER_BASE | CSR_FCP_END);
-}
-
 /**
  * fw_core_add_address_handler() - register for incoming requests
  * @handler:	callback
@@ -617,20 +611,42 @@ void fw_core_remove_address_handler(struct fw_address_handler *handler)
 EXPORT_SYMBOL(fw_core_remove_address_handler);
 
 struct fw_request {
+	struct kref kref;
 	struct fw_packet response;
 	u32 request_header[4];
 	int ack;
+	u32 timestamp;
 	u32 length;
 	u32 data[];
 };
 
+void fw_request_get(struct fw_request *request)
+{
+	kref_get(&request->kref);
+}
+
+static void release_request(struct kref *kref)
+{
+	struct fw_request *request = container_of(kref, struct fw_request, kref);
+
+	kfree(request);
+}
+
+void fw_request_put(struct fw_request *request)
+{
+	kref_put(&request->kref, release_request);
+}
+
 static void free_response_callback(struct fw_packet *packet,
 				   struct fw_card *card, int status)
 {
-	struct fw_request *request;
+	struct fw_request *request = container_of(packet, struct fw_request, response);
 
-	request = container_of(packet, struct fw_request, response);
-	kfree(request);
+	// Decrease the reference count since not at in-flight.
+	fw_request_put(request);
+
+	// Decrease the reference count to release the object.
+	fw_request_put(request);
 }
 
 int fw_get_response_length(struct fw_request *r)
@@ -781,6 +797,7 @@ static struct fw_request *allocate_request(struct fw_card *card,
 	request = kmalloc(sizeof(*request) + length, GFP_ATOMIC);
 	if (request == NULL)
 		return NULL;
+	kref_init(&request->kref);
 
 	request->response.speed = p->speed;
 	request->response.timestamp =
@@ -789,6 +806,7 @@ static struct fw_request *allocate_request(struct fw_card *card,
 	request->response.ack = 0;
 	request->response.callback = free_response_callback;
 	request->ack = p->ack;
+	request->timestamp = p->timestamp;
 	request->length = length;
 	if (data)
 		memcpy(request->data, data, length);
@@ -798,16 +816,22 @@ static struct fw_request *allocate_request(struct fw_card *card,
 	return request;
 }
 
+/**
+ * fw_send_response: - send response packet for asynchronous transaction.
+ * @card:	interface to send the response at.
+ * @request:	firewire request data for the transaction.
+ * @rcode:	response code to send.
+ *
+ * Submit a response packet into the asynchronous response transmission queue. The @request
+ * is going to be released when the transmission successfully finishes later.
+ */
 void fw_send_response(struct fw_card *card,
 		      struct fw_request *request, int rcode)
 {
-	if (WARN_ONCE(!request, "invalid for FCP address handlers"))
-		return;
-
 	/* unified transaction or broadcast transaction: don't respond */
 	if (request->ack != ACK_PENDING ||
 	    HEADER_DESTINATION_IS_BROADCAST(request->request_header[0])) {
-		kfree(request);
+		fw_request_put(request);
 		return;
 	}
 
@@ -818,6 +842,9 @@ void fw_send_response(struct fw_card *card,
 	else
 		fw_fill_response(&request->response, request->request_header,
 				 rcode, NULL, 0);
+
+	// Increase the reference count so that the object is kept during in-flight.
+	fw_request_get(request);
 
 	card->driver->send_response(card, &request->response);
 }
@@ -832,6 +859,22 @@ int fw_get_request_speed(struct fw_request *request)
 	return request->response.speed;
 }
 EXPORT_SYMBOL(fw_get_request_speed);
+
+/**
+ * fw_request_get_timestamp: Get timestamp of the request.
+ * @request: The opaque pointer to request structure.
+ *
+ * Get timestamp when 1394 OHCI controller receives the asynchronous request subaction. The
+ * timestamp consists of the low order 3 bits of second field and the full 13 bits of count
+ * field of isochronous cycle time register.
+ *
+ * Returns: timestamp of the request.
+ */
+u32 fw_request_get_timestamp(const struct fw_request *request)
+{
+	return request->timestamp;
+}
+EXPORT_SYMBOL_GPL(fw_request_get_timestamp);
 
 static void handle_exclusive_region_request(struct fw_card *card,
 					    struct fw_packet *p,
@@ -892,7 +935,7 @@ static void handle_fcp_region_request(struct fw_card *card,
 	rcu_read_lock();
 	list_for_each_entry_rcu(handler, &address_handler_list, link) {
 		if (is_enclosing_handler(handler, offset, request->length))
-			handler->address_callback(card, NULL, tcode,
+			handler->address_callback(card, request, tcode,
 						  destination, source,
 						  p->generation, offset,
 						  request->data,

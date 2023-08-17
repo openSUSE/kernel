@@ -34,7 +34,7 @@ config LEDS_TRIGGER_ONESHOT
 
 config LEDS_TRIGGER_DISK
 	bool "LED Disk Trigger"
-	depends on IDE_GD_ATA || ATA
+	depends on ATA
 	help
 	  This allows LEDs to be controlled by disk activity.
 	  If unsure, say Y.
@@ -83,6 +83,7 @@ config LEDS_TRIGGER_ACTIVITY
 config LEDS_TRIGGER_GPIO
 	tristate "LED GPIO Trigger"
 	depends on GPIOLIB || COMPILE_TEST
+	depends on BROKEN
 	help
 	  This allows LEDs to be controlled by gpio events. It's good
 	  when using gpios as switches and triggering the needed LEDs

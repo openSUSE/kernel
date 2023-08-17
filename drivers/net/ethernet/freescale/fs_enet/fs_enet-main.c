@@ -883,9 +883,6 @@ static const struct ethtool_ops fs_ethtool_ops = {
 	.set_tunable = fs_set_tunable,
 };
 
-extern int fs_mii_connect(struct net_device *dev);
-extern void fs_mii_disconnect(struct net_device *dev);
-
 /**************************************************************************************/
 
 #ifdef CONFIG_FS_ENET_HAS_FEC
@@ -1020,7 +1017,8 @@ static int fs_enet_probe(struct platform_device *ofdev)
 	ndev->netdev_ops = &fs_enet_netdev_ops;
 	ndev->watchdog_timeo = 2 * HZ;
 	INIT_WORK(&fep->timeout_work, fs_timeout_work);
-	netif_napi_add(ndev, &fep->napi, fs_enet_napi, fpi->napi_weight);
+	netif_napi_add_weight(ndev, &fep->napi, fs_enet_napi,
+			      fpi->napi_weight);
 
 	ndev->ethtool_ops = &fs_ethtool_ops;
 

@@ -48,7 +48,7 @@
 	interrupt-controller;
 	#interrupt-cells = <1>;
 
-	ac_power_supply: ac-power-supply {
+	ac_power_supply: ac-power {
 		compatible = "x-powers,axp813-ac-power-supply";
 		status = "disabled";
 	};
@@ -62,19 +62,9 @@
 		compatible = "x-powers,axp813-gpio";
 		gpio-controller;
 		#gpio-cells = <2>;
-
-		gpio0_ldo: gpio0-ldo {
-			pins = "GPIO0";
-			function = "ldo";
-		};
-
-		gpio1_ldo: gpio1-ldo {
-			pins = "GPIO1";
-			function = "ldo";
-		};
 	};
 
-	battery_power_supply: battery-power-supply {
+	battery_power_supply: battery-power {
 		compatible = "x-powers,axp813-battery-power-supply";
 		status = "disabled";
 	};
@@ -144,15 +134,11 @@
 		};
 
 		reg_ldo_io0: ldo-io0 {
-			pinctrl-names = "default";
-			pinctrl-0 = <&gpio0_ldo>;
 			/* Disable by default to avoid conflicts with GPIO */
 			status = "disabled";
 		};
 
 		reg_ldo_io1: ldo-io1 {
-			pinctrl-names = "default";
-			pinctrl-0 = <&gpio1_ldo>;
 			/* Disable by default to avoid conflicts with GPIO */
 			status = "disabled";
 		};
@@ -172,7 +158,7 @@
 		};
 	};
 
-	usb_power_supply: usb-power-supply {
+	usb_power_supply: usb-power {
 		compatible = "x-powers,axp813-usb-power-supply";
 	};
 };

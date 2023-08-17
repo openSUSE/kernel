@@ -21,6 +21,8 @@ config AF_RXRPC
 
 	  See Documentation/networking/rxrpc.rst.
 
+if AF_RXRPC
+
 config AF_RXRPC_IPV6
 	bool "IPv6 support for RxRPC"
 	depends on (IPV6 = m && AF_RXRPC = m) || (IPV6 = y && AF_RXRPC)
@@ -30,15 +32,22 @@ config AF_RXRPC_IPV6
 
 config AF_RXRPC_INJECT_LOSS
 	bool "Inject packet loss into RxRPC packet stream"
-	depends on AF_RXRPC
 	help
 	  Say Y here to inject packet loss by discarding some received and some
 	  transmitted packets.
 
+config AF_RXRPC_INJECT_RX_DELAY
+	bool "Inject delay into packet reception"
+	depends on SYSCTL
+	help
+	  Say Y here to inject a delay into packet reception, allowing an
+	  extended RTT time to be modelled.  The delay can be configured using
+	  /proc/sys/net/rxrpc/rxrpc_inject_rx_delay, setting a number of
+	  milliseconds up to 0.5s (note that the granularity is actually in
+	  jiffies).
 
 config AF_RXRPC_DEBUG
 	bool "RxRPC dynamic debugging"
-	depends on AF_RXRPC
 	help
 	  Say Y here to make runtime controllable debugging messages appear.
 
@@ -47,7 +56,6 @@ config AF_RXRPC_DEBUG
 
 config RXKAD
 	bool "RxRPC Kerberos security"
-	depends on AF_RXRPC
 	select CRYPTO
 	select CRYPTO_MANAGER
 	select CRYPTO_SKCIPHER
@@ -58,3 +66,12 @@ config RXKAD
 	  through the use of the key retention service.
 
 	  See Documentation/networking/rxrpc.rst.
+
+config RXPERF
+	tristate "RxRPC test service"
+	help
+	  Provide an rxperf service tester.  This listens on UDP port 7009 for
+	  incoming calls from the rxperf program (an example of which can be
+	  found in OpenAFS).
+
+endif

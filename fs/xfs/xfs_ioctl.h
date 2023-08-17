@@ -10,12 +10,6 @@ struct xfs_bstat;
 struct xfs_ibulk;
 struct xfs_inogrp;
 
-
-extern int
-xfs_ioc_space(
-	struct file		*filp,
-	xfs_flock64_t		*bf);
-
 int
 xfs_ioc_swapext(
 	xfs_swapext_t	*sxp);
@@ -55,7 +49,7 @@ xfs_fileattr_get(
 
 extern int
 xfs_fileattr_set(
-	struct user_namespace	*mnt_userns,
+	struct mnt_idmap	*idmap,
 	struct dentry		*dentry,
 	struct fileattr		*fa);
 

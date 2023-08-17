@@ -12,9 +12,9 @@ qmss: qmss@2a40000 {
 	#size-cells = <1>;
 	clocks = <&chipclk13>;
 	ranges;
-	queue-range	= <0 0x2000>;
-	linkram0	= <0x100000 0x4000>;
-	linkram1	= <0x70000000 0x10000>; /* 1MB OSR mem */
+	queue-range = <0 0x2000>;
+	linkram0 = <0x100000 0x4000>;
+	linkram1 = <0x70000000 0x10000>; /* 1MB OSR mem */
 
 	qmgrs {
 		#address-cells = <1>;
@@ -94,7 +94,7 @@ qmss: qmss@2a40000 {
 		#address-cells = <1>;
 		#size-cells = <1>;
 		ranges;
-		pdsp0@0x2a10000 {
+		pdsp0@2a10000 {
 			reg = <0x2a10000 0x1000    /*iram */
 			       0x2a0f000 0x100     /*reg*/
 			       0x2a0c000 0x3c8	   /*intd */
@@ -174,24 +174,24 @@ netcp: netcp@26000000 {
 			interfaces {
 				gbe0: interface-0 {
 					slave-port = <0>;
-					link-interface	= <1>;
-					phy-handle	= <&ethphy0>;
+					link-interface = <1>;
+					phy-handle = <&ethphy0>;
 				};
 				gbe1: interface-1 {
 					slave-port = <1>;
-					link-interface	= <1>;
-					phy-handle	= <&ethphy1>;
+					link-interface = <1>;
+					phy-handle = <&ethphy1>;
 				};
 			};
 
 			secondary-slave-ports {
 				port-2 {
 					slave-port = <2>;
-					link-interface	= <2>;
+					link-interface = <2>;
 				};
 				port-3 {
 					slave-port = <3>;
-					link-interface	= <2>;
+					link-interface = <2>;
 				};
 			};
 		};

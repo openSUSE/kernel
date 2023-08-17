@@ -1312,7 +1312,8 @@ static u8 qos_oui[QOS_OUI_LEN] = { 0x00, 0x50, 0xF2 };
 static int ieee80211_verify_qos_info(struct ieee80211_qos_information_element
 				     *info_element, int sub_type)
 {
-
+	if (info_element->elementID != QOS_ELEMENT_ID)
+		return -1;
 	if (info_element->qui_subtype != sub_type)
 		return -1;
 	if (memcmp(info_element->qui, qos_oui, QOS_OUI_LEN))
@@ -1329,27 +1330,18 @@ static int ieee80211_verify_qos_info(struct ieee80211_qos_information_element
 /*
  * Parse a QoS parameter element
  */
-static int ieee80211_read_qos_param_element(struct ieee80211_qos_parameter_info
-					    *element_param, struct ieee80211_info_element
-					    *info_element)
+static int ieee80211_read_qos_param_element(
+		struct ieee80211_qos_parameter_info *element_param,
+		struct ieee80211_info_element *info_element)
 {
-	int ret = 0;
-	u16 size = sizeof(struct ieee80211_qos_parameter_info) - 2;
+	size_t size = sizeof(*element_param);
 
-	if (!info_element || !element_param)
+	if (!element_param || !info_element || info_element->len != size - 2)
 		return -1;
 
-	if (info_element->id == QOS_ELEMENT_ID && info_element->len == size) {
-		memcpy(element_param->info_element.qui, info_element->data,
-		       info_element->len);
-		element_param->info_element.elementID = info_element->id;
-		element_param->info_element.length = info_element->len;
-	} else
-		ret = -1;
-	if (ret == 0)
-		ret = ieee80211_verify_qos_info(&element_param->info_element,
-						QOS_OUI_PARAM_SUB_TYPE);
-	return ret;
+	memcpy(element_param, info_element, size);
+	return ieee80211_verify_qos_info(&element_param->info_element,
+					 QOS_OUI_PARAM_SUB_TYPE);
 }
 
 /*
@@ -1359,26 +1351,13 @@ static int ieee80211_read_qos_info_element(
 		struct ieee80211_qos_information_element *element_info,
 		struct ieee80211_info_element *info_element)
 {
-	int ret = 0;
-	u16 size = sizeof(struct ieee80211_qos_information_element) - 2;
+	size_t size = sizeof(*element_info);
 
-	if (!element_info)
-		return -1;
-	if (!info_element)
+	if (!element_info || !info_element || info_element->len != size - 2)
 		return -1;
 
-	if ((info_element->id == QOS_ELEMENT_ID) && (info_element->len == size)) {
-		memcpy(element_info->qui, info_element->data,
-		       info_element->len);
-		element_info->elementID = info_element->id;
-		element_info->length = info_element->len;
-	} else
-		ret = -1;
-
-	if (ret == 0)
-		ret = ieee80211_verify_qos_info(element_info,
-						QOS_OUI_INFO_SUB_TYPE);
-	return ret;
+	memcpy(element_info, info_element, size);
+	return ieee80211_verify_qos_info(element_info, QOS_OUI_INFO_SUB_TYPE);
 }
 
 
@@ -1829,7 +1808,7 @@ int ieee80211_parse_info_param(struct ieee80211_device *ieee,
 				info_element->data[0] == 0x00 &&
 				info_element->data[1] == 0x13 &&
 				info_element->data[2] == 0x74)) {
-				netdev_dbg(ieee->dev, "========> athros AP is exist\n");
+				netdev_dbg(ieee->dev, "========> Atheros AP exists\n");
 				network->atheros_cap_exist = true;
 			} else
 				network->atheros_cap_exist = false;
@@ -1979,43 +1958,6 @@ int ieee80211_parse_info_param(struct ieee80211_device *ieee,
 	return 0;
 }
 
-static inline u8 ieee80211_SignalStrengthTranslate(
-	u8  CurrSS
-	)
-{
-	u8 RetSS;
-
-	// Step 1. Scale mapping.
-	if (CurrSS >= 71 && CurrSS <= 100) {
-		RetSS = 90 + ((CurrSS - 70) / 3);
-	} else if (CurrSS >= 41 && CurrSS <= 70) {
-		RetSS = 78 + ((CurrSS - 40) / 3);
-	} else if (CurrSS >= 31 && CurrSS <= 40) {
-		RetSS = 66 + (CurrSS - 30);
-	} else if (CurrSS >= 21 && CurrSS <= 30) {
-		RetSS = 54 + (CurrSS - 20);
-	} else if (CurrSS >= 5 && CurrSS <= 20) {
-		RetSS = 42 + (((CurrSS - 5) * 2) / 3);
-	} else if (CurrSS == 4) {
-		RetSS = 36;
-	} else if (CurrSS == 3) {
-		RetSS = 27;
-	} else if (CurrSS == 2) {
-		RetSS = 18;
-	} else if (CurrSS == 1) {
-		RetSS = 9;
-	} else {
-		RetSS = CurrSS;
-	}
-	//RT_TRACE(COMP_DBG, DBG_LOUD, ("##### After Mapping:  LastSS: %d, CurrSS: %d, RetSS: %d\n", LastSS, CurrSS, RetSS));
-
-	// Step 2. Smoothing.
-
-	//RT_TRACE(COMP_DBG, DBG_LOUD, ("$$$$$ After Smoothing:  LastSS: %d, CurrSS: %d, RetSS: %d\n", LastSS, CurrSS, RetSS));
-
-	return RetSS;
-}
-
 /* 0-100 index */
 static long ieee80211_translate_todbm(u8 signal_strength_index)
 {
@@ -2116,7 +2058,6 @@ static inline int ieee80211_network_init(
 		network->flags |= NETWORK_EMPTY_ESSID;
 
 	stats->signal = 30 + (stats->SignalStrength * 70) / 100;
-	//stats->signal = ieee80211_SignalStrengthTranslate(stats->signal);
 	stats->noise = ieee80211_translate_todbm((u8)(100 - stats->signal)) - 25;
 
 	memcpy(&network->stats, stats, sizeof(network->stats));

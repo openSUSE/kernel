@@ -753,7 +753,7 @@ static int bcm_kona_i2c_probe(struct platform_device *pdev)
 	/* Map hardware registers */
 	dev->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(dev->base))
-		return -ENOMEM;
+		return PTR_ERR(dev->base);
 
 	/* Get and enable external clock */
 	dev->external_clk = devm_clk_get(dev->device, NULL);
@@ -839,7 +839,7 @@ static int bcm_kona_i2c_probe(struct platform_device *pdev)
 	adap = &dev->adapter;
 	i2c_set_adapdata(adap, dev);
 	adap->owner = THIS_MODULE;
-	strlcpy(adap->name, "Broadcom I2C adapter", sizeof(adap->name));
+	strscpy(adap->name, "Broadcom I2C adapter", sizeof(adap->name));
 	adap->algo = &bcm_algo;
 	adap->dev.parent = &pdev->dev;
 	adap->dev.of_node = pdev->dev.of_node;

@@ -1,6 +1,9 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-2.0
 
+. "$(dirname "${0}")/mptcp_lib.sh"
+
+sec=$(date +%s)
 rndh=$(printf %x $sec)-$(mktemp -u XXXXXX)
 ns1="ns1-$rndh"
 ns2="ns2-$rndh"
@@ -12,6 +15,7 @@ timeout_test=$((timeout_poll * 2 + 1))
 test_cnt=1
 ret=0
 bail=0
+slack=50
 
 usage() {
 	echo "Usage: $0 [ -b ] [ -c ] [ -d ]"
@@ -31,6 +35,8 @@ cleanup()
 		ip netns del $netns
 	done
 }
+
+mptcp_lib_check_mptcp
 
 ip -Version > /dev/null 2>&1
 if [ $? -ne 0 ];then
@@ -52,6 +58,7 @@ setup()
 	cout=$(mktemp)
 	capout=$(mktemp)
 	size=$((2 * 2048 * 4096))
+
 	dd if=/dev/zero of=$small bs=4096 count=20 >/dev/null 2>&1
 	dd if=/dev/zero of=$large bs=4096 count=$((size / 4096)) >/dev/null 2>&1
 
@@ -104,6 +111,16 @@ setup()
 	ip -net "$ns3" route add default via dead:beef:3::2
 
 	ip netns exec "$ns3" ./pm_nl_ctl limits 1 1
+
+	# debug build can slow down measurably the test program
+	# we use quite tight time limit on the run-time, to ensure
+	# maximum B/W usage.
+	# Use kmemleak/lockdep/kasan/prove_locking presence as a rough
+	# estimate for this being a debug kernel and increase the
+	# maximum run-time accordingly. Observed run times for CI builds
+	# running selftests, including kbuild, were used to determine the
+	# amount of time to add.
+	grep -q ' kmemleak_init$\| lockdep_init$\| kasan_init$\| prove_locking$' /proc/kallsyms && slack=$((slack+550))
 }
 
 # $1: ns, $2: port
@@ -136,9 +153,6 @@ do_transfer()
 	:> "$sout"
 	:> "$capout"
 
-	local addr_port
-	addr_port=$(printf "%s:%d" ${connect_addr} ${port})
-
 	if $capture; then
 		local capuser
 		if [ -z $SUDO_USER ] ; then
@@ -161,7 +175,7 @@ do_transfer()
 
 	timeout ${timeout_test} \
 		ip netns exec ${ns3} \
-			./mptcp_connect -jt ${timeout_poll} -l -p $port -T $time \
+			./mptcp_connect -jt ${timeout_poll} -l -p $port -T $max_time \
 				0.0.0.0 < "$sin" > "$sout" &
 	local spid=$!
 
@@ -169,7 +183,7 @@ do_transfer()
 
 	timeout ${timeout_test} \
 		ip netns exec ${ns1} \
-			./mptcp_connect -jt ${timeout_poll} -p $port -T $time \
+			./mptcp_connect -jt ${timeout_poll} -p $port -T $max_time \
 				10.0.3.3 < "$cin" > "$cout" &
 	local cpid=$!
 
@@ -242,7 +256,7 @@ run_test()
 
 	# mptcp_connect will do some sleeps to allow the mp_join handshake
 	# completion (see mptcp_connect): 200ms on each side, add some slack
-	time=$((time + 450))
+	time=$((time + 400 + slack))
 
 	printf "%-60s" "$msg"
 	do_transfer $small $large $time

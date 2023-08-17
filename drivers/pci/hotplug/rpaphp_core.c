@@ -11,6 +11,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
+#include <linux/of.h>
 #include <linux/pci.h>
 #include <linux/pci_hotplug.h>
 #include <linux/smp.h>
@@ -20,6 +21,7 @@
 #include <asm/eeh.h>       /* for eeh_add_device() */
 #include <asm/rtas.h>		/* rtas_call */
 #include <asm/pci-bridge.h>	/* for pci_controller */
+#include <asm/prom.h>
 #include "../pci.h"		/* for pci_add_new_bus */
 				/* and pci_do_scan_bus */
 #include "rpaphp.h"
@@ -276,7 +278,7 @@ int rpaphp_check_drc_props(struct device_node *dn, char *drc_name,
 		return -EINVAL;
 	}
 
-	if (of_find_property(dn->parent, "ibm,drc-info", NULL))
+	if (of_property_present(dn->parent, "ibm,drc-info"))
 		return rpaphp_check_drc_props_v2(dn, drc_name, drc_type,
 						be32_to_cpu(*my_index));
 	else
@@ -438,7 +440,7 @@ int rpaphp_add_slot(struct device_node *dn)
 	if (!of_node_name_eq(dn, "pci"))
 		return 0;
 
-	if (of_find_property(dn, "ibm,drc-info", NULL))
+	if (of_property_present(dn, "ibm,drc-info"))
 		return rpaphp_drc_info_add_slot(dn);
 	else
 		return rpaphp_drc_add_slot(dn);

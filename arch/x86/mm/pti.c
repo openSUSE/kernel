@@ -540,7 +540,7 @@ static inline bool pti_kernel_image_global_ok(void)
 	 * cases where RANDSTRUCT is in use to help keep the layout a
 	 * secret.
 	 */
-	if (IS_ENABLED(CONFIG_GCC_PLUGIN_RANDSTRUCT))
+	if (IS_ENABLED(CONFIG_RANDSTRUCT))
 		return false;
 
 	return true;
@@ -592,7 +592,7 @@ static void pti_set_kernel_image_nonglobal(void)
 	 * of the image.
 	 */
 	unsigned long start = PFN_ALIGN(_text);
-	unsigned long end = ALIGN((unsigned long)_end, PMD_PAGE_SIZE);
+	unsigned long end = ALIGN((unsigned long)_end, PMD_SIZE);
 
 	/*
 	 * This clears _PAGE_GLOBAL from the entire kernel image.

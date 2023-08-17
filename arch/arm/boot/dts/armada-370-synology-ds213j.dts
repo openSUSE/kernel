@@ -91,9 +91,9 @@
 			};
 
 			ethernet@70000 {
-			       status = "okay";
-			       phy = <&phy1>;
-			       phy-mode = "sgmii";
+				status = "okay";
+				phy = <&phy1>;
+				phy-mode = "sgmii";
 			};
 
 			sata@a0000 {
@@ -258,7 +258,7 @@
 &spi0 {
 	status = "okay";
 
-	spi-flash@0 {
+	flash@0 {
 		#address-cells = <1>;
 		#size-cells = <1>;
 		compatible = "micron,n25q064", "jedec,spi-nor";

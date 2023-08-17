@@ -14,9 +14,14 @@ allOf:
 
 properties:
   compatible:
-    oneOf:
-      - const: qcom,dsi-phy-7nm
-      - const: qcom,dsi-phy-7nm-8150
+    enum:
+      - qcom,dsi-phy-7nm
+      - qcom,dsi-phy-7nm-8150
+      - qcom,sc7280-dsi-phy-7nm
+      - qcom,sm6375-dsi-phy-7nm
+      - qcom,sm8350-dsi-phy-5nm
+      - qcom,sm8450-dsi-phy-5nm
+      - qcom,sm8550-dsi-phy-4nm
 
   reg:
     items:
@@ -34,11 +39,15 @@ properties:
     description: |
       Connected to VDD_A_DSI_PLL_0P9 pin (or VDDA_DSI{0,1}_PLL_0P9 for sm8150)
 
+  phy-type:
+    description: D-PHY (default) or C-PHY mode
+    enum: [ 10, 11 ]
+    default: 10
+
 required:
   - compatible
   - reg
   - reg-names
-  - vdds-supply
 
 unevaluatedProperties: false
 

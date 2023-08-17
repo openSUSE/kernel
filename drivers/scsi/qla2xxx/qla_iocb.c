@@ -3073,8 +3073,7 @@ qla24xx_els_dcmd2_iocb(scsi_qla_host_t *vha, int els_opcode,
 	memset(ptr, 0, sizeof(struct els_plogi_payload));
 	memset(resp_ptr, 0, sizeof(struct els_plogi_payload));
 	memcpy(elsio->u.els_plogi.els_plogi_pyld->data,
-	       (void *)&ha->plogi_els_payld + offsetof(struct fc_els_flogi, fl_csp),
-	       sizeof(ha->plogi_els_payld) - offsetof(struct fc_els_flogi, fl_csp));
+	    &ha->plogi_els_payld.fl_csp, LOGIN_TEMPLATE_SIZE);
 
 	elsio->u.els_plogi.els_cmd = els_opcode;
 	elsio->u.els_plogi.els_plogi_pyld->opcode = els_opcode;
@@ -3882,7 +3881,6 @@ qla_marker_iocb(srb_t *sp, struct mrk_entry_24xx *mrk)
 {
 	mrk->entry_type = MARKER_TYPE;
 	mrk->modifier = sp->u.iocb_cmd.u.tmf.modifier;
-	mrk->handle = make_handle(sp->qpair->req->id, sp->handle);
 	if (sp->u.iocb_cmd.u.tmf.modifier != MK_SYNC_ALL) {
 		mrk->nport_handle = cpu_to_le16(sp->u.iocb_cmd.u.tmf.loop_id);
 		int_to_scsilun(sp->u.iocb_cmd.u.tmf.lun, (struct scsi_lun *)&mrk->lun);

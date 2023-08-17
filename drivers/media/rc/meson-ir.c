@@ -102,7 +102,6 @@ static int meson_ir_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct device_node *node = dev->of_node;
-	struct resource *res;
 	const char *map_name;
 	struct meson_ir *ir;
 	int irq, ret;
@@ -111,8 +110,7 @@ static int meson_ir_probe(struct platform_device *pdev)
 	if (!ir)
 		return -ENOMEM;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	ir->reg = devm_ioremap_resource(dev, res);
+	ir->reg = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(ir->reg))
 		return PTR_ERR(ir->reg);
 
@@ -179,7 +177,7 @@ static int meson_ir_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int meson_ir_remove(struct platform_device *pdev)
+static void meson_ir_remove(struct platform_device *pdev)
 {
 	struct meson_ir *ir = platform_get_drvdata(pdev);
 	unsigned long flags;
@@ -188,8 +186,6 @@ static int meson_ir_remove(struct platform_device *pdev)
 	spin_lock_irqsave(&ir->lock, flags);
 	meson_ir_set_mask(ir, IR_DEC_REG1, REG1_ENABLE, 0);
 	spin_unlock_irqrestore(&ir->lock, flags);
-
-	return 0;
 }
 
 static void meson_ir_shutdown(struct platform_device *pdev)
@@ -228,7 +224,7 @@ MODULE_DEVICE_TABLE(of, meson_ir_match);
 
 static struct platform_driver meson_ir_driver = {
 	.probe		= meson_ir_probe,
-	.remove		= meson_ir_remove,
+	.remove_new	= meson_ir_remove,
 	.shutdown	= meson_ir_shutdown,
 	.driver = {
 		.name		= DRIVER_NAME,

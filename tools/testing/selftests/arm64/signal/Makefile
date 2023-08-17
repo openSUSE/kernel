@@ -11,7 +11,6 @@ PROGS := $(patsubst %.c,%,$(SRCS))
 TEST_GEN_PROGS := $(notdir $(PROGS))
 
 # Get Kernel headers installed and use them.
-KSFT_KHDR_INSTALL := 1
 
 # Including KSFT lib.mk here will also mangle the TEST_GEN_PROGS list
 # to account for any OUTPUT target-dirs optionally provided by
@@ -23,6 +22,10 @@ $(TEST_GEN_PROGS): $(PROGS)
 
 # Common test-unit targets to build common-layout test-cases executables
 # Needs secondary expansion to properly include the testcase c-file in pre-reqs
+COMMON_SOURCES := test_signals.c test_signals_utils.c testcases/testcases.c \
+	signals.S
+COMMON_HEADERS := test_signals.h test_signals_utils.h testcases/testcases.h
+
 .SECONDEXPANSION:
-$(PROGS): test_signals.c test_signals_utils.c testcases/testcases.c signals.S $$@.c test_signals.h test_signals_utils.h testcases/testcases.h
-	$(CC) $(CFLAGS) $^ -o $@
+$(PROGS): $$@.c ${COMMON_SOURCES} ${COMMON_HEADERS}
+	$(CC) $(CFLAGS) ${@}.c ${COMMON_SOURCES} -o $@

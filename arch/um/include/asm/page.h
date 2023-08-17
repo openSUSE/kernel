@@ -102,13 +102,12 @@ extern unsigned long uml_physmem;
  * casting is the right thing, but 32-bit UML can't have 64-bit virtual
  * addresses
  */
-#define __pa(virt) to_phys((void *) (unsigned long) (virt))
-#define __va(phys) to_virt((unsigned long) (phys))
+#define __pa(virt) uml_to_phys((void *) (unsigned long) (virt))
+#define __va(phys) uml_to_virt((unsigned long) (phys))
 
 #define phys_to_pfn(p) ((p) >> PAGE_SHIFT)
 #define pfn_to_phys(pfn) PFN_PHYS(pfn)
 
-#define pfn_valid(pfn) ((pfn) < max_mapnr)
 #define virt_addr_valid(v) pfn_valid(phys_to_pfn(__pa(v)))
 
 #include <asm-generic/memory_model.h>

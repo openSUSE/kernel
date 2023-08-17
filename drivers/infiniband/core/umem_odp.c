@@ -225,7 +225,6 @@ struct ib_umem_odp *ib_umem_odp_get(struct ib_device *device,
 				    const struct mmu_interval_notifier_ops *ops)
 {
 	struct ib_umem_odp *umem_odp;
-	struct mm_struct *mm;
 	int ret;
 
 	if (WARN_ON_ONCE(!(access & IB_ACCESS_ON_DEMAND)))
@@ -239,7 +238,7 @@ struct ib_umem_odp *ib_umem_odp_get(struct ib_device *device,
 	umem_odp->umem.length = size;
 	umem_odp->umem.address = addr;
 	umem_odp->umem.writable = ib_access_writable(access);
-	umem_odp->umem.owning_mm = mm = current->mm;
+	umem_odp->umem.owning_mm = current->mm;
 	umem_odp->notifier.ops = ops;
 
 	umem_odp->page_shift = PAGE_SHIFT;
@@ -454,7 +453,7 @@ retry:
 			break;
 		}
 	}
-	/* upon sucesss lock should stay on hold for the callee */
+	/* upon success lock should stay on hold for the callee */
 	if (!ret)
 		ret = dma_index - start_idx;
 	else

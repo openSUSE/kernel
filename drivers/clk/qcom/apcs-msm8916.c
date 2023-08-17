@@ -46,6 +46,7 @@ static int qcom_apcs_msm8916_clk_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct device *parent = dev->parent;
+	struct device_node *np = parent->of_node;
 	struct clk_regmap_mux_div *a53cc;
 	struct regmap *regmap;
 	struct clk_init_data init = { };
@@ -61,11 +62,16 @@ static int qcom_apcs_msm8916_clk_probe(struct platform_device *pdev)
 	if (!a53cc)
 		return -ENOMEM;
 
-	init.name = "a53mux";
+	/* Use an unique name by appending parent's @unit-address */
+	init.name = devm_kasprintf(dev, GFP_KERNEL, "a53mux%s",
+				   strchrnul(np->full_name, '@'));
+	if (!init.name)
+		return -ENOMEM;
+
 	init.parent_data = pdata;
 	init.num_parents = ARRAY_SIZE(pdata);
 	init.ops = &clk_regmap_mux_div_ops;
-	init.flags = CLK_SET_RATE_PARENT;
+	init.flags = CLK_IS_CRITICAL | CLK_SET_RATE_PARENT;
 
 	a53cc->clkr.hw.init = &init;
 	a53cc->clkr.regmap = regmap;
@@ -113,18 +119,16 @@ err:
 	return ret;
 }
 
-static int qcom_apcs_msm8916_clk_remove(struct platform_device *pdev)
+static void qcom_apcs_msm8916_clk_remove(struct platform_device *pdev)
 {
 	struct clk_regmap_mux_div *a53cc = platform_get_drvdata(pdev);
 
 	clk_notifier_unregister(a53cc->pclk, &a53cc->clk_nb);
-
-	return 0;
 }
 
 static struct platform_driver qcom_apcs_msm8916_clk_driver = {
 	.probe = qcom_apcs_msm8916_clk_probe,
-	.remove = qcom_apcs_msm8916_clk_remove,
+	.remove_new = qcom_apcs_msm8916_clk_remove,
 	.driver = {
 		.name = "qcom-apcs-msm8916-clk",
 	},

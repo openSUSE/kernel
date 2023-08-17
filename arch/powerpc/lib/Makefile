@@ -13,13 +13,23 @@ CFLAGS_REMOVE_feature-fixups.o = $(CC_FLAGS_FTRACE)
 
 KASAN_SANITIZE_code-patching.o := n
 KASAN_SANITIZE_feature-fixups.o := n
+# restart_table.o contains functions called in the NMI interrupt path
+# which can be in real mode. Disable KASAN.
+KASAN_SANITIZE_restart_table.o := n
+KCSAN_SANITIZE_code-patching.o := n
+KCSAN_SANITIZE_feature-fixups.o := n
 
 ifdef CONFIG_KASAN
 CFLAGS_code-patching.o += -DDISABLE_BRANCH_PROFILING
 CFLAGS_feature-fixups.o += -DDISABLE_BRANCH_PROFILING
 endif
 
-obj-y += alloc.o code-patching.o feature-fixups.o pmem.o test_code-patching.o
+CFLAGS_code-patching.o += $(DISABLE_LATENT_ENTROPY_PLUGIN)
+CFLAGS_feature-fixups.o += $(DISABLE_LATENT_ENTROPY_PLUGIN)
+
+obj-y += alloc.o code-patching.o feature-fixups.o pmem.o
+
+obj-$(CONFIG_CODE_PATCHING_SELFTEST) += test-code-patching.o
 
 ifndef CONFIG_KASAN
 obj-y	+=	string.o memcmp_$(BITS).o
@@ -44,7 +54,9 @@ obj-$(CONFIG_PPC_BOOK3S_64) += copyuser_power7.o copypage_power7.o \
 obj64-y	+= copypage_64.o copyuser_64.o mem_64.o hweight_64.o \
 	   memcpy_64.o copy_mc_64.o
 
-ifndef CONFIG_PPC_QUEUED_SPINLOCKS
+ifdef CONFIG_PPC_QUEUED_SPINLOCKS
+obj-$(CONFIG_SMP)	+= qspinlock.o
+else
 obj64-$(CONFIG_SMP)	+= locks.o
 endif
 
@@ -65,5 +77,7 @@ obj-$(CONFIG_FTR_FIXUP_SELFTEST) += feature-fixups-test.o
 
 obj-$(CONFIG_ALTIVEC)	+= xor_vmx.o xor_vmx_glue.o
 CFLAGS_xor_vmx.o += -maltivec $(call cc-option,-mabi=altivec)
+# Enable <altivec.h>
+CFLAGS_xor_vmx.o += -isystem $(shell $(CC) -print-file-name=include)
 
 obj-$(CONFIG_PPC64) += $(obj64-y)

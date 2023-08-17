@@ -14,6 +14,7 @@
 #include <linux/memblock.h>
 #include <linux/gfp.h>
 #include <linux/init.h>
+#include <asm/asm-extable.h>
 #include <asm/facility.h>
 #include <asm/page-states.h>
 
@@ -55,17 +56,6 @@ void __init cmma_init(void)
 	}
 	if (test_facility(147))
 		cmma_flag = 2;
-}
-
-static inline unsigned char get_page_state(struct page *page)
-{
-	unsigned char state;
-
-	asm volatile("	.insn	rrf,0xb9ab0000,%0,%1,%2,0"
-		     : "=&d" (state)
-		     : "a" (page_to_phys(page)),
-		       "i" (ESSA_GET_STATE));
-	return state & 0x3f;
 }
 
 static inline void set_page_unused(struct page *page, int order)
@@ -227,47 +217,4 @@ void arch_set_page_dat(struct page *page, int order)
 	if (!cmma_flag)
 		return;
 	set_page_stable_dat(page, order);
-}
-
-void arch_set_page_nodat(struct page *page, int order)
-{
-	if (cmma_flag < 2)
-		return;
-	set_page_stable_nodat(page, order);
-}
-
-int arch_test_page_nodat(struct page *page)
-{
-	unsigned char state;
-
-	if (cmma_flag < 2)
-		return 0;
-	state = get_page_state(page);
-	return !!(state & 0x20);
-}
-
-void arch_set_page_states(int make_stable)
-{
-	unsigned long flags, order, t;
-	struct list_head *l;
-	struct page *page;
-	struct zone *zone;
-
-	if (!cmma_flag)
-		return;
-	if (make_stable)
-		drain_local_pages(NULL);
-	for_each_populated_zone(zone) {
-		spin_lock_irqsave(&zone->lock, flags);
-		for_each_migratetype_order(order, t) {
-			list_for_each(l, &zone->free_area[order].free_list[t]) {
-				page = list_entry(l, struct page, lru);
-				if (make_stable)
-					set_page_stable_dat(page, order);
-				else
-					set_page_unused(page, order);
-			}
-		}
-		spin_unlock_irqrestore(&zone->lock, flags);
-	}
 }

@@ -411,9 +411,9 @@ static int pca954x_init(struct i2c_client *client, struct pca954x *data)
 /*
  * I2C init/probing/exit functions
  */
-static int pca954x_probe(struct i2c_client *client,
-			 const struct i2c_device_id *id)
+static int pca954x_probe(struct i2c_client *client)
 {
+	const struct i2c_device_id *id = i2c_client_get_device_id(client);
 	struct i2c_adapter *adap = client->adapter;
 	struct device *dev = &client->dev;
 	struct gpio_desc *gpio;
@@ -521,14 +521,13 @@ fail_cleanup:
 	return ret;
 }
 
-static int pca954x_remove(struct i2c_client *client)
+static void pca954x_remove(struct i2c_client *client)
 {
 	struct i2c_mux_core *muxc = i2c_get_clientdata(client);
 
 	device_remove_file(&client->dev, &dev_attr_idle_state);
 
 	pca954x_cleanup(muxc);
-	return 0;
 }
 
 #ifdef CONFIG_PM_SLEEP

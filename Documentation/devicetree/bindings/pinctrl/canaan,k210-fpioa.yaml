@@ -4,10 +4,10 @@
 $id: http://devicetree.org/schemas/pinctrl/canaan,k210-fpioa.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Canaan Kendryte K210 FPIOA Device Tree Bindings
+title: Canaan Kendryte K210 FPIOA
 
 maintainers:
-  - Damien Le Moal <damien.lemoal@wdc.com>
+  - Damien Le Moal <dlemoal@kernel.org>
 
 description:
   The Canaan Kendryte K210 SoC Fully Programmable IO Array (FPIOA)
@@ -120,6 +120,7 @@ patternProperties:
       input-schmitt-disable: true
 
       input-polarity-invert:
+        type: boolean
         description:
           Enable or disable pin input polarity inversion.
 
@@ -132,6 +133,7 @@ patternProperties:
       output-low: true
 
       output-polarity-invert:
+        type: boolean
         description:
           Enable or disable pin output polarity inversion.
 
@@ -140,6 +142,9 @@ patternProperties:
       power-source: true
 
     additionalProperties: false
+
+allOf:
+  - $ref: pinctrl.yaml#
 
 required:
   - compatible
@@ -155,9 +160,9 @@ examples:
     #include <dt-bindings/clock/k210-clk.h>
     #include <dt-bindings/reset/k210-rst.h>
 
-    fpioa: pinmux@502B0000 {
+    fpioa: pinmux@502b0000 {
       compatible = "canaan,k210-fpioa";
-      reg = <0x502B0000 0x100>;
+      reg = <0x502b0000 0x100>;
       clocks = <&sysclk K210_CLK_FPIOA>,
                <&sysclk K210_CLK_APB0>;
       clock-names = "ref", "pclk";

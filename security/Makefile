@@ -4,16 +4,6 @@
 #
 
 obj-$(CONFIG_KEYS)			+= keys/
-subdir-$(CONFIG_SECURITY_SELINUX)	+= selinux
-subdir-$(CONFIG_SECURITY_SMACK)		+= smack
-subdir-$(CONFIG_SECURITY_TOMOYO)        += tomoyo
-subdir-$(CONFIG_SECURITY_APPARMOR)	+= apparmor
-subdir-$(CONFIG_SECURITY_YAMA)		+= yama
-subdir-$(CONFIG_SECURITY_LOADPIN)	+= loadpin
-subdir-$(CONFIG_SECURITY_SAFESETID)    += safesetid
-subdir-$(CONFIG_SECURITY_LOCKDOWN_LSM)	+= lockdown
-subdir-$(CONFIG_BPF_LSM)		+= bpf
-subdir-$(CONFIG_SECURITY_LANDLOCK)	+= landlock
 
 # always enable default capabilities
 obj-y					+= commoncap.o
@@ -34,8 +24,6 @@ obj-$(CONFIG_SECURITY_LOCKDOWN_LSM)	+= lockdown/
 obj-$(CONFIG_CGROUPS)			+= device_cgroup.o
 obj-$(CONFIG_BPF_LSM)			+= bpf/
 obj-$(CONFIG_SECURITY_LANDLOCK)		+= landlock/
-obj-$(CONFIG_HIDDEN_AREA)		+= hidden_area.o
 
 # Object integrity file lists
-subdir-$(CONFIG_INTEGRITY)		+= integrity
 obj-$(CONFIG_INTEGRITY)			+= integrity/

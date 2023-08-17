@@ -202,7 +202,7 @@ struct command_protocol_tp_info {
 };
 
 /**
- * struct touchpad_info - touchpad info response.
+ * struct touchpad_info_protocol - touchpad info response.
  * message.type = 0x1020, message.length = 0x006e
  *
  * @unknown1:		unknown
@@ -311,7 +311,7 @@ struct message {
 		struct command_protocol_mt_init	init_mt_command;
 		struct command_protocol_capsl	capsl_command;
 		struct command_protocol_bl	bl_command;
-		u8				data[0];
+		DECLARE_FLEX_ARRAY(u8, 		data);
 	};
 };
 
@@ -1844,7 +1844,7 @@ static void applespi_drain_reads(struct applespi_data *applespi)
 	spin_unlock_irqrestore(&applespi->cmd_msg_lock, flags);
 }
 
-static int applespi_remove(struct spi_device *spi)
+static void applespi_remove(struct spi_device *spi)
 {
 	struct applespi_data *applespi = spi_get_drvdata(spi);
 
@@ -1857,8 +1857,6 @@ static int applespi_remove(struct spi_device *spi)
 	applespi_drain_reads(applespi);
 
 	debugfs_remove_recursive(applespi->debugfs_root);
-
-	return 0;
 }
 
 static void applespi_shutdown(struct spi_device *spi)
@@ -1878,7 +1876,7 @@ static int applespi_poweroff_late(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused applespi_suspend(struct device *dev)
+static int applespi_suspend(struct device *dev)
 {
 	struct spi_device *spi = to_spi_device(dev);
 	struct applespi_data *applespi = spi_get_drvdata(spi);
@@ -1905,7 +1903,7 @@ static int __maybe_unused applespi_suspend(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused applespi_resume(struct device *dev)
+static int applespi_resume(struct device *dev)
 {
 	struct spi_device *spi = to_spi_device(dev);
 	struct applespi_data *applespi = spi_get_drvdata(spi);
@@ -1949,15 +1947,15 @@ static const struct acpi_device_id applespi_acpi_match[] = {
 MODULE_DEVICE_TABLE(acpi, applespi_acpi_match);
 
 static const struct dev_pm_ops applespi_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(applespi_suspend, applespi_resume)
-	.poweroff_late	= applespi_poweroff_late,
+	SYSTEM_SLEEP_PM_OPS(applespi_suspend, applespi_resume)
+	.poweroff_late	= pm_sleep_ptr(applespi_poweroff_late),
 };
 
 static struct spi_driver applespi_driver = {
 	.driver		= {
 		.name			= "applespi",
 		.acpi_match_table	= applespi_acpi_match,
-		.pm			= &applespi_pm_ops,
+		.pm			= pm_sleep_ptr(&applespi_pm_ops),
 	},
 	.probe		= applespi_probe,
 	.remove		= applespi_remove,

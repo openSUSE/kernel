@@ -992,7 +992,7 @@ static const struct intel_ddi_buf_trans adlp_dkl_phy_trans_dp_hbr2_hbr3 = {
 	.num_entries = ARRAY_SIZE(_adlp_dkl_phy_trans_dp_hbr2_hbr3),
 };
 
-static const union intel_ddi_buf_trans_entry _dg2_snps_translations[] = {
+static const union intel_ddi_buf_trans_entry _dg2_snps_trans[] = {
 	{ .snps = { 25, 0, 0 } },	/* VS 0, pre-emph 0 */
 	{ .snps = { 32, 0, 6 } },	/* VS 0, pre-emph 1 */
 	{ .snps = { 35, 0, 10 } },	/* VS 0, pre-emph 2 */
@@ -1005,13 +1005,13 @@ static const union intel_ddi_buf_trans_entry _dg2_snps_translations[] = {
 	{ .snps = { 62, 0, 0 } },	/* VS 3, pre-emph 0 */
 };
 
-static const struct intel_ddi_buf_trans dg2_snps_translations = {
-	.entries = _dg2_snps_translations,
-	.num_entries = ARRAY_SIZE(_dg2_snps_translations),
-	.hdmi_default_entry = ARRAY_SIZE(_dg2_snps_translations) - 1,
+static const struct intel_ddi_buf_trans dg2_snps_trans = {
+	.entries = _dg2_snps_trans,
+	.num_entries = ARRAY_SIZE(_dg2_snps_trans),
+	.hdmi_default_entry = ARRAY_SIZE(_dg2_snps_trans) - 1,
 };
 
-static const union intel_ddi_buf_trans_entry _dg2_snps_translations_uhbr[] = {
+static const union intel_ddi_buf_trans_entry _dg2_snps_trans_uhbr[] = {
 	{ .snps = { 62, 0, 0 } },	/* preset 0 */
 	{ .snps = { 55, 0, 7 } },	/* preset 1 */
 	{ .snps = { 50, 0, 12 } },	/* preset 2 */
@@ -1030,9 +1030,9 @@ static const union intel_ddi_buf_trans_entry _dg2_snps_translations_uhbr[] = {
 	{ .snps = { 45, 4, 4 } },	/* preset 15 */
 };
 
-static const struct intel_ddi_buf_trans dg2_snps_translations_uhbr = {
-	.entries = _dg2_snps_translations_uhbr,
-	.num_entries = ARRAY_SIZE(_dg2_snps_translations_uhbr),
+static const struct intel_ddi_buf_trans dg2_snps_trans_uhbr = {
+	.entries = _dg2_snps_trans_uhbr,
+	.num_entries = ARRAY_SIZE(_dg2_snps_trans_uhbr),
 };
 
 bool is_hobl_buf_trans(const struct intel_ddi_buf_trans *table)
@@ -1601,9 +1601,9 @@ dg2_get_snps_buf_trans(struct intel_encoder *encoder,
 {
 	if (intel_crtc_has_dp_encoder(crtc_state) &&
 	    intel_dp_is_uhbr(crtc_state))
-		return intel_get_buf_trans(&dg2_snps_translations_uhbr, n_entries);
+		return intel_get_buf_trans(&dg2_snps_trans_uhbr, n_entries);
 	else
-		return intel_get_buf_trans(&dg2_snps_translations, n_entries);
+		return intel_get_buf_trans(&dg2_snps_trans, n_entries);
 }
 
 void intel_ddi_buf_trans_init(struct intel_encoder *encoder)

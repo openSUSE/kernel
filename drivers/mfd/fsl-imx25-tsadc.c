@@ -35,10 +35,10 @@ static void mx25_tsadc_irq_handler(struct irq_desc *desc)
 	regmap_read(tsadc->regs, MX25_TSC_TGSR, &status);
 
 	if (status & MX25_TGSR_GCQ_INT)
-		generic_handle_irq(irq_find_mapping(tsadc->domain, 1));
+		generic_handle_domain_irq(tsadc->domain, 1);
 
 	if (status & MX25_TGSR_TCQ_INT)
-		generic_handle_irq(irq_find_mapping(tsadc->domain, 0));
+		generic_handle_domain_irq(tsadc->domain, 0);
 
 	chained_irq_exit(chip, desc);
 }
@@ -137,7 +137,6 @@ static int mx25_tsadc_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct mx25_tsadc *tsadc;
-	struct resource *res;
 	int ret;
 	void __iomem *iomem;
 
@@ -145,8 +144,7 @@ static int mx25_tsadc_probe(struct platform_device *pdev)
 	if (!tsadc)
 		return -ENOMEM;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	iomem = devm_ioremap_resource(dev, res);
+	iomem = devm_platform_get_and_ioremap_resource(pdev, 0, NULL);
 	if (IS_ERR(iomem))
 		return PTR_ERR(iomem);
 

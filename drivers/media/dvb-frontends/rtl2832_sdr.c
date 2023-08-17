@@ -245,7 +245,7 @@ static void rtl2832_sdr_urb_complete(struct urb *urb)
 		if (unlikely(fbuf == NULL)) {
 			dev->vb_full++;
 			dev_notice_ratelimited(&pdev->dev,
-					       "videobuf is full, %d packets dropped\n",
+					       "video buffer is full, %d packets dropped\n",
 					       dev->vb_full);
 			goto skip;
 		}
@@ -376,8 +376,11 @@ static int rtl2832_sdr_alloc_urbs(struct rtl2832_sdr_dev *dev)
 		dev_dbg(&pdev->dev, "alloc urb=%d\n", i);
 		dev->urb_list[i] = usb_alloc_urb(0, GFP_KERNEL);
 		if (!dev->urb_list[i]) {
-			for (j = 0; j < i; j++)
+			for (j = 0; j < i; j++) {
 				usb_free_urb(dev->urb_list[j]);
+				dev->urb_list[j] = NULL;
+			}
+			dev->urbs_initialized = 0;
 			return -ENOMEM;
 		}
 		usb_fill_bulk_urb(dev->urb_list[i],
@@ -1460,7 +1463,7 @@ err:
 	return ret;
 }
 
-static int rtl2832_sdr_remove(struct platform_device *pdev)
+static void rtl2832_sdr_remove(struct platform_device *pdev)
 {
 	struct rtl2832_sdr_dev *dev = platform_get_drvdata(pdev);
 
@@ -1476,8 +1479,6 @@ static int rtl2832_sdr_remove(struct platform_device *pdev)
 	mutex_unlock(&dev->vb_queue_lock);
 	v4l2_device_put(&dev->v4l2_dev);
 	module_put(pdev->dev.parent->driver->owner);
-
-	return 0;
 }
 
 static struct platform_driver rtl2832_sdr_driver = {
@@ -1485,7 +1486,7 @@ static struct platform_driver rtl2832_sdr_driver = {
 		.name   = "rtl2832_sdr",
 	},
 	.probe          = rtl2832_sdr_probe,
-	.remove         = rtl2832_sdr_remove,
+	.remove_new     = rtl2832_sdr_remove,
 };
 module_platform_driver(rtl2832_sdr_driver);
 

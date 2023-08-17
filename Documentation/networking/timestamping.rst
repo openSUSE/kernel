@@ -179,7 +179,8 @@ SOF_TIMESTAMPING_OPT_ID:
   identifier and returns that along with the timestamp. The identifier
   is derived from a per-socket u32 counter (that wraps). For datagram
   sockets, the counter increments with each sent packet. For stream
-  sockets, it increments with every byte.
+  sockets, it increments with every byte. For stream sockets, also set
+  SOF_TIMESTAMPING_OPT_ID_TCP, see the section below.
 
   The counter starts at zero. It is initialized the first time that
   the socket option is enabled. It is reset each time the option is
@@ -192,6 +193,35 @@ SOF_TIMESTAMPING_OPT_ID:
   among all possibly concurrently outstanding timestamp requests for
   that socket.
 
+SOF_TIMESTAMPING_OPT_ID_TCP:
+  Pass this modifier along with SOF_TIMESTAMPING_OPT_ID for new TCP
+  timestamping applications. SOF_TIMESTAMPING_OPT_ID defines how the
+  counter increments for stream sockets, but its starting point is
+  not entirely trivial. This option fixes that.
+
+  For stream sockets, if SOF_TIMESTAMPING_OPT_ID is set, this should
+  always be set too. On datagram sockets the option has no effect.
+
+  A reasonable expectation is that the counter is reset to zero with
+  the system call, so that a subsequent write() of N bytes generates
+  a timestamp with counter N-1. SOF_TIMESTAMPING_OPT_ID_TCP
+  implements this behavior under all conditions.
+
+  SOF_TIMESTAMPING_OPT_ID without modifier often reports the same,
+  especially when the socket option is set when no data is in
+  transmission. If data is being transmitted, it may be off by the
+  length of the output queue (SIOCOUTQ).
+
+  The difference is due to being based on snd_una versus write_seq.
+  snd_una is the offset in the stream acknowledged by the peer. This
+  depends on factors outside of process control, such as network RTT.
+  write_seq is the last byte written by the process. This offset is
+  not affected by external inputs.
+
+  The difference is subtle and unlikely to be noticed when configured
+  at initial socket creation, when no data is queued or sent. But
+  SOF_TIMESTAMPING_OPT_ID_TCP behavior is more robust regardless of
+  when the socket option is set.
 
 SOF_TIMESTAMPING_OPT_CMSG:
   Support recv() cmsg for all timestamped packets. Control messages
@@ -486,8 +516,8 @@ of packets.
 Drivers are free to use a more permissive configuration than the requested
 configuration. It is expected that drivers should only implement directly the
 most generic mode that can be supported. For example if the hardware can
-support HWTSTAMP_FILTER_V2_EVENT, then it should generally always upscale
-HWTSTAMP_FILTER_V2_L2_SYNC_MESSAGE, and so forth, as HWTSTAMP_FILTER_V2_EVENT
+support HWTSTAMP_FILTER_PTP_V2_EVENT, then it should generally always upscale
+HWTSTAMP_FILTER_PTP_V2_L2_SYNC, and so forth, as HWTSTAMP_FILTER_PTP_V2_EVENT
 is more generic (and more useful to applications).
 
 A driver which supports hardware time stamping shall update the struct
@@ -582,8 +612,8 @@ Time stamps for outgoing packets are to be generated as follows:
   and hardware timestamping is not possible (SKBTX_IN_PROGRESS not set).
 - As soon as the driver has sent the packet and/or obtained a
   hardware time stamp for it, it passes the time stamp back by
-  calling skb_hwtstamp_tx() with the original skb, the raw
-  hardware time stamp. skb_hwtstamp_tx() clones the original skb and
+  calling skb_tstamp_tx() with the original skb, the raw
+  hardware time stamp. skb_tstamp_tx() clones the original skb and
   adds the timestamps, therefore the original skb has to be freed now.
   If obtaining the hardware time stamp somehow fails, then the driver
   should not fall back to software time stamping. The rationale is that
@@ -668,7 +698,7 @@ timestamping:
   (through another RX timestamping FIFO). Deferral on RX is typically
   necessary when retrieving the timestamp needs a sleepable context. In
   that case, it is the responsibility of the DSA driver to call
-  ``netif_rx_ni()`` on the freshly timestamped skb.
+  ``netif_rx()`` on the freshly timestamped skb.
 
 3.2.2 Ethernet PHYs
 ^^^^^^^^^^^^^^^^^^^

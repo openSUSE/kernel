@@ -241,7 +241,6 @@ enum kxcjk1013_axis {
 };
 
 struct kxcjk1013_data {
-	struct regulator_bulk_data regulators[2];
 	struct i2c_client *client;
 	struct iio_trigger *dready_trig;
 	struct iio_trigger *motion_trig;
@@ -315,7 +314,7 @@ static const char *const kxtf9_samp_freq_avail =
 	"25 50 100 200 400 800";
 
 /* Refer to section 4 of the specification */
-static const struct {
+static __maybe_unused const struct {
 	int odr_bits;
 	int usec;
 } odr_start_up_times[KX_MAX_CHIPS][12] = {
@@ -927,7 +926,8 @@ static int kxcjk1013_read_raw(struct iio_dev *indio_dev,
 				mutex_unlock(&data->mutex);
 				return ret;
 			}
-			*val = sign_extend32(ret >> 4, 11);
+			*val = sign_extend32(ret >> chan->scan_type.shift,
+					     chan->scan_type.realbits - 1);
 			ret = kxcjk1013_set_power_state(data, false);
 		}
 		mutex_unlock(&data->mutex);
@@ -1063,7 +1063,7 @@ static int kxcjk1013_write_event_config(struct iio_dev *indio_dev,
 
 	/*
 	 * We will expect the enable and disable to do operation in
-	 * in reverse order. This will happen here anyway as our
+	 * reverse order. This will happen here anyway as our
 	 * resume operation uses sync mode runtime pm calls, the
 	 * suspend operation will be delayed by autosuspend delay
 	 * So the disable operation will still happen in reverse of
@@ -1424,16 +1424,10 @@ static const char *kxcjk1013_match_acpi_device(struct device *dev,
 	return dev_name(dev);
 }
 
-static void kxcjk1013_disable_regulators(void *d)
+static int kxcjk1013_probe(struct i2c_client *client)
 {
-	struct kxcjk1013_data *data = d;
-
-	regulator_bulk_disable(ARRAY_SIZE(data->regulators), data->regulators);
-}
-
-static int kxcjk1013_probe(struct i2c_client *client,
-			   const struct i2c_device_id *id)
-{
+	const struct i2c_device_id *id = i2c_client_get_device_id(client);
+	static const char * const regulator_names[] = { "vdd", "vddio" };
 	struct kxcjk1013_data *data;
 	struct iio_dev *indio_dev;
 	struct kxcjk_1013_platform_data *pdata;
@@ -1460,21 +1454,11 @@ static int kxcjk1013_probe(struct i2c_client *client,
 			return ret;
 	}
 
-	data->regulators[0].supply = "vdd";
-	data->regulators[1].supply = "vddio";
-	ret = devm_regulator_bulk_get(&client->dev, ARRAY_SIZE(data->regulators),
-				      data->regulators);
+	ret = devm_regulator_bulk_get_enable(&client->dev,
+					     ARRAY_SIZE(regulator_names),
+					     regulator_names);
 	if (ret)
 		return dev_err_probe(&client->dev, ret, "Failed to get regulators\n");
-
-	ret = regulator_bulk_enable(ARRAY_SIZE(data->regulators),
-				    data->regulators);
-	if (ret)
-		return ret;
-
-	ret = devm_add_action_or_reset(&client->dev, kxcjk1013_disable_regulators, data);
-	if (ret)
-		return ret;
 
 	/*
 	 * A typical delay of 10ms is required for powering up
@@ -1610,7 +1594,7 @@ err_poweroff:
 	return ret;
 }
 
-static int kxcjk1013_remove(struct i2c_client *client)
+static void kxcjk1013_remove(struct i2c_client *client)
 {
 	struct iio_dev *indio_dev = i2c_get_clientdata(client);
 	struct kxcjk1013_data *data = iio_priv(indio_dev);
@@ -1629,8 +1613,6 @@ static int kxcjk1013_remove(struct i2c_client *client)
 	mutex_lock(&data->mutex);
 	kxcjk1013_set_mode(data, STANDBY);
 	mutex_unlock(&data->mutex);
-
-	return 0;
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -1750,7 +1732,7 @@ static struct i2c_driver kxcjk1013_driver = {
 		.of_match_table = kxcjk1013_of_match,
 		.pm	= &kxcjk1013_pm_ops,
 	},
-	.probe		= kxcjk1013_probe,
+	.probe_new	= kxcjk1013_probe,
 	.remove		= kxcjk1013_remove,
 	.id_table	= kxcjk1013_id,
 };

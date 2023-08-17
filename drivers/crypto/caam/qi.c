@@ -8,7 +8,13 @@
  */
 
 #include <linux/cpumask.h>
+#include <linux/device.h>
+#include <linux/dma-mapping.h>
+#include <linux/kernel.h>
 #include <linux/kthread.h>
+#include <linux/netdevice.h>
+#include <linux/slab.h>
+#include <linux/string.h>
 #include <soc/fsl/qman.h>
 
 #include "debugfs.h"
@@ -75,7 +81,7 @@ bool caam_congested __read_mostly;
 EXPORT_SYMBOL(caam_congested);
 
 /*
- * This is a a cache of buffers, from which the users of CAAM QI driver
+ * This is a cache of buffers, from which the users of CAAM QI driver
  * can allocate short (CAAM_QI_MEMCACHE_SIZE) buffers. It's faster than
  * doing malloc on the hotpath.
  * NOTE: A more elegant solution would be to have some headroom in the frames
@@ -614,7 +620,7 @@ static int alloc_rsp_fq_cpu(struct device *qidev, unsigned int cpu)
 	struct qman_fq *fq;
 	int ret;
 
-	fq = kzalloc(sizeof(*fq), GFP_KERNEL | GFP_DMA);
+	fq = kzalloc(sizeof(*fq), GFP_KERNEL);
 	if (!fq)
 		return -ENOMEM;
 
@@ -749,14 +755,14 @@ int caam_qi_init(struct platform_device *caam_pdev)
 		net_dev->dev = *qidev;
 		INIT_LIST_HEAD(&net_dev->napi_list);
 
-		netif_napi_add(net_dev, irqtask, caam_qi_poll,
-			       CAAM_NAPI_WEIGHT);
+		netif_napi_add_tx_weight(net_dev, irqtask, caam_qi_poll,
+					 CAAM_NAPI_WEIGHT);
 
 		napi_enable(irqtask);
 	}
 
-	qi_cache = kmem_cache_create("caamqicache", CAAM_QI_MEMCACHE_SIZE, 0,
-				     SLAB_CACHE_DMA, NULL);
+	qi_cache = kmem_cache_create("caamqicache", CAAM_QI_MEMCACHE_SIZE,
+				     dma_get_cache_alignment(), 0, NULL);
 	if (!qi_cache) {
 		dev_err(qidev, "Can't allocate CAAM cache\n");
 		free_rsp_fqs();

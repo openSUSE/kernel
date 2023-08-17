@@ -13,13 +13,13 @@
 #include <linux/console.h>
 #include <linux/export.h>
 #include <linux/memblock.h>
+#include <linux/of.h>
 
 #include <asm/machdep.h>
 #include <asm/firmware.h>
 #include <asm/time.h>
 #include <asm/iommu.h>
 #include <asm/udbg.h>
-#include <asm/prom.h>
 #include <asm/lv1call.h>
 #include <asm/ps3gpu.h>
 
@@ -264,9 +264,6 @@ static int __init ps3_probe(void)
 {
 	DBG(" -> %s:%d\n", __func__, __LINE__);
 
-	if (!of_machine_is_compatible("sony,ps3"))
-		return 0;
-
 	ps3_os_area_save_params();
 
 	pm_power_off = ps3_power_off;
@@ -291,6 +288,7 @@ static void ps3_kexec_cpu_down(int crash_shutdown, int secondary)
 
 define_machine(ps3) {
 	.name				= "PS3",
+	.compatible			= "sony,ps3",
 	.probe				= ps3_probe,
 	.setup_arch			= ps3_setup_arch,
 	.init_IRQ			= ps3_init_IRQ,

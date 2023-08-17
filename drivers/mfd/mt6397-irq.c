@@ -12,6 +12,8 @@
 #include <linux/suspend.h>
 #include <linux/mfd/mt6323/core.h>
 #include <linux/mfd/mt6323/registers.h>
+#include <linux/mfd/mt6331/core.h>
+#include <linux/mfd/mt6331/registers.h>
 #include <linux/mfd/mt6397/core.h>
 #include <linux/mfd/mt6397/registers.h>
 
@@ -52,7 +54,6 @@ static void mt6397_irq_enable(struct irq_data *data)
 	mt6397->irq_masks_cur[reg] |= BIT(shift);
 }
 
-#ifdef CONFIG_PM_SLEEP
 static int mt6397_irq_set_wake(struct irq_data *irq_data, unsigned int on)
 {
 	struct mt6397_chip *mt6397 = irq_data_get_irq_chip_data(irq_data);
@@ -66,9 +67,6 @@ static int mt6397_irq_set_wake(struct irq_data *irq_data, unsigned int on)
 
 	return 0;
 }
-#else
-#define mt6397_irq_set_wake NULL
-#endif
 
 static struct irq_chip mt6397_irq_chip = {
 	.name = "mt6397-irq",
@@ -76,7 +74,7 @@ static struct irq_chip mt6397_irq_chip = {
 	.irq_bus_sync_unlock = mt6397_irq_sync_unlock,
 	.irq_enable = mt6397_irq_enable,
 	.irq_disable = mt6397_irq_disable,
-	.irq_set_wake = mt6397_irq_set_wake,
+	.irq_set_wake = pm_sleep_ptr(mt6397_irq_set_wake),
 };
 
 static void mt6397_irq_handle_reg(struct mt6397_chip *mt6397, int reg,
@@ -172,7 +170,12 @@ int mt6397_irq_init(struct mt6397_chip *chip)
 		chip->int_status[0] = MT6323_INT_STATUS0;
 		chip->int_status[1] = MT6323_INT_STATUS1;
 		break;
-
+	case MT6331_CHIP_ID:
+		chip->int_con[0] = MT6331_INT_CON0;
+		chip->int_con[1] = MT6331_INT_CON1;
+		chip->int_status[0] = MT6331_INT_STATUS_CON0;
+		chip->int_status[1] = MT6331_INT_STATUS_CON1;
+		break;
 	case MT6391_CHIP_ID:
 	case MT6397_CHIP_ID:
 		chip->int_con[0] = MT6397_INT_CON0;

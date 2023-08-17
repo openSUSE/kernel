@@ -29,6 +29,7 @@
 
 #include <net/netlink.h>
 #include <net/netns/generic.h>
+#include <linux/netfilter.h>
 #include <linux/netfilter/nfnetlink.h>
 
 MODULE_LICENSE("GPL");
@@ -43,6 +44,10 @@ MODULE_DESCRIPTION("Netfilter messages via netlink socket");
 #define NFNL_MAX_ATTR_COUNT	32
 
 static unsigned int nfnetlink_pernet_id __read_mostly;
+
+#ifdef CONFIG_NF_CONNTRACK_EVENTS
+static DEFINE_SPINLOCK(nfnl_grp_active_lock);
+#endif
 
 struct nfnl_net {
 	struct sock *nfnl;
@@ -290,6 +295,7 @@ replay:
 			nfnl_lock(subsys_id);
 			if (nfnl_dereference_protected(subsys_id) != ss ||
 			    nfnetlink_find_client(type, ss) != nc) {
+				nfnl_unlock(subsys_id);
 				err = -EAGAIN;
 				break;
 			}
@@ -527,7 +533,8 @@ ack:
 			 * processed, this avoids that the same error is
 			 * reported several times when replaying the batch.
 			 */
-			if (nfnl_err_add(&err_list, nlh, err, &extack) < 0) {
+			if (err == -ENOMEM ||
+			    nfnl_err_add(&err_list, nlh, err, &extack) < 0) {
 				/* We failed to enqueue an error, reset the
 				 * list of errors and send OOM to userspace
 				 * pointing to the batch header.
@@ -584,8 +591,6 @@ done:
 			goto replay_abort;
 		}
 	}
-	if (ss->cleanup)
-		ss->cleanup(net);
 
 	nfnl_err_deliver(&err_list, oskb);
 	kfree_skb(skb);
@@ -626,7 +631,7 @@ static void nfnetlink_rcv_skb_batch(struct sk_buff *skb, struct nlmsghdr *nlh)
 	nfgenmsg = nlmsg_data(nlh);
 	skb_pull(skb, msglen);
 	/* Work around old nft using host byte order */
-	if (nfgenmsg->res_id == NFNL_SUBSYS_NFTABLES)
+	if (nfgenmsg->res_id == (__force __be16)NFNL_SUBSYS_NFTABLES)
 		res_id = NFNL_SUBSYS_NFTABLES;
 	else
 		res_id = ntohs(nfgenmsg->res_id);
@@ -654,7 +659,44 @@ static void nfnetlink_rcv(struct sk_buff *skb)
 		netlink_rcv_skb(skb, nfnetlink_rcv_msg);
 }
 
-#ifdef CONFIG_MODULES
+static void nfnetlink_bind_event(struct net *net, unsigned int group)
+{
+#ifdef CONFIG_NF_CONNTRACK_EVENTS
+	int type, group_bit;
+	u8 v;
+
+	/* All NFNLGRP_CONNTRACK_* group bits fit into u8.
+	 * The other groups are not relevant and can be ignored.
+	 */
+	if (group >= 8)
+		return;
+
+	type = nfnl_group2type[group];
+
+	switch (type) {
+	case NFNL_SUBSYS_CTNETLINK:
+		break;
+	case NFNL_SUBSYS_CTNETLINK_EXP:
+		break;
+	default:
+		return;
+	}
+
+	group_bit = (1 << group);
+
+	spin_lock(&nfnl_grp_active_lock);
+	v = READ_ONCE(nf_ctnetlink_has_listener);
+	if ((v & group_bit) == 0) {
+		v |= group_bit;
+
+		/* read concurrently without nfnl_grp_active_lock held. */
+		WRITE_ONCE(nf_ctnetlink_has_listener, v);
+	}
+
+	spin_unlock(&nfnl_grp_active_lock);
+#endif
+}
+
 static int nfnetlink_bind(struct net *net, int group)
 {
 	const struct nfnetlink_subsystem *ss;
@@ -670,9 +712,48 @@ static int nfnetlink_bind(struct net *net, int group)
 	rcu_read_unlock();
 	if (!ss)
 		request_module_nowait("nfnetlink-subsys-%d", type);
+
+	nfnetlink_bind_event(net, group);
 	return 0;
 }
+
+static void nfnetlink_unbind(struct net *net, int group)
+{
+#ifdef CONFIG_NF_CONNTRACK_EVENTS
+	int type, group_bit;
+
+	if (group <= NFNLGRP_NONE || group > NFNLGRP_MAX)
+		return;
+
+	type = nfnl_group2type[group];
+
+	switch (type) {
+	case NFNL_SUBSYS_CTNETLINK:
+		break;
+	case NFNL_SUBSYS_CTNETLINK_EXP:
+		break;
+	default:
+		return;
+	}
+
+	/* ctnetlink_has_listener is u8 */
+	if (group >= 8)
+		return;
+
+	group_bit = (1 << group);
+
+	spin_lock(&nfnl_grp_active_lock);
+	if (!nfnetlink_has_listeners(net, group)) {
+		u8 v = READ_ONCE(nf_ctnetlink_has_listener);
+
+		v &= ~group_bit;
+
+		/* read concurrently without nfnl_grp_active_lock held. */
+		WRITE_ONCE(nf_ctnetlink_has_listener, v);
+	}
+	spin_unlock(&nfnl_grp_active_lock);
 #endif
+}
 
 static int __net_init nfnetlink_net_init(struct net *net)
 {
@@ -680,9 +761,8 @@ static int __net_init nfnetlink_net_init(struct net *net)
 	struct netlink_kernel_cfg cfg = {
 		.groups	= NFNLGRP_MAX,
 		.input	= nfnetlink_rcv,
-#ifdef CONFIG_MODULES
 		.bind	= nfnetlink_bind,
-#endif
+		.unbind	= nfnetlink_unbind,
 	};
 
 	nfnlnet->nfnl = netlink_kernel_create(net, NETLINK_NETFILTER, &cfg);

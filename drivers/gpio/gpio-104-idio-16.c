@@ -6,7 +6,7 @@
  * This driver supports the following ACCES devices: 104-IDIO-16,
  * 104-IDIO-16E, 104-IDO-16, 104-IDIO-8, 104-IDIO-8E, and 104-IDO-8.
  */
-#include <linux/bitops.h>
+#include <linux/bitmap.h>
 #include <linux/device.h>
 #include <linux/errno.h>
 #include <linux/gpio/driver.h>
@@ -19,6 +19,9 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/spinlock.h>
+#include <linux/types.h>
+
+#include "gpio-idio-16.h"
 
 #define IDIO_16_EXTENT 8
 #define MAX_NUM_IDIO_16 max_num_isa_dev(IDIO_16_EXTENT)
@@ -29,7 +32,8 @@ module_param_hw_array(base, uint, ioport, &num_idio_16, 0);
 MODULE_PARM_DESC(base, "ACCES 104-IDIO-16 base addresses");
 
 static unsigned int irq[MAX_NUM_IDIO_16];
-module_param_hw_array(irq, uint, irq, NULL, 0);
+static unsigned int num_irq;
+module_param_hw_array(irq, uint, irq, &num_irq, 0);
 MODULE_PARM_DESC(irq, "ACCES 104-IDIO-16 interrupt line numbers");
 
 /**
@@ -37,21 +41,21 @@ MODULE_PARM_DESC(irq, "ACCES 104-IDIO-16 interrupt line numbers");
  * @chip:	instance of the gpio_chip
  * @lock:	synchronization lock to prevent I/O race conditions
  * @irq_mask:	I/O bits affected by interrupts
- * @base:	base port address of the GPIO device
- * @out_state:	output bits state
+ * @reg:	I/O address offset for the device registers
+ * @state:	ACCES IDIO-16 device state
  */
 struct idio_16_gpio {
 	struct gpio_chip chip;
 	raw_spinlock_t lock;
 	unsigned long irq_mask;
-	unsigned int base;
-	unsigned int out_state;
+	struct idio_16 __iomem *reg;
+	struct idio_16_state state;
 };
 
 static int idio_16_gpio_get_direction(struct gpio_chip *chip,
 				      unsigned int offset)
 {
-	if (offset > 15)
+	if (idio_16_get_direction(offset))
 		return GPIO_LINE_DIRECTION_IN;
 
 	return GPIO_LINE_DIRECTION_OUT;
@@ -73,15 +77,8 @@ static int idio_16_gpio_direction_output(struct gpio_chip *chip,
 static int idio_16_gpio_get(struct gpio_chip *chip, unsigned int offset)
 {
 	struct idio_16_gpio *const idio16gpio = gpiochip_get_data(chip);
-	const unsigned int mask = BIT(offset-16);
 
-	if (offset < 16)
-		return -EINVAL;
-
-	if (offset < 24)
-		return !!(inb(idio16gpio->base + 1) & mask);
-
-	return !!(inb(idio16gpio->base + 5) & (mask>>8));
+	return idio_16_get(idio16gpio->reg, &idio16gpio->state, offset);
 }
 
 static int idio_16_gpio_get_multiple(struct gpio_chip *chip,
@@ -89,11 +86,7 @@ static int idio_16_gpio_get_multiple(struct gpio_chip *chip,
 {
 	struct idio_16_gpio *const idio16gpio = gpiochip_get_data(chip);
 
-	*bits = 0;
-	if (*mask & GENMASK(23, 16))
-		*bits |= (unsigned long)inb(idio16gpio->base + 1) << 16;
-	if (*mask & GENMASK(31, 24))
-		*bits |= (unsigned long)inb(idio16gpio->base + 5) << 24;
+	idio_16_get_multiple(idio16gpio->reg, &idio16gpio->state, mask, bits);
 
 	return 0;
 }
@@ -102,44 +95,16 @@ static void idio_16_gpio_set(struct gpio_chip *chip, unsigned int offset,
 			     int value)
 {
 	struct idio_16_gpio *const idio16gpio = gpiochip_get_data(chip);
-	const unsigned int mask = BIT(offset);
-	unsigned long flags;
 
-	if (offset > 15)
-		return;
-
-	raw_spin_lock_irqsave(&idio16gpio->lock, flags);
-
-	if (value)
-		idio16gpio->out_state |= mask;
-	else
-		idio16gpio->out_state &= ~mask;
-
-	if (offset > 7)
-		outb(idio16gpio->out_state >> 8, idio16gpio->base + 4);
-	else
-		outb(idio16gpio->out_state, idio16gpio->base);
-
-	raw_spin_unlock_irqrestore(&idio16gpio->lock, flags);
+	idio_16_set(idio16gpio->reg, &idio16gpio->state, offset, value);
 }
 
 static void idio_16_gpio_set_multiple(struct gpio_chip *chip,
 	unsigned long *mask, unsigned long *bits)
 {
 	struct idio_16_gpio *const idio16gpio = gpiochip_get_data(chip);
-	unsigned long flags;
 
-	raw_spin_lock_irqsave(&idio16gpio->lock, flags);
-
-	idio16gpio->out_state &= ~*mask;
-	idio16gpio->out_state |= *mask & *bits;
-
-	if (*mask & 0xFF)
-		outb(idio16gpio->out_state, idio16gpio->base);
-	if ((*mask >> 8) & 0xFF)
-		outb(idio16gpio->out_state >> 8, idio16gpio->base + 4);
-
-	raw_spin_unlock_irqrestore(&idio16gpio->lock, flags);
+	idio_16_set_multiple(idio16gpio->reg, &idio16gpio->state, mask, bits);
 }
 
 static void idio_16_irq_ack(struct irq_data *data)
@@ -150,15 +115,16 @@ static void idio_16_irq_mask(struct irq_data *data)
 {
 	struct gpio_chip *chip = irq_data_get_irq_chip_data(data);
 	struct idio_16_gpio *const idio16gpio = gpiochip_get_data(chip);
-	const unsigned long mask = BIT(irqd_to_hwirq(data));
+	const unsigned long offset = irqd_to_hwirq(data);
 	unsigned long flags;
 
-	idio16gpio->irq_mask &= ~mask;
+	idio16gpio->irq_mask &= ~BIT(offset);
+	gpiochip_disable_irq(chip, offset);
 
 	if (!idio16gpio->irq_mask) {
 		raw_spin_lock_irqsave(&idio16gpio->lock, flags);
 
-		outb(0, idio16gpio->base + 2);
+		iowrite8(0, &idio16gpio->reg->irq_ctl);
 
 		raw_spin_unlock_irqrestore(&idio16gpio->lock, flags);
 	}
@@ -168,16 +134,17 @@ static void idio_16_irq_unmask(struct irq_data *data)
 {
 	struct gpio_chip *chip = irq_data_get_irq_chip_data(data);
 	struct idio_16_gpio *const idio16gpio = gpiochip_get_data(chip);
-	const unsigned long mask = BIT(irqd_to_hwirq(data));
+	const unsigned long offset = irqd_to_hwirq(data);
 	const unsigned long prev_irq_mask = idio16gpio->irq_mask;
 	unsigned long flags;
 
-	idio16gpio->irq_mask |= mask;
+	gpiochip_enable_irq(chip, offset);
+	idio16gpio->irq_mask |= BIT(offset);
 
 	if (!prev_irq_mask) {
 		raw_spin_lock_irqsave(&idio16gpio->lock, flags);
 
-		inb(idio16gpio->base + 2);
+		ioread8(&idio16gpio->reg->irq_ctl);
 
 		raw_spin_unlock_irqrestore(&idio16gpio->lock, flags);
 	}
@@ -193,12 +160,14 @@ static int idio_16_irq_set_type(struct irq_data *data, unsigned int flow_type)
 	return 0;
 }
 
-static struct irq_chip idio_16_irqchip = {
+static const struct irq_chip idio_16_irqchip = {
 	.name = "104-idio-16",
 	.irq_ack = idio_16_irq_ack,
 	.irq_mask = idio_16_irq_mask,
 	.irq_unmask = idio_16_irq_unmask,
-	.irq_set_type = idio_16_irq_set_type
+	.irq_set_type = idio_16_irq_set_type,
+	.flags = IRQCHIP_IMMUTABLE,
+	GPIOCHIP_IRQ_RESOURCE_HELPERS,
 };
 
 static irqreturn_t idio_16_irq_handler(int irq, void *dev_id)
@@ -208,11 +177,11 @@ static irqreturn_t idio_16_irq_handler(int irq, void *dev_id)
 	int gpio;
 
 	for_each_set_bit(gpio, &idio16gpio->irq_mask, chip->ngpio)
-		generic_handle_irq(irq_find_mapping(chip->irq.domain, gpio));
+		generic_handle_domain_irq(chip->irq.domain, gpio);
 
 	raw_spin_lock(&idio16gpio->lock);
 
-	outb(0, idio16gpio->base + 1);
+	iowrite8(0, &idio16gpio->reg->in0_7);
 
 	raw_spin_unlock(&idio16gpio->lock);
 
@@ -232,8 +201,8 @@ static int idio_16_irq_init_hw(struct gpio_chip *gc)
 	struct idio_16_gpio *const idio16gpio = gpiochip_get_data(gc);
 
 	/* Disable IRQ by default */
-	outb(0, idio16gpio->base + 2);
-	outb(0, idio16gpio->base + 1);
+	iowrite8(0, &idio16gpio->reg->irq_ctl);
+	iowrite8(0, &idio16gpio->reg->in0_7);
 
 	return 0;
 }
@@ -255,6 +224,10 @@ static int idio_16_probe(struct device *dev, unsigned int id)
 		return -EBUSY;
 	}
 
+	idio16gpio->reg = devm_ioport_map(dev, base[id], IDIO_16_EXTENT);
+	if (!idio16gpio->reg)
+		return -ENOMEM;
+
 	idio16gpio->chip.label = name;
 	idio16gpio->chip.parent = dev;
 	idio16gpio->chip.owner = THIS_MODULE;
@@ -268,11 +241,13 @@ static int idio_16_probe(struct device *dev, unsigned int id)
 	idio16gpio->chip.get_multiple = idio_16_gpio_get_multiple;
 	idio16gpio->chip.set = idio_16_gpio_set;
 	idio16gpio->chip.set_multiple = idio_16_gpio_set_multiple;
-	idio16gpio->base = base[id];
-	idio16gpio->out_state = 0xFFFF;
+
+	idio_16_state_init(&idio16gpio->state);
+	/* FET off states are represented by bit values of "1" */
+	bitmap_fill(idio16gpio->state.out_state, IDIO_16_NOUT);
 
 	girq = &idio16gpio->chip.irq;
-	girq->chip = &idio_16_irqchip;
+	gpio_irq_chip_set_chip(girq, &idio_16_irqchip);
 	/* This will let us handle the parent IRQ in the driver */
 	girq->parent_handler = NULL;
 	girq->num_parents = 0;
@@ -306,8 +281,9 @@ static struct isa_driver idio_16_driver = {
 	},
 };
 
-module_isa_driver(idio_16_driver, num_idio_16);
+module_isa_driver_with_irq(idio_16_driver, num_idio_16, num_irq);
 
 MODULE_AUTHOR("William Breathitt Gray <vilhelm.gray@gmail.com>");
 MODULE_DESCRIPTION("ACCES 104-IDIO-16 GPIO driver");
 MODULE_LICENSE("GPL v2");
+MODULE_IMPORT_NS(GPIO_IDIO_16);

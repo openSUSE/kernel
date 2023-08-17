@@ -123,8 +123,7 @@ static void __init at91sam9rl_pmc_setup(struct device_node *np)
 					   parent_names,
 					   &at91rm9200_master_layout,
 					   &sam9rl_mck_characteristics,
-					   &sam9rl_mck_lock, CLK_SET_RATE_GATE,
-					   INT_MIN);
+					   &sam9rl_mck_lock);
 	if (IS_ERR(hw))
 		goto err_free;
 
@@ -132,7 +131,7 @@ static void __init at91sam9rl_pmc_setup(struct device_node *np)
 					  "masterck_pres",
 					  &at91rm9200_master_layout,
 					  &sam9rl_mck_characteristics,
-					  &sam9rl_mck_lock, CLK_SET_RATE_GATE);
+					  &sam9rl_mck_lock, CLK_SET_RATE_GATE, 0);
 	if (IS_ERR(hw))
 		goto err_free;
 
@@ -161,7 +160,7 @@ static void __init at91sam9rl_pmc_setup(struct device_node *np)
 	for (i = 0; i < ARRAY_SIZE(at91sam9rl_systemck); i++) {
 		hw = at91_clk_register_system(regmap, at91sam9rl_systemck[i].n,
 					      at91sam9rl_systemck[i].p,
-					      at91sam9rl_systemck[i].id);
+					      at91sam9rl_systemck[i].id, 0);
 		if (IS_ERR(hw))
 			goto err_free;
 

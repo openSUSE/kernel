@@ -69,7 +69,7 @@ static void __exception_irq_entry wpcm450_aic_handle_irq(struct pt_regs *regs)
 	/* Read IPER to signal that nIRQ can be de-asserted */
 	hwirq = readl(aic->regs + AIC_IPER) / 4;
 
-	handle_domain_irq(aic->domain, hwirq, regs);
+	generic_handle_domain_irq(aic->domain, hwirq);
 }
 
 static void wpcm450_aic_eoi(struct irq_data *d)
@@ -146,6 +146,7 @@ static int __init wpcm450_aic_of_init(struct device_node *node,
 	aic->regs = of_iomap(node, 0);
 	if (!aic->regs) {
 		pr_err("Failed to map WPCM450 AIC registers\n");
+		kfree(aic);
 		return -ENOMEM;
 	}
 

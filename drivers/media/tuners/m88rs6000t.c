@@ -573,8 +573,7 @@ static const struct dvb_tuner_ops m88rs6000t_tuner_ops = {
 	.get_rf_strength = m88rs6000t_get_rf_strength,
 };
 
-static int m88rs6000t_probe(struct i2c_client *client,
-		const struct i2c_device_id *id)
+static int m88rs6000t_probe(struct i2c_client *client)
 {
 	struct m88rs6000t_config *cfg = client->dev.platform_data;
 	struct dvb_frontend *fe = cfg->fe;
@@ -697,7 +696,7 @@ err:
 	return ret;
 }
 
-static int m88rs6000t_remove(struct i2c_client *client)
+static void m88rs6000t_remove(struct i2c_client *client)
 {
 	struct m88rs6000t_dev *dev = i2c_get_clientdata(client);
 	struct dvb_frontend *fe = dev->cfg.fe;
@@ -707,8 +706,6 @@ static int m88rs6000t_remove(struct i2c_client *client)
 	memset(&fe->ops.tuner_ops, 0, sizeof(struct dvb_tuner_ops));
 	fe->tuner_priv = NULL;
 	kfree(dev);
-
-	return 0;
 }
 
 static const struct i2c_device_id m88rs6000t_id[] = {
@@ -721,7 +718,7 @@ static struct i2c_driver m88rs6000t_driver = {
 	.driver = {
 		.name	= "m88rs6000t",
 	},
-	.probe		= m88rs6000t_probe,
+	.probe_new	= m88rs6000t_probe,
 	.remove		= m88rs6000t_remove,
 	.id_table	= m88rs6000t_id,
 };

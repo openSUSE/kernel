@@ -74,7 +74,6 @@
 
 struct minstrel_priv {
 	struct ieee80211_hw *hw;
-	bool has_mrr;
 	unsigned int cw_min;
 	unsigned int cw_max;
 	unsigned int max_retry;
@@ -180,7 +179,7 @@ struct minstrel_ht_sta {
 
 	/* tx flags to add for frames for this sta */
 	u32 tx_flags;
-
+	bool use_short_preamble;
 	u8 band;
 
 	u8 sample_seq;

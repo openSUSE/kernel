@@ -8,6 +8,7 @@
 
 #include <sysdep/ptrace_user.h>
 #include <generated/asm-offsets.h>
+#include <linux/stddef.h>
 
 #define STUB_MMAP_NR __NR_mmap
 #define MMAP_OFFSET(o) (o)
@@ -97,18 +98,18 @@ static inline void remap_stack_and_trap(void)
 		"int3"
 		: :
 		"g" (STUB_MMAP_NR),
-		"g" (~(UM_KERN_PAGE_SIZE - 1)),
+		"g" (~(STUB_DATA_PAGES * UM_KERN_PAGE_SIZE - 1)),
 		"g" (MAP_FIXED | MAP_SHARED),
 		"g" (UML_STUB_FIELD_FD),
 		"g" (UML_STUB_FIELD_OFFSET),
 		"g" (UML_STUB_FIELD_CHILD_ERR),
-		"S" (UM_KERN_PAGE_SIZE),
+		"S" (STUB_DATA_PAGES * UM_KERN_PAGE_SIZE),
 		"d" (PROT_READ | PROT_WRITE)
 		:
 		__syscall_clobber, "r10", "r8", "r9");
 }
 
-static __always_inline void *get_stub_page(void)
+static __always_inline void *get_stub_data(void)
 {
 	unsigned long ret;
 
@@ -116,7 +117,7 @@ static __always_inline void *get_stub_page(void)
 		"movq %%rsp,%0 ;"
 		"andq %1,%0"
 		: "=a" (ret)
-		: "g" (~(UM_KERN_PAGE_SIZE - 1)));
+		: "g" (~(STUB_DATA_PAGES * UM_KERN_PAGE_SIZE - 1)));
 
 	return (void *)ret;
 }
