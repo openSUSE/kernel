@@ -4046,7 +4046,11 @@ static int early_mod_check(struct load_info *info, int flags)
 	if (err)
 		return err;
 
-	return 0;
+	mutex_lock(&module_mutex);
+	err = module_patient_check_exists(info->mod->name);
+	mutex_unlock(&module_mutex);
+
+	return err;
 }
 
 static void cfi_init(struct module *mod);
