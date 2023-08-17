@@ -1956,7 +1956,8 @@ void e1000_free_all_tx_resources(struct e1000_adapter *adapter)
 
 static void
 e1000_unmap_and_free_tx_resource(struct e1000_adapter *adapter,
-				 struct e1000_tx_buffer *buffer_info)
+				 struct e1000_tx_buffer *buffer_info,
+				 int budget)
 {
 	if (buffer_info->dma) {
 		if (buffer_info->mapped_as_page)
@@ -1969,7 +1970,7 @@ e1000_unmap_and_free_tx_resource(struct e1000_adapter *adapter,
 		buffer_info->dma = 0;
 	}
 	if (buffer_info->skb) {
-		dev_kfree_skb_any(buffer_info->skb);
+		napi_consume_skb(buffer_info->skb, budget);
 		buffer_info->skb = NULL;
 	}
 	buffer_info->time_stamp = 0;
@@ -1993,7 +1994,7 @@ static void e1000_clean_tx_ring(struct e1000_adapter *adapter,
 
 	for (i = 0; i < tx_ring->count; i++) {
 		buffer_info = &tx_ring->buffer_info[i];
-		e1000_unmap_and_free_tx_resource(adapter, buffer_info);
+		e1000_unmap_and_free_tx_resource(adapter, buffer_info, 0);
 	}
 
 	netdev_reset_queue(adapter->netdev);
@@ -2961,7 +2962,7 @@ dma_error:
 			i += tx_ring->count;
 		i--;
 		buffer_info = &tx_ring->buffer_info[i];
-		e1000_unmap_and_free_tx_resource(adapter, buffer_info);
+		e1000_unmap_and_free_tx_resource(adapter, buffer_info, 0);
 	}
 
 	return 0;
@@ -3859,7 +3860,8 @@ static bool e1000_clean_tx_irq(struct e1000_adapter *adapter,
 				}
 
 			}
-			e1000_unmap_and_free_tx_resource(adapter, buffer_info);
+			e1000_unmap_and_free_tx_resource(adapter, buffer_info,
+							 64);
 			tx_desc->upper.data = 0;
 
 			if (unlikely(++i == tx_ring->count))
