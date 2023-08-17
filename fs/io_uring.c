@@ -494,16 +494,20 @@ static void __io_commit_cqring(struct io_ring_ctx *ctx)
 	}
 }
 
-static void io_commit_cqring(struct io_ring_ctx *ctx)
+static void __io_commit_cqring_flush(struct io_ring_ctx *ctx)
 {
 	struct io_kiocb *req;
-
-	__io_commit_cqring(ctx);
 
 	while ((req = io_get_deferred_req(ctx)) != NULL) {
 		req->flags |= REQ_F_IO_DRAINED;
 		queue_work(ctx->sqo_wq, &req->work);
 	}
+}
+
+static void io_commit_cqring(struct io_ring_ctx *ctx)
+{
+	__io_commit_cqring(ctx);
+	__io_commit_cqring_flush(ctx);
 }
 
 static struct io_uring_cqe *io_get_cqring(struct io_ring_ctx *ctx)
@@ -734,6 +738,7 @@ static void io_iopoll_complete(struct io_ring_ctx *ctx, unsigned int *nr_events,
 	void *reqs[IO_IOPOLL_BATCH];
 	struct io_kiocb *req;
 	int to_free;
+	unsigned long flags;
 
 	to_free = 0;
 	while (!list_empty(done)) {
@@ -760,7 +765,11 @@ static void io_iopoll_complete(struct io_ring_ctx *ctx, unsigned int *nr_events,
 		}
 	}
 
-	io_commit_cqring(ctx);
+	__io_commit_cqring(ctx);
+	spin_lock_irqsave(&ctx->completion_lock, flags);
+	__io_commit_cqring_flush(ctx);
+	spin_unlock_irqrestore(&ctx->completion_lock, flags);
+
 	io_free_req_many(ctx, reqs, &to_free);
 }
 
