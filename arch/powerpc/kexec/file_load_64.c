@@ -1051,6 +1051,48 @@ out:
 	return ret;
 }
 
+static int copy_property(void *fdt, int node_offset, const struct device_node *dn,
+			 const char *propname)
+{
+	const void *prop, *fdtprop;
+	int len = 0, fdtlen = 0, ret;
+
+	prop = of_get_property(dn, propname, &len);
+	fdtprop = fdt_getprop(fdt, node_offset, propname, &fdtlen);
+
+	if (fdtprop && !prop)
+		ret = fdt_delprop(fdt, node_offset, propname);
+	else if (prop)
+		ret = fdt_setprop(fdt, node_offset, propname, prop, len);
+
+	return ret;
+}
+
+static int update_pci_dma_nodes(void *fdt, const char *dmapropname)
+{
+	struct device_node *dn;
+	int pci_offset, root_offset, ret = 0;
+
+	if (!firmware_has_feature(FW_FEATURE_LPAR))
+		return 0;
+
+	root_offset = fdt_path_offset(fdt, "/");
+	for_each_node_with_property(dn, dmapropname) {
+		pci_offset = fdt_subnode_offset(fdt, root_offset, of_node_full_name(dn));
+		if (pci_offset < 0)
+			continue;
+
+		ret = copy_property(fdt, pci_offset, dn, "ibm,dma-window");
+		if (ret < 0)
+			break;
+		ret = copy_property(fdt, pci_offset, dn, dmapropname);
+		if (ret < 0)
+			break;
+	}
+
+	return ret;
+}
+
 /**
  * setup_new_fdt_ppc64 - Update the flattend device-tree of the kernel
  *                       being loaded.
@@ -1115,6 +1157,12 @@ int setup_new_fdt_ppc64(const struct kimage *image, void *fdt,
 	ret =  update_cpus_node(fdt);
 	if (ret < 0)
 		goto out;
+
+#define DIRECT64_PROPNAME "linux,direct64-ddr-window-info"
+	ret = update_pci_dma_nodes(fdt, DIRECT64_PROPNAME);
+	if (ret < 0)
+		goto out;
+#undef DIRECT64_PROPNAME
 
 	/* Update memory reserve map */
 	ret = get_reserved_memory_ranges(&rmem);
