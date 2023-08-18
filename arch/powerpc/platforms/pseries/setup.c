@@ -461,7 +461,7 @@ void pseries_big_endian_exceptions(void)
 		panic("Could not enable big endian exceptions");
 }
 
-void pseries_little_endian_exceptions(void)
+void __init pseries_little_endian_exceptions(void)
 {
 	long rc;
 
@@ -659,7 +659,7 @@ static resource_size_t pseries_get_iov_fw_value(struct pci_dev *dev, int resno,
 	 */
 	num_res = of_read_number(&indexes[NUM_RES_PROPERTY], 1);
 	if (resno >= num_res)
-		return 0; /* or an errror */
+		return 0; /* or an error */
 
 	i = START_OF_ENTRIES + NEXT_ENTRY * resno;
 	switch (value) {
@@ -763,7 +763,7 @@ static void pseries_pci_fixup_iov_resources(struct pci_dev *pdev)
 
 	if (!pdev->is_physfn || pci_dev_is_added(pdev))
 		return;
-	/*Firmware must support open sriov otherwise dont configure*/
+	/*Firmware must support open sriov otherwise don't configure*/
 	indexes = of_get_property(dn, "ibm,open-sriov-vf-bar-info", NULL);
 	if (indexes)
 		of_pci_parse_iov_addrs(pdev, indexes);
@@ -797,6 +797,8 @@ static void __init pSeries_setup_arch(void)
 	/* Discover PIC type and setup ppc_md accordingly */
 	smp_init_pseries();
 
+	// Setup CPU hotplug callbacks
+	pseries_cpu_hotplug_init();
 
 	if (radix_enabled() && !mmu_has_feature(MMU_FTR_GTSE))
 		if (!firmware_has_feature(FW_FEATURE_RPT_INVALIDATE))
@@ -917,7 +919,7 @@ void pSeries_coalesce_init(void)
  * fw_cmo_feature_init - FW_FEATURE_CMO is not stored in ibm,hypertas-functions,
  * handle that here. (Stolen from parse_system_parameter_string)
  */
-static void pSeries_cmo_feature_init(void)
+static void __init pSeries_cmo_feature_init(void)
 {
 	char *ptr, *key, *value, *end;
 	int call_status;
