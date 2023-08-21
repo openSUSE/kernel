@@ -98,17 +98,17 @@ SYM_FUNC_END(srso_safe_ret_alias)
  * Safety details here pertain to the AMD Zen{1,2} microarchitecture:
  * 1) The RET at __x86_return_thunk must be on a 64 byte boundary, for
  *    alignment within the BTB.
- * 2) The instruction at zen_untrain_ret must contain, and not
+ * 2) The instruction at retbleed_untrain_ret must contain, and not
  *    end with, the 0xc3 byte of the RET.
  * 3) STIBP must be enabled, or SMT disabled, to prevent the sibling thread
  *    from re-poisioning the BTB prediction.
  */
 	.align 64
-	.skip 64 - (__ret - zen_untrain_ret), 0xcc
-SYM_FUNC_START_NOALIGN(zen_untrain_ret);
+	.skip 64 - (__ret - retbleed_untrain_ret), 0xcc
+SYM_FUNC_START_NOALIGN(retbleed_untrain_ret);
 
 	/*
-	 * As executed from zen_untrain_ret, this is:
+	 * As executed from retbleed_untrain_ret, this is:
 	 *
 	 *   TEST $0xcc, %bl
 	 *   LFENCE
@@ -152,11 +152,11 @@ SYM_CODE_END(__ret)
 	 */
 	jmp __ret
 	int3
-SYM_FUNC_END(zen_untrain_ret)
-__EXPORT_THUNK(zen_untrain_ret)
+SYM_FUNC_END(retbleed_untrain_ret)
+__EXPORT_THUNK(retbleed_untrain_ret)
 
 /*
- * SRSO untraining sequence for Zen1/2, similar to zen_untrain_ret()
+ * SRSO untraining sequence for Zen1/2, similar to retbleed_untrain_ret()
  * above. On kernel entry, srso_untrain_ret() is executed which is a
  *
  * movabs $0xccccccc308c48348,%rax
