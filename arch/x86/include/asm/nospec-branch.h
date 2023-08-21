@@ -162,6 +162,16 @@
 #endif
 .endm
 
+
+.macro UNTRAIN_RET_VM
+#if defined(CONFIG_RETPOLINE) || defined(CONFIG_CPU_IBPB_ENTRY) || defined(CONFIG_CPU_SRSO)
+	ALTERNATIVE_2 "",						\
+		      "call entry_untrain_ret", X86_FEATURE_UNRET,	\
+		      "call entry_ibpb", X86_FEATURE_IBPB_ON_VMEXIT
+
+#endif
+.endm
+
 #else /* __ASSEMBLY__ */
 
 #define ANNOTATE_RETPOLINE_SAFE					\
