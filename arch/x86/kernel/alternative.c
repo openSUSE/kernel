@@ -572,8 +572,6 @@ void __init_or_module noinline apply_retpolines(s32 *start, s32 *end)
 	}
 }
 
-void (*x86_return_thunk)(void) __ro_after_init = &__x86_return_thunk;
-
 /*
  * Rewrite the compiler generated return thunk tail-calls.
  *
