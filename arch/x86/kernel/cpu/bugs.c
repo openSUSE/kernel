@@ -2297,6 +2297,7 @@ static void __init srso_select_mitigation(void)
 
 	case SRSO_CMD_SAFE_RET:
 		if (IS_ENABLED(CONFIG_CPU_SRSO)) {
+			setup_force_cpu_cap(X86_FEATURE_UNRET);
 			if (boot_cpu_data.x86 == 0x19)
 				setup_force_cpu_cap(X86_FEATURE_SRSO_ALIAS);
 			else
