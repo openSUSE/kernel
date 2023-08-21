@@ -136,10 +136,8 @@ SECTIONS
 		*(.fixup)
 
 #ifdef CONFIG_RETPOLINE
-		__indirect_thunk_start = .;
 		*(.text..__x86.indirect_thunk)
 		*(.text..__x86.return_thunk)
-		__indirect_thunk_end = .;
 #endif
 		STATIC_CALL_TEXT
 
