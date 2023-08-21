@@ -202,6 +202,8 @@
 #endif
 .endm
 
+
+
 #else /* __ASSEMBLY__ */
 
 #define ANNOTATE_RETPOLINE_SAFE					\
@@ -218,6 +220,15 @@ extern void entry_untrain_ret(void);
 extern void srso_untrain_ret(void);
 extern void srso_alias_untrain_ret(void);
 extern void entry_ibpb(void);
+
+#ifdef CONFIG_CPU_SRSO
+#define UNTRAIN_RET_VM	ALTERNATIVE_2("",					    \
+				      "call entry_untrain_ret", X86_FEATURE_UNRET,  \
+				      "call entry_ibpb", X86_FEATURE_IBPB_ON_VMEXIT)
+
+#else
+#define UNTRAIN_RET_VM
+#endif
 
 /*
  * Inline asm uses the %V modifier which is only in newer GCC
