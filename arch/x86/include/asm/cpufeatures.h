@@ -15,7 +15,7 @@
  */
 #define NCAPINTS			22	   /* N 32-bit words worth of info */
 #define NBUGINTS			1	   /* N 32-bit bug flags */
-
+#define NEXTBUGINTS			1	   /* N 32-bit extended bug flags */
 /*
  * Note: If the comment begins with a quoted string, that string is used
  * in /proc/cpuinfo instead of the macro name.  If the string is "",
