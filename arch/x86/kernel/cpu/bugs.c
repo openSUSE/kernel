@@ -2359,14 +2359,9 @@ static void __init srso_select_mitigation(void)
 		break;
 
 	case SRSO_CMD_IBPB:
-		if (IS_ENABLED(CONFIG_CPU_IBPB_ENTRY)) {
-			if (has_microcode) {
-				setup_force_cpu_cap(X86_FEATURE_ENTRY_IBPB);
-				srso_mitigation = SRSO_MITIGATION_IBPB;
-			}
-		} else {
-			pr_err("WARNING: kernel not compiled with CPU_IBPB_ENTRY.\n");
-			goto pred_cmd;
+		if (has_microcode) {
+			setup_force_cpu_cap(X86_FEATURE_ENTRY_IBPB);
+			srso_mitigation = SRSO_MITIGATION_IBPB;
 		}
 		break;
 
