@@ -1349,7 +1349,7 @@ static bool rbd_dev_parent_get(struct rbd_device *rbd_dev)
 	return counter > 0;
 }
 
-static void rbd_img_request_init(struct rbd_img_request *img_request,
+void rbd_img_request_init(struct rbd_img_request *img_request,
 				 struct rbd_device *rbd_dev,
 				 enum obj_operation_type op_type,
 				 rbd_img_request_end_cb_t end_cb)
@@ -1364,6 +1364,7 @@ static void rbd_img_request_init(struct rbd_img_request *img_request,
 	mutex_init(&img_request->state_mutex);
 	img_request->callback = end_cb;
 }
+EXPORT_SYMBOL(rbd_img_request_init);
 
 /* This is for use by LIO RBD so we don't export the caches directly */
 struct rbd_img_request *rbd_img_request_create(
@@ -1382,7 +1383,7 @@ struct rbd_img_request *rbd_img_request_create(
 }
 EXPORT_SYMBOL(rbd_img_request_create);
 
-static void rbd_img_capture_header(struct rbd_img_request *img_req)
+void rbd_img_capture_header(struct rbd_img_request *img_req)
 {
 	struct rbd_device *rbd_dev = img_req->rbd_dev;
 
@@ -1396,6 +1397,7 @@ static void rbd_img_capture_header(struct rbd_img_request *img_req)
 	if (rbd_dev_parent_get(rbd_dev))
 		img_request_layered_set(img_req);
 }
+EXPORT_SYMBOL(rbd_img_capture_header);
 
 void rbd_img_request_destroy(struct rbd_img_request *img_request)
 {

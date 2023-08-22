@@ -348,7 +348,7 @@ void slb_setup_new_exec(void)
 	/*
 	 * We have no good place to clear the slb preload cache on exec,
 	 * flush_thread is about the earliest arch hook but that happens
-	 * after we switch to the mm and have aleady preloaded the SLBEs.
+	 * after we switch to the mm and have already preloaded the SLBEs.
 	 *
 	 * For the most part that's probably okay to use entries from the
 	 * previous exec, they will age out if unused. It may turn out to
@@ -616,7 +616,7 @@ static void slb_cache_update(unsigned long esid_data)
 	} else {
 		/*
 		 * Our cache is full and the current cache content strictly
-		 * doesn't indicate the active SLB conents. Bump the ptr
+		 * doesn't indicate the active SLB contents. Bump the ptr
 		 * so that switch_slb() will ignore the cache.
 		 */
 		local_paca->slb_cache_ptr = SLB_CACHE_ENTRIES + 1;

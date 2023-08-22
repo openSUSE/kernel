@@ -601,7 +601,7 @@ static dma_addr_t ps3_ioc0_map_page(struct device *_dev, struct page *page,
 		iopte_flag |= CBE_IOPTE_PP_W | CBE_IOPTE_SO_RW;
 		break;
 	default:
-		/* not happned */
+		/* not happened */
 		BUG();
 	};
 	result = ps3_dma_map(dev->d_region, (unsigned long)ptr, size,
@@ -662,7 +662,7 @@ static int ps3_ioc0_map_sg(struct device *_dev, struct scatterlist *sg,
 			   unsigned long attrs)
 {
 	BUG();
-	return 0;
+	return -EINVAL;
 }
 
 static void ps3_sb_unmap_sg(struct device *_dev, struct scatterlist *sg,
