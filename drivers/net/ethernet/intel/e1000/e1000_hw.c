@@ -1183,6 +1183,7 @@ static s32 e1000_copper_link_igp_setup(struct e1000_hw *hw)
 			break;
 		case e1000_ms_auto:
 			phy_data &= ~CR_1000T_MS_ENABLE;
+			break;
 		default:
 			break;
 		}
@@ -1999,7 +2000,7 @@ s32 e1000_force_mac_fc(struct e1000_hw *hw)
 	 *      1:  Rx flow control is enabled (we can receive pause
 	 *          frames but not send pause frames).
 	 *      2:  Tx flow control is enabled (we can send pause frames
-	 *          frames but we do not receive pause frames).
+	 *          but we do not receive pause frames).
 	 *      3:  Both Rx and TX flow control (symmetric) is enabled.
 	 *  other:  No other values should be possible at this point.
 	 */
@@ -2521,7 +2522,7 @@ s32 e1000_check_for_link(struct e1000_hw *hw)
 				 * turn it on. For compatibility with a TBI link
 				 * partner, we will store bad packets. Some
 				 * frames have an additional byte on the end and
-				 * will look like CRC errors to to the hardware.
+				 * will look like CRC errors to the hardware.
 				 */
 				if (!hw->tbi_compatibility_on) {
 					hw->tbi_compatibility_on = true;
@@ -2722,7 +2723,7 @@ static void e1000_shift_out_mdi_bits(struct e1000_hw *hw, u32 data, u16 count)
  * e1000_shift_in_mdi_bits - Shifts data bits in from the PHY
  * @hw: Struct containing variables accessed by shared code
  *
- * Bits are shifted in in MSB to LSB order.
+ * Bits are shifted in MSB to LSB order.
  */
 static u16 e1000_shift_in_mdi_bits(struct e1000_hw *hw)
 {
@@ -4375,7 +4376,7 @@ void e1000_rar_set(struct e1000_hw *hw, u8 *addr, u32 index)
 /**
  * e1000_write_vfta - Writes a value to the specified offset in the VLAN filter table.
  * @hw: Struct containing variables accessed by shared code
- * @offset: Offset in VLAN filer table to write
+ * @offset: Offset in VLAN filter table to write
  * @value: Value to write into VLAN filter table
  */
 void e1000_write_vfta(struct e1000_hw *hw, u32 offset, u32 value)
@@ -4395,7 +4396,7 @@ void e1000_write_vfta(struct e1000_hw *hw, u32 offset, u32 value)
 }
 
 /**
- * e1000_clear_vfta - Clears the VLAN filer table
+ * e1000_clear_vfta - Clears the VLAN filter table
  * @hw: Struct containing variables accessed by shared code
  */
 static void e1000_clear_vfta(struct e1000_hw *hw)
