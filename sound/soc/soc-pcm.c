@@ -2370,8 +2370,11 @@ static int dpcm_fe_dai_prepare(struct snd_pcm_substream *substream)
 
 	/* there is no point preparing this FE if there are no BEs */
 	if (list_empty(&fe->dpcm[stream].be_clients)) {
-		dev_err(fe->dev, "ASoC: no backend DAIs enabled for %s\n",
-				fe->dai_link->name);
+		/* dev_err_once() for visibility, dev_dbg() for debugging UCM profiles */
+		dev_err_once(fe->dev, "ASoC: no backend DAIs enabled for %s, possibly missing ALSA mixer-based routing or UCM profile\n",
+			     fe->dai_link->name);
+		dev_dbg(fe->dev, "ASoC: no backend DAIs enabled for %s\n",
+			fe->dai_link->name);
 		ret = -EINVAL;
 		goto out;
 	}
