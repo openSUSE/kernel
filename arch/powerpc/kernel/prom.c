@@ -689,7 +689,7 @@ static void __init early_reserve_mem(void)
 }
 
 #ifdef CONFIG_PPC_TRANSACTIONAL_MEM
-static bool tm_disabled __initdata;
+static bool tm_disabled __initdata = true;
 
 static int __init parse_ppc_tm(char *str)
 {

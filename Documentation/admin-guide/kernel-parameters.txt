@@ -4543,8 +4543,8 @@
 			There is some performance impact when enabling this.
 
 	ppc_tm=		[PPC]
-			Format: {"off"}
-			Disable Hardware Transactional Memory
+			Format: {"on"}
+			Enable Hardware Transactional Memory
 
 	preempt=	[KNL]
 			Select preemption mode if you have CONFIG_PREEMPT_DYNAMIC
