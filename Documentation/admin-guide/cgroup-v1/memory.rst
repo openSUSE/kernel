@@ -526,6 +526,9 @@ will be charged as a new owner of it.
   charged file caches. Some out-of-use page caches may keep charged until
   memory pressure happens. If you want to avoid that, force_empty will be useful.
 
+  Please note that this knob is considered deprecated and will be removed
+  in future.
+
 5.2 stat file
 -------------
 
