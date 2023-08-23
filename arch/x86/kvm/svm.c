@@ -5748,6 +5748,8 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
 	 */
 	x86_spec_ctrl_set_guest(svm->spec_ctrl, svm->virt_spec_ctrl);
 
+	amd_clear_divider();
+
 	local_irq_enable();
 
 	asm volatile (
