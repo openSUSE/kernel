@@ -247,6 +247,8 @@ struct snd_soc_component {
 
 	struct dentry *debugfs_root;
 	const char *debugfs_prefix;
+
+	void *suse_kabi_padding;	/* XXX SLE-specific kABI placeholder */
 };
 
 #define for_each_component_dais(component, dai)\
