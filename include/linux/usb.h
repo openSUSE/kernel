@@ -269,6 +269,7 @@ struct usb_interface {
 	struct device dev;		/* interface specific device info */
 	struct device *usb_dev;
 	struct work_struct reset_ws;	/* for resets in atomic context */
+	void *suse_kabi_padding;
 };
 
 #define to_usb_interface(__dev)	container_of_const(__dev, struct usb_interface, dev)
@@ -431,6 +432,7 @@ struct usb_host_bos {
 	struct usb_ssp_cap_descriptor	*ssp_cap;
 	struct usb_ss_container_id_descriptor	*ss_id;
 	struct usb_ptm_cap_descriptor	*ptm_cap;
+	void *suse_kabi_padding;
 };
 
 int __usb_get_extra_descriptor(char *buffer, unsigned size,
@@ -494,6 +496,7 @@ struct usb_bus {
 	struct mon_bus *mon_bus;	/* non-null when associated */
 	int monitored;			/* non-zero when monitored */
 #endif
+	void *suse_kabi_padding;
 };
 
 struct usb_dev_state;
@@ -736,6 +739,8 @@ struct usb_device {
 
 	u16 hub_delay;
 	unsigned use_generic_driver:1;
+
+	void *suse_kabi_padding;
 };
 
 #define to_usb_device(__dev)	container_of_const(__dev, struct usb_device, dev)
@@ -1250,6 +1255,7 @@ struct usb_driver {
 
 	struct usb_dynids dynids;
 	struct usbdrv_wrap drvwrap;
+	void *suse_kabi_padding;
 	unsigned int no_dynamic_id:1;
 	unsigned int supports_autosuspend:1;
 	unsigned int disable_hub_initiated_lpm:1;
@@ -1297,6 +1303,9 @@ struct usb_device_driver {
 	const struct attribute_group **dev_groups;
 	struct usbdrv_wrap drvwrap;
 	const struct usb_device_id *id_table;
+
+	void *suse_kabi_padding;
+
 	unsigned int supports_autosuspend:1;
 	unsigned int generic_subclass:1;
 };
@@ -1637,6 +1646,9 @@ struct urb {
 	int error_count;		/* (return) number of ISO errors */
 	void *context;			/* (in) context for completion */
 	usb_complete_t complete;	/* (in) completion routine */
+
+	void *suse_kabi_padding;
+
 	struct usb_iso_packet_descriptor iso_frame_desc[];
 					/* (in) ISO ONLY */
 };

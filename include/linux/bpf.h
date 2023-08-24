@@ -275,6 +275,7 @@ struct bpf_map {
 	} owner;
 	bool bypass_spec_v1;
 	bool frozen; /* write-once; write-protected by freeze_mutex */
+	void *suse_kabi_padding;
 };
 
 static inline const char *btf_field_type_name(enum btf_field_type type)
@@ -1442,6 +1443,7 @@ struct bpf_prog_aux {
 		struct work_struct work;
 		struct rcu_head	rcu;
 	};
+	void *suse_kabi_padding;
 };
 
 struct bpf_prog {
@@ -1471,6 +1473,7 @@ struct bpf_prog {
 					    const struct bpf_insn *insn);
 	struct bpf_prog_aux	*aux;		/* Auxiliary fields */
 	struct sock_fprog_kern	*orig_prog;	/* Original BPF program */
+	void			*suse_kabi_padding;
 	/* Instructions for interpreter */
 	union {
 		DECLARE_FLEX_ARRAY(struct sock_filter, insns);
