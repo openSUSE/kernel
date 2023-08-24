@@ -391,6 +391,8 @@ struct drm_device {
 	bool irq_enabled;
 	int irq;
 #endif
+
+	void *suse_kabi_padding;
 };
 
 #endif
