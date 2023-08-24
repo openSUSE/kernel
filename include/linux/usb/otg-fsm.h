@@ -185,6 +185,8 @@ struct otg_fsm {
 	struct delayed_work hnp_polling_work;
 	bool hnp_work_inited;
 	bool state_changed;
+
+	void *suse_kabi_padding;
 };
 
 struct otg_fsm_ops {
@@ -199,6 +201,8 @@ struct otg_fsm_ops {
 	void	(*del_timer)(struct otg_fsm *fsm, enum otg_fsm_timer timer);
 	int	(*start_host)(struct otg_fsm *fsm, int on);
 	int	(*start_gadget)(struct otg_fsm *fsm, int on);
+
+	void *suse_kabi_padding;
 };
 
 
