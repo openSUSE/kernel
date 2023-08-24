@@ -437,6 +437,8 @@ struct blk_mq_hw_ctx {
 	struct dentry		*sched_debugfs_dir;
 #endif
 
+	void *suse_kabi_padding;
+
 	/**
 	 * @hctx_list: if this hctx is not in use, this is an entry in
 	 * q->unused_hctx_list.
@@ -658,6 +660,8 @@ struct blk_mq_ops {
 	 */
 	void (*show_rq)(struct seq_file *m, struct request *rq);
 #endif
+
+	void *suse_kabi_padding;
 };
 
 enum {

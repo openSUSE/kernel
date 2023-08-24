@@ -511,6 +511,8 @@ struct nvme_fc_port_template {
 	u32	remote_priv_sz;
 	u32	lsrqst_priv_sz;
 	u32	fcprqst_priv_sz;
+
+	void *suse_kabi_padding;
 };
 
 
@@ -986,6 +988,8 @@ struct nvmet_fc_target_template {
 	/* sizes of additional private data for data structures */
 	u32	target_priv_sz;
 	u32	lsrqst_priv_sz;
+
+	void *suse_kabi_padding;
 };
 
 
