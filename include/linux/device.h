@@ -655,6 +655,7 @@ struct device {
 #ifdef CONFIG_DMA_OPS_BYPASS
 	bool			dma_ops_bypass : 1;
 #endif
+	void			*suse_kabi_padding;
 };
 
 /**
