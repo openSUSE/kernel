@@ -57,6 +57,8 @@
 #include "mballoc.h"
 #include "fsmap.h"
 
+DEFINE_SUSE_UNSUPPORTED_FEATURE(ext4)
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/ext4.h>
 
@@ -3575,6 +3577,21 @@ static unsigned long ext4_get_stripe_size(struct ext4_sb_info *sbi)
 	return ret;
 }
 
+static int
+ext4_check_unsupported_ro(struct super_block *sb, bool allow_ro, bool readonly,
+			  const char *description)
+{
+       if (allow_ro && readonly)
+               return 0;
+
+       if (ext4_allow_unsupported())
+               return 0;
+
+       ext4_msg(sb, KERN_ERR, "Couldn't mount %sbecause of SUSE-unsupported optional feature %s.  Load module with allow_unsupported=1.",
+                 allow_ro ? "RDWR " : "", description);
+       return -EINVAL;
+}
+
 /*
  * Check whether this filesystem can be mounted based on
  * the features present and the RDONLY/RDWR mount requested.
@@ -3624,6 +3641,10 @@ int ext4_feature_set_ok(struct super_block *sb, int readonly)
 			 "extents feature\n");
 		return 0;
 	}
+
+	if (ext4_has_feature_bigalloc(sb) &&
+	    ext4_check_unsupported_ro(sb, true, readonly, "BIGALLOC"))
+		return 0;
 
 #if !IS_ENABLED(CONFIG_QUOTA) || !IS_ENABLED(CONFIG_QFMT_V2)
 	if (!readonly && (ext4_has_feature_quota(sb) ||

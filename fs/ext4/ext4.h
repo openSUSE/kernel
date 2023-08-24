@@ -81,6 +81,8 @@
 #else
 #define ext4_debug(fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
+#include <linux/module.h>
+#include <linux/unsupported-feature.h>
 
  /*
   * Turn on EXT_DEBUG to enable ext4_ext_show_path/leaf/move in extents.c
@@ -3780,4 +3782,5 @@ static inline int ext4_buffer_uptodate(struct buffer_head *bh)
 #define EFSBADCRC	EBADMSG		/* Bad CRC detected */
 #define EFSCORRUPTED	EUCLEAN		/* Filesystem is corrupted */
 
+DECLARE_SUSE_UNSUPPORTED_FEATURE(ext4);
 #endif	/* _EXT4_H */
