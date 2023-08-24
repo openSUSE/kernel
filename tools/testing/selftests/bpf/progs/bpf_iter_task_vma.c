@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /* Copyright (c) 2020 Facebook */
 #include "bpf_iter.h"
+#include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
 
 char _license[] SEC("license") = "GPL";
@@ -16,6 +17,9 @@ char _license[] SEC("license") = "GPL";
 #define MINORMASK	((1U << MINORBITS) - 1)
 #define MAJOR(dev)	((unsigned int) ((dev) >> MINORBITS))
 #define MINOR(dev)	((unsigned int) ((dev) & MINORMASK))
+
+/* libbpf will fill-in the address of the symbol */
+extern const void btrfs_super_ops __ksym;
 
 #define D_PATH_BUF_SIZE 1024
 char d_path_buf[D_PATH_BUF_SIZE] = {};
@@ -47,7 +51,14 @@ SEC("iter/task_vma") int proc_maps(struct bpf_iter__task_vma *ctx)
 	BPF_SEQ_PRINTF(seq, "%08llx-%08llx %s ", vma->vm_start, vma->vm_end, perm_str);
 
 	if (file) {
-		__u32 dev = file->f_inode->i_sb->s_dev;
+		__u32 dev;
+		if (file->f_inode->i_sb->s_op == &btrfs_super_ops) {
+			/* BTRFS is treated specially, see bsc#1198585 */
+			struct btrfs_inode *inode = container_of(file->f_inode, struct btrfs_inode, vfs_inode);
+			dev = BPF_CORE_READ(inode, root, anon_dev);
+		} else {
+			dev = file->f_inode->i_sb->s_dev;
+		}
 
 		bpf_d_path(&file->f_path, d_path_buf, D_PATH_BUF_SIZE);
 
