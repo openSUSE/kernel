@@ -107,6 +107,8 @@ struct bus_type {
 	const struct iommu_ops *iommu_ops;
 
 	bool need_parent_lock;
+
+	void *suse_kabi_padding;
 };
 
 int __must_check bus_register(const struct bus_type *bus);
