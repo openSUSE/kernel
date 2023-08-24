@@ -136,6 +136,7 @@ typedef struct {
 	u32 pkey_allocation_map;
 	s16 execute_only_pkey; /* key holding execute-only protection */
 #endif
+	void* suse_kabi_padding;
 } mm_context_t;
 
 #ifdef CONFIG_PPC_64S_HASH_MMU
