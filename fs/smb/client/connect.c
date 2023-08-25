@@ -1232,9 +1232,14 @@ next_pdu:
 			if (mids[i] != NULL) {
 				mids[i]->resp_buf_size = server->pdu_size;
 
-				if (bufs[i] && server->ops->is_network_name_deleted)
-					server->ops->is_network_name_deleted(bufs[i],
-									server);
+				if (bufs[i] != NULL) {
+					if (server->ops->is_network_name_deleted &&
+					    server->ops->is_network_name_deleted(bufs[i],
+										 server)) {
+						cifs_server_dbg(FYI,
+								"Share deleted. Reconnect needed");
+					}
+				}
 
 				if (!mids[i]->multiRsp || mids[i]->multiEnd)
 					mids[i]->callback(mids[i]);
@@ -1978,15 +1983,16 @@ void __cifs_put_smb_ses(struct cifs_ses *ses)
 		spin_unlock(&cifs_tcp_ses_lock);
 		return;
 	}
+	spin_lock(&ses->ses_lock);
+	if (ses->ses_status == SES_GOOD)
+		ses->ses_status = SES_EXITING;
+	spin_unlock(&ses->ses_lock);
 	spin_unlock(&cifs_tcp_ses_lock);
 
 	/* ses_count can never go negative */
 	WARN_ON(ses->ses_count < 0);
 
 	spin_lock(&ses->ses_lock);
-	if (ses->ses_status == SES_GOOD)
-		ses->ses_status = SES_EXITING;
-
 	if (ses->ses_status == SES_EXITING && server->ops->logoff) {
 		spin_unlock(&ses->ses_lock);
 		cifs_free_ipc(ses);

@@ -63,6 +63,7 @@ static struct cpufreq_driver *current_pstate_driver;
 static struct cpufreq_driver amd_pstate_driver;
 static struct cpufreq_driver amd_pstate_epp_driver;
 static int cppc_state = AMD_PSTATE_DISABLE;
+static bool cppc_enabled;
 
 /*
  * AMD Energy Preference Performance (EPP)
@@ -228,13 +229,37 @@ static int amd_pstate_set_energy_pref_index(struct amd_cpudata *cpudata,
 
 static inline int pstate_enable(bool enable)
 {
-	return wrmsrl_safe(MSR_AMD_CPPC_ENABLE, enable);
+	int ret, cpu;
+	unsigned long logical_proc_id_mask = 0;
+
+	if (enable == cppc_enabled)
+		return 0;
+
+	for_each_present_cpu(cpu) {
+		unsigned long logical_id = topology_logical_die_id(cpu);
+
+		if (test_bit(logical_id, &logical_proc_id_mask))
+			continue;
+
+		set_bit(logical_id, &logical_proc_id_mask);
+
+		ret = wrmsrl_safe_on_cpu(cpu, MSR_AMD_CPPC_ENABLE,
+				enable);
+		if (ret)
+			return ret;
+	}
+
+	cppc_enabled = enable;
+	return 0;
 }
 
 static int cppc_enable(bool enable)
 {
 	int cpu, ret = 0;
 	struct cppc_perf_ctrls perf_ctrls;
+
+	if (enable == cppc_enabled)
+		return 0;
 
 	for_each_present_cpu(cpu) {
 		ret = cppc_set_enable(cpu, enable);
@@ -251,6 +276,7 @@ static int cppc_enable(bool enable)
 		}
 	}
 
+	cppc_enabled = enable;
 	return ret;
 }
 
@@ -1045,6 +1071,26 @@ static const struct attribute_group amd_pstate_global_attr_group = {
 	.attrs = pstate_global_attributes,
 };
 
+static bool amd_pstate_acpi_pm_profile_server(void)
+{
+	switch (acpi_gbl_FADT.preferred_profile) {
+	case PM_ENTERPRISE_SERVER:
+	case PM_SOHO_SERVER:
+	case PM_PERFORMANCE_SERVER:
+		return true;
+	}
+	return false;
+}
+
+static bool amd_pstate_acpi_pm_profile_undefined(void)
+{
+	if (acpi_gbl_FADT.preferred_profile == PM_UNSPECIFIED)
+		return true;
+	if (acpi_gbl_FADT.preferred_profile >= NR_PM_PROFILES)
+		return true;
+	return false;
+}
+
 static int amd_pstate_epp_cpu_init(struct cpufreq_policy *policy)
 {
 	int min_freq, max_freq, nominal_freq, lowest_nonlinear_freq, ret;
@@ -1102,10 +1148,14 @@ static int amd_pstate_epp_cpu_init(struct cpufreq_policy *policy)
 	policy->max = policy->cpuinfo.max_freq;
 
 	/*
-	 * Set the policy to powersave to provide a valid fallback value in case
+	 * Set the policy to provide a valid fallback value in case
 	 * the default cpufreq governor is neither powersave nor performance.
 	 */
-	policy->policy = CPUFREQ_POLICY_POWERSAVE;
+	if (amd_pstate_acpi_pm_profile_server() ||
+	    amd_pstate_acpi_pm_profile_undefined())
+		policy->policy = CPUFREQ_POLICY_PERFORMANCE;
+	else
+		policy->policy = CPUFREQ_POLICY_POWERSAVE;
 
 	if (boot_cpu_has(X86_FEATURE_CPPC)) {
 		ret = rdmsrl_on_cpu(cpudata->cpu, MSR_AMD_CPPC_REQ, &value);
