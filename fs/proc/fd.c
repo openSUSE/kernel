@@ -13,12 +13,37 @@
 #include <linux/seq_file.h>
 #include <linux/fs.h>
 #include <linux/filelock.h>
+#include <linux/sysctl.h>
 
 #include <linux/proc_fs.h>
 
 #include "../mount.h"
 #include "internal.h"
 #include "fd.h"
+
+static int procfs_drop_fd_dentries = 0;
+
+#ifdef CONFIG_SYSCTL
+static struct ctl_table proc_fd_sysctls[] = {
+	{
+		.procname	= "procfs-drop-fd-dentries",
+		.data		= &procfs_drop_fd_dentries,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
+	},
+	{ }
+};
+
+static int __init init_proc_fd_sysctls(void)
+{
+	register_sysctl_init("fs", proc_fd_sysctls);
+	return 0;
+}
+fs_initcall(init_proc_fd_sysctls);
+#endif
 
 static int seq_show(struct seq_file *m, void *v)
 {
@@ -161,9 +186,18 @@ static int tid_fd_revalidate(struct dentry *dentry, unsigned int flags)
 	return 0;
 }
 
+static int tid_fd_delete_dentry(const struct dentry *dentry)
+{
+	/* Always delete immediately */
+	if (procfs_drop_fd_dentries)
+		return 1;
+
+	return pid_delete_dentry(dentry);
+}
+
 static const struct dentry_operations tid_fd_dentry_operations = {
 	.d_revalidate	= tid_fd_revalidate,
-	.d_delete	= pid_delete_dentry,
+	.d_delete	= tid_fd_delete_dentry,
 };
 
 static int proc_fd_link(struct dentry *dentry, struct path *path)
