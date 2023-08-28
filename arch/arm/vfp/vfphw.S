@@ -180,10 +180,7 @@ vfp_hw_state_valid:
 					@ always subtract 4 from the following
 					@ instruction address.
 
-local_bh_enable_and_ret:
-	adr	r0, .
-	mov	r1, #SOFTIRQ_DISABLE_OFFSET
-	b	__local_bh_enable_ip	@ tail call
+	b	vfp_exit	@ tail call
 
 look_for_VFP_exceptions:
 	@ Check for synchronous or asynchronous exception
@@ -206,7 +203,7 @@ skip:
 	@ not recognised by VFP
 
 	DBGSTR	"not VFP"
-	b	local_bh_enable_and_ret
+	b	vfp_exit	@ tail call
 
 process_exception:
 	DBGSTR	"bounce"
