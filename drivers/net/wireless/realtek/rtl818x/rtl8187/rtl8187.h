@@ -153,6 +153,8 @@ struct rtl8187_priv {
 	} *io_dmabuf ____cacheline_aligned;
 	bool rfkill_off;
 	u16 seqno;
+
+	void *suse_kabi_padding;
 };
 
 void rtl8187_write_phy(struct ieee80211_hw *dev, u8 addr, u32 data);
