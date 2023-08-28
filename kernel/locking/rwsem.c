@@ -1415,6 +1415,12 @@ static inline void __downgrade_write(struct rw_semaphore *sem)
 #define rwbase_rtmutex_lock_state(rtm, state)		\
 	__rt_mutex_lock(rtm, state)
 
+#define rwbase_sched_submit_work()			\
+	sched_submit_work()
+
+#define rwbase_sched_resume_work()			\
+	sched_resume_work()
+
 #define rwbase_rtmutex_slowlock_locked(rtm, state)	\
 	__rt_mutex_slowlock_locked(rtm, NULL, state)
 
