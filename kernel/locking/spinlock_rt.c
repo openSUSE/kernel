@@ -161,9 +161,6 @@ rwbase_rtmutex_lock_state(struct rt_mutex_base *rtm, unsigned int state)
 	return 0;
 }
 
-static __always_inline void rwbase_sched_submit_work(void) { }
-static __always_inline void rwbase_sched_resume_work(void) { }
-
 static __always_inline int
 rwbase_rtmutex_slowlock_locked(struct rt_mutex_base *rtm, unsigned int state)
 {
@@ -189,8 +186,12 @@ static __always_inline int  rwbase_rtmutex_trylock(struct rt_mutex_base *rtm)
 
 #define rwbase_signal_pending_state(state, current)	(0)
 
+#define rwbase_pre_schedule()
+
 #define rwbase_schedule()				\
 	schedule_rtlock()
+
+#define rwbase_post_schedule()
 
 #include "rwbase_rt.c"
 /*

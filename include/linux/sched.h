@@ -305,11 +305,6 @@ extern long schedule_timeout_idle(long timeout);
 asmlinkage void schedule(void);
 extern void schedule_preempt_disabled(void);
 asmlinkage void preempt_schedule_irq(void);
-
-extern void sched_submit_work(void);
-extern void sched_resume_work(void);
-extern void schedule_rtmutex(void);
-
 #ifdef CONFIG_PREEMPT_RT
  extern void schedule_rtlock(void);
 #endif
@@ -913,6 +908,9 @@ struct task_struct {
 	 * ->sched_remote_wakeup gets used, so it can be in this word.
 	 */
 	unsigned			sched_remote_wakeup:1;
+#ifdef CONFIG_RT_MUTEXES
+	unsigned			sched_rt_mutex:1;
+#endif
 
 	/* Bit to tell LSMs we're in execve(): */
 	unsigned			in_execve:1;

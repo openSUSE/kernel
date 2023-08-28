@@ -307,15 +307,11 @@ static int __sched rt_mutex_slowtrylock(struct rt_mutex_base *lock);
 static __always_inline bool rt_mutex_try_acquire(struct rt_mutex_base *lock)
 {
 	/*
-	 * With debug enabled rt_mutex_cmpxchg trylock() will always fail,
-	 * which will unconditionally invoke sched_submit/resume_work() in
-	 * the slow path of __rt_mutex_lock() and __ww_rt_mutex_lock() even
-	 * in the non-contended case.
+	 * With debug enabled rt_mutex_cmpxchg trylock() will always fail.
 	 *
-	 * Avoid that by using rt_mutex_slow_trylock() which is covered by
-	 * the debug code and can acquire a non-contended rtmutex. On
-	 * success the callsite avoids the sched_submit/resume_work()
-	 * dance.
+	 * Avoid unconditionally taking the slow path by using
+	 * rt_mutex_slow_trylock() which is covered by the debug code and can
+	 * acquire a non-contended rtmutex.
 	 */
 	return rt_mutex_slowtrylock(lock);
 }
@@ -1636,7 +1632,7 @@ static int __sched rt_mutex_slowlock_block(struct rt_mutex_base *lock,
 		raw_spin_unlock_irq(&lock->wait_lock);
 
 		if (!owner || !rtmutex_spin_on_owner(lock, waiter, owner))
-			schedule_rtmutex();
+			rt_mutex_schedule();
 
 		raw_spin_lock_irq(&lock->wait_lock);
 		set_current_state(state);
@@ -1665,7 +1661,7 @@ static void __sched rt_mutex_handle_deadlock(int res, int detect_deadlock,
 	WARN(1, "rtmutex deadlock detected\n");
 	while (1) {
 		set_current_state(TASK_INTERRUPTIBLE);
-		schedule_rtmutex();
+		rt_mutex_schedule();
 	}
 }
 
@@ -1761,10 +1757,13 @@ static int __sched rt_mutex_slowlock(struct rt_mutex_base *lock,
 	int ret;
 
 	/*
-	 * The task is about to sleep. Invoke sched_submit_work() before
-	 * blocking as that might take locks and corrupt tsk::pi_blocked_on.
+	 * Do all pre-schedule work here, before we queue a waiter and invoke
+	 * PI -- any such work that trips on rtlock (PREEMPT_RT spinlock) would
+	 * otherwise recurse back into task_blocks_on_rt_mutex() through
+	 * rtlock_slowlock() and will then enqueue a second waiter for this
+	 * same task and things get really confusing real fast.
 	 */
-	sched_submit_work();
+	rt_mutex_pre_schedule();
 
 	/*
 	 * Technically we could use raw_spin_[un]lock_irq() here, but this can
@@ -1777,8 +1776,8 @@ static int __sched rt_mutex_slowlock(struct rt_mutex_base *lock,
 	raw_spin_lock_irqsave(&lock->wait_lock, flags);
 	ret = __rt_mutex_slowlock_locked(lock, ww_ctx, state);
 	raw_spin_unlock_irqrestore(&lock->wait_lock, flags);
+	rt_mutex_post_schedule();
 
-	sched_resume_work();
 	return ret;
 }
 
