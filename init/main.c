@@ -1052,6 +1052,7 @@ void start_kernel(void)
 	fork_init();
 	proc_caches_init();
 	uts_ns_init();
+	hidden_area_init();
 	key_init();
 	security_init();
 	dbg_late_init();
