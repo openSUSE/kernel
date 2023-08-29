@@ -30,6 +30,7 @@
 #include <linux/kthread.h>
 #include <linux/crc32.h>
 #include <linux/ktime.h>
+#include <linux/security.h>
 
 #include "power.h"
 
@@ -1102,6 +1103,9 @@ static int load_image(struct swap_map_handle *handle,
 		snapshot_write_finalize(snapshot);
 		if (!snapshot_image_loaded(snapshot))
 			ret = -ENODATA;
+
+		/* clean the hidden area in boot kernel */
+		clean_hidden_area();
 	}
 	swsusp_show_speed(start, stop, nr_to_read, "Read");
 	return ret;
@@ -1451,6 +1455,8 @@ out_finish:
 				}
 			}
 		}
+		/* clean the hidden area in boot kernel */
+		clean_hidden_area();
 	}
 	swsusp_show_speed(start, stop, nr_to_read, "Read");
 out_clean:
