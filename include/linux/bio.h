@@ -457,7 +457,6 @@ static inline int bio_iov_vecs_to_alloc(struct iov_iter *iter, int max_segs)
 }
 
 struct request_queue;
-struct request;
 
 extern int submit_bio_wait(struct bio *bio);
 void bio_init(struct bio *bio, struct block_device *bdev, struct bio_vec *table,
@@ -477,7 +476,6 @@ void __bio_add_page(struct bio *bio, struct page *page,
 int bio_iov_iter_get_pages(struct bio *bio, struct iov_iter *iter);
 void bio_iov_bvec_set(struct bio *bio, struct iov_iter *iter);
 void __bio_release_pages(struct bio *bio, bool mark_dirty);
-extern int bio_map_user_iov(struct request *, struct iov_iter *, gfp_t);
 extern void bio_set_pages_dirty(struct bio *bio);
 extern void bio_check_pages_dirty(struct bio *bio);
 
