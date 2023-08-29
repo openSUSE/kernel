@@ -335,8 +335,14 @@ __enter_rtas:
 	ld	r5,RTASENTRY(r4)	/* get the rtas->entry value */
 	ld	r4,RTASBASE(r4)		/* get the rtas->base value */
 
-	/* RTAS runs in 32bits real mode but we may hit watchdog irq */
-	LOAD_REG_IMMEDIATE(r6, MSR_ME|MSR_RI)
+	/*
+	 * RTAS runs in 32-bit big endian real mode, but leave MSR[RI] on as we
+	 * may hit NMI (SRESET or MCE) while in RTAS. RTAS should disable RI in
+	 * its critical regions (as specified in PAPR+ section 7.2.1). MSR[S]
+	 * is not impacted by RFI_TO_KERNEL (only urfid can unset it). So if
+	 * MSR[S] is set, it will remain when entering RTAS.
+	 */
+	LOAD_REG_IMMEDIATE(r6, MSR_ME | MSR_RI)
 
 	li      r0,0
 	mtmsrd  r0,1                    /* disable RI before using SRR0/1 */
