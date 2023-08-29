@@ -29,6 +29,7 @@
 #include <linux/evm.h>
 #include <linux/fsnotify.h>
 #include <linux/filelock.h>
+#include <linux/magic.h>
 
 #include "internal.h"
 
@@ -945,8 +946,14 @@ set_posix_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 
 	if (type == ACL_TYPE_DEFAULT && !S_ISDIR(inode->i_mode))
 		return acl ? -EACCES : 0;
-	if (!inode_owner_or_capable(idmap, inode))
-		return -EPERM;
+	/* NFS doesn't need an owner check, as the server will
+	 * do that.  The owner check is wrong when the server
+	 * is mapping uids, such as with all_squash (which makes
+	 * everyone an owner of a newly created file).
+	 */
+	if (inode->i_sb->s_magic != NFS_SUPER_MAGIC)
+		if (!inode_owner_or_capable(idmap, inode))
+			return -EPERM;
 
 	if (acl) {
 		int ret = posix_acl_valid(inode->i_sb->s_user_ns, acl);

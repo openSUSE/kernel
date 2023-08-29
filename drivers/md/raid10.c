@@ -385,6 +385,7 @@ static void raid10_end_read_request(struct bio *bio)
 
 	slot = r10_bio->read_slot;
 	rdev = r10_bio->devs[slot].rdev;
+	r10_bio->devs[slot].error = bio->bi_status;
 	/*
 	 * this branch is our 'one mirror IO has finished' event handler:
 	 */
@@ -474,6 +475,7 @@ static void raid10_end_write_request(struct bio *bio)
 		repl = 0;
 		rdev = conf->mirrors[dev].rdev;
 	}
+	r10_bio->devs[slot].error = bio->bi_status;
 	/*
 	 * this branch is our 'one mirror IO has finished' event handler:
 	 */
@@ -504,6 +506,8 @@ static void raid10_end_write_request(struct bio *bio)
 			else {
 				/* Fail the request */
 				set_bit(R10BIO_Degraded, &r10_bio->state);
+				if (bio->bi_status == BLK_STS_TIMEOUT)
+					set_bit(Timeout, &rdev->flags);
 				r10_bio->devs[slot].bio = NULL;
 				to_put = bio;
 				dec_rdev = 1;
@@ -2454,6 +2458,9 @@ static void sync_request_write(struct mddev *mddev, struct r10bio *r10_bio)
 		} else if (test_bit(FailFast, &rdev->flags)) {
 			/* Just give up on this device */
 			md_error(rdev->mddev, rdev);
+			if (test_bit(Faulty, &rdev->flags) &&
+			    r10_bio->devs[i].error == BLK_STS_TIMEOUT)
+				set_bit(Timeout, &rdev->flags);
 			continue;
 		}
 		/* Ok, we need to write this bio, either to correct an
@@ -2718,6 +2725,7 @@ static void fix_read_error(struct r10conf *conf, struct mddev *mddev, struct r10
 	struct md_rdev *rdev;
 	int max_read_errors = atomic_read(&mddev->max_corr_read_errors);
 	int d = r10_bio->devs[r10_bio->read_slot].devnum;
+	int read_error = r10_bio->devs[r10_bio->read_slot].error;
 
 	/* still own a reference to this rdev, so it cannot
 	 * have been cleared recently.
@@ -2738,6 +2746,9 @@ static void fix_read_error(struct r10conf *conf, struct mddev *mddev, struct r10
 		pr_notice("md/raid10:%s: %pg: Failing raid device\n",
 			  mdname(mddev), rdev->bdev);
 		md_error(mddev, rdev);
+		if (test_bit(Faulty, &rdev->flags) &&
+		    read_error == BLK_STS_TIMEOUT)
+			set_bit(Timeout, &rdev->flags);
 		r10_bio->devs[r10_bio->read_slot].bio = IO_BLOCKED;
 		return;
 	}
@@ -2974,9 +2985,12 @@ static void handle_read_error(struct mddev *mddev, struct r10bio *r10_bio)
 		freeze_array(conf, 1);
 		fix_read_error(conf, mddev, r10_bio);
 		unfreeze_array(conf);
-	} else
+	} else {
 		md_error(mddev, rdev);
-
+		if (test_bit(Faulty, &rdev->flags) &&
+		    r10_bio->devs[slot].error == BLK_STS_TIMEOUT)
+			set_bit(Timeout, &rdev->flags);
+	}
 	rdev_dec_pending(rdev, mddev);
 	r10_bio->state = 0;
 	raid10_read_request(mddev, r10_bio->master_bio, r10_bio);
@@ -3015,8 +3029,13 @@ static void handle_write_completed(struct r10conf *conf, struct r10bio *r10_bio)
 				if (!rdev_set_badblocks(
 					    rdev,
 					    r10_bio->devs[m].addr,
-					    r10_bio->sectors, 0))
+					    r10_bio->sectors, 0)) {
 					md_error(conf->mddev, rdev);
+					if (test_bit(Faulty, &rdev->flags) &&
+					    r10_bio->devs[m].error ==
+					     BLK_STS_TIMEOUT)
+						set_bit(Timeout, &rdev->flags);
+				}
 			}
 			rdev = conf->mirrors[dev].replacement;
 			if (r10_bio->devs[m].repl_bio == NULL ||
@@ -3032,8 +3051,13 @@ static void handle_write_completed(struct r10conf *conf, struct r10bio *r10_bio)
 				if (!rdev_set_badblocks(
 					    rdev,
 					    r10_bio->devs[m].addr,
-					    r10_bio->sectors, 0))
+					    r10_bio->sectors, 0)) {
 					md_error(conf->mddev, rdev);
+					if (test_bit(Faulty, &rdev->flags) &&
+					    r10_bio->devs[m].error ==
+					     BLK_STS_TIMEOUT)
+						set_bit(Timeout, &rdev->flags);
+				}
 			}
 		}
 		put_buf(r10_bio);
@@ -5193,6 +5217,9 @@ static void end_reshape_write(struct bio *bio)
 	if (bio->bi_status) {
 		/* FIXME should record badblock */
 		md_error(mddev, rdev);
+		if (test_bit(Faulty, &rdev->flags) &&
+		    bio->bi_status == BLK_STS_TIMEOUT)
+			set_bit(Timeout, &rdev->flags);
 	}
 
 	rdev_dec_pending(rdev, mddev);

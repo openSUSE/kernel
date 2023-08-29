@@ -897,8 +897,10 @@ static void super_written(struct bio *bio)
 		pr_err("md: %s gets error=%d\n", __func__,
 		       blk_status_to_errno(bio->bi_status));
 		md_error(mddev, rdev);
-		if (!test_bit(Faulty, &rdev->flags)
-		    && (bio->bi_opf & MD_FAILFAST)) {
+		if (!test_bit(Faulty, &rdev->flags)) {
+			if (bio->bi_status == BLK_STS_TIMEOUT)
+				set_bit(Timeout, &rdev->flags);
+		} else if (bio->bi_opf & MD_FAILFAST) {
 			set_bit(MD_SB_NEED_REWRITE, &mddev->sb_flags);
 			set_bit(LastDev, &rdev->flags);
 		}
@@ -1259,6 +1261,7 @@ static int super_90_validate(struct mddev *mddev, struct md_rdev *rdev)
 
 	rdev->raid_disk = -1;
 	clear_bit(Faulty, &rdev->flags);
+	clear_bit(Timeout, &rdev->flags);
 	clear_bit(In_sync, &rdev->flags);
 	clear_bit(Bitmap_sync, &rdev->flags);
 	clear_bit(WriteMostly, &rdev->flags);
@@ -1770,6 +1773,7 @@ static int super_1_validate(struct mddev *mddev, struct md_rdev *rdev)
 
 	rdev->raid_disk = -1;
 	clear_bit(Faulty, &rdev->flags);
+	clear_bit(Timeout, &rdev->flags);
 	clear_bit(In_sync, &rdev->flags);
 	clear_bit(Bitmap_sync, &rdev->flags);
 	clear_bit(WriteMostly, &rdev->flags);
@@ -1896,6 +1900,9 @@ static int super_1_validate(struct mddev *mddev, struct md_rdev *rdev)
 			break;
 		case MD_DISK_ROLE_JOURNAL: /* journal device */
 			if (!(le32_to_cpu(sb->feature_map) & MD_FEATURE_JOURNAL)) {
+				/* probably legacy 'timed-out' device */
+				if (mddev->level == 10 || mddev->level == 1)
+					goto timeout;
 				/* journal device without journal feature */
 				pr_warn("md: journal device provided without journal feature, ignoring the device\n");
 				return -EINVAL;
@@ -1903,6 +1910,11 @@ static int super_1_validate(struct mddev *mddev, struct md_rdev *rdev)
 			set_bit(Journal, &rdev->flags);
 			rdev->journal_tail = le64_to_cpu(sb->journal_tail);
 			rdev->raid_disk = 0;
+			break;
+		case MD_DISK_ROLE_TIMEOUT: /* faulty, timeout */
+		timeout:
+			set_bit(Faulty, &rdev->flags);
+			set_bit(Timeout, &rdev->flags);
 			break;
 		default:
 			rdev->saved_raid_disk = role;
@@ -2089,9 +2101,12 @@ retry:
 
 	rdev_for_each(rdev2, mddev) {
 		i = rdev2->desc_nr;
-		if (test_bit(Faulty, &rdev2->flags))
-			sb->dev_roles[i] = cpu_to_le16(MD_DISK_ROLE_FAULTY);
-		else if (test_bit(In_sync, &rdev2->flags))
+		if (test_bit(Faulty, &rdev2->flags)) {
+			if (test_bit(Timeout, &rdev2->flags))
+				sb->dev_roles[i] = cpu_to_le16(MD_DISK_ROLE_TIMEOUT);
+			else
+				sb->dev_roles[i] = cpu_to_le16(MD_DISK_ROLE_FAULTY);
+		} else if (test_bit(In_sync, &rdev2->flags))
 			sb->dev_roles[i] = cpu_to_le16(rdev2->raid_disk);
 		else if (test_bit(Journal, &rdev2->flags))
 			sb->dev_roles[i] = cpu_to_le16(MD_DISK_ROLE_JOURNAL);
@@ -2855,6 +2870,8 @@ state_show(struct md_rdev *rdev, char *page)
 	    (!test_bit(ExternalBbl, &flags) &&
 	    rdev->badblocks.unacked_exist))
 		len += sprintf(page+len, "faulty%s", sep);
+	if (test_bit(Timeout, &flags))
+		len += sprintf(page+len, "timeout%s", sep);
 	if (test_bit(In_sync, &flags))
 		len += sprintf(page+len, "in_sync%s", sep);
 	if (test_bit(Journal, &flags))
@@ -2915,8 +2932,13 @@ state_store(struct md_rdev *rdev, const char *buf, size_t len)
 			err = -EBUSY;
 		else
 			err = 0;
-	} else if (cmd_match(buf, "remove")) {
-		if (rdev->mddev->pers) {
+       } else if (cmd_match(buf, "timeout") && rdev->mddev->pers) {
+	       md_error(rdev->mddev, rdev);
+	       if (test_bit(Faulty, &rdev->flags))
+		       set_bit(Timeout, &rdev->flags);
+	       err = 0;
+       } else if (cmd_match(buf, "remove")) {
+	       if (rdev->mddev->pers) {
 			clear_bit(Blocked, &rdev->flags);
 			remove_and_add_spares(rdev->mddev, rdev);
 		}
@@ -3173,6 +3195,7 @@ slot_store(struct md_rdev *rdev, const char *buf, size_t len)
 		rdev->raid_disk = slot;
 		/* assume it is working */
 		clear_bit(Faulty, &rdev->flags);
+		clear_bit(Timeout, &rdev->flags);
 		clear_bit(WriteMostly, &rdev->flags);
 		set_bit(In_sync, &rdev->flags);
 		sysfs_notify_dirent_safe(rdev->sysfs_state);
@@ -6652,9 +6675,11 @@ static int get_disk_info(struct mddev *mddev, void __user * arg)
 		info.minor = MINOR(rdev->bdev->bd_dev);
 		info.raid_disk = rdev->raid_disk;
 		info.state = 0;
-		if (test_bit(Faulty, &rdev->flags))
+		if (test_bit(Faulty, &rdev->flags)) {
 			info.state |= (1<<MD_DISK_FAULTY);
-		else if (test_bit(In_sync, &rdev->flags)) {
+			if (test_bit(Timeout, &rdev->flags))
+				info.state |= (1<<MD_DISK_TIMEOUT);
+		} else if (test_bit(In_sync, &rdev->flags)) {
 			info.state |= (1<<MD_DISK_ACTIVE);
 			info.state |= (1<<MD_DISK_SYNC);
 		}
@@ -8265,7 +8290,10 @@ static int md_seq_show(struct seq_file *seq, void *v)
 			if (test_bit(Journal, &rdev->flags))
 				seq_printf(seq, "(J)");
 			if (test_bit(Faulty, &rdev->flags)) {
-				seq_printf(seq, "(F)");
+				if (test_bit(Timeout, &rdev->flags))
+					seq_printf(seq, "(T)");
+				else
+					seq_printf(seq, "(F)");
 				continue;
 			}
 			if (rdev->raid_disk < 0)

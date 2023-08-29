@@ -822,6 +822,7 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 	struct lruvec *lruvec;
 	unsigned long flags = 0;
 	struct lruvec *locked = NULL;
+	struct folio *folio = NULL;
 	struct page *page = NULL, *valid_page = NULL;
 	struct address_space *mapping;
 	unsigned long start_pfn = low_pfn;
@@ -911,14 +912,15 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 
 		/*
 		 * Check if the pageblock has already been marked skipped.
-		 * Only the aligned PFN is checked as the caller isolates
+		 * Only the first PFN is checked as the caller isolates
 		 * COMPACT_CLUSTER_MAX at a time so the second call must
 		 * not falsely conclude that the block should be skipped.
 		 */
-		if (!valid_page && pageblock_aligned(low_pfn)) {
+		if (!valid_page && (pageblock_aligned(low_pfn) ||
+				    low_pfn == cc->zone->zone_start_pfn)) {
 			if (!isolation_suitable(cc, page)) {
 				low_pfn = end_pfn;
-				page = NULL;
+				folio = NULL;
 				goto isolate_abort;
 			}
 			valid_page = page;
@@ -950,7 +952,8 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 				 * Hugepage was successfully isolated and placed
 				 * on the cc->migratepages list.
 				 */
-				low_pfn += compound_nr(page) - 1;
+				folio = page_folio(page);
+				low_pfn += folio_nr_pages(folio) - 1;
 				goto isolate_success_no_list;
 			}
 
@@ -1018,8 +1021,10 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 					locked = NULL;
 				}
 
-				if (isolate_movable_page(page, mode))
+				if (isolate_movable_page(page, mode)) {
+					folio = page_folio(page);
 					goto isolate_success;
+				}
 			}
 
 			goto isolate_fail;
@@ -1030,7 +1035,8 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 		 * sure the page is not being freed elsewhere -- the
 		 * page release code relies on it.
 		 */
-		if (unlikely(!get_page_unless_zero(page)))
+		folio = folio_get_nontail_page(page);
+		if (unlikely(!folio))
 			goto isolate_fail;
 
 		/*
@@ -1038,8 +1044,8 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 		 * so avoid taking lru_lock and isolating it unnecessarily in an
 		 * admittedly racy check.
 		 */
-		mapping = page_mapping(page);
-		if (!mapping && (page_count(page) - 1) > total_mapcount(page))
+		mapping = folio_mapping(folio);
+		if (!mapping && (folio_ref_count(folio) - 1) > folio_mapcount(folio))
 			goto isolate_fail_put;
 
 		/*
@@ -1050,11 +1056,11 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 			goto isolate_fail_put;
 
 		/* Only take pages on LRU: a check now makes later tests safe */
-		if (!PageLRU(page))
+		if (!folio_test_lru(folio))
 			goto isolate_fail_put;
 
 		/* Compaction might skip unevictable pages but CMA takes them */
-		if (!(mode & ISOLATE_UNEVICTABLE) && PageUnevictable(page))
+		if (!(mode & ISOLATE_UNEVICTABLE) && folio_test_unevictable(folio))
 			goto isolate_fail_put;
 
 		/*
@@ -1063,10 +1069,10 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 		 * it will be able to migrate without blocking - clean pages
 		 * for the most part.  PageWriteback would require blocking.
 		 */
-		if ((mode & ISOLATE_ASYNC_MIGRATE) && PageWriteback(page))
+		if ((mode & ISOLATE_ASYNC_MIGRATE) && folio_test_writeback(folio))
 			goto isolate_fail_put;
 
-		if ((mode & ISOLATE_ASYNC_MIGRATE) && PageDirty(page)) {
+		if ((mode & ISOLATE_ASYNC_MIGRATE) && folio_test_dirty(folio)) {
 			bool migrate_dirty;
 
 			/*
@@ -1078,22 +1084,22 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 			 * the page lock until after the page is removed
 			 * from the page cache.
 			 */
-			if (!trylock_page(page))
+			if (!folio_trylock(folio))
 				goto isolate_fail_put;
 
-			mapping = page_mapping(page);
+			mapping = folio_mapping(folio);
 			migrate_dirty = !mapping ||
 					mapping->a_ops->migrate_folio;
-			unlock_page(page);
+			folio_unlock(folio);
 			if (!migrate_dirty)
 				goto isolate_fail_put;
 		}
 
-		/* Try isolate the page */
-		if (!TestClearPageLRU(page))
+		/* Try isolate the folio */
+		if (!folio_test_clear_lru(folio))
 			goto isolate_fail_put;
 
-		lruvec = folio_lruvec(page_folio(page));
+		lruvec = folio_lruvec(folio);
 
 		/* If we already hold the lock, we can skip some rechecking */
 		if (lruvec != locked) {
@@ -1103,7 +1109,7 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 			compact_lock_irqsave(&lruvec->lru_lock, &flags, cc);
 			locked = lruvec;
 
-			lruvec_memcg_debug(lruvec, page_folio(page));
+			lruvec_memcg_debug(lruvec, folio);
 
 			/*
 			 * Try get exclusive access under lock. If marked for
@@ -1119,34 +1125,33 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 			}
 
 			/*
-			 * Page become compound since the non-locked check,
-			 * and it's on LRU. It can only be a THP so the order
-			 * is safe to read and it's 0 for tail pages.
+			 * folio become large since the non-locked check,
+			 * and it's on LRU.
 			 */
-			if (unlikely(PageCompound(page) && !cc->alloc_contig)) {
-				low_pfn += compound_nr(page) - 1;
-				nr_scanned += compound_nr(page) - 1;
-				SetPageLRU(page);
+			if (unlikely(folio_test_large(folio) && !cc->alloc_contig)) {
+				low_pfn += folio_nr_pages(folio) - 1;
+				nr_scanned += folio_nr_pages(folio) - 1;
+				folio_set_lru(folio);
 				goto isolate_fail_put;
 			}
 		}
 
-		/* The whole page is taken off the LRU; skip the tail pages. */
-		if (PageCompound(page))
-			low_pfn += compound_nr(page) - 1;
+		/* The folio is taken off the LRU */
+		if (folio_test_large(folio))
+			low_pfn += folio_nr_pages(folio) - 1;
 
 		/* Successfully isolated */
-		del_page_from_lru_list(page, lruvec);
-		mod_node_page_state(page_pgdat(page),
-				NR_ISOLATED_ANON + page_is_file_lru(page),
-				thp_nr_pages(page));
+		lruvec_del_folio(lruvec, folio);
+		node_stat_mod_folio(folio,
+				NR_ISOLATED_ANON + folio_is_file_lru(folio),
+				folio_nr_pages(folio));
 
 isolate_success:
-		list_add(&page->lru, &cc->migratepages);
+		list_add(&folio->lru, &cc->migratepages);
 isolate_success_no_list:
-		cc->nr_migratepages += compound_nr(page);
-		nr_isolated += compound_nr(page);
-		nr_scanned += compound_nr(page) - 1;
+		cc->nr_migratepages += folio_nr_pages(folio);
+		nr_isolated += folio_nr_pages(folio);
+		nr_scanned += folio_nr_pages(folio) - 1;
 
 		/*
 		 * Avoid isolating too much unless this block is being
@@ -1168,7 +1173,7 @@ isolate_fail_put:
 			unlock_page_lruvec_irqrestore(locked, flags);
 			locked = NULL;
 		}
-		put_page(page);
+		folio_put(folio);
 
 isolate_fail:
 		if (!skip_on_failure && ret != -ENOMEM)
@@ -1209,14 +1214,14 @@ isolate_fail:
 	if (unlikely(low_pfn > end_pfn))
 		low_pfn = end_pfn;
 
-	page = NULL;
+	folio = NULL;
 
 isolate_abort:
 	if (locked)
 		unlock_page_lruvec_irqrestore(locked, flags);
-	if (page) {
-		SetPageLRU(page);
-		put_page(page);
+	if (folio) {
+		folio_set_lru(folio);
+		folio_put(folio);
 	}
 
 	/*
@@ -1998,7 +2003,8 @@ static isolate_migrate_t isolate_migratepages(struct compact_control *cc)
 		 * before making it "skip" so other compaction instances do
 		 * not scan the same block.
 		 */
-		if (pageblock_aligned(low_pfn) &&
+		if ((pageblock_aligned(low_pfn) ||
+		     low_pfn == cc->zone->zone_start_pfn) &&
 		    !fast_find_block && !isolation_suitable(cc, page))
 			continue;
 

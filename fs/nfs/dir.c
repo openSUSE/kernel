@@ -1728,7 +1728,7 @@ nfs_do_lookup_revalidate(struct inode *dir, struct dentry *dentry,
 			 unsigned int flags)
 {
 	struct inode *inode;
-	int error;
+	int error = 0;
 
 	nfs_inc_stats(dir, NFSIOS_DENTRYREVALIDATE);
 	inode = d_inode(dentry);
@@ -1754,8 +1754,10 @@ nfs_do_lookup_revalidate(struct inode *dir, struct dentry *dentry,
 	    nfs_check_verifier(dir, dentry, flags & LOOKUP_RCU)) {
 		error = nfs_lookup_verify_inode(inode, flags);
 		if (error) {
-			if (error == -ESTALE)
+			if (error == -ESTALE) {
 				nfs_mark_dir_for_revalidate(dir);
+				error = 0;
+			}
 			goto out_bad;
 		}
 		goto out_valid;
@@ -1773,7 +1775,7 @@ out_valid:
 out_bad:
 	if (flags & LOOKUP_RCU)
 		return -ECHILD;
-	return nfs_lookup_revalidate_done(dir, dentry, inode, 0);
+	return nfs_lookup_revalidate_done(dir, dentry, inode, error);
 }
 
 static int
@@ -3184,8 +3186,15 @@ static int nfs_do_access(struct inode *inode, const struct cred *cred, int mask)
 	trace_nfs_access_enter(inode);
 
 	status = nfs_access_get_cached(inode, cred, &cache.mask, may_block);
-	if (status == 0)
-		goto out_cached;
+	if (status == 0) {
+		if ((mask & ~cache.mask & (MAY_READ | MAY_WRITE | MAY_EXEC)) == 0)
+			/* if access is granted, trust the cache */
+			goto out_cached;
+		if ((s64)(cache.timestamp - ktime_get_ns()) <
+		    NFS_MINATTRTIMEO(inode) * HZ)
+			/* If cache entry very new, trust even for negative */
+			goto out_cached;
+	}
 
 	status = -ECHILD;
 	if (!may_block)
