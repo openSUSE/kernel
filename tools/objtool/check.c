@@ -113,16 +113,34 @@ static struct instruction *prev_insn_same_sym(struct objtool_file *file,
 	for (insn = next_insn_same_sec(file, insn); insn;		\
 	     insn = next_insn_same_sec(file, insn))
 
+static inline struct symbol *insn_call_dest(struct instruction *insn)
+{
+	if (insn->type == INSN_JUMP_DYNAMIC ||
+	    insn->type == INSN_CALL_DYNAMIC)
+		return NULL;
+
+	return insn->_call_dest;
+}
+
+static inline struct reloc *insn_jump_table(struct instruction *insn)
+{
+	if (insn->type == INSN_JUMP_DYNAMIC ||
+	    insn->type == INSN_CALL_DYNAMIC)
+		return insn->_jump_table;
+
+	return NULL;
+}
+
 static bool is_jump_table_jump(struct instruction *insn)
 {
 	struct alt_group *alt_group = insn->alt_group;
 
-	if (insn->jump_table)
+	if (insn_jump_table(insn))
 		return true;
 
 	/* Retpoline alternative for a jump table? */
 	return alt_group && alt_group->orig_group &&
-	       alt_group->orig_group->first_insn->jump_table;
+	       insn_jump_table(alt_group->orig_group->first_insn);
 }
 
 static bool is_sibling_call(struct instruction *insn)
@@ -139,8 +157,8 @@ static bool is_sibling_call(struct instruction *insn)
 	if (insn->type == INSN_JUMP_DYNAMIC)
 		return !is_jump_table_jump(insn);
 
-	/* add_jump_destinations() sets insn->call_dest for sibling calls. */
-	return (is_static_jump(insn) && insn->call_dest);
+	/* add_jump_destinations() sets insn_call_dest(insn) for sibling calls. */
+	return (is_static_jump(insn) && insn_call_dest(insn));
 }
 
 /*
@@ -265,8 +283,8 @@ static void init_insn_state(struct insn_state *state, struct section *sec)
 
 	/*
 	 * We need the full vmlinux for noinstr validation, otherwise we can
-	 * not correctly determine insn->call_dest->sec (external symbols do
-	 * not have a section).
+	 * not correctly determine insn_call_dest(insn)->sec (external symbols
+	 * do not have a section).
 	 */
 	if (vmlinux && noinstr && sec)
 		state->noinstr = sec->noinstr;
@@ -368,7 +386,7 @@ static int decode_instructions(struct objtool_file *file)
 
 		if (!strcmp(sec->name, ".noinstr.text") ||
 		    !strcmp(sec->name, ".entry.text") ||
-		    !strncmp(sec->name, ".text.__x86.", 12))
+		    !strncmp(sec->name, ".text..__x86.", 13))
 			sec->noinstr = true;
 
 		for (offset = 0; offset < sec->len; offset += insn->len) {
@@ -399,6 +417,9 @@ static int decode_instructions(struct objtool_file *file)
 
 		list_for_each_entry(func, &sec->symbol_list, list) {
 			if (func->type != STT_FUNC || func->alias != func)
+				continue;
+
+			if (func->embedded_insn)
 				continue;
 
 			if (!find_insn(file, sec, func->offset)) {
@@ -563,7 +584,7 @@ static int create_static_call_sections(struct objtool_file *file)
 			return -1;
 
 		/* find key symbol */
-		key_name = strdup(insn->call_dest->name);
+		key_name = strdup(insn_call_dest(insn)->name);
 		if (!key_name) {
 			perror("strdup");
 			return -1;
@@ -592,7 +613,7 @@ static int create_static_call_sections(struct objtool_file *file)
 			 * trampoline address.  This is fixed up in
 			 * static_call_add_module().
 			 */
-			key_sym = insn->call_dest;
+			key_sym = insn_call_dest(insn);
 		}
 		free(key_name);
 
@@ -974,12 +995,29 @@ static int add_ignore_alternatives(struct objtool_file *file)
 	return 0;
 }
 
+/*
+ * Symbols that replace INSN_CALL_DYNAMIC, every (tail) call to such a symbol
+ * will be added to the .retpoline_sites section.
+ */
 __weak bool arch_is_retpoline(struct symbol *sym)
 {
 	return false;
 }
 
+/*
+ * Symbols that replace INSN_RETURN, every (tail) call to such a symbol
+ * will be added to the .return_sites section.
+ */
 __weak bool arch_is_rethunk(struct symbol *sym)
+{
+	return false;
+}
+
+/*
+ * Symbols that are embedded inside other instructions, because sometimes crazy
+ * code exists. These are mostly ignored for validation purposes.
+ */
+__weak bool arch_is_embedded_insn(struct symbol *sym)
 {
 	return false;
 }
@@ -1017,7 +1055,7 @@ static void annotate_call_site(struct objtool_file *file,
 			       struct instruction *insn, bool sibling)
 {
 	struct reloc *reloc = insn_reloc(file, insn);
-	struct symbol *sym = insn->call_dest;
+	struct symbol *sym = insn_call_dest(insn);
 
 	if (!sym)
 		sym = reloc->sym;
@@ -1084,7 +1122,7 @@ static void annotate_call_site(struct objtool_file *file,
 static void add_call_dest(struct objtool_file *file, struct instruction *insn,
 			  struct symbol *dest, bool sibling)
 {
-	insn->call_dest = dest;
+	insn->_call_dest = dest;
 	if (!dest)
 		return;
 
@@ -1199,14 +1237,14 @@ static int add_jump_destinations(struct objtool_file *file)
 			struct symbol *sym = find_symbol_by_offset(dest_sec, dest_off);
 
 			/*
-			 * This is a special case for zen_untrain_ret().
+			 * This is a special case for retbleed_untrain_ret().
 			 * It jumps to __x86_return_thunk(), but objtool
 			 * can't find the thunk's starting RET
 			 * instruction, because the RET is also in the
 			 * middle of another instruction.  Objtool only
 			 * knows about the outer instruction.
 			 */
-			if (sym && sym->return_thunk) {
+			if (sym && sym->embedded_insn) {
 				add_return_call(file, insn, false);
 				continue;
 			}
@@ -1289,12 +1327,12 @@ static int add_call_destinations(struct objtool_file *file)
 			if (insn->ignore)
 				continue;
 
-			if (!insn->call_dest) {
+			if (!insn_call_dest(insn)) {
 				WARN_FUNC("unannotated intra-function call", insn->sec, insn->offset);
 				return -1;
 			}
 
-			if (insn->func && insn->call_dest->type != STT_FUNC) {
+			if (insn->func && insn_call_dest(insn)->type != STT_FUNC) {
 				WARN_FUNC("unsupported call to non-function",
 					  insn->sec, insn->offset);
 				return -1;
@@ -1731,7 +1769,7 @@ static void mark_func_jump_tables(struct objtool_file *file,
 		reloc = find_jump_table(file, func, insn);
 		if (reloc) {
 			reloc->jump_table_start = true;
-			insn->jump_table = reloc;
+			insn->_jump_table = reloc;
 		}
 	}
 }
@@ -1743,10 +1781,10 @@ static int add_func_jump_tables(struct objtool_file *file,
 	int ret;
 
 	func_for_each_insn(file, func, insn) {
-		if (!insn->jump_table)
+		if (!insn_jump_table(insn))
 			continue;
 
-		ret = add_jump_table(file, insn, insn->jump_table);
+		ret = add_jump_table(file, insn, insn_jump_table(insn));
 		if (ret)
 			return ret;
 	}
@@ -2042,6 +2080,9 @@ static int classify_symbols(struct objtool_file *file)
 			if (arch_is_rethunk(func))
 				func->return_thunk = true;
 
+			if (arch_is_embedded_insn(func))
+				func->embedded_insn = true;
+
 			if (!strcmp(func->name, "__fentry__"))
 				func->fentry = true;
 
@@ -2150,12 +2191,17 @@ static int decode_sections(struct objtool_file *file)
 	return 0;
 }
 
-static bool is_fentry_call(struct instruction *insn)
+static bool is_special_call(struct instruction *insn)
 {
-	if (insn->type == INSN_CALL &&
-	    insn->call_dest &&
-	    insn->call_dest->fentry)
-		return true;
+	if (insn->type == INSN_CALL) {
+		struct symbol *dest = insn_call_dest(insn);
+
+		if (!dest)
+			return false;
+
+		if (dest->fentry || dest->embedded_insn)
+			return true;
+	}
 
 	return false;
 }
@@ -2857,8 +2903,8 @@ static inline bool func_uaccess_safe(struct symbol *func)
 
 static inline const char *call_dest_name(struct instruction *insn)
 {
-	if (insn->call_dest)
-		return insn->call_dest->name;
+	if (insn_call_dest(insn))
+		return insn_call_dest(insn)->name;
 
 	return "{dynamic}";
 }
@@ -2892,13 +2938,13 @@ static inline bool noinstr_call_dest(struct symbol *func)
 static int validate_call(struct instruction *insn, struct insn_state *state)
 {
 	if (state->noinstr && state->instr <= 0 &&
-	    !noinstr_call_dest(insn->call_dest)) {
+	    !noinstr_call_dest(insn_call_dest(insn))) {
 		WARN_FUNC("call to %s() leaves .noinstr.text section",
 				insn->sec, insn->offset, call_dest_name(insn));
 		return 1;
 	}
 
-	if (state->uaccess && !func_uaccess_safe(insn->call_dest)) {
+	if (state->uaccess && !func_uaccess_safe(insn_call_dest(insn))) {
 		WARN_FUNC("call to %s() with UACCESS enabled",
 				insn->sec, insn->offset, call_dest_name(insn));
 		return 1;
@@ -3113,14 +3159,14 @@ static int validate_branch(struct objtool_file *file, struct symbol *func,
 			if (ret)
 				return ret;
 
-			if (!no_fp && func && !is_fentry_call(insn) &&
+			if (!no_fp && func && !is_special_call(insn) &&
 			    !has_valid_stack_frame(&state)) {
 				WARN_FUNC("call without frame pointer save/setup",
 					  sec, insn->offset);
 				return 1;
 			}
 
-			if (dead_end_function(file, insn->call_dest))
+			if (dead_end_function(file, insn_call_dest(insn)))
 				return 0;
 
 			break;
@@ -3343,11 +3389,11 @@ static int validate_entry(struct objtool_file *file, struct instruction *insn)
 
 			/* fallthrough */
 		case INSN_CALL:
-			dest = find_insn(file, insn->call_dest->sec,
-					 insn->call_dest->offset);
+			dest = find_insn(file, insn_call_dest(insn)->sec,
+					 insn_call_dest(insn)->offset);
 			if (!dest) {
 				WARN("Unresolved function after linking!?: %s",
-				     insn->call_dest->name);
+				     insn_call_dest(insn)->name);
 				return -1;
 			}
 
@@ -3451,13 +3497,13 @@ static int validate_retpoline(struct objtool_file *file)
 static bool is_kasan_insn(struct instruction *insn)
 {
 	return (insn->type == INSN_CALL &&
-		!strcmp(insn->call_dest->name, "__asan_handle_no_return"));
+		!strcmp(insn_call_dest(insn)->name, "__asan_handle_no_return"));
 }
 
 static bool is_ubsan_insn(struct instruction *insn)
 {
 	return (insn->type == INSN_CALL &&
-		!strcmp(insn->call_dest->name,
+		!strcmp(insn_call_dest(insn)->name,
 			"__ubsan_handle_builtin_unreachable"));
 }
 
@@ -3496,7 +3542,8 @@ static bool ignore_unreachable_insn(struct objtool_file *file, struct instructio
 	 * It may also insert a UD2 after calling a __noreturn function.
 	 */
 	prev_insn = list_prev_entry(insn, list);
-	if ((prev_insn->dead_end || dead_end_function(file, prev_insn->call_dest)) &&
+	if ((prev_insn->dead_end ||
+	     dead_end_function(file, insn_call_dest(prev_insn))) &&
 	    (insn->type == INSN_BUG ||
 	     (insn->type == INSN_JUMP_UNCONDITIONAL &&
 	      insn->jump_dest && insn->jump_dest->type == INSN_BUG)))
