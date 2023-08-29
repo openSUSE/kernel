@@ -55,10 +55,12 @@ struct instruction {
 	s8 instr;
 	u8 visited;
 	struct alt_group *alt_group;
-	struct symbol *call_dest;
 	struct instruction *jump_dest;
 	struct instruction *first_jump_src;
-	struct reloc *jump_table;
+	union {
+		struct reloc *_jump_table;
+		struct symbol *_call_dest;
+	};
 	struct reloc *reloc;
 	struct list_head alts;
 	struct symbol *func;
