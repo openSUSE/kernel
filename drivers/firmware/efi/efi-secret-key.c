@@ -11,9 +11,12 @@
 #include <linux/efi.h>
 #include <linux/memblock.h>
 #include <linux/security.h>
+#include <linux/slab.h>
+#include <linux/kobject.h>
 
 static u64 efi_skey_setup;
 static void *secret_key;
+static bool skey_regen;
 
 #define EFI_STATUS_STR(_status) \
 	EFI_##_status : return "EFI_" __stringify(_status)
@@ -115,3 +118,96 @@ void *get_efi_secret_key(void)
 EXPORT_SYMBOL(get_efi_secret_key);
 
 late_initcall(init_efi_secret_key);
+
+static int set_regen_flag(void)
+{
+	efi_status_t status = EFI_UNSUPPORTED;
+	bool regen = true;
+
+	if (!efi_enabled(EFI_RUNTIME_SERVICES))
+		return 0;
+
+	if (efi_rt_services_supported(EFI_RT_SUPPORTED_SET_VARIABLE))
+		status = efi.set_variable(EFI_SECRET_KEY_REGEN, &EFI_SECRET_GUID,
+					  EFI_SECRET_KEY_REGEN_ATTRIBUTE,
+					  sizeof(bool), &regen);
+	if (status != EFI_SUCCESS)
+		pr_warn("Create EFI secret key regen failed: 0x%lx\n", status);
+
+	return efi_status_to_err(status);
+}
+
+static int clean_regen_flag(void)
+{
+	efi_status_t status = EFI_UNSUPPORTED;
+
+	if (!efi_enabled(EFI_RUNTIME_SERVICES))
+		return 0;
+
+	if (efi_rt_services_supported(EFI_RT_SUPPORTED_SET_VARIABLE))
+		status = efi.set_variable(EFI_SECRET_KEY_REGEN, &EFI_SECRET_GUID,
+					  EFI_SECRET_KEY_REGEN_ATTRIBUTE,
+				          0, NULL);
+	if (status != EFI_SUCCESS && status != EFI_NOT_FOUND)
+		pr_warn("Clean EFI secret key regen failed: 0x%lx\n", status);
+
+	return efi_status_to_err(status);
+}
+
+void efi_skey_stop_regen(void)
+{
+	if (!efi_enabled(EFI_RUNTIME_SERVICES))
+		return;
+
+	if (!clean_regen_flag())
+		skey_regen = false;
+}
+EXPORT_SYMBOL(efi_skey_stop_regen);
+
+static struct kobject *secret_key_kobj;
+
+static ssize_t regen_show(struct kobject *kobj,
+			  struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", skey_regen);
+}
+
+static ssize_t regen_store(struct kobject *kobj,
+			   struct kobj_attribute *attr,
+			   const char *buf, size_t size)
+{
+	bool regen_in;
+	int ret;
+
+	ret = strtobool(buf, &regen_in);
+	if (ret < 0)
+		return ret;
+
+	if (!skey_regen && regen_in) {
+		ret = set_regen_flag();
+		if (ret < 0)
+			return ret;
+	}
+
+	if (skey_regen && !regen_in) {
+		ret = clean_regen_flag();
+		if (ret < 0)
+			return ret;
+	}
+
+	skey_regen = regen_in;
+
+	return size;
+}
+
+static const struct kobj_attribute regen_attr =
+	__ATTR(regen, 0644, regen_show, regen_store);
+
+int __init efi_skey_sysfs_init(struct kobject *efi_kobj)
+{
+	secret_key_kobj = kobject_create_and_add("secret-key", efi_kobj);
+	if (!secret_key_kobj)
+		return -ENOMEM;
+
+	return sysfs_create_file(secret_key_kobj, &regen_attr.attr);
+}
