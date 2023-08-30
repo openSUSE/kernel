@@ -7,6 +7,10 @@
 #include <linux/cpu.h>
 #include <linux/cpuidle.h>
 
+/* HMAC algorithm for hibernate snapshot signature */
+#define SNAPSHOT_HMAC	"hmac(sha512)"
+#define SNAPSHOT_DIGEST_SIZE 64
+
 struct swsusp_info {
 	struct new_utsname	uts;
 	u32			version_code;
@@ -16,6 +20,7 @@ struct swsusp_info {
 	unsigned long		pages;
 	unsigned long		size;
 	unsigned long           trampoline_pfn;
+	u8                      signature[SNAPSHOT_DIGEST_SIZE];
 } __aligned(PAGE_SIZE);
 
 #ifdef CONFIG_HIBERNATION
@@ -161,6 +166,15 @@ extern int snapshot_create_trampoline(void);
 extern void snapshot_init_trampoline(void);
 extern void snapshot_restore_trampoline(void);
 extern void snapshot_free_trampoline(void);
+#ifdef CONFIG_HIBERNATE_VERIFICATION
+extern int snapshot_image_verify(void);
+extern int swsusp_prepare_hash(bool may_sleep);
+extern void swsusp_finish_hash(void);
+#else
+static inline int snapshot_image_verify(void) { return 0; }
+static inline int swsusp_prepare_hash(bool may_sleep) { return 0; }
+static inline void swsusp_finish_hash(void) {}
+#endif
 
 extern bool hibernate_acquire(void);
 extern void hibernate_release(void);
