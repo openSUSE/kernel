@@ -218,10 +218,12 @@ void efi_setup_secret_key(struct boot_params *params)
 		break;
 
 	case EFI_NOT_FOUND:
-		status = create_secret_key(skey_setup);
-		if (status == EFI_SUCCESS) {
-			key_size = SECRET_KEY_SIZE;
-			status = get_secret_key(&attributes, &key_size, skey_setup);
+		if (found_regen_flag()) {
+			status = create_secret_key(skey_setup);
+			if (status == EFI_SUCCESS) {
+				key_size = SECRET_KEY_SIZE;
+				status = get_secret_key(&attributes, &key_size, skey_setup);
+			}
 		}
 		break;
 
