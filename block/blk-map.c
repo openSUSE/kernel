@@ -262,7 +262,8 @@ static struct bio *blk_rq_map_bio_alloc(struct request *rq,
 	return bio;
 }
 
-int bio_map_user_iov(struct request *rq, struct iov_iter *iter, gfp_t gfp_mask)
+static int bio_map_user_iov(struct request *rq, struct iov_iter *iter,
+		gfp_t gfp_mask)
 {
 	iov_iter_extraction_t extraction_flags = 0;
 	unsigned int max_sectors = queue_max_hw_sectors(rq->q);
