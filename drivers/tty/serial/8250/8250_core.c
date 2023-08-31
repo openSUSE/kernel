@@ -256,11 +256,8 @@ static void serial8250_timeout(struct timer_list *t)
 static void serial8250_backup_timeout(struct timer_list *t)
 {
 	struct uart_8250_port *up = from_timer(up, t, timer);
-	struct uart_port *port = &up->port;
 	unsigned int iir, ier = 0, lsr;
-	unsigned long cs_flags;
 	unsigned long flags;
-	bool is_console;
 
 	spin_lock_irqsave(&up->port.lock, flags);
 
@@ -269,16 +266,8 @@ static void serial8250_backup_timeout(struct timer_list *t)
 	 * based handler.
 	 */
 	if (up->port.irq) {
-		is_console = uart_console(port);
-
-		if (is_console)
-			printk_cpu_sync_get_irqsave(cs_flags);
-
 		ier = serial_in(up, UART_IER);
 		serial_out(up, UART_IER, 0);
-
-		if (is_console)
-			printk_cpu_sync_put_irqrestore(cs_flags);
 	}
 
 	iir = serial_in(up, UART_IIR);
@@ -301,7 +290,7 @@ static void serial8250_backup_timeout(struct timer_list *t)
 		serial8250_tx_chars(up);
 
 	if (up->port.irq)
-		serial8250_set_IER(up, ier);
+		serial_out(up, UART_IER, ier);
 
 	spin_unlock_irqrestore(&up->port.lock, flags);
 
@@ -587,14 +576,6 @@ serial8250_register_ports(struct uart_driver *drv, struct device *dev)
 
 #ifdef CONFIG_SERIAL_8250_CONSOLE
 
-static void univ8250_console_write_atomic(struct console *co, const char *s,
-					  unsigned int count)
-{
-	struct uart_8250_port *up = &serial8250_ports[co->index];
-
-	serial8250_console_write_atomic(up, s, count);
-}
-
 static void univ8250_console_write(struct console *co, const char *s,
 				   unsigned int count)
 {
@@ -688,7 +669,6 @@ static int univ8250_console_match(struct console *co, char *name, int idx,
 
 static struct console univ8250_console = {
 	.name		= "ttyS",
-	.write_atomic	= univ8250_console_write_atomic,
 	.write		= univ8250_console_write,
 	.device		= uart_console_device,
 	.setup		= univ8250_console_setup,
@@ -982,7 +962,7 @@ static void serial_8250_overrun_backoff_work(struct work_struct *work)
 	spin_lock_irqsave(&port->lock, flags);
 	up->ier |= UART_IER_RLSI | UART_IER_RDI;
 	up->port.read_status_mask |= UART_LSR_DR;
-	serial8250_set_IER(up, up->ier);
+	serial_out(up, UART_IER, up->ier);
 	spin_unlock_irqrestore(&port->lock, flags);
 }
 

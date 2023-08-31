@@ -435,6 +435,7 @@ enum xhlock_context_t {
 	XHLOCK_CTX_NR,
 };
 
+#define lockdep_init_map_crosslock(m, n, k, s) do {} while (0)
 /*
  * To initialize a lockdep_map statically use this macro.
  * Note that _name must not be NULL.
