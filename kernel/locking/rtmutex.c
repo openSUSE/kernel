@@ -1613,7 +1613,7 @@ static int __sched rt_mutex_slowlock_block(struct rt_mutex_base *lock,
 		raw_spin_unlock_irq(&lock->wait_lock);
 
 		if (!owner || !rtmutex_spin_on_owner(lock, waiter, owner))
-			schedule();
+			schedule_rtmutex();
 
 		raw_spin_lock_irq(&lock->wait_lock);
 		set_current_state(state);
@@ -1642,7 +1642,7 @@ static void __sched rt_mutex_handle_deadlock(int res, int detect_deadlock,
 	WARN(1, "rtmutex deadlock detected\n");
 	while (1) {
 		set_current_state(TASK_INTERRUPTIBLE);
-		schedule();
+		schedule_rtmutex();
 	}
 }
 
@@ -1738,6 +1738,12 @@ static int __sched rt_mutex_slowlock(struct rt_mutex_base *lock,
 	int ret;
 
 	/*
+	 * The task is about to sleep. Invoke sched_submit_work() before
+	 * blocking as that might take locks and corrupt tsk::pi_blocked_on.
+	 */
+	sched_submit_work();
+
+	/*
 	 * Technically we could use raw_spin_[un]lock_irq() here, but this can
 	 * be called in early boot if the cmpxchg() fast path is disabled
 	 * (debug, no architecture support). In this case we will acquire the
@@ -1749,6 +1755,7 @@ static int __sched rt_mutex_slowlock(struct rt_mutex_base *lock,
 	ret = __rt_mutex_slowlock_locked(lock, ww_ctx, state);
 	raw_spin_unlock_irqrestore(&lock->wait_lock, flags);
 
+	sched_resume_work();
 	return ret;
 }
 
