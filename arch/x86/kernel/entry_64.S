@@ -567,6 +567,7 @@ sysret_check:
 	/*CFI_REGISTER	rflags,r11*/
 
 	call mds_clear_user
+	call amd_clear_divider
 	DISABLE_IBRS
 	/*
 	 * This opens a window where we have a user CR3, but are
@@ -944,6 +945,7 @@ retint_swapgs:		/* return to user-space */
 
 swapgs_restore_regs_and_return_to_usermode:
 	call mds_clear_user
+	call amd_clear_divider
 	DISABLE_IBRS
 	/*
 	 * Returning from an interrupt/NMI/exception to user space, currently
@@ -1026,6 +1028,7 @@ native_irq_return_ldt:
 	orq PER_CPU_VAR(espfix_stack),%rax
 
 	call mds_clear_user
+	call amd_clear_divider
 	DISABLE_IBRS
 
 	SWITCH_USER_CR3

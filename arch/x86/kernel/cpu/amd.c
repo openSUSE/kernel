@@ -932,14 +932,17 @@ bool cpu_has_amd_erratum(const int *erratum)
 
 EXPORT_SYMBOL_GPL(cpu_has_amd_erratum);
 
+static bool div0_bug = false;
+
 static void zenbleed_check_cpu(void *unused)
 {
 	struct cpuinfo_x86 *c = &cpu_data(smp_processor_id());
 
 	zenbleed_check(c);
 
-	if (cpu_has_amd_erratum(c, amd_div0)) {
+	if (cpu_has_amd_erratum(amd_div0)) {
 		pr_notice_once("AMD Zen1 DIV0 bug detected. Disable SMT for full protection.\n");
+		div0_bug = true;
 	}
 }
 
@@ -949,12 +952,22 @@ void amd_check_microcode(void)
 }
 EXPORT_SYMBOL_GPL(amd_check_microcode);
 
+#ifdef CONFIG_X86_64
+#define R "r"
+#else
+#define R "e"
+#endif
+
 /*
  * Issue a DIV 0/1 insn to clear any division data from previous DIV
  * operations.
  */
 void amd_clear_divider(void)
 {
-	asm volatile(ALTERNATIVE("", "div %2\n\t", X86_BUG_DIV0)
-		     :: "a" (0), "d" (0), "r" (1));
+
+	if (div0_bug) {
+		asm volatile("push %%"R"ax" :::);
+		asm volatile("div %%al\n\tpop %%"R"ax\n" ::"a"(1));
+	}
 }
+EXPORT_SYMBOL_GPL(amd_clear_divider);

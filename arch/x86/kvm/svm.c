@@ -36,6 +36,7 @@
 #include <asm/spec_ctrl.h>
 #include <asm/nospec-branch.h>
 #include <asm/cpu_device_id.h>
+#include <asm/processor.h>
 
 #include <asm/virtext.h>
 #include <asm/spec-ctrl.h>
@@ -3822,6 +3823,7 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
 
 	clgi();
 
+	amd_clear_divider();
 	local_irq_enable();
 
 	if (static_cpu_has(X86_FEATURE_SPEC_CTRL_MSR))
