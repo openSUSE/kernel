@@ -2333,8 +2333,12 @@ static int ptrace_stop(int exit_code, int why, unsigned long message,
 	 * between unlock and schedule() and so improving the performance since
 	 * the ptracer has no reason to sleep.
 	 *
-	 * This optimisation is not doable on PREEMPT_RT due to the spinlock_t
-	 * within the preempt-disable section.
+	 * On PREEMPT_RT locking tasklist_lock does not disable preemption.
+	 * Therefore the task can be preempted (after
+	 * do_notify_parent_cldstop()) before unlocking tasklist_lock so there
+	 * is no benefit in doing this. The optimisation is harmful on
+	 * PEEMPT_RT because the spinlock_t (in cgroup_enter_frozen()) must not
+	 * be acquired with disabled preemption.
 	 */
 	if (!IS_ENABLED(CONFIG_PREEMPT_RT))
 		preempt_disable();
