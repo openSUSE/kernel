@@ -39,6 +39,7 @@ obj-$(CONFIG_ARM64)			+= $(arm-obj-y)
 riscv-obj-$(CONFIG_EFI)			:= efi-init.o riscv-runtime.o
 obj-$(CONFIG_RISCV)			+= $(riscv-obj-y)
 obj-$(CONFIG_EFI_CAPSULE_LOADER)	+= capsule-loader.o
+obj-$(CONFIG_EFI_SECRET_KEY)		+= efi-secret-key.o
 obj-$(CONFIG_EFI_EARLYCON)		+= earlycon.o
 obj-$(CONFIG_UEFI_CPER_ARM)		+= cper-arm.o
 obj-$(CONFIG_UEFI_CPER_X86)		+= cper-x86.o
