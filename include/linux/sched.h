@@ -305,6 +305,11 @@ extern long schedule_timeout_idle(long timeout);
 asmlinkage void schedule(void);
 extern void schedule_preempt_disabled(void);
 asmlinkage void preempt_schedule_irq(void);
+
+extern void sched_submit_work(void);
+extern void sched_resume_work(void);
+extern void schedule_rtmutex(void);
+
 #ifdef CONFIG_PREEMPT_RT
  extern void schedule_rtlock(void);
 #endif
