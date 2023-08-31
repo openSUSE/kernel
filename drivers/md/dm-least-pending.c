@@ -89,6 +89,9 @@ static int lpp_status(struct path_selector *ps, struct dm_path *path,
 		case STATUSTYPE_TABLE:
 			DMEMIT("0 ");
 		break;
+		case STATUSTYPE_IMA:
+			*result = '\0';
+		break;
 		}
        else {
 		pi = path->pscontext;
@@ -101,6 +104,9 @@ static int lpp_status(struct path_selector *ps, struct dm_path *path,
 			DMEMIT("1:%u ", atomic_read(&pi->io_count));
 		break;
 		case STATUSTYPE_TABLE:
+		break;
+		case STATUSTYPE_IMA:
+			*result = '\0';
 		break;
 		}
 	}
