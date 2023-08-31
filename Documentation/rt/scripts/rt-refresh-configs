@@ -27,7 +27,7 @@ if [ ! -e tmp/current/Documentation/rt-config-required ]; then
 fi
 
 if [ "$PARENT" = "" ]; then
-	PARENT=`grep OBS_PROJECT= rpm/config.sh | cut -d= -f2 | cut -d: -f2 | sed -e 's/SLE-/SLE/'`
+	PARENT=`grep OBS_PROJECT= rpm/config.sh | cut -d= -f2 | cut -d: -f2 | sed -e 's/SLE-/SLE/' | sed -e 's/ALP$/ALP-current/'`
 	if [ "$PARENT" = "" ]; then
 		die "Unable to identify parent project"
 	fi
